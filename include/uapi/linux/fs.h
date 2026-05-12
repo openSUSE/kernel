@@ -253,6 +253,7 @@ struct file_attr {
 #define FS_XFLAG_FILESTREAM	0x00004000	/* use filestream allocator */
 #define FS_XFLAG_DAX		0x00008000	/* use DAX for IO */
 #define FS_XFLAG_COWEXTSIZE	0x00010000	/* CoW extent size allocator hint */
+#define FS_XFLAG_VERITY		0x00020000	/* fs-verity enabled */
 #define FS_XFLAG_HASATTR	0x80000000	/* no DIFLAG for this	*/
 
 /* the read-only stuff doesn't really belong here, but any other place is
@@ -298,8 +299,9 @@ struct file_attr {
 #define BLKROTATIONAL _IO(0x12,126)
 #define BLKZEROOUT _IO(0x12,127)
 #define BLKGETDISKSEQ _IOR(0x12,128,__u64)
-/* 130-136 are used by zoned block device ioctls (uapi/linux/blkzoned.h) */
+/* 130-136 and 142 are used by zoned block device ioctls (uapi/linux/blkzoned.h) */
 /* 137-141 are used by blk-crypto ioctls (uapi/linux/blk-crypto.h) */
+#define BLKTRACESETUP2 _IOWR(0x12, 142, struct blk_user_trace_setup2)
 
 #define BMAP_IOCTL 1		/* obsolete - kept for compatibility */
 #define FIBMAP	   _IO(0x00,1)	/* bmap access */
@@ -430,10 +432,13 @@ typedef int __bitwise __kernel_rwf_t;
 /* buffered IO that drops the cache after reading or writing data */
 #define RWF_DONTCACHE	((__force __kernel_rwf_t)0x00000080)
 
+/* prevent pipe and socket writes from raising SIGPIPE */
+#define RWF_NOSIGNAL	((__force __kernel_rwf_t)0x00000100)
+
 /* mask of flags supported by the kernel */
 #define RWF_SUPPORTED	(RWF_HIPRI | RWF_DSYNC | RWF_SYNC | RWF_NOWAIT |\
 			 RWF_APPEND | RWF_NOAPPEND | RWF_ATOMIC |\
-			 RWF_DONTCACHE)
+			 RWF_DONTCACHE | RWF_NOSIGNAL)
 
 #define PROCFS_IOCTL_MAGIC 'f'
 
@@ -651,5 +656,17 @@ struct procmap_query {
 	 */
 	__u64 build_id_addr;		/* in */
 };
+
+/*
+ * Shutdown the filesystem.
+ */
+#define FS_IOC_SHUTDOWN _IOR('X', 125, __u32)
+
+/*
+ * Flags for FS_IOC_SHUTDOWN
+ */
+#define FS_SHUTDOWN_FLAGS_DEFAULT	0x0
+#define FS_SHUTDOWN_FLAGS_LOGFLUSH	0x1	/* flush log but not data*/
+#define FS_SHUTDOWN_FLAGS_NOLOGFLUSH	0x2	/* don't flush log nor data */
 
 #endif /* _UAPI_LINUX_FS_H */

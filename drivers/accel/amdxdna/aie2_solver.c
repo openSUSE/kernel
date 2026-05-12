@@ -52,7 +52,7 @@ static u32 calculate_gops(struct aie_qos *rqos)
 	u32 service_rate = 0;
 
 	if (rqos->latency)
-		service_rate = (1000 / rqos->latency);
+		service_rate = max_t(u32, 1000 / rqos->latency, 1);
 
 	if (rqos->fps > service_rate)
 		return rqos->fps * rqos->gops;
@@ -197,7 +197,7 @@ static int get_free_partition(struct solver_state *xrs,
 	if (i == snode->cols_len)
 		return -ENODEV;
 
-	pt_node = kzalloc(sizeof(*pt_node), GFP_KERNEL);
+	pt_node = kzalloc_obj(*pt_node);
 	if (!pt_node)
 		return -ENOMEM;
 
@@ -266,7 +266,7 @@ static struct solver_node *create_solver_node(struct solver_state *xrs,
 	struct solver_node *node;
 	int ret;
 
-	node = kzalloc(struct_size(node, start_cols, cdop->cols_len), GFP_KERNEL);
+	node = kzalloc_flex(*node, start_cols, cdop->cols_len);
 	if (!node)
 		return ERR_PTR(-ENOMEM);
 
@@ -348,6 +348,7 @@ int xrs_release_resource(void *hdl, u64 rid)
 {
 	struct solver_state *xrs = hdl;
 	struct solver_node *node;
+	u32 level = 0;
 
 	node = rg_search_node(&xrs->rgp, rid);
 	if (!node) {
@@ -357,6 +358,13 @@ int xrs_release_resource(void *hdl, u64 rid)
 
 	xrs->cfg.actions->unload(node->cb_arg);
 	remove_solver_node(&xrs->rgp, node);
+
+	/* set the dpm level which fits all the sessions */
+	list_for_each_entry(node, &xrs->rgp.node_list, list) {
+		if (node->dpm_level > level)
+			level = node->dpm_level;
+	}
+	xrs->cfg.actions->set_dft_dpm_level(xrs->cfg.ddev, level);
 
 	return 0;
 }

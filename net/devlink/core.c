@@ -111,7 +111,7 @@ static struct devlink_rel *devlink_rel_alloc(void)
 	static u32 next;
 	int err;
 
-	rel = kzalloc(sizeof(*rel), GFP_KERNEL);
+	rel = kzalloc_obj(*rel);
 	if (!rel)
 		return ERR_PTR(-ENOMEM);
 
@@ -178,9 +178,7 @@ int devlink_rel_nested_in_add(u32 *rel_index, u32 devlink_index,
  * a notification of a change of this object should be sent
  * over netlink. The parent devlink instance lock needs to be
  * taken during the notification preparation.
- * However, since the devlink lock of nested instance is held here,
- * we would end with wrong devlink instance lock ordering and
- * deadlock. Therefore the work is utilized to avoid that.
+ * Since the parent may or may not be locked, 'work' is utilized.
  */
 void devlink_rel_nested_in_notify(struct devlink *devlink)
 {
@@ -250,6 +248,24 @@ struct device *devlink_to_dev(const struct devlink *devlink)
 }
 EXPORT_SYMBOL_GPL(devlink_to_dev);
 
+const char *devlink_bus_name(const struct devlink *devlink)
+{
+	return devlink->dev ? devlink->dev->bus->name : DEVLINK_INDEX_BUS_NAME;
+}
+EXPORT_SYMBOL_GPL(devlink_bus_name);
+
+const char *devlink_dev_name(const struct devlink *devlink)
+{
+	return devlink->dev ? dev_name(devlink->dev) : devlink->dev_name_index;
+}
+EXPORT_SYMBOL_GPL(devlink_dev_name);
+
+const char *devlink_dev_driver_name(const struct devlink *devlink)
+{
+	return devlink->dev_driver->name;
+}
+EXPORT_SYMBOL_GPL(devlink_dev_driver_name);
+
 struct net *devlink_net(const struct devlink *devlink)
 {
 	return read_pnet(&devlink->_net);
@@ -313,23 +329,28 @@ static void devlink_release(struct work_struct *work)
 
 	mutex_destroy(&devlink->lock);
 	lockdep_unregister_key(&devlink->lock_key);
-	put_device(devlink->dev);
+	if (devlink->dev)
+		put_device(devlink->dev);
+	else
+		kfree(devlink->dev_name_index);
 	kvfree(devlink);
 }
 
 void devlink_put(struct devlink *devlink)
 {
 	if (refcount_dec_and_test(&devlink->refcount))
-		queue_rcu_work(system_wq, &devlink->rwork);
+		queue_rcu_work(system_percpu_wq, &devlink->rwork);
 }
 
-struct devlink *devlinks_xa_find_get(struct net *net, unsigned long *indexp)
+static struct devlink *__devlinks_xa_find_get(struct net *net,
+					      unsigned long *indexp,
+					      unsigned long end)
 {
 	struct devlink *devlink = NULL;
 
 	rcu_read_lock();
 retry:
-	devlink = xa_find(&devlinks, indexp, ULONG_MAX, DEVLINK_REGISTERED);
+	devlink = xa_find(&devlinks, indexp, end, DEVLINK_REGISTERED);
 	if (!devlink)
 		goto unlock;
 
@@ -346,6 +367,16 @@ unlock:
 next:
 	(*indexp)++;
 	goto retry;
+}
+
+struct devlink *devlinks_xa_find_get(struct net *net, unsigned long *indexp)
+{
+	return __devlinks_xa_find_get(net, indexp, ULONG_MAX);
+}
+
+struct devlink *devlinks_xa_lookup_get(struct net *net, unsigned long index)
+{
+	return __devlinks_xa_find_get(net, &index, index);
 }
 
 /**
@@ -396,31 +427,19 @@ void devlink_unregister(struct devlink *devlink)
 }
 EXPORT_SYMBOL_GPL(devlink_unregister);
 
-/**
- *	devlink_alloc_ns - Allocate new devlink instance resources
- *	in specific namespace
- *
- *	@ops: ops
- *	@priv_size: size of user private data
- *	@net: net namespace
- *	@dev: parent device
- *
- *	Allocate new devlink instance resources, including devlink index
- *	and name.
- */
-struct devlink *devlink_alloc_ns(const struct devlink_ops *ops,
-				 size_t priv_size, struct net *net,
-				 struct device *dev)
+struct devlink *__devlink_alloc(const struct devlink_ops *ops, size_t priv_size,
+				struct net *net, struct device *dev,
+				const struct device_driver *dev_driver)
 {
 	struct devlink *devlink;
 	static u32 last_id;
 	int ret;
 
-	WARN_ON(!ops || !dev);
+	WARN_ON(!ops || !dev_driver);
 	if (!devlink_reload_actions_valid(ops))
 		return NULL;
 
-	devlink = kvzalloc(struct_size(devlink, priv, priv_size), GFP_KERNEL);
+	devlink = kvzalloc_flex(*devlink, priv, priv_size);
 	if (!devlink)
 		return NULL;
 
@@ -429,8 +448,16 @@ struct devlink *devlink_alloc_ns(const struct devlink_ops *ops,
 	if (ret < 0)
 		goto err_xa_alloc;
 
-	devlink->dev = get_device(dev);
+	if (dev) {
+		devlink->dev = get_device(dev);
+	} else {
+		devlink->dev_name_index = kasprintf(GFP_KERNEL, "%u", devlink->index);
+		if (!devlink->dev_name_index)
+			goto err_kasprintf;
+	}
+
 	devlink->ops = ops;
+	devlink->dev_driver = dev_driver;
 	xa_init_flags(&devlink->ports, XA_FLAGS_ALLOC);
 	xa_init_flags(&devlink->params, XA_FLAGS_ALLOC);
 	xa_init_flags(&devlink->snapshot_ids, XA_FLAGS_ALLOC);
@@ -454,9 +481,31 @@ struct devlink *devlink_alloc_ns(const struct devlink_ops *ops,
 
 	return devlink;
 
+err_kasprintf:
+	xa_erase(&devlinks, devlink->index);
 err_xa_alloc:
 	kvfree(devlink);
 	return NULL;
+}
+
+/**
+ *	devlink_alloc_ns - Allocate new devlink instance resources
+ *	in specific namespace
+ *
+ *	@ops: ops
+ *	@priv_size: size of user private data
+ *	@net: net namespace
+ *	@dev: parent device
+ *
+ *	Allocate new devlink instance resources, including devlink index
+ *	and name.
+ */
+struct devlink *devlink_alloc_ns(const struct devlink_ops *ops,
+				 size_t priv_size, struct net *net,
+				 struct device *dev)
+{
+	WARN_ON(!dev);
+	return __devlink_alloc(ops, priv_size, net, dev, dev->driver);
 }
 EXPORT_SYMBOL_GPL(devlink_alloc_ns);
 
@@ -477,7 +526,7 @@ void devlink_free(struct devlink *devlink)
 	WARN_ON(!list_empty(&devlink->resource_list));
 	WARN_ON(!list_empty(&devlink->dpipe_table_list));
 	WARN_ON(!list_empty(&devlink->sb_list));
-	WARN_ON(!list_empty(&devlink->rate_list));
+	WARN_ON(devlink_rates_check(devlink, NULL, NULL));
 	WARN_ON(!list_empty(&devlink->linecard_list));
 	WARN_ON(!xa_empty(&devlink->ports));
 

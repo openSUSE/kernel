@@ -3,7 +3,6 @@
 
 . "$(cd "$(dirname "$0")" && pwd)"/test_common.sh
 
-TID="generic_10"
 ERR_CODE=0
 
 if ! _have_feature "UPDATE_SIZE"; then
@@ -26,5 +25,5 @@ if [ "$new_size" != "$size" ]; then
 	ERR_CODE=255
 fi
 
-_cleanup_test "null"
+_cleanup_test
 _show_result $TID $ERR_CODE

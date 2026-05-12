@@ -28,7 +28,6 @@ endif
 export BITS
 ifeq ($(CONFIG_ARCH_RV64I),y)
 	BITS := 64
-	UTS_MACHINE := riscv64
 
 	KBUILD_CFLAGS += -mabi=lp64
 	KBUILD_AFLAGS += -mabi=lp64
@@ -39,24 +38,18 @@ ifeq ($(CONFIG_ARCH_RV64I),y)
 			    -Cno-redzone
 else
 	BITS := 32
-	UTS_MACHINE := riscv32
 
 	KBUILD_CFLAGS += -mabi=ilp32
 	KBUILD_AFLAGS += -mabi=ilp32
 	KBUILD_LDFLAGS += -melf32lriscv
 endif
 
-ifndef CONFIG_RISCV_USE_LINKER_RELAXATION
-	KBUILD_CFLAGS += -mno-relax
-	KBUILD_AFLAGS += -mno-relax
-ifndef CONFIG_AS_IS_LLVM
-	KBUILD_CFLAGS += -Wa,-mno-relax
-	KBUILD_AFLAGS += -Wa,-mno-relax
-endif
+UTS_MACHINE := riscv$(BITS)
+
 # LLVM has an issue with target-features and LTO: https://github.com/llvm/llvm-project/issues/59350
 # Ensure it is aware of linker relaxation with LTO, otherwise relocations may
 # be incorrect: https://github.com/llvm/llvm-project/issues/65090
-else ifeq ($(CONFIG_LTO_CLANG),y)
+ifeq ($(CONFIG_LTO_CLANG),y)
 	KBUILD_LDFLAGS += -mllvm -mattr=+c -mllvm -mattr=+relax
 endif
 
@@ -88,9 +81,12 @@ riscv-march-$(CONFIG_TOOLCHAIN_HAS_ZACAS) := $(riscv-march-y)_zacas
 # Check if the toolchain supports Zabha
 riscv-march-$(CONFIG_TOOLCHAIN_HAS_ZABHA) := $(riscv-march-y)_zabha
 
+KBUILD_BASE_ISA = -march=$(shell echo $(riscv-march-y) | sed -E 's/(rv32ima|rv64ima)fd([^v_]*)v?/\1\2/')
+export KBUILD_BASE_ISA
+
 # Remove F,D,V from isa string for all. Keep extensions between "fd" and "v" by
 # matching non-v and non-multi-letter extensions out with the filter ([^v_]*)
-KBUILD_CFLAGS += -march=$(shell echo $(riscv-march-y) | sed -E 's/(rv32ima|rv64ima)fd([^v_]*)v?/\1\2/')
+KBUILD_CFLAGS += $(KBUILD_BASE_ISA)
 
 KBUILD_AFLAGS += -march=$(riscv-march-y)
 
@@ -141,21 +137,6 @@ endif
 CHECKFLAGS += -D__riscv -D__riscv_xlen=$(BITS)
 
 # Default target when executing plain make
-boot		:= arch/riscv/boot
-ifeq ($(CONFIG_XIP_KERNEL),y)
-KBUILD_IMAGE := $(boot)/xipImage
-else
-ifeq ($(CONFIG_RISCV_M_MODE)$(CONFIG_SOC_CANAAN_K210),yy)
-KBUILD_IMAGE := $(boot)/loader.bin
-else
-ifeq ($(CONFIG_EFI_ZBOOT),)
-KBUILD_IMAGE	:= $(boot)/Image.gz
-else
-KBUILD_IMAGE := $(boot)/vmlinuz.efi
-endif
-endif
-endif
-
 boot					:= arch/riscv/boot
 boot-image-y				:= Image
 boot-image-$(CONFIG_KERNEL_BZIP2)	:= Image.bz2
@@ -166,10 +147,9 @@ boot-image-$(CONFIG_KERNEL_LZO)		:= Image.lzo
 boot-image-$(CONFIG_KERNEL_ZSTD)	:= Image.zst
 boot-image-$(CONFIG_KERNEL_XZ)		:= Image.xz
 ifdef CONFIG_RISCV_M_MODE
-boot-image-$(CONFIG_ARCH_CANAAN)	:= loader.bin
+boot-image-$(CONFIG_SOC_CANAAN_K210)	:= loader.bin
 endif
 boot-image-$(CONFIG_EFI_ZBOOT)		:= vmlinuz.efi
-boot-image-$(CONFIG_XIP_KERNEL)		:= xipImage
 KBUILD_IMAGE				:= $(boot)/$(boot-image-y)
 
 libs-y += arch/riscv/lib/
@@ -180,6 +160,8 @@ ifeq ($(CONFIG_MMU),y)
 prepare: vdso_prepare
 vdso_prepare: prepare0
 	$(Q)$(MAKE) $(build)=arch/riscv/kernel/vdso include/generated/vdso-offsets.h
+	$(if $(CONFIG_RISCV_USER_CFI),$(Q)$(MAKE) \
+		$(build)=arch/riscv/kernel/vdso_cfi include/generated/vdso-cfi-offsets.h)
 	$(if $(CONFIG_COMPAT),$(Q)$(MAKE) \
 		$(build)=arch/riscv/kernel/compat_vdso include/generated/compat_vdso-offsets.h)
 
@@ -187,6 +169,7 @@ endif
 endif
 
 vdso-install-y			+= arch/riscv/kernel/vdso/vdso.so.dbg
+vdso-install-$(CONFIG_RISCV_USER_CFI)	+= arch/riscv/kernel/vdso_cfi/vdso-cfi.so.dbg
 vdso-install-$(CONFIG_COMPAT)	+= arch/riscv/kernel/compat_vdso/compat_vdso.so.dbg
 
 BOOT_TARGETS := Image Image.gz Image.bz2 Image.lz4 Image.lzma Image.lzo Image.zst Image.xz loader loader.bin xipImage vmlinuz.efi
@@ -234,8 +217,6 @@ define archhelp
   echo  '  Image.xz	- Compressed kernel image (arch/riscv/boot/Image.xz)'
   echo  '  vmlinuz.efi	- Compressed EFI kernel image (arch/riscv/boot/vmlinuz.efi)'
   echo  '		  Default when CONFIG_EFI_ZBOOT=y'
-  echo  '  xipImage	- Execute-in-place kernel image (arch/riscv/boot/xipImage)'
-  echo  '		  Default when CONFIG_XIP_KERNEL=y'
   echo  '  install	- Install kernel using (your) ~/bin/$(INSTALLKERNEL) or'
   echo  '		  (distribution) /sbin/$(INSTALLKERNEL) or install to '
   echo  '		  $$(INSTALL_PATH)'

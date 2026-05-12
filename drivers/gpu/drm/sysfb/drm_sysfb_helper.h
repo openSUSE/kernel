@@ -10,11 +10,18 @@
 
 #include <drm/drm_crtc.h>
 #include <drm/drm_device.h>
+#include <drm/drm_gem_atomic_helper.h>
 #include <drm/drm_modes.h>
 
 struct drm_format_info;
 struct drm_scanout_buffer;
 struct screen_info;
+
+typedef void (*drm_sysfb_blit_func)(struct iosys_map *, const unsigned int *,
+				    const struct iosys_map *,
+				    const struct drm_framebuffer *,
+				    const struct drm_rect *,
+				    struct drm_format_conv_state *);
 
 /*
  * Input parsing
@@ -29,6 +36,10 @@ int drm_sysfb_get_validated_int(struct drm_device *dev, const char *name,
 				u64 value, u32 max);
 int drm_sysfb_get_validated_int0(struct drm_device *dev, const char *name,
 				 u64 value, u32 max);
+const struct drm_format_info *drm_sysfb_get_format(struct drm_device *dev,
+						   const struct drm_sysfb_format *formats,
+						   size_t nformats,
+						   const struct pixel_format *pixel);
 
 #if defined(CONFIG_SCREEN_INFO)
 int drm_sysfb_get_width_si(struct drm_device *dev, const struct screen_info *si);
@@ -41,20 +52,7 @@ int drm_sysfb_get_stride_si(struct drm_device *dev, const struct screen_info *si
 			    unsigned int width, unsigned int height, u64 size);
 u64 drm_sysfb_get_visible_size_si(struct drm_device *dev, const struct screen_info *si,
 				  unsigned int height, unsigned int stride, u64 size);
-const struct drm_format_info *drm_sysfb_get_format_si(struct drm_device *dev,
-						      const struct drm_sysfb_format *formats,
-						      size_t nformats,
-						      const struct screen_info *si);
 #endif
-
-/*
- * Input parsing
- */
-
-int drm_sysfb_get_validated_int(struct drm_device *dev, const char *name,
-				u64 value, u32 max);
-int drm_sysfb_get_validated_int0(struct drm_device *dev, const char *name,
-				 u64 value, u32 max);
 
 /*
  * Display modes
@@ -93,16 +91,31 @@ static inline struct drm_sysfb_device *to_drm_sysfb_device(struct drm_device *de
  * Plane
  */
 
+struct drm_sysfb_plane_state {
+	struct drm_shadow_plane_state base;
+
+	/* transfers framebuffer data to scanout buffer in CRTC format */
+	drm_sysfb_blit_func blit_to_crtc;
+};
+
+static inline struct drm_sysfb_plane_state *
+to_drm_sysfb_plane_state(struct drm_plane_state *base)
+{
+	return container_of(to_drm_shadow_plane_state(base), struct drm_sysfb_plane_state, base);
+}
+
 size_t drm_sysfb_build_fourcc_list(struct drm_device *dev,
 				   const u32 *native_fourccs, size_t native_nfourccs,
 				   u32 *fourccs_out, size_t nfourccs_out);
 
+int drm_sysfb_plane_helper_begin_fb_access(struct drm_plane *plane,
+					   struct drm_plane_state *plane_state);
 int drm_sysfb_plane_helper_atomic_check(struct drm_plane *plane,
-					struct drm_atomic_state *new_state);
+					struct drm_atomic_commit *new_state);
 void drm_sysfb_plane_helper_atomic_update(struct drm_plane *plane,
-					  struct drm_atomic_state *state);
+					  struct drm_atomic_commit *state);
 void drm_sysfb_plane_helper_atomic_disable(struct drm_plane *plane,
-					   struct drm_atomic_state *state);
+					   struct drm_atomic_commit *state);
 int drm_sysfb_plane_helper_get_scanout_buffer(struct drm_plane *plane,
 					      struct drm_scanout_buffer *sb);
 
@@ -114,16 +127,24 @@ int drm_sysfb_plane_helper_get_scanout_buffer(struct drm_plane *plane,
 	DRM_FORMAT_MOD_INVALID
 
 #define DRM_SYSFB_PLANE_HELPER_FUNCS \
-	DRM_GEM_SHADOW_PLANE_HELPER_FUNCS, \
+	.begin_fb_access = drm_sysfb_plane_helper_begin_fb_access, \
+	.end_fb_access = drm_gem_end_shadow_fb_access, \
 	.atomic_check = drm_sysfb_plane_helper_atomic_check, \
 	.atomic_update = drm_sysfb_plane_helper_atomic_update, \
 	.atomic_disable = drm_sysfb_plane_helper_atomic_disable, \
 	.get_scanout_buffer = drm_sysfb_plane_helper_get_scanout_buffer
 
+void drm_sysfb_plane_reset(struct drm_plane *plane);
+struct drm_plane_state *drm_sysfb_plane_atomic_duplicate_state(struct drm_plane *plane);
+void drm_sysfb_plane_atomic_destroy_state(struct drm_plane *plane,
+					  struct drm_plane_state *plane_state);
+
 #define DRM_SYSFB_PLANE_FUNCS \
+	.reset = drm_sysfb_plane_reset, \
 	.update_plane = drm_atomic_helper_update_plane, \
 	.disable_plane = drm_atomic_helper_disable_plane, \
-	DRM_GEM_SHADOW_PLANE_FUNCS
+	.atomic_duplicate_state = drm_sysfb_plane_atomic_duplicate_state, \
+	.atomic_destroy_state = drm_sysfb_plane_atomic_destroy_state
 
 /*
  * CRTC
@@ -144,7 +165,7 @@ to_drm_sysfb_crtc_state(struct drm_crtc_state *base)
 
 enum drm_mode_status drm_sysfb_crtc_helper_mode_valid(struct drm_crtc *crtc,
 						      const struct drm_display_mode *mode);
-int drm_sysfb_crtc_helper_atomic_check(struct drm_crtc *crtc, struct drm_atomic_state *new_state);
+int drm_sysfb_crtc_helper_atomic_check(struct drm_crtc *crtc, struct drm_atomic_commit *new_state);
 
 #define DRM_SYSFB_CRTC_HELPER_FUNCS \
 	.mode_valid = drm_sysfb_crtc_helper_mode_valid, \

@@ -52,7 +52,9 @@ static void init_transmitter_control(struct bios_parser *bp);
 static void init_set_pixel_clock(struct bios_parser *bp);
 static void init_enable_spread_spectrum_on_ppll(struct bios_parser *bp);
 static void init_adjust_display_pll(struct bios_parser *bp);
+static void init_select_crtc_source(struct bios_parser *bp);
 static void init_dac_encoder_control(struct bios_parser *bp);
+static void init_dac_load_detection(struct bios_parser *bp);
 static void init_dac_output_control(struct bios_parser *bp);
 static void init_set_crtc_timing(struct bios_parser *bp);
 static void init_enable_crtc(struct bios_parser *bp);
@@ -69,7 +71,9 @@ void dal_bios_parser_init_cmd_tbl(struct bios_parser *bp)
 	init_set_pixel_clock(bp);
 	init_enable_spread_spectrum_on_ppll(bp);
 	init_adjust_display_pll(bp);
+	init_select_crtc_source(bp);
 	init_dac_encoder_control(bp);
+	init_dac_load_detection(bp);
 	init_dac_output_control(bp);
 	init_set_crtc_timing(bp);
 	init_enable_crtc(bp);
@@ -222,6 +226,28 @@ static enum bp_result encoder_control_dig2_v1(
 	return result;
 }
 
+static uint8_t dc_color_depth_to_atom(enum dc_color_depth color_depth)
+{
+	switch (color_depth) {
+	case COLOR_DEPTH_UNDEFINED:
+		return PANEL_BPC_UNDEFINE;
+	case COLOR_DEPTH_666:
+		return PANEL_6BIT_PER_COLOR;
+	default:
+	case COLOR_DEPTH_888:
+		return PANEL_8BIT_PER_COLOR;
+	case COLOR_DEPTH_101010:
+		return PANEL_10BIT_PER_COLOR;
+	case COLOR_DEPTH_121212:
+		return PANEL_12BIT_PER_COLOR;
+	case COLOR_DEPTH_141414:
+		dm_error("14-bit color not supported by ATOMBIOS\n");
+		return PANEL_BPC_UNDEFINE;
+	case COLOR_DEPTH_161616:
+		return PANEL_16BIT_PER_COLOR;
+	}
+}
+
 static enum bp_result encoder_control_digx_v3(
 	struct bios_parser *bp,
 	struct bp_encoder_control *cntl)
@@ -244,23 +270,7 @@ static enum bp_result encoder_control_digx_v3(
 					cntl->signal,
 					cntl->enable_dp_audio);
 	params.ucLaneNum = (uint8_t)(cntl->lanes_number);
-
-	switch (cntl->color_depth) {
-	case COLOR_DEPTH_888:
-		params.ucBitPerColor = PANEL_8BIT_PER_COLOR;
-		break;
-	case COLOR_DEPTH_101010:
-		params.ucBitPerColor = PANEL_10BIT_PER_COLOR;
-		break;
-	case COLOR_DEPTH_121212:
-		params.ucBitPerColor = PANEL_12BIT_PER_COLOR;
-		break;
-	case COLOR_DEPTH_161616:
-		params.ucBitPerColor = PANEL_16BIT_PER_COLOR;
-		break;
-	default:
-		break;
-	}
+	params.ucBitPerColor = dc_color_depth_to_atom(cntl->color_depth);
 
 	if (EXEC_BIOS_CMD_TABLE(DIGxEncoderControl, params))
 		result = BP_RESULT_OK;
@@ -290,23 +300,7 @@ static enum bp_result encoder_control_digx_v4(
 					cntl->signal,
 					cntl->enable_dp_audio));
 	params.ucLaneNum = (uint8_t)(cntl->lanes_number);
-
-	switch (cntl->color_depth) {
-	case COLOR_DEPTH_888:
-		params.ucBitPerColor = PANEL_8BIT_PER_COLOR;
-		break;
-	case COLOR_DEPTH_101010:
-		params.ucBitPerColor = PANEL_10BIT_PER_COLOR;
-		break;
-	case COLOR_DEPTH_121212:
-		params.ucBitPerColor = PANEL_12BIT_PER_COLOR;
-		break;
-	case COLOR_DEPTH_161616:
-		params.ucBitPerColor = PANEL_16BIT_PER_COLOR;
-		break;
-	default:
-		break;
-	}
+	params.ucBitPerColor = dc_color_depth_to_atom(cntl->color_depth);
 
 	if (EXEC_BIOS_CMD_TABLE(DIGxEncoderControl, params))
 		result = BP_RESULT_OK;
@@ -330,23 +324,7 @@ static enum bp_result encoder_control_digx_v5(
 					cntl->signal,
 					cntl->enable_dp_audio));
 	params.ucLaneNum = (uint8_t)(cntl->lanes_number);
-
-	switch (cntl->color_depth) {
-	case COLOR_DEPTH_888:
-		params.ucBitPerColor = PANEL_8BIT_PER_COLOR;
-		break;
-	case COLOR_DEPTH_101010:
-		params.ucBitPerColor = PANEL_10BIT_PER_COLOR;
-		break;
-	case COLOR_DEPTH_121212:
-		params.ucBitPerColor = PANEL_12BIT_PER_COLOR;
-		break;
-	case COLOR_DEPTH_161616:
-		params.ucBitPerColor = PANEL_16BIT_PER_COLOR;
-		break;
-	default:
-		break;
-	}
+	params.ucBitPerColor = dc_color_depth_to_atom(cntl->color_depth);
 
 	if (cntl->signal == SIGNAL_TYPE_HDMI_TYPE_A)
 		switch (cntl->color_depth) {
@@ -1543,8 +1521,8 @@ static enum bp_result adjust_display_pll_v2(
 
 		if (pixel_clock_10KHz_in != 0) {
 			bp_params->adjusted_pixel_clock =
-					div_u64(pixel_clk * pixel_clk_10_khz_out,
-							pixel_clock_10KHz_in);
+					(uint32_t)div_u64(pixel_clk * pixel_clk_10_khz_out,
+							  pixel_clock_10KHz_in);
 		} else {
 			bp_params->adjusted_pixel_clock = 0;
 			BREAK_TO_DEBUGGER();
@@ -1593,8 +1571,8 @@ static enum bp_result adjust_display_pll_v3(
 
 		if (pixel_clk_10_kHz_in != 0) {
 			bp_params->adjusted_pixel_clock =
-					div_u64(pixel_clk * pixel_clk_10_khz_out,
-							pixel_clk_10_kHz_in);
+					(uint32_t)div_u64(pixel_clk * pixel_clk_10_khz_out,
+							  pixel_clk_10_kHz_in);
 		} else {
 			bp_params->adjusted_pixel_clock = 0;
 			BREAK_TO_DEBUGGER();
@@ -1612,6 +1590,198 @@ static enum bp_result adjust_display_pll_v3(
 /*******************************************************************************
  ********************************************************************************
  **
+ **                  SELECT CRTC SOURCE
+ **
+ ********************************************************************************
+ *******************************************************************************/
+
+static enum bp_result select_crtc_source_v1(
+	struct bios_parser *bp,
+	struct bp_crtc_source_select *bp_params);
+static enum bp_result select_crtc_source_v2(
+	struct bios_parser *bp,
+	struct bp_crtc_source_select *bp_params);
+static enum bp_result select_crtc_source_v3(
+	struct bios_parser *bp,
+	struct bp_crtc_source_select *bp_params);
+
+static void init_select_crtc_source(struct bios_parser *bp)
+{
+	switch (BIOS_CMD_TABLE_PARA_REVISION(SelectCRTC_Source)) {
+	case 1:
+		bp->cmd_tbl.select_crtc_source = select_crtc_source_v1;
+		break;
+	case 2:
+		bp->cmd_tbl.select_crtc_source = select_crtc_source_v2;
+		break;
+	case 3:
+		bp->cmd_tbl.select_crtc_source = select_crtc_source_v3;
+		break;
+	default:
+		bp->cmd_tbl.select_crtc_source = NULL;
+		break;
+	}
+}
+
+static enum bp_result select_crtc_source_v1(
+	struct bios_parser *bp,
+	struct bp_crtc_source_select *bp_params)
+{
+	enum bp_result result = BP_RESULT_FAILURE;
+	SELECT_CRTC_SOURCE_PS_ALLOCATION params;
+
+	if (!bp->cmd_helper->controller_id_to_atom(bp_params->controller_id, &params.ucCRTC))
+		return BP_RESULT_BADINPUT;
+
+	switch (bp_params->engine_id) {
+	case ENGINE_ID_DACA:
+		params.ucDevice = ATOM_DEVICE_CRT1_INDEX;
+		break;
+	case ENGINE_ID_DACB:
+		params.ucDevice = ATOM_DEVICE_CRT2_INDEX;
+		break;
+	default:
+		return BP_RESULT_BADINPUT;
+	}
+
+	if (EXEC_BIOS_CMD_TABLE(SelectCRTC_Source, params))
+		result = BP_RESULT_OK;
+
+	return result;
+}
+
+static bool select_crtc_source_v2_encoder_id(
+	enum engine_id engine_id, uint8_t *out_encoder_id)
+{
+	uint8_t encoder_id = 0;
+
+	switch (engine_id) {
+	case ENGINE_ID_DIGA:
+		encoder_id = ASIC_INT_DIG1_ENCODER_ID;
+		break;
+	case ENGINE_ID_DIGB:
+		encoder_id = ASIC_INT_DIG2_ENCODER_ID;
+		break;
+	case ENGINE_ID_DIGC:
+		encoder_id = ASIC_INT_DIG3_ENCODER_ID;
+		break;
+	case ENGINE_ID_DIGD:
+		encoder_id = ASIC_INT_DIG4_ENCODER_ID;
+		break;
+	case ENGINE_ID_DIGE:
+		encoder_id = ASIC_INT_DIG5_ENCODER_ID;
+		break;
+	case ENGINE_ID_DIGF:
+		encoder_id = ASIC_INT_DIG6_ENCODER_ID;
+		break;
+	case ENGINE_ID_DIGG:
+		encoder_id = ASIC_INT_DIG7_ENCODER_ID;
+		break;
+	case ENGINE_ID_DACA:
+		encoder_id = ASIC_INT_DAC1_ENCODER_ID;
+		break;
+	case ENGINE_ID_DACB:
+		encoder_id = ASIC_INT_DAC2_ENCODER_ID;
+		break;
+	default:
+		return false;
+	}
+
+	*out_encoder_id = encoder_id;
+	return true;
+}
+
+static bool select_crtc_source_v2_encoder_mode(
+	enum signal_type signal_type, uint8_t *out_encoder_mode)
+{
+	uint8_t encoder_mode = 0;
+
+	switch (signal_type) {
+	case SIGNAL_TYPE_DVI_SINGLE_LINK:
+	case SIGNAL_TYPE_DVI_DUAL_LINK:
+		encoder_mode = ATOM_ENCODER_MODE_DVI;
+		break;
+	case SIGNAL_TYPE_HDMI_TYPE_A:
+		encoder_mode = ATOM_ENCODER_MODE_HDMI;
+		break;
+	case SIGNAL_TYPE_LVDS:
+		encoder_mode = ATOM_ENCODER_MODE_LVDS;
+		break;
+	case SIGNAL_TYPE_RGB:
+		encoder_mode = ATOM_ENCODER_MODE_CRT;
+		break;
+	case SIGNAL_TYPE_DISPLAY_PORT:
+		encoder_mode = ATOM_ENCODER_MODE_DP;
+		break;
+	case SIGNAL_TYPE_DISPLAY_PORT_MST:
+		encoder_mode = ATOM_ENCODER_MODE_DP_MST;
+		break;
+	case SIGNAL_TYPE_EDP:
+		encoder_mode = ATOM_ENCODER_MODE_DP;
+		break;
+	default:
+		return false;
+	}
+
+	*out_encoder_mode = encoder_mode;
+	return true;
+}
+
+static enum bp_result select_crtc_source_v2(
+	struct bios_parser *bp,
+	struct bp_crtc_source_select *bp_params)
+{
+	enum bp_result result = BP_RESULT_FAILURE;
+	SELECT_CRTC_SOURCE_PARAMETERS_V3 params;
+
+	if (!bp->cmd_helper->controller_id_to_atom(bp_params->controller_id, &params.ucCRTC))
+		return BP_RESULT_BADINPUT;
+
+	if (!select_crtc_source_v2_encoder_id(
+		bp_params->engine_id,
+		&params.ucEncoderID))
+		return BP_RESULT_BADINPUT;
+	if (!select_crtc_source_v2_encoder_mode(
+		bp_params->sink_signal,
+		&params.ucEncodeMode))
+		return BP_RESULT_BADINPUT;
+
+	if (EXEC_BIOS_CMD_TABLE(SelectCRTC_Source, params))
+		result = BP_RESULT_OK;
+
+	return result;
+}
+
+static enum bp_result select_crtc_source_v3(
+	struct bios_parser *bp,
+	struct bp_crtc_source_select *bp_params)
+{
+	enum bp_result result = BP_RESULT_FAILURE;
+	SELECT_CRTC_SOURCE_PARAMETERS_V3 params;
+
+	if (!bp->cmd_helper->controller_id_to_atom(bp_params->controller_id, &params.ucCRTC))
+		return BP_RESULT_BADINPUT;
+
+	if (!select_crtc_source_v2_encoder_id(
+		bp_params->engine_id,
+		&params.ucEncoderID))
+		return BP_RESULT_BADINPUT;
+	if (!select_crtc_source_v2_encoder_mode(
+		bp_params->sink_signal,
+		&params.ucEncodeMode))
+		return BP_RESULT_BADINPUT;
+
+	params.ucDstBpc = dc_color_depth_to_atom(bp_params->color_depth);
+
+	if (EXEC_BIOS_CMD_TABLE(SelectCRTC_Source, params))
+		result = BP_RESULT_OK;
+
+	return result;
+}
+
+/*******************************************************************************
+ ********************************************************************************
+ **
  **                  DAC ENCODER CONTROL
  **
  ********************************************************************************
@@ -1619,12 +1789,12 @@ static enum bp_result adjust_display_pll_v3(
 
 static enum bp_result dac1_encoder_control_v1(
 	struct bios_parser *bp,
-	bool enable,
+	enum bp_encoder_control_action action,
 	uint32_t pixel_clock,
 	uint8_t dac_standard);
 static enum bp_result dac2_encoder_control_v1(
 	struct bios_parser *bp,
-	bool enable,
+	enum bp_encoder_control_action action,
 	uint32_t pixel_clock,
 	uint8_t dac_standard);
 
@@ -1650,12 +1820,14 @@ static void init_dac_encoder_control(struct bios_parser *bp)
 
 static void dac_encoder_control_prepare_params(
 	DAC_ENCODER_CONTROL_PS_ALLOCATION *params,
-	bool enable,
+	enum bp_encoder_control_action action,
 	uint32_t pixel_clock,
 	uint8_t dac_standard)
 {
 	params->ucDacStandard = dac_standard;
-	if (enable)
+	if (action == ENCODER_CONTROL_INIT)
+		params->ucAction = ATOM_ENCODER_INIT;
+	else if (action == ENCODER_CONTROL_ENABLE)
 		params->ucAction = ATOM_ENABLE;
 	else
 		params->ucAction = ATOM_DISABLE;
@@ -1668,7 +1840,7 @@ static void dac_encoder_control_prepare_params(
 
 static enum bp_result dac1_encoder_control_v1(
 	struct bios_parser *bp,
-	bool enable,
+	enum bp_encoder_control_action action,
 	uint32_t pixel_clock,
 	uint8_t dac_standard)
 {
@@ -1677,7 +1849,7 @@ static enum bp_result dac1_encoder_control_v1(
 
 	dac_encoder_control_prepare_params(
 		&params,
-		enable,
+		action,
 		pixel_clock,
 		dac_standard);
 
@@ -1689,7 +1861,7 @@ static enum bp_result dac1_encoder_control_v1(
 
 static enum bp_result dac2_encoder_control_v1(
 	struct bios_parser *bp,
-	bool enable,
+	enum bp_encoder_control_action action,
 	uint32_t pixel_clock,
 	uint8_t dac_standard)
 {
@@ -1698,11 +1870,101 @@ static enum bp_result dac2_encoder_control_v1(
 
 	dac_encoder_control_prepare_params(
 		&params,
-		enable,
+		action,
 		pixel_clock,
 		dac_standard);
 
 	if (EXEC_BIOS_CMD_TABLE(DAC2EncoderControl, params))
+		result = BP_RESULT_OK;
+
+	return result;
+}
+
+/*******************************************************************************
+ ********************************************************************************
+ **
+ **                  DAC LOAD DETECTION
+ **
+ ********************************************************************************
+ *******************************************************************************/
+
+static enum bp_result dac_load_detection_v1(
+	struct bios_parser *bp,
+	struct bp_load_detection_parameters *bp_params);
+
+static enum bp_result dac_load_detection_v3(
+	struct bios_parser *bp,
+	struct bp_load_detection_parameters *bp_params);
+
+static void init_dac_load_detection(struct bios_parser *bp)
+{
+	switch (BIOS_CMD_TABLE_PARA_REVISION(DAC_LoadDetection)) {
+	case 1:
+	case 2:
+		bp->cmd_tbl.dac_load_detection = dac_load_detection_v1;
+		break;
+	case 3:
+	default:
+		bp->cmd_tbl.dac_load_detection = dac_load_detection_v3;
+		break;
+	}
+}
+
+static void dac_load_detect_prepare_params(
+	struct _DAC_LOAD_DETECTION_PS_ALLOCATION *params,
+	enum engine_id engine_id,
+	uint16_t device_id,
+	uint8_t misc)
+{
+	uint8_t dac_type = ENGINE_ID_DACA;
+
+	if (engine_id == ENGINE_ID_DACB)
+		dac_type = ATOM_DAC_B;
+
+	params->sDacload.usDeviceID = cpu_to_le16(device_id);
+	params->sDacload.ucDacType = dac_type;
+	params->sDacload.ucMisc = misc;
+}
+
+static enum bp_result dac_load_detection_v1(
+	struct bios_parser *bp,
+	struct bp_load_detection_parameters *bp_params)
+{
+	enum bp_result result = BP_RESULT_FAILURE;
+	DAC_LOAD_DETECTION_PS_ALLOCATION params;
+
+	dac_load_detect_prepare_params(
+		&params,
+		bp_params->engine_id,
+		bp_params->device_id,
+		0);
+
+	if (EXEC_BIOS_CMD_TABLE(DAC_LoadDetection, params))
+		result = BP_RESULT_OK;
+
+	return result;
+}
+
+static enum bp_result dac_load_detection_v3(
+	struct bios_parser *bp,
+	struct bp_load_detection_parameters *bp_params)
+{
+	enum bp_result result = BP_RESULT_FAILURE;
+	DAC_LOAD_DETECTION_PS_ALLOCATION params;
+
+	uint8_t misc = 0;
+
+	if (bp_params->device_id == ATOM_DEVICE_CV_SUPPORT ||
+	    bp_params->device_id == ATOM_DEVICE_TV1_SUPPORT)
+		misc = DAC_LOAD_MISC_YPrPb;
+
+	dac_load_detect_prepare_params(
+		&params,
+		bp_params->engine_id,
+		bp_params->device_id,
+		misc);
+
+	if (EXEC_BIOS_CMD_TABLE(DAC_LoadDetection, params))
 		result = BP_RESULT_OK;
 
 	return result;
@@ -2258,6 +2520,7 @@ static enum bp_result external_encoder_control_v3(
 				cpu_to_le16((uint16_t)cntl->connector_obj_id.id);
 		break;
 	case EXTERNAL_ENCODER_CONTROL_SETUP:
+	case EXTERNAL_ENCODER_CONTROL_ENABLE:
 		/* EXTERNAL_ENCODER_CONTROL_PARAMETERS_V3 pixel clock unit in
 		 * 10KHz
 		 * output display device pixel clock frequency in unit of 10KHz.
@@ -2274,25 +2537,23 @@ static enum bp_result external_encoder_control_v3(
 		if (is_input_signal_dp) {
 			/* Bit[0]: indicate link rate, =1: 2.7Ghz, =0: 1.62Ghz,
 			 * only valid in encoder setup with DP mode. */
-			if (LINK_RATE_HIGH == cntl->link_rate)
-				cntl_params->ucConfig |= 1;
+			if (cntl->link_rate == LINK_RATE_LOW)
+				cntl_params->ucConfig |=
+					EXTERNAL_ENCODER_CONFIG_V3_DPLINKRATE_1_62GHZ;
+			else if (cntl->link_rate == LINK_RATE_HIGH)
+				cntl_params->ucConfig |=
+					EXTERNAL_ENCODER_CONFIG_V3_DPLINKRATE_2_70GHZ;
+			else
+				dm_error("Link rate not supported by external encoder");
+
 			/* output color depth Indicate encoder data bpc format
 			 * in DP mode, only valid in encoder setup in DP mode.
 			 */
-			cntl_params->ucBitPerColor =
-					(uint8_t)(cntl->color_depth);
+			cntl_params->ucBitPerColor = dc_color_depth_to_atom(cntl->color_depth);
 		}
 		/* Indicate how many lanes used by external encoder, only valid
 		 * in encoder setup and enableoutput. */
 		cntl_params->ucLaneNum = (uint8_t)(cntl->lanes_number);
-		break;
-	case EXTERNAL_ENCODER_CONTROL_ENABLE:
-		cntl_params->usPixelClock =
-				cpu_to_le16((uint16_t)(cntl->pixel_clock / 10));
-		cntl_params->ucEncoderMode =
-				(uint8_t)bp->cmd_helper->encoder_mode_bp_to_atom(
-						cntl->signal, false);
-		cntl_params->ucLaneNum = (uint8_t)cntl->lanes_number;
 		break;
 	default:
 		break;
@@ -2401,8 +2662,8 @@ static enum bp_result set_dce_clock_v2_1(
 			!cmd->dc_clock_type_to_atom(bp_params->clock_type, &atom_clock_type))
 		return BP_RESULT_BADINPUT;
 
-	params.asParam.ucDCEClkSrc  = atom_pll_id;
-	params.asParam.ucDCEClkType = atom_clock_type;
+	params.asParam.ucDCEClkSrc = (uint8_t)atom_pll_id;
+	params.asParam.ucDCEClkType = (uint8_t)atom_clock_type;
 
 	if (bp_params->clock_type == DCECLOCK_TYPE_DPREFCLK) {
 		if (bp_params->flags.USE_GENLOCK_AS_SOURCE_FOR_DPREFCLK)

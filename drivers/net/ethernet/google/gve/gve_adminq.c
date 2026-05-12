@@ -791,7 +791,7 @@ static void gve_adminq_get_create_rx_queue_cmd(struct gve_priv *priv,
 		cmd->create_rx_queue.rx_buff_ring_size =
 			cpu_to_be16(priv->rx_desc_cnt);
 		cmd->create_rx_queue.enable_rsc =
-			!!(priv->dev->features & NETIF_F_LRO);
+			!!(priv->dev->features & NETIF_F_GRO_HW);
 		if (priv->header_split_enabled)
 			cmd->create_rx_queue.header_buffer_size =
 				cpu_to_be16(priv->header_buf_size);
@@ -970,14 +970,6 @@ static void gve_enable_supported_features(struct gve_priv *priv,
 		priv->dev->max_mtu = be16_to_cpu(dev_op_jumbo_frames->max_mtu);
 	}
 
-	/* Override pages for qpl for DQO-QPL */
-	if (dev_op_dqo_qpl) {
-		priv->tx_pages_per_qpl =
-			be16_to_cpu(dev_op_dqo_qpl->tx_pages_per_qpl);
-		if (priv->tx_pages_per_qpl == 0)
-			priv->tx_pages_per_qpl = DQO_QPL_DEFAULT_TX_PAGES;
-	}
-
 	if (dev_op_buffer_sizes &&
 	    (supported_features_mask & GVE_SUP_BUFFER_SIZES_MASK)) {
 		priv->max_rx_buffer_size =
@@ -987,18 +979,20 @@ static void gve_enable_supported_features(struct gve_priv *priv,
 		dev_info(&priv->pdev->dev,
 			 "BUFFER SIZES device option enabled with max_rx_buffer_size of %u, header_buf_size of %u.\n",
 			 priv->max_rx_buffer_size, priv->header_buf_size);
+		if (gve_is_dqo(priv) &&
+		    priv->max_rx_buffer_size > GVE_DEFAULT_RX_BUFFER_SIZE)
+			priv->rx_cfg.packet_buffer_size =
+				priv->max_rx_buffer_size;
 	}
 
 	/* Read and store ring size ranges given by device */
 	if (dev_op_modify_ring &&
 	    (supported_features_mask & GVE_SUP_MODIFY_RING_MASK)) {
 		priv->modify_ring_size_enabled = true;
-
-		/* max ring size for DQO QPL should not be overwritten because of device limit */
-		if (priv->queue_format != GVE_DQO_QPL_FORMAT) {
-			priv->max_rx_desc_cnt = be16_to_cpu(dev_op_modify_ring->max_rx_ring_size);
-			priv->max_tx_desc_cnt = be16_to_cpu(dev_op_modify_ring->max_tx_ring_size);
-		}
+		priv->max_rx_desc_cnt =
+			be16_to_cpu(dev_op_modify_ring->max_rx_ring_size);
+		priv->max_tx_desc_cnt =
+			be16_to_cpu(dev_op_modify_ring->max_tx_ring_size);
 		if (priv->default_min_ring_size) {
 			/* If device hasn't provided minimums, use default minimums */
 			priv->min_tx_desc_cnt = GVE_DEFAULT_MIN_TX_RING_SIZE;
@@ -1123,9 +1117,13 @@ int gve_adminq_describe_device(struct gve_priv *priv)
 
 	gve_set_default_rss_sizes(priv);
 
-	/* DQO supports LRO. */
-	if (!gve_is_gqi(priv))
-		priv->dev->hw_features |= NETIF_F_LRO;
+	/* DQO supports HW-GRO and UDP_GSO */
+	if (gve_is_dqo(priv)) {
+		u64 additional_features = NETIF_F_GRO_HW | NETIF_F_GSO_UDP_L4;
+
+		priv->dev->hw_features |= additional_features;
+		priv->dev->features |= additional_features;
+	}
 
 	priv->max_registered_pages =
 				be64_to_cpu(descriptor->max_registered_pages);

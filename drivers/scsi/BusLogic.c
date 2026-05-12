@@ -920,7 +920,8 @@ static int __init blogic_init_fp_probeinfo(struct blogic_adapter *adapter)
   a particular probe order.
 */
 
-static void __init blogic_init_probeinfo_list(struct blogic_adapter *adapter)
+static noinline_for_stack void __init
+blogic_init_probeinfo_list(struct blogic_adapter *adapter)
 {
 	/*
 	   If a PCI BIOS is present, interrogate it for MultiMaster and
@@ -1631,8 +1632,8 @@ common:
 	/*
 	   Initialize the Host Adapter Full Model Name from the Model Name.
 	 */
-	strcpy(adapter->full_model, "BusLogic ");
-	strcat(adapter->full_model, adapter->model);
+	scnprintf(adapter->full_model, sizeof(adapter->full_model),
+		  "BusLogic %s", adapter->model);
 	/*
 	   Select an appropriate value for the Tagged Queue Depth either from a
 	   BusLogic Driver Options specification, or based on whether this Host
@@ -1690,7 +1691,8 @@ common:
   blogic_reportconfig reports the configuration of Host Adapter.
 */
 
-static bool __init blogic_reportconfig(struct blogic_adapter *adapter)
+static noinline_for_stack bool __init
+blogic_reportconfig(struct blogic_adapter *adapter)
 {
 	unsigned short alltgt_mask = (1 << adapter->maxdev) - 1;
 	unsigned short sync_ok, fast_ok;
@@ -2212,15 +2214,14 @@ static int __init blogic_init(void)
 	if (blogic_probe_options.noprobe)
 		return -ENODEV;
 	blogic_probeinfo_list =
-	    kcalloc(BLOGIC_MAX_ADAPTERS, sizeof(struct blogic_probeinfo),
-			    GFP_KERNEL);
+	    kzalloc_objs(struct blogic_probeinfo, BLOGIC_MAX_ADAPTERS);
 	if (blogic_probeinfo_list == NULL) {
 		blogic_err("BusLogic: Unable to allocate Probe Info List\n",
 				NULL);
 		return -ENOMEM;
 	}
 
-	adapter = kzalloc(sizeof(struct blogic_adapter), GFP_KERNEL);
+	adapter = kzalloc_obj(struct blogic_adapter);
 	if (adapter == NULL) {
 		kfree(blogic_probeinfo_list);
 		blogic_err("BusLogic: Unable to allocate Prototype Host Adapter\n", NULL);
@@ -2877,7 +2878,7 @@ static int blogic_hostreset(struct scsi_cmnd *SCpnt)
   Outgoing Mailbox for execution by the associated Host Adapter.
 */
 
-static int blogic_qcmd_lck(struct scsi_cmnd *command)
+static enum scsi_qc_status blogic_qcmd_lck(struct scsi_cmnd *command)
 {
 	void (*comp_cb)(struct scsi_cmnd *) = scsi_done;
 	struct blogic_adapter *adapter =
@@ -3240,7 +3241,7 @@ static int blogic_resetadapter(struct blogic_adapter *adapter, bool hard_reset)
   the BIOS, and a warning may be displayed.
 */
 
-static int blogic_diskparam(struct scsi_device *sdev, struct block_device *dev,
+static int blogic_diskparam(struct scsi_device *sdev, struct gendisk *disk,
 		sector_t capacity, int *params)
 {
 	struct blogic_adapter *adapter =
@@ -3261,7 +3262,7 @@ static int blogic_diskparam(struct scsi_device *sdev, struct block_device *dev,
 		diskparam->sectors = 32;
 	}
 	diskparam->cylinders = (unsigned long) capacity / (diskparam->heads * diskparam->sectors);
-	buf = scsi_bios_ptable(dev);
+	buf = scsi_bios_ptable(disk);
 	if (buf == NULL)
 		return 0;
 	/*
@@ -3715,7 +3716,6 @@ static void __exit blogic_exit(void)
 
 __setup("BusLogic=", blogic_setup);
 
-#ifdef MODULE
 /*static const struct pci_device_id blogic_pci_tbl[] = {
 	{ PCI_VENDOR_ID_BUSLOGIC, PCI_DEVICE_ID_BUSLOGIC_MULTIMASTER,
 	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0},
@@ -3725,13 +3725,12 @@ __setup("BusLogic=", blogic_setup);
 	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0},
 	{ }
 };*/
-static const struct pci_device_id blogic_pci_tbl[] = {
+static const struct pci_device_id blogic_pci_tbl[] __maybe_unused = {
 	{PCI_DEVICE(PCI_VENDOR_ID_BUSLOGIC, PCI_DEVICE_ID_BUSLOGIC_MULTIMASTER)},
 	{PCI_DEVICE(PCI_VENDOR_ID_BUSLOGIC, PCI_DEVICE_ID_BUSLOGIC_MULTIMASTER_NC)},
 	{PCI_DEVICE(PCI_VENDOR_ID_BUSLOGIC, PCI_DEVICE_ID_BUSLOGIC_FLASHPOINT)},
 	{0, },
 };
-#endif
 MODULE_DEVICE_TABLE(pci, blogic_pci_tbl);
 
 module_init(blogic_init);

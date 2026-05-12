@@ -19,6 +19,7 @@
 
 struct dentry;
 struct fwnode_handle;
+struct device_node;
 
 struct sdw_bus;
 struct sdw_slave;
@@ -531,7 +532,7 @@ struct sdw_slave_intr_status {
 };
 
 /**
- * sdw_reg_bank - SoundWire register banks
+ * enum sdw_reg_bank - SoundWire register banks
  * @SDW_BANK0: Soundwire register bank 0
  * @SDW_BANK1: Soundwire register bank 1
  */
@@ -704,7 +705,7 @@ struct sdw_master_device {
 
 struct sdw_driver {
 	int (*probe)(struct sdw_slave *sdw, const struct sdw_device_id *id);
-	int (*remove)(struct sdw_slave *sdw);
+	void (*remove)(struct sdw_slave *sdw);
 	void (*shutdown)(struct sdw_slave *sdw);
 
 	const struct sdw_device_id *id_table;
@@ -750,7 +751,7 @@ struct sdw_port_params {
  * struct sdw_transport_params: Data Port Transport Parameters
  *
  * @blk_grp_ctrl_valid: Port implements block group control
- * @num: Port number
+ * @port_num: Port number
  * @blk_grp_ctrl: Block group control value
  * @sample_interval: Sample interval
  * @offset1: Blockoffset of the payload data
@@ -781,7 +782,7 @@ struct sdw_transport_params {
 /**
  * struct sdw_enable_ch: Enable/disable Data Port channel
  *
- * @num: Port number
+ * @port_num: Port number
  * @ch_mask: Active channel mask
  * @enable: Enable (true) /disable (false) channel
  */
@@ -884,7 +885,7 @@ void sdw_bus_master_delete(struct sdw_bus *bus);
 void sdw_show_ping_status(struct sdw_bus *bus, bool sync_delay);
 
 /**
- * sdw_port_config: Master or Slave Port configuration
+ * struct sdw_port_config: Master or Slave Port configuration
  *
  * @num: Port number
  * @ch_mask: channels mask for port
@@ -895,7 +896,7 @@ struct sdw_port_config {
 };
 
 /**
- * sdw_stream_config: Master or Slave stream configuration
+ * struct sdw_stream_config: Master or Slave stream configuration
  *
  * @frame_rate: Audio frame rate of the stream, in Hz
  * @ch_count: Channel count of the stream
@@ -912,7 +913,7 @@ struct sdw_stream_config {
 };
 
 /**
- * sdw_stream_state: Stream states
+ * enum sdw_stream_state: Stream states
  *
  * @SDW_STREAM_ALLOCATED: New stream allocated.
  * @SDW_STREAM_CONFIGURED: Stream configured
@@ -933,7 +934,7 @@ enum sdw_stream_state {
 };
 
 /**
- * sdw_stream_params: Stream parameters
+ * struct sdw_stream_params: Stream parameters
  *
  * @rate: Sampling frequency, in Hz
  * @ch_count: Number of channels
@@ -946,7 +947,7 @@ struct sdw_stream_params {
 };
 
 /**
- * sdw_stream_runtime: Runtime stream parameters
+ * struct sdw_stream_runtime: Runtime stream parameters
  *
  * @name: SoundWire stream name
  * @params: Stream parameters
@@ -982,7 +983,7 @@ struct sdw_stream_runtime {
  * @defer_msg: Defer message
  * @params: Current bus parameters
  * @stream_refcount: number of streams currently using this bus
- * @btp_stream_refcount: number of BTP streams currently using this bus (should
+ * @bpt_stream_refcount: number of BTP streams currently using this bus (should
  * be zero or one, multiple streams per link is not supported).
  * @bpt_stream: pointer stored to handle BTP streams.
  * @ops: Master callback ops
@@ -1086,6 +1087,10 @@ int sdw_stream_add_slave(struct sdw_slave *slave,
 int sdw_stream_remove_slave(struct sdw_slave *slave,
 			    struct sdw_stream_runtime *stream);
 
+struct device *of_sdw_find_device_by_node(struct device_node *np);
+
+int sdw_slave_get_current_bank(struct sdw_slave *sdev);
+
 int sdw_slave_get_scale_index(struct sdw_slave *slave, u8 *base);
 
 /* messaging and data APIs */
@@ -1114,6 +1119,18 @@ static inline int sdw_stream_add_slave(struct sdw_slave *slave,
 
 static inline int sdw_stream_remove_slave(struct sdw_slave *slave,
 					  struct sdw_stream_runtime *stream)
+{
+	WARN_ONCE(1, "SoundWire API is disabled");
+	return -EINVAL;
+}
+
+static inline struct device *of_sdw_find_device_by_node(struct device_node *np)
+{
+	WARN_ONCE(1, "SoundWire API is disabled");
+	return NULL;
+}
+
+static inline int sdw_slave_get_current_bank(struct sdw_slave *sdev)
 {
 	WARN_ONCE(1, "SoundWire API is disabled");
 	return -EINVAL;

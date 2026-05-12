@@ -30,16 +30,24 @@
 #define PHY_ID_GPY241B		0x67C9DE40
 #define PHY_ID_GPY241BM		0x67C9DE80
 #define PHY_ID_GPY245B		0x67C9DEC0
+#define PHY_ID_MXL86211C	0xC1335400
+#define PHY_ID_MXL86252		0xC1335520
+#define PHY_ID_MXL86282		0xC1335500
 
 #define PHY_CTL1		0x13
 #define PHY_CTL1_MDICD		BIT(3)
 #define PHY_CTL1_MDIAB		BIT(2)
 #define PHY_CTL1_AMDIX		BIT(0)
+#define PHY_ERRCNT		0x15	/* Error counter */
 #define PHY_MIISTAT		0x18	/* MII state */
 #define PHY_IMASK		0x19	/* interrupt mask */
 #define PHY_ISTAT		0x1A	/* interrupt status */
 #define PHY_LED			0x1B	/* LEDs */
 #define PHY_FWV			0x1E	/* firmware version */
+
+#define PHY_ERRCNT_SEL		GENMASK(11, 8)
+#define PHY_ERRCNT_COUNT	GENMASK(7, 0)
+#define PHY_ERRCNT_SEL_RXERR	0
 
 #define PHY_MIISTAT_SPD_MASK	GENMASK(2, 0)
 #define PHY_MIISTAT_DPX		BIT(3)
@@ -131,6 +139,7 @@ struct gpy_priv {
 	u8 fw_major;
 	u8 fw_minor;
 	u32 wolopts;
+	u64 rx_errors;
 
 	/* It takes 3 seconds to fully switch out of loopback mode before
 	 * it can safely re-enter loopback mode. Record the time when
@@ -199,6 +208,29 @@ static int gpy_hwmon_read(struct device *dev,
 	return 0;
 }
 
+static int mxl862x2_hwmon_read(struct device *dev,
+			       enum hwmon_sensor_types type,
+			       u32 attr, int channel, long *value)
+{
+	struct phy_device *phydev = dev_get_drvdata(dev);
+	long tmp;
+	int ret;
+
+	ret = phy_read_mmd(phydev, MDIO_MMD_VEND1, VSPEC1_TEMP_STA);
+	if (ret < 0)
+		return ret;
+	if (!ret)
+		return -ENODATA;
+
+	tmp = (s16)ret;
+	tmp *= 78125;
+	tmp /= 10000;
+
+	*value = tmp;
+
+	return 0;
+}
+
 static umode_t gpy_hwmon_is_visible(const void *data,
 				    enum hwmon_sensor_types type,
 				    u32 attr, int channel)
@@ -216,19 +248,35 @@ static const struct hwmon_ops gpy_hwmon_hwmon_ops = {
 	.read		= gpy_hwmon_read,
 };
 
+static const struct hwmon_ops mxl862x2_hwmon_hwmon_ops = {
+	.is_visible	= gpy_hwmon_is_visible,
+	.read		= mxl862x2_hwmon_read,
+};
+
 static const struct hwmon_chip_info gpy_hwmon_chip_info = {
 	.ops		= &gpy_hwmon_hwmon_ops,
+	.info		= gpy_hwmon_info,
+};
+
+static const struct hwmon_chip_info mxl862x2_hwmon_chip_info = {
+	.ops		= &mxl862x2_hwmon_hwmon_ops,
 	.info		= gpy_hwmon_info,
 };
 
 static int gpy_hwmon_register(struct phy_device *phydev)
 {
 	struct device *dev = &phydev->mdio.dev;
+	const struct hwmon_chip_info *info;
 	struct device *hwmon_dev;
 
+	if (phy_id_compare_model(phydev->phy_id, PHY_ID_MXL86252) ||
+	    phy_id_compare_model(phydev->phy_id, PHY_ID_MXL86282))
+		info = &mxl862x2_hwmon_chip_info;
+	else
+		info = &gpy_hwmon_chip_info;
+
 	hwmon_dev = devm_hwmon_device_register_with_info(dev, NULL, phydev,
-							 &gpy_hwmon_chip_info,
-							 NULL);
+							 info, NULL);
 
 	return PTR_ERR_OR_ZERO(hwmon_dev);
 }
@@ -289,8 +337,9 @@ out:
 
 static int gpy_config_init(struct phy_device *phydev)
 {
-	/* Nothing to configure. Configuration Requirement Placeholder */
-	return 0;
+	/* Count MDI RX errors (SymbolErrorDuringCarrier) */
+	return phy_write(phydev, PHY_ERRCNT,
+			 FIELD_PREP(PHY_ERRCNT_SEL, PHY_ERRCNT_SEL_RXERR));
 }
 
 static int gpy21x_config_init(struct phy_device *phydev)
@@ -540,7 +589,7 @@ static int gpy_update_interface(struct phy_device *phydev)
 	/* Interface mode is fixed for USXGMII and integrated PHY */
 	if (phydev->interface == PHY_INTERFACE_MODE_USXGMII ||
 	    phydev->interface == PHY_INTERFACE_MODE_INTERNAL)
-		return -EINVAL;
+		return 0;
 
 	/* Automatically switch SERDES interface between SGMII and 2500-BaseX
 	 * according to speed. Disable ANEG in 2500-BaseX mode.
@@ -561,30 +610,10 @@ static int gpy_update_interface(struct phy_device *phydev)
 	case SPEED_100:
 	case SPEED_10:
 		phydev->interface = PHY_INTERFACE_MODE_SGMII;
-		if (gpy_sgmii_aneg_en(phydev))
-			break;
-		/* Enable and restart SGMII ANEG for 10/100/1000Mbps link speed
-		 * if ANEG is disabled (in 2500-BaseX mode).
-		 */
-		ret = phy_modify_mmd(phydev, MDIO_MMD_VEND1, VSPEC1_SGMII_CTRL,
-				     VSPEC1_SGMII_ANEN_ANRS,
-				     VSPEC1_SGMII_ANEN_ANRS);
-		if (ret < 0) {
-			phydev_err(phydev,
-				   "Error: Enable of SGMII ANEG failed: %d\n",
-				   ret);
-			return ret;
-		}
 		break;
 	}
 
-	if (phydev->speed == SPEED_2500 || phydev->speed == SPEED_1000) {
-		ret = genphy_read_master_slave(phydev);
-		if (ret < 0)
-			return ret;
-	}
-
-	return gpy_update_mdix(phydev);
+	return 0;
 }
 
 static int gpy_read_status(struct phy_device *phydev)
@@ -637,6 +666,16 @@ static int gpy_read_status(struct phy_device *phydev)
 
 	if (phydev->link) {
 		ret = gpy_update_interface(phydev);
+		if (ret < 0)
+			return ret;
+
+		if (phydev->speed == SPEED_2500 || phydev->speed == SPEED_1000) {
+			ret = genphy_read_master_slave(phydev);
+			if (ret < 0)
+				return ret;
+		}
+
+		ret = gpy_update_mdix(phydev);
 		if (ret < 0)
 			return ret;
 	}
@@ -1014,6 +1053,52 @@ static int gpy_led_polarity_set(struct phy_device *phydev, int index,
 	return -EINVAL;
 }
 
+static unsigned int gpy_inband_caps(struct phy_device *phydev,
+				    phy_interface_t interface)
+{
+	switch (interface) {
+	case PHY_INTERFACE_MODE_SGMII:
+		return LINK_INBAND_DISABLE | LINK_INBAND_ENABLE;
+	case PHY_INTERFACE_MODE_2500BASEX:
+		return LINK_INBAND_DISABLE;
+	default:
+		return 0;
+	}
+}
+
+static int gpy_config_inband(struct phy_device *phydev, unsigned int modes)
+{
+	return phy_modify_mmd(phydev, MDIO_MMD_VEND1, VSPEC1_SGMII_CTRL,
+			      VSPEC1_SGMII_ANEN_ANRS,
+			      (modes == LINK_INBAND_DISABLE) ? 0 :
+			      VSPEC1_SGMII_ANEN_ANRS);
+}
+
+static int gpy_update_stats(struct phy_device *phydev)
+{
+	struct gpy_priv *priv = phydev->priv;
+	int ret;
+
+	/* PHY_ERRCNT: 8-bit read-clear counter, SEL set to RXERR */
+	ret = phy_read(phydev, PHY_ERRCNT);
+	if (ret < 0)
+		return ret;
+
+	priv->rx_errors += FIELD_GET(PHY_ERRCNT_COUNT, ret);
+
+	return 0;
+}
+
+static void gpy_get_phy_stats(struct phy_device *phydev,
+			      struct ethtool_eth_phy_stats *eth_stats,
+			      struct ethtool_phy_stats *stats)
+{
+	struct gpy_priv *priv = phydev->priv;
+
+	eth_stats->SymbolErrorDuringCarrier = priv->rx_errors;
+	stats->rx_errors = priv->rx_errors;
+}
+
 static struct phy_driver gpy_drivers[] = {
 	{
 		PHY_ID_MATCH_MODEL(PHY_ID_GPY2xx),
@@ -1021,6 +1106,8 @@ static struct phy_driver gpy_drivers[] = {
 		.get_features	= genphy_c45_pma_read_abilities,
 		.config_init	= gpy_config_init,
 		.probe		= gpy_probe,
+		.inband_caps	= gpy_inband_caps,
+		.config_inband	= gpy_config_inband,
 		.suspend	= genphy_suspend,
 		.resume		= genphy_resume,
 		.config_aneg	= gpy_config_aneg,
@@ -1036,6 +1123,8 @@ static struct phy_driver gpy_drivers[] = {
 		.led_hw_control_get = gpy_led_hw_control_get,
 		.led_hw_control_set = gpy_led_hw_control_set,
 		.led_polarity_set = gpy_led_polarity_set,
+		.update_stats	= gpy_update_stats,
+		.get_phy_stats	= gpy_get_phy_stats,
 	},
 	{
 		.phy_id		= PHY_ID_GPY115B,
@@ -1044,6 +1133,8 @@ static struct phy_driver gpy_drivers[] = {
 		.get_features	= genphy_c45_pma_read_abilities,
 		.config_init	= gpy_config_init,
 		.probe		= gpy_probe,
+		.inband_caps	= gpy_inband_caps,
+		.config_inband	= gpy_config_inband,
 		.suspend	= genphy_suspend,
 		.resume		= genphy_resume,
 		.config_aneg	= gpy_config_aneg,
@@ -1059,6 +1150,8 @@ static struct phy_driver gpy_drivers[] = {
 		.led_hw_control_get = gpy_led_hw_control_get,
 		.led_hw_control_set = gpy_led_hw_control_set,
 		.led_polarity_set = gpy_led_polarity_set,
+		.update_stats	= gpy_update_stats,
+		.get_phy_stats	= gpy_get_phy_stats,
 	},
 	{
 		PHY_ID_MATCH_MODEL(PHY_ID_GPY115C),
@@ -1066,6 +1159,8 @@ static struct phy_driver gpy_drivers[] = {
 		.get_features	= genphy_c45_pma_read_abilities,
 		.config_init	= gpy_config_init,
 		.probe		= gpy_probe,
+		.inband_caps	= gpy_inband_caps,
+		.config_inband	= gpy_config_inband,
 		.suspend	= genphy_suspend,
 		.resume		= genphy_resume,
 		.config_aneg	= gpy_config_aneg,
@@ -1081,6 +1176,8 @@ static struct phy_driver gpy_drivers[] = {
 		.led_hw_control_get = gpy_led_hw_control_get,
 		.led_hw_control_set = gpy_led_hw_control_set,
 		.led_polarity_set = gpy_led_polarity_set,
+		.update_stats	= gpy_update_stats,
+		.get_phy_stats	= gpy_get_phy_stats,
 	},
 	{
 		.phy_id		= PHY_ID_GPY211B,
@@ -1089,6 +1186,8 @@ static struct phy_driver gpy_drivers[] = {
 		.get_features	= genphy_c45_pma_read_abilities,
 		.config_init	= gpy21x_config_init,
 		.probe		= gpy_probe,
+		.inband_caps	= gpy_inband_caps,
+		.config_inband	= gpy_config_inband,
 		.suspend	= genphy_suspend,
 		.resume		= genphy_resume,
 		.config_aneg	= gpy_config_aneg,
@@ -1104,6 +1203,8 @@ static struct phy_driver gpy_drivers[] = {
 		.led_hw_control_get = gpy_led_hw_control_get,
 		.led_hw_control_set = gpy_led_hw_control_set,
 		.led_polarity_set = gpy_led_polarity_set,
+		.update_stats	= gpy_update_stats,
+		.get_phy_stats	= gpy_get_phy_stats,
 	},
 	{
 		PHY_ID_MATCH_MODEL(PHY_ID_GPY211C),
@@ -1111,6 +1212,8 @@ static struct phy_driver gpy_drivers[] = {
 		.get_features	= genphy_c45_pma_read_abilities,
 		.config_init	= gpy21x_config_init,
 		.probe		= gpy_probe,
+		.inband_caps	= gpy_inband_caps,
+		.config_inband	= gpy_config_inband,
 		.suspend	= genphy_suspend,
 		.resume		= genphy_resume,
 		.config_aneg	= gpy_config_aneg,
@@ -1126,6 +1229,8 @@ static struct phy_driver gpy_drivers[] = {
 		.led_hw_control_get = gpy_led_hw_control_get,
 		.led_hw_control_set = gpy_led_hw_control_set,
 		.led_polarity_set = gpy_led_polarity_set,
+		.update_stats	= gpy_update_stats,
+		.get_phy_stats	= gpy_get_phy_stats,
 	},
 	{
 		.phy_id		= PHY_ID_GPY212B,
@@ -1133,6 +1238,8 @@ static struct phy_driver gpy_drivers[] = {
 		.name		= "Maxlinear Ethernet GPY212B",
 		.get_features	= genphy_c45_pma_read_abilities,
 		.config_init	= gpy21x_config_init,
+		.inband_caps	= gpy_inband_caps,
+		.config_inband	= gpy_config_inband,
 		.probe		= gpy_probe,
 		.suspend	= genphy_suspend,
 		.resume		= genphy_resume,
@@ -1149,6 +1256,8 @@ static struct phy_driver gpy_drivers[] = {
 		.led_hw_control_get = gpy_led_hw_control_get,
 		.led_hw_control_set = gpy_led_hw_control_set,
 		.led_polarity_set = gpy_led_polarity_set,
+		.update_stats	= gpy_update_stats,
+		.get_phy_stats	= gpy_get_phy_stats,
 	},
 	{
 		PHY_ID_MATCH_MODEL(PHY_ID_GPY212C),
@@ -1156,6 +1265,8 @@ static struct phy_driver gpy_drivers[] = {
 		.get_features	= genphy_c45_pma_read_abilities,
 		.config_init	= gpy21x_config_init,
 		.probe		= gpy_probe,
+		.inband_caps	= gpy_inband_caps,
+		.config_inband	= gpy_config_inband,
 		.suspend	= genphy_suspend,
 		.resume		= genphy_resume,
 		.config_aneg	= gpy_config_aneg,
@@ -1171,6 +1282,8 @@ static struct phy_driver gpy_drivers[] = {
 		.led_hw_control_get = gpy_led_hw_control_get,
 		.led_hw_control_set = gpy_led_hw_control_set,
 		.led_polarity_set = gpy_led_polarity_set,
+		.update_stats	= gpy_update_stats,
+		.get_phy_stats	= gpy_get_phy_stats,
 	},
 	{
 		.phy_id		= PHY_ID_GPY215B,
@@ -1179,6 +1292,8 @@ static struct phy_driver gpy_drivers[] = {
 		.get_features	= genphy_c45_pma_read_abilities,
 		.config_init	= gpy21x_config_init,
 		.probe		= gpy_probe,
+		.inband_caps	= gpy_inband_caps,
+		.config_inband	= gpy_config_inband,
 		.suspend	= genphy_suspend,
 		.resume		= genphy_resume,
 		.config_aneg	= gpy_config_aneg,
@@ -1194,6 +1309,8 @@ static struct phy_driver gpy_drivers[] = {
 		.led_hw_control_get = gpy_led_hw_control_get,
 		.led_hw_control_set = gpy_led_hw_control_set,
 		.led_polarity_set = gpy_led_polarity_set,
+		.update_stats	= gpy_update_stats,
+		.get_phy_stats	= gpy_get_phy_stats,
 	},
 	{
 		PHY_ID_MATCH_MODEL(PHY_ID_GPY215C),
@@ -1201,6 +1318,8 @@ static struct phy_driver gpy_drivers[] = {
 		.get_features	= genphy_c45_pma_read_abilities,
 		.config_init	= gpy21x_config_init,
 		.probe		= gpy_probe,
+		.inband_caps	= gpy_inband_caps,
+		.config_inband	= gpy_config_inband,
 		.suspend	= genphy_suspend,
 		.resume		= genphy_resume,
 		.config_aneg	= gpy_config_aneg,
@@ -1216,6 +1335,8 @@ static struct phy_driver gpy_drivers[] = {
 		.led_hw_control_get = gpy_led_hw_control_get,
 		.led_hw_control_set = gpy_led_hw_control_set,
 		.led_polarity_set = gpy_led_polarity_set,
+		.update_stats	= gpy_update_stats,
+		.get_phy_stats	= gpy_get_phy_stats,
 	},
 	{
 		PHY_ID_MATCH_MODEL(PHY_ID_GPY241B),
@@ -1223,6 +1344,8 @@ static struct phy_driver gpy_drivers[] = {
 		.get_features	= genphy_c45_pma_read_abilities,
 		.config_init	= gpy_config_init,
 		.probe		= gpy_probe,
+		.inband_caps	= gpy_inband_caps,
+		.config_inband	= gpy_config_inband,
 		.suspend	= genphy_suspend,
 		.resume		= genphy_resume,
 		.config_aneg	= gpy_config_aneg,
@@ -1233,6 +1356,8 @@ static struct phy_driver gpy_drivers[] = {
 		.set_wol	= gpy_set_wol,
 		.get_wol	= gpy_get_wol,
 		.set_loopback	= gpy_loopback,
+		.update_stats	= gpy_update_stats,
+		.get_phy_stats	= gpy_get_phy_stats,
 	},
 	{
 		PHY_ID_MATCH_MODEL(PHY_ID_GPY241BM),
@@ -1240,6 +1365,8 @@ static struct phy_driver gpy_drivers[] = {
 		.get_features	= genphy_c45_pma_read_abilities,
 		.config_init	= gpy_config_init,
 		.probe		= gpy_probe,
+		.inband_caps	= gpy_inband_caps,
+		.config_inband	= gpy_config_inband,
 		.suspend	= genphy_suspend,
 		.resume		= genphy_resume,
 		.config_aneg	= gpy_config_aneg,
@@ -1250,10 +1377,59 @@ static struct phy_driver gpy_drivers[] = {
 		.set_wol	= gpy_set_wol,
 		.get_wol	= gpy_get_wol,
 		.set_loopback	= gpy_loopback,
+		.update_stats	= gpy_update_stats,
+		.get_phy_stats	= gpy_get_phy_stats,
 	},
 	{
 		PHY_ID_MATCH_MODEL(PHY_ID_GPY245B),
 		.name		= "Maxlinear Ethernet GPY245B",
+		.get_features	= genphy_c45_pma_read_abilities,
+		.config_init	= gpy_config_init,
+		.probe		= gpy_probe,
+		.inband_caps	= gpy_inband_caps,
+		.config_inband	= gpy_config_inband,
+		.suspend	= genphy_suspend,
+		.resume		= genphy_resume,
+		.config_aneg	= gpy_config_aneg,
+		.aneg_done	= genphy_c45_aneg_done,
+		.read_status	= gpy_read_status,
+		.config_intr	= gpy_config_intr,
+		.handle_interrupt = gpy_handle_interrupt,
+		.set_wol	= gpy_set_wol,
+		.get_wol	= gpy_get_wol,
+		.set_loopback	= gpy_loopback,
+		.update_stats	= gpy_update_stats,
+		.get_phy_stats	= gpy_get_phy_stats,
+	},
+	{
+		PHY_ID_MATCH_MODEL(PHY_ID_MXL86211C),
+		.name		= "Maxlinear Ethernet MxL86211C",
+		.get_features	= genphy_c45_pma_read_abilities,
+		.config_init	= gpy_config_init,
+		.probe		= gpy_probe,
+		.inband_caps	= gpy_inband_caps,
+		.config_inband	= gpy_config_inband,
+		.suspend	= genphy_suspend,
+		.resume		= genphy_resume,
+		.config_aneg	= gpy_config_aneg,
+		.aneg_done	= genphy_c45_aneg_done,
+		.read_status	= gpy_read_status,
+		.config_intr	= gpy_config_intr,
+		.handle_interrupt = gpy_handle_interrupt,
+		.set_wol	= gpy_set_wol,
+		.get_wol	= gpy_get_wol,
+		.set_loopback	= gpy_loopback,
+		.led_brightness_set = gpy_led_brightness_set,
+		.led_hw_is_supported = gpy_led_hw_is_supported,
+		.led_hw_control_get = gpy_led_hw_control_get,
+		.led_hw_control_set = gpy_led_hw_control_set,
+		.led_polarity_set = gpy_led_polarity_set,
+		.update_stats	= gpy_update_stats,
+		.get_phy_stats	= gpy_get_phy_stats,
+	},
+	{
+		PHY_ID_MATCH_MODEL(PHY_ID_MXL86252),
+		.name		= "MaxLinear Ethernet MxL86252",
 		.get_features	= genphy_c45_pma_read_abilities,
 		.config_init	= gpy_config_init,
 		.probe		= gpy_probe,
@@ -1267,6 +1443,37 @@ static struct phy_driver gpy_drivers[] = {
 		.set_wol	= gpy_set_wol,
 		.get_wol	= gpy_get_wol,
 		.set_loopback	= gpy_loopback,
+		.update_stats	= gpy_update_stats,
+		.get_phy_stats	= gpy_get_phy_stats,
+		.led_brightness_set = gpy_led_brightness_set,
+		.led_hw_is_supported = gpy_led_hw_is_supported,
+		.led_hw_control_get = gpy_led_hw_control_get,
+		.led_hw_control_set = gpy_led_hw_control_set,
+		.led_polarity_set = gpy_led_polarity_set,
+	},
+	{
+		PHY_ID_MATCH_MODEL(PHY_ID_MXL86282),
+		.name		= "MaxLinear Ethernet MxL86282",
+		.get_features	= genphy_c45_pma_read_abilities,
+		.config_init	= gpy_config_init,
+		.probe		= gpy_probe,
+		.suspend	= genphy_suspend,
+		.resume		= genphy_resume,
+		.config_aneg	= gpy_config_aneg,
+		.aneg_done	= genphy_c45_aneg_done,
+		.read_status	= gpy_read_status,
+		.config_intr	= gpy_config_intr,
+		.handle_interrupt = gpy_handle_interrupt,
+		.set_wol	= gpy_set_wol,
+		.get_wol	= gpy_get_wol,
+		.set_loopback	= gpy_loopback,
+		.update_stats	= gpy_update_stats,
+		.get_phy_stats	= gpy_get_phy_stats,
+		.led_brightness_set = gpy_led_brightness_set,
+		.led_hw_is_supported = gpy_led_hw_is_supported,
+		.led_hw_control_get = gpy_led_hw_control_get,
+		.led_hw_control_set = gpy_led_hw_control_set,
+		.led_polarity_set = gpy_led_polarity_set,
 	},
 };
 module_phy_driver(gpy_drivers);
@@ -1284,6 +1491,9 @@ static const struct mdio_device_id __maybe_unused gpy_tbl[] = {
 	{PHY_ID_MATCH_MODEL(PHY_ID_GPY241B)},
 	{PHY_ID_MATCH_MODEL(PHY_ID_GPY241BM)},
 	{PHY_ID_MATCH_MODEL(PHY_ID_GPY245B)},
+	{PHY_ID_MATCH_MODEL(PHY_ID_MXL86211C)},
+	{PHY_ID_MATCH_MODEL(PHY_ID_MXL86252)},
+	{PHY_ID_MATCH_MODEL(PHY_ID_MXL86282)},
 	{ }
 };
 MODULE_DEVICE_TABLE(mdio, gpy_tbl);

@@ -48,6 +48,7 @@
 
 /* AMD-specific bits */
 #define MCI_STATUS_TCC		BIT_ULL(55)  /* Task context corrupt */
+#define MCI_STATUS_PADDRV	BIT_ULL(54)  /* Valid System Physical Address */
 #define MCI_STATUS_SYNDV	BIT_ULL(53)  /* synd reg. valid */
 #define MCI_STATUS_DEFERRED	BIT_ULL(44)  /* uncorrected error, deferred exception */
 #define MCI_STATUS_POISON	BIT_ULL(43)  /* access poisonous data */
@@ -62,6 +63,7 @@
  */
 #define MCI_CONFIG_MCAX		0x1
 #define MCI_CONFIG_FRUTEXT	BIT_ULL(9)
+#define MCI_CONFIG_PADDRV	BIT_ULL(11)
 #define MCI_IPID_MCATYPE	0xFFFF0000
 #define MCI_IPID_HWID		0xFFF
 
@@ -166,6 +168,12 @@
 #define MCE_IN_KERNEL_COPYIN	BIT_ULL(7)
 
 /*
+ * Indicates that handler should check and clear Deferred error registers
+ * rather than common ones.
+ */
+#define MCE_CHECK_DFR_REGS	BIT_ULL(8)
+
+/*
  * This structure contains all data related to the MCE log.  Also
  * carries a signature to make it easier to find from external
  * debugging tools.  Each entry is only valid when its finished flag
@@ -241,12 +249,14 @@ struct cper_ia_proc_ctx;
 
 #ifdef CONFIG_X86_MCE
 int mcheck_init(void);
+void mca_bsp_init(struct cpuinfo_x86 *c);
 void mcheck_cpu_init(struct cpuinfo_x86 *c);
 void mcheck_cpu_clear(struct cpuinfo_x86 *c);
 int apei_smca_report_x86_error(struct cper_ia_proc_ctx *ctx_info,
 			       u64 lapic_id);
 #else
 static inline int mcheck_init(void) { return 0; }
+static inline void mca_bsp_init(struct cpuinfo_x86 *c) {}
 static inline void mcheck_cpu_init(struct cpuinfo_x86 *c) {}
 static inline void mcheck_cpu_clear(struct cpuinfo_x86 *c) {}
 static inline int apei_smca_report_x86_error(struct cper_ia_proc_ctx *ctx_info,
@@ -290,8 +300,7 @@ DECLARE_PER_CPU(mce_banks_t, mce_poll_banks);
 enum mcp_flags {
 	MCP_TIMESTAMP	= BIT(0),	/* log time stamp */
 	MCP_UC		= BIT(1),	/* log uncorrected errors */
-	MCP_DONTLOG	= BIT(2),	/* only clear, don't log */
-	MCP_QUEUE_LOG	= BIT(3),	/* only queue to genpool */
+	MCP_QUEUE_LOG	= BIT(2),	/* only queue to genpool */
 };
 
 void machine_check_poll(enum mcp_flags flags, mce_banks_t *b);
@@ -300,6 +309,12 @@ DECLARE_PER_CPU(struct mce, injectm);
 
 /* Disable CMCI/polling for MCA bank claimed by firmware */
 extern void mce_disable_bank(int bank);
+
+#ifdef CONFIG_X86_MCE_THRESHOLD
+void mce_save_apei_thr_limit(u32 thr_limit);
+#else
+static inline void mce_save_apei_thr_limit(u32 thr_limit) { }
+#endif /* CONFIG_X86_MCE_THRESHOLD */
 
 /*
  * Exception handler
@@ -328,58 +343,68 @@ extern void apei_mce_report_mem_error(int corrected,
  */
 #ifdef CONFIG_X86_MCE_AMD
 
-/* These may be used by multiple smca_hwid_mcatypes */
+/*
+ * These may be used by multiple smca_hwid_mcatypes.
+ *
+ * Keep in alphanumeric order, numerals before letters.
+ * Exception: Keep "V2, etc." with their originals.
+ */
 enum smca_bank_types {
-	SMCA_LS = 0,	/* Load Store */
-	SMCA_LS_V2,
-	SMCA_IF,	/* Instruction Fetch */
-	SMCA_L2_CACHE,	/* L2 Cache */
+	SMCA_CS,	/* Coherent Station */
+	SMCA_CS_V2,
+	SMCA_DACC_BE,	/* Data Acceleration Back-end */
+	SMCA_DACC_FE,	/* Data Acceleration Front-end */
 	SMCA_DE,	/* Decoder Unit */
-	SMCA_RESERVED,	/* Reserved */
+	SMCA_EDDR5CMN,	/* eDDR5 CMN */
 	SMCA_EX,	/* Execution Unit */
 	SMCA_FP,	/* Floating Point */
+	SMCA_GMI_PCS,	/* GMI PCS Unit */
+	SMCA_GMI_PHY,	/* GMI PHY Unit */
+	SMCA_IF,	/* Instruction Fetch */
+	SMCA_L2_CACHE,	/* L2 Cache */
 	SMCA_L3_CACHE,	/* L3 Cache */
-	SMCA_CS,	/* Coherent Slave */
-	SMCA_CS_V2,
-	SMCA_PIE,	/* Power, Interrupts, etc. */
-	SMCA_UMC,	/* Unified Memory Controller */
-	SMCA_UMC_V2,
+	SMCA_LS,	/* Load Store */
+	SMCA_LS_V2,
 	SMCA_MA_LLC,	/* Memory Attached Last Level Cache */
-	SMCA_PB,	/* Parameter Block */
-	SMCA_PSP,	/* Platform Security Processor */
-	SMCA_PSP_V2,
-	SMCA_SMU,	/* System Management Unit */
-	SMCA_SMU_V2,
 	SMCA_MP5,	/* Microprocessor 5 Unit */
+	SMCA_MPART,	/* AMD Root of Trust Microprocessor */
+	SMCA_MPASP,	/* AMD Secure Processor */
+	SMCA_MPASP_V2,
+	SMCA_MPDACC,	/* MP for Data Acceleration */
 	SMCA_MPDMA,	/* MPDMA Unit */
+	SMCA_MPM,	/* Microprocessor Manageability Core */
+	SMCA_MPRAS,	/* MP for RAS */
+	SMCA_NBIF,	/* NBIF Unit */
 	SMCA_NBIO,	/* Northbridge IO Unit */
+	SMCA_PB,	/* Parameter Block */
 	SMCA_PCIE,	/* PCI Express Unit */
 	SMCA_PCIE_V2,
-	SMCA_XGMI_PCS,	/* xGMI PCS Unit */
-	SMCA_NBIF,	/* NBIF Unit */
-	SMCA_SHUB,	/* System HUB Unit */
+	SMCA_PCIE_PL,	/* PCIe Link */
+	SMCA_PIE,	/* Power, Interrupts, etc. */
+	SMCA_PSP,	/* Platform Security Processor */
+	SMCA_PSP_V2,
+	SMCA_RESERVED,	/* Reserved */
 	SMCA_SATA,	/* SATA Unit */
+	SMCA_SHUB,	/* System HUB Unit */
+	SMCA_SMU,	/* System Management Unit */
+	SMCA_SMU_V2,
+	SMCA_SSBDCI,	/* Die to Die Interconnect */
+	SMCA_UMC,	/* Unified Memory Controller */
+	SMCA_UMC_V2,
 	SMCA_USB,	/* USB Unit */
-	SMCA_USR_DP,	/* Ultra Short Reach Data Plane Controller */
 	SMCA_USR_CP,	/* Ultra Short Reach Control Plane Controller */
-	SMCA_GMI_PCS,	/* GMI PCS Unit */
-	SMCA_XGMI_PHY,	/* xGMI PHY Unit */
+	SMCA_USR_DP,	/* Ultra Short Reach Data Plane Controller */
 	SMCA_WAFL_PHY,	/* WAFL PHY Unit */
-	SMCA_GMI_PHY,	/* GMI PHY Unit */
+	SMCA_XGMI_PCS,	/* xGMI PCS Unit */
+	SMCA_XGMI_PHY,	/* xGMI PHY Unit */
 	N_SMCA_BANK_TYPES
 };
 
 extern bool amd_mce_is_memory_error(struct mce *m);
 
-extern int mce_threshold_create_device(unsigned int cpu);
-extern int mce_threshold_remove_device(unsigned int cpu);
-
 void mce_amd_feature_init(struct cpuinfo_x86 *c);
 enum smca_bank_types smca_get_bank_type(unsigned int cpu, unsigned int bank);
 #else
-
-static inline int mce_threshold_create_device(unsigned int cpu)		{ return 0; };
-static inline int mce_threshold_remove_device(unsigned int cpu)		{ return 0; };
 static inline bool amd_mce_is_memory_error(struct mce *m)		{ return false; };
 static inline void mce_amd_feature_init(struct cpuinfo_x86 *c)		{ }
 #endif

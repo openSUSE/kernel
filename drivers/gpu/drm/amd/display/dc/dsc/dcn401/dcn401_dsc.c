@@ -26,6 +26,7 @@ static const struct dsc_funcs dcn401_dsc_funcs = {
 	.dsc_disconnect = dsc401_disconnect,
 	.dsc_wait_disconnect_pending_clear = dsc401_wait_disconnect_pending_clear,
 	.dsc_get_single_enc_caps = dsc401_get_single_enc_caps,
+	.dsc_read_reg_state = dsc2_read_reg_state
 };
 
 /* Macro definitios for REG_SET macros*/
@@ -77,7 +78,7 @@ static void dsc401_get_single_enc_caps(struct dsc_enc_caps *dsc_enc_caps, unsign
 	dsc_enc_caps->color_formats.bits.RGB = 1;
 	dsc_enc_caps->color_formats.bits.YCBCR_444 = 1;
 	dsc_enc_caps->color_formats.bits.YCBCR_SIMPLE_422 = 1;
-	dsc_enc_caps->color_formats.bits.YCBCR_NATIVE_422 = 0;
+	dsc_enc_caps->color_formats.bits.YCBCR_NATIVE_422 = 1;
 	dsc_enc_caps->color_formats.bits.YCBCR_NATIVE_420 = 1;
 
 	dsc_enc_caps->color_depth.bits.COLOR_DEPTH_8_BPC = 1;
@@ -106,6 +107,11 @@ void dsc401_read_state(struct display_stream_compressor *dsc, struct dcn_dsc_sta
 	REG_GET(DSCC_PPS_CONFIG7, SLICE_BPG_OFFSET, &s->dsc_slice_bpg_offset);
 	REG_GET_2(DSCRM_DSC_FORWARD_CONFIG, DSCRM_DSC_FORWARD_EN, &s->dsc_fw_en,
 		DSCRM_DSC_OPP_PIPE_SOURCE, &s->dsc_opp_source);
+	REG_GET(DSCC_PPS_CONFIG1, BLOCK_PRED_ENABLE, &s->dsc_block_pred_enable);
+	REG_GET(DSCC_PPS_CONFIG0, LINEBUF_DEPTH, &s->dsc_line_buf_depth);
+	REG_GET(DSCC_PPS_CONFIG0, DSC_VERSION_MINOR, &s->dsc_version_minor);
+	REG_GET(DSCC_CONFIG1, DSCC_RATE_CONTROL_BUFFER_MODEL_SIZE, &s->dsc_rc_buffer_size);
+	REG_GET(DSCC_PPS_CONFIG0, SIMPLE_422, &s->dsc_simple_422);
 }
 
 
@@ -113,8 +119,9 @@ bool dsc401_validate_stream(struct display_stream_compressor *dsc, const struct 
 {
 	struct dsc_optc_config dsc_optc_cfg;
 	struct dcn401_dsc *dsc401 = TO_DCN401_DSC(dsc);
+	uint32_t max_image_width = (uint32_t)dsc401->max_image_width;
 
-	if (dsc_cfg->pic_width > dsc401->max_image_width)
+	if (dsc_cfg->pic_width > max_image_width)
 		return false;
 
 	return dsc_prepare_config(dsc_cfg, &dsc401->reg_vals, &dsc_optc_cfg);

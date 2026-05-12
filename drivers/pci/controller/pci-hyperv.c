@@ -501,7 +501,6 @@ struct hv_pcibus_device {
 	struct resource *low_mmio_res;
 	struct resource *high_mmio_res;
 	struct completion *survey_event;
-	struct pci_bus *pci_bus;
 	spinlock_t config_lock;	/* Avoid two threads writing index page */
 	spinlock_t device_list_lock;	/* Protect lists below */
 	void __iomem *cfg_addr;
@@ -946,7 +945,7 @@ static int hv_pci_irqchip_init(void)
 	struct irq_domain *irq_domain_parent = NULL;
 	int ret = -ENOMEM;
 
-	chip_data = kzalloc(sizeof(*chip_data), GFP_KERNEL);
+	chip_data = kzalloc_obj(*chip_data);
 	if (!chip_data)
 		return ret;
 
@@ -1680,7 +1679,6 @@ static void hv_int_desc_free(struct hv_pci_dev *hpdev,
 /**
  * hv_msi_free() - Free the MSI.
  * @domain:	The interrupt domain pointer
- * @info:	Extra MSI-related context
  * @irq:	Identifies the IRQ.
  *
  * The Hyper-V parent partition and hypervisor are tracking the
@@ -1688,8 +1686,7 @@ static void hv_int_desc_free(struct hv_pci_dev *hpdev,
  * table up to date.  This callback sends a message that frees
  * the IRT entry and related tracking nonsense.
  */
-static void hv_msi_free(struct irq_domain *domain, struct msi_domain_info *info,
-			unsigned int irq)
+static void hv_msi_free(struct irq_domain *domain, unsigned int irq)
 {
 	struct hv_pcibus_device *hbus;
 	struct hv_pci_dev *hpdev;
@@ -1935,7 +1932,7 @@ static void hv_compose_msi_msg(struct irq_data *data, struct msi_msg *msg)
 		hv_int_desc_free(hpdev, int_desc);
 	}
 
-	int_desc = kzalloc(sizeof(*int_desc), GFP_ATOMIC);
+	int_desc = kzalloc_obj(*int_desc, GFP_ATOMIC);
 	if (!int_desc)
 		goto drop_reference;
 
@@ -2181,10 +2178,8 @@ static int hv_pcie_domain_alloc(struct irq_domain *d, unsigned int virq, unsigne
 
 static void hv_pcie_domain_free(struct irq_domain *d, unsigned int virq, unsigned int nr_irqs)
 {
-	struct msi_domain_info *info = d->host_data;
-
 	for (int i = 0; i < nr_irqs; i++)
-		hv_msi_free(d, info, virq + i);
+		hv_msi_free(d, virq + i);
 
 	irq_domain_free_irqs_top(d, virq, nr_irqs);
 }
@@ -2490,6 +2485,14 @@ static void hv_pci_assign_numa_node(struct hv_pcibus_device *hbus)
 		if (!hv_dev)
 			continue;
 
+		/*
+		 * If the Hyper-V host doesn't provide a NUMA node for the
+		 * device, default to node 0. With NUMA_NO_NODE the kernel
+		 * may spread work across NUMA nodes, which degrades
+		 * performance on Hyper-V.
+		 */
+		set_dev_node(&dev->dev, 0);
+
 		if (hv_dev->desc.flags & HV_PCI_DEVICE_FLAG_NUMA_AFFINITY &&
 		    hv_dev->desc.virtual_numa_node < num_possible_nodes())
 			/*
@@ -2597,7 +2600,7 @@ static struct hv_pci_dev *new_pcichild_device(struct hv_pcibus_device *hbus,
 	unsigned long flags;
 	int ret;
 
-	hpdev = kzalloc(sizeof(*hpdev), GFP_KERNEL);
+	hpdev = kzalloc_obj(*hpdev);
 	if (!hpdev)
 		return NULL;
 
@@ -2836,7 +2839,7 @@ static int hv_pci_start_relations_work(struct hv_pcibus_device *hbus,
 		return -ENOENT;
 	}
 
-	dr_wrk = kzalloc(sizeof(*dr_wrk), GFP_NOWAIT);
+	dr_wrk = kzalloc_obj(*dr_wrk, GFP_NOWAIT);
 	if (!dr_wrk)
 		return -ENOMEM;
 
@@ -2876,8 +2879,7 @@ static void hv_pci_devices_present(struct hv_pcibus_device *hbus,
 	struct hv_dr_state *dr;
 	int i;
 
-	dr = kzalloc(struct_size(dr, func, relations->device_count),
-		     GFP_NOWAIT);
+	dr = kzalloc_flex(*dr, func, relations->device_count, GFP_NOWAIT);
 	if (!dr)
 		return;
 
@@ -2911,8 +2913,7 @@ static void hv_pci_devices_present2(struct hv_pcibus_device *hbus,
 	struct hv_dr_state *dr;
 	int i;
 
-	dr = kzalloc(struct_size(dr, func, relations->device_count),
-		     GFP_NOWAIT);
+	dr = kzalloc_flex(*dr, func, relations->device_count, GFP_NOWAIT);
 	if (!dr)
 		return;
 
@@ -3700,48 +3701,6 @@ static int hv_send_resources_released(struct hv_device *hdev)
 	return 0;
 }
 
-#define HVPCI_DOM_MAP_SIZE (64 * 1024)
-static DECLARE_BITMAP(hvpci_dom_map, HVPCI_DOM_MAP_SIZE);
-
-/*
- * PCI domain number 0 is used by emulated devices on Gen1 VMs, so define 0
- * as invalid for passthrough PCI devices of this driver.
- */
-#define HVPCI_DOM_INVALID 0
-
-/**
- * hv_get_dom_num() - Get a valid PCI domain number
- * Check if the PCI domain number is in use, and return another number if
- * it is in use.
- *
- * @dom: Requested domain number
- *
- * return: domain number on success, HVPCI_DOM_INVALID on failure
- */
-static u16 hv_get_dom_num(u16 dom)
-{
-	unsigned int i;
-
-	if (test_and_set_bit(dom, hvpci_dom_map) == 0)
-		return dom;
-
-	for_each_clear_bit(i, hvpci_dom_map, HVPCI_DOM_MAP_SIZE) {
-		if (test_and_set_bit(i, hvpci_dom_map) == 0)
-			return i;
-	}
-
-	return HVPCI_DOM_INVALID;
-}
-
-/**
- * hv_put_dom_num() - Mark the PCI domain number as free
- * @dom: Domain number to be freed
- */
-static void hv_put_dom_num(u16 dom)
-{
-	clear_bit(dom, hvpci_dom_map);
-}
-
 /**
  * hv_pci_probe() - New VMBus channel probe, for a root PCI bus
  * @hdev:	VMBus's tracking struct for this root PCI bus
@@ -3754,15 +3713,15 @@ static int hv_pci_probe(struct hv_device *hdev,
 {
 	struct pci_host_bridge *bridge;
 	struct hv_pcibus_device *hbus;
-	u16 dom_req, dom;
+	int ret, dom;
+	u16 dom_req;
 	char *name;
-	int ret;
 
 	bridge = devm_pci_alloc_host_bridge(&hdev->device, 0);
 	if (!bridge)
 		return -ENOMEM;
 
-	hbus = kzalloc(sizeof(*hbus), GFP_KERNEL);
+	hbus = kzalloc_obj(*hbus);
 	if (!hbus)
 		return -ENOMEM;
 
@@ -3783,11 +3742,14 @@ static int hv_pci_probe(struct hv_device *hdev,
 	 * PCI bus (which is actually emulated by the hypervisor) is domain 0.
 	 * (2) There will be no overlap between domains (after fixing possible
 	 * collisions) in the same VM.
+	 *
+	 * Because Gen1 VMs use domain 0, don't allow picking domain 0 here,
+	 * even if bytes 4 and 5 of the instance GUID are both zero. For wider
+	 * userspace compatibility, limit the domain ID to a 16-bit value.
 	 */
 	dom_req = hdev->dev_instance.b[5] << 8 | hdev->dev_instance.b[4];
-	dom = hv_get_dom_num(dom_req);
-
-	if (dom == HVPCI_DOM_INVALID) {
+	dom = pci_bus_find_emul_domain_nr(dom_req, 1, U16_MAX);
+	if (dom < 0) {
 		dev_err(&hdev->device,
 			"Unable to use dom# 0x%x or other numbers", dom_req);
 		ret = -EINVAL;
@@ -3824,7 +3786,7 @@ static int hv_pci_probe(struct hv_device *hdev,
 					   hbus->bridge->domain_nr);
 	if (!hbus->wq) {
 		ret = -ENOMEM;
-		goto free_dom;
+		goto free_bus;
 	}
 
 	hdev->channel->next_request_id_callback = vmbus_next_request_id;
@@ -3920,8 +3882,6 @@ close:
 	vmbus_close(hdev->channel);
 destroy_wq:
 	destroy_workqueue(hbus->wq);
-free_dom:
-	hv_put_dom_num(hbus->bridge->domain_nr);
 free_bus:
 	kfree(hbus);
 	return ret;
@@ -4045,8 +4005,6 @@ static void hv_pci_remove(struct hv_device *hdev)
 	hv_pci_free_bridge_windows(hbus);
 	irq_domain_remove(hbus->irq_domain);
 	irq_domain_free_fwnode(hbus->fwnode);
-
-	hv_put_dom_num(hbus->bridge->domain_nr);
 
 	kfree(hbus);
 }
@@ -4214,15 +4172,12 @@ static int __init init_hv_pci_drv(void)
 	if (!hv_is_hyperv_initialized())
 		return -ENODEV;
 
-	if (hv_root_partition() && !hv_nested)
+	if (!hv_vmbus_exists())
 		return -ENODEV;
 
 	ret = hv_pci_irqchip_init();
 	if (ret)
 		return ret;
-
-	/* Set the invalid domain number's bit, so it will not be used */
-	set_bit(HVPCI_DOM_INVALID, hvpci_dom_map);
 
 	/* Initialize PCI block r/w interface */
 	hvpci_block_ops.read_block = hv_read_config_block;

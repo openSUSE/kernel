@@ -346,6 +346,42 @@ int btrfs_verify_qgroup_counts(const struct btrfs_fs_info *fs_info, u64 qgroupid
 }
 #endif
 
+static bool squota_check_parent_usage(struct btrfs_fs_info *fs_info, struct btrfs_qgroup *parent)
+{
+	u64 excl_sum = 0;
+	u64 rfer_sum = 0;
+	u64 excl_cmpr_sum = 0;
+	u64 rfer_cmpr_sum = 0;
+	struct btrfs_qgroup_list *glist;
+	int nr_members = 0;
+	bool mismatch;
+
+	if (btrfs_qgroup_mode(fs_info) != BTRFS_QGROUP_MODE_SIMPLE)
+		return false;
+	if (btrfs_qgroup_level(parent->qgroupid) == 0)
+		return false;
+
+	/* Eligible parent qgroup. Squota; level > 0; empty members list. */
+	list_for_each_entry(glist, &parent->members, next_member) {
+		excl_sum += glist->member->excl;
+		rfer_sum += glist->member->rfer;
+		excl_cmpr_sum += glist->member->excl_cmpr;
+		rfer_cmpr_sum += glist->member->rfer_cmpr;
+		nr_members++;
+	}
+	mismatch = (parent->excl != excl_sum || parent->rfer != rfer_sum ||
+		    parent->excl_cmpr != excl_cmpr_sum || parent->rfer_cmpr != rfer_cmpr_sum);
+
+	WARN(mismatch,
+	     "parent squota qgroup %hu/%llu has mismatched usage from its %d members. "
+	     "%llu %llu %llu %llu vs %llu %llu %llu %llu\n",
+	     btrfs_qgroup_level(parent->qgroupid),
+	     btrfs_qgroup_subvolid(parent->qgroupid), nr_members, parent->excl,
+	     parent->rfer, parent->excl_cmpr, parent->rfer_cmpr, excl_sum,
+	     rfer_sum, excl_cmpr_sum, rfer_cmpr_sum);
+	return mismatch;
+}
+
 __printf(2, 3)
 static void qgroup_mark_inconsistent(struct btrfs_fs_info *fs_info, const char *fmt, ...)
 {
@@ -459,7 +495,7 @@ int btrfs_read_qgroup_config(struct btrfs_fs_info *fs_info)
 			struct btrfs_qgroup *prealloc;
 			struct btrfs_root *tree_root = fs_info->tree_root;
 
-			prealloc = kzalloc(sizeof(*prealloc), GFP_KERNEL);
+			prealloc = kzalloc_obj(*prealloc);
 			if (!prealloc) {
 				ret = -ENOMEM;
 				goto out;
@@ -549,7 +585,7 @@ next1:
 			goto next2;
 		}
 
-		list = kzalloc(sizeof(*list), GFP_KERNEL);
+		list = kzalloc_obj(*list);
 		if (!list) {
 			ret = -ENOMEM;
 			goto out;
@@ -658,9 +694,8 @@ void btrfs_free_qgroup_config(struct btrfs_fs_info *fs_info)
 static int add_qgroup_relation_item(struct btrfs_trans_handle *trans, u64 src,
 				    u64 dst)
 {
-	int ret;
 	struct btrfs_root *quota_root = trans->fs_info->quota_root;
-	struct btrfs_path *path;
+	BTRFS_PATH_AUTO_FREE(path);
 	struct btrfs_key key;
 
 	path = btrfs_alloc_path();
@@ -671,9 +706,7 @@ static int add_qgroup_relation_item(struct btrfs_trans_handle *trans, u64 src,
 	key.type = BTRFS_QGROUP_RELATION_KEY;
 	key.offset = dst;
 
-	ret = btrfs_insert_empty_item(trans, quota_root, path, &key, 0);
-	btrfs_free_path(path);
-	return ret;
+	return btrfs_insert_empty_item(trans, quota_root, path, &key, 0);
 }
 
 static int del_qgroup_relation_item(struct btrfs_trans_handle *trans, u64 src,
@@ -681,7 +714,7 @@ static int del_qgroup_relation_item(struct btrfs_trans_handle *trans, u64 src,
 {
 	int ret;
 	struct btrfs_root *quota_root = trans->fs_info->quota_root;
-	struct btrfs_path *path;
+	BTRFS_PATH_AUTO_FREE(path);
 	struct btrfs_key key;
 
 	path = btrfs_alloc_path();
@@ -694,24 +727,19 @@ static int del_qgroup_relation_item(struct btrfs_trans_handle *trans, u64 src,
 
 	ret = btrfs_search_slot(trans, quota_root, &key, path, -1, 1);
 	if (ret < 0)
-		goto out;
+		return ret;
 
-	if (ret > 0) {
-		ret = -ENOENT;
-		goto out;
-	}
+	if (ret > 0)
+		return -ENOENT;
 
-	ret = btrfs_del_item(trans, quota_root, path);
-out:
-	btrfs_free_path(path);
-	return ret;
+	return btrfs_del_item(trans, quota_root, path);
 }
 
 static int add_qgroup_item(struct btrfs_trans_handle *trans,
 			   struct btrfs_root *quota_root, u64 qgroupid)
 {
 	int ret;
-	struct btrfs_path *path;
+	BTRFS_PATH_AUTO_FREE(path);
 	struct btrfs_qgroup_info_item *qgroup_info;
 	struct btrfs_qgroup_limit_item *qgroup_limit;
 	struct extent_buffer *leaf;
@@ -737,7 +765,7 @@ static int add_qgroup_item(struct btrfs_trans_handle *trans,
 	ret = btrfs_insert_empty_item(trans, quota_root, path, &key,
 				      sizeof(*qgroup_info));
 	if (ret && ret != -EEXIST)
-		goto out;
+		return ret;
 
 	leaf = path->nodes[0];
 	qgroup_info = btrfs_item_ptr(leaf, path->slots[0],
@@ -754,7 +782,7 @@ static int add_qgroup_item(struct btrfs_trans_handle *trans,
 	ret = btrfs_insert_empty_item(trans, quota_root, path, &key,
 				      sizeof(*qgroup_limit));
 	if (ret && ret != -EEXIST)
-		goto out;
+		return ret;
 
 	leaf = path->nodes[0];
 	qgroup_limit = btrfs_item_ptr(leaf, path->slots[0],
@@ -765,17 +793,14 @@ static int add_qgroup_item(struct btrfs_trans_handle *trans,
 	btrfs_set_qgroup_limit_rsv_rfer(leaf, qgroup_limit, 0);
 	btrfs_set_qgroup_limit_rsv_excl(leaf, qgroup_limit, 0);
 
-	ret = 0;
-out:
-	btrfs_free_path(path);
-	return ret;
+	return 0;
 }
 
 static int del_qgroup_item(struct btrfs_trans_handle *trans, u64 qgroupid)
 {
 	int ret;
 	struct btrfs_root *quota_root = trans->fs_info->quota_root;
-	struct btrfs_path *path;
+	BTRFS_PATH_AUTO_FREE(path);
 	struct btrfs_key key;
 
 	path = btrfs_alloc_path();
@@ -787,41 +812,33 @@ static int del_qgroup_item(struct btrfs_trans_handle *trans, u64 qgroupid)
 	key.offset = qgroupid;
 	ret = btrfs_search_slot(trans, quota_root, &key, path, -1, 1);
 	if (ret < 0)
-		goto out;
+		return ret;
 
-	if (ret > 0) {
-		ret = -ENOENT;
-		goto out;
-	}
+	if (ret > 0)
+		return -ENOENT;
 
 	ret = btrfs_del_item(trans, quota_root, path);
 	if (ret)
-		goto out;
+		return ret;
 
 	btrfs_release_path(path);
 
 	key.type = BTRFS_QGROUP_LIMIT_KEY;
 	ret = btrfs_search_slot(trans, quota_root, &key, path, -1, 1);
 	if (ret < 0)
-		goto out;
+		return ret;
 
-	if (ret > 0) {
-		ret = -ENOENT;
-		goto out;
-	}
+	if (ret > 0)
+		return -ENOENT;
 
-	ret = btrfs_del_item(trans, quota_root, path);
-
-out:
-	btrfs_free_path(path);
-	return ret;
+	return btrfs_del_item(trans, quota_root, path);
 }
 
 static int update_qgroup_limit_item(struct btrfs_trans_handle *trans,
 				    struct btrfs_qgroup *qgroup)
 {
 	struct btrfs_root *quota_root = trans->fs_info->quota_root;
-	struct btrfs_path *path;
+	BTRFS_PATH_AUTO_FREE(path);
 	struct btrfs_key key;
 	struct extent_buffer *l;
 	struct btrfs_qgroup_limit_item *qgroup_limit;
@@ -841,7 +858,7 @@ static int update_qgroup_limit_item(struct btrfs_trans_handle *trans,
 		ret = -ENOENT;
 
 	if (ret)
-		goto out;
+		return ret;
 
 	l = path->nodes[0];
 	slot = path->slots[0];
@@ -851,8 +868,7 @@ static int update_qgroup_limit_item(struct btrfs_trans_handle *trans,
 	btrfs_set_qgroup_limit_max_excl(l, qgroup_limit, qgroup->max_excl);
 	btrfs_set_qgroup_limit_rsv_rfer(l, qgroup_limit, qgroup->rsv_rfer);
 	btrfs_set_qgroup_limit_rsv_excl(l, qgroup_limit, qgroup->rsv_excl);
-out:
-	btrfs_free_path(path);
+
 	return ret;
 }
 
@@ -861,7 +877,7 @@ static int update_qgroup_info_item(struct btrfs_trans_handle *trans,
 {
 	struct btrfs_fs_info *fs_info = trans->fs_info;
 	struct btrfs_root *quota_root = fs_info->quota_root;
-	struct btrfs_path *path;
+	BTRFS_PATH_AUTO_FREE(path);
 	struct btrfs_key key;
 	struct extent_buffer *l;
 	struct btrfs_qgroup_info_item *qgroup_info;
@@ -884,7 +900,7 @@ static int update_qgroup_info_item(struct btrfs_trans_handle *trans,
 		ret = -ENOENT;
 
 	if (ret)
-		goto out;
+		return ret;
 
 	l = path->nodes[0];
 	slot = path->slots[0];
@@ -894,8 +910,7 @@ static int update_qgroup_info_item(struct btrfs_trans_handle *trans,
 	btrfs_set_qgroup_info_rfer_cmpr(l, qgroup_info, qgroup->rfer_cmpr);
 	btrfs_set_qgroup_info_excl(l, qgroup_info, qgroup->excl);
 	btrfs_set_qgroup_info_excl_cmpr(l, qgroup_info, qgroup->excl_cmpr);
-out:
-	btrfs_free_path(path);
+
 	return ret;
 }
 
@@ -903,7 +918,7 @@ static int update_qgroup_status_item(struct btrfs_trans_handle *trans)
 {
 	struct btrfs_fs_info *fs_info = trans->fs_info;
 	struct btrfs_root *quota_root = fs_info->quota_root;
-	struct btrfs_path *path;
+	BTRFS_PATH_AUTO_FREE(path);
 	struct btrfs_key key;
 	struct extent_buffer *l;
 	struct btrfs_qgroup_status_item *ptr;
@@ -923,7 +938,7 @@ static int update_qgroup_status_item(struct btrfs_trans_handle *trans)
 		ret = -ENOENT;
 
 	if (ret)
-		goto out;
+		return ret;
 
 	l = path->nodes[0];
 	slot = path->slots[0];
@@ -933,8 +948,7 @@ static int update_qgroup_status_item(struct btrfs_trans_handle *trans)
 	btrfs_set_qgroup_status_generation(l, ptr, trans->transid);
 	btrfs_set_qgroup_status_rescan(l, ptr,
 				fs_info->qgroup_rescan_progress.objectid);
-out:
-	btrfs_free_path(path);
+
 	return ret;
 }
 
@@ -944,7 +958,7 @@ out:
 static int btrfs_clean_quota_tree(struct btrfs_trans_handle *trans,
 				  struct btrfs_root *root)
 {
-	struct btrfs_path *path;
+	BTRFS_PATH_AUTO_FREE(path);
 	struct btrfs_key key;
 	struct extent_buffer *leaf = NULL;
 	int ret;
@@ -961,7 +975,7 @@ static int btrfs_clean_quota_tree(struct btrfs_trans_handle *trans,
 	while (1) {
 		ret = btrfs_search_slot(trans, root, &key, path, -1, 1);
 		if (ret < 0)
-			goto out;
+			return ret;
 		leaf = path->nodes[0];
 		nr = btrfs_header_nritems(leaf);
 		if (!nr)
@@ -974,14 +988,12 @@ static int btrfs_clean_quota_tree(struct btrfs_trans_handle *trans,
 		path->slots[0] = 0;
 		ret = btrfs_del_items(trans, root, path, 0, nr);
 		if (ret)
-			goto out;
+			return ret;
 
 		btrfs_release_path(path);
 	}
-	ret = 0;
-out:
-	btrfs_free_path(path);
-	return ret;
+
+	return 0;
 }
 
 int btrfs_quota_enable(struct btrfs_fs_info *fs_info,
@@ -1069,7 +1081,7 @@ int btrfs_quota_enable(struct btrfs_fs_info *fs_info,
 	}
 
 	path = btrfs_alloc_path();
-	if (!path) {
+	if (unlikely(!path)) {
 		ret = -ENOMEM;
 		btrfs_abort_transaction(trans, ret);
 		goto out_free_root;
@@ -1081,7 +1093,7 @@ int btrfs_quota_enable(struct btrfs_fs_info *fs_info,
 
 	ret = btrfs_insert_empty_item(trans, quota_root, path, &key,
 				      sizeof(*ptr));
-	if (ret) {
+	if (unlikely(ret)) {
 		btrfs_abort_transaction(trans, ret);
 		goto out_free_path;
 	}
@@ -1111,7 +1123,7 @@ int btrfs_quota_enable(struct btrfs_fs_info *fs_info,
 	ret = btrfs_search_slot_for_read(tree_root, &key, path, 1, 0);
 	if (ret > 0)
 		goto out_add_root;
-	if (ret < 0) {
+	if (unlikely(ret < 0)) {
 		btrfs_abort_transaction(trans, ret);
 		goto out_free_path;
 	}
@@ -1128,8 +1140,8 @@ int btrfs_quota_enable(struct btrfs_fs_info *fs_info,
 
 			/* We should not have a stray @prealloc pointer. */
 			ASSERT(prealloc == NULL);
-			prealloc = kzalloc(sizeof(*prealloc), GFP_NOFS);
-			if (!prealloc) {
+			prealloc = kzalloc_obj(*prealloc, GFP_NOFS);
+			if (unlikely(!prealloc)) {
 				ret = -ENOMEM;
 				btrfs_abort_transaction(trans, ret);
 				goto out_free_path;
@@ -1137,7 +1149,7 @@ int btrfs_quota_enable(struct btrfs_fs_info *fs_info,
 
 			ret = add_qgroup_item(trans, quota_root,
 					      found_key.offset);
-			if (ret) {
+			if (unlikely(ret)) {
 				btrfs_abort_transaction(trans, ret);
 				goto out_free_path;
 			}
@@ -1145,27 +1157,30 @@ int btrfs_quota_enable(struct btrfs_fs_info *fs_info,
 			qgroup = add_qgroup_rb(fs_info, prealloc, found_key.offset);
 			prealloc = NULL;
 			ret = btrfs_sysfs_add_one_qgroup(fs_info, qgroup);
-			if (ret < 0) {
+			if (unlikely(ret < 0)) {
 				btrfs_abort_transaction(trans, ret);
 				goto out_free_path;
 			}
 			ret = btrfs_search_slot_for_read(tree_root, &found_key,
 							 path, 1, 0);
-			if (ret < 0) {
+			if (unlikely(ret < 0)) {
 				btrfs_abort_transaction(trans, ret);
 				goto out_free_path;
 			}
 			if (ret > 0) {
 				/*
-				 * Shouldn't happen, but in case it does we
-				 * don't need to do the btrfs_next_item, just
-				 * continue.
+				 * Shouldn't happen because the key should still
+				 * be there (return 0), but in case it does it
+				 * means we have reached the end of the tree -
+				 * there are no more leaves with items that have
+				 * a key greater than or equals to @found_key,
+				 * so just stop the search loop.
 				 */
-				continue;
+				break;
 			}
 		}
 		ret = btrfs_next_item(tree_root, path);
-		if (ret < 0) {
+		if (unlikely(ret < 0)) {
 			btrfs_abort_transaction(trans, ret);
 			goto out_free_path;
 		}
@@ -1176,13 +1191,13 @@ int btrfs_quota_enable(struct btrfs_fs_info *fs_info,
 out_add_root:
 	btrfs_release_path(path);
 	ret = add_qgroup_item(trans, quota_root, BTRFS_FS_TREE_OBJECTID);
-	if (ret) {
+	if (unlikely(ret)) {
 		btrfs_abort_transaction(trans, ret);
 		goto out_free_path;
 	}
 
 	ASSERT(prealloc == NULL);
-	prealloc = kzalloc(sizeof(*prealloc), GFP_NOFS);
+	prealloc = kzalloc_obj(*prealloc, GFP_NOFS);
 	if (!prealloc) {
 		ret = -ENOMEM;
 		goto out_free_path;
@@ -1190,7 +1205,7 @@ out_add_root:
 	qgroup = add_qgroup_rb(fs_info, prealloc, BTRFS_FS_TREE_OBJECTID);
 	prealloc = NULL;
 	ret = btrfs_sysfs_add_one_qgroup(fs_info, qgroup);
-	if (ret < 0) {
+	if (unlikely(ret < 0)) {
 		btrfs_abort_transaction(trans, ret);
 		goto out_free_path;
 	}
@@ -1376,13 +1391,13 @@ int btrfs_quota_disable(struct btrfs_fs_info *fs_info)
 	btrfs_free_qgroup_config(fs_info);
 
 	ret = btrfs_clean_quota_tree(trans, quota_root);
-	if (ret) {
+	if (unlikely(ret)) {
 		btrfs_abort_transaction(trans, ret);
 		goto out;
 	}
 
 	ret = btrfs_del_root(trans, &quota_root->root_key);
-	if (ret) {
+	if (unlikely(ret)) {
 		btrfs_abort_transaction(trans, ret);
 		goto out;
 	}
@@ -1539,8 +1554,10 @@ int btrfs_add_qgroup_relation(struct btrfs_trans_handle *trans, u64 src, u64 dst
 	ASSERT(prealloc);
 
 	/* Check the level of src and dst first */
-	if (btrfs_qgroup_level(src) >= btrfs_qgroup_level(dst))
+	if (btrfs_qgroup_level(src) >= btrfs_qgroup_level(dst)) {
+		kfree(prealloc);
 		return -EINVAL;
+	}
 
 	mutex_lock(&fs_info->qgroup_ioctl_lock);
 	if (!fs_info->quota_root) {
@@ -1580,6 +1597,7 @@ int btrfs_add_qgroup_relation(struct btrfs_trans_handle *trans, u64 src, u64 dst
 		goto out;
 	}
 	ret = quick_update_accounting(fs_info, src, dst, 1);
+	squota_check_parent_usage(fs_info, parent);
 	spin_unlock(&fs_info->qgroup_lock);
 out:
 	kfree(prealloc);
@@ -1598,10 +1616,8 @@ static int __del_qgroup_relation(struct btrfs_trans_handle *trans, u64 src,
 	int ret = 0;
 	int ret2;
 
-	if (!fs_info->quota_root) {
-		ret = -ENOTCONN;
-		goto out;
-	}
+	if (!fs_info->quota_root)
+		return -ENOTCONN;
 
 	member = find_qgroup_rb(fs_info, src);
 	parent = find_qgroup_rb(fs_info, dst);
@@ -1623,10 +1639,10 @@ static int __del_qgroup_relation(struct btrfs_trans_handle *trans, u64 src,
 delete_item:
 	ret = del_qgroup_relation_item(trans, src, dst);
 	if (ret < 0 && ret != -ENOENT)
-		goto out;
+		return ret;
 	ret2 = del_qgroup_relation_item(trans, dst, src);
 	if (ret2 < 0 && ret2 != -ENOENT)
-		goto out;
+		return ret2;
 
 	/* At least one deletion succeeded, return 0 */
 	if (!ret || !ret2)
@@ -1636,9 +1652,11 @@ delete_item:
 		spin_lock(&fs_info->qgroup_lock);
 		del_relation_rb(fs_info, src, dst);
 		ret = quick_update_accounting(fs_info, src, dst, -1);
+		ASSERT(parent);
+		squota_check_parent_usage(fs_info, parent);
 		spin_unlock(&fs_info->qgroup_lock);
 	}
-out:
+
 	return ret;
 }
 
@@ -1675,7 +1693,7 @@ int btrfs_create_qgroup(struct btrfs_trans_handle *trans, u64 qgroupid)
 		goto out;
 	}
 
-	prealloc = kzalloc(sizeof(*prealloc), GFP_NOFS);
+	prealloc = kzalloc_obj(*prealloc, GFP_NOFS);
 	if (!prealloc) {
 		ret = -ENOMEM;
 		goto out;
@@ -1697,6 +1715,36 @@ out:
 	return ret;
 }
 
+static bool can_delete_parent_qgroup(struct btrfs_qgroup *qgroup)
+
+{
+	ASSERT(btrfs_qgroup_level(qgroup->qgroupid));
+	return list_empty(&qgroup->members);
+}
+
+/*
+ * Return true if we can delete the squota qgroup and false otherwise.
+ *
+ * Rules for whether we can delete:
+ *
+ * A subvolume qgroup can be removed iff the subvolume is fully deleted, which
+ * is iff there is 0 usage in the qgroup.
+ *
+ * A higher level qgroup can be removed iff it has no members.
+ * Note: We audit its usage to warn on inconsitencies without blocking deletion.
+ */
+static bool can_delete_squota_qgroup(struct btrfs_fs_info *fs_info, struct btrfs_qgroup *qgroup)
+{
+	ASSERT(btrfs_qgroup_mode(fs_info) == BTRFS_QGROUP_MODE_SIMPLE);
+
+	if (btrfs_qgroup_level(qgroup->qgroupid) > 0) {
+		squota_check_parent_usage(fs_info, qgroup);
+		return can_delete_parent_qgroup(qgroup);
+	}
+
+	return !(qgroup->rfer || qgroup->excl || qgroup->rfer_cmpr || qgroup->excl_cmpr);
+}
+
 /*
  * Return 0 if we can not delete the qgroup (not empty or has children etc).
  * Return >0 if we can delete the qgroup.
@@ -1705,26 +1753,15 @@ out:
 static int can_delete_qgroup(struct btrfs_fs_info *fs_info, struct btrfs_qgroup *qgroup)
 {
 	struct btrfs_key key;
-	struct btrfs_path *path;
-	int ret;
+	BTRFS_PATH_AUTO_FREE(path);
 
-	/*
-	 * Squota would never be inconsistent, but there can still be case
-	 * where a dropped subvolume still has qgroup numbers, and squota
-	 * relies on such qgroup for future accounting.
-	 *
-	 * So for squota, do not allow dropping any non-zero qgroup.
-	 */
-	if (btrfs_qgroup_mode(fs_info) == BTRFS_QGROUP_MODE_SIMPLE &&
-	    (qgroup->rfer || qgroup->excl || qgroup->excl_cmpr || qgroup->rfer_cmpr))
-		return 0;
+	/* Since squotas cannot be inconsistent, they have special rules for deletion. */
+	if (btrfs_qgroup_mode(fs_info) == BTRFS_QGROUP_MODE_SIMPLE)
+		return can_delete_squota_qgroup(fs_info, qgroup);
 
 	/* For higher level qgroup, we can only delete it if it has no child. */
-	if (btrfs_qgroup_level(qgroup->qgroupid)) {
-		if (!list_empty(&qgroup->members))
-			return 0;
-		return 1;
-	}
+	if (btrfs_qgroup_level(qgroup->qgroupid))
+		return can_delete_parent_qgroup(qgroup);
 
 	/*
 	 * For level-0 qgroups, we can only delete it if it has no subvolume
@@ -1739,13 +1776,11 @@ static int can_delete_qgroup(struct btrfs_fs_info *fs_info, struct btrfs_qgroup 
 	if (!path)
 		return -ENOMEM;
 
-	ret = btrfs_find_root(fs_info->tree_root, &key, path, NULL, NULL);
-	btrfs_free_path(path);
 	/*
 	 * The @ret from btrfs_find_root() exactly matches our definition for
 	 * the return value, thus can be returned directly.
 	 */
-	return ret;
+	return btrfs_find_root(fs_info->tree_root, &key, path, NULL, NULL);
 }
 
 int btrfs_remove_qgroup(struct btrfs_trans_handle *trans, u64 qgroupid)
@@ -2112,7 +2147,7 @@ int btrfs_qgroup_trace_extent(struct btrfs_trans_handle *trans, u64 bytenr,
 
 	if (!btrfs_qgroup_full_accounting(fs_info) || bytenr == 0 || num_bytes == 0)
 		return 0;
-	record = kzalloc(sizeof(*record), GFP_NOFS);
+	record = kzalloc_obj(*record, GFP_NOFS);
 	if (!record)
 		return -ENOMEM;
 
@@ -2294,7 +2329,7 @@ static int qgroup_trace_extent_swap(struct btrfs_trans_handle* trans,
 				    bool trace_leaf)
 {
 	struct btrfs_key key;
-	struct btrfs_path *src_path;
+	BTRFS_PATH_AUTO_FREE(src_path);
 	struct btrfs_fs_info *fs_info = trans->fs_info;
 	u32 nodesize = fs_info->nodesize;
 	int cur_level = root_level;
@@ -2306,10 +2341,8 @@ static int qgroup_trace_extent_swap(struct btrfs_trans_handle* trans,
 		return -EINVAL;
 
 	src_path = btrfs_alloc_path();
-	if (!src_path) {
-		ret = -ENOMEM;
-		goto out;
-	}
+	if (!src_path)
+		return -ENOMEM;
 
 	if (dst_level)
 		btrfs_node_key_to_cpu(dst_path->nodes[dst_level], &key, 0);
@@ -2335,10 +2368,8 @@ static int qgroup_trace_extent_swap(struct btrfs_trans_handle* trans,
 			parent_slot = src_path->slots[cur_level + 1];
 
 			eb = btrfs_read_node_slot(eb, parent_slot);
-			if (IS_ERR(eb)) {
-				ret = PTR_ERR(eb);
-				goto out;
-			}
+			if (IS_ERR(eb))
+				return PTR_ERR(eb);
 
 			src_path->nodes[cur_level] = eb;
 
@@ -2359,10 +2390,8 @@ static int qgroup_trace_extent_swap(struct btrfs_trans_handle* trans,
 					&src_key, src_path->slots[cur_level]);
 		}
 		/* Content mismatch, something went wrong */
-		if (btrfs_comp_cpu_keys(&dst_key, &src_key)) {
-			ret = -ENOENT;
-			goto out;
-		}
+		if (btrfs_comp_cpu_keys(&dst_key, &src_key))
+			return -ENOENT;
 		cur_level--;
 	}
 
@@ -2373,21 +2402,20 @@ static int qgroup_trace_extent_swap(struct btrfs_trans_handle* trans,
 	ret = btrfs_qgroup_trace_extent(trans, src_path->nodes[dst_level]->start,
 					nodesize);
 	if (ret < 0)
-		goto out;
+		return ret;
 	ret = btrfs_qgroup_trace_extent(trans, dst_path->nodes[dst_level]->start,
 					nodesize);
 	if (ret < 0)
-		goto out;
+		return ret;
 
 	/* Record leaf file extents */
 	if (dst_level == 0 && trace_leaf) {
 		ret = btrfs_qgroup_trace_leaf_items(trans, src_path->nodes[0]);
 		if (ret < 0)
-			goto out;
+			return ret;
 		ret = btrfs_qgroup_trace_leaf_items(trans, dst_path->nodes[0]);
 	}
-out:
-	btrfs_free_path(src_path);
+
 	return ret;
 }
 
@@ -2426,9 +2454,9 @@ static int qgroup_trace_new_subtree_blocks(struct btrfs_trans_handle* trans,
 	int i;
 
 	/* Level sanity check */
-	if (cur_level < 0 || cur_level >= BTRFS_MAX_LEVEL - 1 ||
-	    root_level < 0 || root_level >= BTRFS_MAX_LEVEL - 1 ||
-	    root_level < cur_level) {
+	if (unlikely(cur_level < 0 || cur_level >= BTRFS_MAX_LEVEL - 1 ||
+		     root_level < 0 || root_level >= BTRFS_MAX_LEVEL - 1 ||
+		     root_level < cur_level)) {
 		btrfs_err_rl(fs_info,
 			"%s: bad levels, cur_level=%d root_level=%d",
 			__func__, cur_level, root_level);
@@ -2444,7 +2472,7 @@ static int qgroup_trace_new_subtree_blocks(struct btrfs_trans_handle* trans,
 		 * dst_path->nodes[root_level] must be initialized before
 		 * calling this function.
 		 */
-		if (cur_level == root_level) {
+		if (unlikely(cur_level == root_level)) {
 			btrfs_err_rl(fs_info,
 	"%s: dst_path->nodes[%d] not initialized, root_level=%d cur_level=%d",
 				__func__, root_level, root_level, cur_level);
@@ -2461,13 +2489,11 @@ static int qgroup_trace_new_subtree_blocks(struct btrfs_trans_handle* trans,
 
 		/* This node is old, no need to trace */
 		if (child_gen < last_snapshot)
-			goto out;
+			return ret;
 
 		eb = btrfs_read_node_slot(eb, parent_slot);
-		if (IS_ERR(eb)) {
-			ret = PTR_ERR(eb);
-			goto out;
-		}
+		if (IS_ERR(eb))
+			return PTR_ERR(eb);
 
 		dst_path->nodes[cur_level] = eb;
 		dst_path->slots[cur_level] = 0;
@@ -2512,7 +2538,7 @@ cleanup:
 		dst_path->slots[cur_level] = 0;
 		dst_path->locks[cur_level] = 0;
 	}
-out:
+
 	return ret;
 }
 
@@ -2530,7 +2556,7 @@ static int qgroup_trace_subtree_swap(struct btrfs_trans_handle *trans,
 		return 0;
 
 	/* Wrong parameter order */
-	if (btrfs_header_generation(src_eb) > btrfs_header_generation(dst_eb)) {
+	if (unlikely(btrfs_header_generation(src_eb) > btrfs_header_generation(dst_eb))) {
 		btrfs_err_rl(fs_info,
 		"%s: bad parameter order, src_gen=%llu dst_gen=%llu", __func__,
 			     btrfs_header_generation(src_eb),
@@ -2538,7 +2564,7 @@ static int qgroup_trace_subtree_swap(struct btrfs_trans_handle *trans,
 		return -EUCLEAN;
 	}
 
-	if (!extent_buffer_uptodate(src_eb) || !extent_buffer_uptodate(dst_eb)) {
+	if (unlikely(!extent_buffer_uptodate(src_eb) || !extent_buffer_uptodate(dst_eb))) {
 		ret = -EIO;
 		goto out;
 	}
@@ -2588,7 +2614,7 @@ int btrfs_qgroup_trace_subtree(struct btrfs_trans_handle *trans,
 	int level;
 	u8 drop_subptree_thres;
 	struct extent_buffer *eb = root_eb;
-	struct btrfs_path *path = NULL;
+	BTRFS_PATH_AUTO_FREE(path);
 
 	ASSERT(0 <= root_level && root_level < BTRFS_MAX_LEVEL);
 	ASSERT(root_eb != NULL);
@@ -2621,13 +2647,11 @@ int btrfs_qgroup_trace_subtree(struct btrfs_trans_handle *trans,
 
 		ret = btrfs_read_extent_buffer(root_eb, &check);
 		if (ret)
-			goto out;
+			return ret;
 	}
 
-	if (root_level == 0) {
-		ret = btrfs_qgroup_trace_leaf_items(trans, root_eb);
-		goto out;
-	}
+	if (root_level == 0)
+		return btrfs_qgroup_trace_leaf_items(trans, root_eb);
 
 	path = btrfs_alloc_path();
 	if (!path)
@@ -2662,10 +2686,8 @@ walk_down:
 			child_bytenr = btrfs_node_blockptr(eb, parent_slot);
 
 			eb = btrfs_read_node_slot(eb, parent_slot);
-			if (IS_ERR(eb)) {
-				ret = PTR_ERR(eb);
-				goto out;
-			}
+			if (IS_ERR(eb))
+				return PTR_ERR(eb);
 
 			path->nodes[level] = eb;
 			path->slots[level] = 0;
@@ -2676,14 +2698,14 @@ walk_down:
 			ret = btrfs_qgroup_trace_extent(trans, child_bytenr,
 							fs_info->nodesize);
 			if (ret)
-				goto out;
+				return ret;
 		}
 
 		if (level == 0) {
 			ret = btrfs_qgroup_trace_leaf_items(trans,
 							    path->nodes[level]);
 			if (ret)
-				goto out;
+				return ret;
 
 			/* Nonzero return here means we completed our search */
 			ret = adjust_slots_upwards(path, root_level);
@@ -2697,11 +2719,7 @@ walk_down:
 		level--;
 	}
 
-	ret = 0;
-out:
-	btrfs_free_path(path);
-
-	return ret;
+	return 0;
 }
 
 static void qgroup_iterator_nested_add(struct list_head *head, struct btrfs_qgroup *qgroup)
@@ -2722,14 +2740,12 @@ static void qgroup_iterator_nested_clean(struct list_head *head)
 	}
 }
 
-#define UPDATE_NEW	0
-#define UPDATE_OLD	1
 /*
  * Walk all of the roots that points to the bytenr and adjust their refcnts.
  */
 static void qgroup_update_refcnt(struct btrfs_fs_info *fs_info,
 				 struct ulist *roots, struct list_head *qgroups,
-				 u64 seq, int update_old)
+				 u64 seq, bool update_old)
 {
 	struct ulist_node *unode;
 	struct ulist_iterator uiter;
@@ -2962,10 +2978,10 @@ int btrfs_qgroup_account_extent(struct btrfs_trans_handle *trans, u64 bytenr,
 	seq = fs_info->qgroup_seq;
 
 	/* Update old refcnts using old_roots */
-	qgroup_update_refcnt(fs_info, old_roots, &qgroups, seq, UPDATE_OLD);
+	qgroup_update_refcnt(fs_info, old_roots, &qgroups, seq, true);
 
 	/* Update new refcnts using new_roots */
-	qgroup_update_refcnt(fs_info, new_roots, &qgroups, seq, UPDATE_NEW);
+	qgroup_update_refcnt(fs_info, new_roots, &qgroups, seq, false);
 
 	qgroup_update_counters(fs_info, &qgroups, nr_old_roots, nr_new_roots,
 			       num_bytes, seq);
@@ -3242,8 +3258,14 @@ static int qgroup_snapshot_quick_inherit(struct btrfs_fs_info *fs_info,
 {
 	struct btrfs_qgroup *src;
 	struct btrfs_qgroup *parent;
+	struct btrfs_qgroup *qgroup;
 	struct btrfs_qgroup_list *list;
+	LIST_HEAD(qgroup_list);
+	const u32 nodesize = fs_info->nodesize;
 	int nr_parents = 0;
+
+	if (btrfs_qgroup_mode(fs_info) != BTRFS_QGROUP_MODE_FULL)
+		return 0;
 
 	src = find_qgroup_rb(fs_info, srcid);
 	if (!src)
@@ -3279,8 +3301,19 @@ static int qgroup_snapshot_quick_inherit(struct btrfs_fs_info *fs_info,
 	if (parent->excl != parent->rfer)
 		return 1;
 
-	parent->excl += fs_info->nodesize;
-	parent->rfer += fs_info->nodesize;
+	qgroup_iterator_add(&qgroup_list, parent);
+	list_for_each_entry(qgroup, &qgroup_list, iterator) {
+		qgroup->rfer += nodesize;
+		qgroup->rfer_cmpr += nodesize;
+		qgroup->excl += nodesize;
+		qgroup->excl_cmpr += nodesize;
+		qgroup_dirty(fs_info, qgroup);
+
+		/* Append parent qgroups to @qgroup_list. */
+		list_for_each_entry(list, &qgroup->groups, next_group)
+			qgroup_iterator_add(&qgroup_list, list->group);
+	}
+	qgroup_iterator_clean(&qgroup_list);
 	return 0;
 }
 
@@ -3311,7 +3344,7 @@ int btrfs_qgroup_inherit(struct btrfs_trans_handle *trans, u64 srcid,
 	if (!btrfs_qgroup_enabled(fs_info))
 		return 0;
 
-	prealloc = kzalloc(sizeof(*prealloc), GFP_NOFS);
+	prealloc = kzalloc_obj(*prealloc, GFP_NOFS);
 	if (!prealloc)
 		return -ENOMEM;
 
@@ -3393,16 +3426,15 @@ int btrfs_qgroup_inherit(struct btrfs_trans_handle *trans, u64 srcid,
 		}
 		ret = 0;
 
-		qlist_prealloc = kcalloc(inherit->num_qgroups,
-					 sizeof(struct btrfs_qgroup_list *),
-					 GFP_NOFS);
+		qlist_prealloc = kzalloc_objs(struct btrfs_qgroup_list *,
+					      inherit->num_qgroups, GFP_NOFS);
 		if (!qlist_prealloc) {
 			ret = -ENOMEM;
 			goto out;
 		}
 		for (int i = 0; i < inherit->num_qgroups; i++) {
-			qlist_prealloc[i] = kzalloc(sizeof(struct btrfs_qgroup_list),
-						    GFP_NOFS);
+			qlist_prealloc[i] = kzalloc_obj(struct btrfs_qgroup_list,
+							GFP_NOFS);
 			if (!qlist_prealloc[i]) {
 				ret = -ENOMEM;
 				goto out;
@@ -3705,15 +3737,21 @@ static int qgroup_rescan_leaf(struct btrfs_trans_handle *trans,
 	mutex_lock(&fs_info->qgroup_rescan_lock);
 	extent_root = btrfs_extent_root(fs_info,
 				fs_info->qgroup_rescan_progress.objectid);
+	if (unlikely(!extent_root)) {
+		btrfs_err(fs_info,
+			  "missing extent root for extent at bytenr %llu",
+			  fs_info->qgroup_rescan_progress.objectid);
+		mutex_unlock(&fs_info->qgroup_rescan_lock);
+		return -EUCLEAN;
+	}
+
 	ret = btrfs_search_slot_for_read(extent_root,
 					 &fs_info->qgroup_rescan_progress,
 					 path, 1, 0);
 
 	btrfs_debug(fs_info,
-		"current progress key (%llu %u %llu), search_slot ret %d",
-		fs_info->qgroup_rescan_progress.objectid,
-		fs_info->qgroup_rescan_progress.type,
-		fs_info->qgroup_rescan_progress.offset, ret);
+		    "current progress key " BTRFS_KEY_FMT ", search_slot ret %d",
+		    BTRFS_KEY_FMT_VALUE(&fs_info->qgroup_rescan_progress), ret);
 
 	if (ret) {
 		/*
@@ -3815,8 +3853,8 @@ static void btrfs_qgroup_rescan_worker(struct btrfs_work *work)
 	 * Rescan should only search for commit root, and any later difference
 	 * should be recorded by qgroup
 	 */
-	path->search_commit_root = 1;
-	path->skip_locking = 1;
+	path->search_commit_root = true;
+	path->skip_locking = true;
 
 	while (!ret && !(stopped = rescan_should_stop(fs_info))) {
 		trans = btrfs_start_transaction(fs_info->fs_root, 0);
@@ -4286,7 +4324,7 @@ static int qgroup_free_reserved_data(struct btrfs_inode *inode,
 	u64 freed = 0;
 	int ret;
 
-	extent_changeset_init(&changeset);
+	extent_changeset_init_bytes_only(&changeset);
 	len = round_up(start + len, root->fs_info->sectorsize);
 	start = round_down(start, root->fs_info->sectorsize);
 
@@ -4351,7 +4389,7 @@ static int __btrfs_qgroup_release_data(struct btrfs_inode *inode,
 	WARN_ON(!free && reserved);
 	if (free && reserved)
 		return qgroup_free_reserved_data(inode, reserved, start, len, released);
-	extent_changeset_init(&changeset);
+	extent_changeset_init_bytes_only(&changeset);
 	ret = btrfs_clear_record_extent_bits(&inode->io_tree, start, start + len - 1,
 					     EXTENT_QGROUP_RESERVED, &changeset);
 	if (ret < 0)
@@ -4451,8 +4489,8 @@ static int sub_root_meta_rsv(struct btrfs_root *root, int num_bytes,
 	return num_bytes;
 }
 
-int btrfs_qgroup_reserve_meta(struct btrfs_root *root, int num_bytes,
-			      enum btrfs_qgroup_rsv_type type, bool enforce)
+static int btrfs_qgroup_reserve_meta(struct btrfs_root *root, int num_bytes,
+				     enum btrfs_qgroup_rsv_type type, bool enforce)
 {
 	struct btrfs_fs_info *fs_info = root->fs_info;
 	int ret;
@@ -4478,20 +4516,21 @@ int btrfs_qgroup_reserve_meta(struct btrfs_root *root, int num_bytes,
 	return ret;
 }
 
-int __btrfs_qgroup_reserve_meta(struct btrfs_root *root, int num_bytes,
-				enum btrfs_qgroup_rsv_type type, bool enforce,
-				bool noflush)
+int btrfs_qgroup_reserve_meta_prealloc(struct btrfs_root *root, int num_bytes,
+				       bool enforce, bool noflush)
 {
 	int ret;
 
-	ret = btrfs_qgroup_reserve_meta(root, num_bytes, type, enforce);
+	ret = btrfs_qgroup_reserve_meta(root, num_bytes,
+					BTRFS_QGROUP_RSV_META_PREALLOC, enforce);
 	if ((ret <= 0 && ret != -EDQUOT) || noflush)
 		return ret;
 
 	ret = try_flush_qgroup(root);
 	if (ret < 0)
 		return ret;
-	return btrfs_qgroup_reserve_meta(root, num_bytes, type, enforce);
+	return btrfs_qgroup_reserve_meta(root, num_bytes,
+					 BTRFS_QGROUP_RSV_META_PREALLOC, enforce);
 }
 
 /*
@@ -4513,8 +4552,7 @@ void btrfs_qgroup_free_meta_all_pertrans(struct btrfs_root *root)
 				  BTRFS_QGROUP_RSV_META_PERTRANS);
 }
 
-void __btrfs_qgroup_free_meta(struct btrfs_root *root, int num_bytes,
-			      enum btrfs_qgroup_rsv_type type)
+void btrfs_qgroup_free_meta_prealloc(struct btrfs_root *root, int num_bytes)
 {
 	struct btrfs_fs_info *fs_info = root->fs_info;
 
@@ -4527,10 +4565,13 @@ void __btrfs_qgroup_free_meta(struct btrfs_root *root, int num_bytes,
 	 * which can lead to underflow.
 	 * Here ensure we will only free what we really have reserved.
 	 */
-	num_bytes = sub_root_meta_rsv(root, num_bytes, type);
+	num_bytes = sub_root_meta_rsv(root, num_bytes,
+				      BTRFS_QGROUP_RSV_META_PREALLOC);
 	BUG_ON(num_bytes != round_down(num_bytes, fs_info->nodesize));
-	trace_btrfs_qgroup_meta_reserve(root, -(s64)num_bytes, type);
-	btrfs_qgroup_free_refroot(fs_info, btrfs_root_id(root), num_bytes, type);
+	trace_btrfs_qgroup_meta_reserve(root, -(s64)num_bytes,
+					BTRFS_QGROUP_RSV_META_PREALLOC);
+	btrfs_qgroup_free_refroot(fs_info, btrfs_root_id(root), num_bytes,
+				  BTRFS_QGROUP_RSV_META_PREALLOC);
 }
 
 static void qgroup_convert_meta(struct btrfs_fs_info *fs_info, u64 ref_root,
@@ -4606,6 +4647,7 @@ void btrfs_qgroup_check_reserved_leak(struct btrfs_inode *inode)
 
 	WARN_ON(ret < 0);
 	if (WARN_ON(changeset.bytes_changed)) {
+		ASSERT(extent_changeset_tracks_ranges(&changeset));
 		ULIST_ITER_INIT(&iter);
 		while ((unode = ulist_next(&changeset.range_changed, &iter))) {
 			btrfs_warn(inode->root->fs_info,
@@ -4710,8 +4752,8 @@ int btrfs_qgroup_add_swapped_blocks(struct btrfs_root *subvol_root,
 	if (!btrfs_qgroup_full_accounting(fs_info))
 		return 0;
 
-	if (btrfs_node_ptr_generation(subvol_parent, subvol_slot) >
-	    btrfs_node_ptr_generation(reloc_parent, reloc_slot)) {
+	if (unlikely(btrfs_node_ptr_generation(subvol_parent, subvol_slot) >
+		     btrfs_node_ptr_generation(reloc_parent, reloc_slot))) {
 		btrfs_err_rl(fs_info,
 		"%s: bad parameter order, subvol_gen=%llu reloc_gen=%llu",
 			__func__,
@@ -4720,7 +4762,7 @@ int btrfs_qgroup_add_swapped_blocks(struct btrfs_root *subvol_root,
 		return -EUCLEAN;
 	}
 
-	block = kmalloc(sizeof(*block), GFP_NOFS);
+	block = kmalloc_obj(*block, GFP_NOFS);
 	if (!block) {
 		ret = -ENOMEM;
 		goto out;
@@ -4794,7 +4836,7 @@ int btrfs_qgroup_trace_subtree_after_cow(struct btrfs_trans_handle *trans,
 	struct btrfs_fs_info *fs_info = root->fs_info;
 	struct btrfs_tree_parent_check check = { 0 };
 	struct btrfs_qgroup_swapped_blocks *blocks = &root->swapped_blocks;
-	struct btrfs_qgroup_swapped_block *block;
+	struct btrfs_qgroup_swapped_block AUTO_KFREE(block);
 	struct extent_buffer *reloc_eb = NULL;
 	struct rb_node *node;
 	bool swapped = false;
@@ -4843,15 +4885,10 @@ int btrfs_qgroup_trace_subtree_after_cow(struct btrfs_trans_handle *trans,
 		reloc_eb = NULL;
 		goto free_out;
 	}
-	if (!extent_buffer_uptodate(reloc_eb)) {
-		ret = -EIO;
-		goto free_out;
-	}
 
 	ret = qgroup_trace_subtree_swap(trans, reloc_eb, subvol_eb,
 			block->last_snapshot, block->trace_leaf);
 free_out:
-	kfree(block);
 	free_extent_buffer(reloc_eb);
 out:
 	if (ret < 0) {

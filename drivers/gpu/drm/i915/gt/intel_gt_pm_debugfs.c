@@ -7,6 +7,9 @@
 #include <linux/seq_file.h>
 #include <linux/string_helpers.h>
 
+#include <drm/drm_print.h>
+#include <drm/intel/intel_pcode_regs.h>
+
 #include "i915_drv.h"
 #include "i915_reg.h"
 #include "intel_gt.h"
@@ -16,7 +19,6 @@
 #include "intel_gt_pm_debugfs.h"
 #include "intel_gt_regs.h"
 #include "intel_llc.h"
-#include "intel_mchbar_regs.h"
 #include "intel_pcode.h"
 #include "intel_rc6.h"
 #include "intel_rps.h"

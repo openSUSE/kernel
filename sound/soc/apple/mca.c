@@ -1002,8 +1002,8 @@ static const struct snd_soc_component_driver mca_component = {
 	.hw_params = mca_hw_params,
 	.trigger = mca_trigger,
 	.pointer = mca_pointer,
-	.pcm_construct = mca_pcm_new,
-	.pcm_destruct = mca_pcm_free,
+	.pcm_new = mca_pcm_new,
+	.pcm_free = mca_pcm_free,
 };
 
 static void apple_mca_release(struct mca_data *mca)
@@ -1191,6 +1191,7 @@ static void apple_mca_remove(struct platform_device *pdev)
 }
 
 static const struct of_device_id apple_mca_of_match[] = {
+	{ .compatible = "apple,t8103-mca", },
 	{ .compatible = "apple,mca", },
 	{}
 };

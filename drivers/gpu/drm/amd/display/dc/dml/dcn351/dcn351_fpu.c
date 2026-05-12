@@ -10,7 +10,7 @@
 #include "dml/dcn35/dcn35_fpu.h"
 #include "dml/dml_inline_defs.h"
 
-#include "link.h"
+#include "link_service.h"
 
 #define DC_LOGGER_INIT(logger)
 
@@ -266,7 +266,7 @@ void dcn351_update_bw_bounding_box_fpu(struct dc *dc,
 	struct clk_limit_table *clk_table = &bw_params->clk_table;
 	struct _vcs_dpi_voltage_scaling_st *clock_limits =
 		dc->scratch.update_bw_bounding_box.clock_limits;
-	int max_dispclk_mhz = 0, max_dppclk_mhz = 0;
+	unsigned int max_dispclk_mhz = 0, max_dppclk_mhz = 0;
 
 	dc_assert_fp_enabled();
 
@@ -390,20 +390,20 @@ void dcn351_update_bw_bounding_box_fpu(struct dc *dc,
 			dc->dml2_options.bbox_overrides.clks_table.num_states =
 				clk_table->num_entries;
 			dc->dml2_options.bbox_overrides.clks_table.clk_entries[i].dcfclk_mhz =
-				clock_limits[i].dcfclk_mhz;
+				(unsigned int)clock_limits[i].dcfclk_mhz;
 			dc->dml2_options.bbox_overrides.clks_table.clk_entries[i].fclk_mhz =
-				clock_limits[i].fabricclk_mhz;
+				(unsigned int)clock_limits[i].fabricclk_mhz;
 			dc->dml2_options.bbox_overrides.clks_table.clk_entries[i].dispclk_mhz =
-				clock_limits[i].dispclk_mhz;
+				(unsigned int)clock_limits[i].dispclk_mhz;
 			dc->dml2_options.bbox_overrides.clks_table.clk_entries[i].dppclk_mhz =
-				clock_limits[i].dppclk_mhz;
+				(unsigned int)clock_limits[i].dppclk_mhz;
 			dc->dml2_options.bbox_overrides.clks_table.clk_entries[i].socclk_mhz =
-				clock_limits[i].socclk_mhz;
+				(unsigned int)clock_limits[i].socclk_mhz;
 			dc->dml2_options.bbox_overrides.clks_table.clk_entries[i].memclk_mhz =
 				clk_table->entries[i].memclk_mhz * clk_table->entries[i].wck_ratio;
-			dc->dml2_options.bbox_overrides.clks_table.clk_entries[i].dram_speed_mts = clock_limits[i].dram_speed_mts;
+			dc->dml2_options.bbox_overrides.clks_table.clk_entries[i].dram_speed_mts = (unsigned int)clock_limits[i].dram_speed_mts;
 			dc->dml2_options.bbox_overrides.clks_table.clk_entries[i].dtbclk_mhz =
-				clock_limits[i].dtbclk_mhz;
+				(unsigned int)clock_limits[i].dtbclk_mhz;
 			dc->dml2_options.bbox_overrides.clks_table.num_entries_per_clk.num_dcfclk_levels =
 				clk_table->num_entries;
 			dc->dml2_options.bbox_overrides.clks_table.num_entries_per_clk.num_fclk_levels =
@@ -447,11 +447,11 @@ static bool is_dual_plane(enum surface_pixel_format format)
 static unsigned int micro_sec_to_vert_lines(unsigned int num_us, struct dc_crtc_timing *timing)
 {
 	unsigned int num_lines = 0;
-	unsigned int lines_time_in_ns = 1000.0 *
-			(((float)timing->h_total * 1000.0) /
-			 ((float)timing->pix_clk_100hz / 10.0));
+	double lines_time_in_ns = 1000.0 *
+			(((double)timing->h_total * 1000.0) /
+			 ((double)timing->pix_clk_100hz / 10.0));
 
-	num_lines = dml_ceil(1000.0 * num_us / lines_time_in_ns, 1.0);
+	num_lines = (unsigned int)dml_ceil(1000.0 * num_us / lines_time_in_ns, 1.0);
 
 	return num_lines;
 }
@@ -472,11 +472,14 @@ int dcn351_populate_dml_pipes_from_context_fpu(struct dc *dc,
 					      display_e2e_pipe_params_st *pipes,
 					      enum dc_validate_mode validate_mode)
 {
-	int i, pipe_cnt;
+	int pipe_cnt;
+	unsigned int i;
 	struct resource_context *res_ctx = &context->res_ctx;
 	struct pipe_ctx *pipe = 0;
 	bool upscaled = false;
 	const unsigned int max_allowed_vblank_nom = 1023;
+
+	dc_assert_fp_enabled();
 
 	dcn31_populate_dml_pipes_from_context(dc, context, pipes,
 					      validate_mode);
@@ -531,9 +534,7 @@ int dcn351_populate_dml_pipes_from_context_fpu(struct dc *dc,
 
 		pipes[pipe_cnt].pipe.src.unbounded_req_mode = false;
 
-		DC_FP_START();
 		dcn31_zero_pipe_dcc_fraction(pipes, pipe_cnt);
-		DC_FP_END();
 
 		pipes[pipe_cnt].pipe.dest.vfront_porch = timing->v_front_porch;
 		pipes[pipe_cnt].pipe.src.dcc_rate = 3;
@@ -561,14 +562,9 @@ int dcn351_populate_dml_pipes_from_context_fpu(struct dc *dc,
 	}
 
 	context->bw_ctx.dml.ip.det_buffer_size_kbytes = 384;/*per guide*/
-	dc->config.enable_4to1MPC = false;
 
 	if (pipe_cnt == 1 && pipe->plane_state && !dc->debug.disable_z9_mpc) {
-		if (is_dual_plane(pipe->plane_state->format)
-				&& pipe->plane_state->src_rect.width <= 1920 &&
-				pipe->plane_state->src_rect.height <= 1080) {
-			dc->config.enable_4to1MPC = true;
-		} else if (!is_dual_plane(pipe->plane_state->format) &&
+		if (!is_dual_plane(pipe->plane_state->format) &&
 			   pipe->plane_state->src_rect.width <= 5120) {
 			/*
 			 * Limit to 5k max to avoid forced pipe split when there

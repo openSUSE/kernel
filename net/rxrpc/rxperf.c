@@ -151,7 +151,7 @@ static void rxperf_charge_preallocation(struct work_struct *work)
 	struct rxperf_call *call;
 
 	for (;;) {
-		call = kzalloc(sizeof(*call), GFP_KERNEL);
+		call = kzalloc_obj(*call);
 		if (!call)
 			break;
 
@@ -211,7 +211,7 @@ static int rxperf_open_socket(void)
 
 	ret = rxrpc_sock_set_security_keyring(socket->sk, rxperf_sec_keyring);
 
-	ret = kernel_bind(socket, (struct sockaddr *)&srx, sizeof(srx));
+	ret = kernel_bind(socket, (struct sockaddr_unsized *)&srx, sizeof(srx));
 	if (ret < 0)
 		goto error_2;
 
@@ -630,7 +630,7 @@ static int __init rxperf_init(void)
 
 	pr_info("Server registering\n");
 
-	rxperf_workqueue = alloc_workqueue("rxperf", 0, 0);
+	rxperf_workqueue = alloc_workqueue("rxperf", WQ_PERCPU, 0);
 	if (!rxperf_workqueue)
 		goto error_workqueue;
 

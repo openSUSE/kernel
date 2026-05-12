@@ -31,7 +31,7 @@
 #include "uncore-frequency-common.h"
 
 #define	UNCORE_MAJOR_VERSION		0
-#define	UNCORE_MINOR_VERSION		2
+#define	UNCORE_MINOR_VERSION		3
 #define UNCORE_ELC_SUPPORTED_VERSION	2
 #define UNCORE_HEADER_INDEX		0
 #define UNCORE_FABRIC_CLUSTER_OFFSET	8
@@ -374,6 +374,77 @@ static void uncore_set_agent_type(struct tpmi_uncore_cluster_info *cluster_info)
 	cluster_info->uncore_data.agent_type_mask = FIELD_GET(UNCORE_AGENT_TYPES, status);
 }
 
+#define MAX_PARTITIONS	2
+
+/* IO domain ID start index for a partition */
+static u8 io_die_start[MAX_PARTITIONS];
+
+/* Next IO domain ID index after the current partition IO die IDs */
+static u8 io_die_index_next;
+
+/* Lock to protect io_die_start, io_die_index_next */
+static DEFINE_MUTEX(domain_lock);
+
+static void set_domain_id(int id,  int num_resources,
+			  struct oobmsm_plat_info *plat_info,
+			  struct tpmi_uncore_cluster_info *cluster_info)
+{
+	u8 part_io_index, cdie_range, pkg_io_index, max_dies;
+
+	if (plat_info->partition >= MAX_PARTITIONS) {
+		cluster_info->uncore_data.domain_id = id;
+		return;
+	}
+
+	if (cluster_info->uncore_data.agent_type_mask & AGENT_TYPE_CORE) {
+		cluster_info->uncore_data.domain_id = cluster_info->cdie_id;
+		return;
+	}
+
+	/* Unlikely but cdie_mask may have holes, so take range */
+	cdie_range = fls(plat_info->cdie_mask) - ffs(plat_info->cdie_mask) + 1;
+	max_dies = topology_max_dies_per_package();
+
+	/*
+	 * If the CPU doesn't enumerate dies, then use current cdie range
+	 * as the max.
+	 */
+	if (cdie_range > max_dies)
+		max_dies = cdie_range;
+
+	guard(mutex)(&domain_lock);
+
+	if (!io_die_index_next)
+		io_die_index_next = max_dies;
+
+	if (!io_die_start[plat_info->partition]) {
+		io_die_start[plat_info->partition] = io_die_index_next;
+		/*
+		 * number of IO dies = num_resources - cdie_range. Hence
+		 * next partition io_die_index_next is set after IO dies
+		 * in the current partition.
+		 */
+		io_die_index_next += (num_resources - cdie_range);
+	}
+
+	/*
+	 * Index from IO die start within the partition:
+	 * This is the first valid domain after the cdies.
+	 * For example the current resource index 5 and cdies end at
+	 * index 3 (cdie_cnt = 4). Then the IO only index 5 - 4 = 1.
+	 */
+	part_io_index = id - cdie_range;
+
+	/*
+	 * Add to the IO die start index for this partition in this package
+	 * to make unique in the package.
+	 */
+	pkg_io_index = io_die_start[plat_info->partition] + part_io_index;
+
+	/* Assign this to domain ID */
+	cluster_info->uncore_data.domain_id = pkg_io_index;
+}
+
 /* Callback for sysfs read for TPMI uncore values. Called under mutex locks. */
 static int uncore_read(struct uncore_data *data, unsigned int *value, enum uncore_index index)
 {
@@ -466,6 +537,7 @@ static void set_cdie_id(int domain_id, struct tpmi_uncore_cluster_info *cluster_
 #define UNCORE_VERSION_MASK			GENMASK_ULL(7, 0)
 #define UNCORE_LOCAL_FABRIC_CLUSTER_ID_MASK	GENMASK_ULL(15, 8)
 #define UNCORE_CLUSTER_OFF_MASK			GENMASK_ULL(7, 0)
+#define UNCORE_AUTONOMOUS_UFS_DISABLED		BIT(32)
 #define UNCORE_MAX_CLUSTER_PER_DOMAIN		8
 
 static int uncore_probe(struct auxiliary_device *auxdev, const struct auxiliary_device_id *id)
@@ -527,6 +599,7 @@ static int uncore_probe(struct auxiliary_device *auxdev, const struct auxiliary_
 
 	for (i = 0; i < num_resources; ++i) {
 		struct tpmi_uncore_power_domain_info *pd_info;
+		bool auto_ufs_enabled;
 		struct resource *res;
 		u64 cluster_offset;
 		u8 cluster_mask;
@@ -576,6 +649,8 @@ static int uncore_probe(struct auxiliary_device *auxdev, const struct auxiliary_
 			continue;
 		}
 
+		auto_ufs_enabled = !(header & UNCORE_AUTONOMOUS_UFS_DISABLED);
+
 		/* Find out number of clusters in this resource */
 		pd_info->cluster_count = hweight8(cluster_mask);
 
@@ -610,14 +685,17 @@ static int uncore_probe(struct auxiliary_device *auxdev, const struct auxiliary_
 			cluster_info->uncore_data.package_id = pkg;
 			/* There are no dies like Cascade Lake */
 			cluster_info->uncore_data.die_id = 0;
-			cluster_info->uncore_data.domain_id = i;
 			cluster_info->uncore_data.cluster_id = j;
 
 			set_cdie_id(i, cluster_info, plat_info);
 
+			set_domain_id(i, num_resources, plat_info, cluster_info);
+
 			cluster_info->uncore_root = tpmi_uncore;
 
-			if (TPMI_MINOR_VERSION(pd_info->ufs_header_ver) >= UNCORE_ELC_SUPPORTED_VERSION)
+			if ((TPMI_MINOR_VERSION(pd_info->ufs_header_ver) >=
+			     UNCORE_ELC_SUPPORTED_VERSION) &&
+			    auto_ufs_enabled)
 				cluster_info->elc_supported = true;
 
 			ret = uncore_freq_add_entry(&cluster_info->uncore_data, 0);
@@ -638,7 +716,7 @@ static int uncore_probe(struct auxiliary_device *auxdev, const struct auxiliary_
 
 	auxiliary_set_drvdata(auxdev, tpmi_uncore);
 
-	if (topology_max_dies_per_package() > 1)
+	if (topology_max_dies_per_package() > 1 || plat_info->partition)
 		return 0;
 
 	tpmi_uncore->root_cluster.root_domain = true;

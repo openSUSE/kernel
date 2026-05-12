@@ -94,7 +94,7 @@ get_supported_features(struct cxl_features_state *cxlfs)
 		return NULL;
 
 	struct cxl_feat_entries *entries __free(kvfree) =
-		kvmalloc(struct_size(entries, ent, count), GFP_KERNEL);
+		kvmalloc_flex(*entries, ent, count);
 	if (!entries)
 		return NULL;
 
@@ -204,7 +204,7 @@ int devm_cxl_setup_features(struct cxl_dev_state *cxlds)
 		return -ENODEV;
 
 	struct cxl_features_state *cxlfs __free(kfree) =
-		kzalloc(sizeof(*cxlfs), GFP_KERNEL);
+		kzalloc_obj(*cxlfs);
 	if (!cxlfs)
 		return -ENOMEM;
 
@@ -370,6 +370,9 @@ cxl_feature_info(struct cxl_features_state *cxlfs,
 		 const uuid_t *uuid)
 {
 	struct cxl_feat_entry *feat;
+
+	if (!cxlfs || !cxlfs->entries)
+		return ERR_PTR(-EOPNOTSUPP);
 
 	for (int i = 0; i < cxlfs->entries->num_features; i++) {
 		feat = &cxlfs->entries->ent[i];

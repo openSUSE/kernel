@@ -90,7 +90,7 @@ static int scmi_protocol_device_request(const struct scmi_device_id *id_table)
 	 * No duplicate found for requested id_table, so let's create a new
 	 * requested device entry for this new valid request.
 	 */
-	rdev = kzalloc(sizeof(*rdev), GFP_KERNEL);
+	rdev = kzalloc_obj(*rdev);
 	if (!rdev) {
 		ret = -ENOMEM;
 		goto out;
@@ -103,7 +103,7 @@ static int scmi_protocol_device_request(const struct scmi_device_id *id_table)
 	 * there.
 	 */
 	if (!phead) {
-		phead = kzalloc(sizeof(*phead), GFP_KERNEL);
+		phead = kzalloc_obj(*phead);
 		if (!phead) {
 			kfree(rdev);
 			ret = -ENOMEM;
@@ -401,8 +401,8 @@ static void scmi_device_release(struct device *dev)
 
 static void __scmi_device_destroy(struct scmi_device *scmi_dev)
 {
-	pr_debug("(%s) Destroying SCMI device '%s' for protocol 0x%x (%s)\n",
-		 of_node_full_name(scmi_dev->dev.parent->of_node),
+	pr_debug("(%pOF) Destroying SCMI device '%s' for protocol 0x%x (%s)\n",
+		 scmi_dev->dev.parent->of_node,
 		 dev_name(&scmi_dev->dev), scmi_dev->protocol_id,
 		 scmi_dev->name);
 
@@ -445,7 +445,7 @@ __scmi_device_create(struct device_node *np, struct device *parent,
 		return NULL;
 	}
 
-	scmi_dev = kzalloc(sizeof(*scmi_dev), GFP_KERNEL);
+	scmi_dev = kzalloc_obj(*scmi_dev);
 	if (!scmi_dev)
 		return NULL;
 
@@ -474,9 +474,8 @@ __scmi_device_create(struct device_node *np, struct device *parent,
 	if (retval)
 		goto put_dev;
 
-	pr_debug("(%s) Created SCMI device '%s' for protocol 0x%x (%s)\n",
-		 of_node_full_name(parent->of_node),
-		 dev_name(&scmi_dev->dev), protocol, name);
+	pr_debug("(%pOF) Created SCMI device '%s' for protocol 0x%x (%s)\n",
+		 parent->of_node, dev_name(&scmi_dev->dev), protocol, name);
 
 	return scmi_dev;
 put_dev:
@@ -493,8 +492,8 @@ _scmi_device_create(struct device_node *np, struct device *parent,
 
 	sdev = __scmi_device_create(np, parent, protocol, name);
 	if (!sdev)
-		pr_err("(%s) Failed to create device for protocol 0x%x (%s)\n",
-		       of_node_full_name(parent->of_node), protocol, name);
+		pr_err("(%pOF) Failed to create device for protocol 0x%x (%s)\n",
+		       parent->of_node, protocol, name);
 
 	return sdev;
 }

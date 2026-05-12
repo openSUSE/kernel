@@ -9,14 +9,19 @@ import os
 import shutil
 import sys
 
+from  textwrap import dedent
+
 import sphinx
 
-# If extensions (or modules to document with autodoc) are in another directory,
-# add these directories to sys.path here. If the directory is relative to the
-# documentation root, use os.path.abspath to make it absolute, like shown here.
-sys.path.insert(0, os.path.abspath("sphinx"))
+# Location of Documentation/ directory
+kern_doc_dir = os.path.dirname(os.path.abspath(__file__))
 
-from load_config import loadConfig               # pylint: disable=C0413,E0401
+# Add location of Sphinx extensions
+sys.path.insert(0, os.path.join(kern_doc_dir, "sphinx"))
+
+# Allow sphinx.ext.autodoc to document files at tools and scripts
+sys.path.append(os.path.join(kern_doc_dir, "..", "tools"))
+sys.path.append(os.path.join(kern_doc_dir, "..", "scripts"))
 
 # Minimal supported version
 needs_sphinx = "3.4.3"
@@ -32,21 +37,32 @@ else:
     # Include patterns that don't contain directory names, in glob format
     include_patterns = ["**.rst"]
 
-# Location of Documentation/ directory
-doctree = os.path.abspath(".")
-
 # Exclude of patterns that don't contain directory names, in glob format.
 exclude_patterns = []
 
 # List of patterns that contain directory names in glob format.
 dyn_include_patterns = []
-dyn_exclude_patterns = ["output"]
+dyn_exclude_patterns = ["output", "sphinx-includes"]
 
-# Properly handle include/exclude patterns
-# ----------------------------------------
+# Currently, only netlink/specs has a parser for yaml.
+# Prefer using include patterns if available, as it is faster
+if has_include_patterns:
+    dyn_include_patterns.append("netlink/specs/*.yaml")
+else:
+    dyn_exclude_patterns.append("netlink/*.yaml")
+    dyn_exclude_patterns.append("devicetree/bindings/**.yaml")
+    dyn_exclude_patterns.append("core-api/kho/bindings/**.yaml")
 
-def update_patterns(app, config):
+# Link to man pages
+manpages_url = 'https://man7.org/linux/man-pages/man{section}/{page}.{section}.html'
+
+# Properly handle directory patterns and LaTeX docs
+# -------------------------------------------------
+
+def config_init(app, config):
     """
+    Initialize path-dependent variabled
+
     On Sphinx, all directories are relative to what it is passed as
     SOURCEDIR parameter for sphinx-build. Due to that, all patterns
     that have directory names on it need to be dynamically set, after
@@ -59,7 +75,7 @@ def update_patterns(app, config):
     # setup include_patterns dynamically
     if has_include_patterns:
         for p in dyn_include_patterns:
-            full = os.path.join(doctree, p)
+            full = os.path.join(kern_doc_dir, p)
 
             rel_path = os.path.relpath(full, start=app.srcdir)
             if rel_path.startswith("../"):
@@ -69,7 +85,7 @@ def update_patterns(app, config):
 
     # setup exclude_patterns dynamically
     for p in dyn_exclude_patterns:
-        full = os.path.join(doctree, p)
+        full = os.path.join(kern_doc_dir, p)
 
         rel_path = os.path.relpath(full, start=app.srcdir)
         if rel_path.startswith("../"):
@@ -77,6 +93,42 @@ def update_patterns(app, config):
 
         config.exclude_patterns.append(rel_path)
 
+    # LaTeX and PDF output require a list of documents with are dependent
+    # of the app.srcdir. Add them here
+
+    # Handle the case where SPHINXDIRS is used
+    if not os.path.samefile(kern_doc_dir, app.srcdir):
+        # Add a tag to mark that the build is actually a subproject
+        tags.add("subproject")
+
+        # get index.rst, if it exists
+        doc = os.path.basename(app.srcdir)
+        fname = "index"
+        if os.path.exists(os.path.join(app.srcdir, fname + ".rst")):
+            latex_documents.append((fname, doc + ".tex",
+                                    "Linux %s Documentation" % doc.capitalize(),
+                                    "The kernel development community",
+                                    "manual"))
+            return
+
+    # When building all docs, or when a main index.rst doesn't exist, seek
+    # for it on subdirectories
+    for doc in os.listdir(app.srcdir):
+        fname = os.path.join(doc, "index")
+        if not os.path.exists(os.path.join(app.srcdir, fname + ".rst")):
+            continue
+
+        has = False
+        for l in latex_documents:
+            if l[0] == fname:
+                has = True
+                break
+
+        if not has:
+            latex_documents.append((fname, doc + ".tex",
+                                    "Linux %s Documentation" % doc.capitalize(),
+                                    "The kernel development community",
+                                    "manual"))
 
 # helper
 # ------
@@ -102,12 +154,13 @@ extensions = [
     "kernel_include",
     "kfigure",
     "maintainers_include",
+    "parser_yaml",
     "rstFlatTable",
+    "sphinx.ext.autodoc",
     "sphinx.ext.autosectionlabel",
     "sphinx.ext.ifconfig",
     "translations",
 ]
-
 # Since Sphinx version 3, the C function parser is more pedantic with regards
 # to type checking. Due to that, having macros at c:function cause problems.
 # Those needed to be escaped by using c_id_attributes[] array
@@ -204,10 +257,11 @@ else:
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["sphinx/templates"]
 
-# The suffix(es) of source filenames.
-# You can specify multiple suffix as a list of string:
-# source_suffix = ['.rst', '.md']
-source_suffix = '.rst'
+# The suffixes of source filenames that will be automatically parsed
+source_suffix = {
+    ".rst": "restructuredtext",
+    ".yaml": "yaml",
+}
 
 # The encoding of source files.
 # source_encoding = 'utf-8-sig'
@@ -224,7 +278,7 @@ author = "The kernel development community"
 # |version| and |release|, also used in various other places throughout the
 # built documents.
 #
-# In a normal build, version and release are are set to KERNELVERSION and
+# In a normal build, version and release are set to KERNELVERSION and
 # KERNELRELEASE, respectively, from the Makefile via Sphinx command line
 # arguments.
 #
@@ -401,6 +455,7 @@ if html_theme == "alabaster":
 # The name of an image file (relative to this directory) to place at the top
 # of the sidebar.
 html_logo = "images/logo.svg"
+html_favicon = "images/logo.svg"
 
 # Output file base name for HTML help builder.
 htmlhelp_basename = "TheLinuxKerneldoc"
@@ -410,19 +465,25 @@ htmlhelp_basename = "TheLinuxKerneldoc"
 latex_elements = {
     # The paper size ('letterpaper' or 'a4paper').
     "papersize": "a4paper",
+    "passoptionstopackages": dedent(r"""
+        \PassOptionsToPackage{svgnames}{xcolor}
+    """),
     # The font size ('10pt', '11pt' or '12pt').
     "pointsize": "11pt",
+    # Needed to generate a .ind file
+    "printindex": r"\footnotesize\raggedright\printindex",
     # Latex figure (float) alignment
     # 'figure_align': 'htbp',
     # Don't mangle with UTF-8 chars
+    "fontenc": "",
     "inputenc": "",
     "utf8extra": "",
     # Set document margins
-    "sphinxsetup": """
+    "sphinxsetup": dedent(r"""
         hmargin=0.5in, vmargin=1in,
         parsedliteralwraps=true,
         verbatimhintsturnover=false,
-    """,
+    """),
     #
     # Some of our authors are fond of deep nesting; tell latex to
     # cope.
@@ -430,47 +491,21 @@ latex_elements = {
     "maxlistdepth": "10",
     # For CJK One-half spacing, need to be in front of hyperref
     "extrapackages": r"\usepackage{setspace}",
-    # Additional stuff for the LaTeX preamble.
-    "preamble": """
-        % Use some font with UTF-8 support with XeLaTeX
-        \\usepackage{fontspec}
-        \\setsansfont{DejaVu Sans}
-        \\setromanfont{DejaVu Serif}
-        \\setmonofont{DejaVu Sans Mono}
-    """,
+    "fontpkg": dedent(r"""
+        \usepackage{fontspec}
+        \setmainfont{DejaVu Serif}
+        \setsansfont{DejaVu Sans}
+        \setmonofont{DejaVu Sans Mono}
+        \newfontfamily\headingfont{DejaVu Serif}
+    """),
+    "preamble": dedent(r"""
+        % Load kerneldoc specific LaTeX settings
+        \input{kerneldoc-preamble.sty}
+    """)
 }
 
-# Load kerneldoc specific LaTeX settings
-latex_elements["preamble"] += """
-        % Load kerneldoc specific LaTeX settings
-        \\input{kerneldoc-preamble.sty}
-"""
-
-# Grouping the document tree into LaTeX files. List of tuples
-# (source start file, target name, title,
-#  author, documentclass [howto, manual, or own class]).
-# Sorted in alphabetical order
+# This will be filled up by config-inited event
 latex_documents = []
-
-# Add all other index files from Documentation/ subdirectories
-for fn in os.listdir("."):
-    doc = os.path.join(fn, "index")
-    if os.path.exists(doc + ".rst"):
-        has = False
-        for l in latex_documents:
-            if l[0] == doc:
-                has = True
-                break
-        if not has:
-            latex_documents.append(
-                (
-                    doc,
-                    fn + ".tex",
-                    "Linux %s Documentation" % fn.capitalize(),
-                    "The kernel development community",
-                    "manual",
-                )
-            )
 
 # The name of an image file (relative to this directory) to place at the top of
 # the title page.
@@ -551,20 +586,32 @@ pdf_documents = [
     ("kernel-documentation", "Kernel", "Kernel", "J. Random Bozo"),
 ]
 
-# kernel-doc extension configuration for running Sphinx directly (e.g. by Read
-# the Docs). In a normal build, these are supplied from the Makefile via command
-# line arguments.
-kerneldoc_bin = "../scripts/kernel-doc.py"
 kerneldoc_srctree = ".."
 
-# ------------------------------------------------------------------------------
-# Since loadConfig overwrites settings from the global namespace, it has to be
-# the last statement in the conf.py file
-# ------------------------------------------------------------------------------
-loadConfig(globals())
+# Add index link at the end of the root document for SPHINXDIRS builds.
+def add_subproject_index(app, docname, content):
+    # Only care about root documents
+    if docname != master_doc:
+        return
 
+    # Add the index link at the root of translations, but not at the root of
+    # individual translations. They have their own language specific links.
+    rel = os.path.relpath(app.srcdir, start=kern_doc_dir).split('/')
+    if rel[0] == 'translations' and len(rel) > 1:
+        return
+
+    # Only add the link for SPHINXDIRS HTML builds
+    if not app.builder.tags.has('subproject') or not app.builder.tags.has('html'):
+        return
+
+    # The include directive needs a relative path from the srcdir
+    rel = os.path.relpath(os.path.join(kern_doc_dir, 'sphinx-includes/subproject-index.rst'),
+                          start=app.srcdir)
+
+    content[0] += f'\n.. include:: {rel}\n\n'
 
 def setup(app):
     """Patterns need to be updated at init time on older Sphinx versions"""
 
-    app.connect('config-inited', update_patterns)
+    app.connect('config-inited', config_init)
+    app.connect('source-read', add_subproject_index)

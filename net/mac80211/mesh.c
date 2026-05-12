@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2008, 2009 open80211s Ltd.
- * Copyright (C) 2018 - 2024 Intel Corporation
+ * Copyright (C) 2018-2026 Intel Corporation
  * Authors:    Luis Carlos Cobo <luisca@cozybit.com>
  * 	       Javier Cardona <javier@cozybit.com>
  */
@@ -19,8 +19,7 @@ static struct kmem_cache *rm_cache;
 
 bool mesh_action_is_path_sel(struct ieee80211_mgmt *mgmt)
 {
-	return (mgmt->u.action.u.mesh_action.action_code ==
-			WLAN_MESH_ACTION_HWMP_PATH_SELECTION);
+	return mgmt->u.action.action_code == WLAN_MESH_ACTION_HWMP_PATH_SELECTION;
 }
 
 void ieee80211s_init(void)
@@ -79,6 +78,9 @@ bool mesh_matches_local(struct ieee80211_sub_if_data *sdata,
 	 *   - MDA enabled
 	 * - Power management control on fc
 	 */
+	if (!ie->mesh_config)
+		return false;
+
 	if (!(ifmsh->mesh_id_len == ie->mesh_id_len &&
 	     memcmp(ifmsh->mesh_id, ie->mesh_id, ie->mesh_id_len) == 0 &&
 	     (ifmsh->mesh_pp_id == ie->mesh_config->meshconf_psel) &&
@@ -178,7 +180,7 @@ int mesh_rmc_init(struct ieee80211_sub_if_data *sdata)
 {
 	int i;
 
-	sdata->u.mesh.rmc = kmalloc(sizeof(struct mesh_rmc), GFP_KERNEL);
+	sdata->u.mesh.rmc = kmalloc_obj(struct mesh_rmc);
 	if (!sdata->u.mesh.rmc)
 		return -ENOMEM;
 	sdata->u.mesh.rmc->idx_mask = RMC_BUCKETS - 1;
@@ -623,6 +625,9 @@ int mesh_add_he_6ghz_cap_ie(struct ieee80211_sub_if_data *sdata,
 	sband = ieee80211_get_sband(sdata);
 	if (!sband)
 		return -EINVAL;
+
+	if (sband->band != NL80211_BAND_6GHZ)
+		return 0;
 
 	iftd = ieee80211_get_sband_iftype_data(sband,
 					       NL80211_IFTYPE_MESH_POINT);
@@ -1407,7 +1412,10 @@ ieee80211_mesh_rx_probe_req(struct ieee80211_sub_if_data *sdata,
 	if (baselen > len)
 		return;
 
-	elems = ieee802_11_parse_elems(pos, len - baselen, false, NULL);
+	elems = ieee802_11_parse_elems(pos, len - baselen,
+				       IEEE80211_FTYPE_MGMT |
+				       IEEE80211_STYPE_PROBE_REQ,
+				       NULL);
 	if (!elems)
 		return;
 
@@ -1452,11 +1460,11 @@ free:
 }
 
 static void ieee80211_mesh_rx_bcn_presp(struct ieee80211_sub_if_data *sdata,
-					u16 stype,
 					struct ieee80211_mgmt *mgmt,
 					size_t len,
 					struct ieee80211_rx_status *rx_status)
 {
+	u16 type = le16_to_cpu(mgmt->frame_control) & IEEE80211_FCTL_TYPE;
 	struct ieee80211_local *local = sdata->local;
 	struct ieee80211_if_mesh *ifmsh = &sdata->u.mesh;
 	struct ieee802_11_elems *elems;
@@ -1466,7 +1474,7 @@ static void ieee80211_mesh_rx_bcn_presp(struct ieee80211_sub_if_data *sdata,
 	enum nl80211_band band = rx_status->band;
 
 	/* ignore ProbeResp to foreign address */
-	if (stype == IEEE80211_STYPE_PROBE_RESP &&
+	if (type == (IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_PROBE_RESP) &&
 	    !ether_addr_equal(mgmt->da, sdata->vif.addr))
 		return;
 
@@ -1475,8 +1483,7 @@ static void ieee80211_mesh_rx_bcn_presp(struct ieee80211_sub_if_data *sdata,
 		return;
 
 	elems = ieee802_11_parse_elems(mgmt->u.probe_resp.variable,
-				       len - baselen,
-				       false, NULL);
+				       len - baselen, type, NULL);
 	if (!elems)
 		return;
 
@@ -1511,7 +1518,9 @@ static void ieee80211_mesh_rx_bcn_presp(struct ieee80211_sub_if_data *sdata,
 	}
 
 	if (ifmsh->sync_ops)
-		ifmsh->sync_ops->rx_bcn_presp(sdata, stype, mgmt, len,
+		ifmsh->sync_ops->rx_bcn_presp(sdata,
+					      type & IEEE80211_FCTL_STYPE,
+					      mgmt, len,
 					      elems->mesh_config, rx_status);
 free:
 	kfree(elems);
@@ -1553,8 +1562,7 @@ int ieee80211_mesh_csa_beacon(struct ieee80211_sub_if_data *sdata,
 
 	lockdep_assert_wiphy(sdata->local->hw.wiphy);
 
-	tmp_csa_settings = kmalloc(sizeof(*tmp_csa_settings),
-				   GFP_ATOMIC);
+	tmp_csa_settings = kmalloc_obj(*tmp_csa_settings, GFP_ATOMIC);
 	if (!tmp_csa_settings)
 		return -ENOMEM;
 
@@ -1612,18 +1620,23 @@ static void mesh_rx_csa_frame(struct ieee80211_sub_if_data *sdata,
 	size_t baselen;
 	u8 *pos;
 
-	if (mgmt->u.action.u.measurement.action_code !=
-	    WLAN_ACTION_SPCT_CHL_SWITCH)
+	if (mgmt->u.action.action_code != WLAN_ACTION_SPCT_CHL_SWITCH)
 		return;
 
-	pos = mgmt->u.action.u.chan_switch.variable;
+	pos = mgmt->u.action.chan_switch.variable;
 	baselen = offsetof(struct ieee80211_mgmt,
-			   u.action.u.chan_switch.variable);
-	elems = ieee802_11_parse_elems(pos, len - baselen, true, NULL);
+			   u.action.chan_switch.variable);
+	elems = ieee802_11_parse_elems(pos, len - baselen,
+				       IEEE80211_FTYPE_MGMT |
+				       IEEE80211_STYPE_ACTION,
+				       NULL);
 	if (!elems)
 		return;
 
 	if (!mesh_matches_local(sdata, elems))
+		goto free;
+
+	if (!elems->mesh_chansw_params_ie)
 		goto free;
 
 	ifmsh->chsw_ttl = elems->mesh_chansw_params_ie->mesh_ttl;
@@ -1658,7 +1671,7 @@ static void ieee80211_mesh_rx_mgmt_action(struct ieee80211_sub_if_data *sdata,
 {
 	switch (mgmt->u.action.category) {
 	case WLAN_CATEGORY_SELF_PROTECTED:
-		switch (mgmt->u.action.u.self_prot.action_code) {
+		switch (mgmt->u.action.action_code) {
 		case WLAN_SP_MESH_PEERING_OPEN:
 		case WLAN_SP_MESH_PEERING_CLOSE:
 		case WLAN_SP_MESH_PEERING_CONFIRM:
@@ -1696,8 +1709,7 @@ void ieee80211_mesh_rx_queued_mgmt(struct ieee80211_sub_if_data *sdata,
 	switch (stype) {
 	case IEEE80211_STYPE_PROBE_RESP:
 	case IEEE80211_STYPE_BEACON:
-		ieee80211_mesh_rx_bcn_presp(sdata, stype, mgmt, skb->len,
-					    rx_status);
+		ieee80211_mesh_rx_bcn_presp(sdata, mgmt, skb->len, rx_status);
 		break;
 	case IEEE80211_STYPE_PROBE_REQ:
 		ieee80211_mesh_rx_probe_req(sdata, mgmt, skb->len);

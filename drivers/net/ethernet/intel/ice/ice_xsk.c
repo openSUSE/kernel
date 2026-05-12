@@ -3,6 +3,7 @@
 
 #include <linux/bpf_trace.h>
 #include <linux/unroll.h>
+#include <net/libeth/xdp.h>
 #include <net/xdp_sock_drv.h>
 #include <net/xdp.h>
 #include "ice.h"
@@ -19,52 +20,12 @@ static struct xdp_buff **ice_xdp_buf(struct ice_rx_ring *rx_ring, u32 idx)
 }
 
 /**
- * ice_qp_reset_stats - Resets all stats for rings of given index
- * @vsi: VSI that contains rings of interest
- * @q_idx: ring index in array
- */
-static void ice_qp_reset_stats(struct ice_vsi *vsi, u16 q_idx)
-{
-	struct ice_vsi_stats *vsi_stat;
-	struct ice_pf *pf;
-
-	pf = vsi->back;
-	if (!pf->vsi_stats)
-		return;
-
-	vsi_stat = pf->vsi_stats[vsi->idx];
-	if (!vsi_stat)
-		return;
-
-	memset(&vsi_stat->rx_ring_stats[q_idx]->rx_stats, 0,
-	       sizeof(vsi_stat->rx_ring_stats[q_idx]->rx_stats));
-	memset(&vsi_stat->tx_ring_stats[q_idx]->stats, 0,
-	       sizeof(vsi_stat->tx_ring_stats[q_idx]->stats));
-	if (vsi->xdp_rings)
-		memset(&vsi->xdp_rings[q_idx]->ring_stats->stats, 0,
-		       sizeof(vsi->xdp_rings[q_idx]->ring_stats->stats));
-}
-
-/**
- * ice_qp_clean_rings - Cleans all the rings of a given index
- * @vsi: VSI that contains rings of interest
- * @q_idx: ring index in array
- */
-static void ice_qp_clean_rings(struct ice_vsi *vsi, u16 q_idx)
-{
-	ice_clean_tx_ring(vsi->tx_rings[q_idx]);
-	if (vsi->xdp_rings)
-		ice_clean_tx_ring(vsi->xdp_rings[q_idx]);
-	ice_clean_rx_ring(vsi->rx_rings[q_idx]);
-}
-
-/**
  * ice_qvec_toggle_napi - Enables/disables NAPI for a given q_vector
  * @vsi: VSI that has netdev
  * @q_vector: q_vector that has NAPI context
  * @enable: true for enable, false for disable
  */
-static void
+void
 ice_qvec_toggle_napi(struct ice_vsi *vsi, struct ice_q_vector *q_vector,
 		     bool enable)
 {
@@ -83,7 +44,7 @@ ice_qvec_toggle_napi(struct ice_vsi *vsi, struct ice_q_vector *q_vector,
  * @rx_ring: Rx ring that will have its IRQ disabled
  * @q_vector: queue vector
  */
-static void
+void
 ice_qvec_dis_irq(struct ice_vsi *vsi, struct ice_rx_ring *rx_ring,
 		 struct ice_q_vector *q_vector)
 {
@@ -113,7 +74,7 @@ ice_qvec_dis_irq(struct ice_vsi *vsi, struct ice_rx_ring *rx_ring,
  * @q_vector: queue vector
  * @qid: queue index
  */
-static void
+void
 ice_qvec_cfg_msix(struct ice_vsi *vsi, struct ice_q_vector *q_vector, u16 qid)
 {
 	u16 reg_idx = q_vector->reg_idx;
@@ -143,7 +104,7 @@ ice_qvec_cfg_msix(struct ice_vsi *vsi, struct ice_q_vector *q_vector, u16 qid)
  * @vsi: the VSI that contains queue vector
  * @q_vector: queue vector
  */
-static void ice_qvec_ena_irq(struct ice_vsi *vsi, struct ice_q_vector *q_vector)
+void ice_qvec_ena_irq(struct ice_vsi *vsi, struct ice_q_vector *q_vector)
 {
 	struct ice_pf *pf = vsi->back;
 	struct ice_hw *hw = &pf->hw;
@@ -151,111 +112,6 @@ static void ice_qvec_ena_irq(struct ice_vsi *vsi, struct ice_q_vector *q_vector)
 	ice_irq_dynamic_ena(hw, vsi, q_vector);
 
 	ice_flush(hw);
-}
-
-/**
- * ice_qp_dis - Disables a queue pair
- * @vsi: VSI of interest
- * @q_idx: ring index in array
- *
- * Returns 0 on success, negative on failure.
- */
-static int ice_qp_dis(struct ice_vsi *vsi, u16 q_idx)
-{
-	struct ice_txq_meta txq_meta = { };
-	struct ice_q_vector *q_vector;
-	struct ice_tx_ring *tx_ring;
-	struct ice_rx_ring *rx_ring;
-	int fail = 0;
-	int err;
-
-	if (q_idx >= vsi->num_rxq || q_idx >= vsi->num_txq)
-		return -EINVAL;
-
-	tx_ring = vsi->tx_rings[q_idx];
-	rx_ring = vsi->rx_rings[q_idx];
-	q_vector = rx_ring->q_vector;
-
-	synchronize_net();
-	netif_carrier_off(vsi->netdev);
-	netif_tx_stop_queue(netdev_get_tx_queue(vsi->netdev, q_idx));
-
-	ice_qvec_dis_irq(vsi, rx_ring, q_vector);
-	ice_qvec_toggle_napi(vsi, q_vector, false);
-
-	ice_fill_txq_meta(vsi, tx_ring, &txq_meta);
-	err = ice_vsi_stop_tx_ring(vsi, ICE_NO_RESET, 0, tx_ring, &txq_meta);
-	if (!fail)
-		fail = err;
-	if (vsi->xdp_rings) {
-		struct ice_tx_ring *xdp_ring = vsi->xdp_rings[q_idx];
-
-		memset(&txq_meta, 0, sizeof(txq_meta));
-		ice_fill_txq_meta(vsi, xdp_ring, &txq_meta);
-		err = ice_vsi_stop_tx_ring(vsi, ICE_NO_RESET, 0, xdp_ring,
-					   &txq_meta);
-		if (!fail)
-			fail = err;
-	}
-
-	ice_vsi_ctrl_one_rx_ring(vsi, false, q_idx, false);
-	ice_qp_clean_rings(vsi, q_idx);
-	ice_qp_reset_stats(vsi, q_idx);
-
-	return fail;
-}
-
-/**
- * ice_qp_ena - Enables a queue pair
- * @vsi: VSI of interest
- * @q_idx: ring index in array
- *
- * Returns 0 on success, negative on failure.
- */
-static int ice_qp_ena(struct ice_vsi *vsi, u16 q_idx)
-{
-	struct ice_q_vector *q_vector;
-	int fail = 0;
-	bool link_up;
-	int err;
-
-	err = ice_vsi_cfg_single_txq(vsi, vsi->tx_rings, q_idx);
-	if (!fail)
-		fail = err;
-
-	if (ice_is_xdp_ena_vsi(vsi)) {
-		struct ice_tx_ring *xdp_ring = vsi->xdp_rings[q_idx];
-
-		err = ice_vsi_cfg_single_txq(vsi, vsi->xdp_rings, q_idx);
-		if (!fail)
-			fail = err;
-		ice_set_ring_xdp(xdp_ring);
-		ice_tx_xsk_pool(vsi, q_idx);
-	}
-
-	err = ice_vsi_cfg_single_rxq(vsi, q_idx);
-	if (!fail)
-		fail = err;
-
-	q_vector = vsi->rx_rings[q_idx]->q_vector;
-	ice_qvec_cfg_msix(vsi, q_vector, q_idx);
-
-	err = ice_vsi_ctrl_one_rx_ring(vsi, true, q_idx, true);
-	if (!fail)
-		fail = err;
-
-	ice_qvec_toggle_napi(vsi, q_vector, true);
-	ice_qvec_ena_irq(vsi, q_vector);
-
-	/* make sure NAPI sees updated ice_{t,x}_ring::xsk_pool */
-	synchronize_net();
-	ice_get_link_status(vsi->port_info, &link_up);
-	if (link_up) {
-		netif_tx_start_queue(netdev_get_tx_queue(vsi->netdev, q_idx));
-		netif_carrier_on(vsi->netdev);
-	}
-
-	return fail;
 }
 
 /**
@@ -314,50 +170,17 @@ ice_xsk_pool_enable(struct ice_vsi *vsi, struct xsk_buff_pool *pool, u16 qid)
  * If allocation was successful, substitute buffer with allocated one.
  * Returns 0 on success, negative on failure
  */
-static int
+int
 ice_realloc_rx_xdp_bufs(struct ice_rx_ring *rx_ring, bool pool_present)
 {
-	size_t elem_size = pool_present ? sizeof(*rx_ring->xdp_buf) :
-					  sizeof(*rx_ring->rx_buf);
-	void *sw_ring = kcalloc(rx_ring->count, elem_size, GFP_KERNEL);
-
-	if (!sw_ring)
-		return -ENOMEM;
-
 	if (pool_present) {
-		kfree(rx_ring->rx_buf);
-		rx_ring->rx_buf = NULL;
-		rx_ring->xdp_buf = sw_ring;
+		rx_ring->xdp_buf = kzalloc_objs(*rx_ring->xdp_buf,
+						rx_ring->count);
+		if (!rx_ring->xdp_buf)
+			return -ENOMEM;
 	} else {
 		kfree(rx_ring->xdp_buf);
 		rx_ring->xdp_buf = NULL;
-		rx_ring->rx_buf = sw_ring;
-	}
-
-	return 0;
-}
-
-/**
- * ice_realloc_zc_buf - reallocate XDP ZC queue pairs
- * @vsi: Current VSI
- * @zc: is zero copy set
- *
- * Reallocate buffer for rx_rings that might be used by XSK.
- * XDP requires more memory, than rx_buf provides.
- * Returns 0 on success, negative on failure
- */
-int ice_realloc_zc_buf(struct ice_vsi *vsi, bool zc)
-{
-	struct ice_rx_ring *rx_ring;
-	uint i;
-
-	ice_for_each_rxq(vsi, i) {
-		rx_ring = vsi->rx_rings[i];
-		if (!rx_ring->xsk_pool)
-			continue;
-
-		if (ice_realloc_rx_xdp_bufs(rx_ring, zc))
-			return -ENOMEM;
 	}
 
 	return 0;
@@ -373,6 +196,7 @@ int ice_realloc_zc_buf(struct ice_vsi *vsi, bool zc)
  */
 int ice_xsk_pool_setup(struct ice_vsi *vsi, struct xsk_buff_pool *pool, u16 qid)
 {
+	struct ice_rx_ring *rx_ring = vsi->rx_rings[qid];
 	bool if_running, pool_present = !!pool;
 	int ret = 0, pool_failure = 0;
 
@@ -386,8 +210,6 @@ int ice_xsk_pool_setup(struct ice_vsi *vsi, struct xsk_buff_pool *pool, u16 qid)
 		     ice_is_xdp_ena_vsi(vsi);
 
 	if (if_running) {
-		struct ice_rx_ring *rx_ring = vsi->rx_rings[qid];
-
 		ret = ice_qp_dis(vsi, qid);
 		if (ret) {
 			netdev_err(vsi->netdev, "ice_qp_dis error = %d\n", ret);
@@ -447,11 +269,6 @@ static u16 ice_fill_rx_descs(struct xsk_buff_pool *pool, struct xdp_buff **xdp,
 		dma = xsk_buff_xdp_get_dma(*xdp);
 		rx_desc->read.pkt_addr = cpu_to_le64(dma);
 		rx_desc->wb.status_error0 = 0;
-
-		/* Put private info that changes on a per-packet basis
-		 * into xdp_buff_xsk->cb.
-		 */
-		ice_xdp_meta_set_desc(*xdp, rx_desc);
 
 		rx_desc++;
 		xdp++;
@@ -535,69 +352,6 @@ bool ice_alloc_rx_bufs_zc(struct ice_rx_ring *rx_ring,
 		if (!__ice_alloc_rx_bufs_zc(rx_ring, xsk_pool, rx_thresh))
 			return false;
 	return __ice_alloc_rx_bufs_zc(rx_ring, xsk_pool, leftover);
-}
-
-/**
- * ice_construct_skb_zc - Create an sk_buff from zero-copy buffer
- * @rx_ring: Rx ring
- * @xdp: Pointer to XDP buffer
- *
- * This function allocates a new skb from a zero-copy Rx buffer.
- *
- * Returns the skb on success, NULL on failure.
- */
-static struct sk_buff *
-ice_construct_skb_zc(struct ice_rx_ring *rx_ring, struct xdp_buff *xdp)
-{
-	unsigned int totalsize = xdp->data_end - xdp->data_meta;
-	unsigned int metasize = xdp->data - xdp->data_meta;
-	struct skb_shared_info *sinfo = NULL;
-	struct sk_buff *skb;
-	u32 nr_frags = 0;
-
-	if (unlikely(xdp_buff_has_frags(xdp))) {
-		sinfo = xdp_get_shared_info_from_buff(xdp);
-		nr_frags = sinfo->nr_frags;
-	}
-	net_prefetch(xdp->data_meta);
-
-	skb = napi_alloc_skb(&rx_ring->q_vector->napi, totalsize);
-	if (unlikely(!skb))
-		return NULL;
-
-	memcpy(__skb_put(skb, totalsize), xdp->data_meta,
-	       ALIGN(totalsize, sizeof(long)));
-
-	if (metasize) {
-		skb_metadata_set(skb, metasize);
-		__skb_pull(skb, metasize);
-	}
-
-	if (likely(!xdp_buff_has_frags(xdp)))
-		goto out;
-
-	for (int i = 0; i < nr_frags; i++) {
-		struct skb_shared_info *skinfo = skb_shinfo(skb);
-		skb_frag_t *frag = &sinfo->frags[i];
-		struct page *page;
-		void *addr;
-
-		page = dev_alloc_page();
-		if (!page) {
-			dev_kfree_skb(skb);
-			return NULL;
-		}
-		addr = page_to_virt(page);
-
-		memcpy(addr, skb_frag_page(frag), skb_frag_size(frag));
-
-		__skb_fill_page_desc_noacc(skinfo, skinfo->nr_frags++,
-					   addr, 0, skb_frag_size(frag));
-	}
-
-out:
-	xsk_buff_free(xdp);
-	return skb;
 }
 
 /**
@@ -742,7 +496,7 @@ static int ice_xmit_xdp_tx_zc(struct xdp_buff *xdp,
 	return ICE_XDP_TX;
 
 busy:
-	xdp_ring->ring_stats->tx_stats.tx_busy++;
+	ice_stats_inc(xdp_ring->ring_stats, tx_busy);
 
 	return ICE_XDP_CONSUMED;
 }
@@ -814,10 +568,10 @@ int ice_clean_rx_irq_zc(struct ice_rx_ring *rx_ring,
 			struct xsk_buff_pool *xsk_pool,
 			int budget)
 {
+	struct xdp_buff *first = (struct xdp_buff *)rx_ring->xsk;
 	unsigned int total_rx_bytes = 0, total_rx_packets = 0;
 	u32 ntc = rx_ring->next_to_clean;
 	u32 ntu = rx_ring->next_to_use;
-	struct xdp_buff *first = NULL;
 	struct ice_tx_ring *xdp_ring;
 	unsigned int xdp_xmit = 0;
 	struct bpf_prog *xdp_prog;
@@ -830,9 +584,6 @@ int ice_clean_rx_irq_zc(struct ice_rx_ring *rx_ring,
 	 */
 	xdp_prog = READ_ONCE(rx_ring->xdp_prog);
 	xdp_ring = rx_ring->xdp_ring;
-
-	if (ntc != rx_ring->first_desc)
-		first = *ice_xdp_buf(rx_ring, rx_ring->first_desc);
 
 	while (likely(total_rx_packets < (unsigned int)budget)) {
 		union ice_32b_rx_flex_desc *rx_desc;
@@ -869,14 +620,16 @@ int ice_clean_rx_irq_zc(struct ice_rx_ring *rx_ring,
 			first = xdp;
 		} else if (likely(size) && !xsk_buff_add_frag(first, xdp)) {
 			xsk_buff_free(first);
-			break;
+			first = NULL;
 		}
 
 		if (++ntc == cnt)
 			ntc = 0;
 
-		if (ice_is_non_eop(rx_ring, rx_desc))
+		if (ice_is_non_eop(rx_ring, rx_desc) || unlikely(!first))
 			continue;
+
+		((struct libeth_xdp_buff *)first)->desc = rx_desc;
 
 		xdp_res = ice_run_xdp_zc(rx_ring, first, xdp_prog, xdp_ring,
 					 xsk_pool);
@@ -885,7 +638,6 @@ int ice_clean_rx_irq_zc(struct ice_rx_ring *rx_ring,
 		} else if (xdp_res == ICE_XDP_EXIT) {
 			failure = true;
 			first = NULL;
-			rx_ring->first_desc = ntc;
 			break;
 		} else if (xdp_res == ICE_XDP_CONSUMED) {
 			xsk_buff_free(first);
@@ -897,24 +649,20 @@ int ice_clean_rx_irq_zc(struct ice_rx_ring *rx_ring,
 		total_rx_packets++;
 
 		first = NULL;
-		rx_ring->first_desc = ntc;
 		continue;
 
 construct_skb:
 		/* XDP_PASS path */
-		skb = ice_construct_skb_zc(rx_ring, first);
+		skb = xdp_build_skb_from_zc(first);
 		if (!skb) {
-			rx_ring->ring_stats->rx_stats.alloc_buf_failed++;
-			break;
+			xsk_buff_free(first);
+			first = NULL;
+
+			ice_stats_inc(rx_ring->ring_stats, rx_buf_failed);
+			continue;
 		}
 
 		first = NULL;
-		rx_ring->first_desc = ntc;
-
-		if (eth_skb_pad(skb)) {
-			skb = NULL;
-			continue;
-		}
 
 		total_rx_bytes += skb->len;
 		total_rx_packets++;
@@ -926,7 +674,9 @@ construct_skb:
 	}
 
 	rx_ring->next_to_clean = ntc;
-	entries_to_alloc = ICE_RX_DESC_UNUSED(rx_ring);
+	rx_ring->xsk = (struct libeth_xdp_buff *)first;
+
+	entries_to_alloc = ICE_DESC_UNUSED(rx_ring);
 	if (entries_to_alloc > ICE_RING_QUARTER(rx_ring))
 		failure |= !ice_alloc_rx_bufs_zc(rx_ring, xsk_pool,
 						 entries_to_alloc);
@@ -1148,6 +898,9 @@ void ice_xsk_clean_rx_ring(struct ice_rx_ring *rx_ring)
 {
 	u16 ntc = rx_ring->next_to_clean;
 	u16 ntu = rx_ring->next_to_use;
+
+	if (xdp_rxq_info_is_reg(&rx_ring->xdp_rxq))
+		xdp_rxq_info_unreg(&rx_ring->xdp_rxq);
 
 	while (ntc != ntu) {
 		struct xdp_buff *xdp = *ice_xdp_buf(rx_ring, ntc);

@@ -5,12 +5,11 @@
 
 #include <drm/drm_print.h>
 
-#include "i915_reg.h"
-#include "i915_utils.h"
 #include "intel_de.h"
 #include "intel_display_irq.h"
 #include "intel_display_regs.h"
 #include "intel_display_types.h"
+#include "intel_display_utils.h"
 #include "intel_dp_aux.h"
 #include "intel_gmbus.h"
 #include "intel_hotplug.h"
@@ -420,6 +419,9 @@ u32 i9xx_hpd_irq_ack(struct intel_display *display)
 	u32 hotplug_status = 0, hotplug_status_mask;
 	int i;
 
+	if (!HAS_HOTPLUG(display))
+		return 0;
+
 	if (display->platform.g4x ||
 	    display->platform.valleyview || display->platform.cherryview)
 		hotplug_status_mask = HOTPLUG_INT_STATUS_G4X |
@@ -516,11 +518,8 @@ void xelpdp_pica_irq_handler(struct intel_display *display, u32 iir)
 {
 	enum hpd_pin pin;
 	u32 hotplug_trigger = iir & (XELPDP_DP_ALT_HOTPLUG_MASK | XELPDP_TBT_HOTPLUG_MASK);
-	u32 trigger_aux = iir & XELPDP_AUX_TC_MASK;
+	u32 trigger_aux = iir & xelpdp_pica_aux_mask(display);
 	u32 pin_mask = 0, long_mask = 0;
-
-	if (DISPLAY_VER(display) >= 20)
-		trigger_aux |= iir & XE2LPD_AUX_DDI_MASK;
 
 	for (pin = HPD_PORT_TC1; pin <= HPD_PORT_TC4; pin++) {
 		u32 val;
@@ -1421,7 +1420,7 @@ static void i915_hpd_irq_setup(struct intel_display *display)
 					     hotplug_en);
 }
 
-struct intel_hotplug_funcs {
+struct intel_hotplug_irq_funcs {
 	/* Enable HPD sense and interrupts for all present encoders */
 	void (*hpd_irq_setup)(struct intel_display *display);
 	/* Enable HPD sense for a single encoder */
@@ -1429,7 +1428,7 @@ struct intel_hotplug_funcs {
 };
 
 #define HPD_FUNCS(platform)					 \
-static const struct intel_hotplug_funcs platform##_hpd_funcs = { \
+static const struct intel_hotplug_irq_funcs platform##_hpd_funcs = { \
 	.hpd_irq_setup = platform##_hpd_irq_setup,		 \
 	.hpd_enable_detection = platform##_hpd_enable_detection, \
 }
@@ -1448,8 +1447,8 @@ void intel_hpd_enable_detection(struct intel_encoder *encoder)
 {
 	struct intel_display *display = to_intel_display(encoder);
 
-	if (display->funcs.hotplug)
-		display->funcs.hotplug->hpd_enable_detection(encoder);
+	if (display->hotplug.funcs)
+		display->hotplug.funcs->hpd_enable_detection(encoder);
 }
 
 void intel_hpd_irq_setup(struct intel_display *display)
@@ -1458,8 +1457,8 @@ void intel_hpd_irq_setup(struct intel_display *display)
 	    !display->irq.vlv_display_irqs_enabled)
 		return;
 
-	if (display->funcs.hotplug)
-		display->funcs.hotplug->hpd_irq_setup(display);
+	if (display->hotplug.funcs)
+		display->hotplug.funcs->hpd_irq_setup(display);
 }
 
 void intel_hotplug_irq_init(struct intel_display *display)
@@ -1470,23 +1469,23 @@ void intel_hotplug_irq_init(struct intel_display *display)
 
 	if (HAS_GMCH(display)) {
 		if (HAS_HOTPLUG(display))
-			display->funcs.hotplug = &i915_hpd_funcs;
+			display->hotplug.funcs = &i915_hpd_funcs;
 	} else {
 		if (HAS_PCH_DG2(display))
-			display->funcs.hotplug = &icp_hpd_funcs;
+			display->hotplug.funcs = &icp_hpd_funcs;
 		else if (HAS_PCH_DG1(display))
-			display->funcs.hotplug = &dg1_hpd_funcs;
+			display->hotplug.funcs = &dg1_hpd_funcs;
 		else if (DISPLAY_VER(display) >= 14)
-			display->funcs.hotplug = &xelpdp_hpd_funcs;
+			display->hotplug.funcs = &xelpdp_hpd_funcs;
 		else if (DISPLAY_VER(display) >= 11)
-			display->funcs.hotplug = &gen11_hpd_funcs;
+			display->hotplug.funcs = &gen11_hpd_funcs;
 		else if (display->platform.geminilake || display->platform.broxton)
-			display->funcs.hotplug = &bxt_hpd_funcs;
+			display->hotplug.funcs = &bxt_hpd_funcs;
 		else if (INTEL_PCH_TYPE(display) >= PCH_ICP)
-			display->funcs.hotplug = &icp_hpd_funcs;
+			display->hotplug.funcs = &icp_hpd_funcs;
 		else if (INTEL_PCH_TYPE(display) >= PCH_SPT)
-			display->funcs.hotplug = &spt_hpd_funcs;
+			display->hotplug.funcs = &spt_hpd_funcs;
 		else
-			display->funcs.hotplug = &ilk_hpd_funcs;
+			display->hotplug.funcs = &ilk_hpd_funcs;
 	}
 }

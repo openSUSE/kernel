@@ -332,7 +332,7 @@ static int visl_open(struct file *file)
 
 	if (mutex_lock_interruptible(&dev->dev_mutex))
 		return -ERESTARTSYS;
-	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	ctx = kzalloc_obj(*ctx);
 	if (!ctx) {
 		rc = -ENOMEM;
 		goto unlock;
@@ -341,7 +341,6 @@ static int visl_open(struct file *file)
 	ctx->tpg_str_buf = kzalloc(TPG_STR_BUF_SZ, GFP_KERNEL);
 
 	v4l2_fh_init(&ctx->fh, video_devdata(file));
-	file->private_data = &ctx->fh;
 	ctx->dev = dev;
 
 	rc = visl_init_ctrls(ctx);
@@ -361,7 +360,7 @@ static int visl_open(struct file *file)
 	if (rc)
 		goto free_m2m_ctx;
 
-	v4l2_fh_add(&ctx->fh);
+	v4l2_fh_add(&ctx->fh, file);
 
 	dprintk(dev, "Created instance: %p, m2m_ctx: %p\n",
 		ctx, ctx->fh.m2m_ctx);
@@ -390,7 +389,7 @@ static int visl_release(struct file *file)
 	dprintk(dev, "Releasing instance %p\n", ctx);
 
 	tpg_free(&ctx->tpg);
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, file);
 	v4l2_fh_exit(&ctx->fh);
 	v4l2_ctrl_handler_free(&ctx->hdl);
 	mutex_lock(&dev->dev_mutex);
@@ -438,7 +437,7 @@ static int visl_probe(struct platform_device *pdev)
 	int ret;
 	int rc;
 
-	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+	dev = kzalloc_obj(*dev);
 	if (!dev)
 		return -ENOMEM;
 

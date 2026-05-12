@@ -3,18 +3,20 @@
  * Copyright 2023, Intel Corporation.
  */
 
-#include <drm/drm_print.h>
-#include <drm/intel/i915_hdcp_interface.h>
 #include <linux/delay.h>
 
+#include <drm/drm_print.h>
+#include <drm/intel/display_parent_interface.h>
+#include <drm/intel/i915_hdcp_interface.h>
+
 #include "abi/gsc_command_header_abi.h"
-#include "intel_hdcp_gsc.h"
 #include "xe_bo.h"
 #include "xe_device.h"
 #include "xe_device_types.h"
 #include "xe_force_wake.h"
 #include "xe_gsc_proxy.h"
 #include "xe_gsc_submit.h"
+#include "xe_hdcp_gsc.h"
 #include "xe_map.h"
 #include "xe_pm.h"
 #include "xe_uc_fw.h"
@@ -30,37 +32,36 @@ struct intel_hdcp_gsc_context {
 
 #define HDCP_GSC_HEADER_SIZE sizeof(struct intel_gsc_mtl_header)
 
-bool intel_hdcp_gsc_check_status(struct drm_device *drm)
+static bool intel_hdcp_gsc_check_status(struct drm_device *drm)
 {
 	struct xe_device *xe = to_xe_device(drm);
 	struct xe_tile *tile = xe_device_get_root_tile(xe);
 	struct xe_gt *gt = tile->media_gt;
-	struct xe_gsc *gsc = &gt->uc.gsc;
-	bool ret = true;
-	unsigned int fw_ref;
+	struct xe_gsc *gsc;
 
-	if (!gsc || !xe_uc_fw_is_enabled(&gsc->fw)) {
+	if (!gt) {
+		drm_dbg_kms(&xe->drm,
+			    "not checking GSC status for HDCP2.x: media GT not present or disabled\n");
+		return false;
+	}
+
+	gsc = &gt->uc.gsc;
+
+	if (!xe_uc_fw_is_available(&gsc->fw)) {
 		drm_dbg_kms(&xe->drm,
 			    "GSC Components not ready for HDCP2.x\n");
 		return false;
 	}
 
-	xe_pm_runtime_get(xe);
-	fw_ref = xe_force_wake_get(gt_to_fw(gt), XE_FW_GSC);
-	if (!fw_ref) {
+	guard(xe_pm_runtime)(xe);
+	CLASS(xe_force_wake, fw_ref)(gt_to_fw(gt), XE_FW_GSC);
+	if (!fw_ref.domains) {
 		drm_dbg_kms(&xe->drm,
 			    "failed to get forcewake to check proxy status\n");
-		ret = false;
-		goto out;
+		return false;
 	}
 
-	if (!xe_gsc_proxy_init_done(gsc))
-		ret = false;
-
-	xe_force_wake_put(gt_to_fw(gt), fw_ref);
-out:
-	xe_pm_runtime_put(xe);
-	return ret;
+	return xe_gsc_proxy_init_done(gsc);
 }
 
 /*This function helps allocate memory for the command that we will send to gsc cs */
@@ -72,10 +73,10 @@ static int intel_hdcp_gsc_initialize_message(struct xe_device *xe,
 	int ret = 0;
 
 	/* allocate object of two page for HDCP command memory and store it */
-	bo = xe_bo_create_pin_map(xe, xe_device_get_root_tile(xe), NULL, PAGE_SIZE * 2,
-				  ttm_bo_type_kernel,
-				  XE_BO_FLAG_SYSTEM |
-				  XE_BO_FLAG_GGTT);
+	bo = xe_bo_create_pin_map_novm(xe, xe_device_get_root_tile(xe), PAGE_SIZE * 2,
+				       ttm_bo_type_kernel,
+				       XE_BO_FLAG_SYSTEM |
+				       XE_BO_FLAG_GGTT, false);
 
 	if (IS_ERR(bo)) {
 		drm_err(&xe->drm, "Failed to allocate bo for HDCP streaming command!\n");
@@ -96,13 +97,13 @@ out:
 	return ret;
 }
 
-struct intel_hdcp_gsc_context *intel_hdcp_gsc_context_alloc(struct drm_device *drm)
+static struct intel_hdcp_gsc_context *intel_hdcp_gsc_context_alloc(struct drm_device *drm)
 {
 	struct xe_device *xe = to_xe_device(drm);
 	struct intel_hdcp_gsc_context *gsc_context;
 	int ret;
 
-	gsc_context = kzalloc(sizeof(*gsc_context), GFP_KERNEL);
+	gsc_context = kzalloc_obj(*gsc_context);
 	if (!gsc_context)
 		return ERR_PTR(-ENOMEM);
 
@@ -120,7 +121,7 @@ struct intel_hdcp_gsc_context *intel_hdcp_gsc_context_alloc(struct drm_device *d
 	return gsc_context;
 }
 
-void intel_hdcp_gsc_context_free(struct intel_hdcp_gsc_context *gsc_context)
+static void intel_hdcp_gsc_context_free(struct intel_hdcp_gsc_context *gsc_context)
 {
 	if (!gsc_context)
 		return;
@@ -155,9 +156,9 @@ static int xe_gsc_send_sync(struct xe_device *xe,
 	return ret;
 }
 
-ssize_t intel_hdcp_gsc_msg_send(struct intel_hdcp_gsc_context *gsc_context,
-				void *msg_in, size_t msg_in_len,
-				void *msg_out, size_t msg_out_len)
+static ssize_t intel_hdcp_gsc_msg_send(struct intel_hdcp_gsc_context *gsc_context,
+				       void *msg_in, size_t msg_in_len,
+				       void *msg_out, size_t msg_out_len)
 {
 	struct xe_device *xe = gsc_context->xe;
 	const size_t max_msg_size = PAGE_SIZE - HDCP_GSC_HEADER_SIZE;
@@ -166,17 +167,15 @@ ssize_t intel_hdcp_gsc_msg_send(struct intel_hdcp_gsc_context *gsc_context,
 	u32 addr_out_off, addr_in_wr_off = 0;
 	int ret, tries = 0;
 
-	if (msg_in_len > max_msg_size || msg_out_len > max_msg_size) {
-		ret = -ENOSPC;
-		goto out;
-	}
+	if (msg_in_len > max_msg_size || msg_out_len > max_msg_size)
+		return -ENOSPC;
 
 	msg_size_in = msg_in_len + HDCP_GSC_HEADER_SIZE;
 	msg_size_out = msg_out_len + HDCP_GSC_HEADER_SIZE;
 	addr_out_off = PAGE_SIZE;
 
 	host_session_id = xe_gsc_create_host_session_id();
-	xe_pm_runtime_get_noresume(xe);
+	guard(xe_pm_runtime_noresume)(xe);
 	addr_in_wr_off = xe_gsc_emit_header(xe, &gsc_context->hdcp_bo->vmap,
 					    addr_in_wr_off, HECI_MEADDRESS_HDCP,
 					    host_session_id, msg_in_len);
@@ -201,13 +200,18 @@ ssize_t intel_hdcp_gsc_msg_send(struct intel_hdcp_gsc_context *gsc_context,
 	} while (++tries < 20);
 
 	if (ret)
-		goto out;
+		return ret;
 
 	xe_map_memcpy_from(xe, msg_out, &gsc_context->hdcp_bo->vmap,
 			   addr_out_off + HDCP_GSC_HEADER_SIZE,
 			   msg_out_len);
 
-out:
-	xe_pm_runtime_put(xe);
 	return ret;
 }
+
+const struct intel_display_hdcp_interface xe_display_hdcp_interface = {
+	.gsc_msg_send = intel_hdcp_gsc_msg_send,
+	.gsc_check_status = intel_hdcp_gsc_check_status,
+	.gsc_context_alloc = intel_hdcp_gsc_context_alloc,
+	.gsc_context_free = intel_hdcp_gsc_context_free,
+};

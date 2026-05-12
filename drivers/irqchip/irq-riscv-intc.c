@@ -166,7 +166,8 @@ static int riscv_intc_domain_alloc(struct irq_domain *domain,
 static const struct irq_domain_ops riscv_intc_domain_ops = {
 	.map	= riscv_intc_domain_map,
 	.xlate	= irq_domain_xlate_onecell,
-	.alloc	= riscv_intc_domain_alloc
+	.alloc	= riscv_intc_domain_alloc,
+	.free	= irq_domain_free_irqs_top,
 };
 
 static struct fwnode_handle *riscv_intc_hwnode(void)
@@ -348,13 +349,13 @@ static int __init riscv_intc_acpi_init(union acpi_subtable_headers *header,
 		if (count <= 0)
 			return -EINVAL;
 
-		rintc_acpi_data = kcalloc(count, sizeof(*rintc_acpi_data), GFP_KERNEL);
+		rintc_acpi_data = kzalloc_objs(*rintc_acpi_data, count);
 		if (!rintc_acpi_data)
 			return -ENOMEM;
 	}
 
 	rintc = (struct acpi_madt_rintc *)header;
-	rintc_acpi_data[nr_rintc] = kzalloc(sizeof(*rintc_acpi_data[0]), GFP_KERNEL);
+	rintc_acpi_data[nr_rintc] = kzalloc_obj(*rintc_acpi_data[0]);
 	if (!rintc_acpi_data[nr_rintc])
 		return -ENOMEM;
 

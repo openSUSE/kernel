@@ -456,7 +456,7 @@ static const struct ispstat_ops hist_ops = {
 static const struct v4l2_subdev_core_ops hist_subdev_core_ops = {
 	.ioctl = hist_ioctl,
 	.subscribe_event = omap3isp_stat_subscribe_event,
-	.unsubscribe_event = omap3isp_stat_unsubscribe_event,
+	.unsubscribe_event = v4l2_event_subdev_unsubscribe,
 };
 
 static const struct v4l2_subdev_video_ops hist_subdev_video_ops = {
@@ -477,7 +477,7 @@ int omap3isp_hist_init(struct isp_device *isp)
 	struct omap3isp_hist_config *hist_cfg;
 	int ret;
 
-	hist_cfg = kzalloc(sizeof(*hist_cfg), GFP_KERNEL);
+	hist_cfg = kzalloc_obj(*hist_cfg);
 	if (hist_cfg == NULL)
 		return -ENOMEM;
 

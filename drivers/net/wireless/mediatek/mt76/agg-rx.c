@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: ISC
+// SPDX-License-Identifier: BSD-3-Clause-Clear
 /*
  * Copyright (C) 2018 Felix Fietkau <nbd@nbd.name>
  */
@@ -173,6 +173,8 @@ void mt76_rx_aggr_reorder(struct sk_buff *skb, struct sk_buff_head *frames)
 	if (ackp == IEEE80211_QOS_CTL_ACK_POLICY_NOACK)
 		return;
 
+	if (wcid->def_wcid)
+		wcid = wcid->def_wcid;
 	tid = rcu_dereference(wcid->aggr[tidno]);
 	if (!tid)
 		return;
@@ -246,7 +248,7 @@ int mt76_rx_aggr_start(struct mt76_dev *dev, struct mt76_wcid *wcid, u8 tidno,
 
 	mt76_rx_aggr_stop(dev, wcid, tidno);
 
-	tid = kzalloc(struct_size(tid, reorder_buf, size), GFP_KERNEL);
+	tid = kzalloc_flex(*tid, reorder_buf, size);
 	if (!tid)
 		return -ENOMEM;
 

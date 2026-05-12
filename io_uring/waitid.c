@@ -16,7 +16,7 @@
 #include "waitid.h"
 #include "../kernel/exit.h"
 
-static void io_waitid_cb(struct io_kiocb *req, io_tw_token_t tw);
+static void io_waitid_cb(struct io_tw_req tw_req, io_tw_token_t tw);
 
 #define IO_WAITID_CANCEL_FLAG	BIT(31)
 #define IO_WAITID_REF_MASK	GENMASK(30, 0)
@@ -37,9 +37,7 @@ static void io_waitid_free(struct io_kiocb *req)
 	struct io_waitid_async *iwa = req->async_data;
 
 	put_pid(iwa->wo.wo_pid);
-	kfree(req->async_data);
-	req->async_data = NULL;
-	req->flags &= ~REQ_F_ASYNC_DATA;
+	io_req_async_data_free(req);
 }
 
 static bool io_waitid_compat_copy_si(struct io_waitid *iw, int signo)
@@ -111,6 +109,22 @@ static int io_waitid_finish(struct io_kiocb *req, int ret)
 	return ret;
 }
 
+static void io_waitid_remove_wq(struct io_kiocb *req)
+{
+	struct io_waitid *iw = io_kiocb_to_cmd(req, struct io_waitid);
+	struct wait_queue_head *head;
+
+	head = smp_load_acquire(&iw->head);
+	if (head) {
+		struct io_waitid_async *iwa = req->async_data;
+
+		smp_store_release(&iw->head, NULL);
+		spin_lock_irq(&head->lock);
+		list_del_init(&iwa->wo.child_wait.entry);
+		spin_unlock_irq(&head->lock);
+	}
+}
+
 static void io_waitid_complete(struct io_kiocb *req, int ret)
 {
 	struct io_waitid *iw = io_kiocb_to_cmd(req, struct io_waitid);
@@ -121,6 +135,7 @@ static void io_waitid_complete(struct io_kiocb *req, int ret)
 	lockdep_assert_held(&req->ctx->uring_lock);
 
 	hlist_del_init(&req->hash_node);
+	io_waitid_remove_wq(req);
 
 	ret = io_waitid_finish(req, ret);
 	if (ret < 0)
@@ -131,7 +146,8 @@ static void io_waitid_complete(struct io_kiocb *req, int ret)
 static bool __io_waitid_cancel(struct io_kiocb *req)
 {
 	struct io_waitid *iw = io_kiocb_to_cmd(req, struct io_waitid);
-	struct io_waitid_async *iwa = req->async_data;
+
+	lockdep_assert_held(&req->ctx->uring_lock);
 
 	/*
 	 * Mark us canceled regardless of ownership. This will prevent a
@@ -143,9 +159,6 @@ static bool __io_waitid_cancel(struct io_kiocb *req)
 	if (atomic_fetch_inc(&iw->refs) & IO_WAITID_REF_MASK)
 		return false;
 
-	spin_lock_irq(&iw->head->lock);
-	list_del_init(&iwa->wo.child_wait.entry);
-	spin_unlock_irq(&iw->head->lock);
 	io_waitid_complete(req, -ECANCELED);
 	io_req_queue_tw_complete(req, -ECANCELED);
 	return true;
@@ -166,10 +179,11 @@ bool io_waitid_remove_all(struct io_ring_ctx *ctx, struct io_uring_task *tctx,
 static inline bool io_waitid_drop_issue_ref(struct io_kiocb *req)
 {
 	struct io_waitid *iw = io_kiocb_to_cmd(req, struct io_waitid);
-	struct io_waitid_async *iwa = req->async_data;
 
 	if (!atomic_sub_return(1, &iw->refs))
 		return false;
+
+	io_waitid_remove_wq(req);
 
 	/*
 	 * Wakeup triggered, racing with us. It was prevented from
@@ -177,12 +191,12 @@ static inline bool io_waitid_drop_issue_ref(struct io_kiocb *req)
 	 */
 	req->io_task_work.func = io_waitid_cb;
 	io_req_task_work_add(req);
-	remove_wait_queue(iw->head, &iwa->wo.child_wait);
 	return true;
 }
 
-static void io_waitid_cb(struct io_kiocb *req, io_tw_token_t tw)
+static void io_waitid_cb(struct io_tw_req tw_req, io_tw_token_t tw)
 {
+	struct io_kiocb *req = tw_req.req;
 	struct io_waitid_async *iwa = req->async_data;
 	struct io_ring_ctx *ctx = req->ctx;
 	int ret;
@@ -211,13 +225,12 @@ static void io_waitid_cb(struct io_kiocb *req, io_tw_token_t tw)
 				io_waitid_drop_issue_ref(req);
 				return;
 			}
-
-			remove_wait_queue(iw->head, &iwa->wo.child_wait);
+			/* fall through to complete, will kill waitqueue */
 		}
 	}
 
 	io_waitid_complete(req, ret);
-	io_req_task_complete(req, tw);
+	io_req_task_complete(tw_req, tw);
 }
 
 static int io_waitid_wait(struct wait_queue_entry *wait, unsigned mode,
@@ -232,13 +245,15 @@ static int io_waitid_wait(struct wait_queue_entry *wait, unsigned mode,
 	if (!pid_child_should_wake(wo, p))
 		return 0;
 
+	list_del_init(&wait->entry);
+	smp_store_release(&iw->head, NULL);
+
 	/* cancel is in progress */
 	if (atomic_fetch_inc(&iw->refs) & IO_WAITID_REF_MASK)
 		return 1;
 
 	req->io_task_work.func = io_waitid_cb;
 	io_req_task_work_add(req);
-	list_del_init(&wait->entry);
 	return 1;
 }
 
@@ -251,13 +266,14 @@ int io_waitid_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 		return -EINVAL;
 
 	iwa = io_uring_alloc_async_data(NULL, req);
-	if (!unlikely(iwa))
+	if (unlikely(!iwa))
 		return -ENOMEM;
 	iwa->req = req;
 
 	iw->which = READ_ONCE(sqe->len);
 	iw->upid = READ_ONCE(sqe->fd);
 	iw->options = READ_ONCE(sqe->file_index);
+	iw->head = NULL;
 	iw->infop = u64_to_user_ptr(READ_ONCE(sqe->addr2));
 	return 0;
 }
@@ -288,11 +304,16 @@ int io_waitid(struct io_kiocb *req, unsigned int issue_flags)
 	 * callback.
 	 */
 	io_ring_submit_lock(ctx, issue_flags);
+
+	/*
+	 * iw->head is valid under the ring lock, and as long as the request
+	 * is on the waitid_list where cancelations may find it.
+	 */
+	iw->head = &current->signal->wait_chldexit;
 	hlist_add_head(&req->hash_node, &ctx->waitid_list);
 
 	init_waitqueue_func_entry(&iwa->wo.child_wait, io_waitid_wait);
 	iwa->wo.child_wait.private = req->tctx->task;
-	iw->head = &current->signal->wait_chldexit;
 	add_wait_queue(iw->head, &iwa->wo.child_wait);
 
 	ret = __do_wait(&iwa->wo);
@@ -315,7 +336,7 @@ int io_waitid(struct io_kiocb *req, unsigned int issue_flags)
 	}
 
 	hlist_del_init(&req->hash_node);
-	remove_wait_queue(iw->head, &iwa->wo.child_wait);
+	io_waitid_remove_wq(req);
 	ret = io_waitid_finish(req, ret);
 
 	io_ring_submit_unlock(ctx, issue_flags);

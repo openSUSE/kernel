@@ -2,7 +2,7 @@
 #ifndef _ASM_POWERPC_PGTABLE_H
 #define _ASM_POWERPC_PGTABLE_H
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 #include <linux/mmdebug.h>
 #include <linux/mmzone.h>
 #include <asm/processor.h>		/* For TASK_SIZE */
@@ -12,25 +12,13 @@
 
 struct mm_struct;
 
-#endif /* !__ASSEMBLY__ */
+#endif /* !__ASSEMBLER__ */
 
 #ifdef CONFIG_PPC_BOOK3S
 #include <asm/book3s/pgtable.h>
 #else
 #include <asm/nohash/pgtable.h>
 #endif /* !CONFIG_PPC_BOOK3S */
-
-/*
- * Protection used for kernel text. We want the debuggers to be able to
- * set breakpoints anywhere, so don't write protect the kernel text
- * on platforms where such control is possible.
- */
-#if defined(CONFIG_KGDB) || defined(CONFIG_XMON) || defined(CONFIG_BDI_SWITCH) || \
-	defined(CONFIG_KPROBES) || defined(CONFIG_DYNAMIC_FTRACE)
-#define PAGE_KERNEL_TEXT	PAGE_KERNEL_X
-#else
-#define PAGE_KERNEL_TEXT	PAGE_KERNEL_ROX
-#endif
 
 /* Make modules code happy. We don't set RO yet */
 #define PAGE_KERNEL_EXEC	PAGE_KERNEL_X
@@ -39,13 +27,15 @@ struct mm_struct;
 #define PAGE_AGP		(PAGE_KERNEL_NC)
 #define HAVE_PAGE_AGP
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 
 #define PFN_PTE_SHIFT		PTE_RPN_SHIFT
 
 void set_ptes(struct mm_struct *mm, unsigned long addr, pte_t *ptep,
 		pte_t pte, unsigned int nr);
 #define set_ptes set_ptes
+void set_pte_at_unchecked(struct mm_struct *mm, unsigned long addr,
+			  pte_t *ptep, pte_t pte);
 #define update_mmu_cache(vma, addr, ptep) \
 	update_mmu_cache_range(NULL, vma, addr, ptep, 1)
 
@@ -73,6 +63,20 @@ static inline pgprot_t pte_pgprot(pte_t pte)
 	return __pgprot(pte_flags);
 }
 
+#ifdef CONFIG_PPC64
+#define pmd_pgprot pmd_pgprot
+static inline pgprot_t pmd_pgprot(pmd_t pmd)
+{
+	return pte_pgprot(pmd_pte(pmd));
+}
+
+#define pud_pgprot pud_pgprot
+static inline pgprot_t pud_pgprot(pud_t pud)
+{
+	return pte_pgprot(pud_pte(pud));
+}
+#endif /* CONFIG_PPC64 */
+
 static inline pgprot_t pgprot_nx(pgprot_t prot)
 {
 	return pte_pgprot(pte_exprotect(__pte(pgprot_val(prot))));
@@ -86,12 +90,6 @@ static inline const void *pmd_page_vaddr(pmd_t pmd)
 }
 #define pmd_page_vaddr pmd_page_vaddr
 #endif
-/*
- * ZERO_PAGE is a global shared page that is always zero: used
- * for zero-mapped memory areas etc..
- */
-extern unsigned long empty_zero_page[];
-#define ZERO_PAGE(vaddr) (virt_to_page(empty_zero_page))
 
 extern pgd_t swapper_pg_dir[];
 
@@ -214,6 +212,14 @@ static inline bool arch_supports_memmap_on_memory(unsigned long vmemmap_size)
 
 #endif /* CONFIG_PPC64 */
 
-#endif /* __ASSEMBLY__ */
+#ifndef pmd_user_accessible_page
+#define pmd_user_accessible_page(mm, addr, pmd)	false
+#endif
+
+#ifndef pud_user_accessible_page
+#define pud_user_accessible_page(mm, addr, pud)	false
+#endif
+
+#endif /* __ASSEMBLER__ */
 
 #endif /* _ASM_POWERPC_PGTABLE_H */

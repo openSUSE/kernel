@@ -318,7 +318,7 @@ static int ixgbe_xdp_queues(struct ixgbe_adapter *adapter)
  * ixgbe_set_dcb_sriov_queues: Allocate queues for SR-IOV devices w/ DCB
  * @adapter: board private structure to initialize
  *
- * When SR-IOV (Single Root IO Virtualiztion) is enabled, allocate queues
+ * When SR-IOV (Single Root IO Virtualization) is enabled, allocate queues
  * and VM pools where appropriate.  Also assign queues based on DCB
  * priorities and map accordingly..
  *
@@ -492,7 +492,7 @@ static bool ixgbe_set_dcb_queues(struct ixgbe_adapter *adapter)
  * ixgbe_set_sriov_queues - Allocate queues for SR-IOV devices
  * @adapter: board private structure to initialize
  *
- * When SR-IOV (Single Root IO Virtualiztion) is enabled, allocate queues
+ * When SR-IOV (Single Root IO Virtualization) is enabled, allocate queues
  * and VM pools where appropriate.  If RSS is available, then also try and
  * enable RSS and map accordingly.
  *
@@ -768,9 +768,7 @@ static int ixgbe_acquire_msix_vectors(struct ixgbe_adapter *adapter)
 	 */
 	vector_threshold = MIN_MSIX_COUNT;
 
-	adapter->msix_entries = kcalloc(vectors,
-					sizeof(struct msix_entry),
-					GFP_KERNEL);
+	adapter->msix_entries = kzalloc_objs(struct msix_entry, vectors);
 	if (!adapter->msix_entries)
 		return -ENOMEM;
 
@@ -859,8 +857,7 @@ static int ixgbe_alloc_q_vector(struct ixgbe_adapter *adapter,
 	q_vector = kzalloc_node(struct_size(q_vector, ring, ring_count),
 				GFP_KERNEL, node);
 	if (!q_vector)
-		q_vector = kzalloc(struct_size(q_vector, ring, ring_count),
-				   GFP_KERNEL);
+		q_vector = kzalloc_flex(*q_vector, ring, ring_count);
 	if (!q_vector)
 		return -ENOMEM;
 
@@ -979,7 +976,7 @@ static int ixgbe_alloc_q_vector(struct ixgbe_adapter *adapter,
 		 * can be marked as checksum errors.
 		 */
 		if (adapter->hw.mac.type == ixgbe_mac_82599EB)
-			set_bit(__IXGBE_RX_CSUM_UDP_ZERO_ERR, &ring->state);
+			set_bit(__IXGBE_RX_CSUM_UDP_ZERO_ERR, ring->state);
 
 #ifdef IXGBE_FCOE
 		if (adapter->netdev->fcoe_mtu) {
@@ -987,7 +984,7 @@ static int ixgbe_alloc_q_vector(struct ixgbe_adapter *adapter,
 			f = &adapter->ring_feature[RING_F_FCOE];
 			if ((rxr_idx >= f->offset) &&
 			    (rxr_idx < f->offset + f->indices))
-				set_bit(__IXGBE_RX_FCOE, &ring->state);
+				set_bit(__IXGBE_RX_FCOE, ring->state);
 		}
 
 #endif /* IXGBE_FCOE */

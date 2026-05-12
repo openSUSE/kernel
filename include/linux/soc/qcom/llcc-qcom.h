@@ -74,16 +74,29 @@
 #define LLCC_CAMSRTIP	 73
 #define LLCC_CAMRTRF	 74
 #define LLCC_CAMSRTRF	 75
+#define LLCC_OOBM_NS	 81
+#define LLCC_OOBM_S	 82
+#define LLCC_VIDEO_APV	 83
+#define LLCC_COMPUTE1	 87
+#define LLCC_CPUSS_OPP	 88
 #define LLCC_CPUSSMPAM	 89
+#define LLCC_VIDSC_VSP1	 91
+#define LLCC_CAM_IPE_STROV	 92
+#define LLCC_CAM_OFE_STROV	 93
+#define LLCC_CPUSS_HEU	 94
+#define LLCC_PCIE_TCU	 97
+#define LLCC_MDM_PNG_FIXED	 100
 
 /**
  * struct llcc_slice_desc - Cache slice descriptor
  * @slice_id: llcc slice id
  * @slice_size: Size allocated for the llcc slice
+ * @refcount: Atomic counter to track activate/deactivate calls
  */
 struct llcc_slice_desc {
 	u32 slice_id;
 	size_t slice_size;
+	refcount_t refcount;
 };
 
 /**
@@ -141,11 +154,10 @@ struct llcc_edac_reg_offset {
  * @edac_reg_offset: Offset of the LLCC EDAC registers
  * @lock: mutex associated with each slice
  * @cfg_size: size of the config data table
- * @max_slices: max slices as read from device tree
  * @num_banks: Number of llcc banks
- * @bitmap: Bit map to track the active slice ids
  * @ecc_irq: interrupt for llcc cache error detection and reporting
  * @ecc_irq_configured: 'True' if firmware has already configured the irq propagation
+ * @desc: Array pointer of pre-allocated LLCC slice descriptors
  * @version: Indicates the LLCC version
  */
 struct llcc_drv_data {
@@ -156,12 +168,11 @@ struct llcc_drv_data {
 	const struct llcc_edac_reg_offset *edac_reg_offset;
 	struct mutex lock;
 	u32 cfg_size;
-	u32 max_slices;
 	u32 num_banks;
-	unsigned long *bitmap;
 	int ecc_irq;
 	bool ecc_irq_configured;
 	u32 version;
+	struct llcc_slice_desc *desc;
 };
 
 #if IS_ENABLED(CONFIG_QCOM_LLCC)

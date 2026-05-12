@@ -36,7 +36,7 @@ static void configfs_free_inode(struct inode *inode)
 
 static const struct super_operations configfs_ops = {
 	.statfs		= simple_statfs,
-	.drop_inode	= generic_delete_inode,
+	.drop_inode	= inode_just_drop,
 	.free_inode	= configfs_free_inode,
 };
 
@@ -116,7 +116,7 @@ static struct file_system_type configfs_fs_type = {
 	.owner		= THIS_MODULE,
 	.name		= "configfs",
 	.init_fs_context = configfs_init_fs_context,
-	.kill_sb	= kill_litter_super,
+	.kill_sb	= kill_anon_super,
 };
 MODULE_ALIAS_FS("configfs");
 

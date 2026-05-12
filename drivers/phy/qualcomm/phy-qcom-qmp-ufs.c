@@ -84,6 +84,68 @@ static const unsigned int ufsphy_v6_regs_layout[QPHY_LAYOUT_SIZE] = {
 	[QPHY_PCS_POWER_DOWN_CONTROL]	= QPHY_V6_PCS_UFS_POWER_DOWN_CONTROL,
 };
 
+static const struct qmp_phy_init_tbl milos_ufsphy_serdes[] = {
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_SYSCLK_EN_SEL, 0xd9),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_CMN_CONFIG_1, 0x16),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_HSCLK_SEL_1, 0x11),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_HSCLK_HS_SWITCH_SEL_1, 0x00),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_LOCK_CMP_EN, 0x01),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_PLL_IVCO, 0x0f),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_CMN_IETRIM, 0x0a),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_CMN_IPTRIM, 0x17),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_VCO_TUNE_MAP, 0x04),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_BG_TIMER, 0x0e),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_VCO_TUNE_INITVAL2, 0x00),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_DEC_START_MODE0, 0x82),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_CP_CTRL_MODE0, 0x14),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_PLL_RCTRL_MODE0, 0x18),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_PLL_CCTRL_MODE0, 0x18),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_LOCK_CMP1_MODE0, 0xff),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_LOCK_CMP2_MODE0, 0x0c),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_DEC_START_MODE1, 0x98),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_CP_CTRL_MODE1, 0x14),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_PLL_RCTRL_MODE1, 0x18),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_PLL_CCTRL_MODE1, 0x18),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_LOCK_CMP1_MODE1, 0x32),
+	QMP_PHY_INIT_CFG(QSERDES_V6_COM_LOCK_CMP2_MODE1, 0x0f),
+};
+
+static const struct qmp_phy_init_tbl milos_ufsphy_tx[] = {
+	QMP_PHY_INIT_CFG(QSERDES_UFS_V6_TX_LANE_MODE_1, 0x05),
+	QMP_PHY_INIT_CFG(QSERDES_UFS_V6_TX_RES_CODE_LANE_OFFSET_TX, 0x07),
+	QMP_PHY_INIT_CFG(QSERDES_UFS_V6_TX_RES_CODE_LANE_OFFSET_RX, 0x0e),
+	QMP_PHY_INIT_CFG(QSERDES_UFS_V6_TX_FR_DCC_CTRL, 0xcc),
+};
+
+static const struct qmp_phy_init_tbl milos_ufsphy_rx[] = {
+	QMP_PHY_INIT_CFG(QSERDES_UFS_V6_RX_UCDR_FO_GAIN_RATE2, 0x0c),
+	QMP_PHY_INIT_CFG(QSERDES_UFS_V6_RX_VGA_CAL_MAN_VAL, 0x3e),
+	QMP_PHY_INIT_CFG(QSERDES_UFS_V6_RX_RX_EQU_ADAPTOR_CNTRL4, 0x0f),
+	QMP_PHY_INIT_CFG(QSERDES_UFS_V6_RX_MODE_RATE_0_1_B0, 0xce),
+	QMP_PHY_INIT_CFG(QSERDES_UFS_V6_RX_MODE_RATE_0_1_B1, 0xce),
+	QMP_PHY_INIT_CFG(QSERDES_UFS_V6_RX_MODE_RATE_0_1_B2, 0x18),
+	QMP_PHY_INIT_CFG(QSERDES_UFS_V6_RX_MODE_RATE_0_1_B3, 0x1a),
+	QMP_PHY_INIT_CFG(QSERDES_UFS_V6_RX_MODE_RATE_0_1_B4, 0x0f),
+	QMP_PHY_INIT_CFG(QSERDES_UFS_V6_RX_MODE_RATE_0_1_B6, 0x60),
+	QMP_PHY_INIT_CFG(QSERDES_UFS_V6_RX_MODE_RATE2_B3, 0x9e),
+	QMP_PHY_INIT_CFG(QSERDES_UFS_V6_RX_MODE_RATE2_B6, 0x60),
+	QMP_PHY_INIT_CFG(QSERDES_UFS_V6_RX_MODE_RATE3_B3, 0x9e),
+	QMP_PHY_INIT_CFG(QSERDES_UFS_V6_RX_MODE_RATE3_B4, 0x0e),
+	QMP_PHY_INIT_CFG(QSERDES_UFS_V6_RX_MODE_RATE3_B5, 0x36),
+	QMP_PHY_INIT_CFG(QSERDES_UFS_V6_RX_MODE_RATE3_B8, 0x02),
+	QMP_PHY_INIT_CFG(QSERDES_UFS_V6_RX_UCDR_PI_CTRL1, 0x94),
+};
+
+static const struct qmp_phy_init_tbl milos_ufsphy_pcs[] = {
+	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_MULTI_LANE_CTRL1, 0x02),
+	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_TX_MID_TERM_CTRL1, 0x43),
+	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_PLL_CNTL, 0x0b),
+	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_TX_LARGE_AMP_DRV_LVL, 0x0f),
+	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_RX_SIGDET_CTRL2, 0x68),
+	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_TX_HSGEAR_CAPABILITY, 0x04),
+	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_RX_HSGEAR_CAPABILITY, 0x04),
+};
+
 static const struct qmp_phy_init_tbl msm8996_ufsphy_serdes[] = {
 	QMP_PHY_INIT_CFG(QSERDES_COM_CMN_CONFIG, 0x0e),
 	QMP_PHY_INIT_CFG(QSERDES_COM_SYSCLK_EN_SEL, 0xd7),
@@ -928,6 +990,7 @@ static const struct qmp_phy_init_tbl sm8650_ufsphy_pcs[] = {
 	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_MULTI_LANE_CTRL1, 0x02),
 	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_TX_MID_TERM_CTRL1, 0x43),
 	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_PCS_CTRL1, 0xc1),
+	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_PLL_CNTL, 0x33),
 	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_TX_LARGE_AMP_DRV_LVL, 0x0f),
 	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_RX_SIGDET_CTRL2, 0x68),
 	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_TX_POST_EMP_LVL_S4, 0x0e),
@@ -937,13 +1000,11 @@ static const struct qmp_phy_init_tbl sm8650_ufsphy_pcs[] = {
 };
 
 static const struct qmp_phy_init_tbl sm8650_ufsphy_g4_pcs[] = {
-	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_PLL_CNTL, 0x13),
 	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_TX_HSGEAR_CAPABILITY, 0x04),
 	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_RX_HSGEAR_CAPABILITY, 0x04),
 };
 
 static const struct qmp_phy_init_tbl sm8650_ufsphy_g5_pcs[] = {
-	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_PLL_CNTL, 0x33),
 	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_TX_HSGEAR_CAPABILITY, 0x05),
 	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_RX_HSGEAR_CAPABILITY, 0x05),
 	QMP_PHY_INIT_CFG(QPHY_V6_PCS_UFS_RX_HS_G5_SYNC_LENGTH_CAPABILITY, 0x4d),
@@ -1107,7 +1168,7 @@ struct qmp_phy_cfg {
 	const struct qmp_phy_cfg_tbls tbls_hs_overlay[NUM_OVERLAY];
 
 	/* regulators to be requested */
-	const char * const *vreg_list;
+	const struct regulator_bulk_data *vreg_list;
 	int num_vregs;
 
 	/* array of registers with different offsets */
@@ -1164,9 +1225,85 @@ static inline void qphy_clrbits(void __iomem *base, u32 offset, u32 val)
 	readl(base + offset);
 }
 
-/* list of regulators */
-static const char * const qmp_phy_vreg_l[] = {
-	"vdda-phy", "vdda-pll",
+/* Regulator bulk data with load values for specific configurations */
+static const struct regulator_bulk_data milos_ufsphy_vreg_l[] = {
+	{ .supply = "vdda-phy", .init_load_uA = 140120 },
+	{ .supply = "vdda-pll", .init_load_uA = 18340 },
+};
+
+static const struct regulator_bulk_data msm8996_ufsphy_vreg_l[] = {
+	{ .supply = "vdda-phy", .init_load_uA = 51400 },
+	{ .supply = "vdda-pll", .init_load_uA = 14600 },
+};
+
+static const struct regulator_bulk_data sa8775p_ufsphy_vreg_l[] = {
+	{ .supply = "vdda-phy", .init_load_uA = 137000 },
+	{ .supply = "vdda-pll", .init_load_uA = 18300 },
+};
+
+static const struct regulator_bulk_data sc7280_ufsphy_vreg_l[] = {
+	{ .supply = "vdda-phy", .init_load_uA = 97500 },
+	{ .supply = "vdda-pll", .init_load_uA = 18400 },
+};
+
+static const struct regulator_bulk_data sc8280xp_ufsphy_vreg_l[] = {
+	{ .supply = "vdda-phy", .init_load_uA = 85700 },
+	{ .supply = "vdda-pll", .init_load_uA = 18300 },
+};
+
+static const struct regulator_bulk_data sdm845_ufsphy_vreg_l[] = {
+	{ .supply = "vdda-phy", .init_load_uA = 51400 },
+	{ .supply = "vdda-pll", .init_load_uA = 14600 },
+};
+
+static const struct regulator_bulk_data sm6115_ufsphy_vreg_l[] = {
+	{ .supply = "vdda-phy", .init_load_uA = 51400 },
+	{ .supply = "vdda-pll", .init_load_uA = 14200 },
+};
+
+static const struct regulator_bulk_data sm7150_ufsphy_vreg_l[] = {
+	{ .supply = "vdda-phy", .init_load_uA = 62900 },
+	{ .supply = "vdda-pll", .init_load_uA = 18300 },
+};
+
+static const struct regulator_bulk_data sm8150_ufsphy_vreg_l[] = {
+	{ .supply = "vdda-phy", .init_load_uA = 90200 },
+	{ .supply = "vdda-pll", .init_load_uA = 19000 },
+};
+
+static const struct regulator_bulk_data sm8250_ufsphy_vreg_l[] = {
+	{ .supply = "vdda-phy", .init_load_uA = 89900 },
+	{ .supply = "vdda-pll", .init_load_uA = 18800 },
+};
+
+static const struct regulator_bulk_data sm8350_ufsphy_vreg_l[] = {
+	{ .supply = "vdda-phy", .init_load_uA = 91600 },
+	{ .supply = "vdda-pll", .init_load_uA = 19000 },
+};
+
+static const struct regulator_bulk_data sm8450_ufsphy_vreg_l[] = {
+	{ .supply = "vdda-phy", .init_load_uA = 173000 },
+	{ .supply = "vdda-pll", .init_load_uA = 24900 },
+};
+
+static const struct regulator_bulk_data sm8475_ufsphy_vreg_l[] = {
+	{ .supply = "vdda-phy", .init_load_uA = 213030 },
+	{ .supply = "vdda-pll", .init_load_uA = 18340 },
+};
+
+static const struct regulator_bulk_data sm8550_ufsphy_vreg_l[] = {
+	{ .supply = "vdda-phy", .init_load_uA = 188000 },
+	{ .supply = "vdda-pll", .init_load_uA = 18300 },
+};
+
+static const struct regulator_bulk_data sm8650_ufsphy_vreg_l[] = {
+	{ .supply = "vdda-phy", .init_load_uA = 205000 },
+	{ .supply = "vdda-pll", .init_load_uA = 17500 },
+};
+
+static const struct regulator_bulk_data sm8750_ufsphy_vreg_l[] = {
+	{ .supply = "vdda-phy", .init_load_uA = 213000 },
+	{ .supply = "vdda-pll", .init_load_uA = 18300 },
 };
 
 static const struct qmp_ufs_offsets qmp_ufs_offsets = {
@@ -1187,6 +1324,32 @@ static const struct qmp_ufs_offsets qmp_ufs_offsets_v6 = {
 	.rx2		= 0x1a00,
 };
 
+static const struct qmp_phy_cfg milos_ufsphy_cfg = {
+	.lanes			= 2,
+
+	.offsets		= &qmp_ufs_offsets_v6,
+	.max_supported_gear	= UFS_HS_G4,
+
+	.tbls = {
+		.serdes		= milos_ufsphy_serdes,
+		.serdes_num	= ARRAY_SIZE(milos_ufsphy_serdes),
+		.tx		= milos_ufsphy_tx,
+		.tx_num		= ARRAY_SIZE(milos_ufsphy_tx),
+		.rx		= milos_ufsphy_rx,
+		.rx_num		= ARRAY_SIZE(milos_ufsphy_rx),
+		.pcs		= milos_ufsphy_pcs,
+		.pcs_num	= ARRAY_SIZE(milos_ufsphy_pcs),
+	},
+	.tbls_hs_b = {
+		.serdes		= sm8550_ufsphy_hs_b_serdes,
+		.serdes_num	= ARRAY_SIZE(sm8550_ufsphy_hs_b_serdes),
+	},
+
+	.vreg_list		= milos_ufsphy_vreg_l,
+	.num_vregs		= ARRAY_SIZE(milos_ufsphy_vreg_l),
+	.regs			= ufsphy_v6_regs_layout,
+};
+
 static const struct qmp_phy_cfg msm8996_ufsphy_cfg = {
 	.lanes			= 1,
 
@@ -1202,8 +1365,8 @@ static const struct qmp_phy_cfg msm8996_ufsphy_cfg = {
 		.rx_num		= ARRAY_SIZE(msm8996_ufsphy_rx),
 	},
 
-	.vreg_list		= qmp_phy_vreg_l,
-	.num_vregs		= ARRAY_SIZE(qmp_phy_vreg_l),
+	.vreg_list		= msm8996_ufsphy_vreg_l,
+	.num_vregs		= ARRAY_SIZE(msm8996_ufsphy_vreg_l),
 
 	.regs			= ufsphy_v2_regs_layout,
 
@@ -1239,8 +1402,8 @@ static const struct qmp_phy_cfg sa8775p_ufsphy_cfg = {
 		.pcs_num	= ARRAY_SIZE(sm8350_ufsphy_g4_pcs),
 		.max_gear	= UFS_HS_G4,
 	},
-	.vreg_list		= qmp_phy_vreg_l,
-	.num_vregs		= ARRAY_SIZE(qmp_phy_vreg_l),
+	.vreg_list		= sa8775p_ufsphy_vreg_l,
+	.num_vregs		= ARRAY_SIZE(sa8775p_ufsphy_vreg_l),
 	.regs			= ufsphy_v5_regs_layout,
 };
 
@@ -1273,8 +1436,8 @@ static const struct qmp_phy_cfg sc7280_ufsphy_cfg = {
 		.pcs_num        = ARRAY_SIZE(sm8150_ufsphy_hs_g4_pcs),
 		.max_gear	= UFS_HS_G4,
 	},
-	.vreg_list              = qmp_phy_vreg_l,
-	.num_vregs              = ARRAY_SIZE(qmp_phy_vreg_l),
+	.vreg_list              = sc7280_ufsphy_vreg_l,
+	.num_vregs              = ARRAY_SIZE(sc7280_ufsphy_vreg_l),
 	.regs                   = ufsphy_v4_regs_layout,
 };
 
@@ -1307,8 +1470,8 @@ static const struct qmp_phy_cfg sc8280xp_ufsphy_cfg = {
 		.pcs_num	= ARRAY_SIZE(sm8350_ufsphy_g4_pcs),
 		.max_gear	= UFS_HS_G4,
 	},
-	.vreg_list		= qmp_phy_vreg_l,
-	.num_vregs		= ARRAY_SIZE(qmp_phy_vreg_l),
+	.vreg_list		= sc8280xp_ufsphy_vreg_l,
+	.num_vregs		= ARRAY_SIZE(sc8280xp_ufsphy_vreg_l),
 	.regs			= ufsphy_v5_regs_layout,
 };
 
@@ -1332,8 +1495,8 @@ static const struct qmp_phy_cfg sdm845_ufsphy_cfg = {
 		.serdes		= sdm845_ufsphy_hs_b_serdes,
 		.serdes_num	= ARRAY_SIZE(sdm845_ufsphy_hs_b_serdes),
 	},
-	.vreg_list		= qmp_phy_vreg_l,
-	.num_vregs		= ARRAY_SIZE(qmp_phy_vreg_l),
+	.vreg_list		= sdm845_ufsphy_vreg_l,
+	.num_vregs		= ARRAY_SIZE(sdm845_ufsphy_vreg_l),
 	.regs			= ufsphy_v3_regs_layout,
 
 	.no_pcs_sw_reset	= true,
@@ -1359,8 +1522,8 @@ static const struct qmp_phy_cfg sm6115_ufsphy_cfg = {
 		.serdes		= sm6115_ufsphy_hs_b_serdes,
 		.serdes_num	= ARRAY_SIZE(sm6115_ufsphy_hs_b_serdes),
 	},
-	.vreg_list		= qmp_phy_vreg_l,
-	.num_vregs		= ARRAY_SIZE(qmp_phy_vreg_l),
+	.vreg_list		= sm6115_ufsphy_vreg_l,
+	.num_vregs		= ARRAY_SIZE(sm6115_ufsphy_vreg_l),
 	.regs			= ufsphy_v2_regs_layout,
 
 	.no_pcs_sw_reset	= true,
@@ -1386,8 +1549,8 @@ static const struct qmp_phy_cfg sm7150_ufsphy_cfg = {
 		.serdes		= sdm845_ufsphy_hs_b_serdes,
 		.serdes_num	= ARRAY_SIZE(sdm845_ufsphy_hs_b_serdes),
 	},
-	.vreg_list		= qmp_phy_vreg_l,
-	.num_vregs		= ARRAY_SIZE(qmp_phy_vreg_l),
+	.vreg_list		= sm7150_ufsphy_vreg_l,
+	.num_vregs		= ARRAY_SIZE(sm7150_ufsphy_vreg_l),
 	.regs			= ufsphy_v3_regs_layout,
 
 	.no_pcs_sw_reset	= true,
@@ -1422,8 +1585,8 @@ static const struct qmp_phy_cfg sm8150_ufsphy_cfg = {
 		.pcs_num	= ARRAY_SIZE(sm8150_ufsphy_hs_g4_pcs),
 		.max_gear	= UFS_HS_G4,
 	},
-	.vreg_list		= qmp_phy_vreg_l,
-	.num_vregs		= ARRAY_SIZE(qmp_phy_vreg_l),
+	.vreg_list		= sm8150_ufsphy_vreg_l,
+	.num_vregs		= ARRAY_SIZE(sm8150_ufsphy_vreg_l),
 	.regs			= ufsphy_v4_regs_layout,
 };
 
@@ -1456,8 +1619,8 @@ static const struct qmp_phy_cfg sm8250_ufsphy_cfg = {
 		.pcs_num	= ARRAY_SIZE(sm8150_ufsphy_hs_g4_pcs),
 		.max_gear	= UFS_HS_G4,
 	},
-	.vreg_list		= qmp_phy_vreg_l,
-	.num_vregs		= ARRAY_SIZE(qmp_phy_vreg_l),
+	.vreg_list		= sm8250_ufsphy_vreg_l,
+	.num_vregs		= ARRAY_SIZE(sm8250_ufsphy_vreg_l),
 	.regs			= ufsphy_v4_regs_layout,
 };
 
@@ -1490,8 +1653,8 @@ static const struct qmp_phy_cfg sm8350_ufsphy_cfg = {
 		.pcs_num	= ARRAY_SIZE(sm8350_ufsphy_g4_pcs),
 		.max_gear	= UFS_HS_G4,
 	},
-	.vreg_list		= qmp_phy_vreg_l,
-	.num_vregs		= ARRAY_SIZE(qmp_phy_vreg_l),
+	.vreg_list		= sm8350_ufsphy_vreg_l,
+	.num_vregs		= ARRAY_SIZE(sm8350_ufsphy_vreg_l),
 	.regs			= ufsphy_v5_regs_layout,
 };
 
@@ -1524,8 +1687,8 @@ static const struct qmp_phy_cfg sm8450_ufsphy_cfg = {
 		.pcs_num	= ARRAY_SIZE(sm8350_ufsphy_g4_pcs),
 		.max_gear	= UFS_HS_G4,
 	},
-	.vreg_list		= qmp_phy_vreg_l,
-	.num_vregs		= ARRAY_SIZE(qmp_phy_vreg_l),
+	.vreg_list		= sm8450_ufsphy_vreg_l,
+	.num_vregs		= ARRAY_SIZE(sm8450_ufsphy_vreg_l),
 	.regs			= ufsphy_v5_regs_layout,
 };
 
@@ -1560,8 +1723,8 @@ static const struct qmp_phy_cfg sm8475_ufsphy_cfg = {
 		.pcs_num	= ARRAY_SIZE(sm8475_ufsphy_g4_pcs),
 		.max_gear	= UFS_HS_G4,
 	},
-	.vreg_list		= qmp_phy_vreg_l,
-	.num_vregs		= ARRAY_SIZE(qmp_phy_vreg_l),
+	.vreg_list		= sm8475_ufsphy_vreg_l,
+	.num_vregs		= ARRAY_SIZE(sm8475_ufsphy_vreg_l),
 	.regs			= ufsphy_v6_regs_layout,
 };
 
@@ -1605,8 +1768,8 @@ static const struct qmp_phy_cfg sm8550_ufsphy_cfg = {
 		.pcs_num	= ARRAY_SIZE(sm8550_ufsphy_g5_pcs),
 		.max_gear	= UFS_HS_G5,
 	},
-	.vreg_list		= qmp_phy_vreg_l,
-	.num_vregs		= ARRAY_SIZE(qmp_phy_vreg_l),
+	.vreg_list		= sm8550_ufsphy_vreg_l,
+	.num_vregs		= ARRAY_SIZE(sm8550_ufsphy_vreg_l),
 	.regs			= ufsphy_v6_regs_layout,
 };
 
@@ -1637,8 +1800,8 @@ static const struct qmp_phy_cfg sm8650_ufsphy_cfg = {
 		.max_gear	= UFS_HS_G5,
 	},
 
-	.vreg_list		= qmp_phy_vreg_l,
-	.num_vregs		= ARRAY_SIZE(qmp_phy_vreg_l),
+	.vreg_list		= sm8650_ufsphy_vreg_l,
+	.num_vregs		= ARRAY_SIZE(sm8650_ufsphy_vreg_l),
 	.regs			= ufsphy_v6_regs_layout,
 };
 
@@ -1675,8 +1838,8 @@ static const struct qmp_phy_cfg sm8750_ufsphy_cfg = {
 		.max_gear	= UFS_HS_G5,
 	},
 
-	.vreg_list		= qmp_phy_vreg_l,
-	.num_vregs		= ARRAY_SIZE(qmp_phy_vreg_l),
+	.vreg_list		= sm8750_ufsphy_vreg_l,
+	.num_vregs		= ARRAY_SIZE(sm8750_ufsphy_vreg_l),
 	.regs			= ufsphy_v6_regs_layout,
 
 };
@@ -1890,22 +2053,6 @@ static const struct phy_ops qcom_qmp_ufs_phy_ops = {
 	.owner		= THIS_MODULE,
 };
 
-static int qmp_ufs_vreg_init(struct qmp_ufs *qmp)
-{
-	const struct qmp_phy_cfg *cfg = qmp->cfg;
-	struct device *dev = qmp->dev;
-	int num = cfg->num_vregs;
-	int i;
-
-	qmp->vregs = devm_kcalloc(dev, num, sizeof(*qmp->vregs), GFP_KERNEL);
-	if (!qmp->vregs)
-		return -ENOMEM;
-
-	for (i = 0; i < num; i++)
-		qmp->vregs[i].supply = cfg->vreg_list[i];
-
-	return devm_regulator_bulk_get(dev, num, qmp->vregs);
-}
 
 static int qmp_ufs_clk_init(struct qmp_ufs *qmp)
 {
@@ -2068,7 +2215,9 @@ static int qmp_ufs_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	ret = qmp_ufs_vreg_init(qmp);
+	ret = devm_regulator_bulk_get_const(dev, qmp->cfg->num_vregs,
+					    qmp->cfg->vreg_list,
+					    &qmp->vregs);
 	if (ret)
 		return ret;
 
@@ -2109,6 +2258,9 @@ err_node_put:
 
 static const struct of_device_id qmp_ufs_of_match_table[] = {
 	{
+		.compatible = "qcom,milos-qmp-ufs-phy",
+		.data = &milos_ufsphy_cfg,
+	}, {
 		.compatible = "qcom,msm8996-qmp-ufs-phy",
 		.data = &msm8996_ufsphy_cfg,
 	}, {

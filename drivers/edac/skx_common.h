@@ -29,23 +29,18 @@
 #define GET_BITFIELD(v, lo, hi) \
 	(((v) & GENMASK_ULL((hi), (lo))) >> (lo))
 
-#define SKX_NUM_IMC		2	/* Memory controllers per socket */
 #define SKX_NUM_CHANNELS	3	/* Channels per memory controller */
 #define SKX_NUM_DIMMS		2	/* Max DIMMS per channel */
 
-#define I10NM_NUM_DDR_IMC	12
 #define I10NM_NUM_DDR_CHANNELS	2
 #define I10NM_NUM_DDR_DIMMS	2
 
-#define I10NM_NUM_HBM_IMC	16
 #define I10NM_NUM_HBM_CHANNELS	2
 #define I10NM_NUM_HBM_DIMMS	1
 
-#define I10NM_NUM_IMC		(I10NM_NUM_DDR_IMC + I10NM_NUM_HBM_IMC)
 #define I10NM_NUM_CHANNELS	MAX(I10NM_NUM_DDR_CHANNELS, I10NM_NUM_HBM_CHANNELS)
 #define I10NM_NUM_DIMMS		MAX(I10NM_NUM_DDR_DIMMS, I10NM_NUM_HBM_DIMMS)
 
-#define NUM_IMC		MAX(SKX_NUM_IMC, I10NM_NUM_IMC)
 #define NUM_CHANNELS	MAX(SKX_NUM_CHANNELS, I10NM_NUM_CHANNELS)
 #define NUM_DIMMS	MAX(SKX_NUM_DIMMS, I10NM_NUM_DIMMS)
 
@@ -126,35 +121,49 @@ struct reg_rrl {
  * memory controllers on the die.
  */
 struct skx_dev {
-	struct list_head list;
+	/* {skx,i10nm}_edac */
 	u8 bus[4];
 	int seg;
 	struct pci_dev *sad_all;
 	struct pci_dev *util_all;
-	struct pci_dev *uracu; /* for i10nm CPU */
-	struct pci_dev *pcu_cr3; /* for HBM memory detection */
+	struct pci_dev *uracu;
+	struct pci_dev *pcu_cr3;
 	u32 mcroute;
-	/*
-	 * Some server BIOS may hide certain memory controllers, and the
-	 * EDAC driver skips those hidden memory controllers. However, the
-	 * ADXL still decodes memory error address using physical memory
-	 * controller indices. The mapping table is used to convert the
-	 * physical indices (reported by ADXL) to the logical indices
-	 * (used the EDAC driver) of present memory controllers during the
-	 * error handling process.
-	 */
-	u8 mc_mapping[NUM_IMC];
+
+	/* imh_edac */
+	/* System-view MMIO base physical addresses. */
+	u64 mmio_base_h_north;
+	u64 mmio_base_h_south;
+	int pkg;
+
+	int num_imc;
+	struct list_head list;
 	struct skx_imc {
+		/* i10nm_edac */
+		struct pci_dev *mdev;
+
+		/* imh_edac */
+		struct device *dev;
+
 		struct mem_ctl_info *mci;
-		struct pci_dev *mdev; /* for i10nm CPU */
-		void __iomem *mbase;  /* for i10nm CPU */
-		int chan_mmio_sz;     /* for i10nm CPU */
+		void __iomem *mbase;
+		int chan_mmio_sz;
 		int num_channels; /* channels per memory controller */
 		int num_dimms; /* dimms per channel */
 		bool hbm_mc;
 		u8 mc;	/* system wide mc# */
 		u8 lmc;	/* socket relative mc# */
 		u8 src_id;
+		/*
+		 * Some server BIOS may hide certain memory controllers, and the
+		 * EDAC driver skips those hidden memory controllers. However, the
+		 * ADXL still decodes memory error address using physical memory
+		 * controller indices. The mapping table is used to convert the
+		 * physical indices (reported by ADXL) to the logical indices
+		 * (used the EDAC driver) of present memory controllers during the
+		 * error handling process.
+		 */
+		u8 mc_mapping;
 		struct skx_channel {
 			struct pci_dev	*cdev;
 			struct pci_dev	*edev;
@@ -171,7 +180,7 @@ struct skx_dev {
 				u8 colbits;
 			} dimms[NUM_DIMMS];
 		} chan[NUM_CHANNELS];
-	} imc[NUM_IMC];
+	} imc[];
 };
 
 struct skx_pvt {
@@ -182,7 +191,8 @@ enum type {
 	SKX,
 	I10NM,
 	SPR,
-	GNR
+	GNR,
+	DMR,
 };
 
 enum {
@@ -241,10 +251,6 @@ struct pci_bdf {
 
 struct res_config {
 	enum type type;
-	/* Configuration agent device ID */
-	unsigned int decs_did;
-	/* Default bus number configuration register offset */
-	int busno_cfg_offset;
 	/* DDR memory controllers per socket */
 	int ddr_imc_num;
 	/* DDR channels per DDR memory controller */
@@ -262,23 +268,57 @@ struct res_config {
 	/* Per HBM channel memory-mapped I/O size */
 	int hbm_chan_mmio_sz;
 	bool support_ddr5;
-	/* SAD device BDF */
-	struct pci_bdf sad_all_bdf;
-	/* PCU device BDF */
-	struct pci_bdf pcu_cr3_bdf;
-	/* UTIL device BDF */
-	struct pci_bdf util_all_bdf;
-	/* URACU device BDF */
-	struct pci_bdf uracu_bdf;
-	/* DDR mdev device BDF */
-	struct pci_bdf ddr_mdev_bdf;
-	/* HBM mdev device BDF */
-	struct pci_bdf hbm_mdev_bdf;
-	int sad_all_offset;
 	/* RRL register sets per DDR channel */
 	struct reg_rrl *reg_rrl_ddr;
 	/* RRL register sets per HBM channel */
 	struct reg_rrl *reg_rrl_hbm[2];
+	union {
+		/* {skx,i10nm}_edac */
+		struct {
+			/* Configuration agent device ID */
+			unsigned int decs_did;
+			/* Default bus number configuration register offset */
+			int busno_cfg_offset;
+			struct pci_bdf sad_all_bdf;
+			struct pci_bdf pcu_cr3_bdf;
+			struct pci_bdf util_all_bdf;
+			struct pci_bdf uracu_bdf;
+			struct pci_bdf ddr_mdev_bdf;
+			struct pci_bdf hbm_mdev_bdf;
+			int sad_all_offset;
+		};
+		/* imh_edac */
+		struct {
+			/* MMIO base physical address in local package view */
+			u64 mmio_base_l_north;
+			u64 mmio_base_l_south;
+			u64 ddr_imc_base;
+			u64 ddr_reg_mcmtr_offset;
+			u8  ddr_reg_mcmtr_width;
+			u64 ddr_reg_dimmmtr_offset;
+			u8  ddr_reg_dimmmtr_width;
+			u64 ubox_base;
+			u32 ubox_size;
+			u32 ubox_reg_mmio_base_offset;
+			u8  ubox_reg_mmio_base_width;
+			u32 ubox_reg_socket_id_offset;
+			u8  ubox_reg_socket_id_width;
+			u64 pcu_base;
+			u32 pcu_size;
+			u32 pcu_reg_capid3_offset;
+			u8  pcu_reg_capid3_width;
+			u64 sca_base;
+			u32 sca_size;
+			u32 sca_reg_tolm_offset;
+			u8  sca_reg_tolm_width;
+			u32 sca_reg_tohm_offset;
+			u8  sca_reg_tohm_width;
+			u64 ha_base;
+			u32 ha_size;
+			u32 ha_reg_mode_offset;
+			u8  ha_reg_mode_width;
+		};
+	};
 };
 
 typedef int (*get_dimm_config_f)(struct mem_ctl_info *mci,
@@ -291,13 +331,17 @@ void skx_adxl_put(void);
 void skx_set_decode(skx_decode_f decode, skx_show_retry_log_f show_retry_log);
 void skx_set_mem_cfg(bool mem_cfg_2lm);
 void skx_set_res_cfg(struct res_config *cfg);
+void skx_init_mc_mapping(struct skx_dev *d);
 void skx_set_mc_mapping(struct skx_dev *d, u8 pmc, u8 lmc);
 
 int skx_get_src_id(struct skx_dev *d, int off, u8 *id);
 
 int skx_get_all_bus_mappings(struct res_config *cfg, struct list_head **list);
 
+struct list_head *skx_get_edac_list(void);
+
 int skx_get_hi_lo(unsigned int did, int off[], u64 *tolm, u64 *tohm);
+void skx_set_hi_lo(u64 tolm, u64 tohm);
 
 int skx_get_dimm_info(u32 mtr, u32 mcmtr, u32 amap, struct dimm_info *dimm,
 		      struct skx_imc *imc, int chan, int dimmno,
@@ -306,7 +350,7 @@ int skx_get_dimm_info(u32 mtr, u32 mcmtr, u32 amap, struct dimm_info *dimm,
 int skx_get_nvdimm_info(struct dimm_info *dimm, struct skx_imc *imc,
 			int chan, int dimmno, const char *mod_str);
 
-int skx_register_mci(struct skx_imc *imc, struct pci_dev *pdev,
+int skx_register_mci(struct skx_imc *imc, struct device *dev, const char *dev_name,
 		     const char *ctl_name, const char *mod_str,
 		     get_dimm_config_f get_dimm_config,
 		     struct res_config *cfg);

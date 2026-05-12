@@ -240,29 +240,25 @@ static void setup_forced_leader(struct report *report,
 		evlist__force_leader(evlist);
 }
 
-static int process_feature_event(struct perf_session *session,
+static int process_feature_event(const struct perf_tool *tool,
+				 struct perf_session *session,
 				 union perf_event *event)
 {
-	struct report *rep = container_of(session->tool, struct report, tool);
+	struct report *rep = container_of(tool, struct report, tool);
+	int ret = perf_event__process_feature(tool, session, event);
 
-	if (event->feat.feat_id < HEADER_LAST_FEATURE)
-		return perf_event__process_feature(session, event);
+	if (ret == 0 && event->header.size == sizeof(struct perf_record_header_feature) &&
+	    (int)event->feat.feat_id >= session->header.last_feat) {
+		/*
+		 * (feat_id = HEADER_LAST_FEATURE) is the end marker which means
+		 * all features are received.
+		 */
+		if (rep->header_only)
+			session_done = 1;
 
-	if (event->feat.feat_id != HEADER_LAST_FEATURE) {
-		pr_err("failed: wrong feature ID: %" PRI_lu64 "\n",
-		       event->feat.feat_id);
-		return -1;
-	} else if (rep->header_only) {
-		session_done = 1;
+		setup_forced_leader(rep, session->evlist);
 	}
-
-	/*
-	 * (feat_id = HEADER_LAST_FEATURE) is the end marker which
-	 * means all features are received, now we can force the
-	 * group if needed.
-	 */
-	setup_forced_leader(rep, session->evlist);
-	return 0;
+	return ret;
 }
 
 static int process_sample_event(const struct perf_tool *tool,
@@ -447,7 +443,7 @@ static int report__setup_sample_type(struct report *rep)
 		}
 	}
 
-	callchain_param_setup(sample_type, perf_env__arch(perf_session__env(rep->session)));
+	callchain_param_setup(sample_type, perf_session__e_machine(session, /*e_flags=*/NULL));
 
 	if (rep->stitch_lbr && (callchain_param.record_mode != CALLCHAIN_LBR)) {
 		ui__warning("Can't find LBR callchain. Switch off --stitch-lbr.\n"
@@ -1270,12 +1266,18 @@ parse_percent_limit(const struct option *opt, const char *str,
 	return 0;
 }
 
+static int
+report_parse_addr2line_config(const struct option *opt __maybe_unused,
+			      const char *arg, int unset __maybe_unused)
+{
+	return addr2line_configure("addr2line.style", arg, NULL);
+}
+
 static int process_attr(const struct perf_tool *tool __maybe_unused,
 			union perf_event *event,
 			struct evlist **pevlist)
 {
 	struct perf_session *session;
-	struct perf_env *env;
 	u64 sample_type;
 	int err;
 
@@ -1289,8 +1291,7 @@ static int process_attr(const struct perf_tool *tool __maybe_unused,
 	 */
 	sample_type = evlist__combined_sample_type(*pevlist);
 	session = (*pevlist)->session;
-	env = perf_session__env(session);
-	callchain_param_setup(sample_type, perf_env__arch(env));
+	callchain_param_setup(sample_type, perf_session__e_machine(session, /*e_flags=*/NULL));
 	return 0;
 }
 
@@ -1410,8 +1411,7 @@ int cmd_report(int argc, const char **argv)
 		   "columns '.' is reserved."),
 	OPT_BOOLEAN('U', "hide-unresolved", &symbol_conf.hide_unresolved,
 		    "Only display entries resolved to a symbol"),
-	OPT_CALLBACK(0, "symfs", NULL, "directory",
-		     "Look for files with symbols relative to this directory",
+	OPT_CALLBACK(0, "symfs", NULL, "directory[,layout]", SYMFS_HELP,
 		     symbol__config_symfs),
 	OPT_STRING('C', "cpu", &report.cpu_list, "cpu",
 		   "list of cpus to profile"),
@@ -1446,6 +1446,9 @@ int cmd_report(int argc, const char **argv)
 		   "objdump binary to use for disassembly and annotations"),
 	OPT_STRING(0, "addr2line", &addr2line_path, "path",
 		   "addr2line binary to use for line numbers"),
+	OPT_CALLBACK(0, "addr2line-style", NULL, "addr2line style",
+		     "addr2line styles (libdw,llvm,libbfd,addr2line)",
+		     report_parse_addr2line_config),
 	OPT_BOOLEAN(0, "demangle", &symbol_conf.demangle,
 		    "Symbol demangling. Enabled by default, use --no-demangle to disable."),
 	OPT_BOOLEAN(0, "demangle-kernel", &symbol_conf.demangle_kernel,
@@ -1613,6 +1616,7 @@ repeat:
 	report.tool.event_update	 = perf_event__process_event_update;
 	report.tool.feature		 = process_feature_event;
 	report.tool.ordering_requires_timestamps = true;
+	report.tool.merge_deferred_callchains = !dump_trace;
 
 	session = perf_session__new(&data, &report.tool);
 	if (IS_ERR(session)) {
@@ -1725,7 +1729,8 @@ repeat:
 			sort_order = NULL;
 	}
 
-	if (sort_order && strstr(sort_order, "type")) {
+	if ((sort_order && strstr(sort_order, "type")) ||
+	    (field_order && strstr(field_order, "type"))) {
 		report.data_type = true;
 		annotate_opts.annotate_src = false;
 

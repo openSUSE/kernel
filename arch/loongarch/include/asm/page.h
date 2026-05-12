@@ -10,7 +10,7 @@
 
 #include <vdso/page.h>
 
-#define HPAGE_SHIFT	(PAGE_SHIFT + PAGE_SHIFT - 3)
+#define HPAGE_SHIFT	(PAGE_SHIFT + PAGE_SHIFT - PTRLOG)
 #define HPAGE_SIZE	(_AC(1, UL) << HPAGE_SHIFT)
 #define HPAGE_MASK	(~(HPAGE_SIZE - 1))
 #define HUGETLB_PAGE_ORDER	(HPAGE_SHIFT - PAGE_SHIFT)
@@ -30,17 +30,12 @@
 extern void clear_page(void *page);
 extern void copy_page(void *to, void *from);
 
-#define clear_user_page(page, vaddr, pg)	clear_page(page)
 #define copy_user_page(to, from, vaddr, pg)	copy_page(to, from)
 
 extern unsigned long shm_align_mask;
 
 struct page;
 struct vm_area_struct;
-void copy_user_highpage(struct page *to, struct page *from,
-	      unsigned long vaddr, struct vm_area_struct *vma);
-
-#define __HAVE_ARCH_COPY_USER_HIGHPAGE
 
 typedef struct { unsigned long pte; } pte_t;
 #define pte_val(x)	((x).pte)
@@ -105,7 +100,7 @@ struct page *tlb_virt_to_page(unsigned long kaddr);
 extern int __virt_addr_valid(volatile void *kaddr);
 #define virt_addr_valid(kaddr)	__virt_addr_valid((volatile void *)(kaddr))
 
-#define VM_DATA_DEFAULT_FLAGS	VM_DATA_FLAGS_TSK_EXEC
+#define VMA_DATA_DEFAULT_FLAGS	VMA_DATA_FLAGS_TSK_EXEC
 
 #include <asm-generic/memory_model.h>
 #include <asm-generic/getorder.h>

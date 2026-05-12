@@ -202,6 +202,8 @@
 	expander0: gpio@41 {
 		compatible = "nxp,pca9536";
 		reg = <0x41>;
+		gpio-controller;
+		#gpio-cells = <2>;
 
 		usb-a-vbus0-ilimit-hog {
 			gpio-hog;
@@ -563,11 +565,13 @@
 
 /* SRDS #1 - SATA on M.2 (J44) */
 &cp1_sata0 {
-	phys = <&cp1_comphy1 0>;
 	status = "okay";
 
 	/* only port 0 is available */
-	/delete-node/ sata-port@1;
+	sata-port@0 {
+		phys = <&cp1_comphy1 0>;
+		status = "okay";
+	};
 };
 
 &cp1_syscon0 {

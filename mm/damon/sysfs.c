@@ -22,7 +22,7 @@ struct damon_sysfs_region {
 
 static struct damon_sysfs_region *damon_sysfs_region_alloc(void)
 {
-	return kzalloc(sizeof(struct damon_sysfs_region), GFP_KERNEL);
+	return kzalloc_obj(struct damon_sysfs_region);
 }
 
 static ssize_t start_show(struct kobject *kobj, struct kobj_attribute *attr,
@@ -99,7 +99,7 @@ struct damon_sysfs_regions {
 
 static struct damon_sysfs_regions *damon_sysfs_regions_alloc(void)
 {
-	return kzalloc(sizeof(struct damon_sysfs_regions), GFP_KERNEL);
+	return kzalloc_obj(struct damon_sysfs_regions);
 }
 
 static void damon_sysfs_regions_rm_dirs(struct damon_sysfs_regions *regions)
@@ -124,8 +124,8 @@ static int damon_sysfs_regions_add_dirs(struct damon_sysfs_regions *regions,
 	if (!nr_regions)
 		return 0;
 
-	regions_arr = kmalloc_array(nr_regions, sizeof(*regions_arr),
-			GFP_KERNEL | __GFP_NOWARN);
+	regions_arr = kmalloc_objs(*regions_arr, nr_regions,
+				   GFP_KERNEL | __GFP_NOWARN);
 	if (!regions_arr)
 		return -ENOMEM;
 	regions->regions_arr = regions_arr;
@@ -212,11 +212,12 @@ struct damon_sysfs_target {
 	struct kobject kobj;
 	struct damon_sysfs_regions *regions;
 	int pid;
+	bool obsolete;
 };
 
 static struct damon_sysfs_target *damon_sysfs_target_alloc(void)
 {
-	return kzalloc(sizeof(struct damon_sysfs_target), GFP_KERNEL);
+	return kzalloc_obj(struct damon_sysfs_target);
 }
 
 static int damon_sysfs_target_add_dirs(struct damon_sysfs_target *target)
@@ -263,6 +264,29 @@ static ssize_t pid_target_store(struct kobject *kobj,
 	return count;
 }
 
+static ssize_t obsolete_target_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	struct damon_sysfs_target *target = container_of(kobj,
+			struct damon_sysfs_target, kobj);
+
+	return sysfs_emit(buf, "%c\n", target->obsolete ? 'Y' : 'N');
+}
+
+static ssize_t obsolete_target_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	struct damon_sysfs_target *target = container_of(kobj,
+			struct damon_sysfs_target, kobj);
+	bool obsolete;
+	int err = kstrtobool(buf, &obsolete);
+
+	if (err)
+		return err;
+	target->obsolete = obsolete;
+	return count;
+}
+
 static void damon_sysfs_target_release(struct kobject *kobj)
 {
 	kfree(container_of(kobj, struct damon_sysfs_target, kobj));
@@ -271,8 +295,12 @@ static void damon_sysfs_target_release(struct kobject *kobj)
 static struct kobj_attribute damon_sysfs_target_pid_attr =
 		__ATTR_RW_MODE(pid_target, 0600);
 
+static struct kobj_attribute damon_sysfs_target_obsolete_attr =
+		__ATTR_RW_MODE(obsolete_target, 0600);
+
 static struct attribute *damon_sysfs_target_attrs[] = {
 	&damon_sysfs_target_pid_attr.attr,
+	&damon_sysfs_target_obsolete_attr.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(damon_sysfs_target);
@@ -295,7 +323,7 @@ struct damon_sysfs_targets {
 
 static struct damon_sysfs_targets *damon_sysfs_targets_alloc(void)
 {
-	return kzalloc(sizeof(struct damon_sysfs_targets), GFP_KERNEL);
+	return kzalloc_obj(struct damon_sysfs_targets);
 }
 
 static void damon_sysfs_targets_rm_dirs(struct damon_sysfs_targets *targets)
@@ -322,8 +350,8 @@ static int damon_sysfs_targets_add_dirs(struct damon_sysfs_targets *targets,
 	if (!nr_targets)
 		return 0;
 
-	targets_arr = kmalloc_array(nr_targets, sizeof(*targets_arr),
-			GFP_KERNEL | __GFP_NOWARN);
+	targets_arr = kmalloc_objs(*targets_arr, nr_targets,
+				   GFP_KERNEL | __GFP_NOWARN);
 	if (!targets_arr)
 		return -ENOMEM;
 	targets->targets_arr = targets_arr;
@@ -424,8 +452,7 @@ static struct damon_sysfs_intervals_goal *damon_sysfs_intervals_goal_alloc(
 		unsigned long access_bp, unsigned long aggrs,
 		unsigned long min_sample_us, unsigned long max_sample_us)
 {
-	struct damon_sysfs_intervals_goal *goal = kmalloc(sizeof(*goal),
-			GFP_KERNEL);
+	struct damon_sysfs_intervals_goal *goal = kmalloc_obj(*goal);
 
 	if (!goal)
 		return NULL;
@@ -582,8 +609,7 @@ static struct damon_sysfs_intervals *damon_sysfs_intervals_alloc(
 		unsigned long sample_us, unsigned long aggr_us,
 		unsigned long update_us)
 {
-	struct damon_sysfs_intervals *intervals = kmalloc(sizeof(*intervals),
-			GFP_KERNEL);
+	struct damon_sysfs_intervals *intervals = kmalloc_obj(*intervals);
 
 	if (!intervals)
 		return NULL;
@@ -733,7 +759,7 @@ struct damon_sysfs_attrs {
 
 static struct damon_sysfs_attrs *damon_sysfs_attrs_alloc(void)
 {
-	struct damon_sysfs_attrs *attrs = kmalloc(sizeof(*attrs), GFP_KERNEL);
+	struct damon_sysfs_attrs *attrs = kmalloc_obj(*attrs);
 
 	if (!attrs)
 		return NULL;
@@ -764,7 +790,7 @@ static int damon_sysfs_attrs_add_dirs(struct damon_sysfs_attrs *attrs)
 	nr_regions_range = damon_sysfs_ul_range_alloc(10, 1000);
 	if (!nr_regions_range) {
 		err = -ENOMEM;
-		goto put_intervals_out;
+		goto rmdir_put_intervals_out;
 	}
 
 	err = kobject_init_and_add(&nr_regions_range->kobj,
@@ -778,6 +804,8 @@ static int damon_sysfs_attrs_add_dirs(struct damon_sysfs_attrs *attrs)
 put_nr_regions_intervals_out:
 	kobject_put(&nr_regions_range->kobj);
 	attrs->nr_regions_range = NULL;
+rmdir_put_intervals_out:
+	damon_sysfs_intervals_rm_dirs(intervals);
 put_intervals_out:
 	kobject_put(&intervals->kobj);
 	attrs->intervals = NULL;
@@ -834,6 +862,7 @@ static const struct damon_sysfs_ops_name damon_sysfs_ops_names[] = {
 struct damon_sysfs_context {
 	struct kobject kobj;
 	enum damon_ops_id ops_id;
+	unsigned long addr_unit;
 	struct damon_sysfs_attrs *attrs;
 	struct damon_sysfs_targets *targets;
 	struct damon_sysfs_schemes *schemes;
@@ -842,13 +871,13 @@ struct damon_sysfs_context {
 static struct damon_sysfs_context *damon_sysfs_context_alloc(
 		enum damon_ops_id ops_id)
 {
-	struct damon_sysfs_context *context = kmalloc(sizeof(*context),
-				GFP_KERNEL);
+	struct damon_sysfs_context *context = kmalloc_obj(*context);
 
 	if (!context)
 		return NULL;
 	context->kobj = (struct kobject){};
 	context->ops_id = ops_id;
+	context->addr_unit = 1;
 	return context;
 }
 
@@ -918,7 +947,7 @@ static int damon_sysfs_context_add_dirs(struct damon_sysfs_context *context)
 
 	err = damon_sysfs_context_set_targets(context);
 	if (err)
-		goto put_attrs_out;
+		goto rmdir_put_attrs_out;
 
 	err = damon_sysfs_context_set_schemes(context);
 	if (err)
@@ -928,7 +957,8 @@ static int damon_sysfs_context_add_dirs(struct damon_sysfs_context *context)
 put_targets_attrs_out:
 	kobject_put(&context->targets->kobj);
 	context->targets = NULL;
-put_attrs_out:
+rmdir_put_attrs_out:
+	damon_sysfs_attrs_rm_dirs(context->attrs);
 	kobject_put(&context->attrs->kobj);
 	context->attrs = NULL;
 	return err;
@@ -997,6 +1027,32 @@ static ssize_t operations_store(struct kobject *kobj,
 	return -EINVAL;
 }
 
+static ssize_t addr_unit_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	struct damon_sysfs_context *context = container_of(kobj,
+			struct damon_sysfs_context, kobj);
+
+	return sysfs_emit(buf, "%lu\n", context->addr_unit);
+}
+
+static ssize_t addr_unit_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	struct damon_sysfs_context *context = container_of(kobj,
+			struct damon_sysfs_context, kobj);
+	unsigned long input_addr_unit;
+	int err = kstrtoul(buf, 0, &input_addr_unit);
+
+	if (err)
+		return err;
+	if (!input_addr_unit)
+		return -EINVAL;
+
+	context->addr_unit = input_addr_unit;
+	return count;
+}
+
 static void damon_sysfs_context_release(struct kobject *kobj)
 {
 	kfree(container_of(kobj, struct damon_sysfs_context, kobj));
@@ -1008,9 +1064,13 @@ static struct kobj_attribute damon_sysfs_context_avail_operations_attr =
 static struct kobj_attribute damon_sysfs_context_operations_attr =
 		__ATTR_RW_MODE(operations, 0600);
 
+static struct kobj_attribute damon_sysfs_context_addr_unit_attr =
+		__ATTR_RW_MODE(addr_unit, 0600);
+
 static struct attribute *damon_sysfs_context_attrs[] = {
 	&damon_sysfs_context_avail_operations_attr.attr,
 	&damon_sysfs_context_operations_attr.attr,
+	&damon_sysfs_context_addr_unit_attr.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(damon_sysfs_context);
@@ -1033,7 +1093,7 @@ struct damon_sysfs_contexts {
 
 static struct damon_sysfs_contexts *damon_sysfs_contexts_alloc(void)
 {
-	return kzalloc(sizeof(struct damon_sysfs_contexts), GFP_KERNEL);
+	return kzalloc_obj(struct damon_sysfs_contexts);
 }
 
 static void damon_sysfs_contexts_rm_dirs(struct damon_sysfs_contexts *contexts)
@@ -1060,8 +1120,8 @@ static int damon_sysfs_contexts_add_dirs(struct damon_sysfs_contexts *contexts,
 	if (!nr_contexts)
 		return 0;
 
-	contexts_arr = kmalloc_array(nr_contexts, sizeof(*contexts_arr),
-			GFP_KERNEL | __GFP_NOWARN);
+	contexts_arr = kmalloc_objs(*contexts_arr, nr_contexts,
+				    GFP_KERNEL | __GFP_NOWARN);
 	if (!contexts_arr)
 		return -ENOMEM;
 	contexts->contexts_arr = contexts_arr;
@@ -1160,7 +1220,7 @@ struct damon_sysfs_kdamond {
 
 static struct damon_sysfs_kdamond *damon_sysfs_kdamond_alloc(void)
 {
-	return kzalloc(sizeof(struct damon_sysfs_kdamond), GFP_KERNEL);
+	return kzalloc_obj(struct damon_sysfs_kdamond);
 }
 
 static int damon_sysfs_kdamond_add_dirs(struct damon_sysfs_kdamond *kdamond)
@@ -1232,7 +1292,7 @@ enum damon_sysfs_cmd {
 	DAMON_SYSFS_CMD_UPDATE_SCHEMES_EFFECTIVE_QUOTAS,
 	/*
 	 * @DAMON_SYSFS_CMD_UPDATE_TUNED_INTERVALS: Update the tuned monitoring
-	 * intevals.
+	 * intervals.
 	 */
 	DAMON_SYSFS_CMD_UPDATE_TUNED_INTERVALS,
 	/*
@@ -1301,10 +1361,12 @@ static int damon_sysfs_set_attrs(struct damon_ctx *ctx,
 }
 
 static int damon_sysfs_set_regions(struct damon_target *t,
-		struct damon_sysfs_regions *sysfs_regions)
+		struct damon_sysfs_regions *sysfs_regions,
+		unsigned long min_region_sz)
 {
-	struct damon_addr_range *ranges = kmalloc_array(sysfs_regions->nr,
-			sizeof(*ranges), GFP_KERNEL | __GFP_NOWARN);
+	struct damon_addr_range *ranges = kmalloc_objs(*ranges,
+						       sysfs_regions->nr,
+						       GFP_KERNEL | __GFP_NOWARN);
 	int i, err = -EINVAL;
 
 	if (!ranges)
@@ -1323,7 +1385,7 @@ static int damon_sysfs_set_regions(struct damon_target *t,
 		if (ranges[i - 1].end > ranges[i].start)
 			goto out;
 	}
-	err = damon_set_regions(t, ranges, sysfs_regions->nr);
+	err = damon_set_regions(t, ranges, sysfs_regions->nr, min_region_sz);
 out:
 	kfree(ranges);
 	return err;
@@ -1344,7 +1406,9 @@ static int damon_sysfs_add_target(struct damon_sysfs_target *sys_target,
 			/* caller will destroy targets */
 			return -EINVAL;
 	}
-	return damon_sysfs_set_regions(t, sys_target->regions);
+	t->obsolete = sys_target->obsolete;
+	return damon_sysfs_set_regions(t, sys_target->regions,
+			ctx->min_region_sz);
 }
 
 static int damon_sysfs_add_targets(struct damon_ctx *ctx,
@@ -1401,6 +1465,11 @@ static int damon_sysfs_apply_inputs(struct damon_ctx *ctx,
 	err = damon_select_ops(ctx, sys_ctx->ops_id);
 	if (err)
 		return err;
+	ctx->addr_unit = sys_ctx->addr_unit;
+	/* addr_unit is respected by only DAMON_OPS_PADDR */
+	if (sys_ctx->ops_id == DAMON_OPS_PADDR)
+		ctx->min_region_sz = max(
+				DAMON_MIN_REGION_SZ / sys_ctx->addr_unit, 1);
 	err = damon_sysfs_set_attrs(ctx, sys_ctx->attrs);
 	if (err)
 		return err;
@@ -1412,6 +1481,26 @@ static int damon_sysfs_apply_inputs(struct damon_ctx *ctx,
 
 static struct damon_ctx *damon_sysfs_build_ctx(
 		struct damon_sysfs_context *sys_ctx);
+
+/*
+ * Return a new damon_ctx for testing new parameters to commit.
+ */
+static struct damon_ctx *damon_sysfs_new_test_ctx(
+		struct damon_ctx *running_ctx)
+{
+	struct damon_ctx *test_ctx;
+	int err;
+
+	test_ctx = damon_new_ctx();
+	if (!test_ctx)
+		return NULL;
+	err = damon_commit_ctx(test_ctx, running_ctx);
+	if (err) {
+		damon_destroy_ctx(test_ctx);
+		return NULL;
+	}
+	return test_ctx;
+}
 
 /*
  * damon_sysfs_commit_input() - Commit user inputs to a running kdamond.
@@ -1434,14 +1523,17 @@ static int damon_sysfs_commit_input(void *data)
 	param_ctx = damon_sysfs_build_ctx(kdamond->contexts->contexts_arr[0]);
 	if (IS_ERR(param_ctx))
 		return PTR_ERR(param_ctx);
-	test_ctx = damon_new_ctx();
-	err = damon_commit_ctx(test_ctx, param_ctx);
-	if (err) {
-		damon_destroy_ctx(test_ctx);
-		goto out;
+	test_ctx = damon_sysfs_new_test_ctx(kdamond->damon_ctx);
+	if (!test_ctx) {
+		damon_destroy_ctx(param_ctx);
+		return -ENOMEM;
 	}
+	err = damon_commit_ctx(test_ctx, param_ctx);
+	if (err)
+		goto out;
 	err = damon_commit_ctx(kdamond->damon_ctx, param_ctx);
 out:
+	damon_destroy_ctx(test_ctx);
 	damon_destroy_ctx(param_ctx);
 	return err;
 }
@@ -1513,35 +1605,35 @@ static struct damon_ctx *damon_sysfs_build_ctx(
 	return ctx;
 }
 
+static unsigned long damon_sysfs_next_update_jiffies;
+
 static int damon_sysfs_repeat_call_fn(void *data)
 {
 	struct damon_sysfs_kdamond *sysfs_kdamond = data;
-	static unsigned long next_update_jiffies;
 
 	if (!sysfs_kdamond->refresh_ms)
 		return 0;
-	if (time_before(jiffies, next_update_jiffies))
+	if (time_before(jiffies, damon_sysfs_next_update_jiffies))
 		return 0;
-	next_update_jiffies = jiffies +
+	damon_sysfs_next_update_jiffies = jiffies +
 		msecs_to_jiffies(sysfs_kdamond->refresh_ms);
 
 	if (!mutex_trylock(&damon_sysfs_lock))
 		return 0;
+	if (sysfs_kdamond->contexts->nr != 1)
+		goto out;
 	damon_sysfs_upd_tuned_intervals(sysfs_kdamond);
 	damon_sysfs_upd_schemes_stats(sysfs_kdamond);
 	damon_sysfs_upd_schemes_effective_quotas(sysfs_kdamond);
+out:
 	mutex_unlock(&damon_sysfs_lock);
 	return 0;
 }
 
-static struct damon_call_control damon_sysfs_repeat_call_control = {
-	.fn = damon_sysfs_repeat_call_fn,
-	.repeat = true,
-};
-
 static int damon_sysfs_turn_damon_on(struct damon_sysfs_kdamond *kdamond)
 {
 	struct damon_ctx *ctx;
+	struct damon_call_control *repeat_call_control;
 	int err;
 
 	if (damon_sysfs_kdamond_running(kdamond))
@@ -1554,18 +1646,32 @@ static int damon_sysfs_turn_damon_on(struct damon_sysfs_kdamond *kdamond)
 		damon_destroy_ctx(kdamond->damon_ctx);
 	kdamond->damon_ctx = NULL;
 
+	repeat_call_control = kmalloc_obj(*repeat_call_control);
+	if (!repeat_call_control)
+		return -ENOMEM;
+
 	ctx = damon_sysfs_build_ctx(kdamond->contexts->contexts_arr[0]);
-	if (IS_ERR(ctx))
+	if (IS_ERR(ctx)) {
+		kfree(repeat_call_control);
 		return PTR_ERR(ctx);
+	}
 	err = damon_start(&ctx, 1, false);
 	if (err) {
+		kfree(repeat_call_control);
 		damon_destroy_ctx(ctx);
 		return err;
 	}
 	kdamond->damon_ctx = ctx;
 
-	damon_sysfs_repeat_call_control.data = kdamond;
-	damon_call(ctx, &damon_sysfs_repeat_call_control);
+	damon_sysfs_next_update_jiffies =
+		jiffies + msecs_to_jiffies(kdamond->refresh_ms);
+
+	repeat_call_control->fn = damon_sysfs_repeat_call_fn;
+	repeat_call_control->data = kdamond;
+	repeat_call_control->repeat = true;
+	repeat_call_control->dealloc_on_cancel = true;
+	if (damon_call(ctx, repeat_call_control))
+		kfree(repeat_call_control);
 	return err;
 }
 
@@ -1585,12 +1691,14 @@ static int damon_sysfs_damon_call(int (*fn)(void *data),
 		struct damon_sysfs_kdamond *kdamond)
 {
 	struct damon_call_control call_control = {};
+	int err;
 
 	if (!kdamond->damon_ctx)
 		return -EINVAL;
 	call_control.fn = fn;
 	call_control.data = kdamond;
-	return damon_call(kdamond->damon_ctx, &call_control);
+	err = damon_call(kdamond->damon_ctx, &call_control);
+	return err ? err : call_control.return_code;
 }
 
 struct damon_sysfs_schemes_walk_data {
@@ -1645,6 +1753,9 @@ static int damon_sysfs_update_schemes_tried_regions(
 static int damon_sysfs_handle_cmd(enum damon_sysfs_cmd cmd,
 		struct damon_sysfs_kdamond *kdamond)
 {
+	if (cmd != DAMON_SYSFS_CMD_OFF && kdamond->contexts->nr != 1)
+		return -EINVAL;
+
 	switch (cmd) {
 	case DAMON_SYSFS_CMD_ON:
 		return damon_sysfs_turn_damon_on(kdamond);
@@ -1715,10 +1826,9 @@ static ssize_t pid_show(struct kobject *kobj,
 	if (!ctx)
 		goto out;
 
-	mutex_lock(&ctx->kdamond_lock);
-	if (ctx->kdamond)
-		pid = ctx->kdamond->pid;
-	mutex_unlock(&ctx->kdamond_lock);
+	pid = damon_kdamond_pid(ctx);
+	if (pid < 0)
+		pid = -1;
 out:
 	mutex_unlock(&damon_sysfs_lock);
 	return sysfs_emit(buf, "%d\n", pid);
@@ -1793,7 +1903,7 @@ struct damon_sysfs_kdamonds {
 
 static struct damon_sysfs_kdamonds *damon_sysfs_kdamonds_alloc(void)
 {
-	return kzalloc(sizeof(struct damon_sysfs_kdamonds), GFP_KERNEL);
+	return kzalloc_obj(struct damon_sysfs_kdamonds);
 }
 
 static void damon_sysfs_kdamonds_rm_dirs(struct damon_sysfs_kdamonds *kdamonds)
@@ -1836,8 +1946,8 @@ static int damon_sysfs_kdamonds_add_dirs(struct damon_sysfs_kdamonds *kdamonds,
 	if (!nr_kdamonds)
 		return 0;
 
-	kdamonds_arr = kmalloc_array(nr_kdamonds, sizeof(*kdamonds_arr),
-			GFP_KERNEL | __GFP_NOWARN);
+	kdamonds_arr = kmalloc_objs(*kdamonds_arr, nr_kdamonds,
+				    GFP_KERNEL | __GFP_NOWARN);
 	if (!kdamonds_arr)
 		return -ENOMEM;
 	kdamonds->kdamonds_arr = kdamonds_arr;
@@ -1934,7 +2044,7 @@ struct damon_sysfs_ui_dir {
 
 static struct damon_sysfs_ui_dir *damon_sysfs_ui_dir_alloc(void)
 {
-	return kzalloc(sizeof(struct damon_sysfs_ui_dir), GFP_KERNEL);
+	return kzalloc_obj(struct damon_sysfs_ui_dir);
 }
 
 static int damon_sysfs_ui_dir_add_dirs(struct damon_sysfs_ui_dir *ui_dir)

@@ -27,6 +27,7 @@
 #include <drm/drm_framebuffer.h>
 #include <drm/drm_gem_atomic_helper.h>
 #include <drm/drm_gem_framebuffer_helper.h>
+#include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_self_refresh_helper.h>
 #include <drm/drm_vblank.h>
@@ -727,7 +728,7 @@ static void rockchip_drm_set_win_enabled(struct drm_crtc *crtc, bool enabled)
 }
 
 static void vop_crtc_atomic_disable(struct drm_crtc *crtc,
-				    struct drm_atomic_state *state)
+				    struct drm_atomic_commit *state)
 {
 	struct vop *vop = to_vop(crtc);
 
@@ -808,7 +809,7 @@ static bool rockchip_mod_supported(struct drm_plane *plane,
 }
 
 static int vop_plane_atomic_check(struct drm_plane *plane,
-			   struct drm_atomic_state *state)
+			   struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *new_plane_state = drm_atomic_get_new_plane_state(state,
 										 plane);
@@ -826,8 +827,7 @@ static int vop_plane_atomic_check(struct drm_plane *plane,
 	if (!crtc || WARN_ON(!fb))
 		return 0;
 
-	crtc_state = drm_atomic_get_existing_crtc_state(state,
-							crtc);
+	crtc_state = drm_atomic_get_new_crtc_state(state, crtc);
 	if (WARN_ON(!crtc_state))
 		return -EINVAL;
 
@@ -889,7 +889,7 @@ static int vop_plane_atomic_check(struct drm_plane *plane,
 }
 
 static void vop_plane_atomic_disable(struct drm_plane *plane,
-				     struct drm_atomic_state *state)
+				     struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *old_state = drm_atomic_get_old_plane_state(state,
 									   plane);
@@ -907,7 +907,7 @@ static void vop_plane_atomic_disable(struct drm_plane *plane,
 }
 
 static void vop_plane_atomic_update(struct drm_plane *plane,
-		struct drm_atomic_state *state)
+		struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *new_state = drm_atomic_get_new_plane_state(state,
 									   plane);
@@ -1071,7 +1071,7 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 }
 
 static int vop_plane_atomic_async_check(struct drm_plane *plane,
-					struct drm_atomic_state *state, bool flip)
+					struct drm_atomic_commit *state, bool flip)
 {
 	struct drm_plane_state *new_plane_state = drm_atomic_get_new_plane_state(state,
 										 plane);
@@ -1092,7 +1092,8 @@ static int vop_plane_atomic_async_check(struct drm_plane *plane,
 	if (!plane->state->fb)
 		return -EINVAL;
 
-	crtc_state = drm_atomic_get_existing_crtc_state(state, new_plane_state->crtc);
+	crtc_state = drm_atomic_get_new_crtc_state(state,
+						   new_plane_state->crtc);
 
 	/* Special case for asynchronous cursor updates. */
 	if (!crtc_state)
@@ -1104,7 +1105,7 @@ static int vop_plane_atomic_async_check(struct drm_plane *plane,
 }
 
 static void vop_plane_atomic_async_update(struct drm_plane *plane,
-					  struct drm_atomic_state *state)
+					  struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *new_state = drm_atomic_get_new_plane_state(state,
 									   plane);
@@ -1341,7 +1342,7 @@ static void vop_crtc_gamma_set(struct vop *vop, struct drm_crtc *crtc,
 }
 
 static void vop_crtc_atomic_begin(struct drm_crtc *crtc,
-				  struct drm_atomic_state *state)
+				  struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *crtc_state = drm_atomic_get_new_crtc_state(state,
 									  crtc);
@@ -1359,7 +1360,7 @@ static void vop_crtc_atomic_begin(struct drm_crtc *crtc,
 }
 
 static void vop_crtc_atomic_enable(struct drm_crtc *crtc,
-				   struct drm_atomic_state *state)
+				   struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *old_state = drm_atomic_get_old_crtc_state(state,
 									 crtc);
@@ -1514,7 +1515,7 @@ static void vop_wait_for_irq_handler(struct vop *vop)
 }
 
 static int vop_crtc_atomic_check(struct drm_crtc *crtc,
-				 struct drm_atomic_state *state)
+				 struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *crtc_state = drm_atomic_get_new_crtc_state(state,
 									  crtc);
@@ -1561,11 +1562,11 @@ static int vop_crtc_atomic_check(struct drm_crtc *crtc,
 }
 
 static void vop_crtc_atomic_flush(struct drm_crtc *crtc,
-				  struct drm_atomic_state *state)
+				  struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *old_crtc_state = drm_atomic_get_old_crtc_state(state,
 									      crtc);
-	struct drm_atomic_state *old_state = old_crtc_state->state;
+	struct drm_atomic_commit *old_state = old_crtc_state->state;
 	struct drm_plane_state *old_plane_state, *new_plane_state;
 	struct vop *vop = to_vop(crtc);
 	struct drm_plane *plane;
@@ -1657,8 +1658,7 @@ static void vop_crtc_destroy_state(struct drm_crtc *crtc,
 
 static void vop_crtc_reset(struct drm_crtc *crtc)
 {
-	struct rockchip_crtc_state *crtc_state =
-		kzalloc(sizeof(*crtc_state), GFP_KERNEL);
+	struct rockchip_crtc_state *crtc_state = kzalloc_obj(*crtc_state);
 
 	if (crtc->state)
 		vop_crtc_destroy_state(crtc, crtc->state);
@@ -1770,7 +1770,7 @@ static void vop_handle_vblank(struct vop *vop)
 	spin_unlock(&drm->event_lock);
 
 	if (test_and_clear_bit(VOP_PENDING_FB_UNREF, &vop->pending))
-		drm_flip_work_commit(&vop->fb_unref_work, system_unbound_wq);
+		drm_flip_work_commit(&vop->fb_unref_work, system_dfl_wq);
 }
 
 static irqreturn_t vop_isr(int irq, void *data)

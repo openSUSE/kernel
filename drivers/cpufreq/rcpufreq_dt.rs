@@ -3,7 +3,6 @@
 //! Rust based implementation of the cpufreq-dt driver.
 
 use kernel::{
-    c_str,
     clk::Clk,
     cpu, cpufreq,
     cpumask::CpumaskVar,
@@ -28,15 +27,11 @@ fn find_supply_name_exact(dev: &Device, name: &str) -> Option<CString> {
 /// Finds supply name for the CPU from DT.
 fn find_supply_names(dev: &Device, cpu: cpu::CpuId) -> Option<KVec<CString>> {
     // Try "cpu0" for older DTs, fallback to "cpu".
-    let name = (cpu.as_u32() == 0)
+    (cpu.as_u32() == 0)
         .then(|| find_supply_name_exact(dev, "cpu0"))
         .flatten()
-        .or_else(|| find_supply_name_exact(dev, "cpu"))?;
-
-    let mut list = KVec::with_capacity(1, GFP_KERNEL).ok()?;
-    list.push(name, GFP_KERNEL).ok()?;
-
-    Some(list)
+        .or_else(|| find_supply_name_exact(dev, "cpu"))
+        .and_then(|name| kernel::kvec![name].ok())
 }
 
 /// Represents the cpufreq dt device.
@@ -56,7 +51,7 @@ impl opp::ConfigOps for CPUFreqDTDriver {}
 
 #[vtable]
 impl cpufreq::Driver for CPUFreqDTDriver {
-    const NAME: &'static CStr = c_str!("cpufreq-dt");
+    const NAME: &'static CStr = c"cpufreq-dt";
     const FLAGS: u16 = cpufreq::flags::NEED_INITIAL_FREQ_CHECK | cpufreq::flags::IS_COOLING_DEV;
     const BOOST_ENABLED: bool = true;
 
@@ -123,7 +118,7 @@ impl cpufreq::Driver for CPUFreqDTDriver {
 
         let mut transition_latency = opp_table.max_transition_latency_ns() as u32;
         if transition_latency == 0 {
-            transition_latency = cpufreq::ETERNAL_LATENCY_NS;
+            transition_latency = cpufreq::DEFAULT_TRANSITION_LATENCY_NS;
         }
 
         policy
@@ -201,7 +196,7 @@ kernel::of_device_table!(
     OF_TABLE,
     MODULE_OF_TABLE,
     <CPUFreqDTDriver as platform::Driver>::IdInfo,
-    [(of::DeviceId::new(c_str!("operating-points-v2")), ())]
+    [(of::DeviceId::new(c"operating-points-v2"), ())]
 );
 
 impl platform::Driver for CPUFreqDTDriver {
@@ -211,9 +206,9 @@ impl platform::Driver for CPUFreqDTDriver {
     fn probe(
         pdev: &platform::Device<Core>,
         _id_info: Option<&Self::IdInfo>,
-    ) -> Result<Pin<KBox<Self>>> {
+    ) -> impl PinInit<Self, Error> {
         cpufreq::Registration::<CPUFreqDTDriver>::new_foreign_owned(pdev.as_ref())?;
-        Ok(KBox::new(Self {}, GFP_KERNEL)?.into())
+        Ok(Self {})
     }
 }
 

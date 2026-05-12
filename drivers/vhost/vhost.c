@@ -514,13 +514,9 @@ static long vhost_dev_alloc_iovecs(struct vhost_dev *dev)
 
 	for (i = 0; i < dev->nvqs; ++i) {
 		vq = dev->vqs[i];
-		vq->indirect = kmalloc_array(UIO_MAXIOV,
-					     sizeof(*vq->indirect),
-					     GFP_KERNEL);
-		vq->log = kmalloc_array(dev->iov_limit, sizeof(*vq->log),
-					GFP_KERNEL);
-		vq->heads = kmalloc_array(dev->iov_limit, sizeof(*vq->heads),
-					  GFP_KERNEL);
+		vq->indirect = kmalloc_objs(*vq->indirect, UIO_MAXIOV);
+		vq->log = kmalloc_objs(*vq->log, dev->iov_limit);
+		vq->heads = kmalloc_objs(*vq->heads, dev->iov_limit);
 		vq->nheads = kmalloc_array(dev->iov_limit, sizeof(*vq->nheads),
 					   GFP_KERNEL);
 		if (!vq->indirect || !vq->log || !vq->heads || !vq->nheads)
@@ -804,11 +800,13 @@ static int vhost_kthread_worker_create(struct vhost_worker *worker,
 
 	ret = vhost_attach_task_to_cgroups(worker);
 	if (ret)
-		goto stop_worker;
+		goto free_id;
 
 	worker->id = id;
 	return 0;
 
+free_id:
+	xa_erase(&dev->worker_xa, id);
 stop_worker:
 	vhost_kthread_do_stop(worker);
 	return ret;
@@ -834,7 +832,7 @@ static struct vhost_worker *vhost_worker_create(struct vhost_dev *dev)
 	const struct vhost_worker_ops *ops = dev->fork_owner ? &vhost_task_ops :
 							       &kthread_ops;
 
-	worker = kzalloc(sizeof(*worker), GFP_KERNEL_ACCOUNT);
+	worker = kzalloc_obj(*worker, GFP_KERNEL_ACCOUNT);
 	if (!worker)
 		return NULL;
 
@@ -1442,13 +1440,13 @@ static inline void __user *__vhost_get_user(struct vhost_virtqueue *vq,
 ({ \
 	int ret; \
 	if (!vq->iotlb) { \
-		ret = __put_user(x, ptr); \
+		ret = put_user(x, ptr); \
 	} else { \
 		__typeof__(ptr) to = \
 			(__typeof__(ptr)) __vhost_get_user(vq, ptr,	\
 					  sizeof(*ptr), VHOST_ADDR_USED); \
 		if (to != NULL) \
-			ret = __put_user(x, to); \
+			ret = put_user(x, to); \
 		else \
 			ret = -EFAULT;	\
 	} \
@@ -1487,14 +1485,14 @@ static inline int vhost_put_used_idx(struct vhost_virtqueue *vq)
 ({ \
 	int ret; \
 	if (!vq->iotlb) { \
-		ret = __get_user(x, ptr); \
+		ret = get_user(x, ptr); \
 	} else { \
 		__typeof__(ptr) from = \
 			(__typeof__(ptr)) __vhost_get_user(vq, ptr, \
 							   sizeof(*ptr), \
 							   type); \
 		if (from != NULL) \
-			ret = __get_user(x, from); \
+			ret = get_user(x, from); \
 		else \
 			ret = -EFAULT; \
 	} \
@@ -1980,8 +1978,7 @@ static long vhost_set_memory(struct vhost_dev *d, struct vhost_memory __user *m)
 		return -EOPNOTSUPP;
 	if (mem.nregions > max_mem_regions)
 		return -E2BIG;
-	newmem = kvzalloc(struct_size(newmem, regions, mem.nregions),
-			GFP_KERNEL);
+	newmem = kvzalloc_flex(*newmem, regions, mem.nregions);
 	if (!newmem)
 		return -ENOMEM;
 
@@ -2792,18 +2789,34 @@ static int get_indirect(struct vhost_virtqueue *vq,
 	return 0;
 }
 
-/* This looks in the virtqueue and for the first available buffer, and converts
- * it to an iovec for convenient access.  Since descriptors consist of some
- * number of output then some number of input descriptors, it's actually two
- * iovecs, but we pack them into one and note how many of each there were.
+/**
+ * vhost_get_vq_desc_n - Fetch the next available descriptor chain and build iovecs
+ * @vq: target virtqueue
+ * @iov: array that receives the scatter/gather segments
+ * @iov_size: capacity of @iov in elements
+ * @out_num: the number of output segments
+ * @in_num: the number of input segments
+ * @log: optional array to record addr/len for each writable segment; NULL if unused
+ * @log_num: optional output; number of entries written to @log when provided
+ * @ndesc: optional output; number of descriptors consumed from the available ring
+ *         (useful for rollback via vhost_discard_vq_desc)
  *
- * This function returns the descriptor number found, or vq->num (which is
- * never a valid descriptor number) if none was found.  A negative code is
- * returned on error. */
-int vhost_get_vq_desc(struct vhost_virtqueue *vq,
-		      struct iovec iov[], unsigned int iov_size,
-		      unsigned int *out_num, unsigned int *in_num,
-		      struct vhost_log *log, unsigned int *log_num)
+ * Extracts one available descriptor chain from @vq and translates guest addresses
+ * into host iovecs.
+ *
+ * On success, advances @vq->last_avail_idx by 1 and @vq->next_avail_head by the
+ * number of descriptors consumed (also stored via @ndesc when non-NULL).
+ *
+ * Return:
+ * - head index in [0, @vq->num) on success;
+ * - @vq->num if no descriptor is currently available;
+ * - negative errno on failure
+ */
+int vhost_get_vq_desc_n(struct vhost_virtqueue *vq,
+			struct iovec iov[], unsigned int iov_size,
+			unsigned int *out_num, unsigned int *in_num,
+			struct vhost_log *log, unsigned int *log_num,
+			unsigned int *ndesc)
 {
 	bool in_order = vhost_has_feature(vq, VIRTIO_F_IN_ORDER);
 	struct vring_desc desc;
@@ -2921,17 +2934,49 @@ int vhost_get_vq_desc(struct vhost_virtqueue *vq,
 	vq->last_avail_idx++;
 	vq->next_avail_head += c;
 
+	if (ndesc)
+		*ndesc = c;
+
 	/* Assume notifications from guest are disabled at this point,
 	 * if they aren't we would need to update avail_event index. */
 	BUG_ON(!(vq->used_flags & VRING_USED_F_NO_NOTIFY));
 	return head;
 }
+EXPORT_SYMBOL_GPL(vhost_get_vq_desc_n);
+
+/* This looks in the virtqueue and for the first available buffer, and converts
+ * it to an iovec for convenient access.  Since descriptors consist of some
+ * number of output then some number of input descriptors, it's actually two
+ * iovecs, but we pack them into one and note how many of each there were.
+ *
+ * This function returns the descriptor number found, or vq->num (which is
+ * never a valid descriptor number) if none was found.  A negative code is
+ * returned on error.
+ */
+int vhost_get_vq_desc(struct vhost_virtqueue *vq,
+		      struct iovec iov[], unsigned int iov_size,
+		      unsigned int *out_num, unsigned int *in_num,
+		      struct vhost_log *log, unsigned int *log_num)
+{
+	return vhost_get_vq_desc_n(vq, iov, iov_size, out_num, in_num,
+				   log, log_num, NULL);
+}
 EXPORT_SYMBOL_GPL(vhost_get_vq_desc);
 
-/* Reverse the effect of vhost_get_vq_desc. Useful for error handling. */
-void vhost_discard_vq_desc(struct vhost_virtqueue *vq, int n)
+/**
+ * vhost_discard_vq_desc - Reverse the effect of vhost_get_vq_desc_n()
+ * @vq: target virtqueue
+ * @nbufs: number of buffers to roll back
+ * @ndesc: number of descriptors to roll back
+ *
+ * Rewinds the internal consumer cursors after a failed attempt to use buffers
+ * returned by vhost_get_vq_desc_n().
+ */
+void vhost_discard_vq_desc(struct vhost_virtqueue *vq, int nbufs,
+			   unsigned int ndesc)
 {
-	vq->last_avail_idx -= n;
+	vq->next_avail_head -= ndesc;
+	vq->last_avail_idx -= nbufs;
 }
 EXPORT_SYMBOL_GPL(vhost_discard_vq_desc);
 
@@ -3222,7 +3267,7 @@ EXPORT_SYMBOL_GPL(vhost_disable_notify);
 struct vhost_msg_node *vhost_new_msg(struct vhost_virtqueue *vq, int type)
 {
 	/* Make sure all padding within the structure is initialized. */
-	struct vhost_msg_node *node = kzalloc(sizeof(*node), GFP_KERNEL);
+	struct vhost_msg_node *node = kzalloc_obj(*node);
 	if (!node)
 		return NULL;
 

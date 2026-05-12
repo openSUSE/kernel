@@ -13,14 +13,19 @@
 
 #include <linux/bitmap.h>
 #include <linux/falloc.h>
+#include <linux/sizes.h>
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 
 #include "kvm_util.h"
+#include "numaif.h"
 #include "test_util.h"
+#include "ucall_common.h"
 
-static void test_file_read_write(int fd)
+static size_t page_size;
+
+static void test_file_read_write(int fd, size_t total_size)
 {
 	char buf[64];
 
@@ -34,15 +39,235 @@ static void test_file_read_write(int fd)
 		    "pwrite on a guest_mem fd should fail");
 }
 
-static void test_mmap(int fd, size_t page_size)
+static void test_mmap_cow(int fd, size_t size)
+{
+	void *mem;
+
+	mem = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+	TEST_ASSERT(mem == MAP_FAILED, "Copy-on-write not allowed by guest_memfd.");
+}
+
+static void test_mmap_supported(int fd, size_t total_size)
+{
+	const char val = 0xaa;
+	char *mem;
+	size_t i;
+	int ret;
+
+	mem = kvm_mmap(total_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd);
+
+	memset(mem, val, total_size);
+	for (i = 0; i < total_size; i++)
+		TEST_ASSERT_EQ(READ_ONCE(mem[i]), val);
+
+	ret = fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, 0,
+			page_size);
+	TEST_ASSERT(!ret, "fallocate the first page should succeed.");
+
+	for (i = 0; i < page_size; i++)
+		TEST_ASSERT_EQ(READ_ONCE(mem[i]), 0x00);
+	for (; i < total_size; i++)
+		TEST_ASSERT_EQ(READ_ONCE(mem[i]), val);
+
+	memset(mem, val, page_size);
+	for (i = 0; i < total_size; i++)
+		TEST_ASSERT_EQ(READ_ONCE(mem[i]), val);
+
+	kvm_munmap(mem, total_size);
+}
+
+static void test_mbind(int fd, size_t total_size)
+{
+	const unsigned long nodemask_0 = 1; /* nid: 0 */
+	unsigned long nodemask = 0;
+	unsigned long maxnode = BITS_PER_TYPE(nodemask);
+	int policy;
+	char *mem;
+	int ret;
+
+	if (!is_multi_numa_node_system())
+		return;
+
+	mem = kvm_mmap(total_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd);
+
+	/* Test MPOL_INTERLEAVE policy */
+	kvm_mbind(mem, page_size * 2, MPOL_INTERLEAVE, &nodemask_0, maxnode, 0);
+	kvm_get_mempolicy(&policy, &nodemask, maxnode, mem, MPOL_F_ADDR);
+	TEST_ASSERT(policy == MPOL_INTERLEAVE && nodemask == nodemask_0,
+		    "Wanted MPOL_INTERLEAVE (%u) and nodemask 0x%lx, got %u and 0x%lx",
+		    MPOL_INTERLEAVE, nodemask_0, policy, nodemask);
+
+	/* Test basic MPOL_BIND policy */
+	kvm_mbind(mem + page_size * 2, page_size * 2, MPOL_BIND, &nodemask_0, maxnode, 0);
+	kvm_get_mempolicy(&policy, &nodemask, maxnode, mem + page_size * 2, MPOL_F_ADDR);
+	TEST_ASSERT(policy == MPOL_BIND && nodemask == nodemask_0,
+		    "Wanted MPOL_BIND (%u) and nodemask 0x%lx, got %u and 0x%lx",
+		    MPOL_BIND, nodemask_0, policy, nodemask);
+
+	/* Test MPOL_DEFAULT policy */
+	kvm_mbind(mem, total_size, MPOL_DEFAULT, NULL, 0, 0);
+	kvm_get_mempolicy(&policy, &nodemask, maxnode, mem, MPOL_F_ADDR);
+	TEST_ASSERT(policy == MPOL_DEFAULT && !nodemask,
+		    "Wanted MPOL_DEFAULT (%u) and nodemask 0x0, got %u and 0x%lx",
+		    MPOL_DEFAULT, policy, nodemask);
+
+	/* Test with invalid policy */
+	ret = mbind(mem, page_size, 999, &nodemask_0, maxnode, 0);
+	TEST_ASSERT(ret == -1 && errno == EINVAL,
+		    "mbind with invalid policy should fail with EINVAL");
+
+	kvm_munmap(mem, total_size);
+}
+
+static void test_numa_allocation(int fd, size_t total_size)
+{
+	unsigned long node0_mask = 1;  /* Node 0 */
+	unsigned long node1_mask = 2;  /* Node 1 */
+	unsigned long maxnode = 8;
+	void *pages[4];
+	int status[4];
+	char *mem;
+	int i;
+
+	if (!is_multi_numa_node_system())
+		return;
+
+	mem = kvm_mmap(total_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd);
+
+	for (i = 0; i < 4; i++)
+		pages[i] = (char *)mem + page_size * i;
+
+	/* Set NUMA policy after allocation */
+	memset(mem, 0xaa, page_size);
+	kvm_mbind(pages[0], page_size, MPOL_BIND, &node0_mask, maxnode, 0);
+	kvm_fallocate(fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE, 0, page_size);
+
+	/* Set NUMA policy before allocation */
+	kvm_mbind(pages[0], page_size * 2, MPOL_BIND, &node1_mask, maxnode, 0);
+	kvm_mbind(pages[2], page_size * 2, MPOL_BIND, &node0_mask, maxnode, 0);
+	memset(mem, 0xaa, total_size);
+
+	/* Validate if pages are allocated on specified NUMA nodes */
+	kvm_move_pages(0, 4, pages, NULL, status, 0);
+	TEST_ASSERT(status[0] == 1, "Expected page 0 on node 1, got it on node %d", status[0]);
+	TEST_ASSERT(status[1] == 1, "Expected page 1 on node 1, got it on node %d", status[1]);
+	TEST_ASSERT(status[2] == 0, "Expected page 2 on node 0, got it on node %d", status[2]);
+	TEST_ASSERT(status[3] == 0, "Expected page 3 on node 0, got it on node %d", status[3]);
+
+	/* Punch hole for all pages */
+	kvm_fallocate(fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE, 0, total_size);
+
+	/* Change NUMA policy nodes and reallocate */
+	kvm_mbind(pages[0], page_size * 2, MPOL_BIND, &node0_mask, maxnode, 0);
+	kvm_mbind(pages[2], page_size * 2, MPOL_BIND, &node1_mask, maxnode, 0);
+	memset(mem, 0xaa, total_size);
+
+	kvm_move_pages(0, 4, pages, NULL, status, 0);
+	TEST_ASSERT(status[0] == 0, "Expected page 0 on node 0, got it on node %d", status[0]);
+	TEST_ASSERT(status[1] == 0, "Expected page 1 on node 0, got it on node %d", status[1]);
+	TEST_ASSERT(status[2] == 1, "Expected page 2 on node 1, got it on node %d", status[2]);
+	TEST_ASSERT(status[3] == 1, "Expected page 3 on node 1, got it on node %d", status[3]);
+
+	kvm_munmap(mem, total_size);
+}
+
+static void test_collapse(int fd, u64 flags)
+{
+	const size_t pmd_size = get_trans_hugepagesz();
+	void *reserved_addr;
+	void *aligned_addr;
+	char *mem;
+	off_t i;
+
+	/*
+	 * To even reach the point where the guest_memfd folios will
+	 * get collapsed, both the userspace address and the offset
+	 * within the guest_memfd have to be aligned to pmd_size.
+	 *
+	 * To achieve that alignment, reserve virtual address space
+	 * with regular mmap, then use MAP_FIXED to allocate memory
+	 * from a pmd_size-aligned offset (0) at a known, available
+	 * virtual address.
+	 */
+	reserved_addr = kvm_mmap(pmd_size * 2, PROT_NONE,
+				 MAP_PRIVATE | MAP_ANONYMOUS, -1);
+	aligned_addr = align_ptr_up(reserved_addr, pmd_size);
+
+	mem = mmap(aligned_addr, pmd_size, PROT_READ | PROT_WRITE,
+		   MAP_FIXED | MAP_SHARED, fd, 0);
+	TEST_ASSERT(IS_ALIGNED((u64)mem, pmd_size),
+		    "Userspace address must be aligned to PMD size.");
+
+	/*
+	 * Use reads to populate page table to avoid setting dirty
+	 * flag on page.
+	 */
+	for (i = 0; i < pmd_size; i += getpagesize())
+		READ_ONCE(mem[i]);
+
+	/*
+	 * Advising the use of huge pages in guest_memfd should be
+	 * fine...
+	 */
+	kvm_madvise(mem, pmd_size, MADV_HUGEPAGE);
+
+	/*
+	 * ... but collapsing folios must not be supported to avoid
+	 * mapping beyond shared ranges into host userspace page
+	 * tables.
+	 */
+	TEST_ASSERT_EQ(madvise(mem, pmd_size, MADV_COLLAPSE), -1);
+	TEST_ASSERT_EQ(errno, EINVAL);
+
+	/*
+	 * Removing from host page tables and re-faulting should be
+	 * fine; should not end up faulting in a collapsed/huge folio.
+	 */
+	kvm_madvise(mem, pmd_size, MADV_DONTNEED);
+	READ_ONCE(mem[0]);
+
+	kvm_munmap(reserved_addr, pmd_size * 2);
+}
+
+static void test_fault_sigbus(int fd, size_t accessible_size, size_t map_size)
+{
+	const char val = 0xaa;
+	char *mem;
+	size_t i;
+
+	mem = kvm_mmap(map_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd);
+
+	TEST_EXPECT_SIGBUS(memset(mem, val, map_size));
+	TEST_EXPECT_SIGBUS((void)READ_ONCE(mem[accessible_size]));
+
+	for (i = 0; i < accessible_size; i++)
+		TEST_ASSERT_EQ(READ_ONCE(mem[i]), val);
+
+	kvm_munmap(mem, map_size);
+}
+
+static void test_fault_overflow(int fd, size_t total_size)
+{
+	test_fault_sigbus(fd, total_size, total_size * 4);
+}
+
+static void test_fault_private(int fd, size_t total_size)
+{
+	test_fault_sigbus(fd, 0, total_size);
+}
+
+static void test_mmap_not_supported(int fd, size_t total_size)
 {
 	char *mem;
 
 	mem = mmap(NULL, page_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 	TEST_ASSERT_EQ(mem, MAP_FAILED);
+
+	mem = mmap(NULL, total_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	TEST_ASSERT_EQ(mem, MAP_FAILED);
 }
 
-static void test_file_size(int fd, size_t page_size, size_t total_size)
+static void test_file_size(int fd, size_t total_size)
 {
 	struct stat sb;
 	int ret;
@@ -53,7 +278,7 @@ static void test_file_size(int fd, size_t page_size, size_t total_size)
 	TEST_ASSERT_EQ(sb.st_blksize, page_size);
 }
 
-static void test_fallocate(int fd, size_t page_size, size_t total_size)
+static void test_fallocate(int fd, size_t total_size)
 {
 	int ret;
 
@@ -90,7 +315,7 @@ static void test_fallocate(int fd, size_t page_size, size_t total_size)
 	TEST_ASSERT(!ret, "fallocate to restore punched hole should succeed");
 }
 
-static void test_invalid_punch_hole(int fd, size_t page_size, size_t total_size)
+static void test_invalid_punch_hole(int fd, size_t total_size)
 {
 	struct {
 		off_t offset;
@@ -120,25 +345,17 @@ static void test_invalid_punch_hole(int fd, size_t page_size, size_t total_size)
 	}
 }
 
-static void test_create_guest_memfd_invalid(struct kvm_vm *vm)
+static void test_create_guest_memfd_invalid_sizes(struct kvm_vm *vm,
+						  u64 guest_memfd_flags)
 {
-	size_t page_size = getpagesize();
-	uint64_t flag;
 	size_t size;
 	int fd;
 
 	for (size = 1; size < page_size; size++) {
-		fd = __vm_create_guest_memfd(vm, size, 0);
-		TEST_ASSERT(fd == -1 && errno == EINVAL,
+		fd = __vm_create_guest_memfd(vm, size, guest_memfd_flags);
+		TEST_ASSERT(fd < 0 && errno == EINVAL,
 			    "guest_memfd() with non-page-aligned page size '0x%lx' should fail with EINVAL",
 			    size);
-	}
-
-	for (flag = BIT(0); flag; flag <<= 1) {
-		fd = __vm_create_guest_memfd(vm, page_size, flag);
-		TEST_ASSERT(fd == -1 && errno == EINVAL,
-			    "guest_memfd() with flag '0x%lx' should fail with EINVAL",
-			    flag);
 	}
 }
 
@@ -147,53 +364,193 @@ static void test_create_guest_memfd_multiple(struct kvm_vm *vm)
 	int fd1, fd2, ret;
 	struct stat st1, st2;
 
-	fd1 = __vm_create_guest_memfd(vm, 4096, 0);
+	fd1 = __vm_create_guest_memfd(vm, page_size, 0);
 	TEST_ASSERT(fd1 != -1, "memfd creation should succeed");
 
 	ret = fstat(fd1, &st1);
 	TEST_ASSERT(ret != -1, "memfd fstat should succeed");
-	TEST_ASSERT(st1.st_size == 4096, "memfd st_size should match requested size");
+	TEST_ASSERT(st1.st_size == page_size, "memfd st_size should match requested size");
 
-	fd2 = __vm_create_guest_memfd(vm, 8192, 0);
+	fd2 = __vm_create_guest_memfd(vm, page_size * 2, 0);
 	TEST_ASSERT(fd2 != -1, "memfd creation should succeed");
 
 	ret = fstat(fd2, &st2);
 	TEST_ASSERT(ret != -1, "memfd fstat should succeed");
-	TEST_ASSERT(st2.st_size == 8192, "second memfd st_size should match requested size");
+	TEST_ASSERT(st2.st_size == page_size * 2, "second memfd st_size should match requested size");
 
 	ret = fstat(fd1, &st1);
 	TEST_ASSERT(ret != -1, "memfd fstat should succeed");
-	TEST_ASSERT(st1.st_size == 4096, "first memfd st_size should still match requested size");
+	TEST_ASSERT(st1.st_size == page_size, "first memfd st_size should still match requested size");
 	TEST_ASSERT(st1.st_ino != st2.st_ino, "different memfd should have different inode numbers");
 
 	close(fd2);
 	close(fd1);
 }
 
+static void test_guest_memfd_flags(struct kvm_vm *vm)
+{
+	u64 valid_flags = vm_check_cap(vm, KVM_CAP_GUEST_MEMFD_FLAGS);
+	u64 flag;
+	int fd;
+
+	for (flag = BIT(0); flag; flag <<= 1) {
+		fd = __vm_create_guest_memfd(vm, page_size, flag);
+		if (flag & valid_flags) {
+			TEST_ASSERT(fd >= 0,
+				    "guest_memfd() with flag '0x%lx' should succeed",
+				    flag);
+			close(fd);
+		} else {
+			TEST_ASSERT(fd < 0 && errno == EINVAL,
+				    "guest_memfd() with flag '0x%lx' should fail with EINVAL",
+				    flag);
+		}
+	}
+}
+
+#define __gmem_test(__test, __vm, __flags, __gmem_size)			\
+do {									\
+	int fd = vm_create_guest_memfd(__vm, __gmem_size, __flags);	\
+									\
+	test_##__test(fd, __gmem_size);					\
+	close(fd);							\
+} while (0)
+
+#define gmem_test(__test, __vm, __flags)				\
+	__gmem_test(__test, __vm, __flags, page_size * 4)
+
+static void __test_guest_memfd(struct kvm_vm *vm, u64 flags)
+{
+	test_create_guest_memfd_multiple(vm);
+	test_create_guest_memfd_invalid_sizes(vm, flags);
+
+	gmem_test(file_read_write, vm, flags);
+
+	if (flags & GUEST_MEMFD_FLAG_MMAP) {
+		if (flags & GUEST_MEMFD_FLAG_INIT_SHARED) {
+			size_t pmd_size = get_trans_hugepagesz();
+
+			gmem_test(mmap_supported, vm, flags);
+			gmem_test(fault_overflow, vm, flags);
+			gmem_test(numa_allocation, vm, flags);
+			__gmem_test(collapse, vm, flags, pmd_size);
+		} else {
+			gmem_test(fault_private, vm, flags);
+		}
+
+		gmem_test(mmap_cow, vm, flags);
+		gmem_test(mbind, vm, flags);
+	} else {
+		gmem_test(mmap_not_supported, vm, flags);
+	}
+
+	gmem_test(file_size, vm, flags);
+	gmem_test(fallocate, vm, flags);
+	gmem_test(invalid_punch_hole, vm, flags);
+}
+
+static void test_guest_memfd(unsigned long vm_type)
+{
+	struct kvm_vm *vm = vm_create_barebones_type(vm_type);
+	u64 flags;
+
+	test_guest_memfd_flags(vm);
+
+	__test_guest_memfd(vm, 0);
+
+	flags = vm_check_cap(vm, KVM_CAP_GUEST_MEMFD_FLAGS);
+	if (flags & GUEST_MEMFD_FLAG_MMAP)
+		__test_guest_memfd(vm, GUEST_MEMFD_FLAG_MMAP);
+
+	/* MMAP should always be supported if INIT_SHARED is supported. */
+	if (flags & GUEST_MEMFD_FLAG_INIT_SHARED)
+		__test_guest_memfd(vm, GUEST_MEMFD_FLAG_MMAP |
+				       GUEST_MEMFD_FLAG_INIT_SHARED);
+
+	kvm_vm_free(vm);
+}
+
+static void guest_code(u8 *mem, u64 size)
+{
+	size_t i;
+
+	for (i = 0; i < size; i++)
+		__GUEST_ASSERT(mem[i] == 0xaa,
+			       "Guest expected 0xaa at offset %lu, got 0x%x", i, mem[i]);
+
+	memset(mem, 0xff, size);
+	GUEST_DONE();
+}
+
+static void test_guest_memfd_guest(void)
+{
+	/*
+	 * Skip the first 4gb and slot0.  slot0 maps <1gb and is used to back
+	 * the guest's code, stack, and page tables, and low memory contains
+	 * the PCI hole and other MMIO regions that need to be avoided.
+	 */
+	const gpa_t gpa = SZ_4G;
+	const int slot = 1;
+
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+	u8 *mem;
+	size_t size;
+	int fd, i;
+
+	if (!kvm_check_cap(KVM_CAP_GUEST_MEMFD_FLAGS))
+		return;
+
+	vm = __vm_create_shape_with_one_vcpu(VM_SHAPE_DEFAULT, &vcpu, 1, guest_code);
+
+	TEST_ASSERT(vm_check_cap(vm, KVM_CAP_GUEST_MEMFD_FLAGS) & GUEST_MEMFD_FLAG_MMAP,
+		    "Default VM type should support MMAP, supported flags = 0x%x",
+		    vm_check_cap(vm, KVM_CAP_GUEST_MEMFD_FLAGS));
+	TEST_ASSERT(vm_check_cap(vm, KVM_CAP_GUEST_MEMFD_FLAGS) & GUEST_MEMFD_FLAG_INIT_SHARED,
+		    "Default VM type should support INIT_SHARED, supported flags = 0x%x",
+		    vm_check_cap(vm, KVM_CAP_GUEST_MEMFD_FLAGS));
+
+	size = vm->page_size;
+	fd = vm_create_guest_memfd(vm, size, GUEST_MEMFD_FLAG_MMAP |
+					     GUEST_MEMFD_FLAG_INIT_SHARED);
+	vm_set_user_memory_region2(vm, slot, KVM_MEM_GUEST_MEMFD, gpa, size, NULL, fd, 0);
+
+	mem = kvm_mmap(size, PROT_READ | PROT_WRITE, MAP_SHARED, fd);
+	memset(mem, 0xaa, size);
+	kvm_munmap(mem, size);
+
+	virt_pg_map(vm, gpa, gpa);
+	vcpu_args_set(vcpu, 2, gpa, size);
+	vcpu_run(vcpu);
+
+	TEST_ASSERT_EQ(get_ucall(vcpu, NULL), UCALL_DONE);
+
+	mem = kvm_mmap(size, PROT_READ | PROT_WRITE, MAP_SHARED, fd);
+	for (i = 0; i < size; i++)
+		TEST_ASSERT_EQ(mem[i], 0xff);
+
+	close(fd);
+	kvm_vm_free(vm);
+}
+
 int main(int argc, char *argv[])
 {
-	size_t page_size;
-	size_t total_size;
-	int fd;
-	struct kvm_vm *vm;
+	unsigned long vm_types, vm_type;
 
 	TEST_REQUIRE(kvm_has_cap(KVM_CAP_GUEST_MEMFD));
 
 	page_size = getpagesize();
-	total_size = page_size * 4;
 
-	vm = vm_create_barebones();
+	/*
+	 * Not all architectures support KVM_CAP_VM_TYPES. However, those that
+	 * support guest_memfd have that support for the default VM type.
+	 */
+	vm_types = kvm_check_cap(KVM_CAP_VM_TYPES);
+	if (!vm_types)
+		vm_types = BIT(VM_TYPE_DEFAULT);
 
-	test_create_guest_memfd_invalid(vm);
-	test_create_guest_memfd_multiple(vm);
+	for_each_set_bit(vm_type, &vm_types, BITS_PER_TYPE(vm_types))
+		test_guest_memfd(vm_type);
 
-	fd = vm_create_guest_memfd(vm, total_size, 0);
-
-	test_file_read_write(fd);
-	test_mmap(fd, page_size);
-	test_file_size(fd, page_size, total_size);
-	test_fallocate(fd, page_size, total_size);
-	test_invalid_punch_hole(fd, page_size, total_size);
-
-	close(fd);
+	test_guest_memfd_guest();
 }

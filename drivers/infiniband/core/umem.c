@@ -45,6 +45,8 @@
 
 #include "uverbs.h"
 
+#define RESCHED_LOOP_CNT_THRESHOLD 0x1000
+
 static void __ib_umem_release(struct ib_device *dev, struct ib_umem *umem, int dirty)
 {
 	bool make_dirty = umem->writable && dirty;
@@ -53,11 +55,15 @@ static void __ib_umem_release(struct ib_device *dev, struct ib_umem *umem, int d
 
 	if (dirty)
 		ib_dma_unmap_sgtable_attrs(dev, &umem->sgt_append.sgt,
-					   DMA_BIDIRECTIONAL, 0);
+					   DMA_BIDIRECTIONAL, umem->dma_attrs);
 
-	for_each_sgtable_sg(&umem->sgt_append.sgt, sg, i)
+	for_each_sgtable_sg(&umem->sgt_append.sgt, sg, i) {
 		unpin_user_page_range_dirty_lock(sg_page(sg),
 			DIV_ROUND_UP(sg->length, PAGE_SIZE), make_dirty);
+
+		if (i && !(i % RESCHED_LOOP_CNT_THRESHOLD))
+			cond_resched();
+	}
 
 	sg_free_append_table(&umem->sgt_append);
 }
@@ -163,7 +169,6 @@ struct ib_umem *ib_umem_get(struct ib_device *device, unsigned long addr,
 	unsigned long lock_limit;
 	unsigned long new_pinned;
 	unsigned long cur_base;
-	unsigned long dma_attr = 0;
 	struct mm_struct *mm;
 	unsigned long npages;
 	int pinned, ret;
@@ -183,7 +188,7 @@ struct ib_umem *ib_umem_get(struct ib_device *device, unsigned long addr,
 	if (access & IB_ACCESS_ON_DEMAND)
 		return ERR_PTR(-EOPNOTSUPP);
 
-	umem = kzalloc(sizeof(*umem), GFP_KERNEL);
+	umem = kzalloc_obj(*umem);
 	if (!umem)
 		return ERR_PTR(-ENOMEM);
 	umem->ibdev      = device;
@@ -196,6 +201,10 @@ struct ib_umem *ib_umem_get(struct ib_device *device, unsigned long addr,
 	umem->iova = addr;
 	umem->writable   = ib_access_writable(access);
 	umem->owning_mm = mm = current->mm;
+	umem->dma_attrs = DMA_ATTR_REQUIRE_COHERENT;
+	if (access & IB_ACCESS_RELAXED_ORDERING)
+		umem->dma_attrs |= DMA_ATTR_WEAK_ORDERING;
+
 	mmgrab(mm);
 
 	page_list = (struct page **) __get_free_page(GFP_KERNEL);
@@ -248,11 +257,8 @@ struct ib_umem *ib_umem_get(struct ib_device *device, unsigned long addr,
 		}
 	}
 
-	if (access & IB_ACCESS_RELAXED_ORDERING)
-		dma_attr |= DMA_ATTR_WEAK_ORDERING;
-
 	ret = ib_dma_map_sgtable_attrs(device, &umem->sgt_append.sgt,
-				       DMA_BIDIRECTIONAL, dma_attr);
+				       DMA_BIDIRECTIONAL, umem->dma_attrs);
 	if (ret)
 		goto umem_release;
 	goto out;
@@ -277,7 +283,7 @@ EXPORT_SYMBOL(ib_umem_get);
  */
 void ib_umem_release(struct ib_umem *umem)
 {
-	if (!umem)
+	if (IS_ERR_OR_NULL(umem))
 		return;
 	if (umem->is_dmabuf)
 		return ib_umem_dmabuf_release(to_ib_umem_dmabuf(umem));

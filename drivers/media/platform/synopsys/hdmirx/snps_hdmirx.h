@@ -8,10 +8,12 @@
 #ifndef DW_HDMIRX_H
 #define DW_HDMIRX_H
 
+#include <linux/bitfield.h>
 #include <linux/bitops.h>
+#include <linux/hw_bitfield.h>
 
-#define UPDATE(x, h, l)		(((x) << (l)) & GENMASK((h), (l)))
-#define HIWORD_UPDATE(v, h, l)	(((v) << (l)) | (GENMASK((h), (l)) << 16))
+#define UPDATE(x, h, l)		FIELD_PREP(GENMASK((h), (l)), (x))
+#define HIWORD_UPDATE(v, h, l)	FIELD_PREP_WM16(GENMASK((h), (l)), (v))
 
 /* SYS_GRF */
 #define SYS_GRF_SOC_CON1			0x0304
@@ -114,6 +116,8 @@
 #define PHYCREG_CR_PARA_WRITE_P			BIT(1)
 #define PHYCREG_CR_PARA_READ_P			BIT(0)
 #define PHYCREG_STATUS				0x00f4
+#define PHYCREG_CR_PARA_DATAVALID		BIT(24)
+#define PHYCREG_CR_PARA_RD_DATA_MASK		GENMASK(15, 0)
 
 #define MAINUNIT_STATUS				0x0150
 #define TMDSVALID_STABLE_ST			BIT(1)

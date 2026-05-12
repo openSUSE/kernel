@@ -1,16 +1,46 @@
 .. SPDX-License-Identifier: GFDL-1.1-no-invariants-or-later
 
-****************************
-Digital TV uAPI header files
-****************************
-
-Digital TV uAPI headers
+***********************
+Digital TV uAPI symbols
 ***********************
 
-.. kernel-include:: $BUILDDIR/frontend.h.rst
+.. contents:: Table of Contents
+   :depth: 2
+   :local:
 
-.. kernel-include:: $BUILDDIR/dmx.h.rst
+Frontend
+========
 
-.. kernel-include:: $BUILDDIR/ca.h.rst
+.. kernel-include:: include/uapi/linux/dvb/frontend.h
+    :generate-cross-refs:
+    :exception-file: frontend.h.rst.exceptions
+    :toc:
+    :warn-broken:
 
-.. kernel-include:: $BUILDDIR/net.h.rst
+Demux
+=====
+
+.. kernel-include:: include/uapi/linux/dvb/dmx.h
+    :generate-cross-refs:
+    :exception-file: dmx.h.rst.exceptions
+    :toc:
+    :warn-broken:
+
+Conditional Access
+==================
+
+.. kernel-include:: include/uapi/linux/dvb/ca.h
+    :generate-cross-refs:
+    :exception-file: ca.h.rst.exceptions
+    :toc:
+    :warn-broken:
+
+Network
+=======
+
+.. kernel-include:: include/uapi/linux/dvb/net.h
+    :generate-cross-refs:
+    :exception-file: net.h.rst.exceptions
+    :toc:
+    :warn-broken:
+

@@ -259,10 +259,10 @@ int alloc_rt_sched_group(struct task_group *tg, struct task_group *parent)
 	if (!rt_group_sched_enabled())
 		return 1;
 
-	tg->rt_rq = kcalloc(nr_cpu_ids, sizeof(rt_rq), GFP_KERNEL);
+	tg->rt_rq = kzalloc_objs(rt_rq, nr_cpu_ids);
 	if (!tg->rt_rq)
 		goto err;
-	tg->rt_se = kcalloc(nr_cpu_ids, sizeof(rt_se), GFP_KERNEL);
+	tg->rt_se = kzalloc_objs(rt_se, nr_cpu_ids);
 	if (!tg->rt_se)
 		goto err;
 
@@ -1302,12 +1302,17 @@ update_stats_dequeue_rt(struct rt_rq *rt_rq, struct sched_rt_entity *rt_se,
 			int flags)
 {
 	struct task_struct *p = NULL;
+	struct rq *rq = rq_of_rt_rq(rt_rq);
 
 	if (!schedstat_enabled())
 		return;
 
-	if (rt_entity_is_task(rt_se))
+	if (rt_entity_is_task(rt_se)) {
 		p = rt_task_of(rt_se);
+
+		if (p != rq->curr)
+			update_stats_wait_end_rt(rt_rq, rt_se);
+	}
 
 	if ((flags & DEQUEUE_SLEEP) && p) {
 		unsigned int state;
@@ -1490,7 +1495,7 @@ static void requeue_task_rt(struct rq *rq, struct task_struct *p, int head)
 
 static void yield_task_rt(struct rq *rq)
 {
-	requeue_task_rt(rq, rq->curr, 0);
+	requeue_task_rt(rq, rq->donor, 0);
 }
 
 static int find_lowest_rq(struct task_struct *task);
@@ -1615,6 +1620,12 @@ static void wakeup_preempt_rt(struct rq *rq, struct task_struct *p, int flags)
 {
 	struct task_struct *donor = rq->donor;
 
+	/*
+	 * XXX If we're preempted by DL, queue a push?
+	 */
+	if (p->sched_class != &rt_sched_class)
+		return;
+
 	if (p->prio < donor->prio) {
 		resched_curr(rq);
 		return;
@@ -1695,7 +1706,7 @@ static struct task_struct *_pick_next_task_rt(struct rq *rq)
 	return rt_task_of(rt_se);
 }
 
-static struct task_struct *pick_task_rt(struct rq *rq)
+static struct task_struct *pick_task_rt(struct rq *rq, struct rq_flags *rf)
 {
 	struct task_struct *p;
 
@@ -1847,13 +1858,22 @@ static int find_lowest_rq(struct task_struct *task)
 
 static struct task_struct *pick_next_pushable_task(struct rq *rq)
 {
-	struct task_struct *p;
+	struct plist_head *head = &rq->rt.pushable_tasks;
+	struct task_struct *i, *p = NULL;
 
 	if (!has_pushable_tasks(rq))
 		return NULL;
 
-	p = plist_first_entry(&rq->rt.pushable_tasks,
-			      struct task_struct, pushable_tasks);
+	plist_for_each_entry(i, head, pushable_tasks) {
+		/* make sure task isn't on_cpu (possible with proxy-exec) */
+		if (!task_on_cpu(rq, i)) {
+			p = i;
+			break;
+		}
+	}
+
+	if (!p)
+		return NULL;
 
 	BUG_ON(rq->cpu != task_cpu(p));
 	BUG_ON(task_current(rq, p));
@@ -2100,6 +2120,7 @@ static void push_rt_tasks(struct rq *rq)
  */
 static int rto_next_cpu(struct root_domain *rd)
 {
+	int this_cpu = smp_processor_id();
 	int next;
 	int cpu;
 
@@ -2122,6 +2143,10 @@ static int rto_next_cpu(struct root_domain *rd)
 		cpu = cpumask_next(rd->rto_cpu, rd->rto_mask);
 
 		rd->rto_cpu = cpu;
+
+		/* Do not send IPI to self */
+		if (cpu == this_cpu)
+			continue;
 
 		if (cpu < nr_cpu_ids)
 			return cpu;
@@ -2437,9 +2462,12 @@ static void switched_to_rt(struct rq *rq, struct task_struct *p)
  * us to initiate a push or pull.
  */
 static void
-prio_changed_rt(struct rq *rq, struct task_struct *p, int oldprio)
+prio_changed_rt(struct rq *rq, struct task_struct *p, u64 oldprio)
 {
 	if (!task_on_rq_queued(p))
+		return;
+
+	if (p->prio == oldprio)
 		return;
 
 	if (task_current_donor(rq, p)) {
@@ -2565,7 +2593,6 @@ static int task_is_throttled_rt(struct task_struct *p, int cpu)
 #endif /* CONFIG_SCHED_CORE */
 
 DEFINE_SCHED_CLASS(rt) = {
-
 	.enqueue_task		= enqueue_task_rt,
 	.dequeue_task		= dequeue_task_rt,
 	.yield_task		= yield_task_rt,
@@ -2589,8 +2616,8 @@ DEFINE_SCHED_CLASS(rt) = {
 
 	.get_rr_interval	= get_rr_interval_rt,
 
-	.prio_changed		= prio_changed_rt,
 	.switched_to		= switched_to_rt,
+	.prio_changed		= prio_changed_rt,
 
 	.update_curr		= update_curr_rt,
 
@@ -2639,7 +2666,7 @@ static int tg_rt_schedulable(struct task_group *tg, void *data)
 {
 	struct rt_schedulable_data *d = data;
 	struct task_group *child;
-	unsigned long total, sum = 0;
+	u64 total, sum = 0;
 	u64 period, runtime;
 
 	period = ktime_to_ns(tg->rt_bandwidth.rt_period);
@@ -2661,9 +2688,6 @@ static int tg_rt_schedulable(struct task_group *tg, void *data)
 	 */
 	if (rt_bandwidth_enabled() && !runtime &&
 	    tg->rt_bandwidth.rt_runtime && tg_has_rt_tasks(tg))
-		return -EBUSY;
-
-	if (WARN_ON(!rt_group_sched_enabled() && tg != &root_task_group))
 		return -EBUSY;
 
 	total = to_ratio(period, runtime);
@@ -2805,19 +2829,6 @@ long sched_group_rt_period(struct task_group *tg)
 	return rt_period_us;
 }
 
-#ifdef CONFIG_SYSCTL
-static int sched_rt_global_constraints(void)
-{
-	int ret = 0;
-
-	mutex_lock(&rt_constraints_mutex);
-	ret = __rt_schedulable(NULL, 0, 0);
-	mutex_unlock(&rt_constraints_mutex);
-
-	return ret;
-}
-#endif /* CONFIG_SYSCTL */
-
 int sched_rt_can_attach(struct task_group *tg, struct task_struct *tsk)
 {
 	/* Don't accept real-time tasks when there is no way for them to run */
@@ -2827,14 +2838,6 @@ int sched_rt_can_attach(struct task_group *tg, struct task_struct *tsk)
 	return 1;
 }
 
-#else /* !CONFIG_RT_GROUP_SCHED: */
-
-#ifdef CONFIG_SYSCTL
-static int sched_rt_global_constraints(void)
-{
-	return 0;
-}
-#endif /* CONFIG_SYSCTL */
 #endif /* !CONFIG_RT_GROUP_SCHED */
 
 #ifdef CONFIG_SYSCTL
@@ -2846,11 +2849,14 @@ static int sched_rt_global_validate(void)
 			NSEC_PER_USEC > max_rt_runtime)))
 		return -EINVAL;
 
-	return 0;
-}
+#ifdef CONFIG_RT_GROUP_SCHED
+	if (!rt_group_sched_enabled())
+		return 0;
 
-static void sched_rt_do_global(void)
-{
+	scoped_guard(mutex, &rt_constraints_mutex)
+		return __rt_schedulable(NULL, 0, 0);
+#endif
+	return 0;
 }
 
 static int sched_rt_handler(const struct ctl_table *table, int write, void *buffer,
@@ -2876,11 +2882,6 @@ static int sched_rt_handler(const struct ctl_table *table, int write, void *buff
 		if (ret)
 			goto undo;
 
-		ret = sched_rt_global_constraints();
-		if (ret)
-			goto undo;
-
-		sched_rt_do_global();
 		sched_dl_do_global();
 	}
 	if (0) {

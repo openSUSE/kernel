@@ -985,7 +985,7 @@ int btrfs_test_delayed_refs(u32 sectorsize, u32 nodesize)
 		test_std_err(TEST_ALLOC_FS_INFO);
 		return -ENOMEM;
 	}
-	transaction = kmalloc(sizeof(*transaction), GFP_KERNEL);
+	transaction = kmalloc_obj(*transaction);
 	if (!transaction) {
 		test_std_err(TEST_ALLOC_TRANSACTION);
 		ret = -ENOMEM;
@@ -997,12 +997,12 @@ int btrfs_test_delayed_refs(u32 sectorsize, u32 nodesize)
 
 	ret = simple_tests(&trans);
 	if (!ret) {
-		test_msg("running delayed refs merg tests on metadata refs");
+		test_msg("running delayed refs merge tests on metadata refs");
 		ret = merge_tests(&trans, BTRFS_REF_METADATA);
 	}
 
 	if (!ret) {
-		test_msg("running delayed refs merg tests on data refs");
+		test_msg("running delayed refs merge tests on data refs");
 		ret = merge_tests(&trans, BTRFS_REF_DATA);
 	}
 

@@ -95,6 +95,13 @@
 #define PCI_DEVICE_ID_MOXA_CP138E_A	0x1381
 #define PCI_DEVICE_ID_MOXA_CP168EL_A	0x1683
 
+#define PCI_DEVICE_ID_ADDIDATA_CPCI7500        0x7003
+#define PCI_DEVICE_ID_ADDIDATA_CPCI7500_NG     0x7024
+#define PCI_DEVICE_ID_ADDIDATA_CPCI7420_NG     0x7025
+#define PCI_DEVICE_ID_ADDIDATA_CPCI7300_NG     0x7026
+
+#define PCI_VENDOR_ID_SYSTEMBASE	0x14a1
+
 /* Unknown vendors/cards - this should not be in linux/pci_ids.h */
 #define PCI_SUBDEVICE_ID_UNKNOWN_0x1584	0x1584
 #define PCI_SUBDEVICE_ID_UNKNOWN_0x1588	0x1588
@@ -132,6 +139,8 @@ struct serial_private {
 };
 
 #define PCI_DEVICE_ID_HPE_PCI_SERIAL	0x37e
+#define PCIE_VENDOR_ID_ASIX		0x125B
+#define PCIE_DEVICE_ID_AX99100		0x9100
 
 static const struct pci_device_id pci_use_msi[] = {
 	{ PCI_DEVICE_SUB(PCI_VENDOR_ID_NETMOS, PCI_DEVICE_ID_NETMOS_9900,
@@ -144,6 +153,8 @@ static const struct pci_device_id pci_use_msi[] = {
 			 0xA000, 0x1000) },
 	{ PCI_DEVICE_SUB(PCI_VENDOR_ID_HP_3PAR, PCI_DEVICE_ID_HPE_PCI_SERIAL,
 			 PCI_ANY_ID, PCI_ANY_ID) },
+	{ PCI_DEVICE_SUB(PCIE_VENDOR_ID_ASIX, PCIE_DEVICE_ID_AX99100,
+			 0xA000, 0x1000) },
 	{ }
 };
 
@@ -165,7 +176,15 @@ static int
 setup_port(struct serial_private *priv, struct uart_8250_port *port,
 	   u8 bar, unsigned int offset, int regshift)
 {
-	return serial8250_pci_setup_port(priv->dev, port, bar, offset, regshift);
+	void __iomem *iomem = NULL;
+
+	if (pci_resource_flags(priv->dev, bar) & IORESOURCE_MEM) {
+		iomem = pcim_iomap(priv->dev, bar, 0);
+		if (!iomem)
+			return -ENOMEM;
+	}
+
+	return serial8250_pci_setup_port(priv->dev, port, bar, offset, regshift, iomem);
 }
 
 /*
@@ -907,6 +926,7 @@ static int pci_netmos_init(struct pci_dev *dev)
 	case PCI_DEVICE_ID_NETMOS_9912:
 	case PCI_DEVICE_ID_NETMOS_9922:
 	case PCI_DEVICE_ID_NETMOS_9900:
+	case PCIE_DEVICE_ID_AX99100:
 		num_serial = pci_netmos_9900_numports(dev);
 		break;
 
@@ -1192,60 +1212,49 @@ static unsigned int pci_oxsemi_tornado_get_divisor(struct uart_port *port,
 	u8 tcr;
 	int i;
 
-	/* Old custom speed handling.  */
-	if (baud == 38400 && (port->flags & UPF_SPD_MASK) == UPF_SPD_CUST) {
-		unsigned int cust_div = port->custom_divisor;
+	best_squot = quot_scale;
+	for (i = 0; i < ARRAY_SIZE(p); i++) {
+		unsigned int spre;
+		unsigned int srem;
+		u8 cp;
+		u8 tc;
 
-		quot = cust_div & UART_DIV_MAX;
-		tcr = (cust_div >> 16) & OXSEMI_TORNADO_TCR_MASK;
-		cpr = (cust_div >> 20) & OXSEMI_TORNADO_CPR_MASK;
-		if (cpr < OXSEMI_TORNADO_CPR_MIN)
-			cpr = OXSEMI_TORNADO_CPR_DEF;
-	} else {
-		best_squot = quot_scale;
-		for (i = 0; i < ARRAY_SIZE(p); i++) {
-			unsigned int spre;
-			unsigned int srem;
-			u8 cp;
-			u8 tc;
+		tc = p[i][0];
+		cp = p[i][1];
+		spre = tc * cp;
 
-			tc = p[i][0];
-			cp = p[i][1];
-			spre = tc * cp;
+		srem = sdiv % spre;
+		if (srem > spre / 2)
+			srem = spre - srem;
+		squot = DIV_ROUND_CLOSEST(srem * quot_scale, spre);
 
-			srem = sdiv % spre;
-			if (srem > spre / 2)
-				srem = spre - srem;
-			squot = DIV_ROUND_CLOSEST(srem * quot_scale, spre);
-
-			if (srem == 0) {
-				tcr = tc;
-				cpr = cp;
-				quot = sdiv / spre;
-				break;
-			} else if (squot < best_squot) {
-				best_squot = squot;
-				tcr = tc;
-				cpr = cp;
-				quot = DIV_ROUND_CLOSEST(sdiv, spre);
-			}
+		if (srem == 0) {
+			tcr = tc;
+			cpr = cp;
+			quot = sdiv / spre;
+			break;
+		} else if (squot < best_squot) {
+			best_squot = squot;
+			tcr = tc;
+			cpr = cp;
+			quot = DIV_ROUND_CLOSEST(sdiv, spre);
 		}
-		while (tcr <= (OXSEMI_TORNADO_TCR_MASK + 1) >> 1 &&
-		       quot % 2 == 0) {
+	}
+	while (tcr <= (OXSEMI_TORNADO_TCR_MASK + 1) >> 1 &&
+	       quot % 2 == 0) {
+		quot >>= 1;
+		tcr <<= 1;
+	}
+	while (quot > UART_DIV_MAX) {
+		if (tcr <= (OXSEMI_TORNADO_TCR_MASK + 1) >> 1) {
 			quot >>= 1;
 			tcr <<= 1;
-		}
-		while (quot > UART_DIV_MAX) {
-			if (tcr <= (OXSEMI_TORNADO_TCR_MASK + 1) >> 1) {
-				quot >>= 1;
-				tcr <<= 1;
-			} else if (cpr <= OXSEMI_TORNADO_CPR_MASK >> 1) {
-				quot >>= 1;
-				cpr <<= 1;
-			} else {
-				quot = quot * cpr / OXSEMI_TORNADO_CPR_MASK;
-				cpr = OXSEMI_TORNADO_CPR_MASK;
-			}
+		} else if (cpr <= OXSEMI_TORNADO_CPR_MASK >> 1) {
+			quot >>= 1;
+			cpr <<= 1;
+		} else {
+			quot = quot * cpr / OXSEMI_TORNADO_CPR_MASK;
+			cpr = OXSEMI_TORNADO_CPR_MASK;
 		}
 	}
 
@@ -1645,7 +1654,7 @@ static int pci_fintek_rs485_config(struct uart_port *port, struct ktermios *term
 }
 
 static const struct serial_rs485 pci_fintek_rs485_supported = {
-	.flags = SER_RS485_ENABLED | SER_RS485_RTS_ON_SEND,
+	.flags = SER_RS485_ENABLED | SER_RS485_RTS_ON_SEND | SER_RS485_RTS_AFTER_SEND,
 	/* F81504/508/512 does not support RTS delay before or after send */
 };
 
@@ -2126,6 +2135,35 @@ pci_moxa_setup(struct serial_private *priv,
 	return setup_port(priv, port, bar, offset, 0);
 }
 
+#define SB_OPTR_IMR0	0x0c /* Interrupt mask register, p0 to p7 */
+static int pci_systembase_init(struct pci_dev *dev)
+{
+	resource_size_t iobase;
+
+	if (!IS_ENABLED(CONFIG_HAS_IOPORT))
+		return serial_8250_warn_need_ioport(dev);
+
+	iobase = pci_resource_start(dev, 1);
+
+	/* This will support up to 8 ports */
+	outb(0xff, iobase + SB_OPTR_IMR0);
+
+	return 0;
+}
+
+static void pci_systembase_exit(struct pci_dev *dev)
+{
+	resource_size_t iobase;
+
+	if (!IS_ENABLED(CONFIG_HAS_IOPORT)) {
+		serial_8250_warn_need_ioport(dev);
+		return;
+	}
+
+	iobase = pci_resource_start(dev, 0);
+	outb(0x00, iobase + SB_OPTR_IMR0);
+}
+
 /*
  * Master list of serial port init/setup/exit quirks.
  * This does not describe the general nature of the port.
@@ -2474,6 +2512,16 @@ static struct pci_serial_quirk pci_serial_quirks[] = {
 		.init		= pci_siig_init,
 		.setup		= pci_siig_setup,
 	},
+	/* Systembase */
+	{
+		.vendor		= PCI_VENDOR_ID_SYSTEMBASE,
+		.device		= 0x0008,
+		.subvendor	= PCI_ANY_ID,
+		.subdevice	= PCI_ANY_ID,
+		.init		= pci_systembase_init,
+		.setup		= pci_default_setup,
+		.exit		= pci_systembase_exit,
+	},
 	/*
 	 * Titan cards
 	 */
@@ -2536,6 +2584,14 @@ static struct pci_serial_quirk pci_serial_quirks[] = {
 	 */
 	{
 		.vendor		= PCI_VENDOR_ID_NETMOS,
+		.device		= PCI_ANY_ID,
+		.subvendor	= PCI_ANY_ID,
+		.subdevice	= PCI_ANY_ID,
+		.init		= pci_netmos_init,
+		.setup		= pci_netmos_9900_setup,
+	},
+	{
+		.vendor		= PCIE_VENDOR_ID_ASIX,
 		.device		= PCI_ANY_ID,
 		.subvendor	= PCI_ANY_ID,
 		.subdevice	= PCI_ANY_ID,
@@ -3039,6 +3095,7 @@ enum pci_board_num_t {
 	pbn_b0_1_921600,
 	pbn_b0_2_921600,
 	pbn_b0_4_921600,
+	pbn_b0_8_921600,
 
 	pbn_b0_2_1130000,
 
@@ -3236,6 +3293,12 @@ static struct pciserial_board pci_boards[] = {
 	[pbn_b0_4_921600] = {
 		.flags		= FL_BASE0,
 		.num_ports	= 4,
+		.base_baud	= 921600,
+		.uart_offset	= 8,
+	},
+	[pbn_b0_8_921600] = {
+		.flags		= FL_BASE0,
+		.num_ports	= 8,
 		.base_baud	= 921600,
 		.uart_offset	= 8,
 	},
@@ -4146,7 +4209,7 @@ pciserial_init_ports(struct pci_dev *dev, const struct pciserial_board *board)
 			nr_ports = rc;
 	}
 
-	priv = kzalloc(struct_size(priv, line, nr_ports), GFP_KERNEL);
+	priv = kzalloc_flex(*priv, line, nr_ports);
 	if (!priv) {
 		priv = ERR_PTR(-ENOMEM);
 		goto err_deinit;
@@ -5996,6 +6059,38 @@ static const struct pci_device_id serial_pci_tbl[] = {
 		0,
 		pbn_ADDIDATA_PCIe_8_3906250 },
 
+	{	PCI_VENDOR_ID_ADDIDATA,
+		PCI_DEVICE_ID_ADDIDATA_CPCI7500,
+		PCI_ANY_ID,
+		PCI_ANY_ID,
+		0,
+		0,
+		pbn_b0_4_115200 },
+
+	{	PCI_VENDOR_ID_ADDIDATA,
+		PCI_DEVICE_ID_ADDIDATA_CPCI7500_NG,
+		PCI_ANY_ID,
+		PCI_ANY_ID,
+		0,
+		0,
+		pbn_b0_4_115200 },
+
+	{	PCI_VENDOR_ID_ADDIDATA,
+		PCI_DEVICE_ID_ADDIDATA_CPCI7420_NG,
+		PCI_ANY_ID,
+		PCI_ANY_ID,
+		0,
+		0,
+		pbn_b0_2_115200 },
+
+	{	PCI_VENDOR_ID_ADDIDATA,
+		PCI_DEVICE_ID_ADDIDATA_CPCI7300_NG,
+		PCI_ANY_ID,
+		PCI_ANY_ID,
+		0,
+		0,
+		pbn_b0_1_115200 },
+
 	{	PCI_VENDOR_ID_NETMOS, PCI_DEVICE_ID_NETMOS_9835,
 		PCI_VENDOR_ID_IBM, 0x0299,
 		0, 0, pbn_b0_bt_2_115200 },
@@ -6030,6 +6125,10 @@ static const struct pci_device_id serial_pci_tbl[] = {
 	{	PCI_VENDOR_ID_NETMOS, PCI_DEVICE_ID_NETMOS_9900,
 		0xA000, 0x3002,
 		0, 0, pbn_NETMOS9900_2s_115200 },
+
+	{	PCIE_VENDOR_ID_ASIX, PCIE_DEVICE_ID_AX99100,
+		0xA000, 0x1000,
+		0, 0, pbn_b0_1_115200 },
 
 	/*
 	 * Best Connectivity and Rosewill PCI Multi I/O cards
@@ -6118,6 +6217,9 @@ static const struct pci_device_id serial_pci_tbl[] = {
 		PCI_ANY_ID, PCI_ANY_ID,
 		0, 0, pbn_b0_1_115200 },
 
+	/* Systembase Multi I/O cards */
+	{ PCI_VDEVICE(SYSTEMBASE, 0x0008), pbn_b0_8_921600 },
+
 	/* Fintek PCI serial cards */
 	{ PCI_DEVICE(0x1c29, 0x1104), .driver_data = pbn_fintek_4 },
 	{ PCI_DEVICE(0x1c29, 0x1108), .driver_data = pbn_fintek_8 },
@@ -6178,7 +6280,6 @@ static pci_ers_result_t serial8250_io_slot_reset(struct pci_dev *dev)
 		return PCI_ERS_RESULT_DISCONNECT;
 
 	pci_restore_state(dev);
-	pci_save_state(dev);
 
 	return PCI_ERS_RESULT_RECOVERED;
 }

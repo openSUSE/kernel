@@ -16,6 +16,7 @@
 #include <linux/sched/smt.h>
 #include <linux/pgtable.h>
 #include <linux/bpf.h>
+#include <linux/kvm_types.h>
 
 #include <asm/spec-ctrl.h>
 #include <asm/cmdline.h>
@@ -25,7 +26,6 @@
 #include <asm/fpu/api.h>
 #include <asm/msr.h>
 #include <asm/vmx.h>
-#include <asm/paravirt.h>
 #include <asm/cpu_device_id.h>
 #include <asm/e820/api.h>
 #include <asm/hypervisor.h>
@@ -53,56 +53,8 @@
  * mitigation option.
  */
 
-static void __init spectre_v1_select_mitigation(void);
-static void __init spectre_v1_apply_mitigation(void);
-static void __init spectre_v2_select_mitigation(void);
-static void __init spectre_v2_update_mitigation(void);
-static void __init spectre_v2_apply_mitigation(void);
-static void __init retbleed_select_mitigation(void);
-static void __init retbleed_update_mitigation(void);
-static void __init retbleed_apply_mitigation(void);
-static void __init spectre_v2_user_select_mitigation(void);
-static void __init spectre_v2_user_update_mitigation(void);
-static void __init spectre_v2_user_apply_mitigation(void);
-static void __init ssb_select_mitigation(void);
-static void __init ssb_apply_mitigation(void);
-static void __init l1tf_select_mitigation(void);
-static void __init l1tf_apply_mitigation(void);
-static void __init mds_select_mitigation(void);
-static void __init mds_update_mitigation(void);
-static void __init mds_apply_mitigation(void);
-static void __init taa_select_mitigation(void);
-static void __init taa_update_mitigation(void);
-static void __init taa_apply_mitigation(void);
-static void __init mmio_select_mitigation(void);
-static void __init mmio_update_mitigation(void);
-static void __init mmio_apply_mitigation(void);
-static void __init rfds_select_mitigation(void);
-static void __init rfds_update_mitigation(void);
-static void __init rfds_apply_mitigation(void);
-static void __init srbds_select_mitigation(void);
-static void __init srbds_apply_mitigation(void);
-static void __init l1d_flush_select_mitigation(void);
-static void __init srso_select_mitigation(void);
-static void __init srso_update_mitigation(void);
-static void __init srso_apply_mitigation(void);
-static void __init gds_select_mitigation(void);
-static void __init gds_apply_mitigation(void);
-static void __init bhi_select_mitigation(void);
-static void __init bhi_update_mitigation(void);
-static void __init bhi_apply_mitigation(void);
-static void __init its_select_mitigation(void);
-static void __init its_update_mitigation(void);
-static void __init its_apply_mitigation(void);
-static void __init tsa_select_mitigation(void);
-static void __init tsa_apply_mitigation(void);
-static void __init vmscape_select_mitigation(void);
-static void __init vmscape_update_mitigation(void);
-static void __init vmscape_apply_mitigation(void);
-
 /* The base value of the SPEC_CTRL MSR without task-specific bits set */
 u64 x86_spec_ctrl_base;
-EXPORT_SYMBOL_GPL(x86_spec_ctrl_base);
 
 /* The current value of the SPEC_CTRL MSR with task-specific bits set */
 DEFINE_PER_CPU(u64, x86_spec_ctrl_current);
@@ -179,7 +131,7 @@ DEFINE_STATIC_KEY_FALSE(switch_mm_always_ibpb);
 
 /* Control IBPB on vCPU load */
 DEFINE_STATIC_KEY_FALSE(switch_vcpu_ibpb);
-EXPORT_SYMBOL_GPL(switch_vcpu_ibpb);
+EXPORT_SYMBOL_FOR_KVM(switch_vcpu_ibpb);
 
 /* Control CPU buffer clear before idling (halt, mwait) */
 DEFINE_STATIC_KEY_FALSE(cpu_buf_idle_clear);
@@ -191,14 +143,6 @@ EXPORT_SYMBOL_GPL(cpu_buf_idle_clear);
  * defaults to false
  */
 DEFINE_STATIC_KEY_FALSE(switch_mm_cond_l1d_flush);
-
-/*
- * Controls CPU Fill buffer clear before VMenter. This is a subset of
- * X86_FEATURE_CLEAR_CPU_BUF, and should only be enabled when KVM-only
- * mitigation is required.
- */
-DEFINE_STATIC_KEY_FALSE(cpu_buf_vm_clear);
-EXPORT_SYMBOL_GPL(cpu_buf_vm_clear);
 
 #undef pr_fmt
 #define pr_fmt(fmt)	"mitigations: " fmt
@@ -231,99 +175,6 @@ static void __init cpu_print_attack_vectors(void)
 	case SMT_MITIGATIONS_ON:
 		pr_cont("on\n");
 	}
-}
-
-void __init cpu_select_mitigations(void)
-{
-	/*
-	 * Read the SPEC_CTRL MSR to account for reserved bits which may
-	 * have unknown values. AMD64_LS_CFG MSR is cached in the early AMD
-	 * init code as it is not enumerated and depends on the family.
-	 */
-	if (cpu_feature_enabled(X86_FEATURE_MSR_SPEC_CTRL)) {
-		rdmsrq(MSR_IA32_SPEC_CTRL, x86_spec_ctrl_base);
-
-		/*
-		 * Previously running kernel (kexec), may have some controls
-		 * turned ON. Clear them and let the mitigations setup below
-		 * rediscover them based on configuration.
-		 */
-		x86_spec_ctrl_base &= ~SPEC_CTRL_MITIGATIONS_MASK;
-	}
-
-	x86_arch_cap_msr = x86_read_arch_cap_msr();
-
-	cpu_print_attack_vectors();
-
-	/* Select the proper CPU mitigations before patching alternatives: */
-	spectre_v1_select_mitigation();
-	spectre_v2_select_mitigation();
-	retbleed_select_mitigation();
-	spectre_v2_user_select_mitigation();
-	ssb_select_mitigation();
-	l1tf_select_mitigation();
-	mds_select_mitigation();
-	taa_select_mitigation();
-	mmio_select_mitigation();
-	rfds_select_mitigation();
-	srbds_select_mitigation();
-	l1d_flush_select_mitigation();
-	srso_select_mitigation();
-	gds_select_mitigation();
-	its_select_mitigation();
-	bhi_select_mitigation();
-	tsa_select_mitigation();
-	vmscape_select_mitigation();
-
-	/*
-	 * After mitigations are selected, some may need to update their
-	 * choices.
-	 */
-	spectre_v2_update_mitigation();
-	/*
-	 * retbleed_update_mitigation() relies on the state set by
-	 * spectre_v2_update_mitigation(); specifically it wants to know about
-	 * spectre_v2=ibrs.
-	 */
-	retbleed_update_mitigation();
-	/*
-	 * its_update_mitigation() depends on spectre_v2_update_mitigation()
-	 * and retbleed_update_mitigation().
-	 */
-	its_update_mitigation();
-
-	/*
-	 * spectre_v2_user_update_mitigation() depends on
-	 * retbleed_update_mitigation(), specifically the STIBP
-	 * selection is forced for UNRET or IBPB.
-	 */
-	spectre_v2_user_update_mitigation();
-	mds_update_mitigation();
-	taa_update_mitigation();
-	mmio_update_mitigation();
-	rfds_update_mitigation();
-	bhi_update_mitigation();
-	/* srso_update_mitigation() depends on retbleed_update_mitigation(). */
-	srso_update_mitigation();
-	vmscape_update_mitigation();
-
-	spectre_v1_apply_mitigation();
-	spectre_v2_apply_mitigation();
-	retbleed_apply_mitigation();
-	spectre_v2_user_apply_mitigation();
-	ssb_apply_mitigation();
-	l1tf_apply_mitigation();
-	mds_apply_mitigation();
-	taa_apply_mitigation();
-	mmio_apply_mitigation();
-	rfds_apply_mitigation();
-	srbds_apply_mitigation();
-	srso_apply_mitigation();
-	gds_apply_mitigation();
-	its_apply_mitigation();
-	bhi_apply_mitigation();
-	tsa_apply_mitigation();
-	vmscape_apply_mitigation();
 }
 
 /*
@@ -366,7 +217,7 @@ x86_virt_spec_ctrl(u64 guest_virt_spec_ctrl, bool setguest)
 		speculation_ctrl_update(tif);
 	}
 }
-EXPORT_SYMBOL_GPL(x86_virt_spec_ctrl);
+EXPORT_SYMBOL_FOR_KVM(x86_virt_spec_ctrl);
 
 static void x86_amd_ssb_disable(void)
 {
@@ -434,6 +285,9 @@ static bool __init should_mitigate_vuln(unsigned int bug)
 	case X86_BUG_SPEC_STORE_BYPASS:
 		return cpu_attack_vector_mitigated(CPU_MITIGATE_USER_USER);
 
+	case X86_BUG_VMSCAPE:
+		return cpu_attack_vector_mitigated(CPU_MITIGATE_GUEST_HOST);
+
 	default:
 		WARN(1, "Unknown bug %x\n", bug);
 		return false;
@@ -486,8 +340,8 @@ static enum rfds_mitigations rfds_mitigation __ro_after_init =
 	IS_ENABLED(CONFIG_MITIGATION_RFDS) ? RFDS_MITIGATION_AUTO : RFDS_MITIGATION_OFF;
 
 /*
- * Set if any of MDS/TAA/MMIO/RFDS are going to enable VERW clearing
- * through X86_FEATURE_CLEAR_CPU_BUF on kernel and guest entry.
+ * Set if any of MDS/TAA/MMIO/RFDS are going to enable VERW clearing on exit to
+ * userspace *and* on entry to KVM guests.
  */
 static bool verw_clear_cpu_buf_mitigation_selected __ro_after_init;
 
@@ -533,6 +387,7 @@ static void __init mds_apply_mitigation(void)
 	if (mds_mitigation == MDS_MITIGATION_FULL ||
 	    mds_mitigation == MDS_MITIGATION_VMWERV) {
 		setup_force_cpu_cap(X86_FEATURE_CLEAR_CPU_BUF);
+		setup_force_cpu_cap(X86_FEATURE_CLEAR_CPU_BUF_VM);
 		if (!boot_cpu_has(X86_BUG_MSBDS_ONLY) &&
 		    (mds_nosmt || smt_mitigations == SMT_MITIGATIONS_ON))
 			cpu_smt_disable(false);
@@ -644,6 +499,7 @@ static void __init taa_apply_mitigation(void)
 		 * present on host, enable the mitigation for UCODE_NEEDED as well.
 		 */
 		setup_force_cpu_cap(X86_FEATURE_CLEAR_CPU_BUF);
+		setup_force_cpu_cap(X86_FEATURE_CLEAR_CPU_BUF_VM);
 
 		if (taa_nosmt || smt_mitigations == SMT_MITIGATIONS_ON)
 			cpu_smt_disable(false);
@@ -684,8 +540,7 @@ static const char * const mmio_strings[] = {
 
 static void __init mmio_select_mitigation(void)
 {
-	if (!boot_cpu_has_bug(X86_BUG_MMIO_STALE_DATA) ||
-	     cpu_mitigations_off()) {
+	if (!boot_cpu_has_bug(X86_BUG_MMIO_STALE_DATA)) {
 		mmio_mitigation = MMIO_MITIGATION_OFF;
 		return;
 	}
@@ -746,9 +601,9 @@ static void __init mmio_apply_mitigation(void)
 	 */
 	if (verw_clear_cpu_buf_mitigation_selected) {
 		setup_force_cpu_cap(X86_FEATURE_CLEAR_CPU_BUF);
-		static_branch_disable(&cpu_buf_vm_clear);
+		setup_force_cpu_cap(X86_FEATURE_CLEAR_CPU_BUF_VM);
 	} else {
-		static_branch_enable(&cpu_buf_vm_clear);
+		setup_force_cpu_cap(X86_FEATURE_CLEAR_CPU_BUF_VM_MMIO);
 	}
 
 	/*
@@ -837,8 +692,10 @@ static void __init rfds_update_mitigation(void)
 
 static void __init rfds_apply_mitigation(void)
 {
-	if (rfds_mitigation == RFDS_MITIGATION_VERW)
+	if (rfds_mitigation == RFDS_MITIGATION_VERW) {
 		setup_force_cpu_cap(X86_FEATURE_CLEAR_CPU_BUF);
+		setup_force_cpu_cap(X86_FEATURE_CLEAR_CPU_BUF_VM);
+	}
 }
 
 static __init int rfds_parse_cmdline(char *str)
@@ -1030,7 +887,7 @@ bool gds_ucode_mitigated(void)
 	return (gds_mitigation == GDS_MITIGATION_FULL ||
 		gds_mitigation == GDS_MITIGATION_FULL_LOCKED);
 }
-EXPORT_SYMBOL_GPL(gds_ucode_mitigated);
+EXPORT_SYMBOL_FOR_KVM(gds_ucode_mitigated);
 
 void update_gds_msr(void)
 {
@@ -1460,8 +1317,12 @@ static void __init retbleed_update_mitigation(void)
 			retbleed_mitigation = RETBLEED_MITIGATION_EIBRS;
 			break;
 		default:
-			if (retbleed_mitigation != RETBLEED_MITIGATION_STUFF)
-				pr_err(RETBLEED_INTEL_MSG);
+			if (retbleed_mitigation != RETBLEED_MITIGATION_STUFF) {
+				if (retbleed_mitigation != RETBLEED_MITIGATION_NONE)
+					pr_err(RETBLEED_INTEL_MSG);
+
+				retbleed_mitigation = RETBLEED_MITIGATION_NONE;
+			}
 		}
 	}
 
@@ -1821,13 +1682,6 @@ void unpriv_ebpf_notify(int new_state)
 }
 #endif
 
-static inline bool match_option(const char *arg, int arglen, const char *opt)
-{
-	int len = strlen(opt);
-
-	return len == arglen && !strncmp(arg, opt, len);
-}
-
 /* The kernel command line selection for spectre v2 */
 enum spectre_v2_mitigation_cmd {
 	SPECTRE_V2_CMD_NONE,
@@ -1842,9 +1696,10 @@ enum spectre_v2_mitigation_cmd {
 	SPECTRE_V2_CMD_IBRS,
 };
 
-static enum spectre_v2_mitigation_cmd spectre_v2_cmd __ro_after_init = SPECTRE_V2_CMD_AUTO;
+static enum spectre_v2_mitigation_cmd spectre_v2_cmd __ro_after_init =
+	IS_ENABLED(CONFIG_MITIGATION_SPECTRE_V2) ? SPECTRE_V2_CMD_AUTO : SPECTRE_V2_CMD_NONE;
 
-enum spectre_v2_user_cmd {
+enum spectre_v2_user_mitigation_cmd {
 	SPECTRE_V2_USER_CMD_NONE,
 	SPECTRE_V2_USER_CMD_AUTO,
 	SPECTRE_V2_USER_CMD_FORCE,
@@ -1854,6 +1709,9 @@ enum spectre_v2_user_cmd {
 	SPECTRE_V2_USER_CMD_SECCOMP_IBPB,
 };
 
+static enum spectre_v2_user_mitigation_cmd spectre_v2_user_cmd __ro_after_init =
+	IS_ENABLED(CONFIG_MITIGATION_SPECTRE_V2) ? SPECTRE_V2_USER_CMD_AUTO : SPECTRE_V2_USER_CMD_NONE;
+
 static const char * const spectre_v2_user_strings[] = {
 	[SPECTRE_V2_USER_NONE]			= "User space: Vulnerable",
 	[SPECTRE_V2_USER_STRICT]		= "User space: Mitigation: STIBP protection",
@@ -1862,50 +1720,31 @@ static const char * const spectre_v2_user_strings[] = {
 	[SPECTRE_V2_USER_SECCOMP]		= "User space: Mitigation: STIBP via seccomp and prctl",
 };
 
-static const struct {
-	const char			*option;
-	enum spectre_v2_user_cmd	cmd;
-	bool				secure;
-} v2_user_options[] __initconst = {
-	{ "auto",		SPECTRE_V2_USER_CMD_AUTO,		false },
-	{ "off",		SPECTRE_V2_USER_CMD_NONE,		false },
-	{ "on",			SPECTRE_V2_USER_CMD_FORCE,		true  },
-	{ "prctl",		SPECTRE_V2_USER_CMD_PRCTL,		false },
-	{ "prctl,ibpb",		SPECTRE_V2_USER_CMD_PRCTL_IBPB,		false },
-	{ "seccomp",		SPECTRE_V2_USER_CMD_SECCOMP,		false },
-	{ "seccomp,ibpb",	SPECTRE_V2_USER_CMD_SECCOMP_IBPB,	false },
-};
-
-static void __init spec_v2_user_print_cond(const char *reason, bool secure)
+static int __init spectre_v2_user_parse_cmdline(char *str)
 {
-	if (boot_cpu_has_bug(X86_BUG_SPECTRE_V2) != secure)
-		pr_info("spectre_v2_user=%s forced on command line.\n", reason);
+	if (!str)
+		return -EINVAL;
+
+	if (!strcmp(str, "auto"))
+		spectre_v2_user_cmd = SPECTRE_V2_USER_CMD_AUTO;
+	else if (!strcmp(str, "off"))
+		spectre_v2_user_cmd = SPECTRE_V2_USER_CMD_NONE;
+	else if (!strcmp(str, "on"))
+		spectre_v2_user_cmd = SPECTRE_V2_USER_CMD_FORCE;
+	else if (!strcmp(str, "prctl"))
+		spectre_v2_user_cmd = SPECTRE_V2_USER_CMD_PRCTL;
+	else if (!strcmp(str, "prctl,ibpb"))
+		spectre_v2_user_cmd = SPECTRE_V2_USER_CMD_PRCTL_IBPB;
+	else if (!strcmp(str, "seccomp"))
+		spectre_v2_user_cmd = SPECTRE_V2_USER_CMD_SECCOMP;
+	else if (!strcmp(str, "seccomp,ibpb"))
+		spectre_v2_user_cmd = SPECTRE_V2_USER_CMD_SECCOMP_IBPB;
+	else
+		pr_err("Ignoring unknown spectre_v2_user option (%s).", str);
+
+	return 0;
 }
-
-static enum spectre_v2_user_cmd __init spectre_v2_parse_user_cmdline(void)
-{
-	char arg[20];
-	int ret, i;
-
-	if (!IS_ENABLED(CONFIG_MITIGATION_SPECTRE_V2))
-		return SPECTRE_V2_USER_CMD_NONE;
-
-	ret = cmdline_find_option(boot_command_line, "spectre_v2_user",
-				  arg, sizeof(arg));
-	if (ret < 0)
-		return SPECTRE_V2_USER_CMD_AUTO;
-
-	for (i = 0; i < ARRAY_SIZE(v2_user_options); i++) {
-		if (match_option(arg, ret, v2_user_options[i].option)) {
-			spec_v2_user_print_cond(v2_user_options[i].option,
-						v2_user_options[i].secure);
-			return v2_user_options[i].cmd;
-		}
-	}
-
-	pr_err("Unknown user space protection option (%s). Switching to default\n", arg);
-	return SPECTRE_V2_USER_CMD_AUTO;
-}
+early_param("spectre_v2_user", spectre_v2_user_parse_cmdline);
 
 static inline bool spectre_v2_in_ibrs_mode(enum spectre_v2_mitigation mode)
 {
@@ -1917,7 +1756,7 @@ static void __init spectre_v2_user_select_mitigation(void)
 	if (!boot_cpu_has(X86_FEATURE_IBPB) && !boot_cpu_has(X86_FEATURE_STIBP))
 		return;
 
-	switch (spectre_v2_parse_user_cmdline()) {
+	switch (spectre_v2_user_cmd) {
 	case SPECTRE_V2_USER_CMD_NONE:
 		return;
 	case SPECTRE_V2_USER_CMD_FORCE:
@@ -2045,119 +1884,61 @@ static void __init spectre_v2_user_apply_mitigation(void)
 static const char * const spectre_v2_strings[] = {
 	[SPECTRE_V2_NONE]			= "Vulnerable",
 	[SPECTRE_V2_RETPOLINE]			= "Mitigation: Retpolines",
-	[SPECTRE_V2_LFENCE]			= "Mitigation: LFENCE",
+	[SPECTRE_V2_LFENCE]			= "Vulnerable: LFENCE",
 	[SPECTRE_V2_EIBRS]			= "Mitigation: Enhanced / Automatic IBRS",
 	[SPECTRE_V2_EIBRS_LFENCE]		= "Mitigation: Enhanced / Automatic IBRS + LFENCE",
 	[SPECTRE_V2_EIBRS_RETPOLINE]		= "Mitigation: Enhanced / Automatic IBRS + Retpolines",
 	[SPECTRE_V2_IBRS]			= "Mitigation: IBRS",
 };
 
-static const struct {
-	const char *option;
-	enum spectre_v2_mitigation_cmd cmd;
-	bool secure;
-} mitigation_options[] __initconst = {
-	{ "off",		SPECTRE_V2_CMD_NONE,		  false },
-	{ "on",			SPECTRE_V2_CMD_FORCE,		  true  },
-	{ "retpoline",		SPECTRE_V2_CMD_RETPOLINE,	  false },
-	{ "retpoline,amd",	SPECTRE_V2_CMD_RETPOLINE_LFENCE,  false },
-	{ "retpoline,lfence",	SPECTRE_V2_CMD_RETPOLINE_LFENCE,  false },
-	{ "retpoline,generic",	SPECTRE_V2_CMD_RETPOLINE_GENERIC, false },
-	{ "eibrs",		SPECTRE_V2_CMD_EIBRS,		  false },
-	{ "eibrs,lfence",	SPECTRE_V2_CMD_EIBRS_LFENCE,	  false },
-	{ "eibrs,retpoline",	SPECTRE_V2_CMD_EIBRS_RETPOLINE,	  false },
-	{ "auto",		SPECTRE_V2_CMD_AUTO,		  false },
-	{ "ibrs",		SPECTRE_V2_CMD_IBRS,              false },
-};
+static bool nospectre_v2 __ro_after_init;
 
-static void __init spec_v2_print_cond(const char *reason, bool secure)
+static int __init nospectre_v2_parse_cmdline(char *str)
 {
-	if (boot_cpu_has_bug(X86_BUG_SPECTRE_V2) != secure)
-		pr_info("%s selected on command line.\n", reason);
+	nospectre_v2 = true;
+	spectre_v2_cmd = SPECTRE_V2_CMD_NONE;
+	return 0;
 }
+early_param("nospectre_v2", nospectre_v2_parse_cmdline);
 
-static enum spectre_v2_mitigation_cmd __init spectre_v2_parse_cmdline(void)
+static int __init spectre_v2_parse_cmdline(char *str)
 {
-	enum spectre_v2_mitigation_cmd cmd;
-	char arg[20];
-	int ret, i;
+	if (!str)
+		return -EINVAL;
 
-	cmd = IS_ENABLED(CONFIG_MITIGATION_SPECTRE_V2) ?  SPECTRE_V2_CMD_AUTO : SPECTRE_V2_CMD_NONE;
-	if (cmdline_find_option_bool(boot_command_line, "nospectre_v2"))
-		return SPECTRE_V2_CMD_NONE;
+	if (nospectre_v2)
+		return 0;
 
-	ret = cmdline_find_option(boot_command_line, "spectre_v2", arg, sizeof(arg));
-	if (ret < 0)
-		return cmd;
-
-	for (i = 0; i < ARRAY_SIZE(mitigation_options); i++) {
-		if (!match_option(arg, ret, mitigation_options[i].option))
-			continue;
-		cmd = mitigation_options[i].cmd;
-		break;
+	if (!strcmp(str, "off")) {
+		spectre_v2_cmd = SPECTRE_V2_CMD_NONE;
+	} else if (!strcmp(str, "on")) {
+		spectre_v2_cmd = SPECTRE_V2_CMD_FORCE;
+		setup_force_cpu_bug(X86_BUG_SPECTRE_V2);
+		setup_force_cpu_bug(X86_BUG_SPECTRE_V2_USER);
+	} else if (!strcmp(str, "retpoline")) {
+		spectre_v2_cmd = SPECTRE_V2_CMD_RETPOLINE;
+	} else if (!strcmp(str, "retpoline,amd") ||
+		 !strcmp(str, "retpoline,lfence")) {
+		spectre_v2_cmd = SPECTRE_V2_CMD_RETPOLINE_LFENCE;
+	} else if (!strcmp(str, "retpoline,generic")) {
+		spectre_v2_cmd = SPECTRE_V2_CMD_RETPOLINE_GENERIC;
+	} else if (!strcmp(str, "eibrs")) {
+		spectre_v2_cmd = SPECTRE_V2_CMD_EIBRS;
+	} else if (!strcmp(str, "eibrs,lfence")) {
+		spectre_v2_cmd = SPECTRE_V2_CMD_EIBRS_LFENCE;
+	} else if (!strcmp(str, "eibrs,retpoline")) {
+		spectre_v2_cmd = SPECTRE_V2_CMD_EIBRS_RETPOLINE;
+	} else if (!strcmp(str, "auto")) {
+		spectre_v2_cmd = SPECTRE_V2_CMD_AUTO;
+	} else if (!strcmp(str, "ibrs")) {
+		spectre_v2_cmd = SPECTRE_V2_CMD_IBRS;
+	} else {
+		pr_err("Ignoring unknown spectre_v2 option (%s).", str);
 	}
 
-	if (i >= ARRAY_SIZE(mitigation_options)) {
-		pr_err("unknown option (%s). Switching to default mode\n", arg);
-		return cmd;
-	}
-
-	if ((cmd == SPECTRE_V2_CMD_RETPOLINE ||
-	     cmd == SPECTRE_V2_CMD_RETPOLINE_LFENCE ||
-	     cmd == SPECTRE_V2_CMD_RETPOLINE_GENERIC ||
-	     cmd == SPECTRE_V2_CMD_EIBRS_LFENCE ||
-	     cmd == SPECTRE_V2_CMD_EIBRS_RETPOLINE) &&
-	    !IS_ENABLED(CONFIG_MITIGATION_RETPOLINE)) {
-		pr_err("%s selected but not compiled in. Switching to AUTO select\n",
-		       mitigation_options[i].option);
-		return SPECTRE_V2_CMD_AUTO;
-	}
-
-	if ((cmd == SPECTRE_V2_CMD_EIBRS ||
-	     cmd == SPECTRE_V2_CMD_EIBRS_LFENCE ||
-	     cmd == SPECTRE_V2_CMD_EIBRS_RETPOLINE) &&
-	    !boot_cpu_has(X86_FEATURE_IBRS_ENHANCED)) {
-		pr_err("%s selected but CPU doesn't have Enhanced or Automatic IBRS. Switching to AUTO select\n",
-		       mitigation_options[i].option);
-		return SPECTRE_V2_CMD_AUTO;
-	}
-
-	if ((cmd == SPECTRE_V2_CMD_RETPOLINE_LFENCE ||
-	     cmd == SPECTRE_V2_CMD_EIBRS_LFENCE) &&
-	    !boot_cpu_has(X86_FEATURE_LFENCE_RDTSC)) {
-		pr_err("%s selected, but CPU doesn't have a serializing LFENCE. Switching to AUTO select\n",
-		       mitigation_options[i].option);
-		return SPECTRE_V2_CMD_AUTO;
-	}
-
-	if (cmd == SPECTRE_V2_CMD_IBRS && !IS_ENABLED(CONFIG_MITIGATION_IBRS_ENTRY)) {
-		pr_err("%s selected but not compiled in. Switching to AUTO select\n",
-		       mitigation_options[i].option);
-		return SPECTRE_V2_CMD_AUTO;
-	}
-
-	if (cmd == SPECTRE_V2_CMD_IBRS && boot_cpu_data.x86_vendor != X86_VENDOR_INTEL) {
-		pr_err("%s selected but not Intel CPU. Switching to AUTO select\n",
-		       mitigation_options[i].option);
-		return SPECTRE_V2_CMD_AUTO;
-	}
-
-	if (cmd == SPECTRE_V2_CMD_IBRS && !boot_cpu_has(X86_FEATURE_IBRS)) {
-		pr_err("%s selected but CPU doesn't have IBRS. Switching to AUTO select\n",
-		       mitigation_options[i].option);
-		return SPECTRE_V2_CMD_AUTO;
-	}
-
-	if (cmd == SPECTRE_V2_CMD_IBRS && cpu_feature_enabled(X86_FEATURE_XENPV)) {
-		pr_err("%s selected but running as XenPV guest. Switching to AUTO select\n",
-		       mitigation_options[i].option);
-		return SPECTRE_V2_CMD_AUTO;
-	}
-
-	spec_v2_print_cond(mitigation_options[i].option,
-			   mitigation_options[i].secure);
-	return cmd;
+	return 0;
 }
+early_param("spectre_v2", spectre_v2_parse_cmdline);
 
 static enum spectre_v2_mitigation __init spectre_v2_select_retpoline(void)
 {
@@ -2306,10 +2087,6 @@ static void __init bhi_update_mitigation(void)
 {
 	if (spectre_v2_cmd == SPECTRE_V2_CMD_NONE)
 		bhi_mitigation = BHI_MITIGATION_OFF;
-
-	if (!boot_cpu_has_bug(X86_BUG_SPECTRE_V2) &&
-	     spectre_v2_cmd == SPECTRE_V2_CMD_AUTO)
-		bhi_mitigation = BHI_MITIGATION_OFF;
 }
 
 static void __init bhi_apply_mitigation(void)
@@ -2345,11 +2122,55 @@ static void __init bhi_apply_mitigation(void)
 
 static void __init spectre_v2_select_mitigation(void)
 {
-	spectre_v2_cmd = spectre_v2_parse_cmdline();
+	if ((spectre_v2_cmd == SPECTRE_V2_CMD_RETPOLINE ||
+	     spectre_v2_cmd == SPECTRE_V2_CMD_RETPOLINE_LFENCE ||
+	     spectre_v2_cmd == SPECTRE_V2_CMD_RETPOLINE_GENERIC ||
+	     spectre_v2_cmd == SPECTRE_V2_CMD_EIBRS_LFENCE ||
+	     spectre_v2_cmd == SPECTRE_V2_CMD_EIBRS_RETPOLINE) &&
+	    !IS_ENABLED(CONFIG_MITIGATION_RETPOLINE)) {
+		pr_err("RETPOLINE selected but not compiled in. Switching to AUTO select\n");
+		spectre_v2_cmd = SPECTRE_V2_CMD_AUTO;
+	}
 
-	if (!boot_cpu_has_bug(X86_BUG_SPECTRE_V2) &&
-	    (spectre_v2_cmd == SPECTRE_V2_CMD_NONE || spectre_v2_cmd == SPECTRE_V2_CMD_AUTO))
+	if ((spectre_v2_cmd == SPECTRE_V2_CMD_EIBRS ||
+	     spectre_v2_cmd == SPECTRE_V2_CMD_EIBRS_LFENCE ||
+	     spectre_v2_cmd == SPECTRE_V2_CMD_EIBRS_RETPOLINE) &&
+	    !boot_cpu_has(X86_FEATURE_IBRS_ENHANCED)) {
+		pr_err("EIBRS selected but CPU doesn't have Enhanced or Automatic IBRS. Switching to AUTO select\n");
+		spectre_v2_cmd = SPECTRE_V2_CMD_AUTO;
+	}
+
+	if ((spectre_v2_cmd == SPECTRE_V2_CMD_RETPOLINE_LFENCE ||
+	     spectre_v2_cmd == SPECTRE_V2_CMD_EIBRS_LFENCE) &&
+	    !boot_cpu_has(X86_FEATURE_LFENCE_RDTSC)) {
+		pr_err("LFENCE selected, but CPU doesn't have a serializing LFENCE. Switching to AUTO select\n");
+		spectre_v2_cmd = SPECTRE_V2_CMD_AUTO;
+	}
+
+	if (spectre_v2_cmd == SPECTRE_V2_CMD_IBRS && !IS_ENABLED(CONFIG_MITIGATION_IBRS_ENTRY)) {
+		pr_err("IBRS selected but not compiled in. Switching to AUTO select\n");
+		spectre_v2_cmd = SPECTRE_V2_CMD_AUTO;
+	}
+
+	if (spectre_v2_cmd == SPECTRE_V2_CMD_IBRS && boot_cpu_data.x86_vendor != X86_VENDOR_INTEL) {
+		pr_err("IBRS selected but not Intel CPU. Switching to AUTO select\n");
+		spectre_v2_cmd = SPECTRE_V2_CMD_AUTO;
+	}
+
+	if (spectre_v2_cmd == SPECTRE_V2_CMD_IBRS && !boot_cpu_has(X86_FEATURE_IBRS)) {
+		pr_err("IBRS selected but CPU doesn't have IBRS. Switching to AUTO select\n");
+		spectre_v2_cmd = SPECTRE_V2_CMD_AUTO;
+	}
+
+	if (spectre_v2_cmd == SPECTRE_V2_CMD_IBRS && cpu_feature_enabled(X86_FEATURE_XENPV)) {
+		pr_err("IBRS selected but running as XenPV guest. Switching to AUTO select\n");
+		spectre_v2_cmd = SPECTRE_V2_CMD_AUTO;
+	}
+
+	if (!boot_cpu_has_bug(X86_BUG_SPECTRE_V2)) {
+		spectre_v2_cmd = SPECTRE_V2_CMD_NONE;
 		return;
+	}
 
 	switch (spectre_v2_cmd) {
 	case SPECTRE_V2_CMD_NONE:
@@ -2555,16 +2376,8 @@ static void update_mds_branch_idle(void)
 #undef pr_fmt
 #define pr_fmt(fmt)	"Speculative Store Bypass: " fmt
 
-static enum ssb_mitigation ssb_mode __ro_after_init = SPEC_STORE_BYPASS_NONE;
-
-/* The kernel command line selection */
-enum ssb_mitigation_cmd {
-	SPEC_STORE_BYPASS_CMD_NONE,
-	SPEC_STORE_BYPASS_CMD_AUTO,
-	SPEC_STORE_BYPASS_CMD_ON,
-	SPEC_STORE_BYPASS_CMD_PRCTL,
-	SPEC_STORE_BYPASS_CMD_SECCOMP,
-};
+static enum ssb_mitigation ssb_mode __ro_after_init =
+	IS_ENABLED(CONFIG_MITIGATION_SSB) ? SPEC_STORE_BYPASS_AUTO : SPEC_STORE_BYPASS_NONE;
 
 static const char * const ssb_strings[] = {
 	[SPEC_STORE_BYPASS_NONE]	= "Vulnerable",
@@ -2573,94 +2386,61 @@ static const char * const ssb_strings[] = {
 	[SPEC_STORE_BYPASS_SECCOMP]	= "Mitigation: Speculative Store Bypass disabled via prctl and seccomp",
 };
 
-static const struct {
-	const char *option;
-	enum ssb_mitigation_cmd cmd;
-} ssb_mitigation_options[]  __initconst = {
-	{ "auto",	SPEC_STORE_BYPASS_CMD_AUTO },    /* Platform decides */
-	{ "on",		SPEC_STORE_BYPASS_CMD_ON },      /* Disable Speculative Store Bypass */
-	{ "off",	SPEC_STORE_BYPASS_CMD_NONE },    /* Don't touch Speculative Store Bypass */
-	{ "prctl",	SPEC_STORE_BYPASS_CMD_PRCTL },   /* Disable Speculative Store Bypass via prctl */
-	{ "seccomp",	SPEC_STORE_BYPASS_CMD_SECCOMP }, /* Disable Speculative Store Bypass via prctl and seccomp */
-};
+static bool nossb __ro_after_init;
 
-static enum ssb_mitigation_cmd __init ssb_parse_cmdline(void)
+static int __init nossb_parse_cmdline(char *str)
 {
-	enum ssb_mitigation_cmd cmd;
-	char arg[20];
-	int ret, i;
-
-	cmd = IS_ENABLED(CONFIG_MITIGATION_SSB) ?
-		SPEC_STORE_BYPASS_CMD_AUTO : SPEC_STORE_BYPASS_CMD_NONE;
-	if (cmdline_find_option_bool(boot_command_line, "nospec_store_bypass_disable") ||
-	    cpu_mitigations_off()) {
-		return SPEC_STORE_BYPASS_CMD_NONE;
-	} else {
-		ret = cmdline_find_option(boot_command_line, "spec_store_bypass_disable",
-					  arg, sizeof(arg));
-		if (ret < 0)
-			return cmd;
-
-		for (i = 0; i < ARRAY_SIZE(ssb_mitigation_options); i++) {
-			if (!match_option(arg, ret, ssb_mitigation_options[i].option))
-				continue;
-
-			cmd = ssb_mitigation_options[i].cmd;
-			break;
-		}
-
-		if (i >= ARRAY_SIZE(ssb_mitigation_options)) {
-			pr_err("unknown option (%s). Switching to default mode\n", arg);
-			return cmd;
-		}
-	}
-
-	return cmd;
+	nossb = true;
+	ssb_mode = SPEC_STORE_BYPASS_NONE;
+	return 0;
 }
+early_param("nospec_store_bypass_disable", nossb_parse_cmdline);
+
+static int __init ssb_parse_cmdline(char *str)
+{
+	if (!str)
+		return -EINVAL;
+
+	if (nossb)
+		return 0;
+
+	if (!strcmp(str, "auto"))
+		ssb_mode = SPEC_STORE_BYPASS_AUTO;
+	else if (!strcmp(str, "on"))
+		ssb_mode = SPEC_STORE_BYPASS_DISABLE;
+	else if (!strcmp(str, "off"))
+		ssb_mode = SPEC_STORE_BYPASS_NONE;
+	else if (!strcmp(str, "prctl"))
+		ssb_mode = SPEC_STORE_BYPASS_PRCTL;
+	else if (!strcmp(str, "seccomp"))
+		ssb_mode = IS_ENABLED(CONFIG_SECCOMP) ?
+			SPEC_STORE_BYPASS_SECCOMP : SPEC_STORE_BYPASS_PRCTL;
+	else
+		pr_err("Ignoring unknown spec_store_bypass_disable option (%s).\n",
+			str);
+
+	return 0;
+}
+early_param("spec_store_bypass_disable", ssb_parse_cmdline);
 
 static void __init ssb_select_mitigation(void)
 {
-	enum ssb_mitigation_cmd cmd;
-
-	if (!boot_cpu_has(X86_FEATURE_SSBD))
-		goto out;
-
-	cmd = ssb_parse_cmdline();
-	if (!boot_cpu_has_bug(X86_BUG_SPEC_STORE_BYPASS) &&
-	    (cmd == SPEC_STORE_BYPASS_CMD_NONE ||
-	     cmd == SPEC_STORE_BYPASS_CMD_AUTO))
+	if (!boot_cpu_has_bug(X86_BUG_SPEC_STORE_BYPASS)) {
+		ssb_mode = SPEC_STORE_BYPASS_NONE;
 		return;
+	}
 
-	switch (cmd) {
-	case SPEC_STORE_BYPASS_CMD_SECCOMP:
-		/*
-		 * Choose prctl+seccomp as the default mode if seccomp is
-		 * enabled.
-		 */
-		if (IS_ENABLED(CONFIG_SECCOMP))
-			ssb_mode = SPEC_STORE_BYPASS_SECCOMP;
-		else
-			ssb_mode = SPEC_STORE_BYPASS_PRCTL;
-		break;
-	case SPEC_STORE_BYPASS_CMD_ON:
-		ssb_mode = SPEC_STORE_BYPASS_DISABLE;
-		break;
-	case SPEC_STORE_BYPASS_CMD_AUTO:
+	if (ssb_mode == SPEC_STORE_BYPASS_AUTO) {
 		if (should_mitigate_vuln(X86_BUG_SPEC_STORE_BYPASS))
 			ssb_mode = SPEC_STORE_BYPASS_PRCTL;
 		else
 			ssb_mode = SPEC_STORE_BYPASS_NONE;
-		break;
-	case SPEC_STORE_BYPASS_CMD_PRCTL:
-		ssb_mode = SPEC_STORE_BYPASS_PRCTL;
-		break;
-	case SPEC_STORE_BYPASS_CMD_NONE:
-		break;
 	}
 
-out:
-	if (boot_cpu_has_bug(X86_BUG_SPEC_STORE_BYPASS))
-		pr_info("%s\n", ssb_strings[ssb_mode]);
+	if (!boot_cpu_has(X86_FEATURE_SSBD))
+		ssb_mode = SPEC_STORE_BYPASS_NONE;
+
+	pr_info("%s\n", ssb_strings[ssb_mode]);
 }
 
 static void __init ssb_apply_mitigation(void)
@@ -2876,6 +2656,7 @@ static int ssb_prctl_get(struct task_struct *task)
 		return PR_SPEC_DISABLE;
 	case SPEC_STORE_BYPASS_SECCOMP:
 	case SPEC_STORE_BYPASS_PRCTL:
+	case SPEC_STORE_BYPASS_AUTO:
 		if (task_spec_ssb_force_disable(task))
 			return PR_SPEC_PRCTL | PR_SPEC_FORCE_DISABLE;
 		if (task_spec_ssb_noexec(task))
@@ -2933,7 +2714,7 @@ void x86_spec_ctrl_setup_ap(void)
 }
 
 bool itlb_multihit_kvm_mitigation;
-EXPORT_SYMBOL_GPL(itlb_multihit_kvm_mitigation);
+EXPORT_SYMBOL_FOR_KVM(itlb_multihit_kvm_mitigation);
 
 #undef pr_fmt
 #define pr_fmt(fmt)	"L1TF: " fmt
@@ -2941,11 +2722,9 @@ EXPORT_SYMBOL_GPL(itlb_multihit_kvm_mitigation);
 /* Default mitigation for L1TF-affected CPUs */
 enum l1tf_mitigations l1tf_mitigation __ro_after_init =
 	IS_ENABLED(CONFIG_MITIGATION_L1TF) ? L1TF_MITIGATION_AUTO : L1TF_MITIGATION_OFF;
-#if IS_ENABLED(CONFIG_KVM_INTEL)
-EXPORT_SYMBOL_GPL(l1tf_mitigation);
-#endif
+EXPORT_SYMBOL_FOR_KVM(l1tf_mitigation);
 enum vmx_l1d_flush_state l1tf_vmx_mitigation = VMENTER_L1D_FLUSH_AUTO;
-EXPORT_SYMBOL_GPL(l1tf_vmx_mitigation);
+EXPORT_SYMBOL_FOR_KVM(l1tf_vmx_mitigation);
 
 /*
  * These CPUs all support 44bits physical address space internally in the
@@ -3195,14 +2974,15 @@ ibpb_on_vmexit:
 
 static void __init srso_update_mitigation(void)
 {
+	if (!boot_cpu_has_bug(X86_BUG_SRSO))
+		return;
+
 	/* If retbleed is using IBPB, that works for SRSO as well */
 	if (retbleed_mitigation == RETBLEED_MITIGATION_IBPB &&
 	    boot_cpu_has(X86_FEATURE_IBPB_BRTYPE))
 		srso_mitigation = SRSO_MITIGATION_IBPB;
 
-	if (boot_cpu_has_bug(X86_BUG_SRSO) &&
-	    !cpu_mitigations_off())
-		pr_info("%s\n", srso_strings[srso_mitigation]);
+	pr_info("%s\n", srso_strings[srso_mitigation]);
 }
 
 static void __init srso_apply_mitigation(void)
@@ -3304,15 +3084,18 @@ early_param("vmscape", vmscape_parse_cmdline);
 
 static void __init vmscape_select_mitigation(void)
 {
-	if (cpu_mitigations_off() ||
-	    !boot_cpu_has_bug(X86_BUG_VMSCAPE) ||
+	if (!boot_cpu_has_bug(X86_BUG_VMSCAPE) ||
 	    !boot_cpu_has(X86_FEATURE_IBPB)) {
 		vmscape_mitigation = VMSCAPE_MITIGATION_NONE;
 		return;
 	}
 
-	if (vmscape_mitigation == VMSCAPE_MITIGATION_AUTO)
-		vmscape_mitigation = VMSCAPE_MITIGATION_IBPB_EXIT_TO_USER;
+	if (vmscape_mitigation == VMSCAPE_MITIGATION_AUTO) {
+		if (should_mitigate_vuln(X86_BUG_VMSCAPE))
+			vmscape_mitigation = VMSCAPE_MITIGATION_IBPB_EXIT_TO_USER;
+		else
+			vmscape_mitigation = VMSCAPE_MITIGATION_NONE;
+	}
 }
 
 static void __init vmscape_update_mitigation(void)
@@ -3439,6 +3222,99 @@ void cpu_bugs_smt_update(void)
 	}
 
 	mutex_unlock(&spec_ctrl_mutex);
+}
+
+void __init cpu_select_mitigations(void)
+{
+	/*
+	 * Read the SPEC_CTRL MSR to account for reserved bits which may
+	 * have unknown values. AMD64_LS_CFG MSR is cached in the early AMD
+	 * init code as it is not enumerated and depends on the family.
+	 */
+	if (cpu_feature_enabled(X86_FEATURE_MSR_SPEC_CTRL)) {
+		rdmsrq(MSR_IA32_SPEC_CTRL, x86_spec_ctrl_base);
+
+		/*
+		 * Previously running kernel (kexec), may have some controls
+		 * turned ON. Clear them and let the mitigations setup below
+		 * rediscover them based on configuration.
+		 */
+		x86_spec_ctrl_base &= ~SPEC_CTRL_MITIGATIONS_MASK;
+	}
+
+	x86_arch_cap_msr = x86_read_arch_cap_msr();
+
+	cpu_print_attack_vectors();
+
+	/* Select the proper CPU mitigations before patching alternatives: */
+	spectre_v1_select_mitigation();
+	spectre_v2_select_mitigation();
+	retbleed_select_mitigation();
+	spectre_v2_user_select_mitigation();
+	ssb_select_mitigation();
+	l1tf_select_mitigation();
+	mds_select_mitigation();
+	taa_select_mitigation();
+	mmio_select_mitigation();
+	rfds_select_mitigation();
+	srbds_select_mitigation();
+	l1d_flush_select_mitigation();
+	srso_select_mitigation();
+	gds_select_mitigation();
+	its_select_mitigation();
+	bhi_select_mitigation();
+	tsa_select_mitigation();
+	vmscape_select_mitigation();
+
+	/*
+	 * After mitigations are selected, some may need to update their
+	 * choices.
+	 */
+	spectre_v2_update_mitigation();
+	/*
+	 * retbleed_update_mitigation() relies on the state set by
+	 * spectre_v2_update_mitigation(); specifically it wants to know about
+	 * spectre_v2=ibrs.
+	 */
+	retbleed_update_mitigation();
+	/*
+	 * its_update_mitigation() depends on spectre_v2_update_mitigation()
+	 * and retbleed_update_mitigation().
+	 */
+	its_update_mitigation();
+
+	/*
+	 * spectre_v2_user_update_mitigation() depends on
+	 * retbleed_update_mitigation(), specifically the STIBP
+	 * selection is forced for UNRET or IBPB.
+	 */
+	spectre_v2_user_update_mitigation();
+	mds_update_mitigation();
+	taa_update_mitigation();
+	mmio_update_mitigation();
+	rfds_update_mitigation();
+	bhi_update_mitigation();
+	/* srso_update_mitigation() depends on retbleed_update_mitigation(). */
+	srso_update_mitigation();
+	vmscape_update_mitigation();
+
+	spectre_v1_apply_mitigation();
+	spectre_v2_apply_mitigation();
+	retbleed_apply_mitigation();
+	spectre_v2_user_apply_mitigation();
+	ssb_apply_mitigation();
+	l1tf_apply_mitigation();
+	mds_apply_mitigation();
+	taa_apply_mitigation();
+	mmio_apply_mitigation();
+	rfds_apply_mitigation();
+	srbds_apply_mitigation();
+	srso_apply_mitigation();
+	gds_apply_mitigation();
+	its_apply_mitigation();
+	bhi_apply_mitigation();
+	tsa_apply_mitigation();
+	vmscape_apply_mitigation();
 }
 
 #ifdef CONFIG_SYSFS
@@ -3626,9 +3502,6 @@ static const char *spectre_bhi_state(void)
 
 static ssize_t spectre_v2_show_state(char *buf)
 {
-	if (spectre_v2_enabled == SPECTRE_V2_LFENCE)
-		return sysfs_emit(buf, "Vulnerable: LFENCE\n");
-
 	if (spectre_v2_enabled == SPECTRE_V2_EIBRS && unprivileged_ebpf_enabled())
 		return sysfs_emit(buf, "Vulnerable: eIBRS with unprivileged eBPF\n");
 

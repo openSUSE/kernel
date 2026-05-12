@@ -239,18 +239,17 @@ static int c6xdigio_attach(struct comedi_device *dev,
 			   struct comedi_devconfig *it)
 {
 	struct comedi_subdevice *s;
+	unsigned int iobase = it->options[0];
 	int ret;
 
-	ret = comedi_request_region(dev, it->options[0], 0x03);
+	ret = comedi_check_request_region(dev, iobase, 0x03,
+					  0, UINT_MAX, 4);
 	if (ret)
 		return ret;
 
 	ret = comedi_alloc_subdevices(dev, 2);
 	if (ret)
 		return ret;
-
-	/*  Make sure that PnP ports get activated */
-	pnp_register_driver(&c6xdigio_pnp_driver);
 
 	s = &dev->subdevices[0];
 	/* pwm output subdevice */
@@ -278,19 +277,46 @@ static int c6xdigio_attach(struct comedi_device *dev,
 	return 0;
 }
 
-static void c6xdigio_detach(struct comedi_device *dev)
-{
-	comedi_legacy_detach(dev);
-	pnp_unregister_driver(&c6xdigio_pnp_driver);
-}
-
 static struct comedi_driver c6xdigio_driver = {
 	.driver_name	= "c6xdigio",
 	.module		= THIS_MODULE,
 	.attach		= c6xdigio_attach,
-	.detach		= c6xdigio_detach,
+	.detach		= comedi_legacy_detach,
 };
-module_comedi_driver(c6xdigio_driver);
+
+static bool c6xdigio_pnp_registered = false;
+
+static int __init c6xdigio_module_init(void)
+{
+	int ret;
+
+	ret = comedi_driver_register(&c6xdigio_driver);
+	if (ret)
+		return ret;
+
+	if (IS_ENABLED(CONFIG_PNP)) {
+		/*  Try to activate the PnP ports */
+		ret = pnp_register_driver(&c6xdigio_pnp_driver);
+		if (ret) {
+			pr_warn("failed to register pnp driver - err %d\n",
+				ret);
+			ret = 0;	/* ignore the error. */
+		} else {
+			c6xdigio_pnp_registered = true;
+		}
+	}
+
+	return 0;
+}
+module_init(c6xdigio_module_init);
+
+static void __exit c6xdigio_module_exit(void)
+{
+	if (c6xdigio_pnp_registered)
+		pnp_unregister_driver(&c6xdigio_pnp_driver);
+	comedi_driver_unregister(&c6xdigio_driver);
+}
+module_exit(c6xdigio_module_exit);
 
 MODULE_AUTHOR("Comedi https://www.comedi.org");
 MODULE_DESCRIPTION("Comedi driver for the C6x_DIGIO DSP daughter card");

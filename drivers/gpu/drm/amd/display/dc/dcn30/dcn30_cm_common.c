@@ -105,9 +105,12 @@ void cm_helper_program_gamcor_xfer_func(
 #define NUMBER_REGIONS     32
 #define NUMBER_SW_SEGMENTS 16
 
-bool cm3_helper_translate_curve_to_hw_format(
-				const struct dc_transfer_func *output_tf,
-				struct pwl_params *lut_params, bool fixpoint)
+#define DC_LOGGER \
+		ctx->logger
+
+bool cm3_helper_translate_curve_to_hw_format(struct dc_context *ctx,
+					     const struct dc_transfer_func *output_tf,
+					     struct pwl_params *lut_params, bool fixpoint)
 {
 	struct curve_points3 *corner_points;
 	struct pwl_result_data *rgb_resulted;
@@ -156,19 +159,26 @@ bool cm3_helper_translate_curve_to_hw_format(
 	}
 
 	for (i = region_end - region_start; i < MAX_REGIONS_NUMBER ; i++)
-		seg_distr[i] = -1;
+		seg_distr[i] = (uint32_t)-1;
 
 	for (k = 0; k < MAX_REGIONS_NUMBER; k++) {
-		if (seg_distr[k] != -1)
+		if (seg_distr[k] != (uint32_t)-1)
 			hw_points += (1 << seg_distr[k]);
 	}
 
+	// DCN3+ have 257 pts in lieu of no separate slope registers
+	// Prior HW had 256 base+slope pairs
+	// Shaper LUT (i.e. fixpoint == true) is still 256 bases and 256 deltas
+	hw_points = fixpoint ? (hw_points - 1) : hw_points;
+
 	j = 0;
-	for (k = 0; k < (region_end - region_start); k++) {
+	uint32_t region_span = (uint32_t)(region_end - region_start);
+	for (k = 0; k < region_span; k++) {
 		increment = NUMBER_SW_SEGMENTS / (1 << seg_distr[k]);
 		start_index = (region_start + k + MAX_LOW_POINT) *
 				NUMBER_SW_SEGMENTS;
-		for (i = start_index; i < start_index + NUMBER_SW_SEGMENTS;
+		int32_t index_end = (int32_t)(start_index + NUMBER_SW_SEGMENTS);
+		for (i = start_index; i < index_end;
 				i += increment) {
 			if (j == hw_points)
 				break;
@@ -223,8 +233,6 @@ bool cm3_helper_translate_curve_to_hw_format(
 	corner_points[1].green.slope = dc_fixpt_zero;
 	corner_points[1].blue.slope = dc_fixpt_zero;
 
-	// DCN3+ have 257 pts in lieu of no separate slope registers
-	// Prior HW had 256 base+slope pairs
 	lut_params->hw_points_num = hw_points + 1;
 
 	k = 0;
@@ -248,7 +256,11 @@ bool cm3_helper_translate_curve_to_hw_format(
 	if (fixpoint == true) {
 		i = 1;
 		while (i != hw_points + 2) {
-			if (i >= hw_points) {
+			uint32_t red_clamp;
+			uint32_t green_clamp;
+			uint32_t blue_clamp;
+
+			if ((uint32_t)i >= hw_points) {
 				if (dc_fixpt_lt(rgb_plus_1->red, rgb->red))
 					rgb_plus_1->red = dc_fixpt_add(rgb->red,
 							rgb_minus_1->delta_red);
@@ -260,9 +272,20 @@ bool cm3_helper_translate_curve_to_hw_format(
 							rgb_minus_1->delta_blue);
 			}
 
-			rgb->delta_red_reg   = dc_fixpt_clamp_u0d10(rgb->delta_red);
-			rgb->delta_green_reg = dc_fixpt_clamp_u0d10(rgb->delta_green);
-			rgb->delta_blue_reg  = dc_fixpt_clamp_u0d10(rgb->delta_blue);
+			rgb->delta_red   = dc_fixpt_sub(rgb_plus_1->red,   rgb->red);
+			rgb->delta_green = dc_fixpt_sub(rgb_plus_1->green, rgb->green);
+			rgb->delta_blue  = dc_fixpt_sub(rgb_plus_1->blue,  rgb->blue);
+
+			red_clamp = dc_fixpt_clamp_u0d14(rgb->delta_red);
+			green_clamp = dc_fixpt_clamp_u0d14(rgb->delta_green);
+			blue_clamp = dc_fixpt_clamp_u0d14(rgb->delta_blue);
+
+			if (red_clamp >> 10 || green_clamp >> 10 || blue_clamp >> 10)
+				DC_LOG_ERROR("Losing delta precision while programming shaper LUT.");
+
+			rgb->delta_red_reg   = red_clamp & 0x3ff;
+			rgb->delta_green_reg = green_clamp & 0x3ff;
+			rgb->delta_blue_reg  = blue_clamp & 0x3ff;
 			rgb->red_reg         = dc_fixpt_clamp_u0d14(rgb->red);
 			rgb->green_reg       = dc_fixpt_clamp_u0d14(rgb->green);
 			rgb->blue_reg        = dc_fixpt_clamp_u0d14(rgb->blue);

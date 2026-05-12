@@ -7,6 +7,7 @@
 #include <linux/path.h>
 #include <linux/fcntl.h>
 #include <linux/errno.h>
+#include <linux/fs_struct.h>
 
 enum { MAX_NESTED_LINKS = 8 };
 
@@ -53,17 +54,18 @@ extern int path_pts(struct path *path);
 
 extern int user_path_at(int, const char __user *, unsigned, struct path *);
 
-struct dentry *lookup_one_qstr_excl(const struct qstr *name,
-				    struct dentry *base,
-				    unsigned int flags);
 extern int kern_path(const char *, unsigned, struct path *);
+struct dentry *kern_path_parent(const char *name, struct path *parent);
 
-extern struct dentry *kern_path_create(int, const char *, struct path *, unsigned int);
-extern struct dentry *user_path_create(int, const char __user *, struct path *, unsigned int);
-extern void done_path_create(struct path *, struct dentry *);
-extern struct dentry *kern_path_locked(const char *, struct path *);
-extern struct dentry *kern_path_locked_negative(const char *, struct path *);
-extern struct dentry *user_path_locked_at(int , const char __user *, struct path *);
+extern struct dentry *start_creating_path(int, const char *, struct path *, unsigned int);
+extern struct dentry *start_creating_user_path(int, const char __user *, struct path *, unsigned int);
+extern void end_creating_path(const struct path *, struct dentry *);
+extern struct dentry *start_removing_path(const char *, struct path *);
+extern struct dentry *start_removing_user_path_at(int , const char __user *, struct path *);
+static inline void end_removing_path(const struct path *path , struct dentry *dentry)
+{
+	end_creating_path(path, dentry);
+}
 int vfs_path_parent_lookup(struct filename *filename, unsigned int flags,
 			   struct path *parent, struct qstr *last, int *type,
 			   const struct path *root);
@@ -80,14 +82,96 @@ struct dentry *lookup_one_unlocked(struct mnt_idmap *idmap,
 struct dentry *lookup_one_positive_unlocked(struct mnt_idmap *idmap,
 					    struct qstr *name,
 					    struct dentry *base);
+struct dentry *lookup_one_positive_killable(struct mnt_idmap *idmap,
+					    struct qstr *name,
+					    struct dentry *base);
+
+struct dentry *start_creating(struct mnt_idmap *idmap, struct dentry *parent,
+			      struct qstr *name);
+struct dentry *start_removing(struct mnt_idmap *idmap, struct dentry *parent,
+			      struct qstr *name);
+struct dentry *start_creating_killable(struct mnt_idmap *idmap,
+				       struct dentry *parent,
+				       struct qstr *name);
+struct dentry *start_removing_killable(struct mnt_idmap *idmap,
+				       struct dentry *parent,
+				       struct qstr *name);
+struct dentry *start_creating_noperm(struct dentry *parent, struct qstr *name);
+struct dentry *start_removing_noperm(struct dentry *parent, struct qstr *name);
+struct dentry *start_creating_dentry(struct dentry *parent,
+				     struct dentry *child);
+struct dentry *start_removing_dentry(struct dentry *parent,
+				     struct dentry *child);
+
+/* end_creating - finish action started with start_creating
+ * @child: dentry returned by start_creating() or vfs_mkdir()
+ *
+ * Unlock and release the child. This can be called after
+ * start_creating() whether that function succeeded or not,
+ * but it is not needed on failure.
+ *
+ * If vfs_mkdir() was called then the value returned from that function
+ * should be given for @child rather than the original dentry, as vfs_mkdir()
+ * may have provided a new dentry.
+ *
+ *
+ * If vfs_mkdir() was not called, then @child will be a valid dentry and
+ * @parent will be ignored.
+ */
+static inline void end_creating(struct dentry *child)
+{
+	end_dirop(child);
+}
+
+/* end_creating_keep - finish action started with start_creating() and return result
+ * @child: dentry returned by start_creating() or vfs_mkdir()
+ *
+ * Unlock and return the child. This can be called after
+ * start_creating() whether that function succeeded or not,
+ * but it is not needed on failure.
+ *
+ * If vfs_mkdir() was called then the value returned from that function
+ * should be given for @child rather than the original dentry, as vfs_mkdir()
+ * may have provided a new dentry.
+ *
+ * Returns: @child, which may be a dentry or an error.
+ *
+ */
+static inline struct dentry *end_creating_keep(struct dentry *child)
+{
+	if (!IS_ERR(child))
+		dget(child);
+	end_dirop(child);
+	return child;
+}
+
+/**
+ * end_removing - finish action started with start_removing
+ * @child:  dentry returned by start_removing()
+ * @parent: dentry given to start_removing()
+ *
+ * Unlock and release the child.
+ *
+ * This is identical to end_dirop().  It can be passed the result of
+ * start_removing() whether that was successful or not, but it not needed
+ * if start_removing() failed.
+ */
+static inline void end_removing(struct dentry *child)
+{
+	end_dirop(child);
+}
 
 extern int follow_down_one(struct path *);
 extern int follow_down(struct path *path, unsigned int flags);
 extern int follow_up(struct path *);
 
-extern struct dentry *lock_rename(struct dentry *, struct dentry *);
-extern struct dentry *lock_rename_child(struct dentry *, struct dentry *);
-extern void unlock_rename(struct dentry *, struct dentry *);
+int start_renaming(struct renamedata *rd, int lookup_flags,
+		   struct qstr *old_last, struct qstr *new_last);
+int start_renaming_dentry(struct renamedata *rd, int lookup_flags,
+			  struct dentry *old_dentry, struct qstr *new_last);
+int start_renaming_two_dentries(struct renamedata *rd,
+				struct dentry *old_dentry, struct dentry *new_dentry);
+void end_renaming(struct renamedata *rd);
 
 /**
  * mode_strip_umask - handle vfs umask stripping

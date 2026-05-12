@@ -10,7 +10,7 @@
 #include "kvm_util.h"
 #include "processor.h"
 
-static void guest_ins_port80(uint8_t *buffer, unsigned int count)
+static void guest_ins_port80(u8 *buffer, unsigned int count)
 {
 	unsigned long end;
 
@@ -26,7 +26,7 @@ static void guest_ins_port80(uint8_t *buffer, unsigned int count)
 
 static void guest_code(void)
 {
-	uint8_t buffer[8192];
+	u8 buffer[8192];
 	int i;
 
 	/*
@@ -85,7 +85,7 @@ int main(int argc, char *argv[])
 			regs.rcx = 1;
 		if (regs.rcx == 3)
 			regs.rcx = 8192;
-		memset((void *)run + run->io.data_offset, 0xaa, 4096);
+		memset((void *)run + run->io.data_offset, 0xaa, PAGE_SIZE);
 		vcpu_regs_set(vcpu, &regs);
 	}
 

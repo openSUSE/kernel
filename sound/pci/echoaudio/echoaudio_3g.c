@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /****************************************************************************
 
    Copyright Echo Digital Audio Corporation (c) 1998 - 2004
@@ -5,22 +6,6 @@
    www.echoaudio.com
 
    This file is part of Echo Digital Audio's generic driver library.
-
-   Echo Digital Audio's generic driver library is free software;
-   you can redistribute it and/or modify it under the terms of
-   the GNU General Public License as published by the Free Software
-   Foundation.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place - Suite 330, Boston,
-   MA  02111-1307, USA.
-
    *************************************************************************
 
  Translation from C++ and adaptation for use in ALSA-Driver
@@ -119,7 +104,7 @@ static int set_digital_mode(struct echoaudio *chip, u8 mode)
 	 * updated by the DSP comm object. */
 	if (err >= 0 && previous_mode != mode &&
 	    (previous_mode == DIGITAL_MODE_ADAT || mode == DIGITAL_MODE_ADAT)) {
-		spin_lock_irq(&chip->lock);
+		guard(spinlock_irq)(&chip->lock);
 		for (o = 0; o < num_busses_out(chip); o++)
 			for (i = 0; i < num_busses_in(chip); i++)
 				set_monitor_gain(chip, o, i,
@@ -134,7 +119,6 @@ static int set_digital_mode(struct echoaudio *chip, u8 mode)
 		for (o = 0; o < num_busses_out(chip); o++)
 			set_output_gain(chip, o, chip->output_gain[o]);
 		update_output_line_level(chip);
-		spin_unlock_irq(&chip->lock);
 	}
 
 	return err;
@@ -396,7 +380,7 @@ static int dsp_set_digital_mode(struct echoaudio *chip, u8 mode)
 		return -EINVAL;
 	}
 
-	spin_lock_irq(&chip->lock);
+	guard(spinlock_irq)(&chip->lock);
 
 	if (incompatible_clock) {
 		chip->sample_rate = 48000;
@@ -422,7 +406,6 @@ static int dsp_set_digital_mode(struct echoaudio *chip, u8 mode)
 	}
 
 	err = write_control_reg(chip, control_reg, get_frq_reg(chip), 1);
-	spin_unlock_irq(&chip->lock);
 	if (err < 0)
 		return err;
 	chip->digital_mode = mode;

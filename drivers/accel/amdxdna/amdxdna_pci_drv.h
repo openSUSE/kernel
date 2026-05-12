@@ -6,6 +6,10 @@
 #ifndef _AMDXDNA_PCI_DRV_H_
 #define _AMDXDNA_PCI_DRV_H_
 
+#include <drm/amdxdna_accel.h>
+#include <drm/drm_print.h>
+#include <linux/iommu.h>
+#include <linux/iova.h>
 #include <linux/workqueue.h>
 #include <linux/xarray.h>
 
@@ -51,14 +55,24 @@ struct amdxdna_dev_ops {
 	void (*fini)(struct amdxdna_dev *xdna);
 	int (*resume)(struct amdxdna_dev *xdna);
 	int (*suspend)(struct amdxdna_dev *xdna);
+	int (*sriov_configure)(struct amdxdna_dev *xdna, int num_vfs);
 	int (*hwctx_init)(struct amdxdna_hwctx *hwctx);
 	void (*hwctx_fini)(struct amdxdna_hwctx *hwctx);
 	int (*hwctx_config)(struct amdxdna_hwctx *hwctx, u32 type, u64 value, void *buf, u32 size);
+	int (*hwctx_sync_debug_bo)(struct amdxdna_hwctx *hwctx, u32 debug_bo_hdl);
 	void (*hmm_invalidate)(struct amdxdna_gem_obj *abo, unsigned long cur_seq);
 	int (*cmd_submit)(struct amdxdna_hwctx *hwctx, struct amdxdna_sched_job *job, u64 *seq);
 	int (*get_aie_info)(struct amdxdna_client *client, struct amdxdna_drm_get_info *args);
 	int (*set_aie_state)(struct amdxdna_client *client, struct amdxdna_drm_set_state *args);
 	int (*get_array)(struct amdxdna_client *client, struct amdxdna_drm_get_array *args);
+	int (*get_dev_revision)(struct amdxdna_dev *xdna, u32 *rev);
+};
+
+struct amdxdna_fw_feature_tbl {
+	u64 features;
+	u32 major;
+	u32 max_minor;
+	u32 min_minor;
 };
 
 /*
@@ -76,8 +90,10 @@ struct amdxdna_dev_info {
 	u32				dev_mem_buf_shift;
 	u64				dev_mem_base;
 	size_t				dev_mem_size;
-	char				*vbnv;
+	const char			*default_vbnv;
+	const struct amdxdna_rev_vbnv	*rev_vbnv_tbl;
 	const struct amdxdna_dev_priv	*dev_priv;
+	const struct amdxdna_fw_feature_tbl *fw_feature_tbl;
 	const struct amdxdna_dev_ops	*ops;
 };
 
@@ -87,6 +103,8 @@ struct amdxdna_fw_ver {
 	u32 sub;
 	u32 build;
 };
+
+struct amdxdna_carveout;
 
 struct amdxdna_dev {
 	struct drm_device		ddev;
@@ -99,6 +117,14 @@ struct amdxdna_dev {
 	struct amdxdna_fw_ver		fw_ver;
 	struct rw_semaphore		notifier_lock; /* for mmu notifier*/
 	struct workqueue_struct		*notifier_wq;
+
+	struct iommu_group		*group;
+	struct iommu_domain		*domain;
+	struct iova_domain		iovad;
+	/* Accurate board name queried from firmware, or default_vbnv as fallback */
+	const char			*vbnv;
+
+	struct amdxdna_carveout		*carveout;
 };
 
 /*
@@ -128,6 +154,11 @@ struct amdxdna_client {
 
 	struct iommu_sva		*sva;
 	int				pasid;
+	struct mm_struct		*mm;
+
+	size_t				heap_usage;
+	size_t				total_bo_usage;
+	size_t				total_int_bo_usage;
 };
 
 #define amdxdna_for_each_hwctx(client, hwctx_id, entry)		\
@@ -135,7 +166,7 @@ struct amdxdna_client {
 
 /* Add device info below */
 extern const struct amdxdna_dev_info dev_npu1_info;
-extern const struct amdxdna_dev_info dev_npu2_info;
+extern const struct amdxdna_dev_info dev_npu3_pf_info;
 extern const struct amdxdna_dev_info dev_npu4_info;
 extern const struct amdxdna_dev_info dev_npu5_info;
 extern const struct amdxdna_dev_info dev_npu6_info;
@@ -143,4 +174,21 @@ extern const struct amdxdna_dev_info dev_npu6_info;
 int amdxdna_sysfs_init(struct amdxdna_dev *xdna);
 void amdxdna_sysfs_fini(struct amdxdna_dev *xdna);
 
+int amdxdna_iommu_init(struct amdxdna_dev *xdna);
+void amdxdna_iommu_fini(struct amdxdna_dev *xdna);
+void *amdxdna_iommu_alloc(struct amdxdna_dev *xdna, size_t size, dma_addr_t *dma_addr);
+void amdxdna_iommu_free(struct amdxdna_dev *xdna, size_t size,
+			void *cpu_addr, dma_addr_t dma_addr);
+int amdxdna_dma_map_bo(struct amdxdna_dev *xdna, struct amdxdna_gem_obj *abo);
+void amdxdna_dma_unmap_bo(struct amdxdna_dev *xdna, struct amdxdna_gem_obj *abo);
+
+static inline bool amdxdna_iova_on(struct amdxdna_dev *xdna)
+{
+	return !!xdna->domain;
+}
+
+static inline bool amdxdna_pasid_on(struct amdxdna_client *client)
+{
+	return client->pasid != IOMMU_PASID_INVALID;
+}
 #endif /* _AMDXDNA_PCI_DRV_H_ */

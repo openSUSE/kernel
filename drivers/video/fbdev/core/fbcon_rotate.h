@@ -19,78 +19,19 @@
         (fb_scrollmode(s) == SCROLL_REDRAW || fb_scrollmode(s) == SCROLL_MOVE || !(i)->fix.xpanstep) ? \
         (i)->var.xres : (i)->var.xres_virtual; })
 
+int fbcon_rotate_font(struct fb_info *info, struct vc_data *vc);
 
-static inline int pattern_test_bit(u32 x, u32 y, u32 pitch, const char *pat)
-{
-	u32 tmp = (y * pitch) + x, index = tmp / 8,  bit = tmp % 8;
+#if defined(CONFIG_FRAMEBUFFER_CONSOLE_ROTATION)
+void fbcon_set_bitops_cw(struct fbcon_par *par);
+void fbcon_set_bitops_ud(struct fbcon_par *par);
+void fbcon_set_bitops_ccw(struct fbcon_par *par);
+#else
+static inline void fbcon_set_bitops_cw(struct fbcon_par *par)
+{ }
+static inline void fbcon_set_bitops_ud(struct fbcon_par *par)
+{ }
+static inline void fbcon_set_bitops_ccw(struct fbcon_par *par)
+{ }
+#endif
 
-	pat +=index;
-	return (*pat) & (0x80 >> bit);
-}
-
-static inline void pattern_set_bit(u32 x, u32 y, u32 pitch, char *pat)
-{
-	u32 tmp = (y * pitch) + x, index = tmp / 8, bit = tmp % 8;
-
-	pat += index;
-
-	(*pat) |= 0x80 >> bit;
-}
-
-static inline void rotate_ud(const char *in, char *out, u32 width, u32 height)
-{
-	int i, j;
-	int shift = (8 - (width % 8)) & 7;
-
-	width = (width + 7) & ~7;
-
-	for (i = 0; i < height; i++) {
-		for (j = 0; j < width - shift; j++) {
-			if (pattern_test_bit(j, i, width, in))
-				pattern_set_bit(width - (1 + j + shift),
-						height - (1 + i),
-						width, out);
-		}
-
-	}
-}
-
-static inline void rotate_cw(const char *in, char *out, u32 width, u32 height)
-{
-	int i, j, h = height, w = width;
-	int shift = (8 - (height % 8)) & 7;
-
-	width = (width + 7) & ~7;
-	height = (height + 7) & ~7;
-
-	for (i = 0; i < h; i++) {
-		for (j = 0; j < w; j++) {
-			if (pattern_test_bit(j, i, width, in))
-				pattern_set_bit(height - 1 - i - shift, j,
-						height, out);
-
-		}
-	}
-}
-
-static inline void rotate_ccw(const char *in, char *out, u32 width, u32 height)
-{
-	int i, j, h = height, w = width;
-	int shift = (8 - (width % 8)) & 7;
-
-	width = (width + 7) & ~7;
-	height = (height + 7) & ~7;
-
-	for (i = 0; i < h; i++) {
-		for (j = 0; j < w; j++) {
-			if (pattern_test_bit(j, i, width, in))
-				pattern_set_bit(i, width - 1 - j - shift,
-						height, out);
-		}
-	}
-}
-
-extern void fbcon_rotate_cw(struct fbcon_ops *ops);
-extern void fbcon_rotate_ud(struct fbcon_ops *ops);
-extern void fbcon_rotate_ccw(struct fbcon_ops *ops);
 #endif

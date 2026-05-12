@@ -8,6 +8,7 @@
  * Author: Jingoo Han <jg1.han@samsung.com>
  */
 
+#include <linux/align.h>
 #include <linux/iopoll.h>
 #include <linux/irqchip/chained_irq.h>
 #include <linux/irqchip/irq-msi-lib.h>
@@ -22,55 +23,65 @@
 #include "pcie-designware.h"
 
 static struct pci_ops dw_pcie_ops;
+static struct pci_ops dw_pcie_ecam_ops;
 static struct pci_ops dw_child_pcie_ops;
+
+#ifdef CONFIG_SMP
+static void dw_irq_noop(struct irq_data *d) { }
+#endif
+
+static bool dw_pcie_init_dev_msi_info(struct device *dev, struct irq_domain *domain,
+				      struct irq_domain *real_parent, struct msi_domain_info *info)
+{
+	if (!msi_lib_init_dev_msi_info(dev, domain, real_parent, info))
+		return false;
+
+#ifdef CONFIG_SMP
+	info->chip->irq_ack = dw_irq_noop;
+	info->chip->irq_pre_redirect = irq_chip_pre_redirect_parent;
+#else
+	info->chip->irq_ack = irq_chip_ack_parent;
+#endif
+	return true;
+}
 
 #define DW_PCIE_MSI_FLAGS_REQUIRED (MSI_FLAG_USE_DEF_DOM_OPS		| \
 				    MSI_FLAG_USE_DEF_CHIP_OPS		| \
-				    MSI_FLAG_NO_AFFINITY		| \
 				    MSI_FLAG_PCI_MSI_MASK_PARENT)
 #define DW_PCIE_MSI_FLAGS_SUPPORTED (MSI_FLAG_MULTI_PCI_MSI		| \
 				     MSI_FLAG_PCI_MSIX			| \
 				     MSI_GENERIC_FLAGS_MASK)
 
+#define IS_256MB_ALIGNED(x) IS_ALIGNED(x, SZ_256M)
+
 static const struct msi_parent_ops dw_pcie_msi_parent_ops = {
 	.required_flags		= DW_PCIE_MSI_FLAGS_REQUIRED,
 	.supported_flags	= DW_PCIE_MSI_FLAGS_SUPPORTED,
 	.bus_select_token	= DOMAIN_BUS_PCI_MSI,
-	.chip_flags		= MSI_CHIP_FLAG_SET_ACK,
 	.prefix			= "DW-",
-	.init_dev_msi_info	= msi_lib_init_dev_msi_info,
+	.init_dev_msi_info	= dw_pcie_init_dev_msi_info,
 };
 
 /* MSI int handler */
-irqreturn_t dw_handle_msi_irq(struct dw_pcie_rp *pp)
+void dw_handle_msi_irq(struct dw_pcie_rp *pp)
 {
-	int i, pos;
-	unsigned long val;
-	u32 status, num_ctrls;
-	irqreturn_t ret = IRQ_NONE;
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
+	unsigned int i, num_ctrls;
 
 	num_ctrls = pp->num_vectors / MAX_MSI_IRQS_PER_CTRL;
 
 	for (i = 0; i < num_ctrls; i++) {
-		status = dw_pcie_readl_dbi(pci, PCIE_MSI_INTR0_STATUS +
-					   (i * MSI_REG_CTRL_BLOCK_SIZE));
+		unsigned int reg_off = i * MSI_REG_CTRL_BLOCK_SIZE;
+		unsigned int irq_off = i * MAX_MSI_IRQS_PER_CTRL;
+		unsigned long status, pos;
+
+		status = dw_pcie_readl_dbi(pci, PCIE_MSI_INTR0_STATUS + reg_off);
 		if (!status)
 			continue;
 
-		ret = IRQ_HANDLED;
-		val = status;
-		pos = 0;
-		while ((pos = find_next_bit(&val, MAX_MSI_IRQS_PER_CTRL,
-					    pos)) != MAX_MSI_IRQS_PER_CTRL) {
-			generic_handle_domain_irq(pp->irq_domain,
-						  (i * MAX_MSI_IRQS_PER_CTRL) +
-						  pos);
-			pos++;
-		}
+		for_each_set_bit(pos, &status, MAX_MSI_IRQS_PER_CTRL)
+			generic_handle_demux_domain_irq(pp->irq_domain, irq_off + pos);
 	}
-
-	return ret;
 }
 
 /* Chained MSI interrupt service routine */
@@ -91,13 +102,10 @@ static void dw_pci_setup_msi_msg(struct irq_data *d, struct msi_msg *msg)
 {
 	struct dw_pcie_rp *pp = irq_data_get_irq_chip_data(d);
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
-	u64 msi_target;
-
-	msi_target = (u64)pp->msi_data;
+	u64 msi_target = (u64)pp->msi_data;
 
 	msg->address_lo = lower_32_bits(msi_target);
 	msg->address_hi = upper_32_bits(msi_target);
-
 	msg->data = d->hwirq;
 
 	dev_dbg(pci->dev, "msi#%d address_hi %#x address_lo %#x\n",
@@ -109,18 +117,14 @@ static void dw_pci_bottom_mask(struct irq_data *d)
 	struct dw_pcie_rp *pp = irq_data_get_irq_chip_data(d);
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
 	unsigned int res, bit, ctrl;
-	unsigned long flags;
 
-	raw_spin_lock_irqsave(&pp->lock, flags);
-
+	guard(raw_spinlock)(&pp->lock);
 	ctrl = d->hwirq / MAX_MSI_IRQS_PER_CTRL;
 	res = ctrl * MSI_REG_CTRL_BLOCK_SIZE;
 	bit = d->hwirq % MAX_MSI_IRQS_PER_CTRL;
 
 	pp->irq_mask[ctrl] |= BIT(bit);
 	dw_pcie_writel_dbi(pci, PCIE_MSI_INTR0_MASK + res, pp->irq_mask[ctrl]);
-
-	raw_spin_unlock_irqrestore(&pp->lock, flags);
 }
 
 static void dw_pci_bottom_unmask(struct irq_data *d)
@@ -128,18 +132,14 @@ static void dw_pci_bottom_unmask(struct irq_data *d)
 	struct dw_pcie_rp *pp = irq_data_get_irq_chip_data(d);
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
 	unsigned int res, bit, ctrl;
-	unsigned long flags;
 
-	raw_spin_lock_irqsave(&pp->lock, flags);
-
+	guard(raw_spinlock)(&pp->lock);
 	ctrl = d->hwirq / MAX_MSI_IRQS_PER_CTRL;
 	res = ctrl * MSI_REG_CTRL_BLOCK_SIZE;
 	bit = d->hwirq % MAX_MSI_IRQS_PER_CTRL;
 
 	pp->irq_mask[ctrl] &= ~BIT(bit);
 	dw_pcie_writel_dbi(pci, PCIE_MSI_INTR0_MASK + res, pp->irq_mask[ctrl]);
-
-	raw_spin_unlock_irqrestore(&pp->lock, flags);
 }
 
 static void dw_pci_bottom_ack(struct irq_data *d)
@@ -156,54 +156,48 @@ static void dw_pci_bottom_ack(struct irq_data *d)
 }
 
 static struct irq_chip dw_pci_msi_bottom_irq_chip = {
-	.name = "DWPCI-MSI",
-	.irq_ack = dw_pci_bottom_ack,
-	.irq_compose_msi_msg = dw_pci_setup_msi_msg,
-	.irq_mask = dw_pci_bottom_mask,
-	.irq_unmask = dw_pci_bottom_unmask,
+	.name			= "DWPCI-MSI",
+	.irq_compose_msi_msg	= dw_pci_setup_msi_msg,
+	.irq_mask		= dw_pci_bottom_mask,
+	.irq_unmask		= dw_pci_bottom_unmask,
+#ifdef CONFIG_SMP
+	.irq_ack		= dw_irq_noop,
+	.irq_pre_redirect	= dw_pci_bottom_ack,
+	.irq_set_affinity	= irq_chip_redirect_set_affinity,
+#else
+	.irq_ack		= dw_pci_bottom_ack,
+#endif
 };
 
-static int dw_pcie_irq_domain_alloc(struct irq_domain *domain,
-				    unsigned int virq, unsigned int nr_irqs,
-				    void *args)
+static int dw_pcie_irq_domain_alloc(struct irq_domain *domain, unsigned int virq,
+				    unsigned int nr_irqs, void *args)
 {
 	struct dw_pcie_rp *pp = domain->host_data;
-	unsigned long flags;
-	u32 i;
 	int bit;
 
-	raw_spin_lock_irqsave(&pp->lock, flags);
-
-	bit = bitmap_find_free_region(pp->msi_irq_in_use, pp->num_vectors,
-				      order_base_2(nr_irqs));
-
-	raw_spin_unlock_irqrestore(&pp->lock, flags);
+	scoped_guard (raw_spinlock_irq, &pp->lock) {
+		bit = bitmap_find_free_region(pp->msi_irq_in_use, pp->num_vectors,
+					      order_base_2(nr_irqs));
+	}
 
 	if (bit < 0)
 		return -ENOSPC;
 
-	for (i = 0; i < nr_irqs; i++)
-		irq_domain_set_info(domain, virq + i, bit + i,
-				    pp->msi_irq_chip,
-				    pp, handle_edge_irq,
-				    NULL, NULL);
-
+	for (unsigned int i = 0; i < nr_irqs; i++) {
+		irq_domain_set_info(domain, virq + i, bit + i, pp->msi_irq_chip,
+				    pp, handle_edge_irq, NULL, NULL);
+	}
 	return 0;
 }
 
-static void dw_pcie_irq_domain_free(struct irq_domain *domain,
-				    unsigned int virq, unsigned int nr_irqs)
+static void dw_pcie_irq_domain_free(struct irq_domain *domain, unsigned int virq,
+				    unsigned int nr_irqs)
 {
 	struct irq_data *d = irq_domain_get_irq_data(domain, virq);
 	struct dw_pcie_rp *pp = domain->host_data;
-	unsigned long flags;
 
-	raw_spin_lock_irqsave(&pp->lock, flags);
-
-	bitmap_release_region(pp->msi_irq_in_use, d->hwirq,
-			      order_base_2(nr_irqs));
-
-	raw_spin_unlock_irqrestore(&pp->lock, flags);
+	guard(raw_spinlock_irq)(&pp->lock);
+	bitmap_release_region(pp->msi_irq_in_use, d->hwirq, order_base_2(nr_irqs));
 }
 
 static const struct irq_domain_ops dw_pcie_msi_domain_ops = {
@@ -229,6 +223,7 @@ int dw_pcie_allocate_domains(struct dw_pcie_rp *pp)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(dw_pcie_allocate_domains);
 
 void dw_pcie_free_msi(struct dw_pcie_rp *pp)
 {
@@ -236,8 +231,7 @@ void dw_pcie_free_msi(struct dw_pcie_rp *pp)
 
 	for (ctrl = 0; ctrl < MAX_MSI_CTRLS; ctrl++) {
 		if (pp->msi_irq[ctrl] > 0)
-			irq_set_chained_handler_and_data(pp->msi_irq[ctrl],
-							 NULL, NULL);
+			irq_set_chained_handler_and_data(pp->msi_irq[ctrl], NULL, NULL);
 	}
 
 	irq_domain_remove(pp->irq_domain);
@@ -250,7 +244,7 @@ void dw_pcie_msi_init(struct dw_pcie_rp *pp)
 	u64 msi_target = (u64)pp->msi_data;
 	u32 ctrl, num_ctrls;
 
-	if (!pci_msi_enabled() || !pp->has_msi_ctrl)
+	if (!pci_msi_enabled() || !pp->use_imsi_rx)
 		return;
 
 	num_ctrls = pp->num_vectors / MAX_MSI_IRQS_PER_CTRL;
@@ -362,10 +356,20 @@ int dw_pcie_msi_host_init(struct dw_pcie_rp *pp)
 	 * order not to miss MSI TLPs from those devices the MSI target
 	 * address has to be within the lowest 4GB.
 	 *
-	 * Note until there is a better alternative found the reservation is
-	 * done by allocating from the artificially limited DMA-coherent
-	 * memory.
+	 * Per DWC databook r6.21a, section 3.10.2.3, the incoming MWr TLP
+	 * targeting the MSI_CTRL_ADDR is terminated by the iMSI-RX and never
+	 * appears on the AXI bus. So MSI_CTRL_ADDR address doesn't need to be
+	 * mapped and can be any memory that doesn't get allocated for the BAR
+	 * memory. Since most of the platforms provide 32-bit address for
+	 * 'config' region, try cfg0_base as the first option for the MSI target
+	 * address if it's a 32-bit address. Otherwise, try 32-bit and 64-bit
+	 * coherent memory allocation one by one.
 	 */
+	if (!(pp->cfg0_base & GENMASK_ULL(63, 32))) {
+		pp->msi_data = pp->cfg0_base;
+		return 0;
+	}
+
 	ret = dma_set_coherent_mask(dev, DMA_BIT_MASK(32));
 	if (!ret)
 		msi_vaddr = dmam_alloc_coherent(dev, sizeof(u64), &pp->msi_data,
@@ -413,6 +417,92 @@ static void dw_pcie_host_request_msg_tlp_res(struct dw_pcie_rp *pp)
 	}
 }
 
+static int dw_pcie_config_ecam_iatu(struct dw_pcie_rp *pp)
+{
+	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
+	struct dw_pcie_ob_atu_cfg atu = {0};
+	resource_size_t bus_range_max;
+	struct resource_entry *bus;
+	int ret;
+
+	bus = resource_list_first_type(&pp->bridge->windows, IORESOURCE_BUS);
+
+	/*
+	 * Root bus under the host bridge doesn't require any iATU configuration
+	 * as DBI region will be used to access root bus config space.
+	 * Immediate bus under Root Bus, needs type 0 iATU configuration and
+	 * remaining buses need type 1 iATU configuration.
+	 */
+	atu.index = 0;
+	atu.type = PCIE_ATU_TYPE_CFG0;
+	atu.parent_bus_addr = pp->cfg0_base + SZ_1M;
+	/* 1MiB is to cover 1 (bus) * 32 (devices) * 8 (functions) */
+	atu.size = SZ_1M;
+	atu.ctrl2 = PCIE_ATU_CFG_SHIFT_MODE_ENABLE;
+	ret = dw_pcie_prog_outbound_atu(pci, &atu);
+	if (ret)
+		return ret;
+
+	bus_range_max = resource_size(bus->res);
+
+	if (bus_range_max < 2)
+		return 0;
+
+	/* Configure remaining buses in type 1 iATU configuration */
+	atu.index = 1;
+	atu.type = PCIE_ATU_TYPE_CFG1;
+	atu.parent_bus_addr = pp->cfg0_base + SZ_2M;
+	atu.size = (SZ_1M * bus_range_max) - SZ_2M;
+	atu.ctrl2 = PCIE_ATU_CFG_SHIFT_MODE_ENABLE;
+
+	return dw_pcie_prog_outbound_atu(pci, &atu);
+}
+
+static int dw_pcie_create_ecam_window(struct dw_pcie_rp *pp, struct resource *res)
+{
+	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
+	struct device *dev = pci->dev;
+	struct resource_entry *bus;
+
+	bus = resource_list_first_type(&pp->bridge->windows, IORESOURCE_BUS);
+	if (!bus)
+		return -ENODEV;
+
+	pp->cfg = pci_ecam_create(dev, res, bus->res, &pci_generic_ecam_ops);
+	if (IS_ERR(pp->cfg))
+		return PTR_ERR(pp->cfg);
+
+	return 0;
+}
+
+static bool dw_pcie_ecam_enabled(struct dw_pcie_rp *pp, struct resource *config_res)
+{
+	struct resource *bus_range;
+	u64 nr_buses;
+
+	/* Vendor glue drivers may implement their own ECAM mechanism */
+	if (pp->native_ecam)
+		return false;
+
+	/*
+	 * PCIe spec r6.0, sec 7.2.2 mandates the base address used for ECAM to
+	 * be aligned on a 2^(n+20) byte boundary, where n is the number of bits
+	 * used for representing 'bus' in BDF. Since the DWC cores always use 8
+	 * bits for representing 'bus', the base address has to be aligned to
+	 * 2^28 byte boundary, which is 256 MiB.
+	 */
+	if (!IS_256MB_ALIGNED(config_res->start))
+		return false;
+
+	bus_range = resource_list_first_type(&pp->bridge->windows, IORESOURCE_BUS)->res;
+	if (!bus_range)
+		return false;
+
+	nr_buses = resource_size(config_res) >> PCIE_ECAM_BUS_SHIFT;
+
+	return nr_buses >= resource_size(bus_range);
+}
+
 static int dw_pcie_host_get_resources(struct dw_pcie_rp *pp)
 {
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
@@ -421,10 +511,6 @@ static int dw_pcie_host_get_resources(struct dw_pcie_rp *pp)
 	struct resource_entry *win;
 	struct resource *res;
 	int ret;
-
-	ret = dw_pcie_get_resources(pci);
-	if (ret)
-		return ret;
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "config");
 	if (!res) {
@@ -435,9 +521,32 @@ static int dw_pcie_host_get_resources(struct dw_pcie_rp *pp)
 	pp->cfg0_size = resource_size(res);
 	pp->cfg0_base = res->start;
 
-	pp->va_cfg0_base = devm_pci_remap_cfg_resource(dev, res);
-	if (IS_ERR(pp->va_cfg0_base))
-		return PTR_ERR(pp->va_cfg0_base);
+	pp->ecam_enabled = dw_pcie_ecam_enabled(pp, res);
+	if (pp->ecam_enabled) {
+		ret = dw_pcie_create_ecam_window(pp, res);
+		if (ret)
+			return ret;
+
+		pp->bridge->ops = &dw_pcie_ecam_ops;
+		pp->bridge->sysdata = pp->cfg;
+		pp->cfg->priv = pp;
+	} else {
+		pp->va_cfg0_base = devm_pci_remap_cfg_resource(dev, res);
+		if (IS_ERR(pp->va_cfg0_base))
+			return PTR_ERR(pp->va_cfg0_base);
+
+		/* Set default bus ops */
+		pp->bridge->ops = &dw_pcie_ops;
+		pp->bridge->child_ops = &dw_child_pcie_ops;
+		pp->bridge->sysdata = pp;
+	}
+
+	ret = dw_pcie_get_resources(pci);
+	if (ret) {
+		if (pp->cfg)
+			pci_ecam_free(pp->cfg);
+		return ret;
+	}
 
 	/* Get the I/O range from DT */
 	win = resource_list_first_type(&pp->bridge->windows, IORESOURCE_IO);
@@ -476,26 +585,22 @@ int dw_pcie_host_init(struct dw_pcie_rp *pp)
 	if (ret)
 		return ret;
 
-	/* Set default bus ops */
-	bridge->ops = &dw_pcie_ops;
-	bridge->child_ops = &dw_child_pcie_ops;
-
 	if (pp->ops->init) {
 		ret = pp->ops->init(pp);
 		if (ret)
-			return ret;
+			goto err_free_ecam;
 	}
 
 	if (pci_msi_enabled()) {
-		pp->has_msi_ctrl = !(pp->ops->msi_init ||
+		pp->use_imsi_rx = !(pp->ops->msi_init ||
 				     of_property_present(np, "msi-parent") ||
 				     of_property_present(np, "msi-map"));
 
 		/*
-		 * For the has_msi_ctrl case the default assignment is handled
+		 * For the use_imsi_rx case the default assignment is handled
 		 * in the dw_pcie_msi_host_init().
 		 */
-		if (!pp->has_msi_ctrl && !pp->num_vectors) {
+		if (!pp->use_imsi_rx && !pp->num_vectors) {
 			pp->num_vectors = MSI_DEF_NUM_VECTORS;
 		} else if (pp->num_vectors > MAX_MSI_IRQS) {
 			dev_err(dev, "Invalid number of vectors\n");
@@ -507,7 +612,7 @@ int dw_pcie_host_init(struct dw_pcie_rp *pp)
 			ret = pp->ops->msi_init(pp);
 			if (ret < 0)
 				goto err_deinit_host;
-		} else if (pp->has_msi_ctrl) {
+		} else if (pp->use_imsi_rx) {
 			ret = dw_pcie_msi_host_init(pp);
 			if (ret < 0)
 				goto err_deinit_host;
@@ -552,15 +657,12 @@ int dw_pcie_host_init(struct dw_pcie_rp *pp)
 	}
 
 	/*
-	 * Note: Skip the link up delay only when a Link Up IRQ is present.
-	 * If there is no Link Up IRQ, we should not bypass the delay
-	 * because that would require users to manually rescan for devices.
+	 * Only fail on timeout error. Other errors indicate the device may
+	 * become available later, so continue without failing.
 	 */
-	if (!pp->use_linkup_irq)
-		/* Ignore errors, the link may come up later */
-		dw_pcie_wait_for_link(pci);
-
-	bridge->sysdata = pp;
+	ret = dw_pcie_wait_for_link(pci);
+	if (ret == -ETIMEDOUT)
+		goto err_stop_link;
 
 	ret = pci_host_probe(bridge);
 	if (ret)
@@ -580,12 +682,16 @@ err_remove_edma:
 	dw_pcie_edma_remove(pci);
 
 err_free_msi:
-	if (pp->has_msi_ctrl)
+	if (pp->use_imsi_rx)
 		dw_pcie_free_msi(pp);
 
 err_deinit_host:
 	if (pp->ops->deinit)
 		pp->ops->deinit(pp);
+
+err_free_ecam:
+	if (pp->cfg)
+		pci_ecam_free(pp->cfg);
 
 	return ret;
 }
@@ -604,11 +710,14 @@ void dw_pcie_host_deinit(struct dw_pcie_rp *pp)
 
 	dw_pcie_edma_remove(pci);
 
-	if (pp->has_msi_ctrl)
+	if (pp->use_imsi_rx)
 		dw_pcie_free_msi(pp);
 
 	if (pp->ops->deinit)
 		pp->ops->deinit(pp);
+
+	if (pp->cfg)
+		pci_ecam_free(pp->cfg);
 }
 EXPORT_SYMBOL_GPL(dw_pcie_host_deinit);
 
@@ -722,8 +831,30 @@ void __iomem *dw_pcie_own_conf_map_bus(struct pci_bus *bus, unsigned int devfn, 
 }
 EXPORT_SYMBOL_GPL(dw_pcie_own_conf_map_bus);
 
+static void __iomem *dw_pcie_ecam_conf_map_bus(struct pci_bus *bus, unsigned int devfn, int where)
+{
+	struct pci_config_window *cfg = bus->sysdata;
+	struct dw_pcie_rp *pp = cfg->priv;
+	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
+	unsigned int busn = bus->number;
+
+	if (busn > 0)
+		return pci_ecam_map_bus(bus, devfn, where);
+
+	if (PCI_SLOT(devfn) > 0)
+		return NULL;
+
+	return pci->dbi_base + where;
+}
+
 static struct pci_ops dw_pcie_ops = {
 	.map_bus = dw_pcie_own_conf_map_bus,
+	.read = pci_generic_config_read,
+	.write = pci_generic_config_write,
+};
+
+static struct pci_ops dw_pcie_ecam_ops = {
+	.map_bus = dw_pcie_ecam_conf_map_bus,
 	.read = pci_generic_config_read,
 	.write = pci_generic_config_write,
 };
@@ -733,9 +864,10 @@ static int dw_pcie_iatu_setup(struct dw_pcie_rp *pp)
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
 	struct dw_pcie_ob_atu_cfg atu = { 0 };
 	struct resource_entry *entry;
+	int ob_iatu_index;
+	int ib_iatu_index;
 	int i, ret;
 
-	/* Note the very first outbound ATU is used for CFG IOs */
 	if (!pci->num_ob_windows) {
 		dev_err(pci->dev, "No outbound iATU found\n");
 		return -EINVAL;
@@ -751,37 +883,74 @@ static int dw_pcie_iatu_setup(struct dw_pcie_rp *pp)
 	for (i = 0; i < pci->num_ib_windows; i++)
 		dw_pcie_disable_atu(pci, PCIE_ATU_REGION_DIR_IB, i);
 
-	i = 0;
+	/*
+	 * NOTE: For outbound address translation, outbound iATU at index 0 is
+	 * reserved for CFG IOs (dw_pcie_other_conf_map_bus()), thus start at
+	 * index 1.
+	 *
+	 * If using ECAM, outbound iATU at index 0 and index 1 is reserved for
+	 * CFG IOs.
+	 */
+	if (pp->ecam_enabled) {
+		ob_iatu_index = 2;
+		ret = dw_pcie_config_ecam_iatu(pp);
+		if (ret) {
+			dev_err(pci->dev, "Failed to configure iATU in ECAM mode\n");
+			return ret;
+		}
+	} else {
+		ob_iatu_index = 1;
+	}
+
 	resource_list_for_each_entry(entry, &pp->bridge->windows) {
+		resource_size_t res_size;
+
 		if (resource_type(entry->res) != IORESOURCE_MEM)
 			continue;
 
-		if (pci->num_ob_windows <= ++i)
-			break;
-
-		atu.index = i;
 		atu.type = PCIE_ATU_TYPE_MEM;
 		atu.parent_bus_addr = entry->res->start - pci->parent_bus_offset;
 		atu.pci_addr = entry->res->start - entry->offset;
 
 		/* Adjust iATU size if MSG TLP region was allocated before */
 		if (pp->msg_res && pp->msg_res->parent == entry->res)
-			atu.size = resource_size(entry->res) -
+			res_size = resource_size(entry->res) -
 					resource_size(pp->msg_res);
 		else
-			atu.size = resource_size(entry->res);
+			res_size = resource_size(entry->res);
 
-		ret = dw_pcie_prog_outbound_atu(pci, &atu);
-		if (ret) {
-			dev_err(pci->dev, "Failed to set MEM range %pr\n",
-				entry->res);
-			return ret;
+		while (res_size > 0) {
+			/*
+			 * Return failure if we run out of windows in the
+			 * middle. Otherwise, we would end up only partially
+			 * mapping a single resource.
+			 */
+			if (ob_iatu_index >= pci->num_ob_windows) {
+				dev_err(pci->dev, "Cannot add outbound window for region: %pr\n",
+					entry->res);
+				return -ENOMEM;
+			}
+
+			atu.index = ob_iatu_index;
+			atu.size = MIN(pci->region_limit + 1, res_size);
+
+			ret = dw_pcie_prog_outbound_atu(pci, &atu);
+			if (ret) {
+				dev_err(pci->dev, "Failed to set MEM range %pr\n",
+					entry->res);
+				return ret;
+			}
+
+			ob_iatu_index++;
+			atu.parent_bus_addr += atu.size;
+			atu.pci_addr += atu.size;
+			res_size -= atu.size;
 		}
 	}
 
 	if (pp->io_size) {
-		if (pci->num_ob_windows > ++i) {
-			atu.index = i;
+		if (ob_iatu_index < pci->num_ob_windows) {
+			atu.index = ob_iatu_index;
 			atu.type = PCIE_ATU_TYPE_IO;
 			atu.parent_bus_addr = pp->io_base - pci->parent_bus_offset;
 			atu.pci_addr = pp->io_bus_addr;
@@ -793,39 +962,70 @@ static int dw_pcie_iatu_setup(struct dw_pcie_rp *pp)
 					entry->res);
 				return ret;
 			}
+			ob_iatu_index++;
 		} else {
+			/*
+			 * If there are not enough outbound windows to give I/O
+			 * space its own iATU, the outbound iATU at index 0 will
+			 * be shared between I/O space and CFG IOs, by
+			 * temporarily reconfiguring the iATU to CFG space, in
+			 * order to do a CFG IO, and then immediately restoring
+			 * it to I/O space. This is only implemented when using
+			 * dw_pcie_other_conf_map_bus(), which is not the case
+			 * when using ECAM.
+			 */
+			if (pp->ecam_enabled) {
+				dev_err(pci->dev, "Cannot add outbound window for I/O\n");
+				return -ENOMEM;
+			}
 			pp->cfg0_io_shared = true;
 		}
 	}
 
-	if (pci->num_ob_windows <= i)
-		dev_warn(pci->dev, "Ranges exceed outbound iATU size (%d)\n",
-			 pci->num_ob_windows);
+	if (pp->use_atu_msg) {
+		if (ob_iatu_index >= pci->num_ob_windows) {
+			dev_err(pci->dev, "Cannot add outbound window for MSG TLP\n");
+			return -ENOMEM;
+		}
+		pp->msg_atu_index = ob_iatu_index++;
+	}
 
-	pp->msg_atu_index = i;
-
-	i = 0;
+	ib_iatu_index = 0;
 	resource_list_for_each_entry(entry, &pp->bridge->dma_ranges) {
+		resource_size_t res_start, res_size, window_size;
+
 		if (resource_type(entry->res) != IORESOURCE_MEM)
 			continue;
 
-		if (pci->num_ib_windows <= i)
-			break;
+		res_size = resource_size(entry->res);
+		res_start = entry->res->start;
+		while (res_size > 0) {
+			/*
+			 * Return failure if we run out of windows in the
+			 * middle. Otherwise, we would end up only partially
+			 * mapping a single resource.
+			 */
+			if (ib_iatu_index >= pci->num_ib_windows) {
+				dev_err(pci->dev, "Cannot add inbound window for region: %pr\n",
+					entry->res);
+				return -ENOMEM;
+			}
 
-		ret = dw_pcie_prog_inbound_atu(pci, i++, PCIE_ATU_TYPE_MEM,
-					       entry->res->start,
-					       entry->res->start - entry->offset,
-					       resource_size(entry->res));
-		if (ret) {
-			dev_err(pci->dev, "Failed to set DMA range %pr\n",
-				entry->res);
-			return ret;
+			window_size = MIN(pci->region_limit + 1, res_size);
+			ret = dw_pcie_prog_inbound_atu(pci, ib_iatu_index,
+						       PCIE_ATU_TYPE_MEM, res_start,
+						       res_start - entry->offset, window_size);
+			if (ret) {
+				dev_err(pci->dev, "Failed to set DMA range %pr\n",
+					entry->res);
+				return ret;
+			}
+
+			ib_iatu_index++;
+			res_start += window_size;
+			res_size -= window_size;
 		}
 	}
-
-	if (pci->num_ib_windows <= i)
-		dev_warn(pci->dev, "Dma-ranges exceed inbound iATU size (%u)\n",
-			 pci->num_ib_windows);
 
 	return 0;
 }
@@ -881,7 +1081,7 @@ static void dw_pcie_program_presets(struct dw_pcie_rp *pp, enum pci_bus_speed sp
 static void dw_pcie_config_presets(struct dw_pcie_rp *pp)
 {
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
-	enum pci_bus_speed speed = pcie_link_speed[pci->max_link_speed];
+	enum pci_bus_speed speed = pcie_get_link_speed(pci->max_link_speed);
 
 	/*
 	 * Lane equalization settings need to be applied for all data rates the
@@ -940,13 +1140,15 @@ int dw_pcie_setup_rc(struct dw_pcie_rp *pp)
 		PCI_COMMAND_MASTER | PCI_COMMAND_SERR;
 	dw_pcie_writel_dbi(pci, PCI_COMMAND, val);
 
+	dw_pcie_hide_unsupported_l1ss(pci);
+
 	dw_pcie_config_presets(pp);
 	/*
 	 * If the platform provides its own child bus config accesses, it means
 	 * the platform uses its own address translation component rather than
 	 * ATU, so we should not program the ATU here.
 	 */
-	if (pp->bridge->child_ops == &dw_child_pcie_ops) {
+	if (pp->bridge->child_ops == &dw_child_pcie_ops || pp->ecam_enabled) {
 		ret = dw_pcie_iatu_setup(pp);
 		if (ret)
 			return ret;
@@ -962,6 +1164,17 @@ int dw_pcie_setup_rc(struct dw_pcie_rp *pp)
 	dw_pcie_writel_dbi(pci, PCIE_LINK_WIDTH_SPEED_CONTROL, val);
 
 	dw_pcie_dbi_ro_wr_dis(pci);
+
+	/*
+	 * The iMSI-RX module does not support receiving MSI or MSI-X generated
+	 * by the Root Port. If iMSI-RX is used as the MSI controller, remove
+	 * the MSI and MSI-X capabilities of the Root Port to allow the drivers
+	 * to fall back to INTx instead.
+	 */
+	if (pp->use_imsi_rx && !pp->keep_rp_msi_en) {
+		dw_pcie_remove_capability(pci, PCI_CAP_ID_MSI);
+		dw_pcie_remove_capability(pci, PCI_CAP_ID_MSIX);
+	}
 
 	return 0;
 }
@@ -1006,8 +1219,11 @@ static int dw_pcie_pme_turn_off(struct dw_pcie *pci)
 int dw_pcie_suspend_noirq(struct dw_pcie *pci)
 {
 	u8 offset = dw_pcie_find_capability(pci, PCI_CAP_ID_EXP);
+	int ret = 0;
 	u32 val;
-	int ret;
+
+	if (!dw_pcie_link_up(pci))
+		goto stop_link;
 
 	/*
 	 * If L1SS is supported, then do not put the link into L2 as some
@@ -1024,15 +1240,29 @@ int dw_pcie_suspend_noirq(struct dw_pcie *pci)
 			return ret;
 	}
 
+	/*
+	 * Some SoCs do not support reading the LTSSM register after
+	 * PME_Turn_Off broadcast. For those SoCs, skip waiting for L2/L3 Ready
+	 * state and wait 10ms as recommended in PCIe spec r6.0, sec 5.3.3.2.1.
+	 */
+	if (pci->pp.skip_l23_ready) {
+		mdelay(PCIE_PME_TO_L2_TIMEOUT_US/1000);
+		goto stop_link;
+	}
+
 	ret = read_poll_timeout(dw_pcie_get_ltssm, val,
 				val == DW_PCIE_LTSSM_L2_IDLE ||
 				val <= DW_PCIE_LTSSM_DETECT_WAIT,
 				PCIE_PME_TO_L2_TIMEOUT_US/10,
 				PCIE_PME_TO_L2_TIMEOUT_US, false, pci);
 	if (ret) {
-		/* Only log message when LTSSM isn't in DETECT or POLL */
-		dev_err(pci->dev, "Timeout waiting for L2 entry! LTSSM: 0x%x\n", val);
-		return ret;
+		/*
+		 * Failure is non-fatal since spec r7.0, sec 5.3.3.2.1,
+		 * recommends proceeding with L2/L3 sequence even if one or more
+		 * devices do not respond with PME_TO_Ack after 10ms timeout.
+		 */
+		dev_warn(pci->dev, "Timeout waiting for L2 entry! LTSSM: 0x%x\n", val);
+		ret = 0;
 	}
 
 	/*
@@ -1042,6 +1272,7 @@ int dw_pcie_suspend_noirq(struct dw_pcie *pci)
 	 */
 	udelay(1);
 
+stop_link:
 	dw_pcie_stop_link(pci);
 	if (pci->pp.ops->deinit)
 		pci->pp.ops->deinit(&pci->pp);
@@ -1073,11 +1304,23 @@ int dw_pcie_resume_noirq(struct dw_pcie *pci)
 
 	ret = dw_pcie_start_link(pci);
 	if (ret)
-		return ret;
+		goto err_deinit;
 
 	ret = dw_pcie_wait_for_link(pci);
-	if (ret)
-		return ret;
+	if (ret == -ETIMEDOUT)
+		goto err_stop_link;
+
+	if (pci->pp.ops->post_init)
+		pci->pp.ops->post_init(&pci->pp);
+
+	return 0;
+
+err_stop_link:
+	dw_pcie_stop_link(pci);
+
+err_deinit:
+	if (pci->pp.ops->deinit)
+		pci->pp.ops->deinit(&pci->pp);
 
 	return ret;
 }

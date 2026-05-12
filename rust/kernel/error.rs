@@ -2,7 +2,9 @@
 
 //! Kernel errors.
 //!
-//! C header: [`include/uapi/asm-generic/errno-base.h`](srctree/include/uapi/asm-generic/errno-base.h)
+//! C header: [`include/uapi/asm-generic/errno-base.h`](srctree/include/uapi/asm-generic/errno-base.h)\
+//! C header: [`include/uapi/asm-generic/errno.h`](srctree/include/uapi/asm-generic/errno.h)\
+//! C header: [`include/linux/errno.h`](srctree/include/linux/errno.h)
 
 use crate::{
     alloc::{layout::LayoutError, AllocError},
@@ -65,6 +67,7 @@ pub mod code {
     declare_err!(EDOM, "Math argument out of domain of func.");
     declare_err!(ERANGE, "Math result not representable.");
     declare_err!(EOVERFLOW, "Value too large for defined data type.");
+    declare_err!(EMSGSIZE, "Message too long.");
     declare_err!(ETIMEDOUT, "Connection timed out.");
     declare_err!(ERESTARTSYS, "Restart the system call.");
     declare_err!(ERESTARTNOINTR, "System call was interrupted by a signal and will be restarted.");
@@ -101,8 +104,23 @@ pub struct Error(NonZeroI32);
 impl Error {
     /// Creates an [`Error`] from a kernel error code.
     ///
-    /// It is a bug to pass an out-of-range `errno`. `EINVAL` would
-    /// be returned in such a case.
+    /// `errno` must be within error code range (i.e. `>= -MAX_ERRNO && < 0`).
+    ///
+    /// It is a bug to pass an out-of-range `errno`. [`code::EINVAL`] is returned in such a case.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// assert_eq!(Error::from_errno(-1), EPERM);
+    /// assert_eq!(Error::from_errno(-2), ENOENT);
+    /// ```
+    ///
+    /// The following calls are considered a bug:
+    ///
+    /// ```
+    /// assert_eq!(Error::from_errno(0), EINVAL);
+    /// assert_eq!(Error::from_errno(-1000000), EINVAL);
+    /// ```
     pub fn from_errno(errno: crate::ffi::c_int) -> Error {
         if let Some(error) = Self::try_from_errno(errno) {
             error
@@ -158,13 +176,15 @@ impl Error {
     }
 
     /// Returns a string representing the error, if one exists.
-    #[cfg(not(any(test, testlib)))]
+    #[cfg(not(testlib))]
     pub fn name(&self) -> Option<&'static CStr> {
         // SAFETY: Just an FFI call, there are no extra safety requirements.
         let ptr = unsafe { bindings::errname(-self.0.get()) };
         if ptr.is_null() {
             None
         } else {
+            use crate::str::CStrExt as _;
+
             // SAFETY: The string returned by `errname` is static and `NUL`-terminated.
             Some(unsafe { CStr::from_char_ptr(ptr) })
         }
@@ -175,7 +195,7 @@ impl Error {
     /// When `testlib` is configured, this always returns `None` to avoid the dependency on a
     /// kernel function so that tests that use this (e.g., by calling [`Result::unwrap`]) can still
     /// run in userspace.
-    #[cfg(any(test, testlib))]
+    #[cfg(testlib)]
     pub fn name(&self) -> Option<&'static CStr> {
         None
     }
@@ -197,36 +217,42 @@ impl fmt::Debug for Error {
 }
 
 impl From<AllocError> for Error {
+    #[inline]
     fn from(_: AllocError) -> Error {
         code::ENOMEM
     }
 }
 
 impl From<TryFromIntError> for Error {
+    #[inline]
     fn from(_: TryFromIntError) -> Error {
         code::EINVAL
     }
 }
 
 impl From<Utf8Error> for Error {
+    #[inline]
     fn from(_: Utf8Error) -> Error {
         code::EINVAL
     }
 }
 
 impl From<LayoutError> for Error {
+    #[inline]
     fn from(_: LayoutError) -> Error {
         code::ENOMEM
     }
 }
 
 impl From<fmt::Error> for Error {
+    #[inline]
     fn from(_: fmt::Error) -> Error {
         code::EINVAL
     }
 }
 
 impl From<core::convert::Infallible> for Error {
+    #[inline]
     fn from(e: core::convert::Infallible) -> Error {
         match e {}
     }
@@ -375,8 +401,43 @@ impl From<core::convert::Infallible> for Error {
 /// [Rust documentation]: https://doc.rust-lang.org/book/ch09-02-recoverable-errors-with-result.html
 pub type Result<T = (), E = Error> = core::result::Result<T, E>;
 
-/// Converts an integer as returned by a C kernel function to an error if it's negative, and
-/// `Ok(())` otherwise.
+/// Converts an integer as returned by a C kernel function to a [`Result`].
+///
+/// If the integer is negative, an [`Err`] with an [`Error`] as given by [`Error::from_errno`] is
+/// returned. This means the integer must be `>= -MAX_ERRNO`.
+///
+/// Otherwise, it returns [`Ok`].
+///
+/// It is a bug to pass an out-of-range negative integer. `Err(EINVAL)` is returned in such a case.
+///
+/// # Examples
+///
+/// This function may be used to easily perform early returns with the [`?`] operator when working
+/// with C APIs within Rust abstractions:
+///
+/// ```
+/// # use kernel::error::to_result;
+/// # mod bindings {
+/// #     #![expect(clippy::missing_safety_doc)]
+/// #     use kernel::prelude::*;
+/// #     pub(super) unsafe fn f1() -> c_int { 0 }
+/// #     pub(super) unsafe fn f2() -> c_int { EINVAL.to_errno() }
+/// # }
+/// fn f() -> Result {
+///     // SAFETY: ...
+///     to_result(unsafe { bindings::f1() })?;
+///
+///     // SAFETY: ...
+///     to_result(unsafe { bindings::f2() })?;
+///
+///     // ...
+///
+///     Ok(())
+/// }
+/// # assert_eq!(f(), Err(EINVAL));
+/// ```
+///
+/// [`?`]: https://doc.rust-lang.org/reference/expressions/operator-expr.html#the-question-mark-operator
 pub fn to_result(err: crate::ffi::c_int) -> Result {
     if err < 0 {
         Err(Error::from_errno(err))
@@ -392,6 +453,9 @@ pub fn to_result(err: crate::ffi::c_int) -> Result {
 /// for errors. This function performs the check and converts the "error pointer"
 /// to a normal pointer in an idiomatic fashion.
 ///
+/// Note that a `NULL` pointer is not considered an error pointer, and is returned
+/// as-is, wrapped in [`Ok`].
+///
 /// # Examples
 ///
 /// ```ignore
@@ -405,6 +469,34 @@ pub fn to_result(err: crate::ffi::c_int) -> Result {
 ///     // on `index`.
 ///     from_err_ptr(unsafe { bindings::devm_platform_ioremap_resource(pdev.to_ptr(), index) })
 /// }
+/// ```
+///
+/// ```
+/// # use kernel::error::from_err_ptr;
+/// # mod bindings {
+/// #     #![expect(clippy::missing_safety_doc)]
+/// #     use kernel::prelude::*;
+/// #     pub(super) unsafe fn einval_err_ptr() -> *mut kernel::ffi::c_void {
+/// #         EINVAL.to_ptr()
+/// #     }
+/// #     pub(super) unsafe fn null_ptr() -> *mut kernel::ffi::c_void {
+/// #         core::ptr::null_mut()
+/// #     }
+/// #     pub(super) unsafe fn non_null_ptr() -> *mut kernel::ffi::c_void {
+/// #         0x1234 as *mut kernel::ffi::c_void
+/// #     }
+/// # }
+/// // SAFETY: ...
+/// let einval_err = from_err_ptr(unsafe { bindings::einval_err_ptr() });
+/// assert_eq!(einval_err, Err(EINVAL));
+///
+/// // SAFETY: ...
+/// let null_ok = from_err_ptr(unsafe { bindings::null_ptr() });
+/// assert_eq!(null_ok, Ok(core::ptr::null_mut()));
+///
+/// // SAFETY: ...
+/// let non_null = from_err_ptr(unsafe { bindings::non_null_ptr() }).unwrap();
+/// assert_ne!(non_null, core::ptr::null_mut());
 /// ```
 pub fn from_err_ptr<T>(ptr: *mut T) -> Result<*mut T> {
     // CAST: Casting a pointer to `*const crate::ffi::c_void` is always valid.

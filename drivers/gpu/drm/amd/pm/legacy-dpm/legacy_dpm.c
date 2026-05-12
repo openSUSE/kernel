@@ -302,9 +302,8 @@ int amdgpu_parse_extended_power_table(struct amdgpu_device *adev)
 			ATOM_PPLIB_PhaseSheddingLimits_Record *entry;
 
 			adev->pm.dpm.dyn_state.phase_shedding_limits_table.entries =
-				kcalloc(psl->ucNumEntries,
-					sizeof(struct amdgpu_phase_shedding_limits_entry),
-					GFP_KERNEL);
+				kzalloc_objs(struct amdgpu_phase_shedding_limits_entry,
+					     psl->ucNumEntries);
 			if (!adev->pm.dpm.dyn_state.phase_shedding_limits_table.entries)
 				return -ENOMEM;
 
@@ -503,7 +502,7 @@ int amdgpu_parse_extended_power_table(struct amdgpu_device *adev)
 				(mode_info->atom_context->bios + data_offset +
 				 le16_to_cpu(ext_hdr->usPPMTableOffset));
 			adev->pm.dpm.dyn_state.ppm_table =
-				kzalloc(sizeof(struct amdgpu_ppm_table), GFP_KERNEL);
+				kzalloc_obj(struct amdgpu_ppm_table);
 			if (!adev->pm.dpm.dyn_state.ppm_table)
 				return -ENOMEM;
 			adev->pm.dpm.dyn_state.ppm_table->ppm_design = ppm->ucPpmDesign;
@@ -557,7 +556,7 @@ int amdgpu_parse_extended_power_table(struct amdgpu_device *adev)
 					 le16_to_cpu(ext_hdr->usPowerTuneTableOffset));
 			ATOM_PowerTune_Table *pt;
 			adev->pm.dpm.dyn_state.cac_tdp_table =
-				kzalloc(sizeof(struct amdgpu_cac_tdp_table), GFP_KERNEL);
+				kzalloc_obj(struct amdgpu_cac_tdp_table);
 			if (!adev->pm.dpm.dyn_state.cac_tdp_table)
 				return -ENOMEM;
 			if (rev > 0) {
@@ -771,7 +770,7 @@ static struct amdgpu_ps *amdgpu_dpm_pick_power_state(struct amdgpu_device *adev,
 	int i;
 	struct amdgpu_ps *ps;
 	u32 ui_class;
-	bool single_display = adev->pm.dpm.new_active_crtc_count < 2;
+	bool single_display = adev->pm.pm_display_cfg.num_display < 2;
 
 	/* check if the vblank period is too short to adjust the mclk */
 	if (single_display && adev->powerplay.pp_funcs->vblank_too_short) {
@@ -944,9 +943,6 @@ static int amdgpu_dpm_change_power_state_locked(struct amdgpu_device *adev)
 
 	amdgpu_dpm_post_set_power_state(adev);
 
-	adev->pm.dpm.current_active_crtcs = adev->pm.dpm.new_active_crtcs;
-	adev->pm.dpm.current_active_crtc_count = adev->pm.dpm.new_active_crtc_count;
-
 	if (pp_funcs->force_performance_level) {
 		if (adev->pm.dpm.thermal_active) {
 			enum amd_dpm_forced_level level = adev->pm.dpm.forced_level;
@@ -967,7 +963,8 @@ void amdgpu_legacy_dpm_compute_clocks(void *handle)
 {
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
 
-	amdgpu_dpm_get_active_displays(adev);
+	if (!adev->dc_enabled)
+		amdgpu_dpm_get_display_cfg(adev);
 
 	amdgpu_dpm_change_power_state_locked(adev);
 }

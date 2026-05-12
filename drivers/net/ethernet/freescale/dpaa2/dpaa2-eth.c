@@ -920,7 +920,7 @@ static int dpaa2_eth_build_sg_fd(struct dpaa2_eth_priv *priv,
 	if (unlikely(PAGE_SIZE / sizeof(struct scatterlist) < nr_frags + 1))
 		return -EINVAL;
 
-	scl = kmalloc_array(nr_frags + 1, sizeof(struct scatterlist), GFP_ATOMIC);
+	scl = kmalloc_objs(struct scatterlist, nr_frags + 1, GFP_ATOMIC);
 	if (unlikely(!scl))
 		return -ENOMEM;
 
@@ -1077,8 +1077,7 @@ static int dpaa2_eth_build_single_fd(struct dpaa2_eth_priv *priv,
 	dma_addr_t addr;
 
 	buffer_start = skb->data - dpaa2_eth_needed_headroom(skb);
-	aligned_start = PTR_ALIGN(buffer_start - DPAA2_ETH_TX_BUF_ALIGN,
-				  DPAA2_ETH_TX_BUF_ALIGN);
+	aligned_start = PTR_ALIGN(buffer_start, DPAA2_ETH_TX_BUF_ALIGN);
 	if (aligned_start >= skb->head)
 		buffer_start = aligned_start;
 	else
@@ -3126,7 +3125,7 @@ static struct dpaa2_eth_channel *dpaa2_eth_alloc_channel(struct dpaa2_eth_priv *
 	struct device *dev = priv->net_dev->dev.parent;
 	int err;
 
-	channel = kzalloc(sizeof(*channel), GFP_KERNEL);
+	channel = kzalloc_obj(*channel);
 	if (!channel)
 		return NULL;
 
@@ -3393,7 +3392,7 @@ struct dpaa2_eth_bp *dpaa2_eth_allocate_dpbp(struct dpaa2_eth_priv *priv)
 		return ERR_PTR(err);
 	}
 
-	bp = kzalloc(sizeof(*bp), GFP_KERNEL);
+	bp = kzalloc_obj(*bp);
 	if (!bp) {
 		err = -ENOMEM;
 		goto err_alloc;
@@ -4674,7 +4673,7 @@ static int dpaa2_eth_connect_mac(struct dpaa2_eth_priv *priv)
 		goto out_put_device;
 	}
 
-	mac = kzalloc(sizeof(struct dpaa2_mac), GFP_KERNEL);
+	mac = kzalloc_obj(struct dpaa2_mac);
 	if (!mac) {
 		err = -ENOMEM;
 		goto out_put_device;
@@ -4884,7 +4883,7 @@ static int dpaa2_eth_probe(struct fsl_mc_device *dpni_dev)
 	priv->tx_tstamp_type = HWTSTAMP_TX_OFF;
 	priv->rx_tstamp = false;
 
-	priv->dpaa2_ptp_wq = alloc_workqueue("dpaa2_ptp_wq", 0, 0);
+	priv->dpaa2_ptp_wq = alloc_workqueue("dpaa2_ptp_wq", WQ_PERCPU, 0);
 	if (!priv->dpaa2_ptp_wq) {
 		err = -ENOMEM;
 		goto err_wq_alloc;

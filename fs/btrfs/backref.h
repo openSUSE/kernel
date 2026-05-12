@@ -190,7 +190,7 @@ struct btrfs_backref_share_check_ctx {
 	 * It's very common to have several file extent items that point to the
 	 * same extent (bytenr) but with different offsets and lengths. This
 	 * typically happens for COW writes, partial writes into prealloc
-	 * extents, NOCOW writes after snapshoting a root, hole punching or
+	 * extents, NOCOW writes after snapshotting a root, hole punching or
 	 * reflinking within the same file (less common perhaps).
 	 * So keep a small cache with the lookup results for the extent pointed
 	 * by the last few file extent items. This cache is checked, with a
@@ -241,7 +241,12 @@ char *btrfs_ref_to_path(struct btrfs_root *fs_root, struct btrfs_path *path,
 struct btrfs_data_container *init_data_container(u32 total_bytes);
 struct inode_fs_paths *init_ipath(s32 total_bytes, struct btrfs_root *fs_root,
 					struct btrfs_path *path);
-void free_ipath(struct inode_fs_paths *ipath);
+
+DEFINE_FREE(inode_fs_paths, struct inode_fs_paths *,
+	if (_T) {
+		kvfree(_T->fspath);
+		kfree(_T);
+	})
 
 int btrfs_find_one_extref(struct btrfs_root *root, u64 inode_objectid,
 			  u64 start_off, struct btrfs_path *path,
@@ -414,7 +419,7 @@ struct btrfs_backref_cache {
 	/*
 	 * Whether this cache is for relocation
 	 *
-	 * Reloction backref cache require more info for reloc root compared
+	 * Relocation backref cache require more info for reloc root compared
 	 * to generic backref cache.
 	 */
 	bool is_reloc;

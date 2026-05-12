@@ -41,7 +41,21 @@ void abort(void);
  * PANIC_CPU_INVALID means no CPU has entered panic() or crash_kexec().
  */
 extern atomic_t panic_cpu;
+
+/*
+ * panic_redirect_cpu is used when panic is redirected to a specific CPU via
+ * the panic_force_cpu= boot parameter. It holds the CPU number that originally
+ * triggered the panic before redirection. A value of PANIC_CPU_INVALID means
+ * no redirection has occurred.
+ */
+extern atomic_t panic_redirect_cpu;
 #define PANIC_CPU_INVALID	-1
+
+bool panic_try_start(void);
+void panic_reset(void);
+bool panic_in_progress(void);
+bool panic_on_this_cpu(void);
+bool panic_on_other_cpu(void);
 
 /*
  * Only to be used by arch init code. If the user over-wrote the default
@@ -80,7 +94,6 @@ static inline void set_arch_panic_timeout(int timeout, int arch_default_timeout)
 struct taint_flag {
 	char c_true;		/* character printed when tainted */
 	char c_false;		/* character printed when not tainted */
-	bool module;		/* also show as a per-module taint flag */
 	const char *desc;	/* verbose description of the set taint flag */
 };
 

@@ -40,12 +40,79 @@ static void __always_inline trigger_func(int x) {
 	}
 }
 
-static void subtest_basic_usdt(void)
+#if defined(__x86_64__) || defined(__i386__)
+/*
+ * SIB (Scale-Index-Base) addressing format: "size@(base_reg, index_reg, scale)"
+ * - 'size' is the size in bytes of the array element, and its sign indicates
+ *   whether the type is signed (negative) or unsigned (positive).
+ * - 'base_reg' is the register holding the base address, normally rdx or edx
+ * - 'index_reg' is the register holding the index, normally rax or eax
+ * - 'scale' is the scaling factor (typically 1, 2, 4, or 8), which matches the
+ *    size of the element type.
+ *
+ * For example, for an array of 'short' (signed 2-byte elements), the SIB spec would be:
+ * - size: -2 (negative because 'short' is signed)
+ * - scale: 2 (since sizeof(short) == 2)
+ *
+ * The resulting SIB format: "-2@(%%rdx,%%rax,2)" for x86_64, "-2@(%%edx,%%eax,2)" for i386
+ */
+static volatile short array[] = {-1, -2, -3, -4};
+
+#if defined(__x86_64__)
+#define USDT_SIB_ARG_SPEC -2@(%%rdx,%%rax,2)
+#else
+#define USDT_SIB_ARG_SPEC -2@(%%edx,%%eax,2)
+#endif
+
+unsigned short test_usdt_sib_semaphore SEC(".probes");
+
+static void trigger_sib_spec(void)
+{
+	/*
+	 * Force SIB addressing with inline assembly.
+	 *
+	 * You must compile with -std=gnu99 or -std=c99 to use the
+	 * STAP_PROBE_ASM macro.
+	 *
+	 * The STAP_PROBE_ASM macro generates a quoted string that gets
+	 * inserted between the surrounding assembly instructions. In this
+	 * case, USDT_SIB_ARG_SPEC is embedded directly into the instruction
+	 * stream, creating a probe point between the asm statement boundaries.
+	 * It works fine with gcc/clang.
+	 *
+	 * Register constraints:
+	 * - "d"(array): Binds the 'array' variable to %rdx or %edx register
+	 * - "a"(0): Binds the constant 0 to %rax or %eax register
+	 * These ensure that when USDT_SIB_ARG_SPEC references %%rdx(%edx) and
+	 * %%rax(%eax), they contain the expected values for SIB addressing.
+	 *
+	 * The "memory" clobber prevents the compiler from reordering memory
+	 * accesses around the probe point, ensuring that the probe behavior
+	 * is predictable and consistent.
+	 */
+	asm volatile(
+		STAP_PROBE_ASM(test, usdt_sib, USDT_SIB_ARG_SPEC)
+		:
+		: "d"(array), "a"(0)
+		: "memory"
+	);
+}
+#endif
+
+static void subtest_basic_usdt(bool optimized)
 {
 	LIBBPF_OPTS(bpf_usdt_opts, opts);
 	struct test_usdt *skel;
 	struct test_usdt__bss *bss;
-	int err, i;
+	int err, i, called;
+	const __u64 expected_cookie = 0xcafedeadbeeffeed;
+
+#define TRIGGER(x) ({			\
+	trigger_func(x);		\
+	if (optimized)			\
+		trigger_func(x);	\
+	optimized ? 2 : 1;		\
+	})
 
 	skel = test_usdt__open_and_load();
 	if (!ASSERT_OK_PTR(skel, "skel_open"))
@@ -59,20 +126,29 @@ static void subtest_basic_usdt(void)
 		goto cleanup;
 
 	/* usdt0 won't be auto-attached */
-	opts.usdt_cookie = 0xcafedeadbeeffeed;
+	opts.usdt_cookie = expected_cookie;
 	skel->links.usdt0 = bpf_program__attach_usdt(skel->progs.usdt0,
 						     0 /*self*/, "/proc/self/exe",
 						     "test", "usdt0", &opts);
 	if (!ASSERT_OK_PTR(skel->links.usdt0, "usdt0_link"))
 		goto cleanup;
 
-	trigger_func(1);
+#if defined(__x86_64__) || defined(__i386__)
+	opts.usdt_cookie = expected_cookie;
+	skel->links.usdt_sib = bpf_program__attach_usdt(skel->progs.usdt_sib,
+							 0 /*self*/, "/proc/self/exe",
+							 "test", "usdt_sib", &opts);
+	if (!ASSERT_OK_PTR(skel->links.usdt_sib, "usdt_sib_link"))
+		goto cleanup;
+#endif
 
-	ASSERT_EQ(bss->usdt0_called, 1, "usdt0_called");
-	ASSERT_EQ(bss->usdt3_called, 1, "usdt3_called");
-	ASSERT_EQ(bss->usdt12_called, 1, "usdt12_called");
+	called = TRIGGER(1);
 
-	ASSERT_EQ(bss->usdt0_cookie, 0xcafedeadbeeffeed, "usdt0_cookie");
+	ASSERT_EQ(bss->usdt0_called, called, "usdt0_called");
+	ASSERT_EQ(bss->usdt3_called, called, "usdt3_called");
+	ASSERT_EQ(bss->usdt12_called, called, "usdt12_called");
+
+	ASSERT_EQ(bss->usdt0_cookie, expected_cookie, "usdt0_cookie");
 	ASSERT_EQ(bss->usdt0_arg_cnt, 0, "usdt0_arg_cnt");
 	ASSERT_EQ(bss->usdt0_arg_ret, -ENOENT, "usdt0_arg_ret");
 	ASSERT_EQ(bss->usdt0_arg_size, -ENOENT, "usdt0_arg_size");
@@ -119,11 +195,11 @@ static void subtest_basic_usdt(void)
 	 * bpf_program__attach_usdt() handles this properly and attaches to
 	 * all possible places of USDT invocation.
 	 */
-	trigger_func(2);
+	called += TRIGGER(2);
 
-	ASSERT_EQ(bss->usdt0_called, 2, "usdt0_called");
-	ASSERT_EQ(bss->usdt3_called, 2, "usdt3_called");
-	ASSERT_EQ(bss->usdt12_called, 2, "usdt12_called");
+	ASSERT_EQ(bss->usdt0_called, called, "usdt0_called");
+	ASSERT_EQ(bss->usdt3_called, called, "usdt3_called");
+	ASSERT_EQ(bss->usdt12_called, called, "usdt12_called");
 
 	/* only check values that depend on trigger_func()'s input value */
 	ASSERT_EQ(bss->usdt3_args[0], 2, "usdt3_arg1");
@@ -142,9 +218,9 @@ static void subtest_basic_usdt(void)
 	if (!ASSERT_OK_PTR(skel->links.usdt3, "usdt3_reattach"))
 		goto cleanup;
 
-	trigger_func(3);
+	called += TRIGGER(3);
 
-	ASSERT_EQ(bss->usdt3_called, 3, "usdt3_called");
+	ASSERT_EQ(bss->usdt3_called, called, "usdt3_called");
 	/* this time usdt3 has custom cookie */
 	ASSERT_EQ(bss->usdt3_cookie, 0xBADC00C51E, "usdt3_cookie");
 	ASSERT_EQ(bss->usdt3_arg_cnt, 3, "usdt3_arg_cnt");
@@ -156,9 +232,110 @@ static void subtest_basic_usdt(void)
 	ASSERT_EQ(bss->usdt3_args[1], 42, "usdt3_arg2");
 	ASSERT_EQ(bss->usdt3_args[2], (uintptr_t)&bla, "usdt3_arg3");
 
+#if defined(__x86_64__) || defined(__i386__)
+	trigger_sib_spec();
+	ASSERT_EQ(bss->usdt_sib_called, 1, "usdt_sib_called");
+	ASSERT_EQ(bss->usdt_sib_cookie, expected_cookie, "usdt_sib_cookie");
+	ASSERT_EQ(bss->usdt_sib_arg_cnt, 1, "usdt_sib_arg_cnt");
+	ASSERT_EQ(bss->usdt_sib_arg, nums[0], "usdt_sib_arg");
+	ASSERT_EQ(bss->usdt_sib_arg_ret, 0, "usdt_sib_arg_ret");
+	ASSERT_EQ(bss->usdt_sib_arg_size, sizeof(nums[0]), "usdt_sib_arg_size");
+#endif
+
+cleanup:
+	test_usdt__destroy(skel);
+#undef TRIGGER
+}
+
+#ifdef __x86_64__
+extern void usdt_1(void);
+extern void usdt_2(void);
+
+static unsigned char nop1[1] = { 0x90 };
+static unsigned char nop1_nop5_combo[6] = { 0x90, 0x0f, 0x1f, 0x44, 0x00, 0x00 };
+
+static void *find_instr(void *fn, unsigned char *instr, size_t cnt)
+{
+	int i;
+
+	for (i = 0; i < 10; i++) {
+		if (!memcmp(instr, fn + i, cnt))
+			return fn + i;
+	}
+	return NULL;
+}
+
+static void subtest_optimized_attach(void)
+{
+	struct test_usdt *skel;
+	__u8 *addr_1, *addr_2;
+
+	/* usdt_1 USDT probe has single nop instruction */
+	addr_1 = find_instr(usdt_1, nop1_nop5_combo, 6);
+	if (!ASSERT_NULL(addr_1, "usdt_1_find_nop1_nop5_combo"))
+		return;
+
+	addr_1 = find_instr(usdt_1, nop1, 1);
+	if (!ASSERT_OK_PTR(addr_1, "usdt_1_find_nop1"))
+		return;
+
+	/* usdt_2 USDT probe has nop,nop5 instructions combo */
+	addr_2 = find_instr(usdt_2, nop1_nop5_combo, 6);
+	if (!ASSERT_OK_PTR(addr_2, "usdt_2_find_nop1_nop5_combo"))
+		return;
+
+	skel = test_usdt__open_and_load();
+	if (!ASSERT_OK_PTR(skel, "test_usdt__open_and_load"))
+		return;
+
+	skel->bss->expected_ip = (unsigned long) addr_1;
+
+	/*
+	 * Attach program on top of usdt_1 which is single nop probe,
+	 * so the probe won't get optimized.
+	 */
+	skel->links.usdt_executed = bpf_program__attach_usdt(skel->progs.usdt_executed,
+						     0 /*self*/, "/proc/self/exe",
+						     "optimized_attach", "usdt_1", NULL);
+	if (!ASSERT_OK_PTR(skel->links.usdt_executed, "bpf_program__attach_usdt"))
+		goto cleanup;
+
+	usdt_1();
+	usdt_1();
+
+	/* int3 is on addr_1 address */
+	ASSERT_EQ(*addr_1, 0xcc, "int3");
+	ASSERT_EQ(skel->bss->executed, 2, "executed");
+
+	bpf_link__destroy(skel->links.usdt_executed);
+
+	/* we expect the nop5 ip */
+	skel->bss->expected_ip = (unsigned long) addr_2 + 1;
+
+	/*
+	 * Attach program on top of usdt_2 which is probe defined on top
+	 * of nop1,nop5 combo, so the probe gets optimized on top of nop5.
+	 */
+	skel->links.usdt_executed = bpf_program__attach_usdt(skel->progs.usdt_executed,
+						     0 /*self*/, "/proc/self/exe",
+						     "optimized_attach", "usdt_2", NULL);
+	if (!ASSERT_OK_PTR(skel->links.usdt_executed, "bpf_program__attach_usdt"))
+		goto cleanup;
+
+	usdt_2();
+	usdt_2();
+
+	/* nop stays on addr_2 address */
+	ASSERT_EQ(*addr_2, 0x90, "nop");
+
+	/* call is on addr_2 + 1 address */
+	ASSERT_EQ(*(addr_2 + 1), 0xe8, "call");
+	ASSERT_EQ(skel->bss->executed, 4, "executed");
+
 cleanup:
 	test_usdt__destroy(skel);
 }
+#endif
 
 unsigned short test_usdt_100_semaphore SEC(".probes");
 unsigned short test_usdt_300_semaphore SEC(".probes");
@@ -425,7 +602,13 @@ cleanup:
 void test_usdt(void)
 {
 	if (test__start_subtest("basic"))
-		subtest_basic_usdt();
+		subtest_basic_usdt(false);
+#ifdef __x86_64__
+	if (test__start_subtest("basic_optimized"))
+		subtest_basic_usdt(true);
+	if (test__start_subtest("optimized_attach"))
+		subtest_optimized_attach();
+#endif
 	if (test__start_subtest("multispec"))
 		subtest_multispec_usdt();
 	if (test__start_subtest("urand_auto_attach"))

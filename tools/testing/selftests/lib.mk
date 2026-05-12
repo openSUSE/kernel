@@ -199,6 +199,9 @@ clean: $(if $(TEST_GEN_MODS_DIR),clean_mods_dir)
 # Build with _GNU_SOURCE by default
 CFLAGS += -D_GNU_SOURCE=
 
+# Additional include paths needed by kselftest.h and local headers
+CFLAGS += -I${top_srcdir}/tools/testing/selftests
+
 # Enables to extend CFLAGS and LDFLAGS from command line, e.g.
 # make USERCFLAGS=-Werror USERLDFLAGS=-static
 CFLAGS += $(USERCFLAGS)
@@ -228,7 +231,10 @@ $(OUTPUT)/%:%.S
 	$(LINK.S) $^ $(LDLIBS) -o $@
 endif
 
+# Extract the expected header directory
+khdr_output := $(patsubst %/usr/include,%,$(filter %/usr/include,$(KHDR_INCLUDES)))
+
 headers:
-	$(Q)$(MAKE) -C $(top_srcdir) headers
+	$(Q)$(MAKE) -f $(top_srcdir)/Makefile -C $(khdr_output) headers
 
 .PHONY: run_tests all clean install emit_tests gen_mods_dir clean_mods_dir headers

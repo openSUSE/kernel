@@ -11,13 +11,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <linux/auxvec.h>
+#include <linux/compiler.h>
 #include <sys/auxv.h>
 #include <sys/prctl.h>
 #include <asm/hwcap.h>
 #include <asm/sigcontext.h>
 #include <asm/unistd.h>
 
-#include "../../kselftest.h"
+#include <linux/auxvec.h>
+
+#include "kselftest.h"
 
 #define TESTS_PER_HWCAP 3
 
@@ -52,9 +56,9 @@ static void atomics_sigill(void)
 
 static void cmpbr_sigill(void)
 {
-	/* Not implemented, too complicated and unreliable anyway */
+	asm volatile(".inst 0x74C00040\n" /* CBEQ w0, w0, +8 */
+		     "udf #0" : : : "cc"); /* UDF #0 */
 }
-
 
 static void crc32_sigill(void)
 {
@@ -167,6 +171,18 @@ static void lse128_sigill(void)
 		     : "+r" (memp), "+r" (val0), "+r" (val1)
 		     :
 		     : "cc", "memory");
+}
+
+static void lsfe_sigill(void)
+{
+	float __attribute__ ((aligned (16))) mem;
+	register float *memp asm ("x0") = &mem;
+
+	/* STFADD H0, [X0] */
+	asm volatile(".inst 0x7c20801f"
+		     : "+r" (memp)
+		     :
+		     : "memory");
 }
 
 static void lut_sigill(void)
@@ -460,8 +476,8 @@ static void sve2_sigill(void)
 
 static void sve2p1_sigill(void)
 {
-	/* BFADD Z0.H, Z0.H, Z0.H */
-	asm volatile(".inst 0x65000000" : : : "z0");
+	/* LD1Q {Z0.Q}, P0/Z, [Z0.D, X0] */
+	asm volatile(".inst 0xC400A000" : : : "z0");
 }
 
 static void sve2p2_sigill(void)
@@ -580,6 +596,45 @@ static void lrcpc3_sigill(void)
 	/* LDIAPP w2, w3, [x0] */
 	asm volatile(".inst 0x99431802"
 	              : "=r" (data0), "=r" (data1) : "r" (src) :);
+}
+
+static void ignore_signal(int sig, siginfo_t *info, void *context)
+{
+	ucontext_t *uc = context;
+
+	uc->uc_mcontext.pc += 4;
+}
+
+static void ls64_sigill(void)
+{
+	struct sigaction ign, old;
+	char src[64] __aligned(64) = { 1 };
+
+	/*
+	 * LS64 requires target memory to be Device/Non-cacheable (if
+	 * FEAT_LS64WB not supported) and the completer supports these
+	 * instructions, otherwise we'll receive a SIGBUS. Since we are only
+	 * testing the ABI here, so just ignore the SIGBUS and see if we can
+	 * execute the instructions without receiving a SIGILL. Restore the
+	 * handler of SIGBUS after this test.
+	 */
+	ign.sa_sigaction = ignore_signal;
+	ign.sa_flags = SA_SIGINFO | SA_RESTART;
+	sigemptyset(&ign.sa_mask);
+	sigaction(SIGBUS, &ign, &old);
+
+	register void *xn asm ("x8") = src;
+	register u64 xt_1 asm ("x0");
+
+	/* LD64B x0, [x8] */
+	asm volatile(".inst 0xf83fd100" : "=r" (xt_1) : "r" (xn)
+		     : "x1", "x2", "x3", "x4", "x5", "x6", "x7");
+
+	/* ST64B x0, [x8] */
+	asm volatile(".inst 0xf83f9100" : : "r" (xt_1), "r" (xn)
+		     : "x1", "x2", "x3", "x4", "x5", "x6", "x7");
+
+	sigaction(SIGBUS, &old, NULL);
 }
 
 static const struct hwcap_data {
@@ -761,6 +816,13 @@ static const struct hwcap_data {
 		.hwcap_bit = HWCAP2_LSE128,
 		.cpuinfo = "lse128",
 		.sigill_fn = lse128_sigill,
+	},
+	{
+		.name = "LSFE",
+		.at_hwcap = AT_HWCAP3,
+		.hwcap_bit = HWCAP3_LSFE,
+		.cpuinfo = "lsfe",
+		.sigill_fn = lsfe_sigill,
 	},
 	{
 		.name = "LUT",
@@ -1113,6 +1175,14 @@ static const struct hwcap_data {
 		.at_hwcap = AT_HWCAP3,
 		.hwcap_bit = HWCAP3_MTE_STORE_ONLY,
 		.cpuinfo = "mtestoreonly",
+	},
+	{
+		.name = "LS64",
+		.at_hwcap = AT_HWCAP3,
+		.hwcap_bit = HWCAP3_LS64,
+		.cpuinfo = "ls64",
+		.sigill_fn = ls64_sigill,
+		.sigill_reliable = true,
 	},
 };
 

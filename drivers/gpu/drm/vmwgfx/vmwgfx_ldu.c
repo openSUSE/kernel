@@ -310,7 +310,7 @@ static int vmw_kms_ldu_do_bo_dirty(struct vmw_private *dev_priv,
 
 static void
 vmw_ldu_primary_plane_atomic_update(struct drm_plane *plane,
-				    struct drm_atomic_state *state)
+				    struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *old_state = drm_atomic_get_old_plane_state(state,
 									   plane);
@@ -402,6 +402,7 @@ static const struct drm_crtc_helper_funcs vmw_ldu_crtc_helper_funcs = {
 	.atomic_flush = vmw_vkms_crtc_atomic_flush,
 	.atomic_enable = vmw_vkms_crtc_atomic_enable,
 	.atomic_disable = vmw_vkms_crtc_atomic_disable,
+	.handle_vblank_timeout  = vmw_vkms_handle_vblank_timeout,
 };
 
 
@@ -416,7 +417,7 @@ static int vmw_ldu_init(struct vmw_private *dev_priv, unsigned unit)
 	struct drm_crtc *crtc;
 	int ret;
 
-	ldu = kzalloc(sizeof(*ldu), GFP_KERNEL);
+	ldu = kzalloc_obj(*ldu);
 	if (!ldu)
 		return -ENOMEM;
 
@@ -547,7 +548,7 @@ int vmw_kms_ldu_init_display(struct vmw_private *dev_priv)
 		return -EINVAL;
 	}
 
-	dev_priv->ldu_priv = kmalloc(sizeof(*dev_priv->ldu_priv), GFP_KERNEL);
+	dev_priv->ldu_priv = kmalloc_obj(*dev_priv->ldu_priv);
 	if (!dev_priv->ldu_priv)
 		return -ENOMEM;
 

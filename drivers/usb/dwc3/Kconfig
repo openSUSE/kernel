@@ -150,6 +150,18 @@ config USB_DWC3_IMX8MP
 	  functionality.
 	  Say 'Y' or 'M' if you have one such device.
 
+config USB_DWC3_IMX
+	tristate "NXP iMX Platform"
+	depends on OF && COMMON_CLK
+	depends on (ARCH_MXC && ARM64) || COMPILE_TEST
+	default USB_DWC3
+	help
+	  NXP iMX SoC use DesignWare Core IP for USB2/3
+	  functionality.
+	  This driver also handles the wakeup feature outside
+	  of DesignWare Core.
+	  Say 'Y' or 'M' if you have one such device.
+
 config USB_DWC3_XILINX
 	tristate "Xilinx Platforms"
 	depends on (ARCH_ZYNQMP || COMPILE_TEST) && OF
@@ -188,5 +200,38 @@ config USB_DWC3_RTK
 	  and IP Core configured for USB 2.0 and USB 3.0 in host
 	  or dual-role mode.
 	  Say 'Y' or 'M' if you have such device.
+
+config USB_DWC3_GENERIC_PLAT
+	tristate "DWC3 Generic Platform Driver"
+	depends on OF && COMMON_CLK
+	default USB_DWC3
+	help
+	  Support USB3 functionality in simple SoC integrations.
+	  Currently supports SpacemiT DWC USB3. Platforms using
+	  dwc3-of-simple can easily switch to dwc3-generic by flattening
+	  the dwc3 child node in the device tree.
+	  Say 'Y' or 'M' here if your platform integrates DWC3 in a similar way.
+
+config USB_DWC3_APPLE
+	tristate "Apple Silicon DWC3 Platform Driver"
+	depends on OF && ARCH_APPLE
+	default USB_DWC3
+	select USB_ROLE_SWITCH
+	help
+	  Support Apple Silicon SoCs with DesignWare Core USB3 IP.
+	  The DesignWare Core USB3 IP has to be used in dual-role
+	  mode on these machines.
+	  Say 'Y' or 'M' if you have such device.
+
+config USB_DWC3_GOOGLE
+	tristate "Google Platform"
+	help
+	  Support the DesignWare Core USB3 IP found on Google Tensor SoCs,
+	  starting with the G5 generation (Laguna). This driver includes
+	  support for hibernation in host mode.
+	  Say 'Y' or 'M' if you have one such device.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called dwc3-google.ko.
 
 endif

@@ -446,6 +446,23 @@ void rb_erase(struct rb_node *node, struct rb_root *root)
 }
 EXPORT_SYMBOL(rb_erase);
 
+bool rb_erase_linked(struct rb_node_linked *node, struct rb_root_linked *root)
+{
+	if (node->prev)
+		node->prev->next = node->next;
+	else
+		root->rb_leftmost = node->next;
+
+	if (node->next)
+		node->next->prev = node->prev;
+
+	rb_erase(&node->node, &root->rb_root);
+	RB_CLEAR_LINKED_NODE(node);
+
+	return !!root->rb_leftmost;
+}
+EXPORT_SYMBOL_GPL(rb_erase_linked);
+
 /*
  * Augmented rbtree manipulation functions.
  *
@@ -459,35 +476,6 @@ void __rb_insert_augmented(struct rb_node *node, struct rb_root *root,
 	__rb_insert(node, root, augment_rotate);
 }
 EXPORT_SYMBOL(__rb_insert_augmented);
-
-/*
- * This function returns the first node (in sort order) of the tree.
- */
-struct rb_node *rb_first(const struct rb_root *root)
-{
-	struct rb_node	*n;
-
-	n = root->rb_node;
-	if (!n)
-		return NULL;
-	while (n->rb_left)
-		n = n->rb_left;
-	return n;
-}
-EXPORT_SYMBOL(rb_first);
-
-struct rb_node *rb_last(const struct rb_root *root)
-{
-	struct rb_node	*n;
-
-	n = root->rb_node;
-	if (!n)
-		return NULL;
-	while (n->rb_right)
-		n = n->rb_right;
-	return n;
-}
-EXPORT_SYMBOL(rb_last);
 
 struct rb_node *rb_next(const struct rb_node *node)
 {

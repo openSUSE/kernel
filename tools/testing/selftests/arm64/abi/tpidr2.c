@@ -128,8 +128,7 @@ static int sys_clone(unsigned long clone_flags, unsigned long newsp,
 		     int *parent_tidptr, unsigned long tls,
 		     int *child_tidptr)
 {
-	return my_syscall5(__NR_clone, clone_flags, newsp, parent_tidptr, tls,
-			   child_tidptr);
+	return syscall(__NR_clone, clone_flags, newsp, parent_tidptr, tls, child_tidptr);
 }
 
 #define __STACK_SIZE (8 * 1024 * 1024)
@@ -182,16 +181,16 @@ static int write_clone_read(void)
 	}
 
 	for (;;) {
-		waiting = wait4(ret, &status, __WCLONE, NULL);
+		waiting = waitpid(ret, &status, __WCLONE);
 
 		if (waiting < 0) {
 			if (errno == EINTR)
 				continue;
-			ksft_print_msg("wait4() failed: %d\n", errno);
+			ksft_print_msg("waitpid() failed: %d\n", errno);
 			return 0;
 		}
 		if (waiting != ret) {
-			ksft_print_msg("wait4() returned wrong PID %d\n",
+			ksft_print_msg("waitpid() returned wrong PID %d\n",
 				       waiting);
 			return 0;
 		}
@@ -227,10 +226,10 @@ int main(int argc, char **argv)
 	ret = open("/proc/sys/abi/sme_default_vector_length", O_RDONLY, 0);
 	if (ret >= 0) {
 		ksft_test_result(default_value(), "default_value\n");
-		ksft_test_result(write_read, "write_read\n");
-		ksft_test_result(write_sleep_read, "write_sleep_read\n");
-		ksft_test_result(write_fork_read, "write_fork_read\n");
-		ksft_test_result(write_clone_read, "write_clone_read\n");
+		ksft_test_result(write_read(), "write_read\n");
+		ksft_test_result(write_sleep_read(), "write_sleep_read\n");
+		ksft_test_result(write_fork_read(), "write_fork_read\n");
+		ksft_test_result(write_clone_read(), "write_clone_read\n");
 
 	} else {
 		ksft_print_msg("SME support not present\n");

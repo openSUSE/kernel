@@ -23,7 +23,7 @@ easier.
 
 Some subsystems and maintainer trees have additional information about
 their workflow and expectations, see
-:ref:`Documentation/process/maintainer-handbooks.rst <maintainer_handbooks_main>`.
+Documentation/process/maintainer-handbooks.rst.
 
 Obtain a current source tree
 ----------------------------
@@ -343,7 +343,7 @@ https://en.wikipedia.org/wiki/Posting_style#Interleaved_style
 As is frequently quoted on the mailing list::
 
   A: http://en.wikipedia.org/wiki/Top_post
-  Q: Were do I find info about this thing called top-posting?
+  Q: Where do I find info about this thing called top-posting?
   A: Because it messes up the order in which people normally read text.
   Q: Why is top-posting such a bad thing?
   A: Top-posting.
@@ -592,8 +592,9 @@ Both Tested-by and Reviewed-by tags, once received on mailing list from tester
 or reviewer, should be added by author to the applicable patches when sending
 next versions.  However if the patch has changed substantially in following
 version, these tags might not be applicable anymore and thus should be removed.
-Usually removal of someone's Tested-by or Reviewed-by tags should be mentioned
-in the patch changelog (after the '---' separator).
+Usually removal of someone's Acked-by, Tested-by or Reviewed-by tags should be
+mentioned in the patch changelog with an explanation (after the '---'
+separator).
 
 A Suggested-by: tag indicates that the patch idea is suggested by the person
 named and ensures credit to the person for the idea: if we diligently credit
@@ -602,8 +603,8 @@ future. Note, this is one of only three tags you might be able to use without
 explicit permission of the person named (see 'Tagging people requires
 permission' below for details).
 
-A Fixes: tag indicates that the patch fixes an issue in a previous commit. It
-is used to make it easy to determine where a bug originated, which can help
+A Fixes: tag indicates that the patch fixes a bug in a previous commit. It
+is used to make it easy to determine where an issue originated, which can help
 review a bug fix. This tag also assists the stable kernel team in determining
 which stable kernel versions should receive your fix. This is the preferred
 method for indicating a bug fixed by the patch. See :ref:`describe_changes`
@@ -632,6 +633,16 @@ and Suggested-by: did the reporting or suggestion in public. Note,
 bugzilla.kernel.org is a public place in this sense, but email addresses
 used there are private; so do not expose them in tags, unless the person
 used them in earlier contributions.
+
+Using Assisted-by:
+------------------
+
+If you used any sort of advanced coding tool in the creation of your patch,
+you need to acknowledge that use by adding an Assisted-by tag.  Failure to
+do so may impede the acceptance of your work.  Please see
+Documentation/process/coding-assistants.rst for details regarding the
+acknowledgment of coding assistants.
+
 
 .. _the_canonical_patch_format:
 
@@ -804,7 +815,8 @@ not part of the changelog which gets committed to the git tree. It is
 additional information for the reviewers. If it's placed above the
 commit tags, it needs manual interaction to remove it. If it is below
 the separator line, it gets automatically stripped off when applying the
-patch::
+patch.  If available, adding links to previous versions of the patch (e.g.,
+lore.kernel.org archive link) is recommended to help reviewers::
 
   <commit message>
   ...
@@ -812,6 +824,9 @@ patch::
   ---
   V2 -> V3: Removed redundant helper function
   V1 -> V2: Cleaned up coding style and addressed review comments
+
+  v2: https://lore.kernel.org/bar
+  v1: https://lore.kernel.org/foo
 
   path/to/file | 5+++--
   ...

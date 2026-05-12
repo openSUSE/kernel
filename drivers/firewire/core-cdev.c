@@ -41,11 +41,14 @@
 /*
  * ABI version history is documented in linux/firewire-cdev.h.
  */
-#define FW_CDEV_KERNEL_VERSION			5
+#define FW_CDEV_KERNEL_VERSION			6
 #define FW_CDEV_VERSION_EVENT_REQUEST2		4
 #define FW_CDEV_VERSION_ALLOCATE_REGION_END	4
 #define FW_CDEV_VERSION_AUTO_FLUSH_ISO_OVERFLOW	5
 #define FW_CDEV_VERSION_EVENT_ASYNC_TSTAMP	6
+
+static DEFINE_SPINLOCK(phy_receiver_list_lock);
+static LIST_HEAD(phy_receiver_list);
 
 struct client {
 	u32 version;
@@ -60,10 +63,10 @@ struct client {
 	u64 bus_reset_closure;
 
 	struct fw_iso_context *iso_context;
+	struct mutex iso_context_mutex;
 	u64 iso_closure;
 	struct fw_iso_buffer buffer;
 	unsigned long vm_start;
-	bool buffer_is_mapped;
 
 	struct list_head phy_receiver_link;
 	u64 phy_receiver_closure;
@@ -288,7 +291,7 @@ static int fw_device_op_open(struct inode *inode, struct file *file)
 		return -ENODEV;
 	}
 
-	client = kzalloc(sizeof(*client), GFP_KERNEL);
+	client = kzalloc_obj(*client);
 	if (client == NULL) {
 		fw_device_put(device);
 		return -ENOMEM;
@@ -303,6 +306,7 @@ static int fw_device_op_open(struct inode *inode, struct file *file)
 	INIT_LIST_HEAD(&client->phy_receiver_link);
 	INIT_LIST_HEAD(&client->link);
 	kref_init(&client->kref);
+	mutex_init(&client->iso_context_mutex);
 
 	file->private_data = client;
 
@@ -408,7 +412,7 @@ static void queue_bus_reset_event(struct client *client)
 	struct client_resource *resource;
 	unsigned long index;
 
-	e = kzalloc(sizeof(*e), GFP_KERNEL);
+	e = kzalloc_obj(*e);
 	if (e == NULL)
 		return;
 
@@ -741,8 +745,8 @@ static void handle_request(struct fw_card *card, struct fw_request *request,
 	if (is_fcp)
 		fw_request_get(request);
 
-	r = kmalloc(sizeof(*r), GFP_ATOMIC);
-	e = kmalloc(sizeof(*e), GFP_ATOMIC);
+	r = kmalloc_obj(*r, GFP_ATOMIC);
+	e = kmalloc_obj(*e, GFP_ATOMIC);
 	if (r == NULL || e == NULL)
 		goto failed;
 
@@ -833,7 +837,7 @@ static int ioctl_allocate(struct client *client, union ioctl_arg *arg)
 	struct fw_address_region region;
 	int ret;
 
-	r = kmalloc(sizeof(*r), GFP_KERNEL);
+	r = kmalloc_obj(*r);
 	if (r == NULL)
 		return -ENOMEM;
 
@@ -937,11 +941,12 @@ static int ioctl_add_descriptor(struct client *client, union ioctl_arg *arg)
 	if (a->length > 256)
 		return -EINVAL;
 
-	r = kmalloc(sizeof(*r) + a->length * 4, GFP_KERNEL);
+	r = kmalloc_flex(*r, data, a->length);
 	if (r == NULL)
 		return -ENOMEM;
 
-	if (copy_from_user(r->data, u64_to_uptr(a->data), a->length * 4)) {
+	if (copy_from_user(r->data, u64_to_uptr(a->data),
+			   flex_array_size(r, data, a->length))) {
 		ret = -EFAULT;
 		goto failed;
 	}
@@ -1001,7 +1006,7 @@ static void iso_mc_callback(struct fw_iso_context *context,
 	struct client *client = data;
 	struct iso_interrupt_mc_event *e;
 
-	e = kmalloc(sizeof(*e), GFP_KERNEL);
+	e = kmalloc_obj(*e);
 	if (e == NULL)
 		return;
 
@@ -1021,25 +1026,10 @@ static enum dma_data_direction iso_dma_direction(struct fw_iso_context *context)
 			return DMA_FROM_DEVICE;
 }
 
-static struct fw_iso_context *fw_iso_mc_context_create(struct fw_card *card,
-						fw_iso_mc_callback_t callback,
-						void *callback_data)
-{
-	struct fw_iso_context *ctx;
-
-	ctx = fw_iso_context_create(card, FW_ISO_CONTEXT_RECEIVE_MULTICHANNEL,
-				    0, 0, 0, NULL, callback_data);
-	if (!IS_ERR(ctx))
-		ctx->callback.mc = callback;
-
-	return ctx;
-}
-
 static int ioctl_create_iso_context(struct client *client, union ioctl_arg *arg)
 {
 	struct fw_cdev_create_iso_context *a = &arg->create_iso_context;
 	struct fw_iso_context *context;
-	union fw_iso_callback cb;
 	int ret;
 
 	BUILD_BUG_ON(FW_CDEV_ISO_CONTEXT_TRANSMIT != FW_ISO_CONTEXT_TRANSMIT ||
@@ -1051,20 +1041,15 @@ static int ioctl_create_iso_context(struct client *client, union ioctl_arg *arg)
 	case FW_ISO_CONTEXT_TRANSMIT:
 		if (a->speed > SCODE_3200 || a->channel > 63)
 			return -EINVAL;
-
-		cb.sc = iso_callback;
 		break;
 
 	case FW_ISO_CONTEXT_RECEIVE:
 		if (a->header_size < 4 || (a->header_size & 3) ||
 		    a->channel > 63)
 			return -EINVAL;
-
-		cb.sc = iso_callback;
 		break;
 
 	case FW_ISO_CONTEXT_RECEIVE_MULTICHANNEL:
-		cb.mc = iso_mc_callback;
 		break;
 
 	default:
@@ -1072,38 +1057,36 @@ static int ioctl_create_iso_context(struct client *client, union ioctl_arg *arg)
 	}
 
 	if (a->type == FW_ISO_CONTEXT_RECEIVE_MULTICHANNEL)
-		context = fw_iso_mc_context_create(client->device->card, cb.mc,
-						   client);
+		context = fw_iso_mc_context_create(client->device->card, iso_mc_callback, client);
 	else
-		context = fw_iso_context_create(client->device->card, a->type,
-						a->channel, a->speed,
-						a->header_size, cb.sc, client);
+		context = fw_iso_context_create(client->device->card, a->type, a->channel, a->speed,
+						a->header_size, iso_callback, client);
 	if (IS_ERR(context))
 		return PTR_ERR(context);
 	if (client->version < FW_CDEV_VERSION_AUTO_FLUSH_ISO_OVERFLOW)
-		context->drop_overflow_headers = true;
+		context->flags |= FW_ISO_CONTEXT_FLAG_DROP_OVERFLOW_HEADERS;
 
 	// We only support one context at this time.
-	guard(spinlock_irq)(&client->lock);
-
-	if (client->iso_context != NULL) {
-		fw_iso_context_destroy(context);
-
-		return -EBUSY;
-	}
-	if (!client->buffer_is_mapped) {
-		ret = fw_iso_buffer_map_dma(&client->buffer,
-					    client->device->card,
-					    iso_dma_direction(context));
-		if (ret < 0) {
+	scoped_guard(mutex, &client->iso_context_mutex) {
+		if (client->iso_context != NULL) {
 			fw_iso_context_destroy(context);
 
-			return ret;
+			return -EBUSY;
 		}
-		client->buffer_is_mapped = true;
+		// The DMA mapping operation is available if the buffer is already allocated by
+		// mmap(2) system call. If not, it is delegated to the system call.
+		if (client->buffer.pages && !client->buffer.dma_addrs) {
+			ret = fw_iso_buffer_map_dma(&client->buffer, client->device->card,
+						    iso_dma_direction(context));
+			if (ret < 0) {
+				fw_iso_context_destroy(context);
+
+				return ret;
+			}
+		}
+		client->iso_closure = a->closure;
+		client->iso_context = context;
 	}
-	client->iso_closure = a->closure;
-	client->iso_context = context;
 
 	a->handle = 0;
 
@@ -1324,8 +1307,8 @@ static void iso_resource_work(struct work_struct *work)
 		todo = r->todo;
 		// Allow 1000ms grace period for other reallocations.
 		if (todo == ISO_RES_ALLOC &&
-		    time_before64(get_jiffies_64(), client->device->card->reset_jiffies + HZ)) {
-			schedule_iso_resource(r, DIV_ROUND_UP(HZ, 3));
+		    time_is_after_jiffies64(client->device->card->reset_jiffies + secs_to_jiffies(1))) {
+			schedule_iso_resource(r, msecs_to_jiffies(333));
 			skip = true;
 		} else {
 			// We could be called twice within the same generation.
@@ -1426,9 +1409,9 @@ static int init_iso_resource(struct client *client,
 	    request->bandwidth > BANDWIDTH_AVAILABLE_INITIAL)
 		return -EINVAL;
 
-	r  = kmalloc(sizeof(*r), GFP_KERNEL);
-	e1 = kmalloc(sizeof(*e1), GFP_KERNEL);
-	e2 = kmalloc(sizeof(*e2), GFP_KERNEL);
+	r = kmalloc_obj(*r);
+	e1 = kmalloc_obj(*e1);
+	e2 = kmalloc_obj(*e2);
 	if (r == NULL || e1 == NULL || e2 == NULL) {
 		ret = -ENOMEM;
 		goto fail;
@@ -1669,15 +1652,16 @@ static int ioctl_send_phy_packet(struct client *client, union ioctl_arg *arg)
 static int ioctl_receive_phy_packets(struct client *client, union ioctl_arg *arg)
 {
 	struct fw_cdev_receive_phy_packets *a = &arg->receive_phy_packets;
-	struct fw_card *card = client->device->card;
 
 	/* Access policy: Allow this ioctl only on local nodes' device files. */
 	if (!client->device->is_local)
 		return -ENOSYS;
 
-	guard(spinlock_irq)(&card->lock);
+	// NOTE: This can be without irq when we can guarantee that __fw_send_request() for local
+	// destination never runs in any type of IRQ context.
+	scoped_guard(spinlock_irq, &phy_receiver_list_lock)
+		list_move_tail(&client->phy_receiver_link, &phy_receiver_list);
 
-	list_move_tail(&client->phy_receiver_link, &card->phy_receiver_list);
 	client->phy_receiver_closure = a->closure;
 
 	return 0;
@@ -1687,10 +1671,17 @@ void fw_cdev_handle_phy_packet(struct fw_card *card, struct fw_packet *p)
 {
 	struct client *client;
 
-	guard(spinlock_irqsave)(&card->lock);
+	// NOTE: This can be without irqsave when we can guarantee that __fw_send_request() for local
+	// destination never runs in any type of IRQ context.
+	guard(spinlock_irqsave)(&phy_receiver_list_lock);
 
-	list_for_each_entry(client, &card->phy_receiver_list, phy_receiver_link) {
-		struct inbound_phy_packet_event *e = kmalloc(sizeof(*e) + 8, GFP_ATOMIC);
+	list_for_each_entry(client, &phy_receiver_list, phy_receiver_link) {
+		struct inbound_phy_packet_event *e;
+
+		if (client->device->card != card)
+			continue;
+
+		e = kmalloc(sizeof(*e) + 8, GFP_ATOMIC);
 		if (e == NULL)
 			break;
 
@@ -1814,13 +1805,14 @@ static int fw_device_op_mmap(struct file *file, struct vm_area_struct *vma)
 	if (ret < 0)
 		return ret;
 
-	scoped_guard(spinlock_irq, &client->lock) {
+	scoped_guard(mutex, &client->iso_context_mutex) {
+		// The direction of DMA can be determined if the isochronous context is already
+		// allocated. If not, the DMA mapping operation is postponed after the allocation.
 		if (client->iso_context) {
 			ret = fw_iso_buffer_map_dma(&client->buffer, client->device->card,
 						    iso_dma_direction(client->iso_context));
 			if (ret < 0)
 				goto fail;
-			client->buffer_is_mapped = true;
 		}
 	}
 
@@ -1857,7 +1849,9 @@ static int fw_device_op_release(struct inode *inode, struct file *file)
 	struct client_resource *resource;
 	unsigned long index;
 
-	scoped_guard(spinlock_irq, &client->device->card->lock)
+	// NOTE: This can be without irq when we can guarantee that __fw_send_request() for local
+	// destination never runs in any type of IRQ context.
+	scoped_guard(spinlock_irq, &phy_receiver_list_lock)
 		list_del(&client->phy_receiver_link);
 
 	scoped_guard(mutex, &client->device->client_list_mutex)
@@ -1865,6 +1859,7 @@ static int fw_device_op_release(struct inode *inode, struct file *file)
 
 	if (client->iso_context)
 		fw_iso_context_destroy(client->iso_context);
+	mutex_destroy(&client->iso_context_mutex);
 
 	if (client->buffer.pages)
 		fw_iso_buffer_destroy(&client->buffer, client->device->card);

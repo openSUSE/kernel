@@ -120,19 +120,19 @@ static void calculate_bandwidth(
 	int32_t number_of_displays_enabled_with_margin = 0;
 	int32_t number_of_aligned_displays_with_no_margin = 0;
 
-	yclk = kcalloc(3, sizeof(*yclk), GFP_KERNEL);
+	yclk = kzalloc_objs(*yclk, 3);
 	if (!yclk)
 		return;
 
-	sclk = kcalloc(8, sizeof(*sclk), GFP_KERNEL);
+	sclk = kzalloc_objs(*sclk, 8);
 	if (!sclk)
 		goto free_yclk;
 
-	tiling_mode = kcalloc(maximum_number_of_surfaces, sizeof(*tiling_mode), GFP_KERNEL);
+	tiling_mode = kzalloc_objs(*tiling_mode, maximum_number_of_surfaces);
 	if (!tiling_mode)
 		goto free_sclk;
 
-	surface_type = kcalloc(maximum_number_of_surfaces, sizeof(*surface_type), GFP_KERNEL);
+	surface_type = kzalloc_objs(*surface_type, maximum_number_of_surfaces);
 	if (!surface_type)
 		goto free_tiling_mode;
 
@@ -302,7 +302,7 @@ static void calculate_bandwidth(
 	fbc_enabled = false;
 	lpt_enabled = false;
 	for (i = 4; i <= maximum_number_of_surfaces - 3; i++) {
-		if (i < data->number_of_displays + 4) {
+		if (i < (int32_t)(data->number_of_displays + 4)) {
 			if (i == 4 && data->d0_underlay_mode == bw_def_underlay_only) {
 				data->enable[i] = 0;
 				data->use_alpha[i] = 0;
@@ -2010,10 +2010,10 @@ static void calculate_bandwidth(
 	}
 	/*output link bit per pixel supported*/
 	for (k = 0; k <= maximum_number_of_surfaces - 1; k++) {
-		data->output_bpphdmi[k] = bw_def_na;
-		data->output_bppdp4_lane_hbr[k] = bw_def_na;
-		data->output_bppdp4_lane_hbr2[k] = bw_def_na;
-		data->output_bppdp4_lane_hbr3[k] = bw_def_na;
+		data->output_bpphdmi[k] = (uint32_t)bw_def_na;
+		data->output_bppdp4_lane_hbr[k] = (uint32_t)bw_def_na;
+		data->output_bppdp4_lane_hbr2[k] = (uint32_t)bw_def_na;
+		data->output_bppdp4_lane_hbr3[k] = (uint32_t)bw_def_na;
 		if (data->enable[k]) {
 			data->output_bpphdmi[k] = bw_fixed_to_int(bw_mul(bw_div(bw_min2(bw_int_to_fixed(600), data->max_phyclk), data->pixel_rate[k]), bw_int_to_fixed(24)));
 			if (bw_meq(data->max_phyclk, bw_int_to_fixed(270))) {
@@ -2049,11 +2049,11 @@ void bw_calcs_init(struct bw_calcs_dceip *bw_dceip,
 
 	enum bw_calcs_version version = bw_calcs_version_from_asic_id(asic_id);
 
-	dceip = kzalloc(sizeof(*dceip), GFP_KERNEL);
+	dceip = kzalloc_obj(*dceip);
 	if (!dceip)
 		return;
 
-	vbios = kzalloc(sizeof(*vbios), GFP_KERNEL);
+	vbios = kzalloc_obj(*vbios);
 	if (!vbios) {
 		kfree(dceip);
 		return;
@@ -2767,7 +2767,7 @@ static bool is_display_configuration_supported(
 	const struct bw_calcs_vbios *vbios,
 	const struct dce_bw_output *calcs_output)
 {
-	uint32_t int_max_clk;
+	int32_t int_max_clk;
 
 	int_max_clk = bw_fixed_to_int(vbios->high_voltage_max_dispclk);
 	int_max_clk *= 1000; /* MHz to kHz */
@@ -3045,8 +3045,7 @@ bool bw_calcs(struct dc_context *ctx,
 	int pipe_count,
 	struct dce_bw_output *calcs_output)
 {
-	struct bw_calcs_data *data = kzalloc(sizeof(struct bw_calcs_data),
-					     GFP_KERNEL);
+	struct bw_calcs_data *data = kzalloc_obj(struct bw_calcs_data);
 	if (!data)
 		return false;
 
@@ -3078,7 +3077,7 @@ bool bw_calcs(struct dc_context *ctx,
 		}
 		calculate_bandwidth(dceip, vbios, data);
 
-		yclk_lvl = data->y_clk_level;
+		yclk_lvl = (uint8_t)data->y_clk_level;
 
 		calcs_output->nbp_state_change_enable =
 			data->nbp_state_change_enable;

@@ -1,7 +1,7 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017-2024 Broadcom. All Rights Reserved. The term *
+ * Copyright (C) 2017-2026 Broadcom. All Rights Reserved. The term *
  * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.     *
  * Copyright (C) 2004-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
@@ -168,6 +168,11 @@ struct lpfc_sli_ct_request {
 			uint8_t len;
 			uint8_t symbname[255];
 		} rspn;
+		struct rspni {	/* For RSPNI_PNI requests */
+			__be64 pni;
+			u8 len;
+			u8 symbname[255];
+		} rspni;
 		struct gff {
 			uint32_t PortId;
 		} gff;
@@ -213,6 +218,8 @@ struct lpfc_sli_ct_request {
 			  sizeof(struct da_id))
 #define  RSPN_REQUEST_SZ  (offsetof(struct lpfc_sli_ct_request, un) + \
 			   sizeof(struct rspn))
+#define  RSPNI_REQUEST_SZ (offsetof(struct lpfc_sli_ct_request, un) + \
+			   sizeof(struct rspni))
 
 /*
  * FsType Definitions
@@ -309,6 +316,7 @@ struct lpfc_sli_ct_request {
 #define  SLI_CTNS_RIP_NN      0x0235
 #define  SLI_CTNS_RIPA_NN     0x0236
 #define  SLI_CTNS_RSNN_NN     0x0239
+#define  SLI_CTNS_RSPNI_PNI   0x0240
 #define  SLI_CTNS_DA_ID       0x0300
 
 /*
@@ -366,6 +374,7 @@ struct lpfc_name {
 		} s;
 		uint8_t wwn[8];
 		uint64_t name __packed __aligned(4);
+		__be64 wwn_be __packed __aligned(4);
 	} u;
 };
 
@@ -511,6 +520,21 @@ struct class_parms {
 	uint8_t word3Reserved2;	/* Fc Word 3, bit  0: 7 */
 };
 
+enum aux_parm_flags {
+	AUX_PARM_PNI_VALID = 0x20,	/* FC Word 0, bit 29 */
+	AUX_PARM_DATA_VALID = 0x40,	/* FC Word 0, bit 30 */
+};
+
+struct aux_parm {
+	u8 flags;	/* FC Word 0, bit 31:24 */
+	u8 ext_feat[3];	/* FC Word 0, bit 23:0 */
+
+	__be64 pni;	/* FC Word 1 and 2, platform name identifier */
+
+	__be16 rsvd;	/* FC Word 3, bit 31:16 */
+	__be16 npiv_cnt;	/* FC Word 3, bit 15:0 */
+} __packed;
+
 struct serv_parm {	/* Structure is in Big Endian format */
 	struct csp cmn;
 	struct lpfc_name portName;
@@ -518,7 +542,7 @@ struct serv_parm {	/* Structure is in Big Endian format */
 	struct class_parms cls1;
 	struct class_parms cls2;
 	struct class_parms cls3;
-	struct class_parms cls4;
+	struct aux_parm aux;
 	union {
 		uint8_t vendorVersion[16];
 		struct {
@@ -1747,6 +1771,7 @@ struct lpfc_fdmi_reg_portattr {
 #define PCI_DEVICE_ID_LANCER_G6_FC  0xe300
 #define PCI_DEVICE_ID_LANCER_G7_FC  0xf400
 #define PCI_DEVICE_ID_LANCER_G7P_FC 0xf500
+#define PCI_DEVICE_ID_LANCER_G8_FC  0xd300
 #define PCI_DEVICE_ID_SAT_SMB       0xf011
 #define PCI_DEVICE_ID_SAT_MID       0xf015
 #define PCI_DEVICE_ID_RFLY          0xf095

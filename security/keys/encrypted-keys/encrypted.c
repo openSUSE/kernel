@@ -13,6 +13,7 @@
 
 #include <linux/uaccess.h>
 #include <linux/module.h>
+#include <linux/hex.h>
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/parser.h>
@@ -27,7 +28,6 @@
 #include <linux/scatterlist.h>
 #include <linux/ctype.h>
 #include <crypto/aes.h>
-#include <crypto/hash.h>
 #include <crypto/sha2.h>
 #include <crypto/skcipher.h>
 #include <crypto/utils.h>
@@ -37,8 +37,6 @@
 
 static const char KEY_TRUSTED_PREFIX[] = "trusted:";
 static const char KEY_USER_PREFIX[] = "user:";
-static const char hash_alg[] = "sha256";
-static const char hmac_alg[] = "hmac(sha256)";
 static const char blkcipher_alg[] = "cbc(aes)";
 static const char key_format_default[] = "default";
 static const char key_format_ecryptfs[] = "ecryptfs";
@@ -53,8 +51,6 @@ static int blksize;
 #define MAX_DATA_SIZE 4096
 #define MIN_DATA_SIZE  20
 #define KEY_ENC32_PAYLOAD_LEN 32
-
-static struct crypto_shash *hash_tfm;
 
 enum {
 	Opt_new, Opt_load, Opt_update, Opt_err
@@ -329,26 +325,6 @@ error:
 	return ukey;
 }
 
-static int calc_hmac(u8 *digest, const u8 *key, unsigned int keylen,
-		     const u8 *buf, unsigned int buflen)
-{
-	struct crypto_shash *tfm;
-	int err;
-
-	tfm = crypto_alloc_shash(hmac_alg, 0, 0);
-	if (IS_ERR(tfm)) {
-		pr_err("encrypted_key: can't alloc %s transform: %ld\n",
-		       hmac_alg, PTR_ERR(tfm));
-		return PTR_ERR(tfm);
-	}
-
-	err = crypto_shash_setkey(tfm, key, keylen);
-	if (!err)
-		err = crypto_shash_tfm_digest(tfm, buf, buflen, digest);
-	crypto_free_shash(tfm);
-	return err;
-}
-
 enum derived_key_type { ENC_KEY, AUTH_KEY };
 
 /* Derive authentication/encryption key from trusted key */
@@ -357,7 +333,6 @@ static int get_derived_key(u8 *derived_key, enum derived_key_type key_type,
 {
 	u8 *derived_buf;
 	unsigned int derived_buf_len;
-	int ret;
 
 	derived_buf_len = strlen("AUTH_KEY") + 1 + master_keylen;
 	if (derived_buf_len < HASH_SIZE)
@@ -374,10 +349,9 @@ static int get_derived_key(u8 *derived_key, enum derived_key_type key_type,
 
 	memcpy(derived_buf + strlen(derived_buf) + 1, master_key,
 	       master_keylen);
-	ret = crypto_shash_tfm_digest(hash_tfm, derived_buf, derived_buf_len,
-				      derived_key);
+	sha256(derived_buf, derived_buf_len, derived_key);
 	kfree_sensitive(derived_buf);
-	return ret;
+	return 0;
 }
 
 static struct skcipher_request *init_skcipher_req(const u8 *key,
@@ -503,10 +477,10 @@ static int datablob_hmac_append(struct encrypted_key_payload *epayload,
 		goto out;
 
 	digest = epayload->format + epayload->datablob_len;
-	ret = calc_hmac(digest, derived_key, sizeof derived_key,
-			epayload->format, epayload->datablob_len);
-	if (!ret)
-		dump_hmac(NULL, digest, HASH_SIZE);
+	hmac_sha256_usingrawkey(derived_key, sizeof(derived_key),
+				epayload->format, epayload->datablob_len,
+				digest);
+	dump_hmac(NULL, digest, HASH_SIZE);
 out:
 	memzero_explicit(derived_key, sizeof(derived_key));
 	return ret;
@@ -534,9 +508,8 @@ static int datablob_hmac_verify(struct encrypted_key_payload *epayload,
 	} else
 		p = epayload->format;
 
-	ret = calc_hmac(digest, derived_key, sizeof derived_key, p, len);
-	if (ret < 0)
-		goto out;
+	hmac_sha256_usingrawkey(derived_key, sizeof(derived_key), p, len,
+				digest);
 	ret = crypto_memneq(digest, epayload->format + epayload->datablob_len,
 			    sizeof(digest));
 	if (ret) {
@@ -823,7 +796,7 @@ static int encrypted_instantiate(struct key *key,
 	size_t datalen = prep->datalen;
 	int ret;
 
-	if (datalen <= 0 || datalen > 32767 || !prep->data)
+	if (datalen == 0 || datalen > 32767 || !prep->data)
 		return -EINVAL;
 
 	datablob = kmalloc(datalen + 1, GFP_KERNEL);
@@ -884,7 +857,7 @@ static int encrypted_update(struct key *key, struct key_preparsed_payload *prep)
 
 	if (key_is_negative(key))
 		return -ENOKEY;
-	if (datalen <= 0 || datalen > 32767 || !prep->data)
+	if (datalen == 0 || datalen > 32767 || !prep->data)
 		return -EINVAL;
 
 	buf = kmalloc(datalen + 1, GFP_KERNEL);
@@ -1011,29 +984,14 @@ static int __init init_encrypted(void)
 {
 	int ret;
 
-	hash_tfm = crypto_alloc_shash(hash_alg, 0, 0);
-	if (IS_ERR(hash_tfm)) {
-		pr_err("encrypted_key: can't allocate %s transform: %ld\n",
-		       hash_alg, PTR_ERR(hash_tfm));
-		return PTR_ERR(hash_tfm);
-	}
-
 	ret = aes_get_sizes();
 	if (ret < 0)
-		goto out;
-	ret = register_key_type(&key_type_encrypted);
-	if (ret < 0)
-		goto out;
-	return 0;
-out:
-	crypto_free_shash(hash_tfm);
-	return ret;
-
+		return ret;
+	return register_key_type(&key_type_encrypted);
 }
 
 static void __exit cleanup_encrypted(void)
 {
-	crypto_free_shash(hash_tfm);
 	unregister_key_type(&key_type_encrypted);
 }
 

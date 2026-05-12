@@ -982,7 +982,7 @@ static void pch_spi_handle_dma(struct pch_spi_data *data, int *bpw)
 	spin_unlock_irqrestore(&data->lock, flags);
 
 	/* RX */
-	dma->sg_rx_p = kmalloc_array(num, sizeof(*dma->sg_rx_p), GFP_ATOMIC);
+	dma->sg_rx_p = kmalloc_objs(*dma->sg_rx_p, num, GFP_ATOMIC);
 	if (!dma->sg_rx_p)
 		return;
 
@@ -1045,7 +1045,7 @@ static void pch_spi_handle_dma(struct pch_spi_data *data, int *bpw)
 		head = 0;
 	}
 
-	dma->sg_tx_p = kmalloc_array(num, sizeof(*dma->sg_tx_p), GFP_ATOMIC);
+	dma->sg_tx_p = kmalloc_objs(*dma->sg_tx_p, num, GFP_ATOMIC);
 	if (!dma->sg_tx_p)
 		return;
 
@@ -1406,8 +1406,9 @@ static void pch_spi_pd_remove(struct platform_device *plat_dev)
 	dev_dbg(&plat_dev->dev, "%s:[ch%d] irq=%d\n",
 		__func__, plat_dev->id, board_dat->pdev->irq);
 
-	if (use_dma)
-		pch_free_dma_buf(board_dat, data);
+	spi_controller_get(data->host);
+
+	spi_unregister_controller(data->host);
 
 	/* check for any pending messages; no action is taken if the queue
 	 * is still full; but at least we tried.  Unload anyway */
@@ -1432,8 +1433,12 @@ static void pch_spi_pd_remove(struct platform_device *plat_dev)
 		free_irq(board_dat->pdev->irq, data);
 	}
 
+	if (use_dma)
+		pch_free_dma_buf(board_dat, data);
+
 	pci_iounmap(board_dat->pdev, data->io_remap_addr);
-	spi_unregister_controller(data->host);
+
+	spi_controller_put(data->host);
 }
 #ifdef CONFIG_PM
 static int pch_spi_pd_suspend(struct platform_device *pd_dev,
@@ -1527,11 +1532,11 @@ static int pch_spi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	int i;
 	struct pch_pd_dev_save *pd_dev_save;
 
-	pd_dev_save = kzalloc(sizeof(*pd_dev_save), GFP_KERNEL);
+	pd_dev_save = kzalloc_obj(*pd_dev_save);
 	if (!pd_dev_save)
 		return -ENOMEM;
 
-	board_dat = kzalloc(sizeof(*board_dat), GFP_KERNEL);
+	board_dat = kzalloc_obj(*board_dat);
 	if (!board_dat) {
 		retval = -ENOMEM;
 		goto err_no_mem;

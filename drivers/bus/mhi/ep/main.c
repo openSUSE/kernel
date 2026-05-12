@@ -367,7 +367,7 @@ static void mhi_ep_read_completion(struct mhi_ep_buf_info *buf_info)
 				ret = mhi_ep_send_completion_event(mhi_cntrl, ring, el,
 							     MHI_TRE_DATA_GET_LEN(el),
 							     MHI_EV_CC_EOB);
-				if (ret < 0) {
+				if (ret) {
 					dev_err(&mhi_chan->mhi_dev->dev,
 						"Error sending transfer compl. event\n");
 					goto err_free_tre_buf;
@@ -383,7 +383,7 @@ static void mhi_ep_read_completion(struct mhi_ep_buf_info *buf_info)
 				ret = mhi_ep_send_completion_event(mhi_cntrl, ring, el,
 							     MHI_TRE_DATA_GET_LEN(el),
 							     MHI_EV_CC_EOT);
-				if (ret < 0) {
+				if (ret) {
 					dev_err(&mhi_chan->mhi_dev->dev,
 						"Error sending transfer compl. event\n");
 					goto err_free_tre_buf;
@@ -403,16 +403,12 @@ static int mhi_ep_read_channel(struct mhi_ep_cntrl *mhi_cntrl,
 {
 	struct mhi_ep_chan *mhi_chan = &mhi_cntrl->mhi_chan[ring->ch_id];
 	struct device *dev = &mhi_cntrl->mhi_dev->dev;
-	size_t tr_len, read_offset, write_offset;
+	size_t tr_len, read_offset;
 	struct mhi_ep_buf_info buf_info = {};
 	u32 len = MHI_EP_DEFAULT_MTU;
 	struct mhi_ring_element *el;
-	bool tr_done = false;
 	void *buf_addr;
-	u32 buf_left;
 	int ret;
-
-	buf_left = len;
 
 	do {
 		/* Don't process the transfer ring if the channel is not in RUNNING state */
@@ -426,24 +422,23 @@ static int mhi_ep_read_channel(struct mhi_ep_cntrl *mhi_cntrl,
 		/* Check if there is data pending to be read from previous read operation */
 		if (mhi_chan->tre_bytes_left) {
 			dev_dbg(dev, "TRE bytes remaining: %u\n", mhi_chan->tre_bytes_left);
-			tr_len = min(buf_left, mhi_chan->tre_bytes_left);
+			tr_len = min(len, mhi_chan->tre_bytes_left);
 		} else {
 			mhi_chan->tre_loc = MHI_TRE_DATA_GET_PTR(el);
 			mhi_chan->tre_size = MHI_TRE_DATA_GET_LEN(el);
 			mhi_chan->tre_bytes_left = mhi_chan->tre_size;
 
-			tr_len = min(buf_left, mhi_chan->tre_size);
+			tr_len = min(len, mhi_chan->tre_size);
 		}
 
 		read_offset = mhi_chan->tre_size - mhi_chan->tre_bytes_left;
-		write_offset = len - buf_left;
 
 		buf_addr = kmem_cache_zalloc(mhi_cntrl->tre_buf_cache, GFP_KERNEL);
 		if (!buf_addr)
 			return -ENOMEM;
 
 		buf_info.host_addr = mhi_chan->tre_loc + read_offset;
-		buf_info.dev_addr = buf_addr + write_offset;
+		buf_info.dev_addr = buf_addr;
 		buf_info.size = tr_len;
 		buf_info.cb = mhi_ep_read_completion;
 		buf_info.cb_buf = buf_addr;
@@ -454,21 +449,17 @@ static int mhi_ep_read_channel(struct mhi_ep_cntrl *mhi_cntrl,
 
 		dev_dbg(dev, "Reading %zd bytes from channel (%u)\n", tr_len, ring->ch_id);
 		ret = mhi_cntrl->read_async(mhi_cntrl, &buf_info);
-		if (ret < 0) {
+		if (ret) {
 			dev_err(&mhi_chan->mhi_dev->dev, "Error reading from channel\n");
 			goto err_free_buf_addr;
 		}
 
-		buf_left -= tr_len;
 		mhi_chan->tre_bytes_left -= tr_len;
 
-		if (!mhi_chan->tre_bytes_left) {
-			if (MHI_TRE_DATA_GET_IEOT(el))
-				tr_done = true;
-
+		if (!mhi_chan->tre_bytes_left)
 			mhi_chan->rd_offset = (mhi_chan->rd_offset + 1) % ring->ring_size;
-		}
-	} while (buf_left && !tr_done);
+	/* Read until the some buffer is left or the ring becomes not empty */
+	} while (!mhi_ep_queue_is_empty(mhi_chan->mhi_dev, DMA_TO_DEVICE));
 
 	return 0;
 
@@ -502,15 +493,11 @@ static int mhi_ep_process_ch_ring(struct mhi_ep_ring *ring)
 		mhi_chan->xfer_cb(mhi_chan->mhi_dev, &result);
 	} else {
 		/* UL channel */
-		do {
-			ret = mhi_ep_read_channel(mhi_cntrl, ring);
-			if (ret < 0) {
-				dev_err(&mhi_chan->mhi_dev->dev, "Failed to read channel\n");
-				return ret;
-			}
-
-			/* Read until the ring becomes empty */
-		} while (!mhi_ep_queue_is_empty(mhi_chan->mhi_dev, DMA_TO_DEVICE));
+		ret = mhi_ep_read_channel(mhi_cntrl, ring);
+		if (ret) {
+			dev_err(&mhi_chan->mhi_dev->dev, "Failed to read channel\n");
+			return ret;
+		}
 	}
 
 	return 0;
@@ -604,7 +591,7 @@ int mhi_ep_queue_skb(struct mhi_ep_device *mhi_dev, struct sk_buff *skb)
 
 		dev_dbg(dev, "Writing %zd bytes to channel (%u)\n", tr_len, ring->ch_id);
 		ret = mhi_cntrl->write_async(mhi_cntrl, &buf_info);
-		if (ret < 0) {
+		if (ret) {
 			dev_err(dev, "Error writing to the channel\n");
 			goto err_exit;
 		}
@@ -976,7 +963,7 @@ static void mhi_ep_process_ctrl_interrupt(struct mhi_ep_cntrl *mhi_cntrl,
 {
 	struct mhi_ep_state_transition *item;
 
-	item = kzalloc(sizeof(*item), GFP_ATOMIC);
+	item = kzalloc_obj(*item, GFP_ATOMIC);
 	if (!item)
 		return;
 
@@ -1149,9 +1136,8 @@ int mhi_ep_power_up(struct mhi_ep_cntrl *mhi_cntrl)
 	mhi_ep_mmio_mask_interrupts(mhi_cntrl);
 	mhi_ep_mmio_init(mhi_cntrl);
 
-	mhi_cntrl->mhi_event = kcalloc(mhi_cntrl->event_rings,
-				       sizeof(*mhi_cntrl->mhi_event),
-				       GFP_KERNEL);
+	mhi_cntrl->mhi_event = kzalloc_objs(*mhi_cntrl->mhi_event,
+					    mhi_cntrl->event_rings);
 	if (!mhi_cntrl->mhi_event)
 		return -ENOMEM;
 
@@ -1289,7 +1275,7 @@ static struct mhi_ep_device *mhi_ep_alloc_device(struct mhi_ep_cntrl *mhi_cntrl,
 	struct mhi_ep_device *mhi_dev;
 	struct device *dev;
 
-	mhi_dev = kzalloc(sizeof(*mhi_dev), GFP_KERNEL);
+	mhi_dev = kzalloc_obj(*mhi_dev);
 	if (!mhi_dev)
 		return ERR_PTR(-ENOMEM);
 
@@ -1413,8 +1399,8 @@ static int mhi_ep_chan_init(struct mhi_ep_cntrl *mhi_cntrl,
 	 * Allocate max_channels supported by the MHI endpoint and populate
 	 * only the defined channels
 	 */
-	mhi_cntrl->mhi_chan = kcalloc(mhi_cntrl->max_chan, sizeof(*mhi_cntrl->mhi_chan),
-				      GFP_KERNEL);
+	mhi_cntrl->mhi_chan = kzalloc_objs(*mhi_cntrl->mhi_chan,
+					   mhi_cntrl->max_chan);
 	if (!mhi_cntrl->mhi_chan)
 		return -ENOMEM;
 
@@ -1473,7 +1459,7 @@ int mhi_ep_register_controller(struct mhi_ep_cntrl *mhi_cntrl,
 	if (ret)
 		return ret;
 
-	mhi_cntrl->mhi_cmd = kcalloc(NR_OF_CMD_RINGS, sizeof(*mhi_cntrl->mhi_cmd), GFP_KERNEL);
+	mhi_cntrl->mhi_cmd = kzalloc_objs(*mhi_cntrl->mhi_cmd, NR_OF_CMD_RINGS);
 	if (!mhi_cntrl->mhi_cmd) {
 		ret = -ENOMEM;
 		goto err_free_ch;
@@ -1507,7 +1493,7 @@ int mhi_ep_register_controller(struct mhi_ep_cntrl *mhi_cntrl,
 	INIT_WORK(&mhi_cntrl->cmd_ring_work, mhi_ep_cmd_ring_worker);
 	INIT_WORK(&mhi_cntrl->ch_ring_work, mhi_ep_ch_ring_worker);
 
-	mhi_cntrl->wq = alloc_workqueue("mhi_ep_wq", 0, 0);
+	mhi_cntrl->wq = alloc_workqueue("mhi_ep_wq", WQ_PERCPU, 0);
 	if (!mhi_cntrl->wq) {
 		ret = -ENOMEM;
 		goto err_destroy_ring_item_cache;
@@ -1609,7 +1595,7 @@ void mhi_ep_unregister_controller(struct mhi_ep_cntrl *mhi_cntrl)
 }
 EXPORT_SYMBOL_GPL(mhi_ep_unregister_controller);
 
-static int mhi_ep_driver_probe(struct device *dev)
+static int mhi_ep_probe(struct device *dev)
 {
 	struct mhi_ep_device *mhi_dev = to_mhi_ep_device(dev);
 	struct mhi_ep_driver *mhi_drv = to_mhi_ep_driver(dev->driver);
@@ -1622,7 +1608,7 @@ static int mhi_ep_driver_probe(struct device *dev)
 	return mhi_drv->probe(mhi_dev, mhi_dev->id);
 }
 
-static int mhi_ep_driver_remove(struct device *dev)
+static void mhi_ep_remove(struct device *dev)
 {
 	struct mhi_ep_device *mhi_dev = to_mhi_ep_device(dev);
 	struct mhi_ep_driver *mhi_drv = to_mhi_ep_driver(dev->driver);
@@ -1632,7 +1618,7 @@ static int mhi_ep_driver_remove(struct device *dev)
 
 	/* Skip if it is a controller device */
 	if (mhi_dev->dev_type == MHI_DEVICE_CONTROLLER)
-		return 0;
+		return;
 
 	/* Disconnect the channels associated with the driver */
 	for (dir = 0; dir < 2; dir++) {
@@ -1656,8 +1642,6 @@ static int mhi_ep_driver_remove(struct device *dev)
 
 	/* Remove the client driver now */
 	mhi_drv->remove(mhi_dev);
-
-	return 0;
 }
 
 int __mhi_ep_driver_register(struct mhi_ep_driver *mhi_drv, struct module *owner)
@@ -1673,8 +1657,6 @@ int __mhi_ep_driver_register(struct mhi_ep_driver *mhi_drv, struct module *owner
 
 	driver->bus = &mhi_ep_bus_type;
 	driver->owner = owner;
-	driver->probe = mhi_ep_driver_probe;
-	driver->remove = mhi_ep_driver_remove;
 
 	return driver_register(driver);
 }
@@ -1716,11 +1698,13 @@ static int mhi_ep_match(struct device *dev, const struct device_driver *drv)
 	return 0;
 };
 
-struct bus_type mhi_ep_bus_type = {
+const struct bus_type mhi_ep_bus_type = {
 	.name = "mhi_ep",
 	.dev_name = "mhi_ep",
 	.match = mhi_ep_match,
 	.uevent = mhi_ep_uevent,
+	.probe = mhi_ep_probe,
+	.remove = mhi_ep_remove,
 };
 
 static int __init mhi_ep_init(void)

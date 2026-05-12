@@ -14,8 +14,7 @@
 #include <linux/ktime.h>
 
 #include <drm/drm_mm.h>
-
-#include "../lib/drm_random.h"
+#include <drm/drm_print.h>
 
 enum {
 	BEST,
@@ -251,7 +250,7 @@ static void drm_test_mm_align_pot(struct kunit *test, int max)
 	for (bit = max - 1; bit; bit--) {
 		u64 align, size;
 
-		node = kzalloc(sizeof(*node), GFP_KERNEL);
+		node = kzalloc_obj(*node);
 		if (!node) {
 			KUNIT_FAIL(test, "failed to allocate node");
 			goto out;

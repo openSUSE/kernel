@@ -18,9 +18,9 @@
 
 #ifdef MARCH_HAS_Z196_FEATURES
 /* Fast-BCR without checkpoint synchronization */
-#define __ASM_BCR_SERIALIZE "bcr 14,0\n"
+#define __ASM_BCR_SERIALIZE "bcr 14,0"
 #else
-#define __ASM_BCR_SERIALIZE "bcr 15,0\n"
+#define __ASM_BCR_SERIALIZE "bcr 15,0"
 #endif
 
 static __always_inline void bcr_serialize(void)
@@ -62,19 +62,19 @@ do {									\
  * @size: number of elements in array
  */
 #define array_index_mask_nospec array_index_mask_nospec
-static inline unsigned long array_index_mask_nospec(unsigned long index,
-						    unsigned long size)
+static __always_inline unsigned long array_index_mask_nospec(unsigned long index,
+							     unsigned long size)
 {
 	unsigned long mask;
 
 	if (__builtin_constant_p(size) && size > 0) {
 		asm("	clgr	%2,%1\n"
-		    "	slbgr	%0,%0\n"
+		    "	slbgr	%0,%0"
 		    :"=d" (mask) : "d" (size-1), "d" (index) :"cc");
 		return mask;
 	}
 	asm("	clgr	%1,%2\n"
-	    "	slbgr	%0,%0\n"
+	    "	slbgr	%0,%0"
 	    :"=d" (mask) : "d" (size), "d" (index) :"cc");
 	return ~mask;
 }

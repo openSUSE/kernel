@@ -8,6 +8,7 @@
 #include <linux/swap.h>
 
 #include <drm/drm_cache.h>
+#include <drm/drm_print.h>
 
 #include "gt/intel_gt.h"
 #include "i915_drv.h"
@@ -46,7 +47,7 @@ static int i915_gem_object_get_pages_phys(struct drm_i915_gem_object *obj)
 	if (!vaddr)
 		return -ENOMEM;
 
-	st = kmalloc(sizeof(*st), GFP_KERNEL);
+	st = kmalloc_obj(*st);
 	if (!st)
 		goto err_pci;
 
@@ -154,7 +155,7 @@ int i915_gem_object_pwrite_phys(struct drm_i915_gem_object *obj,
 	 * We manually control the domain here and pretend that it
 	 * remains coherent i.e. in the GTT domain, like shmem_pwrite.
 	 */
-	i915_gem_object_invalidate_frontbuffer(obj, ORIGIN_CPU);
+	i915_gem_object_frontbuffer_invalidate(obj, ORIGIN_CPU);
 
 	if (copy_from_user(vaddr, user_data, args->size))
 		return -EFAULT;
@@ -162,7 +163,7 @@ int i915_gem_object_pwrite_phys(struct drm_i915_gem_object *obj,
 	drm_clflush_virt_range(vaddr, args->size);
 	intel_gt_chipset_flush(to_gt(i915));
 
-	i915_gem_object_flush_frontbuffer(obj, ORIGIN_CPU);
+	i915_gem_object_frontbuffer_flush(obj, ORIGIN_CPU);
 	return 0;
 }
 

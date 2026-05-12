@@ -504,7 +504,7 @@ static int pci_npem_set_led_classdev(struct npem *npem, struct npem_led *nled)
 	led->brightness_get = brightness_get;
 	led->max_brightness = 1;
 	led->default_trigger = "none";
-	led->flags = 0;
+	led->flags = LED_HW_PLUGGABLE;
 
 	ret = led_classdev_register(&npem->dev->dev, led);
 	if (ret)
@@ -524,7 +524,7 @@ static int pci_npem_init(struct pci_dev *dev, const struct npem_ops *ops,
 	int led_idx = 0;
 	int ret;
 
-	npem = kzalloc(struct_size(npem, leds, supported_cnt), GFP_KERNEL);
+	npem = kzalloc_flex(*npem, leds, supported_cnt);
 	if (!npem)
 		return -ENOMEM;
 

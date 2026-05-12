@@ -85,6 +85,9 @@ static void xgbe_get_strings(struct net_device *netdev, u32 stringset, u8 *data)
 	int i;
 
 	switch (stringset) {
+	case ETH_SS_TEST:
+		xgbe_selftest_get_strings(pdata, data);
+		break;
 	case ETH_SS_STATS:
 		for (i = 0; i < XGBE_STATS_COUNT; i++)
 			ethtool_puts(&data, xgbe_gstring_stats[i].stat_string);
@@ -131,6 +134,9 @@ static int xgbe_get_sset_count(struct net_device *netdev, int stringset)
 	int ret;
 
 	switch (stringset) {
+	case ETH_SS_TEST:
+		ret = xgbe_selftest_get_count(pdata);
+		break;
 	case ETH_SS_STATS:
 		ret = XGBE_STATS_COUNT +
 		      (pdata->tx_ring_count * 2) +
@@ -329,6 +335,7 @@ static int xgbe_get_coalesce(struct net_device *netdev,
 	ec->rx_coalesce_usecs = pdata->rx_usecs;
 	ec->rx_max_coalesced_frames = pdata->rx_frames;
 
+	ec->tx_coalesce_usecs = pdata->tx_usecs;
 	ec->tx_max_coalesced_frames = pdata->tx_frames;
 
 	return 0;
@@ -342,7 +349,8 @@ static int xgbe_set_coalesce(struct net_device *netdev,
 	struct xgbe_prv_data *pdata = netdev_priv(netdev);
 	struct xgbe_hw_if *hw_if = &pdata->hw_if;
 	unsigned int rx_frames, rx_riwt, rx_usecs;
-	unsigned int tx_frames;
+	unsigned int tx_frames, tx_usecs;
+	unsigned int jiffy_us = jiffies_to_usecs(1);
 
 	rx_riwt = hw_if->usec_to_riwt(pdata, ec->rx_coalesce_usecs);
 	rx_usecs = ec->rx_coalesce_usecs;
@@ -354,23 +362,47 @@ static int xgbe_set_coalesce(struct net_device *netdev,
 
 	/* Check the bounds of values for Rx */
 	if (rx_riwt > XGMAC_MAX_DMA_RIWT) {
-		netdev_err(netdev, "rx-usec is limited to %d usecs\n",
-			   hw_if->riwt_to_usec(pdata, XGMAC_MAX_DMA_RIWT));
+		NL_SET_ERR_MSG_FMT_MOD(extack,
+				       "rx-usec is limited to %d usecs",
+				       hw_if->riwt_to_usec(pdata,
+							   XGMAC_MAX_DMA_RIWT));
 		return -EINVAL;
 	}
 	if (rx_frames > pdata->rx_desc_count) {
-		netdev_err(netdev, "rx-frames is limited to %d frames\n",
-			   pdata->rx_desc_count);
+		NL_SET_ERR_MSG_FMT_MOD(extack,
+				       "rx-frames is limited to %d frames",
+				       pdata->rx_desc_count);
 		return -EINVAL;
 	}
 
+	tx_usecs = ec->tx_coalesce_usecs;
 	tx_frames = ec->tx_max_coalesced_frames;
 
 	/* Check the bounds of values for Tx */
-	if (tx_frames > pdata->tx_desc_count) {
-		netdev_err(netdev, "tx-frames is limited to %d frames\n",
-			   pdata->tx_desc_count);
+	if (!tx_usecs) {
+		NL_SET_ERR_MSG_MOD(extack, "tx-usecs must not be 0");
 		return -EINVAL;
+	}
+	if (tx_usecs > XGMAC_MAX_COAL_TX_TICK) {
+		NL_SET_ERR_MSG_FMT_MOD(extack, "tx-usecs is limited to %d usec",
+				       XGMAC_MAX_COAL_TX_TICK);
+		return -EINVAL;
+	}
+	if (tx_frames > pdata->tx_desc_count) {
+		NL_SET_ERR_MSG_FMT_MOD(extack,
+				       "tx-frames is limited to %d frames",
+				       pdata->tx_desc_count);
+		return -EINVAL;
+	}
+
+	/* Round tx-usecs to nearest multiple of jiffy granularity */
+	if (tx_usecs % jiffy_us) {
+		tx_usecs = rounddown(tx_usecs, jiffy_us);
+		if (!tx_usecs)
+			tx_usecs = jiffy_us;
+		NL_SET_ERR_MSG_FMT_MOD(extack,
+				       "tx-usecs rounded to %u usec due to jiffy granularity (%u usec)",
+				       tx_usecs, jiffy_us);
 	}
 
 	pdata->rx_riwt = rx_riwt;
@@ -378,26 +410,18 @@ static int xgbe_set_coalesce(struct net_device *netdev,
 	pdata->rx_frames = rx_frames;
 	hw_if->config_rx_coalesce(pdata);
 
+	pdata->tx_usecs = tx_usecs;
 	pdata->tx_frames = tx_frames;
 	hw_if->config_tx_coalesce(pdata);
 
 	return 0;
 }
 
-static int xgbe_get_rxnfc(struct net_device *netdev,
-			  struct ethtool_rxnfc *rxnfc, u32 *rule_locs)
+static u32 xgbe_get_rx_ring_count(struct net_device *netdev)
 {
 	struct xgbe_prv_data *pdata = netdev_priv(netdev);
 
-	switch (rxnfc->cmd) {
-	case ETHTOOL_GRXRINGS:
-		rxnfc->data = pdata->rx_ring_count;
-		break;
-	default:
-		return -EOPNOTSUPP;
-	}
-
-	return 0;
+	return pdata->rx_ring_count;
 }
 
 static u32 xgbe_get_rxfh_key_size(struct net_device *netdev)
@@ -440,11 +464,11 @@ static int xgbe_set_rxfh(struct net_device *netdev,
 {
 	struct xgbe_prv_data *pdata = netdev_priv(netdev);
 	struct xgbe_hw_if *hw_if = &pdata->hw_if;
-	unsigned int ret;
+	int ret;
 
 	if (rxfh->hfunc != ETH_RSS_HASH_NO_CHANGE &&
 	    rxfh->hfunc != ETH_RSS_HASH_TOP) {
-		netdev_err(netdev, "unsupported hash function\n");
+		NL_SET_ERR_MSG_MOD(extack, "unsupported hash function");
 		return -EOPNOTSUPP;
 	}
 
@@ -531,37 +555,39 @@ static int xgbe_set_ringparam(struct net_device *netdev,
 	unsigned int rx, tx;
 
 	if (ringparam->rx_mini_pending || ringparam->rx_jumbo_pending) {
-		netdev_err(netdev, "unsupported ring parameter\n");
+		NL_SET_ERR_MSG_MOD(extack, "unsupported ring parameter");
 		return -EINVAL;
 	}
 
 	if ((ringparam->rx_pending < XGBE_RX_DESC_CNT_MIN) ||
 	    (ringparam->rx_pending > XGBE_RX_DESC_CNT_MAX)) {
-		netdev_err(netdev,
-			   "rx ring parameter must be between %u and %u\n",
-			   XGBE_RX_DESC_CNT_MIN, XGBE_RX_DESC_CNT_MAX);
+		NL_SET_ERR_MSG_FMT_MOD(extack,
+				       "rx ring parameter must be between %u and %u",
+				       XGBE_RX_DESC_CNT_MIN,
+				       XGBE_RX_DESC_CNT_MAX);
 		return -EINVAL;
 	}
 
 	if ((ringparam->tx_pending < XGBE_TX_DESC_CNT_MIN) ||
 	    (ringparam->tx_pending > XGBE_TX_DESC_CNT_MAX)) {
-		netdev_err(netdev,
-			   "tx ring parameter must be between %u and %u\n",
-			   XGBE_TX_DESC_CNT_MIN, XGBE_TX_DESC_CNT_MAX);
+		NL_SET_ERR_MSG_FMT_MOD(extack,
+				       "tx ring parameter must be between %u and %u",
+				       XGBE_TX_DESC_CNT_MIN,
+				       XGBE_TX_DESC_CNT_MAX);
 		return -EINVAL;
 	}
 
 	rx = __rounddown_pow_of_two(ringparam->rx_pending);
 	if (rx != ringparam->rx_pending)
-		netdev_notice(netdev,
-			      "rx ring parameter rounded to power of two: %u\n",
-			      rx);
+		NL_SET_ERR_MSG_FMT_MOD(extack,
+				       "rx ring parameter rounded to power of two: %u",
+				       rx);
 
 	tx = __rounddown_pow_of_two(ringparam->tx_pending);
 	if (tx != ringparam->tx_pending)
-		netdev_notice(netdev,
-			      "tx ring parameter rounded to power of two: %u\n",
-			      tx);
+		NL_SET_ERR_MSG_FMT_MOD(extack,
+				       "tx ring parameter rounded to power of two: %u",
+				       tx);
 
 	if ((rx == pdata->rx_desc_count) &&
 	    (tx == pdata->tx_desc_count))
@@ -709,7 +735,7 @@ out:
 }
 
 static const struct ethtool_ops xgbe_ethtool_ops = {
-	.supported_coalesce_params = ETHTOOL_COALESCE_RX_USECS |
+	.supported_coalesce_params = ETHTOOL_COALESCE_USECS |
 				     ETHTOOL_COALESCE_MAX_FRAMES,
 	.get_drvinfo = xgbe_get_drvinfo,
 	.get_msglevel = xgbe_get_msglevel,
@@ -722,7 +748,7 @@ static const struct ethtool_ops xgbe_ethtool_ops = {
 	.get_strings = xgbe_get_strings,
 	.get_ethtool_stats = xgbe_get_ethtool_stats,
 	.get_sset_count = xgbe_get_sset_count,
-	.get_rxnfc = xgbe_get_rxnfc,
+	.get_rx_ring_count = xgbe_get_rx_ring_count,
 	.get_rxfh_key_size = xgbe_get_rxfh_key_size,
 	.get_rxfh_indir_size = xgbe_get_rxfh_indir_size,
 	.get_rxfh = xgbe_get_rxfh,
@@ -736,6 +762,7 @@ static const struct ethtool_ops xgbe_ethtool_ops = {
 	.set_ringparam = xgbe_set_ringparam,
 	.get_channels = xgbe_get_channels,
 	.set_channels = xgbe_set_channels,
+	.self_test = xgbe_selftest_run,
 };
 
 const struct ethtool_ops *xgbe_get_ethtool_ops(void)

@@ -4,7 +4,7 @@
  *
  *  Derived from ivtv-streams.c
  *
- *  Copyright (C) 2007  Hans Verkuil <hverkuil@xs4all.nl>
+ *  Copyright (C) 2007  Hans Verkuil <hverkuil@kernel.org>
  *  Copyright (C) 2008  Andy Walls <awalls@md.metrocast.net>
  */
 
@@ -343,7 +343,7 @@ static int cx18_prep_dev(struct cx18 *cx, int type)
 	/* Allocate the cx18_dvb struct only for the TS on cards with DTV */
 	if (type == CX18_ENC_STREAM_TYPE_TS) {
 		if (cx->card->hw_all & CX18_HW_DVB) {
-			s->dvb = kzalloc(sizeof(struct cx18_dvb), GFP_KERNEL);
+			s->dvb = kzalloc_obj(struct cx18_dvb);
 			if (s->dvb == NULL) {
 				CX18_ERR("Couldn't allocate cx18_dvb structure for %s\n",
 					 s->name);

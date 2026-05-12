@@ -2,19 +2,20 @@
 
 //! Errors for the [`Vec`] type.
 
-use core::fmt::{self, Debug, Formatter};
+use kernel::fmt;
 use kernel::prelude::*;
 
 /// Error type for [`Vec::push_within_capacity`].
 pub struct PushError<T>(pub T);
 
-impl<T> Debug for PushError<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl<T> fmt::Debug for PushError<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Not enough capacity")
     }
 }
 
 impl<T> From<PushError<T>> for Error {
+    #[inline]
     fn from(_: PushError<T>) -> Error {
         // Returning ENOMEM isn't appropriate because the system is not out of memory. The vector
         // is just full and we are refusing to resize it.
@@ -25,13 +26,14 @@ impl<T> From<PushError<T>> for Error {
 /// Error type for [`Vec::remove`].
 pub struct RemoveError;
 
-impl Debug for RemoveError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl fmt::Debug for RemoveError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Index out of bounds")
     }
 }
 
 impl From<RemoveError> for Error {
+    #[inline]
     fn from(_: RemoveError) -> Error {
         EINVAL
     }
@@ -45,8 +47,8 @@ pub enum InsertError<T> {
     OutOfCapacity(T),
 }
 
-impl<T> Debug for InsertError<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl<T> fmt::Debug for InsertError<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             InsertError::IndexOutOfBounds(_) => write!(f, "Index out of bounds"),
             InsertError::OutOfCapacity(_) => write!(f, "Not enough capacity"),
@@ -55,6 +57,7 @@ impl<T> Debug for InsertError<T> {
 }
 
 impl<T> From<InsertError<T>> for Error {
+    #[inline]
     fn from(_: InsertError<T>) -> Error {
         EINVAL
     }

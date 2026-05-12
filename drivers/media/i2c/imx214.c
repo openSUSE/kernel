@@ -881,240 +881,6 @@ static const struct v4l2_ctrl_ops imx214_ctrl_ops = {
 	.s_ctrl = imx214_set_ctrl,
 };
 
-static int imx214_ctrls_init(struct imx214 *imx214)
-{
-	static const struct v4l2_area unit_size = {
-		.width = 1120,
-		.height = 1120,
-	};
-	const struct imx214_mode *mode = &imx214_modes[0];
-	struct v4l2_fwnode_device_properties props;
-	struct v4l2_ctrl_handler *ctrl_hdlr;
-	int exposure_max, exposure_def;
-	int hblank;
-	int i, ret;
-
-	ret = v4l2_fwnode_device_parse(imx214->dev, &props);
-	if (ret < 0)
-		return ret;
-
-	ctrl_hdlr = &imx214->ctrls;
-	ret = v4l2_ctrl_handler_init(&imx214->ctrls, 13);
-	if (ret)
-		return ret;
-
-	imx214->pixel_rate =
-		v4l2_ctrl_new_std(ctrl_hdlr, NULL, V4L2_CID_PIXEL_RATE, 1,
-				  INT_MAX, 1, 1);
-
-	imx214->link_freq = v4l2_ctrl_new_int_menu(ctrl_hdlr, NULL,
-						   V4L2_CID_LINK_FREQ,
-						   imx214->bus_cfg.nr_of_link_frequencies - 1,
-						   0, imx214->bus_cfg.link_frequencies);
-	if (imx214->link_freq)
-		imx214->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
-
-	/*
-	 * WARNING!
-	 * Values obtained reverse engineering blobs and/or devices.
-	 * Ranges and functionality might be wrong.
-	 *
-	 * Sony, please release some register set documentation for the
-	 * device.
-	 *
-	 * Yours sincerely, Ricardo.
-	 */
-
-	/* Initial vblank/hblank/exposure parameters based on current mode */
-	imx214->vblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx214_ctrl_ops,
-					   V4L2_CID_VBLANK, IMX214_VBLANK_MIN,
-					   IMX214_VTS_MAX - mode->height, 2,
-					   mode->vts_def - mode->height);
-
-	hblank = IMX214_PPL_DEFAULT - mode->width;
-	imx214->hblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx214_ctrl_ops,
-					   V4L2_CID_HBLANK, hblank, hblank,
-					   1, hblank);
-	if (imx214->hblank)
-		imx214->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
-
-	exposure_max = mode->vts_def - IMX214_EXPOSURE_OFFSET;
-	exposure_def = min(exposure_max, IMX214_EXPOSURE_DEFAULT);
-	imx214->exposure = v4l2_ctrl_new_std(ctrl_hdlr, &imx214_ctrl_ops,
-					     V4L2_CID_EXPOSURE,
-					     IMX214_EXPOSURE_MIN,
-					     exposure_max,
-					     IMX214_EXPOSURE_STEP,
-					     exposure_def);
-
-	v4l2_ctrl_new_std(ctrl_hdlr, &imx214_ctrl_ops, V4L2_CID_ANALOGUE_GAIN,
-			  IMX214_ANA_GAIN_MIN, IMX214_ANA_GAIN_MAX,
-			  IMX214_ANA_GAIN_STEP, IMX214_ANA_GAIN_DEFAULT);
-
-	v4l2_ctrl_new_std(ctrl_hdlr, &imx214_ctrl_ops, V4L2_CID_DIGITAL_GAIN,
-			  IMX214_DGTL_GAIN_MIN, IMX214_DGTL_GAIN_MAX,
-			  IMX214_DGTL_GAIN_STEP, IMX214_DGTL_GAIN_DEFAULT);
-
-	imx214->hflip = v4l2_ctrl_new_std(ctrl_hdlr, &imx214_ctrl_ops,
-					  V4L2_CID_HFLIP, 0, 1, 1, 0);
-	if (imx214->hflip)
-		imx214->hflip->flags |= V4L2_CTRL_FLAG_MODIFY_LAYOUT;
-
-	imx214->vflip = v4l2_ctrl_new_std(ctrl_hdlr, &imx214_ctrl_ops,
-					  V4L2_CID_VFLIP, 0, 1, 1, 0);
-	if (imx214->vflip)
-		imx214->vflip->flags |= V4L2_CTRL_FLAG_MODIFY_LAYOUT;
-
-	v4l2_ctrl_cluster(2, &imx214->hflip);
-
-	v4l2_ctrl_new_std_menu_items(ctrl_hdlr, &imx214_ctrl_ops,
-				     V4L2_CID_TEST_PATTERN,
-				     ARRAY_SIZE(imx214_test_pattern_menu) - 1,
-				     0, 0, imx214_test_pattern_menu);
-	for (i = 0; i < 4; i++) {
-		/*
-		 * The assumption is that
-		 * V4L2_CID_TEST_PATTERN_GREENR == V4L2_CID_TEST_PATTERN_RED + 1
-		 * V4L2_CID_TEST_PATTERN_BLUE   == V4L2_CID_TEST_PATTERN_RED + 2
-		 * V4L2_CID_TEST_PATTERN_GREENB == V4L2_CID_TEST_PATTERN_RED + 3
-		 */
-		v4l2_ctrl_new_std(ctrl_hdlr, &imx214_ctrl_ops,
-				  V4L2_CID_TEST_PATTERN_RED + i,
-				  IMX214_TESTP_COLOUR_MIN,
-				  IMX214_TESTP_COLOUR_MAX,
-				  IMX214_TESTP_COLOUR_STEP,
-				  IMX214_TESTP_COLOUR_MAX);
-		/* The "Solid color" pattern is white by default */
-	}
-
-	imx214->unit_size = v4l2_ctrl_new_std_compound(ctrl_hdlr,
-				NULL,
-				V4L2_CID_UNIT_CELL_SIZE,
-				v4l2_ctrl_ptr_create((void *)&unit_size),
-				v4l2_ctrl_ptr_create(NULL),
-				v4l2_ctrl_ptr_create(NULL));
-
-	v4l2_ctrl_new_fwnode_properties(ctrl_hdlr, &imx214_ctrl_ops, &props);
-
-	ret = ctrl_hdlr->error;
-	if (ret) {
-		v4l2_ctrl_handler_free(ctrl_hdlr);
-		dev_err(imx214->dev, "failed to add controls: %d\n", ret);
-		return ret;
-	}
-
-	imx214->sd.ctrl_handler = ctrl_hdlr;
-
-	return 0;
-};
-
-static int imx214_start_streaming(struct imx214 *imx214)
-{
-	const struct v4l2_mbus_framefmt *fmt;
-	struct v4l2_subdev_state *state;
-	const struct imx214_mode *mode;
-	int bit_rate_mbps;
-	int ret;
-
-	ret = cci_multi_reg_write(imx214->regmap, mode_table_common,
-				  ARRAY_SIZE(mode_table_common), NULL);
-	if (ret < 0) {
-		dev_err(imx214->dev, "could not sent common table %d\n", ret);
-		return ret;
-	}
-
-	ret = imx214_configure_pll(imx214);
-	if (ret) {
-		dev_err(imx214->dev, "failed to configure PLL: %d\n", ret);
-		return ret;
-	}
-
-	bit_rate_mbps = (imx214->pll.pixel_rate_csi / 1000000)
-			* imx214->pll.bits_per_pixel;
-	ret = cci_write(imx214->regmap, IMX214_REG_REQ_LINK_BIT_RATE,
-			IMX214_LINK_BIT_RATE_MBPS(bit_rate_mbps), NULL);
-	if (ret) {
-		dev_err(imx214->dev, "failed to configure link bit rate\n");
-		return ret;
-	}
-
-	ret = cci_write(imx214->regmap, IMX214_REG_CSI_LANE_MODE,
-			IMX214_CSI_4_LANE_MODE, NULL);
-	if (ret) {
-		dev_err(imx214->dev, "failed to configure lanes\n");
-		return ret;
-	}
-
-	state = v4l2_subdev_get_locked_active_state(&imx214->sd);
-	fmt = v4l2_subdev_state_get_format(state, 0);
-	mode = v4l2_find_nearest_size(imx214_modes, ARRAY_SIZE(imx214_modes),
-				      width, height, fmt->width, fmt->height);
-	ret = cci_multi_reg_write(imx214->regmap, mode->reg_table,
-				  mode->num_of_regs, NULL);
-	if (ret < 0) {
-		dev_err(imx214->dev, "could not sent mode table %d\n", ret);
-		return ret;
-	}
-
-	usleep_range(10000, 10500);
-
-	cci_write(imx214->regmap, IMX214_REG_TEMP_SENSOR_CONTROL, 0x01, NULL);
-
-	ret = __v4l2_ctrl_handler_setup(&imx214->ctrls);
-	if (ret < 0) {
-		dev_err(imx214->dev, "could not sync v4l2 controls\n");
-		return ret;
-	}
-	ret = cci_write(imx214->regmap, IMX214_REG_MODE_SELECT,
-			IMX214_MODE_STREAMING, NULL);
-	if (ret < 0)
-		dev_err(imx214->dev, "could not sent start table %d\n", ret);
-
-	return ret;
-}
-
-static int imx214_stop_streaming(struct imx214 *imx214)
-{
-	int ret;
-
-	ret = cci_write(imx214->regmap, IMX214_REG_MODE_SELECT,
-			IMX214_MODE_STANDBY, NULL);
-	if (ret < 0)
-		dev_err(imx214->dev, "could not sent stop table %d\n",	ret);
-
-	return ret;
-}
-
-static int imx214_s_stream(struct v4l2_subdev *subdev, int enable)
-{
-	struct imx214 *imx214 = to_imx214(subdev);
-	struct v4l2_subdev_state *state;
-	int ret;
-
-	if (enable) {
-		ret = pm_runtime_resume_and_get(imx214->dev);
-		if (ret < 0)
-			return ret;
-
-		state = v4l2_subdev_lock_and_get_active_state(subdev);
-		ret = imx214_start_streaming(imx214);
-		v4l2_subdev_unlock_state(state);
-		if (ret < 0)
-			goto err_rpm_put;
-	} else {
-		ret = imx214_stop_streaming(imx214);
-		if (ret < 0)
-			goto err_rpm_put;
-		pm_runtime_put(imx214->dev);
-	}
-
-	return 0;
-
-err_rpm_put:
-	pm_runtime_put(imx214->dev);
-	return ret;
-}
-
 static int imx214_pll_calculate(struct imx214 *imx214, struct ccs_pll *pll,
 				unsigned int link_freq)
 {
@@ -1216,6 +982,244 @@ static int imx214_pll_update(struct imx214 *imx214)
 	}
 
 	return 0;
+}
+
+static int imx214_ctrls_init(struct imx214 *imx214)
+{
+	static const struct v4l2_area unit_size = {
+		.width = 1120,
+		.height = 1120,
+	};
+	const struct imx214_mode *mode = &imx214_modes[0];
+	struct v4l2_fwnode_device_properties props;
+	struct v4l2_ctrl_handler *ctrl_hdlr;
+	int exposure_max, exposure_def;
+	int hblank;
+	int i, ret;
+
+	ret = v4l2_fwnode_device_parse(imx214->dev, &props);
+	if (ret < 0)
+		return ret;
+
+	ctrl_hdlr = &imx214->ctrls;
+	ret = v4l2_ctrl_handler_init(&imx214->ctrls, 13);
+	if (ret)
+		return ret;
+
+	imx214->pixel_rate =
+		v4l2_ctrl_new_std(ctrl_hdlr, NULL, V4L2_CID_PIXEL_RATE, 1,
+				  INT_MAX, 1, 1);
+
+	imx214->link_freq = v4l2_ctrl_new_int_menu(ctrl_hdlr, NULL,
+						   V4L2_CID_LINK_FREQ,
+						   imx214->bus_cfg.nr_of_link_frequencies - 1,
+						   0, imx214->bus_cfg.link_frequencies);
+
+	/*
+	 * WARNING!
+	 * Values obtained reverse engineering blobs and/or devices.
+	 * Ranges and functionality might be wrong.
+	 *
+	 * Sony, please release some register set documentation for the
+	 * device.
+	 *
+	 * Yours sincerely, Ricardo.
+	 */
+
+	/* Initial vblank/hblank/exposure parameters based on current mode */
+	imx214->vblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx214_ctrl_ops,
+					   V4L2_CID_VBLANK, IMX214_VBLANK_MIN,
+					   IMX214_VTS_MAX - mode->height, 2,
+					   mode->vts_def - mode->height);
+
+	hblank = IMX214_PPL_DEFAULT - mode->width;
+	imx214->hblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx214_ctrl_ops,
+					   V4L2_CID_HBLANK, hblank, hblank,
+					   1, hblank);
+	exposure_max = mode->vts_def - IMX214_EXPOSURE_OFFSET;
+	exposure_def = min(exposure_max, IMX214_EXPOSURE_DEFAULT);
+	imx214->exposure = v4l2_ctrl_new_std(ctrl_hdlr, &imx214_ctrl_ops,
+					     V4L2_CID_EXPOSURE,
+					     IMX214_EXPOSURE_MIN,
+					     exposure_max,
+					     IMX214_EXPOSURE_STEP,
+					     exposure_def);
+
+	v4l2_ctrl_new_std(ctrl_hdlr, &imx214_ctrl_ops, V4L2_CID_ANALOGUE_GAIN,
+			  IMX214_ANA_GAIN_MIN, IMX214_ANA_GAIN_MAX,
+			  IMX214_ANA_GAIN_STEP, IMX214_ANA_GAIN_DEFAULT);
+
+	v4l2_ctrl_new_std(ctrl_hdlr, &imx214_ctrl_ops, V4L2_CID_DIGITAL_GAIN,
+			  IMX214_DGTL_GAIN_MIN, IMX214_DGTL_GAIN_MAX,
+			  IMX214_DGTL_GAIN_STEP, IMX214_DGTL_GAIN_DEFAULT);
+
+	imx214->hflip = v4l2_ctrl_new_std(ctrl_hdlr, &imx214_ctrl_ops,
+					  V4L2_CID_HFLIP, 0, 1, 1, 0);
+
+	imx214->vflip = v4l2_ctrl_new_std(ctrl_hdlr, &imx214_ctrl_ops,
+					  V4L2_CID_VFLIP, 0, 1, 1, 0);
+
+	v4l2_ctrl_cluster(2, &imx214->hflip);
+
+	v4l2_ctrl_new_std_menu_items(ctrl_hdlr, &imx214_ctrl_ops,
+				     V4L2_CID_TEST_PATTERN,
+				     ARRAY_SIZE(imx214_test_pattern_menu) - 1,
+				     0, 0, imx214_test_pattern_menu);
+	for (i = 0; i < 4; i++) {
+		/*
+		 * The assumption is that
+		 * V4L2_CID_TEST_PATTERN_GREENR == V4L2_CID_TEST_PATTERN_RED + 1
+		 * V4L2_CID_TEST_PATTERN_BLUE   == V4L2_CID_TEST_PATTERN_RED + 2
+		 * V4L2_CID_TEST_PATTERN_GREENB == V4L2_CID_TEST_PATTERN_RED + 3
+		 */
+		v4l2_ctrl_new_std(ctrl_hdlr, &imx214_ctrl_ops,
+				  V4L2_CID_TEST_PATTERN_RED + i,
+				  IMX214_TESTP_COLOUR_MIN,
+				  IMX214_TESTP_COLOUR_MAX,
+				  IMX214_TESTP_COLOUR_STEP,
+				  IMX214_TESTP_COLOUR_MAX);
+		/* The "Solid color" pattern is white by default */
+	}
+
+	imx214->unit_size = v4l2_ctrl_new_std_compound(ctrl_hdlr,
+				NULL,
+				V4L2_CID_UNIT_CELL_SIZE,
+				v4l2_ctrl_ptr_create((void *)&unit_size),
+				v4l2_ctrl_ptr_create(NULL),
+				v4l2_ctrl_ptr_create(NULL));
+
+	v4l2_ctrl_new_fwnode_properties(ctrl_hdlr, &imx214_ctrl_ops, &props);
+
+	ret = ctrl_hdlr->error;
+	if (ret) {
+		v4l2_ctrl_handler_free(ctrl_hdlr);
+		dev_err(imx214->dev, "failed to add controls: %d\n", ret);
+		return ret;
+	}
+
+	/* Now that the controls have been properly created, set their flags. */
+	imx214->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	imx214->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	imx214->hflip->flags |= V4L2_CTRL_FLAG_MODIFY_LAYOUT;
+	imx214->vflip->flags |= V4L2_CTRL_FLAG_MODIFY_LAYOUT;
+
+	ret = imx214_pll_update(imx214);
+	if (ret < 0) {
+		v4l2_ctrl_handler_free(ctrl_hdlr);
+		dev_err(imx214->dev, "failed to update PLL\n");
+		return ret;
+	}
+
+	imx214->sd.ctrl_handler = ctrl_hdlr;
+
+	return 0;
+};
+
+static int imx214_start_streaming(struct imx214 *imx214)
+{
+	const struct v4l2_mbus_framefmt *fmt;
+	struct v4l2_subdev_state *state;
+	const struct imx214_mode *mode;
+	int bit_rate_mbps;
+	int ret;
+
+	ret = cci_multi_reg_write(imx214->regmap, mode_table_common,
+				  ARRAY_SIZE(mode_table_common), NULL);
+	if (ret < 0) {
+		dev_err(imx214->dev, "could not sent common table %d\n", ret);
+		return ret;
+	}
+
+	ret = imx214_configure_pll(imx214);
+	if (ret) {
+		dev_err(imx214->dev, "failed to configure PLL: %d\n", ret);
+		return ret;
+	}
+
+	bit_rate_mbps = imx214->pll.pixel_rate_csi / 1000000
+		      * imx214->pll.bits_per_pixel;
+	ret = cci_write(imx214->regmap, IMX214_REG_REQ_LINK_BIT_RATE,
+			IMX214_LINK_BIT_RATE_MBPS(bit_rate_mbps), NULL);
+	if (ret) {
+		dev_err(imx214->dev, "failed to configure link bit rate\n");
+		return ret;
+	}
+
+	ret = cci_write(imx214->regmap, IMX214_REG_CSI_LANE_MODE,
+			IMX214_CSI_4_LANE_MODE, NULL);
+	if (ret) {
+		dev_err(imx214->dev, "failed to configure lanes\n");
+		return ret;
+	}
+
+	state = v4l2_subdev_get_locked_active_state(&imx214->sd);
+	fmt = v4l2_subdev_state_get_format(state, 0);
+	mode = v4l2_find_nearest_size(imx214_modes, ARRAY_SIZE(imx214_modes),
+				      width, height, fmt->width, fmt->height);
+	ret = cci_multi_reg_write(imx214->regmap, mode->reg_table,
+				  mode->num_of_regs, NULL);
+	if (ret < 0) {
+		dev_err(imx214->dev, "could not sent mode table %d\n", ret);
+		return ret;
+	}
+
+	usleep_range(10000, 10500);
+
+	cci_write(imx214->regmap, IMX214_REG_TEMP_SENSOR_CONTROL, 0x01, NULL);
+
+	ret = __v4l2_ctrl_handler_setup(&imx214->ctrls);
+	if (ret < 0) {
+		dev_err(imx214->dev, "could not sync v4l2 controls\n");
+		return ret;
+	}
+	ret = cci_write(imx214->regmap, IMX214_REG_MODE_SELECT,
+			IMX214_MODE_STREAMING, NULL);
+	if (ret < 0)
+		dev_err(imx214->dev, "could not sent start table %d\n", ret);
+
+	return ret;
+}
+
+static int imx214_stop_streaming(struct imx214 *imx214)
+{
+	int ret;
+
+	ret = cci_write(imx214->regmap, IMX214_REG_MODE_SELECT,
+			IMX214_MODE_STANDBY, NULL);
+	if (ret < 0)
+		dev_err(imx214->dev, "could not sent stop table %d\n",	ret);
+
+	return ret;
+}
+
+static int imx214_s_stream(struct v4l2_subdev *subdev, int enable)
+{
+	struct imx214 *imx214 = to_imx214(subdev);
+	struct v4l2_subdev_state *state;
+	int ret;
+
+	if (enable) {
+		ret = pm_runtime_resume_and_get(imx214->dev);
+		if (ret < 0)
+			return ret;
+
+		state = v4l2_subdev_lock_and_get_active_state(subdev);
+		ret = imx214_start_streaming(imx214);
+		v4l2_subdev_unlock_state(state);
+		if (ret < 0)
+			goto err_rpm_put;
+	} else {
+		ret = imx214_stop_streaming(imx214);
+		if (ret < 0)
+			goto err_rpm_put;
+		pm_runtime_put(imx214->dev);
+	}
+
+	return 0;
+
+err_rpm_put:
+	pm_runtime_put(imx214->dev);
+	return ret;
 }
 
 static int imx214_get_frame_interval(struct v4l2_subdev *subdev,
@@ -1324,10 +1328,11 @@ static int imx214_identify_module(struct imx214 *imx214)
 	return 0;
 }
 
-static int imx214_parse_fwnode(struct device *dev, struct imx214 *imx214)
+static int imx214_parse_fwnode(struct imx214 *imx214)
 {
+	struct fwnode_handle *endpoint __free(fwnode_handle) = NULL;
 	struct v4l2_fwnode_endpoint *bus_cfg = &imx214->bus_cfg;
-	struct fwnode_handle *endpoint;
+	struct device *dev = imx214->dev;
 	unsigned int i;
 	int ret;
 
@@ -1337,11 +1342,8 @@ static int imx214_parse_fwnode(struct device *dev, struct imx214 *imx214)
 
 	bus_cfg->bus_type = V4L2_MBUS_CSI2_DPHY;
 	ret = v4l2_fwnode_endpoint_alloc_parse(endpoint, bus_cfg);
-	fwnode_handle_put(endpoint);
-	if (ret) {
-		dev_err_probe(dev, ret, "parsing endpoint node failed\n");
-		goto error;
-	}
+	if (ret)
+		return dev_err_probe(dev, ret, "parsing endpoint node failed\n");
 
 	/* Check the number of MIPI CSI2 data lanes */
 	if (bus_cfg->bus.mipi_csi2.num_data_lanes != 4) {
@@ -1357,18 +1359,16 @@ static int imx214_parse_fwnode(struct device *dev, struct imx214 *imx214)
 		u64 freq = bus_cfg->link_frequencies[i];
 		struct ccs_pll pll;
 
-		if (!imx214_pll_calculate(imx214, &pll, freq))
-			break;
 		if (freq == IMX214_DEFAULT_LINK_FREQ_LEGACY) {
 			dev_warn(dev,
 				 "link-frequencies %d not supported, please review your DT. Continuing anyway\n",
 				 IMX214_DEFAULT_LINK_FREQ);
 			freq = IMX214_DEFAULT_LINK_FREQ;
-			if (imx214_pll_calculate(imx214, &pll, freq))
-				continue;
 			bus_cfg->link_frequencies[i] = freq;
-			break;
 		}
+
+		if (!imx214_pll_calculate(imx214, &pll, freq))
+			break;
 	}
 
 	if (i == bus_cfg->nr_of_link_frequencies)
@@ -1396,7 +1396,7 @@ static int imx214_probe(struct i2c_client *client)
 
 	imx214->dev = dev;
 
-	imx214->xclk = devm_clk_get(dev, NULL);
+	imx214->xclk = devm_v4l2_sensor_clk_get(dev, NULL);
 	if (IS_ERR(imx214->xclk))
 		return dev_err_probe(dev, PTR_ERR(imx214->xclk),
 				     "failed to get xclk\n");
@@ -1415,7 +1415,7 @@ static int imx214_probe(struct i2c_client *client)
 		return dev_err_probe(dev, PTR_ERR(imx214->regmap),
 				     "failed to initialize CCI\n");
 
-	ret = imx214_parse_fwnode(dev, imx214);
+	ret = imx214_parse_fwnode(imx214);
 	if (ret)
 		return ret;
 
@@ -1458,12 +1458,6 @@ static int imx214_probe(struct i2c_client *client)
 
 	pm_runtime_set_active(imx214->dev);
 	pm_runtime_enable(imx214->dev);
-
-	ret = imx214_pll_update(imx214);
-	if (ret < 0) {
-		dev_err_probe(dev, ret, "failed to update PLL\n");
-		goto error_subdev_cleanup;
-	}
 
 	ret = v4l2_async_register_subdev_sensor(&imx214->sd);
 	if (ret < 0) {

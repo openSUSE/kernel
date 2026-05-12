@@ -43,17 +43,6 @@ config AMD8111_ETH
 	  To compile this driver as a module, choose M here. The module
 	  will be called amd8111e.
 
-config LANCE
-	tristate "AMD LANCE and PCnet (AT1500 and NE2100) support"
-	depends on ISA && ISA_DMA_API && !ARM && !PPC32
-	select NETDEV_LEGACY_INIT
-	help
-	  If you have a network (Ethernet) card of this type, say Y here.
-	  Some LinkSys cards are of this type.
-
-	  To compile this driver as a module, choose M here: the module
-	  will be called lance.  This is recommended.
-
 config PCNET32
 	tristate "AMD PCnet32 PCI support"
 	depends on PCI && HAS_IOPORT
@@ -120,16 +109,6 @@ config MVME147_NET
 	  driver for this chip in your kernel.
 	  To compile this driver as a module, choose M here.
 
-config PCMCIA_NMCLAN
-	tristate "New Media PCMCIA support"
-	depends on PCMCIA && HAS_IOPORT
-	help
-	  Say Y here if you intend to attach a New Media Ethernet or LiveWire
-	  PCMCIA (PC-card) Ethernet card to your computer.
-
-	  To compile this driver as a module, choose M here: the module will be
-	  called nmclan_cs.  If unsure, say N.
-
 config SUN3LANCE
 	tristate "Sun3/Sun3x on-board LANCE support"
 	depends on (SUN3 || SUN3X)
@@ -165,6 +144,7 @@ config AMD_XGBE
 	select CRC32
 	select PHYLIB
 	select AMD_XGBE_HAVE_ECC if X86
+	imply NET_SELFTESTS
 	help
 	  This driver supports the AMD 10GbE Ethernet device found on an
 	  AMD SoC.

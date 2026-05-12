@@ -1175,7 +1175,7 @@ static int mvs_dev_found_notify(struct domain_device *dev, int lock)
 	mvi_device->dev_type = dev->dev_type;
 	mvi_device->mvi_info = mvi;
 	mvi_device->sas_device = dev;
-	if (parent_dev && dev_is_expander(parent_dev->dev_type)) {
+	if (dev_parent_is_expander(dev)) {
 		int phy_id;
 
 		phy_id = sas_find_attached_phy_id(&parent_dev->ex_dev, dev);
@@ -1739,7 +1739,7 @@ static int mvs_handle_event(struct mvs_info *mvi, void *data, int handler)
 	struct mvs_wq *mwq;
 	int ret = 0;
 
-	mwq = kmalloc(sizeof(struct mvs_wq), GFP_ATOMIC);
+	mwq = kmalloc_obj(struct mvs_wq, GFP_ATOMIC);
 	if (mwq) {
 		mwq->mvi = mvi;
 		mwq->data = data;

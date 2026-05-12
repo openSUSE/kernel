@@ -53,7 +53,7 @@ static int dwmac100_rx_ipc_enable(struct mac_device_info *hw)
 	return 0;
 }
 
-static int dwmac100_irq_status(struct mac_device_info *hw,
+static int dwmac100_irq_status(struct stmmac_priv *priv,
 			       struct stmmac_extra_stats *x)
 {
 	return 0;
@@ -108,7 +108,7 @@ static void dwmac100_set_filter(struct mac_device_info *hw,
 		memset(mc_filter, 0, sizeof(mc_filter));
 		netdev_for_each_mc_addr(ha, dev) {
 			/* The upper 6 bits of the calculated CRC are used to
-			 * index the contens of the hash table
+			 * index the contents of the hash table
 			 */
 			int bit_nr = ether_crc(ETH_ALEN, ha->addr) >> 26;
 			/* The most significant bit determines the register to
@@ -126,13 +126,13 @@ static void dwmac100_set_filter(struct mac_device_info *hw,
 
 static void dwmac100_flow_ctrl(struct mac_device_info *hw, unsigned int duplex,
 			       unsigned int fc, unsigned int pause_time,
-			       u32 tx_cnt)
+			       u8 tx_cnt)
 {
 	void __iomem *ioaddr = hw->pcsr;
 	unsigned int flow = MAC_FLOW_CTRL_ENABLE;
 
 	if (duplex)
-		flow |= (pause_time << MAC_FLOW_CTRL_PT_SHIFT);
+		flow |= FIELD_PREP(MAC_FLOW_CTRL_PT_MASK, pause_time);
 	writel(flow, ioaddr + MAC_FLOW_CTRL);
 }
 
@@ -184,12 +184,9 @@ int dwmac100_setup(struct stmmac_priv *priv)
 	mac->link.speed_mask = MAC_CONTROL_PS;
 	mac->mii.addr = MAC_MII_ADDR;
 	mac->mii.data = MAC_MII_DATA;
-	mac->mii.addr_shift = 11;
-	mac->mii.addr_mask = 0x0000F800;
-	mac->mii.reg_shift = 6;
-	mac->mii.reg_mask = 0x000007C0;
-	mac->mii.clk_csr_shift = 2;
-	mac->mii.clk_csr_mask = GENMASK(5, 2);
+	mac->mii.addr_mask = GENMASK_U32(15, 11);
+	mac->mii.reg_mask = GENMASK_U32(10, 6);
+	mac->mii.clk_csr_mask = GENMASK_U32(5, 2);
 
 	return 0;
 }

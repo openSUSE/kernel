@@ -70,13 +70,13 @@ static void *pstore_ftrace_seq_start(struct seq_file *s, loff_t *pos)
 	struct pstore_private *ps = s->private;
 	struct pstore_ftrace_seq_data *data __free(kfree) = NULL;
 
-	data = kzalloc(sizeof(*data), GFP_KERNEL);
+	data = kzalloc_obj(*data);
 	if (!data)
 		return NULL;
 
-	data->off = ps->total_size % REC_SIZE;
+	data->off = ps->record->size % REC_SIZE;
 	data->off += *pos * REC_SIZE;
-	if (data->off + REC_SIZE > ps->total_size)
+	if (data->off + REC_SIZE > ps->record->size)
 		return NULL;
 
 	return_ptr(data);
@@ -94,7 +94,7 @@ static void *pstore_ftrace_seq_next(struct seq_file *s, void *v, loff_t *pos)
 
 	(*pos)++;
 	data->off += REC_SIZE;
-	if (data->off + REC_SIZE > ps->total_size)
+	if (data->off + REC_SIZE > ps->record->size)
 		return NULL;
 
 	return data;
@@ -105,17 +105,19 @@ static int pstore_ftrace_seq_show(struct seq_file *s, void *v)
 	struct pstore_private *ps = s->private;
 	struct pstore_ftrace_seq_data *data = v;
 	struct pstore_ftrace_record *rec;
+	unsigned long ip, parent_ip;
 
 	if (!data)
 		return 0;
 
 	rec = (struct pstore_ftrace_record *)(ps->record->buf + data->off);
 
+	ip = decode_ip(rec->ip);
+	parent_ip = decode_ip(rec->parent_ip);
 	seq_printf(s, "CPU:%d ts:%llu %08lx  %08lx  %ps <- %pS\n",
 		   pstore_ftrace_decode_cpu(rec),
 		   pstore_ftrace_read_timestamp(rec),
-		   rec->ip, rec->parent_ip, (void *)rec->ip,
-		   (void *)rec->parent_ip);
+		   ip, parent_ip, (void *)ip, (void *)parent_ip);
 
 	return 0;
 }
@@ -282,7 +284,7 @@ static int pstore_reconfigure(struct fs_context *fc)
 
 static const struct super_operations pstore_ops = {
 	.statfs		= simple_statfs,
-	.drop_inode	= generic_delete_inode,
+	.drop_inode	= inode_just_drop,
 	.evict_inode	= pstore_evict_inode,
 	.show_options	= pstore_show_options,
 };
@@ -365,7 +367,7 @@ int pstore_mkfile(struct dentry *root, struct pstore_record *record)
 			record->psi->name, record->id,
 			record->compressed ? ".enc.z" : "");
 
-	private = kzalloc(sizeof(*private), GFP_KERNEL);
+	private = kzalloc_obj(*private);
 	if (!private)
 		return -ENOMEM;
 
@@ -373,7 +375,7 @@ int pstore_mkfile(struct dentry *root, struct pstore_record *record)
 	if (!dentry)
 		return -ENOMEM;
 
-	private->dentry = dentry;
+	private->dentry = dentry; // borrowed
 	private->record = record;
 	inode->i_size = private->total_size = size;
 	inode->i_private = private;
@@ -382,7 +384,8 @@ int pstore_mkfile(struct dentry *root, struct pstore_record *record)
 		inode_set_mtime_to_ts(inode,
 				      inode_set_ctime_to_ts(inode, record->time));
 
-	d_add(dentry, no_free_ptr(inode));
+	d_make_persistent(dentry, no_free_ptr(inode));
+	dput(dentry);
 
 	list_add(&(no_free_ptr(private))->list, &records_list);
 
@@ -465,7 +468,7 @@ static void pstore_kill_sb(struct super_block *sb)
 	guard(mutex)(&pstore_sb_lock);
 	WARN_ON(pstore_sb && pstore_sb != sb);
 
-	kill_litter_super(sb);
+	kill_anon_super(sb);
 	pstore_sb = NULL;
 
 	guard(mutex)(&records_list_lock);
@@ -476,7 +479,7 @@ static int pstore_init_fs_context(struct fs_context *fc)
 {
 	struct pstore_context *ctx;
 
-	ctx = kzalloc(sizeof(struct pstore_context), GFP_KERNEL);
+	ctx = kzalloc_obj(struct pstore_context);
 	if (!ctx)
 		return -ENOMEM;
 

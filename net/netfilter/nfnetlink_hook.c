@@ -24,7 +24,7 @@
 #include <net/sock.h>
 
 static const struct nla_policy nfnl_hook_nla_policy[NFNLA_HOOK_MAX + 1] = {
-	[NFNLA_HOOK_HOOKNUM]	= { .type = NLA_U32 },
+	[NFNLA_HOOK_HOOKNUM]	= NLA_POLICY_MAX(NLA_BE32, 255),
 	[NFNLA_HOOK_PRIORITY]	= { .type = NLA_U32 },
 	[NFNLA_HOOK_DEV]	= { .type = NLA_STRING,
 				    .len = IFNAMSIZ - 1 },
@@ -408,7 +408,7 @@ static int nfnl_hook_dump_start(struct netlink_callback *cb)
 	if (head && IS_ERR(head))
 		return PTR_ERR(head);
 
-	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	ctx = kzalloc_obj(*ctx);
 	if (!ctx)
 		return -ENOMEM;
 

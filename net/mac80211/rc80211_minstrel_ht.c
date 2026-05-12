@@ -1553,7 +1553,7 @@ minstrel_ht_update_rates(struct minstrel_priv *mp, struct minstrel_ht_sta *mi)
 	int i = 0;
 	int max_rates = min_t(int, mp->hw->max_rates, IEEE80211_TX_RATE_TABLE_SIZE);
 
-	rates = kzalloc(sizeof(*rates), GFP_ATOMIC);
+	rates = kzalloc_obj(*rates, GFP_ATOMIC);
 	if (!rates)
 		return;
 
@@ -1849,20 +1849,7 @@ minstrel_ht_rate_update(void *priv, struct ieee80211_supported_band *sband,
 static void *
 minstrel_ht_alloc_sta(void *priv, struct ieee80211_sta *sta, gfp_t gfp)
 {
-	struct ieee80211_supported_band *sband;
-	struct minstrel_ht_sta *mi;
-	struct minstrel_priv *mp = priv;
-	struct ieee80211_hw *hw = mp->hw;
-	int max_rates = 0;
-	int i;
-
-	for (i = 0; i < NUM_NL80211_BANDS; i++) {
-		sband = hw->wiphy->bands[i];
-		if (sband && sband->n_bitrates > max_rates)
-			max_rates = sband->n_bitrates;
-	}
-
-	return kzalloc(sizeof(*mi), gfp);
+	return kzalloc_obj(struct minstrel_ht_sta, gfp);
 }
 
 static void
@@ -1930,7 +1917,7 @@ minstrel_ht_alloc(struct ieee80211_hw *hw)
 	struct minstrel_priv *mp;
 	int i;
 
-	mp = kzalloc(sizeof(struct minstrel_priv), GFP_ATOMIC);
+	mp = kzalloc_obj(struct minstrel_priv, GFP_ATOMIC);
 	if (!mp)
 		return NULL;
 

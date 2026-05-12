@@ -14,6 +14,7 @@
 #include "../libwx/wx_mbx.h"
 #include "../libwx/wx_vf.h"
 #include "../libwx/wx_vf_common.h"
+#include "../libwx/wx_ethtool.h"
 #include "txgbevf_type.h"
 
 /* txgbevf_pci_tbl - PCI Device ID Table
@@ -144,6 +145,7 @@ static int txgbevf_sw_init(struct wx *wx)
 	wx->mac.max_tx_queues = TXGBEVF_MAX_TX_QUEUES;
 	wx->mac.max_rx_queues = TXGBEVF_MAX_RX_QUEUES;
 	/* Enable dynamic interrupt throttling rates */
+	wx->adaptive_itr = true;
 	wx->rx_itr_setting = 1;
 	wx->tx_itr_setting = 1;
 	/* set default ring sizes */
@@ -154,6 +156,18 @@ static int txgbevf_sw_init(struct wx *wx)
 	wx->rx_work_limit = TXGBEVF_DEFAULT_RX_WORK;
 
 	wx->set_num_queues = txgbevf_set_num_queues;
+
+	switch (wx->mac.type) {
+	case wx_mac_sp:
+		break;
+	case wx_mac_aml:
+	case wx_mac_aml40:
+		set_bit(WX_FLAG_RX_MERGE_ENABLED, wx->flags);
+		set_bit(WX_FLAG_TXHEAD_WB_ENABLED, wx->flags);
+		break;
+	default:
+		break;
+	}
 
 	return 0;
 err_reset_hw:
@@ -238,6 +252,8 @@ static int txgbevf_probe(struct pci_dev *pdev,
 		goto err_pci_release_regions;
 	}
 
+	wx->driver_name = KBUILD_MODNAME;
+	wx_set_ethtool_ops_vf(netdev);
 	netdev->netdev_ops = &txgbevf_netdev_ops;
 
 	/* setup the private structure */
@@ -255,6 +271,7 @@ static int txgbevf_probe(struct pci_dev *pdev,
 	if (err)
 		goto err_free_sw_init;
 
+	wx_get_fw_version_vf(wx);
 	err = register_netdev(netdev);
 	if (err)
 		goto err_register;

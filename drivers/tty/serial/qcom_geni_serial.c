@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
-// Copyright (c) 2017-2018, The Linux foundation. All rights reserved.
+/*
+ * Copyright (c) 2017-2018, The Linux foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ */
 
 /* Disable MMIO tracing to prevent excessive logging of unwanted MMIO traces */
 #define __DISABLE_TRACE_MMIO__
@@ -77,7 +80,6 @@
 #define STALE_TIMEOUT			16
 #define DEFAULT_BITS_PER_CHAR		10
 #define GENI_UART_CONS_PORTS		1
-#define GENI_UART_PORTS			3
 #define DEF_FIFO_DEPTH_WORDS		16
 #define DEF_TX_WM			2
 #define DEF_FIFO_WIDTH_BITS		32
@@ -144,6 +146,7 @@ struct qcom_geni_serial_port {
 	int wakeup_irq;
 	bool rx_tx_swap;
 	bool cts_rts_swap;
+	bool manual_flow;
 
 	struct qcom_geni_private_data private_data;
 	const struct qcom_geni_device_data *dev_data;
@@ -163,33 +166,6 @@ static inline struct qcom_geni_serial_port *to_dev_port(struct uart_port *uport)
 {
 	return container_of(uport, struct qcom_geni_serial_port, uport);
 }
-
-static struct qcom_geni_serial_port qcom_geni_uart_ports[GENI_UART_PORTS] = {
-	[0] = {
-		.uport = {
-			.iotype = UPIO_MEM,
-			.ops = &qcom_geni_uart_pops,
-			.flags = UPF_BOOT_AUTOCONF,
-			.line = 0,
-		},
-	},
-	[1] = {
-		.uport = {
-			.iotype = UPIO_MEM,
-			.ops = &qcom_geni_uart_pops,
-			.flags = UPF_BOOT_AUTOCONF,
-			.line = 1,
-		},
-	},
-	[2] = {
-		.uport = {
-			.iotype = UPIO_MEM,
-			.ops = &qcom_geni_uart_pops,
-			.flags = UPF_BOOT_AUTOCONF,
-			.line = 2,
-		},
-	},
-};
 
 static struct qcom_geni_serial_port qcom_geni_console_port = {
 	.uport = {
@@ -275,7 +251,7 @@ static void qcom_geni_serial_set_mctrl(struct uart_port *uport,
 	if (mctrl & TIOCM_LOOP)
 		port->loopback = RX_TX_CTS_RTS_SORTED;
 
-	if (!(mctrl & TIOCM_RTS) && !uport->suspended)
+	if (port->manual_flow && !(mctrl & TIOCM_RTS) && !uport->suspended)
 		uart_manual_rfr = UART_MANUAL_RFR_EN | UART_RFR_NOT_READY;
 	writel(uart_manual_rfr, uport->membase + SE_UART_MANUAL_RFR);
 }
@@ -285,10 +261,10 @@ static const char *qcom_geni_serial_get_type(struct uart_port *uport)
 	return "MSM";
 }
 
-static struct qcom_geni_serial_port *get_port_from_line(int line, bool console)
+static struct qcom_geni_serial_port *get_port_from_line(int line, bool console, struct device *dev)
 {
 	struct qcom_geni_serial_port *port;
-	int nr_ports = console ? GENI_UART_CONS_PORTS : GENI_UART_PORTS;
+	int nr_ports = console ? GENI_UART_CONS_PORTS : CONFIG_SERIAL_QCOM_GENI_UART_PORTS;
 
 	if (console) {
 		if (line < 0 || line >= nr_ports)
@@ -299,14 +275,23 @@ static struct qcom_geni_serial_port *get_port_from_line(int line, bool console)
 		int max_alias_num = of_alias_get_highest_id("serial");
 
 		if (line < 0 || line >= nr_ports)
-			line = ida_alloc_range(&port_ida, max_alias_num + 1, nr_ports, GFP_KERNEL);
+			line = ida_alloc_range(&port_ida, max_alias_num + 1,
+					       nr_ports - 1, GFP_KERNEL);
 		else
-			line = ida_alloc_range(&port_ida, line, nr_ports, GFP_KERNEL);
+			line = ida_alloc_range(&port_ida, line,
+					       nr_ports - 1, GFP_KERNEL);
 
 		if (line < 0)
 			return ERR_PTR(-ENXIO);
 
-		port = &qcom_geni_uart_ports[line];
+		port = devm_kzalloc(dev, sizeof(*port), GFP_KERNEL);
+		if (!port)
+			return ERR_PTR(-ENOMEM);
+
+		port->uport.iotype = UPIO_MEM;
+		port->uport.ops = &qcom_geni_uart_pops;
+		port->uport.flags = UPF_BOOT_AUTOCONF;
+		port->uport.line = line;
 	}
 	return port;
 }
@@ -554,7 +539,7 @@ static void qcom_geni_serial_console_write(struct console *co, const char *s,
 
 	WARN_ON(co->index < 0 || co->index >= GENI_UART_CONS_PORTS);
 
-	port = get_port_from_line(co->index, true);
+	port = get_port_from_line(co->index, true, NULL);
 	if (IS_ERR(port))
 		return;
 
@@ -1200,7 +1185,13 @@ static int qcom_geni_serial_port_setup(struct uart_port *uport)
 	int ret;
 
 	proto = geni_se_read_proto(&port->se);
-	if (proto != GENI_SE_UART) {
+	if (proto == GENI_SE_INVALID_PROTO) {
+		ret = geni_load_se_firmware(&port->se, GENI_SE_UART);
+		if (ret) {
+			dev_err(uport->dev, "UART firmware load failed ret: %d\n", ret);
+			return ret;
+		}
+	} else if (proto != GENI_SE_UART) {
 		dev_err(uport->dev, "Invalid FW loaded, proto: %d\n", proto);
 		return -ENXIO;
 	}
@@ -1261,75 +1252,15 @@ static int qcom_geni_serial_startup(struct uart_port *uport)
 	return 0;
 }
 
-static unsigned long find_clk_rate_in_tol(struct clk *clk, unsigned int desired_clk,
-			unsigned int *clk_div, unsigned int percent_tol)
-{
-	unsigned long freq;
-	unsigned long div, maxdiv;
-	u64 mult;
-	unsigned long offset, abs_tol, achieved;
-
-	abs_tol = div_u64((u64)desired_clk * percent_tol, 100);
-	maxdiv = CLK_DIV_MSK >> CLK_DIV_SHFT;
-	div = 1;
-	while (div <= maxdiv) {
-		mult = (u64)div * desired_clk;
-		if (mult != (unsigned long)mult)
-			break;
-
-		offset = div * abs_tol;
-		freq = clk_round_rate(clk, mult - offset);
-
-		/* Can only get lower if we're done */
-		if (freq < mult - offset)
-			break;
-
-		/*
-		 * Re-calculate div in case rounding skipped rates but we
-		 * ended up at a good one, then check for a match.
-		 */
-		div = DIV_ROUND_CLOSEST(freq, desired_clk);
-		achieved = DIV_ROUND_CLOSEST(freq, div);
-		if (achieved <= desired_clk + abs_tol &&
-		    achieved >= desired_clk - abs_tol) {
-			*clk_div = div;
-			return freq;
-		}
-
-		div = DIV_ROUND_UP(freq, desired_clk);
-	}
-
-	return 0;
-}
-
-static unsigned long get_clk_div_rate(struct clk *clk, unsigned int baud,
-			unsigned int sampling_rate, unsigned int *clk_div)
-{
-	unsigned long ser_clk;
-	unsigned long desired_clk;
-
-	desired_clk = baud * sampling_rate;
-	if (!desired_clk)
-		return 0;
-
-	/*
-	 * try to find a clock rate within 2% tolerance, then within 5%
-	 */
-	ser_clk = find_clk_rate_in_tol(clk, desired_clk, clk_div, 2);
-	if (!ser_clk)
-		ser_clk = find_clk_rate_in_tol(clk, desired_clk, clk_div, 5);
-
-	return ser_clk;
-}
-
 static int geni_serial_set_rate(struct uart_port *uport, unsigned int baud)
 {
 	struct qcom_geni_serial_port *port = to_dev_port(uport);
 	unsigned long clk_rate;
-	unsigned int avg_bw_core;
+	unsigned int avg_bw_core, clk_idx;
 	unsigned int clk_div;
 	u32 ver, sampling_rate;
 	u32 ser_clk_cfg;
+	int ret;
 
 	sampling_rate = UART_OVERSAMPLING;
 	/* Sampling rate is halved for IP versions >= 2.5 */
@@ -1337,17 +1268,22 @@ static int geni_serial_set_rate(struct uart_port *uport, unsigned int baud)
 	if (ver >= QUP_SE_VERSION_2_5)
 		sampling_rate /= 2;
 
-	clk_rate = get_clk_div_rate(port->se.clk, baud,
-		sampling_rate, &clk_div);
-	if (!clk_rate) {
-		dev_err(port->se.dev,
-			"Couldn't find suitable clock rate for %u\n",
-			baud * sampling_rate);
+	ret = geni_se_clk_freq_match(&port->se, baud * sampling_rate, &clk_idx, &clk_rate, false);
+	if (ret) {
+		dev_err(port->se.dev, "Failed to find src clk for baud rate: %d ret: %d\n",
+			baud, ret);
+		return ret;
+	}
+
+	clk_div = DIV_ROUND_UP(clk_rate, baud * sampling_rate);
+	/* Check if calculated divider exceeds maximum allowed value */
+	if (clk_div > (CLK_DIV_MSK >> CLK_DIV_SHFT)) {
+		dev_err(port->se.dev, "Calculated clock divider %u exceeds maximum\n", clk_div);
 		return -EINVAL;
 	}
 
-	dev_dbg(port->se.dev, "desired_rate = %u, clk_rate = %lu, clk_div = %u\n",
-			baud * sampling_rate, clk_rate, clk_div);
+	dev_dbg(port->se.dev, "desired_rate = %u, clk_rate = %lu, clk_div = %u, clk_idx = %u\n",
+		baud * sampling_rate, clk_rate, clk_div, clk_idx);
 
 	uport->uartclk = clk_rate;
 	port->clk_rate = clk_rate;
@@ -1367,6 +1303,8 @@ static int geni_serial_set_rate(struct uart_port *uport, unsigned int baud)
 
 	writel(ser_clk_cfg, uport->membase + GENI_SER_M_CLK_CFG);
 	writel(ser_clk_cfg, uport->membase + GENI_SER_S_CLK_CFG);
+	/* Configure clock selection register with the selected clock index */
+	writel(clk_idx & CLK_SEL_MSK, uport->membase + SE_GENI_CLK_SEL);
 	return 0;
 }
 
@@ -1464,11 +1402,21 @@ static void qcom_geni_serial_set_termios(struct uart_port *uport,
 	else
 		stop_bit_len = TX_STOP_BIT_LEN_1;
 
-	/* flow control, clear the CTS_MASK bit if using flow control. */
-	if (termios->c_cflag & CRTSCTS)
+	/* Configure flow control based on CRTSCTS flag.
+	 * When CRTSCTS is set, use HW/auto flow control mode, where HW
+	 * controls the RTS/CTS pin based FIFO state.
+	 * When CRTSCTS is clear, the CTS pin value is ignored for TX
+	 * path and RTS pin can be set/cleared using registers, for RX
+	 * path.
+	 */
+
+	if (termios->c_cflag & CRTSCTS) {
 		tx_trans_cfg &= ~UART_CTS_MASK;
-	else
+		port->manual_flow = false;
+	} else {
 		tx_trans_cfg |= UART_CTS_MASK;
+		port->manual_flow = true;
+	}
 
 	if (baud) {
 		uart_update_timeout(uport, termios->c_cflag, baud);
@@ -1511,7 +1459,7 @@ static int qcom_geni_console_setup(struct console *co, char *options)
 	if (co->index >= GENI_UART_CONS_PORTS  || co->index < 0)
 		return -ENXIO;
 
-	port = get_port_from_line(co->index, true);
+	port = get_port_from_line(co->index, true, NULL);
 	if (IS_ERR(port)) {
 		pr_err("Invalid line %d\n", co->index);
 		return PTR_ERR(port);
@@ -1672,7 +1620,7 @@ static struct uart_driver qcom_geni_uart_driver = {
 	.owner = THIS_MODULE,
 	.driver_name = "qcom_geni_uart",
 	.dev_name = "ttyHS",
-	.nr =  GENI_UART_PORTS,
+	.nr = CONFIG_SERIAL_QCOM_GENI_UART_PORTS,
 };
 
 static int geni_serial_resources_on(struct uart_port *uport)
@@ -1866,7 +1814,7 @@ static int qcom_geni_serial_probe(struct platform_device *pdev)
 			line = of_alias_get_id(pdev->dev.of_node, "hsuart");
 	}
 
-	port = get_port_from_line(line, data->console);
+	port = get_port_from_line(line, data->console, &pdev->dev);
 	if (IS_ERR(port)) {
 		dev_err(&pdev->dev, "Invalid line %d\n", line);
 		return PTR_ERR(port);
@@ -1949,12 +1897,6 @@ static int qcom_geni_serial_probe(struct platform_device *pdev)
 
 	ret = uart_get_rs485_mode(uport);
 	if (ret)
-		return ret;
-
-	devm_pm_runtime_enable(port->se.dev);
-
-	ret = uart_add_one_port(drv, uport);
-	if (ret)
 		goto error;
 
 	if (port->wakeup_irq > 0) {
@@ -1964,10 +1906,15 @@ static int qcom_geni_serial_probe(struct platform_device *pdev)
 		if (ret) {
 			device_init_wakeup(&pdev->dev, false);
 			ida_free(&port_ida, uport->line);
-			uart_remove_one_port(drv, uport);
 			goto error;
 		}
 	}
+
+	devm_pm_runtime_enable(port->se.dev);
+
+	ret = uart_add_one_port(drv, uport);
+	if (ret)
+		goto error;
 
 	return 0;
 

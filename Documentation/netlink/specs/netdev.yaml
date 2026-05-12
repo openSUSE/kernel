@@ -2,7 +2,7 @@
 ---
 name: netdev
 
-doc:
+doc: >-
   netdev configuration over generic netlink.
 
 definitions:
@@ -13,33 +13,33 @@ definitions:
     entries:
       -
         name: basic
-        doc:
+        doc: >-
           XDP features set supported by all drivers
           (XDP_ABORTED, XDP_DROP, XDP_PASS, XDP_TX)
       -
         name: redirect
-        doc:
+        doc: >-
           The netdev supports XDP_REDIRECT
       -
         name: ndo-xmit
-        doc:
+        doc: >-
           This feature informs if netdev implements ndo_xdp_xmit callback.
       -
         name: xsk-zerocopy
-        doc:
+        doc: >-
           This feature informs if netdev supports AF_XDP in zero copy mode.
       -
         name: hw-offload
-        doc:
+        doc: >-
           This feature informs if netdev supports XDP hw offloading.
       -
         name: rx-sg
-        doc:
+        doc: >-
           This feature informs if netdev implements non-linear XDP buffer
           support in the driver napi callback.
       -
         name: ndo-xmit-sg
-        doc:
+        doc: >-
           This feature informs if netdev implements non-linear XDP buffer
           support in ndo_xdp_xmit callback.
   -
@@ -67,15 +67,15 @@ definitions:
     entries:
       -
         name: tx-timestamp
-        doc:
+        doc: >-
           HW timestamping egress packets is supported by the driver.
       -
         name: tx-checksum
-        doc:
+        doc: >-
           L3 checksum HW offload is supported by the driver.
       -
         name: tx-launch-time-fifo
-        doc:
+        doc: >-
           Launch time HW offload is supported by the driver.
   -
     name: queue-type
@@ -88,7 +88,7 @@ definitions:
   -
     name: napi-threaded
     type: enum
-    entries: [disabled, enabled]
+    entries: [disabled, enabled, busy-poll]
 
 attribute-sets:
   -
@@ -142,7 +142,7 @@ attribute-sets:
         name: ifindex
         doc: |
           ifindex of the netdev to which the pool belongs.
-          May be reported as 0 if the page pool was allocated for a netdev
+          May not be reported if the page pool was allocated for a netdev
           which got destroyed already (page pools may outlast their netdevs
           because they wait for all memory to be returned).
         type: u32
@@ -291,7 +291,8 @@ attribute-sets:
         name: threaded
         doc: Whether the NAPI is configured to operate in threaded polling
              mode. If this is set to enabled then the NAPI context operates
-             in threaded polling mode.
+             in threaded polling mode. If this is set to busy-poll, then the
+             threaded polling mode also busy polls.
         type: u32
         enum: napi-threaded
   -
@@ -338,6 +339,15 @@ attribute-sets:
         doc: XSK information for this queue, if any.
         type: nest
         nested-attributes: xsk-info
+      -
+        name: lease
+        doc: |
+          A queue from a virtual device can have a lease which refers to
+          another queue from a physical device. This is useful for memory
+          providers and AF_XDP operations which take an ifindex and queue id
+          to allow applications to bind against virtual devices in containers.
+        type: nest
+        nested-attributes: lease
   -
     name: qstats
     doc: |
@@ -537,6 +547,26 @@ attribute-sets:
       -
         name: type
   -
+    name: lease
+    attributes:
+      -
+        name: ifindex
+        doc: The netdev ifindex to lease the queue from.
+        type: u32
+        checks:
+          min: 1
+      -
+        name: queue
+        doc: The netdev queue to lease from.
+        type: nest
+        nested-attributes: queue-id
+      -
+        name: netns-id
+        doc: The network namespace id of the netdev.
+        type: s32
+        checks:
+          min: 0
+  -
     name: dmabuf
     attributes:
       -
@@ -600,7 +630,9 @@ operations:
       name: page-pool-get
       doc: |
         Get / dump information about Page Pools.
-        (Only Page Pools associated with a net_device can be listed.)
+        Only Page Pools associated by the driver with a net_device
+        can be listed. ifindex will not be reported if the net_device
+        no longer exists.
       attribute-set: page-pool
       do:
         request:
@@ -683,6 +715,7 @@ operations:
             - dmabuf
             - io-uring
             - xsk
+            - lease
       dump:
         request:
           attributes:
@@ -732,6 +765,29 @@ operations:
             - rx-bytes
             - tx-packets
             - tx-bytes
+            - rx-alloc-fail
+            - rx-hw-drops
+            - rx-hw-drop-overruns
+            - rx-csum-complete
+            - rx-csum-unnecessary
+            - rx-csum-none
+            - rx-csum-bad
+            - rx-hw-gro-packets
+            - rx-hw-gro-bytes
+            - rx-hw-gro-wire-packets
+            - rx-hw-gro-wire-bytes
+            - rx-hw-drop-ratelimits
+            - tx-hw-drops
+            - tx-hw-drop-errors
+            - tx-csum-none
+            - tx-needs-csum
+            - tx-hw-gso-packets
+            - tx-hw-gso-bytes
+            - tx-hw-gso-wire-packets
+            - tx-hw-gso-wire-bytes
+            - tx-hw-drop-ratelimits
+            - tx-stop
+            - tx-wake
     -
       name: bind-rx
       doc: Bind dmabuf to netdev
@@ -769,6 +825,22 @@ operations:
             - ifindex
             - fd
         reply:
+          attributes:
+            - id
+    -
+      name: queue-create
+      doc: |
+        Create a new queue for the given netdevice. Whether this operation
+        is supported depends on the device and the driver.
+      attribute-set: queue
+      flags: [admin-perm]
+      do:
+        request:
+          attributes:
+            - ifindex
+            - type
+            - lease
+        reply: &queue-create-op
           attributes:
             - id
 

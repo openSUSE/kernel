@@ -41,13 +41,27 @@ struct lpi_pinctrl {
 static int lpi_gpio_read(struct lpi_pinctrl *state, unsigned int pin,
 			 unsigned int addr)
 {
-	return ioread32(state->tlmm_base + LPI_TLMM_REG_OFFSET * pin + addr);
+	u32 pin_offset;
+
+	if (state->data->flags & LPI_FLAG_USE_PREDEFINED_PIN_OFFSET)
+		pin_offset = state->data->groups[pin].pin_offset;
+	else
+		pin_offset = LPI_TLMM_REG_OFFSET * pin;
+
+	return ioread32(state->tlmm_base + pin_offset + addr);
 }
 
 static int lpi_gpio_write(struct lpi_pinctrl *state, unsigned int pin,
 			  unsigned int addr, unsigned int val)
 {
-	iowrite32(val, state->tlmm_base + LPI_TLMM_REG_OFFSET * pin + addr);
+	u32 pin_offset;
+
+	if (state->data->flags & LPI_FLAG_USE_PREDEFINED_PIN_OFFSET)
+		pin_offset = state->data->groups[pin].pin_offset;
+	else
+		pin_offset = LPI_TLMM_REG_OFFSET * pin;
+
+	iowrite32(val, state->tlmm_base + pin_offset + addr);
 
 	return 0;
 }
@@ -174,7 +188,7 @@ static int lpi_config_get(struct pinctrl_dev *pctldev,
 			arg = 1;
 		break;
 	case PIN_CONFIG_INPUT_ENABLE:
-	case PIN_CONFIG_OUTPUT:
+	case PIN_CONFIG_LEVEL:
 		if (is_out)
 			arg = 1;
 		break;
@@ -252,7 +266,7 @@ static int lpi_config_set(struct pinctrl_dev *pctldev, unsigned int group,
 		case PIN_CONFIG_INPUT_ENABLE:
 			output_enabled = false;
 			break;
-		case PIN_CONFIG_OUTPUT:
+		case PIN_CONFIG_LEVEL:
 			output_enabled = true;
 			value = arg;
 			break;
@@ -298,6 +312,22 @@ static const struct pinconf_ops lpi_gpio_pinconf_ops = {
 	.pin_config_group_set		= lpi_config_set,
 };
 
+static int lpi_gpio_get_direction(struct gpio_chip *chip, unsigned int pin)
+{
+	unsigned long config = pinconf_to_config_packed(PIN_CONFIG_LEVEL, 0);
+	struct lpi_pinctrl *state = gpiochip_get_data(chip);
+	unsigned long arg;
+	int ret;
+
+	ret = lpi_config_get(state->ctrl, pin, &config);
+	if (ret)
+		return ret;
+
+	arg = pinconf_to_config_argument(config);
+
+	return arg ? GPIO_LINE_DIRECTION_OUT : GPIO_LINE_DIRECTION_IN;
+}
+
 static int lpi_gpio_direction_input(struct gpio_chip *chip, unsigned int pin)
 {
 	struct lpi_pinctrl *state = gpiochip_get_data(chip);
@@ -314,7 +344,7 @@ static int lpi_gpio_direction_output(struct gpio_chip *chip,
 	struct lpi_pinctrl *state = gpiochip_get_data(chip);
 	unsigned long config;
 
-	config = pinconf_to_config_packed(PIN_CONFIG_OUTPUT, val);
+	config = pinconf_to_config_packed(PIN_CONFIG_LEVEL, val);
 
 	return lpi_config_set(state->ctrl, pin, &config, 1);
 }
@@ -332,7 +362,7 @@ static int lpi_gpio_set(struct gpio_chip *chip, unsigned int pin, int value)
 	struct lpi_pinctrl *state = gpiochip_get_data(chip);
 	unsigned long config;
 
-	config = pinconf_to_config_packed(PIN_CONFIG_OUTPUT, value);
+	config = pinconf_to_config_packed(PIN_CONFIG_LEVEL, value);
 
 	return lpi_config_set(state->ctrl, pin, &config, 1);
 }
@@ -395,6 +425,7 @@ static void lpi_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 #endif
 
 static const struct gpio_chip lpi_gpio_template = {
+	.get_direction		= lpi_gpio_get_direction,
 	.direction_input	= lpi_gpio_direction_input,
 	.direction_output	= lpi_gpio_direction_output,
 	.get			= lpi_gpio_get,
@@ -484,7 +515,7 @@ int lpi_pinctrl_probe(struct platform_device *pdev)
 	pctrl->chip.base = -1;
 	pctrl->chip.ngpio = data->npins;
 	pctrl->chip.label = dev_name(dev);
-	pctrl->chip.can_sleep = false;
+	pctrl->chip.can_sleep = true;
 
 	mutex_init(&pctrl->lock);
 

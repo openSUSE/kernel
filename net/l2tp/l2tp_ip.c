@@ -267,7 +267,8 @@ static void l2tp_ip_destroy_sock(struct sock *sk)
 	}
 }
 
-static int l2tp_ip_bind(struct sock *sk, struct sockaddr *uaddr, int addr_len)
+static int l2tp_ip_bind(struct sock *sk, struct sockaddr_unsized *uaddr,
+			int addr_len)
 {
 	struct inet_sock *inet = inet_sk(sk);
 	struct sockaddr_l2tpip *addr = (struct sockaddr_l2tpip *)uaddr;
@@ -328,7 +329,8 @@ out:
 	return ret;
 }
 
-static int l2tp_ip_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
+static int l2tp_ip_connect(struct sock *sk, struct sockaddr_unsized *uaddr,
+			   int addr_len)
 {
 	struct sockaddr_l2tpip *lsa = (struct sockaddr_l2tpip *)uaddr;
 	struct l2tp_ip_net *pn = l2tp_ip_pernet(sock_net(sk));
@@ -535,7 +537,7 @@ no_route:
 }
 
 static int l2tp_ip_recvmsg(struct sock *sk, struct msghdr *msg,
-			   size_t len, int flags, int *addr_len)
+			   size_t len, int flags)
 {
 	struct inet_sock *inet = inet_sk(sk);
 	size_t copied = 0;
@@ -568,7 +570,7 @@ static int l2tp_ip_recvmsg(struct sock *sk, struct msghdr *msg,
 		sin->sin_addr.s_addr = ip_hdr(skb)->saddr;
 		sin->sin_port = 0;
 		memset(&sin->sin_zero, 0, sizeof(sin->sin_zero));
-		*addr_len = sizeof(*sin);
+		msg->msg_namelen = sizeof(*sin);
 	}
 	if (inet_cmsg_flags(inet))
 		ip_cmsg_recv(msg, skb);

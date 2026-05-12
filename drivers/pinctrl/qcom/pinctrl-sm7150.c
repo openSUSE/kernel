@@ -47,7 +47,6 @@ enum {
 		.io_reg = 0x4 + REG_SIZE * id,		\
 		.intr_cfg_reg = 0x8 + REG_SIZE * id,	\
 		.intr_status_reg = 0xc + REG_SIZE * id,	\
-		.intr_target_reg = 0x8 + REG_SIZE * id,	\
 		.tile = _tile,				\
 		.mux_bit = 2,				\
 		.pull_bit = 0,				\
@@ -74,7 +73,6 @@ enum {
 		.io_reg = 0,				\
 		.intr_cfg_reg = 0,			\
 		.intr_status_reg = 0,			\
-		.intr_target_reg = 0,			\
 		.tile = _tile,				\
 		.mux_bit = -1,				\
 		.pull_bit = pull,			\
@@ -100,7 +98,6 @@ enum {
 		.io_reg = offset + 0x4,			\
 		.intr_cfg_reg = 0,			\
 		.intr_status_reg = 0,			\
-		.intr_target_reg = 0,			\
 		.tile = WEST,				\
 		.mux_bit = -1,				\
 		.pull_bit = 3,				\
@@ -960,7 +957,7 @@ static const char * const wsa_data_groups[] = {
 };
 
 static const struct pinfunction sm7150_functions[] = {
-	MSM_PIN_FUNCTION(gpio),
+	MSM_GPIO_PIN_FUNCTION(gpio),
 	MSM_PIN_FUNCTION(adsp_ext),
 	MSM_PIN_FUNCTION(agera_pll),
 	MSM_PIN_FUNCTION(aoss_cti),

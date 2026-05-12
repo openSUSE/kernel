@@ -24,12 +24,13 @@
 #include "xe_gt.h"
 #include "xe_gt_sriov_vf.h"
 #include "xe_guc.h"
-#include "xe_macros.h"
 #include "xe_mmio.h"
 #include "xe_module.h"
+#include "xe_pci_rebar.h"
 #include "xe_pci_sriov.h"
 #include "xe_pci_types.h"
 #include "xe_pm.h"
+#include "xe_printk.h"
 #include "xe_sriov.h"
 #include "xe_step.h"
 #include "xe_survivability_mode.h"
@@ -51,26 +52,21 @@ __diag_ignore_all("-Woverride-init", "Allow field overrides in table");
 
 static const struct xe_graphics_desc graphics_xelp = {
 	.hw_engine_mask = BIT(XE_HW_ENGINE_RCS0) | BIT(XE_HW_ENGINE_BCS0),
-
-	.va_bits = 48,
-	.vm_max_level = 3,
+	.num_geometry_xecore_fuse_regs = 1,
 };
 
 #define XE_HP_FEATURES \
-	.has_range_tlb_inval = true, \
-	.va_bits = 48, \
-	.vm_max_level = 3
+	.has_range_tlb_inval = true
 
 static const struct xe_graphics_desc graphics_xehpg = {
 	.hw_engine_mask =
 		BIT(XE_HW_ENGINE_RCS0) | BIT(XE_HW_ENGINE_BCS0) |
 		BIT(XE_HW_ENGINE_CCS0) | BIT(XE_HW_ENGINE_CCS1) |
 		BIT(XE_HW_ENGINE_CCS2) | BIT(XE_HW_ENGINE_CCS3),
+	.num_geometry_xecore_fuse_regs = 1,
+	.num_compute_xecore_fuse_regs = 1,
 
 	XE_HP_FEATURES,
-	.vram_flags = XE_VRAM_FLAGS_NEED64K,
-
-	.has_flat_ccs = 1,
 };
 
 static const struct xe_graphics_desc graphics_xehpc = {
@@ -84,32 +80,31 @@ static const struct xe_graphics_desc graphics_xehpc = {
 		BIT(XE_HW_ENGINE_CCS2) | BIT(XE_HW_ENGINE_CCS3),
 
 	XE_HP_FEATURES,
-	.va_bits = 57,
-	.vm_max_level = 4,
-	.vram_flags = XE_VRAM_FLAGS_NEED64K,
 
+	.has_access_counter = 1,
 	.has_asid = 1,
 	.has_atomic_enable_pte_bit = 1,
 	.has_usm = 1,
+	.num_compute_xecore_fuse_regs = 2,
 };
 
 static const struct xe_graphics_desc graphics_xelpg = {
 	.hw_engine_mask =
 		BIT(XE_HW_ENGINE_RCS0) | BIT(XE_HW_ENGINE_BCS0) |
 		BIT(XE_HW_ENGINE_CCS0),
+	.num_geometry_xecore_fuse_regs = 1,
+	.num_compute_xecore_fuse_regs = 1,
 
 	XE_HP_FEATURES,
 };
 
 #define XE2_GFX_FEATURES \
+	.has_access_counter = 1, \
 	.has_asid = 1, \
 	.has_atomic_enable_pte_bit = 1, \
-	.has_flat_ccs = 1, \
 	.has_range_tlb_inval = 1, \
 	.has_usm = 1, \
 	.has_64bit_timestamp = 1, \
-	.va_bits = 48, \
-	.vm_max_level = 4, \
 	.hw_engine_mask = \
 		BIT(XE_HW_ENGINE_RCS0) | \
 		BIT(XE_HW_ENGINE_BCS8) | BIT(XE_HW_ENGINE_BCS0) | \
@@ -117,6 +112,29 @@ static const struct xe_graphics_desc graphics_xelpg = {
 
 static const struct xe_graphics_desc graphics_xe2 = {
 	XE2_GFX_FEATURES,
+	.num_geometry_xecore_fuse_regs = 3,
+	.num_compute_xecore_fuse_regs = 3,
+};
+
+static const struct xe_graphics_desc graphics_xe3p_lpg = {
+	XE2_GFX_FEATURES,
+	.has_indirect_ring_state = 1,
+	.multi_queue_engine_class_mask = BIT(XE_ENGINE_CLASS_COPY) | BIT(XE_ENGINE_CLASS_COMPUTE),
+	.num_geometry_xecore_fuse_regs = 3,
+	.num_compute_xecore_fuse_regs = 3,
+};
+
+static const struct xe_graphics_desc graphics_xe3p_xpc = {
+	XE2_GFX_FEATURES,
+	.has_access_counter = 0,
+	.has_indirect_ring_state = 1,
+	.hw_engine_mask =
+		GENMASK(XE_HW_ENGINE_BCS8, XE_HW_ENGINE_BCS1) |
+		GENMASK(XE_HW_ENGINE_CCS3, XE_HW_ENGINE_CCS0),
+	.multi_queue_engine_class_mask = BIT(XE_ENGINE_CLASS_COPY) |
+					 BIT(XE_ENGINE_CLASS_COMPUTE),
+	.num_geometry_xecore_fuse_regs = 4,
+	.num_compute_xecore_fuse_regs = 4,
 };
 
 static const struct xe_media_desc media_xem = {
@@ -149,6 +167,10 @@ static const struct xe_ip graphics_ips[] = {
 	{ 3000, "Xe3_LPG", &graphics_xe2 },
 	{ 3001, "Xe3_LPG", &graphics_xe2 },
 	{ 3003, "Xe3_LPG", &graphics_xe2 },
+	{ 3004, "Xe3_LPG", &graphics_xe2 },
+	{ 3005, "Xe3_LPG", &graphics_xe2 },
+	{ 3510, "Xe3p_LPG", &graphics_xe3p_lpg },
+	{ 3511, "Xe3p_XPC", &graphics_xe3p_xpc },
 };
 
 /* Pre-GMDID Media IPs */
@@ -162,18 +184,28 @@ static const struct xe_ip media_ips[] = {
 	{ 2000, "Xe2_LPM", &media_xelpmp },
 	{ 3000, "Xe3_LPM", &media_xelpmp },
 	{ 3002, "Xe3_LPM", &media_xelpmp },
+	{ 3500, "Xe3p_LPM", &media_xelpmp },
+	{ 3503, "Xe3p_HPM", &media_xelpmp },
 };
+
+#define MULTI_LRC_MASK \
+	.multi_lrc_mask = BIT(XE_ENGINE_CLASS_VIDEO_DECODE) | \
+			  BIT(XE_ENGINE_CLASS_VIDEO_ENHANCE)
 
 static const struct xe_device_desc tgl_desc = {
 	.pre_gmdid_graphics_ip = &graphics_ip_xelp,
 	.pre_gmdid_media_ip = &media_ip_xem,
 	PLATFORM(TIGERLAKE),
 	.dma_mask_size = 39,
+	.has_cached_pt = true,
 	.has_display = true,
 	.has_llc = true,
 	.has_sriov = true,
 	.max_gt_per_tile = 1,
+	MULTI_LRC_MASK,
 	.require_force_probe = true,
+	.va_bits = 48,
+	.vm_max_level = 3,
 };
 
 static const struct xe_device_desc rkl_desc = {
@@ -181,10 +213,14 @@ static const struct xe_device_desc rkl_desc = {
 	.pre_gmdid_media_ip = &media_ip_xem,
 	PLATFORM(ROCKETLAKE),
 	.dma_mask_size = 39,
+	.has_cached_pt = true,
 	.has_display = true,
 	.has_llc = true,
 	.max_gt_per_tile = 1,
+	MULTI_LRC_MASK,
 	.require_force_probe = true,
+	.va_bits = 48,
+	.vm_max_level = 3,
 };
 
 static const u16 adls_rpls_ids[] = { INTEL_RPLS_IDS(NOP), 0 };
@@ -194,15 +230,19 @@ static const struct xe_device_desc adl_s_desc = {
 	.pre_gmdid_media_ip = &media_ip_xem,
 	PLATFORM(ALDERLAKE_S),
 	.dma_mask_size = 39,
+	.has_cached_pt = true,
 	.has_display = true,
 	.has_llc = true,
 	.has_sriov = true,
 	.max_gt_per_tile = 1,
+	MULTI_LRC_MASK,
 	.require_force_probe = true,
 	.subplatforms = (const struct xe_subplatform_desc[]) {
 		{ XE_SUBPLATFORM_ALDERLAKE_S_RPLS, "RPLS", adls_rpls_ids },
 		{},
 	},
+	.va_bits = 48,
+	.vm_max_level = 3,
 };
 
 static const u16 adlp_rplu_ids[] = { INTEL_RPLU_IDS(NOP), 0 };
@@ -212,15 +252,19 @@ static const struct xe_device_desc adl_p_desc = {
 	.pre_gmdid_media_ip = &media_ip_xem,
 	PLATFORM(ALDERLAKE_P),
 	.dma_mask_size = 39,
+	.has_cached_pt = true,
 	.has_display = true,
 	.has_llc = true,
 	.has_sriov = true,
 	.max_gt_per_tile = 1,
+	MULTI_LRC_MASK,
 	.require_force_probe = true,
 	.subplatforms = (const struct xe_subplatform_desc[]) {
 		{ XE_SUBPLATFORM_ALDERLAKE_P_RPLU, "RPLU", adlp_rplu_ids },
 		{},
 	},
+	.va_bits = 48,
+	.vm_max_level = 3,
 };
 
 static const struct xe_device_desc adl_n_desc = {
@@ -228,11 +272,15 @@ static const struct xe_device_desc adl_n_desc = {
 	.pre_gmdid_media_ip = &media_ip_xem,
 	PLATFORM(ALDERLAKE_N),
 	.dma_mask_size = 39,
+	.has_cached_pt = true,
 	.has_display = true,
 	.has_llc = true,
 	.has_sriov = true,
 	.max_gt_per_tile = 1,
+	MULTI_LRC_MASK,
 	.require_force_probe = true,
+	.va_bits = 48,
+	.vm_max_level = 3,
 };
 
 #define DGFX_FEATURES \
@@ -248,7 +296,10 @@ static const struct xe_device_desc dg1_desc = {
 	.has_gsc_nvm = 1,
 	.has_heci_gscfi = 1,
 	.max_gt_per_tile = 1,
+	MULTI_LRC_MASK,
 	.require_force_probe = true,
+	.va_bits = 48,
+	.vm_max_level = 3,
 };
 
 static const u16 dg2_g10_ids[] = { INTEL_DG2_G10_IDS(NOP), INTEL_ATS_M150_IDS(NOP), 0 };
@@ -258,6 +309,7 @@ static const u16 dg2_g12_ids[] = { INTEL_DG2_G12_IDS(NOP), 0 };
 #define DG2_FEATURES \
 	DGFX_FEATURES, \
 	PLATFORM(DG2), \
+	.has_flat_ccs = 1, \
 	.has_gsc_nvm = 1, \
 	.has_heci_gscfi = 1, \
 	.subplatforms = (const struct xe_subplatform_desc[]) { \
@@ -265,13 +317,17 @@ static const u16 dg2_g12_ids[] = { INTEL_DG2_G12_IDS(NOP), 0 };
 		{ XE_SUBPLATFORM_DG2_G11, "G11", dg2_g11_ids }, \
 		{ XE_SUBPLATFORM_DG2_G12, "G12", dg2_g12_ids }, \
 		{ } \
-	}
+	}, \
+	.va_bits = 48, \
+	.vm_max_level = 3, \
+	.vram_flags = XE_VRAM_FLAGS_NEED64K
 
 static const struct xe_device_desc ats_m_desc = {
 	.pre_gmdid_graphics_ip = &graphics_ip_xehpg,
 	.pre_gmdid_media_ip = &media_ip_xehpm,
 	.dma_mask_size = 46,
 	.max_gt_per_tile = 1,
+	MULTI_LRC_MASK,
 	.require_force_probe = true,
 
 	DG2_FEATURES,
@@ -284,6 +340,7 @@ static const struct xe_device_desc dg2_desc = {
 	.pre_gmdid_media_ip = &media_ip_xehpm,
 	.dma_mask_size = 46,
 	.max_gt_per_tile = 1,
+	MULTI_LRC_MASK,
 	.require_force_probe = true,
 
 	DG2_FEATURES,
@@ -302,7 +359,11 @@ static const __maybe_unused struct xe_device_desc pvc_desc = {
 	.has_heci_gscfi = 1,
 	.max_gt_per_tile = 1,
 	.max_remote_tiles = 1,
+	MULTI_LRC_MASK,
 	.require_force_probe = true,
+	.va_bits = 57,
+	.vm_max_level = 4,
+	.vram_flags = XE_VRAM_FLAGS_NEED64K,
 	.has_mbx_power_limits = false,
 };
 
@@ -314,16 +375,25 @@ static const struct xe_device_desc mtl_desc = {
 	.has_display = true,
 	.has_pxp = true,
 	.max_gt_per_tile = 2,
+	MULTI_LRC_MASK,
+	.va_bits = 48,
+	.vm_max_level = 3,
 };
 
 static const struct xe_device_desc lnl_desc = {
 	PLATFORM(LUNARLAKE),
 	.dma_mask_size = 46,
 	.has_display = true,
+	.has_flat_ccs = 1,
 	.has_pxp = true,
 	.max_gt_per_tile = 2,
+	MULTI_LRC_MASK,
 	.needs_scratch = true,
+	.va_bits = 48,
+	.vm_max_level = 4,
 };
+
+static const u16 bmg_g21_ids[] = { INTEL_BMG_G21_IDS(NOP), 0 };
 
 static const struct xe_device_desc bmg_desc = {
 	DGFX_FEATURES,
@@ -331,21 +401,92 @@ static const struct xe_device_desc bmg_desc = {
 	.dma_mask_size = 46,
 	.has_display = true,
 	.has_fan_control = true,
+	.has_flat_ccs = 1,
 	.has_mbx_power_limits = true,
+	.has_mbx_thermal_info = true,
 	.has_gsc_nvm = 1,
 	.has_heci_cscfi = 1,
+	.has_i2c = true,
+	.has_late_bind = true,
+	.has_pre_prod_wa = 1,
+	.has_soc_remapper_telem = true,
 	.has_sriov = true,
 	.max_gt_per_tile = 2,
+	MULTI_LRC_MASK,
 	.needs_scratch = true,
+	.subplatforms = (const struct xe_subplatform_desc[]) {
+		{ XE_SUBPLATFORM_BATTLEMAGE_G21, "G21", bmg_g21_ids },
+		{ }
+	},
+	.va_bits = 48,
+	.vm_max_level = 4,
 };
 
 static const struct xe_device_desc ptl_desc = {
 	PLATFORM(PANTHERLAKE),
 	.dma_mask_size = 46,
 	.has_display = true,
+	.has_flat_ccs = 1,
 	.has_sriov = true,
+	.has_pre_prod_wa = 1,
+	.has_pxp = true,
 	.max_gt_per_tile = 2,
+	MULTI_LRC_MASK,
 	.needs_scratch = true,
+	.needs_shared_vf_gt_wq = true,
+	.va_bits = 48,
+	.vm_max_level = 4,
+};
+
+static const struct xe_device_desc nvls_desc = {
+	PLATFORM(NOVALAKE_S),
+	.dma_mask_size = 46,
+	.has_display = true,
+	.has_flat_ccs = 1,
+	.has_pre_prod_wa = 1,
+	.max_gt_per_tile = 2,
+	MULTI_LRC_MASK,
+	.require_force_probe = true,
+	.va_bits = 48,
+	.vm_max_level = 4,
+};
+
+static const struct xe_device_desc cri_desc = {
+	DGFX_FEATURES,
+	PLATFORM(CRESCENTISLAND),
+	.dma_mask_size = 52,
+	.has_display = false,
+	.has_flat_ccs = false,
+	.has_gsc_nvm = 1,
+	.has_i2c = true,
+	.has_mbx_power_limits = true,
+	.has_mbx_thermal_info = true,
+	.has_mert = true,
+	.has_pre_prod_wa = 1,
+	.has_soc_remapper_sysctrl = true,
+	.has_soc_remapper_telem = true,
+	.has_sriov = true,
+	.has_sysctrl = true,
+	.max_gt_per_tile = 2,
+	MULTI_LRC_MASK,
+	.require_force_probe = true,
+	.va_bits = 57,
+	.vm_max_level = 4,
+};
+
+static const struct xe_device_desc nvlp_desc = {
+	PLATFORM(NOVALAKE_P),
+	.dma_mask_size = 46,
+	.has_cached_pt = true,
+	.has_display = true,
+	.has_flat_ccs = 1,
+	.has_page_reclaim_hw_assist = true,
+	.has_pre_prod_wa = true,
+	.max_gt_per_tile = 2,
+	MULTI_LRC_MASK,
+	.require_force_probe = true,
+	.va_bits = 48,
+	.vm_max_level = 4,
 };
 
 #undef PLATFORM
@@ -374,6 +515,10 @@ static const struct pci_device_id pciidlist[] = {
 	INTEL_LNL_IDS(INTEL_VGA_DEVICE, &lnl_desc),
 	INTEL_BMG_IDS(INTEL_VGA_DEVICE, &bmg_desc),
 	INTEL_PTL_IDS(INTEL_VGA_DEVICE, &ptl_desc),
+	INTEL_WCL_IDS(INTEL_VGA_DEVICE, &ptl_desc),
+	INTEL_NVLS_IDS(INTEL_VGA_DEVICE, &nvls_desc),
+	INTEL_CRI_IDS(INTEL_PCI_DEVICE, &cri_desc),
+	INTEL_NVLP_IDS(INTEL_VGA_DEVICE, &nvlp_desc),
 	{ }
 };
 MODULE_DEVICE_TABLE(pci, pciidlist);
@@ -446,7 +591,7 @@ enum xe_gmdid_type {
 	GMDID_MEDIA
 };
 
-static void read_gmdid(struct xe_device *xe, enum xe_gmdid_type type, u32 *ver, u32 *revid)
+static int read_gmdid(struct xe_device *xe, enum xe_gmdid_type type, u32 *ver, u32 *revid)
 {
 	struct xe_mmio *mmio = xe_root_tile_mmio(xe);
 	struct xe_reg gmdid_reg = GMD_ID;
@@ -455,22 +600,30 @@ static void read_gmdid(struct xe_device *xe, enum xe_gmdid_type type, u32 *ver, 
 	KUNIT_STATIC_STUB_REDIRECT(read_gmdid, xe, type, ver, revid);
 
 	if (IS_SRIOV_VF(xe)) {
-		struct xe_gt *gt = xe_root_mmio_gt(xe);
-
 		/*
 		 * To get the value of the GMDID register, VFs must obtain it
 		 * from the GuC using MMIO communication.
 		 *
-		 * Note that at this point the xe_gt is not fully uninitialized
-		 * and only basic access to MMIO registers is possible. To use
-		 * our existing GuC communication functions we must perform at
-		 * least basic xe_gt and xe_guc initialization.
-		 *
-		 * Since to obtain the value of GMDID_MEDIA we need to use the
-		 * media GuC, temporarily tweak the gt type.
+		 * Note that at this point the GTs are not initialized and only
+		 * tile-level access to MMIO registers is possible. To use our
+		 * existing GuC communication functions we must create a dummy
+		 * GT structure and perform at least basic xe_gt and xe_guc
+		 * initialization.
 		 */
-		xe_gt_assert(gt, gt->info.type == XE_GT_TYPE_UNINITIALIZED);
+		struct xe_gt *gt __free(kfree) = NULL;
+		int err;
 
+		/* Don't try to read media ver if media GT is not allowed */
+		if (type == GMDID_MEDIA && !xe_configfs_media_gt_allowed(to_pci_dev(xe->drm.dev))) {
+			*ver = *revid = 0;
+			return 0;
+		}
+
+		gt = kzalloc(sizeof(*gt), GFP_KERNEL);
+		if (!gt)
+			return -ENOMEM;
+
+		gt->tile = &xe->tiles[0];
 		if (type == GMDID_MEDIA) {
 			gt->info.id = 1;
 			gt->info.type = XE_GT_TYPE_MEDIA;
@@ -482,15 +635,11 @@ static void read_gmdid(struct xe_device *xe, enum xe_gmdid_type type, u32 *ver, 
 		xe_gt_mmio_init(gt);
 		xe_guc_comm_init_early(&gt->uc.guc);
 
-		/* Don't bother with GMDID if failed to negotiate the GuC ABI */
-		val = xe_gt_sriov_vf_bootstrap(gt) ? 0 : xe_gt_sriov_vf_gmdid(gt);
+		err = xe_gt_sriov_vf_bootstrap(gt);
+		if (err)
+			return err;
 
-		/*
-		 * Only undo xe_gt.info here, the remaining changes made above
-		 * will be overwritten as part of the regular initialization.
-		 */
-		gt->info.id = 0;
-		gt->info.type = XE_GT_TYPE_UNINITIALIZED;
+		val = xe_gt_sriov_vf_gmdid(gt);
 	} else {
 		/*
 		 * GMD_ID is a GT register, but at this point in the driver
@@ -508,55 +657,71 @@ static void read_gmdid(struct xe_device *xe, enum xe_gmdid_type type, u32 *ver, 
 
 	*ver = REG_FIELD_GET(GMD_ID_ARCH_MASK, val) * 100 + REG_FIELD_GET(GMD_ID_RELEASE_MASK, val);
 	*revid = REG_FIELD_GET(GMD_ID_REVID, val);
+
+	return 0;
+}
+
+static const struct xe_ip *find_graphics_ip(unsigned int verx100)
+{
+	KUNIT_STATIC_STUB_REDIRECT(find_graphics_ip, verx100);
+
+	for (int i = 0; i < ARRAY_SIZE(graphics_ips); i++)
+		if (graphics_ips[i].verx100 == verx100)
+			return &graphics_ips[i];
+	return NULL;
+}
+
+static const struct xe_ip *find_media_ip(unsigned int verx100)
+{
+	KUNIT_STATIC_STUB_REDIRECT(find_media_ip, verx100);
+
+	for (int i = 0; i < ARRAY_SIZE(media_ips); i++)
+		if (media_ips[i].verx100 == verx100)
+			return &media_ips[i];
+	return NULL;
 }
 
 /*
  * Read IP version from hardware and select graphics/media IP descriptors
  * based on the result.
  */
-static void handle_gmdid(struct xe_device *xe,
-			 const struct xe_ip **graphics_ip,
-			 const struct xe_ip **media_ip,
-			 u32 *graphics_revid,
-			 u32 *media_revid)
+static int handle_gmdid(struct xe_device *xe,
+			const struct xe_ip **graphics_ip,
+			const struct xe_ip **media_ip,
+			u32 *graphics_revid,
+			u32 *media_revid)
 {
 	u32 ver;
+	int ret;
 
 	*graphics_ip = NULL;
 	*media_ip = NULL;
 
-	read_gmdid(xe, GMDID_GRAPHICS, &ver, graphics_revid);
+	ret = read_gmdid(xe, GMDID_GRAPHICS, &ver, graphics_revid);
+	if (ret)
+		return ret;
 
-	for (int i = 0; i < ARRAY_SIZE(graphics_ips); i++) {
-		if (ver == graphics_ips[i].verx100) {
-			*graphics_ip = &graphics_ips[i];
-
-			break;
-		}
-	}
-
+	*graphics_ip = find_graphics_ip(ver);
 	if (!*graphics_ip) {
 		drm_err(&xe->drm, "Hardware reports unknown graphics version %u.%02u\n",
 			ver / 100, ver % 100);
 	}
 
-	read_gmdid(xe, GMDID_MEDIA, &ver, media_revid);
+	ret = read_gmdid(xe, GMDID_MEDIA, &ver, media_revid);
+	if (ret)
+		return ret;
+
 	/* Media may legitimately be fused off / not present */
 	if (ver == 0)
-		return;
+		return 0;
 
-	for (int i = 0; i < ARRAY_SIZE(media_ips); i++) {
-		if (ver == media_ips[i].verx100) {
-			*media_ip = &media_ips[i];
-
-			break;
-		}
-	}
-
+	*media_ip = find_media_ip(ver);
 	if (!*media_ip) {
 		drm_err(&xe->drm, "Hardware reports unknown media version %u.%02u\n",
 			ver / 100, ver % 100);
 	}
+
+	return 0;
 }
 
 /*
@@ -575,19 +740,37 @@ static int xe_info_init_early(struct xe_device *xe,
 		subplatform_desc->subplatform : XE_SUBPLATFORM_NONE;
 
 	xe->info.dma_mask_size = desc->dma_mask_size;
+	xe->info.va_bits = desc->va_bits;
+	xe->info.vm_max_level = desc->vm_max_level;
+	xe->info.vram_flags = desc->vram_flags;
+
 	xe->info.is_dgfx = desc->is_dgfx;
+	xe->info.has_cached_pt = desc->has_cached_pt;
 	xe->info.has_fan_control = desc->has_fan_control;
+	/* runtime fusing may force flat_ccs to disabled later */
+	xe->info.has_flat_ccs = desc->has_flat_ccs;
 	xe->info.has_mbx_power_limits = desc->has_mbx_power_limits;
+	xe->info.has_mbx_thermal_info = desc->has_mbx_thermal_info;
 	xe->info.has_gsc_nvm = desc->has_gsc_nvm;
 	xe->info.has_heci_gscfi = desc->has_heci_gscfi;
 	xe->info.has_heci_cscfi = desc->has_heci_cscfi;
+	xe->info.has_i2c = desc->has_i2c;
+	xe->info.has_late_bind = desc->has_late_bind;
 	xe->info.has_llc = desc->has_llc;
+	xe->info.has_mert = desc->has_mert;
+	xe->info.has_page_reclaim_hw_assist = desc->has_page_reclaim_hw_assist;
+	xe->info.has_pre_prod_wa = desc->has_pre_prod_wa;
 	xe->info.has_pxp = desc->has_pxp;
-	xe->info.has_sriov = desc->has_sriov;
+	xe->info.has_soc_remapper_sysctrl = desc->has_soc_remapper_sysctrl;
+	xe->info.has_soc_remapper_telem = desc->has_soc_remapper_telem;
+	xe->info.has_sriov = xe_configfs_primary_gt_allowed(to_pci_dev(xe->drm.dev)) &&
+		desc->has_sriov;
+	xe->info.has_sysctrl = desc->has_sysctrl;
 	xe->info.skip_guc_pc = desc->skip_guc_pc;
-	xe->info.skip_mtcfg = desc->skip_mtcfg;
 	xe->info.skip_pcode = desc->skip_pcode;
 	xe->info.needs_scratch = desc->needs_scratch;
+	xe->info.needs_shared_vf_gt_wq = desc->needs_shared_vf_gt_wq;
+	xe->info.multi_lrc_mask = desc->multi_lrc_mask;
 
 	xe->info.probe_display = IS_ENABLED(CONFIG_DRM_XE_DISPLAY) &&
 				 xe_modparam.probe_display &&
@@ -597,6 +780,8 @@ static int xe_info_init_early(struct xe_device *xe,
 	xe_assert(xe, desc->max_gt_per_tile <= XE_MAX_GT_PER_TILE);
 	xe->info.max_gt_per_tile = desc->max_gt_per_tile;
 	xe->info.tile_count = 1 + desc->max_remote_tiles;
+
+	xe_step_platform_get(xe);
 
 	err = xe_tile_init_early(xe_device_get_root_tile(xe), xe, 0);
 	if (err)
@@ -623,9 +808,6 @@ static void xe_info_probe_tile_count(struct xe_device *xe)
 	if (xe->info.tile_count == 1)
 		return;
 
-	if (xe->info.skip_mtcfg)
-		return;
-
 	mmio = xe_root_tile_mmio(xe);
 
 	/*
@@ -641,6 +823,66 @@ static void xe_info_probe_tile_count(struct xe_device *xe)
 			 xe->info.tile_count, tile_count);
 		xe->info.tile_count = tile_count;
 	}
+}
+
+static struct xe_gt *alloc_primary_gt(struct xe_tile *tile,
+				      const struct xe_graphics_desc *graphics_desc,
+				      const struct xe_media_desc *media_desc)
+{
+	struct xe_device *xe = tile_to_xe(tile);
+	struct xe_gt *gt;
+
+	if (!xe_configfs_primary_gt_allowed(to_pci_dev(xe->drm.dev))) {
+		xe_info(xe, "Primary GT disabled via configfs\n");
+		return NULL;
+	}
+
+	gt = xe_gt_alloc(tile);
+	if (IS_ERR(gt))
+		return gt;
+
+	gt->info.type = XE_GT_TYPE_MAIN;
+	gt->info.id = tile->id * xe->info.max_gt_per_tile;
+	gt->info.has_indirect_ring_state = graphics_desc->has_indirect_ring_state;
+	gt->info.multi_queue_engine_class_mask = graphics_desc->multi_queue_engine_class_mask;
+	gt->info.engine_mask = graphics_desc->hw_engine_mask;
+	gt->info.num_geometry_xecore_fuse_regs = graphics_desc->num_geometry_xecore_fuse_regs;
+	gt->info.num_compute_xecore_fuse_regs = graphics_desc->num_compute_xecore_fuse_regs;
+
+	/*
+	 * Before media version 13, the media IP was part of the primary GT
+	 * so we need to add the media engines to the primary GT's engine list.
+	 */
+	if (MEDIA_VER(xe) < 13 && media_desc)
+		gt->info.engine_mask |= media_desc->hw_engine_mask;
+
+	return gt;
+}
+
+static struct xe_gt *alloc_media_gt(struct xe_tile *tile,
+				    const struct xe_media_desc *media_desc)
+{
+	struct xe_device *xe = tile_to_xe(tile);
+	struct xe_gt *gt;
+
+	if (!xe_configfs_media_gt_allowed(to_pci_dev(xe->drm.dev))) {
+		xe_info(xe, "Media GT disabled via configfs\n");
+		return NULL;
+	}
+
+	if (MEDIA_VER(xe) < 13 || !media_desc)
+		return NULL;
+
+	gt = xe_gt_alloc(tile);
+	if (IS_ERR(gt))
+		return gt;
+
+	gt->info.type = XE_GT_TYPE_MEDIA;
+	gt->info.id = tile->id * xe->info.max_gt_per_tile + 1;
+	gt->info.has_indirect_ring_state = media_desc->has_indirect_ring_state;
+	gt->info.engine_mask = media_desc->hw_engine_mask;
+
+	return gt;
 }
 
 /*
@@ -659,6 +901,7 @@ static int xe_info_init(struct xe_device *xe,
 	const struct xe_media_desc *media_desc;
 	struct xe_tile *tile;
 	struct xe_gt *gt;
+	int ret;
 	u8 id;
 
 	/*
@@ -671,14 +914,15 @@ static int xe_info_init(struct xe_device *xe,
 	if (desc->pre_gmdid_graphics_ip) {
 		graphics_ip = desc->pre_gmdid_graphics_ip;
 		media_ip = desc->pre_gmdid_media_ip;
-		xe->info.step = xe_step_pre_gmdid_get(xe);
+		xe_step_pre_gmdid_get(xe);
 	} else {
 		xe_assert(xe, !desc->pre_gmdid_media_ip);
-		handle_gmdid(xe, &graphics_ip, &media_ip,
-			     &graphics_gmdid_revid, &media_gmdid_revid);
-		xe->info.step = xe_step_gmdid_get(xe,
-						  graphics_gmdid_revid,
-						  media_gmdid_revid);
+		ret = handle_gmdid(xe, &graphics_ip, &media_ip,
+				   &graphics_gmdid_revid, &media_gmdid_revid);
+		if (ret)
+			return ret;
+
+		xe_step_gmdid_get(xe, graphics_gmdid_revid, media_gmdid_revid);
 	}
 
 	/*
@@ -702,20 +946,23 @@ static int xe_info_init(struct xe_device *xe,
 		media_desc = NULL;
 	}
 
-	xe->info.vram_flags = graphics_desc->vram_flags;
-	xe->info.va_bits = graphics_desc->va_bits;
-	xe->info.vm_max_level = graphics_desc->vm_max_level;
+	xe->info.has_access_counter = graphics_desc->has_access_counter;
 	xe->info.has_asid = graphics_desc->has_asid;
 	xe->info.has_atomic_enable_pte_bit = graphics_desc->has_atomic_enable_pte_bit;
 	if (xe->info.platform != XE_PVC)
 		xe->info.has_device_atomics_on_smem = 1;
 
-	/* Runtime detection may change this later */
-	xe->info.has_flat_ccs = graphics_desc->has_flat_ccs;
-
 	xe->info.has_range_tlb_inval = graphics_desc->has_range_tlb_inval;
+	xe->info.has_ctx_tlb_inval = graphics_desc->has_ctx_tlb_inval;
 	xe->info.has_usm = graphics_desc->has_usm;
 	xe->info.has_64bit_timestamp = graphics_desc->has_64bit_timestamp;
+	xe->info.has_mem_copy_instr = GRAPHICS_VER(xe) >= 20;
+
+	if (IS_SRIOV_VF(xe)) {
+		xe->info.has_sysctrl = 0;
+		xe->info.has_soc_remapper_sysctrl = 0;
+		xe->info.has_soc_remapper_telem = 0;
+	}
 
 	xe_info_probe_tile_count(xe);
 
@@ -727,44 +974,33 @@ static int xe_info_init(struct xe_device *xe,
 			return err;
 	}
 
-	/*
-	 * All platforms have at least one primary GT.  Any platform with media
-	 * version 13 or higher has an additional dedicated media GT.  And
-	 * depending on the graphics IP there may be additional "remote tiles."
-	 * All of these together determine the overall GT count.
-	 */
+	/* Allocate any GT and VRAM structures necessary for the platform. */
 	for_each_tile(tile, xe, id) {
 		int err;
-
-		gt = tile->primary_gt;
-		gt->info.type = XE_GT_TYPE_MAIN;
-		gt->info.id = tile->id * xe->info.max_gt_per_tile;
-		gt->info.has_indirect_ring_state = graphics_desc->has_indirect_ring_state;
-		gt->info.engine_mask = graphics_desc->hw_engine_mask;
 
 		err = xe_tile_alloc_vram(tile);
 		if (err)
 			return err;
 
-		if (MEDIA_VER(xe) < 13 && media_desc)
-			gt->info.engine_mask |= media_desc->hw_engine_mask;
-
-		if (MEDIA_VER(xe) < 13 || !media_desc)
-			continue;
+		tile->primary_gt = alloc_primary_gt(tile, graphics_desc, media_desc);
+		if (IS_ERR(tile->primary_gt))
+			return PTR_ERR(tile->primary_gt);
 
 		/*
-		 * Allocate and setup media GT for platforms with standalone
-		 * media.
+		 * It's not currently possible to probe a device with the
+		 * primary GT disabled.  With some work, this may be future in
+		 * the possible for igpu platforms (although probably not for
+		 * dgpu's since access to the primary GT's BCS engines is
+		 * required for VRAM management).
 		 */
-		tile->media_gt = xe_gt_alloc(tile);
+		if (!tile->primary_gt) {
+			drm_err(&xe->drm, "Cannot probe device with without a primary GT\n");
+			return -ENODEV;
+		}
+
+		tile->media_gt = alloc_media_gt(tile, media_desc);
 		if (IS_ERR(tile->media_gt))
 			return PTR_ERR(tile->media_gt);
-
-		gt = tile->media_gt;
-		gt->info.type = XE_GT_TYPE_MEDIA;
-		gt->info.id = tile->id * xe->info.max_gt_per_tile + 1;
-		gt->info.has_indirect_ring_state = media_desc->has_indirect_ring_state;
-		gt->info.engine_mask = media_desc->hw_engine_mask;
 	}
 
 	/*
@@ -858,6 +1094,8 @@ static int xe_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	err = xe_info_init_early(xe, desc, subplatform_desc);
 	if (err)
 		return err;
+
+	xe_pci_rebar_resize(xe);
 
 	err = xe_device_probe_early(xe);
 	/*
@@ -1014,6 +1252,15 @@ static int xe_pci_runtime_suspend(struct device *dev)
 	struct xe_device *xe = pdev_to_xe_device(pdev);
 	int err;
 
+	/*
+	 * We hold an additional reference to the runtime PM to keep PF in D0
+	 * during VFs lifetime, as our VFs do not implement the PM capability.
+	 * This means we should never be runtime suspending as long as VFs are
+	 * enabled.
+	 */
+	xe_assert(xe, !IS_SRIOV_VF(xe));
+	xe_assert(xe, !pci_num_vf(pdev));
+
 	err = xe_pm_runtime_suspend(xe);
 	if (err)
 		return err;
@@ -1083,6 +1330,23 @@ static struct pci_driver xe_pci_driver = {
 	.driver.pm = &xe_pm_ops,
 #endif
 };
+
+/**
+ * xe_pci_to_pf_device() - Get PF &xe_device.
+ * @pdev: the VF &pci_dev device
+ *
+ * Return: pointer to PF &xe_device, NULL otherwise.
+ */
+struct xe_device *xe_pci_to_pf_device(struct pci_dev *pdev)
+{
+	struct drm_device *drm;
+
+	drm = pci_iov_get_pf_drvdata(pdev, &xe_pci_driver);
+	if (IS_ERR(drm))
+		return NULL;
+
+	return to_xe_device(drm);
+}
 
 int xe_register_pci_driver(void)
 {

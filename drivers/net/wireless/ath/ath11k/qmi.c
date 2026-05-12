@@ -13,7 +13,7 @@
 #include "debug.h"
 #include "hif.h"
 #include <linux/of.h>
-#include <linux/of_address.h>
+#include <linux/of_reserved_mem.h>
 #include <linux/ioport.h>
 #include <linux/firmware.h>
 #include <linux/of_irq.h>
@@ -1799,11 +1799,11 @@ static int ath11k_qmi_fw_ind_register_send(struct ath11k_base *ab)
 	struct qmi_txn txn;
 	int ret;
 
-	req = kzalloc(sizeof(*req), GFP_KERNEL);
+	req = kzalloc_obj(*req);
 	if (!req)
 		return -ENOMEM;
 
-	resp = kzalloc(sizeof(*resp), GFP_KERNEL);
+	resp = kzalloc_obj(*resp);
 	if (!resp) {
 		ret = -ENOMEM;
 		goto resp_out;
@@ -1878,7 +1878,7 @@ static int ath11k_qmi_respond_fw_mem_request(struct ath11k_base *ab)
 	int ret = 0, i;
 	bool delayed;
 
-	req = kzalloc(sizeof(*req), GFP_KERNEL);
+	req = kzalloc_obj(*req);
 	if (!req)
 		return -ENOMEM;
 
@@ -2040,23 +2040,14 @@ static int ath11k_qmi_alloc_target_mem_chunk(struct ath11k_base *ab)
 static int ath11k_qmi_assign_target_mem_chunk(struct ath11k_base *ab)
 {
 	struct device *dev = ab->dev;
-	struct device_node *hremote_node = NULL;
-	struct resource res;
+	struct resource res = {};
 	u32 host_ddr_sz;
 	int i, idx, ret;
 
 	for (i = 0, idx = 0; i < ab->qmi.mem_seg_count; i++) {
 		switch (ab->qmi.target_mem[i].type) {
 		case HOST_DDR_REGION_TYPE:
-			hremote_node = of_parse_phandle(dev->of_node, "memory-region", 0);
-			if (!hremote_node) {
-				ath11k_dbg(ab, ATH11K_DBG_QMI,
-					   "fail to get hremote_node\n");
-				return -ENODEV;
-			}
-
-			ret = of_address_to_resource(hremote_node, 0, &res);
-			of_node_put(hremote_node);
+			ret = of_reserved_mem_region_to_resource(dev->of_node, 0, &res);
 			if (ret) {
 				ath11k_dbg(ab, ATH11K_DBG_QMI,
 					   "fail to get reg from hremote\n");
@@ -2095,7 +2086,7 @@ static int ath11k_qmi_assign_target_mem_chunk(struct ath11k_base *ab)
 			}
 
 			if (ath11k_core_coldboot_cal_support(ab)) {
-				if (hremote_node) {
+				if (resource_size(&res)) {
 					ab->qmi.target_mem[idx].paddr =
 							res.start + host_ddr_sz;
 					ab->qmi.target_mem[idx].iaddr =
@@ -2315,7 +2306,7 @@ static int ath11k_qmi_load_file_target_mem(struct ath11k_base *ab,
 	int ret = 0;
 	u32 remaining = len;
 
-	req = kzalloc(sizeof(*req), GFP_KERNEL);
+	req = kzalloc_obj(*req);
 	if (!req)
 		return -ENOMEM;
 
@@ -2557,7 +2548,7 @@ static int ath11k_qmi_m3_load(struct ath11k_base *ab)
 					   GFP_KERNEL);
 	if (!m3_mem->vaddr) {
 		ath11k_err(ab, "failed to allocate memory for M3 with size %zu\n",
-			   fw->size);
+			   m3_len);
 		ret = -ENOMEM;
 		goto out;
 	}
@@ -2714,7 +2705,7 @@ static int ath11k_qmi_wlanfw_wlan_cfg_send(struct ath11k_base *ab)
 	ce_cfg	= (struct ce_pipe_config *)ab->qmi.ce_cfg.tgt_ce;
 	svc_cfg	= (struct service_to_pipe *)ab->qmi.ce_cfg.svc_to_ce_map;
 
-	req = kzalloc(sizeof(*req), GFP_KERNEL);
+	req = kzalloc_obj(*req);
 	if (!req)
 		return -ENOMEM;
 
@@ -2938,7 +2929,7 @@ ath11k_qmi_driver_event_post(struct ath11k_qmi *qmi,
 {
 	struct ath11k_qmi_driver_event *event;
 
-	event = kzalloc(sizeof(*event), GFP_ATOMIC);
+	event = kzalloc_obj(*event, GFP_ATOMIC);
 	if (!event)
 		return -ENOMEM;
 
@@ -3186,7 +3177,7 @@ static int ath11k_qmi_ops_new_server(struct qmi_handle *qmi_hdl,
 	sq->sq_node = service->node;
 	sq->sq_port = service->port;
 
-	ret = kernel_connect(qmi_hdl->sock, (struct sockaddr *)sq,
+	ret = kernel_connect(qmi_hdl->sock, (struct sockaddr_unsized *)sq,
 			     sizeof(*sq), 0);
 	if (ret) {
 		ath11k_warn(ab, "failed to connect to qmi remote service: %d\n", ret);

@@ -51,8 +51,7 @@ static struct snd_soc_jack_pin cht_bsw_headset_pins[] = {
 static int platform_clock_control(struct snd_soc_dapm_widget *w,
 		struct snd_kcontrol *k, int  event)
 {
-	struct snd_soc_dapm_context *dapm = w->dapm;
-	struct snd_soc_card *card = dapm->card;
+	struct snd_soc_card *card = snd_soc_dapm_to_card(w->dapm);
 	struct snd_soc_dai *codec_dai;
 	struct cht_mc_private *ctx = snd_soc_card_get_drvdata(card);
 	int ret;
@@ -68,7 +67,7 @@ static int platform_clock_control(struct snd_soc_dapm_widget *w,
 			ret = clk_prepare_enable(ctx->mclk);
 			if (ret < 0) {
 				dev_err(card->dev,
-					"could not configure MCLK state");
+					"could not configure MCLK state: %d\n", ret);
 				return ret;
 			}
 		}
@@ -78,6 +77,8 @@ static int platform_clock_control(struct snd_soc_dapm_widget *w,
 				CHT_PLAT_CLK_3_HZ, 48000 * 512);
 		if (ret < 0) {
 			dev_err(card->dev, "can't set codec pll: %d\n", ret);
+			if (ctx->mclk)
+				clk_disable_unprepare(ctx->mclk);
 			return ret;
 		}
 
@@ -86,6 +87,8 @@ static int platform_clock_control(struct snd_soc_dapm_widget *w,
 			48000 * 512, SND_SOC_CLOCK_IN);
 		if (ret < 0) {
 			dev_err(card->dev, "can't set codec sysclk: %d\n", ret);
+			if (ctx->mclk)
+				clk_disable_unprepare(ctx->mclk);
 			return ret;
 		}
 	} else {
@@ -193,6 +196,7 @@ static const struct acpi_gpio_mapping cht_rt5672_gpios[] = {
 static int cht_codec_init(struct snd_soc_pcm_runtime *runtime)
 {
 	int ret;
+	struct snd_soc_dapm_context *dapm = snd_soc_card_to_dapm(runtime->card);
 	struct snd_soc_dai *codec_dai = snd_soc_rtd_to_codec(runtime, 0);
 	struct snd_soc_component *component = codec_dai->component;
 	struct cht_mc_private *ctx = snd_soc_card_get_drvdata(runtime->card);
@@ -215,11 +219,11 @@ static int cht_codec_init(struct snd_soc_pcm_runtime *runtime)
 				RT5670_CLK_SEL_I2S1_ASRC);
 
 	if (ctx->use_ssp0) {
-		ret = snd_soc_dapm_add_routes(&runtime->card->dapm,
+		ret = snd_soc_dapm_add_routes(dapm,
 					      cht_audio_ssp0_map,
 					      ARRAY_SIZE(cht_audio_ssp0_map));
 	} else {
-		ret = snd_soc_dapm_add_routes(&runtime->card->dapm,
+		ret = snd_soc_dapm_add_routes(dapm,
 					      cht_audio_ssp2_map,
 					      ARRAY_SIZE(cht_audio_ssp2_map));
 	}

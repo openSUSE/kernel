@@ -563,10 +563,10 @@ mmc_spi_setup_data_message(struct mmc_spi_host *host, bool multiple, bool write)
 	 * the next token (next data block, or STOP_TRAN).  We can try to
 	 * minimize I/O ops by using a single read to collect end-of-busy.
 	 */
-	if (multiple || write) {
+	if (write) {
 		t = &host->early_status;
 		memset(t, 0, sizeof(*t));
-		t->len = write ? sizeof(scratch->status) : 1;
+		t->len = sizeof(scratch->status);
 		t->tx_buf = host->ones;
 		t->rx_buf = scratch->status;
 		t->cs_change = 1;
@@ -1236,7 +1236,7 @@ static int mmc_spi_probe(struct spi_device *spi)
 	}
 
 	/* Preallocate buffers */
-	host->data = kmalloc(sizeof(*host->data), GFP_KERNEL);
+	host->data = kmalloc_obj(*host->data);
 	if (!host->data)
 		goto fail_nobuf1;
 

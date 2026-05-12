@@ -878,7 +878,7 @@ static const char *mt7986_uart_groups[] = {
 static const char *mt7986_wdt_groups[] = { "watchdog", };
 static const char *mt7986_wf_groups[] = { "wf_2g", "wf_5g", "wf_dbdc", };
 
-static const struct function_desc mt7986_functions[] = {
+static const struct pinfunction mt7986_functions[] = {
 	PINCTRL_PIN_FUNCTION("audio", mt7986_audio),
 	PINCTRL_PIN_FUNCTION("emmc", mt7986_emmc),
 	PINCTRL_PIN_FUNCTION("eth", mt7986_ethernet),
@@ -919,7 +919,7 @@ static struct mtk_pin_soc mt7986a_data = {
 	.nfuncs = ARRAY_SIZE(mt7986_functions),
 	.eint_hw = &mt7986a_eint_hw,
 	.gpio_m = 0,
-	.ies_present = false,
+	.ies_present = true,
 	.base_names = mt7986_pinctrl_register_base_names,
 	.nbase_names = ARRAY_SIZE(mt7986_pinctrl_register_base_names),
 	.bias_disable_set = mtk_pinconf_bias_disable_set,
@@ -945,7 +945,7 @@ static struct mtk_pin_soc mt7986b_data = {
 	.nfuncs = ARRAY_SIZE(mt7986_functions),
 	.eint_hw = &mt7986b_eint_hw,
 	.gpio_m = 0,
-	.ies_present = false,
+	.ies_present = true,
 	.base_names = mt7986_pinctrl_register_base_names,
 	.nbase_names = ARRAY_SIZE(mt7986_pinctrl_register_base_names),
 	.bias_disable_set = mtk_pinconf_bias_disable_set,

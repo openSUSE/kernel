@@ -96,7 +96,7 @@ static int tb_path_find_src_hopid(struct tb_port *src,
  * that the @dst port is the expected one. If it is not, the path can be
  * cleaned up by calling tb_path_deactivate() before tb_path_free().
  *
- * Return: Discovered path on success, %NULL in case of failure
+ * Return: Pointer to &struct tb_path, %NULL in case of failure.
  */
 struct tb_path *tb_path_discover(struct tb_port *src, int src_hopid,
 				 struct tb_port *dst, int dst_hopid,
@@ -150,21 +150,16 @@ struct tb_path *tb_path_discover(struct tb_port *src, int src_hopid,
 		num_hops++;
 	}
 
-	path = kzalloc(sizeof(*path), GFP_KERNEL);
+	path = kzalloc_flex(*path, hops, num_hops);
 	if (!path)
 		return NULL;
 
+	path->path_length = num_hops;
+
 	path->name = name;
 	path->tb = src->sw->tb;
-	path->path_length = num_hops;
 	path->activated = true;
 	path->alloc_hopid = alloc_hopid;
-
-	path->hops = kcalloc(num_hops, sizeof(*path->hops), GFP_KERNEL);
-	if (!path->hops) {
-		kfree(path);
-		return NULL;
-	}
 
 	tb_dbg(path->tb, "discovering %s path starting from %llx:%u\n",
 	       path->name, tb_route(src->sw), src->port);
@@ -233,7 +228,7 @@ err:
  * links on the path, prioritizes using @link_nr but takes into account
  * that the lanes may be bonded.
  *
- * Return: Returns a tb_path on success or NULL on failure.
+ * Return: Pointer to &struct tb_path, %NULL in case of failure.
  */
 struct tb_path *tb_path_alloc(struct tb *tb, struct tb_port *src, int src_hopid,
 			      struct tb_port *dst, int dst_hopid, int link_nr,
@@ -245,10 +240,6 @@ struct tb_path *tb_path_alloc(struct tb *tb, struct tb_port *src, int src_hopid,
 	size_t num_hops;
 	int i, ret;
 
-	path = kzalloc(sizeof(*path), GFP_KERNEL);
-	if (!path)
-		return NULL;
-
 	first_port = last_port = NULL;
 	i = 0;
 	tb_for_each_port_on_path(src, dst, in_port) {
@@ -259,20 +250,17 @@ struct tb_path *tb_path_alloc(struct tb *tb, struct tb_port *src, int src_hopid,
 	}
 
 	/* Check that src and dst are reachable */
-	if (first_port != src || last_port != dst) {
-		kfree(path);
+	if (first_port != src || last_port != dst)
 		return NULL;
-	}
 
 	/* Each hop takes two ports */
 	num_hops = i / 2;
 
-	path->hops = kcalloc(num_hops, sizeof(*path->hops), GFP_KERNEL);
-	if (!path->hops) {
-		kfree(path);
+	path = kzalloc_flex(*path, hops, num_hops);
+	if (!path)
 		return NULL;
-	}
 
+	path->path_length = num_hops;
 	path->alloc_hopid = true;
 
 	in_hopid = src_hopid;
@@ -339,7 +327,6 @@ struct tb_path *tb_path_alloc(struct tb *tb, struct tb_port *src, int src_hopid,
 	}
 
 	path->tb = tb;
-	path->path_length = num_hops;
 	path->name = name;
 
 	return path;
@@ -372,7 +359,6 @@ void tb_path_free(struct tb_path *path)
 		}
 	}
 
-	kfree(path->hops);
 	kfree(path);
 }
 
@@ -452,7 +438,9 @@ static int __tb_path_deactivate_hop(struct tb_port *port, int hop_index,
  * @hop_index: HopID of the path to be cleared
  *
  * This deactivates or clears a single path config space entry at
- * @hop_index. Returns %0 in success and negative errno otherwise.
+ * @hop_index.
+ *
+ * Return: %0 on success, negative errno otherwise.
  */
 int tb_path_deactivate_hop(struct tb_port *port, int hop_index)
 {
@@ -498,7 +486,7 @@ void tb_path_deactivate(struct tb_path *path)
  * Activate a path starting with the last hop and iterating backwards. The
  * caller must fill path->hops before calling tb_path_activate().
  *
- * Return: Returns 0 on success or an error code on failure.
+ * Return: %0 on success, negative errno otherwise.
  */
 int tb_path_activate(struct tb_path *path)
 {
@@ -584,7 +572,7 @@ int tb_path_activate(struct tb_path *path)
 	tb_dbg(path->tb, "%s path activation complete\n", path->name);
 	return 0;
 err:
-	tb_WARN(path->tb, "%s path activation failed\n", path->name);
+	tb_warn(path->tb, "%s path activation failed: %d\n", path->name, res);
 	return res;
 }
 
@@ -592,7 +580,7 @@ err:
  * tb_path_is_invalid() - check whether any ports on the path are invalid
  * @path: Path to check
  *
- * Return: Returns true if the path is invalid, false otherwise.
+ * Return: %true if the path is invalid, %false otherwise.
  */
 bool tb_path_is_invalid(struct tb_path *path)
 {
@@ -613,6 +601,8 @@ bool tb_path_is_invalid(struct tb_path *path)
  *
  * Goes over all hops on path and checks if @port is any of them.
  * Direction does not matter.
+ *
+ * Return: %true if port is on the path, %false otherwise.
  */
 bool tb_path_port_on_path(const struct tb_path *path, const struct tb_port *port)
 {

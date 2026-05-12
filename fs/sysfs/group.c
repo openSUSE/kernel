@@ -36,6 +36,9 @@ static umode_t __first_visible(const struct attribute_group *grp, struct kobject
 	if (grp->attrs && grp->attrs[0] && grp->is_visible)
 		return grp->is_visible(kobj, grp->attrs[0], 0);
 
+	if (grp->attrs && grp->attrs[0] && grp->is_visible_const)
+		return grp->is_visible_const(kobj, grp->attrs[0], 0);
+
 	if (grp->bin_attrs && grp->bin_attrs[0] && grp->is_bin_visible)
 		return grp->is_bin_visible(kobj, grp->bin_attrs[0], 0);
 
@@ -61,8 +64,11 @@ static int create_files(struct kernfs_node *parent, struct kobject *kobj,
 			 */
 			if (update)
 				kernfs_remove_by_name(parent, (*attr)->name);
-			if (grp->is_visible) {
-				mode = grp->is_visible(kobj, *attr, i);
+			if (grp->is_visible || grp->is_visible_const) {
+				if (grp->is_visible)
+					mode = grp->is_visible(kobj, *attr, i);
+				else
+					mode = grp->is_visible_const(kobj, *attr, i);
 				mode &= ~SYSFS_GROUP_INVISIBLE;
 				if (!mode)
 					continue;
@@ -211,7 +217,7 @@ int sysfs_create_group(struct kobject *kobj,
 EXPORT_SYMBOL_GPL(sysfs_create_group);
 
 static int internal_create_groups(struct kobject *kobj, int update,
-				  const struct attribute_group **groups)
+				  const struct attribute_group *const *groups)
 {
 	int error = 0;
 	int i;
@@ -244,7 +250,7 @@ static int internal_create_groups(struct kobject *kobj, int update,
  * Returns 0 on success or error code from sysfs_create_group on failure.
  */
 int sysfs_create_groups(struct kobject *kobj,
-			const struct attribute_group **groups)
+			const struct attribute_group *const *groups)
 {
 	return internal_create_groups(kobj, 0, groups);
 }
@@ -262,7 +268,7 @@ EXPORT_SYMBOL_GPL(sysfs_create_groups);
  * Returns 0 on success or error code from sysfs_update_group on failure.
  */
 int sysfs_update_groups(struct kobject *kobj,
-			const struct attribute_group **groups)
+			const struct attribute_group *const *groups)
 {
 	return internal_create_groups(kobj, 1, groups);
 }
@@ -336,7 +342,7 @@ EXPORT_SYMBOL_GPL(sysfs_remove_group);
  * If groups is not NULL, remove the specified groups from the kobject.
  */
 void sysfs_remove_groups(struct kobject *kobj,
-			 const struct attribute_group **groups)
+			 const struct attribute_group *const *groups)
 {
 	int i;
 
@@ -498,17 +504,29 @@ int compat_only_sysfs_link_entry_to_kobj(struct kobject *kobj,
 }
 EXPORT_SYMBOL_GPL(compat_only_sysfs_link_entry_to_kobj);
 
-static int sysfs_group_attrs_change_owner(struct kernfs_node *grp_kn,
+static int sysfs_group_attrs_change_owner(struct kobject *kobj,
+					  struct kernfs_node *grp_kn,
 					  const struct attribute_group *grp,
 					  struct iattr *newattrs)
 {
 	struct kernfs_node *kn;
-	int error;
+	int error, i;
+	umode_t mode;
 
 	if (grp->attrs) {
 		struct attribute *const *attr;
 
-		for (attr = grp->attrs; *attr; attr++) {
+		for (i = 0, attr = grp->attrs; *attr; i++, attr++) {
+			if (grp->is_visible || grp->is_visible_const) {
+				if (grp->is_visible)
+					mode = grp->is_visible(kobj, *attr, i);
+				else
+					mode = grp->is_visible_const(kobj, *attr, i);
+				if (mode & SYSFS_GROUP_INVISIBLE)
+					break;
+				if (!mode)
+					continue;
+			}
 			kn = kernfs_find_and_get(grp_kn, (*attr)->name);
 			if (!kn)
 				return -ENOENT;
@@ -523,7 +541,14 @@ static int sysfs_group_attrs_change_owner(struct kernfs_node *grp_kn,
 	if (grp->bin_attrs) {
 		const struct bin_attribute *const *bin_attr;
 
-		for (bin_attr = grp->bin_attrs; *bin_attr; bin_attr++) {
+		for (i = 0, bin_attr = grp->bin_attrs; *bin_attr; i++, bin_attr++) {
+			if (grp->is_bin_visible) {
+				mode = grp->is_bin_visible(kobj, *bin_attr, i);
+				if (mode & SYSFS_GROUP_INVISIBLE)
+					break;
+				if (!mode)
+					continue;
+			}
 			kn = kernfs_find_and_get(grp_kn, (*bin_attr)->attr.name);
 			if (!kn)
 				return -ENOENT;
@@ -573,7 +598,7 @@ int sysfs_group_change_owner(struct kobject *kobj,
 
 	error = kernfs_setattr(grp_kn, &newattrs);
 	if (!error)
-		error = sysfs_group_attrs_change_owner(grp_kn, grp, &newattrs);
+		error = sysfs_group_attrs_change_owner(kobj, grp_kn, grp, &newattrs);
 
 	kernfs_put(grp_kn);
 
@@ -591,7 +616,7 @@ EXPORT_SYMBOL_GPL(sysfs_group_change_owner);
  * Returns 0 on success or error code on failure.
  */
 int sysfs_groups_change_owner(struct kobject *kobj,
-			      const struct attribute_group **groups,
+			      const struct attribute_group *const *groups,
 			      kuid_t kuid, kgid_t kgid)
 {
 	int error = 0, i;

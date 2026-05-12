@@ -54,7 +54,6 @@ struct mtk_mmsys_driver_data {
 
 struct mtk_drm_private {
 	struct drm_device *drm;
-	struct device *dma_dev;
 	bool mtk_drm_bound;
 	bool drm_master;
 	struct device *dev;
@@ -64,7 +63,7 @@ struct mtk_drm_private {
 	struct device_node *comp_node[DDP_COMPONENT_DRM_ID_MAX];
 	struct mtk_ddp_comp ddp_comp[DDP_COMPONENT_DRM_ID_MAX];
 	struct mtk_mmsys_driver_data *data;
-	struct drm_atomic_state *suspend_state;
+	struct drm_atomic_commit *suspend_state;
 	unsigned int mbox_index;
 	struct mtk_drm_private **all_drm_private;
 };

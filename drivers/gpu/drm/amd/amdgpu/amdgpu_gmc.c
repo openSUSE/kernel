@@ -34,6 +34,7 @@
 #include "amdgpu_ras.h"
 #include "amdgpu_reset.h"
 #include "amdgpu_xgmi.h"
+#include "amdgpu_atomfirmware.h"
 
 #include <drm/drm_drv.h>
 #include <drm/ttm/ttm_tt.h>
@@ -279,6 +280,15 @@ void amdgpu_gmc_sysvm_location(struct amdgpu_device *adev, struct amdgpu_gmc *mc
 			mc->gart_size >> 20, mc->gart_start, mc->gart_end);
 }
 
+void amdgpu_gmc_set_gart_size(struct amdgpu_device *adev, u64 default_size)
+{
+	if (amdgpu_gart_size == -1)
+		adev->gmc.gart_size =
+			default_size + adev->pm.smu_prv_buffer_size;
+	else
+		adev->gmc.gart_size = (u64)amdgpu_gart_size << 20;
+}
+
 /**
  * amdgpu_gmc_gart_location - try to find GART location
  *
@@ -313,7 +323,10 @@ void amdgpu_gmc_gart_location(struct amdgpu_device *adev, struct amdgpu_gmc *mc,
 		mc->gart_start = max_mc_address - mc->gart_size + 1;
 		break;
 	case AMDGPU_GART_PLACEMENT_LOW:
-		mc->gart_start = 0;
+		if (size_bf >= mc->gart_size)
+			mc->gart_start = 0;
+		else
+			mc->gart_start = ALIGN(mc->fb_end, four_gb);
 		break;
 	case AMDGPU_GART_PLACEMENT_BEST_FIT:
 	default:
@@ -498,8 +511,13 @@ void amdgpu_gmc_filter_faults_remove(struct amdgpu_device *adev, uint64_t addr,
 
 	if (adev->irq.retry_cam_enabled)
 		return;
+	else if (adev->irq.ih1.ring_size)
+		ih = &adev->irq.ih1;
+	else if (adev->irq.ih_soft.enabled)
+		ih = &adev->irq.ih_soft;
+	else
+		return;
 
-	ih = &adev->irq.ih1;
 	/* Get the WPTR of the last entry in IH ring */
 	last_wptr = amdgpu_ih_get_wptr(adev, ih);
 	/* Order wptr with ring data. */
@@ -522,6 +540,54 @@ void amdgpu_gmc_filter_faults_remove(struct amdgpu_device *adev, uint64_t addr,
 		tmp = fault->timestamp;
 		fault = &gmc->fault_ring[fault->next];
 	} while (fault->timestamp < tmp);
+}
+
+int amdgpu_gmc_handle_retry_fault(struct amdgpu_device *adev,
+				  struct amdgpu_iv_entry *entry,
+				  u64 addr,
+				  u32 cam_index,
+				  u32 node_id,
+				  bool write_fault)
+{
+	int ret;
+
+	if (adev->irq.retry_cam_enabled) {
+		/* Delegate it to a different ring if the hardware hasn't
+		 * already done it.
+		 */
+		if (entry->ih == &adev->irq.ih) {
+			amdgpu_irq_delegate(adev, entry, 8);
+			return 1;
+		}
+
+		ret = amdgpu_vm_handle_fault(adev, entry->pasid, entry->vmid, node_id,
+					     addr, entry->timestamp, write_fault);
+		WDOORBELL32(adev->irq.retry_cam_doorbell_index, cam_index);
+		if (ret)
+			return 1;
+	} else {
+		/* Process it only if it's the first fault for this address */
+		if (entry->ih != &adev->irq.ih_soft &&
+		    amdgpu_gmc_filter_faults(adev, entry->ih, addr, entry->pasid,
+					     entry->timestamp))
+			return 1;
+
+		/* Delegate it to a different ring if the hardware hasn't
+		 * already done it.
+		 */
+		if (entry->ih == &adev->irq.ih) {
+			amdgpu_irq_delegate(adev, entry, 8);
+			return 1;
+		}
+
+		/* Try to handle the recoverable page faults by filling page
+		 * tables
+		 */
+		if (amdgpu_vm_handle_fault(adev, entry->pasid, entry->vmid, node_id,
+					   addr, entry->timestamp, write_fault))
+			return 1;
+	}
+	return 0;
 }
 
 int amdgpu_gmc_ras_sw_init(struct amdgpu_device *adev)
@@ -597,6 +663,9 @@ int amdgpu_gmc_allocate_vm_inv_eng(struct amdgpu_device *adev)
 		/* reserve engine 5 for firmware */
 		if (adev->enable_mes)
 			vm_inv_engs[i] &= ~(1 << 5);
+		/* reserve engine 6 for uni mes */
+		if (adev->enable_uni_mes)
+			vm_inv_engs[i] &= ~(1 << 6);
 		/* reserve mmhub engine 3 for firmware */
 		if (adev->enable_umsch_mm)
 			vm_inv_engs[i] &= ~(1 << 3);
@@ -651,11 +720,13 @@ int amdgpu_gmc_allocate_vm_inv_eng(struct amdgpu_device *adev)
 void amdgpu_gmc_flush_gpu_tlb(struct amdgpu_device *adev, uint32_t vmid,
 			      uint32_t vmhub, uint32_t flush_type)
 {
-	struct amdgpu_ring *ring = adev->mman.buffer_funcs_ring;
+	struct amdgpu_ring *ring;
 	struct amdgpu_vmhub *hub = &adev->vmhub[vmhub];
 	struct dma_fence *fence;
 	struct amdgpu_job *job;
 	int r;
+
+	ring = to_amdgpu_ring(adev->mman.buffer_funcs_scheds[0]);
 
 	if (!hub->sdma_invalidation_workaround || vmid ||
 	    !adev->mman.buffer_funcs_enabled || !adev->ib_pool_ready ||
@@ -686,8 +757,8 @@ void amdgpu_gmc_flush_gpu_tlb(struct amdgpu_device *adev, uint32_t vmid,
 	 * translation. Avoid this by doing the invalidation from the SDMA
 	 * itself at least for GART.
 	 */
-	mutex_lock(&adev->mman.gtt_window_lock);
-	r = amdgpu_job_alloc_with_ib(ring->adev, &adev->mman.high_pr,
+	mutex_lock(&adev->mman.default_entity.lock);
+	r = amdgpu_job_alloc_with_ib(ring->adev, &adev->mman.default_entity.base,
 				     AMDGPU_FENCE_OWNER_UNDEFINED,
 				     16 * 4, AMDGPU_IB_POOL_IMMEDIATE,
 				     &job, AMDGPU_KERNEL_JOB_ID_FLUSH_GPU_TLB);
@@ -699,7 +770,7 @@ void amdgpu_gmc_flush_gpu_tlb(struct amdgpu_device *adev, uint32_t vmid,
 	job->ibs->ptr[job->ibs->length_dw++] = ring->funcs->nop;
 	amdgpu_ring_pad_ib(ring, &job->ibs[0]);
 	fence = amdgpu_job_submit(job);
-	mutex_unlock(&adev->mman.gtt_window_lock);
+	mutex_unlock(&adev->mman.default_entity.lock);
 
 	dma_fence_wait(fence, false);
 	dma_fence_put(fence);
@@ -707,7 +778,7 @@ void amdgpu_gmc_flush_gpu_tlb(struct amdgpu_device *adev, uint32_t vmid,
 	return;
 
 error_alloc:
-	mutex_unlock(&adev->mman.gtt_window_lock);
+	mutex_unlock(&adev->mman.default_entity.lock);
 	dev_err(adev->dev, "Error flushing GPU TLB using the SDMA (%d)!\n", r);
 }
 
@@ -729,6 +800,12 @@ int amdgpu_gmc_flush_gpu_tlb_pasid(struct amdgpu_device *adev, uint16_t pasid,
 		return 0;
 
 	if (!adev->gmc.flush_pasid_uses_kiq || !ring->sched.ready) {
+
+		if (!adev->gmc.gmc_funcs->flush_gpu_tlb_pasid) {
+			r = 0;
+			goto error_unlock_reset;
+		}
+
 		if (adev->gmc.flush_tlb_needs_extra_type_2)
 			adev->gmc.gmc_funcs->flush_gpu_tlb_pasid(adev, pasid,
 								 2, all_hub,
@@ -808,9 +885,9 @@ void amdgpu_gmc_fw_reg_write_reg_wait(struct amdgpu_device *adev,
 	unsigned long flags;
 	uint32_t seq;
 
-	if (adev->mes.ring[0].sched.ready) {
+	if (adev->mes.ring[MES_PIPE_INST(xcc_inst, 0)].sched.ready) {
 		amdgpu_mes_reg_write_reg_wait(adev, reg0, reg1,
-					      ref, mask);
+					      ref, mask, xcc_inst);
 		return;
 	}
 
@@ -898,6 +975,7 @@ void amdgpu_gmc_tmz_set(struct amdgpu_device *adev)
 	case IP_VERSION(11, 5, 1):
 	case IP_VERSION(11, 5, 2):
 	case IP_VERSION(11, 5, 3):
+	case IP_VERSION(11, 5, 4):
 		/* Don't enable it by default yet.
 		 */
 		if (amdgpu_tmz < 1) {
@@ -938,6 +1016,9 @@ void amdgpu_gmc_noretry_set(struct amdgpu_device *adev)
 				gc_ver == IP_VERSION(9, 5, 0) ||
 				gc_ver >= IP_VERSION(10, 3, 0));
 
+	/* For GFX12.1 B0, set xnack (retry) on as default */
+	if (gc_ver == IP_VERSION(12, 1, 0) && (adev->rev_id & 0xf) == 0x1)
+		noretry_default = false;
 	if (!amdgpu_sriov_xnack_support(adev))
 		gmc->noretry = 1;
 	else
@@ -969,17 +1050,17 @@ void amdgpu_gmc_set_vm_fault_masks(struct amdgpu_device *adev, int hub_type,
 	}
 }
 
-void amdgpu_gmc_get_vbios_allocations(struct amdgpu_device *adev)
+void amdgpu_gmc_init_vga_resv_regions(struct amdgpu_device *adev)
 {
 	unsigned size;
+
+	if (adev->gmc.is_app_apu)
+		return;
 
 	/*
 	 * Some ASICs need to reserve a region of video memory to avoid access
 	 * from driver
 	 */
-	adev->mman.stolen_reserved_offset = 0;
-	adev->mman.stolen_reserved_size = 0;
-
 	/*
 	 * TODO:
 	 * Currently there is a bug where some memory client outside
@@ -996,14 +1077,24 @@ void amdgpu_gmc_get_vbios_allocations(struct amdgpu_device *adev)
 		 */
 #ifdef CONFIG_X86
 		if (amdgpu_sriov_vf(adev) && hypervisor_is_type(X86_HYPER_MS_HYPERV)) {
-			adev->mman.stolen_reserved_offset = 0x500000;
-			adev->mman.stolen_reserved_size = 0x200000;
+			amdgpu_ttm_init_vram_resv(adev, AMDGPU_RESV_STOLEN_RESERVED,
+						  0x500000, 0x200000, false);
 		}
 #endif
 		break;
 	case CHIP_RAVEN:
 	case CHIP_RENOIR:
 		adev->mman.keep_stolen_vga_memory = true;
+		break;
+	case CHIP_POLARIS10:
+	case CHIP_POLARIS11:
+	case CHIP_POLARIS12:
+		/* MacBookPros with switchable graphics put VRAM at 0 when
+		 * the iGPU is enabled which results in cursor issues if
+		 * the cursor ends up at 0.  Reserve vram at 0 in that case.
+		 */
+		if (adev->gmc.vram_start == 0)
+			adev->mman.keep_stolen_vga_memory = true;
 		break;
 	default:
 		adev->mman.keep_stolen_vga_memory = false;
@@ -1025,11 +1116,14 @@ void amdgpu_gmc_get_vbios_allocations(struct amdgpu_device *adev)
 		size = 0;
 
 	if (size > AMDGPU_VBIOS_VGA_ALLOCATION) {
-		adev->mman.stolen_vga_size = AMDGPU_VBIOS_VGA_ALLOCATION;
-		adev->mman.stolen_extended_size = size - adev->mman.stolen_vga_size;
+		amdgpu_ttm_init_vram_resv(adev, AMDGPU_RESV_STOLEN_VGA,
+					  0, AMDGPU_VBIOS_VGA_ALLOCATION, false);
+		amdgpu_ttm_init_vram_resv(adev, AMDGPU_RESV_STOLEN_EXTENDED,
+					  AMDGPU_VBIOS_VGA_ALLOCATION,
+					  size - AMDGPU_VBIOS_VGA_ALLOCATION, false);
 	} else {
-		adev->mman.stolen_vga_size = size;
-		adev->mman.stolen_extended_size = 0;
+		amdgpu_ttm_init_vram_resv(adev, AMDGPU_RESV_STOLEN_VGA,
+					  0, size, false);
 	}
 }
 
@@ -1301,18 +1395,18 @@ int amdgpu_gmc_get_nps_memranges(struct amdgpu_device *adev,
 				 struct amdgpu_mem_partition_info *mem_ranges,
 				 uint8_t *exp_ranges)
 {
-	struct amdgpu_gmc_memrange *ranges;
+	struct amdgpu_gmc_memrange ranges[AMDGPU_MAX_MEM_RANGES];
 	int range_cnt, ret, i, j;
 	uint32_t nps_type;
 	bool refresh;
 
 	if (!mem_ranges || !exp_ranges)
 		return -EINVAL;
-
+	range_cnt = AMDGPU_MAX_MEM_RANGES;
 	refresh = (adev->init_lvl->level != AMDGPU_INIT_LEVEL_MINIMAL_XGMI) &&
 		  (adev->gmc.reset_flags & AMDGPU_GMC_INIT_RESET_NPS);
-	ret = amdgpu_discovery_get_nps_info(adev, &nps_type, &ranges,
-					    &range_cnt, refresh);
+	ret = amdgpu_discovery_get_nps_info(adev, &nps_type, ranges, &range_cnt,
+					    refresh);
 
 	if (ret)
 		return ret;
@@ -1373,8 +1467,6 @@ int amdgpu_gmc_get_nps_memranges(struct amdgpu_device *adev,
 	if (!*exp_ranges)
 		*exp_ranges = range_cnt;
 err:
-	kfree(ranges);
-
 	return ret;
 }
 
@@ -1654,9 +1746,8 @@ int amdgpu_gmc_init_mem_ranges(struct amdgpu_device *adev)
 {
 	bool valid;
 
-	adev->gmc.mem_partitions = kcalloc(AMDGPU_MAX_MEM_RANGES,
-					   sizeof(struct amdgpu_mem_partition_info),
-					   GFP_KERNEL);
+	adev->gmc.mem_partitions = kzalloc_objs(struct amdgpu_mem_partition_info,
+						AMDGPU_MAX_MEM_RANGES);
 	if (!adev->gmc.mem_partitions)
 		return -ENOMEM;
 
@@ -1675,5 +1766,33 @@ int amdgpu_gmc_init_mem_ranges(struct amdgpu_device *adev)
 			 "Mem ranges not matching with hardware config\n");
 	}
 
+	return 0;
+}
+
+int amdgpu_gmc_get_vram_info(struct amdgpu_device *adev,
+		int *vram_width, int *vram_type, int *vram_vendor)
+{
+	int ret = 0;
+
+	if (adev->flags & AMD_IS_APU)
+		return amdgpu_atomfirmware_get_integrated_system_info(adev,
+							vram_width, vram_type, vram_vendor);
+	switch (amdgpu_ip_version(adev, GC_HWIP, 0)) {
+	case IP_VERSION(12, 0, 0):
+	case IP_VERSION(12, 0, 1):
+		return amdgpu_atomfirmware_get_umc_info(adev,
+								vram_width, vram_type, vram_vendor);
+	case IP_VERSION(9, 5, 0):
+	case IP_VERSION(9, 4, 4):
+	case IP_VERSION(9, 4, 3):
+		ret = amdgpu_atomfirmware_get_umc_info(adev,
+								vram_width, vram_type, vram_vendor);
+		if (vram_width && !ret)
+			*vram_width *= hweight32(adev->aid_mask);
+		return ret;
+	default:
+		return amdgpu_atomfirmware_get_vram_info(adev,
+								vram_width, vram_type, vram_vendor);
+	}
 	return 0;
 }

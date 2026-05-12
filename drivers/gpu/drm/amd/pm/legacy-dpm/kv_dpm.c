@@ -2299,7 +2299,7 @@ static void kv_apply_state_adjust_rules(struct amdgpu_device *adev,
 
 		if (pi->sys_info.nb_dpm_enable) {
 			force_high = (mclk >= pi->sys_info.nbp_memory_clock[3]) ||
-				pi->video_start || (adev->pm.dpm.new_active_crtc_count >= 3) ||
+				pi->video_start || (adev->pm.pm_display_cfg.num_display >= 3) ||
 				pi->disable_nb_ps3_in_battery;
 			ps->dpm0_pg_nb_ps_lo = force_high ? 0x2 : 0x3;
 			ps->dpm0_pg_nb_ps_hi = 0x2;
@@ -2358,7 +2358,7 @@ static int kv_calculate_nbps_level_settings(struct amdgpu_device *adev)
 			return 0;
 
 		force_high = ((mclk >= pi->sys_info.nbp_memory_clock[3]) ||
-			      (adev->pm.dpm.new_active_crtc_count >= 3) || pi->video_start);
+			      (adev->pm.pm_display_cfg.num_display >= 3) || pi->video_start);
 
 		if (force_high) {
 			for (i = pi->lowest_valid; i <= pi->highest_valid; i++)
@@ -2724,9 +2724,8 @@ static int kv_parse_power_table(struct amdgpu_device *adev)
 		(mode_info->atom_context->bios + data_offset +
 		 le16_to_cpu(power_info->pplib.usNonClockInfoArrayOffset));
 
-	adev->pm.dpm.ps = kcalloc(state_array->ucNumEntries,
-				  sizeof(struct amdgpu_ps),
-				  GFP_KERNEL);
+	adev->pm.dpm.ps = kzalloc_objs(struct amdgpu_ps,
+				       state_array->ucNumEntries);
 	if (!adev->pm.dpm.ps)
 		return -ENOMEM;
 	power_state_offset = (u8 *)state_array->states;
@@ -2736,7 +2735,7 @@ static int kv_parse_power_table(struct amdgpu_device *adev)
 		non_clock_array_index = power_state->v2.nonClockInfoIndex;
 		non_clock_info = (struct _ATOM_PPLIB_NONCLOCK_INFO *)
 			&non_clock_info_array->nonClockInfo[non_clock_array_index];
-		ps = kzalloc(sizeof(struct kv_ps), GFP_KERNEL);
+		ps = kzalloc_obj(struct kv_ps);
 		if (ps == NULL)
 			return -ENOMEM;
 		adev->pm.dpm.ps[i].ps_priv = ps;
@@ -2783,7 +2782,7 @@ static int kv_dpm_init(struct amdgpu_device *adev)
 	struct kv_power_info *pi;
 	int ret, i;
 
-	pi = kzalloc(sizeof(struct kv_power_info), GFP_KERNEL);
+	pi = kzalloc_obj(struct kv_power_info);
 	if (pi == NULL)
 		return -ENOMEM;
 	adev->pm.dpm.priv = pi;

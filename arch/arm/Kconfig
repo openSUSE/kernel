@@ -6,6 +6,7 @@ config ARM
 	select ARCH_CORRECT_STACKTRACE_ON_KRETPROBE if HAVE_KRETPROBES && FRAME_POINTER && !ARM_UNWIND
 	select ARCH_HAS_BINFMT_FLAT
 	select ARCH_HAS_CACHE_LINE_SIZE if OF
+	select ARCH_HAS_CC_CAN_LINK
 	select ARCH_HAS_CPU_CACHE_ALIASING
 	select ARCH_HAS_CPU_FINALIZE_INIT if MMU
 	select ARCH_HAS_CURRENT_STACK_POINTER
@@ -38,12 +39,15 @@ config ARM
 	select ARCH_OPTIONAL_KERNEL_RWX_DEFAULT if CPU_V7
 	select ARCH_NEED_CMPXCHG_1_EMU if CPU_V6
 	select ARCH_SUPPORTS_ATOMIC_RMW
-	select ARCH_SUPPORTS_CFI_CLANG
+	select ARCH_SUPPORTS_CFI
 	select ARCH_SUPPORTS_HUGETLBFS if ARM_LPAE
 	select ARCH_SUPPORTS_PER_VMA_LOCK
+	select ARCH_SUPPORTS_RT
 	select ARCH_USE_BUILTIN_BSWAP
 	select ARCH_USE_CMPXCHG_LOCKREF
 	select ARCH_USE_MEMTEST
+	# https://github.com/llvm/llvm-project/commit/d130f402642fba3d065aacb506cb061c899558de
+	select ARCH_USES_CFI_GENERIC_LLVM_PASS if CLANG_VERSION < 220000
 	select ARCH_WANT_DEFAULT_TOPDOWN_MMAP_LAYOUT if MMU
 	select ARCH_WANT_GENERAL_HUGETLB
 	select ARCH_WANT_IPC_PARSE_VERSION
@@ -80,7 +84,7 @@ config ARM
 	select HAS_IOPORT
 	select HAVE_ARCH_AUDITSYSCALL if AEABI && !OABI_COMPAT
 	select HAVE_ARCH_BITREVERSE if (CPU_32v7M || CPU_32v7) && !CPU_32v6
-	select HAVE_ARCH_JUMP_LABEL if !XIP_KERNEL && !CPU_ENDIAN_BE32 && MMU
+	select HAVE_ARCH_JUMP_LABEL if !XIP_KERNEL && !CPU_ENDIAN_BE32 && MMU && (!PREEMPT_RT || !SMP)
 	select HAVE_ARCH_KFENCE if MMU && !XIP_KERNEL
 	select HAVE_ARCH_KGDB if !CPU_ENDIAN_BE32 && MMU
 	select HAVE_ARCH_KASAN if MMU && !XIP_KERNEL
@@ -108,6 +112,7 @@ config ARM
 	select HAVE_GUP_FAST if ARM_LPAE
 	select HAVE_FUNCTION_ERROR_INJECTION
 	select HAVE_FUNCTION_GRAPH_TRACER
+	select HAVE_FUNCTION_GRAPH_FREGS
 	select HAVE_FUNCTION_TRACER if !XIP_KERNEL
 	select HAVE_GCC_PLUGINS
 	select HAVE_HW_BREAKPOINT if PERF_EVENTS && (CPU_V6 || CPU_V6K || CPU_V7)
@@ -166,15 +171,12 @@ config ARM
 	  <http://www.arm.linux.org.uk/>.
 
 config ARM_HAS_GROUP_RELOCS
-	def_bool y
-	depends on !LD_IS_LLD || LLD_VERSION >= 140000
-	depends on !COMPILE_TEST
+	def_bool !COMPILE_TEST
 	help
 	  Whether or not to use R_ARM_ALU_PC_Gn or R_ARM_LDR_PC_Gn group
-	  relocations, which have been around for a long time, but were not
-	  supported in LLD until version 14. The combined range is -/+ 256 MiB,
-	  which is usually sufficient, but not for allyesconfig, so we disable
-	  this feature when doing compile testing.
+	  relocations. The combined range is -/+ 256 MiB, which is usually
+	  sufficient, but not for allyesconfig, so we disable this feature
+	  when doing compile testing.
 
 config ARM_DMA_USE_IOMMU
 	bool
@@ -392,8 +394,6 @@ source "arch/arm/mach-gemini/Kconfig"
 source "arch/arm/mach-highbank/Kconfig"
 
 source "arch/arm/mach-hisi/Kconfig"
-
-source "arch/arm/mach-hpe/Kconfig"
 
 source "arch/arm/mach-imx/Kconfig"
 
@@ -941,27 +941,13 @@ config IRQSTACKS
 config ARM_CPU_TOPOLOGY
 	bool "Support cpu topology definition"
 	depends on SMP && CPU_V7
+	select ARCH_SUPPORTS_SCHED_MC
+	select ARCH_SUPPORTS_SCHED_SMT
 	default y
 	help
 	  Support ARM cpu topology definition. The MPIDR register defines
 	  affinity between processors which is then used to describe the cpu
 	  topology of an ARM System.
-
-config SCHED_MC
-	bool "Multi-core scheduler support"
-	depends on ARM_CPU_TOPOLOGY
-	help
-	  Multi-core scheduler support improves the CPU scheduler's decision
-	  making when dealing with multi-core CPU chips at a cost of slightly
-	  increased overhead in some places. If unsure say N here.
-
-config SCHED_SMT
-	bool "SMT scheduler support"
-	depends on ARM_CPU_TOPOLOGY
-	help
-	  Improves the CPU scheduler's decision making when dealing with
-	  MultiThreading at a cost of slightly increased overhead in some
-	  places. If unsure say N here.
 
 config HAVE_ARM_SCU
 	bool
@@ -1177,8 +1163,6 @@ config AEABI
 	  disambiguate both ABIs and allow for backward compatibility support
 	  (selected with CONFIG_OABI_COMPAT).
 
-	  To use this you need GCC version 4.0.0 or later.
-
 config OABI_COMPAT
 	bool "Allow old ABI binaries to run with this kernel (EXPERIMENTAL)"
 	depends on AEABI && !THUMB2_KERNEL
@@ -1231,7 +1215,7 @@ config HIGHMEM
 
 config HIGHPTE
 	bool "Allocate 2nd-level pagetables from highmem" if EXPERT
-	depends on HIGHMEM
+	depends on HIGHMEM && !PREEMPT_RT
 	default y
 	help
 	  The VM uses one page of physical memory for each page table.
@@ -1338,6 +1322,7 @@ config UACCESS_WITH_MEMCPY
 
 config PARAVIRT
 	bool "Enable paravirtualization code"
+	select HAVE_PV_STEAL_CLOCK_GEN
 	help
 	  This changes the kernel so it can modify itself when it is run
 	  under a hypervisor, potentially improving performance significantly
@@ -1732,6 +1717,18 @@ config KERNEL_MODE_NEON
 	  Say Y to include support for NEON in kernel mode.
 
 endmenu
+
+config ARCH_CC_CAN_LINK
+	bool
+	default $(cc_can_link_user,-mlittle-endian) if CPU_LITTLE_ENDIAN
+	default $(cc_can_link_user,-mbig-endian -mbe8) if CPU_ENDIAN_BE8
+	default $(cc_can_link_user,-mbig-endian -mbe32) if CPU_ENDIAN_BE32
+
+config ARCH_USERFLAGS
+	string
+	default "-mlittle-endian" if CPU_LITTLE_ENDIAN
+	default "-mbig-endian -mbe8" if CPU_ENDIAN_BE8
+	default "-mbig-endian -mbe32" if CPU_ENDIAN_BE32
 
 menu "Power management options"
 

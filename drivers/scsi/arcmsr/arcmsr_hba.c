@@ -112,8 +112,9 @@ static int arcmsr_iop_confirm(struct AdapterControlBlock *acb);
 static int arcmsr_abort(struct scsi_cmnd *);
 static int arcmsr_bus_reset(struct scsi_cmnd *);
 static int arcmsr_bios_param(struct scsi_device *sdev,
-		struct block_device *bdev, sector_t capacity, int *info);
-static int arcmsr_queue_command(struct Scsi_Host *h, struct scsi_cmnd *cmd);
+		struct gendisk *disk, sector_t capacity, int *info);
+static enum scsi_qc_status arcmsr_queue_command(struct Scsi_Host *h,
+						struct scsi_cmnd *cmd);
 static int arcmsr_probe(struct pci_dev *pdev,
 				const struct pci_device_id *id);
 static int __maybe_unused arcmsr_suspend(struct device *dev);
@@ -377,11 +378,11 @@ static irqreturn_t arcmsr_do_interrupt(int irq, void *dev_id)
 }
 
 static int arcmsr_bios_param(struct scsi_device *sdev,
-		struct block_device *bdev, sector_t capacity, int *geom)
+		struct gendisk *disk, sector_t capacity, int *geom)
 {
 	int heads, sectors, cylinders, total_capacity;
 
-	if (scsi_partsize(bdev, capacity, geom))
+	if (scsi_partsize(disk, capacity, geom))
 		return 0;
 
 	total_capacity = capacity;
@@ -3312,7 +3313,7 @@ static void arcmsr_handle_virtual_command(struct AdapterControlBlock *acb,
 	}
 }
 
-static int arcmsr_queue_command_lck(struct scsi_cmnd *cmd)
+static enum scsi_qc_status arcmsr_queue_command_lck(struct scsi_cmnd *cmd)
 {
 	struct Scsi_Host *host = cmd->device->host;
 	struct AdapterControlBlock *acb = (struct AdapterControlBlock *) host->hostdata;

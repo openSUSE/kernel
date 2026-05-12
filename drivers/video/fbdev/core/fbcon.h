@@ -11,6 +11,7 @@
 #ifndef _VIDEO_FBCON_H
 #define _VIDEO_FBCON_H
 
+#include <linux/font.h>
 #include <linux/types.h>
 #include <linux/vt_buffer.h>
 #include <linux/vt_kern.h>
@@ -25,12 +26,10 @@
 
 struct fbcon_display {
     /* Filled in by the low-level console driver */
-    const u_char *fontdata;
-    int userfont;                   /* != 0 if fontdata kmalloc()ed */
+    font_data_t *fontdata;
 #ifdef CONFIG_FRAMEBUFFER_CONSOLE_LEGACY_ACCELERATION
     u_short scrollmode;             /* Scroll Method, use fb_scrollmode() */
 #endif
-    u_short inverse;                /* != 0 text black on white as default */
     short yscroll;                  /* Hardware scrolling */
     int vrows;                      /* number of virtual rows */
     int cursor_shape;
@@ -51,7 +50,7 @@ struct fbcon_display {
     const struct fb_videomode *mode;
 };
 
-struct fbcon_ops {
+struct fbcon_bitops {
 	void (*bmove)(struct vc_data *vc, struct fb_info *info, int sy,
 		      int sx, int dy, int dx, int height, int width);
 	void (*clear)(struct vc_data *vc, struct fb_info *info, int sy,
@@ -65,6 +64,9 @@ struct fbcon_ops {
 		       bool enable, int fg, int bg);
 	int  (*update_start)(struct fb_info *info);
 	int  (*rotate_font)(struct fb_info *info, struct vc_data *vc);
+};
+
+struct fbcon_par {
 	struct fb_var_screeninfo var;  /* copy of the current fb_var_screeninfo */
 	struct delayed_work cursor_work; /* Cursor timer */
 	struct fb_cursor cursor_state;
@@ -76,17 +78,23 @@ struct fbcon_ops {
 	int    cursor_reset;
 	int    blank_state;
 	int    graphics;
-	int    save_graphics; /* for debug enter/leave */
 	bool   initialized;
 	int    rotate;
-	int    cur_rotate;
 	char  *cursor_data;
-	u8    *fontbuffer;
-	u8    *fontdata;
+#ifdef CONFIG_FRAMEBUFFER_CONSOLE_ROTATION
+	struct {
+		font_data_t *fontdata;  /* source font */
+		u8 *buf;                /* rotated glyphs */
+		size_t bufsize;
+		int buf_rotate;         /* rotation of buf */
+	} rotated;
+#endif
 	u8    *cursor_src;
 	u32    cursor_size;
-	u32    fd_size;
+
+	const struct fbcon_bitops *bitops;
 };
+
     /*
      *  Attribute Decoding
      */
@@ -106,7 +114,6 @@ struct fbcon_ops {
 	((s) & 0x400)
 #define attr_blink(s) \
 	((s) & 0x8000)
-	
 
 static inline int mono_col(const struct fb_info *info)
 {
@@ -186,8 +193,10 @@ static inline u_short fb_scrollmode(struct fbcon_display *fb)
 #ifdef CONFIG_FB_TILEBLITTING
 extern void fbcon_set_tileops(struct vc_data *vc, struct fb_info *info);
 #endif
-extern void fbcon_set_bitops(struct fbcon_ops *ops);
+extern void fbcon_set_bitops_ur(struct fbcon_par *par);
 extern int  soft_cursor(struct fb_info *info, struct fb_cursor *cursor);
+
+void fbcon_fill_cursor_mask(struct fbcon_par *par, struct vc_data *vc, unsigned char *mask);
 
 #define FBCON_ATTRIBUTE_UNDERLINE 1
 #define FBCON_ATTRIBUTE_REVERSE   2
@@ -223,11 +232,5 @@ static inline int get_attribute(struct fb_info *info, u16 c)
         typeof(v) _v = (v);  \
         (void) (&_r == &_v); \
         (i == FB_ROTATE_UR || i == FB_ROTATE_UD) ? _r : _v; })
-
-#ifdef CONFIG_FRAMEBUFFER_CONSOLE_ROTATION
-extern void fbcon_set_rotate(struct fbcon_ops *ops);
-#else
-#define fbcon_set_rotate(x) do {} while(0)
-#endif /* CONFIG_FRAMEBUFFER_CONSOLE_ROTATION */
 
 #endif /* _VIDEO_FBCON_H */

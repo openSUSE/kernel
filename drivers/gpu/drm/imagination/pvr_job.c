@@ -326,7 +326,7 @@ prepare_job_syncs(struct pvr_file *pvr_file,
 		  struct pvr_job_data *job_data,
 		  struct xarray *signal_array)
 {
-	struct dma_fence *done_fence;
+	struct dma_fence *finished_fence;
 	int err = pvr_sync_signal_array_collect_ops(signal_array,
 						    from_pvr_file(pvr_file),
 						    job_data->sync_op_count,
@@ -359,13 +359,13 @@ prepare_job_syncs(struct pvr_file *pvr_file,
 			return err;
 	}
 
-	/* We need to arm the job to get the job done fence. */
-	done_fence = pvr_queue_job_arm(job_data->job);
+	/* We need to arm the job to get the job finished fence. */
+	finished_fence = pvr_queue_job_arm(job_data->job);
 
 	err = pvr_sync_signal_array_update_fences(signal_array,
 						  job_data->sync_op_count,
 						  job_data->sync_ops,
-						  done_fence);
+						  finished_fence);
 	return err;
 }
 
@@ -415,7 +415,7 @@ create_job(struct pvr_device *pvr_dev,
 	    (args->hwrt.set_handle || args->hwrt.data_index))
 		return ERR_PTR(-EINVAL);
 
-	job = kzalloc(sizeof(*job), GFP_KERNEL);
+	job = kzalloc_obj(*job);
 	if (!job)
 		return ERR_PTR(-ENOMEM);
 
@@ -718,8 +718,8 @@ pvr_submit_jobs(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 	if (err)
 		return err;
 
-	job_data = kvmalloc_array(args->jobs.count, sizeof(*job_data),
-				  GFP_KERNEL | __GFP_ZERO);
+	job_data = kvmalloc_objs(*job_data, args->jobs.count,
+				 GFP_KERNEL | __GFP_ZERO);
 	if (!job_data) {
 		err = -ENOMEM;
 		goto out_free;

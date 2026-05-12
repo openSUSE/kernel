@@ -10,6 +10,8 @@
 
 #include <linux/fs.h>
 #include <linux/types.h>
+#include <linux/io_uring/zcrx.h>
+
 /*
  * this file is shared with liburing and that has to autodetect
  * if linux/time_types.h is available or not, it can
@@ -188,7 +190,8 @@ enum io_uring_sqe_flags_bit {
 /*
  * If COOP_TASKRUN is set, get notified if task work is available for
  * running and a kernel transition would be needed to run it. This sets
- * IORING_SQ_TASKRUN in the sq ring flags. Not valid with COOP_TASKRUN.
+ * IORING_SQ_TASKRUN in the sq ring flags. Not valid without COOP_TASKRUN
+ * or DEFER_TASKRUN.
  */
 #define IORING_SETUP_TASKRUN_FLAG	(1U << 9)
 #define IORING_SETUP_SQE128		(1U << 10) /* SQEs are 128 byte */
@@ -224,6 +227,30 @@ enum io_uring_sqe_flags_bit {
 
 /* Use hybrid poll in iopoll process */
 #define IORING_SETUP_HYBRID_IOPOLL	(1U << 17)
+
+/*
+ * Allow both 16b and 32b CQEs. If a 32b CQE is posted, it will have
+ * IORING_CQE_F_32 set in cqe->flags.
+ */
+#define IORING_SETUP_CQE_MIXED		(1U << 18)
+
+/*
+ * Allow both 64b and 128b SQEs. If a 128b SQE is posted, it will have
+ * a 128b opcode.
+ */
+#define IORING_SETUP_SQE_MIXED		(1U << 19)
+
+/*
+ * When set, io_uring ignores SQ head and tail and fetches SQEs to submit
+ * starting from index 0 instead from the index stored in the head pointer.
+ * IOW, the user should place all SQE at the beginning of the SQ memory
+ * before issuing a submission syscall.
+ *
+ * It requires IORING_SETUP_NO_SQARRAY and is incompatible with
+ * IORING_SETUP_SQPOLL. The user must also never change the SQ head and tail
+ * values and keep it set to 0. Any other value is undefined behaviour.
+ */
+#define IORING_SETUP_SQ_REWIND		(1U << 20)
 
 enum io_uring_op {
 	IORING_OP_NOP,
@@ -289,6 +316,8 @@ enum io_uring_op {
 	IORING_OP_READV_FIXED,
 	IORING_OP_WRITEV_FIXED,
 	IORING_OP_PIPE,
+	IORING_OP_NOP128,
+	IORING_OP_URING_CMD128,
 
 	/* this goes last, obviously */
 	IORING_OP_LAST,
@@ -298,9 +327,13 @@ enum io_uring_op {
  * sqe->uring_cmd_flags		top 8bits aren't available for userspace
  * IORING_URING_CMD_FIXED	use registered buffer; pass this flag
  *				along with setting sqe->buf_index.
+ * IORING_URING_CMD_MULTISHOT	must be used with buffer select, like other
+ *				multishot commands. Not compatible with
+ *				IORING_URING_CMD_FIXED, for now.
  */
 #define IORING_URING_CMD_FIXED	(1U << 0)
-#define IORING_URING_CMD_MASK	IORING_URING_CMD_FIXED
+#define IORING_URING_CMD_MULTISHOT	(1U << 1)
+#define IORING_URING_CMD_MASK	(IORING_URING_CMD_FIXED | IORING_URING_CMD_MULTISHOT)
 
 
 /*
@@ -310,6 +343,10 @@ enum io_uring_op {
 
 /*
  * sqe->timeout_flags
+ *
+ * IORING_TIMEOUT_IMMEDIATE_ARG:	If set, sqe->addr stores the timeout
+ *					value in nanoseconds instead of
+ *					pointing to a timespec.
  */
 #define IORING_TIMEOUT_ABS		(1U << 0)
 #define IORING_TIMEOUT_UPDATE		(1U << 1)
@@ -318,6 +355,7 @@ enum io_uring_op {
 #define IORING_LINK_TIMEOUT_UPDATE	(1U << 4)
 #define IORING_TIMEOUT_ETIME_SUCCESS	(1U << 5)
 #define IORING_TIMEOUT_MULTISHOT	(1U << 6)
+#define IORING_TIMEOUT_IMMEDIATE_ARG	(1U << 7)
 #define IORING_TIMEOUT_CLOCK_MASK	(IORING_TIMEOUT_BOOTTIME | IORING_TIMEOUT_REALTIME)
 #define IORING_TIMEOUT_UPDATE_MASK	(IORING_TIMEOUT_UPDATE | IORING_LINK_TIMEOUT_UPDATE)
 /*
@@ -394,7 +432,7 @@ enum io_uring_op {
  *				will be	contiguous from the starting buffer ID.
  *
  * IORING_SEND_VECTORIZED	If set, SEND[_ZC] will take a pointer to a io_vec
- * 				to allow vectorized send operations.
+ *				to allow vectorized send operations.
  */
 #define IORING_RECVSEND_POLL_FIRST	(1U << 0)
 #define IORING_RECV_MULTISHOT		(1U << 1)
@@ -454,6 +492,7 @@ enum io_uring_msg_ring_flags {
 #define IORING_NOP_FIXED_FILE		(1U << 2)
 #define IORING_NOP_FIXED_BUFFER		(1U << 3)
 #define IORING_NOP_TW			(1U << 4)
+#define IORING_NOP_CQE32		(1U << 5)
 
 /*
  * IO completion data structure (Completion Queue Entry)
@@ -487,12 +526,22 @@ struct io_uring_cqe {
  *			other provided buffer type, all completions with a
  *			buffer passed back is automatically returned to the
  *			application.
+ * IORING_CQE_F_SKIP	If set, then the application/liburing must ignore this
+ *			CQE. It's only purpose is to fill a gap in the ring,
+ *			if a large CQE is attempted posted when the ring has
+ *			just a single small CQE worth of space left before
+ *			wrapping.
+ * IORING_CQE_F_32	If set, this is a 32b/big-cqe posting. Use with rings
+ *			setup in a mixed CQE mode, where both 16b and 32b
+ *			CQEs may be posted to the CQ ring.
  */
 #define IORING_CQE_F_BUFFER		(1U << 0)
 #define IORING_CQE_F_MORE		(1U << 1)
 #define IORING_CQE_F_SOCK_NONEMPTY	(1U << 2)
 #define IORING_CQE_F_NOTIF		(1U << 3)
 #define IORING_CQE_F_BUF_MORE		(1U << 4)
+#define IORING_CQE_F_SKIP		(1U << 5)
+#define IORING_CQE_F_32			(1U << 15)
 
 #define IORING_CQE_BUFFER_SHIFT		16
 
@@ -665,6 +714,15 @@ enum io_uring_register_op {
 
 	IORING_REGISTER_MEM_REGION		= 34,
 
+	/* query various aspects of io_uring, see linux/io_uring/query.h */
+	IORING_REGISTER_QUERY			= 35,
+
+	/* auxiliary zcrx configuration, see enum zcrx_ctrl_op */
+	IORING_REGISTER_ZCRX_CTRL		= 36,
+
+	/* register bpf filtering programs */
+	IORING_REGISTER_BPF_FILTER		= 37,
+
 	/* this goes last */
 	IORING_REGISTER_LAST,
 
@@ -770,6 +828,13 @@ struct io_uring_restriction {
 	__u32 resv2[3];
 };
 
+struct io_uring_task_restriction {
+	__u16 flags;
+	__u16 nr_res;
+	__u32 resv[3];
+	__DECLARE_FLEX_ARRAY(struct io_uring_restriction, restrictions);
+};
+
 struct io_uring_clock_register {
 	__u32	clockid;
 	__u32	__resv[3];
@@ -840,7 +905,8 @@ struct io_uring_buf_reg {
 	__u32	ring_entries;
 	__u16	bgid;
 	__u16	flags;
-	__u64	resv[3];
+	__u32	min_left;
+	__u32	resv[5];
 };
 
 /* argument for IORING_REGISTER_PBUF_STATUS */
@@ -974,6 +1040,7 @@ enum io_uring_socket_op {
 	SOCKET_URING_OP_GETSOCKOPT,
 	SOCKET_URING_OP_SETSOCKOPT,
 	SOCKET_URING_OP_TX_TIMESTAMP,
+	SOCKET_URING_OP_GETSOCKNAME,
 };
 
 /*
@@ -989,61 +1056,6 @@ enum io_uring_socket_op {
 struct io_timespec {
 	__u64		tv_sec;
 	__u64		tv_nsec;
-};
-
-/* Zero copy receive refill queue entry */
-struct io_uring_zcrx_rqe {
-	__u64	off;
-	__u32	len;
-	__u32	__pad;
-};
-
-struct io_uring_zcrx_cqe {
-	__u64	off;
-	__u64	__pad;
-};
-
-/* The bit from which area id is encoded into offsets */
-#define IORING_ZCRX_AREA_SHIFT	48
-#define IORING_ZCRX_AREA_MASK	(~(((__u64)1 << IORING_ZCRX_AREA_SHIFT) - 1))
-
-struct io_uring_zcrx_offsets {
-	__u32	head;
-	__u32	tail;
-	__u32	rqes;
-	__u32	__resv2;
-	__u64	__resv[2];
-};
-
-enum io_uring_zcrx_area_flags {
-	IORING_ZCRX_AREA_DMABUF		= 1,
-};
-
-struct io_uring_zcrx_area_reg {
-	__u64	addr;
-	__u64	len;
-	__u64	rq_area_token;
-	__u32	flags;
-	__u32	dmabuf_fd;
-	__u64	__resv2[2];
-};
-
-/*
- * Argument for IORING_REGISTER_ZCRX_IFQ
- */
-struct io_uring_zcrx_ifq_reg {
-	__u32	if_idx;
-	__u32	if_rxq;
-	__u32	rq_entries;
-	__u32	flags;
-
-	__u64	area_ptr; /* pointer to struct io_uring_zcrx_area_reg */
-	__u64	region_ptr; /* struct io_uring_region_desc * */
-
-	struct io_uring_zcrx_offsets offsets;
-	__u32	zcrx_id;
-	__u32	__resv2;
-	__u64	__resv[3];
 };
 
 #ifdef __cplusplus

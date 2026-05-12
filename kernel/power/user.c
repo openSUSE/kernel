@@ -278,7 +278,9 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		if (data->frozen)
 			break;
 
-		ksys_sync_helper();
+		error = pm_sleep_fs_sync();
+		if (error)
+			break;
 
 		error = freeze_processes();
 		if (error)
@@ -320,9 +322,12 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		error = snapshot_write_finalize(&data->handle);
 		if (error)
 			break;
-		if (data->mode != O_WRONLY || !data->frozen ||
-		    !snapshot_image_loaded(&data->handle)) {
+		if (data->mode != O_WRONLY || !data->frozen) {
 			error = -EPERM;
+			break;
+		}
+		if (!snapshot_image_loaded(&data->handle)) {
+			error = -ENODATA;
 			break;
 		}
 		error = hibernation_restore(data->platform_support);

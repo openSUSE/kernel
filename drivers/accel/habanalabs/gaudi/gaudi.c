@@ -539,9 +539,8 @@ static int gaudi_set_fixed_properties(struct hl_device *hdev)
 	int i;
 
 	prop->max_queues = GAUDI_QUEUE_ID_SIZE;
-	prop->hw_queues_props = kcalloc(prop->max_queues,
-			sizeof(struct hw_queue_properties),
-			GFP_KERNEL);
+	prop->hw_queues_props = kzalloc_objs(struct hw_queue_properties,
+					     prop->max_queues);
 
 	if (!prop->hw_queues_props)
 		return -ENOMEM;
@@ -1853,7 +1852,7 @@ static int gaudi_sw_init(struct hl_device *hdev)
 	int rc;
 
 	/* Allocate device structure */
-	gaudi = kzalloc(sizeof(*gaudi), GFP_KERNEL);
+	gaudi = kzalloc_obj(*gaudi);
 	if (!gaudi)
 		return -ENOMEM;
 
@@ -4168,10 +4167,29 @@ static int gaudi_mmap(struct hl_device *hdev, struct vm_area_struct *vma,
 	vm_flags_set(vma, VM_IO | VM_PFNMAP | VM_DONTEXPAND | VM_DONTDUMP |
 			VM_DONTCOPY | VM_NORESERVE);
 
+#ifdef _HAS_DMA_MMAP_COHERENT
+	/*
+	 * If dma_alloc_coherent() returns a vmalloc address, set VM_MIXEDMAP
+	 * so vm_insert_page() can handle it safely. Without this, the kernel
+	 * may BUG_ON due to VM_PFNMAP.
+	 */
+	if (is_vmalloc_addr(cpu_addr))
+		vm_flags_set(vma, VM_MIXEDMAP);
+
 	rc = dma_mmap_coherent(hdev->dev, vma, cpu_addr,
 				(dma_addr - HOST_PHYS_BASE), size);
 	if (rc)
 		dev_err(hdev->dev, "dma_mmap_coherent error %d", rc);
+#else
+
+	rc = remap_pfn_range(vma, vma->vm_start,
+				virt_to_phys(cpu_addr) >> PAGE_SHIFT,
+				size, vma->vm_page_prot);
+	if (rc)
+		dev_err(hdev->dev, "remap_pfn_range error %d", rc);
+
+ #endif
+
 
 	return rc;
 }
@@ -4887,7 +4905,7 @@ static int gaudi_pin_memory_before_cs(struct hl_device *hdev,
 			parser->job_userptr_list, &userptr))
 		goto already_pinned;
 
-	userptr = kzalloc(sizeof(*userptr), GFP_KERNEL);
+	userptr = kzalloc_obj(*userptr);
 	if (!userptr)
 		return -ENOMEM;
 
@@ -8824,7 +8842,7 @@ static int gaudi_add_sync_to_engine_map_entry(
 	reg_value -= lower_32_bits(CFG_BASE);
 
 	/* create a new hash entry */
-	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+	entry = kzalloc_obj(*entry);
 	if (!entry)
 		return -ENOMEM;
 	entry->engine_type = engine_type;

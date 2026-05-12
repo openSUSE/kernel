@@ -633,7 +633,7 @@ out:
 static struct platform_device * __init scan_one_device(struct device_node *dp,
 						 struct device *parent)
 {
-	struct platform_device *op = kzalloc(sizeof(*op), GFP_KERNEL);
+	struct platform_device *op = kzalloc_obj(*op);
 	const unsigned int *irq;
 	struct dev_archdata *sd;
 	int len, i;
@@ -677,6 +677,7 @@ static struct platform_device * __init scan_one_device(struct device_node *dp,
 
 	if (of_device_register(op)) {
 		printk("%pOF: Could not register of device.\n", dp);
+		put_device(&op->dev);
 		kfree(op);
 		op = NULL;
 	}

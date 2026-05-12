@@ -70,6 +70,7 @@ static void hda_get_interfaces(struct snd_sof_dev *sdev, u32 *interface_mask)
 		break;
 	case SOF_INTEL_ACE_2_0:
 	case SOF_INTEL_ACE_3_0:
+	case SOF_INTEL_ACE_4_0:
 		interface_mask[SOF_DAI_DSP_ACCESS] =
 			BIT(SOF_DAI_INTEL_SSP) | BIT(SOF_DAI_INTEL_DMIC) |
 			BIT(SOF_DAI_INTEL_HDA) | BIT(SOF_DAI_INTEL_ALH);
@@ -870,7 +871,7 @@ static int hda_resume(struct snd_sof_dev *sdev, bool runtime_resume)
 	snd_sof_pci_update_bits(sdev, PCI_TCSEL, 0x07, 0);
 
 	/* reset and start hda controller */
-	ret = hda_dsp_ctrl_init_chip(sdev);
+	ret = hda_dsp_ctrl_init_chip(sdev, false);
 	if (ret < 0) {
 		dev_err(sdev->dev,
 			"error: failed to start controller after resume\n");

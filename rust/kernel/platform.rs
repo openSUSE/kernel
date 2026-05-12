@@ -5,32 +5,60 @@
 //! C header: [`include/linux/platform_device.h`](srctree/include/linux/platform_device.h)
 
 use crate::{
-    acpi, bindings, container_of,
-    device::{self, Bound},
+    acpi,
+    bindings,
+    container_of,
+    device::{
+        self,
+        Bound, //
+    },
     driver,
-    error::{from_result, to_result, Result},
-    io::{mem::IoRequest, Resource},
+    error::{
+        from_result,
+        to_result, //
+    },
+    io::{
+        mem::IoRequest,
+        Resource, //
+    },
+    irq::{
+        self,
+        IrqRequest, //
+    },
     of,
     prelude::*,
     types::Opaque,
-    ThisModule,
+    ThisModule, //
 };
 
 use core::{
     marker::PhantomData,
-    ptr::{addr_of_mut, NonNull},
+    mem::offset_of,
+    ptr::{
+        addr_of_mut,
+        NonNull, //
+    },
 };
 
 /// An adapter for the registration of platform drivers.
 pub struct Adapter<T: Driver>(T);
 
-// SAFETY: A call to `unregister` for a given instance of `RegType` is guaranteed to be valid if
+// SAFETY:
+// - `bindings::platform_driver` is a C type declared as `repr(C)`.
+// - `T` is the type of the driver's device private data.
+// - `struct platform_driver` embeds a `struct device_driver`.
+// - `DEVICE_DRIVER_OFFSET` is the correct byte offset to the embedded `struct device_driver`.
+unsafe impl<T: Driver + 'static> driver::DriverLayout for Adapter<T> {
+    type DriverType = bindings::platform_driver;
+    type DriverData = T;
+    const DEVICE_DRIVER_OFFSET: usize = core::mem::offset_of!(Self::DriverType, driver);
+}
+
+// SAFETY: A call to `unregister` for a given instance of `DriverType` is guaranteed to be valid if
 // a preceding call to `register` has been successful.
 unsafe impl<T: Driver + 'static> driver::RegistrationOps for Adapter<T> {
-    type RegType = bindings::platform_driver;
-
     unsafe fn register(
-        pdrv: &Opaque<Self::RegType>,
+        pdrv: &Opaque<Self::DriverType>,
         name: &'static CStr,
         module: &'static ThisModule,
     ) -> Result {
@@ -53,12 +81,12 @@ unsafe impl<T: Driver + 'static> driver::RegistrationOps for Adapter<T> {
             (*pdrv.get()).driver.acpi_match_table = acpi_table;
         }
 
-        // SAFETY: `pdrv` is guaranteed to be a valid `RegType`.
+        // SAFETY: `pdrv` is guaranteed to be a valid `DriverType`.
         to_result(unsafe { bindings::__platform_driver_register(pdrv.get(), module.0) })
     }
 
-    unsafe fn unregister(pdrv: &Opaque<Self::RegType>) {
-        // SAFETY: `pdrv` is guaranteed to be a valid `RegType`.
+    unsafe fn unregister(pdrv: &Opaque<Self::DriverType>) {
+        // SAFETY: `pdrv` is guaranteed to be a valid `DriverType`.
         unsafe { bindings::platform_driver_unregister(pdrv.get()) };
     }
 }
@@ -73,9 +101,9 @@ impl<T: Driver + 'static> Adapter<T> {
         let info = <Self as driver::Adapter>::id_info(pdev.as_ref());
 
         from_result(|| {
-            let data = T::probe(pdev, info)?;
+            let data = T::probe(pdev, info);
 
-            pdev.as_ref().set_drvdata(data);
+            pdev.as_ref().set_drvdata(data)?;
             Ok(0)
         })
     }
@@ -84,15 +112,15 @@ impl<T: Driver + 'static> Adapter<T> {
         // SAFETY: The platform bus only ever calls the remove callback with a valid pointer to a
         // `struct platform_device`.
         //
-        // INVARIANT: `pdev` is valid for the duration of `probe_callback()`.
+        // INVARIANT: `pdev` is valid for the duration of `remove_callback()`.
         let pdev = unsafe { &*pdev.cast::<Device<device::CoreInternal>>() };
 
         // SAFETY: `remove_callback` is only ever called after a successful call to
         // `probe_callback`, hence it's guaranteed that `Device::set_drvdata()` has been called
         // and stored a `Pin<KBox<T>>`.
-        let data = unsafe { pdev.as_ref().drvdata_obtain::<Pin<KBox<T>>>() };
+        let data = unsafe { pdev.as_ref().drvdata_borrow::<T>() };
 
-        T::unbind(pdev, data.as_ref());
+        T::unbind(pdev, data);
     }
 }
 
@@ -135,8 +163,13 @@ macro_rules! module_platform_driver {
 /// # Examples
 ///
 ///```
-/// # use kernel::{acpi, bindings, c_str, device::Core, of, platform};
-///
+/// # use kernel::{
+/// #     acpi,
+/// #     bindings,
+/// #     device::Core,
+/// #     of,
+/// #     platform,
+/// # };
 /// struct MyDriver;
 ///
 /// kernel::of_device_table!(
@@ -144,7 +177,7 @@ macro_rules! module_platform_driver {
 ///     MODULE_OF_TABLE,
 ///     <MyDriver as platform::Driver>::IdInfo,
 ///     [
-///         (of::DeviceId::new(c_str!("test,device")), ())
+///         (of::DeviceId::new(c"test,device"), ())
 ///     ]
 /// );
 ///
@@ -153,7 +186,7 @@ macro_rules! module_platform_driver {
 ///     MODULE_ACPI_TABLE,
 ///     <MyDriver as platform::Driver>::IdInfo,
 ///     [
-///         (acpi::DeviceId::new(c_str!("LNUXBEEF")), ())
+///         (acpi::DeviceId::new(c"LNUXBEEF"), ())
 ///     ]
 /// );
 ///
@@ -165,7 +198,7 @@ macro_rules! module_platform_driver {
 ///     fn probe(
 ///         _pdev: &platform::Device<Core>,
 ///         _id_info: Option<&Self::IdInfo>,
-///     ) -> Result<Pin<KBox<Self>>> {
+///     ) -> impl PinInit<Self, Error> {
 ///         Err(ENODEV)
 ///     }
 /// }
@@ -189,8 +222,10 @@ pub trait Driver: Send {
     ///
     /// Called when a new platform device is added or discovered.
     /// Implementers should attempt to initialize the device here.
-    fn probe(dev: &Device<device::Core>, id_info: Option<&Self::IdInfo>)
-        -> Result<Pin<KBox<Self>>>;
+    fn probe(
+        dev: &Device<device::Core>,
+        id_info: Option<&Self::IdInfo>,
+    ) -> impl PinInit<Self, Error>;
 
     /// Platform driver unbind.
     ///
@@ -284,6 +319,191 @@ impl Device<Bound> {
     }
 }
 
+// SAFETY: `platform::Device` is a transparent wrapper of `struct platform_device`.
+// The offset is guaranteed to point to a valid device field inside `platform::Device`.
+unsafe impl<Ctx: device::DeviceContext> device::AsBusDevice<Ctx> for Device<Ctx> {
+    const OFFSET: usize = offset_of!(bindings::platform_device, dev);
+}
+
+macro_rules! define_irq_accessor_by_index {
+    (
+        $(#[$meta:meta])* $fn_name:ident,
+        $request_fn:ident,
+        $reg_type:ident,
+        $handler_trait:ident
+    ) => {
+        $(#[$meta])*
+        pub fn $fn_name<'a, T: irq::$handler_trait + 'static>(
+            &'a self,
+            flags: irq::Flags,
+            index: u32,
+            name: &'static CStr,
+            handler: impl PinInit<T, Error> + 'a,
+        ) -> impl PinInit<irq::$reg_type<T>, Error> + 'a {
+            pin_init::pin_init_scope(move || {
+                let request = self.$request_fn(index)?;
+
+                Ok(irq::$reg_type::<T>::new(
+                    request,
+                    flags,
+                    name,
+                    handler,
+                ))
+            })
+        }
+    };
+}
+
+macro_rules! define_irq_accessor_by_name {
+    (
+        $(#[$meta:meta])* $fn_name:ident,
+        $request_fn:ident,
+        $reg_type:ident,
+        $handler_trait:ident
+    ) => {
+        $(#[$meta])*
+        pub fn $fn_name<'a, T: irq::$handler_trait + 'static>(
+            &'a self,
+            flags: irq::Flags,
+            irq_name: &'a CStr,
+            name: &'static CStr,
+            handler: impl PinInit<T, Error> + 'a,
+        ) -> impl PinInit<irq::$reg_type<T>, Error> + 'a {
+            pin_init::pin_init_scope(move || {
+                let request = self.$request_fn(irq_name)?;
+
+                Ok(irq::$reg_type::<T>::new(
+                    request,
+                    flags,
+                    name,
+                    handler,
+                ))
+            })
+        }
+    };
+}
+
+impl Device<Bound> {
+    /// Returns an [`IrqRequest`] for the IRQ at the given index, if any.
+    pub fn irq_by_index(&self, index: u32) -> Result<IrqRequest<'_>> {
+        // SAFETY: `self.as_raw` returns a valid pointer to a `struct platform_device`.
+        let irq = unsafe { bindings::platform_get_irq(self.as_raw(), index) };
+
+        if irq < 0 {
+            return Err(Error::from_errno(irq));
+        }
+
+        // SAFETY: `irq` is guaranteed to be a valid IRQ number for `&self`.
+        Ok(unsafe { IrqRequest::new(self.as_ref(), irq as u32) })
+    }
+
+    /// Returns an [`IrqRequest`] for the IRQ at the given index, but does not
+    /// print an error if the IRQ cannot be obtained.
+    pub fn optional_irq_by_index(&self, index: u32) -> Result<IrqRequest<'_>> {
+        // SAFETY: `self.as_raw` returns a valid pointer to a `struct platform_device`.
+        let irq = unsafe { bindings::platform_get_irq_optional(self.as_raw(), index) };
+
+        if irq < 0 {
+            return Err(Error::from_errno(irq));
+        }
+
+        // SAFETY: `irq` is guaranteed to be a valid IRQ number for `&self`.
+        Ok(unsafe { IrqRequest::new(self.as_ref(), irq as u32) })
+    }
+
+    /// Returns an [`IrqRequest`] for the IRQ with the given name, if any.
+    pub fn irq_by_name(&self, name: &CStr) -> Result<IrqRequest<'_>> {
+        // SAFETY: `self.as_raw` returns a valid pointer to a `struct platform_device`.
+        let irq = unsafe { bindings::platform_get_irq_byname(self.as_raw(), name.as_char_ptr()) };
+
+        if irq < 0 {
+            return Err(Error::from_errno(irq));
+        }
+
+        // SAFETY: `irq` is guaranteed to be a valid IRQ number for `&self`.
+        Ok(unsafe { IrqRequest::new(self.as_ref(), irq as u32) })
+    }
+
+    /// Returns an [`IrqRequest`] for the IRQ with the given name, but does not
+    /// print an error if the IRQ cannot be obtained.
+    pub fn optional_irq_by_name(&self, name: &CStr) -> Result<IrqRequest<'_>> {
+        // SAFETY: `self.as_raw` returns a valid pointer to a `struct platform_device`.
+        let irq = unsafe {
+            bindings::platform_get_irq_byname_optional(self.as_raw(), name.as_char_ptr())
+        };
+
+        if irq < 0 {
+            return Err(Error::from_errno(irq));
+        }
+
+        // SAFETY: `irq` is guaranteed to be a valid IRQ number for `&self`.
+        Ok(unsafe { IrqRequest::new(self.as_ref(), irq as u32) })
+    }
+
+    define_irq_accessor_by_index!(
+        /// Returns a [`irq::Registration`] for the IRQ at the given index.
+        request_irq_by_index,
+        irq_by_index,
+        Registration,
+        Handler
+    );
+    define_irq_accessor_by_name!(
+        /// Returns a [`irq::Registration`] for the IRQ with the given name.
+        request_irq_by_name,
+        irq_by_name,
+        Registration,
+        Handler
+    );
+    define_irq_accessor_by_index!(
+        /// Does the same as [`Self::request_irq_by_index`], except that it does
+        /// not print an error message if the IRQ cannot be obtained.
+        request_optional_irq_by_index,
+        optional_irq_by_index,
+        Registration,
+        Handler
+    );
+    define_irq_accessor_by_name!(
+        /// Does the same as [`Self::request_irq_by_name`], except that it does
+        /// not print an error message if the IRQ cannot be obtained.
+        request_optional_irq_by_name,
+        optional_irq_by_name,
+        Registration,
+        Handler
+    );
+
+    define_irq_accessor_by_index!(
+        /// Returns a [`irq::ThreadedRegistration`] for the IRQ at the given index.
+        request_threaded_irq_by_index,
+        irq_by_index,
+        ThreadedRegistration,
+        ThreadedHandler
+    );
+    define_irq_accessor_by_name!(
+        /// Returns a [`irq::ThreadedRegistration`] for the IRQ with the given name.
+        request_threaded_irq_by_name,
+        irq_by_name,
+        ThreadedRegistration,
+        ThreadedHandler
+    );
+    define_irq_accessor_by_index!(
+        /// Does the same as [`Self::request_threaded_irq_by_index`], except
+        /// that it does not print an error message if the IRQ cannot be
+        /// obtained.
+        request_optional_threaded_irq_by_index,
+        optional_irq_by_index,
+        ThreadedRegistration,
+        ThreadedHandler
+    );
+    define_irq_accessor_by_name!(
+        /// Does the same as [`Self::request_threaded_irq_by_name`], except that
+        /// it does not print an error message if the IRQ cannot be obtained.
+        request_optional_threaded_irq_by_name,
+        optional_irq_by_name,
+        ThreadedRegistration,
+        ThreadedHandler
+    );
+}
+
 // SAFETY: `Device` is a transparent wrapper of a type that doesn't depend on `Device`'s generic
 // argument.
 kernel::impl_device_context_deref!(unsafe { Device });
@@ -292,7 +512,7 @@ kernel::impl_device_context_into_aref!(Device);
 impl crate::dma::Device for Device<device::Core> {}
 
 // SAFETY: Instances of `Device` are always reference-counted.
-unsafe impl crate::types::AlwaysRefCounted for Device {
+unsafe impl crate::sync::aref::AlwaysRefCounted for Device {
     fn inc_ref(&self) {
         // SAFETY: The existence of a shared reference guarantees that the refcount is non-zero.
         unsafe { bindings::get_device(self.as_ref().as_raw()) };

@@ -33,9 +33,10 @@
 #include "vmid.h"
 #include "reg_helper.h"
 #include "hw/clk_mgr.h"
+#include "hw/dccg.h"
 #include "dc_dmub_srv.h"
 #include "abm.h"
-#include "link.h"
+#include "link_service.h"
 
 #define DC_LOGGER_INIT(logger)
 
@@ -87,12 +88,10 @@ int dcn21_init_sys_ctx(struct dce_hwseq *hws, struct dc *dc, struct dc_phy_addr_
 
 bool dcn21_s0i3_golden_init_wa(struct dc *dc)
 {
-	struct dce_hwseq *hws = dc->hwseq;
-	uint32_t value = 0;
+	if (dc->res_pool->dccg && dc->res_pool->dccg->funcs && dc->res_pool->dccg->funcs->is_s0i3_golden_init_wa_done)
+		return !dc->res_pool->dccg->funcs->is_s0i3_golden_init_wa_done(dc->res_pool->dccg);
 
-	value = REG_READ(MICROSECOND_TIME_BASE_DIV);
-
-	return value != 0x00120464;
+	return false;
 }
 
 void dcn21_exit_optimized_pwr_state(
@@ -147,10 +146,10 @@ bool dcn21_dmub_abm_set_pipe(struct abm *abm, uint32_t otg_inst,
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.abm_set_pipe.header.type = DMUB_CMD__ABM;
 	cmd.abm_set_pipe.header.sub_type = DMUB_CMD__ABM_SET_PIPE;
-	cmd.abm_set_pipe.abm_set_pipe_data.otg_inst = otg_inst;
-	cmd.abm_set_pipe.abm_set_pipe_data.pwrseq_inst = pwrseq_inst;
-	cmd.abm_set_pipe.abm_set_pipe_data.set_pipe_option = option;
-	cmd.abm_set_pipe.abm_set_pipe_data.panel_inst = panel_inst;
+	cmd.abm_set_pipe.abm_set_pipe_data.otg_inst = (uint8_t)otg_inst;
+	cmd.abm_set_pipe.abm_set_pipe_data.pwrseq_inst = (uint8_t)pwrseq_inst;
+	cmd.abm_set_pipe.abm_set_pipe_data.set_pipe_option = (uint8_t)option;
+	cmd.abm_set_pipe.abm_set_pipe_data.panel_inst = (uint8_t)panel_inst;
 	cmd.abm_set_pipe.abm_set_pipe_data.ramping_boundary = ramping_boundary;
 	cmd.abm_set_pipe.header.payload_bytes = sizeof(struct dmub_cmd_abm_set_pipe_data);
 
@@ -288,7 +287,7 @@ bool dcn21_set_backlight_level(struct pipe_ctx *pipe_ctx,
 bool dcn21_is_abm_supported(struct dc *dc,
 		struct dc_state *context, struct dc_stream_state *stream)
 {
-	int i;
+	unsigned int i;
 
 	for (i = 0; i < dc->res_pool->pipe_count; i++) {
 		struct pipe_ctx *pipe_ctx = &context->res_ctx.pipe_ctx[i];

@@ -134,6 +134,19 @@ config EXTCON_MAX8997
 	  Maxim MAX8997 PMIC. The MAX8997 MUIC is a USB port accessory
 	  detector and switch.
 
+config EXTCON_MAX14526
+	tristate "Maxim MAX14526 EXTCON Support"
+	depends on I2C
+	select IRQ_DOMAIN
+	select REGMAP_I2C
+	help
+	  If you say yes here you get support for the Maxim MAX14526
+	  MUIC device. The MAX14526 MUIC is a USB port accessory
+	  detector and switch. The MAX14526 is designed to simplify
+	  interface requirements on portable devices by multiplexing
+	  common inputs (USB, UART, Microphone, Stereo Audio and
+	  Composite Video) on a single micro/mini USB connector.
+
 config EXTCON_PALMAS
 	tristate "Palmas USB EXTCON support"
 	depends on MFD_PALMAS
@@ -145,6 +158,7 @@ config EXTCON_PTN5150
 	tristate "NXP PTN5150 CC LOGIC USB EXTCON support"
 	depends on I2C && (GPIOLIB || COMPILE_TEST)
 	depends on USB_ROLE_SWITCH || !USB_ROLE_SWITCH
+	depends on TYPEC || !TYPEC
 	select REGMAP_I2C
 	help
 	  Say Y here to enable support for USB peripheral and USB host

@@ -190,8 +190,7 @@ static int ath6kl_usb_alloc_pipe_resources(struct ath6kl_usb_pipe *pipe,
 	init_usb_anchor(&pipe->urb_submitted);
 
 	for (i = 0; i < urb_cnt; i++) {
-		urb_context = kzalloc(sizeof(struct ath6kl_urb_context),
-				      GFP_KERNEL);
+		urb_context = kzalloc_obj(struct ath6kl_urb_context);
 		if (urb_context == NULL) {
 			status = -ENOMEM;
 			goto fail_alloc_pipe_resources;
@@ -634,7 +633,7 @@ static struct ath6kl_usb *ath6kl_usb_create(struct usb_interface *interface)
 	int i;
 
 	/* ath6kl_usb_destroy() needs ar_usb != NULL && ar_usb->wq != NULL. */
-	ar_usb = kzalloc(sizeof(struct ath6kl_usb), GFP_KERNEL);
+	ar_usb = kzalloc_obj(struct ath6kl_usb);
 	if (ar_usb == NULL)
 		return NULL;
 	ar_usb->wq = alloc_workqueue("ath6kl_wq", 0, 0);
@@ -1125,8 +1124,6 @@ static int ath6kl_usb_probe(struct usb_interface *interface,
 	int vendor_id, product_id;
 	int ret = 0;
 
-	usb_get_dev(dev);
-
 	vendor_id = le16_to_cpu(dev->descriptor.idVendor);
 	product_id = le16_to_cpu(dev->descriptor.idProduct);
 
@@ -1144,11 +1141,8 @@ static int ath6kl_usb_probe(struct usb_interface *interface,
 		ath6kl_dbg(ATH6KL_DBG_USB, "USB 1.1 Host\n");
 
 	ar_usb = ath6kl_usb_create(interface);
-
-	if (ar_usb == NULL) {
-		ret = -ENOMEM;
-		goto err_usb_put;
-	}
+	if (ar_usb == NULL)
+		return -ENOMEM;
 
 	ar = ath6kl_core_create(&ar_usb->udev->dev);
 	if (ar == NULL) {
@@ -1177,15 +1171,12 @@ err_core_free:
 	ath6kl_core_destroy(ar);
 err_usb_destroy:
 	ath6kl_usb_destroy(ar_usb);
-err_usb_put:
-	usb_put_dev(dev);
 
 	return ret;
 }
 
-static void ath6kl_usb_remove(struct usb_interface *interface)
+static void ath6kl_usb_disconnect(struct usb_interface *interface)
 {
-	usb_put_dev(interface_to_usbdev(interface));
 	ath6kl_usb_device_detached(interface);
 }
 
@@ -1236,7 +1227,7 @@ static struct usb_driver ath6kl_usb_driver = {
 	.probe = ath6kl_usb_probe,
 	.suspend = ath6kl_usb_pm_suspend,
 	.resume = ath6kl_usb_pm_resume,
-	.disconnect = ath6kl_usb_remove,
+	.disconnect = ath6kl_usb_disconnect,
 	.id_table = ath6kl_usb_ids,
 	.supports_autosuspend = true,
 	.disable_hub_initiated_lpm = 1,

@@ -329,47 +329,6 @@ __printf(2, 3) void bpf_log(struct bpf_verifier_log *log,
 }
 EXPORT_SYMBOL_GPL(bpf_log);
 
-static const struct bpf_line_info *
-find_linfo(const struct bpf_verifier_env *env, u32 insn_off)
-{
-	const struct bpf_line_info *linfo;
-	const struct bpf_prog *prog;
-	u32 nr_linfo;
-	int l, r, m;
-
-	prog = env->prog;
-	nr_linfo = prog->aux->nr_linfo;
-
-	if (!nr_linfo || insn_off >= prog->len)
-		return NULL;
-
-	linfo = prog->aux->linfo;
-	/* Loop invariant: linfo[l].insn_off <= insns_off.
-	 * linfo[0].insn_off == 0 which always satisfies above condition.
-	 * Binary search is searching for rightmost linfo entry that satisfies
-	 * the above invariant, giving us the desired record that covers given
-	 * instruction offset.
-	 */
-	l = 0;
-	r = nr_linfo - 1;
-	while (l < r) {
-		/* (r - l + 1) / 2 means we break a tie to the right, so if:
-		 * l=1, r=2, linfo[l].insn_off <= insn_off, linfo[r].insn_off > insn_off,
-		 * then m=2, we see that linfo[m].insn_off > insn_off, and so
-		 * r becomes 1 and we exit the loop with correct l==1.
-		 * If the tie was broken to the left, m=1 would end us up in
-		 * an endless loop where l and m stay at 1 and r stays at 2.
-		 */
-		m = l + (r - l + 1) / 2;
-		if (linfo[m].insn_off <= insn_off)
-			l = m;
-		else
-			r = m - 1;
-	}
-
-	return &linfo[l];
-}
-
 static const char *ltrim(const char *s)
 {
 	while (isspace(*s))
@@ -390,7 +349,7 @@ __printf(3, 4) void verbose_linfo(struct bpf_verifier_env *env,
 		return;
 
 	prev_linfo = env->prev_linfo;
-	linfo = find_linfo(env, insn_off);
+	linfo = bpf_find_linfo(env->prog, insn_off);
 	if (!linfo || linfo == prev_linfo)
 		return;
 
@@ -461,6 +420,7 @@ const char *reg_type_str(struct bpf_verifier_env *env, enum bpf_reg_type type)
 		[PTR_TO_ARENA]		= "arena",
 		[PTR_TO_BUF]		= "buf",
 		[PTR_TO_FUNC]		= "func",
+		[PTR_TO_INSN]		= "insn",
 		[PTR_TO_MAP_KEY]	= "map_key",
 		[CONST_PTR_TO_DYNPTR]	= "dynptr_ptr",
 	};
@@ -498,6 +458,10 @@ const char *dynptr_type_str(enum bpf_dynptr_type type)
 		return "skb";
 	case BPF_DYNPTR_TYPE_XDP:
 		return "xdp";
+	case BPF_DYNPTR_TYPE_SKB_META:
+		return "skb_meta";
+	case BPF_DYNPTR_TYPE_FILE:
+		return "file";
 	case BPF_DYNPTR_TYPE_INVALID:
 		return "<invalid>";
 	default:
@@ -537,21 +501,9 @@ static char slot_type_char[] = {
 	[STACK_ZERO]	= '0',
 	[STACK_DYNPTR]	= 'd',
 	[STACK_ITER]	= 'i',
-	[STACK_IRQ_FLAG] = 'f'
+	[STACK_IRQ_FLAG] = 'f',
+	[STACK_POISON]	= 'p',
 };
-
-static void print_liveness(struct bpf_verifier_env *env,
-			   enum bpf_reg_liveness live)
-{
-	if (live & (REG_LIVE_READ | REG_LIVE_WRITTEN | REG_LIVE_DONE))
-	    verbose(env, "_");
-	if (live & REG_LIVE_READ)
-		verbose(env, "r");
-	if (live & REG_LIVE_WRITTEN)
-		verbose(env, "w");
-	if (live & REG_LIVE_DONE)
-		verbose(env, "D");
-}
 
 #define UNUM_MAX_DECIMAL U16_MAX
 #define SNUM_MAX_DECIMAL S16_MAX
@@ -589,6 +541,8 @@ int tnum_strn(char *str, size_t size, struct tnum a)
 	if (a.mask == 0) {
 		if (is_unum_decimal(a.value))
 			return snprintf(str, size, "%llu", a.value);
+		if (is_snum_decimal(a.value))
+			return snprintf(str, size, "%lld", a.value);
 		else
 			return snprintf(str, size, "%#llx", a.value);
 	}
@@ -700,7 +654,7 @@ static void print_reg_state(struct bpf_verifier_env *env,
 		if (state->frameno != reg->frameno)
 			verbose(env, "[%d]", reg->frameno);
 		if (tnum_is_const(reg->var_off)) {
-			verbose_snum(env, reg->var_off.value + reg->off);
+			verbose_snum(env, reg->var_off.value + reg->delta);
 			return;
 		}
 	}
@@ -710,7 +664,7 @@ static void print_reg_state(struct bpf_verifier_env *env,
 	if (reg->id)
 		verbose_a("id=%d", reg->id & ~BPF_ADD_CONST);
 	if (reg->id & BPF_ADD_CONST)
-		verbose(env, "%+d", reg->off);
+		verbose(env, "%+d", reg->delta);
 	if (reg->ref_obj_id)
 		verbose_a("ref_obj_id=%d", reg->ref_obj_id);
 	if (type_is_non_owning_ref(reg->type))
@@ -722,9 +676,9 @@ static void print_reg_state(struct bpf_verifier_env *env,
 			  reg->map_ptr->key_size,
 			  reg->map_ptr->value_size);
 	}
-	if (t != SCALAR_VALUE && reg->off) {
+	if (t != SCALAR_VALUE && reg->delta) {
 		verbose_a("off=");
-		verbose_snum(env, reg->off);
+		verbose_snum(env, reg->delta);
 	}
 	if (type_is_pkt_pointer(t)) {
 		verbose_a("r=");
@@ -770,7 +724,6 @@ void print_verifier_state(struct bpf_verifier_env *env, const struct bpf_verifie
 		if (!print_all && !reg_scratched(env, i))
 			continue;
 		verbose(env, " R%d", i);
-		print_liveness(env, reg->live);
 		verbose(env, "=");
 		print_reg_state(env, state, reg);
 	}
@@ -786,7 +739,7 @@ void print_verifier_state(struct bpf_verifier_env *env, const struct bpf_verifie
 
 		for (j = 0; j < BPF_REG_SIZE; j++) {
 			slot_type = state->stack[i].slot_type[j];
-			if (slot_type != STACK_INVALID)
+			if (slot_type != STACK_INVALID && slot_type != STACK_POISON)
 				valid = true;
 			types_buf[j] = slot_type_char[slot_type];
 		}
@@ -803,9 +756,7 @@ void print_verifier_state(struct bpf_verifier_env *env, const struct bpf_verifie
 					break;
 			types_buf[j] = '\0';
 
-			verbose(env, " fp%d", (-i - 1) * BPF_REG_SIZE);
-			print_liveness(env, reg->live);
-			verbose(env, "=%s", types_buf);
+			verbose(env, " fp%d=%s", (-i - 1) * BPF_REG_SIZE, types_buf);
 			print_reg_state(env, state, reg);
 			break;
 		case STACK_DYNPTR:
@@ -814,7 +765,6 @@ void print_verifier_state(struct bpf_verifier_env *env, const struct bpf_verifie
 			reg = &state->stack[i].spilled_ptr;
 
 			verbose(env, " fp%d", (-i - 1) * BPF_REG_SIZE);
-			print_liveness(env, reg->live);
 			verbose(env, "=dynptr_%s(", dynptr_type_str(reg->dynptr.type));
 			if (reg->id)
 				verbose_a("id=%d", reg->id);
@@ -829,9 +779,8 @@ void print_verifier_state(struct bpf_verifier_env *env, const struct bpf_verifie
 			if (!reg->ref_obj_id)
 				continue;
 
-			verbose(env, " fp%d", (-i - 1) * BPF_REG_SIZE);
-			print_liveness(env, reg->live);
-			verbose(env, "=iter_%s(ref_id=%d,state=%s,depth=%u)",
+			verbose(env, " fp%d=iter_%s(ref_id=%d,state=%s,depth=%u)",
+				(-i - 1) * BPF_REG_SIZE,
 				iter_type_str(reg->iter.btf, reg->iter.btf_id),
 				reg->ref_obj_id, iter_state_str(reg->iter.state),
 				reg->iter.depth);
@@ -839,9 +788,7 @@ void print_verifier_state(struct bpf_verifier_env *env, const struct bpf_verifie
 		case STACK_MISC:
 		case STACK_ZERO:
 		default:
-			verbose(env, " fp%d", (-i - 1) * BPF_REG_SIZE);
-			print_liveness(env, reg->live);
-			verbose(env, "=%s", types_buf);
+			verbose(env, " fp%d=%s", (-i - 1) * BPF_REG_SIZE, types_buf);
 			break;
 		}
 	}
@@ -860,7 +807,7 @@ void print_verifier_state(struct bpf_verifier_env *env, const struct bpf_verifie
 		mark_verifier_state_clean(env);
 }
 
-static inline u32 vlog_alignment(u32 pos)
+u32 bpf_vlog_alignment(u32 pos)
 {
 	return round_up(max(pos + BPF_LOG_MIN_ALIGNMENT / 2, BPF_LOG_ALIGNMENT),
 			BPF_LOG_MIN_ALIGNMENT) - pos - 1;
@@ -872,7 +819,7 @@ void print_insn_state(struct bpf_verifier_env *env, const struct bpf_verifier_st
 	if (env->prev_log_pos && env->prev_log_pos == env->log.end_pos) {
 		/* remove new line character */
 		bpf_vlog_reset(&env->log, env->prev_log_pos - 1);
-		verbose(env, "%*c;", vlog_alignment(env->prev_insn_print_pos), ' ');
+		verbose(env, "%*c;", bpf_vlog_alignment(env->prev_insn_print_pos), ' ');
 	} else {
 		verbose(env, "%d:", env->insn_idx);
 	}

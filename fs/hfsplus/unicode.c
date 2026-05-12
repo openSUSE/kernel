@@ -11,6 +11,9 @@
 
 #include <linux/types.h>
 #include <linux/nls.h>
+
+#include <kunit/visibility.h>
+
 #include "hfsplus_fs.h"
 #include "hfsplus_raw.h"
 
@@ -40,6 +43,18 @@ int hfsplus_strcasecmp(const struct hfsplus_unistr *s1,
 	p1 = s1->unicode;
 	p2 = s2->unicode;
 
+	if (len1 > HFSPLUS_MAX_STRLEN) {
+		len1 = HFSPLUS_MAX_STRLEN;
+		pr_err("invalid length %u has been corrected to %d\n",
+			be16_to_cpu(s1->length), len1);
+	}
+
+	if (len2 > HFSPLUS_MAX_STRLEN) {
+		len2 = HFSPLUS_MAX_STRLEN;
+		pr_err("invalid length %u has been corrected to %d\n",
+			be16_to_cpu(s2->length), len2);
+	}
+
 	while (1) {
 		c1 = c2 = 0;
 
@@ -60,6 +75,7 @@ int hfsplus_strcasecmp(const struct hfsplus_unistr *s1,
 			return 0;
 	}
 }
+EXPORT_SYMBOL_IF_KUNIT(hfsplus_strcasecmp);
 
 /* Compare names as a sequence of 16-bit unsigned integers */
 int hfsplus_strcmp(const struct hfsplus_unistr *s1,
@@ -74,6 +90,18 @@ int hfsplus_strcmp(const struct hfsplus_unistr *s1,
 	p1 = s1->unicode;
 	p2 = s2->unicode;
 
+	if (len1 > HFSPLUS_MAX_STRLEN) {
+		len1 = HFSPLUS_MAX_STRLEN;
+		pr_err("invalid length %u has been corrected to %d\n",
+			be16_to_cpu(s1->length), len1);
+	}
+
+	if (len2 > HFSPLUS_MAX_STRLEN) {
+		len2 = HFSPLUS_MAX_STRLEN;
+		pr_err("invalid length %u has been corrected to %d\n",
+			be16_to_cpu(s2->length), len2);
+	}
+
 	for (len = min(len1, len2); len > 0; len--) {
 		c1 = be16_to_cpu(*p1);
 		c2 = be16_to_cpu(*p2);
@@ -86,7 +114,7 @@ int hfsplus_strcmp(const struct hfsplus_unistr *s1,
 	return len1 < len2 ? -1 :
 	       len1 > len2 ? 1 : 0;
 }
-
+EXPORT_SYMBOL_IF_KUNIT(hfsplus_strcmp);
 
 #define Hangul_SBase	0xac00
 #define Hangul_LBase	0x1100
@@ -119,9 +147,44 @@ static u16 *hfsplus_compose_lookup(u16 *p, u16 cc)
 	return NULL;
 }
 
-int hfsplus_uni2asc(struct super_block *sb,
-		const struct hfsplus_unistr *ustr,
-		char *astr, int *len_p)
+/*
+ * In HFS+, a filename can contain / because : is the separator.
+ * The slash is a valid filename character on macOS.
+ * But on Linux, / is the path separator and
+ * it cannot appear in a filename component.
+ * There's a parallel mapping for the NUL character (0 -> U+2400).
+ * NUL terminates strings in C/POSIX but is valid in HFS+ filenames.
+ */
+static inline
+void hfsplus_mac2linux_compatibility_check(u16 symbol, u16 *conversion,
+					   int name_type)
+{
+	*conversion = symbol;
+
+	switch (name_type) {
+	case HFS_XATTR_NAME:
+		/* ignore conversion */
+		return;
+
+	default:
+		/* continue logic */
+		break;
+	}
+
+	switch (symbol) {
+	case 0:
+		*conversion = 0x2400;
+		break;
+	case '/':
+		*conversion = ':';
+		break;
+	}
+}
+
+static int hfsplus_uni2asc(struct super_block *sb,
+			   const struct hfsplus_unistr *ustr,
+			   int max_len, char *astr, int *len_p,
+			   int name_type)
 {
 	const hfsplus_unichr *ip;
 	struct nls_table *nls = HFSPLUS_SB(sb)->nls;
@@ -134,8 +197,8 @@ int hfsplus_uni2asc(struct super_block *sb,
 	ip = ustr->unicode;
 
 	ustrlen = be16_to_cpu(ustr->length);
-	if (ustrlen > HFSPLUS_MAX_STRLEN) {
-		ustrlen = HFSPLUS_MAX_STRLEN;
+	if (ustrlen > max_len) {
+		ustrlen = max_len;
 		pr_err("invalid length %u has been corrected to %d\n",
 			be16_to_cpu(ustr->length), ustrlen);
 	}
@@ -189,14 +252,8 @@ int hfsplus_uni2asc(struct super_block *sb,
 					hfsplus_compose_table, c1);
 			if (ce1)
 				break;
-			switch (c0) {
-			case 0:
-				c0 = 0x2400;
-				break;
-			case '/':
-				c0 = ':';
-				break;
-			}
+			hfsplus_mac2linux_compatibility_check(c0, &c0,
+							      name_type);
 			res = nls->uni2char(c0, op, len);
 			if (res < 0) {
 				if (res == -ENAMETOOLONG)
@@ -229,16 +286,8 @@ int hfsplus_uni2asc(struct super_block *sb,
 			}
 		}
 same:
-		switch (c0) {
-		case 0:
-			cc = 0x2400;
-			break;
-		case '/':
-			cc = ':';
-			break;
-		default:
-			cc = c0;
-		}
+		hfsplus_mac2linux_compatibility_check(c0, &cc,
+						      name_type);
 done:
 		res = nls->uni2char(cc, op, len);
 		if (res < 0) {
@@ -256,18 +305,48 @@ out:
 	return res;
 }
 
-/*
- * Convert one or more ASCII characters into a single unicode character.
- * Returns the number of ASCII characters corresponding to the unicode char.
- */
-static inline int asc2unichar(struct super_block *sb, const char *astr, int len,
-			      wchar_t *uc)
+inline int hfsplus_uni2asc_str(struct super_block *sb,
+			       const struct hfsplus_unistr *ustr, char *astr,
+			       int *len_p)
 {
-	int size = HFSPLUS_SB(sb)->nls->char2uni(astr, len, uc);
-	if (size <= 0) {
-		*uc = '?';
-		size = 1;
+	return hfsplus_uni2asc(sb,
+				ustr, HFSPLUS_MAX_STRLEN,
+				astr, len_p,
+				HFS_REGULAR_NAME);
+}
+EXPORT_SYMBOL_IF_KUNIT(hfsplus_uni2asc_str);
+
+inline int hfsplus_uni2asc_xattr_str(struct super_block *sb,
+				     const struct hfsplus_attr_unistr *ustr,
+				     char *astr, int *len_p)
+{
+	return hfsplus_uni2asc(sb, (const struct hfsplus_unistr *)ustr,
+				HFSPLUS_ATTR_MAX_STRLEN, astr, len_p,
+				HFS_XATTR_NAME);
+}
+EXPORT_SYMBOL_IF_KUNIT(hfsplus_uni2asc_xattr_str);
+
+/*
+ * In HFS+, a filename can contain / because : is the separator.
+ * The slash is a valid filename character on macOS.
+ * But on Linux, / is the path separator and
+ * it cannot appear in a filename component.
+ * There's a parallel mapping for the NUL character (0 -> U+2400).
+ * NUL terminates strings in C/POSIX but is valid in HFS+ filenames.
+ */
+static inline
+void hfsplus_linux2mac_compatibility_check(wchar_t *uc, int name_type)
+{
+	switch (name_type) {
+	case HFS_XATTR_NAME:
+		/* ignore conversion */
+		return;
+
+	default:
+		/* continue logic */
+		break;
 	}
+
 	switch (*uc) {
 	case 0x2400:
 		*uc = 0;
@@ -276,6 +355,23 @@ static inline int asc2unichar(struct super_block *sb, const char *astr, int len,
 		*uc = '/';
 		break;
 	}
+}
+
+/*
+ * Convert one or more ASCII characters into a single unicode character.
+ * Returns the number of ASCII characters corresponding to the unicode char.
+ */
+static inline int asc2unichar(struct super_block *sb, const char *astr, int len,
+			      wchar_t *uc, int name_type)
+{
+	int size = HFSPLUS_SB(sb)->nls->char2uni(astr, len, uc);
+
+	if (size <= 0) {
+		*uc = '?';
+		size = 1;
+	}
+
+	hfsplus_linux2mac_compatibility_check(uc, name_type);
 	return size;
 }
 
@@ -350,7 +446,7 @@ static u16 *decompose_unichar(wchar_t uc, int *size, u16 *hangul_buffer)
 
 int hfsplus_asc2uni(struct super_block *sb,
 		    struct hfsplus_unistr *ustr, int max_unistr_len,
-		    const char *astr, int len)
+		    const char *astr, int len, int name_type)
 {
 	int size, dsize, decompose;
 	u16 *dstr, outlen = 0;
@@ -359,7 +455,7 @@ int hfsplus_asc2uni(struct super_block *sb,
 
 	decompose = !test_bit(HFSPLUS_SB_NODECOMPOSE, &HFSPLUS_SB(sb)->flags);
 	while (outlen < max_unistr_len && len > 0) {
-		size = asc2unichar(sb, astr, len, &c);
+		size = asc2unichar(sb, astr, len, &c, name_type);
 
 		if (decompose)
 			dstr = decompose_unichar(c, &dsize, dhangul);
@@ -382,6 +478,7 @@ int hfsplus_asc2uni(struct super_block *sb,
 		return -ENAMETOOLONG;
 	return 0;
 }
+EXPORT_SYMBOL_IF_KUNIT(hfsplus_asc2uni);
 
 /*
  * Hash a string to an integer as appropriate for the HFS+ filesystem.
@@ -406,7 +503,7 @@ int hfsplus_hash_dentry(const struct dentry *dentry, struct qstr *str)
 	len = str->len;
 	while (len > 0) {
 		int dsize;
-		size = asc2unichar(sb, astr, len, &c);
+		size = asc2unichar(sb, astr, len, &c, HFS_REGULAR_NAME);
 		astr += size;
 		len -= size;
 
@@ -434,6 +531,7 @@ int hfsplus_hash_dentry(const struct dentry *dentry, struct qstr *str)
 
 	return 0;
 }
+EXPORT_SYMBOL_IF_KUNIT(hfsplus_hash_dentry);
 
 /*
  * Compare strings with HFS+ filename ordering.
@@ -463,7 +561,8 @@ int hfsplus_compare_dentry(const struct dentry *dentry,
 
 	while (len1 > 0 && len2 > 0) {
 		if (!dsize1) {
-			size = asc2unichar(sb, astr1, len1, &c);
+			size = asc2unichar(sb, astr1, len1, &c,
+					   HFS_REGULAR_NAME);
 			astr1 += size;
 			len1 -= size;
 
@@ -478,7 +577,8 @@ int hfsplus_compare_dentry(const struct dentry *dentry,
 		}
 
 		if (!dsize2) {
-			size = asc2unichar(sb, astr2, len2, &c);
+			size = asc2unichar(sb, astr2, len2, &c,
+					   HFS_REGULAR_NAME);
 			astr2 += size;
 			len2 -= size;
 
@@ -525,3 +625,4 @@ int hfsplus_compare_dentry(const struct dentry *dentry,
 		return 1;
 	return 0;
 }
+EXPORT_SYMBOL_IF_KUNIT(hfsplus_compare_dentry);

@@ -32,6 +32,8 @@ static struct {
 	{"test_ringbuf", SETUP_SYSCALL_SLEEP},
 	{"test_skb_readonly", SETUP_SKB_PROG},
 	{"test_dynptr_skb_data", SETUP_SKB_PROG},
+	{"test_dynptr_skb_meta_data", SETUP_SKB_PROG},
+	{"test_dynptr_skb_meta_flags", SETUP_SKB_PROG},
 	{"test_adjust", SETUP_SYSCALL_SLEEP},
 	{"test_adjust_err", SETUP_SYSCALL_SLEEP},
 	{"test_zero_size_dynptr", SETUP_SYSCALL_SLEEP},
@@ -135,11 +137,14 @@ static void verify_success(const char *prog_name, enum test_setup_type setup_typ
 		);
 
 		link = bpf_program__attach(prog);
-		if (!ASSERT_OK_PTR(link, "bpf_program__attach"))
+		if (!ASSERT_OK_PTR(link, "bpf_program__attach")) {
+			bpf_object__close(obj);
 			goto cleanup;
+		}
 
 		err = bpf_prog_test_run_opts(aux_prog_fd, &topts);
 		bpf_link__destroy(link);
+		bpf_object__close(obj);
 
 		if (!ASSERT_OK(err, "test_run"))
 			goto cleanup;

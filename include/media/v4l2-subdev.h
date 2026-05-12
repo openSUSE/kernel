@@ -2,7 +2,7 @@
 /*
  *  V4L2 sub-device support header.
  *
- *  Copyright (C) 2008  Hans Verkuil <hverkuil@xs4all.nl>
+ *  Copyright (C) 2008  Hans Verkuil <hverkuil@kernel.org>
  */
 
 #ifndef _V4L2_SUBDEV_H
@@ -36,6 +36,7 @@ struct v4l2_event_subscription;
 struct v4l2_fh;
 struct v4l2_subdev;
 struct v4l2_subdev_fh;
+struct v4l2_subdev_stream_config;
 struct tuner_setup;
 struct v4l2_mbus_frame_desc;
 struct led_classdev;
@@ -684,30 +685,6 @@ struct v4l2_subdev_pad_config {
 };
 
 /**
- * struct v4l2_subdev_stream_config - Used for storing stream configuration.
- *
- * @pad: pad number
- * @stream: stream number
- * @enabled: has the stream been enabled with v4l2_subdev_enable_streams()
- * @fmt: &struct v4l2_mbus_framefmt
- * @crop: &struct v4l2_rect to be used for crop
- * @compose: &struct v4l2_rect to be used for compose
- * @interval: frame interval
- *
- * This structure stores configuration for a stream.
- */
-struct v4l2_subdev_stream_config {
-	u32 pad;
-	u32 stream;
-	bool enabled;
-
-	struct v4l2_mbus_framefmt fmt;
-	struct v4l2_rect crop;
-	struct v4l2_rect compose;
-	struct v4l2_fract interval;
-};
-
-/**
  * struct v4l2_subdev_stream_configs - A collection of stream configs.
  *
  * @num_configs: number of entries in @config.
@@ -1126,7 +1103,7 @@ struct v4l2_subdev {
 	typeof(ent) __me_sd_ent = (ent);				\
 									\
 	__me_sd_ent ?							\
-		container_of(__me_sd_ent, struct v4l2_subdev, entity) :	\
+		container_of_const(__me_sd_ent, struct v4l2_subdev, entity) : \
 		NULL;							\
 })
 
@@ -1745,6 +1722,62 @@ int v4l2_subdev_disable_streams(struct v4l2_subdev *sd, u32 pad,
  */
 int v4l2_subdev_s_stream_helper(struct v4l2_subdev *sd, int enable);
 
+/**
+ * __v4l2_subdev_get_frame_desc_passthrough - Helper to implement the
+ *	subdev get_frame_desc operation in simple passthrough cases
+ * @sd: The subdevice
+ * @state: The locked subdevice active state
+ * @pad: The source pad index
+ * @fd: The mbus frame desc
+ *
+ * This helper implements the get_frame_desc operation for subdevices that pass
+ * streams through without modification.
+ *
+ * The helper iterates over the subdevice's sink pads, calls get_frame_desc on
+ * the remote subdevice connected to each sink pad, and collects the frame desc
+ * entries for streams that are routed to the given source pad according to the
+ * subdevice's routing table. Each entry is copied as-is from the upstream
+ * source, with the exception of the 'stream' field which is remapped to the
+ * source stream ID from the routing table.
+ *
+ * The frame desc type is taken from the first upstream source. If multiple
+ * sink pads are involved and the upstream sources report different frame desc
+ * types, -EPIPE is returned.
+ *
+ * The caller must hold the subdevice's active state lock. This variant is
+ * intended for drivers that need to perform additional work around the
+ * passthrough frame descriptor collection. Drivers that do not need any
+ * customization should use v4l2_subdev_get_frame_desc_passthrough() instead.
+ *
+ * Return: 0 on success, or a negative error code otherwise.
+ */
+int __v4l2_subdev_get_frame_desc_passthrough(struct v4l2_subdev *sd,
+					     struct v4l2_subdev_state *state,
+					     unsigned int pad,
+					     struct v4l2_mbus_frame_desc *fd);
+
+/**
+ * v4l2_subdev_get_frame_desc_passthrough() - Helper to implement the subdev
+ *	get_frame_desc operation in simple passthrough cases
+ * @sd: The subdevice
+ * @pad: The source pad index
+ * @fd: The mbus frame desc
+ *
+ * This function locks the subdevice's active state, calls
+ * __v4l2_subdev_get_frame_desc_passthrough(), and unlocks the state.
+ *
+ * This function can be assigned directly as the .get_frame_desc callback in
+ * &v4l2_subdev_pad_ops for subdevices that pass streams through without
+ * modification. Drivers that need to perform additional work should use
+ * __v4l2_subdev_get_frame_desc_passthrough() in their custom
+ * .get_frame_desc implementation instead.
+ *
+ * Return: 0 on success, or a negative error code otherwise.
+ */
+int v4l2_subdev_get_frame_desc_passthrough(struct v4l2_subdev *sd,
+					   unsigned int pad,
+					   struct v4l2_mbus_frame_desc *fd);
+
 #endif /* CONFIG_VIDEO_V4L2_SUBDEV_API */
 
 #endif /* CONFIG_MEDIA_CONTROLLER */
@@ -1962,19 +1995,23 @@ extern const struct v4l2_subdev_ops v4l2_subdev_call_wrappers;
  *
  * Note: only legacy non-MC drivers may need this macro.
  */
-#define v4l2_subdev_call_state_try(sd, o, f, args...)                 \
-	({                                                            \
-		int __result;                                         \
-		static struct lock_class_key __key;                   \
-		const char *name = KBUILD_BASENAME                    \
-			":" __stringify(__LINE__) ":state->lock";     \
-		struct v4l2_subdev_state *state =                     \
-			__v4l2_subdev_state_alloc(sd, name, &__key);  \
-		v4l2_subdev_lock_state(state);                        \
-		__result = v4l2_subdev_call(sd, o, f, state, ##args); \
-		v4l2_subdev_unlock_state(state);                      \
-		__v4l2_subdev_state_free(state);                      \
-		__result;                                             \
+#define v4l2_subdev_call_state_try(sd, o, f, args...)                         \
+	({                                                                    \
+		int __result;                                                 \
+		static struct lock_class_key __key;                           \
+		const char *name = KBUILD_BASENAME                            \
+			":" __stringify(__LINE__) ":state->lock";             \
+		struct v4l2_subdev_state *state =                             \
+			__v4l2_subdev_state_alloc(sd, name, &__key);          \
+		if (IS_ERR(state)) {                                          \
+			__result = PTR_ERR(state);                            \
+		} else {                                                      \
+			v4l2_subdev_lock_state(state);                        \
+			__result = v4l2_subdev_call(sd, o, f, state, ##args); \
+			v4l2_subdev_unlock_state(state);                      \
+			__v4l2_subdev_state_free(state);                      \
+		}                                                             \
+		__result;                                                     \
 	})
 
 /**

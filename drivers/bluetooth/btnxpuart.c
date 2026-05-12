@@ -24,7 +24,7 @@
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
 
-#include "h4_recv.h"
+#include "hci_uart.h"
 
 #define MANUFACTURER_NXP		37
 
@@ -212,6 +212,7 @@ struct btnxpuart_dev {
 	struct ps_data psdata;
 	struct btnxpuart_data *nxp_data;
 	struct reset_control *pdn;
+	struct hci_uart hu;
 };
 
 #define NXP_V1_FW_REQ_PKT	0xa5
@@ -1756,7 +1757,7 @@ static size_t btnxpuart_receive_buf(struct serdev_device *serdev,
 
 	ps_start_timer(nxpdev);
 
-	nxpdev->rx_skb = h4_recv_buf(nxpdev->hdev, nxpdev->rx_skb, data, count,
+	nxpdev->rx_skb = h4_recv_buf(&nxpdev->hu, nxpdev->rx_skb, data, count,
 				     nxp_recv_pkts, ARRAY_SIZE(nxp_recv_pkts));
 	if (IS_ERR(nxpdev->rx_skb)) {
 		int err = PTR_ERR(nxpdev->rx_skb);
@@ -1875,6 +1876,7 @@ static int nxp_serdev_probe(struct serdev_device *serdev)
 	reset_control_deassert(nxpdev->pdn);
 
 	nxpdev->hdev = hdev;
+	nxpdev->hu.hdev = hdev;
 
 	hdev->bus = HCI_UART;
 	hci_set_drvdata(hdev, nxpdev);
@@ -1945,8 +1947,7 @@ static void nxp_serdev_remove(struct serdev_device *serdev)
 	hci_free_dev(hdev);
 }
 
-#ifdef CONFIG_PM_SLEEP
-static int nxp_serdev_suspend(struct device *dev)
+static int __maybe_unused nxp_serdev_suspend(struct device *dev)
 {
 	struct btnxpuart_dev *nxpdev = dev_get_drvdata(dev);
 	struct ps_data *psdata = &nxpdev->psdata;
@@ -1960,7 +1961,7 @@ static int nxp_serdev_suspend(struct device *dev)
 	return 0;
 }
 
-static int nxp_serdev_resume(struct device *dev)
+static int __maybe_unused nxp_serdev_resume(struct device *dev)
 {
 	struct btnxpuart_dev *nxpdev = dev_get_drvdata(dev);
 	struct ps_data *psdata = &nxpdev->psdata;
@@ -1973,7 +1974,6 @@ static int nxp_serdev_resume(struct device *dev)
 	ps_control(psdata->hdev, PS_STATE_AWAKE);
 	return 0;
 }
-#endif
 
 #ifdef CONFIG_DEV_COREDUMP
 static void nxp_serdev_coredump(struct device *dev)

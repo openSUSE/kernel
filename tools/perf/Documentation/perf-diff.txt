@@ -81,8 +81,11 @@ OPTIONS
 --force::
         Don't do ownership validation.
 
---symfs=<directory>::
-        Look for files with symbols relative to this directory.
+--symfs=<directory[,layout]>::
+        Look for files with symbols relative to this directory. The optional
+        layout can be 'hierarchy' (default, matches full path) or 'flat'
+        (only matches base name). This is useful when debug files are stored
+        in a flat directory structure.
 
 -b::
 --baseline-only::
@@ -285,7 +288,7 @@ If specified the 'Weighted diff' column is displayed with value 'd' computed as:
 
   - period being the hist entry period value
 
-  - WEIGHT-A/WEIGHT-B being user supplied weights in the the '-c' option
+  - WEIGHT-A/WEIGHT-B being user supplied weights in the '-c' option
     behind ':' separator like '-c wdiff:1,2'.
     - WEIGHT-A being the weight of the data file
     - WEIGHT-B being the weight of the baseline data file

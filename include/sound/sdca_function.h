@@ -13,6 +13,7 @@
 #include <linux/types.h>
 #include <linux/hid.h>
 
+struct acpi_table_swft;
 struct device;
 struct sdca_entity;
 struct sdca_function_desc;
@@ -24,11 +25,6 @@ struct sdca_function_desc;
  * maximum of 128 Entities per function can be represented.
  */
 #define SDCA_MAX_ENTITY_COUNT 128
-
-/*
- * Sanity check on number of initialization writes, can be expanded if needed.
- */
-#define SDCA_MAX_INIT_COUNT 2048
 
 /*
  * The Cluster IDs are 16-bit, so a maximum of 65535 Clusters per
@@ -63,6 +59,7 @@ struct sdca_function_desc;
  * @SDCA_FUNCTION_TYPE_RJ: Retaskable jack.
  * @SDCA_FUNCTION_TYPE_SIMPLE_JACK: Subset of UAJ.
  * @SDCA_FUNCTION_TYPE_HID: Human Interface Device, for e.g. buttons.
+ * @SDCA_FUNCTION_TYPE_COMPANION_AMP: Sources audio from another amp.
  * @SDCA_FUNCTION_TYPE_IMP_DEF: Implementation-defined function.
  *
  * SDCA Function Types from SDCA specification v1.0a Section 5.1.2
@@ -82,6 +79,7 @@ enum sdca_function_type {
 	SDCA_FUNCTION_TYPE_RJ				= 0x07,
 	SDCA_FUNCTION_TYPE_SIMPLE_JACK			= 0x08,
 	SDCA_FUNCTION_TYPE_HID				= 0x0A,
+	SDCA_FUNCTION_TYPE_COMPANION_AMP		= 0x0B,
 	SDCA_FUNCTION_TYPE_IMP_DEF			= 0x1F,
 };
 
@@ -95,6 +93,7 @@ enum sdca_function_type {
 #define	SDCA_FUNCTION_TYPE_RJ_NAME			"RJ"
 #define	SDCA_FUNCTION_TYPE_SIMPLE_NAME			"SimpleJack"
 #define	SDCA_FUNCTION_TYPE_HID_NAME			"HID"
+#define	SDCA_FUNCTION_TYPE_COMPANION_AMP_NAME		"CompanionAmp"
 #define	SDCA_FUNCTION_TYPE_IMP_DEF_NAME			"ImplementationDefined"
 
 /**
@@ -132,6 +131,32 @@ struct sdca_init_write {
  */
 #define SDCA_CTL_TYPE_S(ent, sel) SDCA_CTL_TYPE(SDCA_ENTITY_TYPE_##ent, \
 						SDCA_CTL_##ent##_##sel)
+
+/**
+ * enum sdca_messageoffset_range - Column definitions UMP MessageOffset
+ */
+enum sdca_messageoffset_range {
+	SDCA_MESSAGEOFFSET_BUFFER_START_ADDRESS		= 0,
+	SDCA_MESSAGEOFFSET_BUFFER_LENGTH		= 1,
+	SDCA_MESSAGEOFFSET_UMP_MODE			= 2,
+	SDCA_MESSAGEOFFSET_NCOLS			= 3,
+};
+
+/**
+ * enum sdca_ump_mode - SDCA UMP Mode
+ */
+enum sdca_ump_mode {
+	SDCA_UMP_MODE_DIRECT				= 0x00,
+	SDCA_UMP_MODE_INDIRECT				= 0x01,
+};
+
+/**
+ * enum sdca_ump_owner - SDCA UMP Owner
+ */
+enum sdca_ump_owner {
+	SDCA_UMP_OWNER_HOST				= 0x00,
+	SDCA_UMP_OWNER_DEVICE				= 0x01,
+};
 
 /**
  * enum sdca_it_controls - SDCA Controls for Input Terminal
@@ -258,6 +283,27 @@ enum sdca_xu_controls {
 	SDCA_CTL_XU_FDL_STATUS				= 0x14,
 	SDCA_CTL_XU_FDL_SET_INDEX			= 0x15,
 	SDCA_CTL_XU_FDL_HOST_REQUEST			= 0x16,
+
+	/* FDL Status Host->Device bit definitions */
+	SDCA_CTL_XU_FDLH_TRANSFERRED_CHUNK		= BIT(0),
+	SDCA_CTL_XU_FDLH_TRANSFERRED_FILE		= BIT(1),
+	SDCA_CTL_XU_FDLH_SET_IN_PROGRESS		= BIT(2),
+	SDCA_CTL_XU_FDLH_RESET_ACK			= BIT(4),
+	SDCA_CTL_XU_FDLH_REQ_ABORT			= BIT(5),
+	/* FDL Status Device->Host bit definitions */
+	SDCA_CTL_XU_FDLD_REQ_RESET			= BIT(4),
+	SDCA_CTL_XU_FDLD_REQ_ABORT			= BIT(5),
+	SDCA_CTL_XU_FDLD_ACK_TRANSFER			= BIT(6),
+	SDCA_CTL_XU_FDLD_NEEDS_SET			= BIT(7),
+};
+
+/**
+ * enum sdca_set_index_range - Column definitions UMP SetIndex
+ */
+enum sdca_fdl_set_index_range {
+	SDCA_FDL_SET_INDEX_SET_NUMBER			= 0,
+	SDCA_FDL_SET_INDEX_FILE_SET_ID			= 1,
+	SDCA_FDL_SET_INDEX_NCOLS			= 2,
 };
 
 /**
@@ -542,6 +588,9 @@ enum sdca_entity0_controls {
 	SDCA_CTL_ENTITY_0_FUNCTION_NEEDS_INITIALIZATION	= BIT(5),
 	SDCA_CTL_ENTITY_0_FUNCTION_HAS_BEEN_RESET	= BIT(6),
 	SDCA_CTL_ENTITY_0_FUNCTION_BUSY			= BIT(7),
+
+	/* Function Action Bits */
+	SDCA_CTL_ENTITY_0_RESET_FUNCTION_NOW		= BIT(0),
 };
 
 #define SDCA_CTL_MIC_BIAS_NAME				"Mic Bias"
@@ -557,7 +606,7 @@ enum sdca_entity0_controls {
 #define SDCA_CTL_NDAI_PACKETTYPE_NAME			"NDAI Packet Type"
 #define SDCA_CTL_MIXER_NAME				"Mixer"
 #define SDCA_CTL_SELECTOR_NAME				"Selector"
-#define SDCA_CTL_MUTE_NAME				"Mute"
+#define SDCA_CTL_MUTE_NAME				"Channel"
 #define SDCA_CTL_CHANNEL_VOLUME_NAME			"Channel Volume"
 #define SDCA_CTL_AGC_NAME				"AGC"
 #define SDCA_CTL_BASS_BOOST_NAME			"Bass Boost"
@@ -744,6 +793,7 @@ struct sdca_control_range {
  * @sel: Identifier used for addressing.
  * @nbits: Number of bits used in the Control.
  * @values: Holds the Control value for constants and defaults.
+ * @reset: Defined reset value for the Control.
  * @cn_list: A bitmask showing the valid Control Numbers within this Control,
  * Control Numbers typically represent channels.
  * @interrupt_position: SCDA interrupt line that will alert to changes on this
@@ -754,6 +804,7 @@ struct sdca_control_range {
  * @layers: Bitmask of access layers of the Control.
  * @deferrable: Indicates if the access to the Control can be deferred.
  * @has_default: Indicates the Control has a default value to be written.
+ * @has_reset: Indicates the Control has a defined reset value.
  * @has_fixed: Indicates the Control only supports a single value.
  */
 struct sdca_control {
@@ -762,6 +813,7 @@ struct sdca_control {
 
 	int nbits;
 	int *values;
+	int reset;
 	u64 cn_list;
 	int interrupt_position;
 
@@ -771,7 +823,9 @@ struct sdca_control {
 	u8 layers;
 
 	bool deferrable;
+	bool is_volatile;
 	bool has_default;
+	bool has_reset;
 	bool has_fixed;
 };
 
@@ -1063,27 +1117,51 @@ struct sdca_entity_ge {
 /**
  * struct sdca_entity_hide - information specific to HIDE Entities
  * @hid: HID device structure
- * @hidtx_ids: HIDTx Report ID
  * @num_hidtx_ids: number of HIDTx Report ID
- * @hidrx_ids: HIDRx Report ID
  * @num_hidrx_ids: number of HIDRx Report ID
- * @hide_reside_function_num: indicating which Audio Function Numbers within this Device
- * @max_delay: the maximum time in microseconds allowed for the Device to change the ownership from Device to Host
- * @af_number_list: which Audio Function Numbers within this Device are sending/receiving the messages in this HIDE
- * @hid_desc: HID descriptor for the HIDE Entity
+ * @hidtx_ids: HIDTx Report ID
+ * @hidrx_ids: HIDRx Report ID
+ * @af_number_list: which Audio Function Numbers within this Device are
+ * sending/receiving the messages in this HIDE
+ * @hide_reside_function_num: indicating which Audio Function Numbers
+ * within this Device
+ * @max_delay: the maximum time in microseconds allowed for the Device
+ * to change the ownership from Device to Host
  * @hid_report_desc: HID Report Descriptor for the HIDE Entity
+ * @hid_desc: HID descriptor for the HIDE Entity
  */
 struct sdca_entity_hide {
 	struct hid_device *hid;
 	unsigned int *hidtx_ids;
-	int num_hidtx_ids;
 	unsigned int *hidrx_ids;
+	int num_hidtx_ids;
 	int num_hidrx_ids;
+	unsigned int af_number_list[SDCA_MAX_FUNCTION_COUNT];
 	unsigned int hide_reside_function_num;
 	unsigned int max_delay;
-	unsigned int af_number_list[SDCA_MAX_FUNCTION_COUNT];
-	struct hid_descriptor hid_desc;
 	unsigned char *hid_report_desc;
+	struct hid_descriptor hid_desc;
+};
+
+/**
+ * enum sdca_xu_reset_machanism - SDCA FDL Resets
+ */
+enum sdca_xu_reset_mechanism {
+	SDCA_XU_RESET_FUNCTION				= 0x0,
+	SDCA_XU_RESET_DEVICE				= 0x1,
+	SDCA_XU_RESET_BUS				= 0x2,
+};
+
+/**
+ * struct sdca_entity_xu - information specific to XU Entities
+ * @max_delay: the maximum time in microseconds allowed for the Device
+ * to change the ownership from Device to Host
+ * @reset_mechanism: indicates the type of reset that can be requested
+ * the end of an FDL.
+ */
+struct sdca_entity_xu {
+	unsigned int max_delay;
+	enum sdca_xu_reset_mechanism reset_mechanism;
 };
 
 /**
@@ -1102,6 +1180,7 @@ struct sdca_entity_hide {
  * @pde: Power Domain Entity specific Entity properties.
  * @ge: Group Entity specific Entity properties.
  * @hide: HIDE Entity specific Entity properties.
+ * @xu: XU Entity specific Entity properties.
  */
 struct sdca_entity {
 	const char *label;
@@ -1119,6 +1198,7 @@ struct sdca_entity {
 		struct sdca_entity_pde pde;
 		struct sdca_entity_ge ge;
 		struct sdca_entity_hide hide;
+		struct sdca_entity_xu xu;
 	};
 };
 
@@ -1286,6 +1366,42 @@ enum sdca_cluster_range {
 };
 
 /**
+ * struct sdca_fdl_file - information about a file from a fileset used in FDL
+ * @vendor_id: Vendor ID of the file.
+ * @file_id: File ID of the file.
+ * @fdl_offset: Offset information for FDL.
+ */
+struct sdca_fdl_file {
+	u16 vendor_id;
+	u32 file_id;
+	u32 fdl_offset;
+};
+
+/**
+ * struct sdca_fdl_set - information about a set of files used in FDL
+ * @files: Array of files in this FDL set.
+ * @num_files: Number of files in this FDL set.
+ * @id: ID of the FDL set.
+ */
+struct sdca_fdl_set {
+	struct sdca_fdl_file *files;
+	int num_files;
+	u32 id;
+};
+
+/**
+ * struct sdca_fdl_data - information about a function's FDL data
+ * @swft: Pointer to the SoundWire File Table.
+ * @sets: Array of FDL sets used by this function.
+ * @num_sets: Number of FDL sets used by this function.
+ */
+struct sdca_fdl_data {
+	struct acpi_table_swft *swft;
+	struct sdca_fdl_set *sets;
+	int num_sets;
+};
+
+/**
  * struct sdca_function_data - top-level information for one SDCA function
  * @desc: Pointer to short descriptor from initial parsing.
  * @init_table: Pointer to a table of initialization writes.
@@ -1296,6 +1412,9 @@ enum sdca_cluster_range {
  * @num_clusters: Number of Channel Clusters reported in this Function.
  * @busy_max_delay: Maximum Function busy delay in microseconds, before an
  * error should be reported.
+ * @reset_max_delay: Maximum Function reset delay in microseconds, before an
+ * error should be reported.
+ * @fdl_data: FDL data for this Function, if available.
  */
 struct sdca_function_data {
 	struct sdca_function_desc *desc;
@@ -1308,6 +1427,9 @@ struct sdca_function_data {
 	int num_clusters;
 
 	unsigned int busy_max_delay;
+	unsigned int reset_max_delay;
+
+	struct sdca_fdl_data fdl_data;
 };
 
 static inline u32 sdca_range(struct sdca_control_range *range,
@@ -1329,9 +1451,11 @@ static inline u32 sdca_range_search(struct sdca_control_range *range,
 	return 0;
 }
 
-int sdca_parse_function(struct device *dev,
+int sdca_parse_function(struct device *dev, struct sdw_slave *sdw,
 			struct sdca_function_desc *desc,
 			struct sdca_function_data *function);
+
+const char *sdca_find_terminal_name(enum sdca_terminal_type type);
 
 struct sdca_control *sdca_selector_find_control(struct device *dev,
 						struct sdca_entity *entity,

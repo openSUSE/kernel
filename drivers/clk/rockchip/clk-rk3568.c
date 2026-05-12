@@ -827,6 +827,8 @@ static struct rockchip_clk_branch rk3568_clk_branches[] __initdata = {
 			RK3568_CLKGATE_CON(12), 3, GFLAGS),
 	GATE(CLK_PCIE20_AUX_NDFT, "clk_pcie20_aux_ndft", "xin24m", 0,
 			RK3568_CLKGATE_CON(12), 4, GFLAGS),
+	GATE(CLK_PCIE20_PIPE_DFT, "clk_pcie20_pipe_dft", "aclk_pipe", CLK_IGNORE_UNUSED,
+			RK3568_CLKGATE_CON(12), 5, GFLAGS),
 	GATE(ACLK_PCIE30X1_MST, "aclk_pcie30x1_mst", "aclk_pipe", 0,
 			RK3568_CLKGATE_CON(12), 8, GFLAGS),
 	GATE(ACLK_PCIE30X1_SLV, "aclk_pcie30x1_slv", "aclk_pipe", 0,
@@ -837,6 +839,8 @@ static struct rockchip_clk_branch rk3568_clk_branches[] __initdata = {
 			RK3568_CLKGATE_CON(12), 11, GFLAGS),
 	GATE(CLK_PCIE30X1_AUX_NDFT, "clk_pcie30x1_aux_ndft", "xin24m", 0,
 			RK3568_CLKGATE_CON(12), 12, GFLAGS),
+	GATE(CLK_PCIE30X1_PIPE_DFT, "clk_pcie30x1_pipe_dft", "aclk_pipe", CLK_IGNORE_UNUSED,
+			RK3568_CLKGATE_CON(12), 13, GFLAGS),
 	GATE(ACLK_PCIE30X2_MST, "aclk_pcie30x2_mst", "aclk_pipe", 0,
 			RK3568_CLKGATE_CON(13), 0, GFLAGS),
 	GATE(ACLK_PCIE30X2_SLV, "aclk_pcie30x2_slv", "aclk_pipe", 0,
@@ -847,6 +851,8 @@ static struct rockchip_clk_branch rk3568_clk_branches[] __initdata = {
 			RK3568_CLKGATE_CON(13), 3, GFLAGS),
 	GATE(CLK_PCIE30X2_AUX_NDFT, "clk_pcie30x2_aux_ndft", "xin24m", 0,
 			RK3568_CLKGATE_CON(13), 4, GFLAGS),
+	GATE(CLK_PCIE30X2_PIPE_DFT, "clk_pcie30x2_pipe_dft", "aclk_pipe", CLK_IGNORE_UNUSED,
+			RK3568_CLKGATE_CON(13), 5, GFLAGS),
 	GATE(ACLK_SATA0, "aclk_sata0", "aclk_pipe", 0,
 			RK3568_CLKGATE_CON(11), 0, GFLAGS),
 	GATE(CLK_SATA0_PMALIVE, "clk_sata0_pmalive", "gpll_20m", 0,
@@ -1652,6 +1658,7 @@ CLK_OF_DECLARE(rk3568_cru_pmu, "rockchip,rk3568-pmucru", rk3568_pmu_clk_init);
 static void __init rk3568_clk_init(struct device_node *np)
 {
 	struct rockchip_clk_provider *ctx;
+	unsigned long clk_nr_clks;
 	void __iomem *reg_base;
 
 	reg_base = of_iomap(np, 0);
@@ -1660,7 +1667,9 @@ static void __init rk3568_clk_init(struct device_node *np)
 		return;
 	}
 
-	ctx = rockchip_clk_init(np, reg_base, CLK_NR_CLKS);
+	clk_nr_clks = rockchip_clk_find_max_clk_id(rk3568_clk_branches,
+						   ARRAY_SIZE(rk3568_clk_branches)) + 1;
+	ctx = rockchip_clk_init(np, reg_base, clk_nr_clks);
 	if (IS_ERR(ctx)) {
 		pr_err("%s: rockchip clk init failed\n", __func__);
 		iounmap(reg_base);

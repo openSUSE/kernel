@@ -60,7 +60,7 @@ static inline bool has_lock_type(const struct pbn_lock *lock, enum pbn_lock_type
  * vdo_is_pbn_read_lock() - Check whether a pbn_lock is a read lock.
  * @lock: The lock to check.
  *
- * Return: true if the lock is a read lock.
+ * Return: True if the lock is a read lock.
  */
 bool vdo_is_pbn_read_lock(const struct pbn_lock *lock)
 {
@@ -75,6 +75,7 @@ static inline void set_pbn_lock_type(struct pbn_lock *lock, enum pbn_lock_type t
 /**
  * vdo_downgrade_pbn_write_lock() - Downgrade a PBN write lock to a PBN read lock.
  * @lock: The PBN write lock to downgrade.
+ * @compressed_write: True if the written block was a compressed block.
  *
  * The lock holder count is cleared and the caller is responsible for setting the new count.
  */
@@ -199,7 +200,7 @@ struct pbn_lock_pool {
 	/** @idle_list: A list containing all idle PBN lock instances. */
 	struct list_head idle_list;
 	/** @locks: The memory for all the locks allocated by this pool. */
-	idle_pbn_lock locks[];
+	idle_pbn_lock locks[] __counted_by(capacity);
 };
 
 /**
@@ -239,8 +240,7 @@ static int make_pbn_lock_pool(size_t capacity, struct pbn_lock_pool **pool_ptr)
 	struct pbn_lock_pool *pool;
 	int result;
 
-	result = vdo_allocate_extended(struct pbn_lock_pool, capacity, idle_pbn_lock,
-				       __func__, &pool);
+	result = vdo_allocate_extended(capacity, locks, __func__, &pool);
 	if (result != VDO_SUCCESS)
 		return result;
 
@@ -367,8 +367,7 @@ int vdo_make_physical_zones(struct vdo *vdo, struct physical_zones **zones_ptr)
 	if (zone_count == 0)
 		return VDO_SUCCESS;
 
-	result = vdo_allocate_extended(struct physical_zones, zone_count,
-				       struct physical_zone, __func__, &zones);
+	result = vdo_allocate_extended(zone_count, zones, __func__, &zones);
 	if (result != VDO_SUCCESS)
 		return result;
 
@@ -582,7 +581,7 @@ static bool continue_allocating(struct data_vio *data_vio)
  *				  that fails try the next if possible.
  * @data_vio: The data_vio needing an allocation.
  *
- * Return: true if a block was allocated, if not the data_vio will have been dispatched so the
+ * Return: True if a block was allocated, if not the data_vio will have been dispatched so the
  *         caller must not touch it.
  */
 bool vdo_allocate_block_in_zone(struct data_vio *data_vio)

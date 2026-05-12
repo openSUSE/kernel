@@ -36,6 +36,7 @@
 
 #define pr_fmt(fmt) "IPv6: " fmt
 
+#include <crypto/sha1.h>
 #include <linux/errno.h>
 #include <linux/types.h>
 #include <linux/kernel.h>
@@ -355,12 +356,11 @@ static int snmp6_alloc_dev(struct inet6_dev *idev)
 	}
 
 
-	idev->stats.icmpv6dev = kzalloc(sizeof(struct icmpv6_mib_device),
-					GFP_KERNEL);
+	idev->stats.icmpv6dev = kzalloc_obj(struct icmpv6_mib_device);
 	if (!idev->stats.icmpv6dev)
 		goto err_icmp;
-	idev->stats.icmpv6msgdev = kzalloc(sizeof(struct icmpv6msg_mib_device),
-					   GFP_KERNEL_ACCOUNT);
+	idev->stats.icmpv6msgdev = kzalloc_obj(struct icmpv6msg_mib_device,
+					       GFP_KERNEL_ACCOUNT);
 	if (!idev->stats.icmpv6msgdev)
 		goto err_icmpmsg;
 
@@ -385,7 +385,7 @@ static struct inet6_dev *ipv6_add_dev(struct net_device *dev)
 	if (dev->mtu < IPV6_MIN_MTU && dev != blackhole_netdev)
 		return ERR_PTR(-EINVAL);
 
-	ndev = kzalloc(sizeof(*ndev), GFP_KERNEL_ACCOUNT);
+	ndev = kzalloc_obj(*ndev, GFP_KERNEL_ACCOUNT);
 	if (!ndev)
 		return ERR_PTR(err);
 
@@ -1013,7 +1013,7 @@ ipv6_link_dev_addr(struct inet6_dev *idev, struct inet6_ifaddr *ifp)
 	list_for_each(p, &idev->addr_list) {
 		struct inet6_ifaddr *ifa
 			= list_entry(p, struct inet6_ifaddr, if_list);
-		if (ifp_scope >= ipv6_addr_src_scope(&ifa->addr))
+		if (ifp_scope > ipv6_addr_src_scope(&ifa->addr))
 			break;
 	}
 
@@ -1117,7 +1117,7 @@ ipv6_add_addr(struct inet6_dev *idev, struct ifa6_config *cfg,
 			goto out;
 	}
 
-	ifa = kzalloc(sizeof(*ifa), gfp_flags | __GFP_ACCOUNT);
+	ifa = kzalloc_obj(*ifa, gfp_flags | __GFP_ACCOUNT);
 	if (!ifa) {
 		err = -ENOBUFS;
 		goto out;
@@ -1324,7 +1324,7 @@ static void ipv6_del_addr(struct inet6_ifaddr *ifp)
 		__in6_ifa_put(ifp);
 	}
 
-	if (ifp->flags & IFA_F_PERMANENT && !(ifp->flags & IFA_F_NOPREFIXROUTE))
+	if (!(ifp->flags & IFA_F_NOPREFIXROUTE))
 		action = check_cleanup_prefix_route(ifp, &expires);
 
 	list_del_rcu(&ifp->if_list);
@@ -2863,7 +2863,7 @@ void addrconf_prefix_rcv(struct net_device *dev, u8 *opt, int len, bool sllao)
 					fib6_add_gc_list(rt);
 				} else {
 					fib6_clean_expires(rt);
-					fib6_remove_gc_list(rt);
+					fib6_may_remove_gc_list(net, rt);
 				}
 
 				spin_unlock_bh(&table->tb6_lock);
@@ -3112,11 +3112,11 @@ static int inet6_addr_del(struct net *net, int ifindex, u32 ifa_flags,
 			in6_ifa_hold(ifp);
 			read_unlock_bh(&idev->lock);
 
-			ipv6_del_addr(ifp);
-
 			if (!(ifp->flags & IFA_F_TEMPORARY) &&
 			    (ifp->flags & IFA_F_MANAGETEMPADDR))
 				delete_tempaddrs(idev, ifp);
+
+			ipv6_del_addr(ifp);
 
 			addrconf_verify_rtnl(net);
 			if (ipv6_addr_is_multicast(pfx)) {
@@ -3339,11 +3339,10 @@ static int ipv6_generate_stable_address(struct in6_addr *address,
 					const struct inet6_dev *idev)
 {
 	static DEFINE_SPINLOCK(lock);
-	static __u32 digest[SHA1_DIGEST_WORDS];
-	static __u32 workspace[SHA1_WORKSPACE_WORDS];
+	static struct sha1_ctx sha_ctx;
 
 	static union {
-		char __data[SHA1_BLOCK_SIZE];
+		u8 __data[SHA1_BLOCK_SIZE];
 		struct {
 			struct in6_addr secret;
 			__be32 prefix[2];
@@ -3368,20 +3367,26 @@ static int ipv6_generate_stable_address(struct in6_addr *address,
 retry:
 	spin_lock_bh(&lock);
 
-	sha1_init_raw(digest);
+	sha1_init(&sha_ctx);
+
 	memset(&data, 0, sizeof(data));
-	memset(workspace, 0, sizeof(workspace));
 	memcpy(data.hwaddr, idev->dev->perm_addr, idev->dev->addr_len);
 	data.prefix[0] = address->s6_addr32[0];
 	data.prefix[1] = address->s6_addr32[1];
 	data.secret = secret;
 	data.dad_count = dad_count;
 
-	sha1_transform(digest, data.__data, workspace);
+	sha1_update(&sha_ctx, data.__data, sizeof(data));
 
+	/*
+	 * Note that the SHA-1 finalization is omitted here, and the digest is
+	 * pulled directly from the internal SHA-1 state (making it incompatible
+	 * with standard SHA-1).  Unusual, but technically okay since the data
+	 * length is fixed and is a multiple of the SHA-1 block size.
+	 */
 	temp = *address;
-	temp.s6_addr32[2] = (__force __be32)digest[0];
-	temp.s6_addr32[3] = (__force __be32)digest[1];
+	temp.s6_addr32[2] = (__force __be32)sha_ctx.state.h[0];
+	temp.s6_addr32[3] = (__force __be32)sha_ctx.state.h[1];
 
 	spin_unlock_bh(&lock);
 
@@ -3581,15 +3586,15 @@ static int fixup_permanent_addr(struct net *net,
 		struct fib6_info *f6i, *prev;
 
 		f6i = addrconf_f6i_alloc(net, idev, &ifp->addr, false,
-					 GFP_ATOMIC, NULL);
+					 GFP_KERNEL, NULL);
 		if (IS_ERR(f6i))
 			return PTR_ERR(f6i);
 
 		/* ifp->rt can be accessed outside of rtnl */
-		spin_lock(&ifp->lock);
+		spin_lock_bh(&ifp->lock);
 		prev = ifp->rt;
 		ifp->rt = f6i;
-		spin_unlock(&ifp->lock);
+		spin_unlock_bh(&ifp->lock);
 
 		fib6_info_release(prev);
 	}
@@ -3597,7 +3602,7 @@ static int fixup_permanent_addr(struct net *net,
 	if (!(ifp->flags & IFA_F_NOPREFIXROUTE)) {
 		addrconf_prefix_route(&ifp->addr, ifp->prefix_len,
 				      ifp->rt_priority, idev->dev, 0, 0,
-				      GFP_ATOMIC);
+				      GFP_KERNEL);
 	}
 
 	if (ifp->state == INET6_IFADDR_STATE_PREDAD)
@@ -3608,29 +3613,36 @@ static int fixup_permanent_addr(struct net *net,
 
 static void addrconf_permanent_addr(struct net *net, struct net_device *dev)
 {
-	struct inet6_ifaddr *ifp, *tmp;
+	struct inet6_ifaddr *ifp;
+	LIST_HEAD(tmp_addr_list);
 	struct inet6_dev *idev;
+
+	/* Mutual exclusion with other if_list_aux users. */
+	ASSERT_RTNL();
 
 	idev = __in6_dev_get(dev);
 	if (!idev)
 		return;
 
 	write_lock_bh(&idev->lock);
+	list_for_each_entry(ifp, &idev->addr_list, if_list) {
+		if (ifp->flags & IFA_F_PERMANENT)
+			list_add_tail(&ifp->if_list_aux, &tmp_addr_list);
+	}
+	write_unlock_bh(&idev->lock);
 
-	list_for_each_entry_safe(ifp, tmp, &idev->addr_list, if_list) {
-		if ((ifp->flags & IFA_F_PERMANENT) &&
-		    fixup_permanent_addr(net, idev, ifp) < 0) {
-			write_unlock_bh(&idev->lock);
-			in6_ifa_hold(ifp);
-			ipv6_del_addr(ifp);
-			write_lock_bh(&idev->lock);
+	while (!list_empty(&tmp_addr_list)) {
+		ifp = list_first_entry(&tmp_addr_list,
+				       struct inet6_ifaddr, if_list_aux);
+		list_del(&ifp->if_list_aux);
 
+		if (fixup_permanent_addr(net, idev, ifp) < 0) {
 			net_info_ratelimited("%s: Failed to add prefix route for address %pI6c; dropping\n",
 					     idev->dev->name, &ifp->addr);
+			in6_ifa_hold(ifp);
+			ipv6_del_addr(ifp);
 		}
 	}
-
-	write_unlock_bh(&idev->lock);
 }
 
 static int addrconf_notify(struct notifier_block *this, unsigned long event,
@@ -4836,7 +4848,7 @@ static int modify_prefix_route(struct net *net, struct inet6_ifaddr *ifp,
 
 		if (!(flags & RTF_EXPIRES)) {
 			fib6_clean_expires(f6i);
-			fib6_remove_gc_list(f6i);
+			fib6_may_remove_gc_list(net, f6i);
 		} else {
 			fib6_set_expires(f6i, expires);
 			fib6_add_gc_list(f6i);
@@ -7238,7 +7250,9 @@ static const struct ctl_table addrconf_sysctl[] = {
 		.data		= &ipv6_devconf.rpl_seg_enabled,
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
-		.proc_handler	= proc_dointvec,
+		.proc_handler   = proc_dointvec_minmax,
+		.extra1         = SYSCTL_ZERO,
+		.extra2         = SYSCTL_ONE,
 	},
 	{
 		.procname	= "ioam6_enabled",
@@ -7391,9 +7405,8 @@ static int __net_init addrconf_init_net(struct net *net)
 
 	spin_lock_init(&net->ipv6.addrconf_hash_lock);
 	INIT_DEFERRABLE_WORK(&net->ipv6.addr_chk_work, addrconf_verify_work);
-	net->ipv6.inet6_addr_lst = kcalloc(IN6_ADDR_HSIZE,
-					   sizeof(struct hlist_head),
-					   GFP_KERNEL);
+	net->ipv6.inet6_addr_lst = kzalloc_objs(struct hlist_head,
+						IN6_ADDR_HSIZE);
 	if (!net->ipv6.inet6_addr_lst)
 		goto err_alloc_addr;
 

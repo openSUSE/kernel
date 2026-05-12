@@ -129,6 +129,7 @@ int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned int num_ibs,
 	struct amdgpu_ib *ib = &ibs[0];
 	struct dma_fence *tmp = NULL;
 	struct amdgpu_fence *af;
+	struct amdgpu_fence *vm_af;
 	bool need_ctx_switch;
 	struct amdgpu_vm *vm;
 	uint64_t fence_ctx;
@@ -149,17 +150,19 @@ int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned int num_ibs,
 	if (job) {
 		vm = job->vm;
 		fence_ctx = job->base.s_fence ?
-			job->base.s_fence->scheduled.context : 0;
+			job->base.s_fence->finished.context : 0;
 		shadow_va = job->shadow_va;
 		csa_va = job->csa_va;
 		gds_va = job->gds_va;
 		init_shadow = job->init_shadow;
-		af = &job->hw_fence;
+		af = job->hw_fence;
 		/* Save the context of the job for reset handling.
 		 * The driver needs this so it can skip the ring
 		 * contents for guilty contexts.
 		 */
-		af->context = job->base.s_fence ? job->base.s_fence->finished.context : 0;
+		af->context = fence_ctx;
+		/* the vm fence is also part of the job's context */
+		job->hw_vm_fence->context = fence_ctx;
 	} else {
 		vm = NULL;
 		fence_ctx = 0;
@@ -167,23 +170,28 @@ int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned int num_ibs,
 		csa_va = 0;
 		gds_va = 0;
 		init_shadow = false;
-		af = NULL;
+		af = kzalloc_obj(*af, GFP_ATOMIC);
+		if (!af)
+			return -ENOMEM;
 	}
 
 	if (!ring->sched.ready) {
 		dev_err(adev->dev, "couldn't schedule ib on ring <%s>\n", ring->name);
-		return -EINVAL;
+		r = -EINVAL;
+		goto free_fence;
 	}
 
 	if (vm && !job->vmid) {
 		dev_err(adev->dev, "VM IB without ID\n");
-		return -EINVAL;
+		r = -EINVAL;
+		goto free_fence;
 	}
 
 	if ((ib->flags & AMDGPU_IB_FLAGS_SECURE) &&
 	    (!ring->funcs->secure_submission_supported)) {
 		dev_err(adev->dev, "secure submissions not supported on ring <%s>\n", ring->name);
-		return -EINVAL;
+		r = -EINVAL;
+		goto free_fence;
 	}
 
 	alloc_size = ring->funcs->emit_frame_size + num_ibs *
@@ -192,7 +200,7 @@ int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned int num_ibs,
 	r = amdgpu_ring_alloc(ring, alloc_size);
 	if (r) {
 		dev_err(adev->dev, "scheduling IB failed (%d).\n", r);
-		return r;
+		goto free_fence;
 	}
 
 	need_ctx_switch = ring->current_ctx != fence_ctx;
@@ -208,6 +216,22 @@ int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned int num_ibs,
 		dma_fence_put(tmp);
 	}
 
+	if (job) {
+		vm_af = job->hw_vm_fence;
+		/* VM sequence */
+		vm_af->ib_wptr = ring->wptr;
+		amdgpu_vm_flush(ring, job, need_pipe_sync);
+		vm_af->ib_dw_size =
+			amdgpu_ring_get_dw_distance(ring, vm_af->ib_wptr, ring->wptr);
+	}
+
+	/* IB sequence */
+	af->ib_wptr = ring->wptr;
+	amdgpu_ring_ib_begin(ring);
+
+	if (ring->funcs->insert_start)
+		ring->funcs->insert_start(ring);
+
 	if ((ib->flags & AMDGPU_IB_FLAG_EMIT_MEM_SYNC) && ring->funcs->emit_mem_sync)
 		ring->funcs->emit_mem_sync(ring);
 
@@ -215,20 +239,7 @@ int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned int num_ibs,
 	    ring->hw_prio == AMDGPU_GFX_PIPE_PRIO_HIGH)
 		ring->funcs->emit_wave_limit(ring, true);
 
-	if (ring->funcs->insert_start)
-		ring->funcs->insert_start(ring);
-
-	if (job) {
-		r = amdgpu_vm_flush(ring, job, need_pipe_sync);
-		if (r) {
-			amdgpu_ring_undo(ring);
-			return r;
-		}
-	}
-
-	amdgpu_ring_ib_begin(ring);
-
-	if (ring->funcs->emit_gfx_shadow)
+	if (ring->funcs->emit_gfx_shadow && adev->gfx.cp_gfx_shadow)
 		amdgpu_ring_emit_gfx_shadow(ring, shadow_va, csa_va, gds_va,
 					    init_shadow, vmid);
 
@@ -236,6 +247,9 @@ int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned int num_ibs,
 		cond_exec = amdgpu_ring_init_cond_exec(ring,
 						       ring->cond_exe_gpu_addr);
 
+	/* Skip the IB for guilty contexts */
+	af->skip_ib_dw_start_offset =
+		amdgpu_ring_get_dw_distance(ring, af->ib_wptr, ring->wptr);
 	amdgpu_device_flush_hdp(adev, ring);
 
 	if (need_ctx_switch)
@@ -274,6 +288,9 @@ int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned int num_ibs,
 		amdgpu_ring_emit_frame_cntl(ring, false, secure);
 
 	amdgpu_device_invalidate_hdp(adev, ring);
+	/* Skip the IB for guilty contexts */
+	af->skip_ib_dw_end_offset =
+		amdgpu_ring_get_dw_distance(ring, af->ib_wptr, ring->wptr);
 
 	if (ib->flags & AMDGPU_IB_FLAG_TC_WB_NOT_INVALIDATE)
 		fence_flags |= AMDGPU_FENCE_FLAG_TC_WB_ONLY;
@@ -284,19 +301,17 @@ int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned int num_ibs,
 				       fence_flags | AMDGPU_FENCE_FLAG_64BIT);
 	}
 
-	if (ring->funcs->emit_gfx_shadow && ring->funcs->init_cond_exec) {
+	if (ring->funcs->emit_gfx_shadow && ring->funcs->init_cond_exec &&
+	    adev->gfx.cp_gfx_shadow) {
 		amdgpu_ring_emit_gfx_shadow(ring, 0, 0, 0, false, 0);
 		amdgpu_ring_init_cond_exec(ring, ring->cond_exe_gpu_addr);
 	}
 
-	r = amdgpu_fence_emit(ring, f, af, fence_flags);
-	if (r) {
-		dev_err(adev->dev, "failed to emit fence (%d)\n", r);
-		if (job && job->vmid)
-			amdgpu_vmid_reset(adev, ring->vm_hub, job->vmid);
-		amdgpu_ring_undo(ring);
-		return r;
-	}
+	amdgpu_fence_emit(ring, af, fence_flags);
+	*f = &af->base;
+	/* get a ref for the job */
+	if (job)
+		dma_fence_get(*f);
 
 	if (ring->funcs->insert_end)
 		ring->funcs->insert_end(ring);
@@ -311,18 +326,18 @@ int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned int num_ibs,
 	    ring->hw_prio == AMDGPU_GFX_PIPE_PRIO_HIGH)
 		ring->funcs->emit_wave_limit(ring, false);
 
-	/* Save the wptr associated with this fence.
-	 * This must be last for resets to work properly
-	 * as we need to save the wptr associated with this
-	 * fence so we know what rings contents to backup
-	 * after we reset the queue.
-	 */
-	amdgpu_fence_save_wptr(*f);
-
 	amdgpu_ring_ib_end(ring);
+
+	af->ib_dw_size = amdgpu_ring_get_dw_distance(ring, af->ib_wptr, ring->wptr);
+
 	amdgpu_ring_commit(ring);
 
 	return 0;
+
+free_fence:
+	if (!job)
+		kfree(af);
+	return r;
 }
 
 /**

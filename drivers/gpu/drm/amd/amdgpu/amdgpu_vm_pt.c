@@ -51,6 +51,7 @@ static unsigned int amdgpu_vm_pt_level_shift(struct amdgpu_device *adev,
 					     unsigned int level)
 {
 	switch (level) {
+	case AMDGPU_VM_PDB3:
 	case AMDGPU_VM_PDB2:
 	case AMDGPU_VM_PDB1:
 	case AMDGPU_VM_PDB0:
@@ -366,6 +367,7 @@ int amdgpu_vm_pt_clear(struct amdgpu_device *adev, struct amdgpu_vm *vm,
 	struct amdgpu_bo *ancestor = &vmbo->bo;
 	unsigned int entries;
 	struct amdgpu_bo *bo = &vmbo->bo;
+	uint64_t value = 0, flags = 0;
 	uint64_t addr;
 	int r, idx;
 
@@ -403,7 +405,6 @@ int amdgpu_vm_pt_clear(struct amdgpu_device *adev, struct amdgpu_vm *vm,
 
 	addr = 0;
 
-	uint64_t value = 0, flags = 0;
 	if (adev->asic_type >= CHIP_VEGA10) {
 		if (level != AMDGPU_VM_PTB) {
 			/* Handle leaf PDEs as PTEs */
@@ -412,7 +413,7 @@ int amdgpu_vm_pt_clear(struct amdgpu_device *adev, struct amdgpu_vm *vm,
 					      &value, &flags);
 		} else {
 			/* Workaround for fault priority problem on GMC9 */
-			flags = AMDGPU_PTE_EXECUTABLE;
+			flags = AMDGPU_PTE_EXECUTABLE | adev->gmc.init_pte_flags;
 		}
 	}
 
@@ -692,8 +693,11 @@ static void amdgpu_vm_pte_update_flags(struct amdgpu_vm_update_params *params,
 		   !(flags & AMDGPU_PTE_VALID) &&
 		   !(flags & AMDGPU_PTE_PRT_FLAG(params->adev))) {
 
-		/* Workaround for fault priority problem on GMC9 */
-		flags |= AMDGPU_PTE_EXECUTABLE;
+		/* Workaround for fault priority problem on GMC9 and GFX12,
+		 * EXECUTABLE for GMC9 fault priority and init_pte_flags
+		 * (e.g. AMDGPU_PTE_IS_PTE on GFX12)
+		 */
+		flags |= AMDGPU_PTE_EXECUTABLE | adev->gmc.init_pte_flags;
 	}
 
 	/*
@@ -705,15 +709,6 @@ static void amdgpu_vm_pte_update_flags(struct amdgpu_vm_update_params *params,
 	 */
 	if (level == AMDGPU_VM_PTB)
 		amdgpu_vm_pte_update_noretry_flags(adev, &flags);
-
-	/* APUs mapping system memory may need different MTYPEs on different
-	 * NUMA nodes. Only do this for contiguous ranges that can be assumed
-	 * to be on the same NUMA node.
-	 */
-	if ((flags & AMDGPU_PTE_SYSTEM) && (adev->flags & AMD_IS_APU) &&
-	    adev->gmc.gmc_funcs->override_vm_pte_flags &&
-	    num_possible_nodes() > 1 && !params->pages_addr && params->allow_override)
-		amdgpu_gmc_override_vm_pte_flags(adev, params->vm, addr, &flags);
 
 	params->vm->update_funcs->update(params, pt, pe, addr, count, incr,
 					 flags);

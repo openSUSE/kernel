@@ -365,6 +365,7 @@ struct ubifs_gced_idx_leb {
  * @read_in_a_row: number of consecutive pages read in a row (for bulk read)
  * @data_len: length of the data attached to the inode
  * @data: inode's data
+ * @i_crypt_info: inode's fscrypt information
  *
  * @ui_mutex exists for two main reasons. At first it prevents inodes from
  * being written back while UBIFS changing them, being in the middle of an VFS
@@ -416,6 +417,9 @@ struct ubifs_inode {
 	pgoff_t read_in_a_row;
 	int data_len;
 	void *data;
+#ifdef CONFIG_FS_ENCRYPTION
+	struct fscrypt_inode_info *i_crypt_info;
+#endif
 };
 
 /**
@@ -1743,7 +1747,7 @@ int ubifs_write_node_hmac(struct ubifs_info *c, void *buf, int len, int lnum,
 int ubifs_check_node(const struct ubifs_info *c, const void *buf, int len,
 		     int lnum, int offs, int quiet, int must_chk_crc);
 void ubifs_init_node(struct ubifs_info *c, void *buf, int len, int pad);
-void ubifs_crc_node(struct ubifs_info *c, void *buf, int len);
+void ubifs_crc_node(void *buf, int len);
 void ubifs_prepare_node(struct ubifs_info *c, void *buf, int len, int pad);
 int ubifs_prepare_node_hmac(struct ubifs_info *c, void *node, int len,
 			    int hmac_offs, int pad);
@@ -2014,7 +2018,8 @@ int ubifs_calc_dark(const struct ubifs_info *c, int spc);
 int ubifs_fsync(struct file *file, loff_t start, loff_t end, int datasync);
 int ubifs_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 		  struct iattr *attr);
-int ubifs_update_time(struct inode *inode, int flags);
+int ubifs_update_time(struct inode *inode, enum fs_update_time type,
+		      unsigned int flags);
 
 /* dir.c */
 struct inode *ubifs_new_inode(struct ubifs_info *c, struct inode *dir,

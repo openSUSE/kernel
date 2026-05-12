@@ -38,26 +38,18 @@ struct chacha_state {
 };
 
 void chacha_block_generic(struct chacha_state *state,
-			  u8 out[CHACHA_BLOCK_SIZE], int nrounds);
+			  u8 out[at_least CHACHA_BLOCK_SIZE], int nrounds);
 static inline void chacha20_block(struct chacha_state *state,
-				  u8 out[CHACHA_BLOCK_SIZE])
+				  u8 out[at_least CHACHA_BLOCK_SIZE])
 {
 	chacha_block_generic(state, out, 20);
 }
 
-void hchacha_block_arch(const struct chacha_state *state,
-			u32 out[HCHACHA_OUT_WORDS], int nrounds);
 void hchacha_block_generic(const struct chacha_state *state,
-			   u32 out[HCHACHA_OUT_WORDS], int nrounds);
+			   u32 out[at_least HCHACHA_OUT_WORDS], int nrounds);
 
-static inline void hchacha_block(const struct chacha_state *state,
-				 u32 out[HCHACHA_OUT_WORDS], int nrounds)
-{
-	if (IS_ENABLED(CONFIG_CRYPTO_ARCH_HAVE_LIB_CHACHA))
-		hchacha_block_arch(state, out, nrounds);
-	else
-		hchacha_block_generic(state, out, nrounds);
-}
+void hchacha_block(const struct chacha_state *state,
+		   u32 out[at_least HCHACHA_OUT_WORDS], int nrounds);
 
 enum chacha_constants { /* expand 32-byte k */
 	CHACHA_CONSTANT_EXPA = 0x61707865U,
@@ -75,8 +67,8 @@ static inline void chacha_init_consts(struct chacha_state *state)
 }
 
 static inline void chacha_init(struct chacha_state *state,
-			       const u32 key[CHACHA_KEY_WORDS],
-			       const u8 iv[CHACHA_IV_SIZE])
+			       const u32 key[at_least CHACHA_KEY_WORDS],
+			       const u8 iv[at_least CHACHA_IV_SIZE])
 {
 	chacha_init_consts(state);
 	state->x[4]  = key[0];
@@ -93,20 +85,8 @@ static inline void chacha_init(struct chacha_state *state,
 	state->x[15] = get_unaligned_le32(iv + 12);
 }
 
-void chacha_crypt_arch(struct chacha_state *state, u8 *dst, const u8 *src,
-		       unsigned int bytes, int nrounds);
-void chacha_crypt_generic(struct chacha_state *state, u8 *dst, const u8 *src,
-			  unsigned int bytes, int nrounds);
-
-static inline void chacha_crypt(struct chacha_state *state,
-				u8 *dst, const u8 *src,
-				unsigned int bytes, int nrounds)
-{
-	if (IS_ENABLED(CONFIG_CRYPTO_ARCH_HAVE_LIB_CHACHA))
-		chacha_crypt_arch(state, dst, src, bytes, nrounds);
-	else
-		chacha_crypt_generic(state, dst, src, bytes, nrounds);
-}
+void chacha_crypt(struct chacha_state *state, u8 *dst, const u8 *src,
+		  unsigned int bytes, int nrounds);
 
 static inline void chacha20_crypt(struct chacha_state *state,
 				  u8 *dst, const u8 *src, unsigned int bytes)
@@ -118,14 +98,5 @@ static inline void chacha_zeroize_state(struct chacha_state *state)
 {
 	memzero_explicit(state, sizeof(*state));
 }
-
-#if IS_ENABLED(CONFIG_CRYPTO_ARCH_HAVE_LIB_CHACHA)
-bool chacha_is_arch_optimized(void);
-#else
-static inline bool chacha_is_arch_optimized(void)
-{
-	return false;
-}
-#endif
 
 #endif /* _CRYPTO_CHACHA_H */

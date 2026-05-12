@@ -11,7 +11,6 @@
 #include <drm/drm_print.h>
 #include <drm/drm_vblank.h>
 
-#include "i915_reg.h"
 #include "i9xx_wm.h"
 #include "intel_atomic.h"
 #include "intel_bw.h"
@@ -19,12 +18,14 @@
 #include "intel_color.h"
 #include "intel_crtc.h"
 #include "intel_crtc_state_dump.h"
+#include "intel_dbuf_bw.h"
 #include "intel_ddi.h"
 #include "intel_de.h"
 #include "intel_display.h"
 #include "intel_display_power.h"
 #include "intel_display_regs.h"
 #include "intel_display_types.h"
+#include "intel_display_wa.h"
 #include "intel_dmc.h"
 #include "intel_fifo_underrun.h"
 #include "intel_modeset_setup.h"
@@ -43,7 +44,7 @@ static void intel_crtc_disable_noatomic_begin(struct intel_crtc *crtc,
 	struct intel_crtc_state *crtc_state =
 		to_intel_crtc_state(crtc->base.state);
 	struct intel_plane *plane;
-	struct drm_atomic_state *state;
+	struct drm_atomic_commit *state;
 	struct intel_crtc *temp_crtc;
 	enum pipe pipe = crtc->pipe;
 
@@ -58,7 +59,7 @@ static void intel_crtc_disable_noatomic_begin(struct intel_crtc *crtc,
 			intel_plane_disable_noatomic(crtc, plane);
 	}
 
-	state = drm_atomic_state_alloc(display->drm);
+	state = drm_atomic_commit_alloc(display->drm);
 	if (!state) {
 		drm_dbg_kms(display->drm,
 			    "failed to disable [CRTC:%d:%s], out of memory",
@@ -82,9 +83,9 @@ static void intel_crtc_disable_noatomic_begin(struct intel_crtc *crtc,
 		drm_WARN_ON(display->drm, IS_ERR(temp_crtc_state) || ret);
 	}
 
-	display->funcs.display->crtc_disable(to_intel_atomic_state(state), crtc);
+	display->modeset.funcs->crtc_disable(to_intel_atomic_state(state), crtc);
 
-	drm_atomic_state_put(state);
+	drm_atomic_commit_put(state);
 
 	drm_dbg_kms(display->drm,
 		    "[CRTC:%d:%s] hw state adjusted, was enabled, now disabled\n",
@@ -176,6 +177,7 @@ static void intel_crtc_disable_noatomic_complete(struct intel_crtc *crtc)
 	intel_cdclk_crtc_disable_noatomic(crtc);
 	skl_wm_crtc_disable_noatomic(crtc);
 	intel_bw_crtc_disable_noatomic(crtc);
+	intel_dbuf_bw_crtc_disable_noatomic(crtc);
 
 	intel_pmdemand_update_port_clock(display, pmdemand_state, pipe, 0);
 }
@@ -331,6 +333,7 @@ static void intel_crtc_copy_hw_to_uapi_state(struct intel_crtc_state *crtc_state
 
 	crtc_state->uapi.adjusted_mode = crtc_state->hw.adjusted_mode;
 	crtc_state->uapi.scaling_filter = crtc_state->hw.scaling_filter;
+	crtc_state->uapi.sharpness_strength = crtc_state->hw.sharpness_strength;
 
 	if (DISPLAY_INFO(display)->color.degamma_lut_size) {
 		/* assume 1:1 mapping */
@@ -851,17 +854,22 @@ static void intel_modeset_readout_hw_state(struct intel_display *display)
 			 */
 			if (plane_state->uapi.visible && plane->min_cdclk) {
 				if (crtc_state->double_wide || DISPLAY_VER(display) >= 10)
-					crtc_state->min_cdclk[plane->id] =
+					crtc_state->plane_min_cdclk[plane->id] =
 						DIV_ROUND_UP(crtc_state->pixel_rate, 2);
 				else
-					crtc_state->min_cdclk[plane->id] =
+					crtc_state->plane_min_cdclk[plane->id] =
 						crtc_state->pixel_rate;
 			}
 			drm_dbg_kms(display->drm,
 				    "[PLANE:%d:%s] min_cdclk %d kHz\n",
 				    plane->base.base.id, plane->base.name,
-				    crtc_state->min_cdclk[plane->id]);
+				    crtc_state->plane_min_cdclk[plane->id]);
 		}
+
+		crtc_state->min_cdclk = intel_crtc_min_cdclk(crtc_state);
+
+		drm_dbg_kms(display->drm, "[CRTC:%d:%s] min_cdclk %d kHz\n",
+			    crtc->base.base.id, crtc->base.name, crtc_state->min_cdclk);
 
 		intel_pmdemand_update_port_clock(display, pmdemand_state, pipe,
 						 crtc_state->port_clock);
@@ -872,6 +880,7 @@ static void intel_modeset_readout_hw_state(struct intel_display *display)
 		intel_wm_get_hw_state(display);
 
 	intel_bw_update_hw_state(display);
+	intel_dbuf_bw_update_hw_state(display);
 	intel_cdclk_update_hw_state(display);
 
 	intel_pmdemand_init_pmdemand_params(display, pmdemand_state);
@@ -906,7 +915,7 @@ static void intel_early_display_was(struct intel_display *display)
 	 * Display WA #1185 WaDisableDARBFClkGating:glk,icl,ehl,tgl
 	 * Also known as Wa_14010480278.
 	 */
-	if (IS_DISPLAY_VER(display, 10, 12))
+	if (intel_display_wa(display, INTEL_DISPLAY_WA_14010480278))
 		intel_de_rmw(display, GEN9_CLKGATE_DIS_0, 0, DARBF_GATING_DIS);
 
 	/*
@@ -932,7 +941,7 @@ void intel_modeset_setup_hw_state(struct intel_display *display,
 {
 	struct intel_encoder *encoder;
 	struct intel_crtc *crtc;
-	intel_wakeref_t wakeref;
+	struct ref_tracker *wakeref;
 
 	wakeref = intel_display_power_get(display, POWER_DOMAIN_INIT);
 

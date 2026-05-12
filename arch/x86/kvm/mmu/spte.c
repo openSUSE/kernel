@@ -22,7 +22,7 @@
 bool __read_mostly enable_mmio_caching = true;
 static bool __ro_after_init allow_mmio_caching;
 module_param_named(mmio_caching, enable_mmio_caching, bool, 0444);
-EXPORT_SYMBOL_GPL(enable_mmio_caching);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(enable_mmio_caching);
 
 bool __read_mostly kvm_ad_enabled;
 
@@ -292,7 +292,7 @@ bool make_spte(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 		mark_page_dirty_in_slot(vcpu->kvm, slot, gfn);
 	}
 
-	if (static_branch_unlikely(&cpu_buf_vm_clear) &&
+	if (cpu_feature_enabled(X86_FEATURE_CLEAR_CPU_BUF_VM_MMIO) &&
 	    !kvm_vcpu_can_access_host_mmio(vcpu) &&
 	    kvm_is_mmio_pfn(pfn, &is_host_mmio))
 		kvm_track_host_mmio_mapping(vcpu);
@@ -470,13 +470,13 @@ void kvm_mmu_set_mmio_spte_mask(u64 mmio_value, u64 mmio_mask, u64 access_mask)
 	shadow_mmio_mask  = mmio_mask;
 	shadow_mmio_access_mask = access_mask;
 }
-EXPORT_SYMBOL_GPL(kvm_mmu_set_mmio_spte_mask);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_mmu_set_mmio_spte_mask);
 
 void kvm_mmu_set_mmio_spte_value(struct kvm *kvm, u64 mmio_value)
 {
 	kvm->arch.shadow_mmio_value = mmio_value;
 }
-EXPORT_SYMBOL_GPL(kvm_mmu_set_mmio_spte_value);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_mmu_set_mmio_spte_value);
 
 void kvm_mmu_set_me_spte_mask(u64 me_value, u64 me_mask)
 {
@@ -487,7 +487,7 @@ void kvm_mmu_set_me_spte_mask(u64 me_value, u64 me_mask)
 	shadow_me_value = me_value;
 	shadow_me_mask = me_mask;
 }
-EXPORT_SYMBOL_GPL(kvm_mmu_set_me_spte_mask);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_mmu_set_me_spte_mask);
 
 void kvm_mmu_set_ept_masks(bool has_ad_bits, bool has_exec_only)
 {
@@ -513,7 +513,7 @@ void kvm_mmu_set_ept_masks(bool has_ad_bits, bool has_exec_only)
 	kvm_mmu_set_mmio_spte_mask(VMX_EPT_MISCONFIG_WX_VALUE,
 				   VMX_EPT_RWX_MASK | VMX_EPT_SUPPRESS_VE_BIT, 0);
 }
-EXPORT_SYMBOL_GPL(kvm_mmu_set_ept_masks);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_mmu_set_ept_masks);
 
 void kvm_mmu_reset_all_pte_masks(void)
 {

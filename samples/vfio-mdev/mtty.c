@@ -68,9 +68,12 @@
  * Global Structures
  */
 
+static const struct class mtty_class = {
+	.name	= MTTY_CLASS_NAME
+};
+
 static struct mtty_dev {
 	dev_t		vd_devt;
-	struct class	*vd_class;
 	struct cdev	vd_cdev;
 	struct idr	vd_idr;
 	struct device	dev;
@@ -624,7 +627,7 @@ static void handle_bar_read(unsigned int index, struct mdev_state *mdev_state,
 		u8 lsr = 0;
 
 		mutex_lock(&mdev_state->rxtx_lock);
-		/* atleast one char in FIFO */
+		/* at least one char in FIFO */
 		if (mdev_state->s[index].rxtx.head !=
 				 mdev_state->s[index].rxtx.tail)
 			lsr |= UART_LSR_DR;
@@ -837,18 +840,11 @@ static long mtty_precopy_ioctl(struct file *filp, unsigned int cmd,
 	struct mdev_state *mdev_state = migf->mdev_state;
 	loff_t *pos = &filp->f_pos;
 	struct vfio_precopy_info info = {};
-	unsigned long minsz;
 	int ret;
 
-	if (cmd != VFIO_MIG_GET_PRECOPY_INFO)
-		return -ENOTTY;
-
-	minsz = offsetofend(struct vfio_precopy_info, dirty_bytes);
-
-	if (copy_from_user(&info, (void __user *)arg, minsz))
-		return -EFAULT;
-	if (info.argsz < minsz)
-		return -EINVAL;
+	ret = vfio_check_precopy_ioctl(&mdev_state->vdev, cmd, arg, &info);
+	if (ret)
+		return ret;
 
 	mutex_lock(&mdev_state->state_mutex);
 	if (mdev_state->state != VFIO_DEVICE_STATE_PRE_COPY &&
@@ -875,7 +871,8 @@ static long mtty_precopy_ioctl(struct file *filp, unsigned int cmd,
 	info.initial_bytes = migf->filled_size - *pos;
 	mutex_unlock(&migf->lock);
 
-	ret = copy_to_user((void __user *)arg, &info, minsz) ? -EFAULT : 0;
+	ret = copy_to_user((void __user *)arg, &info,
+		offsetofend(struct vfio_precopy_info, dirty_bytes)) ? -EFAULT : 0;
 unlock:
 	mtty_state_mutex_unlock(mdev_state);
 	return ret;
@@ -1717,10 +1714,12 @@ static int mtty_set_irqs(struct mdev_state *mdev_state, uint32_t flags,
 	return ret;
 }
 
-static int mtty_get_region_info(struct mdev_state *mdev_state,
-			 struct vfio_region_info *region_info,
-			 u16 *cap_type_id, void **cap_type)
+static int mtty_ioctl_get_region_info(struct vfio_device *vdev,
+				      struct vfio_region_info *region_info,
+				      struct vfio_info_cap *caps)
 {
+	struct mdev_state *mdev_state =
+		container_of(vdev, struct mdev_state, vdev);
 	unsigned int size = 0;
 	u32 bar_index;
 
@@ -1811,30 +1810,6 @@ static long mtty_ioctl(struct vfio_device *vdev, unsigned int cmd,
 			return ret;
 
 		memcpy(&mdev_state->dev_info, &info, sizeof(info));
-
-		if (copy_to_user((void __user *)arg, &info, minsz))
-			return -EFAULT;
-
-		return 0;
-	}
-	case VFIO_DEVICE_GET_REGION_INFO:
-	{
-		struct vfio_region_info info;
-		u16 cap_type_id = 0;
-		void *cap_type = NULL;
-
-		minsz = offsetofend(struct vfio_region_info, offset);
-
-		if (copy_from_user(&info, (void __user *)arg, minsz))
-			return -EFAULT;
-
-		if (info.argsz < minsz)
-			return -EINVAL;
-
-		ret = mtty_get_region_info(mdev_state, &info, &cap_type_id,
-					   &cap_type);
-		if (ret)
-			return ret;
 
 		if (copy_to_user((void __user *)arg, &info, minsz))
 			return -EFAULT;
@@ -1949,6 +1924,7 @@ static const struct vfio_device_ops mtty_dev_ops = {
 	.read = mtty_read,
 	.write = mtty_write,
 	.ioctl = mtty_ioctl,
+	.get_region_info_caps = mtty_ioctl_get_region_info,
 	.bind_iommufd	= vfio_iommufd_emulated_bind,
 	.unbind_iommufd	= vfio_iommufd_emulated_unbind,
 	.attach_ioas	= vfio_iommufd_emulated_attach_ioas,
@@ -2001,15 +1977,14 @@ static int __init mtty_dev_init(void)
 	if (ret)
 		goto err_cdev;
 
-	mtty_dev.vd_class = class_create(MTTY_CLASS_NAME);
+	ret = class_register(&mtty_class);
 
-	if (IS_ERR(mtty_dev.vd_class)) {
+	if (ret) {
 		pr_err("Error: failed to register mtty_dev class\n");
-		ret = PTR_ERR(mtty_dev.vd_class);
 		goto err_driver;
 	}
 
-	mtty_dev.dev.class = mtty_dev.vd_class;
+	mtty_dev.dev.class = &mtty_class;
 	mtty_dev.dev.release = mtty_device_release;
 	dev_set_name(&mtty_dev.dev, "%s", MTTY_NAME);
 
@@ -2028,7 +2003,7 @@ err_device:
 	device_del(&mtty_dev.dev);
 err_put:
 	put_device(&mtty_dev.dev);
-	class_destroy(mtty_dev.vd_class);
+	class_unregister(&mtty_class);
 err_driver:
 	mdev_unregister_driver(&mtty_driver);
 err_cdev:
@@ -2047,8 +2022,7 @@ static void __exit mtty_dev_exit(void)
 	mdev_unregister_driver(&mtty_driver);
 	cdev_del(&mtty_dev.vd_cdev);
 	unregister_chrdev_region(mtty_dev.vd_devt, MINORMASK + 1);
-	class_destroy(mtty_dev.vd_class);
-	mtty_dev.vd_class = NULL;
+	class_unregister(&mtty_class);
 	pr_info("mtty_dev: Unloaded!\n");
 }
 

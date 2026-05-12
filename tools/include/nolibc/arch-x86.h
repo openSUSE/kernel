@@ -30,7 +30,7 @@
  */
 #define __ARCH_WANT_SYS_OLD_SELECT
 
-#define my_syscall0(num)                                                      \
+#define __nolibc_syscall0(num)                                                \
 ({                                                                            \
 	long _ret;                                                            \
 	register long _num __asm__ ("eax") = (num);                           \
@@ -44,7 +44,7 @@
 	_ret;                                                                 \
 })
 
-#define my_syscall1(num, arg1)                                                \
+#define __nolibc_syscall1(num, arg1)                                          \
 ({                                                                            \
 	long _ret;                                                            \
 	register long _num __asm__ ("eax") = (num);                           \
@@ -60,7 +60,7 @@
 	_ret;                                                                 \
 })
 
-#define my_syscall2(num, arg1, arg2)                                          \
+#define __nolibc_syscall2(num, arg1, arg2)                                    \
 ({                                                                            \
 	long _ret;                                                            \
 	register long _num __asm__ ("eax") = (num);                           \
@@ -77,7 +77,7 @@
 	_ret;                                                                 \
 })
 
-#define my_syscall3(num, arg1, arg2, arg3)                                    \
+#define __nolibc_syscall3(num, arg1, arg2, arg3)                              \
 ({                                                                            \
 	long _ret;                                                            \
 	register long _num __asm__ ("eax") = (num);                           \
@@ -95,7 +95,7 @@
 	_ret;                                                                 \
 })
 
-#define my_syscall4(num, arg1, arg2, arg3, arg4)                              \
+#define __nolibc_syscall4(num, arg1, arg2, arg3, arg4)                        \
 ({                                                                            \
 	long _ret;                                                            \
 	register long _num __asm__ ("eax") = (num);                           \
@@ -114,7 +114,7 @@
 	_ret;                                                                 \
 })
 
-#define my_syscall5(num, arg1, arg2, arg3, arg4, arg5)                        \
+#define __nolibc_syscall5(num, arg1, arg2, arg3, arg4, arg5)                  \
 ({                                                                            \
 	long _ret;                                                            \
 	register long _num __asm__ ("eax") = (num);                           \
@@ -134,29 +134,30 @@
 	_ret;                                                                 \
 })
 
-#define my_syscall6(num, arg1, arg2, arg3, arg4, arg5, arg6)	\
-({								\
-	long _eax  = (long)(num);				\
-	long _arg6 = (long)(arg6); /* Always in memory */	\
-	__asm__ volatile (					\
-		"pushl	%[_arg6]\n\t"				\
-		"pushl	%%ebp\n\t"				\
-		"movl	4(%%esp),%%ebp\n\t"			\
-		"int	$0x80\n\t"				\
-		"popl	%%ebp\n\t"				\
-		"addl	$4,%%esp\n\t"				\
-		: "+a"(_eax)		/* %eax */		\
-		: "b"(arg1),		/* %ebx */		\
-		  "c"(arg2),		/* %ecx */		\
-		  "d"(arg3),		/* %edx */		\
-		  "S"(arg4),		/* %esi */		\
-		  "D"(arg5),		/* %edi */		\
-		  [_arg6]"m"(_arg6)	/* memory */		\
-		: "memory", "cc"				\
-	);							\
-	_eax;							\
+#define __nolibc_syscall6(num, arg1, arg2, arg3, arg4, arg5, arg6)	      \
+({								              \
+	long _eax  = (long)(num);				              \
+	long _arg6 = (long)(arg6); /* Always in memory */	              \
+	__asm__ volatile (					              \
+		"pushl	%[_arg6]\n\t"				              \
+		"pushl	%%ebp\n\t"				              \
+		"movl	4(%%esp),%%ebp\n\t"			              \
+		"int	$0x80\n\t"				              \
+		"popl	%%ebp\n\t"				              \
+		"addl	$4,%%esp\n\t"				              \
+		: "+a"(_eax)		/* %eax */		              \
+		: "b"(arg1),		/* %ebx */		              \
+		  "c"(arg2),		/* %ecx */		              \
+		  "d"(arg3),		/* %edx */		              \
+		  "S"(arg4),		/* %esi */		              \
+		  "D"(arg5),		/* %edi */		              \
+		  [_arg6]"m"(_arg6)	/* memory */		              \
+		: "memory", "cc"				              \
+	);							              \
+	_eax;							              \
 })
 
+#ifndef NOLIBC_NO_RUNTIME
 /* startup code */
 /*
  * i386 System V ABI mandates:
@@ -176,6 +177,7 @@ void __attribute__((weak, noreturn)) __nolibc_entrypoint __no_stack_protector _s
 	);
 	__nolibc_entrypoint_epilogue();
 }
+#endif /* NOLIBC_NO_RUNTIME */
 
 #else /* !defined(__x86_64__) */
 
@@ -198,7 +200,7 @@ void __attribute__((weak, noreturn)) __nolibc_entrypoint __no_stack_protector _s
  *
  */
 
-#define my_syscall0(num)                                                      \
+#define __nolibc_syscall0(num)                                                \
 ({                                                                            \
 	long _ret;                                                            \
 	register long _num  __asm__ ("rax") = (num);                          \
@@ -212,7 +214,7 @@ void __attribute__((weak, noreturn)) __nolibc_entrypoint __no_stack_protector _s
 	_ret;                                                                 \
 })
 
-#define my_syscall1(num, arg1)                                                \
+#define __nolibc_syscall1(num, arg1)                                          \
 ({                                                                            \
 	long _ret;                                                            \
 	register long _num  __asm__ ("rax") = (num);                          \
@@ -228,7 +230,7 @@ void __attribute__((weak, noreturn)) __nolibc_entrypoint __no_stack_protector _s
 	_ret;                                                                 \
 })
 
-#define my_syscall2(num, arg1, arg2)                                          \
+#define __nolibc_syscall2(num, arg1, arg2)                                    \
 ({                                                                            \
 	long _ret;                                                            \
 	register long _num  __asm__ ("rax") = (num);                          \
@@ -245,7 +247,7 @@ void __attribute__((weak, noreturn)) __nolibc_entrypoint __no_stack_protector _s
 	_ret;                                                                 \
 })
 
-#define my_syscall3(num, arg1, arg2, arg3)                                    \
+#define __nolibc_syscall3(num, arg1, arg2, arg3)                              \
 ({                                                                            \
 	long _ret;                                                            \
 	register long _num  __asm__ ("rax") = (num);                          \
@@ -263,7 +265,7 @@ void __attribute__((weak, noreturn)) __nolibc_entrypoint __no_stack_protector _s
 	_ret;                                                                 \
 })
 
-#define my_syscall4(num, arg1, arg2, arg3, arg4)                              \
+#define __nolibc_syscall4(num, arg1, arg2, arg3, arg4)                        \
 ({                                                                            \
 	long _ret;                                                            \
 	register long _num  __asm__ ("rax") = (num);                          \
@@ -282,7 +284,7 @@ void __attribute__((weak, noreturn)) __nolibc_entrypoint __no_stack_protector _s
 	_ret;                                                                 \
 })
 
-#define my_syscall5(num, arg1, arg2, arg3, arg4, arg5)                        \
+#define __nolibc_syscall5(num, arg1, arg2, arg3, arg4, arg5)                  \
 ({                                                                            \
 	long _ret;                                                            \
 	register long _num  __asm__ ("rax") = (num);                          \
@@ -302,7 +304,7 @@ void __attribute__((weak, noreturn)) __nolibc_entrypoint __no_stack_protector _s
 	_ret;                                                                 \
 })
 
-#define my_syscall6(num, arg1, arg2, arg3, arg4, arg5, arg6)                  \
+#define __nolibc_syscall6(num, arg1, arg2, arg3, arg4, arg5, arg6)            \
 ({                                                                            \
 	long _ret;                                                            \
 	register long _num  __asm__ ("rax") = (num);                          \
@@ -323,6 +325,7 @@ void __attribute__((weak, noreturn)) __nolibc_entrypoint __no_stack_protector _s
 	_ret;                                                                 \
 })
 
+#ifndef NOLIBC_NO_RUNTIME
 /* startup code */
 /*
  * x86-64 System V ABI mandates:
@@ -340,6 +343,7 @@ void __attribute__((weak, noreturn)) __nolibc_entrypoint __no_stack_protector _s
 	);
 	__nolibc_entrypoint_epilogue();
 }
+#endif /* NOLIBC_NO_RUNTIME */
 
 #define NOLIBC_ARCH_HAS_MEMMOVE
 void *memmove(void *dst, const void *src, size_t len);
@@ -351,7 +355,7 @@ void *memcpy(void *dst, const void *src, size_t len);
 void *memset(void *dst, int c, size_t len);
 
 __asm__ (
-".section .text.nolibc_memmove_memcpy\n"
+".pushsection .text.nolibc_memmove_memcpy\n"
 ".weak memmove\n"
 ".weak memcpy\n"
 "memmove:\n"
@@ -371,8 +375,9 @@ __asm__ (
 	"rep movsb\n\t"
 	"cld\n\t"
 	"retq\n"
+".popsection\n"
 
-".section .text.nolibc_memset\n"
+".pushsection .text.nolibc_memset\n"
 ".weak memset\n"
 "memset:\n"
 	"xchgl %eax, %esi\n\t"
@@ -381,6 +386,7 @@ __asm__ (
 	"rep stosb\n\t"
 	"popq  %rax\n\t"
 	"retq\n"
+".popsection\n"
 );
 
 #endif /* !defined(__x86_64__) */

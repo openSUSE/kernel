@@ -34,14 +34,31 @@ arch/$(SRCARCH)/kernel/asm-offsets.s: $(timeconst-file) $(bounds-file)
 $(offsets-file): arch/$(SRCARCH)/kernel/asm-offsets.s FORCE
 	$(call filechk,offsets,__ASM_OFFSETS_H__)
 
+# Generate rq-offsets.h
+
+rq-offsets-file := include/generated/rq-offsets.h
+
+targets += kernel/sched/rq-offsets.s
+
+kernel/sched/rq-offsets.s: $(offsets-file)
+
+$(rq-offsets-file): kernel/sched/rq-offsets.s FORCE
+	$(call filechk,offsets,__RQ_OFFSETS_H__)
+
 # Check for missing system calls
 
-quiet_cmd_syscalls = CALL    $<
-      cmd_syscalls = $(CONFIG_SHELL) $< $(CC) $(c_flags) $(missing_syscalls_flags)
+missing-syscalls-file := .tmp_missing-syscalls$(missing_syscalls_instance)
+
+targets += $(missing-syscalls-file)
+
+quiet_cmd_syscalls = CALL    $< $(addprefix for ,$(missing_syscalls_instance))
+      cmd_syscalls = DEPFILE=$(depfile) $(CONFIG_SHELL) $< $(CC) $(c_flags) $(missing_syscalls_flags); touch $@
+
+$(missing-syscalls-file): scripts/checksyscalls.sh $(rq-offsets-file) FORCE
+	$(call if_changed_dep,syscalls)
 
 PHONY += missing-syscalls
-missing-syscalls: scripts/checksyscalls.sh $(offsets-file)
-	$(call cmd,syscalls)
+missing-syscalls: $(missing-syscalls-file)
 
 # Check the manual modification of atomic headers
 

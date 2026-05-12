@@ -12,7 +12,7 @@
 #include <linux/vmalloc.h>
 #include <net/addrconf.h>
 #include <rdma/erdma-abi.h>
-#include <rdma/ib_umem.h>
+#include <rdma/iter.h>
 #include <rdma/uverbs_ioctl.h>
 
 #include "erdma.h"
@@ -149,7 +149,7 @@ static int regmr_cmd(struct erdma_dev *dev, struct erdma_mr *mr)
 			req.phy_addr[0] = mr->mem.mtt->buf_dma;
 			mtt_level = ERDMA_MR_MTT_1LEVEL;
 		} else {
-			req.phy_addr[0] = sg_dma_address(mr->mem.mtt->sglist);
+			req.phy_addr[0] = mr->mem.mtt->dma_addrs[0];
 			mtt_level = mr->mem.mtt->level;
 		}
 	} else if (mr->type != ERDMA_MR_TYPE_DMA) {
@@ -291,8 +291,7 @@ static struct rdma_user_mmap_entry *
 erdma_user_mmap_entry_insert(struct erdma_ucontext *uctx, void *address,
 			     u32 size, u8 mmap_flag, u64 *mmap_offset)
 {
-	struct erdma_user_mmap_entry *entry =
-		kzalloc(sizeof(*entry), GFP_KERNEL);
+	struct erdma_user_mmap_entry *entry = kzalloc_obj(*entry);
 	int ret;
 
 	if (!entry)
@@ -600,7 +599,7 @@ static struct erdma_mtt *erdma_create_cont_mtt(struct erdma_dev *dev,
 {
 	struct erdma_mtt *mtt;
 
-	mtt = kzalloc(sizeof(*mtt), GFP_KERNEL);
+	mtt = kzalloc_obj(*mtt);
 	if (!mtt)
 		return ERR_PTR(-ENOMEM);
 
@@ -626,18 +625,27 @@ err_free_mtt:
 	return ERR_PTR(-ENOMEM);
 }
 
-static void erdma_destroy_mtt_buf_sg(struct erdma_dev *dev,
-				     struct erdma_mtt *mtt)
+static void erdma_unmap_page_list(struct erdma_dev *dev, dma_addr_t *pg_dma,
+				  u32 npages)
 {
-	dma_unmap_sg(&dev->pdev->dev, mtt->sglist,
-		     DIV_ROUND_UP(mtt->size, PAGE_SIZE), DMA_TO_DEVICE);
-	vfree(mtt->sglist);
+	u32 i;
+
+	for (i = 0; i < npages; i++)
+		dma_unmap_page(&dev->pdev->dev, pg_dma[i], PAGE_SIZE,
+			       DMA_TO_DEVICE);
+}
+
+static void erdma_destroy_mtt_buf_dma_addrs(struct erdma_dev *dev,
+					    struct erdma_mtt *mtt)
+{
+	erdma_unmap_page_list(dev, mtt->dma_addrs, mtt->npages);
+	vfree(mtt->dma_addrs);
 }
 
 static void erdma_destroy_scatter_mtt(struct erdma_dev *dev,
 				      struct erdma_mtt *mtt)
 {
-	erdma_destroy_mtt_buf_sg(dev, mtt);
+	erdma_destroy_mtt_buf_dma_addrs(dev, mtt);
 	vfree(mtt->buf);
 	kfree(mtt);
 }
@@ -645,50 +653,69 @@ static void erdma_destroy_scatter_mtt(struct erdma_dev *dev,
 static void erdma_init_middle_mtt(struct erdma_mtt *mtt,
 				  struct erdma_mtt *low_mtt)
 {
-	struct scatterlist *sg;
-	u32 idx = 0, i;
+	dma_addr_t *pg_addr = mtt->buf;
+	u32 i;
 
-	for_each_sg(low_mtt->sglist, sg, low_mtt->nsg, i)
-		mtt->buf[idx++] = sg_dma_address(sg);
+	for (i = 0; i < low_mtt->npages; i++)
+		pg_addr[i] = low_mtt->dma_addrs[i];
 }
 
-static int erdma_create_mtt_buf_sg(struct erdma_dev *dev, struct erdma_mtt *mtt)
+static u32 vmalloc_to_dma_addrs(struct erdma_dev *dev, dma_addr_t **dma_addrs,
+				void *buf, u64 len)
 {
-	struct scatterlist *sglist;
-	void *buf = mtt->buf;
-	u32 npages, i, nsg;
+	dma_addr_t *pg_dma;
 	struct page *pg;
+	u32 npages, i;
+	void *addr;
 
-	/* Failed if buf is not page aligned */
-	if ((uintptr_t)buf & ~PAGE_MASK)
-		return -EINVAL;
+	npages = (PAGE_ALIGN((u64)buf + len) - PAGE_ALIGN_DOWN((u64)buf)) >>
+		 PAGE_SHIFT;
+	pg_dma = vcalloc(npages, sizeof(*pg_dma));
+	if (!pg_dma)
+		return 0;
 
-	npages = DIV_ROUND_UP(mtt->size, PAGE_SIZE);
-	sglist = vzalloc(npages * sizeof(*sglist));
-	if (!sglist)
-		return -ENOMEM;
-
-	sg_init_table(sglist, npages);
+	addr = buf;
 	for (i = 0; i < npages; i++) {
-		pg = vmalloc_to_page(buf);
+		pg = vmalloc_to_page(addr);
 		if (!pg)
 			goto err;
-		sg_set_page(&sglist[i], pg, PAGE_SIZE, 0);
-		buf += PAGE_SIZE;
+
+		pg_dma[i] = dma_map_page(&dev->pdev->dev, pg, 0, PAGE_SIZE,
+					 DMA_TO_DEVICE);
+		if (dma_mapping_error(&dev->pdev->dev, pg_dma[i]))
+			goto err;
+
+		addr += PAGE_SIZE;
 	}
 
-	nsg = dma_map_sg(&dev->pdev->dev, sglist, npages, DMA_TO_DEVICE);
-	if (!nsg)
-		goto err;
+	*dma_addrs = pg_dma;
 
-	mtt->sglist = sglist;
-	mtt->nsg = nsg;
+	return npages;
+err:
+	erdma_unmap_page_list(dev, pg_dma, i);
+	vfree(pg_dma);
 
 	return 0;
-err:
-	vfree(sglist);
+}
 
-	return -ENOMEM;
+static int erdma_create_mtt_buf_dma_addrs(struct erdma_dev *dev,
+					  struct erdma_mtt *mtt)
+{
+	dma_addr_t *addrs;
+	u32 npages;
+
+	/* Failed if buf is not page aligned */
+	if ((uintptr_t)mtt->buf & ~PAGE_MASK)
+		return -EINVAL;
+
+	npages = vmalloc_to_dma_addrs(dev, &addrs, mtt->buf, mtt->size);
+	if (!npages)
+		return -ENOMEM;
+
+	mtt->dma_addrs = addrs;
+	mtt->npages = npages;
+
+	return 0;
 }
 
 static struct erdma_mtt *erdma_create_scatter_mtt(struct erdma_dev *dev,
@@ -697,7 +724,7 @@ static struct erdma_mtt *erdma_create_scatter_mtt(struct erdma_dev *dev,
 	struct erdma_mtt *mtt;
 	int ret = -ENOMEM;
 
-	mtt = kzalloc(sizeof(*mtt), GFP_KERNEL);
+	mtt = kzalloc_obj(*mtt);
 	if (!mtt)
 		return ERR_PTR(-ENOMEM);
 
@@ -707,12 +734,12 @@ static struct erdma_mtt *erdma_create_scatter_mtt(struct erdma_dev *dev,
 	if (!mtt->buf)
 		goto err_free_mtt;
 
-	ret = erdma_create_mtt_buf_sg(dev, mtt);
+	ret = erdma_create_mtt_buf_dma_addrs(dev, mtt);
 	if (ret)
 		goto err_free_mtt_buf;
 
-	ibdev_dbg(&dev->ibdev, "create scatter mtt, size:%lu, nsg:%u\n",
-		  mtt->size, mtt->nsg);
+	ibdev_dbg(&dev->ibdev, "create scatter mtt, size:%lu, npages:%u\n",
+		  mtt->size, mtt->npages);
 
 	return mtt;
 
@@ -746,8 +773,8 @@ static struct erdma_mtt *erdma_create_mtt(struct erdma_dev *dev, size_t size,
 	level = 1;
 
 	/* convergence the mtt table. */
-	while (mtt->nsg != 1 && level <= 3) {
-		tmp_mtt = erdma_create_scatter_mtt(dev, MTT_SIZE(mtt->nsg));
+	while (mtt->npages != 1 && level <= 3) {
+		tmp_mtt = erdma_create_scatter_mtt(dev, MTT_SIZE(mtt->npages));
 		if (IS_ERR(tmp_mtt)) {
 			ret = PTR_ERR(tmp_mtt);
 			goto err_free_mtt;
@@ -765,7 +792,7 @@ static struct erdma_mtt *erdma_create_mtt(struct erdma_dev *dev, size_t size,
 
 	mtt->level = level;
 	ibdev_dbg(&dev->ibdev, "top mtt: level:%d, dma_addr 0x%llx\n",
-		  mtt->level, mtt->sglist[0].dma_address);
+		  mtt->level, mtt->dma_addrs[0]);
 
 	return mtt;
 err_free_mtt:
@@ -860,7 +887,7 @@ static int erdma_map_user_dbrecords(struct erdma_ucontext *ctx,
 		if (page->va == (dbrecords_va & PAGE_MASK))
 			goto found;
 
-	page = kmalloc(sizeof(*page), GFP_KERNEL);
+	page = kmalloc_obj(*page);
 	if (!page) {
 		rv = -ENOMEM;
 		goto out;
@@ -1012,8 +1039,7 @@ int erdma_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attrs,
 	qp->attrs.rq_size = roundup_pow_of_two(attrs->cap.max_recv_wr);
 
 	if (uctx) {
-		ret = ib_copy_from_udata(&ureq, udata,
-					 min(sizeof(ureq), udata->inlen));
+		ret = ib_copy_validate_udata_in(udata, ureq, rsvd0);
 		if (ret)
 			goto err_out_xa;
 
@@ -1088,7 +1114,7 @@ struct ib_mr *erdma_get_dma_mr(struct ib_pd *ibpd, int acc)
 	u32 stag;
 	int ret;
 
-	mr = kzalloc(sizeof(*mr), GFP_KERNEL);
+	mr = kzalloc_obj(*mr);
 	if (!mr)
 		return ERR_PTR(-ENOMEM);
 
@@ -1132,7 +1158,7 @@ struct ib_mr *erdma_ib_alloc_mr(struct ib_pd *ibpd, enum ib_mr_type mr_type,
 	if (max_num_sg > ERDMA_MR_MAX_MTT_CNT)
 		return ERR_PTR(-EINVAL);
 
-	mr = kzalloc(sizeof(*mr), GFP_KERNEL);
+	mr = kzalloc_obj(*mr);
 	if (!mr)
 		return ERR_PTR(-ENOMEM);
 
@@ -1218,7 +1244,7 @@ struct ib_mr *erdma_reg_user_mr(struct ib_pd *ibpd, u64 start, u64 len,
 	if (!len || len > dev->attrs.max_mr_size)
 		return ERR_PTR(-EINVAL);
 
-	mr = kzalloc(sizeof(*mr), GFP_KERNEL);
+	mr = kzalloc_obj(*mr);
 	if (!mr)
 		return ERR_PTR(-ENOMEM);
 
@@ -1953,8 +1979,7 @@ int erdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 		struct erdma_ureq_create_cq ureq;
 		struct erdma_uresp_create_cq uresp;
 
-		ret = ib_copy_from_udata(&ureq, udata,
-					 min(udata->inlen, sizeof(ureq)));
+		ret = ib_copy_validate_udata_in(udata, ureq, rsvd0);
 		if (ret)
 			goto err_out_xa;
 

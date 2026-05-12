@@ -105,7 +105,7 @@ __msg("mark_precise: frame0: regs=r0 stack= before 4: (27) r0 *= 4")
 __msg("mark_precise: frame0: regs=r0 stack= before 3: (57) r0 &= 3")
 __msg("mark_precise: frame0: regs=r0 stack= before 10: (95) exit")
 __msg("mark_precise: frame1: regs=r0 stack= before 9: (bf) r0 = (s8)r10")
-__msg("7: R0_w=scalar")
+__msg("7: R0=scalar")
 __naked int fp_precise_subprog_result(void)
 {
 	asm volatile (
@@ -141,7 +141,7 @@ __msg("mark_precise: frame1: regs=r0 stack= before 10: (bf) r0 = (s8)r1")
  * anyways, at which point we'll break precision chain
  */
 __msg("mark_precise: frame1: regs=r1 stack= before 9: (bf) r1 = r10")
-__msg("7: R0_w=scalar")
+__msg("7: R0=scalar")
 __naked int sneaky_fp_precise_subprog_result(void)
 {
 	asm volatile (
@@ -282,7 +282,7 @@ __msg("mark_precise: frame0: regs=r0,r6 stack= before 10: (bf) r6 = r0")
 __msg("mark_precise: frame0: regs=r0 stack= before 9: (85) call bpf_loop")
 /* State entering callback body popped from states stack */
 __msg("from 9 to 17: frame1:")
-__msg("17: frame1: R1=scalar() R2=0 R10=fp0 cb")
+__msg("17: frame1: R10=fp0 cb")
 __msg("17: (b7) r0 = 0")
 __msg("18: (95) exit")
 __msg("returning from callee:")
@@ -411,7 +411,7 @@ __msg("mark_precise: frame0: regs=r6 stack= before 5: (b7) r1 = 1")
 __msg("mark_precise: frame0: regs=r6 stack= before 4: (b7) r6 = 3")
 /* State entering callback body popped from states stack */
 __msg("from 9 to 15: frame1:")
-__msg("15: frame1: R1=scalar() R2=0 R10=fp0 cb")
+__msg("15: frame1: R10=fp0 cb")
 __msg("15: (b7) r0 = 0")
 __msg("16: (95) exit")
 __msg("returning from callee:")
@@ -567,7 +567,7 @@ __msg("mark_precise: frame0: regs= stack=-8 before 5: (7b) *(u64 *)(r10 -8) = r6
 __msg("mark_precise: frame0: regs=r6 stack= before 4: (b7) r6 = 3")
 /* State entering callback body popped from states stack */
 __msg("from 10 to 17: frame1:")
-__msg("17: frame1: R1=scalar() R2=0 R10=fp0 cb")
+__msg("17: frame1: R10=fp0 cb")
 __msg("17: (b7) r0 = 0")
 __msg("18: (95) exit")
 __msg("returning from callee:")
@@ -681,7 +681,7 @@ __msg("mark_precise: frame0: last_idx 10 first_idx 7 subseq_idx -1")
 __msg("mark_precise: frame0: regs=r7 stack= before 9: (bf) r1 = r8")
 __msg("mark_precise: frame0: regs=r7 stack= before 8: (27) r7 *= 4")
 __msg("mark_precise: frame0: regs=r7 stack= before 7: (79) r7 = *(u64 *)(r10 -8)")
-__msg("mark_precise: frame0: parent state regs= stack=-8:  R0_w=2 R6_w=1 R8_rw=map_value(map=.data.vals,ks=4,vs=16) R10=fp0 fp-8_rw=P1")
+__msg("mark_precise: frame0: parent state regs= stack=-8:  R8=map_value(map=.data.vals,ks=4,vs=16) R10=fp0 fp-8=P1")
 __msg("mark_precise: frame0: last_idx 18 first_idx 0 subseq_idx 7")
 __msg("mark_precise: frame0: regs= stack=-8 before 18: (95) exit")
 __msg("mark_precise: frame1: regs= stack= before 17: (0f) r0 += r2")
@@ -790,6 +790,59 @@ __naked int stack_slot_aliases_precision(void)
 		:
 		: __imm_ptr(vals)
 		: __clobber_common, "r6"
+	);
+}
+
+struct {
+        __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
+        __uint(max_entries, 1);
+        __type(key, __u32);
+        __type(value, __u32);
+} map_array SEC(".maps");
+
+__naked __noinline __used
+static unsigned long identity_tail_call(void)
+{
+	/* the simplest identity function involving a tail call */
+        asm volatile (
+		"r6 = r2;"
+		"r2 = %[map_array] ll;"
+		"r3 = 0;"
+		"call %[bpf_tail_call];"
+		"r0 = r6;"
+		"exit;"
+		:
+		: __imm(bpf_tail_call),
+		  __imm_addr(map_array)
+		: __clobber_all);
+}
+
+SEC("?raw_tp")
+__failure __log_level(2)
+__msg("13: (85) call bpf_tail_call#12")
+__msg("mark_precise: frame1: last_idx 13 first_idx 0 subseq_idx -1 ")
+__msg("returning from callee:")
+__msg("frame1: R0=scalar() R6=3 R10=fp0")
+__msg("to caller at 4:")
+__msg("R0=scalar() R6=map_value(map=.data.vals,ks=4,vs=16) R10=fp0")
+__msg("6: (0f) r1 += r0")
+__msg("mark_precise: frame0: regs=r0 stack= before 5: (bf) r1 = r6")
+__msg("mark_precise: frame0: regs=r0 stack= before 4: (27) r0 *= 4")
+__msg("mark_precise: frame0: parent state regs=r0 stack=:  R0=Pscalar() R6=map_value(map=.data.vals,ks=4,vs=16) R10=fp0")
+__msg("math between map_value pointer and register with unbounded min value is not allowed")
+__naked int subprog_result_tail_call(void)
+{
+	asm volatile (
+		"r2 = 3;"
+		"call identity_tail_call;"
+		"r0 *= 4;"
+		"r1 = %[vals];"
+		"r1 += r0;"
+		"r0 = *(u32 *)(r1 + 0);"
+		"exit;"
+		:
+		: __imm_ptr(vals)
+		: __clobber_common
 	);
 }
 

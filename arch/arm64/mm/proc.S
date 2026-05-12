@@ -23,15 +23,18 @@
 #include <asm/sysreg.h>
 
 #ifdef CONFIG_ARM64_64K_PAGES
-#define TCR_TG_FLAGS	TCR_TG0_64K | TCR_TG1_64K
+#define TCR_TG_FLAGS	((TCR_EL1_TG0_64K << TCR_EL1_TG0_SHIFT) |\
+			 (TCR_EL1_TG1_64K << TCR_EL1_TG1_SHIFT))
 #elif defined(CONFIG_ARM64_16K_PAGES)
-#define TCR_TG_FLAGS	TCR_TG0_16K | TCR_TG1_16K
+#define TCR_TG_FLAGS	((TCR_EL1_TG0_16K << TCR_EL1_TG0_SHIFT) |\
+			 (TCR_EL1_TG1_16K << TCR_EL1_TG1_SHIFT))
 #else /* CONFIG_ARM64_4K_PAGES */
-#define TCR_TG_FLAGS	TCR_TG0_4K | TCR_TG1_4K
+#define TCR_TG_FLAGS	((TCR_EL1_TG0_4K << TCR_EL1_TG0_SHIFT) |\
+			 (TCR_EL1_TG1_4K << TCR_EL1_TG1_SHIFT))
 #endif
 
 #ifdef CONFIG_RANDOMIZE_BASE
-#define TCR_KASLR_FLAGS	TCR_NFD1
+#define TCR_KASLR_FLAGS	TCR_EL1_NFD1
 #else
 #define TCR_KASLR_FLAGS	0
 #endif
@@ -40,22 +43,29 @@
 #define TCR_CACHE_FLAGS	TCR_IRGN_WBWA | TCR_ORGN_WBWA
 
 #ifdef CONFIG_KASAN_SW_TAGS
-#define TCR_KASAN_SW_FLAGS TCR_TBI1 | TCR_TBID1
+#define TCR_KASAN_SW_FLAGS TCR_EL1_TBI1 | TCR_EL1_TBID1
 #else
 #define TCR_KASAN_SW_FLAGS 0
 #endif
 
-#ifdef CONFIG_KASAN_HW_TAGS
-#define TCR_MTE_FLAGS TCR_TCMA1 | TCR_TBI1 | TCR_TBID1
-#elif defined(CONFIG_ARM64_MTE)
+#ifdef CONFIG_ARM64_MTE
 /*
  * The mte_zero_clear_page_tags() implementation uses DC GZVA, which relies on
- * TBI being enabled at EL1.
+ * TBI being enabled at EL1.  TCMA1 is needed to treat accesses with the
+ * match-all tag (0xF) as Tag Unchecked, irrespective of the SCTLR_EL1.TCF
+ * setting.
  */
-#define TCR_MTE_FLAGS TCR_TBI1 | TCR_TBID1
+#define TCR_MTE_FLAGS TCR_EL1_TCMA1 | TCR_EL1_TBI1 | TCR_EL1_TBID1
 #else
 #define TCR_MTE_FLAGS 0
 #endif
+
+#define TCR_IRGN_WBWA	((TCR_EL1_IRGN0_WBWA << TCR_EL1_IRGN0_SHIFT) |\
+			 (TCR_EL1_IRGN1_WBWA << TCR_EL1_IRGN1_SHIFT))
+#define TCR_ORGN_WBWA	((TCR_EL1_ORGN0_WBWA << TCR_EL1_ORGN0_SHIFT) |\
+			 (TCR_EL1_ORGN1_WBWA << TCR_EL1_ORGN1_SHIFT))
+#define TCR_SHARED	((TCR_EL1_SH0_INNER << TCR_EL1_SH0_SHIFT) |\
+			 (TCR_EL1_SH1_INNER << TCR_EL1_SH1_SHIFT))
 
 /*
  * Default MAIR_EL1. MT_NORMAL_TAGGED is initially mapped as Normal memory and
@@ -100,6 +110,10 @@ SYM_FUNC_START(cpu_do_suspend)
 	 * call stack.
 	 */
 	str	x18, [x0, #96]
+alternative_if ARM64_HAS_TCR2
+	mrs	x2, REG_TCR2_EL1
+	str	x2, [x0, #104]
+alternative_else_nop_endif
 	ret
 SYM_FUNC_END(cpu_do_suspend)
 
@@ -129,11 +143,15 @@ SYM_FUNC_START(cpu_do_resume)
 
 	/* Don't change t0sz here, mask those bits when restoring */
 	mrs	x7, tcr_el1
-	bfi	x8, x7, TCR_T0SZ_OFFSET, TCR_TxSZ_WIDTH
+	bfi	x8, x7, TCR_EL1_T0SZ_SHIFT, TCR_EL1_T0SZ_WIDTH
 
 	msr	tcr_el1, x8
 	msr	vbar_el1, x9
 	msr	mdscr_el1, x10
+alternative_if ARM64_HAS_TCR2
+	ldr	x2, [x0, #104]
+	msr	REG_TCR2_EL1, x2
+alternative_else_nop_endif
 
 	msr	sctlr_el1, x12
 	set_this_cpu_offset x13
@@ -245,10 +263,6 @@ SYM_FUNC_ALIAS(__pi_idmap_cpu_replace_ttbr1, idmap_cpu_replace_ttbr1)
  *
  * Called exactly once from stop_machine context by each CPU found during boot.
  */
-	.pushsection	".data", "aw", %progbits
-SYM_DATA(__idmap_kpti_flag, .long 1)
-	.popsection
-
 SYM_TYPED_FUNC_START(idmap_kpti_install_ng_mappings)
 	cpu		.req	w0
 	temp_pte	.req	x0
@@ -273,7 +287,7 @@ SYM_TYPED_FUNC_START(idmap_kpti_install_ng_mappings)
 
 	mov	x5, x3				// preserve temp_pte arg
 	mrs	swapper_ttb, ttbr1_el1
-	adr_l	flag_ptr, __idmap_kpti_flag
+	adr_l	flag_ptr, idmap_kpti_bbml2_flag
 
 	cbnz	cpu, __idmap_kpti_secondary
 
@@ -416,7 +430,25 @@ alternative_else_nop_endif
 __idmap_kpti_secondary:
 	/* Uninstall swapper before surgery begins */
 	__idmap_cpu_set_reserved_ttbr1 x16, x17
+	b scondary_cpu_wait
 
+	.unreq	swapper_ttb
+	.unreq	flag_ptr
+SYM_FUNC_END(idmap_kpti_install_ng_mappings)
+	.popsection
+#endif
+
+	.pushsection ".idmap.text", "a"
+SYM_TYPED_FUNC_START(wait_linear_map_split_to_ptes)
+	/* Must be same registers as in idmap_kpti_install_ng_mappings */
+	swapper_ttb	.req	x3
+	flag_ptr	.req	x4
+
+	mrs     swapper_ttb, ttbr1_el1
+	adr_l   flag_ptr, idmap_kpti_bbml2_flag
+	__idmap_cpu_set_reserved_ttbr1 x16, x17
+
+scondary_cpu_wait:
 	/* Increment the flag to let the boot CPU we're ready */
 1:	ldxr	w16, [flag_ptr]
 	add	w16, w16, #1
@@ -436,9 +468,8 @@ __idmap_kpti_secondary:
 
 	.unreq	swapper_ttb
 	.unreq	flag_ptr
-SYM_FUNC_END(idmap_kpti_install_ng_mappings)
+SYM_FUNC_END(wait_linear_map_split_to_ptes)
 	.popsection
-#endif
 
 /*
  *	__cpu_setup
@@ -468,8 +499,8 @@ SYM_FUNC_START(__cpu_setup)
 	tcr2	.req	x15
 	mov_q	mair, MAIR_EL1_SET
 	mov_q	tcr, TCR_T0SZ(IDMAP_VA_BITS) | TCR_T1SZ(VA_BITS_MIN) | TCR_CACHE_FLAGS | \
-		     TCR_SHARED | TCR_TG_FLAGS | TCR_KASLR_FLAGS | TCR_ASID16 | \
-		     TCR_TBI0 | TCR_A1 | TCR_KASAN_SW_FLAGS | TCR_MTE_FLAGS
+		     TCR_SHARED | TCR_TG_FLAGS | TCR_KASLR_FLAGS | TCR_EL1_AS | \
+		     TCR_EL1_TBI0 | TCR_EL1_A1 | TCR_KASAN_SW_FLAGS | TCR_MTE_FLAGS
 	mov	tcr2, xzr
 
 	tcr_clear_errata_bits tcr, x9, x5
@@ -479,7 +510,7 @@ SYM_FUNC_START(__cpu_setup)
 alternative_if ARM64_HAS_VA52
 	tcr_set_t1sz	tcr, x9
 #ifdef CONFIG_ARM64_LPA2
-	orr		tcr, tcr, #TCR_DS
+	orr		tcr, tcr, #TCR_EL1_DS
 #endif
 alternative_else_nop_endif
 #endif
@@ -487,7 +518,7 @@ alternative_else_nop_endif
 	/*
 	 * Set the IPS bits in TCR_EL1.
 	 */
-	tcr_compute_pa_size tcr, #TCR_IPS_SHIFT, x5, x6
+	tcr_compute_pa_size tcr, #TCR_EL1_IPS_SHIFT, x5, x6
 #ifdef CONFIG_ARM64_HW_AFDBM
 	/*
 	 * Enable hardware update of the Access Flags bit.
@@ -497,7 +528,7 @@ alternative_else_nop_endif
 	mrs	x9, ID_AA64MMFR1_EL1
 	ubfx	x9, x9, ID_AA64MMFR1_EL1_HAFDBS_SHIFT, #4
 	cbz	x9, 1f
-	orr	tcr, tcr, #TCR_HA		// hardware Access flag update
+	orr	tcr, tcr, #TCR_EL1_HA		// hardware Access flag update
 #ifdef CONFIG_ARM64_HAFT
 	cmp	x9, ID_AA64MMFR1_EL1_HAFDBS_HAFT
 	b.lt	1f

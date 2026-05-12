@@ -33,7 +33,6 @@
 		.io_reg = 0x4 + REG_SIZE * id,		\
 		.intr_cfg_reg = 0x8 + REG_SIZE * id,		\
 		.intr_status_reg = 0xc + REG_SIZE * id,	\
-		.intr_target_reg = 0x8 + REG_SIZE * id,	\
 		.mux_bit = 2,			\
 		.pull_bit = 0,			\
 		.drv_bit = 6,			\
@@ -59,7 +58,6 @@
 		.io_reg = 0,				\
 		.intr_cfg_reg = 0,			\
 		.intr_status_reg = 0,			\
-		.intr_target_reg = 0,			\
 		.mux_bit = -1,				\
 		.pull_bit = pull,			\
 		.drv_bit = drv,				\
@@ -796,7 +794,7 @@ static const struct pinfunction sdx55_functions[] = {
 	MSM_PIN_FUNCTION(gcc_gp2),
 	MSM_PIN_FUNCTION(gcc_gp3),
 	MSM_PIN_FUNCTION(gcc_plltest),
-	MSM_PIN_FUNCTION(gpio),
+	MSM_GPIO_PIN_FUNCTION(gpio),
 	MSM_PIN_FUNCTION(i2s_mclk),
 	MSM_PIN_FUNCTION(jitter_bist),
 	MSM_PIN_FUNCTION(ldo_en),

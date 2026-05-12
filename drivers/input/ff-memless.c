@@ -10,6 +10,7 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <linux/export.h>
 #include <linux/slab.h>
 #include <linux/input.h>
 #include <linux/module.h>
@@ -507,7 +508,7 @@ int input_ff_create_memless(struct input_dev *dev, void *data,
 	int error;
 	int i;
 
-	struct ml_device *ml __free(kfree) = kzalloc(sizeof(*ml), GFP_KERNEL);
+	struct ml_device *ml __free(kfree) = kzalloc_obj(*ml);
 	if (!ml)
 		return -ENOMEM;
 

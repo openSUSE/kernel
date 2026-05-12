@@ -2,33 +2,12 @@
 
 menu "Accelerated Cryptographic Algorithms for CPU (powerpc)"
 
-config CRYPTO_CURVE25519_PPC64
-	tristate
-	depends on PPC64 && CPU_LITTLE_ENDIAN
-	select CRYPTO_KPP
-	select CRYPTO_LIB_CURVE25519_GENERIC
-	select CRYPTO_ARCH_HAVE_LIB_CURVE25519
-	default CRYPTO_LIB_CURVE25519_INTERNAL
-	help
-	  Curve25519 algorithm
-
-	  Architecture: PowerPC64
-	  - Little-endian
-
-config CRYPTO_MD5_PPC
-	tristate "Digests: MD5"
-	select CRYPTO_HASH
-	help
-	  MD5 message digest algorithm (RFC1321)
-
-	  Architecture: powerpc
-
 config CRYPTO_AES_PPC_SPE
 	tristate "Ciphers: AES, modes: ECB/CBC/CTR/XTS (SPE)"
 	depends on SPE
+	select CRYPTO_LIB_AES
 	select CRYPTO_SKCIPHER
 	help
-	  Block ciphers: AES cipher algorithms (FIPS-197)
 	  Length-preserving ciphers: AES with ECB, CBC, CTR, and XTS modes
 
 	  Architecture: powerpc using:
@@ -75,12 +54,11 @@ config CRYPTO_DEV_VMX_ENCRYPT
 	select CRYPTO_AES
 	select CRYPTO_CBC
 	select CRYPTO_CTR
-	select CRYPTO_GHASH
 	select CRYPTO_XTS
 	default m
 	help
 	  Support for VMX cryptographic acceleration instructions on Power8 CPU.
-	  This module supports acceleration for AES and GHASH in hardware. If you
-	  choose 'M' here, this module will be called vmx-crypto.
+	  This module supports acceleration for AES in hardware. If you choose
+	  'M' here, this module will be called vmx-crypto.
 
 endmenu

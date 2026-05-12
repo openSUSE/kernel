@@ -100,7 +100,8 @@
 
 #define SOC15_DPG_MODE_OFFSET(ip, inst_idx, reg) 						\
 	({											\
-		uint32_t internal_reg_offset, addr;						\
+		/* To avoid a -Wunused-but-set-variable warning. */				\
+		uint32_t internal_reg_offset __maybe_unused, addr;				\
 		bool video_range, video1_range, aon_range, aon1_range;				\
 												\
 		addr = (adev->reg_offset[ip##_HWIP][inst_idx][reg##_BASE_IDX] + reg);		\
@@ -161,7 +162,8 @@
 
 #define SOC24_DPG_MODE_OFFSET(ip, inst_idx, reg)						\
 	({											\
-		uint32_t internal_reg_offset, addr;						\
+		/* To avoid a -Wunused-but-set-variable warning. */				\
+		uint32_t internal_reg_offset __maybe_unused, addr;				\
 		bool video_range, video1_range, aon_range, aon1_range;				\
 												\
 		addr = (adev->reg_offset[ip##_HWIP][inst_idx][reg##_BASE_IDX] + reg);		\
@@ -501,7 +503,7 @@ struct amdgpu_vcn5_fw_shared {
 	struct amdgpu_fw_shared_rb_setup rb_setup;
 	struct amdgpu_fw_shared_smu_interface_info smu_dpm_interface;
 	struct amdgpu_fw_shared_drm_key_wa drm_key_wa;
-	uint8_t pad3[9];
+	uint8_t pad3[404];
 };
 
 #define VCN_BLOCK_ENCODE_DISABLE_MASK 0x80
@@ -516,7 +518,7 @@ enum vcn_ring_type {
 
 int amdgpu_vcn_early_init(struct amdgpu_device *adev, int i);
 int amdgpu_vcn_sw_init(struct amdgpu_device *adev, int i);
-int amdgpu_vcn_sw_fini(struct amdgpu_device *adev, int i);
+void amdgpu_vcn_sw_fini(struct amdgpu_device *adev, int i);
 int amdgpu_vcn_suspend(struct amdgpu_device *adev, int i);
 int amdgpu_vcn_resume(struct amdgpu_device *adev, int i);
 void amdgpu_vcn_ring_begin_use(struct amdgpu_ring *ring);

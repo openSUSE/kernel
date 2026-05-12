@@ -116,9 +116,12 @@ void __weak finalize_vcpu(struct kvm_vcpu *vcpu, struct vcpu_reg_list *c)
 }
 
 #ifdef __aarch64__
-static void prepare_vcpu_init(struct vcpu_reg_list *c, struct kvm_vcpu_init *init)
+static void prepare_vcpu_init(struct kvm_vm *vm, struct vcpu_reg_list *c,
+			      struct kvm_vcpu_init *init)
 {
 	struct vcpu_reg_sublist *s;
+
+	vm_ioctl(vm, KVM_ARM_PREFERRED_TARGET, init);
 
 	for_each_sublist(c, s)
 		if (s->capability)
@@ -127,10 +130,10 @@ static void prepare_vcpu_init(struct vcpu_reg_list *c, struct kvm_vcpu_init *ini
 
 static struct kvm_vcpu *vcpu_config_get_vcpu(struct vcpu_reg_list *c, struct kvm_vm *vm)
 {
-	struct kvm_vcpu_init init = { .target = -1, };
+	struct kvm_vcpu_init init;
 	struct kvm_vcpu *vcpu;
 
-	prepare_vcpu_init(c, &init);
+	prepare_vcpu_init(vm, c, &init);
 	vcpu = __vm_vcpu_add(vm, 0);
 	aarch64_vcpu_setup(vcpu, &init);
 
@@ -213,7 +216,7 @@ static void run_test(struct vcpu_reg_list *c)
 	 * since we don't know the capabilities of any new registers.
 	 */
 	for_each_present_blessed_reg(i) {
-		uint8_t addr[2048 / 8];
+		u8 addr[2048 / 8];
 		struct kvm_one_reg reg = {
 			.id = reg_list->reg[i],
 			.addr = (__u64)&addr,

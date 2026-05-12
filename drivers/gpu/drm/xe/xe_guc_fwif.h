@@ -3,68 +3,22 @@
  * Copyright © 2022 Intel Corporation
  */
 
-#ifndef _XE_GUC_FWIF_H
-#define _XE_GUC_FWIF_H
+#ifndef _XE_GUC_FWIF_H_
+#define _XE_GUC_FWIF_H_
 
 #include <linux/bits.h>
 
 #include "abi/guc_capture_abi.h"
 #include "abi/guc_klvs_abi.h"
+#include "abi/guc_scheduler_abi.h"
 #include "xe_hw_engine_types.h"
 
 #define G2H_LEN_DW_SCHED_CONTEXT_MODE_SET	4
 #define G2H_LEN_DW_DEREGISTER_CONTEXT		3
 #define G2H_LEN_DW_TLB_INVALIDATE		3
-
-#define GUC_ID_MAX			65535
-#define GUC_ID_UNKNOWN			0xffffffff
-
-#define GUC_CONTEXT_DISABLE		0
-#define GUC_CONTEXT_ENABLE		1
-
-#define GUC_CLIENT_PRIORITY_KMD_HIGH	0
-#define GUC_CLIENT_PRIORITY_HIGH	1
-#define GUC_CLIENT_PRIORITY_KMD_NORMAL	2
-#define GUC_CLIENT_PRIORITY_NORMAL	3
-#define GUC_CLIENT_PRIORITY_NUM		4
-
-#define GUC_RENDER_ENGINE		0
-#define GUC_VIDEO_ENGINE		1
-#define GUC_BLITTER_ENGINE		2
-#define GUC_VIDEOENHANCE_ENGINE		3
-#define GUC_VIDEO_ENGINE2		4
-#define GUC_MAX_ENGINES_NUM		(GUC_VIDEO_ENGINE2 + 1)
-
-#define GUC_RENDER_CLASS		0
-#define GUC_VIDEO_CLASS			1
-#define GUC_VIDEOENHANCE_CLASS		2
-#define GUC_BLITTER_CLASS		3
-#define GUC_COMPUTE_CLASS		4
-#define GUC_GSC_OTHER_CLASS		5
-#define GUC_LAST_ENGINE_CLASS		GUC_GSC_OTHER_CLASS
-#define GUC_MAX_ENGINE_CLASSES		16
-#define GUC_MAX_INSTANCES_PER_CLASS	32
-
-#define GUC_CONTEXT_NORMAL			0
-#define GUC_CONTEXT_COMPRESSION_SAVE		1
-#define GUC_CONTEXT_COMPRESSION_RESTORE	2
-#define GUC_CONTEXT_COUNT			(GUC_CONTEXT_COMPRESSION_RESTORE + 1)
-
-/* Helper for context registration H2G */
-struct guc_ctxt_registration_info {
-	u32 flags;
-	u32 context_idx;
-	u32 engine_class;
-	u32 engine_submit_mask;
-	u32 wq_desc_lo;
-	u32 wq_desc_hi;
-	u32 wq_base_lo;
-	u32 wq_base_hi;
-	u32 wq_size;
-	u32 hwlrca_lo;
-	u32 hwlrca_hi;
-};
-#define CONTEXT_REGISTRATION_FLAG_KMD	BIT(0)
+#define G2H_LEN_DW_G2G_NOTIFY_MIN		3
+#define G2H_LEN_DW_MULTI_QUEUE_CONTEXT		3
+#define G2H_LEN_DW_PAGE_RECLAMATION		3
 
 /* 32-bit KLV structure as used by policy updates and others */
 struct guc_klv_generic_dw_t {
@@ -89,13 +43,10 @@ struct guc_update_exec_queue_policy {
 #define   GUC_LOG_NOTIFY_ON_HALF_FULL	BIT(1)
 #define   GUC_LOG_CAPTURE_ALLOC_UNITS	BIT(2)
 #define   GUC_LOG_LOG_ALLOC_UNITS	BIT(3)
-#define   GUC_LOG_CRASH_SHIFT		4
-#define   GUC_LOG_CRASH_MASK		(0x3 << GUC_LOG_CRASH_SHIFT)
-#define   GUC_LOG_DEBUG_SHIFT		6
-#define   GUC_LOG_DEBUG_MASK	        (0xF << GUC_LOG_DEBUG_SHIFT)
-#define   GUC_LOG_CAPTURE_SHIFT		10
-#define   GUC_LOG_CAPTURE_MASK	        (0x3 << GUC_LOG_CAPTURE_SHIFT)
-#define   GUC_LOG_BUF_ADDR_SHIFT	12
+#define   GUC_LOG_CRASH_DUMP		REG_GENMASK(5, 4)
+#define   GUC_LOG_EVENT_DATA		REG_GENMASK(9, 6)
+#define   GUC_LOG_STATE_CAPTURE		REG_GENMASK(11, 10)
+#define   GUC_LOG_BUF_ADDR		REG_GENMASK(31, 12)
 
 #define GUC_CTL_WA			1
 #define   GUC_WA_GAM_CREDITS		BIT(10)
@@ -114,24 +65,19 @@ struct guc_update_exec_queue_policy {
 #define   GUC_CTL_ENABLE_SLPC		BIT(2)
 #define   GUC_CTL_ENABLE_LITE_RESTORE	BIT(4)
 #define   GUC_CTL_ENABLE_PSMI_LOGGING	BIT(7)
+#define   GUC_CTL_MAIN_GAMCTRL_QUEUES	BIT(9)
 #define   GUC_CTL_DISABLE_SCHEDULER	BIT(14)
+#define   GUC_CTL_ENABLE_L2FLUSH_OPT	BIT(15)
 
 #define GUC_CTL_DEBUG			3
-#define   GUC_LOG_VERBOSITY_SHIFT	0
-#define   GUC_LOG_VERBOSITY_LOW		(0 << GUC_LOG_VERBOSITY_SHIFT)
-#define   GUC_LOG_VERBOSITY_MED		(1 << GUC_LOG_VERBOSITY_SHIFT)
-#define   GUC_LOG_VERBOSITY_HIGH	(2 << GUC_LOG_VERBOSITY_SHIFT)
-#define   GUC_LOG_VERBOSITY_ULTRA	(3 << GUC_LOG_VERBOSITY_SHIFT)
-#define	  GUC_LOG_VERBOSITY_MIN		0
+#define   GUC_LOG_VERBOSITY		REG_GENMASK(1, 0)
 #define	  GUC_LOG_VERBOSITY_MAX		3
-#define	  GUC_LOG_VERBOSITY_MASK	0x0000000f
-#define	  GUC_LOG_DESTINATION_MASK	(3 << 4)
-#define   GUC_LOG_DISABLED		(1 << 6)
-#define   GUC_PROFILE_ENABLED		(1 << 7)
+#define	  GUC_LOG_DESTINATION		REG_GENMASK(5, 4)
+#define   GUC_LOG_DISABLED		BIT(6)
+#define   GUC_PROFILE_ENABLED		BIT(7)
 
 #define GUC_CTL_ADS			4
-#define   GUC_ADS_ADDR_SHIFT		1
-#define   GUC_ADS_ADDR_MASK		(0xFFFFF << GUC_ADS_ADDR_SHIFT)
+#define   GUC_ADS_ADDR			REG_GENMASK(21, 1)
 
 #define GUC_CTL_DEVID			5
 
@@ -316,7 +262,8 @@ struct xe_guc_pagefault_desc {
 #define PFD_ACCESS_TYPE		GENMASK(1, 0)
 #define PFD_FAULT_TYPE		GENMASK(3, 2)
 #define PFD_VFID		GENMASK(9, 4)
-#define PFD_RSVD_1		GENMASK(11, 10)
+#define PFD_RSVD_1		BIT(10)
+#define PFD_PREFETCH		BIT(11) /* Only valid on Xe3+, reserved on prior platforms */
 #define PFD_VIRTUAL_ADDR_LO	GENMASK(31, 12)
 #define PFD_VIRTUAL_ADDR_LO_SHIFT 12
 
@@ -336,7 +283,7 @@ struct xe_guc_pagefault_reply {
 
 	u32 dw1;
 #define PFR_VFID		GENMASK(5, 0)
-#define PFR_RSVD_1		BIT(6)
+#define PFR_PREFETCH		BIT(6)  /* Only valid on Xe3+, reserved on prior platforms */
 #define PFR_ENG_INSTANCE	GENMASK(12, 7)
 #define PFR_ENG_CLASS		GENMASK(15, 13)
 #define PFR_PDATA		GENMASK(31, 16)

@@ -16,6 +16,7 @@
 #include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/file.h>
+#include <linux/filelock.h>
 #include <linux/pagemap.h>
 #include <linux/ramfs.h>
 #include <linux/init.h>
@@ -95,7 +96,7 @@ static struct inode *get_cramfs_inode(struct super_block *sb,
 	inode = iget_locked(sb, cramino(cramfs_inode, offset));
 	if (!inode)
 		return ERR_PTR(-ENOMEM);
-	if (!(inode->i_state & I_NEW))
+	if (!(inode_state_read_once(inode) & I_NEW))
 		return inode;
 
 	switch (cramfs_inode->mode & S_IFMT) {
@@ -116,9 +117,18 @@ static struct inode *get_cramfs_inode(struct super_block *sb,
 		inode_nohighmem(inode);
 		inode->i_data.a_ops = &cramfs_aops;
 		break;
-	default:
+	case S_IFCHR:
+	case S_IFBLK:
+	case S_IFIFO:
+	case S_IFSOCK:
 		init_special_inode(inode, cramfs_inode->mode,
 				old_decode_dev(cramfs_inode->size));
+		break;
+	default:
+		printk(KERN_DEBUG "CRAMFS: Invalid file type 0%04o for inode %llu.\n",
+		       inode->i_mode, inode->i_ino);
+		iget_failed(inode);
+		return ERR_PTR(-EIO);
 	}
 
 	inode->i_mode = cramfs_inode->mode;
@@ -412,7 +422,7 @@ static int cramfs_physmem_mmap(struct file *file, struct vm_area_struct *vma)
 			vm_fault_t vmf;
 			unsigned long off = i * PAGE_SIZE;
 			vmf = vmf_insert_mixed(vma, vma->vm_start + off,
-					address + off);
+					PHYS_PFN(address + off));
 			if (vmf & VM_FAULT_ERROR)
 				ret = vm_fault_to_errno(vmf, 0);
 		}
@@ -609,7 +619,7 @@ static int cramfs_blkdev_fill_super(struct super_block *sb, struct fs_context *f
 	struct cramfs_super super;
 	int i, err;
 
-	sbi = kzalloc(sizeof(struct cramfs_sb_info), GFP_KERNEL);
+	sbi = kzalloc_obj(struct cramfs_sb_info);
 	if (!sbi)
 		return -ENOMEM;
 	sb->s_fs_info = sbi;
@@ -630,7 +640,7 @@ static int cramfs_mtd_fill_super(struct super_block *sb, struct fs_context *fc)
 	struct cramfs_super super;
 	int err;
 
-	sbi = kzalloc(sizeof(struct cramfs_sb_info), GFP_KERNEL);
+	sbi = kzalloc_obj(struct cramfs_sb_info);
 	if (!sbi)
 		return -ENOMEM;
 	sb->s_fs_info = sbi;
@@ -929,6 +939,7 @@ static const struct file_operations cramfs_directory_operations = {
 	.llseek		= generic_file_llseek,
 	.read		= generic_read_dir,
 	.iterate_shared	= cramfs_readdir,
+	.setlease	= generic_setlease,
 };
 
 static const struct inode_operations cramfs_dir_inode_operations = {

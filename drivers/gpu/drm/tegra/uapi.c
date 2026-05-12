@@ -86,7 +86,7 @@ int tegra_drm_ioctl_channel_open(struct drm_device *drm, void *data, struct drm_
 	if (args->flags)
 		return -EINVAL;
 
-	context = kzalloc(sizeof(*context), GFP_KERNEL);
+	context = kzalloc_obj(*context);
 	if (!context)
 		return -ENOMEM;
 
@@ -114,9 +114,12 @@ int tegra_drm_ioctl_channel_open(struct drm_device *drm, void *data, struct drm_
 		if (err)
 			goto put_channel;
 
-		if (supported)
+		if (supported) {
+			struct pid *pid = get_task_pid(current, PIDTYPE_TGID);
 			context->memory_context = host1x_memory_context_alloc(
-				host, client->base.dev, get_task_pid(current, PIDTYPE_TGID));
+				host, client->base.dev, pid);
+			put_pid(pid);
+		}
 
 		if (IS_ERR(context->memory_context)) {
 			if (PTR_ERR(context->memory_context) != -EOPNOTSUPP) {
@@ -203,7 +206,7 @@ int tegra_drm_ioctl_channel_map(struct drm_device *drm, void *data, struct drm_f
 		return -EINVAL;
 	}
 
-	mapping = kzalloc(sizeof(*mapping), GFP_KERNEL);
+	mapping = kzalloc_obj(*mapping);
 	if (!mapping) {
 		err = -ENOMEM;
 		goto unlock;

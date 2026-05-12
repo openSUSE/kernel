@@ -130,9 +130,8 @@ struct iova_bitmap {
 static unsigned long iova_bitmap_offset_to_index(struct iova_bitmap *bitmap,
 						 unsigned long iova)
 {
-	unsigned long pgsize = 1UL << bitmap->mapped.pgshift;
-
-	return iova / (BITS_PER_TYPE(*bitmap->bitmap) * pgsize);
+	return (iova >> bitmap->mapped.pgshift) /
+	       BITS_PER_TYPE(*bitmap->bitmap);
 }
 
 /*
@@ -248,7 +247,7 @@ struct iova_bitmap *iova_bitmap_alloc(unsigned long iova, size_t length,
 	struct iova_bitmap *bitmap;
 	int rc;
 
-	bitmap = kzalloc(sizeof(*bitmap), GFP_KERNEL);
+	bitmap = kzalloc_obj(*bitmap);
 	if (!bitmap)
 		return ERR_PTR(-ENOMEM);
 

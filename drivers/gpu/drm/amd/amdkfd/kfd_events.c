@@ -67,7 +67,7 @@ static struct kfd_signal_page *allocate_signal_page(struct kfd_process *p)
 	void *backing_store;
 	struct kfd_signal_page *page;
 
-	page = kzalloc(sizeof(*page), GFP_KERNEL);
+	page = kzalloc_obj(*page);
 	if (!page)
 		return NULL;
 
@@ -142,6 +142,7 @@ static struct kfd_event *lookup_event_by_id(struct kfd_process *p, uint32_t id)
  * @p:     Pointer to struct kfd_process
  * @id:    ID to look up
  * @bits:  Number of valid bits in @id
+ * @signal_mailbox_updated: flag indicates if FW updates signal mailbox entry
  *
  * Finds the first signaled event with a matching partial ID. If no
  * matching signaled event is found, returns NULL. In that case the
@@ -155,7 +156,8 @@ static struct kfd_event *lookup_event_by_id(struct kfd_process *p, uint32_t id)
  * driver.
  */
 static struct kfd_event *lookup_signaled_event_by_partial_id(
-	struct kfd_process *p, uint32_t id, uint32_t bits)
+	struct kfd_process *p, uint32_t id, uint32_t bits,
+	bool signal_mailbox_updated)
 {
 	struct kfd_event *ev;
 
@@ -166,7 +168,8 @@ static struct kfd_event *lookup_signaled_event_by_partial_id(
 	 * and we only need a single lookup.
 	 */
 	if (bits > 31 || (1U << bits) >= KFD_SIGNAL_EVENT_LIMIT) {
-		if (page_slots(p->signal_page)[id] == UNSIGNALED_EVENT_SLOT)
+		if (signal_mailbox_updated &&
+		    page_slots(p->signal_page)[id] == UNSIGNALED_EVENT_SLOT)
 			return NULL;
 
 		return idr_find(&p->event_idr, id);
@@ -331,7 +334,13 @@ static int kfd_event_page_set(struct kfd_process *p, void *kernel_address,
 	if (p->signal_page)
 		return -EBUSY;
 
-	page = kzalloc(sizeof(*page), GFP_KERNEL);
+	if (size < KFD_SIGNAL_EVENT_LIMIT * 8) {
+		pr_err("Event page size %llu is too small, need at least %lu bytes\n",
+				size, (unsigned long)(KFD_SIGNAL_EVENT_LIMIT * 8));
+		return -EINVAL;
+	}
+
+	page = kzalloc_obj(*page);
 	if (!page)
 		return -ENOMEM;
 
@@ -399,7 +408,7 @@ int kfd_event_create(struct file *devkfd, struct kfd_process *p,
 		     uint64_t *event_page_offset, uint32_t *event_slot_index)
 {
 	int ret = 0;
-	struct kfd_event *ev = kzalloc(sizeof(*ev), GFP_KERNEL);
+	struct kfd_event *ev = kzalloc_obj(*ev);
 
 	if (!ev)
 		return -ENOMEM;
@@ -452,11 +461,11 @@ int kfd_criu_restore_event(struct file *devkfd,
 	struct kfd_event *ev = NULL;
 	int ret = 0;
 
-	ev_priv = kmalloc(sizeof(*ev_priv), GFP_KERNEL);
+	ev_priv = kmalloc_obj(*ev_priv);
 	if (!ev_priv)
 		return -ENOMEM;
 
-	ev = kzalloc(sizeof(*ev), GFP_KERNEL);
+	ev = kzalloc_obj(*ev);
 	if (!ev) {
 		ret = -ENOMEM;
 		goto exit;
@@ -473,6 +482,11 @@ int kfd_criu_restore_event(struct file *devkfd,
 		goto exit;
 	}
 	*priv_data_offset += sizeof(*ev_priv);
+
+	if (ev_priv->event_id > INT_MAX) {
+		ret = -EINVAL;
+		goto exit;
+	}
 
 	if (ev_priv->user_handle) {
 		ret = kfd_kmap_event_page(p, ev_priv->user_handle);
@@ -718,7 +732,7 @@ static void set_event_from_interrupt(struct kfd_process *p,
 }
 
 void kfd_signal_event_interrupt(u32 pasid, uint32_t partial_id,
-				uint32_t valid_id_bits)
+				uint32_t valid_id_bits, bool signal_mailbox_updated)
 {
 	struct kfd_event *ev = NULL;
 
@@ -736,7 +750,8 @@ void kfd_signal_event_interrupt(u32 pasid, uint32_t partial_id,
 
 	if (valid_id_bits)
 		ev = lookup_signaled_event_by_partial_id(p, partial_id,
-							 valid_id_bits);
+							 valid_id_bits,
+							 signal_mailbox_updated);
 	if (ev) {
 		set_event_from_interrupt(p, ev);
 	} else if (p->signal_page) {
@@ -747,16 +762,6 @@ void kfd_signal_event_interrupt(u32 pasid, uint32_t partial_id,
 		 */
 		uint64_t *slots = page_slots(p->signal_page);
 		uint32_t id;
-
-		/*
-		 * If id is valid but slot is not signaled, GPU may signal the same event twice
-		 * before driver have chance to process the first interrupt, then signal slot is
-		 * auto-reset after set_event wakeup the user space, just drop the second event as
-		 * the application only need wakeup once.
-		 */
-		if ((valid_id_bits > 31 || (1U << valid_id_bits) >= KFD_SIGNAL_EVENT_LIMIT) &&
-		    partial_id < KFD_SIGNAL_EVENT_LIMIT && slots[partial_id] == UNSIGNALED_EVENT_SLOT)
-			goto out_unlock;
 
 		if (valid_id_bits)
 			pr_debug_ratelimited("Partial ID invalid: %u (%u valid bits)\n",
@@ -786,7 +791,6 @@ void kfd_signal_event_interrupt(u32 pasid, uint32_t partial_id,
 		}
 	}
 
-out_unlock:
 	rcu_read_unlock();
 	kfd_unref_process(p);
 }
@@ -796,8 +800,7 @@ static struct kfd_event_waiter *alloc_event_waiters(uint32_t num_events)
 	struct kfd_event_waiter *event_waiters;
 	uint32_t i;
 
-	event_waiters = kcalloc(num_events, sizeof(struct kfd_event_waiter),
-				GFP_KERNEL);
+	event_waiters = kzalloc_objs(struct kfd_event_waiter, num_events);
 	if (!event_waiters)
 		return NULL;
 
@@ -1390,4 +1393,33 @@ void kfd_signal_poison_consumed_event(struct kfd_node *dev, u32 pasid)
 	send_sig(SIGBUS, p->lead_thread, 0);
 
 	kfd_unref_process(p);
+}
+
+/* signal KFD_EVENT_TYPE_SIGNAL events from process p
+ * send signal SIGBUS to correspondent user space process
+ */
+void kfd_signal_process_terminate_event(struct kfd_process *p)
+{
+	struct kfd_event *ev;
+	u32 id;
+
+	rcu_read_lock();
+
+	/* iterate from id 1 for KFD_EVENT_TYPE_SIGNAL events */
+	id = 1;
+	idr_for_each_entry_continue(&p->event_idr, ev, id)
+		if (ev->type == KFD_EVENT_TYPE_SIGNAL) {
+			spin_lock(&ev->lock);
+			set_event(ev);
+			spin_unlock(&ev->lock);
+		}
+
+	/* Send SIGBUS to p->lead_thread */
+	dev_notice(kfd_device,
+		   "Sending SIGBUS to process %d",
+		   p->lead_thread->pid);
+
+	send_sig(SIGBUS, p->lead_thread, 0);
+
+	rcu_read_unlock();
 }

@@ -34,6 +34,7 @@
 
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/minmax.h>
 #include <linux/sched/signal.h>
 #include <linux/signal.h>
 #include <linux/poll.h>
@@ -871,7 +872,7 @@ static ssize_t usblp_read(struct file *file, char __user *buffer, size_t len, lo
 		goto done;
 	}
 
-	count = len < avail - usblp->readcount ? len : avail - usblp->readcount;
+	count = min_t(ssize_t, len, avail - usblp->readcount);
 	if (count != 0 &&
 	    copy_to_user(buffer, usblp->readbuf + usblp->readcount, count)) {
 		count = -EFAULT;
@@ -1141,7 +1142,7 @@ static int usblp_probe(struct usb_interface *intf,
 
 	/* Malloc and start initializing usblp structure so we can use it
 	 * directly. */
-	usblp = kzalloc(sizeof(struct usblp), GFP_KERNEL);
+	usblp = kzalloc_obj(struct usblp);
 	if (!usblp) {
 		retval = -ENOMEM;
 		goto abort_ret;

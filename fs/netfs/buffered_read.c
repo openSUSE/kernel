@@ -171,9 +171,8 @@ static void netfs_queue_read(struct netfs_io_request *rreq,
 	spin_lock(&rreq->lock);
 	list_add_tail(&subreq->rreq_link, &stream->subrequests);
 	if (list_is_first(&subreq->rreq_link, &stream->subrequests)) {
-		stream->front = subreq;
 		if (!stream->active) {
-			stream->collected_to = stream->front->start;
+			stream->collected_to = subreq->start;
 			/* Store list pointers before active flag */
 			smp_store_release(&stream->active, true);
 		}
@@ -369,7 +368,7 @@ void netfs_readahead(struct readahead_control *ractl)
 	return netfs_put_request(rreq, netfs_rreq_trace_put_return);
 
 cleanup_free:
-	return netfs_put_request(rreq, netfs_rreq_trace_put_failed);
+	return netfs_put_failed_request(rreq);
 }
 EXPORT_SYMBOL(netfs_readahead);
 
@@ -429,7 +428,7 @@ static int netfs_read_gaps(struct file *file, struct folio *folio)
 	 * end get copied to, but the middle is discarded.
 	 */
 	ret = -ENOMEM;
-	bvec = kmalloc_array(nr_bvec, sizeof(*bvec), GFP_KERNEL);
+	bvec = kmalloc_objs(*bvec, nr_bvec);
 	if (!bvec)
 		goto discard;
 
@@ -472,7 +471,7 @@ static int netfs_read_gaps(struct file *file, struct folio *folio)
 	return ret < 0 ? ret : 0;
 
 discard:
-	netfs_put_request(rreq, netfs_rreq_trace_put_discard);
+	netfs_put_failed_request(rreq);
 alloc_error:
 	folio_unlock(folio);
 	return ret;
@@ -532,7 +531,7 @@ int netfs_read_folio(struct file *file, struct folio *folio)
 	return ret < 0 ? ret : 0;
 
 discard:
-	netfs_put_request(rreq, netfs_rreq_trace_put_discard);
+	netfs_put_failed_request(rreq);
 alloc_error:
 	folio_unlock(folio);
 	return ret;
@@ -699,7 +698,7 @@ have_folio_no_wait:
 	return 0;
 
 error_put:
-	netfs_put_request(rreq, netfs_rreq_trace_put_failed);
+	netfs_put_failed_request(rreq);
 error:
 	if (folio) {
 		folio_unlock(folio);
@@ -754,7 +753,7 @@ int netfs_prefetch_for_write(struct file *file, struct folio *folio,
 	return ret < 0 ? ret : 0;
 
 error_put:
-	netfs_put_request(rreq, netfs_rreq_trace_put_discard);
+	netfs_put_failed_request(rreq);
 error:
 	_leave(" = %d", ret);
 	return ret;

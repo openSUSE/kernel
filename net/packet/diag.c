@@ -83,7 +83,7 @@ static int pdiag_put_ring(struct packet_ring_buffer *ring, int ver, int nl_type,
 	pdr.pdr_frame_nr = ring->frame_max + 1;
 
 	if (ver > TPACKET_V2) {
-		pdr.pdr_retire_tmo = ring->prb_bdqc.retire_blk_tov;
+		pdr.pdr_retire_tmo = ktime_to_ms(ring->prb_bdqc.interval_ktime);
 		pdr.pdr_sizeof_priv = ring->prb_bdqc.blk_sizeof_priv;
 		pdr.pdr_features = ring->prb_bdqc.feature_req_word;
 	} else {
@@ -130,7 +130,7 @@ static int sk_diag_fill(struct sock *sk, struct sk_buff *skb,
 			struct packet_diag_req *req,
 			bool may_report_filterinfo,
 			struct user_namespace *user_ns,
-			u32 portid, u32 seq, u32 flags, int sk_ino)
+			u32 portid, u32 seq, u32 flags, u64 sk_ino)
 {
 	struct nlmsghdr *nlh;
 	struct packet_diag_msg *rp;

@@ -276,7 +276,7 @@ static int peb2466_lkup_ctrl_put(struct snd_kcontrol *kcontrol,
 {
 	struct peb2466_lkup_ctrl *lkup_ctrl =
 		(struct peb2466_lkup_ctrl *)kcontrol->private_value;
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct peb2466 *peb2466 = snd_soc_component_get_drvdata(component);
 	unsigned int index;
 	int ret;
@@ -377,7 +377,7 @@ static const struct soc_enum peb2466_tg_freq[][2] = {
 static int peb2466_tg_freq_get(struct snd_kcontrol *kcontrol,
 			       struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct peb2466 *peb2466 = snd_soc_component_get_drvdata(component);
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 
@@ -415,7 +415,7 @@ static int peb2466_tg_freq_get(struct snd_kcontrol *kcontrol,
 static int peb2466_tg_freq_put(struct snd_kcontrol *kcontrol,
 			       struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct peb2466 *peb2466 = snd_soc_component_get_drvdata(component);
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 	unsigned int *tg_freq_item;
@@ -517,18 +517,21 @@ static const struct snd_kcontrol_new peb2466_ch3_out_mix_controls[] = {
 	SOC_DAPM_SINGLE("Voice Switch", PEB2466_CR2(3), 0, 1, 0)
 };
 
+static const SNDRV_CTL_TLVD_DECLARE_DB_MINMAX(peb2466_gain_p_tlv, -600, 0);
+static const SNDRV_CTL_TLVD_DECLARE_DB_MINMAX(peb2466_gain_c_tlv, 0, 600);
+
 static const struct snd_kcontrol_new peb2466_controls[] = {
 	/* Attenuators */
-	SOC_SINGLE("DAC0 -6dB Playback Switch", PEB2466_CR3(0), 2, 1, 0),
-	SOC_SINGLE("DAC1 -6dB Playback Switch", PEB2466_CR3(1), 2, 1, 0),
-	SOC_SINGLE("DAC2 -6dB Playback Switch", PEB2466_CR3(2), 2, 1, 0),
-	SOC_SINGLE("DAC3 -6dB Playback Switch", PEB2466_CR3(3), 2, 1, 0),
+	SOC_SINGLE_TLV("DAC0 -6dB Playback Volume", PEB2466_CR3(0), 2, 1, 1, peb2466_gain_p_tlv),
+	SOC_SINGLE_TLV("DAC1 -6dB Playback Volume", PEB2466_CR3(1), 2, 1, 1, peb2466_gain_p_tlv),
+	SOC_SINGLE_TLV("DAC2 -6dB Playback Volume", PEB2466_CR3(2), 2, 1, 1, peb2466_gain_p_tlv),
+	SOC_SINGLE_TLV("DAC3 -6dB Playback Volume", PEB2466_CR3(3), 2, 1, 1, peb2466_gain_p_tlv),
 
 	/* Amplifiers */
-	SOC_SINGLE("ADC0 +6dB Capture Switch", PEB2466_CR3(0), 3, 1, 0),
-	SOC_SINGLE("ADC1 +6dB Capture Switch", PEB2466_CR3(1), 3, 1, 0),
-	SOC_SINGLE("ADC2 +6dB Capture Switch", PEB2466_CR3(2), 3, 1, 0),
-	SOC_SINGLE("ADC3 +6dB Capture Switch", PEB2466_CR3(3), 3, 1, 0),
+	SOC_SINGLE_TLV("ADC0 +6dB Capture Volume", PEB2466_CR3(0), 3, 1, 0, peb2466_gain_c_tlv),
+	SOC_SINGLE_TLV("ADC1 +6dB Capture Volume", PEB2466_CR3(1), 3, 1, 0, peb2466_gain_c_tlv),
+	SOC_SINGLE_TLV("ADC2 +6dB Capture Volume", PEB2466_CR3(2), 3, 1, 0, peb2466_gain_c_tlv),
+	SOC_SINGLE_TLV("ADC3 +6dB Capture Volume", PEB2466_CR3(3), 3, 1, 0, peb2466_gain_c_tlv),
 
 	/* Tone generators */
 	SOC_ENUM_EXT("DAC0 TG1 Freq", peb2466_tg_freq[0][0],

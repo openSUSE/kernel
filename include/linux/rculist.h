@@ -43,6 +43,16 @@ static inline void INIT_LIST_HEAD_RCU(struct list_head *list)
 #define list_bidir_prev_rcu(list) (*((struct list_head __rcu **)(&(list)->prev)))
 
 /**
+ * list_for_each_rcu - Iterate over a list in an RCU-safe fashion
+ * @pos:	the &struct list_head to use as a loop cursor.
+ * @head:	the head for your list.
+ */
+#define list_for_each_rcu(pos, head)		  \
+	for (pos = rcu_dereference((head)->next); \
+	     !list_is_head(pos, (head)); \
+	     pos = rcu_dereference(pos->next))
+
+/**
  * list_tail_rcu - returns the prev pointer of the head of the list
  * @head: the head of the list
  *
@@ -249,6 +259,35 @@ static inline void list_replace_rcu(struct list_head *old,
 	rcu_assign_pointer(list_next_rcu(new->prev), new);
 	new->next->prev = new;
 	old->prev = LIST_POISON2;
+}
+
+static inline void __list_splice_rcu(struct list_head *list,
+				     struct list_head *prev,
+				     struct list_head *next)
+{
+	struct list_head *first = list->next;
+	struct list_head *last = list->prev;
+
+	last->next = next;
+	first->prev = prev;
+	next->prev = last;
+	rcu_assign_pointer(list_next_rcu(prev), first);
+}
+
+/**
+ * list_splice_rcu - splice a non-RCU list into an RCU-protected list,
+ *                   designed for stacks.
+ * @list:	the non RCU-protected list to splice
+ * @head:	the place in the existing RCU-protected list to splice
+ *
+ * The list pointed to by @head can be RCU-read traversed concurrently with
+ * this function.
+ */
+static inline void list_splice_rcu(struct list_head *list,
+				   struct list_head *head)
+{
+	if (!list_empty(list))
+		__list_splice_rcu(list, head, head->next);
 }
 
 /**

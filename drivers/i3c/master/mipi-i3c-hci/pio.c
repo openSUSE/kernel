@@ -15,7 +15,6 @@
 #include "cmd.h"
 #include "ibi.h"
 
-
 /*
  * PIO Access Area
  */
@@ -124,7 +123,6 @@ struct hci_pio_ibi_data {
 };
 
 struct hci_pio_data {
-	spinlock_t lock;
 	struct hci_xfer *curr_xfer, *xfer_queue;
 	struct hci_xfer *curr_rx, *rx_queue;
 	struct hci_xfer *curr_tx, *tx_queue;
@@ -136,27 +134,14 @@ struct hci_pio_data {
 	u32 enabled_irqs;
 };
 
-static int hci_pio_init(struct i3c_hci *hci)
+static void __hci_pio_init(struct i3c_hci *hci, u32 *size_val_ptr)
 {
-	struct hci_pio_data *pio;
 	u32 val, size_val, rx_thresh, tx_thresh, ibi_val;
-
-	pio = kzalloc(sizeof(*pio), GFP_KERNEL);
-	if (!pio)
-		return -ENOMEM;
-
-	hci->io_data = pio;
-	spin_lock_init(&pio->lock);
+	struct hci_pio_data *pio = hci->io_data;
 
 	size_val = pio_reg_read(QUEUE_SIZE);
-	dev_info(&hci->master.dev, "CMD/RESP FIFO = %ld entries\n",
-		 FIELD_GET(CR_QUEUE_SIZE, size_val));
-	dev_info(&hci->master.dev, "IBI FIFO = %ld bytes\n",
-		 4 * FIELD_GET(IBI_STATUS_SIZE, size_val));
-	dev_info(&hci->master.dev, "RX data FIFO = %d bytes\n",
-		 4 * (2 << FIELD_GET(RX_DATA_BUFFER_SIZE, size_val)));
-	dev_info(&hci->master.dev, "TX data FIFO = %d bytes\n",
-		 4 * (2 << FIELD_GET(TX_DATA_BUFFER_SIZE, size_val)));
+	if (size_val_ptr)
+		*size_val_ptr = size_val;
 
 	/*
 	 * Let's initialize data thresholds to half of the actual FIFO size.
@@ -202,6 +187,41 @@ static int hci_pio_init(struct i3c_hci *hci)
 
 	/* Always accept error interrupts (will be activated on first xfer) */
 	pio->enabled_irqs = STAT_ALL_ERRORS;
+}
+
+static void hci_pio_suspend(struct i3c_hci *hci)
+{
+	pio_reg_write(INTR_SIGNAL_ENABLE, 0);
+
+	i3c_hci_sync_irq_inactive(hci);
+}
+
+static void hci_pio_resume(struct i3c_hci *hci)
+{
+	__hci_pio_init(hci, NULL);
+}
+
+static int hci_pio_init(struct i3c_hci *hci)
+{
+	struct hci_pio_data *pio;
+	u32 size_val;
+
+	pio = devm_kzalloc(hci->master.dev.parent, sizeof(*pio), GFP_KERNEL);
+	if (!pio)
+		return -ENOMEM;
+
+	hci->io_data = pio;
+
+	__hci_pio_init(hci, &size_val);
+
+	dev_dbg(&hci->master.dev, "CMD/RESP FIFO = %ld entries\n",
+		FIELD_GET(CR_QUEUE_SIZE, size_val));
+	dev_dbg(&hci->master.dev, "IBI FIFO = %ld bytes\n",
+		4 * FIELD_GET(IBI_STATUS_SIZE, size_val));
+	dev_dbg(&hci->master.dev, "RX data FIFO = %d bytes\n",
+		4 * (2 << FIELD_GET(RX_DATA_BUFFER_SIZE, size_val)));
+	dev_dbg(&hci->master.dev, "TX data FIFO = %d bytes\n",
+		4 * (2 << FIELD_GET(TX_DATA_BUFFER_SIZE, size_val)));
 
 	return 0;
 }
@@ -212,27 +232,31 @@ static void hci_pio_cleanup(struct i3c_hci *hci)
 
 	pio_reg_write(INTR_SIGNAL_ENABLE, 0x0);
 
+	i3c_hci_sync_irq_inactive(hci);
+
 	if (pio) {
-		DBG("status = %#x/%#x",
-		    pio_reg_read(INTR_STATUS), pio_reg_read(INTR_SIGNAL_ENABLE));
+		dev_dbg(&hci->master.dev, "status = %#x/%#x",
+			pio_reg_read(INTR_STATUS), pio_reg_read(INTR_SIGNAL_ENABLE));
 		BUG_ON(pio->curr_xfer);
 		BUG_ON(pio->curr_rx);
 		BUG_ON(pio->curr_tx);
 		BUG_ON(pio->curr_resp);
-		kfree(pio);
-		hci->io_data = NULL;
 	}
 }
 
 static void hci_pio_write_cmd(struct i3c_hci *hci, struct hci_xfer *xfer)
 {
-	DBG("cmd_desc[%d] = 0x%08x", 0, xfer->cmd_desc[0]);
-	DBG("cmd_desc[%d] = 0x%08x", 1, xfer->cmd_desc[1]);
+	dev_dbg(&hci->master.dev, "cmd_desc[%d] = 0x%08x",
+		0, xfer->cmd_desc[0]);
+	dev_dbg(&hci->master.dev, "cmd_desc[%d] = 0x%08x",
+		1, xfer->cmd_desc[1]);
 	pio_reg_write(COMMAND_QUEUE_PORT, xfer->cmd_desc[0]);
 	pio_reg_write(COMMAND_QUEUE_PORT, xfer->cmd_desc[1]);
 	if (hci->cmd == &mipi_i3c_hci_cmd_v2) {
-		DBG("cmd_desc[%d] = 0x%08x", 2, xfer->cmd_desc[2]);
-		DBG("cmd_desc[%d] = 0x%08x", 3, xfer->cmd_desc[3]);
+		dev_dbg(&hci->master.dev, "cmd_desc[%d] = 0x%08x",
+			2, xfer->cmd_desc[2]);
+		dev_dbg(&hci->master.dev, "cmd_desc[%d] = 0x%08x",
+			3, xfer->cmd_desc[3]);
 		pio_reg_write(COMMAND_QUEUE_PORT, xfer->cmd_desc[2]);
 		pio_reg_write(COMMAND_QUEUE_PORT, xfer->cmd_desc[3]);
 	}
@@ -254,7 +278,8 @@ static bool hci_pio_do_rx(struct i3c_hci *hci, struct hci_pio_data *pio)
 		nr_words = min(xfer->data_left / 4, pio->rx_thresh_size);
 		/* extract data from FIFO */
 		xfer->data_left -= nr_words * 4;
-		DBG("now %d left %d", nr_words * 4, xfer->data_left);
+		dev_dbg(&hci->master.dev, "now %d left %d",
+			nr_words * 4, xfer->data_left);
 		while (nr_words--)
 			*p++ = pio_reg_read(XFER_DATA_PORT);
 	}
@@ -269,7 +294,7 @@ static void hci_pio_do_trailing_rx(struct i3c_hci *hci,
 	struct hci_xfer *xfer = pio->curr_rx;
 	u32 *p;
 
-	DBG("%d remaining", count);
+	dev_dbg(&hci->master.dev, "%d remaining", count);
 
 	p = xfer->data;
 	p += (xfer->data_len - xfer->data_left) / 4;
@@ -278,7 +303,8 @@ static void hci_pio_do_trailing_rx(struct i3c_hci *hci,
 		unsigned int nr_words = count / 4;
 		/* extract data from FIFO */
 		xfer->data_left -= nr_words * 4;
-		DBG("now %d left %d", nr_words * 4, xfer->data_left);
+		dev_dbg(&hci->master.dev, "now %d left %d",
+			nr_words * 4, xfer->data_left);
 		while (nr_words--)
 			*p++ = pio_reg_read(XFER_DATA_PORT);
 	}
@@ -321,7 +347,8 @@ static bool hci_pio_do_tx(struct i3c_hci *hci, struct hci_pio_data *pio)
 		nr_words = min(xfer->data_left / 4, pio->tx_thresh_size);
 		/* push data into the FIFO */
 		xfer->data_left -= nr_words * 4;
-		DBG("now %d left %d", nr_words * 4, xfer->data_left);
+		dev_dbg(&hci->master.dev, "now %d left %d",
+			nr_words * 4, xfer->data_left);
 		while (nr_words--)
 			pio_reg_write(XFER_DATA_PORT, *p++);
 	}
@@ -336,7 +363,7 @@ static bool hci_pio_do_tx(struct i3c_hci *hci, struct hci_pio_data *pio)
 		 */
 		if (!(pio_reg_read(INTR_STATUS) & STAT_TX_THLD))
 			return false;
-		DBG("trailing %d", xfer->data_left);
+		dev_dbg(&hci->master.dev, "trailing %d", xfer->data_left);
 		pio_reg_write(XFER_DATA_PORT, *p);
 		xfer->data_left = 0;
 	}
@@ -481,7 +508,7 @@ static bool hci_pio_process_resp(struct i3c_hci *hci, struct hci_pio_data *pio)
 		u32 resp = pio_reg_read(RESPONSE_QUEUE_PORT);
 		unsigned int tid = RESP_TID(resp);
 
-		DBG("resp = 0x%08x", resp);
+		dev_dbg(&hci->master.dev, "resp = 0x%08x", resp);
 		if (tid != xfer->cmd_tid) {
 			dev_err(&hci->master.dev,
 				"response tid=%d when expecting %d\n",
@@ -522,14 +549,15 @@ static bool hci_pio_process_resp(struct i3c_hci *hci, struct hci_pio_data *pio)
 		 * still exists.
 		 */
 		if (pio->curr_rx == xfer) {
-			DBG("short RX ?");
+			dev_dbg(&hci->master.dev, "short RX ?");
 			pio->curr_rx = pio->curr_rx->next_data;
 		} else if (pio->curr_tx == xfer) {
-			DBG("short TX ?");
+			dev_dbg(&hci->master.dev, "short TX ?");
 			pio->curr_tx = pio->curr_tx->next_data;
 		} else if (xfer->data_left) {
-			DBG("PIO xfer count = %d after response",
-			    xfer->data_left);
+			dev_dbg(&hci->master.dev,
+				"PIO xfer count = %d after response",
+				xfer->data_left);
 		}
 
 		pio->curr_resp = xfer->next_resp;
@@ -591,7 +619,7 @@ static int hci_pio_queue_xfer(struct i3c_hci *hci, struct hci_xfer *xfer, int n)
 	struct hci_xfer *prev_queue_tail;
 	int i;
 
-	DBG("n = %d", n);
+	dev_dbg(&hci->master.dev, "n = %d", n);
 
 	/* link xfer instances together and initialize data count */
 	for (i = 0; i < n; i++) {
@@ -601,7 +629,7 @@ static int hci_pio_queue_xfer(struct i3c_hci *hci, struct hci_xfer *xfer, int n)
 		xfer[i].data_left = xfer[i].data_len;
 	}
 
-	spin_lock_irq(&pio->lock);
+	spin_lock_irq(&hci->lock);
 	prev_queue_tail = pio->xfer_queue;
 	pio->xfer_queue = &xfer[n - 1];
 	if (pio->curr_xfer) {
@@ -611,10 +639,11 @@ static int hci_pio_queue_xfer(struct i3c_hci *hci, struct hci_xfer *xfer, int n)
 		if (!hci_pio_process_cmd(hci, pio))
 			pio->enabled_irqs |= STAT_CMD_QUEUE_READY;
 		pio_reg_write(INTR_SIGNAL_ENABLE, pio->enabled_irqs);
-		DBG("status = %#x/%#x",
-		    pio_reg_read(INTR_STATUS), pio_reg_read(INTR_SIGNAL_ENABLE));
+		dev_dbg(&hci->master.dev, "status = %#x/%#x",
+			pio_reg_read(INTR_STATUS),
+			pio_reg_read(INTR_SIGNAL_ENABLE));
 	}
-	spin_unlock_irq(&pio->lock);
+	spin_unlock_irq(&hci->lock);
 	return 0;
 }
 
@@ -685,14 +714,14 @@ static bool hci_pio_dequeue_xfer(struct i3c_hci *hci, struct hci_xfer *xfer, int
 	struct hci_pio_data *pio = hci->io_data;
 	int ret;
 
-	spin_lock_irq(&pio->lock);
-	DBG("n=%d status=%#x/%#x", n,
-	    pio_reg_read(INTR_STATUS), pio_reg_read(INTR_SIGNAL_ENABLE));
-	DBG("main_status = %#x/%#x",
-	    readl(hci->base_regs + 0x20), readl(hci->base_regs + 0x28));
+	spin_lock_irq(&hci->lock);
+	dev_dbg(&hci->master.dev, "n=%d status=%#x/%#x", n,
+		pio_reg_read(INTR_STATUS), pio_reg_read(INTR_SIGNAL_ENABLE));
+	dev_dbg(&hci->master.dev, "main_status = %#x/%#x",
+		readl(hci->base_regs + 0x20), readl(hci->base_regs + 0x28));
 
 	ret = hci_pio_dequeue_xfer_common(hci, pio, xfer, n);
-	spin_unlock_irq(&pio->lock);
+	spin_unlock_irq(&hci->lock);
 	return ret;
 }
 
@@ -733,8 +762,8 @@ static void hci_pio_err(struct i3c_hci *hci, struct hci_pio_data *pio,
 	mipi_i3c_hci_pio_reset(hci);
 	mipi_i3c_hci_resume(hci);
 
-	DBG("status=%#x/%#x",
-	    pio_reg_read(INTR_STATUS), pio_reg_read(INTR_SIGNAL_ENABLE));
+	dev_dbg(&hci->master.dev, "status=%#x/%#x",
+		pio_reg_read(INTR_STATUS), pio_reg_read(INTR_SIGNAL_ENABLE));
 }
 
 static void hci_pio_set_ibi_thresh(struct i3c_hci *hci,
@@ -749,7 +778,7 @@ static void hci_pio_set_ibi_thresh(struct i3c_hci *hci,
 	if (regval != pio->reg_queue_thresh) {
 		pio_reg_write(QUEUE_THLD_CTRL, regval);
 		pio->reg_queue_thresh = regval;
-		DBG("%d", thresh_val);
+		dev_dbg(&hci->master.dev, "%d", thresh_val);
 	}
 }
 
@@ -773,7 +802,8 @@ static bool hci_pio_get_ibi_segment(struct i3c_hci *hci,
 		/* extract the data from the IBI port */
 		nr_words = thresh_val;
 		ibi->seg_cnt -= nr_words * 4;
-		DBG("now %d left %d", nr_words * 4, ibi->seg_cnt);
+		dev_dbg(&hci->master.dev, "now %d left %d",
+			nr_words * 4, ibi->seg_cnt);
 		while (nr_words--)
 			*p++ = pio_reg_read(IBI_PORT);
 	}
@@ -791,7 +821,7 @@ static bool hci_pio_get_ibi_segment(struct i3c_hci *hci,
 		hci_pio_set_ibi_thresh(hci, pio, 1);
 		if (!(pio_reg_read(INTR_STATUS) & STAT_IBI_STATUS_THLD))
 			return false;
-		DBG("trailing %d", ibi->seg_cnt);
+		dev_dbg(&hci->master.dev, "trailing %d", ibi->seg_cnt);
 		data = pio_reg_read(IBI_PORT);
 		data = (__force u32) cpu_to_le32(data);
 		while (ibi->seg_cnt--) {
@@ -820,7 +850,7 @@ static bool hci_pio_prep_new_ibi(struct i3c_hci *hci, struct hci_pio_data *pio)
 	 */
 
 	ibi_status = pio_reg_read(IBI_PORT);
-	DBG("status = %#x", ibi_status);
+	dev_dbg(&hci->master.dev, "status = %#x", ibi_status);
 	ibi->addr = FIELD_GET(IBI_TARGET_ADDR, ibi_status);
 	if (ibi_status & IBI_ERROR) {
 		dev_err(&hci->master.dev, "IBI error from %#x\n", ibi->addr);
@@ -945,7 +975,7 @@ static int hci_pio_request_ibi(struct i3c_hci *hci, struct i3c_dev_desc *dev,
 	struct i3c_generic_ibi_pool *pool;
 	struct hci_pio_dev_ibi_data *dev_ibi;
 
-	dev_ibi = kmalloc(sizeof(*dev_ibi), GFP_KERNEL);
+	dev_ibi = kmalloc_obj(*dev_ibi);
 	if (!dev_ibi)
 		return -ENOMEM;
 	pool = i3c_generic_ibi_alloc_pool(dev, req);
@@ -984,14 +1014,12 @@ static bool hci_pio_irq_handler(struct i3c_hci *hci)
 	struct hci_pio_data *pio = hci->io_data;
 	u32 status;
 
-	spin_lock(&pio->lock);
 	status = pio_reg_read(INTR_STATUS);
-	DBG("(in) status: %#x/%#x", status, pio->enabled_irqs);
+	dev_dbg(&hci->master.dev, "PIO_INTR_STATUS %#x/%#x",
+		status, pio->enabled_irqs);
 	status &= pio->enabled_irqs | STAT_LATENCY_WARNINGS;
-	if (!status) {
-		spin_unlock(&pio->lock);
+	if (!status)
 		return false;
-	}
 
 	if (status & STAT_IBI_STATUS_THLD)
 		hci_pio_process_ibi(hci, pio);
@@ -1023,9 +1051,8 @@ static bool hci_pio_irq_handler(struct i3c_hci *hci)
 			pio->enabled_irqs &= ~STAT_CMD_QUEUE_READY;
 
 	pio_reg_write(INTR_SIGNAL_ENABLE, pio->enabled_irqs);
-	DBG("(out) status: %#x/%#x",
-	    pio_reg_read(INTR_STATUS), pio_reg_read(INTR_SIGNAL_ENABLE));
-	spin_unlock(&pio->lock);
+	dev_dbg(&hci->master.dev, "PIO_INTR_STATUS %#x/%#x",
+		pio_reg_read(INTR_STATUS), pio_reg_read(INTR_SIGNAL_ENABLE));
 	return true;
 }
 
@@ -1038,4 +1065,6 @@ const struct hci_io_ops mipi_i3c_hci_pio = {
 	.request_ibi		= hci_pio_request_ibi,
 	.free_ibi		= hci_pio_free_ibi,
 	.recycle_ibi_slot	= hci_pio_recycle_ibi_slot,
+	.suspend		= hci_pio_suspend,
+	.resume			= hci_pio_resume,
 };

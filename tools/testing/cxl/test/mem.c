@@ -250,22 +250,21 @@ static void mes_add_event(struct mock_event_store *mes,
  * Vary the number of events returned to simulate events occuring while the
  * logs are being read.
  */
-static int ret_limit = 0;
+static atomic_t event_counter = ATOMIC_INIT(0);
 
 static int mock_get_event(struct device *dev, struct cxl_mbox_cmd *cmd)
 {
 	struct cxl_get_event_payload *pl;
 	struct mock_event_log *log;
-	u16 nr_overflow;
+	int ret_limit;
 	u8 log_type;
 	int i;
 
 	if (cmd->size_in != sizeof(log_type))
 		return -EINVAL;
 
-	ret_limit = (ret_limit + 1) % CXL_TEST_EVENT_RET_MAX;
-	if (!ret_limit)
-		ret_limit = 1;
+	/* Vary return limit from 1 to CXL_TEST_EVENT_RET_MAX */
+	ret_limit = (atomic_inc_return(&event_counter) % CXL_TEST_EVENT_RET_MAX) + 1;
 
 	if (cmd->size_out < struct_size(pl, records, ret_limit))
 		return -EINVAL;
@@ -299,7 +298,7 @@ static int mock_get_event(struct device *dev, struct cxl_mbox_cmd *cmd)
 		u64 ns;
 
 		pl->flags |= CXL_GET_EVENT_FLAG_OVERFLOW;
-		pl->overflow_err_count = cpu_to_le16(nr_overflow);
+		pl->overflow_err_count = cpu_to_le16(log->nr_overflow);
 		ns = ktime_get_real_ns();
 		ns -= 5000000000; /* 5s ago */
 		pl->first_overflow_timestamp = cpu_to_le64(ns);
@@ -1696,6 +1695,9 @@ static int cxl_mock_mem_probe(struct platform_device *pdev)
 	struct cxl_dpa_info range_info = { 0 };
 	int rc;
 
+	/* Increase async probe race window */
+	usleep_range(500*1000, 1000*1000);
+
 	mdata = devm_kzalloc(dev, sizeof(*mdata), GFP_KERNEL);
 	if (!mdata)
 		return -ENOMEM;
@@ -1717,7 +1719,7 @@ static int cxl_mock_mem_probe(struct platform_device *pdev)
 	if (rc)
 		return rc;
 
-	mds = cxl_memdev_state_create(dev);
+	mds = cxl_memdev_state_create(dev, pdev->id + 1, 0);
 	if (IS_ERR(mds))
 		return PTR_ERR(mds);
 
@@ -1733,7 +1735,6 @@ static int cxl_mock_mem_probe(struct platform_device *pdev)
 	mds->event.buf = (struct cxl_get_event_payload *) mdata->event_buf;
 	INIT_DELAYED_WORK(&mds->security.poll_dwork, cxl_mockmem_sanitize_work);
 
-	cxlds->serial = pdev->id + 1;
 	if (is_rcd(pdev))
 		cxlds->rcd = true;
 
@@ -1768,7 +1769,7 @@ static int cxl_mock_mem_probe(struct platform_device *pdev)
 
 	cxl_mock_add_event_logs(&mdata->mes);
 
-	cxlmd = devm_cxl_add_memdev(&pdev->dev, cxlds);
+	cxlmd = devm_cxl_add_memdev(cxlds, NULL);
 	if (IS_ERR(cxlmd))
 		return PTR_ERR(cxlmd);
 

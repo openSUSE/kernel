@@ -166,6 +166,7 @@ static struct inode *udf_alloc_inode(struct super_block *sb)
 	ei->cached_extent.lstart = -1;
 	spin_lock_init(&ei->i_extent_cache_lock);
 	inode_set_iversion(&ei->vfs_inode, 1);
+	mmb_init(&ei->i_metadata_bhs, &ei->vfs_inode.i_data);
 
 	return &ei->vfs_inode;
 }
@@ -270,7 +271,7 @@ static int udf_init_fs_context(struct fs_context *fc)
 {
 	struct udf_options *uopt;
 
-	uopt = kzalloc(sizeof(*uopt), GFP_KERNEL);
+	uopt = kzalloc_obj(*uopt);
 	if (!uopt)
 		return -ENOMEM;
 
@@ -320,7 +321,7 @@ static int udf_sb_alloc_partition_maps(struct super_block *sb, u32 count)
 {
 	struct udf_sb_info *sbi = UDF_SB(sb);
 
-	sbi->s_partmaps = kcalloc(count, sizeof(*sbi->s_partmaps), GFP_KERNEL);
+	sbi->s_partmaps = kzalloc_objs(*sbi->s_partmaps, count);
 	if (!sbi->s_partmaps) {
 		sbi->s_partitions = 0;
 		return -ENOMEM;
@@ -1047,8 +1048,7 @@ static struct udf_bitmap *udf_sb_alloc_bitmap(struct super_block *sb, u32 index)
 	struct udf_bitmap *bitmap;
 	int nr_groups = udf_compute_nr_groups(sb, index);
 
-	bitmap = kvzalloc(struct_size(bitmap, s_block_bitmap, nr_groups),
-			  GFP_KERNEL);
+	bitmap = kvzalloc_flex(*bitmap, s_block_bitmap, nr_groups);
 	if (!bitmap)
 		return NULL;
 
@@ -1167,7 +1167,7 @@ static int udf_fill_partdesc_info(struct super_block *sb,
 		}
 		map->s_uspace.s_table = inode;
 		map->s_partition_flags |= UDF_PART_FLAG_UNALLOC_TABLE;
-		udf_debug("unallocSpaceTable (part %d) @ %lu\n",
+		udf_debug("unallocSpaceTable (part %d) @ %llu\n",
 			  p_index, map->s_uspace.s_table->i_ino);
 	}
 
@@ -1695,9 +1695,10 @@ static struct udf_vds_record *handle_partition_descriptor(
 			return &(data->part_descs_loc[i].rec);
 	if (data->num_part_descs >= data->size_part_descs) {
 		struct part_desc_seq_scan_data *new_loc;
-		unsigned int new_size = ALIGN(partnum, PART_DESC_ALLOC_STEP);
+		unsigned int new_size;
 
-		new_loc = kcalloc(new_size, sizeof(*new_loc), GFP_KERNEL);
+		new_size = data->num_part_descs + PART_DESC_ALLOC_STEP;
+		new_loc = kzalloc_objs(*new_loc, new_size);
 		if (!new_loc)
 			return ERR_PTR(-ENOMEM);
 		memcpy(new_loc, data->part_descs_loc,
@@ -1706,6 +1707,7 @@ static struct udf_vds_record *handle_partition_descriptor(
 		data->part_descs_loc = new_loc;
 		data->size_part_descs = new_size;
 	}
+	data->part_descs_loc[data->num_part_descs].partnum = partnum;
 	return &(data->part_descs_loc[data->num_part_descs++].rec);
 }
 
@@ -1757,9 +1759,8 @@ static noinline int udf_process_sequence(
 	memset(data.vds, 0, sizeof(struct udf_vds_record) * VDS_POS_LENGTH);
 	data.size_part_descs = PART_DESC_ALLOC_STEP;
 	data.num_part_descs = 0;
-	data.part_descs_loc = kcalloc(data.size_part_descs,
-				      sizeof(*data.part_descs_loc),
-				      GFP_KERNEL);
+	data.part_descs_loc = kzalloc_objs(*data.part_descs_loc,
+					   data.size_part_descs);
 	if (!data.part_descs_loc)
 		return -ENOMEM;
 
@@ -2158,7 +2159,7 @@ static int udf_fill_super(struct super_block *sb, struct fs_context *fc)
 	bool lvid_open = false;
 	int silent = fc->sb_flags & SB_SILENT;
 
-	sbi = kzalloc(sizeof(*sbi), GFP_KERNEL);
+	sbi = kzalloc_obj(*sbi);
 	if (!sbi)
 		return -ENOMEM;
 

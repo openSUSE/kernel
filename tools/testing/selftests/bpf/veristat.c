@@ -181,6 +181,12 @@ struct var_preset {
 	bool applied;
 };
 
+enum dump_mode {
+	DUMP_NONE = 0,
+	DUMP_XLATED = 1,
+	DUMP_JITED = 2,
+};
+
 static struct env {
 	char **filenames;
 	int filename_cnt;
@@ -227,6 +233,7 @@ static struct env {
 	char orig_cgroup[PATH_MAX];
 	char stat_cgroup[PATH_MAX];
 	int memory_peak_fd;
+	__u32 dump_mode;
 } env;
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
@@ -271,6 +278,7 @@ const char argp_program_doc[] =
 enum {
 	OPT_LOG_FIXED = 1000,
 	OPT_LOG_SIZE = 1001,
+	OPT_DUMP = 1002,
 };
 
 static const struct argp_option opts[] = {
@@ -295,6 +303,7 @@ static const struct argp_option opts[] = {
 	  "Force BPF verifier failure on register invariant violation (BPF_F_TEST_REG_INVARIANTS program flag)" },
 	{ "top-src-lines", 'S', "N", 0, "Emit N most frequent source code lines" },
 	{ "set-global-vars", 'G', "GLOBAL", 0, "Set global variables provided in the expression, for example \"var1 = 1\"" },
+	{ "dump", OPT_DUMP, "DUMP_MODE", OPTION_ARG_OPTIONAL, "Print BPF program dump (xlated, jited)" },
 	{},
 };
 
@@ -425,6 +434,16 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state)
 		if (err) {
 			fprintf(stderr, "Failed to collect BPF object files: %d\n", err);
 			return err;
+		}
+		break;
+	case OPT_DUMP:
+		if (!arg || strcasecmp(arg, "xlated") == 0) {
+			env.dump_mode |= DUMP_XLATED;
+		} else if (strcasecmp(arg, "jited") == 0) {
+			env.dump_mode |= DUMP_JITED;
+		} else {
+			fprintf(stderr, "Unrecognized dump mode '%s'\n", arg);
+			return -EINVAL;
 		}
 		break;
 	default:
@@ -1217,7 +1236,7 @@ static void mask_unrelated_struct_ops_progs(struct bpf_object *obj,
 	}
 }
 
-static void fixup_obj(struct bpf_object *obj, struct bpf_program *prog, const char *filename)
+static void fixup_obj_maps(struct bpf_object *obj)
 {
 	struct bpf_map *map;
 
@@ -1232,14 +1251,22 @@ static void fixup_obj(struct bpf_object *obj, struct bpf_program *prog, const ch
 		case BPF_MAP_TYPE_INODE_STORAGE:
 		case BPF_MAP_TYPE_CGROUP_STORAGE:
 		case BPF_MAP_TYPE_CGRP_STORAGE:
-			break;
 		case BPF_MAP_TYPE_STRUCT_OPS:
-			mask_unrelated_struct_ops_progs(obj, map, prog);
 			break;
 		default:
 			if (bpf_map__max_entries(map) == 0)
 				bpf_map__set_max_entries(map, 1);
 		}
+	}
+}
+
+static void fixup_obj(struct bpf_object *obj, struct bpf_program *prog, const char *filename)
+{
+	struct bpf_map *map;
+
+	bpf_object__for_each_map(map, obj) {
+		if (bpf_map__type(map) == BPF_MAP_TYPE_STRUCT_OPS)
+			mask_unrelated_struct_ops_progs(obj, map, prog);
 	}
 
 	/* SEC(freplace) programs can't be loaded with veristat as is,
@@ -1554,11 +1581,42 @@ static int parse_rvalue(const char *val, struct rvalue *rvalue)
 	return 0;
 }
 
+static void dump(__u32 prog_id, enum dump_mode mode, const char *file_name, const char *prog_name)
+{
+	char command[64], buf[4096];
+	FILE *fp;
+	int status;
+
+	status = system("command -v bpftool > /dev/null 2>&1");
+	if (status != 0) {
+		fprintf(stderr, "bpftool is not available, can't print program dump\n");
+		return;
+	}
+	snprintf(command, sizeof(command), "bpftool prog dump %s id %u",
+		 mode == DUMP_JITED ? "jited" : "xlated", prog_id);
+	fp = popen(command, "r");
+	if (!fp) {
+		fprintf(stderr, "bpftool failed with error: %d\n", errno);
+		return;
+	}
+
+	printf("DUMP (%s) %s/%s:\n", mode == DUMP_JITED ? "JITED" : "XLATED", file_name, prog_name);
+	while (fgets(buf, sizeof(buf), fp))
+		fputs(buf, stdout);
+	fprintf(stdout, "\n");
+
+	if (ferror(fp))
+		fprintf(stderr, "Failed to dump BPF prog with error: %d\n", errno);
+
+	pclose(fp);
+}
+
 static int process_prog(const char *filename, struct bpf_object *obj, struct bpf_program *prog)
 {
 	const char *base_filename = basename(strdupa(filename));
 	const char *prog_name = bpf_program__name(prog);
 	long mem_peak_a, mem_peak_b, mem_peak = -1;
+	LIBBPF_OPTS(bpf_prog_load_opts, opts);
 	char *buf;
 	int buf_sz, log_level;
 	struct verif_stats *stats;
@@ -1598,9 +1656,6 @@ static int process_prog(const char *filename, struct bpf_object *obj, struct bpf
 	}
 	verif_log_buf[0] = '\0';
 
-	bpf_program__set_log_buf(prog, buf, buf_sz);
-	bpf_program__set_log_level(prog, log_level);
-
 	/* increase chances of successful BPF object loading */
 	fixup_obj(obj, prog, base_filename);
 
@@ -1609,15 +1664,22 @@ static int process_prog(const char *filename, struct bpf_object *obj, struct bpf
 	if (env.force_reg_invariants)
 		bpf_program__set_flags(prog, bpf_program__flags(prog) | BPF_F_TEST_REG_INVARIANTS);
 
-	err = bpf_object__prepare(obj);
-	if (!err) {
-		cgroup_err = reset_stat_cgroup();
-		mem_peak_a = cgroup_memory_peak();
-		err = bpf_object__load(obj);
-		mem_peak_b = cgroup_memory_peak();
-		if (!cgroup_err && mem_peak_a >= 0 && mem_peak_b >= 0)
-			mem_peak = mem_peak_b - mem_peak_a;
+	opts.log_buf = buf;
+	opts.log_size = buf_sz;
+	opts.log_level = log_level;
+
+	cgroup_err = reset_stat_cgroup();
+	mem_peak_a = cgroup_memory_peak();
+	fd = bpf_program__clone(prog, &opts);
+	if (fd < 0) {
+		err = fd;
+		if (env.verbose)
+			fprintf(stderr, "Failed to load program %s %d\n", prog_name, err);
 	}
+	mem_peak_b = cgroup_memory_peak();
+	if (!cgroup_err && mem_peak_a >= 0 && mem_peak_b >= 0)
+		mem_peak = mem_peak_b - mem_peak_a;
+
 	env.progs_processed++;
 
 	stats->file_name = strdup(base_filename);
@@ -1629,9 +1691,13 @@ static int process_prog(const char *filename, struct bpf_object *obj, struct bpf
 	stats->stats[MEMORY_PEAK] = mem_peak < 0 ? -1 : mem_peak / (1024 * 1024);
 
 	memset(&info, 0, info_len);
-	fd = bpf_program__fd(prog);
-	if (fd > 0 && bpf_prog_get_info_by_fd(fd, &info, &info_len) == 0)
+	if (fd > 0 && bpf_prog_get_info_by_fd(fd, &info, &info_len) == 0) {
 		stats->stats[JITED_SIZE] = info.jited_prog_len;
+		if (env.dump_mode & DUMP_JITED)
+			dump(info.id, DUMP_JITED, base_filename, prog_name);
+		if (env.dump_mode & DUMP_XLATED)
+			dump(info.id, DUMP_XLATED, base_filename, prog_name);
+	}
 
 	parse_verif_log(buf, buf_sz, stats);
 
@@ -1645,7 +1711,8 @@ static int process_prog(const char *filename, struct bpf_object *obj, struct bpf
 
 	if (verif_log_buf != buf)
 		free(buf);
-
+	if (fd > 0)
+		close(fd);
 	return 0;
 }
 
@@ -2128,8 +2195,8 @@ static int set_global_vars(struct bpf_object *obj, struct var_preset *presets, i
 static int process_obj(const char *filename)
 {
 	const char *base_filename = basename(strdupa(filename));
-	struct bpf_object *obj = NULL, *tobj;
-	struct bpf_program *prog, *tprog, *lprog;
+	struct bpf_object *obj = NULL;
+	struct bpf_program *prog;
 	libbpf_print_fn_t old_libbpf_print_fn;
 	LIBBPF_OPTS(bpf_object_open_opts, opts);
 	int err = 0, prog_cnt = 0;
@@ -2168,51 +2235,24 @@ static int process_obj(const char *filename)
 	env.files_processed++;
 
 	bpf_object__for_each_program(prog, obj) {
+		bpf_program__set_autoload(prog, true);
 		prog_cnt++;
 	}
 
-	if (prog_cnt == 1) {
-		prog = bpf_object__next_program(obj, NULL);
-		bpf_program__set_autoload(prog, true);
-		err = set_global_vars(obj, env.presets, env.npresets);
-		if (err) {
-			fprintf(stderr, "Failed to set global variables %d\n", err);
-			goto cleanup;
-		}
-		process_prog(filename, obj, prog);
+	fixup_obj_maps(obj);
+
+	err = set_global_vars(obj, env.presets, env.npresets);
+	if (err) {
+		fprintf(stderr, "Failed to set global variables %d\n", err);
 		goto cleanup;
 	}
 
+	err = bpf_object__prepare(obj);
+	if (err && env.verbose) /* run process_prog() anyway to output per program failures */
+		fprintf(stderr, "Failed to prepare BPF object for loading %d\n", err);
+
 	bpf_object__for_each_program(prog, obj) {
-		const char *prog_name = bpf_program__name(prog);
-
-		tobj = bpf_object__open_file(filename, &opts);
-		if (!tobj) {
-			err = -errno;
-			fprintf(stderr, "Failed to open '%s': %d\n", filename, err);
-			goto cleanup;
-		}
-
-		err = set_global_vars(tobj, env.presets, env.npresets);
-		if (err) {
-			fprintf(stderr, "Failed to set global variables %d\n", err);
-			goto cleanup;
-		}
-
-		lprog = NULL;
-		bpf_object__for_each_program(tprog, tobj) {
-			const char *tprog_name = bpf_program__name(tprog);
-
-			if (strcmp(prog_name, tprog_name) == 0) {
-				bpf_program__set_autoload(tprog, true);
-				lprog = tprog;
-			} else {
-				bpf_program__set_autoload(tprog, false);
-			}
-		}
-
-		process_prog(filename, tobj, lprog);
-		bpf_object__close(tobj);
+		process_prog(filename, obj, prog);
 	}
 
 cleanup:
@@ -2526,7 +2566,7 @@ static void output_stats(const struct verif_stats *s, enum resfmt fmt, bool last
 	if (last && fmt == RESFMT_TABLE) {
 		output_header_underlines();
 		printf("Done. Processed %d files, %d programs. Skipped %d files, %d programs.\n",
-		       env.files_processed, env.files_skipped, env.progs_processed, env.progs_skipped);
+		       env.files_processed, env.progs_processed, env.files_skipped, env.progs_skipped);
 	}
 }
 
@@ -3210,17 +3250,14 @@ static int handle_verif_mode(void)
 	create_stat_cgroup();
 	for (i = 0; i < env.filename_cnt; i++) {
 		err = process_obj(env.filenames[i]);
-		if (err) {
+		if (err)
 			fprintf(stderr, "Failed to process '%s': %d\n", env.filenames[i], err);
-			goto out;
-		}
 	}
 
 	qsort(env.prog_stats, env.prog_stat_cnt, sizeof(*env.prog_stats), cmp_prog_stats);
 
 	output_prog_stats();
 
-out:
 	destroy_stat_cgroup();
 	return err;
 }
@@ -3324,6 +3361,8 @@ int main(int argc, char **argv)
 			}
 		}
 		free(env.presets[i].atoms);
+		if (env.presets[i].value.type == ENUMERATOR)
+			free(env.presets[i].value.svalue);
 	}
 	free(env.presets);
 	return -err;

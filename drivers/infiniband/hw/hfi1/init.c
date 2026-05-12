@@ -26,7 +26,6 @@
 #include "verbs.h"
 #include "aspm.h"
 #include "affinity.h"
-#include "vnic.h"
 #include "exp_rcv.h"
 #include "netdev.h"
 
@@ -349,7 +348,7 @@ int hfi1_create_ctxtdata(struct hfi1_pportdata *ppd, int numa,
 		 * We do this here because we have to take into account all
 		 * the RcvArray entries that previous context would have
 		 * taken and we have to account for any extra groups assigned
-		 * to the static (kernel) or dynamic (vnic/user) contexts.
+		 * to the static (kernel) or dynamic (user) contexts.
 		 */
 		if (ctxt < dd->first_dyn_alloc_ctxt) {
 			if (ctxt < kctxt_ngroups) {
@@ -646,7 +645,7 @@ void hfi1_init_pportdata(struct pci_dev *pdev, struct hfi1_pportdata *ppd,
 
 	spin_lock_init(&ppd->cc_state_lock);
 	spin_lock_init(&ppd->cc_log_lock);
-	cc_state = kzalloc(sizeof(*cc_state), GFP_KERNEL);
+	cc_state = kzalloc_obj(*cc_state);
 	RCU_INIT_POINTER(ppd->cc_state, cc_state);
 	if (!cc_state)
 		goto bail;
@@ -745,8 +744,8 @@ static int create_workqueues(struct hfi1_devdata *dd)
 			ppd->hfi1_wq =
 				alloc_workqueue(
 				    "hfi%d_%d",
-				    WQ_SYSFS | WQ_HIGHPRI | WQ_CPU_INTENSIVE |
-				    WQ_MEM_RECLAIM,
+				    WQ_SYSFS | WQ_HIGHPRI | WQ_CPU_INTENSIVE | WQ_MEM_RECLAIM |
+				    WQ_PERCPU,
 				    HFI1_MAX_ACTIVE_WORKQUEUE_ENTRIES,
 				    dd->unit, pidx);
 			if (!ppd->hfi1_wq)
@@ -851,7 +850,6 @@ int hfi1_init(struct hfi1_devdata *dd, int reinit)
 	dd->process_pio_send = hfi1_verbs_send_pio;
 	dd->process_dma_send = hfi1_verbs_send_dma;
 	dd->pio_inline_send = pio_copy;
-	dd->process_vnic_dma_send = hfi1_vnic_send_dma;
 
 	if (is_ax(dd)) {
 		atomic_set(&dd->drop_packet, DROP_PACKET_ON);
@@ -1282,7 +1280,7 @@ static struct hfi1_devdata *hfi1_alloc_devdata(struct pci_dev *pdev,
 		goto bail;
 	}
 
-	dd->comp_vect = kzalloc(sizeof(*dd->comp_vect), GFP_KERNEL);
+	dd->comp_vect = kzalloc_obj(*dd->comp_vect);
 	if (!dd->comp_vect) {
 		ret = -ENOMEM;
 		goto bail;

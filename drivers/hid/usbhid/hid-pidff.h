@@ -16,10 +16,19 @@
 #define HID_PIDFF_QUIRK_PERMISSIVE_CONTROL	BIT(2)
 
 /* Use fixed 0x4000 direction during SET_EFFECT report upload */
-#define HID_PIDFF_QUIRK_FIX_WHEEL_DIRECTION	BIT(3)
+#define HID_PIDFF_QUIRK_FIX_CONDITIONAL_DIRECTION	BIT(3)
 
 /* Force all periodic effects to be uploaded as SINE */
 #define HID_PIDFF_QUIRK_PERIODIC_SINE_ONLY	BIT(4)
+
+/* Allow devices with missing negative coefficient in the set condition usage */
+#define HID_PIDFF_QUIRK_MISSING_NEG_COEFFICIENT	BIT(5)
+
+/* Allow devices with missing negative saturation in the set condition usage */
+#define HID_PIDFF_QUIRK_MISSING_NEG_SATURATION	BIT(6)
+
+/* Allow devices with missing deadband in the set condition usage */
+#define HID_PIDFF_QUIRK_MISSING_DEADBAND	BIT(7)
 
 #ifdef CONFIG_HID_PID
 int hid_pidff_init(struct hid_device *hid);

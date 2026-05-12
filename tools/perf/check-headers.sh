@@ -6,15 +6,18 @@ NC='\033[0m' # No Color
 
 declare -a FILES=(
   "include/uapi/linux/const.h"
-  "include/uapi/drm/drm.h"
-  "include/uapi/drm/i915_drm.h"
   "include/uapi/linux/bits.h"
-  "include/uapi/linux/fadvise.h"
   "include/uapi/linux/fscrypt.h"
+  "include/uapi/linux/genetlink.h"
+  "include/uapi/linux/if_addr.h"
+  "include/uapi/linux/in.h"
   "include/uapi/linux/kcmp.h"
   "include/uapi/linux/kvm.h"
-  "include/uapi/linux/in.h"
+  "include/uapi/linux/neighbour.h"
+  "include/uapi/linux/netfilter.h"
+  "include/uapi/linux/netfilter_arp.h"
   "include/uapi/linux/perf_event.h"
+  "include/uapi/linux/rtnetlink.h"
   "include/uapi/linux/seccomp.h"
   "include/uapi/linux/stat.h"
   "include/linux/bits.h"
@@ -23,6 +26,7 @@ declare -a FILES=(
   "include/linux/const.h"
   "include/vdso/const.h"
   "include/vdso/unaligned.h"
+  "include/linux/gfp_types.h"
   "include/linux/hash.h"
   "include/linux/list-sort.h"
   "include/uapi/linux/hw_breakpoint.h"
@@ -40,17 +44,13 @@ declare -a FILES=(
   "arch/s390/include/uapi/asm/perf_regs.h"
   "arch/x86/include/uapi/asm/perf_regs.h"
   "arch/x86/include/uapi/asm/kvm.h"
-  "arch/x86/include/uapi/asm/kvm_perf.h"
   "arch/x86/include/uapi/asm/svm.h"
   "arch/x86/include/uapi/asm/unistd.h"
   "arch/x86/include/uapi/asm/vmx.h"
   "arch/powerpc/include/uapi/asm/kvm.h"
   "arch/s390/include/uapi/asm/kvm.h"
-  "arch/s390/include/uapi/asm/kvm_perf.h"
   "arch/s390/include/uapi/asm/sie.h"
-  "arch/arm/include/uapi/asm/kvm.h"
   "arch/arm64/include/uapi/asm/kvm.h"
-  "arch/arm64/include/uapi/asm/unistd.h"
   "arch/alpha/include/uapi/asm/errno.h"
   "arch/mips/include/asm/errno.h"
   "arch/mips/include/uapi/asm/errno.h"
@@ -87,7 +87,10 @@ declare -a SYNC_CHECK_FILES=(
 declare -a BEAUTY_FILES=(
   "arch/x86/include/asm/irq_vectors.h"
   "arch/x86/include/uapi/asm/prctl.h"
+  "include/uapi/drm/drm.h"
+  "include/uapi/drm/i915_drm.h"
   "include/linux/socket.h"
+  "include/uapi/linux/fadvise.h"
   "include/uapi/linux/fcntl.h"
   "include/uapi/linux/fs.h"
   "include/uapi/linux/mount.h"
@@ -184,7 +187,6 @@ done
 check arch/x86/lib/memcpy_64.S        '-I "^EXPORT_SYMBOL" -I "^#include <asm/export.h>" -I"^SYM_FUNC_START\(_LOCAL\)*(memcpy_\(erms\|orig\))" -I"^#include <linux/cfi_types.h>"'
 check arch/x86/lib/memset_64.S        '-I "^EXPORT_SYMBOL" -I "^#include <asm/export.h>" -I"^SYM_FUNC_START\(_LOCAL\)*(memset_\(erms\|orig\))"'
 check arch/x86/include/asm/amd/ibs.h  '-I "^#include .*/msr-index.h"'
-check arch/arm64/include/asm/cputype.h '-I "^#include [<\"]\(asm/\)*sysreg.h"'
 check include/linux/unaligned.h '-I "^#include <linux/unaligned/packed_struct.h>" -I "^#include <asm/byteorder.h>" -I "^#pragma GCC diagnostic"'
 check include/uapi/asm-generic/mman.h '-I "^#include <\(uapi/\)*asm-generic/mman-common\(-tools\)*.h>"'
 check include/uapi/linux/mman.h       '-I "^#include <\(uapi/\)*asm/mman.h>"'

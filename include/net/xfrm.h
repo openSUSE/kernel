@@ -536,7 +536,8 @@ static inline int xfrm_af2proto(unsigned int family)
 
 static inline const struct xfrm_mode *xfrm_ip2inner_mode(struct xfrm_state *x, int ipproto)
 {
-	if ((ipproto == IPPROTO_IPIP && x->props.family == AF_INET) ||
+	if ((x->sel.family != AF_UNSPEC) ||
+	    (ipproto == IPPROTO_IPIP && x->props.family == AF_INET) ||
 	    (ipproto == IPPROTO_IPV6 && x->props.family == AF_INET6))
 		return &x->inner_mode;
 	else
@@ -1155,19 +1156,19 @@ struct xfrm_offload {
 #define CRYPTO_INVALID_PROTOCOL			128
 
 	/* Used to keep whole l2 header for transport mode GRO */
-	__u32			orig_mac_len;
+	__u16			orig_mac_len;
 
 	__u8			proto;
 	__u8			inner_ipproto;
 };
 
 struct sec_path {
-	int			len;
-	int			olen;
-	int			verified_cnt;
-
 	struct xfrm_state	*xvec[XFRM_MAX_DEPTH];
 	struct xfrm_offload	ovec[XFRM_MAX_OFFLOAD_DEPTH];
+
+	u8			len;
+	u8			olen;
+	u8			verified_cnt;
 };
 
 struct sec_path *secpath_set(struct sk_buff *skb);

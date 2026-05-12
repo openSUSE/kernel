@@ -475,8 +475,7 @@ static int longhaul_get_ranges(void)
 		return -EINVAL;
 	}
 
-	longhaul_table = kcalloc(numscales + 1, sizeof(*longhaul_table),
-				 GFP_KERNEL);
+	longhaul_table = kzalloc_objs(*longhaul_table, numscales + 1);
 	if (!longhaul_table)
 		return -ENOMEM;
 
@@ -952,6 +951,9 @@ static void __exit longhaul_exit(void)
 {
 	struct cpufreq_policy *policy = cpufreq_cpu_get(0);
 	int i;
+
+	if (unlikely(!policy))
+		return;
 
 	for (i = 0; i < numscales; i++) {
 		if (mults[i] == maxmult) {

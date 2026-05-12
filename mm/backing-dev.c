@@ -72,7 +72,7 @@ static void collect_wb_stats(struct wb_stats *stats,
 	list_for_each_entry(inode, &wb->b_more_io, i_io_list)
 		stats->nr_more_io++;
 	list_for_each_entry(inode, &wb->b_dirty_time, i_io_list)
-		if (inode->i_state & I_DIRTY_TIME)
+		if (inode_state_read_once(inode) & I_DIRTY_TIME)
 			stats->nr_dirty_time++;
 	spin_unlock(&wb->list_lock);
 
@@ -510,7 +510,7 @@ static void wb_update_bandwidth_workfn(struct work_struct *work)
 /*
  * Initial write bandwidth: 100 MB/s
  */
-#define INIT_BW		(100 << (20 - PAGE_SHIFT))
+#define INIT_BW		MB_TO_PAGES(100)
 
 static int wb_init(struct bdi_writeback *wb, struct backing_dev_info *bdi,
 		   gfp_t gfp)
@@ -618,11 +618,12 @@ static void cgwb_release_workfn(struct work_struct *work)
 	wb_shutdown(wb);
 
 	css_put(wb->memcg_css);
-	css_put(wb->blkcg_css);
-	mutex_unlock(&wb->bdi->cgwb_release_mutex);
 
 	/* triggers blkg destruction if no online users left */
 	blkcg_unpin_online(wb->blkcg_css);
+
+	css_put(wb->blkcg_css);
+	mutex_unlock(&wb->bdi->cgwb_release_mutex);
 
 	fprop_local_destroy_percpu(&wb->memcg_completions);
 
@@ -633,6 +634,7 @@ static void cgwb_release_workfn(struct work_struct *work)
 	wb_exit(wb);
 	bdi_put(bdi);
 	WARN_ON_ONCE(!list_empty(&wb->b_attached));
+	WARN_ON_ONCE(work_pending(&wb->switch_work));
 	call_rcu(&wb->rcu, cgwb_free_rcu);
 }
 
@@ -688,7 +690,7 @@ static int cgwb_create(struct backing_dev_info *bdi,
 		goto out_put;
 
 	/* need to create a new one */
-	wb = kmalloc(sizeof(*wb), gfp);
+	wb = kmalloc_obj(*wb, gfp);
 	if (!wb) {
 		ret = -ENOMEM;
 		goto out_put;
@@ -709,6 +711,8 @@ static int cgwb_create(struct backing_dev_info *bdi,
 	wb->memcg_css = memcg_css;
 	wb->blkcg_css = blkcg_css;
 	INIT_LIST_HEAD(&wb->b_attached);
+	INIT_WORK(&wb->switch_work, inode_switch_wbs_work_fn);
+	init_llist_head(&wb->switch_wbs_ctxs);
 	INIT_WORK(&wb->release_work, cgwb_release_workfn);
 	set_bit(WB_registered, &wb->state);
 	bdi_get(bdi);
@@ -839,6 +843,8 @@ static int cgwb_bdi_init(struct backing_dev_info *bdi)
 	if (!ret) {
 		bdi->wb.memcg_css = &root_mem_cgroup->css;
 		bdi->wb.blkcg_css = blkcg_root_css;
+		INIT_WORK(&bdi->wb.switch_work, inode_switch_wbs_work_fn);
+		init_llist_head(&bdi->wb.switch_wbs_ctxs);
 	}
 	return ret;
 }
@@ -934,7 +940,7 @@ void wb_memcg_offline(struct mem_cgroup *memcg)
 	memcg_cgwb_list->next = NULL;	/* prevent new wb's */
 	spin_unlock_irq(&cgwb_lock);
 
-	queue_work(system_unbound_wq, &cleanup_offline_cgwbs_work);
+	queue_work(system_dfl_wq, &cleanup_offline_cgwbs_work);
 }
 
 /**
@@ -966,10 +972,10 @@ static int __init cgwb_init(void)
 {
 	/*
 	 * There can be many concurrent release work items overwhelming
-	 * system_wq.  Put them in a separate wq and limit concurrency.
+	 * system_percpu_wq.  Put them in a separate wq and limit concurrency.
 	 * There's no point in executing many of these in parallel.
 	 */
-	cgwb_release_wq = alloc_workqueue("cgwb_release", 0, 1);
+	cgwb_release_wq = alloc_workqueue("cgwb_release", WQ_PERCPU, 1);
 	if (!cgwb_release_wq)
 		return -ENOMEM;
 
@@ -1026,10 +1032,9 @@ struct backing_dev_info *bdi_alloc(int node_id)
 		kfree(bdi);
 		return NULL;
 	}
-	bdi->capabilities = BDI_CAP_WRITEBACK | BDI_CAP_WRITEBACK_ACCT;
+	bdi->capabilities = BDI_CAP_WRITEBACK;
 	bdi->ra_pages = VM_READAHEAD_PAGES;
 	bdi->io_pages = VM_READAHEAD_PAGES;
-	timer_setup(&bdi->laptop_mode_wb_timer, laptop_mode_timer_fn, 0);
 	return bdi;
 }
 EXPORT_SYMBOL(bdi_alloc);
@@ -1151,8 +1156,6 @@ static void bdi_remove_from_list(struct backing_dev_info *bdi)
 
 void bdi_unregister(struct backing_dev_info *bdi)
 {
-	timer_delete_sync(&bdi->laptop_mode_wb_timer);
-
 	/* make sure nobody finds us on the bdi_list anymore */
 	bdi_remove_from_list(bdi);
 	wb_shutdown(&bdi->wb);

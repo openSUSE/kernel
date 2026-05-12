@@ -12,6 +12,7 @@
 #include <linux/debugfs.h>
 #include <linux/delay.h>
 #include <linux/pm_runtime.h>
+#include <linux/string_choices.h>
 #include <linux/uaccess.h>
 
 #include "tb.h"
@@ -200,7 +201,7 @@ static bool parse_line(char **line, u32 *offs, u32 *val, int short_fmt_len,
 #if IS_ENABLED(CONFIG_USB4_DEBUGFS_WRITE)
 /*
  * Path registers need to be written in double word pairs and they both must be
- * read before written. This writes one double word in patch config space
+ * read before written. This writes one double word in path config space
  * following the spec flow.
  */
 static int path_write_one(struct tb_port *port, u32 val, u32 offset)
@@ -691,7 +692,7 @@ static int margining_caps_show(struct seq_file *s, void *not_used)
 		seq_printf(s, "0x%08x\n", margining->caps[i]);
 
 	seq_printf(s, "# software margining: %s\n",
-		   supports_software(margining) ? "yes" : "no");
+		   str_yes_no(supports_software(margining)));
 	if (supports_hardware(margining)) {
 		seq_puts(s, "# hardware margining: yes\n");
 		seq_puts(s, "# minimum BER level contour: ");
@@ -1195,7 +1196,7 @@ static int validate_margining(struct tb_margining *margining)
 {
 	/*
 	 * For running on RX2 the link must be asymmetric with 3
-	 * receivers. Because this is can change dynamically, check it
+	 * receivers. Because this can change dynamically, check it
 	 * here before we start the margining and report back error if
 	 * expectations are not met.
 	 */
@@ -1656,7 +1657,7 @@ static struct tb_margining *margining_alloc(struct tb_port *port,
 		return NULL;
 	}
 
-	margining = kzalloc(sizeof(*margining), GFP_KERNEL);
+	margining = kzalloc_obj(*margining);
 	if (!margining)
 		return NULL;
 

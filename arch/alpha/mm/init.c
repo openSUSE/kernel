@@ -60,33 +60,6 @@ pgd_alloc(struct mm_struct *mm)
 }
 
 
-/*
- * BAD_PAGE is the page that is used for page faults when linux
- * is out-of-memory. Older versions of linux just did a
- * do_exit(), but using this instead means there is less risk
- * for a process dying in kernel mode, possibly leaving an inode
- * unused etc..
- *
- * BAD_PAGETABLE is the accompanying page-table: it is initialized
- * to point to BAD_PAGE entries.
- *
- * ZERO_PAGE is a special page that is used for zero-initialized
- * data and COW.
- */
-pmd_t *
-__bad_pagetable(void)
-{
-	memset(absolute_pointer(EMPTY_PGT), 0, PAGE_SIZE);
-	return (pmd_t *) EMPTY_PGT;
-}
-
-pte_t
-__bad_page(void)
-{
-	memset(absolute_pointer(EMPTY_PGE), 0, PAGE_SIZE);
-	return pte_mkdirty(mk_pte(virt_to_page(EMPTY_PGE), PAGE_SHARED));
-}
-
 static inline unsigned long
 load_PCB(struct pcb_struct *pcb)
 {
@@ -235,12 +208,8 @@ callback_init(void * kernel_end)
 	return kernel_end;
 }
 
-/*
- * paging_init() sets up the memory map.
- */
-void __init paging_init(void)
+void __init arch_zone_limits_init(unsigned long *max_zone_pfn)
 {
-	unsigned long max_zone_pfn[MAX_NR_ZONES] = {0, };
 	unsigned long dma_pfn;
 
 	dma_pfn = virt_to_phys((char *)MAX_DMA_ADDRESS) >> PAGE_SHIFT;
@@ -248,11 +217,13 @@ void __init paging_init(void)
 
 	max_zone_pfn[ZONE_DMA] = dma_pfn;
 	max_zone_pfn[ZONE_NORMAL] = max_pfn;
+}
 
-	/* Initialize mem_map[].  */
-	free_area_init(max_zone_pfn);
-
-	/* Initialize the kernel's ZERO_PGE. */
+/*
+ * paging_init() initializes the kernel's ZERO_PGE.
+ */
+void __init paging_init(void)
+{
 	memset(absolute_pointer(ZERO_PGE), 0, PAGE_SIZE);
 }
 

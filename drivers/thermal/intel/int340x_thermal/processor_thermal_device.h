@@ -27,6 +27,8 @@
 #define PCI_DEVICE_ID_INTEL_JSL_THERMAL	0x4E03
 #define PCI_DEVICE_ID_INTEL_LNLM_THERMAL	0x641D
 #define PCI_DEVICE_ID_INTEL_MTLP_THERMAL	0x7D03
+#define PCI_DEVICE_ID_INTEL_NVL_H_THERMAL	0xD703
+#define PCI_DEVICE_ID_INTEL_NVL_S_THERMAL	0xAD03
 #define PCI_DEVICE_ID_INTEL_RPL_THERMAL	0xA71D
 #define PCI_DEVICE_ID_INTEL_SKL_THERMAL	0x1903
 #define PCI_DEVICE_ID_INTEL_TGL_THERMAL	0x9A03
@@ -69,6 +71,7 @@ struct rapl_mmio_regs {
 #define PROC_THERMAL_FEATURE_POWER_FLOOR	0x40
 #define PROC_THERMAL_FEATURE_MSI_SUPPORT	0x80
 #define PROC_THERMAL_FEATURE_PTC	0x100
+#define PROC_THERMAL_FEATURE_SOC_POWER_SLIDER	0x200
 
 #if IS_ENABLED(CONFIG_PROC_THERMAL_MMIO_RAPL)
 int proc_thermal_rapl_add(struct pci_dev *pdev, struct proc_thermal_device *proc_priv);
@@ -127,4 +130,9 @@ int proc_thermal_mmio_add(struct pci_dev *pdev,
 void proc_thermal_mmio_remove(struct pci_dev *pdev, struct proc_thermal_device *proc_priv);
 int proc_thermal_ptc_add(struct pci_dev *pdev, struct proc_thermal_device *proc_priv);
 void proc_thermal_ptc_remove(struct pci_dev *pdev);
+
+int proc_thermal_soc_power_slider_add(struct pci_dev *pdev, struct proc_thermal_device *proc_priv);
+void proc_thermal_soc_power_slider_suspend(struct proc_thermal_device *proc_priv);
+void proc_thermal_soc_power_slider_resume(struct proc_thermal_device *proc_priv);
+
 #endif

@@ -327,6 +327,24 @@ Description:	Energy performance preference
 
 		This file is only present if the cppc-cpufreq driver is in use.
 
+What:		/sys/devices/system/cpu/cpuX/cpufreq/perf_limited
+Date:		February 2026
+Contact:	linux-pm@vger.kernel.org
+Description:	Performance Limited
+
+		Read to check if platform throttling (thermal/power/current
+		limits) caused delivered performance to fall below the
+		requested level. A non-zero value indicates throttling occurred.
+
+		Write the bitmask of bits to clear:
+
+		  - 0x1 = clear bit 0 (desired performance excursion)
+		  - 0x2 = clear bit 1 (minimum performance excursion)
+		  - 0x3 = clear both bits
+
+		The platform sets these bits; OSPM can only clear them.
+
+		This file is only present if the cppc-cpufreq driver is in use.
 
 What:		/sys/devices/system/cpu/cpu*/cache/index3/cache_disable_{0,1}
 Date:		August 2008
@@ -763,6 +781,17 @@ Description:
 		(RO) the list of CPUs that are isolated and don't
 		participate in load balancing. These CPUs are set by
 		boot parameter "isolcpus=".
+
+What:		/sys/devices/system/cpu/housekeeping
+Date:		Oct 2025
+Contact:	Linux kernel mailing list <linux-kernel@vger.kernel.org>
+Description:
+		(RO) the list of logical CPUs that are designated by the kernel as
+		"housekeeping". Each CPU are responsible for handling essential
+		system-wide background tasks, including RCU callbacks, delayed
+		timer callbacks, and unbound workqueues, minimizing scheduling
+		jitter on low-latency, isolated CPUs. These CPUs are set when boot
+		parameter "isolcpus=nohz" or "nohz_full=" is specified.
 
 What:		/sys/devices/system/cpu/crash_hotplug
 Date:		Aug 2023

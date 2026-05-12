@@ -214,7 +214,7 @@ static int __mem_id_init_hash_table(void)
 	if (unlikely(mem_id_init))
 		return 0;
 
-	rht = kzalloc(sizeof(*rht), GFP_KERNEL);
+	rht = kzalloc_obj(*rht);
 	if (!rht)
 		return -ENOMEM;
 
@@ -297,7 +297,7 @@ static struct xdp_mem_allocator *__xdp_reg_mem_model(struct xdp_mem_info *mem,
 			return ERR_PTR(ret);
 	}
 
-	xdp_alloc = kzalloc(sizeof(*xdp_alloc), gfp);
+	xdp_alloc = kzalloc_obj(*xdp_alloc, gfp);
 	if (!xdp_alloc)
 		return ERR_PTR(-ENOMEM);
 
@@ -663,9 +663,8 @@ struct sk_buff *xdp_build_skb_from_buff(const struct xdp_buff *xdp)
 		u32 tsize;
 
 		tsize = sinfo->xdp_frags_truesize ? : nr_frags * xdp->frame_sz;
-		xdp_update_skb_shared_info(skb, nr_frags,
-					   sinfo->xdp_frags_size, tsize,
-					   xdp_buff_is_frag_pfmemalloc(xdp));
+		xdp_update_skb_frags_info(skb, nr_frags, sinfo->xdp_frags_size,
+					  tsize, xdp_buff_get_skb_flags(xdp));
 	}
 
 	skb->protocol = eth_type_trans(skb, rxq->dev);
@@ -692,7 +691,7 @@ static noinline bool xdp_copy_frags_from_zc(struct sk_buff *skb,
 	struct skb_shared_info *sinfo = skb_shinfo(skb);
 	const struct skb_shared_info *xinfo;
 	u32 nr_frags, tsize = 0;
-	bool pfmemalloc = false;
+	u32 flags = 0;
 
 	xinfo = xdp_get_shared_info_from_buff(xdp);
 	nr_frags = xinfo->nr_frags;
@@ -714,11 +713,12 @@ static noinline bool xdp_copy_frags_from_zc(struct sk_buff *skb,
 		__skb_fill_page_desc_noacc(sinfo, i, page, offset, len);
 
 		tsize += truesize;
-		pfmemalloc |= page_is_pfmemalloc(page);
+		if (page_is_pfmemalloc(page))
+			flags |= XDP_FLAGS_FRAGS_PF_MEMALLOC;
 	}
 
-	xdp_update_skb_shared_info(skb, nr_frags, xinfo->xdp_frags_size,
-				   tsize, pfmemalloc);
+	xdp_update_skb_frags_info(skb, nr_frags, xinfo->xdp_frags_size, tsize,
+				  flags);
 
 	return true;
 }
@@ -823,10 +823,9 @@ struct sk_buff *__xdp_build_skb_from_frame(struct xdp_frame *xdpf,
 		skb_metadata_set(skb, xdpf->metasize);
 
 	if (unlikely(xdp_frame_has_frags(xdpf)))
-		xdp_update_skb_shared_info(skb, nr_frags,
-					   sinfo->xdp_frags_size,
-					   nr_frags * xdpf->frame_sz,
-					   xdp_frame_is_frag_pfmemalloc(xdpf));
+		xdp_update_skb_frags_info(skb, nr_frags, sinfo->xdp_frags_size,
+					  nr_frags * xdpf->frame_sz,
+					  xdp_frame_get_skb_flags(xdpf));
 
 	/* Essential SKB info: protocol and skb->dev */
 	skb->protocol = eth_type_trans(skb, dev);
@@ -965,7 +964,7 @@ __bpf_kfunc int bpf_xdp_metadata_rx_vlan_tag(const struct xdp_md *ctx,
 __bpf_kfunc_end_defs();
 
 BTF_KFUNCS_START(xdp_metadata_kfunc_ids)
-#define XDP_METADATA_KFUNC(_, __, name, ___) BTF_ID_FLAGS(func, name, KF_TRUSTED_ARGS)
+#define XDP_METADATA_KFUNC(_, __, name, ___) BTF_ID_FLAGS(func, name)
 XDP_METADATA_KFUNC_xxx
 #undef XDP_METADATA_KFUNC
 BTF_KFUNCS_END(xdp_metadata_kfunc_ids)

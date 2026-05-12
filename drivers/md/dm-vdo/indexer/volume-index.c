@@ -836,7 +836,7 @@ static int start_restoring_volume_sub_index(struct volume_sub_index *sub_index,
 				    "%zu bytes decoded of %zu expected", offset,
 				    sizeof(buffer));
 		if (result != VDO_SUCCESS)
-			result = UDS_CORRUPT_DATA;
+			return UDS_CORRUPT_DATA;
 
 		if (memcmp(header.magic, MAGIC_START_5, MAGIC_SIZE) != 0) {
 			return vdo_log_warning_strerror(UDS_CORRUPT_DATA,
@@ -928,7 +928,7 @@ static int start_restoring_volume_index(struct volume_index *volume_index,
 				    "%zu bytes decoded of %zu expected", offset,
 				    sizeof(buffer));
 		if (result != VDO_SUCCESS)
-			result = UDS_CORRUPT_DATA;
+			return UDS_CORRUPT_DATA;
 
 		if (memcmp(header.magic, MAGIC_START_6, MAGIC_SIZE) != 0)
 			return vdo_log_warning_strerror(UDS_CORRUPT_DATA,
@@ -1211,13 +1211,12 @@ static int initialize_volume_sub_index(const struct uds_configuration *config,
 				  (zone_count * sizeof(struct volume_sub_index_zone)));
 
 	/* The following arrays are initialized to all zeros. */
-	result = vdo_allocate(params.list_count, u64, "first chapter to flush",
+	result = vdo_allocate(params.list_count, "first chapter to flush",
 			      &sub_index->flush_chapters);
 	if (result != VDO_SUCCESS)
 		return result;
 
-	return vdo_allocate(zone_count, struct volume_sub_index_zone,
-			    "volume index zones", &sub_index->zones);
+	return vdo_allocate(zone_count, "volume index zones", &sub_index->zones);
 }
 
 int uds_make_volume_index(const struct uds_configuration *config, u64 volume_nonce,
@@ -1228,7 +1227,7 @@ int uds_make_volume_index(const struct uds_configuration *config, u64 volume_non
 	struct volume_index *volume_index;
 	int result;
 
-	result = vdo_allocate(1, struct volume_index, "volume index", &volume_index);
+	result = vdo_allocate(1, "volume index", &volume_index);
 	if (result != VDO_SUCCESS)
 		return result;
 
@@ -1249,8 +1248,7 @@ int uds_make_volume_index(const struct uds_configuration *config, u64 volume_non
 
 	volume_index->sparse_sample_rate = config->sparse_sample_rate;
 
-	result = vdo_allocate(config->zone_count, struct volume_index_zone,
-			      "volume index zones", &volume_index->zones);
+	result = vdo_allocate(config->zone_count, "volume index zones", &volume_index->zones);
 	if (result != VDO_SUCCESS) {
 		uds_free_volume_index(volume_index);
 		return result;

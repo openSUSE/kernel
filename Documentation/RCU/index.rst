@@ -1,13 +1,13 @@
 .. SPDX-License-Identifier: GPL-2.0
 
-.. _rcu_concepts:
+.. _rcu_handbook:
 
 ============
-RCU concepts
+RCU Handbook
 ============
 
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 2
 
    checklist
    lockdep
@@ -28,10 +28,3 @@ RCU concepts
    Design/Expedited-Grace-Periods/Expedited-Grace-Periods
    Design/Requirements/Requirements
    Design/Data-Structures/Data-Structures
-
-.. only:: subproject and html
-
-   Indices
-   =======
-
-   * :ref:`genindex`

@@ -638,27 +638,27 @@ void hubbub1_update_dchub(
 				SDPIF_FB_BASE, 0x0FFFF);
 
 		REG_UPDATE(DCHUBBUB_SDPIF_AGP_BASE,
-				SDPIF_AGP_BASE, dh_data->zfb_phys_addr_base >> 22);
+				SDPIF_AGP_BASE, (uint32_t)(dh_data->zfb_phys_addr_base >> 22));
 
 		REG_UPDATE(DCHUBBUB_SDPIF_AGP_BOT,
-				SDPIF_AGP_BOT, dh_data->zfb_mc_base_addr >> 22);
+				SDPIF_AGP_BOT, (uint32_t)(dh_data->zfb_mc_base_addr >> 22));
 
 		REG_UPDATE(DCHUBBUB_SDPIF_AGP_TOP,
-				SDPIF_AGP_TOP, (dh_data->zfb_mc_base_addr +
-						dh_data->zfb_size_in_byte - 1) >> 22);
+				SDPIF_AGP_TOP, (uint32_t)((dh_data->zfb_mc_base_addr +
+						dh_data->zfb_size_in_byte - 1) >> 22));
 		break;
 	case FRAME_BUFFER_MODE_MIXED_ZFB_AND_LOCAL:
 		/*Should not touch FB LOCATION (done by VBIOS on AsicInit table)*/
 
 		REG_UPDATE(DCHUBBUB_SDPIF_AGP_BASE,
-				SDPIF_AGP_BASE, dh_data->zfb_phys_addr_base >> 22);
+				SDPIF_AGP_BASE, (uint32_t)(dh_data->zfb_phys_addr_base >> 22));
 
 		REG_UPDATE(DCHUBBUB_SDPIF_AGP_BOT,
-				SDPIF_AGP_BOT, dh_data->zfb_mc_base_addr >> 22);
+				SDPIF_AGP_BOT, (uint32_t)(dh_data->zfb_mc_base_addr >> 22));
 
 		REG_UPDATE(DCHUBBUB_SDPIF_AGP_TOP,
-				SDPIF_AGP_TOP, (dh_data->zfb_mc_base_addr +
-						dh_data->zfb_size_in_byte - 1) >> 22);
+				SDPIF_AGP_TOP, (uint32_t)((dh_data->zfb_mc_base_addr +
+						dh_data->zfb_size_in_byte - 1) >> 22));
 		break;
 	case FRAME_BUFFER_MODE_LOCAL_ONLY:
 		/*Should not touch FB LOCATION (done by VBIOS on AsicInit table)*/
@@ -942,5 +942,23 @@ void hubbub1_construct(struct hubbub *hubbub,
 	hubbub1->debug_test_index_pstate = 0x7;
 	if (ctx->dce_version == DCN_VERSION_1_01)
 		hubbub1->debug_test_index_pstate = 0xB;
+}
+
+void dcn10_hubbub_global_timer_enable(struct hubbub *hubbub, bool enable, uint32_t refdiv)
+{
+	struct dcn10_hubbub *hubbub1 = TO_DCN10_HUBBUB(hubbub);
+
+	if (refdiv > 0)
+		REG_UPDATE(DCHUBBUB_GLOBAL_TIMER_CNTL, DCHUBBUB_GLOBAL_TIMER_REFDIV, refdiv);
+
+	REG_UPDATE(DCHUBBUB_GLOBAL_TIMER_CNTL, DCHUBBUB_GLOBAL_TIMER_ENABLE, enable ? 1 : 0);
+}
+
+void dcn10_hubbub_read_fb_aperture(struct hubbub *hubbub, uint32_t *fb_base_value, uint32_t *fb_offset_value)
+{
+	struct dcn10_hubbub *hubbub1 = TO_DCN10_HUBBUB(hubbub);
+
+	REG_GET(DCHUBBUB_SDPIF_FB_BASE, SDPIF_FB_BASE, fb_base_value);
+	REG_GET(DCHUBBUB_SDPIF_FB_OFFSET, SDPIF_FB_OFFSET, fb_offset_value);
 }
 

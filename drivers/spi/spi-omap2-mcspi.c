@@ -942,10 +942,16 @@ static int omap2_mcspi_setup_transfer(struct spi_device *spi,
 
 	l = mcspi_cached_chconf0(spi);
 
-	/* standard 4-wire host mode:  SCK, MOSI/out, MISO/in, nCS
-	 * REVISIT: this controller could support SPI_3WIRE mode.
-	 */
-	if (mcspi->pin_dir == MCSPI_PINDIR_D0_IN_D1_OUT) {
+	if (spi->mode & SPI_3WIRE) {
+		if (t && !t->tx_buf) {
+			l &= ~OMAP2_MCSPI_CHCONF_IS;
+			l |= OMAP2_MCSPI_CHCONF_DPE0;
+		} else if (t && !t->rx_buf) {
+			l |= OMAP2_MCSPI_CHCONF_IS;
+			l &= ~OMAP2_MCSPI_CHCONF_DPE0;
+		}
+		l |= OMAP2_MCSPI_CHCONF_DPE1;
+	} else if (mcspi->pin_dir == MCSPI_PINDIR_D0_IN_D1_OUT) {
 		l &= ~OMAP2_MCSPI_CHCONF_IS;
 		l &= ~OMAP2_MCSPI_CHCONF_DPE1;
 		l |= OMAP2_MCSPI_CHCONF_DPE0;
@@ -988,6 +994,7 @@ static int omap2_mcspi_setup_transfer(struct spi_device *spi,
 	else
 		l &= ~OMAP2_MCSPI_CHCONF_PHA;
 
+	mcspi_write_chconf0(spi, l | OMAP2_MCSPI_CHCONF_FORCE);
 	mcspi_write_chconf0(spi, l);
 
 	cs->mode = spi->mode;
@@ -1075,7 +1082,7 @@ static int omap2_mcspi_setup(struct spi_device *spi)
 	struct omap2_mcspi_cs	*cs = spi->controller_state;
 
 	if (!cs) {
-		cs = kzalloc(sizeof(*cs), GFP_KERNEL);
+		cs = kzalloc_obj(*cs);
 		if (!cs)
 			return -ENOMEM;
 		cs->base = mcspi->base + spi_get_chipselect(spi, 0) * 0x14;
@@ -1177,6 +1184,7 @@ static int omap2_mcspi_transfer_one(struct spi_controller *ctlr,
 		omap2_mcspi_set_cs(spi, spi->mode & SPI_CS_HIGH);
 
 	if (par_override ||
+	    (spi->mode & SPI_3WIRE) ||
 	    (t->speed_hz != spi->max_speed_hz) ||
 	    (t->bits_per_word != spi->bits_per_word)) {
 		par_override = 1;
@@ -1483,7 +1491,7 @@ static int omap2_mcspi_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	/* the spi->mode bits understood by this driver: */
-	ctlr->mode_bits = SPI_CPOL | SPI_CPHA | SPI_CS_HIGH;
+	ctlr->mode_bits = SPI_CPOL | SPI_CPHA | SPI_CS_HIGH | SPI_3WIRE;
 	ctlr->bits_per_word_mask = SPI_BPW_RANGE_MASK(4, 32);
 	ctlr->setup = omap2_mcspi_setup;
 	ctlr->auto_runtime_pm = true;
@@ -1584,7 +1592,7 @@ static int omap2_mcspi_probe(struct platform_device *pdev)
 	if (status < 0)
 		goto disable_pm;
 
-	status = devm_spi_register_controller(&pdev->dev, ctlr);
+	status = spi_register_controller(ctlr);
 	if (status < 0)
 		goto disable_pm;
 
@@ -1605,11 +1613,17 @@ static void omap2_mcspi_remove(struct platform_device *pdev)
 	struct spi_controller *ctlr = platform_get_drvdata(pdev);
 	struct omap2_mcspi *mcspi = spi_controller_get_devdata(ctlr);
 
+	spi_controller_get(ctlr);
+
+	spi_unregister_controller(ctlr);
+
 	omap2_mcspi_release_dma(ctlr);
 
 	pm_runtime_dont_use_autosuspend(mcspi->dev);
 	pm_runtime_put_sync(mcspi->dev);
 	pm_runtime_disable(&pdev->dev);
+
+	spi_controller_put(ctlr);
 }
 
 /* work with hotplug and coldplug */

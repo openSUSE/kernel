@@ -44,7 +44,10 @@
 #include <drm/drm_managed.h>
 #include <drm/drm_modeset_helper_vtables.h>
 #include <drm/drm_module.h>
+#include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
+#include <drm/drm_vblank.h>
+#include <drm/drm_vblank_helper.h>
 
 #define DRIVER_NAME "cirrus-qemu"
 #define DRIVER_DESC "qemu cirrus vga"
@@ -293,7 +296,7 @@ static const uint64_t cirrus_primary_plane_format_modifiers[] = {
 };
 
 static int cirrus_primary_plane_helper_atomic_check(struct drm_plane *plane,
-						    struct drm_atomic_state *state)
+						    struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *new_plane_state = drm_atomic_get_new_plane_state(state, plane);
 	struct drm_framebuffer *fb = new_plane_state->fb;
@@ -323,7 +326,7 @@ static int cirrus_primary_plane_helper_atomic_check(struct drm_plane *plane,
 }
 
 static void cirrus_primary_plane_helper_atomic_update(struct drm_plane *plane,
-						      struct drm_atomic_state *state)
+						      struct drm_atomic_commit *state)
 {
 	struct cirrus_device *cirrus = to_cirrus(plane->dev);
 	struct drm_plane_state *plane_state = drm_atomic_get_new_plane_state(state, plane);
@@ -371,7 +374,7 @@ static const struct drm_plane_funcs cirrus_primary_plane_funcs = {
 	DRM_GEM_SHADOW_PLANE_FUNCS,
 };
 
-static int cirrus_crtc_helper_atomic_check(struct drm_crtc *crtc, struct drm_atomic_state *state)
+static int cirrus_crtc_helper_atomic_check(struct drm_crtc *crtc, struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *crtc_state = drm_atomic_get_new_crtc_state(state, crtc);
 	int ret;
@@ -387,7 +390,7 @@ static int cirrus_crtc_helper_atomic_check(struct drm_crtc *crtc, struct drm_ato
 }
 
 static void cirrus_crtc_helper_atomic_enable(struct drm_crtc *crtc,
-					     struct drm_atomic_state *state)
+					     struct drm_atomic_commit *state)
 {
 	struct cirrus_device *cirrus = to_cirrus(crtc->dev);
 	struct drm_crtc_state *crtc_state = drm_atomic_get_new_crtc_state(state, crtc);
@@ -404,11 +407,15 @@ static void cirrus_crtc_helper_atomic_enable(struct drm_crtc *crtc,
 #endif
 
 	drm_dev_exit(idx);
+
+	drm_crtc_vblank_on(crtc);
 }
 
 static const struct drm_crtc_helper_funcs cirrus_crtc_helper_funcs = {
 	.atomic_check = cirrus_crtc_helper_atomic_check,
+	.atomic_flush = drm_crtc_vblank_atomic_flush,
 	.atomic_enable = cirrus_crtc_helper_atomic_enable,
+	.atomic_disable = drm_crtc_vblank_atomic_disable,
 };
 
 static const struct drm_crtc_funcs cirrus_crtc_funcs = {
@@ -418,6 +425,7 @@ static const struct drm_crtc_funcs cirrus_crtc_funcs = {
 	.page_flip = drm_atomic_helper_page_flip,
 	.atomic_duplicate_state = drm_atomic_helper_crtc_duplicate_state,
 	.atomic_destroy_state = drm_atomic_helper_crtc_destroy_state,
+	DRM_CRTC_VBLANK_TIMER_FUNCS,
 };
 
 static const struct drm_encoder_funcs cirrus_encoder_funcs = {
@@ -490,6 +498,10 @@ static int cirrus_pipe_init(struct cirrus_device *cirrus)
 	drm_connector_helper_add(connector, &cirrus_connector_helper_funcs);
 
 	ret = drm_connector_attach_encoder(connector, encoder);
+	if (ret)
+		return ret;
+
+	ret = drm_vblank_init(dev, 1);
 	if (ret)
 		return ret;
 

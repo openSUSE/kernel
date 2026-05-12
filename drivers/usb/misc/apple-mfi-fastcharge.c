@@ -134,7 +134,6 @@ static int apple_mfi_fc_set_property(struct power_supply *psy,
 		ret = -EINVAL;
 	}
 
-	pm_runtime_mark_last_busy(&mfi->udev->dev);
 	pm_runtime_put_autosuspend(&mfi->udev->dev);
 
 	return ret;
@@ -185,7 +184,7 @@ static int mfi_fc_probe(struct usb_device *udev)
 	if (!mfi_fc_match(udev))
 		return -ENODEV;
 
-	mfi = kzalloc(sizeof(struct mfi_device), GFP_KERNEL);
+	mfi = kzalloc_obj(struct mfi_device);
 	if (!mfi)
 		return -ENOMEM;
 
@@ -211,7 +210,7 @@ static int mfi_fc_probe(struct usb_device *udev)
 		goto err_free_name;
 	}
 
-	mfi->udev = usb_get_dev(udev);
+	mfi->udev = udev;
 	dev_set_drvdata(&udev->dev, mfi);
 
 	return 0;
@@ -232,7 +231,6 @@ static void mfi_fc_disconnect(struct usb_device *udev)
 		power_supply_unregister(mfi->battery);
 	kfree(mfi->battery_desc.name);
 	dev_set_drvdata(&udev->dev, NULL);
-	usb_put_dev(mfi->udev);
 	kfree(mfi);
 }
 

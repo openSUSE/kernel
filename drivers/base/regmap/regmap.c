@@ -408,9 +408,11 @@ static void regmap_lock_hwlock_irq(void *__map)
 static void regmap_lock_hwlock_irqsave(void *__map)
 {
 	struct regmap *map = __map;
+	unsigned long flags = 0;
 
 	hwspin_lock_timeout_irqsave(map->hwlock, UINT_MAX,
-				    &map->spinlock_flags);
+				    &flags);
+	map->spinlock_flags = flags;
 }
 
 static void regmap_unlock_hwlock(void *__map)
@@ -687,7 +689,7 @@ struct regmap *__regmap_init(struct device *dev,
 	if (!config)
 		goto err;
 
-	map = kzalloc(sizeof(*map), GFP_KERNEL);
+	map = kzalloc_obj(*map);
 	if (map == NULL) {
 		ret = -ENOMEM;
 		goto err;
@@ -811,6 +813,7 @@ struct regmap *__regmap_init(struct device *dev,
 	map->precious_reg = config->precious_reg;
 	map->writeable_noinc_reg = config->writeable_noinc_reg;
 	map->readable_noinc_reg = config->readable_noinc_reg;
+	map->reg_default_cb = config->reg_default_cb;
 	map->cache_type = config->cache_type;
 
 	spin_lock_init(&map->async_lock);
@@ -827,7 +830,7 @@ struct regmap *__regmap_init(struct device *dev,
 		map->read_flag_mask = bus->read_flag_mask;
 	}
 
-	if (config && config->read && config->write) {
+	if (config->read && config->write) {
 		map->reg_read  = _regmap_bus_read;
 		if (config->reg_update_bits)
 			map->reg_update_bits = config->reg_update_bits;
@@ -1114,7 +1117,7 @@ skip_format_initialization:
 			}
 		}
 
-		new = kzalloc(sizeof(*new), GFP_KERNEL);
+		new = kzalloc_obj(*new);
 		if (new == NULL) {
 			ret = -ENOMEM;
 			goto err_range;
@@ -1179,9 +1182,9 @@ err:
 }
 EXPORT_SYMBOL_GPL(__regmap_init);
 
-static void devm_regmap_release(struct device *dev, void *res)
+static void devm_regmap_release(void *regmap)
 {
-	regmap_exit(*(struct regmap **)res);
+	regmap_exit(regmap);
 }
 
 struct regmap *__devm_regmap_init(struct device *dev,
@@ -1191,20 +1194,17 @@ struct regmap *__devm_regmap_init(struct device *dev,
 				  struct lock_class_key *lock_key,
 				  const char *lock_name)
 {
-	struct regmap **ptr, *regmap;
-
-	ptr = devres_alloc(devm_regmap_release, sizeof(*ptr), GFP_KERNEL);
-	if (!ptr)
-		return ERR_PTR(-ENOMEM);
+	struct regmap *regmap;
+	int ret;
 
 	regmap = __regmap_init(dev, bus, bus_context, config,
 			       lock_key, lock_name);
-	if (!IS_ERR(regmap)) {
-		*ptr = regmap;
-		devres_add(dev, ptr);
-	} else {
-		devres_free(ptr);
-	}
+	if (IS_ERR(regmap))
+		return regmap;
+
+	ret = devm_add_action_or_reset(dev, devm_regmap_release, regmap);
+	if (ret)
+		return ERR_PTR(ret);
 
 	return regmap;
 }
@@ -1271,7 +1271,7 @@ int regmap_field_bulk_alloc(struct regmap *regmap,
 	struct regmap_field *rf;
 	int i;
 
-	rf = kcalloc(num_fields, sizeof(*rf), GFP_KERNEL);
+	rf = kzalloc_objs(*rf, num_fields);
 	if (!rf)
 		return -ENOMEM;
 
@@ -1381,7 +1381,7 @@ EXPORT_SYMBOL_GPL(devm_regmap_field_free);
 struct regmap_field *regmap_field_alloc(struct regmap *regmap,
 		struct reg_field reg_field)
 {
-	struct regmap_field *rm_field = kzalloc(sizeof(*rm_field), GFP_KERNEL);
+	struct regmap_field *rm_field = kzalloc_obj(*rm_field);
 
 	if (!rm_field)
 		return ERR_PTR(-ENOMEM);
@@ -1433,6 +1433,7 @@ int regmap_reinit_cache(struct regmap *map, const struct regmap_config *config)
 	map->precious_reg = config->precious_reg;
 	map->writeable_noinc_reg = config->writeable_noinc_reg;
 	map->readable_noinc_reg = config->readable_noinc_reg;
+	map->reg_default_cb = config->reg_default_cb;
 	map->cache_type = config->cache_type;
 
 	ret = regmap_set_name(map, config);
@@ -1541,6 +1542,7 @@ static int _regmap_select_page(struct regmap *map, unsigned int *reg,
 			       unsigned int val_num)
 {
 	void *orig_work_buf;
+	unsigned int selector_reg;
 	unsigned int win_offset;
 	unsigned int win_page;
 	bool page_chg;
@@ -1559,10 +1561,31 @@ static int _regmap_select_page(struct regmap *map, unsigned int *reg,
 			return -EINVAL;
 	}
 
-	/* It is possible to have selector register inside data window.
-	   In that case, selector register is located on every page and
-	   it needs no page switching, when accessed alone. */
+	/*
+	 * Calculate the address of the selector register in the corresponding
+	 * data window if it is located on every page.
+	 */
+	page_chg = in_range(range->selector_reg, range->window_start, range->window_len);
+	if (page_chg)
+		selector_reg = range->range_min + win_page * range->window_len +
+			       range->selector_reg - range->window_start;
+
+	/*
+	 * It is possible to have selector register inside data window.
+	 * In that case, selector register is located on every page and it
+	 * needs no page switching, when accessed alone.
+	 *
+	 * Nevertheless we should synchronize the cache values for it.
+	 * This can't be properly achieved if the selector register is
+	 * the first and the only one to be read inside the data window.
+	 * That's why we update it in that case as well.
+	 *
+	 * However, we specifically avoid updating it for the default page,
+	 * when it's overlapped with the real data window, to prevent from
+	 * infinite looping.
+	 */
 	if (val_num > 1 ||
+	    (page_chg && selector_reg != range->selector_reg) ||
 	    range->window_start + win_offset != range->selector_reg) {
 		/* Use separate work_buf during page switching */
 		orig_work_buf = map->work_buf;
@@ -1571,7 +1594,7 @@ static int _regmap_select_page(struct regmap *map, unsigned int *reg,
 		ret = _regmap_update_bits(map, range->selector_reg,
 					  range->selector_mask,
 					  win_page << range->selector_shift,
-					  &page_chg, false);
+					  NULL, false);
 
 		map->work_buf = orig_work_buf;
 
@@ -2258,12 +2281,14 @@ EXPORT_SYMBOL_GPL(regmap_field_update_bits_base);
  * @field: Register field to operate on
  * @bits: Bits to test
  *
- * Returns -1 if the underlying regmap_field_read() fails, 0 if at least one of the
- * tested bits is not set and 1 if all tested bits are set.
+ * Returns negative errno if the underlying regmap_field_read() fails,
+ * 0 if at least one of the tested bits is not set and 1 if all tested
+ * bits are set.
  */
 int regmap_field_test_bits(struct regmap_field *field, unsigned int bits)
 {
-	unsigned int val, ret;
+	unsigned int val;
+	int ret;
 
 	ret = regmap_field_read(field, &val);
 	if (ret)
@@ -3309,7 +3334,8 @@ EXPORT_SYMBOL_GPL(regmap_update_bits_base);
  */
 int regmap_test_bits(struct regmap *map, unsigned int reg, unsigned int bits)
 {
-	unsigned int val, ret;
+	unsigned int val;
+	int ret;
 
 	ret = regmap_read(map, reg, &val);
 	if (ret)

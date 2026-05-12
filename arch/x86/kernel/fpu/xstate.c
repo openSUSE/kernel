@@ -8,6 +8,7 @@
 #include <linux/compat.h>
 #include <linux/cpu.h>
 #include <linux/mman.h>
+#include <linux/kvm_types.h>
 #include <linux/nospec.h>
 #include <linux/pkeys.h>
 #include <linux/seq_file.h>
@@ -1058,7 +1059,7 @@ void *get_xsave_addr(struct xregs_state *xsave, int xfeature_nr)
 
 	return __raw_xsave_addr(xsave, xfeature_nr);
 }
-EXPORT_SYMBOL_GPL(get_xsave_addr);
+EXPORT_SYMBOL_FOR_KVM(get_xsave_addr);
 
 /*
  * Given an xstate feature nr, calculate where in the xsave buffer the state is.
@@ -1079,8 +1080,7 @@ void __user *get_xsave_addr_user(struct xregs_state __user *xsave, int xfeature_
  * This will go out and modify PKRU register to set the access
  * rights for @pkey to @init_val.
  */
-int arch_set_user_pkey_access(struct task_struct *tsk, int pkey,
-			      unsigned long init_val)
+int arch_set_user_pkey_access(int pkey, unsigned long init_val)
 {
 	u32 old_pkru, new_pkru_bits = 0;
 	int pkey_shift;
@@ -1482,7 +1482,7 @@ void fpstate_clear_xstate_component(struct fpstate *fpstate, unsigned int xfeatu
 	if (addr)
 		memset(addr, 0, xstate_sizes[xfeature]);
 }
-EXPORT_SYMBOL_GPL(fpstate_clear_xstate_component);
+EXPORT_SYMBOL_FOR_KVM(fpstate_clear_xstate_component);
 #endif
 
 #ifdef CONFIG_X86_64
@@ -1818,7 +1818,7 @@ u64 xstate_get_guest_group_perm(void)
 {
 	return xstate_get_group_perm(true);
 }
-EXPORT_SYMBOL_GPL(xstate_get_guest_group_perm);
+EXPORT_SYMBOL_FOR_KVM(xstate_get_guest_group_perm);
 
 /**
  * fpu_xstate_prctl - xstate permission operations
@@ -1945,7 +1945,7 @@ static int dump_xsave_layout_desc(struct coredump_params *cprm)
 		};
 
 		if (!dump_emit(cprm, &xc, sizeof(xc)))
-			return 0;
+			return -1;
 
 		num_records++;
 	}
@@ -1983,7 +1983,7 @@ int elf_coredump_extra_notes_write(struct coredump_params *cprm)
 		return 1;
 
 	num_records = dump_xsave_layout_desc(cprm);
-	if (!num_records)
+	if (num_records < 0)
 		return 1;
 
 	/* Total size should be equal to the number of records */

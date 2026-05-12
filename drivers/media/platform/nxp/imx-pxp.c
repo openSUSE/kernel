@@ -248,7 +248,7 @@ struct pxp_ctx {
 
 static inline struct pxp_ctx *file2ctx(struct file *file)
 {
-	return container_of(file->private_data, struct pxp_ctx, fh);
+	return container_of(file_to_v4l2_fh(file), struct pxp_ctx, fh);
 }
 
 static struct pxp_q_data *get_q_data(struct pxp_ctx *ctx,
@@ -1180,12 +1180,7 @@ static int pxp_enum_fmt_vid_out(struct file *file, void *priv,
 
 static int pxp_g_fmt(struct pxp_ctx *ctx, struct v4l2_format *f)
 {
-	struct vb2_queue *vq;
 	struct pxp_q_data *q_data;
-
-	vq = v4l2_m2m_get_vq(ctx->fh.m2m_ctx, f->type);
-	if (!vq)
-		return -EINVAL;
 
 	q_data = get_q_data(ctx, f->type);
 
@@ -1329,8 +1324,6 @@ static int pxp_s_fmt(struct pxp_ctx *ctx, struct v4l2_format *f)
 	struct vb2_queue *vq;
 
 	vq = v4l2_m2m_get_vq(ctx->fh.m2m_ctx, f->type);
-	if (!vq)
-		return -EINVAL;
 
 	q_data = get_q_data(ctx, f->type);
 	if (!q_data)
@@ -1653,14 +1646,13 @@ static int pxp_open(struct file *file)
 
 	if (mutex_lock_interruptible(&dev->dev_mutex))
 		return -ERESTARTSYS;
-	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	ctx = kzalloc_obj(*ctx);
 	if (!ctx) {
 		rc = -ENOMEM;
 		goto open_unlock;
 	}
 
 	v4l2_fh_init(&ctx->fh, video_devdata(file));
-	file->private_data = &ctx->fh;
 	ctx->dev = dev;
 	hdl = &ctx->hdl;
 	v4l2_ctrl_handler_init(hdl, 4);
@@ -1699,7 +1691,7 @@ static int pxp_open(struct file *file)
 		goto open_unlock;
 	}
 
-	v4l2_fh_add(&ctx->fh);
+	v4l2_fh_add(&ctx->fh, file);
 	atomic_inc(&dev->num_inst);
 
 	dprintk(dev, "Created instance: %p, m2m_ctx: %p\n",
@@ -1717,7 +1709,7 @@ static int pxp_release(struct file *file)
 
 	dprintk(dev, "Releasing instance %p\n", ctx);
 
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, file);
 	v4l2_fh_exit(&ctx->fh);
 	v4l2_ctrl_handler_free(&ctx->hdl);
 	mutex_lock(&dev->dev_mutex);

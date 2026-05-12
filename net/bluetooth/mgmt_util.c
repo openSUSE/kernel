@@ -266,7 +266,7 @@ struct mgmt_pending_cmd *mgmt_pending_new(struct sock *sk, u16 opcode,
 {
 	struct mgmt_pending_cmd *cmd;
 
-	cmd = kzalloc(sizeof(*cmd), GFP_KERNEL);
+	cmd = kzalloc_obj(*cmd);
 	if (!cmd)
 		return NULL;
 
@@ -320,6 +320,52 @@ void mgmt_pending_remove(struct mgmt_pending_cmd *cmd)
 	mgmt_pending_free(cmd);
 }
 
+bool __mgmt_pending_listed(struct hci_dev *hdev, struct mgmt_pending_cmd *cmd)
+{
+	struct mgmt_pending_cmd *tmp;
+
+	lockdep_assert_held(&hdev->mgmt_pending_lock);
+
+	if (!cmd)
+		return false;
+
+	list_for_each_entry(tmp, &hdev->mgmt_pending, list) {
+		if (cmd == tmp)
+			return true;
+	}
+
+	return false;
+}
+
+bool mgmt_pending_listed(struct hci_dev *hdev, struct mgmt_pending_cmd *cmd)
+{
+	bool listed;
+
+	mutex_lock(&hdev->mgmt_pending_lock);
+	listed = __mgmt_pending_listed(hdev, cmd);
+	mutex_unlock(&hdev->mgmt_pending_lock);
+
+	return listed;
+}
+
+bool mgmt_pending_valid(struct hci_dev *hdev, struct mgmt_pending_cmd *cmd)
+{
+	bool listed;
+
+	if (!cmd)
+		return false;
+
+	mutex_lock(&hdev->mgmt_pending_lock);
+
+	listed = __mgmt_pending_listed(hdev, cmd);
+	if (listed)
+		list_del(&cmd->list);
+
+	mutex_unlock(&hdev->mgmt_pending_lock);
+
+	return listed;
+}
+
 void mgmt_mesh_foreach(struct hci_dev *hdev,
 		       void (*cb)(struct mgmt_mesh_tx *mesh_tx, void *data),
 		       void *data, struct sock *sk)
@@ -367,7 +413,7 @@ struct mgmt_mesh_tx *mgmt_mesh_add(struct sock *sk, struct hci_dev *hdev,
 {
 	struct mgmt_mesh_tx *mesh_tx;
 
-	mesh_tx = kzalloc(sizeof(*mesh_tx), GFP_KERNEL);
+	mesh_tx = kzalloc_obj(*mesh_tx);
 	if (!mesh_tx)
 		return NULL;
 

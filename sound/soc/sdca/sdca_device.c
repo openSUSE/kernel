@@ -7,6 +7,8 @@
  */
 
 #include <linux/acpi.h>
+#include <linux/device.h>
+#include <linux/dmi.h>
 #include <linux/module.h>
 #include <linux/property.h>
 #include <linux/soundwire/sdw.h>
@@ -25,6 +27,25 @@ void sdca_lookup_interface_revision(struct sdw_slave *slave)
 				 &slave->sdca_data.interface_revision);
 }
 EXPORT_SYMBOL_NS(sdca_lookup_interface_revision, "SND_SOC_SDCA");
+
+static void devm_acpi_table_put(void *ptr)
+{
+	acpi_put_table((struct acpi_table_header *)ptr);
+}
+
+void sdca_lookup_swft(struct sdw_slave *slave)
+{
+	acpi_status status;
+
+	status = acpi_get_table(ACPI_SIG_SWFT, 0,
+				(struct acpi_table_header **)&slave->sdca_data.swft);
+	if (ACPI_FAILURE(status))
+		dev_info(&slave->dev, "SWFT not available\n");
+	else
+		devm_add_action_or_reset(&slave->dev, devm_acpi_table_put,
+					 &slave->sdca_data.swft);
+}
+EXPORT_SYMBOL_NS(sdca_lookup_swft, "SND_SOC_SDCA");
 
 static bool sdca_device_quirk_rt712_vb(struct sdw_slave *slave)
 {
@@ -55,11 +76,30 @@ static bool sdca_device_quirk_rt712_vb(struct sdw_slave *slave)
 	return false;
 }
 
+static bool sdca_device_quirk_skip_func_type_patching(struct sdw_slave *slave)
+{
+	const char *vendor, *sku;
+
+	vendor = dmi_get_system_info(DMI_SYS_VENDOR);
+	sku = dmi_get_system_info(DMI_PRODUCT_SKU);
+
+	if (vendor && sku &&
+	    !strcmp(vendor, "Dell Inc.") &&
+	    (!strcmp(sku, "0C62") || !strcmp(sku, "0C63") || !strcmp(sku, "0C6B")) &&
+	    slave->sdca_data.interface_revision == 0x061c &&
+	    slave->id.mfg_id == 0x01fa && slave->id.part_id == 0x4243)
+		return true;
+
+	return false;
+}
+
 bool sdca_device_quirk_match(struct sdw_slave *slave, enum sdca_quirk quirk)
 {
 	switch (quirk) {
 	case SDCA_QUIRKS_RT712_VB:
 		return sdca_device_quirk_rt712_vb(slave);
+	case SDCA_QUIRKS_SKIP_FUNC_TYPE_PATCHING:
+		return sdca_device_quirk_skip_func_type_patching(slave);
 	default:
 		break;
 	}

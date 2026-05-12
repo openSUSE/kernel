@@ -72,12 +72,12 @@ static void ip6_datagram_flow_key_init(struct flowi6 *fl6,
 int ip6_datagram_dst_update(struct sock *sk, bool fix_sk_saddr)
 {
 	struct ip6_flowlabel *flowlabel = NULL;
-	struct in6_addr *final_p, final;
-	struct ipv6_txoptions *opt;
-	struct dst_entry *dst;
 	struct inet_sock *inet = inet_sk(sk);
 	struct ipv6_pinfo *np = inet6_sk(sk);
-	struct flowi6 fl6;
+	struct ipv6_txoptions *opt;
+	struct in6_addr *final_p;
+	struct dst_entry *dst;
+	struct flowi6 *fl6;
 	int err = 0;
 
 	if (inet6_test_bit(SNDFLOW, sk) &&
@@ -86,14 +86,15 @@ int ip6_datagram_dst_update(struct sock *sk, bool fix_sk_saddr)
 		if (IS_ERR(flowlabel))
 			return -EINVAL;
 	}
-	ip6_datagram_flow_key_init(&fl6, sk);
+	fl6 = &inet_sk(sk)->cork.fl.u.ip6;
+	ip6_datagram_flow_key_init(fl6, sk);
 
 	rcu_read_lock();
 	opt = flowlabel ? flowlabel->opt : rcu_dereference(np->opt);
-	final_p = fl6_update_dst(&fl6, opt, &final);
+	final_p = fl6_update_dst(fl6, opt, &np->final);
 	rcu_read_unlock();
 
-	dst = ip6_dst_lookup_flow(sock_net(sk), sk, &fl6, final_p);
+	dst = ip6_dst_lookup_flow(sock_net(sk), sk, fl6, final_p);
 	if (IS_ERR(dst)) {
 		err = PTR_ERR(dst);
 		goto out;
@@ -101,17 +102,17 @@ int ip6_datagram_dst_update(struct sock *sk, bool fix_sk_saddr)
 
 	if (fix_sk_saddr) {
 		if (ipv6_addr_any(&np->saddr))
-			np->saddr = fl6.saddr;
+			np->saddr = fl6->saddr;
 
 		if (ipv6_addr_any(&sk->sk_v6_rcv_saddr)) {
-			sk->sk_v6_rcv_saddr = fl6.saddr;
+			sk->sk_v6_rcv_saddr = fl6->saddr;
 			inet->inet_rcv_saddr = LOOPBACK4_IPV6;
 			if (sk->sk_prot->rehash)
 				sk->sk_prot->rehash(sk);
 		}
 	}
 
-	ip6_sk_dst_store_flow(sk, dst, &fl6);
+	ip6_sk_dst_store_flow(sk, dst, fl6);
 
 out:
 	fl6_sock_release(flowlabel);
@@ -138,7 +139,7 @@ void ip6_datagram_release_cb(struct sock *sk)
 }
 EXPORT_SYMBOL_GPL(ip6_datagram_release_cb);
 
-int __ip6_datagram_connect(struct sock *sk, struct sockaddr *uaddr,
+int __ip6_datagram_connect(struct sock *sk, struct sockaddr_unsized *uaddr,
 			   int addr_len)
 {
 	struct sockaddr_in6	*usin = (struct sockaddr_in6 *) uaddr;
@@ -194,7 +195,7 @@ int __ip6_datagram_connect(struct sock *sk, struct sockaddr *uaddr,
 		sin.sin_port = usin->sin6_port;
 
 		err = __ip4_datagram_connect(sk,
-					     (struct sockaddr *) &sin,
+					     (struct sockaddr_unsized *)&sin,
 					     sizeof(sin));
 
 ipv4_connected:
@@ -271,7 +272,7 @@ out:
 }
 EXPORT_SYMBOL_GPL(__ip6_datagram_connect);
 
-int ip6_datagram_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
+int ip6_datagram_connect(struct sock *sk, struct sockaddr_unsized *uaddr, int addr_len)
 {
 	int res;
 
@@ -282,7 +283,7 @@ int ip6_datagram_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 }
 EXPORT_SYMBOL_GPL(ip6_datagram_connect);
 
-int ip6_datagram_connect_v6_only(struct sock *sk, struct sockaddr *uaddr,
+int ip6_datagram_connect_v6_only(struct sock *sk, struct sockaddr_unsized *uaddr,
 				 int addr_len)
 {
 	DECLARE_SOCKADDR(struct sockaddr_in6 *, sin6, uaddr);
@@ -451,7 +452,7 @@ static bool ip6_datagram_support_cmsg(struct sk_buff *skb,
 /*
  *	Handle MSG_ERRQUEUE
  */
-int ipv6_recv_error(struct sock *sk, struct msghdr *msg, int len, int *addr_len)
+int ipv6_recv_error(struct sock *sk, struct msghdr *msg, int len)
 {
 	struct ipv6_pinfo *np = inet6_sk(sk);
 	struct sock_exterr_skb *serr;
@@ -502,7 +503,7 @@ int ipv6_recv_error(struct sock *sk, struct msghdr *msg, int len, int *addr_len)
 					       &sin->sin6_addr);
 			sin->sin6_scope_id = 0;
 		}
-		*addr_len = sizeof(*sin);
+		msg->msg_namelen = sizeof(*sin);
 	}
 
 	memcpy(&errhdr.ee, &serr->ee, sizeof(struct sock_extended_err));
@@ -544,8 +545,7 @@ EXPORT_SYMBOL_GPL(ipv6_recv_error);
 /*
  *	Handle IPV6_RECVPATHMTU
  */
-int ipv6_recv_rxpmtu(struct sock *sk, struct msghdr *msg, int len,
-		     int *addr_len)
+int ipv6_recv_rxpmtu(struct sock *sk, struct msghdr *msg, int len)
 {
 	struct ipv6_pinfo *np = inet6_sk(sk);
 	struct sk_buff *skb;
@@ -578,7 +578,7 @@ int ipv6_recv_rxpmtu(struct sock *sk, struct msghdr *msg, int len,
 		sin->sin6_port = 0;
 		sin->sin6_scope_id = mtu_info.ip6m_addr.sin6_scope_id;
 		sin->sin6_addr = mtu_info.ip6m_addr.sin6_addr;
-		*addr_len = sizeof(*sin);
+		msg->msg_namelen = sizeof(*sin);
 	}
 
 	put_cmsg(msg, SOL_IPV6, IPV6_PATHMTU, sizeof(mtu_info), &mtu_info);
@@ -762,6 +762,7 @@ int ip6_datagram_send_ctl(struct net *net, struct sock *sk,
 {
 	struct in6_pktinfo *src_info;
 	struct cmsghdr *cmsg;
+	struct ipv6_rt_hdr *orthdr;
 	struct ipv6_rt_hdr *rthdr;
 	struct ipv6_opt_hdr *hdr;
 	struct ipv6_txoptions *opt = ipc6->opt;
@@ -923,9 +924,13 @@ int ip6_datagram_send_ctl(struct net *net, struct sock *sk,
 				goto exit_f;
 			}
 			if (cmsg->cmsg_type == IPV6_DSTOPTS) {
+				if (opt->dst1opt)
+					opt->opt_flen -= ipv6_optlen(opt->dst1opt);
 				opt->opt_flen += len;
 				opt->dst1opt = hdr;
 			} else {
+				if (opt->dst0opt)
+					opt->opt_nflen -= ipv6_optlen(opt->dst0opt);
 				opt->opt_nflen += len;
 				opt->dst0opt = hdr;
 			}
@@ -968,12 +973,17 @@ int ip6_datagram_send_ctl(struct net *net, struct sock *sk,
 				goto exit_f;
 			}
 
+			orthdr = opt->srcrt;
+			if (orthdr)
+				opt->opt_nflen -= ((orthdr->hdrlen + 1) << 3);
 			opt->opt_nflen += len;
 			opt->srcrt = rthdr;
 
 			if (cmsg->cmsg_type == IPV6_2292RTHDR && opt->dst1opt) {
 				int dsthdrlen = ((opt->dst1opt->hdrlen+1)<<3);
 
+				if (opt->dst0opt)
+					opt->opt_nflen -= ipv6_optlen(opt->dst0opt);
 				opt->opt_nflen += dsthdrlen;
 				opt->dst0opt = opt->dst1opt;
 				opt->dst1opt = NULL;
@@ -1054,7 +1064,7 @@ void __ip6_dgram_sock_seq_show(struct seq_file *seq, struct sock *sp,
 	src   = &sp->sk_v6_rcv_saddr;
 	seq_printf(seq,
 		   "%5d: %08X%08X%08X%08X:%04X %08X%08X%08X%08X:%04X "
-		   "%02X %08X:%08X %02X:%08lX %08X %5u %8d %lu %d %pK %u\n",
+		   "%02X %08X:%08X %02X:%08lX %08X %5u %8d %llu %d %pK %u\n",
 		   bucket,
 		   src->s6_addr32[0], src->s6_addr32[1],
 		   src->s6_addr32[2], src->s6_addr32[3], srcp,
@@ -1068,5 +1078,5 @@ void __ip6_dgram_sock_seq_show(struct seq_file *seq, struct sock *sp,
 		   0,
 		   sock_i_ino(sp),
 		   refcount_read(&sp->sk_refcnt), sp,
-		   atomic_read(&sp->sk_drops));
+		   sk_drops_read(sp));
 }

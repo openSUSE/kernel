@@ -114,7 +114,7 @@ static int switchdev_deferred_enqueue(struct net_device *dev,
 {
 	struct switchdev_deferred_item *dfitem;
 
-	dfitem = kmalloc(struct_size(dfitem, data, data_len), GFP_ATOMIC);
+	dfitem = kmalloc_flex(*dfitem, data, data_len, GFP_ATOMIC);
 	if (!dfitem)
 		return -ENOMEM;
 	dfitem->dev = dev;
@@ -760,7 +760,7 @@ static int __switchdev_handle_port_obj_add(struct net_device *dev,
 	/* Event is neither on a bridge nor a LAG. Check whether it is on an
 	 * interface that is in a bridge with us.
 	 */
-	if (!foreign_dev_check_cb)
+	if (!foreign_dev_check_cb || port_obj_info->obj->flags & SWITCHDEV_F_NO_FOREIGN)
 		return err;
 
 	br = netdev_master_upper_dev_get(dev);

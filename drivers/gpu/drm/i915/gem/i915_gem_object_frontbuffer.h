@@ -12,40 +12,62 @@
 #include "display/intel_frontbuffer.h"
 #include "i915_gem_object_types.h"
 
-void __i915_gem_object_flush_frontbuffer(struct drm_i915_gem_object *obj,
+struct i915_frontbuffer {
+	struct intel_frontbuffer base;
+	struct drm_i915_gem_object *obj;
+	struct i915_active write;
+	struct rcu_head rcu;
+	struct kref ref;
+};
+
+void __i915_gem_object_frontbuffer_flush(struct drm_i915_gem_object *obj,
 					 enum fb_op_origin origin);
-void __i915_gem_object_invalidate_frontbuffer(struct drm_i915_gem_object *obj,
+void __i915_gem_object_frontbuffer_invalidate(struct drm_i915_gem_object *obj,
 					      enum fb_op_origin origin);
 
 static inline void
-i915_gem_object_flush_frontbuffer(struct drm_i915_gem_object *obj,
+i915_gem_object_frontbuffer_flush(struct drm_i915_gem_object *obj,
 				  enum fb_op_origin origin)
 {
 	if (unlikely(rcu_access_pointer(obj->frontbuffer)))
-		__i915_gem_object_flush_frontbuffer(obj, origin);
+		__i915_gem_object_frontbuffer_flush(obj, origin);
 }
 
 static inline void
-i915_gem_object_invalidate_frontbuffer(struct drm_i915_gem_object *obj,
+i915_gem_object_frontbuffer_invalidate(struct drm_i915_gem_object *obj,
 				       enum fb_op_origin origin)
 {
 	if (unlikely(rcu_access_pointer(obj->frontbuffer)))
-		__i915_gem_object_invalidate_frontbuffer(obj, origin);
+		__i915_gem_object_frontbuffer_invalidate(obj, origin);
+}
+
+struct i915_frontbuffer *i915_gem_object_frontbuffer_get(struct drm_i915_gem_object *obj);
+void i915_gem_object_frontbuffer_ref(struct i915_frontbuffer *front);
+void i915_gem_object_frontbuffer_put(struct i915_frontbuffer *front);
+
+static inline void i915_gem_object_frontbuffer_track(struct i915_frontbuffer *_old,
+						     struct i915_frontbuffer *_new,
+						     unsigned int frontbuffer_bits)
+{
+	struct intel_frontbuffer *old = _old ? &_old->base : NULL;
+	struct intel_frontbuffer *new = _new ? &_new->base : NULL;
+
+	intel_frontbuffer_track(old, new, frontbuffer_bits);
 }
 
 /**
- * i915_gem_object_get_frontbuffer - Get the object's frontbuffer
- * @obj: The object whose frontbuffer to get.
+ * i915_gem_object_frontbuffer_lookup - Look up the object's frontbuffer
+ * @obj: The object whose frontbuffer to look up.
  *
  * Get pointer to object's frontbuffer if such exists. Please note that RCU
  * mechanism is used to handle e.g. ongoing removal of frontbuffer pointer.
  *
  * Return: pointer to object's frontbuffer is such exists or NULL
  */
-static inline struct intel_frontbuffer *
-i915_gem_object_get_frontbuffer(const struct drm_i915_gem_object *obj)
+static inline struct i915_frontbuffer *
+i915_gem_object_frontbuffer_lookup(const struct drm_i915_gem_object *obj)
 {
-	struct intel_frontbuffer *front;
+	struct i915_frontbuffer *front;
 
 	if (likely(!rcu_access_pointer(obj->frontbuffer)))
 		return NULL;
@@ -62,43 +84,13 @@ i915_gem_object_get_frontbuffer(const struct drm_i915_gem_object *obj)
 		if (likely(front == rcu_access_pointer(obj->frontbuffer)))
 			break;
 
-		intel_frontbuffer_put(front);
+		i915_gem_object_frontbuffer_put(front);
 	} while (1);
 	rcu_read_unlock();
 
 	return front;
 }
 
-/**
- * i915_gem_object_set_frontbuffer - Set the object's frontbuffer
- * @obj: The object whose frontbuffer to set.
- * @front: The frontbuffer to set
- *
- * Set object's frontbuffer pointer. If frontbuffer is already set for the
- * object keep it and return it's pointer to the caller. Please note that RCU
- * mechanism is used to handle e.g. ongoing removal of frontbuffer pointer. This
- * function is protected by i915->display->fb_tracking.lock
- *
- * Return: pointer to frontbuffer which was set.
- */
-static inline struct intel_frontbuffer *
-i915_gem_object_set_frontbuffer(struct drm_i915_gem_object *obj,
-				struct intel_frontbuffer *front)
-{
-	struct intel_frontbuffer *cur = front;
-
-	if (!front) {
-		RCU_INIT_POINTER(obj->frontbuffer, NULL);
-		drm_gem_object_put(intel_bo_to_drm_bo(obj));
-	} else if (rcu_access_pointer(obj->frontbuffer)) {
-		cur = rcu_dereference_protected(obj->frontbuffer, true);
-		kref_get(&cur->ref);
-	} else {
-		drm_gem_object_get(intel_bo_to_drm_bo(obj));
-		rcu_assign_pointer(obj->frontbuffer, front);
-	}
-
-	return cur;
-}
+extern const struct intel_display_frontbuffer_interface i915_display_frontbuffer_interface;
 
 #endif

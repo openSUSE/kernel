@@ -1246,6 +1246,10 @@ static int amdgpu_atom_execute_table_locked(struct atom_context *ctx, int index,
 	ectx.last_jump_jiffies = 0;
 	if (ws) {
 		ectx.ws = kcalloc(4, ws, GFP_KERNEL);
+		if (!ectx.ws) {
+			ret = -ENOMEM;
+			goto free;
+		}
 		ectx.ws_size = ws;
 	} else {
 		ectx.ws = NULL;
@@ -1458,8 +1462,6 @@ static void atom_get_vbios_pn(struct atom_context *ctx)
 
 		ctx->vbios_pn[count] = 0;
 	}
-
-	pr_info("ATOM BIOS: %s\n", ctx->vbios_pn);
 }
 
 static void atom_get_vbios_version(struct atom_context *ctx)
@@ -1498,7 +1500,7 @@ static void atom_get_vbios_build(struct atom_context *ctx)
 {
 	unsigned char *atom_rom_hdr;
 	unsigned char *str;
-	uint16_t base;
+	uint16_t base, len;
 
 	base = CU16(ATOM_ROM_TABLE_PTR);
 	atom_rom_hdr = CSTR(base);
@@ -1511,15 +1513,40 @@ static void atom_get_vbios_build(struct atom_context *ctx)
 	while (str < atom_rom_hdr && *str++)
 		;
 
-	if ((str + STRLEN_NORMAL) < atom_rom_hdr)
-		strscpy(ctx->build_num, str, STRLEN_NORMAL);
+	len = min(atom_rom_hdr - str, STRLEN_NORMAL);
+	if (len)
+		strscpy(ctx->build_num, str, len);
+}
+
+static inline void atom_print_vbios_info(struct atom_context *ctx)
+{
+	char vbios_info[256];
+	int off = 0;
+
+	if (ctx->vbios_pn[0])
+		off += scnprintf(vbios_info + off, sizeof(vbios_info) - off,
+				 "%s", ctx->vbios_pn);
+	if (ctx->build_num[0])
+		off += scnprintf(vbios_info + off, sizeof(vbios_info) - off,
+				 "%sbuild: %s", off ? ", " : "",
+				 ctx->build_num);
+	if (ctx->vbios_ver_str[0])
+		off += scnprintf(vbios_info + off, sizeof(vbios_info) - off,
+				 "%sver: %s", off ? ", " : "",
+				 ctx->vbios_ver_str);
+	if (ctx->date[0])
+		off += scnprintf(vbios_info + off, sizeof(vbios_info) - off,
+				 "%s%.10s", off ? ", " : "",
+				 ctx->date);
+	if (off)
+		drm_info(ctx->card->dev, "ATOM BIOS: %s\n", vbios_info);
 }
 
 struct atom_context *amdgpu_atom_parse(struct card_info *card, void *bios)
 {
 	int base;
 	struct atom_context *ctx =
-	    kzalloc(sizeof(struct atom_context), GFP_KERNEL);
+	    kzalloc_obj(struct atom_context);
 	struct _ATOM_ROM_HEADER *atom_rom_header;
 	struct _ATOM_MASTER_DATA_TABLE *master_table;
 	struct _ATOM_FIRMWARE_INFO *atom_fw_info;
@@ -1576,6 +1603,8 @@ struct atom_context *amdgpu_atom_parse(struct card_info *card, void *bios)
 	atom_get_vbios_date(ctx);
 	atom_get_vbios_version(ctx);
 	atom_get_vbios_build(ctx);
+
+	atom_print_vbios_info(ctx);
 
 	return ctx;
 }

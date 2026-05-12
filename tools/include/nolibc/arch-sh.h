@@ -19,7 +19,7 @@
  *   - syscall return value is in r0
  */
 
-#define my_syscall0(num)                                                      \
+#define __nolibc_syscall0(num)                                                \
 ({                                                                            \
 	register long _num __asm__ ("r3") = (num);                            \
 	register long _ret __asm__ ("r0");                                    \
@@ -33,7 +33,7 @@
 	_ret;                                                                 \
 })
 
-#define my_syscall1(num, arg1)                                                \
+#define __nolibc_syscall1(num, arg1)                                          \
 ({                                                                            \
 	register long _num __asm__ ("r3") = (num);                            \
 	register long _ret __asm__ ("r0");                                    \
@@ -48,7 +48,7 @@
 	_ret;                                                                 \
 })
 
-#define my_syscall2(num, arg1, arg2)                                          \
+#define __nolibc_syscall2(num, arg1, arg2)                                    \
 ({                                                                            \
 	register long _num __asm__ ("r3") = (num);                            \
 	register long _ret __asm__ ("r0");                                    \
@@ -64,7 +64,7 @@
 	_ret;                                                                 \
 })
 
-#define my_syscall3(num, arg1, arg2, arg3)                                    \
+#define __nolibc_syscall3(num, arg1, arg2, arg3)                              \
 ({                                                                            \
 	register long _num __asm__ ("r3") = (num);                            \
 	register long _ret __asm__ ("r0");                                    \
@@ -81,7 +81,7 @@
 	_ret;                                                                 \
 })
 
-#define my_syscall4(num, arg1, arg2, arg3, arg4)                              \
+#define __nolibc_syscall4(num, arg1, arg2, arg3, arg4)                        \
 ({                                                                            \
 	register long _num __asm__ ("r3") = (num);                            \
 	register long _ret __asm__ ("r0");                                    \
@@ -99,7 +99,7 @@
 	_ret;                                                                 \
 })
 
-#define my_syscall5(num, arg1, arg2, arg3, arg4, arg5)                        \
+#define __nolibc_syscall5(num, arg1, arg2, arg3, arg4, arg5)                  \
 ({                                                                            \
 	register long _num __asm__ ("r3") = (num);                            \
 	register long _ret __asm__ ("r0");                                    \
@@ -119,7 +119,7 @@
 	_ret;                                                                 \
 })
 
-#define my_syscall6(num, arg1, arg2, arg3, arg4, arg5, arg6)                  \
+#define __nolibc_syscall6(num, arg1, arg2, arg3, arg4, arg5, arg6)            \
 ({                                                                            \
 	register long _num __asm__ ("r3") = (num);                            \
 	register long _ret __asm__ ("r0");                                    \
@@ -140,6 +140,7 @@
 	_ret;                                                                 \
 })
 
+#ifndef NOLIBC_NO_RUNTIME
 /* startup code */
 void _start_wrapper(void);
 void __attribute__((weak,noreturn)) __nolibc_entrypoint __no_stack_protector _start_wrapper(void)
@@ -158,5 +159,6 @@ void __attribute__((weak,noreturn)) __nolibc_entrypoint __no_stack_protector _st
 	);
 	__nolibc_entrypoint_epilogue();
 }
+#endif /* NOLIBC_NO_RUNTIME */
 
 #endif /* _NOLIBC_ARCH_SH_H */

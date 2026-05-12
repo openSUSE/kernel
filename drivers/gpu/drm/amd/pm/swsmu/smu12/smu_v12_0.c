@@ -70,43 +70,6 @@ int smu_v12_0_check_fw_status(struct smu_context *smu)
 	return -EIO;
 }
 
-int smu_v12_0_check_fw_version(struct smu_context *smu)
-{
-	struct amdgpu_device *adev = smu->adev;
-	uint32_t if_version = 0xff, smu_version = 0xff;
-	uint8_t smu_program, smu_major, smu_minor, smu_debug;
-	int ret = 0;
-
-	ret = smu_cmn_get_smc_version(smu, &if_version, &smu_version);
-	if (ret)
-		return ret;
-
-	smu_program = (smu_version >> 24) & 0xff;
-	smu_major = (smu_version >> 16) & 0xff;
-	smu_minor = (smu_version >> 8) & 0xff;
-	smu_debug = (smu_version >> 0) & 0xff;
-	if (smu->is_apu)
-		adev->pm.fw_version = smu_version;
-
-	/*
-	 * 1. if_version mismatch is not critical as our fw is designed
-	 * to be backward compatible.
-	 * 2. New fw usually brings some optimizations. But that's visible
-	 * only on the paired driver.
-	 * Considering above, we just leave user a verbal message instead
-	 * of halt driver loading.
-	 */
-	if (if_version != smu->smc_driver_if_version) {
-		dev_info(smu->adev->dev, "smu driver if version = 0x%08x, smu fw if version = 0x%08x, "
-			"smu fw program = %d, smu fw version = 0x%08x (%d.%d.%d)\n",
-			smu->smc_driver_if_version, if_version,
-			smu_program, smu_version, smu_major, smu_minor, smu_debug);
-		dev_info(smu->adev->dev, "SMU driver if version not matched\n");
-	}
-
-	return ret;
-}
-
 int smu_v12_0_powergate_sdma(struct smu_context *smu, bool gate)
 {
 	if (!smu->is_apu)
@@ -192,8 +155,7 @@ int smu_v12_0_fini_smc_tables(struct smu_context *smu)
 	kfree(smu_table->watermarks_table);
 	smu_table->watermarks_table = NULL;
 
-	kfree(smu_table->gpu_metrics_table);
-	smu_table->gpu_metrics_table = NULL;
+	smu_driver_table_fini(smu, SMU_DRIVER_TABLE_GPU_METRICS);
 
 	return 0;
 }
@@ -405,4 +367,21 @@ int smu_v12_0_get_vbios_bootup_values(struct smu_context *smu)
 					 &smu->smu_table.boot_values.lclk);
 
 	return 0;
+}
+
+void smu_v12_0_init_msg_ctl(struct smu_context *smu,
+			    const struct cmn2asic_msg_mapping *message_map)
+{
+	struct amdgpu_device *adev = smu->adev;
+	struct smu_msg_ctl *ctl = &smu->msg_ctl;
+
+	ctl->smu = smu;
+	mutex_init(&ctl->lock);
+	ctl->config.msg_reg = SOC15_REG_OFFSET(MP1, 0, mmMP1_SMN_C2PMSG_66);
+	ctl->config.resp_reg = SOC15_REG_OFFSET(MP1, 0, mmMP1_SMN_C2PMSG_90);
+	ctl->config.arg_regs[0] = SOC15_REG_OFFSET(MP1, 0, mmMP1_SMN_C2PMSG_82);
+	ctl->config.num_arg_regs = 1;
+	ctl->ops = &smu_msg_v1_ops;
+	ctl->default_timeout = adev->usec_timeout * 20;
+	ctl->message_map = message_map;
 }

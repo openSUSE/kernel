@@ -25,6 +25,28 @@
 #define GICV5_HWIRQ_TYPE_SPI		UL(0x3)
 
 /*
+ * Architected PPIs
+ */
+#define GICV5_ARCH_PPI_S_DB_PPI		0x0
+#define GICV5_ARCH_PPI_RL_DB_PPI	0x1
+#define GICV5_ARCH_PPI_NS_DB_PPI	0x2
+#define GICV5_ARCH_PPI_SW_PPI		0x3
+#define GICV5_ARCH_PPI_HACDBSIRQ	0xf
+#define GICV5_ARCH_PPI_CNTHVS		0x13
+#define GICV5_ARCH_PPI_CNTHPS		0x14
+#define GICV5_ARCH_PPI_PMBIRQ		0x15
+#define GICV5_ARCH_PPI_COMMIRQ		0x16
+#define GICV5_ARCH_PPI_PMUIRQ		0x17
+#define GICV5_ARCH_PPI_CTIIRQ		0x18
+#define GICV5_ARCH_PPI_GICMNT		0x19
+#define GICV5_ARCH_PPI_CNTHP		0x1a
+#define GICV5_ARCH_PPI_CNTV		0x1b
+#define GICV5_ARCH_PPI_CNTHV		0x1c
+#define GICV5_ARCH_PPI_CNTPS		0x1d
+#define GICV5_ARCH_PPI_CNTP		0x1e
+#define GICV5_ARCH_PPI_TRBIRQ		0x1f
+
+/*
  * Tables attributes
  */
 #define GICV5_NO_READ_ALLOC		0b0
@@ -43,6 +65,7 @@
 /*
  * IRS registers and tables structures
  */
+#define GICV5_IRS_IDR0			0x0000
 #define GICV5_IRS_IDR1			0x0004
 #define GICV5_IRS_IDR2			0x0008
 #define GICV5_IRS_IDR5			0x0014
@@ -62,6 +85,8 @@
 #define GICV5_IRS_IST_CFGR		0x0190
 #define GICV5_IRS_IST_STATUSR		0x0194
 #define GICV5_IRS_MAP_L2_ISTR		0x01c0
+
+#define GICV5_IRS_IDR0_VIRT		BIT(6)
 
 #define GICV5_IRS_IDR1_PRIORITY_BITS	GENMASK(22, 20)
 #define GICV5_IRS_IDR1_IAFFID_BITS	GENMASK(19, 16)
@@ -265,6 +290,12 @@
 
 #define GICV5_IWB_WENABLE_STATUSR_IDLE		BIT(0)
 
+#define GICV5_GSI_IC_TYPE			GENMASK(31, 29)
+#define GICV5_GSI_IWB_TYPE			0x7
+
+#define GICV5_GSI_IWB_FRAME_ID			GENMASK(28, 16)
+#define GICV5_GSI_IWB_WIRE			GENMASK(15, 0)
+
 /*
  * Global Data structures and functions
  */
@@ -278,6 +309,7 @@ struct gicv5_chip_data {
 	u8			cpuif_pri_bits;
 	u8			cpuif_id_bits;
 	u8			irs_pri_bits;
+	bool			virt_capable;
 	struct {
 		__le64 *l1ist_addr;
 		u32 l2_size;
@@ -344,6 +376,7 @@ void __init gicv5_init_lpi_domain(void);
 void __init gicv5_free_lpi_domain(void);
 
 int gicv5_irs_of_probe(struct device_node *parent);
+int gicv5_irs_acpi_probe(void);
 void gicv5_irs_remove(void);
 int gicv5_irs_enable(void);
 void gicv5_irs_its_probe(void);
@@ -353,6 +386,11 @@ struct gicv5_irs_chip_data *gicv5_irs_lookup_by_spi_id(u32 spi_id);
 int gicv5_spi_irq_set_type(struct irq_data *d, unsigned int type);
 int gicv5_irs_iste_alloc(u32 lpi);
 void gicv5_irs_syncr(void);
+
+/* Embedded in kvm.arch */
+struct gicv5_vpe {
+	bool			resident;
+};
 
 struct gicv5_its_devtab_cfg {
 	union {
@@ -391,4 +429,5 @@ int gicv5_alloc_lpi(void);
 void gicv5_free_lpi(u32 lpi);
 
 void __init gicv5_its_of_probe(struct device_node *parent);
+void __init gicv5_its_acpi_probe(void);
 #endif

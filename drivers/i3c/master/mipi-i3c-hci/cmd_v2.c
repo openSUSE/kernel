@@ -16,7 +16,6 @@
 #include "cmd.h"
 #include "xfer_mode_rate.h"
 
-
 /*
  * Unified Data Transfer Command
  */
@@ -61,7 +60,6 @@
 #define CMD_A0_XFER_RATE(v)		FIELD_PREP(W0_MASK( 17,  15), v)
 #define CMD_A0_ASSIGN_ADDRESS(v)	FIELD_PREP(W0_MASK( 14,   8), v)
 #define CMD_A0_TID(v)			FIELD_PREP(W0_MASK(  6,   3), v)
-
 
 static unsigned int get_i3c_rate_idx(struct i3c_hci *hci)
 {
@@ -255,13 +253,14 @@ static int hci_cmd_v2_daa(struct i3c_hci *hci)
 	xfer[0].rnw = true;
 	xfer[0].cmd_desc[1] = CMD_A1_DATA_LENGTH(8);
 	xfer[1].completion = &done;
+	xfer[1].timeout = HZ;
 
 	for (;;) {
 		ret = i3c_master_get_free_addr(&hci->master, next_addr);
 		if (ret < 0)
 			break;
 		next_addr = ret;
-		DBG("next_addr = 0x%02x", next_addr);
+		dev_dbg(&hci->master.dev, "next_addr = 0x%02x", next_addr);
 		xfer[0].cmd_tid = hci_get_tid();
 		xfer[0].cmd_desc[0] =
 			CMD_0_ATTR_A |
@@ -274,12 +273,9 @@ static int hci_cmd_v2_daa(struct i3c_hci *hci)
 			CMD_A0_ASSIGN_ADDRESS(next_addr) |
 			CMD_A0_ROC |
 			CMD_A0_TOC;
-		hci->io->queue_xfer(hci, xfer, 2);
-		if (!wait_for_completion_timeout(&done, HZ) &&
-		    hci->io->dequeue_xfer(hci, xfer, 2)) {
-			ret = -ETIME;
+		ret = i3c_hci_process_xfer(hci, xfer, 2);
+		if (ret)
 			break;
-		}
 		if (RESP_STATUS(xfer[0].response) != RESP_SUCCESS) {
 			ret = 0;  /* no more devices to be assigned */
 			break;
@@ -293,8 +289,9 @@ static int hci_cmd_v2_daa(struct i3c_hci *hci)
 		pid = (pid << 32) | device_id[0];
 		bcr = FIELD_GET(W1_MASK(55, 48), device_id[1]);
 		dcr = FIELD_GET(W1_MASK(63, 56), device_id[1]);
-		DBG("assigned address %#x to device PID=0x%llx DCR=%#x BCR=%#x",
-		    next_addr, pid, dcr, bcr);
+		dev_dbg(&hci->master.dev,
+			"assigned address %#x to device PID=0x%llx DCR=%#x BCR=%#x",
+			next_addr, pid, dcr, bcr);
 		/*
 		 * TODO: Extend the subsystem layer to allow for registering
 		 * new device and provide BCR/DCR/PID at the same time.

@@ -1,5 +1,6 @@
+/* SPDX-License-Identifier: MIT */
 /*
- * Copyright 2019 Advanced Micro Devices, Inc.
+ * Copyright 2019-2026 Advanced Micro Devices, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -72,6 +73,9 @@
 /* Default tracebuffer size if meta is absent. */
 #define DMUB_TRACE_BUFFER_SIZE (64 * 1024)
 
+#define PSP_HEADER_BYTES_256 0x100 // 256 bytes
+#define PSP_FOOTER_BYTES_256 0x100 // 256 bytes
+
 /* Forward declarations */
 struct dmub_srv;
 struct dmub_srv_common_regs;
@@ -116,6 +120,7 @@ enum dmub_asic {
 	DMUB_ASIC_DCN351,
 	DMUB_ASIC_DCN36,
 	DMUB_ASIC_DCN401,
+	DMUB_ASIC_DCN42,
 	DMUB_ASIC_MAX,
 };
 
@@ -132,6 +137,7 @@ enum dmub_window_id {
 	DMUB_WINDOW_IB_MEM,
 	DMUB_WINDOW_SHARED_STATE,
 	DMUB_WINDOW_LSDMA_BUFFER,
+	DMUB_WINDOW_CURSOR_OFFLOAD,
 	DMUB_WINDOW_TOTAL,
 };
 
@@ -226,6 +232,23 @@ struct dmub_srv_region_params {
 	const uint8_t *fw_inst_const;
 	const uint8_t *fw_bss_data;
 	const enum dmub_window_memory_type *window_memory_type;
+	const struct dmub_fw_meta_info *fw_info;
+};
+
+/**
+ * struct dmub_srv_fw_meta_info_params - params used for fetching fw meta info from fw_image
+ * @inst_const_size: size of the fw inst const section
+ * @bss_data_size: size of the fw bss data section
+ * @fw_inst_const: raw firmware inst const section
+ * @fw_bss_data: raw firmware bss data section
+ * @custom_psp_footer_size: custom psp footer size to use when indexing for fw meta info
+ */
+struct dmub_srv_fw_meta_info_params {
+	uint32_t inst_const_size;
+	uint32_t bss_data_size;
+	const uint8_t *fw_inst_const;
+	const uint8_t *fw_bss_data;
+	uint32_t custom_psp_footer_size;
 };
 
 /**
@@ -248,6 +271,7 @@ struct dmub_srv_region_info {
 	uint32_t gart_size;
 	uint8_t num_regions;
 	struct dmub_region regions[DMUB_WINDOW_TOTAL];
+	uint32_t verified_psp_footer_size;
 };
 
 /**
@@ -285,6 +309,16 @@ struct dmub_srv_fb_info {
 	struct dmub_fb fb[DMUB_WINDOW_TOTAL];
 };
 
+/**
+ * struct dmub_soc_fb_info - relevant addresses from the frame buffer
+ * @fb_base: base of the framebuffer aperture
+ * @fb_offset: offset of the framebuffer aperture
+ */
+struct dmub_soc_fb_info {
+	uint64_t fb_base;
+	uint64_t fb_offset;
+};
+
 /*
  * struct dmub_srv_hw_params - params for dmub hardware initialization
  * @fb: framebuffer info for each region
@@ -295,8 +329,7 @@ struct dmub_srv_fb_info {
  */
 struct dmub_srv_hw_params {
 	struct dmub_fb *fb[DMUB_WINDOW_TOTAL];
-	uint64_t fb_base;
-	uint64_t fb_offset;
+	struct dmub_soc_fb_info soc_fb_info;
 	uint32_t psp_version;
 	bool load_inst_const;
 	bool skip_panel_power_sequence;
@@ -317,6 +350,7 @@ struct dmub_srv_hw_params {
 	bool enable_non_transparent_setconfig;
 	bool lower_hbr3_phy_ssc;
 	bool override_hbr3_pll_vco;
+	bool disable_dpia_bw_allocation;
 };
 
 /**
@@ -359,6 +393,19 @@ struct dmub_diagnostic_data {
 	uint8_t is_cw0_enabled : 1;
 	uint8_t is_cw6_enabled : 1;
 	uint8_t is_pwait : 1;
+};
+
+/**
+ * struct dmub_preos_info - preos fw info before loading post os fw.
+ */
+struct dmub_preos_info {
+	uint64_t fb_base;
+	uint64_t fb_offset;
+	uint64_t trace_buffer_phy_addr;
+	uint32_t trace_buffer_size;
+	uint32_t fw_version;
+	uint32_t boot_status;
+	uint32_t boot_options;
 };
 
 struct dmub_srv_inbox {
@@ -486,6 +533,7 @@ struct dmub_srv_hw_funcs {
 	uint32_t (*get_current_time)(struct dmub_srv *dmub);
 
 	void (*get_diagnostic_data)(struct dmub_srv *dmub);
+	bool (*get_preos_fw_info)(struct dmub_srv *dmub);
 
 	bool (*should_detect)(struct dmub_srv *dmub);
 	void (*init_reg_offsets)(struct dmub_srv *dmub, struct dc_context *ctx);
@@ -535,7 +583,8 @@ struct dmub_srv_create_params {
  * @fw_version: the current firmware version, if any
  * @is_virtual: false if hardware support only
  * @shared_state: dmub shared state between firmware and driver
- * @fw_state: dmub firmware state pointer
+ * @cursor_offload_v1: Cursor offload state
+ * @fw_state: dmub firmware state pointer (debug purpose only)
  */
 struct dmub_srv {
 	enum dmub_asic asic;
@@ -544,7 +593,9 @@ struct dmub_srv {
 	bool is_virtual;
 	struct dmub_fb scratch_mem_fb;
 	struct dmub_fb ib_mem_gart;
+	struct dmub_fb cursor_offload_fb;
 	volatile struct dmub_shared_state_feature_block *shared_state;
+	volatile struct dmub_cursor_offload_v1 *cursor_offload_v1;
 	volatile const struct dmub_fw_state *fw_state;
 
 	/* private: internal use only */
@@ -553,6 +604,7 @@ struct dmub_srv {
 	struct dmub_srv_dcn32_regs *regs_dcn32;
 	struct dmub_srv_dcn35_regs *regs_dcn35;
 	const struct dmub_srv_dcn401_regs *regs_dcn401;
+	struct dmub_srv_dcn42_regs *regs_dcn42;
 	struct dmub_srv_base_funcs funcs;
 	struct dmub_srv_hw_funcs hw_funcs;
 	struct dmub_srv_inbox inbox1;
@@ -570,8 +622,7 @@ struct dmub_srv {
 	bool hw_init;
 	bool dpia_supported;
 
-	uint64_t fb_base;
-	uint64_t fb_offset;
+	struct dmub_soc_fb_info soc_fb_info;
 	uint32_t psp_version;
 
 	/* Feature capabilities reported by fw */
@@ -583,6 +634,7 @@ struct dmub_srv {
 	enum dmub_srv_power_state_type power_state;
 	struct dmub_diagnostic_data debug;
 	struct dmub_fb lsdma_rb_fb;
+	struct dmub_preos_info preos_info;
 };
 
 /**
@@ -1067,5 +1119,27 @@ enum dmub_status dmub_srv_wait_for_inbox_free(struct dmub_srv *dmub,
  *   DMUB_STATUS_INVALID - unspecified error
  */
 enum dmub_status dmub_srv_update_inbox_status(struct dmub_srv *dmub);
+
+/**
+ * dmub_srv_get_preos_info() - retrieves preos fw info
+ * @dmub: the dmub service
+ *
+ * Return:
+ *   true - preos fw info retrieved successfully
+ *   false - preos fw info not retrieved successfully
+ */
+bool dmub_srv_get_preos_info(struct dmub_srv *dmub);
+
+/**
+ * dmub_srv_get_fw_meta_info_from_raw_fw() - Fetch firmware metadata info from raw firmware image
+ * @params: parameters for fetching firmware metadata info
+ * @fw_info_out: output buffer for firmware metadata info
+ *
+ * Return:
+ *   DMUB_STATUS_OK - success
+ *   DMUB_STATUS_INVALID - no FW meta info found
+ */
+enum dmub_status dmub_srv_get_fw_meta_info_from_raw_fw(struct dmub_srv_fw_meta_info_params *params,
+						       struct dmub_fw_meta_info *fw_info_out);
 
 #endif /* _DMUB_SRV_H_ */

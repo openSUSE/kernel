@@ -22,7 +22,7 @@
 #include <net/phonet/pn_dev.h>
 
 /* Transport protocol registration */
-static const struct phonet_protocol *proto_tab[PHONET_NPROTO] __read_mostly;
+static const struct phonet_protocol __rcu *proto_tab[PHONET_NPROTO] __read_mostly;
 
 static const struct phonet_protocol *phonet_proto_get(unsigned int protocol)
 {
@@ -129,9 +129,12 @@ static int pn_header_create(struct sk_buff *skb, struct net_device *dev,
 	return 1;
 }
 
-static int pn_header_parse(const struct sk_buff *skb, unsigned char *haddr)
+static int pn_header_parse(const struct sk_buff *skb,
+			   const struct net_device *dev,
+			   unsigned char *haddr)
 {
 	const u8 *media = skb_mac_header(skb);
+
 	*haddr = *media;
 	return 1;
 }
@@ -482,7 +485,7 @@ void phonet_proto_unregister(unsigned int protocol,
 			const struct phonet_protocol *pp)
 {
 	mutex_lock(&proto_tab_lock);
-	BUG_ON(proto_tab[protocol] != pp);
+	BUG_ON(rcu_access_pointer(proto_tab[protocol]) != pp);
 	RCU_INIT_POINTER(proto_tab[protocol], NULL);
 	mutex_unlock(&proto_tab_lock);
 	synchronize_rcu();

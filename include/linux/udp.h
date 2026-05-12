@@ -40,8 +40,12 @@ enum {
 	UDP_FLAGS_ACCEPT_FRAGLIST,
 	UDP_FLAGS_ACCEPT_L4,
 	UDP_FLAGS_ENCAP_ENABLED, /* This socket enabled encap */
-	UDP_FLAGS_UDPLITE_SEND_CC, /* set via udplite setsockopt */
-	UDP_FLAGS_UDPLITE_RECV_CC, /* set via udplite setsockopt */
+};
+
+/* per NUMA structure for lockless producer usage. */
+struct udp_prod_queue {
+	struct llist_head	ll_root ____cacheline_aligned_in_smp;
+	atomic_t		rmem_alloc;
 };
 
 struct udp_sock {
@@ -68,11 +72,7 @@ struct udp_sock {
 	 */
 	__u16		 len;		/* total length of pending frames */
 	__u16		 gso_size;
-	/*
-	 * Fields specific to UDP-Lite.
-	 */
-	__u16		 pcslen;
-	__u16		 pcrlen;
+
 	/*
 	 * For encapsulation sockets.
 	 */
@@ -89,6 +89,8 @@ struct udp_sock {
 	int			(*gro_complete)(struct sock *sk,
 						struct sk_buff *skb,
 						int nhoff);
+
+	struct udp_prod_queue *udp_prod_queue;
 
 	/* udp_recvmsg try to use this before splicing sk_receive_queue */
 	struct sk_buff_head	reader_queue ____cacheline_aligned_in_smp;
@@ -108,6 +110,7 @@ struct udp_sock {
 	 * the last UDP socket cacheline.
 	 */
 	struct hlist_node	tunnel_list;
+	struct numa_drop_counters drop_counters;
 };
 
 #define udp_test_bit(nr, sk)			\
@@ -226,8 +229,6 @@ static inline void udp_allow_gso(struct sock *sk)
 #define udp_lrpa_for_each_entry_rcu(__up, node, list) \
 	hlist_nulls_for_each_entry_rcu(__up, node, list, udp_lrpa_node)
 #endif
-
-#define IS_UDPLITE(__sk) (__sk->sk_protocol == IPPROTO_UDPLITE)
 
 static inline struct sock *udp_tunnel_sk(const struct net *net, bool is_ipv6)
 {

@@ -21,6 +21,7 @@
 #include <linux/pci.h>
 #include <linux/isa-dma.h> /* isa_dma_bridge_buggy */
 #include <linux/init.h>
+#include <linux/iommu.h>
 #include <linux/delay.h>
 #include <linux/acpi.h>
 #include <linux/dmi.h>
@@ -1295,9 +1296,7 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_VIA,	PCI_DEVICE_ID_VIA_82C597_0,	quirk_vt
 
 /*
  * CardBus controllers have a legacy base address that enables them to
- * respond as i82365 pcmcia controllers.  We don't want them to do this
- * even if the Linux CardBus driver is not loaded, because the Linux i82365
- * driver does not (and should not) handle CardBus.
+ * respond as i82365 PCMCIA controllers.  We don't want them to do this.
  */
 static void quirk_cardbus_legacy(struct pci_dev *dev)
 {
@@ -1358,6 +1357,16 @@ static void quirk_transparent_bridge(struct pci_dev *dev)
 }
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL,	PCI_DEVICE_ID_INTEL_82380FB,	quirk_transparent_bridge);
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_TOSHIBA,	0x605,	quirk_transparent_bridge);
+
+/*
+ * Enabling Link Bandwidth Management Interrupts (BW notifications) can cause
+ * boot hangs on P45.
+ */
+static void quirk_p45_bw_notifications(struct pci_dev *dev)
+{
+	dev->no_bw_notif = 1;
+}
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2e21, quirk_p45_bw_notifications);
 
 /*
  * Common misconfiguration of the MediaGX/Geode PCI master that will reduce
@@ -2494,28 +2503,27 @@ DECLARE_PCI_FIXUP_CLASS_FINAL(PCI_VENDOR_ID_INTEL, PCI_ANY_ID,
  */
 static void quirk_disable_aspm_l0s(struct pci_dev *dev)
 {
-	pci_info(dev, "Disabling L0s\n");
-	pci_disable_link_state(dev, PCIE_LINK_STATE_L0S);
+	pcie_aspm_remove_cap(dev, PCI_EXP_LNKCAP_ASPM_L0S);
 }
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x10a7, quirk_disable_aspm_l0s);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x10a9, quirk_disable_aspm_l0s);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x10b6, quirk_disable_aspm_l0s);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x10c6, quirk_disable_aspm_l0s);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x10c7, quirk_disable_aspm_l0s);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x10c8, quirk_disable_aspm_l0s);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x10d6, quirk_disable_aspm_l0s);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x10db, quirk_disable_aspm_l0s);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x10dd, quirk_disable_aspm_l0s);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x10e1, quirk_disable_aspm_l0s);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x10ec, quirk_disable_aspm_l0s);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x10f1, quirk_disable_aspm_l0s);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x10f4, quirk_disable_aspm_l0s);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x1508, quirk_disable_aspm_l0s);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x10a7, quirk_disable_aspm_l0s);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x10a9, quirk_disable_aspm_l0s);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x10b6, quirk_disable_aspm_l0s);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x10c6, quirk_disable_aspm_l0s);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x10c7, quirk_disable_aspm_l0s);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x10c8, quirk_disable_aspm_l0s);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x10d6, quirk_disable_aspm_l0s);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x10db, quirk_disable_aspm_l0s);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x10dd, quirk_disable_aspm_l0s);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x10e1, quirk_disable_aspm_l0s);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x10ec, quirk_disable_aspm_l0s);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x10f1, quirk_disable_aspm_l0s);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x10f4, quirk_disable_aspm_l0s);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x1508, quirk_disable_aspm_l0s);
 
 static void quirk_disable_aspm_l0s_l1(struct pci_dev *dev)
 {
-	pci_info(dev, "Disabling ASPM L0s/L1\n");
-	pci_disable_link_state(dev, PCIE_LINK_STATE_L0S | PCIE_LINK_STATE_L1);
+	pcie_aspm_remove_cap(dev,
+			     PCI_EXP_LNKCAP_ASPM_L0S | PCI_EXP_LNKCAP_ASPM_L1);
 }
 
 /*
@@ -2523,7 +2531,10 @@ static void quirk_disable_aspm_l0s_l1(struct pci_dev *dev)
  * upstream PCIe root port when ASPM is enabled. At least L0s mode is affected;
  * disable both L0s and L1 for now to be safe.
  */
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_ASMEDIA, 0x1080, quirk_disable_aspm_l0s_l1);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_ASMEDIA, 0x1080, quirk_disable_aspm_l0s_l1);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_FREESCALE, 0x0451, quirk_disable_aspm_l0s_l1);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_PASEMI, 0xa002, quirk_disable_aspm_l0s_l1);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_HUAWEI, 0x1105, quirk_disable_aspm_l0s_l1);
 
 /*
  * Some Pericom PCIe-to-PCI bridges in reverse mode need the PCIe Retrain
@@ -2717,6 +2728,7 @@ static void quirk_disable_msi(struct pci_dev *dev)
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_AMD, PCI_DEVICE_ID_AMD_8131_BRIDGE, quirk_disable_msi);
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_VIA, 0xa238, quirk_disable_msi);
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_ATI, 0x5a3f, quirk_disable_msi);
+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_RDC, 0x1031, quirk_disable_msi);
 
 /*
  * The APC bridge device in AMD 780 family northbridges has some random
@@ -3746,6 +3758,14 @@ static void quirk_no_bus_reset(struct pci_dev *dev)
 }
 
 /*
+ * After asserting Secondary Bus Reset to downstream devices via a GB10
+ * Root Port, the link may not retrain correctly.
+ * https://lore.kernel.org/r/20251113084441.2124737-1-Johnny-CC.Chang@mediatek.com
+ */
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_NVIDIA, 0x22CE, quirk_no_bus_reset);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_NVIDIA, 0x22D0, quirk_no_bus_reset);
+
+/*
  * Some NVIDIA GPU devices do not work with bus reset, SBR needs to be
  * prevented for those affected devices.
  */
@@ -3788,6 +3808,16 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_CAVIUM, 0xa100, quirk_no_bus_reset);
  */
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_TI, 0xb005, quirk_no_bus_reset);
 
+/*
+ * Reports from users making use of PCI device assignment with ASM1164
+ * controllers indicate an issue with bus reset where the device fails to
+ * retrain.  The issue appears more common in configurations with multiple
+ * controllers.  The device does indicate PM reset support (NoSoftRst-),
+ * therefore this still leaves a viable reset method.
+ * https://forum.proxmox.com/threads/problems-with-pcie-passthrough-with-two-identical-devices.149003/
+ */
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_ASMEDIA, 0x1164, quirk_no_bus_reset);
+
 static void quirk_no_pm_reset(struct pci_dev *dev)
 {
 	/*
@@ -3829,7 +3859,7 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_MELLANOX, 0xcf80, quirk_no_pm_reset);
  */
 static void quirk_thunderbolt_hotplug_msi(struct pci_dev *pdev)
 {
-	if (pdev->is_hotplug_bridge &&
+	if (pdev->is_pciehp &&
 	    (pdev->device != PCI_DEVICE_ID_INTEL_CACTUS_RIDGE_4C ||
 	     pdev->revision <= 1))
 		pdev->no_msi = 1;
@@ -4225,6 +4255,22 @@ static const struct pci_dev_reset_methods pci_dev_reset_methods[] = {
 	{ 0 }
 };
 
+static int __pci_dev_specific_reset(struct pci_dev *dev, bool probe,
+				    const struct pci_dev_reset_methods *i)
+{
+	int ret;
+
+	ret = pci_dev_reset_iommu_prepare(dev);
+	if (ret) {
+		pci_err(dev, "failed to stop IOMMU for a PCI reset: %d\n", ret);
+		return ret;
+	}
+
+	ret = i->reset(dev, probe);
+	pci_dev_reset_iommu_done(dev);
+	return ret;
+}
+
 /*
  * These device-specific reset methods are here rather than in a driver
  * because when a host assigns a device to a guest VM, the host may need
@@ -4239,7 +4285,7 @@ int pci_dev_specific_reset(struct pci_dev *dev, bool probe)
 		     i->vendor == (u16)PCI_ANY_ID) &&
 		    (i->device == dev->device ||
 		     i->device == (u16)PCI_ANY_ID))
-			return i->reset(dev, probe);
+			return __pci_dev_specific_reset(dev, probe, i);
 	}
 
 	return -ENOTTY;
@@ -4449,6 +4495,16 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_BROADCOM, 0x9000,
 				quirk_bridge_cavm_thrx2_pcie_root);
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_BROADCOM, 0x9084,
 				quirk_bridge_cavm_thrx2_pcie_root);
+
+/*
+ * AST1150 doesn't use a real PCI bus and always forwards the requester ID
+ * from downstream devices.
+ */
+static void quirk_aspeed_pci_bridge_no_alias(struct pci_dev *pdev)
+{
+	pdev->dev_flags |= PCI_DEV_FLAGS_PCI_BRIDGE_NO_ALIAS;
+}
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_ASPEED, 0x1150, quirk_aspeed_pci_bridge_no_alias);
 
 /*
  * Intersil/Techwell TW686[4589]-based video capture cards have an empty (zero)
@@ -5104,6 +5160,10 @@ static const struct pci_dev_acs_enabled {
 	{ PCI_VENDOR_ID_QCOM, 0x0401, pci_quirk_qcom_rp_acs },
 	/* QCOM SA8775P root port */
 	{ PCI_VENDOR_ID_QCOM, 0x0115, pci_quirk_qcom_rp_acs },
+	/* QCOM Hamoa root port */
+	{ PCI_VENDOR_ID_QCOM, 0x0111, pci_quirk_qcom_rp_acs },
+	/* QCOM Glymur root port */
+	{ PCI_VENDOR_ID_QCOM, 0x0120, pci_quirk_qcom_rp_acs },
 	/* HXT SD4800 root ports. The ACS design is same as QCOM QDF2xxx */
 	{ PCI_VENDOR_ID_HXT, 0x0401, pci_quirk_qcom_rp_acs },
 	/* Intel PCH root ports */
@@ -5541,6 +5601,7 @@ DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_INTEL, 0x443, quirk_intel_qat_vf_cap);
  * AMD Starship/Matisse HD Audio Controller 0x1487
  * AMD Starship USB 3.0 Host Controller 0x148c
  * AMD Matisse USB 3.0 Host Controller 0x149c
+ * AMD Neural Processing Unit 0x1502 0x17f0
  * Intel 82579LM Gigabit Ethernet Controller 0x1502
  * Intel 82579V Gigabit Ethernet Controller 0x1503
  * Mediatek MT7922 802.11ax PCI Express Wireless Network Adapter
@@ -5553,6 +5614,8 @@ DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_AMD, 0x1487, quirk_no_flr);
 DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_AMD, 0x148c, quirk_no_flr);
 DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_AMD, 0x149c, quirk_no_flr);
 DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_AMD, 0x7901, quirk_no_flr);
+DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_AMD, 0x1502, quirk_no_flr);
+DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_AMD, 0x17f0, quirk_no_flr);
 DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_INTEL, 0x1502, quirk_no_flr);
 DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_INTEL, 0x1503, quirk_no_flr);
 DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_MEDIATEK, 0x0616, quirk_no_flr);
@@ -5578,6 +5641,7 @@ static void quirk_no_ext_tags(struct pci_dev *pdev)
 	pci_walk_bus(bridge->bus, pci_configure_extended_tags, NULL);
 }
 DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_3WARE, 0x1004, quirk_no_ext_tags);
+DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_3WARE, 0x1005, quirk_no_ext_tags);
 DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_SERVERWORKS, 0x0132, quirk_no_ext_tags);
 DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_SERVERWORKS, 0x0140, quirk_no_ext_tags);
 DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_SERVERWORKS, 0x0141, quirk_no_ext_tags);
@@ -5776,7 +5840,7 @@ DECLARE_PCI_FIXUP_CLASS_RESUME_EARLY(PCI_VENDOR_ID_NVIDIA, PCI_ANY_ID,
 
 /*
  * Some IDT switches incorrectly flag an ACS Source Validation error on
- * completions for config read requests even though PCIe r4.0, sec
+ * completions for config read requests even though PCIe r7.0, sec
  * 6.12.1.1, says that completions are never affected by ACS Source
  * Validation.  Here's the text of IDT 89H32H8G3-YC, erratum #36:
  *
@@ -5789,44 +5853,20 @@ DECLARE_PCI_FIXUP_CLASS_RESUME_EARLY(PCI_VENDOR_ID_NVIDIA, PCI_ANY_ID,
  *
  * The workaround suggested by IDT is to issue a config write to the
  * downstream device before issuing the first config read.  This allows the
- * downstream device to capture its bus and device numbers (see PCIe r4.0,
- * sec 2.2.9), thus avoiding the ACS error on the completion.
+ * downstream device to capture its bus and device numbers (see PCIe r7.0,
+ * sec 2.2.9.1), thus avoiding the ACS error on the completion.
  *
  * However, we don't know when the device is ready to accept the config
- * write, so we do config reads until we receive a non-Config Request Retry
- * Status, then do the config write.
- *
- * To avoid hitting the erratum when doing the config reads, we disable ACS
- * SV around this process.
+ * write, and the issue affects resets of the switch as well as enumeration,
+ * so disable use of ACS SV for these devices altogether.
  */
-int pci_idt_bus_quirk(struct pci_bus *bus, int devfn, u32 *l, int timeout)
+void pci_disable_broken_acs_cap(struct pci_dev *pdev)
 {
-	int pos;
-	u16 ctrl = 0;
-	bool found;
-	struct pci_dev *bridge = bus->self;
-
-	pos = bridge->acs_cap;
-
-	/* Disable ACS SV before initial config reads */
-	if (pos) {
-		pci_read_config_word(bridge, pos + PCI_ACS_CTRL, &ctrl);
-		if (ctrl & PCI_ACS_SV)
-			pci_write_config_word(bridge, pos + PCI_ACS_CTRL,
-					      ctrl & ~PCI_ACS_SV);
+	if (pdev->vendor == PCI_VENDOR_ID_IDT &&
+	    (pdev->device == 0x80b5 || pdev->device == 0x8090)) {
+		pci_info(pdev, "Disabling broken ACS SV; downstream device isolation reduced\n");
+		pdev->acs_capabilities &= ~PCI_ACS_SV;
 	}
-
-	found = pci_bus_generic_read_dev_vendor_id(bus, devfn, l, timeout);
-
-	/* Write Vendor ID (read-only) so the endpoint latches its bus/dev */
-	if (found)
-		pci_bus_write_config_word(bus, devfn, PCI_VENDOR_ID, 0);
-
-	/* Re-enable ACS_SV if it was previously enabled */
-	if (ctrl & PCI_ACS_SV)
-		pci_write_config_word(bridge, pos + PCI_ACS_CTRL, ctrl);
-
-	return found;
 }
 
 /*
@@ -6185,6 +6225,10 @@ DECLARE_PCI_FIXUP_ENABLE(PCI_VENDOR_ID_PERICOM, 0x2303,
 			 pci_fixup_pericom_acs_store_forward);
 DECLARE_PCI_FIXUP_RESUME(PCI_VENDOR_ID_PERICOM, 0x2303,
 			 pci_fixup_pericom_acs_store_forward);
+DECLARE_PCI_FIXUP_ENABLE(PCI_VENDOR_ID_PERICOM, 0xb404,
+			 pci_fixup_pericom_acs_store_forward);
+DECLARE_PCI_FIXUP_RESUME(PCI_VENDOR_ID_PERICOM, 0xb404,
+			 pci_fixup_pericom_acs_store_forward);
 
 static void nvidia_ion_ahci_fixup(struct pci_dev *pdev)
 {
@@ -6305,7 +6349,6 @@ DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_XILINX, 0x5020, of_pci_make_dev_node);
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_XILINX, 0x5021, of_pci_make_dev_node);
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_REDHAT, 0x0005, of_pci_make_dev_node);
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_EFAR, 0x9660, of_pci_make_dev_node);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_RPI, PCI_DEVICE_ID_RPI_RP1_C0, of_pci_make_dev_node);
 
 /*
  * Devices known to require a longer delay before first config space access

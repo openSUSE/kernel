@@ -245,6 +245,8 @@ struct nfsd4_create {
 	int		cr_umask;           /* request */
 	struct nfsd4_change_info  cr_cinfo; /* response */
 	struct nfs4_acl *cr_acl;
+	struct posix_acl *cr_dpacl;
+	struct posix_acl *cr_pacl;
 	struct xdr_netobj cr_label;
 };
 #define cr_datalen	u.link.datalen
@@ -397,6 +399,8 @@ struct nfsd4_open {
 	struct nfs4_ol_stateid *op_stp;	    /* used during processing */
 	struct nfs4_clnt_odstate *op_odstate; /* used during processing */
 	struct nfs4_acl *op_acl;
+	struct posix_acl *op_dpacl;
+	struct posix_acl *op_pacl;
 	struct xdr_netobj op_label;
 	struct svc_rqst *op_rqstp;
 };
@@ -483,6 +487,8 @@ struct nfsd4_setattr {
 	struct iattr	sa_iattr;           /* request */
 	struct nfs4_acl *sa_acl;
 	struct xdr_netobj sa_label;
+	struct posix_acl *sa_dpacl;
+	struct posix_acl *sa_pacl;
 };
 
 struct nfsd4_setclientid {
@@ -574,8 +580,9 @@ struct nfsd4_sequence {
 	struct nfs4_sessionid	sessionid;		/* request/response */
 	u32			seqid;			/* request/response */
 	u32			slotid;			/* request/response */
-	u32			maxslots;		/* request/response */
+	u32			maxslots;		/* request */
 	u32			cachethis;		/* request */
+	u32			maxslots_response;	/* response */
 	u32			target_maxslots;	/* response */
 	u32			status_flags;		/* response */
 };
@@ -595,8 +602,42 @@ struct nfsd4_reclaim_complete {
 struct nfsd4_deviceid {
 	u64			fsid_idx;
 	u32			generation;
-	u32			pad;
 };
+
+static inline __be32 *
+svcxdr_encode_deviceid4(__be32 *p, const struct nfsd4_deviceid *devid)
+{
+	__be64 *q = (__be64 *)p;
+
+	*q = (__force __be64)devid->fsid_idx;
+	p += 2;
+	*p++ = (__force __be32)devid->generation;
+	*p++ = xdr_zero;
+	return p;
+}
+
+static inline __be32 *
+svcxdr_decode_deviceid4(__be32 *p, struct nfsd4_deviceid *devid)
+{
+	__be64 *q = (__be64 *)p;
+
+	devid->fsid_idx = (__force u64)(*q);
+	p += 2;
+	devid->generation = (__force u32)(*p++);
+	p++; /* NFSD does not use the remaining octets */
+	return p;
+}
+
+static inline __be32
+nfsd4_decode_deviceid4(struct xdr_stream *xdr, struct nfsd4_deviceid *devid)
+{
+	__be32 *p = xdr_inline_decode(xdr, NFS4_DEVICEID4_SIZE);
+
+	if (unlikely(!p))
+		return nfserr_bad_xdr;
+	svcxdr_decode_deviceid4(p, devid);
+	return nfs_ok;
+}
 
 struct nfsd4_layout_seg {
 	u32			iomode;
@@ -630,8 +671,7 @@ struct nfsd4_layoutcommit {
 	u64			lc_last_wr;	/* request */
 	struct timespec64	lc_mtime;	/* request */
 	u32			lc_layout_type;	/* request */
-	u32			lc_up_len;	/* layout length */
-	void			*lc_up_layout;	/* decoded by callback */
+	struct xdr_buf		lc_up_layout;	/* decoded by callback */
 	bool			lc_size_chg;	/* response */
 	u64			lc_newsize;	/* response */
 };
@@ -698,6 +738,7 @@ struct nfsd4_copy {
 #define NFSD4_COPY_F_COMMITTED		(3)
 #define NFSD4_COPY_F_COMPLETED		(4)
 #define NFSD4_COPY_F_OFFLOAD_DONE	(5)
+#define NFSD4_COPY_F_CB_ERROR		(6)
 
 	/* response */
 	__be32			nfserr;
@@ -870,6 +911,7 @@ struct nfsd4_compoundargs {
 	char *				tag;
 	u32				taglen;
 	u32				minorversion;
+	u32				client_opcnt;
 	u32				opcnt;
 	bool				splice_ok;
 	struct nfsd4_op			*ops;
@@ -888,27 +930,6 @@ struct nfsd4_compoundres {
 
 	struct nfsd4_compound_state	cstate;
 };
-
-static inline bool nfsd4_is_solo_sequence(struct nfsd4_compoundres *resp)
-{
-	struct nfsd4_compoundargs *args = resp->rqstp->rq_argp;
-	return resp->opcnt == 1 && args->ops[0].opnum == OP_SEQUENCE;
-}
-
-/*
- * The session reply cache only needs to cache replies that the client
- * actually asked us to.  But it's almost free for us to cache compounds
- * consisting of only a SEQUENCE op, so we may as well cache those too.
- * Also, the protocol doesn't give us a convenient response in the case
- * of a replay of a solo SEQUENCE op that wasn't cached
- * (RETRY_UNCACHED_REP can only be returned in the second op of a
- * compound).
- */
-static inline bool nfsd4_cache_this(struct nfsd4_compoundres *resp)
-{
-	return (resp->cstate.slot->sl_flags & NFSD4_SLOT_CACHETHIS)
-		|| nfsd4_is_solo_sequence(resp);
-}
 
 static inline bool nfsd4_last_compound_op(struct svc_rqst *rqstp)
 {

@@ -139,7 +139,7 @@ static void cs_notify(u32 message, struct list_head *head)
 		goto out;
 	}
 
-	entry = kmalloc(sizeof(*entry), GFP_ATOMIC);
+	entry = kmalloc_obj(*entry, GFP_ATOMIC);
 	if (!entry) {
 		dev_err(&cs_char_data.cl->device,
 			"Can't allocate new entry for the queue.\n");
@@ -273,7 +273,7 @@ static int cs_alloc_cmds(struct cs_hsi_iface *hi)
 		msg = hsi_alloc_msg(1, GFP_KERNEL);
 		if (!msg)
 			goto out;
-		buf = kmalloc(sizeof(*buf), GFP_KERNEL);
+		buf = kmalloc_obj(*buf);
 		if (!buf) {
 			hsi_free_msg(msg);
 			goto out;
@@ -892,7 +892,7 @@ static void cs_hsi_data_enable(struct cs_hsi_iface *hi,
 
 	data_start = L1_CACHE_ALIGN(sizeof(*hi->mmap_cfg));
 	dev_dbg(&hi->cl->device,
-			"setting data start at %u, cfg block %u, align %u\n",
+			"setting data start at %u, cfg block %zu, align %u\n",
 			data_start, sizeof(*hi->mmap_cfg), L1_CACHE_BYTES);
 
 	for (i = 0; i < hi->mmap_cfg->rx_bufs; i++) {
@@ -985,7 +985,7 @@ static int cs_hsi_start(struct cs_hsi_iface **hi, struct hsi_client *cl,
 			unsigned long mmap_base, unsigned long mmap_size)
 {
 	int err = 0;
-	struct cs_hsi_iface *hsi_if = kzalloc(sizeof(*hsi_if), GFP_KERNEL);
+	struct cs_hsi_iface *hsi_if = kzalloc_obj(*hsi_if);
 
 	dev_dbg(&cl->device, "cs_hsi_start\n");
 

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (C) 2020-2024 Intel Corporation
+ * Copyright (C) 2020-2026 Intel Corporation
  */
 
 #ifndef __IVPU_JSM_MSG_H__
@@ -14,7 +14,7 @@ int ivpu_jsm_register_db(struct ivpu_device *vdev, u32 ctx_id, u32 db_id,
 			 u64 jobq_base, u32 jobq_size);
 int ivpu_jsm_unregister_db(struct ivpu_device *vdev, u32 db_id);
 int ivpu_jsm_get_heartbeat(struct ivpu_device *vdev, u32 engine, u64 *heartbeat);
-int ivpu_jsm_reset_engine(struct ivpu_device *vdev, u32 engine);
+int ivpu_jsm_reset_engine(struct ivpu_device *vdev, u32 engine, struct vpu_jsm_msg *response);
 int ivpu_jsm_preempt_engine(struct ivpu_device *vdev, u32 engine, u32 preempt_id);
 int ivpu_jsm_dyndbg_control(struct ivpu_device *vdev, char *command, size_t size);
 int ivpu_jsm_trace_get_capability(struct ivpu_device *vdev, u32 *trace_destination_mask,
@@ -44,5 +44,7 @@ int ivpu_jsm_metric_streamer_info(struct ivpu_device *vdev, u64 metric_group_mas
 int ivpu_jsm_dct_enable(struct ivpu_device *vdev, u32 active_us, u32 inactive_us);
 int ivpu_jsm_dct_disable(struct ivpu_device *vdev);
 int ivpu_jsm_state_dump(struct ivpu_device *vdev);
+int ivpu_jsm_state_dump_no_reply(struct ivpu_device *vdev);
+int ivpu_jsm_msg_freq_config(struct ivpu_device *vdev, u16 min_ratio, u16 pn_ratio, u16 max_ratio);
 
 #endif

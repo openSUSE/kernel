@@ -47,6 +47,7 @@ int snd_hdac_bus_init(struct hdac_bus *bus, struct device *dev,
 	INIT_LIST_HEAD(&bus->hlink_list);
 	init_waitqueue_head(&bus->rirb_wq);
 	bus->irq = -1;
+	bus->addr_offset = 0;
 
 	/*
 	 * Default value of '8' is as per the HD audio specification (Rev 1.0a).
@@ -87,12 +88,8 @@ EXPORT_SYMBOL_GPL(snd_hdac_bus_exit);
 int snd_hdac_bus_exec_verb(struct hdac_bus *bus, unsigned int addr,
 			   unsigned int cmd, unsigned int *res)
 {
-	int err;
-
-	mutex_lock(&bus->cmd_mutex);
-	err = snd_hdac_bus_exec_verb_unlocked(bus, addr, cmd, res);
-	mutex_unlock(&bus->cmd_mutex);
-	return err;
+	guard(mutex)(&bus->cmd_mutex);
+	return snd_hdac_bus_exec_verb_unlocked(bus, addr, cmd, res);
 }
 
 /**

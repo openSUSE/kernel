@@ -5,12 +5,8 @@
 #ifndef __RTW89_WOW_H__
 #define __RTW89_WOW_H__
 
-#define RTW89_KEY_PN_0 GENMASK_ULL(7, 0)
-#define RTW89_KEY_PN_1 GENMASK_ULL(15, 8)
-#define RTW89_KEY_PN_2 GENMASK_ULL(23, 16)
-#define RTW89_KEY_PN_3 GENMASK_ULL(31, 24)
-#define RTW89_KEY_PN_4 GENMASK_ULL(39, 32)
-#define RTW89_KEY_PN_5 GENMASK_ULL(47, 40)
+#define RTW89_KEY_TKIP_PN_IV16 GENMASK_ULL(15, 0)
+#define RTW89_KEY_TKIP_PN_IV32 GENMASK_ULL(47, 16)
 
 #define RTW89_IGTK_IPN_0 GENMASK_ULL(7, 0)
 #define RTW89_IGTK_IPN_1 GENMASK_ULL(15, 8)
@@ -25,9 +21,12 @@
 #define RTW89_WOW_SYMBOL_CHK_PTK BIT(0)
 #define RTW89_WOW_SYMBOL_CHK_GTK BIT(1)
 
+#define RTW89_MIC_KEY_LEN 8
+
 enum rtw89_wake_reason {
 	RTW89_WOW_RSN_RX_PTK_REKEY = 0x1,
 	RTW89_WOW_RSN_RX_GTK_REKEY = 0x2,
+	RTW89_WOW_RSN_RX_DISASSOC = 0x4,
 	RTW89_WOW_RSN_RX_DEAUTH = 0x8,
 	RTW89_WOW_RSN_DISCONNECT = 0x10,
 	RTW89_WOW_RSN_RX_MAGIC_PKT = 0x21,
@@ -73,6 +72,7 @@ struct rtw89_set_key_info_iter_data {
 	u32 igtk_cipher;
 	bool rx_ready;
 	bool error;
+	bool tkip_gtk_swapped;
 };
 
 static inline int rtw89_wow_get_sec_hdr_len(struct rtw89_dev *rtwdev)

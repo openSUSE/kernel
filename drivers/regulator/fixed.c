@@ -20,7 +20,6 @@
 #include <linux/platform_device.h>
 #include <linux/pm_domain.h>
 #include <linux/pm_opp.h>
-#include <linux/reboot.h>
 #include <linux/regulator/driver.h>
 #include <linux/regulator/fixed.h>
 #include <linux/gpio/consumer.h>
@@ -29,9 +28,6 @@
 #include <linux/regulator/of_regulator.h>
 #include <linux/regulator/machine.h>
 #include <linux/clk.h>
-
-/* Default time in millisecond to wait for emergency shutdown */
-#define FV_DEF_EMERG_SHUTDWN_TMO	10
 
 struct fixed_voltage_data {
 	struct regulator_desc desc;
@@ -330,12 +326,10 @@ static int reg_fixed_voltage_probe(struct platform_device *pdev)
 
 	drvdata->dev = devm_regulator_register(&pdev->dev, &drvdata->desc,
 					       &cfg);
-	if (IS_ERR(drvdata->dev)) {
-		ret = dev_err_probe(&pdev->dev, PTR_ERR(drvdata->dev),
-				    "Failed to register regulator: %ld\n",
-				    PTR_ERR(drvdata->dev));
-		return ret;
-	}
+	if (IS_ERR(drvdata->dev))
+		return dev_err_probe(&pdev->dev, PTR_ERR(drvdata->dev),
+				     "Failed to register regulator: %ld\n",
+				     PTR_ERR(drvdata->dev));
 
 	platform_set_drvdata(pdev, drvdata);
 

@@ -803,7 +803,7 @@ static int bcm2835_pctl_dt_node_to_map_pull(struct bcm2835_pinctrl *pc,
 		return -EINVAL;
 	}
 
-	configs = kzalloc(sizeof(*configs), GFP_KERNEL);
+	configs = kzalloc_obj(*configs);
 	if (!configs)
 		return -ENOMEM;
 	configs[0] = pinconf_to_config_packed(BCM2835_PINCONF_PARAM_PULL, pull);
@@ -873,8 +873,7 @@ static int bcm2835_pctl_dt_node_to_map(struct pinctrl_dev *pctldev,
 		maps_per_pin++;
 	if (num_pulls)
 		maps_per_pin++;
-	cur_map = maps = kcalloc(num_pins * maps_per_pin, sizeof(*maps),
-				 GFP_KERNEL);
+	cur_map = maps = kzalloc_objs(*maps, num_pins * maps_per_pin);
 	if (!maps)
 		return -ENOMEM;
 
@@ -1023,7 +1022,7 @@ static int bcm2835_pinconf_get(struct pinctrl_dev *pctldev,
 	/* No way to read back bias config in HW */
 
 	switch (param) {
-	case PIN_CONFIG_OUTPUT:
+	case PIN_CONFIG_LEVEL:
 		if (fsel != BCM2835_FSEL_GPIO_OUT)
 			return -EINVAL;
 
@@ -1091,7 +1090,7 @@ static int bcm2835_pinconf_set(struct pinctrl_dev *pctldev,
 			break;
 
 		/* Set output-high or output-low */
-		case PIN_CONFIG_OUTPUT:
+		case PIN_CONFIG_LEVEL:
 			bcm2835_gpio_set_bit(pc, arg ? GPSET0 : GPCLR0, pin);
 			break;
 
@@ -1202,7 +1201,7 @@ static int bcm2711_pinconf_set(struct pinctrl_dev *pctldev,
 			break;
 
 		/* Set output-high or output-low */
-		case PIN_CONFIG_OUTPUT:
+		case PIN_CONFIG_LEVEL:
 			bcm2835_gpio_set_bit(pc, arg ? GPSET0 : GPCLR0, pin);
 			break;
 

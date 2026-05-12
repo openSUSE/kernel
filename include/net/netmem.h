@@ -68,10 +68,6 @@ DECLARE_STATIC_KEY_FALSE(page_pool_mem_providers);
 enum net_iov_type {
 	NET_IOV_DMABUF,
 	NET_IOV_IOURING,
-
-	/* Force size to unsigned long to make the NET_IOV_ASSERTS below pass.
-	 */
-	NET_IOV_MAX = ULONG_MAX
 };
 
 /* A memory descriptor representing abstract networking I/O vectors,
@@ -97,26 +93,20 @@ enum net_iov_type {
  *		supported.
  */
 struct net_iov {
-	union {
-		struct netmem_desc desc;
-
-		/* XXX: The following part should be removed once all
-		 * the references to them are converted so as to be
-		 * accessed via netmem_desc e.g. niov->desc.pp instead
-		 * of niov->pp.
-		 */
-		struct {
-			unsigned long _flags;
-			unsigned long pp_magic;
-			struct page_pool *pp;
-			unsigned long _pp_mapping_pad;
-			unsigned long dma_addr;
-			atomic_long_t pp_ref_count;
-		};
-	};
-	struct net_iov_area *owner;
+	struct netmem_desc desc;
+	unsigned int page_type;
 	enum net_iov_type type;
+	struct net_iov_area *owner;
 };
+
+/* Make sure 'the offset of page_type in struct page == the offset of
+ * type in struct net_iov'.
+ */
+#define NET_IOV_ASSERT_OFFSET(pg, iov)			\
+	static_assert(offsetof(struct page, pg) ==	\
+		      offsetof(struct net_iov, iov))
+NET_IOV_ASSERT_OFFSET(page_type, page_type);
+#undef NET_IOV_ASSERT_OFFSET
 
 struct net_iov_area {
 	/* Array of net_iovs for this area. */
@@ -127,26 +117,6 @@ struct net_iov_area {
 	unsigned long base_virtual;
 };
 
-/* net_iov is union'ed with struct netmem_desc mirroring struct page, so
- * the page_pool can access these fields without worrying whether the
- * underlying fields are accessed via netmem_desc or directly via
- * net_iov, until all the references to them are converted so as to be
- * accessed via netmem_desc e.g. niov->desc.pp instead of niov->pp.
- *
- * The non-net stack fields of struct page are private to the mm stack
- * and must never be mirrored to net_iov.
- */
-#define NET_IOV_ASSERT_OFFSET(desc, iov)                    \
-	static_assert(offsetof(struct netmem_desc, desc) == \
-		      offsetof(struct net_iov, iov))
-NET_IOV_ASSERT_OFFSET(_flags, _flags);
-NET_IOV_ASSERT_OFFSET(pp_magic, pp_magic);
-NET_IOV_ASSERT_OFFSET(pp, pp);
-NET_IOV_ASSERT_OFFSET(_pp_mapping_pad, _pp_mapping_pad);
-NET_IOV_ASSERT_OFFSET(dma_addr, dma_addr);
-NET_IOV_ASSERT_OFFSET(pp_ref_count, pp_ref_count);
-#undef NET_IOV_ASSERT_OFFSET
-
 static inline struct net_iov_area *net_iov_owner(const struct net_iov *niov)
 {
 	return niov->owner;
@@ -155,6 +125,21 @@ static inline struct net_iov_area *net_iov_owner(const struct net_iov *niov)
 static inline unsigned int net_iov_idx(const struct net_iov *niov)
 {
 	return niov - net_iov_owner(niov)->niovs;
+}
+
+/* Initialize a niov: stamp the owning area, the memory provider type,
+ * and the page_type "no type" sentinel expected by the page-type API
+ * (see PAGE_TYPE_OPS in <linux/page-flags.h>) so that
+ * page_pool_set_pp_info() can later call __SetPageNetpp() on a niov
+ * cast to struct page.
+ */
+static inline void net_iov_init(struct net_iov *niov,
+				struct net_iov_area *owner,
+				enum net_iov_type type)
+{
+	niov->owner = owner;
+	niov->type = type;
+	niov->page_type = UINT_MAX;
 }
 
 /* netmem */
@@ -247,6 +232,23 @@ static inline unsigned long netmem_pfn_trace(netmem_ref netmem)
 	return page_to_pfn(netmem_to_page(netmem));
 }
 
+/* XXX: How to extract netmem_desc from page must be changed, once
+ * netmem_desc no longer overlays on page and will be allocated through
+ * slab.
+ */
+#define __pp_page_to_nmdesc(p)	(_Generic((p),				\
+	const struct page * :	(const struct netmem_desc *)(p),	\
+	struct page * :		(struct netmem_desc *)(p)))
+
+/* CAUTION: Check if the page is a pp page before calling this helper or
+ * know it's a pp page.
+ */
+#define pp_page_to_nmdesc(p)						\
+({									\
+	DEBUG_NET_WARN_ON_ONCE(!PageNetpp(p));				\
+	__pp_page_to_nmdesc(p);						\
+})
+
 /**
  * __netmem_to_nmdesc - unsafely get pointer to the &netmem_desc backing
  * @netmem
@@ -265,42 +267,25 @@ static inline struct netmem_desc *__netmem_to_nmdesc(netmem_ref netmem)
 	return (__force struct netmem_desc *)netmem;
 }
 
-/* __netmem_clear_lsb - convert netmem_ref to struct net_iov * for access to
- * common fields.
- * @netmem: netmem reference to extract as net_iov.
+/* netmem_to_nmdesc - convert netmem_ref to struct netmem_desc * for
+ * access to common fields.
+ * @netmem: netmem reference to get netmem_desc.
  *
- * All the sub types of netmem_ref (page, net_iov) have the same pp, pp_magic,
- * dma_addr, and pp_ref_count fields at the same offsets. Thus, we can access
- * these fields without a type check to make sure that the underlying mem is
- * net_iov or page.
+ * All the sub types of netmem_ref (netmem_desc, net_iov) have the same
+ * pp, pp_magic, dma_addr, and pp_ref_count fields via netmem_desc.
  *
- * The resulting value of this function can only be used to access the fields
- * that are NET_IOV_ASSERT_OFFSET'd. Accessing any other fields will result in
- * undefined behavior.
- *
- * Return: the netmem_ref cast to net_iov* regardless of its underlying type.
+ * Return: the pointer to struct netmem_desc * regardless of its
+ * underlying type.
  */
-static inline struct net_iov *__netmem_clear_lsb(netmem_ref netmem)
+static inline struct netmem_desc *netmem_to_nmdesc(netmem_ref netmem)
 {
-	return (struct net_iov *)((__force unsigned long)netmem & ~NET_IOV);
+	void *p = (void *)((__force unsigned long)netmem & ~NET_IOV);
+
+	if (netmem_is_net_iov(netmem))
+		return &((struct net_iov *)p)->desc;
+
+	return __pp_page_to_nmdesc((struct page *)p);
 }
-
-/* XXX: How to extract netmem_desc from page must be changed, once
- * netmem_desc no longer overlays on page and will be allocated through
- * slab.
- */
-#define __pp_page_to_nmdesc(p)	(_Generic((p),				\
-	const struct page * :	(const struct netmem_desc *)(p),	\
-	struct page * :		(struct netmem_desc *)(p)))
-
-/* CAUTION: Check if the page is a pp page before calling this helper or
- * know it's a pp page.
- */
-#define pp_page_to_nmdesc(p)						\
-({									\
-	DEBUG_NET_WARN_ON_ONCE(!page_pool_page_is_pp(p));		\
-	__pp_page_to_nmdesc(p);						\
-})
 
 /**
  * __netmem_get_pp - unsafely get pointer to the &page_pool backing @netmem
@@ -320,12 +305,12 @@ static inline struct page_pool *__netmem_get_pp(netmem_ref netmem)
 
 static inline struct page_pool *netmem_get_pp(netmem_ref netmem)
 {
-	return __netmem_clear_lsb(netmem)->pp;
+	return netmem_to_nmdesc(netmem)->pp;
 }
 
 static inline atomic_long_t *netmem_get_pp_ref_count_ref(netmem_ref netmem)
 {
-	return &__netmem_clear_lsb(netmem)->pp_ref_count;
+	return &netmem_to_nmdesc(netmem)->pp_ref_count;
 }
 
 static inline bool netmem_is_pref_nid(netmem_ref netmem, int pref_nid)
@@ -390,11 +375,39 @@ static inline bool netmem_is_pfmemalloc(netmem_ref netmem)
 
 static inline unsigned long netmem_get_dma_addr(netmem_ref netmem)
 {
-	return __netmem_clear_lsb(netmem)->dma_addr;
+	return netmem_to_nmdesc(netmem)->dma_addr;
 }
 
-void get_netmem(netmem_ref netmem);
-void put_netmem(netmem_ref netmem);
+#if defined(CONFIG_NET_DEVMEM)
+static inline bool net_is_devmem_iov(const struct net_iov *niov)
+{
+	return niov->type == NET_IOV_DMABUF;
+}
+#else
+static inline bool net_is_devmem_iov(const struct net_iov *niov)
+{
+	return false;
+}
+#endif
+
+void __get_netmem(netmem_ref netmem);
+void __put_netmem(netmem_ref netmem);
+
+static __always_inline void get_netmem(netmem_ref netmem)
+{
+	if (netmem_is_net_iov(netmem))
+		__get_netmem(netmem);
+	else
+		get_page(netmem_to_page(netmem));
+}
+
+static __always_inline void put_netmem(netmem_ref netmem)
+{
+	if (netmem_is_net_iov(netmem))
+		__put_netmem(netmem);
+	else
+		put_page(netmem_to_page(netmem));
+}
 
 #define netmem_dma_unmap_addr_set(NETMEM, PTR, ADDR_NAME, VAL)   \
 	do {                                                     \

@@ -360,7 +360,7 @@ static int wave5_vpu_enc_enum_framesizes(struct file *f, void *fh, struct v4l2_f
 
 static int wave5_vpu_enc_enum_fmt_cap(struct file *file, void *fh, struct v4l2_fmtdesc *f)
 {
-	struct vpu_instance *inst = wave5_to_vpu_inst(fh);
+	struct vpu_instance *inst = file_to_vpu_inst(file);
 	const struct vpu_format *vpu_fmt;
 
 	dev_dbg(inst->dev->dev, "%s: index: %u\n", __func__, f->index);
@@ -377,7 +377,7 @@ static int wave5_vpu_enc_enum_fmt_cap(struct file *file, void *fh, struct v4l2_f
 
 static int wave5_vpu_enc_try_fmt_cap(struct file *file, void *fh, struct v4l2_format *f)
 {
-	struct vpu_instance *inst = wave5_to_vpu_inst(fh);
+	struct vpu_instance *inst = file_to_vpu_inst(file);
 	const struct v4l2_frmsize_stepwise *frmsize;
 	const struct vpu_format *vpu_fmt;
 	int width, height;
@@ -411,7 +411,7 @@ static int wave5_vpu_enc_try_fmt_cap(struct file *file, void *fh, struct v4l2_fo
 
 static int wave5_vpu_enc_s_fmt_cap(struct file *file, void *fh, struct v4l2_format *f)
 {
-	struct vpu_instance *inst = wave5_to_vpu_inst(fh);
+	struct vpu_instance *inst = file_to_vpu_inst(file);
 	int i, ret;
 
 	dev_dbg(inst->dev->dev, "%s: fourcc: %u width: %u height: %u num_planes: %u field: %u\n",
@@ -445,7 +445,7 @@ static int wave5_vpu_enc_s_fmt_cap(struct file *file, void *fh, struct v4l2_form
 
 static int wave5_vpu_enc_g_fmt_cap(struct file *file, void *fh, struct v4l2_format *f)
 {
-	struct vpu_instance *inst = wave5_to_vpu_inst(fh);
+	struct vpu_instance *inst = file_to_vpu_inst(file);
 	int i;
 
 	f->fmt.pix_mp.width = inst->dst_fmt.width;
@@ -469,7 +469,7 @@ static int wave5_vpu_enc_g_fmt_cap(struct file *file, void *fh, struct v4l2_form
 
 static int wave5_vpu_enc_enum_fmt_out(struct file *file, void *fh, struct v4l2_fmtdesc *f)
 {
-	struct vpu_instance *inst = wave5_to_vpu_inst(fh);
+	struct vpu_instance *inst = file_to_vpu_inst(file);
 	const struct vpu_format *vpu_fmt;
 
 	dev_dbg(inst->dev->dev, "%s: index: %u\n", __func__, f->index);
@@ -486,7 +486,7 @@ static int wave5_vpu_enc_enum_fmt_out(struct file *file, void *fh, struct v4l2_f
 
 static int wave5_vpu_enc_try_fmt_out(struct file *file, void *fh, struct v4l2_format *f)
 {
-	struct vpu_instance *inst = wave5_to_vpu_inst(fh);
+	struct vpu_instance *inst = file_to_vpu_inst(file);
 	const struct v4l2_frmsize_stepwise *frmsize;
 	const struct vpu_format *vpu_fmt;
 	int width, height;
@@ -515,7 +515,7 @@ static int wave5_vpu_enc_try_fmt_out(struct file *file, void *fh, struct v4l2_fo
 
 static int wave5_vpu_enc_s_fmt_out(struct file *file, void *fh, struct v4l2_format *f)
 {
-	struct vpu_instance *inst = wave5_to_vpu_inst(fh);
+	struct vpu_instance *inst = file_to_vpu_inst(file);
 	const struct vpu_format *vpu_fmt;
 	const struct v4l2_format_info *info;
 	int i, ret;
@@ -543,7 +543,7 @@ static int wave5_vpu_enc_s_fmt_out(struct file *file, void *fh, struct v4l2_form
 	if (!info)
 		return -EINVAL;
 
-	inst->cbcr_interleave = (info->comp_planes == 2) ? true : false;
+	inst->cbcr_interleave = info->comp_planes == 2;
 
 	switch (inst->src_fmt.pixelformat) {
 	case V4L2_PIX_FMT_NV21:
@@ -576,7 +576,7 @@ static int wave5_vpu_enc_s_fmt_out(struct file *file, void *fh, struct v4l2_form
 
 static int wave5_vpu_enc_g_selection(struct file *file, void *fh, struct v4l2_selection *s)
 {
-	struct vpu_instance *inst = wave5_to_vpu_inst(fh);
+	struct vpu_instance *inst = file_to_vpu_inst(file);
 
 	dev_dbg(inst->dev->dev, "%s: type: %u | target: %u\n", __func__, s->type, s->target);
 
@@ -605,7 +605,7 @@ static int wave5_vpu_enc_g_selection(struct file *file, void *fh, struct v4l2_se
 
 static int wave5_vpu_enc_s_selection(struct file *file, void *fh, struct v4l2_selection *s)
 {
-	struct vpu_instance *inst = wave5_to_vpu_inst(fh);
+	struct vpu_instance *inst = file_to_vpu_inst(file);
 
 	if (s->type != V4L2_BUF_TYPE_VIDEO_OUTPUT)
 		return -EINVAL;
@@ -628,7 +628,7 @@ static int wave5_vpu_enc_s_selection(struct file *file, void *fh, struct v4l2_se
 
 static int wave5_vpu_enc_encoder_cmd(struct file *file, void *fh, struct v4l2_encoder_cmd *ec)
 {
-	struct vpu_instance *inst = wave5_to_vpu_inst(fh);
+	struct vpu_instance *inst = file_to_vpu_inst(file);
 	struct v4l2_m2m_ctx *m2m_ctx = inst->v4l2_fh.m2m_ctx;
 	int ret;
 
@@ -649,6 +649,8 @@ static int wave5_vpu_enc_encoder_cmd(struct file *file, void *fh, struct v4l2_en
 
 		m2m_ctx->last_src_buf = v4l2_m2m_last_src_buf(m2m_ctx);
 		m2m_ctx->is_draining = true;
+
+		v4l2_m2m_try_schedule(m2m_ctx);
 		break;
 	case V4L2_ENC_CMD_START:
 		break;
@@ -661,7 +663,7 @@ static int wave5_vpu_enc_encoder_cmd(struct file *file, void *fh, struct v4l2_en
 
 static int wave5_vpu_enc_g_parm(struct file *file, void *fh, struct v4l2_streamparm *a)
 {
-	struct vpu_instance *inst = wave5_to_vpu_inst(fh);
+	struct vpu_instance *inst = file_to_vpu_inst(file);
 
 	dev_dbg(inst->dev->dev, "%s: type: %u\n", __func__, a->type);
 
@@ -681,7 +683,7 @@ static int wave5_vpu_enc_g_parm(struct file *file, void *fh, struct v4l2_streamp
 
 static int wave5_vpu_enc_s_parm(struct file *file, void *fh, struct v4l2_streamparm *a)
 {
-	struct vpu_instance *inst = wave5_to_vpu_inst(fh);
+	struct vpu_instance *inst = file_to_vpu_inst(file);
 
 	dev_dbg(inst->dev->dev, "%s: type: %u\n", __func__, a->type);
 
@@ -1367,7 +1369,8 @@ static int wave5_vpu_enc_start_streaming(struct vb2_queue *q, unsigned int count
 		if (ret)
 			goto return_buffers;
 	}
-	if (inst->state == VPU_INST_STATE_OPEN && m2m_ctx->cap_q_ctx.q.streaming) {
+	if (inst->state == VPU_INST_STATE_OPEN &&
+	    (m2m_ctx->cap_q_ctx.q.streaming || q->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE)) {
 		ret = initialize_sequence(inst);
 		if (ret) {
 			dev_warn(inst->dev->dev, "Sequence not found: %d\n", ret);
@@ -1568,7 +1571,7 @@ static int wave5_vpu_open_enc(struct file *filp)
 	struct v4l2_ctrl_handler *v4l2_ctrl_hdl;
 	int ret = 0;
 
-	inst = kzalloc(sizeof(*inst), GFP_KERNEL);
+	inst = kzalloc_obj(*inst);
 	if (!inst)
 		return -ENOMEM;
 	v4l2_ctrl_hdl = &inst->v4l2_ctrl_hdl;
@@ -1577,13 +1580,14 @@ static int wave5_vpu_open_enc(struct file *filp)
 	inst->type = VPU_INST_TYPE_ENC;
 	inst->ops = &wave5_vpu_enc_inst_ops;
 
-	inst->codec_info = kzalloc(sizeof(*inst->codec_info), GFP_KERNEL);
-	if (!inst->codec_info)
+	inst->codec_info = kzalloc_obj(*inst->codec_info);
+	if (!inst->codec_info) {
+		kfree(inst);
 		return -ENOMEM;
+	}
 
 	v4l2_fh_init(&inst->v4l2_fh, vdev);
-	filp->private_data = &inst->v4l2_fh;
-	v4l2_fh_add(&inst->v4l2_fh);
+	v4l2_fh_add(&inst->v4l2_fh, filp);
 
 	INIT_LIST_HEAD(&inst->list);
 
@@ -1755,6 +1759,11 @@ static int wave5_vpu_open_enc(struct file *filp)
 	inst->frame_rate = 30;
 
 	init_completion(&inst->irq_done);
+	ret = wave5_kfifo_alloc(inst);
+	if (ret) {
+		dev_err(inst->dev->dev, "failed to allocate fifo\n");
+		goto cleanup_inst;
+	}
 
 	inst->id = ida_alloc(&inst->dev->inst_ida, GFP_KERNEL);
 	if (inst->id < 0) {
@@ -1769,9 +1778,6 @@ static int wave5_vpu_open_enc(struct file *filp)
 	if (ret)
 		goto cleanup_inst;
 
-	if (list_empty(&dev->instances))
-		pm_runtime_use_autosuspend(inst->dev->dev);
-
 	list_add_tail(&inst->list, &dev->instances);
 
 	mutex_unlock(&dev->dev_lock);
@@ -1779,7 +1785,7 @@ static int wave5_vpu_open_enc(struct file *filp)
 	return 0;
 
 cleanup_inst:
-	wave5_cleanup_instance(inst);
+	wave5_cleanup_instance(inst, filp);
 	return ret;
 }
 

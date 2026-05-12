@@ -72,7 +72,7 @@ static int dr_send_info_pool_fill(struct mlx5dr_send_info_pool *pool)
 	int i;
 
 	for (i = 0; i < DR_SEND_INFO_POOL_SIZE; i++) {
-		pool_obj = kzalloc(sizeof(*pool_obj), GFP_KERNEL);
+		pool_obj = kzalloc_obj(*pool_obj);
 		if (!pool_obj)
 			goto clean_pool;
 
@@ -114,7 +114,7 @@ static struct mlx5dr_send_info_pool *dr_send_info_pool_create(void)
 	struct mlx5dr_send_info_pool *pool;
 	int ret;
 
-	pool = kzalloc(sizeof(*pool), GFP_KERNEL);
+	pool = kzalloc_obj(*pool);
 	if (!pool)
 		return NULL;
 
@@ -258,7 +258,7 @@ static struct mlx5dr_qp *dr_create_rc_qp(struct mlx5_core_dev *mdev,
 	void *in;
 	int err;
 
-	dr_qp = kzalloc(sizeof(*dr_qp), GFP_KERNEL);
+	dr_qp = kzalloc_obj(*dr_qp);
 	if (!dr_qp)
 		return NULL;
 
@@ -1049,12 +1049,6 @@ static int dr_prepare_qp_to_rts(struct mlx5dr_domain *dmn)
 	return 0;
 }
 
-static void dr_cq_complete(struct mlx5_core_cq *mcq,
-			   struct mlx5_eqe *eqe)
-{
-	pr_err("CQ completion CQ: #%u\n", mcq->cqn);
-}
-
 static struct mlx5dr_cq *dr_create_cq(struct mlx5_core_dev *mdev,
 				      struct mlx5_uars_page *uar,
 				      size_t ncqe)
@@ -1069,7 +1063,7 @@ static struct mlx5dr_cq *dr_create_cq(struct mlx5_core_dev *mdev,
 	__be64 *pas;
 	u32 i;
 
-	cq = kzalloc(sizeof(*cq), GFP_KERNEL);
+	cq = kzalloc_obj(*cq);
 	if (!cq)
 		return NULL;
 
@@ -1088,6 +1082,13 @@ static struct mlx5dr_cq *dr_create_cq(struct mlx5_core_dev *mdev,
 		cqe = mlx5_cqwq_get_wqe(&cq->wq, i);
 		cqe->op_own = MLX5_CQE_INVALID << 4 | MLX5_CQE_OWNER_MASK;
 	}
+
+	cq->mcq.cqe_sz = 64;
+	cq->mcq.set_ci_db = cq->wq_ctrl.db.db;
+	cq->mcq.arm_db = cq->wq_ctrl.db.db + 1;
+	*cq->mcq.set_ci_db = 0;
+	cq->mcq.vector = 0;
+	cq->mdev = mdev;
 
 	inlen = MLX5_ST_SZ_BYTES(create_cq_in) +
 		sizeof(u64) * cq->wq_ctrl.buf.npages;
@@ -1112,27 +1113,11 @@ static struct mlx5dr_cq *dr_create_cq(struct mlx5_core_dev *mdev,
 	pas = (__be64 *)MLX5_ADDR_OF(create_cq_in, in, pas);
 	mlx5_fill_page_frag_array(&cq->wq_ctrl.buf, pas);
 
-	cq->mcq.comp  = dr_cq_complete;
-
 	err = mlx5_core_create_cq(mdev, &cq->mcq, in, inlen, out, sizeof(out));
 	kvfree(in);
 
 	if (err)
 		goto err_cqwq;
-
-	cq->mcq.cqe_sz = 64;
-	cq->mcq.set_ci_db = cq->wq_ctrl.db.db;
-	cq->mcq.arm_db = cq->wq_ctrl.db.db + 1;
-	*cq->mcq.set_ci_db = 0;
-
-	/* set no-zero value, in order to avoid the HW to run db-recovery on
-	 * CQ that used in polling mode.
-	 */
-	*cq->mcq.arm_db = cpu_to_be32(2 << 28);
-
-	cq->mcq.vector = 0;
-	cq->mcq.uar = uar;
-	cq->mdev = mdev;
 
 	return cq;
 
@@ -1173,7 +1158,7 @@ static int dr_create_mkey(struct mlx5_core_dev *mdev, u32 pdn, u32 *mkey)
 static struct mlx5dr_mr *dr_reg_mr(struct mlx5_core_dev *mdev,
 				   u32 pdn, void *buf, size_t size)
 {
-	struct mlx5dr_mr *mr = kzalloc(sizeof(*mr), GFP_KERNEL);
+	struct mlx5dr_mr *mr = kzalloc_obj(*mr);
 	struct device *dma_device;
 	dma_addr_t dma_addr;
 	int err;
@@ -1222,7 +1207,7 @@ int mlx5dr_send_ring_alloc(struct mlx5dr_domain *dmn)
 	int size;
 	int ret;
 
-	dmn->send_ring = kzalloc(sizeof(*dmn->send_ring), GFP_KERNEL);
+	dmn->send_ring = kzalloc_obj(*dmn->send_ring);
 	if (!dmn->send_ring)
 		return -ENOMEM;
 

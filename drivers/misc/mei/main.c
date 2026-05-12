@@ -4,6 +4,7 @@
  * Intel Management Engine Interface (Intel MEI) Linux driver
  */
 
+#include <linux/cleanup.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/kernel.h>
@@ -13,6 +14,7 @@
 #include <linux/errno.h>
 #include <linux/types.h>
 #include <linux/fcntl.h>
+#include <linux/pm_runtime.h>
 #include <linux/poll.h>
 #include <linux/init.h>
 #include <linux/ioctl.h>
@@ -51,12 +53,15 @@ static int mei_open(struct inode *inode, struct file *file)
 
 	int err;
 
-	dev = container_of(inode->i_cdev, struct mei_device, cdev);
+	dev = idr_find(&mei_idr, iminor(inode));
+	if (!dev)
+		return -ENODEV;
+	get_device(&dev->dev);
 
 	mutex_lock(&dev->device_lock);
 
 	if (dev->dev_state != MEI_DEV_ENABLED) {
-		dev_dbg(dev->dev, "dev_state != MEI_ENABLED  dev_state = %s\n",
+		dev_dbg(&dev->dev, "dev_state != MEI_ENABLED  dev_state = %s\n",
 		    mei_dev_state_str(dev->dev_state));
 		err = -ENODEV;
 		goto err_unlock;
@@ -77,6 +82,7 @@ static int mei_open(struct inode *inode, struct file *file)
 
 err_unlock:
 	mutex_unlock(&dev->device_lock);
+	put_device(&dev->dev);
 	return err;
 }
 
@@ -152,6 +158,7 @@ out:
 	file->private_data = NULL;
 
 	mutex_unlock(&dev->device_lock);
+	put_device(&dev->dev);
 	return rets;
 }
 
@@ -418,6 +425,7 @@ static int mei_ioctl_connect_client(struct file *file,
 	    cl->state != MEI_FILE_DISCONNECTED)
 		return  -EBUSY;
 
+retry:
 	/* find ME client we're trying to connect to */
 	me_cl = mei_me_cl_by_uuid(dev, in_client_uuid);
 	if (!me_cl) {
@@ -449,6 +457,28 @@ static int mei_ioctl_connect_client(struct file *file,
 
 	rets = mei_cl_connect(cl, me_cl, file);
 
+	if (rets && cl->status == -EFAULT &&
+	    (dev->dev_state == MEI_DEV_RESETTING ||
+	     dev->dev_state == MEI_DEV_INIT_CLIENTS)) {
+		/* in link reset, wait for it completion */
+		mutex_unlock(&dev->device_lock);
+		rets = wait_event_interruptible_timeout(dev->wait_dev_state,
+							dev->dev_state == MEI_DEV_ENABLED,
+							dev->timeouts.link_reset_wait);
+		mutex_lock(&dev->device_lock);
+		if (rets < 0) {
+			if (signal_pending(current))
+				rets = -EINTR;
+			goto end;
+		}
+		if (dev->dev_state != MEI_DEV_ENABLED) {
+			rets = -ETIME;
+			goto end;
+		}
+		mei_me_cl_put(me_cl);
+		goto retry;
+	}
+
 end:
 	mei_me_cl_put(me_cl);
 	return rets;
@@ -477,7 +507,7 @@ static int mei_vt_support_check(struct mei_device *dev, const uuid_le *uuid)
 
 	me_cl = mei_me_cl_by_uuid(dev, uuid);
 	if (!me_cl) {
-		dev_dbg(dev->dev, "Cannot connect to FW Client UUID = %pUl\n",
+		dev_dbg(&dev->dev, "Cannot connect to FW Client UUID = %pUl\n",
 			uuid);
 		return -ENOTTY;
 	}
@@ -641,7 +671,7 @@ static long mei_ioctl(struct file *file, unsigned int cmd, unsigned long data)
 	struct mei_cl *cl = file->private_data;
 	struct mei_connect_client_data conn;
 	struct mei_connect_client_data_vtag conn_vtag;
-	const uuid_le *cl_uuid;
+	uuid_le cl_uuid;
 	struct mei_client *props;
 	u8 vtag;
 	u32 notify_get, notify_req;
@@ -669,18 +699,18 @@ static long mei_ioctl(struct file *file, unsigned int cmd, unsigned long data)
 			rets = -EFAULT;
 			goto out;
 		}
-		cl_uuid = &conn.in_client_uuid;
+		cl_uuid = conn.in_client_uuid;
 		props = &conn.out_client_properties;
 		vtag = 0;
 
-		rets = mei_vt_support_check(dev, cl_uuid);
+		rets = mei_vt_support_check(dev, &cl_uuid);
 		if (rets == -ENOTTY)
 			goto out;
 		if (!rets)
-			rets = mei_ioctl_connect_vtag(file, cl_uuid, props,
+			rets = mei_ioctl_connect_vtag(file, &cl_uuid, props,
 						      vtag);
 		else
-			rets = mei_ioctl_connect_client(file, cl_uuid, props);
+			rets = mei_ioctl_connect_client(file, &cl_uuid, props);
 		if (rets)
 			goto out;
 
@@ -702,14 +732,14 @@ static long mei_ioctl(struct file *file, unsigned int cmd, unsigned long data)
 			goto out;
 		}
 
-		cl_uuid = &conn_vtag.connect.in_client_uuid;
+		cl_uuid = conn_vtag.connect.in_client_uuid;
 		props = &conn_vtag.out_client_properties;
 		vtag = conn_vtag.connect.vtag;
 
-		rets = mei_vt_support_check(dev, cl_uuid);
+		rets = mei_vt_support_check(dev, &cl_uuid);
 		if (rets == -EOPNOTSUPP)
 			cl_dbg(dev, cl, "FW Client %pUl does not support vtags\n",
-				cl_uuid);
+				&cl_uuid);
 		if (rets)
 			goto out;
 
@@ -719,7 +749,7 @@ static long mei_ioctl(struct file *file, unsigned int cmd, unsigned long data)
 			goto out;
 		}
 
-		rets = mei_ioctl_connect_vtag(file, cl_uuid, props, vtag);
+		rets = mei_ioctl_connect_vtag(file, &cl_uuid, props, vtag);
 		if (rets)
 			goto out;
 
@@ -954,14 +984,22 @@ static DEVICE_ATTR_RO(trc);
 static ssize_t fw_status_show(struct device *device,
 		struct device_attribute *attr, char *buf)
 {
-	struct mei_device *dev = dev_get_drvdata(device);
+	struct mei_device *mdev = dev_get_drvdata(device);
 	struct mei_fw_status fw_status;
 	int err, i;
 	ssize_t cnt = 0;
 
-	mutex_lock(&dev->device_lock);
-	err = mei_fw_status(dev, &fw_status);
-	mutex_unlock(&dev->device_lock);
+	if (mdev->read_fws_need_resume) {
+		err = pm_runtime_resume_and_get(mdev->parent);
+		if (err) {
+			dev_err(device, "read fw_status resume error = %d\n", err);
+			return err;
+		}
+	}
+	scoped_guard(mutex, &mdev->device_lock)
+		err = mei_fw_status(mdev, &fw_status);
+	if (mdev->read_fws_need_resume)
+		pm_runtime_put_autosuspend(mdev->parent);
 	if (err) {
 		dev_err(device, "read fw_status error = %d\n", err);
 		return err;
@@ -1115,7 +1153,12 @@ void mei_set_devstate(struct mei_device *dev, enum mei_dev_state state)
 
 	dev->dev_state = state;
 
-	clsdev = class_find_device_by_devt(&mei_class, dev->cdev.dev);
+	wake_up_interruptible_all(&dev->wait_dev_state);
+
+	if (!dev->cdev)
+		return;
+
+	clsdev = class_find_device_by_devt(&mei_class, dev->cdev->dev);
 	if (clsdev) {
 		sysfs_notify(&clsdev->kobj, NULL, "dev_state");
 		put_device(clsdev);
@@ -1191,7 +1234,7 @@ static int mei_minor_get(struct mei_device *dev)
 	if (ret >= 0)
 		dev->minor = ret;
 	else if (ret == -ENOSPC)
-		dev_err(dev->dev, "too many mei devices\n");
+		dev_err(&dev->dev, "too many mei devices\n");
 
 	mutex_unlock(&mei_minor_lock);
 	return ret;
@@ -1200,56 +1243,82 @@ static int mei_minor_get(struct mei_device *dev)
 /**
  * mei_minor_free - mark device minor number as free
  *
- * @dev:  device pointer
+ * @minor: minor number to free
  */
-static void mei_minor_free(struct mei_device *dev)
+static void mei_minor_free(int minor)
 {
 	mutex_lock(&mei_minor_lock);
-	idr_remove(&mei_idr, dev->minor);
+	idr_remove(&mei_idr, minor);
 	mutex_unlock(&mei_minor_lock);
+}
+
+static void mei_device_release(struct device *dev)
+{
+	kfree(dev_get_drvdata(dev));
 }
 
 int mei_register(struct mei_device *dev, struct device *parent)
 {
-	struct device *clsdev; /* class device */
 	int ret, devno;
+	int minor;
 
 	ret = mei_minor_get(dev);
 	if (ret < 0)
 		return ret;
 
+	minor = dev->minor;
+
 	/* Fill in the data structures */
 	devno = MKDEV(MAJOR(mei_devt), dev->minor);
-	cdev_init(&dev->cdev, &mei_fops);
-	dev->cdev.owner = parent->driver->owner;
+
+	device_initialize(&dev->dev);
+	dev->dev.devt = devno;
+	dev->dev.class = &mei_class;
+	dev->dev.parent = parent;
+	dev->dev.groups = mei_groups;
+	dev->dev.release = mei_device_release;
+	dev_set_drvdata(&dev->dev, dev);
+
+	dev->cdev = cdev_alloc();
+	if (!dev->cdev) {
+		ret = -ENOMEM;
+		goto err;
+	}
+	dev->cdev->ops = &mei_fops;
+	dev->cdev->owner = parent->driver->owner;
+	cdev_set_parent(dev->cdev, &dev->dev.kobj);
 
 	/* Add the device */
-	ret = cdev_add(&dev->cdev, devno, 1);
+	ret = cdev_add(dev->cdev, devno, 1);
 	if (ret) {
-		dev_err(parent, "unable to add device %d:%d\n",
+		dev_err(parent, "unable to add cdev for device %d:%d\n",
 			MAJOR(mei_devt), dev->minor);
-		goto err_dev_add;
+		goto err_del_cdev;
 	}
 
-	clsdev = device_create_with_groups(&mei_class, parent, devno,
-					   dev, mei_groups,
-					   "mei%d", dev->minor);
-
-	if (IS_ERR(clsdev)) {
-		dev_err(parent, "unable to create device %d:%d\n",
-			MAJOR(mei_devt), dev->minor);
-		ret = PTR_ERR(clsdev);
-		goto err_dev_create;
+	ret = dev_set_name(&dev->dev, "mei%d", dev->minor);
+	if (ret) {
+		dev_err(parent, "unable to set name to device %d:%d ret = %d\n",
+			MAJOR(mei_devt), dev->minor, ret);
+		goto err_del_cdev;
 	}
 
-	mei_dbgfs_register(dev, dev_name(clsdev));
+	ret = device_add(&dev->dev);
+	if (ret) {
+		dev_err(parent, "unable to add device %d:%d ret = %d\n",
+			MAJOR(mei_devt), dev->minor, ret);
+		goto err_del_cdev;
+	}
+
+	mei_dbgfs_register(dev, dev_name(&dev->dev));
 
 	return 0;
 
-err_dev_create:
-	cdev_del(&dev->cdev);
-err_dev_add:
-	mei_minor_free(dev);
+err_del_cdev:
+	cdev_del(dev->cdev);
+err:
+	put_device(&dev->dev);
+	mei_minor_free(minor);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(mei_register);
@@ -1257,15 +1326,16 @@ EXPORT_SYMBOL_GPL(mei_register);
 void mei_deregister(struct mei_device *dev)
 {
 	int devno;
+	int minor = dev->minor;
 
-	devno = dev->cdev.dev;
-	cdev_del(&dev->cdev);
+	devno = dev->cdev->dev;
+	cdev_del(dev->cdev);
 
 	mei_dbgfs_deregister(dev);
 
 	device_destroy(&mei_class, devno);
 
-	mei_minor_free(dev);
+	mei_minor_free(minor);
 }
 EXPORT_SYMBOL_GPL(mei_deregister);
 

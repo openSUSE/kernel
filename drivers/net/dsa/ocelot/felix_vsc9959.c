@@ -34,7 +34,8 @@
 					 OCELOT_PORT_MODE_QSGMII | \
 					 OCELOT_PORT_MODE_1000BASEX | \
 					 OCELOT_PORT_MODE_2500BASEX | \
-					 OCELOT_PORT_MODE_USXGMII)
+					 OCELOT_PORT_MODE_USXGMII | \
+					 OCELOT_PORT_MODE_10G_QXGMII)
 
 static const u32 vsc9959_port_modes[VSC9959_NUM_PORTS] = {
 	VSC9959_PORT_MODE_SERDES,
@@ -2200,7 +2201,7 @@ static int vsc9959_psfp_sgi_table_add(struct ocelot *ocelot,
 			return 0;
 		}
 
-	tmp = kzalloc(sizeof(*tmp), GFP_KERNEL);
+	tmp = kzalloc_obj(*tmp);
 	if (!tmp)
 		return -ENOMEM;
 

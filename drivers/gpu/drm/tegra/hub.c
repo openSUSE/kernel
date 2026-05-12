@@ -20,6 +20,7 @@
 #include <drm/drm_blend.h>
 #include <drm/drm_fourcc.h>
 #include <drm/drm_framebuffer.h>
+#include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 
 #include "drm.h"
@@ -423,7 +424,7 @@ static void tegra_dc_remove_shared_plane(struct tegra_dc *dc,
 }
 
 static int tegra_shared_plane_atomic_check(struct drm_plane *plane,
-					   struct drm_atomic_state *state)
+					   struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *new_plane_state = drm_atomic_get_new_plane_state(state,
 										 plane);
@@ -481,7 +482,7 @@ static int tegra_shared_plane_atomic_check(struct drm_plane *plane,
 }
 
 static void tegra_shared_plane_atomic_disable(struct drm_plane *plane,
-					      struct drm_atomic_state *state)
+					      struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *old_state = drm_atomic_get_old_plane_state(state,
 									   plane);
@@ -531,7 +532,7 @@ static inline u32 compute_phase_incr(fixed20_12 in, unsigned int out)
 }
 
 static void tegra_shared_plane_atomic_update(struct drm_plane *plane,
-					     struct drm_atomic_state *state)
+					     struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *new_state = drm_atomic_get_new_plane_state(state,
 									   plane);
@@ -768,7 +769,7 @@ struct drm_plane *tegra_shared_plane_create(struct drm_device *drm,
 	const u32 *formats;
 	int err;
 
-	plane = kzalloc(sizeof(*plane), GFP_KERNEL);
+	plane = kzalloc_obj(*plane);
 	if (!plane)
 		return ERR_PTR(-ENOMEM);
 
@@ -824,14 +825,29 @@ static void tegra_display_hub_destroy_state(struct drm_private_obj *obj,
 	kfree(hub_state);
 }
 
+static struct drm_private_state *
+tegra_display_hub_create_state(struct drm_private_obj *obj)
+{
+	struct tegra_display_hub_state *hub_state;
+
+	hub_state = kzalloc_obj(*hub_state);
+	if (!hub_state)
+		return ERR_PTR(-ENOMEM);
+
+	__drm_atomic_helper_private_obj_create_state(obj, &hub_state->base);
+
+	return &hub_state->base;
+}
+
 static const struct drm_private_state_funcs tegra_display_hub_state_funcs = {
+	.atomic_create_state = tegra_display_hub_create_state,
 	.atomic_duplicate_state = tegra_display_hub_duplicate_state,
 	.atomic_destroy_state = tegra_display_hub_destroy_state,
 };
 
 static struct tegra_display_hub_state *
 tegra_display_hub_get_state(struct tegra_display_hub *hub,
-			    struct drm_atomic_state *state)
+			    struct drm_atomic_commit *state)
 {
 	struct drm_private_state *priv;
 
@@ -843,7 +859,7 @@ tegra_display_hub_get_state(struct tegra_display_hub *hub,
 }
 
 int tegra_display_hub_atomic_check(struct drm_device *drm,
-				   struct drm_atomic_state *state)
+				   struct drm_atomic_commit *state)
 {
 	struct tegra_drm *tegra = drm->dev_private;
 	struct tegra_display_hub_state *hub_state;
@@ -909,7 +925,7 @@ static void tegra_display_hub_update(struct tegra_dc *dc)
 }
 
 void tegra_display_hub_atomic_commit(struct drm_device *drm,
-				     struct drm_atomic_state *state)
+				     struct drm_atomic_commit *state)
 {
 	struct tegra_drm *tegra = drm->dev_private;
 	struct tegra_display_hub *hub = tegra->hub;
@@ -940,13 +956,8 @@ static int tegra_display_hub_init(struct host1x_client *client)
 	struct tegra_display_hub *hub = to_tegra_display_hub(client);
 	struct drm_device *drm = dev_get_drvdata(client->host);
 	struct tegra_drm *tegra = drm->dev_private;
-	struct tegra_display_hub_state *state;
 
-	state = kzalloc(sizeof(*state), GFP_KERNEL);
-	if (!state)
-		return -ENOMEM;
-
-	drm_atomic_private_obj_init(drm, &hub->base, &state->base,
+	drm_atomic_private_obj_init(drm, &hub->base,
 				    &tegra_display_hub_state_funcs);
 
 	tegra->hub = hub;

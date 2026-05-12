@@ -24,7 +24,6 @@
 #include <linux/tick.h>
 #include <linux/personality.h>
 #include <linux/syscalls.h>
-#include <linux/compat.h>
 #include <linux/kprobes.h>
 #include <linux/random.h>
 #include <linux/init_task.h>
@@ -106,7 +105,7 @@ int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 
 int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 {
-	unsigned long clone_flags = args->flags;
+	u64 clone_flags = args->flags;
 	unsigned long new_stackp = args->stack;
 	unsigned long tls = args->tls;
 	struct fake_frame
@@ -166,12 +165,8 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 
 	/* Set a new TLS ?  */
 	if (clone_flags & CLONE_SETTLS) {
-		if (is_compat_task()) {
-			p->thread.acrs[0] = (unsigned int)tls;
-		} else {
-			p->thread.acrs[0] = (unsigned int)(tls >> 32);
-			p->thread.acrs[1] = (unsigned int)tls;
-		}
+		p->thread.acrs[0] = (unsigned int)(tls >> 32);
+		p->thread.acrs[1] = (unsigned int)tls;
 	}
 	/*
 	 * s390 stores the svc return address in arch_data when calling

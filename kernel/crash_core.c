@@ -22,11 +22,10 @@
 #include <linux/btf.h>
 #include <linux/objtool.h>
 #include <linux/delay.h>
+#include <linux/panic.h>
 
 #include <asm/page.h>
 #include <asm/sections.h>
-
-#include <crypto/sha1.h>
 
 #include "kallsyms_internal.h"
 #include "kexec_internal.h"
@@ -43,8 +42,14 @@ note_buf_t __percpu *crash_notes;
 
 int kimage_crash_copy_vmcoreinfo(struct kimage *image)
 {
-	struct page *vmcoreinfo_page;
+	struct page *vmcoreinfo_base;
+	struct page *vmcoreinfo_pages[DIV_ROUND_UP(VMCOREINFO_BYTES, PAGE_SIZE)];
+	unsigned int order, nr_pages;
+	int i;
 	void *safecopy;
+
+	nr_pages = DIV_ROUND_UP(VMCOREINFO_BYTES, PAGE_SIZE);
+	order = get_order(VMCOREINFO_BYTES);
 
 	if (!IS_ENABLED(CONFIG_CRASH_DUMP))
 		return 0;
@@ -60,12 +65,15 @@ int kimage_crash_copy_vmcoreinfo(struct kimage *image)
 	 * happens to generate vmcoreinfo note, hereby we rely on
 	 * vmap for this purpose.
 	 */
-	vmcoreinfo_page = kimage_alloc_control_pages(image, 0);
-	if (!vmcoreinfo_page) {
+	vmcoreinfo_base = kimage_alloc_control_pages(image, order);
+	if (!vmcoreinfo_base) {
 		pr_warn("Could not allocate vmcoreinfo buffer\n");
 		return -ENOMEM;
 	}
-	safecopy = vmap(&vmcoreinfo_page, 1, VM_MAP, PAGE_KERNEL);
+	for (i = 0; i < nr_pages; i++)
+		vmcoreinfo_pages[i] = vmcoreinfo_base + i;
+
+	safecopy = vmap(vmcoreinfo_pages, nr_pages, VM_MAP, PAGE_KERNEL);
 	if (!safecopy) {
 		pr_warn("Could not vmap vmcoreinfo buffer\n");
 		return -ENOMEM;
@@ -143,17 +151,7 @@ STACK_FRAME_NON_STANDARD(__crash_kexec);
 
 __bpf_kfunc void crash_kexec(struct pt_regs *regs)
 {
-	int old_cpu, this_cpu;
-
-	/*
-	 * Only one CPU is allowed to execute the crash_kexec() code as with
-	 * panic().  Otherwise parallel calls of panic() and crash_kexec()
-	 * may stop each other.  To exclude them, we use panic_cpu here too.
-	 */
-	old_cpu = PANIC_CPU_INVALID;
-	this_cpu = raw_smp_processor_id();
-
-	if (atomic_try_cmpxchg(&panic_cpu, &old_cpu, this_cpu)) {
+	if (panic_try_start()) {
 		/* This is the 1st CPU which comes here, so go ahead. */
 		__crash_kexec(regs);
 
@@ -161,7 +159,7 @@ __bpf_kfunc void crash_kexec(struct pt_regs *regs)
 		 * Reset panic_cpu to allow another panic()/crash_kexec()
 		 * call.
 		 */
-		atomic_set(&panic_cpu, PANIC_CPU_INVALID);
+		panic_reset();
 	}
 }
 
@@ -274,6 +272,20 @@ int crash_prepare_elf64_headers(struct crash_mem *mem, int need_kernel_map,
 	return 0;
 }
 
+/**
+ * crash_exclude_mem_range - exclude a mem range for existing ranges
+ * @mem: mem->range contains an array of ranges sorted in ascending order
+ * @mstart: the start of to-be-excluded range
+ * @mend: the start of to-be-excluded range
+ *
+ * If you are unsure if a range split will happen, to avoid function call
+ * failure because of -ENOMEM, always make sure
+ *    mem->max_nr_ranges == mem->nr_ranges + 1
+ * before calling the function each time.
+ *
+ * returns 0 if a memory range is excluded successfully
+ * return -ENOMEM if mem->ranges doesn't have space to hold split ranges
+ */
 int crash_exclude_mem_range(struct crash_mem *mem,
 			    unsigned long long mstart, unsigned long long mend)
 {
@@ -333,6 +345,7 @@ int crash_exclude_mem_range(struct crash_mem *mem,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(crash_exclude_mem_range);
 
 ssize_t crash_get_memory_size(void)
 {
@@ -353,7 +366,7 @@ static int __crash_shrink_memory(struct resource *old_res,
 {
 	struct resource *ram_res;
 
-	ram_res = kzalloc(sizeof(*ram_res), GFP_KERNEL);
+	ram_res = kzalloc_obj(*ram_res);
 	if (!ram_res)
 		return -ENOMEM;
 
@@ -367,7 +380,7 @@ static int __crash_shrink_memory(struct resource *old_res,
 		old_res->start = 0;
 		old_res->end   = 0;
 	} else {
-		crashk_res.end = ram_res->start - 1;
+		old_res->end = ram_res->start - 1;
 	}
 
 	crash_free_reserved_phys_range(ram_res->start, ram_res->end);

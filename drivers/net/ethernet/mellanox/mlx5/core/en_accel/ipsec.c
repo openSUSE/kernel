@@ -36,7 +36,6 @@
 #include <linux/inetdevice.h>
 #include <linux/netdevice.h>
 #include <net/netevent.h>
-#include <net/ipv6_stubs.h>
 
 #include "en.h"
 #include "eswitch.h"
@@ -259,7 +258,6 @@ static void mlx5e_ipsec_init_limits(struct mlx5e_ipsec_sa_entry *sa_entry,
 static void mlx5e_ipsec_init_macs(struct mlx5e_ipsec_sa_entry *sa_entry,
 				  struct mlx5_accel_esp_xfrm_attrs *attrs)
 {
-	struct mlx5_core_dev *mdev = mlx5e_ipsec_sa2dev(sa_entry);
 	struct mlx5e_ipsec_addr *addrs = &attrs->addrs;
 	struct net_device *netdev = sa_entry->dev;
 	struct xfrm_state *x = sa_entry->x;
@@ -276,7 +274,7 @@ static void mlx5e_ipsec_init_macs(struct mlx5e_ipsec_sa_entry *sa_entry,
 	    attrs->type != XFRM_DEV_OFFLOAD_PACKET)
 		return;
 
-	mlx5_query_mac_address(mdev, addr);
+	ether_addr_copy(addr, netdev->dev_addr);
 	switch (attrs->dir) {
 	case XFRM_DEV_OFFLOAD_IN:
 		src = attrs->dmac;
@@ -342,9 +340,8 @@ static void mlx5e_ipsec_init_macs(struct mlx5e_ipsec_sa_entry *sa_entry,
 		rt_dst_entry = &rt->dst;
 		break;
 	case AF_INET6:
-		rt_dst_entry = ipv6_stub->ipv6_dst_lookup_flow(
-			dev_net(netdev), NULL, &fl6, NULL);
-		if (IS_ERR(rt_dst_entry))
+		if (!IS_ENABLED(CONFIG_IPV6) ||
+		    ip6_dst_lookup(dev_net(netdev), NULL, &rt_dst_entry, &fl6))
 			goto neigh;
 		break;
 	default:
@@ -359,6 +356,9 @@ static void mlx5e_ipsec_init_macs(struct mlx5e_ipsec_sa_entry *sa_entry,
 
 	neigh_ha_snapshot(addr, n, netdev);
 	ether_addr_copy(dst, addr);
+	if (attrs->dir == XFRM_DEV_OFFLOAD_OUT &&
+	    is_zero_ether_addr(addr))
+		neigh_event_send(n, NULL);
 	dst_release(rt_dst_entry);
 	neigh_release(n);
 	return;
@@ -428,7 +428,8 @@ void mlx5e_ipsec_build_accel_xfrm_attrs(struct mlx5e_ipsec_sa_entry *sa_entry,
 		attrs->replay_esn.esn = sa_entry->esn_state.esn;
 		attrs->replay_esn.esn_msb = sa_entry->esn_state.esn_msb;
 		attrs->replay_esn.overlap = sa_entry->esn_state.overlap;
-		if (attrs->dir == XFRM_DEV_OFFLOAD_OUT)
+		if (attrs->dir == XFRM_DEV_OFFLOAD_OUT ||
+		    x->xso.type != XFRM_DEV_OFFLOAD_PACKET)
 			goto skip_replay_window;
 
 		switch (x->replay_esn->replay_window) {
@@ -709,21 +710,20 @@ static int mlx5_ipsec_create_work(struct mlx5e_ipsec_sa_entry *sa_entry)
 		break;
 	}
 
-	work = kzalloc(sizeof(*work), GFP_KERNEL);
+	work = kzalloc_obj(*work);
 	if (!work)
 		return -ENOMEM;
 
 	switch (x->xso.type) {
 	case XFRM_DEV_OFFLOAD_CRYPTO:
-		data = kzalloc(sizeof(*sa_entry), GFP_KERNEL);
+		data = kzalloc_obj(*sa_entry);
 		if (!data)
 			goto free_work;
 
 		INIT_WORK(&work->work, mlx5e_ipsec_modify_state);
 		break;
 	case XFRM_DEV_OFFLOAD_PACKET:
-		data = kzalloc(sizeof(struct mlx5e_ipsec_netevent_data),
-			       GFP_KERNEL);
+		data = kzalloc_obj(struct mlx5e_ipsec_netevent_data);
 		if (!data)
 			goto free_work;
 
@@ -757,7 +757,7 @@ static int mlx5e_ipsec_create_dwork(struct mlx5e_ipsec_sa_entry *sa_entry)
 	    x->lft.hard_byte_limit == XFRM_INF)
 		return 0;
 
-	dwork = kzalloc(sizeof(*dwork), GFP_KERNEL);
+	dwork = kzalloc_obj(*dwork);
 	if (!dwork)
 		return -ENOMEM;
 
@@ -772,6 +772,7 @@ static int mlx5e_xfrm_add_state(struct net_device *dev,
 				struct netlink_ext_ack *extack)
 {
 	struct mlx5e_ipsec_sa_entry *sa_entry = NULL;
+	bool allow_tunnel_mode = false;
 	struct mlx5e_ipsec *ipsec;
 	struct mlx5e_priv *priv;
 	gfp_t gfp;
@@ -783,7 +784,7 @@ static int mlx5e_xfrm_add_state(struct net_device *dev,
 
 	ipsec = priv->ipsec;
 	gfp = (x->xso.flags & XFRM_DEV_OFFLOAD_FLAG_ACQ) ? GFP_ATOMIC : GFP_KERNEL;
-	sa_entry = kzalloc(sizeof(*sa_entry), gfp);
+	sa_entry = kzalloc_obj(*sa_entry, gfp);
 	if (!sa_entry)
 		return -ENOMEM;
 
@@ -803,6 +804,21 @@ static int mlx5e_xfrm_add_state(struct net_device *dev,
 		goto err_xfrm;
 	}
 
+	err = mlx5_eswitch_block_mode(priv->mdev);
+	if (err)
+		goto unblock_ipsec;
+
+	if (x->props.mode == XFRM_MODE_TUNNEL &&
+	    x->xso.type == XFRM_DEV_OFFLOAD_PACKET) {
+		allow_tunnel_mode = mlx5e_ipsec_fs_tunnel_allowed(sa_entry);
+		if (!allow_tunnel_mode) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Packet offload tunnel mode is disabled due to encap settings");
+			err = -EINVAL;
+			goto unblock_mode;
+		}
+	}
+
 	/* check esn */
 	if (x->props.flags & XFRM_STATE_ESN)
 		mlx5e_ipsec_update_esn_state(sa_entry);
@@ -817,7 +833,7 @@ static int mlx5e_xfrm_add_state(struct net_device *dev,
 
 	err = mlx5_ipsec_create_work(sa_entry);
 	if (err)
-		goto unblock_ipsec;
+		goto unblock_encap;
 
 	err = mlx5e_ipsec_create_dwork(sa_entry);
 	if (err)
@@ -831,14 +847,6 @@ static int mlx5e_xfrm_add_state(struct net_device *dev,
 	err = mlx5e_accel_ipsec_fs_add_rule(sa_entry);
 	if (err)
 		goto err_hw_ctx;
-
-	if (x->props.mode == XFRM_MODE_TUNNEL &&
-	    x->xso.type == XFRM_DEV_OFFLOAD_PACKET &&
-	    !mlx5e_ipsec_fs_tunnel_enabled(sa_entry)) {
-		NL_SET_ERR_MSG_MOD(extack, "Packet offload tunnel mode is disabled due to encap settings");
-		err = -EINVAL;
-		goto err_add_rule;
-	}
 
 	/* We use *_bh() variant because xfrm_timer_handler(), which runs
 	 * in softirq context, can reach our state delete logic and we need
@@ -855,8 +863,7 @@ static int mlx5e_xfrm_add_state(struct net_device *dev,
 		queue_delayed_work(ipsec->wq, &sa_entry->dwork->dwork,
 				   MLX5_IPSEC_RESCHED);
 
-	if (x->xso.type == XFRM_DEV_OFFLOAD_PACKET &&
-	    x->props.mode == XFRM_MODE_TUNNEL) {
+	if (allow_tunnel_mode) {
 		xa_lock_bh(&ipsec->sadb);
 		__xa_set_mark(&ipsec->sadb, sa_entry->ipsec_obj_id,
 			      MLX5E_IPSEC_TUNNEL_SA);
@@ -865,6 +872,11 @@ static int mlx5e_xfrm_add_state(struct net_device *dev,
 
 out:
 	x->xso.offload_handle = (unsigned long)sa_entry;
+	if (allow_tunnel_mode)
+		mlx5_eswitch_unblock_encap(priv->mdev);
+
+	mlx5_eswitch_unblock_mode(priv->mdev);
+
 	return 0;
 
 err_add_rule:
@@ -877,6 +889,11 @@ release_work:
 	if (sa_entry->work)
 		kfree(sa_entry->work->data);
 	kfree(sa_entry->work);
+unblock_encap:
+	if (allow_tunnel_mode)
+		mlx5_eswitch_unblock_encap(priv->mdev);
+unblock_mode:
+	mlx5_eswitch_unblock_mode(priv->mdev);
 unblock_ipsec:
 	mlx5_eswitch_unblock_ipsec(priv->mdev);
 err_xfrm:
@@ -969,7 +986,7 @@ void mlx5e_ipsec_init(struct mlx5e_priv *priv)
 		return;
 	}
 
-	ipsec = kzalloc(sizeof(*ipsec), GFP_KERNEL);
+	ipsec = kzalloc_obj(*ipsec);
 	if (!ipsec)
 		return;
 
@@ -1257,7 +1274,7 @@ static int mlx5e_xfrm_add_policy(struct xfrm_policy *x,
 	if (err)
 		return err;
 
-	pol_entry = kzalloc(sizeof(*pol_entry), GFP_KERNEL);
+	pol_entry = kzalloc_obj(*pol_entry);
 	if (!pol_entry)
 		return -ENOMEM;
 

@@ -71,7 +71,7 @@ enum dc_status dpcd_get_tunneling_device_data(struct dc_link *link)
 	link->dpcd_caps.usb4_dp_tun_info.dpia_info.raw =
 			dpcd_dp_tun_data[DP_IN_ADAPTER_INFO - DP_TUNNELING_CAPABILITIES_SUPPORT];
 	link->dpcd_caps.usb4_dp_tun_info.usb4_driver_id =
-			dpcd_dp_tun_data[DP_USB4_DRIVER_ID - DP_TUNNELING_CAPABILITIES_SUPPORT];
+			dpcd_dp_tun_data[DP_USB4_DRIVER_ID - DP_TUNNELING_CAPABILITIES_SUPPORT] & 0x0F;
 
 	if (link->dpcd_caps.usb4_dp_tun_info.dp_tun_cap.bits.dpia_bw_alloc) {
 		status = core_link_read_dpcd(link, USB4_DRIVER_BW_CAPABILITY,
@@ -119,7 +119,7 @@ bool dpia_query_hpd_status(struct dc_link *link)
 	/* prepare QUERY_HPD command */
 	cmd.query_hpd.header.type = DMUB_CMD__QUERY_HPD_STATE;
 	cmd.query_hpd.header.payload_bytes = sizeof(cmd.query_hpd.data);
-	cmd.query_hpd.data.instance = link->link_id.enum_id - ENUM_ID_1;
+	cmd.query_hpd.data.instance = (uint8_t)(link->link_id.enum_id - ENUM_ID_1);
 	cmd.query_hpd.data.ch_type = AUX_CHANNEL_DPIA;
 
 	/* Query dpia hpd status from dmub */

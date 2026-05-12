@@ -1562,11 +1562,11 @@ static void s3c24xx_serial_set_termios(struct uart_port *port,
 		ulcon |= S3C2410_LCON_PNONE;
 	}
 
-	uart_port_lock_irqsave(port, &flags);
-
 	dev_dbg(port->dev,
 		"setting ulcon to %08x, brddiv to %d, udivslot %08x\n",
 		ulcon, quot, udivslot);
+
+	uart_port_lock_irqsave(port, &flags);
 
 	wr_regl(port, S3C2410_ULCON, ulcon);
 	wr_regl(port, S3C2410_UBRDIV, quot);
@@ -1586,12 +1586,6 @@ static void s3c24xx_serial_set_termios(struct uart_port *port,
 
 	if (ourport->info->has_divslot)
 		wr_regl(port, S3C2443_DIVSLOT, udivslot);
-
-	dev_dbg(port->dev,
-		"uart: ulcon = 0x%08x, ucon = 0x%08x, ufcon = 0x%08x\n",
-		rd_regl(port, S3C2410_ULCON),
-		rd_regl(port, S3C2410_UCON),
-		rd_regl(port, S3C2410_UFCON));
 
 	/*
 	 * Update the per-port timeout.
@@ -2829,6 +2823,8 @@ OF_EARLYCON_DECLARE(s5pv210, "samsung,s5pv210-uart",
 OF_EARLYCON_DECLARE(exynos4210, "samsung,exynos4210-uart",
 			s5pv210_early_console_setup);
 OF_EARLYCON_DECLARE(artpec8, "axis,artpec8-uart",
+			s5pv210_early_console_setup);
+OF_EARLYCON_DECLARE(exynos850, "samsung,exynos850-uart",
 			s5pv210_early_console_setup);
 
 static int __init gs101_early_console_setup(struct earlycon_device *device,

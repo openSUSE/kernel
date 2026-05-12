@@ -176,6 +176,7 @@ static int sparx5_port_bridge_join(struct sparx5_port *port,
 				   struct net_device *bridge,
 				   struct netlink_ext_ack *extack)
 {
+	struct switchdev_brport_flags flags = {0};
 	struct sparx5 *sparx5 = port->sparx5;
 	struct net_device *ndev = port->ndev;
 	int err;
@@ -205,6 +206,11 @@ static int sparx5_port_bridge_join(struct sparx5_port *port,
 	 */
 	__dev_mc_unsync(ndev, sparx5_mc_unsync);
 
+	/* Enable uc/mc/bc flooding */
+	flags.mask = BR_FLOOD | BR_MCAST_FLOOD | BR_BCAST_FLOOD;
+	flags.val = flags.mask;
+	sparx5_port_attr_bridge_flags(port, flags);
+
 	return 0;
 
 err_switchdev_offload:
@@ -215,6 +221,7 @@ err_switchdev_offload:
 static void sparx5_port_bridge_leave(struct sparx5_port *port,
 				     struct net_device *bridge)
 {
+	struct switchdev_brport_flags flags = {0};
 	struct sparx5 *sparx5 = port->sparx5;
 
 	switchdev_bridge_port_unoffload(port->ndev, NULL, NULL, NULL);
@@ -234,6 +241,11 @@ static void sparx5_port_bridge_leave(struct sparx5_port *port,
 
 	/* Port enters in host more therefore restore mc list */
 	__dev_mc_sync(port->ndev, sparx5_mc_sync, sparx5_mc_unsync);
+
+	/* Disable uc/mc/bc flooding */
+	flags.mask = BR_FLOOD | BR_MCAST_FLOOD | BR_BCAST_FLOOD;
+	flags.val = 0;
+	sparx5_port_attr_bridge_flags(port, flags);
 }
 
 static int sparx5_port_changeupper(struct net_device *dev,
@@ -386,7 +398,7 @@ static int sparx5_switchdev_event(struct notifier_block *nb,
 	case SWITCHDEV_FDB_ADD_TO_DEVICE:
 		fallthrough;
 	case SWITCHDEV_FDB_DEL_TO_DEVICE:
-		switchdev_work = kzalloc(sizeof(*switchdev_work), GFP_ATOMIC);
+		switchdev_work = kzalloc_obj(*switchdev_work, GFP_ATOMIC);
 		if (!switchdev_work)
 			return NOTIFY_BAD;
 
@@ -453,7 +465,7 @@ static int sparx5_alloc_mdb_entry(struct sparx5 *sparx5,
 	u16 pgid_idx;
 	int err;
 
-	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+	entry = kzalloc_obj(*entry);
 	if (!entry)
 		return -ENOMEM;
 

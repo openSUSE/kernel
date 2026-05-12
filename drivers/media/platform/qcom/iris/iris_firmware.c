@@ -19,8 +19,7 @@ static int iris_load_fw_to_memory(struct iris_core *core, const char *fw_name)
 	u32 pas_id = core->iris_platform_data->pas_id;
 	const struct firmware *firmware = NULL;
 	struct device *dev = core->dev;
-	struct reserved_mem *rmem;
-	struct device_node *node;
+	struct resource res;
 	phys_addr_t mem_phys;
 	size_t res_size;
 	ssize_t fw_size;
@@ -30,17 +29,12 @@ static int iris_load_fw_to_memory(struct iris_core *core, const char *fw_name)
 	if (strlen(fw_name) >= MAX_FIRMWARE_NAME_SIZE - 4)
 		return -EINVAL;
 
-	node = of_parse_phandle(dev->of_node, "memory-region", 0);
-	if (!node)
-		return -EINVAL;
+	ret = of_reserved_mem_region_to_resource(dev->of_node, 0, &res);
+	if (ret)
+		return ret;
 
-	rmem = of_reserved_mem_lookup(node);
-	of_node_put(node);
-	if (!rmem)
-		return -EINVAL;
-
-	mem_phys = rmem->base;
-	res_size = rmem->size;
+	mem_phys = res.start;
+	res_size = resource_size(&res);
 
 	ret = request_firmware(&firmware, fw_name, dev);
 	if (ret)
@@ -60,16 +54,7 @@ static int iris_load_fw_to_memory(struct iris_core *core, const char *fw_name)
 
 	ret = qcom_mdt_load(dev, firmware, fw_name,
 			    pas_id, mem_virt, mem_phys, res_size, NULL);
-	if (ret)
-		goto err_mem_unmap;
 
-	ret = qcom_scm_pas_auth_and_reset(pas_id);
-	if (ret)
-		goto err_mem_unmap;
-
-	return ret;
-
-err_mem_unmap:
 	memunmap(mem_virt);
 err_release_fw:
 	release_firmware(firmware);
@@ -79,9 +64,9 @@ err_release_fw:
 
 int iris_fw_load(struct iris_core *core)
 {
-	struct tz_cp_config *cp_config = core->iris_platform_data->tz_cp_config_data;
+	const struct tz_cp_config *cp_config;
 	const char *fwpath = NULL;
-	int ret;
+	int i, ret;
 
 	ret = of_property_read_string_index(core->dev->of_node, "firmware-name", 0,
 					    &fwpath);
@@ -94,14 +79,23 @@ int iris_fw_load(struct iris_core *core)
 		return -ENOMEM;
 	}
 
-	ret = qcom_scm_mem_protect_video_var(cp_config->cp_start,
-					     cp_config->cp_size,
-					     cp_config->cp_nonpixel_start,
-					     cp_config->cp_nonpixel_size);
-	if (ret) {
-		dev_err(core->dev, "protect memory failed\n");
-		qcom_scm_pas_shutdown(core->iris_platform_data->pas_id);
+	ret = qcom_scm_pas_auth_and_reset(core->iris_platform_data->pas_id);
+	if (ret)  {
+		dev_err(core->dev, "auth and reset failed: %d\n", ret);
 		return ret;
+	}
+
+	for (i = 0; i < core->iris_platform_data->tz_cp_config_data_size; i++) {
+		cp_config = &core->iris_platform_data->tz_cp_config_data[i];
+		ret = qcom_scm_mem_protect_video_var(cp_config->cp_start,
+						     cp_config->cp_size,
+						     cp_config->cp_nonpixel_start,
+						     cp_config->cp_nonpixel_size);
+		if (ret) {
+			dev_err(core->dev, "qcom_scm_mem_protect_video_var failed: %d\n", ret);
+			qcom_scm_pas_shutdown(core->iris_platform_data->pas_id);
+			return ret;
+		}
 	}
 
 	return ret;

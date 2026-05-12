@@ -111,6 +111,7 @@ void snd_dmaengine_pcm_set_config_from_dai_data(
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		slave_config->dst_addr = dma_data->addr;
 		slave_config->dst_maxburst = dma_data->maxburst;
+		slave_config->dst_port_window_size = dma_data->port_window_size;
 		if (dma_data->flags & SND_DMAENGINE_PCM_DAI_FLAG_PACK)
 			slave_config->dst_addr_width =
 				DMA_SLAVE_BUSWIDTH_UNDEFINED;
@@ -119,6 +120,7 @@ void snd_dmaengine_pcm_set_config_from_dai_data(
 	} else {
 		slave_config->src_addr = dma_data->addr;
 		slave_config->src_maxburst = dma_data->maxburst;
+		slave_config->src_port_window_size = dma_data->port_window_size;
 		if (dma_data->flags & SND_DMAENGINE_PCM_DAI_FLAG_PACK)
 			slave_config->src_addr_width =
 				DMA_SLAVE_BUSWIDTH_UNDEFINED;
@@ -316,7 +318,7 @@ int snd_dmaengine_pcm_open(struct snd_pcm_substream *substream,
 	if (ret < 0)
 		return ret;
 
-	prtd = kzalloc(sizeof(*prtd), GFP_KERNEL);
+	prtd = kzalloc_obj(*prtd);
 	if (!prtd)
 		return -ENOMEM;
 

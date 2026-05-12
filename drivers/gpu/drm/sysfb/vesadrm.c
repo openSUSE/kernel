@@ -4,7 +4,8 @@
 #include <linux/ioport.h>
 #include <linux/limits.h>
 #include <linux/platform_device.h>
-#include <linux/screen_info.h>
+#include <linux/sysfb.h>
+#include <linux/pm.h>
 
 #include <drm/clients/drm_client_setup.h>
 #include <drm/drm_atomic.h>
@@ -21,10 +22,11 @@
 #include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_gem_shmem_helper.h>
 #include <drm/drm_managed.h>
+#include <drm/drm_modeset_helper.h>
 #include <drm/drm_modeset_helper_vtables.h>
+#include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 
-#include <video/edid.h>
 #include <video/pixel_format.h>
 #include <video/vga.h>
 
@@ -48,8 +50,14 @@ static const struct drm_format_info *vesadrm_get_format_si(struct drm_device *de
 		{ PIXEL_FORMAT_XBGR8888, DRM_FORMAT_XBGR8888, },
 		{ PIXEL_FORMAT_C8, DRM_FORMAT_C8, },
 	};
+	struct pixel_format pixel;
+	int ret;
 
-	return drm_sysfb_get_format_si(dev, formats, ARRAY_SIZE(formats), si);
+	ret = screen_info_pixel_format(si, &pixel);
+	if (ret)
+		return NULL;
+
+	return drm_sysfb_get_format(dev, formats, ARRAY_SIZE(formats), &pixel);
 }
 
 /*
@@ -240,7 +248,7 @@ static const u64 vesadrm_primary_plane_format_modifiers[] = {
 };
 
 static int vesadrm_primary_plane_helper_atomic_check(struct drm_plane *plane,
-						     struct drm_atomic_state *new_state)
+						     struct drm_atomic_commit *new_state)
 {
 	struct drm_sysfb_device *sysfb = to_drm_sysfb_device(plane->dev);
 	struct drm_plane_state *new_plane_state = drm_atomic_get_new_plane_state(new_state, plane);
@@ -295,7 +303,8 @@ static int vesadrm_primary_plane_helper_atomic_check(struct drm_plane *plane,
 }
 
 static const struct drm_plane_helper_funcs vesadrm_primary_plane_helper_funcs = {
-	DRM_GEM_SHADOW_PLANE_HELPER_FUNCS,
+	.begin_fb_access = drm_sysfb_plane_helper_begin_fb_access,
+	.end_fb_access = drm_gem_end_shadow_fb_access,
 	.atomic_check = vesadrm_primary_plane_helper_atomic_check,
 	.atomic_update = drm_sysfb_plane_helper_atomic_update,
 	.atomic_disable = drm_sysfb_plane_helper_atomic_disable,
@@ -308,7 +317,7 @@ static const struct drm_plane_funcs vesadrm_primary_plane_funcs = {
 };
 
 static void vesadrm_crtc_helper_atomic_flush(struct drm_crtc *crtc,
-					     struct drm_atomic_state *state)
+					     struct drm_atomic_commit *state)
 {
 	struct drm_device *dev = crtc->dev;
 	struct drm_sysfb_device *sysfb = to_drm_sysfb_device(dev);
@@ -389,6 +398,7 @@ static const struct drm_mode_config_funcs vesadrm_mode_config_funcs = {
 static struct vesadrm_device *vesadrm_device_create(struct drm_driver *drv,
 						    struct platform_device *pdev)
 {
+	const struct sysfb_display_info *dpy;
 	const struct screen_info *si;
 	const struct drm_format_info *format;
 	int width, height, stride;
@@ -408,9 +418,11 @@ static struct vesadrm_device *vesadrm_device_create(struct drm_driver *drv,
 	size_t nformats;
 	int ret;
 
-	si = dev_get_platdata(&pdev->dev);
-	if (!si)
+	dpy = dev_get_platdata(&pdev->dev);
+	if (!dpy)
 		return ERR_PTR(-ENODEV);
+	si = &dpy->screen;
+
 	if (screen_info_video_type(si) != VIDEO_TYPE_VLFB)
 		return ERR_PTR(-ENODEV);
 
@@ -469,8 +481,8 @@ static struct vesadrm_device *vesadrm_device_create(struct drm_driver *drv,
 	}
 
 #if defined(CONFIG_FIRMWARE_EDID)
-	if (drm_edid_header_is_valid(edid_info.dummy) == 8)
-		sysfb->edid = edid_info.dummy;
+	if (drm_edid_header_is_valid(dpy->edid.dummy) == 8)
+		sysfb->edid = dpy->edid.dummy;
 #endif
 	sysfb->fb_mode = drm_sysfb_mode(width, height, 0, 0);
 	sysfb->fb_format = format;
@@ -607,6 +619,22 @@ static struct drm_driver vesadrm_driver = {
  * Platform driver
  */
 
+static int vesadrm_pm_suspend(struct device *dev)
+{
+	struct drm_device *drm = dev_get_drvdata(dev);
+
+	return drm_mode_config_helper_suspend(drm);
+}
+
+static int vesadrm_pm_resume(struct device *dev)
+{
+	struct drm_device *drm = dev_get_drvdata(dev);
+
+	return drm_mode_config_helper_resume(drm);
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(vesadrm_pm_ops, vesadrm_pm_suspend, vesadrm_pm_resume);
+
 static int vesadrm_probe(struct platform_device *pdev)
 {
 	struct vesadrm_device *vesa;
@@ -639,6 +667,7 @@ static void vesadrm_remove(struct platform_device *pdev)
 static struct platform_driver vesadrm_platform_driver = {
 	.driver = {
 		.name = "vesa-framebuffer",
+		.pm = pm_sleep_ptr(&vesadrm_pm_ops),
 	},
 	.probe = vesadrm_probe,
 	.remove = vesadrm_remove,

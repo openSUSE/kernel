@@ -32,7 +32,7 @@
 
 #undef FN
 #define FN(reg_name, field_name) \
-	gpio->regs->field_name ## _shift, gpio->regs->field_name ## _mask
+	gpio_reg_shift(gpio->regs->field_name ## _shift), gpio->regs->field_name ## _mask
 
 #define CTX \
 	gpio->base.ctx
@@ -199,5 +199,6 @@ void dal_hw_gpio_construct(
 void dal_hw_gpio_destruct(
 	struct hw_gpio *pin)
 {
+	(void)pin;
 	ASSERT(!pin->base.opened);
 }

@@ -2273,8 +2273,6 @@ static int si_populate_smc_tdp_limits(struct amdgpu_device *adev,
 		if (scaling_factor == 0)
 			return -EINVAL;
 
-		memset(smc_table, 0, sizeof(SISLANDS_SMC_STATETABLE));
-
 		ret = si_calculate_adjusted_tdp_limits(adev,
 						       false, /* ??? */
 						       adev->pm.dpm.tdp_adjustment,
@@ -2282,6 +2280,12 @@ static int si_populate_smc_tdp_limits(struct amdgpu_device *adev,
 						       &near_tdp_limit);
 		if (ret)
 			return ret;
+
+		if (adev->pdev->device == 0x6611 && adev->pdev->revision == 0x87) {
+			/* Workaround buggy powertune on Radeon 430 and 520. */
+			tdp_limit = 32;
+			near_tdp_limit = 28;
+		}
 
 		smc_table->dpm2Params.TDPLimit =
 			cpu_to_be32(si_scale_power_for_smc(tdp_limit, scaling_factor) * 1000);
@@ -2328,15 +2332,7 @@ static int si_populate_smc_tdp_limits_2(struct amdgpu_device *adev,
 
 	if (ni_pi->enable_power_containment) {
 		SISLANDS_SMC_STATETABLE *smc_table = &si_pi->smc_statetable;
-		u32 scaling_factor = si_get_smc_power_scaling_factor(adev);
 		int ret;
-
-		memset(smc_table, 0, sizeof(SISLANDS_SMC_STATETABLE));
-
-		smc_table->dpm2Params.NearTDPLimit =
-			cpu_to_be32(si_scale_power_for_smc(adev->pm.dpm.near_tdp_limit_adjusted, scaling_factor) * 1000);
-		smc_table->dpm2Params.SafePowerLimit =
-			cpu_to_be32(si_scale_power_for_smc((adev->pm.dpm.near_tdp_limit_adjusted * SISLANDS_DPM2_TDP_SAFE_LIMIT_PERCENT) / 100, scaling_factor) * 1000);
 
 		ret = amdgpu_si_copy_bytes_to_smc(adev,
 						  (si_pi->state_table_start +
@@ -2558,18 +2554,13 @@ static int si_enable_power_containment(struct amdgpu_device *adev,
 		if (enable) {
 			if (!si_should_disable_uvd_powertune(adev, amdgpu_new_state)) {
 				smc_result = amdgpu_si_send_msg_to_smc(adev, PPSMC_TDPClampingActive);
-				if (smc_result != PPSMC_Result_OK) {
+				if (smc_result != PPSMC_Result_OK)
 					ret = -EINVAL;
-					ni_pi->pc_enabled = false;
-				} else {
-					ni_pi->pc_enabled = true;
-				}
 			}
 		} else {
 			smc_result = amdgpu_si_send_msg_to_smc(adev, PPSMC_TDPClampingInactive);
 			if (smc_result != PPSMC_Result_OK)
 				ret = -EINVAL;
-			ni_pi->pc_enabled = false;
 		}
 	}
 
@@ -2595,7 +2586,7 @@ static int si_initialize_smc_dte_tables(struct amdgpu_device *adev)
 	if (dte_data->k <= 0)
 		return -EINVAL;
 
-	dte_tables = kzalloc(sizeof(Smc_SIslands_DTE_Configuration), GFP_KERNEL);
+	dte_tables = kzalloc_obj(Smc_SIslands_DTE_Configuration);
 	if (dte_tables == NULL) {
 		si_pi->enable_dte = false;
 		return -ENOMEM;
@@ -2776,7 +2767,7 @@ static int si_initialize_smc_cac_tables(struct amdgpu_device *adev)
 	if (ni_pi->enable_cac == false)
 		return 0;
 
-	cac_tables = kzalloc(sizeof(PP_SIslands_CacConfig), GFP_KERNEL);
+	cac_tables = kzalloc_obj(PP_SIslands_CacConfig);
 	if (!cac_tables)
 		return -ENOMEM;
 
@@ -2973,7 +2964,7 @@ static int si_init_smc_spll_table(struct amdgpu_device *adev)
 	if (si_pi->spll_table_start == 0)
 		return -EINVAL;
 
-	spll_table = kzalloc(sizeof(SMC_SISLANDS_SPLL_DIV_TABLE), GFP_KERNEL);
+	spll_table = kzalloc_obj(SMC_SISLANDS_SPLL_DIV_TABLE);
 	if (spll_table == NULL)
 		return -ENOMEM;
 
@@ -3081,7 +3072,7 @@ static int si_get_vce_clock_voltage(struct amdgpu_device *adev,
 static bool si_dpm_vblank_too_short(void *handle)
 {
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
-	u32 vblank_time = amdgpu_dpm_get_vblank_time(adev);
+	u32 vblank_time = adev->pm.pm_display_cfg.min_vblank_time;
 	/* we never hit the non-gddr5 limit so disable it */
 	u32 switch_limit = adev->gmc.vram_type == AMDGPU_VRAM_TYPE_GDDR5 ? 450 : 0;
 
@@ -3447,9 +3438,10 @@ static void rv770_get_engine_memory_ss(struct amdgpu_device *adev)
 static void si_apply_state_adjust_rules(struct amdgpu_device *adev,
 					struct amdgpu_ps *rps)
 {
+	const struct amd_pp_display_configuration *display_cfg =
+		&adev->pm.pm_display_cfg;
 	struct  si_ps *ps = si_get_ps(rps);
 	struct amdgpu_clock_and_voltage_limits *max_limits;
-	struct amdgpu_connector *conn;
 	bool disable_mclk_switching = false;
 	bool disable_sclk_switching = false;
 	u32 mclk, sclk;
@@ -3462,9 +3454,11 @@ static void si_apply_state_adjust_rules(struct amdgpu_device *adev,
 	if (adev->asic_type == CHIP_HAINAN) {
 		if ((adev->pdev->revision == 0x81) ||
 		    (adev->pdev->revision == 0xC3) ||
+		    (adev->pdev->device == 0x6660) ||
 		    (adev->pdev->device == 0x6664) ||
 		    (adev->pdev->device == 0x6665) ||
-		    (adev->pdev->device == 0x6667)) {
+		    (adev->pdev->device == 0x6667) ||
+		    (adev->pdev->device == 0x666F)) {
 			max_sclk = 75000;
 		}
 		if ((adev->pdev->revision == 0xC3) ||
@@ -3472,15 +3466,25 @@ static void si_apply_state_adjust_rules(struct amdgpu_device *adev,
 			max_sclk = 60000;
 			max_mclk = 80000;
 		}
+		if ((adev->pdev->device == 0x666f) &&
+		    (adev->pdev->revision == 0x00)) {
+			max_sclk = 80000;
+			max_mclk = 95000;
+		}
 	} else if (adev->asic_type == CHIP_OLAND) {
 		if ((adev->pdev->revision == 0xC7) ||
 		    (adev->pdev->revision == 0x80) ||
 		    (adev->pdev->revision == 0x81) ||
 		    (adev->pdev->revision == 0x83) ||
-		    (adev->pdev->revision == 0x87) ||
+		    (adev->pdev->revision == 0x87 &&
+				adev->pdev->device != 0x6611) ||
 		    (adev->pdev->device == 0x6604) ||
 		    (adev->pdev->device == 0x6605)) {
 			max_sclk = 75000;
+		} else if (adev->pdev->revision == 0x87 &&
+				adev->pdev->device == 0x6611) {
+			/* Radeon 430 and 520 */
+			max_sclk = 78000;
 		}
 	}
 
@@ -3488,14 +3492,9 @@ static void si_apply_state_adjust_rules(struct amdgpu_device *adev,
 	 * For example, 4K 60Hz and 1080p 144Hz fall into this category.
 	 * Find number of such displays connected.
 	 */
-	for (i = 0; i < adev->mode_info.num_crtc; i++) {
-		if (!(adev->pm.dpm.new_active_crtcs & (1 << i)) ||
-			!adev->mode_info.crtcs[i]->enabled)
-			continue;
-
-		conn = to_amdgpu_connector(adev->mode_info.crtcs[i]->connector);
-
-		if (conn->pixelclock_for_modeset > 297000)
+	for (i = 0; i < display_cfg->num_display; i++) {
+		/* The array only contains active displays. */
+		if (display_cfg->displays[i].pixel_clock > 297000)
 			high_pixelclock_count++;
 	}
 
@@ -3504,6 +3503,11 @@ static void si_apply_state_adjust_rules(struct amdgpu_device *adev,
 	 * for these GPUs to calculate bandwidth requirements.
 	 */
 	if (high_pixelclock_count) {
+		/* Work around flickering lines at the bottom edge
+		 * of the screen when using a single 4K 60Hz monitor.
+		 */
+		disable_mclk_switching = true;
+
 		/* On Oland, we observe some flickering when two 4K 60Hz
 		 * displays are connected, possibly because voltage is too low.
 		 * Raise the voltage by requiring a higher SCLK.
@@ -3523,7 +3527,7 @@ static void si_apply_state_adjust_rules(struct amdgpu_device *adev,
 		rps->ecclk = 0;
 	}
 
-	if ((adev->pm.dpm.new_active_crtc_count > 1) ||
+	if ((adev->pm.pm_display_cfg.num_display > 1) ||
 	    si_dpm_vblank_too_short(adev))
 		disable_mclk_switching = true;
 
@@ -3671,7 +3675,7 @@ static void si_apply_state_adjust_rules(struct amdgpu_device *adev,
 						   ps->performance_levels[i].mclk,
 						   max_limits->vddc,  &ps->performance_levels[i].vddc);
 		btc_apply_voltage_dependency_rules(&adev->pm.dpm.dyn_state.vddc_dependency_on_dispclk,
-						   adev->clock.current_dispclk,
+						   display_cfg->display_clk,
 						   max_limits->vddc,  &ps->performance_levels[i].vddc);
 	}
 
@@ -4196,16 +4200,16 @@ static void si_program_ds_registers(struct amdgpu_device *adev)
 
 static void si_program_display_gap(struct amdgpu_device *adev)
 {
+	const struct amd_pp_display_configuration *cfg = &adev->pm.pm_display_cfg;
 	u32 tmp, pipe;
-	int i;
 
 	tmp = RREG32(mmCG_DISPLAY_GAP_CNTL) & ~(CG_DISPLAY_GAP_CNTL__DISP1_GAP_MASK | CG_DISPLAY_GAP_CNTL__DISP2_GAP_MASK);
-	if (adev->pm.dpm.new_active_crtc_count > 0)
+	if (cfg->num_display > 0)
 		tmp |= R600_PM_DISPLAY_GAP_VBLANK_OR_WM << CG_DISPLAY_GAP_CNTL__DISP1_GAP__SHIFT;
 	else
 		tmp |= R600_PM_DISPLAY_GAP_IGNORE << CG_DISPLAY_GAP_CNTL__DISP1_GAP__SHIFT;
 
-	if (adev->pm.dpm.new_active_crtc_count > 1)
+	if (cfg->num_display > 1)
 		tmp |= R600_PM_DISPLAY_GAP_VBLANK_OR_WM << CG_DISPLAY_GAP_CNTL__DISP2_GAP__SHIFT;
 	else
 		tmp |= R600_PM_DISPLAY_GAP_IGNORE << CG_DISPLAY_GAP_CNTL__DISP2_GAP__SHIFT;
@@ -4215,17 +4219,8 @@ static void si_program_display_gap(struct amdgpu_device *adev)
 	tmp = RREG32(DCCG_DISP_SLOW_SELECT_REG);
 	pipe = (tmp & DCCG_DISP1_SLOW_SELECT_MASK) >> DCCG_DISP1_SLOW_SELECT_SHIFT;
 
-	if ((adev->pm.dpm.new_active_crtc_count > 0) &&
-	    (!(adev->pm.dpm.new_active_crtcs & (1 << pipe)))) {
-		/* find the first active crtc */
-		for (i = 0; i < adev->mode_info.num_crtc; i++) {
-			if (adev->pm.dpm.new_active_crtcs & (1 << i))
-				break;
-		}
-		if (i == adev->mode_info.num_crtc)
-			pipe = 0;
-		else
-			pipe = i;
+	if (cfg->num_display > 0 && pipe != cfg->crtc_index) {
+		pipe = cfg->crtc_index;
 
 		tmp &= ~DCCG_DISP1_SLOW_SELECT_MASK;
 		tmp |= DCCG_DISP1_SLOW_SELECT(pipe);
@@ -4236,7 +4231,7 @@ static void si_program_display_gap(struct amdgpu_device *adev)
 	 * This can be a problem on PowerXpress systems or if you want to use the card
 	 * for offscreen rendering or compute if there are no crtcs enabled.
 	 */
-	si_notify_smc_display_change(adev, adev->pm.dpm.new_active_crtc_count > 0);
+	si_notify_smc_display_change(adev, cfg->num_display > 0);
 }
 
 static void si_enable_spread_spectrum(struct amdgpu_device *adev, bool enable)
@@ -5545,7 +5540,7 @@ static int si_convert_power_level_to_smc(struct amdgpu_device *adev,
 	    (pl->mclk <= pi->mclk_stutter_mode_threshold) &&
 	    !eg_pi->uvd_enabled &&
 	    (RREG32(mmDPG_PIPE_STUTTER_CONTROL) & DPG_PIPE_STUTTER_CONTROL__STUTTER_ENABLE_MASK) &&
-	    (adev->pm.dpm.new_active_crtc_count <= 2)) {
+	    (adev->pm.pm_display_cfg.num_display <= 2)) {
 		level->mcFlags |= SISLANDS_SMC_MC_STUTTER_EN;
 	}
 
@@ -5694,7 +5689,7 @@ static bool si_is_state_ulv_compatible(struct amdgpu_device *adev,
 	/* XXX validate against display requirements! */
 
 	for (i = 0; i < adev->pm.dpm.dyn_state.vddc_dependency_on_dispclk.count; i++) {
-		if (adev->clock.current_dispclk <=
+		if (adev->pm.pm_display_cfg.display_clk <=
 		    adev->pm.dpm.dyn_state.vddc_dependency_on_dispclk.entries[i].clk) {
 			if (ulv->pl.vddc <
 			    adev->pm.dpm.dyn_state.vddc_dependency_on_dispclk.entries[i].v)
@@ -5848,30 +5843,22 @@ static int si_upload_ulv_state(struct amdgpu_device *adev)
 
 static int si_upload_smc_data(struct amdgpu_device *adev)
 {
-	struct amdgpu_crtc *amdgpu_crtc = NULL;
-	int i;
+	const struct amd_pp_display_configuration *cfg = &adev->pm.pm_display_cfg;
 	u32 crtc_index = 0;
 	u32 mclk_change_block_cp_min = 0;
 	u32 mclk_change_block_cp_max = 0;
-
-	for (i = 0; i < adev->mode_info.num_crtc; i++) {
-		if (adev->pm.dpm.new_active_crtcs & (1 << i)) {
-			amdgpu_crtc = adev->mode_info.crtcs[i];
-			break;
-		}
-	}
 
 	/* When a display is plugged in, program these so that the SMC
 	 * performs MCLK switching when it doesn't cause flickering.
 	 * When no display is plugged in, there is no need to restrict
 	 * MCLK switching, so program them to zero.
 	 */
-	if (adev->pm.dpm.new_active_crtc_count && amdgpu_crtc) {
-		crtc_index = amdgpu_crtc->crtc_id;
+	if (cfg->num_display) {
+		crtc_index = cfg->crtc_index;
 
-		if (amdgpu_crtc->line_time) {
-			mclk_change_block_cp_min = 200 / amdgpu_crtc->line_time;
-			mclk_change_block_cp_max = 100 / amdgpu_crtc->line_time;
+		if (cfg->line_time_in_us) {
+			mclk_change_block_cp_min = 200 / cfg->line_time_in_us;
+			mclk_change_block_cp_max = 100 / cfg->line_time_in_us;
 		}
 	}
 
@@ -6069,7 +6056,7 @@ static int si_initialize_mc_reg_table(struct amdgpu_device *adev)
 	u8 module_index = rv770_get_memory_module_index(adev);
 	int ret;
 
-	table = kzalloc(sizeof(struct atom_mc_reg_table), GFP_KERNEL);
+	table = kzalloc_obj(struct atom_mc_reg_table);
 	if (!table)
 		return -ENOMEM;
 
@@ -7067,13 +7054,20 @@ static void si_set_vce_clock(struct amdgpu_device *adev,
 	if ((old_rps->evclk != new_rps->evclk) ||
 	    (old_rps->ecclk != new_rps->ecclk)) {
 		/* Turn the clocks on when encoding, off otherwise */
+		dev_dbg(adev->dev, "set VCE clocks: %u, %u\n", new_rps->evclk, new_rps->ecclk);
+
 		if (new_rps->evclk || new_rps->ecclk) {
-			/* Place holder for future VCE1.0 porting to amdgpu
-			vce_v1_0_enable_mgcg(adev, false, false);*/
+			amdgpu_asic_set_vce_clocks(adev, new_rps->evclk, new_rps->ecclk);
+			amdgpu_device_ip_set_clockgating_state(
+				adev, AMD_IP_BLOCK_TYPE_VCE, AMD_CG_STATE_UNGATE);
+			amdgpu_device_ip_set_powergating_state(
+				adev, AMD_IP_BLOCK_TYPE_VCE, AMD_PG_STATE_UNGATE);
 		} else {
-			/* Place holder for future VCE1.0 porting to amdgpu
-			vce_v1_0_enable_mgcg(adev, true, false);
-			amdgpu_asic_set_vce_clocks(adev, new_rps->evclk, new_rps->ecclk);*/
+			amdgpu_device_ip_set_powergating_state(
+				adev, AMD_IP_BLOCK_TYPE_VCE, AMD_PG_STATE_GATE);
+			amdgpu_device_ip_set_clockgating_state(
+				adev, AMD_IP_BLOCK_TYPE_VCE, AMD_CG_STATE_GATE);
+			amdgpu_asic_set_vce_clocks(adev, 0, 0);
 		}
 	}
 }
@@ -7349,9 +7343,8 @@ static int si_parse_power_table(struct amdgpu_device *adev)
 		(mode_info->atom_context->bios + data_offset +
 		 le16_to_cpu(power_info->pplib.usNonClockInfoArrayOffset));
 
-	adev->pm.dpm.ps = kcalloc(state_array->ucNumEntries,
-				  sizeof(struct amdgpu_ps),
-				  GFP_KERNEL);
+	adev->pm.dpm.ps = kzalloc_objs(struct amdgpu_ps,
+				       state_array->ucNumEntries);
 	if (!adev->pm.dpm.ps)
 		return -ENOMEM;
 	power_state_offset = (u8 *)state_array->states;
@@ -7361,7 +7354,7 @@ static int si_parse_power_table(struct amdgpu_device *adev)
 		non_clock_array_index = power_state->v2.nonClockInfoIndex;
 		non_clock_info = (struct _ATOM_PPLIB_NONCLOCK_INFO *)
 			&non_clock_info_array->nonClockInfo[non_clock_array_index];
-		ps = kzalloc(sizeof(struct  si_ps), GFP_KERNEL);
+		ps = kzalloc_obj(struct si_ps);
 		if (ps == NULL)
 			return -ENOMEM;
 		adev->pm.dpm.ps[i].ps_priv = ps;
@@ -7414,7 +7407,7 @@ static int si_dpm_init(struct amdgpu_device *adev)
 	struct atom_clock_dividers dividers;
 	int ret;
 
-	si_pi = kzalloc(sizeof(struct si_power_info), GFP_KERNEL);
+	si_pi = kzalloc_obj(struct si_power_info);
 	if (si_pi == NULL)
 		return -ENOMEM;
 	adev->pm.dpm.priv = si_pi;
@@ -7451,9 +7444,7 @@ static int si_dpm_init(struct amdgpu_device *adev)
 		return ret;
 
 	adev->pm.dpm.dyn_state.vddc_dependency_on_dispclk.entries =
-		kcalloc(4,
-			sizeof(struct amdgpu_clock_voltage_dependency_entry),
-			GFP_KERNEL);
+		kzalloc_objs(struct amdgpu_clock_voltage_dependency_entry, 4);
 	if (!adev->pm.dpm.dyn_state.vddc_dependency_on_dispclk.entries)
 		return -ENOMEM;
 
@@ -7525,8 +7516,6 @@ static int si_dpm_init(struct amdgpu_device *adev)
 	pi->pasi = CYPRESS_HASI_DFLT;
 	pi->vrc = SISLANDS_VRC_DFLT;
 
-	pi->gfx_clock_gating = true;
-
 	eg_pi->sclk_deep_sleep = true;
 	si_pi->sclk_deep_sleep_above_low = false;
 
@@ -7537,7 +7526,6 @@ static int si_dpm_init(struct amdgpu_device *adev)
 
 	eg_pi->dynamic_ac_timing = true;
 
-	eg_pi->light_sleep = true;
 #if defined(CONFIG_ACPI)
 	eg_pi->pcie_performance_request =
 		amdgpu_acpi_is_pcie_performance_request_supported(adev);
@@ -7598,6 +7586,7 @@ static void si_dpm_debugfs_print_current_performance_level(void *handle,
 	} else {
 		pl = &ps->performance_levels[current_index];
 		seq_printf(m, "uvd    vclk: %d dclk: %d\n", rps->vclk, rps->dclk);
+		seq_printf(m, "vce    evclk: %d ecclk: %d\n", rps->evclk, rps->ecclk);
 		seq_printf(m, "power level %d    sclk: %u mclk: %u vddc: %u vddci: %u pcie gen: %u\n",
 			   current_index, pl->sclk, pl->mclk, pl->vddc, pl->vddci, pl->pcie_gen + 1);
 	}
@@ -7616,12 +7605,12 @@ static int si_dpm_set_interrupt_state(struct amdgpu_device *adev,
 		case AMDGPU_IRQ_STATE_DISABLE:
 			cg_thermal_int = RREG32_SMC(mmCG_THERMAL_INT);
 			cg_thermal_int |= CG_THERMAL_INT__THERM_INT_MASK_HIGH_MASK;
-			WREG32_SMC(mmCG_THERMAL_INT, cg_thermal_int);
+			WREG32(mmCG_THERMAL_INT, cg_thermal_int);
 			break;
 		case AMDGPU_IRQ_STATE_ENABLE:
 			cg_thermal_int = RREG32_SMC(mmCG_THERMAL_INT);
 			cg_thermal_int &= ~CG_THERMAL_INT__THERM_INT_MASK_HIGH_MASK;
-			WREG32_SMC(mmCG_THERMAL_INT, cg_thermal_int);
+			WREG32(mmCG_THERMAL_INT, cg_thermal_int);
 			break;
 		default:
 			break;
@@ -7633,12 +7622,12 @@ static int si_dpm_set_interrupt_state(struct amdgpu_device *adev,
 		case AMDGPU_IRQ_STATE_DISABLE:
 			cg_thermal_int = RREG32_SMC(mmCG_THERMAL_INT);
 			cg_thermal_int |= CG_THERMAL_INT__THERM_INT_MASK_LOW_MASK;
-			WREG32_SMC(mmCG_THERMAL_INT, cg_thermal_int);
+			WREG32(mmCG_THERMAL_INT, cg_thermal_int);
 			break;
 		case AMDGPU_IRQ_STATE_ENABLE:
 			cg_thermal_int = RREG32_SMC(mmCG_THERMAL_INT);
 			cg_thermal_int &= ~CG_THERMAL_INT__THERM_INT_MASK_LOW_MASK;
-			WREG32_SMC(mmCG_THERMAL_INT, cg_thermal_int);
+			WREG32(mmCG_THERMAL_INT, cg_thermal_int);
 			break;
 		default:
 			break;
@@ -7816,13 +7805,12 @@ static int si_dpm_sw_init(struct amdgpu_ip_block *ip_block)
 	adev->pm.dpm.current_ps = adev->pm.dpm.requested_ps = adev->pm.dpm.boot_ps;
 	if (amdgpu_dpm == 1)
 		amdgpu_pm_print_power_states(adev);
-	DRM_INFO("amdgpu: dpm initialized\n");
-
+	drm_info(adev_to_drm(adev), "si dpm initialized\n");
 	return 0;
 
 dpm_failed:
 	si_dpm_fini(adev);
-	DRM_ERROR("amdgpu: dpm initialization failed\n");
+	drm_err(adev_to_drm(adev), "dpm initialization failed\n");
 	return ret;
 }
 

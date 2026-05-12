@@ -28,7 +28,7 @@ static const struct reg_default tegra186_dspk_reg_defaults[] = {
 static int tegra186_dspk_get_fifo_th(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct tegra186_dspk *dspk = snd_soc_component_get_drvdata(codec);
 
 	ucontrol->value.integer.value[0] = dspk->rx_fifo_th;
@@ -39,7 +39,7 @@ static int tegra186_dspk_get_fifo_th(struct snd_kcontrol *kcontrol,
 static int tegra186_dspk_put_fifo_th(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct tegra186_dspk *dspk = snd_soc_component_get_drvdata(codec);
 	int value = ucontrol->value.integer.value[0];
 
@@ -54,7 +54,7 @@ static int tegra186_dspk_put_fifo_th(struct snd_kcontrol *kcontrol,
 static int tegra186_dspk_get_osr_val(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct tegra186_dspk *dspk = snd_soc_component_get_drvdata(codec);
 
 	ucontrol->value.enumerated.item[0] = dspk->osr_val;
@@ -65,7 +65,7 @@ static int tegra186_dspk_get_osr_val(struct snd_kcontrol *kcontrol,
 static int tegra186_dspk_put_osr_val(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct tegra186_dspk *dspk = snd_soc_component_get_drvdata(codec);
 	unsigned int value = ucontrol->value.enumerated.item[0];
 
@@ -80,7 +80,7 @@ static int tegra186_dspk_put_osr_val(struct snd_kcontrol *kcontrol,
 static int tegra186_dspk_get_pol_sel(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct tegra186_dspk *dspk = snd_soc_component_get_drvdata(codec);
 
 	ucontrol->value.enumerated.item[0] = dspk->lrsel;
@@ -91,7 +91,7 @@ static int tegra186_dspk_get_pol_sel(struct snd_kcontrol *kcontrol,
 static int tegra186_dspk_put_pol_sel(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct tegra186_dspk *dspk = snd_soc_component_get_drvdata(codec);
 	unsigned int value = ucontrol->value.enumerated.item[0];
 
@@ -106,7 +106,7 @@ static int tegra186_dspk_put_pol_sel(struct snd_kcontrol *kcontrol,
 static int tegra186_dspk_get_ch_sel(struct snd_kcontrol *kcontrol,
 				    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct tegra186_dspk *dspk = snd_soc_component_get_drvdata(codec);
 
 	ucontrol->value.enumerated.item[0] = dspk->ch_sel;
@@ -117,7 +117,7 @@ static int tegra186_dspk_get_ch_sel(struct snd_kcontrol *kcontrol,
 static int tegra186_dspk_put_ch_sel(struct snd_kcontrol *kcontrol,
 				    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct tegra186_dspk *dspk = snd_soc_component_get_drvdata(codec);
 	unsigned int value = ucontrol->value.enumerated.item[0];
 
@@ -132,7 +132,7 @@ static int tegra186_dspk_put_ch_sel(struct snd_kcontrol *kcontrol,
 static int tegra186_dspk_get_mono_to_stereo(struct snd_kcontrol *kcontrol,
 					    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct tegra186_dspk *dspk = snd_soc_component_get_drvdata(codec);
 
 	ucontrol->value.enumerated.item[0] = dspk->mono_to_stereo;
@@ -143,7 +143,7 @@ static int tegra186_dspk_get_mono_to_stereo(struct snd_kcontrol *kcontrol,
 static int tegra186_dspk_put_mono_to_stereo(struct snd_kcontrol *kcontrol,
 					    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct tegra186_dspk *dspk = snd_soc_component_get_drvdata(codec);
 	unsigned int value = ucontrol->value.enumerated.item[0];
 
@@ -158,7 +158,7 @@ static int tegra186_dspk_put_mono_to_stereo(struct snd_kcontrol *kcontrol,
 static int tegra186_dspk_get_stereo_to_mono(struct snd_kcontrol *kcontrol,
 					    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct tegra186_dspk *dspk = snd_soc_component_get_drvdata(codec);
 
 	ucontrol->value.enumerated.item[0] = dspk->stereo_to_mono;
@@ -169,7 +169,7 @@ static int tegra186_dspk_get_stereo_to_mono(struct snd_kcontrol *kcontrol,
 static int tegra186_dspk_put_stereo_to_mono(struct snd_kcontrol *kcontrol,
 					    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
 	struct tegra186_dspk *dspk = snd_soc_component_get_drvdata(codec);
 	unsigned int value = ucontrol->value.enumerated.item[0];
 
@@ -467,6 +467,7 @@ static const struct regmap_config tegra186_dspk_regmap = {
 	.volatile_reg		= tegra186_dspk_volatile_reg,
 	.reg_defaults		= tegra186_dspk_reg_defaults,
 	.num_reg_defaults	= ARRAY_SIZE(tegra186_dspk_reg_defaults),
+	.reg_default_cb		= regmap_default_zero_cb,
 	.cache_type		= REGCACHE_FLAT,
 };
 
@@ -495,31 +496,27 @@ static int tegra186_dspk_platform_probe(struct platform_device *pdev)
 	dev_set_drvdata(dev, dspk);
 
 	dspk->clk_dspk = devm_clk_get(dev, "dspk");
-	if (IS_ERR(dspk->clk_dspk)) {
-		dev_err(dev, "can't retrieve DSPK clock\n");
-		return PTR_ERR(dspk->clk_dspk);
-	}
+	if (IS_ERR(dspk->clk_dspk))
+		return dev_err_probe(dev, PTR_ERR(dspk->clk_dspk),
+				     "can't retrieve DSPK clock\n");
 
 	regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(regs))
 		return PTR_ERR(regs);
 
 	dspk->regmap = devm_regmap_init_mmio(dev, regs, &tegra186_dspk_regmap);
-	if (IS_ERR(dspk->regmap)) {
-		dev_err(dev, "regmap init failed\n");
-		return PTR_ERR(dspk->regmap);
-	}
+	if (IS_ERR(dspk->regmap))
+		return dev_err_probe(dev, PTR_ERR(dspk->regmap),
+				     "regmap init failed\n");
 
 	regcache_cache_only(dspk->regmap, true);
 
 	err = devm_snd_soc_register_component(dev, &tegra186_dspk_cmpnt,
 					      tegra186_dspk_dais,
 					      ARRAY_SIZE(tegra186_dspk_dais));
-	if (err) {
-		dev_err(dev, "can't register DSPK component, err: %d\n",
-			err);
-		return err;
-	}
+	if (err)
+		return dev_err_probe(dev, err,
+				     "can't register DSPK component\n");
 
 	pm_runtime_enable(dev);
 

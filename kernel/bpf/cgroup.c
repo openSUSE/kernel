@@ -27,14 +27,15 @@ EXPORT_SYMBOL(cgroup_bpf_enabled_key);
 /*
  * cgroup bpf destruction makes heavy use of work items and there can be a lot
  * of concurrent destructions.  Use a separate workqueue so that cgroup bpf
- * destruction work items don't end up filling up max_active of system_wq
+ * destruction work items don't end up filling up max_active of system_percpu_wq
  * which may lead to deadlock.
  */
 static struct workqueue_struct *cgroup_bpf_destroy_wq;
 
 static int __init cgroup_bpf_wq_init(void)
 {
-	cgroup_bpf_destroy_wq = alloc_workqueue("cgroup_bpf_destroy", 0, 1);
+	cgroup_bpf_destroy_wq = alloc_workqueue("cgroup_bpf_destroy",
+						WQ_PERCPU, 1);
 	if (!cgroup_bpf_destroy_wq)
 		panic("Failed to alloc workqueue for cgroup bpf destroy.\n");
 	return 0;
@@ -71,8 +72,7 @@ bpf_prog_run_array_cg(const struct cgroup_bpf *cgrp,
 	u32 func_ret;
 
 	run_ctx.retval = retval;
-	migrate_disable();
-	rcu_read_lock();
+	rcu_read_lock_dont_migrate();
 	array = rcu_dereference(cgrp->effective[atype]);
 	item = &array->items[0];
 	old_run_ctx = bpf_set_run_ctx(&run_ctx.run_ctx);
@@ -88,8 +88,7 @@ bpf_prog_run_array_cg(const struct cgroup_bpf *cgrp,
 		item++;
 	}
 	bpf_reset_run_ctx(old_run_ctx);
-	rcu_read_unlock();
-	migrate_enable();
+	rcu_read_unlock_migrate();
 	return run_ctx.retval;
 }
 
@@ -846,7 +845,7 @@ static int __cgroup_bpf_attach(struct cgroup *cgrp,
 	if (pl) {
 		old_prog = pl->prog;
 	} else {
-		pl = kmalloc(sizeof(*pl), GFP_KERNEL);
+		pl = kmalloc_obj(*pl);
 		if (!pl) {
 			bpf_cgroup_storages_free(new_storage);
 			return -ENOMEM;
@@ -1489,7 +1488,7 @@ int cgroup_bpf_link_attach(const union bpf_attr *attr, struct bpf_prog *prog)
 	if (IS_ERR(cgrp))
 		return PTR_ERR(cgrp);
 
-	link = kzalloc(sizeof(*link), GFP_USER);
+	link = kzalloc_obj(*link, GFP_USER);
 	if (!link) {
 		err = -ENOMEM;
 		goto out_put_cgroup;
@@ -1666,7 +1665,7 @@ EXPORT_SYMBOL(__cgroup_bpf_run_filter_sk);
  * returned value != 1 during execution. In all other cases, 0 is returned.
  */
 int __cgroup_bpf_run_filter_sock_addr(struct sock *sk,
-				      struct sockaddr *uaddr,
+				      struct sockaddr_unsized *uaddr,
 				      int *uaddrlen,
 				      enum cgroup_bpf_attach_type atype,
 				      void *t_ctx,
@@ -1677,20 +1676,16 @@ int __cgroup_bpf_run_filter_sock_addr(struct sock *sk,
 		.uaddr = uaddr,
 		.t_ctx = t_ctx,
 	};
-	struct sockaddr_storage unspec;
+	struct sockaddr_storage storage;
 	struct cgroup *cgrp;
 	int ret;
 
-	/* Check socket family since not all sockets represent network
-	 * endpoint (e.g. AF_UNIX).
-	 */
-	if (sk->sk_family != AF_INET && sk->sk_family != AF_INET6 &&
-	    sk->sk_family != AF_UNIX)
+	if (!sk_is_inet(sk) && !sk_is_unix(sk))
 		return 0;
 
 	if (!ctx.uaddr) {
-		memset(&unspec, 0, sizeof(unspec));
-		ctx.uaddr = (struct sockaddr *)&unspec;
+		memset(&storage, 0, sizeof(storage));
+		ctx.uaddr = (struct sockaddr_unsized *)&storage;
 		ctx.uaddrlen = 0;
 	} else {
 		ctx.uaddrlen = *uaddrlen;

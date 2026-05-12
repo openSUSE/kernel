@@ -9,6 +9,7 @@
 #include <linux/backlight.h>
 #include <linux/leds.h>
 #include <linux/module.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
 
 struct led_bl_data {
@@ -89,7 +90,7 @@ static int led_bl_get_leds(struct device *dev,
 		return -EINVAL;
 	}
 
-	leds = devm_kzalloc(dev, sizeof(struct led_classdev *) * nb_leds,
+	leds = devm_kcalloc(dev, nb_leds, sizeof(struct led_classdev *),
 			    GFP_KERNEL);
 	if (!leds)
 		return -ENOMEM;
@@ -137,7 +138,7 @@ static int led_bl_parse_levels(struct device *dev,
 		unsigned int db;
 		u32 *levels = NULL;
 
-		levels = devm_kzalloc(dev, sizeof(u32) * num_levels,
+		levels = devm_kcalloc(dev, num_levels, sizeof(u32),
 				      GFP_KERNEL);
 		if (!levels)
 			return -ENOMEM;
@@ -207,6 +208,19 @@ static int led_bl_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->bl_dev)) {
 		dev_err(&pdev->dev, "Failed to register backlight\n");
 		return PTR_ERR(priv->bl_dev);
+	}
+
+	for (i = 0; i < priv->nb_leds; i++) {
+		struct device_link *link;
+
+		link = device_link_add(&pdev->dev, priv->leds[i]->dev->parent,
+				       DL_FLAG_AUTOREMOVE_CONSUMER);
+		if (!link) {
+			dev_err(&pdev->dev, "Failed to add devlink (consumer %s, supplier %s)\n",
+				dev_name(&pdev->dev), dev_name(priv->leds[i]->dev->parent));
+			backlight_device_unregister(priv->bl_dev);
+			return -EINVAL;
+		}
 	}
 
 	for (i = 0; i < priv->nb_leds; i++) {

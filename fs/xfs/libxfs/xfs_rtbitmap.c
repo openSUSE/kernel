@@ -3,7 +3,7 @@
  * Copyright (c) 2000-2005 Silicon Graphics, Inc.
  * All Rights Reserved.
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -1067,7 +1067,7 @@ xfs_rtfree_extent(
 	ASSERT(rbmip->i_itemp != NULL);
 	xfs_assert_ilocked(rbmip, XFS_ILOCK_EXCL);
 
-	if (XFS_TEST_ERROR(false, mp, XFS_ERRTAG_FREE_EXTENT))
+	if (XFS_TEST_ERROR(mp, XFS_ERRTAG_FREE_EXTENT))
 		return -EIO;
 
 	error = xfs_rtcheck_alloc_range(&args, start, len);

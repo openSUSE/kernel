@@ -105,7 +105,7 @@ struct palmas_gpadc_thresholds {
  *		of register writes, then a wait for a completion callback,
  *		and finally a register read, during which userspace could issue
  *		another read request. This lock protects a read access from
- *		ocurring before another one has finished.
+ *		occurring before another one has finished.
  *
  * This is the palmas_gpadc structure to store run-time information
  * and pointers for this driver instance.
@@ -521,16 +521,16 @@ static int palmas_gpadc_get_low_threshold_raw(struct palmas_gpadc *adc,
 
 	val = (val * 1000) / adc->adc_info[adc_chan].gain;
 
-        if (adc->adc_info[adc_chan].is_uncalibrated) {
+	if (adc->adc_info[adc_chan].is_uncalibrated) {
 		/* 2% worse */
 		min_gain_error -= 20;
 		min_offset_error = -36;
-        } else {
+	} else {
 		val = (val * adc->adc_info[adc_chan].gain_error -
 		       adc->adc_info[adc_chan].offset) /
 			1000;
 		min_offset_error = -2;
-        }
+	}
 
 	return palmas_gpadc_threshold_with_tolerance(val,
 						     min_INL,
@@ -885,10 +885,8 @@ static int palmas_gpadc_probe(struct platform_device *pdev)
 		return -EINVAL;
 
 	indio_dev = devm_iio_device_alloc(&pdev->dev, sizeof(*adc));
-	if (!indio_dev) {
-		dev_err(&pdev->dev, "iio_device_alloc failed\n");
+	if (!indio_dev)
 		return -ENOMEM;
-	}
 
 	adc = iio_priv(indio_dev);
 	adc->dev = &pdev->dev;

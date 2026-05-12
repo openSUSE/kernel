@@ -27,6 +27,7 @@
 #include <linux/cleanup.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/fs_context.h>
 #include <linux/usb/composite.h>
 #include <linux/usb/func_utils.h>
 
@@ -231,6 +232,8 @@ static void usb9pfs_rx_complete(struct usb_ep *ep, struct usb_request *req)
 	struct f_usb9pfs *usb9pfs = ep->driver_data;
 	struct usb_composite_dev *cdev = usb9pfs->function.config->cdev;
 	struct p9_req_t *p9_rx_req;
+	unsigned int req_size = req->actual;
+	int status = REQ_STATUS_RCVD;
 
 	if (req->status) {
 		dev_err(&cdev->gadget->dev, "%s usb9pfs complete --> %d, %d/%d\n",
@@ -242,11 +245,19 @@ static void usb9pfs_rx_complete(struct usb_ep *ep, struct usb_request *req)
 	if (!p9_rx_req)
 		return;
 
-	memcpy(p9_rx_req->rc.sdata, req->buf, req->actual);
+	if (req_size > p9_rx_req->rc.capacity) {
+		dev_err(&cdev->gadget->dev,
+			"%s received data size %u exceeds buffer capacity %zu\n",
+			ep->name, req_size, p9_rx_req->rc.capacity);
+		req_size = 0;
+		status = REQ_STATUS_ERROR;
+	}
 
-	p9_rx_req->rc.size = req->actual;
+	memcpy(p9_rx_req->rc.sdata, req->buf, req_size);
 
-	p9_client_cb(usb9pfs->client, p9_rx_req, REQ_STATUS_RCVD);
+	p9_rx_req->rc.size = req_size;
+
+	p9_client_cb(usb9pfs->client, p9_rx_req, status);
 	p9_req_put(usb9pfs->client, p9_rx_req);
 
 	complete(&usb9pfs->received);
@@ -366,8 +377,9 @@ out:
 	return ret;
 }
 
-static int p9_usbg_create(struct p9_client *client, const char *devname, char *args)
+static int p9_usbg_create(struct p9_client *client, struct fs_context *fc)
 {
+	const char *devname = fc->source;
 	struct f_usb9pfs_dev *dev;
 	struct f_usb9pfs *usb9pfs;
 	int ret = -ENOENT;
@@ -504,6 +516,7 @@ static struct p9_trans_module p9_usbg_trans = {
 	.close = p9_usbg_close,
 	.request = p9_usbg_request,
 	.cancel = p9_usbg_cancel,
+	.supports_vmalloc = false,
 	.owner = THIS_MODULE,
 };
 
@@ -744,7 +757,7 @@ static struct usb_function *usb9pfs_alloc(struct usb_function_instance *fi)
 	struct f_usb9pfs_opts *usb9pfs_opts;
 	struct f_usb9pfs *usb9pfs;
 
-	usb9pfs = kzalloc(sizeof(*usb9pfs), GFP_KERNEL);
+	usb9pfs = kzalloc_obj(*usb9pfs);
 	if (!usb9pfs)
 		return ERR_PTR(-ENOMEM);
 
@@ -897,7 +910,7 @@ static struct usb_function_instance *usb9pfs_alloc_instance(void)
 	struct f_usb9pfs_opts *usb9pfs_opts;
 	struct f_usb9pfs_dev *dev;
 
-	usb9pfs_opts = kzalloc(sizeof(*usb9pfs_opts), GFP_KERNEL);
+	usb9pfs_opts = kzalloc_obj(*usb9pfs_opts);
 	if (!usb9pfs_opts)
 		return ERR_PTR(-ENOMEM);
 
@@ -908,7 +921,7 @@ static struct usb_function_instance *usb9pfs_alloc_instance(void)
 
 	usb9pfs_opts->buflen = DEFAULT_BUFLEN;
 
-	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+	dev = kzalloc_obj(*dev);
 	if (!dev) {
 		kfree(usb9pfs_opts);
 		return ERR_PTR(-ENOMEM);

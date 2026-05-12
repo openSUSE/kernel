@@ -104,6 +104,32 @@ struct ceph_mount_options {
 	struct fscrypt_dummy_policy dummy_enc_policy;
 };
 
+#define CEPH_NAMESPACE_WILDCARD		"*"
+
+static inline bool ceph_namespace_match(const char *pattern,
+					const char *target)
+{
+	if (!pattern || !pattern[0] ||
+	    !strcmp(pattern, CEPH_NAMESPACE_WILDCARD))
+		return true;
+
+	return !strcmp(pattern, target);
+}
+
+/*
+ * Check if the mds namespace in ceph_mount_options matches
+ * the passed in namespace string. First time match (when
+ * ->mds_namespace is NULL) is treated specially, since
+ * ->mds_namespace needs to be initialized by the caller.
+ */
+static inline bool namespace_equals(struct ceph_mount_options *fsopt,
+				    const char *namespace, size_t len)
+{
+	return !(fsopt->mds_namespace &&
+		 (strlen(fsopt->mds_namespace) != len ||
+		  strncmp(fsopt->mds_namespace, namespace, len)));
+}
+
 /* mount state */
 enum {
 	CEPH_MOUNT_MOUNTING,
@@ -153,6 +179,7 @@ struct ceph_fs_client {
 	struct dentry *debugfs_status;
 	struct dentry *debugfs_mds_sessions;
 	struct dentry *debugfs_metrics_dir;
+	struct dentry *debugfs_subvolume_metrics;
 #endif
 
 #ifdef CONFIG_CEPH_FSCACHE
@@ -372,6 +399,15 @@ struct ceph_inode_info {
 	/* quotas */
 	u64 i_max_bytes, i_max_files;
 
+	/*
+	 * Subvolume ID this inode belongs to. CEPH_SUBVOLUME_ID_NONE (0)
+	 * means unknown/unset, matching the FUSE client convention.
+	 * Once set to a valid (non-zero) value, it should not change
+	 * during the inode's lifetime.
+	 */
+#define CEPH_SUBVOLUME_ID_NONE 0
+	u64 i_subvolume_id;
+
 	s32 i_dir_pin;
 
 	struct rb_root i_fragtree;
@@ -463,6 +499,7 @@ struct ceph_inode_info {
 	unsigned long  i_work_mask;
 
 #ifdef CONFIG_FS_ENCRYPTION
+	struct fscrypt_inode_info *i_crypt_info;
 	u32 fscrypt_auth_len;
 	u32 fscrypt_file_len;
 	u8 *fscrypt_auth;
@@ -638,7 +675,8 @@ static inline struct inode *ceph_find_inode(struct super_block *sb,
 #define CEPH_I_FLUSH_SNAPS	(1 << 8)  /* need flush snapss */
 #define CEPH_I_ERROR_WRITE	(1 << 9) /* have seen write errors */
 #define CEPH_I_ERROR_FILELOCK	(1 << 10) /* have seen file lock errors */
-#define CEPH_I_ODIRECT		(1 << 11) /* inode in direct I/O mode */
+#define CEPH_I_ODIRECT_BIT	(11) /* inode in direct I/O mode */
+#define CEPH_I_ODIRECT		(1 << CEPH_I_ODIRECT_BIT)
 #define CEPH_ASYNC_CREATE_BIT	(12)	  /* async create in flight for this */
 #define CEPH_I_ASYNC_CREATE	(1 << CEPH_ASYNC_CREATE_BIT)
 #define CEPH_I_SHUTDOWN		(1 << 13) /* inode is no longer usable */
@@ -1041,6 +1079,7 @@ extern struct inode *ceph_get_inode(struct super_block *sb,
 extern struct inode *ceph_get_snapdir(struct inode *parent);
 extern int ceph_fill_file_size(struct inode *inode, int issued,
 			       u32 truncate_seq, u64 truncate_size, u64 size);
+extern void ceph_inode_set_subvolume(struct inode *inode, u64 subvolume_id);
 extern void ceph_fill_file_time(struct inode *inode, int issued,
 				u64 time_warp_seq, struct timespec64 *ctime,
 				struct timespec64 *mtime,

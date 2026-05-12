@@ -85,7 +85,7 @@ static int zonefs_write_iomap_begin(struct inode *inode, loff_t offset,
 	/*
 	 * For conventional zones, all blocks are always mapped. For sequential
 	 * zones, all blocks after always mapped below the inode size (zone
-	 * write pointer) and unwriten beyond.
+	 * write pointer) and unwritten beyond.
 	 */
 	mutex_lock(&zi->i_truncate_mutex);
 	iomap->bdev = inode->i_sb->s_bdev;
@@ -112,12 +112,13 @@ static const struct iomap_ops zonefs_write_iomap_ops = {
 
 static int zonefs_read_folio(struct file *unused, struct folio *folio)
 {
-	return iomap_read_folio(folio, &zonefs_read_iomap_ops);
+	iomap_bio_read_folio(folio, &zonefs_read_iomap_ops);
+	return 0;
 }
 
 static void zonefs_readahead(struct readahead_control *rac)
 {
-	iomap_readahead(rac, &zonefs_read_iomap_ops);
+	iomap_bio_readahead(rac, &zonefs_read_iomap_ops);
 }
 
 /*
@@ -332,7 +333,7 @@ static int zonefs_file_mmap_prepare(struct vm_area_desc *desc)
 	 * ordering between msync() and page cache writeback.
 	 */
 	if (zonefs_inode_is_seq(file_inode(file)) &&
-	    (desc->vm_flags & VM_SHARED) && (desc->vm_flags & VM_MAYWRITE))
+	    vma_desc_test_all(desc, VMA_SHARED_BIT, VMA_MAYWRITE_BIT))
 		return -EINVAL;
 
 	file_accessed(file);

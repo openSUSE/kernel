@@ -317,7 +317,10 @@ unsigned int dcn32_get_max_hw_cursor_size(const struct dc *dc,
   AUX_REG_LIST_RI(id), SRI_ARR(AUX_DPHY_TX_CONTROL, DP_AUX, id)
 
 /* HDP */
-#define HPD_REG_LIST_RI(id) SRI_ARR(DC_HPD_CONTROL, HPD, id)
+#define HPD_REG_LIST_RI(id)                                                  \
+	(SRI_ARR(DC_HPD_CONTROL, HPD, id),                                   \
+		SRI_ARR(DC_HPD_INT_STATUS, HPD, id),                         \
+		SRI_ARR(DC_HPD_TOGGLE_FILT_CNTL, HPD, id))
 
 /* Link encoder */
 #define LE_DCN3_REG_LIST_RI(id)                                                \
@@ -1230,7 +1233,8 @@ unsigned int dcn32_get_max_hw_cursor_size(const struct dc *dc,
       SR(DCHUBBUB_ARB_MALL_CNTL),                                              \
       SR(DCN_VM_FAULT_ADDR_MSB), SR(DCN_VM_FAULT_ADDR_LSB),                    \
       SR(DCN_VM_FAULT_CNTL), SR(DCN_VM_FAULT_STATUS),                          \
-      SR(SDPIF_REQUEST_RATE_LIMIT)
+      SR(SDPIF_REQUEST_RATE_LIMIT),                                            \
+      SR(DCHUBBUB_SDPIF_CFG0)
 
 /* DCCG */
 

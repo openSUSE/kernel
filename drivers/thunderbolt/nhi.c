@@ -19,6 +19,7 @@
 #include <linux/module.h>
 #include <linux/delay.h>
 #include <linux/property.h>
+#include <linux/string_choices.h>
 #include <linux/string_helpers.h>
 
 #include "nhi.h"
@@ -146,7 +147,7 @@ static void ring_interrupt_active(struct tb_ring *ring, bool active)
 		dev_WARN(&ring->nhi->pdev->dev,
 					 "interrupt for %s %d is already %s\n",
 					 RING_TYPE(ring), ring->hop,
-					 active ? "enabled" : "disabled");
+					 str_enabled_disabled(active));
 
 	if (active)
 		iowrite32(new, ring->nhi->iobase + reg);
@@ -343,8 +344,10 @@ EXPORT_SYMBOL_GPL(__tb_ring_enqueue);
  *
  * This function can be called when @start_poll callback of the @ring
  * has been called. It will read one completed frame from the ring and
- * return it to the caller. Returns %NULL if there is no more completed
- * frames.
+ * return it to the caller.
+ *
+ * Return: Pointer to &struct ring_frame, %NULL if there is no more
+ * completed frames.
  */
 struct ring_frame *tb_ring_poll(struct tb_ring *ring)
 {
@@ -584,7 +587,7 @@ static struct tb_ring *tb_ring_alloc(struct tb_nhi *nhi, u32 hop, int size,
 	dev_dbg(&nhi->pdev->dev, "allocating %s ring %d of size %d\n",
 		transmit ? "TX" : "RX", hop, size);
 
-	ring = kzalloc(sizeof(*ring), GFP_KERNEL);
+	ring = kzalloc_obj(*ring);
 	if (!ring)
 		return NULL;
 
@@ -639,6 +642,8 @@ err_free_ring:
  * @hop: HopID (ring) to allocate
  * @size: Number of entries in the ring
  * @flags: Flags for the ring
+ *
+ * Return: Pointer to &struct tb_ring, %NULL otherwise.
  */
 struct tb_ring *tb_ring_alloc_tx(struct tb_nhi *nhi, int hop, int size,
 				 unsigned int flags)
@@ -660,6 +665,8 @@ EXPORT_SYMBOL_GPL(tb_ring_alloc_tx);
  *		interrupt is triggered and masked, instead of callback
  *		in each Rx frame.
  * @poll_data: Optional data passed to @start_poll
+ *
+ * Return: Pointer to &struct tb_ring, %NULL otherwise.
  */
 struct tb_ring *tb_ring_alloc_rx(struct tb_nhi *nhi, int hop, int size,
 				 unsigned int flags, int e2e_tx_hop,
@@ -705,7 +712,7 @@ void tb_ring_start(struct tb_ring *ring)
 	ring_iowrite64desc(ring, ring->descriptors_dma, 0);
 	if (ring->is_tx) {
 		ring_iowrite32desc(ring, ring->size, 12);
-		ring_iowrite32options(ring, 0, 4); /* time releated ? */
+		ring_iowrite32options(ring, 0, 4);
 		ring_iowrite32options(ring, flags, 0);
 	} else {
 		u32 sof_eof_mask = ring->sof_mask << 16 | ring->eof_mask;
@@ -853,8 +860,9 @@ EXPORT_SYMBOL_GPL(tb_ring_free);
  * @cmd: Command to send
  * @data: Data to be send with the command
  *
- * Sends mailbox command to the firmware running on NHI. Returns %0 in
- * case of success and negative errno in case of failure.
+ * Sends mailbox command to the firmware running on NHI.
+ *
+ * Return: %0 on success, negative errno otherwise.
  */
 int nhi_mailbox_cmd(struct tb_nhi *nhi, enum nhi_mailbox_cmd cmd, u32 data)
 {
@@ -890,6 +898,8 @@ int nhi_mailbox_cmd(struct tb_nhi *nhi, enum nhi_mailbox_cmd cmd, u32 data)
  *
  * The function reads current firmware operation mode using NHI mailbox
  * registers and returns it to the caller.
+ *
+ * Return: &enum nhi_fw_mode.
  */
 enum nhi_fw_mode nhi_mailbox_mode(struct tb_nhi *nhi)
 {
@@ -1010,7 +1020,7 @@ static bool nhi_wake_supported(struct pci_dev *pdev)
 	 * If power rails are sustainable for wakeup from S4 this
 	 * property is set by the BIOS.
 	 */
-	if (device_property_read_u8(&pdev->dev, "WAKE_SUPPORTED", &val))
+	if (!device_property_read_u8(&pdev->dev, "WAKE_SUPPORTED", &val))
 		return !!val;
 
 	return true;
@@ -1527,6 +1537,8 @@ static struct pci_device_id nhi_ids[] = {
 	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_PTL_P_NHI0),
 	  .driver_data = (kernel_ulong_t)&icl_nhi_ops },
 	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_PTL_P_NHI1),
+	  .driver_data = (kernel_ulong_t)&icl_nhi_ops },
+	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_WCL_NHI0),
 	  .driver_data = (kernel_ulong_t)&icl_nhi_ops },
 	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_BARLOW_RIDGE_HOST_80G_NHI) },
 	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_BARLOW_RIDGE_HOST_40G_NHI) },

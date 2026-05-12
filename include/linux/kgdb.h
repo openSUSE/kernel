@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * This provides the callbacks and functions that KGDB needs to share between
  * the core, I/O and arch-specific portions.
@@ -6,9 +7,6 @@
  *         Tom Rini <trini@kernel.crashing.org>
  *
  * 2001-2004 (c) Amit S. Kale and 2003-2005 (c) MontaVista Software, Inc.
- * This file is licensed under the terms of the GNU General Public License
- * version 2. This program is licensed "as is" without any warranty of any
- * kind, whether express or implied.
  */
 #ifndef _KGDB_H_
 #define _KGDB_H_
@@ -204,9 +202,10 @@ extern void kgdb_call_nmi_hook(void *ignored);
  *
  *	On SMP systems, we need to get the attention of the other CPUs
  *	and get them into a known state.  This should do what is needed
- *	to get the other CPUs to call kgdb_wait(). Note that on some arches,
- *	the NMI approach is not used for rounding up all the CPUs.  Normally
- *	those architectures can just not implement this and get the default.
+ *	to get the other CPUs to call kgdb_handle_exception().  Note that
+ *	on some arches, the NMI approach is not used for rounding up all
+ *	the CPUs.  Normally those architectures can just not implement
+ *	this and get the default.
  *
  *	On non-SMP systems, this is not called.
  */

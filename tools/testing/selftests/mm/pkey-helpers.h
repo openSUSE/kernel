@@ -16,7 +16,7 @@
 #include <linux/mman.h>
 #include <linux/types.h>
 
-#include "../kselftest.h"
+#include "kselftest.h"
 
 /* Define some kernel-like types */
 typedef __u8	u8;
@@ -83,9 +83,6 @@ extern void abort_hooks(void);
 #define barrier() __asm__ __volatile__("": : :"memory")
 #ifndef noinline
 # define noinline __attribute__((noinline))
-#endif
-#ifndef __maybe_unused
-# define __maybe_unused __attribute__((__unused__))
 #endif
 
 int sys_pkey_alloc(unsigned long flags, unsigned long init_val);

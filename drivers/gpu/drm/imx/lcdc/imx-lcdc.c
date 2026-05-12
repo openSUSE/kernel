@@ -14,6 +14,7 @@
 #include <drm/drm_gem_dma_helper.h>
 #include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_of.h>
+#include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_simple_kms_helper.h>
 #include <drm/drm_vblank.h>
@@ -446,8 +447,6 @@ static int imx_lcdc_probe(struct platform_device *pdev)
 	lcdc->connector = drm_bridge_connector_init(drm, &lcdc->pipe.encoder);
 	if (IS_ERR(lcdc->connector))
 		return dev_err_probe(drm->dev, PTR_ERR(lcdc->connector), "Cannot init bridge connector\n");
-
-	drm_connector_attach_encoder(lcdc->connector, &lcdc->pipe.encoder);
 
 	/*
 	 * The LCDC controller does not have an enable bit. The

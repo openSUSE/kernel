@@ -170,7 +170,7 @@ static struct tcp_metrics_block *tcpm_new(struct dst_entry *dst,
 	struct net *net;
 
 	spin_lock_bh(&tcp_metrics_lock);
-	net = dev_net_rcu(dst_dev(dst));
+	net = dst_dev_net_rcu(dst);
 
 	/* While waiting for the spin-lock the cache might have been populated
 	 * with this entry and so we have to check again.
@@ -197,7 +197,7 @@ static struct tcp_metrics_block *tcpm_new(struct dst_entry *dst,
 		}
 		tm = oldest;
 	} else {
-		tm = kzalloc(sizeof(*tm), GFP_ATOMIC);
+		tm = kzalloc_obj(*tm, GFP_ATOMIC);
 		if (!tm)
 			goto out_unlock;
 	}
@@ -273,7 +273,7 @@ static struct tcp_metrics_block *__tcp_get_metrics_req(struct request_sock *req,
 		return NULL;
 	}
 
-	net = dev_net_rcu(dst_dev(dst));
+	net = dst_dev_net_rcu(dst);
 	hash ^= net_hash_mix(net);
 	hash = hash_32(hash, tcp_metrics_hash_log);
 
@@ -318,7 +318,7 @@ static struct tcp_metrics_block *tcp_get_metrics(struct sock *sk,
 	else
 		return NULL;
 
-	net = dev_net_rcu(dst_dev(dst));
+	net = dst_dev_net_rcu(dst);
 	hash ^= net_hash_mix(net);
 	hash = hash_32(hash, tcp_metrics_hash_log);
 
@@ -490,13 +490,13 @@ void tcp_init_metrics(struct sock *sk)
 	val = READ_ONCE(net->ipv4.sysctl_tcp_no_ssthresh_metrics_save) ?
 	      0 : tcp_metric_get(tm, TCP_METRIC_SSTHRESH);
 	if (val) {
-		tp->snd_ssthresh = val;
+		WRITE_ONCE(tp->snd_ssthresh, val);
 		if (tp->snd_ssthresh > tp->snd_cwnd_clamp)
-			tp->snd_ssthresh = tp->snd_cwnd_clamp;
+			WRITE_ONCE(tp->snd_ssthresh, tp->snd_cwnd_clamp);
 	}
 	val = tcp_metric_get(tm, TCP_METRIC_REORDERING);
 	if (val && tp->reordering != val)
-		tp->reordering = val;
+		WRITE_ONCE(tp->reordering, val);
 
 	crtt = tcp_metric_get(tm, TCP_METRIC_RTT);
 	rcu_read_unlock();
@@ -912,7 +912,7 @@ static void tcp_metrics_flush_all(struct net *net)
 		spin_lock_bh(&tcp_metrics_lock);
 		for (tm = deref_locked(*pp); tm; tm = deref_locked(*pp)) {
 			match = net ? net_eq(tm_net(tm), net) :
-				!refcount_read(&tm_net(tm)->ns.count);
+				!check_net(tm_net(tm));
 			if (match) {
 				rcu_assign_pointer(*pp, tm->tcpm_next);
 				kfree_rcu(tm, rcu_head);

@@ -4,7 +4,7 @@
  *
  *  Derived from ivtv-queue.c
  *
- *  Copyright (C) 2007  Hans Verkuil <hverkuil@xs4all.nl>
+ *  Copyright (C) 2007  Hans Verkuil <hverkuil@kernel.org>
  *  Copyright (C) 2008  Andy Walls <awalls@md.metrocast.net>
  */
 
@@ -361,12 +361,11 @@ int cx18_stream_alloc(struct cx18_stream *s)
 		struct cx18_buffer *buf;
 
 		/* 1 MDL per buffer to handle the worst & also default case */
-		mdl = kzalloc(sizeof(struct cx18_mdl), GFP_KERNEL|__GFP_NOWARN);
+		mdl = kzalloc_obj(struct cx18_mdl, GFP_KERNEL | __GFP_NOWARN);
 		if (mdl == NULL)
 			break;
 
-		buf = kzalloc(sizeof(struct cx18_buffer),
-				GFP_KERNEL|__GFP_NOWARN);
+		buf = kzalloc_obj(struct cx18_buffer, GFP_KERNEL | __GFP_NOWARN);
 		if (buf == NULL) {
 			kfree(mdl);
 			break;
@@ -379,15 +378,22 @@ int cx18_stream_alloc(struct cx18_stream *s)
 			break;
 		}
 
+		buf->dma_handle = dma_map_single(&s->cx->pci_dev->dev,
+						 buf->buf, s->buf_size,
+						 s->dma);
+		if (dma_mapping_error(&s->cx->pci_dev->dev, buf->dma_handle)) {
+			kfree(buf->buf);
+			kfree(mdl);
+			kfree(buf);
+			break;
+		}
+
 		INIT_LIST_HEAD(&mdl->list);
 		INIT_LIST_HEAD(&mdl->buf_list);
 		mdl->id = s->mdl_base_idx; /* a somewhat safe value */
 		cx18_enqueue(s, mdl, &s->q_idle);
 
 		INIT_LIST_HEAD(&buf->list);
-		buf->dma_handle = dma_map_single(&s->cx->pci_dev->dev,
-						 buf->buf, s->buf_size,
-						 s->dma);
 		cx18_buf_sync_for_cpu(s, buf);
 		list_add_tail(&buf->list, &s->buf_pool);
 	}

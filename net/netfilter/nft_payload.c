@@ -40,7 +40,7 @@ static bool nft_payload_rebuild_vlan_hdr(const struct sk_buff *skb, int mac_off,
 
 /* add vlan header into the user buffer for if tag was removed by offloads */
 static bool
-nft_payload_copy_vlan(u32 *d, const struct sk_buff *skb, u8 offset, u8 len)
+nft_payload_copy_vlan(u32 *d, const struct sk_buff *skb, u16 offset, u8 len)
 {
 	int mac_off = skb_mac_header(skb) - skb->data;
 	u8 *vlanh, *dst_u8 = (u8 *) d;
@@ -183,7 +183,7 @@ void nft_payload_eval(const struct nft_expr *expr,
 		offset = skb_mac_header(skb) - skb->data;
 		break;
 	case NFT_PAYLOAD_NETWORK_HEADER:
-		offset = skb_network_offset(skb);
+		offset = skb_network_offset(skb) + pkt->nhoff;
 		break;
 	case NFT_PAYLOAD_TRANSPORT_HEADER:
 		if (!(pkt->flags & NFT_PKTINFO_L4PROTO) || pkt->fragoff)
@@ -209,14 +209,14 @@ err:
 }
 
 static const struct nla_policy nft_payload_policy[NFTA_PAYLOAD_MAX + 1] = {
-	[NFTA_PAYLOAD_SREG]		= { .type = NLA_U32 },
-	[NFTA_PAYLOAD_DREG]		= { .type = NLA_U32 },
+	[NFTA_PAYLOAD_SREG]		= NLA_POLICY_MAX(NLA_BE32, NFT_REG32_MAX),
+	[NFTA_PAYLOAD_DREG]		= NLA_POLICY_MAX(NLA_BE32, NFT_REG32_MAX),
 	[NFTA_PAYLOAD_BASE]		= { .type = NLA_U32 },
-	[NFTA_PAYLOAD_OFFSET]		= NLA_POLICY_MAX(NLA_BE32, 255),
+	[NFTA_PAYLOAD_OFFSET]		= { .type = NLA_BE32 },
 	[NFTA_PAYLOAD_LEN]		= NLA_POLICY_MAX(NLA_BE32, 255),
 	[NFTA_PAYLOAD_CSUM_TYPE]	= { .type = NLA_U32 },
 	[NFTA_PAYLOAD_CSUM_OFFSET]	= NLA_POLICY_MAX(NLA_BE32, 255),
-	[NFTA_PAYLOAD_CSUM_FLAGS]	= { .type = NLA_U32 },
+	[NFTA_PAYLOAD_CSUM_FLAGS]	= NLA_POLICY_MASK(NLA_BE32, NFT_PAYLOAD_L4CSUM_PSEUDOHDR),
 };
 
 static int nft_payload_init(const struct nft_ctx *ctx,
@@ -248,31 +248,6 @@ static int nft_payload_dump(struct sk_buff *skb,
 
 nla_put_failure:
 	return -1;
-}
-
-static bool nft_payload_reduce(struct nft_regs_track *track,
-			       const struct nft_expr *expr)
-{
-	const struct nft_payload *priv = nft_expr_priv(expr);
-	const struct nft_payload *payload;
-
-	if (!nft_reg_track_cmp(track, expr, priv->dreg)) {
-		nft_reg_track_update(track, expr, priv->dreg, priv->len);
-		return false;
-	}
-
-	payload = nft_expr_priv(track->regs[priv->dreg].selector);
-	if (priv->base != payload->base ||
-	    priv->offset != payload->offset ||
-	    priv->len != payload->len) {
-		nft_reg_track_update(track, expr, priv->dreg, priv->len);
-		return false;
-	}
-
-	if (!track->regs[priv->dreg].bitwise)
-		return true;
-
-	return nft_expr_reduce_bitwise(track, expr);
 }
 
 static bool nft_payload_offload_mask(struct nft_offload_reg *reg,
@@ -578,7 +553,6 @@ static const struct nft_expr_ops nft_payload_ops = {
 	.eval		= nft_payload_eval,
 	.init		= nft_payload_init,
 	.dump		= nft_payload_dump,
-	.reduce		= nft_payload_reduce,
 	.offload	= nft_payload_offload,
 };
 
@@ -588,7 +562,6 @@ const struct nft_expr_ops nft_payload_fast_ops = {
 	.eval		= nft_payload_eval,
 	.init		= nft_payload_init,
 	.dump		= nft_payload_dump,
-	.reduce		= nft_payload_reduce,
 	.offload	= nft_payload_offload,
 };
 
@@ -684,7 +657,7 @@ static const struct nft_expr_ops nft_payload_inner_ops = {
 
 static inline void nft_csum_replace(__sum16 *sum, __wsum fsum, __wsum tsum)
 {
-	*sum = csum_fold(csum_add(csum_sub(~csum_unfold(*sum), fsum), tsum));
+	csum_replace4(sum, (__force __be32)fsum, (__force __be32)tsum);
 	if (*sum == 0)
 		*sum = CSUM_MANGLED_0;
 }
@@ -797,7 +770,7 @@ static int nft_payload_csum_inet(struct sk_buff *skb, const u32 *src,
 
 struct nft_payload_set {
 	enum nft_payload_bases	base:8;
-	u8			offset;
+	u16			offset;
 	u8			len;
 	u8			sreg;
 	u8			csum_type;
@@ -812,7 +785,7 @@ struct nft_payload_vlan_hdr {
 };
 
 static bool
-nft_payload_set_vlan(const u32 *src, struct sk_buff *skb, u8 offset, u8 len,
+nft_payload_set_vlan(const u32 *src, struct sk_buff *skb, u16 offset, u8 len,
 		     int *vlan_hlen)
 {
 	struct nft_payload_vlan_hdr *vlanh;
@@ -940,13 +913,17 @@ static int nft_payload_set_init(const struct nft_ctx *ctx,
 				const struct nft_expr *expr,
 				const struct nlattr * const tb[])
 {
+	u32 csum_offset, offset, csum_type = NFT_PAYLOAD_CSUM_NONE;
 	struct nft_payload_set *priv = nft_expr_priv(expr);
-	u32 csum_offset, csum_type = NFT_PAYLOAD_CSUM_NONE;
 	int err;
 
 	priv->base        = ntohl(nla_get_be32(tb[NFTA_PAYLOAD_BASE]));
-	priv->offset      = ntohl(nla_get_be32(tb[NFTA_PAYLOAD_OFFSET]));
 	priv->len         = ntohl(nla_get_be32(tb[NFTA_PAYLOAD_LEN]));
+
+	err = nft_parse_u32_check(tb[NFTA_PAYLOAD_OFFSET], U16_MAX, &offset);
+	if (err < 0)
+		return err;
+	priv->offset = offset;
 
 	if (tb[NFTA_PAYLOAD_CSUM_TYPE])
 		csum_type = ntohl(nla_get_be32(tb[NFTA_PAYLOAD_CSUM_TYPE]));
@@ -1008,32 +985,12 @@ nla_put_failure:
 	return -1;
 }
 
-static bool nft_payload_set_reduce(struct nft_regs_track *track,
-				   const struct nft_expr *expr)
-{
-	int i;
-
-	for (i = 0; i < NFT_REG32_NUM; i++) {
-		if (!track->regs[i].selector)
-			continue;
-
-		if (track->regs[i].selector->ops != &nft_payload_ops &&
-		    track->regs[i].selector->ops != &nft_payload_fast_ops)
-			continue;
-
-		__nft_reg_track_cancel(track, i);
-	}
-
-	return false;
-}
-
 static const struct nft_expr_ops nft_payload_set_ops = {
 	.type		= &nft_payload_type,
 	.size		= NFT_EXPR_SIZE(sizeof(struct nft_payload_set)),
 	.eval		= nft_payload_set_eval,
 	.init		= nft_payload_set_init,
 	.dump		= nft_payload_set_dump,
-	.reduce		= nft_payload_set_reduce,
 };
 
 static const struct nft_expr_ops *
@@ -1069,7 +1026,7 @@ nft_payload_select_ops(const struct nft_ctx *ctx,
 	if (tb[NFTA_PAYLOAD_DREG] == NULL)
 		return ERR_PTR(-EINVAL);
 
-	err = nft_parse_u32_check(tb[NFTA_PAYLOAD_OFFSET], U8_MAX, &offset);
+	err = nft_parse_u32_check(tb[NFTA_PAYLOAD_OFFSET], U16_MAX, &offset);
 	if (err < 0)
 		return ERR_PTR(err);
 

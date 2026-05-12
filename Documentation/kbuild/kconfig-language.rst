@@ -118,7 +118,7 @@ applicable everywhere (see syntax).
   This is a shorthand notation for a type definition plus a value.
   Optionally dependencies for this default value can be added with "if".
 
-- dependencies: "depends on" <expr>
+- dependencies: "depends on" <expr> ["if" <expr>]
 
   This defines a dependency for this menu entry. If multiple
   dependencies are defined, they are connected with '&&'. Dependencies
@@ -133,6 +133,16 @@ applicable everywhere (see syntax).
 	depends on BAR
 	bool "foo"
 	default y
+
+  The dependency definition itself may be conditional by appending "if"
+  followed by an expression. For example::
+
+    config FOO
+	tristate
+	depends on BAR if BAZ
+
+  meaning that FOO is constrained by the value of BAR only if BAZ is
+  also set.
 
 - reverse dependencies: "select" <symbol> ["if" <expr>]
 
@@ -216,7 +226,7 @@ applicable everywhere (see syntax).
 
 - numerical ranges: "range" <symbol> <symbol> ["if" <expr>]
 
-  This allows to limit the range of possible input values for int
+  This allows limiting the range of possible input values for int
   and hex symbols. The user can only input a value which is larger than
   or equal to the first symbol and smaller than or equal to the second
   symbol.
@@ -231,6 +241,38 @@ applicable everywhere (see syntax).
   This declares the symbol to be used as the MODULES symbol, which
   enables the third modular state for all config symbols.
   At most one symbol may have the "modules" option set.
+
+- transitional attribute: "transitional"
+  This declares the symbol as transitional, meaning it should be processed
+  during configuration but omitted from newly written .config files.
+  Transitional symbols are useful for backward compatibility during config
+  option migrations - they allow olddefconfig to process existing .config
+  files while ensuring the old option doesn't appear in new configurations.
+
+  A transitional symbol:
+  - Has no prompt (is not visible to users in menus)
+  - Is processed normally during configuration (values are read and used)
+  - Can be referenced in default expressions of other symbols
+  - Is not written to new .config files
+  - Cannot have any other properties (it is a pass-through option)
+
+  Example migration from OLD_NAME to NEW_NAME::
+
+    config NEW_NAME
+	bool "New option name"
+	default OLD_NAME
+	help
+	  This replaces the old CONFIG_OLD_NAME option.
+
+    config OLD_NAME
+	bool
+	transitional
+	help
+	  Transitional config for OLD_NAME to NEW_NAME migration.
+
+  With this setup, existing .config files with "CONFIG_OLD_NAME=y" will
+  result in "CONFIG_NEW_NAME=y" being set, while CONFIG_OLD_NAME will be
+  omitted from newly written .config files.
 
 Menu dependencies
 -----------------
@@ -570,8 +612,14 @@ Some drivers are able to optionally use a feature from another module
 or build cleanly with that module disabled, but cause a link failure
 when trying to use that loadable module from a built-in driver.
 
-The most common way to express this optional dependency in Kconfig logic
-uses the slightly counterintuitive::
+The recommended way to express this optional dependency in Kconfig logic
+uses the conditional form::
+
+  config FOO
+	tristate "Support for foo hardware"
+	depends on BAR if BAR
+
+This slightly counterintuitive style is also widely used::
 
   config FOO
 	tristate "Support for foo hardware"

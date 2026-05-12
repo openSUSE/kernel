@@ -342,7 +342,7 @@ static int __futex_key_to_node(struct mm_struct *mm, unsigned long addr)
 	if (!vma)
 		return FUTEX_NO_NODE;
 
-	mpol = vma_policy(vma);
+	mpol = READ_ONCE(vma->vm_policy);
 	if (!mpol)
 		return FUTEX_NO_NODE;
 
@@ -581,7 +581,7 @@ int get_futex_key(u32 __user *uaddr, unsigned int flags, union futex_key *key,
 	if (flags & FLAGS_NUMA) {
 		u32 __user *naddr = (void *)uaddr + size / 2;
 
-		if (futex_get_value(&node, naddr))
+		if (get_user_inline(node, naddr))
 			return -EFAULT;
 
 		if ((node != FUTEX_NO_NODE) &&
@@ -601,7 +601,7 @@ int get_futex_key(u32 __user *uaddr, unsigned int flags, union futex_key *key,
 			node = numa_node_id();
 			node_updated = true;
 		}
-		if (node_updated && futex_put_value(node, naddr))
+		if (node_updated && put_user_inline(node, naddr))
 			return -EFAULT;
 	}
 
@@ -864,7 +864,6 @@ void __futex_unqueue(struct futex_q *q)
 
 /* The key must be already stored in q->key. */
 void futex_q_lock(struct futex_q *q, struct futex_hash_bucket *hb)
-	__acquires(&hb->lock)
 {
 	/*
 	 * Increment the counter before taking the lock so that
@@ -879,10 +878,10 @@ void futex_q_lock(struct futex_q *q, struct futex_hash_bucket *hb)
 	q->lock_ptr = &hb->lock;
 
 	spin_lock(&hb->lock);
+	__acquire(q->lock_ptr);
 }
 
 void futex_q_unlock(struct futex_hash_bucket *hb)
-	__releases(&hb->lock)
 {
 	futex_hb_waiters_dec(hb);
 	spin_unlock(&hb->lock);
@@ -1443,12 +1442,15 @@ static void futex_cleanup(struct task_struct *tsk)
 void futex_exit_recursive(struct task_struct *tsk)
 {
 	/* If the state is FUTEX_STATE_EXITING then futex_exit_mutex is held */
-	if (tsk->futex_state == FUTEX_STATE_EXITING)
+	if (tsk->futex_state == FUTEX_STATE_EXITING) {
+		__assume_ctx_lock(&tsk->futex_exit_mutex);
 		mutex_unlock(&tsk->futex_exit_mutex);
+	}
 	tsk->futex_state = FUTEX_STATE_DEAD;
 }
 
 static void futex_cleanup_begin(struct task_struct *tsk)
+	__acquires(&tsk->futex_exit_mutex)
 {
 	/*
 	 * Prevent various race issues against a concurrent incoming waiter
@@ -1475,6 +1477,7 @@ static void futex_cleanup_begin(struct task_struct *tsk)
 }
 
 static void futex_cleanup_end(struct task_struct *tsk, int state)
+	__releases(&tsk->futex_exit_mutex)
 {
 	/*
 	 * Lockless store. The only side effect is that an observer might
@@ -1680,10 +1683,10 @@ static bool futex_ref_get(struct futex_private_hash *fph)
 {
 	struct mm_struct *mm = fph->mm;
 
-	guard(rcu)();
+	guard(preempt)();
 
-	if (smp_load_acquire(&fph->state) == FR_PERCPU) {
-		this_cpu_inc(*mm->futex_ref);
+	if (READ_ONCE(fph->state) == FR_PERCPU) {
+		__this_cpu_inc(*mm->futex_ref);
 		return true;
 	}
 
@@ -1694,10 +1697,10 @@ static bool futex_ref_put(struct futex_private_hash *fph)
 {
 	struct mm_struct *mm = fph->mm;
 
-	guard(rcu)();
+	guard(preempt)();
 
-	if (smp_load_acquire(&fph->state) == FR_PERCPU) {
-		this_cpu_dec(*mm->futex_ref);
+	if (READ_ONCE(fph->state) == FR_PERCPU) {
+		__this_cpu_dec(*mm->futex_ref);
 		return false;
 	}
 

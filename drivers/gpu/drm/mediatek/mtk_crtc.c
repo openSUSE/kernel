@@ -16,13 +16,13 @@
 
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
+#include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_vblank.h>
 
 #include "mtk_crtc.h"
 #include "mtk_ddp_comp.h"
 #include "mtk_drm_drv.h"
-#include "mtk_gem.h"
 #include "mtk_plane.h"
 
 /*
@@ -159,7 +159,7 @@ static void mtk_crtc_reset(struct drm_crtc *crtc)
 	kfree(to_mtk_crtc_state(crtc->state));
 	crtc->state = NULL;
 
-	state = kzalloc(sizeof(*state), GFP_KERNEL);
+	state = kzalloc_obj(*state);
 	if (state)
 		__drm_atomic_helper_crtc_reset(crtc, &state->base);
 }
@@ -168,7 +168,7 @@ static struct drm_crtc_state *mtk_crtc_duplicate_state(struct drm_crtc *crtc)
 {
 	struct mtk_crtc_state *state;
 
-	state = kmalloc(sizeof(*state), GFP_KERNEL);
+	state = kmalloc_obj(*state);
 	if (!state)
 		return NULL;
 
@@ -224,13 +224,14 @@ static void mtk_crtc_mode_set_nofb(struct drm_crtc *crtc)
 
 static int mtk_crtc_ddp_clk_enable(struct mtk_crtc *mtk_crtc)
 {
+	struct drm_device *dev = mtk_crtc->base.dev;
 	int ret;
 	int i;
 
 	for (i = 0; i < mtk_crtc->ddp_comp_nr; i++) {
 		ret = mtk_ddp_comp_clk_enable(mtk_crtc->ddp_comp[i]);
 		if (ret) {
-			DRM_ERROR("Failed to enable clock %d: %d\n", i, ret);
+			drm_err(dev, "Failed to enable clock %d: %d\n", i, ret);
 			goto err;
 		}
 	}
@@ -282,6 +283,10 @@ static void ddp_cmdq_cb(struct mbox_client *cl, void *mssg)
 	struct mtk_crtc_state *state;
 	unsigned int i;
 	unsigned long flags;
+
+	/* release GCE HW usage and start autosuspend */
+	pm_runtime_mark_last_busy(cmdq_cl->chan->mbox->dev);
+	pm_runtime_put_autosuspend(cmdq_cl->chan->mbox->dev);
 
 	if (data->sta < 0)
 		return;
@@ -338,6 +343,7 @@ static int mtk_crtc_ddp_hw_init(struct mtk_crtc *mtk_crtc)
 	struct drm_connector *connector;
 	struct drm_encoder *encoder;
 	struct drm_connector_list_iter conn_iter;
+	struct drm_device *dev = mtk_crtc->base.dev;
 	unsigned int width, height, vrefresh, bpc = MTK_MAX_BPC;
 	int ret;
 	int i;
@@ -366,19 +372,19 @@ static int mtk_crtc_ddp_hw_init(struct mtk_crtc *mtk_crtc)
 
 	ret = pm_runtime_resume_and_get(crtc->dev->dev);
 	if (ret < 0) {
-		DRM_ERROR("Failed to enable power domain: %d\n", ret);
+		drm_err(dev, "Failed to enable power domain: %d\n", ret);
 		return ret;
 	}
 
 	ret = mtk_mutex_prepare(mtk_crtc->mutex);
 	if (ret < 0) {
-		DRM_ERROR("Failed to enable mutex clock: %d\n", ret);
+		drm_err(dev, "Failed to enable mutex clock: %d\n", ret);
 		goto err_pm_runtime_put;
 	}
 
 	ret = mtk_crtc_ddp_clk_enable(mtk_crtc);
 	if (ret < 0) {
-		DRM_ERROR("Failed to enable component clocks: %d\n", ret);
+		drm_err(dev, "Failed to enable component clocks: %d\n", ret);
 		goto err_mutex_unprepare;
 	}
 
@@ -618,6 +624,9 @@ static void mtk_crtc_update_config(struct mtk_crtc *mtk_crtc, bool needs_vblank)
 		mtk_crtc->config_updating = false;
 		spin_unlock_irqrestore(&mtk_crtc->config_lock, flags);
 
+		if (pm_runtime_resume_and_get(mtk_crtc->cmdq_client.chan->mbox->dev) < 0)
+			goto update_config_out;
+
 		mbox_send_message(mtk_crtc->cmdq_client.chan, cmdq_handle);
 		mbox_client_txdone(mtk_crtc->cmdq_client.chan, 0);
 		goto update_config_out;
@@ -640,11 +649,12 @@ static void mtk_crtc_ddp_irq(void *data)
 	struct mtk_drm_private *priv = crtc->dev->dev_private;
 
 #if IS_REACHABLE(CONFIG_MTK_CMDQ)
+	struct drm_device *dev = mtk_crtc->base.dev;
 	if (!priv->data->shadow_register && !mtk_crtc->cmdq_client.chan)
 		mtk_crtc_ddp_config(crtc, NULL);
 	else if (mtk_crtc->cmdq_vblank_cnt > 0 && --mtk_crtc->cmdq_vblank_cnt == 0)
-		DRM_ERROR("mtk_crtc %d CMDQ execute command timeout!\n",
-			  drm_crtc_index(&mtk_crtc->base));
+		drm_err(dev, "mtk_crtc %d CMDQ execute command timeout!\n",
+			drm_crtc_index(&mtk_crtc->base));
 #else
 	if (!priv->data->shadow_register)
 		mtk_crtc_ddp_config(crtc, NULL);
@@ -671,7 +681,7 @@ static void mtk_crtc_disable_vblank(struct drm_crtc *crtc)
 }
 
 static void mtk_crtc_update_output(struct drm_crtc *crtc,
-				   struct drm_atomic_state *state)
+				   struct drm_atomic_commit *state)
 {
 	int crtc_index = drm_crtc_index(crtc);
 	int i;
@@ -753,7 +763,7 @@ void mtk_crtc_plane_disable(struct drm_crtc *crtc, struct drm_plane *plane)
 }
 
 void mtk_crtc_async_update(struct drm_crtc *crtc, struct drm_plane *plane,
-			   struct drm_atomic_state *state)
+			   struct drm_atomic_commit *state)
 {
 	struct mtk_crtc *mtk_crtc = to_mtk_crtc(crtc);
 
@@ -764,13 +774,14 @@ void mtk_crtc_async_update(struct drm_crtc *crtc, struct drm_plane *plane,
 }
 
 static void mtk_crtc_atomic_enable(struct drm_crtc *crtc,
-				   struct drm_atomic_state *state)
+				   struct drm_atomic_commit *state)
 {
 	struct mtk_crtc *mtk_crtc = to_mtk_crtc(crtc);
 	struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[0];
+	struct drm_device *dev = mtk_crtc->base.dev;
 	int ret;
 
-	DRM_DEBUG_DRIVER("%s %d\n", __func__, crtc->base.id);
+	drm_dbg_driver(dev, "%s %d\n", __func__, crtc->base.id);
 
 	ret = mtk_ddp_comp_power_on(comp);
 	if (ret < 0) {
@@ -791,13 +802,14 @@ static void mtk_crtc_atomic_enable(struct drm_crtc *crtc,
 }
 
 static void mtk_crtc_atomic_disable(struct drm_crtc *crtc,
-				    struct drm_atomic_state *state)
+				    struct drm_atomic_commit *state)
 {
 	struct mtk_crtc *mtk_crtc = to_mtk_crtc(crtc);
 	struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[0];
+	struct drm_device *dev = mtk_crtc->base.dev;
 	int i;
 
-	DRM_DEBUG_DRIVER("%s %d\n", __func__, crtc->base.id);
+	drm_dbg_driver(dev, "%s %d\n", __func__, crtc->base.id);
 	if (!mtk_crtc->enabled)
 		return;
 
@@ -831,16 +843,17 @@ static void mtk_crtc_atomic_disable(struct drm_crtc *crtc,
 }
 
 static void mtk_crtc_atomic_begin(struct drm_crtc *crtc,
-				  struct drm_atomic_state *state)
+				  struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *crtc_state = drm_atomic_get_new_crtc_state(state,
 									  crtc);
 	struct mtk_crtc_state *mtk_crtc_state = to_mtk_crtc_state(crtc_state);
 	struct mtk_crtc *mtk_crtc = to_mtk_crtc(crtc);
+	struct drm_device *dev = mtk_crtc->base.dev;
 	unsigned long flags;
 
 	if (mtk_crtc->event && mtk_crtc_state->base.event)
-		DRM_ERROR("new event while there is still a pending event\n");
+		drm_err(dev, "new event while there is still a pending event\n");
 
 	if (mtk_crtc_state->base.event) {
 		mtk_crtc_state->base.event->pipe = drm_crtc_index(crtc);
@@ -855,7 +868,7 @@ static void mtk_crtc_atomic_begin(struct drm_crtc *crtc,
 }
 
 static void mtk_crtc_atomic_flush(struct drm_crtc *crtc,
-				  struct drm_atomic_state *state)
+				  struct drm_atomic_commit *state)
 {
 	struct mtk_crtc *mtk_crtc = to_mtk_crtc(crtc);
 	int i;

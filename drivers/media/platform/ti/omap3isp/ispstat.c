@@ -1010,13 +1010,6 @@ int omap3isp_stat_subscribe_event(struct v4l2_subdev *subdev,
 	return v4l2_event_subscribe(fh, sub, STAT_NEVENTS, NULL);
 }
 
-int omap3isp_stat_unsubscribe_event(struct v4l2_subdev *subdev,
-				    struct v4l2_fh *fh,
-				    struct v4l2_event_subscription *sub)
-{
-	return v4l2_event_unsubscribe(fh, sub);
-}
-
 void omap3isp_stat_unregister_entities(struct ispstat *stat)
 {
 	v4l2_device_unregister_subdev(&stat->subdev);
@@ -1044,6 +1037,7 @@ static int isp_stat_init_entities(struct ispstat *stat, const char *name,
 
 	stat->pad.flags = MEDIA_PAD_FL_SINK | MEDIA_PAD_FL_MUST_CONNECT;
 	me->ops = NULL;
+	me->function = MEDIA_ENT_F_PROC_VIDEO_STATISTICS;
 
 	return media_entity_pads_init(me, 1, &stat->pad);
 }
@@ -1053,7 +1047,7 @@ int omap3isp_stat_init(struct ispstat *stat, const char *name,
 {
 	int ret;
 
-	stat->buf = kcalloc(STAT_MAX_BUFS, sizeof(*stat->buf), GFP_KERNEL);
+	stat->buf = kzalloc_objs(*stat->buf, STAT_MAX_BUFS);
 	if (!stat->buf)
 		return -ENOMEM;
 

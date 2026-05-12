@@ -19,8 +19,7 @@ struct block_buffer {
 };
 
 /* Hash a block, writing the result to the next level's pending block buffer. */
-static int hash_one_block(struct inode *inode,
-			  const struct merkle_tree_params *params,
+static int hash_one_block(const struct merkle_tree_params *params,
 			  struct block_buffer *cur)
 {
 	struct block_buffer *next = cur + 1;
@@ -36,21 +35,21 @@ static int hash_one_block(struct inode *inode,
 	/* Zero-pad the block if it's shorter than the block size. */
 	memset(&cur->data[cur->filled], 0, params->block_size - cur->filled);
 
-	fsverity_hash_block(params, inode, cur->data,
-			    &next->data[next->filled]);
+	fsverity_hash_block(params, cur->data, &next->data[next->filled]);
 	next->filled += params->digest_size;
 	cur->filled = 0;
 	return 0;
 }
 
-static int write_merkle_tree_block(struct inode *inode, const u8 *buf,
+static int write_merkle_tree_block(struct file *file, const u8 *buf,
 				   unsigned long index,
 				   const struct merkle_tree_params *params)
 {
+	struct inode *inode = file_inode(file);
 	u64 pos = (u64)index << params->log_blocksize;
 	int err;
 
-	err = inode->i_sb->s_vop->write_merkle_tree_block(inode, buf, pos,
+	err = inode->i_sb->s_vop->write_merkle_tree_block(file, buf, pos,
 							  params->block_size);
 	if (err)
 		fsverity_err(inode, "Error %d writing Merkle tree block %lu",
@@ -123,7 +122,7 @@ static int build_merkle_tree(struct file *filp,
 			fsverity_err(inode, "Short read of file data");
 			goto out;
 		}
-		err = hash_one_block(inode, params, &buffers[-1]);
+		err = hash_one_block(params, &buffers[-1]);
 		if (err)
 			goto out;
 		for (level = 0; level < num_levels; level++) {
@@ -134,10 +133,10 @@ static int build_merkle_tree(struct file *filp,
 			}
 			/* Next block at @level is full */
 
-			err = hash_one_block(inode, params, &buffers[level]);
+			err = hash_one_block(params, &buffers[level]);
 			if (err)
 				goto out;
-			err = write_merkle_tree_block(inode,
+			err = write_merkle_tree_block(filp,
 						      buffers[level].data,
 						      level_offset[level],
 						      params);
@@ -154,10 +153,10 @@ static int build_merkle_tree(struct file *filp,
 	/* Finish all nonempty pending tree blocks. */
 	for (level = 0; level < num_levels; level++) {
 		if (buffers[level].filled != 0) {
-			err = hash_one_block(inode, params, &buffers[level]);
+			err = hash_one_block(params, &buffers[level]);
 			if (err)
 				goto out;
-			err = write_merkle_tree_block(inode,
+			err = write_merkle_tree_block(filp,
 						      buffers[level].data,
 						      level_offset[level],
 						      params);
@@ -224,6 +223,8 @@ static int enable_verity(struct file *filp,
 	if (err)
 		goto out;
 
+	trace_fsverity_enable(inode, &params);
+
 	/*
 	 * Start enabling verity on this file, serialized by the inode lock.
 	 * Fail if verity is already enabled or is already being enabled.
@@ -266,9 +267,28 @@ static int enable_verity(struct file *filp,
 		goto rollback;
 	}
 
+	trace_fsverity_tree_done(inode, vi, &params);
+
+	/*
+	 * Add the fsverity_info into the hash table before finishing the
+	 * initialization so that we don't have to undo the enabling when memory
+	 * allocation for the hash table fails.  This is safe because looking up
+	 * the fsverity_info always first checks the S_VERITY flag on the inode,
+	 * which will only be set at the very end of the ->end_enable_verity
+	 * method.
+	 */
+	err = fsverity_set_info(vi);
+	if (err) {
+		fsverity_free_info(vi);
+		goto rollback;
+	}
+
 	/*
 	 * Tell the filesystem to finish enabling verity on the file.
-	 * Serialized with ->begin_enable_verity() by the inode lock.
+	 * Serialized with ->begin_enable_verity() by the inode lock.  The file
+	 * system needs to set the S_VERITY flag on the inode at the very end of
+	 * the method, at which point the fsverity information can be accessed
+	 * by other threads.
 	 */
 	inode_lock(inode);
 	err = vops->end_enable_verity(filp, desc, desc_size, params.tree_size);
@@ -276,19 +296,10 @@ static int enable_verity(struct file *filp,
 	if (err) {
 		fsverity_err(inode, "%ps() failed with err %d",
 			     vops->end_enable_verity, err);
-		fsverity_free_info(vi);
+		fsverity_remove_info(vi);
 	} else if (WARN_ON_ONCE(!IS_VERITY(inode))) {
+		fsverity_remove_info(vi);
 		err = -EINVAL;
-		fsverity_free_info(vi);
-	} else {
-		/* Successfully enabled verity */
-
-		/*
-		 * Readers can start using ->i_verity_info immediately, so it
-		 * can't be rolled back once set.  So don't set it until just
-		 * after the filesystem has successfully enabled verity.
-		 */
-		fsverity_set_info(inode, vi);
 	}
 out:
 	kfree(params.hashstate);

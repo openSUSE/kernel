@@ -68,18 +68,25 @@ static inline void __init relocate_absolute(long random_offset)
 
 	for (p = begin; (void *)p < end; p++) {
 		long v = p->symvalue;
-		uint32_t lu12iw, ori, lu32id, lu52id;
+		uint32_t lu12iw, ori;
+#ifdef CONFIG_64BIT
+		uint32_t lu32id, lu52id;
+#endif
 		union loongarch_instruction *insn = (void *)p->pc;
 
 		lu12iw = (v >> 12) & 0xfffff;
 		ori    = v & 0xfff;
+#ifdef CONFIG_64BIT
 		lu32id = (v >> 32) & 0xfffff;
 		lu52id = v >> 52;
+#endif
 
 		insn[0].reg1i20_format.immediate = lu12iw;
 		insn[1].reg2i12_format.immediate = ori;
+#ifdef CONFIG_64BIT
 		insn[2].reg1i20_format.immediate = lu32id;
 		insn[3].reg2i12_format.immediate = lu52id;
+#endif
 	}
 }
 
@@ -121,11 +128,11 @@ static inline __init unsigned long get_random_boot(void)
 
 static int __init nokaslr(char *p)
 {
-	pr_info("KASLR is disabled.\n");
-
-	return 0; /* Print a notice and silence the boot warning */
+	return 0; /* Just silence the boot warning */
 }
 early_param("nokaslr", nokaslr);
+
+#define KASLR_DISABLED_MESSAGE "KASLR is disabled by %s in %s cmdline.\n"
 
 static inline __init bool kaslr_disabled(void)
 {
@@ -133,12 +140,16 @@ static inline __init bool kaslr_disabled(void)
 	const char *builtin_cmdline = CONFIG_CMDLINE;
 
 	str = strstr(builtin_cmdline, "nokaslr");
-	if (str == builtin_cmdline || (str > builtin_cmdline && *(str - 1) == ' '))
+	if (str == builtin_cmdline || (str > builtin_cmdline && *(str - 1) == ' ')) {
+		pr_info(KASLR_DISABLED_MESSAGE, "\'nokaslr\'", "built-in");
 		return true;
+	}
 
 	str = strstr(boot_command_line, "nokaslr");
-	if (str == boot_command_line || (str > boot_command_line && *(str - 1) == ' '))
+	if (str == boot_command_line || (str > boot_command_line && *(str - 1) == ' ')) {
+		pr_info(KASLR_DISABLED_MESSAGE, "\'nokaslr\'", "bootloader");
 		return true;
+	}
 
 #ifdef CONFIG_HIBERNATION
 	str = strstr(builtin_cmdline, "nohibernate");
@@ -158,13 +169,23 @@ static inline __init bool kaslr_disabled(void)
 		return false;
 
 	str = strstr(builtin_cmdline, "resume=");
-	if (str == builtin_cmdline || (str > builtin_cmdline && *(str - 1) == ' '))
+	if (str == builtin_cmdline || (str > builtin_cmdline && *(str - 1) == ' ')) {
+		pr_info(KASLR_DISABLED_MESSAGE, "\'resume=\'", "built-in");
 		return true;
+	}
 
 	str = strstr(boot_command_line, "resume=");
-	if (str == boot_command_line || (str > boot_command_line && *(str - 1) == ' '))
+	if (str == boot_command_line || (str > boot_command_line && *(str - 1) == ' ')) {
+		pr_info(KASLR_DISABLED_MESSAGE, "\'resume=\'", "bootloader");
 		return true;
+	}
 #endif
+
+	str = strstr(boot_command_line, "kexec_file");
+	if (str == boot_command_line || (str > boot_command_line && *(str - 1) == ' ')) {
+		pr_info(KASLR_DISABLED_MESSAGE, "\'kexec_file\'", "bootloader");
+		return true;
+	}
 
 	return false;
 }
@@ -179,7 +200,7 @@ static inline void __init *determine_relocation_address(void)
 	if (kaslr_disabled())
 		return destination;
 
-	kernel_length = (long)_end - (long)_text;
+	kernel_length = (unsigned long)_end - (unsigned long)_text;
 
 	random_offset = get_random_boot() << 16;
 	random_offset &= (CONFIG_RANDOMIZE_BASE_MAX_OFFSET - 1);
@@ -228,7 +249,7 @@ unsigned long __init relocate_kernel(void)
 	early_memunmap(cmdline, COMMAND_LINE_SIZE);
 
 	if (random_offset) {
-		kernel_length = (long)(_end) - (long)(_text);
+		kernel_length = (unsigned long)(_end) - (unsigned long)(_text);
 
 		/* Copy the kernel to it's new location */
 		memcpy(location_new, _text, kernel_length);

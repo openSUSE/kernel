@@ -57,8 +57,6 @@
 #define CALC_PLL_CLK_SRC_ERR_TOLERANCE 1
 #define MAX_PLL_CALC_ERROR 0xFFFFFFFF
 
-#define NUM_ELEMENTS(a) (sizeof(a) / sizeof((a)[0]))
-
 static const struct spread_spectrum_data *get_ss_data_entry(
 		struct dce110_clk_src *clk_src,
 		enum signal_type signal,
@@ -164,11 +162,9 @@ static bool calculate_fb_and_fractional_fb_divider(
 	feedback_divider *= (uint64_t)
 			(calc_pll_cs->fract_fb_divider_precision_factor);
 
-	*feedback_divider_param =
-		div_u64_rem(
-			feedback_divider,
-			calc_pll_cs->fract_fb_divider_factor,
-			fract_feedback_divider_param);
+	*feedback_divider_param = (uint32_t)div_u64_rem(
+		feedback_divider, calc_pll_cs->fract_fb_divider_factor,
+		fract_feedback_divider_param);
 
 	if (*feedback_divider_param != 0)
 		return true;
@@ -242,7 +238,7 @@ static bool calc_fb_divider_checking_tolerance(
 		pll_settings->calculated_pix_clk_100hz =
 			actual_calculated_clock_100hz;
 		pll_settings->vco_freq =
-			div_u64((u64)actual_calculated_clock_100hz * post_divider, 10);
+			(uint32_t)div_u64((u64)actual_calculated_clock_100hz * post_divider, 10);
 		return true;
 	}
 	return false;
@@ -442,8 +438,7 @@ static bool pll_adjust_pix_clk(
 	bp_adjust_pixel_clock_params.
 		encoder_object_id = pix_clk_params->encoder_object_id;
 	bp_adjust_pixel_clock_params.signal_type = pix_clk_params->signal_type;
-	bp_adjust_pixel_clock_params.
-		ss_enable = pix_clk_params->flags.ENABLE_SS;
+	bp_adjust_pixel_clock_params.ss_enable = pix_clk_params->flags.ENABLE_SS != 0;
 	bp_result = clk_src->bios->funcs->adjust_pixel_clock(
 			clk_src->bios, &bp_adjust_pixel_clock_params);
 	if (bp_result == BP_RESULT_OK) {
@@ -539,6 +534,7 @@ static void dce112_get_pix_clk_dividers_helper (
 		struct pll_settings *pll_settings,
 		struct pixel_clk_params *pix_clk_params)
 {
+	(void)clk_src;
 	uint32_t actual_pixel_clock_100hz;
 
 	actual_pixel_clock_100hz = pix_clk_params->requested_pix_clk_100hz;
@@ -610,7 +606,7 @@ static uint32_t dce112_get_pix_clk_dividers(
 			|| pix_clk_params->requested_pix_clk_100hz == 0) {
 		DC_LOG_ERROR(
 			"%s: Invalid parameters!!\n", __func__);
-		return -1;
+		return (uint32_t)-1;
 	}
 
 	memset(pll_settings, 0, sizeof(*pll_settings));
@@ -621,7 +617,7 @@ static uint32_t dce112_get_pix_clk_dividers(
 		pll_settings->calculated_pix_clk_100hz = clk_src->ext_clk_khz * 10;
 		pll_settings->actual_pix_clk_100hz =
 					pix_clk_params->requested_pix_clk_100hz;
-		return -1;
+		return (uint32_t)-1;
 	}
 
 	dce112_get_pix_clk_dividers_helper(clk_src,
@@ -847,6 +843,7 @@ static bool dce110_program_pix_clk(
 		enum dp_link_encoding encoding,
 		struct pll_settings *pll_settings)
 {
+	(void)encoding;
 	struct dce110_clk_src *clk_src = TO_DCE110_CLK_SRC(clock_source);
 	struct bp_pixel_clock_parameters bp_pc_params = {0};
 
@@ -921,6 +918,7 @@ static bool dce112_program_pix_clk(
 		enum dp_link_encoding encoding,
 		struct pll_settings *pll_settings)
 {
+	(void)encoding;
 	struct dce110_clk_src *clk_src = TO_DCE110_CLK_SRC(clock_source);
 	struct bp_pixel_clock_parameters bp_pc_params = {0};
 
@@ -957,7 +955,7 @@ static bool dce112_program_pix_clk(
 		dce112_program_pixel_clk_resync(clk_src,
 					pix_clk_params->signal_type,
 					pix_clk_params->color_depth,
-					pix_clk_params->flags.SUPPORT_YCBCR420);
+					pix_clk_params->flags.SUPPORT_YCBCR420 != 0);
 
 	return true;
 }
@@ -1058,7 +1056,7 @@ static bool dcn31_program_pix_clk(
 			dce112_program_pixel_clk_resync(clk_src,
 						pix_clk_params->signal_type,
 						pix_clk_params->color_depth,
-						pix_clk_params->flags.SUPPORT_YCBCR420);
+						pix_clk_params->flags.SUPPORT_YCBCR420 != 0);
 	}
 
 	return true;
@@ -1070,6 +1068,7 @@ static bool dcn401_program_pix_clk(
 		enum dp_link_encoding encoding,
 		struct pll_settings *pll_settings)
 {
+	(void)encoding;
 	struct dce110_clk_src *clk_src = TO_DCE110_CLK_SRC(clock_source);
 	unsigned int inst = pix_clk_params->controller_id - CONTROLLER_ID_D0;
 	const struct pixel_rate_range_table_entry *e =
@@ -1160,7 +1159,7 @@ static bool dcn401_program_pix_clk(
 			dce112_program_pixel_clk_resync(clk_src,
 						pix_clk_params->signal_type,
 						pix_clk_params->color_depth,
-						pix_clk_params->flags.SUPPORT_YCBCR420);
+						pix_clk_params->flags.SUPPORT_YCBCR420 != 0);
 	}
 
 	return true;
@@ -1209,9 +1208,8 @@ static bool get_pixel_clk_frequency_100hz(
 			 */
 			modulo_hz = REG_READ(MODULO[inst]);
 			if (modulo_hz)
-				*pixel_clk_khz = div_u64((uint64_t)clock_hz*
-					dp_dto_ref_khz*10,
-					modulo_hz);
+				*pixel_clk_khz = (unsigned int)div_u64((uint64_t)clock_hz *
+					dp_dto_ref_khz * 10, modulo_hz);
 			else
 				*pixel_clk_khz = 0;
 		} else {
@@ -1267,7 +1265,7 @@ const struct pixel_rate_range_table_entry *look_up_in_video_optimized_rate_tlb(
 {
 	int i;
 
-	for (i = 0; i < NUM_ELEMENTS(video_optimized_pixel_rates); i++) {
+	for (i = 0; i < ARRAY_SIZE(video_optimized_pixel_rates); i++) {
 		const struct pixel_rate_range_table_entry *e = &video_optimized_pixel_rates[i];
 
 		if (e->range_min_khz <= pixel_rate_khz && pixel_rate_khz <= e->range_max_khz) {
@@ -1376,7 +1374,7 @@ static uint32_t dcn3_get_pix_clk_dividers(
 			|| pix_clk_params->requested_pix_clk_100hz == 0) {
 		DC_LOG_ERROR(
 			"%s: Invalid parameters!!\n", __func__);
-		return -1;
+		return UINT_MAX;
 	}
 
 	memset(pll_settings, 0, sizeof(*pll_settings));
@@ -1476,16 +1474,12 @@ static void get_ss_info_from_atombios(
 	if (*ss_entries_num == 0)
 		return;
 
-	ss_info = kcalloc(*ss_entries_num,
-			  sizeof(struct spread_spectrum_info),
-			  GFP_KERNEL);
+	ss_info = kzalloc_objs(struct spread_spectrum_info, *ss_entries_num);
 	ss_info_cur = ss_info;
 	if (ss_info == NULL)
 		return;
 
-	ss_data = kcalloc(*ss_entries_num,
-			  sizeof(struct spread_spectrum_data),
-			  GFP_KERNEL);
+	ss_data = kzalloc_objs(struct spread_spectrum_data, *ss_entries_num);
 	if (ss_data == NULL)
 		goto out_free_info;
 

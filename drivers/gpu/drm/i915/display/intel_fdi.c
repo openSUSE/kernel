@@ -8,14 +8,14 @@
 #include <drm/drm_fixed.h>
 #include <drm/drm_print.h>
 
-#include "i915_reg.h"
-#include "i915_utils.h"
 #include "intel_atomic.h"
 #include "intel_crtc.h"
 #include "intel_ddi.h"
+#include "intel_ddi_buf_trans.h"
 #include "intel_de.h"
 #include "intel_display_regs.h"
 #include "intel_display_types.h"
+#include "intel_display_utils.h"
 #include "intel_dp.h"
 #include "intel_fdi.h"
 #include "intel_fdi_regs.h"
@@ -123,7 +123,7 @@ void intel_fdi_link_train(struct intel_crtc *crtc,
 {
 	struct intel_display *display = to_intel_display(crtc);
 
-	display->funcs.fdi->fdi_link_train(crtc, crtc_state);
+	display->fdi.funcs->fdi_link_train(crtc, crtc_state);
 }
 
 /**
@@ -186,7 +186,7 @@ static int ilk_check_fdi_lanes(struct intel_display *display, enum pipe pipe,
 			       struct intel_crtc_state *pipe_config,
 			       enum pipe *pipe_to_reduce)
 {
-	struct drm_atomic_state *state = pipe_config->uapi.state;
+	struct drm_atomic_commit *state = pipe_config->uapi.state;
 	struct intel_crtc *other_crtc;
 	struct intel_crtc_state *other_crtc_state;
 
@@ -853,7 +853,7 @@ void hsw_fdi_link_train(struct intel_encoder *encoder,
 	u32 temp, i, rx_ctl_val;
 	int n_entries;
 
-	encoder->get_buf_trans(encoder, crtc_state, &n_entries);
+	intel_ddi_buf_trans_get(encoder, crtc_state, &n_entries);
 
 	hsw_prepare_dp_ddi_buffers(encoder, crtc_state);
 
@@ -1109,11 +1109,11 @@ void
 intel_fdi_init_hook(struct intel_display *display)
 {
 	if (display->platform.ironlake) {
-		display->funcs.fdi = &ilk_funcs;
+		display->fdi.funcs = &ilk_funcs;
 	} else if (display->platform.sandybridge) {
-		display->funcs.fdi = &gen6_funcs;
+		display->fdi.funcs = &gen6_funcs;
 	} else if (display->platform.ivybridge) {
 		/* FIXME: detect B0+ stepping and use auto training */
-		display->funcs.fdi = &ivb_funcs;
+		display->fdi.funcs = &ivb_funcs;
 	}
 }

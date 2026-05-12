@@ -3,8 +3,7 @@
  * Copyright IBM Corp. 2024
  */
 
-#define KMSG_COMPONENT "hd"
-#define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
+#define pr_fmt(fmt) "hd: " fmt
 
 /*
  * Hiperdispatch:
@@ -65,7 +64,7 @@
 
 #define HD_DELAY_FACTOR			(4)
 #define HD_DELAY_INTERVAL		(HZ / 4)
-#define HD_STEAL_THRESHOLD		30
+#define HD_STEAL_THRESHOLD		10
 #define HD_STEAL_AVG_WEIGHT		16
 
 static cpumask_t hd_vl_coremask;	/* Mask containing all vertical low COREs */
@@ -191,7 +190,7 @@ int hd_enable_hiperdispatch(void)
 		return 0;
 	if (hd_online_cores <= hd_entitled_cores)
 		return 0;
-	mod_delayed_work(system_wq, &hd_capacity_work, HD_DELAY_INTERVAL * hd_delay_factor);
+	mod_delayed_work(system_dfl_wq, &hd_capacity_work, HD_DELAY_INTERVAL * hd_delay_factor);
 	hd_update_capacities();
 	return 1;
 }

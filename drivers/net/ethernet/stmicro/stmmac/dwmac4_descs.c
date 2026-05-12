@@ -17,10 +17,8 @@ static int dwmac4_wrback_get_tx_status(struct stmmac_extra_stats *x,
 				       struct dma_desc *p,
 				       void __iomem *ioaddr)
 {
-	unsigned int tdes3;
+	u32 tdes3 = le32_to_cpu(p->des3);
 	int ret = tx_done;
-
-	tdes3 = le32_to_cpu(p->des3);
 
 	/* Get tx owner first */
 	if (unlikely(tdes3 & TDES3_OWN))
@@ -46,8 +44,7 @@ static int dwmac4_wrback_get_tx_status(struct stmmac_extra_stats *x,
 		if (unlikely((tdes3 & TDES3_LATE_COLLISION) ||
 			     (tdes3 & TDES3_EXCESSIVE_COLLISION)))
 			x->tx_collision +=
-			    (tdes3 & TDES3_COLLISION_COUNT_MASK)
-			    >> TDES3_COLLISION_COUNT_SHIFT;
+			    FIELD_GET(TDES3_COLLISION_COUNT_MASK, tdes3);
 
 		if (unlikely(tdes3 & TDES3_EXCESSIVE_DEFERRAL))
 			x->tx_deferred++;
@@ -73,9 +70,9 @@ static int dwmac4_wrback_get_tx_status(struct stmmac_extra_stats *x,
 static int dwmac4_wrback_get_rx_status(struct stmmac_extra_stats *x,
 				       struct dma_desc *p)
 {
-	unsigned int rdes1 = le32_to_cpu(p->des1);
-	unsigned int rdes2 = le32_to_cpu(p->des2);
-	unsigned int rdes3 = le32_to_cpu(p->des3);
+	u32 rdes1 = le32_to_cpu(p->des1);
+	u32 rdes2 = le32_to_cpu(p->des2);
+	u32 rdes3 = le32_to_cpu(p->des3);
 	int message_type;
 	int ret = good_frame;
 
@@ -108,18 +105,22 @@ static int dwmac4_wrback_get_rx_status(struct stmmac_extra_stats *x,
 		ret = discard_frame;
 	}
 
-	message_type = (rdes1 & ERDES4_MSG_TYPE_MASK) >> 8;
+	message_type = FIELD_GET(RDES1_PTP_MSG_TYPE_MASK, rdes1);
 
-	if (rdes1 & RDES1_IP_HDR_ERROR)
+	if (rdes1 & RDES1_IP_HDR_ERROR) {
 		x->ip_hdr_err++;
+		ret |= csum_none;
+	}
 	if (rdes1 & RDES1_IP_CSUM_BYPASSED)
 		x->ip_csum_bypassed++;
 	if (rdes1 & RDES1_IPV4_HEADER)
 		x->ipv4_pkt_rcvd++;
 	if (rdes1 & RDES1_IPV6_HEADER)
 		x->ipv6_pkt_rcvd++;
-	if (rdes1 & RDES1_IP_PAYLOAD_ERROR)
+	if (rdes1 & RDES1_IP_PAYLOAD_ERROR) {
 		x->ip_payload_err++;
+		ret |= csum_none;
+	}
 
 	if (message_type == RDES_EXT_NO_PTP)
 		x->no_ptp_rx_msg_type_ext++;
@@ -164,21 +165,10 @@ static int dwmac4_wrback_get_rx_status(struct stmmac_extra_stats *x,
 		x->l3_filter_match++;
 	if (rdes2 & RDES2_L4_FILTER_MATCH)
 		x->l4_filter_match++;
-	if ((rdes2 & RDES2_L3_L4_FILT_NB_MATCH_MASK)
-	    >> RDES2_L3_L4_FILT_NB_MATCH_SHIFT)
+	if (rdes2 & RDES2_L3_L4_FILT_NB_MATCH_MASK)
 		x->l3_l4_filter_no_match++;
 
 	return ret;
-}
-
-static int dwmac4_rd_get_tx_len(struct dma_desc *p)
-{
-	return (le32_to_cpu(p->des2) & TDES2_BUFFER1_SIZE_MASK);
-}
-
-static int dwmac4_get_tx_owner(struct dma_desc *p)
-{
-	return (le32_to_cpu(p->des3) & TDES3_OWN) >> TDES3_OWN_SHIFT;
 }
 
 static void dwmac4_set_tx_owner(struct dma_desc *p)
@@ -194,12 +184,6 @@ static void dwmac4_set_rx_owner(struct dma_desc *p, int disable_rx_ic)
 		flags |= RDES3_INT_ON_COMPLETION_EN;
 
 	p->des3 |= cpu_to_le32(flags);
-}
-
-static int dwmac4_get_tx_ls(struct dma_desc *p)
-{
-	return (le32_to_cpu(p->des3) & TDES3_LAST_DESCRIPTOR)
-		>> TDES3_LAST_DESCRIPTOR_SHIFT;
 }
 
 static u16 dwmac4_wrback_get_rx_vlan_tci(struct dma_desc *p)
@@ -251,15 +235,14 @@ static inline void dwmac4_get_timestamp(void *desc, u32 ats, u64 *ts)
 static int dwmac4_rx_check_timestamp(void *desc)
 {
 	struct dma_desc *p = (struct dma_desc *)desc;
-	unsigned int rdes0 = le32_to_cpu(p->des0);
-	unsigned int rdes1 = le32_to_cpu(p->des1);
-	unsigned int rdes3 = le32_to_cpu(p->des3);
-	u32 own, ctxt;
+	u32 rdes0 = le32_to_cpu(p->des0);
+	u32 rdes1 = le32_to_cpu(p->des1);
+	u32 rdes3 = le32_to_cpu(p->des3);
+	bool own, ctxt;
 	int ret = 1;
 
 	own = rdes3 & RDES3_OWN;
-	ctxt = ((rdes3 & RDES3_CONTEXT_DESCRIPTOR)
-		>> RDES3_CONTEXT_DESCRIPTOR_SHIFT);
+	ctxt = rdes3 & RDES3_CONTEXT_DESCRIPTOR;
 
 	if (likely(!own && ctxt)) {
 		if ((rdes0 == 0xffffffff) && (rdes1 == 0xffffffff))
@@ -306,12 +289,13 @@ exit:
 }
 
 static void dwmac4_rd_init_rx_desc(struct dma_desc *p, int disable_rx_ic,
-				   int mode, int end, int bfsize)
+				   u8 descriptor_mode, int end, int bfsize)
 {
 	dwmac4_set_rx_owner(p, disable_rx_ic);
 }
 
-static void dwmac4_rd_init_tx_desc(struct dma_desc *p, int mode, int end)
+static void dwmac4_rd_init_tx_desc(struct dma_desc *p, u8 descriptor_mode,
+				   int end)
 {
 	p->des0 = 0;
 	p->des1 = 0;
@@ -320,10 +304,11 @@ static void dwmac4_rd_init_tx_desc(struct dma_desc *p, int mode, int end)
 }
 
 static void dwmac4_rd_prepare_tx_desc(struct dma_desc *p, int is_fs, int len,
-				      bool csum_flag, int mode, bool tx_own,
-				      bool ls, unsigned int tot_pkt_len)
+				      bool csum_flag, u8 descriptor_mode,
+				      bool tx_own, bool ls,
+				      unsigned int tot_pkt_len)
 {
-	unsigned int tdes3 = le32_to_cpu(p->des3);
+	u32 tdes3 = le32_to_cpu(p->des3);
 
 	p->des2 |= cpu_to_le32(len & TDES2_BUFFER1_SIZE_MASK);
 
@@ -333,10 +318,8 @@ static void dwmac4_rd_prepare_tx_desc(struct dma_desc *p, int is_fs, int len,
 	else
 		tdes3 &= ~TDES3_FIRST_DESCRIPTOR;
 
-	if (likely(csum_flag))
-		tdes3 |= (TX_CIC_FULL << TDES3_CHECKSUM_INSERTION_SHIFT);
-	else
-		tdes3 &= ~(TX_CIC_FULL << TDES3_CHECKSUM_INSERTION_SHIFT);
+	tdes3 = u32_replace_bits(tdes3, csum_flag ? TX_CIC_FULL : 0,
+				 TDES3_CHECKSUM_INSERTION_MASK);
 
 	if (ls)
 		tdes3 |= TDES3_LAST_DESCRIPTOR;
@@ -362,21 +345,21 @@ static void dwmac4_rd_prepare_tso_tx_desc(struct dma_desc *p, int is_fs,
 					  bool ls, unsigned int tcphdrlen,
 					  unsigned int tcppayloadlen)
 {
-	unsigned int tdes3 = le32_to_cpu(p->des3);
+	u32 tdes3 = le32_to_cpu(p->des3);
 
 	if (len1)
-		p->des2 |= cpu_to_le32((len1 & TDES2_BUFFER1_SIZE_MASK));
+		p->des2 |= cpu_to_le32(FIELD_PREP(TDES2_BUFFER1_SIZE_MASK,
+						  len1));
 
 	if (len2)
-		p->des2 |= cpu_to_le32((len2 << TDES2_BUFFER2_SIZE_MASK_SHIFT)
-			    & TDES2_BUFFER2_SIZE_MASK);
+		p->des2 |= cpu_to_le32(FIELD_PREP(TDES2_BUFFER2_SIZE_MASK,
+						  len2));
 
 	if (is_fs) {
 		tdes3 |= TDES3_FIRST_DESCRIPTOR |
 			 TDES3_TCP_SEGMENTATION_ENABLE |
-			 ((tcphdrlen << TDES3_HDR_LEN_SHIFT) &
-			  TDES3_SLOT_NUMBER_MASK) |
-			 ((tcppayloadlen & TDES3_TCP_PKT_PAYLOAD_MASK));
+			 FIELD_PREP(TDES3_SLOT_NUMBER_MASK, tcphdrlen) |
+			 FIELD_PREP(TDES3_TCP_PKT_PAYLOAD_MASK, tcppayloadlen);
 	} else {
 		tdes3 &= ~TDES3_FIRST_DESCRIPTOR;
 	}
@@ -400,7 +383,7 @@ static void dwmac4_rd_prepare_tso_tx_desc(struct dma_desc *p, int is_fs,
 	p->des3 = cpu_to_le32(tdes3);
 }
 
-static void dwmac4_release_tx_desc(struct dma_desc *p, int mode)
+static void dwmac4_release_tx_desc(struct dma_desc *p, u8 descriptor_mode)
 {
 	p->des0 = 0;
 	p->des1 = 0;
@@ -446,7 +429,7 @@ static void dwmac4_display_ring(void *head, unsigned int size, bool rx,
 			extp++;
 		}
 	} else if (desc_size == sizeof(struct dma_edesc)) {
-		struct dma_edesc *ep = (struct dma_edesc *)head;
+		struct dma_edesc *ep = dma_desc_to_edesc(head);
 
 		for (i = 0; i < size; i++) {
 			dma_addr = dma_rx_phy + i * sizeof(*ep);
@@ -487,9 +470,8 @@ static void dwmac4_clear(struct dma_desc *p)
 
 static void dwmac4_set_sarc(struct dma_desc *p, u32 sarc_type)
 {
-	sarc_type <<= TDES3_SA_INSERT_CTRL_SHIFT;
-
-	p->des3 |= cpu_to_le32(sarc_type & TDES3_SA_INSERT_CTRL_MASK);
+	p->des3 |= cpu_to_le32(FIELD_PREP(TDES3_SA_INSERT_CTRL_MASK,
+					  sarc_type));
 }
 
 static int set_16kib_bfsize(int mtu)
@@ -511,14 +493,9 @@ static void dwmac4_set_vlan_tag(struct dma_desc *p, u16 tag, u16 inner_tag,
 
 	/* Inner VLAN */
 	if (inner_type) {
-		u32 des = inner_tag << TDES2_IVT_SHIFT;
-
-		des &= TDES2_IVT_MASK;
-		p->des2 = cpu_to_le32(des);
-
-		des = inner_type << TDES3_IVTIR_SHIFT;
-		des &= TDES3_IVTIR_MASK;
-		p->des3 = cpu_to_le32(des | TDES3_IVLTV);
+		p->des2 = cpu_to_le32(FIELD_PREP(TDES2_IVT_MASK, inner_tag));
+		p->des3 = cpu_to_le32(FIELD_PREP(TDES3_IVTIR_MASK, inner_type) |
+				      TDES3_IVLTV);
 	}
 
 	/* Outer VLAN */
@@ -530,8 +507,7 @@ static void dwmac4_set_vlan_tag(struct dma_desc *p, u16 tag, u16 inner_tag,
 
 static void dwmac4_set_vlan(struct dma_desc *p, u32 type)
 {
-	type <<= TDES2_VLAN_TAG_SHIFT;
-	p->des2 |= cpu_to_le32(type & TDES2_VLAN_TAG_MASK);
+	p->des2 |= cpu_to_le32(FIELD_PREP(TDES2_VLAN_TAG_MASK, type));
 }
 
 static void dwmac4_get_rx_header_len(struct dma_desc *p, unsigned int *len)
@@ -561,11 +537,8 @@ static void dwmac4_set_tbs(struct dma_edesc *p, u32 sec, u32 nsec)
 const struct stmmac_desc_ops dwmac4_desc_ops = {
 	.tx_status = dwmac4_wrback_get_tx_status,
 	.rx_status = dwmac4_wrback_get_rx_status,
-	.get_tx_len = dwmac4_rd_get_tx_len,
-	.get_tx_owner = dwmac4_get_tx_owner,
 	.set_tx_owner = dwmac4_set_tx_owner,
 	.set_rx_owner = dwmac4_set_rx_owner,
-	.get_tx_ls = dwmac4_get_tx_ls,
 	.get_rx_vlan_tci = dwmac4_wrback_get_rx_vlan_tci,
 	.get_rx_vlan_valid = dwmac4_wrback_get_rx_vlan_valid,
 	.get_rx_frame_len = dwmac4_wrback_get_rx_frame_len,

@@ -211,7 +211,7 @@ int dlm_slots_assign(struct dlm_ls *ls, int *num_slots, int *slots_size,
 	}
 
 	array_size = max + need;
-	array = kcalloc(array_size, sizeof(*array), GFP_NOFS);
+	array = kzalloc_objs(*array, array_size, GFP_NOFS);
 	if (!array)
 		return -ENOMEM;
 
@@ -299,11 +299,7 @@ static void add_ordered_member(struct dlm_ls *ls, struct dlm_member *new)
 	if (!memb)
 		list_add_tail(newlist, head);
 	else {
-		/* FIXME: can use list macro here */
-		newlist->prev = tmp->prev;
-		newlist->next = tmp;
-		tmp->prev->next = newlist;
-		tmp->prev = newlist;
+		list_add_tail(newlist, tmp);
 	}
 }
 
@@ -327,7 +323,7 @@ static int dlm_add_member(struct dlm_ls *ls, struct dlm_config_node *node)
 	struct dlm_member *memb;
 	int error;
 
-	memb = kzalloc(sizeof(*memb), GFP_NOFS);
+	memb = kzalloc_obj(*memb, GFP_NOFS);
 	if (!memb)
 		return -ENOMEM;
 
@@ -427,7 +423,7 @@ static void make_member_array(struct dlm_ls *ls)
 	}
 
 	ls->ls_total_weight = total;
-	array = kmalloc_array(total, sizeof(*array), GFP_NOFS);
+	array = kmalloc_objs(*array, total, GFP_NOFS);
 	if (!array)
 		return;
 
@@ -478,7 +474,8 @@ static void dlm_lsop_recover_prep(struct dlm_ls *ls)
 	ls->ls_ops->recover_prep(ls->ls_ops_arg);
 }
 
-static void dlm_lsop_recover_slot(struct dlm_ls *ls, struct dlm_member *memb)
+static void dlm_lsop_recover_slot(struct dlm_ls *ls, struct dlm_member *memb,
+				  unsigned int release_recover)
 {
 	struct dlm_slot slot;
 	uint32_t seq;
@@ -495,7 +492,7 @@ static void dlm_lsop_recover_slot(struct dlm_ls *ls, struct dlm_member *memb)
 
 	error = dlm_comm_seq(memb->nodeid, &seq, false);
 
-	if (!error && seq == memb->comm_seq)
+	if (!release_recover && !error && seq == memb->comm_seq)
 		return;
 
 	slot.nodeid = memb->nodeid;
@@ -514,7 +511,7 @@ void dlm_lsop_recover_done(struct dlm_ls *ls)
 		return;
 
 	num = ls->ls_num_nodes;
-	slots = kcalloc(num, sizeof(*slots), GFP_KERNEL);
+	slots = kzalloc_objs(*slots, num);
 	if (!slots)
 		return;
 
@@ -552,6 +549,7 @@ int dlm_recover_members(struct dlm_ls *ls, struct dlm_recover *rv, int *neg_out)
 	struct dlm_member *memb, *safe;
 	struct dlm_config_node *node;
 	int i, error, neg = 0, low = -1;
+	unsigned int release_recover;
 
 	/* previously removed members that we've not finished removing need to
 	 * count as a negative change so the "neg" recovery steps will happen
@@ -569,11 +567,21 @@ int dlm_recover_members(struct dlm_ls *ls, struct dlm_recover *rv, int *neg_out)
 
 	list_for_each_entry_safe(memb, safe, &ls->ls_nodes, list) {
 		node = find_config_node(rv, memb->nodeid);
-		if (node && !node->new)
+		if (!node) {
+			log_error(ls, "remove member %d invalid",
+				  memb->nodeid);
+			return -EFAULT;
+		}
+
+		if (!node->new && !node->gone)
 			continue;
 
-		if (!node) {
-			log_rinfo(ls, "remove member %d", memb->nodeid);
+		release_recover = 0;
+
+		if (node->gone) {
+			release_recover = node->release_recover;
+			log_rinfo(ls, "remove member %d%s", memb->nodeid,
+				  release_recover ? " (release_recover)" : "");
 		} else {
 			/* removed and re-added */
 			log_rinfo(ls, "remove member %d comm_seq %u %u",
@@ -584,13 +592,16 @@ int dlm_recover_members(struct dlm_ls *ls, struct dlm_recover *rv, int *neg_out)
 		list_move(&memb->list, &ls->ls_nodes_gone);
 		remove_remote_member(memb->nodeid);
 		ls->ls_num_nodes--;
-		dlm_lsop_recover_slot(ls, memb);
+		dlm_lsop_recover_slot(ls, memb, release_recover);
 	}
 
 	/* add new members to ls_nodes */
 
 	for (i = 0; i < rv->nodes_count; i++) {
 		node = &rv->nodes[i];
+		if (node->gone)
+			continue;
+
 		if (dlm_is_member(ls, node->nodeid))
 			continue;
 		error = dlm_add_member(ls, node);
@@ -715,7 +726,7 @@ int dlm_ls_start(struct dlm_ls *ls)
 	struct dlm_config_node *nodes = NULL;
 	int error, count;
 
-	rv = kzalloc(sizeof(*rv), GFP_NOFS);
+	rv = kzalloc_obj(*rv, GFP_NOFS);
 	if (!rv)
 		return -ENOMEM;
 

@@ -181,6 +181,7 @@ void optc2_set_odm_bypass(struct timing_generator *optc,
 void optc2_set_odm_combine(struct timing_generator *optc, int *opp_id, int opp_cnt,
 		int segment_width, int last_segment_width)
 {
+	(void)last_segment_width;
 	struct optc *optc1 = DCN10TG_FROM_TG(optc);
 	uint32_t memory_mask;
 
@@ -261,6 +262,7 @@ static void optc2_align_vblanks(
 	uint8_t master_clock_divider,
 	uint8_t slave_clock_divider)
 {
+	(void)slave_clock_divider;
 	/* accessing slave OTG registers */
 	struct optc *optc1 = DCN10TG_FROM_TG(optc_slave);
 
@@ -303,8 +305,8 @@ static void optc2_align_vblanks(
 	L = div_u64(L, master_h_total);
 	L = div_u64(L, slave_pixel_clock_100Hz);
 	XY = div_u64(L, p);
-	Y = master_v_active - XY - 1;
-	X = div_u64(((XY + 1) * p - L) * master_h_total, p * master_clock_divider);
+	Y = (uint32_t)(master_v_active - XY - 1);
+	X = (uint32_t)div_u64(((XY + 1) * p - L) * master_h_total, p * master_clock_divider);
 
 	/*
 	 * set master OTG to unlock when V/H

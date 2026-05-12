@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-15 Advanced Micro Devices, Inc.
+ * Copyright 2012-2026 Advanced Micro Devices, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -185,6 +185,10 @@ struct dc_panel_patch {
 	unsigned int wait_after_dpcd_poweroff_ms;
 };
 
+/**
+ * struct dc_edid_caps - Capabilities read from EDID.
+ * @analog: Whether the monitor is analog. Used by DVI-I handling.
+ */
 struct dc_edid_caps {
 	/* sink identification */
 	uint16_t manufacturer_id;
@@ -201,6 +205,8 @@ struct dc_edid_caps {
 	uint32_t audio_latency;
 	uint32_t video_latency;
 
+	unsigned char freesync_vcp_code;
+
 	uint8_t qs_bit;
 	uint8_t qy_bit;
 
@@ -212,6 +218,8 @@ struct dc_edid_caps {
 	bool edid_hdmi;
 	bool hdr_supported;
 	bool rr_capable;
+	bool scdc_present;
+	bool analog;
 
 	struct dc_panel_patch panel_patch;
 };
@@ -269,6 +277,7 @@ enum dc_timing_source {
 	TIMING_SOURCE_CV,
 	TIMING_SOURCE_TV,
 	TIMING_SOURCE_HDMI_VIC,
+	TIMING_SOURCE_CEA_VIC,
 
 	/* implicitly specified by display device, still safe but less important*/
 	TIMING_SOURCE_DEFAULT,
@@ -347,7 +356,8 @@ enum dc_connection_type {
 	dc_connection_none,
 	dc_connection_single,
 	dc_connection_mst_branch,
-	dc_connection_sst_branch
+	dc_connection_sst_branch,
+	dc_connection_analog_load
 };
 
 struct dc_csc_adjustments {
@@ -780,6 +790,36 @@ struct dc_clock_config {
 	uint32_t current_clock_khz;/*current clock in use*/
 };
 
+enum hubp_dmdata_mode {
+	DMDATA_SW_MODE,
+	DMDATA_HW_MODE
+};
+
+struct dc_dmdata_attributes {
+	/* Specifies whether dynamic meta data will be updated by software
+	 * or has to be fetched by hardware (DMA mode)
+	 */
+	enum hubp_dmdata_mode dmdata_mode;
+	/* Specifies if current dynamic meta data is to be used only for the current frame */
+	bool dmdata_repeat;
+	/* Specifies the size of Dynamic Metadata surface in byte.  Size of 0 means no Dynamic metadata is fetched */
+	uint32_t dmdata_size;
+	/* Specifies if a new dynamic meta data should be fetched for an upcoming frame */
+	bool dmdata_updated;
+	/* If hardware mode is used, the base address where DMDATA surface is located */
+	PHYSICAL_ADDRESS_LOC address;
+	/* Specifies whether QOS level will be provided by TTU or it will come from DMDATA_QOS_LEVEL */
+	bool dmdata_qos_mode;
+	/* If qos_mode = 1, this is the QOS value to be used: */
+	uint32_t dmdata_qos_level;
+	/* Specifies the value in unit of REFCLK cycles to be added to the
+	 * current time to produce the Amortized deadline for Dynamic Metadata chunk request
+	 */
+	uint32_t dmdata_dl_delta;
+	/* An unbounded array of uint32s, represents software dmdata to be loaded */
+	uint32_t *dmdata_sw_data;
+};
+
 struct hw_asic_id {
 	uint32_t chip_id;
 	uint32_t chip_family;
@@ -934,6 +974,12 @@ enum dc_psr_version {
 	DC_PSR_VERSION_UNSUPPORTED		= 0xFFFFFFFF,
 };
 
+enum dc_replay_version {
+	DC_FREESYNC_REPLAY = 0,
+	DC_VESA_PANEL_REPLAY = 1,
+	DC_REPLAY_VERSION_UNSUPPORTED = 0XFF,
+};
+
 /* Possible values of display_endpoint_id.endpoint */
 enum display_endpoint_type {
 	DISPLAY_ENDPOINT_PHY = 0, /* Physical connector. */
@@ -948,6 +994,13 @@ enum display_endpoint_type {
 struct display_endpoint_id {
 	struct graphics_object_id link_id;
 	enum display_endpoint_type ep_type;
+};
+
+enum dc_panel_type {
+	PANEL_TYPE_NONE = 0, // UNKONWN, not determined yet
+	PANEL_TYPE_LCD = 1,
+	PANEL_TYPE_OLED = 2,
+	PANEL_TYPE_MINILED = 3,
 };
 
 enum backlight_control_type {
@@ -1065,6 +1118,7 @@ enum replay_coasting_vtotal_type {
 	PR_COASTING_TYPE_STATIC,
 	PR_COASTING_TYPE_FULL_SCREEN_VIDEO,
 	PR_COASTING_TYPE_TEST_HARNESS,
+	PR_COASTING_TYPE_VIDEO_CONFERENCING_V2,
 	PR_COASTING_TYPE_NUM,
 };
 
@@ -1120,7 +1174,22 @@ union replay_low_refresh_rate_enable_options {
 	unsigned int raw;
 };
 
+union replay_optimization {
+	struct {
+		//BIT[0-1]: Replay Teams Optimization
+		unsigned int TEAMS_OPTIMIZATION_VER_1           :1;
+		unsigned int TEAMS_OPTIMIZATION_VER_2           :1;
+		//BIT[2]: Replay Live Capture with CVT
+		unsigned int LIVE_CAPTURE_WITH_CVT              :1;
+		unsigned int RESERVED_3                         :1;
+	} bits;
+
+	unsigned int raw;
+};
+
 struct replay_config {
+	/* Replay version */
+	enum dc_replay_version replay_version;
 	/* Replay feature is supported */
 	bool replay_supported;
 	/* Replay caps support DPCD & EDID caps*/
@@ -1155,6 +1224,14 @@ struct replay_config {
 	enum dc_alpm_mode alpm_mode;
 	/* Replay full screen only */
 	bool os_request_force_ffu;
+	/* Replay optimization */
+	union replay_optimization replay_optimization;
+	/* Replay sub feature Frame Skipping is supported */
+	bool frame_skip_supported;
+	/* Replay Received Frame Skipping Error HPD. */
+	bool received_frame_skipping_error_hpd;
+	/* Live capture with CVT is activated */
+	bool live_capture_with_cvt_activated;
 };
 
 /* Replay feature flags*/
@@ -1177,6 +1254,10 @@ struct replay_settings {
 	uint32_t coasting_vtotal_table[PR_COASTING_TYPE_NUM];
 	/* Defer Update Coasting vtotal table */
 	uint32_t defer_update_coasting_vtotal_table[PR_COASTING_TYPE_NUM];
+	/* Skip frame number table */
+	uint32_t frame_skip_number_table[PR_COASTING_TYPE_NUM];
+	/* Defer skip frame number table */
+	uint32_t defer_frame_skip_number_table[PR_COASTING_TYPE_NUM];
 	/* Maximum link off frame count */
 	uint32_t link_off_frame_count;
 	/* Replay pseudo vtotal for low refresh rate*/
@@ -1185,6 +1266,10 @@ struct replay_settings {
 	uint16_t last_pseudo_vtotal;
 	/* Replay desync error */
 	uint32_t replay_desync_error_fail_count;
+	/* The frame skip number dal send to DMUB */
+	uint16_t frame_skip_number;
+	/* Current Panel Replay events */
+	uint32_t replay_events;
 };
 
 /* To split out "global" and "per-panel" config settings.
@@ -1209,7 +1294,7 @@ struct dc_panel_config {
 		unsigned int max_nonboost_brightness_millinits;
 		unsigned int min_brightness_millinits;
 	} nits_brightness;
-	/* PSR */
+	/* PSR/Replay */
 	struct psr {
 		bool disable_psr;
 		bool disallow_psrsu;
@@ -1217,7 +1302,10 @@ struct dc_panel_config {
 		bool rc_disable;
 		bool rc_allow_static_screen;
 		bool rc_allow_fullscreen_VPB;
+		bool read_psrcap_again;
 		unsigned int replay_enable_option;
+		bool enable_frame_skipping;
+		bool enable_teams_optimization;
 	} psr;
 	/* ABM */
 	struct varib {
@@ -1234,6 +1322,31 @@ struct dc_panel_config {
 	struct ilr {
 		bool optimize_edp_link_rate; /* eDP ILR */
 	} ilr;
+	/* Adaptive VariBright*/
+	struct adaptive_vb {
+		bool disable_adaptive_vb;
+		unsigned int default_abm_vb_levels;        // default value = 0xDCAA6414
+		unsigned int default_cacp_vb_levels;
+		unsigned int default_abm_vb_hdr_levels;    // default value = 0xB4805A40
+		unsigned int default_cacp_vb_hdr_levels;
+		unsigned int abm_scaling_factors;          // default value = 0x23210012
+		unsigned int cacp_scaling_factors;
+		unsigned int battery_life_configures;      // default value = 0x0A141E
+		unsigned int abm_backlight_adaptive_pwl_1; // default value = 0x6A4F7244
+		unsigned int abm_backlight_adaptive_pwl_2; // default value = 0x4C615659
+		unsigned int abm_backlight_adaptive_pwl_3; // default value = 0x0064
+		unsigned int cacp_backlight_adaptive_pwl_1;
+		unsigned int cacp_backlight_adaptive_pwl_2;
+		unsigned int cacp_backlight_adaptive_pwl_3;
+	} adaptive_vb;
+	/* Ramless Idle Opt*/
+	struct rio {
+		bool disable_rio;
+	} rio;
+};
+
+struct mccs_caps {
+	bool freesync_supported;
 };
 
 #define MAX_SINKS_PER_LINK 4
@@ -1275,6 +1388,7 @@ enum dc_cm2_gpu_mem_layout {
 
 enum dc_cm2_gpu_mem_pixel_component_order {
 	DC_CM2_GPU_MEM_PIXEL_COMPONENT_ORDER_RGBA,
+	DC_CM2_GPU_MEM_PIXEL_COMPONENT_ORDER_BGRA
 };
 
 enum dc_cm2_gpu_mem_format {
@@ -1296,6 +1410,9 @@ struct dc_cm2_gpu_mem_format_parameters {
 
 enum dc_cm2_gpu_mem_size {
 	DC_CM2_GPU_MEM_SIZE_171717,
+	DC_CM2_GPU_MEM_SIZE_333333,
+	DC_CM2_GPU_MEM_SIZE_454545,
+	DC_CM2_GPU_MEM_SIZE_656565,
 	DC_CM2_GPU_MEM_SIZE_TRANSFORMED,
 };
 

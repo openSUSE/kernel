@@ -2,10 +2,21 @@ menu "SoC selection"
 
 config ARCH_ANDES
 	bool "Andes SoCs"
-	depends on MMU && !XIP_KERNEL
+	depends on MMU
 	select ERRATA_ANDES
 	help
 	  This enables support for Andes SoC platform hardware.
+
+config ARCH_ANLOGIC
+	bool "Anlogic SoCs"
+	help
+	  This enables support for Anlogic SoC platform hardware.
+
+config ARCH_ESWIN
+	bool "ESWIN SoCs"
+	help
+	  This enables support for ESWIN SoC platform hardware,
+	  including the ESWIN EIC7700 SoC.
 
 config ARCH_MICROCHIP_POLARFIRE
 	def_bool ARCH_MICROCHIP
@@ -22,7 +33,7 @@ config ARCH_RENESAS
 
 config ARCH_SIFIVE
 	bool "SiFive SoCs"
-	select ERRATA_SIFIVE if !XIP_KERNEL
+	select ERRATA_SIFIVE
 	help
 	  This enables support for SiFive SoC platform hardware.
 
@@ -50,16 +61,24 @@ config SOC_STARFIVE
 
 config ARCH_SUNXI
 	bool "Allwinner sun20i SoCs"
-	depends on MMU && !XIP_KERNEL
+	depends on MMU
 	select ERRATA_THEAD
 	select SUN4I_TIMER
 	help
 	  This enables support for Allwinner sun20i platform hardware,
 	  including boards based on the D1 and D1s SoCs.
 
+config ARCH_TENSTORRENT
+	bool "Tenstorrent SoCs"
+	help
+	  This enables support for Tenstorrent SoC platforms.
+	  Current support is for Blackhole P100 and P150 PCIe cards.
+	  The Blackhole SoC contains four RISC-V CPU tiles each
+	  consisting of 4x SiFive X280 cores.
+
 config ARCH_THEAD
 	bool "T-HEAD RISC-V SoCs"
-	depends on MMU && !XIP_KERNEL
+	depends on MMU
 	select ERRATA_THEAD
 	select PM_GENERIC_DOMAINS if PM
 	help

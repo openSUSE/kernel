@@ -9,6 +9,7 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <linux/export.h>
 #include <linux/stddef.h>
 #include <linux/module.h>
 #include <linux/io.h>
@@ -373,7 +374,7 @@ static int gameport_queue_event(void *object, struct module *owner,
 		}
 	}
 
-	event = kmalloc(sizeof(*event), GFP_ATOMIC);
+	event = kmalloc_obj(*event, GFP_ATOMIC);
 	if (!event) {
 		pr_err("Not enough memory to queue event %d\n", event_type);
 		retval = -ENOMEM;

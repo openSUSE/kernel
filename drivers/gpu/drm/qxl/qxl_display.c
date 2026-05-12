@@ -34,9 +34,12 @@
 #include <drm/drm_framebuffer.h>
 #include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_plane_helper.h>
+#include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_simple_kms_helper.h>
 #include <drm/drm_gem_atomic_helper.h>
+#include <drm/drm_vblank.h>
+#include <drm/drm_vblank_helper.h>
 
 #include "qxl_drv.h"
 #include "qxl_object.h"
@@ -55,9 +58,8 @@ static int qxl_alloc_client_monitors_config(struct qxl_device *qdev,
 		qdev->client_monitors_config = NULL;
 	}
 	if (!qdev->client_monitors_config) {
-		qdev->client_monitors_config = kzalloc(
-				struct_size(qdev->client_monitors_config,
-				heads, count), GFP_KERNEL);
+		qdev->client_monitors_config = kzalloc_flex(*qdev->client_monitors_config,
+							    heads, count);
 		if (!qdev->client_monitors_config)
 			return -ENOMEM;
 	}
@@ -380,9 +382,27 @@ static void qxl_crtc_update_monitors_config(struct drm_crtc *crtc,
 }
 
 static void qxl_crtc_atomic_flush(struct drm_crtc *crtc,
-				  struct drm_atomic_state *state)
+				  struct drm_atomic_commit *state)
 {
+	struct drm_device *dev = crtc->dev;
+	struct drm_crtc_state *crtc_state = drm_atomic_get_new_crtc_state(state, crtc);
+	struct drm_pending_vblank_event *event;
+
 	qxl_crtc_update_monitors_config(crtc, "flush");
+
+	spin_lock_irq(&dev->event_lock);
+
+	event = crtc_state->event;
+	crtc_state->event = NULL;
+
+	if (event) {
+		if (drm_crtc_vblank_get(crtc) == 0)
+			drm_crtc_arm_vblank_event(crtc, event);
+		else
+			drm_crtc_send_vblank_event(crtc, event);
+	}
+
+	spin_unlock_irq(&dev->event_lock);
 }
 
 static void qxl_crtc_destroy(struct drm_crtc *crtc)
@@ -401,6 +421,7 @@ static const struct drm_crtc_funcs qxl_crtc_funcs = {
 	.reset = drm_atomic_helper_crtc_reset,
 	.atomic_duplicate_state = drm_atomic_helper_crtc_duplicate_state,
 	.atomic_destroy_state = drm_atomic_helper_crtc_destroy_state,
+	DRM_CRTC_VBLANK_TIMER_FUNCS,
 };
 
 static int qxl_framebuffer_surface_dirty(struct drm_framebuffer *fb,
@@ -452,14 +473,18 @@ static const struct drm_framebuffer_funcs qxl_fb_funcs = {
 };
 
 static void qxl_crtc_atomic_enable(struct drm_crtc *crtc,
-				   struct drm_atomic_state *state)
+				   struct drm_atomic_commit *state)
 {
 	qxl_crtc_update_monitors_config(crtc, "enable");
+
+	drm_crtc_vblank_on(crtc);
 }
 
 static void qxl_crtc_atomic_disable(struct drm_crtc *crtc,
-				    struct drm_atomic_state *state)
+				    struct drm_atomic_commit *state)
 {
+	drm_crtc_vblank_off(crtc);
+
 	qxl_crtc_update_monitors_config(crtc, "disable");
 }
 
@@ -470,7 +495,7 @@ static const struct drm_crtc_helper_funcs qxl_crtc_helper_funcs = {
 };
 
 static int qxl_primary_atomic_check(struct drm_plane *plane,
-				    struct drm_atomic_state *state)
+				    struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *new_plane_state = drm_atomic_get_new_plane_state(state,
 										 plane);
@@ -637,7 +662,7 @@ static void qxl_free_cursor(struct qxl_bo *cursor_bo)
 }
 
 static void qxl_primary_atomic_update(struct drm_plane *plane,
-				      struct drm_atomic_state *state)
+				      struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *new_state = drm_atomic_get_new_plane_state(state,
 									   plane);
@@ -670,7 +695,7 @@ static void qxl_primary_atomic_update(struct drm_plane *plane,
 }
 
 static void qxl_primary_atomic_disable(struct drm_plane *plane,
-				       struct drm_atomic_state *state)
+				       struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *old_state = drm_atomic_get_old_plane_state(state,
 									   plane);
@@ -687,7 +712,7 @@ static void qxl_primary_atomic_disable(struct drm_plane *plane,
 }
 
 static void qxl_cursor_atomic_update(struct drm_plane *plane,
-				     struct drm_atomic_state *state)
+				     struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *old_state = drm_atomic_get_old_plane_state(state,
 									   plane);
@@ -704,7 +729,7 @@ static void qxl_cursor_atomic_update(struct drm_plane *plane,
 }
 
 static void qxl_cursor_atomic_disable(struct drm_plane *plane,
-				      struct drm_atomic_state *state)
+				      struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *old_state = drm_atomic_get_old_plane_state(state,
 									   plane);
@@ -982,7 +1007,7 @@ static int qdev_crtc_init(struct drm_device *dev, int crtc_id)
 	struct qxl_device *qdev = to_qxl(dev);
 	int r;
 
-	qxl_crtc = kzalloc(sizeof(struct qxl_crtc), GFP_KERNEL);
+	qxl_crtc = kzalloc_obj(struct qxl_crtc);
 	if (!qxl_crtc)
 		return -ENOMEM;
 
@@ -1133,7 +1158,7 @@ static int qdev_output_init(struct drm_device *dev, int num_output)
 	struct drm_encoder *encoder;
 	int ret;
 
-	qxl_output = kzalloc(sizeof(struct qxl_output), GFP_KERNEL);
+	qxl_output = kzalloc_obj(struct qxl_output);
 	if (!qxl_output)
 		return -ENOMEM;
 
@@ -1215,8 +1240,7 @@ int qxl_create_monitors_object(struct qxl_device *qdev)
 		qxl_bo_physical_address(qdev, qdev->monitors_config_bo, 0);
 
 	memset(qdev->monitors_config, 0, monitors_config_size);
-	qdev->dumb_heads = kcalloc(qxl_num_crtc, sizeof(qdev->dumb_heads[0]),
-				   GFP_KERNEL);
+	qdev->dumb_heads = kzalloc_objs(qdev->dumb_heads[0], qxl_num_crtc);
 	if (!qdev->dumb_heads) {
 		qxl_destroy_monitors_object(qdev);
 		return -ENOMEM;
@@ -1275,6 +1299,10 @@ int qxl_modeset_init(struct qxl_device *qdev)
 	}
 
 	qxl_display_read_client_monitors_config(qdev);
+
+	ret = drm_vblank_init(&qdev->ddev, qxl_num_crtc);
+	if (ret)
+		return ret;
 
 	drm_mode_config_reset(&qdev->ddev);
 	return 0;

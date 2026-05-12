@@ -99,7 +99,7 @@ long vfio_df_ioctl_bind_iommufd(struct vfio_device_file *df,
 		return ret;
 	if (user_size < minsz)
 		return -EINVAL;
-	ret = copy_struct_from_user(&bind, minsz, arg, user_size);
+	ret = copy_struct_from_user(&bind, sizeof(bind), arg, user_size);
 	if (ret)
 		return ret;
 
@@ -293,14 +293,8 @@ int vfio_df_ioctl_detach_pt(struct vfio_device_file *df,
 	return 0;
 }
 
-static char *vfio_device_devnode(const struct device *dev, umode_t *mode)
+int vfio_cdev_init(void)
 {
-	return kasprintf(GFP_KERNEL, "vfio/devices/%s", dev_name(dev));
-}
-
-int vfio_cdev_init(struct class *device_class)
-{
-	device_class->devnode = vfio_device_devnode;
 	return alloc_chrdev_region(&device_devt, 0,
 				   MINORMASK + 1, "vfio-dev");
 }

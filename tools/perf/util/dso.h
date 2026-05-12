@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <linux/bitops.h>
 #include "build-id.h"
+#include "debuginfo.h"
 #include "mutex.h"
 #include <internal/rc_check.h>
 
@@ -159,12 +160,11 @@ enum dso_load_errno {
 	__DSO_LOAD_ERRNO__END,
 };
 
-#define DSO__SWAP(dso, type, val)				\
+#define DSO_SWAP_TYPE__SWAP(swap_type, type, val)		\
 ({								\
 	type ____r = val;					\
-	enum dso_swap_type ___dst = dso__needs_swap(dso);	\
-	BUG_ON(___dst == DSO_SWAP__UNSET);			\
-	if (___dst == DSO_SWAP__YES) {				\
+	BUG_ON(swap_type == DSO_SWAP__UNSET);			\
+	if (swap_type == DSO_SWAP__YES) {			\
 		switch (sizeof(____r)) {			\
 		case 2:						\
 			____r = bswap_16(val);			\
@@ -181,6 +181,8 @@ enum dso_load_errno {
 	}							\
 	____r;							\
 })
+
+#define DSO__SWAP(dso, type, val) DSO_SWAP_TYPE__SWAP(dso__needs_swap(dso), type, val)
 
 #define DSO__DATA_CACHE_SIZE 4096
 #define DSO__DATA_CACHE_MASK ~(DSO__DATA_CACHE_SIZE - 1)
@@ -267,10 +269,8 @@ DECLARE_RC_STRUCT(dso) {
 	const char	 *short_name;
 	const char	 *long_name;
 	void		 *a2l;
+	void		 *libdw;
 	char		 *symsrc_filename;
-#if defined(__powerpc__)
-	void		*dwfl;			/* DWARF debug info */
-#endif
 	struct nsinfo	*nsinfo;
 	struct auxtrace_cache *auxtrace_cache;
 	union { /* Tool specific area */
@@ -299,6 +299,7 @@ DECLARE_RC_STRUCT(dso) {
 	u8		 hit:1;
 	u8		 annotate_warned:1;
 	u8		 auxtrace_warned:1;
+	u8		 debuginfo_warned:1;
 	u8		 short_name_allocated:1;
 	u8		 long_name_allocated:1;
 	u8		 is_64_bit:1;
@@ -332,6 +333,26 @@ static inline void dso__set_a2l(struct dso *dso, void *val)
 	RC_CHK_ACCESS(dso)->a2l = val;
 }
 
+static inline void *dso__libdw(const struct dso *dso)
+{
+	return RC_CHK_ACCESS(dso)->libdw;
+}
+
+static inline void dso__set_libdw(struct dso *dso, void *val)
+{
+	RC_CHK_ACCESS(dso)->libdw = val;
+}
+
+struct Dwfl;
+#ifdef HAVE_LIBDW_SUPPORT
+struct Dwfl *dso__libdw_dwfl(struct dso *dso);
+#else
+static inline struct Dwfl *dso__libdw_dwfl(struct dso *dso __maybe_unused)
+{
+	return NULL;
+}
+#endif
+
 static inline unsigned int dso__a2l_fails(const struct dso *dso)
 {
 	return RC_CHK_ACCESS(dso)->a2l_fails;
@@ -360,6 +381,16 @@ static inline bool dso__annotate_warned(const struct dso *dso)
 static inline void dso__set_annotate_warned(struct dso *dso)
 {
 	RC_CHK_ACCESS(dso)->annotate_warned = 1;
+}
+
+static inline bool dso__debuginfo_warned(const struct dso *dso)
+{
+	return RC_CHK_ACCESS(dso)->debuginfo_warned;
+}
+
+static inline void dso__set_debuginfo_warned(struct dso *dso)
+{
+	RC_CHK_ACCESS(dso)->debuginfo_warned = 1;
 }
 
 static inline bool dso__auxtrace_warned(const struct dso *dso)
@@ -754,7 +785,7 @@ int dso__kernel_module_get_build_id(struct dso *dso, const char *root_dir);
 
 char dso__symtab_origin(const struct dso *dso);
 int dso__read_binary_type_filename(const struct dso *dso, enum dso_binary_type type,
-				   char *root_dir, char *filename, size_t size);
+				   const char *root_dir, char *filename, size_t size);
 bool is_kernel_module(const char *pathname, int cpumode);
 bool dso__needs_decompress(struct dso *dso);
 int dso__decompress_kmodule_fd(struct dso *dso, const char *name);
@@ -835,7 +866,8 @@ int dso__data_file_size(struct dso *dso, struct machine *machine);
 off_t dso__data_size(struct dso *dso, struct machine *machine);
 ssize_t dso__data_read_offset(struct dso *dso, struct machine *machine,
 			      u64 offset, u8 *data, ssize_t size);
-uint16_t dso__e_machine(struct dso *dso, struct machine *machine);
+uint16_t dso__read_e_machine(struct dso *optional_dso, int fd, uint32_t *e_flags);
+uint16_t dso__e_machine(struct dso *dso, struct machine *machine, uint32_t *e_flags);
 ssize_t dso__data_read_addr(struct dso *dso, struct map *map,
 			    struct machine *machine, u64 addr,
 			    u8 *data, ssize_t size);
@@ -902,5 +934,11 @@ u64 dso__findnew_global_type(struct dso *dso, u64 addr, u64 offset);
 /* Check if dso name is of format "/tmp/perf-%d.map" */
 bool perf_pid_map_tid(const char *dso_name, int *tid);
 bool is_perf_pid_map_name(const char *dso_name);
+
+struct debuginfo *dso__debuginfo(struct dso *dso);
+
+const u8 *dso__read_symbol(struct dso *dso, const char *symfs_filename,
+			   const struct map *map, const struct symbol *sym,
+			   u8 **out_buf, u64 *out_buf_len, bool *is_64bit);
 
 #endif /* __PERF_DSO */

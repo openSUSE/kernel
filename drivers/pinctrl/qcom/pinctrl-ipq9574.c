@@ -32,7 +32,6 @@
 		.io_reg = 0x4 + REG_SIZE * id,		\
 		.intr_cfg_reg = 0x8 + REG_SIZE * id,		\
 		.intr_status_reg = 0xc + REG_SIZE * id,	\
-		.intr_target_reg = 0x8 + REG_SIZE * id,	\
 		.mux_bit = 2,			\
 		.pull_bit = 0,			\
 		.drv_bit = 6,			\
@@ -651,7 +650,7 @@ static const struct pinfunction ipq9574_functions[] = {
 	MSM_PIN_FUNCTION(dwc_ddrphy),
 	MSM_PIN_FUNCTION(gcc_plltest),
 	MSM_PIN_FUNCTION(gcc_tlmm),
-	MSM_PIN_FUNCTION(gpio),
+	MSM_GPIO_PIN_FUNCTION(gpio),
 	MSM_PIN_FUNCTION(mac),
 	MSM_PIN_FUNCTION(mdc),
 	MSM_PIN_FUNCTION(mdio),

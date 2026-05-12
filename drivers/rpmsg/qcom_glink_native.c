@@ -227,7 +227,7 @@ static struct glink_channel *qcom_glink_alloc_channel(struct qcom_glink *glink,
 {
 	struct glink_channel *channel;
 
-	channel = kzalloc(sizeof(*channel), GFP_KERNEL);
+	channel = kzalloc_obj(*channel);
 	if (!channel)
 		return ERR_PTR(-ENOMEM);
 
@@ -754,7 +754,7 @@ qcom_glink_alloc_intent(struct qcom_glink *glink,
 	int ret;
 	unsigned long flags;
 
-	intent = kzalloc(sizeof(*intent), GFP_KERNEL);
+	intent = kzalloc_obj(*intent);
 	if (!intent)
 		return NULL;
 
@@ -875,7 +875,7 @@ static int qcom_glink_rx_defer(struct qcom_glink *glink, size_t extra)
 		return -ENXIO;
 	}
 
-	dcmd = kzalloc(struct_size(dcmd, data, extra), GFP_ATOMIC);
+	dcmd = kzalloc_flex(*dcmd, data, extra, GFP_ATOMIC);
 	if (!dcmd)
 		return -ENOMEM;
 
@@ -945,7 +945,7 @@ static int qcom_glink_rx_data(struct qcom_glink *glink, size_t avail)
 	if (glink->intentless) {
 		/* Might have an ongoing, fragmented, message to append */
 		if (!channel->buf) {
-			intent = kzalloc(sizeof(*intent), GFP_ATOMIC);
+			intent = kzalloc_obj(*intent, GFP_ATOMIC);
 			if (!intent)
 				return -ENOMEM;
 
@@ -1070,7 +1070,7 @@ static void qcom_glink_handle_intent(struct qcom_glink *glink,
 				       count > 0 ? msg->intents[0].iid : 0);
 
 	for (i = 0; i < count; ++i) {
-		intent = kzalloc(sizeof(*intent), GFP_ATOMIC);
+		intent = kzalloc_obj(*intent, GFP_ATOMIC);
 		if (!intent)
 			break;
 
@@ -1395,6 +1395,19 @@ static int qcom_glink_announce_create(struct rpmsg_device *rpdev)
 	return 0;
 }
 
+static void qcom_glink_remove_rpmsg_device(struct qcom_glink *glink, struct glink_channel *channel)
+{
+	struct rpmsg_channel_info chinfo;
+
+	if (channel->rpdev) {
+		strscpy_pad(chinfo.name, channel->name, sizeof(chinfo.name));
+		chinfo.src = RPMSG_ADDR_ANY;
+		chinfo.dst = RPMSG_ADDR_ANY;
+		rpmsg_unregister_device(glink->dev, &chinfo);
+	}
+	channel->rpdev = NULL;
+}
+
 static void qcom_glink_destroy_ept(struct rpmsg_endpoint *ept)
 {
 	struct glink_channel *channel = to_glink_channel(ept);
@@ -1406,7 +1419,7 @@ static void qcom_glink_destroy_ept(struct rpmsg_endpoint *ept)
 	spin_unlock_irqrestore(&channel->recv_lock, flags);
 
 	/* Decouple the potential rpdev from the channel */
-	channel->rpdev = NULL;
+	qcom_glink_remove_rpmsg_device(glink, channel);
 
 	qcom_glink_send_close_req(glink, channel);
 }
@@ -1461,7 +1474,7 @@ unlock:
 }
 
 static int __qcom_glink_send(struct glink_channel *channel,
-			     void *data, int len, bool wait)
+			     const void *data, int len, bool wait)
 {
 	struct qcom_glink *glink = channel->glink;
 	struct glink_core_rx_intent *intent = NULL;
@@ -1540,28 +1553,31 @@ static int __qcom_glink_send(struct glink_channel *channel,
 	return 0;
 }
 
-static int qcom_glink_send(struct rpmsg_endpoint *ept, void *data, int len)
+static int qcom_glink_send(struct rpmsg_endpoint *ept, const void *data, int len)
 {
 	struct glink_channel *channel = to_glink_channel(ept);
 
 	return __qcom_glink_send(channel, data, len, true);
 }
 
-static int qcom_glink_trysend(struct rpmsg_endpoint *ept, void *data, int len)
+static int qcom_glink_trysend(struct rpmsg_endpoint *ept, const void *data,
+			      int len)
 {
 	struct glink_channel *channel = to_glink_channel(ept);
 
 	return __qcom_glink_send(channel, data, len, false);
 }
 
-static int qcom_glink_sendto(struct rpmsg_endpoint *ept, void *data, int len, u32 dst)
+static int qcom_glink_sendto(struct rpmsg_endpoint *ept, const void *data,
+			     int len, u32 dst)
 {
 	struct glink_channel *channel = to_glink_channel(ept);
 
 	return __qcom_glink_send(channel, data, len, true);
 }
 
-static int qcom_glink_trysendto(struct rpmsg_endpoint *ept, void *data, int len, u32 dst)
+static int qcom_glink_trysendto(struct rpmsg_endpoint *ept, const void *data,
+				int len, u32 dst)
 {
 	struct glink_channel *channel = to_glink_channel(ept);
 
@@ -1656,14 +1672,14 @@ static int qcom_glink_rx_open(struct qcom_glink *glink, unsigned int rcid,
 	complete_all(&channel->open_req);
 
 	if (create_device) {
-		rpdev = kzalloc(sizeof(*rpdev), GFP_KERNEL);
+		rpdev = kzalloc_obj(*rpdev);
 		if (!rpdev) {
 			ret = -ENOMEM;
 			goto rcid_remove;
 		}
 
 		rpdev->ept = &channel->ept;
-		strscpy_pad(rpdev->id.name, name, RPMSG_NAME_SIZE);
+		strscpy(rpdev->id.name, name);
 		rpdev->src = RPMSG_ADDR_ANY;
 		rpdev->dst = RPMSG_ADDR_ANY;
 		rpdev->ops = &glink_device_ops;
@@ -1697,7 +1713,6 @@ free_channel:
 
 static void qcom_glink_rx_close(struct qcom_glink *glink, unsigned int rcid)
 {
-	struct rpmsg_channel_info chinfo;
 	struct glink_channel *channel;
 	unsigned long flags;
 
@@ -1713,14 +1728,7 @@ static void qcom_glink_rx_close(struct qcom_glink *glink, unsigned int rcid)
 	/* cancel pending rx_done work */
 	cancel_work_sync(&channel->intent_work);
 
-	if (channel->rpdev) {
-		strscpy_pad(chinfo.name, channel->name, sizeof(chinfo.name));
-		chinfo.src = RPMSG_ADDR_ANY;
-		chinfo.dst = RPMSG_ADDR_ANY;
-
-		rpmsg_unregister_device(glink->dev, &chinfo);
-	}
-	channel->rpdev = NULL;
+	qcom_glink_remove_rpmsg_device(glink, channel);
 
 	qcom_glink_send_close_ack(glink, channel);
 
@@ -1734,7 +1742,6 @@ static void qcom_glink_rx_close(struct qcom_glink *glink, unsigned int rcid)
 
 static void qcom_glink_rx_close_ack(struct qcom_glink *glink, unsigned int lcid)
 {
-	struct rpmsg_channel_info chinfo;
 	struct glink_channel *channel;
 	unsigned long flags;
 
@@ -1756,14 +1763,7 @@ static void qcom_glink_rx_close_ack(struct qcom_glink *glink, unsigned int lcid)
 	spin_unlock_irqrestore(&glink->idr_lock, flags);
 
 	/* Decouple the potential rpdev from the channel */
-	if (channel->rpdev) {
-		strscpy(chinfo.name, channel->name, sizeof(chinfo.name));
-		chinfo.src = RPMSG_ADDR_ANY;
-		chinfo.dst = RPMSG_ADDR_ANY;
-
-		rpmsg_unregister_device(glink->dev, &chinfo);
-	}
-	channel->rpdev = NULL;
+	qcom_glink_remove_rpmsg_device(glink, channel);
 
 	kref_put(&channel->refcount, qcom_glink_channel_release);
 }
@@ -1871,7 +1871,7 @@ static int qcom_glink_create_chrdev(struct qcom_glink *glink)
 	struct rpmsg_device *rpdev;
 	struct glink_channel *channel;
 
-	rpdev = kzalloc(sizeof(*rpdev), GFP_KERNEL);
+	rpdev = kzalloc_obj(*rpdev);
 	if (!rpdev)
 		return -ENOMEM;
 

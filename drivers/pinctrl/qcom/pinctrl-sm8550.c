@@ -35,7 +35,6 @@
 		.io_reg = 0x4 + REG_SIZE * id,		\
 		.intr_cfg_reg = 0x8 + REG_SIZE * id,		\
 		.intr_status_reg = 0xc + REG_SIZE * id,	\
-		.intr_target_reg = 0x8 + REG_SIZE * id,	\
 		.mux_bit = 2,			\
 		.pull_bit = 0,			\
 		.drv_bit = 6,			\
@@ -64,7 +63,6 @@
 		.io_reg = 0,				\
 		.intr_cfg_reg = 0,			\
 		.intr_status_reg = 0,			\
-		.intr_target_reg = 0,			\
 		.mux_bit = -1,				\
 		.pull_bit = pull,			\
 		.drv_bit = drv,				\
@@ -89,7 +87,6 @@
 		.io_reg = offset + 0x4,			\
 		.intr_cfg_reg = 0,			\
 		.intr_status_reg = 0,			\
-		.intr_target_reg = 0,			\
 		.mux_bit = -1,				\
 		.pull_bit = 3,				\
 		.drv_bit = 0,				\
@@ -1340,7 +1337,7 @@ static const char *const vsense_trigger_mirnat_groups[] = {
 };
 
 static const struct pinfunction sm8550_functions[] = {
-	MSM_PIN_FUNCTION(gpio),
+	MSM_GPIO_PIN_FUNCTION(gpio),
 	MSM_PIN_FUNCTION(aon_cci),
 	MSM_PIN_FUNCTION(aoss_cti),
 	MSM_PIN_FUNCTION(atest_char),

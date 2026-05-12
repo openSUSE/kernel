@@ -36,8 +36,6 @@
 #include <linux/string_helpers.h>
 #include <linux/types.h>
 
-#include "dev-sync-probe.h"
-
 #define GPIO_VIRTUSER_NAME_BUF_LEN 32
 
 static DEFINE_IDA(gpio_virtuser_ida);
@@ -500,9 +498,7 @@ static int gpio_virtuser_value_set(void *data, u64 val)
 	if (val > 1)
 		return -EINVAL;
 
-	gpiod_set_value_cansleep(ld->ad.desc, (int)val);
-
-	return 0;
+	return gpiod_set_value_cansleep(ld->ad.desc, (int)val);
 }
 
 DEFINE_DEBUGFS_ATTRIBUTE(gpio_virtuser_value_fops,
@@ -543,7 +539,7 @@ static void gpio_virtuser_set_value_atomic(struct irq_work *work)
 	struct gpio_virtuser_irq_work_context *ctx =
 			to_gpio_virtuser_irq_work_context(work);
 
-	gpiod_set_value(ctx->desc, ctx->val);
+	ctx->ret = gpiod_set_value(ctx->desc, ctx->val);
 	complete(&ctx->work_completion);
 }
 
@@ -562,7 +558,7 @@ static int gpio_virtuser_value_atomic_set(void *data, u64 val)
 
 	gpio_virtuser_irq_work_queue_sync(&ctx);
 
-	return 0;
+	return ctx.ret;
 }
 
 DEFINE_DEBUGFS_ATTRIBUTE(gpio_virtuser_value_atomic_fops,
@@ -980,7 +976,7 @@ static struct platform_driver gpio_virtuser_driver = {
 };
 
 struct gpio_virtuser_device {
-	struct dev_sync_probe_data probe_data;
+	struct platform_device *pdev;
 	struct config_group group;
 
 	int id;
@@ -1004,7 +1000,7 @@ gpio_virtuser_device_is_live(struct gpio_virtuser_device *dev)
 {
 	lockdep_assert_held(&dev->lock);
 
-	return !!dev->probe_data.pdev;
+	return !!dev->pdev;
 }
 
 struct gpio_virtuser_lookup {
@@ -1344,7 +1340,7 @@ gpio_virtuser_device_config_dev_name_show(struct config_item *item,
 
 	guard(mutex)(&dev->lock);
 
-	pdev = dev->probe_data.pdev;
+	pdev = dev->pdev;
 	if (pdev)
 		return sprintf(page, "%s\n", dev_name(&pdev->dev));
 
@@ -1390,7 +1386,7 @@ gpio_virtuser_make_lookup_table(struct gpio_virtuser_device *dev)
 	lockdep_assert_held(&dev->lock);
 
 	struct gpiod_lookup_table *table __free(kfree) =
-		kzalloc(struct_size(table, table, num_entries + 1), GFP_KERNEL);
+		kzalloc_flex(*table, table, num_entries + 1);
 	if (!table)
 		return -ENOMEM;
 
@@ -1452,6 +1448,7 @@ static int
 gpio_virtuser_device_activate(struct gpio_virtuser_device *dev)
 {
 	struct platform_device_info pdevinfo;
+	struct platform_device *pdev;
 	struct fwnode_handle *swnode;
 	int ret;
 
@@ -1473,12 +1470,23 @@ gpio_virtuser_device_activate(struct gpio_virtuser_device *dev)
 	if (ret)
 		goto err_remove_swnode;
 
-	ret = dev_sync_probe_register(&dev->probe_data, &pdevinfo);
-	if (ret)
+	pdev = platform_device_register_full(&pdevinfo);
+	if (IS_ERR(pdev)) {
+		ret = PTR_ERR(pdev);
 		goto err_remove_lookup_table;
+	}
 
+	wait_for_device_probe();
+	if (!device_is_bound(&pdev->dev)) {
+		ret = -ENXIO;
+		goto err_unregister_pdev;
+	}
+
+	dev->pdev = pdev;
 	return 0;
 
+err_unregister_pdev:
+	platform_device_unregister(pdev);
 err_remove_lookup_table:
 	gpio_virtuser_remove_lookup_table(dev);
 err_remove_swnode:
@@ -1494,8 +1502,9 @@ gpio_virtuser_device_deactivate(struct gpio_virtuser_device *dev)
 
 	lockdep_assert_held(&dev->lock);
 
-	swnode = dev_fwnode(&dev->probe_data.pdev->dev);
-	dev_sync_probe_unregister(&dev->probe_data);
+	swnode = dev_fwnode(&dev->pdev->dev);
+	platform_device_unregister(dev->pdev);
+	dev->pdev = NULL;
 	gpio_virtuser_remove_lookup_table(dev);
 	fwnode_remove_software_node(swnode);
 }
@@ -1607,7 +1616,7 @@ gpio_virtuser_make_lookup_entry_group(struct config_group *group,
 		return ERR_PTR(-EBUSY);
 
 	struct gpio_virtuser_lookup_entry *entry __free(kfree) =
-				kzalloc(sizeof(*entry), GFP_KERNEL);
+				kzalloc_obj(*entry);
 	if (!entry)
 		return ERR_PTR(-ENOMEM);
 
@@ -1633,7 +1642,7 @@ static void gpio_virtuser_lookup_config_group_release(struct config_item *item)
 	kfree(lookup);
 }
 
-static struct configfs_item_operations gpio_virtuser_lookup_config_item_ops = {
+static const struct configfs_item_operations gpio_virtuser_lookup_config_item_ops = {
 	.release	= gpio_virtuser_lookup_config_group_release,
 };
 
@@ -1663,7 +1672,7 @@ gpio_virtuser_make_lookup_group(struct config_group *group, const char *name)
 		return ERR_PTR(-EBUSY);
 
 	struct gpio_virtuser_lookup *lookup __free(kfree) =
-				kzalloc(sizeof(*lookup), GFP_KERNEL);
+				kzalloc_obj(*lookup);
 	if (!lookup)
 		return ERR_PTR(-ENOMEM);
 
@@ -1684,21 +1693,21 @@ static void gpio_virtuser_device_config_group_release(struct config_item *item)
 {
 	struct gpio_virtuser_device *dev = to_gpio_virtuser_device(item);
 
-	guard(mutex)(&dev->lock);
-
-	if (gpio_virtuser_device_is_live(dev))
-		gpio_virtuser_device_deactivate(dev);
+	scoped_guard(mutex, &dev->lock) {
+		if (gpio_virtuser_device_is_live(dev))
+			gpio_virtuser_device_deactivate(dev);
+	}
 
 	mutex_destroy(&dev->lock);
 	ida_free(&gpio_virtuser_ida, dev->id);
 	kfree(dev);
 }
 
-static struct configfs_item_operations gpio_virtuser_device_config_item_ops = {
+static const struct configfs_item_operations gpio_virtuser_device_config_item_ops = {
 	.release	= gpio_virtuser_device_config_group_release,
 };
 
-static struct configfs_group_operations gpio_virtuser_device_config_group_ops = {
+static const struct configfs_group_operations gpio_virtuser_device_config_group_ops = {
 	.make_group	= gpio_virtuser_make_lookup_group,
 };
 
@@ -1713,8 +1722,7 @@ static struct config_group *
 gpio_virtuser_config_make_device_group(struct config_group *group,
 				       const char *name)
 {
-	struct gpio_virtuser_device *dev __free(kfree) = kzalloc(sizeof(*dev),
-								 GFP_KERNEL);
+	struct gpio_virtuser_device *dev __free(kfree) = kzalloc_obj(*dev);
 	if (!dev)
 		return ERR_PTR(-ENOMEM);
 
@@ -1726,12 +1734,11 @@ gpio_virtuser_config_make_device_group(struct config_group *group,
 				    &gpio_virtuser_device_config_group_type);
 	mutex_init(&dev->lock);
 	INIT_LIST_HEAD(&dev->lookup_list);
-	dev_sync_probe_init(&dev->probe_data);
 
 	return &no_free_ptr(dev)->group;
 }
 
-static struct configfs_group_operations gpio_virtuser_config_group_ops = {
+static const struct configfs_group_operations gpio_virtuser_config_group_ops = {
 	.make_group	= gpio_virtuser_config_make_device_group,
 };
 

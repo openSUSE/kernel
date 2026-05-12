@@ -1,3 +1,101 @@
+	ACPI	ACPI support is enabled.
+	AGP	AGP (Accelerated Graphics Port) is enabled.
+	ALSA	ALSA sound support is enabled.
+	APIC	APIC support is enabled.
+	APM	Advanced Power Management support is enabled.
+	APPARMOR AppArmor support is enabled.
+	ARM	ARM architecture is enabled.
+	ARM64	ARM64 architecture is enabled.
+	CLK	Common clock infrastructure is enabled.
+	CMA	Contiguous Memory Area support is enabled.
+	DRM	Direct Rendering Management support is enabled.
+	DYNAMIC_DEBUG Build in debug messages and enable them at runtime
+	EARLY	Parameter processed too early to be embedded in initrd.
+	EDD	BIOS Enhanced Disk Drive Services (EDD) is enabled
+	EFI	EFI Partitioning (GPT) is enabled
+	EVM	Extended Verification Module
+	FB	The frame buffer device is enabled.
+	FTRACE	Function tracing enabled.
+	GCOV	GCOV profiling is enabled.
+	HIBERNATION HIBERNATION is enabled.
+	HW	Appropriate hardware is enabled.
+	HYPER_V HYPERV support is enabled.
+	IMA     Integrity measurement architecture is enabled.
+	IP_PNP	IP DHCP, BOOTP, or RARP is enabled.
+	IPV6	IPv6 support is enabled.
+	ISAPNP	ISA PnP code is enabled.
+	ISDN	Appropriate ISDN support is enabled.
+	ISOL	CPU Isolation is enabled.
+	JOY	Appropriate joystick support is enabled.
+	KGDB	Kernel debugger support is enabled.
+	KVM	Kernel Virtual Machine support is enabled.
+	LIBATA  Libata driver is enabled
+	LOONGARCH LoongArch architecture is enabled.
+	LOOP	Loopback device support is enabled.
+	LP	Printer support is enabled.
+	M68k	M68k architecture is enabled.
+			These options have more detailed description inside of
+			Documentation/arch/m68k/kernel-options.rst.
+	MDA	MDA console support is enabled.
+	MIPS	MIPS architecture is enabled.
+	MOUSE	Appropriate mouse support is enabled.
+	MSI	Message Signaled Interrupts (PCI).
+	MTD	MTD (Memory Technology Device) support is enabled.
+	NET	Appropriate network support is enabled.
+	NFS	Appropriate NFS support is enabled.
+	NUMA	NUMA support is enabled.
+	OF	Devicetree is enabled.
+	PARISC	The PA-RISC architecture is enabled.
+	PCI	PCI bus support is enabled.
+	PCIE	PCI Express support is enabled.
+	PCMCIA	The PCMCIA subsystem is enabled.
+	PNP	Plug & Play support is enabled.
+	PPC	PowerPC architecture is enabled.
+	PPT	Parallel port support is enabled.
+	PS2	Appropriate PS/2 support is enabled.
+	PV_OPS	A paravirtualized kernel is enabled.
+	RAM	RAM disk support is enabled.
+	RDT	Intel Resource Director Technology.
+	RISCV	RISCV architecture is enabled.
+	S390	S390 architecture is enabled.
+	SCSI	Appropriate SCSI support is enabled.
+			A lot of drivers have their options described inside
+			the Documentation/scsi/ sub-directory.
+        SDW     SoundWire support is enabled.
+	SECURITY Different security models are enabled.
+	SELINUX SELinux support is enabled.
+	SERIAL	Serial support is enabled.
+	SH	SuperH architecture is enabled.
+	SMP	The kernel is an SMP kernel.
+	SPARC	Sparc architecture is enabled.
+	SUSPEND	System suspend states are enabled.
+	SWSUSP	Software suspend (hibernation) is enabled.
+	TPM	TPM drivers are enabled.
+	UMS	USB Mass Storage support is enabled.
+	USB	USB support is enabled.
+	NVME	NVMe support is enabled
+	USBHID	USB Human Interface Device support is enabled.
+	V4L	Video For Linux support is enabled.
+	VGA	The VGA console has been enabled.
+	VMMIO   Driver for memory mapped virtio devices is enabled.
+	VT	Virtual terminal support is enabled.
+	WDT	Watchdog support is enabled.
+	X86-32	X86-32, aka i386 architecture is enabled.
+	X86-64	X86-64 architecture is enabled.
+	X86	Either 32-bit or 64-bit x86 (same as X86-32+X86-64)
+	X86_UV	SGI UV support is enabled.
+	XEN	Xen support is enabled
+	XTENSA	xtensa architecture is enabled.
+
+In addition, the following text indicates that the option
+
+	BOOT	Is a boot loader parameter.
+	BUGS=	Relates to possible processor bugs on the said processor.
+	KNL	Is a kernel start-up parameter.
+
+
+Kernel parameters
+
 	accept_memory=  [MM]
 			Format: { eager | lazy }
 			default: lazy
@@ -27,6 +125,8 @@
 			may result in duplicate corrected error reports.
 			nospcr -- disable console in ACPI SPCR table as
 				default _serial_ console on ARM64
+			spcr -- enable console in ACPI SPCR table as
+				default _serial_ console on x86
 			For ARM64, ONLY "acpi=off", "acpi=on", "acpi=force" or
 			"acpi=nospcr" are available
 			For RISCV64, ONLY "acpi=off", "acpi=on" or "acpi=force"
@@ -88,6 +188,14 @@
 			Some values produce so much output that the system is
 			unusable.  The "log_buf_len" parameter may be useful
 			if you need to capture more output.
+
+	acpi.poweroff_on_fatal=	[ACPI]
+			{0 | 1}
+			Causes the system to poweroff when the ACPI bytecode signals
+			a fatal error. The default value of this setting is 1.
+			Overriding this value should only be done for diagnosing
+			ACPI firmware problems, as the system might behave erratically
+			after having encountered a fatal ACPI error.
 
 	acpi_enforce_resources=	[ACPI]
 			{ strict | lax | no }
@@ -392,6 +500,13 @@
 			disable
 			  Disable amd-pstate preferred core.
 
+	amd_dynamic_epp=
+			[X86]
+			disable
+			  Disable amd-pstate dynamic EPP.
+			enable
+			  Enable amd-pstate dynamic EPP.
+
 	amijoy.map=	[HW,JOY] Amiga joystick support
 			Map of devices attached to JOY0DAT and JOY1DAT
 			Format: <a>,<b>
@@ -517,23 +632,6 @@
 			1 - Enable the BAU.
 			unset - Disable the BAU.
 
-	baycom_epp=	[HW,AX25]
-			Format: <io>,<mode>
-
-	baycom_par=	[HW,AX25] BayCom Parallel Port AX.25 Modem
-			Format: <io>,<mode>
-			See header of drivers/net/hamradio/baycom_par.c.
-
-	baycom_ser_fdx=	[HW,AX25]
-			BayCom Serial Port AX.25 Modem (Full Duplex Mode)
-			Format: <io>,<irq>,<mode>[,<baud>]
-			See header of drivers/net/hamradio/baycom_ser_fdx.c.
-
-	baycom_ser_hdx=	[HW,AX25]
-			BayCom Serial Port AX.25 Modem (Half Duplex Mode)
-			Format: <io>,<irq>,<mode>
-			See header of drivers/net/hamradio/baycom_ser_hdx.c.
-
 	bdev_allow_write_mounted=
 			Format: <bool>
 			Control the ability to open a mounted block device
@@ -608,6 +706,24 @@
 	ccw_timeout_log	[S390]
 			See Documentation/arch/s390/common_io.rst for details.
 
+	cfi=		[X86-64] Set Control Flow Integrity checking features
+			when CONFIG_FINEIBT is enabled.
+			Format: feature[,feature...]
+			Default: auto
+
+			auto:	  Use FineIBT if IBT available, otherwise kCFI.
+				  Under FineIBT, enable "paranoid" mode when
+				  FRED is not available.
+			off:	  Turn off CFI checking.
+			kcfi:	  Use kCFI (disable FineIBT).
+			fineibt:  Use FineIBT (even if IBT not available).
+			norand:   Do not re-randomize CFI hashes.
+			paranoid: Add caller hash checking under FineIBT.
+			bhi:	  Enable register poisoning to stop speculation
+				  across FineIBT. (Disabled by default.)
+			warn:	  Do not enforce CFI checking: warn only.
+			debug:    Report CFI initialization details.
+
 	cgroup_disable=	[KNL] Disable a particular controller or optional feature
 			Format: {name of the controller(s) or feature(s) to disable}
 			The effects of cgroup_disable=foo are:
@@ -650,6 +766,14 @@
 			nosocket -- Disable socket memory accounting.
 			nokmem -- Disable kernel memory accounting.
 			nobpf -- Disable BPF memory accounting.
+
+	check_pages=	[MM,EARLY] Enable sanity checking of pages after
+			allocations / before freeing. This adds checks to catch
+			double-frees, use-after-frees, and other sources of
+			page corruption by inspecting page internals (flags,
+			mapcount/refcount, memcg_data, etc.).
+			Format: { "0" | "1" }
+			Default: 0 (1 if CONFIG_DEBUG_VM is set)
 
 	checkreqprot=	[SELINUX] Set initial checkreqprot flag value.
 			Format: { "0" | "1" }
@@ -995,7 +1119,7 @@
 			It will be ignored when crashkernel=X,high is not used
 			or memory reserved is below 4G.
 	crashkernel=size[KMG],cma
-			[KNL, X86] Reserve additional crash kernel memory from
+			[KNL, X86, ppc] Reserve additional crash kernel memory from
 			CMA. This reservation is usable by the first system's
 			userspace memory and kernel movable allocations (memory
 			balloon, zswap). Pages allocated from this memory range
@@ -1095,12 +1219,8 @@
 
 	debugfs=    	[KNL,EARLY] This parameter enables what is exposed to
 			userspace and debugfs internal clients.
-			Format: { on, no-mount, off }
+			Format: { on, off }
 			on: 	All functions are enabled.
-			no-mount:
-				Filesystem is not registered but kernel clients can
-			        access APIs and a crashkernel can be used to read
-				its content. There is nothing to mount.
 			off: 	Filesystem is not registered and clients
 			        get a -EPERM as result when trying to register files
 				or directories within debugfs.
@@ -1249,6 +1369,13 @@
 
 			For details see:
 			Documentation/admin-guide/hw-vuln/reg-file-data-sampling.rst
+
+	dm_verity.keyring_unsealed=
+			[KNL] When set to 1, leave the dm-verity keyring
+			unsealed after initialization so userspace can
+			provision keys. Once the keyring is restricted
+			it becomes active and is searched during signature
+			verification.
 
 	driver_async_probe=  [KNL]
 			List of driver names to be probed asynchronously. *
@@ -1620,8 +1747,8 @@
 	fred=		[X86-64]
 			Enable/disable Flexible Return and Event Delivery.
 			Format: { on | off }
-			on: enable FRED when it's present.
-			off: disable FRED, the default setting.
+			on: enable FRED when it's present, the default setting.
+			off: disable FRED.
 
 	ftrace=[tracer]
 			[FTRACE] will set and start the specified tracer
@@ -1849,6 +1976,9 @@
 				 param "no_hash_pointers" is an alias for
 				 this mode.
 
+			For controlling hashing dynamically at runtime,
+			use the "kernel.kptr_restrict" sysctl instead.
+
 	hashdist=	[KNL,NUMA] Large hashes allocated during boot
 			are distributed across NUMA nodes.  Defaults on
 			for 64-bit NUMA, off otherwise.
@@ -1888,6 +2018,16 @@
 			mode before resuming the system (see
 			/sys/power/pm_test). Only available when CONFIG_PM_DEBUG
 			is set. Default value is 5.
+
+	hibernate_compression_threads=
+			[HIBERNATION]
+			Set the number of threads used for compressing or decompressing
+			hibernation images.
+
+			Format: <integer>
+			Default: 3
+			Minimum: 1
+			Example: hibernate_compression_threads=4
 
 	highmem=nn[KMG]	[KNL,BOOT,EARLY] forces the highmem zone to have an exact
 			size of <nn>. This works even on boxes that have no
@@ -1992,14 +2132,20 @@
 			the added memory block itself do not be affected.
 
 	hung_task_panic=
-			[KNL] Should the hung task detector generate panics.
-			Format: 0 | 1
+			[KNL] Number of hung tasks to trigger kernel panic.
+			Format: <int>
 
-			A value of 1 instructs the kernel to panic when a
-			hung task is detected. The default value is controlled
-			by the CONFIG_BOOTPARAM_HUNG_TASK_PANIC build-time
-			option. The value selected by this boot parameter can
-			be changed later by the kernel.hung_task_panic sysctl.
+			When set to a non-zero value, a kernel panic will be triggered if
+			the number of detected hung tasks reaches this value.
+
+			0: don't panic
+			1: panic immediately on first hung task
+			N: panic after N hung tasks are detected in a single scan
+
+			The default value is controlled by the
+			CONFIG_BOOTPARAM_HUNG_TASK_PANIC build-time option. The value
+			selected by this boot parameter can be changed later by the
+			kernel.hung_task_panic sysctl.
 
 	hvc_iucv=	[S390]	Number of z/VM IUCV hypervisor console (HVC)
 				terminal devices. Valid values: 0..8
@@ -2246,23 +2392,6 @@
 			[IMA] Define a custom template format.
 			Format: { "field1|...|fieldN" }
 
-	ima.ahash_minsize= [IMA] Minimum file size for asynchronous hash usage
-			Format: <min_file_size>
-			Set the minimal file size for using asynchronous hash.
-			If left unspecified, ahash usage is disabled.
-
-			ahash performance varies for different data sizes on
-			different crypto accelerators. This option can be used
-			to achieve the best performance for a particular HW.
-
-	ima.ahash_bufsize= [IMA] Asynchronous hash buffer size
-			Format: <bufsize>
-			Set hashing buffer size. Default: 4k.
-
-			ahash performance varies for different chunk sizes on
-			different crypto accelerators. This option can be used
-			to achieve best performance for particular HW.
-
 	ima=		[IMA] Enable or disable IMA
 			Format: { "off" | "on" }
 			Default: "on"
@@ -2466,15 +2595,11 @@
 			Intel machines). This can be used to prevent the usage
 			of an available hardware IOMMU.
 
-			[X86]
 		pt
-			[X86]
 		nopt
-			[PPC/POWERNV]
-		nobypass
+		nobypass	[PPC/POWERNV]
 			Disable IOMMU bypass, using IOMMU for PCI devices.
 
-		[X86]
 		AMD Gart HW IOMMU-specific options:
 
 		<size>
@@ -2538,6 +2663,15 @@
 			0 - Use IOMMU translation for DMA.
 			1 - Bypass the IOMMU for DMA.
 			unset - Use value of CONFIG_IOMMU_DEFAULT_PASSTHROUGH.
+
+	iommu.debug_pagealloc=
+			[KNL,EARLY] When CONFIG_IOMMU_DEBUG_PAGEALLOC is set, this
+			parameter enables the feature at boot time. By default, it
+			is disabled and the system behaves the same way as a kernel
+			built without CONFIG_IOMMU_DEBUG_PAGEALLOC.
+			Format: { "0" | "1" }
+			0 - Sanitizer disabled.
+			1 - Sanitizer enabled, expect runtime overhead.
 
 	io7=		[HW] IO7 for Marvel-based Alpha systems
 			See comment before marvel_specify_io7 in
@@ -2605,6 +2739,11 @@
 			When an interrupt is not handled search all handlers
 			for it. Intended to get systems with badly broken
 			firmware running.
+
+	irqhandler.duration_warn_us= [KNL]
+			Warn if an IRQ handler exceeds the specified duration
+			threshold in microseconds. Useful for identifying
+			long-running IRQs in the system.
 
 	irqpoll		[HW]
 			When an interrupt is not handled search all handlers
@@ -2776,6 +2915,47 @@
 			for Movable pages.  "nn[KMGTPE]", "nn%", and "mirror"
 			are exclusive, so you cannot specify multiple forms.
 
+	kfence.burst=	[MM,KFENCE] The number of additional successive
+			allocations to be attempted through KFENCE for each
+			sample interval.
+			Format: <unsigned integer>
+			Default: 0
+
+	kfence.check_on_panic=
+			[MM,KFENCE] Whether to check all KFENCE-managed objects'
+			canaries on panic.
+			Format: <bool>
+			Default: false
+
+	kfence.deferrable=
+			[MM,KFENCE] Whether to use a deferrable timer to trigger
+			allocations. This avoids forcing CPU wake-ups if the
+			system is idle, at the risk of a less predictable
+			sample interval.
+			Format: <bool>
+			Default: CONFIG_KFENCE_DEFERRABLE
+
+	kfence.fault=	[MM,KFENCE] Controls the behavior when a KFENCE
+			error is detected.
+			report - print the error report and continue (default).
+			oops   - print the error report and oops.
+			panic  - print the error report and panic.
+
+	kfence.sample_interval=
+			[MM,KFENCE] KFENCE's sample interval in milliseconds.
+			Format: <unsigned integer>
+			 0 - Disable KFENCE.
+			>0 - Enabled KFENCE with given sample interval.
+			Default: CONFIG_KFENCE_SAMPLE_INTERVAL
+
+	kfence.skip_covered_thresh=
+			[MM,KFENCE] If pool utilization reaches this threshold
+			(pool usage%), KFENCE limits currently covered
+			allocations of the same source from further filling
+			up the pool.
+			Format: <unsigned integer>
+			Default: 75
+
 	kgdbdbgp=	[KGDB,HW,EARLY] kgdb over EHCI usb debug port.
 			Format: <Controller#>[,poll interval]
 			The controller # is the number of the ehci usb debug
@@ -2903,6 +3083,26 @@
 
 			Default is Y (on).
 
+	kvm.enable_pmu=[KVM,X86]
+			If enabled, KVM will virtualize PMU functionality based
+			on the virtual CPU model defined by userspace.  This
+			can be overridden on a per-VM basis via
+			KVM_CAP_PMU_CAPABILITY.
+
+			If disabled, KVM will not virtualize PMU functionality,
+			e.g. MSRs, PMCs, PMIs, etc., even if userspace defines
+			a virtual CPU model that contains PMU assets.
+
+			Note, KVM's vPMU support implicitly requires running
+			with an in-kernel local APIC, e.g. to deliver PMIs to
+			the guest.  Running without an in-kernel local APIC is
+			not supported, though KVM will allow such a combination
+			(with severely degraded functionality).
+
+			See also enable_mediated_pmu.
+
+			Default is Y (on).
+
 	kvm.enable_virt_at_load=[KVM,ARM64,LOONGARCH,MIPS,RISCV,X86]
 			If enabled, KVM will enable virtualization in hardware
 			when KVM is loaded, and disable virtualization when KVM
@@ -2949,6 +3149,35 @@
 			If the value is 0 (the default), KVM will pick a period based
 			on the ratio, such that a page is zapped after 1 hour on average.
 
+	kvm-{amd,intel}.enable_mediated_pmu=[KVM,AMD,INTEL]
+			If enabled, KVM will provide a mediated virtual PMU,
+			instead of the default perf-based virtual PMU (if
+			kvm.enable_pmu is true and PMU is enumerated via the
+			virtual CPU model).
+
+			With a perf-based vPMU, KVM operates as a user of perf,
+			i.e. emulates guest PMU counters using perf events.
+			KVM-created perf events are managed by perf as regular
+			(guest-only) events, e.g. are scheduled in/out, contend
+			for hardware resources, etc.  Using a perf-based vPMU
+			allows guest and host usage of the PMU to co-exist, but
+			incurs non-trivial overhead and can result in silently
+			dropped guest events (due to resource contention).
+
+			With a mediated vPMU, hardware PMU state is context
+			switched around the world switch to/from the guest.
+			KVM mediates which events the guest can utilize, but
+			gives the guest direct access to all other PMU assets
+			when possible (KVM may intercept some accesses if the
+			virtual CPU model provides a subset of hardware PMU
+			functionality).  Using a mediated vPMU significantly
+			reduces PMU virtualization overhead and eliminates lost
+			guest events, but is mutually exclusive with using perf
+			to profile KVM guests and adds latency to most VM-Exits
+			(to context switch PMU state).
+
+			Default is N (off).
+
 	kvm-amd.nested=	[KVM,AMD] Control nested virtualization feature in
 			KVM/SVM. Default is 1 (enabled).
 
@@ -2956,6 +3185,27 @@
 			a.k.a. Two-Dimensional Page Tables. Default is 1
 			(enabled). Disable by KVM if hardware lacks support
 			for NPT.
+
+	kvm-amd.ciphertext_hiding_asids=
+			[KVM,AMD] Ciphertext hiding prevents disallowed accesses
+			to SNP private memory from reading ciphertext.  Instead,
+			reads will see constant default values (0xff).
+
+			If ciphertext hiding is enabled, the joint SEV-ES and
+			SEV-SNP ASID space is partitioned into separate SEV-ES
+			and SEV-SNP ASID ranges, with the SEV-SNP range being
+			[1..max_snp_asid] and the SEV-ES range being
+			(max_snp_asid..min_sev_asid), where min_sev_asid is
+			enumerated by CPUID.0x.8000_001F[EDX].
+
+			A non-zero value enables SEV-SNP ciphertext hiding and
+			adjusts the ASID ranges for SEV-ES and SEV-SNP guests.
+			KVM caps the number of SEV-SNP ASIDs at the maximum
+			possible value, e.g. specifying -1u will assign all
+			joint SEV-ES and SEV-SNP ASIDs to SEV-SNP.  Note,
+			assigning all joint ASIDs to SEV-SNP, i.e. configuring
+			max_snp_asid == min_sev_asid-1, will effectively make
+			SEV-ES unusable.
 
 	kvm-arm.mode=
 			[KVM,ARM,EARLY] Select one of KVM/arm64's modes of
@@ -2979,8 +3229,8 @@
 			for the host. To force nVHE on VHE hardware, add
 			"arm64_sw.hvhe=0 id_aa64mmfr1.vh=0" to the
 			command-line.
-			"nested" is experimental and should be used with
-			extreme caution.
+			"nested" and "protected" are experimental and should be
+			used with extreme caution.
 
 	kvm-arm.vgic_v3_group0_trap=
 			[KVM,ARM,EARLY] Trap guest accesses to GICv3 group-0
@@ -3250,6 +3500,11 @@
 			* [no]logdir: Enable or disable access to the general
 			  purpose log directory.
 
+			* max_sec=<sectors>: Set the transfer size limit, in
+			  number of 512-byte sectors, to the value specified in
+			  <sectors>. The value specified in <sectors> has to be
+			  a non-zero positive integer.
+
 			* max_sec_128: Set transfer size limit to 128 sectors.
 
 			* max_sec_1024: Set or clear transfer size limit to
@@ -3275,7 +3530,10 @@
 			If there are multiple matching configurations changing
 			the same attribute, the last one is used.
 
-	load_ramdisk=	[RAM] [Deprecated]
+	liveupdate=	[KNL,EARLY]
+			Format: <bool>
+			Enable Live Update Orchestrator (LUO).
+			Default: off.
 
 	lockd.nlm_grace_period=P  [NFS] Assign grace period.
 			Format: <integer>
@@ -3700,7 +3958,7 @@
 			looking for corruption.  Enabling this will
 			both detect corruption and prevent the kernel
 			from using the memory being corrupted.
-			However, its intended as a diagnostic tool; if
+			However, it's intended as a diagnostic tool; if
 			repeatable BIOS-originated corruption always
 			affects the same memory, you can use memmap=
 			to prevent the kernel from using that memory.
@@ -3767,8 +4025,16 @@
 
 	mga=		[HW,DRM]
 
-	microcode.force_minrev=	[X86]
-			Format: <bool>
+	microcode=      [X86] Control the behavior of the microcode loader.
+	                Available options, comma separated:
+
+			base_rev=X - with <X> with format: <u32>
+			Set the base microcode revision of each thread when in
+			debug mode.
+
+			dis_ucode_ldr: disable the microcode loader
+
+			force_minrev:
 			Enable or disable the microcode minimal revision
 			enforcement for the runtime microcode loader.
 
@@ -3828,6 +4094,7 @@
 					       spectre_v2_user=off [X86]
 					       srbds=off [X86,INTEL]
 					       ssbd=force-off [ARM64]
+					       tsa=off [X86,AMD]
 					       tsx_async_abort=off [X86]
 					       vmscape=off [X86]
 
@@ -4274,8 +4541,10 @@
 			Note that this argument takes precedence over
 			the CONFIG_RCU_NOCB_CPU_DEFAULT_ALL option.
 
-	noinitrd	[RAM] Tells the kernel not to load any configured
-			initial RAM disk.
+	noinitrd	[Deprecated,RAM] Tells the kernel not to load any configured
+			initial RAM disk. Currently this parameter applies to
+			initrd only, not to initramfs. But it applies to both
+			in EFI mode.
 
 	nointremap	[X86-64,Intel-IOMMU,EARLY] Do not enable interrupt
 			remapping.
@@ -4375,7 +4644,7 @@
 	nosmt		[KNL,MIPS,PPC,EARLY] Disable symmetric multithreading (SMT).
 			Equivalent to smt=1.
 
-			[KNL,X86,PPC,S390] Disable symmetric multithreading (SMT).
+			[KNL,LOONGARCH,X86,PPC,S390] Disable symmetric multithreading (SMT).
 			nosmt=force: Force disable SMT, cannot be undone
 				     via the sysfs control file.
 
@@ -4501,6 +4770,18 @@
 			This can be set from sysctl after boot.
 			See Documentation/admin-guide/sysctl/vm.rst for details.
 
+	nvme.quirks=    [NVME] A list of quirk entries to augment the built-in
+			nvme quirk list. List entries are separated by a
+			'-' character.
+			Each entry has the form VendorID:ProductID:quirk_names.
+			The IDs are 4-digits hex numbers and quirk_names is a
+			list of quirk names separated by commas. A quirk name
+			can be prefixed by '^', meaning that the specified
+			quirk must be disabled.
+
+			Example:
+			nvme.quirks=7710:2267:bogus_nid,^identify_cns-9900:7711:broken_msi
+
 	ohci1394_dma=early	[HW,EARLY] enable debugging via the ohci1394 driver.
 			See Documentation/core-api/debugging-via-ohci1394.rst for more
 			info.
@@ -4583,6 +4864,21 @@
 	panic_on_warn=1	panic() instead of WARN().  Useful to cause kdump
 			on a WARN().
 
+	panic_force_cpu=
+			[KNL,SMP] Force panic handling to execute on a specific CPU.
+			Format: <cpu number>
+			Some platforms require panic handling to occur on a
+			specific CPU for the crash kernel to function correctly.
+			This can be due to firmware limitations, interrupt routing
+			constraints, or platform-specific requirements where only
+			a particular CPU can safely enter the crash kernel.
+			When set, panic() will redirect execution to the specified
+			CPU before proceeding with the normal panic and kexec flow.
+			If the target CPU is offline or unavailable, panic proceeds
+			on the current CPU.
+			This option should only be used for systems with the above
+			constraints as it might cause the panic operation to be less reliable.
+
 	panic_print=	Bitmask for printing system info when panic happens.
 			User can chose combination of the following bits:
 			bit 0: print all tasks info
@@ -4590,7 +4886,7 @@
 			bit 2: print timer info
 			bit 3: print locks info if CONFIG_LOCKDEP is on
 			bit 4: print ftrace buffer
-			bit 5: replay all messages on consoles at the end of panic
+			bit 5: replay all kernel messages on consoles at the end of panic
 			bit 6: print all CPUs backtrace (if available in the arch)
 			bit 7: print only tasks in uninterruptible (blocked) state
 			*Be aware* that this option may print a _lot_ of lines,
@@ -5232,8 +5528,6 @@
 			Param: <number> - step/bucket size as a power of 2 for
 				statistical time based profiling.
 
-	prompt_ramdisk=	[RAM] [Deprecated]
-
 	prot_virt=	[S390] enable hosting protected virtual machines
 			isolated from the hypervisor (if hardware supports
 			that). If enabled, the default kernel base address
@@ -5290,7 +5584,7 @@
 	ramdisk_size=	[RAM] Sizes of RAM disks in kilobytes
 			See Documentation/admin-guide/blockdev/ramdisk.rst.
 
-	ramdisk_start=	[RAM] RAM disk image start address
+	ramdisk_start=	[Deprecated,RAM] RAM disk image start address
 
 	random.trust_cpu=off
 			[KNL,EARLY] Disable trusting the use of the CPU's
@@ -6079,13 +6373,6 @@
 			dynamically) adjusted.	This parameter is intended
 			for use in testing.
 
-	rcupdate.rcu_task_ipi_delay= [KNL]
-			Set time in jiffies during which RCU tasks will
-			avoid sending IPIs, starting with the beginning
-			of a given grace period.  Setting a large
-			number avoids disturbing real-time workloads,
-			but lengthens grace periods.
-
 	rcupdate.rcu_task_lazy_lim= [KNL]
 			Number of callbacks on a given CPU that will
 			cancel laziness on that CPU.  Use -1 to disable
@@ -6129,14 +6416,6 @@
 			of zero will disable batching.	Batching is
 			always disabled for synchronize_rcu_tasks().
 
-	rcupdate.rcu_tasks_trace_lazy_ms= [KNL]
-			Set timeout in milliseconds RCU Tasks
-			Trace asynchronous callback batching for
-			call_rcu_tasks_trace().  A negative value
-			will take the default.	A value of zero will
-			disable batching.  Batching is always disabled
-			for synchronize_rcu_tasks_trace().
-
 	rcupdate.rcu_self_test= [KNL]
 			Run the RCU early boot self tests
 
@@ -6155,9 +6434,14 @@
 	rdt=		[HW,X86,RDT]
 			Turn on/off individual RDT features. List is:
 			cmt, mbmtotal, mbmlocal, l3cat, l3cdp, l2cat, l2cdp,
-			mba, smba, bmec.
+			mba, smba, bmec, abmc, sdciae, energy[:guid],
+			perf[:guid].
 			E.g. to turn on cmt and turn off mba use:
 				rdt=cmt,!mba
+			To turn off all energy telemetry monitoring and ensure that
+			perf telemetry monitoring associated with guid 0x12345
+			is enabled use:
+				rdt=!energy,perf:0x12345
 
 	reboot=		[KNL]
 			Format (x86 or x86_64):
@@ -6352,7 +6636,7 @@
 			that don't.
 
 			off          - no mitigation
-			auto         - automatically select a migitation
+			auto         - automatically select a mitigation
 			auto,nosmt   - automatically select a mitigation,
 				       disabling SMT if necessary for
 				       the full mitigation (only on Zen1
@@ -6401,13 +6685,22 @@
 			replacement properties are not found. See the Kconfig
 			entry for RISCV_ISA_FALLBACK.
 
+	riscv_nousercfi=
+		all	Disable user CFI ABI to userspace even if cpu extension
+			are available.
+		bcfi	Disable user backward CFI ABI to userspace even if
+			the shadow stack extension is available.
+		fcfi	Disable user forward CFI ABI to userspace even if the
+			landing pad extension is available.
+
 	ro		[KNL] Mount root device read-only on boot
 
 	rodata=		[KNL,EARLY]
 		on	Mark read-only kernel memory as read-only (default).
 		off	Leave read-only kernel memory writable for debugging.
-		full	Mark read-only kernel memory and aliases as read-only
-		        [arm64]
+		noalias	Mark read-only kernel memory as read-only but retain
+			writable aliases in the direct map for regions outside
+			of the kernel image. [arm64]
 
 	rockchip.usb_uart
 			[EARLY]
@@ -6429,6 +6722,14 @@
 
 	rootflags=	[KNL] Set root filesystem mount option string
 
+	rseq_slice_ext= [KNL] RSEQ based time slice extension
+			Format: boolean
+			Control enablement of RSEQ based time slice extension.
+			Default is 'on'.
+
+	initramfs_options= [KNL]
+			Specify mount options for the initramfs mount.
+
 	rootfstype=	[KNL] Set root filesystem type
 
 	rootwait	[KNL] Wait (indefinitely) for root device to show up.
@@ -6443,6 +6744,10 @@
 			[KNL,ARM,CMA] Remoteproc physical memory block.
 			Memory area to be used by remote processor image,
 			managed by CMA.
+
+	rseq_debug=	[KNL] Enable or disable restartable sequence
+			debug mode. Defaults to CONFIG_RSEQ_DEBUG_DEFAULT_ENABLE.
+			Format: <bool>
 
 	rt_group_sched=	[KNL] Enable or disable SCHED_RR/FIFO group scheduling
 			when CONFIG_RT_GROUP_SCHED=y. Defaults to
@@ -6756,12 +7061,12 @@
 
 	softlockup_panic=
 			[KNL] Should the soft-lockup detector generate panics.
-			Format: 0 | 1
+			Format: <int>
 
-			A value of 1 instructs the soft-lockup detector
-			to panic the machine when a soft-lockup occurs. It is
-			also controlled by the kernel.softlockup_panic sysctl
-			and CONFIG_BOOTPARAM_SOFTLOCKUP_PANIC, which is the
+			A value of non-zero instructs the soft-lockup detector
+			to panic the machine when a soft-lockup duration exceeds
+			N thresholds. It is also controlled by the kernel.softlockup_panic
+			sysctl and CONFIG_BOOTPARAM_SOFTLOCKUP_PANIC, which is the
 			respective build-time switch to that functionality.
 
 	softlockup_all_cpu_backtrace=
@@ -7094,7 +7399,7 @@
 			limit. Default value is 8191 pools.
 
 	stacktrace	[FTRACE]
-			Enabled the stack tracer on boot up.
+			Enable the stack tracer on boot up.
 
 	stacktrace_filter=[function-list]
 			[FTRACE] Limit the functions that the stack tracer
@@ -7135,6 +7440,9 @@
 			Limits the number of kernel SLB entries, and flushes
 			them frequently to increase the rate of SLB faults
 			on kernel addresses.
+
+	no_slb_preload	[PPC,EARLY]
+			Disables slb preloading for userspace.
 
 	sunrpc.min_resvport=
 	sunrpc.max_resvport=
@@ -7383,7 +7691,7 @@
 				(converted into nanoseconds). Fast, but
 				depending on the architecture, may not be
 				in sync between CPUs.
-			global - Event time stamps are synchronize across
+			global - Event time stamps are synchronized across
 				CPUs. May be slower than the local clock,
 				but better for some race conditions.
 			counter - Simple counting of events (1, 2, ..)
@@ -7503,12 +7811,12 @@
 			section.
 
 	trace_trigger=[trigger-list]
-			[FTRACE] Add a event trigger on specific events.
+			[FTRACE] Add an event trigger on specific events.
 			Set a trigger on top of a specific event, with an optional
 			filter.
 
-			The format is is "trace_trigger=<event>.<trigger>[ if <filter>],..."
-			Where more than one trigger may be specified that are comma deliminated.
+			The format is "trace_trigger=<event>.<trigger>[ if <filter>],..."
+			Where more than one trigger may be specified that are comma delimited.
 
 			For example:
 
@@ -7516,7 +7824,7 @@
 
 			The above will enable the "stacktrace" trigger on the "sched_switch"
 			event but only trigger it if the "prev_state" of the "sched_switch"
-			event is "2" (TASK_UNINTERUPTIBLE).
+			event is "2" (TASK_UNINTERRUPTIBLE).
 
 			See also "Event triggers" in Documentation/trace/events.rst
 
@@ -7574,6 +7882,7 @@
 			- "tee"
 			- "caam"
 			- "dcp"
+			- "pkwm"
 			If not specified then it defaults to iterating through
 			the trust source list starting with TPM and assigns the
 			first trust source as a backend which is initialized
@@ -7636,12 +7945,7 @@
 			(HPET or PM timer) on systems whose TSC frequency was
 			obtained from HW or FW using either an MSR or CPUID(0x15).
 			Warn if the difference is more than 500 ppm.
-			[x86] watchdog: Use TSC as the watchdog clocksource with
-			which to check other HW timers (HPET or PM timer), but
-			only on systems where TSC has been deemed trustworthy.
-			This will be suppressed by an earlier tsc=nowatchdog and
-			can be overridden by a later tsc=nowatchdog.  A console
-			message will flag any such suppression or overriding.
+			[x86] watchdog: Enforce the clocksource watchdog on TSC
 
 	tsc_early_khz=  [X86,EARLY] Skip early TSC calibration and use the given
 			value instead. Useful when the early TSC frequency discovery
@@ -7869,6 +8173,9 @@
 				p = USB_QUIRK_SHORT_SET_ADDRESS_REQ_TIMEOUT
 					(Reduce timeout of the SET_ADDRESS
 					request from 5000 ms to 500 ms);
+				q = USB_QUIRK_FORCE_ONE_CONFIG (Device
+					claims zero configurations,
+					forcing to 1);
 			Example: quirks=0781:5580:bk,0a5c:5834:gij
 
 	usbhid.mousepoll=
@@ -8062,7 +8369,9 @@
 
 			emulate     Vsyscalls turn into traps and are emulated
 			            reasonably safely.  The vsyscall page is
-				    readable.
+				    readable.  This disables the Linear
+				    Address Space Separation (LASS) security
+				    feature and makes the system less secure.
 
 			xonly       [default] Vsyscalls turn into traps and are
 			            emulated reasonably safely.  The vsyscall
@@ -8155,7 +8464,16 @@
 			CONFIG_WQ_WATCHDOG. It sets the number times of the
 			stall to trigger panic.
 
-			The default is 0, which disables the panic on stall.
+			The default is set by CONFIG_BOOTPARAM_WQ_STALL_PANIC,
+			which is 0 (disabled) if not configured.
+
+	workqueue.panic_on_stall_time=<uint>
+			Panic when a workqueue stall has been continuous for
+			the specified number of seconds. Unlike panic_on_stall
+			which counts accumulated stall events, this triggers
+			based on the duration of a single continuous stall.
+
+			The default is 0, which disables the time-based panic.
 
 	workqueue.cpu_intensive_thresh_us=
 			Per-cpu work items which run for longer than this
@@ -8196,7 +8514,8 @@
         workqueue.default_affinity_scope=
 			Select the default affinity scope to use for unbound
 			workqueues. Can be one of "cpu", "smt", "cache",
-			"numa" and "system". Default is "cache". For more
+			"cache_shard", "numa" and "system". Default is
+			"cache_shard". For more
 			information, see the Affinity Scopes section in
 			Documentation/core-api/workqueue.rst.
 
@@ -8232,6 +8551,11 @@
 			crash analysis tools and Xen tools for doing domain
 			save/restore/migration must be enabled to handle larger
 			domains.
+
+	xen_console_io	[XEN,EARLY]
+			Boolean option to enable/disable the usage of the Xen
+			console_io hypercalls to read and write to the console.
+			Mostly useful for debugging and development.
 
 	xen_emul_unplug=		[HW,X86,XEN,EARLY]
 			Unplug Xen emulated devices

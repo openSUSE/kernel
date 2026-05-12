@@ -47,7 +47,6 @@ struct mlx5e_flow_steering {
 	bool				state_destroy;
 	bool				vlan_strip_disable;
 	struct mlx5_core_dev		*mdev;
-	struct net_device		*netdev;
 	struct mlx5_flow_namespace      *ns;
 	struct mlx5_flow_namespace      *egress_ns;
 #ifdef CONFIG_MLX5_EN_RXNFC
@@ -128,7 +127,7 @@ static void mlx5e_add_l2_to_hash(struct hlist_head *hash, const u8 *addr)
 		return;
 	}
 
-	hn = kzalloc(sizeof(*hn), GFP_ATOMIC);
+	hn = kzalloc_obj(*hn, GFP_ATOMIC);
 	if (!hn)
 		return;
 
@@ -295,7 +294,7 @@ static int mlx5e_add_vlan_rule(struct mlx5e_flow_steering *fs,
 	struct mlx5_flow_spec *spec;
 	int err = 0;
 
-	spec = kvzalloc(sizeof(*spec), GFP_KERNEL);
+	spec = kvzalloc_obj(*spec);
 	if (!spec)
 		return -ENOMEM;
 
@@ -372,7 +371,7 @@ mlx5e_add_trap_rule(struct mlx5_flow_table *ft, int trap_id, int tir_num)
 	struct mlx5_flow_handle *rule;
 	struct mlx5_flow_spec *spec;
 
-	spec = kvzalloc(sizeof(*spec), GFP_KERNEL);
+	spec = kvzalloc_obj(*spec);
 	if (!spec)
 		return ERR_PTR(-ENOMEM);
 	spec->flow_context.flags |= FLOW_CONTEXT_HAS_TAG;
@@ -610,20 +609,26 @@ static void mlx5e_execute_l2_action(struct mlx5e_flow_steering *fs,
 }
 
 static void mlx5e_sync_netdev_addr(struct mlx5e_flow_steering *fs,
-				   struct net_device *netdev)
+				   struct net_device *netdev,
+				   struct netdev_hw_addr_list *uc,
+				   struct netdev_hw_addr_list *mc)
 {
 	struct netdev_hw_addr *ha;
 
-	netif_addr_lock_bh(netdev);
+	if (!uc || !mc) {
+		netif_addr_lock_bh(netdev);
+		mlx5e_sync_netdev_addr(fs, netdev, &netdev->uc, &netdev->mc);
+		netif_addr_unlock_bh(netdev);
+		return;
+	}
 
 	mlx5e_add_l2_to_hash(fs->l2.netdev_uc, netdev->dev_addr);
-	netdev_for_each_uc_addr(ha, netdev)
+
+	netdev_hw_addr_list_for_each(ha, uc)
 		mlx5e_add_l2_to_hash(fs->l2.netdev_uc, ha->addr);
 
-	netdev_for_each_mc_addr(ha, netdev)
+	netdev_hw_addr_list_for_each(ha, mc)
 		mlx5e_add_l2_to_hash(fs->l2.netdev_mc, ha->addr);
-
-	netif_addr_unlock_bh(netdev);
 }
 
 static void mlx5e_fill_addr_array(struct mlx5e_flow_steering *fs, int list_type,
@@ -725,7 +730,9 @@ static void mlx5e_apply_netdev_addr(struct mlx5e_flow_steering *fs)
 }
 
 static void mlx5e_handle_netdev_addr(struct mlx5e_flow_steering *fs,
-				     struct net_device *netdev)
+				     struct net_device *netdev,
+				     struct netdev_hw_addr_list *uc,
+				     struct netdev_hw_addr_list *mc)
 {
 	struct mlx5e_l2_hash_node *hn;
 	struct hlist_node *tmp;
@@ -737,7 +744,7 @@ static void mlx5e_handle_netdev_addr(struct mlx5e_flow_steering *fs,
 		hn->action = MLX5E_ACTION_DEL;
 
 	if (fs->state_destroy)
-		mlx5e_sync_netdev_addr(fs, netdev);
+		mlx5e_sync_netdev_addr(fs, netdev, uc, mc);
 
 	mlx5e_apply_netdev_addr(fs);
 }
@@ -754,7 +761,7 @@ static int mlx5e_add_promisc_rule(struct mlx5e_flow_steering *fs)
 	struct mlx5_flow_spec *spec;
 	int err = 0;
 
-	spec = kvzalloc(sizeof(*spec), GFP_KERNEL);
+	spec = kvzalloc_obj(*spec);
 	if (!spec)
 		return -ENOMEM;
 	dest.type = MLX5_FLOW_DESTINATION_TYPE_FLOW_TABLE;
@@ -821,9 +828,17 @@ static void mlx5e_destroy_promisc_table(struct mlx5e_flow_steering *fs)
 }
 
 void mlx5e_fs_set_rx_mode_work(struct mlx5e_flow_steering *fs,
-			       struct net_device *netdev)
+			       struct net_device *netdev,
+			       struct netdev_hw_addr_list *uc,
+			       struct netdev_hw_addr_list *mc)
 {
+	struct mlx5e_priv *priv = netdev_priv(netdev);
 	struct mlx5e_l2_table *ea = &fs->l2;
+
+	if (mlx5e_is_uplink_rep(priv)) {
+		mlx5e_handle_netdev_addr(fs, netdev, uc, mc);
+		goto update_vport_context;
+	}
 
 	bool rx_mode_enable  = fs->state_destroy;
 	bool promisc_enabled   = rx_mode_enable && (netdev->flags & IFF_PROMISC);
@@ -851,7 +866,7 @@ void mlx5e_fs_set_rx_mode_work(struct mlx5e_flow_steering *fs,
 	if (enable_broadcast)
 		mlx5e_add_l2_flow_rule(fs, &ea->broadcast, MLX5E_FULLMATCH);
 
-	mlx5e_handle_netdev_addr(fs, netdev);
+	mlx5e_handle_netdev_addr(fs, netdev, uc, mc);
 
 	if (disable_broadcast)
 		mlx5e_del_l2_flow_rule(fs, &ea->broadcast);
@@ -864,6 +879,7 @@ void mlx5e_fs_set_rx_mode_work(struct mlx5e_flow_steering *fs,
 	ea->allmulti_enabled  = allmulti_enabled;
 	ea->broadcast_enabled = broadcast_enabled;
 
+update_vport_context:
 	mlx5e_vport_context_update(fs, netdev);
 }
 
@@ -905,6 +921,9 @@ static void mlx5e_set_inner_ttc_params(struct mlx5e_flow_steering *fs,
 	ft_attr->prio = MLX5E_NIC_PRIO;
 
 	for (tt = 0; tt < MLX5_NUM_TT; tt++) {
+		if (mlx5_ttc_is_decrypted_esp_tt(tt))
+			continue;
+
 		ttc_params->dests[tt].type = MLX5_FLOW_DESTINATION_TYPE_TIR;
 		ttc_params->dests[tt].tir_num =
 			tt == MLX5_TT_ANY ?
@@ -914,9 +933,17 @@ static void mlx5e_set_inner_ttc_params(struct mlx5e_flow_steering *fs,
 	}
 }
 
+static bool mlx5e_ipsec_rss_supported(struct mlx5_core_dev *mdev)
+{
+	return MLX5_CAP_NIC_RX_FT_FIELD_SUPPORT_2(mdev, ipsec_next_header) &&
+	       MLX5_CAP_NIC_RX_FT_FIELD_SUPPORT_2(mdev, outer_l4_type_ext) &&
+	       MLX5_CAP_NIC_RX_FT_FIELD_SUPPORT_2(mdev, inner_l4_type_ext);
+}
+
 void mlx5e_set_ttc_params(struct mlx5e_flow_steering *fs,
 			  struct mlx5e_rx_res *rx_res,
-			  struct ttc_params *ttc_params, bool tunnel)
+			  struct ttc_params *ttc_params, bool tunnel,
+			  bool ipsec_rss)
 
 {
 	struct mlx5_flow_table_attr *ft_attr = &ttc_params->ft_attr;
@@ -927,7 +954,13 @@ void mlx5e_set_ttc_params(struct mlx5e_flow_steering *fs,
 	ft_attr->level = MLX5E_TTC_FT_LEVEL;
 	ft_attr->prio = MLX5E_NIC_PRIO;
 
+	ttc_params->ipsec_rss = ipsec_rss &&
+				mlx5e_ipsec_rss_supported(fs->mdev);
+
 	for (tt = 0; tt < MLX5_NUM_TT; tt++) {
+		if (mlx5_ttc_is_decrypted_esp_tt(tt))
+			continue;
+
 		ttc_params->dests[tt].type = MLX5_FLOW_DESTINATION_TYPE_TIR;
 		ttc_params->dests[tt].tir_num =
 			tt == MLX5_TT_ANY ?
@@ -967,7 +1000,10 @@ static int mlx5e_add_l2_flow_rule(struct mlx5e_flow_steering *fs,
 	u8 *mc_dmac;
 	u8 *mv_dmac;
 
-	spec = kvzalloc(sizeof(*spec), GFP_KERNEL);
+	if (!ft)
+		return -EINVAL;
+
+	spec = kvzalloc_obj(*spec);
 	if (!spec)
 		return -ENOMEM;
 
@@ -1022,7 +1058,7 @@ static int mlx5e_create_l2_table_groups(struct mlx5e_l2_table *l2_table)
 	int err;
 	u8 *mc;
 
-	ft->g = kcalloc(MLX5E_NUM_L2_GROUPS, sizeof(*ft->g), GFP_KERNEL);
+	ft->g = kzalloc_objs(*ft->g, MLX5E_NUM_L2_GROUPS);
 	if (!ft->g)
 		return -ENOMEM;
 	in = kvzalloc(inlen, GFP_KERNEL);
@@ -1234,7 +1270,7 @@ static int mlx5e_fs_create_vlan_table(struct mlx5e_flow_steering *fs)
 	if (IS_ERR(ft->t))
 		return PTR_ERR(ft->t);
 
-	ft->g = kcalloc(MLX5E_NUM_VLAN_GROUPS, sizeof(*ft->g), GFP_KERNEL);
+	ft->g = kzalloc_objs(*ft->g, MLX5E_NUM_VLAN_GROUPS);
 	if (!ft->g) {
 		err = -ENOMEM;
 		goto err_destroy_vlan_table;
@@ -1293,7 +1329,7 @@ int mlx5e_create_ttc_table(struct mlx5e_flow_steering *fs,
 {
 	struct ttc_params ttc_params = {};
 
-	mlx5e_set_ttc_params(fs, rx_res, &ttc_params, true);
+	mlx5e_set_ttc_params(fs, rx_res, &ttc_params, true, true);
 	fs->ttc = mlx5_create_ttc_table(fs->mdev, &ttc_params);
 	return PTR_ERR_OR_ZERO(fs->ttc);
 }
@@ -1377,7 +1413,7 @@ void mlx5e_destroy_flow_steering(struct mlx5e_flow_steering *fs, bool ntuple,
 
 static int mlx5e_fs_vlan_alloc(struct mlx5e_flow_steering *fs)
 {
-	fs->vlan = kvzalloc(sizeof(*fs->vlan), GFP_KERNEL);
+	fs->vlan = kvzalloc_obj(*fs->vlan);
 	if (!fs->vlan)
 		return -ENOMEM;
 	return 0;
@@ -1449,7 +1485,7 @@ struct mlx5e_flow_steering *mlx5e_fs_init(const struct mlx5e_profile *profile,
 	struct mlx5e_flow_steering *fs;
 	int err;
 
-	fs = kvzalloc(sizeof(*fs), GFP_KERNEL);
+	fs = kvzalloc_obj(*fs);
 	if (!fs)
 		goto err;
 

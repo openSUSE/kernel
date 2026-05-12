@@ -28,9 +28,9 @@
 #include <asm/apic.h>
 #include <asm/timer.h>
 #include <asm/reboot.h>
+#include <asm/msr.h>
 #include <asm/nmi.h>
 #include <clocksource/hyperv_timer.h>
-#include <asm/msr.h>
 #include <asm/numa.h>
 #include <asm/svm.h>
 
@@ -38,11 +38,13 @@
 bool hv_nested;
 struct ms_hyperv_info ms_hyperv;
 
-/* Used in modules via hv_do_hypercall(): see arch/x86/include/asm/mshyperv.h */
-bool hyperv_paravisor_present __ro_after_init;
-EXPORT_SYMBOL_GPL(hyperv_paravisor_present);
-
 #if IS_ENABLED(CONFIG_HYPERV)
+/*
+ * When running with the paravisor, controls proxying the synthetic interrupts
+ * from the host
+ */
+static bool hv_para_sint_proxy;
+
 static inline unsigned int hv_get_nested_msr(unsigned int reg)
 {
 	if (hv_is_sint_msr(reg))
@@ -79,16 +81,50 @@ EXPORT_SYMBOL_GPL(hv_get_non_nested_msr);
 void hv_set_non_nested_msr(unsigned int reg, u64 value)
 {
 	if (hv_is_synic_msr(reg) && ms_hyperv.paravisor_present) {
+		/* The hypervisor will get the intercept. */
 		hv_ivm_msr_write(reg, value);
 
-		/* Write proxy bit via wrmsl instruction */
-		if (hv_is_sint_msr(reg))
-			wrmsrq(reg, value | 1 << 20);
+		/* Using wrmsrq so the following goes to the paravisor. */
+		if (hv_is_sint_msr(reg)) {
+			union hv_synic_sint sint = { .as_uint64 = value };
+
+			sint.proxy = hv_para_sint_proxy;
+			native_wrmsrq(reg, sint.as_uint64);
+		}
 	} else {
-		wrmsrq(reg, value);
+		native_wrmsrq(reg, value);
 	}
 }
 EXPORT_SYMBOL_GPL(hv_set_non_nested_msr);
+
+/*
+ * Enable or disable proxying synthetic interrupts
+ * to the paravisor.
+ */
+void hv_para_set_sint_proxy(bool enable)
+{
+	hv_para_sint_proxy = enable;
+}
+
+/*
+ * Get the SynIC register value from the paravisor.
+ */
+u64 hv_para_get_synic_register(unsigned int reg)
+{
+	if (WARN_ON(!ms_hyperv.paravisor_present || !hv_is_synic_msr(reg)))
+		return ~0ULL;
+	return native_read_msr(reg);
+}
+
+/*
+ * Set the SynIC register value with the paravisor.
+ */
+void hv_para_set_synic_register(unsigned int reg, u64 val)
+{
+	if (WARN_ON(!ms_hyperv.paravisor_present || !hv_is_synic_msr(reg)))
+		return;
+	native_write_msr(reg, val);
+}
 
 u64 hv_get_msr(unsigned int reg)
 {
@@ -124,6 +160,8 @@ DEFINE_IDTENTRY_SYSVEC(sysvec_hyperv_callback)
 
 	if (vmbus_handler)
 		vmbus_handler();
+
+	add_interrupt_randomness(HYPERVISOR_CALLBACK_VECTOR);
 
 	if (ms_hyperv.hints & HV_DEPRECATING_AEOI_RECOMMENDED)
 		apic_eoi();
@@ -199,8 +237,12 @@ void hv_remove_crash_handler(void)
 #ifdef CONFIG_KEXEC_CORE
 static void hv_machine_shutdown(void)
 {
-	if (kexec_in_progress && hv_kexec_handler)
-		hv_kexec_handler();
+	if (kexec_in_progress) {
+		hv_stimer_global_cleanup();
+
+		if (hv_kexec_handler)
+			hv_kexec_handler();
+	}
 
 	/*
 	 * Call hv_cpu_die() on all the CPUs, otherwise later the hypervisor
@@ -219,7 +261,7 @@ static void hv_machine_shutdown(void)
 #endif /* CONFIG_KEXEC_CORE */
 
 #ifdef CONFIG_CRASH_DUMP
-static void hv_machine_crash_shutdown(struct pt_regs *regs)
+static void hv_guest_crash_shutdown(struct pt_regs *regs)
 {
 	if (hv_crash_handler)
 		hv_crash_handler(regs);
@@ -288,7 +330,17 @@ static void __init x86_setup_ops_for_tsc_pg_clock(void)
 	old_restore_sched_clock_state = x86_platform.restore_sched_clock_state;
 	x86_platform.restore_sched_clock_state = hv_restore_sched_clock_state;
 }
+
+#ifdef CONFIG_X86_64
+DEFINE_STATIC_CALL(hv_hypercall, hv_std_hypercall);
+EXPORT_STATIC_CALL_TRAMP_GPL(hv_hypercall);
+#define hypercall_update(hc) static_call_update(hv_hypercall, hc)
+#endif
 #endif /* CONFIG_HYPERV */
+
+#ifndef hypercall_update
+#define hypercall_update(hc) (void)hc
+#endif
 
 static uint32_t  __init ms_hyperv_platform(void)
 {
@@ -379,12 +431,19 @@ static void __init hv_smp_prepare_cpus(unsigned int max_cpus)
 	}
 
 #ifdef CONFIG_X86_64
+	/* If AP LPs exist, we are in a kexec'd kernel and VPs already exist */
+	if (num_present_cpus() == 1 || hv_lp_exists(1))
+		return;
+
 	for_each_present_cpu(i) {
 		if (i == 0)
 			continue;
 		ret = hv_call_add_logical_proc(numa_cpu_node(i), i, cpu_physical_id(i));
 		BUG_ON(ret);
 	}
+
+	ret = hv_call_notify_all_processors_started();
+	WARN_ON(ret);
 
 	for_each_present_cpu(i) {
 		if (i == 0)
@@ -432,9 +491,32 @@ int hv_get_hypervisor_version(union hv_hypervisor_version_info *info)
 }
 EXPORT_SYMBOL_GPL(hv_get_hypervisor_version);
 
+/*
+ * Reserved vectors hard coded in the hypervisor. If used outside, the hypervisor
+ * will either crash or hang or attempt to break into debugger.
+ */
+static void hv_reserve_irq_vectors(void)
+{
+	#define HYPERV_DBG_FASTFAIL_VECTOR	0x29
+	#define HYPERV_DBG_ASSERT_VECTOR	0x2C
+	#define HYPERV_DBG_SERVICE_VECTOR	0x2D
+
+	if (cpu_feature_enabled(X86_FEATURE_FRED))
+		return;
+
+	if (test_and_set_bit(HYPERV_DBG_ASSERT_VECTOR, system_vectors) ||
+	    test_and_set_bit(HYPERV_DBG_SERVICE_VECTOR, system_vectors) ||
+	    test_and_set_bit(HYPERV_DBG_FASTFAIL_VECTOR, system_vectors))
+		BUG();
+
+	pr_info("Hyper-V: reserve vectors: 0x%x 0x%x 0x%x\n",
+		HYPERV_DBG_ASSERT_VECTOR, HYPERV_DBG_SERVICE_VECTOR,
+		HYPERV_DBG_FASTFAIL_VECTOR);
+}
+
 static void __init ms_hyperv_init_platform(void)
 {
-	int hv_max_functions_eax;
+	int hv_max_functions_eax, eax;
 
 #ifdef CONFIG_PARAVIRT
 	pv_info.name = "Hyper-V";
@@ -464,10 +546,29 @@ static void __init ms_hyperv_init_platform(void)
 
 	hv_identify_partition_type();
 
+	if (hv_root_partition())
+		hv_reserve_irq_vectors();
+
+	if (cc_platform_has(CC_ATTR_SNP_SECURE_AVIC))
+		ms_hyperv.hints |= HV_DEPRECATING_AEOI_RECOMMENDED;
+
 	if (ms_hyperv.hints & HV_X64_HYPERV_NESTED) {
 		hv_nested = true;
 		pr_info("Hyper-V: running on a nested hypervisor\n");
 	}
+
+	/*
+	 * There is no check against the max function for HYPERV_CPUID_VIRT_STACK_* CPUID
+	 * leaves as the hypervisor doesn't handle them. Even a nested root partition (L2
+	 * root) will not get them because the nested (L1) hypervisor filters them out.
+	 * These are handled through intercept processing by the Windows Hyper-V stack
+	 * or the paravisor.
+	 */
+	eax = cpuid_eax(HYPERV_CPUID_VIRT_STACK_PROPERTIES);
+	ms_hyperv.confidential_vmbus_available =
+		eax & HYPERV_VS_PROPERTIES_EAX_CONFIDENTIAL_VMBUS_AVAILABLE;
+	ms_hyperv.msi_ext_dest_id =
+		eax & HYPERV_VS_PROPERTIES_EAX_EXTENDED_IOAPIC_RTE;
 
 	if (ms_hyperv.features & HV_ACCESS_FREQUENCY_MSRS &&
 	    ms_hyperv.misc_features & HV_FEATURE_FREQUENCY_MSRS_AVAILABLE) {
@@ -484,14 +585,14 @@ static void __init ms_hyperv_init_platform(void)
 			ms_hyperv.shared_gpa_boundary =
 				BIT_ULL(ms_hyperv.shared_gpa_boundary_bits);
 
-		hyperv_paravisor_present = !!ms_hyperv.paravisor_present;
-
 		pr_info("Hyper-V: Isolation Config: Group A 0x%x, Group B 0x%x\n",
 			ms_hyperv.isolation_config_a, ms_hyperv.isolation_config_b);
 
 
 		if (hv_get_isolation_type() == HV_ISOLATION_TYPE_SNP) {
 			static_branch_enable(&isolation_type_snp);
+			if (!ms_hyperv.paravisor_present)
+				hypercall_update(hv_snp_hypercall);
 		} else if (hv_get_isolation_type() == HV_ISOLATION_TYPE_TDX) {
 			static_branch_enable(&isolation_type_tdx);
 
@@ -499,6 +600,7 @@ static void __init ms_hyperv_init_platform(void)
 			ms_hyperv.hints &= ~HV_X64_APIC_ACCESS_RECOMMENDED;
 
 			if (!ms_hyperv.paravisor_present) {
+				hypercall_update(hv_tdx_hypercall);
 				/*
 				 * Mark the Hyper-V TSC page feature as disabled
 				 * in a TDX VM without paravisor so that the
@@ -558,13 +660,21 @@ static void __init ms_hyperv_init_platform(void)
 #endif
 
 #if IS_ENABLED(CONFIG_HYPERV)
+	if (hv_root_partition())
+		machine_ops.power_off = hv_machine_power_off;
 #if defined(CONFIG_KEXEC_CORE)
 	machine_ops.shutdown = hv_machine_shutdown;
 #endif
 #if defined(CONFIG_CRASH_DUMP)
-	machine_ops.crash_shutdown = hv_machine_crash_shutdown;
+	if (!hv_root_partition())
+		machine_ops.crash_shutdown = hv_guest_crash_shutdown;
 #endif
 #endif
+	/*
+	 * HV_ACCESS_TSC_INVARIANT is always zero for the root partition. Root
+	 * partition doesn't need to write to synthetic MSR to enable invariant
+	 * TSC feature. It sees what the hardware provides.
+	 */
 	if (ms_hyperv.features & HV_ACCESS_TSC_INVARIANT) {
 		/*
 		 * Writing to synthetic MSR 0x40000118 updates/changes the
@@ -636,8 +746,12 @@ static void __init ms_hyperv_init_platform(void)
 	 * TSC should be marked as unstable only after Hyper-V
 	 * clocksource has been initialized. This ensures that the
 	 * stability of the sched_clock is not altered.
+	 *
+	 * HV_ACCESS_TSC_INVARIANT is always zero for the root partition. No
+	 * need to check for it.
 	 */
-	if (!(ms_hyperv.features & HV_ACCESS_TSC_INVARIANT))
+	if (!hv_root_partition() &&
+	    !(ms_hyperv.features & HV_ACCESS_TSC_INVARIANT))
 		mark_tsc_unstable("running on Hyper-V");
 
 	hardlockup_detector_disable();
@@ -659,21 +773,10 @@ static bool __init ms_hyperv_x2apic_available(void)
  * pci-hyperv host bridge.
  *
  * Note: for a Hyper-V root partition, this will always return false.
- * The hypervisor doesn't expose these HYPERV_CPUID_VIRT_STACK_* cpuids by
- * default, they are implemented as intercepts by the Windows Hyper-V stack.
- * Even a nested root partition (L2 root) will not get them because the
- * nested (L1) hypervisor filters them out.
  */
 static bool __init ms_hyperv_msi_ext_dest_id(void)
 {
-	u32 eax;
-
-	eax = cpuid_eax(HYPERV_CPUID_VIRT_STACK_INTERFACE);
-	if (eax != HYPERV_VS_INTERFACE_EAX_SIGNATURE)
-		return false;
-
-	eax = cpuid_eax(HYPERV_CPUID_VIRT_STACK_PROPERTIES);
-	return eax & HYPERV_VS_PROPERTIES_EAX_EXTENDED_IOAPIC_RTE;
+	return ms_hyperv.msi_ext_dest_id;
 }
 
 #ifdef CONFIG_AMD_MEM_ENCRYPT

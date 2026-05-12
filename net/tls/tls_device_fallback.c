@@ -149,9 +149,6 @@ static int tls_enc_records(struct aead_request *aead_req,
 	return rc;
 }
 
-/* Can't use icsk->icsk_af_ops->send_check here because the ip addresses
- * might have been changed by NAT.
- */
 static void update_chksum(struct sk_buff *skb, int headln)
 {
 	struct tcphdr *th = tcp_hdr(skb);
@@ -383,7 +380,7 @@ static struct sk_buff *tls_sw_fallback(struct sock *sk, struct sk_buff *skb)
 	if (!payload_len)
 		return skb;
 
-	sg_in = kmalloc_array(sg_in_max_elements, sizeof(*sg_in), GFP_ATOMIC);
+	sg_in = kmalloc_objs(*sg_in, sg_in_max_elements, GFP_ATOMIC);
 	if (!sg_in)
 		goto free_orig;
 

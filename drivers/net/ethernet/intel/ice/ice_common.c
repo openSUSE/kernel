@@ -204,42 +204,6 @@ bool ice_is_generic_mac(struct ice_hw *hw)
 }
 
 /**
- * ice_is_pf_c827 - check if pf contains c827 phy
- * @hw: pointer to the hw struct
- *
- * Return: true if the device has c827 phy.
- */
-static bool ice_is_pf_c827(struct ice_hw *hw)
-{
-	struct ice_aqc_get_link_topo cmd = {};
-	u8 node_part_number;
-	u16 node_handle;
-	int status;
-
-	if (hw->mac_type != ICE_MAC_E810)
-		return false;
-
-	if (hw->device_id != ICE_DEV_ID_E810C_QSFP)
-		return true;
-
-	cmd.addr.topo_params.node_type_ctx =
-		FIELD_PREP(ICE_AQC_LINK_TOPO_NODE_TYPE_M, ICE_AQC_LINK_TOPO_NODE_TYPE_PHY) |
-		FIELD_PREP(ICE_AQC_LINK_TOPO_NODE_CTX_M, ICE_AQC_LINK_TOPO_NODE_CTX_PORT);
-	cmd.addr.topo_params.index = 0;
-
-	status = ice_aq_get_netlist_node(hw, &cmd, &node_part_number,
-					 &node_handle);
-
-	if (status || node_part_number != ICE_AQC_GET_LINK_TOPO_NODE_NR_C827)
-		return false;
-
-	if (node_handle == E810C_QSFP_C827_0_HANDLE || node_handle == E810C_QSFP_C827_1_HANDLE)
-		return true;
-
-	return false;
-}
-
-/**
  * ice_clear_pf_cfg - Clear PF configuration
  * @hw: pointer to the hardware structure
  *
@@ -958,30 +922,62 @@ static void ice_get_itr_intrl_gran(struct ice_hw *hw)
 }
 
 /**
- * ice_wait_for_fw - wait for full FW readiness
+ * ice_wait_fw_load - wait for PHY firmware loading to complete
  * @hw: pointer to the hardware structure
- * @timeout: milliseconds that can elapse before timing out
+ * @timeout: milliseconds that can elapse before timing out, 0 to bypass waiting
  *
- * Return: 0 on success, -ETIMEDOUT on timeout.
+ * Return:
+ * * 0 on success
+ * * negative on timeout
  */
-static int ice_wait_for_fw(struct ice_hw *hw, u32 timeout)
+static int ice_wait_fw_load(struct ice_hw *hw, u32 timeout)
 {
-	int fw_loading;
-	u32 elapsed = 0;
+	int fw_loading_reg;
 
-	while (elapsed <= timeout) {
-		fw_loading = rd32(hw, GL_MNG_FWSM) & GL_MNG_FWSM_FW_LOADING_M;
-
-		/* firmware was not yet loaded, we have to wait more */
-		if (fw_loading) {
-			elapsed += 100;
-			msleep(100);
-			continue;
-		}
+	if (!timeout)
 		return 0;
-	}
 
-	return -ETIMEDOUT;
+	fw_loading_reg = rd32(hw, GL_MNG_FWSM) & GL_MNG_FWSM_FW_LOADING_M;
+	/* notify the user only once if PHY FW is still loading */
+	if (fw_loading_reg)
+		dev_info(ice_hw_to_dev(hw), "Link initialization is blocked by PHY FW initialization. Link initialization will continue after PHY FW initialization completes.\n");
+	else
+		return 0;
+
+	return rd32_poll_timeout(hw, GL_MNG_FWSM, fw_loading_reg,
+				 !(fw_loading_reg & GL_MNG_FWSM_FW_LOADING_M),
+				 10000, timeout * 1000);
+}
+
+static int __fwlog_send_cmd(void *priv, struct libie_aq_desc *desc, void *buf,
+			    u16 size)
+{
+	struct ice_hw *hw = priv;
+
+	return ice_aq_send_cmd(hw, desc, buf, size, NULL);
+}
+
+static int __fwlog_init(struct ice_hw *hw)
+{
+	struct ice_pf *pf = hw->back;
+	struct libie_fwlog_api api = {
+		.pdev = pf->pdev,
+		.send_cmd = __fwlog_send_cmd,
+		.priv = hw,
+	};
+	int err;
+
+	/* only support fw log commands on PF 0 */
+	if (hw->bus.func)
+		return -EINVAL;
+
+	err = ice_debugfs_pf_init(pf);
+	if (err)
+		return err;
+
+	api.debugfs_root = pf->ice_debugfs_pf;
+
+	return libie_fwlog_init(&hw->fwlog, &api);
 }
 
 /**
@@ -1012,7 +1008,7 @@ int ice_init_hw(struct ice_hw *hw)
 	if (status)
 		goto err_unroll_cqinit;
 
-	status = ice_fwlog_init(hw);
+	status = __fwlog_init(hw);
 	if (status)
 		ice_debug(hw, ICE_DBG_FW_LOG, "Error initializing FW logging: %d\n",
 			  status);
@@ -1071,7 +1067,7 @@ int ice_init_hw(struct ice_hw *hw)
 	if (status)
 		goto err_unroll_sched;
 
-	pcaps = kzalloc(sizeof(*pcaps), GFP_KERNEL);
+	pcaps = kzalloc_obj(*pcaps);
 	if (!pcaps) {
 		status = -ENOMEM;
 		goto err_unroll_sched;
@@ -1107,8 +1103,7 @@ int ice_init_hw(struct ice_hw *hw)
 
 	/* Get MAC information */
 	/* A single port can report up to two (LAN and WoL) addresses */
-	mac_buf = kcalloc(2, sizeof(struct ice_aqc_manage_mac_read_resp),
-			  GFP_KERNEL);
+	mac_buf = kzalloc_objs(struct ice_aqc_manage_mac_read_resp, 2);
 	if (!mac_buf) {
 		status = -ENOMEM;
 		goto err_unroll_fltr_mgmt_struct;
@@ -1130,6 +1125,7 @@ int ice_init_hw(struct ice_hw *hw)
 	status = ice_init_hw_tbls(hw);
 	if (status)
 		goto err_unroll_fltr_mgmt_struct;
+
 	mutex_init(&hw->tnl_lock);
 	ice_init_chk_recipe_reuse_support(hw);
 
@@ -1137,12 +1133,10 @@ int ice_init_hw(struct ice_hw *hw)
 	 * due to necessity of loading FW from an external source.
 	 * This can take even half a minute.
 	 */
-	if (ice_is_pf_c827(hw)) {
-		status = ice_wait_for_fw(hw, 30000);
-		if (status) {
-			dev_err(ice_hw_to_dev(hw), "ice_wait_for_fw timed out");
-			goto err_unroll_fltr_mgmt_struct;
-		}
+	status = ice_wait_fw_load(hw, 30000);
+	if (status) {
+		dev_err(ice_hw_to_dev(hw), "ice_wait_fw_load timed out");
+		goto err_unroll_fltr_mgmt_struct;
 	}
 
 	hw->lane_num = ice_get_phy_lane_number(hw);
@@ -1157,6 +1151,16 @@ err_unroll_alloc:
 err_unroll_cqinit:
 	ice_destroy_all_ctrlq(hw);
 	return status;
+}
+
+static void __fwlog_deinit(struct ice_hw *hw)
+{
+	/* only support fw log commands on PF 0 */
+	if (hw->bus.func)
+		return;
+
+	ice_debugfs_pf_deinit(hw->back);
+	libie_fwlog_deinit(&hw->fwlog);
 }
 
 /**
@@ -1177,8 +1181,7 @@ void ice_deinit_hw(struct ice_hw *hw)
 	ice_free_seg(hw);
 	ice_free_hw_tbls(hw);
 	mutex_destroy(&hw->tnl_lock);
-
-	ice_fwlog_deinit(hw);
+	__fwlog_deinit(hw);
 	ice_destroy_all_ctrlq(hw);
 
 	/* Clear VSI contexts if not already cleared */
@@ -1693,6 +1696,44 @@ int ice_write_txq_ctx(struct ice_hw *hw, struct ice_tlan_ctx *tlan_ctx,
 	return 0;
 }
 
+/* Tx time Queue Context */
+static const struct packed_field_u8 ice_txtime_ctx_fields[] = {
+				    /* Field			Width	LSB */
+	ICE_CTX_STORE(ice_txtime_ctx, base,			57,	0),
+	ICE_CTX_STORE(ice_txtime_ctx, pf_num,			3,	57),
+	ICE_CTX_STORE(ice_txtime_ctx, vmvf_num,			10,	60),
+	ICE_CTX_STORE(ice_txtime_ctx, vmvf_type,		2,	70),
+	ICE_CTX_STORE(ice_txtime_ctx, src_vsi,			10,	72),
+	ICE_CTX_STORE(ice_txtime_ctx, cpuid,			8,	82),
+	ICE_CTX_STORE(ice_txtime_ctx, tphrd_desc,		1,	90),
+	ICE_CTX_STORE(ice_txtime_ctx, qlen,			13,	91),
+	ICE_CTX_STORE(ice_txtime_ctx, timer_num,		1,	104),
+	ICE_CTX_STORE(ice_txtime_ctx, txtime_ena_q,		1,	105),
+	ICE_CTX_STORE(ice_txtime_ctx, drbell_mode_32,		1,	106),
+	ICE_CTX_STORE(ice_txtime_ctx, ts_res,			4,	107),
+	ICE_CTX_STORE(ice_txtime_ctx, ts_round_type,		2,	111),
+	ICE_CTX_STORE(ice_txtime_ctx, ts_pacing_slot,		3,	113),
+	ICE_CTX_STORE(ice_txtime_ctx, merging_ena,		1,	116),
+	ICE_CTX_STORE(ice_txtime_ctx, ts_fetch_prof_id,		4,	117),
+	ICE_CTX_STORE(ice_txtime_ctx, ts_fetch_cache_line_aln_thld, 4,	121),
+	ICE_CTX_STORE(ice_txtime_ctx, tx_pipe_delay_mode,	1,	125),
+};
+
+/**
+ * ice_pack_txtime_ctx - pack Tx time queue context into a HW buffer
+ * @ctx: the Tx time queue context to pack
+ * @buf: the HW buffer to pack into
+ *
+ * Pack the Tx time queue context from the CPU-friendly unpacked buffer into
+ * its bit-packed HW layout.
+ */
+void ice_pack_txtime_ctx(const struct ice_txtime_ctx *ctx,
+			 ice_txtime_ctx_buf_t *buf)
+{
+	pack_fields(buf, sizeof(*buf), ctx, ice_txtime_ctx_fields,
+		    QUIRK_LITTLE_ENDIAN | QUIRK_LSW32_IS_FIRST);
+}
+
 /* Sideband Queue command wrappers */
 
 /**
@@ -1773,6 +1814,7 @@ static bool ice_should_retry_sq_send_cmd(u16 opcode)
 	case ice_aqc_opc_lldp_stop:
 	case ice_aqc_opc_lldp_start:
 	case ice_aqc_opc_lldp_filter_ctrl:
+	case ice_aqc_opc_sff_eeprom:
 		return true;
 	}
 
@@ -1798,6 +1840,7 @@ ice_sq_send_cmd_retry(struct ice_hw *hw, struct ice_ctl_q_info *cq,
 {
 	struct libie_aq_desc desc_cpy;
 	bool is_cmd_for_retry;
+	u8 *buf_cpy = NULL;
 	u8 idx = 0;
 	u16 opcode;
 	int status;
@@ -1807,8 +1850,11 @@ ice_sq_send_cmd_retry(struct ice_hw *hw, struct ice_ctl_q_info *cq,
 	memset(&desc_cpy, 0, sizeof(desc_cpy));
 
 	if (is_cmd_for_retry) {
-		/* All retryable cmds are direct, without buf. */
-		WARN_ON(buf);
+		if (buf) {
+			buf_cpy = kmemdup(buf, buf_size, GFP_KERNEL);
+			if (!buf_cpy)
+				return -ENOMEM;
+		}
 
 		memcpy(&desc_cpy, desc, sizeof(desc_cpy));
 	}
@@ -1820,12 +1866,14 @@ ice_sq_send_cmd_retry(struct ice_hw *hw, struct ice_ctl_q_info *cq,
 		    hw->adminq.sq_last_status != LIBIE_AQ_RC_EBUSY)
 			break;
 
+		if (buf_cpy)
+			memcpy(buf, buf_cpy, buf_size);
 		memcpy(desc, &desc_cpy, sizeof(desc_cpy));
-
 		msleep(ICE_SQ_SEND_DELAY_TIME_MS);
 
 	} while (++idx < ICE_SQ_SEND_MAX_EXECUTE);
 
+	kfree(buf_cpy);
 	return status;
 }
 
@@ -2170,7 +2218,7 @@ void ice_release_res(struct ice_hw *hw, enum ice_aq_res_ids res)
 	/* there are some rare cases when trying to release the resource
 	 * results in an admin queue timeout, so handle them correctly
 	 */
-	timeout = jiffies + 10 * ICE_CTL_Q_SQ_CMD_TIMEOUT;
+	timeout = jiffies + 10 * usecs_to_jiffies(ICE_CTL_Q_SQ_CMD_TIMEOUT);
 	do {
 		status = ice_aq_release_res(hw, res, 0, NULL);
 		if (status != -EIO)
@@ -2418,12 +2466,15 @@ ice_parse_common_caps(struct ice_hw *hw, struct ice_hw_common_caps *caps,
 			  caps->reset_restrict_support);
 		break;
 	case LIBIE_AQC_CAPS_FW_LAG_SUPPORT:
-		caps->roce_lag = !!(number & LIBIE_AQC_BIT_ROCEV2_LAG);
+		caps->roce_lag = number & LIBIE_AQC_BIT_ROCEV2_LAG;
 		ice_debug(hw, ICE_DBG_INIT, "%s: roce_lag = %u\n",
 			  prefix, caps->roce_lag);
-		caps->sriov_lag = !!(number & LIBIE_AQC_BIT_SRIOV_LAG);
+		caps->sriov_lag = number & LIBIE_AQC_BIT_SRIOV_LAG;
 		ice_debug(hw, ICE_DBG_INIT, "%s: sriov_lag = %u\n",
 			  prefix, caps->sriov_lag);
+		caps->sriov_aa_lag = number & LIBIE_AQC_BIT_SRIOV_AA_LAG;
+		ice_debug(hw, ICE_DBG_INIT, "%s: sriov_aa_lag = %u\n",
+			  prefix, caps->sriov_aa_lag);
 		break;
 	case LIBIE_AQC_CAPS_TX_SCHED_TOPO_COMP_MODE:
 		caps->tx_sched_topo_comp_mode_en = (number == 1);
@@ -3308,6 +3359,7 @@ bool ice_is_100m_speed_supported(struct ice_hw *hw)
 	case ICE_DEV_ID_E822L_SGMII:
 	case ICE_DEV_ID_E823L_1GBE:
 	case ICE_DEV_ID_E823C_SGMII:
+	case ICE_DEV_ID_E825C_SGMII:
 		return true;
 	default:
 		return false;
@@ -3582,7 +3634,7 @@ int ice_update_link_info(struct ice_port_info *pi)
 	if (li->link_info & ICE_AQ_MEDIA_AVAILABLE) {
 		struct ice_aqc_get_phy_caps_data *pcaps __free(kfree) = NULL;
 
-		pcaps = kzalloc(sizeof(*pcaps), GFP_KERNEL);
+		pcaps = kzalloc_obj(*pcaps);
 		if (!pcaps)
 			return -ENOMEM;
 
@@ -3833,7 +3885,7 @@ ice_set_fc(struct ice_port_info *pi, u8 *aq_failures, bool ena_auto_link_update)
 	*aq_failures = 0;
 	hw = pi->hw;
 
-	pcaps = kzalloc(sizeof(*pcaps), GFP_KERNEL);
+	pcaps = kzalloc_obj(*pcaps);
 	if (!pcaps)
 		return -ENOMEM;
 
@@ -3972,7 +4024,7 @@ ice_cfg_phy_fec(struct ice_port_info *pi, struct ice_aqc_set_phy_cfg_data *cfg,
 
 	hw = pi->hw;
 
-	pcaps = kzalloc(sizeof(*pcaps), GFP_KERNEL);
+	pcaps = kzalloc_obj(*pcaps);
 	if (!pcaps)
 		return -ENOMEM;
 
@@ -4301,7 +4353,16 @@ int ice_get_phy_lane_number(struct ice_hw *hw)
 	unsigned int lane;
 	int err;
 
-	options = kcalloc(ICE_AQC_PORT_OPT_MAX, sizeof(*options), GFP_KERNEL);
+	/* E82X does not have sequential IDs, lane number is PF ID.
+	 * For E825 device, the exception is the variant with external
+	 * PHY (0x579F), in which there is also 1:1 pf_id -> lane_number
+	 * mapping.
+	 */
+	if (hw->mac_type == ICE_MAC_GENERIC ||
+	    hw->device_id == ICE_DEV_ID_E825C_SGMII)
+		return hw->pf_id;
+
+	options = kzalloc_objs(*options, ICE_AQC_PORT_OPT_MAX);
 	if (!options)
 		return -ENOMEM;
 
@@ -4712,24 +4773,24 @@ do_aq:
 }
 
 /**
- * ice_aq_cfg_lan_txq
+ * ice_aq_cfg_lan_txq - send AQ command 0x0C32 to FW
  * @hw: pointer to the hardware structure
  * @buf: buffer for command
  * @buf_size: size of buffer in bytes
  * @num_qs: number of queues being configured
  * @oldport: origination lport
  * @newport: destination lport
+ * @mode: cmd_type for move to use
  * @cd: pointer to command details structure or NULL
  *
  * Move/Configure LAN Tx queue (0x0C32)
  *
- * There is a better AQ command to use for moving nodes, so only coding
- * this one for configuring the node.
+ * Return: Zero on success, associated error code on failure.
  */
 int
 ice_aq_cfg_lan_txq(struct ice_hw *hw, struct ice_aqc_cfg_txqs_buf *buf,
 		   u16 buf_size, u16 num_qs, u8 oldport, u8 newport,
-		   struct ice_sq_cd *cd)
+		   u8 mode, struct ice_sq_cd *cd)
 {
 	struct ice_aqc_cfg_txqs *cmd;
 	struct libie_aq_desc desc;
@@ -4742,10 +4803,12 @@ ice_aq_cfg_lan_txq(struct ice_hw *hw, struct ice_aqc_cfg_txqs_buf *buf,
 	if (!buf)
 		return -EINVAL;
 
-	cmd->cmd_type = ICE_AQC_Q_CFG_TC_CHNG;
+	cmd->cmd_type = mode;
 	cmd->num_qs = num_qs;
 	cmd->port_num_chng = (oldport & ICE_AQC_Q_CFG_SRC_PRT_M);
 	cmd->port_num_chng |= FIELD_PREP(ICE_AQC_Q_CFG_DST_PRT_M, newport);
+	cmd->port_num_chng |= FIELD_PREP(ICE_AQC_Q_CFG_MODE_M,
+					 ICE_AQC_Q_CFG_MODE_KEEP_OWN);
 	cmd->time_out = FIELD_PREP(ICE_AQC_Q_CFG_TIMEOUT_M, 5);
 	cmd->blocked_cgds = 0;
 
@@ -4799,6 +4862,46 @@ ice_aq_add_rdma_qsets(struct ice_hw *hw, u8 num_qset_grps,
 	cmd->num_qset_grps = num_qset_grps;
 
 	return ice_aq_send_cmd(hw, &desc, qset_list, buf_size, cd);
+}
+
+/**
+ * ice_aq_set_txtimeq - set Tx time queues
+ * @hw: pointer to the hardware structure
+ * @txtimeq: first Tx time queue id to configure
+ * @q_count: number of queues to configure
+ * @txtime_qg: queue group to be set
+ * @buf_size: size of buffer for indirect command
+ * @cd: pointer to command details structure or NULL
+ *
+ * Set Tx Time queue (0x0C35)
+ * Return: 0 on success or negative value on failure.
+ */
+int
+ice_aq_set_txtimeq(struct ice_hw *hw, u16 txtimeq, u8 q_count,
+		   struct ice_aqc_set_txtime_qgrp *txtime_qg, u16 buf_size,
+		   struct ice_sq_cd *cd)
+{
+	struct ice_aqc_set_txtimeqs *cmd;
+	struct libie_aq_desc desc;
+	u16 size;
+
+	if (!txtime_qg || txtimeq > ICE_TXTIME_MAX_QUEUE ||
+	    q_count < 1 || q_count > ICE_SET_TXTIME_MAX_Q_AMOUNT)
+		return -EINVAL;
+
+	size = struct_size(txtime_qg, txtimeqs, q_count);
+	if (buf_size != size)
+		return -EINVAL;
+
+	cmd = libie_aq_raw(&desc);
+
+	ice_fill_dflt_direct_cmd_desc(&desc, ice_aqc_opc_set_txtimeqs);
+
+	desc.flags |= cpu_to_le16(LIBIE_AQ_FLAG_RD);
+
+	cmd->q_id = cpu_to_le16(txtimeq);
+	cmd->q_amount = cpu_to_le16(q_count);
+	return ice_aq_send_cmd(hw, &desc, txtime_qg, buf_size, cd);
 }
 
 /* End of FW Admin Queue command wrappers */
@@ -6293,7 +6396,7 @@ int ice_lldp_fltr_add_remove(struct ice_hw *hw, struct ice_vsi *vsi, bool add)
 	struct ice_aqc_lldp_filter_ctrl *cmd;
 	struct libie_aq_desc desc;
 
-	if (vsi->type != ICE_VSI_PF || !ice_fw_supports_lldp_fltr_ctrl(hw))
+	if (!ice_fw_supports_lldp_fltr_ctrl(hw))
 		return -EOPNOTSUPP;
 
 	cmd = libie_aq_raw(&desc);
@@ -6374,6 +6477,28 @@ u32 ice_get_link_speed(u16 index)
 }
 
 /**
+ * ice_get_dest_cgu - get destination CGU dev for given HW
+ * @hw: pointer to the HW struct
+ *
+ * Get CGU client id for CGU register read/write operations.
+ *
+ * Return: CGU device id to use in SBQ transactions.
+ */
+static enum ice_sbq_dev_id ice_get_dest_cgu(struct ice_hw *hw)
+{
+	/* On dual complex E825 only complex 0 has functional CGU powering all
+	 * the PHYs.
+	 * SBQ destination device cgu points to CGU on a current complex and to
+	 * access primary CGU from the secondary complex, the driver should use
+	 * cgu_peer as a destination device.
+	 */
+	if (hw->mac_type == ICE_MAC_GENERIC_3K_E825 && ice_is_dual(hw) &&
+	    !ice_is_primary(hw))
+		return ice_sbq_dev_cgu_peer;
+	return ice_sbq_dev_cgu;
+}
+
+/**
  * ice_read_cgu_reg - Read a CGU register
  * @hw: Pointer to the HW struct
  * @addr: Register address to read
@@ -6387,8 +6512,8 @@ u32 ice_get_link_speed(u16 index)
 int ice_read_cgu_reg(struct ice_hw *hw, u32 addr, u32 *val)
 {
 	struct ice_sbq_msg_input cgu_msg = {
+		.dest_dev = ice_get_dest_cgu(hw),
 		.opcode = ice_sbq_msg_rd,
-		.dest_dev = ice_sbq_dev_cgu,
 		.msg_addr_low = addr
 	};
 	int err;
@@ -6419,8 +6544,8 @@ int ice_read_cgu_reg(struct ice_hw *hw, u32 addr, u32 *val)
 int ice_write_cgu_reg(struct ice_hw *hw, u32 addr, u32 val)
 {
 	struct ice_sbq_msg_input cgu_msg = {
+		.dest_dev = ice_get_dest_cgu(hw),
 		.opcode = ice_sbq_msg_wr,
-		.dest_dev = ice_sbq_dev_cgu,
 		.msg_addr_low = addr,
 		.data = val
 	};

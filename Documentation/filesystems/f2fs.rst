@@ -1,8 +1,11 @@
 .. SPDX-License-Identifier: GPL-2.0
 
-==========================================
-WHAT IS Flash-Friendly File System (F2FS)?
-==========================================
+=================================
+Flash-Friendly File System (F2FS)
+=================================
+
+Overview
+========
 
 NAND flash memory-based storage devices, such as SSD, eMMC, and SD cards, have
 been equipped on a variety systems ranging from mobile to server systems. Since
@@ -173,43 +176,50 @@ data_flush		 Enable data flushing before checkpoint in order to
 			 persist data of regular and symlink.
 reserve_root=%d		 Support configuring reserved space which is used for
 			 allocation from a privileged user with specified uid or
-			 gid, unit: 4KB, the default limit is 0.2% of user blocks.
-resuid=%d		 The user ID which may use the reserved blocks.
-resgid=%d		 The group ID which may use the reserved blocks.
+			 gid, unit: 4KB, the default limit is 12.5% of user blocks.
+reserve_node=%d		 Support configuring reserved nodes which are used for
+			 allocation from a privileged user with specified uid or
+			 gid, the default limit is 12.5% of all nodes.
+resuid=%d		 The user ID which may use the reserved blocks and nodes.
+resgid=%d		 The group ID which may use the reserved blocks and nodes.
 fault_injection=%d	 Enable fault injection in all supported types with
 			 specified injection rate.
 fault_type=%d		 Support configuring fault injection type, should be
 			 enabled with fault_injection option, fault type value
 			 is shown below, it supports single or combined type.
 
-			 ===========================      ==========
-			 Type_Name                        Type_Value
-			 ===========================      ==========
-			 FAULT_KMALLOC                    0x00000001
-			 FAULT_KVMALLOC                   0x00000002
-			 FAULT_PAGE_ALLOC                 0x00000004
-			 FAULT_PAGE_GET                   0x00000008
-			 FAULT_ALLOC_BIO                  0x00000010 (obsolete)
-			 FAULT_ALLOC_NID                  0x00000020
-			 FAULT_ORPHAN                     0x00000040
-			 FAULT_BLOCK                      0x00000080
-			 FAULT_DIR_DEPTH                  0x00000100
-			 FAULT_EVICT_INODE                0x00000200
-			 FAULT_TRUNCATE                   0x00000400
-			 FAULT_READ_IO                    0x00000800
-			 FAULT_CHECKPOINT                 0x00001000
-			 FAULT_DISCARD                    0x00002000
-			 FAULT_WRITE_IO                   0x00004000
-			 FAULT_SLAB_ALLOC                 0x00008000
-			 FAULT_DQUOT_INIT                 0x00010000
-			 FAULT_LOCK_OP                    0x00020000
-			 FAULT_BLKADDR_VALIDITY           0x00040000
-			 FAULT_BLKADDR_CONSISTENCE        0x00080000
-			 FAULT_NO_SEGMENT                 0x00100000
-			 FAULT_INCONSISTENT_FOOTER        0x00200000
-			 FAULT_TIMEOUT                    0x00400000 (1000ms)
-			 FAULT_VMALLOC                    0x00800000
-			 ===========================      ==========
+			 .. code-block:: none
+
+			     ===========================      ==========
+			     Type_Name                        Type_Value
+			     ===========================      ==========
+			     FAULT_KMALLOC                    0x00000001
+			     FAULT_KVMALLOC                   0x00000002
+			     FAULT_PAGE_ALLOC                 0x00000004
+			     FAULT_PAGE_GET                   0x00000008
+			     FAULT_ALLOC_BIO                  0x00000010 (obsolete)
+			     FAULT_ALLOC_NID                  0x00000020
+			     FAULT_ORPHAN                     0x00000040
+			     FAULT_BLOCK                      0x00000080
+			     FAULT_DIR_DEPTH                  0x00000100
+			     FAULT_EVICT_INODE                0x00000200
+			     FAULT_TRUNCATE                   0x00000400
+			     FAULT_READ_IO                    0x00000800
+			     FAULT_CHECKPOINT                 0x00001000
+			     FAULT_DISCARD                    0x00002000 (obsolete)
+			     FAULT_WRITE_IO                   0x00004000
+			     FAULT_SLAB_ALLOC                 0x00008000
+			     FAULT_DQUOT_INIT                 0x00010000
+			     FAULT_LOCK_OP                    0x00020000
+			     FAULT_BLKADDR_VALIDITY           0x00040000
+			     FAULT_BLKADDR_CONSISTENCE        0x00080000
+			     FAULT_NO_SEGMENT                 0x00100000
+			     FAULT_INCONSISTENT_FOOTER        0x00200000
+			     FAULT_ATOMIC_TIMEOUT             0x00400000 (1000ms)
+			     FAULT_VMALLOC                    0x00800000
+			     FAULT_LOCK_TIMEOUT               0x01000000 (1000ms)
+			     FAULT_SKIP_WRITE                 0x02000000
+			     ===========================      ==========
 mode=%s			 Control block allocation mode which supports "adaptive"
 			 and "lfs". In "lfs" mode, there should be no random
 			 writes towards main area.
@@ -290,10 +300,15 @@ nocheckpoint_merge	 Disable checkpoint merge feature.
 compress_algorithm=%s	 Control compress algorithm, currently f2fs supports "lzo",
 			 "lz4", "zstd" and "lzo-rle" algorithm.
 compress_algorithm=%s:%d Control compress algorithm and its compress level, now, only
-			 "lz4" and "zstd" support compress level config.
-			 algorithm	level range
-			 lz4		3 - 16
-			 zstd		1 - 22
+			 "lz4" and "zstd" support compress level config::
+
+				 =========      ===========
+				 algorithm      level range
+				 =========      ===========
+				 lz4            3 - 16
+				 zstd           1 - 22
+				 =========      ===========
+
 compress_log_size=%u	 Support configuring compress cluster size. The size will
 			 be 4KB * (1 << %u). The default and minimum sizes are 16KB.
 compress_extension=%s	 Support adding specified extension, so that f2fs can enable
@@ -357,19 +372,43 @@ errors=%s		 Specify f2fs behavior on critical errors. This supports modes:
 			 panic immediately, continue without doing anything, and remount
 			 the partition in read-only mode. By default it uses "continue"
 			 mode.
-			 ====================== =============== =============== ========
-			 mode			continue	remount-ro	panic
-			 ====================== =============== =============== ========
-			 access ops		normal		normal		N/A
-			 syscall errors		-EIO		-EROFS		N/A
-			 mount option		rw		ro		N/A
-			 pending dir write	keep		keep		N/A
-			 pending non-dir write	drop		keep		N/A
-			 pending node write	drop		keep		N/A
-			 pending meta write	keep		keep		N/A
-			 ====================== =============== =============== ========
+
+			 .. code-block:: none
+
+			     ====================== =============== =============== ========
+			     mode                   continue        remount-ro      panic
+			     ====================== =============== =============== ========
+			     access ops             normal          normal          N/A
+			     syscall errors         -EIO            -EROFS          N/A
+			     mount option           rw              ro              N/A
+			     pending dir write      keep            keep            N/A
+			     pending non-dir write  drop            keep            N/A
+			     pending node write     drop            keep            N/A
+			     pending meta write     keep            keep            N/A
+			     ====================== =============== =============== ========
 nat_bits		 Enable nat_bits feature to enhance full/empty nat blocks access,
 			 by default it's disabled.
+lookup_mode=%s		 Control the directory lookup behavior for casefolded
+			 directories. This option has no effect on directories
+			 that do not have the casefold feature enabled.
+
+			 .. code-block:: none
+
+			     ================== ========================================
+			     Value              Description
+			     ================== ========================================
+			     perf               (Default) Enforces a hash-only lookup.
+					        The linear search fallback is always
+					        disabled, ignoring the on-disk flag.
+			     compat             Enables the linear search fallback for
+					        compatibility with directory entries
+					        created by older kernel that used a
+					        different case-folding algorithm.
+					        This mode ignores the on-disk flag.
+			     auto               F2FS determines the mode based on the
+					        on-disk `SB_ENC_NO_COMPAT_FALLBACK_FL`
+					        flag.
+			     ================== ========================================
 ======================== ============================================================
 
 Debugfs Entries
@@ -795,11 +834,13 @@ ioctl(COLD)           COLD_DATA                WRITE_LIFE_EXTREME
 extension list        "                        "
 
 -- buffered io
+------------------------------------------------------------------
 N/A                   COLD_DATA                WRITE_LIFE_EXTREME
 N/A                   HOT_DATA                 WRITE_LIFE_SHORT
 N/A                   WARM_DATA                WRITE_LIFE_NOT_SET
 
 -- direct io
+------------------------------------------------------------------
 WRITE_LIFE_EXTREME    COLD_DATA                WRITE_LIFE_EXTREME
 WRITE_LIFE_SHORT      HOT_DATA                 WRITE_LIFE_SHORT
 WRITE_LIFE_NOT_SET    WARM_DATA                WRITE_LIFE_NOT_SET
@@ -915,24 +956,26 @@ compression enabled files (refer to "Compression implementation" section for how
 enable compression on a regular inode).
 
 1) compress_mode=fs
-This is the default option. f2fs does automatic compression in the writeback of the
-compression enabled files.
+
+   This is the default option. f2fs does automatic compression in the writeback of the
+   compression enabled files.
 
 2) compress_mode=user
-This disables the automatic compression and gives the user discretion of choosing the
-target file and the timing. The user can do manual compression/decompression on the
-compression enabled files using F2FS_IOC_DECOMPRESS_FILE and F2FS_IOC_COMPRESS_FILE
-ioctls like the below.
 
-To decompress a file,
+   This disables the automatic compression and gives the user discretion of choosing the
+   target file and the timing. The user can do manual compression/decompression on the
+   compression enabled files using F2FS_IOC_DECOMPRESS_FILE and F2FS_IOC_COMPRESS_FILE
+   ioctls like the below.
 
-fd = open(filename, O_WRONLY, 0);
-ret = ioctl(fd, F2FS_IOC_DECOMPRESS_FILE);
+To decompress a file::
 
-To compress a file,
+  fd = open(filename, O_WRONLY, 0);
+  ret = ioctl(fd, F2FS_IOC_DECOMPRESS_FILE);
 
-fd = open(filename, O_WRONLY, 0);
-ret = ioctl(fd, F2FS_IOC_COMPRESS_FILE);
+To compress a file::
+
+  fd = open(filename, O_WRONLY, 0);
+  ret = ioctl(fd, F2FS_IOC_COMPRESS_FILE);
 
 NVMe Zoned Namespace devices
 ----------------------------
@@ -962,33 +1005,76 @@ reserved and used by another filesystem or for different purposes. Once that
 external usage is complete, the device aliasing file can be deleted, releasing
 the reserved space back to F2FS for its own use.
 
-<use-case>
+.. code-block::
 
-# ls /dev/vd*
-/dev/vdb (32GB) /dev/vdc (32GB)
-# mkfs.ext4 /dev/vdc
-# mkfs.f2fs -c /dev/vdc@vdc.file /dev/vdb
-# mount /dev/vdb /mnt/f2fs
-# ls -l /mnt/f2fs
-vdc.file
-# df -h
-/dev/vdb                            64G   33G   32G  52% /mnt/f2fs
+   # ls /dev/vd*
+   /dev/vdb (32GB) /dev/vdc (32GB)
+   # mkfs.ext4 /dev/vdc
+   # mkfs.f2fs -c /dev/vdc@vdc.file /dev/vdb
+   # mount /dev/vdb /mnt/f2fs
+   # ls -l /mnt/f2fs
+   vdc.file
+   # df -h
+   /dev/vdb                            64G   33G   32G  52% /mnt/f2fs
 
-# mount -o loop /dev/vdc /mnt/ext4
-# df -h
-/dev/vdb                            64G   33G   32G  52% /mnt/f2fs
-/dev/loop7                          32G   24K   30G   1% /mnt/ext4
-# umount /mnt/ext4
+   # mount -o loop /dev/vdc /mnt/ext4
+   # df -h
+   /dev/vdb                            64G   33G   32G  52% /mnt/f2fs
+   /dev/loop7                          32G   24K   30G   1% /mnt/ext4
+   # umount /mnt/ext4
 
-# f2fs_io getflags /mnt/f2fs/vdc.file
-get a flag on /mnt/f2fs/vdc.file ret=0, flags=nocow(pinned),immutable
-# f2fs_io setflags noimmutable /mnt/f2fs/vdc.file
-get a flag on noimmutable ret=0, flags=800010
-set a flag on /mnt/f2fs/vdc.file ret=0, flags=noimmutable
-# rm /mnt/f2fs/vdc.file
-# df -h
-/dev/vdb                            64G  753M   64G   2% /mnt/f2fs
+   # f2fs_io getflags /mnt/f2fs/vdc.file
+   get a flag on /mnt/f2fs/vdc.file ret=0, flags=nocow(pinned),immutable
+   # f2fs_io setflags noimmutable /mnt/f2fs/vdc.file
+   get a flag on noimmutable ret=0, flags=800010
+   set a flag on /mnt/f2fs/vdc.file ret=0, flags=noimmutable
+   # rm /mnt/f2fs/vdc.file
+   # df -h
+   /dev/vdb                            64G  753M   64G   2% /mnt/f2fs
 
 So, the key idea is, user can do any file operations on /dev/vdc, and
 reclaim the space after the use, while the space is counted as /data.
 That doesn't require modifying partition size and filesystem format.
+
+Per-file Read-Only Large Folio Support
+--------------------------------------
+
+F2FS implements large folio support on the read path to leverage high-order
+page allocation for significant performance gains. To minimize code complexity,
+this support is currently excluded from the write path, which requires handling
+complex optimizations such as compression and block allocation modes.
+
+This optional feature is triggered only when a file's immutable bit is set.
+Consequently, F2FS will return EOPNOTSUPP if a user attempts to open a cached
+file with write permissions, even immediately after clearing the bit. Write
+access is only restored once the cached inode is dropped. The usage flow is
+demonstrated below:
+
+.. code-block::
+
+   # f2fs_io setflags immutable /data/testfile_read_seq
+
+   /* flush and reload the inode to enable the large folio */
+   # sync && echo 3 > /proc/sys/vm/drop_caches
+
+   /* mmap(MAP_POPULATE) + mlock() */
+   # f2fs_io read 128 0 1024 mmap 1 0 /data/testfile_read_seq
+
+   /* mmap() + fadvise(POSIX_FADV_WILLNEED) + mlock() */
+   # f2fs_io read 128 0 1024 fadvise 1 0 /data/testfile_read_seq
+
+   /* mmap() + mlock2(MLOCK_ONFAULT) + madvise(MADV_POPULATE_READ) */
+   # f2fs_io read 128 0 1024 madvise 1 0 /data/testfile_read_seq
+
+   # f2fs_io clearflags immutable /data/testfile_read_seq
+
+   # f2fs_io write 1 0 1 zero buffered /data/testfile_read_seq
+   Failed to open /mnt/test/test: Operation not supported
+
+   /* flush and reload the inode to disable the large folio */
+   # sync && echo 3 > /proc/sys/vm/drop_caches
+
+   # f2fs_io write 1 0 1 zero buffered /data/testfile_read_seq
+   Written 4096 bytes with pattern = zero, total_time = 29 us, max_latency = 28 us
+
+   # rm /data/testfile_read_seq

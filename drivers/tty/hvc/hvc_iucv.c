@@ -9,8 +9,7 @@
  *
  * Author(s):	Hendrik Brueckner <brueckner@linux.vnet.ibm.com>
  */
-#define KMSG_COMPONENT		"hvc_iucv"
-#define pr_fmt(fmt)		KMSG_COMPONENT ": " fmt
+#define pr_fmt(fmt) "hvc_iucv: " fmt
 
 #include <linux/types.h>
 #include <linux/slab.h>
@@ -131,7 +130,7 @@ static struct iucv_handler hvc_iucv_handler = {
  */
 static struct hvc_iucv_private *hvc_iucv_get_private(uint32_t num)
 {
-	if (num > hvc_iucv_devices)
+	if (num >= hvc_iucv_devices)
 		return NULL;
 	return hvc_iucv_table[num];
 }
@@ -1051,7 +1050,7 @@ static int __init hvc_iucv_alloc(int id, unsigned int is_console)
 	char name[9];
 	int rc;
 
-	priv = kzalloc(sizeof(struct hvc_iucv_private), GFP_KERNEL);
+	priv = kzalloc_obj(struct hvc_iucv_private);
 	if (!priv)
 		return -ENOMEM;
 
@@ -1344,7 +1343,7 @@ static int __init hvc_iucv_init(void)
 		}
 	}
 
-	hvc_iucv_buffer_cache = kmem_cache_create(KMSG_COMPONENT,
+	hvc_iucv_buffer_cache = kmem_cache_create("hvc_iucv",
 					   sizeof(struct iucv_tty_buffer),
 					   0, 0, NULL);
 	if (!hvc_iucv_buffer_cache) {

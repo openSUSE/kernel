@@ -622,14 +622,14 @@ static int xc5000_fwupload(struct dvb_frontend *fe,
 
 static void xc_debug_dump(struct xc5000_priv *priv)
 {
-	u16 adc_envelope;
+	u16 adc_envelope = 0;
 	u32 freq_error_hz = 0;
-	u16 lock_status;
+	u16 lock_status = 0;
 	u32 hsync_freq_hz = 0;
-	u16 frame_lines;
-	u16 quality;
-	u16 snr;
-	u16 totalgain;
+	u16 frame_lines = 0;
+	u16 quality = 0;
+	u16 snr = 0;
+	u16 totalgain = 0;
 	u8 hw_majorversion = 0, hw_minorversion = 0;
 	u8 fw_majorversion = 0, fw_minorversion = 0;
 	u16 fw_buildversion = 0;
@@ -1304,7 +1304,7 @@ static void xc5000_release(struct dvb_frontend *fe)
 	mutex_lock(&xc5000_list_mutex);
 
 	if (priv) {
-		cancel_delayed_work(&priv->timer_sleep);
+		cancel_delayed_work_sync(&priv->timer_sleep);
 		hybrid_tuner_release_state(priv);
 	}
 
@@ -1333,6 +1333,15 @@ static int xc5000_set_config(struct dvb_frontend *fe, void *priv_cfg)
 }
 
 
+static int xc5000_get_rf_strength(struct dvb_frontend *fe, u16 *rssi)
+{
+	struct xc5000_priv *priv = fe->tuner_priv;
+
+	dprintk(1, "%s()\n", __func__);
+
+	return xc_get_lock_status(priv, rssi);
+}
+
 static const struct dvb_tuner_ops xc5000_tuner_ops = {
 	.info = {
 		.name              = "Xceive XC5000",
@@ -1353,7 +1362,8 @@ static const struct dvb_tuner_ops xc5000_tuner_ops = {
 	.get_frequency	   = xc5000_get_frequency,
 	.get_if_frequency  = xc5000_get_if_frequency,
 	.get_bandwidth	   = xc5000_get_bandwidth,
-	.get_status	   = xc5000_get_status
+	.get_status	   = xc5000_get_status,
+	.get_rf_strength   = xc5000_get_rf_strength,
 };
 
 struct dvb_frontend *xc5000_attach(struct dvb_frontend *fe,

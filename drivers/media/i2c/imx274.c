@@ -826,6 +826,8 @@ static int imx274_start_stream(struct stimx274 *priv)
  * if rst = 0, keep it in reset;
  * if rst = 1, bring it out of reset.
  *
+ * Note: Misinterpretation of reset assertion - do not re-use this code.
+ * XCLR pin is using incorrect (for reset signal) logical level.
  */
 static void imx274_reset(struct stimx274 *priv, int rst)
 {
@@ -2032,8 +2034,7 @@ static int imx274_probe(struct i2c_client *client)
 	/* initialize regmap */
 	imx274->regmap = devm_regmap_init_i2c(client, &imx274_regmap_config);
 	if (IS_ERR(imx274->regmap)) {
-		dev_err(dev,
-			"regmap init failed: %ld\n", PTR_ERR(imx274->regmap));
+		dev_err(dev, "regmap init failed: %pe\n", imx274->regmap);
 		ret = -ENODEV;
 		goto err_regmap;
 	}

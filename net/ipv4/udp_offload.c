@@ -343,7 +343,6 @@ out_unlock:
 
 	return segs;
 }
-EXPORT_SYMBOL(skb_udp_tunnel_segment);
 
 static void __udpv4_gso_segment_csum(struct sk_buff *seg,
 				     __be32 *oldip, __be32 *newip,
@@ -483,11 +482,11 @@ struct sk_buff *__udp_gso_segment(struct sk_buff *gso_skb,
 	struct sock *sk = gso_skb->sk;
 	unsigned int sum_truesize = 0;
 	struct sk_buff *segs, *seg;
+	__be16 newlen, msslen;
 	struct udphdr *uh;
 	unsigned int mss;
 	bool copy_dtor;
 	__sum16 check;
-	__be16 newlen;
 	int ret = 0;
 
 	mss = skb_shinfo(gso_skb)->gso_size;
@@ -514,7 +513,8 @@ struct sk_buff *__udp_gso_segment(struct sk_buff *gso_skb,
 
 	if (skb_shinfo(gso_skb)->gso_type & SKB_GSO_FRAGLIST) {
 		 /* Detect modified geometry and pass those to skb_segment. */
-		if (skb_pagelen(gso_skb) - sizeof(*uh) == skb_shinfo(gso_skb)->gso_size)
+		if ((skb_pagelen(gso_skb) - sizeof(*uh) == skb_shinfo(gso_skb)->gso_size) &&
+		    !(skb_shinfo(gso_skb)->gso_type & SKB_GSO_DODGY))
 			return __udp_gso_segment_list(gso_skb, features, is_ipv6);
 
 		ret = __skb_linearize(gso_skb);
@@ -555,6 +555,8 @@ struct sk_buff *__udp_gso_segment(struct sk_buff *gso_skb,
 		return segs;
 	}
 
+	msslen = htons(sizeof(*uh) + mss);
+
 	/* GSO partial and frag_list segmentation only requires splitting
 	 * the frame into an MSS multiple and possibly a remainder, both
 	 * cases return a GSO skb. So update the mss now.
@@ -584,7 +586,7 @@ struct sk_buff *__udp_gso_segment(struct sk_buff *gso_skb,
 		if (!seg->next)
 			break;
 
-		uh->len = newlen;
+		uh->len = msslen;
 		uh->check = check;
 
 		if (seg->ip_summed == CHECKSUM_PARTIAL)
@@ -632,7 +634,6 @@ struct sk_buff *__udp_gso_segment(struct sk_buff *gso_skb,
 	}
 	return segs;
 }
-EXPORT_SYMBOL_GPL(__udp_gso_segment);
 
 static struct sk_buff *udp4_ufo_fragment(struct sk_buff *skb,
 					 netdev_features_t features)
@@ -849,7 +850,6 @@ out:
 	skb_gro_flush_final(skb, pp, flush);
 	return pp;
 }
-EXPORT_SYMBOL(udp_gro_receive);
 
 static struct sock *udp4_gro_lookup_skb(struct sk_buff *skb, __be16 sport,
 					__be16 dport)
@@ -866,8 +866,7 @@ static struct sock *udp4_gro_lookup_skb(struct sk_buff *skb, __be16 sport,
 	inet_get_iif_sdif(skb, &iif, &sdif);
 
 	return __udp4_lib_lookup(net, iph->saddr, sport,
-				 iph->daddr, dport, iif,
-				 sdif, net->ipv4.udp_table, NULL);
+				 iph->daddr, dport, iif, sdif, NULL);
 }
 
 INDIRECT_CALLABLE_SCOPE
@@ -891,8 +890,6 @@ struct sk_buff *udp4_gro_receive(struct list_head *head, struct sk_buff *skb)
 		skb_gro_checksum_try_convert(skb, IPPROTO_UDP,
 					     inet_gro_compute_pseudo);
 skip:
-	NAPI_GRO_CB(skb)->is_ipv6 = 0;
-
 	if (static_branch_unlikely(&udp_encap_needed_key))
 		sk = udp4_gro_lookup_skb(skb, uh->source, uh->dest);
 
@@ -957,7 +954,6 @@ int udp_gro_complete(struct sk_buff *skb, int nhoff,
 
 	return err;
 }
-EXPORT_SYMBOL(udp_gro_complete);
 
 INDIRECT_CALLABLE_SCOPE int udp4_gro_complete(struct sk_buff *skb, int nhoff)
 {

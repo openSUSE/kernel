@@ -104,7 +104,7 @@ int ipv6_sock_ac_join(struct sock *sk, int ifindex, const struct in6_addr *addr)
 		rcu_read_lock();
 		rt = rt6_lookup(net, addr, NULL, 0, NULL, 0);
 		if (rt) {
-			dev = dst_dev(&rt->dst);
+			dev = dst_dev_rcu(&rt->dst);
 			netdev_hold(dev, &dev_tracker, GFP_ATOMIC);
 			ip6_rt_put(rt);
 		} else if (ishost) {
@@ -279,7 +279,7 @@ static struct ifacaddr6 *aca_alloc(struct fib6_info *f6i,
 {
 	struct ifacaddr6 *aca;
 
-	aca = kzalloc(sizeof(*aca), GFP_ATOMIC);
+	aca = kzalloc_obj(*aca, GFP_ATOMIC);
 	if (!aca)
 		return NULL;
 

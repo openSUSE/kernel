@@ -924,7 +924,7 @@ static int setup_expected_interrupts(struct Scsi_Host *shpnt)
 /*
  *  Queue a command and setup interrupts for a free bus.
  */
-static int aha152x_internal_queue(struct scsi_cmnd *SCpnt,
+static enum scsi_qc_status aha152x_internal_queue(struct scsi_cmnd *SCpnt,
 				  struct completion *complete, int phase)
 {
 	struct aha152x_cmd_priv *acp = aha152x_priv(SCpnt);
@@ -939,13 +939,13 @@ static int aha152x_internal_queue(struct scsi_cmnd *SCpnt,
 	if (acp->phase & (resetting | check_condition)) {
 		if (!SCpnt->host_scribble || SCSEM(SCpnt) || SCNEXT(SCpnt)) {
 			scmd_printk(KERN_ERR, SCpnt, "cannot reuse command\n");
-			return FAILED;
+			return SCSI_MLQUEUE_HOST_BUSY;
 		}
 	} else {
 		SCpnt->host_scribble = kmalloc(sizeof(struct aha152x_scdata), GFP_ATOMIC);
 		if(!SCpnt->host_scribble) {
 			scmd_printk(KERN_ERR, SCpnt, "allocation failed\n");
-			return FAILED;
+			return SCSI_MLQUEUE_HOST_BUSY;
 		}
 	}
 
@@ -995,7 +995,7 @@ static int aha152x_internal_queue(struct scsi_cmnd *SCpnt,
  *  queue a command
  *
  */
-static int aha152x_queue_lck(struct scsi_cmnd *SCpnt)
+static enum scsi_qc_status aha152x_queue_lck(struct scsi_cmnd *SCpnt)
 {
 	return aha152x_internal_queue(SCpnt, NULL, 0);
 }
@@ -1246,7 +1246,7 @@ int aha152x_host_reset_host(struct Scsi_Host *shpnt)
  * Return the "logical geometry"
  *
  */
-static int aha152x_biosparam(struct scsi_device *sdev, struct block_device *bdev,
+static int aha152x_biosparam(struct scsi_device *sdev, struct gendisk *disk,
 		sector_t capacity, int *info_array)
 {
 	struct Scsi_Host *shpnt = sdev->host;
@@ -1261,7 +1261,7 @@ static int aha152x_biosparam(struct scsi_device *sdev, struct block_device *bdev
 		int info[3];
 
 		/* try to figure out the geometry from the partition table */
-		if (scsicam_bios_param(bdev, capacity, info) < 0 ||
+		if (scsicam_bios_param(disk, capacity, info) < 0 ||
 		    !((info[0] == 64 && info[1] == 32) || (info[0] == 255 && info[1] == 63))) {
 			if (EXT_TRANS) {
 				printk(KERN_NOTICE

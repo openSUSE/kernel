@@ -170,10 +170,9 @@ int th1520_aon_power_update(struct th1520_aon_chan *aon_chan, u16 rsrc,
 	hdr->func = TH1520_AON_PM_FUNC_SET_RESOURCE_POWER_MODE;
 	hdr->size = TH1520_AON_RPC_MSG_NUM;
 
-	RPC_SET_BE16(&msg.resource, 0, rsrc);
-	RPC_SET_BE16(&msg.resource, 2,
-		     (power_on ? TH1520_AON_PM_PW_MODE_ON :
-				 TH1520_AON_PM_PW_MODE_OFF));
+	msg.resource = cpu_to_be16(rsrc);
+	msg.mode = cpu_to_be16(power_on ? TH1520_AON_PM_PW_MODE_ON :
+					  TH1520_AON_PM_PW_MODE_OFF);
 
 	ret = th1520_aon_call_rpc(aon_chan, &msg);
 	if (ret)
@@ -205,7 +204,7 @@ struct th1520_aon_chan *th1520_aon_init(struct device *dev)
 	struct mbox_client *cl;
 	int ret;
 
-	aon_chan = kzalloc(sizeof(*aon_chan), GFP_KERNEL);
+	aon_chan = kzalloc_obj(*aon_chan);
 	if (!aon_chan)
 		return ERR_PTR(-ENOMEM);
 

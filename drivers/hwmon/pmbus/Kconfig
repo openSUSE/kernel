@@ -52,7 +52,8 @@ config SENSORS_ADM1275
 	help
 	  If you say yes here you get hardware monitoring support for Analog
 	  Devices ADM1075, ADM1272, ADM1273, ADM1275, ADM1276, ADM1278, ADM1281,
-	  ADM1293, and ADM1294 Hot-Swap Controller and Digital Power Monitors.
+	  ADM1293, ADM1294 and SQ24905C Hot-Swap Controller and
+	  Digital Power Monitors.
 
 	  This driver can also be built as a module. If so, the module will
 	  be called adm1275.
@@ -75,6 +76,15 @@ config SENSORS_ADP1050_REGULATOR
 	  LTP8800-1A, LTP8800-4A, and LTP8800-2. LTP8800 is a family of DC/DC
 	  µModule regulators that can provide microprocessor power from 54V
 	  power distribution architecture.
+
+config SENSORS_APS_379
+	tristate "Sony APS-379 Power Supplies"
+	help
+	  If you say yes here you get hardware monitoring support for Sony
+	  APS-379 Power Supplies.
+
+	  This driver can also be built as a module. If so, the module will
+	  be called aps-379.
 
 config SENSORS_BEL_PFE
 	tristate "Bel PFE Compatible Power Supplies"
@@ -122,6 +132,15 @@ config SENSORS_FSP_3Y
 
 	  This driver can also be built as a module. If so, the module will
 	  be called fsp-3y.
+
+config SENSORS_HAC300S
+	tristate "Hitron HAC300S-D120E PSU"
+	help
+	  If you say yes here you get hardware monitoring support for the
+	  Hitron HAC300S-D120E Power Supply.
+
+	  This driver can also be built as a module. If so, the module will
+	  be called hac300s.
 
 config SENSORS_IBM_CFFPS
 	tristate "IBM Common Form Factor Power Supply"
@@ -319,6 +338,15 @@ config SENSORS_MAX16601
 	  This driver can also be built as a module. If so, the module will
 	  be called max16601.
 
+config SENSORS_MAX17616
+	tristate "Analog Devices MAX17616/MAX17616A"
+	help
+	  If you say yes here you get hardware monitoring support for Analog
+	  Devices MAX17616/MAX17616A.
+
+	  This driver can also be built as a module. If so, the module will
+	  be called max17616.
+
 config SENSORS_MAX20730
 	tristate "Maxim MAX20710, MAX20730, MAX20734, MAX20743"
 	help
@@ -351,6 +379,7 @@ config SENSORS_MAX34440
 	help
 	  If you say yes here you get hardware monitoring support for Maxim
 	  MAX34440, MAX34441, MAX34446, MAX34451, MAX34460, and MAX34461.
+	  Other compatible are ADPM12160, and ADPM12200.
 
 	  This driver can also be built as a module. If so, the module will
 	  be called max34440.
@@ -373,6 +402,15 @@ config SENSORS_MP2856
 	  This driver can also be built as a module. If so, the module will
 	  be called mp2856.
 
+config SENSORS_MP2869
+	tristate "MPS MP2869"
+	help
+	  If you say yes here you get hardware monitoring support for MPS
+	  MP2869 Dual Loop Digital Multi-Phase Controller.
+
+	  This driver can also be built as a module. If so, the module will
+	  be called mp2869.
+
 config SENSORS_MP2888
 	tristate "MPS MP2888"
 	help
@@ -390,6 +428,24 @@ config SENSORS_MP2891
 
       This driver can also be built as a module. If so, the module will
       be called mp2891.
+
+config SENSORS_MP2925
+    tristate "MPS MP2925"
+    help
+      If you say yes here you get hardware monitoring support for MPS
+      MP2925 Dual Loop Digital Multi-Phase Controller.
+
+      This driver can also be built as a module. If so, the module will
+      be called mp2925.
+
+config SENSORS_MP29502
+	tristate "MPS MP29502"
+	help
+	  If you say yes here you get hardware monitoring support for MPS
+	  MP29502 Dual Loop Digital Multi-Phase Controller.
+
+	  This driver can also be built as a module. If so, the module will
+	  be called mp29502.
 
 config SENSORS_MP2975
 	tristate "MPS MP2975"
@@ -434,6 +490,15 @@ config SENSORS_MP5920
 	  This driver can also be built as a module. If so, the module will
 	  be called mp5920.
 
+config SENSORS_MP5926
+	tristate "MPS MP5926"
+	help
+	  If you say yes here you get hardware monitoring support for Monolithic
+	  MP5926.
+
+	  This driver can also be built as a module. If so, the module will
+	  be called mp5926.
+
 config SENSORS_MP5990
 	tristate "MPS MP5990"
 	help
@@ -451,6 +516,15 @@ config SENSORS_MP9941
 
 	  This driver can also be built as a module. If so, the module will
 	  be called mp9941.
+
+config SENSORS_MP9945
+	tristate "MPS MP9945"
+	help
+	  If you say yes here you get hardware monitoring support for MPS
+	  MP9945.
+
+	  This driver can also be built as a module. If so, the module will
+	  be called mp9945.
 
 config SENSORS_MPQ7932_REGULATOR
 	bool "Regulator support for MPQ7932"
@@ -528,6 +602,15 @@ config SENSORS_Q54SJ108A2
 
 	  This driver can also be built as a module. If so, the module will
 	  be called q54sj108a2.
+
+config SENSORS_STEF48H28
+	tristate "ST STEF48H28"
+	help
+	  If you say yes here you get hardware monitoring support for ST
+	  STEF48H28.
+
+	  This driver can also be built as a module. If so, the module will
+	  be called stef48h28.
 
 config SENSORS_STPDDC60
 	tristate "ST STPDDC60"
@@ -628,6 +711,15 @@ config SENSORS_XDP710
 	  This driver can also be built as a module. If so, the module will
 	  be called xdp710.
 
+config SENSORS_XDP720
+	tristate "Infineon XDP720 family"
+	help
+	  If you say yes here you get hardware monitoring support for Infineon
+	  XDP720.
+
+	  This driver can also be built as a module. If so, the module will
+	  be called xdp720.
+
 config SENSORS_XDPE152
 	tristate "Infineon XDPE152 family"
 	help
@@ -636,6 +728,15 @@ config SENSORS_XDPE152
 
 	  This driver can also be built as a module. If so, the module will
 	  be called xdpe152c4.
+
+config SENSORS_XDPE1A2G7B
+	tristate "Infineon XDPE1A2G7B"
+	help
+	  If you say yes here you get hardware monitoring support for Infineon
+	  XDPE1A2G5B and XDPE1A2G7B.
+
+	  This driver can also be built as a module. If so, the module will
+	  be called xdpe1a2g7b.
 
 config SENSORS_XDPE122
 	tristate "Infineon XDPE122 family"

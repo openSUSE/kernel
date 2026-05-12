@@ -319,7 +319,7 @@ static irqreturn_t aha1740_intr_handle(int irq, void *dev_id)
 	return IRQ_RETVAL(handled);
 }
 
-static int aha1740_queuecommand_lck(struct scsi_cmnd *SCpnt)
+static enum scsi_qc_status aha1740_queuecommand_lck(struct scsi_cmnd *SCpnt)
 {
 	void (*done)(struct scsi_cmnd *) = scsi_done;
 	unchar direction;
@@ -510,7 +510,7 @@ static void aha1740_getconfig(unsigned int base, unsigned int *irq_level,
 }
 
 static int aha1740_biosparam(struct scsi_device *sdev,
-			     struct block_device *dev,
+			     struct gendisk *unused,
 			     sector_t capacity, int* ip)
 {
 	int size = capacity;

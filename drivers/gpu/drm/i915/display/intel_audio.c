@@ -37,6 +37,7 @@
 #include "intel_crtc.h"
 #include "intel_de.h"
 #include "intel_display_types.h"
+#include "intel_display_wa.h"
 #include "intel_lpe_audio.h"
 
 /**
@@ -183,17 +184,6 @@ static const struct hdmi_aud_ncts hdmi_aud_ncts_36bpp[] = {
 	{ 192000, TMDS_445M, 23296, 421875 },
 	{ 192000, TMDS_445_5M, 20480, 371250 },
 };
-
-/*
- * WA_14020863754: Implement Audio Workaround
- * Corner case with Min Hblank Fix can cause audio hang
- */
-static bool needs_wa_14020863754(struct intel_display *display)
-{
-	return DISPLAY_VERx100(display) == 3000 ||
-		DISPLAY_VERx100(display) == 2000 ||
-		DISPLAY_VERx100(display) == 1401;
-}
 
 /* get AUD_CONFIG_PIXEL_CLOCK_HDMI_* value for mode */
 static u32 audio_config_hdmi_pixel_clock(const struct intel_crtc_state *crtc_state)
@@ -440,7 +430,11 @@ static void hsw_audio_codec_disable(struct intel_encoder *encoder,
 	intel_de_rmw(display, HSW_AUD_PIN_ELD_CP_VLD,
 		     AUDIO_OUTPUT_ENABLE(cpu_transcoder), 0);
 
-	if (needs_wa_14020863754(display))
+	/*
+	 * WA_14020863754: Implement Audio Workaround
+	 * Corner case with Min Hblank Fix can cause audio hang
+	 */
+	if (intel_display_wa(display, INTEL_DISPLAY_WA_14020863754))
 		intel_de_rmw(display, AUD_CHICKENBIT_REG3, DACBE_DISABLE_MIN_HBLANK_FIX, 0);
 
 	intel_audio_sdp_split_update(old_crtc_state, false);
@@ -572,7 +566,11 @@ static void hsw_audio_codec_enable(struct intel_encoder *encoder,
 
 	intel_audio_sdp_split_update(crtc_state, true);
 
-	if (needs_wa_14020863754(display))
+	/*
+	 * WA_14020863754: Implement Audio Workaround
+	 * Corner case with Min Hblank Fix can cause audio hang
+	 */
+	if (intel_display_wa(display, INTEL_DISPLAY_WA_14020863754))
 		intel_de_rmw(display, AUD_CHICKENBIT_REG3, 0, DACBE_DISABLE_MIN_HBLANK_FIX);
 
 	/* Enable audio presence detect */
@@ -756,10 +754,8 @@ void intel_audio_codec_enable(struct intel_encoder *encoder,
 		    crtc->base.base.id, crtc->base.name,
 		    drm_eld_size(crtc_state->eld));
 
-	if (display->funcs.audio)
-		display->funcs.audio->audio_codec_enable(encoder,
-							      crtc_state,
-							      conn_state);
+	if (display->audio.funcs)
+		display->audio.funcs->audio_codec_enable(encoder, crtc_state, conn_state);
 
 	mutex_lock(&display->audio.mutex);
 
@@ -815,10 +811,8 @@ void intel_audio_codec_disable(struct intel_encoder *encoder,
 		    encoder->base.base.id, encoder->base.name,
 		    crtc->base.base.id, crtc->base.name);
 
-	if (display->funcs.audio)
-		display->funcs.audio->audio_codec_disable(encoder,
-							       old_crtc_state,
-							       old_conn_state);
+	if (display->audio.funcs)
+		display->audio.funcs->audio_codec_disable(encoder, old_crtc_state, old_conn_state);
 
 	mutex_lock(&display->audio.mutex);
 
@@ -866,8 +860,8 @@ void intel_audio_codec_get_config(struct intel_encoder *encoder,
 	if (!crtc_state->has_audio)
 		return;
 
-	if (display->funcs.audio)
-		display->funcs.audio->audio_codec_get_config(encoder, crtc_state);
+	if (display->audio.funcs)
+		display->audio.funcs->audio_codec_get_config(encoder, crtc_state);
 }
 
 static const struct intel_audio_funcs g4x_audio_funcs = {
@@ -895,12 +889,12 @@ static const struct intel_audio_funcs hsw_audio_funcs = {
 void intel_audio_hooks_init(struct intel_display *display)
 {
 	if (display->platform.g4x)
-		display->funcs.audio = &g4x_audio_funcs;
+		display->audio.funcs = &g4x_audio_funcs;
 	else if (display->platform.valleyview || display->platform.cherryview ||
 		 HAS_PCH_CPT(display) || HAS_PCH_IBX(display))
-		display->funcs.audio = &ibx_audio_funcs;
+		display->audio.funcs = &ibx_audio_funcs;
 	else if (display->platform.haswell || DISPLAY_VER(display) >= 8)
-		display->funcs.audio = &hsw_audio_funcs;
+		display->audio.funcs = &hsw_audio_funcs;
 }
 
 struct aud_ts_cdclk_m_n {
@@ -960,7 +954,7 @@ static void glk_force_audio_cdclk(struct intel_display *display,
 				  bool enable)
 {
 	struct drm_modeset_acquire_ctx ctx;
-	struct drm_atomic_state *state;
+	struct drm_atomic_commit *state;
 	struct intel_crtc *crtc;
 	int ret;
 
@@ -969,7 +963,7 @@ static void glk_force_audio_cdclk(struct intel_display *display,
 		return;
 
 	drm_modeset_acquire_init(&ctx, 0);
-	state = drm_atomic_state_alloc(display->drm);
+	state = drm_atomic_commit_alloc(display->drm);
 	if (drm_WARN_ON(display->drm, !state))
 		return;
 
@@ -980,14 +974,14 @@ retry:
 	ret = glk_force_audio_cdclk_commit(to_intel_atomic_state(state), crtc,
 					   enable);
 	if (ret == -EDEADLK) {
-		drm_atomic_state_clear(state);
+		drm_atomic_commit_clear(state);
 		drm_modeset_backoff(&ctx);
 		goto retry;
 	}
 
 	drm_WARN_ON(display->drm, ret);
 
-	drm_atomic_state_put(state);
+	drm_atomic_commit_put(state);
 
 	drm_modeset_drop_locks(&ctx);
 	drm_modeset_acquire_fini(&ctx);
@@ -1042,10 +1036,10 @@ int intel_audio_min_cdclk(const struct intel_crtc_state *crtc_state)
 static unsigned long intel_audio_component_get_power(struct device *kdev)
 {
 	struct intel_display *display = to_intel_display(kdev);
-	intel_wakeref_t wakeref;
+	struct ref_tracker *wakeref;
 
 	/* Catch potential impedance mismatches before they occur! */
-	BUILD_BUG_ON(sizeof(intel_wakeref_t) > sizeof(unsigned long));
+	BUILD_BUG_ON(sizeof(wakeref) > sizeof(unsigned long));
 
 	wakeref = intel_display_power_get(display, POWER_DOMAIN_AUDIO_PLAYBACK);
 
@@ -1074,7 +1068,7 @@ static void intel_audio_component_put_power(struct device *kdev,
 					    unsigned long cookie)
 {
 	struct intel_display *display = to_intel_display(kdev);
-	intel_wakeref_t wakeref = (intel_wakeref_t)cookie;
+	struct ref_tracker *wakeref = (struct ref_tracker *)cookie;
 
 	/* Stop forcing CDCLK to 2*BCLK if no need for audio to be powered. */
 	if (--display->audio.power_refcount == 0)

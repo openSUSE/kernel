@@ -18,7 +18,7 @@
 #include <linux/sched.h>
 #include <linux/mmzone.h>
 #include <linux/pagemap.h>
-#include <linux/swapops.h>
+#include <linux/leafops.h>
 #include <linux/hugetlb.h>
 #include <linux/memremap.h>
 #include <linux/sched/mm.h>
@@ -244,7 +244,12 @@ static int hmm_vma_handle_pte(struct mm_walk *walk, unsigned long addr,
 	uint64_t pfn_req_flags = *hmm_pfn;
 	uint64_t new_pfn_flags = 0;
 
-	if (pte_none_mostly(pte)) {
+	/*
+	 * Any other marker than a UFFD WP marker will result in a fault error
+	 * that will be correctly handled, so we need only check for UFFD WP
+	 * here.
+	 */
+	if (pte_none(pte) || pte_is_uffd_wp_marker(pte)) {
 		required_fault =
 			hmm_pte_need_fault(hmm_vma_walk, pfn_req_flags, 0);
 		if (required_fault)
@@ -253,19 +258,19 @@ static int hmm_vma_handle_pte(struct mm_walk *walk, unsigned long addr,
 	}
 
 	if (!pte_present(pte)) {
-		swp_entry_t entry = pte_to_swp_entry(pte);
+		const softleaf_t entry = softleaf_from_pte(pte);
 
 		/*
 		 * Don't fault in device private pages owned by the caller,
 		 * just report the PFN.
 		 */
-		if (is_device_private_entry(entry) &&
-		    page_pgmap(pfn_swap_entry_to_page(entry))->owner ==
+		if (softleaf_is_device_private(entry) &&
+		    page_pgmap(softleaf_to_page(entry))->owner ==
 		    range->dev_private_owner) {
 			cpu_flags = HMM_PFN_VALID;
-			if (is_writable_device_private_entry(entry))
+			if (softleaf_is_device_private_write(entry))
 				cpu_flags |= HMM_PFN_WRITE;
-			new_pfn_flags = swp_offset_pfn(entry) | cpu_flags;
+			new_pfn_flags = softleaf_to_pfn(entry) | cpu_flags;
 			goto out;
 		}
 
@@ -274,16 +279,16 @@ static int hmm_vma_handle_pte(struct mm_walk *walk, unsigned long addr,
 		if (!required_fault)
 			goto out;
 
-		if (!non_swap_entry(entry))
+		if (softleaf_is_swap(entry))
 			goto fault;
 
-		if (is_device_private_entry(entry))
+		if (softleaf_is_device_private(entry))
 			goto fault;
 
-		if (is_device_exclusive_entry(entry))
+		if (softleaf_is_device_exclusive(entry))
 			goto fault;
 
-		if (is_migration_entry(entry)) {
+		if (softleaf_is_migration(entry)) {
 			pte_unmap(ptep);
 			hmm_vma_walk->last = addr;
 			migration_entry_wait(walk->mm, pmdp, addr);
@@ -326,6 +331,68 @@ fault:
 	return hmm_vma_fault(addr, end, required_fault, walk);
 }
 
+#ifdef CONFIG_ARCH_ENABLE_THP_MIGRATION
+static int hmm_vma_handle_absent_pmd(struct mm_walk *walk, unsigned long start,
+				     unsigned long end, unsigned long *hmm_pfns,
+				     pmd_t pmd)
+{
+	struct hmm_vma_walk *hmm_vma_walk = walk->private;
+	struct hmm_range *range = hmm_vma_walk->range;
+	unsigned long npages = (end - start) >> PAGE_SHIFT;
+	const softleaf_t entry = softleaf_from_pmd(pmd);
+	unsigned long addr = start;
+	unsigned int required_fault;
+
+	if (softleaf_is_device_private(entry) &&
+	    softleaf_to_folio(entry)->pgmap->owner ==
+	    range->dev_private_owner) {
+		unsigned long cpu_flags = HMM_PFN_VALID |
+			hmm_pfn_flags_order(PMD_SHIFT - PAGE_SHIFT);
+		unsigned long pfn = softleaf_to_pfn(entry);
+		unsigned long i;
+
+		if (softleaf_is_device_private_write(entry))
+			cpu_flags |= HMM_PFN_WRITE;
+
+		/*
+		 * Fully populate the PFN list though subsequent PFNs could be
+		 * inferred, because drivers which are not yet aware of large
+		 * folios probably do not support sparsely populated PFN lists.
+		 */
+		for (i = 0; addr < end; addr += PAGE_SIZE, i++, pfn++) {
+			hmm_pfns[i] &= HMM_PFN_INOUT_FLAGS;
+			hmm_pfns[i] |= pfn | cpu_flags;
+		}
+
+		return 0;
+	}
+
+	required_fault = hmm_range_need_fault(hmm_vma_walk, hmm_pfns,
+					      npages, 0);
+	if (required_fault) {
+		if (softleaf_is_device_private(entry))
+			return hmm_vma_fault(addr, end, required_fault, walk);
+		else
+			return -EFAULT;
+	}
+
+	return hmm_pfns_fill(start, end, range, HMM_PFN_ERROR);
+}
+#else
+static int hmm_vma_handle_absent_pmd(struct mm_walk *walk, unsigned long start,
+				     unsigned long end, unsigned long *hmm_pfns,
+				     pmd_t pmd)
+{
+	struct hmm_vma_walk *hmm_vma_walk = walk->private;
+	struct hmm_range *range = hmm_vma_walk->range;
+	unsigned long npages = (end - start) >> PAGE_SHIFT;
+
+	if (hmm_range_need_fault(hmm_vma_walk, hmm_pfns, npages, 0))
+		return -EFAULT;
+	return hmm_pfns_fill(start, end, range, HMM_PFN_ERROR);
+}
+#endif  /* CONFIG_ARCH_ENABLE_THP_MIGRATION */
+
 static int hmm_vma_walk_pmd(pmd_t *pmdp,
 			    unsigned long start,
 			    unsigned long end,
@@ -345,7 +412,7 @@ again:
 	if (pmd_none(pmd))
 		return hmm_vma_walk_hole(start, end, -1, walk);
 
-	if (thp_migration_supported() && is_pmd_migration_entry(pmd)) {
+	if (thp_migration_supported() && pmd_is_migration_entry(pmd)) {
 		if (hmm_range_need_fault(hmm_vma_walk, hmm_pfns, npages, 0)) {
 			hmm_vma_walk->last = addr;
 			pmd_migration_entry_wait(walk->mm, pmdp);
@@ -354,11 +421,9 @@ again:
 		return hmm_pfns_fill(start, end, range, 0);
 	}
 
-	if (!pmd_present(pmd)) {
-		if (hmm_range_need_fault(hmm_vma_walk, hmm_pfns, npages, 0))
-			return -EFAULT;
-		return hmm_pfns_fill(start, end, range, HMM_PFN_ERROR);
-	}
+	if (!pmd_present(pmd))
+		return hmm_vma_handle_absent_pmd(walk, start, end, hmm_pfns,
+						 pmd);
 
 	if (pmd_trans_huge(pmd)) {
 		/*
@@ -431,7 +496,7 @@ static int hmm_vma_walk_pud(pud_t *pudp, unsigned long start, unsigned long end,
 	/* Normally we don't want to split the huge page */
 	walk->action = ACTION_CONTINUE;
 
-	pud = READ_ONCE(*pudp);
+	pud = pudp_get(pudp);
 	if (!pud_present(pud)) {
 		spin_unlock(ptl);
 		return hmm_vma_walk_hole(start, end, -1, walk);
@@ -658,8 +723,8 @@ int hmm_dma_map_alloc(struct device *dev, struct hmm_dma_map *map,
 	use_iova = dma_iova_try_alloc(dev, &map->state, 0,
 			nr_entries * PAGE_SIZE);
 	if (!use_iova && dma_need_unmap(dev)) {
-		map->dma_list = kvcalloc(nr_entries, sizeof(*map->dma_list),
-					 GFP_KERNEL | __GFP_NOWARN);
+		map->dma_list = kvzalloc_objs(*map->dma_list, nr_entries,
+					      GFP_KERNEL | __GFP_NOWARN);
 		if (!map->dma_list)
 			goto err_dma;
 	}
@@ -713,7 +778,7 @@ dma_addr_t hmm_dma_map_pfn(struct device *dev, struct hmm_dma_map *map,
 	struct page *page = hmm_pfn_to_page(pfns[idx]);
 	phys_addr_t paddr = hmm_pfn_to_phys(pfns[idx]);
 	size_t offset = idx * map->dma_entry_size;
-	unsigned long attrs = 0;
+	unsigned long attrs = DMA_ATTR_REQUIRE_COHERENT;
 	dma_addr_t dma_addr;
 	int ret;
 
@@ -746,12 +811,12 @@ dma_addr_t hmm_dma_map_pfn(struct device *dev, struct hmm_dma_map *map,
 	case PCI_P2PDMA_MAP_NONE:
 		break;
 	case PCI_P2PDMA_MAP_THRU_HOST_BRIDGE:
-		attrs |= DMA_ATTR_SKIP_CPU_SYNC;
+		attrs |= DMA_ATTR_MMIO;
 		pfns[idx] |= HMM_PFN_P2PDMA;
 		break;
 	case PCI_P2PDMA_MAP_BUS_ADDR:
 		pfns[idx] |= HMM_PFN_P2PDMA_BUS | HMM_PFN_DMA_MAPPED;
-		return pci_p2pdma_bus_addr_map(p2pdma_state, paddr);
+		return pci_p2pdma_bus_addr_map(p2pdma_state->mem, paddr);
 	default:
 		return DMA_MAPPING_ERROR;
 	}
@@ -775,8 +840,8 @@ dma_addr_t hmm_dma_map_pfn(struct device *dev, struct hmm_dma_map *map,
 		if (WARN_ON_ONCE(dma_need_unmap(dev) && !dma_addrs))
 			goto error;
 
-		dma_addr = dma_map_page(dev, page, 0, map->dma_entry_size,
-					DMA_BIDIRECTIONAL);
+		dma_addr = dma_map_phys(dev, paddr, map->dma_entry_size,
+					DMA_BIDIRECTIONAL, attrs);
 		if (dma_mapping_error(dev, dma_addr))
 			goto error;
 
@@ -806,21 +871,22 @@ bool hmm_dma_unmap_pfn(struct device *dev, struct hmm_dma_map *map, size_t idx)
 	struct dma_iova_state *state = &map->state;
 	dma_addr_t *dma_addrs = map->dma_list;
 	unsigned long *pfns = map->pfn_list;
-	unsigned long attrs = 0;
+	unsigned long attrs = DMA_ATTR_REQUIRE_COHERENT;
 
 	if ((pfns[idx] & valid_dma) != valid_dma)
 		return false;
 
+	if (pfns[idx] & HMM_PFN_P2PDMA)
+		attrs |= DMA_ATTR_MMIO;
+
 	if (pfns[idx] & HMM_PFN_P2PDMA_BUS)
 		; /* no need to unmap bus address P2P mappings */
-	else if (dma_use_iova(state)) {
-		if (pfns[idx] & HMM_PFN_P2PDMA)
-			attrs |= DMA_ATTR_SKIP_CPU_SYNC;
+	else if (dma_use_iova(state))
 		dma_iova_unlink(dev, state, idx * map->dma_entry_size,
 				map->dma_entry_size, DMA_BIDIRECTIONAL, attrs);
-	} else if (dma_need_unmap(dev))
-		dma_unmap_page(dev, dma_addrs[idx], map->dma_entry_size,
-			       DMA_BIDIRECTIONAL);
+	else if (dma_need_unmap(dev))
+		dma_unmap_phys(dev, dma_addrs[idx], map->dma_entry_size,
+			       DMA_BIDIRECTIONAL, attrs);
 
 	pfns[idx] &=
 		~(HMM_PFN_DMA_MAPPED | HMM_PFN_P2PDMA | HMM_PFN_P2PDMA_BUS);

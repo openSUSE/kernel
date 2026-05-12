@@ -1340,7 +1340,7 @@ static int tw_reset_device_extension(TW_Device_Extension *tw_dev)
 } /* End tw_reset_device_extension() */
 
 /* This funciton returns unit geometry in cylinders/heads/sectors */
-static int tw_scsi_biosparam(struct scsi_device *sdev, struct block_device *bdev,
+static int tw_scsi_biosparam(struct scsi_device *sdev, struct gendisk *unused,
 			     sector_t capacity, int geom[])
 {
 	int heads, sectors, cylinders;
@@ -1920,7 +1920,7 @@ static int tw_scsiop_test_unit_ready_complete(TW_Device_Extension *tw_dev, int r
 } /* End tw_scsiop_test_unit_ready_complete() */
 
 /* This is the main scsi queue function to handle scsi opcodes */
-static int tw_scsi_queue_lck(struct scsi_cmnd *SCpnt)
+static enum scsi_qc_status tw_scsi_queue_lck(struct scsi_cmnd *SCpnt)
 {
 	void (*done)(struct scsi_cmnd *) = scsi_done;
 	unsigned char *command = SCpnt->cmnd;

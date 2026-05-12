@@ -88,7 +88,7 @@ struct kvm_lapic {
 	int nr_lvt_entries;
 };
 
-struct dest_map;
+struct rtc_status;
 
 int kvm_create_lapic(struct kvm_vcpu *vcpu);
 void kvm_free_lapic(struct kvm_vcpu *vcpu);
@@ -105,26 +105,35 @@ void kvm_apic_set_version(struct kvm_vcpu *vcpu);
 void kvm_apic_after_set_mcg_cap(struct kvm_vcpu *vcpu);
 bool kvm_apic_match_dest(struct kvm_vcpu *vcpu, struct kvm_lapic *source,
 			   int shorthand, unsigned int dest, int dest_mode);
-int kvm_apic_compare_prio(struct kvm_vcpu *vcpu1, struct kvm_vcpu *vcpu2);
 void kvm_apic_clear_irr(struct kvm_vcpu *vcpu, int vec);
 bool __kvm_apic_update_irr(unsigned long *pir, void *regs, int *max_irr);
 bool kvm_apic_update_irr(struct kvm_vcpu *vcpu, unsigned long *pir, int *max_irr);
 void kvm_apic_update_ppr(struct kvm_vcpu *vcpu);
 int kvm_apic_set_irq(struct kvm_vcpu *vcpu, struct kvm_lapic_irq *irq,
-		     struct dest_map *dest_map);
+		     struct rtc_status *rtc_status);
 int kvm_apic_local_deliver(struct kvm_lapic *apic, int lvt_type);
 void kvm_apic_update_apicv(struct kvm_vcpu *vcpu);
 int kvm_alloc_apic_access_page(struct kvm *kvm);
 void kvm_inhibit_apic_access_page(struct kvm_vcpu *vcpu);
 
 bool kvm_irq_delivery_to_apic_fast(struct kvm *kvm, struct kvm_lapic *src,
-		struct kvm_lapic_irq *irq, int *r, struct dest_map *dest_map);
+				   struct kvm_lapic_irq *irq, int *r);
+int __kvm_irq_delivery_to_apic(struct kvm *kvm, struct kvm_lapic *src,
+			       struct kvm_lapic_irq *irq,
+			       struct rtc_status *rtc_status);
+
+static inline int kvm_irq_delivery_to_apic(struct kvm *kvm,
+					   struct kvm_lapic *src,
+					   struct kvm_lapic_irq *irq)
+{
+	return __kvm_irq_delivery_to_apic(kvm, src, irq, NULL);
+}
+
 void kvm_apic_send_ipi(struct kvm_lapic *apic, u32 icr_low, u32 icr_high);
 
 int kvm_apic_set_base(struct kvm_vcpu *vcpu, u64 value, bool host_initiated);
 int kvm_apic_get_state(struct kvm_vcpu *vcpu, struct kvm_lapic_state *s);
 int kvm_apic_set_state(struct kvm_vcpu *vcpu, struct kvm_lapic_state *s);
-void kvm_apic_update_hwapic_isr(struct kvm_vcpu *vcpu);
 int kvm_lapic_find_highest_irr(struct kvm_vcpu *vcpu);
 
 u64 kvm_get_lapic_tscdeadline_msr(struct kvm_vcpu *vcpu);
@@ -137,7 +146,7 @@ int kvm_lapic_set_vapic_addr(struct kvm_vcpu *vcpu, gpa_t vapic_addr);
 void kvm_lapic_sync_from_vapic(struct kvm_vcpu *vcpu);
 void kvm_lapic_sync_to_vapic(struct kvm_vcpu *vcpu);
 
-int kvm_x2apic_icr_write(struct kvm_lapic *apic, u64 data);
+int kvm_x2apic_icr_write_fast(struct kvm_lapic *apic, u64 data);
 int kvm_x2apic_msr_write(struct kvm_vcpu *vcpu, u32 msr, u64 data);
 int kvm_x2apic_msr_read(struct kvm_vcpu *vcpu, u32 msr, u64 *data);
 
@@ -222,12 +231,6 @@ static inline bool kvm_apic_init_sipi_allowed(struct kvm_vcpu *vcpu)
 	       !kvm_x86_call(apic_init_signal_blocked)(vcpu);
 }
 
-static inline bool kvm_lowest_prio_delivery(struct kvm_lapic_irq *irq)
-{
-	return (irq->delivery_mode == APIC_DM_LOWEST ||
-			irq->msi_redir_hint);
-}
-
 static inline int kvm_lapic_latched_init(struct kvm_vcpu *vcpu)
 {
 	return lapic_in_kernel(vcpu) && test_bit(KVM_APIC_INIT, &vcpu->arch.apic->pending_events);
@@ -235,21 +238,20 @@ static inline int kvm_lapic_latched_init(struct kvm_vcpu *vcpu)
 
 bool kvm_apic_pending_eoi(struct kvm_vcpu *vcpu, int vector);
 
+bool kvm_lapic_suppress_eoi_broadcast(struct kvm_lapic *apic);
+
 void kvm_wait_lapic_expire(struct kvm_vcpu *vcpu);
 
 void kvm_bitmap_or_dest_vcpus(struct kvm *kvm, struct kvm_lapic_irq *irq,
 			      unsigned long *vcpu_bitmap);
 
-bool kvm_intr_is_single_vcpu_fast(struct kvm *kvm, struct kvm_lapic_irq *irq,
-			struct kvm_vcpu **dest_vcpu);
-int kvm_vector_to_index(u32 vector, u32 dest_vcpus,
-			const unsigned long *bitmap, u32 bitmap_size);
+bool kvm_intr_is_single_vcpu(struct kvm *kvm, struct kvm_lapic_irq *irq,
+			     struct kvm_vcpu **dest_vcpu);
 void kvm_lapic_switch_to_sw_timer(struct kvm_vcpu *vcpu);
 void kvm_lapic_switch_to_hv_timer(struct kvm_vcpu *vcpu);
 void kvm_lapic_expired_hv_timer(struct kvm_vcpu *vcpu);
 bool kvm_lapic_hv_timer_in_use(struct kvm_vcpu *vcpu);
 void kvm_lapic_restart_hv_timer(struct kvm_vcpu *vcpu);
-bool kvm_can_use_hv_timer(struct kvm_vcpu *vcpu);
 
 static inline enum lapic_mode kvm_apic_mode(u64 apic_base)
 {

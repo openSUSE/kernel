@@ -26,6 +26,7 @@
 #include "reg_helper.h"
 #include "core_types.h"
 #include "dcn32_dccg.h"
+#include "dcn20/dcn20_dccg.h"
 
 #define TO_DCN_DCCG(dccg)\
 	container_of(dccg, struct dcn_dccg, base)
@@ -264,6 +265,7 @@ static void dccg32_get_dccg_ref_freq(struct dccg *dccg,
 		unsigned int xtalin_freq_inKhz,
 		unsigned int *dccg_ref_freq_inKhz)
 {
+	(void)dccg;
 	/*
 	 * Assume refclk is sourced from xtalin
 	 * expect 100MHz
@@ -347,6 +349,10 @@ static const struct dccg_funcs dccg32_funcs = {
 	.get_pixel_rate_div = dccg32_get_pixel_rate_div,
 	.trigger_dio_fifo_resync = dccg32_trigger_dio_fifo_resync,
 	.set_dtbclk_p_src = dccg32_set_dtbclk_p_src,
+	.refclk_setup = dccg2_refclk_setup, /* Deprecated - for backward compatibility only */
+	.allow_clock_gating = dccg2_allow_clock_gating,
+	.enable_memory_low_power = dccg2_enable_memory_low_power,
+	.is_s0i3_golden_init_wa_done = dccg2_is_s0i3_golden_init_wa_done /* Deprecated - for backward compatibility only */
 };
 
 struct dccg *dccg32_create(
@@ -355,7 +361,7 @@ struct dccg *dccg32_create(
 	const struct dccg_shift *dccg_shift,
 	const struct dccg_mask *dccg_mask)
 {
-	struct dcn_dccg *dccg_dcn = kzalloc(sizeof(*dccg_dcn), GFP_KERNEL);
+	struct dcn_dccg *dccg_dcn = kzalloc_obj(*dccg_dcn);
 	struct dccg *base;
 
 	if (dccg_dcn == NULL) {

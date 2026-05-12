@@ -344,24 +344,6 @@ struct iwl_mvm_link_sta {
 	u8 avg_energy;
 };
 
-struct iwl_mvm_mpdu_counter {
-	u32 tx;
-	u32 rx;
-};
-
-/**
- * struct iwl_mvm_tpt_counter - per-queue MPDU counter
- *
- * @lock: Needed to protect the counters when modified from statistics.
- * @per_link: per-link counters.
- * @window_start: timestamp of the counting-window start
- */
-struct iwl_mvm_tpt_counter {
-	spinlock_t lock;
-	struct iwl_mvm_mpdu_counter per_link[IWL_FW_MAX_LINK_ID];
-	unsigned long window_start;
-} ____cacheline_aligned_in_smp;
-
 /**
  * struct iwl_mvm_sta - representation of a station in the driver
  * @vif: the interface the station belongs to
@@ -409,7 +391,6 @@ struct iwl_mvm_tpt_counter {
  * @link: per link sta entries. For non-MLO only link[0] holds data. For MLO,
  *	link[0] points to deflink and link[link_id] is allocated when new link
  *	sta is added.
- * @mpdu_counters: RX/TX MPDUs counters for each queue.
  *
  * When mac80211 creates a station it reserves some space (hw->sta_data_size)
  * in the structure for use by driver. This structure is placed in that
@@ -449,8 +430,6 @@ struct iwl_mvm_sta {
 
 	struct iwl_mvm_link_sta deflink;
 	struct iwl_mvm_link_sta __rcu *link[IEEE80211_MLD_MAX_NUM_LINKS];
-
-	struct iwl_mvm_tpt_counter *mpdu_counters;
 };
 
 u16 iwl_mvm_tid_queued(struct iwl_mvm *mvm, struct iwl_mvm_tid_data *tid_data);
@@ -532,9 +511,6 @@ void iwl_mvm_update_tkip_key(struct iwl_mvm *mvm,
 
 void iwl_mvm_rx_eosp_notif(struct iwl_mvm *mvm,
 			   struct iwl_rx_cmd_buffer *rxb);
-
-void iwl_mvm_count_mpdu(struct iwl_mvm_sta *mvm_sta, u8 fw_sta_id, u32 count,
-			bool tx, int queue);
 
 /* AMPDU */
 int iwl_mvm_sta_rx_agg(struct iwl_mvm *mvm, struct ieee80211_sta *sta,
@@ -661,10 +637,6 @@ void iwl_mvm_mld_free_sta_link(struct iwl_mvm *mvm,
 			       struct iwl_mvm_link_sta *mvm_sta_link,
 			       unsigned int link_id);
 int iwl_mvm_mld_rm_sta_id(struct iwl_mvm *mvm, u8 sta_id);
-int iwl_mvm_mld_update_sta_links(struct iwl_mvm *mvm,
-				 struct ieee80211_vif *vif,
-				 struct ieee80211_sta *sta,
-				 u16 old_links, u16 new_links);
 u32 iwl_mvm_sta_fw_id_mask(struct iwl_mvm *mvm, struct ieee80211_sta *sta,
 			   int filter_link_id);
 int iwl_mvm_mld_add_int_sta_with_queue(struct iwl_mvm *mvm,

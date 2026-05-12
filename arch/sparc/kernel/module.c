@@ -29,7 +29,6 @@ int module_frob_arch_sections(Elf_Ehdr *hdr,
 {
 	unsigned int symidx;
 	Elf_Sym *sym;
-	char *strtab;
 	int i;
 
 	for (symidx = 0; sechdrs[symidx].sh_type != SHT_SYMTAB; symidx++) {
@@ -39,7 +38,6 @@ int module_frob_arch_sections(Elf_Ehdr *hdr,
 		}
 	}
 	sym = (Elf_Sym *)sechdrs[symidx].sh_addr;
-	strtab = (char *)sechdrs[sechdrs[symidx].sh_link].sh_addr;
 
 	for (i = 1; i < sechdrs[symidx].sh_size / sizeof(Elf_Sym); i++) {
 		if (sym[i].st_shndx == SHN_UNDEF) {
@@ -87,6 +85,7 @@ int apply_relocate_add(Elf_Shdr *sechdrs,
 			break;
 #ifdef CONFIG_SPARC64
 		case R_SPARC_64:
+		case R_SPARC_UA64:
 			location[0] = v >> 56;
 			location[1] = v >> 48;
 			location[2] = v >> 40;
@@ -141,7 +140,7 @@ int apply_relocate_add(Elf_Shdr *sechdrs,
 			break;
 
 		default:
-			printk(KERN_ERR "module %s: Unknown relocation: %x\n",
+			printk(KERN_ERR "module %s: Unknown relocation: 0x%x\n",
 			       me->name,
 			       (int) (ELF_R_TYPE(rel[i].r_info) & 0xff));
 			return -ENOEXEC;

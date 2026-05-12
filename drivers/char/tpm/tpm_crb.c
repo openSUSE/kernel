@@ -15,6 +15,7 @@
 #include <linux/highmem.h>
 #include <linux/rculist.h>
 #include <linux/module.h>
+#include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #ifdef CONFIG_ARM64
 #include <linux/arm-smccc.h>
@@ -133,8 +134,7 @@ static inline bool tpm_crb_has_idle(u32 start_method)
 {
 	return !(start_method == ACPI_TPM2_START_METHOD ||
 	       start_method == ACPI_TPM2_COMMAND_BUFFER_WITH_START_METHOD ||
-	       start_method == ACPI_TPM2_COMMAND_BUFFER_WITH_ARM_SMC ||
-	       start_method == ACPI_TPM2_CRB_WITH_ARM_FFA);
+	       start_method == ACPI_TPM2_COMMAND_BUFFER_WITH_ARM_SMC);
 }
 
 static bool crb_wait_for_reg_32(u32 __iomem *reg, u32 mask, u32 value,
@@ -180,6 +180,7 @@ static int crb_try_pluton_doorbell(struct crb_priv *priv, bool wait_for_complete
  *
  * @dev:  crb device
  * @priv: crb private data
+ * @loc:  locality
  *
  * Write CRB_CTRL_REQ_GO_IDLE to TPM_CRB_CTRL_REQ
  * The device should respond within TIMEOUT_C by clearing the bit.
@@ -191,7 +192,7 @@ static int crb_try_pluton_doorbell(struct crb_priv *priv, bool wait_for_complete
  *
  * Return: 0 always
  */
-static int __crb_go_idle(struct device *dev, struct crb_priv *priv)
+static int __crb_go_idle(struct device *dev, struct crb_priv *priv, int loc)
 {
 	int rc;
 
@@ -199,6 +200,12 @@ static int __crb_go_idle(struct device *dev, struct crb_priv *priv)
 		return 0;
 
 	iowrite32(CRB_CTRL_REQ_GO_IDLE, &priv->regs_t->ctrl_req);
+
+	if (priv->sm == ACPI_TPM2_CRB_WITH_ARM_FFA) {
+		rc = tpm_crb_ffa_start(CRB_FFA_START_TYPE_COMMAND, loc);
+		if (rc)
+			return rc;
+	}
 
 	rc = crb_try_pluton_doorbell(priv, true);
 	if (rc)
@@ -220,7 +227,7 @@ static int crb_go_idle(struct tpm_chip *chip)
 	struct device *dev = &chip->dev;
 	struct crb_priv *priv = dev_get_drvdata(dev);
 
-	return __crb_go_idle(dev, priv);
+	return __crb_go_idle(dev, priv, chip->locality);
 }
 
 /**
@@ -228,6 +235,7 @@ static int crb_go_idle(struct tpm_chip *chip)
  *
  * @dev:  crb device
  * @priv: crb private data
+ * @loc:  locality
  *
  * Write CRB_CTRL_REQ_CMD_READY to TPM_CRB_CTRL_REQ
  * and poll till the device acknowledge it by clearing the bit.
@@ -238,7 +246,7 @@ static int crb_go_idle(struct tpm_chip *chip)
  *
  * Return: 0 on success -ETIME on timeout;
  */
-static int __crb_cmd_ready(struct device *dev, struct crb_priv *priv)
+static int __crb_cmd_ready(struct device *dev, struct crb_priv *priv, int loc)
 {
 	int rc;
 
@@ -246,6 +254,12 @@ static int __crb_cmd_ready(struct device *dev, struct crb_priv *priv)
 		return 0;
 
 	iowrite32(CRB_CTRL_REQ_CMD_READY, &priv->regs_t->ctrl_req);
+
+	if (priv->sm == ACPI_TPM2_CRB_WITH_ARM_FFA) {
+		rc = tpm_crb_ffa_start(CRB_FFA_START_TYPE_COMMAND, loc);
+		if (rc)
+			return rc;
+	}
 
 	rc = crb_try_pluton_doorbell(priv, true);
 	if (rc)
@@ -267,7 +281,7 @@ static int crb_cmd_ready(struct tpm_chip *chip)
 	struct device *dev = &chip->dev;
 	struct crb_priv *priv = dev_get_drvdata(dev);
 
-	return __crb_cmd_ready(dev, priv);
+	return __crb_cmd_ready(dev, priv, chip->locality);
 }
 
 static int __crb_request_locality(struct device *dev,
@@ -401,7 +415,7 @@ static int crb_do_acpi_start(struct tpm_chip *chip)
 #ifdef CONFIG_ARM64
 /*
  * This is a TPM Command Response Buffer start method that invokes a
- * Secure Monitor Call to requrest the firmware to execute or cancel
+ * Secure Monitor Call to request the firmware to execute or cancel
  * a TPM 2.0 command.
  */
 static int tpm_crb_smc_start(struct device *dev, unsigned long func_id)
@@ -444,7 +458,7 @@ static int crb_send(struct tpm_chip *chip, u8 *buf, size_t bufsiz, size_t len)
 
 	/* Seems to be necessary for every command */
 	if (priv->sm == ACPI_TPM2_COMMAND_BUFFER_WITH_PLUTON)
-		__crb_cmd_ready(&chip->dev, priv);
+		__crb_cmd_ready(&chip->dev, priv, chip->locality);
 
 	memcpy_toio(priv->cmd, buf, len);
 
@@ -589,13 +603,13 @@ static u64 crb_fixup_cmd_size(struct device *dev, struct resource *io_res,
 	return io_res->end - start + 1;
 }
 
-static int crb_map_io(struct acpi_device *device, struct crb_priv *priv,
+static int crb_map_io(struct device *dev, struct crb_priv *priv,
 		      struct acpi_table_tpm2 *buf)
 {
+	struct acpi_device *device = ACPI_COMPANION(dev);
 	struct list_head acpi_resource_list;
 	struct resource iores_array[TPM_CRB_MAX_RESOURCES + 1] = { {0} };
 	void __iomem *iobase_array[TPM_CRB_MAX_RESOURCES] = {NULL};
-	struct device *dev = &device->dev;
 	struct resource *iores;
 	void __iomem **iobase_ptr;
 	int i;
@@ -672,7 +686,7 @@ static int crb_map_io(struct acpi_device *device, struct crb_priv *priv,
 	 * PTT HW bug w/a: wake up the device to access
 	 * possibly not retained registers.
 	 */
-	ret = __crb_cmd_ready(dev, priv);
+	ret = __crb_cmd_ready(dev, priv, 0);
 	if (ret)
 		goto out_relinquish_locality;
 
@@ -744,7 +758,7 @@ out:
 	if (!ret)
 		priv->cmd_size = cmd_size;
 
-	__crb_go_idle(dev, priv);
+	__crb_go_idle(dev, priv, 0);
 
 out_relinquish_locality:
 
@@ -769,12 +783,13 @@ static int crb_map_pluton(struct device *dev, struct crb_priv *priv,
 	return 0;
 }
 
-static int crb_acpi_add(struct acpi_device *device)
+static int crb_acpi_probe(struct platform_device *pdev)
 {
+	struct device *dev = &pdev->dev;
+	struct acpi_device *device = ACPI_COMPANION(dev);
 	struct acpi_table_tpm2 *buf;
 	struct crb_priv *priv;
 	struct tpm_chip *chip;
-	struct device *dev = &device->dev;
 	struct tpm2_crb_smc *crb_smc;
 	struct tpm2_crb_ffa *crb_ffa;
 	struct tpm2_crb_pluton *crb_pluton;
@@ -854,7 +869,7 @@ static int crb_acpi_add(struct acpi_device *device)
 	priv->sm = sm;
 	priv->hid = acpi_device_hid(device);
 
-	rc = crb_map_io(device, priv, buf);
+	rc = crb_map_io(dev, priv, buf);
 	if (rc)
 		goto out;
 
@@ -888,12 +903,9 @@ out:
 	return rc;
 }
 
-static void crb_acpi_remove(struct acpi_device *device)
+static void crb_acpi_remove(struct platform_device *pdev)
 {
-	struct device *dev = &device->dev;
-	struct tpm_chip *chip = dev_get_drvdata(dev);
-
-	tpm_chip_unregister(chip);
+	tpm_chip_unregister(platform_get_drvdata(pdev));
 }
 
 static const struct dev_pm_ops crb_pm = {
@@ -906,19 +918,17 @@ static const struct acpi_device_id crb_device_ids[] = {
 };
 MODULE_DEVICE_TABLE(acpi, crb_device_ids);
 
-static struct acpi_driver crb_acpi_driver = {
-	.name = "tpm_crb",
-	.ids = crb_device_ids,
-	.ops = {
-		.add = crb_acpi_add,
-		.remove = crb_acpi_remove,
-	},
-	.drv = {
+static struct platform_driver crb_acpi_driver = {
+	.probe = crb_acpi_probe,
+	.remove = crb_acpi_remove,
+	.driver = {
+		.name = "tpm_crb_acpi",
+		.acpi_match_table = crb_device_ids,
 		.pm = &crb_pm,
 	},
 };
 
-module_acpi_driver(crb_acpi_driver);
+module_platform_driver(crb_acpi_driver);
 MODULE_AUTHOR("Jarkko Sakkinen <jarkko.sakkinen@linux.intel.com>");
 MODULE_DESCRIPTION("TPM2 Driver");
 MODULE_VERSION("0.1");

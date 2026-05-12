@@ -14,9 +14,11 @@
  * Copyright (c) 2018, Intel Corporation.
  */
 
+#include <linux/topology.h>
 #include <linux/acpi.h>
 #include <linux/dmi.h>
 #include <linux/adxl.h>
+#include <linux/overflow.h>
 #include <acpi/nfit.h>
 #include <asm/mce.h>
 #include <asm/uv/uv.h>
@@ -122,7 +124,7 @@ void skx_adxl_put(void)
 }
 EXPORT_SYMBOL_GPL(skx_adxl_put);
 
-static void skx_init_mc_mapping(struct skx_dev *d)
+void skx_init_mc_mapping(struct skx_dev *d)
 {
 	/*
 	 * By default, the BIOS presents all memory controllers within each
@@ -130,31 +132,38 @@ static void skx_init_mc_mapping(struct skx_dev *d)
 	 * the logical indices of the memory controllers enumerated by the
 	 * EDAC driver.
 	 */
-	for (int i = 0; i < NUM_IMC; i++)
-		d->mc_mapping[i] = i;
+	for (int i = 0; i < d->num_imc; i++)
+		d->imc[i].mc_mapping = i;
 }
+EXPORT_SYMBOL_GPL(skx_init_mc_mapping);
 
 void skx_set_mc_mapping(struct skx_dev *d, u8 pmc, u8 lmc)
 {
 	edac_dbg(0, "Set the mapping of mc phy idx to logical idx: %02d -> %02d\n",
 		 pmc, lmc);
 
-	d->mc_mapping[pmc] = lmc;
+	d->imc[lmc].mc_mapping = pmc;
 }
 EXPORT_SYMBOL_GPL(skx_set_mc_mapping);
 
-static u8 skx_get_mc_mapping(struct skx_dev *d, u8 pmc)
+static int skx_get_mc_mapping(struct skx_dev *d, u8 pmc)
 {
-	edac_dbg(0, "Get the mapping of mc phy idx to logical idx: %02d -> %02d\n",
-		 pmc, d->mc_mapping[pmc]);
+	for (int lmc = 0; lmc < d->num_imc; lmc++) {
+		if (d->imc[lmc].mc_mapping == pmc) {
+			edac_dbg(0, "Get the mapping of mc phy idx to logical idx: %02d -> %02d\n",
+				 pmc, lmc);
 
-	return d->mc_mapping[pmc];
+			return lmc;
+		}
+	}
+
+	return -1;
 }
 
 static bool skx_adxl_decode(struct decoded_addr *res, enum error_source err_src)
 {
+	int i, lmc, len = 0;
 	struct skx_dev *d;
-	int i, len = 0;
 
 	if (res->addr >= skx_tohm || (res->addr >= skx_tolm &&
 				      res->addr < BIT_ULL(32))) {
@@ -200,7 +209,7 @@ static bool skx_adxl_decode(struct decoded_addr *res, enum error_source err_src)
 		res->cs      = (int)adxl_values[component_indices[INDEX_CS]];
 	}
 
-	if (res->imc > NUM_IMC - 1 || res->imc < 0) {
+	if (res->imc < 0) {
 		skx_printk(KERN_ERR, "Bad imc %d\n", res->imc);
 		return false;
 	}
@@ -218,7 +227,13 @@ static bool skx_adxl_decode(struct decoded_addr *res, enum error_source err_src)
 		return false;
 	}
 
-	res->imc = skx_get_mc_mapping(d, res->imc);
+	lmc = skx_get_mc_mapping(d, res->imc);
+	if (lmc < 0) {
+		skx_printk(KERN_ERR, "No lmc for imc %d\n", res->imc);
+		return false;
+	}
+
+	res->imc = lmc;
 
 	for (i = 0; i < adxl_component_count; i++) {
 		if (adxl_values[i] == ~0x0ull)
@@ -265,7 +280,7 @@ static int skx_get_pkg_id(struct skx_dev *d, u8 *id)
 			struct cpuinfo_x86 *c = &cpu_data(cpu);
 
 			if (c->initialized && cpu_to_node(cpu) == node) {
-				*id = c->topo.pkg_id;
+				*id = topology_physical_package_id(cpu);
 				return 0;
 			}
 		}
@@ -320,10 +335,10 @@ static int get_width(u32 mtr)
  */
 int skx_get_all_bus_mappings(struct res_config *cfg, struct list_head **list)
 {
+	int ndev = 0, imc_num = cfg->ddr_imc_num + cfg->hbm_imc_num;
 	struct pci_dev *pdev, *prev;
 	struct skx_dev *d;
 	u32 reg;
-	int ndev = 0;
 
 	prev = NULL;
 	for (;;) {
@@ -331,7 +346,7 @@ int skx_get_all_bus_mappings(struct res_config *cfg, struct list_head **list)
 		if (!pdev)
 			break;
 		ndev++;
-		d = kzalloc(sizeof(*d), GFP_KERNEL);
+		d = kzalloc_flex(*d, imc, imc_num);
 		if (!d) {
 			pci_dev_put(pdev);
 			return -ENOMEM;
@@ -354,8 +369,10 @@ int skx_get_all_bus_mappings(struct res_config *cfg, struct list_head **list)
 			d->seg = GET_BITFIELD(reg, 16, 23);
 		}
 
-		edac_dbg(2, "busses: 0x%x, 0x%x, 0x%x, 0x%x\n",
-			 d->bus[0], d->bus[1], d->bus[2], d->bus[3]);
+		d->num_imc = imc_num;
+
+		edac_dbg(2, "busses: 0x%x, 0x%x, 0x%x, 0x%x, imcs %d\n",
+			 d->bus[0], d->bus[1], d->bus[2], d->bus[3], imc_num);
 		list_add_tail(&d->list, &dev_edac_list);
 		prev = pdev;
 
@@ -367,6 +384,12 @@ int skx_get_all_bus_mappings(struct res_config *cfg, struct list_head **list)
 	return ndev;
 }
 EXPORT_SYMBOL_GPL(skx_get_all_bus_mappings);
+
+struct list_head *skx_get_edac_list(void)
+{
+	return &dev_edac_list;
+}
+EXPORT_SYMBOL_GPL(skx_get_edac_list);
 
 int skx_get_hi_lo(unsigned int did, int off[], u64 *tolm, u64 *tohm)
 {
@@ -408,6 +431,13 @@ fail:
 }
 EXPORT_SYMBOL_GPL(skx_get_hi_lo);
 
+void skx_set_hi_lo(u64 tolm, u64 tohm)
+{
+	skx_tolm = tolm;
+	skx_tohm = tohm;
+}
+EXPORT_SYMBOL_GPL(skx_set_hi_lo);
+
 static int skx_get_dimm_attr(u32 reg, int lobit, int hibit, int add,
 			     int minval, int maxval, const char *name)
 {
@@ -421,7 +451,7 @@ static int skx_get_dimm_attr(u32 reg, int lobit, int hibit, int add,
 }
 
 #define numrank(reg)	skx_get_dimm_attr(reg, 12, 13, 0, 0, 2, "ranks")
-#define numrow(reg)	skx_get_dimm_attr(reg, 2, 4, 12, 1, 6, "rows")
+#define numrow(reg)	skx_get_dimm_attr(reg, 2, 4, 12, 1, 7, "rows")
 #define numcol(reg)	skx_get_dimm_attr(reg, 0, 1, 10, 0, 2, "cols")
 
 int skx_get_dimm_info(u32 mtr, u32 mcmtr, u32 amap, struct dimm_info *dimm,
@@ -529,9 +559,9 @@ unknown_size:
 }
 EXPORT_SYMBOL_GPL(skx_get_nvdimm_info);
 
-int skx_register_mci(struct skx_imc *imc, struct pci_dev *pdev,
-		     const char *ctl_name, const char *mod_str,
-		     get_dimm_config_f get_dimm_config,
+int skx_register_mci(struct skx_imc *imc, struct device *dev,
+		     const char *dev_name, const char *ctl_name,
+		     const char *mod_str, get_dimm_config_f get_dimm_config,
 		     struct res_config *cfg)
 {
 	struct mem_ctl_info *mci;
@@ -541,10 +571,10 @@ int skx_register_mci(struct skx_imc *imc, struct pci_dev *pdev,
 
 	/* Allocate a new MC control structure */
 	layers[0].type = EDAC_MC_LAYER_CHANNEL;
-	layers[0].size = NUM_CHANNELS;
+	layers[0].size = imc->num_channels;
 	layers[0].is_virt_csrow = false;
 	layers[1].type = EDAC_MC_LAYER_SLOT;
-	layers[1].size = NUM_DIMMS;
+	layers[1].size = imc->num_dimms;
 	layers[1].is_virt_csrow = true;
 	mci = edac_mc_alloc(imc->mc, ARRAY_SIZE(layers), layers,
 			    sizeof(struct skx_pvt));
@@ -572,7 +602,7 @@ int skx_register_mci(struct skx_imc *imc, struct pci_dev *pdev,
 	mci->edac_ctl_cap = EDAC_FLAG_NONE;
 	mci->edac_cap = EDAC_FLAG_NONE;
 	mci->mod_name = mod_str;
-	mci->dev_name = pci_name(pdev);
+	mci->dev_name = dev_name;
 	mci->ctl_page_to_phys = NULL;
 
 	rc = get_dimm_config(mci, cfg);
@@ -580,7 +610,7 @@ int skx_register_mci(struct skx_imc *imc, struct pci_dev *pdev,
 		goto fail;
 
 	/* Record ptr to the generic device */
-	mci->pdev = &pdev->dev;
+	mci->pdev = dev;
 
 	/* Add this new MC control structure to EDAC's list of MCs */
 	if (unlikely(edac_mc_add_mc(mci))) {
@@ -784,7 +814,7 @@ void skx_remove(void)
 
 	list_for_each_entry_safe(d, tmp, &dev_edac_list, list) {
 		list_del(&d->list);
-		for (i = 0; i < NUM_IMC; i++) {
+		for (i = 0; i < d->num_imc; i++) {
 			if (d->imc[i].mci)
 				skx_unregister_mci(&d->imc[i]);
 
@@ -794,7 +824,10 @@ void skx_remove(void)
 			if (d->imc[i].mbase)
 				iounmap(d->imc[i].mbase);
 
-			for (j = 0; j < NUM_CHANNELS; j++) {
+			if (d->imc[i].dev)
+				put_device(d->imc[i].dev);
+
+			for (j = 0; j < d->imc[i].num_channels; j++) {
 				if (d->imc[i].chan[j].cdev)
 					pci_dev_put(d->imc[i].chan[j].cdev);
 			}
@@ -817,7 +850,7 @@ EXPORT_SYMBOL_GPL(skx_remove);
 /*
  * Debug feature.
  * Exercise the address decode logic by writing an address to
- * /sys/kernel/debug/edac/{skx,i10nm}_test/addr.
+ * /sys/kernel/debug/edac/{skx,i10nm,imh}_test/addr.
  */
 static struct dentry *skx_test;
 

@@ -2461,7 +2461,8 @@ static void ci_register_patching_mc_arb(struct radeon_device *rdev,
 
 	if (patch &&
 	    ((rdev->pdev->device == 0x67B0) ||
-	     (rdev->pdev->device == 0x67B1))) {
+	     (rdev->pdev->device == 0x67B1)) &&
+	    (rdev->pdev->revision == 0)) {
 		if ((memory_clock > 100000) && (memory_clock <= 125000)) {
 			tmp2 = (((0x31 * engine_clock) / 125000) - 1) & 0xff;
 			*dram_timimg2 &= ~0x00ff0000;
@@ -3304,7 +3305,8 @@ static int ci_populate_all_memory_levels(struct radeon_device *rdev)
 	pi->smc_state_table.MemoryLevel[0].EnabledForActivity = 1;
 
 	if ((dpm_table->mclk_table.count >= 2) &&
-	    ((rdev->pdev->device == 0x67B0) || (rdev->pdev->device == 0x67B1))) {
+	    ((rdev->pdev->device == 0x67B0) || (rdev->pdev->device == 0x67B1)) &&
+	    (rdev->pdev->revision == 0)) {
 		pi->smc_state_table.MemoryLevel[1].MinVddc =
 			pi->smc_state_table.MemoryLevel[0].MinVddc;
 		pi->smc_state_table.MemoryLevel[1].MinVddcPhases =
@@ -4493,7 +4495,8 @@ static int ci_register_patching_mc_seq(struct radeon_device *rdev,
 
 	if (patch &&
 	    ((rdev->pdev->device == 0x67B0) ||
-	     (rdev->pdev->device == 0x67B1))) {
+	     (rdev->pdev->device == 0x67B1)) &&
+	    (rdev->pdev->revision == 0)) {
 		for (i = 0; i < table->last; i++) {
 			if (table->last >= SMU7_DISCRETE_MC_REGISTER_ARRAY_SIZE)
 				return -EINVAL;
@@ -4579,7 +4582,7 @@ static int ci_initialize_mc_reg_table(struct radeon_device *rdev)
 	u8 module_index = rv770_get_memory_module_index(rdev);
 	int ret;
 
-	table = kzalloc(sizeof(struct atom_mc_reg_table), GFP_KERNEL);
+	table = kzalloc_obj(struct atom_mc_reg_table);
 	if (!table)
 		return -ENOMEM;
 
@@ -5517,9 +5520,8 @@ static int ci_parse_power_table(struct radeon_device *rdev)
 		(mode_info->atom_context->bios + data_offset +
 		 le16_to_cpu(power_info->pplib.usNonClockInfoArrayOffset));
 
-	rdev->pm.dpm.ps = kcalloc(state_array->ucNumEntries,
-				  sizeof(struct radeon_ps),
-				  GFP_KERNEL);
+	rdev->pm.dpm.ps = kzalloc_objs(struct radeon_ps,
+				       state_array->ucNumEntries);
 	if (!rdev->pm.dpm.ps)
 		return -ENOMEM;
 	power_state_offset = (u8 *)state_array->states;
@@ -5534,7 +5536,7 @@ static int ci_parse_power_table(struct radeon_device *rdev)
 			ret = -EINVAL;
 			goto err_free_ps;
 		}
-		ps = kzalloc(sizeof(struct ci_ps), GFP_KERNEL);
+		ps = kzalloc_obj(struct ci_ps);
 		if (ps == NULL) {
 			ret = -ENOMEM;
 			goto err_free_ps;
@@ -5638,7 +5640,7 @@ int ci_dpm_init(struct radeon_device *rdev)
 	struct pci_dev *root = rdev->pdev->bus->self;
 	int ret;
 
-	pi = kzalloc(sizeof(struct ci_power_info), GFP_KERNEL);
+	pi = kzalloc_obj(struct ci_power_info);
 	if (pi == NULL)
 		return -ENOMEM;
 	rdev->pm.dpm.priv = pi;
@@ -5741,9 +5743,7 @@ int ci_dpm_init(struct radeon_device *rdev)
 	ci_set_private_data_variables_based_on_pptable(rdev);
 
 	rdev->pm.dpm.dyn_state.vddc_dependency_on_dispclk.entries =
-		kcalloc(4,
-			sizeof(struct radeon_clock_voltage_dependency_entry),
-			GFP_KERNEL);
+		kzalloc_objs(struct radeon_clock_voltage_dependency_entry, 4);
 	if (!rdev->pm.dpm.dyn_state.vddc_dependency_on_dispclk.entries) {
 		ci_dpm_fini(rdev);
 		return -ENOMEM;

@@ -457,7 +457,7 @@ void rds_ib_recv_refill(struct rds_connection *conn, int prefill, gfp_t gfp)
 	    (must_wake ||
 	    (can_wait && rds_ib_ring_low(&ic->i_recv_ring)) ||
 	    rds_ib_ring_empty(&ic->i_recv_ring))) {
-		queue_delayed_work(rds_wq, &conn->c_recv_w, 1);
+		queue_delayed_work(conn->c_path->cp_wq, &conn->c_recv_w, 1);
 	}
 	if (can_wait)
 		cond_resched();
@@ -1034,7 +1034,7 @@ void rds_ib_recv_cqe_handler(struct rds_ib_connection *ic,
 		rds_ib_stats_inc(s_ib_rx_ring_empty);
 
 	if (rds_ib_ring_low(&ic->i_recv_ring)) {
-		rds_ib_recv_refill(conn, 0, GFP_NOWAIT | __GFP_NOWARN);
+		rds_ib_recv_refill(conn, 0, GFP_NOWAIT);
 		rds_ib_stats_inc(s_ib_rx_refill_from_cq);
 	}
 }

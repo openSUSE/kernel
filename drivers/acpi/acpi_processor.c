@@ -48,10 +48,6 @@ acpi_handle acpi_get_processor_handle(int cpu)
 
 static int acpi_processor_errata_piix4(struct pci_dev *dev)
 {
-	u8 value1 = 0;
-	u8 value2 = 0;
-
-
 	if (!dev)
 		return -EINVAL;
 
@@ -112,6 +108,10 @@ static int acpi_processor_errata_piix4(struct pci_dev *dev)
 				     PCI_ANY_ID, PCI_ANY_ID, NULL);
 		if (dev) {
 			errata.piix4.bmisx = pci_resource_start(dev, 4);
+			if (errata.piix4.bmisx)
+				dev_dbg(&dev->dev,
+					"Bus master activity detection (BM-IDE) erratum enabled\n");
+
 			pci_dev_put(dev);
 		}
 
@@ -128,20 +128,20 @@ static int acpi_processor_errata_piix4(struct pci_dev *dev)
 				     PCI_DEVICE_ID_INTEL_82371AB_0,
 				     PCI_ANY_ID, PCI_ANY_ID, NULL);
 		if (dev) {
+			u8 value1 = 0, value2 = 0;
+
 			pci_read_config_byte(dev, 0x76, &value1);
 			pci_read_config_byte(dev, 0x77, &value2);
-			if ((value1 & 0x80) || (value2 & 0x80))
+			if ((value1 & 0x80) || (value2 & 0x80)) {
 				errata.piix4.fdma = 1;
+				dev_dbg(&dev->dev,
+					"Type-F DMA livelock erratum (C3 disabled)\n");
+			}
 			pci_dev_put(dev);
 		}
 
 		break;
 	}
-
-	if (errata.piix4.bmisx)
-		dev_dbg(&dev->dev, "Bus master activity detection (BM-IDE) erratum enabled\n");
-	if (errata.piix4.fdma)
-		dev_dbg(&dev->dev, "Type-F DMA livelock erratum (C3 disabled)\n");
 
 	return 0;
 }
@@ -426,7 +426,7 @@ static int acpi_processor_add(struct acpi_device *device,
 	if (!acpi_device_is_enabled(device))
 		return -ENODEV;
 
-	pr = kzalloc(sizeof(struct acpi_processor), GFP_KERNEL);
+	pr = kzalloc_obj(struct acpi_processor);
 	if (!pr)
 		return -ENOMEM;
 
@@ -436,8 +436,6 @@ static int acpi_processor_add(struct acpi_device *device,
 	}
 
 	pr->handle = device->handle;
-	strscpy(acpi_device_name(device), ACPI_PROCESSOR_DEVICE_NAME);
-	strscpy(acpi_device_class(device), ACPI_PROCESSOR_CLASS);
 	device->driver_data = pr;
 
 	result = acpi_processor_get_info(device);
@@ -815,7 +813,7 @@ bool acpi_processor_claim_cst_control(void)
 	cst_control_claimed = true;
 	return true;
 }
-EXPORT_SYMBOL_GPL(acpi_processor_claim_cst_control);
+EXPORT_SYMBOL_NS_GPL(acpi_processor_claim_cst_control, "ACPI_PROCESSOR_IDLE");
 
 /**
  * acpi_processor_evaluate_cst - Evaluate the processor _CST control method.
@@ -994,5 +992,5 @@ end:
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(acpi_processor_evaluate_cst);
+EXPORT_SYMBOL_NS_GPL(acpi_processor_evaluate_cst, "ACPI_PROCESSOR_IDLE");
 #endif /* CONFIG_ACPI_PROCESSOR_CSTATE */

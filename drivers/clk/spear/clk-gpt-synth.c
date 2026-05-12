@@ -39,14 +39,16 @@ static unsigned long gpt_calc_rate(struct clk_hw *hw, unsigned long prate,
 	return prate;
 }
 
-static long clk_gpt_round_rate(struct clk_hw *hw, unsigned long drate,
-		unsigned long *prate)
+static int clk_gpt_determine_rate(struct clk_hw *hw,
+				  struct clk_rate_request *req)
 {
 	struct clk_gpt *gpt = to_clk_gpt(hw);
 	int unused;
 
-	return clk_round_rate_index(hw, drate, *prate, gpt_calc_rate,
-			gpt->rtbl_cnt, &unused);
+	req->rate = clk_round_rate_index(hw, req->rate, req->best_parent_rate,
+					 gpt_calc_rate, gpt->rtbl_cnt, &unused);
+
+	return 0;
 }
 
 static unsigned long clk_gpt_recalc_rate(struct clk_hw *hw,
@@ -104,7 +106,7 @@ static int clk_gpt_set_rate(struct clk_hw *hw, unsigned long drate,
 
 static const struct clk_ops clk_gpt_ops = {
 	.recalc_rate = clk_gpt_recalc_rate,
-	.round_rate = clk_gpt_round_rate,
+	.determine_rate = clk_gpt_determine_rate,
 	.set_rate = clk_gpt_set_rate,
 };
 
@@ -121,7 +123,7 @@ struct clk *clk_register_gpt(const char *name, const char *parent_name, unsigned
 		return ERR_PTR(-EINVAL);
 	}
 
-	gpt = kzalloc(sizeof(*gpt), GFP_KERNEL);
+	gpt = kzalloc_obj(*gpt);
 	if (!gpt)
 		return ERR_PTR(-ENOMEM);
 

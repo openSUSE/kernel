@@ -53,7 +53,7 @@ static int est_configure(struct stmmac_priv *priv, struct stmmac_est *cfg,
 	}
 
 	ctrl = readl(est_addr + EST_CONTROL);
-	if (priv->plat->has_xgmac) {
+	if (priv->plat->core_type == DWMAC_CORE_XGMAC) {
 		ctrl &= ~EST_XGMAC_PTOV;
 		ctrl |= ((NSEC_PER_SEC / ptp_rate) * EST_XGMAC_PTOV_MUL) <<
 			 EST_XGMAC_PTOV_SHIFT;
@@ -63,7 +63,7 @@ static int est_configure(struct stmmac_priv *priv, struct stmmac_est *cfg,
 			 EST_GMAC5_PTOV_SHIFT;
 	}
 	if (cfg->enable)
-		ctrl |= EST_EEST | EST_SSWL;
+		ctrl |= EST_EEST | EST_SSWL | EST_DFBS;
 	else
 		ctrl &= ~EST_EEST;
 
@@ -109,6 +109,10 @@ static void est_irq_status(struct stmmac_priv *priv, struct net_device *dev,
 
 		x->mtl_est_hlbs++;
 
+		for (i = 0; i < txqcnt; i++)
+			if (value & BIT(i))
+				x->mtl_est_txq_hlbs[i]++;
+
 		/* Clear Interrupt */
 		writel(value, est_addr + EST_SCH_ERR);
 
@@ -131,10 +135,9 @@ static void est_irq_status(struct stmmac_priv *priv, struct net_device *dev,
 
 		x->mtl_est_hlbf++;
 
-		for (i = 0; i < txqcnt; i++) {
+		for (i = 0; i < txqcnt; i++)
 			if (feqn & BIT(i))
 				x->mtl_est_txq_hlbf[i]++;
-		}
 
 		/* Clear Interrupt */
 		writel(feqn, est_addr + EST_FRM_SZ_ERR);
@@ -145,7 +148,7 @@ static void est_irq_status(struct stmmac_priv *priv, struct net_device *dev,
 	}
 
 	if (status & EST_BTRE) {
-		if (priv->plat->has_xgmac) {
+		if (priv->plat->core_type == DWMAC_CORE_XGMAC) {
 			btrl = FIELD_GET(EST_XGMAC_BTRL, status);
 			btrl_max = FIELD_MAX(EST_XGMAC_BTRL);
 		} else {

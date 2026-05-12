@@ -38,7 +38,6 @@ static const char *ak5558_supply_names[AK5558_NUM_SUPPLIES] = {
 /* AK5558 Codec Private Data */
 struct ak5558_priv {
 	struct regulator_bulk_data supplies[AK5558_NUM_SUPPLIES];
-	struct snd_soc_component component;
 	struct regmap *regmap;
 	struct i2c_client *i2c;
 	struct gpio_desc *reset_gpiod; /* Reset & Power down GPIO */
@@ -372,7 +371,15 @@ static int ak5558_runtime_resume(struct device *dev)
 	regcache_cache_only(ak5558->regmap, false);
 	regcache_mark_dirty(ak5558->regmap);
 
-	return regcache_sync(ak5558->regmap);
+	ret = regcache_sync(ak5558->regmap);
+	if (ret)
+		goto err;
+
+	return 0;
+err:
+	regcache_cache_only(ak5558->regmap, true);
+	regulator_bulk_disable(ARRAY_SIZE(ak5558->supplies), ak5558->supplies);
+	return ret;
 }
 
 static const struct dev_pm_ops ak5558_pm = {

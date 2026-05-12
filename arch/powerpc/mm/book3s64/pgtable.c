@@ -10,6 +10,7 @@
 #include <linux/pkeys.h>
 #include <linux/debugfs.h>
 #include <linux/proc_fs.h>
+#include <linux/page_table_check.h>
 
 #include <asm/pgalloc.h>
 #include <asm/tlb.h>
@@ -21,8 +22,6 @@
 
 #include <mm/mmu_decl.h>
 #include <trace/events/thp.h>
-
-#include "internal.h"
 
 struct mmu_psize_def mmu_psize_defs[MMU_PAGE_COUNT];
 EXPORT_SYMBOL_GPL(mmu_psize_defs);
@@ -97,14 +96,14 @@ int pudp_set_access_flags(struct vm_area_struct *vma, unsigned long address,
 }
 
 
-int pmdp_test_and_clear_young(struct vm_area_struct *vma,
-			      unsigned long address, pmd_t *pmdp)
+bool pmdp_test_and_clear_young(struct vm_area_struct *vma,
+		unsigned long address, pmd_t *pmdp)
 {
 	return __pmdp_test_and_clear_young(vma->vm_mm, address, pmdp);
 }
 
-int pudp_test_and_clear_young(struct vm_area_struct *vma,
-			      unsigned long address, pud_t *pudp)
+bool pudp_test_and_clear_young(struct vm_area_struct *vma,
+		unsigned long address, pud_t *pudp)
 {
 	return __pudp_test_and_clear_young(vma->vm_mm, address, pudp);
 }
@@ -127,7 +126,8 @@ void set_pmd_at(struct mm_struct *mm, unsigned long addr,
 	WARN_ON(!(pmd_leaf(pmd)));
 #endif
 	trace_hugepage_set_pmd(addr, pmd_val(pmd));
-	return set_pte_at(mm, addr, pmdp_ptep(pmdp), pmd_pte(pmd));
+	page_table_check_pmd_set(mm, addr, pmdp, pmd);
+	return set_pte_at_unchecked(mm, addr, pmdp_ptep(pmdp), pmd_pte(pmd));
 }
 
 void set_pud_at(struct mm_struct *mm, unsigned long addr,
@@ -144,32 +144,8 @@ void set_pud_at(struct mm_struct *mm, unsigned long addr,
 	WARN_ON(!(pud_leaf(pud)));
 #endif
 	trace_hugepage_set_pud(addr, pud_val(pud));
-	return set_pte_at(mm, addr, pudp_ptep(pudp), pud_pte(pud));
-}
-
-static void do_serialize(void *arg)
-{
-	/* We've taken the IPI, so try to trim the mask while here */
-	if (radix_enabled()) {
-		struct mm_struct *mm = arg;
-		exit_lazy_flush_tlb(mm, false);
-	}
-}
-
-/*
- * Serialize against __find_linux_pte() which does lock-less
- * lookup in page tables with local interrupts disabled. For huge pages
- * it casts pmd_t to pte_t. Since format of pte_t is different from
- * pmd_t we want to prevent transit from pmd pointing to page table
- * to pmd pointing to huge page (and back) while interrupts are disabled.
- * We clear pmd to possibly replace it with page table pointer in
- * different code paths. So make sure we wait for the parallel
- * __find_linux_pte() to finish.
- */
-void serialize_against_pte_lookup(struct mm_struct *mm)
-{
-	smp_mb();
-	smp_call_function_many(mm_cpumask(mm), do_serialize, mm, 1);
+	page_table_check_pud_set(mm, addr, pudp, pud);
+	return set_pte_at_unchecked(mm, addr, pudp_ptep(pudp), pud_pte(pud));
 }
 
 /*
@@ -179,39 +155,48 @@ void serialize_against_pte_lookup(struct mm_struct *mm)
 pmd_t pmdp_invalidate(struct vm_area_struct *vma, unsigned long address,
 		     pmd_t *pmdp)
 {
-	unsigned long old_pmd;
+	pmd_t old_pmd;
 
 	VM_WARN_ON_ONCE(!pmd_present(*pmdp));
-	old_pmd = pmd_hugepage_update(vma->vm_mm, address, pmdp, _PAGE_PRESENT, _PAGE_INVALID);
+	old_pmd = __pmd(pmd_hugepage_update(vma->vm_mm, address, pmdp, _PAGE_PRESENT, _PAGE_INVALID));
 	flush_pmd_tlb_range(vma, address, address + HPAGE_PMD_SIZE);
-	return __pmd(old_pmd);
+	page_table_check_pmd_clear(vma->vm_mm, address, old_pmd);
+
+	return old_pmd;
 }
 
 pud_t pudp_invalidate(struct vm_area_struct *vma, unsigned long address,
 		      pud_t *pudp)
 {
-	unsigned long old_pud;
+	pud_t old_pud;
 
 	VM_WARN_ON_ONCE(!pud_present(*pudp));
-	old_pud = pud_hugepage_update(vma->vm_mm, address, pudp, _PAGE_PRESENT, _PAGE_INVALID);
+	old_pud = __pud(pud_hugepage_update(vma->vm_mm, address, pudp, _PAGE_PRESENT, _PAGE_INVALID));
 	flush_pud_tlb_range(vma, address, address + HPAGE_PUD_SIZE);
-	return __pud(old_pud);
+	page_table_check_pud_clear(vma->vm_mm, address, old_pud);
+
+	return old_pud;
 }
 
 pmd_t pmdp_huge_get_and_clear_full(struct vm_area_struct *vma,
 				   unsigned long addr, pmd_t *pmdp, int full)
 {
 	pmd_t pmd;
+	bool was_present = pmd_present(*pmdp);
+
 	VM_BUG_ON(addr & ~HPAGE_PMD_MASK);
-	VM_BUG_ON((pmd_present(*pmdp) && !pmd_trans_huge(*pmdp)) ||
-		   !pmd_present(*pmdp));
+	VM_BUG_ON(was_present && !pmd_trans_huge(*pmdp));
+	/*
+	 * Check pmdp_huge_get_and_clear() for non-present pmd case.
+	 */
 	pmd = pmdp_huge_get_and_clear(vma->vm_mm, addr, pmdp);
 	/*
 	 * if it not a fullmm flush, then we can possibly end up converting
 	 * this PMD pte entry to a regular level 0 PTE by a parallel page fault.
-	 * Make sure we flush the tlb in this case.
+	 * Make sure we flush the tlb in this case. TLB flush not needed for
+	 * non-present case.
 	 */
-	if (!full)
+	if (was_present && !full)
 		flush_pmd_tlb_range(vma, addr, addr + HPAGE_PMD_SIZE);
 	return pmd;
 }
@@ -510,20 +495,21 @@ atomic_long_t direct_pages_count[MMU_PAGE_COUNT];
 
 void arch_report_meminfo(struct seq_file *m)
 {
-	/*
-	 * Hash maps the memory with one size mmu_linear_psize.
-	 * So don't bother to print these on hash
-	 */
-	if (!radix_enabled())
-		return;
 	seq_printf(m, "DirectMap4k:    %8lu kB\n",
 		   atomic_long_read(&direct_pages_count[MMU_PAGE_4K]) << 2);
-	seq_printf(m, "DirectMap64k:    %8lu kB\n",
+	seq_printf(m, "DirectMap64k:   %8lu kB\n",
 		   atomic_long_read(&direct_pages_count[MMU_PAGE_64K]) << 6);
-	seq_printf(m, "DirectMap2M:    %8lu kB\n",
-		   atomic_long_read(&direct_pages_count[MMU_PAGE_2M]) << 11);
-	seq_printf(m, "DirectMap1G:    %8lu kB\n",
-		   atomic_long_read(&direct_pages_count[MMU_PAGE_1G]) << 20);
+	if (radix_enabled()) {
+		seq_printf(m, "DirectMap2M:    %8lu kB\n",
+			   atomic_long_read(&direct_pages_count[MMU_PAGE_2M]) << 11);
+		seq_printf(m, "DirectMap1G:    %8lu kB\n",
+			   atomic_long_read(&direct_pages_count[MMU_PAGE_1G]) << 20);
+	} else {
+		seq_printf(m, "DirectMap16M:   %8lu kB\n",
+			   atomic_long_read(&direct_pages_count[MMU_PAGE_16M]) << 14);
+		seq_printf(m, "DirectMap16G:   %8lu kB\n",
+			   atomic_long_read(&direct_pages_count[MMU_PAGE_16G]) << 24);
+	}
 }
 #endif /* CONFIG_PROC_FS */
 
@@ -549,7 +535,7 @@ void ptep_modify_prot_commit(struct vm_area_struct *vma, unsigned long addr,
 	if (radix_enabled())
 		return radix__ptep_modify_prot_commit(vma, addr,
 						      ptep, old_pte, pte);
-	set_pte_at(vma->vm_mm, addr, ptep, pte);
+	set_pte_at_unchecked(vma->vm_mm, addr, ptep, pte);
 }
 
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE

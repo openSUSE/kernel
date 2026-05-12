@@ -43,7 +43,7 @@ static int sk_diag_put_flags(struct sock *sk, struct sk_buff *skb)
 
 static int sk_diag_fill(struct sock *sk, struct sk_buff *skb,
 			struct netlink_diag_req *req,
-			u32 portid, u32 seq, u32 flags, int sk_ino)
+			u32 portid, u32 seq, u32 flags, u64 sk_ino)
 {
 	struct nlmsghdr *nlh;
 	struct netlink_diag_msg *rep;
@@ -107,7 +107,7 @@ static int __netlink_diag_dump(struct sk_buff *skb, struct netlink_callback *cb,
 	num--;
 
 	if (!hti) {
-		hti = kmalloc(sizeof(*hti), GFP_KERNEL);
+		hti = kmalloc_obj(*hti);
 		if (!hti)
 			return -ENOMEM;
 

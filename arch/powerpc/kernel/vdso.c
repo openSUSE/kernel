@@ -21,6 +21,7 @@
 #include <vdso/datapage.h>
 
 #include <asm/syscall.h>
+#include <asm/syscalls.h>
 #include <asm/processor.h>
 #include <asm/mmu.h>
 #include <asm/mmu_context.h>
@@ -39,8 +40,6 @@ static_assert(__VDSO_PAGES == VDSO_NR_PAGES);
 
 extern char vdso32_start, vdso32_end;
 extern char vdso64_start, vdso64_end;
-
-long sys_ni_syscall(void);
 
 static int vdso_mremap(const struct vm_special_mapping *sm, struct vm_area_struct *new_vma,
 		       unsigned long text_size)
@@ -246,7 +245,7 @@ static struct page ** __init vdso_setup_pages(void *start, void *end)
 	struct page **pagelist;
 	int pages = (end - start) >> PAGE_SHIFT;
 
-	pagelist = kcalloc(pages + 1, sizeof(struct page *), GFP_KERNEL);
+	pagelist = kzalloc_objs(struct page *, pages + 1);
 	if (!pagelist)
 		panic("%s: Cannot allocate page list for VDSO", __func__);
 

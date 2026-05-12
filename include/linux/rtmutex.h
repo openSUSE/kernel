@@ -22,8 +22,8 @@ extern int max_lock_depth;
 
 struct rt_mutex_base {
 	raw_spinlock_t		wait_lock;
-	struct rb_root_cached   waiters;
-	struct task_struct	*owner;
+	struct rb_root_cached   waiters __guarded_by(&wait_lock);
+	struct task_struct	*owner  __guarded_by(&wait_lock);
 };
 
 #define __RT_MUTEX_BASE_INITIALIZER(rtbasename)				\
@@ -41,9 +41,19 @@ struct rt_mutex_base {
  */
 static inline bool rt_mutex_base_is_locked(struct rt_mutex_base *lock)
 {
-	return READ_ONCE(lock->owner) != NULL;
+	return data_race(READ_ONCE(lock->owner) != NULL);
 }
 
+#ifdef CONFIG_RT_MUTEXES
+#define RT_MUTEX_HAS_WAITERS	1UL
+
+static inline struct task_struct *rt_mutex_owner(struct rt_mutex_base *lock)
+{
+	unsigned long owner = (unsigned long) data_race(READ_ONCE(lock->owner));
+
+	return (struct task_struct *) (owner & ~RT_MUTEX_HAS_WAITERS);
+}
+#endif
 extern void rt_mutex_base_init(struct rt_mutex_base *rtb);
 
 /**

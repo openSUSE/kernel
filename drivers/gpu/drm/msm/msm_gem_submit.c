@@ -278,6 +278,7 @@ static int submit_lock_objects_vmbind(struct msm_gem_submit *submit)
 	int ret = 0;
 
 	drm_exec_init(&submit->exec, flags, submit->nr_bos);
+	submit->has_exec = true;
 
 	drm_exec_until_all_locked (&submit->exec) {
 		ret = drm_gpuvm_prepare_vm(submit->vm, exec, 1);
@@ -304,6 +305,7 @@ static int submit_lock_objects(struct msm_gem_submit *submit)
 		return submit_lock_objects_vmbind(submit);
 
 	drm_exec_init(&submit->exec, flags, submit->nr_bos);
+	submit->has_exec = true;
 
 	drm_exec_until_all_locked (&submit->exec) {
 		ret = drm_exec_lock_obj(&submit->exec,
@@ -414,6 +416,11 @@ static void submit_attach_object_fences(struct msm_gem_submit *submit)
 					 submit->user_fence,
 					 DMA_RESV_USAGE_BOOKKEEP,
 					 DMA_RESV_USAGE_BOOKKEEP);
+
+		last_fence = vm->last_fence;
+		vm->last_fence = dma_fence_unwrap_merge(submit->user_fence, last_fence);
+		dma_fence_put(last_fence);
+
 		return;
 	}
 
@@ -427,10 +434,6 @@ static void submit_attach_object_fences(struct msm_gem_submit *submit)
 			dma_resv_add_fence(obj->resv, submit->user_fence,
 					   DMA_RESV_USAGE_READ);
 	}
-
-	last_fence = vm->last_fence;
-	vm->last_fence = dma_fence_unwrap_merge(submit->user_fence, last_fence);
-	dma_fence_put(last_fence);
 }
 
 static int submit_bo(struct msm_gem_submit *submit, uint32_t idx,
@@ -522,7 +525,7 @@ static void submit_cleanup(struct msm_gem_submit *submit, bool error)
 	if (error)
 		submit_unpin_objects(submit);
 
-	if (submit->exec.objects)
+	if (submit->has_exec)
 		drm_exec_fini(&submit->exec);
 
 	/* if job wasn't enqueued to scheduler, early retirement: */

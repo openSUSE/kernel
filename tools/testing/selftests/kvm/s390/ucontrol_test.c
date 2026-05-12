@@ -111,7 +111,7 @@ FIXTURE(uc_kvm)
 	uintptr_t base_hva;
 	uintptr_t code_hva;
 	int kvm_run_size;
-	vm_paddr_t pgd;
+	gpa_t pgd;
 	void *vm_mem;
 	int vcpu_fd;
 	int kvm_fd;
@@ -142,19 +142,17 @@ FIXTURE_SETUP(uc_kvm)
 	self->kvm_run_size = ioctl(self->kvm_fd, KVM_GET_VCPU_MMAP_SIZE, NULL);
 	ASSERT_GE(self->kvm_run_size, sizeof(struct kvm_run))
 		  TH_LOG(KVM_IOCTL_ERROR(KVM_GET_VCPU_MMAP_SIZE, self->kvm_run_size));
-	self->run = (struct kvm_run *)mmap(NULL, self->kvm_run_size,
-		    PROT_READ | PROT_WRITE, MAP_SHARED, self->vcpu_fd, 0);
-	ASSERT_NE(self->run, MAP_FAILED);
+	self->run = kvm_mmap(self->kvm_run_size, PROT_READ | PROT_WRITE,
+			     MAP_SHARED, self->vcpu_fd);
 	/**
 	 * For virtual cpus that have been created with S390 user controlled
 	 * virtual machines, the resulting vcpu fd can be memory mapped at page
 	 * offset KVM_S390_SIE_PAGE_OFFSET in order to obtain a memory map of
 	 * the virtual cpu's hardware control block.
 	 */
-	self->sie_block = (struct kvm_s390_sie_block *)mmap(NULL, PAGE_SIZE,
-			  PROT_READ | PROT_WRITE, MAP_SHARED,
-			  self->vcpu_fd, KVM_S390_SIE_PAGE_OFFSET << PAGE_SHIFT);
-	ASSERT_NE(self->sie_block, MAP_FAILED);
+	self->sie_block = __kvm_mmap(PAGE_SIZE, PROT_READ | PROT_WRITE,
+				     MAP_SHARED, self->vcpu_fd,
+				     KVM_S390_SIE_PAGE_OFFSET << PAGE_SHIFT);
 
 	TH_LOG("VM created %p %p", self->run, self->sie_block);
 
@@ -186,8 +184,8 @@ FIXTURE_SETUP(uc_kvm)
 
 FIXTURE_TEARDOWN(uc_kvm)
 {
-	munmap(self->sie_block, PAGE_SIZE);
-	munmap(self->run, self->kvm_run_size);
+	kvm_munmap(self->sie_block, PAGE_SIZE);
+	kvm_munmap(self->run, self->kvm_run_size);
 	close(self->vcpu_fd);
 	close(self->vm_fd);
 	close(self->kvm_fd);
@@ -271,7 +269,7 @@ TEST(uc_cap_hpage)
 }
 
 /* calculate host virtual addr from guest physical addr */
-static void *gpa2hva(FIXTURE_DATA(uc_kvm) *self, u64 gpa)
+static void *gpa2hva(FIXTURE_DATA(uc_kvm) *self, gpa_t gpa)
 {
 	return (void *)(self->base_hva - self->base_gpa + gpa);
 }
@@ -573,7 +571,7 @@ TEST_F(uc_kvm, uc_skey)
 {
 	struct kvm_s390_sie_block *sie_block = self->sie_block;
 	struct kvm_sync_regs *sync_regs = &self->run->s.regs;
-	u64 test_vaddr = VM_MEM_SIZE - (SZ_1M / 2);
+	u64 test_gva = VM_MEM_SIZE - (SZ_1M / 2);
 	struct kvm_run *run = self->run;
 	const u8 skeyvalue = 0x34;
 
@@ -585,7 +583,7 @@ TEST_F(uc_kvm, uc_skey)
 	/* set register content for test_skey_asm to access not mapped memory */
 	sync_regs->gprs[1] = skeyvalue;
 	sync_regs->gprs[5] = self->base_gpa;
-	sync_regs->gprs[6] = test_vaddr;
+	sync_regs->gprs[6] = test_gva;
 	run->kvm_dirty_regs |= KVM_SYNC_GPRS;
 
 	/* DAT disabled + 64 bit mode */

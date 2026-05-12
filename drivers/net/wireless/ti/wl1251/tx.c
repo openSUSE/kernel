@@ -402,11 +402,13 @@ static void wl1251_tx_packet_cb(struct wl1251 *wl,
 	int hdrlen;
 	u8 *frame;
 
-	skb = wl->tx_frames[result->id];
-	if (skb == NULL) {
-		wl1251_error("SKB for packet %d is NULL", result->id);
+	if (unlikely(result->id >= ARRAY_SIZE(wl->tx_frames) ||
+		     wl->tx_frames[result->id] == NULL)) {
+		wl1251_error("invalid packet id %u", result->id);
 		return;
 	}
+
+	skb = wl->tx_frames[result->id];
 
 	info = IEEE80211_SKB_CB(skb);
 
@@ -451,7 +453,7 @@ void wl1251_tx_complete(struct wl1251 *wl)
 	if (unlikely(wl->state != WL1251_STATE_ON))
 		return;
 
-	result = kmalloc_array(FW_TX_CMPLT_BLOCK_SIZE, sizeof(*result), GFP_KERNEL);
+	result = kmalloc_objs(*result, FW_TX_CMPLT_BLOCK_SIZE);
 	if (!result) {
 		wl1251_error("can not allocate result buffer");
 		return;

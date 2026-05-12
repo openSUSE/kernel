@@ -49,6 +49,45 @@
 #include "ddc_service_types.h"
 #include "clk_mgr.h"
 
+#define MCCS_DEST_ADDR (0x6E >> 1)
+#define MCCS_SRC_ADDR	0x51
+#define MCCS_LENGTH_OFFSET 0x80
+#define MCCS_MAX_DATA_SIZE 0x20
+
+enum mccs_op_code {
+	MCCS_OP_CODE_VCP_REQUEST = 0x01,
+	MCCS_OP_CODE_VCP_REPLY = 0x02,
+	MCCS_OP_CODE_VCP_SET = 0x03,
+	MCCS_OP_CODE_VCP_RESET = 0x09,
+	MCCS_OP_CODE_CAP_REQUEST = 0xF3,
+	MCCS_OP_CODE_CAP_REPLY = 0xE3
+};
+
+enum mccs_op_buff_size {
+	MCCS_OP_BUFF_SIZE__WR_VCP_REQUEST = 5,
+	MCCS_OP_BUFF_SIZE_RD_VCP_REQUEST = 11,
+	MCCS_OP_BUFF_SIZE_WR_VCP_SET = 7,
+};
+
+enum vcp_reply_mask {
+	FREESYNC_SUPPORTED = 0x1
+};
+
+union vcp_reply {
+	struct {
+		unsigned char src_addr;
+		unsigned char length;			/* Length is offset by MccsLengthOffs = 0x80 */
+		unsigned char reply_op_code;	/* Should return MCCS_OP_CODE_VCP_REPLY = 0x02 */
+		unsigned char result_code;		/* 00h No Error, 01h Unsupported VCP Code */
+		unsigned char request_code;		/* Should return mccs vcp code sent in the vcp request */
+		unsigned char type_code;		/* VCP type code: 00h Set parameter, 01h Momentary */
+		unsigned char max_value[2];		/* 2 bytes returning max value current value */
+		unsigned char present_value[2];	/* NOTE: Byte0 is MSB, Byte1 is LSB */
+		unsigned char check_sum;
+	} bytes;
+	unsigned char raw[11];
+};
+
 static u32 edid_extract_panel_id(struct edid *edid)
 {
 	return (u32)edid->mfg_id[0] << 24   |
@@ -83,6 +122,7 @@ static void apply_edid_quirks(struct drm_device *dev, struct edid *edid, struct 
 		edid_caps->panel_patch.remove_sink_ext_caps = true;
 		break;
 	case drm_edid_encode_panel_id('S', 'D', 'C', 0x4154):
+	case drm_edid_encode_panel_id('S', 'D', 'C', 0x4171):
 		drm_dbg_driver(dev, "Disabling VSC on monitor with panel id %X\n", panel_id);
 		edid_caps->panel_patch.disable_colorimetry = true;
 		break;
@@ -130,12 +170,16 @@ enum dc_edid_status dm_helpers_parse_edid_caps(
 	edid_caps->serial_number = edid_buf->serial;
 	edid_caps->manufacture_week = edid_buf->mfg_week;
 	edid_caps->manufacture_year = edid_buf->mfg_year;
+	edid_caps->analog = !(edid_buf->input & DRM_EDID_INPUT_DIGITAL);
 
 	drm_edid_get_monitor_name(edid_buf,
 				  edid_caps->display_name,
 				  AUDIO_INFO_DISPLAY_NAME_SIZE_IN_CHARS);
 
 	edid_caps->edid_hdmi = connector->display_info.is_hdmi;
+
+	if (edid_caps->edid_hdmi)
+		populate_hdmi_info_from_connector(&connector->display_info.hdmi, edid_caps);
 
 	apply_edid_quirks(dev, edid_buf, edid_caps);
 
@@ -612,7 +656,7 @@ bool dm_helpers_submit_i2c(
 		return false;
 	}
 
-	msgs = kcalloc(num, sizeof(struct i2c_msg), GFP_KERNEL);
+	msgs = kzalloc_objs(struct i2c_msg, num);
 
 	if (!msgs)
 		return false;
@@ -988,6 +1032,50 @@ dm_helpers_read_acpi_edid(struct amdgpu_dm_connector *aconnector)
 	return drm_edid_read_custom(connector, dm_helpers_probe_acpi_edid, connector);
 }
 
+static const struct drm_edid *
+dm_helpers_read_vbios_hardcoded_edid(struct dc_link *link, struct amdgpu_dm_connector *aconnector)
+{
+	struct dc_bios *bios = link->ctx->dc_bios;
+	struct embedded_panel_info info;
+	const struct drm_edid *edid;
+	enum bp_result r;
+
+	if (!dc_is_embedded_signal(link->connector_signal) ||
+	    !bios->funcs->get_embedded_panel_info)
+		return NULL;
+
+	memset(&info, 0, sizeof(info));
+	r = bios->funcs->get_embedded_panel_info(bios, &info);
+
+	if (r != BP_RESULT_OK) {
+		dm_error("Error when reading embedded panel info: %u\n", r);
+		return NULL;
+	}
+
+	if (!info.fake_edid || !info.fake_edid_size) {
+		dm_error("Embedded panel info doesn't contain an EDID\n");
+		return NULL;
+	}
+
+	edid = drm_edid_alloc(info.fake_edid, info.fake_edid_size);
+
+	if (!drm_edid_valid(edid)) {
+		dm_error("EDID from embedded panel info is invalid\n");
+		drm_edid_free(edid);
+		return NULL;
+	}
+
+	aconnector->base.display_info.width_mm = info.panel_width_mm;
+	aconnector->base.display_info.height_mm = info.panel_height_mm;
+
+	return edid;
+}
+
+void populate_hdmi_info_from_connector(struct drm_hdmi_info *hdmi, struct dc_edid_caps *edid_caps)
+{
+	edid_caps->scdc_present = hdmi->scdc.supported;
+}
+
 enum dc_edid_status dm_helpers_read_local_edid(
 		struct dc_context *ctx,
 		struct dc_link *link,
@@ -996,15 +1084,21 @@ enum dc_edid_status dm_helpers_read_local_edid(
 	struct amdgpu_dm_connector *aconnector = link->priv;
 	struct drm_connector *connector = &aconnector->base;
 	struct i2c_adapter *ddc;
-	int retry = 3;
-	enum dc_edid_status edid_status;
+	int retry = 25;
+	enum dc_edid_status edid_status = EDID_NO_RESPONSE;
 	const struct drm_edid *drm_edid;
 	const struct edid *edid;
 
 	if (link->aux_mode)
 		ddc = &aconnector->dm_dp_aux.aux.ddc;
+	else if (link->ddc_hw_inst == GPIO_DDC_LINE_UNKNOWN &&
+		 dc_is_embedded_signal(link->connector_signal))
+		ddc = NULL;
 	else
 		ddc = &aconnector->i2c->base;
+
+	if (link->dc->hwss.prepare_ddc)
+		link->dc->hwss.prepare_ddc(link);
 
 	/* some dongles read edid incorrectly the first time,
 	 * do check sum and retry to make sure read correct edid.
@@ -1013,6 +1107,8 @@ enum dc_edid_status dm_helpers_read_local_edid(
 		drm_edid = dm_helpers_read_acpi_edid(aconnector);
 		if (drm_edid)
 			drm_info(connector->dev, "Using ACPI provided EDID for %s\n", connector->name);
+		else if (!ddc)
+			drm_edid = dm_helpers_read_vbios_hardcoded_edid(link, aconnector);
 		else
 			drm_edid = drm_edid_read_ddc(connector, ddc);
 		drm_edid_connector_update(connector, drm_edid);
@@ -1027,7 +1123,7 @@ enum dc_edid_status dm_helpers_read_local_edid(
 		}
 
 		if (!drm_edid)
-			return EDID_NO_RESPONSE;
+			continue;
 
 		edid = drm_edid_raw(drm_edid); // FIXME: Get rid of drm_edid_raw()
 		if (!edid ||
@@ -1045,7 +1141,7 @@ enum dc_edid_status dm_helpers_read_local_edid(
 						&sink->dc_edid,
 						&sink->edid_caps);
 
-	} while (edid_status == EDID_BAD_CHECKSUM && --retry > 0);
+	} while ((edid_status == EDID_BAD_CHECKSUM || edid_status == EDID_NO_RESPONSE) && --retry > 0);
 
 	if (edid_status != EDID_OK)
 		DRM_ERROR("EDID err: %d, on connector: %s",
@@ -1111,6 +1207,12 @@ void dm_set_dcn_clocks(struct dc_context *ctx, struct dc_clocks *clks)
 	/* TODO: something */
 }
 
+void dm_helpers_dmu_timeout(struct dc_context *ctx)
+{
+	// TODO:
+	//amdgpu_device_gpu_recover(dc_context->driver-context, NULL);
+}
+
 void dm_helpers_smu_timeout(struct dc_context *ctx, unsigned int msg_id, unsigned int param, unsigned int timeout_us)
 {
 	// TODO:
@@ -1137,11 +1239,19 @@ void dm_helpers_init_panel_settings(
 
 void dm_helpers_override_panel_settings(
 	struct dc_context *ctx,
-	struct dc_panel_config *panel_config)
+	struct dc_link *link)
 {
+	unsigned int panel_inst = 0;
+
 	// Feature DSC
 	if (amdgpu_dc_debug_mask & DC_DISABLE_DSC)
-		panel_config->dsc.disable_dsc_edp = true;
+		link->panel_config.dsc.disable_dsc_edp = true;
+
+	if (dc_get_edp_link_panel_inst(ctx->dc, link, &panel_inst) && panel_inst == 1) {
+		link->panel_config.psr.disable_psr = true;
+		link->panel_config.psr.disallow_psrsu = true;
+		link->panel_config.psr.disallow_replay = true;
+	}
 }
 
 void *dm_helpers_allocate_gpu_mem(
@@ -1373,6 +1483,8 @@ static bool dm_is_freesync_pcon_whitelist(const uint32_t branch_dev_id)
 	case DP_BRANCH_DEVICE_ID_0060AD:
 	case DP_BRANCH_DEVICE_ID_00E04C:
 	case DP_BRANCH_DEVICE_ID_90CC24:
+	case DP_BRANCH_DEVICE_ID_001CF8:
+	case DP_BRANCH_DEVICE_ID_001FF2:
 		ret_val = true;
 		break;
 	default:
@@ -1412,3 +1524,203 @@ bool dm_helpers_is_hdr_on(struct dc_context *ctx, struct dc_stream_state *stream
 	// TODO
 	return false;
 }
+
+static int mccs_operation_vcp_request(unsigned int vcp_code, struct dc_link *link,
+				union vcp_reply *reply)
+{
+	const unsigned char retry_interval_ms = 40;
+	unsigned char retry = 5;
+	struct amdgpu_dm_connector *aconnector = link->priv;
+	struct i2c_adapter *ddc;
+	struct i2c_msg msg = {0};
+	int ret = 0;
+	int idx;
+
+	unsigned char wr_data[MCCS_OP_BUFF_SIZE__WR_VCP_REQUEST] = {
+		MCCS_SRC_ADDR,				/* Byte0 - Src Addr */
+		MCCS_LENGTH_OFFSET + 2,		/* Byte1 - Length */
+		MCCS_OP_CODE_VCP_REQUEST,	/* Byte2 - MCCS Command */
+		(unsigned char) vcp_code,	/* Byte3 - VCP Code */
+		MCCS_DEST_ADDR << 1			/* Byte4 - CheckSum */
+	};
+
+	/* calculate checksum */
+	for (idx = 0; idx < (MCCS_OP_BUFF_SIZE__WR_VCP_REQUEST - 1); idx++)
+		wr_data[(MCCS_OP_BUFF_SIZE__WR_VCP_REQUEST-1)] ^= wr_data[idx];
+
+	if (link->aux_mode)
+		ddc = &aconnector->dm_dp_aux.aux.ddc;
+	else
+		ddc = &aconnector->i2c->base;
+
+	do {
+		msg.addr = MCCS_DEST_ADDR;
+		msg.flags = 0;
+		msg.len = MCCS_OP_BUFF_SIZE__WR_VCP_REQUEST;
+		msg.buf = wr_data;
+
+		ret = i2c_transfer(ddc, &msg, 1);
+		if (ret != 1)
+			goto mccs_retry;
+
+		msleep(retry_interval_ms);
+
+		msg.addr = MCCS_DEST_ADDR;
+		msg.flags = I2C_M_RD;
+		msg.len = MCCS_OP_BUFF_SIZE_RD_VCP_REQUEST;
+		msg.buf = reply->raw;
+
+		ret = i2c_transfer(ddc, &msg, 1);
+
+		/* sink might reply with null msg if it can't reply in time */
+		if (ret == 1 && reply->bytes.length > MCCS_LENGTH_OFFSET)
+			break;
+mccs_retry:
+		retry--;
+		msleep(retry_interval_ms);
+	} while (retry);
+
+	if (!retry) {
+		drm_dbg_driver(aconnector->base.dev,
+			"%s: MCCS VCP request failed after retries", __func__);
+		return -EIO;
+	}
+
+	return 0;
+}
+
+void dm_helpers_read_mccs_caps(struct dc_context *ctx, struct dc_link *link,
+		struct dc_sink *sink)
+{
+	bool mccs_op = false;
+	struct dpcd_caps *dpcd_caps;
+	struct drm_device *dev;
+	uint16_t freesync_vcp_value = 0;
+	union vcp_reply vcp_reply_value = {0};
+
+	if (!ctx)
+		return;
+	dev = adev_to_drm(ctx->driver_context);
+
+	if (!link || !sink) {
+		drm_dbg_driver(dev, "%s: link or sink is NULL", __func__);
+		return;
+	}
+
+	sink->mccs_caps.freesync_supported = false;
+	dpcd_caps = &link->dpcd_caps;
+
+	if (sink->edid_caps.freesync_vcp_code != 0) {
+		if (dc_is_dp_signal(link->connector_signal)) {
+			if ((dpcd_caps->dpcd_rev.raw >= DPCD_REV_14) &&
+				(dpcd_caps->dongle_type == DISPLAY_DONGLE_DP_HDMI_CONVERTER) &&
+				dm_is_freesync_pcon_whitelist(dpcd_caps->branch_dev_id) &&
+				(dpcd_caps->adaptive_sync_caps.dp_adap_sync_caps.bits.ADAPTIVE_SYNC_SDP_SUPPORT == true))
+				mccs_op = true;
+
+			if ((dpcd_caps->dongle_type != DISPLAY_DONGLE_NONE &&
+				dpcd_caps->dongle_type != DISPLAY_DONGLE_DP_HDMI_CONVERTER)) {
+				if (mccs_op == false)
+					drm_dbg_driver(dev, "%s: Legacy Pcon support", __func__);
+				mccs_op = true;
+			}
+
+			if (link->connector_signal == SIGNAL_TYPE_DISPLAY_PORT_MST) {
+				// Todo: Freesync over MST
+				mccs_op = false;
+			}
+		}
+
+		if (dc_is_hdmi_signal(link->connector_signal)) {
+			drm_dbg_driver(dev, "%s: Local HDMI sink", __func__);
+			mccs_op = true;
+		}
+
+		if (mccs_op == true) {
+			// MCCS VCP request to get VCP value
+			if (!mccs_operation_vcp_request(sink->edid_caps.freesync_vcp_code, link,
+					&vcp_reply_value)) {
+				freesync_vcp_value = vcp_reply_value.bytes.present_value[1];
+				freesync_vcp_value |= (uint16_t) vcp_reply_value.bytes.present_value[0] << 8;
+			}
+			// If VCP Value bit 0 is 1, freesyncSupport = true
+			sink->mccs_caps.freesync_supported =
+				(freesync_vcp_value & FREESYNC_SUPPORTED) ? true : false;
+		}
+	}
+}
+
+static int mccs_operation_vcp_set(unsigned int vcp_code, struct dc_link *link, uint16_t value)
+{
+	const unsigned char retry_interval_ms = 40;
+	unsigned char retry = 5;
+	struct amdgpu_dm_connector *aconnector = link->priv;
+	struct i2c_adapter *ddc;
+	struct i2c_msg msg = {0};
+	int ret = 0;
+	int idx;
+
+	unsigned char wr_data[MCCS_OP_BUFF_SIZE_WR_VCP_SET] = {
+		MCCS_SRC_ADDR,				/* Byte0 - Src Addr */
+		MCCS_LENGTH_OFFSET + 4,		/* Byte1 - Length */
+		MCCS_OP_CODE_VCP_SET,		/* Byte2 - MCCS Command */
+		(unsigned char)vcp_code,	/* Byte3 - VCP Code */
+		(unsigned char)(value >> 8),	/* Byte4 - Value High Byte */
+		(unsigned char)(value & 0xFF),	/* Byte5 - Value Low Byte */
+		MCCS_DEST_ADDR << 1		/* Byte6 - CheckSum */
+	};
+
+	/* calculate checksum */
+	for (idx = 0; idx < (MCCS_OP_BUFF_SIZE_WR_VCP_SET - 1); idx++)
+		wr_data[MCCS_OP_BUFF_SIZE_WR_VCP_SET - 1] ^= wr_data[idx];
+
+	if (link->aux_mode)
+		ddc = &aconnector->dm_dp_aux.aux.ddc;
+	else
+		ddc = &aconnector->i2c->base;
+
+	do {
+		msg.addr = MCCS_DEST_ADDR;
+		msg.flags = 0;
+		msg.len = MCCS_OP_BUFF_SIZE_WR_VCP_SET;
+		msg.buf = wr_data;
+
+		ret = i2c_transfer(ddc, &msg, 1);
+		if (ret == 1)
+			break;
+
+		retry--;
+		msleep(retry_interval_ms);
+	} while (retry);
+
+	if (!retry)
+		return -EIO;
+
+	return 0;
+}
+
+void dm_helpers_mccs_vcp_set(struct dc_context *ctx, struct dc_link *link,
+		struct dc_sink *sink)
+{
+	struct drm_device *dev;
+	const uint16_t enable = 0x0101;
+
+	if (!ctx)
+		return;
+	dev = adev_to_drm(ctx->driver_context);
+
+	if (!link || !sink) {
+		drm_dbg_driver(dev, "%s: link or sink is NULL", __func__);
+		return;
+	}
+
+	if (!sink->mccs_caps.freesync_supported) {
+		drm_dbg_driver(dev, "%s: MCCS freesync not supported on this sink", __func__);
+		return;
+	}
+
+	if (mccs_operation_vcp_set(sink->edid_caps.freesync_vcp_code, link, enable))
+		drm_dbg_driver(dev, "%s: Failed to set VCP code %d", __func__,
+				sink->edid_caps.freesync_vcp_code);
+}
+

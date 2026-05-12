@@ -230,7 +230,7 @@ void ubifs_dump_inode(struct ubifs_info *c, const struct inode *inode)
 	int count = 2;
 
 	pr_err("Dump in-memory inode:");
-	pr_err("\tinode          %lu\n", inode->i_ino);
+	pr_err("\tinode          %llu\n", inode->i_ino);
 	pr_err("\tsize           %llu\n",
 	       (unsigned long long)i_size_read(inode));
 	pr_err("\tnlink          %u\n", inode->i_nlink);
@@ -1101,7 +1101,7 @@ int dbg_check_synced_i_size(const struct ubifs_info *c, struct inode *inode)
 	if (ui->ui_size != ui->synced_i_size && !ui->dirty) {
 		ubifs_err(c, "ui_size is %lld, synced_i_size is %lld, but inode is clean",
 			  ui->ui_size, ui->synced_i_size);
-		ubifs_err(c, "i_ino %lu, i_mode %#x, i_size %lld", inode->i_ino,
+		ubifs_err(c, "i_ino %llu, i_mode %#x, i_size %lld", inode->i_ino,
 			  inode->i_mode, i_size_read(inode));
 		dump_stack();
 		err = -EINVAL;
@@ -1163,7 +1163,7 @@ int dbg_check_dir(struct ubifs_info *c, const struct inode *dir)
 	kfree(pdent);
 
 	if (i_size_read(dir) != size) {
-		ubifs_err(c, "directory inode %lu has size %llu, but calculated size is %llu",
+		ubifs_err(c, "directory inode %llu has size %llu, but calculated size is %llu",
 			  dir->i_ino, (unsigned long long)i_size_read(dir),
 			  (unsigned long long)size);
 		ubifs_dump_inode(c, dir);
@@ -1171,7 +1171,7 @@ int dbg_check_dir(struct ubifs_info *c, const struct inode *dir)
 		return -EINVAL;
 	}
 	if (dir->i_nlink != nlink) {
-		ubifs_err(c, "directory inode %lu has nlink %u, but calculated nlink is %u",
+		ubifs_err(c, "directory inode %llu has nlink %u, but calculated nlink is %u",
 			  dir->i_ino, dir->i_nlink, nlink);
 		ubifs_dump_inode(c, dir);
 		dump_stack();
@@ -1846,7 +1846,7 @@ static struct fsck_inode *add_inode(struct ubifs_info *c,
 		return ERR_PTR(-EINVAL);
 	}
 
-	fscki = kzalloc(sizeof(struct fsck_inode), GFP_NOFS);
+	fscki = kzalloc_obj(struct fsck_inode, GFP_NOFS);
 	if (!fscki)
 		return ERR_PTR(-ENOMEM);
 
@@ -3035,7 +3035,7 @@ void ubifs_assert_failed(struct ubifs_info *c, const char *expr,
  */
 int ubifs_debugging_init(struct ubifs_info *c)
 {
-	c->dbg = kzalloc(sizeof(struct ubifs_debug_info), GFP_KERNEL);
+	c->dbg = kzalloc_obj(struct ubifs_debug_info);
 	if (!c->dbg)
 		return -ENOMEM;
 

@@ -17,6 +17,9 @@ static enum dc_irq_source to_dal_irq_source_dcn36(
 		uint32_t src_id,
 		uint32_t ext_id)
 {
+	(void)irq_service;
+	(void)src_id;
+	(void)ext_id;
 	switch (src_id) {
 	case DCN_1_0__SRCID__DC_D1_OTG_VSTARTUP:
 		return DC_IRQ_SOURCE_VBLANK1;
@@ -162,7 +165,7 @@ static struct irq_source_info_funcs vline0_irq_info_funcs = {
 	REG_STRUCT[base + reg_num].enable_value[0] = \
 		block ## reg_num ## _ ## reg1 ## __ ## mask1 ## _MASK,\
 	REG_STRUCT[base + reg_num].enable_value[1] = \
-		~block ## reg_num ## _ ## reg1 ## __ ## mask1 ## _MASK, \
+		(uint32_t)~block ## reg_num ## _ ## reg1 ## __ ## mask1 ## _MASK, \
 	REG_STRUCT[base + reg_num].ack_reg = SRI(reg2, block, reg_num),\
 	REG_STRUCT[base + reg_num].ack_mask = \
 		block ## reg_num ## _ ## reg2 ## __ ## mask2 ## _MASK,\
@@ -176,7 +179,7 @@ static struct irq_source_info_funcs vline0_irq_info_funcs = {
 	REG_STRUCT[base].enable_value[0] = \
 		reg1 ## __ ## mask1 ## _MASK,\
 	REG_STRUCT[base].enable_value[1] = \
-		~reg1 ## __ ## mask1 ## _MASK, \
+		(uint32_t)~reg1 ## __ ## mask1 ## _MASK, \
 	REG_STRUCT[base].ack_reg = SRI_DMUB(reg2),\
 	REG_STRUCT[base].ack_mask = \
 		reg2 ## __ ## mask2 ## _MASK,\
@@ -370,8 +373,7 @@ static void dcn36_irq_construct(
 struct irq_service *dal_irq_service_dcn36_create(
 	struct irq_service_init_data *init_data)
 {
-	struct irq_service *irq_service = kzalloc(sizeof(*irq_service),
-						  GFP_KERNEL);
+	struct irq_service *irq_service = kzalloc_obj(*irq_service);
 
 	if (!irq_service)
 		return NULL;

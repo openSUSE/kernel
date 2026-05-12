@@ -500,7 +500,7 @@ long rbtree_wrong_owner_remove_fail_a2(void *ctx)
 	return 0;
 }
 
-SEC("?fentry.s/bpf_testmod_test_read")
+SEC("?fentry.s/" SYS_PREFIX "sys_getpgid")
 __success
 int BPF_PROG(rbtree_sleepable_rcu,
 	     struct file *file, struct kobject *kobj,
@@ -534,7 +534,7 @@ err_out:
 	return 0;
 }
 
-SEC("?fentry.s/bpf_testmod_test_read")
+SEC("?fentry.s/" SYS_PREFIX "sys_getpgid")
 __success
 int BPF_PROG(rbtree_sleepable_rcu_no_explicit_rcu_lock,
 	     struct file *file, struct kobject *kobj,
@@ -566,6 +566,66 @@ err_out:
 	if (m)
 		bpf_obj_drop(m);
 	return 0;
+}
+
+private(kptr_ref) u64 ref;
+
+static int probe_read_refcount(void)
+{
+	u32 refcount;
+
+	bpf_probe_read_kernel(&refcount, sizeof(refcount), (void *) ref);
+	return refcount;
+}
+
+static int __insert_in_list(struct bpf_list_head *head, struct bpf_spin_lock *lock,
+			    struct node_data __kptr **node)
+{
+	struct node_data *node_new, *node_ref, *node_old;
+
+	node_new = bpf_obj_new(typeof(*node_new));
+	if (!node_new)
+		return -1;
+
+	node_ref = bpf_refcount_acquire(node_new);
+	node_old = bpf_kptr_xchg(node, node_new);
+	if (node_old) {
+		bpf_obj_drop(node_old);
+		bpf_obj_drop(node_ref);
+		return -2;
+	}
+
+	bpf_spin_lock(lock);
+	bpf_list_push_front(head, &node_ref->l);
+	ref = (u64)(void *) &node_ref->ref;
+	bpf_spin_unlock(lock);
+	return probe_read_refcount();
+}
+
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_HASH);
+	__type(key, int);
+	__type(value, struct map_value);
+	__uint(max_entries, 1);
+} percpu_hash SEC(".maps");
+
+SEC("tc")
+int percpu_hash_refcount_leak(void *ctx)
+{
+	struct map_value *v;
+	int key = 0;
+
+	v = bpf_map_lookup_elem(&percpu_hash, &key);
+	if (!v)
+		return 0;
+
+	return __insert_in_list(&head, &lock, &v->node);
+}
+
+SEC("tc")
+int check_percpu_hash_refcount(void *ctx)
+{
+	return probe_read_refcount();
 }
 
 char _license[] SEC("license") = "GPL";

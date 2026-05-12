@@ -14,9 +14,9 @@
 #include "xe_device_types.h"
 #include "xe_force_wake.h"
 #include "xe_gsc.h"
-#include "xe_gt.h"
 #include "xe_gt_printk.h"
 #include "xe_gt_sriov_vf.h"
+#include "xe_gt_types.h"
 #include "xe_guc.h"
 #include "xe_map.h"
 #include "xe_mmio.h"
@@ -115,11 +115,12 @@ struct fw_blobs_by_type {
 #define XE_GT_TYPE_ANY XE_GT_TYPE_UNINITIALIZED
 
 #define XE_GUC_FIRMWARE_DEFS(fw_def, mmp_ver, major_ver)					\
-	fw_def(PANTHERLAKE,	GT_TYPE_ANY,	major_ver(xe,	guc,	ptl,	70, 47, 0))	\
-	fw_def(BATTLEMAGE,	GT_TYPE_ANY,	major_ver(xe,	guc,	bmg,	70, 45, 2))	\
-	fw_def(LUNARLAKE,	GT_TYPE_ANY,	major_ver(xe,	guc,	lnl,	70, 45, 2))	\
-	fw_def(METEORLAKE,	GT_TYPE_ANY,	major_ver(i915,	guc,	mtl,	70, 44, 1))	\
-	fw_def(DG2,		GT_TYPE_ANY,	major_ver(i915,	guc,	dg2,	70, 45, 2))	\
+	fw_def(NOVALAKE_S,	GT_TYPE_ANY,	mmp_ver(xe,	guc,	nvl,	70, 55, 4))	\
+	fw_def(PANTHERLAKE,	GT_TYPE_ANY,	major_ver(xe,	guc,	ptl,	70, 54, 0))	\
+	fw_def(BATTLEMAGE,	GT_TYPE_ANY,	major_ver(xe,	guc,	bmg,	70, 54, 0))	\
+	fw_def(LUNARLAKE,	GT_TYPE_ANY,	major_ver(xe,	guc,	lnl,	70, 53, 0))	\
+	fw_def(METEORLAKE,	GT_TYPE_ANY,	major_ver(i915,	guc,	mtl,	70, 53, 0))	\
+	fw_def(DG2,		GT_TYPE_ANY,	major_ver(i915,	guc,	dg2,	70, 53, 0))	\
 	fw_def(DG1,		GT_TYPE_ANY,	major_ver(i915,	guc,	dg1,	70, 44, 1))	\
 	fw_def(ALDERLAKE_N,	GT_TYPE_ANY,	major_ver(i915,	guc,	tgl,	70, 44, 1))	\
 	fw_def(ALDERLAKE_P,	GT_TYPE_ANY,	major_ver(i915,	guc,	adlp,	70, 44, 1))	\
@@ -140,6 +141,7 @@ struct fw_blobs_by_type {
 
 /* for the GSC FW we match the compatibility version and not the release one */
 #define XE_GSC_FIRMWARE_DEFS(fw_def, major_ver)		\
+	fw_def(PANTHERLAKE,	GT_TYPE_ANY,	major_ver(xe,	gsc,	ptl,	105, 1, 0))	\
 	fw_def(LUNARLAKE,	GT_TYPE_ANY,	major_ver(xe,	gsc,	lnl,	104, 1, 0))	\
 	fw_def(METEORLAKE,	GT_TYPE_ANY,	major_ver(i915,	gsc,	mtl,	102, 1, 0))
 
@@ -211,6 +213,17 @@ static struct xe_device *uc_fw_to_xe(struct xe_uc_fw *uc_fw)
 {
 	return gt_to_xe(uc_fw_to_gt(uc_fw));
 }
+
+#if IS_ENABLED(CONFIG_DRM_XE_DEBUG_GUC)
+void xe_uc_fw_change_status(struct xe_uc_fw *uc_fw, enum xe_uc_fw_status status)
+{
+	xe_gt_dbg(uc_fw_to_gt(uc_fw), "%s %s->%s\n",
+		  xe_uc_fw_type_repr(uc_fw->type),
+		  xe_uc_fw_status_repr(uc_fw->status),
+		  xe_uc_fw_status_repr(status));
+	uc_fw->__status = status;
+}
+#endif
 
 static void
 uc_fw_auto_select(struct xe_device *xe, struct xe_uc_fw *uc_fw)
@@ -328,7 +341,7 @@ static void uc_fw_fini(struct drm_device *drm, void *arg)
 	xe_uc_fw_change_status(uc_fw, XE_UC_FIRMWARE_SELECTED);
 }
 
-static int guc_read_css_info(struct xe_uc_fw *uc_fw, struct uc_css_header *css)
+static int guc_read_css_info(struct xe_uc_fw *uc_fw, struct uc_css_guc_info *guc_info)
 {
 	struct xe_gt *gt = uc_fw_to_gt(uc_fw);
 	struct xe_uc_fw_version *release = &uc_fw->versions.found[XE_UC_FW_VER_RELEASE];
@@ -343,11 +356,12 @@ static int guc_read_css_info(struct xe_uc_fw *uc_fw, struct uc_css_header *css)
 		return -EINVAL;
 	}
 
-	compatibility->major = FIELD_GET(CSS_SW_VERSION_UC_MAJOR, css->submission_version);
-	compatibility->minor = FIELD_GET(CSS_SW_VERSION_UC_MINOR, css->submission_version);
-	compatibility->patch = FIELD_GET(CSS_SW_VERSION_UC_PATCH, css->submission_version);
+	compatibility->major = FIELD_GET(CSS_SW_VERSION_UC_MAJOR, guc_info->submission_version);
+	compatibility->minor = FIELD_GET(CSS_SW_VERSION_UC_MINOR, guc_info->submission_version);
+	compatibility->patch = FIELD_GET(CSS_SW_VERSION_UC_PATCH, guc_info->submission_version);
 
-	uc_fw->private_data_size = css->private_data_size;
+	uc_fw->build_type = FIELD_GET(CSS_UKERNEL_INFO_BUILDTYPE, guc_info->ukernel_info);
+	uc_fw->private_data_size = guc_info->private_data_size;
 
 	return 0;
 }
@@ -416,8 +430,8 @@ static int parse_css_header(struct xe_uc_fw *uc_fw, const void *fw_data, size_t 
 	css = (struct uc_css_header *)fw_data;
 
 	/* Check integrity of size values inside CSS header */
-	size = (css->header_size_dw - css->key_size_dw - css->modulus_size_dw -
-		css->exponent_size_dw) * sizeof(u32);
+	size = (css->header_size_dw - css->rsa_info.key_size_dw - css->rsa_info.modulus_size_dw -
+		css->rsa_info.exponent_size_dw) * sizeof(u32);
 	if (unlikely(size != sizeof(struct uc_css_header))) {
 		drm_warn(&xe->drm,
 			 "%s firmware %s: unexpected header size: %zu != %zu\n",
@@ -430,7 +444,7 @@ static int parse_css_header(struct xe_uc_fw *uc_fw, const void *fw_data, size_t 
 	uc_fw->ucode_size = (css->size_dw - css->header_size_dw) * sizeof(u32);
 
 	/* now RSA */
-	uc_fw->rsa_size = css->key_size_dw * sizeof(u32);
+	uc_fw->rsa_size = css->rsa_info.key_size_dw * sizeof(u32);
 
 	/* At least, it should have header, uCode and RSA. Size of all three. */
 	size = sizeof(struct uc_css_header) + uc_fw->ucode_size +
@@ -443,12 +457,12 @@ static int parse_css_header(struct xe_uc_fw *uc_fw, const void *fw_data, size_t 
 	}
 
 	/* Get version numbers from the CSS header */
-	release->major = FIELD_GET(CSS_SW_VERSION_UC_MAJOR, css->sw_version);
-	release->minor = FIELD_GET(CSS_SW_VERSION_UC_MINOR, css->sw_version);
-	release->patch = FIELD_GET(CSS_SW_VERSION_UC_PATCH, css->sw_version);
+	release->major = FIELD_GET(CSS_SW_VERSION_UC_MAJOR, css->guc_info.sw_version);
+	release->minor = FIELD_GET(CSS_SW_VERSION_UC_MINOR, css->guc_info.sw_version);
+	release->patch = FIELD_GET(CSS_SW_VERSION_UC_PATCH, css->guc_info.sw_version);
 
 	if (uc_fw->type == XE_UC_FW_TYPE_GUC)
-		return guc_read_css_info(uc_fw, css);
+		return guc_read_css_info(uc_fw, &css->guc_info);
 
 	return 0;
 }
@@ -737,7 +751,7 @@ static int uc_fw_request(struct xe_uc_fw *uc_fw, const struct firmware **firmwar
 		return 0;
 	}
 
-	err = request_firmware(&fw, uc_fw->path, dev);
+	err = firmware_request_nowarn(&fw, uc_fw->path, dev);
 	if (err)
 		goto fail;
 
@@ -766,8 +780,12 @@ fail:
 			       XE_UC_FIRMWARE_MISSING :
 			       XE_UC_FIRMWARE_ERROR);
 
-	xe_gt_notice(gt, "%s firmware %s: fetch failed with error %pe\n",
-		     xe_uc_fw_type_repr(uc_fw->type), uc_fw->path, ERR_PTR(err));
+	if (err == -ENOENT)
+		xe_gt_info(gt, "%s firmware %s not found\n",
+			   xe_uc_fw_type_repr(uc_fw->type), uc_fw->path);
+	else
+		xe_gt_notice(gt, "%s firmware %s: fetch failed with error %pe\n",
+			     xe_uc_fw_type_repr(uc_fw->type), uc_fw->path, ERR_PTR(err));
 	xe_gt_info(gt, "%s firmware(s) can be downloaded from %s\n",
 		   xe_uc_fw_type_repr(uc_fw->type), XE_UC_FIRMWARE_URL);
 
@@ -874,7 +892,7 @@ static int uc_fw_xfer(struct xe_uc_fw *uc_fw, u32 offset, u32 dma_flags)
 
 	/* Start the DMA */
 	xe_mmio_write32(mmio, DMA_CTRL,
-			_MASKED_BIT_ENABLE(dma_flags | START_DMA));
+			REG_MASKED_FIELD_ENABLE(dma_flags | START_DMA));
 
 	/* Wait for DMA to finish */
 	ret = xe_mmio_wait32(mmio, DMA_CTRL, START_DMA, 0, 100000, &dma_ctrl,
@@ -884,7 +902,7 @@ static int uc_fw_xfer(struct xe_uc_fw *uc_fw, u32 offset, u32 dma_flags)
 			xe_uc_fw_type_repr(uc_fw->type), dma_ctrl);
 
 	/* Disable the bits once DMA is over */
-	xe_mmio_write32(mmio, DMA_CTRL, _MASKED_BIT_DISABLE(dma_flags));
+	xe_mmio_write32(mmio, DMA_CTRL, REG_MASKED_FIELD_DISABLE(dma_flags));
 
 	return ret;
 }

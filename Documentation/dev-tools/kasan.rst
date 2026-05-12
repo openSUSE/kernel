@@ -75,9 +75,6 @@ Software Tag-Based KASAN supports slab, page_alloc, vmalloc, and stack memory.
 Hardware Tag-Based KASAN supports slab, page_alloc, and non-executable vmalloc
 memory.
 
-For slab, both software KASAN modes support SLUB and SLAB allocators, while
-Hardware Tag-Based KASAN only supports SLUB.
-
 Usage
 -----
 
@@ -142,6 +139,9 @@ disabling KASAN altogether or controlling its features:
   only reports tag faults during these checks.
   Asymmetric mode: a bad access is detected synchronously on reads and
   asynchronously on writes.
+
+- ``kasan.write_only=off`` or ``kasan.write_only=on`` controls whether KASAN
+  checks the write (store) accesses only or all accesses (default: ``off``).
 
 - ``kasan.vmalloc=off`` or ``=on`` disables or enables tagging of vmalloc
   allocations (default: ``on``).

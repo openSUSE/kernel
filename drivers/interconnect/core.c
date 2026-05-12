@@ -172,7 +172,7 @@ static struct icc_path *path_init(struct device *dev, struct icc_node *dst,
 	struct icc_path *path;
 	int i;
 
-	path = kzalloc(struct_size(path, reqs, num_nodes), GFP_KERNEL);
+	path = kzalloc_flex(*path, reqs, num_nodes);
 	if (!path)
 		return ERR_PTR(-ENOMEM);
 
@@ -385,7 +385,7 @@ struct icc_node_data *of_icc_get_from_provider(const struct of_phandle_args *spe
 
 	mutex_lock(&icc_lock);
 	list_for_each_entry(provider, &icc_providers, provider_list) {
-		if (provider->dev->of_node == spec->np) {
+		if (device_match_of_node(provider->dev, spec->np)) {
 			if (provider->xlate_extended) {
 				data = provider->xlate_extended(spec, provider->data);
 				if (!IS_ERR(data)) {
@@ -408,7 +408,7 @@ struct icc_node_data *of_icc_get_from_provider(const struct of_phandle_args *spe
 		return ERR_CAST(node);
 
 	if (!data) {
-		data = kzalloc(sizeof(*data), GFP_KERNEL);
+		data = kzalloc_obj(*data);
 		if (!data)
 			return ERR_PTR(-ENOMEM);
 		data->node = node;
@@ -827,7 +827,7 @@ static struct icc_node *icc_node_create_nolock(int id)
 	if (node)
 		return node;
 
-	node = kzalloc(sizeof(*node), GFP_KERNEL);
+	node = kzalloc_obj(*node);
 	if (!node)
 		return ERR_PTR(-ENOMEM);
 

@@ -1,8 +1,8 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017-2025 Broadcom. All Rights Reserved. The term *
- * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.  *
+ * Copyright (C) 2017-2026 Broadcom. All Rights Reserved. The term *
+ * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.     *
  * Copyright (C) 2009-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
  * www.broadcom.com                                                *
@@ -100,7 +100,8 @@ struct lpfc_sli_intf {
 #define lpfc_sli_intf_sli_family_MASK		0x0000000F
 #define lpfc_sli_intf_sli_family_WORD		word0
 #define LPFC_SLI_INTF_FAMILY_BE2	0x0
-#define LPFC_SLI_INTF_FAMILY_BE3	0x1
+#define LPFC_SLI_INTF_ASIC_ID		0x1	/* Refer to ASIC_ID register */
+#define LPFC_SLI_INTF_FAMILY_BE3	0x3
 #define LPFC_SLI_INTF_FAMILY_LNCR_A0	0xa
 #define LPFC_SLI_INTF_FAMILY_LNCR_B0	0xb
 #define LPFC_SLI_INTF_FAMILY_G6		0xc
@@ -116,6 +117,17 @@ struct lpfc_sli_intf {
 #define lpfc_sli_intf_func_type_WORD		word0
 #define LPFC_SLI_INTF_IF_TYPE_PHYS	0
 #define LPFC_SLI_INTF_IF_TYPE_VIRT	1
+};
+
+struct lpfc_asic_id {
+	u32 word0;
+#define lpfc_asic_id_gen_num_SHIFT	8
+#define lpfc_asic_id_gen_num_MASK	0x000000FF
+#define lpfc_asic_id_gen_num_WORD	word0
+#define LPFC_SLI_INTF_FAMILY_G8		0x10
+#define lpfc_asic_id_rev_num_SHIFT	0
+#define lpfc_asic_id_rev_num_MASK	0x000000FF
+#define lpfc_asic_id_rev_num_WORD	word0
 };
 
 #define LPFC_SLI4_MBX_EMBED	true
@@ -437,6 +449,12 @@ struct lpfc_wcqe_complete {
 #define lpfc_wcqe_c_cmf_bw_MASK		0x0FFFFFFF
 #define lpfc_wcqe_c_cmf_bw_WORD		total_data_placed
 	uint32_t parameter;
+#define lpfc_wcqe_c_enc_SHIFT		31
+#define lpfc_wcqe_c_enc_MASK		0x00000001
+#define lpfc_wcqe_c_enc_WORD		parameter
+#define lpfc_wcqe_c_enc_lvl_SHIFT	30
+#define lpfc_wcqe_c_enc_lvl_MASK	0x00000001
+#define lpfc_wcqe_c_enc_lvl_WORD	parameter
 #define lpfc_wcqe_c_bg_edir_SHIFT	5
 #define lpfc_wcqe_c_bg_edir_MASK	0x00000001
 #define lpfc_wcqe_c_bg_edir_WORD	parameter
@@ -618,6 +636,10 @@ struct lpfc_register {
 
 #define LPFC_PORT_SEM_UE_RECOVERABLE    0xE000
 #define LPFC_PORT_SEM_MASK		0xF000
+
+/* The following are config space register offsets */
+#define LPFC_ASIC_ID_OFFSET		0x0308
+
 /* The following BAR0 Registers apply to SLI4 if_type 0 UCNAs. */
 #define LPFC_UERR_STATUS_HI		0x00A4
 #define LPFC_UERR_STATUS_LO		0x00A0
@@ -626,7 +648,6 @@ struct lpfc_register {
 
 /* The following BAR0 register sets are defined for if_type 0 and 2 UCNAs. */
 #define LPFC_SLI_INTF			0x0058
-#define LPFC_SLI_ASIC_VER		0x009C
 
 #define LPFC_CTL_PORT_SEM_OFFSET	0x400
 #define lpfc_port_smphr_perr_SHIFT	31
@@ -2942,7 +2963,10 @@ struct lpfc_mbx_read_config {
 #define lpfc_mbx_rd_conf_topology_SHIFT		24
 #define lpfc_mbx_rd_conf_topology_MASK		0x000000FF
 #define lpfc_mbx_rd_conf_topology_WORD		word2
-	uint32_t rsvd_3;
+	uint32_t word3;
+#define lpfc_mbx_rd_conf_fedif_SHIFT		6
+#define lpfc_mbx_rd_conf_fedif_MASK		0x00000001
+#define lpfc_mbx_rd_conf_fedif_WORD		word3
 	uint32_t word4;
 #define lpfc_mbx_rd_conf_e_d_tov_SHIFT		0
 #define lpfc_mbx_rd_conf_e_d_tov_MASK		0x0000FFFF
@@ -3053,9 +3077,6 @@ struct lpfc_mbx_request_features {
 #define lpfc_mbx_rq_ftr_rq_iaar_SHIFT		9
 #define lpfc_mbx_rq_ftr_rq_iaar_MASK		0x00000001
 #define lpfc_mbx_rq_ftr_rq_iaar_WORD		word2
-#define lpfc_mbx_rq_ftr_rq_perfh_SHIFT		11
-#define lpfc_mbx_rq_ftr_rq_perfh_MASK		0x00000001
-#define lpfc_mbx_rq_ftr_rq_perfh_WORD		word2
 #define lpfc_mbx_rq_ftr_rq_mrqp_SHIFT		16
 #define lpfc_mbx_rq_ftr_rq_mrqp_MASK		0x00000001
 #define lpfc_mbx_rq_ftr_rq_mrqp_WORD		word2
@@ -3087,9 +3108,6 @@ struct lpfc_mbx_request_features {
 #define lpfc_mbx_rq_ftr_rsp_ifip_SHIFT		7
 #define lpfc_mbx_rq_ftr_rsp_ifip_MASK		0x00000001
 #define lpfc_mbx_rq_ftr_rsp_ifip_WORD		word3
-#define lpfc_mbx_rq_ftr_rsp_perfh_SHIFT		11
-#define lpfc_mbx_rq_ftr_rsp_perfh_MASK		0x00000001
-#define lpfc_mbx_rq_ftr_rsp_perfh_WORD		word3
 #define lpfc_mbx_rq_ftr_rsp_mrqp_SHIFT		16
 #define lpfc_mbx_rq_ftr_rsp_mrqp_MASK		0x00000001
 #define lpfc_mbx_rq_ftr_rsp_mrqp_WORD		word3
@@ -3451,10 +3469,6 @@ struct lpfc_sli4_parameters {
 #define cfg_pvl_SHIFT				13
 #define cfg_pvl_MASK				0x00000001
 #define cfg_pvl_WORD				word19
-
-#define cfg_pbde_SHIFT				20
-#define cfg_pbde_MASK				0x00000001
-#define cfg_pbde_WORD				word19
 
 	uint32_t word20;
 #define cfg_max_tow_xri_SHIFT			0
@@ -4475,9 +4489,6 @@ struct wqe_common {
 #define wqe_irsp_SHIFT        4
 #define wqe_irsp_MASK         0x00000001
 #define wqe_irsp_WORD         word11
-#define wqe_pbde_SHIFT        5
-#define wqe_pbde_MASK         0x00000001
-#define wqe_pbde_WORD         word11
 #define wqe_sup_SHIFT         6
 #define wqe_sup_MASK          0x00000001
 #define wqe_sup_WORD          word11
@@ -4909,18 +4920,18 @@ struct send_frame_wqe {
 
 #define ELS_RDF_REG_TAG_CNT		4
 struct lpfc_els_rdf_reg_desc {
-	struct fc_df_desc_fpin_reg	reg_desc;	/* descriptor header */
+	struct fc_df_desc_fpin_reg_hdr	reg_desc;	/* descriptor header */
 	__be32				desc_tags[ELS_RDF_REG_TAG_CNT];
 							/* tags in reg_desc */
 };
 
 struct lpfc_els_rdf_req {
-	struct fc_els_rdf		rdf;	   /* hdr up to descriptors */
+	struct fc_els_rdf_hdr		rdf;	   /* hdr up to descriptors */
 	struct lpfc_els_rdf_reg_desc	reg_d1;	/* 1st descriptor */
 };
 
 struct lpfc_els_rdf_rsp {
-	struct fc_els_rdf_resp		rdf_resp;  /* hdr up to descriptors */
+	struct fc_els_rdf_resp_hdr	rdf_resp;  /* hdr up to descriptors */
 	struct lpfc_els_rdf_reg_desc	reg_d1;	/* 1st descriptor */
 };
 
@@ -4969,6 +4980,7 @@ union lpfc_wqe128 {
 #define MAGIC_NUMBER_G6 0xFEAA0003
 #define MAGIC_NUMBER_G7 0xFEAA0005
 #define MAGIC_NUMBER_G7P 0xFEAA0020
+#define MAGIC_NUMBER_G8 0xFEAA0070
 
 struct lpfc_grp_hdr {
 	uint32_t size;

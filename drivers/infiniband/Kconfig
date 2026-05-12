@@ -4,8 +4,8 @@ menuconfig INFINIBAND
 	depends on HAS_IOMEM && HAS_DMA
 	depends on NET
 	depends on INET
-	depends on m || IPV6 != m
 	depends on !ALPHA
+	select DMA_SHARED_BUFFER
 	select IRQ_POLL
 	select DIMLIB
 	help
@@ -80,11 +80,13 @@ config INFINIBAND_VIRT_DMA
 if INFINIBAND_USER_ACCESS || !INFINIBAND_USER_ACCESS
 if !UML
 source "drivers/infiniband/hw/bnxt_re/Kconfig"
+source "drivers/infiniband/hw/bng_re/Kconfig"
 source "drivers/infiniband/hw/cxgb4/Kconfig"
 source "drivers/infiniband/hw/efa/Kconfig"
 source "drivers/infiniband/hw/erdma/Kconfig"
 source "drivers/infiniband/hw/hfi1/Kconfig"
 source "drivers/infiniband/hw/hns/Kconfig"
+source "drivers/infiniband/hw/ionic/Kconfig"
 source "drivers/infiniband/hw/irdma/Kconfig"
 source "drivers/infiniband/hw/mana/Kconfig"
 source "drivers/infiniband/hw/mlx4/Kconfig"
@@ -108,7 +110,5 @@ source "drivers/infiniband/ulp/srpt/Kconfig"
 source "drivers/infiniband/ulp/iser/Kconfig"
 source "drivers/infiniband/ulp/isert/Kconfig"
 source "drivers/infiniband/ulp/rtrs/Kconfig"
-
-source "drivers/infiniband/ulp/opa_vnic/Kconfig"
 
 endif # INFINIBAND

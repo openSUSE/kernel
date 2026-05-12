@@ -27,6 +27,11 @@
 #ifndef __AMDGPU_DM_CRTC_H__
 #define __AMDGPU_DM_CRTC_H__
 
+void amdgpu_dm_crtc_set_static_screen_optimze(
+	struct amdgpu_display_manager *dm,
+	struct dc_stream_state *stream,
+	bool sso_enable, bool allow_sr_entry);
+
 void amdgpu_dm_crtc_handle_vblank(struct amdgpu_crtc *acrtc);
 
 bool amdgpu_dm_crtc_modeset_required(struct drm_crtc_state *crtc_state,

@@ -763,6 +763,7 @@ static int dm1105_ir_init(struct dm1105_dev *dm1105)
 static void dm1105_ir_exit(struct dm1105_dev *dm1105)
 {
 	rc_unregister_device(dm1105->ir.dev);
+	rc_free_device(dm1105->ir.dev);
 }
 
 static int dm1105_hw_init(struct dm1105_dev *dev)
@@ -976,7 +977,7 @@ static int dm1105_probe(struct pci_dev *pdev,
 	if (dm1105_devcount >= ARRAY_SIZE(card))
 		return -ENODEV;
 
-	dev = kzalloc(sizeof(struct dm1105_dev), GFP_KERNEL);
+	dev = kzalloc_obj(struct dm1105_dev);
 	if (!dev)
 		return -ENOMEM;
 

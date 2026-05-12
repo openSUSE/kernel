@@ -38,7 +38,7 @@ extern int quiet;		/* Level of quietness */
 extern unsigned int reservenum;	/* Number of memory reservation slots */
 extern int minsize;		/* Minimum blob size */
 extern int padsize;		/* Additional padding to blob */
-extern int alignsize;		/* Additional padding to blob accroding to the alignsize */
+extern int alignsize;		/* Additional padding to blob according to the alignsize */
 extern int phandle_format;	/* Use linux,phandle or phandle properties */
 extern int generate_symbols;	/* generate symbols for nodes with labels */
 extern int generate_fixups;	/* generate fixups */
@@ -182,7 +182,10 @@ struct data data_append_addr(struct data d, uint64_t addr);
 struct data data_append_byte(struct data d, uint8_t byte);
 struct data data_append_zeroes(struct data d, int len);
 struct data data_append_align(struct data d, int align);
+struct data data_insert_data(struct data d, struct marker *m, struct data old);
 
+struct marker *alloc_marker(unsigned int offset, enum markertype type,
+			    char *ref);
 struct data data_add_marker(struct data d, enum markertype type, char *ref);
 
 bool data_is_one_string(struct data d);
@@ -224,7 +227,7 @@ struct node {
 	struct node *next_sibling;
 
 	char *fullpath;
-	int basenamelen;
+	size_t basenamelen;
 
 	cell_t phandle;
 	int addr_cells, size_cells;
@@ -336,9 +339,12 @@ struct dt_info *build_dt_info(unsigned int dtsflags,
 			      struct reserve_info *reservelist,
 			      struct node *tree, uint32_t boot_cpuid_phys);
 void sort_tree(struct dt_info *dti);
+void generate_labels_from_tree(struct dt_info *dti, const char *name);
 void generate_label_tree(struct dt_info *dti, const char *name, bool allocph);
 void generate_fixups_tree(struct dt_info *dti, const char *name);
+void fixup_phandles(struct dt_info *dti, const char *name);
 void generate_local_fixups_tree(struct dt_info *dti, const char *name);
+void local_fixup_phandles(struct dt_info *dti, const char *name);
 
 /* Checks */
 
@@ -354,6 +360,9 @@ struct dt_info *dt_from_blob(const char *fname);
 
 /* Tree source */
 
+void property_add_marker(struct property *prop,
+			 enum markertype type, unsigned int offset, char *ref);
+void add_phandle_marker(struct dt_info *dti, struct property *prop, unsigned int offset);
 void dt_to_source(FILE *f, struct dt_info *dti);
 struct dt_info *dt_from_source(const char *f);
 

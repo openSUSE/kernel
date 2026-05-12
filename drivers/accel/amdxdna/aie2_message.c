@@ -16,6 +16,7 @@
 #include <linux/types.h>
 #include <linux/xarray.h>
 
+#include "aie.h"
 #include "aie2_msg_priv.h"
 #include "aie2_pci.h"
 #include "amdxdna_ctx.h"
@@ -24,61 +25,77 @@
 #include "amdxdna_mailbox_helper.h"
 #include "amdxdna_pci_drv.h"
 
-#define DECLARE_AIE2_MSG(name, op) \
-	DECLARE_XDNA_MSG_COMMON(name, op, MAX_AIE2_STATUS_CODE)
+#define EXEC_MSG_OPS(xdna)	((xdna)->dev_handle->exec_msg_ops)
 
-static int aie2_send_mgmt_msg_wait(struct amdxdna_dev_hdl *ndev,
-				   struct xdna_mailbox_msg *msg)
+void *aie2_alloc_msg_buffer(struct amdxdna_dev_hdl *ndev, u32 *size,
+			    dma_addr_t *dma_addr)
 {
-	struct amdxdna_dev *xdna = ndev->xdna;
-	struct xdna_notify *hdl = msg->handle;
-	int ret;
+	struct amdxdna_dev *xdna = ndev->aie.xdna;
+	void *vaddr;
+	int order;
 
-	if (!ndev->mgmt_chann)
-		return -ENODEV;
+	*size = max(*size, SZ_8K);
+	order = get_order(*size);
+	if (order > MAX_PAGE_ORDER)
+		return ERR_PTR(-EINVAL);
+	*size = PAGE_SIZE << order;
 
-	drm_WARN_ON(&xdna->ddev, !mutex_is_locked(&xdna->dev_lock));
-	ret = xdna_send_msg_wait(xdna, ndev->mgmt_chann, msg);
-	if (ret == -ETIME) {
-		xdna_mailbox_stop_channel(ndev->mgmt_chann);
-		xdna_mailbox_destroy_channel(ndev->mgmt_chann);
-		ndev->mgmt_chann = NULL;
+	if (amdxdna_iova_on(xdna))
+		return amdxdna_iommu_alloc(xdna, *size, dma_addr);
+
+	vaddr = dma_alloc_noncoherent(xdna->ddev.dev, *size, dma_addr,
+				      DMA_FROM_DEVICE, GFP_KERNEL);
+	if (!vaddr)
+		return ERR_PTR(-ENOMEM);
+
+	return vaddr;
+}
+
+void aie2_free_msg_buffer(struct amdxdna_dev_hdl *ndev, size_t size,
+			  void *cpu_addr, dma_addr_t dma_addr)
+{
+	struct amdxdna_dev *xdna = ndev->aie.xdna;
+
+	if (amdxdna_iova_on(xdna)) {
+		amdxdna_iommu_free(xdna, size, cpu_addr, dma_addr);
+		return;
 	}
 
-	if (!ret && *hdl->data != AIE2_STATUS_SUCCESS) {
-		XDNA_ERR(xdna, "command opcode 0x%x failed, status 0x%x",
-			 msg->opcode, *hdl->data);
-		ret = -EINVAL;
-	}
-
-	return ret;
+	dma_free_noncoherent(xdna->ddev.dev, size, cpu_addr, dma_addr, DMA_FROM_DEVICE);
 }
 
 int aie2_suspend_fw(struct amdxdna_dev_hdl *ndev)
 {
-	DECLARE_AIE2_MSG(suspend, MSG_OP_SUSPEND);
+	DECLARE_AIE_MSG(suspend, MSG_OP_SUSPEND);
+	int ret;
 
-	return aie2_send_mgmt_msg_wait(ndev, &msg);
+	ret = aie_send_mgmt_msg_wait(&ndev->aie, &msg);
+	if (ret) {
+		XDNA_ERR(ndev->aie.xdna, "Failed to suspend fw, ret %d", ret);
+		return ret;
+	}
+
+	return aie_psp_waitmode_poll(ndev->aie.psp_hdl);
 }
 
 int aie2_resume_fw(struct amdxdna_dev_hdl *ndev)
 {
-	DECLARE_AIE2_MSG(suspend, MSG_OP_RESUME);
+	DECLARE_AIE_MSG(suspend, MSG_OP_RESUME);
 
-	return aie2_send_mgmt_msg_wait(ndev, &msg);
+	return aie_send_mgmt_msg_wait(&ndev->aie, &msg);
 }
 
 int aie2_set_runtime_cfg(struct amdxdna_dev_hdl *ndev, u32 type, u64 value)
 {
-	DECLARE_AIE2_MSG(set_runtime_cfg, MSG_OP_SET_RUNTIME_CONFIG);
+	DECLARE_AIE_MSG(set_runtime_cfg, MSG_OP_SET_RUNTIME_CONFIG);
 	int ret;
 
 	req.type = type;
 	req.value = value;
 
-	ret = aie2_send_mgmt_msg_wait(ndev, &msg);
+	ret = aie_send_mgmt_msg_wait(&ndev->aie, &msg);
 	if (ret) {
-		XDNA_ERR(ndev->xdna, "Failed to set runtime config, ret %d", ret);
+		XDNA_ERR(ndev->aie.xdna, "Failed to set runtime config, ret %d", ret);
 		return ret;
 	}
 
@@ -87,13 +104,13 @@ int aie2_set_runtime_cfg(struct amdxdna_dev_hdl *ndev, u32 type, u64 value)
 
 int aie2_get_runtime_cfg(struct amdxdna_dev_hdl *ndev, u32 type, u64 *value)
 {
-	DECLARE_AIE2_MSG(get_runtime_cfg, MSG_OP_GET_RUNTIME_CONFIG);
+	DECLARE_AIE_MSG(get_runtime_cfg, MSG_OP_GET_RUNTIME_CONFIG);
 	int ret;
 
 	req.type = type;
-	ret = aie2_send_mgmt_msg_wait(ndev, &msg);
+	ret = aie_send_mgmt_msg_wait(&ndev->aie, &msg);
 	if (ret) {
-		XDNA_ERR(ndev->xdna, "Failed to get runtime config, ret %d", ret);
+		XDNA_ERR(ndev->aie.xdna, "Failed to get runtime config, ret %d", ret);
 		return ret;
 	}
 
@@ -103,20 +120,20 @@ int aie2_get_runtime_cfg(struct amdxdna_dev_hdl *ndev, u32 type, u64 *value)
 
 int aie2_assign_mgmt_pasid(struct amdxdna_dev_hdl *ndev, u16 pasid)
 {
-	DECLARE_AIE2_MSG(assign_mgmt_pasid, MSG_OP_ASSIGN_MGMT_PASID);
+	DECLARE_AIE_MSG(assign_mgmt_pasid, MSG_OP_ASSIGN_MGMT_PASID);
 
 	req.pasid = pasid;
 
-	return aie2_send_mgmt_msg_wait(ndev, &msg);
+	return aie_send_mgmt_msg_wait(&ndev->aie, &msg);
 }
 
 int aie2_query_aie_version(struct amdxdna_dev_hdl *ndev, struct aie_version *version)
 {
-	DECLARE_AIE2_MSG(aie_version_info, MSG_OP_QUERY_AIE_VERSION);
-	struct amdxdna_dev *xdna = ndev->xdna;
+	DECLARE_AIE_MSG(aie_version_info, MSG_OP_QUERY_AIE_VERSION);
+	struct amdxdna_dev *xdna = ndev->aie.xdna;
 	int ret;
 
-	ret = aie2_send_mgmt_msg_wait(ndev, &msg);
+	ret = aie_send_mgmt_msg_wait(&ndev->aie, &msg);
 	if (ret)
 		return ret;
 
@@ -131,10 +148,10 @@ int aie2_query_aie_version(struct amdxdna_dev_hdl *ndev, struct aie_version *ver
 
 int aie2_query_aie_metadata(struct amdxdna_dev_hdl *ndev, struct aie_metadata *metadata)
 {
-	DECLARE_AIE2_MSG(aie_tile_info, MSG_OP_QUERY_AIE_TILE_INFO);
+	DECLARE_AIE_MSG(aie_tile_info, MSG_OP_QUERY_AIE_TILE_INFO);
 	int ret;
 
-	ret = aie2_send_mgmt_msg_wait(ndev, &msg);
+	ret = aie_send_mgmt_msg_wait(&ndev->aie, &msg);
 	if (ret)
 		return ret;
 
@@ -169,10 +186,10 @@ int aie2_query_aie_metadata(struct amdxdna_dev_hdl *ndev, struct aie_metadata *m
 int aie2_query_firmware_version(struct amdxdna_dev_hdl *ndev,
 				struct amdxdna_fw_ver *fw_ver)
 {
-	DECLARE_AIE2_MSG(firmware_version, MSG_OP_GET_FIRMWARE_VERSION);
+	DECLARE_AIE_MSG(firmware_version, MSG_OP_GET_FIRMWARE_VERSION);
 	int ret;
 
-	ret = aie2_send_mgmt_msg_wait(ndev, &msg);
+	ret = aie_send_mgmt_msg_wait(&ndev->aie, &msg);
 	if (ret)
 		return ret;
 
@@ -184,10 +201,46 @@ int aie2_query_firmware_version(struct amdxdna_dev_hdl *ndev,
 	return 0;
 }
 
+static int aie2_destroy_context_req(struct amdxdna_dev_hdl *ndev, u32 id)
+{
+	DECLARE_AIE_MSG(destroy_ctx, MSG_OP_DESTROY_CONTEXT);
+	struct amdxdna_dev *xdna = ndev->aie.xdna;
+	int ret;
+
+	req.context_id = id;
+	ret = aie_send_mgmt_msg_wait(&ndev->aie, &msg);
+	if (ret && ret != -ENODEV)
+		XDNA_WARN(xdna, "Destroy context failed, ret %d", ret);
+	else if (ret == -ENODEV)
+		XDNA_DBG(xdna, "Destroy context: device already stopped");
+
+	return ret;
+}
+
+static u32 aie2_get_context_priority(struct amdxdna_dev_hdl *ndev,
+				     struct amdxdna_hwctx *hwctx)
+{
+	if (!AIE_FEATURE_ON(&ndev->aie, AIE2_PREEMPT))
+		return PRIORITY_HIGH;
+
+	switch (hwctx->qos.priority) {
+	case AMDXDNA_QOS_REALTIME_PRIORITY:
+		return PRIORITY_REALTIME;
+	case AMDXDNA_QOS_HIGH_PRIORITY:
+		return PRIORITY_HIGH;
+	case AMDXDNA_QOS_NORMAL_PRIORITY:
+		return PRIORITY_NORMAL;
+	case AMDXDNA_QOS_LOW_PRIORITY:
+		return PRIORITY_LOW;
+	default:
+		return PRIORITY_HIGH;
+	}
+}
+
 int aie2_create_context(struct amdxdna_dev_hdl *ndev, struct amdxdna_hwctx *hwctx)
 {
-	DECLARE_AIE2_MSG(create_ctx, MSG_OP_CREATE_CONTEXT);
-	struct amdxdna_dev *xdna = ndev->xdna;
+	DECLARE_AIE_MSG(create_ctx, MSG_OP_CREATE_CONTEXT);
+	struct amdxdna_dev *xdna = ndev->aie.xdna;
 	struct xdna_mailbox_chann_res x2i;
 	struct xdna_mailbox_chann_res i2x;
 	struct cq_pair *cq_pair;
@@ -197,16 +250,26 @@ int aie2_create_context(struct amdxdna_dev_hdl *ndev, struct amdxdna_hwctx *hwct
 	req.aie_type = 1;
 	req.start_col = hwctx->start_col;
 	req.num_col = hwctx->num_col;
+	req.num_unused_col = hwctx->num_unused_col;
 	req.num_cq_pairs_requested = 1;
-	req.pasid = hwctx->client->pasid;
-	req.context_priority = 2;
+	req.pasid = amdxdna_pasid_on(hwctx->client) ? hwctx->client->pasid : 0;
+	req.context_priority = aie2_get_context_priority(ndev, hwctx);
 
-	ret = aie2_send_mgmt_msg_wait(ndev, &msg);
+	ret = aie_send_mgmt_msg_wait(&ndev->aie, &msg);
 	if (ret)
 		return ret;
 
 	hwctx->fw_ctx_id = resp.context_id;
-	WARN_ONCE(hwctx->fw_ctx_id == -1, "Unexpected context id");
+	if (WARN_ON_ONCE(hwctx->fw_ctx_id == -1))
+		return -EINVAL;
+
+	if (ndev->force_preempt_enabled) {
+		ret = aie2_runtime_cfg(ndev, AIE2_RT_CFG_FORCE_PREEMPT, &hwctx->fw_ctx_id);
+		if (ret) {
+			XDNA_ERR(xdna, "failed to enable force preempt %d", ret);
+			goto del_ctx_req;
+		}
+	}
 
 	cq_pair = &resp.cq_pair[0];
 	x2i.mb_head_ptr_reg = AIE2_MBOX_OFF(ndev, cq_pair->x2i_q.head_addr);
@@ -221,66 +284,68 @@ int aie2_create_context(struct amdxdna_dev_hdl *ndev, struct amdxdna_hwctx *hwct
 
 	ret = pci_irq_vector(to_pci_dev(xdna->ddev.dev), resp.msix_id);
 	if (ret == -EINVAL) {
-		XDNA_ERR(xdna, "not able to create channel");
-		goto out_destroy_context;
+		XDNA_ERR(xdna, "Alloc IRQ failed %d", ret);
+		goto del_ctx_req;
 	}
 
 	intr_reg = i2x.mb_head_ptr_reg + 4;
-	hwctx->priv->mbox_chann = xdna_mailbox_create_channel(ndev->mbox, &x2i, &i2x,
-							      intr_reg, ret);
+	hwctx->priv->mbox_chann = xdna_mailbox_alloc_channel(ndev->mbox);
 	if (!hwctx->priv->mbox_chann) {
-		XDNA_ERR(xdna, "not able to create channel");
+		XDNA_ERR(xdna, "Not able to create channel");
 		ret = -EINVAL;
-		goto out_destroy_context;
+		goto del_ctx_req;
 	}
 
-	XDNA_DBG(xdna, "%s mailbox channel irq: %d, msix_id: %d",
-		 hwctx->name, ret, resp.msix_id);
-	XDNA_DBG(xdna, "%s created fw ctx %d pasid %d", hwctx->name,
-		 hwctx->fw_ctx_id, hwctx->client->pasid);
+	ret = xdna_mailbox_start_channel(hwctx->priv->mbox_chann, &x2i, &i2x,
+					 intr_reg, ret);
+	if (ret) {
+		XDNA_ERR(xdna, "Not able to create channel");
+		ret = -EINVAL;
+		goto free_channel;
+	}
+	ndev->hwctx_num++;
+
+	XDNA_DBG(xdna, "Mailbox channel irq: %d, msix_id: %d", ret, resp.msix_id);
+	XDNA_DBG(xdna, "Created fw ctx %d pasid %d", hwctx->fw_ctx_id, hwctx->client->pasid);
 
 	return 0;
 
-out_destroy_context:
-	aie2_destroy_context(ndev, hwctx);
+free_channel:
+	xdna_mailbox_free_channel(hwctx->priv->mbox_chann);
+del_ctx_req:
+	aie2_destroy_context_req(ndev, hwctx->fw_ctx_id);
 	return ret;
 }
 
 int aie2_destroy_context(struct amdxdna_dev_hdl *ndev, struct amdxdna_hwctx *hwctx)
 {
-	DECLARE_AIE2_MSG(destroy_ctx, MSG_OP_DESTROY_CONTEXT);
-	struct amdxdna_dev *xdna = ndev->xdna;
+	struct amdxdna_dev *xdna = ndev->aie.xdna;
 	int ret;
 
-	if (hwctx->fw_ctx_id == -1)
+	if (!hwctx->priv->mbox_chann)
 		return 0;
 
 	xdna_mailbox_stop_channel(hwctx->priv->mbox_chann);
-
-	req.context_id = hwctx->fw_ctx_id;
-	ret = aie2_send_mgmt_msg_wait(ndev, &msg);
-	if (ret)
-		XDNA_WARN(xdna, "%s destroy context failed, ret %d", hwctx->name, ret);
-
-	xdna_mailbox_destroy_channel(hwctx->priv->mbox_chann);
-	XDNA_DBG(xdna, "%s destroyed fw ctx %d", hwctx->name,
-		 hwctx->fw_ctx_id);
+	ret = aie2_destroy_context_req(ndev, hwctx->fw_ctx_id);
+	xdna_mailbox_free_channel(hwctx->priv->mbox_chann);
+	XDNA_DBG(xdna, "Destroyed fw ctx %d", hwctx->fw_ctx_id);
 	hwctx->priv->mbox_chann = NULL;
 	hwctx->fw_ctx_id = -1;
+	ndev->hwctx_num--;
 
 	return ret;
 }
 
 int aie2_map_host_buf(struct amdxdna_dev_hdl *ndev, u32 context_id, u64 addr, u64 size)
 {
-	DECLARE_AIE2_MSG(map_host_buffer, MSG_OP_MAP_HOST_BUFFER);
-	struct amdxdna_dev *xdna = ndev->xdna;
+	DECLARE_AIE_MSG(map_host_buffer, MSG_OP_MAP_HOST_BUFFER);
+	struct amdxdna_dev *xdna = ndev->aie.xdna;
 	int ret;
 
 	req.context_id = context_id;
 	req.buf_addr = addr;
 	req.buf_size = size;
-	ret = aie2_send_mgmt_msg_wait(ndev, &msg);
+	ret = aie_send_mgmt_msg_wait(&ndev->aie, &msg);
 	if (ret)
 		return ret;
 
@@ -302,18 +367,18 @@ static int amdxdna_hwctx_col_map(struct amdxdna_hwctx *hwctx, void *arg)
 int aie2_query_status(struct amdxdna_dev_hdl *ndev, char __user *buf,
 		      u32 size, u32 *cols_filled)
 {
-	DECLARE_AIE2_MSG(aie_column_info, MSG_OP_QUERY_COL_STATUS);
-	struct amdxdna_dev *xdna = ndev->xdna;
+	DECLARE_AIE_MSG(aie_column_info, MSG_OP_QUERY_COL_STATUS);
+	struct amdxdna_dev *xdna = ndev->aie.xdna;
+	u32 buf_sz, aie_bitmap = 0;
 	struct amdxdna_client *client;
 	dma_addr_t dma_addr;
-	u32 aie_bitmap = 0;
 	u8 *buff_addr;
 	int ret;
 
-	buff_addr = dma_alloc_noncoherent(xdna->ddev.dev, size, &dma_addr,
-					  DMA_FROM_DEVICE, GFP_KERNEL);
-	if (!buff_addr)
-		return -ENOMEM;
+	buf_sz = ndev->metadata.cols * ndev->metadata.size;
+	buff_addr = aie2_alloc_msg_buffer(ndev, &buf_sz, &dma_addr);
+	if (IS_ERR(buff_addr))
+		return PTR_ERR(buff_addr);
 
 	/* Go through each hardware context and mark the AIE columns that are active */
 	list_for_each_entry(client, &xdna->client_list, node)
@@ -321,31 +386,27 @@ int aie2_query_status(struct amdxdna_dev_hdl *ndev, char __user *buf,
 
 	*cols_filled = 0;
 	req.dump_buff_addr = dma_addr;
-	req.dump_buff_size = size;
+	req.dump_buff_size = buf_sz;
 	req.num_cols = hweight32(aie_bitmap);
 	req.aie_bitmap = aie_bitmap;
 
 	drm_clflush_virt_range(buff_addr, size); /* device can access */
-	ret = aie2_send_mgmt_msg_wait(ndev, &msg);
+	ret = aie_send_mgmt_msg_wait(&ndev->aie, &msg);
 	if (ret) {
 		XDNA_ERR(xdna, "Error during NPU query, status %d", ret);
 		goto fail;
 	}
 
-	if (resp.status != AIE2_STATUS_SUCCESS) {
-		XDNA_ERR(xdna, "Query NPU status failed, status 0x%x", resp.status);
-		ret = -EINVAL;
-		goto fail;
-	}
 	XDNA_DBG(xdna, "Query NPU status completed");
 
-	if (size < resp.size) {
+	if (buf_sz < resp.size) {
 		ret = -EINVAL;
-		XDNA_ERR(xdna, "Bad buffer size. Available: %u. Needs: %u", size, resp.size);
+		XDNA_ERR(xdna, "Bad buffer size. Available: %u. Needs: %u", buf_sz, resp.size);
 		goto fail;
 	}
 
-	if (copy_to_user(buf, buff_addr, resp.size)) {
+	size = min(size, resp.size);
+	if (copy_to_user(buf, buff_addr, size)) {
 		ret = -EFAULT;
 		XDNA_ERR(xdna, "Failed to copy NPU status to user space");
 		goto fail;
@@ -354,7 +415,58 @@ int aie2_query_status(struct amdxdna_dev_hdl *ndev, char __user *buf,
 	*cols_filled = aie_bitmap;
 
 fail:
-	dma_free_noncoherent(xdna->ddev.dev, size, buff_addr, dma_addr, DMA_FROM_DEVICE);
+	aie2_free_msg_buffer(ndev, buf_sz, buff_addr, dma_addr);
+	return ret;
+}
+
+int aie2_query_telemetry(struct amdxdna_dev_hdl *ndev,
+			 char __user *buf, u32 size,
+			 struct amdxdna_drm_query_telemetry_header *header)
+{
+	DECLARE_AIE_MSG(get_telemetry, MSG_OP_GET_TELEMETRY);
+	struct amdxdna_dev *xdna = ndev->aie.xdna;
+	dma_addr_t dma_addr;
+	u32 buf_sz;
+	u8 *addr;
+	int ret;
+
+	if (header->type >= MAX_TELEMETRY_TYPE)
+		return -EINVAL;
+
+	buf_sz = min(size, SZ_4M);
+	addr = aie2_alloc_msg_buffer(ndev, &buf_sz, &dma_addr);
+	if (IS_ERR(addr))
+		return PTR_ERR(addr);
+
+	req.buf_addr = dma_addr;
+	req.buf_size = buf_sz;
+	req.type = header->type;
+
+	drm_clflush_virt_range(addr, size); /* device can access */
+	ret = aie_send_mgmt_msg_wait(&ndev->aie, &msg);
+	if (ret) {
+		XDNA_ERR(xdna, "Query telemetry failed, status %d", ret);
+		goto free_buf;
+	}
+
+	if (buf_sz < resp.size) {
+		ret = -EINVAL;
+		XDNA_ERR(xdna, "Bad buffer size. Available: %u. Needs: %u", buf_sz, resp.size);
+		goto free_buf;
+	}
+
+	size = min(size, resp.size);
+	if (copy_to_user(buf, addr, size)) {
+		ret = -EFAULT;
+		XDNA_ERR(xdna, "Failed to copy telemetry to user space");
+		goto free_buf;
+	}
+
+	header->major = resp.major;
+	header->minor = resp.minor;
+
+free_buf:
+	aie2_free_msg_buffer(ndev, buf_sz, addr, dma_addr);
 	return ret;
 }
 
@@ -373,22 +485,27 @@ int aie2_register_asyn_event_msg(struct amdxdna_dev_hdl *ndev, dma_addr_t addr, 
 	req.buf_addr = addr;
 	req.buf_size = size;
 
-	XDNA_DBG(ndev->xdna, "Register addr 0x%llx size 0x%x", addr, size);
-	return xdna_mailbox_send_msg(ndev->mgmt_chann, &msg, TX_TIMEOUT);
+	XDNA_DBG(ndev->aie.xdna, "Register addr 0x%llx size 0x%x", addr, size);
+	return xdna_mailbox_send_msg(ndev->aie.mgmt_chann, &msg, TX_TIMEOUT);
 }
 
-int aie2_config_cu(struct amdxdna_hwctx *hwctx)
+int aie2_config_cu(struct amdxdna_hwctx *hwctx,
+		   int (*notify_cb)(void *, void __iomem *, size_t))
 {
 	struct mailbox_channel *chann = hwctx->priv->mbox_chann;
 	struct amdxdna_dev *xdna = hwctx->client->xdna;
 	u32 shift = xdna->dev_info->dev_mem_buf_shift;
-	DECLARE_AIE2_MSG(config_cu, MSG_OP_CONFIG_CU);
+	struct config_cu_req req = { 0 };
+	struct xdna_mailbox_msg msg;
 	struct drm_gem_object *gobj;
 	struct amdxdna_gem_obj *abo;
-	int ret, i;
+	int i;
 
 	if (!chann)
 		return -ENODEV;
+
+	if (!hwctx->cus)
+		return 0;
 
 	if (hwctx->cus->num_cus > MAX_NUM_CUS) {
 		XDNA_DBG(xdna, "Exceed maximum CU %d", MAX_NUM_CUS);
@@ -415,26 +532,399 @@ int aie2_config_cu(struct amdxdna_hwctx *hwctx)
 		}
 
 		req.cfgs[i] = FIELD_PREP(AIE2_MSG_CFG_CU_PDI_ADDR,
-					 abo->mem.dev_addr >> shift);
+					 amdxdna_gem_dev_addr(abo) >> shift);
 		req.cfgs[i] |= FIELD_PREP(AIE2_MSG_CFG_CU_FUNC, cu->cu_func);
 		XDNA_DBG(xdna, "CU %d full addr 0x%llx, cfg 0x%x", i,
-			 abo->mem.dev_addr, req.cfgs[i]);
+			 amdxdna_gem_dev_addr(abo), req.cfgs[i]);
 		drm_gem_object_put(gobj);
 	}
 	req.num_cus = hwctx->cus->num_cus;
 
-	ret = xdna_send_msg_wait(xdna, chann, &msg);
-	if (ret == -ETIME)
-		aie2_destroy_context(xdna->dev_handle, hwctx);
+	msg.send_data = (u8 *)&req;
+	msg.send_size = sizeof(req);
+	msg.handle = hwctx;
+	msg.opcode = MSG_OP_CONFIG_CU;
+	msg.notify_cb = notify_cb;
+	return xdna_mailbox_send_msg(chann, &msg, TX_TIMEOUT);
+}
 
-	if (resp.status == AIE2_STATUS_SUCCESS) {
-		XDNA_DBG(xdna, "Configure %d CUs, ret %d", req.num_cus, ret);
-		return 0;
+static int aie2_init_exec_cu_req(struct amdxdna_gem_obj *cmd_bo, void *req,
+				 size_t *size, u32 *msg_op)
+{
+	struct execute_buffer_req *cu_req = req;
+	u32 cmd_len;
+	void *cmd;
+
+	cmd = amdxdna_cmd_get_payload(cmd_bo, &cmd_len);
+	if (cmd_len > sizeof(cu_req->payload))
+		return -EINVAL;
+
+	cu_req->cu_idx = amdxdna_cmd_get_cu_idx(cmd_bo);
+	if (cu_req->cu_idx == INVALID_CU_IDX)
+		return -EINVAL;
+
+	memcpy(cu_req->payload, cmd, cmd_len);
+
+	*size = sizeof(*cu_req);
+	*msg_op = MSG_OP_EXECUTE_BUFFER_CF;
+	return 0;
+}
+
+static int aie2_init_exec_dpu_req(struct amdxdna_gem_obj *cmd_bo, void *req,
+				  size_t *size, u32 *msg_op)
+{
+	struct exec_dpu_req *dpu_req = req;
+	struct amdxdna_cmd_start_npu *sn;
+	u32 cmd_len;
+
+	sn = amdxdna_cmd_get_payload(cmd_bo, &cmd_len);
+	if (cmd_len - sizeof(*sn) > sizeof(dpu_req->payload))
+		return -EINVAL;
+
+	dpu_req->cu_idx = amdxdna_cmd_get_cu_idx(cmd_bo);
+	if (dpu_req->cu_idx == INVALID_CU_IDX)
+		return -EINVAL;
+
+	dpu_req->inst_buf_addr = sn->buffer;
+	dpu_req->inst_size = sn->buffer_size;
+	dpu_req->inst_prop_cnt = sn->prop_count;
+	memcpy(dpu_req->payload, sn->prop_args, cmd_len - sizeof(*sn));
+
+	*size = sizeof(*dpu_req);
+	*msg_op = MSG_OP_EXEC_DPU;
+	return 0;
+}
+
+static void aie2_init_exec_chain_req(void *req, u64 slot_addr, size_t size, u32 cmd_cnt)
+{
+	struct cmd_chain_req *chain_req = req;
+
+	chain_req->buf_addr = slot_addr;
+	chain_req->buf_size = size;
+	chain_req->count = cmd_cnt;
+}
+
+static void aie2_init_npu_chain_req(void *req, u64 slot_addr, size_t size, u32 cmd_cnt)
+{
+	struct cmd_chain_npu_req *npu_chain_req = req;
+
+	npu_chain_req->flags = 0;
+	npu_chain_req->reserved = 0;
+	npu_chain_req->buf_addr = slot_addr;
+	npu_chain_req->buf_size = size;
+	npu_chain_req->count = cmd_cnt;
+}
+
+static int
+aie2_cmdlist_fill_cf(struct amdxdna_gem_obj *cmd_bo, void *slot, size_t *size)
+{
+	struct cmd_chain_slot_execbuf_cf *cf_slot = slot;
+	u32 cmd_len;
+	void *cmd;
+
+	cmd = amdxdna_cmd_get_payload(cmd_bo, &cmd_len);
+	if (*size < sizeof(*cf_slot) + cmd_len)
+		return -EINVAL;
+
+	cf_slot->cu_idx = amdxdna_cmd_get_cu_idx(cmd_bo);
+	if (cf_slot->cu_idx == INVALID_CU_IDX)
+		return -EINVAL;
+
+	cf_slot->arg_cnt = cmd_len / sizeof(u32);
+	memcpy(cf_slot->args, cmd, cmd_len);
+	/* Accurate slot size to hint firmware to do necessary copy */
+	*size = sizeof(*cf_slot) + cmd_len;
+	return 0;
+}
+
+static int
+aie2_cmdlist_fill_dpu(struct amdxdna_gem_obj *cmd_bo, void *slot, size_t *size)
+{
+	struct cmd_chain_slot_dpu *dpu_slot = slot;
+	struct amdxdna_cmd_start_npu *sn;
+	u32 cmd_len;
+	u32 arg_sz;
+
+	sn = amdxdna_cmd_get_payload(cmd_bo, &cmd_len);
+	arg_sz = cmd_len - sizeof(*sn);
+	if (cmd_len < sizeof(*sn) || arg_sz > MAX_DPU_ARGS_SIZE)
+		return -EINVAL;
+
+	if (*size < sizeof(*dpu_slot) + arg_sz)
+		return -EINVAL;
+
+	dpu_slot->cu_idx = amdxdna_cmd_get_cu_idx(cmd_bo);
+	if (dpu_slot->cu_idx == INVALID_CU_IDX)
+		return -EINVAL;
+
+	dpu_slot->inst_buf_addr = sn->buffer;
+	dpu_slot->inst_size = sn->buffer_size;
+	dpu_slot->inst_prop_cnt = sn->prop_count;
+	dpu_slot->arg_cnt = arg_sz / sizeof(u32);
+	memcpy(dpu_slot->args, sn->prop_args, arg_sz);
+
+	/* Accurate slot size to hint firmware to do necessary copy */
+	*size = sizeof(*dpu_slot) + arg_sz;
+	return 0;
+}
+
+static int aie2_cmdlist_unsupp(struct amdxdna_gem_obj *cmd_bo, void *slot, size_t *size)
+{
+	return -EOPNOTSUPP;
+}
+
+static u32 aie2_get_chain_msg_op(u32 cmd_op)
+{
+	switch (cmd_op) {
+	case ERT_START_CU:
+		return MSG_OP_CHAIN_EXEC_BUFFER_CF;
+	case ERT_START_NPU:
+		return MSG_OP_CHAIN_EXEC_DPU;
+	default:
+		break;
 	}
 
-	XDNA_ERR(xdna, "Command opcode 0x%x failed, status 0x%x ret %d",
-		 msg.opcode, resp.status, ret);
+	return MSG_OP_MAX_OPCODE;
+}
+
+static struct aie2_exec_msg_ops legacy_exec_message_ops = {
+	.init_cu_req = aie2_init_exec_cu_req,
+	.init_dpu_req = aie2_init_exec_dpu_req,
+	.init_chain_req = aie2_init_exec_chain_req,
+	.fill_cf_slot = aie2_cmdlist_fill_cf,
+	.fill_dpu_slot = aie2_cmdlist_fill_dpu,
+	.fill_preempt_slot = aie2_cmdlist_unsupp,
+	.fill_elf_slot = aie2_cmdlist_unsupp,
+	.get_chain_msg_op = aie2_get_chain_msg_op,
+};
+
+static int
+aie2_cmdlist_fill_npu_cf(struct amdxdna_gem_obj *cmd_bo, void *slot, size_t *size)
+{
+	struct cmd_chain_slot_npu *npu_slot = slot;
+	u32 cmd_len;
+	void *cmd;
+
+	cmd = amdxdna_cmd_get_payload(cmd_bo, &cmd_len);
+	if (*size < sizeof(*npu_slot) + cmd_len)
+		return -EINVAL;
+
+	memset(npu_slot, 0, sizeof(*npu_slot));
+	npu_slot->cu_idx = amdxdna_cmd_get_cu_idx(cmd_bo);
+	if (npu_slot->cu_idx == INVALID_CU_IDX)
+		return -EINVAL;
+
+	npu_slot->type = EXEC_NPU_TYPE_NON_ELF;
+	npu_slot->arg_cnt = cmd_len / sizeof(u32);
+	memcpy(npu_slot->args, cmd, cmd_len);
+
+	*size = sizeof(*npu_slot) + cmd_len;
+	return 0;
+}
+
+static int
+aie2_cmdlist_fill_npu_dpu(struct amdxdna_gem_obj *cmd_bo, void *slot, size_t *size)
+{
+	struct cmd_chain_slot_npu *npu_slot = slot;
+	struct amdxdna_cmd_start_npu *sn;
+	u32 cmd_len;
+	u32 arg_sz;
+
+	sn = amdxdna_cmd_get_payload(cmd_bo, &cmd_len);
+	arg_sz = cmd_len - sizeof(*sn);
+	if (cmd_len < sizeof(*sn) || arg_sz > MAX_NPU_ARGS_SIZE)
+		return -EINVAL;
+
+	if (*size < sizeof(*npu_slot) + arg_sz)
+		return -EINVAL;
+
+	memset(npu_slot, 0, sizeof(*npu_slot));
+	npu_slot->cu_idx = amdxdna_cmd_get_cu_idx(cmd_bo);
+	if (npu_slot->cu_idx == INVALID_CU_IDX)
+		return -EINVAL;
+
+	npu_slot->type = EXEC_NPU_TYPE_PARTIAL_ELF;
+	npu_slot->inst_buf_addr = sn->buffer;
+	npu_slot->inst_size = sn->buffer_size;
+	npu_slot->inst_prop_cnt = sn->prop_count;
+	npu_slot->arg_cnt = arg_sz / sizeof(u32);
+	memcpy(npu_slot->args, sn->prop_args, arg_sz);
+
+	*size = sizeof(*npu_slot) + arg_sz;
+	return 0;
+}
+
+static int
+aie2_cmdlist_fill_npu_preempt(struct amdxdna_gem_obj *cmd_bo, void *slot, size_t *size)
+{
+	struct cmd_chain_slot_npu *npu_slot = slot;
+	struct amdxdna_cmd_preempt_data *pd;
+	u32 cmd_len;
+	u32 arg_sz;
+
+	pd = amdxdna_cmd_get_payload(cmd_bo, &cmd_len);
+	arg_sz = cmd_len - sizeof(*pd);
+	if (cmd_len < sizeof(*pd) || arg_sz > MAX_NPU_ARGS_SIZE)
+		return -EINVAL;
+
+	if (*size < sizeof(*npu_slot) + arg_sz)
+		return -EINVAL;
+
+	memset(npu_slot, 0, sizeof(*npu_slot));
+	npu_slot->cu_idx = amdxdna_cmd_get_cu_idx(cmd_bo);
+	if (npu_slot->cu_idx == INVALID_CU_IDX)
+		return -EINVAL;
+
+	npu_slot->type = EXEC_NPU_TYPE_PREEMPT;
+	npu_slot->inst_buf_addr = pd->inst_buf;
+	npu_slot->save_buf_addr = pd->save_buf;
+	npu_slot->restore_buf_addr = pd->restore_buf;
+	npu_slot->inst_size = pd->inst_size;
+	npu_slot->save_size = pd->save_size;
+	npu_slot->restore_size = pd->restore_size;
+	npu_slot->inst_prop_cnt = pd->inst_prop_cnt;
+	npu_slot->arg_cnt = arg_sz / sizeof(u32);
+	memcpy(npu_slot->args, pd->prop_args, arg_sz);
+
+	*size = sizeof(*npu_slot) + arg_sz;
+	return 0;
+}
+
+static int
+aie2_cmdlist_fill_npu_elf(struct amdxdna_gem_obj *cmd_bo, void *slot, size_t *size)
+{
+	struct cmd_chain_slot_npu *npu_slot = slot;
+	struct amdxdna_cmd_preempt_data *pd;
+	u32 cmd_len;
+	u32 arg_sz;
+
+	pd = amdxdna_cmd_get_payload(cmd_bo, &cmd_len);
+	arg_sz = cmd_len - sizeof(*pd);
+	if (cmd_len < sizeof(*pd) || arg_sz > MAX_NPU_ARGS_SIZE)
+		return -EINVAL;
+
+	if (*size < sizeof(*npu_slot) + arg_sz)
+		return -EINVAL;
+
+	memset(npu_slot, 0, sizeof(*npu_slot));
+	npu_slot->type = EXEC_NPU_TYPE_ELF;
+	npu_slot->inst_buf_addr = pd->inst_buf;
+	npu_slot->save_buf_addr = pd->save_buf;
+	npu_slot->restore_buf_addr = pd->restore_buf;
+	npu_slot->inst_size = pd->inst_size;
+	npu_slot->save_size = pd->save_size;
+	npu_slot->restore_size = pd->restore_size;
+	npu_slot->inst_prop_cnt = pd->inst_prop_cnt;
+	npu_slot->arg_cnt = 1;
+	npu_slot->args[0] = AIE2_EXEC_BUFFER_KERNEL_OP_TXN;
+
+	*size = struct_size(npu_slot, args, npu_slot->arg_cnt);
+	return 0;
+}
+
+static u32 aie2_get_npu_chain_msg_op(u32 cmd_op)
+{
+	return MSG_OP_CHAIN_EXEC_NPU;
+}
+
+static struct aie2_exec_msg_ops npu_exec_message_ops = {
+	.init_cu_req = aie2_init_exec_cu_req,
+	.init_dpu_req = aie2_init_exec_dpu_req,
+	.init_chain_req = aie2_init_npu_chain_req,
+	.fill_cf_slot = aie2_cmdlist_fill_npu_cf,
+	.fill_dpu_slot = aie2_cmdlist_fill_npu_dpu,
+	.fill_preempt_slot = aie2_cmdlist_fill_npu_preempt,
+	.fill_elf_slot = aie2_cmdlist_fill_npu_elf,
+	.get_chain_msg_op = aie2_get_npu_chain_msg_op,
+};
+
+static int aie2_init_exec_req(void *req, struct amdxdna_gem_obj *cmd_abo,
+			      size_t *size, u32 *msg_op)
+{
+	struct amdxdna_dev *xdna = cmd_abo->client->xdna;
+	int ret;
+	u32 op;
+
+	op = amdxdna_cmd_get_op(cmd_abo);
+	switch (op) {
+	case ERT_START_CU:
+		ret = EXEC_MSG_OPS(xdna)->init_cu_req(cmd_abo, req, size, msg_op);
+		if (ret) {
+			XDNA_DBG(xdna, "Init CU req failed ret %d", ret);
+			return ret;
+		}
+		break;
+	case ERT_START_NPU:
+		ret = EXEC_MSG_OPS(xdna)->init_dpu_req(cmd_abo, req, size, msg_op);
+		if (ret) {
+			XDNA_DBG(xdna, "Init DPU req failed ret %d", ret);
+			return ret;
+		}
+
+		break;
+	default:
+		XDNA_ERR(xdna, "Unsupported op %d", op);
+		ret = -EOPNOTSUPP;
+		break;
+	}
+
 	return ret;
+}
+
+static int
+aie2_cmdlist_fill_slot(void *slot, struct amdxdna_gem_obj *cmd_abo,
+		       size_t *size, u32 *cmd_op)
+{
+	struct amdxdna_dev *xdna = cmd_abo->client->xdna;
+	int ret;
+	u32 op;
+
+	op = amdxdna_cmd_get_op(cmd_abo);
+	if (*cmd_op == ERT_INVALID_CMD)
+		*cmd_op = op;
+	else if (op != *cmd_op)
+		return -EINVAL;
+
+	switch (op) {
+	case ERT_START_CU:
+		ret = EXEC_MSG_OPS(xdna)->fill_cf_slot(cmd_abo, slot, size);
+		break;
+	case ERT_START_NPU:
+		ret = EXEC_MSG_OPS(xdna)->fill_dpu_slot(cmd_abo, slot, size);
+		break;
+	case ERT_START_NPU_PREEMPT:
+		if (!AIE_FEATURE_ON(&xdna->dev_handle->aie, AIE2_PREEMPT))
+			return -EOPNOTSUPP;
+		ret = EXEC_MSG_OPS(xdna)->fill_preempt_slot(cmd_abo, slot, size);
+		break;
+	case ERT_START_NPU_PREEMPT_ELF:
+		if (!AIE_FEATURE_ON(&xdna->dev_handle->aie, AIE2_PREEMPT))
+			return -EOPNOTSUPP;
+		ret = EXEC_MSG_OPS(xdna)->fill_elf_slot(cmd_abo, slot, size);
+		break;
+	default:
+		XDNA_INFO(xdna, "Unsupported op %d", op);
+		ret = -EOPNOTSUPP;
+		break;
+	}
+
+	return ret;
+}
+
+void aie2_msg_init(struct amdxdna_dev_hdl *ndev)
+{
+	if (AIE_FEATURE_ON(&ndev->aie, AIE2_NPU_COMMAND))
+		ndev->exec_msg_ops = &npu_exec_message_ops;
+	else
+		ndev->exec_msg_ops = &legacy_exec_message_ops;
+}
+
+static inline struct amdxdna_gem_obj *
+aie2_cmdlist_get_cmd_buf(struct amdxdna_sched_job *job)
+{
+	int idx = get_job_idx(job->seq);
+
+	return job->hwctx->priv->cmd_buf[idx];
 }
 
 int aie2_execbuf(struct amdxdna_hwctx *hwctx, struct amdxdna_sched_job *job,
@@ -443,60 +933,17 @@ int aie2_execbuf(struct amdxdna_hwctx *hwctx, struct amdxdna_sched_job *job,
 	struct mailbox_channel *chann = hwctx->priv->mbox_chann;
 	struct amdxdna_dev *xdna = hwctx->client->xdna;
 	struct amdxdna_gem_obj *cmd_abo = job->cmd_bo;
-	union {
-		struct execute_buffer_req ebuf;
-		struct exec_dpu_req dpu;
-	} req;
 	struct xdna_mailbox_msg msg;
-	u32 payload_len;
-	void *payload;
-	int cu_idx;
+	union exec_req req;
 	int ret;
-	u32 op;
 
 	if (!chann)
 		return -ENODEV;
 
-	payload = amdxdna_cmd_get_payload(cmd_abo, &payload_len);
-	if (!payload) {
-		XDNA_ERR(xdna, "Invalid command, cannot get payload");
-		return -EINVAL;
-	}
+	ret = aie2_init_exec_req(&req, cmd_abo, &msg.send_size, &msg.opcode);
+	if (ret)
+		return ret;
 
-	cu_idx = amdxdna_cmd_get_cu_idx(cmd_abo);
-	if (cu_idx < 0) {
-		XDNA_DBG(xdna, "Invalid cu idx");
-		return -EINVAL;
-	}
-
-	op = amdxdna_cmd_get_op(cmd_abo);
-	switch (op) {
-	case ERT_START_CU:
-		if (unlikely(payload_len > sizeof(req.ebuf.payload)))
-			XDNA_DBG(xdna, "Invalid ebuf payload len: %d", payload_len);
-		req.ebuf.cu_idx = cu_idx;
-		memcpy(req.ebuf.payload, payload, sizeof(req.ebuf.payload));
-		msg.send_size = sizeof(req.ebuf);
-		msg.opcode = MSG_OP_EXECUTE_BUFFER_CF;
-		break;
-	case ERT_START_NPU: {
-		struct amdxdna_cmd_start_npu *sn = payload;
-
-		if (unlikely(payload_len - sizeof(*sn) > sizeof(req.dpu.payload)))
-			XDNA_DBG(xdna, "Invalid dpu payload len: %d", payload_len);
-		req.dpu.inst_buf_addr = sn->buffer;
-		req.dpu.inst_size = sn->buffer_size;
-		req.dpu.inst_prop_cnt = sn->prop_count;
-		req.dpu.cu_idx = cu_idx;
-		memcpy(req.dpu.payload, sn->prop_args, sizeof(req.dpu.payload));
-		msg.send_size = sizeof(req.dpu);
-		msg.opcode = MSG_OP_EXEC_DPU;
-		break;
-	}
-	default:
-		XDNA_DBG(xdna, "Invalid ERT cmd op code: %d", op);
-		return -EINVAL;
-	}
 	msg.handle = job;
 	msg.notify_cb = notify_cb;
 	msg.send_data = (u8 *)&req;
@@ -512,135 +959,6 @@ int aie2_execbuf(struct amdxdna_hwctx *hwctx, struct amdxdna_sched_job *job,
 	return 0;
 }
 
-static int
-aie2_cmdlist_fill_one_slot_cf(void *cmd_buf, u32 offset,
-			      struct amdxdna_gem_obj *abo, u32 *size)
-{
-	struct cmd_chain_slot_execbuf_cf *buf = cmd_buf + offset;
-	int cu_idx = amdxdna_cmd_get_cu_idx(abo);
-	u32 payload_len;
-	void *payload;
-
-	if (cu_idx < 0)
-		return -EINVAL;
-
-	payload = amdxdna_cmd_get_payload(abo, &payload_len);
-	if (!payload)
-		return -EINVAL;
-
-	if (!slot_has_space(*buf, offset, payload_len))
-		return -ENOSPC;
-
-	buf->cu_idx = cu_idx;
-	buf->arg_cnt = payload_len / sizeof(u32);
-	memcpy(buf->args, payload, payload_len);
-	/* Accurate buf size to hint firmware to do necessary copy */
-	*size = sizeof(*buf) + payload_len;
-	return 0;
-}
-
-static int
-aie2_cmdlist_fill_one_slot_dpu(void *cmd_buf, u32 offset,
-			       struct amdxdna_gem_obj *abo, u32 *size)
-{
-	struct cmd_chain_slot_dpu *buf = cmd_buf + offset;
-	int cu_idx = amdxdna_cmd_get_cu_idx(abo);
-	struct amdxdna_cmd_start_npu *sn;
-	u32 payload_len;
-	void *payload;
-	u32 arg_sz;
-
-	if (cu_idx < 0)
-		return -EINVAL;
-
-	payload = amdxdna_cmd_get_payload(abo, &payload_len);
-	if (!payload)
-		return -EINVAL;
-	sn = payload;
-	arg_sz = payload_len - sizeof(*sn);
-	if (payload_len < sizeof(*sn) || arg_sz > MAX_DPU_ARGS_SIZE)
-		return -EINVAL;
-
-	if (!slot_has_space(*buf, offset, arg_sz))
-		return -ENOSPC;
-
-	buf->inst_buf_addr = sn->buffer;
-	buf->inst_size = sn->buffer_size;
-	buf->inst_prop_cnt = sn->prop_count;
-	buf->cu_idx = cu_idx;
-	buf->arg_cnt = arg_sz / sizeof(u32);
-	memcpy(buf->args, sn->prop_args, arg_sz);
-
-	/* Accurate buf size to hint firmware to do necessary copy */
-	*size = sizeof(*buf) + arg_sz;
-	return 0;
-}
-
-static int
-aie2_cmdlist_fill_one_slot(u32 op, struct amdxdna_gem_obj *cmdbuf_abo, u32 offset,
-			   struct amdxdna_gem_obj *abo, u32 *size)
-{
-	u32 this_op = amdxdna_cmd_get_op(abo);
-	void *cmd_buf = cmdbuf_abo->mem.kva;
-	int ret;
-
-	if (this_op != op) {
-		ret = -EINVAL;
-		goto done;
-	}
-
-	switch (op) {
-	case ERT_START_CU:
-		ret = aie2_cmdlist_fill_one_slot_cf(cmd_buf, offset, abo, size);
-		break;
-	case ERT_START_NPU:
-		ret = aie2_cmdlist_fill_one_slot_dpu(cmd_buf, offset, abo, size);
-		break;
-	default:
-		ret = -EOPNOTSUPP;
-	}
-
-done:
-	if (ret) {
-		XDNA_ERR(abo->client->xdna, "Can't fill slot for cmd op %d ret %d",
-			 op, ret);
-	}
-	return ret;
-}
-
-static inline struct amdxdna_gem_obj *
-aie2_cmdlist_get_cmd_buf(struct amdxdna_sched_job *job)
-{
-	int idx = get_job_idx(job->seq);
-
-	return job->hwctx->priv->cmd_buf[idx];
-}
-
-static void
-aie2_cmdlist_prepare_request(struct cmd_chain_req *req,
-			     struct amdxdna_gem_obj *cmdbuf_abo, u32 size, u32 cnt)
-{
-	req->buf_addr = cmdbuf_abo->mem.dev_addr;
-	req->buf_size = size;
-	req->count = cnt;
-	drm_clflush_virt_range(cmdbuf_abo->mem.kva, size);
-	XDNA_DBG(cmdbuf_abo->client->xdna, "Command buf addr 0x%llx size 0x%x count %d",
-		 req->buf_addr, size, cnt);
-}
-
-static inline u32
-aie2_cmd_op_to_msg_op(u32 op)
-{
-	switch (op) {
-	case ERT_START_CU:
-		return MSG_OP_CHAIN_EXEC_BUFFER_CF;
-	case ERT_START_NPU:
-		return MSG_OP_CHAIN_EXEC_DPU;
-	default:
-		return MSG_OP_MAX_OPCODE;
-	}
-}
-
 int aie2_cmdlist_multi_execbuf(struct amdxdna_hwctx *hwctx,
 			       struct amdxdna_sched_job *job,
 			       int (*notify_cb)(void *, void __iomem *, size_t))
@@ -649,57 +967,81 @@ int aie2_cmdlist_multi_execbuf(struct amdxdna_hwctx *hwctx,
 	struct mailbox_channel *chann = hwctx->priv->mbox_chann;
 	struct amdxdna_client *client = hwctx->client;
 	struct amdxdna_gem_obj *cmd_abo = job->cmd_bo;
+	void *cmd_buf = amdxdna_gem_vmap(cmdbuf_abo);
+	struct amdxdna_dev *xdna = client->xdna;
 	struct amdxdna_cmd_chain *payload;
 	struct xdna_mailbox_msg msg;
-	struct cmd_chain_req req;
-	u32 payload_len;
+	union exec_chain_req req;
+	u32 payload_len, ccnt;
 	u32 offset = 0;
-	u32 size;
+	size_t size;
 	int ret;
 	u32 op;
 	u32 i;
 
+	if (!cmd_buf)
+		return -ENOMEM;
+
 	op = amdxdna_cmd_get_op(cmd_abo);
 	payload = amdxdna_cmd_get_payload(cmd_abo, &payload_len);
-	if (op != ERT_CMD_CHAIN || !payload ||
-	    payload_len < struct_size(payload, data, payload->command_count))
+	if (op != ERT_CMD_CHAIN) {
+		XDNA_DBG(xdna, "Invalid op code %d", op);
 		return -EINVAL;
+	}
 
-	for (i = 0; i < payload->command_count; i++) {
+	if (!payload) {
+		XDNA_DBG(xdna, "Failed to get command payload");
+		return -EINVAL;
+	}
+
+	ccnt = payload->command_count;
+	if (payload_len < struct_size(payload, data, ccnt)) {
+		XDNA_DBG(xdna, "Invalid command count %d", ccnt);
+		return -EINVAL;
+	}
+
+	op = ERT_INVALID_CMD;
+	for (i = 0; i < ccnt; i++) {
 		u32 boh = (u32)(payload->data[i]);
 		struct amdxdna_gem_obj *abo;
 
-		abo = amdxdna_gem_get_obj(client, boh, AMDXDNA_BO_CMD);
+		abo = amdxdna_gem_get_obj(client, boh, AMDXDNA_BO_SHARE);
 		if (!abo) {
-			XDNA_ERR(client->xdna, "Failed to find cmd BO %d", boh);
+			XDNA_ERR(xdna, "Failed to find cmd BO %d", boh);
 			return -ENOENT;
 		}
 
-		/* All sub-cmd should have same op, use the first one. */
-		if (i == 0)
-			op = amdxdna_cmd_get_op(abo);
-
-		ret = aie2_cmdlist_fill_one_slot(op, cmdbuf_abo, offset, abo, &size);
+		size = cmdbuf_abo->mem.size - offset;
+		ret = aie2_cmdlist_fill_slot(cmd_buf + offset, abo, &size, &op);
 		amdxdna_gem_put_obj(abo);
 		if (ret)
-			return -EINVAL;
+			return ret;
 
 		offset += size;
 	}
 
-	/* The offset is the accumulated total size of the cmd buffer */
-	aie2_cmdlist_prepare_request(&req, cmdbuf_abo, offset, payload->command_count);
+	XDNA_DBG(xdna, "Total %d commands:", ccnt);
+	print_hex_dump_debug("cmdbufs: ", DUMP_PREFIX_OFFSET, 16, 4,
+			     cmd_buf, offset, false);
 
-	msg.opcode = aie2_cmd_op_to_msg_op(op);
+	msg.opcode = EXEC_MSG_OPS(xdna)->get_chain_msg_op(op);
 	if (msg.opcode == MSG_OP_MAX_OPCODE)
 		return -EOPNOTSUPP;
+
+	/* The offset is the accumulated total size of the cmd buffer */
+	EXEC_MSG_OPS(xdna)->init_chain_req(&req, amdxdna_gem_dev_addr(cmdbuf_abo),
+					   offset, ccnt);
+	drm_clflush_virt_range(cmd_buf, offset);
+
 	msg.handle = job;
 	msg.notify_cb = notify_cb;
 	msg.send_data = (u8 *)&req;
 	msg.send_size = sizeof(req);
+	print_hex_dump_debug("cmdlist msg: ", DUMP_PREFIX_OFFSET, 16, 4,
+			     &req, msg.send_size, false);
 	ret = xdna_mailbox_send_msg(chann, &msg, TX_TIMEOUT);
 	if (ret) {
-		XDNA_ERR(hwctx->client->xdna, "Send message failed");
+		XDNA_ERR(xdna, "Send message failed");
 		return ret;
 	}
 
@@ -712,27 +1054,38 @@ int aie2_cmdlist_single_execbuf(struct amdxdna_hwctx *hwctx,
 {
 	struct amdxdna_gem_obj *cmdbuf_abo = aie2_cmdlist_get_cmd_buf(job);
 	struct mailbox_channel *chann = hwctx->priv->mbox_chann;
+	struct amdxdna_dev *xdna = hwctx->client->xdna;
 	struct amdxdna_gem_obj *cmd_abo = job->cmd_bo;
+	void *cmd_buf = amdxdna_gem_vmap(cmdbuf_abo);
 	struct xdna_mailbox_msg msg;
-	struct cmd_chain_req req;
-	u32 size;
+	union exec_chain_req req;
+	u32 op = ERT_INVALID_CMD;
+	size_t size;
 	int ret;
-	u32 op;
 
-	op = amdxdna_cmd_get_op(cmd_abo);
-	ret = aie2_cmdlist_fill_one_slot(op, cmdbuf_abo, 0, cmd_abo, &size);
+	if (!cmd_buf)
+		return -ENOMEM;
+
+	size = cmdbuf_abo->mem.size;
+	ret = aie2_cmdlist_fill_slot(cmd_buf, cmd_abo, &size, &op);
 	if (ret)
 		return ret;
 
-	aie2_cmdlist_prepare_request(&req, cmdbuf_abo, size, 1);
+	print_hex_dump_debug("cmdbuf: ", DUMP_PREFIX_OFFSET, 16, 4, cmd_buf, size, false);
 
-	msg.opcode = aie2_cmd_op_to_msg_op(op);
+	msg.opcode = EXEC_MSG_OPS(xdna)->get_chain_msg_op(op);
 	if (msg.opcode == MSG_OP_MAX_OPCODE)
 		return -EOPNOTSUPP;
+
+	EXEC_MSG_OPS(xdna)->init_chain_req(&req, amdxdna_gem_dev_addr(cmdbuf_abo), size, 1);
+	drm_clflush_virt_range(cmd_buf, size);
+
 	msg.handle = job;
 	msg.notify_cb = notify_cb;
 	msg.send_data = (u8 *)&req;
 	msg.send_size = sizeof(req);
+	print_hex_dump_debug("cmdlist msg: ", DUMP_PREFIX_OFFSET, 16, 4,
+			     &req, msg.send_size, false);
 	ret = xdna_mailbox_send_msg(chann, &msg, TX_TIMEOUT);
 	if (ret) {
 		XDNA_ERR(hwctx->client->xdna, "Send message failed");
@@ -753,7 +1106,7 @@ int aie2_sync_bo(struct amdxdna_hwctx *hwctx, struct amdxdna_sched_job *job,
 	int ret = 0;
 
 	req.src_addr = 0;
-	req.dst_addr = abo->mem.dev_addr - hwctx->client->dev_heap->mem.dev_addr;
+	req.dst_addr = amdxdna_dev_bo_offset(abo);
 	req.size = abo->mem.size;
 
 	/* Device to Host */
@@ -775,5 +1128,144 @@ int aie2_sync_bo(struct amdxdna_hwctx *hwctx, struct amdxdna_sched_job *job,
 		return ret;
 	}
 
+	return 0;
+}
+
+int aie2_config_debug_bo(struct amdxdna_hwctx *hwctx, struct amdxdna_sched_job *job,
+			 int (*notify_cb)(void *, void __iomem *, size_t))
+{
+	struct mailbox_channel *chann = hwctx->priv->mbox_chann;
+	struct amdxdna_gem_obj *abo = to_xdna_obj(job->bos[0]);
+	struct amdxdna_dev *xdna = hwctx->client->xdna;
+	struct config_debug_bo_req req;
+	struct xdna_mailbox_msg msg;
+
+	if (job->drv_cmd->opcode == ATTACH_DEBUG_BO)
+		req.config = DEBUG_BO_REGISTER;
+	else
+		req.config = DEBUG_BO_UNREGISTER;
+
+	req.offset = amdxdna_dev_bo_offset(abo);
+	req.size = abo->mem.size;
+
+	XDNA_DBG(xdna, "offset 0x%llx size 0x%llx config %d",
+		 req.offset, req.size, req.config);
+
+	msg.handle = job;
+	msg.notify_cb = notify_cb;
+	msg.send_data = (u8 *)&req;
+	msg.send_size = sizeof(req);
+	msg.opcode = MSG_OP_CONFIG_DEBUG_BO;
+
+	return xdna_mailbox_send_msg(chann, &msg, TX_TIMEOUT);
+}
+
+int aie2_query_app_health(struct amdxdna_dev_hdl *ndev, u32 context_id,
+			  struct app_health_report *report)
+{
+	DECLARE_AIE_MSG(get_app_health, MSG_OP_GET_APP_HEALTH);
+	struct amdxdna_dev *xdna = ndev->aie.xdna;
+	struct app_health_report *buf;
+	dma_addr_t dma_addr;
+	u32 buf_size;
+	int ret;
+
+	if (!AIE_FEATURE_ON(&ndev->aie, AIE2_APP_HEALTH)) {
+		XDNA_DBG(xdna, "App health feature not supported");
+		return -EOPNOTSUPP;
+	}
+
+	buf_size = sizeof(*report);
+	buf = aie2_alloc_msg_buffer(ndev, &buf_size, &dma_addr);
+	if (IS_ERR(buf)) {
+		XDNA_ERR(xdna, "Failed to allocate buffer for app health");
+		return PTR_ERR(buf);
+	}
+
+	req.buf_addr = dma_addr;
+	req.context_id = context_id;
+	req.buf_size = buf_size;
+
+	drm_clflush_virt_range(buf, sizeof(*report));
+	ret = aie_send_mgmt_msg_wait(&ndev->aie, &msg);
+	if (ret) {
+		XDNA_ERR(xdna, "Get app health failed, ret %d status 0x%x", ret, resp.status);
+		goto free_buf;
+	}
+
+	/* Copy the report to caller's buffer */
+	memcpy(report, buf, sizeof(*report));
+
+free_buf:
+	aie2_free_msg_buffer(ndev, buf_size, buf, dma_addr);
+	return ret;
+}
+
+static int
+aie2_runtime_update_ctx_prop(struct amdxdna_dev_hdl *ndev,
+			     struct amdxdna_hwctx *ctx, u32 type, u32 value)
+{
+	DECLARE_AIE_MSG(update_property, MSG_OP_UPDATE_PROPERTY);
+	struct amdxdna_dev *xdna = ndev->aie.xdna;
+	int ret;
+
+	if (!AIE_FEATURE_ON(&ndev->aie, AIE2_UPDATE_PROPERTY))
+		return -EOPNOTSUPP;
+
+	if (ctx)
+		req.context_id = ctx->fw_ctx_id;
+	else
+		req.context_id = AIE2_UPDATE_PROPERTY_ALL_CTX;
+
+	req.time_quota_us = value;
+	req.type = type;
+
+	ret = aie_send_mgmt_msg_wait(&ndev->aie, &msg);
+	if (ret) {
+		XDNA_ERR(xdna, "%s update property failed, type %d ret %d",
+			 ctx ? ctx->name : "ctx.all", type, ret);
+		return ret;
+	}
+
+	return 0;
+}
+
+int aie2_update_prop_time_quota(struct amdxdna_dev_hdl *ndev, u32 us)
+{
+	struct amdxdna_dev *xdna = ndev->aie.xdna;
+	int ret;
+
+	ret = aie2_runtime_update_ctx_prop(ndev, NULL, UPDATE_PROPERTY_TIME_QUOTA, us);
+	if (ret == -EOPNOTSUPP) {
+		XDNA_DBG(xdna, "update time quota not support, skipped");
+		ret = 0;
+	} else if (!ret) {
+		XDNA_DBG(xdna, "Ctx exec time quantum updated to %u us", us);
+	}
+	return ret;
+}
+
+int aie2_get_dev_revision(struct amdxdna_dev_hdl *ndev, enum aie2_dev_revision *rev)
+{
+	DECLARE_AIE_MSG(get_dev_revision, MSG_OP_GET_DEV_REVISION);
+	struct amdxdna_dev *xdna = ndev->aie.xdna;
+	int ret;
+
+	if (!AIE_FEATURE_ON(&ndev->aie, AIE2_GET_DEV_REVISION))
+		return -EOPNOTSUPP;
+
+	ret = aie_send_mgmt_msg_wait(&ndev->aie, &msg);
+	if (ret)
+		return ret;
+
+	*rev = resp.rev;
+
+	if (*rev < AIE2_DEV_REVISION_STXA || *rev >= AIE2_DEV_REVISION_UNKN) {
+		XDNA_ERR(xdna, "Unknown device revision: %d (raw fuse: 0x%x)",
+			 *rev, resp.raw_fuse_data);
+		return -EINVAL;
+	}
+
+	XDNA_DBG(xdna, "Device revision: %d (raw fuse: 0x%x)", *rev, resp.raw_fuse_data);
 	return 0;
 }

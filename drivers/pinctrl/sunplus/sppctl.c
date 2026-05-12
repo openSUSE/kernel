@@ -488,7 +488,7 @@ static int sppctl_gpio_set_config(struct gpio_chip *chip, unsigned int offset,
 	case PIN_CONFIG_INPUT_ENABLE:
 		break;
 
-	case PIN_CONFIG_OUTPUT:
+	case PIN_CONFIG_LEVEL:
 		return sppctl_gpio_direction_output(chip, offset, 0);
 
 	case PIN_CONFIG_PERSIST_STATE:
@@ -580,7 +580,7 @@ static int sppctl_pin_config_get(struct pinctrl_dev *pctldev, unsigned int pin,
 		arg = 0;
 		break;
 
-	case PIN_CONFIG_OUTPUT:
+	case PIN_CONFIG_LEVEL:
 		if (!sppctl_first_get(&pctl->spp_gchip->chip, pin))
 			return -EINVAL;
 		if (!sppctl_master_get(&pctl->spp_gchip->chip, pin))
@@ -865,7 +865,7 @@ static int sppctl_dt_node_to_map(struct pinctrl_dev *pctldev, struct device_node
 	if (nmG <= 0)
 		nmG = 0;
 
-	*map = kcalloc(*num_maps + nmG, sizeof(**map), GFP_KERNEL);
+	*map = kzalloc_objs(**map, *num_maps + nmG);
 	if (!(*map))
 		return -ENOMEM;
 
@@ -882,7 +882,7 @@ static int sppctl_dt_node_to_map(struct pinctrl_dev *pctldev, struct device_node
 			(*map)[i].type = PIN_MAP_TYPE_CONFIGS_PIN;
 			(*map)[i].data.configs.num_configs = 1;
 			(*map)[i].data.configs.group_or_pin = pin_get_name(pctldev, pin_num);
-			configs = kmalloc(sizeof(*configs), GFP_KERNEL);
+			configs = kmalloc_obj(*configs);
 			if (!configs)
 				goto sppctl_map_err;
 			*configs = FIELD_GET(GENMASK(7, 0), dt_pin);
@@ -897,7 +897,7 @@ static int sppctl_dt_node_to_map(struct pinctrl_dev *pctldev, struct device_node
 			(*map)[i].type = PIN_MAP_TYPE_CONFIGS_PIN;
 			(*map)[i].data.configs.num_configs = 1;
 			(*map)[i].data.configs.group_or_pin = pin_get_name(pctldev, pin_num);
-			configs = kmalloc(sizeof(*configs), GFP_KERNEL);
+			configs = kmalloc_obj(*configs);
 			if (!configs)
 				goto sppctl_map_err;
 			*configs = SPPCTL_IOP_CONFIGS;

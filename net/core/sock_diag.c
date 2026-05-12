@@ -1,5 +1,4 @@
-/* License: GPL */
-
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/filter.h>
 #include <linux/mutex.h>
 #include <linux/socket.h>
@@ -177,7 +176,7 @@ void sock_diag_broadcast_destroy(struct sock *sk)
 {
 	/* Note, this function is often called from an interrupt context. */
 	struct broadcast_sk *bsk =
-		kmalloc(sizeof(struct broadcast_sk), GFP_ATOMIC);
+		kmalloc_obj(struct broadcast_sk, GFP_ATOMIC);
 	if (!bsk)
 		return sk_destruct(sk);
 	bsk->sk = sk;
@@ -348,7 +347,7 @@ static struct pernet_operations diag_net_ops = {
 
 static int __init sock_diag_init(void)
 {
-	broadcast_wq = alloc_workqueue("sock_diag_events", 0, 0);
+	broadcast_wq = alloc_workqueue("sock_diag_events", WQ_PERCPU, 0);
 	BUG_ON(!broadcast_wq);
 	return register_pernet_subsys(&diag_net_ops);
 }

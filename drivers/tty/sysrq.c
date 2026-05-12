@@ -971,7 +971,7 @@ static int sysrq_connect(struct input_handler *handler,
 	struct sysrq_state *sysrq;
 	int error;
 
-	sysrq = kzalloc(sizeof(struct sysrq_state), GFP_KERNEL);
+	sysrq = kzalloc_obj(struct sysrq_state);
 	if (!sysrq)
 		return -ENOMEM;
 
@@ -1133,8 +1133,7 @@ static int sysrq_sysctl_handler(const struct ctl_table *table, int write,
 	 * Behaves like do_proc_dointvec as t does not have min nor max.
 	 */
 	ret = proc_dointvec_minmax(&t, write, buffer, lenp, ppos);
-
-	if (ret || !write)
+	if (ret)
 		return ret;
 
 	if (write)

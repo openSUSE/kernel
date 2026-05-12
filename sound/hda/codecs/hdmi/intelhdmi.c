@@ -85,7 +85,7 @@ static void haswell_set_power_state(struct hda_codec *codec, hda_nid_t fg,
 		}
 	}
 
-	snd_hda_codec_read(codec, fg, 0, AC_VERB_SET_POWER_STATE, power_state);
+	snd_hda_codec_write_sync(codec, fg, 0, AC_VERB_SET_POWER_STATE, power_state);
 	snd_hda_codec_set_power_to_all(codec, fg, power_state);
 }
 
@@ -793,6 +793,7 @@ static const struct hda_device_id snd_hda_id_intelhdmi[] = {
 	HDA_CODEC_ID_MODEL(0x80862820, "Lunar Lake HDMI",	MODEL_ADLP),
 	HDA_CODEC_ID_MODEL(0x80862822, "Panther Lake HDMI",	MODEL_ADLP),
 	HDA_CODEC_ID_MODEL(0x80862823, "Wildcat Lake HDMI",	MODEL_ADLP),
+	HDA_CODEC_ID_MODEL(0x80862824, "Nova Lake HDMI",	MODEL_ADLP),
 	HDA_CODEC_ID_MODEL(0x80862882, "Valleyview2 HDMI",	MODEL_BYT),
 	HDA_CODEC_ID_MODEL(0x80862883, "Braswell HDMI",		MODEL_BYT),
 	{} /* terminator */

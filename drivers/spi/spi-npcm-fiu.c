@@ -13,6 +13,7 @@
 #include <linux/vmalloc.h>
 #include <linux/regmap.h>
 #include <linux/of.h>
+#include <linux/minmax.h>
 #include <linux/spi/spi-mem.h>
 #include <linux/mfd/syscon.h>
 
@@ -498,10 +499,7 @@ static int npcm_fiu_read(struct spi_mem *mem, const struct spi_mem_op *op)
 
 	do {
 		addr = ((u32)op->addr.val + i);
-		if (currlen < 16)
-			readlen = currlen;
-		else
-			readlen = 16;
+		readlen = min_t(int, currlen, 16);
 
 		buf_ptr = data + i;
 		ret = npcm_fiu_uma_read(mem, op, addr, true, buf_ptr,
@@ -717,7 +715,6 @@ static int npcm_fiu_probe(struct platform_device *pdev)
 
 	fiu->info = &fiu_data_match->npcm_fiu_data_info[id];
 
-	platform_set_drvdata(pdev, fiu);
 	fiu->dev = dev;
 
 	regbase = devm_platform_ioremap_resource_byname(pdev, "control");
@@ -740,21 +737,14 @@ static int npcm_fiu_probe(struct platform_device *pdev)
 	fiu->spix_mode = of_property_read_bool(dev->of_node,
 					       "nuvoton,spix-mode");
 
-	platform_set_drvdata(pdev, fiu);
-
 	ctrl->mode_bits = SPI_RX_DUAL | SPI_RX_QUAD
 		| SPI_TX_DUAL | SPI_TX_QUAD;
 	ctrl->setup = npcm_fiu_setup;
 	ctrl->bus_num = -1;
 	ctrl->mem_ops = &npcm_fiu_mem_ops;
 	ctrl->num_chipselect = fiu->info->max_cs;
-	ctrl->dev.of_node = dev->of_node;
 
 	return devm_spi_register_controller(dev, ctrl);
-}
-
-static void npcm_fiu_remove(struct platform_device *pdev)
-{
 }
 
 MODULE_DEVICE_TABLE(of, npcm_fiu_dt_ids);
@@ -766,7 +756,6 @@ static struct platform_driver npcm_fiu_driver = {
 		.of_match_table = npcm_fiu_dt_ids,
 	},
 	.probe = npcm_fiu_probe,
-	.remove = npcm_fiu_remove,
 };
 module_platform_driver(npcm_fiu_driver);
 

@@ -18,13 +18,11 @@ struct crypto_scomp {
 /**
  * struct scomp_alg - synchronous compression algorithm
  *
- * @alloc_ctx:	Function allocates algorithm specific context
- * @free_ctx:	Function frees context allocated with alloc_ctx
  * @compress:	Function performs a compress operation
  * @decompress:	Function performs a de-compress operation
- * @base:	Common crypto API algorithm data structure
  * @streams:	Per-cpu memory for algorithm
  * @calg:	Cmonn algorithm data structure shared with acomp
+ * @COMP_ALG_COMMON: see struct comp_alg_common
  */
 struct scomp_alg {
 	int (*compress)(struct crypto_scomp *tfm, const u8 *src,
@@ -34,13 +32,7 @@ struct scomp_alg {
 			  unsigned int slen, u8 *dst, unsigned int *dlen,
 			  void *ctx);
 
-	union {
-		struct {
-			void *(*alloc_ctx)(void);
-			void (*free_ctx)(void *ctx);
-		};
-		struct crypto_acomp_streams streams;
-	};
+	struct crypto_acomp_streams streams;
 
 	union {
 		struct COMP_ALG_COMMON;

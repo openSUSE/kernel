@@ -108,6 +108,7 @@ struct ksz_irq {
 	int irq_num;
 	char name[16];
 	struct ksz_device *dev;
+	u16 irq0_offset;
 };
 
 struct ksz_ptp_irq {
@@ -128,7 +129,9 @@ struct ksz_port {
 	bool learning;
 	bool isolated;
 	int stp_state;
-	struct phy_device phydev;
+	int speed;
+	int duplex;
+	bool link;
 
 	u32 fiber:1;			/* port is fiber */
 	u32 force:1;
@@ -270,6 +273,12 @@ enum ksz_regs {
 	REG_SW_PME_CTRL,
 	REG_PORT_PME_STATUS,
 	REG_PORT_PME_CTRL,
+	PTP_CLK_CTRL,
+	PTP_RTC_NANOSEC,
+	PTP_RTC_SEC,
+	PTP_RTC_SUB_NANOSEC,
+	PTP_SUBNANOSEC_RATE,
+	PTP_MSG_CONF1,
 };
 
 enum ksz_masks {
@@ -294,6 +303,8 @@ enum ksz_masks {
 	DYNAMIC_MAC_TABLE_TIMESTAMP,
 	ALU_STAT_WRITE,
 	ALU_STAT_READ,
+	ALU_STAT_DIRECT,
+	ALU_RESV_MCAST_ADDR,
 	P_MII_TX_FLOW_CTRL,
 	P_MII_RX_FLOW_CTRL,
 };

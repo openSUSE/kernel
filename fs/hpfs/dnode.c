@@ -33,7 +33,7 @@ int hpfs_add_pos(struct inode *inode, loff_t *pos)
 			if (hpfs_inode->i_rddir_off[i] == pos)
 				return 0;
 	if (!(i&0x0f)) {
-		ppos = kmalloc_array(i + 0x11, sizeof(loff_t *), GFP_NOFS);
+		ppos = kmalloc_objs(loff_t *, i + 0x11, GFP_NOFS);
 		if (!ppos) {
 			pr_err("out of memory for position list\n");
 			return -ENOMEM;
@@ -550,9 +550,9 @@ static void delete_empty_dnode(struct inode *i, dnode_secno dno)
 			if (hpfs_sb(i->i_sb)->sb_chk)
 				if (up != i->i_ino) {
 					hpfs_error(i->i_sb,
-						   "bad pointer to fnode, dnode %08x, pointing to %08x, should be %08lx",
+						   "bad pointer to fnode, dnode %08x, pointing to %08x, should be %08llx",
 						   dno, up,
-						   (unsigned long)i->i_ino);
+						   i->i_ino);
 					return;
 				}
 			if ((d1 = hpfs_map_dnode(i->i_sb, down, &qbh1))) {

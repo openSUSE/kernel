@@ -36,6 +36,7 @@
 
 enum reg0i15_op {
 	break_op	= 0x54,
+	dbar_op		= 0x70e4,
 };
 
 enum reg0i26_op {
@@ -77,6 +78,10 @@ enum reg2_op {
 	iocsrwrh_op     = 0x19205,
 	iocsrwrw_op     = 0x19206,
 	iocsrwrd_op     = 0x19207,
+	llacqw_op	= 0xe15e0,
+	screlw_op	= 0xe15e1,
+	llacqd_op	= 0xe15e2,
+	screld_op	= 0xe15e3,
 };
 
 enum reg2i5_op {
@@ -189,6 +194,11 @@ enum reg3_op {
 	fldxd_op	= 0x7068,
 	fstxs_op	= 0x7070,
 	fstxd_op	= 0x7078,
+	scq_op		= 0x70ae,
+	amswapb_op	= 0x70b8,
+	amswaph_op	= 0x70b9,
+	amaddb_op	= 0x70ba,
+	amaddh_op	= 0x70bb,
 	amswapw_op	= 0x70c0,
 	amswapd_op	= 0x70c1,
 	amaddw_op	= 0x70c2,
@@ -433,8 +443,10 @@ static inline bool is_branch_ins(union loongarch_instruction *ip)
 
 static inline bool is_ra_save_ins(union loongarch_instruction *ip)
 {
-	/* st.d $ra, $sp, offset */
-	return ip->reg2i12_format.opcode == std_op &&
+	const u32 opcode = IS_ENABLED(CONFIG_32BIT) ? stw_op : std_op;
+
+	/* st.w / st.d $ra, $sp, offset */
+	return ip->reg2i12_format.opcode == opcode &&
 		ip->reg2i12_format.rj == LOONGARCH_GPR_SP &&
 		ip->reg2i12_format.rd == LOONGARCH_GPR_RA &&
 		!is_imm12_negative(ip->reg2i12_format.immediate);
@@ -442,8 +454,10 @@ static inline bool is_ra_save_ins(union loongarch_instruction *ip)
 
 static inline bool is_stack_alloc_ins(union loongarch_instruction *ip)
 {
-	/* addi.d $sp, $sp, -imm */
-	return ip->reg2i12_format.opcode == addid_op &&
+	const u32 opcode = IS_ENABLED(CONFIG_32BIT) ? addiw_op : addid_op;
+
+	/* addi.w / addi.d $sp, $sp, -imm */
+	return ip->reg2i12_format.opcode == opcode &&
 		ip->reg2i12_format.rj == LOONGARCH_GPR_SP &&
 		ip->reg2i12_format.rd == LOONGARCH_GPR_SP &&
 		is_imm12_negative(ip->reg2i12_format.immediate);
@@ -534,6 +548,7 @@ static inline void emit_##NAME(union loongarch_instruction *insn,	\
 }
 
 DEF_EMIT_REG0I15_FORMAT(break, break_op)
+DEF_EMIT_REG0I15_FORMAT(dbar, dbar_op)
 
 /* like emit_break(imm) but returns a constant expression */
 #define __emit_break(imm)	((u32)((imm) | (break_op << 15)))
@@ -754,6 +769,8 @@ DEF_EMIT_REG3_FORMAT(stxb, stxb_op)
 DEF_EMIT_REG3_FORMAT(stxh, stxh_op)
 DEF_EMIT_REG3_FORMAT(stxw, stxw_op)
 DEF_EMIT_REG3_FORMAT(stxd, stxd_op)
+DEF_EMIT_REG3_FORMAT(amaddb, amaddb_op)
+DEF_EMIT_REG3_FORMAT(amaddh, amaddh_op)
 DEF_EMIT_REG3_FORMAT(amaddw, amaddw_op)
 DEF_EMIT_REG3_FORMAT(amaddd, amaddd_op)
 DEF_EMIT_REG3_FORMAT(amandw, amandw_op)
@@ -762,6 +779,8 @@ DEF_EMIT_REG3_FORMAT(amorw, amorw_op)
 DEF_EMIT_REG3_FORMAT(amord, amord_op)
 DEF_EMIT_REG3_FORMAT(amxorw, amxorw_op)
 DEF_EMIT_REG3_FORMAT(amxord, amxord_op)
+DEF_EMIT_REG3_FORMAT(amswapb, amswapb_op)
+DEF_EMIT_REG3_FORMAT(amswaph, amswaph_op)
 DEF_EMIT_REG3_FORMAT(amswapw, amswapw_op)
 DEF_EMIT_REG3_FORMAT(amswapd, amswapd_op)
 

@@ -8,6 +8,15 @@
 struct iomap;
 struct xdr_stream;
 
+/* On the wire size of the layout4 struct with zero number of extents */
+#define PNFS_BLOCK_LAYOUT4_SIZE \
+	(sizeof(__be32) * 2 +	/* offset4 */ \
+	 sizeof(__be32) * 2 +	/* length4 */ \
+	 sizeof(__be32) +	/* layoutiomode4 */ \
+	 sizeof(__be32) +	/* layouttype4 */ \
+	 sizeof(__be32) +	/* number of bytes */ \
+	 sizeof(__be32))	/* number of extents */
+
 struct pnfs_block_extent {
 	struct nfsd4_deviceid		vol_id;
 	u64				foff;
@@ -19,6 +28,11 @@ struct pnfs_block_extent {
 struct pnfs_block_range {
 	u64				foff;
 	u64				len;
+};
+
+struct pnfs_block_layout {
+	u32				nr_extents;
+	struct pnfs_block_extent	extents[] __counted_by(nr_extents);
 };
 
 /*
@@ -54,9 +68,9 @@ __be32 nfsd4_block_encode_getdeviceinfo(struct xdr_stream *xdr,
 		const struct nfsd4_getdeviceinfo *gdp);
 __be32 nfsd4_block_encode_layoutget(struct xdr_stream *xdr,
 		const struct nfsd4_layoutget *lgp);
-__be32 nfsd4_block_decode_layoutupdate(__be32 *p, u32 len,
+__be32 nfsd4_block_decode_layoutupdate(struct xdr_stream *xdr,
 		struct iomap **iomapp, int *nr_iomapsp, u32 block_size);
-__be32 nfsd4_scsi_decode_layoutupdate(__be32 *p, u32 len,
+__be32 nfsd4_scsi_decode_layoutupdate(struct xdr_stream *xdr,
 		struct iomap **iomapp, int *nr_iomapsp, u32 block_size);
 
 #endif /* _NFSD_BLOCKLAYOUTXDR_H */

@@ -1,22 +1,16 @@
 // SPDX-License-Identifier: GPL-2.0
 
-#ifndef NOLIBC
-#include <errno.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <syscall.h>
+#include <sys/syscall.h>
 #include <sys/mount.h>
 #include <sys/reboot.h>
-#endif
+#include <linux/kexec.h>
 
 /* from arch/x86/include/asm/setup.h */
 #define COMMAND_LINE_SIZE	2048
 
-/* from include/linux/kexex.h */
-#define KEXEC_FILE_NO_INITRAMFS	0x00000004
-
-#define KHO_FINILIZE "/debugfs/kho/out/finalize"
 #define KERNEL_IMAGE "/kernel"
 
 static int mount_filesystems(void)
@@ -25,22 +19,6 @@ static int mount_filesystems(void)
 		return -1;
 
 	return mount("proc", "/proc", "proc", 0, NULL);
-}
-
-static int kho_enable(void)
-{
-	const char enable[] = "1";
-	int fd;
-
-	fd = open(KHO_FINILIZE, O_RDWR);
-	if (fd < 0)
-		return -1;
-
-	if (write(fd, enable, sizeof(enable)) != sizeof(enable))
-		return 1;
-
-	close(fd);
-	return 0;
 }
 
 static long kexec_file_load(int kernel_fd, int initrd_fd,
@@ -81,9 +59,6 @@ static int kexec_load(void)
 int main(int argc, char *argv[])
 {
 	if (mount_filesystems())
-		goto err_reboot;
-
-	if (kho_enable())
 		goto err_reboot;
 
 	if (kexec_load())

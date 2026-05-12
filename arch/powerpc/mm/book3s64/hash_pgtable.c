@@ -8,6 +8,7 @@
 #include <linux/sched.h>
 #include <linux/mm_types.h>
 #include <linux/mm.h>
+#include <linux/page_table_check.h>
 #include <linux/stop_machine.h>
 
 #include <asm/sections.h>
@@ -220,6 +221,27 @@ unsigned long hash__pmd_hugepage_update(struct mm_struct *mm, unsigned long addr
 	return old;
 }
 
+static void do_nothing(void *arg)
+{
+
+}
+
+/*
+ * Serialize against __find_linux_pte() which does lock-less
+ * lookup in page tables with local interrupts disabled. For huge pages
+ * it casts pmd_t to pte_t. Since format of pte_t is different from
+ * pmd_t we want to prevent transit from pmd pointing to page table
+ * to pmd pointing to huge page (and back) while interrupts are disabled.
+ * We clear pmd to possibly replace it with page table pointer in
+ * different code paths. So make sure we wait for the parallel
+ * __find_linux_pte() to finish.
+ */
+static void serialize_against_pte_lookup(struct mm_struct *mm)
+{
+	smp_mb();
+	smp_call_function_many(mm_cpumask(mm), do_nothing, mm, 1);
+}
+
 pmd_t hash__pmdp_collapse_flush(struct vm_area_struct *vma, unsigned long address,
 			    pmd_t *pmdp)
 {
@@ -230,6 +252,9 @@ pmd_t hash__pmdp_collapse_flush(struct vm_area_struct *vma, unsigned long addres
 
 	pmd = *pmdp;
 	pmd_clear(pmdp);
+
+	page_table_check_pmd_clear(vma->vm_mm, address, pmd);
+
 	/*
 	 * Wait for all pending hash_page to finish. This is needed
 	 * in case of subpage collapse. When we collapse normal pages

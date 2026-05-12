@@ -429,7 +429,7 @@ struct xfrm_policy *xfrm_policy_alloc(struct net *net, gfp_t gfp)
 {
 	struct xfrm_policy *policy;
 
-	policy = kzalloc(sizeof(struct xfrm_policy), gfp);
+	policy = kzalloc_obj(struct xfrm_policy, gfp);
 
 	if (policy) {
 		write_pnet(&policy->xp_net, net);
@@ -765,7 +765,7 @@ xfrm_policy_inexact_alloc_bin(const struct xfrm_policy *pol, u8 dir)
 	if (bin)
 		return bin;
 
-	bin = kzalloc(sizeof(*bin), GFP_ATOMIC);
+	bin = kzalloc_obj(*bin, GFP_ATOMIC);
 	if (!bin)
 		return NULL;
 
@@ -836,7 +836,7 @@ xfrm_pol_inexact_node_alloc(const xfrm_address_t *addr, u8 prefixlen)
 {
 	struct xfrm_pol_inexact_node *node;
 
-	node = kzalloc(sizeof(*node), GFP_ATOMIC);
+	node = kzalloc_obj(*node, GFP_ATOMIC);
 	if (node)
 		xfrm_pol_inexact_node_init(node, addr, prefixlen);
 
@@ -2594,7 +2594,7 @@ xfrm_tmpl_resolve(struct xfrm_policy **pols, int npols, const struct flowi *fl,
 static dscp_t xfrm_get_dscp(const struct flowi *fl, int family)
 {
 	if (family == AF_INET)
-		return inet_dsfield_to_dscp(fl->u.ip4.flowi4_tos);
+		return fl->u.ip4.flowi4_dscp;
 
 	return 0;
 }
@@ -3462,7 +3462,7 @@ decode_session4(const struct xfrm_flow_keys *flkeys, struct flowi *fl, bool reve
 	}
 
 	fl4->flowi4_proto = flkeys->basic.ip_proto;
-	fl4->flowi4_tos = flkeys->ip.tos & ~INET_ECN_MASK;
+	fl4->flowi4_dscp = inet_dsfield_to_dscp(flkeys->ip.tos);
 }
 
 #if IS_ENABLED(CONFIG_IPV6)
@@ -3594,7 +3594,7 @@ static bool xfrm_icmp_flow_decode(struct sk_buff *skb, unsigned short family,
 
 	fl1->flowi_oif = fl->flowi_oif;
 	fl1->flowi_mark = fl->flowi_mark;
-	fl1->flowi_tos = fl->flowi_tos;
+	fl1->flowi_dscp = fl->flowi_dscp;
 	nf_nat_decode_session(newskb, fl1, family);
 	ret = false;
 
@@ -3801,8 +3801,8 @@ int __xfrm_policy_check(struct sock *sk, int dir, struct sk_buff *skb,
 		struct xfrm_tmpl *tp[XFRM_MAX_DEPTH];
 		struct xfrm_tmpl *stp[XFRM_MAX_DEPTH];
 		struct xfrm_tmpl **tpp = tp;
+		int i, k = 0;
 		int ti = 0;
-		int i, k;
 
 		sp = skb_sec_path(skb);
 		if (!sp)
@@ -3828,6 +3828,12 @@ int __xfrm_policy_check(struct sock *sk, int dir, struct sk_buff *skb,
 			tpp = stp;
 		}
 
+		if (pol->xdo.type == XFRM_DEV_OFFLOAD_PACKET && sp == &dummy)
+			/* This policy template was already checked by HW
+			 * and secpath was removed in __xfrm_policy_check2.
+			 */
+			goto out;
+
 		/* For each tunnel xfrm, find the first matching tmpl.
 		 * For each tmpl before that, find corresponding xfrm.
 		 * Order is _important_. Later we will implement
@@ -3837,7 +3843,7 @@ int __xfrm_policy_check(struct sock *sk, int dir, struct sk_buff *skb,
 		 * verified to allow them to be skipped in future policy
 		 * checks (e.g. nested tunnels).
 		 */
-		for (i = xfrm_nr-1, k = 0; i >= 0; i--) {
+		for (i = xfrm_nr - 1; i >= 0; i--) {
 			k = xfrm_policy_ok(tpp[i], sp, k, family, if_id);
 			if (k < 0) {
 				if (k < -1)
@@ -3853,6 +3859,7 @@ int __xfrm_policy_check(struct sock *sk, int dir, struct sk_buff *skb,
 			goto reject;
 		}
 
+out:
 		xfrm_pols_put(pols, npols);
 		sp->verified_cnt = k;
 
@@ -3881,12 +3888,18 @@ int __xfrm_route_forward(struct sk_buff *skb, unsigned short family)
 	}
 
 	skb_dst_force(skb);
-	if (!skb_dst(skb)) {
+	dst = skb_dst(skb);
+	if (!dst) {
 		XFRM_INC_STATS(net, LINUX_MIB_XFRMFWDHDRERROR);
 		return 0;
 	}
 
-	dst = xfrm_lookup(net, skb_dst(skb), &fl, NULL, XFRM_LOOKUP_QUEUE);
+	/* ignore return value from skb_dstref_steal, xfrm_lookup takes
+	 * care of dropping the refcnt if needed.
+	 */
+	skb_dstref_steal(skb);
+
+	dst = xfrm_lookup(net, dst, &fl, NULL, XFRM_LOOKUP_QUEUE);
 	if (IS_ERR(dst)) {
 		res = 0;
 		dst = NULL;
@@ -3904,7 +3917,7 @@ EXPORT_SYMBOL(__xfrm_route_forward);
 
 static struct dst_entry *xfrm_dst_check(struct dst_entry *dst, u32 cookie)
 {
-	/* Code (such as __xfrm4_bundle_create()) sets dst->obsolete
+	/* Code (such as xfrm_bundle_create()) sets dst->obsolete
 	 * to DST_OBSOLETE_FORCE_CHK to force all XFRM destinations to
 	 * get validated by dst_ops->check on every use.  We do this
 	 * because when a normal route referenced by an XFRM dst is
@@ -4143,7 +4156,7 @@ void xfrm_policy_unregister_afinfo(const struct xfrm_policy_afinfo *afinfo)
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(xfrm_policy_afinfo); i++) {
-		if (xfrm_policy_afinfo[i] != afinfo)
+		if (rcu_access_pointer(xfrm_policy_afinfo[i]) != afinfo)
 			continue;
 		RCU_INIT_POINTER(xfrm_policy_afinfo[i], NULL);
 		break;
@@ -4229,7 +4242,7 @@ static int __net_init xfrm_policy_init(struct net *net)
 		net->xfrm.policy_count[XFRM_POLICY_MAX + dir] = 0;
 
 		htab = &net->xfrm.policy_bydst[dir];
-		htab->table = xfrm_hash_alloc(sz);
+		rcu_assign_pointer(htab->table, xfrm_hash_alloc(sz));
 		if (!htab->table)
 			goto out_bydst;
 		htab->hmask = hmask;
@@ -4256,7 +4269,7 @@ out_bydst:
 		struct xfrm_policy_hash *htab;
 
 		htab = &net->xfrm.policy_bydst[dir];
-		xfrm_hash_free(htab->table, sz);
+		xfrm_hash_free(rcu_dereference_protected(htab->table, true), sz);
 	}
 	xfrm_hash_free(net->xfrm.policy_byidx, sz);
 out_byidx:
@@ -4269,11 +4282,15 @@ static void xfrm_policy_fini(struct net *net)
 	unsigned int sz;
 	int dir;
 
+	disable_work_sync(&net->xfrm.policy_hthresh.work);
+
 	flush_work(&net->xfrm.policy_hash_work);
 #ifdef CONFIG_XFRM_SUB_POLICY
 	xfrm_policy_flush(net, XFRM_POLICY_TYPE_SUB, false);
 #endif
 	xfrm_policy_flush(net, XFRM_POLICY_TYPE_MAIN, false);
+
+	synchronize_rcu();
 
 	WARN_ON(!list_empty(&net->xfrm.policy_all));
 
@@ -4282,8 +4299,8 @@ static void xfrm_policy_fini(struct net *net)
 
 		htab = &net->xfrm.policy_bydst[dir];
 		sz = (htab->hmask + 1) * sizeof(struct hlist_head);
-		WARN_ON(!hlist_empty(htab->table));
-		xfrm_hash_free(htab->table, sz);
+		WARN_ON(!hlist_empty(rcu_dereference_protected(htab->table, true)));
+		xfrm_hash_free(rcu_dereference_protected(htab->table, true), sz);
 	}
 
 	sz = (net->xfrm.policy_idx_hmask + 1) * sizeof(struct hlist_head);
@@ -4511,9 +4528,6 @@ static struct xfrm_policy *xfrm_migrate_policy_find(const struct xfrm_selector *
 	pol = xfrm_policy_lookup_bytype(net, type, &fl, sel->family, dir, if_id);
 	if (IS_ERR_OR_NULL(pol))
 		goto out_unlock;
-
-	if (!xfrm_pol_hold_rcu(pol))
-		pol = NULL;
 out_unlock:
 	rcu_read_unlock();
 	return pol;

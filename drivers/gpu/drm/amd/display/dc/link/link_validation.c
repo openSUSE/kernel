@@ -302,9 +302,11 @@ static bool dp_validate_mode_timing(
 
 	req_bw = dc_bandwidth_in_kbps_from_timing(timing, dc_link_get_highest_encoding_format(link));
 	max_bw = dp_link_bandwidth_kbps(link, link_setting);
+	uint32_t max_uncompressed_pixel_rate_100hz =
+		link->dpcd_caps.max_uncompressed_pixel_rate_cap.bits.max_uncompressed_pixel_rate_cap * 10000U;
 
 	bool is_max_uncompressed_pixel_rate_exceeded = link->dpcd_caps.max_uncompressed_pixel_rate_cap.bits.valid &&
-			timing->pix_clk_100hz > link->dpcd_caps.max_uncompressed_pixel_rate_cap.bits.max_uncompressed_pixel_rate_cap * 10000;
+			timing->pix_clk_100hz > max_uncompressed_pixel_rate_100hz;
 
 	if (is_max_uncompressed_pixel_rate_exceeded && !timing->flags.DSC) {
 		return false;
@@ -391,6 +393,7 @@ static const struct dc_tunnel_settings *get_dp_tunnel_settings(const struct dc_s
  */
 enum dc_status link_validate_dp_tunnel_bandwidth(const struct dc *dc, const struct dc_state *new_ctx)
 {
+	(void)dc;
 	struct dc_validation_dpia_set dpia_link_sets[MAX_DPIA_NUM] = { 0 };
 	uint8_t link_count = 0;
 	enum dc_status result = DC_OK;

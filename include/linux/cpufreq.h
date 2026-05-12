@@ -26,12 +26,10 @@
  *********************************************************************/
 /*
  * Frequency values here are CPU kHz
- *
- * Maximum transition latency is in nanoseconds - if it's unknown,
- * CPUFREQ_ETERNAL shall be used.
  */
 
-#define CPUFREQ_ETERNAL			(-1)
+#define CPUFREQ_DEFAULT_TRANSITION_LATENCY_NS	NSEC_PER_MSEC
+
 #define CPUFREQ_NAME_LEN		16
 /* Print length for names. Extra 1 space for accommodating '\n' in prints */
 #define CPUFREQ_NAME_PLEN		(CPUFREQ_NAME_LEN + 1)
@@ -81,8 +79,9 @@ struct cpufreq_policy {
 					 * called, but you're in IRQ context */
 
 	struct freq_constraints	constraints;
-	struct freq_qos_request	*min_freq_req;
-	struct freq_qos_request	*max_freq_req;
+	struct freq_qos_request	min_freq_req;
+	struct freq_qos_request	max_freq_req;
+	struct freq_qos_request boost_freq_req;
 
 	struct cpufreq_frequency_table	*freq_table;
 	enum cpufreq_table_sorting freq_table_sorted;
@@ -205,10 +204,15 @@ struct cpufreq_freqs {
 
 #ifdef CONFIG_CPU_FREQ
 struct cpufreq_policy *cpufreq_cpu_get_raw(unsigned int cpu);
+struct cpufreq_policy *cpufreq_cpu_policy(unsigned int cpu);
 struct cpufreq_policy *cpufreq_cpu_get(unsigned int cpu);
 void cpufreq_cpu_put(struct cpufreq_policy *policy);
 #else
 static inline struct cpufreq_policy *cpufreq_cpu_get_raw(unsigned int cpu)
+{
+	return NULL;
+}
+static inline struct cpufreq_policy *cpufreq_cpu_policy(unsigned int cpu)
 {
 	return NULL;
 }
@@ -229,7 +233,7 @@ static inline bool policy_is_inactive(struct cpufreq_policy *policy)
 
 static inline bool policy_is_shared(struct cpufreq_policy *policy)
 {
-	return cpumask_weight(policy->cpus) > 1;
+	return cpumask_nth(1, policy->cpus) < nr_cpumask_bits;
 }
 
 #ifdef CONFIG_CPU_FREQ
@@ -369,7 +373,7 @@ struct cpufreq_driver {
 	 * conditions) scale invariance can be disabled, which causes the
 	 * schedutil governor to fall back to the latter.
 	 */
-	void		(*adjust_perf)(unsigned int cpu,
+	void		(*adjust_perf)(struct cpufreq_policy *policy,
 				       unsigned long min_perf,
 				       unsigned long target_perf,
 				       unsigned long capacity);
@@ -614,7 +618,7 @@ struct cpufreq_governor {
 /* Pass a target to the cpufreq driver */
 unsigned int cpufreq_driver_fast_switch(struct cpufreq_policy *policy,
 					unsigned int target_freq);
-void cpufreq_driver_adjust_perf(unsigned int cpu,
+void cpufreq_driver_adjust_perf(struct cpufreq_policy *policy,
 				unsigned long min_perf,
 				unsigned long target_perf,
 				unsigned long capacity);
@@ -780,11 +784,10 @@ struct cpufreq_frequency_table {
 		else
 
 
-int cpufreq_frequency_table_cpuinfo(struct cpufreq_policy *policy,
-				    struct cpufreq_frequency_table *table);
+int cpufreq_frequency_table_cpuinfo(struct cpufreq_policy *policy);
 
-int cpufreq_frequency_table_verify(struct cpufreq_policy_data *policy,
-				   struct cpufreq_frequency_table *table);
+int cpufreq_frequency_table_verify(struct cpufreq_policy_data *policy);
+
 int cpufreq_generic_frequency_table_verify(struct cpufreq_policy_data *policy);
 
 int cpufreq_table_index_unsorted(struct cpufreq_policy *policy,

@@ -895,7 +895,7 @@ qp_guest_endpoint_create(struct vmci_handle handle,
 		handle = vmci_make_handle(context_id, VMCI_INVALID_ID);
 	}
 
-	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+	entry = kzalloc_obj(*entry);
 	if (entry) {
 		entry->qp.peer = peer;
 		entry->qp.flags = flags;
@@ -1318,7 +1318,7 @@ static int qp_broker_create(struct vmci_handle handle,
 	if (is_local && peer != VMCI_INVALID_ID && context_id != peer)
 		return VMCI_ERROR_NO_ACCESS;
 
-	entry = kzalloc(sizeof(*entry), GFP_ATOMIC);
+	entry = kzalloc_obj(*entry, GFP_ATOMIC);
 	if (!entry)
 		return VMCI_ERROR_NO_MEM;
 
@@ -2532,7 +2532,7 @@ static bool qp_wait_for_ready_queue(struct vmci_qp *qpair)
  * VMCI_ERROR_QUEUEPAIR_NOSPACE if no space was available to enqueue
  * data, VMCI_ERROR_INVALID_SIZE, if any queue pointer is outside the
  * queue (as defined by the queue size), VMCI_ERROR_INVALID_ARGS, if
- * an error occured when accessing the buffer,
+ * an error occurred when accessing the buffer,
  * VMCI_ERROR_QUEUEPAIR_NOTATTACHED, if the queue pair pages aren't
  * available.  Otherwise, the number of bytes written to the queue is
  * returned.  Updates the tail pointer of the produce queue.
@@ -2598,7 +2598,7 @@ static ssize_t qp_enqueue_locked(struct vmci_queue *produce_q,
  * VMCI_ERROR_QUEUEPAIR_NODATA if no data was available to dequeue.
  * VMCI_ERROR_INVALID_SIZE, if any queue pointer is outside the queue
  * (as defined by the queue size).
- * VMCI_ERROR_INVALID_ARGS, if an error occured when accessing the buffer.
+ * VMCI_ERROR_INVALID_ARGS, if an error occurred when accessing the buffer.
  * Otherwise the number of bytes dequeued is returned.
  * Side effects:
  * Updates the head pointer of the consume queue.
@@ -2722,7 +2722,7 @@ int vmci_qpair_alloc(struct vmci_qp **qpair,
 		return VMCI_ERROR_INVALID_ARGS;
 	}
 
-	my_qpair = kzalloc(sizeof(*my_qpair), GFP_KERNEL);
+	my_qpair = kzalloc_obj(*my_qpair);
 	if (!my_qpair)
 		return VMCI_ERROR_NO_MEM;
 

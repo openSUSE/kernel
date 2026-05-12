@@ -11,14 +11,13 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <time.h>
-#include <errno.h>
 #include <sched.h>
 #include <pthread.h>
 
 #include "timerlat.h"
 #include "timerlat_aa.h"
-#include "timerlat_u.h"
 #include "timerlat_bpf.h"
+#include "common.h"
 
 struct timerlat_top_cpu {
 	unsigned long long	irq_count;
@@ -43,23 +42,27 @@ struct timerlat_top_cpu {
 
 struct timerlat_top_data {
 	struct timerlat_top_cpu	*cpu_data;
-	int			nr_cpus;
 };
 
 /*
  * timerlat_free_top - free runtime data
  */
-static void
-timerlat_free_top(struct timerlat_top_data *data)
+static void timerlat_free_top(struct timerlat_top_data *data)
 {
 	free(data->cpu_data);
 	free(data);
 }
 
+static void timerlat_free_top_tool(struct osnoise_tool *tool)
+{
+	timerlat_free_top(tool->data);
+	timerlat_free(tool);
+}
+
 /*
  * timerlat_alloc_histogram - alloc runtime data
  */
-static struct timerlat_top_data *timerlat_alloc_top(int nr_cpus)
+static struct timerlat_top_data *timerlat_alloc_top(void)
 {
 	struct timerlat_top_data *data;
 	int cpu;
@@ -67,8 +70,6 @@ static struct timerlat_top_data *timerlat_alloc_top(int nr_cpus)
 	data = calloc(1, sizeof(*data));
 	if (!data)
 		return NULL;
-
-	data->nr_cpus = nr_cpus;
 
 	/* one set of histograms per CPU */
 	data->cpu_data = calloc(1, sizeof(*data->cpu_data) * nr_cpus);
@@ -128,12 +129,12 @@ timerlat_top_update(struct osnoise_tool *tool, int cpu,
 		    unsigned long long thread,
 		    unsigned long long latency)
 {
-	struct timerlat_params *params = tool->params;
+	struct timerlat_params *params = to_timerlat_params(tool->params);
 	struct timerlat_top_data *data = tool->data;
 	struct timerlat_top_cpu *cpu_data = &data->cpu_data[cpu];
 
-	if (params->output_divisor)
-		latency = latency / params->output_divisor;
+	if (params->common.output_divisor)
+		latency = latency / params->common.output_divisor;
 
 	if (!thread) {
 		cpu_data->irq_count++;
@@ -164,15 +165,13 @@ timerlat_top_handler(struct trace_seq *s, struct tep_record *record,
 		     struct tep_event *event, void *context)
 {
 	struct trace_instance *trace = context;
-	struct timerlat_params *params;
 	unsigned long long latency, thread;
 	struct osnoise_tool *top;
 	int cpu = record->cpu;
 
 	top = container_of(trace, struct osnoise_tool, trace);
-	params = top->params;
 
-	if (!params->aa_only) {
+	if (!top->params->aa_only) {
 		tep_get_field_val(s, event, "context", record, &thread, 1);
 		tep_get_field_val(s, event, "timer_latency", record, &latency, 1);
 
@@ -189,61 +188,56 @@ static int timerlat_top_bpf_pull_data(struct osnoise_tool *tool)
 {
 	struct timerlat_top_data *data = tool->data;
 	int i, err;
-	long long value_irq[data->nr_cpus],
-		  value_thread[data->nr_cpus],
-		  value_user[data->nr_cpus];
+	long long value_irq[nr_cpus],
+		  value_thread[nr_cpus],
+		  value_user[nr_cpus];
 
 	/* Pull summary */
 	err = timerlat_bpf_get_summary_value(SUMMARY_CURRENT,
-					     value_irq, value_thread, value_user,
-					     data->nr_cpus);
+					     value_irq, value_thread, value_user);
 	if (err)
 		return err;
-	for (i = 0; i < data->nr_cpus; i++) {
+	for (i = 0; i < nr_cpus; i++) {
 		data->cpu_data[i].cur_irq = value_irq[i];
 		data->cpu_data[i].cur_thread = value_thread[i];
 		data->cpu_data[i].cur_user = value_user[i];
 	}
 
 	err = timerlat_bpf_get_summary_value(SUMMARY_COUNT,
-					     value_irq, value_thread, value_user,
-					     data->nr_cpus);
+					     value_irq, value_thread, value_user);
 	if (err)
 		return err;
-	for (i = 0; i < data->nr_cpus; i++) {
+	for (i = 0; i < nr_cpus; i++) {
 		data->cpu_data[i].irq_count = value_irq[i];
 		data->cpu_data[i].thread_count = value_thread[i];
 		data->cpu_data[i].user_count = value_user[i];
 	}
 
 	err = timerlat_bpf_get_summary_value(SUMMARY_MIN,
-					     value_irq, value_thread, value_user,
-					     data->nr_cpus);
+					     value_irq, value_thread, value_user);
 	if (err)
 		return err;
-	for (i = 0; i < data->nr_cpus; i++) {
+	for (i = 0; i < nr_cpus; i++) {
 		data->cpu_data[i].min_irq = value_irq[i];
 		data->cpu_data[i].min_thread = value_thread[i];
 		data->cpu_data[i].min_user = value_user[i];
 	}
 
 	err = timerlat_bpf_get_summary_value(SUMMARY_MAX,
-					     value_irq, value_thread, value_user,
-					     data->nr_cpus);
+					     value_irq, value_thread, value_user);
 	if (err)
 		return err;
-	for (i = 0; i < data->nr_cpus; i++) {
+	for (i = 0; i < nr_cpus; i++) {
 		data->cpu_data[i].max_irq = value_irq[i];
 		data->cpu_data[i].max_thread = value_thread[i];
 		data->cpu_data[i].max_user = value_user[i];
 	}
 
 	err = timerlat_bpf_get_summary_value(SUMMARY_SUM,
-					     value_irq, value_thread, value_user,
-					     data->nr_cpus);
+					     value_irq, value_thread, value_user);
 	if (err)
 		return err;
-	for (i = 0; i < data->nr_cpus; i++) {
+	for (i = 0; i < nr_cpus; i++) {
 		data->cpu_data[i].sum_irq = value_irq[i];
 		data->cpu_data[i].sum_thread = value_thread[i];
 		data->cpu_data[i].sum_user = value_user[i];
@@ -258,39 +252,40 @@ static int timerlat_top_bpf_pull_data(struct osnoise_tool *tool)
 static void timerlat_top_header(struct timerlat_params *params, struct osnoise_tool *top)
 {
 	struct trace_seq *s = top->trace.seq;
+	bool pretty = params->common.pretty_output;
 	char duration[26];
 
 	get_duration(top->start_time, duration, sizeof(duration));
 
-	if (params->pretty_output)
+	if (pretty)
 		trace_seq_printf(s, "\033[2;37;40m");
 
 	trace_seq_printf(s, "                                     Timer Latency                                              ");
-	if (params->user_data)
+	if (params->common.user_data)
 		trace_seq_printf(s, "                                         ");
 
-	if (params->pretty_output)
+	if (pretty)
 		trace_seq_printf(s, "\033[0;0;0m");
 	trace_seq_printf(s, "\n");
 
 	trace_seq_printf(s, "%-6s   |          IRQ Timer Latency (%s)        |         Thread Timer Latency (%s)", duration,
-			params->output_divisor == 1 ? "ns" : "us",
-			params->output_divisor == 1 ? "ns" : "us");
+			params->common.output_divisor == 1 ? "ns" : "us",
+			params->common.output_divisor == 1 ? "ns" : "us");
 
-	if (params->user_data) {
+	if (params->common.user_data) {
 		trace_seq_printf(s, "      |    Ret user Timer Latency (%s)",
-				params->output_divisor == 1 ? "ns" : "us");
+				params->common.output_divisor == 1 ? "ns" : "us");
 	}
 
 	trace_seq_printf(s, "\n");
-	if (params->pretty_output)
+	if (pretty)
 		trace_seq_printf(s, "\033[2;30;47m");
 
 	trace_seq_printf(s, "CPU COUNT      |      cur       min       avg       max |      cur       min       avg       max");
-	if (params->user_data)
+	if (params->common.user_data)
 		trace_seq_printf(s, " |      cur       min       avg       max");
 
-	if (params->pretty_output)
+	if (pretty)
 		trace_seq_printf(s, "\033[0;0;0m");
 	trace_seq_printf(s, "\n");
 }
@@ -302,8 +297,7 @@ static const char *no_value = "        -";
  */
 static void timerlat_top_print(struct osnoise_tool *top, int cpu)
 {
-
-	struct timerlat_params *params = top->params;
+	struct timerlat_params *params = to_timerlat_params(top->params);
 	struct timerlat_top_data *data = top->data;
 	struct timerlat_top_cpu *cpu_data = &data->cpu_data[cpu];
 	struct trace_seq *s = top->trace.seq;
@@ -338,7 +332,7 @@ static void timerlat_top_print(struct osnoise_tool *top, int cpu)
 		trace_seq_printf(s, "%9llu", cpu_data->max_thread);
 	}
 
-	if (!params->user_data) {
+	if (!params->common.user_data) {
 		trace_seq_printf(s, "\n");
 		return;
 	}
@@ -363,7 +357,7 @@ static void
 timerlat_top_print_sum(struct osnoise_tool *top, struct timerlat_top_cpu *summary)
 {
 	const char *split = "----------------------------------------";
-	struct timerlat_params *params = top->params;
+	struct timerlat_params *params = to_timerlat_params(top->params);
 	unsigned long long count = summary->irq_count;
 	struct trace_seq *s = top->trace.seq;
 	int e = 0;
@@ -380,7 +374,7 @@ timerlat_top_print_sum(struct osnoise_tool *top, struct timerlat_top_cpu *summar
 	}
 
 	trace_seq_printf(s, "%.*s|%.*s|%.*s", 15, split, 40, split, 39, split);
-	if (params->user_data)
+	if (params->common.user_data)
 		trace_seq_printf(s, "-|%.*s", 39, split);
 	trace_seq_printf(s, "\n");
 
@@ -405,7 +399,7 @@ timerlat_top_print_sum(struct osnoise_tool *top, struct timerlat_top_cpu *summar
 		trace_seq_printf(s, "%9llu", summary->max_thread);
 	}
 
-	if (!params->user_data) {
+	if (!params->common.user_data) {
 		trace_seq_printf(s, "\n");
 		return;
 	}
@@ -436,29 +430,24 @@ static void clear_terminal(struct trace_seq *seq)
  * timerlat_print_stats - print data for all cpus
  */
 static void
-timerlat_print_stats(struct timerlat_params *params, struct osnoise_tool *top)
+timerlat_print_stats(struct osnoise_tool *top)
 {
+	struct timerlat_params *params = to_timerlat_params(top->params);
 	struct trace_instance *trace = &top->trace;
 	struct timerlat_top_cpu summary;
-	static int nr_cpus = -1;
 	int i;
 
-	if (params->aa_only)
+	if (params->common.aa_only)
 		return;
 
-	if (nr_cpus == -1)
-		nr_cpus = sysconf(_SC_NPROCESSORS_CONF);
-
-	if (!params->quiet)
+	if (!params->common.quiet)
 		clear_terminal(trace->seq);
 
 	timerlat_top_reset_sum(&summary);
 
 	timerlat_top_header(params, top);
 
-	for (i = 0; i < nr_cpus; i++) {
-		if (params->cpus && !CPU_ISSET(i, &params->monitored_cpus))
-			continue;
+	for_each_monitored_cpu(i, &params->common) {
 		timerlat_top_print(top, i);
 		timerlat_top_update_sum(top, i, &summary);
 	}
@@ -473,17 +462,16 @@ timerlat_print_stats(struct timerlat_params *params, struct osnoise_tool *top)
 /*
  * timerlat_top_usage - prints timerlat top usage message
  */
-static void timerlat_top_usage(char *usage)
+static void timerlat_top_usage(void)
 {
-	int i;
+	static const char *const msg_start[] = {
+		"[-q] [-a us] [-d s] [-D] [-n] [-p us] [-i us] [-T us] [-s us] \\",
+		"	  [[-t [file]] [-e sys[:event]] [--filter <filter>] [--trigger <trigger>] [-c cpu-list] [-H cpu-list]\\",
+		"	  [-P priority] [--dma-latency us] [--aa-only us] [-C [cgroup_name]] [-u|-k] [--warm-up s] [--deepest-idle-state n]",
+		NULL,
+	};
 
-	static const char *const msg[] = {
-		"",
-		"  usage: rtla timerlat [top] [-h] [-q] [-a us] [-d s] [-D] [-n] [-p us] [-i us] [-T us] [-s us] \\",
-		"	  [[-t[file]] [-e sys[:event]] [--filter <filter>] [--trigger <trigger>] [-c cpu-list] [-H cpu-list]\\",
-		"	  [-P priority] [--dma-latency us] [--aa-only us] [-C[=cgroup_name]] [-u|-k] [--warm-up s] [--deepest-idle-state n]",
-		"",
-		"	  -h/--help: print this menu",
+	static const char *const msg_opts[] = {
 		"	  -a/--auto: set automatic trace mode, stopping the session if argument in us latency is hit",
 		"	     --aa-only us: stop if <us> latency is hit, only printing the auto analysis (reduces CPU usage)",
 		"	  -p/--period us: timerlat period in us",
@@ -492,11 +480,11 @@ static void timerlat_top_usage(char *usage)
 		"	  -s/--stack us: save the stack trace at the IRQ if a thread latency is higher than the argument in us",
 		"	  -c/--cpus cpus: run the tracer only on the given cpus",
 		"	  -H/--house-keeping cpus: run rtla control threads only on the given cpus",
-		"	  -C/--cgroup[=cgroup_name]: set cgroup, if no cgroup_name is passed, the rtla's cgroup will be inherited",
+		"	  -C/--cgroup [cgroup_name]: set cgroup, if no cgroup_name is passed, the rtla's cgroup will be inherited",
 		"	  -d/--duration time[s|m|h|d]: duration of the session",
 		"	  -D/--debug: print debug info",
 		"	     --dump-tasks: prints the task running on all CPUs if stop conditions are met (depends on !--no-aa)",
-		"	  -t/--trace[file]: save the stopped trace to [file|timerlat_trace.txt]",
+		"	  -t/--trace [file]: save the stopped trace to [file|timerlat_trace.txt]",
 		"	  -e/--event <sys:event>: enable the <sys:event> in the trace instance, multiple -e are allowed",
 		"	     --filter <command>: enable a trace event filter to the previous -e event",
 		"	     --trigger <command>: enable a trace event trigger to the previous -e event",
@@ -518,43 +506,31 @@ static void timerlat_top_usage(char *usage)
 		"	     --deepest-idle-state n: only go down to idle state n on cpus used by timerlat to reduce exit from idle latency",
 		"	     --on-threshold <action>: define action to be executed at latency threshold, multiple are allowed",
 		"	     --on-end: define action to be executed at measurement end, multiple are allowed",
+		"	     --bpf-action <program>: load and execute BPF program when latency threshold is exceeded",
+		"	     --stack-format <format>: set the stack format (truncate, skip, full)",
 		NULL,
 	};
 
-	if (usage)
-		fprintf(stderr, "%s\n", usage);
-
-	fprintf(stderr, "rtla timerlat top: a per-cpu summary of the timer latency (version %s)\n",
-			VERSION);
-
-	for (i = 0; msg[i]; i++)
-		fprintf(stderr, "%s\n", msg[i]);
-
-	if (usage)
-		exit(EXIT_FAILURE);
-
-	exit(EXIT_SUCCESS);
+	common_usage("timerlat", "top", "a per-cpu summary of the timer latency",
+		     msg_start, msg_opts);
 }
 
 /*
  * timerlat_top_parse_args - allocs, parse and fill the cmd line parameters
  */
-static struct timerlat_params
+static struct common_params
 *timerlat_top_parse_args(int argc, char **argv)
 {
 	struct timerlat_params *params;
-	struct trace_events *tevent;
 	long long auto_thresh;
 	int retval;
 	int c;
 	char *trace_output = NULL;
 
-	params = calloc(1, sizeof(*params));
-	if (!params)
-		exit(1);
+	params = calloc_fatal(1, sizeof(*params));
 
-	actions_init(&params->threshold_actions);
-	actions_init(&params->end_actions);
+	actions_init(&params->common.threshold_actions);
+	actions_init(&params->common.end_actions);
 
 	/* disabled by default */
 	params->dma_latency = -1;
@@ -563,25 +539,21 @@ static struct timerlat_params
 	params->deepest_idle_state = -2;
 
 	/* display data in microseconds */
-	params->output_divisor = 1000;
+	params->common.output_divisor = 1000;
 
 	/* default to BPF mode */
 	params->mode = TRACING_MODE_BPF;
 
+	/* default to truncate stack format */
+	params->stack_format = STACK_FORMAT_TRUNCATE;
+
 	while (1) {
 		static struct option long_options[] = {
 			{"auto",		required_argument,	0, 'a'},
-			{"cpus",		required_argument,	0, 'c'},
-			{"cgroup",		optional_argument,	0, 'C'},
-			{"debug",		no_argument,		0, 'D'},
-			{"duration",		required_argument,	0, 'd'},
-			{"event",		required_argument,	0, 'e'},
 			{"help",		no_argument,		0, 'h'},
-			{"house-keeping",	required_argument,	0, 'H'},
 			{"irq",			required_argument,	0, 'i'},
 			{"nano",		no_argument,		0, 'n'},
 			{"period",		required_argument,	0, 'p'},
-			{"priority",		required_argument,	0, 'P'},
 			{"quiet",		no_argument,		0, 'q'},
 			{"stack",		required_argument,	0, 's'},
 			{"thread",		required_argument,	0, 'T'},
@@ -600,14 +572,15 @@ static struct timerlat_params
 			{"deepest-idle-state",	required_argument,	0, '8'},
 			{"on-threshold",	required_argument,	0, '9'},
 			{"on-end",		required_argument,	0, '\1'},
+			{"bpf-action",		required_argument,	0, '\2'},
+			{"stack-format",	required_argument,	0, '\3'},
 			{0, 0, 0, 0}
 		};
 
-		/* getopt_long stores the option index here. */
-		int option_index = 0;
+		if (common_parse_options(argc, argv, &params->common))
+			continue;
 
-		c = getopt_long(argc, argv, "a:c:C::d:De:hH:i:knp:P:qs:t::T:uU0:1:2:345:6:7:",
-				 long_options, &option_index);
+		c = getopt_auto(argc, argv, long_options);
 
 		/* detect the end of the options. */
 		if (c == -1)
@@ -618,14 +591,15 @@ static struct timerlat_params
 			auto_thresh = get_llong_from_str(optarg);
 
 			/* set thread stop to auto_thresh */
-			params->stop_total_us = auto_thresh;
-			params->stop_us = auto_thresh;
+			params->common.stop_total_us = auto_thresh;
+			params->common.stop_us = auto_thresh;
 
 			/* get stack trace */
 			params->print_stack = auto_thresh;
 
 			/* set trace */
-			trace_output = "timerlat_trace.txt";
+			if (!trace_output)
+				trace_output = "timerlat_trace.txt";
 
 			break;
 		case '5':
@@ -633,136 +607,69 @@ static struct timerlat_params
 			auto_thresh = get_llong_from_str(optarg);
 
 			/* set thread stop to auto_thresh */
-			params->stop_total_us = auto_thresh;
-			params->stop_us = auto_thresh;
+			params->common.stop_total_us = auto_thresh;
+			params->common.stop_us = auto_thresh;
 
 			/* get stack trace */
 			params->print_stack = auto_thresh;
 
 			/* set aa_only to avoid parsing the trace */
-			params->aa_only = 1;
-			break;
-		case 'c':
-			retval = parse_cpu_set(optarg, &params->monitored_cpus);
-			if (retval)
-				timerlat_top_usage("\nInvalid -c cpu list\n");
-			params->cpus = optarg;
-			break;
-		case 'C':
-			params->cgroup = 1;
-			if (!optarg) {
-				/* will inherit this cgroup */
-				params->cgroup_name = NULL;
-			} else if (*optarg == '=') {
-				/* skip the = */
-				params->cgroup_name = ++optarg;
-			}
-			break;
-		case 'D':
-			config_debug = 1;
-			break;
-		case 'd':
-			params->duration = parse_seconds_duration(optarg);
-			if (!params->duration)
-				timerlat_top_usage("Invalid -d duration\n");
-			break;
-		case 'e':
-			tevent = trace_event_alloc(optarg);
-			if (!tevent) {
-				err_msg("Error alloc trace event");
-				exit(EXIT_FAILURE);
-			}
-
-			if (params->events)
-				tevent->next = params->events;
-			params->events = tevent;
+			params->common.aa_only = 1;
 			break;
 		case 'h':
 		case '?':
-			timerlat_top_usage(NULL);
-			break;
-		case 'H':
-			params->hk_cpus = 1;
-			retval = parse_cpu_set(optarg, &params->hk_cpu_set);
-			if (retval) {
-				err_msg("Error parsing house keeping CPUs\n");
-				exit(EXIT_FAILURE);
-			}
+			timerlat_top_usage();
 			break;
 		case 'i':
-			params->stop_us = get_llong_from_str(optarg);
+			params->common.stop_us = get_llong_from_str(optarg);
 			break;
 		case 'k':
-			params->kernel_workload = true;
+			params->common.kernel_workload = true;
 			break;
 		case 'n':
-			params->output_divisor = 1;
+			params->common.output_divisor = 1;
 			break;
 		case 'p':
 			params->timerlat_period_us = get_llong_from_str(optarg);
 			if (params->timerlat_period_us > 1000000)
-				timerlat_top_usage("Period longer than 1 s\n");
-			break;
-		case 'P':
-			retval = parse_prio(optarg, &params->sched_param);
-			if (retval == -1)
-				timerlat_top_usage("Invalid -P priority");
-			params->set_sched = 1;
+				fatal("Period longer than 1 s");
 			break;
 		case 'q':
-			params->quiet = 1;
+			params->common.quiet = 1;
 			break;
 		case 's':
 			params->print_stack = get_llong_from_str(optarg);
 			break;
 		case 'T':
-			params->stop_total_us = get_llong_from_str(optarg);
+			params->common.stop_total_us = get_llong_from_str(optarg);
 			break;
 		case 't':
-			if (optarg) {
-				if (optarg[0] == '=')
-					trace_output = &optarg[1];
-				else
-					trace_output = &optarg[0];
-			} else if (optind < argc && argv[optind][0] != '-')
-				trace_output = argv[optind];
-			else
+			trace_output = parse_optional_arg(argc, argv);
+			if (!trace_output)
 				trace_output = "timerlat_trace.txt";
 			break;
 		case 'u':
-			params->user_workload = true;
+			params->common.user_workload = true;
 			/* fallback: -u implies -U */
 		case 'U':
-			params->user_data = true;
+			params->common.user_data = true;
 			break;
 		case '0': /* trigger */
-			if (params->events) {
-				retval = trace_event_add_trigger(params->events, optarg);
-				if (retval) {
-					err_msg("Error adding trigger %s\n", optarg);
-					exit(EXIT_FAILURE);
-				}
-			} else {
-				timerlat_top_usage("--trigger requires a previous -e\n");
-			}
+			if (params->common.events)
+				trace_event_add_trigger(params->common.events, optarg);
+			else
+				fatal("--trigger requires a previous -e");
 			break;
 		case '1': /* filter */
-			if (params->events) {
-				retval = trace_event_add_filter(params->events, optarg);
-				if (retval) {
-					err_msg("Error adding filter %s\n", optarg);
-					exit(EXIT_FAILURE);
-				}
-			} else {
-				timerlat_top_usage("--filter requires a previous -e\n");
-			}
+			if (params->common.events)
+				trace_event_add_filter(params->common.events, optarg);
+			else
+				fatal("--filter requires a previous -e");
 			break;
 		case '2': /* dma-latency */
 			params->dma_latency = get_llong_from_str(optarg);
-			if (params->dma_latency < 0 || params->dma_latency > 10000) {
-				err_msg("--dma-latency needs to be >= 0 and < 10000");
-				exit(EXIT_FAILURE);
-			}
+			if (params->dma_latency < 0 || params->dma_latency > 10000)
+				fatal("--dma-latency needs to be >= 0 and < 10000");
 			break;
 		case '3': /* no-aa */
 			params->no_aa = 1;
@@ -771,79 +678,85 @@ static struct timerlat_params
 			params->dump_tasks = 1;
 			break;
 		case '6':
-			params->warmup = get_llong_from_str(optarg);
+			params->common.warmup = get_llong_from_str(optarg);
 			break;
 		case '7':
-			params->buffer_size = get_llong_from_str(optarg);
+			params->common.buffer_size = get_llong_from_str(optarg);
 			break;
 		case '8':
 			params->deepest_idle_state = get_llong_from_str(optarg);
 			break;
 		case '9':
-			retval = actions_parse(&params->threshold_actions, optarg);
-			if (retval) {
-				err_msg("Invalid action %s\n", optarg);
-				exit(EXIT_FAILURE);
-			}
+			retval = actions_parse(&params->common.threshold_actions, optarg,
+					       "timerlat_trace.txt");
+			if (retval)
+				fatal("Invalid action %s", optarg);
 			break;
 		case '\1':
-			retval = actions_parse(&params->end_actions, optarg);
-			if (retval) {
-				err_msg("Invalid action %s\n", optarg);
-				exit(EXIT_FAILURE);
-			}
+			retval = actions_parse(&params->common.end_actions, optarg,
+					       "timerlat_trace.txt");
+			if (retval)
+				fatal("Invalid action %s", optarg);
+			break;
+		case '\2':
+			params->bpf_action_program = optarg;
+			break;
+		case '\3':
+			params->stack_format = parse_stack_format(optarg);
+			if (params->stack_format == -1)
+				fatal("Invalid --stack-format option");
 			break;
 		default:
-			timerlat_top_usage("Invalid option");
+			fatal("Invalid option");
 		}
 	}
 
 	if (trace_output)
-		actions_add_trace_output(&params->threshold_actions, trace_output);
+		actions_add_trace_output(&params->common.threshold_actions, trace_output);
 
-	if (geteuid()) {
-		err_msg("rtla needs root permission\n");
-		exit(EXIT_FAILURE);
-	}
+	if (geteuid())
+		fatal("rtla needs root permission");
 
 	/*
 	 * Auto analysis only happens if stop tracing, thus:
 	 */
-	if (!params->stop_us && !params->stop_total_us)
+	if (!params->common.stop_us && !params->common.stop_total_us)
 		params->no_aa = 1;
 
-	if (params->no_aa && params->aa_only)
-		timerlat_top_usage("--no-aa and --aa-only are mutually exclusive!");
+	if (params->no_aa && params->common.aa_only)
+		fatal("--no-aa and --aa-only are mutually exclusive!");
 
-	if (params->kernel_workload && params->user_workload)
-		timerlat_top_usage("--kernel-threads and --user-threads are mutually exclusive!");
+	if (params->common.kernel_workload && params->common.user_workload)
+		fatal("--kernel-threads and --user-threads are mutually exclusive!");
 
 	/*
 	 * If auto-analysis or trace output is enabled, switch from BPF mode to
 	 * mixed mode
 	 */
 	if (params->mode == TRACING_MODE_BPF &&
-	    (params->threshold_actions.present[ACTION_TRACE_OUTPUT] ||
-	     params->end_actions.present[ACTION_TRACE_OUTPUT] || !params->no_aa))
+	    (params->common.threshold_actions.present[ACTION_TRACE_OUTPUT] ||
+	     params->common.end_actions.present[ACTION_TRACE_OUTPUT] ||
+	     !params->no_aa))
 		params->mode = TRACING_MODE_MIXED;
 
-	return params;
+	return &params->common;
 }
 
 /*
  * timerlat_top_apply_config - apply the top configs to the initialized tool
  */
 static int
-timerlat_top_apply_config(struct osnoise_tool *top, struct timerlat_params *params)
+timerlat_top_apply_config(struct osnoise_tool *top)
 {
+	struct timerlat_params *params = to_timerlat_params(top->params);
 	int retval;
 
 	retval = timerlat_apply_config(top, params);
 	if (retval)
 		goto out_err;
 
-	if (isatty(STDOUT_FILENO) && !params->quiet)
-		params->pretty_output = 1;
+	if (isatty(STDOUT_FILENO) && !params->common.quiet)
+		params->common.pretty_output = 1;
 
 	return 0;
 
@@ -855,22 +768,17 @@ out_err:
  * timerlat_init_top - initialize a timerlat top tool with parameters
  */
 static struct osnoise_tool
-*timerlat_init_top(struct timerlat_params *params)
+*timerlat_init_top(struct common_params *params)
 {
 	struct osnoise_tool *top;
-	int nr_cpus;
-
-	nr_cpus = sysconf(_SC_NPROCESSORS_CONF);
 
 	top = osnoise_init_tool("timerlat_top");
 	if (!top)
 		return NULL;
 
-	top->data = timerlat_alloc_top(nr_cpus);
+	top->data = timerlat_alloc_top();
 	if (!top->data)
 		goto out_err;
-
-	top->params = params;
 
 	tep_register_event_handler(top->trace.tep, -1, "ftrace", "timerlat",
 				   timerlat_top_handler, top);
@@ -882,106 +790,13 @@ out_err:
 	return NULL;
 }
 
-static int stop_tracing;
-static struct trace_instance *top_inst = NULL;
-static void stop_top(int sig)
-{
-	if (stop_tracing) {
-		/*
-		 * Stop requested twice in a row; abort event processing and
-		 * exit immediately
-		 */
-		tracefs_iterate_stop(top_inst->inst);
-		return;
-	}
-	stop_tracing = 1;
-	if (top_inst)
-		trace_instance_stop(top_inst);
-}
-
-/*
- * timerlat_top_set_signals - handles the signal to stop the tool
- */
-static void
-timerlat_top_set_signals(struct timerlat_params *params)
-{
-	signal(SIGINT, stop_top);
-	if (params->duration) {
-		signal(SIGALRM, stop_top);
-		alarm(params->duration);
-	}
-}
-
-/*
- * timerlat_top_main_loop - main loop to process events
- */
-static int
-timerlat_top_main_loop(struct osnoise_tool *top,
-		       struct osnoise_tool *record,
-		       struct osnoise_tool *aa,
-		       struct timerlat_params *params,
-		       struct timerlat_u_params *params_u)
-{
-	struct trace_instance *trace = &top->trace;
-	int retval;
-
-	while (!stop_tracing) {
-		sleep(params->sleep_time);
-
-		if (params->aa_only && !osnoise_trace_is_off(top, record))
-			continue;
-
-		retval = tracefs_iterate_raw_events(trace->tep,
-						    trace->inst,
-						    NULL,
-						    0,
-						    collect_registered_events,
-						    trace);
-		if (retval < 0) {
-			err_msg("Error iterating on events\n");
-			return retval;
-		}
-
-		if (!params->quiet)
-			timerlat_print_stats(params, top);
-
-		if (osnoise_trace_is_off(top, record)) {
-			actions_perform(&params->threshold_actions);
-
-			if (!params->threshold_actions.continue_flag)
-				/* continue flag not set, break */
-				break;
-
-			/* continue action reached, re-enable tracing */
-			if (record)
-				trace_instance_start(&record->trace);
-			if (!params->no_aa)
-				trace_instance_start(&aa->trace);
-			trace_instance_start(trace);
-		}
-
-		/* is there still any user-threads ? */
-		if (params->user_workload) {
-			if (params_u->stopped_running) {
-				debug_msg("timerlat user space threads stopped!\n");
-				break;
-			}
-		}
-	}
-
-	return 0;
-}
-
 /*
  * timerlat_top_bpf_main_loop - main loop to process events (BPF variant)
  */
 static int
-timerlat_top_bpf_main_loop(struct osnoise_tool *top,
-			   struct osnoise_tool *record,
-			   struct osnoise_tool *aa,
-			   struct timerlat_params *params,
-			   struct timerlat_u_params *params_u)
+timerlat_top_bpf_main_loop(struct osnoise_tool *tool)
 {
+	const struct common_params *params = tool->params;
 	int retval, wait_retval;
 
 	if (params->aa_only) {
@@ -992,36 +807,36 @@ timerlat_top_bpf_main_loop(struct osnoise_tool *top,
 
 	/* Pull and display data in a loop */
 	while (!stop_tracing) {
-		wait_retval = timerlat_bpf_wait(params->quiet ? -1 : params->sleep_time);
+		wait_retval = timerlat_bpf_wait(params->quiet ? -1 :
+						params->sleep_time);
 
-		retval = timerlat_top_bpf_pull_data(top);
+		retval = timerlat_top_bpf_pull_data(tool);
 		if (retval) {
 			err_msg("Error pulling BPF data\n");
 			return retval;
 		}
 
 		if (!params->quiet)
-			timerlat_print_stats(params, top);
+			timerlat_print_stats(tool);
 
-		if (wait_retval == 1) {
+		if (wait_retval != 0) {
 			/* Stopping requested by tracer */
-			actions_perform(&params->threshold_actions);
+			retval = common_threshold_handler(tool);
+			if (retval)
+				return retval;
 
-			if (!params->threshold_actions.continue_flag)
-				/* continue flag not set, break */
+			if (!should_continue_tracing(tool->params))
 				break;
 
-			/* continue action reached, re-enable tracing */
-			if (record)
-				trace_instance_start(&record->trace);
-			if (!params->no_aa)
-				trace_instance_start(&aa->trace);
-			timerlat_bpf_restart_tracing();
+			if (timerlat_bpf_restart_tracing()) {
+				err_msg("Error restarting BPF trace\n");
+				return -1;
+			}
 		}
 
 		/* is there still any user-threads ? */
 		if (params->user_workload) {
-			if (params_u->stopped_running) {
+			if (params->user.stopped_running) {
 				debug_msg("timerlat user space threads stopped!\n");
 				break;
 			}
@@ -1031,273 +846,30 @@ timerlat_top_bpf_main_loop(struct osnoise_tool *top,
 	return 0;
 }
 
-int timerlat_top_main(int argc, char *argv[])
+static int timerlat_top_main_loop(struct osnoise_tool *tool)
 {
-	struct timerlat_params *params;
-	struct osnoise_tool *record = NULL;
-	struct timerlat_u_params params_u;
-	enum result return_value = ERROR;
-	struct osnoise_tool *top = NULL;
-	struct osnoise_tool *aa = NULL;
-	struct trace_instance *trace;
-	int dma_latency_fd = -1;
-	pthread_t timerlat_u;
-	char *max_lat;
+	struct timerlat_params *params = to_timerlat_params(tool->params);
 	int retval;
-	int nr_cpus, i;
 
-	params = timerlat_top_parse_args(argc, argv);
-	if (!params)
-		exit(1);
-
-	top = timerlat_init_top(params);
-	if (!top) {
-		err_msg("Could not init osnoise top\n");
-		goto out_exit;
-	}
-
-	trace = &top->trace;
-	/*
-	 * Save trace instance into global variable so that SIGINT can stop
-	 * the timerlat tracer.
-	 * Otherwise, rtla could loop indefinitely when overloaded.
-	 */
-	top_inst = trace;
-
-	/*
-	 * Try to enable BPF, unless disabled explicitly.
-	 * If BPF enablement fails, fall back to tracefs mode.
-	 */
-	if (getenv("RTLA_NO_BPF") && strncmp(getenv("RTLA_NO_BPF"), "1", 2) == 0) {
-		debug_msg("RTLA_NO_BPF set, disabling BPF\n");
-		params->mode = TRACING_MODE_TRACEFS;
-	} else if (!tep_find_event_by_name(trace->tep, "osnoise", "timerlat_sample")) {
-		debug_msg("osnoise:timerlat_sample missing, disabling BPF\n");
-		params->mode = TRACING_MODE_TRACEFS;
-	} else {
-		retval = timerlat_bpf_init(params);
-		if (retval) {
-			debug_msg("Could not enable BPF\n");
-			params->mode = TRACING_MODE_TRACEFS;
-		}
-	}
-
-	retval = timerlat_top_apply_config(top, params);
-	if (retval) {
-		err_msg("Could not apply config\n");
-		goto out_free;
-	}
-
-	retval = enable_timerlat(trace);
-	if (retval) {
-		err_msg("Failed to enable timerlat tracer\n");
-		goto out_free;
-	}
-
-	if (params->set_sched) {
-		retval = set_comm_sched_attr("timerlat/", &params->sched_param);
-		if (retval) {
-			err_msg("Failed to set sched parameters\n");
-			goto out_free;
-		}
-	}
-
-	if (params->cgroup && !params->user_data) {
-		retval = set_comm_cgroup("timerlat/", params->cgroup_name);
-		if (!retval) {
-			err_msg("Failed to move threads to cgroup\n");
-			goto out_free;
-		}
-	}
-
-	if (params->dma_latency >= 0) {
-		dma_latency_fd = set_cpu_dma_latency(params->dma_latency);
-		if (dma_latency_fd < 0) {
-			err_msg("Could not set /dev/cpu_dma_latency.\n");
-			goto out_free;
-		}
-	}
-
-	if (params->deepest_idle_state >= -1) {
-		if (!have_libcpupower_support()) {
-			err_msg("rtla built without libcpupower, --deepest-idle-state is not supported\n");
-			goto out_free;
-		}
-
-		nr_cpus = sysconf(_SC_NPROCESSORS_CONF);
-
-		for (i = 0; i < nr_cpus; i++) {
-			if (params->cpus && !CPU_ISSET(i, &params->monitored_cpus))
-				continue;
-			if (save_cpu_idle_disable_state(i) < 0) {
-				err_msg("Could not save cpu idle state.\n");
-				goto out_free;
-			}
-			if (set_deepest_cpu_idle_state(i, params->deepest_idle_state) < 0) {
-				err_msg("Could not set deepest cpu idle state.\n");
-				goto out_free;
-			}
-		}
-	}
-
-	if (params->threshold_actions.present[ACTION_TRACE_OUTPUT] ||
-	    params->end_actions.present[ACTION_TRACE_OUTPUT]) {
-		record = osnoise_init_trace_tool("timerlat");
-		if (!record) {
-			err_msg("Failed to enable the trace instance\n");
-			goto out_free;
-		}
-		params->threshold_actions.trace_output_inst = record->trace.inst;
-		params->end_actions.trace_output_inst = record->trace.inst;
-
-		if (params->events) {
-			retval = trace_events_enable(&record->trace, params->events);
-			if (retval)
-				goto out_top;
-		}
-
-		if (params->buffer_size > 0) {
-			retval = trace_set_buffer_size(&record->trace, params->buffer_size);
-			if (retval)
-				goto out_top;
-		}
-	}
-
-	if (!params->no_aa) {
-		aa = osnoise_init_tool("timerlat_aa");
-		if (!aa)
-			goto out_top;
-
-		retval = timerlat_aa_init(aa, params->dump_tasks);
-		if (retval) {
-			err_msg("Failed to enable the auto analysis instance\n");
-			goto out_top;
-		}
-
-		/* if it is re-using the main instance, there is no need to start it */
-		if (aa != top) {
-			retval = enable_timerlat(&aa->trace);
-			if (retval) {
-				err_msg("Failed to enable timerlat tracer\n");
-				goto out_top;
-			}
-		}
-	}
-
-	if (params->user_workload) {
-		/* rtla asked to stop */
-		params_u.should_run = 1;
-		/* all threads left */
-		params_u.stopped_running = 0;
-
-		params_u.set = &params->monitored_cpus;
-		if (params->set_sched)
-			params_u.sched_param = &params->sched_param;
-		else
-			params_u.sched_param = NULL;
-
-		params_u.cgroup_name = params->cgroup_name;
-
-		retval = pthread_create(&timerlat_u, NULL, timerlat_u_dispatcher, &params_u);
-		if (retval)
-			err_msg("Error creating timerlat user-space threads\n");
-	}
-
-	if (params->warmup > 0) {
-		debug_msg("Warming up for %d seconds\n", params->warmup);
-		sleep(params->warmup);
-	}
-
-	/*
-	 * Start the tracers here, after having set all instances.
-	 *
-	 * Let the trace instance start first for the case of hitting a stop
-	 * tracing while enabling other instances. The trace instance is the
-	 * one with most valuable information.
-	 */
-	if (record)
-		trace_instance_start(&record->trace);
-	if (!params->no_aa)
-		trace_instance_start(&aa->trace);
 	if (params->mode == TRACING_MODE_TRACEFS) {
-		trace_instance_start(trace);
+		retval = top_main_loop(tool);
 	} else {
-		retval = timerlat_bpf_attach();
-		if (retval) {
-			err_msg("Error attaching BPF program\n");
-			goto out_top;
-		}
-	}
-
-	top->start_time = time(NULL);
-	timerlat_top_set_signals(params);
-
-	if (params->mode == TRACING_MODE_TRACEFS)
-		retval = timerlat_top_main_loop(top, record, aa, params, &params_u);
-	else
-		retval = timerlat_top_bpf_main_loop(top, record, aa, params, &params_u);
-
-	if (retval)
-		goto out_top;
-
-	if (params->mode != TRACING_MODE_TRACEFS)
+		retval = timerlat_top_bpf_main_loop(tool);
 		timerlat_bpf_detach();
-
-	if (params->user_workload && !params_u.stopped_running) {
-		params_u.should_run = 0;
-		sleep(1);
 	}
 
-	timerlat_print_stats(params, top);
-
-	actions_perform(&params->end_actions);
-
-	return_value = PASSED;
-
-	if (osnoise_trace_is_off(top, record) && !stop_tracing) {
-		printf("rtla timerlat hit stop tracing\n");
-
-		if (!params->no_aa)
-			timerlat_auto_analysis(params->stop_us, params->stop_total_us);
-
-		return_value = FAILED;
-	} else if (params->aa_only) {
-		/*
-		 * If the trace did not stop with --aa-only, at least print the
-		 * max known latency.
-		 */
-		max_lat = tracefs_instance_file_read(trace->inst, "tracing_max_latency", NULL);
-		if (max_lat) {
-			printf("  Max latency was %s\n", max_lat);
-			free(max_lat);
-		}
-	}
-
-out_top:
-	timerlat_aa_destroy();
-	if (dma_latency_fd >= 0)
-		close(dma_latency_fd);
-	if (params->deepest_idle_state >= -1) {
-		for (i = 0; i < nr_cpus; i++) {
-			if (params->cpus && !CPU_ISSET(i, &params->monitored_cpus))
-				continue;
-			restore_cpu_idle_disable_state(i);
-		}
-	}
-	trace_events_destroy(&record->trace, params->events);
-	params->events = NULL;
-out_free:
-	timerlat_free_top(top->data);
-	if (aa && aa != top)
-		osnoise_destroy_tool(aa);
-	osnoise_destroy_tool(record);
-	osnoise_destroy_tool(top);
-	actions_destroy(&params->threshold_actions);
-	actions_destroy(&params->end_actions);
-	if (params->mode != TRACING_MODE_TRACEFS)
-		timerlat_bpf_destroy();
-	free(params);
-	free_cpu_idle_disable_states();
-out_exit:
-	exit(return_value);
+	return retval;
 }
+
+struct tool_ops timerlat_top_ops = {
+	.tracer = "timerlat",
+	.comm_prefix = "timerlat/",
+	.parse_args = timerlat_top_parse_args,
+	.init_tool = timerlat_init_top,
+	.apply_config = timerlat_top_apply_config,
+	.enable = timerlat_enable,
+	.main = timerlat_top_main_loop,
+	.print_stats = timerlat_print_stats,
+	.analyze = timerlat_analyze,
+	.free = timerlat_free_top_tool,
+};

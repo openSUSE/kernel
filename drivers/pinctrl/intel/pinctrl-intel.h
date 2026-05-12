@@ -2,7 +2,7 @@
 /*
  * Core pinctrl/GPIO driver for Intel GPIO controllers
  *
- * Copyright (C) 2015, Intel Corporation
+ * Copyright (C) 2015 Intel Corporation
  * Authors: Mathias Nyman <mathias.nyman@linux.intel.com>
  *          Mika Westerberg <mika.westerberg@linux.intel.com>
  */
@@ -76,6 +76,15 @@ enum {
 	INTEL_GPIO_BASE_MATCH	= 0,
 };
 
+/* Initialise struct intel_padgroup */
+#define INTEL_GPP(r, s, e, g)				\
+	{						\
+		.reg_num = (r),				\
+		.base = (s),				\
+		.size = ((e) - (s) + 1),		\
+		.gpio_base = (g),			\
+	}
+
 /**
  * struct intel_community - Intel pin community description
  * @barno: MMIO BAR number where registers for this community reside
@@ -141,6 +150,7 @@ struct intel_community {
 #define PINCTRL_FEATURE_PWM		BIT(3)
 #define PINCTRL_FEATURE_BLINK		BIT(4)
 #define PINCTRL_FEATURE_EXP		BIT(5)
+#define PINCTRL_FEATURE_3BIT_PAD_OWN	BIT(6)
 
 #define __INTEL_COMMUNITY(b, s, e, g, n, gs, gn, soc)		\
 	{							\
@@ -266,6 +276,8 @@ extern const struct dev_pm_ops intel_pinctrl_pm_ops;
 
 const struct intel_community *intel_get_community(const struct intel_pinctrl *pctrl,
 						  unsigned int pin);
+
+int intel_gpio_add_pin_ranges(struct gpio_chip *gc);
 
 int intel_get_groups_count(struct pinctrl_dev *pctldev);
 const char *intel_get_group_name(struct pinctrl_dev *pctldev, unsigned int group);

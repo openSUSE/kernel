@@ -27,7 +27,7 @@ struct landlock_hierarchy;
  */
 struct landlock_layer {
 	/**
-	 * @level: Position of this layer in the layer stack.
+	 * @level: Position of this layer in the layer stack.  Starts from 1.
 	 */
 	u16 level;
 	/**
@@ -224,7 +224,7 @@ static inline void landlock_get_ruleset(struct landlock_ruleset *const ruleset)
  *
  * @domain: Landlock ruleset (used as a domain)
  *
- * Returns: an access_masks result of the OR of all the domain's access masks.
+ * Return: An access_masks result of the OR of all the domain's access masks.
  */
 static inline struct access_masks
 landlock_union_access_masks(const struct landlock_ruleset *const domain)
@@ -302,14 +302,12 @@ landlock_get_scope_mask(const struct landlock_ruleset *const ruleset,
 }
 
 bool landlock_unmask_layers(const struct landlock_rule *const rule,
-			    const access_mask_t access_request,
-			    layer_mask_t (*const layer_masks)[],
-			    const size_t masks_array_size);
+			    struct layer_access_masks *masks);
 
 access_mask_t
 landlock_init_layer_masks(const struct landlock_ruleset *const domain,
 			  const access_mask_t access_request,
-			  layer_mask_t (*const layer_masks)[],
+			  struct layer_access_masks *masks,
 			  const enum landlock_key_type key_type);
 
 #endif /* _SECURITY_LANDLOCK_RULESET_H */

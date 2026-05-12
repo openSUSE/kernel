@@ -44,6 +44,7 @@
  * but lo_hi_readq() ensures that we are safe across all e3-1200 processors.
  */
 
+#include <linux/bitfield.h>
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/pci.h>
@@ -99,6 +100,8 @@
 
 /* Alder Lake-S */
 #define PCI_DEVICE_ID_INTEL_IE31200_ADL_S_1	0x4660
+#define PCI_DEVICE_ID_INTEL_IE31200_ADL_S_2	0x4668	/* 8P+4E, e.g. i7-12700K */
+#define PCI_DEVICE_ID_INTEL_IE31200_ADL_S_3	0x4648	/* 6P+4E, e.g. i5-12600K */
 
 /* Bartlett Lake-S */
 #define PCI_DEVICE_ID_INTEL_IE31200_BTL_S_1	0x4639
@@ -136,9 +139,6 @@
 #define IE31200_CAPID0_PDCD		BIT(4)
 #define IE31200_CAPID0_DDPCD		BIT(6)
 #define IE31200_CAPID0_ECC		BIT(1)
-
-/* Non-constant mask variant of FIELD_GET() */
-#define field_get(_mask, _reg)  (((_reg) & (_mask)) >> (ffs(_mask) - 1))
 
 static int nr_channels;
 static struct pci_dev *mci_pdev;
@@ -524,6 +524,7 @@ static int ie31200_register_mci(struct pci_dev *pdev, struct res_config *cfg, in
 	ie31200_pvt.priv[mc] = priv;
 	return 0;
 fail_unmap:
+	put_device(&priv->dev);
 	iounmap(window);
 fail_free:
 	edac_mc_free(mci);
@@ -596,6 +597,7 @@ static void ie31200_unregister_mcis(void)
 		mci = priv->mci;
 		edac_mc_del_mc(mci->pdev);
 		iounmap(priv->window);
+		put_device(&priv->dev);
 		edac_mc_free(mci);
 	}
 }
@@ -704,7 +706,7 @@ static struct res_config skl_cfg = {
 	.reg_mad_dimm_width_mask[1]	= GENMASK(25, 24),
 };
 
-struct res_config rpl_s_cfg = {
+static struct res_config rpl_s_cfg = {
 	.mtype				= MEM_DDR5,
 	.cmci				= true,
 	.imc_num			= 2,
@@ -761,6 +763,8 @@ static const struct pci_device_id ie31200_pci_tbl[] = {
 	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_IE31200_RPL_S_6), (kernel_ulong_t)&rpl_s_cfg},
 	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_IE31200_RPL_HX_1), (kernel_ulong_t)&rpl_s_cfg},
 	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_IE31200_ADL_S_1), (kernel_ulong_t)&rpl_s_cfg},
+	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_IE31200_ADL_S_2), (kernel_ulong_t)&rpl_s_cfg},
+	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_IE31200_ADL_S_3), (kernel_ulong_t)&rpl_s_cfg},
 	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_IE31200_BTL_S_1), (kernel_ulong_t)&rpl_s_cfg},
 	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_IE31200_BTL_S_2), (kernel_ulong_t)&rpl_s_cfg},
 	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_IE31200_BTL_S_3), (kernel_ulong_t)&rpl_s_cfg},

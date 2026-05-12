@@ -67,8 +67,7 @@ static int netdev_boot_setup_add(char *name, struct ifmap *map)
 	s = dev_boot_setup;
 	for (i = 0; i < NETDEV_BOOT_SETUP_MAX; i++) {
 		if (s[i].name[0] == '\0' || s[i].name[0] == ' ') {
-			memset(s[i].name, 0, sizeof(s[i].name));
-			strscpy(s[i].name, name, IFNAMSIZ);
+			strscpy_pad(s[i].name, name);
 			memcpy(&s[i].map, map, sizeof(s[i].map));
 			break;
 		}
@@ -201,23 +200,8 @@ static int __init probe_list2(int unit, struct devprobe2 *p, int autoprobe)
  * look for EISA/PCI cards in addition to ISA cards).
  */
 static struct devprobe2 isa_probes[] __initdata = {
-#ifdef CONFIG_3C515
-	{tc515_probe, 0},
-#endif
-#ifdef CONFIG_ULTRA
-	{ultra_probe, 0},
-#endif
-#ifdef CONFIG_WD80x3
-	{wd_probe, 0},
-#endif
 #if defined(CONFIG_NE2000) /* ISA (use ne2k-pci for PCI cards) */
 	{ne_probe, 0},
-#endif
-#ifdef CONFIG_LANCE		/* ISA/VLB (use pcnet32 for PCI cards) */
-	{lance_probe, 0},
-#endif
-#ifdef CONFIG_SMC9194
-	{smc_init, 0},
 #endif
 #ifdef CONFIG_CS89x0_ISA
 	{cs89x0_probe, 0},

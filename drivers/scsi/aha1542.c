@@ -411,7 +411,8 @@ static irqreturn_t aha1542_interrupt(int irq, void *dev_id)
 	}
 }
 
-static int aha1542_queuecommand(struct Scsi_Host *sh, struct scsi_cmnd *cmd)
+static enum scsi_qc_status aha1542_queuecommand(struct Scsi_Host *sh,
+						struct scsi_cmnd *cmd)
 {
 	struct aha1542_cmd *acmd = scsi_cmd_priv(cmd);
 	struct aha1542_hostdata *aha1542 = shost_priv(sh);
@@ -992,7 +993,7 @@ static int aha1542_host_reset(struct scsi_cmnd *cmd)
 }
 
 static int aha1542_biosparam(struct scsi_device *sdev,
-		struct block_device *bdev, sector_t capacity, int geom[])
+		struct gendisk *unused, sector_t capacity, int geom[])
 {
 	struct aha1542_hostdata *aha1542 = shost_priv(sdev->host);
 

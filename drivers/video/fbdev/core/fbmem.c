@@ -91,16 +91,16 @@ EXPORT_SYMBOL(fb_get_color_depth);
 /*
  * Data padding functions.
  */
-void fb_pad_aligned_buffer(u8 *dst, u32 d_pitch, u8 *src, u32 s_pitch, u32 height)
+void fb_pad_aligned_buffer(u8 *dst, u32 d_pitch, const u8 *src, u32 s_pitch, u32 height)
 {
 	__fb_pad_aligned_buffer(dst, d_pitch, src, s_pitch, height);
 }
 EXPORT_SYMBOL(fb_pad_aligned_buffer);
 
-void fb_pad_unaligned_buffer(u8 *dst, u32 d_pitch, u8 *src, u32 idx, u32 height,
-				u32 shift_high, u32 shift_low, u32 mod)
+void fb_pad_unaligned_buffer(u8 *dst, u32 d_pitch, const u8 *src, u32 idx, u32 height,
+			     u32 shift_high, u32 shift_low, u32 mod)
 {
-	u8 mask = (u8) (0xfff << shift_high), tmp;
+	u8 mask = (u8) (0xff << shift_high), tmp;
 	int i, j;
 
 	for (i = height; i--; ) {
@@ -544,6 +544,7 @@ static void do_unregister_framebuffer(struct fb_info *fb_info)
 		fb_info->pixmap.addr = NULL;
 	}
 
+	fbcon_delete_modelist(&fb_info->modelist);
 	fb_destroy_modelist(&fb_info->modelist);
 	registered_fb[fb_info->node] = NULL;
 	num_registered_fb--;

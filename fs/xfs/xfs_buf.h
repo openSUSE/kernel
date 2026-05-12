@@ -14,6 +14,7 @@
 #include <linux/dax.h>
 #include <linux/uio.h>
 #include <linux/list_lru.h>
+#include <linux/lockref.h>
 
 extern struct kmem_cache *xfs_buf_cache;
 
@@ -22,6 +23,7 @@ extern struct kmem_cache *xfs_buf_cache;
  */
 struct xfs_buf;
 
+#define XFS_BUF_DADDR_MAX	((xfs_daddr_t) S64_MAX)
 #define XFS_BUF_DADDR_NULL	((xfs_daddr_t) (-1LL))
 
 #define XBF_READ	 (1u << 0) /* buffer intended for reading from device */
@@ -68,18 +70,6 @@ typedef unsigned int xfs_buf_flags_t;
 	{ XBF_TRYLOCK,		"TRYLOCK" }
 
 /*
- * Internal state flags.
- */
-#define XFS_BSTATE_DISPOSE	 (1 << 0)	/* buffer being discarded */
-
-struct xfs_buf_cache {
-	struct rhashtable	bc_hash;
-};
-
-int xfs_buf_cache_init(struct xfs_buf_cache *bch);
-void xfs_buf_cache_destroy(struct xfs_buf_cache *bch);
-
-/*
  * The xfs_buftarg contains 2 notions of "sector size" -
  *
  * 1) The metadata sector size, which is the minimum unit and
@@ -103,6 +93,7 @@ struct xfs_buftarg {
 	size_t			bt_meta_sectormask;
 	size_t			bt_logical_sectorsize;
 	size_t			bt_logical_sectormask;
+	xfs_daddr_t		bt_nr_sectors;
 
 	/* LRU control structures */
 	struct shrinker		*bt_shrinker;
@@ -115,8 +106,7 @@ struct xfs_buftarg {
 	unsigned int		bt_awu_min;
 	unsigned int		bt_awu_max;
 
-	/* built-in cache, if we're not using the perag one */
-	struct xfs_buf_cache	bt_cache[];
+	struct rhashtable	bt_hash;
 };
 
 struct xfs_buf_map {
@@ -157,7 +147,7 @@ struct xfs_buf {
 
 	xfs_daddr_t		b_rhash_key;	/* buffer cache index */
 	int			b_length;	/* size of buffer in BBs */
-	unsigned int		b_hold;		/* reference count */
+	struct lockref		b_lockref;	/* refcount + lock */
 	atomic_t		b_lru_ref;	/* lru reclaim ref count */
 	xfs_buf_flags_t		b_flags;	/* status flags */
 	struct semaphore	b_sema;		/* semaphore for lockables */
@@ -167,8 +157,6 @@ struct xfs_buf {
 	 * bt_lru_lock and not by b_sema
 	 */
 	struct list_head	b_lru;		/* lru list */
-	spinlock_t		b_lock;		/* internal state lock */
-	unsigned int		b_state;	/* internal state flags */
 	wait_queue_head_t	b_waiters;	/* unpin waiters */
 	struct list_head	b_list;
 	struct xfs_perag	*b_pag;
@@ -372,7 +360,8 @@ struct xfs_buftarg *xfs_alloc_buftarg(struct xfs_mount *mp,
 extern void xfs_free_buftarg(struct xfs_buftarg *);
 extern void xfs_buftarg_wait(struct xfs_buftarg *);
 extern void xfs_buftarg_drain(struct xfs_buftarg *);
-int xfs_configure_buftarg(struct xfs_buftarg *btp, unsigned int sectorsize);
+int xfs_configure_buftarg(struct xfs_buftarg *btp, unsigned int sectorsize,
+		xfs_fsblock_t nr_blocks);
 
 #define xfs_readonly_buftarg(buftarg)	bdev_read_only((buftarg)->bt_bdev)
 

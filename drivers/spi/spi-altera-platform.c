@@ -30,7 +30,6 @@ static const struct regmap_config spi_altera_config = {
 	.reg_bits = 32,
 	.reg_stride = 4,
 	.val_bits = 32,
-	.fast_io = true,
 };
 
 static int altera_spi_probe(struct platform_device *pdev)
@@ -67,8 +66,6 @@ static int altera_spi_probe(struct platform_device *pdev)
 		host->mode_bits = SPI_CS_HIGH;
 		host->bits_per_word_mask = SPI_BPW_RANGE_MASK(1, 16);
 	}
-
-	host->dev.of_node = pdev->dev.of_node;
 
 	hw = spi_controller_get_devdata(host);
 	hw->dev = &pdev->dev;

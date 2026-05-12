@@ -15,8 +15,6 @@
 #include "test_util.h"
 #include <linux/bitfield.h>
 
-bool have_cap_arm_mte;
-
 enum ftr_type {
 	FTR_EXACT,			/* Use a predefined safe value */
 	FTR_LOWER_SAFE,			/* Smaller value is safe */
@@ -32,21 +30,24 @@ struct reg_ftr_bits {
 	char *name;
 	bool sign;
 	enum ftr_type type;
-	uint8_t shift;
-	uint64_t mask;
+	u8 shift;
+	u64 mask;
 	/*
 	 * For FTR_EXACT, safe_val is used as the exact safe value.
 	 * For FTR_LOWER_SAFE, safe_val is used as the minimal safe value.
 	 */
-	int64_t safe_val;
+	s64 safe_val;
+
+	/* Allowed to be changed by the host after run */
+	bool mutable;
 };
 
 struct test_feature_reg {
-	uint32_t reg;
+	u32 reg;
 	const struct reg_ftr_bits *ftr_bits;
 };
 
-#define __REG_FTR_BITS(NAME, SIGNED, TYPE, SHIFT, MASK, SAFE_VAL)	\
+#define __REG_FTR_BITS(NAME, SIGNED, TYPE, SHIFT, MASK, SAFE_VAL, MUT)	\
 	{								\
 		.name = #NAME,						\
 		.sign = SIGNED,						\
@@ -54,15 +55,20 @@ struct test_feature_reg {
 		.shift = SHIFT,						\
 		.mask = MASK,						\
 		.safe_val = SAFE_VAL,					\
+		.mutable = MUT,						\
 	}
 
 #define REG_FTR_BITS(type, reg, field, safe_val) \
 	__REG_FTR_BITS(reg##_##field, FTR_UNSIGNED, type, reg##_##field##_SHIFT, \
-		       reg##_##field##_MASK, safe_val)
+		       reg##_##field##_MASK, safe_val, false)
+
+#define REG_FTR_BITS_MUTABLE(type, reg, field, safe_val) \
+	__REG_FTR_BITS(reg##_##field, FTR_UNSIGNED, type, reg##_##field##_SHIFT, \
+		       reg##_##field##_MASK, safe_val, true)
 
 #define S_REG_FTR_BITS(type, reg, field, safe_val) \
 	__REG_FTR_BITS(reg##_##field, FTR_SIGNED, type, reg##_##field##_SHIFT, \
-		       reg##_##field##_MASK, safe_val)
+		       reg##_##field##_MASK, safe_val, false)
 
 #define REG_FTR_END					\
 	{						\
@@ -93,7 +99,6 @@ static const struct reg_ftr_bits ftr_id_aa64isar0_el1[] = {
 	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64ISAR0_EL1, SM3, 0),
 	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64ISAR0_EL1, SHA3, 0),
 	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64ISAR0_EL1, RDM, 0),
-	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64ISAR0_EL1, TME, 0),
 	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64ISAR0_EL1, ATOMIC, 0),
 	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64ISAR0_EL1, CRC32, 0),
 	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64ISAR0_EL1, SHA2, 0),
@@ -125,12 +130,21 @@ static const struct reg_ftr_bits ftr_id_aa64isar2_el1[] = {
 	REG_FTR_END,
 };
 
+static const struct reg_ftr_bits ftr_id_aa64isar3_el1[] = {
+	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64ISAR3_EL1, FPRCVT, 0),
+	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64ISAR3_EL1, LSUI, 0),
+	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64ISAR3_EL1, LSFE, 0),
+	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64ISAR3_EL1, FAMINMAX, 0),
+	REG_FTR_END,
+};
+
 static const struct reg_ftr_bits ftr_id_aa64pfr0_el1[] = {
 	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64PFR0_EL1, CSV3, 0),
 	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64PFR0_EL1, CSV2, 0),
 	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64PFR0_EL1, DIT, 0),
 	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64PFR0_EL1, SEL2, 0),
-	REG_FTR_BITS(FTR_EXACT, ID_AA64PFR0_EL1, GIC, 0),
+	/* GICv3 support will be forced at run time if available */
+	REG_FTR_BITS_MUTABLE(FTR_EXACT, ID_AA64PFR0_EL1, GIC, 0),
 	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64PFR0_EL1, EL3, 1),
 	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64PFR0_EL1, EL2, 1),
 	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64PFR0_EL1, EL1, 1),
@@ -165,7 +179,9 @@ static const struct reg_ftr_bits ftr_id_aa64mmfr0_el1[] = {
 static const struct reg_ftr_bits ftr_id_aa64mmfr1_el1[] = {
 	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64MMFR1_EL1, TIDCP1, 0),
 	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64MMFR1_EL1, AFP, 0),
+	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64MMFR1_EL1, HCX, 0),
 	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64MMFR1_EL1, ETS, 0),
+	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64MMFR1_EL1, TWED, 0),
 	REG_FTR_BITS(FTR_HIGHER_SAFE, ID_AA64MMFR1_EL1, SpecSEI, 0),
 	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64MMFR1_EL1, PAN, 0),
 	REG_FTR_BITS(FTR_LOWER_SAFE, ID_AA64MMFR1_EL1, LO, 0),
@@ -221,6 +237,7 @@ static struct test_feature_reg test_regs[] = {
 	TEST_REG(SYS_ID_AA64ISAR0_EL1, ftr_id_aa64isar0_el1),
 	TEST_REG(SYS_ID_AA64ISAR1_EL1, ftr_id_aa64isar1_el1),
 	TEST_REG(SYS_ID_AA64ISAR2_EL1, ftr_id_aa64isar2_el1),
+	TEST_REG(SYS_ID_AA64ISAR3_EL1, ftr_id_aa64isar3_el1),
 	TEST_REG(SYS_ID_AA64PFR0_EL1, ftr_id_aa64pfr0_el1),
 	TEST_REG(SYS_ID_AA64PFR1_EL1, ftr_id_aa64pfr1_el1),
 	TEST_REG(SYS_ID_AA64MMFR0_EL1, ftr_id_aa64mmfr0_el1),
@@ -239,12 +256,16 @@ static void guest_code(void)
 	GUEST_REG_SYNC(SYS_ID_AA64ISAR0_EL1);
 	GUEST_REG_SYNC(SYS_ID_AA64ISAR1_EL1);
 	GUEST_REG_SYNC(SYS_ID_AA64ISAR2_EL1);
+	GUEST_REG_SYNC(SYS_ID_AA64ISAR3_EL1);
 	GUEST_REG_SYNC(SYS_ID_AA64PFR0_EL1);
+	GUEST_REG_SYNC(SYS_ID_AA64PFR1_EL1);
 	GUEST_REG_SYNC(SYS_ID_AA64MMFR0_EL1);
 	GUEST_REG_SYNC(SYS_ID_AA64MMFR1_EL1);
 	GUEST_REG_SYNC(SYS_ID_AA64MMFR2_EL1);
 	GUEST_REG_SYNC(SYS_ID_AA64MMFR3_EL1);
 	GUEST_REG_SYNC(SYS_ID_AA64ZFR0_EL1);
+	GUEST_REG_SYNC(SYS_MPIDR_EL1);
+	GUEST_REG_SYNC(SYS_CLIDR_EL1);
 	GUEST_REG_SYNC(SYS_CTR_EL0);
 	GUEST_REG_SYNC(SYS_MIDR_EL1);
 	GUEST_REG_SYNC(SYS_REVIDR_EL1);
@@ -254,9 +275,11 @@ static void guest_code(void)
 }
 
 /* Return a safe value to a given ftr_bits an ftr value */
-uint64_t get_safe_value(const struct reg_ftr_bits *ftr_bits, uint64_t ftr)
+u64 get_safe_value(const struct reg_ftr_bits *ftr_bits, u64 ftr)
 {
-	uint64_t ftr_max = GENMASK_ULL(ARM64_FEATURE_FIELD_BITS - 1, 0);
+	u64 ftr_max = ftr_bits->mask >> ftr_bits->shift;
+
+	TEST_ASSERT(ftr_max > 1, "This test doesn't support single bit features");
 
 	if (ftr_bits->sign == FTR_UNSIGNED) {
 		switch (ftr_bits->type) {
@@ -306,14 +329,16 @@ uint64_t get_safe_value(const struct reg_ftr_bits *ftr_bits, uint64_t ftr)
 }
 
 /* Return an invalid value to a given ftr_bits an ftr value */
-uint64_t get_invalid_value(const struct reg_ftr_bits *ftr_bits, uint64_t ftr)
+u64 get_invalid_value(const struct reg_ftr_bits *ftr_bits, u64 ftr)
 {
-	uint64_t ftr_max = GENMASK_ULL(ARM64_FEATURE_FIELD_BITS - 1, 0);
+	u64 ftr_max = ftr_bits->mask >> ftr_bits->shift;
+
+	TEST_ASSERT(ftr_max > 1, "This test doesn't support single bit features");
 
 	if (ftr_bits->sign == FTR_UNSIGNED) {
 		switch (ftr_bits->type) {
 		case FTR_EXACT:
-			ftr = max((uint64_t)ftr_bits->safe_val + 1, ftr + 1);
+			ftr = max((u64)ftr_bits->safe_val + 1, ftr + 1);
 			break;
 		case FTR_LOWER_SAFE:
 			ftr++;
@@ -333,7 +358,7 @@ uint64_t get_invalid_value(const struct reg_ftr_bits *ftr_bits, uint64_t ftr)
 	} else if (ftr != ftr_max) {
 		switch (ftr_bits->type) {
 		case FTR_EXACT:
-			ftr = max((uint64_t)ftr_bits->safe_val + 1, ftr + 1);
+			ftr = max((u64)ftr_bits->safe_val + 1, ftr + 1);
 			break;
 		case FTR_LOWER_SAFE:
 			ftr++;
@@ -357,12 +382,12 @@ uint64_t get_invalid_value(const struct reg_ftr_bits *ftr_bits, uint64_t ftr)
 	return ftr;
 }
 
-static uint64_t test_reg_set_success(struct kvm_vcpu *vcpu, uint64_t reg,
-				     const struct reg_ftr_bits *ftr_bits)
+static u64 test_reg_set_success(struct kvm_vcpu *vcpu, u64 reg,
+				const struct reg_ftr_bits *ftr_bits)
 {
-	uint8_t shift = ftr_bits->shift;
-	uint64_t mask = ftr_bits->mask;
-	uint64_t val, new_val, ftr;
+	u8 shift = ftr_bits->shift;
+	u64 mask = ftr_bits->mask;
+	u64 val, new_val, ftr;
 
 	val = vcpu_get_reg(vcpu, reg);
 	ftr = (val & mask) >> shift;
@@ -380,12 +405,12 @@ static uint64_t test_reg_set_success(struct kvm_vcpu *vcpu, uint64_t reg,
 	return new_val;
 }
 
-static void test_reg_set_fail(struct kvm_vcpu *vcpu, uint64_t reg,
+static void test_reg_set_fail(struct kvm_vcpu *vcpu, u64 reg,
 			      const struct reg_ftr_bits *ftr_bits)
 {
-	uint8_t shift = ftr_bits->shift;
-	uint64_t mask = ftr_bits->mask;
-	uint64_t val, old_val, ftr;
+	u8 shift = ftr_bits->shift;
+	u64 mask = ftr_bits->mask;
+	u64 val, old_val, ftr;
 	int r;
 
 	val = vcpu_get_reg(vcpu, reg);
@@ -406,7 +431,7 @@ static void test_reg_set_fail(struct kvm_vcpu *vcpu, uint64_t reg,
 	TEST_ASSERT_EQ(val, old_val);
 }
 
-static uint64_t test_reg_vals[KVM_ARM_FEATURE_ID_RANGE_SIZE];
+static u64 test_reg_vals[KVM_ARM_FEATURE_ID_RANGE_SIZE];
 
 #define encoding_to_range_idx(encoding)							\
 	KVM_ARM_FEATURE_ID_RANGE_IDX(sys_reg_Op0(encoding), sys_reg_Op1(encoding),	\
@@ -416,7 +441,7 @@ static uint64_t test_reg_vals[KVM_ARM_FEATURE_ID_RANGE_SIZE];
 
 static void test_vm_ftr_id_regs(struct kvm_vcpu *vcpu, bool aarch64_only)
 {
-	uint64_t masks[KVM_ARM_FEATURE_ID_RANGE_SIZE];
+	u64 masks[KVM_ARM_FEATURE_ID_RANGE_SIZE];
 	struct reg_mask_range range = {
 		.addr = (__u64)masks,
 	};
@@ -433,8 +458,8 @@ static void test_vm_ftr_id_regs(struct kvm_vcpu *vcpu, bool aarch64_only)
 
 	for (int i = 0; i < ARRAY_SIZE(test_regs); i++) {
 		const struct reg_ftr_bits *ftr_bits = test_regs[i].ftr_bits;
-		uint32_t reg_id = test_regs[i].reg;
-		uint64_t reg = KVM_ARM64_SYS_REG(reg_id);
+		u32 reg_id = test_regs[i].reg;
+		u64 reg = KVM_ARM64_SYS_REG(reg_id);
 		int idx;
 
 		/* Get the index to masks array for the idreg */
@@ -464,11 +489,11 @@ static void test_vm_ftr_id_regs(struct kvm_vcpu *vcpu, bool aarch64_only)
 #define MPAM_IDREG_TEST	6
 static void test_user_set_mpam_reg(struct kvm_vcpu *vcpu)
 {
-	uint64_t masks[KVM_ARM_FEATURE_ID_RANGE_SIZE];
+	u64 masks[KVM_ARM_FEATURE_ID_RANGE_SIZE];
 	struct reg_mask_range range = {
 		.addr = (__u64)masks,
 	};
-	uint64_t val;
+	u64 val;
 	int idx, err;
 
 	/*
@@ -559,16 +584,18 @@ static void test_user_set_mpam_reg(struct kvm_vcpu *vcpu)
 #define MTE_IDREG_TEST 1
 static void test_user_set_mte_reg(struct kvm_vcpu *vcpu)
 {
-	uint64_t masks[KVM_ARM_FEATURE_ID_RANGE_SIZE];
+	u64 masks[KVM_ARM_FEATURE_ID_RANGE_SIZE];
 	struct reg_mask_range range = {
 		.addr = (__u64)masks,
 	};
-	uint64_t val;
-	uint64_t mte;
-	uint64_t mte_frac;
+	u64 val;
+	u64 mte;
+	u64 mte_frac;
 	int idx, err;
 
-	if (!have_cap_arm_mte) {
+	val = vcpu_get_reg(vcpu, KVM_ARM64_SYS_REG(SYS_ID_AA64PFR1_EL1));
+	mte = FIELD_GET(ID_AA64PFR1_EL1_MTE, val);
+	if (!mte) {
 		ksft_test_result_skip("MTE capability not supported, nothing to test\n");
 		return;
 	}
@@ -593,9 +620,6 @@ static void test_user_set_mte_reg(struct kvm_vcpu *vcpu)
 	 * from unsupported (0xF) to supported (0).
 	 *
 	 */
-	val = vcpu_get_reg(vcpu, KVM_ARM64_SYS_REG(SYS_ID_AA64PFR1_EL1));
-
-	mte = FIELD_GET(ID_AA64PFR1_EL1_MTE, val);
 	mte_frac = FIELD_GET(ID_AA64PFR1_EL1_MTE_frac, val);
 	if (mte != ID_AA64PFR1_EL1_MTE_MTE2 ||
 	    mte_frac != ID_AA64PFR1_EL1_MTE_frac_NI) {
@@ -620,12 +644,38 @@ static void test_user_set_mte_reg(struct kvm_vcpu *vcpu)
 		ksft_test_result_pass("ID_AA64PFR1_EL1.MTE_frac no longer 0xF\n");
 }
 
+static u64 reset_mutable_bits(u32 id, u64 val)
+{
+	struct test_feature_reg *reg = NULL;
+
+	for (int i = 0; i < ARRAY_SIZE(test_regs); i++) {
+		if (test_regs[i].reg == id) {
+			reg = &test_regs[i];
+			break;
+		}
+	}
+
+	if (!reg)
+		return val;
+
+	for (const struct reg_ftr_bits *bits = reg->ftr_bits; bits->type != FTR_END; bits++) {
+		if (bits->mutable) {
+			val &= ~bits->mask;
+			val |= bits->safe_val << bits->shift;
+		}
+	}
+
+	return val;
+}
+
 static void test_guest_reg_read(struct kvm_vcpu *vcpu)
 {
 	bool done = false;
 	struct ucall uc;
 
 	while (!done) {
+		u64 val;
+
 		vcpu_run(vcpu);
 
 		switch (get_ucall(vcpu, &uc)) {
@@ -633,9 +683,11 @@ static void test_guest_reg_read(struct kvm_vcpu *vcpu)
 			REPORT_GUEST_ASSERT(uc);
 			break;
 		case UCALL_SYNC:
+			val = test_reg_vals[encoding_to_range_idx(uc.args[2])];
+			val = reset_mutable_bits(uc.args[2], val);
+
 			/* Make sure the written values are seen by guest */
-			TEST_ASSERT_EQ(test_reg_vals[encoding_to_range_idx(uc.args[2])],
-				       uc.args[3]);
+			TEST_ASSERT_EQ(val, reset_mutable_bits(uc.args[2], uc.args[3]));
 			break;
 		case UCALL_DONE:
 			done = true;
@@ -655,13 +707,13 @@ static void test_guest_reg_read(struct kvm_vcpu *vcpu)
 
 static void test_clidr(struct kvm_vcpu *vcpu)
 {
-	uint64_t clidr;
+	u64 clidr;
 	int level;
 
 	clidr = vcpu_get_reg(vcpu, KVM_ARM64_SYS_REG(SYS_CLIDR_EL1));
 
 	/* find the first empty level in the cache hierarchy */
-	for (level = 1; level < 7; level++) {
+	for (level = 1; level <= 7; level++) {
 		if (!CLIDR_CTYPE(clidr, level))
 			break;
 	}
@@ -720,13 +772,14 @@ static void test_vcpu_non_ftr_id_regs(struct kvm_vcpu *vcpu)
 	ksft_test_result_pass("%s\n", __func__);
 }
 
-static void test_assert_id_reg_unchanged(struct kvm_vcpu *vcpu, uint32_t encoding)
+static void test_assert_id_reg_unchanged(struct kvm_vcpu *vcpu, u32 encoding)
 {
 	size_t idx = encoding_to_range_idx(encoding);
-	uint64_t observed;
+	u64 observed;
 
 	observed = vcpu_get_reg(vcpu, KVM_ARM64_SYS_REG(encoding));
-	TEST_ASSERT_EQ(test_reg_vals[idx], observed);
+	TEST_ASSERT_EQ(reset_mutable_bits(encoding, test_reg_vals[idx]),
+		       reset_mutable_bits(encoding, observed));
 }
 
 static void test_reset_preserves_id_regs(struct kvm_vcpu *vcpu)
@@ -750,28 +803,23 @@ static void test_reset_preserves_id_regs(struct kvm_vcpu *vcpu)
 	ksft_test_result_pass("%s\n", __func__);
 }
 
-void kvm_arch_vm_post_create(struct kvm_vm *vm)
-{
-	if (vm_check_cap(vm, KVM_CAP_ARM_MTE)) {
-		vm_enable_cap(vm, KVM_CAP_ARM_MTE, 0);
-		have_cap_arm_mte = true;
-	}
-}
-
 int main(void)
 {
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
 	bool aarch64_only;
-	uint64_t val, el0;
-	int test_cnt;
+	u64 val, el0;
+	int test_cnt, i, j;
 
 	TEST_REQUIRE(kvm_has_cap(KVM_CAP_ARM_SUPPORTED_REG_MASK_RANGES));
 	TEST_REQUIRE(kvm_has_cap(KVM_CAP_ARM_WRITABLE_IMP_ID_REGS));
 
+	test_wants_mte();
+
 	vm = vm_create(1);
 	vm_enable_cap(vm, KVM_CAP_ARM_WRITABLE_IMP_ID_REGS, 0);
 	vcpu = vm_vcpu_add(vm, 0, guest_code);
+	kvm_arch_vm_finalize_vcpus(vm);
 
 	/* Check for AARCH64 only system */
 	val = vcpu_get_reg(vcpu, KVM_ARM64_SYS_REG(SYS_ID_AA64PFR0_EL1));
@@ -780,13 +828,10 @@ int main(void)
 
 	ksft_print_header();
 
-	test_cnt = ARRAY_SIZE(ftr_id_aa64dfr0_el1) + ARRAY_SIZE(ftr_id_dfr0_el1) +
-		   ARRAY_SIZE(ftr_id_aa64isar0_el1) + ARRAY_SIZE(ftr_id_aa64isar1_el1) +
-		   ARRAY_SIZE(ftr_id_aa64isar2_el1) + ARRAY_SIZE(ftr_id_aa64pfr0_el1) +
-		   ARRAY_SIZE(ftr_id_aa64pfr1_el1) + ARRAY_SIZE(ftr_id_aa64mmfr0_el1) +
-		   ARRAY_SIZE(ftr_id_aa64mmfr1_el1) + ARRAY_SIZE(ftr_id_aa64mmfr2_el1) +
-		   ARRAY_SIZE(ftr_id_aa64mmfr3_el1) + ARRAY_SIZE(ftr_id_aa64zfr0_el1) -
-		   ARRAY_SIZE(test_regs) + 3 + MPAM_IDREG_TEST + MTE_IDREG_TEST;
+	test_cnt = 3 + MPAM_IDREG_TEST + MTE_IDREG_TEST;
+	for (i = 0; i < ARRAY_SIZE(test_regs); i++)
+		for (j = 0; test_regs[i].ftr_bits[j].type != FTR_END; j++)
+			test_cnt++;
 
 	ksft_set_plan(test_cnt);
 

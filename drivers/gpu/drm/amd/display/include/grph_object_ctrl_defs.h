@@ -153,6 +153,10 @@ struct embedded_panel_info {
 	uint32_t drr_enabled;
 	uint32_t min_drr_refresh_rate;
 	bool realtek_eDPToLVDS;
+	uint16_t panel_width_mm;
+	uint16_t panel_height_mm;
+	uint16_t fake_edid_size;
+	const uint8_t *fake_edid;
 };
 
 struct dc_firmware_info {
@@ -169,6 +173,7 @@ struct dc_firmware_info {
 		uint32_t engine_clk_ss_percentage;
 	} feature;
 
+	uint32_t max_pixel_clock; /* in KHz */
 	uint32_t default_display_engine_pll_frequency; /* in KHz */
 	uint32_t external_clock_source_frequency_for_dp; /* in KHz */
 	uint32_t smu_gpu_pll_output_freq; /* in KHz */

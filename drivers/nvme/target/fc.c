@@ -54,6 +54,8 @@ struct nvmet_fc_ls_req_op {		/* for an LS RQST XMT */
 	int				ls_error;
 	struct list_head		lsreq_list; /* tgtport->ls_req_list */
 	bool				req_queued;
+
+	struct work_struct		put_work;
 };
 
 
@@ -111,8 +113,6 @@ struct nvmet_fc_tgtport {
 	struct nvmet_fc_port_entry	*pe;
 	struct kref			ref;
 	u32				max_sg_cnt;
-
-	struct work_struct		put_work;
 };
 
 struct nvmet_fc_port_entry {
@@ -235,12 +235,13 @@ static int nvmet_fc_tgt_a_get(struct nvmet_fc_tgt_assoc *assoc);
 static void nvmet_fc_tgt_q_put(struct nvmet_fc_tgt_queue *queue);
 static int nvmet_fc_tgt_q_get(struct nvmet_fc_tgt_queue *queue);
 static void nvmet_fc_tgtport_put(struct nvmet_fc_tgtport *tgtport);
-static void nvmet_fc_put_tgtport_work(struct work_struct *work)
+static void nvmet_fc_put_lsop_work(struct work_struct *work)
 {
-	struct nvmet_fc_tgtport *tgtport =
-		container_of(work, struct nvmet_fc_tgtport, put_work);
+	struct nvmet_fc_ls_req_op *lsop =
+		container_of(work, struct nvmet_fc_ls_req_op, put_work);
 
-	nvmet_fc_tgtport_put(tgtport);
+	nvmet_fc_tgtport_put(lsop->tgtport);
+	kfree(lsop);
 }
 static int nvmet_fc_tgtport_get(struct nvmet_fc_tgtport *tgtport);
 static void nvmet_fc_handle_fcp_rqst(struct nvmet_fc_tgtport *tgtport,
@@ -367,7 +368,7 @@ __nvmet_fc_finish_ls_req(struct nvmet_fc_ls_req_op *lsop)
 				  DMA_BIDIRECTIONAL);
 
 out_putwork:
-	queue_work(nvmet_wq, &tgtport->put_work);
+	queue_work(nvmet_wq, &lsop->put_work);
 }
 
 static int
@@ -388,6 +389,7 @@ __nvmet_fc_send_ls_req(struct nvmet_fc_tgtport *tgtport,
 	lsreq->done = done;
 	lsop->req_queued = false;
 	INIT_LIST_HEAD(&lsop->lsreq_list);
+	INIT_WORK(&lsop->put_work, nvmet_fc_put_lsop_work);
 
 	lsreq->rqstdma = fc_dma_map_single(tgtport->dev, lsreq->rqstaddr,
 				  lsreq->rqstlen + lsreq->rsplen,
@@ -447,8 +449,6 @@ nvmet_fc_disconnect_assoc_done(struct nvmefc_ls_req *lsreq, int status)
 	__nvmet_fc_finish_ls_req(lsop);
 
 	/* fc-nvme target doesn't care about success or failure of cmd */
-
-	kfree(lsop);
 }
 
 /*
@@ -490,8 +490,7 @@ nvmet_fc_xmt_disconnect_assoc(struct nvmet_fc_tgt_assoc *assoc)
 			sizeof(*discon_rqst) + sizeof(*discon_acc) +
 			tgtport->ops->lsrqst_priv_sz), GFP_KERNEL);
 	if (!lsop) {
-		dev_info(tgtport->dev,
-			"{%d:%d} send Disconnect Association failed: ENOMEM\n",
+		pr_info("{%d:%d}: send Disconnect Association failed: ENOMEM\n",
 			tgtport->fc_target_port.port_num, assoc->a_id);
 		return;
 	}
@@ -513,8 +512,7 @@ nvmet_fc_xmt_disconnect_assoc(struct nvmet_fc_tgt_assoc *assoc)
 	ret = nvmet_fc_send_ls_req_async(tgtport, lsop,
 				nvmet_fc_disconnect_assoc_done);
 	if (ret) {
-		dev_info(tgtport->dev,
-			"{%d:%d} XMT Disconnect Association failed: %d\n",
+		pr_info("{%d:%d}: XMT Disconnect Association failed: %d\n",
 			tgtport->fc_target_port.port_num, assoc->a_id, ret);
 		kfree(lsop);
 	}
@@ -530,8 +528,7 @@ nvmet_fc_alloc_ls_iodlist(struct nvmet_fc_tgtport *tgtport)
 	struct nvmet_fc_ls_iod *iod;
 	int i;
 
-	iod = kcalloc(NVMET_LS_CTX_COUNT, sizeof(struct nvmet_fc_ls_iod),
-			GFP_KERNEL);
+	iod = kzalloc_objs(struct nvmet_fc_ls_iod, NVMET_LS_CTX_COUNT);
 	if (!iod)
 		return -ENOMEM;
 
@@ -791,13 +788,13 @@ nvmet_fc_alloc_target_queue(struct nvmet_fc_tgt_assoc *assoc,
 	if (qid > NVMET_NR_QUEUES)
 		return NULL;
 
-	queue = kzalloc(struct_size(queue, fod, sqsize), GFP_KERNEL);
+	queue = kzalloc_flex(*queue, fod, sqsize);
 	if (!queue)
 		return NULL;
 
-	queue->work_q = alloc_workqueue("ntfc%d.%d.%d", 0, 0,
-				assoc->tgtport->fc_target_port.port_num,
-				assoc->a_id, qid);
+	queue->work_q = alloc_workqueue("ntfc%d.%d.%d", WQ_PERCPU, 0,
+					assoc->tgtport->fc_target_port.port_num,
+					assoc->a_id, qid);
 	if (!queue->work_q)
 		goto out_free_queue;
 
@@ -1036,7 +1033,7 @@ nvmet_fc_alloc_hostport(struct nvmet_fc_tgtport *tgtport, void *hosthandle)
 	if (match)
 		return match;
 
-	newhost = kzalloc(sizeof(*newhost), GFP_KERNEL);
+	newhost = kzalloc_obj(*newhost);
 	if (!newhost)
 		return ERR_PTR(-ENOMEM);
 
@@ -1075,6 +1072,14 @@ nvmet_fc_delete_assoc_work(struct work_struct *work)
 static void
 nvmet_fc_schedule_delete_assoc(struct nvmet_fc_tgt_assoc *assoc)
 {
+	int terminating;
+
+	terminating = atomic_xchg(&assoc->terminating, 1);
+
+	/* if already terminating, do nothing */
+	if (terminating)
+		return;
+
 	nvmet_fc_tgtport_get(assoc->tgtport);
 	if (!queue_work(nvmet_wq, &assoc->del_work))
 		nvmet_fc_tgtport_put(assoc->tgtport);
@@ -1110,7 +1115,7 @@ nvmet_fc_alloc_target_assoc(struct nvmet_fc_tgtport *tgtport, void *hosthandle)
 	if (!tgtport->pe)
 		return NULL;
 
-	assoc = kzalloc(sizeof(*assoc), GFP_KERNEL);
+	assoc = kzalloc_obj(*assoc);
 	if (!assoc)
 		return NULL;
 
@@ -1179,8 +1184,7 @@ nvmet_fc_target_assoc_free(struct kref *ref)
 	if (oldls)
 		nvmet_fc_xmt_ls_rsp(tgtport, oldls);
 	ida_free(&tgtport->assoc_cnt, assoc->a_id);
-	dev_info(tgtport->dev,
-		"{%d:%d} Association freed\n",
+	pr_info("{%d:%d}: Association freed\n",
 		tgtport->fc_target_port.port_num, assoc->a_id);
 	kfree(assoc);
 }
@@ -1202,13 +1206,7 @@ nvmet_fc_delete_target_assoc(struct nvmet_fc_tgt_assoc *assoc)
 {
 	struct nvmet_fc_tgtport *tgtport = assoc->tgtport;
 	unsigned long flags;
-	int i, terminating;
-
-	terminating = atomic_xchg(&assoc->terminating, 1);
-
-	/* if already terminating, do nothing */
-	if (terminating)
-		return;
+	int i;
 
 	spin_lock_irqsave(&tgtport->lock, flags);
 	list_del_rcu(&assoc->a_list);
@@ -1222,8 +1220,7 @@ nvmet_fc_delete_target_assoc(struct nvmet_fc_tgt_assoc *assoc)
 			flush_workqueue(assoc->queues[i]->work_q);
 	}
 
-	dev_info(tgtport->dev,
-		"{%d:%d} Association deleted\n",
+	pr_info("{%d:%d}: Association deleted\n",
 		tgtport->fc_target_port.port_num, assoc->a_id);
 
 	nvmet_fc_tgtport_put(tgtport);
@@ -1410,7 +1407,6 @@ nvmet_fc_register_targetport(struct nvmet_fc_port_info *pinfo,
 	kref_init(&newrec->ref);
 	ida_init(&newrec->assoc_cnt);
 	newrec->max_sg_cnt = template->max_sgl_segments;
-	INIT_WORK(&newrec->put_work, nvmet_fc_put_tgtport_work);
 
 	ret = nvmet_fc_alloc_ls_iodlist(newrec);
 	if (ret) {
@@ -1715,9 +1711,9 @@ nvmet_fc_ls_create_association(struct nvmet_fc_tgtport *tgtport,
 	}
 
 	if (ret) {
-		dev_err(tgtport->dev,
-			"Create Association LS failed: %s\n",
-			validation_errors[ret]);
+		pr_err("{%d}: Create Association LS failed: %s\n",
+		       tgtport->fc_target_port.port_num,
+		       validation_errors[ret]);
 		iod->lsrsp->rsplen = nvme_fc_format_rjt(acc,
 				sizeof(*acc), rqst->w0.ls_cmd,
 				FCNVME_RJT_RC_LOGIC,
@@ -1729,8 +1725,7 @@ nvmet_fc_ls_create_association(struct nvmet_fc_tgtport *tgtport,
 	atomic_set(&queue->connected, 1);
 	queue->sqhd = 0;	/* best place to init value */
 
-	dev_info(tgtport->dev,
-		"{%d:%d} Association created\n",
+	pr_info("{%d:%d}: Association created\n",
 		tgtport->fc_target_port.port_num, iod->assoc->a_id);
 
 	/* format a response */
@@ -1808,9 +1803,9 @@ nvmet_fc_ls_create_connection(struct nvmet_fc_tgtport *tgtport,
 	}
 
 	if (ret) {
-		dev_err(tgtport->dev,
-			"Create Connection LS failed: %s\n",
-			validation_errors[ret]);
+		pr_err("{%d}: Create Connection LS failed: %s\n",
+		       tgtport->fc_target_port.port_num,
+		       validation_errors[ret]);
 		iod->lsrsp->rsplen = nvme_fc_format_rjt(acc,
 				sizeof(*acc), rqst->w0.ls_cmd,
 				(ret == VERR_NO_ASSOC) ?
@@ -1870,9 +1865,9 @@ nvmet_fc_ls_disconnect(struct nvmet_fc_tgtport *tgtport,
 	}
 
 	if (ret || !assoc) {
-		dev_err(tgtport->dev,
-			"Disconnect LS failed: %s\n",
-			validation_errors[ret]);
+		pr_err("{%d}: Disconnect LS failed: %s\n",
+		       tgtport->fc_target_port.port_num,
+		       validation_errors[ret]);
 		iod->lsrsp->rsplen = nvme_fc_format_rjt(acc,
 				sizeof(*acc), rqst->w0.ls_cmd,
 				(ret == VERR_NO_ASSOC) ?
@@ -1906,8 +1901,7 @@ nvmet_fc_ls_disconnect(struct nvmet_fc_tgtport *tgtport,
 	spin_unlock_irqrestore(&tgtport->lock, flags);
 
 	if (oldls) {
-		dev_info(tgtport->dev,
-			"{%d:%d} Multiple Disconnect Association LS's "
+		pr_info("{%d:%d}: Multiple Disconnect Association LS's "
 			"received\n",
 			tgtport->fc_target_port.port_num, assoc->a_id);
 		/* overwrite good response with bogus failure */
@@ -2050,8 +2044,8 @@ nvmet_fc_rcv_ls_req(struct nvmet_fc_target_port *target_port,
 	struct fcnvme_ls_rqst_w0 *w0 = (struct fcnvme_ls_rqst_w0 *)lsreqbuf;
 
 	if (lsreqbuf_len > sizeof(union nvmefc_ls_requests)) {
-		dev_info(tgtport->dev,
-			"RCV %s LS failed: payload too large (%d)\n",
+		pr_info("{%d}: RCV %s LS failed: payload too large (%d)\n",
+			tgtport->fc_target_port.port_num,
 			(w0->ls_cmd <= NVME_FC_LAST_LS_CMD_VALUE) ?
 				nvmefc_ls_names[w0->ls_cmd] : "",
 			lsreqbuf_len);
@@ -2059,8 +2053,8 @@ nvmet_fc_rcv_ls_req(struct nvmet_fc_target_port *target_port,
 	}
 
 	if (!nvmet_fc_tgtport_get(tgtport)) {
-		dev_info(tgtport->dev,
-			"RCV %s LS failed: target deleting\n",
+		pr_info("{%d}: RCV %s LS failed: target deleting\n",
+			tgtport->fc_target_port.port_num,
 			(w0->ls_cmd <= NVME_FC_LAST_LS_CMD_VALUE) ?
 				nvmefc_ls_names[w0->ls_cmd] : "");
 		return -ESHUTDOWN;
@@ -2068,8 +2062,8 @@ nvmet_fc_rcv_ls_req(struct nvmet_fc_target_port *target_port,
 
 	iod = nvmet_fc_alloc_ls_iod(tgtport);
 	if (!iod) {
-		dev_info(tgtport->dev,
-			"RCV %s LS failed: context allocation failed\n",
+		pr_info("{%d}: RCV %s LS failed: context allocation failed\n",
+			tgtport->fc_target_port.port_num,
 			(w0->ls_cmd <= NVME_FC_LAST_LS_CMD_VALUE) ?
 				nvmefc_ls_names[w0->ls_cmd] : "");
 		nvmet_fc_tgtport_put(tgtport);
@@ -2722,7 +2716,7 @@ nvmet_fc_rcv_fcp_req(struct nvmet_fc_target_port *target_port,
 		spin_unlock_irqrestore(&queue->qlock, flags);
 
 		/* Now we need to dynamically allocate one */
-		deferfcp = kmalloc(sizeof(*deferfcp), GFP_KERNEL);
+		deferfcp = kmalloc_obj(*deferfcp);
 		if (!deferfcp) {
 			/* release the queue lookup reference */
 			nvmet_fc_tgt_q_put(queue);
@@ -2887,7 +2881,7 @@ nvmet_fc_add_port(struct nvmet_port *port)
 	if (ret)
 		return ret;
 
-	pe = kzalloc(sizeof(*pe), GFP_KERNEL);
+	pe = kzalloc_obj(*pe);
 	if (!pe)
 		return -ENOMEM;
 

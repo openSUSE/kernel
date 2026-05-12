@@ -59,10 +59,8 @@ static inline void __activate_traps_fpsimd32(struct kvm_vcpu *vcpu)
 	 * If FP/ASIMD is not implemented, FPEXC is UNDEFINED and any access to
 	 * it will cause an exception.
 	 */
-	if (vcpu_el1_is_32bit(vcpu) && system_supports_fpsimd()) {
+	if (vcpu_el1_is_32bit(vcpu) && system_supports_fpsimd())
 		write_sysreg(1 << 30, fpexc32_el2);
-		isb();
-	}
 }
 
 static inline void __activate_cptr_traps_nvhe(struct kvm_vcpu *vcpu)
@@ -195,123 +193,6 @@ static inline void __deactivate_cptr_traps(struct kvm_vcpu *vcpu)
 		__deactivate_cptr_traps_nvhe(vcpu);
 }
 
-#define reg_to_fgt_masks(reg)						\
-	({								\
-		struct fgt_masks *m;					\
-		switch(reg) {						\
-		case HFGRTR_EL2:					\
-			m = &hfgrtr_masks;				\
-			break;						\
-		case HFGWTR_EL2:					\
-			m = &hfgwtr_masks;				\
-			break;						\
-		case HFGITR_EL2:					\
-			m = &hfgitr_masks;				\
-			break;						\
-		case HDFGRTR_EL2:					\
-			m = &hdfgrtr_masks;				\
-			break;						\
-		case HDFGWTR_EL2:					\
-			m = &hdfgwtr_masks;				\
-			break;						\
-		case HAFGRTR_EL2:					\
-			m = &hafgrtr_masks;				\
-			break;						\
-		case HFGRTR2_EL2:					\
-			m = &hfgrtr2_masks;				\
-			break;						\
-		case HFGWTR2_EL2:					\
-			m = &hfgwtr2_masks;				\
-			break;						\
-		case HFGITR2_EL2:					\
-			m = &hfgitr2_masks;				\
-			break;						\
-		case HDFGRTR2_EL2:					\
-			m = &hdfgrtr2_masks;				\
-			break;						\
-		case HDFGWTR2_EL2:					\
-			m = &hdfgwtr2_masks;				\
-			break;						\
-		default:						\
-			BUILD_BUG_ON(1);				\
-		}							\
-									\
-		m;							\
-	})
-
-#define compute_clr_set(vcpu, reg, clr, set)				\
-	do {								\
-		u64 hfg = __vcpu_sys_reg(vcpu, reg);			\
-		struct fgt_masks *m = reg_to_fgt_masks(reg);		\
-		set |= hfg & m->mask;					\
-		clr |= ~hfg & m->nmask;					\
-	} while(0)
-
-#define reg_to_fgt_group_id(reg)					\
-	({								\
-		enum fgt_group_id id;					\
-		switch(reg) {						\
-		case HFGRTR_EL2:					\
-		case HFGWTR_EL2:					\
-			id = HFGRTR_GROUP;				\
-			break;						\
-		case HFGITR_EL2:					\
-			id = HFGITR_GROUP;				\
-			break;						\
-		case HDFGRTR_EL2:					\
-		case HDFGWTR_EL2:					\
-			id = HDFGRTR_GROUP;				\
-			break;						\
-		case HAFGRTR_EL2:					\
-			id = HAFGRTR_GROUP;				\
-			break;						\
-		case HFGRTR2_EL2:					\
-		case HFGWTR2_EL2:					\
-			id = HFGRTR2_GROUP;				\
-			break;						\
-		case HFGITR2_EL2:					\
-			id = HFGITR2_GROUP;				\
-			break;						\
-		case HDFGRTR2_EL2:					\
-		case HDFGWTR2_EL2:					\
-			id = HDFGRTR2_GROUP;				\
-			break;						\
-		default:						\
-			BUILD_BUG_ON(1);				\
-		}							\
-									\
-		id;							\
-	})
-
-#define compute_undef_clr_set(vcpu, kvm, reg, clr, set)			\
-	do {								\
-		u64 hfg = kvm->arch.fgu[reg_to_fgt_group_id(reg)];	\
-		struct fgt_masks *m = reg_to_fgt_masks(reg);		\
-		set |= hfg & m->mask;					\
-		clr |= hfg & m->nmask;					\
-	} while(0)
-
-#define update_fgt_traps_cs(hctxt, vcpu, kvm, reg, clr, set)		\
-	do {								\
-		struct fgt_masks *m = reg_to_fgt_masks(reg);		\
-		u64 c = clr, s = set;					\
-		u64 val;						\
-									\
-		ctxt_sys_reg(hctxt, reg) = read_sysreg_s(SYS_ ## reg);	\
-		if (is_nested_ctxt(vcpu))				\
-			compute_clr_set(vcpu, reg, c, s);		\
-									\
-		compute_undef_clr_set(vcpu, kvm, reg, c, s);		\
-									\
-		val = m->nmask;						\
-		val |= s;						\
-		val &= ~c;						\
-		write_sysreg_s(val, SYS_ ## reg);			\
-	} while(0)
-
-#define update_fgt_traps(hctxt, vcpu, kvm, reg)		\
-	update_fgt_traps_cs(hctxt, vcpu, kvm, reg, 0, 0)
-
 static inline bool cpu_has_amu(void)
 {
        u64 pfr0 = read_sysreg_s(SYS_ID_AA64PFR0_EL1);
@@ -320,33 +201,48 @@ static inline bool cpu_has_amu(void)
                ID_AA64PFR0_EL1_AMU_SHIFT);
 }
 
+#define __activate_fgt(hctxt, vcpu, reg)				\
+	do {								\
+		ctxt_sys_reg(hctxt, reg) = read_sysreg_s(SYS_ ## reg);	\
+		write_sysreg_s(*vcpu_fgt(vcpu, reg), SYS_ ## reg);	\
+	} while (0)
+
 static inline void __activate_traps_hfgxtr(struct kvm_vcpu *vcpu)
 {
 	struct kvm_cpu_context *hctxt = host_data_ptr(host_ctxt);
-	struct kvm *kvm = kern_hyp_va(vcpu->kvm);
 
 	if (!cpus_have_final_cap(ARM64_HAS_FGT))
 		return;
 
-	update_fgt_traps(hctxt, vcpu, kvm, HFGRTR_EL2);
-	update_fgt_traps_cs(hctxt, vcpu, kvm, HFGWTR_EL2, 0,
-			    cpus_have_final_cap(ARM64_WORKAROUND_AMPERE_AC03_CPU_38) ?
-			    HFGWTR_EL2_TCR_EL1_MASK : 0);
-	update_fgt_traps(hctxt, vcpu, kvm, HFGITR_EL2);
-	update_fgt_traps(hctxt, vcpu, kvm, HDFGRTR_EL2);
-	update_fgt_traps(hctxt, vcpu, kvm, HDFGWTR_EL2);
+	__activate_fgt(hctxt, vcpu, HFGRTR_EL2);
+	__activate_fgt(hctxt, vcpu, HFGWTR_EL2);
+	__activate_fgt(hctxt, vcpu, HFGITR_EL2);
+	__activate_fgt(hctxt, vcpu, HDFGRTR_EL2);
+	__activate_fgt(hctxt, vcpu, HDFGWTR_EL2);
 
 	if (cpu_has_amu())
-		update_fgt_traps(hctxt, vcpu, kvm, HAFGRTR_EL2);
+		__activate_fgt(hctxt, vcpu, HAFGRTR_EL2);
 
 	if (!cpus_have_final_cap(ARM64_HAS_FGT2))
 	    return;
 
-	update_fgt_traps(hctxt, vcpu, kvm, HFGRTR2_EL2);
-	update_fgt_traps(hctxt, vcpu, kvm, HFGWTR2_EL2);
-	update_fgt_traps(hctxt, vcpu, kvm, HFGITR2_EL2);
-	update_fgt_traps(hctxt, vcpu, kvm, HDFGRTR2_EL2);
-	update_fgt_traps(hctxt, vcpu, kvm, HDFGWTR2_EL2);
+	__activate_fgt(hctxt, vcpu, HFGRTR2_EL2);
+	__activate_fgt(hctxt, vcpu, HFGWTR2_EL2);
+	__activate_fgt(hctxt, vcpu, HFGITR2_EL2);
+	__activate_fgt(hctxt, vcpu, HDFGRTR2_EL2);
+	__activate_fgt(hctxt, vcpu, HDFGWTR2_EL2);
+}
+
+static inline void __activate_traps_ich_hfgxtr(struct kvm_vcpu *vcpu)
+{
+	struct kvm_cpu_context *hctxt = host_data_ptr(host_ctxt);
+
+	if (!cpus_have_final_cap(ARM64_HAS_GICV5_CPUIF))
+		return;
+
+	__activate_fgt(hctxt, vcpu, ICH_HFGRTR_EL2);
+	__activate_fgt(hctxt, vcpu, ICH_HFGWTR_EL2);
+	__activate_fgt(hctxt, vcpu, ICH_HFGITR_EL2);
 }
 
 #define __deactivate_fgt(htcxt, vcpu, reg)				\
@@ -381,9 +277,23 @@ static inline void __deactivate_traps_hfgxtr(struct kvm_vcpu *vcpu)
 	__deactivate_fgt(hctxt, vcpu, HDFGWTR2_EL2);
 }
 
+static inline void __deactivate_traps_ich_hfgxtr(struct kvm_vcpu *vcpu)
+{
+	struct kvm_cpu_context *hctxt = host_data_ptr(host_ctxt);
+
+	if (!cpus_have_final_cap(ARM64_HAS_GICV5_CPUIF))
+		return;
+
+	__deactivate_fgt(hctxt, vcpu, ICH_HFGRTR_EL2);
+	__deactivate_fgt(hctxt, vcpu, ICH_HFGWTR_EL2);
+	__deactivate_fgt(hctxt, vcpu, ICH_HFGITR_EL2);
+
+}
+
 static inline void  __activate_traps_mpam(struct kvm_vcpu *vcpu)
 {
-	u64 r = MPAM2_EL2_TRAPMPAM0EL1 | MPAM2_EL2_TRAPMPAM1EL1;
+	u64 clr = MPAM2_EL2_EnMPAMSM;
+	u64 set = MPAM2_EL2_TRAPMPAM0EL1 | MPAM2_EL2_TRAPMPAM1EL1;
 
 	if (!system_supports_mpam())
 		return;
@@ -393,18 +303,21 @@ static inline void  __activate_traps_mpam(struct kvm_vcpu *vcpu)
 		write_sysreg_s(MPAMHCR_EL2_TRAP_MPAMIDR_EL1, SYS_MPAMHCR_EL2);
 	} else {
 		/* From v1.1 TIDR can trap MPAMIDR, set it unconditionally */
-		r |= MPAM2_EL2_TIDR;
+		set |= MPAM2_EL2_TIDR;
 	}
 
-	write_sysreg_s(r, SYS_MPAM2_EL2);
+	sysreg_clear_set_s(SYS_MPAM2_EL2, clr, set);
 }
 
 static inline void __deactivate_traps_mpam(void)
 {
+	u64 clr = MPAM2_EL2_TRAPMPAM0EL1 | MPAM2_EL2_TRAPMPAM1EL1 | MPAM2_EL2_TIDR;
+	u64 set = MPAM2_EL2_EnMPAMSM;
+
 	if (!system_supports_mpam())
 		return;
 
-	write_sysreg_s(0, SYS_MPAM2_EL2);
+	sysreg_clear_set_s(SYS_MPAM2_EL2, clr, set);
 
 	if (system_supports_mpam_hcr())
 		write_sysreg_s(MPAMHCR_HOST_FLAGS, SYS_MPAMHCR_EL2);
@@ -431,9 +344,6 @@ static inline void __activate_traps_common(struct kvm_vcpu *vcpu)
 		vcpu_set_flag(vcpu, PMUSERENR_ON_CPU);
 	}
 
-	*host_data_ptr(host_debug_state.mdcr_el2) = read_sysreg(mdcr_el2);
-	write_sysreg(vcpu->arch.mdcr_el2, mdcr_el2);
-
 	if (cpus_have_final_cap(ARM64_HAS_HCX)) {
 		u64 hcrx = vcpu->arch.hcrx_el2;
 		if (is_nested_ctxt(vcpu)) {
@@ -447,14 +357,13 @@ static inline void __activate_traps_common(struct kvm_vcpu *vcpu)
 	}
 
 	__activate_traps_hfgxtr(vcpu);
+	__activate_traps_ich_hfgxtr(vcpu);
 	__activate_traps_mpam(vcpu);
 }
 
 static inline void __deactivate_traps_common(struct kvm_vcpu *vcpu)
 {
 	struct kvm_cpu_context *hctxt = host_data_ptr(host_ctxt);
-
-	write_sysreg(*host_data_ptr(host_debug_state.mdcr_el2), mdcr_el2);
 
 	write_sysreg(0, hstr_el2);
 	if (system_supports_pmuv3()) {
@@ -466,6 +375,7 @@ static inline void __deactivate_traps_common(struct kvm_vcpu *vcpu)
 		write_sysreg_s(ctxt_sys_reg(hctxt, HCRX_EL2), SYS_HCRX_EL2);
 
 	__deactivate_traps_hfgxtr(vcpu);
+	__deactivate_traps_ich_hfgxtr(vcpu);
 	__deactivate_traps_mpam();
 }
 
@@ -614,7 +524,7 @@ static inline void fpsimd_lazy_switch_to_host(struct kvm_vcpu *vcpu)
 	/*
 	 * When the guest owns the FP regs, we know that guest+hyp traps for
 	 * any FPSIMD/SVE/SME features exposed to the guest have been disabled
-	 * by either fpsimd_lazy_switch_to_guest() or kvm_hyp_handle_fpsimd()
+	 * by either __activate_cptr_traps() or kvm_hyp_handle_fpsimd()
 	 * prior to __guest_entry(). As __guest_entry() guarantees a context
 	 * synchronization event, we don't need an ISB here to avoid taking
 	 * traps for anything that was exposed to the guest.
@@ -973,7 +883,7 @@ static inline bool kvm_hyp_handle_exit(struct kvm_vcpu *vcpu, u64 *exit_code,
 	return false;
 }
 
-static inline void synchronize_vcpu_pstate(struct kvm_vcpu *vcpu, u64 *exit_code)
+static inline void synchronize_vcpu_pstate(struct kvm_vcpu *vcpu)
 {
 	/*
 	 * Check for the conditions of Cortex-A510's #2077057. When these occur

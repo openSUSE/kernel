@@ -39,12 +39,6 @@ MODULE_AUTHOR("Jocelyn Falempe");
 MODULE_DESCRIPTION("DRM panic handler");
 MODULE_LICENSE("GPL");
 
-static char drm_panic_screen[16] = CONFIG_DRM_PANIC_SCREEN;
-module_param_string(panic_screen, drm_panic_screen, sizeof(drm_panic_screen), 0644);
-MODULE_PARM_DESC(panic_screen,
-		 "Choose what will be displayed by drm_panic, 'user' or 'kmsg' [default="
-		 CONFIG_DRM_PANIC_SCREEN "]");
-
 /**
  * DOC: overview
  *
@@ -174,6 +168,33 @@ static void drm_panic_write_pixel24(void *vaddr, unsigned int offset, u32 color)
 	*p = color & 0xff;
 }
 
+/*
+ * Special case if the pixel crosses page boundaries
+ */
+static void drm_panic_write_pixel24_xpage(void *vaddr, struct page *next_page,
+					  unsigned int offset, u32 color)
+{
+	u8 *vaddr2;
+	u8 *p = vaddr + offset;
+
+	vaddr2 = kmap_local_page_try_from_panic(next_page);
+
+	*p++ = color & 0xff;
+	color >>= 8;
+
+	if (offset == PAGE_SIZE - 1)
+		p = vaddr2;
+
+	*p++ = color & 0xff;
+	color >>= 8;
+
+	if (offset == PAGE_SIZE - 2)
+		p = vaddr2;
+
+	*p = color & 0xff;
+	kunmap_local(vaddr2);
+}
+
 static void drm_panic_write_pixel32(void *vaddr, unsigned int offset, u32 color)
 {
 	u32 *p = vaddr + offset;
@@ -231,7 +252,14 @@ static void drm_panic_blit_page(struct page **pages, unsigned int dpitch,
 					page = new_page;
 					vaddr = kmap_local_page_try_from_panic(pages[page]);
 				}
-				if (vaddr)
+				if (!vaddr)
+					continue;
+
+				// Special case for 24bit, as a pixel might cross page boundaries
+				if (cpp == 3 && offset + 3 > PAGE_SIZE)
+					drm_panic_write_pixel24_xpage(vaddr, pages[page + 1],
+								      offset, fg32);
+				else
 					drm_panic_write_pixel(vaddr, offset, fg32, cpp);
 			}
 		}
@@ -321,7 +349,15 @@ static void drm_panic_fill_page(struct page **pages, unsigned int dpitch,
 				page = new_page;
 				vaddr = kmap_local_page_try_from_panic(pages[page]);
 			}
-			drm_panic_write_pixel(vaddr, offset, color, cpp);
+			if (!vaddr)
+				continue;
+
+			// Special case for 24bit, as a pixel might cross page boundaries
+			if (cpp == 3 && offset + 3 > PAGE_SIZE)
+				drm_panic_write_pixel24_xpage(vaddr, pages[page + 1],
+							      offset, color);
+			else
+				drm_panic_write_pixel(vaddr, offset, color, cpp);
 		}
 	}
 	if (vaddr)
@@ -429,6 +465,9 @@ static void drm_panic_logo_rect(struct drm_rect *rect, const struct font_desc *f
 static void drm_panic_logo_draw(struct drm_scanout_buffer *sb, struct drm_rect *rect,
 				const struct font_desc *font, u32 fg_color)
 {
+	if (rect->x2 > sb->width || rect->y2 > sb->height)
+		return;
+
 	if (logo_mono)
 		drm_panic_blit(sb, rect, logo_mono->data,
 			       DIV_ROUND_UP(drm_rect_width(rect), 8), 1, fg_color);
@@ -437,7 +476,7 @@ static void drm_panic_logo_draw(struct drm_scanout_buffer *sb, struct drm_rect *
 				   fg_color);
 }
 
-static void draw_panic_static_user(struct drm_scanout_buffer *sb)
+static void draw_panic_screen_user(struct drm_scanout_buffer *sb)
 {
 	u32 fg_color = drm_draw_color_from_xrgb8888(CONFIG_DRM_PANIC_FOREGROUND_COLOR,
 						    sb->format->format);
@@ -477,7 +516,7 @@ static int draw_line_with_wrap(struct drm_scanout_buffer *sb, const struct font_
 			       struct drm_panic_line *line, int yoffset, u32 fg_color)
 {
 	int chars_per_row = sb->width / font->width;
-	struct drm_rect r_txt = DRM_RECT_INIT(0, yoffset, sb->width, sb->height);
+	struct drm_rect r_txt = DRM_RECT_INIT(0, yoffset, sb->width, font->height);
 	struct drm_panic_line line_wrap;
 
 	if (line->len > chars_per_row) {
@@ -506,7 +545,7 @@ static int draw_line_with_wrap(struct drm_scanout_buffer *sb, const struct font_
  * Draw the kmsg buffer to the screen, starting from the youngest message at the bottom,
  * and going up until reaching the top of the screen.
  */
-static void draw_panic_static_kmsg(struct drm_scanout_buffer *sb)
+static void draw_panic_screen_kmsg(struct drm_scanout_buffer *sb)
 {
 	u32 fg_color = drm_draw_color_from_xrgb8888(CONFIG_DRM_PANIC_FOREGROUND_COLOR,
 						    sb->format->format);
@@ -520,7 +559,7 @@ static void draw_panic_static_kmsg(struct drm_scanout_buffer *sb)
 	struct drm_panic_line line;
 	int yoffset;
 
-	if (!font)
+	if (!font || font->width > sb->width)
 		return;
 
 	yoffset = sb->height - font->height - (sb->height % font->height) / 2;
@@ -694,7 +733,7 @@ static int drm_panic_get_qr_code(u8 **qr_image)
 /*
  * Draw the panic message at the center of the screen, with a QR Code
  */
-static int _draw_panic_static_qr_code(struct drm_scanout_buffer *sb)
+static int _draw_panic_screen_qr_code(struct drm_scanout_buffer *sb)
 {
 	u32 fg_color = drm_draw_color_from_xrgb8888(CONFIG_DRM_PANIC_FOREGROUND_COLOR,
 						    sb->format->format);
@@ -733,7 +772,10 @@ static int _draw_panic_static_qr_code(struct drm_scanout_buffer *sb)
 	pr_debug("QR width %d and scale %d\n", qr_width, scale);
 	r_qr_canvas = DRM_RECT_INIT(0, 0, qr_canvas_width * scale, qr_canvas_width * scale);
 
-	v_margin = (sb->height - drm_rect_height(&r_qr_canvas) - drm_rect_height(&r_msg)) / 5;
+	v_margin = sb->height - drm_rect_height(&r_qr_canvas) - drm_rect_height(&r_msg);
+	if (v_margin < 0)
+		return -ENOSPC;
+	v_margin /= 5;
 
 	drm_rect_translate(&r_qr_canvas, (sb->width - r_qr_canvas.x2) / 2, 2 * v_margin);
 	r_qr = DRM_RECT_INIT(r_qr_canvas.x1 + QR_MARGIN * scale, r_qr_canvas.y1 + QR_MARGIN * scale,
@@ -746,7 +788,7 @@ static int _draw_panic_static_qr_code(struct drm_scanout_buffer *sb)
 	/* Fill with the background color, and draw text on top */
 	drm_panic_fill(sb, &r_screen, bg_color);
 
-	if (!drm_rect_overlap(&r_logo, &r_msg) && !drm_rect_overlap(&r_logo, &r_qr))
+	if (!drm_rect_overlap(&r_logo, &r_msg) && !drm_rect_overlap(&r_logo, &r_qr_canvas))
 		drm_panic_logo_draw(sb, &r_logo, font, fg_color);
 
 	draw_txt_rectangle(sb, font, panic_msg, panic_msg_lines, true, &r_msg, fg_color);
@@ -759,20 +801,65 @@ static int _draw_panic_static_qr_code(struct drm_scanout_buffer *sb)
 	return 0;
 }
 
-static void draw_panic_static_qr_code(struct drm_scanout_buffer *sb)
+static void draw_panic_screen_qr_code(struct drm_scanout_buffer *sb)
 {
-	if (_draw_panic_static_qr_code(sb))
-		draw_panic_static_user(sb);
+	if (_draw_panic_screen_qr_code(sb))
+		draw_panic_screen_user(sb);
 }
 #else
-static void draw_panic_static_qr_code(struct drm_scanout_buffer *sb)
-{
-	draw_panic_static_user(sb);
-}
-
 static void drm_panic_qr_init(void) {};
 static void drm_panic_qr_exit(void) {};
 #endif
+
+enum drm_panic_type {
+	DRM_PANIC_TYPE_KMSG,
+	DRM_PANIC_TYPE_USER,
+	DRM_PANIC_TYPE_QR,
+};
+
+static enum drm_panic_type drm_panic_type = -1;
+
+static const char *drm_panic_type_map[] = {
+	[DRM_PANIC_TYPE_KMSG] = "kmsg",
+	[DRM_PANIC_TYPE_USER] = "user",
+#if IS_ENABLED(CONFIG_DRM_PANIC_SCREEN_QR_CODE)
+	[DRM_PANIC_TYPE_QR] = "qr_code",
+#endif
+};
+
+static int drm_panic_type_set(const char *val, const struct kernel_param *kp)
+{
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(drm_panic_type_map); i++) {
+		if (!strcmp(val, drm_panic_type_map[i])) {
+			drm_panic_type = i;
+			return 0;
+		}
+	}
+
+	return -EINVAL;
+}
+
+static int drm_panic_type_get(char *buffer, const struct kernel_param *kp)
+{
+	return scnprintf(buffer, PAGE_SIZE, "%s\n",
+			 drm_panic_type_map[drm_panic_type]);
+}
+
+static const struct kernel_param_ops drm_panic_ops = {
+	.set = drm_panic_type_set,
+	.get = drm_panic_type_get,
+};
+
+module_param_cb(panic_screen, &drm_panic_ops, NULL, 0644);
+MODULE_PARM_DESC(panic_screen,
+#if IS_ENABLED(CONFIG_DRM_PANIC_SCREEN_QR_CODE)
+		 "Choose what will be displayed by drm_panic, 'user', 'kmsg' or 'qr_code' [default="
+#else
+		 "Choose what will be displayed by drm_panic, 'user' or 'kmsg' [default="
+#endif
+		 CONFIG_DRM_PANIC_SCREEN "]");
 
 /*
  * drm_panic_is_format_supported()
@@ -785,17 +872,25 @@ static bool drm_panic_is_format_supported(const struct drm_format_info *format)
 {
 	if (format->num_planes != 1)
 		return false;
-	return drm_draw_color_from_xrgb8888(0xffffff, format->format) != 0;
+	return drm_draw_can_convert_from_xrgb8888(format->format);
 }
 
 static void draw_panic_dispatch(struct drm_scanout_buffer *sb)
 {
-	if (!strcmp(drm_panic_screen, "kmsg")) {
-		draw_panic_static_kmsg(sb);
-	} else if (!strcmp(drm_panic_screen, "qr_code")) {
-		draw_panic_static_qr_code(sb);
-	} else {
-		draw_panic_static_user(sb);
+	switch (drm_panic_type) {
+	case DRM_PANIC_TYPE_KMSG:
+		draw_panic_screen_kmsg(sb);
+		break;
+
+#if IS_ENABLED(CONFIG_DRM_PANIC_SCREEN_QR_CODE)
+	case DRM_PANIC_TYPE_QR:
+		draw_panic_screen_qr_code(sb);
+		break;
+#endif
+
+	case DRM_PANIC_TYPE_USER:
+	default:
+		draw_panic_screen_user(sb);
 	}
 }
 
@@ -977,6 +1072,11 @@ void drm_panic_unregister(struct drm_device *dev)
  */
 void __init drm_panic_init(void)
 {
+	if (drm_panic_type == -1 && drm_panic_type_set(CONFIG_DRM_PANIC_SCREEN, NULL)) {
+		pr_warn("Unsupported value for CONFIG_DRM_PANIC_SCREEN ('%s'), falling back to 'user'...\n",
+			CONFIG_DRM_PANIC_SCREEN);
+		drm_panic_type = DRM_PANIC_TYPE_USER;
+	}
 	drm_panic_qr_init();
 }
 
@@ -987,3 +1087,7 @@ void drm_panic_exit(void)
 {
 	drm_panic_qr_exit();
 }
+
+#ifdef CONFIG_DRM_KUNIT_TEST
+#include "tests/drm_panic_test.c"
+#endif

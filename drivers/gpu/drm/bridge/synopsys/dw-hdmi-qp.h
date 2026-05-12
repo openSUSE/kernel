@@ -198,6 +198,7 @@
 #define PKTSCHED_PRQUEUE2_CONFIG2			0xa94
 #define PKTSCHED_PKT_CONFIG0				0xa98
 #define PKTSCHED_PKT_CONFIG1				0xa9c
+#define PKTSCHED_VSI_FIELDRATE				BIT(14)
 #define PKTSCHED_DRMI_FIELDRATE				BIT(13)
 #define PKTSCHED_AVI_FIELDRATE				BIT(12)
 #define PKTSCHED_PKT_CONFIG2				0xaa0
@@ -205,7 +206,9 @@
 #define PKTSCHED_PKT_EN					0xaa8
 #define PKTSCHED_DRMI_TX_EN				BIT(17)
 #define PKTSCHED_AUDI_TX_EN				BIT(15)
+#define PKTSCHED_SPDI_TX_EN				BIT(14)
 #define PKTSCHED_AVI_TX_EN				BIT(13)
+#define PKTSCHED_VSI_TX_EN				BIT(12)
 #define PKTSCHED_EMP_CVTEM_TX_EN			BIT(10)
 #define PKTSCHED_AMD_TX_EN				BIT(8)
 #define PKTSCHED_GCP_TX_EN				BIT(3)
@@ -488,9 +491,23 @@
 #define AUDPKT_VBIT_OVR0				0xf24
 /* CEC Registers */
 #define CEC_TX_CONTROL					0x1000
+#define CEC_CTRL_CLEAR					BIT(0)
+#define CEC_CTRL_START					BIT(0)
 #define CEC_STATUS					0x1004
+#define CEC_STAT_DONE					BIT(0)
+#define CEC_STAT_NACK					BIT(1)
+#define CEC_STAT_ARBLOST				BIT(2)
+#define CEC_STAT_LINE_ERR				BIT(3)
+#define CEC_STAT_RETRANS_FAIL				BIT(4)
+#define CEC_STAT_DISCARD				BIT(5)
+#define CEC_STAT_TX_BUSY				BIT(8)
+#define CEC_STAT_RX_BUSY				BIT(9)
+#define CEC_STAT_DRIVE_ERR				BIT(10)
+#define CEC_STAT_EOM					BIT(11)
+#define CEC_STAT_NOTIFY_ERR				BIT(12)
 #define CEC_CONFIG					0x1008
 #define CEC_ADDR					0x100c
+#define CEC_ADDR_BROADCAST				BIT(15)
 #define CEC_TX_COUNT					0x1020
 #define CEC_TX_DATA3_0					0x1024
 #define CEC_TX_DATA7_4					0x1028

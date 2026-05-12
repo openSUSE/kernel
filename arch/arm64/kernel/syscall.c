@@ -43,7 +43,7 @@ static void invoke_syscall(struct pt_regs *regs, unsigned int scno,
 
 	add_random_kstack_offset();
 
-	if (scno < sc_nr) {
+	if (likely(scno < sc_nr)) {
 		syscall_fn_t syscall_fn;
 		syscall_fn = syscall_table[array_index_nospec(scno, sc_nr)];
 		ret = __invoke_syscall(regs, syscall_fn);
@@ -52,17 +52,6 @@ static void invoke_syscall(struct pt_regs *regs, unsigned int scno,
 	}
 
 	syscall_set_return_value(current, regs, 0, ret);
-
-	/*
-	 * This value will get limited by KSTACK_OFFSET_MAX(), which is 10
-	 * bits. The actual entropy will be further reduced by the compiler
-	 * when applying stack alignment constraints: the AAPCS mandates a
-	 * 16-byte aligned SP at function boundaries, which will remove the
-	 * 4 low bits from any entropy chosen here.
-	 *
-	 * The resulting 6 bits of entropy is seen in SP[9:4].
-	 */
-	choose_random_kstack_offset(get_random_u16());
 }
 
 static inline bool has_syscall_work(unsigned long flags)
@@ -96,7 +85,7 @@ static void el0_svc_common(struct pt_regs *regs, int scno, int sc_nr,
 	 * (Similarly for HVC and SMC elsewhere.)
 	 */
 
-	if (flags & _TIF_MTE_ASYNC_FAULT) {
+	if (unlikely(flags & _TIF_MTE_ASYNC_FAULT)) {
 		/*
 		 * Process the asynchronous tag check fault before the actual
 		 * syscall. do_notify_resume() will send a signal to userspace

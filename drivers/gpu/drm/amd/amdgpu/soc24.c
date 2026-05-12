@@ -132,31 +132,12 @@ static struct soc15_allowed_register_entry soc24_allowed_read_registers[] = {
 	{ SOC15_REG_ENTRY(GC, 0, regGB_ADDR_CONFIG)},
 };
 
-static uint32_t soc24_read_indexed_register(struct amdgpu_device *adev,
-					    u32 se_num,
-					    u32 sh_num,
-					    u32 reg_offset)
-{
-	uint32_t val;
-
-	mutex_lock(&adev->grbm_idx_mutex);
-	if (se_num != 0xffffffff || sh_num != 0xffffffff)
-		amdgpu_gfx_select_se_sh(adev, se_num, sh_num, 0xffffffff, 0);
-
-	val = RREG32(reg_offset);
-
-	if (se_num != 0xffffffff || sh_num != 0xffffffff)
-		amdgpu_gfx_select_se_sh(adev, 0xffffffff, 0xffffffff, 0xffffffff, 0);
-	mutex_unlock(&adev->grbm_idx_mutex);
-	return val;
-}
-
 static uint32_t soc24_get_register_value(struct amdgpu_device *adev,
 					 bool indexed, u32 se_num,
 					 u32 sh_num, u32 reg_offset)
 {
 	if (indexed) {
-		return soc24_read_indexed_register(adev, se_num, sh_num, reg_offset);
+		return amdgpu_read_indexed_register(adev, se_num, sh_num, reg_offset);
 	} else {
 		if (reg_offset == SOC15_REG_OFFSET(GC, 0, regGB_ADDR_CONFIG) &&
 		    adev->gfx.config.gb_addr_config)
@@ -327,10 +308,6 @@ static void soc24_init_doorbell_index(struct amdgpu_device *adev)
 	adev->doorbell_index.sdma_doorbell_range = 20;
 }
 
-static void soc24_pre_asic_init(struct amdgpu_device *adev)
-{
-}
-
 static int soc24_update_umd_stable_pstate(struct amdgpu_device *adev,
 					  bool enter)
 {
@@ -357,7 +334,6 @@ static const struct amdgpu_asic_funcs soc24_asic_funcs = {
 	.need_reset_on_init = &soc24_need_reset_on_init,
 	.get_pcie_replay_count = &soc24_get_pcie_replay_count,
 	.supports_baco = &amdgpu_dpm_is_baco_supported,
-	.pre_asic_init = &soc24_pre_asic_init,
 	.query_video_codecs = &soc24_query_video_codecs,
 	.update_umd_stable_pstate = &soc24_update_umd_stable_pstate,
 };
@@ -367,18 +343,12 @@ static int soc24_common_early_init(struct amdgpu_ip_block *ip_block)
 	struct amdgpu_device *adev = ip_block->adev;
 
 	adev->nbio.funcs->set_reg_remap(adev);
-	adev->smc_rreg = NULL;
-	adev->smc_wreg = NULL;
-	adev->pcie_rreg = &amdgpu_device_indirect_rreg;
-	adev->pcie_wreg = &amdgpu_device_indirect_wreg;
-	adev->pcie_rreg64 = &amdgpu_device_indirect_rreg64;
-	adev->pcie_wreg64 = &amdgpu_device_indirect_wreg64;
-	adev->pciep_rreg = amdgpu_device_pcie_port_rreg;
-	adev->pciep_wreg = amdgpu_device_pcie_port_wreg;
-	adev->uvd_ctx_rreg = NULL;
-	adev->uvd_ctx_wreg = NULL;
-	adev->didt_rreg = NULL;
-	adev->didt_wreg = NULL;
+	adev->reg.pcie.rreg = &amdgpu_device_indirect_rreg;
+	adev->reg.pcie.wreg = &amdgpu_device_indirect_wreg;
+	adev->reg.pcie.rreg64 = &amdgpu_device_indirect_rreg64;
+	adev->reg.pcie.wreg64 = &amdgpu_device_indirect_wreg64;
+	adev->reg.pcie.port_rreg = &amdgpu_device_pcie_port_rreg;
+	adev->reg.pcie.port_wreg = &amdgpu_device_pcie_port_wreg;
 
 	adev->asic_funcs = &soc24_asic_funcs;
 
@@ -489,7 +459,7 @@ static int soc24_common_hw_init(struct amdgpu_ip_block *ip_block)
 	if (adev->nbio.funcs->remap_hdp_registers)
 		adev->nbio.funcs->remap_hdp_registers(adev);
 
-	if (adev->df.funcs->hw_init)
+	if (adev->df.funcs && adev->df.funcs->hw_init)
 		adev->df.funcs->hw_init(adev);
 
 	/* enable the doorbell aperture */

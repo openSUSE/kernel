@@ -216,8 +216,8 @@ static int efx_allocate_msix_channels(struct efx_nic *efx,
 
 	if (efx_separate_tx_channels) {
 		efx->n_tx_channels =
-			min(max(n_channels / 2, 1U),
-			    efx->max_tx_channels);
+			clamp(n_channels / 2, 1U,
+			      efx->max_tx_channels);
 		efx->tx_channel_offset =
 			n_channels - efx->n_tx_channels;
 		efx->n_rx_channels =
@@ -534,7 +534,7 @@ static struct efx_channel *efx_alloc_channel(struct efx_nic *efx, int i)
 	struct efx_channel *channel;
 	int j;
 
-	channel = kzalloc(sizeof(*channel), GFP_KERNEL);
+	channel = kzalloc_obj(*channel);
 	if (!channel)
 		return NULL;
 
@@ -604,7 +604,7 @@ struct efx_channel *efx_copy_channel(const struct efx_channel *old_channel)
 	struct efx_channel *channel;
 	int j;
 
-	channel = kmalloc(sizeof(*channel), GFP_KERNEL);
+	channel = kmalloc_obj(*channel);
 	if (!channel)
 		return NULL;
 
@@ -934,9 +934,8 @@ int efx_set_channels(struct efx_nic *efx)
 		EFX_WARN_ON_PARANOID(efx->xdp_tx_queues);
 
 		/* Allocate array for XDP TX queue lookup. */
-		efx->xdp_tx_queues = kcalloc(efx->xdp_tx_queue_count,
-					     sizeof(*efx->xdp_tx_queues),
-					     GFP_KERNEL);
+		efx->xdp_tx_queues = kzalloc_objs(*efx->xdp_tx_queues,
+						  efx->xdp_tx_queue_count);
 		if (!efx->xdp_tx_queues)
 			return -ENOMEM;
 	}
@@ -1281,7 +1280,7 @@ static int efx_poll(struct napi_struct *napi, int budget)
 		time = jiffies - channel->rfs_last_expiry;
 		/* Would our quota be >= 20? */
 		if (channel->rfs_filter_count * time >= 600 * HZ)
-			mod_delayed_work(system_wq, &channel->filter_work, 0);
+			mod_delayed_work(system_percpu_wq, &channel->filter_work, 0);
 #endif
 
 		/* There is no race here; although napi_disable() will

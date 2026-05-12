@@ -112,7 +112,7 @@ static int get_estimated_bw(struct dc_link *link)
 	return bw_estimated_bw * (Kbps_TO_Gbps / link->dpia_bw_alloc_config.bw_granularity);
 }
 
-static int get_non_reduced_max_link_rate(struct dc_link *link)
+static uint8_t get_non_reduced_max_link_rate(struct dc_link *link)
 {
 	uint8_t nrd_max_link_rate = 0;
 
@@ -125,7 +125,7 @@ static int get_non_reduced_max_link_rate(struct dc_link *link)
 	return nrd_max_link_rate;
 }
 
-static int get_non_reduced_max_lane_count(struct dc_link *link)
+static uint8_t get_non_reduced_max_lane_count(struct dc_link *link)
 {
 	uint8_t nrd_max_lane_count = 0;
 
@@ -180,7 +180,7 @@ static void dpia_bw_alloc_unplug(struct dc_link *link)
 
 static void link_dpia_send_bw_alloc_request(struct dc_link *link, int req_bw)
 {
-	uint8_t request_reg_val;
+	uint32_t request_reg_val;
 	uint32_t temp, request_bw;
 
 	if (link->dpia_bw_alloc_config.bw_granularity == 0) {
@@ -197,7 +197,7 @@ static void link_dpia_send_bw_alloc_request(struct dc_link *link, int req_bw)
 
 	request_bw = request_reg_val * (Kbps_TO_Gbps / link->dpia_bw_alloc_config.bw_granularity);
 
-	if (request_bw > link->dpia_bw_alloc_config.estimated_bw) {
+	if (request_bw > (uint32_t)link->dpia_bw_alloc_config.estimated_bw) {
 		DC_LOG_ERROR("%s:  Link[%d]:  Request BW (%d --> %d) > Estimated BW (%d)... Set to Estimated BW!",
 				__func__, link->link_index,
 				req_bw, request_bw, link->dpia_bw_alloc_config.estimated_bw);
@@ -212,8 +212,8 @@ static void link_dpia_send_bw_alloc_request(struct dc_link *link, int req_bw)
 	link->dpia_bw_alloc_config.allocated_bw = request_bw;
 	DC_LOG_DC("%s:  Link[%d]:  Request BW:  %d", __func__, link->link_index, request_bw);
 
-	core_link_write_dpcd(link, REQUESTED_BW,
-		&request_reg_val,
+	uint8_t requested_bw_dpcd = (uint8_t)request_reg_val;
+	core_link_write_dpcd(link, REQUESTED_BW, &requested_bw_dpcd,
 		sizeof(uint8_t));
 }
 
@@ -224,11 +224,6 @@ bool link_dpia_enable_usb4_dp_bw_alloc_mode(struct dc_link *link)
 {
 	bool ret = false;
 	uint8_t val;
-
-	if (link->dc->debug.dpia_debug.bits.enable_bw_allocation_mode == false) {
-		DC_LOG_DEBUG("%s:  link[%d] DPTX BW allocation mode disabled", __func__, link->link_index);
-		return false;
-	}
 
 	val = DPTX_BW_ALLOC_MODE_ENABLE | DPTX_BW_ALLOC_UNMASK_IRQ;
 
@@ -273,17 +268,28 @@ bool link_dpia_enable_usb4_dp_bw_alloc_mode(struct dc_link *link)
  */
 void link_dp_dpia_handle_bw_alloc_status(struct dc_link *link, uint8_t status)
 {
-	link->dpia_bw_alloc_config.estimated_bw = get_estimated_bw(link);
-
 	if (status & DP_TUNNELING_BW_REQUEST_SUCCEEDED) {
 		DC_LOG_DEBUG("%s: BW Allocation request succeeded on link(%d)",
 				__func__, link->link_index);
-	} else if (status & DP_TUNNELING_BW_REQUEST_FAILED) {
+	}
+
+	if (status & DP_TUNNELING_BW_REQUEST_FAILED) {
 		DC_LOG_DEBUG("%s: BW Allocation request failed on link(%d)  allocated/estimated BW=%d",
 				__func__, link->link_index, link->dpia_bw_alloc_config.estimated_bw);
 
 		link_dpia_send_bw_alloc_request(link, link->dpia_bw_alloc_config.estimated_bw);
-	} else if (status & DP_TUNNELING_ESTIMATED_BW_CHANGED) {
+	}
+
+	if (status & DP_TUNNELING_BW_ALLOC_CAP_CHANGED) {
+		link->dpia_bw_alloc_config.bw_granularity = get_bw_granularity(link);
+
+		DC_LOG_DEBUG("%s: Granularity changed on link(%d)  new granularity=%d",
+				__func__, link->link_index, link->dpia_bw_alloc_config.bw_granularity);
+	}
+
+	if (status & DP_TUNNELING_ESTIMATED_BW_CHANGED) {
+		link->dpia_bw_alloc_config.estimated_bw = get_estimated_bw(link);
+
 		DC_LOG_DEBUG("%s: Estimated BW changed on link(%d)  new estimated BW=%d",
 				__func__, link->link_index, link->dpia_bw_alloc_config.estimated_bw);
 	}

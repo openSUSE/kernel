@@ -430,7 +430,7 @@ static struct regmap_mmio_context *regmap_mmio_gen_context(struct device *dev,
 	if (config->use_relaxed_mmio && config->io_port)
 		return ERR_PTR(-EINVAL);
 
-	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	ctx = kzalloc_obj(*ctx);
 	if (!ctx)
 		return ERR_PTR(-ENOMEM);
 
@@ -609,4 +609,5 @@ void regmap_mmio_detach_clk(struct regmap *map)
 }
 EXPORT_SYMBOL_GPL(regmap_mmio_detach_clk);
 
+MODULE_DESCRIPTION("regmap MMIO Module");
 MODULE_LICENSE("GPL v2");

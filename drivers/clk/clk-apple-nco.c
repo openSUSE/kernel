@@ -212,13 +212,15 @@ static unsigned long applnco_recalc_rate(struct clk_hw *hw,
 			((u64) div) * incbase + inc1);
 }
 
-static long applnco_round_rate(struct clk_hw *hw, unsigned long rate,
-				unsigned long *parent_rate)
+static int applnco_determine_rate(struct clk_hw *hw,
+				  struct clk_rate_request *req)
 {
-	unsigned long lo = *parent_rate / (COARSE_DIV_OFFSET + LFSR_TBLSIZE) + 1;
-	unsigned long hi = *parent_rate / COARSE_DIV_OFFSET;
+	unsigned long lo = req->best_parent_rate / (COARSE_DIV_OFFSET + LFSR_TBLSIZE) + 1;
+	unsigned long hi = req->best_parent_rate / COARSE_DIV_OFFSET;
 
-	return clamp(rate, lo, hi);
+	req->rate = clamp(req->rate, lo, hi);
+
+	return 0;
 }
 
 static int applnco_enable(struct clk_hw *hw)
@@ -246,7 +248,7 @@ static void applnco_disable(struct clk_hw *hw)
 static const struct clk_ops applnco_ops = {
 	.set_rate = applnco_set_rate,
 	.recalc_rate = applnco_recalc_rate,
-	.round_rate = applnco_round_rate,
+	.determine_rate = applnco_determine_rate,
 	.enable = applnco_enable,
 	.disable = applnco_disable,
 	.is_enabled = applnco_is_enabled,
@@ -318,6 +320,7 @@ static int applnco_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id applnco_ids[] = {
+	{ .compatible = "apple,t8103-nco" },
 	{ .compatible = "apple,nco" },
 	{ }
 };

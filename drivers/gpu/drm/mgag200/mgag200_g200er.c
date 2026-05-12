@@ -7,6 +7,7 @@
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_gem_atomic_helper.h>
+#include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 
 #include "mgag200_drv.h"
@@ -57,7 +58,7 @@ static void mgag200_g200er_reset_tagfifo(struct mga_device *mdev)
  */
 
 static int mgag200_g200er_pixpllc_atomic_check(struct drm_crtc *crtc,
-					       struct drm_atomic_state *new_state)
+					       struct drm_atomic_commit *new_state)
 {
 	static const unsigned int vcomax = 1488000;
 	static const unsigned int vcomin = 1056000;
@@ -118,7 +119,7 @@ static int mgag200_g200er_pixpllc_atomic_check(struct drm_crtc *crtc,
 }
 
 static void mgag200_g200er_pixpllc_atomic_update(struct drm_crtc *crtc,
-						 struct drm_atomic_state *old_state)
+						 struct drm_atomic_commit *old_state)
 {
 	struct drm_device *dev = crtc->dev;
 	struct mga_device *mdev = to_mga_device(dev);
@@ -181,7 +182,7 @@ static const struct drm_plane_funcs mgag200_g200er_primary_plane_funcs = {
 };
 
 static void mgag200_g200er_crtc_helper_atomic_enable(struct drm_crtc *crtc,
-						     struct drm_atomic_state *old_state)
+						     struct drm_atomic_commit *old_state)
 {
 	struct drm_device *dev = crtc->dev;
 	struct mga_device *mdev = to_mga_device(dev);

@@ -92,9 +92,7 @@ static unsigned long mc_group_start = 0x3 | BIT(GENL_ID_CTRL) |
 static unsigned long *mc_groups = &mc_group_start;
 static unsigned long mc_groups_longs = 1;
 
-/* We need the last attribute with non-zero ID therefore a 2-entry array */
 static struct nla_policy genl_policy_reject_all[] = {
-	{ .type = NLA_REJECT },
 	{ .type = NLA_REJECT },
 };
 
@@ -106,13 +104,10 @@ static void
 genl_op_fill_in_reject_policy(const struct genl_family *family,
 			      struct genl_ops *op)
 {
-	BUILD_BUG_ON(ARRAY_SIZE(genl_policy_reject_all) - 1 != 1);
-
 	if (op->policy || op->cmd < family->resv_start_op)
 		return;
 
 	op->policy = genl_policy_reject_all;
-	op->maxattr = 1;
 }
 
 static void
@@ -123,7 +118,6 @@ genl_op_fill_in_reject_policy_split(const struct genl_family *family,
 		return;
 
 	op->policy = genl_policy_reject_all;
-	op->maxattr = 1;
 }
 
 static const struct genl_family *genl_family_find_byid(unsigned int id)
@@ -250,6 +244,7 @@ genl_get_cmd_split(u32 cmd, u8 flag, const struct genl_family *family,
 		if (family->split_ops[i].cmd == cmd &&
 		    family->split_ops[i].flags & flag) {
 			*op = family->split_ops[i];
+			genl_op_fill_in_reject_policy_split(family, op);
 			return 0;
 		}
 
@@ -659,7 +654,7 @@ static int genl_sk_privs_alloc(struct genl_family *family)
 	if (!family->sock_priv_size)
 		return 0;
 
-	family->sock_privs = kzalloc(sizeof(*family->sock_privs), GFP_KERNEL);
+	family->sock_privs = kzalloc_obj(*family->sock_privs);
 	if (!family->sock_privs)
 		return -ENOMEM;
 	xa_init(family->sock_privs);
@@ -912,7 +907,7 @@ EXPORT_SYMBOL(genlmsg_put);
 
 static struct genl_dumpit_info *genl_dumpit_info_alloc(void)
 {
-	return kmalloc(sizeof(struct genl_dumpit_info), GFP_KERNEL);
+	return kmalloc_obj(struct genl_dumpit_info);
 }
 
 static void genl_dumpit_info_free(const struct genl_dumpit_info *info)
@@ -934,13 +929,17 @@ genl_family_rcv_msg_attrs_parse(const struct genl_family *family,
 	struct nlattr **attrbuf;
 	int err;
 
-	if (!ops->maxattr)
+	if (!ops->policy)
 		return NULL;
 
-	attrbuf = kmalloc_array(ops->maxattr + 1,
-				sizeof(struct nlattr *), GFP_KERNEL);
-	if (!attrbuf)
-		return ERR_PTR(-ENOMEM);
+	if (ops->maxattr) {
+		attrbuf = kmalloc_objs(struct nlattr *, ops->maxattr + 1);
+		if (!attrbuf)
+			return ERR_PTR(-ENOMEM);
+	} else {
+		/* Reject all policy, __nlmsg_parse() will just validate */
+		attrbuf = NULL;
+	}
 
 	err = __nlmsg_parse(nlh, hdrlen, attrbuf, ops->maxattr, ops->policy,
 			    validate, extack);
@@ -1591,7 +1590,7 @@ static int ctrl_dumppolicy_start(struct netlink_callback *cb)
 		return 0;
 	}
 
-	ctx->op_iter = kmalloc(sizeof(*ctx->op_iter), GFP_KERNEL);
+	ctx->op_iter = kmalloc_obj(*ctx->op_iter);
 	if (!ctx->op_iter)
 		return -ENOMEM;
 

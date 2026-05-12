@@ -41,6 +41,9 @@
 #define UVC_EXT_GPIO_UNIT		0x7ffe
 #define UVC_EXT_GPIO_UNIT_ID		0x100
 
+#define UVC_HARDWARE_ENTITY_ID(id)	((id) & 0xff)
+#define UVC_INVALID_ENTITY_ID		0xffff
+
 /* ------------------------------------------------------------------------
  * Driver specific constants.
  */
@@ -328,6 +331,8 @@ struct uvc_buffer {
 #define UVC_QUEUE_DISCONNECTED		(1 << 0)
 
 struct uvc_video_queue {
+	struct uvc_streaming *stream;
+	struct video_device vdev;
 	struct vb2_queue queue;
 	struct mutex mutex;			/*
 						 * Serializes vb2_queue and
@@ -405,7 +410,7 @@ struct uvc_stats_stream {
 	unsigned int max_sof;		/* Maximum STC.SOF value */
 };
 
-#define UVC_METADATA_BUF_SIZE 10240
+#define UVC_METADATA_BUF_MIN_SIZE 10240
 
 /**
  * struct uvc_copy_op: Context structure to schedule asynchronous memcpy
@@ -450,13 +455,12 @@ struct uvc_urb {
 struct uvc_streaming {
 	struct list_head list;
 	struct uvc_device *dev;
-	struct video_device vdev;
 	struct uvc_video_chain *chain;
 	atomic_t active;
 
 	struct usb_interface *intf;
 	int intfnum;
-	u16 maxpsize;
+	u32 maxpsize;
 
 	struct uvc_streaming_header header;
 	enum v4l2_buf_type type;
@@ -469,12 +473,6 @@ struct uvc_streaming {
 	const struct uvc_format *cur_format;
 	const struct uvc_frame *cur_frame;
 
-	/*
-	 * Protect access to ctrl, cur_format, cur_frame and hardware video
-	 * probe control.
-	 */
-	struct mutex mutex;
-
 	/* Buffers queue. */
 	unsigned int frozen : 1;
 	struct uvc_video_queue queue;
@@ -483,9 +481,9 @@ struct uvc_streaming {
 		       struct uvc_buffer *meta_buf);
 
 	struct {
-		struct video_device vdev;
 		struct uvc_video_queue queue;
 		u32 format;
+		u32 buffersize;
 	} meta;
 
 	/* Context data used by the bulk completion handler. */
@@ -637,6 +635,11 @@ struct uvc_fh {
 	unsigned int pending_async_ctrls;
 };
 
+static inline struct uvc_fh *to_uvc_fh(struct file *filp)
+{
+	return container_of(file_to_v4l2_fh(filp), struct uvc_fh, vfh);
+}
+
 /* ------------------------------------------------------------------------
  * Debugging, printing and logging
  */
@@ -667,7 +670,7 @@ extern unsigned int uvc_hw_timestamps_param;
 #define uvc_dbg(_dev, flag, fmt, ...)					\
 do {									\
 	if (uvc_dbg_param & UVC_DBG_##flag)				\
-		dev_printk(KERN_DEBUG, &(_dev)->udev->dev, fmt,		\
+		dev_printk(KERN_DEBUG, &(_dev)->intf->dev, fmt,		\
 			   ##__VA_ARGS__);				\
 } while (0)
 
@@ -680,7 +683,7 @@ do {									\
 #define uvc_warn_once(_dev, warn, fmt, ...)				\
 do {									\
 	if (!test_and_set_bit(warn, &(_dev)->warnings))			\
-		dev_info(&(_dev)->udev->dev, fmt, ##__VA_ARGS__);	\
+		dev_info(&(_dev)->intf->dev, fmt, ##__VA_ARGS__);	\
 } while (0)
 
 /* --------------------------------------------------------------------------
@@ -690,7 +693,8 @@ do {									\
 struct uvc_entity *uvc_entity_by_id(struct uvc_device *dev, int id);
 
 /* Video buffers queue management. */
-int uvc_queue_init(struct uvc_video_queue *queue, enum v4l2_buf_type type);
+int uvc_queue_init(struct uvc_streaming *stream, struct uvc_video_queue *queue,
+		   enum v4l2_buf_type type);
 void uvc_queue_cancel(struct uvc_video_queue *queue, int disconnect);
 struct uvc_buffer *uvc_queue_next_buffer(struct uvc_video_queue *queue,
 					 struct uvc_buffer *buf);
@@ -699,12 +703,6 @@ void uvc_queue_buffer_release(struct uvc_buffer *buf);
 static inline int uvc_queue_streaming(struct uvc_video_queue *queue)
 {
 	return vb2_is_streaming(&queue->queue);
-}
-
-static inline struct uvc_streaming *
-uvc_queue_to_stream(struct uvc_video_queue *queue)
-{
-	return container_of(queue, struct uvc_streaming, queue);
 }
 
 /* V4L2 interface */
@@ -733,7 +731,6 @@ int uvc_meta_register(struct uvc_streaming *stream);
 
 int uvc_register_video_device(struct uvc_device *dev,
 			      struct uvc_streaming *stream,
-			      struct video_device *vdev,
 			      struct uvc_video_queue *queue,
 			      enum v4l2_buf_type type,
 			      const struct v4l2_file_operations *fops,
@@ -787,7 +784,7 @@ int uvc_ctrl_get(struct uvc_video_chain *chain, u32 which,
 		 struct v4l2_ext_control *xctrl);
 int uvc_ctrl_set(struct uvc_fh *handle, struct v4l2_ext_control *xctrl);
 int uvc_ctrl_is_accessible(struct uvc_video_chain *chain, u32 v4l2_id,
-			   const struct v4l2_ext_controls *ctrls,
+			   const struct v4l2_ext_controls *ctrls, u32 which,
 			   unsigned long ioctl);
 
 int uvc_xu_ctrl_query(struct uvc_video_chain *chain,
@@ -798,8 +795,6 @@ void uvc_ctrl_cleanup_fh(struct uvc_fh *handle);
 /* Utility functions */
 struct usb_host_endpoint *uvc_find_endpoint(struct usb_host_interface *alts,
 					    u8 epaddr);
-u16 uvc_endpoint_max_bpi(struct usb_device *dev, struct usb_host_endpoint *ep);
-
 /* Quirks support */
 void uvc_video_decode_isight(struct uvc_urb *uvc_urb,
 			     struct uvc_buffer *buf,

@@ -288,16 +288,16 @@ int snd_hdac_stream_setup(struct hdac_stream *azx_dev, bool code_loading)
 
 	/* program the BDL address */
 	/* lower BDL address */
-	snd_hdac_stream_writel(azx_dev, SD_BDLPL, (u32)azx_dev->bdl.addr);
+	snd_hdac_stream_writel(azx_dev, SD_BDLPL, (u32)(azx_dev->bdl.addr + bus->addr_offset));
 	/* upper BDL address */
 	snd_hdac_stream_writel(azx_dev, SD_BDLPU,
-			       upper_32_bits(azx_dev->bdl.addr));
+			       upper_32_bits(azx_dev->bdl.addr + bus->addr_offset));
 
 	/* enable the position buffer */
 	if (bus->use_posbuf && bus->posbuf.addr) {
 		if (!(snd_hdac_chip_readl(bus, DPLBASE) & AZX_DPLBASE_ENABLE))
 			snd_hdac_chip_writel(bus, DPLBASE,
-				(u32)bus->posbuf.addr | AZX_DPLBASE_ENABLE);
+				(u32)(bus->posbuf.addr + bus->addr_offset) | AZX_DPLBASE_ENABLE);
 	}
 
 	/* set the interrupt enable bits in the descriptor control register */
@@ -370,7 +370,7 @@ struct hdac_stream *snd_hdac_stream_assign(struct hdac_bus *bus,
 	if (substream->pcm)
 		key |= (substream->pcm->device << 16);
 
-	spin_lock_irq(&bus->reg_lock);
+	guard(spinlock_irq)(&bus->reg_lock);
 	list_for_each_entry(azx_dev, &bus->stream_list, list) {
 		if (azx_dev->direction != substream->stream)
 			continue;
@@ -389,7 +389,6 @@ struct hdac_stream *snd_hdac_stream_assign(struct hdac_bus *bus,
 		res->assigned_key = key;
 		res->substream = substream;
 	}
-	spin_unlock_irq(&bus->reg_lock);
 	return res;
 }
 EXPORT_SYMBOL_GPL(snd_hdac_stream_assign);
@@ -419,9 +418,8 @@ void snd_hdac_stream_release(struct hdac_stream *azx_dev)
 {
 	struct hdac_bus *bus = azx_dev->bus;
 
-	spin_lock_irq(&bus->reg_lock);
+	guard(spinlock_irq)(&bus->reg_lock);
 	snd_hdac_stream_release_locked(azx_dev);
-	spin_unlock_irq(&bus->reg_lock);
 }
 EXPORT_SYMBOL_GPL(snd_hdac_stream_release);
 
@@ -466,8 +464,8 @@ static int setup_bdle(struct hdac_bus *bus,
 
 		addr = snd_sgbuf_get_addr(dmab, ofs);
 		/* program the address field of the BDL entry */
-		bdl[0] = cpu_to_le32((u32)addr);
-		bdl[1] = cpu_to_le32(upper_32_bits(addr));
+		bdl[0] = cpu_to_le32((u32)(addr + bus->addr_offset));
+		bdl[1] = cpu_to_le32(upper_32_bits(addr + bus->addr_offset));
 		/* program the size field of the BDL entry */
 		chunk = snd_sgbuf_get_chunk_size(dmab, ofs, size);
 		/* one BDLE cannot cross 4K boundary on CTHDA chips */
@@ -922,15 +920,12 @@ int snd_hdac_dsp_prepare(struct hdac_stream *azx_dev, unsigned int format,
 	struct hdac_bus *bus = azx_dev->bus;
 	int err;
 
-	snd_hdac_dsp_lock(azx_dev);
-	spin_lock_irq(&bus->reg_lock);
-	if (azx_dev->running || azx_dev->locked) {
-		spin_unlock_irq(&bus->reg_lock);
-		err = -EBUSY;
-		goto unlock;
+	guard(snd_hdac_dsp_lock)(azx_dev);
+	scoped_guard(spinlock_irq, &bus->reg_lock) {
+		if (azx_dev->running || azx_dev->locked)
+			return -EBUSY;
+		azx_dev->locked = true;
 	}
-	azx_dev->locked = true;
-	spin_unlock_irq(&bus->reg_lock);
 
 	err = snd_dma_alloc_pages(SNDRV_DMA_TYPE_DEV_SG, bus->dev,
 				  byte_size, bufp);
@@ -951,17 +946,14 @@ int snd_hdac_dsp_prepare(struct hdac_stream *azx_dev, unsigned int format,
 		goto error;
 
 	snd_hdac_stream_setup(azx_dev, true);
-	snd_hdac_dsp_unlock(azx_dev);
 	return azx_dev->stream_tag;
 
  error:
 	snd_dma_free_pages(bufp);
  err_alloc:
-	spin_lock_irq(&bus->reg_lock);
-	azx_dev->locked = false;
-	spin_unlock_irq(&bus->reg_lock);
- unlock:
-	snd_hdac_dsp_unlock(azx_dev);
+	scoped_guard(spinlock_irq, &bus->reg_lock) {
+		azx_dev->locked = false;
+	}
 	return err;
 }
 EXPORT_SYMBOL_GPL(snd_hdac_dsp_prepare);
@@ -993,7 +985,7 @@ void snd_hdac_dsp_cleanup(struct hdac_stream *azx_dev,
 	if (!dmab->area || !azx_dev->locked)
 		return;
 
-	snd_hdac_dsp_lock(azx_dev);
+	guard(snd_hdac_dsp_lock)(azx_dev);
 	/* reset BDL address */
 	snd_hdac_stream_writel(azx_dev, SD_BDLPL, 0);
 	snd_hdac_stream_writel(azx_dev, SD_BDLPU, 0);
@@ -1005,10 +997,8 @@ void snd_hdac_dsp_cleanup(struct hdac_stream *azx_dev,
 	snd_dma_free_pages(dmab);
 	dmab->area = NULL;
 
-	spin_lock_irq(&bus->reg_lock);
+	guard(spinlock_irq)(&bus->reg_lock);
 	azx_dev->locked = false;
-	spin_unlock_irq(&bus->reg_lock);
-	snd_hdac_dsp_unlock(azx_dev);
 }
 EXPORT_SYMBOL_GPL(snd_hdac_dsp_cleanup);
 #endif /* CONFIG_SND_HDA_DSP_LOADER */

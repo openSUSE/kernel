@@ -51,7 +51,7 @@ static int jumbo_frm(struct stmmac_tx_queue *tx_q, struct sk_buff *skb,
 		stmmac_prepare_tx_desc(priv, desc, 1, bmax, csum,
 				STMMAC_RING_MODE, 0, false, skb->len);
 		tx_q->tx_skbuff[entry] = NULL;
-		entry = STMMAC_GET_ENTRY(entry, priv->dma_conf.dma_tx_size);
+		entry = STMMAC_NEXT_ENTRY(entry, priv->dma_conf.dma_tx_size);
 
 		if (priv->extend_desc)
 			desc = (struct dma_desc *)(tx_q->dma_etx + entry);
@@ -91,14 +91,9 @@ static int jumbo_frm(struct stmmac_tx_queue *tx_q, struct sk_buff *skb,
 	return entry;
 }
 
-static unsigned int is_jumbo_frm(int len, int enh_desc)
+static bool is_jumbo_frm(unsigned int len, bool enh_desc)
 {
-	unsigned int ret = 0;
-
-	if (len >= BUF_SIZE_4KiB)
-		ret = 1;
-
-	return ret;
+	return len >= BUF_SIZE_4KiB;
 }
 
 static void refill_desc3(struct stmmac_rx_queue *rx_q, struct dma_desc *p)

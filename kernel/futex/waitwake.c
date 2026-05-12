@@ -462,6 +462,7 @@ retry:
 			}
 
 			futex_q_unlock(hb);
+			__release(q->lock_ptr);
 		}
 		__set_current_state(TASK_RUNNING);
 
@@ -628,6 +629,7 @@ retry_private:
 
 		if (ret) {
 			futex_q_unlock(hb);
+			__release(q->lock_ptr);
 
 			ret = get_user(uval, uaddr);
 			if (ret)
@@ -641,11 +643,13 @@ retry_private:
 
 		if (uval != val) {
 			futex_q_unlock(hb);
+			__release(q->lock_ptr);
 			return -EWOULDBLOCK;
 		}
 
 		if (key2 && futex_match(&q->key, key2)) {
 			futex_q_unlock(hb);
+			__release(q->lock_ptr);
 			return -EINVAL;
 		}
 
@@ -738,12 +742,11 @@ int futex_wait(u32 __user *uaddr, unsigned int flags, u32 val, ktime_t *abs_time
 static long futex_wait_restart(struct restart_block *restart)
 {
 	u32 __user *uaddr = restart->futex.uaddr;
-	ktime_t t, *tp = NULL;
+	ktime_t *tp = NULL;
 
-	if (restart->futex.flags & FLAGS_HAS_TIMEOUT) {
-		t = restart->futex.time;
-		tp = &t;
-	}
+	if (restart->futex.flags & FLAGS_HAS_TIMEOUT)
+		tp = &restart->futex.time;
+
 	restart->fn = do_no_restart_syscall;
 
 	return (long)futex_wait(uaddr, restart->futex.flags,

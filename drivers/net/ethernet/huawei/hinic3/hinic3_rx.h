@@ -5,6 +5,7 @@
 #define _HINIC3_RX_H_
 
 #include <linux/bitfield.h>
+#include <linux/dim.h>
 #include <linux/netdevice.h>
 
 #define RQ_CQE_OFFOLAD_TYPE_PKT_TYPE_MASK           GENMASK(4, 0)
@@ -13,6 +14,9 @@
 #define RQ_CQE_OFFOLAD_TYPE_VLAN_EN_MASK            BIT(21)
 #define RQ_CQE_OFFOLAD_TYPE_GET(val, member) \
 	FIELD_GET(RQ_CQE_OFFOLAD_TYPE_##member##_MASK, val)
+
+#define HINIC3_GET_RX_TUNNEL_PKT_FORMAT(offload_type) \
+	RQ_CQE_OFFOLAD_TYPE_GET(offload_type, TUNNEL_PKT_FORMAT)
 
 #define RQ_CQE_SGE_VLAN_MASK  GENMASK(15, 0)
 #define RQ_CQE_SGE_LEN_MASK   GENMASK(31, 16)
@@ -25,23 +29,37 @@
 #define RQ_CQE_STATUS_GET(val, member) \
 	FIELD_GET(RQ_CQE_STATUS_##member##_MASK, val)
 
+struct hinic3_rxq_stats {
+	u64                   packets;
+	u64                   bytes;
+	u64                   errors;
+	u64                   csum_errors;
+	u64                   other_errors;
+	u64                   dropped;
+	u64                   rx_buf_empty;
+	u64                   alloc_skb_err;
+	u64                   alloc_rx_buf_err;
+	u64                   restore_drop_sge;
+	struct u64_stats_sync syncp;
+};
+
 /* RX Completion information that is provided by HW for a specific RX WQE */
 struct hinic3_rq_cqe {
-	u32 status;
-	u32 vlan_len;
-	u32 offload_type;
-	u32 rsvd3;
-	u32 rsvd4;
-	u32 rsvd5;
-	u32 rsvd6;
-	u32 pkt_info;
+	__le32 status;
+	__le32 vlan_len;
+	__le32 offload_type;
+	__le32 rsvd3;
+	__le32 rsvd4;
+	__le32 rsvd5;
+	__le32 rsvd6;
+	__le32 pkt_info;
 };
 
 struct hinic3_rq_wqe {
-	u32 buf_hi_addr;
-	u32 buf_lo_addr;
-	u32 cqe_hi_addr;
-	u32 cqe_lo_addr;
+	__le32 buf_hi_addr;
+	__le32 buf_lo_addr;
+	__le32 cqe_hi_addr;
+	__le32 cqe_lo_addr;
 };
 
 struct hinic3_rx_info {
@@ -59,6 +77,7 @@ struct hinic3_rxq {
 	u16                     buf_len;
 	u32                     buf_len_shift;
 
+	struct hinic3_rxq_stats rxq_stats;
 	u32                     cons_idx;
 	u32                     delta;
 
@@ -80,11 +99,30 @@ struct hinic3_rxq {
 	struct device          *dev; /* device for DMA mapping */
 
 	dma_addr_t             cqe_start_paddr;
+
+	struct dim             dim;
+
+	u8                     last_coalesc_timer_cfg;
+	u8                     last_pending_limit;
 } ____cacheline_aligned;
+
+struct hinic3_dyna_rxq_res {
+	u16                   next_to_alloc;
+	struct hinic3_rx_info *rx_info;
+	dma_addr_t            cqe_start_paddr;
+	void                  *cqe_start_vaddr;
+	struct page_pool      *page_pool;
+};
 
 int hinic3_alloc_rxqs(struct net_device *netdev);
 void hinic3_free_rxqs(struct net_device *netdev);
 
+int hinic3_alloc_rxqs_res(struct net_device *netdev, u16 num_rq,
+			  u32 rq_depth, struct hinic3_dyna_rxq_res *rxqs_res);
+void hinic3_free_rxqs_res(struct net_device *netdev, u16 num_rq,
+			  u32 rq_depth, struct hinic3_dyna_rxq_res *rxqs_res);
+int hinic3_configure_rxqs(struct net_device *netdev, u16 num_rq,
+			  u32 rq_depth, struct hinic3_dyna_rxq_res *rxqs_res);
 int hinic3_rx_poll(struct hinic3_rxq *rxq, int budget);
 
 #endif

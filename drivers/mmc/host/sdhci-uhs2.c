@@ -295,7 +295,8 @@ static void __sdhci_uhs2_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	else
 		sdhci_uhs2_set_power(host, ios->power_mode, ios->vdd);
 
-	sdhci_set_clock(host, host->clock);
+	host->ops->set_clock(host, ios->clock);
+	host->clock = ios->clock;
 }
 
 static int sdhci_uhs2_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
@@ -1125,7 +1126,7 @@ static irqreturn_t sdhci_uhs2_thread_irq(int irq, void *dev_id)
 
 /*****************************************************************************\
  *                                                                           *
- * Driver init/exit                                                          *
+ * Driver init                                                               *
  *                                                                           *
 \*****************************************************************************/
 
@@ -1136,17 +1137,6 @@ static int sdhci_uhs2_host_ops_init(struct sdhci_host *host)
 
 	return 0;
 }
-
-static int __init sdhci_uhs2_mod_init(void)
-{
-	return 0;
-}
-module_init(sdhci_uhs2_mod_init);
-
-static void __exit sdhci_uhs2_mod_exit(void)
-{
-}
-module_exit(sdhci_uhs2_mod_exit);
 
 /*****************************************************************************\
  *

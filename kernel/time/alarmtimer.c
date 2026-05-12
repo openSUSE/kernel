@@ -35,7 +35,7 @@
 
 /**
  * struct alarm_base - Alarm timer bases
- * @lock:		Lock for syncrhonized access to the base
+ * @lock:		Lock for synchronized access to the base
  * @timerqueue:		Timerqueue head managing the list of events
  * @get_ktime:		Function to read the time correlating to the base
  * @get_timespec:	Function to read the namespace time correlating to the base
@@ -234,19 +234,23 @@ static int alarmtimer_suspend(struct device *dev)
 	if (!rtc)
 		return 0;
 
-	/* Find the soonest timer to expire*/
+	/* Find the soonest timer to expire */
 	for (i = 0; i < ALARM_NUMTYPE; i++) {
 		struct alarm_base *base = &alarm_bases[i];
 		struct timerqueue_node *next;
+		ktime_t next_expires;
 		ktime_t delta;
 
-		scoped_guard(spinlock_irqsave, &base->lock)
+		scoped_guard(spinlock_irqsave, &base->lock) {
 			next = timerqueue_getnext(&base->timerqueue);
+			if (next)
+				next_expires = next->expires;
+		}
 		if (!next)
 			continue;
-		delta = ktime_sub(next->expires, base->get_ktime());
+		delta = ktime_sub(next_expires, base->get_ktime());
 		if (!min || (delta < min)) {
-			expires = next->expires;
+			expires = next_expires;
 			min = delta;
 			type = i;
 		}
@@ -540,7 +544,7 @@ static s64 alarm_timer_forward(struct k_itimer *timr, ktime_t now)
 {
 	struct alarm *alarm = &timr->it.alarm.alarmtimer;
 
-	return alarm_forward(alarm, timr->it_interval, now);
+	return alarm_forward(alarm, now, timr->it_interval);
 }
 
 /**

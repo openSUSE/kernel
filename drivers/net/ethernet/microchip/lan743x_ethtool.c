@@ -931,16 +931,9 @@ static int lan743x_ethtool_get_rxfh_fields(struct net_device *netdev,
 	return 0;
 }
 
-static int lan743x_ethtool_get_rxnfc(struct net_device *netdev,
-				     struct ethtool_rxnfc *rxnfc,
-				     u32 *rule_locs)
+static u32 lan743x_ethtool_get_rx_ring_count(struct net_device *netdev)
 {
-	switch (rxnfc->cmd) {
-	case ETHTOOL_GRXRINGS:
-		rxnfc->data = LAN743X_USED_RX_CHANNELS;
-		return 0;
-	}
-	return -EOPNOTSUPP;
+	return LAN743X_USED_RX_CHANNELS;
 }
 
 static u32 lan743x_ethtool_get_rxfh_key_size(struct net_device *netdev)
@@ -1084,6 +1077,13 @@ static int lan743x_ethtool_set_eee(struct net_device *netdev,
 	struct lan743x_adapter *adapter = netdev_priv(netdev);
 
 	return phylink_ethtool_set_eee(adapter->phylink, eee);
+}
+
+static int lan743x_ethtool_nway_reset(struct net_device *netdev)
+{
+	struct lan743x_adapter *adapter = netdev_priv(netdev);
+
+	return phylink_ethtool_nway_reset(adapter->phylink);
 }
 
 static int
@@ -1369,13 +1369,14 @@ const struct ethtool_ops lan743x_ethtool_ops = {
 	.get_priv_flags = lan743x_ethtool_get_priv_flags,
 	.set_priv_flags = lan743x_ethtool_set_priv_flags,
 	.get_sset_count = lan743x_ethtool_get_sset_count,
-	.get_rxnfc = lan743x_ethtool_get_rxnfc,
+	.get_rx_ring_count = lan743x_ethtool_get_rx_ring_count,
 	.get_rxfh_key_size = lan743x_ethtool_get_rxfh_key_size,
 	.get_rxfh_indir_size = lan743x_ethtool_get_rxfh_indir_size,
 	.get_rxfh = lan743x_ethtool_get_rxfh,
 	.set_rxfh = lan743x_ethtool_set_rxfh,
 	.get_rxfh_fields = lan743x_ethtool_get_rxfh_fields,
 	.get_ts_info = lan743x_ethtool_get_ts_info,
+	.nway_reset = lan743x_ethtool_nway_reset,
 	.get_eee = lan743x_ethtool_get_eee,
 	.set_eee = lan743x_ethtool_set_eee,
 	.get_link_ksettings = lan743x_ethtool_get_link_ksettings,

@@ -1,16 +1,35 @@
 // SPDX-License-Identifier: GPL-2.0
 
-use core::ops::Range;
+use core::ops::{
+    Deref,
+    Range, //
+};
 
-use kernel::prelude::*;
-use kernel::sizes::*;
-use kernel::types::ARef;
-use kernel::{dev_warn, device};
+use kernel::{
+    device,
+    dma::CoherentHandle,
+    fmt,
+    io::Io,
+    prelude::*,
+    ptr::{
+        Alignable,
+        Alignment, //
+    },
+    sizes::*,
+    sync::aref::ARef, //
+};
 
-use crate::dma::DmaObject;
-use crate::driver::Bar0;
-use crate::gpu::Chipset;
-use crate::regs;
+use crate::{
+    driver::Bar0,
+    firmware::gsp::GspFirmware,
+    gpu::Chipset,
+    gsp,
+    num::{
+        usize_as_u64,
+        FromSafeCast, //
+    },
+    regs,
+};
 
 mod hal;
 
@@ -34,7 +53,7 @@ pub(crate) struct SysmemFlush {
     chipset: Chipset,
     device: ARef<device::Device>,
     /// Keep the page alive as long as we need it.
-    page: DmaObject,
+    page: CoherentHandle,
 }
 
 impl SysmemFlush {
@@ -44,7 +63,7 @@ impl SysmemFlush {
         bar: &Bar0,
         chipset: Chipset,
     ) -> Result<Self> {
-        let page = DmaObject::new(dev, kernel::page::PAGE_SIZE)?;
+        let page = CoherentHandle::alloc(dev, kernel::page::PAGE_SIZE, GFP_KERNEL)?;
 
         hal::fb_hal(chipset).write_sysmem_flush_page(bar, page.dma_handle())?;
 
@@ -66,7 +85,7 @@ impl SysmemFlush {
             let _ = hal.write_sysmem_flush_page(bar, 0).inspect_err(|e| {
                 dev_warn!(
                     &self.device,
-                    "failed to unregister sysmem flush page: {:?}",
+                    "failed to unregister sysmem flush page: {:?}\n",
                     e
                 )
             });
@@ -80,38 +99,104 @@ impl SysmemFlush {
     }
 }
 
+pub(crate) struct FbRange(Range<u64>);
+
+impl FbRange {
+    pub(crate) fn len(&self) -> u64 {
+        self.0.end - self.0.start
+    }
+}
+
+impl From<Range<u64>> for FbRange {
+    fn from(range: Range<u64>) -> Self {
+        Self(range)
+    }
+}
+
+impl Deref for FbRange {
+    type Target = Range<u64>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl fmt::Debug for FbRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Use alternate format ({:#?}) to include size, compact format ({:?}) for just the range.
+        if f.alternate() {
+            let size = self.len();
+
+            if size < usize_as_u64(SZ_1M) {
+                let size_kib = size / usize_as_u64(SZ_1K);
+                f.write_fmt(fmt!(
+                    "{:#x}..{:#x} ({} KiB)",
+                    self.0.start,
+                    self.0.end,
+                    size_kib
+                ))
+            } else {
+                let size_mib = size / usize_as_u64(SZ_1M);
+                f.write_fmt(fmt!(
+                    "{:#x}..{:#x} ({} MiB)",
+                    self.0.start,
+                    self.0.end,
+                    size_mib
+                ))
+            }
+        } else {
+            f.write_fmt(fmt!("{:#x}..{:#x}", self.0.start, self.0.end))
+        }
+    }
+}
+
 /// Layout of the GPU framebuffer memory.
 ///
 /// Contains ranges of GPU memory reserved for a given purpose during the GSP boot process.
 #[derive(Debug)]
-#[expect(dead_code)]
 pub(crate) struct FbLayout {
-    pub(crate) fb: Range<u64>,
-    pub(crate) vga_workspace: Range<u64>,
-    pub(crate) frts: Range<u64>,
+    /// Range of the framebuffer. Starts at `0`.
+    pub(crate) fb: FbRange,
+    /// VGA workspace, small area of reserved memory at the end of the framebuffer.
+    pub(crate) vga_workspace: FbRange,
+    /// FRTS range.
+    pub(crate) frts: FbRange,
+    /// Memory area containing the GSP bootloader image.
+    pub(crate) boot: FbRange,
+    /// Memory area containing the GSP firmware image.
+    pub(crate) elf: FbRange,
+    /// WPR2 heap.
+    pub(crate) wpr2_heap: FbRange,
+    /// WPR2 region range, starting with an instance of `GspFwWprMeta`.
+    pub(crate) wpr2: FbRange,
+    pub(crate) heap: FbRange,
+    pub(crate) vf_partition_count: u8,
 }
 
 impl FbLayout {
-    /// Computes the FB layout.
-    pub(crate) fn new(chipset: Chipset, bar: &Bar0) -> Result<Self> {
+    /// Computes the FB layout for `chipset` required to run the `gsp_fw` GSP firmware.
+    pub(crate) fn new(chipset: Chipset, bar: &Bar0, gsp_fw: &GspFirmware) -> Result<Self> {
         let hal = hal::fb_hal(chipset);
 
         let fb = {
             let fb_size = hal.vidmem_size(bar);
 
-            0..fb_size
+            FbRange(0..fb_size)
         };
 
         let vga_workspace = {
             let vga_base = {
-                const NV_PRAMIN_SIZE: u64 = SZ_1M as u64;
+                const NV_PRAMIN_SIZE: u64 = usize_as_u64(SZ_1M);
                 let base = fb.end - NV_PRAMIN_SIZE;
 
                 if hal.supports_display(bar) {
-                    match regs::NV_PDISP_VGA_WORKSPACE_BASE::read(bar).vga_workspace_addr() {
+                    match bar
+                        .read(regs::NV_PDISP_VGA_WORKSPACE_BASE)
+                        .vga_workspace_addr()
+                    {
                         Some(addr) => {
                             if addr < base {
-                                const VBIOS_WORKSPACE_SIZE: u64 = SZ_128K as u64;
+                                const VBIOS_WORKSPACE_SIZE: u64 = usize_as_u64(SZ_128K);
 
                                 // Point workspace address to end of framebuffer.
                                 fb.end - VBIOS_WORKSPACE_SIZE
@@ -126,22 +211,66 @@ impl FbLayout {
                 }
             };
 
-            vga_base..fb.end
+            FbRange(vga_base..fb.end)
         };
 
         let frts = {
-            const FRTS_DOWN_ALIGN: u64 = SZ_128K as u64;
-            const FRTS_SIZE: u64 = SZ_1M as u64;
-            // TODO[NUMM]: replace with `align_down` once it lands.
-            let frts_base = (vga_workspace.start & !(FRTS_DOWN_ALIGN - 1)) - FRTS_SIZE;
+            const FRTS_DOWN_ALIGN: Alignment = Alignment::new::<SZ_128K>();
+            const FRTS_SIZE: u64 = usize_as_u64(SZ_1M);
+            let frts_base = vga_workspace.start.align_down(FRTS_DOWN_ALIGN) - FRTS_SIZE;
 
-            frts_base..frts_base + FRTS_SIZE
+            FbRange(frts_base..frts_base + FRTS_SIZE)
+        };
+
+        let boot = {
+            const BOOTLOADER_DOWN_ALIGN: Alignment = Alignment::new::<SZ_4K>();
+            let bootloader_size = u64::from_safe_cast(gsp_fw.bootloader.ucode.size());
+            let bootloader_base = (frts.start - bootloader_size).align_down(BOOTLOADER_DOWN_ALIGN);
+
+            FbRange(bootloader_base..bootloader_base + bootloader_size)
+        };
+
+        let elf = {
+            const ELF_DOWN_ALIGN: Alignment = Alignment::new::<SZ_64K>();
+            let elf_size = u64::from_safe_cast(gsp_fw.size);
+            let elf_addr = (boot.start - elf_size).align_down(ELF_DOWN_ALIGN);
+
+            FbRange(elf_addr..elf_addr + elf_size)
+        };
+
+        let wpr2_heap = {
+            const WPR2_HEAP_DOWN_ALIGN: Alignment = Alignment::new::<SZ_1M>();
+            let wpr2_heap_size =
+                gsp::LibosParams::from_chipset(chipset).wpr_heap_size(chipset, fb.end);
+            let wpr2_heap_addr = (elf.start - wpr2_heap_size).align_down(WPR2_HEAP_DOWN_ALIGN);
+
+            FbRange(wpr2_heap_addr..(elf.start).align_down(WPR2_HEAP_DOWN_ALIGN))
+        };
+
+        let wpr2 = {
+            const WPR2_DOWN_ALIGN: Alignment = Alignment::new::<SZ_1M>();
+            let wpr2_addr = (wpr2_heap.start - u64::from_safe_cast(size_of::<gsp::GspFwWprMeta>()))
+                .align_down(WPR2_DOWN_ALIGN);
+
+            FbRange(wpr2_addr..frts.end)
+        };
+
+        let heap = {
+            const HEAP_SIZE: u64 = usize_as_u64(SZ_1M);
+
+            FbRange(wpr2.start - HEAP_SIZE..wpr2.start)
         };
 
         Ok(Self {
             fb,
             vga_workspace,
             frts,
+            boot,
+            elf,
+            wpr2_heap,
+            wpr2,
+            heap,
+            vf_partition_count: 0,
         })
     }
 }

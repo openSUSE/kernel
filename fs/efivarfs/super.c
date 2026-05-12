@@ -44,7 +44,7 @@ static int efivarfs_ops_notifier(struct notifier_block *nb, unsigned long event,
 
 static struct inode *efivarfs_alloc_inode(struct super_block *sb)
 {
-	struct efivar_entry *entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+	struct efivar_entry *entry = kzalloc_obj(*entry);
 
 	if (!entry)
 		return NULL;
@@ -127,7 +127,7 @@ static int efivarfs_unfreeze_fs(struct super_block *sb);
 
 static const struct super_operations efivarfs_ops = {
 	.statfs = efivarfs_statfs,
-	.drop_inode = generic_delete_inode,
+	.drop_inode = inode_just_drop,
 	.alloc_inode = efivarfs_alloc_inode,
 	.free_inode = efivarfs_free_inode,
 	.show_options = efivarfs_show_options,
@@ -278,7 +278,8 @@ static int efivarfs_create_dentry(struct super_block *sb, efi_char16_t *name16,
 	inode->i_private = entry;
 	i_size_write(inode, size + sizeof(__u32)); /* attributes + data */
 	inode_unlock(inode);
-	d_add(dentry, inode);
+	d_make_persistent(dentry, inode);
+	dput(dentry);
 
 	return 0;
 
@@ -504,7 +505,7 @@ static int efivarfs_init_fs_context(struct fs_context *fc)
 	if (!efivar_is_available())
 		return -EOPNOTSUPP;
 
-	sfi = kzalloc(sizeof(*sfi), GFP_KERNEL);
+	sfi = kzalloc_obj(*sfi);
 	if (!sfi)
 		return -ENOMEM;
 
@@ -522,7 +523,7 @@ static void efivarfs_kill_sb(struct super_block *sb)
 	struct efivarfs_fs_info *sfi = sb->s_fs_info;
 
 	blocking_notifier_chain_unregister(&efivar_ops_nh, &sfi->nb);
-	kill_litter_super(sb);
+	kill_anon_super(sb);
 
 	kfree(sfi);
 }
@@ -533,6 +534,7 @@ static struct file_system_type efivarfs_type = {
 	.init_fs_context = efivarfs_init_fs_context,
 	.kill_sb = efivarfs_kill_sb,
 	.parameters = efivarfs_parameters,
+	.fs_flags = FS_POWER_FREEZE,
 };
 
 static __init int efivarfs_init(void)

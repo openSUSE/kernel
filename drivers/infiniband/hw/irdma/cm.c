@@ -234,7 +234,7 @@ static struct irdma_cm_event *irdma_create_event(struct irdma_cm_node *cm_node,
 	if (!cm_node->cm_id)
 		return NULL;
 
-	event = kzalloc(sizeof(*event), GFP_ATOMIC);
+	event = kzalloc_obj(*event, GFP_ATOMIC);
 
 	if (!event)
 		return NULL;
@@ -1136,7 +1136,7 @@ int irdma_schedule_cm_timer(struct irdma_cm_node *cm_node,
 	u32 was_timer_set;
 	unsigned long flags;
 
-	new_send = kzalloc(sizeof(*new_send), GFP_ATOMIC);
+	new_send = kzalloc_obj(*new_send, GFP_ATOMIC);
 	if (!new_send) {
 		if (type != IRDMA_TIMER_TYPE_CLOSE)
 			irdma_free_sqbuf(vsi, sqbuf);
@@ -1683,7 +1683,7 @@ static int irdma_add_mqh_6(struct irdma_device *iwdev,
 			ibdev_dbg(&iwdev->ibdev, "CM: IP=%pI6, vlan_id=%d, MAC=%pM\n",
 				  &ifp->addr, rdma_vlan_dev_vlan_id(ip_dev),
 				  ip_dev->dev_addr);
-			child_listen_node = kzalloc(sizeof(*child_listen_node), GFP_KERNEL);
+			child_listen_node = kzalloc_obj(*child_listen_node);
 			ibdev_dbg(&iwdev->ibdev, "CM: Allocating child listener %p\n",
 				  child_listen_node);
 			if (!child_listen_node) {
@@ -1771,7 +1771,7 @@ static int irdma_add_mqh_4(struct irdma_device *iwdev,
 				  "CM: Allocating child CM Listener forIP=%pI4, vlan_id=%d, MAC=%pM\n",
 				  &ifa->ifa_address, rdma_vlan_dev_vlan_id(ip_dev),
 				  ip_dev->dev_addr);
-			child_listen_node = kzalloc(sizeof(*child_listen_node), GFP_KERNEL);
+			child_listen_node = kzalloc_obj(*child_listen_node);
 			cm_parent_listen_node->cm_core->stats_listen_nodes_created++;
 			ibdev_dbg(&iwdev->ibdev, "CM: Allocating child listener %p\n",
 				  child_listen_node);
@@ -2241,11 +2241,12 @@ irdma_make_cm_node(struct irdma_cm_core *cm_core, struct irdma_device *iwdev,
 	int oldarpindex;
 	int arpindex;
 	struct net_device *netdev = iwdev->netdev;
+	int ret;
 
 	/* create an hte and cm_node for this instance */
-	cm_node = kzalloc(sizeof(*cm_node), GFP_ATOMIC);
+	cm_node = kzalloc_obj(*cm_node, GFP_ATOMIC);
 	if (!cm_node)
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 
 	/* set our node specific transport info */
 	cm_node->ipv4 = cm_info->ipv4;
@@ -2348,8 +2349,10 @@ irdma_make_cm_node(struct irdma_cm_core *cm_core, struct irdma_device *iwdev,
 			arpindex = -EINVAL;
 	}
 
-	if (arpindex < 0)
+	if (arpindex < 0) {
+		ret = -EINVAL;
 		goto err;
+	}
 
 	ether_addr_copy(cm_node->rem_mac,
 			iwdev->rf->arp_table[arpindex].mac_addr);
@@ -2360,7 +2363,7 @@ irdma_make_cm_node(struct irdma_cm_core *cm_core, struct irdma_device *iwdev,
 err:
 	kfree(cm_node);
 
-	return NULL;
+	return ERR_PTR(ret);
 }
 
 static void irdma_destroy_connection(struct irdma_cm_node *cm_node)
@@ -2967,7 +2970,7 @@ irdma_make_listen_node(struct irdma_cm_core *cm_core,
 		/* create a CM listen node
 		 * 1/2 node to compare incoming traffic to
 		 */
-		listener = kzalloc(sizeof(*listener), GFP_KERNEL);
+		listener = kzalloc_obj(*listener);
 		if (!listener)
 			return NULL;
 		cm_core->stats_listen_nodes_created++;
@@ -3021,8 +3024,8 @@ static int irdma_create_cm_node(struct irdma_cm_core *cm_core,
 
 	/* create a CM connection node */
 	cm_node = irdma_make_cm_node(cm_core, iwdev, cm_info, NULL);
-	if (!cm_node)
-		return -ENOMEM;
+	if (IS_ERR(cm_node))
+		return PTR_ERR(cm_node);
 
 	/* set our node side to client (active) side */
 	cm_node->tcp_cntxt.client = 1;
@@ -3219,9 +3222,9 @@ void irdma_receive_ilq(struct irdma_sc_vsi *vsi, struct irdma_puda_buf *rbuf)
 		cm_info.cm_id = listener->cm_id;
 		cm_node = irdma_make_cm_node(cm_core, iwdev, &cm_info,
 					     listener);
-		if (!cm_node) {
+		if (IS_ERR(cm_node)) {
 			ibdev_dbg(&cm_core->iwdev->ibdev,
-				  "CM: allocate node failed\n");
+				  "CM: allocate node failed ret=%ld\n", PTR_ERR(cm_node));
 			refcount_dec(&listener->refcnt);
 			return;
 		}
@@ -3444,7 +3447,7 @@ void irdma_cm_disconn(struct irdma_qp *iwqp)
 	struct disconn_work *work;
 	unsigned long flags;
 
-	work = kzalloc(sizeof(*work), GFP_ATOMIC);
+	work = kzalloc_obj(*work, GFP_ATOMIC);
 	if (!work)
 		return;
 
@@ -3710,7 +3713,7 @@ int irdma_accept(struct iw_cm_id *cm_id, struct iw_cm_conn_param *conn_param)
 	iwpd = iwqp->iwpd;
 	tagged_offset = (uintptr_t)iwqp->ietf_mem.va;
 	ibmr = irdma_reg_phys_mr(&iwpd->ibpd, iwqp->ietf_mem.pa, buf_len,
-				 IB_ACCESS_LOCAL_WRITE, &tagged_offset);
+				 IB_ACCESS_LOCAL_WRITE, &tagged_offset, false);
 	if (IS_ERR(ibmr)) {
 		ret = -ENOMEM;
 		goto error;
@@ -4239,21 +4242,21 @@ static void irdma_cm_event_handler(struct work_struct *work)
 		irdma_cm_event_reset(event);
 		break;
 	case IRDMA_CM_EVENT_CONNECTED:
-		if (!event->cm_node->cm_id ||
-		    event->cm_node->state != IRDMA_CM_STATE_OFFLOADED)
+		if (!cm_node->cm_id ||
+		    cm_node->state != IRDMA_CM_STATE_OFFLOADED)
 			break;
 		irdma_cm_event_connected(event);
 		break;
 	case IRDMA_CM_EVENT_MPA_REJECT:
-		if (!event->cm_node->cm_id ||
+		if (!cm_node->cm_id ||
 		    cm_node->state == IRDMA_CM_STATE_OFFLOADED)
 			break;
 		irdma_send_cm_event(cm_node, cm_node->cm_id,
 				    IW_CM_EVENT_CONNECT_REPLY, -ECONNREFUSED);
 		break;
 	case IRDMA_CM_EVENT_ABORTED:
-		if (!event->cm_node->cm_id ||
-		    event->cm_node->state == IRDMA_CM_STATE_OFFLOADED)
+		if (!cm_node->cm_id ||
+		    cm_node->state == IRDMA_CM_STATE_OFFLOADED)
 			break;
 		irdma_event_connect_error(event);
 		break;
@@ -4263,7 +4266,7 @@ static void irdma_cm_event_handler(struct work_struct *work)
 		break;
 	}
 
-	irdma_rem_ref_cm_node(event->cm_node);
+	irdma_rem_ref_cm_node(cm_node);
 	kfree(event);
 }
 

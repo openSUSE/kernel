@@ -184,7 +184,7 @@ void hpfs_write_inode(struct inode *i)
 	struct hpfs_inode_info *hpfs_inode = hpfs_i(i);
 	struct inode *parent;
 	if (i->i_ino == hpfs_sb(i->i_sb)->sb_root) return;
-	if (hpfs_inode->i_rddir_off && !atomic_read(&i->i_count)) {
+	if (hpfs_inode->i_rddir_off && !icount_read(i)) {
 		if (*hpfs_inode->i_rddir_off)
 			pr_err("write_inode: some position still there\n");
 		kfree(hpfs_inode->i_rddir_off);
@@ -196,7 +196,7 @@ void hpfs_write_inode(struct inode *i)
 	parent = iget_locked(i->i_sb, hpfs_inode->i_parent_dir);
 	if (parent) {
 		hpfs_inode->i_dirty = 0;
-		if (parent->i_state & I_NEW) {
+		if (inode_state_read_once(parent) & I_NEW) {
 			hpfs_init_inode(parent);
 			hpfs_read_inode(parent);
 			unlock_new_inode(parent);
@@ -250,8 +250,8 @@ void hpfs_write_inode_nolock(struct inode *i)
 			hpfs_brelse4(&qbh);
 		} else
 			hpfs_error(i->i_sb,
-				"directory %08lx doesn't have '.' entry",
-				(unsigned long)i->i_ino);
+				"directory %08llx doesn't have '.' entry",
+				i->i_ino);
 	}
 	mark_buffer_dirty(bh);
 	brelse(bh);

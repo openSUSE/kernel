@@ -148,7 +148,7 @@ dc_crtc_mode_valid(struct drm_crtc *crtc, const struct drm_display_mode *mode)
 }
 
 static int
-dc_crtc_atomic_check(struct drm_crtc *crtc, struct drm_atomic_state *state)
+dc_crtc_atomic_check(struct drm_crtc *crtc, struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *new_crtc_state =
 				drm_atomic_get_new_crtc_state(state, crtc);
@@ -164,7 +164,7 @@ dc_crtc_atomic_check(struct drm_crtc *crtc, struct drm_atomic_state *state)
 }
 
 static void
-dc_crtc_atomic_begin(struct drm_crtc *crtc, struct drm_atomic_state *state)
+dc_crtc_atomic_begin(struct drm_crtc *crtc, struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *new_crtc_state =
 				drm_atomic_get_new_crtc_state(state, crtc);
@@ -188,7 +188,7 @@ dc_crtc_atomic_begin(struct drm_crtc *crtc, struct drm_atomic_state *state)
 }
 
 static void
-dc_crtc_atomic_flush(struct drm_crtc *crtc, struct drm_atomic_state *state)
+dc_crtc_atomic_flush(struct drm_crtc *crtc, struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *old_crtc_state =
 				drm_atomic_get_old_crtc_state(state, crtc);
@@ -222,7 +222,7 @@ out:
 }
 
 static void
-dc_crtc_atomic_enable(struct drm_crtc *crtc, struct drm_atomic_state *state)
+dc_crtc_atomic_enable(struct drm_crtc *crtc, struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *new_crtc_state =
 				drm_atomic_get_new_crtc_state(state, crtc);
@@ -294,13 +294,13 @@ out:
 }
 
 static void
-dc_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_atomic_state *state)
+dc_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *new_crtc_state =
 				drm_atomic_get_new_crtc_state(state, crtc);
 	struct dc_drm_device *dc_drm = to_dc_drm_device(crtc->dev);
 	struct dc_crtc *dc_crtc = to_dc_crtc(crtc);
-	int idx, ret;
+	int idx;
 
 	if (!drm_dev_enter(crtc->dev, &idx))
 		goto out;
@@ -313,16 +313,10 @@ dc_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_atomic_state *state)
 	dc_fg_disable_clock(dc_crtc->fg);
 
 	/* request pixel engine power-off as plane is off too */
-	ret = pm_runtime_put(dc_drm->pe->dev);
-	if (ret)
-		dc_crtc_err(crtc, "failed to put DC pixel engine RPM: %d\n",
-			    ret);
+	pm_runtime_put(dc_drm->pe->dev);
 
 	/* request display engine power-off when CRTC is disabled */
-	ret = pm_runtime_put(dc_crtc->de->dev);
-	if (ret < 0)
-		dc_crtc_err(crtc, "failed to put DC display engine RPM: %d\n",
-			    ret);
+	pm_runtime_put(dc_crtc->de->dev);
 
 	drm_dev_exit(idx);
 

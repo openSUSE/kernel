@@ -1,12 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * CS4270 ALSA SoC (ASoC) codec driver
  *
  * Author: Timur Tabi <timur@freescale.com>
  *
- * Copyright 2007-2009 Freescale Semiconductor, Inc.  This file is licensed
- * under the terms of the GNU General Public License version 2.  This
- * program is licensed "as is" without any warranty of any kind, whether
- * express or implied.
+ * Copyright 2007-2009 Freescale Semiconductor, Inc.
  *
  * This is an ASoC device driver for the Cirrus Logic CS4270 codec.
  *
@@ -433,7 +431,7 @@ static int cs4270_dai_mute(struct snd_soc_dai *dai, int mute, int direction)
 static int cs4270_soc_put_mute(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct cs4270_private *cs4270 = snd_soc_component_get_drvdata(component);
 	int left = !ucontrol->value.integer.value[0];
 	int right = !ucontrol->value.integer.value[1];

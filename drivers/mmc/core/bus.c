@@ -19,6 +19,7 @@
 
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>
+#include <linux/mmc/mmc.h>
 
 #include "core.h"
 #include "card.h"
@@ -278,7 +279,7 @@ struct mmc_card *mmc_alloc_card(struct mmc_host *host, const struct device_type 
 {
 	struct mmc_card *card;
 
-	card = kzalloc(sizeof(struct mmc_card), GFP_KERNEL);
+	card = kzalloc_obj(struct mmc_card);
 	if (!card)
 		return ERR_PTR(-ENOMEM);
 
@@ -383,6 +384,14 @@ int mmc_add_card(struct mmc_card *card)
 
 	mmc_card_set_present(card);
 
+	/*
+	 * Register for undervoltage notification if the card supports
+	 * power-off notification, enabling emergency shutdowns.
+	 */
+	if (mmc_card_mmc(card) &&
+	    card->ext_csd.power_off_notification == EXT_CSD_POWER_ON)
+		mmc_regulator_register_undervoltage_notifier(card->host);
+
 	return 0;
 }
 
@@ -393,6 +402,9 @@ int mmc_add_card(struct mmc_card *card)
 void mmc_remove_card(struct mmc_card *card)
 {
 	struct mmc_host *host = card->host;
+
+	if (mmc_card_present(card))
+		mmc_regulator_unregister_undervoltage_notifier(host);
 
 	mmc_remove_card_debugfs(card);
 

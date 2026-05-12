@@ -7,6 +7,7 @@
  *              Pavel Shilovsky (pshilovsky@samba.org) 2012
  *
  */
+#include <crypto/sha2.h>
 #include <linux/ctype.h>
 #include "cifsglob.h"
 #include "cifsproto.h"
@@ -133,7 +134,8 @@ static __u32 get_neg_ctxt_len(struct smb2_hdr *hdr, __u32 len,
 }
 
 int
-smb2_check_message(char *buf, unsigned int len, struct TCP_Server_Info *server)
+smb2_check_message(char *buf, unsigned int pdu_len, unsigned int len,
+		   struct TCP_Server_Info *server)
 {
 	struct TCP_Server_Info *pserver;
 	struct smb2_hdr *shdr = (struct smb2_hdr *)buf;
@@ -453,17 +455,8 @@ calc_size_exit:
 __le16 *
 cifs_convert_path_to_utf16(const char *from, struct cifs_sb_info *cifs_sb)
 {
-	int len;
 	const char *start_of_path;
-	__le16 *to;
-	int map_type;
-
-	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_MAP_SFM_CHR)
-		map_type = SFM_MAP_UNI_RSVD;
-	else if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_MAP_SPECIAL_CHR)
-		map_type = SFU_MAP_UNI_RSVD;
-	else
-		map_type = NO_MAP_UNI_RSVD;
+	int len;
 
 	/* Windows doesn't allow paths beginning with \ */
 	if (from[0] == '\\')
@@ -477,21 +470,20 @@ cifs_convert_path_to_utf16(const char *from, struct cifs_sb_info *cifs_sb)
 	} else
 		start_of_path = from;
 
-	to = cifs_strndup_to_utf16(start_of_path, PATH_MAX, &len,
-				   cifs_sb->local_nls, map_type);
-	return to;
+	return cifs_strndup_to_utf16(start_of_path, PATH_MAX, &len,
+				     cifs_sb->local_nls, cifs_remap(cifs_sb));
 }
 
-__le32
-smb2_get_lease_state(struct cifsInodeInfo *cinode)
+__le32 smb2_get_lease_state(struct cifsInodeInfo *cinode, unsigned int oplock)
 {
+	unsigned int sbflags = cifs_sb_flags(CIFS_SB(cinode));
 	__le32 lease = 0;
 
-	if (CIFS_CACHE_WRITE(cinode))
+	if ((oplock & CIFS_CACHE_WRITE_FLG) || (sbflags & CIFS_MOUNT_RW_CACHE))
 		lease |= SMB2_LEASE_WRITE_CACHING_LE;
-	if (CIFS_CACHE_HANDLE(cinode))
+	if (oplock & CIFS_CACHE_HANDLE_FLG)
 		lease |= SMB2_LEASE_HANDLE_CACHING_LE;
-	if (CIFS_CACHE_READ(cinode))
+	if ((oplock & CIFS_CACHE_READ_FLG) || (sbflags & CIFS_MOUNT_RO_CACHE))
 		lease |= SMB2_LEASE_READ_CACHING_LE;
 	return lease;
 }
@@ -524,7 +516,7 @@ smb2_queue_pending_open_break(struct tcon_link *tlink, __u8 *lease_key,
 {
 	struct smb2_lease_break_work *lw;
 
-	lw = kmalloc(sizeof(struct smb2_lease_break_work), GFP_KERNEL);
+	lw = kmalloc_obj(struct smb2_lease_break_work);
 	if (!lw) {
 		cifs_put_tlink(tlink);
 		return;
@@ -796,7 +788,7 @@ __smb2_handle_cancelled_cmd(struct cifs_tcon *tcon, __u16 cmd, __u64 mid,
 {
 	struct close_cancelled_open *cancelled;
 
-	cancelled = kzalloc(sizeof(*cancelled), GFP_KERNEL);
+	cancelled = kzalloc_obj(*cancelled);
 	if (!cancelled)
 		return -ENOMEM;
 
@@ -818,14 +810,14 @@ smb2_handle_cancelled_close(struct cifs_tcon *tcon, __u64 persistent_fid,
 	int rc;
 
 	cifs_dbg(FYI, "%s: tc_count=%d\n", __func__, tcon->tc_count);
-	spin_lock(&cifs_tcp_ses_lock);
+	spin_lock(&tcon->tc_lock);
 	if (tcon->tc_count <= 0) {
 		struct TCP_Server_Info *server = NULL;
 
 		trace_smb3_tcon_ref(tcon->debug_id, tcon->tc_count,
 				    netfs_trace_tcon_ref_see_cancelled_close);
 		WARN_ONCE(tcon->tc_count < 0, "tcon refcount is negative");
-		spin_unlock(&cifs_tcp_ses_lock);
+		spin_unlock(&tcon->tc_lock);
 
 		if (tcon->ses) {
 			server = tcon->ses->server;
@@ -839,7 +831,7 @@ smb2_handle_cancelled_close(struct cifs_tcon *tcon, __u64 persistent_fid,
 	tcon->tc_count++;
 	trace_smb3_tcon_ref(tcon->debug_id, tcon->tc_count,
 			    netfs_trace_tcon_ref_get_cancelled_close);
-	spin_unlock(&cifs_tcp_ses_lock);
+	spin_unlock(&tcon->tc_lock);
 
 	rc = __smb2_handle_cancelled_cmd(tcon, SMB2_CLOSE_HE, 0,
 					 persistent_fid, volatile_fid);
@@ -888,13 +880,13 @@ smb2_handle_cancelled_mid(struct mid_q_entry *mid, struct TCP_Server_Info *serve
  * @iov:	array containing the SMB request we will send to the server
  * @nvec:	number of array entries for the iov
  */
-int
+void
 smb311_update_preauth_hash(struct cifs_ses *ses, struct TCP_Server_Info *server,
 			   struct kvec *iov, int nvec)
 {
-	int i, rc;
+	int i;
 	struct smb2_hdr *hdr;
-	struct shash_desc *sha512 = NULL;
+	struct sha512_ctx sha_ctx;
 
 	hdr = (struct smb2_hdr *)iov[0].iov_base;
 	/* neg prot are always taken */
@@ -907,52 +899,22 @@ smb311_update_preauth_hash(struct cifs_ses *ses, struct TCP_Server_Info *server,
 	 * and we can test it. Preauth requires 3.1.1 for now.
 	 */
 	if (server->dialect != SMB311_PROT_ID)
-		return 0;
+		return;
 
 	if (hdr->Command != SMB2_SESSION_SETUP)
-		return 0;
+		return;
 
 	/* skip last sess setup response */
 	if ((hdr->Flags & SMB2_FLAGS_SERVER_TO_REDIR)
 	    && (hdr->Status == NT_STATUS_OK
 		|| (hdr->Status !=
 		    cpu_to_le32(NT_STATUS_MORE_PROCESSING_REQUIRED))))
-		return 0;
+		return;
 
 ok:
-	rc = smb311_crypto_shash_allocate(server);
-	if (rc)
-		return rc;
-
-	sha512 = server->secmech.sha512;
-	rc = crypto_shash_init(sha512);
-	if (rc) {
-		cifs_dbg(VFS, "%s: Could not init sha512 shash\n", __func__);
-		return rc;
-	}
-
-	rc = crypto_shash_update(sha512, ses->preauth_sha_hash,
-				 SMB2_PREAUTH_HASH_SIZE);
-	if (rc) {
-		cifs_dbg(VFS, "%s: Could not update sha512 shash\n", __func__);
-		return rc;
-	}
-
-	for (i = 0; i < nvec; i++) {
-		rc = crypto_shash_update(sha512, iov[i].iov_base, iov[i].iov_len);
-		if (rc) {
-			cifs_dbg(VFS, "%s: Could not update sha512 shash\n",
-				 __func__);
-			return rc;
-		}
-	}
-
-	rc = crypto_shash_final(sha512, ses->preauth_sha_hash);
-	if (rc) {
-		cifs_dbg(VFS, "%s: Could not finalize sha512 shash\n",
-			 __func__);
-		return rc;
-	}
-
-	return 0;
+	sha512_init(&sha_ctx);
+	sha512_update(&sha_ctx, ses->preauth_sha_hash, SMB2_PREAUTH_HASH_SIZE);
+	for (i = 0; i < nvec; i++)
+		sha512_update(&sha_ctx, iov[i].iov_base, iov[i].iov_len);
+	sha512_final(&sha_ctx, ses->preauth_sha_hash);
 }

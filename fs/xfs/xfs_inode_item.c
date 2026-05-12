@@ -3,7 +3,7 @@
  * Copyright (c) 2000-2002,2005 Silicon Graphics, Inc.
  * All Rights Reserved.
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -113,9 +113,9 @@ xfs_inode_item_precommit(
 	 * to log the timestamps, or will clear already cleared fields in the
 	 * worst case.
 	 */
-	if (inode->i_state & I_DIRTY_TIME) {
+	if (inode_state_read_once(inode) & I_DIRTY_TIME) {
 		spin_lock(&inode->i_lock);
-		inode->i_state &= ~I_DIRTY_TIME;
+		inode_state_clear(inode, I_DIRTY_TIME);
 		spin_unlock(&inode->i_lock);
 	}
 
@@ -131,46 +131,28 @@ xfs_inode_item_precommit(
 	}
 
 	/*
-	 * Inode verifiers do not check that the extent size hint is an integer
-	 * multiple of the rt extent size on a directory with both rtinherit
-	 * and extszinherit flags set.  If we're logging a directory that is
-	 * misconfigured in this way, clear the hint.
+	 * Inode verifiers do not check that the extent size hints are an
+	 * integer multiple of the rt extent size on a directory with
+	 * rtinherit flags set.  If we're logging a directory that is
+	 * misconfigured in this way, clear the bad hints.
 	 */
-	if ((ip->i_diflags & XFS_DIFLAG_RTINHERIT) &&
-	    (ip->i_diflags & XFS_DIFLAG_EXTSZINHERIT) &&
-	    xfs_extlen_to_rtxmod(ip->i_mount, ip->i_extsize) > 0) {
-		ip->i_diflags &= ~(XFS_DIFLAG_EXTSIZE |
-				   XFS_DIFLAG_EXTSZINHERIT);
-		ip->i_extsize = 0;
-		flags |= XFS_ILOG_CORE;
+	if (ip->i_diflags & XFS_DIFLAG_RTINHERIT) {
+		if ((ip->i_diflags & XFS_DIFLAG_EXTSZINHERIT) &&
+		    xfs_extlen_to_rtxmod(ip->i_mount, ip->i_extsize) > 0) {
+			ip->i_diflags &= ~(XFS_DIFLAG_EXTSIZE |
+					   XFS_DIFLAG_EXTSZINHERIT);
+			ip->i_extsize = 0;
+			flags |= XFS_ILOG_CORE;
+		}
+		if ((ip->i_diflags2 & XFS_DIFLAG2_COWEXTSIZE) &&
+		    xfs_extlen_to_rtxmod(ip->i_mount, ip->i_cowextsize) > 0) {
+			ip->i_diflags2 &= ~XFS_DIFLAG2_COWEXTSIZE;
+			ip->i_cowextsize = 0;
+			flags |= XFS_ILOG_CORE;
+		}
 	}
 
-	/*
-	 * Record the specific change for fdatasync optimisation. This allows
-	 * fdatasync to skip log forces for inodes that are only timestamp
-	 * dirty. Once we've processed the XFS_ILOG_IVERSION flag, convert it
-	 * to XFS_ILOG_CORE so that the actual on-disk dirty tracking
-	 * (ili_fields) correctly tracks that the version has changed.
-	 */
 	spin_lock(&iip->ili_lock);
-	iip->ili_fsync_fields |= (flags & ~XFS_ILOG_IVERSION);
-	if (flags & XFS_ILOG_IVERSION)
-		flags = ((flags & ~XFS_ILOG_IVERSION) | XFS_ILOG_CORE);
-
-	/*
-	 * Inode verifiers do not check that the CoW extent size hint is an
-	 * integer multiple of the rt extent size on a directory with both
-	 * rtinherit and cowextsize flags set.  If we're logging a directory
-	 * that is misconfigured in this way, clear the hint.
-	 */
-	if ((ip->i_diflags & XFS_DIFLAG_RTINHERIT) &&
-	    (ip->i_diflags2 & XFS_DIFLAG2_COWEXTSIZE) &&
-	    xfs_extlen_to_rtxmod(ip->i_mount, ip->i_cowextsize) > 0) {
-		ip->i_diflags2 &= ~XFS_DIFLAG2_COWEXTSIZE;
-		ip->i_cowextsize = 0;
-		flags |= XFS_ILOG_CORE;
-	}
-
 	if (!iip->ili_item.li_buf) {
 		struct xfs_buf	*bp;
 		int		error;
@@ -205,6 +187,20 @@ xfs_inode_item_precommit(
 	}
 
 	/*
+	 * Store the dirty flags back into the inode item as this state is used
+	 * later on in xfs_inode_item_committing() to determine whether the
+	 * transaction is relevant to fsync state or not.
+	 */
+	iip->ili_dirty_flags = flags;
+
+	/*
+	 * Convert the flags on-disk fields that have been modified in the
+	 * transaction so that ili_fields tracks the changes correctly.
+	 */
+	if (flags & XFS_ILOG_IVERSION)
+		flags = ((flags & ~XFS_ILOG_IVERSION) | XFS_ILOG_CORE);
+
+	/*
 	 * Always OR in the bits from the ili_last_fields field.  This is to
 	 * coordinate with the xfs_iflush() and xfs_buf_inode_iodone() routines
 	 * in the eventual clearing of the ili_fields bits.  See the big comment
@@ -214,12 +210,6 @@ xfs_inode_item_precommit(
 	spin_unlock(&iip->ili_lock);
 
 	xfs_inode_item_precommit_check(ip);
-
-	/*
-	 * We are done with the log item transaction dirty state, so clear it so
-	 * that it doesn't pollute future transactions.
-	 */
-	iip->ili_dirty_flags = 0;
 	return 0;
 }
 
@@ -346,8 +336,7 @@ STATIC void
 xfs_inode_item_format_data_fork(
 	struct xfs_inode_log_item *iip,
 	struct xfs_inode_log_format *ilf,
-	struct xfs_log_vec	*lv,
-	struct xfs_log_iovec	**vecp)
+	struct xlog_format_buf	*lfb)
 {
 	struct xfs_inode	*ip = iip->ili_inode;
 	size_t			data_bytes;
@@ -364,9 +353,9 @@ xfs_inode_item_format_data_fork(
 
 			ASSERT(xfs_iext_count(&ip->i_df) > 0);
 
-			p = xlog_prepare_iovec(lv, vecp, XLOG_REG_TYPE_IEXT);
+			p = xlog_format_start(lfb, XLOG_REG_TYPE_IEXT);
 			data_bytes = xfs_iextents_copy(ip, p, XFS_DATA_FORK);
-			xlog_finish_iovec(lv, *vecp, data_bytes);
+			xlog_format_commit(lfb, data_bytes);
 
 			ASSERT(data_bytes <= ip->i_df.if_bytes);
 
@@ -384,7 +373,7 @@ xfs_inode_item_format_data_fork(
 		if ((iip->ili_fields & XFS_ILOG_DBROOT) &&
 		    ip->i_df.if_broot_bytes > 0) {
 			ASSERT(ip->i_df.if_broot != NULL);
-			xlog_copy_iovec(lv, vecp, XLOG_REG_TYPE_IBROOT,
+			xlog_format_copy(lfb, XLOG_REG_TYPE_IBROOT,
 					ip->i_df.if_broot,
 					ip->i_df.if_broot_bytes);
 			ilf->ilf_dsize = ip->i_df.if_broot_bytes;
@@ -402,8 +391,9 @@ xfs_inode_item_format_data_fork(
 		    ip->i_df.if_bytes > 0) {
 			ASSERT(ip->i_df.if_data != NULL);
 			ASSERT(ip->i_disk_size > 0);
-			xlog_copy_iovec(lv, vecp, XLOG_REG_TYPE_ILOCAL,
-					ip->i_df.if_data, ip->i_df.if_bytes);
+			xlog_format_copy(lfb, XLOG_REG_TYPE_ILOCAL,
+					ip->i_df.if_data,
+					ip->i_df.if_bytes);
 			ilf->ilf_dsize = (unsigned)ip->i_df.if_bytes;
 			ilf->ilf_size++;
 		} else {
@@ -426,8 +416,7 @@ STATIC void
 xfs_inode_item_format_attr_fork(
 	struct xfs_inode_log_item *iip,
 	struct xfs_inode_log_format *ilf,
-	struct xfs_log_vec	*lv,
-	struct xfs_log_iovec	**vecp)
+	struct xlog_format_buf	*lfb)
 {
 	struct xfs_inode	*ip = iip->ili_inode;
 	size_t			data_bytes;
@@ -445,9 +434,9 @@ xfs_inode_item_format_attr_fork(
 			ASSERT(xfs_iext_count(&ip->i_af) ==
 				ip->i_af.if_nextents);
 
-			p = xlog_prepare_iovec(lv, vecp, XLOG_REG_TYPE_IATTR_EXT);
+			p = xlog_format_start(lfb, XLOG_REG_TYPE_IATTR_EXT);
 			data_bytes = xfs_iextents_copy(ip, p, XFS_ATTR_FORK);
-			xlog_finish_iovec(lv, *vecp, data_bytes);
+			xlog_format_commit(lfb, data_bytes);
 
 			ilf->ilf_asize = data_bytes;
 			ilf->ilf_size++;
@@ -463,7 +452,7 @@ xfs_inode_item_format_attr_fork(
 		    ip->i_af.if_broot_bytes > 0) {
 			ASSERT(ip->i_af.if_broot != NULL);
 
-			xlog_copy_iovec(lv, vecp, XLOG_REG_TYPE_IATTR_BROOT,
+			xlog_format_copy(lfb, XLOG_REG_TYPE_IATTR_BROOT,
 					ip->i_af.if_broot,
 					ip->i_af.if_broot_bytes);
 			ilf->ilf_asize = ip->i_af.if_broot_bytes;
@@ -479,8 +468,9 @@ xfs_inode_item_format_attr_fork(
 		if ((iip->ili_fields & XFS_ILOG_ADATA) &&
 		    ip->i_af.if_bytes > 0) {
 			ASSERT(ip->i_af.if_data != NULL);
-			xlog_copy_iovec(lv, vecp, XLOG_REG_TYPE_IATTR_LOCAL,
-					ip->i_af.if_data, ip->i_af.if_bytes);
+			xlog_format_copy(lfb, XLOG_REG_TYPE_IATTR_LOCAL,
+					ip->i_af.if_data,
+					ip->i_af.if_bytes);
 			ilf->ilf_asize = (unsigned)ip->i_af.if_bytes;
 			ilf->ilf_size++;
 		} else {
@@ -629,14 +619,13 @@ xfs_inode_to_log_dinode(
 static void
 xfs_inode_item_format_core(
 	struct xfs_inode	*ip,
-	struct xfs_log_vec	*lv,
-	struct xfs_log_iovec	**vecp)
+	struct xlog_format_buf	*lfb)
 {
 	struct xfs_log_dinode	*dic;
 
-	dic = xlog_prepare_iovec(lv, vecp, XLOG_REG_TYPE_ICORE);
+	dic = xlog_format_start(lfb, XLOG_REG_TYPE_ICORE);
 	xfs_inode_to_log_dinode(ip, dic, ip->i_itemp->ili_item.li_lsn);
-	xlog_finish_iovec(lv, *vecp, xfs_log_dinode_size(ip->i_mount));
+	xlog_format_commit(lfb, xfs_log_dinode_size(ip->i_mount));
 }
 
 /*
@@ -654,14 +643,13 @@ xfs_inode_item_format_core(
 STATIC void
 xfs_inode_item_format(
 	struct xfs_log_item	*lip,
-	struct xfs_log_vec	*lv)
+	struct xlog_format_buf	*lfb)
 {
 	struct xfs_inode_log_item *iip = INODE_ITEM(lip);
 	struct xfs_inode	*ip = iip->ili_inode;
-	struct xfs_log_iovec	*vecp = NULL;
 	struct xfs_inode_log_format *ilf;
 
-	ilf = xlog_prepare_iovec(lv, &vecp, XLOG_REG_TYPE_IFORMAT);
+	ilf = xlog_format_start(lfb, XLOG_REG_TYPE_IFORMAT);
 	ilf->ilf_type = XFS_LI_INODE;
 	ilf->ilf_ino = ip->i_ino;
 	ilf->ilf_blkno = ip->i_imap.im_blkno;
@@ -678,13 +666,12 @@ xfs_inode_item_format(
 	ilf->ilf_asize = 0;
 	ilf->ilf_pad = 0;
 	memset(&ilf->ilf_u, 0, sizeof(ilf->ilf_u));
+	xlog_format_commit(lfb, sizeof(*ilf));
 
-	xlog_finish_iovec(lv, vecp, sizeof(*ilf));
-
-	xfs_inode_item_format_core(ip, lv, &vecp);
-	xfs_inode_item_format_data_fork(iip, ilf, lv, &vecp);
+	xfs_inode_item_format_core(ip, lfb);
+	xfs_inode_item_format_data_fork(iip, ilf, lfb);
 	if (xfs_inode_has_attr_fork(ip)) {
-		xfs_inode_item_format_attr_fork(iip, ilf, lv, &vecp);
+		xfs_inode_item_format_attr_fork(iip, ilf, lfb);
 	} else {
 		iip->ili_fields &=
 			~(XFS_ILOG_ADATA | XFS_ILOG_ABROOT | XFS_ILOG_AEXT);
@@ -729,13 +716,24 @@ xfs_inode_item_unpin(
 	struct xfs_log_item	*lip,
 	int			remove)
 {
-	struct xfs_inode	*ip = INODE_ITEM(lip)->ili_inode;
+	struct xfs_inode_log_item *iip = INODE_ITEM(lip);
+	struct xfs_inode	*ip = iip->ili_inode;
 
 	trace_xfs_inode_unpin(ip, _RET_IP_);
 	ASSERT(lip->li_buf || xfs_iflags_test(ip, XFS_ISTALE));
 	ASSERT(atomic_read(&ip->i_pincount) > 0);
-	if (atomic_dec_and_test(&ip->i_pincount))
+
+	/*
+	 * If this is the last unpin, then the inode no longer needs a journal
+	 * flush to persist it. Hence we can clear the commit sequence numbers
+	 * as a fsync/fdatasync operation on the inode at this point is a no-op.
+	 */
+	if (atomic_dec_and_lock(&ip->i_pincount, &iip->ili_lock)) {
+		iip->ili_commit_seq = 0;
+		iip->ili_datasync_seq = 0;
+		spin_unlock(&iip->ili_lock);
 		wake_up_bit(&ip->i_flags, __XFS_IPINNED_BIT);
+	}
 }
 
 STATIC uint
@@ -748,6 +746,7 @@ xfs_inode_item_push(
 	struct xfs_inode_log_item *iip = INODE_ITEM(lip);
 	struct xfs_inode	*ip = iip->ili_inode;
 	struct xfs_buf		*bp = lip->li_buf;
+	struct xfs_ail		*ailp = lip->li_ailp;
 	uint			rval = XFS_ITEM_SUCCESS;
 	int			error;
 
@@ -773,7 +772,7 @@ xfs_inode_item_push(
 	if (!xfs_buf_trylock(bp))
 		return XFS_ITEM_LOCKED;
 
-	spin_unlock(&lip->li_ailp->ail_lock);
+	spin_unlock(&ailp->ail_lock);
 
 	/*
 	 * We need to hold a reference for flushing the cluster buffer as it may
@@ -797,7 +796,11 @@ xfs_inode_item_push(
 		rval = XFS_ITEM_LOCKED;
 	}
 
-	spin_lock(&lip->li_ailp->ail_lock);
+	/*
+	 * The buffer no longer protects the log item from reclaim, so
+	 * do not reference lip after this point.
+	 */
+	spin_lock(&ailp->ail_lock);
 	return rval;
 }
 
@@ -858,12 +861,45 @@ xfs_inode_item_committed(
 	return lsn;
 }
 
+/*
+ * The modification is now complete, so before we unlock the inode we need to
+ * update the commit sequence numbers for data integrity journal flushes. We
+ * always record the commit sequence number (ili_commit_seq) so that anything
+ * that needs a full journal sync will capture all of this modification.
+ *
+ * We then
+ * check if the changes will impact a datasync (O_DSYNC) journal flush. If the
+ * changes will require a datasync flush, then we also record the sequence in
+ * ili_datasync_seq.
+ *
+ * These commit sequence numbers will get cleared atomically with the inode being
+ * unpinned (i.e. pin count goes to zero), and so it will only be set when the
+ * inode is dirty in the journal. This removes the need for checking if the
+ * inode is pinned to determine if a journal flush is necessary, and hence
+ * removes the need for holding the ILOCK_SHARED in xfs_file_fsync() to
+ * serialise pin counts against commit sequence number updates.
+ *
+ */
 STATIC void
 xfs_inode_item_committing(
 	struct xfs_log_item	*lip,
 	xfs_csn_t		seq)
 {
-	INODE_ITEM(lip)->ili_commit_seq = seq;
+	struct xfs_inode_log_item *iip = INODE_ITEM(lip);
+
+	spin_lock(&iip->ili_lock);
+	iip->ili_commit_seq = seq;
+	if (iip->ili_dirty_flags & ~(XFS_ILOG_IVERSION | XFS_ILOG_TIMESTAMP))
+		iip->ili_datasync_seq = seq;
+	spin_unlock(&iip->ili_lock);
+
+	/*
+	 * Clear the per-transaction dirty flags now that we have finished
+	 * recording the transaction's inode modifications in the CIL and are
+	 * about to release and (maybe) unlock the inode.
+	 */
+	iip->ili_dirty_flags = 0;
+
 	return xfs_inode_item_release(lip);
 }
 
@@ -1055,7 +1091,6 @@ xfs_iflush_abort_clean(
 {
 	iip->ili_last_fields = 0;
 	iip->ili_fields = 0;
-	iip->ili_fsync_fields = 0;
 	iip->ili_flush_lsn = 0;
 	iip->ili_item.li_buf = NULL;
 	list_del_init(&iip->ili_item.li_bio_list);

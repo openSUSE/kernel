@@ -19,7 +19,7 @@
 #include "util/hist.h"  /* perf_hist_config */
 #include "util/stat.h"  /* perf_stat__set_big_num */
 #include "util/evsel.h"  /* evsel__hw_names, evsel__use_bpf_counters */
-#include "util/srcline.h"  /* addr2line_timeout_ms */
+#include "srcline.h"
 #include "build-id.h"
 #include "debug.h"
 #include "config.h"
@@ -37,6 +37,8 @@
 
 #define METRIC_ONLY_LEN 20
 
+static struct stats walltime_nsecs_stats;
+
 struct perf_stat_config stat_config = {
 	.aggr_mode		= AGGR_GLOBAL,
 	.aggr_level		= MAX_CACHE_LVL + 1,
@@ -45,7 +47,6 @@ struct perf_stat_config stat_config = {
 	.run_count		= 1,
 	.metric_only_len	= METRIC_ONLY_LEN,
 	.walltime_nsecs_stats	= &walltime_nsecs_stats,
-	.ru_stats		= &ru_stats,
 	.big_num		= true,
 	.ctl_fd			= -1,
 	.ctl_fd_ack		= -1,
@@ -457,7 +458,10 @@ static int perf_default_core_config(const char *var, const char *value)
 		proc_map_timeout = strtoul(value, NULL, 10);
 
 	if (!strcmp(var, "core.addr2line-timeout"))
-		addr2line_timeout_ms = strtoul(value, NULL, 10);
+		symbol_conf.addr2line_timeout_ms = strtoul(value, NULL, 10);
+
+	if (!strcmp(var, "core.addr2line-disable-warn"))
+		symbol_conf.addr2line_disable_warn = perf_config_bool(var, value);
 
 	/* Add other config variables here. */
 	return 0;
@@ -517,6 +521,9 @@ int perf_default_config(const char *var, const char *value,
 
 	if (strstarts(var, "stat."))
 		return perf_stat_config(var, value);
+
+	if (strstarts(var, "addr2line."))
+		return addr2line_configure(var, value, dummy);
 
 	/* Add other config variables here. */
 	return 0;

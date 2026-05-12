@@ -63,7 +63,7 @@ struct dpu_kms {
 	const struct qcom_ubwc_cfg_data *mdss;
 
 	/* io/register spaces: */
-	void __iomem *mmio, *vbif[VBIF_MAX];
+	void __iomem *mmio, *vbif;
 
 	struct regulator *vdd;
 	struct regulator *mmagic;
@@ -81,7 +81,7 @@ struct dpu_kms {
 
 	struct dpu_rm rm;
 
-	struct dpu_hw_vbif *hw_vbif[VBIF_MAX];
+	struct dpu_hw_vbif *hw_vbif;
 	struct dpu_hw_mdp *hw_mdp;
 
 	bool has_danger_ctrl;
@@ -138,7 +138,7 @@ struct dpu_global_state {
 struct dpu_global_state
 	*dpu_kms_get_existing_global_state(struct dpu_kms *dpu_kms);
 struct dpu_global_state
-	*__must_check dpu_kms_get_global_state(struct drm_atomic_state *s);
+	*__must_check dpu_kms_get_global_state(struct drm_atomic_commit *s);
 
 /**
  * Debugfs functions - extra helper functions for debugfs support

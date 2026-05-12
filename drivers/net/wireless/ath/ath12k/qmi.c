@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause-Clear
 /*
  * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/elf.h>
@@ -1623,6 +1623,47 @@ static const struct qmi_elem_info qmi_wlanfw_m3_info_resp_msg_v01_ei[] = {
 	},
 };
 
+static const struct qmi_elem_info qmi_wlanfw_aux_uc_info_req_msg_v01_ei[] = {
+	{
+		.data_type      = QMI_UNSIGNED_8_BYTE,
+		.elem_len       = 1,
+		.elem_size      = sizeof(u64),
+		.array_type     = NO_ARRAY,
+		.tlv_type       = 0x01,
+		.offset         = offsetof(struct qmi_wlanfw_aux_uc_info_req_msg_v01, addr),
+	},
+	{
+		.data_type      = QMI_UNSIGNED_4_BYTE,
+		.elem_len       = 1,
+		.elem_size      = sizeof(u32),
+		.array_type     = NO_ARRAY,
+		.tlv_type       = 0x02,
+		.offset         = offsetof(struct qmi_wlanfw_aux_uc_info_req_msg_v01, size),
+	},
+	{
+		.data_type      = QMI_EOTI,
+		.array_type     = NO_ARRAY,
+		.tlv_type       = QMI_COMMON_TLV_TYPE,
+	},
+};
+
+static const struct qmi_elem_info qmi_wlanfw_aux_uc_info_resp_msg_v01_ei[] = {
+	{
+		.data_type      = QMI_STRUCT,
+		.elem_len       = 1,
+		.elem_size      = sizeof(struct qmi_response_type_v01),
+		.array_type     = NO_ARRAY,
+		.tlv_type       = 0x02,
+		.offset         = offsetof(struct qmi_wlanfw_aux_uc_info_resp_msg_v01, resp),
+		.ei_array       = qmi_response_type_v01_ei,
+	},
+	{
+		.data_type      = QMI_EOTI,
+		.array_type     = NO_ARRAY,
+		.tlv_type       = QMI_COMMON_TLV_TYPE,
+	},
+};
+
 static const struct qmi_elem_info qmi_wlanfw_ce_tgt_pipe_cfg_s_v01_ei[] = {
 	{
 		.data_type	= QMI_UNSIGNED_4_BYTE,
@@ -2303,11 +2344,11 @@ static int ath12k_qmi_fw_ind_register_send(struct ath12k_base *ab)
 	struct qmi_txn txn;
 	int ret;
 
-	req = kzalloc(sizeof(*req), GFP_KERNEL);
+	req = kzalloc_obj(*req);
 	if (!req)
 		return -ENOMEM;
 
-	resp = kzalloc(sizeof(*resp), GFP_KERNEL);
+	resp = kzalloc_obj(*resp);
 	if (!resp) {
 		ret = -ENOMEM;
 		goto resp_out;
@@ -2375,7 +2416,7 @@ int ath12k_qmi_respond_fw_mem_request(struct ath12k_base *ab)
 	int ret = 0, i;
 	bool delayed;
 
-	req = kzalloc(sizeof(*req), GFP_KERNEL);
+	req = kzalloc_obj(*req);
 	if (!req)
 		return -ENOMEM;
 
@@ -2609,6 +2650,7 @@ static int ath12k_qmi_alloc_target_mem_chunk(struct ath12k_base *ab)
 		case M3_DUMP_REGION_TYPE:
 		case PAGEABLE_MEM_REGION_TYPE:
 		case CALDB_MEM_REGION_TYPE:
+		case LPASS_SHARED_V01_REGION_TYPE:
 			ret = ath12k_qmi_alloc_chunk(ab, chunk);
 			if (ret)
 				goto err;
@@ -2926,7 +2968,7 @@ static int ath12k_qmi_load_file_target_mem(struct ath12k_base *ab,
 	int ret = 0;
 	u32 remaining = len;
 
-	req = kzalloc(sizeof(*req), GFP_KERNEL);
+	req = kzalloc_obj(*req);
 	if (!req)
 		return -ENOMEM;
 
@@ -3114,9 +3156,10 @@ static void ath12k_qmi_m3_free(struct ath12k_base *ab)
 	if (!m3_mem->vaddr)
 		return;
 
-	dma_free_coherent(ab->dev, m3_mem->size,
+	dma_free_coherent(ab->dev, m3_mem->total_size,
 			  m3_mem->vaddr, m3_mem->paddr);
 	m3_mem->vaddr = NULL;
+	m3_mem->total_size = 0;
 	m3_mem->size = 0;
 }
 
@@ -3152,7 +3195,7 @@ static int ath12k_qmi_m3_load(struct ath12k_base *ab)
 
 	/* In recovery/resume cases, M3 buffer is not freed, try to reuse that */
 	if (m3_mem->vaddr) {
-		if (m3_mem->size >= m3_len)
+		if (m3_mem->total_size >= m3_len)
 			goto skip_m3_alloc;
 
 		/* Old buffer is too small, free and reallocate */
@@ -3164,10 +3207,12 @@ static int ath12k_qmi_m3_load(struct ath12k_base *ab)
 					   GFP_KERNEL);
 	if (!m3_mem->vaddr) {
 		ath12k_err(ab, "failed to allocate memory for M3 with size %zu\n",
-			   fw->size);
+			   m3_len);
 		ret = -ENOMEM;
 		goto out;
 	}
+
+	m3_mem->total_size = m3_len;
 
 skip_m3_alloc:
 	memcpy(m3_mem->vaddr, m3_data, m3_len);
@@ -3225,6 +3270,131 @@ int ath12k_qmi_wlanfw_m3_info_send(struct ath12k_base *ab)
 
 	if (resp.resp.result != QMI_RESULT_SUCCESS_V01) {
 		ath12k_warn(ab, "qmi M3 info request failed, result: %d, err: %d\n",
+			    resp.resp.result, resp.resp.error);
+		ret = -EINVAL;
+		goto out;
+	}
+out:
+	return ret;
+}
+
+static void ath12k_qmi_aux_uc_free(struct ath12k_base *ab)
+{
+	struct m3_mem_region *aux_uc_mem = &ab->qmi.aux_uc_mem;
+
+	if (!aux_uc_mem->vaddr)
+		return;
+
+	dma_free_coherent(ab->dev, aux_uc_mem->total_size,
+			  aux_uc_mem->vaddr, aux_uc_mem->paddr);
+	aux_uc_mem->vaddr = NULL;
+	aux_uc_mem->total_size = 0;
+	aux_uc_mem->size = 0;
+}
+
+static int ath12k_qmi_aux_uc_load(struct ath12k_base *ab)
+{
+	struct m3_mem_region *aux_uc_mem = &ab->qmi.aux_uc_mem;
+	const struct firmware *fw = NULL;
+	const void *aux_uc_data;
+	char path[100];
+	size_t aux_uc_len;
+	int ret;
+
+	if (ab->fw.aux_uc_data && ab->fw.aux_uc_len > 0) {
+		/* firmware-N.bin had a aux_uc firmware file so use that */
+		aux_uc_data = ab->fw.aux_uc_data;
+		aux_uc_len = ab->fw.aux_uc_len;
+	} else {
+		/*
+		 * No aux_uc file in firmware-N.bin so try to request old
+		 * separate aux_ucode.bin.
+		 */
+		fw = ath12k_core_firmware_request(ab, ATH12K_AUX_UC_FILE);
+		if (IS_ERR(fw)) {
+			ret = PTR_ERR(fw);
+			ath12k_core_create_firmware_path(ab, ATH12K_AUX_UC_FILE,
+							 path, sizeof(path));
+			ath12k_err(ab, "failed to load %s: %d\n", path, ret);
+			return ret;
+		}
+
+		aux_uc_data = fw->data;
+		aux_uc_len = fw->size;
+	}
+
+	/* In recovery/resume cases, AUX_UC buffer is not freed, try to reuse that */
+	if (aux_uc_mem->vaddr) {
+		if (aux_uc_mem->total_size >= aux_uc_len)
+			goto copy;
+
+		/* Old buffer is too small, free and reallocate */
+		ath12k_qmi_aux_uc_free(ab);
+	}
+
+	aux_uc_mem->vaddr = dma_alloc_coherent(ab->dev, aux_uc_len,
+					       &aux_uc_mem->paddr, GFP_KERNEL);
+	if (!aux_uc_mem->vaddr) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	aux_uc_mem->total_size = aux_uc_len;
+
+copy:
+	memcpy(aux_uc_mem->vaddr, aux_uc_data, aux_uc_len);
+	aux_uc_mem->size = aux_uc_len;
+
+	ret = 0;
+
+out:
+	release_firmware(fw);
+
+	return ret;
+}
+
+static noinline_for_stack
+int ath12k_qmi_wlanfw_aux_uc_info_send(struct ath12k_base *ab)
+{
+	struct m3_mem_region *aux_uc_mem = &ab->qmi.aux_uc_mem;
+	struct qmi_wlanfw_aux_uc_info_req_msg_v01 req = {};
+	struct qmi_wlanfw_aux_uc_info_resp_msg_v01 resp = {};
+	struct qmi_txn txn;
+	int ret = 0;
+
+	ret = ath12k_qmi_aux_uc_load(ab);
+	if (ret) {
+		ath12k_err(ab, "failed to load aux_uc firmware: %d", ret);
+		return ret;
+	}
+
+	req.addr = aux_uc_mem->paddr;
+	req.size = aux_uc_mem->size;
+
+	ret = qmi_txn_init(&ab->qmi.handle, &txn,
+			   qmi_wlanfw_aux_uc_info_resp_msg_v01_ei, &resp);
+	if (ret < 0)
+		goto out;
+
+	ret = qmi_send_request(&ab->qmi.handle, NULL, &txn,
+			       QMI_WLANFW_AUX_UC_INFO_REQ_V01,
+			       QMI_WLANFW_AUX_UC_INFO_REQ_MSG_V01_MAX_MSG_LEN,
+			       qmi_wlanfw_aux_uc_info_req_msg_v01_ei, &req);
+	if (ret < 0) {
+		qmi_txn_cancel(&txn);
+		ath12k_warn(ab, "qmi failed to send AUX_UC information request, err = %d\n",
+			    ret);
+		goto out;
+	}
+
+	ret = qmi_txn_wait(&txn, msecs_to_jiffies(ATH12K_QMI_WLANFW_TIMEOUT_MS));
+	if (ret < 0) {
+		ath12k_warn(ab, "qmi failed AUX_UC information request %d\n", ret);
+		goto out;
+	}
+
+	if (resp.resp.result != QMI_RESULT_SUCCESS_V01) {
+		ath12k_warn(ab, "qmi AUX_UC info request failed, result: %d, err: %d\n",
 			    resp.resp.result, resp.resp.error);
 		ret = -EINVAL;
 		goto out;
@@ -3295,7 +3465,7 @@ static int ath12k_qmi_wlanfw_wlan_cfg_send(struct ath12k_base *ab)
 	ce_cfg	= (struct ce_pipe_config *)ab->qmi.ce_cfg.tgt_ce;
 	svc_cfg	= (struct service_to_pipe *)ab->qmi.ce_cfg.svc_to_ce_map;
 
-	req = kzalloc(sizeof(*req), GFP_KERNEL);
+	req = kzalloc_obj(*req);
 	if (!req)
 		return -ENOMEM;
 
@@ -3307,20 +3477,28 @@ static int ath12k_qmi_wlanfw_wlan_cfg_send(struct ath12k_base *ab)
 	/* This is number of CE configs */
 	req->tgt_cfg_len = ab->qmi.ce_cfg.tgt_ce_len;
 	for (pipe_num = 0; pipe_num < req->tgt_cfg_len ; pipe_num++) {
-		req->tgt_cfg[pipe_num].pipe_num = ce_cfg[pipe_num].pipenum;
-		req->tgt_cfg[pipe_num].pipe_dir = ce_cfg[pipe_num].pipedir;
-		req->tgt_cfg[pipe_num].nentries = ce_cfg[pipe_num].nentries;
-		req->tgt_cfg[pipe_num].nbytes_max = ce_cfg[pipe_num].nbytes_max;
-		req->tgt_cfg[pipe_num].flags = ce_cfg[pipe_num].flags;
+		req->tgt_cfg[pipe_num].pipe_num =
+			__le32_to_cpu(ce_cfg[pipe_num].pipenum);
+		req->tgt_cfg[pipe_num].pipe_dir =
+			__le32_to_cpu(ce_cfg[pipe_num].pipedir);
+		req->tgt_cfg[pipe_num].nentries =
+			__le32_to_cpu(ce_cfg[pipe_num].nentries);
+		req->tgt_cfg[pipe_num].nbytes_max =
+			__le32_to_cpu(ce_cfg[pipe_num].nbytes_max);
+		req->tgt_cfg[pipe_num].flags =
+			__le32_to_cpu(ce_cfg[pipe_num].flags);
 	}
 
 	req->svc_cfg_valid = 1;
 	/* This is number of Service/CE configs */
 	req->svc_cfg_len = ab->qmi.ce_cfg.svc_to_ce_map_len;
 	for (pipe_num = 0; pipe_num < req->svc_cfg_len; pipe_num++) {
-		req->svc_cfg[pipe_num].service_id = svc_cfg[pipe_num].service_id;
-		req->svc_cfg[pipe_num].pipe_dir = svc_cfg[pipe_num].pipedir;
-		req->svc_cfg[pipe_num].pipe_num = svc_cfg[pipe_num].pipenum;
+		req->svc_cfg[pipe_num].service_id =
+			__le32_to_cpu(svc_cfg[pipe_num].service_id);
+		req->svc_cfg[pipe_num].pipe_dir =
+			__le32_to_cpu(svc_cfg[pipe_num].pipedir);
+		req->svc_cfg[pipe_num].pipe_num =
+			__le32_to_cpu(svc_cfg[pipe_num].pipenum);
 	}
 
 	/* set shadow v3 configuration */
@@ -3458,7 +3636,7 @@ ath12k_qmi_driver_event_post(struct ath12k_qmi *qmi,
 {
 	struct ath12k_qmi_driver_event *event;
 
-	event = kzalloc(sizeof(*event), GFP_ATOMIC);
+	event = kzalloc_obj(*event, GFP_ATOMIC);
 	if (!event)
 		return -ENOMEM;
 
@@ -3589,6 +3767,7 @@ static noinline_for_stack
 int ath12k_qmi_event_load_bdf(struct ath12k_qmi *qmi)
 {
 	struct ath12k_base *ab = qmi->ab;
+	const struct ath12k_hw_params *hw_params = ab->hw_params;
 	int ret;
 
 	ret = ath12k_qmi_request_target_cap(ab);
@@ -3609,7 +3788,7 @@ int ath12k_qmi_event_load_bdf(struct ath12k_qmi *qmi)
 		return ret;
 	}
 
-	if (ab->hw_params->download_calib) {
+	if (hw_params->download_calib) {
 		ret = ath12k_qmi_load_bdf_qmi(ab, ATH12K_QMI_BDF_TYPE_CALIBRATION);
 		if (ret < 0)
 			ath12k_warn(ab, "qmi failed to load calibrated data :%d\n", ret);
@@ -3619,6 +3798,14 @@ int ath12k_qmi_event_load_bdf(struct ath12k_qmi *qmi)
 	if (ret < 0) {
 		ath12k_warn(ab, "qmi failed to send m3 info req:%d\n", ret);
 		return ret;
+	}
+
+	if (hw_params->fw.download_aux_ucode) {
+		ret = ath12k_qmi_wlanfw_aux_uc_info_send(ab);
+		if (ret < 0) {
+			ath12k_warn(ab, "qmi failed to send aux_uc info req: %d\n", ret);
+			return ret;
+		}
 	}
 
 	return ret;
@@ -3732,7 +3919,7 @@ static int ath12k_qmi_ops_new_server(struct qmi_handle *qmi_hdl,
 	sq->sq_node = service->node;
 	sq->sq_port = service->port;
 
-	ret = kernel_connect(qmi_hdl->sock, (struct sockaddr *)sq,
+	ret = kernel_connect(qmi_hdl->sock, (struct sockaddr_unsized *)sq,
 			     sizeof(*sq), 0);
 	if (ret) {
 		ath12k_warn(ab, "qmi failed to connect to remote service %d\n", ret);
@@ -3894,6 +4081,7 @@ void ath12k_qmi_deinit_service(struct ath12k_base *ab)
 	qmi_handle_release(&ab->qmi.handle);
 	cancel_work_sync(&ab->qmi.event_work);
 	destroy_workqueue(ab->qmi.event_wq);
+	ath12k_qmi_aux_uc_free(ab);
 	ath12k_qmi_m3_free(ab);
 	ath12k_qmi_free_target_mem_chunk(ab);
 	ab->qmi.ab = NULL;
@@ -3902,5 +4090,6 @@ void ath12k_qmi_deinit_service(struct ath12k_base *ab)
 void ath12k_qmi_free_resource(struct ath12k_base *ab)
 {
 	ath12k_qmi_free_target_mem_chunk(ab);
+	ath12k_qmi_aux_uc_free(ab);
 	ath12k_qmi_m3_free(ab);
 }

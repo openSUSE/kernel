@@ -682,8 +682,8 @@ static unsigned long lvds_pixel_clk_recalc_rate(struct clk_hw *hw,
 	return (unsigned long)lvds->pixel_clock_rate;
 }
 
-static long lvds_pixel_clk_round_rate(struct clk_hw *hw, unsigned long rate,
-				      unsigned long *parent_rate)
+static int lvds_pixel_clk_determine_rate(struct clk_hw *hw,
+					 struct clk_rate_request *req)
 {
 	struct stm_lvds *lvds = container_of(hw, struct stm_lvds, lvds_ck_px);
 	unsigned int pll_in_khz, bdiv = 0, mdiv = 0, ndiv = 0;
@@ -703,7 +703,7 @@ static long lvds_pixel_clk_round_rate(struct clk_hw *hw, unsigned long rate,
 	mode = list_first_entry(&connector->modes,
 				struct drm_display_mode, head);
 
-	pll_in_khz = (unsigned int)(*parent_rate / 1000);
+	pll_in_khz = (unsigned int)(req->best_parent_rate / 1000);
 
 	if (lvds_is_dual_link(lvds->link_type))
 		multiplier = 2;
@@ -719,14 +719,16 @@ static long lvds_pixel_clk_round_rate(struct clk_hw *hw, unsigned long rate,
 	lvds->pixel_clock_rate = (unsigned long)pll_get_clkout_khz(pll_in_khz, bdiv, mdiv, ndiv)
 					 * 1000 * multiplier / 7;
 
-	return lvds->pixel_clock_rate;
+	req->rate = lvds->pixel_clock_rate;
+
+	return 0;
 }
 
 static const struct clk_ops lvds_pixel_clk_ops = {
 	.enable = lvds_pixel_clk_enable,
 	.disable = lvds_pixel_clk_disable,
 	.recalc_rate = lvds_pixel_clk_recalc_rate,
-	.round_rate = lvds_pixel_clk_round_rate,
+	.determine_rate = lvds_pixel_clk_determine_rate,
 };
 
 static const struct clk_init_data clk_data = {
@@ -885,7 +887,7 @@ static int lvds_connector_get_modes(struct drm_connector *connector)
 }
 
 static int lvds_connector_atomic_check(struct drm_connector *connector,
-				       struct drm_atomic_state *state)
+				       struct drm_atomic_commit *state)
 {
 	const struct drm_display_mode *panel_mode;
 	struct drm_connector_state *conn_state;
@@ -895,13 +897,13 @@ static int lvds_connector_atomic_check(struct drm_connector *connector,
 	if (!conn_state)
 		return -EINVAL;
 
+	if (!conn_state->crtc)
+		return 0;
+
 	if (list_empty(&connector->modes)) {
 		drm_dbg(connector->dev, "connector: empty modes list\n");
 		return -EINVAL;
 	}
-
-	if (!conn_state->crtc)
-		return -EINVAL;
 
 	panel_mode = list_first_entry(&connector->modes,
 				      struct drm_display_mode, head);
@@ -979,7 +981,7 @@ static int lvds_attach(struct drm_bridge *bridge, struct drm_encoder *encoder,
 }
 
 static void lvds_atomic_enable(struct drm_bridge *bridge,
-			       struct drm_atomic_state *state)
+			       struct drm_atomic_commit *state)
 {
 	struct stm_lvds *lvds = bridge_to_stm_lvds(bridge);
 	struct drm_connector_state *conn_state;
@@ -1015,7 +1017,7 @@ static void lvds_atomic_enable(struct drm_bridge *bridge,
 }
 
 static void lvds_atomic_disable(struct drm_bridge *bridge,
-				struct drm_atomic_state *state)
+				struct drm_atomic_commit *state)
 {
 	struct stm_lvds *lvds = bridge_to_stm_lvds(bridge);
 

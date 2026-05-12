@@ -9,6 +9,7 @@ config ARCH_SUPPORTS_ACPI
 menuconfig ACPI
 	bool "ACPI (Advanced Configuration and Power Interface) Support"
 	depends on ARCH_SUPPORTS_ACPI
+	select AUXILIARY_BUS
 	select PNP
 	select NLS
 	select CRC32
@@ -95,7 +96,7 @@ config ACPI_SPCR_TABLE
 
 config ACPI_FPDT
 	bool "ACPI Firmware Performance Data Table (FPDT) support"
-	depends on X86_64 || ARM64
+	depends on X86_64 || ARM64 || LOONGARCH
 	help
 	  Enable support for the Firmware Performance Data Table (FPDT).
 	  This table provides information on the timing of the system
@@ -461,7 +462,7 @@ config ACPI_HED
 
 config ACPI_BGRT
 	bool "Boottime Graphics Resource Table support"
-	depends on EFI && (X86 || ARM64 || LOONGARCH)
+	depends on EFI
 	help
 	  This driver adds support for exposing the ACPI Boottime Graphics
 	  Resource Table, which allows the operating system to obtain
@@ -494,6 +495,8 @@ config ACPI_EXTLOG
 	tristate "Extended Error Log support"
 	depends on X86_MCE && X86_LOCAL_APIC && EDAC
 	select UEFI_CPER
+	select ACPI_APEI
+	select ACPI_APEI_GHES
 	help
 	  Certain usages such as Predictive Failure Analysis (PFA) require
 	  more information about the error than what can be described in
@@ -545,6 +548,10 @@ config ACPI_PFRUT
 
 if ARM64
 source "drivers/acpi/arm64/Kconfig"
+endif
+
+if RISCV
+source "drivers/acpi/riscv/Kconfig"
 endif
 
 config ACPI_PPTT

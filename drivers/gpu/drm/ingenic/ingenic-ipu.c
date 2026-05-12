@@ -86,7 +86,7 @@ to_ingenic_ipu_priv_state(struct drm_private_state *state)
 }
 
 static struct ingenic_ipu_private_state *
-ingenic_ipu_get_priv_state(struct ingenic_ipu *priv, struct drm_atomic_state *state)
+ingenic_ipu_get_priv_state(struct ingenic_ipu *priv, struct drm_atomic_commit *state)
 {
 	struct drm_private_state *priv_state;
 
@@ -98,7 +98,7 @@ ingenic_ipu_get_priv_state(struct ingenic_ipu *priv, struct drm_atomic_state *st
 }
 
 static struct ingenic_ipu_private_state *
-ingenic_ipu_get_new_priv_state(struct ingenic_ipu *priv, struct drm_atomic_state *state)
+ingenic_ipu_get_new_priv_state(struct ingenic_ipu *priv, struct drm_atomic_commit *state)
 {
 	struct drm_private_state *priv_state;
 
@@ -321,7 +321,7 @@ static inline bool osd_changed(struct drm_plane_state *state,
 }
 
 static void ingenic_ipu_plane_atomic_update(struct drm_plane *plane,
-					    struct drm_atomic_state *state)
+					    struct drm_atomic_commit *state)
 {
 	struct ingenic_ipu *ipu = plane_to_ingenic_ipu(plane);
 	struct drm_plane_state *newstate = drm_atomic_get_new_plane_state(state, plane);
@@ -565,7 +565,7 @@ static void ingenic_ipu_plane_atomic_update(struct drm_plane *plane,
 }
 
 static int ingenic_ipu_plane_atomic_check(struct drm_plane *plane,
-					  struct drm_atomic_state *state)
+					  struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *old_plane_state = drm_atomic_get_old_plane_state(state,
 										 plane);
@@ -580,7 +580,7 @@ static int ingenic_ipu_plane_atomic_check(struct drm_plane *plane,
 	if (!crtc)
 		return 0;
 
-	crtc_state = drm_atomic_get_existing_crtc_state(state, crtc);
+	crtc_state = drm_atomic_get_new_crtc_state(state, crtc);
 	if (WARN_ON(!crtc_state))
 		return -EINVAL;
 
@@ -653,7 +653,7 @@ out_check_damage:
 }
 
 static void ingenic_ipu_plane_atomic_disable(struct drm_plane *plane,
-					     struct drm_atomic_state *state)
+					     struct drm_atomic_commit *state)
 {
 	struct ingenic_ipu *ipu = plane_to_ingenic_ipu(plane);
 
@@ -705,7 +705,7 @@ ingenic_ipu_plane_atomic_set_property(struct drm_plane *plane,
 	ipu->sharpness = val;
 
 	if (state->crtc) {
-		crtc_state = drm_atomic_get_existing_crtc_state(state->state, state->crtc);
+		crtc_state = drm_atomic_get_new_crtc_state(state->state, state->crtc);
 		if (WARN_ON(!crtc_state))
 			return -EINVAL;
 
@@ -750,7 +750,22 @@ static void ingenic_ipu_destroy_state(struct drm_private_obj *obj,
 	kfree(priv_state);
 }
 
+static struct drm_private_state *
+ingenic_ipu_create_state(struct drm_private_obj *obj)
+{
+	struct ingenic_ipu_private_state *priv_state;
+
+	priv_state = kzalloc_obj(*priv_state);
+	if (!priv_state)
+		return ERR_PTR(-ENOMEM);
+
+	__drm_atomic_helper_private_obj_create_state(obj, &priv_state->base);
+
+	return &priv_state->base;
+}
+
 static const struct drm_private_state_funcs ingenic_ipu_private_state_funcs = {
+	.atomic_create_state = ingenic_ipu_create_state,
 	.atomic_duplicate_state = ingenic_ipu_duplicate_state,
 	.atomic_destroy_state = ingenic_ipu_destroy_state,
 };
@@ -793,7 +808,6 @@ static const struct regmap_config ingenic_ipu_regmap_config = {
 static int ingenic_ipu_bind(struct device *dev, struct device *master, void *d)
 {
 	struct platform_device *pdev = to_platform_device(dev);
-	struct ingenic_ipu_private_state *private_state;
 	const struct soc_info *soc_info;
 	struct drm_device *drm = d;
 	struct drm_plane *plane;
@@ -887,20 +901,10 @@ static int ingenic_ipu_bind(struct device *dev, struct device *master, void *d)
 		return err;
 	}
 
-	private_state = kzalloc(sizeof(*private_state), GFP_KERNEL);
-	if (!private_state) {
-		err = -ENOMEM;
-		goto err_clk_unprepare;
-	}
-
-	drm_atomic_private_obj_init(drm, &ipu->private_obj, &private_state->base,
+	drm_atomic_private_obj_init(drm, &ipu->private_obj,
 				    &ingenic_ipu_private_state_funcs);
 
 	return 0;
-
-err_clk_unprepare:
-	clk_unprepare(ipu->clk);
-	return err;
 }
 
 static void ingenic_ipu_unbind(struct device *dev,

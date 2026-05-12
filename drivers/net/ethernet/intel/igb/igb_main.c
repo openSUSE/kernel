@@ -1531,8 +1531,7 @@ static void igb_update_mng_vlan(struct igb_adapter *adapter)
 		adapter->mng_vlan_id = IGB_MNG_VLAN_NONE;
 	}
 
-	if ((old_vid != (u16)IGB_MNG_VLAN_NONE) &&
-	    (vid != old_vid) &&
+	if (old_vid != IGB_MNG_VLAN_NONE && vid != old_vid &&
 	    !test_bit(old_vid, adapter->active_vlans)) {
 		/* remove VID from filter table */
 		igb_vfta_set(hw, vid, pf_id, false, true);
@@ -2204,9 +2203,8 @@ void igb_down(struct igb_adapter *adapter)
 
 	for (i = 0; i < adapter->num_q_vectors; i++) {
 		if (adapter->q_vector[i]) {
-			napi_synchronize(&adapter->q_vector[i]->napi);
-			igb_set_queue_napi(adapter, i, NULL);
 			napi_disable(&adapter->q_vector[i]->napi);
+			igb_set_queue_napi(adapter, i, NULL);
 		}
 	}
 
@@ -2712,7 +2710,7 @@ static int igb_configure_clsflower(struct igb_adapter *adapter,
 		return -EINVAL;
 	}
 
-	filter = kzalloc(sizeof(*filter), GFP_KERNEL);
+	filter = kzalloc_obj(*filter);
 	if (!filter)
 		return -ENOMEM;
 
@@ -3776,8 +3774,8 @@ static int igb_enable_sriov(struct pci_dev *pdev, int num_vfs, bool reinit)
 	} else
 		adapter->vfs_allocated_count = num_vfs;
 
-	adapter->vf_data = kcalloc(adapter->vfs_allocated_count,
-				sizeof(struct vf_data_storage), GFP_KERNEL);
+	adapter->vf_data = kzalloc_objs(struct vf_data_storage,
+					adapter->vfs_allocated_count);
 
 	/* if allocation failed then we do not support SR-IOV */
 	if (!adapter->vf_data) {
@@ -3795,9 +3793,8 @@ static int igb_enable_sriov(struct pci_dev *pdev, int num_vfs, bool reinit)
 			     (1 + IGB_PF_MAC_FILTERS_RESERVED +
 			      adapter->vfs_allocated_count);
 
-	adapter->vf_mac_list = kcalloc(num_vf_mac_filters,
-				       sizeof(struct vf_mac_filter),
-				       GFP_KERNEL);
+	adapter->vf_mac_list = kzalloc_objs(struct vf_mac_filter,
+					    num_vf_mac_filters);
 
 	mac_list = adapter->vf_mac_list;
 	INIT_LIST_HEAD(&adapter->vf_macs.l);
@@ -4092,9 +4089,8 @@ static int igb_sw_init(struct igb_adapter *adapter)
 	/* Assume MSI-X interrupts, will be checked during IRQ allocation */
 	adapter->flags |= IGB_FLAG_HAS_MSIX;
 
-	adapter->mac_table = kcalloc(hw->mac.rar_entry_count,
-				     sizeof(struct igb_mac_addr),
-				     GFP_KERNEL);
+	adapter->mac_table = kzalloc_objs(struct igb_mac_addr,
+					  hw->mac.rar_entry_count);
 	if (!adapter->mac_table)
 		return -ENOMEM;
 
@@ -9600,7 +9596,6 @@ static int __igb_resume(struct device *dev, bool rpm)
 
 	pci_set_power_state(pdev, PCI_D0);
 	pci_restore_state(pdev);
-	pci_save_state(pdev);
 
 	if (!pci_device_is_present(pdev))
 		return -ENODEV;
@@ -9755,7 +9750,6 @@ static pci_ers_result_t igb_io_slot_reset(struct pci_dev *pdev)
 	} else {
 		pci_set_master(pdev);
 		pci_restore_state(pdev);
-		pci_save_state(pdev);
 
 		pci_enable_wake(pdev, PCI_D3hot, 0);
 		pci_enable_wake(pdev, PCI_D3cold, 0);

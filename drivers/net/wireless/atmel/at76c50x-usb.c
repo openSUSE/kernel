@@ -378,7 +378,7 @@ static int at76_usbdfu_download(struct usb_device *udev, u8 *buf, u32 size,
 		return -EINVAL;
 	}
 
-	dfu_stat_buf = kmalloc(sizeof(*dfu_stat_buf), GFP_KERNEL);
+	dfu_stat_buf = kmalloc_obj(*dfu_stat_buf);
 	if (!dfu_stat_buf) {
 		ret = -ENOMEM;
 		goto exit;
@@ -607,7 +607,7 @@ static inline int at76_get_hw_cfg_intersil(struct usb_device *udev,
 static int at76_get_hw_config(struct at76_priv *priv)
 {
 	int ret;
-	union at76_hwcfg *hwcfg = kmalloc(sizeof(*hwcfg), GFP_KERNEL);
+	union at76_hwcfg *hwcfg = kmalloc_obj(*hwcfg);
 
 	if (!hwcfg)
 		return -ENOMEM;
@@ -931,7 +931,7 @@ static void at76_dump_mib_mac_addr(struct at76_priv *priv)
 {
 	int i;
 	int ret;
-	struct mib_mac_addr *m = kmalloc(sizeof(*m), GFP_KERNEL);
+	struct mib_mac_addr *m = kmalloc_obj(*m);
 
 	if (!m)
 		return;
@@ -959,7 +959,7 @@ static void at76_dump_mib_mac_wep(struct at76_priv *priv)
 	int i;
 	int ret;
 	int key_len;
-	struct mib_mac_wep *m = kmalloc(sizeof(*m), GFP_KERNEL);
+	struct mib_mac_wep *m = kmalloc_obj(*m);
 
 	if (!m)
 		return;
@@ -994,7 +994,7 @@ exit:
 static void at76_dump_mib_mac_mgmt(struct at76_priv *priv)
 {
 	int ret;
-	struct mib_mac_mgmt *m = kmalloc(sizeof(*m), GFP_KERNEL);
+	struct mib_mac_mgmt *m = kmalloc_obj(*m);
 
 	if (!m)
 		return;
@@ -1030,7 +1030,7 @@ exit:
 static void at76_dump_mib_mac(struct at76_priv *priv)
 {
 	int ret;
-	struct mib_mac *m = kmalloc(sizeof(*m), GFP_KERNEL);
+	struct mib_mac *m = kmalloc_obj(*m);
 
 	if (!m)
 		return;
@@ -1067,7 +1067,7 @@ exit:
 static void at76_dump_mib_phy(struct at76_priv *priv)
 {
 	int ret;
-	struct mib_phy *m = kmalloc(sizeof(*m), GFP_KERNEL);
+	struct mib_phy *m = kmalloc_obj(*m);
 
 	if (!m)
 		return;
@@ -1100,7 +1100,7 @@ exit:
 static void at76_dump_mib_local(struct at76_priv *priv)
 {
 	int ret;
-	struct mib_local *m = kmalloc(sizeof(*m), GFP_KERNEL);
+	struct mib_local *m = kmalloc_obj(*m);
 
 	if (!m)
 		return;
@@ -1125,7 +1125,7 @@ exit:
 static void at76_dump_mib_mdomain(struct at76_priv *priv)
 {
 	int ret;
-	struct mib_mdomain *m = kmalloc(sizeof(*m), GFP_KERNEL);
+	struct mib_mdomain *m = kmalloc_obj(*m);
 
 	if (!m)
 		return;
@@ -2226,34 +2226,20 @@ static struct at76_priv *at76_alloc_new_device(struct usb_device *udev)
 static int at76_alloc_urbs(struct at76_priv *priv,
 			   struct usb_interface *interface)
 {
-	struct usb_endpoint_descriptor *endpoint, *ep_in, *ep_out;
-	int i;
+	struct usb_endpoint_descriptor *ep_in, *ep_out;
 	int buffer_size;
 	struct usb_host_interface *iface_desc;
+	int ret;
 
 	at76_dbg(DBG_PROC_ENTRY, "%s: ENTER", __func__);
 
 	at76_dbg(DBG_URB, "%s: NumEndpoints %d ", __func__,
 		 interface->cur_altsetting->desc.bNumEndpoints);
 
-	ep_in = NULL;
-	ep_out = NULL;
 	iface_desc = interface->cur_altsetting;
-	for (i = 0; i < iface_desc->desc.bNumEndpoints; i++) {
-		endpoint = &iface_desc->endpoint[i].desc;
 
-		at76_dbg(DBG_URB, "%s: %d. endpoint: addr 0x%x attr 0x%x",
-			 __func__, i, endpoint->bEndpointAddress,
-			 endpoint->bmAttributes);
-
-		if (!ep_in && usb_endpoint_is_bulk_in(endpoint))
-			ep_in = endpoint;
-
-		if (!ep_out && usb_endpoint_is_bulk_out(endpoint))
-			ep_out = endpoint;
-	}
-
-	if (!ep_in || !ep_out) {
+	ret = usb_find_common_endpoints(iface_desc, &ep_in, &ep_out, NULL, NULL);
+	if (ret) {
 		dev_err(&interface->dev, "bulk endpoints missing\n");
 		return -ENXIO;
 	}
@@ -2440,13 +2426,11 @@ static int at76_probe(struct usb_interface *interface,
 	struct mib_fw_version *fwv;
 	int board_type = (int)id->driver_info;
 
-	udev = usb_get_dev(interface_to_usbdev(interface));
+	udev = interface_to_usbdev(interface);
 
-	fwv = kmalloc(sizeof(*fwv), GFP_KERNEL);
-	if (!fwv) {
-		ret = -ENOMEM;
-		goto exit;
-	}
+	fwv = kmalloc_obj(*fwv);
+	if (!fwv)
+		return -ENOMEM;
 
 	/* Load firmware into kernel memory */
 	fwe = at76_load_firmware(udev, board_type);
@@ -2534,8 +2518,7 @@ static int at76_probe(struct usb_interface *interface,
 
 exit:
 	kfree(fwv);
-	if (ret < 0)
-		usb_put_dev(udev);
+
 	return ret;
 }
 
@@ -2552,7 +2535,6 @@ static void at76_disconnect(struct usb_interface *interface)
 
 	wiphy_info(priv->hw->wiphy, "disconnecting\n");
 	at76_delete_device(priv);
-	usb_put_dev(interface_to_usbdev(interface));
 	dev_info(&interface->dev, "disconnected\n");
 }
 

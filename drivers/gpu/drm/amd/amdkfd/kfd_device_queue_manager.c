@@ -71,6 +71,12 @@ static int allocate_sdma_queue(struct device_queue_manager *dqm,
 				struct queue *q, const uint32_t *restore_sdma_id);
 
 static int reset_queues_on_hws_hang(struct device_queue_manager *dqm, bool is_sdma);
+static int resume_all_queues_mes(struct device_queue_manager *dqm);
+static int suspend_all_queues_mes(struct device_queue_manager *dqm);
+static struct queue *find_queue_by_doorbell_offset(struct device_queue_manager *dqm,
+						   u32 doorbell_offset);
+static void set_queue_as_reset(struct device_queue_manager *dqm, struct queue *q,
+			       struct qcm_process_device *qpd);
 
 static inline
 enum KFD_MQD_TYPE get_mqd_type_from_queue_type(enum kfd_queue_type type)
@@ -137,9 +143,10 @@ static void init_sdma_bitmaps(struct device_queue_manager *dqm)
 	bitmap_set(dqm->xgmi_sdma_bitmap, 0, get_num_xgmi_sdma_queues(dqm));
 
 	/* Mask out the reserved queues */
-	bitmap_andnot(dqm->sdma_bitmap, dqm->sdma_bitmap,
-		      dqm->dev->kfd->device_info.reserved_sdma_queues_bitmap,
-		      KFD_MAX_SDMA_QUEUES);
+	bitmap_clear(dqm->sdma_bitmap, 0, kfd_get_num_sdma_engines(dqm->dev) *
+			dqm->dev->kfd->device_info.num_reserved_sdma_queues_per_engine);
+	bitmap_clear(dqm->xgmi_sdma_bitmap, 0, kfd_get_num_xgmi_sdma_engines(dqm->dev) *
+			dqm->dev->kfd->device_info.num_reserved_sdma_queues_per_engine);
 }
 
 void program_sh_mem_settings(struct device_queue_manager *dqm,
@@ -254,6 +261,9 @@ static int add_queue_mes(struct device_queue_manager *dqm, struct queue *q,
 	queue_input.queue_type = (uint32_t)queue_type;
 
 	queue_input.exclusively_scheduled = q->properties.is_gws;
+	queue_input.sh_mem_config_data = qpd->sh_mem_config;
+	queue_input.vm_cntx_cntl = qpd->vm_cntx_cntl;
+	queue_input.xcc_id = ffs(dqm->dev->xcc_mask) - 1;
 
 	amdgpu_mes_lock(&adev->mes);
 	r = adev->mes.funcs->add_hw_queue(&adev->mes, &queue_input);
@@ -269,12 +279,18 @@ static int add_queue_mes(struct device_queue_manager *dqm, struct queue *q,
 	return r;
 }
 
-static int remove_queue_mes(struct device_queue_manager *dqm, struct queue *q,
-			struct qcm_process_device *qpd)
+static int remove_queue_mes_on_reset_option(struct device_queue_manager *dqm, struct queue *q,
+					    struct qcm_process_device *qpd,
+					    bool is_for_reset,
+					    bool flush_mes_queue)
 {
 	struct amdgpu_device *adev = (struct amdgpu_device *)dqm->dev->adev;
 	int r;
 	struct mes_remove_queue_input queue_input;
+
+	/* queue was already removed during reset */
+	if (q->properties.is_reset)
+		return 0;
 
 	if (!dqm->sched_running || dqm->sched_halt)
 		return 0;
@@ -284,13 +300,21 @@ static int remove_queue_mes(struct device_queue_manager *dqm, struct queue *q,
 	memset(&queue_input, 0x0, sizeof(struct mes_remove_queue_input));
 	queue_input.doorbell_offset = q->properties.doorbell_off;
 	queue_input.gang_context_addr = q->gang_ctx_gpu_addr;
+	queue_input.remove_queue_after_reset = flush_mes_queue;
+	queue_input.xcc_id = ffs(dqm->dev->xcc_mask) - 1;
 
 	amdgpu_mes_lock(&adev->mes);
 	r = adev->mes.funcs->remove_hw_queue(&adev->mes, &queue_input);
 	amdgpu_mes_unlock(&adev->mes);
 	up_read(&adev->reset_domain->sem);
 
+	if (is_for_reset)
+		return r;
+
 	if (r) {
+		if (!suspend_all_queues_mes(dqm))
+			return resume_all_queues_mes(dqm);
+
 		dev_err(adev->dev, "failed to remove hardware queue from MES, doorbell=0x%x\n",
 			q->properties.doorbell_off);
 		dev_err(adev->dev, "MES might be in unrecoverable state, issue a GPU reset\n");
@@ -298,6 +322,12 @@ static int remove_queue_mes(struct device_queue_manager *dqm, struct queue *q,
 	}
 
 	return r;
+}
+
+static int remove_queue_mes(struct device_queue_manager *dqm, struct queue *q,
+			    struct qcm_process_device *qpd)
+{
+	return remove_queue_mes_on_reset_option(dqm, q, qpd, false, false);
 }
 
 static int remove_all_kfd_queues_mes(struct device_queue_manager *dqm)
@@ -354,6 +384,92 @@ static int add_all_kfd_queues_mes(struct device_queue_manager *dqm)
 	return retval;
 }
 
+static int reset_queues_mes(struct device_queue_manager *dqm)
+{
+	struct amdgpu_device *adev = (struct amdgpu_device *)dqm->dev->adev;
+	int hqd_info_size = adev->mes.hung_queue_hqd_info_offset;
+	int num_hung = 0, r = 0, i, pipe, queue, queue_type;
+	u32 *hung_array = dqm->hung_db_array;
+	struct amdgpu_mes_hung_queue_hqd_info *hqd_info = dqm->hqd_info;
+	struct kfd_process_device *pdd;
+	struct queue *q;
+
+	if (!amdgpu_mes_queue_reset_by_mes_supported(adev)) {
+		r = -ENOTRECOVERABLE;
+		goto fail;
+	}
+
+	/* reset should be used only in dqm locked queue reset */
+	if (WARN_ON(dqm->detect_hang_count > 0))
+		return 0;
+
+	if (!amdgpu_gpu_recovery) {
+		r = -ENOTRECOVERABLE;
+		goto fail;
+	}
+
+	if (!hung_array || !hqd_info) {
+		r = -ENOMEM;
+		goto fail;
+	}
+
+	memset(hqd_info, 0, hqd_info_size * sizeof(struct amdgpu_mes_hung_queue_hqd_info));
+
+	/*
+	 * AMDGPU_RING_TYPE_COMPUTE parameter does not matter if called
+	 * post suspend_all as reset & detect will return all hung queue types.
+	 *
+	 * Passed parameter is for targeting queues not scheduled by MES add_queue.
+	 */
+	r =  amdgpu_mes_detect_and_reset_hung_queues(adev, AMDGPU_RING_TYPE_COMPUTE,
+		false, &num_hung, hung_array, ffs(dqm->dev->xcc_mask) - 1);
+
+	if (!num_hung || r) {
+		r = -ENOTRECOVERABLE;
+		goto fail;
+	}
+
+	/* MES resets queue/pipe and cleans up internally */
+	for (i = 0; i < num_hung; i++) {
+		hqd_info[i].bit0_31 = hung_array[i + hqd_info_size];
+		pipe = hqd_info[i].pipe_index;
+		queue = hqd_info[i].queue_index;
+		queue_type = hqd_info[i].queue_type;
+
+		if (queue_type != MES_QUEUE_TYPE_COMPUTE &&
+		    queue_type != MES_QUEUE_TYPE_SDMA) {
+			pr_warn("Unsupported hung queue reset type: %d\n", queue_type);
+			hung_array[i] = AMDGPU_MES_INVALID_DB_OFFSET;
+			continue;
+		}
+
+		q = find_queue_by_doorbell_offset(dqm, hung_array[i]);
+		if (!q) {
+			r = -ENOTRECOVERABLE;
+			goto fail;
+		}
+
+		pdd = kfd_get_process_device_data(q->device, q->process);
+		if (!pdd) {
+			r = -ENODEV;
+			goto fail;
+		}
+
+		pr_warn("Hang detected doorbell %x pipe %d queue %d type %d\n",
+				hung_array[i], pipe, queue, queue_type);
+		/* Proceed remove_queue with reset=true */
+		remove_queue_mes_on_reset_option(dqm, q, &pdd->qpd, true, false);
+		set_queue_as_reset(dqm, q, &pdd->qpd);
+	}
+
+	dqm->detect_hang_count = num_hung;
+	kfd_signal_reset_event(dqm->dev);
+
+fail:
+	dqm->detect_hang_count = 0;
+	return r;
+}
+
 static int suspend_all_queues_mes(struct device_queue_manager *dqm)
 {
 	struct amdgpu_device *adev = (struct amdgpu_device *)dqm->dev->adev;
@@ -362,10 +478,13 @@ static int suspend_all_queues_mes(struct device_queue_manager *dqm)
 	if (!down_read_trylock(&adev->reset_domain->sem))
 		return -EIO;
 
-	r = amdgpu_mes_suspend(adev);
+	r = amdgpu_mes_suspend(adev, ffs(dqm->dev->xcc_mask) - 1);
 	up_read(&adev->reset_domain->sem);
 
 	if (r) {
+		if (!reset_queues_mes(dqm))
+			return 0;
+
 		dev_err(adev->dev, "failed to suspend gangs from MES\n");
 		dev_err(adev->dev, "MES might be in unrecoverable state, issue a GPU reset\n");
 		kfd_hws_hang(dqm);
@@ -382,7 +501,7 @@ static int resume_all_queues_mes(struct device_queue_manager *dqm)
 	if (!down_read_trylock(&adev->reset_domain->sem))
 		return -EIO;
 
-	r = amdgpu_mes_resume(adev);
+	r = amdgpu_mes_resume(adev, ffs(dqm->dev->xcc_mask) - 1);
 	up_read(&adev->reset_domain->sem);
 
 	if (r) {
@@ -399,8 +518,7 @@ static void increment_queue_count(struct device_queue_manager *dqm,
 				  struct queue *q)
 {
 	dqm->active_queue_count++;
-	if (q->properties.type == KFD_QUEUE_TYPE_COMPUTE ||
-	    q->properties.type == KFD_QUEUE_TYPE_DIQ)
+	if (q->properties.type == KFD_QUEUE_TYPE_COMPUTE)
 		dqm->active_cp_queue_count++;
 
 	if (q->properties.is_gws) {
@@ -414,8 +532,7 @@ static void decrement_queue_count(struct device_queue_manager *dqm,
 				  struct queue *q)
 {
 	dqm->active_queue_count--;
-	if (q->properties.type == KFD_QUEUE_TYPE_COMPUTE ||
-	    q->properties.type == KFD_QUEUE_TYPE_DIQ)
+	if (q->properties.type == KFD_QUEUE_TYPE_COMPUTE)
 		dqm->active_cp_queue_count--;
 
 	if (q->properties.is_gws) {
@@ -569,7 +686,7 @@ static int allocate_vmid(struct device_queue_manager *dqm,
 			qpd->vmid,
 			qpd->page_table_base);
 	/* invalidate the VM context after pasid and vmid mapping is set up */
-	kfd_flush_tlb(qpd_to_pdd(qpd), TLB_FLUSH_LEGACY);
+	kfd_flush_tlb(qpd_to_pdd(qpd));
 
 	if (dqm->dev->kfd2kgd->set_scratch_backing_va)
 		dqm->dev->kfd2kgd->set_scratch_backing_va(dqm->dev->adev,
@@ -607,7 +724,7 @@ static void deallocate_vmid(struct device_queue_manager *dqm,
 		if (flush_texture_cache_nocpsch(q->device, qpd))
 			dev_err(dev, "Failed to flush TC\n");
 
-	kfd_flush_tlb(qpd_to_pdd(qpd), TLB_FLUSH_LEGACY);
+	kfd_flush_tlb(qpd_to_pdd(qpd));
 
 	/* Release the vmid mapping */
 	set_pasid_vmid_mapping(dqm, 0, qpd->vmid);
@@ -673,7 +790,7 @@ static int create_queue_nocpsch(struct device_queue_manager *dqm,
 
 	/* Temporarily release dqm lock to avoid a circular lock dependency */
 	dqm_unlock(dqm);
-	q->mqd_mem_obj = mqd_mgr->allocate_mqd(mqd_mgr->dev, &q->properties);
+	q->mqd_mem_obj = mqd_mgr->allocate_mqd(mqd_mgr, &q->properties);
 	dqm_lock(dqm);
 
 	if (!q->mqd_mem_obj) {
@@ -856,8 +973,7 @@ static int destroy_queue_nocpsch_locked(struct device_queue_manager *dqm,
 	int retval;
 	struct mqd_manager *mqd_mgr;
 
-	mqd_mgr = dqm->mqd_mgrs[get_mqd_type_from_queue_type(
-			q->properties.type)];
+	mqd_mgr = dqm->mqd_mgrs[get_mqd_type_from_queue_type(q->properties.type)];
 
 	if (q->properties.type == KFD_QUEUE_TYPE_COMPUTE)
 		deallocate_hqd(dqm, q);
@@ -1209,6 +1325,9 @@ static int evict_process_queues_cpsch(struct device_queue_manager *dqm,
 	pr_debug_ratelimited("Evicting process pid %d queues\n",
 			    pdd->process->lead_thread->pid);
 
+	if (dqm->dev->kfd->shared_resources.enable_mes)
+		pdd->last_evict_timestamp = get_jiffies_64();
+
 	/* Mark all queues as evicted. Deactivate all active queues on
 	 * the qpd.
 	 */
@@ -1221,23 +1340,23 @@ static int evict_process_queues_cpsch(struct device_queue_manager *dqm,
 		decrement_queue_count(dqm, qpd, q);
 
 		if (dqm->dev->kfd->shared_resources.enable_mes) {
-			int err;
-
-			err = remove_queue_mes(dqm, q, qpd);
-			if (err) {
+			retval = remove_queue_mes(dqm, q, qpd);
+			if (retval) {
 				dev_err(dev, "Failed to evict queue %d\n",
 					q->properties.queue_id);
-				retval = err;
+				goto out;
 			}
 		}
 	}
-	pdd->last_evict_timestamp = get_jiffies_64();
-	if (!dqm->dev->kfd->shared_resources.enable_mes)
+
+	if (!dqm->dev->kfd->shared_resources.enable_mes) {
+		pdd->last_evict_timestamp = get_jiffies_64();
 		retval = execute_queues_cpsch(dqm,
 					      qpd->is_debug ?
 					      KFD_UNMAP_QUEUES_FILTER_ALL_QUEUES :
 					      KFD_UNMAP_QUEUES_FILTER_DYNAMIC_QUEUES, 0,
 					      USE_DEFAULT_GRACE_PERIOD);
+	}
 
 out:
 	dqm_unlock(dqm);
@@ -1279,7 +1398,7 @@ static int restore_process_queues_nocpsch(struct device_queue_manager *dqm,
 				dqm->dev->adev,
 				qpd->vmid,
 				qpd->page_table_base);
-		kfd_flush_tlb(pdd, TLB_FLUSH_LEGACY);
+		kfd_flush_tlb(pdd);
 	}
 
 	/* Take a safe reference to the mm_struct, which may otherwise
@@ -1396,7 +1515,7 @@ static int register_process(struct device_queue_manager *dqm,
 	uint64_t pd_base;
 	int retval;
 
-	n = kzalloc(sizeof(*n), GFP_KERNEL);
+	n = kzalloc_obj(*n);
 	if (!n)
 		return -ENOMEM;
 
@@ -1430,13 +1549,12 @@ static int register_process(struct device_queue_manager *dqm,
 static int unregister_process(struct device_queue_manager *dqm,
 					struct qcm_process_device *qpd)
 {
-	int retval;
+	int retval = 0;
 	struct device_process_node *cur, *next;
 
 	pr_debug("qpd->queues_list is %s\n",
 			list_empty(&qpd->queues_list) ? "empty" : "not empty");
 
-	retval = 0;
 	dqm_lock(dqm);
 
 	list_for_each_entry_safe(cur, next, &dqm->queues, list) {
@@ -1466,7 +1584,7 @@ set_pasid_vmid_mapping(struct device_queue_manager *dqm, u32 pasid,
 			unsigned int vmid)
 {
 	uint32_t xcc_mask = dqm->dev->xcc_mask;
-	int xcc_id, ret;
+	int xcc_id, ret = 0;
 
 	for_each_inst(xcc_id, xcc_mask) {
 		ret = dqm->dev->kfd2kgd->set_pasid_vmid_mapping(
@@ -1817,8 +1935,9 @@ static int start_cpsch(struct device_queue_manager *dqm)
 {
 	struct device *dev = dqm->dev->adev->dev;
 	int retval, num_hw_queue_slots;
-
-	retval = 0;
+	struct amdgpu_device *adev = (struct amdgpu_device *)dqm->dev->adev;
+	int hung_array_size = amdgpu_mes_get_hung_queue_db_array_size(adev);
+	int hqd_info_size = adev->mes.hung_queue_hqd_info_offset;
 
 	dqm_lock(dqm);
 
@@ -1868,6 +1987,11 @@ static int start_cpsch(struct device_queue_manager *dqm)
 		goto fail_detect_hang_buffer;
 	}
 
+	dqm->hung_db_array = kzalloc(hung_array_size * sizeof(u32), GFP_KERNEL);
+	dqm->hqd_info = kzalloc(
+		hqd_info_size * sizeof(struct amdgpu_mes_hung_queue_hqd_info),
+		GFP_KERNEL);
+
 	dqm_unlock(dqm);
 
 	return 0;
@@ -1884,6 +2008,8 @@ fail_packet_manager_init:
 
 static int stop_cpsch(struct device_queue_manager *dqm)
 {
+	int ret = 0;
+
 	dqm_lock(dqm);
 	if (!dqm->sched_running) {
 		dqm_unlock(dqm);
@@ -1891,9 +2017,10 @@ static int stop_cpsch(struct device_queue_manager *dqm)
 	}
 
 	if (!dqm->dev->kfd->shared_resources.enable_mes)
-		unmap_queues_cpsch(dqm, KFD_UNMAP_QUEUES_FILTER_ALL_QUEUES, 0, USE_DEFAULT_GRACE_PERIOD, false);
+		ret = unmap_queues_cpsch(dqm, KFD_UNMAP_QUEUES_FILTER_ALL_QUEUES,
+								0, USE_DEFAULT_GRACE_PERIOD, false);
 	else
-		remove_all_kfd_queues_mes(dqm);
+		ret = remove_all_kfd_queues_mes(dqm);
 
 	dqm->sched_running = false;
 
@@ -1905,9 +2032,12 @@ static int stop_cpsch(struct device_queue_manager *dqm)
 		pm_uninit(&dqm->packet_mgr);
 	kfree(dqm->detect_hang_info);
 	dqm->detect_hang_info = NULL;
+	kfree(dqm->hung_db_array);
+	kfree(dqm->hqd_info);
+
 	dqm_unlock(dqm);
 
-	return 0;
+	return ret;
 }
 
 static int create_kernel_queue_cpsch(struct device_queue_manager *dqm,
@@ -1997,7 +2127,7 @@ static int create_queue_cpsch(struct device_queue_manager *dqm, struct queue *q,
 		dqm->asic_ops.init_sdma_vm(dqm, q, qpd);
 	q->properties.tba_addr = qpd->tba_addr;
 	q->properties.tma_addr = qpd->tma_addr;
-	q->mqd_mem_obj = mqd_mgr->allocate_mqd(mqd_mgr->dev, &q->properties);
+	q->mqd_mem_obj = mqd_mgr->allocate_mqd(mqd_mgr, &q->properties);
 	if (!q->mqd_mem_obj) {
 		retval = -ENOMEM;
 		goto out_deallocate_doorbell;
@@ -2078,7 +2208,8 @@ int amdkfd_fence_wait_timeout(struct device_queue_manager *dqm,
 
 	while (*fence_addr != fence_value) {
 		/* Fatal err detected, this response won't come */
-		if (amdgpu_amdkfd_is_fed(dqm->dev->adev))
+		if (amdgpu_amdkfd_is_fed(dqm->dev->adev) ||
+		    amdgpu_in_reset(dqm->dev->adev))
 			return -EIO;
 
 		if (time_after(jiffies, end_jiffies)) {
@@ -2131,6 +2262,7 @@ static void set_queue_as_reset(struct device_queue_manager *dqm, struct queue *q
 		q->properties.queue_id, pdd->process->lead_thread->pid);
 
 	pdd->has_reset_queue = true;
+	q->properties.is_reset = true;
 	if (q->properties.is_active) {
 		q->properties.is_active = false;
 		decrement_queue_count(dqm, qpd, q);
@@ -2190,6 +2322,23 @@ static struct queue *find_queue_by_address(struct device_queue_manager *dqm, uin
 		qpd = cur->qpd;
 		list_for_each_entry(q, &qpd->queues_list, list) {
 			if (queue_address == q->properties.queue_address)
+				return q;
+		}
+	}
+
+	return NULL;
+}
+
+static struct queue *find_queue_by_doorbell_offset(struct device_queue_manager *dqm, u32 doorbell_offset)
+{
+	struct device_process_node *cur;
+	struct qcm_process_device *qpd;
+	struct queue *q;
+
+	list_for_each_entry(cur, &dqm->queues, list) {
+		qpd = cur->qpd;
+		list_for_each_entry(q, &qpd->queues_list, list) {
+			if (doorbell_offset == q->properties.doorbell_off)
 				return q;
 		}
 	}
@@ -2714,7 +2863,7 @@ static int get_wave_state(struct device_queue_manager *dqm,
 			ctl_stack, ctl_stack_used_size, save_area_used_size);
 }
 
-static void get_queue_checkpoint_info(struct device_queue_manager *dqm,
+static int get_queue_checkpoint_info(struct device_queue_manager *dqm,
 			const struct queue *q,
 			u32 *mqd_size,
 			u32 *ctl_stack_size)
@@ -2722,6 +2871,7 @@ static void get_queue_checkpoint_info(struct device_queue_manager *dqm,
 	struct mqd_manager *mqd_mgr;
 	enum KFD_MQD_TYPE mqd_type =
 			get_mqd_type_from_queue_type(q->properties.type);
+	int ret = 0;
 
 	dqm_lock(dqm);
 	mqd_mgr = dqm->mqd_mgrs[mqd_type];
@@ -2729,9 +2879,11 @@ static void get_queue_checkpoint_info(struct device_queue_manager *dqm,
 	*ctl_stack_size = 0;
 
 	if (q->properties.type == KFD_QUEUE_TYPE_COMPUTE && mqd_mgr->get_checkpoint_info)
-		mqd_mgr->get_checkpoint_info(mqd_mgr, q->mqd, ctl_stack_size);
+		ret = mqd_mgr->get_checkpoint_info(mqd_mgr, q->mqd, ctl_stack_size);
 
 	dqm_unlock(dqm);
+
+	return ret;
 }
 
 static int checkpoint_mqd(struct device_queue_manager *dqm,
@@ -2767,7 +2919,7 @@ dqm_unlock:
 static int process_termination_cpsch(struct device_queue_manager *dqm,
 		struct qcm_process_device *qpd)
 {
-	int retval;
+	int retval = 0;
 	struct queue *q;
 	struct device *dev = dqm->dev->adev->dev;
 	struct kernel_queue *kq, *kq_next;
@@ -2776,8 +2928,6 @@ static int process_termination_cpsch(struct device_queue_manager *dqm,
 	enum kfd_unmap_queues_filter filter =
 		KFD_UNMAP_QUEUES_FILTER_DYNAMIC_QUEUES;
 	bool found = false;
-
-	retval = 0;
 
 	dqm_lock(dqm);
 
@@ -2895,11 +3045,20 @@ static int allocate_hiq_sdma_mqd(struct device_queue_manager *dqm)
 		(dqm->mqd_mgrs[KFD_MQD_TYPE_HIQ]->mqd_size *
 		NUM_XCC(dqm->dev->xcc_mask));
 
-	retval = amdgpu_amdkfd_alloc_gtt_mem(dev->adev, size,
-		&(mem_obj->gtt_mem), &(mem_obj->gpu_addr),
+	retval = amdgpu_amdkfd_alloc_kernel_mem(dev->adev, size,
+		AMDGPU_GEM_DOMAIN_GTT,
+		&(mem_obj->mem), &(mem_obj->gpu_addr),
 		(void *)&(mem_obj->cpu_ptr), false);
 
 	return retval;
+}
+
+static void deallocate_hiq_sdma_mqd(struct kfd_node *dev,
+				    struct kfd_mem_obj *mqd)
+{
+	WARN(!mqd, "No hiq sdma mqd trunk to free");
+
+	amdgpu_amdkfd_free_kernel_mem(dev->adev, &mqd->mem);
 }
 
 struct device_queue_manager *device_queue_manager_init(struct kfd_node *dev)
@@ -2908,7 +3067,7 @@ struct device_queue_manager *device_queue_manager_init(struct kfd_node *dev)
 
 	pr_debug("Loading device queue manager\n");
 
-	dqm = kzalloc(sizeof(*dqm), GFP_KERNEL);
+	dqm = kzalloc_obj(*dqm);
 	if (!dqm)
 		return NULL;
 
@@ -2997,7 +3156,9 @@ struct device_queue_manager *device_queue_manager_init(struct kfd_node *dev)
 		break;
 
 	default:
-		if (KFD_GC_VERSION(dev) >= IP_VERSION(12, 0, 0))
+		if (KFD_GC_VERSION(dev) >= IP_VERSION(12, 1, 0))
+			device_queue_manager_init_v12_1(&dqm->asic_ops);
+		else if (KFD_GC_VERSION(dev) >= IP_VERSION(12, 0, 0))
 			device_queue_manager_init_v12(&dqm->asic_ops);
 		else if (KFD_GC_VERSION(dev) >= IP_VERSION(11, 0, 0))
 			device_queue_manager_init_v11(&dqm->asic_ops);
@@ -3025,17 +3186,12 @@ struct device_queue_manager *device_queue_manager_init(struct kfd_node *dev)
 		return dqm;
 	}
 
+	if (!dev->kfd->shared_resources.enable_mes)
+		deallocate_hiq_sdma_mqd(dev, &dqm->hiq_sdma_mqd);
+
 out_free:
 	kfree(dqm);
 	return NULL;
-}
-
-static void deallocate_hiq_sdma_mqd(struct kfd_node *dev,
-				    struct kfd_mem_obj *mqd)
-{
-	WARN(!mqd, "No hiq sdma mqd trunk to free");
-
-	amdgpu_amdkfd_free_gtt_mem(dev->adev, &mqd->gtt_mem);
 }
 
 void device_queue_manager_uninit(struct device_queue_manager *dqm)
@@ -3098,61 +3254,17 @@ out:
 	return ret;
 }
 
-static int kfd_dqm_evict_pasid_mes(struct device_queue_manager *dqm,
-				   struct qcm_process_device *qpd)
-{
-	struct device *dev = dqm->dev->adev->dev;
-	int ret = 0;
-
-	/* Check if process is already evicted */
-	dqm_lock(dqm);
-	if (qpd->evicted) {
-		/* Increment the evicted count to make sure the
-		 * process stays evicted before its terminated.
-		 */
-		qpd->evicted++;
-		dqm_unlock(dqm);
-		goto out;
-	}
-	dqm_unlock(dqm);
-
-	ret = suspend_all_queues_mes(dqm);
-	if (ret) {
-		dev_err(dev, "Suspending all queues failed");
-		goto out;
-	}
-
-	ret = dqm->ops.evict_process_queues(dqm, qpd);
-	if (ret) {
-		dev_err(dev, "Evicting process queues failed");
-		goto out;
-	}
-
-	ret = resume_all_queues_mes(dqm);
-	if (ret)
-		dev_err(dev, "Resuming all queues failed");
-
-out:
-	return ret;
-}
-
 int kfd_evict_process_device(struct kfd_process_device *pdd)
 {
 	struct device_queue_manager *dqm;
 	struct kfd_process *p;
-	int ret = 0;
 
 	p = pdd->process;
 	dqm = pdd->dev->dqm;
 
 	WARN(debug_evictions, "Evicting pid %d", p->lead_thread->pid);
 
-	if (dqm->dev->kfd->shared_resources.enable_mes)
-		ret = kfd_dqm_evict_pasid_mes(dqm, &pdd->qpd);
-	else
-		ret = dqm->ops.evict_process_queues(dqm, &pdd->qpd);
-
-	return ret;
+	return dqm->ops.evict_process_queues(dqm, &pdd->qpd);
 }
 
 int reserve_debug_trap_vmid(struct device_queue_manager *dqm,
@@ -3491,7 +3603,6 @@ int suspend_queues(struct kfd_process *p,
 					else
 						per_device_suspended++;
 				} else if (err != -EBUSY) {
-					r = err;
 					queue_ids[q_idx] |= KFD_DBG_QUEUE_ERROR_MASK;
 					break;
 				}

@@ -7,7 +7,7 @@
 #include <asm/mmu.h>
 #include <asm/synch.h>
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 
 #ifdef CONFIG_PPC_KUAP
 
@@ -97,8 +97,7 @@ static __always_inline unsigned long __kuap_get_and_assert_locked(void)
 }
 #define __kuap_get_and_assert_locked __kuap_get_and_assert_locked
 
-static __always_inline void allow_user_access(void __user *to, const void __user *from,
-					      u32 size, unsigned long dir)
+static __always_inline void allow_user_access(void __user *to, unsigned long dir)
 {
 	BUILD_BUG_ON(!__builtin_constant_p(dir));
 
@@ -170,6 +169,6 @@ __bad_kuap_fault(struct pt_regs *regs, unsigned long address, bool is_write)
 
 #endif /* CONFIG_PPC_KUAP */
 
-#endif /* __ASSEMBLY__ */
+#endif /* __ASSEMBLER__ */
 
 #endif /* _ASM_POWERPC_BOOK3S_32_KUP_H */

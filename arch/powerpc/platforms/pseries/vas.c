@@ -324,7 +324,7 @@ static struct vas_window *vas_allocate_window(int vas_id, u64 flags,
 	struct pseries_vas_window *txwin;
 	int rc;
 
-	txwin = kzalloc(sizeof(*txwin), GFP_KERNEL);
+	txwin = kzalloc_obj(*txwin);
 	if (!txwin)
 		return ERR_PTR(-ENOMEM);
 
@@ -807,7 +807,7 @@ static int reconfig_close_windows(struct vas_caps *vcap, int excess_creds,
 		 * is done before the original mmap() and after the ioctl.
 		 */
 		if (vma)
-			zap_vma_pages(vma);
+			zap_vma(vma);
 
 		mutex_unlock(&task_ref->mmap_mutex);
 		mmap_write_unlock(task_ref->mm);
@@ -1087,7 +1087,7 @@ static int __init pseries_vas_init(void)
 		return -ENOTSUPP;
 	}
 
-	hv_caps = kmalloc(sizeof(*hv_caps), GFP_KERNEL);
+	hv_caps = kmalloc_obj(*hv_caps);
 	if (!hv_caps)
 		return -ENOMEM;
 	/*

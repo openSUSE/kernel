@@ -108,6 +108,7 @@ static void set_reg_field_values(struct dc_reg_value_masks *field_value_mask,
 		uint8_t shift1, uint32_t mask1, uint32_t field_value1,
 		va_list ap)
 {
+	(void)addr;
 	uint32_t shift, mask, field_value;
 	int i = 1;
 
@@ -121,7 +122,7 @@ static void set_reg_field_values(struct dc_reg_value_masks *field_value_mask,
 		field_value = va_arg(ap, uint32_t);
 
 		set_reg_field_value_masks(field_value_mask,
-				field_value, mask, shift);
+				field_value, mask, (uint8_t)shift);
 		i++;
 	}
 }
@@ -431,7 +432,7 @@ void generic_reg_wait(const struct dc_context *ctx,
 {
 	uint32_t field_value;
 	uint32_t reg_val;
-	int i;
+	unsigned int i;
 
 	if (ctx->dmub_srv &&
 	    ctx->dmub_srv->reg_helper_offload.gather_in_progress) {
@@ -446,7 +447,7 @@ void generic_reg_wait(const struct dc_context *ctx,
 	 * This value comes from experiments.
 	 *
 	 */
-	ASSERT(delay_between_poll_us * time_out_num_tries <= 3000000);
+	ASSERT(delay_between_poll_us * time_out_num_tries <= 3000000u);
 
 	for (i = 0; i <= time_out_num_tries; i++) {
 		if (i) {
@@ -458,7 +459,7 @@ void generic_reg_wait(const struct dc_context *ctx,
 
 		reg_val = dm_read_reg(ctx, addr);
 
-		field_value = get_reg_field_value_ex(reg_val, mask, shift);
+		field_value = get_reg_field_value_ex(reg_val, mask, (uint8_t)shift);
 
 		if (field_value == condition_value) {
 			if (i * delay_between_poll_us > 1000)
@@ -524,7 +525,7 @@ uint32_t generic_indirect_reg_get(const struct dc_context *ctx,
 		mask = va_arg(ap, uint32_t);
 		field_value = va_arg(ap, uint32_t *);
 
-		*field_value = get_reg_field_value_ex(value, mask, shift);
+		*field_value = get_reg_field_value_ex(value, mask, (uint8_t)shift);
 		i++;
 	}
 
@@ -553,7 +554,7 @@ uint32_t generic_indirect_reg_update_ex(const struct dc_context *ctx,
 		mask = va_arg(ap, uint32_t);
 		field_value = va_arg(ap, uint32_t);
 
-		reg_val = set_reg_field_value_ex(reg_val, field_value, mask, shift);
+		reg_val = set_reg_field_value_ex(reg_val, field_value, mask, (uint8_t)shift);
 		i++;
 	}
 
@@ -583,7 +584,7 @@ uint32_t generic_indirect_reg_update_ex_sync(const struct dc_context *ctx,
 		mask = va_arg(ap, uint32_t);
 		field_value = va_arg(ap, uint32_t);
 
-		reg_val = set_reg_field_value_ex(reg_val, field_value, mask, shift);
+		reg_val = set_reg_field_value_ex(reg_val, field_value, mask, (uint8_t)shift);
 		i++;
 	}
 
@@ -614,7 +615,7 @@ uint32_t generic_indirect_reg_get_sync(const struct dc_context *ctx,
 		mask = va_arg(ap, uint32_t);
 		field_value = va_arg(ap, uint32_t *);
 
-		*field_value = get_reg_field_value_ex(value, mask, shift);
+		*field_value = get_reg_field_value_ex(value, mask, (uint8_t)shift);
 		i++;
 	}
 
@@ -751,7 +752,14 @@ char *dce_version_to_string(const int version)
 		return "DCN 3.6";
 	case DCN_VERSION_4_01:
 		return "DCN 4.0.1";
+	case DCN_VERSION_4_2:
+		return "DCN 4.2";
 	default:
 		return "Unknown";
 	}
+}
+
+bool dc_supports_vrr(const enum dce_version v)
+{
+	return v >= DCE_VERSION_8_0;
 }

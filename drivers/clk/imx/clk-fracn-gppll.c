@@ -85,10 +85,14 @@ static const struct imx_fracn_gppll_rate_table fracn_tbl[] = {
 	PLL_FRACN_GP(519750000U, 173, 25, 100, 1, 8),
 	PLL_FRACN_GP(498000000U, 166, 0, 1, 0, 8),
 	PLL_FRACN_GP(484000000U, 121, 0, 1, 0, 6),
+	PLL_FRACN_GP(477400000U, 119, 35, 100, 0, 6),
 	PLL_FRACN_GP(445333333U, 167, 0, 1, 0, 9),
 	PLL_FRACN_GP(400000000U, 200, 0, 1, 0, 12),
 	PLL_FRACN_GP(393216000U, 163, 84, 100, 0, 10),
-	PLL_FRACN_GP(300000000U, 150, 0, 1, 0, 12)
+	PLL_FRACN_GP(333333333U, 125, 0, 1, 1, 9),
+	PLL_FRACN_GP(332600000U, 138, 584, 1000, 0, 10),
+	PLL_FRACN_GP(300000000U, 150, 0, 1, 0, 12),
+	PLL_FRACN_GP(241900000U, 201, 584, 1000, 0, 20),
 };
 
 struct imx_fracn_gppll_clk imx_fracn_gppll = {
@@ -364,7 +368,7 @@ static struct clk_hw *_imx_clk_fracn_gppll(const char *name, const char *parent_
 	struct clk_init_data init;
 	int ret;
 
-	pll = kzalloc(sizeof(*pll), GFP_KERNEL);
+	pll = kzalloc_obj(*pll);
 	if (!pll)
 		return ERR_PTR(-ENOMEM);
 

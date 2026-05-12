@@ -43,6 +43,7 @@ static void dce_ipp_cursor_set_position(
 	const struct dc_cursor_position *position,
 	const struct dc_cursor_mi_param *param)
 {
+	(void)param;
 	struct dce_ipp *ipp_dce = TO_DCE_IPP(ipp);
 
 	/* lock cursor registers */
@@ -170,7 +171,7 @@ static void dce_ipp_program_input_lut(
 	struct input_pixel_processor *ipp,
 	const struct dc_gamma *gamma)
 {
-	int i;
+	unsigned int i;
 	struct dce_ipp *ipp_dce = TO_DCE_IPP(ipp);
 
 	/* power on LUT memory */

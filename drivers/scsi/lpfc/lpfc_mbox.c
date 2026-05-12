@@ -1,7 +1,7 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017-2024 Broadcom. All Rights Reserved. The term *
+ * Copyright (C) 2017-2026 Broadcom. All Rights Reserved. The term *
  * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.     *
  * Copyright (C) 2004-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
@@ -64,7 +64,7 @@ lpfc_mbox_rsrc_prep(struct lpfc_hba *phba, LPFC_MBOXQ_t *mbox)
 {
 	struct lpfc_dmabuf *mp;
 
-	mp = kmalloc(sizeof(*mp), GFP_KERNEL);
+	mp = kmalloc_obj(*mp);
 	if (!mp)
 		return -ENOMEM;
 
@@ -624,6 +624,10 @@ lpfc_init_link(struct lpfc_hba * phba,
 		case LPFC_USER_LINK_SPEED_64G:
 			mb->un.varInitLnk.link_flags |= FLAGS_LINK_SPEED;
 			mb->un.varInitLnk.link_speed = LINK_SPEED_64G;
+			break;
+		case LPFC_USER_LINK_SPEED_128G:
+			mb->un.varInitLnk.link_flags |= FLAGS_LINK_SPEED;
+			mb->un.varInitLnk.link_speed = LINK_SPEED_128G;
 			break;
 		case LPFC_USER_LINK_SPEED_AUTO:
 		default:
@@ -1869,8 +1873,7 @@ lpfc_sli4_config(struct lpfc_hba *phba, struct lpfcMboxq *mbox,
 	pcount = (pcount > LPFC_SLI4_MBX_SGE_MAX_PAGES) ?
 				LPFC_SLI4_MBX_SGE_MAX_PAGES : pcount;
 	/* Allocate record for keeping SGE virtual addresses */
-	mbox->sge_array = kzalloc(sizeof(struct lpfc_mbx_nembed_sge_virt),
-				  GFP_KERNEL);
+	mbox->sge_array = kzalloc_obj(struct lpfc_mbx_nembed_sge_virt);
 	if (!mbox->sge_array) {
 		lpfc_printf_log(phba, KERN_ERR, LOG_MBOX,
 				"2527 Failed to allocate non-embedded SGE "
@@ -2140,7 +2143,6 @@ lpfc_request_features(struct lpfc_hba *phba, struct lpfcMboxq *mboxq)
 
 	/* Set up host requested features. */
 	bf_set(lpfc_mbx_rq_ftr_rq_fcpi, &mboxq->u.mqe.un.req_ftrs, 1);
-	bf_set(lpfc_mbx_rq_ftr_rq_perfh, &mboxq->u.mqe.un.req_ftrs, 1);
 
 	/* Enable DIF (block guard) only if configured to do so. */
 	if (phba->cfg_enable_bg)

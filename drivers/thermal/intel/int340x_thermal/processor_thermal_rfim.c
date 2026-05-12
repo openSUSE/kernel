@@ -7,6 +7,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/pci.h>
+#include <linux/sysfs.h>
 #include "processor_thermal_device.h"
 
 MODULE_IMPORT_NS("INT340X_THERMAL");
@@ -85,6 +86,17 @@ static const struct mapping_table lnl_dlvr_mapping[] = {
 	{"dlvr_freq_mhz", 0, "2227.2"},
 	{"dlvr_freq_mhz", 1, "2140"},
 	{NULL, 0, NULL},
+};
+
+static const struct mmio_reg nvl_dlvr_mmio_regs[] = {
+	{ 0, 0x19208, 5, 0x1F, 0}, /* dlvr_spread_spectrum_pct */
+	{ 0, 0x19208, 1, 0x1, 5}, /* dlvr_control_mode */
+	{ 0, 0x19208, 1, 0x1, 6}, /* dlvr_control_lock */
+	{ 0, 0x19208, 1, 0x1, 7}, /* dlvr_rfim_enable */
+	{ 0, 0x19208, 12, 0xFFF, 8}, /* dlvr_freq_select */
+	{ 1, 0x19210, 2, 0x3, 30}, /* dlvr_hardware_rev */
+	{ 1, 0x19210, 16, 0xFFFF, 0}, /* dlvr_freq_mhz */
+	{ 1, 0x19210, 1, 0x1, 16}, /* dlvr_pll_busy */
 };
 
 static int match_mapping_table(const struct mapping_table *table, const char *attr_name,
@@ -200,9 +212,9 @@ static ssize_t suffix##_show(struct device *dev,\
 	ret = (reg_val >> mmio_regs[ret].shift) & mmio_regs[ret].mask;\
 	err = get_mapped_string(mapping, attr->attr.name, ret, &str);\
 	if (!err)\
-		return sprintf(buf, "%s\n", str);\
+		return sysfs_emit(buf, "%s\n", str);\
 	if (err == -EOPNOTSUPP)\
-		return sprintf(buf, "%u\n", ret);\
+		return sysfs_emit(buf, "%u\n", ret);\
 	return err;\
 }
 
@@ -387,22 +399,36 @@ static ssize_t rfi_restriction_show(struct device *dev,
 	if (ret)
 		return ret;
 
-	return sprintf(buf, "%llu\n", resp);
+	return sysfs_emit(buf, "%llu\n", resp);
 }
+
+ /* ddr_data_rate */
+static const struct mmio_reg nvl_ddr_data_rate_reg = { 1, 0xE0, 10, 0x3FF, 2};
+
+static const struct mmio_reg *ddr_data_rate_reg;
 
 static ssize_t ddr_data_rate_show(struct device *dev,
 				  struct device_attribute *attr,
 				  char *buf)
 {
-	u16 id = 0x0107;
 	u64 resp;
-	int ret;
 
-	ret = processor_thermal_send_mbox_read_cmd(to_pci_dev(dev), id, &resp);
-	if (ret)
-		return ret;
+	if (ddr_data_rate_reg) {
+		u16 reg_val;
 
-	return sprintf(buf, "%llu\n", resp);
+		pci_read_config_word(to_pci_dev(dev), ddr_data_rate_reg->offset, &reg_val);
+		resp = (reg_val >> ddr_data_rate_reg->shift) & ddr_data_rate_reg->mask;
+		resp = (resp * 3333) / 100;
+	} else {
+		const u16 id = 0x0107;
+		int ret;
+
+		ret = processor_thermal_send_mbox_read_cmd(to_pci_dev(dev), id, &resp);
+		if (ret)
+			return ret;
+	}
+
+	return sysfs_emit(buf, "%llu\n", resp);
 }
 
 static DEVICE_ATTR_RW(rfi_restriction);
@@ -446,13 +472,21 @@ int proc_thermal_rfim_add(struct pci_dev *pdev, struct proc_thermal_device *proc
 			dlvr_mmio_regs_table = lnl_dlvr_mmio_regs;
 			dlvr_mapping = lnl_dlvr_mapping;
 			break;
+		case PCI_DEVICE_ID_INTEL_NVL_H_THERMAL:
+		case PCI_DEVICE_ID_INTEL_NVL_S_THERMAL:
+			dlvr_mmio_regs_table = nvl_dlvr_mmio_regs;
+			ddr_data_rate_reg = &nvl_ddr_data_rate_reg;
+			break;
 		default:
 			dlvr_mmio_regs_table = dlvr_mmio_regs;
 			break;
 		}
 		ret = sysfs_create_group(&pdev->dev.kobj, &dlvr_attribute_group);
-		if (ret)
+		if (ret) {
+			if (proc_priv->mmio_feature_mask & PROC_THERMAL_FEATURE_FIVR)
+				sysfs_remove_group(&pdev->dev.kobj, &fivr_attribute_group);
 			return ret;
+		}
 	}
 
 	if (proc_priv->mmio_feature_mask & PROC_THERMAL_FEATURE_DVFS) {

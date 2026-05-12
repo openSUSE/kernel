@@ -147,7 +147,6 @@ struct vc4_hdmi {
 	 */
 	bool disable_wifi_frequencies;
 
-	struct cec_adapter *cec_adap;
 	struct cec_msg cec_rx_msg;
 	bool cec_tx_ok;
 	bool cec_irq_was_rx;
@@ -211,7 +210,7 @@ struct vc4_hdmi {
 	 * @drm_connector_state.hdmi.output_format for use outside of
 	 * KMS hooks. Protected by @mutex.
 	 */
-	enum hdmi_colorspace output_format;
+	enum drm_output_color_format output_format;
 
 	/**
 	 * @hdmi_jack: Represents the connection state of the HDMI plug, for

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /* WMI driver for Xiaomi Laptops */
 
-#include <linux/acpi.h>
 #include <linux/device.h>
 #include <linux/input.h>
 #include <linux/module.h>
@@ -26,13 +25,6 @@ struct xiaomi_wmi {
 	unsigned int key_code;
 };
 
-static void xiaomi_mutex_destroy(void *data)
-{
-	struct mutex *lock = data;
-
-	mutex_destroy(lock);
-}
-
 static int xiaomi_wmi_probe(struct wmi_device *wdev, const void *context)
 {
 	struct xiaomi_wmi *data;
@@ -46,8 +38,7 @@ static int xiaomi_wmi_probe(struct wmi_device *wdev, const void *context)
 		return -ENOMEM;
 	dev_set_drvdata(&wdev->dev, data);
 
-	mutex_init(&data->key_lock);
-	ret = devm_add_action_or_reset(&wdev->dev, xiaomi_mutex_destroy, &data->key_lock);
+	ret = devm_mutex_init(&wdev->dev, &data->key_lock);
 	if (ret < 0)
 		return ret;
 
@@ -64,7 +55,7 @@ static int xiaomi_wmi_probe(struct wmi_device *wdev, const void *context)
 	return input_register_device(data->input_dev);
 }
 
-static void xiaomi_wmi_notify(struct wmi_device *wdev, union acpi_object *dummy)
+static void xiaomi_wmi_notify(struct wmi_device *wdev, const struct wmi_buffer *dummy)
 {
 	struct xiaomi_wmi *data = dev_get_drvdata(&wdev->dev);
 
@@ -92,8 +83,9 @@ static struct wmi_driver xiaomi_wmi_driver = {
 		.name = "xiaomi-wmi",
 	},
 	.id_table = xiaomi_wmi_id_table,
+	.min_event_size = 0,
 	.probe = xiaomi_wmi_probe,
-	.notify = xiaomi_wmi_notify,
+	.notify_new = xiaomi_wmi_notify,
 	.no_singleton = true,
 };
 module_wmi_driver(xiaomi_wmi_driver);

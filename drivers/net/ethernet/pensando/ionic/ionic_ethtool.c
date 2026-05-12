@@ -188,10 +188,9 @@ static int ionic_get_link_ksettings(struct net_device *netdev,
 	case IONIC_XCVR_PID_QSFP_100G_CWDM4:
 	case IONIC_XCVR_PID_QSFP_100G_PSM4:
 	case IONIC_XCVR_PID_QSFP_100G_LR4:
-		ethtool_link_ksettings_add_link_mode(ks, supported,
-						     100000baseLR4_ER4_Full);
-		break;
 	case IONIC_XCVR_PID_QSFP_100G_ER4:
+	case IONIC_XCVR_PID_QSFP_100G_FR4:
+	case IONIC_XCVR_PID_QSFP_100G_DR4:
 		ethtool_link_ksettings_add_link_mode(ks, supported,
 						     100000baseLR4_ER4_Full);
 		break;
@@ -212,6 +211,7 @@ static int ionic_get_link_ksettings(struct net_device *netdev,
 		break;
 	case IONIC_XCVR_PID_QSFP_200G_AOC:
 	case IONIC_XCVR_PID_QSFP_200G_SR4:
+	case IONIC_XCVR_PID_QSFP_200G_AEC:
 		ethtool_link_ksettings_add_link_mode(ks, supported,
 						     200000baseSR4_Full);
 		break;
@@ -232,6 +232,9 @@ static int ionic_get_link_ksettings(struct net_device *netdev,
 						     400000baseDR4_Full);
 		break;
 	case IONIC_XCVR_PID_QSFP_400G_SR4:
+	case IONIC_XCVR_PID_QSFP_400G_AOC:
+	case IONIC_XCVR_PID_QSFP_400G_AEC:
+	case IONIC_XCVR_PID_QSFP_400G_LPO:
 		ethtool_link_ksettings_add_link_mode(ks, supported,
 						     400000baseSR4_Full);
 		break;
@@ -263,9 +266,10 @@ static int ionic_get_link_ksettings(struct net_device *netdev,
 		/* This means there's no module plugged in */
 		break;
 	default:
-		dev_info(lif->ionic->dev, "unknown xcvr type pid=%d / 0x%x\n",
-			 idev->port_info->status.xcvr.pid,
-			 idev->port_info->status.xcvr.pid);
+		dev_dbg_ratelimited(lif->ionic->dev,
+				    "unknown xcvr type pid=%d / 0x%x\n",
+				    idev->port_info->status.xcvr.pid,
+				    idev->port_info->status.xcvr.pid);
 		break;
 	}
 
@@ -843,23 +847,11 @@ static int ionic_set_channels(struct net_device *netdev,
 	return err;
 }
 
-static int ionic_get_rxnfc(struct net_device *netdev,
-			   struct ethtool_rxnfc *info, u32 *rules)
+static u32 ionic_get_rx_ring_count(struct net_device *netdev)
 {
 	struct ionic_lif *lif = netdev_priv(netdev);
-	int err = 0;
 
-	switch (info->cmd) {
-	case ETHTOOL_GRXRINGS:
-		info->data = lif->nxqs;
-		break;
-	default:
-		netdev_dbg(netdev, "Command parameter %d is not supported\n",
-			   info->cmd);
-		err = -EOPNOTSUPP;
-	}
-
-	return err;
+	return lif->nxqs;
 }
 
 static u32 ionic_get_rxfh_indir_size(struct net_device *netdev)
@@ -978,7 +970,7 @@ static int ionic_get_module_eeprom_by_page(struct net_device *netdev,
 {
 	struct ionic_lif *lif = netdev_priv(netdev);
 	struct ionic_dev *idev = &lif->ionic->idev;
-	u32 err = -EINVAL;
+	int err;
 	u8 *src;
 
 	if (!page_data->length)
@@ -1152,7 +1144,7 @@ static const struct ethtool_ops ionic_ethtool_ops = {
 	.get_strings		= ionic_get_strings,
 	.get_ethtool_stats	= ionic_get_stats,
 	.get_sset_count		= ionic_get_sset_count,
-	.get_rxnfc		= ionic_get_rxnfc,
+	.get_rx_ring_count	= ionic_get_rx_ring_count,
 	.get_rxfh_indir_size	= ionic_get_rxfh_indir_size,
 	.get_rxfh_key_size	= ionic_get_rxfh_key_size,
 	.get_rxfh		= ionic_get_rxfh,

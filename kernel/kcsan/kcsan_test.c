@@ -125,7 +125,7 @@ static void probe_console(void *ignore, const char *buf, size_t len)
 				goto out;
 
 			/* No second line of interest. */
-			strcpy(observed.lines[nlines++], "<none>");
+			strscpy(observed.lines[nlines++], "<none>");
 		}
 	}
 
@@ -168,7 +168,7 @@ static bool __report_matches(const struct expect_report *r)
 	if (!report_available())
 		return false;
 
-	expect = kmalloc(sizeof(observed.lines), GFP_KERNEL);
+	expect = (typeof(expect))kmalloc_obj(observed.lines);
 	if (WARN_ON(!expect))
 		return false;
 
@@ -176,7 +176,7 @@ static bool __report_matches(const struct expect_report *r)
 
 	/* Title */
 	cur = expect[0];
-	end = &expect[0][sizeof(expect[0]) - 1];
+	end = ARRAY_END(expect[0]);
 	cur += scnprintf(cur, end - cur, "BUG: KCSAN: %s in ",
 			 is_assert ? "assert: race" : "data-race");
 	if (r->access[1].fn) {
@@ -200,7 +200,7 @@ static bool __report_matches(const struct expect_report *r)
 
 	/* Access 1 */
 	cur = expect[1];
-	end = &expect[1][sizeof(expect[1]) - 1];
+	end = ARRAY_END(expect[1]);
 	if (!r->access[1].fn)
 		cur += scnprintf(cur, end - cur, "race at unknown origin, with ");
 
@@ -231,7 +231,7 @@ static bool __report_matches(const struct expect_report *r)
 
 			if (!r->access[1].fn) {
 				/* Dummy string if no second access is available. */
-				strcpy(cur, "<none>");
+				strscpy(expect[2], "<none>");
 				break;
 			}
 		}
@@ -1383,7 +1383,7 @@ static void test_atomic_builtins_missing_barrier(struct kunit *test)
  * The thread counts are chosen to cover potentially interesting boundaries and
  * corner cases (2 to 5), and then stress the system with larger counts.
  */
-static const void *nthreads_gen_params(const void *prev, char *desc)
+static const void *nthreads_gen_params(struct kunit *test, const void *prev, char *desc)
 {
 	long nthreads = (long)prev;
 
@@ -1538,7 +1538,7 @@ static int test_init(struct kunit *test)
 	if (WARN_ON(!nthreads))
 		goto err;
 
-	threads = kcalloc(nthreads + 1, sizeof(struct task_struct *), GFP_KERNEL);
+	threads = kzalloc_objs(struct task_struct *, nthreads + 1);
 	if (WARN_ON(!threads))
 		goto err;
 

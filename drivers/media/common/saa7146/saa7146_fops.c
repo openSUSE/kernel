@@ -186,11 +186,11 @@ static ssize_t fops_write(struct file *file, const char __user *data, size_t cou
 	struct saa7146_dev *dev = video_drvdata(file);
 	int ret;
 
-	if (vdev->vfl_type != VFL_TYPE_VBI || !dev->ext_vv_data->vbi_fops.write)
+	if (vdev->vfl_type != VFL_TYPE_VBI || !dev->ext_vv_data->vbi_write)
 		return -EINVAL;
 	if (mutex_lock_interruptible(vdev->lock))
 		return -ERESTARTSYS;
-	ret = dev->ext_vv_data->vbi_fops.write(file, data, count, ppos);
+	ret = dev->ext_vv_data->vbi_write(file, data, count, ppos);
 	mutex_unlock(vdev->lock);
 	return ret;
 }
@@ -266,7 +266,7 @@ int saa7146_vv_init(struct saa7146_dev* dev, struct saa7146_ext_vv *ext_vv)
 	}
 	dev->v4l2_dev.ctrl_handler = hdl;
 
-	vv = kzalloc(sizeof(struct saa7146_vv), GFP_KERNEL);
+	vv = kzalloc_obj(struct saa7146_vv);
 	if (vv == NULL) {
 		ERR("out of memory. aborting.\n");
 		v4l2_ctrl_handler_free(hdl);
@@ -416,19 +416,6 @@ int saa7146_unregister_device(struct video_device *vfd, struct saa7146_dev *dev)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(saa7146_unregister_device);
-
-static int __init saa7146_vv_init_module(void)
-{
-	return 0;
-}
-
-
-static void __exit saa7146_vv_cleanup_module(void)
-{
-}
-
-module_init(saa7146_vv_init_module);
-module_exit(saa7146_vv_cleanup_module);
 
 MODULE_AUTHOR("Michael Hunold <michael@mihu.de>");
 MODULE_DESCRIPTION("video4linux driver for saa7146-based hardware");

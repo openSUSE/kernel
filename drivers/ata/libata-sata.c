@@ -849,7 +849,7 @@ int ata_slave_link_init(struct ata_port *ap)
 	WARN_ON(ap->slave_link);
 	WARN_ON(ap->flags & ATA_FLAG_PMP);
 
-	link = kzalloc(sizeof(*link), GFP_KERNEL);
+	link = kzalloc_obj(*link);
 	if (!link)
 		return -ENOMEM;
 
@@ -909,7 +909,7 @@ static bool ata_scsi_lpm_supported(struct ata_port *ap)
 	struct ata_link *link;
 	struct ata_device *dev;
 
-	if (ap->flags & ATA_FLAG_NO_LPM)
+	if ((ap->flags & ATA_FLAG_NO_LPM) || !ap->ops->set_lpm)
 		return false;
 
 	ata_for_each_link(link, ap, EDGE) {
@@ -1378,15 +1378,13 @@ EXPORT_SYMBOL_GPL(ata_sas_sdev_configure);
 
 int ata_sas_queuecmd(struct scsi_cmnd *cmd, struct ata_port *ap)
 {
-	int rc = 0;
-
 	if (likely(ata_dev_enabled(ap->link.device)))
-		rc = __ata_scsi_queuecmd(cmd, ap->link.device);
-	else {
-		cmd->result = (DID_BAD_TARGET << 16);
-		scsi_done(cmd);
-	}
-	return rc;
+		return __ata_scsi_queuecmd(cmd, ap->link.device);
+
+	cmd->result = (DID_BAD_TARGET << 16);
+	scsi_done(cmd);
+
+	return 0;
 }
 EXPORT_SYMBOL_GPL(ata_sas_queuecmd);
 

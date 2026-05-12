@@ -46,8 +46,8 @@ static bool afs_start_fs_iteration(struct afs_operation *op,
 					  lockdep_is_held(&op->volume->servers_lock)));
 	read_unlock(&op->volume->servers_lock);
 
-	op->server_states = kcalloc(op->server_list->nr_servers, sizeof(op->server_states[0]),
-				    GFP_KERNEL);
+	op->server_states = kzalloc_objs(op->server_states[0],
+					 op->server_list->nr_servers);
 	if (!op->server_states) {
 		afs_op_nomem(op);
 		trace_afs_rotate(op, afs_rotate_trace_nomem, 0);
@@ -432,6 +432,16 @@ bool afs_select_fileserver(struct afs_operation *op)
 			afs_op_set_error(op, -EDQUOT);
 			goto failed_but_online;
 
+		case RX_INVALID_OPERATION:
+		case RXGEN_OPCODE:
+			/* Handle downgrading to an older operation. */
+			afs_op_set_error(op, -ENOTSUPP);
+			if (op->flags & AFS_OPERATION_DOWNGRADE) {
+				op->flags &= ~AFS_OPERATION_DOWNGRADE;
+				goto go_again;
+			}
+			goto failed_but_online;
+
 		default:
 			afs_op_accumulate_error(op, error, abort_code);
 		failed_but_online:
@@ -620,12 +630,13 @@ iterate_address:
 	op->addr_index = addr_index;
 	set_bit(addr_index, &op->addr_tried);
 
-	op->volsync.creation = TIME64_MIN;
-	op->volsync.update = TIME64_MIN;
-	op->call_responded = false;
 	_debug("address [%u] %u/%u %pISp",
 	       op->server_index, addr_index, alist->nr_addrs,
 	       rxrpc_kernel_remote_addr(alist->addrs[op->addr_index].peer));
+go_again:
+	op->volsync.creation = TIME64_MIN;
+	op->volsync.update = TIME64_MIN;
+	op->call_responded = false;
 	_leave(" = t");
 	return true;
 

@@ -82,6 +82,16 @@ struct tee_param_memref {
 	struct tee_shm *shm;
 };
 
+struct tee_param_ubuf {
+	void __user *uaddr;
+	size_t size;
+};
+
+struct tee_param_objref {
+	u64 id;
+	u64 flags;
+};
+
 struct tee_param_value {
 	u64 a;
 	u64 b;
@@ -92,6 +102,8 @@ struct tee_param {
 	u64 attr;
 	union {
 		struct tee_param_memref memref;
+		struct tee_param_objref objref;
+		struct tee_param_ubuf ubuf;
 		struct tee_param_value value;
 	} u;
 };
@@ -115,6 +127,16 @@ struct tee_shm *tee_shm_alloc_kernel_buf(struct tee_context *ctx, size_t size);
  */
 struct tee_shm *tee_shm_register_kernel_buf(struct tee_context *ctx,
 					    void *addr, size_t length);
+
+/**
+ * tee_shm_register_fd() - Register shared memory from file descriptor
+ *
+ * @ctx:	Context that allocates the shared memory
+ * @fd:		Shared memory file descriptor reference
+ *
+ * @returns a pointer to 'struct tee_shm' on success, and ERR_PTR on failure
+ */
+struct tee_shm *tee_shm_register_fd(struct tee_context *ctx, int fd);
 
 /**
  * tee_shm_free() - Free shared memory
@@ -293,11 +315,23 @@ struct tee_client_device {
  * @driver:		driver structure
  */
 struct tee_client_driver {
+	int (*probe)(struct tee_client_device *);
+	void (*remove)(struct tee_client_device *);
+	void (*shutdown)(struct tee_client_device *);
 	const struct tee_client_device_id *id_table;
 	struct device_driver driver;
 };
 
 #define to_tee_client_driver(d) \
 		container_of_const(d, struct tee_client_driver, driver)
+
+#define tee_client_driver_register(drv) \
+        __tee_client_driver_register(drv, THIS_MODULE)
+int __tee_client_driver_register(struct tee_client_driver *, struct module *);
+void tee_client_driver_unregister(struct tee_client_driver *);
+
+#define module_tee_client_driver(__tee_client_driver) \
+	module_driver(__tee_client_driver, tee_client_driver_register, \
+		      tee_client_driver_unregister)
 
 #endif /*__TEE_DRV_H*/

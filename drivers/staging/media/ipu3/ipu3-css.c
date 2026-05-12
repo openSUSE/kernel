@@ -4,6 +4,7 @@
 #include <linux/device.h>
 #include <linux/iopoll.h>
 #include <linux/slab.h>
+#include <linux/string_choices.h>
 
 #include "ipu3.h"
 #include "ipu3-css.h"
@@ -226,7 +227,7 @@ int imgu_css_set_powerup(struct device *dev, void __iomem *base,
 	state = readl(base + IMGU_REG_STATE);
 
 	dev_dbg(dev, "CSS pm_ctrl 0x%x state 0x%x (power %s)\n",
-		pm_ctrl, state, state & IMGU_STATE_POWER_DOWN ? "down" : "up");
+		pm_ctrl, state, str_down_up(state & IMGU_STATE_POWER_DOWN));
 
 	/* Power up CSS using wrapper */
 	if (state & IMGU_STATE_POWER_DOWN) {
@@ -1701,7 +1702,7 @@ int imgu_css_fmt_try(struct imgu_css *css,
 	struct v4l2_pix_format_mplane *in, *out, *vf;
 	int i, s, ret;
 
-	q = kcalloc(IPU3_CSS_QUEUES, sizeof(struct imgu_css_queue), GFP_KERNEL);
+	q = kzalloc_objs(struct imgu_css_queue, IPU3_CSS_QUEUES);
 	if (!q)
 		return -ENOMEM;
 

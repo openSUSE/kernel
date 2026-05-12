@@ -228,7 +228,7 @@ static void pppoatm_push(struct atm_vcc *atmvcc, struct sk_buff *skb)
 
 error:
 	kfree_skb(skb);
-	ppp_input_error(&pvcc->chan, 0);
+	ppp_input_error(&pvcc->chan);
 }
 
 static int pppoatm_may_send(struct pppoatm_vcc *pvcc, int size)
@@ -397,7 +397,7 @@ static int pppoatm_assign_vcc(struct atm_vcc *atmvcc, void __user *arg)
 	if (be.encaps != PPPOATM_ENCAPS_AUTODETECT &&
 	    be.encaps != PPPOATM_ENCAPS_VC && be.encaps != PPPOATM_ENCAPS_LLC)
 		return -EINVAL;
-	pvcc = kzalloc(sizeof(*pvcc), GFP_KERNEL);
+	pvcc = kzalloc_obj(*pvcc);
 	if (pvcc == NULL)
 		return -ENOMEM;
 	pvcc->atmvcc = atmvcc;

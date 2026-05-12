@@ -13,6 +13,7 @@
  */
 
 #include <linux/cpufeature.h>
+#include <linux/nospec.h>
 #include <linux/errno.h>
 #include <linux/sched.h>
 #include <linux/mm.h>
@@ -38,6 +39,16 @@
 #include <asm/vtime.h>
 
 #include "entry.h"
+
+#define __SYSCALL(nr, sym) long __s390x_##sym(struct pt_regs *);
+#include <asm/syscall_table.h>
+#undef __SYSCALL
+
+#define __SYSCALL(nr, sym) [nr] = (__s390x_##sym),
+const sys_call_ptr_t sys_call_table[__NR_syscalls] = {
+#include <asm/syscall_table.h>
+};
+#undef __SYSCALL
 
 #ifdef CONFIG_SYSVIPC
 /*
@@ -86,8 +97,8 @@ void noinstr __do_syscall(struct pt_regs *regs, int per_trap)
 {
 	unsigned long nr;
 
-	add_random_kstack_offset();
 	enter_from_user_mode(regs);
+	add_random_kstack_offset();
 	regs->psw = get_lowcore()->svc_old_psw;
 	regs->int_code = get_lowcore()->svc_int_code;
 	update_timer_sys();
@@ -121,8 +132,10 @@ void noinstr __do_syscall(struct pt_regs *regs, int per_trap)
 	if (unlikely(test_and_clear_pt_regs_flag(regs, PIF_SYSCALL_RET_SET)))
 		goto out;
 	regs->gprs[2] = -ENOSYS;
-	if (likely(nr < NR_syscalls))
-		regs->gprs[2] = current->thread.sys_call_table[nr](regs);
+	if (likely(nr < NR_syscalls)) {
+		nr = array_index_nospec(nr, NR_syscalls);
+		regs->gprs[2] = sys_call_table[nr](regs);
+	}
 out:
 	syscall_exit_to_user_mode(regs);
 }

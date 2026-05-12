@@ -1236,7 +1236,7 @@ static int vidioc_g_fbuf(struct file *file, void *fh,
 	return 0;
 }
 
-static int vidioc_enum_output(struct file *file, void *priv_fh,
+static int vidioc_enum_output(struct file *file, void *priv,
 			      struct v4l2_output *out)
 {
 	if (out->index)
@@ -1246,13 +1246,13 @@ static int vidioc_enum_output(struct file *file, void *priv_fh,
 	return 0;
 }
 
-static int vidioc_g_output(struct file *file, void *priv_fh, unsigned int *i)
+static int vidioc_g_output(struct file *file, void *priv, unsigned int *i)
 {
 	*i = 0;
 	return 0;
 }
 
-static int vidioc_s_output(struct file *file, void *priv_fh, unsigned int i)
+static int vidioc_s_output(struct file *file, void *priv, unsigned int i)
 {
 	return i ? -EINVAL : 0;
 }
@@ -1452,7 +1452,7 @@ static int __init omap_vout_create_video_devices(struct platform_device *pdev)
 
 	for (k = 0; k < pdev->num_resources; k++) {
 
-		vout = kzalloc(sizeof(struct omap_vout_device), GFP_KERNEL);
+		vout = kzalloc_obj(struct omap_vout_device);
 		if (!vout) {
 			dev_err(&pdev->dev, ": could not allocate memory\n");
 			return -ENOMEM;
@@ -1611,7 +1611,7 @@ static int __init omap_vout_probe(struct platform_device *pdev)
 		goto err_dss_init;
 	}
 
-	vid_dev = kzalloc(sizeof(struct omap2video_device), GFP_KERNEL);
+	vid_dev = kzalloc_obj(struct omap2video_device);
 	if (vid_dev == NULL) {
 		ret = -ENOMEM;
 		goto err_dss_init;

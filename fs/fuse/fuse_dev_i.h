@@ -12,6 +12,8 @@
 #define FUSE_INT_REQ_BIT (1ULL << 0)
 #define FUSE_REQ_ID_STEP (1ULL << 1)
 
+extern struct wait_queue_head fuse_dev_waitq;
+
 struct fuse_arg;
 struct fuse_args;
 struct fuse_pqueue;
@@ -37,14 +39,39 @@ struct fuse_copy_state {
 	} ring;
 };
 
-static inline struct fuse_dev *fuse_get_dev(struct file *file)
+/* fud->fc gets assigned to this value when /dev/fuse is closed */
+#define FUSE_DEV_FC_DISCONNECTED ((struct fuse_conn *) 1)
+
+/*
+ * Lockless access is OK, because fud->fc is set once during mount and is valid
+ * until the file is released.
+ *
+ * fud->fc is set to FUSE_DEV_FC_DISCONNECTED only after the containing file is
+ * released, so result is safe to dereference in most cases.  Exceptions are:
+ * fuse_dev_put() and fuse_fill_super_common().
+ */
+static inline struct fuse_conn *fuse_dev_fc_get(struct fuse_dev *fud)
 {
-	/*
-	 * Lockless access is OK, because file->private data is set
-	 * once during mount and is valid until the file is released.
-	 */
-	return READ_ONCE(file->private_data);
+	/* Pairs with xchg() in fuse_dev_install() */
+	return smp_load_acquire(&fud->fc);
 }
+
+static inline struct fuse_dev *fuse_file_to_fud(struct file *file)
+{
+	return file->private_data;
+}
+
+static inline struct fuse_dev *__fuse_get_dev(struct file *file)
+{
+	struct fuse_dev *fud = fuse_file_to_fud(file);
+
+	if (!fuse_dev_fc_get(fud))
+		return NULL;
+
+	return fud;
+}
+
+struct fuse_dev *fuse_get_dev(struct file *file);
 
 unsigned int fuse_req_hash(u64 unique);
 struct fuse_req *fuse_request_find(struct fuse_pqueue *fpq, u64 unique);
@@ -53,6 +80,7 @@ void fuse_dev_end_requests(struct list_head *head);
 
 void fuse_copy_init(struct fuse_copy_state *cs, bool write,
 			   struct iov_iter *iter);
+void fuse_copy_finish(struct fuse_copy_state *cs);
 int fuse_copy_args(struct fuse_copy_state *cs, unsigned int numargs,
 		   unsigned int argpages, struct fuse_arg *args,
 		   int zeroing);

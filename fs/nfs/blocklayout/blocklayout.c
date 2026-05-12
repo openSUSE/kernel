@@ -36,7 +36,6 @@
 #include <linux/namei.h>
 #include <linux/bio.h>		/* struct bio */
 #include <linux/prefetch.h>
-#include <linux/pagevec.h>
 
 #include "../pnfs.h"
 #include "../nfs4session.h"
@@ -74,7 +73,7 @@ static inline struct parallel_io *alloc_parallel(void *data)
 {
 	struct parallel_io *rv;
 
-	rv  = kmalloc(sizeof(*rv), GFP_NOFS);
+	rv = kmalloc_obj(*rv, GFP_NOFS);
 	if (rv) {
 		rv->data = data;
 		kref_init(&rv->refcnt);
@@ -381,14 +380,13 @@ bl_write_pagelist(struct nfs_pgio_header *header, int sync)
 	sector_t isect, extent_length = 0;
 	struct parallel_io *par = NULL;
 	loff_t offset = header->args.offset;
-	size_t count = header->args.count;
 	struct page **pages = header->args.pages;
 	int pg_index = header->args.pgbase >> PAGE_SHIFT;
 	unsigned int pg_len;
 	struct blk_plug plug;
 	int i;
 
-	dprintk("%s enter, %zu@%lld\n", __func__, count, offset);
+	dprintk("%s enter, %u@%lld\n", __func__, header->args.count, offset);
 
 	/* At this point, header->page_aray is a (sequential) list of nfs_pages.
 	 * We want to write each, and if there is an error set pnfs_error
@@ -429,7 +427,6 @@ bl_write_pagelist(struct nfs_pgio_header *header, int sync)
 		}
 
 		offset += pg_len;
-		count -= pg_len;
 		isect += (pg_len >> SECTOR_SHIFT);
 		extent_length -= (pg_len >> SECTOR_SHIFT);
 	}
@@ -461,7 +458,7 @@ static struct pnfs_layout_hdr *__bl_alloc_layout_hdr(struct inode *inode,
 	struct pnfs_block_layout *bl;
 
 	dprintk("%s enter\n", __func__);
-	bl = kzalloc(sizeof(*bl), gfp_flags);
+	bl = kzalloc_obj(*bl, gfp_flags);
 	if (!bl)
 		return NULL;
 
@@ -619,7 +616,7 @@ bl_alloc_extent(struct xdr_stream *xdr, struct pnfs_layout_hdr *lo,
 	if (!p)
 		return -EIO;
 
-	be = kzalloc(sizeof(*be), GFP_NOFS);
+	be = kzalloc_obj(*be, GFP_NOFS);
 	if (!be)
 		return -ENOMEM;
 
@@ -676,7 +673,7 @@ bl_alloc_lseg(struct pnfs_layout_hdr *lo, struct nfs4_layoutget_res *lgr,
 	struct pnfs_layout_segment *lseg;
 	struct xdr_buf buf;
 	struct xdr_stream xdr;
-	struct page *scratch;
+	struct folio *scratch;
 	int status, i;
 	uint32_t count;
 	__be32 *p;
@@ -684,18 +681,18 @@ bl_alloc_lseg(struct pnfs_layout_hdr *lo, struct nfs4_layoutget_res *lgr,
 
 	dprintk("---> %s\n", __func__);
 
-	lseg = kzalloc(sizeof(*lseg), gfp_mask);
+	lseg = kzalloc_obj(*lseg, gfp_mask);
 	if (!lseg)
 		return ERR_PTR(-ENOMEM);
 
 	status = -ENOMEM;
-	scratch = alloc_page(gfp_mask);
+	scratch = folio_alloc(gfp_mask, 0);
 	if (!scratch)
 		goto out;
 
 	xdr_init_decode_pages(&xdr, &buf,
 			lgr->layoutp->pages, lgr->layoutp->len);
-	xdr_set_scratch_page(&xdr, scratch);
+	xdr_set_scratch_folio(&xdr, scratch);
 
 	status = -EIO;
 	p = xdr_inline_decode(&xdr, 4);
@@ -744,7 +741,7 @@ process_extents:
 	}
 
 out_free_scratch:
-	__free_page(scratch);
+	folio_put(scratch);
 out:
 	dprintk("%s returns %d\n", __func__, status);
 	switch (status) {

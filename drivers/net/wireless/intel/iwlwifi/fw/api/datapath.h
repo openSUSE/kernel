@@ -56,7 +56,8 @@ enum iwl_data_path_subcmd_ids {
 	RFH_QUEUE_CONFIG_CMD = 0xD,
 
 	/**
-	 * @TLC_MNG_CONFIG_CMD: &struct iwl_tlc_config_cmd_v4
+	 * @TLC_MNG_CONFIG_CMD: &struct iwl_tlc_config_cmd_v4 or
+	 *	&struct iwl_tlc_config_cmd_v5 or &struct iwl_tlc_config_cmd.
 	 */
 	TLC_MNG_CONFIG_CMD = 0xF,
 
@@ -122,6 +123,11 @@ enum iwl_data_path_subcmd_ids {
 	 * @BEACON_FILTER_IN_NOTIF: &struct iwl_beacon_filter_notif
 	 */
 	BEACON_FILTER_IN_NOTIF = 0xF8,
+
+	/**
+	 * @PHY_AIR_SNIFFER_NOTIF: &struct iwl_rx_phy_air_sniffer_ntfy
+	 */
+	PHY_AIR_SNIFFER_NOTIF = 0xF9,
 
 	/**
 	 * @STA_PM_NOTIF: &struct iwl_mvm_pm_state_notification

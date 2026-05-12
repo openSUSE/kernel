@@ -73,6 +73,7 @@ static const struct usb_device_id edgeport_4port_id_table[] = {
 	{ USB_DEVICE(USB_VENDOR_ID_ION, ION_DEVICE_ID_EDGEPORT_22I) },
 	{ USB_DEVICE(USB_VENDOR_ID_ION, ION_DEVICE_ID_EDGEPORT_412_4) },
 	{ USB_DEVICE(USB_VENDOR_ID_ION, ION_DEVICE_ID_EDGEPORT_COMPATIBLE) },
+	{ USB_DEVICE(USB_VENDOR_ID_ION, ION_DEVICE_ID_BLACKBOX_IC135A) },
 	{ }
 };
 
@@ -121,6 +122,7 @@ static const struct usb_device_id id_table_combined[] = {
 	{ USB_DEVICE(USB_VENDOR_ID_ION, ION_DEVICE_ID_EDGEPORT_8R) },
 	{ USB_DEVICE(USB_VENDOR_ID_ION, ION_DEVICE_ID_EDGEPORT_8RR) },
 	{ USB_DEVICE(USB_VENDOR_ID_ION, ION_DEVICE_ID_EDGEPORT_412_8) },
+	{ USB_DEVICE(USB_VENDOR_ID_ION, ION_DEVICE_ID_BLACKBOX_IC135A) },
 	{ USB_DEVICE(USB_VENDOR_ID_NCR, NCR_DEVICE_ID_EPIC_0202) },
 	{ USB_DEVICE(USB_VENDOR_ID_NCR, NCR_DEVICE_ID_EPIC_0203) },
 	{ USB_DEVICE(USB_VENDOR_ID_NCR, NCR_DEVICE_ID_EPIC_0310) },
@@ -470,6 +472,7 @@ static void get_product_info(struct edgeport_serial *edge_serial)
 	case ION_DEVICE_ID_EDGEPORT_2_DIN:
 	case ION_DEVICE_ID_EDGEPORT_4_DIN:
 	case ION_DEVICE_ID_EDGEPORT_16_DUAL_CPU:
+	case ION_DEVICE_ID_BLACKBOX_IC135A:
 		product_info->IsRS232 = 1;
 		break;
 
@@ -498,7 +501,7 @@ static int get_epic_descriptor(struct edgeport_serial *ep)
 
 	ep->is_epic = 0;
 
-	epic = kmalloc(sizeof(*epic), GFP_KERNEL);
+	epic = kmalloc_obj(*epic);
 	if (!epic)
 		return -ENOMEM;
 
@@ -2714,7 +2717,7 @@ static int edge_startup(struct usb_serial *serial)
 	dev = serial->dev;
 
 	/* create our private serial structure */
-	edge_serial = kzalloc(sizeof(struct edgeport_serial), GFP_KERNEL);
+	edge_serial = kzalloc_obj(struct edgeport_serial);
 	if (!edge_serial)
 		return -ENOMEM;
 
@@ -2956,7 +2959,7 @@ static int edge_port_probe(struct usb_serial_port *port)
 {
 	struct edgeport_port *edge_port;
 
-	edge_port = kzalloc(sizeof(*edge_port), GFP_KERNEL);
+	edge_port = kzalloc_obj(*edge_port);
 	if (!edge_port)
 		return -ENOMEM;
 

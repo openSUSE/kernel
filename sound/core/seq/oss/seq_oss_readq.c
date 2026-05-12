@@ -34,11 +34,11 @@ snd_seq_oss_readq_new(struct seq_oss_devinfo *dp, int maxlen)
 {
 	struct seq_oss_readq *q;
 
-	q = kzalloc(sizeof(*q), GFP_KERNEL);
+	q = kzalloc_obj(*q);
 	if (!q)
 		return NULL;
 
-	q->q = kcalloc(maxlen, sizeof(union evrec), GFP_KERNEL);
+	q->q = kzalloc_objs(union evrec, maxlen);
 	if (!q->q) {
 		kfree(q);
 		return NULL;
@@ -140,13 +140,9 @@ int snd_seq_oss_readq_sysex(struct seq_oss_readq *q, int dev,
 int
 snd_seq_oss_readq_put_event(struct seq_oss_readq *q, union evrec *ev)
 {
-	unsigned long flags;
-
-	spin_lock_irqsave(&q->lock, flags);
-	if (q->qlen >= q->maxlen - 1) {
-		spin_unlock_irqrestore(&q->lock, flags);
+	guard(spinlock_irqsave)(&q->lock);
+	if (q->qlen >= q->maxlen - 1)
 		return -ENOMEM;
-	}
 
 	memcpy(&q->q[q->tail], ev, sizeof(*ev));
 	q->tail = (q->tail + 1) % q->maxlen;
@@ -154,8 +150,6 @@ snd_seq_oss_readq_put_event(struct seq_oss_readq *q, union evrec *ev)
 
 	/* wake up sleeper */
 	wake_up(&q->midi_sleep);
-
-	spin_unlock_irqrestore(&q->lock, flags);
 
 	return 0;
 }

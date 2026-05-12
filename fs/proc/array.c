@@ -55,6 +55,7 @@
 
 #include <linux/types.h>
 #include <linux/errno.h>
+#include <linux/hex.h>
 #include <linux/time.h>
 #include <linux/time_namespace.h>
 #include <linux/kernel.h>
@@ -157,13 +158,11 @@ static inline void task_state(struct seq_file *m, struct pid_namespace *ns,
 	unsigned int max_fds = 0;
 
 	rcu_read_lock();
-	ppid = pid_alive(p) ?
-		task_tgid_nr_ns(rcu_dereference(p->real_parent), ns) : 0;
-
 	tracer = ptrace_parent(p);
 	if (tracer)
 		tpid = task_pid_nr_ns(tracer, ns);
 
+	ppid = task_ppid_nr_ns(p, ns);
 	tgid = task_tgid_nr_ns(p, ns);
 	ngid = task_numa_group_id(p);
 	cred = get_task_cred(p);
@@ -281,7 +280,7 @@ static inline void task_sig(struct seq_file *m, struct task_struct *p)
 		blocked = p->blocked;
 		collect_sigign_sigcatch(p, &ignored, &caught);
 		num_threads = get_nr_threads(p);
-		rcu_read_lock();  /* FIXME: is this correct? */
+		rcu_read_lock();
 		qsize = get_rlimit_value(task_ucounts(p), UCOUNT_RLIMIT_SIGPENDING);
 		rcu_read_unlock();
 		qlim = task_rlimit(p, RLIMIT_SIGPENDING);
@@ -422,7 +421,7 @@ static inline void task_thp_status(struct seq_file *m, struct mm_struct *mm)
 	bool thp_enabled = IS_ENABLED(CONFIG_TRANSPARENT_HUGEPAGE);
 
 	if (thp_enabled)
-		thp_enabled = !test_bit(MMF_DISABLE_THP, &mm->flags);
+		thp_enabled = !mm_flags_test(MMF_DISABLE_THP_COMPLETELY, mm);
 	seq_printf(m, "THP_enabled:\t%d\n", thp_enabled);
 }
 
@@ -483,7 +482,6 @@ static int do_task_stat(struct seq_file *m, struct pid_namespace *ns,
 	unsigned long flags;
 	int exit_code = task->exit_code;
 	struct signal_struct *sig = task->signal;
-	unsigned int seq = 1;
 
 	state = *get_task_state(task);
 	vsize = eip = esp = 0;
@@ -531,7 +529,7 @@ static int do_task_stat(struct seq_file *m, struct pid_namespace *ns,
 		}
 
 		sid = task_session_nr_ns(task, ns);
-		ppid = task_tgid_nr_ns(task->real_parent, ns);
+		ppid = task_ppid_nr_ns(task, ns);
 		pgid = task_pgrp_nr_ns(task, ns);
 
 		unlock_task_sighand(task, &flags);
@@ -540,33 +538,29 @@ static int do_task_stat(struct seq_file *m, struct pid_namespace *ns,
 	if (permitted && (!whole || num_threads < 2))
 		wchan = !task_is_running(task);
 
-	do {
-		seq++; /* 2 on the 1st/lockless path, otherwise odd */
-		flags = read_seqbegin_or_lock_irqsave(&sig->stats_lock, &seq);
+	scoped_guard(rcu) {
+		scoped_seqlock_read (&sig->stats_lock, ss_lock_irqsave) {
+			cmin_flt = sig->cmin_flt;
+			cmaj_flt = sig->cmaj_flt;
+			cutime = sig->cutime;
+			cstime = sig->cstime;
+			cgtime = sig->cgtime;
 
-		cmin_flt = sig->cmin_flt;
-		cmaj_flt = sig->cmaj_flt;
-		cutime = sig->cutime;
-		cstime = sig->cstime;
-		cgtime = sig->cgtime;
+			if (whole) {
+				struct task_struct *t;
 
-		if (whole) {
-			struct task_struct *t;
+				min_flt = sig->min_flt;
+				maj_flt = sig->maj_flt;
+				gtime = sig->gtime;
 
-			min_flt = sig->min_flt;
-			maj_flt = sig->maj_flt;
-			gtime = sig->gtime;
-
-			rcu_read_lock();
-			__for_each_thread(sig, t) {
-				min_flt += t->min_flt;
-				maj_flt += t->maj_flt;
-				gtime += task_gtime(t);
+				__for_each_thread(sig, t) {
+					min_flt += t->min_flt;
+					maj_flt += t->maj_flt;
+					gtime += task_gtime(t);
+				}
 			}
-			rcu_read_unlock();
 		}
-	} while (need_seqretry(&sig->stats_lock, seq));
-	done_seqretry_irqrestore(&sig->stats_lock, seq, flags);
+	}
 
 	if (whole) {
 		thread_group_cputime_adjusted(task, &utime, &stime);

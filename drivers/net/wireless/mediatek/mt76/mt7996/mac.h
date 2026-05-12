@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: ISC */
+/* SPDX-License-Identifier: BSD-3-Clause-Clear */
 /*
  * Copyright (C) 2022 MediaTek Inc.
  */
@@ -36,10 +36,5 @@ struct mt7996_dfs_pattern {
 	u8 rsv[2];
 	u32 min_stgpr_diff;
 } __packed;
-
-struct mt7996_dfs_radar_spec {
-	struct mt7996_dfs_pulse pulse_th;
-	struct mt7996_dfs_pattern radar_pattern[16];
-};
 
 #endif

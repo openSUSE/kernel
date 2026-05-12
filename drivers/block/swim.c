@@ -711,9 +711,9 @@ static int floppy_ioctl(struct block_device *bdev, blk_mode_t mode,
 	return -ENOTTY;
 }
 
-static int floppy_getgeo(struct block_device *bdev, struct hd_geometry *geo)
+static int floppy_getgeo(struct gendisk *disk, struct hd_geometry *geo)
 {
-	struct floppy_state *fs = bdev->bd_disk->private_data;
+	struct floppy_state *fs = disk->private_data;
 	struct floppy_struct *g;
 	int ret;
 
@@ -896,7 +896,7 @@ static int swim_probe(struct platform_device *dev)
 
 	/* set platform driver data */
 
-	swd = kzalloc(sizeof(struct swim_priv), GFP_KERNEL);
+	swd = kzalloc_obj(struct swim_priv);
 	if (!swd) {
 		ret = -ENOMEM;
 		goto out_release_io;

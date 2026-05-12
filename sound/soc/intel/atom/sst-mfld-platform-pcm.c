@@ -306,7 +306,7 @@ static int sst_media_open(struct snd_pcm_substream *substream,
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct sst_runtime_stream *stream;
 
-	stream = kzalloc(sizeof(*stream), GFP_KERNEL);
+	stream = kzalloc_obj(*stream);
 	if (!stream)
 		return -ENOMEM;
 	spin_lock_init(&stream->status_lock);
@@ -707,7 +707,7 @@ static const struct snd_soc_component_driver sst_soc_platform_drv  = {
 	.pointer	= sst_soc_pointer,
 	.delay		= sst_soc_delay,
 	.compress_ops	= &sst_platform_compress_ops,
-	.pcm_construct	= sst_soc_pcm_new,
+	.pcm_new	= sst_soc_pcm_new,
 };
 
 static int sst_platform_probe(struct platform_device *pdev)

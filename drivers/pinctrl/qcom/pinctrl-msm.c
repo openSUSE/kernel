@@ -31,6 +31,7 @@
 #include "../core.h"
 #include "../pinconf.h"
 #include "../pinctrl-utils.h"
+#include "../pinmux.h"
 
 #include "pinctrl-msm.h"
 
@@ -97,7 +98,22 @@ MSM_ACCESSOR(ctl)
 MSM_ACCESSOR(io)
 MSM_ACCESSOR(intr_cfg)
 MSM_ACCESSOR(intr_status)
-MSM_ACCESSOR(intr_target)
+
+static u32 msm_readl_intr_target(struct msm_pinctrl *pctrl,
+				 const struct msm_pingroup *g)
+{
+	u32 reg = g->intr_target_reg ? g->intr_target_reg : g->intr_cfg_reg;
+
+	return readl(pctrl->regs[g->tile] + reg);
+}
+
+static void msm_writel_intr_target(u32 val, struct msm_pinctrl *pctrl,
+				   const struct msm_pingroup *g)
+{
+	u32 reg = g->intr_target_reg ? g->intr_target_reg : g->intr_cfg_reg;
+
+	writel(val, pctrl->regs[g->tile] + reg);
+}
 
 static void msm_ack_intr_status(struct msm_pinctrl *pctrl,
 				const struct msm_pingroup *g)
@@ -150,33 +166,6 @@ static int msm_pinmux_request(struct pinctrl_dev *pctldev, unsigned offset)
 	return gpiochip_line_is_valid(chip, offset) ? 0 : -EINVAL;
 }
 
-static int msm_get_functions_count(struct pinctrl_dev *pctldev)
-{
-	struct msm_pinctrl *pctrl = pinctrl_dev_get_drvdata(pctldev);
-
-	return pctrl->soc->nfunctions;
-}
-
-static const char *msm_get_function_name(struct pinctrl_dev *pctldev,
-					 unsigned function)
-{
-	struct msm_pinctrl *pctrl = pinctrl_dev_get_drvdata(pctldev);
-
-	return pctrl->soc->functions[function].name;
-}
-
-static int msm_get_function_groups(struct pinctrl_dev *pctldev,
-				   unsigned function,
-				   const char * const **groups,
-				   unsigned * const num_groups)
-{
-	struct msm_pinctrl *pctrl = pinctrl_dev_get_drvdata(pctldev);
-
-	*groups = pctrl->soc->functions[function].groups;
-	*num_groups = pctrl->soc->functions[function].ngroups;
-	return 0;
-}
-
 static int msm_pinmux_set_mux(struct pinctrl_dev *pctldev,
 			      unsigned function,
 			      unsigned group)
@@ -215,7 +204,7 @@ static int msm_pinmux_set_mux(struct pinctrl_dev *pctldev,
 	 */
 	if (d && i != gpio_func &&
 	    !test_and_set_bit(d->hwirq, pctrl->disabled_for_mux))
-		disable_irq(irq);
+		disable_irq_nosync(irq);
 
 	raw_spin_lock_irqsave(&pctrl->lock, flags);
 
@@ -288,11 +277,13 @@ static int msm_pinmux_request_gpio(struct pinctrl_dev *pctldev,
 
 static const struct pinmux_ops msm_pinmux_ops = {
 	.request		= msm_pinmux_request,
-	.get_functions_count	= msm_get_functions_count,
-	.get_function_name	= msm_get_function_name,
-	.get_function_groups	= msm_get_function_groups,
+	.get_functions_count	= pinmux_generic_get_function_count,
+	.get_function_name	= pinmux_generic_get_function_name,
+	.get_function_groups	= pinmux_generic_get_function_groups,
+	.function_is_gpio	= pinmux_generic_function_is_gpio,
 	.gpio_request_enable	= msm_pinmux_request_gpio,
 	.set_mux		= msm_pinmux_set_mux,
+	.strict			= true,
 };
 
 static int msm_config_reg(struct msm_pinctrl *pctrl,
@@ -319,7 +310,7 @@ static int msm_config_reg(struct msm_pinctrl *pctrl,
 		*bit = g->drv_bit;
 		*mask = 7;
 		break;
-	case PIN_CONFIG_OUTPUT:
+	case PIN_CONFIG_LEVEL:
 	case PIN_CONFIG_INPUT_ENABLE:
 	case PIN_CONFIG_OUTPUT_ENABLE:
 		*bit = g->oe_bit;
@@ -409,7 +400,7 @@ static int msm_config_group_get(struct pinctrl_dev *pctldev,
 	case PIN_CONFIG_DRIVE_STRENGTH:
 		arg = msm_regval_to_drive(arg);
 		break;
-	case PIN_CONFIG_OUTPUT:
+	case PIN_CONFIG_LEVEL:
 		/* Pin is not output */
 		if (!arg)
 			return -EINVAL;
@@ -488,7 +479,7 @@ static int msm_config_group_set(struct pinctrl_dev *pctldev,
 			else
 				arg = (arg / 2) - 1;
 			break;
-		case PIN_CONFIG_OUTPUT:
+		case PIN_CONFIG_LEVEL:
 			/* set output value */
 			raw_spin_lock_irqsave(&pctrl->lock, flags);
 			val = msm_readl_io(pctrl, g);
@@ -1102,7 +1093,8 @@ static int msm_gpio_irq_set_type(struct irq_data *d, unsigned int type)
 		intr_target_mask = GENMASK(g->intr_target_width - 1, 0);
 
 	if (pctrl->intr_target_use_scm) {
-		u32 addr = pctrl->phys_base[0] + g->intr_target_reg;
+		u32 reg = g->intr_target_reg ? g->intr_target_reg : g->intr_cfg_reg;
+		u32 addr = pctrl->phys_base[0] + reg;
 		int ret;
 
 		qcom_scm_io_readl(addr, &val);
@@ -1552,6 +1544,7 @@ EXPORT_SYMBOL(msm_pinctrl_dev_pm_ops);
 int msm_pinctrl_probe(struct platform_device *pdev,
 		      const struct msm_pinctrl_soc_data *soc_data)
 {
+	const struct pinfunction *func;
 	struct msm_pinctrl *pctrl;
 	struct resource *res;
 	int ret;
@@ -1604,6 +1597,14 @@ int msm_pinctrl_probe(struct platform_device *pdev,
 	if (IS_ERR(pctrl->pctrl)) {
 		dev_err(&pdev->dev, "Couldn't register pinctrl driver\n");
 		return PTR_ERR(pctrl->pctrl);
+	}
+
+	for (i = 0; i < soc_data->nfunctions; i++) {
+		func = &soc_data->functions[i];
+
+		ret = pinmux_generic_add_pinfunction(pctrl->pctrl, func, NULL);
+		if (ret < 0)
+			return ret;
 	}
 
 	ret = msm_gpio_init(pctrl);

@@ -263,11 +263,13 @@
 #define NFS4_enc_removexattr_sz		(compound_encode_hdr_maxsz + \
 					 encode_sequence_maxsz + \
 					 encode_putfh_maxsz + \
-					 encode_removexattr_maxsz)
+					 encode_removexattr_maxsz + \
+					 encode_getattr_maxsz)
 #define NFS4_dec_removexattr_sz		(compound_decode_hdr_maxsz + \
 					 decode_sequence_maxsz + \
 					 decode_putfh_maxsz + \
-					 decode_removexattr_maxsz)
+					 decode_removexattr_maxsz + \
+					 decode_getattr_maxsz)
 
 /*
  * These values specify the maximum amount of data that is not
@@ -869,6 +871,7 @@ static void nfs4_xdr_enc_removexattr(struct rpc_rqst *req,
 	encode_sequence(xdr, &args->seq_args, &hdr);
 	encode_putfh(xdr, args->fh, &hdr);
 	encode_removexattr(xdr, args->xattr_name, &hdr);
+	encode_getfattr(xdr, args->bitmask, &hdr);
 	encode_nops(&hdr);
 }
 
@@ -1159,7 +1162,7 @@ static int decode_read_plus(struct xdr_stream *xdr, struct nfs_pgio_res *res)
 	if (segments == 0)
 		return 0;
 
-	segs = kmalloc_array(segments, sizeof(*segs), GFP_KERNEL);
+	segs = kmalloc_objs(*segs, segments);
 	if (!segs)
 		return -ENOMEM;
 
@@ -1781,7 +1784,7 @@ static int nfs4_xdr_dec_listxattrs(struct rpc_rqst *rqstp,
 	struct compound_hdr hdr;
 	int status;
 
-	xdr_set_scratch_page(xdr, res->scratch);
+	xdr_set_scratch_folio(xdr, res->scratch);
 
 	status = decode_compound_hdr(xdr, &hdr);
 	if (status)
@@ -1818,6 +1821,9 @@ static int nfs4_xdr_dec_removexattr(struct rpc_rqst *req,
 		goto out;
 
 	status = decode_removexattr(xdr, &res->cinfo);
+	if (status)
+		goto out;
+	status = decode_getfattr(xdr, res->fattr, res->server);
 out:
 	return status;
 }

@@ -228,6 +228,12 @@ enum v4l2_colorfx {
  */
 #define V4L2_CID_USER_RKISP1_BASE		(V4L2_CID_USER_BASE + 0x1220)
 
+/*
+ * The base for the Arm Mali-C55 ISP driver controls.
+ * We reserve 16 controls for this driver
+ */
+#define V4L2_CID_USER_MALI_C55_BASE		(V4L2_CID_USER_BASE + 0x1230)
+
 /* MPEG-class control IDs */
 /* The MPEG controls are applicable to all codec controls
  * and the 'MPEG' part of the define is historical */
@@ -1186,6 +1192,8 @@ enum v4l2_flash_strobe_source {
 
 #define V4L2_CID_FLASH_CHARGE			(V4L2_CID_FLASH_CLASS_BASE + 11)
 #define V4L2_CID_FLASH_READY			(V4L2_CID_FLASH_CLASS_BASE + 12)
+#define V4L2_CID_FLASH_DURATION			(V4L2_CID_FLASH_CLASS_BASE + 13)
+#define V4L2_CID_FLASH_STROBE_OE		(V4L2_CID_FLASH_CLASS_BASE + 14)
 
 
 /* JPEG-class control IDs */
@@ -1193,7 +1201,7 @@ enum v4l2_flash_strobe_source {
 #define V4L2_CID_JPEG_CLASS_BASE		(V4L2_CTRL_CLASS_JPEG | 0x900)
 #define V4L2_CID_JPEG_CLASS			(V4L2_CTRL_CLASS_JPEG | 1)
 
-#define	V4L2_CID_JPEG_CHROMA_SUBSAMPLING	(V4L2_CID_JPEG_CLASS_BASE + 1)
+#define V4L2_CID_JPEG_CHROMA_SUBSAMPLING	(V4L2_CID_JPEG_CLASS_BASE + 1)
 enum v4l2_jpeg_chroma_subsampling {
 	V4L2_JPEG_CHROMA_SUBSAMPLING_444	= 0,
 	V4L2_JPEG_CHROMA_SUBSAMPLING_422	= 1,
@@ -1202,15 +1210,15 @@ enum v4l2_jpeg_chroma_subsampling {
 	V4L2_JPEG_CHROMA_SUBSAMPLING_410	= 4,
 	V4L2_JPEG_CHROMA_SUBSAMPLING_GRAY	= 5,
 };
-#define	V4L2_CID_JPEG_RESTART_INTERVAL		(V4L2_CID_JPEG_CLASS_BASE + 2)
-#define	V4L2_CID_JPEG_COMPRESSION_QUALITY	(V4L2_CID_JPEG_CLASS_BASE + 3)
+#define V4L2_CID_JPEG_RESTART_INTERVAL		(V4L2_CID_JPEG_CLASS_BASE + 2)
+#define V4L2_CID_JPEG_COMPRESSION_QUALITY	(V4L2_CID_JPEG_CLASS_BASE + 3)
 
-#define	V4L2_CID_JPEG_ACTIVE_MARKER		(V4L2_CID_JPEG_CLASS_BASE + 4)
-#define	V4L2_JPEG_ACTIVE_MARKER_APP0		(1 << 0)
-#define	V4L2_JPEG_ACTIVE_MARKER_APP1		(1 << 1)
-#define	V4L2_JPEG_ACTIVE_MARKER_COM		(1 << 16)
-#define	V4L2_JPEG_ACTIVE_MARKER_DQT		(1 << 17)
-#define	V4L2_JPEG_ACTIVE_MARKER_DHT		(1 << 18)
+#define V4L2_CID_JPEG_ACTIVE_MARKER		(V4L2_CID_JPEG_CLASS_BASE + 4)
+#define V4L2_JPEG_ACTIVE_MARKER_APP0		(1 << 0)
+#define V4L2_JPEG_ACTIVE_MARKER_APP1		(1 << 1)
+#define V4L2_JPEG_ACTIVE_MARKER_COM		(1 << 16)
+#define V4L2_JPEG_ACTIVE_MARKER_DQT		(1 << 17)
+#define V4L2_JPEG_ACTIVE_MARKER_DHT		(1 << 18)
 
 
 /* Image source controls */
@@ -1243,10 +1251,10 @@ enum v4l2_jpeg_chroma_subsampling {
 #define V4L2_CID_DV_CLASS_BASE			(V4L2_CTRL_CLASS_DV | 0x900)
 #define V4L2_CID_DV_CLASS			(V4L2_CTRL_CLASS_DV | 1)
 
-#define	V4L2_CID_DV_TX_HOTPLUG			(V4L2_CID_DV_CLASS_BASE + 1)
-#define	V4L2_CID_DV_TX_RXSENSE			(V4L2_CID_DV_CLASS_BASE + 2)
-#define	V4L2_CID_DV_TX_EDID_PRESENT		(V4L2_CID_DV_CLASS_BASE + 3)
-#define	V4L2_CID_DV_TX_MODE			(V4L2_CID_DV_CLASS_BASE + 4)
+#define V4L2_CID_DV_TX_HOTPLUG			(V4L2_CID_DV_CLASS_BASE + 1)
+#define V4L2_CID_DV_TX_RXSENSE			(V4L2_CID_DV_CLASS_BASE + 2)
+#define V4L2_CID_DV_TX_EDID_PRESENT		(V4L2_CID_DV_CLASS_BASE + 3)
+#define V4L2_CID_DV_TX_MODE			(V4L2_CID_DV_CLASS_BASE + 4)
 enum v4l2_dv_tx_mode {
 	V4L2_DV_TX_MODE_DVI_D	= 0,
 	V4L2_DV_TX_MODE_HDMI	= 1,
@@ -1267,7 +1275,7 @@ enum v4l2_dv_it_content_type {
 	V4L2_DV_IT_CONTENT_TYPE_NO_ITC	  = 4,
 };
 
-#define	V4L2_CID_DV_RX_POWER_PRESENT		(V4L2_CID_DV_CLASS_BASE + 100)
+#define V4L2_CID_DV_RX_POWER_PRESENT		(V4L2_CID_DV_CLASS_BASE + 100)
 #define V4L2_CID_DV_RX_RGB_RANGE		(V4L2_CID_DV_CLASS_BASE + 101)
 #define V4L2_CID_DV_RX_IT_CONTENT_TYPE		(V4L2_CID_DV_CLASS_BASE + 102)
 
@@ -1537,15 +1545,6 @@ struct v4l2_ctrl_h264_pred_weights {
 	struct v4l2_h264_weight_factors weight_factors[2];
 };
 
-#define V4L2_H264_SLICE_TYPE_P				0
-#define V4L2_H264_SLICE_TYPE_B				1
-#define V4L2_H264_SLICE_TYPE_I				2
-#define V4L2_H264_SLICE_TYPE_SP				3
-#define V4L2_H264_SLICE_TYPE_SI				4
-
-#define V4L2_H264_SLICE_FLAG_DIRECT_SPATIAL_MV_PRED	0x01
-#define V4L2_H264_SLICE_FLAG_SP_FOR_SWITCH		0x02
-
 #define V4L2_H264_TOP_FIELD_REF				0x1
 #define V4L2_H264_BOTTOM_FIELD_REF			0x2
 #define V4L2_H264_FRAME_REF				0x3
@@ -1566,8 +1565,17 @@ struct v4l2_h264_reference {
  * Maximum DPB size, as specified by section 'A.3.1 Level limits
  * common to the Baseline, Main, and Extended profiles'.
  */
-#define V4L2_H264_NUM_DPB_ENTRIES 16
-#define V4L2_H264_REF_LIST_LEN (2 * V4L2_H264_NUM_DPB_ENTRIES)
+#define V4L2_H264_NUM_DPB_ENTRIES		16
+#define V4L2_H264_REF_LIST_LEN			(2 * V4L2_H264_NUM_DPB_ENTRIES)
+
+#define V4L2_H264_SLICE_TYPE_P				0
+#define V4L2_H264_SLICE_TYPE_B				1
+#define V4L2_H264_SLICE_TYPE_I				2
+#define V4L2_H264_SLICE_TYPE_SP				3
+#define V4L2_H264_SLICE_TYPE_SI				4
+
+#define V4L2_H264_SLICE_FLAG_DIRECT_SPATIAL_MV_PRED		0x01
+#define V4L2_H264_SLICE_FLAG_SP_FOR_SWITCH			0x02
 
 #define V4L2_CID_STATELESS_H264_SLICE_PARAMS	(V4L2_CID_CODEC_STATELESS_BASE + 6)
 /**
@@ -1706,7 +1714,6 @@ struct v4l2_ctrl_h264_decode_params {
 	__u32 reserved;
 	__u32 flags;
 };
-
 
 /* Stateless FWHT control, used by the vicodec driver */
 
@@ -2094,6 +2101,8 @@ struct v4l2_ctrl_mpeg2_quantisation {
 #define V4L2_CID_STATELESS_HEVC_DECODE_MODE	(V4L2_CID_CODEC_STATELESS_BASE + 405)
 #define V4L2_CID_STATELESS_HEVC_START_CODE	(V4L2_CID_CODEC_STATELESS_BASE + 406)
 #define V4L2_CID_STATELESS_HEVC_ENTRY_POINT_OFFSETS (V4L2_CID_CODEC_STATELESS_BASE + 407)
+#define V4L2_CID_STATELESS_HEVC_EXT_SPS_ST_RPS  (V4L2_CID_CODEC_STATELESS_BASE + 408)
+#define V4L2_CID_STATELESS_HEVC_EXT_SPS_LT_RPS  (V4L2_CID_CODEC_STATELESS_BASE + 409)
 
 enum v4l2_stateless_hevc_decode_mode {
 	V4L2_STATELESS_HEVC_DECODE_MODE_SLICE_BASED,
@@ -2549,44 +2558,69 @@ struct v4l2_ctrl_hevc_scaling_matrix {
 	__u8	scaling_list_dc_coef_32x32[2];
 };
 
-#define V4L2_CID_COLORIMETRY_CLASS_BASE	(V4L2_CTRL_CLASS_COLORIMETRY | 0x900)
-#define V4L2_CID_COLORIMETRY_CLASS	(V4L2_CTRL_CLASS_COLORIMETRY | 1)
+#define V4L2_HEVC_EXT_SPS_ST_RPS_FLAG_INTER_REF_PIC_SET_PRED	0x1
 
-#define V4L2_CID_COLORIMETRY_HDR10_CLL_INFO	(V4L2_CID_COLORIMETRY_CLASS_BASE + 0)
-
-struct v4l2_ctrl_hdr10_cll_info {
-	__u16 max_content_light_level;
-	__u16 max_pic_average_light_level;
+/*
+ * struct v4l2_ctrl_hevc_ext_sps_st_rps - HEVC short term RPS parameters
+ *
+ * Dynamic size 1-dimension array for short term RPS. The number of elements
+ * is v4l2_ctrl_hevc_sps::num_short_term_ref_pic_sets. It can contain up to 65 elements.
+ *
+ * @delta_idx_minus1: Specifies the delta compare to the index. See details in section 7.4.8
+ *                    "Short-term reference picture set semantics" of the specification.
+ * @delta_rps_sign: Sign of the delta as specified in section 7.4.8 "Short-term reference picture
+ *                  set semantics" of the specification.
+ * @abs_delta_rps_minus1: Absolute delta RPS as specified in section 7.4.8 "Short-term reference
+ *                        picture set semantics" of the specification.
+ * @num_negative_pics: Number of short-term RPS entries that have picture order count values less
+ *                     than the picture order count value of the current picture.
+ * @num_positive_pics: Number of short-term RPS entries that have picture order count values
+ *                     greater than the picture order count value of the current picture.
+ * @used_by_curr_pic: Bit j specifies if short-term RPS j is used by the current picture.
+ * @use_delta_flag: Bit j equals to 1 specifies that the j-th entry in the source candidate
+ *                  short-term RPS is included in this candidate short-term RPS.
+ * @delta_poc_s0_minus1: Specifies the negative picture order count delta for the i-th entry in
+ *                       the short-term RPS. See details in section 7.4.8 "Short-term reference
+ *                       picture set semantics" of the specification.
+ * @delta_poc_s1_minus1: Specifies the positive picture order count delta for the i-th entry in
+ *                       the short-term RPS. See details in section 7.4.8 "Short-term reference
+ *                       picture set semantics" of the specification.
+ * @flags: See V4L2_HEVC_EXT_SPS_ST_RPS_FLAG_{}
+ */
+struct v4l2_ctrl_hevc_ext_sps_st_rps {
+	__u8	delta_idx_minus1;
+	__u8	delta_rps_sign;
+	__u8	num_negative_pics;
+	__u8	num_positive_pics;
+	__u32	used_by_curr_pic;
+	__u32	use_delta_flag;
+	__u16	abs_delta_rps_minus1;
+	__u16	delta_poc_s0_minus1[16];
+	__u16	delta_poc_s1_minus1[16];
+	__u16	flags;
 };
 
-#define V4L2_CID_COLORIMETRY_HDR10_MASTERING_DISPLAY	(V4L2_CID_COLORIMETRY_CLASS_BASE + 1)
+#define V4L2_HEVC_EXT_SPS_LT_RPS_FLAG_USED_LT		0x1
 
-#define V4L2_HDR10_MASTERING_PRIMARIES_X_LOW	5
-#define V4L2_HDR10_MASTERING_PRIMARIES_X_HIGH	37000
-#define V4L2_HDR10_MASTERING_PRIMARIES_Y_LOW	5
-#define V4L2_HDR10_MASTERING_PRIMARIES_Y_HIGH	42000
-#define V4L2_HDR10_MASTERING_WHITE_POINT_X_LOW	5
-#define V4L2_HDR10_MASTERING_WHITE_POINT_X_HIGH	37000
-#define V4L2_HDR10_MASTERING_WHITE_POINT_Y_LOW	5
-#define V4L2_HDR10_MASTERING_WHITE_POINT_Y_HIGH	42000
-#define V4L2_HDR10_MASTERING_MAX_LUMA_LOW	50000
-#define V4L2_HDR10_MASTERING_MAX_LUMA_HIGH	100000000
-#define V4L2_HDR10_MASTERING_MIN_LUMA_LOW	1
-#define V4L2_HDR10_MASTERING_MIN_LUMA_HIGH	50000
-
-struct v4l2_ctrl_hdr10_mastering_display {
-	__u16 display_primaries_x[3];
-	__u16 display_primaries_y[3];
-	__u16 white_point_x;
-	__u16 white_point_y;
-	__u32 max_display_mastering_luminance;
-	__u32 min_display_mastering_luminance;
+/*
+ * struct v4l2_ctrl_hevc_ext_sps_lt_rps - HEVC long term RPS parameters
+ *
+ * Dynamic size 1-dimension array for long term RPS. The number of elements
+ * is v4l2_ctrl_hevc_sps::num_long_term_ref_pics_sps. It can contain up to 65 elements.
+ *
+ * @lt_ref_pic_poc_lsb_sps: picture order count modulo MaxPicOrderCntLsb of the i-th candidate
+ *                          long-term reference picture.
+ * @flags: See V4L2_HEVC_EXT_SPS_LT_RPS_FLAG_{}
+ */
+struct v4l2_ctrl_hevc_ext_sps_lt_rps {
+	__u16	lt_ref_pic_poc_lsb_sps;
+	__u16	flags;
 };
 
 /* Stateless VP9 controls */
 
 #define V4L2_VP9_LOOP_FILTER_FLAG_DELTA_ENABLED	0x1
-#define	V4L2_VP9_LOOP_FILTER_FLAG_DELTA_UPDATE	0x2
+#define V4L2_VP9_LOOP_FILTER_FLAG_DELTA_UPDATE	0x2
 
 /**
  * struct v4l2_vp9_loop_filter - VP9 loop filter parameters
@@ -3514,5 +3548,39 @@ struct v4l2_ctrl_av1_film_grain {
 #define V4L2_CID_MPEG_CX2341X_BASE      V4L2_CID_CODEC_CX2341X_BASE
 #define V4L2_CID_MPEG_MFC51_BASE        V4L2_CID_CODEC_MFC51_BASE
 #endif
+
+#define V4L2_CID_COLORIMETRY_CLASS_BASE	(V4L2_CTRL_CLASS_COLORIMETRY | 0x900)
+#define V4L2_CID_COLORIMETRY_CLASS	(V4L2_CTRL_CLASS_COLORIMETRY | 1)
+
+#define V4L2_CID_COLORIMETRY_HDR10_CLL_INFO	(V4L2_CID_COLORIMETRY_CLASS_BASE + 0)
+
+struct v4l2_ctrl_hdr10_cll_info {
+	__u16 max_content_light_level;
+	__u16 max_pic_average_light_level;
+};
+
+#define V4L2_CID_COLORIMETRY_HDR10_MASTERING_DISPLAY	(V4L2_CID_COLORIMETRY_CLASS_BASE + 1)
+
+#define V4L2_HDR10_MASTERING_PRIMARIES_X_LOW	5
+#define V4L2_HDR10_MASTERING_PRIMARIES_X_HIGH	37000
+#define V4L2_HDR10_MASTERING_PRIMARIES_Y_LOW	5
+#define V4L2_HDR10_MASTERING_PRIMARIES_Y_HIGH	42000
+#define V4L2_HDR10_MASTERING_WHITE_POINT_X_LOW	5
+#define V4L2_HDR10_MASTERING_WHITE_POINT_X_HIGH	37000
+#define V4L2_HDR10_MASTERING_WHITE_POINT_Y_LOW	5
+#define V4L2_HDR10_MASTERING_WHITE_POINT_Y_HIGH	42000
+#define V4L2_HDR10_MASTERING_MAX_LUMA_LOW	50000
+#define V4L2_HDR10_MASTERING_MAX_LUMA_HIGH	100000000
+#define V4L2_HDR10_MASTERING_MIN_LUMA_LOW	1
+#define V4L2_HDR10_MASTERING_MIN_LUMA_HIGH	50000
+
+struct v4l2_ctrl_hdr10_mastering_display {
+	__u16 display_primaries_x[3];
+	__u16 display_primaries_y[3];
+	__u16 white_point_x;
+	__u16 white_point_y;
+	__u32 max_display_mastering_luminance;
+	__u32 min_display_mastering_luminance;
+};
 
 #endif

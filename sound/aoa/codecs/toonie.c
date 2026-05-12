@@ -121,12 +121,12 @@ static struct toonie *toonie;
 
 static int __init toonie_init(void)
 {
-	toonie = kzalloc(sizeof(struct toonie), GFP_KERNEL);
+	toonie = kzalloc_obj(struct toonie);
 
 	if (!toonie)
 		return -ENOMEM;
 
-	strscpy(toonie->codec.name, "toonie", sizeof(toonie->codec.name));
+	strscpy(toonie->codec.name, "toonie");
 	toonie->codec.owner = THIS_MODULE;
 	toonie->codec.init = toonie_init_codec;
 	toonie->codec.exit = toonie_exit_codec;

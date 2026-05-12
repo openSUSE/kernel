@@ -35,12 +35,10 @@
  * struct exynos_mbox - driver's private data.
  * @regs:	mailbox registers base address.
  * @mbox:	pointer to the mailbox controller.
- * @pclk:	pointer to the mailbox peripheral clock.
  */
 struct exynos_mbox {
 	void __iomem *regs;
 	struct mbox_controller *mbox;
-	struct clk *pclk;
 };
 
 static int exynos_mbox_send_data(struct mbox_chan *chan, void *data)
@@ -100,7 +98,7 @@ static int exynos_mbox_probe(struct platform_device *pdev)
 	struct exynos_mbox *exynos_mbox;
 	struct mbox_controller *mbox;
 	struct mbox_chan *chans;
-	int i;
+	struct clk *pclk;
 
 	exynos_mbox = devm_kzalloc(dev, sizeof(*exynos_mbox), GFP_KERNEL);
 	if (!exynos_mbox)
@@ -119,9 +117,9 @@ static int exynos_mbox_probe(struct platform_device *pdev)
 	if (IS_ERR(exynos_mbox->regs))
 		return PTR_ERR(exynos_mbox->regs);
 
-	exynos_mbox->pclk = devm_clk_get_enabled(dev, "pclk");
-	if (IS_ERR(exynos_mbox->pclk))
-		return dev_err_probe(dev, PTR_ERR(exynos_mbox->pclk),
+	pclk = devm_clk_get_enabled(dev, "pclk");
+	if (IS_ERR(pclk))
+		return dev_err_probe(dev, PTR_ERR(pclk),
 				     "Failed to enable clock.\n");
 
 	mbox->num_chans = EXYNOS_MBOX_CHAN_COUNT;
@@ -129,9 +127,6 @@ static int exynos_mbox_probe(struct platform_device *pdev)
 	mbox->dev = dev;
 	mbox->ops = &exynos_mbox_chan_ops;
 	mbox->of_xlate = exynos_mbox_of_xlate;
-
-	for (i = 0; i < EXYNOS_MBOX_CHAN_COUNT; i++)
-		chans[i].mbox = mbox;
 
 	exynos_mbox->mbox = mbox;
 

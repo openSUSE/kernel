@@ -47,7 +47,7 @@ struct snd_compress_ops {
 		       struct snd_compr_stream *stream, int cmd);
 	int (*pointer)(struct snd_soc_component *component,
 		       struct snd_compr_stream *stream,
-		       struct snd_compr_tstamp *tstamp);
+		       struct snd_compr_tstamp64 *tstamp);
 	int (*copy)(struct snd_soc_component *component,
 		    struct snd_compr_stream *stream, char __user *buf,
 		    size_t count);
@@ -86,10 +86,10 @@ struct snd_soc_component_driver {
 		     unsigned int reg, unsigned int val);
 
 	/* pcm creation and destruction */
-	int (*pcm_construct)(struct snd_soc_component *component,
-			     struct snd_soc_pcm_runtime *rtd);
-	void (*pcm_destruct)(struct snd_soc_component *component,
-			     struct snd_pcm *pcm);
+	int (*pcm_new)(struct snd_soc_component *component,
+		       struct snd_soc_pcm_runtime *rtd);
+	void (*pcm_free)(struct snd_soc_component *component,
+			 struct snd_pcm *pcm);
 
 	/* component wide operations */
 	int (*set_sysclk)(struct snd_soc_component *component,
@@ -224,7 +224,6 @@ struct snd_soc_component {
 	int num_dai;
 
 	struct regmap *regmap;
-	int val_bytes;
 
 	struct mutex io_mutex;
 
@@ -237,8 +236,7 @@ struct snd_soc_component {
 	 * the driver will be marked as BROKEN when these fields are removed.
 	 */
 
-	/* Don't use these, use snd_soc_component_get_dapm() */
-	struct snd_soc_dapm_context dapm;
+	struct snd_soc_dapm_context *dapm;
 
 	/* machine specific init */
 	int (*init)(struct snd_soc_component *component);
@@ -261,88 +259,14 @@ struct snd_soc_component {
 	list_for_each_entry_safe(dai, _dai, &(component)->dai_list, list)
 
 /**
- * snd_soc_dapm_to_component() - Casts a DAPM context to the component it is
- *  embedded in
- * @dapm: The DAPM context to cast to the component
- *
- * This function must only be used on DAPM contexts that are known to be part of
- * a component (e.g. in a component driver). Otherwise the behavior is
- * undefined.
- */
-static inline struct snd_soc_component *snd_soc_dapm_to_component(
-	struct snd_soc_dapm_context *dapm)
-{
-	return container_of(dapm, struct snd_soc_component, dapm);
-}
-
-/**
- * snd_soc_component_get_dapm() - Returns the DAPM context associated with a
+ * snd_soc_component_to_dapm() - Returns the DAPM context associated with a
  *  component
  * @component: The component for which to get the DAPM context
  */
-static inline struct snd_soc_dapm_context *snd_soc_component_get_dapm(
+static inline struct snd_soc_dapm_context *snd_soc_component_to_dapm(
 	struct snd_soc_component *component)
 {
-	return &component->dapm;
-}
-
-/**
- * snd_soc_component_init_bias_level() - Initialize COMPONENT DAPM bias level
- * @component: The COMPONENT for which to initialize the DAPM bias level
- * @level: The DAPM level to initialize to
- *
- * Initializes the COMPONENT DAPM bias level. See snd_soc_dapm_init_bias_level()
- */
-static inline void
-snd_soc_component_init_bias_level(struct snd_soc_component *component,
-				  enum snd_soc_bias_level level)
-{
-	snd_soc_dapm_init_bias_level(
-		snd_soc_component_get_dapm(component), level);
-}
-
-/**
- * snd_soc_component_get_bias_level() - Get current COMPONENT DAPM bias level
- * @component: The COMPONENT for which to get the DAPM bias level
- *
- * Returns: The current DAPM bias level of the COMPONENT.
- */
-static inline enum snd_soc_bias_level
-snd_soc_component_get_bias_level(struct snd_soc_component *component)
-{
-	return snd_soc_dapm_get_bias_level(
-		snd_soc_component_get_dapm(component));
-}
-
-/**
- * snd_soc_component_force_bias_level() - Set the COMPONENT DAPM bias level
- * @component: The COMPONENT for which to set the level
- * @level: The level to set to
- *
- * Forces the COMPONENT bias level to a specific state. See
- * snd_soc_dapm_force_bias_level().
- */
-static inline int
-snd_soc_component_force_bias_level(struct snd_soc_component *component,
-				   enum snd_soc_bias_level level)
-{
-	return snd_soc_dapm_force_bias_level(
-		snd_soc_component_get_dapm(component),
-		level);
-}
-
-/**
- * snd_soc_dapm_kcontrol_component() - Returns the component associated to a
- * kcontrol
- * @kcontrol: The kcontrol
- *
- * This function must only be used on DAPM contexts that are known to be part of
- * a COMPONENT (e.g. in a COMPONENT driver). Otherwise the behavior is undefined
- */
-static inline struct snd_soc_component *snd_soc_dapm_kcontrol_component(
-	struct snd_kcontrol *kcontrol)
-{
-	return snd_soc_dapm_to_component(snd_soc_dapm_kcontrol_dapm(kcontrol));
+	return component->dapm;
 }
 
 /**
@@ -402,7 +326,7 @@ int snd_soc_component_stream_event(struct snd_soc_component *component,
 int snd_soc_component_set_bias_level(struct snd_soc_component *component,
 				     enum snd_soc_bias_level level);
 
-void snd_soc_component_setup_regmap(struct snd_soc_component *component);
+int snd_soc_component_regmap_val_bytes(struct snd_soc_component *component);
 #ifdef CONFIG_REGMAP
 void snd_soc_component_init_regmap(struct snd_soc_component *component,
 				   struct regmap *regmap);
@@ -438,27 +362,6 @@ snd_soc_component_active(struct snd_soc_component *component)
 {
 	return component->active;
 }
-
-/* component pin */
-int snd_soc_component_enable_pin(struct snd_soc_component *component,
-				 const char *pin);
-int snd_soc_component_enable_pin_unlocked(struct snd_soc_component *component,
-					  const char *pin);
-int snd_soc_component_disable_pin(struct snd_soc_component *component,
-				  const char *pin);
-int snd_soc_component_disable_pin_unlocked(struct snd_soc_component *component,
-					   const char *pin);
-int snd_soc_component_nc_pin(struct snd_soc_component *component,
-			     const char *pin);
-int snd_soc_component_nc_pin_unlocked(struct snd_soc_component *component,
-				      const char *pin);
-int snd_soc_component_get_pin_status(struct snd_soc_component *component,
-				     const char *pin);
-int snd_soc_component_force_enable_pin(struct snd_soc_component *component,
-				       const char *pin);
-int snd_soc_component_force_enable_pin_unlocked(
-	struct snd_soc_component *component,
-	const char *pin);
 
 /* component controls */
 struct snd_kcontrol *snd_soc_component_get_kcontrol(struct snd_soc_component *component,
@@ -498,7 +401,7 @@ int snd_soc_component_compr_get_codec_caps(struct snd_compr_stream *cstream,
 					   struct snd_compr_codec_caps *codec);
 int snd_soc_component_compr_ack(struct snd_compr_stream *cstream, size_t bytes);
 int snd_soc_component_compr_pointer(struct snd_compr_stream *cstream,
-				    struct snd_compr_tstamp *tstamp);
+				    struct snd_compr_tstamp64 *tstamp);
 int snd_soc_component_compr_copy(struct snd_compr_stream *cstream,
 				 char __user *buf, size_t count);
 int snd_soc_component_compr_set_metadata(struct snd_compr_stream *cstream,

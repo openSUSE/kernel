@@ -15,6 +15,17 @@
 #include "gic.h"
 #include "gic_v3.h"
 
+bool kvm_supports_vgic_v3(void)
+{
+	struct kvm_vm *vm = vm_create_barebones();
+	int r;
+
+	r = __kvm_test_create_device(vm, KVM_DEV_TYPE_ARM_VGIC_V3);
+	kvm_vm_free(vm);
+
+	return !r;
+}
+
 /*
  * vGIC-v3 default host setup
  *
@@ -30,24 +41,11 @@
  * redistributor regions of the guest. Since it depends on the number of
  * vCPUs for the VM, it must be called after all the vCPUs have been created.
  */
-int vgic_v3_setup(struct kvm_vm *vm, unsigned int nr_vcpus, uint32_t nr_irqs)
+int __vgic_v3_setup(struct kvm_vm *vm, unsigned int nr_vcpus, u32 nr_irqs)
 {
 	int gic_fd;
-	uint64_t attr;
-	struct list_head *iter;
-	unsigned int nr_gic_pages, nr_vcpus_created = 0;
-
-	TEST_ASSERT(nr_vcpus, "Number of vCPUs cannot be empty");
-
-	/*
-	 * Make sure that the caller is infact calling this
-	 * function after all the vCPUs are added.
-	 */
-	list_for_each(iter, &vm->vcpus)
-		nr_vcpus_created++;
-	TEST_ASSERT(nr_vcpus == nr_vcpus_created,
-			"Number of vCPUs requested (%u) doesn't match with the ones created for the VM (%u)",
-			nr_vcpus, nr_vcpus_created);
+	u64 attr;
+	unsigned int nr_gic_pages;
 
 	/* Distributor setup */
 	gic_fd = __kvm_create_device(vm, KVM_DEV_TYPE_ARM_VGIC_V3);
@@ -55,9 +53,6 @@ int vgic_v3_setup(struct kvm_vm *vm, unsigned int nr_vcpus, uint32_t nr_irqs)
 		return gic_fd;
 
 	kvm_device_attr_set(gic_fd, KVM_DEV_ARM_VGIC_GRP_NR_IRQS, 0, &nr_irqs);
-
-	kvm_device_attr_set(gic_fd, KVM_DEV_ARM_VGIC_GRP_CTRL,
-			    KVM_DEV_ARM_VGIC_CTRL_INIT, NULL);
 
 	attr = GICD_BASE_GPA;
 	kvm_device_attr_set(gic_fd, KVM_DEV_ARM_VGIC_GRP_ADDR,
@@ -73,18 +68,47 @@ int vgic_v3_setup(struct kvm_vm *vm, unsigned int nr_vcpus, uint32_t nr_irqs)
 						KVM_VGIC_V3_REDIST_SIZE * nr_vcpus);
 	virt_map(vm, GICR_BASE_GPA, GICR_BASE_GPA, nr_gic_pages);
 
-	kvm_device_attr_set(gic_fd, KVM_DEV_ARM_VGIC_GRP_CTRL,
-			    KVM_DEV_ARM_VGIC_CTRL_INIT, NULL);
-
 	return gic_fd;
 }
 
-/* should only work for level sensitive interrupts */
-int _kvm_irq_set_level_info(int gic_fd, uint32_t intid, int level)
+void __vgic_v3_init(int fd)
 {
-	uint64_t attr = 32 * (intid / 32);
-	uint64_t index = intid % 32;
-	uint64_t val;
+	kvm_device_attr_set(fd, KVM_DEV_ARM_VGIC_GRP_CTRL,
+			    KVM_DEV_ARM_VGIC_CTRL_INIT, NULL);
+}
+
+int vgic_v3_setup(struct kvm_vm *vm, unsigned int nr_vcpus, u32 nr_irqs)
+{
+	unsigned int nr_vcpus_created = 0;
+	struct list_head *iter;
+	int fd;
+
+	TEST_ASSERT(nr_vcpus, "Number of vCPUs cannot be empty");
+
+	/*
+	 * Make sure that the caller is infact calling this
+	 * function after all the vCPUs are added.
+	 */
+	list_for_each(iter, &vm->vcpus)
+		nr_vcpus_created++;
+	TEST_ASSERT(nr_vcpus == nr_vcpus_created,
+		    "Number of vCPUs requested (%u) doesn't match with the ones created for the VM (%u)",
+		    nr_vcpus, nr_vcpus_created);
+
+	fd = __vgic_v3_setup(vm, nr_vcpus, nr_irqs);
+	if (fd < 0)
+		return fd;
+
+	__vgic_v3_init(fd);
+	return fd;
+}
+
+/* should only work for level sensitive interrupts */
+int _kvm_irq_set_level_info(int gic_fd, u32 intid, int level)
+{
+	u64 attr = 32 * (intid / 32);
+	u64 index = intid % 32;
+	u64 val;
 	int ret;
 
 	ret = __kvm_device_attr_get(gic_fd, KVM_DEV_ARM_VGIC_GRP_LEVEL_INFO,
@@ -98,16 +122,16 @@ int _kvm_irq_set_level_info(int gic_fd, uint32_t intid, int level)
 	return ret;
 }
 
-void kvm_irq_set_level_info(int gic_fd, uint32_t intid, int level)
+void kvm_irq_set_level_info(int gic_fd, u32 intid, int level)
 {
 	int ret = _kvm_irq_set_level_info(gic_fd, intid, level);
 
 	TEST_ASSERT(!ret, KVM_IOCTL_ERROR(KVM_DEV_ARM_VGIC_GRP_LEVEL_INFO, ret));
 }
 
-int _kvm_arm_irq_line(struct kvm_vm *vm, uint32_t intid, int level)
+int _kvm_arm_irq_line(struct kvm_vm *vm, u32 intid, int level)
 {
-	uint32_t irq = intid & KVM_ARM_IRQ_NUM_MASK;
+	u32 irq = intid & KVM_ARM_IRQ_NUM_MASK;
 
 	TEST_ASSERT(!INTID_IS_SGI(intid), "KVM_IRQ_LINE's interface itself "
 		"doesn't allow injecting SGIs. There's no mask for it.");
@@ -120,23 +144,23 @@ int _kvm_arm_irq_line(struct kvm_vm *vm, uint32_t intid, int level)
 	return _kvm_irq_line(vm, irq, level);
 }
 
-void kvm_arm_irq_line(struct kvm_vm *vm, uint32_t intid, int level)
+void kvm_arm_irq_line(struct kvm_vm *vm, u32 intid, int level)
 {
 	int ret = _kvm_arm_irq_line(vm, intid, level);
 
 	TEST_ASSERT(!ret, KVM_IOCTL_ERROR(KVM_IRQ_LINE, ret));
 }
 
-static void vgic_poke_irq(int gic_fd, uint32_t intid, struct kvm_vcpu *vcpu,
-			  uint64_t reg_off)
+static void vgic_poke_irq(int gic_fd, u32 intid, struct kvm_vcpu *vcpu,
+			  u64 reg_off)
 {
-	uint64_t reg = intid / 32;
-	uint64_t index = intid % 32;
-	uint64_t attr = reg_off + reg * 4;
-	uint64_t val;
+	u64 reg = intid / 32;
+	u64 index = intid % 32;
+	u64 attr = reg_off + reg * 4;
+	u64 val;
 	bool intid_is_private = INTID_IS_SGI(intid) || INTID_IS_PPI(intid);
 
-	uint32_t group = intid_is_private ? KVM_DEV_ARM_VGIC_GRP_REDIST_REGS
+	u32 group = intid_is_private ? KVM_DEV_ARM_VGIC_GRP_REDIST_REGS
 					  : KVM_DEV_ARM_VGIC_GRP_DIST_REGS;
 
 	if (intid_is_private) {
@@ -159,12 +183,12 @@ static void vgic_poke_irq(int gic_fd, uint32_t intid, struct kvm_vcpu *vcpu,
 	kvm_device_attr_set(gic_fd, group, attr, &val);
 }
 
-void kvm_irq_write_ispendr(int gic_fd, uint32_t intid, struct kvm_vcpu *vcpu)
+void kvm_irq_write_ispendr(int gic_fd, u32 intid, struct kvm_vcpu *vcpu)
 {
 	vgic_poke_irq(gic_fd, intid, vcpu, GICD_ISPENDR);
 }
 
-void kvm_irq_write_isactiver(int gic_fd, uint32_t intid, struct kvm_vcpu *vcpu)
+void kvm_irq_write_isactiver(int gic_fd, u32 intid, struct kvm_vcpu *vcpu)
 {
 	vgic_poke_irq(gic_fd, intid, vcpu, GICD_ISACTIVER);
 }

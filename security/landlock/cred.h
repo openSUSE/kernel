@@ -26,6 +26,8 @@
  * This structure is packed to minimize the size of struct
  * landlock_file_security.  However, it is always aligned in the LSM cred blob,
  * see lsm_set_blob_size().
+ *
+ * When updating this, also update landlock_cred_copy() if needed.
  */
 struct landlock_cred_security {
 	/**
@@ -63,6 +65,16 @@ static inline struct landlock_cred_security *
 landlock_cred(const struct cred *cred)
 {
 	return cred->security + landlock_blob_sizes.lbs_cred;
+}
+
+static inline void landlock_cred_copy(struct landlock_cred_security *dst,
+				      const struct landlock_cred_security *src)
+{
+	landlock_put_ruleset(dst->domain);
+
+	*dst = *src;
+
+	landlock_get_ruleset(src->domain);
 }
 
 static inline struct landlock_ruleset *landlock_get_current_domain(void)
@@ -103,7 +115,7 @@ static inline bool landlocked(const struct task_struct *const task)
  * @handle_layer: returned youngest layer handling a subset of @masks.  Not set
  *                if the function returns NULL.
  *
- * Returns: landlock_cred(@cred) if any access rights specified in @masks is
+ * Return: landlock_cred(@cred) if any access rights specified in @masks is
  * handled, or NULL otherwise.
  */
 static inline const struct landlock_cred_security *

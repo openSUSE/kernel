@@ -8,7 +8,6 @@
 #include <drm/drm_print.h>
 
 #include "g4x_hdmi.h"
-#include "i915_reg.h"
 #include "intel_atomic.h"
 #include "intel_audio.h"
 #include "intel_connector.h"
@@ -68,7 +67,7 @@ static bool intel_hdmi_get_hw_state(struct intel_encoder *encoder,
 {
 	struct intel_display *display = to_intel_display(encoder);
 	struct intel_hdmi *intel_hdmi = enc_to_intel_hdmi(encoder);
-	intel_wakeref_t wakeref;
+	struct ref_tracker *wakeref;
 	bool ret;
 
 	wakeref = intel_display_power_get_if_enabled(display,
@@ -593,7 +592,7 @@ intel_hdmi_hotplug(struct intel_encoder *encoder,
 }
 
 int g4x_hdmi_connector_atomic_check(struct drm_connector *connector,
-				    struct drm_atomic_state *state)
+				    struct drm_atomic_commit *state)
 {
 	struct intel_display *display = to_intel_display(connector->dev);
 	struct drm_connector_list_iter conn_iter;

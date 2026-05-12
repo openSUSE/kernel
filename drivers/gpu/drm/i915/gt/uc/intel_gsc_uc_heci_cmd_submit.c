@@ -3,11 +3,15 @@
  * Copyright © 2023 Intel Corporation
  */
 
+#include <drm/drm_print.h>
+
 #include "gt/intel_context.h"
 #include "gt/intel_engine_pm.h"
 #include "gt/intel_gpu_commands.h"
 #include "gt/intel_gt.h"
 #include "gt/intel_ring.h"
+
+#include "i915_wait_util.h"
 #include "intel_gsc_uc_heci_cmd_submit.h"
 
 struct gsc_heci_pkt {

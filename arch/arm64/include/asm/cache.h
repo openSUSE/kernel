@@ -35,7 +35,7 @@
 #define ARCH_DMA_MINALIGN	(128)
 #define ARCH_KMALLOC_MINALIGN	(8)
 
-#if !defined(__ASSEMBLY__) && !defined(BUILD_VDSO)
+#if !defined(__ASSEMBLER__) && !defined(BUILD_VDSO)
 
 #include <linux/bitops.h>
 #include <linux/kasan-enabled.h>
@@ -87,6 +87,11 @@ int cache_line_size(void);
 
 #define dma_get_cache_alignment	cache_line_size
 
+static inline void arch_sync_dma_flush(void)
+{
+	dsb(sy);
+}
+
 /* Compress a u64 MPIDR value into 32 bits. */
 static inline u64 arch_compact_of_hwid(u64 id)
 {
@@ -135,6 +140,6 @@ static inline u32 __attribute_const__ read_cpuid_effective_cachetype(void)
 	return ctr;
 }
 
-#endif /* !defined(__ASSEMBLY__) && !defined(BUILD_VDSO) */
+#endif /* !defined(__ASSEMBLER__) && !defined(BUILD_VDSO) */
 
 #endif

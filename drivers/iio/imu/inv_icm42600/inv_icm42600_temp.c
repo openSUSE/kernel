@@ -41,7 +41,6 @@ static int inv_icm42600_temp_read(struct inv_icm42600_state *st, s16 *temp)
 
 exit:
 	mutex_unlock(&st->lock);
-	pm_runtime_mark_last_busy(dev);
 	pm_runtime_put_autosuspend(dev);
 
 	return ret;
@@ -60,10 +59,7 @@ int inv_icm42600_temp_read_raw(struct iio_dev *indio_dev,
 
 	switch (mask) {
 	case IIO_CHAN_INFO_RAW:
-		if (!iio_device_claim_direct(indio_dev))
-			return -EBUSY;
 		ret = inv_icm42600_temp_read(st, &temp);
-		iio_device_release_direct(indio_dev);
 		if (ret)
 			return ret;
 		*val = temp;

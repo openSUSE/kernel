@@ -38,10 +38,10 @@
 #include "lib/eq.h"
 #include "en.h"
 #include "clock.h"
-#ifdef CONFIG_X86
+#if defined(CONFIG_X86) || defined(CONFIG_ARM_ARCH_TIMER)
 #include <linux/timekeeping.h>
 #include <linux/cpufeature.h>
-#endif /* CONFIG_X86 */
+#endif /* CONFIG_X86 || CONFIG_ARM_ARCH_TIMER */
 
 #define MLX5_RT_CLOCK_IDENTITY_SIZE MLX5_FLD_SZ_BYTES(mrtcq_reg, rt_clock_identity)
 
@@ -229,7 +229,7 @@ static int mlx5_set_mtutc(struct mlx5_core_dev *dev, u32 *mtutc, u32 size)
 				    MLX5_REG_MTUTC, 0, 1);
 }
 
-#ifdef CONFIG_X86
+#if defined(CONFIG_X86) || defined(CONFIG_ARM_ARCH_TIMER)
 static bool mlx5_is_ptm_source_time_available(struct mlx5_core_dev *dev)
 {
 	u32 out[MLX5_ST_SZ_DW(mtptm_reg)] = {0};
@@ -247,27 +247,24 @@ static bool mlx5_is_ptm_source_time_available(struct mlx5_core_dev *dev)
 	return !!MLX5_GET(mtptm_reg, out, psta);
 }
 
-static int mlx5_mtctr_syncdevicetime(ktime_t *device_time,
-				     struct system_counterval_t *sys_counterval,
-				     void *ctx)
+static int mlx5_mtctr_read(struct mlx5_core_dev *mdev,
+			   bool real_time_mode,
+			   struct system_counterval_t *sys_counterval,
+			   u64 *device)
 {
 	u32 out[MLX5_ST_SZ_DW(mtctr_reg)] = {0};
 	u32 in[MLX5_ST_SZ_DW(mtctr_reg)] = {0};
-	struct mlx5_core_dev *mdev = ctx;
-	bool real_time_mode;
-	u64 host, device;
+	u64 host;
 	int err;
-
-	real_time_mode = mlx5_real_time_mode(mdev);
 
 	MLX5_SET(mtctr_reg, in, first_clock_timestamp_request,
 		 MLX5_MTCTR_REQUEST_PTM_ROOT_CLOCK);
 	MLX5_SET(mtctr_reg, in, second_clock_timestamp_request,
 		 real_time_mode ? MLX5_MTCTR_REQUEST_REAL_TIME_CLOCK :
-		 MLX5_MTCTR_REQUEST_FREE_RUNNING_COUNTER);
+				  MLX5_MTCTR_REQUEST_FREE_RUNNING_COUNTER);
 
-	err = mlx5_core_access_reg(mdev, in, sizeof(in), out, sizeof(out), MLX5_REG_MTCTR,
-				   0, 0);
+	err = mlx5_core_access_reg(mdev, in, sizeof(in), out, sizeof(out),
+				   MLX5_REG_MTCTR, 0, 0);
 	if (err)
 		return err;
 
@@ -278,15 +275,51 @@ static int mlx5_mtctr_syncdevicetime(ktime_t *device_time,
 	host = MLX5_GET64(mtctr_reg, out, first_clock_timestamp);
 	*sys_counterval = (struct system_counterval_t) {
 			.cycles = host,
-			.cs_id = CSID_X86_ART,
+			.cs_id = IS_ENABLED(CONFIG_X86) ? CSID_X86_ART :
+							  CSID_ARM_ARCH_COUNTER,
 			.use_nsecs = true,
 	};
+	*device = MLX5_GET64(mtctr_reg, out, second_clock_timestamp);
 
-	device = MLX5_GET64(mtctr_reg, out, second_clock_timestamp);
+	return 0;
+}
+
+static int mlx5_mtctr_syncdevicetime(ktime_t *device_time,
+				     struct system_counterval_t *sys_counterval,
+				     void *ctx)
+{
+	struct mlx5_core_dev *mdev = ctx;
+	bool real_time_mode;
+	u64 device;
+	int err;
+
+	real_time_mode = mlx5_real_time_mode(mdev);
+
+	err = mlx5_mtctr_read(mdev, real_time_mode, sys_counterval, &device);
+	if (err)
+		return err;
+
 	if (real_time_mode)
 		*device_time = ns_to_ktime(REAL_TIME_TO_NS(device >> 32, device & U32_MAX));
 	else
 		*device_time = mlx5_timecounter_cyc2time(mdev->clock, device);
+
+	return 0;
+}
+
+static int
+mlx5_mtctr_syncdevicecyclestime(ktime_t *device_time,
+				struct system_counterval_t *sys_counterval,
+				void *ctx)
+{
+	struct mlx5_core_dev *mdev = ctx;
+	u64 device;
+	int err;
+
+	err = mlx5_mtctr_read(mdev, false, sys_counterval, &device);
+	if (err)
+		return err;
+	*device_time = ns_to_ktime(device);
 
 	return 0;
 }
@@ -315,7 +348,33 @@ unlock:
 	mlx5_clock_unlock(clock);
 	return err;
 }
-#endif /* CONFIG_X86 */
+
+static int mlx5_ptp_getcrosscycles(struct ptp_clock_info *ptp,
+				   struct system_device_crosststamp *cts)
+{
+	struct mlx5_clock *clock =
+		container_of(ptp, struct mlx5_clock, ptp_info);
+	struct system_time_snapshot history_begin = {0};
+	struct mlx5_core_dev *mdev;
+	int err;
+
+	mlx5_clock_lock(clock);
+	mdev = mlx5_clock_mdev_get(clock);
+
+	if (!mlx5_is_ptm_source_time_available(mdev)) {
+		err = -EBUSY;
+		goto unlock;
+	}
+
+	ktime_get_snapshot(&history_begin);
+
+	err = get_device_system_crosststamp(mlx5_mtctr_syncdevicecyclestime,
+					    mdev, &history_begin, cts);
+unlock:
+	mlx5_clock_unlock(clock);
+	return err;
+}
+#endif /* CONFIG_X86 || CONFIG_ARM_ARCH_TIMER */
 
 static u64 mlx5_read_time(struct mlx5_core_dev *dev,
 			  struct ptp_system_timestamp *sts,
@@ -509,6 +568,24 @@ static int mlx5_ptp_gettimex(struct ptp_clock_info *ptp, struct timespec64 *ts,
 	ns = mlx5_timecounter_cyc2time(clock, cycles);
 	*ts = ns_to_timespec64(ns);
 out:
+	mlx5_clock_unlock(clock);
+	return 0;
+}
+
+static int mlx5_ptp_getcyclesx(struct ptp_clock_info *ptp,
+			       struct timespec64 *ts,
+			       struct ptp_system_timestamp *sts)
+{
+	struct mlx5_clock *clock = container_of(ptp, struct mlx5_clock,
+						ptp_info);
+	struct mlx5_core_dev *mdev;
+	u64 cycles;
+
+	mlx5_clock_lock(clock);
+	mdev = mlx5_clock_mdev_get(clock);
+
+	cycles = mlx5_read_time(mdev, sts, false);
+	*ts = ns_to_timespec64(cycles);
 	mlx5_clock_unlock(clock);
 	return 0;
 }
@@ -1006,9 +1083,8 @@ static void mlx5_init_pin_config(struct mlx5_core_dev *mdev)
 		return;
 
 	clock->ptp_info.pin_config =
-			kcalloc(clock->ptp_info.n_pins,
-				sizeof(*clock->ptp_info.pin_config),
-				GFP_KERNEL);
+			kzalloc_objs(*clock->ptp_info.pin_config,
+				     clock->ptp_info.n_pins);
 	if (!clock->ptp_info.pin_config)
 		return;
 	clock->ptp_info.enable = mlx5_ptp_enable;
@@ -1226,9 +1302,29 @@ static void mlx5_init_timer_max_freq_adjustment(struct mlx5_core_dev *mdev)
 			min(S32_MAX, 1 << log_max_freq_adjustment);
 }
 
+static void mlx5_init_crosststamp(struct mlx5_core_dev *mdev,
+				  bool expose_cycles, struct mlx5_clock *clock)
+{
+#if defined(CONFIG_X86)
+	if (!boot_cpu_has(X86_FEATURE_ART))
+		return;
+#endif /* CONFIG_X86 */
+#if defined(CONFIG_X86) || defined(CONFIG_ARM_ARCH_TIMER)
+	if (!MLX5_CAP_MCAM_REG3(mdev, mtptm) ||
+	    !MLX5_CAP_MCAM_REG3(mdev, mtctr))
+		return;
+
+	clock->ptp_info.getcrosststamp = mlx5_ptp_getcrosststamp;
+	if (expose_cycles)
+		clock->ptp_info.getcrosscycles = mlx5_ptp_getcrosscycles;
+
+#endif /* CONFIG_X86 || CONFIG_ARM_ARCH_TIMER */
+}
+
 static void mlx5_init_timer_clock(struct mlx5_core_dev *mdev)
 {
 	struct mlx5_clock *clock = mdev->clock;
+	bool expose_cycles;
 
 	/* Configure the PHC */
 	clock->ptp_info = mlx5_ptp_clock_info;
@@ -1236,11 +1332,13 @@ static void mlx5_init_timer_clock(struct mlx5_core_dev *mdev)
 	if (MLX5_CAP_MCAM_REG(mdev, mtutc))
 		mlx5_init_timer_max_freq_adjustment(mdev);
 
-#ifdef CONFIG_X86
-	if (MLX5_CAP_MCAM_REG3(mdev, mtptm) &&
-	    MLX5_CAP_MCAM_REG3(mdev, mtctr) && boot_cpu_has(X86_FEATURE_ART))
-		clock->ptp_info.getcrosststamp = mlx5_ptp_getcrosststamp;
-#endif /* CONFIG_X86 */
+	expose_cycles = !MLX5_CAP_GEN(mdev, disciplined_fr_counter) ||
+			!mlx5_real_time_mode(mdev);
+
+	mlx5_init_crosststamp(mdev, expose_cycles, clock);
+
+	if (expose_cycles)
+		clock->ptp_info.getcyclesx64 = mlx5_ptp_getcyclesx;
 
 	mlx5_timecounter_init(mdev);
 	mlx5_init_clock_info(mdev);
@@ -1278,9 +1376,9 @@ static void mlx5_init_clock_dev(struct mlx5_core_dev *mdev)
 	clock->ptp = ptp_clock_register(&clock->ptp_info,
 					clock->shared ? NULL : &mdev->pdev->dev);
 	if (IS_ERR(clock->ptp)) {
-		mlx5_core_warn(mdev, "%sptp_clock_register failed %ld\n",
+		mlx5_core_warn(mdev, "%sptp_clock_register failed %pe\n",
 			       clock->shared ? "shared clock " : "",
-			       PTR_ERR(clock->ptp));
+			       clock->ptp);
 		clock->ptp = NULL;
 	}
 
@@ -1320,7 +1418,7 @@ static int mlx5_clock_alloc(struct mlx5_core_dev *mdev, bool shared)
 	struct mlx5_clock_priv *cpriv;
 	struct mlx5_clock *clock;
 
-	cpriv = kzalloc(sizeof(*cpriv), GFP_KERNEL);
+	cpriv = kzalloc_obj(*cpriv);
 	if (!cpriv)
 		return -ENOMEM;
 
@@ -1345,16 +1443,24 @@ static int mlx5_clock_alloc(struct mlx5_core_dev *mdev, bool shared)
 	return 0;
 }
 
-static void mlx5_shared_clock_register(struct mlx5_core_dev *mdev, u64 key)
+static void mlx5_shared_clock_register(struct mlx5_core_dev *mdev,
+				       u8 identity[MLX5_RT_CLOCK_IDENTITY_SIZE])
 {
 	struct mlx5_core_dev *peer_dev, *next = NULL;
+	struct mlx5_devcom_match_attr attr = {};
+	struct mlx5_devcom_comp_dev *compd;
 	struct mlx5_devcom_comp_dev *pos;
 
-	mdev->clock_state->compdev = mlx5_devcom_register_component(mdev->priv.devc,
-								    MLX5_DEVCOM_SHARED_CLOCK,
-								    key, NULL, mdev);
-	if (IS_ERR(mdev->clock_state->compdev))
+	BUILD_BUG_ON(MLX5_RT_CLOCK_IDENTITY_SIZE > MLX5_DEVCOM_MATCH_KEY_MAX);
+	memcpy(attr.key.buf, identity, MLX5_RT_CLOCK_IDENTITY_SIZE);
+
+	compd = mlx5_devcom_register_component(mdev->priv.devc,
+					       MLX5_DEVCOM_SHARED_CLOCK,
+					       &attr, NULL, mdev);
+	if (!compd)
 		return;
+
+	mdev->clock_state->compdev = compd;
 
 	mlx5_devcom_comp_lock(mdev->clock_state->compdev);
 	mlx5_devcom_for_each_peer_entry(mdev->clock_state->compdev, peer_dev, pos) {
@@ -1501,7 +1607,6 @@ int mlx5_init_clock(struct mlx5_core_dev *mdev)
 {
 	u8 identity[MLX5_RT_CLOCK_IDENTITY_SIZE];
 	struct mlx5_clock_dev_state *clock_state;
-	u64 key;
 	int err;
 
 	if (!MLX5_CAP_GEN(mdev, device_frequency_khz)) {
@@ -1510,19 +1615,17 @@ int mlx5_init_clock(struct mlx5_core_dev *mdev)
 		return 0;
 	}
 
-	clock_state = kzalloc(sizeof(*clock_state), GFP_KERNEL);
+	clock_state = kzalloc_obj(*clock_state);
 	if (!clock_state)
 		return -ENOMEM;
 	clock_state->mdev = mdev;
 	mdev->clock_state = clock_state;
 
 	if (MLX5_CAP_MCAM_REG3(mdev, mrtcq) && mlx5_real_time_mode(mdev)) {
-		if (mlx5_clock_identity_get(mdev, identity)) {
+		if (mlx5_clock_identity_get(mdev, identity))
 			mlx5_core_warn(mdev, "failed to get rt clock identity, create ptp dev per function\n");
-		} else {
-			memcpy(&key, &identity, sizeof(key));
-			mlx5_shared_clock_register(mdev, key);
-		}
+		else
+			mlx5_shared_clock_register(mdev, identity);
 	}
 
 	if (!mdev->clock) {

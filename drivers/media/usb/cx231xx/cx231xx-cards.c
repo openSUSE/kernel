@@ -1295,7 +1295,7 @@ void cx231xx_card_setup(struct cx231xx *dev)
 				u8 eeprom[256];
 				struct i2c_client client;
 			};
-			struct eeprom *e = kzalloc(sizeof(*e), GFP_KERNEL);
+			struct eeprom *e = kzalloc_obj(*e);
 
 			if (e == NULL) {
 				dev_err(dev->dev,
@@ -1369,8 +1369,6 @@ void cx231xx_release_resources(struct cx231xx *dev)
 
 	cx231xx_unregister_media_device(dev);
 
-	usb_put_dev(dev->udev);
-
 	/* Mark device as unused */
 	clear_bit(dev->devno, &cx231xx_devused);
 }
@@ -1381,7 +1379,7 @@ static int cx231xx_media_device_init(struct cx231xx *dev,
 #ifdef CONFIG_MEDIA_CONTROLLER
 	struct media_device *mdev;
 
-	mdev = kzalloc(sizeof(*mdev), GFP_KERNEL);
+	mdev = kzalloc_obj(*mdev);
 	if (!mdev)
 		return -ENOMEM;
 
@@ -1719,7 +1717,7 @@ static int cx231xx_usb_probe(struct usb_interface *interface,
 		}
 	} while (test_and_set_bit(nr, &cx231xx_devused));
 
-	udev = usb_get_dev(interface_to_usbdev(interface));
+	udev = interface_to_usbdev(interface);
 
 	/* allocate memory for our device state and initialize it */
 	dev = devm_kzalloc(&udev->dev, sizeof(*dev), GFP_KERNEL);
@@ -1915,7 +1913,6 @@ err_v4l2:
 err_media_init:
 	usb_set_intfdata(interface, NULL);
 err_if:
-	usb_put_dev(udev);
 	clear_bit(nr, &cx231xx_devused);
 	return retval;
 }

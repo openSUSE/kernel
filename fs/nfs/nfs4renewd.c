@@ -122,7 +122,7 @@ nfs4_schedule_state_renewal(struct nfs_client *clp)
 		timeout = 5 * HZ;
 	dprintk("%s: requeueing work. Lease period = %ld\n",
 			__func__, (timeout + HZ - 1) / HZ);
-	mod_delayed_work(system_wq, &clp->cl_renewd, timeout);
+	mod_delayed_work(system_percpu_wq, &clp->cl_renewd, timeout);
 	set_bit(NFS_CS_RENEWD, &clp->cl_res_state);
 	spin_unlock(&clp->cl_lock);
 }
@@ -133,15 +133,24 @@ nfs4_kill_renewd(struct nfs_client *clp)
 	cancel_delayed_work_sync(&clp->cl_renewd);
 }
 
+#define MAX_LEASE_PERIOD (60 * 60)	/* 1 hour */
+
 /**
  * nfs4_set_lease_period - Sets the lease period on a nfs_client
  *
  * @clp: pointer to nfs_client
- * @lease: new value for lease period
+ * @period: new value for lease period (in seconds)
  */
-void nfs4_set_lease_period(struct nfs_client *clp,
-		unsigned long lease)
+void nfs4_set_lease_period(struct nfs_client *clp, u32 period)
 {
+	unsigned long lease;
+
+	/* Limit the lease period */
+	if (period < MAX_LEASE_PERIOD)
+		lease = period * HZ;
+	else
+		lease = MAX_LEASE_PERIOD * HZ;
+
 	spin_lock(&clp->cl_lock);
 	clp->cl_lease_time = lease;
 	spin_unlock(&clp->cl_lock);

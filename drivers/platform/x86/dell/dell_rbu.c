@@ -30,6 +30,7 @@
 #define pr_fmt(fmt)	KBUILD_MODNAME ": " fmt
 
 #include <linux/init.h>
+#include <linux/kstrtox.h>
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/string.h>
@@ -111,7 +112,7 @@ static int create_packet(void *data, size_t length) __must_hold(&rbu_data.lock)
 
 	spin_unlock(&rbu_data.lock);
 
-	newpacket = kzalloc(sizeof (struct packet_data), GFP_KERNEL);
+	newpacket = kzalloc_obj(struct packet_data);
 
 	if (!newpacket) {
 		pr_warn("failed to allocate new packet\n");
@@ -232,7 +233,8 @@ static int packetize_data(const u8 *data, size_t length)
 			done = 1;
 		}
 
-		if ((rc = create_packet(temp, packet_length)))
+		rc = create_packet(temp, packet_length);
+		if (rc)
 			return rc;
 
 		pr_debug("%p:%td\n", temp, (end - temp));
@@ -276,7 +278,7 @@ static int do_packet_read(char *data, struct packet_data *newpacket,
 	return bytes_copied;
 }
 
-static int packet_read_list(char *data, size_t * pread_length)
+static int packet_read_list(char *data, size_t *pread_length)
 {
 	struct packet_data *newpacket;
 	int temp_count = 0;
@@ -445,7 +447,8 @@ static ssize_t read_packet_data(char *buffer, loff_t pos, size_t count)
 	bytes_left = rbu_data.imagesize - pos;
 	data_length = min(bytes_left, count);
 
-	if ((retval = packet_read_list(ptempBuf, &data_length)) < 0)
+	retval = packet_read_list(ptempBuf, &data_length);
+	if (retval < 0)
 		goto read_rbu_data_exit;
 
 	if ((pos + count) > rbu_data.imagesize) {
@@ -617,9 +620,12 @@ static ssize_t packet_size_write(struct file *filp, struct kobject *kobj,
 				 char *buffer, loff_t pos, size_t count)
 {
 	unsigned long temp;
+
+	if (kstrtoul(buffer, 10, &temp))
+		return -EINVAL;
+
 	spin_lock(&rbu_data.lock);
 	packet_empty_list();
-	sscanf(buffer, "%lu", &temp);
 	if (temp < 0xffffffff)
 		rbu_data.packetsize = temp;
 

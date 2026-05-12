@@ -47,22 +47,17 @@
  *------------------------------------------
  */
 #define SYSCFG_PMCR_ETH_SEL_MII		BIT(20)
-#define SYSCFG_PMCR_ETH_SEL_RGMII	BIT(21)
-#define SYSCFG_PMCR_ETH_SEL_RMII	BIT(23)
-#define SYSCFG_PMCR_ETH_SEL_GMII	0
+#define SYSCFG_PMCR_PHY_INTF_SEL_MASK	GENMASK(23, 21)
 #define SYSCFG_MCU_ETH_SEL_MII		0
 #define SYSCFG_MCU_ETH_SEL_RMII		1
 
 /* STM32MP2 register definitions */
 #define SYSCFG_MP2_ETH_MASK		GENMASK(31, 0)
 
+#define SYSCFG_ETHCR_ETH_SEL_MASK	GENMASK(6, 4)
 #define SYSCFG_ETHCR_ETH_PTP_CLK_SEL	BIT(2)
 #define SYSCFG_ETHCR_ETH_CLK_SEL	BIT(1)
 #define SYSCFG_ETHCR_ETH_REF_CLK_SEL	BIT(0)
-
-#define SYSCFG_ETHCR_ETH_SEL_MII	0
-#define SYSCFG_ETHCR_ETH_SEL_RGMII	BIT(4)
-#define SYSCFG_ETHCR_ETH_SEL_RMII	BIT(6)
 
 /* STM32MPx register definitions
  *
@@ -171,7 +166,7 @@ static int stm32mp1_select_ethck_external(struct plat_stmmacenet_data *plat_dat)
 {
 	struct stm32_dwmac *dwmac = plat_dat->bsp_priv;
 
-	switch (plat_dat->mac_interface) {
+	switch (plat_dat->phy_interface) {
 	case PHY_INTERFACE_MODE_MII:
 		dwmac->enable_eth_ck = dwmac->ext_phyclk;
 		return 0;
@@ -193,7 +188,7 @@ static int stm32mp1_select_ethck_external(struct plat_stmmacenet_data *plat_dat)
 	default:
 		dwmac->enable_eth_ck = false;
 		dev_err(dwmac->dev, "Mode %s not supported",
-			phy_modes(plat_dat->mac_interface));
+			phy_modes(plat_dat->phy_interface));
 		return -EINVAL;
 	}
 }
@@ -206,7 +201,7 @@ static int stm32mp1_validate_ethck_rate(struct plat_stmmacenet_data *plat_dat)
 	if (!dwmac->enable_eth_ck)
 		return 0;
 
-	switch (plat_dat->mac_interface) {
+	switch (plat_dat->phy_interface) {
 	case PHY_INTERFACE_MODE_MII:
 	case PHY_INTERFACE_MODE_GMII:
 		if (clk_rate == ETH_CK_F_25M)
@@ -228,17 +223,20 @@ static int stm32mp1_validate_ethck_rate(struct plat_stmmacenet_data *plat_dat)
 	}
 
 	dev_err(dwmac->dev, "Mode %s does not match eth-ck frequency %d Hz",
-		phy_modes(plat_dat->mac_interface), clk_rate);
+		phy_modes(plat_dat->phy_interface), clk_rate);
 	return -EINVAL;
 }
 
-static int stm32mp1_configure_pmcr(struct plat_stmmacenet_data *plat_dat)
+static int stm32mp1_configure_pmcr(struct plat_stmmacenet_data *plat_dat,
+				   u8 phy_intf_sel)
 {
 	struct stm32_dwmac *dwmac = plat_dat->bsp_priv;
 	u32 reg = dwmac->mode_reg;
-	int val = 0;
+	int val;
 
-	switch (plat_dat->mac_interface) {
+	val = FIELD_PREP(SYSCFG_PMCR_PHY_INTF_SEL_MASK, phy_intf_sel);
+
+	switch (plat_dat->phy_interface) {
 	case PHY_INTERFACE_MODE_MII:
 		/*
 		 * STM32MP15xx supports both MII and GMII, STM32MP13xx MII only.
@@ -250,12 +248,10 @@ static int stm32mp1_configure_pmcr(struct plat_stmmacenet_data *plat_dat)
 			val |= SYSCFG_PMCR_ETH_SEL_MII;
 		break;
 	case PHY_INTERFACE_MODE_GMII:
-		val = SYSCFG_PMCR_ETH_SEL_GMII;
 		if (dwmac->enable_eth_ck)
 			val |= SYSCFG_PMCR_ETH_CLK_SEL;
 		break;
 	case PHY_INTERFACE_MODE_RMII:
-		val = SYSCFG_PMCR_ETH_SEL_RMII;
 		if (dwmac->enable_eth_ck)
 			val |= SYSCFG_PMCR_ETH_REF_CLK_SEL;
 		break;
@@ -263,18 +259,17 @@ static int stm32mp1_configure_pmcr(struct plat_stmmacenet_data *plat_dat)
 	case PHY_INTERFACE_MODE_RGMII_ID:
 	case PHY_INTERFACE_MODE_RGMII_RXID:
 	case PHY_INTERFACE_MODE_RGMII_TXID:
-		val = SYSCFG_PMCR_ETH_SEL_RGMII;
 		if (dwmac->enable_eth_ck)
 			val |= SYSCFG_PMCR_ETH_CLK_SEL;
 		break;
 	default:
 		dev_err(dwmac->dev, "Mode %s not supported",
-			phy_modes(plat_dat->mac_interface));
+			phy_modes(plat_dat->phy_interface));
 		/* Do not manage others interfaces */
 		return -EINVAL;
 	}
 
-	dev_dbg(dwmac->dev, "Mode %s", phy_modes(plat_dat->mac_interface));
+	dev_dbg(dwmac->dev, "Mode %s", phy_modes(plat_dat->phy_interface));
 
 	/* Shift value at correct ethernet MAC offset in SYSCFG_PMCSETR */
 	val <<= ffs(dwmac->mode_mask) - ffs(SYSCFG_MP1_ETH_MASK);
@@ -288,18 +283,20 @@ static int stm32mp1_configure_pmcr(struct plat_stmmacenet_data *plat_dat)
 				 dwmac->mode_mask, val);
 }
 
-static int stm32mp2_configure_syscfg(struct plat_stmmacenet_data *plat_dat)
+static int stm32mp2_configure_syscfg(struct plat_stmmacenet_data *plat_dat,
+				     u8 phy_intf_sel)
 {
 	struct stm32_dwmac *dwmac = plat_dat->bsp_priv;
 	u32 reg = dwmac->mode_reg;
-	int val = 0;
+	int val;
 
-	switch (plat_dat->mac_interface) {
+	val = FIELD_PREP(SYSCFG_ETHCR_ETH_SEL_MASK, phy_intf_sel);
+
+	switch (plat_dat->phy_interface) {
 	case PHY_INTERFACE_MODE_MII:
 		/* ETH_REF_CLK_SEL bit in SYSCFG register is not applicable in MII mode */
 		break;
 	case PHY_INTERFACE_MODE_RMII:
-		val = SYSCFG_ETHCR_ETH_SEL_RMII;
 		if (dwmac->enable_eth_ck) {
 			/* Internal clock ETH_CLK of 50MHz from RCC is used */
 			val |= SYSCFG_ETHCR_ETH_REF_CLK_SEL;
@@ -309,8 +306,6 @@ static int stm32mp2_configure_syscfg(struct plat_stmmacenet_data *plat_dat)
 	case PHY_INTERFACE_MODE_RGMII_ID:
 	case PHY_INTERFACE_MODE_RGMII_RXID:
 	case PHY_INTERFACE_MODE_RGMII_TXID:
-		val = SYSCFG_ETHCR_ETH_SEL_RGMII;
-		fallthrough;
 	case PHY_INTERFACE_MODE_GMII:
 		if (dwmac->enable_eth_ck) {
 			/* Internal clock ETH_CLK of 125MHz from RCC is used */
@@ -319,12 +314,12 @@ static int stm32mp2_configure_syscfg(struct plat_stmmacenet_data *plat_dat)
 		break;
 	default:
 		dev_err(dwmac->dev, "Mode %s not supported",
-			phy_modes(plat_dat->mac_interface));
+			phy_modes(plat_dat->phy_interface));
 		/* Do not manage others interfaces */
 		return -EINVAL;
 	}
 
-	dev_dbg(dwmac->dev, "Mode %s", phy_modes(plat_dat->mac_interface));
+	dev_dbg(dwmac->dev, "Mode %s", phy_modes(plat_dat->phy_interface));
 
 	/* Select PTP (IEEE1588) clock selection from RCC (ck_ker_ethxptp) */
 	val |= SYSCFG_ETHCR_ETH_PTP_CLK_SEL;
@@ -337,7 +332,7 @@ static int stm32mp2_configure_syscfg(struct plat_stmmacenet_data *plat_dat)
 static int stm32mp1_set_mode(struct plat_stmmacenet_data *plat_dat)
 {
 	struct stm32_dwmac *dwmac = plat_dat->bsp_priv;
-	int ret;
+	int phy_intf_sel, ret;
 
 	ret = stm32mp1_select_ethck_external(plat_dat);
 	if (ret)
@@ -347,10 +342,19 @@ static int stm32mp1_set_mode(struct plat_stmmacenet_data *plat_dat)
 	if (ret)
 		return ret;
 
+	phy_intf_sel = stmmac_get_phy_intf_sel(plat_dat->phy_interface);
+	if (phy_intf_sel != PHY_INTF_SEL_GMII_MII &&
+	    phy_intf_sel != PHY_INTF_SEL_RGMII &&
+	    phy_intf_sel != PHY_INTF_SEL_RMII) {
+		dev_err(dwmac->dev, "Mode %s not supported\n",
+			phy_modes(plat_dat->phy_interface));
+		return phy_intf_sel < 0 ? phy_intf_sel : -EINVAL;
+	}
+
 	if (!dwmac->ops->is_mp2)
-		return stm32mp1_configure_pmcr(plat_dat);
+		return stm32mp1_configure_pmcr(plat_dat, phy_intf_sel);
 	else
-		return stm32mp2_configure_syscfg(plat_dat);
+		return stm32mp2_configure_syscfg(plat_dat, phy_intf_sel);
 }
 
 static int stm32mcu_set_mode(struct plat_stmmacenet_data *plat_dat)
@@ -359,7 +363,7 @@ static int stm32mcu_set_mode(struct plat_stmmacenet_data *plat_dat)
 	u32 reg = dwmac->mode_reg;
 	int val;
 
-	switch (plat_dat->mac_interface) {
+	switch (plat_dat->phy_interface) {
 	case PHY_INTERFACE_MODE_MII:
 		val = SYSCFG_MCU_ETH_SEL_MII;
 		break;
@@ -368,12 +372,12 @@ static int stm32mcu_set_mode(struct plat_stmmacenet_data *plat_dat)
 		break;
 	default:
 		dev_err(dwmac->dev, "Mode %s not supported",
-			phy_modes(plat_dat->mac_interface));
+			phy_modes(plat_dat->phy_interface));
 		/* Do not manage others interfaces */
 		return -EINVAL;
 	}
 
-	dev_dbg(dwmac->dev, "Mode %s", phy_modes(plat_dat->mac_interface));
+	dev_dbg(dwmac->dev, "Mode %s", phy_modes(plat_dat->phy_interface));
 
 	return regmap_update_bits(dwmac->regmap, reg,
 				 SYSCFG_MCU_ETH_MASK, val << 23);
@@ -498,6 +502,26 @@ static int stm32mp1_parse_data(struct stm32_dwmac *dwmac,
 	return err;
 }
 
+static int stm32_dwmac_suspend(struct device *dev, void *bsp_priv)
+{
+	struct stm32_dwmac *dwmac = bsp_priv;
+
+	stm32_dwmac_clk_disable(dwmac);
+
+	return dwmac->ops->suspend ? dwmac->ops->suspend(dwmac) : 0;
+}
+
+static int stm32_dwmac_resume(struct device *dev, void *bsp_priv)
+{
+	struct stmmac_priv *priv = netdev_priv(dev_get_drvdata(dev));
+	struct stm32_dwmac *dwmac = bsp_priv;
+
+	if (dwmac->ops->resume)
+		dwmac->ops->resume(dwmac);
+
+	return stm32_dwmac_init(priv->plat);
+}
+
 static int stm32_dwmac_probe(struct platform_device *pdev)
 {
 	struct plat_stmmacenet_data *plat_dat;
@@ -535,6 +559,8 @@ static int stm32_dwmac_probe(struct platform_device *pdev)
 
 	plat_dat->flags |= STMMAC_FLAG_EN_TX_LPI_CLK_PHY_CAP;
 	plat_dat->bsp_priv = dwmac;
+	plat_dat->suspend = stm32_dwmac_suspend;
+	plat_dat->resume = stm32_dwmac_resume;
 
 	ret = stm32_dwmac_init(plat_dat);
 	if (ret)
@@ -600,50 +626,6 @@ static void stm32mp1_resume(struct stm32_dwmac *dwmac)
 	clk_disable_unprepare(dwmac->clk_ethstp);
 }
 
-#ifdef CONFIG_PM_SLEEP
-static int stm32_dwmac_suspend(struct device *dev)
-{
-	struct net_device *ndev = dev_get_drvdata(dev);
-	struct stmmac_priv *priv = netdev_priv(ndev);
-	struct stm32_dwmac *dwmac = priv->plat->bsp_priv;
-
-	int ret;
-
-	ret = stmmac_suspend(dev);
-	if (ret)
-		return ret;
-
-	stm32_dwmac_clk_disable(dwmac);
-
-	if (dwmac->ops->suspend)
-		ret = dwmac->ops->suspend(dwmac);
-
-	return ret;
-}
-
-static int stm32_dwmac_resume(struct device *dev)
-{
-	struct net_device *ndev = dev_get_drvdata(dev);
-	struct stmmac_priv *priv = netdev_priv(ndev);
-	struct stm32_dwmac *dwmac = priv->plat->bsp_priv;
-	int ret;
-
-	if (dwmac->ops->resume)
-		dwmac->ops->resume(dwmac);
-
-	ret = stm32_dwmac_init(priv->plat);
-	if (ret)
-		return ret;
-
-	ret = stmmac_resume(dev);
-
-	return ret;
-}
-#endif /* CONFIG_PM_SLEEP */
-
-static SIMPLE_DEV_PM_OPS(stm32_dwmac_pm_ops,
-	stm32_dwmac_suspend, stm32_dwmac_resume);
-
 static struct stm32_ops stm32mcu_dwmac_data = {
 	.set_mode = stm32mcu_set_mode
 };
@@ -691,7 +673,7 @@ static struct platform_driver stm32_dwmac_driver = {
 	.remove = stm32_dwmac_remove,
 	.driver = {
 		.name           = "stm32-dwmac",
-		.pm		= &stm32_dwmac_pm_ops,
+		.pm		= &stmmac_simple_pm_ops,
 		.of_match_table = stm32_dwmac_match,
 	},
 };

@@ -2,7 +2,7 @@
 /*
  * radio-aztech.c - Aztech radio card driver
  *
- * Converted to the radio-isa framework by Hans Verkuil <hverkuil@xs4all.nl>
+ * Converted to the radio-isa framework by Hans Verkuil <hverkuil@kernel.org>
  * Converted to V4L2 API by Mauro Carvalho Chehab <mchehab@kernel.org>
  * Adapted to support the Video for Linux API by
  * Russell Kroll <rkroll@exploits.org>.  Based on original tuner code by:
@@ -82,7 +82,7 @@ static void aztech_set_pins(void *handle, u8 pins)
 
 static struct radio_isa_card *aztech_alloc(void)
 {
-	struct aztech *az = kzalloc(sizeof(*az), GFP_KERNEL);
+	struct aztech *az = kzalloc_obj(*az);
 
 	return az ? &az->isa : NULL;
 }

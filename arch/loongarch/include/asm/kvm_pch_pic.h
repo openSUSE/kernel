@@ -34,13 +34,26 @@
 #define PCH_PIC_INT_ISR_END		0x3af
 #define PCH_PIC_POLARITY_START		0x3e0
 #define PCH_PIC_POLARITY_END		0x3e7
-#define PCH_PIC_INT_ID_VAL		0x7000000UL
+#define PCH_PIC_INT_ID_VAL		0x7UL
 #define PCH_PIC_INT_ID_VER		0x1UL
+
+union pch_pic_id {
+	struct {
+		uint8_t reserved_0[3];
+		uint8_t id;
+		uint8_t version;
+		uint8_t reserved_1;
+		uint8_t irq_num;
+		uint8_t reserved_2;
+	} desc;
+	uint64_t data;
+};
 
 struct loongarch_pch_pic {
 	spinlock_t lock;
 	struct kvm *kvm;
 	struct kvm_io_device device;
+	union pch_pic_id id;
 	uint64_t mask; /* 1:disable irq, 0:enable irq */
 	uint64_t htmsi_en; /* 1:msi */
 	uint64_t edge; /* 1:edge triggered, 0:level triggered */
@@ -55,8 +68,9 @@ struct loongarch_pch_pic {
 	uint64_t pch_pic_base;
 };
 
+struct kvm_kernel_irq_routing_entry;
 int kvm_loongarch_register_pch_pic_device(void);
 void pch_pic_set_irq(struct loongarch_pch_pic *s, int irq, int level);
-void pch_msi_set_irq(struct kvm *kvm, int irq, int level);
+int pch_msi_set_irq(struct kvm *kvm, struct kvm_kernel_irq_routing_entry *e, int level);
 
 #endif /* __ASM_KVM_PCH_PIC_H */

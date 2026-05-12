@@ -39,9 +39,9 @@ static void dmub_dcn401_get_fb_base_offset(struct dmub_srv *dmub,
 {
 	uint32_t tmp;
 
-	if (dmub->fb_base || dmub->fb_offset) {
-		*fb_base = dmub->fb_base;
-		*fb_offset = dmub->fb_offset;
+	if (dmub->soc_fb_info.fb_base || dmub->soc_fb_info.fb_offset) {
+		*fb_base = dmub->soc_fb_info.fb_base;
+		*fb_offset = dmub->soc_fb_info.fb_offset;
 		return;
 	}
 
@@ -81,7 +81,7 @@ void dmub_dcn401_reset(struct dmub_srv *dmub)
 		dmub->hw_funcs.set_gpint(dmub, cmd);
 
 		for (; i < timeout_us; i++) {
-			scratch = dmub->hw_funcs.get_gpint_response(dmub);
+			scratch = REG_READ(DMCUB_SCRATCH7);
 			if (scratch == DMUB_GPINT__STOP_FW_RESPONSE)
 				break;
 
@@ -97,10 +97,23 @@ void dmub_dcn401_reset(struct dmub_srv *dmub)
 		}
 	}
 
+	if (enabled) {
+		REG_UPDATE(DMCUB_CNTL2, DMCUB_SOFT_RESET, 1);
+		udelay(1);
+		REG_UPDATE(DMCUB_CNTL, DMCUB_ENABLE, 0);
+	}
+
 	if (i >= timeout_us) {
 		/* timeout should never occur */
 		BREAK_TO_DEBUGGER();
 	}
+
+	REG_UPDATE(DMCUB_REGION3_CW2_TOP_ADDRESS, DMCUB_REGION3_CW2_ENABLE, 0);
+	REG_UPDATE(DMCUB_REGION3_CW3_TOP_ADDRESS, DMCUB_REGION3_CW3_ENABLE, 0);
+	REG_UPDATE(DMCUB_REGION3_CW4_TOP_ADDRESS, DMCUB_REGION3_CW4_ENABLE, 0);
+	REG_UPDATE(DMCUB_REGION3_CW5_TOP_ADDRESS, DMCUB_REGION3_CW5_ENABLE, 0);
+	REG_UPDATE(DMCUB_REGION3_CW6_TOP_ADDRESS, DMCUB_REGION3_CW6_ENABLE, 0);
+	REG_UPDATE(DMCUB_REGION3_CW7_TOP_ADDRESS, DMCUB_REGION3_CW7_ENABLE, 0);
 
 	REG_WRITE(DMCUB_INBOX1_RPTR, 0);
 	REG_WRITE(DMCUB_INBOX1_WPTR, 0);
@@ -134,7 +147,6 @@ void dmub_dcn401_backdoor_load(struct dmub_srv *dmub,
 
 	/* reset and disable DMCUB and MMHUBBUB DMUIF */
 	REG_UPDATE(DMCUB_SEC_CNTL, DMCUB_SEC_RESET, 1);
-	REG_UPDATE(MMHUBBUB_SOFT_RESET, DMUIF_SOFT_RESET, 1);
 	REG_UPDATE(DMCUB_CNTL, DMCUB_ENABLE, 0);
 
 	dmub_dcn401_translate_addr(&cw0->offset, fb_base, fb_offset, &offset);
@@ -168,7 +180,6 @@ void dmub_dcn401_backdoor_load_zfb_mode(struct dmub_srv *dmub,
 
 	/* reset and disable DMCUB and MMHUBBUB DMUIF */
 	REG_UPDATE(DMCUB_SEC_CNTL, DMCUB_SEC_RESET, 1);
-	REG_UPDATE(MMHUBBUB_SOFT_RESET, DMUIF_SOFT_RESET, 1);
 	REG_UPDATE(DMCUB_CNTL, DMCUB_ENABLE, 0);
 
 	offset = cw0->offset;
@@ -202,6 +213,7 @@ void dmub_dcn401_setup_windows(struct dmub_srv *dmub,
 		const struct dmub_window *cw6,
 		const struct dmub_window *region6)
 {
+	(void)cw2;
 	union dmub_addr offset;
 
 	offset = cw3->offset;
@@ -462,25 +474,32 @@ void dmub_dcn401_get_diagnostic_data(struct dmub_srv *dmub)
 	dmub->debug.outbox1_size = REG_READ(DMCUB_OUTBOX1_SIZE);
 
 	REG_GET(DMCUB_CNTL, DMCUB_ENABLE, &is_dmub_enabled);
-	dmub->debug.is_dmcub_enabled = is_dmub_enabled;
+	ASSERT(is_dmub_enabled <= 0xFF);
+	dmub->debug.is_dmcub_enabled = (uint8_t)is_dmub_enabled;
 
 	REG_GET(DMCUB_CNTL, DMCUB_PWAIT_MODE_STATUS, &is_pwait);
-	dmub->debug.is_pwait = is_pwait;
+	ASSERT(is_pwait <= 0xFF);
+	dmub->debug.is_pwait = (uint8_t)is_pwait;
 
 	REG_GET(DMCUB_CNTL2, DMCUB_SOFT_RESET, &is_soft_reset);
-	dmub->debug.is_dmcub_soft_reset = is_soft_reset;
+	ASSERT(is_soft_reset <= 0xFF);
+	dmub->debug.is_dmcub_soft_reset = (uint8_t)is_soft_reset;
 
 	REG_GET(DMCUB_SEC_CNTL, DMCUB_SEC_RESET_STATUS, &is_sec_reset);
-	dmub->debug.is_dmcub_secure_reset = is_sec_reset;
+	ASSERT(is_sec_reset <= 0xFF);
+	dmub->debug.is_dmcub_secure_reset = (uint8_t)is_sec_reset;
 
 	REG_GET(DMCUB_CNTL, DMCUB_TRACEPORT_EN, &is_traceport_enabled);
-	dmub->debug.is_traceport_en  = is_traceport_enabled;
+	ASSERT(is_traceport_enabled <= 0xFF);
+	dmub->debug.is_traceport_en  = (uint8_t)is_traceport_enabled;
 
 	REG_GET(DMCUB_REGION3_CW0_TOP_ADDRESS, DMCUB_REGION3_CW0_ENABLE, &is_cw0_enabled);
-	dmub->debug.is_cw0_enabled = is_cw0_enabled;
+	ASSERT(is_cw0_enabled <= 0xFF);
+	dmub->debug.is_cw0_enabled = (uint8_t)is_cw0_enabled;
 
 	REG_GET(DMCUB_REGION3_CW6_TOP_ADDRESS, DMCUB_REGION3_CW6_ENABLE, &is_cw6_enabled);
-	dmub->debug.is_cw6_enabled = is_cw6_enabled;
+	ASSERT(is_cw6_enabled <= 0xFF);
+	dmub->debug.is_cw6_enabled = (uint8_t)is_cw6_enabled;
 
 	dmub->debug.gpint_datain0 = REG_READ(DMCUB_GPINT_DATAIN0);
 }
@@ -516,7 +535,7 @@ void dmub_dcn401_send_reg_inbox0_cmd_msg(struct dmub_srv *dmub,
 		union dmub_rb_cmd *cmd)
 {
 	uint32_t *dwords = (uint32_t *)cmd;
-	int32_t payload_size_bytes = cmd->cmd_common.header.payload_bytes;
+	uint32_t payload_size_bytes = cmd->cmd_common.header.payload_bytes;
 	uint32_t msg_index;
 	static_assert(sizeof(*cmd) == 64, "DMUB command size mismatch");
 

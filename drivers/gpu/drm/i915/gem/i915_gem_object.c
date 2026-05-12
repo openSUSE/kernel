@@ -27,6 +27,7 @@
 #include <linux/sched/mm.h>
 
 #include <drm/drm_cache.h>
+#include <drm/drm_print.h>
 
 #include "display/intel_frontbuffer.h"
 #include "pxp/intel_pxp.h"
@@ -459,8 +460,8 @@ static void i915_gem_free_object(struct drm_gem_object *gem_obj)
 	atomic_inc(&i915->mm.free_count);
 
 	/*
-	 * Since we require blocking on struct_mutex to unbind the freed
-	 * object from the GPU before releasing resources back to the
+	 * Since we require blocking on drm_i915_gem_object->vma.lock to unbind
+	 * the freed object from the GPU before releasing resources back to the
 	 * system, we can not do that directly from the RCU callback (which may
 	 * be a softirq context), but must instead then defer that work onto a
 	 * kthread. We use the RCU callback rather than move the freed object
@@ -471,30 +472,6 @@ static void i915_gem_free_object(struct drm_gem_object *gem_obj)
 
 	if (llist_add(&obj->freed, &i915->mm.free_list))
 		queue_work(i915->wq, &i915->mm.free_work);
-}
-
-void __i915_gem_object_flush_frontbuffer(struct drm_i915_gem_object *obj,
-					 enum fb_op_origin origin)
-{
-	struct intel_frontbuffer *front;
-
-	front = i915_gem_object_get_frontbuffer(obj);
-	if (front) {
-		intel_frontbuffer_flush(front, origin);
-		intel_frontbuffer_put(front);
-	}
-}
-
-void __i915_gem_object_invalidate_frontbuffer(struct drm_i915_gem_object *obj,
-					      enum fb_op_origin origin)
-{
-	struct intel_frontbuffer *front;
-
-	front = i915_gem_object_get_frontbuffer(obj);
-	if (front) {
-		intel_frontbuffer_invalidate(front, origin);
-		intel_frontbuffer_put(front);
-	}
 }
 
 static void

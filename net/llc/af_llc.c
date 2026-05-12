@@ -337,7 +337,7 @@ out:
  *	otherwise all hell will break loose.
  *	Returns: 0 upon success, negative otherwise.
  */
-static int llc_ui_bind(struct socket *sock, struct sockaddr *uaddr, int addrlen)
+static int llc_ui_bind(struct socket *sock, struct sockaddr_unsized *uaddr, int addrlen)
 {
 	struct sockaddr_llc *addr = (struct sockaddr_llc *)uaddr;
 	struct sock *sk = sock->sk;
@@ -477,7 +477,7 @@ out:
  *	This function will autobind if user did not previously call bind.
  *	Returns: 0 upon success, negative otherwise.
  */
-static int llc_ui_connect(struct socket *sock, struct sockaddr *uaddr,
+static int llc_ui_connect(struct socket *sock, struct sockaddr_unsized *uaddr,
 			  int addrlen, int flags)
 {
 	struct sock *sk = sock->sk;
@@ -520,8 +520,10 @@ static int llc_ui_connect(struct socket *sock, struct sockaddr *uaddr,
 	if (sk->sk_state == TCP_SYN_SENT) {
 		const long timeo = sock_sndtimeo(sk, flags & O_NONBLOCK);
 
-		if (!timeo || !llc_ui_wait_for_conn(sk, timeo))
+		if (!timeo || !llc_ui_wait_for_conn(sk, timeo)) {
+			rc = -EINPROGRESS;
 			goto out;
+		}
 
 		rc = sock_intr_errno(timeo);
 		if (signal_pending(current))

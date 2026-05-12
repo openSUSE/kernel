@@ -19,6 +19,7 @@
 #include <drm/drm_crtc.h>
 #include <drm/drm_fourcc.h>
 #include <drm/drm_gem_framebuffer_helper.h>
+#include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_vblank.h>
 
@@ -43,7 +44,7 @@ struct vc4_load_tracker_state {
 #define to_vc4_load_tracker_state(_state)				\
 	container_of_const(_state, struct vc4_load_tracker_state, base)
 
-static struct vc4_ctm_state *vc4_get_ctm_state(struct drm_atomic_state *state,
+static struct vc4_ctm_state *vc4_get_ctm_state(struct drm_atomic_commit *state,
 					       struct drm_private_obj *manager)
 {
 	struct drm_device *dev = state->dev;
@@ -84,7 +85,22 @@ static void vc4_ctm_destroy_state(struct drm_private_obj *obj,
 	kfree(ctm_state);
 }
 
+static struct drm_private_state *
+vc4_ctm_create_state(struct drm_private_obj *obj)
+{
+	struct vc4_ctm_state *ctm_state;
+
+	ctm_state = kzalloc_obj(*ctm_state);
+	if (!ctm_state)
+		return ERR_PTR(-ENOMEM);
+
+	__drm_atomic_helper_private_obj_create_state(obj, &ctm_state->base);
+
+	return &ctm_state->base;
+}
+
 static const struct drm_private_state_funcs vc4_ctm_state_funcs = {
+	.atomic_create_state = vc4_ctm_create_state,
 	.atomic_duplicate_state = vc4_ctm_duplicate_state,
 	.atomic_destroy_state = vc4_ctm_destroy_state,
 };
@@ -98,15 +114,9 @@ static void vc4_ctm_obj_fini(struct drm_device *dev, void *unused)
 
 static int vc4_ctm_obj_init(struct vc4_dev *vc4)
 {
-	struct vc4_ctm_state *ctm_state;
-
 	drm_modeset_lock_init(&vc4->ctm_state_lock);
 
-	ctm_state = kzalloc(sizeof(*ctm_state), GFP_KERNEL);
-	if (!ctm_state)
-		return -ENOMEM;
-
-	drm_atomic_private_obj_init(&vc4->base, &vc4->ctm_manager, &ctm_state->base,
+	drm_atomic_private_obj_init(&vc4->base, &vc4->ctm_manager,
 				    &vc4_ctm_state_funcs);
 
 	return drmm_add_action_or_reset(&vc4->base, vc4_ctm_obj_fini, NULL);
@@ -132,7 +142,7 @@ static u16 vc4_ctm_s31_32_to_s0_9(u64 in)
 }
 
 static void
-vc4_ctm_commit(struct vc4_dev *vc4, struct drm_atomic_state *state)
+vc4_ctm_commit(struct vc4_dev *vc4, struct drm_atomic_commit *state)
 {
 	struct vc4_hvs *hvs = vc4->hvs;
 	struct vc4_ctm_state *ctm_state = to_vc4_ctm_state(vc4->ctm_manager.state);
@@ -169,7 +179,7 @@ vc4_ctm_commit(struct vc4_dev *vc4, struct drm_atomic_state *state)
 }
 
 struct vc4_hvs_state *
-vc4_hvs_get_new_global_state(const struct drm_atomic_state *state)
+vc4_hvs_get_new_global_state(const struct drm_atomic_commit *state)
 {
 	struct vc4_dev *vc4 = to_vc4_dev(state->dev);
 	struct drm_private_state *priv_state;
@@ -182,7 +192,7 @@ vc4_hvs_get_new_global_state(const struct drm_atomic_state *state)
 }
 
 struct vc4_hvs_state *
-vc4_hvs_get_old_global_state(const struct drm_atomic_state *state)
+vc4_hvs_get_old_global_state(const struct drm_atomic_commit *state)
 {
 	struct vc4_dev *vc4 = to_vc4_dev(state->dev);
 	struct drm_private_state *priv_state;
@@ -195,7 +205,7 @@ vc4_hvs_get_old_global_state(const struct drm_atomic_state *state)
 }
 
 struct vc4_hvs_state *
-vc4_hvs_get_global_state(struct drm_atomic_state *state)
+vc4_hvs_get_global_state(struct drm_atomic_commit *state)
 {
 	struct vc4_dev *vc4 = to_vc4_dev(state->dev);
 	struct drm_private_state *priv_state;
@@ -208,7 +218,7 @@ vc4_hvs_get_global_state(struct drm_atomic_state *state)
 }
 
 static void vc4_hvs_pv_muxing_commit(struct vc4_dev *vc4,
-				     struct drm_atomic_state *state)
+				     struct drm_atomic_commit *state)
 {
 	struct vc4_hvs *hvs = vc4->hvs;
 	struct drm_crtc_state *crtc_state;
@@ -251,7 +261,7 @@ static void vc4_hvs_pv_muxing_commit(struct vc4_dev *vc4,
 }
 
 static void vc5_hvs_pv_muxing_commit(struct vc4_dev *vc4,
-				     struct drm_atomic_state *state)
+				     struct drm_atomic_commit *state)
 {
 	struct vc4_hvs *hvs = vc4->hvs;
 	struct drm_crtc_state *crtc_state;
@@ -327,7 +337,7 @@ static void vc5_hvs_pv_muxing_commit(struct vc4_dev *vc4,
 }
 
 static void vc6_hvs_pv_muxing_commit(struct vc4_dev *vc4,
-				     struct drm_atomic_state *state)
+				     struct drm_atomic_commit *state)
 {
 	struct vc4_hvs *hvs = vc4->hvs;
 	struct drm_crtc_state *crtc_state;
@@ -374,7 +384,7 @@ static void vc6_hvs_pv_muxing_commit(struct vc4_dev *vc4,
 	}
 }
 
-static void vc4_atomic_commit_tail(struct drm_atomic_state *state)
+static void vc4_atomic_commit_tail(struct drm_atomic_commit *state)
 {
 	struct drm_device *dev = state->dev;
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
@@ -498,7 +508,7 @@ static void vc4_atomic_commit_tail(struct drm_atomic_state *state)
 	}
 }
 
-static int vc4_atomic_commit_setup(struct drm_atomic_state *state)
+static int vc4_atomic_commit_setup(struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *crtc_state;
 	struct vc4_hvs_state *hvs_state;
@@ -577,7 +587,7 @@ static struct drm_framebuffer *vc4_fb_create(struct drm_device *dev,
  * we don't allow userland to set a CTM that we have no hope of approximating.
  */
 static int
-vc4_ctm_atomic_check(struct drm_device *dev, struct drm_atomic_state *state)
+vc4_ctm_atomic_check(struct drm_device *dev, struct drm_atomic_commit *state)
 {
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	struct vc4_ctm_state *ctm_state = NULL;
@@ -643,7 +653,7 @@ vc4_ctm_atomic_check(struct drm_device *dev, struct drm_atomic_state *state)
 	return 0;
 }
 
-static int vc4_load_tracker_atomic_check(struct drm_atomic_state *state)
+static int vc4_load_tracker_atomic_check(struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *old_plane_state, *new_plane_state;
 	struct vc4_dev *vc4 = to_vc4_dev(state->dev);
@@ -717,7 +727,22 @@ static void vc4_load_tracker_destroy_state(struct drm_private_obj *obj,
 	kfree(load_state);
 }
 
+static struct drm_private_state *
+vc4_load_tracker_create_state(struct drm_private_obj *obj)
+{
+	struct vc4_load_tracker_state *load_state;
+
+	load_state = kzalloc_obj(*load_state);
+	if (!load_state)
+		return ERR_PTR(-ENOMEM);
+
+	__drm_atomic_helper_private_obj_create_state(obj, &load_state->base);
+
+	return &load_state->base;
+}
+
 static const struct drm_private_state_funcs vc4_load_tracker_state_funcs = {
+	.atomic_create_state = vc4_load_tracker_create_state,
 	.atomic_duplicate_state = vc4_load_tracker_duplicate_state,
 	.atomic_destroy_state = vc4_load_tracker_destroy_state,
 };
@@ -731,14 +756,7 @@ static void vc4_load_tracker_obj_fini(struct drm_device *dev, void *unused)
 
 static int vc4_load_tracker_obj_init(struct vc4_dev *vc4)
 {
-	struct vc4_load_tracker_state *load_state;
-
-	load_state = kzalloc(sizeof(*load_state), GFP_KERNEL);
-	if (!load_state)
-		return -ENOMEM;
-
 	drm_atomic_private_obj_init(&vc4->base, &vc4->load_tracker,
-				    &load_state->base,
 				    &vc4_load_tracker_state_funcs);
 
 	return drmm_add_action_or_reset(&vc4->base, vc4_load_tracker_obj_fini, NULL);
@@ -751,7 +769,7 @@ vc4_hvs_channels_duplicate_state(struct drm_private_obj *obj)
 	struct vc4_hvs_state *state;
 	unsigned int i;
 
-	state = kzalloc(sizeof(*state), GFP_KERNEL);
+	state = kzalloc_obj(*state);
 	if (!state)
 		return NULL;
 
@@ -799,7 +817,22 @@ static void vc4_hvs_channels_print_state(struct drm_printer *p,
 	}
 }
 
+static struct drm_private_state *
+vc4_hvs_channels_create_state(struct drm_private_obj *obj)
+{
+	struct vc4_hvs_state *hvs_state;
+
+	hvs_state = kzalloc_obj(*hvs_state);
+	if (!hvs_state)
+		return ERR_PTR(-ENOMEM);
+
+	__drm_atomic_helper_private_obj_create_state(obj, &hvs_state->base);
+
+	return &hvs_state->base;
+}
+
 static const struct drm_private_state_funcs vc4_hvs_state_funcs = {
+	.atomic_create_state = vc4_hvs_channels_create_state,
 	.atomic_duplicate_state = vc4_hvs_channels_duplicate_state,
 	.atomic_destroy_state = vc4_hvs_channels_destroy_state,
 	.atomic_print_state = vc4_hvs_channels_print_state,
@@ -814,14 +847,7 @@ static void vc4_hvs_channels_obj_fini(struct drm_device *dev, void *unused)
 
 static int vc4_hvs_channels_obj_init(struct vc4_dev *vc4)
 {
-	struct vc4_hvs_state *state;
-
-	state = kzalloc(sizeof(*state), GFP_KERNEL);
-	if (!state)
-		return -ENOMEM;
-
 	drm_atomic_private_obj_init(&vc4->base, &vc4->hvs_channels,
-				    &state->base,
 				    &vc4_hvs_state_funcs);
 
 	return drmm_add_action_or_reset(&vc4->base, vc4_hvs_channels_obj_fini, NULL);
@@ -872,7 +898,7 @@ static int cmp_vc4_crtc_hvs_output(const void *a, const void *b)
  *   single display, and changing the resolution down and then back up.
  */
 static int vc4_pv_muxing_atomic_check(struct drm_device *dev,
-				      struct drm_atomic_state *state)
+				      struct drm_atomic_commit *state)
 {
 	struct vc4_hvs_state *hvs_new_state;
 	struct drm_crtc **sorted_crtcs;
@@ -910,7 +936,7 @@ static int vc4_pv_muxing_atomic_check(struct drm_device *dev,
 	 * If the layout changes and doesn't give us that in the future,
 	 * we will need to have something smarter, but it works so far.
 	 */
-	sorted_crtcs = kmalloc_array(dev->num_crtcs, sizeof(*sorted_crtcs), GFP_KERNEL);
+	sorted_crtcs = kmalloc_objs(*sorted_crtcs, dev->num_crtcs);
 	if (!sorted_crtcs)
 		return -ENOMEM;
 
@@ -993,7 +1019,7 @@ err_free_crtc_array:
 }
 
 static int
-vc4_core_clock_atomic_check(struct drm_atomic_state *state)
+vc4_core_clock_atomic_check(struct drm_atomic_commit *state)
 {
 	struct vc4_dev *vc4 = to_vc4_dev(state->dev);
 	struct drm_private_state *priv_state;
@@ -1065,7 +1091,7 @@ vc4_core_clock_atomic_check(struct drm_atomic_state *state)
 
 
 static int
-vc4_atomic_check(struct drm_device *dev, struct drm_atomic_state *state)
+vc4_atomic_check(struct drm_device *dev, struct drm_atomic_commit *state)
 {
 	int ret;
 

@@ -36,6 +36,7 @@
  * T	Tip
  */
 
+#include <linux/hid.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/input.h>
@@ -43,10 +44,6 @@
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 #include <linux/mutex.h>
-
-/* USB HID defines */
-#define USB_REQ_GET_REPORT		0x01
-#define USB_REQ_SET_REPORT		0x09
 
 #define USB_VENDOR_ID_PEGASUSTECH	0x0e20
 #define USB_DEVICE_ID_PEGASUS_NOTETAKER_EN100	0x0101
@@ -62,6 +59,9 @@
 #define SPECIAL_COMMAND			0x80
 #define BUTTON_PRESSED			0xb5
 #define COMMAND_VERSION			0xa9
+
+/* 1 Status + 1 Color + 2 X + 2 Y = 6 bytes */
+#define NOTETAKER_PACKET_SIZE		6
 
 /* in xy data packet */
 #define BATTERY_NO_REPORT		0x40
@@ -105,7 +105,7 @@ static int pegasus_control_msg(struct pegasus *pegasus, u8 *data, int len)
 
 	result = usb_control_msg(pegasus->usbdev,
 				 usb_sndctrlpipe(pegasus->usbdev, 0),
-				 USB_REQ_SET_REPORT,
+				 HID_REQ_SET_REPORT,
 				 USB_TYPE_VENDOR | USB_DIR_OUT,
 				 0, 0, cmd_buf, sizeof_buf,
 				 USB_CTRL_SET_TIMEOUT);
@@ -290,7 +290,7 @@ static int pegasus_probe(struct usb_interface *intf,
 
 	endpoint = &intf->cur_altsetting->endpoint[0].desc;
 
-	pegasus = kzalloc(sizeof(*pegasus), GFP_KERNEL);
+	pegasus = kzalloc_obj(*pegasus);
 	input_dev = input_allocate_device();
 	if (!pegasus || !input_dev) {
 		error = -ENOMEM;
@@ -311,6 +311,12 @@ static int pegasus_probe(struct usb_interface *intf,
 	}
 
 	pegasus->data_len = usb_maxpacket(dev, pipe);
+	if (pegasus->data_len < NOTETAKER_PACKET_SIZE) {
+		dev_err(&intf->dev, "packet size is too small (%d)\n",
+			pegasus->data_len);
+		error = -EINVAL;
+		goto err_free_mem;
+	}
 
 	pegasus->data = usb_alloc_coherent(dev, pegasus->data_len, GFP_KERNEL,
 					   &pegasus->data_dma);

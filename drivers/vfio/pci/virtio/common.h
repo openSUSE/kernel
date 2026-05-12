@@ -68,7 +68,7 @@ struct virtiovf_migration_file {
 	enum virtiovf_migf_state state;
 	enum virtiovf_load_state load_state;
 	/* synchronize access to the lists */
-	spinlock_t list_lock;
+	struct mutex list_lock;
 	struct list_head buf_list;
 	struct list_head avail_list;
 	struct virtiovf_data_buffer *buf;
@@ -109,10 +109,9 @@ void virtiovf_migration_reset_done(struct pci_dev *pdev);
 
 #ifdef CONFIG_VIRTIO_VFIO_PCI_ADMIN_LEGACY
 int virtiovf_open_legacy_io(struct virtiovf_pci_core_device *virtvdev);
-long virtiovf_vfio_pci_core_ioctl(struct vfio_device *core_vdev,
-				  unsigned int cmd, unsigned long arg);
 int virtiovf_pci_ioctl_get_region_info(struct vfio_device *core_vdev,
-				       unsigned int cmd, unsigned long arg);
+				       struct vfio_region_info *info,
+				       struct vfio_info_cap *caps);
 ssize_t virtiovf_pci_core_write(struct vfio_device *core_vdev,
 				const char __user *buf, size_t count,
 				loff_t *ppos);

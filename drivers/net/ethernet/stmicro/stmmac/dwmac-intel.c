@@ -298,7 +298,7 @@ static void tgl_get_interfaces(struct stmmac_priv *priv, void *bsp_priv,
 
 	if (FIELD_GET(SERDES_LINK_MODE_MASK, data) == SERDES_LINK_MODE_2G5) {
 		dev_info(priv->device, "Link Speed Mode: 2.5Gbps\n");
-		priv->plat->mdio_bus_data->default_an_inband = false;
+		priv->plat->default_an_inband = false;
 		interface = PHY_INTERFACE_MODE_2500BASEX;
 	} else {
 		interface = PHY_INTERFACE_MODE_SGMII;
@@ -370,9 +370,6 @@ static int intel_crosststamp(ktime_t *device,
 	u32 gpio_value;
 	u32 acr_value;
 	int i;
-
-	if (!boot_cpu_has(X86_FEATURE_ART))
-		return -EOPNOTSUPP;
 
 	intel_priv = priv->plat->bsp_priv;
 
@@ -566,31 +563,12 @@ static int intel_mac_finish(struct net_device *ndev,
 
 static void common_default_data(struct plat_stmmacenet_data *plat)
 {
-	plat->clk_csr = 2;	/* clk_csr_i = 20-35MHz & MDC = clk_csr_i/16 */
-	plat->has_gmac = 1;
-	plat->force_sf_dma_mode = 1;
+	/* clk_csr_i = 20-35MHz & MDC = clk_csr_i/16 */
+	plat->clk_csr = STMMAC_CSR_20_35M;
+	plat->core_type = DWMAC_CORE_GMAC;
+	plat->force_sf_dma_mode = true;
 
 	plat->mdio_bus_data->needs_reset = true;
-
-	/* Set default value for multicast hash bins */
-	plat->multicast_filter_bins = HASH_TABLE_SIZE;
-
-	/* Set default value for unicast filter entries */
-	plat->unicast_filter_entries = 1;
-
-	/* Set the maxmtu to a default of JUMBO_LEN */
-	plat->maxmtu = JUMBO_LEN;
-
-	/* Set default number of RX and TX queues to use */
-	plat->tx_queues_to_use = 1;
-	plat->rx_queues_to_use = 1;
-
-	/* Disable Priority config by default */
-	plat->tx_queues_cfg[0].use_prio = false;
-	plat->rx_queues_cfg[0].use_prio = false;
-
-	/* Disable RX queues routing by default */
-	plat->rx_queues_cfg[0].pkt_route = 0x0;
 }
 
 static struct phylink_pcs *intel_mgbe_select_pcs(struct stmmac_priv *priv,
@@ -611,11 +589,10 @@ static int intel_mgbe_common_data(struct pci_dev *pdev,
 	int ret;
 	int i;
 
-	plat->pdev = pdev;
+	plat->provide_bus_info = true;
 	plat->phy_addr = -1;
-	plat->clk_csr = 5;
-	plat->has_gmac = 0;
-	plat->has_gmac4 = 1;
+	plat->clk_csr = STMMAC_CSR_250_300M;
+	plat->core_type = DWMAC_CORE_GMAC4;
 	plat->force_sf_dma_mode = 0;
 	plat->flags |= (STMMAC_FLAG_TSO_EN | STMMAC_FLAG_SPH_DISABLE);
 
@@ -632,22 +609,12 @@ static int intel_mgbe_common_data(struct pci_dev *pdev,
 
 	plat->rx_sched_algorithm = MTL_RX_ALGORITHM_SP;
 
-	for (i = 0; i < plat->rx_queues_to_use; i++) {
+	for (i = 0; i < plat->rx_queues_to_use; i++)
 		plat->rx_queues_cfg[i].mode_to_use = MTL_QUEUE_DCB;
-		plat->rx_queues_cfg[i].chan = i;
-
-		/* Disable Priority config by default */
-		plat->rx_queues_cfg[i].use_prio = false;
-
-		/* Disable RX queues routing by default */
-		plat->rx_queues_cfg[i].pkt_route = 0x0;
-	}
 
 	for (i = 0; i < plat->tx_queues_to_use; i++) {
 		plat->tx_queues_cfg[i].mode_to_use = MTL_QUEUE_DCB;
 
-		/* Disable Priority config by default */
-		plat->tx_queues_cfg[i].use_prio = false;
 		/* Default TX Q0 to use TSO and rest TXQ for TBS */
 		if (i > 0)
 			plat->tx_queues_cfg[i].tbs_en = 1;
@@ -669,8 +636,6 @@ static int intel_mgbe_common_data(struct pci_dev *pdev,
 
 	plat->dma_cfg->pbl = 32;
 	plat->dma_cfg->pblx8 = true;
-	plat->dma_cfg->fixed_burst = 0;
-	plat->dma_cfg->mixed_burst = 0;
 	plat->dma_cfg->aal = 0;
 	plat->dma_cfg->dche = true;
 
@@ -683,9 +648,8 @@ static int intel_mgbe_common_data(struct pci_dev *pdev,
 	plat->axi->axi_xit_frm = 0;
 	plat->axi->axi_wr_osr_lmt = 1;
 	plat->axi->axi_rd_osr_lmt = 1;
-	plat->axi->axi_blen[0] = 4;
-	plat->axi->axi_blen[1] = 8;
-	plat->axi->axi_blen[2] = 16;
+	plat->axi->axi_blen_regval = DMA_AXI_BLEN4 | DMA_AXI_BLEN8 |
+				     DMA_AXI_BLEN16;
 
 	plat->ptp_max_adj = plat->clk_ptp_rate;
 
@@ -708,15 +672,6 @@ static int intel_mgbe_common_data(struct pci_dev *pdev,
 	}
 
 	plat->ptp_clk_freq_config = intel_mgbe_ptp_clk_freq_config;
-
-	/* Set default value for multicast hash bins */
-	plat->multicast_filter_bins = HASH_TABLE_SIZE;
-
-	/* Set default value for unicast filter entries */
-	plat->unicast_filter_entries = 1;
-
-	/* Set the maxmtu to a default of JUMBO_LEN */
-	plat->maxmtu = JUMBO_LEN;
 
 	plat->flags |= STMMAC_FLAG_VLAN_FAIL_Q_EN;
 
@@ -744,8 +699,8 @@ static int intel_mgbe_common_data(struct pci_dev *pdev,
 	/* Intel mgbe SGMII interface uses pcs-xcps */
 	if (plat->phy_interface == PHY_INTERFACE_MODE_SGMII ||
 	    plat->phy_interface == PHY_INTERFACE_MODE_1000BASEX) {
-		plat->mdio_bus_data->pcs_mask = BIT(INTEL_MGBE_XPCS_ADDR);
-		plat->mdio_bus_data->default_an_inband = true;
+		plat->mdio_bus_data->pcs_mask = BIT_U32(INTEL_MGBE_XPCS_ADDR);
+		plat->default_an_inband = true;
 		plat->select_pcs = intel_mgbe_select_pcs;
 	}
 
@@ -755,12 +710,13 @@ static int intel_mgbe_common_data(struct pci_dev *pdev,
 
 	plat->int_snapshot_num = AUX_SNAPSHOT1;
 
-	plat->crosststamp = intel_crosststamp;
+	if (boot_cpu_has(X86_FEATURE_ART))
+		plat->crosststamp = intel_crosststamp;
+
 	plat->flags &= ~STMMAC_FLAG_INT_SNAPSHOT_EN;
 
 	/* Setup MSI vector offset specific to Intel mGbE controller */
 	plat->msi_mac_vec = 29;
-	plat->msi_lpi_vec = 28;
 	plat->msi_sfty_ce_vec = 27;
 	plat->msi_sfty_ue_vec = 26;
 	plat->msi_rx_base_vec = 0;
@@ -1148,7 +1104,7 @@ static int quark_default_data(struct pci_dev *pdev,
 
 	plat->dma_cfg->pbl = 16;
 	plat->dma_cfg->pblx8 = true;
-	plat->dma_cfg->fixed_burst = 1;
+	plat->dma_cfg->fixed_burst = true;
 	/* AXI (TODO) */
 
 	return 0;
@@ -1218,8 +1174,6 @@ static int stmmac_config_multi_msi(struct pci_dev *pdev,
 		res->irq = pci_irq_vector(pdev, plat->msi_mac_vec);
 	if (plat->msi_wol_vec < STMMAC_MSI_VEC_MAX)
 		res->wol_irq = pci_irq_vector(pdev, plat->msi_wol_vec);
-	if (plat->msi_lpi_vec < STMMAC_MSI_VEC_MAX)
-		res->lpi_irq = pci_irq_vector(pdev, plat->msi_lpi_vec);
 	if (plat->msi_sfty_ce_vec < STMMAC_MSI_VEC_MAX)
 		res->sfty_ce_irq = pci_irq_vector(pdev, plat->msi_sfty_ce_vec);
 	if (plat->msi_sfty_ue_vec < STMMAC_MSI_VEC_MAX)
@@ -1227,6 +1181,37 @@ static int stmmac_config_multi_msi(struct pci_dev *pdev,
 
 	plat->flags |= STMMAC_FLAG_MULTI_MSI_EN;
 	dev_info(&pdev->dev, "%s: multi MSI enablement successful\n", __func__);
+
+	return 0;
+}
+
+static int intel_eth_pci_suspend(struct device *dev, void *bsp_priv)
+{
+	struct pci_dev *pdev = to_pci_dev(dev);
+	int ret;
+
+	ret = pci_save_state(pdev);
+	if (ret)
+		return ret;
+
+	pci_wake_from_d3(pdev, true);
+	pci_set_power_state(pdev, PCI_D3hot);
+	return 0;
+}
+
+static int intel_eth_pci_resume(struct device *dev, void *bsp_priv)
+{
+	struct pci_dev *pdev = to_pci_dev(dev);
+	int ret;
+
+	pci_restore_state(pdev);
+	pci_set_power_state(pdev, PCI_D0);
+
+	ret = pcim_enable_device(pdev);
+	if (ret)
+		return ret;
+
+	pci_set_master(pdev);
 
 	return 0;
 }
@@ -1256,7 +1241,7 @@ static int intel_eth_pci_probe(struct pci_dev *pdev,
 	if (!intel_priv)
 		return -ENOMEM;
 
-	plat = devm_kzalloc(&pdev->dev, sizeof(*plat), GFP_KERNEL);
+	plat = stmmac_plat_dat_alloc(&pdev->dev);
 	if (!plat)
 		return -ENOMEM;
 
@@ -1264,11 +1249,6 @@ static int intel_eth_pci_probe(struct pci_dev *pdev,
 					   sizeof(*plat->mdio_bus_data),
 					   GFP_KERNEL);
 	if (!plat->mdio_bus_data)
-		return -ENOMEM;
-
-	plat->dma_cfg = devm_kzalloc(&pdev->dev, sizeof(*plat->dma_cfg),
-				     GFP_KERNEL);
-	if (!plat->dma_cfg)
 		return -ENOMEM;
 
 	plat->safety_feat_cfg = devm_kzalloc(&pdev->dev,
@@ -1292,6 +1272,9 @@ static int intel_eth_pci_probe(struct pci_dev *pdev,
 	pci_set_master(pdev);
 
 	plat->bsp_priv = intel_priv;
+	plat->suspend = intel_eth_pci_suspend;
+	plat->resume = intel_eth_pci_resume;
+
 	intel_priv->mdio_adhoc_addr = INTEL_MGBE_ADHOC_ADDR;
 	intel_priv->crossts_adj = 1;
 
@@ -1301,7 +1284,6 @@ static int intel_eth_pci_probe(struct pci_dev *pdev,
 	 */
 	plat->msi_mac_vec = STMMAC_MSI_VEC_MAX;
 	plat->msi_wol_vec = STMMAC_MSI_VEC_MAX;
-	plat->msi_lpi_vec = STMMAC_MSI_VEC_MAX;
 	plat->msi_sfty_ce_vec = STMMAC_MSI_VEC_MAX;
 	plat->msi_sfty_ue_vec = STMMAC_MSI_VEC_MAX;
 	plat->msi_rx_base_vec = STMMAC_MSI_VEC_MAX;
@@ -1355,44 +1337,6 @@ static void intel_eth_pci_remove(struct pci_dev *pdev)
 	clk_unregister_fixed_rate(priv->plat->stmmac_clk);
 }
 
-static int __maybe_unused intel_eth_pci_suspend(struct device *dev)
-{
-	struct pci_dev *pdev = to_pci_dev(dev);
-	int ret;
-
-	ret = stmmac_suspend(dev);
-	if (ret)
-		return ret;
-
-	ret = pci_save_state(pdev);
-	if (ret)
-		return ret;
-
-	pci_wake_from_d3(pdev, true);
-	pci_set_power_state(pdev, PCI_D3hot);
-	return 0;
-}
-
-static int __maybe_unused intel_eth_pci_resume(struct device *dev)
-{
-	struct pci_dev *pdev = to_pci_dev(dev);
-	int ret;
-
-	pci_restore_state(pdev);
-	pci_set_power_state(pdev, PCI_D0);
-
-	ret = pcim_enable_device(pdev);
-	if (ret)
-		return ret;
-
-	pci_set_master(pdev);
-
-	return stmmac_resume(dev);
-}
-
-static SIMPLE_DEV_PM_OPS(intel_eth_pm_ops, intel_eth_pci_suspend,
-			 intel_eth_pci_resume);
-
 #define PCI_DEVICE_ID_INTEL_QUARK		0x0937
 #define PCI_DEVICE_ID_INTEL_EHL_RGMII1G		0x4b30
 #define PCI_DEVICE_ID_INTEL_EHL_SGMII1G		0x4b31
@@ -1442,7 +1386,7 @@ static struct pci_driver intel_eth_pci_driver = {
 	.probe = intel_eth_pci_probe,
 	.remove = intel_eth_pci_remove,
 	.driver         = {
-		.pm     = &intel_eth_pm_ops,
+		.pm     = &stmmac_simple_pm_ops,
 	},
 };
 

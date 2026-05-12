@@ -240,9 +240,9 @@ struct pci_id_table {
 struct i7core_dev {
 	struct list_head	list;
 	u8			socket;
-	struct pci_dev		**pdev;
-	int			n_devs;
 	struct mem_ctl_info	*mci;
+	int			n_devs;
+	struct pci_dev		*pdev[] __counted_by(n_devs);
 };
 
 struct i7core_pvt {
@@ -455,19 +455,12 @@ static struct i7core_dev *alloc_i7core_dev(u8 socket,
 {
 	struct i7core_dev *i7core_dev;
 
-	i7core_dev = kzalloc(sizeof(*i7core_dev), GFP_KERNEL);
+	i7core_dev = kzalloc_flex(*i7core_dev, pdev, table->n_devs);
 	if (!i7core_dev)
 		return NULL;
 
-	i7core_dev->pdev = kcalloc(table->n_devs, sizeof(*i7core_dev->pdev),
-				   GFP_KERNEL);
-	if (!i7core_dev->pdev) {
-		kfree(i7core_dev);
-		return NULL;
-	}
-
-	i7core_dev->socket = socket;
 	i7core_dev->n_devs = table->n_devs;
+	i7core_dev->socket = socket;
 	list_add_tail(&i7core_dev->list, &i7core_edac_list);
 
 	return i7core_dev;
@@ -476,7 +469,6 @@ static struct i7core_dev *alloc_i7core_dev(u8 socket,
 static void free_i7core_dev(struct i7core_dev *i7core_dev)
 {
 	list_del(&i7core_dev->list);
-	kfree(i7core_dev->pdev);
 	kfree(i7core_dev);
 }
 
@@ -1159,7 +1151,7 @@ static int i7core_create_sysfs_devices(struct mem_ctl_info *mci)
 	struct i7core_pvt *pvt = mci->pvt_info;
 	int rc;
 
-	pvt->addrmatch_dev = kzalloc(sizeof(*pvt->addrmatch_dev), GFP_KERNEL);
+	pvt->addrmatch_dev = kzalloc_obj(*pvt->addrmatch_dev);
 	if (!pvt->addrmatch_dev)
 		return -ENOMEM;
 
@@ -1177,8 +1169,7 @@ static int i7core_create_sysfs_devices(struct mem_ctl_info *mci)
 		goto err_put_addrmatch;
 
 	if (!pvt->is_registered) {
-		pvt->chancounts_dev = kzalloc(sizeof(*pvt->chancounts_dev),
-					      GFP_KERNEL);
+		pvt->chancounts_dev = kzalloc_obj(*pvt->chancounts_dev);
 		if (!pvt->chancounts_dev) {
 			rc = -ENOMEM;
 			goto err_del_addrmatch;

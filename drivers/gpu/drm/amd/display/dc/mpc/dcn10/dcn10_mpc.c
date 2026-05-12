@@ -118,9 +118,7 @@ void mpc1_assert_idle_mpcc(struct mpc *mpc, int id)
 
 struct mpcc *mpc1_get_mpcc(struct mpc *mpc, int mpcc_id)
 {
-	struct dcn10_mpc *mpc10 = TO_DCN10_MPC(mpc);
-
-	ASSERT(mpcc_id < mpc10->num_mpcc);
+	ASSERT(mpcc_id < TO_DCN10_MPC(mpc)->num_mpcc);
 	return &(mpc->mpcc_array[mpcc_id]);
 }
 
@@ -424,7 +422,7 @@ void mpc1_init_mpcc_list_from_hw(
 
 				if (out_mux == mpcc_id)
 					tree->opp_list = mpcc;
-				if (bot_sel != 0xf && bot_sel < mpc10->num_mpcc) {
+				if (bot_sel != 0xf && bot_sel < (unsigned int)mpc10->num_mpcc) {
 					bot_mpcc_id = bot_sel;
 					REG_GET(MPCC_OPP_ID[bot_mpcc_id],  MPCC_OPP_ID,  &opp_id);
 					REG_GET(MPCC_TOP_SEL[bot_mpcc_id], MPCC_TOP_SEL, &top_sel);

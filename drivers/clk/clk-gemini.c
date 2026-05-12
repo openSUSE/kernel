@@ -126,13 +126,16 @@ static unsigned long gemini_pci_recalc_rate(struct clk_hw *hw,
 	return 33000000;
 }
 
-static long gemini_pci_round_rate(struct clk_hw *hw, unsigned long rate,
-				  unsigned long *prate)
+static int gemini_pci_determine_rate(struct clk_hw *hw,
+				     struct clk_rate_request *req)
 {
 	/* We support 33 and 66 MHz */
-	if (rate < 48000000)
-		return 33000000;
-	return 66000000;
+	if (req->rate < 48000000)
+		req->rate = 33000000;
+	else
+		req->rate = 66000000;
+
+	return 0;
 }
 
 static int gemini_pci_set_rate(struct clk_hw *hw, unsigned long rate,
@@ -179,7 +182,7 @@ static int gemini_pci_is_enabled(struct clk_hw *hw)
 
 static const struct clk_ops gemini_pci_clk_ops = {
 	.recalc_rate = gemini_pci_recalc_rate,
-	.round_rate = gemini_pci_round_rate,
+	.determine_rate = gemini_pci_determine_rate,
 	.set_rate = gemini_pci_set_rate,
 	.enable = gemini_pci_enable,
 	.disable = gemini_pci_disable,
@@ -194,7 +197,7 @@ static struct clk_hw *gemini_pci_clk_setup(const char *name,
 	struct clk_init_data init;
 	int ret;
 
-	pciclk = kzalloc(sizeof(*pciclk), GFP_KERNEL);
+	pciclk = kzalloc_obj(*pciclk);
 	if (!pciclk)
 		return ERR_PTR(-ENOMEM);
 
@@ -395,9 +398,7 @@ static void __init gemini_cc_init(struct device_node *np)
 	int ret;
 	int i;
 
-	gemini_clk_data = kzalloc(struct_size(gemini_clk_data, hws,
-					      GEMINI_NUM_CLKS),
-				  GFP_KERNEL);
+	gemini_clk_data = kzalloc_flex(*gemini_clk_data, hws, GEMINI_NUM_CLKS);
 	if (!gemini_clk_data)
 		return;
 	gemini_clk_data->num = GEMINI_NUM_CLKS;

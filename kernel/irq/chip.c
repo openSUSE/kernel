@@ -14,6 +14,7 @@
 #include <linux/interrupt.h>
 #include <linux/kernel_stat.h>
 #include <linux/irqdomain.h>
+#include <linux/random.h>
 
 #include <trace/events/irq.h>
 
@@ -897,8 +898,9 @@ void handle_percpu_irq(struct irq_desc *desc)
 void handle_percpu_devid_irq(struct irq_desc *desc)
 {
 	struct irq_chip *chip = irq_desc_get_chip(desc);
-	struct irqaction *action = desc->action;
 	unsigned int irq = irq_desc_get_irq(desc);
+	unsigned int cpu = smp_processor_id();
+	struct irqaction *action;
 	irqreturn_t res;
 
 	/*
@@ -910,12 +912,15 @@ void handle_percpu_devid_irq(struct irq_desc *desc)
 	if (chip->irq_ack)
 		chip->irq_ack(&desc->irq_data);
 
+	for (action = desc->action; action; action = action->next)
+		if (cpumask_test_cpu(cpu, action->affinity))
+			break;
+
 	if (likely(action)) {
 		trace_irq_handler_entry(irq, action);
 		res = action->handler(irq, raw_cpu_ptr(action->percpu_dev_id));
 		trace_irq_handler_exit(irq, action, res);
 	} else {
-		unsigned int cpu = smp_processor_id();
 		bool enabled = cpumask_test_cpu(cpu, desc->percpu_enabled);
 
 		if (enabled)
@@ -925,30 +930,7 @@ void handle_percpu_devid_irq(struct irq_desc *desc)
 			    enabled ? " and unmasked" : "", irq, cpu);
 	}
 
-	if (chip->irq_eoi)
-		chip->irq_eoi(&desc->irq_data);
-}
-
-/**
- * handle_percpu_devid_fasteoi_nmi - Per CPU local NMI handler with per cpu
- *				     dev ids
- * @desc:	the interrupt description structure for this irq
- *
- * Similar to handle_fasteoi_nmi, but handling the dev_id cookie
- * as a percpu pointer.
- */
-void handle_percpu_devid_fasteoi_nmi(struct irq_desc *desc)
-{
-	struct irq_chip *chip = irq_desc_get_chip(desc);
-	struct irqaction *action = desc->action;
-	unsigned int irq = irq_desc_get_irq(desc);
-	irqreturn_t res;
-
-	__kstat_incr_irqs_this_cpu(desc);
-
-	trace_irq_handler_entry(irq, action);
-	res = action->handler(irq, raw_cpu_ptr(action->percpu_dev_id));
-	trace_irq_handler_exit(irq, action, res);
+	add_interrupt_randomness(irq);
 
 	if (chip->irq_eoi)
 		chip->irq_eoi(&desc->irq_data);
@@ -995,7 +977,7 @@ __irq_do_set_handler(struct irq_desc *desc, irq_flow_handler_t handle,
 		irq_state_set_disabled(desc);
 		if (is_chained) {
 			desc->action = NULL;
-			WARN_ON(irq_chip_pm_put(irq_desc_get_irq_data(desc)));
+			irq_chip_pm_put(irq_desc_get_irq_data(desc));
 		}
 		desc->depth = 1;
 	}
@@ -1030,7 +1012,7 @@ __irq_do_set_handler(struct irq_desc *desc, irq_flow_handler_t handle,
 void __irq_set_handler(unsigned int irq, irq_flow_handler_t handle, int is_chained,
 		       const char *name)
 {
-	scoped_irqdesc_get_and_lock(irq, 0)
+	scoped_irqdesc_get_and_buslock(irq, 0)
 		__irq_do_set_handler(scoped_irqdesc, handle, is_chained, name);
 }
 EXPORT_SYMBOL_GPL(__irq_set_handler);
@@ -1143,7 +1125,7 @@ void irq_cpu_offline(void)
 }
 #endif
 
-#ifdef	CONFIG_IRQ_DOMAIN_HIERARCHY
+#ifdef CONFIG_IRQ_DOMAIN_HIERARCHY
 
 #ifdef CONFIG_IRQ_FASTEOI_HIERARCHY_HANDLERS
 /**
@@ -1215,6 +1197,15 @@ EXPORT_SYMBOL_GPL(handle_fasteoi_mask_irq);
 
 #endif /* CONFIG_IRQ_FASTEOI_HIERARCHY_HANDLERS */
 
+#ifdef CONFIG_SMP
+void irq_chip_pre_redirect_parent(struct irq_data *data)
+{
+	data = data->parent_data;
+	data->chip->irq_pre_redirect(data);
+}
+EXPORT_SYMBOL_GPL(irq_chip_pre_redirect_parent);
+#endif
+
 /**
  * irq_chip_set_parent_state - set the state of a parent interrupt.
  *
@@ -1258,6 +1249,43 @@ int irq_chip_get_parent_state(struct irq_data *data,
 	return data->chip->irq_get_irqchip_state(data, which, state);
 }
 EXPORT_SYMBOL_GPL(irq_chip_get_parent_state);
+
+/**
+ * irq_chip_shutdown_parent - Shutdown the parent interrupt
+ * @data:	Pointer to interrupt specific data
+ *
+ * Invokes the irq_shutdown() callback of the parent if available or falls
+ * back to irq_chip_disable_parent().
+ */
+void irq_chip_shutdown_parent(struct irq_data *data)
+{
+	struct irq_data *parent = data->parent_data;
+
+	if (parent->chip->irq_shutdown)
+		parent->chip->irq_shutdown(parent);
+	else
+		irq_chip_disable_parent(data);
+}
+EXPORT_SYMBOL_GPL(irq_chip_shutdown_parent);
+
+/**
+ * irq_chip_startup_parent - Startup the parent interrupt
+ * @data:	Pointer to interrupt specific data
+ *
+ * Invokes the irq_startup() callback of the parent if available or falls
+ * back to irq_chip_enable_parent().
+ */
+unsigned int irq_chip_startup_parent(struct irq_data *data)
+{
+	struct irq_data *parent = data->parent_data;
+
+	if (parent->chip->irq_startup)
+		return parent->chip->irq_startup(parent);
+
+	irq_chip_enable_parent(data);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(irq_chip_startup_parent);
 
 /**
  * irq_chip_enable_parent - Enable the parent interrupt (defaults to unmask if
@@ -1460,6 +1488,19 @@ void irq_chip_release_resources_parent(struct irq_data *data)
 		data->chip->irq_release_resources(data);
 }
 EXPORT_SYMBOL_GPL(irq_chip_release_resources_parent);
+#endif /* CONFIG_IRQ_DOMAIN_HIERARCHY */
+
+#ifdef CONFIG_SMP
+int irq_chip_redirect_set_affinity(struct irq_data *data, const struct cpumask *dest, bool force)
+{
+	struct irq_redirect *redir = &irq_data_to_desc(data)->redirect;
+
+	WRITE_ONCE(redir->target_cpu, cpumask_first(dest));
+	irq_data_update_effective_affinity(data, dest);
+
+	return IRQ_SET_MASK_OK_DONE;
+}
+EXPORT_SYMBOL_GPL(irq_chip_redirect_set_affinity);
 #endif
 
 /**
@@ -1514,20 +1555,20 @@ int irq_chip_pm_get(struct irq_data *data)
 }
 
 /**
- * irq_chip_pm_put - Disable power for an IRQ chip
+ * irq_chip_pm_put - Drop a PM reference on an IRQ chip
  * @data:	Pointer to interrupt specific data
  *
- * Disable the power to the IRQ chip referenced by the interrupt data
- * structure, belongs. Note that power will only be disabled, once this
- * function has been called for all IRQs that have called irq_chip_pm_get().
+ * Drop a power management reference, acquired via irq_chip_pm_get(), on the IRQ
+ * chip represented by the interrupt data structure.
+ *
+ * Note that this will not disable power to the IRQ chip until this function
+ * has been called for all IRQs that have called irq_chip_pm_get() and it may
+ * not disable power at all (if user space prevents that, for example).
  */
-int irq_chip_pm_put(struct irq_data *data)
+void irq_chip_pm_put(struct irq_data *data)
 {
 	struct device *dev = irq_get_pm_device(data);
-	int retval = 0;
 
-	if (IS_ENABLED(CONFIG_PM) && dev)
-		retval = pm_runtime_put(dev);
-
-	return (retval < 0) ? retval : 0;
+	if (dev)
+		pm_runtime_put(dev);
 }

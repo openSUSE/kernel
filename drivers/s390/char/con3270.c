@@ -21,7 +21,6 @@
 #include <linux/reboot.h>
 #include <linux/slab.h>
 #include <linux/memblock.h>
-#include <linux/compat.h>
 
 #include <asm/machine.h>
 #include <asm/ccwdev.h>
@@ -830,7 +829,7 @@ static struct tty3270 *tty3270_alloc_view(void)
 {
 	struct tty3270 *tp;
 
-	tp = kzalloc(sizeof(*tp), GFP_KERNEL);
+	tp = kzalloc_obj(*tp);
 	if (!tp)
 		goto out_err;
 
@@ -896,11 +895,11 @@ static struct tty3270_line *tty3270_alloc_screen(struct tty3270 *tp, unsigned in
 	int allocated, lines;
 
 	allocated = __roundup_pow_of_two(rows) * TTY3270_SCREEN_PAGES;
-	screen = kcalloc(allocated, sizeof(struct tty3270_line), GFP_KERNEL);
+	screen = kzalloc_objs(struct tty3270_line, allocated);
 	if (!screen)
 		goto out_err;
 	for (lines = 0; lines < allocated; lines++) {
-		screen[lines].cells = kcalloc(cols, sizeof(struct tty3270_cell), GFP_KERNEL);
+		screen[lines].cells = kzalloc_objs(struct tty3270_cell, cols);
 		if (!screen[lines].cells)
 			goto out_screen;
 	}
@@ -970,8 +969,6 @@ static void tty3270_resize(struct raw3270_view *view,
 	char **old_rcl_lines, **new_rcl_lines;
 	char *old_prompt, *new_prompt;
 	char *old_input, *new_input;
-	struct tty_struct *tty;
-	struct winsize ws;
 	size_t prompt_sz;
 	int new_allocated, old_allocated = tp->allocated_lines;
 
@@ -1023,14 +1020,14 @@ static void tty3270_resize(struct raw3270_view *view,
 	kfree(old_prompt);
 	tty3270_free_recall(old_rcl_lines);
 	tty3270_set_timer(tp, 1);
-	/* Informat tty layer about new size */
-	tty = tty_port_tty_get(&tp->port);
-	if (!tty)
-		return;
-	ws.ws_row = tty3270_tty_rows(tp);
-	ws.ws_col = tp->view.cols;
-	tty_do_resize(tty, &ws);
-	tty_kref_put(tty);
+	/* Inform the tty layer about new size */
+	scoped_guard(tty_port_tty, &tp->port) {
+		struct winsize ws = {
+			.ws_row = tty3270_tty_rows(tp),
+			.ws_col = tp->view.cols,
+		};
+		tty_do_resize(scoped_tty(), &ws);
+	}
 	return;
 out_screen:
 	tty3270_free_screen(screen, new_rows);
@@ -1664,7 +1661,7 @@ static void tty3270_escape_sequence(struct tty3270 *tp, u8 ch)
 		else if (tp->esc_par[0] == 6) {	/* Cursor report. */
 			char buf[40];
 
-			sprintf(buf, "\033[%d;%dR", tp->cy + 1, tp->cx + 1);
+			scnprintf(buf, sizeof(buf), "\033[%d;%dR", tp->cy + 1, tp->cx + 1);
 			kbd_puts_queue(&tp->port, buf);
 		}
 		return;
@@ -1949,21 +1946,6 @@ static int tty3270_ioctl(struct tty_struct *tty, unsigned int cmd,
 	return kbd_ioctl(tp->kbd, cmd, arg);
 }
 
-#ifdef CONFIG_COMPAT
-static long tty3270_compat_ioctl(struct tty_struct *tty,
-				 unsigned int cmd, unsigned long arg)
-{
-	struct tty3270 *tp;
-
-	tp = tty->driver_data;
-	if (!tp)
-		return -ENODEV;
-	if (tty_io_error(tty))
-		return -EIO;
-	return kbd_ioctl(tp->kbd, cmd, (unsigned long)compat_ptr(arg));
-}
-#endif
-
 static const struct tty_operations tty3270_ops = {
 	.install = tty3270_install,
 	.cleanup = tty3270_cleanup,
@@ -1978,9 +1960,6 @@ static const struct tty_operations tty3270_ops = {
 	.hangup = tty3270_hangup,
 	.wait_until_sent = tty3270_wait_until_sent,
 	.ioctl = tty3270_ioctl,
-#ifdef CONFIG_COMPAT
-	.compat_ioctl = tty3270_compat_ioctl,
-#endif
 	.set_termios = tty3270_set_termios
 };
 

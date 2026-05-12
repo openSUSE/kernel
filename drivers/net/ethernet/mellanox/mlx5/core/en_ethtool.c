@@ -261,6 +261,11 @@ void mlx5e_build_ptys2ethtool_map(void)
 				       ETHTOOL_LINK_MODE_800000baseDR4_2_Full_BIT,
 				       ETHTOOL_LINK_MODE_800000baseSR4_Full_BIT,
 				       ETHTOOL_LINK_MODE_800000baseVR4_Full_BIT);
+	MLX5_BUILD_PTYS2ETHTOOL_CONFIG(MLX5E_1600GAUI_8_1600GBASE_CR8_KR8, ext,
+				       ETHTOOL_LINK_MODE_1600000baseCR8_Full_BIT,
+				       ETHTOOL_LINK_MODE_1600000baseKR8_Full_BIT,
+				       ETHTOOL_LINK_MODE_1600000baseDR8_Full_BIT,
+				       ETHTOOL_LINK_MODE_1600000baseDR8_2_Full_BIT);
 }
 
 static void mlx5e_ethtool_get_speed_arr(bool ext,
@@ -366,6 +371,9 @@ void mlx5e_ethtool_get_ringparam(struct mlx5e_priv *priv,
 	param->tx_max_pending = 1 << MLX5E_PARAMS_MAXIMUM_LOG_SQ_SIZE;
 	param->rx_pending     = 1 << priv->channels.params.log_rq_mtu_frames;
 	param->tx_pending     = 1 << priv->channels.params.log_sq_size;
+
+	kernel_param->hds_thresh = 0;
+	kernel_param->hds_thresh_max = 0;
 }
 
 static void mlx5e_get_ringparam(struct net_device *dev,
@@ -1494,7 +1502,8 @@ static int mlx5e_get_rxfh(struct net_device *netdev, struct ethtool_rxfh_param *
 }
 
 static int mlx5e_rxfh_hfunc_check(struct mlx5e_priv *priv,
-				  const struct ethtool_rxfh_param *rxfh)
+				  const struct ethtool_rxfh_param *rxfh,
+				  struct netlink_ext_ack *extack)
 {
 	unsigned int count;
 
@@ -1504,8 +1513,10 @@ static int mlx5e_rxfh_hfunc_check(struct mlx5e_priv *priv,
 		unsigned int xor8_max_channels = mlx5e_rqt_max_num_channels_allowed_for_xor8();
 
 		if (count > xor8_max_channels) {
-			netdev_err(priv->netdev, "%s: Cannot set RSS hash function to XOR, current number of channels (%d) exceeds the maximum allowed for XOR8 RSS hfunc (%d)\n",
-				   __func__, count, xor8_max_channels);
+			NL_SET_ERR_MSG_FMT_MOD(
+				extack,
+				"Number of channels (%u) exceeds the max for XOR8 RSS (%u)",
+				count, xor8_max_channels);
 			return -EINVAL;
 		}
 	}
@@ -1524,7 +1535,7 @@ static int mlx5e_set_rxfh(struct net_device *dev,
 
 	mutex_lock(&priv->state_lock);
 
-	err = mlx5e_rxfh_hfunc_check(priv, rxfh);
+	err = mlx5e_rxfh_hfunc_check(priv, rxfh, extack);
 	if (err)
 		goto unlock;
 
@@ -1550,7 +1561,7 @@ static int mlx5e_create_rxfh_context(struct net_device *dev,
 
 	mutex_lock(&priv->state_lock);
 
-	err = mlx5e_rxfh_hfunc_check(priv, rxfh);
+	err = mlx5e_rxfh_hfunc_check(priv, rxfh, extack);
 	if (err)
 		goto unlock;
 
@@ -1590,7 +1601,7 @@ static int mlx5e_modify_rxfh_context(struct net_device *dev,
 
 	mutex_lock(&priv->state_lock);
 
-	err = mlx5e_rxfh_hfunc_check(priv, rxfh);
+	err = mlx5e_rxfh_hfunc_check(priv, rxfh, extack);
 	if (err)
 		goto unlock;
 
@@ -1927,11 +1938,12 @@ static int mlx5e_set_wol(struct net_device *netdev, struct ethtool_wolinfo *wol)
 }
 
 static void mlx5e_get_fec_stats(struct net_device *netdev,
-				struct ethtool_fec_stats *fec_stats)
+				struct ethtool_fec_stats *fec_stats,
+				struct ethtool_fec_hist *hist)
 {
 	struct mlx5e_priv *priv = netdev_priv(netdev);
 
-	mlx5e_stats_fec_get(priv, fec_stats);
+	mlx5e_stats_fec_get(priv, fec_stats, hist);
 }
 
 static int mlx5e_get_fecparam(struct net_device *netdev,
@@ -2023,7 +2035,7 @@ static int mlx5e_get_module_info(struct net_device *netdev,
 	int size_read = 0;
 	u8 data[4] = {0};
 
-	size_read = mlx5_query_module_eeprom(dev, 0, 2, data);
+	size_read = mlx5_query_module_eeprom(dev, 0, 2, data, NULL);
 	if (size_read < 2)
 		return -EIO;
 
@@ -2065,6 +2077,7 @@ static int mlx5e_get_module_eeprom(struct net_device *netdev,
 	struct mlx5_core_dev *mdev = priv->mdev;
 	int offset = ee->offset;
 	int size_read;
+	u8 status = 0;
 	int i = 0;
 
 	if (!ee->len)
@@ -2074,15 +2087,15 @@ static int mlx5e_get_module_eeprom(struct net_device *netdev,
 
 	while (i < ee->len) {
 		size_read = mlx5_query_module_eeprom(mdev, offset, ee->len - i,
-						     data + i);
-
+						     data + i, &status);
 		if (!size_read)
 			/* Done reading */
 			return 0;
 
 		if (size_read < 0) {
-			netdev_err(priv->netdev, "%s: mlx5_query_eeprom failed:0x%x\n",
-				   __func__, size_read);
+			netdev_err(netdev,
+				   "%s: mlx5_query_eeprom failed:0x%x, status %u\n",
+				   __func__, size_read, status);
 			return size_read;
 		}
 
@@ -2102,6 +2115,7 @@ static int mlx5e_get_module_eeprom_by_page(struct net_device *netdev,
 	struct mlx5_core_dev *mdev = priv->mdev;
 	u8 *data = page_data->data;
 	int size_read;
+	u8 status = 0;
 	int i = 0;
 
 	if (!page_data->length)
@@ -2115,20 +2129,19 @@ static int mlx5e_get_module_eeprom_by_page(struct net_device *netdev,
 	query.page = page_data->page;
 	while (i < page_data->length) {
 		query.size = page_data->length - i;
-		size_read = mlx5_query_module_eeprom_by_page(mdev, &query, data + i);
+		size_read = mlx5_query_module_eeprom_by_page(mdev, &query,
+							     data + i, &status);
 
 		/* Done reading, return how many bytes was read */
 		if (!size_read)
 			return i;
 
-		if (size_read == -EINVAL)
-			return -EINVAL;
 		if (size_read < 0) {
 			NL_SET_ERR_MSG_FMT_MOD(
 				extack,
-				"Query module eeprom by page failed, read %u bytes, err %d",
-				i, size_read);
-			return i;
+				"Query module eeprom by page failed, read %u bytes, err %d, status %u",
+				i, size_read, status);
+			return size_read;
 		}
 
 		i += size_read;
@@ -2269,7 +2282,7 @@ static int set_pflag_rx_cqe_compress(struct net_device *netdev,
 	if (!MLX5_CAP_GEN(mdev, cqe_compression))
 		return -EOPNOTSUPP;
 
-	rx_filter = priv->tstamp.rx_filter != HWTSTAMP_FILTER_NONE;
+	rx_filter = priv->hwtstamp_config.rx_filter != HWTSTAMP_FILTER_NONE;
 	err = mlx5e_modify_rx_cqe_compression_locked(priv, enable, rx_filter);
 	if (err)
 		return err;
@@ -2284,7 +2297,6 @@ static int set_pflag_rx_striding_rq(struct net_device *netdev, bool enable)
 	struct mlx5e_priv *priv = netdev_priv(netdev);
 	struct mlx5_core_dev *mdev = priv->mdev;
 	struct mlx5e_params new_params;
-	int err;
 
 	if (enable) {
 		/* Checking the regular RQ here; mlx5e_validate_xsk_param called
@@ -2305,14 +2317,7 @@ static int set_pflag_rx_striding_rq(struct net_device *netdev, bool enable)
 	MLX5E_SET_PFLAG(&new_params, MLX5E_PFLAG_RX_STRIDING_RQ, enable);
 	mlx5e_set_rq_type(mdev, &new_params);
 
-	err = mlx5e_safe_switch_params(priv, &new_params, NULL, NULL, true);
-	if (err)
-		return err;
-
-	/* update XDP supported features */
-	mlx5e_set_xdp_feature(netdev);
-
-	return 0;
+	return mlx5e_safe_switch_params(priv, &new_params, NULL, NULL, true);
 }
 
 static int set_pflag_rx_no_csum_complete(struct net_device *netdev, bool enable)
@@ -2490,20 +2495,17 @@ static int mlx5e_set_rxfh_fields(struct net_device *dev,
 	return mlx5e_ethtool_set_rxfh_fields(priv, cmd, extack);
 }
 
+static u32 mlx5e_get_rx_ring_count(struct net_device *dev)
+{
+	struct mlx5e_priv *priv = netdev_priv(dev);
+
+	return priv->channels.params.num_channels;
+}
+
 static int mlx5e_get_rxnfc(struct net_device *dev, struct ethtool_rxnfc *info,
 			   u32 *rule_locs)
 {
 	struct mlx5e_priv *priv = netdev_priv(dev);
-
-	/* ETHTOOL_GRXRINGS is needed by ethtool -x which is not part
-	 * of rxnfc. We keep this logic out of mlx5e_ethtool_get_rxnfc,
-	 * to avoid breaking "ethtool -x" when mlx5e_ethtool_get_rxnfc
-	 * is compiled out via CONFIG_MLX5_EN_RXNFC=n.
-	 */
-	if (info->cmd == ETHTOOL_GRXRINGS) {
-		info->data = priv->channels.params.num_channels;
-		return 0;
-	}
 
 	return mlx5e_ethtool_get_rxnfc(priv, info, rule_locs);
 }
@@ -2736,7 +2738,8 @@ const struct ethtool_ops mlx5e_ethtool_ops = {
 				     ETHTOOL_COALESCE_USE_ADAPTIVE |
 				     ETHTOOL_COALESCE_USE_CQE,
 	.supported_input_xfrm = RXH_XFRM_SYM_OR_XOR,
-	.supported_ring_params = ETHTOOL_RING_USE_TCP_DATA_SPLIT,
+	.supported_ring_params = ETHTOOL_RING_USE_TCP_DATA_SPLIT |
+				 ETHTOOL_RING_USE_HDS_THRS,
 	.get_drvinfo       = mlx5e_get_drvinfo,
 	.get_link          = ethtool_op_get_link,
 	.get_link_ext_state  = mlx5e_get_link_ext_state,
@@ -2764,6 +2767,7 @@ const struct ethtool_ops mlx5e_ethtool_ops = {
 	.remove_rxfh_context	= mlx5e_remove_rxfh_context,
 	.get_rxnfc         = mlx5e_get_rxnfc,
 	.set_rxnfc         = mlx5e_set_rxnfc,
+	.get_rx_ring_count = mlx5e_get_rx_ring_count,
 	.get_tunable       = mlx5e_get_tunable,
 	.set_tunable       = mlx5e_set_tunable,
 	.get_pause_stats   = mlx5e_get_pause_stats,

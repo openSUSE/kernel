@@ -14,6 +14,7 @@
 #include <drm/drm_fourcc.h>
 #include <drm/drm_framebuffer.h>
 #include <drm/drm_gem_dma_helper.h>
+#include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_writeback.h>
 
@@ -65,8 +66,7 @@ static const struct drm_connector_helper_funcs malidp_mw_connector_helper_funcs 
 
 static void malidp_mw_connector_reset(struct drm_connector *connector)
 {
-	struct malidp_mw_connector_state *mw_state =
-		kzalloc(sizeof(*mw_state), GFP_KERNEL);
+	struct malidp_mw_connector_state *mw_state = kzalloc_obj(*mw_state);
 
 	if (connector->state)
 		__drm_atomic_helper_connector_destroy_state(connector->state);
@@ -97,7 +97,7 @@ malidp_mw_connector_duplicate_state(struct drm_connector *connector)
 	if (WARN_ON(!connector->state))
 		return NULL;
 
-	mw_state = kzalloc(sizeof(*mw_state), GFP_KERNEL);
+	mw_state = kzalloc_obj(*mw_state);
 	if (!mw_state)
 		return NULL;
 
@@ -237,7 +237,7 @@ int malidp_mw_connector_init(struct drm_device *drm)
 }
 
 void malidp_mw_atomic_commit(struct drm_device *drm,
-			     struct drm_atomic_state *old_state)
+			     struct drm_atomic_commit *old_state)
 {
 	struct malidp_drm *malidp = drm_to_malidp(drm);
 	struct drm_writeback_connector *mw_conn = &malidp->mw_connector;

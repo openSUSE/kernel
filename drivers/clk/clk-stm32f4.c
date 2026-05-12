@@ -443,8 +443,8 @@ static unsigned long clk_apb_mul_recalc_rate(struct clk_hw *hw,
 	return parent_rate;
 }
 
-static long clk_apb_mul_round_rate(struct clk_hw *hw, unsigned long rate,
-				   unsigned long *prate)
+static int clk_apb_mul_determine_rate(struct clk_hw *hw,
+				      struct clk_rate_request *req)
 {
 	struct clk_apb_mul *am = to_clk_apb_mul(hw);
 	unsigned long mult = 1;
@@ -453,12 +453,14 @@ static long clk_apb_mul_round_rate(struct clk_hw *hw, unsigned long rate,
 		mult = 2;
 
 	if (clk_hw_get_flags(hw) & CLK_SET_RATE_PARENT) {
-		unsigned long best_parent = rate / mult;
+		unsigned long best_parent = req->rate / mult;
 
-		*prate = clk_hw_round_rate(clk_hw_get_parent(hw), best_parent);
+		req->best_parent_rate = clk_hw_round_rate(clk_hw_get_parent(hw), best_parent);
 	}
 
-	return *prate * mult;
+	req->rate = req->best_parent_rate * mult;
+
+	return 0;
 }
 
 static int clk_apb_mul_set_rate(struct clk_hw *hw, unsigned long rate,
@@ -474,7 +476,7 @@ static int clk_apb_mul_set_rate(struct clk_hw *hw, unsigned long rate,
 }
 
 static const struct clk_ops clk_apb_mul_factor_ops = {
-	.round_rate = clk_apb_mul_round_rate,
+	.determine_rate = clk_apb_mul_determine_rate,
 	.set_rate = clk_apb_mul_set_rate,
 	.recalc_rate = clk_apb_mul_recalc_rate,
 };
@@ -487,7 +489,7 @@ static struct clk *clk_register_apb_mul(struct device *dev, const char *name,
 	struct clk_init_data init;
 	struct clk *clk;
 
-	am = kzalloc(sizeof(*am), GFP_KERNEL);
+	am = kzalloc_obj(*am);
 	if (!am)
 		return ERR_PTR(-ENOMEM);
 
@@ -670,21 +672,23 @@ static unsigned long stm32f4_pll_recalc(struct clk_hw *hw,
 	return parent_rate * n;
 }
 
-static long stm32f4_pll_round_rate(struct clk_hw *hw, unsigned long rate,
-		unsigned long *prate)
+static int stm32f4_pll_determine_rate(struct clk_hw *hw,
+				      struct clk_rate_request *req)
 {
 	struct clk_gate *gate = to_clk_gate(hw);
 	struct stm32f4_pll *pll = to_stm32f4_pll(gate);
 	unsigned long n;
 
-	n = rate / *prate;
+	n = req->rate / req->best_parent_rate;
 
 	if (n < pll->n_start)
 		n = pll->n_start;
 	else if (n > 432)
 		n = 432;
 
-	return *prate * n;
+	req->rate = req->best_parent_rate * n;
+
+	return 0;
 }
 
 static void stm32f4_pll_set_ssc(struct clk_hw *hw, unsigned long parent_rate,
@@ -749,7 +753,7 @@ static const struct clk_ops stm32f4_pll_gate_ops = {
 	.disable	= stm32f4_pll_disable,
 	.is_enabled	= stm32f4_pll_is_enabled,
 	.recalc_rate	= stm32f4_pll_recalc,
-	.round_rate	= stm32f4_pll_round_rate,
+	.determine_rate = stm32f4_pll_determine_rate,
 	.set_rate	= stm32f4_pll_set_rate,
 };
 
@@ -811,7 +815,7 @@ static struct clk_hw *clk_register_pll_div(const char *name,
 	int ret;
 
 	/* allocate the divider */
-	pll_div = kzalloc(sizeof(*pll_div), GFP_KERNEL);
+	pll_div = kzalloc_obj(*pll_div);
 	if (!pll_div)
 		return ERR_PTR(-ENOMEM);
 
@@ -933,7 +937,7 @@ static struct clk_hw *stm32f4_rcc_register_pll(const char *pllsrc,
 	const struct stm32f4_vco_data *vco;
 
 
-	pll = kzalloc(sizeof(*pll), GFP_KERNEL);
+	pll = kzalloc_obj(*pll);
 	if (!pll)
 		return ERR_PTR(-ENOMEM);
 
@@ -1103,7 +1107,7 @@ static struct clk_hw *clk_register_rgate(struct device *dev, const char *name,
 	struct clk_hw *hw;
 	int ret;
 
-	rgate = kzalloc(sizeof(*rgate), GFP_KERNEL);
+	rgate = kzalloc_obj(*rgate);
 	if (!rgate)
 		return ERR_PTR(-ENOMEM);
 
@@ -1198,13 +1202,13 @@ static struct clk_hw *stm32_register_cclk(struct device *dev, const char *name,
 	struct clk_gate *gate;
 	struct clk_mux *mux;
 
-	gate = kzalloc(sizeof(*gate), GFP_KERNEL);
+	gate = kzalloc_obj(*gate);
 	if (!gate) {
 		hw = ERR_PTR(-EINVAL);
 		goto fail;
 	}
 
-	mux = kzalloc(sizeof(*mux), GFP_KERNEL);
+	mux = kzalloc_obj(*mux);
 	if (!mux) {
 		kfree(gate);
 		hw = ERR_PTR(-EINVAL);
@@ -1772,7 +1776,7 @@ static struct clk_hw *stm32_register_aux_clk(const char *name,
 	const struct clk_ops *mux_ops = NULL, *gate_ops = NULL;
 
 	if (offset_gate != NO_GATE) {
-		gate = kzalloc(sizeof(*gate), GFP_KERNEL);
+		gate = kzalloc_obj(*gate);
 		if (!gate) {
 			hw = ERR_PTR(-EINVAL);
 			goto fail;
@@ -1787,7 +1791,7 @@ static struct clk_hw *stm32_register_aux_clk(const char *name,
 	}
 
 	if (offset_mux != NO_MUX) {
-		mux = kzalloc(sizeof(*mux), GFP_KERNEL);
+		mux = kzalloc_obj(*mux);
 		if (!mux) {
 			hw = ERR_PTR(-EINVAL);
 			goto fail;
@@ -1851,8 +1855,7 @@ static void __init stm32f4_rcc_init(struct device_node *np)
 
 	stm32fx_end_primary_clk = data->end_primary;
 
-	clks = kmalloc_array(data->gates_num + stm32fx_end_primary_clk,
-			sizeof(*clks), GFP_KERNEL);
+	clks = kmalloc_objs(*clks, data->gates_num + stm32fx_end_primary_clk);
 	if (!clks)
 		goto fail;
 

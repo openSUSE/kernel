@@ -29,6 +29,7 @@
 #include <linux/mmzone.h>
 #include <linux/llist.h>
 #include <linux/spinlock.h>
+#include <linux/list_lru.h>
 #include <drm/ttm/ttm_caching.h>
 
 struct device;
@@ -45,8 +46,7 @@ struct ttm_tt;
  * @order: the allocation order our pages have
  * @caching: the caching type our pages have
  * @shrinker_list: our place on the global shrinker list
- * @lock: protection of the page list
- * @pages: the list of pages in the pool
+ * @pages: the lru_list of pages in the pool
  */
 struct ttm_pool_type {
 	struct ttm_pool *pool;
@@ -55,8 +55,7 @@ struct ttm_pool_type {
 
 	struct list_head shrinker_list;
 
-	spinlock_t lock;
-	struct list_head pages;
+	struct list_lru pages;
 };
 
 /**
@@ -64,16 +63,14 @@ struct ttm_pool_type {
  *
  * @dev: the device we allocate pages for
  * @nid: which numa node to use
- * @use_dma_alloc: if coherent DMA allocations should be used
- * @use_dma32: if GFP_DMA32 should be used
+ * @alloc_flags: TTM_ALLOCATION_POOL_* flags
  * @caching: pools for each caching/order
  */
 struct ttm_pool {
 	struct device *dev;
 	int nid;
 
-	bool use_dma_alloc;
-	bool use_dma32;
+	unsigned int alloc_flags;
 
 	struct {
 		struct ttm_pool_type orders[NR_PAGE_ORDERS];
@@ -85,7 +82,7 @@ int ttm_pool_alloc(struct ttm_pool *pool, struct ttm_tt *tt,
 void ttm_pool_free(struct ttm_pool *pool, struct ttm_tt *tt);
 
 void ttm_pool_init(struct ttm_pool *pool, struct device *dev,
-		   int nid, bool use_dma_alloc, bool use_dma32);
+		   int nid, unsigned int alloc_flags);
 void ttm_pool_fini(struct ttm_pool *pool);
 
 int ttm_pool_debugfs(struct ttm_pool *pool, struct seq_file *m);

@@ -1309,8 +1309,7 @@ int mptscsih_show_info(struct seq_file *m, struct Scsi_Host *host)
  *
  *	Returns 0. (rtn value discarded by linux scsi mid-layer)
  */
-int
-mptscsih_qcmd(struct scsi_cmnd *SCpnt)
+enum scsi_qc_status mptscsih_qcmd(struct scsi_cmnd *SCpnt)
 {
 	MPT_SCSI_HOST		*hd;
 	MPT_FRAME_HDR		*mf;
@@ -2074,7 +2073,7 @@ mptscsih_taskmgmt_complete(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf,
  *	This is anyones guess quite frankly.
  */
 int
-mptscsih_bios_param(struct scsi_device * sdev, struct block_device *bdev,
+mptscsih_bios_param(struct scsi_device * sdev, struct gendisk *unused,
 		sector_t capacity, int geom[])
 {
 	int		heads;

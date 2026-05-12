@@ -28,10 +28,13 @@
 #define		GET_APIC_ID_FIELD(x)	(((x) >> 24) & 0xFF)
 #define	APIC_TASKPRI	0x80
 #define	APIC_PROCPRI	0xA0
+#define	GET_APIC_PRI(x) (((x) & GENMASK(7, 4)) >> 4)
+#define	SET_APIC_PRI(x, y) (((x) & ~GENMASK(7, 4)) | (y << 4))
 #define	APIC_EOI	0xB0
 #define	APIC_SPIV	0xF0
 #define		APIC_SPIV_FOCUS_DISABLED	(1 << 9)
 #define		APIC_SPIV_APIC_ENABLED		(1 << 8)
+#define	APIC_ISR	0x100
 #define APIC_IRR	0x200
 #define	APIC_ICR	0x300
 #define	APIC_LVTCMCI	0x2f0
@@ -67,47 +70,51 @@
 #define	APIC_TMICT	0x380
 #define	APIC_TMCCT	0x390
 #define	APIC_TDCR	0x3E0
+#define	APIC_SELF_IPI	0x3F0
+
+#define APIC_VECTOR_TO_BIT_NUMBER(v) ((unsigned int)(v) % 32)
+#define APIC_VECTOR_TO_REG_OFFSET(v) ((unsigned int)(v) / 32 * 0x10)
 
 void apic_disable(void);
 void xapic_enable(void);
 void x2apic_enable(void);
 
-static inline uint32_t get_bsp_flag(void)
+static inline u32 get_bsp_flag(void)
 {
 	return rdmsr(MSR_IA32_APICBASE) & MSR_IA32_APICBASE_BSP;
 }
 
-static inline uint32_t xapic_read_reg(unsigned int reg)
+static inline u32 xapic_read_reg(unsigned int reg)
 {
-	return ((volatile uint32_t *)APIC_DEFAULT_GPA)[reg >> 2];
+	return ((volatile u32 *)APIC_DEFAULT_GPA)[reg >> 2];
 }
 
-static inline void xapic_write_reg(unsigned int reg, uint32_t val)
+static inline void xapic_write_reg(unsigned int reg, u32 val)
 {
-	((volatile uint32_t *)APIC_DEFAULT_GPA)[reg >> 2] = val;
+	((volatile u32 *)APIC_DEFAULT_GPA)[reg >> 2] = val;
 }
 
-static inline uint64_t x2apic_read_reg(unsigned int reg)
+static inline u64 x2apic_read_reg(unsigned int reg)
 {
 	return rdmsr(APIC_BASE_MSR + (reg >> 4));
 }
 
-static inline uint8_t x2apic_write_reg_safe(unsigned int reg, uint64_t value)
+static inline u8 x2apic_write_reg_safe(unsigned int reg, u64 value)
 {
 	return wrmsr_safe(APIC_BASE_MSR + (reg >> 4), value);
 }
 
-static inline void x2apic_write_reg(unsigned int reg, uint64_t value)
+static inline void x2apic_write_reg(unsigned int reg, u64 value)
 {
-	uint8_t fault = x2apic_write_reg_safe(reg, value);
+	u8 fault = x2apic_write_reg_safe(reg, value);
 
 	__GUEST_ASSERT(!fault, "Unexpected fault 0x%x on WRMSR(%x) = %lx\n",
 		       fault, APIC_BASE_MSR + (reg >> 4), value);
 }
 
-static inline void x2apic_write_reg_fault(unsigned int reg, uint64_t value)
+static inline void x2apic_write_reg_fault(unsigned int reg, u64 value)
 {
-	uint8_t fault = x2apic_write_reg_safe(reg, value);
+	u8 fault = x2apic_write_reg_safe(reg, value);
 
 	__GUEST_ASSERT(fault == GP_VECTOR,
 		       "Wanted #GP on WRMSR(%x) = %lx, got 0x%x\n",

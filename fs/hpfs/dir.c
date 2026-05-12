@@ -96,8 +96,8 @@ static int hpfs_readdir(struct file *file, struct dir_context *ctx)
 		}
 		if (!fnode_is_dir(fno)) {
 			e = 1;
-			hpfs_error(inode->i_sb, "not a directory, fnode %08lx",
-					(unsigned long)inode->i_ino);
+			hpfs_error(inode->i_sb, "not a directory, fnode %08llx",
+					inode->i_ino);
 		}
 		if (hpfs_inode->i_dno != le32_to_cpu(fno->u.external[0].disk_secno)) {
 			e = 1;
@@ -247,7 +247,7 @@ struct dentry *hpfs_lookup(struct inode *dir, struct dentry *dentry, unsigned in
 		result = ERR_PTR(-ENOMEM);
 		goto bail1;
 	}
-	if (result->i_state & I_NEW) {
+	if (inode_state_read_once(result) & I_NEW) {
 		hpfs_init_inode(result);
 		if (de->directory)
 			hpfs_read_inode(result);

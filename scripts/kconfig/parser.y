@@ -75,6 +75,7 @@ struct menu *current_menu, *current_entry, *current_choice;
 %token T_SELECT
 %token T_SOURCE
 %token T_STRING
+%token T_TRANSITIONAL
 %token T_TRISTATE
 %token T_VISIBLE
 %token T_EOL
@@ -158,14 +159,8 @@ config_stmt: config_entry_start config_option_list
 			yynerrs++;
 		}
 
-		/*
-		 * If the same symbol appears twice in a choice block, the list
-		 * node would be added twice, leading to a broken linked list.
-		 * list_empty() ensures that this symbol has not yet added.
-		 */
-		if (list_empty(&current_entry->sym->choice_link))
-			list_add_tail(&current_entry->sym->choice_link,
-				      &current_choice->choice_members);
+		list_add_tail(&current_entry->sym->choice_link,
+			      &current_choice->choice_members);
 	}
 
 	printd(DEBUG_PARSE, "%s:%d:endconfig\n", cur_filename, cur_lineno);
@@ -203,6 +198,12 @@ config_option: T_PROMPT T_WORD_QUOTE if_expr T_EOL
 {
 	menu_add_prompt(P_PROMPT, $2, $3);
 	printd(DEBUG_PARSE, "%s:%d:prompt\n", cur_filename, cur_lineno);
+};
+
+config_option: T_TRANSITIONAL T_EOL
+{
+	current_entry->sym->flags |= SYMBOL_TRANS;
+	printd(DEBUG_PARSE, "%s:%d:transitional\n", cur_filename, cur_lineno);
 };
 
 config_option: default expr if_expr T_EOL
@@ -316,7 +317,7 @@ if_entry: T_IF expr T_EOL
 {
 	printd(DEBUG_PARSE, "%s:%d:if\n", cur_filename, cur_lineno);
 	menu_add_entry(NULL, M_IF);
-	menu_add_dep($2);
+	menu_add_dep($2, NULL);
 	$$ = menu_add_menu();
 };
 
@@ -415,9 +416,9 @@ help: help_start T_HELPTEXT
 
 /* depends option */
 
-depends: T_DEPENDS T_ON expr T_EOL
+depends: T_DEPENDS T_ON expr if_expr T_EOL
 {
-	menu_add_dep($3);
+	menu_add_dep($3, $4);
 	printd(DEBUG_PARSE, "%s:%d:depends on\n", cur_filename, cur_lineno);
 };
 
@@ -483,6 +484,43 @@ assign_val:
 %%
 
 /**
+ * transitional_check_sanity - check transitional symbols have no other
+ *			       properties
+ *
+ * @menu: menu of the potentially transitional symbol
+ *
+ * Return: -1 if an error is found, 0 otherwise.
+ */
+static int transitional_check_sanity(const struct menu *menu)
+{
+	struct property *prop;
+
+	if (!menu->sym || !(menu->sym->flags & SYMBOL_TRANS))
+		return 0;
+
+	/* Check for depends and visible conditions. */
+	if ((menu->dep && !expr_is_yes(menu->dep)) ||
+	    (menu->visibility && !expr_is_yes(menu->visibility))) {
+		fprintf(stderr, "%s:%d: error: %s",
+			menu->filename, menu->lineno,
+			"transitional symbols can only have help sections\n");
+		return -1;
+	}
+
+	/* Check for any property other than "help". */
+	for (prop = menu->sym->prop; prop; prop = prop->next) {
+		if (prop->type != P_COMMENT) {
+			fprintf(stderr, "%s:%d: error: %s",
+				prop->filename, prop->lineno,
+				"transitional symbols can only have help sections\n");
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
+/**
  * choice_check_sanity - check sanity of a choice member
  *
  * @menu: menu of the choice member
@@ -502,11 +540,10 @@ static int choice_check_sanity(const struct menu *menu)
 			ret = -1;
 		}
 
-		if (prop->menu != menu && prop->type == P_PROMPT &&
-		    prop->menu->parent != menu->parent) {
+		if (prop->menu != menu && prop->type == P_PROMPT) {
 			fprintf(stderr, "%s:%d: error: %s",
 				prop->filename, prop->lineno,
-				"choice value has a prompt outside its choice group\n");
+				"choice value must not have a prompt in another entry\n");
 			ret = -1;
 		}
 	}
@@ -556,6 +593,9 @@ void conf_parse(const char *name)
 		struct menu *child;
 
 		if (menu->sym && sym_check_deps(menu->sym))
+			yynerrs++;
+
+		if (transitional_check_sanity(menu))
 			yynerrs++;
 
 		if (menu->sym && sym_is_choice(menu->sym)) {

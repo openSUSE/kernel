@@ -3,7 +3,6 @@
 
 . "$(cd "$(dirname "$0")" && pwd)"/test_common.sh
 
-TID="generic_08"
 ERR_CODE=0
 
 if ! _have_feature "AUTO_BUF_REG"; then
@@ -19,7 +18,7 @@ dev_id=$(_add_ublk_dev -t loop -q 2 --auto_zc "${UBLK_BACKFILES[0]}")
 _check_add_dev $TID $?
 
 if ! _mkfs_mount_test /dev/ublkb"${dev_id}"; then
-	_cleanup_test "generic"
+	_cleanup_test
 	_show_result $TID 255
 fi
 
@@ -28,5 +27,5 @@ _check_add_dev $TID $?
 _mkfs_mount_test /dev/ublkb"${dev_id}"
 ERR_CODE=$?
 
-_cleanup_test "generic"
+_cleanup_test
 _show_result $TID $ERR_CODE

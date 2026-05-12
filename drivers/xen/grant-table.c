@@ -556,7 +556,7 @@ static void gnttab_add_deferred(grant_ref_t ref, struct page *page)
 	gfp_t gfp = (in_atomic() || irqs_disabled()) ? GFP_ATOMIC : GFP_KERNEL;
 	uint64_t leaked, deferred;
 
-	entry = kmalloc(sizeof(*entry), gfp);
+	entry = kmalloc_obj(*entry, gfp);
 	if (!page) {
 		unsigned long gfn = gnttab_interface->read_frame(ref);
 
@@ -831,7 +831,7 @@ int gnttab_setup_auto_xlat_frames(phys_addr_t addr)
 			&addr);
 		return -ENOMEM;
 	}
-	pfn = kcalloc(max_nr_gframes, sizeof(pfn[0]), GFP_KERNEL);
+	pfn = kzalloc_objs(pfn[0], max_nr_gframes);
 	if (!pfn) {
 		memunmap(vaddr);
 		return -ENOMEM;
@@ -868,7 +868,7 @@ int gnttab_pages_set_private(int nr_pages, struct page **pages)
 #if BITS_PER_LONG < 64
 		struct xen_page_foreign *foreign;
 
-		foreign = kzalloc(sizeof(*foreign), GFP_KERNEL);
+		foreign = kzalloc_obj(*foreign);
 		if (!foreign)
 			return -ENOMEM;
 
@@ -1204,7 +1204,7 @@ void gnttab_foreach_grant_in_range(struct page *page,
 	unsigned int glen;
 	unsigned long xen_pfn;
 
-	len = min_t(unsigned int, PAGE_SIZE - offset, len);
+	len = min(PAGE_SIZE - offset, len);
 	goffset = xen_offset_in_page(offset);
 
 	xen_pfn = page_to_xen_pfn(page) + XEN_PFN_DOWN(offset);
@@ -1449,7 +1449,7 @@ static int gnttab_map(unsigned int start_idx, unsigned int end_idx)
 	unsigned int nr_gframes = end_idx + 1;
 	int rc;
 
-	if (xen_feature(XENFEAT_auto_translated_physmap)) {
+	if (!xen_pv_domain()) {
 		struct xen_add_to_physmap xatp;
 		unsigned int i = end_idx;
 		rc = 0;
@@ -1570,7 +1570,7 @@ static int gnttab_setup(void)
 	if (max_nr_gframes < nr_grant_frames)
 		return -ENOSYS;
 
-	if (xen_feature(XENFEAT_auto_translated_physmap) && gnttab_shared.addr == NULL) {
+	if (!xen_pv_domain() && gnttab_shared.addr == NULL) {
 		gnttab_shared.addr = xen_auto_xlat_grant_frames.vaddr;
 		if (gnttab_shared.addr == NULL) {
 			pr_warn("gnttab share frames is not mapped!\n");
@@ -1579,7 +1579,7 @@ static int gnttab_setup(void)
 	}
 	return gnttab_map(0, nr_grant_frames - 1);
 }
-
+#ifdef CONFIG_HIBERNATE_CALLBACKS
 int gnttab_resume(void)
 {
 	gnttab_request_version();
@@ -1588,10 +1588,11 @@ int gnttab_resume(void)
 
 int gnttab_suspend(void)
 {
-	if (!xen_feature(XENFEAT_auto_translated_physmap))
+	if (xen_pv_domain())
 		gnttab_interface->unmap_frames();
 	return 0;
 }
+#endif
 
 static int gnttab_expand(unsigned int req_entries)
 {
@@ -1635,9 +1636,7 @@ int gnttab_init(void)
 	 */
 	max_nr_glist_frames = max_nr_grefs / RPP;
 
-	gnttab_list = kmalloc_array(max_nr_glist_frames,
-				    sizeof(grant_ref_t *),
-				    GFP_KERNEL);
+	gnttab_list = kmalloc_objs(grant_ref_t *, max_nr_glist_frames);
 	if (gnttab_list == NULL)
 		return -ENOMEM;
 

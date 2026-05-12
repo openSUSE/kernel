@@ -223,13 +223,15 @@ static int ti_clk_divider_bestdiv(struct clk_hw *hw, unsigned long rate,
 	return bestdiv;
 }
 
-static long ti_clk_divider_round_rate(struct clk_hw *hw, unsigned long rate,
-				      unsigned long *prate)
+static int ti_clk_divider_determine_rate(struct clk_hw *hw,
+					 struct clk_rate_request *req)
 {
 	int div;
-	div = ti_clk_divider_bestdiv(hw, rate, prate);
+	div = ti_clk_divider_bestdiv(hw, req->rate, &req->best_parent_rate);
 
-	return DIV_ROUND_UP(*prate, div);
+	req->rate = DIV_ROUND_UP(req->best_parent_rate, div);
+
+	return 0;
 }
 
 static int ti_clk_divider_set_rate(struct clk_hw *hw, unsigned long rate,
@@ -299,7 +301,7 @@ static void clk_divider_restore_context(struct clk_hw *hw)
 
 const struct clk_ops ti_clk_divider_ops = {
 	.recalc_rate = ti_clk_divider_recalc_rate,
-	.round_rate = ti_clk_divider_round_rate,
+	.determine_rate = ti_clk_divider_determine_rate,
 	.set_rate = ti_clk_divider_set_rate,
 	.save_context = clk_divider_save_context,
 	.restore_context = clk_divider_restore_context,
@@ -355,7 +357,7 @@ int ti_clk_parse_divider_data(int *div_table, int num_dividers, int max_div,
 
 	num_dividers = i;
 
-	tmp = kcalloc(valid_div + 1, sizeof(*tmp), GFP_KERNEL);
+	tmp = kzalloc_objs(*tmp, valid_div + 1);
 	if (!tmp)
 		return -ENOMEM;
 
@@ -411,7 +413,7 @@ static int __init ti_clk_get_div_table(struct device_node *node,
 		return -EINVAL;
 	}
 
-	table = kcalloc(valid_div + 1, sizeof(*table), GFP_KERNEL);
+	table = kzalloc_objs(*table, valid_div + 1);
 	if (!table)
 		return -ENOMEM;
 
@@ -515,7 +517,7 @@ static void __init of_ti_divider_clk_setup(struct device_node *node)
 	u32 flags = 0;
 	struct clk_omap_divider *div;
 
-	div = kzalloc(sizeof(*div), GFP_KERNEL);
+	div = kzalloc_obj(*div);
 	if (!div)
 		return;
 
@@ -540,7 +542,7 @@ static void __init of_ti_composite_divider_clk_setup(struct device_node *node)
 	struct clk_omap_divider *div;
 	u32 tmp;
 
-	div = kzalloc(sizeof(*div), GFP_KERNEL);
+	div = kzalloc_obj(*div);
 	if (!div)
 		return;
 

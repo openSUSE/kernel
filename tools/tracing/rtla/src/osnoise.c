@@ -62,7 +62,7 @@ int osnoise_set_cpus(struct osnoise_context *context, char *cpus)
 	if (!context->curr_cpus)
 		return -1;
 
-	snprintf(buffer, 1024, "%s\n", cpus);
+	snprintf(buffer, ARRAY_SIZE(buffer), "%s\n", cpus);
 
 	debug_msg("setting cpus to %s from %s", cpus, context->orig_cpus);
 
@@ -906,22 +906,6 @@ static void osnoise_put_workload(struct osnoise_context *context)
 	context->orig_opt_workload = OSNOISE_OPTION_INIT_VAL;
 }
 
-/*
- * enable_osnoise - enable osnoise tracer in the trace_instance
- */
-int enable_osnoise(struct trace_instance *trace)
-{
-	return enable_tracer_by_name(trace->inst, "osnoise");
-}
-
-/*
- * enable_timerlat - enable timerlat tracer in the trace_instance
- */
-int enable_timerlat(struct trace_instance *trace)
-{
-	return enable_tracer_by_name(trace->inst, "timerlat");
-}
-
 enum {
 	FLAG_CONTEXT_NEWLY_CREATED	= (1 << 0),
 	FLAG_CONTEXT_DELETED		= (1 << 1),
@@ -954,9 +938,7 @@ struct osnoise_context *osnoise_context_alloc(void)
 {
 	struct osnoise_context *context;
 
-	context = calloc(1, sizeof(*context));
-	if (!context)
-		return NULL;
+	context = calloc_fatal(1, sizeof(*context));
 
 	context->orig_stop_us		= OSNOISE_OPTION_INIT_VAL;
 	context->stop_us		= OSNOISE_OPTION_INIT_VAL;
@@ -1033,30 +1015,22 @@ void osnoise_destroy_tool(struct osnoise_tool *top)
 struct osnoise_tool *osnoise_init_tool(char *tool_name)
 {
 	struct osnoise_tool *top;
-	int retval;
 
-	top = calloc(1, sizeof(*top));
-	if (!top)
-		return NULL;
-
+	top = calloc_fatal(1, sizeof(*top));
 	top->context = osnoise_context_alloc();
-	if (!top->context)
-		goto out_err;
 
-	retval = trace_instance_init(&top->trace, tool_name);
-	if (retval)
-		goto out_err;
+	if (trace_instance_init(&top->trace, tool_name)) {
+		osnoise_destroy_tool(top);
+		return NULL;
+	}
 
 	return top;
-out_err:
-	osnoise_destroy_tool(top);
-	return NULL;
 }
 
 /*
  * osnoise_init_trace_tool - init a tracer instance to trace osnoise events
  */
-struct osnoise_tool *osnoise_init_trace_tool(char *tracer)
+struct osnoise_tool *osnoise_init_trace_tool(const char *tracer)
 {
 	struct osnoise_tool *trace;
 	int retval;
@@ -1120,21 +1094,14 @@ osnoise_report_missed_events(struct osnoise_tool *tool)
 }
 
 /*
- * osnoise_apply_config - apply common configs to the initialized tool
+ * osnoise_apply_config - apply osnoise configs to the initialized tool
  */
 int
 osnoise_apply_config(struct osnoise_tool *tool, struct osnoise_params *params)
 {
 	int retval;
 
-	if (!params->sleep_time)
-		params->sleep_time = 1;
-
-	retval = osnoise_set_cpus(tool->context, params->cpus ? params->cpus : "all");
-	if (retval) {
-		err_msg("Failed to apply CPUs config\n");
-		goto out_err;
-	}
+	params->common.kernel_workload = true;
 
 	if (params->runtime || params->period) {
 		retval = osnoise_set_runtime_period(tool->context,
@@ -1151,52 +1118,57 @@ osnoise_apply_config(struct osnoise_tool *tool, struct osnoise_params *params)
 		goto out_err;
 	}
 
-	retval = osnoise_set_stop_us(tool->context, params->stop_us);
-	if (retval) {
-		err_msg("Failed to set stop us\n");
-		goto out_err;
-	}
-
-	retval = osnoise_set_stop_total_us(tool->context, params->stop_total_us);
-	if (retval) {
-		err_msg("Failed to set stop total us\n");
-		goto out_err;
-	}
-
 	retval = osnoise_set_tracing_thresh(tool->context, params->threshold);
 	if (retval) {
 		err_msg("Failed to set tracing_thresh\n");
 		goto out_err;
 	}
 
-	if (params->hk_cpus) {
-		retval = sched_setaffinity(getpid(), sizeof(params->hk_cpu_set),
-					   &params->hk_cpu_set);
-		if (retval == -1) {
-			err_msg("Failed to set rtla to the house keeping CPUs\n");
-			goto out_err;
-		}
-	} else if (params->cpus) {
-		/*
-		 * Even if the user do not set a house-keeping CPU, try to
-		 * move rtla to a CPU set different to the one where the user
-		 * set the workload to run.
-		 *
-		 * No need to check results as this is an automatic attempt.
-		 */
-		auto_house_keeping(&params->monitored_cpus);
-	}
-
-	retval = osnoise_set_workload(tool->context, true);
-	if (retval < -1) {
-		err_msg("Failed to set OSNOISE_WORKLOAD option\n");
-		goto out_err;
-	}
-
-	return 0;
+	return common_apply_config(tool, &params->common);
 
 out_err:
 	return -1;
+}
+
+int osnoise_enable(struct osnoise_tool *tool)
+{
+	struct osnoise_params *params = to_osnoise_params(tool->params);
+	int retval;
+
+	/*
+	 * Start the tracer here, after having set all instances.
+	 *
+	 * Let the trace instance start first for the case of hitting a stop
+	 * tracing while enabling other instances. The trace instance is the
+	 * one with most valuable information.
+	 */
+	if (tool->record)
+		trace_instance_start(&tool->record->trace);
+	trace_instance_start(&tool->trace);
+
+	if (params->common.warmup > 0) {
+		debug_msg("Warming up for %d seconds\n", params->common.warmup);
+		sleep(params->common.warmup);
+		if (stop_tracing)
+			return -1;
+
+		/*
+		 * Clean up the buffer. The osnoise workload do not run
+		 * with tracing off to avoid creating a performance penalty
+		 * when not needed.
+		 */
+		retval = tracefs_instance_file_write(tool->trace.inst, "trace", "");
+		if (retval < 0) {
+			debug_msg("Error cleaning up the buffer");
+			return retval;
+		}
+	}
+
+	retval = osn_set_stop(tool);
+	if (retval)
+		return retval;
+
+	return 0;
 }
 
 static void osnoise_usage(int err)
@@ -1232,21 +1204,21 @@ int osnoise_main(int argc, char *argv[])
 	 * default cmdline.
 	 */
 	if (argc == 1) {
-		osnoise_top_main(argc, argv);
+		run_tool(&osnoise_top_ops, argc, argv);
 		exit(0);
 	}
 
 	if ((strcmp(argv[1], "-h") == 0) || (strcmp(argv[1], "--help") == 0)) {
 		osnoise_usage(0);
-	} else if (strncmp(argv[1], "-", 1) == 0) {
+	} else if (str_has_prefix(argv[1], "-")) {
 		/* the user skipped the tool, call the default one */
-		osnoise_top_main(argc, argv);
+		run_tool(&osnoise_top_ops, argc, argv);
 		exit(0);
 	} else if (strcmp(argv[1], "top") == 0) {
-		osnoise_top_main(argc-1, &argv[1]);
+		run_tool(&osnoise_top_ops, argc-1, &argv[1]);
 		exit(0);
 	} else if (strcmp(argv[1], "hist") == 0) {
-		osnoise_hist_main(argc-1, &argv[1]);
+		run_tool(&osnoise_hist_ops, argc-1, &argv[1]);
 		exit(0);
 	}
 
@@ -1257,6 +1229,6 @@ usage:
 
 int hwnoise_main(int argc, char *argv[])
 {
-	osnoise_top_main(argc, argv);
+	run_tool(&osnoise_top_ops, argc, argv);
 	exit(0);
 }

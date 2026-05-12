@@ -251,15 +251,11 @@ struct coresight_trace_id_map {
  *		by @coresight_ops.
  * @access:	Device i/o access abstraction for this device.
  * @dev:	The device entity associated to this component.
- * @mode:	This tracer's mode, i.e sysFS, Perf or disabled. This is
- *		actually an 'enum cs_mode', but is stored in an atomic type.
- *		This is always accessed through local_read() and local_set(),
- *		but wherever it's done from within the Coresight device's lock,
- *		a non-atomic read would also work. This is the main point of
- *		synchronisation between code happening inside the sysfs mode's
- *		coresight_mutex and outside when running in Perf mode. A compare
- *		and exchange swap is done to atomically claim one mode or the
- *		other.
+ * @mode:	The device mode, i.e sysFS, Perf or disabled. This is actually
+ *		an 'enum cs_mode' but stored in an atomic type. Access is always
+ *		through atomic APIs, ensuring SMP-safe synchronisation between
+ *		racing from sysFS and Perf mode. A compare-and-exchange
+ *		operation is done to atomically claim one mode or the other.
  * @refcnt:	keep track of what is in use. Only access this outside of the
  *		device's spinlock when the coresight_mutex held and mode ==
  *		CS_MODE_SYSFS. Otherwise it must be accessed from inside the
@@ -288,7 +284,7 @@ struct coresight_device {
 	const struct coresight_ops *ops;
 	struct csdev_access access;
 	struct device dev;
-	local_t	mode;
+	atomic_t mode;
 	int refcnt;
 	bool orphan;
 	/* sink specific fields */
@@ -310,34 +306,31 @@ struct coresight_device {
  * coresight_dev_list - Mapping for devices to "name" index for device
  * names.
  *
+ * @node:		Node on the global device index list.
  * @nr_idx:		Number of entries already allocated.
  * @pfx:		Prefix pattern for device name.
  * @fwnode_list:	Array of fwnode_handles associated with each allocated
  *			index, upto nr_idx entries.
  */
 struct coresight_dev_list {
+	struct list_head	node;
 	int			nr_idx;
-	const char		*pfx;
+	char			*pfx;
 	struct fwnode_handle	**fwnode_list;
 };
-
-#define DEFINE_CORESIGHT_DEVLIST(var, dev_pfx)				\
-static struct coresight_dev_list (var) = {				\
-						.pfx = dev_pfx,		\
-						.nr_idx = 0,		\
-						.fwnode_list = NULL,	\
-}
 
 #define to_coresight_device(d) container_of(d, struct coresight_device, dev)
 
 /**
  * struct coresight_path - data needed by enable/disable path
- * @path_list:              path from source to sink.
- * @trace_id:          trace_id of the whole path.
+ * @path_list:		path from source to sink.
+ * @trace_id:		trace_id of the whole path.
+ * @handle:		handle of the aux_event.
  */
 struct coresight_path {
-	struct list_head	path_list;
-	u8			trace_id;
+	struct list_head		path_list;
+	u8				trace_id;
+	struct perf_output_handle	*handle;
 };
 
 enum cs_mode {
@@ -365,7 +358,7 @@ enum cs_mode {
  */
 struct coresight_ops_sink {
 	int (*enable)(struct coresight_device *csdev, enum cs_mode mode,
-		      void *data);
+		      struct coresight_path *path);
 	int (*disable)(struct coresight_device *csdev);
 	void *(*alloc_buffer)(struct coresight_device *csdev,
 			      struct perf_event *event, void **pages,
@@ -422,8 +415,9 @@ struct coresight_ops_source {
  */
 struct coresight_ops_helper {
 	int (*enable)(struct coresight_device *csdev, enum cs_mode mode,
-		      void *data);
-	int (*disable)(struct coresight_device *csdev, void *data);
+		      struct coresight_path *path);
+	int (*disable)(struct coresight_device *csdev,
+		       struct coresight_path *path);
 };
 
 
@@ -472,35 +466,6 @@ static inline bool is_coresight_device(void __iomem *base)
 	u32 cid = coresight_get_cid(base);
 
 	return cid == CORESIGHT_CID;
-}
-
-/*
- * Attempt to find and enable "APB clock" for the given device
- *
- * Returns:
- *
- * clk   - Clock is found and enabled
- * NULL  - clock is not found
- * ERROR - Clock is found but failed to enable
- */
-static inline struct clk *coresight_get_enable_apb_pclk(struct device *dev)
-{
-	struct clk *pclk;
-	int ret;
-
-	pclk = clk_get(dev, "apb_pclk");
-	if (IS_ERR(pclk)) {
-		pclk = clk_get(dev, "apb");
-		if (IS_ERR(pclk))
-			return NULL;
-	}
-
-	ret = clk_prepare_enable(pclk);
-	if (ret) {
-		clk_put(pclk);
-		return ERR_PTR(ret);
-	}
-	return pclk;
 }
 
 #define CORESIGHT_PIDRn(i)	(0xFE0 + ((i) * 4))
@@ -650,13 +615,14 @@ static inline bool coresight_is_percpu_sink(struct coresight_device *csdev)
 static inline bool coresight_take_mode(struct coresight_device *csdev,
 				       enum cs_mode new_mode)
 {
-	return local_cmpxchg(&csdev->mode, CS_MODE_DISABLED, new_mode) ==
-	       CS_MODE_DISABLED;
+	int curr = CS_MODE_DISABLED;
+
+	return atomic_try_cmpxchg_acquire(&csdev->mode, &curr, new_mode);
 }
 
 static inline enum cs_mode coresight_get_mode(struct coresight_device *csdev)
 {
-	return local_read(&csdev->mode);
+	return atomic_read_acquire(&csdev->mode);
 }
 
 static inline void coresight_set_mode(struct coresight_device *csdev,
@@ -672,7 +638,7 @@ static inline void coresight_set_mode(struct coresight_device *csdev,
 	WARN(new_mode != CS_MODE_DISABLED && current_mode != CS_MODE_DISABLED &&
 	     current_mode != new_mode, "Device already in use\n");
 
-	local_set(&csdev->mode, new_mode);
+	atomic_set_release(&csdev->mode, new_mode);
 }
 
 struct coresight_device *coresight_register(struct coresight_desc *desc);
@@ -692,8 +658,7 @@ void coresight_clear_self_claim_tag(struct csdev_access *csa);
 void coresight_clear_self_claim_tag_unlocked(struct csdev_access *csa);
 void coresight_disclaim_device(struct coresight_device *csdev);
 void coresight_disclaim_device_unlocked(struct coresight_device *csdev);
-char *coresight_alloc_device_name(struct coresight_dev_list *devs,
-					 struct device *dev);
+char *coresight_alloc_device_name(const char *prefix, struct device *dev);
 
 bool coresight_loses_context_with_cpu(struct device *dev);
 
@@ -733,4 +698,6 @@ void coresight_remove_driver(struct amba_driver *amba_drv,
 			     struct platform_driver *pdev_drv);
 int coresight_etm_get_trace_id(struct coresight_device *csdev, enum cs_mode mode,
 			       struct coresight_device *sink);
+int coresight_get_enable_clocks(struct device *dev, struct clk **pclk,
+				struct clk **atclk);
 #endif		/* _LINUX_COREISGHT_H */

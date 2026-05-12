@@ -149,6 +149,7 @@ struct drm_dp_tunnel {
 	bool bw_alloc_enabled:1;
 	bool has_io_error:1;
 	bool destroyed:1;
+	bool pr_optimization_support:1;
 };
 
 struct drm_dp_tunnel_group_state;
@@ -476,7 +477,7 @@ create_tunnel(struct drm_dp_tunnel_mgr *mgr,
 	u8 drv_group_id = tunnel_reg_drv_group_id(regs);
 	struct drm_dp_tunnel *tunnel;
 
-	tunnel = kzalloc(sizeof(*tunnel), GFP_KERNEL);
+	tunnel = kzalloc_obj(*tunnel);
 	if (!tunnel)
 		return NULL;
 
@@ -508,6 +509,8 @@ create_tunnel(struct drm_dp_tunnel_mgr *mgr,
 
 	tunnel->bw_alloc_supported = tunnel_reg_bw_alloc_supported(regs);
 	tunnel->bw_alloc_enabled = tunnel_reg_bw_alloc_enabled(regs);
+	tunnel->pr_optimization_support = tunnel_reg(regs, DP_TUNNELING_CAPABILITIES) &
+					  DP_PANEL_REPLAY_OPTIMIZATION_SUPPORT;
 
 	if (!add_tunnel_to_group(mgr, drv_group_id, tunnel)) {
 		kfree(tunnel);
@@ -1036,6 +1039,20 @@ bool drm_dp_tunnel_bw_alloc_is_enabled(const struct drm_dp_tunnel *tunnel)
 }
 EXPORT_SYMBOL(drm_dp_tunnel_bw_alloc_is_enabled);
 
+/**
+ * drm_dp_tunnel_pr_optimization_supported - Query the PR BW optimization support
+ * @tunnel: Tunnel object
+ *
+ * Query if the PR BW optimization is supported for @tunnel.
+ *
+ * Returns %true if the PR BW optimiation is supported for @tunnel.
+ */
+bool drm_dp_tunnel_pr_optimization_supported(const struct drm_dp_tunnel *tunnel)
+{
+	return tunnel && tunnel->pr_optimization_support;
+}
+EXPORT_SYMBOL(drm_dp_tunnel_pr_optimization_supported);
+
 static int clear_bw_req_state(struct drm_dp_aux *aux)
 {
 	u8 bw_req_mask = DP_BW_REQUEST_SUCCEEDED | DP_BW_REQUEST_FAILED;
@@ -1369,7 +1386,7 @@ int drm_dp_tunnel_available_bw(const struct drm_dp_tunnel *tunnel)
 EXPORT_SYMBOL(drm_dp_tunnel_available_bw);
 
 static struct drm_dp_tunnel_group_state *
-drm_dp_tunnel_atomic_get_group_state(struct drm_atomic_state *state,
+drm_dp_tunnel_atomic_get_group_state(struct drm_atomic_commit *state,
 				     const struct drm_dp_tunnel *tunnel)
 {
 	return (struct drm_dp_tunnel_group_state *)
@@ -1387,7 +1404,7 @@ add_tunnel_state(struct drm_dp_tunnel_group_state *group_state,
 		       "Adding state for tunnel %p to group state %p\n",
 		       tunnel, group_state);
 
-	tunnel_state = kzalloc(sizeof(*tunnel_state), GFP_KERNEL);
+	tunnel_state = kzalloc_obj(*tunnel_state);
 	if (!tunnel_state)
 		return NULL;
 
@@ -1458,7 +1475,7 @@ tunnel_group_duplicate_state(struct drm_private_obj *obj)
 	struct drm_dp_tunnel_group_state *group_state;
 	struct drm_dp_tunnel_state *tunnel_state;
 
-	group_state = kzalloc(sizeof(*group_state), GFP_KERNEL);
+	group_state = kzalloc_obj(*group_state);
 	if (!group_state)
 		return NULL;
 
@@ -1497,7 +1514,22 @@ static void tunnel_group_destroy_state(struct drm_private_obj *obj, struct drm_p
 	free_group_state(to_group_state(state));
 }
 
+static struct drm_private_state *tunnel_group_atomic_create_state(struct drm_private_obj *obj)
+{
+	struct drm_dp_tunnel_group_state *group_state;
+
+	group_state = kzalloc_obj(*group_state);
+	if (!group_state)
+		return ERR_PTR(-ENOMEM);
+
+	__drm_atomic_helper_private_obj_create_state(obj, &group_state->base);
+	INIT_LIST_HEAD(&group_state->tunnel_states);
+
+	return &group_state->base;
+}
+
 static const struct drm_private_state_funcs tunnel_group_funcs = {
+	.atomic_create_state = tunnel_group_atomic_create_state,
 	.atomic_duplicate_state = tunnel_group_duplicate_state,
 	.atomic_destroy_state = tunnel_group_destroy_state,
 };
@@ -1513,7 +1545,7 @@ static const struct drm_private_state_funcs tunnel_group_funcs = {
  * Return the state or an ERR_PTR() error on failure.
  */
 struct drm_dp_tunnel_state *
-drm_dp_tunnel_atomic_get_state(struct drm_atomic_state *state,
+drm_dp_tunnel_atomic_get_state(struct drm_atomic_commit *state,
 			       struct drm_dp_tunnel *tunnel)
 {
 	struct drm_dp_tunnel_group_state *group_state;
@@ -1541,7 +1573,7 @@ EXPORT_SYMBOL(drm_dp_tunnel_atomic_get_state);
  * Return the old state or NULL if the tunnel's atomic state is not in @state.
  */
 struct drm_dp_tunnel_state *
-drm_dp_tunnel_atomic_get_old_state(struct drm_atomic_state *state,
+drm_dp_tunnel_atomic_get_old_state(struct drm_atomic_commit *state,
 				   const struct drm_dp_tunnel *tunnel)
 {
 	struct drm_dp_tunnel_group_state *old_group_state;
@@ -1565,7 +1597,7 @@ EXPORT_SYMBOL(drm_dp_tunnel_atomic_get_old_state);
  * Return the new state or NULL if the tunnel's atomic state is not in @state.
  */
 struct drm_dp_tunnel_state *
-drm_dp_tunnel_atomic_get_new_state(struct drm_atomic_state *state,
+drm_dp_tunnel_atomic_get_new_state(struct drm_atomic_commit *state,
 				   const struct drm_dp_tunnel *tunnel)
 {
 	struct drm_dp_tunnel_group_state *new_group_state;
@@ -1581,19 +1613,11 @@ EXPORT_SYMBOL(drm_dp_tunnel_atomic_get_new_state);
 
 static bool init_group(struct drm_dp_tunnel_mgr *mgr, struct drm_dp_tunnel_group *group)
 {
-	struct drm_dp_tunnel_group_state *group_state;
-
-	group_state = kzalloc(sizeof(*group_state), GFP_KERNEL);
-	if (!group_state)
-		return false;
-
-	INIT_LIST_HEAD(&group_state->tunnel_states);
-
 	group->mgr = mgr;
 	group->available_bw = -1;
 	INIT_LIST_HEAD(&group->tunnels);
 
-	drm_atomic_private_obj_init(mgr->dev, &group->base, &group_state->base,
+	drm_atomic_private_obj_init(mgr->dev, &group->base,
 				    &tunnel_group_funcs);
 
 	return true;
@@ -1644,7 +1668,7 @@ static int resize_bw_array(struct drm_dp_tunnel_state *tunnel_state,
 	if (old_mask == new_mask)
 		return 0;
 
-	new_bws = kcalloc(hweight32(new_mask), sizeof(*new_bws), GFP_KERNEL);
+	new_bws = kzalloc_objs(*new_bws, hweight32(new_mask));
 	if (!new_bws)
 		return -ENOMEM;
 
@@ -1699,7 +1723,7 @@ static int clear_stream_bw(struct drm_dp_tunnel_state *tunnel_state,
  *
  * Returns 0 in case of success, a negative error code otherwise.
  */
-int drm_dp_tunnel_atomic_set_stream_bw(struct drm_atomic_state *state,
+int drm_dp_tunnel_atomic_set_stream_bw(struct drm_atomic_commit *state,
 				       struct drm_dp_tunnel *tunnel,
 				       u8 stream_id, int bw)
 {
@@ -1776,7 +1800,7 @@ EXPORT_SYMBOL(drm_dp_tunnel_atomic_get_required_bw);
  * Return 0 in case of success - with the stream IDs in @stream_mask - or a
  * negative error code in case of failure.
  */
-int drm_dp_tunnel_atomic_get_group_streams_in_state(struct drm_atomic_state *state,
+int drm_dp_tunnel_atomic_get_group_streams_in_state(struct drm_atomic_commit *state,
 						    const struct drm_dp_tunnel *tunnel,
 						    u32 *stream_mask)
 {
@@ -1854,7 +1878,7 @@ drm_dp_tunnel_atomic_check_group_bw(struct drm_dp_tunnel_group_state *new_group_
  * check failed - with @failed_stream_mask containing the streams failing the
  * check - or a negative error code otherwise.
  */
-int drm_dp_tunnel_atomic_check_stream_bws(struct drm_atomic_state *state,
+int drm_dp_tunnel_atomic_check_stream_bws(struct drm_atomic_commit *state,
 					  u32 *failed_stream_mask)
 {
 	struct drm_dp_tunnel_group_state *new_group_state;
@@ -1906,14 +1930,14 @@ drm_dp_tunnel_mgr_create(struct drm_device *dev, int max_group_count)
 	struct drm_dp_tunnel_mgr *mgr;
 	int i;
 
-	mgr = kzalloc(sizeof(*mgr), GFP_KERNEL);
+	mgr = kzalloc_obj(*mgr);
 	if (!mgr)
 		return ERR_PTR(-ENOMEM);
 
 	mgr->dev = dev;
 	init_waitqueue_head(&mgr->bw_req_queue);
 
-	mgr->groups = kcalloc(max_group_count, sizeof(*mgr->groups), GFP_KERNEL);
+	mgr->groups = kzalloc_objs(*mgr->groups, max_group_count);
 	if (!mgr->groups) {
 		kfree(mgr);
 

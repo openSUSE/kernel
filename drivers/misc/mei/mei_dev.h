@@ -57,7 +57,8 @@ enum file_state {
 
 /* MEI device states */
 enum mei_dev_state {
-	MEI_DEV_INITIALIZING = 0,
+	MEI_DEV_UNINITIALIZED = 0,
+	MEI_DEV_INITIALIZING,
 	MEI_DEV_INIT_CLIENTS,
 	MEI_DEV_ENABLED,
 	MEI_DEV_RESETTING,
@@ -465,13 +466,15 @@ struct mei_dev_timeouts {
 	unsigned int d0i3; /* D0i3 set/unset max response time, in jiffies */
 	unsigned long hbm; /* HBM operation timeout, in jiffies */
 	unsigned long mkhi_recv; /* receive timeout, in jiffies */
+	unsigned long link_reset_wait; /* link reset wait timeout, in jiffies */
 };
 
 /**
  * struct mei_device -  MEI private device struct
  *
- * @dev         : device on a bus
- * @cdev        : character device
+ * @parent      : device on a bus
+ * @dev         : device object
+ * @cdev        : character device pointer
  * @minor       : minor number allocated for device
  *
  * @write_list  : write pending list
@@ -487,6 +490,8 @@ struct mei_dev_timeouts {
  * @timer_work  : MEI timer delayed work (timeouts)
  *
  * @recvd_hw_ready : hw ready message received flag
+ * @pg_blocked  : low power mode is not allowed
+ * @read_fws_need_resume: the FW status handler needs HW woken from sleep
  *
  * @wait_hw_ready : wait queue for receive HW ready message form FW
  * @wait_pg     : wait queue for receive PG message from FW
@@ -494,6 +499,7 @@ struct mei_dev_timeouts {
  *
  * @reset_count : number of consecutive resets
  * @dev_state   : device state
+ * @wait_dev_state: wait queue for device state change
  * @hbm_state   : state of host bus message protocol
  * @pxp_mode    : PXP device mode
  * @init_clients_timer : HBM init handshake timeout
@@ -547,17 +553,15 @@ struct mei_dev_timeouts {
  *
  * @dbgfs_dir   : debugfs mei root directory
  *
- * @saved_fw_status      : saved firmware status
- * @saved_dev_state      : saved device state
- * @saved_fw_status_flag : flag indicating that firmware status was saved
  * @gsc_reset_to_pxp     : state of reset to the PXP mode
  *
  * @ops:        : hw specific operations
  * @hw          : hw specific data
  */
 struct mei_device {
-	struct device *dev;
-	struct cdev cdev;
+	struct device *parent;
+	struct device dev;
+	struct cdev *cdev;
 	int minor;
 
 	struct list_head write_list;
@@ -573,6 +577,9 @@ struct mei_device {
 	struct delayed_work timer_work;
 
 	bool recvd_hw_ready;
+	bool pg_blocked;
+	bool read_fws_need_resume;
+
 	/*
 	 * waiting queue for receive message from FW
 	 */
@@ -585,6 +592,7 @@ struct mei_device {
 	 */
 	unsigned long reset_count;
 	enum mei_dev_state dev_state;
+	wait_queue_head_t wait_dev_state;
 	enum mei_hbm_state hbm_state;
 	enum mei_dev_pxp_mode pxp_mode;
 	u16 init_clients_timer;
@@ -648,9 +656,6 @@ struct mei_device {
 	struct dentry *dbgfs_dir;
 #endif /* CONFIG_DEBUG_FS */
 
-	struct mei_fw_status saved_fw_status;
-	enum mei_dev_state saved_dev_state;
-	bool saved_fw_status_flag;
 	enum mei_dev_reset_to_pxp gsc_reset_to_pxp;
 
 	const struct mei_hw_ops *ops;
@@ -703,7 +708,7 @@ static inline u32 mei_slots2data(int slots)
  * mei init function prototypes
  */
 void mei_device_init(struct mei_device *dev,
-		     struct device *device,
+		     struct device *parent,
 		     bool slow_fw,
 		     const struct mei_hw_ops *hw_ops);
 int mei_reset(struct mei_device *dev);

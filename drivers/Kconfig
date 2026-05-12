@@ -61,8 +61,6 @@ source "drivers/macintosh/Kconfig"
 
 source "drivers/net/Kconfig"
 
-source "drivers/isdn/Kconfig"
-
 # input before char - char/joystick depends on it. As does USB.
 
 source "drivers/input/Kconfig"
@@ -161,6 +159,8 @@ source "drivers/greybus/Kconfig"
 
 source "drivers/comedi/Kconfig"
 
+source "drivers/gpib/Kconfig"
+
 source "drivers/staging/Kconfig"
 
 source "drivers/platform/Kconfig"
@@ -250,5 +250,7 @@ source "drivers/peci/Kconfig"
 source "drivers/hte/Kconfig"
 
 source "drivers/cdx/Kconfig"
+
+source "drivers/resctrl/Kconfig"
 
 endmenu

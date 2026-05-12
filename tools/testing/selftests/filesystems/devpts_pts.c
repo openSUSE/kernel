@@ -11,7 +11,7 @@
 #include <asm/ioctls.h>
 #include <sys/mount.h>
 #include <sys/wait.h>
-#include "../kselftest.h"
+#include "kselftest.h"
 
 static bool terminal_dup2(int duplicate, int original)
 {
@@ -119,9 +119,7 @@ static int do_tiocgptpeer(char *ptmx, char *expected_procfd_contents)
 		goto do_cleanup;
 	}
 
-#ifdef TIOCGPTPEER
 	slave = ioctl(master, TIOCGPTPEER, O_RDWR | O_NOCTTY | O_CLOEXEC);
-#endif
 	if (slave < 0) {
 		if (errno == EINVAL) {
 			fprintf(stderr, "TIOCGPTPEER is not supported. "

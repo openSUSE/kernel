@@ -49,6 +49,7 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/ethtool.h>
+#include <linux/uio.h>
 #include <linux/filter.h>
 #include <linux/types.h>
 #include <linux/mm.h>
@@ -203,8 +204,7 @@ static void prb_retire_current_block(struct tpacket_kbdq_core *,
 static int prb_queue_frozen(struct tpacket_kbdq_core *);
 static void prb_open_block(struct tpacket_kbdq_core *,
 		struct tpacket_block_desc *);
-static void prb_retire_rx_blk_timer_expired(struct timer_list *);
-static void _prb_refresh_rx_retire_blk_timer(struct tpacket_kbdq_core *);
+static enum hrtimer_restart prb_retire_rx_blk_timer_expired(struct hrtimer *);
 static void prb_fill_rxhash(struct tpacket_kbdq_core *, struct tpacket3_hdr *);
 static void prb_clear_rxhash(struct tpacket_kbdq_core *,
 		struct tpacket3_hdr *);
@@ -573,15 +573,11 @@ static __be16 vlan_get_protocol_dgram(const struct sk_buff *skb)
 	__be16 proto = skb->protocol;
 
 	if (unlikely(eth_type_vlan(proto)))
-		proto = __vlan_get_protocol_offset(skb, proto,
-						   skb_mac_offset(skb), NULL);
+		proto = vlan_get_protocol_offset_inline(skb, proto,
+							skb_mac_offset(skb),
+							NULL);
 
 	return proto;
-}
-
-static void prb_del_retire_blk_timer(struct tpacket_kbdq_core *pkc)
-{
-	timer_delete_sync(&pkc->retire_blk_timer);
 }
 
 static void prb_shutdown_retire_blk_timer(struct packet_sock *po,
@@ -590,22 +586,7 @@ static void prb_shutdown_retire_blk_timer(struct packet_sock *po,
 	struct tpacket_kbdq_core *pkc;
 
 	pkc = GET_PBDQC_FROM_RB(&po->rx_ring);
-
-	spin_lock_bh(&rb_queue->lock);
-	pkc->delete_blk_timer = 1;
-	spin_unlock_bh(&rb_queue->lock);
-
-	prb_del_retire_blk_timer(pkc);
-}
-
-static void prb_setup_retire_blk_timer(struct packet_sock *po)
-{
-	struct tpacket_kbdq_core *pkc;
-
-	pkc = GET_PBDQC_FROM_RB(&po->rx_ring);
-	timer_setup(&pkc->retire_blk_timer, prb_retire_rx_blk_timer_expired,
-		    0);
-	pkc->retire_blk_timer.expires = jiffies;
+	hrtimer_cancel(&pkc->retire_blk_timer);
 }
 
 static int prb_calc_retire_blk_tmo(struct packet_sock *po,
@@ -669,57 +650,36 @@ static void init_prb_bdqc(struct packet_sock *po,
 	p1->knum_blocks	= req_u->req3.tp_block_nr;
 	p1->hdrlen = po->tp_hdrlen;
 	p1->version = po->tp_version;
-	p1->last_kactive_blk_num = 0;
 	po->stats.stats3.tp_freeze_q_cnt = 0;
 	if (req_u->req3.tp_retire_blk_tov)
-		p1->retire_blk_tov = req_u->req3.tp_retire_blk_tov;
+		p1->interval_ktime = ms_to_ktime(req_u->req3.tp_retire_blk_tov);
 	else
-		p1->retire_blk_tov = prb_calc_retire_blk_tmo(po,
-						req_u->req3.tp_block_size);
-	p1->tov_in_jiffies = msecs_to_jiffies(p1->retire_blk_tov);
+		p1->interval_ktime = ms_to_ktime(prb_calc_retire_blk_tmo(po,
+						 req_u->req3.tp_block_size));
 	p1->blk_sizeof_priv = req_u->req3.tp_sizeof_priv;
 	rwlock_init(&p1->blk_fill_in_prog_lock);
 
 	p1->max_frame_len = p1->kblk_size - BLK_PLUS_PRIV(p1->blk_sizeof_priv);
 	prb_init_ft_ops(p1, req_u);
-	prb_setup_retire_blk_timer(po);
+	hrtimer_setup(&p1->retire_blk_timer, prb_retire_rx_blk_timer_expired,
+		      CLOCK_MONOTONIC, HRTIMER_MODE_REL_SOFT);
+	hrtimer_start(&p1->retire_blk_timer, p1->interval_ktime,
+		      HRTIMER_MODE_REL_SOFT);
 	prb_open_block(p1, pbd);
 }
 
-/*  Do NOT update the last_blk_num first.
- *  Assumes sk_buff_head lock is held.
- */
-static void _prb_refresh_rx_retire_blk_timer(struct tpacket_kbdq_core *pkc)
-{
-	mod_timer(&pkc->retire_blk_timer,
-			jiffies + pkc->tov_in_jiffies);
-	pkc->last_kactive_blk_num = pkc->kactive_blk_num;
-}
-
 /*
- * Timer logic:
- * 1) We refresh the timer only when we open a block.
- *    By doing this we don't waste cycles refreshing the timer
- *	  on packet-by-packet basis.
- *
  * With a 1MB block-size, on a 1Gbps line, it will take
  * i) ~8 ms to fill a block + ii) memcpy etc.
  * In this cut we are not accounting for the memcpy time.
  *
- * So, if the user sets the 'tmo' to 10ms then the timer
- * will never fire while the block is still getting filled
- * (which is what we want). However, the user could choose
- * to close a block early and that's fine.
- *
- * But when the timer does fire, we check whether or not to refresh it.
  * Since the tmo granularity is in msecs, it is not too expensive
  * to refresh the timer, lets say every '8' msecs.
  * Either the user can set the 'tmo' or we can derive it based on
  * a) line-speed and b) block-size.
  * prb_calc_retire_blk_tmo() calculates the tmo.
- *
  */
-static void prb_retire_rx_blk_timer_expired(struct timer_list *t)
+static enum hrtimer_restart prb_retire_rx_blk_timer_expired(struct hrtimer *t)
 {
 	struct packet_sock *po =
 		timer_container_of(po, t, rx_ring.prb_bdqc.retire_blk_timer);
@@ -731,9 +691,6 @@ static void prb_retire_rx_blk_timer_expired(struct timer_list *t)
 
 	frozen = prb_queue_frozen(pkc);
 	pbd = GET_CURR_PBLOCK_DESC_FROM_CORE(pkc);
-
-	if (unlikely(pkc->delete_blk_timer))
-		goto out;
 
 	/* We only need to plug the race when the block is partially filled.
 	 * tpacket_rcv:
@@ -750,46 +707,31 @@ static void prb_retire_rx_blk_timer_expired(struct timer_list *t)
 		write_unlock(&pkc->blk_fill_in_prog_lock);
 	}
 
-	if (pkc->last_kactive_blk_num == pkc->kactive_blk_num) {
-		if (!frozen) {
-			if (!BLOCK_NUM_PKTS(pbd)) {
-				/* An empty block. Just refresh the timer. */
-				goto refresh_timer;
-			}
+	if (!frozen) {
+		if (BLOCK_NUM_PKTS(pbd)) {
+			/* Not an empty block. Need retire the block. */
 			prb_retire_current_block(pkc, po, TP_STATUS_BLK_TMO);
-			if (!prb_dispatch_next_block(pkc, po))
-				goto refresh_timer;
-			else
-				goto out;
-		} else {
-			/* Case 1. Queue was frozen because user-space was
-			 *	   lagging behind.
+			prb_dispatch_next_block(pkc, po);
+		}
+	} else {
+		/* Case 1. Queue was frozen because user-space was
+		 * lagging behind.
+		 */
+		if (!prb_curr_blk_in_use(pbd)) {
+			/* Case 2. queue was frozen,user-space caught up,
+			 * now the link went idle && the timer fired.
+			 * We don't have a block to close.So we open this
+			 * block and restart the timer.
+			 * opening a block thaws the queue,restarts timer
+			 * Thawing/timer-refresh is a side effect.
 			 */
-			if (prb_curr_blk_in_use(pbd)) {
-				/*
-				 * Ok, user-space is still behind.
-				 * So just refresh the timer.
-				 */
-				goto refresh_timer;
-			} else {
-			       /* Case 2. queue was frozen,user-space caught up,
-				* now the link went idle && the timer fired.
-				* We don't have a block to close.So we open this
-				* block and restart the timer.
-				* opening a block thaws the queue,restarts timer
-				* Thawing/timer-refresh is a side effect.
-				*/
-				prb_open_block(pkc, pbd);
-				goto out;
-			}
+			prb_open_block(pkc, pbd);
 		}
 	}
 
-refresh_timer:
-	_prb_refresh_rx_retire_blk_timer(pkc);
-
-out:
+	hrtimer_forward_now(&pkc->retire_blk_timer, pkc->interval_ktime);
 	spin_unlock(&po->sk.sk_receive_queue.lock);
+	return HRTIMER_RESTART;
 }
 
 static void prb_flush_block(struct tpacket_kbdq_core *pkc1,
@@ -883,11 +825,18 @@ static void prb_thaw_queue(struct tpacket_kbdq_core *pkc)
 }
 
 /*
- * Side effect of opening a block:
+ * prb_open_block is called by tpacket_rcv or timer callback.
  *
- * 1) prb_queue is thawed.
- * 2) retire_blk_timer is refreshed.
+ * Reasons why NOT update hrtimer in prb_open_block:
+ * 1) It will increase complexity to distinguish the two caller scenario.
+ * 2) hrtimer_cancel and hrtimer_start need to be called if you want to update
+ * TMO of an already enqueued hrtimer, leading to complex shutdown logic.
  *
+ * One side effect of NOT update hrtimer when called by tpacket_rcv is that
+ * a newly opened block triggered by tpacket_rcv may be retired earlier than
+ * expected. On the other hand, if timeout is updated in prb_open_block, the
+ * frequent reception of network packets that leads to prb_open_block being
+ * called may cause hrtimer to be removed and enqueued repeatedly.
  */
 static void prb_open_block(struct tpacket_kbdq_core *pkc1,
 	struct tpacket_block_desc *pbd1)
@@ -921,7 +870,6 @@ static void prb_open_block(struct tpacket_kbdq_core *pkc1,
 	pkc1->pkblk_end = pkc1->pkblk_start + pkc1->kblk_size;
 
 	prb_thaw_queue(pkc1);
-	_prb_refresh_rx_retire_blk_timer(pkc1);
 
 	smp_wmb();
 }
@@ -1764,7 +1712,7 @@ static int fanout_add(struct sock *sk, struct fanout_args *args)
 	if (type == PACKET_FANOUT_ROLLOVER ||
 	    (type_flags & PACKET_FANOUT_FLAG_ROLLOVER)) {
 		err = -ENOMEM;
-		rollover = kzalloc(sizeof(*rollover), GFP_KERNEL);
+		rollover = kzalloc_obj(*rollover);
 		if (!rollover)
 			goto out;
 		atomic_long_set(&rollover->num, 0);
@@ -1807,8 +1755,7 @@ static int fanout_add(struct sock *sk, struct fanout_args *args)
 			/* legacy PACKET_FANOUT_MAX */
 			args->max_num_members = 256;
 		err = -ENOMEM;
-		match = kvzalloc(struct_size(match, arr, args->max_num_members),
-				 GFP_KERNEL);
+		match = kvzalloc_flex(*match, arr, args->max_num_members);
 		if (!match)
 			goto out;
 		write_pnet(&match->net, sock_net(sk));
@@ -2265,7 +2212,7 @@ static int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 
 drop_n_acct:
 	atomic_inc(&po->tp_drops);
-	atomic_inc(&sk->sk_drops);
+	sk_drops_inc(sk);
 	drop_reason = SKB_DROP_REASON_PACKET_SOCK_ERROR;
 
 drop_n_restore:
@@ -2771,7 +2718,8 @@ static int tpacket_snd(struct packet_sock *po, struct msghdr *msg)
 {
 	struct sk_buff *skb = NULL;
 	struct net_device *dev;
-	struct virtio_net_hdr *vnet_hdr = NULL;
+	struct virtio_net_hdr vnet_hdr;
+	bool has_vnet_hdr = false;
 	struct sockcm_cookie sockc;
 	__be16 proto;
 	int err, reserve = 0;
@@ -2872,16 +2820,20 @@ static int tpacket_snd(struct packet_sock *po, struct msghdr *msg)
 		hlen = LL_RESERVED_SPACE(dev);
 		tlen = dev->needed_tailroom;
 		if (vnet_hdr_sz) {
-			vnet_hdr = data;
 			data += vnet_hdr_sz;
 			tp_len -= vnet_hdr_sz;
-			if (tp_len < 0 ||
-			    __packet_snd_vnet_parse(vnet_hdr, tp_len)) {
+			if (tp_len < 0) {
+				tp_len = -EINVAL;
+				goto tpacket_error;
+			}
+			memcpy(&vnet_hdr, data - vnet_hdr_sz, sizeof(vnet_hdr));
+			if (__packet_snd_vnet_parse(&vnet_hdr, tp_len)) {
 				tp_len = -EINVAL;
 				goto tpacket_error;
 			}
 			copylen = __virtio16_to_cpu(vio_le(),
-						    vnet_hdr->hdr_len);
+						    vnet_hdr.hdr_len);
+			has_vnet_hdr = true;
 		}
 		copylen = max_t(int, copylen, dev->hard_header_len);
 		skb = sock_alloc_send_skb(&po->sk,
@@ -2918,12 +2870,12 @@ tpacket_error:
 			}
 		}
 
-		if (vnet_hdr_sz) {
-			if (virtio_net_hdr_to_skb(skb, vnet_hdr, vio_le())) {
+		if (has_vnet_hdr) {
+			if (virtio_net_hdr_to_skb(skb, &vnet_hdr, vio_le())) {
 				tp_len = -EINVAL;
 				goto tpacket_error;
 			}
-			virtio_net_hdr_set_proto(skb, vnet_hdr);
+			virtio_net_hdr_set_proto(skb, &vnet_hdr);
 		}
 
 		skb->destructor = tpacket_destruct_skb;
@@ -3189,6 +3141,7 @@ static int packet_release(struct socket *sock)
 
 	spin_lock(&po->bind_lock);
 	unregister_prot_hook(sk, false);
+	WRITE_ONCE(po->num, 0);
 	packet_cached_dev_reset(po);
 
 	if (po->prot_hook.dev) {
@@ -3333,11 +3286,12 @@ out_unlock:
  *	Bind a packet socket to a device
  */
 
-static int packet_bind_spkt(struct socket *sock, struct sockaddr *uaddr,
+static int packet_bind_spkt(struct socket *sock, struct sockaddr_unsized *uaddr,
 			    int addr_len)
 {
 	struct sock *sk = sock->sk;
-	char name[sizeof(uaddr->sa_data_min) + 1];
+	struct sockaddr *sa = (struct sockaddr *)uaddr;
+	char name[sizeof(sa->sa_data) + 1];
 
 	/*
 	 *	Check legality
@@ -3348,13 +3302,13 @@ static int packet_bind_spkt(struct socket *sock, struct sockaddr *uaddr,
 	/* uaddr->sa_data comes from the userspace, it's not guaranteed to be
 	 * zero-terminated.
 	 */
-	memcpy(name, uaddr->sa_data, sizeof(uaddr->sa_data_min));
-	name[sizeof(uaddr->sa_data_min)] = 0;
+	memcpy(name, sa->sa_data, sizeof(sa->sa_data));
+	name[sizeof(sa->sa_data)] = 0;
 
 	return packet_do_bind(sk, name, 0, 0);
 }
 
-static int packet_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
+static int packet_bind(struct socket *sock, struct sockaddr_unsized *uaddr, int addr_len)
 {
 	struct sockaddr_ll *sll = (struct sockaddr_ll *)uaddr;
 	struct sock *sk = sock->sk;
@@ -3634,11 +3588,11 @@ static int packet_getname_spkt(struct socket *sock, struct sockaddr *uaddr,
 		return -EOPNOTSUPP;
 
 	uaddr->sa_family = AF_PACKET;
-	memset(uaddr->sa_data, 0, sizeof(uaddr->sa_data_min));
+	memset(uaddr->sa_data, 0, sizeof(uaddr->sa_data));
 	rcu_read_lock();
 	dev = dev_get_by_index_rcu(sock_net(sk), READ_ONCE(pkt_sk(sk)->ifindex));
 	if (dev)
-		strscpy(uaddr->sa_data, dev->name, sizeof(uaddr->sa_data_min));
+		strscpy(uaddr->sa_data, dev->name, sizeof(uaddr->sa_data));
 	rcu_read_unlock();
 
 	return sizeof(*uaddr);
@@ -3745,7 +3699,7 @@ static int packet_mc_add(struct sock *sk, struct packet_mreq_max *mreq)
 		goto done;
 
 	err = -ENOBUFS;
-	i = kmalloc(sizeof(*i), GFP_KERNEL);
+	i = kmalloc_obj(*i);
 	if (i == NULL)
 		goto done;
 
@@ -4103,7 +4057,7 @@ packet_setsockopt(struct socket *sock, int level, int optname, sockptr_t optval,
 }
 
 static int packet_getsockopt(struct socket *sock, int level, int optname,
-			     char __user *optval, int __user *optlen)
+			     sockopt_t *opt)
 {
 	int len;
 	int val, lv = sizeof(val);
@@ -4117,8 +4071,7 @@ static int packet_getsockopt(struct socket *sock, int level, int optname,
 	if (level != SOL_PACKET)
 		return -ENOPROTOOPT;
 
-	if (get_user(len, optlen))
-		return -EFAULT;
+	len = opt->optlen;
 
 	if (len < 0)
 		return -EINVAL;
@@ -4167,7 +4120,7 @@ static int packet_getsockopt(struct socket *sock, int level, int optname,
 			len = sizeof(int);
 		if (len < sizeof(int))
 			return -EINVAL;
-		if (copy_from_user(&val, optval, len))
+		if (copy_from_iter(&val, len, &opt->iter_in) != len)
 			return -EFAULT;
 		switch (val) {
 		case TPACKET_V1:
@@ -4223,9 +4176,8 @@ static int packet_getsockopt(struct socket *sock, int level, int optname,
 
 	if (len > lv)
 		len = lv;
-	if (put_user(len, optlen))
-		return -EFAULT;
-	if (copy_to_user(optval, data, len))
+	opt->optlen = len;
+	if (copy_to_iter(data, len, &opt->iter_out) != len)
 		return -EFAULT;
 	return 0;
 }
@@ -4442,7 +4394,7 @@ static struct pgv *alloc_pg_vec(struct tpacket_req *req, int order)
 	struct pgv *pg_vec;
 	int i;
 
-	pg_vec = kcalloc(block_nr, sizeof(struct pgv), GFP_KERNEL | __GFP_NOWARN);
+	pg_vec = kzalloc_objs(struct pgv, block_nr, GFP_KERNEL | __GFP_NOWARN);
 	if (unlikely(!pg_vec))
 		goto out;
 
@@ -4724,7 +4676,7 @@ static const struct proto_ops packet_ops = {
 	.listen =	sock_no_listen,
 	.shutdown =	sock_no_shutdown,
 	.setsockopt =	packet_setsockopt,
-	.getsockopt =	packet_getsockopt,
+	.getsockopt_iter =	packet_getsockopt,
 	.sendmsg =	packet_sendmsg,
 	.recvmsg =	packet_recvmsg,
 	.mmap =		packet_mmap,
@@ -4774,7 +4726,7 @@ static int packet_seq_show(struct seq_file *seq, void *v)
 		const struct packet_sock *po = pkt_sk(s);
 
 		seq_printf(seq,
-			   "%pK %-6d %-4d %04x   %-5d %1d %-6u %-6u %-6lu\n",
+			   "%pK %-6d %-4d %04x   %-5d %1d %-6u %-6u %-6llu\n",
 			   s,
 			   refcount_read(&s->sk_refcnt),
 			   s->sk_type,

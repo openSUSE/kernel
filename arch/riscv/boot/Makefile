@@ -20,22 +20,7 @@ OBJCOPYFLAGS_xipImage :=-O binary -R .note -R .note.gnu.build-id -R .comment -S
 
 targets := Image Image.* loader loader.o loader.lds loader.bin xipImage
 
-ifeq ($(CONFIG_XIP_KERNEL),y)
-
-quiet_cmd_mkxip = $(quiet_cmd_objcopy)
-cmd_mkxip = $(cmd_objcopy)
-
-$(obj)/xipImage: vmlinux FORCE
-	$(call if_changed,mkxip)
-	@$(kecho) '  Physical Address of xipImage: $(CONFIG_XIP_PHYS_ADDR)'
-
-endif
-
-ifdef CONFIG_RELOCATABLE
-$(obj)/Image: vmlinux.unstripped FORCE
-else
 $(obj)/Image: vmlinux FORCE
-endif
 	$(call if_changed,objcopy)
 
 $(obj)/Image.gz: $(obj)/Image FORCE

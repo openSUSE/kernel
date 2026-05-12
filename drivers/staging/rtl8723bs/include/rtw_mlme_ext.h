@@ -424,10 +424,8 @@ struct mlme_ext_priv {
 
 void init_mlme_default_rate_set(struct adapter *padapter);
 void init_mlme_ext_priv(struct adapter *padapter);
-int init_hw_mlme_ext(struct adapter *padapter);
+void init_hw_mlme_ext(struct adapter *padapter);
 void free_mlme_ext_priv(struct mlme_ext_priv *pmlmeext);
-extern void init_mlme_ext_timer(struct adapter *padapter);
-extern void init_addba_retry_timer(struct adapter *padapter, struct sta_info *psta);
 extern struct xmit_frame *alloc_mgtxmitframe(struct xmit_priv *pxmitpriv);
 
 /* void fill_fwpriv(struct adapter *padapter, struct fw_priv *pfwpriv); */
@@ -436,14 +434,14 @@ u8 networktype_to_raid_ex(struct adapter *adapter, struct sta_info *psta);
 
 void get_rate_set(struct adapter *padapter, unsigned char *pbssrate, int *bssrate_len);
 void set_mcs_rate_by_mask(u8 *mcs_set, u32 mask);
-void UpdateBrateTbl(struct adapter *padapter, u8 *mBratesOS);
-void UpdateBrateTblForSoftAP(u8 *bssrateset, u32 bssratelen);
+void update_basic_rate_table(struct adapter *padapter, u8 *mBratesOS);
+void update_basic_rate_table_soft_ap(u8 *bssrateset, u32 bssratelen);
 
 void Save_DM_Func_Flag(struct adapter *padapter);
 void Restore_DM_Func_Flag(struct adapter *padapter);
 void Switch_DM_Func(struct adapter *padapter, u32 mode, u8 enable);
 
-void Set_MSR(struct adapter *padapter, u8 type);
+void set_msr(struct adapter *padapter, u8 type);
 
 u8 rtw_get_oper_ch(struct adapter *adapter);
 void rtw_set_oper_ch(struct adapter *adapter, u8 ch);
@@ -617,7 +615,7 @@ extern void process_addba_req(struct adapter *padapter, u8 *paddba_req, u8 *addr
 extern void update_TSF(struct mlme_ext_priv *pmlmeext, u8 *pframe, uint len);
 extern void correct_TSF(struct adapter *padapter, struct mlme_ext_priv *pmlmeext);
 extern void adaptive_early_32k(struct mlme_ext_priv *pmlmeext, u8 *pframe, uint len);
-extern u8 traffic_status_watchdog(struct adapter *padapter, u8 from_timer);
+extern bool traffic_status_watchdog(struct adapter *padapter, bool from_timer);
 
 int rtw_chk_start_clnt_join(struct adapter *padapter, u8 *ch, u8 *bw, u8 *offset);
 

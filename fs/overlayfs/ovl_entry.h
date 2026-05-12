@@ -18,7 +18,7 @@ struct ovl_config {
 	int xino;
 	bool metacopy;
 	bool userxattr;
-	bool ovl_volatile;
+	int fsync_mode;
 };
 
 struct ovl_sb {
@@ -91,6 +91,7 @@ struct ovl_fs {
 	struct mutex whiteout_lock;
 	/* r/o snapshot of upperdir sb's only taken on volatile mounts */
 	errseq_t errseq;
+	bool casefold;
 };
 
 /* Number of lower layers, not including data-only layers */
@@ -117,11 +118,6 @@ static inline struct ovl_fs *OVL_FS(struct super_block *sb)
 		WARN_ON_ONCE(sb->s_type != &ovl_fs_type);
 
 	return (struct ovl_fs *)sb->s_fs_info;
-}
-
-static inline bool ovl_should_sync(struct ovl_fs *ofs)
-{
-	return !ofs->config.ovl_volatile;
 }
 
 static inline unsigned int ovl_numlower(struct ovl_entry *oe)

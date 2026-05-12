@@ -7,10 +7,7 @@
 
 #include <linux/cpufeature.h>
 
-#include <crypto/internal/simd.h>
-
 #include <asm/hwcap.h>
-#include <asm/neon.h>
 #include <asm/simd.h>
 
 static __ro_after_init DEFINE_STATIC_KEY_FALSE(have_crc32);
@@ -34,7 +31,7 @@ static inline u32 crc32_le_scalar(u32 crc, const u8 *p, size_t len)
 static inline u32 crc32_le_arch(u32 crc, const u8 *p, size_t len)
 {
 	if (len >= PMULL_MIN_LEN + 15 &&
-	    static_branch_likely(&have_pmull) && crypto_simd_usable()) {
+	    static_branch_likely(&have_pmull) && likely(may_use_simd())) {
 		size_t n = -(uintptr_t)p & 15;
 
 		/* align p to 16-byte boundary */
@@ -44,9 +41,8 @@ static inline u32 crc32_le_arch(u32 crc, const u8 *p, size_t len)
 			len -= n;
 		}
 		n = round_down(len, 16);
-		kernel_neon_begin();
-		crc = crc32_pmull_le(p, n, crc);
-		kernel_neon_end();
+		scoped_ksimd()
+			crc = crc32_pmull_le(p, n, crc);
 		p += n;
 		len -= n;
 	}
@@ -63,7 +59,7 @@ static inline u32 crc32c_scalar(u32 crc, const u8 *p, size_t len)
 static inline u32 crc32c_arch(u32 crc, const u8 *p, size_t len)
 {
 	if (len >= PMULL_MIN_LEN + 15 &&
-	    static_branch_likely(&have_pmull) && crypto_simd_usable()) {
+	    static_branch_likely(&have_pmull) && likely(may_use_simd())) {
 		size_t n = -(uintptr_t)p & 15;
 
 		/* align p to 16-byte boundary */
@@ -73,9 +69,8 @@ static inline u32 crc32c_arch(u32 crc, const u8 *p, size_t len)
 			len -= n;
 		}
 		n = round_down(len, 16);
-		kernel_neon_begin();
-		crc = crc32c_pmull_le(p, n, crc);
-		kernel_neon_end();
+		scoped_ksimd()
+			crc = crc32c_pmull_le(p, n, crc);
 		p += n;
 		len -= n;
 	}
@@ -85,7 +80,7 @@ static inline u32 crc32c_arch(u32 crc, const u8 *p, size_t len)
 #define crc32_be_arch crc32_be_base /* not implemented on this arch */
 
 #define crc32_mod_init_arch crc32_mod_init_arch
-static inline void crc32_mod_init_arch(void)
+static void crc32_mod_init_arch(void)
 {
 	if (elf_hwcap2 & HWCAP2_CRC32)
 		static_branch_enable(&have_crc32);

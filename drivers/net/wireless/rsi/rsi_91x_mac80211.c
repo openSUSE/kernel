@@ -326,6 +326,22 @@ void rsi_mac80211_detach(struct rsi_hw *adapter)
 EXPORT_SYMBOL_GPL(rsi_mac80211_detach);
 
 /**
+ * rsi_mac80211_rfkill_exit() - This function is used to stop rfkill polling
+ *                              when the device is removed.
+ * @adapter: Pointer to the adapter structure.
+ *
+ * Return: None.
+ */
+void rsi_mac80211_rfkill_exit(struct rsi_hw *adapter)
+{
+	struct ieee80211_hw *hw = adapter->hw;
+
+	if (hw)
+		wiphy_rfkill_stop_polling(hw->wiphy);
+}
+EXPORT_SYMBOL_GPL(rsi_mac80211_rfkill_exit);
+
+/**
  * rsi_indicate_tx_status() - This function indicates the transmit status.
  * @adapter: Pointer to the adapter structure.
  * @skb: Pointer to the socket buffer structure.
@@ -422,7 +438,6 @@ static void rsi_mac80211_stop(struct ieee80211_hw *hw, bool suspend)
 	rsi_dbg(ERR_ZONE, "===> Interface DOWN <===\n");
 	mutex_lock(&common->mutex);
 	common->iface_down = true;
-	wiphy_rfkill_stop_polling(hw->wiphy);
 
 	/* Block all rx frames */
 	rsi_send_rx_filter_frame(common, 0xffff);
@@ -668,7 +683,7 @@ static int rsi_mac80211_config(struct ieee80211_hw *hw,
 	struct rsi_hw *adapter = hw->priv;
 	struct rsi_common *common = adapter->priv;
 	struct ieee80211_conf *conf = &hw->conf;
-	int status = -EOPNOTSUPP;
+	int status = 0;
 
 	mutex_lock(&common->mutex);
 
@@ -2035,6 +2050,7 @@ int rsi_mac80211_attach(struct rsi_common *common)
 
 	hw->queues = MAX_HW_QUEUES;
 	hw->extra_tx_headroom = RSI_NEEDED_HEADROOM;
+	hw->vif_data_size = sizeof(struct vif_priv);
 
 	hw->max_rates = 1;
 	hw->max_rate_tries = MAX_RETRIES;

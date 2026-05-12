@@ -5,11 +5,13 @@
 
 #include <drm/drm_print.h>
 
-#include "i915_utils.h"
+#include "intel_casf.h"
+#include "intel_casf_regs.h"
 #include "intel_de.h"
 #include "intel_display_regs.h"
 #include "intel_display_trace.h"
 #include "intel_display_types.h"
+#include "intel_display_utils.h"
 #include "intel_display_wa.h"
 #include "intel_fb.h"
 #include "skl_scaler.h"
@@ -268,6 +270,11 @@ int skl_update_scaler_crtc(struct intel_crtc_state *crtc_state)
 {
 	const struct drm_display_mode *pipe_mode = &crtc_state->hw.pipe_mode;
 	int width, height;
+	int ret;
+
+	ret = intel_casf_compute_config(crtc_state);
+	if (ret)
+		return ret;
 
 	if (crtc_state->pch_pfit.enabled) {
 		width = drm_rect_width(&crtc_state->pch_pfit.dst);
@@ -320,13 +327,24 @@ int skl_update_scaler_plane(struct intel_crtc_state *crtc_state,
 				 need_scaler);
 }
 
-static int intel_allocate_scaler(struct intel_crtc_scaler_state *scaler_state,
-				 struct intel_crtc *crtc)
+static bool scaler_has_casf(struct intel_display *display, int scaler_id)
 {
+	return HAS_CASF(display) && scaler_id == 1;
+}
+
+static int intel_allocate_scaler(struct intel_crtc_scaler_state *scaler_state,
+				 struct intel_crtc *crtc,
+				 struct intel_plane_state *plane_state,
+				 bool casf_scaler)
+{
+	struct intel_display *display = to_intel_display(crtc);
 	int i;
 
 	for (i = 0; i < crtc->num_scalers; i++) {
 		if (scaler_state->scalers[i].in_use)
+			continue;
+
+		if (casf_scaler && !scaler_has_casf(display, i))
 			continue;
 
 		scaler_state->scalers[i].in_use = true;
@@ -379,7 +397,7 @@ static int intel_atomic_setup_scaler(struct intel_crtc_state *crtc_state,
 				     int num_scalers_need, struct intel_crtc *crtc,
 				     const char *name, int idx,
 				     struct intel_plane_state *plane_state,
-				     int *scaler_id)
+				     int *scaler_id, bool casf_scaler)
 {
 	struct intel_display *display = to_intel_display(crtc);
 	struct intel_crtc_scaler_state *scaler_state = &crtc_state->scaler_state;
@@ -388,7 +406,7 @@ static int intel_atomic_setup_scaler(struct intel_crtc_state *crtc_state,
 	int vscale = 0;
 
 	if (*scaler_id < 0)
-		*scaler_id = intel_allocate_scaler(scaler_state, crtc);
+		*scaler_id = intel_allocate_scaler(scaler_state, crtc, plane_state, casf_scaler);
 
 	if (drm_WARN(display->drm, *scaler_id < 0,
 		     "Cannot find scaler for %s:%d\n", name, idx))
@@ -523,7 +541,8 @@ static int setup_crtc_scaler(struct intel_atomic_state *state,
 	return intel_atomic_setup_scaler(crtc_state,
 					 hweight32(scaler_state->scaler_users),
 					 crtc, "CRTC", crtc->base.base.id,
-					 NULL, &scaler_state->scaler_id);
+					 NULL, &scaler_state->scaler_id,
+					 crtc_state->pch_pfit.casf.enable);
 }
 
 static int setup_plane_scaler(struct intel_atomic_state *state,
@@ -558,7 +577,8 @@ static int setup_plane_scaler(struct intel_atomic_state *state,
 	return intel_atomic_setup_scaler(crtc_state,
 					 hweight32(scaler_state->scaler_users),
 					 crtc, "PLANE", plane->base.base.id,
-					 plane_state, &plane_state->scaler_id);
+					 plane_state, &plane_state->scaler_id,
+					 false);
 }
 
 /**
@@ -711,9 +731,9 @@ static void glk_program_nearest_filter_coefs(struct intel_display *display,
 			   GLK_PS_COEF_INDEX_SET(pipe, id, set), 0);
 }
 
-static u32 skl_scaler_get_filter_select(enum drm_scaling_filter filter)
+static u32 skl_scaler_get_filter_select(enum drm_scaling_filter filter, bool casf)
 {
-	if (filter == DRM_SCALING_FILTER_NEAREST_NEIGHBOR)
+	if (filter == DRM_SCALING_FILTER_NEAREST_NEIGHBOR || casf)
 		return (PS_FILTER_PROGRAMMED |
 			PS_Y_VERT_FILTER_SELECT(0) |
 			PS_Y_HORZ_FILTER_SELECT(0) |
@@ -736,6 +756,16 @@ static void skl_scaler_setup_filter(struct intel_display *display,
 	default:
 		MISSING_CASE(filter);
 	}
+}
+
+static u32 casf_sharpness_ctl(const struct intel_crtc_state *crtc_state)
+{
+	if (!crtc_state->pch_pfit.casf.enable)
+		return 0;
+
+	return FILTER_EN |
+		FILTER_STRENGTH(crtc_state->pch_pfit.casf.strength) |
+		crtc_state->pch_pfit.casf.win_size;
 }
 
 void skl_pfit_enable(const struct intel_crtc_state *crtc_state)
@@ -763,7 +793,7 @@ void skl_pfit_enable(const struct intel_crtc_state *crtc_state)
 			crtc_state->scaler_state.scaler_id < 0))
 		return;
 
-	if (intel_display_wa(display, 14011503117))
+	if (intel_display_wa(display, INTEL_DISPLAY_WA_14011503117))
 		adl_scaler_ecc_mask(crtc_state);
 
 	drm_rect_init(&src, 0, 0,
@@ -779,12 +809,20 @@ void skl_pfit_enable(const struct intel_crtc_state *crtc_state)
 	id = scaler_state->scaler_id;
 
 	ps_ctrl = PS_SCALER_EN | PS_BINDING_PIPE | scaler_state->scalers[id].mode |
-		skl_scaler_get_filter_select(crtc_state->hw.scaling_filter);
+		skl_scaler_get_filter_select(crtc_state->hw.scaling_filter,
+					     crtc_state->pch_pfit.casf.enable);
 
 	trace_intel_pipe_scaler_update_arm(crtc, id, x, y, width, height);
 
-	skl_scaler_setup_filter(display, NULL, pipe, id, 0,
-				crtc_state->hw.scaling_filter);
+	if (crtc_state->pch_pfit.casf.enable)
+		intel_casf_setup(crtc_state);
+	else
+		skl_scaler_setup_filter(display, NULL, pipe, id, 0,
+					crtc_state->hw.scaling_filter);
+
+	if (scaler_has_casf(display, id))
+		intel_de_write_fw(display, SHARPNESS_CTL(crtc->pipe),
+				  casf_sharpness_ctl(crtc_state));
 
 	intel_de_write_fw(display, SKL_PS_CTRL(pipe, id), ps_ctrl);
 
@@ -845,7 +883,7 @@ skl_program_plane_scaler(struct intel_dsb *dsb,
 	}
 
 	ps_ctrl = PS_SCALER_EN | PS_BINDING_PLANE(plane->id) | scaler->mode |
-		skl_scaler_get_filter_select(plane_state->hw.scaling_filter);
+		skl_scaler_get_filter_select(plane_state->hw.scaling_filter, false);
 
 	trace_intel_plane_scaler_update_arm(plane, scaler_id,
 					    crtc_x, crtc_y, crtc_w, crtc_h);
@@ -871,6 +909,9 @@ static void skl_detach_scaler(struct intel_dsb *dsb,
 	struct intel_display *display = to_intel_display(crtc);
 
 	trace_intel_scaler_disable_arm(crtc, id);
+
+	if (scaler_has_casf(display, id))
+		intel_de_write_dsb(display, dsb, SHARPNESS_CTL(crtc->pipe), 0);
 
 	intel_de_write_dsb(display, dsb, SKL_PS_CTRL(crtc->pipe, id), 0);
 	intel_de_write_dsb(display, dsb, SKL_PS_WIN_POS(crtc->pipe, id), 0);
@@ -921,6 +962,10 @@ void skl_scaler_get_config(struct intel_crtc_state *crtc_state)
 			continue;
 
 		id = i;
+
+		if (scaler_has_casf(display, i))
+			intel_casf_sharpness_get_config(crtc_state);
+
 		crtc_state->pch_pfit.enabled = true;
 
 		pos = intel_de_read(display, SKL_PS_WIN_POS(crtc->pipe, i));
@@ -967,4 +1012,145 @@ void adl_scaler_ecc_unmask(const struct intel_crtc_state *crtc_state)
 			  SKL_PS_ECC_STAT(crtc->pipe, scaler_state->scaler_id),
 			  1);
 	intel_de_write(display, XELPD_DISPLAY_ERR_FATAL_MASK, 0);
+}
+
+unsigned int skl_scaler_1st_prefill_adjustment(const struct intel_crtc_state *crtc_state)
+{
+	/*
+	 * FIXME don't have scalers assigned yet
+	 * so can't look up the scale factors
+	 */
+	return 0x10000;
+}
+
+unsigned int skl_scaler_2nd_prefill_adjustment(const struct intel_crtc_state *crtc_state)
+{
+	/*
+	 * FIXME don't have scalers assigned yet
+	 * so can't look up the scale factors
+	 */
+	return 0x10000;
+}
+
+unsigned int skl_scaler_1st_prefill_lines(const struct intel_crtc_state *crtc_state)
+{
+	const struct intel_crtc_scaler_state *scaler_state =
+		&crtc_state->scaler_state;
+	int num_scalers = hweight32(scaler_state->scaler_users);
+
+	if (num_scalers > 0)
+		return 4 << 16;
+
+	return 0;
+}
+
+unsigned int skl_scaler_2nd_prefill_lines(const struct intel_crtc_state *crtc_state)
+{
+	const struct intel_crtc_scaler_state *scaler_state =
+		&crtc_state->scaler_state;
+	int num_scalers = hweight32(scaler_state->scaler_users);
+
+	if (num_scalers > 1 && crtc_state->pch_pfit.enabled)
+		return 4 << 16;
+
+	return 0;
+}
+
+static unsigned int _skl_scaler_max_scale(const struct intel_crtc_state *crtc_state,
+					  unsigned int max_scale)
+{
+	struct intel_display *display = to_intel_display(crtc_state);
+
+	/*
+	 * Downscaling requires increasing cdclk, so max scale
+	 * factor is limited to the max_dotclock/dotclock ratio.
+	 *
+	 * FIXME find out the max downscale factors properly
+	 */
+	return min(max_scale, DIV_ROUND_UP_ULL((u64)display->cdclk.max_dotclk_freq << 16,
+					       crtc_state->hw.pipe_mode.crtc_clock));
+}
+
+unsigned int skl_scaler_max_total_scale(const struct intel_crtc_state *crtc_state)
+{
+	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
+	unsigned int max_scale;
+
+	if (crtc->num_scalers < 1)
+		return 0x10000;
+
+	/* FIXME find out the max downscale factors properly */
+	max_scale = 9 << 16;
+	if (crtc->num_scalers > 1)
+		max_scale *= 9;
+
+	return _skl_scaler_max_scale(crtc_state, max_scale);
+}
+
+unsigned int skl_scaler_max_hscale(const struct intel_crtc_state *crtc_state)
+{
+	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
+	unsigned int max_scale;
+
+	if (crtc->num_scalers < 1)
+		return 0x10000;
+
+	/* FIXME find out the max downscale factors properly */
+	max_scale = 3 << 16;
+
+	return _skl_scaler_max_scale(crtc_state, max_scale);
+}
+
+unsigned int skl_scaler_max_scale(const struct intel_crtc_state *crtc_state)
+{
+	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
+	unsigned int max_scale;
+
+	if (crtc->num_scalers < 1)
+		return 0x10000;
+
+	/* FIXME find out the max downscale factors properly */
+	max_scale = 9 << 16;
+
+	return _skl_scaler_max_scale(crtc_state, max_scale);
+}
+
+unsigned int skl_scaler_1st_prefill_adjustment_worst(const struct intel_crtc_state *crtc_state)
+{
+	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
+
+	if (crtc->num_scalers > 0)
+		return skl_scaler_max_scale(crtc_state);
+	else
+		return 0x10000;
+}
+
+unsigned int skl_scaler_2nd_prefill_adjustment_worst(const struct intel_crtc_state *crtc_state)
+{
+	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
+
+	if (crtc->num_scalers > 1)
+		return skl_scaler_max_scale(crtc_state);
+	else
+		return 0x10000;
+}
+
+unsigned int skl_scaler_1st_prefill_lines_worst(const struct intel_crtc_state *crtc_state)
+{
+	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
+
+	if (crtc->num_scalers > 0)
+		return 4 << 16;
+	else
+		return 0;
+}
+
+unsigned int skl_scaler_2nd_prefill_lines_worst(const struct intel_crtc_state *crtc_state)
+{
+	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
+
+	if (crtc->num_scalers > 1)
+		return 4 << 16;
+	else
+		return 0;
 }

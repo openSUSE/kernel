@@ -229,8 +229,7 @@ static int starfive_hash_one_request(struct crypto_engine *engine, void *areq)
 	for_each_sg(rctx->in_sg, tsg, rctx->in_sg_len, i) {
 		src_nents = dma_map_sg(cryp->dev, tsg, 1, DMA_TO_DEVICE);
 		if (src_nents == 0)
-			return dev_err_probe(cryp->dev, -ENOMEM,
-					     "dma_map_sg error\n");
+			return -ENOMEM;
 
 		ret = starfive_hash_dma_xfer(cryp, tsg);
 		dma_unmap_sg(cryp->dev, tsg, 1, DMA_TO_DEVICE);
@@ -326,6 +325,7 @@ static int starfive_hash_digest(struct ahash_request *req)
 	struct starfive_cryp_ctx *ctx = crypto_ahash_ctx(tfm);
 	struct starfive_cryp_request_ctx *rctx = ahash_request_ctx(req);
 	struct starfive_cryp_dev *cryp = ctx->cryp;
+	int sg_len;
 
 	memset(rctx, 0, sizeof(struct starfive_cryp_request_ctx));
 
@@ -334,7 +334,10 @@ static int starfive_hash_digest(struct ahash_request *req)
 	rctx->in_sg = req->src;
 	rctx->blksize = crypto_tfm_alg_blocksize(crypto_ahash_tfm(tfm));
 	rctx->digsize = crypto_ahash_digestsize(tfm);
-	rctx->in_sg_len = sg_nents_for_len(rctx->in_sg, rctx->total);
+	sg_len = sg_nents_for_len(rctx->in_sg, rctx->total);
+	if (sg_len < 0)
+		return sg_len;
+	rctx->in_sg_len = sg_len;
 	ctx->rctx = rctx;
 
 	return crypto_transfer_hash_request_to_engine(cryp->engine, req);
@@ -517,7 +520,7 @@ static int starfive_sha512_init_tfm(struct crypto_ahash *hash)
 
 static int starfive_sm3_init_tfm(struct crypto_ahash *hash)
 {
-	return starfive_hash_init_tfm(hash, "sm3-generic",
+	return starfive_hash_init_tfm(hash, "sm3-lib",
 				      STARFIVE_HASH_SM3, 0);
 }
 
@@ -547,7 +550,7 @@ static int starfive_hmac_sha512_init_tfm(struct crypto_ahash *hash)
 
 static int starfive_hmac_sm3_init_tfm(struct crypto_ahash *hash)
 {
-	return starfive_hash_init_tfm(hash, "hmac(sm3-generic)",
+	return starfive_hash_init_tfm(hash, "hmac(sm3-lib)",
 				      STARFIVE_HASH_SM3, 1);
 }
 
@@ -792,7 +795,7 @@ static struct ahash_engine_alg algs_sha2_sm3[] = {
 	.base.exit_tfm = starfive_hash_exit_tfm,
 	.base.halg = {
 		.digestsize = SM3_DIGEST_SIZE,
-		.statesize  = sizeof(struct sm3_state),
+		.statesize  = sizeof(struct sm3_ctx),
 		.base = {
 			.cra_name		= "sm3",
 			.cra_driver_name	= "sm3-starfive",
@@ -821,7 +824,7 @@ static struct ahash_engine_alg algs_sha2_sm3[] = {
 	.base.setkey	  = starfive_hash_setkey,
 	.base.halg = {
 		.digestsize = SM3_DIGEST_SIZE,
-		.statesize  = sizeof(struct sm3_state),
+		.statesize  = sizeof(struct sm3_ctx),
 		.base = {
 			.cra_name		= "hmac(sm3)",
 			.cra_driver_name	= "sm3-hmac-starfive",

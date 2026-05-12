@@ -1063,7 +1063,7 @@ do_work:
 	/*
 	 * We need to schedule work to process this error; schedule it.
 	 */
-	wrk = kmalloc(sizeof(struct storvsc_scan_work), GFP_ATOMIC);
+	wrk = kmalloc_obj(struct storvsc_scan_work, GFP_ATOMIC);
 	if (!wrk) {
 		set_host_byte(scmnd, DID_BAD_TARGET);
 		return;
@@ -1131,6 +1131,26 @@ static void storvsc_command_completion(struct storvsc_cmd_request *cmd_request,
 		kfree(payload);
 }
 
+/*
+ * The current SCSI handling on the host side does not correctly handle:
+ * INQUIRY with page code 0x80, MODE_SENSE / MODE_SENSE_10 with cmd[2] == 0x1c,
+ * and (for FC) MAINTENANCE_IN / PERSISTENT_RESERVE_IN passthrough.
+ */
+static bool storvsc_host_mishandles_cmd(u8 opcode, struct hv_device *device)
+{
+	switch (opcode) {
+	case INQUIRY:
+	case MODE_SENSE:
+	case MODE_SENSE_10:
+		return true;
+	case MAINTENANCE_IN:
+	case PERSISTENT_RESERVE_IN:
+		return hv_dev_is_fc(device);
+	default:
+		return false;
+	}
+}
+
 static void storvsc_on_io_completion(struct storvsc_device *stor_device,
 				  struct vstor_packet *vstor_packet,
 				  struct storvsc_cmd_request *request)
@@ -1141,21 +1161,12 @@ static void storvsc_on_io_completion(struct storvsc_device *stor_device,
 	stor_pkt = &request->vstor_packet;
 
 	/*
-	 * The current SCSI handling on the host side does
-	 * not correctly handle:
-	 * INQUIRY command with page code parameter set to 0x80
-	 * MODE_SENSE command with cmd[2] == 0x1c
-	 * MAINTENANCE_IN is not supported by HyperV FC passthrough
-	 *
 	 * Setup srb and scsi status so this won't be fatal.
 	 * We do this so we can distinguish truly fatal failues
 	 * (srb status == 0x4) and off-line the device in that case.
 	 */
 
-	if ((stor_pkt->vm_srb.cdb[0] == INQUIRY) ||
-	   (stor_pkt->vm_srb.cdb[0] == MODE_SENSE) ||
-	   (stor_pkt->vm_srb.cdb[0] == MAINTENANCE_IN &&
-	   hv_dev_is_fc(device))) {
+	if (storvsc_host_mishandles_cmd(stor_pkt->vm_srb.cdb[0], device)) {
 		vstor_packet->vm_srb.scsi_status = 0;
 		vstor_packet->vm_srb.srb_status = SRB_STATUS_SUCCESS;
 	}
@@ -1406,13 +1417,18 @@ static struct vmbus_channel *get_og_chn(struct storvsc_device *stor_device,
 	}
 
 	/*
-	 * Our channel array is sparsley populated and we
+	 * Our channel array could be sparsley populated and we
 	 * initiated I/O on a processor/hw-q that does not
 	 * currently have a designated channel. Fix this.
 	 * The strategy is simple:
-	 * I. Ensure NUMA locality
-	 * II. Distribute evenly (best effort)
+	 * I. Prefer the channel associated with the current CPU
+	 * II. Ensure NUMA locality
+	 * III. Distribute evenly (best effort)
 	 */
+
+	/* Prefer the channel on the I/O issuing processor/hw-q */
+	if (cpumask_test_cpu(q_num, &stor_device->alloced_cpus))
+		return stor_device->stor_chns[q_num];
 
 	node_mask = cpumask_of_node(cpu_to_node(q_num));
 
@@ -1469,59 +1485,48 @@ static int storvsc_do_io(struct hv_device *device,
 	/* See storvsc_change_target_cpu(). */
 	outgoing_channel = READ_ONCE(stor_device->stor_chns[q_num]);
 	if (outgoing_channel != NULL) {
-		if (outgoing_channel->target_cpu == q_num) {
-			/*
-			 * Ideally, we want to pick a different channel if
-			 * available on the same NUMA node.
-			 */
-			node_mask = cpumask_of_node(cpu_to_node(q_num));
-			for_each_cpu_wrap(tgt_cpu,
-				 &stor_device->alloced_cpus, q_num + 1) {
-				if (!cpumask_test_cpu(tgt_cpu, node_mask))
-					continue;
-				if (tgt_cpu == q_num)
-					continue;
-				channel = READ_ONCE(
-					stor_device->stor_chns[tgt_cpu]);
-				if (channel == NULL)
-					continue;
-				if (hv_get_avail_to_write_percent(
-							&channel->outbound)
-						> ring_avail_percent_lowater) {
-					outgoing_channel = channel;
-					goto found_channel;
-				}
-			}
+		if (hv_get_avail_to_write_percent(&outgoing_channel->outbound)
+				> ring_avail_percent_lowater)
+			goto found_channel;
 
-			/*
-			 * All the other channels on the same NUMA node are
-			 * busy. Try to use the channel on the current CPU
-			 */
-			if (hv_get_avail_to_write_percent(
-						&outgoing_channel->outbound)
-					> ring_avail_percent_lowater)
+		/*
+		 * Channel is busy, try to find a channel on the same NUMA node
+		 */
+		node_mask = cpumask_of_node(cpu_to_node(q_num));
+		for_each_cpu_wrap(tgt_cpu, &stor_device->alloced_cpus,
+				  q_num + 1) {
+			if (!cpumask_test_cpu(tgt_cpu, node_mask))
+				continue;
+			channel = READ_ONCE(stor_device->stor_chns[tgt_cpu]);
+			if (!channel)
+				continue;
+			if (hv_get_avail_to_write_percent(&channel->outbound)
+					> ring_avail_percent_lowater) {
+				outgoing_channel = channel;
 				goto found_channel;
-
-			/*
-			 * If we reach here, all the channels on the current
-			 * NUMA node are busy. Try to find a channel in
-			 * other NUMA nodes
-			 */
-			for_each_cpu(tgt_cpu, &stor_device->alloced_cpus) {
-				if (cpumask_test_cpu(tgt_cpu, node_mask))
-					continue;
-				channel = READ_ONCE(
-					stor_device->stor_chns[tgt_cpu]);
-				if (channel == NULL)
-					continue;
-				if (hv_get_avail_to_write_percent(
-							&channel->outbound)
-						> ring_avail_percent_lowater) {
-					outgoing_channel = channel;
-					goto found_channel;
-				}
 			}
 		}
+
+		/*
+		 * If we reach here, all the channels on the current
+		 * NUMA node are busy. Try to find a channel in
+		 * all NUMA nodes
+		 */
+		for_each_cpu_wrap(tgt_cpu, &stor_device->alloced_cpus,
+				  q_num + 1) {
+			channel = READ_ONCE(stor_device->stor_chns[tgt_cpu]);
+			if (!channel)
+				continue;
+			if (hv_get_avail_to_write_percent(&channel->outbound)
+					> ring_avail_percent_lowater) {
+				outgoing_channel = channel;
+				goto found_channel;
+			}
+		}
+		/*
+		 * If we reach here, all the channels are busy. Use the
+		 * original channel found.
+		 */
 	} else {
 		spin_lock_irqsave(&stor_device->lock, flags);
 		outgoing_channel = stor_device->stor_chns[q_num];
@@ -1615,7 +1620,7 @@ static int storvsc_sdev_configure(struct scsi_device *sdevice,
 	return 0;
 }
 
-static int storvsc_get_chs(struct scsi_device *sdev, struct block_device * bdev,
+static int storvsc_get_chs(struct scsi_device *sdev, struct gendisk *unused,
 			   sector_t capacity, int *info)
 {
 	sector_t nsect = capacity;
@@ -1720,7 +1725,8 @@ static bool storvsc_scsi_cmd_ok(struct scsi_cmnd *scmnd)
 	return allowed;
 }
 
-static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
+static enum scsi_qc_status storvsc_queuecommand(struct Scsi_Host *host,
+						struct scsi_cmnd *scmnd)
 {
 	int ret;
 	struct hv_host_device *host_dev = shost_priv(host);
@@ -1860,8 +1866,9 @@ static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 	cmd_request->payload_sz = payload_sz;
 
 	/* Invokes the vsc to start an IO */
-	ret = storvsc_do_io(dev, cmd_request, get_cpu());
-	put_cpu();
+	migrate_disable();
+	ret = storvsc_do_io(dev, cmd_request, smp_processor_id());
+	migrate_enable();
 
 	if (ret)
 		scsi_dma_unmap(scmnd);
@@ -1941,8 +1948,8 @@ static int storvsc_probe(struct hv_device *device,
 	int num_present_cpus = num_present_cpus();
 	struct Scsi_Host *host;
 	struct hv_host_device *host_dev;
-	bool dev_is_ide = ((dev_id->driver_data == IDE_GUID) ? true : false);
-	bool is_fc = ((dev_id->driver_data == SFC_GUID) ? true : false);
+	bool dev_is_ide = dev_id->driver_data == IDE_GUID;
+	bool is_fc = dev_id->driver_data == SFC_GUID;
 	int target = 0;
 	struct storvsc_device *stor_device;
 	int max_sub_channels = 0;
@@ -1974,7 +1981,7 @@ static int storvsc_probe(struct hv_device *device,
 	host_dev->host = host;
 
 
-	stor_device = kzalloc(sizeof(struct storvsc_device), GFP_KERNEL);
+	stor_device = kzalloc_obj(struct storvsc_device);
 	if (!stor_device) {
 		ret = -ENOMEM;
 		goto err_out0;

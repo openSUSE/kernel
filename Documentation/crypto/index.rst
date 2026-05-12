@@ -13,6 +13,7 @@ for cryptographic use cases, as well as programming examples.
    :caption: Table of contents
    :maxdepth: 2
 
+   libcrypto
    intro
    api-intro
    architecture

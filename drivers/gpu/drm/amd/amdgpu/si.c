@@ -45,6 +45,7 @@
 #include "dce_v6_0.h"
 #include "si.h"
 #include "uvd_v3_1.h"
+#include "vce_v1_0.h"
 
 #include "uvd/uvd_4_0_d.h"
 
@@ -921,8 +922,6 @@ static const u32 hainan_mgcg_cgcg_init[] =
 	0x3630, 0xfffffff0, 0x00000100,
 };
 
-/* XXX: update when we support VCE */
-#if 0
 /* tahiti, pitcairn, verde */
 static const struct amdgpu_video_codec_info tahiti_video_codecs_encode_array[] =
 {
@@ -940,13 +939,7 @@ static const struct amdgpu_video_codecs tahiti_video_codecs_encode =
 	.codec_count = ARRAY_SIZE(tahiti_video_codecs_encode_array),
 	.codec_array = tahiti_video_codecs_encode_array,
 };
-#else
-static const struct amdgpu_video_codecs tahiti_video_codecs_encode =
-{
-	.codec_count = 0,
-	.codec_array = NULL,
-};
-#endif
+
 /* oland and hainan don't support encode */
 static const struct amdgpu_video_codecs hainan_video_codecs_encode =
 {
@@ -1034,11 +1027,11 @@ static u32 si_pcie_rreg(struct amdgpu_device *adev, u32 reg)
 	unsigned long flags;
 	u32 r;
 
-	spin_lock_irqsave(&adev->pcie_idx_lock, flags);
+	spin_lock_irqsave(&adev->reg.pcie.lock, flags);
 	WREG32(AMDGPU_PCIE_INDEX, reg);
 	(void)RREG32(AMDGPU_PCIE_INDEX);
 	r = RREG32(AMDGPU_PCIE_DATA);
-	spin_unlock_irqrestore(&adev->pcie_idx_lock, flags);
+	spin_unlock_irqrestore(&adev->reg.pcie.lock, flags);
 	return r;
 }
 
@@ -1046,12 +1039,12 @@ static void si_pcie_wreg(struct amdgpu_device *adev, u32 reg, u32 v)
 {
 	unsigned long flags;
 
-	spin_lock_irqsave(&adev->pcie_idx_lock, flags);
+	spin_lock_irqsave(&adev->reg.pcie.lock, flags);
 	WREG32(AMDGPU_PCIE_INDEX, reg);
 	(void)RREG32(AMDGPU_PCIE_INDEX);
 	WREG32(AMDGPU_PCIE_DATA, v);
 	(void)RREG32(AMDGPU_PCIE_DATA);
-	spin_unlock_irqrestore(&adev->pcie_idx_lock, flags);
+	spin_unlock_irqrestore(&adev->reg.pcie.lock, flags);
 }
 
 static u32 si_pciep_rreg(struct amdgpu_device *adev, u32 reg)
@@ -1059,11 +1052,11 @@ static u32 si_pciep_rreg(struct amdgpu_device *adev, u32 reg)
 	unsigned long flags;
 	u32 r;
 
-	spin_lock_irqsave(&adev->pcie_idx_lock, flags);
+	spin_lock_irqsave(&adev->reg.pcie.lock, flags);
 	WREG32(PCIE_PORT_INDEX, ((reg) & 0xff));
 	(void)RREG32(PCIE_PORT_INDEX);
 	r = RREG32(PCIE_PORT_DATA);
-	spin_unlock_irqrestore(&adev->pcie_idx_lock, flags);
+	spin_unlock_irqrestore(&adev->reg.pcie.lock, flags);
 	return r;
 }
 
@@ -1071,12 +1064,12 @@ static void si_pciep_wreg(struct amdgpu_device *adev, u32 reg, u32 v)
 {
 	unsigned long flags;
 
-	spin_lock_irqsave(&adev->pcie_idx_lock, flags);
+	spin_lock_irqsave(&adev->reg.pcie.lock, flags);
 	WREG32(PCIE_PORT_INDEX, ((reg) & 0xff));
 	(void)RREG32(PCIE_PORT_INDEX);
 	WREG32(PCIE_PORT_DATA, (v));
 	(void)RREG32(PCIE_PORT_DATA);
-	spin_unlock_irqrestore(&adev->pcie_idx_lock, flags);
+	spin_unlock_irqrestore(&adev->reg.pcie.lock, flags);
 }
 
 static u32 si_smc_rreg(struct amdgpu_device *adev, u32 reg)
@@ -1084,10 +1077,10 @@ static u32 si_smc_rreg(struct amdgpu_device *adev, u32 reg)
 	unsigned long flags;
 	u32 r;
 
-	spin_lock_irqsave(&adev->smc_idx_lock, flags);
+	spin_lock_irqsave(&adev->reg.smc.lock, flags);
 	WREG32(mmSMC_IND_INDEX_0, (reg));
 	r = RREG32(mmSMC_IND_DATA_0);
-	spin_unlock_irqrestore(&adev->smc_idx_lock, flags);
+	spin_unlock_irqrestore(&adev->reg.smc.lock, flags);
 	return r;
 }
 
@@ -1095,10 +1088,10 @@ static void si_smc_wreg(struct amdgpu_device *adev, u32 reg, u32 v)
 {
 	unsigned long flags;
 
-	spin_lock_irqsave(&adev->smc_idx_lock, flags);
+	spin_lock_irqsave(&adev->reg.smc.lock, flags);
 	WREG32(mmSMC_IND_INDEX_0, (reg));
 	WREG32(mmSMC_IND_DATA_0, (v));
-	spin_unlock_irqrestore(&adev->smc_idx_lock, flags);
+	spin_unlock_irqrestore(&adev->reg.smc.lock, flags);
 }
 
 static u32 si_uvd_ctx_rreg(struct amdgpu_device *adev, u32 reg)
@@ -1106,10 +1099,10 @@ static u32 si_uvd_ctx_rreg(struct amdgpu_device *adev, u32 reg)
 	unsigned long flags;
 	u32 r;
 
-	spin_lock_irqsave(&adev->uvd_ctx_idx_lock, flags);
+	spin_lock_irqsave(&adev->reg.uvd_ctx.lock, flags);
 	WREG32(mmUVD_CTX_INDEX, ((reg) & 0x1ff));
 	r = RREG32(mmUVD_CTX_DATA);
-	spin_unlock_irqrestore(&adev->uvd_ctx_idx_lock, flags);
+	spin_unlock_irqrestore(&adev->reg.uvd_ctx.lock, flags);
 	return r;
 }
 
@@ -1117,10 +1110,10 @@ static void si_uvd_ctx_wreg(struct amdgpu_device *adev, u32 reg, u32 v)
 {
 	unsigned long flags;
 
-	spin_lock_irqsave(&adev->uvd_ctx_idx_lock, flags);
+	spin_lock_irqsave(&adev->reg.uvd_ctx.lock, flags);
 	WREG32(mmUVD_CTX_INDEX, ((reg) & 0x1ff));
 	WREG32(mmUVD_CTX_DATA, (v));
-	spin_unlock_irqrestore(&adev->uvd_ctx_idx_lock, flags);
+	spin_unlock_irqrestore(&adev->reg.uvd_ctx.lock, flags);
 }
 
 static struct amdgpu_allowed_register_entry si_allowed_read_registers[] = {
@@ -1925,6 +1918,14 @@ static int si_set_vce_clocks(struct amdgpu_device *adev, u32 evclk, u32 ecclk)
 		     ~VCEPLL_BYPASS_EN_MASK);
 
 	if (!evclk || !ecclk) {
+		/*
+		 * On some chips, the PLL takes way too long to get out of
+		 * sleep mode, causing a timeout waiting on CTLACK/CTLACK2.
+		 * Leave the PLL running in bypass mode.
+		 */
+		if (adev->pdev->device == 0x6780)
+			return 0;
+
 		/* Keep the Bypass mode, put PLL to sleep */
 		WREG32_SMC_P(CG_VCEPLL_FUNC_CNTL, VCEPLL_SLEEP_MASK,
 			     ~VCEPLL_SLEEP_MASK);
@@ -2002,10 +2003,6 @@ static int si_set_vce_clocks(struct amdgpu_device *adev, u32 evclk, u32 ecclk)
 	return 0;
 }
 
-static void si_pre_asic_init(struct amdgpu_device *adev)
-{
-}
-
 static const struct amdgpu_asic_funcs si_asic_funcs =
 {
 	.read_disabled_bios = &si_read_disabled_bios,
@@ -2027,7 +2024,6 @@ static const struct amdgpu_asic_funcs si_asic_funcs =
 	.need_reset_on_init = &si_need_reset_on_init,
 	.get_pcie_replay_count = &si_get_pcie_replay_count,
 	.supports_baco = &si_asic_supports_baco,
-	.pre_asic_init = &si_pre_asic_init,
 	.query_video_codecs = &si_query_video_codecs,
 };
 
@@ -2041,16 +2037,14 @@ static int si_common_early_init(struct amdgpu_ip_block *ip_block)
 {
 	struct amdgpu_device *adev = ip_block->adev;
 
-	adev->smc_rreg = &si_smc_rreg;
-	adev->smc_wreg = &si_smc_wreg;
-	adev->pcie_rreg = &si_pcie_rreg;
-	adev->pcie_wreg = &si_pcie_wreg;
-	adev->pciep_rreg = &si_pciep_rreg;
-	adev->pciep_wreg = &si_pciep_wreg;
-	adev->uvd_ctx_rreg = si_uvd_ctx_rreg;
-	adev->uvd_ctx_wreg = si_uvd_ctx_wreg;
-	adev->didt_rreg = NULL;
-	adev->didt_wreg = NULL;
+	adev->reg.smc.rreg = si_smc_rreg;
+	adev->reg.smc.wreg = si_smc_wreg;
+	adev->reg.pcie.rreg = &si_pcie_rreg;
+	adev->reg.pcie.wreg = &si_pcie_wreg;
+	adev->reg.pcie.port_rreg = &si_pciep_rreg;
+	adev->reg.pcie.port_wreg = &si_pciep_wreg;
+	adev->reg.uvd_ctx.rreg = &si_uvd_ctx_rreg;
+	adev->reg.uvd_ctx.wreg = &si_uvd_ctx_wreg;
 
 	adev->asic_funcs = &si_asic_funcs;
 
@@ -2259,16 +2253,16 @@ static void si_pcie_gen3_enable(struct amdgpu_device *adev)
 		PCIE_LC_SPEED_CNTL__LC_CURRENT_DATA_RATE__SHIFT;
 	if (adev->pm.pcie_gen_mask & CAIL_PCIE_LINK_SPEED_SUPPORT_GEN3) {
 		if (current_data_rate == 2) {
-			DRM_INFO("PCIE gen 3 link speeds already enabled\n");
+			drm_info(adev_to_drm(adev), "PCIE gen 3 link speeds already enabled\n");
 			return;
 		}
-		DRM_INFO("enabling PCIE gen 3 link speeds, disable with amdgpu.pcie_gen2=0\n");
+		drm_info(adev_to_drm(adev), "enabling PCIE gen 3 link speeds, disable with amdgpu.pcie_gen2=0\n");
 	} else if (adev->pm.pcie_gen_mask & CAIL_PCIE_LINK_SPEED_SUPPORT_GEN2) {
 		if (current_data_rate == 1) {
-			DRM_INFO("PCIE gen 2 link speeds already enabled\n");
+			drm_info(adev_to_drm(adev), "PCIE gen 2 link speeds already enabled\n");
 			return;
 		}
-		DRM_INFO("enabling PCIE gen 2 link speeds, disable with amdgpu.pcie_gen2=0\n");
+		drm_info(adev_to_drm(adev), "enabling PCIE gen 2 link speeds, disable with amdgpu.pcie_gen2=0\n");
 	}
 
 	if (!pci_is_pcie(root) || !pci_is_pcie(adev->pdev))
@@ -2386,10 +2380,10 @@ static inline u32 si_pif_phy0_rreg(struct amdgpu_device *adev, u32 reg)
 	unsigned long flags;
 	u32 r;
 
-	spin_lock_irqsave(&adev->pcie_idx_lock, flags);
+	spin_lock_irqsave(&adev->reg.pcie.lock, flags);
 	WREG32(EVERGREEN_PIF_PHY0_INDEX, ((reg) & 0xffff));
 	r = RREG32(EVERGREEN_PIF_PHY0_DATA);
-	spin_unlock_irqrestore(&adev->pcie_idx_lock, flags);
+	spin_unlock_irqrestore(&adev->reg.pcie.lock, flags);
 	return r;
 }
 
@@ -2397,10 +2391,10 @@ static inline void si_pif_phy0_wreg(struct amdgpu_device *adev, u32 reg, u32 v)
 {
 	unsigned long flags;
 
-	spin_lock_irqsave(&adev->pcie_idx_lock, flags);
+	spin_lock_irqsave(&adev->reg.pcie.lock, flags);
 	WREG32(EVERGREEN_PIF_PHY0_INDEX, ((reg) & 0xffff));
 	WREG32(EVERGREEN_PIF_PHY0_DATA, (v));
-	spin_unlock_irqrestore(&adev->pcie_idx_lock, flags);
+	spin_unlock_irqrestore(&adev->reg.pcie.lock, flags);
 }
 
 static inline u32 si_pif_phy1_rreg(struct amdgpu_device *adev, u32 reg)
@@ -2408,10 +2402,10 @@ static inline u32 si_pif_phy1_rreg(struct amdgpu_device *adev, u32 reg)
 	unsigned long flags;
 	u32 r;
 
-	spin_lock_irqsave(&adev->pcie_idx_lock, flags);
+	spin_lock_irqsave(&adev->reg.pcie.lock, flags);
 	WREG32(EVERGREEN_PIF_PHY1_INDEX, ((reg) & 0xffff));
 	r = RREG32(EVERGREEN_PIF_PHY1_DATA);
-	spin_unlock_irqrestore(&adev->pcie_idx_lock, flags);
+	spin_unlock_irqrestore(&adev->reg.pcie.lock, flags);
 	return r;
 }
 
@@ -2419,10 +2413,10 @@ static inline void si_pif_phy1_wreg(struct amdgpu_device *adev, u32 reg, u32 v)
 {
 	unsigned long flags;
 
-	spin_lock_irqsave(&adev->pcie_idx_lock, flags);
+	spin_lock_irqsave(&adev->reg.pcie.lock, flags);
 	WREG32(EVERGREEN_PIF_PHY1_INDEX, ((reg) & 0xffff));
 	WREG32(EVERGREEN_PIF_PHY1_DATA, (v));
-	spin_unlock_irqrestore(&adev->pcie_idx_lock, flags);
+	spin_unlock_irqrestore(&adev->reg.pcie.lock, flags);
 }
 static void si_program_aspm(struct amdgpu_device *adev)
 {
@@ -2717,7 +2711,7 @@ int si_set_ip_blocks(struct amdgpu_device *adev)
 		else
 			amdgpu_device_ip_block_add(adev, &dce_v6_0_ip_block);
 		amdgpu_device_ip_block_add(adev, &uvd_v3_1_ip_block);
-		/* amdgpu_device_ip_block_add(adev, &vce_v1_0_ip_block); */
+		amdgpu_device_ip_block_add(adev, &vce_v1_0_ip_block);
 		break;
 	case CHIP_OLAND:
 		amdgpu_device_ip_block_add(adev, &si_common_ip_block);
@@ -2735,7 +2729,6 @@ int si_set_ip_blocks(struct amdgpu_device *adev)
 		else
 			amdgpu_device_ip_block_add(adev, &dce_v6_4_ip_block);
 		amdgpu_device_ip_block_add(adev, &uvd_v3_1_ip_block);
-		/* amdgpu_device_ip_block_add(adev, &vce_v1_0_ip_block); */
 		break;
 	case CHIP_HAINAN:
 		amdgpu_device_ip_block_add(adev, &si_common_ip_block);

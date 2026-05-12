@@ -45,10 +45,10 @@ struct CLIENT_REC {
 	__le16 seq_num;     // 0x14:
 	u8 align[6];        // 0x16:
 	__le32 name_bytes;  // 0x1C: In bytes.
-	__le16 name[32];    // 0x20: Name of client.
+	__le16 name[64];    // 0x20: Name of client.
 };
 
-static_assert(sizeof(struct CLIENT_REC) == 0x60);
+static_assert(sizeof(struct CLIENT_REC) == 0xa0);
 
 /* Two copies of these will exist at the beginning of the log file */
 struct RESTART_AREA {
@@ -1074,6 +1074,8 @@ struct ntfs_log {
 	u32 client_undo_commit;
 
 	struct restart_info rst_info, rst_info2;
+
+	struct file_ra_state read_ahead;
 };
 
 static inline u32 lsn_to_vbo(struct ntfs_log *log, const u64 lsn)
@@ -1164,8 +1166,8 @@ static int read_log_page(struct ntfs_log *log, u32 vbo,
 
 	page_buf = page_off ? log->one_page_buf : *buffer;
 
-	err = ntfs_read_run_nb(ni->mi.sbi, &ni->file.run, page_vbo, page_buf,
-			       log->page_size, NULL);
+	err = ntfs_read_run_nb_ra(ni->mi.sbi, &ni->file.run, page_vbo, page_buf,
+				  log->page_size, NULL, &log->read_ahead);
 	if (err)
 		goto out;
 
@@ -2471,7 +2473,7 @@ static int read_log_rec_lcb(struct ntfs_log *log, u64 lsn, u32 ctx_mode,
 	if (!verify_client_lsn(log, cr, lsn))
 		return -EINVAL;
 
-	lcb = kzalloc(sizeof(struct lcb), GFP_NOFS);
+	lcb = kzalloc_obj(struct lcb, GFP_NOFS);
 	if (!lcb)
 		return -ENOMEM;
 	lcb->client = log->client_id;
@@ -2789,13 +2791,14 @@ static inline bool check_file_record(const struct MFT_REC *rec,
 	u16 fn = le16_to_cpu(rec->rhdr.fix_num);
 	u16 ao = le16_to_cpu(rec->attr_off);
 	u32 rs = sbi->record_size;
+	u32 used = le32_to_cpu(rec->used);
 
 	/* Check the file record header for consistency. */
 	if (rec->rhdr.sign != NTFS_FILE_SIGNATURE ||
 	    fo > (SECTOR_SIZE - ((rs >> SECTOR_SHIFT) + 1) * sizeof(short)) ||
 	    (fn - 1) * SECTOR_SIZE != rs || ao < MFTRECORD_FIXUP_OFFSET_1 ||
 	    ao > sbi->record_size - SIZEOF_RESIDENT || !is_rec_inuse(rec) ||
-	    le32_to_cpu(rec->total) != rs) {
+	    le32_to_cpu(rec->total) != rs || used > rs || used < ao) {
 		return false;
 	}
 
@@ -2806,6 +2809,15 @@ static inline bool check_file_record(const struct MFT_REC *rec,
 			continue;
 		return false;
 	}
+
+	/*
+	 * The do_action() handlers compute memmove lengths as
+	 * "rec->used - <offset of validated attr>", which underflows when
+	 * rec->used is smaller than the attribute walk reached.  At this
+	 * point attr is the ATTR_END marker; rec->used must cover it.
+	 */
+	if (used < PtrOffset(rec, attr) + sizeof(attr->type))
+		return false;
 
 	return true;
 }
@@ -3029,6 +3041,26 @@ static struct ATTRIB *attr_create_nonres_log(struct ntfs_sb_info *sbi,
 }
 
 /*
+ * update_oa_attr - Synchronize OpenAttr's attribute pointer with modified attribute
+ * @oa2: OpenAttr structure in memory that needs to be updated
+ * @attr: Modified attribute from MFT record to duplicate
+ *
+ * Returns true on success, false on allocation failure.
+ */
+static bool update_oa_attr(struct OpenAttr *oa2, struct ATTRIB *attr)
+{
+	void *p2;
+
+	p2 = kmemdup(attr, le32_to_cpu(attr->size), GFP_NOFS);
+	if (p2) {
+		kfree(oa2->attr);
+		oa2->attr = p2;
+		return true;
+	}
+	return false;
+}
+
+/*
  * do_action - Common routine for the Redo and Undo Passes.
  * @rlsn: If it is NULL then undo.
  */
@@ -3095,8 +3127,7 @@ static int do_action(struct ntfs_log *log, struct OPEN_ATTR_ENRTY *oe,
 			/* Read from disk. */
 			err = mi_get(sbi, rno, &mi);
 			if (err && op == InitializeFileRecordSegment) {
-				mi = kzalloc(sizeof(struct mft_inode),
-					     GFP_NOFS);
+				mi = kzalloc_obj(struct mft_inode, GFP_NOFS);
 				if (!mi)
 					return -ENOMEM;
 				err = mi_format_new(mi, sbi, rno, 0, false);
@@ -3251,15 +3282,8 @@ skip_load_parent:
 			le16_add_cpu(&rec->hard_links, 1);
 
 		oa2 = find_loaded_attr(log, attr, rno_base);
-		if (oa2) {
-			void *p2 = kmemdup(attr, le32_to_cpu(attr->size),
-					   GFP_NOFS);
-			if (p2) {
-				// run_close(oa2->run1);
-				kfree(oa2->attr);
-				oa2->attr = p2;
-			}
-		}
+		if (oa2)
+			update_oa_attr(oa2, attr);
 
 		mi->dirty = true;
 		break;
@@ -3318,16 +3342,8 @@ move_data:
 			memmove(Add2Ptr(attr, aoff), data, dlen);
 
 		oa2 = find_loaded_attr(log, attr, rno_base);
-		if (oa2) {
-			void *p2 = kmemdup(attr, le32_to_cpu(attr->size),
-					   GFP_NOFS);
-			if (p2) {
-				// run_close(&oa2->run0);
-				oa2->run1 = &oa2->run0;
-				kfree(oa2->attr);
-				oa2->attr = p2;
-			}
-		}
+		if (oa2 && update_oa_attr(oa2, attr))
+			oa2->run1 = &oa2->run0;
 
 		mi->dirty = true;
 		break;
@@ -3377,14 +3393,9 @@ move_data:
 			attr->nres.total_size = new_sz->total_size;
 
 		oa2 = find_loaded_attr(log, attr, rno_base);
-		if (oa2) {
-			void *p2 = kmemdup(attr, le32_to_cpu(attr->size),
-					   GFP_NOFS);
-			if (p2) {
-				kfree(oa2->attr);
-				oa2->attr = p2;
-			}
-		}
+		if (oa2)
+			update_oa_attr(oa2, attr);
+
 		mi->dirty = true;
 		break;
 
@@ -3429,6 +3440,9 @@ move_data:
 
 		e1 = Add2Ptr(attr, le16_to_cpu(lrh->attr_off));
 		esize = le16_to_cpu(e1->size);
+		if (PtrOffset(e1, Add2Ptr(hdr, used)) < esize)
+			goto dirty_vol;
+
 		e2 = Add2Ptr(e1, esize);
 
 		memmove(e1, e2, PtrOffset(e2, Add2Ptr(hdr, used)));
@@ -3774,7 +3788,7 @@ int log_replay(struct ntfs_inode *ni, bool *initialized)
 	u16 t16;
 	u32 t32;
 
-	log = kzalloc(sizeof(struct ntfs_log), GFP_NOFS);
+	log = kzalloc_obj(struct ntfs_log, GFP_NOFS);
 	if (!log)
 		return -ENOMEM;
 
@@ -4720,7 +4734,7 @@ next_open_attribute:
 		goto next_dirty_page;
 	}
 
-	oa = kzalloc(sizeof(struct OpenAttr), GFP_NOFS);
+	oa = kzalloc_obj(struct OpenAttr, GFP_NOFS);
 	if (!oa) {
 		err = -ENOMEM;
 		goto out;
@@ -5128,7 +5142,7 @@ commit_undo:
 
 undo_action_done:
 
-	ntfs_update_mftmirr(sbi, 0);
+	ntfs_update_mftmirr(sbi);
 
 	sbi->flags &= ~NTFS_FLAGS_NEED_REPLAY;
 

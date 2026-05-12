@@ -19,19 +19,20 @@ Video4Linux (V4L) driver-specific documentation
 	ipu3
 	ipu6-isys
 	ivtv
+	mali-c55
 	mgb4
 	omap3isp
 	philips
 	qcom_camss
 	raspberrypi-pisp-be
 	rcar-fdp1
+	rkcif
 	rkisp1
 	raspberrypi-rp1-cfe
 	saa7134
 	si470x
 	si4713
 	si476x
-	starfive_camss
 	vimc
 	visl
 	vivid

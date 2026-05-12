@@ -316,6 +316,9 @@ extern struct property *of_find_property(const struct device_node *np,
 extern bool of_property_read_bool(const struct device_node *np, const char *propname);
 extern int of_property_count_elems_of_size(const struct device_node *np,
 				const char *propname, int elem_size);
+extern int of_property_read_u8_index(const struct device_node *np,
+				       const char *propname,
+				       u32 index, u8 *out_value);
 extern int of_property_read_u16_index(const struct device_node *np,
 				       const char *propname,
 				       u32 index, u16 *out_value);
@@ -407,6 +410,8 @@ extern int of_alias_get_id(const struct device_node *np, const char *stem);
 extern int of_alias_get_highest_id(const char *stem);
 
 bool of_machine_compatible_match(const char *const *compats);
+const struct of_device_id *of_machine_get_match(const struct of_device_id *matches);
+const void *of_machine_get_match_data(const struct of_device_id *matches);
 
 /**
  * of_machine_is_compatible - Test root of device tree for a given compatible value
@@ -420,6 +425,9 @@ static inline bool of_machine_is_compatible(const char *compat)
 
 	return of_machine_compatible_match(compats);
 }
+
+int of_machine_read_compatible(const char **compatible, unsigned int index);
+int of_machine_read_model(const char **model);
 
 extern int of_add_property(struct device_node *np, struct property *prop);
 extern int of_remove_property(struct device_node *np, struct property *prop);
@@ -550,6 +558,13 @@ static inline struct device_node *of_get_next_child(
 	return NULL;
 }
 
+static inline struct device_node *of_get_next_child_with_prefix(
+	const struct device_node *node, struct device_node *prev,
+	const char *prefix)
+{
+	return NULL;
+}
+
 static inline struct device_node *of_get_next_available_child(
 	const struct device_node *node, struct device_node *prev)
 {
@@ -635,6 +650,12 @@ static inline bool of_property_read_bool(const struct device_node *np,
 
 static inline int of_property_count_elems_of_size(const struct device_node *np,
 			const char *propname, int elem_size)
+{
+	return -ENOSYS;
+}
+
+static inline int of_property_read_u8_index(const struct device_node *np,
+			const char *propname, u32 index, u8 *out_value)
 {
 	return -ENOSYS;
 }
@@ -833,6 +854,17 @@ static inline int of_machine_is_compatible(const char *compat)
 	return 0;
 }
 
+static inline int of_machine_read_compatible(const char **compatible,
+					     unsigned int index)
+{
+	return -ENOSYS;
+}
+
+static inline int of_machine_read_model(const char **model)
+{
+	return -ENOSYS;
+}
+
 static inline int of_add_property(struct device_node *np, struct property *prop)
 {
 	return 0;
@@ -846,6 +878,17 @@ static inline int of_remove_property(struct device_node *np, struct property *pr
 static inline bool of_machine_compatible_match(const char *const *compats)
 {
 	return false;
+}
+
+static inline const struct of_device_id *of_machine_get_match(const struct of_device_id *matches)
+{
+	return NULL;
+}
+
+static inline const void *
+of_machine_get_match_data(const struct of_device_id *matches)
+{
+	return NULL;
 }
 
 static inline bool of_console_check(const struct device_node *dn, const char *name, int index)
@@ -946,6 +989,11 @@ static inline int of_numa_init(void)
 	return -ENOSYS;
 }
 #endif
+
+static inline bool of_machine_device_match(const struct of_device_id *matches)
+{
+	return of_machine_get_match(matches) != NULL;
+}
 
 static inline struct device_node *of_find_matching_node(
 	struct device_node *from,
@@ -1127,7 +1175,7 @@ static inline bool of_phandle_args_equal(const struct of_phandle_args *a1,
  * Search for a property in a device node and count the number of u8 elements
  * in it.
  *
- * Return: The number of elements on sucess, -EINVAL if the property does
+ * Return: The number of elements on success, -EINVAL if the property does
  * not exist or its length does not match a multiple of u8 and -ENODATA if the
  * property does not have a value.
  */
@@ -1146,7 +1194,7 @@ static inline int of_property_count_u8_elems(const struct device_node *np,
  * Search for a property in a device node and count the number of u16 elements
  * in it.
  *
- * Return: The number of elements on sucess, -EINVAL if the property does
+ * Return: The number of elements on success, -EINVAL if the property does
  * not exist or its length does not match a multiple of u16 and -ENODATA if the
  * property does not have a value.
  */
@@ -1165,7 +1213,7 @@ static inline int of_property_count_u16_elems(const struct device_node *np,
  * Search for a property in a device node and count the number of u32 elements
  * in it.
  *
- * Return: The number of elements on sucess, -EINVAL if the property does
+ * Return: The number of elements on success, -EINVAL if the property does
  * not exist or its length does not match a multiple of u32 and -ENODATA if the
  * property does not have a value.
  */
@@ -1184,7 +1232,7 @@ static inline int of_property_count_u32_elems(const struct device_node *np,
  * Search for a property in a device node and count the number of u64 elements
  * in it.
  *
- * Return: The number of elements on sucess, -EINVAL if the property does
+ * Return: The number of elements on success, -EINVAL if the property does
  * not exist or its length does not match a multiple of u64 and -ENODATA if the
  * property does not have a value.
  */
@@ -1456,6 +1504,13 @@ static inline int of_property_read_s32(const struct device_node *np,
 #define for_each_compatible_node(dn, type, compatible) \
 	for (dn = of_find_compatible_node(NULL, type, compatible); dn; \
 	     dn = of_find_compatible_node(dn, type, compatible))
+
+#define for_each_compatible_node_scoped(dn, type, compatible) \
+	for (struct device_node *dn __free(device_node) =		\
+	     of_find_compatible_node(NULL, type, compatible);		\
+	     dn;							\
+	     dn = of_find_compatible_node(dn, type, compatible))
+
 #define for_each_matching_node(dn, matches) \
 	for (dn = of_find_matching_node(NULL, matches); dn; \
 	     dn = of_find_matching_node(dn, matches))

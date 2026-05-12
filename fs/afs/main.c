@@ -93,7 +93,7 @@ static int __net_init afs_net_init(struct net *net_ns)
 	atomic_set(&net->servers_outstanding, 1);
 
 	ret = -ENOMEM;
-	sysnames = kzalloc(sizeof(*sysnames), GFP_KERNEL);
+	sysnames = kzalloc_obj(*sysnames);
 	if (!sysnames)
 		goto error_sysnames;
 	sysnames->subs[0] = (char *)&afs_init_sysname;
@@ -169,13 +169,13 @@ static int __init afs_init(void)
 
 	printk(KERN_INFO "kAFS: Red Hat AFS client v0.1 registering.\n");
 
-	afs_wq = alloc_workqueue("afs", 0, 0);
+	afs_wq = alloc_workqueue("afs", WQ_PERCPU, 0);
 	if (!afs_wq)
 		goto error_afs_wq;
 	afs_async_calls = alloc_workqueue("kafsd", WQ_MEM_RECLAIM | WQ_UNBOUND, 0);
 	if (!afs_async_calls)
 		goto error_async;
-	afs_lock_manager = alloc_workqueue("kafs_lockd", WQ_MEM_RECLAIM, 0);
+	afs_lock_manager = alloc_workqueue("kafs_lockd", WQ_MEM_RECLAIM | WQ_PERCPU, 0);
 	if (!afs_lock_manager)
 		goto error_lockmgr;
 

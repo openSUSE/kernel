@@ -2,7 +2,7 @@
 /*
  * V4L2 controls framework uAPI implementation:
  *
- * Copyright (C) 2010-2021  Hans Verkuil <hverkuil-cisco@xs4all.nl>
+ * Copyright (C) 2010-2021  Hans Verkuil <hverkuil@kernel.org>
  */
 
 #define pr_fmt(fmt) "v4l2-ctrls: " fmt
@@ -431,8 +431,7 @@ int v4l2_g_ext_ctrls_common(struct v4l2_ctrl_handler *hdl,
 		return class_check(hdl, cs->which);
 
 	if (cs->count > ARRAY_SIZE(helper)) {
-		helpers = kvmalloc_array(cs->count, sizeof(helper[0]),
-					 GFP_KERNEL);
+		helpers = kvmalloc_objs(helper[0], cs->count);
 		if (!helpers)
 			return -ENOMEM;
 	}
@@ -617,8 +616,7 @@ int try_set_ext_ctrls_common(struct v4l2_fh *fh,
 		return class_check(hdl, cs->which);
 
 	if (cs->count > ARRAY_SIZE(helper)) {
-		helpers = kvmalloc_array(cs->count, sizeof(helper[0]),
-					 GFP_KERNEL);
+		helpers = kvmalloc_objs(helper[0], cs->count);
 		if (!helpers)
 			return -ENOMEM;
 	}
@@ -1250,14 +1248,17 @@ EXPORT_SYMBOL(v4l2_querymenu);
  * VIDIOC_LOG_STATUS helpers
  */
 
-int v4l2_ctrl_log_status(struct file *file, void *fh)
+int v4l2_ctrl_log_status(struct file *file, void *priv)
 {
 	struct video_device *vfd = video_devdata(file);
-	struct v4l2_fh *vfh = file->private_data;
 
-	if (test_bit(V4L2_FL_USES_V4L2_FH, &vfd->flags) && vfd->v4l2_dev)
+	if (vfd->v4l2_dev) {
+		struct v4l2_fh *vfh = file_to_v4l2_fh(file);
+
 		v4l2_ctrl_handler_log_status(vfh->ctrl_handler,
 					     vfd->v4l2_dev->name);
+	}
+
 	return 0;
 }
 EXPORT_SYMBOL(v4l2_ctrl_log_status);
@@ -1348,7 +1349,7 @@ EXPORT_SYMBOL(v4l2_ctrl_subdev_subscribe_event);
  */
 __poll_t v4l2_ctrl_poll(struct file *file, struct poll_table_struct *wait)
 {
-	struct v4l2_fh *fh = file->private_data;
+	struct v4l2_fh *fh = file_to_v4l2_fh(file);
 
 	poll_wait(file, &fh->wait, wait);
 	if (v4l2_event_pending(fh))

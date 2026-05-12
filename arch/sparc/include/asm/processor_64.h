@@ -21,7 +21,7 @@
  * XXX No longer using virtual page tables, kill this upper limit...
  */
 #define VA_BITS		44
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 #define VPTE_SIZE	(1UL << (VA_BITS - PAGE_SHIFT + 3))
 #else
 #define VPTE_SIZE	(1 << (VA_BITS - PAGE_SHIFT + 3))
@@ -45,7 +45,7 @@
 
 #endif
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 
 /* The Sparc processor specific thread struct. */
 /* XXX This should die, everything can go into thread_info now. */
@@ -62,7 +62,7 @@ struct thread_struct {
 #endif
 };
 
-#endif /* !(__ASSEMBLY__) */
+#endif /* !(__ASSEMBLER__) */
 
 #ifndef CONFIG_DEBUG_SPINLOCK
 #define INIT_THREAD  {			\
@@ -75,7 +75,7 @@ struct thread_struct {
 }
 #endif /* !(CONFIG_DEBUG_SPINLOCK) */
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 
 #include <linux/types.h>
 #include <asm/fpumacro.h>
@@ -182,31 +182,6 @@ unsigned long __get_wchan(struct task_struct *task);
 #define KSTK_EIP(tsk)  (task_pt_regs(tsk)->tpc)
 #define KSTK_ESP(tsk)  (task_pt_regs(tsk)->u_regs[UREG_FP])
 
-/* Please see the commentary in asm/backoff.h for a description of
- * what these instructions are doing and how they have been chosen.
- * To make a long story short, we are trying to yield the current cpu
- * strand during busy loops.
- */
-#ifdef	BUILD_VDSO
-#define	cpu_relax()	asm volatile("\n99:\n\t"			\
-				     "rd	%%ccr, %%g0\n\t"	\
-				     "rd	%%ccr, %%g0\n\t"	\
-				     "rd	%%ccr, %%g0\n\t"	\
-				     ::: "memory")
-#else /* ! BUILD_VDSO */
-#define cpu_relax()	asm volatile("\n99:\n\t"			\
-				     "rd	%%ccr, %%g0\n\t"	\
-				     "rd	%%ccr, %%g0\n\t"	\
-				     "rd	%%ccr, %%g0\n\t"	\
-				     ".section	.pause_3insn_patch,\"ax\"\n\t"\
-				     ".word	99b\n\t"		\
-				     "wr	%%g0, 128, %%asr27\n\t"	\
-				     "nop\n\t"				\
-				     "nop\n\t"				\
-				     ".previous"			\
-				     ::: "memory")
-#endif
-
 /* Prefetch support.  This is tuned for UltraSPARC-III and later.
  * UltraSPARC-I will treat these as nops, and UltraSPARC-II has
  * a shallower prefetch queue than later chips.
@@ -242,6 +217,6 @@ static inline void prefetchw(const void *x)
 
 int do_mathemu(struct pt_regs *regs, struct fpustate *f, bool illegal_insn_trap);
 
-#endif /* !(__ASSEMBLY__) */
+#endif /* !(__ASSEMBLER__) */
 
 #endif /* !(__ASM_SPARC64_PROCESSOR_H) */

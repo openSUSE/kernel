@@ -20,6 +20,7 @@ see the :doc:`admin guide <../admin-guide/mm/index>`.
    highmem
    page_reclaim
    swap
+   swap-table
    page_cache
    shmfs
    oom
@@ -47,6 +48,7 @@ documentation, or deleted if it has served its purpose.
    hugetlbfs_reserv
    ksm
    memory-model
+   memfd_preservation
    mmu_notifier
    multigen_lru
    numa

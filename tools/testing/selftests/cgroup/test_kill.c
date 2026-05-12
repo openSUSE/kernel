@@ -9,7 +9,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "../kselftest.h"
+#include "kselftest.h"
 #include "../pidfd/pidfd.h"
 #include "cgroup_util.h"
 
@@ -86,7 +86,7 @@ cleanup:
 		wait_for_pid(pids[i]);
 
 	if (ret == KSFT_PASS &&
-	    cg_read_strcmp(cgroup, "cgroup.events", "populated 0\n"))
+	    cg_read_strcmp_wait(cgroup, "cgroup.events", "populated 0\n"))
 		ret = KSFT_FAIL;
 
 	if (cgroup)
@@ -190,7 +190,8 @@ cleanup:
 		wait_for_pid(pids[i]);
 
 	if (ret == KSFT_PASS &&
-	    cg_read_strcmp(cgroup[0], "cgroup.events", "populated 0\n"))
+	    cg_read_strcmp_wait(cgroup[0], "cgroup.events",
+				   "populated 0\n"))
 		ret = KSFT_FAIL;
 
 	for (i = 9; i >= 0 && cgroup[i]; i--) {
@@ -251,7 +252,7 @@ cleanup:
 		wait_for_pid(pid);
 
 	if (ret == KSFT_PASS &&
-	    cg_read_strcmp(cgroup, "cgroup.events", "populated 0\n"))
+	    cg_read_strcmp_wait(cgroup, "cgroup.events", "populated 0\n"))
 		ret = KSFT_FAIL;
 
 	if (cgroup)
@@ -274,8 +275,10 @@ struct cgkill_test {
 int main(int argc, char *argv[])
 {
 	char root[PATH_MAX];
-	int i, ret = EXIT_SUCCESS;
+	int i;
 
+	ksft_print_header();
+	ksft_set_plan(ARRAY_SIZE(tests));
 	if (cg_find_unified_root(root, sizeof(root), NULL))
 		ksft_exit_skip("cgroup v2 isn't mounted\n");
 	for (i = 0; i < ARRAY_SIZE(tests); i++) {
@@ -287,11 +290,10 @@ int main(int argc, char *argv[])
 			ksft_test_result_skip("%s\n", tests[i].name);
 			break;
 		default:
-			ret = EXIT_FAILURE;
 			ksft_test_result_fail("%s\n", tests[i].name);
 			break;
 		}
 	}
 
-	return ret;
+	ksft_finished();
 }

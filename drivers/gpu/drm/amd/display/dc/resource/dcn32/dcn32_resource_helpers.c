@@ -41,6 +41,7 @@ uint32_t dcn32_helper_calculate_mall_bytes_for_cursor(
 		struct pipe_ctx *pipe_ctx,
 		bool ignore_cursor_buf)
 {
+	(void)dc;
 	struct hubp *hubp = pipe_ctx->plane_res.hubp;
 	uint32_t cursor_size = hubp->curs_attr.pitch * hubp->curs_attr.height;
 	uint32_t cursor_mall_size_bytes = 0;
@@ -332,7 +333,7 @@ void dcn32_determine_det_override(struct dc *dc,
 				continue;
 
 			if (context->stream_status[i].plane_count > 0)
-				plane_segments = stream_segments / context->stream_status[i].plane_count;
+				plane_segments = (uint8_t)(stream_segments / context->stream_status[i].plane_count);
 			else
 				plane_segments = stream_segments;
 			for (j = 0; j < dc->res_pool->pipe_count; j++) {

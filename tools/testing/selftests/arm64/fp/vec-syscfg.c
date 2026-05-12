@@ -19,7 +19,7 @@
 #include <asm/sigcontext.h>
 #include <asm/hwcap.h>
 
-#include "../../kselftest.h"
+#include "kselftest.h"
 #include "rdvl.h"
 
 #define ARCH_MIN_VL SVE_VL_MIN
@@ -689,7 +689,6 @@ static inline void smstop(void)
 {
 	asm volatile("msr S0_3_C4_C6_3, xzr");
 }
-
 
 /*
  * Verify we can change the SVE vector length while SME is active and

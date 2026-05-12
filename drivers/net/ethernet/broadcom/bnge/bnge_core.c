@@ -10,6 +10,7 @@
 #include "bnge_devlink.h"
 #include "bnge_hwrm.h"
 #include "bnge_hwrm_lib.h"
+#include "bnge_link.h"
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION(DRV_SUMMARY);
@@ -19,7 +20,7 @@ char bnge_driver_name[] = DRV_NAME;
 static const struct {
 	char *name;
 } board_info[] = {
-	[BCM57708] = { "Broadcom BCM57708 50Gb/100Gb/200Gb/400Gb/800Gb Ethernet" },
+	[BCM57708] = { "Broadcom BCM57708 ThorUltra 50Gb/100Gb/200Gb/400Gb/800Gb Ethernet" },
 };
 
 static const struct pci_device_id bnge_pci_tbl[] = {
@@ -41,6 +42,11 @@ static void bnge_print_device_info(struct pci_dev *pdev, enum board_idx idx)
 
 bool bnge_aux_registered(struct bnge_dev *bd)
 {
+	struct bnge_auxr_dev *ba_dev = bd->auxr_dev;
+
+	if (ba_dev && ba_dev->auxr_info->msix_requested)
+		return true;
+
 	return false;
 }
 
@@ -67,6 +73,13 @@ static int bnge_func_qcaps(struct bnge_dev *bd)
 		dev_err(bd->dev, "query qportcfg failure rc: %d\n", rc);
 		return rc;
 	}
+
+	return 0;
+}
+
+static int bnge_func_qrcaps_qcfg(struct bnge_dev *bd)
+{
+	int rc;
 
 	rc = bnge_hwrm_func_resc_qcaps(bd);
 	if (rc) {
@@ -96,6 +109,16 @@ static void bnge_fw_unregister_dev(struct bnge_dev *bd)
 	bnge_free_ctx_mem(bd);
 }
 
+static void bnge_set_dflt_rss_hash_type(struct bnge_dev *bd)
+{
+	bd->rss_hash_cfg = VNIC_RSS_CFG_REQ_HASH_TYPE_IPV4 |
+			   VNIC_RSS_CFG_REQ_HASH_TYPE_TCP_IPV4 |
+			   VNIC_RSS_CFG_REQ_HASH_TYPE_IPV6 |
+			   VNIC_RSS_CFG_REQ_HASH_TYPE_TCP_IPV6 |
+			   VNIC_RSS_CFG_REQ_HASH_TYPE_UDP_IPV4 |
+			   VNIC_RSS_CFG_REQ_HASH_TYPE_UDP_IPV6;
+}
+
 static int bnge_fw_register_dev(struct bnge_dev *bd)
 {
 	int rc;
@@ -117,30 +140,39 @@ static int bnge_fw_register_dev(struct bnge_dev *bd)
 
 	bnge_hwrm_fw_set_time(bd);
 
-	rc =  bnge_hwrm_func_drv_rgtr(bd);
+	/* Get the resources and configuration from firmware */
+	rc = bnge_func_qcaps(bd);
 	if (rc) {
-		dev_err(bd->dev, "Failed to rgtr with firmware rc: %d\n", rc);
+		dev_err(bd->dev, "Failed querying caps rc: %d\n", rc);
 		return rc;
 	}
 
 	rc = bnge_alloc_ctx_mem(bd);
 	if (rc) {
 		dev_err(bd->dev, "Failed to allocate ctx mem rc: %d\n", rc);
+		goto err_free_ctx_mem;
+	}
+
+	rc = bnge_hwrm_func_drv_rgtr(bd);
+	if (rc) {
+		dev_err(bd->dev, "Failed to rgtr with firmware rc: %d\n", rc);
+		goto err_free_ctx_mem;
+	}
+
+	rc = bnge_func_qrcaps_qcfg(bd);
+	if (rc) {
+		dev_err(bd->dev, "Failed querying resources rc: %d\n", rc);
 		goto err_func_unrgtr;
 	}
 
-	/* Get the resources and configuration from firmware */
-	rc = bnge_func_qcaps(bd);
-	if (rc) {
-		dev_err(bd->dev, "Failed initial configuration rc: %d\n", rc);
-		rc = -ENODEV;
-		goto err_func_unrgtr;
-	}
+	bnge_set_dflt_rss_hash_type(bd);
 
 	return 0;
 
 err_func_unrgtr:
-	bnge_fw_unregister_dev(bd);
+	bnge_hwrm_func_drv_unrgtr(bd);
+err_free_ctx_mem:
+	bnge_free_ctx_mem(bd);
 	return rc;
 }
 
@@ -296,15 +328,23 @@ static int bnge_probe_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		goto err_config_uninit;
 	}
 
+#if BITS_PER_LONG == 32
+	spin_lock_init(&bd->db_lock);
+#endif
+
+	bnge_rdma_aux_device_init(bd);
+
 	rc = bnge_alloc_irqs(bd);
 	if (rc) {
 		dev_err(&pdev->dev, "Error IRQ allocation rc = %d\n", rc);
-		goto err_config_uninit;
+		goto err_uninit_auxr;
 	}
 
 	rc = bnge_netdev_alloc(bd, max_irqs);
 	if (rc)
 		goto err_free_irq;
+
+	bnge_rdma_aux_device_add(bd);
 
 	pci_save_state(pdev);
 
@@ -312,6 +352,9 @@ static int bnge_probe_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 err_free_irq:
 	bnge_free_irqs(bd);
+
+err_uninit_auxr:
+	bnge_rdma_aux_device_uninit(bd);
 
 err_config_uninit:
 	bnge_net_uninit_dflt_config(bd);
@@ -338,9 +381,13 @@ static void bnge_remove_one(struct pci_dev *pdev)
 {
 	struct bnge_dev *bd = pci_get_drvdata(pdev);
 
+	bnge_rdma_aux_device_del(bd);
+
 	bnge_netdev_free(bd);
 
 	bnge_free_irqs(bd);
+
+	bnge_rdma_aux_device_uninit(bd);
 
 	bnge_net_uninit_dflt_config(bd);
 

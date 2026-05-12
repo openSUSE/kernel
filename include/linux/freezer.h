@@ -22,14 +22,18 @@ extern bool pm_nosig_freezing;		/* PM nosig freezing in effect */
 extern unsigned int freeze_timeout_msecs;
 
 /*
- * Check if a process has been frozen
+ * Check if a process has been frozen for PM or cgroup1 freezer. Note that
+ * cgroup2 freezer uses the job control mechanism and does not interact with
+ * the PM freezer.
  */
 extern bool frozen(struct task_struct *p);
 
 extern bool freezing_slow_path(struct task_struct *p);
 
 /*
- * Check if there is a request to freeze a process
+ * Check if there is a request to freeze a task from PM or cgroup1 freezer.
+ * Note that cgroup2 freezer uses the job control mechanism and does not
+ * interact with the PM freezer.
  */
 static inline bool freezing(struct task_struct *p)
 {
@@ -47,6 +51,7 @@ extern int freeze_processes(void);
 extern int freeze_kernel_threads(void);
 extern void thaw_processes(void);
 extern void thaw_kernel_threads(void);
+extern void thaw_process(struct task_struct *p);
 
 static inline bool try_to_freeze(void)
 {
@@ -62,9 +67,9 @@ extern bool freeze_task(struct task_struct *p);
 extern bool set_freezable(void);
 
 #ifdef CONFIG_CGROUP_FREEZER
-extern bool cgroup_freezing(struct task_struct *task);
+extern bool cgroup1_freezing(struct task_struct *task);
 #else /* !CONFIG_CGROUP_FREEZER */
-static inline bool cgroup_freezing(struct task_struct *task)
+static inline bool cgroup1_freezing(struct task_struct *task)
 {
 	return false;
 }
@@ -80,6 +85,7 @@ static inline int freeze_processes(void) { return -ENOSYS; }
 static inline int freeze_kernel_threads(void) { return -ENOSYS; }
 static inline void thaw_processes(void) {}
 static inline void thaw_kernel_threads(void) {}
+static inline void thaw_process(struct task_struct *p) {}
 
 static inline bool try_to_freeze(void) { return false; }
 

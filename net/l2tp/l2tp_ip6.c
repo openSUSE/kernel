@@ -280,7 +280,8 @@ static void l2tp_ip6_destroy_sock(struct sock *sk)
 	}
 }
 
-static int l2tp_ip6_bind(struct sock *sk, struct sockaddr *uaddr, int addr_len)
+static int l2tp_ip6_bind(struct sock *sk, struct sockaddr_unsized *uaddr,
+			 int addr_len)
 {
 	struct inet_sock *inet = inet_sk(sk);
 	struct ipv6_pinfo *np = inet6_sk(sk);
@@ -383,7 +384,7 @@ out_unlock:
 	return err;
 }
 
-static int l2tp_ip6_connect(struct sock *sk, struct sockaddr *uaddr,
+static int l2tp_ip6_connect(struct sock *sk, struct sockaddr_unsized *uaddr,
 			    int addr_len)
 {
 	struct sockaddr_l2tpip6 *lsa = (struct sockaddr_l2tpip6 *)uaddr;
@@ -678,7 +679,7 @@ do_confirm:
 }
 
 static int l2tp_ip6_recvmsg(struct sock *sk, struct msghdr *msg, size_t len,
-			    int flags, int *addr_len)
+			    int flags)
 {
 	struct ipv6_pinfo *np = inet6_sk(sk);
 	DECLARE_SOCKADDR(struct sockaddr_l2tpip6 *, lsa, msg->msg_name);
@@ -690,7 +691,7 @@ static int l2tp_ip6_recvmsg(struct sock *sk, struct msghdr *msg, size_t len,
 		goto out;
 
 	if (flags & MSG_ERRQUEUE)
-		return ipv6_recv_error(sk, msg, len, addr_len);
+		return ipv6_recv_error(sk, msg, len);
 
 	skb = skb_recv_datagram(sk, flags, &err);
 	if (!skb)
@@ -718,7 +719,7 @@ static int l2tp_ip6_recvmsg(struct sock *sk, struct msghdr *msg, size_t len,
 		lsa->l2tp_conn_id = 0;
 		if (ipv6_addr_type(&lsa->l2tp_addr) & IPV6_ADDR_LINKLOCAL)
 			lsa->l2tp_scope_id = inet6_iif(skb);
-		*addr_len = sizeof(*lsa);
+		msg->msg_namelen = sizeof(*lsa);
 	}
 
 	if (np->rxopt.all)

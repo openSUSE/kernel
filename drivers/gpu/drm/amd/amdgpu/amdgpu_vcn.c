@@ -34,6 +34,7 @@
 #include "amdgpu.h"
 #include "amdgpu_pm.h"
 #include "amdgpu_vcn.h"
+#include "amdgpu_reset.h"
 #include "soc15d.h"
 
 /* Firmware Names */
@@ -63,6 +64,8 @@
 #define FIRMWARE_VCN4_0_6_1		"amdgpu/vcn_4_0_6_1.bin"
 #define FIRMWARE_VCN5_0_0		"amdgpu/vcn_5_0_0.bin"
 #define FIRMWARE_VCN5_0_1		"amdgpu/vcn_5_0_1.bin"
+#define FIRMWARE_VCN5_0_2		"amdgpu/vcn_5_0_2.bin"
+#define FIRMWARE_VCN5_3_0		"amdgpu/vcn_5_3_0.bin"
 
 MODULE_FIRMWARE(FIRMWARE_RAVEN);
 MODULE_FIRMWARE(FIRMWARE_PICASSO);
@@ -90,6 +93,8 @@ MODULE_FIRMWARE(FIRMWARE_VCN4_0_6);
 MODULE_FIRMWARE(FIRMWARE_VCN4_0_6_1);
 MODULE_FIRMWARE(FIRMWARE_VCN5_0_0);
 MODULE_FIRMWARE(FIRMWARE_VCN5_0_1);
+MODULE_FIRMWARE(FIRMWARE_VCN5_0_2);
+MODULE_FIRMWARE(FIRMWARE_VCN5_3_0);
 
 static void amdgpu_vcn_idle_work_handler(struct work_struct *work);
 static void amdgpu_vcn_reg_dump_fini(struct amdgpu_device *adev);
@@ -257,12 +262,12 @@ int amdgpu_vcn_sw_init(struct amdgpu_device *adev, int i)
 	return 0;
 }
 
-int amdgpu_vcn_sw_fini(struct amdgpu_device *adev, int i)
+void amdgpu_vcn_sw_fini(struct amdgpu_device *adev, int i)
 {
 	int j;
 
 	if (adev->vcn.harvest_config & (1 << i))
-		return 0;
+		return;
 
 	amdgpu_bo_free_kernel(
 		&adev->vcn.inst[i].dpg_sram_bo,
@@ -292,8 +297,6 @@ int amdgpu_vcn_sw_fini(struct amdgpu_device *adev, int i)
 
 	mutex_destroy(&adev->vcn.inst[i].vcn_pg_lock);
 	mutex_destroy(&adev->vcn.inst[i].vcn1_jpeg1_workaround);
-
-	return 0;
 }
 
 bool amdgpu_vcn_is_disabled_vcn(struct amdgpu_device *adev, enum vcn_ring_type type, uint32_t vcn_instance)
@@ -359,7 +362,7 @@ int amdgpu_vcn_suspend(struct amdgpu_device *adev, int i)
 
 	/* err_event_athub and dpc recovery will corrupt VCPU buffer, so we need to
 	 * restore fw data and clear buffer in amdgpu_vcn_resume() */
-	if (in_ras_intr || adev->pcie_reset_ctx.in_link_reset)
+	if (in_ras_intr || amdgpu_reset_in_dpc(adev))
 		return 0;
 
 	return amdgpu_vcn_save_vcpu_bo_inst(adev, i);
@@ -1095,7 +1098,8 @@ int amdgpu_vcn_unified_ring_test_ib(struct amdgpu_ring *ring, long timeout)
 	long r;
 
 	if ((amdgpu_ip_version(adev, UVD_HWIP, 0) != IP_VERSION(4, 0, 3)) &&
-	    (amdgpu_ip_version(adev, UVD_HWIP, 0) != IP_VERSION(5, 0, 1))) {
+	    (amdgpu_ip_version(adev, UVD_HWIP, 0) != IP_VERSION(5, 0, 1)) &&
+	    (amdgpu_ip_version(adev, UVD_HWIP, 0) != IP_VERSION(5, 0, 2))) {
 		r = amdgpu_vcn_enc_ring_test_ib(ring, timeout);
 		if (r)
 			goto error;
@@ -1132,7 +1136,8 @@ void amdgpu_vcn_setup_ucode(struct amdgpu_device *adev, int i)
 			return;
 
 		if ((amdgpu_ip_version(adev, UVD_HWIP, 0) == IP_VERSION(4, 0, 3) ||
-		     amdgpu_ip_version(adev, UVD_HWIP, 0) == IP_VERSION(5, 0, 1))
+		     amdgpu_ip_version(adev, UVD_HWIP, 0) == IP_VERSION(5, 0, 1) ||
+		     amdgpu_ip_version(adev, UVD_HWIP, 0) == IP_VERSION(5, 0, 2))
 		    && (i > 0))
 			return;
 
@@ -1159,7 +1164,7 @@ static ssize_t amdgpu_debugfs_vcn_fwlog_read(struct file *f, char __user *buf,
 {
 	struct amdgpu_vcn_inst *vcn;
 	void *log_buf;
-	volatile struct amdgpu_vcn_fwlog *plog;
+	struct amdgpu_vcn_fwlog *plog;
 	unsigned int read_pos, write_pos, available, i, read_bytes = 0;
 	unsigned int read_num[2] = {0};
 
@@ -1172,7 +1177,7 @@ static ssize_t amdgpu_debugfs_vcn_fwlog_read(struct file *f, char __user *buf,
 
 	log_buf = vcn->fw_shared.cpu_addr + vcn->fw_shared.mem_size;
 
-	plog = (volatile struct amdgpu_vcn_fwlog *)log_buf;
+	plog = (struct amdgpu_vcn_fwlog *)log_buf;
 	read_pos = plog->rptr;
 	write_pos = plog->wptr;
 
@@ -1239,11 +1244,11 @@ void amdgpu_debugfs_vcn_fwlog_init(struct amdgpu_device *adev, uint8_t i,
 void amdgpu_vcn_fwlog_init(struct amdgpu_vcn_inst *vcn)
 {
 #if defined(CONFIG_DEBUG_FS)
-	volatile uint32_t *flag = vcn->fw_shared.cpu_addr;
+	uint32_t *flag = vcn->fw_shared.cpu_addr;
 	void *fw_log_cpu_addr = vcn->fw_shared.cpu_addr + vcn->fw_shared.mem_size;
 	uint64_t fw_log_gpu_addr = vcn->fw_shared.gpu_addr + vcn->fw_shared.mem_size;
-	volatile struct amdgpu_vcn_fwlog *log_buf = fw_log_cpu_addr;
-	volatile struct amdgpu_fw_shared_fw_logging *fw_log = vcn->fw_shared.cpu_addr
+	struct amdgpu_vcn_fwlog *log_buf = fw_log_cpu_addr;
+	struct amdgpu_fw_shared_fw_logging *fw_log = vcn->fw_shared.cpu_addr
 							 + vcn->fw_shared.log_offset;
 	*flag |= cpu_to_le32(AMDGPU_VCN_FW_LOGGING_FLAG);
 	fw_log->is_enabled = 1;

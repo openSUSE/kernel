@@ -89,21 +89,21 @@ static int txgbe_enumerate_functions(struct wx *wx)
 	return physfns;
 }
 
-static void txgbe_sfp_detection_subtask(struct wx *wx)
+static void txgbe_module_detection_subtask(struct wx *wx)
 {
 	int err;
 
-	if (!test_bit(WX_FLAG_NEED_SFP_RESET, wx->flags))
+	if (!test_bit(WX_FLAG_NEED_MODULE_RESET, wx->flags))
 		return;
 
-	/* wait for SFP module ready */
+	/* wait for SFF module ready */
 	msleep(200);
 
-	err = txgbe_identify_sfp(wx);
+	err = txgbe_identify_module(wx);
 	if (err)
 		return;
 
-	clear_bit(WX_FLAG_NEED_SFP_RESET, wx->flags);
+	clear_bit(WX_FLAG_NEED_MODULE_RESET, wx->flags);
 }
 
 static void txgbe_link_config_subtask(struct wx *wx)
@@ -128,8 +128,9 @@ static void txgbe_service_task(struct work_struct *work)
 {
 	struct wx *wx = container_of(work, struct wx, service_task);
 
-	txgbe_sfp_detection_subtask(wx);
+	txgbe_module_detection_subtask(wx);
 	txgbe_link_config_subtask(wx);
+	wx_update_stats(wx);
 
 	wx_service_event_complete(wx);
 }
@@ -144,7 +145,6 @@ static void txgbe_init_service(struct wx *wx)
 static void txgbe_up_complete(struct wx *wx)
 {
 	struct net_device *netdev = wx->netdev;
-	u32 reg;
 
 	wx_control_hw(wx, true);
 	wx_configure_vectors(wx);
@@ -155,12 +155,8 @@ static void txgbe_up_complete(struct wx *wx)
 
 	switch (wx->mac.type) {
 	case wx_mac_aml40:
-		reg = rd32(wx, TXGBE_AML_MAC_TX_CFG);
-		reg &= ~TXGBE_AML_MAC_TX_CFG_SPEED_MASK;
-		reg |= TXGBE_AML_MAC_TX_CFG_SPEED_40G;
-		wr32(wx, WX_MAC_TX_CFG, reg);
-		txgbe_enable_sec_tx_path(wx);
-		netif_carrier_on(wx->netdev);
+		txgbe_setup_link(wx);
+		phylink_start(wx->phylink);
 		break;
 	case wx_mac_aml:
 		/* Enable TX laser */
@@ -276,7 +272,7 @@ void txgbe_down(struct wx *wx)
 
 	switch (wx->mac.type) {
 	case wx_mac_aml40:
-		netif_carrier_off(wx->netdev);
+		phylink_stop(wx->phylink);
 		break;
 	case wx_mac_aml:
 		phylink_stop(wx->phylink);
@@ -398,9 +394,11 @@ static int txgbe_sw_init(struct wx *wx)
 	wx->configure_fdir = txgbe_configure_fdir;
 
 	set_bit(WX_FLAG_RSC_CAPABLE, wx->flags);
+	set_bit(WX_FLAG_RSC_ENABLED, wx->flags);
 	set_bit(WX_FLAG_MULTI_64_FUNC, wx->flags);
 
 	/* enable itr by default in dynamic mode */
+	wx->adaptive_itr = true;
 	wx->rx_itr_setting = 1;
 	wx->tx_itr_setting = 1;
 
@@ -422,6 +420,8 @@ static int txgbe_sw_init(struct wx *wx)
 		break;
 	case wx_mac_aml:
 	case wx_mac_aml40:
+		set_bit(WX_FLAG_RX_MERGE_ENABLED, wx->flags);
+		set_bit(WX_FLAG_TXHEAD_WB_ENABLED, wx->flags);
 		set_bit(WX_FLAG_SWFW_RING, wx->flags);
 		wx->swfw_index = 0;
 		break;
@@ -599,20 +599,16 @@ int txgbe_setup_tc(struct net_device *dev, u8 tc)
 
 static void txgbe_reinit_locked(struct wx *wx)
 {
-	int err = 0;
-
 	netif_trans_update(wx->netdev);
 
-	err = wx_set_state_reset(wx);
-	if (err) {
-		wx_err(wx, "wait device reset timeout\n");
-		return;
-	}
+	mutex_lock(&wx->reset_lock);
+	set_bit(WX_STATE_RESETTING, wx->state);
 
 	txgbe_down(wx);
 	txgbe_up(wx);
 
 	clear_bit(WX_STATE_RESETTING, wx->state);
+	mutex_unlock(&wx->reset_lock);
 }
 
 void txgbe_do_reset(struct net_device *netdev)
@@ -800,6 +796,8 @@ static int txgbe_probe(struct pci_dev *pdev,
 	netdev->features |= NETIF_F_HIGHDMA;
 	netdev->hw_features |= NETIF_F_GRO;
 	netdev->features |= NETIF_F_GRO;
+	netdev->hw_features |= NETIF_F_LRO;
+	netdev->features |= NETIF_F_LRO;
 	netdev->features |= NETIF_F_RX_UDP_TUNNEL_PORT;
 
 	netdev->priv_flags |= IFF_UNICAST_FLT;
@@ -866,7 +864,8 @@ static int txgbe_probe(struct pci_dev *pdev,
 			 "0x%08x", etrack_id);
 	}
 
-	if (etrack_id < 0x20010)
+	if (wx->mac.type == wx_mac_sp &&
+	    ((etrack_id & 0xfffff) < 0x20010))
 		dev_warn(&pdev->dev, "Please upgrade the firmware to 0x20010 or above.\n");
 
 	err = txgbe_test_hostif(wx);
@@ -949,11 +948,12 @@ static void txgbe_remove(struct pci_dev *pdev)
 	struct txgbe *txgbe = wx->priv;
 	struct net_device *netdev;
 
-	cancel_work_sync(&wx->service_task);
-
 	netdev = wx->netdev;
 	wx_disable_sriov(wx);
 	unregister_netdev(netdev);
+
+	timer_shutdown_sync(&wx->service_timer);
+	cancel_work_sync(&wx->service_task);
 
 	txgbe_remove_phy(txgbe);
 	wx_free_isb_resources(wx);

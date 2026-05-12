@@ -209,6 +209,7 @@ struct nfs4_sequence_args {
 };
 
 struct nfs4_sequence_res {
+	const struct nfs4_sequence_slot_ops *sr_slot_ops;
 	struct nfs4_slot	*sr_slot;	/* slot used to send request */
 	unsigned long		sr_timestamp;
 	int			sr_status;	/* sequence operation status */
@@ -862,7 +863,7 @@ struct nfs_getaclres {
 	size_t				acl_len;
 	size_t				acl_data_offset;
 	int				acl_flags;
-	struct page *			acl_scratch;
+	struct folio *			acl_scratch;
 };
 
 struct nfs_setattrres {
@@ -1092,12 +1093,19 @@ struct nfs4_getattr_arg {
 	struct nfs4_sequence_args	seq_args;
 	const struct nfs_fh *		fh;
 	const u32 *			bitmask;
+	bool				get_dir_deleg;
+};
+
+struct nfs4_gdd_res {
+	u32				status;
+	nfs4_stateid			deleg;
 };
 
 struct nfs4_getattr_res {
 	struct nfs4_sequence_res	seq_res;
 	const struct nfs_server *	server;
 	struct nfs_fattr *		fattr;
+	struct nfs4_gdd_res *		gdd_res;
 };
 
 struct nfs4_link_arg {
@@ -1316,10 +1324,6 @@ struct nfs4_fsid_present_res {
 	unsigned char			renew:1;
 };
 
-#endif /* CONFIG_NFS_V4 */
-
-#ifdef CONFIG_NFS_V4_1
-
 struct pnfs_commit_bucket {
 	struct list_head written;
 	struct list_head committing;
@@ -1459,7 +1463,7 @@ struct nfs41_free_stateid_res {
 struct pnfs_ds_commit_info {
 };
 
-#endif /* CONFIG_NFS_V4_1 */
+#endif /* CONFIG_NFS_V4 */
 
 #ifdef CONFIG_NFS_V4_2
 struct nfs42_falloc_args {
@@ -1596,7 +1600,7 @@ struct nfs42_listxattrsargs {
 
 struct nfs42_listxattrsres {
 	struct nfs4_sequence_res	seq_res;
-	struct page			*scratch;
+	struct folio			*scratch;
 	void				*xattr_buf;
 	size_t				xattr_len;
 	u64				cookie;
@@ -1607,12 +1611,15 @@ struct nfs42_listxattrsres {
 struct nfs42_removexattrargs {
 	struct nfs4_sequence_args	seq_args;
 	struct nfs_fh			*fh;
+	const u32			*bitmask;
 	const char			*xattr_name;
 };
 
 struct nfs42_removexattrres {
 	struct nfs4_sequence_res	seq_res;
 	struct nfs4_change_info		cinfo;
+	struct nfs_fattr		*fattr;
+	const struct nfs_server		*server;
 };
 
 #endif /* CONFIG_NFS_V4_2 */
@@ -1659,6 +1666,7 @@ struct nfs_pgio_header {
 	void			*netfs;
 #endif
 
+	unsigned short		retrans;
 	int			pnfs_error;
 	int			error;		/* merge with pnfs_error */
 	unsigned int		good_bytes;	/* boundary of good data */
@@ -1800,7 +1808,8 @@ struct nfs_rpc_ops {
 	int	(*unlink_done) (struct rpc_task *, struct inode *);
 	void	(*rename_setup)  (struct rpc_message *msg,
 			struct dentry *old_dentry,
-			struct dentry *new_dentry);
+			struct dentry *new_dentry,
+			struct inode *same_parent);
 	void	(*rename_rpc_prepare)(struct rpc_task *task, struct nfs_renamedata *);
 	int	(*rename_done) (struct rpc_task *task, struct inode *old_dir, struct inode *new_dir);
 	int	(*link)    (struct inode *, struct inode *, const struct qstr *);
@@ -1840,7 +1849,7 @@ struct nfs_rpc_ops {
 				struct iattr *iattr,
 				int *);
 	int (*have_delegation)(struct inode *, fmode_t, int);
-	int (*return_delegation)(struct inode *);
+	void (*return_delegation)(struct inode *);
 	struct nfs_client *(*alloc_client) (const struct nfs_client_initdata *);
 	struct nfs_client *(*init_client) (struct nfs_client *,
 				const struct nfs_client_initdata *);

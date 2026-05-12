@@ -25,18 +25,6 @@
 
 #include "amdgpu_smu.h"
 
-#define SMU11_DRIVER_IF_VERSION_INV 0xFFFFFFFF
-#define SMU11_DRIVER_IF_VERSION_ARCT 0x17
-#define SMU11_DRIVER_IF_VERSION_NV10 0x37
-#define SMU11_DRIVER_IF_VERSION_NV12 0x38
-#define SMU11_DRIVER_IF_VERSION_NV14 0x38
-#define SMU11_DRIVER_IF_VERSION_Sienna_Cichlid 0x40
-#define SMU11_DRIVER_IF_VERSION_Navy_Flounder 0xE
-#define SMU11_DRIVER_IF_VERSION_VANGOGH 0x03
-#define SMU11_DRIVER_IF_VERSION_Dimgrey_Cavefish 0xF
-#define SMU11_DRIVER_IF_VERSION_Beige_Goby 0xD
-#define SMU11_DRIVER_IF_VERSION_Cyan_Skillfish 0x8
-
 /* MP Apertures */
 #define MP0_Public			0x03800000
 #define MP0_SRAM			0x03900000
@@ -53,7 +41,6 @@
 
 #define SMU11_TOOL_SIZE			0x19000
 
-#define MAX_DPM_LEVELS 16
 #define MAX_PCIE_CONF 2
 
 #define CTF_OFFSET_EDGE			5
@@ -80,39 +67,21 @@ struct smu_11_0_max_sustainable_clocks {
 	uint32_t soc_clock;
 };
 
-struct smu_11_0_dpm_clk_level {
-	bool				enabled;
-	uint32_t			value;
-};
-
-struct smu_11_0_dpm_table {
-	uint32_t			min;        /* MHz */
-	uint32_t			max;        /* MHz */
-	uint32_t			count;
-	bool				is_fine_grained;
-	struct smu_11_0_dpm_clk_level	dpm_levels[MAX_DPM_LEVELS];
-};
-
-struct smu_11_0_pcie_table {
-	uint8_t  pcie_gen[MAX_PCIE_CONF];
-	uint8_t  pcie_lane[MAX_PCIE_CONF];
-};
-
 struct smu_11_0_dpm_tables {
-	struct smu_11_0_dpm_table        soc_table;
-	struct smu_11_0_dpm_table        gfx_table;
-	struct smu_11_0_dpm_table        uclk_table;
-	struct smu_11_0_dpm_table        eclk_table;
-	struct smu_11_0_dpm_table        vclk_table;
-	struct smu_11_0_dpm_table        vclk1_table;
-	struct smu_11_0_dpm_table        dclk_table;
-	struct smu_11_0_dpm_table        dclk1_table;
-	struct smu_11_0_dpm_table        dcef_table;
-	struct smu_11_0_dpm_table        pixel_table;
-	struct smu_11_0_dpm_table        display_table;
-	struct smu_11_0_dpm_table        phy_table;
-	struct smu_11_0_dpm_table        fclk_table;
-	struct smu_11_0_pcie_table       pcie_table;
+	struct smu_dpm_table             soc_table;
+	struct smu_dpm_table             gfx_table;
+	struct smu_dpm_table             uclk_table;
+	struct smu_dpm_table             eclk_table;
+	struct smu_dpm_table             vclk_table;
+	struct smu_dpm_table             vclk1_table;
+	struct smu_dpm_table             dclk_table;
+	struct smu_dpm_table             dclk1_table;
+	struct smu_dpm_table             dcef_table;
+	struct smu_dpm_table             pixel_table;
+	struct smu_dpm_table             display_table;
+	struct smu_dpm_table             phy_table;
+	struct smu_dpm_table             fclk_table;
+	struct smu_pcie_table            pcie_table;
 };
 
 struct smu_11_0_dpm_context {
@@ -166,8 +135,6 @@ int smu_v11_0_check_fw_status(struct smu_context *smu);
 int smu_v11_0_setup_pptable(struct smu_context *smu);
 
 int smu_v11_0_get_vbios_bootup_values(struct smu_context *smu);
-
-int smu_v11_0_check_fw_version(struct smu_context *smu);
 
 int smu_v11_0_set_driver_table_location(struct smu_context *smu);
 
@@ -279,7 +246,7 @@ int smu_v11_0_get_dpm_level_count(struct smu_context *smu,
 
 int smu_v11_0_set_single_dpm_table(struct smu_context *smu,
 				   enum smu_clk_type clk_type,
-				   struct smu_11_0_dpm_table *single_dpm_table);
+				   struct smu_dpm_table *single_dpm_table);
 
 int smu_v11_0_get_current_pcie_link_width_level(struct smu_context *smu);
 
@@ -301,7 +268,8 @@ int smu_v11_0_handle_passthrough_sbr(struct smu_context *smu, bool enable);
 
 int smu_v11_0_restore_user_od_settings(struct smu_context *smu);
 
-void smu_v11_0_set_smu_mailbox_registers(struct smu_context *smu);
+void smu_v11_0_init_msg_ctl(struct smu_context *smu,
+			    const struct cmn2asic_msg_mapping *message_map);
 
 #endif
 #endif

@@ -56,6 +56,7 @@ void blk_set_stacking_limits(struct queue_limits *lim)
 	lim->max_user_wzeroes_unmap_sectors = UINT_MAX;
 	lim->max_hw_zone_append_sectors = UINT_MAX;
 	lim->max_user_discard_sectors = UINT_MAX;
+	lim->atomic_write_hw_max = UINT_MAX;
 }
 EXPORT_SYMBOL(blk_set_stacking_limits);
 
@@ -147,10 +148,9 @@ static int blk_validate_integrity_limits(struct queue_limits *lim)
 		return -EINVAL;
 	}
 
-	if (bi->pi_tuple_size > bi->metadata_size) {
-		pr_warn("pi_tuple_size (%u) exceeds metadata_size (%u)\n",
-			 bi->pi_tuple_size,
-			 bi->metadata_size);
+	if (bi->pi_offset + bi->pi_tuple_size > bi->metadata_size) {
+		pr_warn("pi_offset (%u) + pi_tuple_size (%u) exceeds metadata_size (%u)\n",
+			bi->pi_offset, bi->pi_tuple_size, bi->metadata_size);
 		return -EINVAL;
 	}
 
@@ -180,8 +180,31 @@ static int blk_validate_integrity_limits(struct queue_limits *lim)
 		break;
 	}
 
-	if (!bi->interval_exp)
+	if (!bi->interval_exp) {
 		bi->interval_exp = ilog2(lim->logical_block_size);
+	} else if (bi->interval_exp < SECTOR_SHIFT ||
+		   bi->interval_exp > ilog2(lim->logical_block_size)) {
+		pr_warn("invalid interval_exp %u\n", bi->interval_exp);
+		return -EINVAL;
+	}
+
+	/*
+	 * Some IO controllers can not handle data intervals straddling
+	 * multiple bio_vecs.  For those, enforce alignment so that those are
+	 * never generated, and that each buffer is aligned as expected.
+	 */
+	if (!(bi->flags & BLK_SPLIT_INTERVAL_CAPABLE) && bi->csum_type) {
+		lim->dma_alignment = max(lim->dma_alignment,
+					(1U << bi->interval_exp) - 1);
+	}
+
+	/*
+	 * The block layer automatically adds integrity data for bios that don't
+	 * already have it.  Limit the I/O size so that a single maximum size
+	 * metadata segment can cover the integrity data for the entire I/O.
+	 */
+	lim->max_sectors = min(lim->max_sectors,
+		max_integrity_io_size(lim) >> SECTOR_SHIFT);
 
 	return 0;
 }
@@ -223,6 +246,27 @@ static void blk_atomic_writes_update_limits(struct queue_limits *lim)
 		lim->atomic_write_hw_boundary >> SECTOR_SHIFT;
 }
 
+/*
+ * Test whether any boundary is aligned with any chunk size. Stacked
+ * devices store any stripe size in t->chunk_sectors.
+ */
+static bool blk_valid_atomic_writes_boundary(unsigned int chunk_sectors,
+					unsigned int boundary_sectors)
+{
+	if (!chunk_sectors || !boundary_sectors)
+		return true;
+
+	if (boundary_sectors > chunk_sectors &&
+	    boundary_sectors % chunk_sectors)
+		return false;
+
+	if (chunk_sectors > boundary_sectors &&
+	    chunk_sectors % boundary_sectors)
+		return false;
+
+	return true;
+}
+
 static void blk_validate_atomic_write_limits(struct queue_limits *lim)
 {
 	unsigned int boundary_sectors;
@@ -230,6 +274,10 @@ static void blk_validate_atomic_write_limits(struct queue_limits *lim)
 			lim->atomic_write_hw_max >> SECTOR_SHIFT;
 
 	if (!(lim->features & BLK_FEAT_ATOMIC_WRITES))
+		goto unsupported;
+
+	/* UINT_MAX indicates stacked limits in initial state */
+	if (lim->atomic_write_hw_max == UINT_MAX)
 		goto unsupported;
 
 	if (!lim->atomic_write_hw_max)
@@ -259,20 +307,9 @@ static void blk_validate_atomic_write_limits(struct queue_limits *lim)
 		if (WARN_ON_ONCE(lim->atomic_write_hw_max >
 				 lim->atomic_write_hw_boundary))
 			goto unsupported;
-		/*
-		 * A feature of boundary support is that it disallows bios to
-		 * be merged which would result in a merged request which
-		 * crosses either a chunk sector or atomic write HW boundary,
-		 * even though chunk sectors may be just set for performance.
-		 * For simplicity, disallow atomic writes for a chunk sector
-		 * which is non-zero and smaller than atomic write HW boundary.
-		 * Furthermore, chunk sectors must be a multiple of atomic
-		 * write HW boundary. Otherwise boundary support becomes
-		 * complicated.
-		 * Devices which do not conform to these rules can be dealt
-		 * with if and when they show up.
-		 */
-		if (WARN_ON_ONCE(lim->chunk_sectors % boundary_sectors))
+
+		if (WARN_ON_ONCE(!blk_valid_atomic_writes_boundary(
+			lim->chunk_sectors, boundary_sectors)))
 			goto unsupported;
 
 		/*
@@ -442,12 +479,12 @@ int blk_validate_limits(struct queue_limits *lim)
 			return -EINVAL;
 	}
 
-	/* setup min segment size for building new segment in fast path */
+	/* setup max segment size for building new segment in fast path */
 	if (lim->seg_boundary_mask > lim->max_segment_size - 1)
 		seg_size = lim->max_segment_size;
 	else
 		seg_size = lim->seg_boundary_mask + 1;
-	lim->min_segment_size = min_t(unsigned int, seg_size, PAGE_SIZE);
+	lim->max_fast_segment_size = min_t(unsigned int, seg_size, PAGE_SIZE);
 
 	/*
 	 * We require drivers to at least do logical block aligned I/O, but
@@ -509,6 +546,8 @@ int queue_limits_commit_update(struct request_queue *q,
 		struct queue_limits *lim)
 {
 	int error;
+
+	lockdep_assert_held(&q->limits_lock);
 
 	error = blk_validate_limits(lim);
 	if (error)
@@ -639,25 +678,6 @@ static bool blk_stack_atomic_writes_tail(struct queue_limits *t,
 	return true;
 }
 
-/* Check for valid boundary of first bottom device */
-static bool blk_stack_atomic_writes_boundary_head(struct queue_limits *t,
-				struct queue_limits *b)
-{
-	/*
-	 * Ensure atomic write boundary is aligned with chunk sectors. Stacked
-	 * devices store chunk sectors in t->io_min.
-	 */
-	if (b->atomic_write_hw_boundary > t->io_min &&
-	    b->atomic_write_hw_boundary % t->io_min)
-		return false;
-	if (t->io_min > b->atomic_write_hw_boundary &&
-	    t->io_min % b->atomic_write_hw_boundary)
-		return false;
-
-	t->atomic_write_hw_boundary = b->atomic_write_hw_boundary;
-	return true;
-}
-
 static void blk_stack_atomic_writes_chunk_sectors(struct queue_limits *t)
 {
 	unsigned int chunk_bytes;
@@ -695,13 +715,14 @@ static void blk_stack_atomic_writes_chunk_sectors(struct queue_limits *t)
 static bool blk_stack_atomic_writes_head(struct queue_limits *t,
 				struct queue_limits *b)
 {
-	if (b->atomic_write_hw_boundary &&
-	    !blk_stack_atomic_writes_boundary_head(t, b))
+	if (!blk_valid_atomic_writes_boundary(t->chunk_sectors,
+			b->atomic_write_hw_boundary >> SECTOR_SHIFT))
 		return false;
 
 	t->atomic_write_hw_unit_max = b->atomic_write_hw_unit_max;
 	t->atomic_write_hw_unit_min = b->atomic_write_hw_unit_min;
 	t->atomic_write_hw_max = b->atomic_write_hw_max;
+	t->atomic_write_hw_boundary = b->atomic_write_hw_boundary;
 	return true;
 }
 
@@ -717,18 +738,14 @@ static void blk_stack_atomic_writes_limits(struct queue_limits *t,
 	if (!blk_atomic_write_start_sect_aligned(start, b))
 		goto unsupported;
 
-	/*
-	 * If atomic_write_hw_max is set, we have already stacked 1x bottom
-	 * device, so check for compliance.
-	 */
-	if (t->atomic_write_hw_max) {
+	/* UINT_MAX indicates no stacking of bottom devices yet */
+	if (t->atomic_write_hw_max == UINT_MAX) {
+		if (!blk_stack_atomic_writes_head(t, b))
+			goto unsupported;
+	} else {
 		if (!blk_stack_atomic_writes_tail(t, b))
 			goto unsupported;
-		return;
 	}
-
-	if (!blk_stack_atomic_writes_head(t, b))
-		goto unsupported;
 	blk_stack_atomic_writes_chunk_sectors(t);
 	return;
 
@@ -763,7 +780,8 @@ unsupported:
 int blk_stack_limits(struct queue_limits *t, struct queue_limits *b,
 		     sector_t start)
 {
-	unsigned int top, bottom, alignment, ret = 0;
+	unsigned int top, bottom, alignment;
+	int ret = 0;
 
 	t->features |= (b->features & BLK_FEAT_INHERIT_MASK);
 
@@ -974,10 +992,14 @@ bool queue_limits_stack_integrity(struct queue_limits *t,
 		if ((ti->flags & BLK_INTEGRITY_REF_TAG) !=
 		    (bi->flags & BLK_INTEGRITY_REF_TAG))
 			goto incompatible;
+		if ((ti->flags & BLK_SPLIT_INTERVAL_CAPABLE) &&
+		    !(bi->flags & BLK_SPLIT_INTERVAL_CAPABLE))
+			ti->flags &= ~BLK_SPLIT_INTERVAL_CAPABLE;
 	} else {
 		ti->flags = BLK_INTEGRITY_STACKED;
 		ti->flags |= (bi->flags & BLK_INTEGRITY_DEVICE_CAPABLE) |
-			     (bi->flags & BLK_INTEGRITY_REF_TAG);
+			     (bi->flags & BLK_INTEGRITY_REF_TAG) |
+			     (bi->flags & BLK_SPLIT_INTERVAL_CAPABLE);
 		ti->csum_type = bi->csum_type;
 		ti->pi_tuple_size = bi->pi_tuple_size;
 		ti->metadata_size = bi->metadata_size;

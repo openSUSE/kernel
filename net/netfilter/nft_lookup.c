@@ -125,8 +125,8 @@ static const struct nla_policy nft_lookup_policy[NFTA_LOOKUP_MAX + 1] = {
 	[NFTA_LOOKUP_SET]	= { .type = NLA_STRING,
 				    .len = NFT_SET_MAXNAMELEN - 1 },
 	[NFTA_LOOKUP_SET_ID]	= { .type = NLA_U32 },
-	[NFTA_LOOKUP_SREG]	= { .type = NLA_U32 },
-	[NFTA_LOOKUP_DREG]	= { .type = NLA_U32 },
+	[NFTA_LOOKUP_SREG]	= NLA_POLICY_MAX(NLA_BE32, NFT_REG32_MAX),
+	[NFTA_LOOKUP_DREG]	= NLA_POLICY_MAX(NLA_BE32, NFT_REG32_MAX),
 	[NFTA_LOOKUP_FLAGS]	=
 		NLA_POLICY_MASK(NLA_BE32, NFT_LOOKUP_F_INV),
 };
@@ -246,18 +246,15 @@ static int nft_lookup_validate(const struct nft_ctx *ctx,
 			       const struct nft_expr *expr)
 {
 	const struct nft_lookup *priv = nft_expr_priv(expr);
-	struct nft_set_iter iter;
+	struct nft_set_iter iter = {
+		.genmask	= nft_genmask_next(ctx->net),
+		.type		= NFT_ITER_UPDATE,
+		.fn		= nft_setelem_validate,
+	};
 
 	if (!(priv->set->flags & NFT_SET_MAP) ||
 	    priv->set->dtype != NFT_DATA_VERDICT)
 		return 0;
-
-	iter.genmask	= nft_genmask_next(ctx->net);
-	iter.type	= NFT_ITER_UPDATE;
-	iter.skip	= 0;
-	iter.count	= 0;
-	iter.err	= 0;
-	iter.fn		= nft_setelem_validate;
 
 	priv->set->ops->walk(ctx, priv->set, &iter);
 	if (!iter.err)
@@ -267,17 +264,6 @@ static int nft_lookup_validate(const struct nft_ctx *ctx,
 		return iter.err;
 
 	return 0;
-}
-
-static bool nft_lookup_reduce(struct nft_regs_track *track,
-			      const struct nft_expr *expr)
-{
-	const struct nft_lookup *priv = nft_expr_priv(expr);
-
-	if (priv->set->flags & NFT_SET_MAP)
-		nft_reg_track_cancel(track, priv->dreg, priv->set->dlen);
-
-	return false;
 }
 
 static const struct nft_expr_ops nft_lookup_ops = {
@@ -290,7 +276,6 @@ static const struct nft_expr_ops nft_lookup_ops = {
 	.destroy	= nft_lookup_destroy,
 	.dump		= nft_lookup_dump,
 	.validate	= nft_lookup_validate,
-	.reduce		= nft_lookup_reduce,
 };
 
 struct nft_expr_type nft_lookup_type __read_mostly = {

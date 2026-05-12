@@ -8,9 +8,8 @@
 #ifdef CONFIG_KVM_INTEL_TDX
 #include "common.h"
 
-void tdx_hardware_setup(void);
-int tdx_bringup(void);
-void tdx_cleanup(void);
+int tdx_hardware_setup(void);
+void tdx_hardware_unsetup(void);
 
 extern bool enable_tdx;
 
@@ -36,8 +35,12 @@ struct kvm_tdx {
 
 	struct tdx_td td;
 
-	/* For KVM_TDX_INIT_MEM_REGION. */
-	atomic64_t nr_premapped;
+	/*
+	 * Scratch pointer used to pass the source page to tdx_mem_page_add().
+	 * Protected by slots_lock, and non-NULL only when mapping a private
+	 * pfn via tdx_gmem_post_populate().
+	 */
+	struct page *page_add_src;
 
 	/*
 	 * Prevent vCPUs from TD entry to ensure SEPT zap related SEAMCALLs do
@@ -67,7 +70,6 @@ struct vcpu_tdx {
 	u64 vp_enter_ret;
 
 	enum vcpu_tdx_state state;
-	bool guest_entered;
 
 	u64 map_gpa_next;
 	u64 map_gpa_end;
@@ -184,9 +186,6 @@ TDX_BUILD_TDVPS_ACCESSORS(8, MANAGEMENT, management);
 TDX_BUILD_TDVPS_ACCESSORS(64, STATE_NON_ARCH, state_non_arch);
 
 #else
-static inline int tdx_bringup(void) { return 0; }
-static inline void tdx_cleanup(void) {}
-
 #define enable_tdx	0
 
 struct kvm_tdx {

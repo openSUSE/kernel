@@ -549,7 +549,8 @@ static bool __ptrace_detach(struct task_struct *tracer, struct task_struct *p)
 	if (!dead && thread_group_empty(p)) {
 		if (!same_thread_group(p->real_parent, tracer))
 			dead = do_notify_parent(p, p->exit_signal);
-		else if (ignoring_children(tracer->sighand)) {
+		else if (ignoring_children(tracer->sighand) ||
+			 p->signal->autoreap) {
 			__wake_up_parent(p, tracer);
 			dead = true;
 		}
@@ -793,9 +794,9 @@ static long ptrace_get_rseq_configuration(struct task_struct *task,
 					  unsigned long size, void __user *data)
 {
 	struct ptrace_rseq_configuration conf = {
-		.rseq_abi_pointer = (u64)(uintptr_t)task->rseq,
-		.rseq_abi_size = task->rseq_len,
-		.signature = task->rseq_sig,
+		.rseq_abi_pointer = (u64)(uintptr_t)task->rseq.usrptr,
+		.rseq_abi_size = task->rseq.len,
+		.signature = task->rseq.sig,
 		.flags = 0,
 	};
 

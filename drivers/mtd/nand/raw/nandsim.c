@@ -552,9 +552,8 @@ static int __init ns_alloc_device(struct nandsim *ns)
 			err = -EINVAL;
 			goto err_close_filp;
 		}
-		ns->pages_written =
-			vzalloc(array_size(sizeof(unsigned long),
-					   BITS_TO_LONGS(ns->geom.pgnum)));
+		ns->pages_written = vcalloc(BITS_TO_LONGS(ns->geom.pgnum),
+					    sizeof(unsigned long));
 		if (!ns->pages_written) {
 			NS_ERR("alloc_device: unable to allocate pages written array\n");
 			err = -ENOMEM;
@@ -578,7 +577,7 @@ err_close_filp:
 		return err;
 	}
 
-	ns->pages = vmalloc(array_size(sizeof(union ns_mem), ns->geom.pgnum));
+	ns->pages = vmalloc_array(ns->geom.pgnum, sizeof(union ns_mem));
 	if (!ns->pages) {
 		NS_ERR("alloc_device: unable to allocate page array\n");
 		return -ENOMEM;
@@ -852,7 +851,7 @@ static int ns_parse_weakblocks(void)
 		}
 		if (*w == ',')
 			w += 1;
-		wb = kzalloc(sizeof(*wb), GFP_KERNEL);
+		wb = kzalloc_obj(*wb);
 		if (!wb) {
 			NS_ERR("unable to allocate memory.\n");
 			return -ENOMEM;
@@ -903,7 +902,7 @@ static int ns_parse_weakpages(void)
 		}
 		if (*w == ',')
 			w += 1;
-		wp = kzalloc(sizeof(*wp), GFP_KERNEL);
+		wp = kzalloc_obj(*wp);
 		if (!wp) {
 			NS_ERR("unable to allocate memory.\n");
 			return -ENOMEM;
@@ -954,7 +953,7 @@ static int ns_parse_gravepages(void)
 		}
 		if (*g == ',')
 			g += 1;
-		gp = kzalloc(sizeof(*gp), GFP_KERNEL);
+		gp = kzalloc_obj(*gp);
 		if (!gp) {
 			NS_ERR("unable to allocate memory.\n");
 			return -ENOMEM;
@@ -2269,7 +2268,7 @@ static int __init ns_init_module(void)
 		return -EINVAL;
 	}
 
-	ns = kzalloc(sizeof(struct nandsim), GFP_KERNEL);
+	ns = kzalloc_obj(struct nandsim);
 	if (!ns) {
 		NS_ERR("unable to allocate core structures.\n");
 		return -ENOMEM;

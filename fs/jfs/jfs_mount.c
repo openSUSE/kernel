@@ -325,13 +325,13 @@ static int chkSuper(struct super_block *sb)
 	if ((j_sb->s_flag & cpu_to_le32(JFS_BAD_SAIT)) !=
 	    cpu_to_le32(JFS_BAD_SAIT)) {
 		expected_AIM_bytesize = 2 * PSIZE;
-		AIM_bytesize = lengthPXD(&(j_sb->s_aim2)) * bsize;
+		AIM_bytesize = lengthPXD(&j_sb->s_aim2) * bsize;
 		expected_AIT_bytesize = 4 * PSIZE;
-		AIT_bytesize = lengthPXD(&(j_sb->s_ait2)) * bsize;
-		AIM_byte_addr = addressPXD(&(j_sb->s_aim2)) * bsize;
-		AIT_byte_addr = addressPXD(&(j_sb->s_ait2)) * bsize;
+		AIT_bytesize = lengthPXD(&j_sb->s_ait2) * bsize;
+		AIM_byte_addr = addressPXD(&j_sb->s_aim2) * bsize;
+		AIT_byte_addr = addressPXD(&j_sb->s_ait2) * bsize;
 		byte_addr_diff0 = AIT_byte_addr - AIM_byte_addr;
-		fsckwsp_addr = addressPXD(&(j_sb->s_fsckpxd)) * bsize;
+		fsckwsp_addr = addressPXD(&j_sb->s_fsckpxd) * bsize;
 		byte_addr_diff1 = fsckwsp_addr - AIT_byte_addr;
 		if ((AIM_bytesize != expected_AIM_bytesize) ||
 		    (AIT_bytesize != expected_AIT_bytesize) ||
@@ -378,11 +378,12 @@ static int chkSuper(struct super_block *sb)
 	sbi->nbperpage = PSIZE >> sbi->l2bsize;
 	sbi->l2nbperpage = L2PSIZE - sbi->l2bsize;
 	sbi->l2niperblk = sbi->l2bsize - L2DISIZE;
+	uuid_copy(&sbi->uuid, &j_sb->s_uuid);
+
 	if (sbi->mntflag & JFS_INLINELOG)
 		sbi->logpxd = j_sb->s_logpxd;
 	else {
 		sbi->logdev = new_decode_dev(le32_to_cpu(j_sb->s_logdev));
-		uuid_copy(&sbi->uuid, &j_sb->s_uuid);
 		uuid_copy(&sbi->loguuid, &j_sb->s_loguuid);
 	}
 	sbi->fsckpxd = j_sb->s_fsckpxd;

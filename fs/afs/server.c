@@ -117,7 +117,7 @@ static struct afs_server *afs_alloc_server(struct afs_cell *cell, const uuid_t *
 
 	_enter("");
 
-	server = kzalloc(sizeof(struct afs_server), GFP_KERNEL);
+	server = kzalloc_obj(struct afs_server);
 	if (!server)
 		return NULL;
 
@@ -331,13 +331,14 @@ struct afs_server *afs_use_server(struct afs_server *server, bool activate,
 void afs_put_server(struct afs_net *net, struct afs_server *server,
 		    enum afs_server_trace reason)
 {
-	unsigned int a, debug_id = server->debug_id;
+	unsigned int a, debug_id;
 	bool zero;
 	int r;
 
 	if (!server)
 		return;
 
+	debug_id = server->debug_id;
 	a = atomic_read(&server->active);
 	zero = __refcount_dec_and_test(&server->ref, &r);
 	trace_afs_server(debug_id, r - 1, a, reason);

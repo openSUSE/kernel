@@ -67,6 +67,7 @@ static void release_engine_dce_sw(
 	struct resource_pool *pool,
 	struct dce_i2c_sw *dce_i2c_sw)
 {
+	(void)pool;
 	dal_ddc_close(dce_i2c_sw->ddc);
 	dce_i2c_sw->ddc = NULL;
 }
@@ -74,8 +75,9 @@ static void release_engine_dce_sw(
 static bool wait_for_scl_high_sw(
 	struct dc_context *ctx,
 	struct ddc *ddc,
-	uint16_t clock_delay_div_4)
+	uint32_t clock_delay_div_4)
 {
+	(void)ctx;
 	uint32_t scl_retry = 0;
 	uint32_t scl_retry_max = I2C_SW_TIMEOUT_DELAY / clock_delay_div_4;
 
@@ -95,7 +97,7 @@ static bool wait_for_scl_high_sw(
 static bool write_byte_sw(
 	struct dc_context *ctx,
 	struct ddc *ddc_handle,
-	uint16_t clock_delay_div_4,
+	uint32_t clock_delay_div_4,
 	uint8_t byte)
 {
 	int32_t shift = 7;
@@ -152,7 +154,7 @@ static bool write_byte_sw(
 static bool read_byte_sw(
 	struct dc_context *ctx,
 	struct ddc *ddc_handle,
-	uint16_t clock_delay_div_4,
+	uint32_t clock_delay_div_4,
 	uint8_t *byte,
 	bool more)
 {
@@ -212,7 +214,7 @@ static bool read_byte_sw(
 static bool stop_sync_sw(
 	struct dc_context *ctx,
 	struct ddc *ddc_handle,
-	uint16_t clock_delay_div_4)
+	uint32_t clock_delay_div_4)
 {
 	uint32_t retry = 0;
 
@@ -249,7 +251,7 @@ static bool stop_sync_sw(
 static bool i2c_write_sw(
 	struct dc_context *ctx,
 	struct ddc *ddc_handle,
-	uint16_t clock_delay_div_4,
+	uint32_t clock_delay_div_4,
 	uint8_t address,
 	uint32_t length,
 	const uint8_t *data)
@@ -271,7 +273,7 @@ static bool i2c_write_sw(
 static bool i2c_read_sw(
 	struct dc_context *ctx,
 	struct ddc *ddc_handle,
-	uint16_t clock_delay_div_4,
+	uint32_t clock_delay_div_4,
 	uint8_t address,
 	uint32_t length,
 	uint8_t *data)
@@ -296,7 +298,7 @@ static bool i2c_read_sw(
 static bool start_sync_sw(
 	struct dc_context *ctx,
 	struct ddc *ddc_handle,
-	uint16_t clock_delay_div_4)
+	uint32_t clock_delay_div_4)
 {
 	uint32_t retry = 0;
 
@@ -397,7 +399,7 @@ static void dce_i2c_sw_engine_submit_channel_request(struct dce_i2c_sw *engine,
 						     struct i2c_request_transaction_data *req)
 {
 	struct ddc *ddc = engine->ddc;
-	uint16_t clock_delay_div_4 = engine->clock_delay >> 2;
+	uint32_t clock_delay_div_4 = engine->clock_delay >> 2;
 
 	/* send sync (start / repeated start) */
 
@@ -469,6 +471,7 @@ bool dce_i2c_submit_command_sw(
 	struct i2c_command *cmd,
 	struct dce_i2c_sw *dce_i2c_sw)
 {
+	(void)ddc;
 	uint8_t index_of_payload = 0;
 	bool result;
 

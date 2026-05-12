@@ -6,6 +6,7 @@
  */
 
 #include <linux/errno.h>
+#include <linux/hex.h>
 #include <linux/if.h>
 #include <linux/netdevice.h>
 #include <linux/spinlock.h>
@@ -79,6 +80,8 @@ static int bond_option_tlb_dynamic_lb_set(struct bonding *bond,
 				  const struct bond_opt_value *newval);
 static int bond_option_ad_actor_sys_prio_set(struct bonding *bond,
 					     const struct bond_opt_value *newval);
+static int bond_option_actor_port_prio_set(struct bonding *bond,
+					   const struct bond_opt_value *newval);
 static int bond_option_ad_actor_system_set(struct bonding *bond,
 					   const struct bond_opt_value *newval);
 static int bond_option_ad_user_port_key_set(struct bonding *bond,
@@ -160,10 +163,11 @@ static const struct bond_opt_value bond_lacp_rate_tbl[] = {
 };
 
 static const struct bond_opt_value bond_ad_select_tbl[] = {
-	{ "stable",    BOND_AD_STABLE,    BOND_VALFLAG_DEFAULT},
-	{ "bandwidth", BOND_AD_BANDWIDTH, 0},
-	{ "count",     BOND_AD_COUNT,     0},
-	{ NULL,        -1,                0},
+	{ "stable",          BOND_AD_STABLE,    BOND_VALFLAG_DEFAULT},
+	{ "bandwidth",       BOND_AD_BANDWIDTH, 0},
+	{ "count",           BOND_AD_COUNT,     0},
+	{ "actor_port_prio", BOND_AD_PRIO,      0},
+	{ NULL,              -1,                0},
 };
 
 static const struct bond_opt_value bond_num_peer_notif_tbl[] = {
@@ -187,7 +191,6 @@ static const struct bond_opt_value bond_primary_reselect_tbl[] = {
 };
 
 static const struct bond_opt_value bond_use_carrier_tbl[] = {
-	{ "off", 0,  0},
 	{ "on",  1,  BOND_VALFLAG_DEFAULT},
 	{ NULL,  -1, 0}
 };
@@ -370,7 +373,7 @@ static const struct bond_option bond_opts[BOND_OPT_LAST] = {
 	[BOND_OPT_AD_SELECT] = {
 		.id = BOND_OPT_AD_SELECT,
 		.name = "ad_select",
-		.desc = "803.ad aggregation selection logic",
+		.desc = "802.3ad aggregation selection logic",
 		.flags = BOND_OPTFLAG_IFDOWN,
 		.values = bond_ad_select_tbl,
 		.set = bond_option_ad_select_set
@@ -419,7 +422,7 @@ static const struct bond_option bond_opts[BOND_OPT_LAST] = {
 	[BOND_OPT_USE_CARRIER] = {
 		.id = BOND_OPT_USE_CARRIER,
 		.name = "use_carrier",
-		.desc = "Use netif_carrier_ok (vs MII ioctls) in miimon",
+		.desc = "option obsolete, use_carrier cannot be disabled",
 		.values = bond_use_carrier_tbl,
 		.set = bond_option_use_carrier_set
 	},
@@ -483,6 +486,13 @@ static const struct bond_option bond_opts[BOND_OPT_LAST] = {
 		.unsuppmodes = BOND_MODE_ALL_EX(BIT(BOND_MODE_8023AD)),
 		.values = bond_ad_actor_sys_prio_tbl,
 		.set = bond_option_ad_actor_sys_prio_set,
+	},
+	[BOND_OPT_ACTOR_PORT_PRIO] = {
+		.id = BOND_OPT_ACTOR_PORT_PRIO,
+		.name = "actor_port_prio",
+		.unsuppmodes = BOND_MODE_ALL_EX(BIT(BOND_MODE_8023AD)),
+		.flags = BOND_OPTFLAG_RAWVAL,
+		.set = bond_option_actor_port_prio_set,
 	},
 	[BOND_OPT_AD_ACTOR_SYSTEM] = {
 		.id = BOND_OPT_AD_ACTOR_SYSTEM,
@@ -1091,10 +1101,6 @@ static int bond_option_peer_notif_delay_set(struct bonding *bond,
 static int bond_option_use_carrier_set(struct bonding *bond,
 				       const struct bond_opt_value *newval)
 {
-	netdev_dbg(bond->dev, "Setting use_carrier to %llu\n",
-		   newval->value);
-	bond->params.use_carrier = newval->value;
-
 	return 0;
 }
 
@@ -1147,7 +1153,7 @@ static void _bond_options_arp_ip_target_set(struct bonding *bond, int slot,
 
 	if (slot >= 0 && slot < BOND_MAX_ARP_TARGETS) {
 		bond_for_each_slave(bond, slave, iter)
-			slave->target_last_arp_rx[slot] = last_rx;
+			WRITE_ONCE(slave->target_last_arp_rx[slot], last_rx);
 		targets[slot] = target;
 	}
 }
@@ -1216,8 +1222,8 @@ static int bond_option_arp_ip_target_rem(struct bonding *bond, __be32 target)
 	bond_for_each_slave(bond, slave, iter) {
 		targets_rx = slave->target_last_arp_rx;
 		for (i = ind; (i < BOND_MAX_ARP_TARGETS-1) && targets[i+1]; i++)
-			targets_rx[i] = targets_rx[i+1];
-		targets_rx[i] = 0;
+			WRITE_ONCE(targets_rx[i], READ_ONCE(targets_rx[i+1]));
+		WRITE_ONCE(targets_rx[i], 0);
 	}
 	for (i = ind; (i < BOND_MAX_ARP_TARGETS-1) && targets[i+1]; i++)
 		targets[i] = targets[i+1];
@@ -1372,7 +1378,7 @@ static void _bond_options_ns_ip6_target_set(struct bonding *bond, int slot,
 
 	if (slot >= 0 && slot < BOND_MAX_NS_TARGETS) {
 		bond_for_each_slave(bond, slave, iter) {
-			slave->target_last_arp_rx[slot] = last_rx;
+			WRITE_ONCE(slave->target_last_arp_rx[slot], last_rx);
 			slave_set_ns_maddr(bond, slave, target, &targets[slot]);
 		}
 		targets[slot] = *target;
@@ -1569,6 +1575,8 @@ static int bond_option_fail_over_mac_set(struct bonding *bond,
 static int bond_option_xmit_hash_policy_set(struct bonding *bond,
 					    const struct bond_opt_value *newval)
 {
+	if (bond->xdp_prog && !__bond_xdp_check(BOND_MODE(bond), newval->value))
+		return -EOPNOTSUPP;
 	netdev_dbg(bond->dev, "Setting xmit hash policy to %s (%llu)\n",
 		   newval->string, newval->value);
 	bond->params.xmit_policy = newval->value;
@@ -1812,6 +1820,26 @@ static int bond_option_ad_actor_sys_prio_set(struct bonding *bond,
 		   newval->value);
 
 	bond->params.ad_actor_sys_prio = newval->value;
+	bond_3ad_update_ad_actor_settings(bond);
+
+	return 0;
+}
+
+static int bond_option_actor_port_prio_set(struct bonding *bond,
+					   const struct bond_opt_value *newval)
+{
+	struct slave *slave;
+
+	slave = bond_slave_get_rtnl(newval->slave_dev);
+	if (!slave) {
+		netdev_dbg(bond->dev, "%s called on NULL slave\n", __func__);
+		return -ENODEV;
+	}
+
+	netdev_dbg(newval->slave_dev, "Setting actor_port_prio to %llu\n",
+		   newval->value);
+
+	SLAVE_AD_INFO(slave)->port_priority = newval->value;
 	bond_3ad_update_ad_actor_settings(bond);
 
 	return 0;

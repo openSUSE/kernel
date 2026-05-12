@@ -178,7 +178,7 @@ static int raw_v4_input(struct net *net, struct sk_buff *skb,
 
 		if (atomic_read(&sk->sk_rmem_alloc) >=
 		    READ_ONCE(sk->sk_rcvbuf)) {
-			atomic_inc(&sk->sk_drops);
+			sk_drops_inc(sk);
 			continue;
 		}
 
@@ -300,7 +300,8 @@ static int raw_rcv_skb(struct sock *sk, struct sk_buff *skb)
 	/* Charge it to the socket. */
 
 	ipv4_pktinfo_prepare(sk, skb, true);
-	if (sock_queue_rcv_skb_reason(sk, skb, &reason) < 0) {
+	reason = sock_queue_rcv_skb_reason(sk, skb);
+	if (reason) {
 		sk_skb_reason_drop(sk, skb, reason);
 		return NET_RX_DROP;
 	}
@@ -311,7 +312,7 @@ static int raw_rcv_skb(struct sock *sk, struct sk_buff *skb)
 int raw_rcv(struct sock *sk, struct sk_buff *skb)
 {
 	if (!xfrm4_policy_check(sk, XFRM_POLICY_IN, skb)) {
-		atomic_inc(&sk->sk_drops);
+		sk_drops_inc(sk);
 		sk_skb_reason_drop(sk, skb, SKB_DROP_REASON_XFRM_POLICY);
 		return NET_RX_DROP;
 	}
@@ -481,6 +482,8 @@ static int raw_getfrag(void *from, char *to, int offset, int len, int odd,
 
 static int raw_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 {
+	DEFINE_RAW_FLEX(struct ip_options_rcu, opt_copy, opt.__data,
+			IP_OPTIONS_DATA_FIXED_SIZE);
 	struct inet_sock *inet = inet_sk(sk);
 	struct net *net = sock_net(sk);
 	struct ipcm_cookie ipc;
@@ -491,7 +494,6 @@ static int raw_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 	__be32 daddr;
 	__be32 saddr;
 	int uc_index, err;
-	struct ip_options_data opt_copy;
 	struct raw_frag_vec rfv;
 	int hdrincl;
 
@@ -561,9 +563,9 @@ static int raw_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 		rcu_read_lock();
 		inet_opt = rcu_dereference(inet->inet_opt);
 		if (inet_opt) {
-			memcpy(&opt_copy, inet_opt,
+			memcpy(opt_copy, inet_opt,
 			       sizeof(*inet_opt) + inet_opt->opt.optlen);
-			ipc.opt = &opt_copy.opt;
+			ipc.opt = opt_copy;
 		}
 		rcu_read_unlock();
 	}
@@ -697,7 +699,8 @@ static void raw_destroy(struct sock *sk)
 }
 
 /* This gets rid of all the nasties in af_inet. -DaveM */
-static int raw_bind(struct sock *sk, struct sockaddr *uaddr, int addr_len)
+static int raw_bind(struct sock *sk, struct sockaddr_unsized *uaddr,
+		    int addr_len)
 {
 	struct inet_sock *inet = inet_sk(sk);
 	struct sockaddr_in *addr = (struct sockaddr_in *) uaddr;
@@ -737,7 +740,7 @@ out:
  */
 
 static int raw_recvmsg(struct sock *sk, struct msghdr *msg, size_t len,
-		       int flags, int *addr_len)
+		       int flags)
 {
 	struct inet_sock *inet = inet_sk(sk);
 	size_t copied = 0;
@@ -749,7 +752,7 @@ static int raw_recvmsg(struct sock *sk, struct msghdr *msg, size_t len,
 		goto out;
 
 	if (flags & MSG_ERRQUEUE) {
-		err = ip_recv_error(sk, msg, len, addr_len);
+		err = ip_recv_error(sk, msg, len);
 		goto out;
 	}
 
@@ -775,7 +778,7 @@ static int raw_recvmsg(struct sock *sk, struct msghdr *msg, size_t len,
 		sin->sin_addr.s_addr = ip_hdr(skb)->saddr;
 		sin->sin_port = 0;
 		memset(&sin->sin_zero, 0, sizeof(sin->sin_zero));
-		*addr_len = sizeof(*sin);
+		msg->msg_namelen = sizeof(*sin);
 	}
 	if (inet_cmsg_flags(inet))
 		ip_cmsg_recv(msg, skb);
@@ -793,6 +796,7 @@ static int raw_sk_init(struct sock *sk)
 {
 	struct raw_sock *rp = raw_sk(sk);
 
+	sk->sk_drop_counters = &rp->drop_counters;
 	if (inet_sk(sk)->inet_num == IPPROTO_ICMP)
 		memset(&rp->filter, 0, sizeof(rp->filter));
 	return 0;
@@ -1038,14 +1042,14 @@ static void raw_sock_seq_show(struct seq_file *seq, struct sock *sp, int i)
 	      srcp  = inet->inet_num;
 
 	seq_printf(seq, "%4d: %08X:%04X %08X:%04X"
-		" %02X %08X:%08X %02X:%08lX %08X %5u %8d %lu %d %pK %u\n",
+		" %02X %08X:%08X %02X:%08lX %08X %5u %8d %llu %d %pK %u\n",
 		i, src, srcp, dest, destp, sp->sk_state,
 		sk_wmem_alloc_get(sp),
 		sk_rmem_alloc_get(sp),
 		0, 0L, 0,
 		from_kuid_munged(seq_user_ns(seq), sk_uid(sp)),
 		0, sock_i_ino(sp),
-		refcount_read(&sp->sk_refcnt), sp, atomic_read(&sp->sk_drops));
+		refcount_read(&sp->sk_refcnt), sp, sk_drops_read(sp));
 }
 
 static int raw_seq_show(struct seq_file *seq, void *v)

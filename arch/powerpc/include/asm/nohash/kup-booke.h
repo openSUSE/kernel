@@ -7,7 +7,7 @@
 
 #ifdef CONFIG_PPC_KUAP
 
-#ifdef __ASSEMBLY__
+#ifdef __ASSEMBLER__
 
 .macro kuap_check_amr	gpr1, gpr2
 .endm
@@ -73,8 +73,7 @@ static __always_inline void uaccess_end_booke(void)
 	    "i"(SPRN_PID), "r"(0), "i"(MMU_FTR_KUAP) : "memory");
 }
 
-static __always_inline void allow_user_access(void __user *to, const void __user *from,
-					      unsigned long size, unsigned long dir)
+static __always_inline void allow_user_access(void __user *to, unsigned long dir)
 {
 	uaccess_begin_booke(current->thread.pid);
 }
@@ -105,7 +104,7 @@ __bad_kuap_fault(struct pt_regs *regs, unsigned long address, bool is_write)
 	return !regs->kuap;
 }
 
-#endif /* !__ASSEMBLY__ */
+#endif /* !__ASSEMBLER__ */
 
 #endif /* CONFIG_PPC_KUAP */
 

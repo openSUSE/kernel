@@ -17,9 +17,10 @@
 static int tegra_ahub_get_value_enum(struct snd_kcontrol *kctl,
 				     struct snd_ctl_elem_value *uctl)
 {
-	struct snd_soc_component *cmpnt = snd_soc_dapm_kcontrol_component(kctl);
+	struct snd_soc_component *cmpnt = snd_soc_dapm_kcontrol_to_component(kctl);
 	struct tegra_ahub *ahub = snd_soc_component_get_drvdata(cmpnt);
 	struct soc_enum *e = (struct soc_enum *)kctl->private_value;
+	int val_bytes = snd_soc_component_regmap_val_bytes(cmpnt);
 	unsigned int reg, i, bit_pos = 0;
 
 	/*
@@ -35,7 +36,7 @@ static int tegra_ahub_get_value_enum(struct snd_kcontrol *kctl,
 
 		if (reg_val) {
 			bit_pos = ffs(reg_val) +
-				  (8 * cmpnt->val_bytes * i);
+				  (8 * val_bytes * i);
 			break;
 		}
 	}
@@ -54,11 +55,12 @@ static int tegra_ahub_get_value_enum(struct snd_kcontrol *kctl,
 static int tegra_ahub_put_value_enum(struct snd_kcontrol *kctl,
 				     struct snd_ctl_elem_value *uctl)
 {
-	struct snd_soc_component *cmpnt = snd_soc_dapm_kcontrol_component(kctl);
+	struct snd_soc_component *cmpnt = snd_soc_dapm_kcontrol_to_component(kctl);
 	struct tegra_ahub *ahub = snd_soc_component_get_drvdata(cmpnt);
-	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_dapm(kctl);
+	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_to_dapm(kctl);
 	struct soc_enum *e = (struct soc_enum *)kctl->private_value;
 	struct snd_soc_dapm_update update[TEGRA_XBAR_UPDATE_MAX_REG] = { };
+	int val_bytes = snd_soc_component_regmap_val_bytes(cmpnt);
 	unsigned int *item = uctl->value.enumerated.item;
 	unsigned int value = e->values[item[0]];
 	unsigned int i, bit_pos, reg_idx = 0, reg_val = 0;
@@ -69,8 +71,8 @@ static int tegra_ahub_put_value_enum(struct snd_kcontrol *kctl,
 
 	if (value) {
 		/* Get the register index and value to set */
-		reg_idx = (value - 1) / (8 * cmpnt->val_bytes);
-		bit_pos = (value - 1) % (8 * cmpnt->val_bytes);
+		reg_idx = (value - 1) / (8 * val_bytes);
+		bit_pos = (value - 1) % (8 * val_bytes);
 		reg_val = BIT(bit_pos);
 	}
 
@@ -2049,6 +2051,61 @@ static const struct snd_soc_component_driver tegra264_ahub_component = {
 	.num_dapm_routes	= ARRAY_SIZE(tegra264_ahub_routes),
 };
 
+static bool tegra210_ahub_wr_reg(struct device *dev, unsigned int reg)
+{
+	int part;
+
+	if (reg % TEGRA210_XBAR_RX_STRIDE)
+		return false;
+
+	for (part = 0; part < TEGRA210_XBAR_UPDATE_MAX_REG; part++) {
+		switch (reg & ~(part * TEGRA210_XBAR_PART1_RX)) {
+		case TEGRA210_AXBAR_PART_0_ADMAIF_RX1_0 ... TEGRA210_AXBAR_PART_0_ADMAIF_RX10_0:
+		case TEGRA210_AXBAR_PART_0_I2S1_RX1_0 ... TEGRA210_AXBAR_PART_0_I2S5_RX1_0:
+		case TEGRA210_AXBAR_PART_0_SFC1_RX1_0 ... TEGRA210_AXBAR_PART_0_SFC4_RX1_0:
+		case TEGRA210_AXBAR_PART_0_MIXER1_RX1_0 ... TEGRA210_AXBAR_PART_0_MIXER1_RX10_0:
+		case TEGRA210_AXBAR_PART_0_SPDIF1_RX1_0 ... TEGRA210_AXBAR_PART_0_SPDIF1_RX2_0:
+		case TEGRA210_AXBAR_PART_0_AFC1_RX1_0 ... TEGRA210_AXBAR_PART_0_AFC6_RX1_0:
+		case TEGRA210_AXBAR_PART_0_OPE1_RX1_0 ... TEGRA210_AXBAR_PART_0_OPE2_RX1_0:
+		case TEGRA210_AXBAR_PART_0_SPKPROT1_RX1_0:
+		case TEGRA210_AXBAR_PART_0_MVC1_RX1_0 ... TEGRA210_AXBAR_PART_0_MVC2_RX1_0:
+		case TEGRA210_AXBAR_PART_0_AMX1_RX1_0 ... TEGRA210_AXBAR_PART_0_ADX2_RX1_0:
+			return true;
+		default:
+			break;
+		}
+	}
+
+	return false;
+}
+
+static bool tegra186_ahub_wr_reg(struct device *dev, unsigned int reg)
+{
+	int part;
+
+	if (reg % TEGRA210_XBAR_RX_STRIDE)
+		return false;
+
+	for (part = 0; part < TEGRA186_XBAR_UPDATE_MAX_REG; part++) {
+		switch (reg & ~(part * TEGRA210_XBAR_PART1_RX)) {
+		case TEGRA210_AXBAR_PART_0_ADMAIF_RX1_0 ... TEGRA186_AXBAR_PART_0_I2S6_RX1_0:
+		case TEGRA210_AXBAR_PART_0_SFC1_RX1_0 ... TEGRA210_AXBAR_PART_0_SFC4_RX1_0:
+		case TEGRA210_AXBAR_PART_0_MIXER1_RX1_0 ... TEGRA210_AXBAR_PART_0_MIXER1_RX10_0:
+		case TEGRA186_AXBAR_PART_0_DSPK1_RX1_0 ... TEGRA186_AXBAR_PART_0_DSPK2_RX1_0:
+		case TEGRA210_AXBAR_PART_0_AFC1_RX1_0 ... TEGRA210_AXBAR_PART_0_AFC6_RX1_0:
+		case TEGRA210_AXBAR_PART_0_OPE1_RX1_0:
+		case TEGRA186_AXBAR_PART_0_MVC1_RX1_0 ... TEGRA186_AXBAR_PART_0_MVC2_RX1_0:
+		case TEGRA186_AXBAR_PART_0_AMX1_RX1_0 ... TEGRA186_AXBAR_PART_0_AMX3_RX4_0:
+		case TEGRA210_AXBAR_PART_0_ADX1_RX1_0 ... TEGRA186_AXBAR_PART_0_ASRC1_RX7_0:
+			return true;
+		default:
+			break;
+		}
+	}
+
+	return false;
+}
+
 static bool tegra264_ahub_wr_reg(struct device *dev, unsigned int reg)
 {
 	int part;
@@ -2076,7 +2133,9 @@ static const struct regmap_config tegra210_ahub_regmap_config = {
 	.reg_bits		= 32,
 	.val_bits		= 32,
 	.reg_stride		= 4,
+	.writeable_reg		= tegra210_ahub_wr_reg,
 	.max_register		= TEGRA210_MAX_REGISTER_ADDR,
+	.reg_default_cb		= regmap_default_zero_cb,
 	.cache_type		= REGCACHE_FLAT,
 };
 
@@ -2084,7 +2143,9 @@ static const struct regmap_config tegra186_ahub_regmap_config = {
 	.reg_bits		= 32,
 	.val_bits		= 32,
 	.reg_stride		= 4,
+	.writeable_reg		= tegra186_ahub_wr_reg,
 	.max_register		= TEGRA186_MAX_REGISTER_ADDR,
+	.reg_default_cb		= regmap_default_zero_cb,
 	.cache_type		= REGCACHE_FLAT,
 };
 
@@ -2094,6 +2155,7 @@ static const struct regmap_config tegra264_ahub_regmap_config = {
 	.reg_stride		= 4,
 	.writeable_reg		= tegra264_ahub_wr_reg,
 	.max_register		= TEGRA264_MAX_REGISTER_ADDR,
+	.reg_default_cb		= regmap_default_zero_cb,
 	.cache_type		= REGCACHE_FLAT,
 };
 
@@ -2205,10 +2267,9 @@ static int tegra_ahub_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, ahub);
 
 	ahub->clk = devm_clk_get(&pdev->dev, "ahub");
-	if (IS_ERR(ahub->clk)) {
-		dev_err(&pdev->dev, "can't retrieve AHUB clock\n");
-		return PTR_ERR(ahub->clk);
-	}
+	if (IS_ERR(ahub->clk))
+		return dev_err_probe(&pdev->dev, PTR_ERR(ahub->clk),
+				     "can't retrieve AHUB clock\n");
 
 	regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(regs))
@@ -2216,10 +2277,9 @@ static int tegra_ahub_probe(struct platform_device *pdev)
 
 	ahub->regmap = devm_regmap_init_mmio(&pdev->dev, regs,
 					     ahub->soc_data->regmap_config);
-	if (IS_ERR(ahub->regmap)) {
-		dev_err(&pdev->dev, "regmap init failed\n");
-		return PTR_ERR(ahub->regmap);
-	}
+	if (IS_ERR(ahub->regmap))
+		return dev_err_probe(&pdev->dev, PTR_ERR(ahub->regmap),
+				     "regmap init failed\n");
 
 	regcache_cache_only(ahub->regmap, true);
 
@@ -2227,18 +2287,17 @@ static int tegra_ahub_probe(struct platform_device *pdev)
 					      ahub->soc_data->cmpnt_drv,
 					      ahub->soc_data->dai_drv,
 					      ahub->soc_data->num_dais);
-	if (err) {
-		dev_err(&pdev->dev, "can't register AHUB component, err: %d\n",
-			err);
-		return err;
-	}
+	if (err)
+		return dev_err_probe(&pdev->dev, err,
+				     "can't register AHUB component\n");
 
 	pm_runtime_enable(&pdev->dev);
 
 	err = of_platform_populate(pdev->dev.of_node, NULL, NULL, &pdev->dev);
 	if (err) {
 		pm_runtime_disable(&pdev->dev);
-		return err;
+		return dev_err_probe(&pdev->dev, err,
+				     "failed to populate child nodes\n");
 	}
 
 	return 0;

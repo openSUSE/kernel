@@ -127,9 +127,8 @@ int sel_loadlut(u32 __user *lut)
 	if (copy_from_user(tmplut, lut, sizeof(inwordLut)))
 		return -EFAULT;
 
-	console_lock();
+	guard(console_lock)();
 	memcpy(inwordLut, tmplut, sizeof(inwordLut));
-	console_unlock();
 
 	return 0;
 }
@@ -349,10 +348,11 @@ static int vc_selection(struct vc_data *vc, struct tiocl_selection *v,
 		return 0;
 	}
 
-	v->xs = min_t(u16, v->xs - 1, vc->vc_cols - 1);
-	v->ys = min_t(u16, v->ys - 1, vc->vc_rows - 1);
-	v->xe = min_t(u16, v->xe - 1, vc->vc_cols - 1);
-	v->ye = min_t(u16, v->ye - 1, vc->vc_rows - 1);
+	/* Historically 0 => max value */
+	v->xs = umin(v->xs - 1, vc->vc_cols - 1);
+	v->ys = umin(v->ys - 1, vc->vc_rows - 1);
+	v->xe = umin(v->xe - 1, vc->vc_cols - 1);
+	v->ye = umin(v->ye - 1, vc->vc_rows - 1);
 
 	if (mouse_reporting() && (v->sel_mode & TIOCL_SELMOUSEREPORT)) {
 		mouse_report(tty, v->sel_mode & TIOCL_SELBUTTONMASK, v->xs,
@@ -375,15 +375,9 @@ static int vc_selection(struct vc_data *vc, struct tiocl_selection *v,
 
 int set_selection_kernel(struct tiocl_selection *v, struct tty_struct *tty)
 {
-	int ret;
-
-	mutex_lock(&vc_sel.lock);
-	console_lock();
-	ret = vc_selection(vc_cons[fg_console].d, v, tty);
-	console_unlock();
-	mutex_unlock(&vc_sel.lock);
-
-	return ret;
+	guard(mutex)(&vc_sel.lock);
+	guard(console_lock)();
+	return vc_selection(vc_cons[fg_console].d, v, tty);
 }
 EXPORT_SYMBOL_GPL(set_selection_kernel);
 
@@ -409,9 +403,8 @@ int paste_selection(struct tty_struct *tty)
 	const char *bps = bp ? bracketed_paste_start : NULL;
 	const char *bpe = bp ? bracketed_paste_end : NULL;
 
-	console_lock();
-	poke_blanked_console();
-	console_unlock();
+	scoped_guard(console_lock)
+		poke_blanked_console();
 
 	ld = tty_ldisc_ref_wait(tty);
 	if (!ld)

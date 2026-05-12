@@ -102,7 +102,7 @@ static int ext4_block_to_path(struct inode *inode,
 		offsets[n++] = i_block & (ptrs - 1);
 		final = ptrs;
 	} else {
-		ext4_warning(inode->i_sb, "block %lu > max in inode %lu",
+		ext4_warning(inode->i_sb, "block %lu > max in inode %llu",
 			     i_block + direct_blocks +
 			     indirect_blocks + double_blocks, inode->i_ino);
 	}
@@ -1025,7 +1025,7 @@ static void ext4_free_branches(handle_t *handle, struct inode *inode,
 			}
 
 			/* Go read the buffer for the next level down */
-			bh = ext4_sb_bread(inode->i_sb, nr, 0);
+			bh = ext4_sb_bread_nofail(inode->i_sb, nr);
 
 			/*
 			 * A read failure? Report error and clear slot

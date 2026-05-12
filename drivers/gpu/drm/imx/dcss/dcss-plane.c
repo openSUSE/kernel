@@ -10,6 +10,7 @@
 #include <drm/drm_framebuffer.h>
 #include <drm/drm_gem_atomic_helper.h>
 #include <drm/drm_gem_dma_helper.h>
+#include <drm/drm_print.h>
 
 #include "dcss-dev.h"
 #include "dcss-kms.h"
@@ -139,7 +140,7 @@ static bool dcss_plane_is_source_size_allowed(u16 src_w, u16 src_h, u32 pix_fmt)
 }
 
 static int dcss_plane_atomic_check(struct drm_plane *plane,
-				   struct drm_atomic_state *state)
+				   struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *new_plane_state = drm_atomic_get_new_plane_state(state,
 										 plane);
@@ -159,8 +160,8 @@ static int dcss_plane_atomic_check(struct drm_plane *plane,
 	dma_obj = drm_fb_dma_get_gem_obj(fb, 0);
 	WARN_ON(!dma_obj);
 
-	crtc_state = drm_atomic_get_existing_crtc_state(state,
-							new_plane_state->crtc);
+	crtc_state = drm_atomic_get_new_crtc_state(state,
+						   new_plane_state->crtc);
 
 	hdisplay = crtc_state->adjusted_mode.hdisplay;
 	vdisplay = crtc_state->adjusted_mode.vdisplay;
@@ -266,7 +267,7 @@ static bool dcss_plane_needs_setup(struct drm_plane_state *state,
 }
 
 static void dcss_plane_atomic_update(struct drm_plane *plane,
-				     struct drm_atomic_state *state)
+				     struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *old_state = drm_atomic_get_old_plane_state(state,
 									   plane);
@@ -351,7 +352,7 @@ static void dcss_plane_atomic_update(struct drm_plane *plane,
 }
 
 static void dcss_plane_atomic_disable(struct drm_plane *plane,
-				      struct drm_atomic_state *state)
+				      struct drm_atomic_commit *state)
 {
 	struct dcss_plane *dcss_plane = to_dcss_plane(plane);
 	struct dcss_dev *dcss = plane->dev->dev_private;
@@ -380,7 +381,7 @@ struct dcss_plane *dcss_plane_init(struct drm_device *drm,
 	if (zpos > 2)
 		return ERR_PTR(-EINVAL);
 
-	dcss_plane = kzalloc(sizeof(*dcss_plane), GFP_KERNEL);
+	dcss_plane = kzalloc_obj(*dcss_plane);
 	if (!dcss_plane) {
 		DRM_ERROR("failed to allocate plane\n");
 		return ERR_PTR(-ENOMEM);

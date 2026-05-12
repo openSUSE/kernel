@@ -84,19 +84,24 @@ void snd_pcm_group_init(struct snd_pcm_group *group)
 }
 
 /* define group lock helpers */
-#define DEFINE_PCM_GROUP_LOCK(action, mutex_action) \
+#define DEFINE_PCM_GROUP_LOCK(action, bh_lock, bh_unlock, mutex_action) \
 static void snd_pcm_group_ ## action(struct snd_pcm_group *group, bool nonatomic) \
 { \
-	if (nonatomic) \
+	if (nonatomic) { \
 		mutex_ ## mutex_action(&group->mutex); \
-	else \
-		spin_ ## action(&group->lock); \
+	} else { \
+		if (IS_ENABLED(CONFIG_PREEMPT_RT) && bh_lock)   \
+			local_bh_disable();			\
+		spin_ ## action(&group->lock);			\
+		if (IS_ENABLED(CONFIG_PREEMPT_RT) && bh_unlock) \
+			local_bh_enable();                      \
+	}							\
 }
 
-DEFINE_PCM_GROUP_LOCK(lock, lock);
-DEFINE_PCM_GROUP_LOCK(unlock, unlock);
-DEFINE_PCM_GROUP_LOCK(lock_irq, lock);
-DEFINE_PCM_GROUP_LOCK(unlock_irq, unlock);
+DEFINE_PCM_GROUP_LOCK(lock, false, false, lock);
+DEFINE_PCM_GROUP_LOCK(unlock, false, false, unlock);
+DEFINE_PCM_GROUP_LOCK(lock_irq, true, false, lock);
+DEFINE_PCM_GROUP_LOCK(unlock_irq, false, true, unlock);
 
 /**
  * snd_pcm_stream_lock - Lock the PCM stream
@@ -237,10 +242,10 @@ int snd_pcm_info(struct snd_pcm_substream *substream, struct snd_pcm_info *info)
 int snd_pcm_info_user(struct snd_pcm_substream *substream,
 		      struct snd_pcm_info __user * _info)
 {
-	struct snd_pcm_info *info __free(kfree) = NULL;
 	int err;
+	struct snd_pcm_info *info __free(kfree) =
+		kmalloc_obj(*info);
 
-	info = kmalloc(sizeof(*info), GFP_KERNEL);
 	if (! info)
 		return -ENOMEM;
 	err = snd_pcm_info(substream, info);
@@ -359,7 +364,6 @@ static int constrain_params_by_rules(struct snd_pcm_substream *substream,
 	struct snd_pcm_hw_constraints *constrs =
 					&substream->runtime->hw_constraints;
 	unsigned int k;
-	unsigned int *rstamps __free(kfree) = NULL;
 	unsigned int vstamps[SNDRV_PCM_HW_PARAM_LAST_INTERVAL + 1];
 	unsigned int stamp;
 	struct snd_pcm_hw_rule *r;
@@ -375,7 +379,8 @@ static int constrain_params_by_rules(struct snd_pcm_substream *substream,
 	 * Each member of 'rstamps' array represents the sequence number of
 	 * recent application of corresponding rule.
 	 */
-	rstamps = kcalloc(constrs->rules_num, sizeof(unsigned int), GFP_KERNEL);
+	unsigned int *rstamps __free(kfree) =
+		kcalloc(constrs->rules_num, sizeof(unsigned int), GFP_KERNEL);
 	if (!rstamps)
 		return -ENOMEM;
 
@@ -578,10 +583,10 @@ EXPORT_SYMBOL(snd_pcm_hw_refine);
 static int snd_pcm_hw_refine_user(struct snd_pcm_substream *substream,
 				  struct snd_pcm_hw_params __user * _params)
 {
-	struct snd_pcm_hw_params *params __free(kfree) = NULL;
 	int err;
+	struct snd_pcm_hw_params *params __free(kfree) =
+		memdup_user(_params, sizeof(*params));
 
-	params = memdup_user(_params, sizeof(*params));
 	if (IS_ERR(params))
 		return PTR_ERR(params);
 
@@ -613,13 +618,32 @@ static int period_to_usecs(struct snd_pcm_runtime *runtime)
 	return usecs;
 }
 
-static void snd_pcm_set_state(struct snd_pcm_substream *substream,
-			      snd_pcm_state_t state)
+/**
+ * snd_pcm_set_state - Set the PCM runtime state with stream lock
+ * @substream: PCM substream
+ * @state: state to set
+ */
+void snd_pcm_set_state(struct snd_pcm_substream *substream,
+		       snd_pcm_state_t state)
 {
 	guard(pcm_stream_lock_irq)(substream);
 	if (substream->runtime->state != SNDRV_PCM_STATE_DISCONNECTED)
 		__snd_pcm_set_state(substream->runtime, state);
 }
+EXPORT_SYMBOL_GPL(snd_pcm_set_state);
+
+/**
+ * snd_pcm_get_state - Read the PCM runtime state with stream lock
+ * @substream: PCM substream
+ *
+ * Return: the current PCM state
+ */
+snd_pcm_state_t snd_pcm_get_state(struct snd_pcm_substream *substream)
+{
+	guard(pcm_stream_lock_irqsave)(substream);
+	return substream->runtime->state;
+}
+EXPORT_SYMBOL_GPL(snd_pcm_get_state);
 
 static inline void snd_pcm_timer_notify(struct snd_pcm_substream *substream,
 					int event)
@@ -725,13 +749,18 @@ static void snd_pcm_buffer_access_unlock(struct snd_pcm_runtime *runtime)
 }
 
 /* fill the PCM buffer with the current silence format; called from pcm_oss.c */
-void snd_pcm_runtime_buffer_set_silence(struct snd_pcm_runtime *runtime)
+int snd_pcm_runtime_buffer_set_silence(struct snd_pcm_runtime *runtime)
 {
-	snd_pcm_buffer_access_lock(runtime);
+	int err;
+
+	err = snd_pcm_buffer_access_lock(runtime);
+	if (err < 0)
+		return err;
 	if (runtime->dma_area)
 		snd_pcm_format_set_silence(runtime->format, runtime->dma_area,
 					   bytes_to_samples(runtime, runtime->dma_bytes));
 	snd_pcm_buffer_access_unlock(runtime);
+	return 0;
 }
 EXPORT_SYMBOL_GPL(snd_pcm_runtime_buffer_set_silence);
 
@@ -879,10 +908,10 @@ static int snd_pcm_hw_params(struct snd_pcm_substream *substream,
 static int snd_pcm_hw_params_user(struct snd_pcm_substream *substream,
 				  struct snd_pcm_hw_params __user * _params)
 {
-	struct snd_pcm_hw_params *params __free(kfree) = NULL;
 	int err;
+	struct snd_pcm_hw_params *params __free(kfree) =
+		memdup_user(_params, sizeof(*params));
 
-	params = memdup_user(_params, sizeof(*params));
 	if (IS_ERR(params))
 		return PTR_ERR(params);
 
@@ -1751,6 +1780,9 @@ static int snd_pcm_suspend(struct snd_pcm_substream *substream)
  * snd_pcm_suspend_all - trigger SUSPEND to all substreams in the given pcm
  * @pcm: the PCM instance
  *
+ * Takes and releases pcm->open_mutex to serialize against
+ * concurrent open/close while walking the substreams.
+ *
  * After this call, all streams are changed to SUSPENDED state.
  *
  * Return: Zero if successful (or @pcm is %NULL), or a negative error code.
@@ -1763,8 +1795,9 @@ int snd_pcm_suspend_all(struct snd_pcm *pcm)
 	if (! pcm)
 		return 0;
 
+	guard(mutex)(&pcm->open_mutex);
+
 	for_each_pcm_substream(pcm, stream, substream) {
-		/* FIXME: the open/close code should lock this as well */
 		if (!substream->runtime)
 			continue;
 
@@ -2134,6 +2167,10 @@ static int snd_pcm_drain(struct snd_pcm_substream *substream,
 	for (;;) {
 		long tout;
 		struct snd_pcm_runtime *to_check;
+		unsigned int drain_rate;
+		snd_pcm_uframes_t drain_bufsz;
+		bool drain_no_period_wakeup;
+
 		if (signal_pending(current)) {
 			result = -ERESTARTSYS;
 			break;
@@ -2153,16 +2190,25 @@ static int snd_pcm_drain(struct snd_pcm_substream *substream,
 		snd_pcm_group_unref(group, substream);
 		if (!to_check)
 			break; /* all drained */
+		/*
+		 * Cache the runtime fields needed after unlock.
+		 * A concurrent close() on the linked stream may free
+		 * its runtime via snd_pcm_detach_substream() once we
+		 * release the stream lock below.
+		 */
+		drain_no_period_wakeup = to_check->no_period_wakeup;
+		drain_rate = to_check->rate;
+		drain_bufsz = to_check->buffer_size;
 		init_waitqueue_entry(&wait, current);
 		set_current_state(TASK_INTERRUPTIBLE);
 		add_wait_queue(&to_check->sleep, &wait);
 		snd_pcm_stream_unlock_irq(substream);
-		if (runtime->no_period_wakeup)
+		if (drain_no_period_wakeup)
 			tout = MAX_SCHEDULE_TIMEOUT;
 		else {
 			tout = 100;
-			if (runtime->rate) {
-				long t = runtime->buffer_size * 1100 / runtime->rate;
+			if (drain_rate) {
+				long t = drain_bufsz * 1100 / drain_rate;
 				tout = max(t, tout);
 			}
 			tout = msecs_to_jiffies(tout);
@@ -2257,7 +2303,6 @@ static int snd_pcm_link(struct snd_pcm_substream *substream, int fd)
 {
 	struct snd_pcm_file *pcm_file;
 	struct snd_pcm_substream *substream1;
-	struct snd_pcm_group *group __free(kfree) = NULL;
 	struct snd_pcm_group *target_group;
 	bool nonatomic = substream->pcm->nonatomic;
 	CLASS(fd, f)(fd);
@@ -2273,7 +2318,8 @@ static int snd_pcm_link(struct snd_pcm_substream *substream, int fd)
 	if (substream == substream1)
 		return -EINVAL;
 
-	group = kzalloc(sizeof(*group), GFP_KERNEL);
+	struct snd_pcm_group *group __free(kfree) =
+		kzalloc(sizeof(*group), GFP_KERNEL);
 	if (!group)
 		return -ENOMEM;
 	snd_pcm_group_init(group);
@@ -2802,7 +2848,7 @@ static int snd_pcm_open_file(struct file *file,
 	if (err < 0)
 		return err;
 
-	pcm_file = kzalloc(sizeof(*pcm_file), GFP_KERNEL);
+	pcm_file = kzalloc_obj(*pcm_file);
 	if (pcm_file == NULL) {
 		snd_pcm_release_substream(substream);
 		return -ENOMEM;
@@ -3567,7 +3613,6 @@ static ssize_t snd_pcm_readv(struct kiocb *iocb, struct iov_iter *to)
 	struct snd_pcm_runtime *runtime;
 	snd_pcm_sframes_t result;
 	unsigned long i;
-	void __user **bufs __free(kfree) = NULL;
 	snd_pcm_uframes_t frames;
 	const struct iovec *iov = iter_iov(to);
 
@@ -3586,7 +3631,9 @@ static ssize_t snd_pcm_readv(struct kiocb *iocb, struct iov_iter *to)
 	if (!frame_aligned(runtime, iov->iov_len))
 		return -EINVAL;
 	frames = bytes_to_samples(runtime, iov->iov_len);
-	bufs = kmalloc_array(to->nr_segs, sizeof(void *), GFP_KERNEL);
+
+	void __user **bufs __free(kfree) =
+		kmalloc_array(to->nr_segs, sizeof(void *), GFP_KERNEL);
 	if (bufs == NULL)
 		return -ENOMEM;
 	for (i = 0; i < to->nr_segs; ++i) {
@@ -3606,7 +3653,6 @@ static ssize_t snd_pcm_writev(struct kiocb *iocb, struct iov_iter *from)
 	struct snd_pcm_runtime *runtime;
 	snd_pcm_sframes_t result;
 	unsigned long i;
-	void __user **bufs __free(kfree) = NULL;
 	snd_pcm_uframes_t frames;
 	const struct iovec *iov = iter_iov(from);
 
@@ -3624,7 +3670,9 @@ static ssize_t snd_pcm_writev(struct kiocb *iocb, struct iov_iter *from)
 	    !frame_aligned(runtime, iov->iov_len))
 		return -EINVAL;
 	frames = bytes_to_samples(runtime, iov->iov_len);
-	bufs = kmalloc_array(from->nr_segs, sizeof(void *), GFP_KERNEL);
+
+	void __user **bufs __free(kfree) =
+		kmalloc_array(from->nr_segs, sizeof(void *), GFP_KERNEL);
 	if (bufs == NULL)
 		return -ENOMEM;
 	for (i = 0; i < from->nr_segs; ++i) {
@@ -4096,15 +4144,15 @@ static void snd_pcm_hw_convert_to_old_params(struct snd_pcm_hw_params_old *opara
 static int snd_pcm_hw_refine_old_user(struct snd_pcm_substream *substream,
 				      struct snd_pcm_hw_params_old __user * _oparams)
 {
-	struct snd_pcm_hw_params *params __free(kfree) = NULL;
-	struct snd_pcm_hw_params_old *oparams __free(kfree) = NULL;
 	int err;
 
-	params = kmalloc(sizeof(*params), GFP_KERNEL);
+	struct snd_pcm_hw_params *params __free(kfree) =
+		kmalloc_obj(*params);
 	if (!params)
 		return -ENOMEM;
 
-	oparams = memdup_user(_oparams, sizeof(*oparams));
+	struct snd_pcm_hw_params_old *oparams __free(kfree) =
+		memdup_user(_oparams, sizeof(*oparams));
 	if (IS_ERR(oparams))
 		return PTR_ERR(oparams);
 	snd_pcm_hw_convert_from_old_params(params, oparams);
@@ -4125,15 +4173,15 @@ static int snd_pcm_hw_refine_old_user(struct snd_pcm_substream *substream,
 static int snd_pcm_hw_params_old_user(struct snd_pcm_substream *substream,
 				      struct snd_pcm_hw_params_old __user * _oparams)
 {
-	struct snd_pcm_hw_params *params __free(kfree) = NULL;
-	struct snd_pcm_hw_params_old *oparams __free(kfree) = NULL;
 	int err;
 
-	params = kmalloc(sizeof(*params), GFP_KERNEL);
+	struct snd_pcm_hw_params *params __free(kfree) =
+		kmalloc_obj(*params);
 	if (!params)
 		return -ENOMEM;
 
-	oparams = memdup_user(_oparams, sizeof(*oparams));
+	struct snd_pcm_hw_params_old *oparams __free(kfree) =
+		memdup_user(_oparams, sizeof(*oparams));
 	if (IS_ERR(oparams))
 		return PTR_ERR(oparams);
 

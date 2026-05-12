@@ -356,7 +356,7 @@ static void netlink_overrun(struct sock *sk)
 			sk_error_report(sk);
 		}
 	}
-	atomic_inc(&sk->sk_drops);
+	sk_drops_inc(sk);
 }
 
 static void netlink_rcv_wake(struct sock *sk)
@@ -596,10 +596,8 @@ static void netlink_remove(struct sock *sk)
 
 	table = &nl_table[sk->sk_protocol];
 	if (!rhashtable_remove_fast(&table->hash, &nlk_sk(sk)->node,
-				    netlink_rhashtable_params)) {
-		WARN_ON(refcount_read(&sk->sk_refcnt) == 1);
+				    netlink_rhashtable_params))
 		__sock_put(sk);
-	}
 
 	netlink_table_grab();
 	if (nlk_sk(sk)->subscriptions) {
@@ -968,7 +966,7 @@ static void netlink_undo_bind(int group, long unsigned int groups,
 			nlk->netlink_unbind(sock_net(sk), undo + 1);
 }
 
-static int netlink_bind(struct socket *sock, struct sockaddr *addr,
+static int netlink_bind(struct socket *sock, struct sockaddr_unsized *addr,
 			int addr_len)
 {
 	struct sock *sk = sock->sk;
@@ -1056,7 +1054,7 @@ unlock:
 	return err;
 }
 
-static int netlink_connect(struct socket *sock, struct sockaddr *addr,
+static int netlink_connect(struct socket *sock, struct sockaddr_unsized *addr,
 			   int alen, int flags)
 {
 	int err = 0;
@@ -2110,8 +2108,8 @@ int __netlink_change_ngroups(struct sock *sk, unsigned int groups)
  * This changes the number of multicast groups that are available
  * on a certain netlink family. Note that it is not possible to
  * change the number of groups to below 32. Also note that it does
- * not implicitly call netlink_clear_multicast_users() when the
- * number of groups is reduced.
+ * not implicitly clear listeners from groups that are removed when
+ * the number of groups is reduced.
  *
  * @sk: The kernel netlink socket, as returned by netlink_kernel_create().
  * @groups: The new number of groups.
@@ -2702,7 +2700,7 @@ static int netlink_native_seq_show(struct seq_file *seq, void *v)
 		struct sock *s = v;
 		struct netlink_sock *nlk = nlk_sk(s);
 
-		seq_printf(seq, "%pK %-3d %-10u %08x %-8d %-8d %-5d %-8d %-8u %-8lu\n",
+		seq_printf(seq, "%pK %-3d %-10u %08x %-8d %-8d %-5d %-8d %-8u %-8llu\n",
 			   s,
 			   s->sk_protocol,
 			   nlk->portid,
@@ -2711,7 +2709,7 @@ static int netlink_native_seq_show(struct seq_file *seq, void *v)
 			   sk_wmem_alloc_get(s),
 			   READ_ONCE(nlk->cb_running),
 			   refcount_read(&s->sk_refcnt),
-			   atomic_read(&s->sk_drops),
+			   sk_drops_read(s),
 			   sock_i_ino(s)
 			);
 
@@ -2929,7 +2927,7 @@ static int __init netlink_proto_init(void)
 
 	BUILD_BUG_ON(sizeof(struct netlink_skb_parms) > sizeof_field(struct sk_buff, cb));
 
-	nl_table = kcalloc(MAX_LINKS, sizeof(*nl_table), GFP_KERNEL);
+	nl_table = kzalloc_objs(*nl_table, MAX_LINKS);
 	if (!nl_table)
 		goto panic;
 

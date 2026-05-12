@@ -307,7 +307,6 @@ static const unsigned int qdsd_data3_pins[] = { 133 };
 		.io_reg = 0x4 + 0x1000 * id,			\
 		.intr_cfg_reg = 0x8 + 0x1000 * id,		\
 		.intr_status_reg = 0xc + 0x1000 * id,		\
-		.intr_target_reg = 0x8 + 0x1000 * id,		\
 		.mux_bit = 2,					\
 		.pull_bit = 0,					\
 		.drv_bit = 6,					\
@@ -333,7 +332,6 @@ static const unsigned int qdsd_data3_pins[] = { 133 };
 		.io_reg = 0,				\
 		.intr_cfg_reg = 0,			\
 		.intr_status_reg = 0,			\
-		.intr_target_reg = 0,			\
 		.mux_bit = -1,				\
 		.pull_bit = pull,			\
 		.drv_bit = drv,				\
@@ -743,7 +741,7 @@ static const struct pinfunction msm8916_functions[] = {
 	MSM_PIN_FUNCTION(gcc_gp2_clk_b),
 	MSM_PIN_FUNCTION(gcc_gp3_clk_a),
 	MSM_PIN_FUNCTION(gcc_gp3_clk_b),
-	MSM_PIN_FUNCTION(gpio),
+	MSM_GPIO_PIN_FUNCTION(gpio),
 	MSM_PIN_FUNCTION(gsm0_tx0),
 	MSM_PIN_FUNCTION(gsm0_tx1),
 	MSM_PIN_FUNCTION(gsm1_tx0),

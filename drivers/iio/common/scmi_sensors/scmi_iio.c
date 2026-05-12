@@ -66,10 +66,9 @@ static int scmi_iio_sensor_update_cb(struct notifier_block *nb,
 		/*
 		 *  Timestamp returned by SCMI is in seconds and is equal to
 		 *  time * power-of-10 multiplier(tstamp_scale) seconds.
-		 *  Converting the timestamp to nanoseconds below.
+		 *  Converting the timestamp to nanoseconds (10⁹) below.
 		 */
-		tstamp_scale = sensor->sensor_info->tstamp_scale +
-			       const_ilog2(NSEC_PER_SEC) / const_ilog2(10);
+		tstamp_scale = sensor->sensor_info->tstamp_scale + 9;
 		if (tstamp_scale < 0) {
 			do_div(time, int_pow(10, abs(tstamp_scale)));
 			time_ns = time;
@@ -521,9 +520,9 @@ static int scmi_iio_set_sampling_freq_avail(struct iio_dev *iio_dev)
 	int i;
 
 	sensor->freq_avail =
-		devm_kzalloc(&iio_dev->dev,
-			     sizeof(*sensor->freq_avail) *
-				     (sensor->sensor_info->intervals.count * 2),
+		devm_kcalloc(&iio_dev->dev,
+			     array_size(sensor->sensor_info->intervals.count, 2),
+			     sizeof(*sensor->freq_avail),
 			     GFP_KERNEL);
 	if (!sensor->freq_avail)
 		return -ENOMEM;
@@ -597,8 +596,8 @@ scmi_alloc_iiodev(struct scmi_device *sdev,
 	iiodev->info = &scmi_iio_info;
 
 	iio_channels =
-		devm_kzalloc(dev,
-			     sizeof(*iio_channels) * (iiodev->num_channels),
+		devm_kcalloc(dev, iiodev->num_channels,
+			     sizeof(*iio_channels),
 			     GFP_KERNEL);
 	if (!iio_channels)
 		return ERR_PTR(-ENOMEM);

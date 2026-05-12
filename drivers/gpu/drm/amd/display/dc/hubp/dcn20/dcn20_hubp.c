@@ -68,10 +68,10 @@ void hubp2_set_vm_system_aperture_settings(struct hubp *hubp,
 			DCN_VM_SYSTEM_APERTURE_DEFAULT_ADDR_LSB, mc_vm_apt_default.low_part);
 
 	REG_SET(DCN_VM_SYSTEM_APERTURE_LOW_ADDR, 0,
-			MC_VM_SYSTEM_APERTURE_LOW_ADDR, mc_vm_apt_low.quad_part);
+			MC_VM_SYSTEM_APERTURE_LOW_ADDR, mc_vm_apt_low.low_part);
 
 	REG_SET(DCN_VM_SYSTEM_APERTURE_HIGH_ADDR, 0,
-			MC_VM_SYSTEM_APERTURE_HIGH_ADDR, mc_vm_apt_high.quad_part);
+			MC_VM_SYSTEM_APERTURE_HIGH_ADDR, mc_vm_apt_high.low_part);
 
 	REG_SET_2(DCN_VM_MX_L1_TLB_CNTL, 0,
 			ENABLE_L1_TLB, 1,
@@ -313,6 +313,7 @@ static void hubp2_program_tiling(
 	const struct dc_tiling_info *info,
 	const enum surface_pixel_format pixel_format)
 {
+	(void)pixel_format;
 	REG_UPDATE_3(DCSURF_ADDR_CONFIG,
 			NUM_PIPES, log_2(info->gfx9.num_pipes),
 			PIPE_INTERLEAVE, info->gfx9.pipe_interleave,
@@ -557,6 +558,7 @@ void hubp2_program_surface_config(
 	bool horizontal_mirror,
 	unsigned int compat_level)
 {
+	(void)compat_level;
 	struct dcn20_hubp *hubp2 = TO_DCN20_HUBP(hubp);
 
 	hubp2_dcc_control(hubp, dcc->enable, dcc->independent_64b_blks);
@@ -613,26 +615,28 @@ void hubp2_cursor_set_attributes(
 
 	hubp->curs_attr = *attr;
 
-	REG_UPDATE(CURSOR_SURFACE_ADDRESS_HIGH,
-			CURSOR_SURFACE_ADDRESS_HIGH, attr->address.high_part);
-	REG_UPDATE(CURSOR_SURFACE_ADDRESS,
-			CURSOR_SURFACE_ADDRESS, attr->address.low_part);
+	if (!hubp->cursor_offload) {
+		REG_UPDATE(CURSOR_SURFACE_ADDRESS_HIGH,
+				CURSOR_SURFACE_ADDRESS_HIGH, attr->address.high_part);
+		REG_UPDATE(CURSOR_SURFACE_ADDRESS,
+				CURSOR_SURFACE_ADDRESS, attr->address.low_part);
 
-	REG_UPDATE_2(CURSOR_SIZE,
-			CURSOR_WIDTH, attr->width,
-			CURSOR_HEIGHT, attr->height);
+		REG_UPDATE_2(CURSOR_SIZE,
+				CURSOR_WIDTH, attr->width,
+				CURSOR_HEIGHT, attr->height);
 
-	REG_UPDATE_4(CURSOR_CONTROL,
-			CURSOR_MODE, attr->color_format,
-			CURSOR_2X_MAGNIFY, attr->attribute_flags.bits.ENABLE_MAGNIFICATION,
-			CURSOR_PITCH, hw_pitch,
-			CURSOR_LINES_PER_CHUNK, lpc);
+		REG_UPDATE_4(CURSOR_CONTROL,
+				CURSOR_MODE, attr->color_format,
+				CURSOR_2X_MAGNIFY, attr->attribute_flags.bits.ENABLE_MAGNIFICATION,
+				CURSOR_PITCH, hw_pitch,
+				CURSOR_LINES_PER_CHUNK, lpc);
 
-	REG_SET_2(CURSOR_SETTINGS, 0,
-			/* no shift of the cursor HDL schedule */
-			CURSOR0_DST_Y_OFFSET, 0,
-			 /* used to shift the cursor chunk request deadline */
-			CURSOR0_CHUNK_HDL_ADJUST, 3);
+		REG_SET_2(CURSOR_SETTINGS, 0,
+				/* no shift of the cursor HDL schedule */
+				CURSOR0_DST_Y_OFFSET, 0,
+				/* used to shift the cursor chunk request deadline */
+				CURSOR0_CHUNK_HDL_ADJUST, 3);
+	}
 
 	hubp->att.SURFACE_ADDR_HIGH  = attr->address.high_part;
 	hubp->att.SURFACE_ADDR       = attr->address.low_part;
@@ -706,7 +710,7 @@ void hubp2_dmdata_load(
 		uint32_t dmdata_sw_size,
 		const uint32_t *dmdata_sw_data)
 {
-	int i;
+	unsigned int i;
 	struct dcn20_hubp *hubp2 = TO_DCN20_HUBP(hubp);
 
 	/* load dmdata into HUBP buffer in SW mode */
@@ -1059,23 +1063,28 @@ void hubp2_cursor_set_position(
 		cur_en = 0;  /* not visible beyond top edge*/
 
 	if (hubp->pos.cur_ctl.bits.cur_enable != cur_en) {
-		if (cur_en && REG_READ(CURSOR_SURFACE_ADDRESS) == 0)
+		bool cursor_not_programmed = hubp->att.SURFACE_ADDR == 0 && hubp->att.SURFACE_ADDR_HIGH == 0;
+
+		if (cur_en && cursor_not_programmed)
 			hubp->funcs->set_cursor_attributes(hubp, &hubp->curs_attr);
 
-		REG_UPDATE(CURSOR_CONTROL,
-			CURSOR_ENABLE, cur_en);
+		if (!hubp->cursor_offload)
+			REG_UPDATE(CURSOR_CONTROL, CURSOR_ENABLE, cur_en);
 	}
 
-	REG_SET_2(CURSOR_POSITION, 0,
-			CURSOR_X_POSITION, pos->x,
-			CURSOR_Y_POSITION, pos->y);
+	if (!hubp->cursor_offload) {
+		REG_SET_2(CURSOR_POSITION, 0,
+				CURSOR_X_POSITION, pos->x,
+				CURSOR_Y_POSITION, pos->y);
 
-	REG_SET_2(CURSOR_HOT_SPOT, 0,
-			CURSOR_HOT_SPOT_X, pos->x_hotspot,
-			CURSOR_HOT_SPOT_Y, pos->y_hotspot);
+		REG_SET_2(CURSOR_HOT_SPOT, 0,
+				CURSOR_HOT_SPOT_X, pos->x_hotspot,
+				CURSOR_HOT_SPOT_Y, pos->y_hotspot);
 
-	REG_SET(CURSOR_DST_OFFSET, 0,
-			CURSOR_DST_X_OFFSET, dst_x_offset);
+		REG_SET(CURSOR_DST_OFFSET, 0,
+				CURSOR_DST_X_OFFSET, dst_x_offset);
+	}
+
 	/* TODO Handle surface pixel formats other than 4:4:4 */
 	/* Cursor Position Register Config */
 	hubp->pos.cur_ctl.bits.cur_enable = cur_en;

@@ -32,6 +32,7 @@
 #include "dc.h"
 #include "amdgpu_securedisplay.h"
 #include "amdgpu_dm_psr.h"
+#include "amdgpu_dm_replay.h"
 
 static const char *const pipe_crc_sources[] = {
 	"none",
@@ -105,7 +106,9 @@ static void update_phy_id_mapping(struct amdgpu_device *adev)
 			continue;
 
 		if (idx >= AMDGPU_DM_MAX_CRTC) {
-			DRM_WARN("%s connected connectors exceed max crtc\n", __func__);
+			drm_warn(adev_to_drm(adev),
+				"%s connected connectors exceed max crtc\n",
+				__func__);
 			mutex_unlock(&ddev->mode_config.mutex);
 			return;
 		}
@@ -502,6 +505,7 @@ int amdgpu_dm_crtc_configure_crc_source(struct drm_crtc *crtc,
 	struct dc_stream_state *stream_state = dm_crtc_state->stream;
 	bool enable = amdgpu_dm_is_valid_crc_source(source);
 	int ret = 0;
+	enum crc_poly_mode crc_poly_mode = CRC_POLY_MODE_16;
 
 	/* Configuration will be deferred to stream enable. */
 	if (!stream_state)
@@ -509,14 +513,29 @@ int amdgpu_dm_crtc_configure_crc_source(struct drm_crtc *crtc,
 
 	mutex_lock(&adev->dm.dc_lock);
 
-	/* For PSR1, check that the panel has exited PSR */
-	if (stream_state->link->psr_settings.psr_version < DC_PSR_VERSION_SU_1)
-		amdgpu_dm_psr_wait_disable(stream_state);
+	/* Notify power module about CRC window active to disable PSR/Replay
+	 * Power module will check caps internally and skip if not supported
+	 */
+	if (enable) {
+		amdgpu_dm_psr_set_event(&adev->dm, stream_state, true,
+			psr_event_crc_window_active, true);
+
+		amdgpu_dm_replay_set_event(&adev->dm, stream_state, true,
+			replay_event_crc_window_active, true);
+	}
+
+	/* CRC polynomial selection only support for DCN3.6+ except DCN4.0.1 */
+	if ((amdgpu_ip_version(adev, DCE_HWIP, 0) >= IP_VERSION(3, 6, 0)) &&
+		(amdgpu_ip_version(adev, DCE_HWIP, 0) != IP_VERSION(4, 0, 1))) {
+		struct amdgpu_crtc *acrtc = to_amdgpu_crtc(crtc);
+
+		crc_poly_mode = acrtc->dm_irq_params.crc_poly_mode;
+	}
 
 	/* Enable or disable CRTC CRC generation */
 	if (dm_is_crc_source_crtc(source) || source == AMDGPU_DM_PIPE_CRC_SOURCE_NONE) {
 		if (!dc_stream_configure_crc(stream_state->ctx->dc,
-					     stream_state, NULL, enable, enable, 0, true)) {
+					     stream_state, NULL, enable, enable, 0, true, crc_poly_mode)) {
 			ret = -EINVAL;
 			goto unlock;
 		}
@@ -534,6 +553,16 @@ int amdgpu_dm_crtc_configure_crc_source(struct drm_crtc *crtc,
 					    DYN_EXPANSION_AUTO);
 	}
 
+	if (!enable) {
+		/* Notify power module about CRC window inactive to re-enable PSR/Replay
+		 * Power module will check caps internally and skip if not supported
+		 */
+		amdgpu_dm_psr_set_event(&adev->dm, stream_state, false,
+			psr_event_crc_window_active, false);
+
+		amdgpu_dm_replay_set_event(&adev->dm, stream_state, false,
+			replay_event_crc_window_active, false);
+	}
 unlock:
 	mutex_unlock(&adev->dm.dc_lock);
 
@@ -730,10 +759,13 @@ void amdgpu_dm_crtc_handle_crc_irq(struct drm_crtc *crtc)
 	uint32_t crcs[3];
 	unsigned long flags;
 
-	if (crtc == NULL)
+	if (!crtc || !crtc->state || !crtc->dev)
 		return;
 
 	crtc_state = to_dm_crtc_state(crtc->state);
+	if (!crtc_state->stream)
+		return;
+
 	stream_state = crtc_state->stream;
 	acrtc = to_amdgpu_crtc(crtc);
 	drm_dev = crtc->dev;
@@ -782,7 +814,6 @@ void amdgpu_dm_crtc_handle_crc_window_irq(struct drm_crtc *crtc)
 	unsigned long flags1;
 	bool forward_roi_change = false;
 	bool notify_ta = false;
-	bool all_crc_ready = true;
 	struct dc_stream_state *stream_state;
 	int i;
 
@@ -856,7 +887,7 @@ void amdgpu_dm_crtc_handle_crc_window_irq(struct drm_crtc *crtc)
 			else if (adev->dm.secure_display_ctx.op_mode == DISPLAY_CRC_MODE)
 				/* update ROI via dm*/
 				dc_stream_configure_crc(stream_state->ctx->dc, stream_state,
-					&crc_window, true, true, i, false);
+					&crc_window, true, true, i, false, (enum crc_poly_mode)acrtc->dm_irq_params.crc_poly_mode);
 
 			reset_crc_frame_count[i] = true;
 
@@ -880,7 +911,7 @@ void amdgpu_dm_crtc_handle_crc_window_irq(struct drm_crtc *crtc)
 			else if (adev->dm.secure_display_ctx.op_mode == DISPLAY_CRC_MODE)
 				/* Avoid ROI window get changed, keep overwriting. */
 				dc_stream_configure_crc(stream_state->ctx->dc, stream_state,
-						&crc_window, true, true, i, false);
+						&crc_window, true, true, i, false, (enum crc_poly_mode)acrtc->dm_irq_params.crc_poly_mode);
 
 			/* crc ready for psp to read out */
 			crtc_ctx->crc_info.crc[i].crc_ready = true;
@@ -906,9 +937,6 @@ void amdgpu_dm_crtc_handle_crc_window_irq(struct drm_crtc *crtc)
 			continue;
 		}
 
-		if (!crtc_ctx->crc_info.crc[i].crc_ready)
-			all_crc_ready = false;
-
 		if (reset_crc_frame_count[i] || crtc_ctx->crc_info.crc[i].frame_count == UINT_MAX)
 			/* Reset the reference frame count after user update the ROI
 			 * or it reaches the maximum value.
@@ -918,9 +946,6 @@ void amdgpu_dm_crtc_handle_crc_window_irq(struct drm_crtc *crtc)
 			crtc_ctx->crc_info.crc[i].frame_count += 1;
 	}
 	spin_unlock_irqrestore(&crtc_ctx->crc_info.lock, flags1);
-
-	if (all_crc_ready)
-		complete_all(&crtc_ctx->crc_info.completion);
 }
 
 void amdgpu_dm_crtc_secure_display_create_contexts(struct amdgpu_device *adev)
@@ -928,9 +953,8 @@ void amdgpu_dm_crtc_secure_display_create_contexts(struct amdgpu_device *adev)
 	struct secure_display_crtc_context *crtc_ctx = NULL;
 	int i;
 
-	crtc_ctx = kcalloc(adev->mode_info.num_crtc,
-				      sizeof(struct secure_display_crtc_context),
-				      GFP_KERNEL);
+	crtc_ctx = kzalloc_objs(struct secure_display_crtc_context,
+				adev->mode_info.num_crtc);
 
 	if (!crtc_ctx) {
 		adev->dm.secure_display_ctx.crtc_ctx = NULL;

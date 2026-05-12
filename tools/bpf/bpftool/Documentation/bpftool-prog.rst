@@ -18,7 +18,7 @@ SYNOPSIS
 
 *OPTIONS* := { |COMMON_OPTIONS| |
 { **-f** | **--bpffs** } | { **-m** | **--mapcompat** } | { **-n** | **--nomount** } |
-{ **-L** | **--use-loader** } }
+{ **-L** | **--use-loader** } | [ { **-S** | **--sign** } **-k** <private_key.pem> **-i** <certificate.x509> ] }
 
 *COMMANDS* :=
 { **show** | **list** | **dump xlated** | **dump jited** | **pin** | **load** |
@@ -54,7 +54,7 @@ PROG COMMANDS
 |     **cgroup/sendmsg4** | **cgroup/sendmsg6** | **cgroup/sendmsg_unix** |
 |     **cgroup/recvmsg4** | **cgroup/recvmsg6** | **cgroup/recvmsg_unix** | **cgroup/sysctl** |
 |     **cgroup/getsockopt** | **cgroup/setsockopt** | **cgroup/sock_release** |
-|     **struct_ops** | **fentry** | **fexit** | **freplace** | **sk_lookup**
+|     **struct_ops** | **fentry** | **fexit** | **fsession** | **freplace** | **sk_lookup**
 | }
 | *ATTACH_TYPE* := {
 |     **sk_msg_verdict** | **sk_skb_verdict** | **sk_skb_stream_verdict** |
@@ -182,7 +182,7 @@ bpftool prog tracelog
 
 bpftool prog tracelog { stdout | stderr } *PROG*
     Dump the BPF stream of the program. BPF programs can write to these streams
-    at runtime with the **bpf_stream_vprintk**\ () kfunc. The kernel may write
+    at runtime with the **bpf_stream_vprintk_impl**\ () kfunc. The kernel may write
     error messages to the standard error stream. This facility should be used
     only for debugging purposes.
 
@@ -247,6 +247,18 @@ OPTIONS
     the **bpf_trace_printk**\ () helper to log each step of loading BTF,
     creating the maps, and loading the programs (see **bpftool prog tracelog**
     as a way to dump those messages).
+
+-S, --sign
+    Enable signing of the BPF program before loading. This option must be
+    used with **-k** and **-i**. Using this flag implicitly enables
+    **--use-loader**.
+
+-k <private_key.pem>
+    Path to the private key file in PEM format, required when signing.
+
+-i <certificate.x509>
+    Path to the X.509 certificate file in PEM or DER format, required when
+    signing.
 
 EXAMPLES
 ========

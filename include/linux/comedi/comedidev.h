@@ -15,6 +15,7 @@
 #include <linux/spinlock_types.h>
 #include <linux/rwsem.h>
 #include <linux/kref.h>
+#include <linux/completion.h>
 #include <linux/comedi.h>
 
 #define COMEDI_VERSION(a, b, c) (((a) << 16) + ((b) << 8) + (c))
@@ -272,6 +273,8 @@ struct comedi_buf_map {
  * @events: Bit-vector of events that have occurred.
  * @cmd: Details of comedi command in progress.
  * @wait_head: Task wait queue for file reader or writer.
+ * @run_complete: "run complete" completion event.
+ * @run_active: "run active" reference counter.
  * @cb_mask: Bit-vector of events that should wake waiting tasks.
  * @inttrig: Software trigger function for command, or NULL.
  *
@@ -357,6 +360,8 @@ struct comedi_async {
 	unsigned int events;
 	struct comedi_cmd cmd;
 	wait_queue_head_t wait_head;
+	struct completion run_complete;
+	refcount_t run_active;
 	unsigned int cb_mask;
 	int (*inttrig)(struct comedi_device *dev, struct comedi_subdevice *s,
 		       unsigned int x);
@@ -584,6 +589,8 @@ struct comedi_device *comedi_dev_get_from_minor(unsigned int minor);
 int comedi_dev_put(struct comedi_device *dev);
 
 bool comedi_is_subdevice_running(struct comedi_subdevice *s);
+bool comedi_get_is_subdevice_running(struct comedi_subdevice *s);
+void comedi_put_is_subdevice_running(struct comedi_subdevice *s);
 
 void *comedi_alloc_spriv(struct comedi_subdevice *s, size_t size);
 void comedi_set_spriv_auto_free(struct comedi_subdevice *s);
@@ -1019,10 +1026,55 @@ int comedi_load_firmware(struct comedi_device *dev, struct device *hw_dev,
 				   unsigned long context),
 			 unsigned long context);
 
-int __comedi_request_region(struct comedi_device *dev,
-			    unsigned long start, unsigned long len);
-int comedi_request_region(struct comedi_device *dev,
-			  unsigned long start, unsigned long len);
+int __comedi_check_request_region(struct comedi_device *dev,
+				  unsigned long start, unsigned long len,
+				  unsigned long minstart, unsigned long maxend,
+				  unsigned long minalign);
+int comedi_check_request_region(struct comedi_device *dev,
+				unsigned long start, unsigned long len,
+				unsigned long minstart, unsigned long maxend,
+				unsigned long minalign);
+
+/**
+ * __comedi_request_region() - Request an I/O region for a legacy driver
+ * @dev: COMEDI device.
+ * @start: Base address of the I/O region.
+ * @len: Length of the I/O region.
+ *
+ * Requests the specified I/O port region which must start at a non-zero
+ * address.
+ *
+ * Returns 0 on success, -EINVAL if @start is 0, or -EIO if the request
+ * fails.
+ */
+static inline int __comedi_request_region(struct comedi_device *dev,
+					  unsigned long start,
+					  unsigned long len)
+{
+	return __comedi_check_request_region(dev, start, len, 0, ~0ul, 1);
+}
+
+/**
+ * comedi_request_region() - Request an I/O region for a legacy driver
+ * @dev: COMEDI device.
+ * @start: Base address of the I/O region.
+ * @len: Length of the I/O region.
+ *
+ * Requests the specified I/O port region which must start at a non-zero
+ * address.
+ *
+ * On success, @dev->iobase is set to the base address of the region and
+ * @dev->iolen is set to its length.
+ *
+ * Returns 0 on success, -EINVAL if @start is 0, or -EIO if the request
+ * fails.
+ */
+static inline int comedi_request_region(struct comedi_device *dev,
+					unsigned long start, unsigned long len)
+{
+	return comedi_check_request_region(dev, start, len, 0, ~0ul, 1);
+}
+
 void comedi_legacy_detach(struct comedi_device *dev);
 
 int comedi_auto_config(struct device *hardware_device,

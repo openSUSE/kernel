@@ -7,16 +7,19 @@
 #ifndef _LINUX_RV_H
 #define _LINUX_RV_H
 
-#include <linux/types.h>
-#include <linux/list.h>
-
 #define MAX_DA_NAME_LEN			32
 #define MAX_DA_RETRY_RACING_EVENTS	3
 
+#define RV_MON_GLOBAL   0
+#define RV_MON_PER_CPU  1
+#define RV_MON_PER_TASK 2
+#define RV_MON_PER_OBJ  3
+
 #ifdef CONFIG_RV
-#include <linux/bitops.h>
-#include <linux/types.h>
 #include <linux/array_size.h>
+#include <linux/bitops.h>
+#include <linux/list.h>
+#include <linux/types.h>
 
 /*
  * Deterministic automaton per-object variables.
@@ -79,18 +82,56 @@ struct ltl_monitor {};
 
 #endif /* CONFIG_RV_LTL_MONITOR */
 
+#ifdef CONFIG_RV_HA_MONITOR
+/*
+ * In the future, hybrid automata may rely on multiple
+ * environment variables, e.g. different clocks started at
+ * different times or running at different speed.
+ * For now we support only 1 variable.
+ */
+#define MAX_HA_ENV_LEN 1
+
+/*
+ * Monitors can pick the preferred timer implementation:
+ * No timer: if monitors don't have state invariants.
+ * Timer wheel: lightweight invariants check but far less precise.
+ * Hrtimer: accurate invariants check with higher overhead.
+ */
+#define HA_TIMER_NONE 0
+#define HA_TIMER_WHEEL 1
+#define HA_TIMER_HRTIMER 2
+
+/*
+ * Hybrid automaton per-object variables.
+ */
+struct ha_monitor {
+	struct da_monitor da_mon;
+	u64 env_store[MAX_HA_ENV_LEN];
+	union {
+		struct hrtimer hrtimer;
+		struct timer_list timer;
+	};
+};
+
+#else
+
+struct ha_monitor { };
+
+#endif /* CONFIG_RV_HA_MONITOR */
+
 #define RV_PER_TASK_MONITOR_INIT	(CONFIG_RV_PER_TASK_MONITORS)
 
 union rv_task_monitor {
 	struct da_monitor	da_mon;
 	struct ltl_monitor	ltl_mon;
+	struct ha_monitor	ha_mon;
 };
 
 #ifdef CONFIG_RV_REACTORS
 struct rv_reactor {
 	const char		*name;
 	const char		*description;
-	__printf(1, 2) void	(*react)(const char *msg, ...);
+	__printf(1, 0) void	(*react)(const char *msg, va_list args);
 	struct list_head	list;
 };
 #endif
@@ -104,7 +145,7 @@ struct rv_monitor {
 	void			(*reset)(void);
 #ifdef CONFIG_RV_REACTORS
 	struct rv_reactor	*reactor;
-	__printf(1, 2) void	(*react)(const char *msg, ...);
+	__printf(1, 0) void	(*react)(const char *msg, va_list args);
 #endif
 	struct list_head	list;
 	struct rv_monitor	*parent;
@@ -118,13 +159,14 @@ int rv_get_task_monitor_slot(void);
 void rv_put_task_monitor_slot(int slot);
 
 #ifdef CONFIG_RV_REACTORS
-bool rv_reacting_on(void);
 int rv_unregister_reactor(struct rv_reactor *reactor);
 int rv_register_reactor(struct rv_reactor *reactor);
+__printf(2, 3)
+void rv_react(struct rv_monitor *monitor, const char *msg, ...);
 #else
-static inline bool rv_reacting_on(void)
+__printf(2, 3)
+static inline void rv_react(struct rv_monitor *monitor, const char *msg, ...)
 {
-	return false;
 }
 #endif /* CONFIG_RV_REACTORS */
 

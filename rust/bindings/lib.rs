@@ -9,10 +9,6 @@
 //! using this crate.
 
 #![no_std]
-// See <https://github.com/rust-lang/rust-bindgen/issues/1651>.
-#![cfg_attr(test, allow(deref_nullptr))]
-#![cfg_attr(test, allow(unaligned_references))]
-#![cfg_attr(test, allow(unsafe_op_in_unsafe_fn))]
 #![allow(
     clippy::all,
     missing_docs,
@@ -23,6 +19,7 @@
     unreachable_pub,
     unsafe_op_in_unsafe_fn
 )]
+#![feature(cfi_encoding)]
 
 #[allow(dead_code)]
 #[allow(clippy::cast_lossless)]
@@ -31,10 +28,18 @@
 #[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg_attr(CONFIG_RUSTC_HAS_UNNECESSARY_TRANSMUTES, allow(unnecessary_transmutes))]
 mod bindings_raw {
+    use pin_init::{MaybeZeroable, Zeroable};
+
     // Manual definition for blocklisted types.
     type __kernel_size_t = usize;
     type __kernel_ssize_t = isize;
     type __kernel_ptrdiff_t = isize;
+
+    // `bindgen` doesn't automatically do this, see
+    // <https://github.com/rust-lang/rust-bindgen/issues/3196>
+    //
+    // SAFETY: `__BindgenBitfieldUnit<Storage>` is a newtype around `Storage`.
+    unsafe impl<Storage> Zeroable for __BindgenBitfieldUnit<Storage> where Storage: Zeroable {}
 
     // Use glob import here to expose all helpers.
     // Symbols defined within the module will take precedence to the glob import.
@@ -59,3 +64,16 @@ mod bindings_helper {
 }
 
 pub use bindings_raw::*;
+
+pub const compat_ptr_ioctl: Option<
+    unsafe extern "C" fn(*mut file, ffi::c_uint, ffi::c_ulong) -> ffi::c_long,
+> = {
+    #[cfg(CONFIG_COMPAT)]
+    {
+        Some(bindings_raw::compat_ptr_ioctl)
+    }
+    #[cfg(not(CONFIG_COMPAT))]
+    {
+        None
+    }
+};

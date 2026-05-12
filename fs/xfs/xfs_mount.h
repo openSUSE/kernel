@@ -13,6 +13,7 @@ struct xfs_ail;
 struct xfs_quotainfo;
 struct xfs_da_geometry;
 struct xfs_perag;
+struct xfs_healthmon;
 
 /* dynamic preallocation free space thresholds, 5% down to 1% */
 enum {
@@ -236,7 +237,6 @@ typedef struct xfs_mount {
 	bool			m_update_sb;	/* sb needs update in mount */
 	unsigned int		m_max_open_zones;
 	unsigned int		m_zonegc_low_space;
-	struct xfs_mru_cache	*m_zone_cache;  /* Inode to open zone cache */
 
 	/* max_atomic_write mount option value */
 	unsigned long long	m_awu_max_bytes;
@@ -343,6 +343,12 @@ typedef struct xfs_mount {
 
 	/* Hook to feed dirent updates to an active online repair. */
 	struct xfs_hooks	m_dir_update_hooks;
+
+	/* Private data referring to a health monitor object. */
+	struct xfs_healthmon __rcu	*m_healthmon;
+
+	/* Index of uuid record in the uuid xarray. */
+	unsigned int		m_uuid_table_index;
 } xfs_mount_t;
 
 #define M_IGEO(mp)		(&(mp)->m_ino_geo)
@@ -363,7 +369,6 @@ typedef struct xfs_mount {
 #define XFS_FEAT_EXTFLG		(1ULL << 7)	/* unwritten extents */
 #define XFS_FEAT_ASCIICI	(1ULL << 8)	/* ASCII only case-insens. */
 #define XFS_FEAT_LAZYSBCOUNT	(1ULL << 9)	/* Superblk counters */
-#define XFS_FEAT_ATTR2		(1ULL << 10)	/* dynamic attr fork */
 #define XFS_FEAT_PARENT		(1ULL << 11)	/* parent pointers */
 #define XFS_FEAT_PROJID32	(1ULL << 12)	/* 32 bit project id */
 #define XFS_FEAT_CRC		(1ULL << 13)	/* metadata CRCs */
@@ -386,7 +391,6 @@ typedef struct xfs_mount {
 
 /* Mount features */
 #define XFS_FEAT_NOLIFETIME	(1ULL << 47)	/* disable lifetime hints */
-#define XFS_FEAT_NOATTR2	(1ULL << 48)	/* disable attr2 creation */
 #define XFS_FEAT_NOALIGN	(1ULL << 49)	/* ignore alignment */
 #define XFS_FEAT_ALLOCSIZE	(1ULL << 50)	/* user specified allocation size */
 #define XFS_FEAT_LARGE_IOSIZE	(1ULL << 51)	/* report large preferred
@@ -396,7 +400,6 @@ typedef struct xfs_mount {
 #define XFS_FEAT_DISCARD	(1ULL << 54)	/* discard unused blocks */
 #define XFS_FEAT_GRPID		(1ULL << 55)	/* group-ID assigned from directory */
 #define XFS_FEAT_SMALL_INUMS	(1ULL << 56)	/* user wants 32bit inodes */
-#define XFS_FEAT_IKEEP		(1ULL << 57)	/* keep empty inode clusters*/
 #define XFS_FEAT_SWALLOC	(1ULL << 58)	/* stripe width allocation */
 #define XFS_FEAT_FILESTREAMS	(1ULL << 59)	/* use filestreams allocator */
 #define XFS_FEAT_DAX_ALWAYS	(1ULL << 60)	/* DAX always enabled */
@@ -504,11 +507,16 @@ __XFS_HAS_V4_FEAT(align, ALIGN)
 __XFS_HAS_V4_FEAT(logv2, LOGV2)
 __XFS_HAS_V4_FEAT(extflg, EXTFLG)
 __XFS_HAS_V4_FEAT(lazysbcount, LAZYSBCOUNT)
-__XFS_ADD_V4_FEAT(attr2, ATTR2)
 __XFS_ADD_V4_FEAT(projid32, PROJID32)
 __XFS_HAS_V4_FEAT(v3inodes, V3INODES)
 __XFS_HAS_V4_FEAT(crc, CRC)
 __XFS_HAS_V4_FEAT(pquotino, PQUOTINO)
+
+static inline void xfs_add_attr2(struct xfs_mount *mp)
+{
+	if (IS_ENABLED(CONFIG_XFS_SUPPORT_V4))
+		xfs_sb_version_addattr2(&mp->m_sb);
+}
 
 /*
  * Mount features
@@ -517,7 +525,6 @@ __XFS_HAS_V4_FEAT(pquotino, PQUOTINO)
  * bit inodes and read-only state, are kept as operational state rather than
  * features.
  */
-__XFS_HAS_FEAT(noattr2, NOATTR2)
 __XFS_HAS_FEAT(noalign, NOALIGN)
 __XFS_HAS_FEAT(allocsize, ALLOCSIZE)
 __XFS_HAS_FEAT(large_iosize, LARGE_IOSIZE)
@@ -526,7 +533,6 @@ __XFS_HAS_FEAT(dirsync, DIRSYNC)
 __XFS_HAS_FEAT(discard, DISCARD)
 __XFS_HAS_FEAT(grpid, GRPID)
 __XFS_HAS_FEAT(small_inums, SMALL_INUMS)
-__XFS_HAS_FEAT(ikeep, IKEEP)
 __XFS_HAS_FEAT(swalloc, SWALLOC)
 __XFS_HAS_FEAT(filestreams, FILESTREAMS)
 __XFS_HAS_FEAT(dax_always, DAX_ALWAYS)

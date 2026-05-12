@@ -25,6 +25,7 @@
 #include <linux/of.h>
 #include <linux/of_graph.h>
 #include <linux/acpi.h>
+#include <linux/pci.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/pinctrl/devinfo.h>
 #include <linux/reset.h>
@@ -113,32 +114,33 @@ void dwc3_enable_susphy(struct dwc3 *dwc, bool enable)
 	int i;
 
 	for (i = 0; i < dwc->num_usb3_ports; i++) {
-		reg = dwc3_readl(dwc->regs, DWC3_GUSB3PIPECTL(i));
+		reg = dwc3_readl(dwc, DWC3_GUSB3PIPECTL(i));
 		if (enable && !dwc->dis_u3_susphy_quirk)
 			reg |= DWC3_GUSB3PIPECTL_SUSPHY;
 		else
 			reg &= ~DWC3_GUSB3PIPECTL_SUSPHY;
 
-		dwc3_writel(dwc->regs, DWC3_GUSB3PIPECTL(i), reg);
+		dwc3_writel(dwc, DWC3_GUSB3PIPECTL(i), reg);
 	}
 
 	for (i = 0; i < dwc->num_usb2_ports; i++) {
-		reg = dwc3_readl(dwc->regs, DWC3_GUSB2PHYCFG(i));
+		reg = dwc3_readl(dwc, DWC3_GUSB2PHYCFG(i));
 		if (enable && !dwc->dis_u2_susphy_quirk)
 			reg |= DWC3_GUSB2PHYCFG_SUSPHY;
 		else
 			reg &= ~DWC3_GUSB2PHYCFG_SUSPHY;
 
-		dwc3_writel(dwc->regs, DWC3_GUSB2PHYCFG(i), reg);
+		dwc3_writel(dwc, DWC3_GUSB2PHYCFG(i), reg);
 	}
 }
+EXPORT_SYMBOL_GPL(dwc3_enable_susphy);
 
 void dwc3_set_prtcap(struct dwc3 *dwc, u32 mode, bool ignore_susphy)
 {
 	unsigned int hw_mode;
 	u32 reg;
 
-	reg = dwc3_readl(dwc->regs, DWC3_GCTL);
+	reg = dwc3_readl(dwc, DWC3_GCTL);
 
 	 /*
 	  * For DRD controllers, GUSB3PIPECTL.SUSPENDENABLE and
@@ -153,10 +155,12 @@ void dwc3_set_prtcap(struct dwc3 *dwc, u32 mode, bool ignore_susphy)
 
 	reg &= ~(DWC3_GCTL_PRTCAPDIR(DWC3_GCTL_PRTCAP_OTG));
 	reg |= DWC3_GCTL_PRTCAPDIR(mode);
-	dwc3_writel(dwc->regs, DWC3_GCTL, reg);
+	dwc3_writel(dwc, DWC3_GCTL, reg);
 
 	dwc->current_dr_role = mode;
+	trace_dwc3_set_prtcap(dwc, mode);
 }
+EXPORT_SYMBOL_GPL(dwc3_set_prtcap);
 
 static void __dwc3_set_mode(struct work_struct *work)
 {
@@ -212,9 +216,9 @@ static void __dwc3_set_mode(struct work_struct *work)
 	if (dwc->current_dr_role && ((DWC3_IP_IS(DWC3) ||
 			DWC3_VER_IS_PRIOR(DWC31, 190A)) &&
 			desired_dr_role != DWC3_GCTL_PRTCAP_OTG)) {
-		reg = dwc3_readl(dwc->regs, DWC3_GCTL);
+		reg = dwc3_readl(dwc, DWC3_GCTL);
 		reg |= DWC3_GCTL_CORESOFTRESET;
-		dwc3_writel(dwc->regs, DWC3_GCTL, reg);
+		dwc3_writel(dwc, DWC3_GCTL, reg);
 
 		/*
 		 * Wait for internal clocks to synchronized. DWC_usb31 and
@@ -224,9 +228,9 @@ static void __dwc3_set_mode(struct work_struct *work)
 		 */
 		msleep(100);
 
-		reg = dwc3_readl(dwc->regs, DWC3_GCTL);
+		reg = dwc3_readl(dwc, DWC3_GCTL);
 		reg &= ~DWC3_GCTL_CORESOFTRESET;
-		dwc3_writel(dwc->regs, DWC3_GCTL, reg);
+		dwc3_writel(dwc, DWC3_GCTL, reg);
 	}
 
 	spin_lock_irqsave(&dwc->lock, flags);
@@ -250,9 +254,9 @@ static void __dwc3_set_mode(struct work_struct *work)
 				phy_set_mode(dwc->usb3_generic_phy[i], PHY_MODE_USB_HOST);
 
 			if (dwc->dis_split_quirk) {
-				reg = dwc3_readl(dwc->regs, DWC3_GUCTL3);
+				reg = dwc3_readl(dwc, DWC3_GUCTL3);
 				reg |= DWC3_GUCTL3_SPLITDISABLE;
-				dwc3_writel(dwc->regs, DWC3_GUCTL3, reg);
+				dwc3_writel(dwc, DWC3_GUCTL3, reg);
 			}
 		}
 		break;
@@ -279,7 +283,6 @@ static void __dwc3_set_mode(struct work_struct *work)
 	}
 
 out:
-	pm_runtime_mark_last_busy(dwc->dev);
 	pm_runtime_put_autosuspend(dwc->dev);
 	mutex_unlock(&dwc->mutex);
 }
@@ -303,11 +306,11 @@ u32 dwc3_core_fifo_space(struct dwc3_ep *dep, u8 type)
 	struct dwc3		*dwc = dep->dwc;
 	u32			reg;
 
-	dwc3_writel(dwc->regs, DWC3_GDBGFIFOSPACE,
-			DWC3_GDBGFIFOSPACE_NUM(dep->number) |
-			DWC3_GDBGFIFOSPACE_TYPE(type));
+	dwc3_writel(dwc, DWC3_GDBGFIFOSPACE,
+		    DWC3_GDBGFIFOSPACE_NUM(dep->number) |
+		    DWC3_GDBGFIFOSPACE_TYPE(type));
 
-	reg = dwc3_readl(dwc->regs, DWC3_GDBGFIFOSPACE);
+	reg = dwc3_readl(dwc, DWC3_GDBGFIFOSPACE);
 
 	return DWC3_GDBGFIFOSPACE_SPACE_AVAILABLE(reg);
 }
@@ -329,7 +332,7 @@ int dwc3_core_soft_reset(struct dwc3 *dwc)
 	if (dwc->current_dr_role == DWC3_GCTL_PRTCAP_HOST)
 		return 0;
 
-	reg = dwc3_readl(dwc->regs, DWC3_DCTL);
+	reg = dwc3_readl(dwc, DWC3_DCTL);
 	reg |= DWC3_DCTL_CSFTRST;
 	reg &= ~DWC3_DCTL_RUN_STOP;
 	dwc3_gadget_dctl_write_safe(dwc, reg);
@@ -344,7 +347,7 @@ int dwc3_core_soft_reset(struct dwc3 *dwc)
 		retries = 10;
 
 	do {
-		reg = dwc3_readl(dwc->regs, DWC3_DCTL);
+		reg = dwc3_readl(dwc, DWC3_DCTL);
 		if (!(reg & DWC3_DCTL_CSFTRST))
 			goto done;
 
@@ -384,12 +387,12 @@ static void dwc3_frame_length_adjustment(struct dwc3 *dwc)
 	if (dwc->fladj == 0)
 		return;
 
-	reg = dwc3_readl(dwc->regs, DWC3_GFLADJ);
+	reg = dwc3_readl(dwc, DWC3_GFLADJ);
 	dft = reg & DWC3_GFLADJ_30MHZ_MASK;
 	if (dft != dwc->fladj) {
 		reg &= ~DWC3_GFLADJ_30MHZ_MASK;
 		reg |= DWC3_GFLADJ_30MHZ_SDBND_SEL | dwc->fladj;
-		dwc3_writel(dwc->regs, DWC3_GFLADJ, reg);
+		dwc3_writel(dwc, DWC3_GFLADJ, reg);
 	}
 }
 
@@ -421,10 +424,10 @@ static void dwc3_ref_clk_period(struct dwc3 *dwc)
 		return;
 	}
 
-	reg = dwc3_readl(dwc->regs, DWC3_GUCTL);
+	reg = dwc3_readl(dwc, DWC3_GUCTL);
 	reg &= ~DWC3_GUCTL_REFCLKPER_MASK;
 	reg |=  FIELD_PREP(DWC3_GUCTL_REFCLKPER_MASK, period);
-	dwc3_writel(dwc->regs, DWC3_GUCTL, reg);
+	dwc3_writel(dwc, DWC3_GUCTL, reg);
 
 	if (DWC3_VER_IS_PRIOR(DWC3, 250A))
 		return;
@@ -452,7 +455,7 @@ static void dwc3_ref_clk_period(struct dwc3 *dwc)
 	 */
 	decr = 480000000 / rate;
 
-	reg = dwc3_readl(dwc->regs, DWC3_GFLADJ);
+	reg = dwc3_readl(dwc, DWC3_GFLADJ);
 	reg &= ~DWC3_GFLADJ_REFCLK_FLADJ_MASK
 	    &  ~DWC3_GFLADJ_240MHZDECR
 	    &  ~DWC3_GFLADJ_240MHZDECR_PLS1;
@@ -463,7 +466,7 @@ static void dwc3_ref_clk_period(struct dwc3 *dwc)
 	if (dwc->gfladj_refclk_lpm_sel)
 		reg |=  DWC3_GFLADJ_REFCLK_LPM_SEL;
 
-	dwc3_writel(dwc->regs, DWC3_GFLADJ, reg);
+	dwc3_writel(dwc, DWC3_GFLADJ, reg);
 }
 
 /**
@@ -566,16 +569,16 @@ int dwc3_event_buffers_setup(struct dwc3 *dwc)
 
 	evt = dwc->ev_buf;
 	evt->lpos = 0;
-	dwc3_writel(dwc->regs, DWC3_GEVNTADRLO(0),
-			lower_32_bits(evt->dma));
-	dwc3_writel(dwc->regs, DWC3_GEVNTADRHI(0),
-			upper_32_bits(evt->dma));
-	dwc3_writel(dwc->regs, DWC3_GEVNTSIZ(0),
-			DWC3_GEVNTSIZ_SIZE(evt->length));
+	dwc3_writel(dwc, DWC3_GEVNTADRLO(0),
+		    lower_32_bits(evt->dma));
+	dwc3_writel(dwc, DWC3_GEVNTADRHI(0),
+		    upper_32_bits(evt->dma));
+	dwc3_writel(dwc, DWC3_GEVNTSIZ(0),
+		    DWC3_GEVNTSIZ_SIZE(evt->length));
 
 	/* Clear any stale event */
-	reg = dwc3_readl(dwc->regs, DWC3_GEVNTCOUNT(0));
-	dwc3_writel(dwc->regs, DWC3_GEVNTCOUNT(0), reg);
+	reg = dwc3_readl(dwc, DWC3_GEVNTCOUNT(0));
+	dwc3_writel(dwc, DWC3_GEVNTCOUNT(0), reg);
 	return 0;
 }
 
@@ -590,7 +593,7 @@ void dwc3_event_buffers_cleanup(struct dwc3 *dwc)
 	 * Exynos platforms may not be able to access event buffer if the
 	 * controller failed to halt on dwc3_core_exit().
 	 */
-	reg = dwc3_readl(dwc->regs, DWC3_DSTS);
+	reg = dwc3_readl(dwc, DWC3_DSTS);
 	if (!(reg & DWC3_DSTS_DEVCTRLHLT))
 		return;
 
@@ -598,14 +601,14 @@ void dwc3_event_buffers_cleanup(struct dwc3 *dwc)
 
 	evt->lpos = 0;
 
-	dwc3_writel(dwc->regs, DWC3_GEVNTADRLO(0), 0);
-	dwc3_writel(dwc->regs, DWC3_GEVNTADRHI(0), 0);
-	dwc3_writel(dwc->regs, DWC3_GEVNTSIZ(0), DWC3_GEVNTSIZ_INTMASK
+	dwc3_writel(dwc, DWC3_GEVNTADRLO(0), 0);
+	dwc3_writel(dwc, DWC3_GEVNTADRHI(0), 0);
+	dwc3_writel(dwc, DWC3_GEVNTSIZ(0), DWC3_GEVNTSIZ_INTMASK
 			| DWC3_GEVNTSIZ_SIZE(0));
 
 	/* Clear any stale event */
-	reg = dwc3_readl(dwc->regs, DWC3_GEVNTCOUNT(0));
-	dwc3_writel(dwc->regs, DWC3_GEVNTCOUNT(0), reg);
+	reg = dwc3_readl(dwc, DWC3_GEVNTCOUNT(0));
+	dwc3_writel(dwc, DWC3_GEVNTCOUNT(0), reg);
 }
 
 static void dwc3_core_num_eps(struct dwc3 *dwc)
@@ -619,18 +622,18 @@ static void dwc3_cache_hwparams(struct dwc3 *dwc)
 {
 	struct dwc3_hwparams	*parms = &dwc->hwparams;
 
-	parms->hwparams0 = dwc3_readl(dwc->regs, DWC3_GHWPARAMS0);
-	parms->hwparams1 = dwc3_readl(dwc->regs, DWC3_GHWPARAMS1);
-	parms->hwparams2 = dwc3_readl(dwc->regs, DWC3_GHWPARAMS2);
-	parms->hwparams3 = dwc3_readl(dwc->regs, DWC3_GHWPARAMS3);
-	parms->hwparams4 = dwc3_readl(dwc->regs, DWC3_GHWPARAMS4);
-	parms->hwparams5 = dwc3_readl(dwc->regs, DWC3_GHWPARAMS5);
-	parms->hwparams6 = dwc3_readl(dwc->regs, DWC3_GHWPARAMS6);
-	parms->hwparams7 = dwc3_readl(dwc->regs, DWC3_GHWPARAMS7);
-	parms->hwparams8 = dwc3_readl(dwc->regs, DWC3_GHWPARAMS8);
+	parms->hwparams0 = dwc3_readl(dwc, DWC3_GHWPARAMS0);
+	parms->hwparams1 = dwc3_readl(dwc, DWC3_GHWPARAMS1);
+	parms->hwparams2 = dwc3_readl(dwc, DWC3_GHWPARAMS2);
+	parms->hwparams3 = dwc3_readl(dwc, DWC3_GHWPARAMS3);
+	parms->hwparams4 = dwc3_readl(dwc, DWC3_GHWPARAMS4);
+	parms->hwparams5 = dwc3_readl(dwc, DWC3_GHWPARAMS5);
+	parms->hwparams6 = dwc3_readl(dwc, DWC3_GHWPARAMS6);
+	parms->hwparams7 = dwc3_readl(dwc, DWC3_GHWPARAMS7);
+	parms->hwparams8 = dwc3_readl(dwc, DWC3_GHWPARAMS8);
 
 	if (DWC3_IP_IS(DWC32))
-		parms->hwparams9 = dwc3_readl(dwc->regs, DWC3_GHWPARAMS9);
+		parms->hwparams9 = dwc3_readl(dwc, DWC3_GHWPARAMS9);
 }
 
 static void dwc3_config_soc_bus(struct dwc3 *dwc)
@@ -638,10 +641,10 @@ static void dwc3_config_soc_bus(struct dwc3 *dwc)
 	if (dwc->gsbuscfg0_reqinfo != DWC3_GSBUSCFG0_REQINFO_UNSPECIFIED) {
 		u32 reg;
 
-		reg = dwc3_readl(dwc->regs, DWC3_GSBUSCFG0);
+		reg = dwc3_readl(dwc, DWC3_GSBUSCFG0);
 		reg &= ~DWC3_GSBUSCFG0_REQINFO(~0);
 		reg |= DWC3_GSBUSCFG0_REQINFO(dwc->gsbuscfg0_reqinfo);
-		dwc3_writel(dwc->regs, DWC3_GSBUSCFG0, reg);
+		dwc3_writel(dwc, DWC3_GSBUSCFG0, reg);
 	}
 }
 
@@ -665,7 +668,7 @@ static int dwc3_ss_phy_setup(struct dwc3 *dwc, int index)
 {
 	u32 reg;
 
-	reg = dwc3_readl(dwc->regs, DWC3_GUSB3PIPECTL(index));
+	reg = dwc3_readl(dwc, DWC3_GUSB3PIPECTL(index));
 
 	/*
 	 * Make sure UX_EXIT_PX is cleared as that causes issues with some
@@ -703,7 +706,7 @@ static int dwc3_ss_phy_setup(struct dwc3 *dwc, int index)
 	if (dwc->dis_del_phy_power_chg_quirk)
 		reg &= ~DWC3_GUSB3PIPECTL_DEPOCHANGE;
 
-	dwc3_writel(dwc->regs, DWC3_GUSB3PIPECTL(index), reg);
+	dwc3_writel(dwc, DWC3_GUSB3PIPECTL(index), reg);
 
 	return 0;
 }
@@ -712,7 +715,7 @@ static int dwc3_hs_phy_setup(struct dwc3 *dwc, int index)
 {
 	u32 reg;
 
-	reg = dwc3_readl(dwc->regs, DWC3_GUSB2PHYCFG(index));
+	reg = dwc3_readl(dwc, DWC3_GUSB2PHYCFG(index));
 
 	/* Select the HS PHY interface */
 	switch (DWC3_GHWPARAMS3_HSPHY_IFC(dwc->hwparams.hwparams3)) {
@@ -724,7 +727,7 @@ static int dwc3_hs_phy_setup(struct dwc3 *dwc, int index)
 		} else if (dwc->hsphy_interface &&
 				!strncmp(dwc->hsphy_interface, "ulpi", 4)) {
 			reg |= DWC3_GUSB2PHYCFG_ULPI_UTMI;
-			dwc3_writel(dwc->regs, DWC3_GUSB2PHYCFG(index), reg);
+			dwc3_writel(dwc, DWC3_GUSB2PHYCFG(index), reg);
 		} else {
 			/* Relying on default value. */
 			if (!(reg & DWC3_GUSB2PHYCFG_ULPI_UTMI))
@@ -774,9 +777,27 @@ static int dwc3_hs_phy_setup(struct dwc3 *dwc, int index)
 	if (dwc->ulpi_ext_vbus_drv)
 		reg |= DWC3_GUSB2PHYCFG_ULPIEXTVBUSDRV;
 
-	dwc3_writel(dwc->regs, DWC3_GUSB2PHYCFG(index), reg);
+	dwc3_writel(dwc, DWC3_GUSB2PHYCFG(index), reg);
 
 	return 0;
+}
+
+static void dwc3_ulpi_setup(struct dwc3 *dwc)
+{
+	int index;
+	u32 reg;
+
+	/* Don't do anything if there is no ULPI PHY */
+	if (!dwc->ulpi)
+		return;
+
+	if (dwc->enable_usb2_transceiver_delay) {
+		for (index = 0; index < dwc->num_usb2_ports; index++) {
+			reg = dwc3_readl(dwc->regs, DWC3_GUSB2PHYCFG(index));
+			reg |= DWC3_GUSB2PHYCFG_XCVRDLY;
+			dwc3_writel(dwc->regs, DWC3_GUSB2PHYCFG(index), reg);
+		}
+	}
 }
 
 /**
@@ -974,7 +995,7 @@ static void dwc3_clk_disable(struct dwc3 *dwc)
 	clk_disable_unprepare(dwc->bus_clk);
 }
 
-static void dwc3_core_exit(struct dwc3 *dwc)
+void dwc3_core_exit(struct dwc3 *dwc)
 {
 	dwc3_event_buffers_cleanup(dwc);
 	dwc3_phy_power_off(dwc);
@@ -982,20 +1003,23 @@ static void dwc3_core_exit(struct dwc3 *dwc)
 	dwc3_clk_disable(dwc);
 	reset_control_assert(dwc->reset);
 }
+EXPORT_SYMBOL_GPL(dwc3_core_exit);
 
 static bool dwc3_core_is_valid(struct dwc3 *dwc)
 {
 	u32 reg;
 
-	reg = dwc3_readl(dwc->regs, DWC3_GSNPSID);
+	reg = dwc3_readl(dwc, DWC3_GSNPSID);
 	dwc->ip = DWC3_GSNPS_ID(reg);
+	if (dwc->ip == DWC4_IP)
+		dwc->ip = DWC32_IP;
 
 	/* This should read as U3 followed by revision number */
 	if (DWC3_IP_IS(DWC3)) {
 		dwc->revision = reg;
 	} else if (DWC3_IP_IS(DWC31) || DWC3_IP_IS(DWC32)) {
-		dwc->revision = dwc3_readl(dwc->regs, DWC3_VER_NUMBER);
-		dwc->version_type = dwc3_readl(dwc->regs, DWC3_VER_TYPE);
+		dwc->revision = dwc3_readl(dwc, DWC3_VER_NUMBER);
+		dwc->version_type = dwc3_readl(dwc, DWC3_VER_TYPE);
 	} else {
 		return false;
 	}
@@ -1009,7 +1033,7 @@ static void dwc3_core_setup_global_control(struct dwc3 *dwc)
 	unsigned int hw_mode;
 	u32 reg;
 
-	reg = dwc3_readl(dwc->regs, DWC3_GCTL);
+	reg = dwc3_readl(dwc, DWC3_GCTL);
 	reg &= ~DWC3_GCTL_SCALEDOWN_MASK;
 	hw_mode = DWC3_GHWPARAMS0_MODE(dwc->hwparams.hwparams0);
 	power_opt = DWC3_GHWPARAMS1_EN_PWROPT(dwc->hwparams.hwparams1);
@@ -1087,7 +1111,7 @@ static void dwc3_core_setup_global_control(struct dwc3 *dwc)
 	if (DWC3_VER_IS_PRIOR(DWC3, 190A))
 		reg |= DWC3_GCTL_U2RSTECN;
 
-	dwc3_writel(dwc->regs, DWC3_GCTL, reg);
+	dwc3_writel(dwc, DWC3_GCTL, reg);
 }
 
 static int dwc3_core_get_phy(struct dwc3 *dwc);
@@ -1107,7 +1131,7 @@ static void dwc3_set_incr_burst_type(struct dwc3 *dwc)
 	int ret;
 	int i;
 
-	cfg = dwc3_readl(dwc->regs, DWC3_GSBUSCFG0);
+	cfg = dwc3_readl(dwc, DWC3_GSBUSCFG0);
 
 	/*
 	 * Handle property "snps,incr-burst-type-adjustment".
@@ -1182,7 +1206,7 @@ static void dwc3_set_incr_burst_type(struct dwc3 *dwc)
 		break;
 	}
 
-	dwc3_writel(dwc->regs, DWC3_GSBUSCFG0, cfg);
+	dwc3_writel(dwc, DWC3_GSBUSCFG0, cfg);
 }
 
 static void dwc3_set_power_down_clk_scale(struct dwc3 *dwc)
@@ -1207,12 +1231,12 @@ static void dwc3_set_power_down_clk_scale(struct dwc3 *dwc)
 	 * (3x or more) to be within the requirement.
 	 */
 	scale = DIV_ROUND_UP(clk_get_rate(dwc->susp_clk), 16000);
-	reg = dwc3_readl(dwc->regs, DWC3_GCTL);
+	reg = dwc3_readl(dwc, DWC3_GCTL);
 	if ((reg & DWC3_GCTL_PWRDNSCALE_MASK) < DWC3_GCTL_PWRDNSCALE(scale) ||
 	    (reg & DWC3_GCTL_PWRDNSCALE_MASK) > DWC3_GCTL_PWRDNSCALE(scale*3)) {
 		reg &= ~(DWC3_GCTL_PWRDNSCALE_MASK);
 		reg |= DWC3_GCTL_PWRDNSCALE(scale);
-		dwc3_writel(dwc->regs, DWC3_GCTL, reg);
+		dwc3_writel(dwc, DWC3_GCTL, reg);
 	}
 }
 
@@ -1235,7 +1259,7 @@ static void dwc3_config_threshold(struct dwc3 *dwc)
 		tx_maxburst = dwc->tx_max_burst_prd;
 
 		if (rx_thr_num && rx_maxburst) {
-			reg = dwc3_readl(dwc->regs, DWC3_GRXTHRCFG);
+			reg = dwc3_readl(dwc, DWC3_GRXTHRCFG);
 			reg |= DWC31_RXTHRNUMPKTSEL_PRD;
 
 			reg &= ~DWC31_RXTHRNUMPKT_PRD(~0);
@@ -1244,11 +1268,11 @@ static void dwc3_config_threshold(struct dwc3 *dwc)
 			reg &= ~DWC31_MAXRXBURSTSIZE_PRD(~0);
 			reg |= DWC31_MAXRXBURSTSIZE_PRD(rx_maxburst);
 
-			dwc3_writel(dwc->regs, DWC3_GRXTHRCFG, reg);
+			dwc3_writel(dwc, DWC3_GRXTHRCFG, reg);
 		}
 
 		if (tx_thr_num && tx_maxburst) {
-			reg = dwc3_readl(dwc->regs, DWC3_GTXTHRCFG);
+			reg = dwc3_readl(dwc, DWC3_GTXTHRCFG);
 			reg |= DWC31_TXTHRNUMPKTSEL_PRD;
 
 			reg &= ~DWC31_TXTHRNUMPKT_PRD(~0);
@@ -1257,7 +1281,7 @@ static void dwc3_config_threshold(struct dwc3 *dwc)
 			reg &= ~DWC31_MAXTXBURSTSIZE_PRD(~0);
 			reg |= DWC31_MAXTXBURSTSIZE_PRD(tx_maxburst);
 
-			dwc3_writel(dwc->regs, DWC3_GTXTHRCFG, reg);
+			dwc3_writel(dwc, DWC3_GTXTHRCFG, reg);
 		}
 	}
 
@@ -1268,7 +1292,7 @@ static void dwc3_config_threshold(struct dwc3 *dwc)
 
 	if (DWC3_IP_IS(DWC3)) {
 		if (rx_thr_num && rx_maxburst) {
-			reg = dwc3_readl(dwc->regs, DWC3_GRXTHRCFG);
+			reg = dwc3_readl(dwc, DWC3_GRXTHRCFG);
 			reg |= DWC3_GRXTHRCFG_PKTCNTSEL;
 
 			reg &= ~DWC3_GRXTHRCFG_RXPKTCNT(~0);
@@ -1277,11 +1301,11 @@ static void dwc3_config_threshold(struct dwc3 *dwc)
 			reg &= ~DWC3_GRXTHRCFG_MAXRXBURSTSIZE(~0);
 			reg |= DWC3_GRXTHRCFG_MAXRXBURSTSIZE(rx_maxburst);
 
-			dwc3_writel(dwc->regs, DWC3_GRXTHRCFG, reg);
+			dwc3_writel(dwc, DWC3_GRXTHRCFG, reg);
 		}
 
 		if (tx_thr_num && tx_maxburst) {
-			reg = dwc3_readl(dwc->regs, DWC3_GTXTHRCFG);
+			reg = dwc3_readl(dwc, DWC3_GTXTHRCFG);
 			reg |= DWC3_GTXTHRCFG_PKTCNTSEL;
 
 			reg &= ~DWC3_GTXTHRCFG_TXPKTCNT(~0);
@@ -1290,11 +1314,11 @@ static void dwc3_config_threshold(struct dwc3 *dwc)
 			reg &= ~DWC3_GTXTHRCFG_MAXTXBURSTSIZE(~0);
 			reg |= DWC3_GTXTHRCFG_MAXTXBURSTSIZE(tx_maxburst);
 
-			dwc3_writel(dwc->regs, DWC3_GTXTHRCFG, reg);
+			dwc3_writel(dwc, DWC3_GTXTHRCFG, reg);
 		}
 	} else {
 		if (rx_thr_num && rx_maxburst) {
-			reg = dwc3_readl(dwc->regs, DWC3_GRXTHRCFG);
+			reg = dwc3_readl(dwc, DWC3_GRXTHRCFG);
 			reg |= DWC31_GRXTHRCFG_PKTCNTSEL;
 
 			reg &= ~DWC31_GRXTHRCFG_RXPKTCNT(~0);
@@ -1303,11 +1327,11 @@ static void dwc3_config_threshold(struct dwc3 *dwc)
 			reg &= ~DWC31_GRXTHRCFG_MAXRXBURSTSIZE(~0);
 			reg |= DWC31_GRXTHRCFG_MAXRXBURSTSIZE(rx_maxburst);
 
-			dwc3_writel(dwc->regs, DWC3_GRXTHRCFG, reg);
+			dwc3_writel(dwc, DWC3_GRXTHRCFG, reg);
 		}
 
 		if (tx_thr_num && tx_maxburst) {
-			reg = dwc3_readl(dwc->regs, DWC3_GTXTHRCFG);
+			reg = dwc3_readl(dwc, DWC3_GTXTHRCFG);
 			reg |= DWC31_GTXTHRCFG_PKTCNTSEL;
 
 			reg &= ~DWC31_GTXTHRCFG_TXPKTCNT(~0);
@@ -1316,7 +1340,7 @@ static void dwc3_config_threshold(struct dwc3 *dwc)
 			reg &= ~DWC31_GTXTHRCFG_MAXTXBURSTSIZE(~0);
 			reg |= DWC31_GTXTHRCFG_MAXTXBURSTSIZE(tx_maxburst);
 
-			dwc3_writel(dwc->regs, DWC3_GTXTHRCFG, reg);
+			dwc3_writel(dwc, DWC3_GTXTHRCFG, reg);
 		}
 	}
 }
@@ -1327,7 +1351,7 @@ static void dwc3_config_threshold(struct dwc3 *dwc)
  *
  * Returns 0 on success otherwise negative errno.
  */
-static int dwc3_core_init(struct dwc3 *dwc)
+int dwc3_core_init(struct dwc3 *dwc)
 {
 	unsigned int		hw_mode;
 	u32			reg;
@@ -1339,7 +1363,7 @@ static int dwc3_core_init(struct dwc3 *dwc)
 	 * Write Linux Version Code to our GUID register so it's easy to figure
 	 * out which kernel version a bug was found.
 	 */
-	dwc3_writel(dwc->regs, DWC3_GUID, LINUX_VERSION_CODE);
+	dwc3_writel(dwc, DWC3_GUID, LINUX_VERSION_CODE);
 
 	ret = dwc3_phy_setup(dwc);
 	if (ret)
@@ -1356,6 +1380,8 @@ static int dwc3_core_init(struct dwc3 *dwc)
 		}
 		dwc->ulpi_ready = true;
 	}
+
+	dwc3_ulpi_setup(dwc);
 
 	if (!dwc->phys_ready) {
 		ret = dwc3_core_get_phy(dwc);
@@ -1404,9 +1430,9 @@ static int dwc3_core_init(struct dwc3 *dwc)
 	 * DWC_usb31 controller.
 	 */
 	if (DWC3_VER_IS_WITHIN(DWC3, 310A, ANY)) {
-		reg = dwc3_readl(dwc->regs, DWC3_GUCTL2);
+		reg = dwc3_readl(dwc, DWC3_GUCTL2);
 		reg |= DWC3_GUCTL2_RST_ACTBITLATER;
-		dwc3_writel(dwc->regs, DWC3_GUCTL2, reg);
+		dwc3_writel(dwc, DWC3_GUCTL2, reg);
 	}
 
 	/*
@@ -1419,9 +1445,9 @@ static int dwc3_core_init(struct dwc3 *dwc)
 	 * setting GUCTL2[19] by default; instead, use GUCTL2[19] = 0.
 	 */
 	if (DWC3_VER_IS(DWC3, 320A)) {
-		reg = dwc3_readl(dwc->regs, DWC3_GUCTL2);
+		reg = dwc3_readl(dwc, DWC3_GUCTL2);
 		reg &= ~DWC3_GUCTL2_LC_TIMER;
-		dwc3_writel(dwc->regs, DWC3_GUCTL2, reg);
+		dwc3_writel(dwc, DWC3_GUCTL2, reg);
 	}
 
 	/*
@@ -1434,13 +1460,13 @@ static int dwc3_core_init(struct dwc3 *dwc)
 	 * legacy ULPI PHYs.
 	 */
 	if (dwc->resume_hs_terminations) {
-		reg = dwc3_readl(dwc->regs, DWC3_GUCTL1);
+		reg = dwc3_readl(dwc, DWC3_GUCTL1);
 		reg |= DWC3_GUCTL1_RESUME_OPMODE_HS_HOST;
-		dwc3_writel(dwc->regs, DWC3_GUCTL1, reg);
+		dwc3_writel(dwc, DWC3_GUCTL1, reg);
 	}
 
 	if (!DWC3_VER_IS_PRIOR(DWC3, 250A)) {
-		reg = dwc3_readl(dwc->regs, DWC3_GUCTL1);
+		reg = dwc3_readl(dwc, DWC3_GUCTL1);
 
 		/*
 		 * Enable hardware control of sending remote wakeup
@@ -1475,24 +1501,20 @@ static int dwc3_core_init(struct dwc3 *dwc)
 				reg &= ~DWC3_GUCTL1_DEV_FORCE_20_CLK_FOR_30_CLK;
 		}
 
-		dwc3_writel(dwc->regs, DWC3_GUCTL1, reg);
+		dwc3_writel(dwc, DWC3_GUCTL1, reg);
 	}
 
 	dwc3_config_threshold(dwc);
 
-	/*
-	 * Modify this for all supported Super Speed ports when
-	 * multiport support is added.
-	 */
 	if (hw_mode != DWC3_GHWPARAMS0_MODE_GADGET &&
 	    (DWC3_IP_IS(DWC31)) &&
 	    dwc->maximum_speed == USB_SPEED_SUPER) {
 		int i;
 
 		for (i = 0; i < dwc->num_usb3_ports; i++) {
-			reg = dwc3_readl(dwc->regs, DWC3_LLUCTL(i));
+			reg = dwc3_readl(dwc, DWC3_LLUCTL(i));
 			reg |= DWC3_LLUCTL_FORCE_GEN1;
-			dwc3_writel(dwc->regs, DWC3_LLUCTL(i), reg);
+			dwc3_writel(dwc, DWC3_LLUCTL(i), reg);
 		}
 	}
 
@@ -1511,9 +1533,9 @@ static int dwc3_core_init(struct dwc3 *dwc)
 	 * function is available only from version 1.70a.
 	 */
 	if (DWC3_VER_IS_WITHIN(DWC31, 170A, 180A)) {
-		reg = dwc3_readl(dwc->regs, DWC3_GUCTL3);
+		reg = dwc3_readl(dwc, DWC3_GUCTL3);
 		reg |= DWC3_GUCTL3_USB20_RETRY_DISABLE;
-		dwc3_writel(dwc->regs, DWC3_GUCTL3, reg);
+		dwc3_writel(dwc, DWC3_GUCTL3, reg);
 	}
 
 	return 0;
@@ -1527,6 +1549,7 @@ err_exit_ulpi:
 
 	return ret;
 }
+EXPORT_SYMBOL_GPL(dwc3_core_init);
 
 static int dwc3_core_get_phy(struct dwc3 *dwc)
 {
@@ -1665,13 +1688,23 @@ static void dwc3_core_exit_mode(struct dwc3 *dwc)
 	dwc3_set_prtcap(dwc, DWC3_GCTL_PRTCAP_DEVICE, true);
 }
 
-static void dwc3_get_software_properties(struct dwc3 *dwc)
+static void dwc3_get_software_properties(struct dwc3 *dwc,
+					 const struct dwc3_properties *properties)
 {
 	struct device *tmpdev;
 	u16 gsbuscfg0_reqinfo;
 	int ret;
 
+	if (properties->needs_full_reinit)
+		dwc->needs_full_reinit = true;
+
 	dwc->gsbuscfg0_reqinfo = DWC3_GSBUSCFG0_REQINFO_UNSPECIFIED;
+
+	if (properties->gsbuscfg0_reqinfo !=
+	    DWC3_GSBUSCFG0_REQINFO_UNSPECIFIED) {
+		dwc->gsbuscfg0_reqinfo = properties->gsbuscfg0_reqinfo;
+		return;
+	}
 
 	/*
 	 * Iterate over all parent nodes for finding swnode properties
@@ -2145,6 +2178,20 @@ static int dwc3_get_num_ports(struct dwc3 *dwc)
 	return 0;
 }
 
+static void dwc3_vbus_draw_work(struct work_struct *work)
+{
+	struct dwc3 *dwc = container_of(work, struct dwc3, vbus_draw_work);
+	union power_supply_propval val = {0};
+	int ret;
+
+	val.intval = 1000 * (dwc->current_limit);
+	ret = power_supply_set_property(dwc->usb_psy, POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT, &val);
+
+	if (ret < 0)
+		dev_dbg(dwc->dev, "Error (%d) setting vbus draw (%d mA)\n",
+			ret, dwc->current_limit);
+}
+
 static struct power_supply *dwc3_get_usb_power_supply(struct dwc3 *dwc)
 {
 	struct power_supply *usb_psy;
@@ -2159,6 +2206,7 @@ static struct power_supply *dwc3_get_usb_power_supply(struct dwc3 *dwc)
 	if (!usb_psy)
 		return ERR_PTR(-EPROBE_DEFER);
 
+	INIT_WORK(&dwc->vbus_draw_work, dwc3_vbus_draw_work);
 	return usb_psy;
 }
 
@@ -2205,7 +2253,7 @@ int dwc3_core_probe(const struct dwc3_probe_data *data)
 
 	dwc3_get_properties(dwc);
 
-	dwc3_get_software_properties(dwc);
+	dwc3_get_software_properties(dwc, &data->properties);
 
 	dwc->usb_psy = dwc3_get_usb_power_supply(dwc);
 	if (IS_ERR(dwc->usb_psy))
@@ -2240,7 +2288,7 @@ int dwc3_core_probe(const struct dwc3_probe_data *data)
 	dev_set_drvdata(dev, dwc);
 	dwc3_cache_hwparams(dwc);
 
-	if (!dwc->sysdev_is_parent &&
+	if (!dev_is_pci(dwc->sysdev) &&
 	    DWC3_GHWPARAMS0_AWIDTH(dwc->hwparams.hwparams0) == 64) {
 		ret = dma_set_mask_and_coherent(dwc->sysdev, DMA_BIT_MASK(64));
 		if (ret)
@@ -2298,9 +2346,11 @@ int dwc3_core_probe(const struct dwc3_probe_data *data)
 	dwc3_check_params(dwc);
 	dwc3_debugfs_init(dwc);
 
-	ret = dwc3_core_init_mode(dwc);
-	if (ret)
-		goto err_exit_debugfs;
+	if (!data->skip_core_init_mode) {
+		ret = dwc3_core_init_mode(dwc);
+		if (ret)
+			goto err_exit_debugfs;
+	}
 
 	pm_runtime_put(dev);
 
@@ -2351,9 +2401,11 @@ static int dwc3_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	dwc->dev = &pdev->dev;
+	dwc->glue_ops = NULL;
 
 	probe_data.dwc = dwc;
 	probe_data.res = res;
+	probe_data.properties = DWC3_DEFAULT_PROPERTIES;
 
 	return dwc3_core_probe(&probe_data);
 }
@@ -2381,8 +2433,10 @@ void dwc3_core_remove(struct dwc3 *dwc)
 
 	dwc3_free_event_buffers(dwc);
 
-	if (dwc->usb_psy)
+	if (dwc->usb_psy) {
+		cancel_work_sync(&dwc->vbus_draw_work);
 		power_supply_put(dwc->usb_psy);
+	}
 }
 EXPORT_SYMBOL_GPL(dwc3_core_remove);
 
@@ -2425,9 +2479,9 @@ static int dwc3_suspend_common(struct dwc3 *dwc, pm_message_t msg)
 	int ret;
 
 	if (!pm_runtime_suspended(dwc->dev) && !PMSG_IS_AUTO(msg)) {
-		dwc->susphy_state = (dwc3_readl(dwc->regs, DWC3_GUSB2PHYCFG(0)) &
+		dwc->susphy_state = (dwc3_readl(dwc, DWC3_GUSB2PHYCFG(0)) &
 				    DWC3_GUSB2PHYCFG_SUSPHY) ||
-				    (dwc3_readl(dwc->regs, DWC3_GUSB3PIPECTL(0)) &
+				    (dwc3_readl(dwc, DWC3_GUSB3PIPECTL(0)) &
 				    DWC3_GUSB3PIPECTL_SUSPHY);
 		/*
 		 * TI AM62 platform requires SUSPHY to be
@@ -2448,7 +2502,8 @@ static int dwc3_suspend_common(struct dwc3 *dwc, pm_message_t msg)
 		dwc3_core_exit(dwc);
 		break;
 	case DWC3_GCTL_PRTCAP_HOST:
-		if (!PMSG_IS_AUTO(msg) && !device_may_wakeup(dwc->dev)) {
+		if (!PMSG_IS_AUTO(msg) &&
+		    (!device_may_wakeup(dwc->dev) || dwc->needs_full_reinit)) {
 			dwc3_core_exit(dwc);
 			break;
 		}
@@ -2457,10 +2512,10 @@ static int dwc3_suspend_common(struct dwc3 *dwc, pm_message_t msg)
 		if (dwc->dis_u2_susphy_quirk ||
 		    dwc->dis_enblslpm_quirk) {
 			for (i = 0; i < dwc->num_usb2_ports; i++) {
-				reg = dwc3_readl(dwc->regs, DWC3_GUSB2PHYCFG(i));
+				reg = dwc3_readl(dwc, DWC3_GUSB2PHYCFG(i));
 				reg |=  DWC3_GUSB2PHYCFG_ENBLSLPM |
 					DWC3_GUSB2PHYCFG_SUSPHY;
-				dwc3_writel(dwc->regs, DWC3_GUSB2PHYCFG(i), reg);
+				dwc3_writel(dwc, DWC3_GUSB2PHYCFG(i), reg);
 			}
 
 			/* Give some time for USB2 PHY to suspend */
@@ -2511,7 +2566,8 @@ static int dwc3_resume_common(struct dwc3 *dwc, pm_message_t msg)
 		dwc3_gadget_resume(dwc);
 		break;
 	case DWC3_GCTL_PRTCAP_HOST:
-		if (!PMSG_IS_AUTO(msg) && !device_may_wakeup(dwc->dev)) {
+		if (!PMSG_IS_AUTO(msg) &&
+		    (!device_may_wakeup(dwc->dev) || dwc->needs_full_reinit)) {
 			ret = dwc3_core_init_for_resume(dwc);
 			if (ret)
 				return ret;
@@ -2520,14 +2576,14 @@ static int dwc3_resume_common(struct dwc3 *dwc, pm_message_t msg)
 		}
 		/* Restore GUSB2PHYCFG bits that were modified in suspend */
 		for (i = 0; i < dwc->num_usb2_ports; i++) {
-			reg = dwc3_readl(dwc->regs, DWC3_GUSB2PHYCFG(i));
+			reg = dwc3_readl(dwc, DWC3_GUSB2PHYCFG(i));
 			if (dwc->dis_u2_susphy_quirk)
 				reg &= ~DWC3_GUSB2PHYCFG_SUSPHY;
 
 			if (dwc->dis_enblslpm_quirk)
 				reg &= ~DWC3_GUSB2PHYCFG_ENBLSLPM;
 
-			dwc3_writel(dwc->regs, DWC3_GUSB2PHYCFG(i), reg);
+			dwc3_writel(dwc, DWC3_GUSB2PHYCFG(i), reg);
 		}
 
 		for (i = 0; i < dwc->num_usb2_ports; i++)
@@ -2642,7 +2698,6 @@ int dwc3_runtime_idle(struct dwc3 *dwc)
 		break;
 	}
 
-	pm_runtime_mark_last_busy(dev);
 	pm_runtime_autosuspend(dev);
 
 	return 0;
@@ -2710,9 +2765,9 @@ void dwc3_pm_complete(struct dwc3 *dwc)
 
 	if (dwc->current_dr_role == DWC3_GCTL_PRTCAP_HOST &&
 			dwc->dis_split_quirk) {
-		reg = dwc3_readl(dwc->regs, DWC3_GUCTL3);
+		reg = dwc3_readl(dwc, DWC3_GUCTL3);
 		reg |= DWC3_GUCTL3_SPLITDISABLE;
-		dwc3_writel(dwc->regs, DWC3_GUCTL3, reg);
+		dwc3_writel(dwc, DWC3_GUCTL3, reg);
 	}
 }
 EXPORT_SYMBOL_GPL(dwc3_pm_complete);

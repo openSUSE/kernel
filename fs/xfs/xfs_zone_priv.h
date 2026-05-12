@@ -32,11 +32,7 @@ struct xfs_open_zone {
 	 */
 	enum rw_hint		oz_write_hint;
 
-	/*
-	 * Is this open zone used for garbage collection?  There can only be a
-	 * single open GC zone, which is pointed to by zi_open_gc_zone in
-	 * struct xfs_zone_info.  Constant over the life time of an open zone.
-	 */
+	/* Is this open zone used for garbage collection? */
 	bool			oz_is_gc;
 
 	/*
@@ -44,6 +40,8 @@ struct xfs_open_zone {
 	 * the life time of an open zone.
 	 */
 	struct xfs_rtgroup	*oz_rtg;
+
+	struct rcu_head		oz_rcu;
 };
 
 /*
@@ -66,11 +64,11 @@ struct xfs_zone_info {
 	spinlock_t		zi_open_zones_lock;
 	struct list_head	zi_open_zones;
 	unsigned int		zi_nr_open_zones;
+	unsigned int		zi_nr_open_gc_zones;
 
 	/*
 	 * Free zone search cursor and number of free zones:
 	 */
-	unsigned long		zi_free_zone_cursor;
 	atomic_t		zi_nr_free_zones;
 
 	/*
@@ -80,15 +78,9 @@ struct xfs_zone_info {
 	wait_queue_head_t	zi_zone_wait;
 
 	/*
-	 * Pointer to the GC thread, and the current open zone used by GC
-	 * (if any).
-	 *
-	 * zi_open_gc_zone is mostly private to the GC thread, but can be read
-	 * for debugging from other threads, in which case zi_open_zones_lock
-	 * must be taken to access it.
+	 * Pointer to the GC thread.
 	 */
 	struct task_struct      *zi_gc_thread;
-	struct xfs_open_zone	*zi_open_gc_zone;
 
 	/*
 	 * List of zones that need a reset:
@@ -111,6 +103,7 @@ struct xfs_open_zone *xfs_open_zone(struct xfs_mount *mp,
 
 int xfs_zone_gc_reset_sync(struct xfs_rtgroup *rtg);
 bool xfs_zoned_need_gc(struct xfs_mount *mp);
+bool xfs_zoned_have_reclaimable(struct xfs_zone_info *zi);
 int xfs_zone_gc_mount(struct xfs_mount *mp);
 void xfs_zone_gc_unmount(struct xfs_mount *mp);
 

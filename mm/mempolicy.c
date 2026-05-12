@@ -85,6 +85,7 @@
 #include <linux/sched.h>
 #include <linux/sched/mm.h>
 #include <linux/sched/numa_balancing.h>
+#include <linux/sched/sysctl.h>
 #include <linux/sched/task.h>
 #include <linux/nodemask.h>
 #include <linux/cpuset.h>
@@ -99,6 +100,7 @@
 #include <linux/swap.h>
 #include <linux/seq_file.h>
 #include <linux/proc_fs.h>
+#include <linux/memory-tiers.h>
 #include <linux/migrate.h>
 #include <linux/ksm.h>
 #include <linux/rmap.h>
@@ -108,7 +110,7 @@
 #include <linux/mm_inline.h>
 #include <linux/mmu_notifier.h>
 #include <linux/printk.h>
-#include <linux/swapops.h>
+#include <linux/leafops.h>
 #include <linux/gcd.h>
 
 #include <asm/tlbflush.h>
@@ -227,8 +229,7 @@ int mempolicy_set_node_perf(unsigned int node, struct access_coordinate *coords)
 	if (!new_bw)
 		return -ENOMEM;
 
-	new_wi_state = kmalloc(struct_size(new_wi_state, iw_table, nr_node_ids),
-			       GFP_KERNEL);
+	new_wi_state = kmalloc_flex(*new_wi_state, iw_table, nr_node_ids);
 	if (!new_wi_state) {
 		kfree(new_bw);
 		return -ENOMEM;
@@ -354,6 +355,7 @@ struct mempolicy *get_task_policy(struct task_struct *p)
 
 	return &default_policy;
 }
+EXPORT_SYMBOL_FOR_MODULES(get_task_policy, "kvm");
 
 static const struct mempolicy_operations {
 	int (*create)(struct mempolicy *pol, const nodemask_t *nodes);
@@ -362,7 +364,7 @@ static const struct mempolicy_operations {
 
 static inline int mpol_store_user_nodemask(const struct mempolicy *pol)
 {
-	return pol->flags & MPOL_MODE_FLAGS;
+	return pol->flags & MPOL_USER_NODEMASK_FLAGS;
 }
 
 static void mpol_relative_nodemask(nodemask_t *ret, const nodemask_t *orig,
@@ -485,8 +487,15 @@ void __mpol_put(struct mempolicy *pol)
 {
 	if (!atomic_dec_and_test(&pol->refcnt))
 		return;
-	kmem_cache_free(policy_cache, pol);
+	/*
+	 * Required to allow mmap_lock_speculative*() access, see for example
+	 * futex_key_to_node_opt(). All accesses are serialized by mmap_lock,
+	 * however the speculative lock section unbound by the normal lock
+	 * boundaries, requiring RCU freeing.
+	 */
+	kfree_rcu(pol, rcu);
 }
+EXPORT_SYMBOL_FOR_MODULES(__mpol_put, "kvm");
 
 static void mpol_rebind_default(struct mempolicy *pol, const nodemask_t *nodes)
 {
@@ -645,7 +654,7 @@ static void queue_folios_pmd(pmd_t *pmd, struct mm_walk *walk)
 	struct folio *folio;
 	struct queue_pages *qp = walk->private;
 
-	if (unlikely(is_pmd_migration_entry(*pmd))) {
+	if (unlikely(pmd_is_migration_entry(*pmd))) {
 		qp->nr_failed++;
 		return;
 	}
@@ -703,7 +712,9 @@ static int queue_folios_pte_range(pmd_t *pmd, unsigned long addr,
 		if (pte_none(ptent))
 			continue;
 		if (!pte_present(ptent)) {
-			if (is_migration_entry(pte_to_swp_entry(ptent)))
+			const softleaf_t entry = softleaf_from_pte(ptent);
+
+			if (softleaf_is_migration(entry))
 				qp->nr_failed++;
 			continue;
 		}
@@ -766,16 +777,21 @@ static int queue_folios_hugetlb(pte_t *pte, unsigned long hmask,
 	unsigned long flags = qp->flags;
 	struct folio *folio;
 	spinlock_t *ptl;
-	pte_t entry;
+	pte_t ptep;
 
 	ptl = huge_pte_lock(hstate_vma(walk->vma), walk->mm, pte);
-	entry = huge_ptep_get(walk->mm, addr, pte);
-	if (!pte_present(entry)) {
-		if (unlikely(is_hugetlb_entry_migration(entry)))
-			qp->nr_failed++;
+	ptep = huge_ptep_get(walk->mm, addr, pte);
+	if (!pte_present(ptep)) {
+		if (!huge_pte_none(ptep)) {
+			const softleaf_t entry = softleaf_from_pte(ptep);
+
+			if (unlikely(softleaf_is_migration(entry)))
+				qp->nr_failed++;
+		}
+
 		goto unlock;
 	}
-	folio = pfn_folio(pte_pfn(entry));
+	folio = pfn_folio(pte_pfn(ptep));
 	if (!queue_folio_required(folio, qp))
 		goto unlock;
 	if (!(flags & (MPOL_MF_MOVE | MPOL_MF_MOVE_ALL)) ||
@@ -803,6 +819,65 @@ unlock:
 }
 
 #ifdef CONFIG_NUMA_BALANCING
+/**
+ * folio_can_map_prot_numa() - check whether the folio can map prot numa
+ * @folio: The folio whose mapping considered for being made NUMA hintable
+ * @vma: The VMA that the folio belongs to.
+ * @is_private_single_threaded: Is this a single-threaded private VMA or not
+ *
+ * This function checks to see if the folio actually indicates that
+ * we need to make the mapping one which causes a NUMA hinting fault,
+ * as there are cases where it's simply unnecessary, and the folio's
+ * access time is adjusted for memory tiering if prot numa needed.
+ *
+ * Return: True if the mapping of the folio needs to be changed, false otherwise.
+ */
+bool folio_can_map_prot_numa(struct folio *folio, struct vm_area_struct *vma,
+		bool is_private_single_threaded)
+{
+	int nid;
+
+	if (!folio || folio_is_zone_device(folio) || folio_test_ksm(folio))
+		return false;
+
+	/* Also skip shared copy-on-write folios */
+	if (is_cow_mapping(vma->vm_flags) && folio_maybe_mapped_shared(folio))
+		return false;
+
+	/* Folios are pinned and can't be migrated */
+	if (folio_maybe_dma_pinned(folio))
+		return false;
+
+	/*
+	 * While migration can move some dirty folios,
+	 * it cannot move them all from MIGRATE_ASYNC
+	 * context.
+	 */
+	if (folio_is_file_lru(folio) && folio_test_dirty(folio))
+		return false;
+
+	/*
+	 * Don't mess with PTEs if folio is already on the node
+	 * a single-threaded process is running on.
+	 */
+	nid = folio_nid(folio);
+	if (is_private_single_threaded && (nid == numa_node_id()))
+		return false;
+
+	/*
+	 * Skip scanning top tier node if normal numa
+	 * balancing is disabled
+	 */
+	if (!(sysctl_numa_balancing_mode & NUMA_BALANCING_NORMAL) &&
+	    node_is_toptier(nid))
+		return false;
+
+	if (folio_use_access_time(folio))
+		folio_xchg_access_time(folio, jiffies_to_msecs(jiffies));
+
+	return true;
+}
+
 /*
  * This is used to mark a range of virtual addresses to be inaccessible.
  * These are later cleared by a NUMA hinting fault. Depending on these
@@ -951,7 +1026,7 @@ static int vma_replace_policy(struct vm_area_struct *vma,
 	}
 
 	old = vma->vm_policy;
-	vma->vm_policy = new; /* protected by mmap_lock */
+	WRITE_ONCE(vma->vm_policy, new); /* protected by mmap_lock */
 	mpol_put(old);
 
 	return 0;
@@ -1170,7 +1245,7 @@ static long do_get_mempolicy(int *policy, nodemask_t *nmask,
 	return err;
 }
 
-#ifdef CONFIG_MIGRATION
+#ifdef CONFIG_NUMA_MIGRATION
 static bool migrate_folio_add(struct folio *folio, struct list_head *foliolist,
 				unsigned long flags)
 {
@@ -1839,8 +1914,7 @@ static int kernel_migrate_pages(pid_t pid, unsigned long maxnode,
 	}
 
 	task_nodes = cpuset_mems_allowed(current);
-	nodes_and(*new, *new, task_nodes);
-	if (nodes_empty(*new))
+	if (!nodes_and(*new, *new, task_nodes))
 		goto out_put;
 
 	err = security_task_movememory(task);
@@ -2381,7 +2455,7 @@ static struct page *alloc_pages_mpol(gfp_t gfp, unsigned int order,
 
 	if (IS_ENABLED(CONFIG_TRANSPARENT_HUGEPAGE) &&
 	    /* filter "hugepage" allocation, unless from alloc_pages() */
-	    order == HPAGE_PMD_ORDER && ilx != NO_INTERLEAVE_INDEX) {
+	    is_pmd_order(order) && ilx != NO_INTERLEAVE_INDEX) {
 		/*
 		 * For hugepage allocation and non-interleave policy which
 		 * allows the current node (or other explicitly preferred
@@ -2885,6 +2959,7 @@ struct mempolicy *mpol_shared_policy_lookup(struct shared_policy *sp,
 	read_unlock(&sp->lock);
 	return pol;
 }
+EXPORT_SYMBOL_FOR_MODULES(mpol_shared_policy_lookup, "kvm");
 
 static void sp_free(struct sp_node *n)
 {
@@ -3170,6 +3245,7 @@ put_mpol:
 		mpol_put(mpol);	/* drop our incoming ref on sb mpol */
 	}
 }
+EXPORT_SYMBOL_FOR_MODULES(mpol_shared_policy_init, "kvm");
 
 int mpol_set_shared_policy(struct shared_policy *sp,
 			struct vm_area_struct *vma, struct mempolicy *pol)
@@ -3188,6 +3264,7 @@ int mpol_set_shared_policy(struct shared_policy *sp,
 		sp_free(new);
 	return err;
 }
+EXPORT_SYMBOL_FOR_MODULES(mpol_set_shared_policy, "kvm");
 
 /* Free a backing policy store on inode delete. */
 void mpol_free_shared_policy(struct shared_policy *sp)
@@ -3206,6 +3283,7 @@ void mpol_free_shared_policy(struct shared_policy *sp)
 	}
 	write_unlock(&sp->lock);
 }
+EXPORT_SYMBOL_FOR_MODULES(mpol_free_shared_policy, "kvm");
 
 #ifdef CONFIG_NUMA_BALANCING
 static int __initdata numabalancing_override;
@@ -3569,8 +3647,7 @@ static ssize_t node_store(struct kobject *kobj, struct kobj_attribute *attr,
 	    kstrtou8(buf, 0, &weight) || weight == 0)
 		return -EINVAL;
 
-	new_wi_state = kzalloc(struct_size(new_wi_state, iw_table, nr_node_ids),
-			       GFP_KERNEL);
+	new_wi_state = kzalloc_flex(*new_wi_state, iw_table, nr_node_ids);
 	if (!new_wi_state)
 		return -ENOMEM;
 
@@ -3622,26 +3699,26 @@ static ssize_t weighted_interleave_auto_store(struct kobject *kobj,
 	if (kstrtobool(buf, &input))
 		return -EINVAL;
 
-	new_wi_state = kzalloc(struct_size(new_wi_state, iw_table, nr_node_ids),
-			       GFP_KERNEL);
+	new_wi_state = kzalloc_flex(*new_wi_state, iw_table, nr_node_ids);
 	if (!new_wi_state)
 		return -ENOMEM;
 	for (i = 0; i < nr_node_ids; i++)
 		new_wi_state->iw_table[i] = 1;
 
 	mutex_lock(&wi_state_lock);
-	if (!input) {
-		old_wi_state = rcu_dereference_protected(wi_state,
-					lockdep_is_held(&wi_state_lock));
-		if (!old_wi_state)
-			goto update_wi_state;
-		if (input == old_wi_state->mode_auto) {
-			mutex_unlock(&wi_state_lock);
-			return count;
-		}
+	old_wi_state = rcu_dereference_protected(wi_state,
+				lockdep_is_held(&wi_state_lock));
 
-		memcpy(new_wi_state->iw_table, old_wi_state->iw_table,
-					       nr_node_ids * sizeof(u8));
+	if (old_wi_state && input == old_wi_state->mode_auto) {
+		mutex_unlock(&wi_state_lock);
+		kfree(new_wi_state);
+		return count;
+	}
+
+	if (!input) {
+		if (old_wi_state)
+			memcpy(new_wi_state->iw_table, old_wi_state->iw_table,
+						       nr_node_ids * sizeof(u8));
 		goto update_wi_state;
 	}
 
@@ -3711,9 +3788,11 @@ static void wi_state_free(void)
 	}
 }
 
-static struct kobj_attribute wi_auto_attr =
-	__ATTR(auto, 0664, weighted_interleave_auto_show,
-			   weighted_interleave_auto_store);
+static struct kobj_attribute wi_auto_attr = {
+	.attr = { .name = "auto", .mode = 0664 },
+	.show = weighted_interleave_auto_show,
+	.store = weighted_interleave_auto_store,
+};
 
 static void wi_cleanup(void) {
 	sysfs_remove_file(&wi_group->wi_kobj, &wi_auto_attr.attr);
@@ -3742,7 +3821,7 @@ static int sysfs_wi_node_add(int nid)
 		return -EINVAL;
 	}
 
-	new_attr = kzalloc(sizeof(*new_attr), GFP_KERNEL);
+	new_attr = kzalloc_obj(*new_attr);
 	if (!new_attr)
 		return -ENOMEM;
 
@@ -3807,8 +3886,7 @@ static int __init add_weighted_interleave_group(struct kobject *mempolicy_kobj)
 {
 	int nid, err;
 
-	wi_group = kzalloc(struct_size(wi_group, nattrs, nr_node_ids),
-			   GFP_KERNEL);
+	wi_group = kzalloc_flex(*wi_group, nattrs, nr_node_ids);
 	if (!wi_group)
 		return -ENOMEM;
 	mutex_init(&wi_group->kobj_lock);

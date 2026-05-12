@@ -42,11 +42,16 @@ struct actions {
 	struct tracefs_instance *trace_output_inst;
 };
 
+#define for_each_action(actions, action)			\
+	for ((action) = (actions)->list;			\
+	     (action) < (actions)->list + (actions)->len;	\
+	     (action)++)
+
 void actions_init(struct actions *self);
 void actions_destroy(struct actions *self);
-int actions_add_trace_output(struct actions *self, const char *trace_output);
-int actions_add_signal(struct actions *self, int signal, int pid);
-int actions_add_shell(struct actions *self, const char *command);
-int actions_add_continue(struct actions *self);
-int actions_parse(struct actions *self, const char *trigger);
+void actions_add_trace_output(struct actions *self, const char *trace_output);
+void actions_add_signal(struct actions *self, int signal, int pid);
+void actions_add_shell(struct actions *self, const char *command);
+void actions_add_continue(struct actions *self);
+int actions_parse(struct actions *self, const char *trigger, const char *tracefn);
 int actions_perform(struct actions *self);

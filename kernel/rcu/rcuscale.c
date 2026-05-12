@@ -79,12 +79,6 @@ MODULE_AUTHOR("Paul E. McKenney <paulmck@linux.ibm.com>");
  * test-end checks, and the pair of calls through pointers.
  */
 
-#ifdef MODULE
-# define RCUSCALE_SHUTDOWN 0
-#else
-# define RCUSCALE_SHUTDOWN 1
-#endif
-
 torture_param(bool, gp_async, false, "Use asynchronous GP wait primitives");
 torture_param(int, gp_async_max, 1000, "Max # outstanding waits per writer");
 torture_param(bool, gp_exp, false, "Use expedited GP wait primitives");
@@ -92,8 +86,8 @@ torture_param(int, holdoff, 10, "Holdoff time before test start (s)");
 torture_param(int, minruntime, 0, "Minimum run time (s)");
 torture_param(int, nreaders, -1, "Number of RCU reader threads");
 torture_param(int, nwriters, -1, "Number of RCU updater threads");
-torture_param(bool, shutdown, RCUSCALE_SHUTDOWN,
-	      "Shutdown at end of scalability tests.");
+torture_param(int, shutdown_secs, !IS_MODULE(CONFIG_RCU_SCALE_TEST) * 300,
+	      "Shutdown at end of scalability tests or at specified timeout (s).");
 torture_param(int, verbose, 1, "Enable verbose debugging printk()s");
 torture_param(int, writer_holdoff, 0, "Holdoff (us) between GPs, zero to disable");
 torture_param(int, writer_holdoff_jiffies, 0, "Holdoff (jiffies) between GPs, zero to disable");
@@ -123,7 +117,6 @@ static int nrealreaders;
 static int nrealwriters;
 static struct task_struct **writer_tasks;
 static struct task_struct **reader_tasks;
-static struct task_struct *shutdown_task;
 
 static u64 **writer_durations;
 static bool *writer_done;
@@ -132,7 +125,6 @@ static int *writer_n_durations;
 static atomic_t n_rcu_scale_reader_started;
 static atomic_t n_rcu_scale_writer_started;
 static atomic_t n_rcu_scale_writer_finished;
-static wait_queue_head_t shutdown_wq;
 static u64 t_rcu_scale_writer_started;
 static u64 t_rcu_scale_writer_finished;
 static unsigned long b_rcu_gp_test_started;
@@ -400,11 +392,6 @@ static void tasks_trace_scale_read_unlock(int idx)
 	rcu_read_unlock_trace();
 }
 
-static void rcu_tasks_trace_scale_stats(void)
-{
-	rcu_tasks_trace_torture_stats_print(scale_type, SCALE_FLAG);
-}
-
 static struct rcu_scale_ops tasks_tracing_ops = {
 	.ptype		= RCU_TASKS_FLAVOR,
 	.init		= rcu_sync_scale_init,
@@ -416,8 +403,6 @@ static struct rcu_scale_ops tasks_tracing_ops = {
 	.gp_barrier	= rcu_barrier_tasks_trace,
 	.sync		= synchronize_rcu_tasks_trace,
 	.exp_sync	= synchronize_rcu_tasks_trace,
-	.rso_gp_kthread	= get_rcu_tasks_trace_gp_kthread,
-	.stats		= IS_ENABLED(CONFIG_TINY_RCU) ? NULL : rcu_tasks_trace_scale_stats,
 	.name		= "tasks-tracing"
 };
 
@@ -526,6 +511,8 @@ static void rcu_scale_async_cb(struct rcu_head *rhp)
 	rcu_scale_free(wmbp);
 }
 
+static void rcu_scale_cleanup(void);
+
 /*
  * RCU scale writer kthread.  Repeatedly does a grace period.
  */
@@ -629,9 +616,11 @@ rcu_scale_writer(void *arg)
 					b_rcu_gp_test_finished =
 						cur_ops->get_gp_seq();
 				}
-				if (shutdown) {
+				if (shutdown_secs) {
+					writer_tasks[me] = NULL;
 					smp_mb(); /* Assign before wake. */
-					wake_up(&shutdown_wq);
+					rcu_scale_cleanup();
+					kernel_power_off();
 				}
 			}
 		}
@@ -675,8 +664,8 @@ static void
 rcu_scale_print_module_parms(struct rcu_scale_ops *cur_ops, const char *tag)
 {
 	pr_alert("%s" SCALE_FLAG
-		 "--- %s: gp_async=%d gp_async_max=%d gp_exp=%d holdoff=%d minruntime=%d nreaders=%d nwriters=%d writer_holdoff=%d writer_holdoff_jiffies=%d verbose=%d shutdown=%d\n",
-		 scale_type, tag, gp_async, gp_async_max, gp_exp, holdoff, minruntime, nrealreaders, nrealwriters, writer_holdoff, writer_holdoff_jiffies, verbose, shutdown);
+		 "--- %s: gp_async=%d gp_async_max=%d gp_exp=%d holdoff=%d minruntime=%d nreaders=%d nwriters=%d writer_holdoff=%d writer_holdoff_jiffies=%d verbose=%d shutdown_secs=%d\n",
+		 scale_type, tag, gp_async, gp_async_max, gp_exp, holdoff, minruntime, nrealreaders, nrealwriters, writer_holdoff, writer_holdoff_jiffies, verbose, shutdown_secs);
 }
 
 /*
@@ -729,6 +718,8 @@ static void kfree_call_rcu(struct rcu_head *rh)
 	kfree(obj);
 }
 
+static void kfree_scale_cleanup(void);
+
 static int
 kfree_scale_thread(void *arg)
 {
@@ -762,7 +753,7 @@ kfree_scale_thread(void *arg)
 		}
 
 		for (i = 0; i < kfree_alloc_num; i++) {
-			alloc_ptr = kcalloc(kfree_mult, sizeof(struct kfree_obj), GFP_KERNEL);
+			alloc_ptr = kzalloc_objs(struct kfree_obj, kfree_mult);
 			if (!alloc_ptr)
 				return -ENOMEM;
 
@@ -796,11 +787,13 @@ kfree_scale_thread(void *arg)
 		pr_alert("Total time taken by all kfree'ers: %llu ns, loops: %d, batches: %ld, memory footprint: %lldMB\n",
 		       (unsigned long long)(end_time - start_time), kfree_loops,
 		       rcuscale_seq_diff(b_rcu_gp_test_finished, b_rcu_gp_test_started),
-		       (mem_begin - mem_during) >> (20 - PAGE_SHIFT));
+		       PAGES_TO_MB(mem_begin - mem_during));
 
-		if (shutdown) {
+		if (shutdown_secs) {
+			kfree_reader_tasks[me] = NULL;
 			smp_mb(); /* Assign before wake. */
-			wake_up(&shutdown_wq);
+			kfree_scale_cleanup();
+			kernel_power_off();
 		}
 	}
 
@@ -825,22 +818,6 @@ kfree_scale_cleanup(void)
 	}
 
 	torture_cleanup_end();
-}
-
-/*
- * shutdown kthread.  Just waits to be awakened, then shuts down system.
- */
-static int
-kfree_scale_shutdown(void *arg)
-{
-	wait_event_idle(shutdown_wq,
-			atomic_read(&n_kfree_scale_thread_ended) >= kfree_nrealthreads);
-
-	smp_mb(); /* Wake before output. */
-
-	kfree_scale_cleanup();
-	kernel_power_off();
-	return -EINVAL;
 }
 
 // Used if doing RCU-kfree'ing via call_rcu().
@@ -902,21 +879,18 @@ kfree_scale_init(void)
 
 	kfree_nrealthreads = compute_real(kfree_nthreads);
 	/* Start up the kthreads. */
-	if (shutdown) {
-		init_waitqueue_head(&shutdown_wq);
-		firsterr = torture_create_kthread(kfree_scale_shutdown, NULL,
-						  shutdown_task);
+	if (shutdown_secs) {
+		firsterr = torture_shutdown_init(shutdown_secs, kfree_scale_cleanup);
 		if (torture_init_error(firsterr))
 			goto unwind;
-		schedule_timeout_uninterruptible(1);
 	}
 
 	pr_alert("kfree object size=%zu, kfree_by_call_rcu=%d\n",
 			kfree_mult * sizeof(struct kfree_obj),
 			kfree_by_call_rcu);
 
-	kfree_reader_tasks = kcalloc(kfree_nrealthreads, sizeof(kfree_reader_tasks[0]),
-			       GFP_KERNEL);
+	kfree_reader_tasks = kzalloc_objs(kfree_reader_tasks[0],
+					  kfree_nrealthreads);
 	if (kfree_reader_tasks == NULL) {
 		firsterr = -ENOMEM;
 		goto unwind;
@@ -1065,20 +1039,6 @@ rcu_scale_cleanup(void)
 	torture_cleanup_end();
 }
 
-/*
- * RCU scalability shutdown kthread.  Just waits to be awakened, then shuts
- * down system.
- */
-static int
-rcu_scale_shutdown(void *arg)
-{
-	wait_event_idle(shutdown_wq, atomic_read(&n_rcu_scale_writer_finished) >= nrealwriters);
-	smp_mb(); /* Wake before output. */
-	rcu_scale_cleanup();
-	kernel_power_off();
-	return -EINVAL;
-}
-
 static int __init
 rcu_scale_init(void)
 {
@@ -1128,16 +1088,12 @@ rcu_scale_init(void)
 
 	/* Start up the kthreads. */
 
-	if (shutdown) {
-		init_waitqueue_head(&shutdown_wq);
-		firsterr = torture_create_kthread(rcu_scale_shutdown, NULL,
-						  shutdown_task);
+	if (shutdown_secs) {
+		firsterr = torture_shutdown_init(shutdown_secs, rcu_scale_cleanup);
 		if (torture_init_error(firsterr))
 			goto unwind;
-		schedule_timeout_uninterruptible(1);
 	}
-	reader_tasks = kcalloc(nrealreaders, sizeof(reader_tasks[0]),
-			       GFP_KERNEL);
+	reader_tasks = kzalloc_objs(reader_tasks[0], nrealreaders);
 	if (reader_tasks == NULL) {
 		SCALEOUT_ERRSTRING("out of memory");
 		firsterr = -ENOMEM;
@@ -1151,10 +1107,10 @@ rcu_scale_init(void)
 	}
 	while (atomic_read(&n_rcu_scale_reader_started) < nrealreaders)
 		schedule_timeout_uninterruptible(1);
-	writer_tasks = kcalloc(nrealwriters, sizeof(writer_tasks[0]), GFP_KERNEL);
+	writer_tasks = kzalloc_objs(writer_tasks[0], nrealwriters);
 	writer_durations = kcalloc(nrealwriters, sizeof(*writer_durations), GFP_KERNEL);
-	writer_n_durations = kcalloc(nrealwriters, sizeof(*writer_n_durations), GFP_KERNEL);
-	writer_done = kcalloc(nrealwriters, sizeof(writer_done[0]), GFP_KERNEL);
+	writer_n_durations = kzalloc_objs(*writer_n_durations, nrealwriters);
+	writer_done = kzalloc_objs(writer_done[0], nrealwriters);
 	if (gp_async) {
 		if (gp_async_max <= 0) {
 			pr_warn("%s: gp_async_max = %d must be greater than zero.\n",
@@ -1163,7 +1119,8 @@ rcu_scale_init(void)
 			firsterr = -EINVAL;
 			goto unwind;
 		}
-		writer_freelists = kcalloc(nrealwriters, sizeof(writer_freelists[0]), GFP_KERNEL);
+		writer_freelists = kzalloc_objs(writer_freelists[0],
+						nrealwriters);
 	}
 	if (!writer_tasks || !writer_durations || !writer_n_durations || !writer_done ||
 	    (gp_async && !writer_freelists)) {
@@ -1184,8 +1141,8 @@ rcu_scale_init(void)
 
 			init_llist_head(&wflp->ws_lhg);
 			init_llist_head(&wflp->ws_lhp);
-			wflp->ws_mblocks = kcalloc(gp_async_max, sizeof(wflp->ws_mblocks[0]),
-						   GFP_KERNEL);
+			wflp->ws_mblocks = kzalloc_objs(wflp->ws_mblocks[0],
+							gp_async_max);
 			if (!wflp->ws_mblocks) {
 				firsterr = -ENOMEM;
 				goto unwind;
@@ -1208,7 +1165,7 @@ rcu_scale_init(void)
 unwind:
 	torture_init_end();
 	rcu_scale_cleanup();
-	if (shutdown) {
+	if (shutdown_secs) {
 		WARN_ON(!IS_MODULE(CONFIG_RCU_SCALE_TEST));
 		kernel_power_off();
 	}

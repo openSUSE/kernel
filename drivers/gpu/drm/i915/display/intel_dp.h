@@ -12,6 +12,7 @@ enum intel_output_format;
 enum pipe;
 enum port;
 struct drm_connector_state;
+struct drm_dp_desc;
 struct drm_dp_vsc_sdp;
 struct drm_encoder;
 struct drm_modeset_acquire_ctx;
@@ -72,6 +73,9 @@ void intel_dp_encoder_flush_work(struct drm_encoder *encoder);
 int intel_dp_compute_config(struct intel_encoder *encoder,
 			    struct intel_crtc_state *pipe_config,
 			    struct drm_connector_state *conn_state);
+bool intel_dp_needs_8b10b_fec(const struct intel_crtc_state *crtc_state,
+			      bool dsc_enabled_on_crtc);
+void intel_dp_dsc_reset_config(struct intel_crtc_state *crtc_state);
 int intel_dp_dsc_compute_config(struct intel_dp *intel_dp,
 				struct intel_crtc_state *pipe_config,
 				struct drm_connector_state *conn_state,
@@ -114,7 +118,11 @@ void intel_dp_compute_rate(struct intel_dp *intel_dp, int port_clock,
 bool intel_dp_source_supports_tps3(struct intel_display *display);
 bool intel_dp_source_supports_tps4(struct intel_display *display);
 
-int intel_dp_link_required(int pixel_clock, int bpp);
+int intel_dp_link_bw_overhead(int link_clock, int lane_count, int hdisplay,
+			      int dsc_slice_count, int bpp_x16, unsigned long flags);
+int intel_dp_link_required(int link_clock, int lane_count,
+			   int mode_clock, int mode_hdisplay,
+			   int link_bpp_x16, unsigned long bw_overhead_flags);
 int intel_dp_effective_data_rate(int pixel_clock, int bpp_x16,
 				 int bw_overhead);
 int intel_dp_max_link_data_rate(struct intel_dp *intel_dp,
@@ -136,25 +144,18 @@ bool intel_digital_port_connected(struct intel_encoder *encoder);
 bool intel_digital_port_connected_locked(struct intel_encoder *encoder);
 int intel_dp_dsc_compute_max_bpp(const struct intel_connector *connector,
 				 u8 dsc_max_bpc);
-u16 intel_dp_dsc_get_max_compressed_bpp(struct intel_display *display,
-					u32 link_clock, u32 lane_count,
-					u32 mode_clock, u32 mode_hdisplay,
-					int num_joined_pipes,
-					enum intel_output_format output_format,
-					u32 pipe_bpp,
-					u32 timeslots);
-int intel_dp_dsc_sink_min_compressed_bpp(const struct intel_crtc_state *pipe_config);
-int intel_dp_dsc_sink_max_compressed_bpp(const struct intel_connector *connector,
-					 const struct intel_crtc_state *pipe_config,
-					 int bpc);
+int intel_dp_compute_min_compressed_bpp_x16(struct intel_connector *connector,
+					    enum intel_output_format output_format);
+bool intel_dp_mode_valid_with_dsc(struct intel_connector *connector,
+				  int link_clock, int lane_count,
+				  int mode_clock, int mode_hdisplay,
+				  int num_joined_pipes,
+				  enum intel_output_format output_format,
+				  int pipe_bpp, unsigned long bw_overhead_flags);
 bool intel_dp_dsc_valid_compressed_bpp(struct intel_dp *intel_dp, int bpp_x16);
 u8 intel_dp_dsc_get_slice_count(const struct intel_connector *connector,
 				int mode_clock, int mode_hdisplay,
 				int num_joined_pipes);
-int intel_dp_num_joined_pipes(struct intel_dp *intel_dp,
-			      struct intel_connector *connector,
-			      int hdisplay, int clock);
-
 static inline unsigned int intel_dp_unused_lane_mask(int lane_count)
 {
 	return ~((1 << lane_count) - 1) & 0xf;
@@ -190,7 +191,8 @@ void intel_dp_pcon_dsc_configure(struct intel_dp *intel_dp,
 
 void intel_dp_invalidate_source_oui(struct intel_dp *intel_dp);
 void intel_dp_wait_source_oui(struct intel_dp *intel_dp);
-int intel_dp_output_bpp(enum intel_output_format output_format, int bpp);
+int intel_dp_output_format_link_bpp_x16(enum intel_output_format output_format,
+					int pipe_bpp);
 
 bool intel_dp_compute_config_limits(struct intel_dp *intel_dp,
 				    struct drm_connector_state *conn_state,
@@ -199,7 +201,9 @@ bool intel_dp_compute_config_limits(struct intel_dp *intel_dp,
 				    bool dsc,
 				    struct link_config_limits *limits);
 
-void intel_dp_get_dsc_sink_cap(u8 dpcd_rev, struct intel_connector *connector);
+void intel_dp_get_dsc_sink_cap(u8 dpcd_rev,
+			       const struct drm_dp_desc *desc, bool is_branch,
+			       struct intel_connector *connector);
 bool intel_dp_has_gamut_metadata_dip(struct intel_encoder *encoder);
 
 bool intel_dp_link_params_valid(struct intel_dp *intel_dp, int link_rate,
@@ -215,5 +219,23 @@ int intel_dp_compute_min_hblank(struct intel_crtc_state *crtc_state,
 int intel_dp_dsc_bpp_step_x16(const struct intel_connector *connector);
 void intel_dp_dpcd_set_probe(struct intel_dp *intel_dp, bool force_on_external);
 bool intel_dp_in_hdr_mode(const struct drm_connector_state *conn_state);
+int intel_dp_compute_config_late(struct intel_encoder *encoder,
+				 struct intel_crtc_state *crtc_state,
+				 struct drm_connector_state *conn_state);
+int intel_dp_sdp_min_guardband(const struct intel_crtc_state *crtc_state,
+			       bool assume_all_enabled);
+int intel_dp_max_hdisplay_per_pipe(struct intel_display *display);
+bool intel_dp_dotclk_valid(struct intel_display *display,
+			   int target_clock,
+			   int htotal,
+			   int dsc_slice_count,
+			   int num_joined_pipes);
+bool intel_dp_joiner_candidate_valid(struct intel_connector *connector,
+				     int hdisplay,
+				     int num_joined_pipes);
+
+#define for_each_joiner_candidate(__connector, __mode, __num_joined_pipes) \
+	for ((__num_joined_pipes) = 1; (__num_joined_pipes) <= (I915_MAX_PIPES); (__num_joined_pipes)++) \
+		for_each_if(intel_dp_joiner_candidate_valid(__connector, (__mode)->hdisplay, __num_joined_pipes))
 
 #endif /* __INTEL_DP_H__ */

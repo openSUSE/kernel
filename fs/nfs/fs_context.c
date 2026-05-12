@@ -806,7 +806,8 @@ static int nfs_fs_context_parse_param(struct fs_context *fc,
 		ctx->mount_server.version = result.uint_32;
 		break;
 	case Opt_minorversion:
-		if (result.uint_32 > NFS4_MAX_MINOR_VERSION)
+		if (result.uint_32 < NFS4_MIN_MINOR_VERSION ||
+		    result.uint_32 > NFS4_MAX_MINOR_VERSION)
 			goto out_of_bounds;
 		ctx->minorversion = result.uint_32;
 		break;
@@ -1269,8 +1270,7 @@ static int nfs23_parse_monolithic(struct fs_context *fc,
 			int ret;
 
 			data->context[NFS_MAX_CONTEXT_LEN] = '\0';
-			ret = vfs_parse_fs_string(fc, "context",
-						  data->context, strlen(data->context));
+			ret = vfs_parse_fs_string(fc, "context", data->context);
 			if (ret < 0)
 				return ret;
 #else
@@ -1692,7 +1692,7 @@ static int nfs_init_fs_context(struct fs_context *fc)
 {
 	struct nfs_fs_context *ctx;
 
-	ctx = kzalloc(sizeof(struct nfs_fs_context), GFP_KERNEL);
+	ctx = kzalloc_obj(struct nfs_fs_context);
 	if (unlikely(!ctx))
 		return -ENOMEM;
 

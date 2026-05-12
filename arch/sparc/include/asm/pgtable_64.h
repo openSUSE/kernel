@@ -79,7 +79,7 @@
 #error PMD_SHIFT must equal HPAGE_SHIFT for transparent huge pages.
 #endif
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 
 extern unsigned long VMALLOC_END;
 
@@ -106,7 +106,7 @@ bool kern_addr_valid(unsigned long addr);
 	pr_err("%s:%d: bad pgd %p(%016lx) seen at (%pS)\n",		\
 	       __FILE__, __LINE__, &(e), pgd_val(e), __builtin_return_address(0))
 
-#endif /* !(__ASSEMBLY__) */
+#endif /* !(__ASSEMBLER__) */
 
 /* PTE bits which are the same in SUN4U and SUN4V format.  */
 #define _PAGE_VALID	  _AC(0x8000000000000000,UL) /* Valid TTE            */
@@ -191,7 +191,7 @@ bool kern_addr_valid(unsigned long addr);
 /* We borrow bit 20 to store the exclusive marker in swap PTEs. */
 #define _PAGE_SWP_EXCLUSIVE	_AC(0x0000000000100000, UL)
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 
 pte_t mk_pte_io(unsigned long, pgprot_t, int, unsigned long);
 
@@ -209,9 +209,6 @@ extern unsigned long _PAGE_CACHE;
 
 extern unsigned long pg_iobits;
 extern unsigned long _PAGE_ALL_SZ_BITS;
-
-extern struct page *mem_map_zero;
-#define ZERO_PAGE(vaddr)	(mem_map_zero)
 
 /* PFNs are real physical page numbers.  However, mem_map only begins to record
  * per-page information starting at pfn_base.  This is to handle systems where
@@ -1048,9 +1045,6 @@ int page_in_phys_avail(unsigned long paddr);
 #define GET_IOSPACE(pfn)		(pfn >> (BITS_PER_LONG - 4))
 #define GET_PFN(pfn)			(pfn & 0x0fffffffffffffffUL)
 
-int remap_pfn_range(struct vm_area_struct *, unsigned long, unsigned long,
-		    unsigned long, pgprot_t);
-
 void adi_restore_tags(struct mm_struct *mm, struct vm_area_struct *vma,
 		      unsigned long addr, pte_t pte);
 
@@ -1084,9 +1078,8 @@ static inline int arch_unmap_one(struct mm_struct *mm,
 	return 0;
 }
 
-static inline int io_remap_pfn_range(struct vm_area_struct *vma,
-				     unsigned long from, unsigned long pfn,
-				     unsigned long size, pgprot_t prot)
+static inline unsigned long io_remap_pfn_range_pfn(unsigned long pfn,
+		unsigned long size)
 {
 	unsigned long offset = GET_PFN(pfn) << PAGE_SHIFT;
 	int space = GET_IOSPACE(pfn);
@@ -1094,9 +1087,9 @@ static inline int io_remap_pfn_range(struct vm_area_struct *vma,
 
 	phys_base = offset | (((unsigned long) space) << 32UL);
 
-	return remap_pfn_range(vma, from, phys_base >> PAGE_SHIFT, size, prot);
+	return phys_base >> PAGE_SHIFT;
 }
-#define io_remap_pfn_range io_remap_pfn_range
+#define io_remap_pfn_range_pfn io_remap_pfn_range_pfn
 
 static inline unsigned long __untagged_addr(unsigned long start)
 {
@@ -1177,6 +1170,6 @@ extern unsigned long pte_leaf_size(pte_t pte);
 
 #endif /* CONFIG_HUGETLB_PAGE */
 
-#endif /* !(__ASSEMBLY__) */
+#endif /* !(__ASSEMBLER__) */
 
 #endif /* !(_SPARC64_PGTABLE_H) */

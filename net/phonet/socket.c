@@ -153,7 +153,7 @@ EXPORT_SYMBOL(pn_sock_unhash);
 
 static DEFINE_MUTEX(port_mutex);
 
-static int pn_socket_bind(struct socket *sock, struct sockaddr *addr, int len)
+static int pn_socket_bind(struct socket *sock, struct sockaddr_unsized *addr, int len)
 {
 	struct sock *sk = sock->sk;
 	struct pn_sock *pn = pn_sk(sk);
@@ -206,16 +206,22 @@ static int pn_socket_autobind(struct socket *sock)
 
 	memset(&sa, 0, sizeof(sa));
 	sa.spn_family = AF_PHONET;
-	err = pn_socket_bind(sock, (struct sockaddr *)&sa,
-				sizeof(struct sockaddr_pn));
-	if (err != -EINVAL)
+	err = pn_socket_bind(sock, (struct sockaddr_unsized *)&sa,
+			     sizeof(struct sockaddr_pn));
+	/*
+	 * pn_socket_bind() also returns -EINVAL when sk_state != TCP_CLOSE
+	 * without a prior bind, so -EINVAL alone is not sufficient to infer
+	 * that the socket was already bound.  Only treat it as "already
+	 * bound" when the port is non-zero; otherwise propagate the error
+	 * instead of crashing the kernel.
+	 */
+	if (err != -EINVAL || unlikely(!pn_port(pn_sk(sock->sk)->sobject)))
 		return err;
-	BUG_ON(!pn_port(pn_sk(sock->sk)->sobject));
 	return 0; /* socket was already bound */
 }
 
-static int pn_socket_connect(struct socket *sock, struct sockaddr *addr,
-		int len, int flags)
+static int pn_socket_connect(struct socket *sock, struct sockaddr_unsized *addr,
+			     int len, int flags)
 {
 	struct sock *sk = sock->sk;
 	struct pn_sock *pn = pn_sk(sk);
@@ -579,7 +585,7 @@ static int pn_sock_seq_show(struct seq_file *seq, void *v)
 		struct sock *sk = v;
 		struct pn_sock *pn = pn_sk(sk);
 
-		seq_printf(seq, "%2d %04X:%04X:%02X %02X %08X:%08X %5d %lu "
+		seq_printf(seq, "%2d %04X:%04X:%02X %02X %08X:%08X %5d %llu "
 			"%d %pK %u",
 			sk->sk_protocol, pn->sobject, pn->dobject,
 			pn->resource, sk->sk_state,
@@ -587,7 +593,7 @@ static int pn_sock_seq_show(struct seq_file *seq, void *v)
 			from_kuid_munged(seq_user_ns(seq), sk_uid(sk)),
 			sock_i_ino(sk),
 			refcount_read(&sk->sk_refcnt), sk,
-			atomic_read(&sk->sk_drops));
+			sk_drops_read(sk));
 	}
 	seq_pad(seq, '\n');
 	return 0;
@@ -602,7 +608,7 @@ const struct seq_operations pn_sock_seq_ops = {
 #endif
 
 static struct  {
-	struct sock *sk[256];
+	struct sock __rcu *sk[256];
 } pnres;
 
 /*
@@ -654,7 +660,7 @@ int pn_sock_unbind_res(struct sock *sk, u8 res)
 		return -EPERM;
 
 	mutex_lock(&resource_mutex);
-	if (pnres.sk[res] == sk) {
+	if (rcu_access_pointer(pnres.sk[res]) == sk) {
 		RCU_INIT_POINTER(pnres.sk[res], NULL);
 		ret = 0;
 	}
@@ -673,7 +679,7 @@ void pn_sock_unbind_all_res(struct sock *sk)
 
 	mutex_lock(&resource_mutex);
 	for (res = 0; res < 256; res++) {
-		if (pnres.sk[res] == sk) {
+		if (rcu_access_pointer(pnres.sk[res]) == sk) {
 			RCU_INIT_POINTER(pnres.sk[res], NULL);
 			match++;
 		}
@@ -688,7 +694,7 @@ void pn_sock_unbind_all_res(struct sock *sk)
 }
 
 #ifdef CONFIG_PROC_FS
-static struct sock **pn_res_get_idx(struct seq_file *seq, loff_t pos)
+static struct sock __rcu **pn_res_get_idx(struct seq_file *seq, loff_t pos)
 {
 	struct net *net = seq_file_net(seq);
 	unsigned int i;
@@ -697,7 +703,7 @@ static struct sock **pn_res_get_idx(struct seq_file *seq, loff_t pos)
 		return NULL;
 
 	for (i = 0; i < 256; i++) {
-		if (pnres.sk[i] == NULL)
+		if (rcu_access_pointer(pnres.sk[i]) == NULL)
 			continue;
 		if (!pos)
 			return pnres.sk + i;
@@ -706,7 +712,7 @@ static struct sock **pn_res_get_idx(struct seq_file *seq, loff_t pos)
 	return NULL;
 }
 
-static struct sock **pn_res_get_next(struct seq_file *seq, struct sock **sk)
+static struct sock __rcu **pn_res_get_next(struct seq_file *seq, struct sock __rcu **sk)
 {
 	struct net *net = seq_file_net(seq);
 	unsigned int i;
@@ -728,7 +734,7 @@ static void *pn_res_seq_start(struct seq_file *seq, loff_t *pos)
 
 static void *pn_res_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 {
-	struct sock **sk;
+	struct sock __rcu **sk;
 
 	if (v == SEQ_START_TOKEN)
 		sk = pn_res_get_idx(seq, 0);
@@ -747,13 +753,14 @@ static void pn_res_seq_stop(struct seq_file *seq, void *v)
 static int pn_res_seq_show(struct seq_file *seq, void *v)
 {
 	seq_setwidth(seq, 63);
-	if (v == SEQ_START_TOKEN)
+	if (v == SEQ_START_TOKEN) {
 		seq_puts(seq, "rs   uid inode");
-	else {
-		struct sock **psk = v;
-		struct sock *sk = *psk;
+	} else {
+		struct sock __rcu **psk = v;
+		struct sock *sk = rcu_dereference_protected(*psk,
+					lockdep_is_held(&resource_mutex));
 
-		seq_printf(seq, "%02X %5u %lu",
+		seq_printf(seq, "%02X %5u %llu",
 			   (int) (psk - pnres.sk),
 			   from_kuid_munged(seq_user_ns(seq), sk_uid(sk)),
 			   sock_i_ino(sk));

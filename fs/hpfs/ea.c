@@ -41,7 +41,7 @@ void hpfs_ea_ext_remove(struct super_block *s, secno a, int ano, unsigned len)
 		struct buffer_head *bh;
 		struct anode *anode;
 		if ((anode = hpfs_map_anode(s, a, &bh))) {
-			hpfs_remove_btree(s, &anode->btree);
+			hpfs_remove_btree(s, GET_BTREE_PTR(&anode->btree));
 			brelse(bh);
 			hpfs_free_sectors(s, a, 1);
 		}
@@ -245,8 +245,8 @@ void hpfs_set_ea(struct inode *inode, struct fnode *fnode, const char *key,
 		fnode->ea_offs = cpu_to_le16(0xc4);
 	}
 	if (le16_to_cpu(fnode->ea_offs) < 0xc4 || le16_to_cpu(fnode->ea_offs) + le16_to_cpu(fnode->acl_size_s) + le16_to_cpu(fnode->ea_size_s) > 0x200) {
-		hpfs_error(s, "fnode %08lx: ea_offs == %03x, ea_size_s == %03x",
-			(unsigned long)inode->i_ino,
+		hpfs_error(s, "fnode %08llx: ea_offs == %03x, ea_size_s == %03x",
+			inode->i_ino,
 			le16_to_cpu(fnode->ea_offs), le16_to_cpu(fnode->ea_size_s));
 		return;
 	}

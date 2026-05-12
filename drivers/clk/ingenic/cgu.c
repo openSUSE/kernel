@@ -174,14 +174,16 @@ ingenic_pll_calc(const struct ingenic_cgu_clk_info *clk_info,
 		n * od);
 }
 
-static long
-ingenic_pll_round_rate(struct clk_hw *hw, unsigned long req_rate,
-		       unsigned long *prate)
+static int ingenic_pll_determine_rate(struct clk_hw *hw,
+				      struct clk_rate_request *req)
 {
 	struct ingenic_clk *ingenic_clk = to_ingenic_clk(hw);
 	const struct ingenic_cgu_clk_info *clk_info = to_clk_info(ingenic_clk);
 
-	return ingenic_pll_calc(clk_info, req_rate, *prate, NULL, NULL, NULL);
+	req->rate = ingenic_pll_calc(clk_info, req->rate, req->best_parent_rate,
+				     NULL, NULL, NULL);
+
+	return 0;
 }
 
 static inline int ingenic_pll_check_stable(struct ingenic_cgu *cgu,
@@ -317,7 +319,7 @@ static int ingenic_pll_is_enabled(struct clk_hw *hw)
 
 static const struct clk_ops ingenic_pll_ops = {
 	.recalc_rate = ingenic_pll_recalc_rate,
-	.round_rate = ingenic_pll_round_rate,
+	.determine_rate = ingenic_pll_determine_rate,
 	.set_rate = ingenic_pll_set_rate,
 
 	.enable = ingenic_pll_enable,
@@ -674,7 +676,7 @@ static int ingenic_register_clock(struct ingenic_cgu *cgu, unsigned idx)
 		goto out;
 	}
 
-	ingenic_clk = kzalloc(sizeof(*ingenic_clk), GFP_KERNEL);
+	ingenic_clk = kzalloc_obj(*ingenic_clk);
 	if (!ingenic_clk) {
 		err = -ENOMEM;
 		goto out;
@@ -788,7 +790,7 @@ ingenic_cgu_new(const struct ingenic_cgu_clk_info *clock_info,
 {
 	struct ingenic_cgu *cgu;
 
-	cgu = kzalloc(sizeof(*cgu), GFP_KERNEL);
+	cgu = kzalloc_obj(*cgu);
 	if (!cgu)
 		goto err_out;
 
@@ -817,8 +819,7 @@ int ingenic_cgu_register_clocks(struct ingenic_cgu *cgu)
 	unsigned i;
 	int err;
 
-	cgu->clocks.clks = kcalloc(cgu->clocks.clk_num, sizeof(struct clk *),
-				   GFP_KERNEL);
+	cgu->clocks.clks = kzalloc_objs(struct clk *, cgu->clocks.clk_num);
 	if (!cgu->clocks.clks) {
 		err = -ENOMEM;
 		goto err_out;

@@ -52,8 +52,8 @@ static int create_multi_block_bio(block_count_t size, struct bio **bio_ptr)
 	struct bio *bio = NULL;
 	int result;
 
-	result = vdo_allocate_extended(struct bio, size + 1, struct bio_vec,
-				       "bio", &bio);
+	result = vdo_allocate_memory(sizeof(struct bio) + sizeof(struct bio_vec) * (size + 1),
+				     __alignof__(struct bio), "bio", &bio);
 	if (result != VDO_SUCCESS)
 		return result;
 
@@ -129,7 +129,7 @@ int create_multi_block_metadata_vio(struct vdo *vdo, enum vio_type vio_type,
 	 * Metadata vios should use direct allocation and not use the buffer pool, which is
 	 * reserved for submissions from the linux block layer.
 	 */
-	result = vdo_allocate(1, struct vio, __func__, &vio);
+	result = vdo_allocate(1, __func__, &vio);
 	if (result != VDO_SUCCESS) {
 		vdo_log_error("metadata vio allocation failure %d", result);
 		return result;
@@ -212,7 +212,7 @@ int vio_reset_bio_with_size(struct vio *vio, char *data, int size, bio_end_io_t 
 		return VDO_SUCCESS;
 
 	bio->bi_ioprio = 0;
-	bio->bi_io_vec = bio->bi_inline_vecs;
+	bio->bi_io_vec = bio_inline_vecs(bio);
 	bio->bi_max_vecs = vio->block_count + 1;
 	if (VDO_ASSERT(size <= vio_size, "specified size %d is not greater than allocated %d",
 		       size, vio_size) != VDO_SUCCESS)
@@ -327,8 +327,7 @@ int make_vio_pool(struct vdo *vdo, size_t pool_size, size_t block_count, thread_
 	int result;
 	size_t per_vio_size = VDO_BLOCK_SIZE * block_count;
 
-	result = vdo_allocate_extended(struct vio_pool, pool_size, struct pooled_vio,
-				       __func__, &pool);
+	result = vdo_allocate_extended(pool_size, vios, __func__, &pool);
 	if (result != VDO_SUCCESS)
 		return result;
 
@@ -336,8 +335,7 @@ int make_vio_pool(struct vdo *vdo, size_t pool_size, size_t block_count, thread_
 	INIT_LIST_HEAD(&pool->available);
 	INIT_LIST_HEAD(&pool->busy);
 
-	result = vdo_allocate(pool_size * per_vio_size, char,
-			      "VIO pool buffer", &pool->buffer);
+	result = vdo_allocate(pool_size * per_vio_size, "VIO pool buffer", &pool->buffer);
 	if (result != VDO_SUCCESS) {
 		free_vio_pool(pool);
 		return result;
@@ -398,8 +396,9 @@ void free_vio_pool(struct vio_pool *pool)
 
 /**
  * is_vio_pool_busy() - Check whether an vio pool has outstanding entries.
+ * @pool: The vio pool.
  *
- * Return: true if the pool is busy.
+ * Return: True if the pool is busy.
  */
 bool is_vio_pool_busy(struct vio_pool *pool)
 {

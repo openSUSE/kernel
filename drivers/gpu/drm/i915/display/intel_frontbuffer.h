@@ -26,10 +26,9 @@
 
 #include <linux/atomic.h>
 #include <linux/bits.h>
-#include <linux/kref.h>
+#include <linux/workqueue_types.h>
 
-#include "i915_active_types.h"
-
+struct drm_device;
 struct drm_gem_object;
 struct intel_display;
 
@@ -42,12 +41,8 @@ enum fb_op_origin {
 };
 
 struct intel_frontbuffer {
-	struct kref ref;
+	struct intel_display *display;
 	atomic_t bits;
-	struct i915_active write;
-	struct drm_gem_object *obj;
-	struct rcu_head rcu;
-
 	struct work_struct flush_work;
 };
 
@@ -68,21 +63,12 @@ struct intel_frontbuffer {
 	GENMASK(INTEL_FRONTBUFFER_BITS_PER_PIPE * ((pipe) + 1) - 1,	\
 		INTEL_FRONTBUFFER_BITS_PER_PIPE * (pipe))
 
-void intel_frontbuffer_flip_prepare(struct intel_display *display,
-				    unsigned frontbuffer_bits);
-void intel_frontbuffer_flip_complete(struct intel_display *display,
-				     unsigned frontbuffer_bits);
 void intel_frontbuffer_flip(struct intel_display *display,
 			    unsigned frontbuffer_bits);
 
-void intel_frontbuffer_put(struct intel_frontbuffer *front);
-
-struct intel_frontbuffer *
-intel_frontbuffer_get(struct drm_gem_object *obj);
-
-void __intel_fb_invalidate(struct intel_frontbuffer *front,
-			   enum fb_op_origin origin,
-			   unsigned int frontbuffer_bits);
+void __intel_frontbuffer_invalidate(struct intel_frontbuffer *front,
+				    enum fb_op_origin origin,
+				    unsigned int frontbuffer_bits);
 
 /**
  * intel_frontbuffer_invalidate - invalidate frontbuffer object
@@ -107,13 +93,13 @@ static inline bool intel_frontbuffer_invalidate(struct intel_frontbuffer *front,
 	if (!frontbuffer_bits)
 		return false;
 
-	__intel_fb_invalidate(front, origin, frontbuffer_bits);
+	__intel_frontbuffer_invalidate(front, origin, frontbuffer_bits);
 	return true;
 }
 
-void __intel_fb_flush(struct intel_frontbuffer *front,
-		      enum fb_op_origin origin,
-		      unsigned int frontbuffer_bits);
+void __intel_frontbuffer_flush(struct intel_frontbuffer *front,
+			       enum fb_op_origin origin,
+			       unsigned int frontbuffer_bits);
 
 /**
  * intel_frontbuffer_flush - flush frontbuffer object
@@ -135,7 +121,7 @@ static inline void intel_frontbuffer_flush(struct intel_frontbuffer *front,
 	if (!frontbuffer_bits)
 		return;
 
-	__intel_fb_flush(front, origin, frontbuffer_bits);
+	__intel_frontbuffer_flush(front, origin, frontbuffer_bits);
 }
 
 void intel_frontbuffer_queue_flush(struct intel_frontbuffer *front);
@@ -143,5 +129,8 @@ void intel_frontbuffer_queue_flush(struct intel_frontbuffer *front);
 void intel_frontbuffer_track(struct intel_frontbuffer *old,
 			     struct intel_frontbuffer *new,
 			     unsigned int frontbuffer_bits);
+
+void intel_frontbuffer_init(struct intel_frontbuffer *front, struct drm_device *drm);
+void intel_frontbuffer_fini(struct intel_frontbuffer *front);
 
 #endif /* __INTEL_FRONTBUFFER_H__ */

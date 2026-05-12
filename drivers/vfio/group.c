@@ -15,8 +15,13 @@
 #include <linux/anon_inodes.h>
 #include "vfio.h"
 
+static char *vfio_devnode(const struct device *, umode_t *);
+static const struct class vfio_class = {
+	.name	= "vfio",
+	.devnode = vfio_devnode
+};
+
 static struct vfio {
-	struct class			*class;
 	struct list_head		group_list;
 	struct mutex			group_lock; /* locks group_list */
 	struct ida			group_ida;
@@ -299,10 +304,8 @@ static int vfio_group_ioctl_get_device_fd(struct vfio_group *group,
 					  char __user *arg)
 {
 	struct vfio_device *device;
-	struct file *filep;
 	char *buf;
-	int fdno;
-	int ret;
+	int fd;
 
 	buf = strndup_user(arg, PAGE_SIZE);
 	if (IS_ERR(buf))
@@ -313,26 +316,10 @@ static int vfio_group_ioctl_get_device_fd(struct vfio_group *group,
 	if (IS_ERR(device))
 		return PTR_ERR(device);
 
-	fdno = get_unused_fd_flags(O_CLOEXEC);
-	if (fdno < 0) {
-		ret = fdno;
-		goto err_put_device;
-	}
-
-	filep = vfio_device_open_file(device);
-	if (IS_ERR(filep)) {
-		ret = PTR_ERR(filep);
-		goto err_put_fdno;
-	}
-
-	fd_install(fdno, filep);
-	return fdno;
-
-err_put_fdno:
-	put_unused_fd(fdno);
-err_put_device:
-	vfio_device_put_registration(device);
-	return ret;
+	fd = FD_ADD(O_CLOEXEC, vfio_device_open_file(device));
+	if (fd < 0)
+		vfio_device_put_registration(device);
+	return fd;
 }
 
 static int vfio_group_ioctl_get_status(struct vfio_group *group,
@@ -474,7 +461,6 @@ static int vfio_group_fops_release(struct inode *inode, struct file *filep)
 	 * Device FDs hold a group file reference, therefore the group release
 	 * is only called when there are no open devices.
 	 */
-	WARN_ON(group->notifier.head);
 	if (group->container)
 		vfio_group_detach_container(group);
 	if (group->iommufd) {
@@ -533,7 +519,7 @@ static struct vfio_group *vfio_group_alloc(struct iommu_group *iommu_group,
 	struct vfio_group *group;
 	int minor;
 
-	group = kzalloc(sizeof(*group), GFP_KERNEL);
+	group = kzalloc_obj(*group);
 	if (!group)
 		return ERR_PTR(-ENOMEM);
 
@@ -545,7 +531,7 @@ static struct vfio_group *vfio_group_alloc(struct iommu_group *iommu_group,
 
 	device_initialize(&group->dev);
 	group->dev.devt = MKDEV(MAJOR(vfio.group_devt), minor);
-	group->dev.class = vfio.class;
+	group->dev.class = &vfio_class;
 	group->dev.release = vfio_group_release;
 	cdev_init(&group->cdev, &vfio_group_fops);
 	group->cdev.owner = THIS_MODULE;
@@ -559,7 +545,6 @@ static struct vfio_group *vfio_group_alloc(struct iommu_group *iommu_group,
 	/* put in vfio_group_release() */
 	iommu_group_ref_get(iommu_group);
 	group->type = type;
-	BLOCKING_INIT_NOTIFIER_HEAD(&group->notifier);
 
 	return group;
 }
@@ -738,7 +723,6 @@ void vfio_device_remove_group(struct vfio_device *device)
 	 * properly hold the group reference.
 	 */
 	WARN_ON(!list_empty(&group->device_list));
-	WARN_ON(group->notifier.head);
 
 	/*
 	 * Revoke all users of group->iommu_group. At this point we know there
@@ -919,13 +903,9 @@ int __init vfio_group_init(void)
 		return ret;
 
 	/* /dev/vfio/$GROUP */
-	vfio.class = class_create("vfio");
-	if (IS_ERR(vfio.class)) {
-		ret = PTR_ERR(vfio.class);
+	ret = class_register(&vfio_class);
+	if (ret)
 		goto err_group_class;
-	}
-
-	vfio.class->devnode = vfio_devnode;
 
 	ret = alloc_chrdev_region(&vfio.group_devt, 0, MINORMASK + 1, "vfio");
 	if (ret)
@@ -933,8 +913,7 @@ int __init vfio_group_init(void)
 	return 0;
 
 err_alloc_chrdev:
-	class_destroy(vfio.class);
-	vfio.class = NULL;
+	class_unregister(&vfio_class);
 err_group_class:
 	vfio_container_cleanup();
 	return ret;
@@ -945,7 +924,6 @@ void vfio_group_cleanup(void)
 	WARN_ON(!list_empty(&vfio.group_list));
 	ida_destroy(&vfio.group_ida);
 	unregister_chrdev_region(vfio.group_devt, MINORMASK + 1);
-	class_destroy(vfio.class);
-	vfio.class = NULL;
+	class_unregister(&vfio_class);
 	vfio_container_cleanup();
 }

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: ISC */
+/* SPDX-License-Identifier: BSD-3-Clause-Clear */
 /* Copyright (C) 2019 MediaTek Inc. */
 
 #ifndef __MT7615_REGS_H
@@ -454,8 +454,6 @@ enum mt7615_reg_base {
 #define MT_WTBL_RIUCR3_RATE5_HI		GENMASK(7, 0)
 #define MT_WTBL_RIUCR3_RATE6		GENMASK(19, 8)
 #define MT_WTBL_RIUCR3_RATE7		GENMASK(31, 20)
-
-#define MT_WTBL_W3_RTS			BIT(22)
 
 #define MT_WTBL_W5_CHANGE_BW_RATE	GENMASK(7, 5)
 #define MT_WTBL_W5_SHORT_GI_20		BIT(8)

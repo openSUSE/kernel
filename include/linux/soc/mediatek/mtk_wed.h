@@ -147,13 +147,14 @@ struct mtk_wed_device {
 		u32 wpdma_tx;
 		u32 wpdma_txfree;
 		u32 wpdma_rx_glo;
-		u32 wpdma_rx;
+		u32 wpdma_rx[MTK_WED_RX_QUEUES];
 		u32 wpdma_rx_rro[MTK_WED_RX_QUEUES];
 		u32 wpdma_rx_pg;
 
 		bool wcid_512;
 		bool hw_rro;
 		bool msi;
+		bool hif2;
 
 		u16 token_start;
 		unsigned int nbuf;

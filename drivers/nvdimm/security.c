@@ -219,12 +219,9 @@ static int __nvdimm_security_unlock(struct nvdimm *nvdimm)
 int nvdimm_security_unlock(struct device *dev)
 {
 	struct nvdimm *nvdimm = to_nvdimm(dev);
-	int rc;
 
-	nvdimm_bus_lock(dev);
-	rc = __nvdimm_security_unlock(nvdimm);
-	nvdimm_bus_unlock(dev);
-	return rc;
+	guard(nvdimm_bus)(dev);
+	return __nvdimm_security_unlock(nvdimm);
 }
 
 static int check_security_state(struct nvdimm *nvdimm)
@@ -427,7 +424,7 @@ static int security_overwrite(struct nvdimm *nvdimm, unsigned int keyid)
 		 * query.
 		 */
 		get_device(dev);
-		queue_delayed_work(system_wq, &nvdimm->dwork, 0);
+		queue_delayed_work(system_percpu_wq, &nvdimm->dwork, 0);
 	}
 
 	return rc;
@@ -460,7 +457,7 @@ static void __nvdimm_security_overwrite_query(struct nvdimm *nvdimm)
 
 		/* setup delayed work again */
 		tmo += 10;
-		queue_delayed_work(system_wq, &nvdimm->dwork, tmo * HZ);
+		queue_delayed_work(system_percpu_wq, &nvdimm->dwork, tmo * HZ);
 		nvdimm->sec.overwrite_tmo = min(15U * 60U, tmo);
 		return;
 	}
@@ -490,9 +487,8 @@ void nvdimm_security_overwrite_query(struct work_struct *work)
 	struct nvdimm *nvdimm =
 		container_of(work, typeof(*nvdimm), dwork.work);
 
-	nvdimm_bus_lock(&nvdimm->dev);
+	guard(nvdimm_bus)(&nvdimm->dev);
 	__nvdimm_security_overwrite_query(nvdimm);
-	nvdimm_bus_unlock(&nvdimm->dev);
 }
 
 #define OPS							\

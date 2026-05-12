@@ -4,6 +4,7 @@
  * This code generates raw asm output which is post-processed to extract
  * and format the required data.
  */
+#define COMPILE_OFFSETS
 
 #include <linux/kbuild.h>
 #include <linux/sched.h>
@@ -20,6 +21,9 @@ int main(void)
 	OFFSET(__TASK_stack, task_struct, stack);
 	OFFSET(__TASK_thread, task_struct, thread);
 	OFFSET(__TASK_pid, task_struct, pid);
+#ifdef CONFIG_STACKPROTECTOR
+	OFFSET(__TASK_stack_canary, task_struct, stack_canary);
+#endif
 	BLANK();
 	/* thread struct offsets */
 	OFFSET(__THREAD_ksp, thread_struct, ksp);
@@ -59,10 +63,11 @@ int main(void)
 	OFFSET(__SF_EMPTY, stack_frame, empty[0]);
 	OFFSET(__SF_SIE_CONTROL, stack_frame, sie_control_block);
 	OFFSET(__SF_SIE_SAVEAREA, stack_frame, sie_savearea);
-	OFFSET(__SF_SIE_REASON, stack_frame, sie_reason);
+	OFFSET(__SF_SIE_RETURN, stack_frame, sie_return);
 	OFFSET(__SF_SIE_FLAGS, stack_frame, sie_flags);
 	OFFSET(__SF_SIE_CONTROL_PHYS, stack_frame, sie_control_block_phys);
 	OFFSET(__SF_SIE_GUEST_ASCE, stack_frame, sie_guest_asce);
+	OFFSET(__SF_SIE_IRQ, stack_frame, sie_irq);
 	DEFINE(STACK_FRAME_OVERHEAD, sizeof(struct stack_frame));
 	BLANK();
 	OFFSET(__SFUSER_BACKCHAIN, stack_frame_user, back_chain);
@@ -138,6 +143,7 @@ int main(void)
 	OFFSET(__LC_CURRENT_PID, lowcore, current_pid);
 	OFFSET(__LC_LAST_BREAK, lowcore, last_break);
 	/* software defined ABI-relevant lowcore locations 0xe00 - 0xe20 */
+	OFFSET(__LC_STACK_CANARY, lowcore, stack_canary);
 	OFFSET(__LC_DUMP_REIPL, lowcore, ipib);
 	OFFSET(__LC_VMCORE_INFO, lowcore, vmcore_info);
 	OFFSET(__LC_OS_INFO, lowcore, os_info);

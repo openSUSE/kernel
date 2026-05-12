@@ -38,7 +38,7 @@ ice_is_non_eop(const struct ice_rx_ring *rx_ring,
 	if (likely(ice_test_staterr(rx_desc->wb.status_error0, ICE_RXD_EOF)))
 		return false;
 
-	rx_ring->ring_stats->rx_stats.non_eop_descs++;
+	ice_stats_inc(rx_ring->ring_stats, rx_non_eop_descs);
 
 	return true;
 }
@@ -51,6 +51,20 @@ ice_build_ctob(u64 td_cmd, u64 td_offset, unsigned int size, u64 td_tag)
 			   (td_offset << ICE_TXD_QW1_OFFSET_S) |
 			   ((u64)size << ICE_TXD_QW1_TX_BUF_SZ_S) |
 			   (td_tag    << ICE_TXD_QW1_L2TAG1_S));
+}
+
+/**
+ * ice_build_tstamp_desc - build Tx time stamp descriptor
+ * @tx_desc: Tx LAN descriptor index
+ * @tstamp: time stamp
+ *
+ * Return: Tx time stamp descriptor
+ */
+static inline __le32
+ice_build_tstamp_desc(u16 tx_desc, u32 tstamp)
+{
+	return cpu_to_le32(FIELD_PREP(ICE_TXTIME_TX_DESC_IDX_M, tx_desc) |
+			   FIELD_PREP(ICE_TXTIME_STAMP_M, tstamp));
 }
 
 /**
@@ -121,13 +135,4 @@ ice_process_skb_fields(struct ice_rx_ring *rx_ring,
 void
 ice_receive_skb(struct ice_rx_ring *rx_ring, struct sk_buff *skb, u16 vlan_tci);
 
-static inline void
-ice_xdp_meta_set_desc(struct xdp_buff *xdp,
-		      union ice_32b_rx_flex_desc *eop_desc)
-{
-	struct ice_xdp_buff *xdp_ext = container_of(xdp, struct ice_xdp_buff,
-						    xdp_buff);
-
-	xdp_ext->eop_desc = eop_desc;
-}
 #endif /* !_ICE_TXRX_LIB_H_ */

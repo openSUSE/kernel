@@ -10,11 +10,11 @@
 #include <linux/device.h>
 #include <linux/err.h>
 #include <linux/errno.h>
+#include <linux/fwnode.h>
 #include <linux/io.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
-#include <linux/of_gpio.h>
 #include <linux/pinctrl/pinctrl.h>
 #include <linux/slab.h>
 #include <linux/string.h>
@@ -446,32 +446,6 @@ out:
 	return desc;
 }
 
-/**
- * of_get_named_gpio() - Get a GPIO number to use with GPIO API
- * @np:		device node to get GPIO from
- * @propname:	Name of property containing gpio specifier(s)
- * @index:	index of the GPIO
- *
- * **DEPRECATED** This function is deprecated and must not be used in new code.
- *
- * Returns:
- * GPIO number to use with Linux generic GPIO API, or one of the errno
- * value on the error condition.
- */
-int of_get_named_gpio(const struct device_node *np, const char *propname,
-		      int index)
-{
-	struct gpio_desc *desc;
-
-	desc = of_get_named_gpiod_flags(np, propname, index, NULL);
-
-	if (IS_ERR(desc))
-		return PTR_ERR(desc);
-	else
-		return desc_to_gpio(desc);
-}
-EXPORT_SYMBOL_GPL(of_get_named_gpio);
-
 /* Converts gpio_lookup_flags into bitmask of GPIO_* values */
 static unsigned long of_convert_gpio_flags(enum of_gpio_flags flags)
 {
@@ -541,6 +515,10 @@ static struct gpio_desc *of_find_gpio_rename(struct device_node *np,
 #if IS_ENABLED(CONFIG_NFC_MRVL_UART)
 		{ "reset",	"reset-n-io",	"marvell,nfc-uart" },
 		{ "reset",	"reset-n-io",	"mrvl,nfc-uart" },
+#endif
+#if IS_ENABLED(CONFIG_NFC_S3FWRN5_I2C)
+		{ "en",		"s3fwrn5,en-gpios",	"samsung,s3fwrn5-i2c" },
+		{ "wake",	"s3fwrn5,fw-gpios",	"samsung,s3fwrn5-i2c" },
 #endif
 #if IS_ENABLED(CONFIG_PCI_LANTIQ)
 		/* MIPS Lantiq PCI */
@@ -634,6 +612,7 @@ static struct gpio_desc *of_find_gpio_rename(struct device_node *np,
 	return ERR_PTR(-ENOENT);
 }
 
+#if IS_ENABLED(CONFIG_SND_SOC_MT2701_CS42448)
 static struct gpio_desc *of_find_mt2701_gpio(struct device_node *np,
 					     const char *con_id,
 					     unsigned int idx,
@@ -665,6 +644,7 @@ static struct gpio_desc *of_find_mt2701_gpio(struct device_node *np,
 
 	return desc;
 }
+#endif
 
 /*
  * Trigger sources are special, they allow us to use any GPIO as a LED trigger
@@ -699,7 +679,9 @@ typedef struct gpio_desc *(*of_find_gpio_quirk)(struct device_node *np,
 						enum of_gpio_flags *of_flags);
 static const of_find_gpio_quirk of_find_gpio_quirks[] = {
 	of_find_gpio_rename,
+#if IS_ENABLED(CONFIG_SND_SOC_MT2701_CS42448)
 	of_find_mt2701_gpio,
+#endif
 	of_find_trigger_gpio,
 	NULL
 };
@@ -731,138 +713,25 @@ struct gpio_desc *of_find_gpio(struct device_node *np, const char *con_id,
 	return desc;
 }
 
-/**
- * of_parse_own_gpio() - Get a GPIO hog descriptor, names and flags for GPIO API
- * @np:		device node to get GPIO from
- * @chip:	GPIO chip whose hog is parsed
- * @idx:	Index of the GPIO to parse
- * @name:	GPIO line name
- * @lflags:	bitmask of gpio_lookup_flags GPIO_* values - returned from
- *		of_find_gpio() or of_parse_own_gpio()
- * @dflags:	gpiod_flags - optional GPIO initialization flags
- *
- * Returns:
- * GPIO descriptor to use with Linux GPIO API, or one of the errno
- * value on the error condition.
- */
-static struct gpio_desc *of_parse_own_gpio(struct device_node *np,
-					   struct gpio_chip *chip,
-					   unsigned int idx, const char **name,
-					   unsigned long *lflags,
-					   enum gpiod_flags *dflags)
+int of_gpiochip_get_lflags(struct gpio_chip *chip,
+			   struct fwnode_reference_args *gpiospec,
+			   unsigned long *lflags)
 {
-	struct device_node *chip_np;
 	enum of_gpio_flags xlate_flags;
-	struct of_phandle_args gpiospec;
+	struct of_phandle_args args;
 	struct gpio_desc *desc;
-	unsigned int i;
-	u32 tmp;
-	int ret;
 
-	chip_np = dev_of_node(&chip->gpiodev->dev);
-	if (!chip_np)
-		return ERR_PTR(-EINVAL);
+	args.np = to_of_node(gpiospec->fwnode);
+	args.args_count = gpiospec->nargs;
 
-	xlate_flags = 0;
-	*lflags = GPIO_LOOKUP_FLAGS_DEFAULT;
-	*dflags = GPIOD_ASIS;
+	for (int i = 0; i < args.args_count; i++)
+		args.args[i] = gpiospec->args[i];
 
-	ret = of_property_read_u32(chip_np, "#gpio-cells", &tmp);
-	if (ret)
-		return ERR_PTR(ret);
-
-	gpiospec.np = chip_np;
-	gpiospec.args_count = tmp;
-
-	for (i = 0; i < tmp; i++) {
-		ret = of_property_read_u32_index(np, "gpios", idx * tmp + i,
-						 &gpiospec.args[i]);
-		if (ret)
-			return ERR_PTR(ret);
-	}
-
-	desc = of_xlate_and_get_gpiod_flags(chip, &gpiospec, &xlate_flags);
+	desc = of_xlate_and_get_gpiod_flags(chip, &args, &xlate_flags);
 	if (IS_ERR(desc))
-		return desc;
+		return PTR_ERR(desc);
 
 	*lflags = of_convert_gpio_flags(xlate_flags);
-
-	if (of_property_read_bool(np, "input"))
-		*dflags |= GPIOD_IN;
-	else if (of_property_read_bool(np, "output-low"))
-		*dflags |= GPIOD_OUT_LOW;
-	else if (of_property_read_bool(np, "output-high"))
-		*dflags |= GPIOD_OUT_HIGH;
-	else {
-		pr_warn("GPIO line %d (%pOFn): no hogging state specified, bailing out\n",
-			desc_to_gpio(desc), np);
-		return ERR_PTR(-EINVAL);
-	}
-
-	if (name && of_property_read_string(np, "line-name", name))
-		*name = np->name;
-
-	return desc;
-}
-
-/**
- * of_gpiochip_add_hog - Add all hogs in a hog device node
- * @chip:	gpio chip to act on
- * @hog:	device node describing the hogs
- *
- * Returns:
- * 0 on success, or negative errno on failure.
- */
-static int of_gpiochip_add_hog(struct gpio_chip *chip, struct device_node *hog)
-{
-	enum gpiod_flags dflags;
-	struct gpio_desc *desc;
-	unsigned long lflags;
-	const char *name;
-	unsigned int i;
-	int ret;
-
-	for (i = 0;; i++) {
-		desc = of_parse_own_gpio(hog, chip, i, &name, &lflags, &dflags);
-		if (IS_ERR(desc))
-			break;
-
-		ret = gpiod_hog(desc, name, lflags, dflags);
-		if (ret < 0)
-			return ret;
-
-#ifdef CONFIG_OF_DYNAMIC
-		WRITE_ONCE(desc->hog, hog);
-#endif
-	}
-
-	return 0;
-}
-
-/**
- * of_gpiochip_scan_gpios - Scan gpio-controller for gpio definitions
- * @chip:	gpio chip to act on
- *
- * This is only used by of_gpiochip_add to request/set GPIO initial
- * configuration.
- *
- * Returns:
- * 0 on success, or negative errno on failure.
- */
-static int of_gpiochip_scan_gpios(struct gpio_chip *chip)
-{
-	int ret;
-
-	for_each_available_child_of_node_scoped(dev_of_node(&chip->gpiodev->dev), np) {
-		if (!of_property_read_bool(np, "gpio-hog"))
-			continue;
-
-		ret = of_gpiochip_add_hog(chip, np);
-		if (ret < 0)
-			return ret;
-
-		of_node_set_flag(np, OF_POPULATED);
-	}
 
 	return 0;
 }
@@ -878,7 +747,7 @@ static void of_gpiochip_remove_hog(struct gpio_chip *chip,
 {
 	struct gpio_desc *desc;
 
-	for_each_gpio_desc_with_flag(chip, desc, FLAG_IS_HOGGED)
+	for_each_gpio_desc_with_flag(chip, desc, GPIOD_FLAG_IS_HOGGED)
 		if (READ_ONCE(desc->hog) == hog)
 			gpiochip_free_own_desc(desc);
 }
@@ -918,7 +787,7 @@ static int of_gpio_notify(struct notifier_block *nb, unsigned long action,
 		if (!gdev)
 			return NOTIFY_DONE;	/* not for us */
 
-		ret = of_gpiochip_add_hog(gpio_device_get_chip(gdev), rd->dn);
+		ret = gpiochip_add_hog(gpio_device_get_chip(gdev), of_fwnode_handle(rd->dn));
 		if (ret < 0) {
 			pr_err("%s: failed to add hogs for %pOF\n", __func__,
 			       rd->dn);
@@ -1030,85 +899,6 @@ static int of_gpio_threecell_xlate(struct gpio_chip *gc,
 
 	return gpiospec->args[1];
 }
-
-#if IS_ENABLED(CONFIG_OF_GPIO_MM_GPIOCHIP)
-#include <linux/gpio/legacy-of-mm-gpiochip.h>
-/**
- * of_mm_gpiochip_add_data - Add memory mapped GPIO chip (bank)
- * @np:		device node of the GPIO chip
- * @mm_gc:	pointer to the of_mm_gpio_chip allocated structure
- * @data:	driver data to store in the struct gpio_chip
- *
- * To use this function you should allocate and fill mm_gc with:
- *
- * 1) In the gpio_chip structure:
- *    - all the callbacks
- *    - of_gpio_n_cells
- *    - of_xlate callback (optional)
- *
- * 3) In the of_mm_gpio_chip structure:
- *    - save_regs callback (optional)
- *
- * If succeeded, this function will map bank's memory and will
- * do all necessary work for you. Then you'll able to use .regs
- * to manage GPIOs from the callbacks.
- *
- * Returns:
- * 0 on success, or negative errno on failure.
- */
-int of_mm_gpiochip_add_data(struct device_node *np,
-			    struct of_mm_gpio_chip *mm_gc,
-			    void *data)
-{
-	int ret = -ENOMEM;
-	struct gpio_chip *gc = &mm_gc->gc;
-
-	gc->label = kasprintf(GFP_KERNEL, "%pOF", np);
-	if (!gc->label)
-		goto err0;
-
-	mm_gc->regs = of_iomap(np, 0);
-	if (!mm_gc->regs)
-		goto err1;
-
-	gc->base = -1;
-
-	if (mm_gc->save_regs)
-		mm_gc->save_regs(mm_gc);
-
-	fwnode_handle_put(mm_gc->gc.fwnode);
-	mm_gc->gc.fwnode = fwnode_handle_get(of_fwnode_handle(np));
-
-	ret = gpiochip_add_data(gc, data);
-	if (ret)
-		goto err2;
-
-	return 0;
-err2:
-	of_node_put(np);
-	iounmap(mm_gc->regs);
-err1:
-	kfree(gc->label);
-err0:
-	pr_err("%pOF: GPIO chip registration failed with status %d\n", np, ret);
-	return ret;
-}
-EXPORT_SYMBOL_GPL(of_mm_gpiochip_add_data);
-
-/**
- * of_mm_gpiochip_remove - Remove memory mapped GPIO chip (bank)
- * @mm_gc:	pointer to the of_mm_gpio_chip allocated structure
- */
-void of_mm_gpiochip_remove(struct of_mm_gpio_chip *mm_gc)
-{
-	struct gpio_chip *gc = &mm_gc->gc;
-
-	gpiochip_remove(gc);
-	iounmap(mm_gc->regs);
-	kfree(gc->label);
-}
-EXPORT_SYMBOL_GPL(of_mm_gpiochip_remove);
-#endif
 
 #ifdef CONFIG_PINCTRL
 static int of_gpiochip_add_pin_range(struct gpio_chip *chip)
@@ -1276,16 +1066,24 @@ int of_gpiochip_add(struct gpio_chip *chip)
 
 	of_node_get(np);
 
-	ret = of_gpiochip_scan_gpios(chip);
-	if (ret)
-		of_node_put(np);
+	for_each_available_child_of_node_scoped(np, child) {
+		if (of_property_read_bool(child, "gpio-hog"))
+			of_node_set_flag(child, OF_POPULATED);
+	}
 
 	return ret;
 }
 
 void of_gpiochip_remove(struct gpio_chip *chip)
 {
-	of_node_put(dev_of_node(&chip->gpiodev->dev));
+	struct device_node *np = dev_of_node(&chip->gpiodev->dev);
+
+	for_each_child_of_node_scoped(np, child) {
+		if (of_property_present(child, "gpio-hog"))
+			of_node_clear_flag(child, OF_POPULATED);
+	}
+
+	of_node_put(np);
 }
 
 bool of_gpiochip_instance_match(struct gpio_chip *gc, unsigned int index)

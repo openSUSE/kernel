@@ -228,7 +228,7 @@ static int UVERBS_HANDLER(MLX5_IB_METHOD_DM_MAP_OP_ADDR)(
 	if (!err || err != -ENOENT)
 		goto err_unlock;
 
-	op_entry = kzalloc(sizeof(*op_entry), GFP_KERNEL);
+	op_entry = kzalloc_obj(*op_entry);
 	if (!op_entry)
 		goto err_unlock;
 
@@ -285,7 +285,7 @@ static struct ib_dm *handle_alloc_dm_memic(struct ib_ucontext *ctx,
 	if (!dm_db || !MLX5_CAP_DEV_MEM(dm_db->dev, memic))
 		return ERR_PTR(-EOPNOTSUPP);
 
-	dm = kzalloc(sizeof(*dm), GFP_KERNEL);
+	dm = kzalloc_obj(*dm);
 	if (!dm)
 		return ERR_PTR(-ENOMEM);
 
@@ -382,7 +382,7 @@ static struct ib_dm *handle_alloc_dm_sw_icm(struct ib_ucontext *ctx,
 		return ERR_PTR(-EOPNOTSUPP);
 	}
 
-	dm = kzalloc(sizeof(*dm), GFP_KERNEL);
+	dm = kzalloc_obj(*dm);
 	if (!dm)
 		return ERR_PTR(-ENOMEM);
 

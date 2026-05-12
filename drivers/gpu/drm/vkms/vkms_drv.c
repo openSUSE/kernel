@@ -17,17 +17,20 @@
 #include <drm/drm_gem.h>
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
+#include <drm/drm_colorop.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_fbdev_shmem.h>
 #include <drm/drm_file.h>
 #include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_ioctl.h>
 #include <drm/drm_managed.h>
+#include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_gem_shmem_helper.h>
 #include <drm/drm_vblank.h>
 
 #include "vkms_config.h"
+#include "vkms_configfs.h"
 #include "vkms_drv.h"
 
 #define DRIVER_NAME	"vkms"
@@ -49,9 +52,17 @@ static bool enable_overlay;
 module_param_named(enable_overlay, enable_overlay, bool, 0444);
 MODULE_PARM_DESC(enable_overlay, "Enable/Disable overlay support");
 
+static bool enable_plane_pipeline;
+module_param_named(enable_plane_pipeline, enable_plane_pipeline, bool, 0444);
+MODULE_PARM_DESC(enable_plane_pipeline, "Enable/Disable plane pipeline support");
+
+static bool create_default_dev = true;
+module_param_named(create_default_dev, create_default_dev, bool, 0444);
+MODULE_PARM_DESC(create_default_dev, "Create or not the default VKMS device");
+
 DEFINE_DRM_GEM_FOPS(vkms_driver_fops);
 
-static void vkms_atomic_commit_tail(struct drm_atomic_state *old_state)
+static void vkms_atomic_commit_tail(struct drm_atomic_commit *old_state)
 {
 	struct drm_device *dev = old_state->dev;
 	struct drm_crtc *crtc;
@@ -91,7 +102,7 @@ static const struct drm_driver vkms_driver = {
 	.minor			= DRIVER_MINOR,
 };
 
-static int vkms_atomic_check(struct drm_device *dev, struct drm_atomic_state *state)
+static int vkms_atomic_check(struct drm_device *dev, struct drm_atomic_commit *state)
 {
 	struct drm_crtc *crtc;
 	struct drm_crtc_state *new_crtc_state;
@@ -146,7 +157,7 @@ static int vkms_modeset_init(struct vkms_device *vkmsdev)
 	return vkms_output_init(vkmsdev);
 }
 
-static int vkms_create(struct vkms_config *config)
+int vkms_create(struct vkms_config *config)
 {
 	int ret;
 	struct faux_device *fdev;
@@ -214,7 +225,15 @@ static int __init vkms_init(void)
 	int ret;
 	struct vkms_config *config;
 
-	config = vkms_config_default_create(enable_cursor, enable_writeback, enable_overlay);
+	ret = vkms_configfs_register();
+	if (ret)
+		return ret;
+
+	if (!create_default_dev)
+		return 0;
+
+	config = vkms_config_default_create(enable_cursor, enable_writeback,
+					    enable_overlay, enable_plane_pipeline);
 	if (IS_ERR(config))
 		return PTR_ERR(config);
 
@@ -229,7 +248,7 @@ static int __init vkms_init(void)
 	return 0;
 }
 
-static void vkms_destroy(struct vkms_config *config)
+void vkms_destroy(struct vkms_config *config)
 {
 	struct faux_device *fdev;
 
@@ -250,6 +269,8 @@ static void vkms_destroy(struct vkms_config *config)
 
 static void __exit vkms_exit(void)
 {
+	vkms_configfs_unregister();
+
 	if (!default_config)
 		return;
 

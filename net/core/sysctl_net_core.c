@@ -17,6 +17,7 @@
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/sched/isolation.h>
+#include <linux/hex.h>
 
 #include <net/ip.h>
 #include <net/sock.h>
@@ -137,68 +138,76 @@ done:
 static int rps_sock_flow_sysctl(const struct ctl_table *table, int write,
 				void *buffer, size_t *lenp, loff_t *ppos)
 {
+	struct rps_sock_flow_table *o_sock_table, *sock_table;
+	static DEFINE_MUTEX(sock_flow_mutex);
+	rps_tag_ptr o_tag_ptr, tag_ptr;
 	unsigned int orig_size, size;
-	int ret, i;
 	struct ctl_table tmp = {
 		.data = &size,
 		.maxlen = sizeof(size),
 		.mode = table->mode
 	};
-	struct rps_sock_flow_table *orig_sock_table, *sock_table;
-	static DEFINE_MUTEX(sock_flow_mutex);
+	void *tofree = NULL;
+	int ret, i;
+	u8 log;
 
 	mutex_lock(&sock_flow_mutex);
 
-	orig_sock_table = rcu_dereference_protected(
-					net_hotdata.rps_sock_flow_table,
-					lockdep_is_held(&sock_flow_mutex));
-	size = orig_size = orig_sock_table ? orig_sock_table->mask + 1 : 0;
+	o_tag_ptr = tag_ptr = net_hotdata.rps_sock_flow_table;
+
+	size = o_tag_ptr ? rps_tag_to_mask(o_tag_ptr) + 1 : 0;
+	o_sock_table = rps_tag_to_table(o_tag_ptr);
+	orig_size = size;
 
 	ret = proc_dointvec(&tmp, write, buffer, lenp, ppos);
 
-	if (write) {
-		if (size) {
-			if (size > 1<<29) {
-				/* Enforce limit to prevent overflow */
+	if (!write)
+		goto unlock;
+
+	if (size) {
+		if (size > 1<<29) {
+			/* Enforce limit to prevent overflow */
+			mutex_unlock(&sock_flow_mutex);
+			return -EINVAL;
+		}
+		sock_table = o_sock_table;
+		size = roundup_pow_of_two(size);
+		if (size != orig_size) {
+			sock_table = vmalloc_huge(size * sizeof(*sock_table),
+						  GFP_KERNEL);
+			if (!sock_table) {
 				mutex_unlock(&sock_flow_mutex);
-				return -EINVAL;
+				return -ENOMEM;
 			}
-			size = roundup_pow_of_two(size);
-			if (size != orig_size) {
-				sock_table =
-				    vmalloc(RPS_SOCK_FLOW_TABLE_SIZE(size));
-				if (!sock_table) {
-					mutex_unlock(&sock_flow_mutex);
-					return -ENOMEM;
-				}
-				net_hotdata.rps_cpu_mask =
-					roundup_pow_of_two(nr_cpu_ids) - 1;
-				sock_table->mask = size - 1;
-			} else
-				sock_table = orig_sock_table;
+			net_hotdata.rps_cpu_mask =
+				roundup_pow_of_two(nr_cpu_ids) - 1;
+			log = ilog2(size);
+			tag_ptr = (rps_tag_ptr)sock_table | log;
+		}
 
-			for (i = 0; i < size; i++)
-				sock_table->ents[i] = RPS_NO_CPU;
-		} else
-			sock_table = NULL;
-
-		if (sock_table != orig_sock_table) {
-			rcu_assign_pointer(net_hotdata.rps_sock_flow_table,
-					   sock_table);
-			if (sock_table) {
-				static_branch_inc(&rps_needed);
-				static_branch_inc(&rfs_needed);
-			}
-			if (orig_sock_table) {
-				static_branch_dec(&rps_needed);
-				static_branch_dec(&rfs_needed);
-				kvfree_rcu(orig_sock_table, rcu);
-			}
+		for (i = 0; i < size; i++)
+			sock_table[i].ent = RPS_NO_CPU;
+	} else {
+		sock_table = NULL;
+		tag_ptr = 0UL;
+	}
+	if (tag_ptr != o_tag_ptr) {
+		smp_store_release(&net_hotdata.rps_sock_flow_table, tag_ptr);
+		if (sock_table) {
+			static_branch_inc(&rps_needed);
+			static_branch_inc(&rfs_needed);
+		}
+		if (o_sock_table) {
+			static_branch_dec(&rps_needed);
+			static_branch_dec(&rfs_needed);
+			tofree = o_sock_table;
 		}
 	}
 
+unlock:
 	mutex_unlock(&sock_flow_mutex);
 
+	kvfree_rcu_mightsleep(tofree);
 	return ret;
 }
 #endif /* CONFIG_RPS */
@@ -325,13 +334,42 @@ static int proc_do_dev_weight(const struct ctl_table *table, int write,
 static int proc_do_rss_key(const struct ctl_table *table, int write,
 			   void *buffer, size_t *lenp, loff_t *ppos)
 {
-	struct ctl_table fake_table;
 	char buf[NETDEV_RSS_KEY_LEN * 3];
+	struct ctl_table fake_table;
+	char *pos = buf;
 
-	snprintf(buf, sizeof(buf), "%*phC", NETDEV_RSS_KEY_LEN, netdev_rss_key);
+	for (int i = 0; i < NETDEV_RSS_KEY_LEN; i++) {
+		pos = hex_byte_pack(pos, netdev_rss_key[i]);
+		*pos++ = ':';
+	}
+	*(--pos) = 0;
+
 	fake_table.data = buf;
 	fake_table.maxlen = sizeof(buf);
 	return proc_dostring(&fake_table, write, buffer, lenp, ppos);
+}
+
+static int proc_do_skb_defer_max(const struct ctl_table *table, int write,
+		 void *buffer, size_t *lenp, loff_t *ppos)
+{
+	static DEFINE_MUTEX(skb_defer_max_mutex);
+	int ret, oval, nval;
+
+	mutex_lock(&skb_defer_max_mutex);
+
+	oval = !net_hotdata.sysctl_skb_defer_max;
+	ret = proc_dointvec_minmax(table, write, buffer, lenp, ppos);
+	nval = !net_hotdata.sysctl_skb_defer_max;
+
+	if (nval != oval) {
+		if (nval)
+			static_branch_enable(&skb_defer_disable_key);
+		else
+			static_branch_disable(&skb_defer_disable_key);
+	}
+
+	mutex_unlock(&skb_defer_max_mutex);
+	return ret;
 }
 
 #ifdef CONFIG_BPF_JIT
@@ -425,6 +463,13 @@ static struct ctl_table net_core_table[] = {
 	{
 		.procname	= "netdev_max_backlog",
 		.data		= &net_hotdata.max_backlog,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec
+	},
+	{
+		.procname	= "qdisc_max_burst",
+		.data		= &net_hotdata.qdisc_max_burst,
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec
@@ -628,7 +673,7 @@ static struct ctl_table net_core_table[] = {
 		.data		= &net_hotdata.sysctl_skb_defer_max,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
-		.proc_handler	= proc_dointvec_minmax,
+		.proc_handler	= proc_do_skb_defer_max,
 		.extra1		= SYSCTL_ZERO,
 	},
 };
@@ -668,8 +713,24 @@ static struct ctl_table netns_core_table[] = {
 		.proc_handler	= proc_dou8vec_minmax,
 	},
 	{
+		.procname	= "txq_reselection_ms",
+		.data		= &init_net.core.sysctl_txq_reselection,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_ms_jiffies,
+	},
+	{
 		.procname	= "tstamp_allow_data",
 		.data		= &init_net.core.sysctl_tstamp_allow_data,
+		.maxlen		= sizeof(u8),
+		.mode		= 0644,
+		.proc_handler	= proc_dou8vec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE
+	},
+	{
+		.procname	= "bypass_prot_mem",
+		.data		= &init_net.core.sysctl_bypass_prot_mem,
 		.maxlen		= sizeof(u8),
 		.mode		= 0644,
 		.proc_handler	= proc_dou8vec_minmax,

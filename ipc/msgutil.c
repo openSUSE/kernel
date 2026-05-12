@@ -15,6 +15,7 @@
 #include <linux/proc_ns.h>
 #include <linux/uaccess.h>
 #include <linux/sched.h>
+#include <linux/nstree.h>
 
 #include "util.h"
 
@@ -26,12 +27,8 @@ DEFINE_SPINLOCK(mq_lock);
  * and not CONFIG_IPC_NS.
  */
 struct ipc_namespace init_ipc_ns = {
-	.ns.count = REFCOUNT_INIT(1),
+	.ns = NS_COMMON_INIT(init_ipc_ns),
 	.user_ns = &init_user_ns,
-	.ns.inum = PROC_IPC_INIT_INO,
-#ifdef CONFIG_IPC_NS
-	.ns.ops = &ipcns_operations,
-#endif
 };
 
 struct msg_msgseg {

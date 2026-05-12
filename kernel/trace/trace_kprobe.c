@@ -31,7 +31,8 @@ static char kprobe_boot_events_buf[COMMAND_LINE_SIZE] __initdata;
 
 static int __init set_kprobe_boot_events(char *str)
 {
-	strscpy(kprobe_boot_events_buf, str, COMMAND_LINE_SIZE);
+	trace_append_boot_param(kprobe_boot_events_buf, str, ';',
+				COMMAND_LINE_SIZE);
 	disable_tracing_selftest("running kprobe events");
 
 	return 1;
@@ -82,6 +83,7 @@ static struct trace_kprobe *to_trace_kprobe(struct dyn_event *ev)
 #define for_each_trace_kprobe(pos, dpos)	\
 	for_each_dyn_event(dpos)		\
 		if (is_trace_kprobe(dpos) && (pos = to_trace_kprobe(dpos)))
+#define trace_kprobe_list_empty() list_empty(&dyn_event_list)
 
 static nokprobe_inline bool trace_kprobe_is_return(struct trace_kprobe *tk)
 {
@@ -274,7 +276,7 @@ static struct trace_kprobe *alloc_trace_kprobe(const char *group,
 	struct trace_kprobe *tk __free(free_trace_kprobe) = NULL;
 	int ret = -ENOMEM;
 
-	tk = kzalloc(struct_size(tk, tp.args, nargs), GFP_KERNEL);
+	tk = kzalloc_flex(*tk, tp.args, nargs);
 	if (!tk)
 		return ERR_PTR(ret);
 
@@ -764,6 +766,14 @@ static unsigned int number_of_same_symbols(const char *mod, const char *func_nam
 	if (!mod)
 		kallsyms_on_each_match_symbol(count_symbols, func_name, &ctx.count);
 
+	/*
+	 * If the symbol is found in vmlinux, use vmlinux resolution only.
+	 * This prevents module symbols from shadowing vmlinux symbols
+	 * and causing -EADDRNOTAVAIL for unqualified kprobe targets.
+	 */
+	if (!mod && ctx.count > 0)
+		return ctx.count;
+
 	module_kallsyms_on_each_symbol(mod, count_mod_symbols, &ctx);
 
 	return ctx.count;
@@ -908,6 +918,8 @@ static int trace_kprobe_create_internal(int argc, const char *argv[],
 			return -EINVAL;
 		}
 		buf = kmemdup(&argv[0][1], len + 1, GFP_KERNEL);
+		if (!buf)
+			return -ENOMEM;
 		buf[len] = '\0';
 		ret = kstrtouint(buf, 0, &maxactive);
 		if (ret || !maxactive) {
@@ -1079,7 +1091,7 @@ static int trace_kprobe_create_cb(int argc, const char *argv[])
 	struct traceprobe_parse_context *ctx __free(traceprobe_parse_context) = NULL;
 	int ret;
 
-	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	ctx = kzalloc_obj(*ctx);
 	if (!ctx)
 		return -ENOMEM;
 	ctx->flags = TPARG_FL_KERNEL;
@@ -1582,7 +1594,7 @@ print_kprobe_event(struct trace_iterator *iter, int flags,
 
 	trace_seq_printf(s, "%s: (", trace_probe_name(tp));
 
-	if (!seq_print_ip_sym(s, field->ip, flags | TRACE_ITER_SYM_OFFSET))
+	if (!seq_print_ip_sym_offset(s, field->ip, flags))
 		goto out;
 
 	trace_seq_putc(s, ')');
@@ -1612,12 +1624,12 @@ print_kretprobe_event(struct trace_iterator *iter, int flags,
 
 	trace_seq_printf(s, "%s: (", trace_probe_name(tp));
 
-	if (!seq_print_ip_sym(s, field->ret_ip, flags | TRACE_ITER_SYM_OFFSET))
+	if (!seq_print_ip_sym_offset(s, field->ret_ip, flags))
 		goto out;
 
 	trace_seq_puts(s, " <- ");
 
-	if (!seq_print_ip_sym(s, field->func, flags & ~TRACE_ITER_SYM_OFFSET))
+	if (!seq_print_ip_sym_no_offset(s, field->func, flags))
 		goto out;
 
 	trace_seq_putc(s, ')');
@@ -1813,14 +1825,15 @@ static int kprobe_register(struct trace_event_call *event,
 static int kprobe_dispatcher(struct kprobe *kp, struct pt_regs *regs)
 {
 	struct trace_kprobe *tk = container_of(kp, struct trace_kprobe, rp.kp);
+	unsigned int flags = trace_probe_load_flag(&tk->tp);
 	int ret = 0;
 
 	raw_cpu_inc(*tk->nhit);
 
-	if (trace_probe_test_flag(&tk->tp, TP_FLAG_TRACE))
+	if (flags & TP_FLAG_TRACE)
 		kprobe_trace_func(tk, regs);
 #ifdef CONFIG_PERF_EVENTS
-	if (trace_probe_test_flag(&tk->tp, TP_FLAG_PROFILE))
+	if (flags & TP_FLAG_PROFILE)
 		ret = kprobe_perf_func(tk, regs);
 #endif
 	return ret;
@@ -1832,6 +1845,7 @@ kretprobe_dispatcher(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	struct kretprobe *rp = get_kretprobe(ri);
 	struct trace_kprobe *tk;
+	unsigned int flags;
 
 	/*
 	 * There is a small chance that get_kretprobe(ri) returns NULL when
@@ -1844,10 +1858,11 @@ kretprobe_dispatcher(struct kretprobe_instance *ri, struct pt_regs *regs)
 	tk = container_of(rp, struct trace_kprobe, rp);
 	raw_cpu_inc(*tk->nhit);
 
-	if (trace_probe_test_flag(&tk->tp, TP_FLAG_TRACE))
+	flags = trace_probe_load_flag(&tk->tp);
+	if (flags & TP_FLAG_TRACE)
 		kretprobe_trace_func(tk, ri, regs);
 #ifdef CONFIG_PERF_EVENTS
-	if (trace_probe_test_flag(&tk->tp, TP_FLAG_PROFILE))
+	if (flags & TP_FLAG_PROFILE)
 		kretprobe_perf_func(tk, ri, regs);
 #endif
 	return 0;	/* We don't tweak kernel, so just return 0 */
@@ -1977,6 +1992,9 @@ static __init void enable_boot_kprobe_events(void)
 	struct trace_kprobe *tk;
 	struct dyn_event *pos;
 
+	if (trace_kprobe_list_empty())
+		return;
+
 	guard(mutex)(&event_mutex);
 	for_each_trace_kprobe(tk, pos) {
 		list_for_each_entry(file, &tr->events, list)
@@ -2043,6 +2061,10 @@ static __init int init_kprobe_trace(void)
 	trace_create_file("kprobe_profile", TRACE_MODE_READ,
 			  NULL, NULL, &kprobe_profile_ops);
 
+	/* If no 'kprobe_event=' cmd is provided, return directly. */
+	if (kprobe_boot_events_buf[0] == '\0')
+		return 0;
+
 	setup_boot_kprobe_events();
 
 	return 0;
@@ -2074,7 +2096,7 @@ static __init int kprobe_trace_self_tests_init(void)
 	struct trace_kprobe *tk;
 	struct trace_event_file *file;
 
-	if (tracing_is_disabled())
+	if (unlikely(tracing_disabled))
 		return -ENODEV;
 
 	if (tracing_selftest_disabled)

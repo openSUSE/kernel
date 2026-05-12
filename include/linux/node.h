@@ -85,6 +85,8 @@ struct node_cache_attrs {
 void node_add_cache(unsigned int nid, struct node_cache_attrs *cache_attrs);
 void node_set_perf_attrs(unsigned int nid, struct access_coordinate *coord,
 			 enum access_coordinate_class access);
+void node_update_perf_attrs(unsigned int nid, struct access_coordinate *coord,
+			    enum access_coordinate_class access);
 #else
 static inline void node_add_cache(unsigned int nid,
 				  struct node_cache_attrs *cache_attrs)
@@ -94,6 +96,12 @@ static inline void node_add_cache(unsigned int nid,
 static inline void node_set_perf_attrs(unsigned int nid,
 				       struct access_coordinate *coord,
 				       enum access_coordinate_class access)
+{
+}
+
+static inline void node_update_perf_attrs(unsigned int nid,
+					  struct access_coordinate *coord,
+					  enum access_coordinate_class access)
 {
 }
 #endif
@@ -123,8 +131,6 @@ static inline void register_memory_blocks_under_nodes(void)
 {
 }
 #endif
-
-extern void unregister_node(struct node *node);
 
 struct node_notify {
 	int nid;
@@ -168,8 +174,8 @@ static inline int hotplug_node_notifier(notifier_fn_t fn, int pri)
 #ifdef CONFIG_NUMA
 extern void node_dev_init(void);
 /* Core of the node registration - only memory hotplug should use this */
-extern int register_one_node(int nid);
-extern void unregister_one_node(int nid);
+int register_node(int nid);
+void unregister_node(int nid);
 extern int register_cpu_under_node(unsigned int cpu, unsigned int nid);
 extern int unregister_cpu_under_node(unsigned int cpu, unsigned int nid);
 extern void unregister_memory_block_under_nodes(struct memory_block *mem_blk);
@@ -181,11 +187,11 @@ extern int register_memory_node_under_compute_node(unsigned int mem_nid,
 static inline void node_dev_init(void)
 {
 }
-static inline int register_one_node(int nid)
+static inline int register_node(int nid)
 {
 	return 0;
 }
-static inline int unregister_one_node(int nid)
+static inline int unregister_node(int nid)
 {
 	return 0;
 }

@@ -25,11 +25,14 @@
 enum scmi_imx_misc_protocol_cmd {
 	SCMI_IMX_MISC_CTRL_SET	= 0x3,
 	SCMI_IMX_MISC_CTRL_GET	= 0x4,
+	SCMI_IMX_MISC_DISCOVER_BUILD_INFO = 0x6,
 	SCMI_IMX_MISC_CTRL_NOTIFY = 0x8,
+	SCMI_IMX_MISC_CFG_INFO_GET = 0xC,
+	SCMI_IMX_MISC_SYSLOG_GET = 0xD,
+	SCMI_IMX_MISC_BOARD_INFO = 0xE,
 };
 
 struct scmi_imx_misc_info {
-	u32 version;
 	u32 nr_dev_ctrl;
 	u32 nr_brd_ctrl;
 	u32 nr_reason;
@@ -63,6 +66,40 @@ struct scmi_imx_misc_ctrl_notify_payld {
 struct scmi_imx_misc_ctrl_get_out {
 	__le32 num;
 	__le32 val[];
+};
+
+struct scmi_imx_misc_buildinfo_out {
+	__le32 buildnum;
+	__le32 buildcommit;
+#define MISC_MAX_BUILDDATE	16
+	u8 builddate[MISC_MAX_BUILDDATE];
+#define MISC_MAX_BUILDTIME	16
+	u8 buildtime[MISC_MAX_BUILDTIME];
+};
+
+struct scmi_imx_misc_board_info_out {
+	__le32 attributes;
+#define MISC_MAX_BRDNAME	16
+	u8 brdname[MISC_MAX_BRDNAME];
+};
+
+struct scmi_imx_misc_cfg_info_out {
+	__le32 msel;
+#define MISC_MAX_CFGNAME	16
+	u8 cfgname[MISC_MAX_CFGNAME];
+};
+
+struct scmi_imx_misc_syslog_in {
+	__le32 flags;
+	__le32 index;
+};
+
+#define REMAINING(x)	le32_get_bits((x), GENMASK(31, 20))
+#define RETURNED(x)	le32_get_bits((x), GENMASK(11, 0))
+
+struct scmi_imx_misc_syslog_out {
+	__le32 numlogflags;
+	__le32 syslog[];
 };
 
 static int scmi_imx_misc_attributes_get(const struct scmi_protocol_handle *ph,
@@ -272,24 +309,163 @@ static int scmi_imx_misc_ctrl_set(const struct scmi_protocol_handle *ph,
 	return ret;
 }
 
+static int scmi_imx_misc_build_info_discover(const struct scmi_protocol_handle *ph)
+{
+	char date[MISC_MAX_BUILDDATE], time[MISC_MAX_BUILDTIME];
+	struct scmi_imx_misc_buildinfo_out *out;
+	struct scmi_xfer *t;
+	int ret;
+
+	ret = ph->xops->xfer_get_init(ph, SCMI_IMX_MISC_DISCOVER_BUILD_INFO, 0,
+				      sizeof(*out), &t);
+	if (ret)
+		return ret;
+
+	ret = ph->xops->do_xfer(ph, t);
+	if (!ret) {
+		out = t->rx.buf;
+		strscpy(date, out->builddate, MISC_MAX_BUILDDATE);
+		strscpy(time, out->buildtime, MISC_MAX_BUILDTIME);
+		dev_info(ph->dev, "SM Version\t= Build %u, Commit %08x %s %s\n",
+			 le32_to_cpu(out->buildnum), le32_to_cpu(out->buildcommit),
+			 date, time);
+	}
+
+	ph->xops->xfer_put(ph, t);
+
+	return ret;
+}
+
+static int scmi_imx_misc_board_info(const struct scmi_protocol_handle *ph)
+{
+	struct scmi_imx_misc_board_info_out *out;
+	char name[MISC_MAX_BRDNAME];
+	struct scmi_xfer *t;
+	int ret;
+
+	ret = ph->xops->xfer_get_init(ph, SCMI_IMX_MISC_BOARD_INFO, 0, sizeof(*out), &t);
+	if (ret)
+		return ret;
+
+	ret = ph->xops->do_xfer(ph, t);
+	if (!ret) {
+		out = t->rx.buf;
+		strscpy(name, out->brdname, MISC_MAX_BRDNAME);
+		dev_info(ph->dev, "Board\t\t= %s, attr=0x%08x\n",
+			 name, le32_to_cpu(out->attributes));
+	}
+
+	ph->xops->xfer_put(ph, t);
+
+	return ret;
+}
+
+static int scmi_imx_misc_cfg_info_get(const struct scmi_protocol_handle *ph)
+{
+	struct scmi_imx_misc_cfg_info_out *out;
+	char name[MISC_MAX_CFGNAME];
+	struct scmi_xfer *t;
+	int ret;
+
+	ret = ph->xops->xfer_get_init(ph, SCMI_IMX_MISC_CFG_INFO_GET, 0, sizeof(*out), &t);
+	if (ret)
+		return ret;
+
+	ret = ph->xops->do_xfer(ph, t);
+	if (!ret) {
+		out = t->rx.buf;
+		strscpy(name, out->cfgname, MISC_MAX_CFGNAME);
+		dev_info(ph->dev, "SM Config\t= %s, mSel = %u\n",
+			 name, le32_to_cpu(out->msel));
+	}
+
+	ph->xops->xfer_put(ph, t);
+
+	return ret;
+}
+
+struct scmi_imx_misc_syslog_ipriv {
+	u32 *array;
+	u16 *size;
+};
+
+static void iter_misc_syslog_prepare_message(void *message, u32 desc_index,
+					     const void *priv)
+{
+	struct scmi_imx_misc_syslog_in *msg = message;
+
+	msg->flags = cpu_to_le32(0);
+	msg->index = cpu_to_le32(desc_index);
+}
+
+static int iter_misc_syslog_update_state(struct scmi_iterator_state *st,
+					 const void *response, void *priv)
+{
+	const struct scmi_imx_misc_syslog_out *r = response;
+	struct scmi_imx_misc_syslog_ipriv *p = priv;
+
+	st->num_returned = RETURNED(r->numlogflags);
+	st->num_remaining = REMAINING(r->numlogflags);
+	*p->size = st->num_returned + st->num_remaining;
+
+	return 0;
+}
+
+static int
+iter_misc_syslog_process_response(const struct scmi_protocol_handle *ph,
+				  const void *response,
+				  struct scmi_iterator_state *st, void *priv)
+{
+	const struct scmi_imx_misc_syslog_out *r = response;
+	struct scmi_imx_misc_syslog_ipriv *p = priv;
+
+	p->array[st->desc_index + st->loop_idx] =
+		le32_to_cpu(r->syslog[st->loop_idx]);
+
+	return 0;
+}
+
+static int scmi_imx_misc_syslog_get(const struct scmi_protocol_handle *ph, u16 *size,
+				    void *array)
+{
+	struct scmi_iterator_ops ops = {
+		.prepare_message = iter_misc_syslog_prepare_message,
+		.update_state = iter_misc_syslog_update_state,
+		.process_response = iter_misc_syslog_process_response,
+	};
+	struct scmi_imx_misc_syslog_ipriv ipriv = {
+		.array = array,
+		.size = size,
+	};
+	void *iter;
+
+	if (!array || !size || !*size)
+		return -EINVAL;
+
+	iter = ph->hops->iter_response_init(ph, &ops, *size, SCMI_IMX_MISC_SYSLOG_GET,
+					    sizeof(struct scmi_imx_misc_syslog_in),
+					    &ipriv);
+	if (IS_ERR(iter))
+		return PTR_ERR(iter);
+
+	/* If firmware return NOT SUPPORTED, propagate value to caller */
+	return ph->hops->iter_response_run(iter);
+}
+
 static const struct scmi_imx_misc_proto_ops scmi_imx_misc_proto_ops = {
 	.misc_ctrl_set = scmi_imx_misc_ctrl_set,
 	.misc_ctrl_get = scmi_imx_misc_ctrl_get,
 	.misc_ctrl_req_notify = scmi_imx_misc_ctrl_notify,
+	.misc_syslog = scmi_imx_misc_syslog_get,
 };
 
 static int scmi_imx_misc_protocol_init(const struct scmi_protocol_handle *ph)
 {
 	struct scmi_imx_misc_info *minfo;
-	u32 version;
 	int ret;
 
-	ret = ph->xops->version_get(ph, &version);
-	if (ret)
-		return ret;
-
 	dev_info(ph->dev, "NXP SM MISC Version %d.%d\n",
-		 PROTOCOL_REV_MAJOR(version), PROTOCOL_REV_MINOR(version));
+		 PROTOCOL_REV_MAJOR(ph->version), PROTOCOL_REV_MINOR(ph->version));
 
 	minfo = devm_kzalloc(ph->dev, sizeof(*minfo), GFP_KERNEL);
 	if (!minfo)
@@ -299,7 +475,19 @@ static int scmi_imx_misc_protocol_init(const struct scmi_protocol_handle *ph)
 	if (ret)
 		return ret;
 
-	return ph->set_priv(ph, minfo, version);
+	ret = scmi_imx_misc_build_info_discover(ph);
+	if (ret && ret != -EOPNOTSUPP)
+		return ret;
+
+	ret = scmi_imx_misc_board_info(ph);
+	if (ret && ret != -EOPNOTSUPP)
+		return ret;
+
+	ret = scmi_imx_misc_cfg_info_get(ph);
+	if (ret && ret != -EOPNOTSUPP)
+		return ret;
+
+	return ph->set_priv(ph, minfo);
 }
 
 static const struct scmi_protocol scmi_imx_misc = {

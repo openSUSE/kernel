@@ -212,7 +212,7 @@ static int qtnf_mac_init_single_band(struct wiphy *wiphy,
 {
 	int ret;
 
-	wiphy->bands[band] = kzalloc(sizeof(*wiphy->bands[band]), GFP_KERNEL);
+	wiphy->bands[band] = kzalloc_obj(*wiphy->bands[band]);
 	if (!wiphy->bands[band])
 		return -ENOMEM;
 
@@ -452,8 +452,8 @@ int qtnf_core_net_attach(struct qtnf_wmac *mac, struct qtnf_vif *vif,
 	void *qdev_vif;
 	int ret;
 
-	dev = alloc_netdev_mqs(sizeof(struct qtnf_vif *), name,
-			       name_assign_type, ether_setup, 1, 1);
+	dev = alloc_netdev(sizeof(struct qtnf_vif *), name,
+			   name_assign_type, ether_setup);
 	if (!dev)
 		return -ENOMEM;
 
@@ -714,7 +714,8 @@ int qtnf_core_attach(struct qtnf_bus *bus)
 		goto error;
 	}
 
-	bus->hprio_workqueue = alloc_workqueue("QTNF_HPRI", WQ_HIGHPRI, 0);
+	bus->hprio_workqueue = alloc_workqueue("QTNF_HPRI",
+					       WQ_HIGHPRI | WQ_PERCPU, 0);
 	if (!bus->hprio_workqueue) {
 		pr_err("failed to alloc high prio workqueue\n");
 		ret = -ENOMEM;

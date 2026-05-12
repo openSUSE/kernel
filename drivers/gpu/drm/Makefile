@@ -6,7 +6,7 @@
 CFLAGS-$(CONFIG_DRM_USE_DYNAMIC_DEBUG)	+= -DDYNAMIC_DEBUG_MODULE
 
 # Unconditionally enable W=1 warnings locally
-# --- begin copy-paste W=1 warnings from scripts/Makefile.extrawarn
+# --- begin copy-paste W=1 warnings from scripts/Makefile.warn
 subdir-ccflags-y += -Wextra -Wunused -Wno-unused-parameter
 subdir-ccflags-y += $(call cc-option, -Wrestrict)
 subdir-ccflags-y += -Wmissing-format-attribute
@@ -22,7 +22,6 @@ subdir-ccflags-y += $(call cc-option, -Wstringop-truncation)
 # The following turn off the warnings enabled by -Wextra
 ifeq ($(findstring 2, $(KBUILD_EXTRA_WARN)),)
 subdir-ccflags-y += -Wno-missing-field-initializers
-subdir-ccflags-y += -Wno-type-limits
 subdir-ccflags-y += -Wno-shift-negative-value
 endif
 ifeq ($(findstring 3, $(KBUILD_EXTRA_WARN)),)
@@ -41,6 +40,7 @@ drm-y := \
 	drm_bridge.o \
 	drm_cache.o \
 	drm_color_mgmt.o \
+	drm_colorop.o \
 	drm_connector.o \
 	drm_crtc.o \
 	drm_displayid.o \
@@ -76,8 +76,8 @@ drm-y := \
 drm-$(CONFIG_DRM_CLIENT) += \
 	drm_client.o \
 	drm_client_event.o \
-	drm_client_modeset.o
-drm-$(CONFIG_DRM_LIB_RANDOM) += lib/drm_random.o
+	drm_client_modeset.o \
+	drm_client_sysrq.o
 drm-$(CONFIG_COMPAT) += drm_ioc32.o
 drm-$(CONFIG_DRM_PANEL) += drm_panel.o
 drm-$(CONFIG_OF) += drm_of.o
@@ -93,6 +93,7 @@ drm-$(CONFIG_DRM_ACCEL) += ../../accel/drm_accel.o
 drm-$(CONFIG_DRM_PANIC) += drm_panic.o
 drm-$(CONFIG_DRM_DRAW) += drm_draw.o
 drm-$(CONFIG_DRM_PANIC_SCREEN_QR_CODE) += drm_panic_qr.o
+drm-$(CONFIG_DRM_RAS) += drm_ras.o drm_ras_nl.o drm_ras_genl_family.o
 obj-$(CONFIG_DRM)	+= drm.o
 
 obj-$(CONFIG_DRM_PANEL_ORIENTATION_QUIRKS) += drm_panel_orientation_quirks.o
@@ -106,8 +107,11 @@ obj-$(CONFIG_DRM_EXEC) += drm_exec.o
 obj-$(CONFIG_DRM_GPUVM) += drm_gpuvm.o
 
 drm_gpusvm_helper-y := \
-	drm_gpusvm.o\
-	drm_pagemap.o
+	drm_gpusvm.o
+drm_gpusvm_helper-$(CONFIG_ZONE_DEVICE) += \
+	drm_pagemap.o\
+	drm_pagemap_util.o
+
 obj-$(CONFIG_DRM_GPUSVM) += drm_gpusvm_helper.o
 
 obj-$(CONFIG_DRM_BUDDY) += drm_buddy.o
@@ -150,7 +154,8 @@ drm_kms_helper-y := \
 	drm_plane_helper.o \
 	drm_probe_helper.o \
 	drm_self_refresh_helper.o \
-	drm_simple_kms_helper.o
+	drm_simple_kms_helper.o \
+	drm_vblank_helper.o
 drm_kms_helper-$(CONFIG_DRM_PANEL_BRIDGE) += bridge/panel.o
 drm_kms_helper-$(CONFIG_DRM_FBDEV_EMULATION) += drm_fb_helper.o
 obj-$(CONFIG_DRM_KMS_HELPER) += drm_kms_helper.o
@@ -220,6 +225,7 @@ obj-$(CONFIG_DRM_VBOXVIDEO) += vboxvideo/
 obj-$(CONFIG_DRM_LIMA)  += lima/
 obj-$(CONFIG_DRM_PANFROST) += panfrost/
 obj-$(CONFIG_DRM_PANTHOR) += panthor/
+obj-$(CONFIG_DRM_TYR) += tyr/
 obj-$(CONFIG_DRM_ASPEED_GFX) += aspeed/
 obj-$(CONFIG_DRM_MCDE) += mcde/
 obj-$(CONFIG_DRM_TIDSS) += tidss/
@@ -231,11 +237,12 @@ obj-y			+= solomon/
 obj-$(CONFIG_DRM_SPRD) += sprd/
 obj-$(CONFIG_DRM_LOONGSON) += loongson/
 obj-$(CONFIG_DRM_POWERVR) += imagination/
+obj-$(CONFIG_DRM_VERISILICON_DC) += verisilicon/
 
 # Ensure drm headers are self-contained and pass kernel-doc
 hdrtest-files := \
 	$(shell cd $(src) && find . -maxdepth 1 -name 'drm_*.h') \
-	$(shell cd $(src) && find display lib -name '*.h')
+	$(shell cd $(src) && find display -name '*.h')
 
 always-$(CONFIG_DRM_HEADER_TEST) += \
 	$(patsubst %.h,%.hdrtest, $(hdrtest-files))
@@ -244,7 +251,7 @@ always-$(CONFIG_DRM_HEADER_TEST) += \
 quiet_cmd_hdrtest = HDRTEST $(patsubst %.hdrtest,%.h,$@)
       cmd_hdrtest = \
 		$(CC) $(c_flags) -fsyntax-only -x c /dev/null -include $< -include $<; \
-		 PYTHONDONTWRITEBYTECODE=1 $(KERNELDOC) -none $(if $(CONFIG_WERROR)$(CONFIG_DRM_WERROR),-Werror) $<; \
+		 PYTHONDONTWRITEBYTECODE=1 $(PYTHON3) $(KERNELDOC) -none $(if $(CONFIG_WERROR)$(CONFIG_DRM_WERROR),-Werror) $<; \
 		touch $@
 
 $(obj)/%.hdrtest: $(src)/%.h FORCE

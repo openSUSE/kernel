@@ -440,7 +440,7 @@ static inline bool fib4_rules_early_flow_dissect(struct net *net,
 
 static inline bool fib_dscp_masked_match(dscp_t dscp, const struct flowi4 *fl4)
 {
-	return dscp == inet_dsfield_to_dscp(RT_TOS(fl4->flowi4_tos));
+	return dscp == (fl4->flowi4_dscp & INET_DSCP_LEGACY_TOS_MASK);
 }
 
 /* Exported by fib_frontend.c */
@@ -559,7 +559,7 @@ static inline u32 fib_multipath_hash_from_keys(const struct net *net,
 	siphash_aligned_key_t hash_key;
 	u32 mp_seed;
 
-	mp_seed = READ_ONCE(net->ipv4.sysctl_fib_multipath_hash_seed).mp_seed;
+	mp_seed = READ_ONCE(net->ipv4.sysctl_fib_multipath_hash_seed.mp_seed);
 	fib_multipath_hash_construct_key(&hash_key, mp_seed);
 
 	return flow_hash_from_keys_seed(keys, &hash_key);

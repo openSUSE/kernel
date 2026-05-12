@@ -34,7 +34,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "../kselftest.h"
+#include "kselftest.h"
 
 #define printk(fmt, ...)						\
 	ksft_print_msg("%d[%u] " fmt "\n", getpid(), __LINE__, ##__VA_ARGS__)
@@ -42,6 +42,10 @@
 #define pr_err(fmt, ...)	printk(fmt ": %m", ##__VA_ARGS__)
 
 #define BUILD_BUG_ON(condition) ((void)sizeof(char[1 - 2*!!(condition)]))
+
+#ifndef offsetof
+#define offsetof(TYPE, MEMBER)	__builtin_offsetof(TYPE, MEMBER)
+#endif
 
 #define IPV4_STR_SZ	16	/* xxx.xxx.xxx.xxx is longest + \0 */
 #define MAX_PAYLOAD	2048
@@ -57,8 +61,6 @@
 
 #define VETH_FMT	"ktst-%d"
 #define VETH_LEN	12
-
-#define XFRM_ALGO_NR_KEYS 29
 
 static int nsfd_parent	= -1;
 static int nsfd_childa	= -1;
@@ -92,7 +94,6 @@ struct xfrm_key_entry xfrm_key_entries[] = {
 	{"cbc(cast5)", 128},
 	{"cbc(serpent)", 128},
 	{"hmac(sha1)", 160},
-	{"hmac(rmd160)", 160},
 	{"cbc(des3_ede)", 192},
 	{"hmac(sha256)", 256},
 	{"cbc(aes)", 256},
@@ -809,7 +810,7 @@ static int xfrm_fill_key(char *name, char *buf,
 {
 	int i;
 
-	for (i = 0; i < XFRM_ALGO_NR_KEYS; i++) {
+	for (i = 0; i < ARRAY_SIZE(xfrm_key_entries); i++) {
 		if (strncmp(name, xfrm_key_entries[i].algo_name, ALGO_LEN) == 0)
 			*key_len = xfrm_key_entries[i].key_len;
 	}
@@ -827,13 +828,16 @@ static int xfrm_fill_key(char *name, char *buf,
 static int xfrm_state_pack_algo(struct nlmsghdr *nh, size_t req_sz,
 		struct xfrm_desc *desc)
 {
-	struct {
+	union {
 		union {
 			struct xfrm_algo	alg;
 			struct xfrm_algo_aead	aead;
 			struct xfrm_algo_auth	auth;
 		} u;
-		char buf[XFRM_ALGO_KEY_BUF_SIZE];
+		struct {
+			unsigned char __offset_to_FAM[offsetof(struct xfrm_algo_auth, alg_key)];
+			char buf[XFRM_ALGO_KEY_BUF_SIZE];
+		};
 	} alg = {};
 	size_t alen, elen, clen, aelen;
 	unsigned short type;
@@ -2054,8 +2058,7 @@ static int write_desc(int proto, int test_desc_fd,
 int proto_list[] = { IPPROTO_AH, IPPROTO_COMP, IPPROTO_ESP };
 char *ah_list[] = {
 	"digest_null", "hmac(md5)", "hmac(sha1)", "hmac(sha256)",
-	"hmac(sha384)", "hmac(sha512)", "hmac(rmd160)",
-	"xcbc(aes)", "cmac(aes)"
+	"hmac(sha384)", "hmac(sha512)", "xcbc(aes)", "cmac(aes)"
 };
 char *comp_list[] = {
 	"deflate",

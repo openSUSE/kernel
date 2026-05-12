@@ -9,6 +9,7 @@
 
 #include "hpfs_fn.h"
 #include <linux/module.h>
+#include <linux/fs_struct.h>
 #include <linux/fs_context.h>
 #include <linux/fs_parser.h>
 #include <linux/init.h>
@@ -404,15 +405,11 @@ static int hpfs_parse_param(struct fs_context *fc, struct fs_parameter *param)
 		break;
 	case Opt_timeshift:
 		{
-			int m = 1;
 			char *rhs = param->string;
 			int timeshift;
 
-			if (*rhs == '-') m = -1;
-			if (*rhs == '+' || *rhs == '-') rhs++;
-			timeshift = simple_strtoul(rhs, &rhs, 0) * m;
-			if (*rhs)
-					return -EINVAL;
+			if (kstrtoint(rhs, 0, &timeshift))
+				return -EINVAL;
 			ctx->timeshift = timeshift;
 			break;
 		}
@@ -516,7 +513,7 @@ static int hpfs_fill_super(struct super_block *s, struct fs_context *fc)
 	struct hpfs_dirent *de = NULL;
 	struct quad_buffer_head qbh;
 
-	sbi = kzalloc(sizeof(*sbi), GFP_KERNEL);
+	sbi = kzalloc_obj(*sbi);
 	if (!sbi) {
 		return -ENOMEM;
 	}
@@ -718,7 +715,7 @@ static int hpfs_init_fs_context(struct fs_context *fc)
 {
 	struct hpfs_fc_context *ctx;
 
-	ctx = kzalloc(sizeof(struct hpfs_fc_context), GFP_KERNEL);
+	ctx = kzalloc_obj(struct hpfs_fc_context);
 	if (!ctx)
 		return -ENOMEM;
 

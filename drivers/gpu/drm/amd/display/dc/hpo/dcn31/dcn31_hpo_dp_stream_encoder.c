@@ -468,7 +468,7 @@ static void dcn31_hpo_dp_stream_enc_update_dp_info_packets(
 				&info_frame->spd,
 				true);
 
-	if (info_frame->hdrsmd.valid)
+	if (info_frame->hdrsmd.valid && !info_frame->firmware_controlled_hdr_info_packet)
 		enc->vpg->funcs->update_generic_info_packet(
 				enc->vpg,
 				3,  /* packetIndex */
@@ -640,6 +640,11 @@ static void dcn31_hpo_dp_stream_enc_audio_setup(
 	REG_UPDATE(DP_STREAM_ENC_AUDIO_CONTROL,
 			DP_STREAM_ENC_INPUT_MUX_AUDIO_STREAM_SOURCE_SEL, az_inst);
 
+	if (enc3->hpo_se_mask->DP_STREAM_ENC_APG_CLOCK_EN) {
+		/*enable apg clk*/
+		REG_UPDATE(DP_STREAM_ENC_AUDIO_CONTROL,
+				DP_STREAM_ENC_APG_CLOCK_EN, 1);
+	}
 	ASSERT(enc->apg);
 	enc->apg->funcs->se_audio_setup(enc->apg, az_inst, info);
 }

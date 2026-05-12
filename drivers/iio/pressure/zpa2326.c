@@ -697,7 +697,6 @@ static void zpa2326_suspend(struct iio_dev *indio_dev)
 
 	zpa2326_sleep(indio_dev);
 
-	pm_runtime_mark_last_busy(parent);
 	pm_runtime_put_autosuspend(parent);
 }
 
@@ -708,7 +707,6 @@ static void zpa2326_init_runtime(struct device *parent)
 	pm_runtime_enable(parent);
 	pm_runtime_set_autosuspend_delay(parent, 1000);
 	pm_runtime_use_autosuspend(parent);
-	pm_runtime_mark_last_busy(parent);
 	pm_runtime_put_autosuspend(parent);
 }
 
@@ -842,7 +840,7 @@ static irqreturn_t zpa2326_handle_threaded_irq(int irq, void *data)
 
 complete:
 	/*
-	 * Wake up direct or externaly triggered buffer mode waiters: see
+	 * Wake up direct or externally triggered buffer mode waiters: see
 	 * zpa2326_sample_oneshot() and zpa2326_trigger_handler().
 	 */
 	complete(&priv->data_ready);

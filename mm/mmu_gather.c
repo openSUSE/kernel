@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/gfp.h>
 #include <linux/highmem.h>
 #include <linux/kernel.h>
@@ -9,8 +10,9 @@
 #include <linux/smp.h>
 #include <linux/swap.h>
 #include <linux/rmap.h>
+#include <linux/pgalloc.h>
+#include <linux/hugetlb.h>
 
-#include <asm/pgalloc.h>
 #include <asm/tlb.h>
 
 #ifndef CONFIG_MMU_GATHER_NO_GATHER
@@ -32,7 +34,7 @@ static bool tlb_next_batch(struct mmu_gather *tlb)
 	if (tlb->batch_count == MAX_GATHER_BATCH_COUNT)
 		return false;
 
-	batch = (void *)__get_free_page(GFP_NOWAIT | __GFP_NOWARN);
+	batch = (void *)__get_free_page(GFP_NOWAIT);
 	if (!batch)
 		return false;
 
@@ -209,10 +211,9 @@ bool __tlb_remove_folio_pages(struct mmu_gather *tlb, struct page *page,
 					     PAGE_SIZE);
 }
 
-bool __tlb_remove_page_size(struct mmu_gather *tlb, struct page *page,
-		bool delay_rmap, int page_size)
+bool __tlb_remove_page_size(struct mmu_gather *tlb, struct page *page, int page_size)
 {
-	return __tlb_remove_folio_pages_size(tlb, page, 1, delay_rmap, page_size);
+	return __tlb_remove_folio_pages_size(tlb, page, 1, false, page_size);
 }
 
 #endif /* MMU_GATHER_NO_GATHER */
@@ -295,6 +296,25 @@ static void tlb_remove_table_free(struct mmu_table_batch *batch)
 	call_rcu(&batch->rcu, tlb_remove_table_rcu);
 }
 
+/**
+ * tlb_remove_table_sync_rcu - synchronize with software page-table walkers
+ *
+ * Like tlb_remove_table_sync_one() but uses RCU grace period instead of IPI
+ * broadcast. Use in slow paths where sleeping is acceptable.
+ *
+ * Software/Lockless page-table walkers use local_irq_disable(), which is also
+ * an RCU read-side critical section. synchronize_rcu() waits for all such
+ * sections, providing the same guarantee as tlb_remove_table_sync_one() but
+ * without disrupting all CPUs with IPIs.
+ *
+ * Do not use for freeing memory. Use RCU callbacks instead to avoid latency
+ * spikes.
+ */
+void tlb_remove_table_sync_rcu(void)
+{
+	synchronize_rcu();
+}
+
 #else /* !CONFIG_MMU_GATHER_RCU_TABLE_FREE */
 
 static void tlb_remove_table_free(struct mmu_table_batch *batch)
@@ -338,7 +358,7 @@ static inline void __tlb_remove_table_one(void *table)
 #else
 static inline void __tlb_remove_table_one(void *table)
 {
-	tlb_remove_table_sync_one();
+	tlb_remove_table_sync_rcu();
 	__tlb_remove_table(table);
 }
 #endif /* CONFIG_PT_RECLAIM */
@@ -364,7 +384,7 @@ void tlb_remove_table(struct mmu_gather *tlb, void *table)
 	struct mmu_table_batch **batch = &tlb->batch;
 
 	if (*batch == NULL) {
-		*batch = (struct mmu_table_batch *)__get_free_page(GFP_NOWAIT | __GFP_NOWARN);
+		*batch = (struct mmu_table_batch *)__get_free_page(GFP_NOWAIT);
 		if (*batch == NULL) {
 			tlb_table_invalidate(tlb);
 			tlb_remove_table_one(table);
@@ -426,6 +446,7 @@ static void __tlb_gather_mmu(struct mmu_gather *tlb, struct mm_struct *mm,
 #endif
 	tlb->vma_pfn = 0;
 
+	tlb->fully_unshared_tables = 0;
 	__tlb_reset_range(tlb);
 	inc_tlb_flush_pending(tlb->mm);
 }
@@ -460,6 +481,31 @@ void tlb_gather_mmu_fullmm(struct mmu_gather *tlb, struct mm_struct *mm)
 }
 
 /**
+ * tlb_gather_mmu_vma - initialize an mmu_gather structure for operating on a
+ *			single VMA
+ * @tlb: the mmu_gather structure to initialize
+ * @vma: the vm_area_struct
+ *
+ * Called to initialize an (on-stack) mmu_gather structure for operating on
+ * a single VMA. In contrast to tlb_gather_mmu(), calling this function will
+ * not require another call to tlb_start_vma(). In contrast to tlb_start_vma(),
+ * this function will *not* call flush_cache_range().
+ *
+ * For hugetlb VMAs, this function will also initialize the mmu_gather
+ * page_size accordingly, not requiring a separate call to
+ * tlb_change_page_size().
+ *
+ */
+void tlb_gather_mmu_vma(struct mmu_gather *tlb, struct vm_area_struct *vma)
+{
+	tlb_gather_mmu(tlb, vma->vm_mm);
+	tlb_update_vma_flags(tlb, vma);
+	if (is_vm_hugetlb_page(vma))
+		/* All entries have the same size. */
+		tlb_change_page_size(tlb, huge_page_size(hstate_vma(vma)));
+}
+
+/**
  * tlb_finish_mmu - finish an mmu_gather structure
  * @tlb: the mmu_gather structure to finish
  *
@@ -468,6 +514,12 @@ void tlb_gather_mmu_fullmm(struct mmu_gather *tlb, struct mm_struct *mm)
  */
 void tlb_finish_mmu(struct mmu_gather *tlb)
 {
+	/*
+	 * We expect an earlier huge_pmd_unshare_flush() call to sort this out,
+	 * due to complicated locking requirements with page table unsharing.
+	 */
+	VM_WARN_ON_ONCE(tlb->fully_unshared_tables);
+
 	/*
 	 * If there are parallel threads are doing PTE changes on same range
 	 * under non-exclusive lock (e.g., mmap_lock read-side) but defer TLB

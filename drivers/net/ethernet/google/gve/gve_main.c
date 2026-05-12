@@ -11,6 +11,7 @@
 #include <linux/filter.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
+#include <linux/math64.h>
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/sched.h>
@@ -151,8 +152,8 @@ static int gve_alloc_flow_rule_caches(struct gve_priv *priv)
 		return 0;
 
 	flow_rules_cache->rules_cache =
-		kvcalloc(GVE_FLOW_RULES_CACHE_SIZE, sizeof(*flow_rules_cache->rules_cache),
-			 GFP_KERNEL);
+		kvzalloc_objs(*flow_rules_cache->rules_cache,
+			      GVE_FLOW_RULES_CACHE_SIZE);
 	if (!flow_rules_cache->rules_cache) {
 		dev_err(&priv->pdev->dev, "Cannot alloc flow rules cache\n");
 		return -ENOMEM;
@@ -283,9 +284,9 @@ static int gve_alloc_stats_report(struct gve_priv *priv)
 	int tx_stats_num, rx_stats_num;
 
 	tx_stats_num = (GVE_TX_STATS_REPORT_NUM + NIC_TX_STATS_REPORT_NUM) *
-		       gve_num_tx_queues(priv);
+				priv->tx_cfg.max_queues;
 	rx_stats_num = (GVE_RX_STATS_REPORT_NUM + NIC_RX_STATS_REPORT_NUM) *
-		       priv->rx_cfg.num_queues;
+				priv->rx_cfg.max_queues;
 	priv->stats_report_len = struct_size(priv->stats_report, stats,
 					     size_add(tx_stats_num, rx_stats_num));
 	priv->stats_report =
@@ -485,8 +486,8 @@ static int gve_alloc_notify_blocks(struct gve_priv *priv)
 	int i, j;
 	int err;
 
-	priv->msix_vectors = kvcalloc(num_vecs_requested,
-				      sizeof(*priv->msix_vectors), GFP_KERNEL);
+	priv->msix_vectors = kvzalloc_objs(*priv->msix_vectors,
+					   num_vecs_requested);
 	if (!priv->msix_vectors)
 		return -ENOMEM;
 	for (i = 0; i < num_vecs_requested; i++)
@@ -558,7 +559,7 @@ static int gve_alloc_notify_blocks(struct gve_priv *priv)
 		block->priv = priv;
 		err = request_irq(priv->msix_vectors[msix_idx].vector,
 				  gve_is_gqi(priv) ? gve_intr : gve_intr_dqo,
-				  0, block->name, block);
+				  IRQF_NO_AUTOEN, block->name, block);
 		if (err) {
 			dev_err(&priv->pdev->dev,
 				"Failed to receive msix vector %d\n", i);
@@ -647,12 +648,9 @@ static int gve_setup_device_resources(struct gve_priv *priv)
 	err = gve_alloc_counter_array(priv);
 	if (err)
 		goto abort_with_rss_config_cache;
-	err = gve_init_clock(priv);
-	if (err)
-		goto abort_with_counter;
 	err = gve_alloc_notify_blocks(priv);
 	if (err)
-		goto abort_with_clock;
+		goto abort_with_counter;
 	err = gve_alloc_stats_report(priv);
 	if (err)
 		goto abort_with_ntfy_blocks;
@@ -669,8 +667,7 @@ static int gve_setup_device_resources(struct gve_priv *priv)
 	}
 
 	if (!gve_is_gqi(priv)) {
-		priv->ptype_lut_dqo = kvzalloc(sizeof(*priv->ptype_lut_dqo),
-					       GFP_KERNEL);
+		priv->ptype_lut_dqo = kvzalloc_obj(*priv->ptype_lut_dqo);
 		if (!priv->ptype_lut_dqo) {
 			err = -ENOMEM;
 			goto abort_with_stats_report;
@@ -683,10 +680,18 @@ static int gve_setup_device_resources(struct gve_priv *priv)
 		}
 	}
 
+	if (priv->nic_timestamp_supported) {
+		err = gve_init_clock(priv);
+		if (err) {
+			dev_warn(&priv->pdev->dev, "Failed to init clock, continuing without PTP support");
+			err = 0;
+		}
+	}
+
 	err = gve_init_rss_config(priv, priv->rx_cfg.num_queues);
 	if (err) {
 		dev_err(&priv->pdev->dev, "Failed to init RSS config");
-		goto abort_with_ptype_lut;
+		goto abort_with_clock;
 	}
 
 	err = gve_adminq_report_stats(priv, priv->stats_report_len,
@@ -698,6 +703,8 @@ static int gve_setup_device_resources(struct gve_priv *priv)
 	gve_set_device_resources_ok(priv);
 	return 0;
 
+abort_with_clock:
+	gve_teardown_clock(priv);
 abort_with_ptype_lut:
 	kvfree(priv->ptype_lut_dqo);
 	priv->ptype_lut_dqo = NULL;
@@ -705,8 +712,6 @@ abort_with_stats_report:
 	gve_free_stats_report(priv);
 abort_with_ntfy_blocks:
 	gve_free_notify_blocks(priv);
-abort_with_clock:
-	gve_teardown_clock(priv);
 abort_with_counter:
 	gve_free_counter_array(priv);
 abort_with_rss_config_cache:
@@ -962,6 +967,7 @@ static void gve_tx_get_curr_alloc_cfg(struct gve_priv *priv,
 	cfg->qcfg = &priv->tx_cfg;
 	cfg->raw_addressing = !gve_is_qpl(priv);
 	cfg->ring_size = priv->tx_desc_cnt;
+	cfg->pages_per_qpl = priv->tx_pages_per_qpl;
 	cfg->num_xdp_rings = cfg->qcfg->num_xdp_queues;
 	cfg->tx = priv->tx;
 }
@@ -993,11 +999,47 @@ static void gve_tx_start_rings(struct gve_priv *priv, int num_rings)
 	}
 }
 
+void gve_update_num_qpl_pages(struct gve_priv *priv,
+			      struct gve_rx_alloc_rings_cfg *rx_alloc_cfg,
+			      struct gve_tx_alloc_rings_cfg *tx_alloc_cfg)
+{
+	u64 ideal_tx_pages, ideal_rx_pages;
+	u16 tx_num_queues, rx_num_queues;
+	u64 max_pages, tx_pages;
+
+	if (priv->queue_format == GVE_GQI_QPL_FORMAT) {
+		rx_alloc_cfg->pages_per_qpl = rx_alloc_cfg->ring_size;
+	} else if (priv->queue_format == GVE_DQO_QPL_FORMAT) {
+		/*
+		 * We want 2 pages per RX descriptor and half a page per TX
+		 * descriptor, which means the fraction ideal_tx_pages /
+		 * (ideal_tx_pages + ideal_rx_pages) of the pages we allocate
+		 * should be for TX. Shrink proportionally as necessary to avoid
+		 * allocating more than max_registered_pages total pages.
+		 */
+		tx_num_queues = tx_alloc_cfg->qcfg->num_queues;
+		rx_num_queues = rx_alloc_cfg->qcfg_rx->num_queues;
+
+		ideal_tx_pages = tx_alloc_cfg->ring_size * tx_num_queues / 2;
+		ideal_rx_pages = rx_alloc_cfg->ring_size * rx_num_queues * 2;
+		max_pages = min(priv->max_registered_pages,
+				ideal_tx_pages + ideal_rx_pages);
+
+		tx_pages = div64_u64(max_pages * ideal_tx_pages,
+				     ideal_tx_pages + ideal_rx_pages);
+		tx_alloc_cfg->pages_per_qpl = div_u64(tx_pages, tx_num_queues);
+		rx_alloc_cfg->pages_per_qpl = div_u64(max_pages - tx_pages,
+						      rx_num_queues);
+	}
+}
+
 static int gve_queues_mem_alloc(struct gve_priv *priv,
 				struct gve_tx_alloc_rings_cfg *tx_alloc_cfg,
 				struct gve_rx_alloc_rings_cfg *rx_alloc_cfg)
 {
 	int err;
+
+	gve_update_num_qpl_pages(priv, rx_alloc_cfg, tx_alloc_cfg);
 
 	if (gve_is_gqi(priv))
 		err = gve_tx_alloc_rings_gqi(priv, tx_alloc_cfg);
@@ -1085,17 +1127,17 @@ struct gve_queue_page_list *gve_alloc_queue_page_list(struct gve_priv *priv,
 	int err;
 	int i;
 
-	qpl = kvzalloc(sizeof(*qpl), GFP_KERNEL);
+	qpl = kvzalloc_obj(*qpl);
 	if (!qpl)
 		return NULL;
 
 	qpl->id = id;
 	qpl->num_entries = 0;
-	qpl->pages = kvcalloc(pages, sizeof(*qpl->pages), GFP_KERNEL);
+	qpl->pages = kvzalloc_objs(*qpl->pages, pages);
 	if (!qpl->pages)
 		goto abort;
 
-	qpl->page_buses = kvcalloc(pages, sizeof(*qpl->page_buses), GFP_KERNEL);
+	qpl->page_buses = kvzalloc_objs(*qpl->page_buses, pages);
 	if (!qpl->page_buses)
 		goto abort;
 
@@ -1289,6 +1331,7 @@ static void gve_rx_get_curr_alloc_cfg(struct gve_priv *priv,
 	cfg->raw_addressing = !gve_is_qpl(priv);
 	cfg->enable_header_split = priv->header_split_enabled;
 	cfg->ring_size = priv->rx_desc_cnt;
+	cfg->pages_per_qpl = priv->rx_pages_per_qpl;
 	cfg->packet_buffer_size = priv->rx_cfg.packet_buffer_size;
 	cfg->rx = priv->rx;
 	cfg->xdp = !!cfg->qcfg_tx->num_xdp_queues;
@@ -1368,6 +1411,8 @@ static int gve_queues_start(struct gve_priv *priv,
 	priv->rx_cfg = *rx_alloc_cfg->qcfg_rx;
 	priv->tx_desc_cnt = tx_alloc_cfg->ring_size;
 	priv->rx_desc_cnt = rx_alloc_cfg->ring_size;
+	priv->tx_pages_per_qpl = tx_alloc_cfg->pages_per_qpl;
+	priv->rx_pages_per_qpl = rx_alloc_cfg->pages_per_qpl;
 
 	gve_tx_start_rings(priv, gve_num_tx_queues(priv));
 	gve_rx_start_rings(priv, rx_alloc_cfg->qcfg_rx->num_queues);
@@ -1707,18 +1752,28 @@ static int gve_xsk_wakeup(struct net_device *dev, u32 queue_id, u32 flags)
 	return 0;
 }
 
-static int verify_xdp_configuration(struct net_device *dev)
+static int gve_verify_xdp_configuration(struct net_device *dev,
+					struct netlink_ext_ack *extack)
 {
 	struct gve_priv *priv = netdev_priv(dev);
 	u16 max_xdp_mtu;
 
-	if (dev->features & NETIF_F_LRO) {
-		netdev_warn(dev, "XDP is not supported when LRO is on.\n");
+	if (dev->features & NETIF_F_GRO_HW) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "XDP is not supported when HW-GRO is on.");
 		return -EOPNOTSUPP;
 	}
 
 	if (priv->header_split_enabled) {
-		netdev_warn(dev, "XDP is not supported when header-data split is enabled.\n");
+		NL_SET_ERR_MSG_MOD(extack,
+				   "XDP is not supported when header-data split is enabled.");
+		return -EOPNOTSUPP;
+	}
+
+	if (priv->rx_cfg.packet_buffer_size != SZ_2K) {
+		NL_SET_ERR_MSG_FMT_MOD(extack,
+				       "XDP is not supported for Rx buf len %d, only %d supported.",
+				       priv->rx_cfg.packet_buffer_size, SZ_2K);
 		return -EOPNOTSUPP;
 	}
 
@@ -1727,17 +1782,20 @@ static int verify_xdp_configuration(struct net_device *dev)
 		max_xdp_mtu -= GVE_RX_PAD;
 
 	if (dev->mtu > max_xdp_mtu) {
-		netdev_warn(dev, "XDP is not supported for mtu %d.\n",
-			    dev->mtu);
+		NL_SET_ERR_MSG_FMT_MOD(extack,
+				       "XDP is not supported for mtu %d.",
+				       dev->mtu);
 		return -EOPNOTSUPP;
 	}
 
 	if (priv->rx_cfg.num_queues != priv->tx_cfg.num_queues ||
 	    (2 * priv->tx_cfg.num_queues > priv->tx_cfg.max_queues)) {
-		netdev_warn(dev, "XDP load failed: The number of configured RX queues %d should be equal to the number of configured TX queues %d and the number of configured RX/TX queues should be less than or equal to half the maximum number of RX/TX queues %d",
-			    priv->rx_cfg.num_queues,
-			    priv->tx_cfg.num_queues,
+		netdev_warn(dev,
+			    "XDP load failed: The number of configured RX queues %d should be equal to the number of configured TX queues %d and the number of configured RX/TX queues should be less than or equal to half the maximum number of RX/TX queues %d.",
+			    priv->rx_cfg.num_queues, priv->tx_cfg.num_queues,
 			    priv->tx_cfg.max_queues);
+		NL_SET_ERR_MSG_MOD(extack,
+				   "XDP load failed: The number of configured RX queues should be equal to the number of configured TX queues and the number of configured RX/TX queues should be less than or equal to half the maximum number of RX/TX queues");
 		return -EINVAL;
 	}
 	return 0;
@@ -1748,7 +1806,7 @@ static int gve_xdp(struct net_device *dev, struct netdev_bpf *xdp)
 	struct gve_priv *priv = netdev_priv(dev);
 	int err;
 
-	err = verify_xdp_configuration(dev);
+	err = gve_verify_xdp_configuration(dev, xdp->extack);
 	if (err)
 		return err;
 	switch (xdp->command) {
@@ -2041,14 +2099,6 @@ static void gve_tx_timeout(struct net_device *dev, unsigned int txqueue)
 	priv->tx_timeo_cnt++;
 }
 
-u16 gve_get_pkt_buf_size(const struct gve_priv *priv, bool enable_hsplit)
-{
-	if (enable_hsplit && priv->max_rx_buffer_size >= GVE_MAX_RX_BUFFER_SIZE)
-		return GVE_MAX_RX_BUFFER_SIZE;
-	else
-		return GVE_DEFAULT_RX_BUFFER_SIZE;
-}
-
 /* Header split is only supported on DQ RDA queue format. If XDP is enabled,
  * header split is not allowed.
  */
@@ -2058,12 +2108,42 @@ bool gve_header_split_supported(const struct gve_priv *priv)
 		priv->queue_format == GVE_DQO_RDA_FORMAT && !priv->xdp_prog;
 }
 
-int gve_set_hsplit_config(struct gve_priv *priv, u8 tcp_data_split)
+int gve_set_rx_buf_len_config(struct gve_priv *priv, u32 rx_buf_len,
+			      struct netlink_ext_ack *extack,
+			      struct gve_rx_alloc_rings_cfg *rx_alloc_cfg)
 {
-	struct gve_tx_alloc_rings_cfg tx_alloc_cfg = {0};
-	struct gve_rx_alloc_rings_cfg rx_alloc_cfg = {0};
+	u32 old_rx_buf_len = rx_alloc_cfg->packet_buffer_size;
+
+	if (rx_buf_len == old_rx_buf_len)
+		return 0;
+
+	/* device options may not always contain support for 4K buffers */
+	if (!gve_is_dqo(priv) || priv->max_rx_buffer_size < SZ_4K) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Modifying Rx buf len is not supported");
+		return -EOPNOTSUPP;
+	}
+
+	if (priv->xdp_prog && rx_buf_len != SZ_2K) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Rx buf len can only be 2048 when XDP is on");
+		return -EINVAL;
+	}
+
+	if (rx_buf_len != SZ_2K && rx_buf_len != SZ_4K) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Rx buf len can only be 2048 or 4096");
+		return -EINVAL;
+	}
+	rx_alloc_cfg->packet_buffer_size = rx_buf_len;
+
+	return 0;
+}
+
+int gve_set_hsplit_config(struct gve_priv *priv, u8 tcp_data_split,
+			  struct gve_rx_alloc_rings_cfg *rx_alloc_cfg)
+{
 	bool enable_hdr_split;
-	int err = 0;
 
 	if (tcp_data_split == ETHTOOL_TCP_DATA_SPLIT_UNKNOWN)
 		return 0;
@@ -2081,14 +2161,9 @@ int gve_set_hsplit_config(struct gve_priv *priv, u8 tcp_data_split)
 	if (enable_hdr_split == priv->header_split_enabled)
 		return 0;
 
-	gve_get_curr_alloc_cfgs(priv, &tx_alloc_cfg, &rx_alloc_cfg);
+	rx_alloc_cfg->enable_header_split = enable_hdr_split;
 
-	rx_alloc_cfg.enable_header_split = enable_hdr_split;
-	rx_alloc_cfg.packet_buffer_size = gve_get_pkt_buf_size(priv, enable_hdr_split);
-
-	if (netif_running(priv->dev))
-		err = gve_adjust_config(priv, &tx_alloc_cfg, &rx_alloc_cfg);
-	return err;
+	return 0;
 }
 
 static int gve_set_features(struct net_device *netdev,
@@ -2102,12 +2177,13 @@ static int gve_set_features(struct net_device *netdev,
 
 	gve_get_curr_alloc_cfgs(priv, &tx_alloc_cfg, &rx_alloc_cfg);
 
-	if ((netdev->features & NETIF_F_LRO) != (features & NETIF_F_LRO)) {
-		netdev->features ^= NETIF_F_LRO;
-		if (priv->xdp_prog && (netdev->features & NETIF_F_LRO)) {
+	if ((netdev->features & NETIF_F_GRO_HW) !=
+	    (features & NETIF_F_GRO_HW)) {
+		netdev->features ^= NETIF_F_GRO_HW;
+		if (priv->xdp_prog && (netdev->features & NETIF_F_GRO_HW)) {
 			netdev_warn(netdev,
-				    "XDP is not supported when LRO is on.\n");
-			err =  -EOPNOTSUPP;
+				    "HW-GRO is not supported when XDP is on.");
+			err = -EOPNOTSUPP;
 			goto revert_features;
 		}
 		if (netif_running(netdev)) {
@@ -2150,7 +2226,7 @@ static int gve_set_ts_config(struct net_device *dev,
 	}
 
 	if (kernel_config->rx_filter != HWTSTAMP_FILTER_NONE) {
-		if (!priv->nic_ts_report) {
+		if (!gve_is_clock_enabled(priv)) {
 			NL_SET_ERR_MSG_MOD(extack,
 					   "RX timestamping is not supported");
 			kernel_config->rx_filter = HWTSTAMP_FILTER_NONE;
@@ -2158,10 +2234,6 @@ static int gve_set_ts_config(struct net_device *dev,
 		}
 
 		kernel_config->rx_filter = HWTSTAMP_FILTER_ALL;
-		gve_clock_nic_ts_read(priv);
-		ptp_schedule_worker(priv->ptp->clock, 0);
-	} else {
-		ptp_cancel_worker_sync(priv->ptp->clock);
 	}
 
 	priv->ts_config.rx_filter = kernel_config->rx_filter;
@@ -2322,6 +2394,10 @@ static void gve_set_netdev_xdp_features(struct gve_priv *priv)
 	xdp_set_features_flag_locked(priv->dev, xdp_features);
 }
 
+static const struct xdp_metadata_ops gve_xdp_metadata_ops = {
+	.xmo_rx_timestamp	= gve_xdp_rx_timestamp,
+};
+
 static int gve_init_priv(struct gve_priv *priv, bool skip_describe_device)
 {
 	int num_ntfy;
@@ -2417,6 +2493,9 @@ setup_device:
 	}
 
 	gve_set_netdev_xdp_features(priv);
+	if (!gve_is_gqi(priv))
+		priv->dev->xdp_metadata_ops = &gve_xdp_metadata_ops;
+
 	err = gve_setup_device_resources(priv);
 	if (err)
 		goto err_free_xsk_bitmap;
@@ -2580,8 +2659,9 @@ static void gve_rx_queue_mem_free(struct net_device *dev, void *per_q_mem)
 		gve_rx_free_ring_dqo(priv, gve_per_q_mem, &cfg);
 }
 
-static int gve_rx_queue_mem_alloc(struct net_device *dev, void *per_q_mem,
-				  int idx)
+static int gve_rx_queue_mem_alloc(struct net_device *dev,
+				  struct netdev_queue_config *qcfg,
+				  void *per_q_mem, int idx)
 {
 	struct gve_priv *priv = netdev_priv(dev);
 	struct gve_rx_alloc_rings_cfg cfg = {0};
@@ -2602,7 +2682,9 @@ static int gve_rx_queue_mem_alloc(struct net_device *dev, void *per_q_mem,
 	return err;
 }
 
-static int gve_rx_queue_start(struct net_device *dev, void *per_q_mem, int idx)
+static int gve_rx_queue_start(struct net_device *dev,
+			      struct netdev_queue_config *qcfg,
+			      void *per_q_mem, int idx)
 {
 	struct gve_priv *priv = netdev_priv(dev);
 	struct gve_rx_ring *gve_per_q_mem;

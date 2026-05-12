@@ -94,8 +94,7 @@ int vdo_make_logical_zones(struct vdo *vdo, struct logical_zones **zones_ptr)
 	if (zone_count == 0)
 		return VDO_SUCCESS;
 
-	result = vdo_allocate_extended(struct logical_zones, zone_count,
-				       struct logical_zone, __func__, &zones);
+	result = vdo_allocate_extended(zone_count, zones, __func__, &zones);
 	if (result != VDO_SUCCESS)
 		return result;
 
@@ -159,21 +158,13 @@ static void check_for_drain_complete(struct logical_zone *zone)
 	vdo_finish_draining(&zone->state);
 }
 
-/**
- * initiate_drain() - Initiate a drain.
- *
- * Implements vdo_admin_initiator_fn.
- */
+/** Implements vdo_admin_initiator_fn. */
 static void initiate_drain(struct admin_state *state)
 {
 	check_for_drain_complete(container_of(state, struct logical_zone, state));
 }
 
-/**
- * drain_logical_zone() - Drain a logical zone.
- *
- * Implements vdo_zone_action_fn.
- */
+/** Implements vdo_zone_action_fn. */
 static void drain_logical_zone(void *context, zone_count_t zone_number,
 			       struct vdo_completion *parent)
 {
@@ -192,11 +183,7 @@ void vdo_drain_logical_zones(struct logical_zones *zones,
 			       parent);
 }
 
-/**
- * resume_logical_zone() - Resume a logical zone.
- *
- * Implements vdo_zone_action_fn.
- */
+/** Implements vdo_zone_action_fn. */
 static void resume_logical_zone(void *context, zone_count_t zone_number,
 				struct vdo_completion *parent)
 {
@@ -356,7 +343,7 @@ struct physical_zone *vdo_get_next_allocation_zone(struct logical_zone *zone)
 
 /**
  * vdo_dump_logical_zone() - Dump information about a logical zone to the log for debugging.
- * @zone: The zone to dump
+ * @zone: The zone to dump.
  *
  * Context: the information is dumped in a thread-unsafe fashion.
  *

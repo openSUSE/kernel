@@ -63,6 +63,9 @@ static __init int acpi_parse_mrrm(struct acpi_table_header *table)
 	if (!mrrm)
 		return -ENODEV;
 
+	if (mrrm->header.revision != 1)
+		return -EINVAL;
+
 	if (mrrm->flags & ACPI_MRRM_FLAGS_REGION_ASSIGNMENT_OS)
 		return -EOPNOTSUPP;
 
@@ -78,8 +81,8 @@ static __init int acpi_parse_mrrm(struct acpi_table_header *table)
 		return -EINVAL;
 	}
 
-	mrrm_mem_range_entry = kmalloc_array(mre_count, sizeof(*mrrm_mem_range_entry),
-					     GFP_KERNEL | __GFP_ZERO);
+	mrrm_mem_range_entry = kmalloc_objs(*mrrm_mem_range_entry, mre_count,
+					    GFP_KERNEL | __GFP_ZERO);
 	if (!mrrm_mem_range_entry)
 		return -ENOMEM;
 
@@ -149,26 +152,49 @@ ATTRIBUTE_GROUPS(memory_range);
 
 static __init int add_boot_memory_ranges(void)
 {
-	struct kobject *pkobj, *kobj;
+	struct kobject *pkobj, *kobj, **kobjs;
 	int ret = -EINVAL;
-	char *name;
+	char name[16];
+	int i;
 
 	pkobj = kobject_create_and_add("memory_ranges", acpi_kobj);
+	if (!pkobj)
+		return -ENOMEM;
 
-	for (int i = 0; i < mrrm_mem_entry_num; i++) {
-		name = kasprintf(GFP_KERNEL, "range%d", i);
-		if (!name) {
-			ret = -ENOMEM;
-			break;
-		}
-
-		kobj = kobject_create_and_add(name, pkobj);
-
-		ret = sysfs_create_groups(kobj, memory_range_groups);
-		if (ret)
-			return ret;
+	kobjs = kzalloc_objs(*kobjs, mrrm_mem_entry_num);
+	if (!kobjs) {
+		kobject_put(pkobj);
+		return -ENOMEM;
 	}
 
+	for (i = 0; i < mrrm_mem_entry_num; i++) {
+		scnprintf(name, sizeof(name), "range%d", i);
+		kobj = kobject_create_and_add(name, pkobj);
+		if (!kobj) {
+			ret = -ENOMEM;
+			goto cleanup;
+		}
+
+		ret = sysfs_create_groups(kobj, memory_range_groups);
+		if (ret) {
+			kobject_put(kobj);
+			goto cleanup;
+		}
+		kobjs[i] = kobj;
+	}
+
+	kfree(kobjs);
+	return 0;
+
+cleanup:
+	for (int j = 0; j < i; j++) {
+		if (kobjs[j]) {
+			sysfs_remove_groups(kobjs[j], memory_range_groups);
+			kobject_put(kobjs[j]);
+		}
+	}
+	kfree(kobjs);
+	kobject_put(pkobj);
 	return ret;
 }
 

@@ -282,7 +282,8 @@ enum ppfear_regs {
 /* Die C6 from PUNIT telemetry */
 #define MTL_PMT_DMU_DIE_C6_OFFSET		15
 #define MTL_PMT_DMU_GUID			0x1A067102
-#define ARL_PMT_DMU_GUID			0x1A06A000
+#define ARL_PMT_DMU_GUID			0x1A06A102
+#define ARL_H_PMT_DMU_GUID			0x1A06A101
 
 #define LNL_PMC_MMIO_REG_LEN			0x2708
 #define LNL_PMC_LTR_OSSE			0x1B88
@@ -297,6 +298,14 @@ enum ppfear_regs {
 #define PTL_PMC_LTR_CUR_ASLT			0x1C28
 #define PTL_PMC_LTR_CUR_PLT			0x1C2C
 #define PTL_PCD_PMC_MMIO_REG_LEN		0x31A8
+#define PTL_NUM_S0IX_BLOCKER			106
+#define PTL_BLK_REQ_OFFSET			55
+
+/* Wildcat Lake */
+#define WCL_PMC_LTR_RESERVED			0x1B64
+#define WCL_PCD_PMC_MMIO_REG_LEN		0x3178
+#define WCL_NUM_S0IX_BLOCKER			94
+#define WCL_BLK_REQ_OFFSET			50
 
 /* SSRAM PMC Device ID */
 /* LNL */
@@ -305,6 +314,9 @@ enum ppfear_regs {
 /* PTL */
 #define PMC_DEVID_PTL_PCDH	0xe37f
 #define PMC_DEVID_PTL_PCDP	0xe47f
+
+/* WCL */
+#define PMC_DEVID_WCL_PCDN	0x4d7f
 
 /* ARL */
 #define PMC_DEVID_ARL_SOCM	0x777f
@@ -344,6 +356,9 @@ struct pmc_bit_map {
  * @pm_read_disable_bit: Bit index to read PMC_READ_DISABLE
  * @slps0_dbg_offset:	PWRMBASE offset to SLP_S0_DEBUG_REG*
  * @s0ix_blocker_offset PWRMBASE offset to S0ix blocker counter
+ * @num_s0ix_blocker:	Number of S0ix blockers
+ * @blocker_req_offset:	Telemetry offset to S0ix blocker low power mode substate requirement table
+ * @lpm_req_guid:	Telemetry GUID to read low power mode substate requirement table
  *
  * Each PCH has unique set of register offsets and bit indexes. This structure
  * captures them to have a common implementation.
@@ -369,6 +384,8 @@ struct pmc_reg_map {
 	const u32 ltr_ignore_max;
 	const u32 pm_vric1_offset;
 	const u32 s0ix_blocker_offset;
+	const u32 num_s0ix_blocker;
+	const u32 blocker_req_offset;
 	/* Low Power Mode registers */
 	const int lpm_num_maps;
 	const int lpm_num_modes;
@@ -383,6 +400,8 @@ struct pmc_reg_map {
 	const u8  *lpm_reg_index;
 	const u32 pson_residency_offset;
 	const u32 pson_residency_counter_step;
+	/* GUID for telemetry regions */
+	const u32 lpm_req_guid;
 };
 
 /**
@@ -392,7 +411,6 @@ struct pmc_reg_map {
  *			specific attributes
  */
 struct pmc_info {
-	u32 guid;
 	u16 devid;
 	const struct pmc_reg_map *map;
 };
@@ -405,6 +423,8 @@ struct pmc_info {
  *			specific attributes
  * @lpm_req_regs:	List of substate requirements
  * @ltr_ign:		Holds LTR ignore data while suspended
+ * @num_lpm_modes:	Count of enabled modes
+ * @lpm_en_modes:	Array of enabled modes from lowest to highest priority
  *
  * pmc contains info about one power management controller device.
  */
@@ -414,6 +434,8 @@ struct pmc {
 	const struct pmc_reg_map *map;
 	u32 *lpm_req_regs;
 	u32 ltr_ign;
+	u8 num_lpm_modes;
+	u8 lpm_en_modes[LPM_MAX_NUM_MODES];
 };
 
 /**
@@ -428,8 +450,6 @@ struct pmc {
  * @pkgc_res_cnt:	Array of PKGC residency counters
  * @num_of_pkgc:	Number of PKGC
  * @s0ix_counter:	S0ix residency (step adjusted)
- * @num_lpm_modes:	Count of enabled modes
- * @lpm_en_modes:	Array of enabled modes from lowest to highest priority
  * @suspend:		Function to perform platform specific suspend
  * @resume:		Function to perform platform specific resume
  *
@@ -444,15 +464,12 @@ struct pmc_dev {
 	struct mutex lock; /* generic mutex lock for PMC Core */
 
 	u64 s0ix_counter;
-	int num_lpm_modes;
-	int lpm_en_modes[LPM_MAX_NUM_MODES];
 	void (*suspend)(struct pmc_dev *pmcdev);
 	int (*resume)(struct pmc_dev *pmcdev);
 
 	u64 *pkgc_res_cnt;
 	u8 num_of_pkgc;
 
-	bool has_die_c6;
 	u32 die_c6_offset;
 	struct telem_endpoint *punit_ep;
 	struct pmc_info *regmap_list;
@@ -468,24 +485,28 @@ enum pmc_index {
 /**
  * struct pmc_dev_info - Structure to keep PMC device info
  * @pci_func:		Function number of the primary PMC
- * @dmu_guid:		Die Management Unit GUID
+ * @dmu_guids:		List of Die Management Unit GUID
  * @regmap_list:	Pointer to a list of pmc_info structure that could be
  *			available for the platform. When set, this field implies
  *			SSRAM support.
  * @map:		Pointer to a pmc_reg_map struct that contains platform
  *			specific attributes of the primary PMC
+ * @sub_req_show:	File operations to show substate requirements
  * @suspend:		Function to perform platform specific suspend
  * @resume:		Function to perform platform specific resume
  * @init:		Function to perform platform specific init action
+ * @sub_req:		Function to achieve low power mode substate requirements
  */
 struct pmc_dev_info {
 	u8 pci_func;
-	u32 dmu_guid;
+	u32 *dmu_guids;
 	struct pmc_info *regmap_list;
 	const struct pmc_reg_map *map;
+	const struct file_operations *sub_req_show;
 	void (*suspend)(struct pmc_dev *pmcdev);
 	int (*resume)(struct pmc_dev *pmcdev);
 	int (*init)(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_info);
+	int (*sub_req)(struct pmc_dev *pmcdev, struct pmc *pmc, struct telem_endpoint *ep);
 };
 
 extern const struct pmc_bit_map msr_map[];
@@ -505,14 +526,16 @@ extern const struct pmc_bit_map mtl_socm_vnn_misc_status_map[];
 extern const struct pmc_bit_map mtl_socm_signal_status_map[];
 extern const struct pmc_reg_map mtl_socm_reg_map;
 extern const struct pmc_reg_map mtl_ioep_reg_map;
+extern const struct pmc_bit_map ptl_pcdp_clocksource_status_map[];
+extern const struct pmc_bit_map ptl_pcdp_vnn_req_status_3_map[];
+extern const struct pmc_bit_map ptl_pcdp_signal_status_map[];
 
 void pmc_core_get_tgl_lpm_reqs(struct platform_device *pdev);
 int pmc_core_send_ltr_ignore(struct pmc_dev *pmcdev, u32 value, int ignore);
 
 int pmc_core_resume_common(struct pmc_dev *pmcdev);
 int get_primary_reg_base(struct pmc *pmc);
-void pmc_core_get_low_power_modes(struct pmc_dev *pmcdev);
-void pmc_core_punit_pmt_init(struct pmc_dev *pmcdev, u32 guid);
+void pmc_core_punit_pmt_init(struct pmc_dev *pmcdev, u32 *guids);
 void pmc_core_set_device_d3(unsigned int device);
 
 int generic_core_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_info);
@@ -528,14 +551,21 @@ extern struct pmc_dev_info arl_pmc_dev;
 extern struct pmc_dev_info arl_h_pmc_dev;
 extern struct pmc_dev_info lnl_pmc_dev;
 extern struct pmc_dev_info ptl_pmc_dev;
+extern struct pmc_dev_info wcl_pmc_dev;
 
 void cnl_suspend(struct pmc_dev *pmcdev);
 int cnl_resume(struct pmc_dev *pmcdev);
+int pmc_core_pmt_get_lpm_req(struct pmc_dev *pmcdev, struct pmc *pmc, struct telem_endpoint *ep);
+int pmc_core_pmt_get_blk_sub_req(struct pmc_dev *pmcdev, struct pmc *pmc,
+				 struct telem_endpoint *ep);
 
-#define pmc_for_each_mode(mode, pmcdev)						\
+extern const struct file_operations pmc_core_substate_req_regs_fops;
+extern const struct file_operations pmc_core_substate_blk_req_fops;
+
+#define pmc_for_each_mode(mode, pmc)						\
 	for (unsigned int __i = 0, __cond;					\
-	     __cond = __i < (pmcdev)->num_lpm_modes,				\
-	     __cond && ((mode) = (pmcdev)->lpm_en_modes[__i]),			\
+	     __cond = __i < (pmc)->num_lpm_modes,				\
+	     __cond && ((mode) = (pmc)->lpm_en_modes[__i]),			\
 	     __cond;								\
 	     __i++)
 

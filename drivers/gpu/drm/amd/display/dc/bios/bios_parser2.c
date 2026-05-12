@@ -157,7 +157,7 @@ static uint8_t bios_parser_get_connectors_number(struct dc_bios *dcb)
 
 		break;
 	}
-	return count;
+	return (uint8_t)count;
 }
 
 static struct graphics_object_id bios_parser_get_connector_id(
@@ -205,6 +205,7 @@ static enum bp_result bios_parser_get_src_obj(struct dc_bios *dcb,
 	struct graphics_object_id object_id, uint32_t index,
 	struct graphics_object_id *src_object_id)
 {
+	(void)index;
 	struct bios_parser *bp = BP_FROM_DCB(dcb);
 	unsigned int i;
 	enum bp_result bp_result = BP_RESULT_BADINPUT;
@@ -400,7 +401,7 @@ static enum bp_result bios_parser_get_i2c_info(struct dc_bios *dcb,
 		return BP_RESULT_BADINPUT;
 
 	if (id.type == OBJECT_TYPE_GENERIC) {
-		dummy_record.i2c_id = id.id;
+		dummy_record.i2c_id = (uint8_t)id.id;
 
 		if (get_gpio_i2c_info(bp, &dummy_record, info) == BP_RESULT_OK)
 			return BP_RESULT_OK;
@@ -765,6 +766,7 @@ static enum bp_result bios_parser_get_device_tag(
 	uint32_t device_tag_index,
 	struct connector_device_tag_info *info)
 {
+	(void)device_tag_index;
 	struct bios_parser *bp = BP_FROM_DCB(dcb);
 	struct atom_display_object_path_v2 *object;
 
@@ -809,6 +811,7 @@ static enum bp_result get_ss_info_v4_1(
 	uint32_t index,
 	struct spread_spectrum_info *ss_info)
 {
+	(void)index;
 	enum bp_result result = BP_RESULT_OK;
 	struct atom_display_controller_info_v4_1 *disp_cntl_tbl = NULL;
 	struct atom_smu_info_v3_3 *smu_info = NULL;
@@ -897,6 +900,7 @@ static enum bp_result get_ss_info_v4_2(
 	uint32_t index,
 	struct spread_spectrum_info *ss_info)
 {
+	(void)index;
 	enum bp_result result = BP_RESULT_OK;
 	struct atom_display_controller_info_v4_2 *disp_cntl_tbl = NULL;
 	struct atom_smu_info_v3_1 *smu_info = NULL;
@@ -977,6 +981,7 @@ static enum bp_result get_ss_info_v4_5(
 	uint32_t index,
 	struct spread_spectrum_info *ss_info)
 {
+	(void)index;
 	enum bp_result result = BP_RESULT_OK;
 	struct atom_display_controller_info_v4_5 *disp_cntl_tbl = NULL;
 
@@ -1223,7 +1228,7 @@ static enum bp_result get_disp_caps_v4_1(
 	if (!disp_cntl_tbl)
 		return BP_RESULT_BADBIOSTABLE;
 
-	*dce_caps = disp_cntl_tbl->display_caps;
+	*dce_caps = (uint8_t)disp_cntl_tbl->display_caps;
 
 	return result;
 }
@@ -1247,7 +1252,7 @@ static enum bp_result get_disp_caps_v4_2(
 	if (!disp_cntl_tbl)
 		return BP_RESULT_BADBIOSTABLE;
 
-	*dce_caps = disp_cntl_tbl->display_caps;
+	*dce_caps = (uint8_t)disp_cntl_tbl->display_caps;
 
 	return result;
 }
@@ -1271,7 +1276,7 @@ static enum bp_result get_disp_caps_v4_3(
 	if (!disp_cntl_tbl)
 		return BP_RESULT_BADBIOSTABLE;
 
-	*dce_caps = disp_cntl_tbl->display_caps;
+	*dce_caps = (uint8_t)disp_cntl_tbl->display_caps;
 
 	return result;
 }
@@ -1295,7 +1300,7 @@ static enum bp_result get_disp_caps_v4_4(
 	if (!disp_cntl_tbl)
 		return BP_RESULT_BADBIOSTABLE;
 
-	*dce_caps = disp_cntl_tbl->display_caps;
+	*dce_caps = (uint8_t)disp_cntl_tbl->display_caps;
 
 	return result;
 }
@@ -1319,7 +1324,7 @@ static enum bp_result get_disp_caps_v4_5(
 	if (!disp_cntl_tbl)
 		return BP_RESULT_BADBIOSTABLE;
 
-	*dce_caps = disp_cntl_tbl->display_caps;
+	*dce_caps = (uint8_t)disp_cntl_tbl->display_caps;
 
 	return result;
 }
@@ -1480,10 +1485,10 @@ static enum bp_result get_embedded_panel_info_v2_1(
 	/* not provided by VBIOS */
 	info->lcd_timing.misc_info.HORIZONTAL_CUT_OFF = 0;
 
-	info->lcd_timing.misc_info.H_SYNC_POLARITY = ~(uint32_t) (lvds->lcd_timing.miscinfo
-			& ATOM_HSYNC_POLARITY);
-	info->lcd_timing.misc_info.V_SYNC_POLARITY = ~(uint32_t) (lvds->lcd_timing.miscinfo
-			& ATOM_VSYNC_POLARITY);
+	info->lcd_timing.misc_info.H_SYNC_POLARITY = !(lvds->lcd_timing.miscinfo &
+						       ATOM_HSYNC_POLARITY);
+	info->lcd_timing.misc_info.V_SYNC_POLARITY = !(lvds->lcd_timing.miscinfo &
+						       ATOM_VSYNC_POLARITY);
 
 	/* not provided by VBIOS */
 	info->lcd_timing.misc_info.VERTICAL_CUT_OFF = 0;
@@ -1604,6 +1609,8 @@ static uint32_t bios_parser_get_ss_entry_number(
 	struct dc_bios *dcb,
 	enum as_signal_type signal)
 {
+	(void)dcb;
+	(void)signal;
 	/* TODO: DAL2 atomfirmware implementation does not need this.
 	 * why DAL3 need this?
 	 */
@@ -2578,7 +2585,7 @@ static enum bp_result get_integrated_info_v11(
 		info->ext_disp_conn_info.path[i].channel_mapping.raw =
 			info_v11->extdispconninfo.path[i].channelmapping;
 		info->ext_disp_conn_info.path[i].caps =
-				le16_to_cpu(info_v11->extdispconninfo.path[i].caps);
+				(unsigned short)le16_to_cpu(info_v11->extdispconninfo.path[i].caps);
 	}
 	info->ext_disp_conn_info.checksum =
 	info_v11->extdispconninfo.checksum;
@@ -2783,7 +2790,7 @@ static enum bp_result get_integrated_info_v2_1(
 		info->ext_disp_conn_info.path[i].channel_mapping.raw =
 			info_v2_1->extdispconninfo.path[i].channelmapping;
 		info->ext_disp_conn_info.path[i].caps =
-				le16_to_cpu(info_v2_1->extdispconninfo.path[i].caps);
+				(unsigned short)le16_to_cpu(info_v2_1->extdispconninfo.path[i].caps);
 	}
 
 	info->ext_disp_conn_info.checksum =
@@ -2947,7 +2954,7 @@ static enum bp_result get_integrated_info_v2_2(
 		info->ext_disp_conn_info.path[i].channel_mapping.raw =
 			info_v2_2->extdispconninfo.path[i].channelmapping;
 		info->ext_disp_conn_info.path[i].caps =
-				le16_to_cpu(info_v2_2->extdispconninfo.path[i].caps);
+				(unsigned short)le16_to_cpu(info_v2_2->extdispconninfo.path[i].caps);
 	}
 
 	info->ext_disp_conn_info.checksum =
@@ -2970,6 +2977,7 @@ static enum bp_result get_integrated_info_v2_2(
 	info->edp1_info.edp_panel_bpc =
 		info_v2_2->edp1_info.edp_panel_bpc;
 	info->edp1_info.edp_bootup_bl_level =
+		info_v2_2->edp1_info.edp_bootup_bl_level;
 
 	info->edp2_info.edp_backlight_pwm_hz =
 	le16_to_cpu(info_v2_2->edp2_info.edp_backlight_pwm_hz);
@@ -3207,7 +3215,7 @@ static struct integrated_info *bios_parser_create_integrated_info(
 	struct bios_parser *bp = BP_FROM_DCB(dcb);
 	struct integrated_info *info;
 
-	info = kzalloc(sizeof(struct integrated_info), GFP_KERNEL);
+	info = kzalloc_obj(struct integrated_info);
 
 	if (info == NULL) {
 		ASSERT_CRITICAL(0);
@@ -3536,6 +3544,8 @@ static uint16_t bios_parser_pack_data_tables(
 	struct dc_bios *dcb,
 	void *dst)
 {
+	(void)dcb;
+	(void)dst;
 	// TODO: There is data bytes alignment issue, disable it for now.
 	return 0;
 }
@@ -3793,7 +3803,7 @@ struct dc_bios *firmware_parser_create(
 {
 	struct bios_parser *bp;
 
-	bp = kzalloc(sizeof(struct bios_parser), GFP_KERNEL);
+	bp = kzalloc_obj(struct bios_parser);
 	if (!bp)
 		return NULL;
 

@@ -55,6 +55,7 @@ enum mlx5_flow_destination_type {
 	MLX5_FLOW_DESTINATION_TYPE_FLOW_TABLE_NUM,
 	MLX5_FLOW_DESTINATION_TYPE_RANGE,
 	MLX5_FLOW_DESTINATION_TYPE_TABLE_TYPE,
+	MLX5_FLOW_DESTINATION_TYPE_VHCA_RX,
 };
 
 enum {
@@ -71,6 +72,7 @@ enum {
 	MLX5_FLOW_TABLE_UNMANAGED = BIT(3),
 	MLX5_FLOW_TABLE_OTHER_VPORT = BIT(4),
 	MLX5_FLOW_TABLE_UPLINK_VPORT = BIT(5),
+	MLX5_FLOW_TABLE_OTHER_ESWITCH = BIT(6),
 };
 
 #define LEFTOVERS_RULE_NUM	 2
@@ -116,6 +118,7 @@ enum mlx5_flow_namespace_type {
 };
 
 enum {
+	FDB_DROP_ROOT,
 	FDB_BYPASS_PATH,
 	FDB_CRYPTO_INGRESS,
 	FDB_TC_OFFLOAD,
@@ -125,6 +128,24 @@ enum {
 	FDB_SLOW_PATH,
 	FDB_CRYPTO_EGRESS,
 	FDB_PER_VPORT,
+};
+
+enum fs_flow_table_type {
+	FS_FT_NIC_RX          = 0x0,
+	FS_FT_NIC_TX          = 0x1,
+	FS_FT_ESW_EGRESS_ACL  = 0x2,
+	FS_FT_ESW_INGRESS_ACL = 0x3,
+	FS_FT_FDB             = 0X4,
+	FS_FT_SNIFFER_RX	= 0X5,
+	FS_FT_SNIFFER_TX	= 0X6,
+	FS_FT_RDMA_RX		= 0X7,
+	FS_FT_RDMA_TX		= 0X8,
+	FS_FT_PORT_SEL		= 0X9,
+	FS_FT_FDB_RX		= 0xa,
+	FS_FT_FDB_TX		= 0xb,
+	FS_FT_RDMA_TRANSPORT_RX	= 0xd,
+	FS_FT_RDMA_TRANSPORT_TX	= 0xe,
+	FS_FT_MAX_TYPE = FS_FT_RDMA_TRANSPORT_TX,
 };
 
 struct mlx5_pkt_reformat;
@@ -170,6 +191,9 @@ struct mlx5_flow_destination {
 		struct mlx5_flow_table	*ft;
 		struct mlx5_fc          *counter;
 		struct {
+			u16		id;
+		} vhca;
+		struct {
 			u16		num;
 			u16		vhca_id;
 			struct mlx5_pkt_reformat *pkt_reformat;
@@ -208,6 +232,7 @@ struct mlx5_flow_table_attr {
 	u32 flags;
 	u16 uid;
 	u16 vport;
+	u16 esw_owner_vhca_id;
 	struct mlx5_flow_table *next_ft;
 
 	struct {
@@ -227,9 +252,9 @@ mlx5_create_auto_grouped_flow_table(struct mlx5_flow_namespace *ns,
 struct mlx5_flow_table *
 mlx5_create_vport_flow_table(struct mlx5_flow_namespace *ns,
 			     struct mlx5_flow_table_attr *ft_attr, u16 vport);
-struct mlx5_flow_table *mlx5_create_lag_demux_flow_table(
-					       struct mlx5_flow_namespace *ns,
-					       int prio, u32 level);
+struct mlx5_flow_table *
+mlx5_create_lag_demux_flow_table(struct mlx5_flow_namespace *ns,
+				 struct mlx5_flow_table_attr *ft_attr);
 int mlx5_destroy_flow_table(struct mlx5_flow_table *ft);
 
 /* inbox should be set with the following values:
@@ -308,6 +333,8 @@ struct mlx5_fc *mlx5_fc_create(struct mlx5_core_dev *dev, bool aging);
 void mlx5_fc_destroy(struct mlx5_core_dev *dev, struct mlx5_fc *counter);
 struct mlx5_fc *mlx5_fc_local_create(u32 counter_id, u32 offset, u32 bulk_size);
 void mlx5_fc_local_destroy(struct mlx5_fc *counter);
+void mlx5_fc_local_get(struct mlx5_fc *counter);
+void mlx5_fc_local_put(struct mlx5_fc *counter);
 u64 mlx5_fc_query_lastuse(struct mlx5_fc *counter);
 void mlx5_fc_query_cached(struct mlx5_fc *counter,
 			  u64 *bytes, u64 *packets, u64 *lastuse);
@@ -351,4 +378,8 @@ u32 mlx5_flow_table_id(struct mlx5_flow_table *ft);
 
 struct mlx5_flow_root_namespace *
 mlx5_get_root_namespace(struct mlx5_core_dev *dev, enum mlx5_flow_namespace_type ns_type);
+
+int mlx5_fs_set_root_dev(struct mlx5_core_dev *dev,
+			 struct mlx5_core_dev *new_dev,
+			 enum fs_flow_table_type table_type);
 #endif

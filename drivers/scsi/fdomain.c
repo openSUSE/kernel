@@ -402,7 +402,8 @@ static irqreturn_t fdomain_irq(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static int fdomain_queue(struct Scsi_Host *sh, struct scsi_cmnd *cmd)
+static enum scsi_qc_status fdomain_queue(struct Scsi_Host *sh,
+					 struct scsi_cmnd *cmd)
 {
 	struct scsi_pointer *scsi_pointer = fdomain_scsi_pointer(cmd);
 	struct fdomain *fd = shost_priv(cmd->device->host);
@@ -469,10 +470,10 @@ static int fdomain_host_reset(struct scsi_cmnd *cmd)
 }
 
 static int fdomain_biosparam(struct scsi_device *sdev,
-			     struct block_device *bdev,	sector_t capacity,
+			     struct gendisk *disk, sector_t capacity,
 			     int geom[])
 {
-	unsigned char *p = scsi_bios_ptable(bdev);
+	unsigned char *p = scsi_bios_ptable(disk);
 
 	if (p && p[65] == 0xaa && p[64] == 0x55 /* Partition table valid */
 	    && p[4]) {	 /* Partition type */

@@ -370,7 +370,9 @@ int memstick_set_rw_addr(struct memstick_dev *card)
 {
 	card->next_request = h_memstick_set_rw_addr;
 	memstick_new_req(card->host);
-	wait_for_completion(&card->mrq_complete);
+	if (!wait_for_completion_timeout(&card->mrq_complete,
+			msecs_to_jiffies(500)))
+		card->current_mrq.error = -ETIMEDOUT;
 
 	return card->current_mrq.error;
 }
@@ -378,8 +380,7 @@ EXPORT_SYMBOL(memstick_set_rw_addr);
 
 static struct memstick_dev *memstick_alloc_card(struct memstick_host *host)
 {
-	struct memstick_dev *card = kzalloc(sizeof(struct memstick_dev),
-					    GFP_KERNEL);
+	struct memstick_dev *card = kzalloc_obj(struct memstick_dev);
 	struct memstick_dev *old_card = host->card;
 	struct ms_id_register id_reg;
 
@@ -404,7 +405,9 @@ static struct memstick_dev *memstick_alloc_card(struct memstick_host *host)
 
 		card->next_request = h_memstick_read_dev_id;
 		memstick_new_req(host);
-		wait_for_completion(&card->mrq_complete);
+		if (!wait_for_completion_timeout(&card->mrq_complete,
+				msecs_to_jiffies(500)))
+			card->current_mrq.error = -ETIMEDOUT;
 
 		if (card->current_mrq.error)
 			goto err_out;

@@ -52,6 +52,7 @@ void pci_ptm_init(struct pci_dev *dev)
 		return;
 
 	dev->ptm_cap = ptm;
+	atomic_set(&dev->ptm_enable_cnt, 0);
 	pci_add_ext_cap_save_buffer(dev, PCI_EXT_CAP_ID_PTM, sizeof(u32));
 
 	pci_read_config_dword(dev, ptm + PCI_PTM_CAP, &cap);
@@ -81,9 +82,10 @@ void pci_ptm_init(struct pci_dev *dev)
 		dev->ptm_granularity = 0;
 	}
 
-	if (pci_pcie_type(dev) == PCI_EXP_TYPE_ROOT_PORT ||
-	    pci_pcie_type(dev) == PCI_EXP_TYPE_UPSTREAM)
-		pci_enable_ptm(dev, NULL);
+	if (cap & PCI_PTM_CAP_RES)
+		dev->ptm_responder = 1;
+	if (cap & PCI_PTM_CAP_REQ)
+		dev->ptm_requester = 1;
 }
 
 void pci_save_ptm_state(struct pci_dev *dev)
@@ -124,24 +126,27 @@ void pci_restore_ptm_state(struct pci_dev *dev)
 static int __pci_enable_ptm(struct pci_dev *dev)
 {
 	u16 ptm = dev->ptm_cap;
-	struct pci_dev *ups;
 	u32 ctrl;
 
 	if (!ptm)
 		return -EINVAL;
 
-	/*
-	 * A device uses local PTM Messages to request time information
-	 * from a PTM Root that's farther upstream.  Every device along the
-	 * path must support PTM and have it enabled so it can handle the
-	 * messages.  Therefore, if this device is not a PTM Root, the
-	 * upstream link partner must have PTM enabled before we can enable
-	 * PTM.
-	 */
-	if (!dev->ptm_root) {
-		ups = pci_upstream_ptm(dev);
-		if (!ups || !ups->ptm_enabled)
+	switch (pci_pcie_type(dev)) {
+	case PCI_EXP_TYPE_ROOT_PORT:
+		if (!dev->ptm_root)
 			return -EINVAL;
+		break;
+	case PCI_EXP_TYPE_UPSTREAM:
+		if (!dev->ptm_responder)
+			return -EINVAL;
+		break;
+	case PCI_EXP_TYPE_ENDPOINT:
+	case PCI_EXP_TYPE_LEG_END:
+		if (!dev->ptm_requester)
+			return -EINVAL;
+		break;
+	default:
+		return -EINVAL;
 	}
 
 	pci_read_config_dword(dev, ptm + PCI_PTM_CTRL, &ctrl);
@@ -159,27 +164,46 @@ static int __pci_enable_ptm(struct pci_dev *dev)
 /**
  * pci_enable_ptm() - Enable Precision Time Measurement
  * @dev: PCI device
- * @granularity: pointer to return granularity
  *
- * Enable Precision Time Measurement for @dev.  If successful and
- * @granularity is non-NULL, return the Effective Granularity.
+ * Enable Precision Time Measurement for @dev.
  *
  * Return: zero if successful, or -EINVAL if @dev lacks a PTM Capability or
  * is not a PTM Root and lacks an upstream path of PTM-enabled devices.
  */
-int pci_enable_ptm(struct pci_dev *dev, u8 *granularity)
+int pci_enable_ptm(struct pci_dev *dev)
 {
 	int rc;
 	char clock_desc[8];
 
+	/*
+	 * A device uses local PTM Messages to request time information
+	 * from a PTM Root that's farther upstream. Every device along
+	 * the path must support PTM and have it enabled so it can
+	 * handle the messages. Therefore, if this device is not a PTM
+	 * Root, the upstream link partner must have PTM enabled before
+	 * we can enable PTM.
+	 */
+	if (!dev->ptm_root) {
+		struct pci_dev *parent;
+
+		parent = pci_upstream_ptm(dev);
+		if (!parent)
+			return -EINVAL;
+		/* Enable PTM for the parent */
+		rc = pci_enable_ptm(parent);
+		if (rc)
+			return rc;
+	}
+
+	/* Already enabled? */
+	if (atomic_inc_return(&dev->ptm_enable_cnt) > 1)
+		return 0;
+
 	rc = __pci_enable_ptm(dev);
-	if (rc)
+	if (rc) {
+		atomic_dec(&dev->ptm_enable_cnt);
 		return rc;
-
-	dev->ptm_enabled = 1;
-
-	if (granularity)
-		*granularity = dev->ptm_granularity;
+	}
 
 	switch (dev->ptm_granularity) {
 	case 0:
@@ -221,27 +245,31 @@ static void __pci_disable_ptm(struct pci_dev *dev)
  */
 void pci_disable_ptm(struct pci_dev *dev)
 {
-	if (dev->ptm_enabled) {
+	struct pci_dev *parent;
+
+	if (atomic_dec_and_test(&dev->ptm_enable_cnt))
 		__pci_disable_ptm(dev);
-		dev->ptm_enabled = 0;
-	}
+
+	parent = pci_upstream_ptm(dev);
+	if (parent)
+		pci_disable_ptm(parent);
 }
 EXPORT_SYMBOL(pci_disable_ptm);
 
 /*
- * Disable PTM, but preserve dev->ptm_enabled so we silently re-enable it on
+ * Disable PTM, but preserve dev->ptm_enable_cnt so we silently re-enable it on
  * resume if necessary.
  */
 void pci_suspend_ptm(struct pci_dev *dev)
 {
-	if (dev->ptm_enabled)
+	if (atomic_read(&dev->ptm_enable_cnt))
 		__pci_disable_ptm(dev);
 }
 
 /* If PTM was enabled before suspend, re-enable it when resuming */
 void pci_resume_ptm(struct pci_dev *dev)
 {
-	if (dev->ptm_enabled)
+	if (atomic_read(&dev->ptm_enable_cnt))
 		__pci_enable_ptm(dev);
 }
 
@@ -250,7 +278,7 @@ bool pcie_ptm_enabled(struct pci_dev *dev)
 	if (!dev)
 		return false;
 
-	return dev->ptm_enabled;
+	return atomic_read(&dev->ptm_enable_cnt);
 }
 EXPORT_SYMBOL(pcie_ptm_enabled);
 
@@ -514,13 +542,15 @@ struct pci_ptm_debugfs *pcie_ptm_create_debugfs(struct device *dev, void *pdata,
 		return NULL;
 	}
 
-	ptm_debugfs = kzalloc(sizeof(*ptm_debugfs), GFP_KERNEL);
+	ptm_debugfs = kzalloc_obj(*ptm_debugfs);
 	if (!ptm_debugfs)
 		return NULL;
 
 	dirname = devm_kasprintf(dev, GFP_KERNEL, "pcie_ptm_%s", dev_name(dev));
-	if (!dirname)
+	if (!dirname) {
+		kfree(ptm_debugfs);
 		return NULL;
+	}
 
 	ptm_debugfs->debugfs = debugfs_create_dir(dirname, NULL);
 	ptm_debugfs->pdata = pdata;
@@ -551,6 +581,7 @@ void pcie_ptm_destroy_debugfs(struct pci_ptm_debugfs *ptm_debugfs)
 
 	mutex_destroy(&ptm_debugfs->lock);
 	debugfs_remove_recursive(ptm_debugfs->debugfs);
+	kfree(ptm_debugfs);
 }
 EXPORT_SYMBOL_GPL(pcie_ptm_destroy_debugfs);
 #endif

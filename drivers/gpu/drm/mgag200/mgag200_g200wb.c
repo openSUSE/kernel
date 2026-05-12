@@ -7,6 +7,7 @@
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_gem_atomic_helper.h>
+#include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 
 #include "mgag200_drv.h"
@@ -38,7 +39,7 @@ void mgag200_g200wb_init_registers(struct mga_device *mdev)
  */
 
 static int mgag200_g200wb_pixpllc_atomic_check(struct drm_crtc *crtc,
-					       struct drm_atomic_state *new_state)
+					       struct drm_atomic_commit *new_state)
 {
 	static const unsigned int vcomax = 550000;
 	static const unsigned int vcomin = 150000;
@@ -89,7 +90,7 @@ static int mgag200_g200wb_pixpllc_atomic_check(struct drm_crtc *crtc,
 }
 
 void mgag200_g200wb_pixpllc_atomic_update(struct drm_crtc *crtc,
-					  struct drm_atomic_state *old_state)
+					  struct drm_atomic_commit *old_state)
 {
 	struct drm_device *dev = crtc->dev;
 	struct mga_device *mdev = to_mga_device(dev);

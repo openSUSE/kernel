@@ -1,6 +1,21 @@
 // SPDX-License-Identifier: GPL-2.0
 
 //! Internal reference counting support.
+//!
+//! Many C types already have their own reference counting mechanism (e.g. by storing a
+//! `refcount_t`). This module provides support for directly using their internal reference count
+//! from Rust; instead of making users have to use an additional Rust-reference count in the form of
+//! [`Arc`].
+//!
+//! The smart pointer [`ARef<T>`] acts similarly to [`Arc<T>`] in that it holds a refcount on the
+//! underlying object, but this refcount is internal to the object. It essentially is a Rust
+//! implementation of the `get_` and `put_` pattern used in C for reference counting.
+//!
+//! To make use of [`ARef<MyType>`], `MyType` needs to implement [`AlwaysRefCounted`]. It is a trait
+//! for accessing the internal reference count of an object of the `MyType` type.
+//!
+//! [`Arc`]: crate::sync::Arc
+//! [`Arc<T>`]: crate::sync::Arc
 
 use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 
@@ -68,6 +83,9 @@ unsafe impl<T: AlwaysRefCounted + Sync + Send> Send for ARef<T> {}
 // example, when the reference count reaches zero and `T` is dropped.
 unsafe impl<T: AlwaysRefCounted + Sync + Send> Sync for ARef<T> {}
 
+// Even if `T` is pinned, pointers to `T` can still move.
+impl<T: AlwaysRefCounted> Unpin for ARef<T> {}
+
 impl<T: AlwaysRefCounted> ARef<T> {
     /// Creates a new instance of [`ARef`].
     ///
@@ -97,7 +115,7 @@ impl<T: AlwaysRefCounted> ARef<T> {
     ///
     /// ```
     /// use core::ptr::NonNull;
-    /// use kernel::types::{ARef, AlwaysRefCounted};
+    /// use kernel::sync::aref::{ARef, AlwaysRefCounted};
     ///
     /// struct Empty {}
     ///
@@ -150,5 +168,27 @@ impl<T: AlwaysRefCounted> Drop for ARef<T> {
         // SAFETY: The type invariants guarantee that the `ARef` owns the reference we're about to
         // decrement.
         unsafe { T::dec_ref(self.ptr) };
+    }
+}
+
+impl<T, U> PartialEq<ARef<U>> for ARef<T>
+where
+    T: AlwaysRefCounted + PartialEq<U>,
+    U: AlwaysRefCounted,
+{
+    #[inline]
+    fn eq(&self, other: &ARef<U>) -> bool {
+        T::eq(&**self, &**other)
+    }
+}
+impl<T: AlwaysRefCounted + Eq> Eq for ARef<T> {}
+
+impl<T, U> PartialEq<&'_ U> for ARef<T>
+where
+    T: AlwaysRefCounted + PartialEq<U>,
+{
+    #[inline]
+    fn eq(&self, other: &&U) -> bool {
+        T::eq(&**self, other)
     }
 }

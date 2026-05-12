@@ -8,14 +8,17 @@
 #include <generated/xe_wa_oob.h>
 
 #include <linux/ascii85.h>
+#include <linux/panic.h>
 
 #include "instructions/xe_mi_commands.h"
 #include "instructions/xe_gfxpipe_commands.h"
 #include "instructions/xe_gfx_state_commands.h"
 #include "regs/xe_engine_regs.h"
+#include "regs/xe_gt_regs.h"
 #include "regs/xe_lrc_layout.h"
 #include "xe_bb.h"
 #include "xe_bo.h"
+#include "xe_configfs.h"
 #include "xe_device.h"
 #include "xe_drm_client.h"
 #include "xe_exec_queue_types.h"
@@ -25,6 +28,7 @@
 #include "xe_map.h"
 #include "xe_memirq.h"
 #include "xe_mmio.h"
+#include "xe_ring_ops.h"
 #include "xe_sriov.h"
 #include "xe_trace_lrc.h"
 #include "xe_vm.h"
@@ -41,6 +45,11 @@
 #define LRC_PPHWSP_SIZE				SZ_4K
 #define LRC_INDIRECT_CTX_BO_SIZE		SZ_4K
 #define LRC_INDIRECT_RING_STATE_SIZE		SZ_4K
+
+#define LRC_PRIORITY				GENMASK_ULL(10, 9)
+#define LRC_PRIORITY_LOW			0
+#define LRC_PRIORITY_NORMAL			1
+#define LRC_PRIORITY_HIGH			2
 
 /*
  * Layout of the LRC and associated data allocated as
@@ -75,32 +84,51 @@ lrc_to_xe(struct xe_lrc *lrc)
 static bool
 gt_engine_needs_indirect_ctx(struct xe_gt *gt, enum xe_engine_class class)
 {
+	struct xe_device *xe = gt_to_xe(gt);
+
 	if (XE_GT_WA(gt, 16010904313) &&
 	    (class == XE_ENGINE_CLASS_RENDER ||
 	     class == XE_ENGINE_CLASS_COMPUTE))
 		return true;
 
+	if (xe_configfs_get_ctx_restore_mid_bb(to_pci_dev(xe->drm.dev),
+					       class, NULL))
+		return true;
+
+	if (gt->ring_ops[class]->emit_aux_table_inv)
+		return true;
+
 	return false;
 }
 
-size_t xe_gt_lrc_size(struct xe_gt *gt, enum xe_engine_class class)
+/**
+ * xe_gt_lrc_hang_replay_size() - Hang replay size
+ * @gt: The GT
+ * @class: Hardware engine class
+ *
+ * Determine size of GPU hang replay state for a GT and hardware engine class.
+ *
+ * Return: Size of GPU hang replay size
+ */
+size_t xe_gt_lrc_hang_replay_size(struct xe_gt *gt, enum xe_engine_class class)
 {
 	struct xe_device *xe = gt_to_xe(gt);
-	size_t size;
-
-	/* Per-process HW status page (PPHWSP) */
-	size = LRC_PPHWSP_SIZE;
+	size_t size = 0;
 
 	/* Engine context image */
 	switch (class) {
 	case XE_ENGINE_CLASS_RENDER:
-		if (GRAPHICS_VER(xe) >= 20)
+		if (GRAPHICS_VERx100(xe) >= 3510)
+			size += 7 * SZ_4K;
+		else if (GRAPHICS_VER(xe) >= 20)
 			size += 3 * SZ_4K;
 		else
 			size += 13 * SZ_4K;
 		break;
 	case XE_ENGINE_CLASS_COMPUTE:
-		if (GRAPHICS_VER(xe) >= 20)
+		if (GRAPHICS_VERx100(xe) >= 3510)
+			size += 5 * SZ_4K;
+		else if (GRAPHICS_VER(xe) >= 20)
 			size += 2 * SZ_4K;
 		else
 			size += 13 * SZ_4K;
@@ -115,11 +143,18 @@ size_t xe_gt_lrc_size(struct xe_gt *gt, enum xe_engine_class class)
 		size += 1 * SZ_4K;
 	}
 
+	return size;
+}
+
+size_t xe_gt_lrc_size(struct xe_gt *gt, enum xe_engine_class class)
+{
+	size_t size = xe_gt_lrc_hang_replay_size(gt, class);
+
 	/* Add indirect ring state page */
 	if (xe_gt_has_indirect_ring_state(gt))
 		size += LRC_INDIRECT_RING_STATE_SIZE;
 
-	return size;
+	return size + LRC_PPHWSP_SIZE;
 }
 
 /*
@@ -611,12 +646,12 @@ static const u8 *reg_offsets(struct xe_device *xe, enum xe_engine_class class)
 
 static void set_context_control(u32 *regs, struct xe_hw_engine *hwe)
 {
-	regs[CTX_CONTEXT_CONTROL] = _MASKED_BIT_ENABLE(CTX_CTRL_INHIBIT_SYN_CTX_SWITCH |
-						       CTX_CTRL_ENGINE_CTX_RESTORE_INHIBIT);
+	regs[CTX_CONTEXT_CONTROL] = REG_MASKED_FIELD_ENABLE(CTX_CTRL_INHIBIT_SYN_CTX_SWITCH |
+							    CTX_CTRL_ENGINE_CTX_RESTORE_INHIBIT);
 
 	if (xe_gt_has_indirect_ring_state(hwe->gt))
 		regs[CTX_CONTEXT_CONTROL] |=
-			_MASKED_BIT_ENABLE(CTX_CTRL_INDIRECT_RING_STATE_ENABLE);
+			REG_MASKED_FIELD_ENABLE(CTX_CTRL_INDIRECT_RING_STATE_ENABLE);
 }
 
 static void set_memory_based_intr(u32 *regs, struct xe_hw_engine *hwe)
@@ -647,25 +682,6 @@ static void set_memory_based_intr(u32 *regs, struct xe_hw_engine *hwe)
 	}
 }
 
-static int lrc_ring_mi_mode(struct xe_hw_engine *hwe)
-{
-	struct xe_device *xe = gt_to_xe(hwe->gt);
-
-	if (GRAPHICS_VERx100(xe) >= 1250)
-		return 0x70;
-	else
-		return 0x60;
-}
-
-static void reset_stop_ring(u32 *regs, struct xe_hw_engine *hwe)
-{
-	int x;
-
-	x = lrc_ring_mi_mode(hwe);
-	regs[x + 1] &= ~STOP_RING;
-	regs[x + 1] |= STOP_RING << 16;
-}
-
 static inline bool xe_lrc_has_indirect_ring_state(struct xe_lrc *lrc)
 {
 	return lrc->flags & XE_LRC_FLAG_INDIRECT_RING_STATE;
@@ -685,11 +701,12 @@ u32 xe_lrc_pphwsp_offset(struct xe_lrc *lrc)
 #define __xe_lrc_pphwsp_offset xe_lrc_pphwsp_offset
 #define __xe_lrc_regs_offset xe_lrc_regs_offset
 
-#define LRC_SEQNO_PPHWSP_OFFSET 512
-#define LRC_START_SEQNO_PPHWSP_OFFSET (LRC_SEQNO_PPHWSP_OFFSET + 8)
-#define LRC_CTX_JOB_TIMESTAMP_OFFSET (LRC_START_SEQNO_PPHWSP_OFFSET + 8)
+#define LRC_CTX_JOB_TIMESTAMP_OFFSET 512
 #define LRC_ENGINE_ID_PPHWSP_OFFSET 1024
 #define LRC_PARALLEL_PPHWSP_OFFSET 2048
+
+#define LRC_SEQNO_OFFSET 0
+#define LRC_START_SEQNO_OFFSET (LRC_SEQNO_OFFSET + 8)
 
 u32 xe_lrc_regs_offset(struct xe_lrc *lrc)
 {
@@ -717,14 +734,12 @@ size_t xe_lrc_skip_size(struct xe_device *xe)
 
 static inline u32 __xe_lrc_seqno_offset(struct xe_lrc *lrc)
 {
-	/* The seqno is stored in the driver-defined portion of PPHWSP */
-	return xe_lrc_pphwsp_offset(lrc) + LRC_SEQNO_PPHWSP_OFFSET;
+	return LRC_SEQNO_OFFSET;
 }
 
 static inline u32 __xe_lrc_start_seqno_offset(struct xe_lrc *lrc)
 {
-	/* The start seqno is stored in the driver-defined portion of PPHWSP */
-	return xe_lrc_pphwsp_offset(lrc) + LRC_START_SEQNO_PPHWSP_OFFSET;
+	return LRC_START_SEQNO_OFFSET;
 }
 
 static u32 __xe_lrc_ctx_job_timestamp_offset(struct xe_lrc *lrc)
@@ -775,10 +790,11 @@ static inline u32 __xe_lrc_wa_bb_offset(struct xe_lrc *lrc)
 	return xe_bo_size(lrc->bo) - LRC_WA_BB_SIZE;
 }
 
-#define DECL_MAP_ADDR_HELPERS(elem) \
+#define DECL_MAP_ADDR_HELPERS(elem, bo_expr) \
 static inline struct iosys_map __xe_lrc_##elem##_map(struct xe_lrc *lrc) \
 { \
-	struct iosys_map map = lrc->bo->vmap; \
+	struct xe_bo *bo = (bo_expr); \
+	struct iosys_map map = bo->vmap; \
 \
 	xe_assert(lrc_to_xe(lrc), !iosys_map_is_null(&map));  \
 	iosys_map_incr(&map, __xe_lrc_##elem##_offset(lrc)); \
@@ -786,20 +802,22 @@ static inline struct iosys_map __xe_lrc_##elem##_map(struct xe_lrc *lrc) \
 } \
 static inline u32 __maybe_unused __xe_lrc_##elem##_ggtt_addr(struct xe_lrc *lrc) \
 { \
-	return xe_bo_ggtt_addr(lrc->bo) + __xe_lrc_##elem##_offset(lrc); \
+	struct xe_bo *bo = (bo_expr); \
+\
+	return xe_bo_ggtt_addr(bo) + __xe_lrc_##elem##_offset(lrc); \
 } \
 
-DECL_MAP_ADDR_HELPERS(ring)
-DECL_MAP_ADDR_HELPERS(pphwsp)
-DECL_MAP_ADDR_HELPERS(seqno)
-DECL_MAP_ADDR_HELPERS(regs)
-DECL_MAP_ADDR_HELPERS(start_seqno)
-DECL_MAP_ADDR_HELPERS(ctx_job_timestamp)
-DECL_MAP_ADDR_HELPERS(ctx_timestamp)
-DECL_MAP_ADDR_HELPERS(ctx_timestamp_udw)
-DECL_MAP_ADDR_HELPERS(parallel)
-DECL_MAP_ADDR_HELPERS(indirect_ring)
-DECL_MAP_ADDR_HELPERS(engine_id)
+DECL_MAP_ADDR_HELPERS(ring, lrc->bo)
+DECL_MAP_ADDR_HELPERS(pphwsp, lrc->bo)
+DECL_MAP_ADDR_HELPERS(seqno, lrc->seqno_bo)
+DECL_MAP_ADDR_HELPERS(regs, lrc->bo)
+DECL_MAP_ADDR_HELPERS(start_seqno, lrc->seqno_bo)
+DECL_MAP_ADDR_HELPERS(ctx_job_timestamp, lrc->bo)
+DECL_MAP_ADDR_HELPERS(ctx_timestamp, lrc->bo)
+DECL_MAP_ADDR_HELPERS(ctx_timestamp_udw, lrc->bo)
+DECL_MAP_ADDR_HELPERS(parallel, lrc->bo)
+DECL_MAP_ADDR_HELPERS(indirect_ring, lrc->bo)
+DECL_MAP_ADDR_HELPERS(engine_id, lrc->bo)
 
 #undef DECL_MAP_ADDR_HELPERS
 
@@ -831,7 +849,7 @@ u32 xe_lrc_ctx_timestamp_udw_ggtt_addr(struct xe_lrc *lrc)
  *
  * Returns: ctx timestamp value
  */
-u64 xe_lrc_ctx_timestamp(struct xe_lrc *lrc)
+static u64 xe_lrc_ctx_timestamp(struct xe_lrc *lrc)
 {
 	struct xe_device *xe = lrc_to_xe(lrc);
 	struct iosys_map map;
@@ -943,7 +961,6 @@ static void *empty_lrc_data(struct xe_hw_engine *hwe)
 	set_offsets(regs, reg_offsets(gt_to_xe(gt), hwe->class), hwe);
 	set_context_control(regs, hwe);
 	set_memory_based_intr(regs, hwe);
-	reset_stop_ring(regs, hwe);
 	if (xe_gt_has_indirect_ring_state(gt)) {
 		regs = data + xe_gt_lrc_size(gt, hwe->class) -
 		       LRC_INDIRECT_RING_STATE_SIZE;
@@ -1006,6 +1023,7 @@ static void xe_lrc_finish(struct xe_lrc *lrc)
 {
 	xe_hw_fence_ctx_finish(&lrc->fence_ctx);
 	xe_bo_unpin_map_no_vm(lrc->bo);
+	xe_bo_unpin_map_no_vm(lrc->seqno_bo);
 }
 
 /*
@@ -1041,6 +1059,9 @@ static ssize_t setup_utilization_wa(struct xe_lrc *lrc,
 				    size_t max_len)
 {
 	u32 *cmd = batch;
+
+	if (IS_SRIOV_VF(gt_to_xe(lrc->gt)))
+		return 0;
 
 	if (xe_gt_WARN_ON(lrc->gt, max_len < 12))
 		return -ENOSPC;
@@ -1102,6 +1123,64 @@ static ssize_t setup_timestamp_wa(struct xe_lrc *lrc, struct xe_hw_engine *hwe,
 	return cmd - batch;
 }
 
+static ssize_t setup_configfs_post_ctx_restore_bb(struct xe_lrc *lrc,
+						  struct xe_hw_engine *hwe,
+						  u32 *batch, size_t max_len)
+{
+	struct xe_device *xe = gt_to_xe(lrc->gt);
+	const u32 *user_batch;
+	u32 *cmd = batch;
+	u32 count;
+
+	count = xe_configfs_get_ctx_restore_post_bb(to_pci_dev(xe->drm.dev),
+						    hwe->class, &user_batch);
+	if (!count)
+		return 0;
+
+	if (count > max_len)
+		return -ENOSPC;
+
+	/*
+	 * This should be used only for tests and validation. Taint the kernel
+	 * as anything could be submitted directly in context switches
+	 */
+	add_taint(TAINT_TEST, LOCKDEP_STILL_OK);
+
+	memcpy(cmd, user_batch, count * sizeof(u32));
+	cmd += count;
+
+	return cmd - batch;
+}
+
+static ssize_t setup_configfs_mid_ctx_restore_bb(struct xe_lrc *lrc,
+						 struct xe_hw_engine *hwe,
+						 u32 *batch, size_t max_len)
+{
+	struct xe_device *xe = gt_to_xe(lrc->gt);
+	const u32 *user_batch;
+	u32 *cmd = batch;
+	u32 count;
+
+	count = xe_configfs_get_ctx_restore_mid_bb(to_pci_dev(xe->drm.dev),
+						   hwe->class, &user_batch);
+	if (!count)
+		return 0;
+
+	if (count > max_len)
+		return -ENOSPC;
+
+	/*
+	 * This should be used only for tests and validation. Taint the kernel
+	 * as anything could be submitted directly in context switches
+	 */
+	add_taint(TAINT_TEST, LOCKDEP_STILL_OK);
+
+	memcpy(cmd, user_batch, count * sizeof(u32));
+	cmd += count;
+
+	return cmd - batch;
+}
+
 static ssize_t setup_invalidate_state_cache_wa(struct xe_lrc *lrc,
 					       struct xe_hw_engine *hwe,
 					       u32 *batch, size_t max_len)
@@ -1115,11 +1194,28 @@ static ssize_t setup_invalidate_state_cache_wa(struct xe_lrc *lrc,
 	if (xe_gt_WARN_ON(lrc->gt, max_len < 3))
 		return -ENOSPC;
 
-	*cmd++ = MI_LOAD_REGISTER_IMM | MI_LRI_NUM_REGS(1);
-	*cmd++ = CS_DEBUG_MODE1(0).addr;
-	*cmd++ = _MASKED_BIT_ENABLE(INSTRUCTION_STATE_CACHE_INVALIDATE);
+	*cmd++ = MI_LOAD_REGISTER_IMM | MI_LRI_LRM_CS_MMIO | MI_LRI_NUM_REGS(1);
+	*cmd++ = CS_DEBUG_MODE2(0).addr;
+	*cmd++ = REG_MASKED_FIELD_ENABLE(INSTRUCTION_STATE_CACHE_INVALIDATE);
 
 	return cmd - batch;
+}
+
+static ssize_t setup_invalidate_auxccs_wa(struct xe_lrc *lrc,
+					  struct xe_hw_engine *hwe,
+					  u32 *batch, size_t max_len)
+{
+	struct xe_gt *gt = lrc->gt;
+	u32 *(*emit)(struct xe_gt *gt, u32 *cmd) =
+		gt->ring_ops[hwe->class]->emit_aux_table_inv;
+
+	if (!emit)
+		return 0;
+
+	if (xe_gt_WARN_ON(gt, max_len < 8))
+		return -ENOSPC;
+
+	return emit(gt, batch) - batch;
 }
 
 struct bo_setup {
@@ -1148,8 +1244,7 @@ static int setup_bo(struct bo_setup_state *state)
 	ssize_t remain;
 
 	if (state->lrc->bo->vmap.is_iomem) {
-		if (!state->buffer)
-			return -ENOMEM;
+		xe_gt_assert(state->hwe->gt, state->buffer);
 		state->ptr = state->buffer;
 	} else {
 		state->ptr = state->lrc->bo->vmap.vaddr + state->offset;
@@ -1182,7 +1277,7 @@ fail:
 
 static void finish_bo(struct bo_setup_state *state)
 {
-	if (!state->buffer)
+	if (!state->lrc->bo->vmap.is_iomem)
 		return;
 
 	xe_map_memcpy_to(gt_to_xe(state->lrc->gt), &state->lrc->bo->vmap,
@@ -1203,6 +1298,7 @@ int xe_lrc_setup_wa_bb_with_scratch(struct xe_lrc *lrc, struct xe_hw_engine *hwe
 		{ .setup = setup_timestamp_wa },
 		{ .setup = setup_invalidate_state_cache_wa },
 		{ .setup = setup_utilization_wa },
+		{ .setup = setup_configfs_post_ctx_restore_bb },
 	};
 	struct bo_setup_state state = {
 		.lrc = lrc,
@@ -1236,8 +1332,11 @@ static int setup_wa_bb(struct xe_lrc *lrc, struct xe_hw_engine *hwe)
 	u32 *buf = NULL;
 	int ret;
 
-	if (lrc->bo->vmap.is_iomem)
+	if (lrc->bo->vmap.is_iomem) {
 		buf = kmalloc(LRC_WA_BB_SIZE, GFP_KERNEL);
+		if (!buf)
+			return -ENOMEM;
+	}
 
 	ret = xe_lrc_setup_wa_bb_with_scratch(lrc, hwe, buf);
 
@@ -1249,8 +1348,14 @@ static int setup_wa_bb(struct xe_lrc *lrc, struct xe_hw_engine *hwe)
 static int
 setup_indirect_ctx(struct xe_lrc *lrc, struct xe_hw_engine *hwe)
 {
-	static struct bo_setup rcs_funcs[] = {
+	static const struct bo_setup rcs_funcs[] = {
 		{ .setup = setup_timestamp_wa },
+		{ .setup = setup_invalidate_auxccs_wa },
+		{ .setup = setup_configfs_mid_ctx_restore_bb },
+	};
+	static const struct bo_setup xcs_funcs[] = {
+		{ .setup = setup_invalidate_auxccs_wa },
+		{ .setup = setup_configfs_mid_ctx_restore_bb },
 	};
 	struct bo_setup_state state = {
 		.lrc = lrc,
@@ -1268,13 +1373,19 @@ setup_indirect_ctx(struct xe_lrc *lrc, struct xe_hw_engine *hwe)
 	    hwe->class == XE_ENGINE_CLASS_COMPUTE) {
 		state.funcs = rcs_funcs;
 		state.num_funcs = ARRAY_SIZE(rcs_funcs);
+	} else {
+		state.funcs = xcs_funcs;
+		state.num_funcs = ARRAY_SIZE(xcs_funcs);
 	}
 
 	if (xe_gt_WARN_ON(lrc->gt, !state.funcs))
 		return 0;
 
-	if (lrc->bo->vmap.is_iomem)
+	if (lrc->bo->vmap.is_iomem) {
 		state.buffer = kmalloc(state.max_size, GFP_KERNEL);
+		if (!state.buffer)
+			return -ENOMEM;
+	}
 
 	ret = setup_bo(&state);
 	if (ret) {
@@ -1294,60 +1405,53 @@ setup_indirect_ctx(struct xe_lrc *lrc, struct xe_hw_engine *hwe)
 	finish_bo(&state);
 	kfree(state.buffer);
 
+	/*
+	 * Enable INDIRECT_CTX leaving INDIRECT_CTX_OFFSET at its default: it
+	 * varies per engine class, but the default is good enough
+	 */
 	xe_lrc_write_ctx_reg(lrc,
 			     CTX_CS_INDIRECT_CTX,
 			     (xe_bo_ggtt_addr(lrc->bo) + state.offset) |
 			     /* Size in CLs. */
 			     (state.written * sizeof(u32) / 64));
-	xe_lrc_write_ctx_reg(lrc,
-			     CTX_CS_INDIRECT_CTX_OFFSET,
-			     CTX_INDIRECT_CTX_OFFSET_DEFAULT);
 
 	return 0;
 }
 
-static int xe_lrc_init(struct xe_lrc *lrc, struct xe_hw_engine *hwe,
-		       struct xe_vm *vm, u32 ring_size, u16 msix_vec,
-		       u32 init_flags)
+static u8 xe_multi_queue_prio_to_lrc(struct xe_lrc *lrc, enum xe_multi_queue_priority priority)
+{
+	struct xe_device *xe = gt_to_xe(lrc->gt);
+
+	xe_assert(xe, (priority >= XE_MULTI_QUEUE_PRIORITY_LOW &&
+		       priority <= XE_MULTI_QUEUE_PRIORITY_HIGH));
+
+	/* xe_multi_queue_priority is directly mapped to LRC priority values */
+	return priority;
+}
+
+/**
+ * xe_lrc_set_multi_queue_priority() - Set multi queue priority in LRC
+ * @lrc: Logical Ring Context
+ * @priority: Multi queue priority of the exec queue
+ *
+ * Convert @priority to LRC multi queue priority and update the @lrc descriptor
+ */
+void xe_lrc_set_multi_queue_priority(struct xe_lrc *lrc, enum xe_multi_queue_priority priority)
+{
+	lrc->desc &= ~LRC_PRIORITY;
+	lrc->desc |= FIELD_PREP(LRC_PRIORITY, xe_multi_queue_prio_to_lrc(lrc, priority));
+}
+
+static int xe_lrc_ctx_init(struct xe_lrc *lrc, struct xe_hw_engine *hwe, struct xe_vm *vm,
+			   void *replay_state, u16 msix_vec, u32 init_flags)
 {
 	struct xe_gt *gt = hwe->gt;
-	const u32 lrc_size = xe_gt_lrc_size(gt, hwe->class);
-	u32 bo_size = ring_size + lrc_size + LRC_WA_BB_SIZE;
 	struct xe_tile *tile = gt_to_tile(gt);
 	struct xe_device *xe = gt_to_xe(gt);
 	struct iosys_map map;
 	u32 arb_enable;
-	u32 bo_flags;
+	u32 state_cache_perf_fix[3];
 	int err;
-
-	kref_init(&lrc->refcount);
-	lrc->gt = gt;
-	lrc->size = lrc_size;
-	lrc->flags = 0;
-	lrc->ring.size = ring_size;
-	lrc->ring.tail = 0;
-
-	if (gt_engine_needs_indirect_ctx(gt, hwe->class)) {
-		lrc->flags |= XE_LRC_FLAG_INDIRECT_CTX;
-		bo_size += LRC_INDIRECT_CTX_BO_SIZE;
-	}
-
-	if (xe_gt_has_indirect_ring_state(gt))
-		lrc->flags |= XE_LRC_FLAG_INDIRECT_RING_STATE;
-
-	bo_flags = XE_BO_FLAG_VRAM_IF_DGFX(tile) | XE_BO_FLAG_GGTT |
-		   XE_BO_FLAG_GGTT_INVALIDATE;
-	if (vm && vm->xef) /* userspace */
-		bo_flags |= XE_BO_FLAG_PINNED_LATE_RESTORE;
-
-	lrc->bo = xe_bo_create_pin_map(xe, tile, NULL, bo_size,
-				       ttm_bo_type_kernel,
-				       bo_flags);
-	if (IS_ERR(lrc->bo))
-		return PTR_ERR(lrc->bo);
-
-	xe_hw_fence_ctx_init(&lrc->fence_ctx, hwe->gt,
-			     hwe->fence_irq, hwe->name);
 
 	/*
 	 * Init Per-Process of HW status Page, LRC / context state to known
@@ -1356,29 +1460,27 @@ static int xe_lrc_init(struct xe_lrc *lrc, struct xe_hw_engine *hwe,
 	 * scratch.
 	 */
 	map = __xe_lrc_pphwsp_map(lrc);
-	if (gt->default_lrc[hwe->class]) {
+	if (gt->default_lrc[hwe->class] || replay_state) {
 		xe_map_memset(xe, &map, 0, 0, LRC_PPHWSP_SIZE);	/* PPHWSP */
 		xe_map_memcpy_to(xe, &map, LRC_PPHWSP_SIZE,
 				 gt->default_lrc[hwe->class] + LRC_PPHWSP_SIZE,
-				 lrc_size - LRC_PPHWSP_SIZE);
+				 lrc->size - LRC_PPHWSP_SIZE);
+		if (replay_state)
+			xe_map_memcpy_to(xe, &map, LRC_PPHWSP_SIZE,
+					 replay_state, lrc->replay_size);
 	} else {
 		void *init_data = empty_lrc_data(hwe);
 
 		if (!init_data) {
-			err = -ENOMEM;
-			goto err_lrc_finish;
+			return -ENOMEM;
 		}
 
-		xe_map_memcpy_to(xe, &map, 0, init_data, lrc_size);
+		xe_map_memcpy_to(xe, &map, 0, init_data, lrc->size);
 		kfree(init_data);
 	}
 
-	if (vm) {
+	if (vm)
 		xe_lrc_set_ppgtt(lrc, vm);
-
-		if (vm->xef)
-			xe_drm_client_add_bo(vm->xef->client, lrc->bo);
-	}
 
 	if (xe_device_has_msix(xe)) {
 		xe_lrc_write_ctx_reg(lrc, CTX_INT_STATUS_REPORT_PTR,
@@ -1395,14 +1497,20 @@ static int xe_lrc_init(struct xe_lrc *lrc, struct xe_hw_engine *hwe,
 		xe_lrc_write_indirect_ctx_reg(lrc, INDIRECT_CTX_RING_START,
 					      __xe_lrc_ring_ggtt_addr(lrc));
 		xe_lrc_write_indirect_ctx_reg(lrc, INDIRECT_CTX_RING_START_UDW, 0);
-		xe_lrc_write_indirect_ctx_reg(lrc, INDIRECT_CTX_RING_HEAD, 0);
+
+		/* Match head and tail pointers */
+		xe_lrc_write_indirect_ctx_reg(lrc, INDIRECT_CTX_RING_HEAD, lrc->ring.tail);
 		xe_lrc_write_indirect_ctx_reg(lrc, INDIRECT_CTX_RING_TAIL, lrc->ring.tail);
+
 		xe_lrc_write_indirect_ctx_reg(lrc, INDIRECT_CTX_RING_CTL,
 					      RING_CTL_SIZE(lrc->ring.size) | RING_VALID);
 	} else {
 		xe_lrc_write_ctx_reg(lrc, CTX_RING_START, __xe_lrc_ring_ggtt_addr(lrc));
-		xe_lrc_write_ctx_reg(lrc, CTX_RING_HEAD, 0);
+
+		/* Match head and tail pointers */
+		xe_lrc_write_ctx_reg(lrc, CTX_RING_HEAD, lrc->ring.tail);
 		xe_lrc_write_ctx_reg(lrc, CTX_RING_TAIL, lrc->ring.tail);
+
 		xe_lrc_write_ctx_reg(lrc, CTX_RING_CTL,
 				     RING_CTL_SIZE(lrc->ring.size) | RING_VALID);
 	}
@@ -1410,12 +1518,12 @@ static int xe_lrc_init(struct xe_lrc *lrc, struct xe_hw_engine *hwe,
 	if (init_flags & XE_LRC_CREATE_RUNALONE)
 		xe_lrc_write_ctx_reg(lrc, CTX_CONTEXT_CONTROL,
 				     xe_lrc_read_ctx_reg(lrc, CTX_CONTEXT_CONTROL) |
-				     _MASKED_BIT_ENABLE(CTX_CTRL_RUN_ALONE));
+				     REG_MASKED_FIELD_ENABLE(CTX_CTRL_RUN_ALONE));
 
 	if (init_flags & XE_LRC_CREATE_PXP)
 		xe_lrc_write_ctx_reg(lrc, CTX_CONTEXT_CONTROL,
 				     xe_lrc_read_ctx_reg(lrc, CTX_CONTEXT_CONTROL) |
-				     _MASKED_BIT_ENABLE(CTX_CTRL_PXP_ENABLE));
+				     REG_MASKED_FIELD_ENABLE(CTX_CTRL_PXP_ENABLE));
 
 	lrc->ctx_timestamp = 0;
 	xe_lrc_write_ctx_reg(lrc, CTX_TIMESTAMP, 0);
@@ -1443,6 +1551,13 @@ static int xe_lrc_init(struct xe_lrc *lrc, struct xe_hw_engine *hwe,
 	arb_enable = MI_ARB_ON_OFF | MI_ARB_ENABLE;
 	xe_lrc_write_ring(lrc, &arb_enable, sizeof(arb_enable));
 
+	if (init_flags & XE_LRC_DISABLE_STATE_CACHE_PERF_FIX) {
+		state_cache_perf_fix[0] = MI_LOAD_REGISTER_IMM | MI_LRI_NUM_REGS(1);
+		state_cache_perf_fix[1] = COMMON_SLICE_CHICKEN3.addr;
+		state_cache_perf_fix[2] = REG_MASKED_FIELD_ENABLE(DISABLE_STATE_CACHE_PERF_FIX);
+		xe_lrc_write_ring(lrc, state_cache_perf_fix, sizeof(state_cache_perf_fix));
+	}
+
 	map = __xe_lrc_seqno_map(lrc);
 	xe_map_write32(lrc_to_xe(lrc), &map, lrc->fence_ctx.next_seqno - 1);
 
@@ -1451,11 +1566,75 @@ static int xe_lrc_init(struct xe_lrc *lrc, struct xe_hw_engine *hwe,
 
 	err = setup_wa_bb(lrc, hwe);
 	if (err)
-		goto err_lrc_finish;
+		return err;
 
 	err = setup_indirect_ctx(lrc, hwe);
+
+	return err;
+}
+
+static int xe_lrc_init(struct xe_lrc *lrc, struct xe_hw_engine *hwe, struct xe_vm *vm,
+		       void *replay_state, u32 ring_size, u16 msix_vec, u32 init_flags)
+{
+	struct xe_gt *gt = hwe->gt;
+	const u32 lrc_size = xe_gt_lrc_size(gt, hwe->class);
+	u32 bo_size = ring_size + lrc_size + LRC_WA_BB_SIZE;
+	struct xe_tile *tile = gt_to_tile(gt);
+	struct xe_device *xe = gt_to_xe(gt);
+	struct xe_bo *bo;
+	u32 bo_flags;
+	int err;
+
+	kref_init(&lrc->refcount);
+	lrc->gt = gt;
+	lrc->replay_size = xe_gt_lrc_hang_replay_size(gt, hwe->class);
+	lrc->size = lrc_size;
+	lrc->flags = 0;
+	lrc->ring.size = ring_size;
+	lrc->ring.tail = 0;
+
+	if (gt_engine_needs_indirect_ctx(gt, hwe->class)) {
+		lrc->flags |= XE_LRC_FLAG_INDIRECT_CTX;
+		bo_size += LRC_INDIRECT_CTX_BO_SIZE;
+	}
+
+	if (xe_gt_has_indirect_ring_state(gt))
+		lrc->flags |= XE_LRC_FLAG_INDIRECT_RING_STATE;
+
+	bo_flags = XE_BO_FLAG_VRAM_IF_DGFX(tile) | XE_BO_FLAG_GGTT |
+		   XE_BO_FLAG_GGTT_INVALIDATE;
+
+	if ((vm && vm->xef) || init_flags & XE_LRC_CREATE_USER_CTX) /* userspace */
+		bo_flags |= XE_BO_FLAG_PINNED_LATE_RESTORE | XE_BO_FLAG_FORCE_USER_VRAM;
+
+	bo = xe_bo_create_pin_map_novm(xe, tile, bo_size,
+				       ttm_bo_type_kernel,
+				       bo_flags, false);
+	if (IS_ERR(bo))
+		return PTR_ERR(bo);
+
+	lrc->bo = bo;
+
+	bo = xe_bo_create_pin_map_novm(xe, tile, PAGE_SIZE,
+				       ttm_bo_type_kernel,
+				       XE_BO_FLAG_GGTT |
+				       XE_BO_FLAG_GGTT_INVALIDATE |
+				       XE_BO_FLAG_SYSTEM, false);
+	if (IS_ERR(bo)) {
+		err = PTR_ERR(bo);
+		goto err_lrc_finish;
+	}
+	lrc->seqno_bo = bo;
+
+	xe_hw_fence_ctx_init(&lrc->fence_ctx, hwe->gt,
+			     hwe->fence_irq, hwe->name);
+
+	err = xe_lrc_ctx_init(lrc, hwe, vm, replay_state, msix_vec, init_flags);
 	if (err)
 		goto err_lrc_finish;
+
+	if (vm && vm->xef)
+		xe_drm_client_add_bo(vm->xef->client, lrc->bo);
 
 	return 0;
 
@@ -1468,6 +1647,7 @@ err_lrc_finish:
  * xe_lrc_create - Create a LRC
  * @hwe: Hardware Engine
  * @vm: The VM (address space)
+ * @replay_state: GPU hang replay state
  * @ring_size: LRC ring size
  * @msix_vec: MSI-X interrupt vector (for platforms that support it)
  * @flags: LRC initialization flags
@@ -1478,16 +1658,16 @@ err_lrc_finish:
  * upon failure.
  */
 struct xe_lrc *xe_lrc_create(struct xe_hw_engine *hwe, struct xe_vm *vm,
-			     u32 ring_size, u16 msix_vec, u32 flags)
+			     void *replay_state, u32 ring_size, u16 msix_vec, u32 flags)
 {
 	struct xe_lrc *lrc;
 	int err;
 
-	lrc = kzalloc(sizeof(*lrc), GFP_KERNEL);
+	lrc = kzalloc_obj(*lrc);
 	if (!lrc)
 		return ERR_PTR(-ENOMEM);
 
-	err = xe_lrc_init(lrc, hwe, vm, ring_size, msix_vec, flags);
+	err = xe_lrc_init(lrc, hwe, vm, replay_state, ring_size, msix_vec, flags);
 	if (err) {
 		kfree(lrc);
 		return ERR_PTR(err);
@@ -1725,6 +1905,7 @@ static int instr_dw(u32 cmd_header)
 
 static int dump_mi_command(struct drm_printer *p,
 			   struct xe_gt *gt,
+			   u32 *start,
 			   u32 *dw,
 			   int remaining_dw)
 {
@@ -1740,15 +1921,18 @@ static int dump_mi_command(struct drm_printer *p,
 		while (num_noop < remaining_dw &&
 		       (*(++dw) & REG_GENMASK(31, 23)) == MI_NOOP)
 			num_noop++;
-		drm_printf(p, "[%#010x] MI_NOOP (%d dwords)\n", inst_header, num_noop);
+		drm_printf(p, "LRC[%#5tx]  =  [%#010x] MI_NOOP (%d dwords)\n",
+			   dw - num_noop - start, inst_header, num_noop);
 		return num_noop;
 
 	case MI_TOPOLOGY_FILTER:
-		drm_printf(p, "[%#010x] MI_TOPOLOGY_FILTER\n", inst_header);
+		drm_printf(p, "LRC[%#5tx]  =  [%#010x] MI_TOPOLOGY_FILTER\n",
+			   dw - start, inst_header);
 		return 1;
 
 	case MI_BATCH_BUFFER_END:
-		drm_printf(p, "[%#010x] MI_BATCH_BUFFER_END\n", inst_header);
+		drm_printf(p, "LRC[%#5tx]  =  [%#010x] MI_BATCH_BUFFER_END\n",
+			   dw - start, inst_header);
 		/* Return 'remaining_dw' to consume the rest of the LRC */
 		return remaining_dw;
 	}
@@ -1762,39 +1946,43 @@ static int dump_mi_command(struct drm_printer *p,
 
 	switch (inst_header & MI_OPCODE) {
 	case MI_LOAD_REGISTER_IMM:
-		drm_printf(p, "[%#010x] MI_LOAD_REGISTER_IMM: %d regs\n",
-			   inst_header, (numdw - 1) / 2);
+		drm_printf(p, "LRC[%#5tx]  =  [%#010x] MI_LOAD_REGISTER_IMM: %d regs\n",
+			   dw - start, inst_header, (numdw - 1) / 2);
 		for (int i = 1; i < numdw; i += 2)
-			drm_printf(p, " - %#6x = %#010x\n", dw[i], dw[i + 1]);
+			drm_printf(p, "LRC[%#5tx]  =  - %#6x = %#010x\n",
+				   &dw[i] - start, dw[i], dw[i + 1]);
 		return numdw;
 
 	case MI_LOAD_REGISTER_MEM & MI_OPCODE:
-		drm_printf(p, "[%#010x] MI_LOAD_REGISTER_MEM: %s%s\n",
-			   inst_header,
+		drm_printf(p, "LRC[%#5tx]  =  [%#010x] MI_LOAD_REGISTER_MEM: %s%s\n",
+			   dw - start, inst_header,
 			   dw[0] & MI_LRI_LRM_CS_MMIO ? "CS_MMIO " : "",
 			   dw[0] & MI_LRM_USE_GGTT ? "USE_GGTT " : "");
 		if (numdw == 4)
-			drm_printf(p, " - %#6x = %#010llx\n",
+			drm_printf(p, "LRC[%#5tx]  =  - %#6x = %#010llx\n",
+				   dw - start,
 				   dw[1], ((u64)(dw[3]) << 32 | (u64)(dw[2])));
 		else
-			drm_printf(p, " - %*ph (%s)\n",
-				   (int)sizeof(u32) * (numdw - 1), dw + 1,
-				   numdw < 4 ? "truncated" : "malformed");
+			drm_printf(p, "LRC[%#5tx]  =  - %*ph (%s)\n",
+				   dw - start, (int)sizeof(u32) * (numdw - 1),
+				   dw + 1, numdw < 4 ? "truncated" : "malformed");
 		return numdw;
 
 	case MI_FORCE_WAKEUP:
-		drm_printf(p, "[%#010x] MI_FORCE_WAKEUP\n", inst_header);
+		drm_printf(p, "LRC[%#5tx]  =  [%#010x] MI_FORCE_WAKEUP\n",
+			   dw - start, inst_header);
 		return numdw;
 
 	default:
-		drm_printf(p, "[%#010x] unknown MI opcode %#x, likely %d dwords\n",
-			   inst_header, opcode, numdw);
+		drm_printf(p, "LRC[%#5tx]  =  [%#010x] unknown MI opcode %#x, likely %d dwords\n",
+			   dw - start, inst_header, opcode, numdw);
 		return numdw;
 	}
 }
 
 static int dump_gfxpipe_command(struct drm_printer *p,
 				struct xe_gt *gt,
+				u32 *start,
 				u32 *dw,
 				int remaining_dw)
 {
@@ -1813,11 +2001,13 @@ static int dump_gfxpipe_command(struct drm_printer *p,
 	switch (*dw & GFXPIPE_MATCH_MASK) {
 #define MATCH(cmd) \
 	case cmd: \
-		drm_printf(p, "[%#010x] " #cmd " (%d dwords)\n", *dw, numdw); \
+		drm_printf(p, "LRC[%#5tx]  =  [%#010x] " #cmd " (%d dwords)\n", \
+			   dw - start, *dw, numdw); \
 		return numdw
 #define MATCH3D(cmd) \
 	case CMD_##cmd: \
-		drm_printf(p, "[%#010x] " #cmd " (%d dwords)\n", *dw, numdw); \
+		drm_printf(p, "LRC[%#5tx]  =  [%#010x] " #cmd " (%d dwords)\n", \
+			   dw - start, *dw, numdw); \
 		return numdw
 
 	MATCH(STATE_BASE_ADDRESS);
@@ -1833,6 +2023,7 @@ static int dump_gfxpipe_command(struct drm_printer *p,
 	MATCH(PIPELINE_SELECT);
 
 	MATCH3D(3DSTATE_DRAWING_RECTANGLE_FAST);
+	MATCH3D(3DSTATE_CUSTOM_SAMPLE_PATTERN);
 	MATCH3D(3DSTATE_CLEAR_PARAMS);
 	MATCH3D(3DSTATE_DEPTH_BUFFER);
 	MATCH3D(3DSTATE_STENCIL_BUFFER);
@@ -1916,8 +2107,16 @@ static int dump_gfxpipe_command(struct drm_printer *p,
 	MATCH3D(3DSTATE_SBE_MESH);
 	MATCH3D(3DSTATE_CPSIZE_CONTROL_BUFFER);
 	MATCH3D(3DSTATE_COARSE_PIXEL);
+	MATCH3D(3DSTATE_MESH_SHADER_DATA_EXT);
+	MATCH3D(3DSTATE_TASK_SHADER_DATA_EXT);
+	MATCH3D(3DSTATE_VIEWPORT_STATE_POINTERS_CC_2);
+	MATCH3D(3DSTATE_CC_STATE_POINTERS_2);
+	MATCH3D(3DSTATE_SCISSOR_STATE_POINTERS_2);
+	MATCH3D(3DSTATE_BLEND_STATE_POINTERS_2);
+	MATCH3D(3DSTATE_VIEWPORT_STATE_POINTERS_SF_CLIP_2);
 
 	MATCH3D(3DSTATE_DRAWING_RECTANGLE);
+	MATCH3D(3DSTATE_URB_MEMORY);
 	MATCH3D(3DSTATE_CHROMA_KEY);
 	MATCH3D(3DSTATE_POLY_STIPPLE_OFFSET);
 	MATCH3D(3DSTATE_POLY_STIPPLE_PATTERN);
@@ -1937,16 +2136,18 @@ static int dump_gfxpipe_command(struct drm_printer *p,
 	MATCH3D(3DSTATE_SUBSLICE_HASH_TABLE);
 	MATCH3D(3DSTATE_SLICE_TABLE_STATE_POINTERS);
 	MATCH3D(3DSTATE_PTBR_TILE_PASS_INFO);
+	MATCH3D(3DSTATE_SLICE_TABLE_STATE_POINTER_2);
 
 	default:
-		drm_printf(p, "[%#010x] unknown GFXPIPE command (pipeline=%#x, opcode=%#x, subopcode=%#x), likely %d dwords\n",
-			   *dw, pipeline, opcode, subopcode, numdw);
+		drm_printf(p, "LRC[%#5tx]  =  [%#010x] unknown GFXPIPE command (pipeline=%#x, opcode=%#x, subopcode=%#x), likely %d dwords\n",
+			   dw - start, *dw, pipeline, opcode, subopcode, numdw);
 		return numdw;
 	}
 }
 
 static int dump_gfx_state_command(struct drm_printer *p,
 				  struct xe_gt *gt,
+				  u32 *start,
 				  u32 *dw,
 				  int remaining_dw)
 {
@@ -1964,8 +2165,8 @@ static int dump_gfx_state_command(struct drm_printer *p,
 	MATCH(STATE_WRITE_INLINE);
 
 	default:
-		drm_printf(p, "[%#010x] unknown GFX_STATE command (opcode=%#x), likely %d dwords\n",
-			   *dw, opcode, numdw);
+		drm_printf(p, "LRC[%#5tx]  =  [%#010x] unknown GFX_STATE command (opcode=%#x), likely %d dwords\n",
+			   dw - start, *dw, opcode, numdw);
 		return numdw;
 	}
 }
@@ -1974,7 +2175,7 @@ void xe_lrc_dump_default(struct drm_printer *p,
 			 struct xe_gt *gt,
 			 enum xe_engine_class hwe_class)
 {
-	u32 *dw;
+	u32 *dw, *start;
 	int remaining_dw, num_dw;
 
 	if (!gt->default_lrc[hwe_class]) {
@@ -1987,18 +2188,20 @@ void xe_lrc_dump_default(struct drm_printer *p,
 	 * hardware status page.
 	 */
 	dw = gt->default_lrc[hwe_class] + LRC_PPHWSP_SIZE;
+	start = dw;
 	remaining_dw = (xe_gt_lrc_size(gt, hwe_class) - LRC_PPHWSP_SIZE) / 4;
 
 	while (remaining_dw > 0) {
 		if ((*dw & XE_INSTR_CMD_TYPE) == XE_INSTR_MI) {
-			num_dw = dump_mi_command(p, gt, dw, remaining_dw);
+			num_dw = dump_mi_command(p, gt, start, dw, remaining_dw);
 		} else if ((*dw & XE_INSTR_CMD_TYPE) == XE_INSTR_GFXPIPE) {
-			num_dw = dump_gfxpipe_command(p, gt, dw, remaining_dw);
+			num_dw = dump_gfxpipe_command(p, gt, start, dw, remaining_dw);
 		} else if ((*dw & XE_INSTR_CMD_TYPE) == XE_INSTR_GFX_STATE) {
-			num_dw = dump_gfx_state_command(p, gt, dw, remaining_dw);
+			num_dw = dump_gfx_state_command(p, gt, start, dw, remaining_dw);
 		} else {
 			num_dw = min(instr_dw(*dw), remaining_dw);
-			drm_printf(p, "[%#10x] Unknown instruction of type %#x, likely %d dwords\n",
+			drm_printf(p, "LRC[%#5tx]  =  [%#10x] Unknown instruction of type %#x, likely %d dwords\n",
+				   dw - start,
 				   *dw, REG_FIELD_GET(XE_INSTR_CMD_TYPE, *dw),
 				   num_dw);
 		}
@@ -2006,6 +2209,102 @@ void xe_lrc_dump_default(struct drm_printer *p,
 		dw += num_dw;
 		remaining_dw -= num_dw;
 	}
+}
+
+/*
+ * Lookup the value of a register within the offset/value pairs of an
+ * MI_LOAD_REGISTER_IMM instruction.
+ *
+ * Return -ENOENT if the register is not present in the MI_LRI instruction.
+ */
+static int lookup_reg_in_mi_lri(u32 offset, u32 *value,
+				const u32 *dword_pair, int num_regs)
+{
+	for (int i = 0; i < num_regs; i++) {
+		if (dword_pair[2 * i] == offset) {
+			*value = dword_pair[2 * i + 1];
+			return 0;
+		}
+	}
+
+	return -ENOENT;
+}
+
+/*
+ * Lookup the value of a register in a specific engine type's default LRC.
+ *
+ * Return -EINVAL if the default LRC doesn't exist, or ENOENT if the register
+ * cannot be found in the default LRC.
+ */
+int xe_lrc_lookup_default_reg_value(struct xe_gt *gt,
+				    enum xe_engine_class hwe_class,
+				    u32 offset,
+				    u32 *value)
+{
+	u32 *dw;
+	int remaining_dw, ret;
+
+	if (!gt->default_lrc[hwe_class])
+		return -EINVAL;
+
+	/*
+	 * Skip the beginning of the LRC since it contains the per-process
+	 * hardware status page.
+	 */
+	dw = gt->default_lrc[hwe_class] + LRC_PPHWSP_SIZE;
+	remaining_dw = (xe_gt_lrc_size(gt, hwe_class) - LRC_PPHWSP_SIZE) / 4;
+
+	while (remaining_dw > 0) {
+		u32 num_dw = instr_dw(*dw);
+
+		if (num_dw > remaining_dw)
+			num_dw = remaining_dw;
+
+		switch (*dw & XE_INSTR_CMD_TYPE) {
+		case XE_INSTR_MI:
+			switch (*dw & MI_OPCODE) {
+			case MI_BATCH_BUFFER_END:
+				/* End of LRC; register not found */
+				return -ENOENT;
+
+			case MI_NOOP:
+			case MI_TOPOLOGY_FILTER:
+				/*
+				 * MI_NOOP and MI_TOPOLOGY_FILTER don't have
+				 * a length field and are always 1-dword
+				 * instructions.
+				 */
+				remaining_dw--;
+				dw++;
+				break;
+
+			case MI_LOAD_REGISTER_IMM:
+				ret = lookup_reg_in_mi_lri(offset, value,
+							   dw + 1, (num_dw - 1) / 2);
+				if (ret == 0)
+					return 0;
+
+				fallthrough;
+
+			default:
+				/*
+				 * Jump to next instruction based on length
+				 * field.
+				 */
+				remaining_dw -= num_dw;
+				dw += num_dw;
+				break;
+			}
+			break;
+
+		default:
+			/* Jump to next instruction based on length field. */
+			remaining_dw -= num_dw;
+			dw += num_dw;
+		}
+	}
+
+	return -ENOENT;
 }
 
 struct instr_state {
@@ -2136,7 +2435,7 @@ u32 *xe_lrc_emit_hwe_state_instructions(struct xe_exec_queue *q, u32 *cs)
 
 struct xe_lrc_snapshot *xe_lrc_snapshot_capture(struct xe_lrc *lrc)
 {
-	struct xe_lrc_snapshot *snapshot = kmalloc(sizeof(*snapshot), GFP_NOWAIT);
+	struct xe_lrc_snapshot *snapshot = kmalloc_obj(*snapshot, GFP_NOWAIT);
 
 	if (!snapshot)
 		return NULL;
@@ -2153,6 +2452,8 @@ struct xe_lrc_snapshot *xe_lrc_snapshot_capture(struct xe_lrc *lrc)
 	snapshot->lrc_bo = xe_bo_get(lrc->bo);
 	snapshot->lrc_offset = xe_lrc_pphwsp_offset(lrc);
 	snapshot->lrc_size = lrc->size;
+	snapshot->replay_offset = 0;
+	snapshot->replay_size = lrc->replay_size;
 	snapshot->lrc_snapshot = NULL;
 	snapshot->ctx_timestamp = lower_32_bits(xe_lrc_ctx_timestamp(lrc));
 	snapshot->ctx_job_timestamp = xe_lrc_ctx_job_timestamp(lrc);
@@ -2223,6 +2524,9 @@ void xe_lrc_snapshot_print(struct xe_lrc_snapshot *snapshot, struct drm_printer 
 	}
 
 	drm_printf(p, "\n\t[HWCTX].length: 0x%lx\n", snapshot->lrc_size - LRC_PPHWSP_SIZE);
+	drm_printf(p, "\n\t[HWCTX].replay_offset: 0x%lx\n", snapshot->replay_offset);
+	drm_printf(p, "\n\t[HWCTX].replay_length: 0x%lx\n", snapshot->replay_size);
+
 	drm_puts(p, "\t[HWCTX].data: ");
 	for (; i < snapshot->lrc_size; i += sizeof(u32)) {
 		u32 *val = snapshot->lrc_snapshot + i;
@@ -2271,35 +2575,31 @@ static int get_ctx_timestamp(struct xe_lrc *lrc, u32 engine_id, u64 *reg_ctx_ts)
 }
 
 /**
- * xe_lrc_update_timestamp() - Update ctx timestamp
+ * xe_lrc_timestamp() - Current ctx timestamp
  * @lrc: Pointer to the lrc.
- * @old_ts: Old timestamp value
  *
- * Populate @old_ts current saved ctx timestamp, read new ctx timestamp and
- * update saved value. With support for active contexts, the calculation may be
- * slightly racy, so follow a read-again logic to ensure that the context is
- * still active before returning the right timestamp.
+ * Return latest ctx timestamp. With support for active contexts, the
+ * calculation may be slightly racy, so follow a read-again logic to ensure that
+ * the context is still active before returning the right timestamp.
  *
  * Returns: New ctx timestamp value
  */
-u64 xe_lrc_update_timestamp(struct xe_lrc *lrc, u64 *old_ts)
+u64 xe_lrc_timestamp(struct xe_lrc *lrc)
 {
-	u64 lrc_ts, reg_ts;
+	u64 lrc_ts, reg_ts, new_ts = lrc->ctx_timestamp;
 	u32 engine_id;
-
-	*old_ts = lrc->ctx_timestamp;
 
 	lrc_ts = xe_lrc_ctx_timestamp(lrc);
 	/* CTX_TIMESTAMP mmio read is invalid on VF, so return the LRC value */
 	if (IS_SRIOV_VF(lrc_to_xe(lrc))) {
-		lrc->ctx_timestamp = lrc_ts;
+		new_ts = lrc_ts;
 		goto done;
 	}
 
 	if (lrc_ts == CONTEXT_ACTIVE) {
 		engine_id = xe_lrc_engine_id(lrc);
 		if (!get_ctx_timestamp(lrc, engine_id, &reg_ts))
-			lrc->ctx_timestamp = reg_ts;
+			new_ts = reg_ts;
 
 		/* read lrc again to ensure context is still active */
 		lrc_ts = xe_lrc_ctx_timestamp(lrc);
@@ -2310,9 +2610,27 @@ u64 xe_lrc_update_timestamp(struct xe_lrc *lrc, u64 *old_ts)
 	 * be a separate if condition.
 	 */
 	if (lrc_ts != CONTEXT_ACTIVE)
-		lrc->ctx_timestamp = lrc_ts;
+		new_ts = lrc_ts;
 
 done:
+	return new_ts;
+}
+
+/**
+ * xe_lrc_update_timestamp() - Update ctx timestamp
+ * @lrc: Pointer to the lrc.
+ * @old_ts: Old timestamp value
+ *
+ * Populate @old_ts current saved ctx timestamp, read new ctx timestamp and
+ * update saved value.
+ *
+ * Returns: New ctx timestamp value
+ */
+u64 xe_lrc_update_timestamp(struct xe_lrc *lrc, u64 *old_ts)
+{
+	*old_ts = lrc->ctx_timestamp;
+	lrc->ctx_timestamp = xe_lrc_timestamp(lrc);
+
 	trace_xe_lrc_update_timestamp(lrc, *old_ts);
 
 	return lrc->ctx_timestamp;

@@ -89,23 +89,7 @@
 }							\
 )
 
-/*
- * Divide positive or negative dividend by positive or negative divisor
- * and round to closest integer. Result is undefined for negative
- * divisors if the dividend variable type is unsigned and for negative
- * dividends if the divisor variable type is unsigned.
- */
-#define DIV_ROUND_CLOSEST(x, divisor)(			\
-{							\
-	typeof(x) __x = x;				\
-	typeof(divisor) __d = divisor;			\
-	(((typeof(x))-1) > 0 ||				\
-	 ((typeof(divisor))-1) > 0 ||			\
-	 (((__x) > 0) == ((__d) > 0))) ?		\
-		(((__x) + ((__d) / 2)) / (__d)) :	\
-		(((__x) - ((__d) / 2)) / (__d));	\
-}							\
-)
+#define DIV_ROUND_CLOSEST __KERNEL_DIV_ROUND_CLOSEST
 /*
  * Same as above but for u64 dividends. divisor must be a 32-bit
  * number.
@@ -148,11 +132,16 @@ __STRUCT_FRACT(u32)
 
 /**
  * abs - return absolute value of an argument
- * @x: the value.  If it is unsigned type, it is converted to signed type first.
- *     char is treated as if it was signed (regardless of whether it really is)
- *     but the macro's return type is preserved as char.
+ * @x: the value.
  *
- * Return: an absolute value of x.
+ * If it is unsigned type, @x is converted to signed type first.
+ * char is treated as if it was signed (regardless of whether it really is)
+ * but the macro's return type is preserved as char.
+ *
+ * NOTE, for signed type if @x is the minimum, the returned result is undefined
+ * as there is not enough bits to represent it as a positive number.
+ *
+ * Return: an absolute value of @x.
  */
 #define abs(x)	__abs_choose_expr(x, long long,				\
 		__abs_choose_expr(x, long,				\

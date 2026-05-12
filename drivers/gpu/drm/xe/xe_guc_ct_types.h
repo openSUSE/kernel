@@ -39,6 +39,8 @@ struct guc_ctb_info {
  * struct guc_ctb - GuC command transport buffer (CTB)
  */
 struct guc_ctb {
+	/** @bo: Xe BO for CTB */
+	struct xe_bo *bo;
 	/** @desc: dma buffer map for CTB descriptor */
 	struct iosys_map desc;
 	/** @cmds: dma buffer map for CTB commands */
@@ -72,7 +74,7 @@ struct xe_guc_ct_snapshot {
 	/** @ctb_size: size of the snapshot of the CTB */
 	size_t ctb_size;
 	/** @ctb: snapshot of the entire CTB */
-	u32 *ctb;
+	void *ctb;
 };
 
 /**
@@ -100,9 +102,9 @@ struct xe_dead_ct {
 	bool reported;
 	/** @worker: worker thread to get out of interrupt context before dumping */
 	struct work_struct worker;
-	/** snapshot_ct: copy of CT state and CTB content at point of error */
+	/** @snapshot_ct: copy of CT state and CTB content at point of error */
 	struct xe_guc_ct_snapshot *snapshot_ct;
-	/** snapshot_log: copy of GuC log at point of error */
+	/** @snapshot_log: copy of GuC log at point of error */
 	struct xe_guc_log_snapshot *snapshot_log;
 };
 
@@ -126,17 +128,15 @@ struct xe_fast_req_fence {
  * for the H2G and G2H requests sent and received through the buffers.
  */
 struct xe_guc_ct {
-	/** @bo: XE BO for CT */
-	struct xe_bo *bo;
 	/** @lock: protects everything in CT layer */
 	struct mutex lock;
 	/** @fast_lock: protects G2H channel and credits */
 	spinlock_t fast_lock;
 	/** @ctbs: buffers for sending and receiving commands */
 	struct {
-		/** @ctbs.send: Host to GuC (H2G, send) channel */
+		/** @ctbs.h2g: Host to GuC (H2G, send) channel */
 		struct guc_ctb h2g;
-		/** @ctbs.recv: GuC to Host (G2H, receive) channel */
+		/** @ctbs.g2h: GuC to Host (G2H, receive) channel */
 		struct guc_ctb g2h;
 	} ctbs;
 	/** @g2h_outstanding: number of outstanding G2H */

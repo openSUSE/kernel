@@ -99,7 +99,7 @@ static void log_quirks(struct device *dev)
 static int byt_wm5102_spkvdd_power_event(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
 {
-	struct snd_soc_card *card = w->dapm->card;
+	struct snd_soc_card *card = snd_soc_dapm_to_card(w->dapm);
 	struct byt_wm5102_private *priv = snd_soc_card_get_drvdata(card);
 
 	gpiod_set_value_cansleep(priv->spkvdd_en_gpio,
@@ -150,8 +150,7 @@ static int byt_wm5102_prepare_and_enable_pll1(struct snd_soc_dai *codec_dai, int
 static int platform_clock_control(struct snd_soc_dapm_widget *w,
 				  struct snd_kcontrol *k, int event)
 {
-	struct snd_soc_dapm_context *dapm = w->dapm;
-	struct snd_soc_card *card = dapm->card;
+	struct snd_soc_card *card = snd_soc_dapm_to_card(w->dapm);
 	struct snd_soc_dai *codec_dai;
 	struct byt_wm5102_private *priv = snd_soc_card_get_drvdata(card);
 	int ret;
@@ -171,6 +170,7 @@ static int platform_clock_control(struct snd_soc_dapm_widget *w,
 		ret = byt_wm5102_prepare_and_enable_pll1(codec_dai, 48000);
 		if (ret) {
 			dev_err(card->dev, "Error setting codec sysclk: %d\n", ret);
+			clk_disable_unprepare(priv->mclk);
 			return ret;
 		}
 	} else {
@@ -283,12 +283,13 @@ static struct snd_soc_jack_pin byt_wm5102_pins[] = {
 static int byt_wm5102_init(struct snd_soc_pcm_runtime *runtime)
 {
 	struct snd_soc_card *card = runtime->card;
+	struct snd_soc_dapm_context *dapm = snd_soc_card_to_dapm(card);
 	struct byt_wm5102_private *priv = snd_soc_card_get_drvdata(card);
 	struct snd_soc_component *component = snd_soc_rtd_to_codec(runtime, 0)->component;
 	const struct snd_soc_dapm_route *custom_map = NULL;
 	int ret, jack_type, num_routes = 0;
 
-	card->dapm.idle_bias_off = true;
+	snd_soc_dapm_set_idle_bias(dapm, false);
 
 	ret = snd_soc_add_card_controls(card, byt_wm5102_controls,
 					ARRAY_SIZE(byt_wm5102_controls));
@@ -307,7 +308,7 @@ static int byt_wm5102_init(struct snd_soc_pcm_runtime *runtime)
 		num_routes = ARRAY_SIZE(byt_wm5102_intmic_in1l_hsmic_in2l_map);
 		break;
 	}
-	ret = snd_soc_dapm_add_routes(&card->dapm, custom_map, num_routes);
+	ret = snd_soc_dapm_add_routes(dapm, custom_map, num_routes);
 	if (ret)
 		return ret;
 
@@ -321,7 +322,7 @@ static int byt_wm5102_init(struct snd_soc_pcm_runtime *runtime)
 		num_routes = ARRAY_SIZE(byt_wm5102_spk_hpout2_map);
 		break;
 	}
-	ret = snd_soc_dapm_add_routes(&card->dapm, custom_map, num_routes);
+	ret = snd_soc_dapm_add_routes(dapm, custom_map, num_routes);
 	if (ret)
 		return ret;
 
@@ -332,7 +333,7 @@ static int byt_wm5102_init(struct snd_soc_pcm_runtime *runtime)
 		custom_map = bytcr_wm5102_ssp0_map;
 		num_routes = ARRAY_SIZE(bytcr_wm5102_ssp0_map);
 	}
-	ret = snd_soc_dapm_add_routes(&card->dapm, custom_map, num_routes);
+	ret = snd_soc_dapm_add_routes(dapm, custom_map, num_routes);
 	if (ret)
 		return ret;
 
@@ -552,7 +553,7 @@ static int snd_byt_wm5102_mc_probe(struct platform_device *pdev)
 		acpi_dev_put(adev);
 	} else {
 		/* Special case for when the codec is missing from the DSTD */
-		strscpy(codec_name, "spi1.0", sizeof(codec_name));
+		strscpy(codec_name, "spi-wm5102", sizeof(codec_name));
 	}
 
 	codec_dev = bus_find_device_by_name(&spi_bus_type, NULL, codec_name);

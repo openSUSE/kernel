@@ -23,7 +23,7 @@ user space, however. This includes the difference between synchronous
 and asynchronous invocations. The user space API call is fully
 synchronous.
 
-[1] https://www.chronox.de/libkcapi.html
+[1] https://www.chronox.de/libkcapi/index.html
 
 User Space API General Remarks
 ------------------------------
@@ -302,10 +302,9 @@ follows:
 
 
 Depending on the RNG type, the RNG must be seeded. The seed is provided
-using the setsockopt interface to set the key. For example, the
-ansi_cprng requires a seed. The DRBGs do not require a seed, but may be
-seeded. The seed is also known as a *Personalization String* in NIST SP 800-90A
-standard.
+using the setsockopt interface to set the key. The SP800-90A DRBGs do
+not require a seed, but may be seeded. The seed is also known as a
+*Personalization String* in NIST SP 800-90A standard.
 
 Using the read()/recvmsg() system calls, random numbers can be obtained.
 The kernel generates at most 128 bytes in one call. If user space
@@ -407,4 +406,4 @@ Please see [1] for libkcapi which provides an easy-to-use wrapper around
 the aforementioned Netlink kernel interface. [1] also contains a test
 application that invokes all libkcapi API calls.
 
-[1] https://www.chronox.de/libkcapi.html
+[1] https://www.chronox.de/libkcapi/index.html

@@ -5,7 +5,6 @@
  * Copyright (c) 2022 David Vernet <dvernet@meta.com>
  */
 #define _GNU_SOURCE
-#include <sched.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <inttypes.h>
@@ -21,7 +20,7 @@ const char help_fmt[] =
 "\n"
 "See the top-level comment in .bpf.c for more details.\n"
 "\n"
-"Usage: %s [-s SLICE_US] [-c CPU]\n"
+"Usage: %s [-s SLICE_US] [-c CPU] [-v]\n"
 "\n"
 "  -s SLICE_US   Override slice duration\n"
 "  -c CPU        Override the central CPU (default: 0)\n"
@@ -49,21 +48,22 @@ int main(int argc, char **argv)
 	struct bpf_link *link;
 	__u64 seq = 0, ecode;
 	__s32 opt;
-	cpu_set_t *cpuset;
 
 	libbpf_set_print(libbpf_print_fn);
 	signal(SIGINT, sigint_handler);
 	signal(SIGTERM, sigint_handler);
 restart:
+	optind = 1;
 	skel = SCX_OPS_OPEN(central_ops, scx_central);
 
 	skel->rodata->central_cpu = 0;
 	skel->rodata->nr_cpu_ids = libbpf_num_possible_cpus();
 	skel->rodata->slice_ns = __COMPAT_ENUM_OR_ZERO("scx_public_consts", "SCX_SLICE_DFL");
 
+	assert(skel->rodata->nr_cpu_ids > 0);
 	assert(skel->rodata->nr_cpu_ids <= INT32_MAX);
 
-	while ((opt = getopt(argc, argv, "s:c:pvh")) != -1) {
+	while ((opt = getopt(argc, argv, "s:c:vh")) != -1) {
 		switch (opt) {
 		case 's':
 			skel->rodata->slice_ns = strtoull(optarg, NULL, 0) * 1000;
@@ -72,6 +72,7 @@ restart:
 			u32 central_cpu = strtoul(optarg, NULL, 0);
 			if (central_cpu >= skel->rodata->nr_cpu_ids) {
 				fprintf(stderr, "invalid central CPU id value, %u given (%u max)\n", central_cpu, skel->rodata->nr_cpu_ids);
+				scx_central__destroy(skel);
 				return -1;
 			}
 			skel->rodata->central_cpu = (s32)central_cpu;
@@ -91,26 +92,6 @@ restart:
 	RESIZE_ARRAY(skel, data, cpu_started_at, skel->rodata->nr_cpu_ids);
 
 	SCX_OPS_LOAD(skel, central_ops, scx_central, uei);
-
-	/*
-	 * Affinitize the loading thread to the central CPU, as:
-	 * - That's where the BPF timer is first invoked in the BPF program.
-	 * - We probably don't want this user space component to take up a core
-	 *   from a task that would benefit from avoiding preemption on one of
-	 *   the tickless cores.
-	 *
-	 * Until BPF supports pinning the timer, it's not guaranteed that it
-	 * will always be invoked on the central CPU. In practice, this
-	 * suffices the majority of the time.
-	 */
-	cpuset = CPU_ALLOC(skel->rodata->nr_cpu_ids);
-	SCX_BUG_ON(!cpuset, "Failed to allocate cpuset");
-	CPU_ZERO_S(CPU_ALLOC_SIZE(skel->rodata->nr_cpu_ids), cpuset);
-	CPU_SET(skel->rodata->central_cpu, cpuset);
-	SCX_BUG_ON(sched_setaffinity(0, sizeof(*cpuset), cpuset),
-		   "Failed to affinitize to central CPU %d (max %d)",
-		   skel->rodata->central_cpu, skel->rodata->nr_cpu_ids - 1);
-	CPU_FREE(cpuset);
 
 	link = SCX_OPS_ATTACH(skel, central_ops, scx_central);
 

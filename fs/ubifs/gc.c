@@ -109,7 +109,6 @@ static int data_nodes_cmp(void *priv, const struct list_head *a,
 	struct ubifs_info *c = priv;
 	struct ubifs_scan_node *sa, *sb;
 
-	cond_resched();
 	if (a == b)
 		return 0;
 
@@ -153,7 +152,6 @@ static int nondata_nodes_cmp(void *priv, const struct list_head *a,
 	struct ubifs_info *c = priv;
 	struct ubifs_scan_node *sa, *sb;
 
-	cond_resched();
 	if (a == b)
 		return 0;
 
@@ -559,7 +557,7 @@ int ubifs_garbage_collect_leb(struct ubifs_info *c, struct ubifs_lprops *lp)
 				goto out;
 		}
 
-		idx_gc = kmalloc(sizeof(struct ubifs_gced_idx_leb), GFP_NOFS);
+		idx_gc = kmalloc_obj(struct ubifs_gced_idx_leb, GFP_NOFS);
 		if (!idx_gc) {
 			err = -ENOMEM;
 			goto out;
@@ -916,7 +914,7 @@ int ubifs_gc_start_commit(struct ubifs_info *c)
 		}
 		if (!lp)
 			break;
-		idx_gc = kmalloc(sizeof(struct ubifs_gced_idx_leb), GFP_NOFS);
+		idx_gc = kmalloc_obj(struct ubifs_gced_idx_leb, GFP_NOFS);
 		if (!idx_gc) {
 			err = -ENOMEM;
 			goto out;

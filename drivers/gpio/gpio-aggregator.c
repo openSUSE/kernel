@@ -12,6 +12,7 @@
 #include <linux/configfs.h>
 #include <linux/ctype.h>
 #include <linux/delay.h>
+#include <linux/export.h>
 #include <linux/idr.h>
 #include <linux/kernel.h>
 #include <linux/list.h>
@@ -28,9 +29,8 @@
 
 #include <linux/gpio/consumer.h>
 #include <linux/gpio/driver.h>
+#include <linux/gpio/forwarder.h>
 #include <linux/gpio/machine.h>
-
-#include "dev-sync-probe.h"
 
 #define AGGREGATOR_MAX_GPIOS 512
 #define AGGREGATOR_LEGACY_PREFIX "_sysfs"
@@ -40,7 +40,7 @@
  */
 
 struct gpio_aggregator {
-	struct dev_sync_probe_data probe_data;
+	struct platform_device *pdev;
 	struct config_group group;
 	struct gpiod_lookup_table *lookups;
 	struct mutex lock;
@@ -133,7 +133,7 @@ static bool gpio_aggregator_is_active(struct gpio_aggregator *aggr)
 {
 	lockdep_assert_held(&aggr->lock);
 
-	return aggr->probe_data.pdev && platform_get_drvdata(aggr->probe_data.pdev);
+	return aggr->pdev && platform_get_drvdata(aggr->pdev);
 }
 
 /* Only aggregators created via legacy sysfs can be "activating". */
@@ -141,7 +141,7 @@ static bool gpio_aggregator_is_activating(struct gpio_aggregator *aggr)
 {
 	lockdep_assert_held(&aggr->lock);
 
-	return aggr->probe_data.pdev && !platform_get_drvdata(aggr->probe_data.pdev);
+	return aggr->pdev && !platform_get_drvdata(aggr->pdev);
 }
 
 static size_t gpio_aggregator_count_lines(struct gpio_aggregator *aggr)
@@ -157,7 +157,7 @@ gpio_aggregator_line_alloc(struct gpio_aggregator *parent, unsigned int idx,
 {
 	struct gpio_aggregator_line *line;
 
-	line = kzalloc(sizeof(*line), GFP_KERNEL);
+	line = kzalloc_obj(*line);
 	if (!line)
 		return ERR_PTR(-ENOMEM);
 
@@ -244,17 +244,33 @@ struct gpiochip_fwd {
 		spinlock_t slock;	/* protects tmp[] if !can_sleep */
 	};
 	struct gpiochip_fwd_timing *delay_timings;
+	void *data;
+	unsigned long *valid_mask;
 	unsigned long tmp[];		/* values and descs for multiple ops */
 };
 
-#define fwd_tmp_values(fwd)	&(fwd)->tmp[0]
-#define fwd_tmp_descs(fwd)	(void *)&(fwd)->tmp[BITS_TO_LONGS((fwd)->chip.ngpio)]
+#define fwd_tmp_values(fwd)	(&(fwd)->tmp[0])
+#define fwd_tmp_descs(fwd)	((void *)&(fwd)->tmp[BITS_TO_LONGS((fwd)->chip.ngpio)])
 
 #define fwd_tmp_size(ngpios)	(BITS_TO_LONGS((ngpios)) + (ngpios))
+
+static int gpio_fwd_request(struct gpio_chip *chip, unsigned int offset)
+{
+	struct gpiochip_fwd *fwd = gpiochip_get_data(chip);
+
+	return test_bit(offset, fwd->valid_mask) ? 0 : -ENODEV;
+}
 
 static int gpio_fwd_get_direction(struct gpio_chip *chip, unsigned int offset)
 {
 	struct gpiochip_fwd *fwd = gpiochip_get_data(chip);
+
+	/*
+	 * get_direction() is called during gpiochip registration, return
+	 * -ENODEV if there is no GPIO desc for the line.
+	 */
+	if (!test_bit(offset, fwd->valid_mask))
+		return -ENODEV;
 
 	return gpiod_get_direction(fwd->descs[offset]);
 }
@@ -453,10 +469,11 @@ static int gpiochip_fwd_delay_of_xlate(struct gpio_chip *chip,
 	return line;
 }
 
-static int gpiochip_fwd_setup_delay_line(struct device *dev, struct gpio_chip *chip,
-					 struct gpiochip_fwd *fwd)
+static int gpiochip_fwd_setup_delay_line(struct gpiochip_fwd *fwd)
 {
-	fwd->delay_timings = devm_kcalloc(dev, chip->ngpio,
+	struct gpio_chip *chip = &fwd->chip;
+
+	fwd->delay_timings = devm_kcalloc(chip->parent, chip->ngpio,
 					  sizeof(*fwd->delay_timings),
 					  GFP_KERNEL);
 	if (!fwd->delay_timings)
@@ -468,20 +485,334 @@ static int gpiochip_fwd_setup_delay_line(struct device *dev, struct gpio_chip *c
 	return 0;
 }
 #else
-static int gpiochip_fwd_setup_delay_line(struct device *dev, struct gpio_chip *chip,
-					 struct gpiochip_fwd *fwd)
+static int gpiochip_fwd_setup_delay_line(struct gpiochip_fwd *fwd)
 {
 	return 0;
 }
 #endif	/* !CONFIG_OF_GPIO */
 
 /**
+ * gpiochip_fwd_get_gpiochip - Get the GPIO chip for the GPIO forwarder
+ * @fwd: GPIO forwarder
+ *
+ * Returns: The GPIO chip for the GPIO forwarder
+ */
+struct gpio_chip *gpiochip_fwd_get_gpiochip(struct gpiochip_fwd *fwd)
+{
+	return &fwd->chip;
+}
+EXPORT_SYMBOL_NS_GPL(gpiochip_fwd_get_gpiochip, "GPIO_FORWARDER");
+
+/**
+ * gpiochip_fwd_get_data - Get driver-private data for the GPIO forwarder
+ * @fwd: GPIO forwarder
+ *
+ * Returns: The driver-private data for the GPIO forwarder
+ */
+void *gpiochip_fwd_get_data(struct gpiochip_fwd *fwd)
+{
+	return fwd->data;
+}
+EXPORT_SYMBOL_NS_GPL(gpiochip_fwd_get_data, "GPIO_FORWARDER");
+
+/**
+ * gpiochip_fwd_gpio_request - Request a line of the GPIO forwarder
+ * @fwd: GPIO forwarder
+ * @offset: the offset of the line to request
+ *
+ * Returns: 0 on success, or negative errno on failure.
+ */
+int gpiochip_fwd_gpio_request(struct gpiochip_fwd *fwd, unsigned int offset)
+{
+	struct gpio_chip *gc = gpiochip_fwd_get_gpiochip(fwd);
+
+	return gpio_fwd_request(gc, offset);
+}
+EXPORT_SYMBOL_NS_GPL(gpiochip_fwd_gpio_request, "GPIO_FORWARDER");
+
+/**
+ * gpiochip_fwd_gpio_get_direction - Return the current direction of a GPIO forwarder line
+ * @fwd: GPIO forwarder
+ * @offset: the offset of the line
+ *
+ * Returns: 0 for output, 1 for input, or an error code in case of error.
+ */
+int gpiochip_fwd_gpio_get_direction(struct gpiochip_fwd *fwd, unsigned int offset)
+{
+	struct gpio_chip *gc = gpiochip_fwd_get_gpiochip(fwd);
+
+	return gpio_fwd_get_direction(gc, offset);
+}
+EXPORT_SYMBOL_NS_GPL(gpiochip_fwd_gpio_get_direction, "GPIO_FORWARDER");
+
+/**
+ * gpiochip_fwd_gpio_direction_output - Set a GPIO forwarder line direction to
+ * output
+ * @fwd: GPIO forwarder
+ * @offset: the offset of the line
+ * @value: value to set
+ *
+ * Returns: 0 on success, or negative errno on failure.
+ */
+int gpiochip_fwd_gpio_direction_output(struct gpiochip_fwd *fwd, unsigned int offset,
+				       int value)
+{
+	struct gpio_chip *gc = gpiochip_fwd_get_gpiochip(fwd);
+
+	return gpio_fwd_direction_output(gc, offset, value);
+}
+EXPORT_SYMBOL_NS_GPL(gpiochip_fwd_gpio_direction_output, "GPIO_FORWARDER");
+
+/**
+ * gpiochip_fwd_gpio_direction_input - Set a GPIO forwarder line direction to input
+ * @fwd: GPIO forwarder
+ * @offset: the offset of the line
+ *
+ * Returns: 0 on success, or negative errno on failure.
+ */
+int gpiochip_fwd_gpio_direction_input(struct gpiochip_fwd *fwd, unsigned int offset)
+{
+	struct gpio_chip *gc = gpiochip_fwd_get_gpiochip(fwd);
+
+	return gpio_fwd_direction_input(gc, offset);
+}
+EXPORT_SYMBOL_NS_GPL(gpiochip_fwd_gpio_direction_input, "GPIO_FORWARDER");
+
+/**
+ * gpiochip_fwd_gpio_get - Return a GPIO forwarder line's value
+ * @fwd: GPIO forwarder
+ * @offset: the offset of the line
+ *
+ * Returns: The GPIO's logical value, i.e. taking the ACTIVE_LOW status into
+ * account, or negative errno on failure.
+ */
+int gpiochip_fwd_gpio_get(struct gpiochip_fwd *fwd, unsigned int offset)
+{
+	struct gpio_chip *gc = gpiochip_fwd_get_gpiochip(fwd);
+
+	return gpio_fwd_get(gc, offset);
+}
+EXPORT_SYMBOL_NS_GPL(gpiochip_fwd_gpio_get, "GPIO_FORWARDER");
+
+/**
+ * gpiochip_fwd_gpio_get_multiple - Get values for multiple GPIO forwarder lines
+ * @fwd: GPIO forwarder
+ * @mask: bit mask array; one bit per line; BITS_PER_LONG bits per word defines
+ *        which lines are to be read
+ * @bits: bit value array; one bit per line; BITS_PER_LONG bits per word will
+ *        contains the read values for the lines specified by mask
+ *
+ * Returns: 0 on success, or negative errno on failure.
+ */
+int gpiochip_fwd_gpio_get_multiple(struct gpiochip_fwd *fwd, unsigned long *mask,
+				   unsigned long *bits)
+{
+	struct gpio_chip *gc = gpiochip_fwd_get_gpiochip(fwd);
+
+	return gpio_fwd_get_multiple_locked(gc, mask, bits);
+}
+EXPORT_SYMBOL_NS_GPL(gpiochip_fwd_gpio_get_multiple, "GPIO_FORWARDER");
+
+/**
+ * gpiochip_fwd_gpio_set - Assign value to a GPIO forwarder line.
+ * @fwd: GPIO forwarder
+ * @offset: the offset of the line
+ * @value: value to set
+ *
+ * Returns: 0 on success, or negative errno on failure.
+ */
+int gpiochip_fwd_gpio_set(struct gpiochip_fwd *fwd, unsigned int offset, int value)
+{
+	struct gpio_chip *gc = gpiochip_fwd_get_gpiochip(fwd);
+
+	return gpio_fwd_set(gc, offset, value);
+}
+EXPORT_SYMBOL_NS_GPL(gpiochip_fwd_gpio_set, "GPIO_FORWARDER");
+
+/**
+ * gpiochip_fwd_gpio_set_multiple - Assign values to multiple GPIO forwarder lines
+ * @fwd: GPIO forwarder
+ * @mask: bit mask array; one bit per output; BITS_PER_LONG bits per word
+ *        defines which outputs are to be changed
+ * @bits: bit value array; one bit per output; BITS_PER_LONG bits per word
+ *        defines the values the outputs specified by mask are to be set to
+ *
+ * Returns: 0 on success, or negative errno on failure.
+ */
+int gpiochip_fwd_gpio_set_multiple(struct gpiochip_fwd *fwd, unsigned long *mask,
+				   unsigned long *bits)
+{
+	struct gpio_chip *gc = gpiochip_fwd_get_gpiochip(fwd);
+
+	return gpio_fwd_set_multiple_locked(gc, mask, bits);
+}
+EXPORT_SYMBOL_NS_GPL(gpiochip_fwd_gpio_set_multiple, "GPIO_FORWARDER");
+
+/**
+ * gpiochip_fwd_gpio_set_config - Set @config for a GPIO forwarder line
+ * @fwd: GPIO forwarder
+ * @offset: the offset of the line
+ * @config: Same packed config format as generic pinconf
+ *
+ * Returns: 0 on success, %-ENOTSUPP if the controller doesn't support setting
+ * the configuration.
+ */
+int gpiochip_fwd_gpio_set_config(struct gpiochip_fwd *fwd, unsigned int offset,
+				 unsigned long config)
+{
+	struct gpio_chip *gc = gpiochip_fwd_get_gpiochip(fwd);
+
+	return gpio_fwd_set_config(gc, offset, config);
+}
+EXPORT_SYMBOL_NS_GPL(gpiochip_fwd_gpio_set_config, "GPIO_FORWARDER");
+
+/**
+ * gpiochip_fwd_gpio_to_irq - Return the IRQ corresponding to a GPIO forwarder line
+ * @fwd: GPIO forwarder
+ * @offset: the offset of the line
+ *
+ * Returns: The Linux IRQ corresponding to the passed line, or an error code in
+ * case of error.
+ */
+int gpiochip_fwd_gpio_to_irq(struct gpiochip_fwd *fwd, unsigned int offset)
+{
+	struct gpio_chip *gc = gpiochip_fwd_get_gpiochip(fwd);
+
+	return gpio_fwd_to_irq(gc, offset);
+}
+EXPORT_SYMBOL_NS_GPL(gpiochip_fwd_gpio_to_irq, "GPIO_FORWARDER");
+
+/**
+ * devm_gpiochip_fwd_alloc - Allocate and initialize a new GPIO forwarder
+ * @dev: Parent device pointer
+ * @ngpios: Number of GPIOs in the forwarder
+ *
+ * Returns: An opaque object pointer, or an ERR_PTR()-encoded negative error
+ * code on failure.
+ */
+struct gpiochip_fwd *devm_gpiochip_fwd_alloc(struct device *dev,
+					     unsigned int ngpios)
+{
+	struct gpiochip_fwd *fwd;
+	struct gpio_chip *chip;
+
+	fwd = devm_kzalloc(dev, struct_size(fwd, tmp, fwd_tmp_size(ngpios)), GFP_KERNEL);
+	if (!fwd)
+		return ERR_PTR(-ENOMEM);
+
+	fwd->descs = devm_kcalloc(dev, ngpios, sizeof(*fwd->descs), GFP_KERNEL);
+	if (!fwd->descs)
+		return ERR_PTR(-ENOMEM);
+
+	fwd->valid_mask = devm_bitmap_zalloc(dev, ngpios, GFP_KERNEL);
+	if (!fwd->valid_mask)
+		return ERR_PTR(-ENOMEM);
+
+	chip = &fwd->chip;
+
+	chip->label = dev_name(dev);
+	chip->parent = dev;
+	chip->owner = THIS_MODULE;
+	chip->request = gpio_fwd_request;
+	chip->get_direction = gpio_fwd_get_direction;
+	chip->direction_input = gpio_fwd_direction_input;
+	chip->direction_output = gpio_fwd_direction_output;
+	chip->get = gpio_fwd_get;
+	chip->get_multiple = gpio_fwd_get_multiple_locked;
+	chip->set = gpio_fwd_set;
+	chip->set_multiple = gpio_fwd_set_multiple_locked;
+	chip->set_config = gpio_fwd_set_config;
+	chip->to_irq = gpio_fwd_to_irq;
+	chip->base = -1;
+	chip->ngpio = ngpios;
+
+	return fwd;
+}
+EXPORT_SYMBOL_NS_GPL(devm_gpiochip_fwd_alloc, "GPIO_FORWARDER");
+
+/**
+ * gpiochip_fwd_desc_add - Add a GPIO desc in the forwarder
+ * @fwd: GPIO forwarder
+ * @desc: GPIO descriptor to register
+ * @offset: offset for the GPIO in the forwarder
+ *
+ * Returns: 0 on success, or negative errno on failure.
+ */
+int gpiochip_fwd_desc_add(struct gpiochip_fwd *fwd, struct gpio_desc *desc,
+			  unsigned int offset)
+{
+	struct gpio_chip *chip = &fwd->chip;
+
+	if (offset >= chip->ngpio)
+		return -EINVAL;
+
+	if (test_and_set_bit(offset, fwd->valid_mask))
+		return -EEXIST;
+
+	/*
+	 * If any of the GPIO lines are sleeping, then the entire forwarder
+	 * will be sleeping.
+	 */
+	if (gpiod_cansleep(desc))
+		chip->can_sleep = true;
+
+	fwd->descs[offset] = desc;
+
+	dev_dbg(chip->parent, "%u => gpio %d irq %d\n", offset,
+		desc_to_gpio(desc), gpiod_to_irq(desc));
+
+	return 0;
+}
+EXPORT_SYMBOL_NS_GPL(gpiochip_fwd_desc_add, "GPIO_FORWARDER");
+
+/**
+ * gpiochip_fwd_desc_free - Remove a GPIO desc from the forwarder
+ * @fwd: GPIO forwarder
+ * @offset: offset of GPIO desc to remove
+ */
+void gpiochip_fwd_desc_free(struct gpiochip_fwd *fwd, unsigned int offset)
+{
+	if (test_and_clear_bit(offset, fwd->valid_mask))
+		gpiod_put(fwd->descs[offset]);
+}
+EXPORT_SYMBOL_NS_GPL(gpiochip_fwd_desc_free, "GPIO_FORWARDER");
+
+/**
+ * gpiochip_fwd_register - Register a GPIO forwarder
+ * @fwd: GPIO forwarder
+ * @data: driver-private data associated with this forwarder
+ *
+ * Returns: 0 on success, or negative errno on failure.
+ */
+int gpiochip_fwd_register(struct gpiochip_fwd *fwd, void *data)
+{
+	struct gpio_chip *chip = &fwd->chip;
+
+	/*
+	 * Some gpio_desc were not registered. They will be registered at runtime
+	 * but we have to suppose they can sleep.
+	 */
+	if (!bitmap_full(fwd->valid_mask, chip->ngpio))
+		chip->can_sleep = true;
+
+	if (chip->can_sleep)
+		mutex_init(&fwd->mlock);
+	else
+		spin_lock_init(&fwd->slock);
+
+	fwd->data = data;
+
+	return devm_gpiochip_add_data(chip->parent, chip, fwd);
+}
+EXPORT_SYMBOL_NS_GPL(gpiochip_fwd_register, "GPIO_FORWARDER");
+
+/**
  * gpiochip_fwd_create() - Create a new GPIO forwarder
  * @dev: Parent device pointer
  * @ngpios: Number of GPIOs in the forwarder.
  * @descs: Array containing the GPIO descriptors to forward to.
- *         This array must contain @ngpios entries, and must not be deallocated
- *         before the forwarder has been destroyed again.
+ *         This array must contain @ngpios entries, and can be deallocated
+ *         as the forwarder has its own array.
  * @features: Bitwise ORed features as defined with FWD_FEATURE_*.
  *
  * This function creates a new gpiochip, which forwards all GPIO operations to
@@ -495,64 +826,27 @@ static struct gpiochip_fwd *gpiochip_fwd_create(struct device *dev,
 						struct gpio_desc *descs[],
 						unsigned long features)
 {
-	const char *label = dev_name(dev);
 	struct gpiochip_fwd *fwd;
-	struct gpio_chip *chip;
 	unsigned int i;
 	int error;
 
-	fwd = devm_kzalloc(dev, struct_size(fwd, tmp, fwd_tmp_size(ngpios)),
-			   GFP_KERNEL);
-	if (!fwd)
-		return ERR_PTR(-ENOMEM);
+	fwd = devm_gpiochip_fwd_alloc(dev, ngpios);
+	if (IS_ERR(fwd))
+		return fwd;
 
-	chip = &fwd->chip;
-
-	/*
-	 * If any of the GPIO lines are sleeping, then the entire forwarder
-	 * will be sleeping.
-	 * If any of the chips support .set_config(), then the forwarder will
-	 * support setting configs.
-	 */
 	for (i = 0; i < ngpios; i++) {
-		struct gpio_chip *parent = gpiod_to_chip(descs[i]);
-
-		dev_dbg(dev, "%u => gpio %d irq %d\n", i,
-			desc_to_gpio(descs[i]), gpiod_to_irq(descs[i]));
-
-		if (gpiod_cansleep(descs[i]))
-			chip->can_sleep = true;
-		if (parent && parent->set_config)
-			chip->set_config = gpio_fwd_set_config;
-	}
-
-	chip->label = label;
-	chip->parent = dev;
-	chip->owner = THIS_MODULE;
-	chip->get_direction = gpio_fwd_get_direction;
-	chip->direction_input = gpio_fwd_direction_input;
-	chip->direction_output = gpio_fwd_direction_output;
-	chip->get = gpio_fwd_get;
-	chip->get_multiple = gpio_fwd_get_multiple_locked;
-	chip->set = gpio_fwd_set;
-	chip->set_multiple = gpio_fwd_set_multiple_locked;
-	chip->to_irq = gpio_fwd_to_irq;
-	chip->base = -1;
-	chip->ngpio = ngpios;
-	fwd->descs = descs;
-
-	if (chip->can_sleep)
-		mutex_init(&fwd->mlock);
-	else
-		spin_lock_init(&fwd->slock);
-
-	if (features & FWD_FEATURE_DELAY) {
-		error = gpiochip_fwd_setup_delay_line(dev, chip, fwd);
+		error = gpiochip_fwd_desc_add(fwd, descs[i], i);
 		if (error)
 			return ERR_PTR(error);
 	}
 
-	error = devm_gpiochip_add_data(dev, chip, fwd);
+	if (features & FWD_FEATURE_DELAY) {
+		error = gpiochip_fwd_setup_delay_line(fwd);
+		if (error)
+			return ERR_PTR(error);
+	}
+
+	error = gpiochip_fwd_register(fwd, NULL);
 	if (error)
 		return ERR_PTR(error);
 
@@ -613,6 +907,7 @@ static int gpio_aggregator_activate(struct gpio_aggregator *aggr)
 {
 	struct platform_device_info pdevinfo;
 	struct gpio_aggregator_line *line;
+	struct platform_device *pdev;
 	struct fwnode_handle *swnode;
 	unsigned int n = 0;
 	int ret = 0;
@@ -620,8 +915,7 @@ static int gpio_aggregator_activate(struct gpio_aggregator *aggr)
 	if (gpio_aggregator_count_lines(aggr) == 0)
 		return -EINVAL;
 
-	aggr->lookups = kzalloc(struct_size(aggr->lookups, table, 1),
-				GFP_KERNEL);
+	aggr->lookups = kzalloc_flex(*aggr->lookups, table, 1);
 	if (!aggr->lookups)
 		return -ENOMEM;
 
@@ -667,12 +961,23 @@ static int gpio_aggregator_activate(struct gpio_aggregator *aggr)
 
 	gpiod_add_lookup_table(aggr->lookups);
 
-	ret = dev_sync_probe_register(&aggr->probe_data, &pdevinfo);
-	if (ret)
+	pdev = platform_device_register_full(&pdevinfo);
+	if (IS_ERR(pdev)) {
+		ret = PTR_ERR(pdev);
 		goto err_remove_lookup_table;
+	}
 
+	wait_for_device_probe();
+	if (!device_is_bound(&pdev->dev)) {
+		ret = -ENXIO;
+		goto err_unregister_pdev;
+	}
+
+	aggr->pdev = pdev;
 	return 0;
 
+err_unregister_pdev:
+	platform_device_unregister(pdev);
 err_remove_lookup_table:
 	kfree(aggr->lookups->dev_id);
 	gpiod_remove_lookup_table(aggr->lookups);
@@ -686,7 +991,8 @@ err_remove_lookups:
 
 static void gpio_aggregator_deactivate(struct gpio_aggregator *aggr)
 {
-	dev_sync_probe_unregister(&aggr->probe_data);
+	platform_device_unregister(aggr->pdev);
+	aggr->pdev = NULL;
 	gpiod_remove_lookup_table(aggr->lookups);
 	kfree(aggr->lookups->dev_id);
 	kfree(aggr->lookups);
@@ -850,7 +1156,7 @@ gpio_aggregator_device_dev_name_show(struct config_item *item, char *page)
 
 	guard(mutex)(&aggr->lock);
 
-	pdev = aggr->probe_data.pdev;
+	pdev = aggr->pdev;
 	if (pdev)
 		return sysfs_emit(page, "%s\n", dev_name(&pdev->dev));
 
@@ -930,7 +1236,7 @@ gpio_aggregator_line_release(struct config_item *item)
 	kfree(line);
 }
 
-static struct configfs_item_operations gpio_aggregator_line_item_ops = {
+static const struct configfs_item_operations gpio_aggregator_line_item_ops = {
 	.release	= gpio_aggregator_line_release,
 };
 
@@ -951,7 +1257,7 @@ static void gpio_aggregator_device_release(struct config_item *item)
 	gpio_aggregator_free(aggr);
 }
 
-static struct configfs_item_operations gpio_aggregator_device_item_ops = {
+static const struct configfs_item_operations gpio_aggregator_device_item_ops = {
 	.release	= gpio_aggregator_device_release,
 };
 
@@ -996,7 +1302,7 @@ gpio_aggregator_device_make_group(struct config_group *group, const char *name)
 	return &line->group;
 }
 
-static struct configfs_group_operations gpio_aggregator_device_group_ops = {
+static const struct configfs_group_operations gpio_aggregator_device_group_ops = {
 	.make_group	= gpio_aggregator_device_make_group,
 };
 
@@ -1027,12 +1333,11 @@ gpio_aggregator_make_group(struct config_group *group, const char *name)
 		return ERR_PTR(ret);
 
 	config_group_init_type_name(&aggr->group, name, &gpio_aggregator_device_type);
-	dev_sync_probe_init(&aggr->probe_data);
 
 	return &aggr->group;
 }
 
-static struct configfs_group_operations gpio_aggregator_group_ops = {
+static const struct configfs_group_operations gpio_aggregator_group_ops = {
 	.make_group	= gpio_aggregator_make_group,
 };
 
@@ -1161,8 +1466,7 @@ static ssize_t gpio_aggregator_new_device_store(struct device_driver *driver,
 	memcpy(aggr->args, buf, count + 1);
 
 	aggr->init_via_sysfs = true;
-	aggr->lookups = kzalloc(struct_size(aggr->lookups, table, 1),
-				GFP_KERNEL);
+	aggr->lookups = kzalloc_flex(*aggr->lookups, table, 1);
 	if (!aggr->lookups) {
 		res = -ENOMEM;
 		goto free_ga;
@@ -1176,12 +1480,6 @@ static ssize_t gpio_aggregator_new_device_store(struct device_driver *driver,
 
 	scnprintf(name, sizeof(name), "%s.%d", AGGREGATOR_LEGACY_PREFIX, aggr->id);
 	config_group_init_type_name(&aggr->group, name, &gpio_aggregator_device_type);
-
-	/*
-	 * Since the device created by sysfs might be toggled via configfs
-	 * 'live' attribute later, this initialization is needed.
-	 */
-	dev_sync_probe_init(&aggr->probe_data);
 
 	/* Expose to configfs */
 	res = configfs_register_group(&gpio_aggregator_subsys.su_group,
@@ -1201,7 +1499,7 @@ static ssize_t gpio_aggregator_new_device_store(struct device_driver *driver,
 		goto remove_table;
 	}
 
-	aggr->probe_data.pdev = pdev;
+	aggr->pdev = pdev;
 	module_put(THIS_MODULE);
 	return count;
 
@@ -1334,6 +1632,7 @@ static int gpio_aggregator_probe(struct platform_device *pdev)
 		return PTR_ERR(fwd);
 
 	platform_set_drvdata(pdev, fwd);
+	devm_kfree(dev, descs);
 	return 0;
 }
 

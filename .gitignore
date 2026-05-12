@@ -13,6 +13,7 @@
 .*
 *.a
 *.asn1.[ch]
+*.bc
 *.bin
 *.bz2
 *.c.[012]*.*
@@ -41,6 +42,7 @@
 *.o.*
 *.patch
 *.pyc
+*.rlib
 *.rmeta
 *.rpm
 *.rsi
@@ -176,10 +178,13 @@ x509.genkey
 *.kdev4
 
 # Clang's compilation database file
-/compile_commands.json
+compile_commands.json
 
 # Documentation toolchain
 sphinx_*/
 
 # Rust analyzer configuration
 /rust-project.json
+
+# bc language scripts (not LLVM bitcode)
+!kernel/time/timeconst.bc

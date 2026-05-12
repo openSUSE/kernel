@@ -573,11 +573,10 @@ static void mvebu_gpio_irq_handler(struct irq_desc *desc)
 	for (i = 0; i < mvchip->chip.ngpio; i++) {
 		int irq;
 
-		irq = irq_find_mapping(mvchip->domain, i);
-
 		if (!(cause & BIT(i)))
 			continue;
 
+		irq = irq_find_mapping(mvchip->domain, i);
 		type = irq_get_trigger_type(irq);
 		if ((type & IRQ_TYPE_SENSE_MASK) == IRQ_TYPE_EDGE_BOTH) {
 			/* Swap polarity (race with GPIO line) */
@@ -602,7 +601,6 @@ static const struct regmap_config mvebu_gpio_regmap_config = {
 	.reg_bits = 32,
 	.reg_stride = 4,
 	.val_bits = 32,
-	.fast_io = true,
 };
 
 /*
@@ -899,7 +897,7 @@ static void mvebu_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 		msk = BIT(i);
 		is_out = !(io_conf & msk);
 
-		seq_printf(s, " gpio-%-3d (%-20.20s)", chip->base + i, label);
+		seq_printf(s, " gpio-%-3d (%-20.20s)", i, label);
 
 		if (is_out) {
 			seq_printf(s, " out %s %s\n",

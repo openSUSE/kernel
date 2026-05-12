@@ -97,11 +97,8 @@ static ssize_t sysfs_kf_bin_read(struct kernfs_open_file *of, char *buf,
 			count = size - pos;
 	}
 
-	if (!battr->read && !battr->read_new)
+	if (!battr->read)
 		return -EIO;
-
-	if (battr->read_new)
-		return battr->read_new(of->file, kobj, battr, buf, pos, count);
 
 	return battr->read(of->file, kobj, battr, buf, pos, count);
 }
@@ -161,11 +158,8 @@ static ssize_t sysfs_kf_bin_write(struct kernfs_open_file *of, char *buf,
 	if (!count)
 		return 0;
 
-	if (!battr->write && !battr->write_new)
+	if (!battr->write)
 		return -EIO;
-
-	if (battr->write_new)
-		return battr->write_new(of->file, kobj, battr, buf, pos, count);
 
 	return battr->write(of->file, kobj, battr, buf, pos, count);
 }
@@ -278,7 +272,7 @@ static const struct kernfs_ops sysfs_bin_kfops_mmap = {
 
 int sysfs_add_file_mode_ns(struct kernfs_node *parent,
 		const struct attribute *attr, umode_t mode, kuid_t uid,
-		kgid_t gid, const void *ns)
+		kgid_t gid, const struct ns_common *ns)
 {
 	struct kobject *kobj = parent->priv;
 	const struct sysfs_ops *sysfs_ops = kobj->ktype->sysfs_ops;
@@ -328,26 +322,20 @@ int sysfs_add_file_mode_ns(struct kernfs_node *parent,
 
 int sysfs_add_bin_file_mode_ns(struct kernfs_node *parent,
 		const struct bin_attribute *battr, umode_t mode, size_t size,
-		kuid_t uid, kgid_t gid, const void *ns)
+		kuid_t uid, kgid_t gid, const struct ns_common *ns)
 {
 	const struct attribute *attr = &battr->attr;
 	struct lock_class_key *key = NULL;
 	const struct kernfs_ops *ops;
 	struct kernfs_node *kn;
 
-	if (battr->read && battr->read_new)
-		return -EINVAL;
-
-	if (battr->write && battr->write_new)
-		return -EINVAL;
-
 	if (battr->mmap)
 		ops = &sysfs_bin_kfops_mmap;
-	else if ((battr->read || battr->read_new) && (battr->write || battr->write_new))
+	else if (battr->read && battr->write)
 		ops = &sysfs_bin_kfops_rw;
-	else if (battr->read || battr->read_new)
+	else if (battr->read)
 		ops = &sysfs_bin_kfops_ro;
-	else if (battr->write || battr->write_new)
+	else if (battr->write)
 		ops = &sysfs_bin_kfops_wo;
 	else
 		ops = &sysfs_file_kfops_empty;
@@ -374,7 +362,7 @@ int sysfs_add_bin_file_mode_ns(struct kernfs_node *parent,
  * @ns: namespace the new file should belong to
  */
 int sysfs_create_file_ns(struct kobject *kobj, const struct attribute *attr,
-			 const void *ns)
+			 const struct ns_common *ns)
 {
 	kuid_t uid;
 	kgid_t gid;
@@ -517,7 +505,7 @@ EXPORT_SYMBOL_GPL(sysfs_unbreak_active_protection);
  * Hash the attribute name and namespace tag and kill the victim.
  */
 void sysfs_remove_file_ns(struct kobject *kobj, const struct attribute *attr,
-			  const void *ns)
+			  const struct ns_common *ns)
 {
 	struct kernfs_node *parent = kobj->sd;
 
@@ -701,7 +689,6 @@ int sysfs_file_change_owner(struct kobject *kobj, const char *name, kuid_t kuid,
 
 	return error;
 }
-EXPORT_SYMBOL_GPL(sysfs_file_change_owner);
 
 /**
  *	sysfs_change_owner - change owner of the given object.
@@ -748,7 +735,6 @@ int sysfs_change_owner(struct kobject *kobj, kuid_t kuid, kgid_t kgid)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(sysfs_change_owner);
 
 /**
  *	sysfs_emit - scnprintf equivalent, aware of PAGE_SIZE buffer.

@@ -331,7 +331,7 @@ static void dirty_init(struct keybuf_key *w)
 	struct dirty_io *io = w->private;
 	struct bio *bio = &io->bio;
 
-	bio_init(bio, NULL, bio->bi_inline_vecs,
+	bio_init_inline(bio, NULL,
 		 DIV_ROUND_UP(KEY_SIZE(&w->key), PAGE_SECTORS), 0);
 	if (!io->dc->writeback_percent)
 		bio->bi_ioprio = IOPRIO_PRIO_VALUE(IOPRIO_CLASS_IDLE, 0);
@@ -536,9 +536,9 @@ static void read_dirty(struct cached_dev *dc)
 		for (i = 0; i < nk; i++) {
 			w = keys[i];
 
-			io = kzalloc(struct_size(io, bio.bi_inline_vecs,
-						DIV_ROUND_UP(KEY_SIZE(&w->key), PAGE_SECTORS)),
-				     GFP_KERNEL);
+			io = kzalloc(sizeof(*io) + sizeof(struct bio_vec) *
+				DIV_ROUND_UP(KEY_SIZE(&w->key), PAGE_SECTORS),
+				GFP_KERNEL);
 			if (!io)
 				goto err;
 
@@ -805,8 +805,7 @@ static int bch_writeback_thread(void *arg)
 			 * may set BCH_ENABLE_AUTO_GC via sysfs, then when
 			 * BCH_DO_AUTO_GC is set, garbage collection thread
 			 * will be wake up here. After moving gc, the shrunk
-			 * btree and discarded free buckets SSD space may be
-			 * helpful for following write requests.
+			 * btree may be helpful for following write requests.
 			 */
 			if (c->gc_after_writeback ==
 			    (BCH_ENABLE_AUTO_GC|BCH_DO_AUTO_GC)) {
@@ -1076,7 +1075,7 @@ void bch_cached_dev_writeback_init(struct cached_dev *dc)
 int bch_cached_dev_writeback_start(struct cached_dev *dc)
 {
 	dc->writeback_write_wq = alloc_workqueue("bcache_writeback_wq",
-						WQ_MEM_RECLAIM, 0);
+						WQ_MEM_RECLAIM | WQ_PERCPU, 0);
 	if (!dc->writeback_write_wq)
 		return -ENOMEM;
 

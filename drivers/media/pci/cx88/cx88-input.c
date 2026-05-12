@@ -267,7 +267,7 @@ int cx88_ir_init(struct cx88_core *core, struct pci_dev *pci)
 				 * used with a full-code IR table
 				 */
 
-	ir = kzalloc(sizeof(*ir), GFP_KERNEL);
+	ir = kzalloc_obj(*ir);
 	dev = rc_allocate_device(RC_DRIVER_IR_RAW);
 	if (!ir || !dev)
 		goto err_out_free;
@@ -509,8 +509,9 @@ int cx88_ir_fini(struct cx88_core *core)
 	if (!ir)
 		return 0;
 
-	cx88_ir_stop(core);
 	rc_unregister_device(ir->dev);
+	cx88_ir_stop(core);
+	rc_free_device(ir->dev);
 	kfree(ir);
 
 	/* done */

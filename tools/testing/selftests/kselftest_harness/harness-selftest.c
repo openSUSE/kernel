@@ -8,7 +8,7 @@
 /* Avoid any inconsistencies */
 #define TH_LOG_STREAM stdout
 
-#include "../kselftest_harness.h"
+#include "kselftest_harness.h"
 
 static void test_helper(struct __test_metadata *_metadata)
 {
@@ -116,6 +116,46 @@ TEST_F(fixture_setup_failure, pass) {
 	TH_LOG("before");
 	ASSERT_EQ(0, 0);
 	TH_LOG("after");
+}
+
+TEST(exit_pass) {
+	exit(KSFT_PASS);
+}
+
+TEST(exit_xpass) {
+	exit(KSFT_XPASS);
+}
+
+TEST(exit_fail) {
+	exit(KSFT_FAIL);
+}
+
+TEST(exit_xfail) {
+	exit(KSFT_XFAIL);
+}
+
+TEST(exit_skip) {
+	exit(KSFT_SKIP);
+}
+
+TEST(test_result_pass) {
+	ksft_test_result_pass("");
+}
+
+TEST(test_result_xpass) {
+	ksft_test_result_xpass("");
+}
+
+TEST(test_result_fail) {
+	ksft_test_result_fail("");
+}
+
+TEST(test_result_xfail) {
+	ksft_test_result_xfail("");
+}
+
+TEST(test_result_skip) {
+	ksft_test_result_skip("");
 }
 
 int main(int argc, char **argv)

@@ -13,6 +13,8 @@
 #include <linux/irqchip/chained_irq.h>
 #include <linux/irqdomain.h>
 #include <linux/kernel.h>
+#include <linux/of_address.h>
+#include <linux/of_irq.h>
 #include <linux/syscore_ops.h>
 
 #include "irq-loongson.h"
@@ -151,7 +153,7 @@ static int pch_lpc_disabled(struct pch_lpc *priv)
 			(readl(priv->base + LPC_INT_STS) == 0xffffffff);
 }
 
-static int pch_lpc_suspend(void)
+static int pch_lpc_suspend(void *data)
 {
 	pch_lpc_priv->saved_reg_ctl = readl(pch_lpc_priv->base + LPC_INT_CTL);
 	pch_lpc_priv->saved_reg_ena = readl(pch_lpc_priv->base + LPC_INT_ENA);
@@ -159,33 +161,34 @@ static int pch_lpc_suspend(void)
 	return 0;
 }
 
-static void pch_lpc_resume(void)
+static void pch_lpc_resume(void *data)
 {
 	writel(pch_lpc_priv->saved_reg_ctl, pch_lpc_priv->base + LPC_INT_CTL);
 	writel(pch_lpc_priv->saved_reg_ena, pch_lpc_priv->base + LPC_INT_ENA);
 	writel(pch_lpc_priv->saved_reg_pol, pch_lpc_priv->base + LPC_INT_POL);
 }
 
-static struct syscore_ops pch_lpc_syscore_ops = {
+static const struct syscore_ops pch_lpc_syscore_ops = {
 	.suspend = pch_lpc_suspend,
 	.resume = pch_lpc_resume,
 };
 
-int __init pch_lpc_acpi_init(struct irq_domain *parent,
-					struct acpi_madt_lpc_pic *acpi_pchlpc)
-{
-	int parent_irq;
-	struct pch_lpc *priv;
-	struct irq_fwspec fwspec;
-	struct fwnode_handle *irq_handle;
+static struct syscore pch_lpc_syscore = {
+	.ops = &pch_lpc_syscore_ops,
+};
 
-	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
+static int __init pch_lpc_init(phys_addr_t addr, unsigned long size,
+			       struct fwnode_handle *irq_handle, int parent_irq)
+{
+	struct pch_lpc *priv;
+
+	priv = kzalloc_obj(*priv);
 	if (!priv)
 		return -ENOMEM;
 
 	raw_spin_lock_init(&priv->lpc_lock);
 
-	priv->base = ioremap(acpi_pchlpc->address, acpi_pchlpc->size);
+	priv->base = ioremap(addr, size);
 	if (!priv->base)
 		goto free_priv;
 
@@ -194,35 +197,27 @@ int __init pch_lpc_acpi_init(struct irq_domain *parent,
 		goto iounmap_base;
 	}
 
-	irq_handle = irq_domain_alloc_named_fwnode("lpcintc");
-	if (!irq_handle) {
-		pr_err("Unable to allocate domain handle\n");
-		goto iounmap_base;
-	}
-
-	priv->lpc_domain = irq_domain_create_linear(irq_handle, LPC_COUNT,
-					&pch_lpc_domain_ops, priv);
+	/*
+	 * The LPC interrupt controller is a legacy i8259-compatible device,
+	 * which requires a static 1:1 mapping for IRQs 0-15.
+	 * Use irq_domain_create_legacy to establish this static mapping early.
+	 */
+	priv->lpc_domain = irq_domain_create_legacy(irq_handle, LPC_COUNT, 0, 0,
+						    &pch_lpc_domain_ops, priv);
 	if (!priv->lpc_domain) {
 		pr_err("Failed to create IRQ domain\n");
-		goto free_irq_handle;
+		goto iounmap_base;
 	}
 	pch_lpc_reset(priv);
 
-	fwspec.fwnode = parent->fwnode;
-	fwspec.param[0] = acpi_pchlpc->cascade + GSI_MIN_PCH_IRQ;
-	fwspec.param[1] = IRQ_TYPE_LEVEL_HIGH;
-	fwspec.param_count = 2;
-	parent_irq = irq_create_fwspec_mapping(&fwspec);
 	irq_set_chained_handler_and_data(parent_irq, lpc_irq_dispatch, priv);
 
 	pch_lpc_priv = priv;
 	pch_lpc_handle = irq_handle;
-	register_syscore_ops(&pch_lpc_syscore_ops);
+	register_syscore(&pch_lpc_syscore);
 
 	return 0;
 
-free_irq_handle:
-	irq_domain_free_fwnode(irq_handle);
 iounmap_base:
 	iounmap(priv->base);
 free_priv:
@@ -230,3 +225,69 @@ free_priv:
 
 	return -ENOMEM;
 }
+
+#ifdef CONFIG_ACPI
+int __init pch_lpc_acpi_init(struct irq_domain *parent, struct acpi_madt_lpc_pic *acpi_pchlpc)
+{
+	struct fwnode_handle *irq_handle;
+	struct irq_fwspec fwspec;
+	int parent_irq, ret;
+
+	irq_handle = irq_domain_alloc_named_fwnode("lpcintc");
+	if (!irq_handle) {
+		pr_err("Unable to allocate domain handle\n");
+		return -ENOMEM;
+	}
+
+	fwspec.fwnode = parent->fwnode;
+	fwspec.param[0] = acpi_pchlpc->cascade + GSI_MIN_PCH_IRQ;
+	fwspec.param[1] = IRQ_TYPE_LEVEL_HIGH;
+	fwspec.param_count = 2;
+	parent_irq = irq_create_fwspec_mapping(&fwspec);
+	if (parent_irq <= 0) {
+		pr_err("Unable to map LPC parent interrupt\n");
+		irq_domain_free_fwnode(irq_handle);
+		return -ENOMEM;
+	}
+
+	ret = pch_lpc_init(acpi_pchlpc->address, acpi_pchlpc->size, irq_handle, parent_irq);
+	if (ret) {
+		irq_dispose_mapping(parent_irq);
+		irq_domain_free_fwnode(irq_handle);
+		return ret;
+	}
+
+	return 0;
+}
+#endif /* CONFIG_ACPI */
+
+#ifdef CONFIG_OF
+static int __init pch_lpc_of_init(struct device_node *node, struct device_node *parent)
+{
+	struct fwnode_handle *irq_handle;
+	struct resource res;
+	int parent_irq, ret;
+
+	if (of_address_to_resource(node, 0, &res))
+		return -EINVAL;
+
+	parent_irq = irq_of_parse_and_map(node, 0);
+	if (!parent_irq) {
+		pr_err("Failed to get the parent IRQ for LPC IRQs\n");
+		return -EINVAL;
+	}
+
+	irq_handle = of_fwnode_handle(node);
+
+	ret = pch_lpc_init(res.start, resource_size(&res), irq_handle,
+			   parent_irq);
+	if (ret) {
+		irq_dispose_mapping(parent_irq);
+		return ret;
+	}
+
+	return 0;
+}
+
+IRQCHIP_DECLARE(pch_lpc, "loongson,ls7a-lpc", pch_lpc_of_init);
+#endif /* CONFIG_OF */

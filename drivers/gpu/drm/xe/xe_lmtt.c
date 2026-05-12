@@ -8,16 +8,19 @@
 #include <drm/drm_managed.h>
 
 #include "regs/xe_gt_regs.h"
+#include "regs/xe_mert_regs.h"
 
 #include "xe_assert.h"
 #include "xe_bo.h"
 #include "xe_tlb_inval.h"
 #include "xe_lmtt.h"
 #include "xe_map.h"
+#include "xe_mert.h"
 #include "xe_mmio.h"
 #include "xe_res_cursor.h"
 #include "xe_sriov.h"
-#include "xe_sriov_printk.h"
+#include "xe_tile.h"
+#include "xe_tile_sriov_printk.h"
 
 /**
  * DOC: Local Memory Translation Table
@@ -32,7 +35,7 @@
  */
 
 #define lmtt_assert(lmtt, condition)	xe_tile_assert(lmtt_to_tile(lmtt), condition)
-#define lmtt_debug(lmtt, msg...)	xe_sriov_dbg_verbose(lmtt_to_xe(lmtt), "LMTT: " msg)
+#define lmtt_debug(lmtt, msg...)	xe_tile_sriov_dbg_verbose(lmtt_to_tile(lmtt), "LMTT: " msg)
 
 static bool xe_has_multi_level_lmtt(struct xe_device *xe)
 {
@@ -54,6 +57,23 @@ static u64 lmtt_page_size(struct xe_lmtt *lmtt)
 	return BIT_ULL(lmtt->ops->lmtt_pte_shift(0));
 }
 
+/**
+ * xe_lmtt_page_size() - Get LMTT page size.
+ * @lmtt: the &xe_lmtt
+ *
+ * This function shall be called only by PF.
+ *
+ * Return: LMTT page size.
+ */
+u64 xe_lmtt_page_size(struct xe_lmtt *lmtt)
+{
+	lmtt_assert(lmtt, IS_SRIOV_PF(lmtt_to_xe(lmtt)));
+	lmtt_assert(lmtt, xe_device_has_lmtt(lmtt_to_xe(lmtt)));
+	lmtt_assert(lmtt, lmtt->ops);
+
+	return lmtt_page_size(lmtt);
+}
+
 static struct xe_lmtt_pt *lmtt_pt_alloc(struct xe_lmtt *lmtt, unsigned int level)
 {
 	unsigned int num_entries = level ? lmtt->ops->lmtt_pte_num(level) : 0;
@@ -61,18 +81,18 @@ static struct xe_lmtt_pt *lmtt_pt_alloc(struct xe_lmtt *lmtt, unsigned int level
 	struct xe_bo *bo;
 	int err;
 
-	pt = kzalloc(struct_size(pt, entries, num_entries), GFP_KERNEL);
+	pt = kzalloc_flex(*pt, entries, num_entries);
 	if (!pt) {
 		err = -ENOMEM;
 		goto out;
 	}
 
-	bo = xe_bo_create_pin_map(lmtt_to_xe(lmtt), lmtt_to_tile(lmtt), NULL,
-				  PAGE_ALIGN(lmtt->ops->lmtt_pte_size(level) *
-					     lmtt->ops->lmtt_pte_num(level)),
-				  ttm_bo_type_kernel,
-				  XE_BO_FLAG_VRAM_IF_DGFX(lmtt_to_tile(lmtt)) |
-				  XE_BO_FLAG_NEEDS_64K);
+	bo = xe_bo_create_pin_map_novm(lmtt_to_xe(lmtt), lmtt_to_tile(lmtt),
+				       PAGE_ALIGN(lmtt->ops->lmtt_pte_size(level) *
+						  lmtt->ops->lmtt_pte_num(level)),
+				       ttm_bo_type_kernel,
+				       XE_BO_FLAG_VRAM_IF_DGFX(lmtt_to_tile(lmtt)) |
+				       XE_BO_FLAG_NEEDS_64K, false);
 	if (IS_ERR(bo)) {
 		err = PTR_ERR(bo);
 		goto out_free_pt;
@@ -196,16 +216,22 @@ static void lmtt_setup_dir_ptr(struct xe_lmtt *lmtt)
 	struct xe_device *xe = tile_to_xe(tile);
 	dma_addr_t offset = xe_bo_main_addr(lmtt->pd->bo, XE_PAGE_SIZE);
 	struct xe_gt *gt;
+	u32 config;
 	u8 id;
 
 	lmtt_debug(lmtt, "DIR offset %pad\n", &offset);
 	lmtt_assert(lmtt, xe_bo_is_vram(lmtt->pd->bo));
 	lmtt_assert(lmtt, IS_ALIGNED(offset, SZ_64K));
 
+	config = LMEM_EN | REG_FIELD_PREP(LMTT_DIR_PTR, offset / SZ_64K);
+
 	for_each_gt_on_tile(gt, tile, id)
 		xe_mmio_write32(&gt->mmio,
 				GRAPHICS_VER(xe) >= 20 ? XE2_LMEM_CFG : LMEM_CFG,
-				LMEM_EN | REG_FIELD_PREP(LMTT_DIR_PTR, offset / SZ_64K));
+				config);
+
+	if (xe_device_has_mert(xe) && xe_tile_is_root(tile))
+		xe_mmio_write32(&tile->mmio, MERT_LMEM_CFG, config);
 }
 
 /**
@@ -262,11 +288,13 @@ static int lmtt_invalidate_hw(struct xe_lmtt *lmtt)
  * @lmtt: the &xe_lmtt to invalidate
  *
  * Send requests to all GuCs on this tile to invalidate all TLBs.
+ * If the platform has a standalone MERT, also invalidate MERT's TLB.
  *
  * This function should be called only when running as a PF driver.
  */
 void xe_lmtt_invalidate_hw(struct xe_lmtt *lmtt)
 {
+	struct xe_tile *tile = lmtt_to_tile(lmtt);
 	struct xe_device *xe = lmtt_to_xe(lmtt);
 	int err;
 
@@ -274,8 +302,15 @@ void xe_lmtt_invalidate_hw(struct xe_lmtt *lmtt)
 
 	err = lmtt_invalidate_hw(lmtt);
 	if (err)
-		xe_sriov_warn(xe, "LMTT%u invalidation failed (%pe)",
-			      lmtt_to_tile(lmtt)->id, ERR_PTR(err));
+		xe_tile_sriov_err(tile, "LMTT invalidation failed (%pe)",
+				  ERR_PTR(err));
+
+	if (xe_device_has_mert(xe) && xe_tile_is_root(tile)) {
+		err = xe_mert_invalidate_lmtt(xe);
+		if (err)
+			xe_tile_sriov_err(tile, "MERT LMTT invalidation failed (%pe)",
+					  ERR_PTR(err));
+	}
 }
 
 static void lmtt_write_pte(struct xe_lmtt *lmtt, struct xe_lmtt_pt *pt,

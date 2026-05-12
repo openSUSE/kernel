@@ -364,7 +364,7 @@ void precompute_pq(void)
 /* one-time pre-compute dePQ values - only for max pixel value 125 FP16 */
 void precompute_de_pq(void)
 {
-	int i;
+	uint32_t i;
 	struct fixed31_32  y;
 	uint32_t begin_index, end_index;
 
@@ -783,7 +783,7 @@ static struct fixed31_32 calculate_mapped_value(
 	struct pwl_float_data *rgb,
 	const struct pixel_gamma_point *coeff,
 	enum channel_name channel,
-	uint32_t max_index)
+	int32_t max_index)
 {
 	const struct gamma_point *point;
 
@@ -896,6 +896,7 @@ static void build_de_pq(struct pwl_float_data_ex *de_pq,
 		uint32_t hw_points_num,
 		const struct hw_x_point *coordinate_x)
 {
+	(void)coordinate_x;
 	uint32_t i;
 	struct fixed31_32 output;
 	struct fixed31_32 *de_pq_table = mod_color_get_table(type_de_pq_table);
@@ -933,7 +934,7 @@ static bool build_regamma(struct pwl_float_data_ex *rgb_regamma,
 	struct pwl_float_data_ex *rgb = rgb_regamma;
 	const struct hw_x_point *coord_x = coordinate_x;
 
-	coeff = kvzalloc(sizeof(*coeff), GFP_KERNEL);
+	coeff = kvzalloc_obj(*coeff);
 	if (!coeff)
 		goto release;
 
@@ -1339,6 +1340,7 @@ static void scale_gamma_dx(struct pwl_float_data *pwl_rgb,
 		const struct dc_gamma *ramp,
 		struct dividers dividers)
 {
+	(void)dividers;
 	uint32_t i;
 	struct fixed31_32 min = dc_fixpt_zero;
 	struct fixed31_32 max = dc_fixpt_one;
@@ -1423,7 +1425,7 @@ static void apply_lut_1d(
 		uint32_t num_hw_points,
 		struct dc_transfer_func_distributed_points *tf_pts)
 {
-	int i = 0;
+	uint32_t i = 0;
 	int color = 0;
 	struct fixed31_32 *regamma_y;
 	struct fixed31_32 norm_y;
@@ -1567,7 +1569,7 @@ static bool calculate_interpolated_hardware_curve(
 {
 
 	const struct pixel_gamma_point *coeff = coeff128;
-	uint32_t max_entries = 3 - 1;
+	int32_t max_entries = 3 - 1;
 
 	uint32_t i = 0;
 
@@ -1579,7 +1581,7 @@ static bool calculate_interpolated_hardware_curve(
 	}
 
 	i = 0;
-	max_entries += ramp->num_entries;
+	max_entries += (int32_t)ramp->num_entries;
 
 	/* TODO: float point case */
 
@@ -1633,7 +1635,7 @@ static bool map_regamma_hw_to_x_user(
 {
 	/* setup to spare calculated ideal regamma values */
 
-	int i = 0;
+	uint32_t i = 0;
 	struct hw_x_point *coords = coords_x;
 	const struct pwl_float_data_ex *regamma = rgb_regamma;
 
@@ -1714,14 +1716,13 @@ bool mod_color_calculate_degamma_params(struct dc_color_caps *dc_caps,
 	input_tf->type = TF_TYPE_DISTRIBUTED_POINTS;
 
 	if (map_user_ramp && ramp && ramp->type == GAMMA_RGB_256) {
-		rgb_user = kvcalloc(ramp->num_entries + _EXTRA_POINTS,
-				sizeof(*rgb_user),
-				GFP_KERNEL);
+		rgb_user = kvzalloc_objs(*rgb_user,
+					 ramp->num_entries + _EXTRA_POINTS);
 		if (!rgb_user)
 			goto rgb_user_alloc_fail;
 
-		axis_x = kvcalloc(ramp->num_entries + _EXTRA_POINTS, sizeof(*axis_x),
-				GFP_KERNEL);
+		axis_x = kvzalloc_objs(*axis_x,
+				       ramp->num_entries + _EXTRA_POINTS);
 		if (!axis_x)
 			goto axis_x_alloc_fail;
 
@@ -1737,13 +1738,11 @@ bool mod_color_calculate_degamma_params(struct dc_color_caps *dc_caps,
 		scale_gamma(rgb_user, ramp, dividers);
 	}
 
-	curve = kvcalloc(MAX_HW_POINTS + _EXTRA_POINTS, sizeof(*curve),
-			GFP_KERNEL);
+	curve = kvzalloc_objs(*curve, MAX_HW_POINTS + _EXTRA_POINTS);
 	if (!curve)
 		goto curve_alloc_fail;
 
-	coeff = kvcalloc(MAX_HW_POINTS + _EXTRA_POINTS, sizeof(*coeff),
-			GFP_KERNEL);
+	coeff = kvzalloc_objs(*coeff, MAX_HW_POINTS + _EXTRA_POINTS);
 	if (!coeff)
 		goto coeff_alloc_fail;
 
@@ -1940,14 +1939,12 @@ bool mod_color_calculate_regamma_params(struct dc_transfer_func *output_tf,
 
 	if (ramp && ramp->type != GAMMA_CS_TFM_1D &&
 	    (map_user_ramp || ramp->type != GAMMA_RGB_256)) {
-		rgb_user = kvcalloc(ramp->num_entries + _EXTRA_POINTS,
-			    sizeof(*rgb_user),
-			    GFP_KERNEL);
+		rgb_user = kvzalloc_objs(*rgb_user,
+					 ramp->num_entries + _EXTRA_POINTS);
 		if (!rgb_user)
 			goto rgb_user_alloc_fail;
 
-		axis_x = kvcalloc(ramp->num_entries + 3, sizeof(*axis_x),
-				GFP_KERNEL);
+		axis_x = kvzalloc_objs(*axis_x, ramp->num_entries + 3);
 		if (!axis_x)
 			goto axis_x_alloc_fail;
 
@@ -1966,14 +1963,11 @@ bool mod_color_calculate_regamma_params(struct dc_transfer_func *output_tf,
 			scale_gamma_dx(rgb_user, ramp, dividers);
 	}
 
-	rgb_regamma = kvcalloc(MAX_HW_POINTS + _EXTRA_POINTS,
-			       sizeof(*rgb_regamma),
-			       GFP_KERNEL);
+	rgb_regamma = kvzalloc_objs(*rgb_regamma, MAX_HW_POINTS + _EXTRA_POINTS);
 	if (!rgb_regamma)
 		goto rgb_regamma_alloc_fail;
 
-	coeff = kvcalloc(MAX_HW_POINTS + _EXTRA_POINTS, sizeof(*coeff),
-			 GFP_KERNEL);
+	coeff = kvzalloc_objs(*coeff, MAX_HW_POINTS + _EXTRA_POINTS);
 	if (!coeff)
 		goto coeff_alloc_fail;
 

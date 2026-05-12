@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0
 // Copyright (c) 2020 Facebook
-#include <linux/bpf.h>
+#include "vmlinux.h"
 #include <asm/unistd.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include "bpf_misc.h"
+#include "bpf/usdt.bpf.h"
 
 char _license[] SEC("license") = "GPL";
 
@@ -25,6 +26,34 @@ static __always_inline void inc_counter(void)
 	__sync_add_and_fetch(&hits[cpu & CPU_MASK].value, 1);
 }
 
+volatile const int stacktrace;
+
+typedef __u64 stack_trace_t[128];
+
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	 __uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, stack_trace_t);
+} stack_heap SEC(".maps");
+
+static __always_inline void do_stacktrace(void *ctx)
+{
+	if (!stacktrace)
+		return;
+
+	__u64 *ptr = bpf_map_lookup_elem(&stack_heap, &(__u32){0});
+
+	if (ptr)
+		bpf_get_stack(ctx, ptr, sizeof(stack_trace_t), 0);
+}
+
+static __always_inline void handle(void *ctx)
+{
+	inc_counter();
+	do_stacktrace(ctx);
+}
+
 SEC("?uprobe")
 int bench_trigger_uprobe(void *ctx)
 {
@@ -42,12 +71,14 @@ int bench_trigger_uprobe_multi(void *ctx)
 const volatile int batch_iters = 0;
 
 SEC("?raw_tp")
-int trigger_count(void *ctx)
+int trigger_kernel_count(void *ctx)
 {
 	int i;
 
-	for (i = 0; i < batch_iters; i++)
+	for (i = 0; i < batch_iters; i++) {
 		inc_counter();
+		bpf_get_numa_node_id();
+	}
 
 	return 0;
 }
@@ -79,61 +110,80 @@ int trigger_driver_kfunc(void *ctx)
 SEC("?kprobe/bpf_get_numa_node_id")
 int bench_trigger_kprobe(void *ctx)
 {
-	inc_counter();
+	handle(ctx);
 	return 0;
 }
 
 SEC("?kretprobe/bpf_get_numa_node_id")
 int bench_trigger_kretprobe(void *ctx)
 {
-	inc_counter();
+	handle(ctx);
 	return 0;
 }
 
 SEC("?kprobe.multi/bpf_get_numa_node_id")
 int bench_trigger_kprobe_multi(void *ctx)
 {
-	inc_counter();
+	handle(ctx);
+	return 0;
+}
+
+SEC("?kprobe.multi/bpf_get_numa_node_id")
+int bench_kprobe_multi_empty(void *ctx)
+{
 	return 0;
 }
 
 SEC("?kretprobe.multi/bpf_get_numa_node_id")
 int bench_trigger_kretprobe_multi(void *ctx)
 {
-	inc_counter();
+	handle(ctx);
+	return 0;
+}
+
+SEC("?kretprobe.multi/bpf_get_numa_node_id")
+int bench_kretprobe_multi_empty(void *ctx)
+{
 	return 0;
 }
 
 SEC("?fentry/bpf_get_numa_node_id")
 int bench_trigger_fentry(void *ctx)
 {
-	inc_counter();
+	handle(ctx);
 	return 0;
 }
 
 SEC("?fexit/bpf_get_numa_node_id")
 int bench_trigger_fexit(void *ctx)
 {
-	inc_counter();
+	handle(ctx);
 	return 0;
 }
 
 SEC("?fmod_ret/bpf_modify_return_test_tp")
 int bench_trigger_fmodret(void *ctx)
 {
-	inc_counter();
+	handle(ctx);
 	return -22;
 }
 
 SEC("?tp/bpf_test_run/bpf_trigger_tp")
 int bench_trigger_tp(void *ctx)
 {
-	inc_counter();
+	handle(ctx);
 	return 0;
 }
 
 SEC("?raw_tp/bpf_trigger_tp")
 int bench_trigger_rawtp(void *ctx)
+{
+	handle(ctx);
+	return 0;
+}
+
+SEC("?usdt")
+int bench_trigger_usdt(void *ctx)
 {
 	inc_counter();
 	return 0;

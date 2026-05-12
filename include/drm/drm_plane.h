@@ -244,6 +244,14 @@ struct drm_plane_state {
 	enum drm_scaling_filter scaling_filter;
 
 	/**
+	 * @color_pipeline:
+	 *
+	 * The first colorop of the active color pipeline, or NULL, if no
+	 * color pipeline is active.
+	 */
+	struct drm_colorop *color_pipeline;
+
+	/**
 	 * @commit: Tracks the pending commit to prevent use-after-free conditions,
 	 * and for async plane updates.
 	 *
@@ -251,8 +259,8 @@ struct drm_plane_state {
 	 */
 	struct drm_crtc_commit *commit;
 
-	/** @state: backpointer to global drm_atomic_state */
-	struct drm_atomic_state *state;
+	/** @state: backpointer to global drm_atomic_commit */
+	struct drm_atomic_commit *state;
 
 	/**
 	 * @color_mgmt_changed: Color management properties have changed. Used
@@ -731,7 +739,7 @@ struct drm_plane {
 	 *
 	 * This is protected by @mutex. Note that nonblocking atomic commits
 	 * access the current plane state without taking locks. Either by going
-	 * through the &struct drm_atomic_state pointers, see
+	 * through the &struct drm_atomic_commit pointers, see
 	 * for_each_oldnew_plane_in_state(), for_each_old_plane_in_state() and
 	 * for_each_new_plane_in_state(). Or through careful ordering of atomic
 	 * commit operations as implemented in the atomic helpers, see
@@ -782,6 +790,14 @@ struct drm_plane {
 	 * See drm_plane_create_color_properties().
 	 */
 	struct drm_property *color_range_property;
+
+	/**
+	 * @color_pipeline_property:
+	 *
+	 * Optional "COLOR_PIPELINE" enum property for specifying
+	 * a color pipeline to use on the plane.
+	 */
+	struct drm_property *color_pipeline_property;
 
 	/**
 	 * @scaling_filter_property: property to apply a particular filter while
@@ -1006,4 +1022,7 @@ int drm_plane_add_size_hints_property(struct drm_plane *plane,
 				      const struct drm_plane_size_hint *hints,
 				      int num_hints);
 
+int drm_plane_create_color_pipeline_property(struct drm_plane *plane,
+					     const struct drm_prop_enum_list *pipelines,
+					     int num_pipelines);
 #endif

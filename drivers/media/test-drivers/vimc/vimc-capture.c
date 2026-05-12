@@ -57,8 +57,6 @@ static int vimc_capture_querycap(struct file *file, void *priv,
 {
 	strscpy(cap->driver, VIMC_PDEV_NAME, sizeof(cap->driver));
 	strscpy(cap->card, KBUILD_MODNAME, sizeof(cap->card));
-	snprintf(cap->bus_info, sizeof(cap->bus_info),
-		 "platform:%s", VIMC_PDEV_NAME);
 
 	return 0;
 }
@@ -169,7 +167,7 @@ static int vimc_capture_enum_fmt_vid_cap(struct file *file, void *priv,
 	return 0;
 }
 
-static int vimc_capture_enum_framesizes(struct file *file, void *fh,
+static int vimc_capture_enum_framesizes(struct file *file, void *priv,
 				    struct v4l2_frmsizeenum *fsize)
 {
 	const struct vimc_pix_map *vpix;
@@ -399,7 +397,7 @@ static struct vimc_ent_device *vimc_capture_add(struct vimc_device *vimc,
 	int ret;
 
 	/* Allocate the vimc_capture_device struct */
-	vcapture = kzalloc(sizeof(*vcapture), GFP_KERNEL);
+	vcapture = kzalloc_obj(*vcapture);
 	if (!vcapture)
 		return ERR_PTR(-ENOMEM);
 

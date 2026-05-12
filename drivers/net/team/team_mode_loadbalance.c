@@ -120,7 +120,7 @@ static struct team_port *lb_hash_select_tx_port(struct team *team,
 {
 	int port_index = team_num_to_port_index(team, hash);
 
-	return team_get_port_by_index_rcu(team, port_index);
+	return team_get_port_by_tx_index_rcu(team, port_index);
 }
 
 /* Hash to port mapping select tx port */
@@ -259,7 +259,7 @@ static int __fprog_create(struct sock_fprog_kern **pfprog, u32 data_len,
 
 	if (data_len % sizeof(struct sock_filter))
 		return -EINVAL;
-	fprog = kmalloc(sizeof(*fprog), GFP_KERNEL);
+	fprog = kmalloc_obj(*fprog);
 	if (!fprog)
 		return -ENOMEM;
 	fprog->filter = kmemdup(filter, data_len, GFP_KERNEL);
@@ -380,7 +380,7 @@ static int lb_tx_hash_to_port_mapping_set(struct team *team,
 
 	list_for_each_entry(port, &team->port_list, list) {
 		if (ctx->data.u32_val == port->dev->ifindex &&
-		    team_port_enabled(port)) {
+		    team_port_tx_enabled(port)) {
 			rcu_assign_pointer(LB_HTPM_PORT_BY_HASH(lb_priv, hash),
 					   port);
 			return 0;
@@ -594,7 +594,7 @@ static int lb_init(struct team *team)
 	BUG_ON(!func);
 	rcu_assign_pointer(lb_priv->select_tx_port_func, func);
 
-	lb_priv->ex = kzalloc(sizeof(*lb_priv->ex), GFP_KERNEL);
+	lb_priv->ex = kzalloc_obj(*lb_priv->ex);
 	if (!lb_priv->ex)
 		return -ENOMEM;
 	lb_priv->ex->team = team;
@@ -655,7 +655,7 @@ static void lb_port_leave(struct team *team, struct team_port *port)
 	free_percpu(lb_port_priv->pcpu_stats);
 }
 
-static void lb_port_disabled(struct team *team, struct team_port *port)
+static void lb_port_tx_disabled(struct team *team, struct team_port *port)
 {
 	lb_tx_hash_to_port_mapping_null_port(team, port);
 }
@@ -665,7 +665,7 @@ static const struct team_mode_ops lb_mode_ops = {
 	.exit			= lb_exit,
 	.port_enter		= lb_port_enter,
 	.port_leave		= lb_port_leave,
-	.port_disabled		= lb_port_disabled,
+	.port_tx_disabled	= lb_port_tx_disabled,
 	.receive		= lb_receive,
 	.transmit		= lb_transmit,
 };

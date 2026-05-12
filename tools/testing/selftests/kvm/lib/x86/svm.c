@@ -28,23 +28,26 @@ u64 rflags;
  *   Pointer to structure with the addresses of the SVM areas.
  */
 struct svm_test_data *
-vcpu_alloc_svm(struct kvm_vm *vm, vm_vaddr_t *p_svm_gva)
+vcpu_alloc_svm(struct kvm_vm *vm, gva_t *p_svm_gva)
 {
-	vm_vaddr_t svm_gva = vm_vaddr_alloc_page(vm);
+	gva_t svm_gva = vm_alloc_page(vm);
 	struct svm_test_data *svm = addr_gva2hva(vm, svm_gva);
 
-	svm->vmcb = (void *)vm_vaddr_alloc_page(vm);
+	svm->vmcb = (void *)vm_alloc_page(vm);
 	svm->vmcb_hva = addr_gva2hva(vm, (uintptr_t)svm->vmcb);
 	svm->vmcb_gpa = addr_gva2gpa(vm, (uintptr_t)svm->vmcb);
 
-	svm->save_area = (void *)vm_vaddr_alloc_page(vm);
+	svm->save_area = (void *)vm_alloc_page(vm);
 	svm->save_area_hva = addr_gva2hva(vm, (uintptr_t)svm->save_area);
 	svm->save_area_gpa = addr_gva2gpa(vm, (uintptr_t)svm->save_area);
 
-	svm->msr = (void *)vm_vaddr_alloc_page(vm);
+	svm->msr = (void *)vm_alloc_page(vm);
 	svm->msr_hva = addr_gva2hva(vm, (uintptr_t)svm->msr);
 	svm->msr_gpa = addr_gva2gpa(vm, (uintptr_t)svm->msr);
 	memset(svm->msr_hva, 0, getpagesize());
+
+	if (vm->stage2_mmu.pgd_created)
+		svm->ncr3_gpa = vm->stage2_mmu.pgd;
 
 	*p_svm_gva = svm_gva;
 	return svm;
@@ -59,17 +62,36 @@ static void vmcb_set_seg(struct vmcb_seg *seg, u16 selector,
 	seg->base = base;
 }
 
+void vm_enable_npt(struct kvm_vm *vm)
+{
+	struct pte_masks pte_masks;
+
+	TEST_ASSERT(kvm_cpu_has_npt(), "KVM doesn't supported nested NPT");
+
+	/*
+	 * NPTs use the same PTE format, but deliberately drop the C-bit as the
+	 * per-VM shared vs. private information is only meant for stage-1.
+	 */
+	pte_masks = vm->mmu.arch.pte_masks;
+	pte_masks.c = 0;
+
+	/* NPT walks are treated as user accesses, so set the 'user' bit. */
+	pte_masks.always_set = pte_masks.user;
+
+	tdp_mmu_init(vm, vm->mmu.pgtable_levels, &pte_masks);
+}
+
 void generic_svm_setup(struct svm_test_data *svm, void *guest_rip, void *guest_rsp)
 {
 	struct vmcb *vmcb = svm->vmcb;
-	uint64_t vmcb_gpa = svm->vmcb_gpa;
+	u64 vmcb_gpa = svm->vmcb_gpa;
 	struct vmcb_save_area *save = &vmcb->save;
 	struct vmcb_control_area *ctrl = &vmcb->control;
 	u32 data_seg_attr = 3 | SVM_SELECTOR_S_MASK | SVM_SELECTOR_P_MASK
 	      | SVM_SELECTOR_DB_MASK | SVM_SELECTOR_G_MASK;
 	u32 code_seg_attr = 9 | SVM_SELECTOR_S_MASK | SVM_SELECTOR_P_MASK
 		| SVM_SELECTOR_L_MASK | SVM_SELECTOR_G_MASK;
-	uint64_t efer;
+	u64 efer;
 
 	efer = rdmsr(MSR_EFER);
 	wrmsr(MSR_EFER, efer | EFER_SVME);
@@ -102,6 +124,11 @@ void generic_svm_setup(struct svm_test_data *svm, void *guest_rip, void *guest_r
 	vmcb->save.rip = (u64)guest_rip;
 	vmcb->save.rsp = (u64)guest_rsp;
 	guest_regs.rdi = (u64)svm;
+
+	if (svm->ncr3_gpa) {
+		ctrl->misc_ctl |= SVM_MISC_ENABLE_NP;
+		ctrl->nested_cr3 = svm->ncr3_gpa;
+	}
 }
 
 /*
@@ -131,7 +158,7 @@ void generic_svm_setup(struct svm_test_data *svm, void *guest_rip, void *guest_r
  * for now. registers involved in LOAD/SAVE_GPR_C are eventually
  * unmodified so they do not need to be in the clobber list.
  */
-void run_guest(struct vmcb *vmcb, uint64_t vmcb_gpa)
+void run_guest(struct vmcb *vmcb, u64 vmcb_gpa)
 {
 	asm volatile (
 		"vmload %[vmcb_gpa]\n\t"

@@ -16,7 +16,7 @@
 #include <sys/wait.h>
 #include <sys/prctl.h>
 
-#include "utils.h"
+#include "common.h"
 #include "timerlat_u.h"
 
 /*
@@ -32,7 +32,7 @@
 static int timerlat_u_main(int cpu, struct timerlat_u_params *params)
 {
 	struct sched_param sp = { .sched_priority = 95 };
-	char buffer[1024];
+	char buffer[MAX_PATH];
 	int timerlat_fd;
 	cpu_set_t set;
 	int retval;
@@ -51,10 +51,8 @@ static int timerlat_u_main(int cpu, struct timerlat_u_params *params)
 
 	if (!params->sched_param) {
 		retval = sched_setscheduler(0, SCHED_FIFO, &sp);
-		if (retval < 0) {
-			err_msg("Error setting timerlat u default priority: %s\n", strerror(errno));
-			exit(1);
-		}
+		if (retval < 0)
+			fatal("Error setting timerlat u default priority: %s", strerror(errno));
 	} else {
 		retval = __set_sched_attr(getpid(), params->sched_param);
 		if (retval) {
@@ -78,16 +76,14 @@ static int timerlat_u_main(int cpu, struct timerlat_u_params *params)
 	snprintf(buffer, sizeof(buffer), "osnoise/per_cpu/cpu%d/timerlat_fd", cpu);
 
 	timerlat_fd = tracefs_instance_file_open(NULL, buffer, O_RDONLY);
-	if (timerlat_fd < 0) {
-		err_msg("Error opening %s:%s\n", buffer, strerror(errno));
-		exit(1);
-	}
+	if (timerlat_fd < 0)
+		fatal("Error opening %s:%s", buffer, strerror(errno));
 
 	debug_msg("User-space timerlat pid %d on cpu %d\n", gettid(), cpu);
 
 	/* add should continue with a signal handler */
 	while (true) {
-		retval = read(timerlat_fd, buffer, 1024);
+		retval = read(timerlat_fd, buffer, ARRAY_SIZE(buffer));
 		if (retval < 0)
 			break;
 	}
@@ -103,7 +99,7 @@ static int timerlat_u_main(int cpu, struct timerlat_u_params *params)
  *
  * Return the number of processes that received the kill.
  */
-static int timerlat_u_send_kill(pid_t *procs, int nr_cpus)
+static int timerlat_u_send_kill(pid_t *procs)
 {
 	int killed = 0;
 	int i, retval;
@@ -135,7 +131,6 @@ static int timerlat_u_send_kill(pid_t *procs, int nr_cpus)
  */
 void *timerlat_u_dispatcher(void *data)
 {
-	int nr_cpus = sysconf(_SC_NPROCESSORS_CONF);
 	struct timerlat_u_params *params = data;
 	char proc_name[128];
 	int procs_count = 0;
@@ -174,7 +169,7 @@ void *timerlat_u_dispatcher(void *data)
 
 		/* parent */
 		if (pid == -1) {
-			timerlat_u_send_kill(procs, nr_cpus);
+			timerlat_u_send_kill(procs);
 			debug_msg("Failed to create child processes");
 			pthread_exit(&retval);
 		}
@@ -201,7 +196,7 @@ void *timerlat_u_dispatcher(void *data)
 		sleep(1);
 	}
 
-	timerlat_u_send_kill(procs, nr_cpus);
+	timerlat_u_send_kill(procs);
 
 	while (procs_count) {
 		pid = waitpid(-1, &wstatus, 0);

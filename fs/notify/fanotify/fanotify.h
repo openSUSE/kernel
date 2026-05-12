@@ -2,6 +2,7 @@
 #include <linux/fsnotify_backend.h>
 #include <linux/path.h>
 #include <linux/slab.h>
+#include <linux/string.h>
 #include <linux/exportfs.h>
 #include <linux/hashtable.h>
 
@@ -218,7 +219,7 @@ static inline void fanotify_info_copy_name(struct fanotify_info *info,
 		return;
 
 	info->name_len = name->len;
-	strcpy(fanotify_info_name(info), name->name);
+	strscpy(fanotify_info_name(info), name->name, name->len + 1);
 }
 
 static inline void fanotify_info_copy_name2(struct fanotify_info *info,
@@ -228,7 +229,7 @@ static inline void fanotify_info_copy_name2(struct fanotify_info *info,
 		return;
 
 	info->name2_len = name->len;
-	strcpy(fanotify_info_name2(info), name->name);
+	strscpy(fanotify_info_name2(info), name->name, name->len + 1);
 }
 
 /*
@@ -441,7 +442,9 @@ struct fanotify_perm_event {
 	size_t count;
 	u32 response;			/* userspace answer to the event */
 	unsigned short state;		/* state of the event */
+	unsigned short watchdog_cnt;	/* already scanned by watchdog? */
 	int fd;		/* fd we passed to userspace for this event */
+	pid_t recv_pid;	/* pid of task receiving the event */
 	union {
 		struct fanotify_response_info_header hdr;
 		struct fanotify_response_info_audit_rule audit_rule;

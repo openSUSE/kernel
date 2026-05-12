@@ -51,7 +51,7 @@ SECTIONS
 		IRQENTRY_TEXT
 		SOFTIRQENTRY_TEXT
 		FTRACE_HOTPATCH_TRAMPOLINES_TEXT
-		*(.text.*_indirect_*)
+		*(.text..*_indirect_*)
 		*(.gnu.warning)
 		. = ALIGN(PAGE_SIZE);
 		_etext = .;		/* End of text section */
@@ -150,6 +150,15 @@ SECTIONS
 		*(.altinstr_replacement)
 	}
 
+#ifdef CONFIG_STACKPROTECTOR
+	. = ALIGN(8);
+	.stack_prot_table : {
+		__stack_prot_start = .;
+		KEEP(*(__stack_protector_loc))
+		__stack_prot_end = .;
+	}
+#endif
+
 	/*
 	 * Table with the patch locations to undo expolines
 	*/
@@ -209,39 +218,10 @@ SECTIONS
 	. = ALIGN(PAGE_SIZE);
 	_end = . ;
 
-	/*
-	 * uncompressed image info used by the decompressor
-	 * it should match struct vmlinux_info
-	 */
-	.vmlinux.info 0 (INFO) : {
-		QUAD(startup_continue)				/* entry */
-		QUAD(__bss_start - _stext)			/* image_size */
-		QUAD(__bss_stop - __bss_start)			/* bss_size */
-		QUAD(__boot_data_start)				/* bootdata_off */
-		QUAD(__boot_data_end - __boot_data_start)	/* bootdata_size */
-		QUAD(__boot_data_preserved_start)		/* bootdata_preserved_off */
-		QUAD(__boot_data_preserved_end -
-		     __boot_data_preserved_start)		/* bootdata_preserved_size */
-		QUAD(__got_start)				/* got_start */
-		QUAD(__got_end)					/* got_end */
-		QUAD(_eamode31 - _samode31)			/* amode31_size */
-		QUAD(init_mm)
-		QUAD(swapper_pg_dir)
-		QUAD(invalid_pg_dir)
-		QUAD(__alt_instructions)
-		QUAD(__alt_instructions_end)
-#ifdef CONFIG_KASAN
-		QUAD(kasan_early_shadow_page)
-		QUAD(kasan_early_shadow_pte)
-		QUAD(kasan_early_shadow_pmd)
-		QUAD(kasan_early_shadow_pud)
-		QUAD(kasan_early_shadow_p4d)
-#endif
-	} :NONE
-
 	/* Debugging sections.	*/
 	STABS_DEBUG
 	DWARF_DEBUG
+	MODINFO
 	ELF_DETAILS
 
 	/*
@@ -265,6 +245,40 @@ SECTIONS
 		*(.rela.*) *(.rela_*)
 	}
 	ASSERT(SIZEOF(.rela.dyn) == 0, "Unexpected run-time relocations (.rela) detected!")
+
+	/*
+	 * uncompressed image info used by the decompressor
+	 * it should match struct vmlinux_info
+	 */
+	.vmlinux.info 0 (INFO) : {
+		QUAD(startup_continue)				/* entry */
+		QUAD(__bss_start - _stext)			/* image_size */
+		QUAD(__bss_stop - __bss_start)			/* bss_size */
+		QUAD(__boot_data_start)				/* bootdata_off */
+		QUAD(__boot_data_end - __boot_data_start)	/* bootdata_size */
+		QUAD(__boot_data_preserved_start)		/* bootdata_preserved_off */
+		QUAD(__boot_data_preserved_end -
+		     __boot_data_preserved_start)		/* bootdata_preserved_size */
+		QUAD(__got_start)				/* got_start */
+		QUAD(__got_end)					/* got_end */
+		QUAD(_eamode31 - _samode31)			/* amode31_size */
+		QUAD(init_mm)
+		QUAD(swapper_pg_dir)
+		QUAD(invalid_pg_dir)
+		QUAD(__alt_instructions)
+		QUAD(__alt_instructions_end)
+#ifdef CONFIG_STACKPROTECTOR
+		QUAD(__stack_prot_start)
+		QUAD(__stack_prot_end)
+#endif
+#ifdef CONFIG_KASAN
+		QUAD(kasan_early_shadow_page)
+		QUAD(kasan_early_shadow_pte)
+		QUAD(kasan_early_shadow_pmd)
+		QUAD(kasan_early_shadow_pud)
+		QUAD(kasan_early_shadow_p4d)
+#endif
+	} :NONE
 
 	/* Sections to be discarded */
 	DISCARDS

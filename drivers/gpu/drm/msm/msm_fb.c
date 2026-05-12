@@ -194,7 +194,7 @@ static struct drm_framebuffer *msm_framebuffer_init(struct drm_device *dev,
 		goto fail;
 	}
 
-	msm_fb = kzalloc(sizeof(*msm_fb), GFP_KERNEL);
+	msm_fb = kzalloc_obj(*msm_fb);
 	if (!msm_fb) {
 		ret = -ENOMEM;
 		goto fail;
@@ -219,7 +219,12 @@ static struct drm_framebuffer *msm_framebuffer_init(struct drm_device *dev,
 			 + mode_cmd->offsets[i];
 
 		if (bos[i]->size < min_size) {
-			ret = -EINVAL;
+			ret = UERR(EINVAL, dev, "plane %d too small", i);
+			goto fail;
+		}
+
+		if (to_msm_bo(bos[i])->flags & MSM_BO_NO_SHARE) {
+			ret = UERR(EINVAL, dev, "Cannot map _NO_SHARE to kms vm");
 			goto fail;
 		}
 

@@ -310,7 +310,7 @@ static void maximize_lane_settings(const struct link_training_settings *lt_setti
 	max_requested.FFE_PRESET = lane_settings[0].FFE_PRESET;
 
 	/* Determine what the maximum of the requested settings are*/
-	for (lane = 1; lane < lt_settings->link_settings.lane_count; lane++) {
+	for (lane = 1; lane < (uint32_t)lt_settings->link_settings.lane_count; lane++) {
 		if (lane_settings[lane].VOLTAGE_SWING > max_requested.VOLTAGE_SWING)
 			max_requested.VOLTAGE_SWING = lane_settings[lane].VOLTAGE_SWING;
 
@@ -554,6 +554,7 @@ enum link_training_result dp_check_link_loss_status(
 	struct dc_link *link,
 	const struct link_training_settings *link_training_setting)
 {
+	(void)link_training_setting;
 	enum link_training_result status = LINK_TRAINING_SUCCESS;
 	union lane_status lane_status;
 	union lane_align_status_updated dpcd_lane_status_updated;
@@ -567,7 +568,7 @@ enum link_training_result dp_check_link_loss_status(
 			sizeof(dpcd_buf));
 
 	/*parse lane status*/
-	for (lane = 0; lane < link->cur_link_settings.lane_count; lane++) {
+	for (lane = 0; lane < (uint32_t)link->cur_link_settings.lane_count; lane++) {
 		/*
 		 * check lanes status
 		 */
@@ -1387,6 +1388,7 @@ bool dp_set_hw_training_pattern(
 	enum dc_dp_training_pattern pattern,
 	uint32_t offset)
 {
+	(void)offset;
 	enum dp_test_pattern test_pattern = DP_TEST_PATTERN_UNSUPPORTED;
 
 	switch (pattern) {
@@ -1727,6 +1729,15 @@ bool perform_link_training_with_retries(
 			 */
 			if (j == (attempts - 1) || (status == LINK_TRAINING_ABORT))
 				break;
+		}
+
+		if (link->ep_type == DISPLAY_ENDPOINT_USB4_DPIA &&
+				stream->signal == SIGNAL_TYPE_DISPLAY_PORT_MST &&
+				!link->dc->config.enable_dpia_pre_training) {
+			if (j == (attempts - 1))
+				do_fallback = true;
+			else
+				do_fallback = false;
 		}
 
 		if (j == (attempts - 1)) {

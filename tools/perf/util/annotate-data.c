@@ -4,7 +4,7 @@
  *
  * Written by Namhyung Kim <namhyung@kernel.org>
  */
-
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <inttypes.h>
@@ -58,6 +58,10 @@ void pr_debug_type_name(Dwarf_Die *die, enum type_state_kind kind)
 	case TSR_KIND_CONST:
 		pr_info(" constant\n");
 		return;
+	case TSR_KIND_PERCPU_POINTER:
+		pr_info(" percpu pointer");
+		/* it also prints the type info */
+		break;
 	case TSR_KIND_POINTER:
 		pr_info(" pointer");
 		/* it also prints the type info */
@@ -156,12 +160,12 @@ bool has_reg_type(struct type_state *state, int reg)
 	return (unsigned)reg < ARRAY_SIZE(state->regs);
 }
 
-static void init_type_state(struct type_state *state, struct arch *arch)
+static void init_type_state(struct type_state *state, const struct arch *arch)
 {
 	memset(state, 0, sizeof(*state));
 	INIT_LIST_HEAD(&state->stack_vars);
 
-	if (arch__is(arch, "x86")) {
+	if (arch__is_x86(arch)) {
 		state->regs[0].caller_saved = true;
 		state->regs[1].caller_saved = true;
 		state->regs[2].caller_saved = true;
@@ -451,13 +455,6 @@ static const char *match_result_str(enum type_match_result tmr)
 	}
 }
 
-static bool is_pointer_type(Dwarf_Die *type_die)
-{
-	int tag = dwarf_tag(type_die);
-
-	return tag == DW_TAG_pointer_type || tag == DW_TAG_array_type;
-}
-
 static bool is_compound_type(Dwarf_Die *type_die)
 {
 	int tag = dwarf_tag(type_die);
@@ -470,19 +467,24 @@ static bool is_better_type(Dwarf_Die *type_a, Dwarf_Die *type_b)
 {
 	Dwarf_Word size_a, size_b;
 	Dwarf_Die die_a, die_b;
+	Dwarf_Die ptr_a, ptr_b;
+	Dwarf_Die *ptr_type_a, *ptr_type_b;
+
+	ptr_type_a = die_get_pointer_type(type_a, &ptr_a);
+	ptr_type_b = die_get_pointer_type(type_b, &ptr_b);
 
 	/* pointer type is preferred */
-	if (is_pointer_type(type_a) != is_pointer_type(type_b))
-		return is_pointer_type(type_b);
+	if ((ptr_type_a != NULL) != (ptr_type_b != NULL))
+		return ptr_type_b != NULL;
 
-	if (is_pointer_type(type_b)) {
+	if (ptr_type_b) {
 		/*
 		 * We want to compare the target type, but 'void *' can fail to
 		 * get the target type.
 		 */
-		if (die_get_real_type(type_a, &die_a) == NULL)
+		if (die_get_real_type(ptr_type_a, &die_a) == NULL)
 			return true;
-		if (die_get_real_type(type_b, &die_b) == NULL)
+		if (die_get_real_type(ptr_type_b, &die_b) == NULL)
 			return false;
 
 		type_a = &die_a;
@@ -522,7 +524,7 @@ static enum type_match_result check_variable(struct data_loc_info *dloc,
 		needs_pointer = false;
 	else if (reg == dloc->fbreg || is_fbreg)
 		needs_pointer = false;
-	else if (arch__is(dloc->arch, "x86") && reg == X86_REG_SP)
+	else if (arch__is_x86(dloc->arch) && reg == X86_REG_SP)
 		needs_pointer = false;
 
 	/* Get the type of the variable */
@@ -535,7 +537,7 @@ static enum type_match_result check_variable(struct data_loc_info *dloc,
 	 * and local variables are accessed directly without a pointer.
 	 */
 	if (needs_pointer) {
-		if (!is_pointer_type(type_die) ||
+		if (die_get_pointer_type(type_die, type_die) == NULL ||
 		    __die_get_real_type(type_die, type_die) == NULL)
 			return PERF_TMR_NO_POINTER;
 	}
@@ -573,25 +575,35 @@ struct type_state_stack *find_stack_state(struct type_state *state,
 }
 
 void set_stack_state(struct type_state_stack *stack, int offset, u8 kind,
-			    Dwarf_Die *type_die)
+			    Dwarf_Die *type_die, int ptr_offset)
 {
 	int tag;
 	Dwarf_Word size;
 
-	if (dwarf_aggregate_size(type_die, &size) < 0)
+	if (kind == TSR_KIND_POINTER) {
+		/* TODO: arch-dependent pointer size */
+		size = sizeof(void *);
+	}
+	else if (dwarf_aggregate_size(type_die, &size) < 0)
 		size = 0;
-
-	tag = dwarf_tag(type_die);
 
 	stack->type = *type_die;
 	stack->size = size;
 	stack->offset = offset;
+	stack->ptr_offset = ptr_offset;
 	stack->kind = kind;
+
+	if (kind == TSR_KIND_POINTER) {
+		stack->compound = false;
+		return;
+	}
+
+	tag = dwarf_tag(type_die);
 
 	switch (tag) {
 	case DW_TAG_structure_type:
 	case DW_TAG_union_type:
-		stack->compound = (kind != TSR_KIND_POINTER);
+		stack->compound = (kind != TSR_KIND_PERCPU_POINTER);
 		break;
 	default:
 		stack->compound = false;
@@ -601,18 +613,19 @@ void set_stack_state(struct type_state_stack *stack, int offset, u8 kind,
 
 struct type_state_stack *findnew_stack_state(struct type_state *state,
 						    int offset, u8 kind,
-						    Dwarf_Die *type_die)
+						    Dwarf_Die *type_die,
+						    int ptr_offset)
 {
 	struct type_state_stack *stack = find_stack_state(state, offset);
 
 	if (stack) {
-		set_stack_state(stack, offset, kind, type_die);
+		set_stack_state(stack, offset, kind, type_die, ptr_offset);
 		return stack;
 	}
 
 	stack = malloc(sizeof(*stack));
 	if (stack) {
-		set_stack_state(stack, offset, kind, type_die);
+		set_stack_state(stack, offset, kind, type_die, ptr_offset);
 		list_add(&stack->list, &state->stack_vars);
 	}
 	return stack;
@@ -761,12 +774,7 @@ static void global_var__collect(struct data_loc_info *dloc)
 			if (!dwarf_offdie(dwarf, pos->die_off, &type_die))
 				continue;
 
-			if (!get_global_var_info(dloc, pos->addr, &var_name,
-						 &var_offset))
-				continue;
-
-			if (var_offset != 0)
-				continue;
+			get_global_var_info(dloc, pos->addr, &var_name, &var_offset);
 
 			global_var__add(dloc, pos->addr, var_name, &type_die);
 		}
@@ -801,9 +809,8 @@ bool get_global_var_type(Dwarf_Die *cu_die, struct data_loc_info *dloc,
 	}
 
 	/* Try to get the variable by address first */
-	if (die_find_variable_by_addr(cu_die, var_addr, &var_die, &offset) &&
-	    check_variable(dloc, &var_die, type_die, DWARF_REG_PC, offset,
-			   /*is_fbreg=*/false) == PERF_TMR_OK) {
+	if (die_find_variable_by_addr(cu_die, var_addr, &var_die, type_die,
+				      &offset)) {
 		var_name = dwarf_diename(&var_die);
 		*var_offset = offset;
 		goto ok;
@@ -833,6 +840,18 @@ static bool die_is_same(Dwarf_Die *die_a, Dwarf_Die *die_b)
 	return (die_a->cu == die_b->cu) && (die_a->addr == die_b->addr);
 }
 
+static void tsr_set_lifetime(struct type_state_reg *tsr,
+			     const struct die_var_type *var)
+{
+	if (var && var->has_range && var->end > var->addr) {
+		tsr->lifetime_active = true;
+		tsr->lifetime_end = var->end;
+	} else {
+		tsr->lifetime_active = false;
+		tsr->lifetime_end = 0;
+	}
+}
+
 /**
  * update_var_state - Update type state using given variables
  * @state: type state table
@@ -858,15 +877,30 @@ static void update_var_state(struct type_state *state, struct data_loc_info *dlo
 	}
 
 	for (var = var_types; var != NULL; var = var->next) {
-		if (var->addr != addr)
-			continue;
+		/* Check if addr falls within the variable's valid range */
+		if (var->has_range) {
+			if (addr < var->addr || (var->end && addr >= var->end))
+				continue;
+		} else {
+			if (addr != var->addr)
+				continue;
+		}
 		/* Get the type DIE using the offset */
 		if (!dwarf_offdie(dloc->di->dbg, var->die_off, &mem_die))
 			continue;
 
 		if (var->reg == DWARF_REG_FB || var->reg == fbreg || var->reg == state->stack_reg) {
+			Dwarf_Die ptr_die;
+			Dwarf_Die *ptr_type;
 			int offset = var->offset;
 			struct type_state_stack *stack;
+
+			ptr_type = die_get_pointer_type(&mem_die, &ptr_die);
+
+			/* If the reg location holds the pointer value, dereference the type */
+			if (!var->is_reg_var_addr && ptr_type &&
+			    __die_get_real_type(ptr_type, &mem_die) == NULL)
+				continue;
 
 			if (var->reg != DWARF_REG_FB)
 				offset -= fb_offset;
@@ -877,7 +911,7 @@ static void update_var_state(struct type_state *state, struct data_loc_info *dlo
 				continue;
 
 			findnew_stack_state(state, offset, TSR_KIND_TYPE,
-					    &mem_die);
+					    &mem_die, /*ptr_offset=*/0);
 
 			if (var->reg == state->stack_reg) {
 				pr_debug_dtp("var [%"PRIx64"] %#x(reg%d)",
@@ -887,24 +921,47 @@ static void update_var_state(struct type_state *state, struct data_loc_info *dlo
 					     insn_offset, -offset);
 			}
 			pr_debug_type_name(&mem_die, TSR_KIND_TYPE);
-		} else if (has_reg_type(state, var->reg) && var->offset == 0) {
+		} else if (has_reg_type(state, var->reg)) {
 			struct type_state_reg *reg;
 			Dwarf_Die orig_type;
 
 			reg = &state->regs[var->reg];
 
 			if (reg->ok && reg->kind == TSR_KIND_TYPE &&
-			    !is_better_type(&reg->type, &mem_die))
+			   (!is_better_type(&reg->type, &mem_die) || var->is_reg_var_addr))
 				continue;
 
-			orig_type = reg->type;
+			/* Handle address registers with TSR_KIND_POINTER */
+			if (var->is_reg_var_addr) {
+				if (reg->ok && reg->kind == TSR_KIND_POINTER &&
+				    !is_better_type(&reg->type, &mem_die))
+					continue;
 
+				reg->offset = -var->offset;
+				reg->type = mem_die;
+				reg->kind = TSR_KIND_POINTER;
+				reg->ok = true;
+				tsr_set_lifetime(reg, var);
+
+				pr_debug_dtp("var [%"PRIx64"] reg%d addr offset %x",
+					     insn_offset, var->reg, var->offset);
+				pr_debug_type_name(&mem_die, TSR_KIND_POINTER);
+				continue;
+			}
+
+			orig_type = reg->type;
+			/*
+			 * var->offset + reg value is the beginning of the struct
+			 * reg->offset is the offset the reg points
+			 */
+			reg->offset = -var->offset;
 			reg->type = mem_die;
 			reg->kind = TSR_KIND_TYPE;
 			reg->ok = true;
+			tsr_set_lifetime(reg, var);
 
-			pr_debug_dtp("var [%"PRIx64"] reg%d",
-				     insn_offset, var->reg);
+			pr_debug_dtp("var [%"PRIx64"] reg%d offset %x",
+				     insn_offset, var->reg, var->offset);
 			pr_debug_type_name(&mem_die, TSR_KIND_TYPE);
 
 			/*
@@ -1030,7 +1087,7 @@ static void delete_var_types(struct die_var_type *var_types)
 /* should match to is_stack_canary() in util/annotate.c */
 static void setup_stack_canary(struct data_loc_info *dloc)
 {
-	if (arch__is(dloc->arch, "x86")) {
+	if (arch__is_x86(dloc->arch)) {
 		dloc->op->segment = INSN_SEG_X86_GS;
 		dloc->op->imm = true;
 		dloc->op->offset = 40;
@@ -1069,7 +1126,9 @@ again:
 		goto check_non_register;
 
 	if (state->regs[reg].kind == TSR_KIND_TYPE) {
+		Dwarf_Die ptr_die;
 		Dwarf_Die sized_type;
+		Dwarf_Die *ptr_type;
 		struct strbuf sb;
 
 		strbuf_init(&sb, 32);
@@ -1081,7 +1140,8 @@ again:
 		 * Normal registers should hold a pointer (or array) to
 		 * dereference a memory location.
 		 */
-		if (!is_pointer_type(&state->regs[reg].type)) {
+		ptr_type = die_get_pointer_type(&state->regs[reg].type, &ptr_die);
+		if (!ptr_type) {
 			if (dloc->op->offset < 0 && reg != state->stack_reg)
 				goto check_kernel;
 
@@ -1089,10 +1149,10 @@ again:
 		}
 
 		/* Remove the pointer and get the target type */
-		if (__die_get_real_type(&state->regs[reg].type, type_die) == NULL)
+		if (__die_get_real_type(ptr_type, type_die) == NULL)
 			return PERF_TMR_NO_POINTER;
 
-		dloc->type_offset = dloc->op->offset;
+		dloc->type_offset = dloc->op->offset + state->regs[reg].offset;
 
 		if (dwarf_tag(type_die) == DW_TAG_typedef)
 			die_get_real_type(type_die, &sized_type);
@@ -1108,6 +1168,30 @@ again:
 	}
 
 	if (state->regs[reg].kind == TSR_KIND_POINTER) {
+		struct strbuf sb;
+
+		strbuf_init(&sb, 32);
+		die_get_typename_from_type(&state->regs[reg].type, &sb);
+		pr_debug_dtp("(ptr->%s)", sb.buf);
+		strbuf_release(&sb);
+
+		/*
+		 * Register holds a pointer (address) to the target variable.
+		 * The type is the type of the variable it points to.
+		 */
+		*type_die = state->regs[reg].type;
+
+		dloc->type_offset = dloc->op->offset + state->regs[reg].offset;
+
+		/* Get the size of the actual type */
+		if (dwarf_aggregate_size(type_die, &size) < 0 ||
+		    (unsigned)dloc->type_offset >= size)
+			return PERF_TMR_BAD_OFFSET;
+
+		return PERF_TMR_OK;
+	}
+
+	if (state->regs[reg].kind == TSR_KIND_PERCPU_POINTER) {
 		pr_debug_dtp("percpu ptr");
 
 		/*
@@ -1165,6 +1249,11 @@ again:
 		return PERF_TMR_BAIL_OUT;
 	}
 
+	if (state->regs[reg].kind == TSR_KIND_CONST &&
+	    dso__kernel(map__dso(dloc->ms->map))) {
+		if (dloc->op->offset < 0 && reg != state->stack_reg && reg != dloc->fbreg)
+			goto check_kernel;
+	}
 check_non_register:
 	if (reg == dloc->fbreg || reg == state->stack_reg) {
 		struct type_state_stack *stack;
@@ -1246,7 +1335,7 @@ check_kernel:
 
 		/* Direct this-cpu access like "%gs:0x34740" */
 		if (dloc->op->segment == INSN_SEG_X86_GS && dloc->op->imm &&
-		    arch__is(dloc->arch, "x86")) {
+		    arch__is_x86(dloc->arch)) {
 			pr_debug_dtp("this-cpu var");
 
 			addr = dloc->op->offset;
@@ -1332,7 +1421,7 @@ out:
 
 static int arch_supports_insn_tracking(struct data_loc_info *dloc)
 {
-	if ((arch__is(dloc->arch, "x86")) || (arch__is(dloc->arch, "powerpc")))
+	if ((arch__is_x86(dloc->arch)) || (arch__is_powerpc(dloc->arch)))
 		return 1;
 	return 0;
 }
@@ -1536,12 +1625,13 @@ retry:
 
 		if (reg == DWARF_REG_PC) {
 			if (!die_find_variable_by_addr(&scopes[i], dloc->var_addr,
-						       &var_die, &type_offset))
+						       &var_die, &mem_die,
+						       &type_offset))
 				continue;
 		} else {
 			/* Look up variables/parameters in this scope */
 			if (!die_find_variable_by_reg(&scopes[i], pc, reg,
-						      &type_offset, is_fbreg, &var_die))
+						      &mem_die, &type_offset, is_fbreg, &var_die))
 				continue;
 		}
 
@@ -1549,26 +1639,22 @@ retry:
 			     dwarf_diename(&var_die), (long)dwarf_dieoffset(&var_die),
 			     i+1, nr_scopes, (long)dwarf_dieoffset(&scopes[i]));
 
-		/* Found a variable, see if it's correct */
-		result = check_variable(dloc, &var_die, &mem_die, reg, type_offset, is_fbreg);
-		if (result == PERF_TMR_OK) {
-			if (reg == DWARF_REG_PC) {
-				pr_debug_dtp("addr=%#"PRIx64" type_offset=%#x\n",
-					     dloc->var_addr, type_offset);
-			} else if (reg == DWARF_REG_FB || is_fbreg) {
-				pr_debug_dtp("stack_offset=%#x type_offset=%#x\n",
-					     fb_offset, type_offset);
-			} else {
-				pr_debug_dtp("type_offset=%#x\n", type_offset);
-			}
-
-			if (!found || is_better_type(type_die, &mem_die)) {
-				*type_die = mem_die;
-				dloc->type_offset = type_offset;
-				found = true;
-			}
+		if (reg == DWARF_REG_PC) {
+			pr_debug_dtp("addr=%#"PRIx64" type_offset=%#x\n",
+				     dloc->var_addr, type_offset);
+		} else if (reg == DWARF_REG_FB || is_fbreg) {
+			pr_debug_dtp("stack_offset=%#x type_offset=%#x\n",
+				     fb_offset, type_offset);
 		} else {
-			pr_debug_dtp("failed: %s\n", match_result_str(result));
+			pr_debug_dtp("type_offset=%#x\n", type_offset);
+		}
+
+		if (!found || dloc->type_offset < type_offset ||
+		    (dloc->type_offset == type_offset &&
+		     !is_better_type(&mem_die, type_die))) {
+			*type_die = mem_die;
+			dloc->type_offset = type_offset;
+			found = true;
 		}
 
 		pr_debug_location(&var_die, pc, reg);

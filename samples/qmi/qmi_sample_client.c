@@ -468,7 +468,7 @@ static int qmi_sample_probe(struct platform_device *pdev)
 		return ret;
 
 	sq = dev_get_platdata(&pdev->dev);
-	ret = kernel_connect(sample->qmi.sock, (struct sockaddr *)sq,
+	ret = kernel_connect(sample->qmi.sock, (struct sockaddr_unsized *)sq,
 			     sizeof(*sq), 0);
 	if (ret < 0) {
 		pr_err("failed to connect to remote service port\n");
@@ -592,7 +592,7 @@ static int qmi_sample_init(void)
 	if (ret < 0)
 		goto err_unregister_driver;
 
-	qmi_add_lookup(&lookup_client, 15, 0, 0);
+	qmi_add_lookup(&lookup_client, QMI_SERVICE_ID_TEST, 0, 0);
 
 	return 0;
 

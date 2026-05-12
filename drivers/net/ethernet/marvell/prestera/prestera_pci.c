@@ -542,7 +542,7 @@ static int prestera_ldr_wait_reg32(struct prestera_fw *fw,
 				  10 * USEC_PER_MSEC, waitms * USEC_PER_MSEC);
 }
 
-static u32 prestera_ldr_wait_buf(struct prestera_fw *fw, size_t len)
+static int prestera_ldr_wait_buf(struct prestera_fw *fw, size_t len)
 {
 	u8 __iomem *addr = PRESTERA_LDR_REG_ADDR(fw, PRESTERA_LDR_BUF_RD_REG);
 	u32 buf_len = fw->ldr_buf_len;
@@ -898,7 +898,7 @@ static int prestera_pci_probe(struct pci_dev *pdev,
 
 	dev_info(fw->dev.dev, "Prestera FW is ready\n");
 
-	fw->wq = alloc_workqueue("prestera_fw_wq", WQ_HIGHPRI, 1);
+	fw->wq = alloc_workqueue("prestera_fw_wq", WQ_HIGHPRI | WQ_PERCPU, 1);
 	if (!fw->wq) {
 		err = -ENOMEM;
 		goto err_wq_alloc;

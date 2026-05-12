@@ -20,13 +20,6 @@
 char _license[] SEC("license") = "GPL";
 
 #define clamp(val, lo, hi) min((typeof(val))max(val, lo), hi)
-#define min(a, b) ((a) < (b) ? (a) : (b))
-#define max(a, b) ((a) > (b) ? (a) : (b))
-static bool before(__u32 seq1, __u32 seq2)
-{
-	return (__s32)(seq1-seq2) < 0;
-}
-#define after(seq2, seq1) 	before(seq1, seq2)
 
 extern __u32 tcp_slow_start(struct tcp_sock *tp, __u32 acked) __ksym;
 extern void tcp_cong_avoid_ai(struct tcp_sock *tp, __u32 w, __u32 acked) __ksym;
@@ -192,24 +185,21 @@ void BPF_PROG(bpf_cubic_init, struct sock *sk)
 }
 
 SEC("struct_ops")
-void BPF_PROG(bpf_cubic_cwnd_event, struct sock *sk, enum tcp_ca_event event)
+void BPF_PROG(bpf_cubic_cwnd_event_tx_start, struct sock *sk)
 {
-	if (event == CA_EVENT_TX_START) {
-		struct bpf_bictcp *ca = inet_csk_ca(sk);
-		__u32 now = tcp_jiffies32;
-		__s32 delta;
+	struct bpf_bictcp *ca = inet_csk_ca(sk);
+	__u32 now = tcp_jiffies32;
+	__s32 delta;
 
-		delta = now - tcp_sk(sk)->lsndtime;
+	delta = now - tcp_sk(sk)->lsndtime;
 
-		/* We were application limited (idle) for a while.
-		 * Shift epoch_start to keep cwnd growth to cubic curve.
-		 */
-		if (ca->epoch_start && delta > 0) {
-			ca->epoch_start += delta;
-			if (after(ca->epoch_start, now))
-				ca->epoch_start = now;
-		}
-		return;
+	/* We were application limited (idle) for a while.
+	 * Shift epoch_start to keep cwnd growth to cubic curve.
+	 */
+	if (ca->epoch_start && delta > 0) {
+		ca->epoch_start += delta;
+		if (after(ca->epoch_start, now))
+			ca->epoch_start = now;
 	}
 }
 
@@ -544,7 +534,7 @@ struct tcp_congestion_ops cubic = {
 	.cong_avoid	= (void *)bpf_cubic_cong_avoid,
 	.set_state	= (void *)bpf_cubic_state,
 	.undo_cwnd	= (void *)bpf_cubic_undo_cwnd,
-	.cwnd_event	= (void *)bpf_cubic_cwnd_event,
+	.cwnd_event_tx_start	= (void *)bpf_cubic_cwnd_event_tx_start,
 	.pkts_acked     = (void *)bpf_cubic_acked,
 	.name		= "bpf_cubic",
 };

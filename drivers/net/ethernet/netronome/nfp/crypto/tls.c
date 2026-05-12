@@ -180,7 +180,9 @@ nfp_net_tls_set_ipv4(struct nfp_net *nn, struct nfp_crypto_req_add_v4 *req,
 	req->front.key_len += sizeof(__be32) * 2;
 
 	if (direction == TLS_OFFLOAD_CTX_DIR_TX) {
-		nfp_net_tls_assign_conn_id(nn, &req->front);
+		nfp_net_tls_assign_conn_id(nn,
+			container_of(&req->front,
+				     struct nfp_crypto_req_add_front, __hdr));
 	} else {
 		req->src_ip = inet->inet_daddr;
 		req->dst_ip = inet->inet_saddr;
@@ -199,7 +201,9 @@ nfp_net_tls_set_ipv6(struct nfp_net *nn, struct nfp_crypto_req_add_v6 *req,
 	req->front.key_len += sizeof(struct in6_addr) * 2;
 
 	if (direction == TLS_OFFLOAD_CTX_DIR_TX) {
-		nfp_net_tls_assign_conn_id(nn, &req->front);
+		nfp_net_tls_assign_conn_id(nn,
+			container_of(&req->front,
+				     struct nfp_crypto_req_add_front, __hdr));
 	} else {
 		memcpy(req->src_ip, &sk->sk_v6_daddr, sizeof(req->src_ip));
 		memcpy(req->dst_ip, &np->saddr, sizeof(req->dst_ip));
@@ -495,14 +499,13 @@ int nfp_net_tls_rx_resync_req(struct net_device *netdev,
 
 	switch (ipv6h->version) {
 	case 4:
-		sk = inet_lookup_established(net, net->ipv4.tcp_death_row.hashinfo,
-					     iph->saddr, th->source, iph->daddr,
-					     th->dest, netdev->ifindex);
+		sk = inet_lookup_established(net, iph->saddr, th->source,
+					     iph->daddr, th->dest,
+					     netdev->ifindex);
 		break;
 #if IS_ENABLED(CONFIG_IPV6)
 	case 6:
-		sk = __inet6_lookup_established(net, net->ipv4.tcp_death_row.hashinfo,
-						&ipv6h->saddr, th->source,
+		sk = __inet6_lookup_established(net, &ipv6h->saddr, th->source,
 						&ipv6h->daddr, ntohs(th->dest),
 						netdev->ifindex, 0);
 		break;

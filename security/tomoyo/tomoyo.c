@@ -514,7 +514,7 @@ struct lsm_blob_sizes tomoyo_blob_sizes __ro_after_init = {
  * Returns 0.
  */
 static int tomoyo_task_alloc(struct task_struct *task,
-			     unsigned long clone_flags)
+			     u64 clone_flags)
 {
 	struct tomoyo_task *old = tomoyo_task(current);
 	struct tomoyo_task *new = tomoyo_task(task);
@@ -612,9 +612,10 @@ static int __init tomoyo_init(void)
 }
 
 DEFINE_LSM(tomoyo) = {
-	.name = "tomoyo",
+	.id = &tomoyo_lsmid,
 	.enabled = &tomoyo_enabled,
 	.flags = LSM_FLAG_LEGACY_MAJOR,
 	.blobs = &tomoyo_blob_sizes,
 	.init = tomoyo_init,
+	.initcall_fs = tomoyo_interface_init,
 };

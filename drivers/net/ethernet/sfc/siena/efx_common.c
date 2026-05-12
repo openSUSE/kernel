@@ -1023,8 +1023,8 @@ int efx_siena_init_struct(struct efx_nic *efx,
 	mutex_init(&efx->rps_mutex);
 	spin_lock_init(&efx->rps_hash_lock);
 	/* Failure to allocate is not fatal, but may degrade ARFS performance */
-	efx->rps_hash_table = kcalloc(EFX_ARFS_HASH_TABLE_SIZE,
-				      sizeof(*efx->rps_hash_table), GFP_KERNEL);
+	efx->rps_hash_table = kzalloc_objs(*efx->rps_hash_table,
+					   EFX_ARFS_HASH_TABLE_SIZE);
 #endif
 	efx->mdio.dev = net_dev;
 	INIT_WORK(&efx->mac_work, efx_mac_work);
@@ -1285,9 +1285,6 @@ out:
 
 /* For simplicity and reliability, we always require a slot reset and try to
  * reset the hardware when a pci error affecting the device is detected.
- * We leave both the link_reset and mmio_enabled callback unimplemented:
- * with our request for slot reset the mmio_enabled callback will never be
- * called, and the link_reset callback is not used by AER or EEH mechanisms.
  */
 const struct pci_error_handlers efx_siena_err_handlers = {
 	.error_detected = efx_io_error_detected,

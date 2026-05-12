@@ -18,6 +18,7 @@
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/pm_runtime.h>
+#include <linux/property.h>
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
 #include <linux/types.h>
@@ -31,6 +32,8 @@
 #include <media/v4l2-mediabus.h>
 #include <media/v4l2-subdev.h>
 
+#include "aptina-pll.h"
+
 /* Sysctl registers */
 #define MT9M114_CHIP_ID					CCI_REG16(0x0000)
 #define MT9M114_COMMAND_REGISTER			CCI_REG16(0x0080)
@@ -42,6 +45,9 @@
 #define MT9M114_RESET_AND_MISC_CONTROL			CCI_REG16(0x001a)
 #define MT9M114_RESET_SOC					BIT(0)
 #define MT9M114_PAD_SLEW				CCI_REG16(0x001e)
+#define MT9M114_PAD_SLEW_MIN					0
+#define MT9M114_PAD_SLEW_MAX					7
+#define MT9M114_PAD_SLEW_DEFAULT				7
 #define MT9M114_PAD_CONTROL				CCI_REG16(0x0032)
 
 /* XDMA registers */
@@ -263,9 +269,9 @@
 #define MT9M114_CAM_SYSCTL_PLL_ENABLE_VALUE			BIT(0)
 #define MT9M114_CAM_SYSCTL_PLL_DISABLE_VALUE			0x00
 #define MT9M114_CAM_SYSCTL_PLL_DIVIDER_M_N		CCI_REG16(0xc980)
-#define MT9M114_CAM_SYSCTL_PLL_DIVIDER_VALUE(m, n)		(((n) << 8) | (m))
+#define MT9M114_CAM_SYSCTL_PLL_DIVIDER_VALUE(m, n)		((((n) - 1) << 8) | (m))
 #define MT9M114_CAM_SYSCTL_PLL_DIVIDER_P		CCI_REG16(0xc982)
-#define MT9M114_CAM_SYSCTL_PLL_DIVIDER_P_VALUE(p)		((p) << 8)
+#define MT9M114_CAM_SYSCTL_PLL_DIVIDER_P_VALUE(p)		(((p) - 1) << 8)
 #define MT9M114_CAM_PORT_OUTPUT_CONTROL			CCI_REG16(0xc984)
 #define MT9M114_CAM_PORT_PORT_SELECT_PARALLEL			(0 << 0)
 #define MT9M114_CAM_PORT_PORT_SELECT_MIPI			(1 << 0)
@@ -323,18 +329,21 @@
 
 /*
  * The minimum amount of horizontal and vertical blanking is undocumented. The
- * minimum values that have been seen in register lists are 303 and 38, use
+ * minimum values that have been seen in register lists are 303 and 21, use
  * them.
  *
- * Set the default to achieve 1280x960 at 30fps.
+ * Set the default to achieve full resolution (1296x976 analog crop
+ * rectangle, 1280x960 output size) at 30fps with a 48 MHz pixclock.
  */
 #define MT9M114_MIN_HBLANK				303
-#define MT9M114_MIN_VBLANK				38
-#define MT9M114_DEF_HBLANK				323
-#define MT9M114_DEF_VBLANK				39
+#define MT9M114_MIN_VBLANK				21
+#define MT9M114_DEF_HBLANK				308
+#define MT9M114_DEF_VBLANK				21
 
 #define MT9M114_DEF_FRAME_RATE				30
 #define MT9M114_MAX_FRAME_RATE				120
+
+#define MT9M114_DEF_PIXCLOCK				48000000
 
 #define MT9M114_PIXEL_ARRAY_WIDTH			1296U
 #define MT9M114_PIXEL_ARRAY_HEIGHT			976U
@@ -359,6 +368,10 @@
  * Data Structures
  */
 
+struct mt9m114_model_info {
+	bool state_standby_polling;
+};
+
 enum mt9m114_format_flag {
 	MT9M114_FMT_FLAG_PARALLEL = BIT(0),
 	MT9M114_FMT_FLAG_CSI2 = BIT(1),
@@ -380,14 +393,11 @@ struct mt9m114 {
 	struct v4l2_fwnode_endpoint bus_cfg;
 	bool bypass_pll;
 
-	struct {
-		unsigned int m;
-		unsigned int n;
-		unsigned int p;
-	} pll;
+	struct aptina_pll pll;
 
 	unsigned int pixrate;
 	bool streaming;
+	u32 pad_slew_rate;
 
 	/* Pixel Array */
 	struct {
@@ -411,6 +421,8 @@ struct mt9m114 {
 
 		struct v4l2_ctrl *tpg[4];
 	} ifp;
+
+	const struct mt9m114_model_info *info;
 };
 
 /* -----------------------------------------------------------------------------
@@ -645,9 +657,6 @@ static const struct cci_reg_sequence mt9m114_init[] = {
 	{ MT9M114_CAM_SENSOR_CFG_FINE_INTEG_TIME_MAX,	1459 },
 	{ MT9M114_CAM_SENSOR_CFG_FINE_CORRECTION,	96 },
 	{ MT9M114_CAM_SENSOR_CFG_REG_0_DATA,		32 },
-
-	/* Miscellaneous settings */
-	{ MT9M114_PAD_SLEW,				0x0777 },
 };
 
 /* -----------------------------------------------------------------------------
@@ -756,7 +765,7 @@ static int mt9m114_initialize(struct mt9m114 *sensor)
 							       sensor->pll.n),
 			  &ret);
 		cci_write(sensor->regmap, MT9M114_CAM_SYSCTL_PLL_DIVIDER_P,
-			  MT9M114_CAM_SYSCTL_PLL_DIVIDER_P_VALUE(sensor->pll.p),
+			  MT9M114_CAM_SYSCTL_PLL_DIVIDER_P_VALUE(sensor->pll.p1),
 			  &ret);
 	}
 
@@ -779,11 +788,10 @@ static int mt9m114_initialize(struct mt9m114 *sensor)
 	if (ret < 0)
 		return ret;
 
-	ret = mt9m114_set_state(sensor, MT9M114_SYS_STATE_ENTER_CONFIG_CHANGE);
-	if (ret < 0)
-		return ret;
-
-	ret = mt9m114_set_state(sensor, MT9M114_SYS_STATE_ENTER_SUSPEND);
+	value = sensor->pad_slew_rate
+	      | sensor->pad_slew_rate << 4
+	      |	sensor->pad_slew_rate << 8;
+	cci_write(sensor->regmap, MT9M114_PAD_SLEW, value, &ret);
 	if (ret < 0)
 		return ret;
 
@@ -841,6 +849,18 @@ static int mt9m114_configure_pa(struct mt9m114 *sensor,
 	return ret;
 }
 
+/*
+ * For source pad formats other then RAW10 the IFP removes a 4 pixel border from
+ * its sink pad format size for demosaicing.
+ */
+static int mt9m114_ifp_get_border(struct v4l2_subdev_state *state)
+{
+	const struct v4l2_mbus_framefmt *format =
+		v4l2_subdev_state_get_format(state, 1);
+
+	return format->code == MEDIA_BUS_FMT_SGRBG10_1X10 ? 0 : 4;
+}
+
 static int mt9m114_configure_ifp(struct mt9m114 *sensor,
 				 struct v4l2_subdev_state *state)
 {
@@ -848,6 +868,7 @@ static int mt9m114_configure_ifp(struct mt9m114 *sensor,
 	const struct v4l2_mbus_framefmt *format;
 	const struct v4l2_rect *crop;
 	const struct v4l2_rect *compose;
+	unsigned int border;
 	u64 output_format;
 	int ret = 0;
 
@@ -862,15 +883,18 @@ static int mt9m114_configure_ifp(struct mt9m114 *sensor,
 		return ret;
 
 	/*
-	 * Color pipeline (IFP) cropping and scaling. Subtract 4 from the left
-	 * and top coordinates to compensate for the lines and columns removed
-	 * by demosaicing that are taken into account in the crop rectangle but
-	 * not in the hardware.
+	 * Color pipeline (IFP) cropping and scaling. The crop window registers
+	 * apply cropping after demosaicing, which itself consumes 4 pixels on
+	 * each side of the image. The crop rectangle exposed to userspace
+	 * includes that demosaicing border, subtract it from the left and top
+	 * coordinates to configure the crop window.
 	 */
+	border = mt9m114_ifp_get_border(state);
+
 	cci_write(sensor->regmap, MT9M114_CAM_CROP_WINDOW_XOFFSET,
-		  crop->left - 4, &ret);
+		  crop->left - border, &ret);
 	cci_write(sensor->regmap, MT9M114_CAM_CROP_WINDOW_YOFFSET,
-		  crop->top - 4, &ret);
+		  crop->top - border, &ret);
 	cci_write(sensor->regmap, MT9M114_CAM_CROP_WINDOW_WIDTH,
 		  crop->width, &ret);
 	cci_write(sensor->regmap, MT9M114_CAM_CROP_WINDOW_HEIGHT,
@@ -940,6 +964,10 @@ static int mt9m114_start_streaming(struct mt9m114 *sensor,
 	ret = pm_runtime_resume_and_get(&sensor->client->dev);
 	if (ret)
 		return ret;
+
+	ret = mt9m114_initialize(sensor);
+	if (ret)
+		goto error;
 
 	ret = mt9m114_configure_ifp(sensor, ifp_state);
 	if (ret)
@@ -1283,6 +1311,7 @@ static int mt9m114_pa_set_selection(struct v4l2_subdev *sd,
 	struct mt9m114 *sensor = pa_to_mt9m114(sd);
 	struct v4l2_mbus_framefmt *format;
 	struct v4l2_rect *crop;
+	int ret = 0;
 
 	if (sel->target != V4L2_SEL_TGT_CROP)
 		return -EINVAL;
@@ -1298,25 +1327,41 @@ static int mt9m114_pa_set_selection(struct v4l2_subdev *sd,
 	 * binning, but binning is configured after setting the selection, so
 	 * we can't know tell here if it will be used.
 	 */
-	crop->left = ALIGN(sel->r.left, 4);
-	crop->top = ALIGN(sel->r.top, 2);
-	crop->width = clamp_t(unsigned int, ALIGN(sel->r.width, 4),
-			      MT9M114_PIXEL_ARRAY_MIN_OUTPUT_WIDTH,
-			      MT9M114_PIXEL_ARRAY_WIDTH - crop->left);
-	crop->height = clamp_t(unsigned int, ALIGN(sel->r.height, 2),
-			       MT9M114_PIXEL_ARRAY_MIN_OUTPUT_HEIGHT,
-			       MT9M114_PIXEL_ARRAY_HEIGHT - crop->top);
+	sel->r.left = ALIGN(sel->r.left, 4);
+	sel->r.top = ALIGN(sel->r.top, 2);
+	sel->r.width = clamp_t(unsigned int, ALIGN(sel->r.width, 4),
+			       MT9M114_PIXEL_ARRAY_MIN_OUTPUT_WIDTH,
+			       MT9M114_PIXEL_ARRAY_WIDTH - sel->r.left);
+	sel->r.height = clamp_t(unsigned int, ALIGN(sel->r.height, 2),
+				MT9M114_PIXEL_ARRAY_MIN_OUTPUT_HEIGHT,
+				MT9M114_PIXEL_ARRAY_HEIGHT - sel->r.top);
 
-	sel->r = *crop;
+	/* Changing the selection size is not allowed in streaming state. */
+	if (sensor->streaming &&
+	    (sel->r.height != crop->height || sel->r.width != crop->width))
+		return -EBUSY;
+
+	*crop = sel->r;
 
 	/* Reset the format. */
 	format->width = crop->width;
 	format->height = crop->height;
 
-	if (sel->which == V4L2_SUBDEV_FORMAT_ACTIVE)
-		mt9m114_pa_ctrl_update_blanking(sensor, format);
+	if (sel->which != V4L2_SUBDEV_FORMAT_ACTIVE)
+		return ret;
 
-	return 0;
+	mt9m114_pa_ctrl_update_blanking(sensor, format);
+
+	/* Apply values immediately if streaming. */
+	if (sensor->streaming) {
+		ret = mt9m114_configure_pa(sensor, state);
+		if (ret)
+			return ret;
+		/* Changing the cropping config requires a CONFIG_CHANGE. */
+		ret = mt9m114_set_state(sensor,
+					MT9M114_SYS_STATE_ENTER_CONFIG_CHANGE);
+	}
+	return ret;
 }
 
 static const struct v4l2_subdev_pad_ops mt9m114_pa_pad_ops = {
@@ -1797,6 +1842,41 @@ static int mt9m114_ifp_enum_frameintervals(struct v4l2_subdev *sd,
 	return 0;
 }
 
+/*
+ * Helper function to update IFP crop, compose rectangles and source format
+ * when the pixel border size changes, which requires resetting these.
+ */
+static void mt9m114_ifp_update_sel_and_src_fmt(struct v4l2_subdev_state *state)
+{
+	struct v4l2_mbus_framefmt *src_format, *sink_format;
+	struct v4l2_rect *crop;
+	unsigned int border;
+
+	sink_format = v4l2_subdev_state_get_format(state, 0);
+	src_format = v4l2_subdev_state_get_format(state, 1);
+	crop = v4l2_subdev_state_get_crop(state, 0);
+	border = mt9m114_ifp_get_border(state);
+
+	crop->left = border;
+	crop->top = border;
+	crop->width = sink_format->width - 2 * border;
+	crop->height = sink_format->height - 2 * border;
+	*v4l2_subdev_state_get_compose(state, 0) = *crop;
+
+	src_format->width = crop->width;
+	src_format->height = crop->height;
+
+	if (src_format->code == MEDIA_BUS_FMT_SGRBG10_1X10) {
+		src_format->colorspace = V4L2_COLORSPACE_RAW;
+		src_format->ycbcr_enc = V4L2_YCBCR_ENC_601;
+		src_format->quantization = V4L2_QUANTIZATION_FULL_RANGE;
+	} else {
+		src_format->colorspace = V4L2_COLORSPACE_SRGB;
+		src_format->ycbcr_enc = V4L2_YCBCR_ENC_DEFAULT;
+		src_format->quantization = V4L2_QUANTIZATION_DEFAULT;
+	}
+}
+
 static int mt9m114_ifp_set_fmt(struct v4l2_subdev *sd,
 			       struct v4l2_subdev_state *state,
 			       struct v4l2_subdev_format *fmt)
@@ -1814,17 +1894,28 @@ static int mt9m114_ifp_set_fmt(struct v4l2_subdev *sd,
 		format->height = clamp(ALIGN(fmt->format.height, 8),
 				       MT9M114_PIXEL_ARRAY_MIN_OUTPUT_HEIGHT,
 				       MT9M114_PIXEL_ARRAY_HEIGHT);
+
+		/* Propagate changes downstream. */
+		mt9m114_ifp_update_sel_and_src_fmt(state);
 	} else {
 		const struct mt9m114_format_info *info;
 
 		/* Only the media bus code can be changed on the source pad. */
 		info = mt9m114_format_info(sensor, 1, fmt->format.code);
 
-		format->code = info->code;
-
-		/* If the output format is RAW10, bypass the scaler. */
-		if (format->code == MEDIA_BUS_FMT_SGRBG10_1X10)
-			*format = *v4l2_subdev_state_get_format(state, 0);
+		/*
+		 * If the output format changes from/to RAW10 then the crop
+		 * rectangle needs to be adjusted to add / remove the 4 pixel
+		 * border used for demosaicing. And these changes then need to
+		 * be propagated to the compose rectangle and source format.
+		 */
+		if ((format->code == MEDIA_BUS_FMT_SGRBG10_1X10) !=
+		    (info->code == MEDIA_BUS_FMT_SGRBG10_1X10)) {
+			format->code = info->code;
+			mt9m114_ifp_update_sel_and_src_fmt(state);
+		} else {
+			format->code = info->code;
+		}
 	}
 
 	fmt->format = *format;
@@ -1838,6 +1929,7 @@ static int mt9m114_ifp_get_selection(struct v4l2_subdev *sd,
 {
 	const struct v4l2_mbus_framefmt *format;
 	const struct v4l2_rect *crop;
+	unsigned int border;
 	int ret = 0;
 
 	/* Crop and compose are only supported on the sink pad. */
@@ -1852,15 +1944,17 @@ static int mt9m114_ifp_get_selection(struct v4l2_subdev *sd,
 	case V4L2_SEL_TGT_CROP_DEFAULT:
 	case V4L2_SEL_TGT_CROP_BOUNDS:
 		/*
-		 * The crop default and bounds are equal to the sink
-		 * format size minus 4 pixels on each side for demosaicing.
+		 * Crop defaults and bounds are equal to the sink format size.
+		 * For source pad formats other then RAW10 this gets reduced
+		 * by 4 pixels on each side for demosaicing.
 		 */
 		format = v4l2_subdev_state_get_format(state, 0);
+		border = mt9m114_ifp_get_border(state);
 
-		sel->r.left = 4;
-		sel->r.top = 4;
-		sel->r.width = format->width - 8;
-		sel->r.height = format->height - 8;
+		sel->r.left = border;
+		sel->r.top = border;
+		sel->r.width = format->width - 2 * border;
+		sel->r.height = format->height - 2 * border;
 		break;
 
 	case V4L2_SEL_TGT_COMPOSE:
@@ -1892,9 +1986,10 @@ static int mt9m114_ifp_set_selection(struct v4l2_subdev *sd,
 				     struct v4l2_subdev_state *state,
 				     struct v4l2_subdev_selection *sel)
 {
-	struct v4l2_mbus_framefmt *format;
+	struct v4l2_mbus_framefmt *format, *src_format;
 	struct v4l2_rect *crop;
 	struct v4l2_rect *compose;
+	unsigned int border;
 
 	if (sel->target != V4L2_SEL_TGT_CROP &&
 	    sel->target != V4L2_SEL_TGT_COMPOSE)
@@ -1904,27 +1999,37 @@ static int mt9m114_ifp_set_selection(struct v4l2_subdev *sd,
 	if (sel->pad != 0)
 		return -EINVAL;
 
-	format = v4l2_subdev_state_get_format(state, 0);
 	crop = v4l2_subdev_state_get_crop(state, 0);
+
+	/* Crop and compose cannot be changed when bypassing the scaler. */
+	src_format = v4l2_subdev_state_get_format(state, 1);
+	if (src_format->code == MEDIA_BUS_FMT_SGRBG10_1X10) {
+		sel->r = *crop;
+		return 0;
+	}
+
+	format = v4l2_subdev_state_get_format(state, 0);
 	compose = v4l2_subdev_state_get_compose(state, 0);
 
 	if (sel->target == V4L2_SEL_TGT_CROP) {
 		/*
-		 * Clamp the crop rectangle. Demosaicing removes 4 pixels on
-		 * each side of the image.
+		 * Clamp the crop rectangle. For source pad formats other then
+		 * RAW10 demosaicing removes 4 pixels on each side of the image.
 		 */
-		crop->left = clamp_t(unsigned int, ALIGN(sel->r.left, 2), 4,
-				     format->width - 4 -
+		border = mt9m114_ifp_get_border(state);
+
+		crop->left = clamp_t(unsigned int, ALIGN(sel->r.left, 2), border,
+				     format->width - border -
 				     MT9M114_SCALER_CROPPED_INPUT_WIDTH);
-		crop->top = clamp_t(unsigned int, ALIGN(sel->r.top, 2), 4,
-				    format->height - 4 -
+		crop->top = clamp_t(unsigned int, ALIGN(sel->r.top, 2), border,
+				    format->height - border -
 				    MT9M114_SCALER_CROPPED_INPUT_HEIGHT);
 		crop->width = clamp_t(unsigned int, ALIGN(sel->r.width, 2),
 				      MT9M114_SCALER_CROPPED_INPUT_WIDTH,
-				      format->width - 4 - crop->left);
+				      format->width - border - crop->left);
 		crop->height = clamp_t(unsigned int, ALIGN(sel->r.height, 2),
 				       MT9M114_SCALER_CROPPED_INPUT_HEIGHT,
-				       format->height - 4 - crop->top);
+				       format->height - border - crop->top);
 
 		sel->r = *crop;
 
@@ -1948,9 +2053,8 @@ static int mt9m114_ifp_set_selection(struct v4l2_subdev *sd,
 	}
 
 	/* Propagate the compose rectangle to the source format. */
-	format = v4l2_subdev_state_get_format(state, 1);
-	format->width = compose->width;
-	format->height = compose->height;
+	src_format->width = compose->width;
+	src_format->height = compose->height;
 
 	return 0;
 }
@@ -2186,9 +2290,11 @@ static int mt9m114_power_on(struct mt9m114 *sensor)
 	 * reaches the standby mode (either initiated manually above in
 	 * parallel mode, or automatically after reset in MIPI mode).
 	 */
-	ret = mt9m114_poll_state(sensor, MT9M114_SYS_STATE_STANDBY);
-	if (ret < 0)
-		goto error_clock;
+	if (sensor->info->state_standby_polling) {
+		ret = mt9m114_poll_state(sensor, MT9M114_SYS_STATE_STANDBY);
+		if (ret < 0)
+			goto error_clock;
+	}
 
 	return 0;
 
@@ -2201,6 +2307,13 @@ error_regulator:
 
 static void mt9m114_power_off(struct mt9m114 *sensor)
 {
+	unsigned int duration;
+
+	gpiod_set_value(sensor->reset, 1);
+	/* Power off takes 10 clock cycles. Double it to be safe. */
+	duration = DIV_ROUND_UP(2 * 10 * 1000000, clk_get_rate(sensor->clk));
+	fsleep(duration);
+
 	clk_disable_unprepare(sensor->clk);
 	regulator_bulk_disable(ARRAY_SIZE(sensor->supplies), sensor->supplies);
 }
@@ -2209,19 +2322,8 @@ static int __maybe_unused mt9m114_runtime_resume(struct device *dev)
 {
 	struct v4l2_subdev *sd = dev_get_drvdata(dev);
 	struct mt9m114 *sensor = ifp_to_mt9m114(sd);
-	int ret;
 
-	ret = mt9m114_power_on(sensor);
-	if (ret)
-		return ret;
-
-	ret = mt9m114_initialize(sensor);
-	if (ret) {
-		mt9m114_power_off(sensor);
-		return ret;
-	}
-
-	return 0;
+	return mt9m114_power_on(sensor);
 }
 
 static int __maybe_unused mt9m114_runtime_suspend(struct device *dev)
@@ -2255,14 +2357,39 @@ static int mt9m114_verify_link_frequency(struct mt9m114 *sensor,
 	return 0;
 }
 
+/*
+ * Based on the docs the PLL is believed to have the following setup:
+ *
+ *         +-----+     +-----+     +-----+     +-----+     +-----+
+ * Fin --> | / N | --> | x M | --> | x 2 | --> | / P | --> | / 2 | -->
+ *         +-----+     +-----+     +-----+     +-----+     +-----+
+ *                                         fBit       fWord       fSensor
+ * ext_clock    int_clock   out_clock                             pix_clock
+ *
+ * The MT9M114 docs give a max fBit rate of 768 MHz which translates to
+ * an out_clock_max of 384 MHz.
+ */
 static int mt9m114_clk_init(struct mt9m114 *sensor)
 {
+	static const struct aptina_pll_limits limits = {
+		.ext_clock_min = 6000000,
+		.ext_clock_max = 54000000,
+		/* int_clock_* limits are not documented taken from mt9p031.c */
+		.int_clock_min = 2000000,
+		.int_clock_max = 13500000,
+		/* out_clock_min is not documented, taken from mt9p031.c */
+		.out_clock_min = 180000000,
+		.out_clock_max = 384000000,
+		.pix_clock_max = 48000000,
+		.n_min = 1,
+		.n_max = 64,
+		.m_min = 16,
+		.m_max = 192,
+		.p1_min = 8,
+		.p1_max = 8,
+	};
 	unsigned int pixrate;
-
-	/* Hardcode the PLL multiplier and dividers to default settings. */
-	sensor->pll.m = 32;
-	sensor->pll.n = 1;
-	sensor->pll.p = 7;
+	int ret;
 
 	/*
 	 * Calculate the pixel rate and link frequency. The CSI-2 bus is clocked
@@ -2282,8 +2409,15 @@ static int mt9m114_clk_init(struct mt9m114 *sensor)
 	}
 
 	/* Check if the PLL configuration fits the configured link frequency. */
-	pixrate = clk_get_rate(sensor->clk) * sensor->pll.m
-		/ ((sensor->pll.n + 1) * (sensor->pll.p + 1));
+	sensor->pll.ext_clock = clk_get_rate(sensor->clk);
+	sensor->pll.pix_clock = MT9M114_DEF_PIXCLOCK;
+
+	ret = aptina_pll_calculate(&sensor->client->dev, &limits, &sensor->pll);
+	if (ret)
+		return ret;
+
+	pixrate = sensor->pll.ext_clock * sensor->pll.m
+		/ (sensor->pll.n * sensor->pll.p1);
 	if (mt9m114_verify_link_frequency(sensor, pixrate) == 0) {
 		sensor->pixrate = pixrate;
 		sensor->bypass_pll = false;
@@ -2334,11 +2468,17 @@ static int mt9m114_parse_dt(struct mt9m114 *sensor)
 	struct fwnode_handle *ep;
 	int ret;
 
+	/*
+	 * On ACPI systems the fwnode graph can be initialized by a bridge
+	 * driver, which may not have probed yet. Wait for this.
+	 *
+	 * TODO: Return an error once bridge driver code will have moved
+	 * to the ACPI core.
+	 */
 	ep = fwnode_graph_get_next_endpoint(fwnode, NULL);
-	if (!ep) {
-		dev_err(&sensor->client->dev, "No endpoint found\n");
-		return -EINVAL;
-	}
+	if (!ep)
+		return dev_err_probe(&sensor->client->dev, -EPROBE_DEFER,
+				     "waiting for fwnode graph endpoint\n");
 
 	sensor->bus_cfg.bus_type = V4L2_MBUS_UNKNOWN;
 	ret = v4l2_fwnode_endpoint_alloc_parse(ep, &sensor->bus_cfg);
@@ -2358,6 +2498,17 @@ static int mt9m114_parse_dt(struct mt9m114 *sensor)
 			sensor->bus_cfg.bus_type);
 		ret = -EINVAL;
 		goto error;
+	}
+
+	sensor->pad_slew_rate = MT9M114_PAD_SLEW_DEFAULT;
+	device_property_read_u32(&sensor->client->dev, "slew-rate",
+				 &sensor->pad_slew_rate);
+
+	if (sensor->pad_slew_rate < MT9M114_PAD_SLEW_MIN ||
+	    sensor->pad_slew_rate > MT9M114_PAD_SLEW_MAX) {
+		dev_err(&sensor->client->dev, "Invalid slew-rate %u\n",
+			sensor->pad_slew_rate);
+		return -EINVAL;
 	}
 
 	return 0;
@@ -2389,15 +2540,19 @@ static int mt9m114_probe(struct i2c_client *client)
 	if (ret < 0)
 		return ret;
 
+	sensor->info = device_get_match_data(dev);
+	if (!sensor->info)
+		return -ENODEV;
+
 	/* Acquire clocks, GPIOs and regulators. */
-	sensor->clk = devm_clk_get(dev, NULL);
+	sensor->clk = devm_v4l2_sensor_clk_get(dev, NULL);
 	if (IS_ERR(sensor->clk)) {
-		ret = PTR_ERR(sensor->clk);
-		dev_err_probe(dev, ret, "Failed to get clock\n");
+		ret = dev_err_probe(dev, PTR_ERR(sensor->clk),
+				    "Failed to get clock\n");
 		goto error_ep_free;
 	}
 
-	sensor->reset = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_LOW);
+	sensor->reset = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_HIGH);
 	if (IS_ERR(sensor->reset)) {
 		ret = PTR_ERR(sensor->reset);
 		dev_err_probe(dev, ret, "Failed to get reset GPIO\n");
@@ -2422,8 +2577,8 @@ static int mt9m114_probe(struct i2c_client *client)
 	/*
 	 * Identify the sensor. The driver supports runtime PM, but needs to
 	 * work when runtime PM is disabled in the kernel. To that end, power
-	 * the sensor on manually here, and initialize it after identification
-	 * to reach the same state as if resumed through runtime PM.
+	 * the sensor on manually here to reach the same state as if resumed
+	 * through runtime PM.
 	 */
 	ret = mt9m114_power_on(sensor);
 	if (ret < 0) {
@@ -2432,10 +2587,6 @@ static int mt9m114_probe(struct i2c_client *client)
 	}
 
 	ret = mt9m114_identify(sensor);
-	if (ret < 0)
-		goto error_power_off;
-
-	ret = mt9m114_initialize(sensor);
 	if (ret < 0)
 		goto error_power_off;
 
@@ -2507,17 +2658,33 @@ static void mt9m114_remove(struct i2c_client *client)
 	pm_runtime_set_suspended(dev);
 }
 
+static const struct mt9m114_model_info mt9m114_models_default = {
+	.state_standby_polling = true,
+};
+
+static const struct mt9m114_model_info mt9m114_models_aptina = {
+	.state_standby_polling = false,
+};
+
 static const struct of_device_id mt9m114_of_ids[] = {
-	{ .compatible = "onnn,mt9m114" },
-	{ /* sentinel */ },
+	{ .compatible = "onnn,mt9m114", .data = &mt9m114_models_default },
+	{ .compatible = "aptina,mi1040", .data = &mt9m114_models_aptina },
+	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, mt9m114_of_ids);
+
+static const struct acpi_device_id mt9m114_acpi_ids[] = {
+	{ "INT33F0", (kernel_ulong_t)&mt9m114_models_default },
+	{ /* sentinel */ }
+};
+MODULE_DEVICE_TABLE(acpi, mt9m114_acpi_ids);
 
 static struct i2c_driver mt9m114_driver = {
 	.driver = {
 		.name	= "mt9m114",
 		.pm	= &mt9m114_pm_ops,
 		.of_match_table = mt9m114_of_ids,
+		.acpi_match_table = mt9m114_acpi_ids,
 	},
 	.probe		= mt9m114_probe,
 	.remove		= mt9m114_remove,

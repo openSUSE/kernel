@@ -18,6 +18,7 @@
 /**
  * msm_dp_bridge_detect - callback to determine if connector is connected
  * @bridge: Pointer to drm bridge structure
+ * @connector: Pointer to drm connector structure
  * Returns: Bridge's 'is connected' status
  */
 static enum drm_connector_status
@@ -143,7 +144,7 @@ static int msm_edp_bridge_atomic_check(struct drm_bridge *drm_bridge,
 }
 
 static void msm_edp_bridge_atomic_enable(struct drm_bridge *drm_bridge,
-					 struct drm_atomic_state *state)
+					 struct drm_atomic_commit *state)
 {
 	struct drm_crtc *crtc;
 	struct drm_crtc_state *old_crtc_state;
@@ -172,7 +173,7 @@ static void msm_edp_bridge_atomic_enable(struct drm_bridge *drm_bridge,
 }
 
 static void msm_edp_bridge_atomic_disable(struct drm_bridge *drm_bridge,
-					  struct drm_atomic_state *atomic_state)
+					  struct drm_atomic_commit *atomic_state)
 {
 	struct drm_crtc *crtc;
 	struct drm_crtc_state *new_crtc_state = NULL, *old_crtc_state = NULL;
@@ -216,7 +217,7 @@ out:
 }
 
 static void msm_edp_bridge_atomic_post_disable(struct drm_bridge *drm_bridge,
-					       struct drm_atomic_state *atomic_state)
+					       struct drm_atomic_commit *atomic_state)
 {
 	struct drm_crtc *crtc;
 	struct drm_crtc_state *new_crtc_state = NULL;
@@ -374,8 +375,6 @@ struct drm_connector *msm_dp_drm_connector_init(struct msm_dp *msm_dp_display,
 
 	if (!msm_dp_display->is_edp)
 		drm_connector_attach_dp_subconnector_property(connector);
-
-	drm_connector_attach_encoder(connector, encoder);
 
 	return connector;
 }

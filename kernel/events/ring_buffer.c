@@ -2,7 +2,7 @@
 /*
  * Performance events ring-buffer code:
  *
- *  Copyright (C) 2008 Thomas Gleixner <tglx@linutronix.de>
+ *  Copyright (C) 2008 Linutronix GmbH, Thomas Gleixner <tglx@kernel.org>
  *  Copyright (C) 2008-2011 Red Hat, Inc., Ingo Molnar
  *  Copyright (C) 2008-2011 Red Hat, Inc., Peter Zijlstra
  *  Copyright  ©  2009 Paul Mackerras, IBM Corp. <paulus@au1.ibm.com>
@@ -400,7 +400,7 @@ void *perf_aux_output_begin(struct perf_output_handle *handle,
 	 * the same order, see perf_mmap_close. Otherwise we end up freeing
 	 * aux pages in this path, which is a bug, because in_atomic().
 	 */
-	if (!atomic_read(&rb->aux_mmap_count))
+	if (!refcount_read(&rb->aux_mmap_count))
 		goto err;
 
 	if (!refcount_inc_not_zero(&rb->aux_refcount))

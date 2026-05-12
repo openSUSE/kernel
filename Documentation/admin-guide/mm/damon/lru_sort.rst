@@ -79,6 +79,47 @@ of parametrs except ``enabled`` again.  Once the re-reading is done, this
 parameter is set as ``N``.  If invalid parameters are found while the
 re-reading, DAMON_LRU_SORT will be disabled.
 
+Once ``Y`` is written to this parameter, the user must not write to any
+parameters until reading ``commit_inputs`` again returns ``N``.  If users
+violate this rule, the kernel may exhibit undefined behavior.
+
+active_mem_bp
+-------------
+
+Desired active to [in]active memory ratio in bp (1/10,000).
+
+While keeping the caps that set by other quotas, DAMON_LRU_SORT automatically
+increases and decreases the effective level of the quota aiming the LRU
+[de]prioritizations of the hot and cold memory resulting in this active to
+[in]active memory ratio.  Value zero means disabling this auto-tuning feature.
+
+Disabled by default.
+
+autotune_monitoring_intervals
+-----------------------------
+
+If this parameter is set as ``Y``, DAMON_LRU_SORT automatically tunes DAMON's
+sampling and aggregation intervals.  The auto-tuning aims to capture meaningful
+amount of access events in each DAMON-snapshot, while keeping the sampling
+interval 5 milliseconds in minimum, and 10 seconds in maximum.  Setting this as
+``N`` disables the auto-tuning.
+
+Disabled by default.
+
+filter_young_pages
+------------------
+
+Filter [non-]young pages accordingly for LRU [de]prioritizations.
+
+If this is set, check page level access (youngness) once again before each
+LRU [de]prioritization operation.  LRU prioritization operation is skipped
+if the page has not accessed since the last check (not young).  LRU
+deprioritization operation is skipped if the page has accessed since the
+last check (young).  The feature is enabled or disabled if this parameter is
+set as ``Y`` or ``N``, respectively.
+
+Disabled by default.
+
 hot_thres_access_freq
 ---------------------
 
@@ -184,6 +225,10 @@ But, setting this too high could result in increased monitoring overhead.
 Please refer to the DAMON documentation (:doc:`usage`) for more detail.  10 by
 default.
 
+Note that this must be 3 or higher. Please refer to the :ref:`Monitoring
+<damon_design_monitoring>` section of the design document for the rationale
+behind this lower bound.
+
 max_nr_regions
 --------------
 
@@ -210,6 +255,28 @@ End of target memory region in physical address.
 
 The end physical address of memory region that DAMON_LRU_SORT will do work
 against.  By default, biggest System RAM is used as the region.
+
+addr_unit
+---------
+
+A scale factor for memory addresses and bytes.
+
+This parameter is for setting and getting the :ref:`address unit
+<damon_design_addr_unit>` parameter of the DAMON instance for DAMON_RECLAIM.
+
+``monitor_region_start`` and ``monitor_region_end`` should be provided in this
+unit.  For example, let's suppose ``addr_unit``, ``monitor_region_start`` and
+``monitor_region_end`` are set as ``1024``, ``0`` and ``10``, respectively.
+Then DAMON_LRU_SORT will work for 10 KiB length of physical address range that
+starts from address zero (``[0 * 1024, 10 * 1024)`` in bytes).
+
+Stat parameters having ``bytes_`` prefix are also in this unit.  For example,
+let's suppose values of ``addr_unit``, ``bytes_lru_sort_tried_hot_regions`` and
+``bytes_lru_sorted_hot_regions`` are ``1024``, ``42``, and ``32``,
+respectively.  Then it means DAMON_LRU_SORT tried to LRU-sort 42 KiB of hot
+memory and successfully LRU-sorted 32 KiB of the memory in total.
+
+If unsure, use only the default value (``1``) and forget about this.
 
 kdamond_pid
 -----------
@@ -292,3 +359,8 @@ the LRU-list based page granularity reclamation. ::
     # echo 400 > wmarks_mid
     # echo 200 > wmarks_low
     # echo Y > enabled
+
+Note that this module (damon_lru_sort) cannot run simultaneously with other
+DAMON-based special-purpose modules.  Refer to :ref:`DAMON design special
+purpose modules exclusivity <damon_design_special_purpose_modules_exclusivity>`
+for more details.

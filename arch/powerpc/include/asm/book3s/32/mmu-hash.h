@@ -29,7 +29,7 @@
 #define BPP_RX	0x01		/* Read only */
 #define BPP_RW	0x02		/* Read/write */
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 /* Contort a phys_addr_t into the right format/bits for a BAT */
 #ifdef CONFIG_PHYS_64BIT
 #define BAT_PHYS_ADDR(x) ((u32)((x & 0x00000000fffe0000ULL) | \
@@ -47,7 +47,7 @@ struct ppc_bat {
 	u32 batu;
 	u32 batl;
 };
-#endif /* !__ASSEMBLY__ */
+#endif /* !__ASSEMBLER__ */
 
 /*
  * Hash table
@@ -64,7 +64,7 @@ struct ppc_bat {
 #define SR_KP	0x20000000	/* User key */
 #define SR_KS	0x40000000	/* Supervisor key */
 
-#ifdef __ASSEMBLY__
+#ifdef __ASSEMBLER__
 
 #include <asm/asm-offsets.h>
 
@@ -192,12 +192,15 @@ extern s32 patch__hash_page_B, patch__hash_page_C;
 extern s32 patch__flush_hash_A0, patch__flush_hash_A1, patch__flush_hash_A2;
 extern s32 patch__flush_hash_B;
 
+#include <linux/sizes.h>
+#include <linux/align.h>
+
 #include <asm/reg.h>
 #include <asm/task_size_32.h>
 
 static __always_inline void update_user_segment(u32 n, u32 val)
 {
-	if (n << 28 < TASK_SIZE)
+	if (n << 28 < ALIGN(TASK_SIZE, SZ_256M))
 		mtsr(val + n * 0x111, n << 28);
 }
 
@@ -225,7 +228,7 @@ static __always_inline void update_user_segments(u32 val)
 
 int __init find_free_bat(void);
 unsigned int bat_block_size(unsigned long base, unsigned long top);
-#endif /* !__ASSEMBLY__ */
+#endif /* !__ASSEMBLER__ */
 
 /* We happily ignore the smaller BATs on 601, we don't actually use
  * those definitions on hash32 at the moment anyway

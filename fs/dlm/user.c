@@ -262,7 +262,7 @@ static int device_user_lock(struct dlm_user_proc *proc,
 		goto out;
 	}
 
-	ua = kzalloc(sizeof(struct dlm_user_args), GFP_NOFS);
+	ua = kzalloc_obj(struct dlm_user_args, GFP_NOFS);
 	if (!ua)
 		goto out;
 	ua->proc = proc;
@@ -307,7 +307,7 @@ static int device_user_unlock(struct dlm_user_proc *proc,
 	if (!ls)
 		return -ENOENT;
 
-	ua = kzalloc(sizeof(struct dlm_user_args), GFP_NOFS);
+	ua = kzalloc_obj(struct dlm_user_args, GFP_NOFS);
 	if (!ua)
 		goto out;
 	ua->proc = proc;
@@ -425,7 +425,7 @@ static int device_create_lockspace(struct dlm_lspace_params *params)
 	dlm_put_lockspace(ls);
 
 	if (error)
-		dlm_release_lockspace(lockspace, 0);
+		dlm_release_lockspace(lockspace, DLM_RELEASE_NO_LOCKS);
 	else
 		error = ls->ls_device.minor;
 
@@ -436,7 +436,7 @@ static int device_remove_lockspace(struct dlm_lspace_params *params)
 {
 	dlm_lockspace_t *lockspace;
 	struct dlm_ls *ls;
-	int error, force = 0;
+	int error, force = DLM_RELEASE_NO_LOCKS;
 
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
@@ -446,7 +446,7 @@ static int device_remove_lockspace(struct dlm_lspace_params *params)
 		return -ENOENT;
 
 	if (params->flags & DLM_USER_LSFLG_FORCEFREE)
-		force = 2;
+		force = DLM_RELEASE_NORMAL;
 
 	lockspace = ls;
 	dlm_put_lockspace(ls);
@@ -645,7 +645,7 @@ static int device_open(struct inode *inode, struct file *file)
 	if (!ls)
 		return -ENOENT;
 
-	proc = kzalloc(sizeof(struct dlm_user_proc), GFP_NOFS);
+	proc = kzalloc_obj(struct dlm_user_proc, GFP_NOFS);
 	if (!proc) {
 		dlm_put_lockspace(ls);
 		return -ENOMEM;

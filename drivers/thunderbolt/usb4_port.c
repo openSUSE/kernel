@@ -296,15 +296,16 @@ const struct device_type usb4_port_device_type = {
  * usb4_port_device_add() - Add USB4 port device
  * @port: Lane 0 adapter port to add the USB4 port
  *
- * Creates and registers a USB4 port device for @port. Returns the new
- * USB4 port device pointer or ERR_PTR() in case of error.
+ * Creates and registers a USB4 port device for @port.
+ *
+ * Return: Pointer to &struct usb4_port or ERR_PTR() in case of an error.
  */
 struct usb4_port *usb4_port_device_add(struct tb_port *port)
 {
 	struct usb4_port *usb4;
 	int ret;
 
-	usb4 = kzalloc(sizeof(*usb4), GFP_KERNEL);
+	usb4 = kzalloc_obj(*usb4);
 	if (!usb4)
 		return ERR_PTR(-ENOMEM);
 
@@ -356,6 +357,8 @@ void usb4_port_device_remove(struct usb4_port *usb4)
  * @usb4: USB4 port device
  *
  * Used to resume USB4 port device after sleep state.
+ *
+ * Return: %0 on success, negative errno otherwise.
  */
 int usb4_port_device_resume(struct usb4_port *usb4)
 {

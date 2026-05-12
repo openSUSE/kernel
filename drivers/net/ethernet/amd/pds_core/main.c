@@ -146,8 +146,7 @@ static int pdsc_sriov_configure(struct pci_dev *pdev, int num_vfs)
 	int ret = 0;
 
 	if (num_vfs > 0) {
-		pdsc->vfs = kcalloc(num_vfs, sizeof(struct pdsc_vf),
-				    GFP_KERNEL);
+		pdsc->vfs = kzalloc_objs(struct pdsc_vf, num_vfs);
 		if (!pdsc->vfs)
 			return -ENOMEM;
 		pdsc->num_vfs = num_vfs;
@@ -280,7 +279,7 @@ static int pdsc_init_pf(struct pdsc *pdsc)
 		goto err_out_del_dev;
 	}
 
-	hr = devl_health_reporter_create(dl, &pdsc_fw_reporter_ops, 0, pdsc);
+	hr = devl_health_reporter_create(dl, &pdsc_fw_reporter_ops, pdsc);
 	if (IS_ERR(hr)) {
 		devl_unlock(dl);
 		dev_warn(pdsc->dev, "Failed to create fw reporter: %pe\n", hr);

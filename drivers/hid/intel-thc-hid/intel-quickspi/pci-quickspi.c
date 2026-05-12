@@ -33,6 +33,14 @@ struct quickspi_driver_data ptl = {
 	.max_packet_size_value = MAX_PACKET_SIZE_VALUE_LNL,
 };
 
+struct quickspi_driver_data arl = {
+	.max_packet_size_value = MAX_PACKET_SIZE_VALUE_MTL,
+};
+
+struct quickspi_driver_data nvl = {
+	.max_packet_size_value = MAX_PACKET_SIZE_VALUE_LNL,
+};
+
 /* THC QuickSPI ACPI method to get device properties */
 /* HIDSPI Method: {6e2ac436-0fcf-41af-a265-b32a220dcfab} */
 static guid_t hidspi_guid =
@@ -335,7 +343,6 @@ end:
 		if (try_recover(qsdev))
 			qsdev->state = QUICKSPI_DISABLED;
 
-	pm_runtime_mark_last_busy(qsdev->dev);
 	pm_runtime_put_autosuspend(qsdev->dev);
 
 	return IRQ_HANDLED;
@@ -670,7 +677,6 @@ static int quickspi_probe(struct pci_dev *pdev,
 	/* Enable runtime power management */
 	pm_runtime_use_autosuspend(qsdev->dev);
 	pm_runtime_set_autosuspend_delay(qsdev->dev, DEFAULT_AUTO_SUSPEND_DELAY_MS);
-	pm_runtime_mark_last_busy(qsdev->dev);
 	pm_runtime_put_noidle(qsdev->dev);
 	pm_runtime_put_autosuspend(qsdev->dev);
 
@@ -747,9 +753,11 @@ static int quickspi_suspend(struct device *device)
 	if (!qsdev)
 		return -ENODEV;
 
-	ret = quickspi_set_power(qsdev, HIDSPI_SLEEP);
-	if (ret)
-		return ret;
+	if (!device_may_wakeup(qsdev->dev)) {
+		ret = quickspi_set_power(qsdev, HIDSPI_SLEEP);
+		if (ret)
+			return ret;
+	}
 
 	ret = thc_interrupt_quiesce(qsdev->thc_hw, true);
 	if (ret)
@@ -788,9 +796,8 @@ static int quickspi_resume(struct device *device)
 	if (ret)
 		return ret;
 
-	ret = quickspi_set_power(qsdev, HIDSPI_ON);
-	if (ret)
-		return ret;
+	if (!device_may_wakeup(qsdev->dev))
+		return quickspi_set_power(qsdev, HIDSPI_ON);
 
 	return 0;
 }
@@ -848,6 +855,9 @@ static int quickspi_poweroff(struct device *device)
 	qsdev = pci_get_drvdata(pdev);
 	if (!qsdev)
 		return -ENODEV;
+
+	/* Ignore the return value as platform will be poweroff soon */
+	quickspi_set_power(qsdev, HIDSPI_OFF);
 
 	ret = thc_interrupt_quiesce(qsdev->thc_hw, true);
 	if (ret)
@@ -976,6 +986,12 @@ static const struct pci_device_id quickspi_pci_tbl[] = {
 	{PCI_DEVICE_DATA(INTEL, THC_PTL_H_DEVICE_ID_SPI_PORT2, &ptl), },
 	{PCI_DEVICE_DATA(INTEL, THC_PTL_U_DEVICE_ID_SPI_PORT1, &ptl), },
 	{PCI_DEVICE_DATA(INTEL, THC_PTL_U_DEVICE_ID_SPI_PORT2, &ptl), },
+	{PCI_DEVICE_DATA(INTEL, THC_WCL_DEVICE_ID_SPI_PORT1, &ptl), },
+	{PCI_DEVICE_DATA(INTEL, THC_WCL_DEVICE_ID_SPI_PORT2, &ptl), },
+	{PCI_DEVICE_DATA(INTEL, THC_ARL_DEVICE_ID_SPI_PORT1, &arl), },
+	{PCI_DEVICE_DATA(INTEL, THC_ARL_DEVICE_ID_SPI_PORT2, &arl), },
+	{PCI_DEVICE_DATA(INTEL, THC_NVL_H_DEVICE_ID_SPI_PORT1, &nvl), },
+	{PCI_DEVICE_DATA(INTEL, THC_NVL_H_DEVICE_ID_SPI_PORT2, &nvl), },
 	{}
 };
 MODULE_DEVICE_TABLE(pci, quickspi_pci_tbl);

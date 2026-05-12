@@ -203,10 +203,21 @@ static inline bool selinux_policycap_netlink_xperm(void)
 		selinux_state.policycap[POLICYDB_CAP_NETLINK_XPERM]);
 }
 
-static inline bool selinux_policycap_netif_wildcard(void)
+static inline bool selinux_policycap_functionfs_seclabel(void)
 {
 	return READ_ONCE(
-		selinux_state.policycap[POLICYDB_CAP_NETIF_WILDCARD]);
+		selinux_state.policycap[POLICYDB_CAP_FUNCTIONFS_SECLABEL]);
+}
+
+static inline bool selinux_policycap_memfd_class(void)
+{
+	return READ_ONCE(selinux_state.policycap[POLICYDB_CAP_MEMFD_CLASS]);
+}
+
+static inline bool selinux_policycap_bpf_token_perms(void)
+{
+	return READ_ONCE(
+		selinux_state.policycap[POLICYDB_CAP_BPF_TOKEN_PERMS]);
 }
 
 struct selinux_policy_convert_data;

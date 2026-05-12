@@ -15,6 +15,7 @@
 #include <linux/init.h>
 #include <linux/memblock.h>
 #include <linux/irq.h>
+#include <linux/irqchip/irq-msi-lib.h>
 #include <linux/io.h>
 #include <linux/msi.h>
 #include <linux/iommu.h>
@@ -37,7 +38,6 @@
 #include <asm/firmware.h>
 #include <asm/pnv-pci.h>
 #include <asm/mmzone.h>
-#include <asm/xive.h>
 
 #include "powernv.h"
 #include "pci.h"
@@ -292,18 +292,16 @@ static void pnv_ioda_reserve_m64_pe(struct pci_bus *bus,
 
 static struct pnv_ioda_pe *pnv_ioda_pick_m64_pe(struct pci_bus *bus, bool all)
 {
+	unsigned long *pe_alloc __free(bitmap) = NULL;
 	struct pnv_phb *phb = pci_bus_to_pnvhb(bus);
 	struct pnv_ioda_pe *master_pe, *pe;
-	unsigned long size, *pe_alloc;
-	int i;
+	unsigned int i;
 
 	/* Root bus shouldn't use M64 */
 	if (pci_is_root_bus(bus))
 		return NULL;
 
-	/* Allocate bitmap */
-	size = ALIGN(phb->ioda.total_pe_num / 8, sizeof(unsigned long));
-	pe_alloc = kzalloc(size, GFP_KERNEL);
+	pe_alloc = bitmap_zalloc(phb->ioda.total_pe_num, GFP_KERNEL);
 	if (!pe_alloc) {
 		pr_warn("%s: Out of memory !\n",
 			__func__);
@@ -314,23 +312,15 @@ static struct pnv_ioda_pe *pnv_ioda_pick_m64_pe(struct pci_bus *bus, bool all)
 	pnv_ioda_reserve_m64_pe(bus, pe_alloc, all);
 
 	/*
-	 * the current bus might not own M64 window and that's all
+	 * Figure out the master PE and put all slave PEs to master
+	 * PE's list to form compound PE.
+	 *
+	 * The current bus might not own M64 window and that's all
 	 * contributed by its child buses. For the case, we needn't
 	 * pick M64 dependent PE#.
 	 */
-	if (bitmap_empty(pe_alloc, phb->ioda.total_pe_num)) {
-		kfree(pe_alloc);
-		return NULL;
-	}
-
-	/*
-	 * Figure out the master PE and put all slave PEs to master
-	 * PE's list to form compound PE.
-	 */
 	master_pe = NULL;
-	i = -1;
-	while ((i = find_next_bit(pe_alloc, phb->ioda.total_pe_num, i + 1)) <
-		phb->ioda.total_pe_num) {
+	for_each_set_bit(i, pe_alloc, phb->ioda.total_pe_num) {
 		pe = &phb->ioda.pe_array[i];
 
 		phb->ioda.m64_segmap[pe->pe_number] = pe->pe_number;
@@ -345,7 +335,6 @@ static struct pnv_ioda_pe *pnv_ioda_pick_m64_pe(struct pci_bus *bus, bool all)
 		}
 	}
 
-	kfree(pe_alloc);
 	return master_pe;
 }
 
@@ -1666,7 +1655,7 @@ static int __pnv_pci_ioda_msi_setup(struct pnv_phb *phb, struct pci_dev *dev,
 		return -ENXIO;
 
 	/* Force 32-bit MSI on some broken devices */
-	if (dev->no_64bit_msi)
+	if (dev->msi_addr_mask < DMA_BIT_MASK(64))
 		is_64 = 0;
 
 	/* Assign XIVE to PE */
@@ -1707,23 +1696,6 @@ static int __pnv_pci_ioda_msi_setup(struct pnv_phb *phb, struct pci_dev *dev,
 	return 0;
 }
 
-/*
- * The msi_free() op is called before irq_domain_free_irqs_top() when
- * the handler data is still available. Use that to clear the XIVE
- * controller.
- */
-static void pnv_msi_ops_msi_free(struct irq_domain *domain,
-				 struct msi_domain_info *info,
-				 unsigned int irq)
-{
-	if (xive_enabled())
-		xive_irq_free_data(irq);
-}
-
-static struct msi_domain_ops pnv_pci_msi_domain_ops = {
-	.msi_free	= pnv_msi_ops_msi_free,
-};
-
 static void pnv_msi_shutdown(struct irq_data *d)
 {
 	d = d->parent_data;
@@ -1731,31 +1703,33 @@ static void pnv_msi_shutdown(struct irq_data *d)
 		d->chip->irq_shutdown(d);
 }
 
-static void pnv_msi_mask(struct irq_data *d)
+static bool pnv_init_dev_msi_info(struct device *dev, struct irq_domain *domain,
+				  struct irq_domain *real_parent, struct msi_domain_info *info)
 {
-	pci_msi_mask_irq(d);
-	irq_chip_mask_parent(d);
+	struct irq_chip *chip = info->chip;
+
+	if (!msi_lib_init_dev_msi_info(dev, domain, real_parent, info))
+		return false;
+
+	chip->irq_shutdown = pnv_msi_shutdown;
+	return true;
 }
 
-static void pnv_msi_unmask(struct irq_data *d)
-{
-	pci_msi_unmask_irq(d);
-	irq_chip_unmask_parent(d);
-}
+#define PNV_PCI_MSI_FLAGS_REQUIRED (MSI_FLAG_USE_DEF_DOM_OPS		| \
+				    MSI_FLAG_USE_DEF_CHIP_OPS		| \
+				    MSI_FLAG_PCI_MSI_MASK_PARENT)
+#define PNV_PCI_MSI_FLAGS_SUPPORTED (MSI_GENERIC_FLAGS_MASK		| \
+				     MSI_FLAG_PCI_MSIX			| \
+				     MSI_FLAG_MULTI_PCI_MSI)
 
-static struct irq_chip pnv_pci_msi_irq_chip = {
-	.name		= "PNV-PCI-MSI",
-	.irq_shutdown	= pnv_msi_shutdown,
-	.irq_mask	= pnv_msi_mask,
-	.irq_unmask	= pnv_msi_unmask,
-	.irq_eoi	= irq_chip_eoi_parent,
-};
-
-static struct msi_domain_info pnv_msi_domain_info = {
-	.flags = (MSI_FLAG_USE_DEF_DOM_OPS | MSI_FLAG_USE_DEF_CHIP_OPS |
-		  MSI_FLAG_MULTI_PCI_MSI  | MSI_FLAG_PCI_MSIX),
-	.ops   = &pnv_pci_msi_domain_ops,
-	.chip  = &pnv_pci_msi_irq_chip,
+static const struct msi_parent_ops pnv_msi_parent_ops = {
+	.required_flags		= PNV_PCI_MSI_FLAGS_REQUIRED,
+	.supported_flags	= PNV_PCI_MSI_FLAGS_SUPPORTED,
+	.chip_flags		= MSI_CHIP_FLAG_SET_EOI,
+	.bus_select_token	= DOMAIN_BUS_NEXUS,
+	.bus_select_mask	= MATCH_PCI_MSI,
+	.prefix			= "PNV-",
+	.init_dev_msi_info	= pnv_init_dev_msi_info,
 };
 
 static void pnv_msi_compose_msg(struct irq_data *d, struct msi_msg *msg)
@@ -1854,7 +1828,7 @@ static int pnv_irq_domain_alloc(struct irq_domain *domain, unsigned int virq,
 	return 0;
 
 out:
-	irq_domain_free_irqs_parent(domain, virq, i - 1);
+	irq_domain_free_irqs_parent(domain, virq, i);
 	msi_bitmap_free_hwirqs(&phb->msi_bmp, hwirq, nr_irqs);
 	return ret;
 }
@@ -1870,41 +1844,30 @@ static void pnv_irq_domain_free(struct irq_domain *domain, unsigned int virq,
 		 virq, d->hwirq, nr_irqs);
 
 	msi_bitmap_free_hwirqs(&phb->msi_bmp, d->hwirq, nr_irqs);
-	/* XIVE domain is cleared through ->msi_free() */
+	irq_domain_free_irqs_parent(domain, virq, nr_irqs);
 }
 
 static const struct irq_domain_ops pnv_irq_domain_ops = {
+	.select	= msi_lib_irq_domain_select,
 	.alloc  = pnv_irq_domain_alloc,
 	.free   = pnv_irq_domain_free,
 };
 
 static int __init pnv_msi_allocate_domains(struct pci_controller *hose, unsigned int count)
 {
-	struct pnv_phb *phb = hose->private_data;
 	struct irq_domain *parent = irq_get_default_domain();
+	struct irq_domain_info info = {
+		.fwnode		= of_fwnode_handle(hose->dn),
+		.ops		= &pnv_irq_domain_ops,
+		.host_data	= hose,
+		.size		= count,
+		.parent		= parent,
+	};
 
-	hose->fwnode = irq_domain_alloc_named_id_fwnode("PNV-MSI", phb->opal_id);
-	if (!hose->fwnode)
-		return -ENOMEM;
-
-	hose->dev_domain = irq_domain_create_hierarchy(parent, 0, count,
-						       hose->fwnode,
-						       &pnv_irq_domain_ops, hose);
+	hose->dev_domain = msi_create_parent_irq_domain(&info, &pnv_msi_parent_ops);
 	if (!hose->dev_domain) {
-		pr_err("PCI: failed to create IRQ domain bridge %pOF (domain %d)\n",
-		       hose->dn, hose->global_number);
-		irq_domain_free_fwnode(hose->fwnode);
-		return -ENOMEM;
-	}
-
-	hose->msi_domain = pci_msi_create_irq_domain(of_fwnode_handle(hose->dn),
-						     &pnv_msi_domain_info,
-						     hose->dev_domain);
-	if (!hose->msi_domain) {
 		pr_err("PCI: failed to create MSI IRQ domain bridge %pOF (domain %d)\n",
 		       hose->dn, hose->global_number);
-		irq_domain_free_fwnode(hose->fwnode);
-		irq_domain_remove(hose->dev_domain);
 		return -ENOMEM;
 	}
 
@@ -2548,7 +2511,7 @@ static void __init pnv_pci_init_ioda_phb(struct device_node *np,
 	phb_id = be64_to_cpup(prop64);
 	pr_debug("  PHB-ID  : 0x%016llx\n", phb_id);
 
-	phb = kzalloc(sizeof(*phb), GFP_KERNEL);
+	phb = kzalloc_obj(*phb);
 	if (!phb)
 		panic("%s: Failed to allocate %zu bytes\n", __func__,
 		      sizeof(*phb));

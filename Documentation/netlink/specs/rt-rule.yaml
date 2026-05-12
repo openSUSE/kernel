@@ -5,7 +5,7 @@ protocol: netlink-raw
 uapi-header: linux/fib_rules.h
 protonum: 0
 
-doc:
+doc: >-
   FIB rule management over rtnetlink.
 
 definitions:
@@ -96,10 +96,12 @@ attribute-sets:
     attributes:
       -
         name: dst
-        type: u32
+        type: binary
+        display-hint: ipv4-or-v6
       -
         name: src
-        type: u32
+        type: binary
+        display-hint: ipv4-or-v6
       -
         name: iifname
         type: string

@@ -431,17 +431,17 @@ struct qdisc_rate_table *qdisc_get_rtab(struct tc_ratespec *r,
 
 	for (rtab = qdisc_rtab_list; rtab; rtab = rtab->next) {
 		if (!memcmp(&rtab->rate, r, sizeof(struct tc_ratespec)) &&
-		    !memcmp(&rtab->data, nla_data(tab), 1024)) {
+		    !memcmp(&rtab->data, nla_data(tab), TC_RTAB_SIZE)) {
 			rtab->refcnt++;
 			return rtab;
 		}
 	}
 
-	rtab = kmalloc(sizeof(*rtab), GFP_KERNEL);
+	rtab = kmalloc_obj(*rtab);
 	if (rtab) {
 		rtab->rate = *r;
 		rtab->refcnt = 1;
-		memcpy(rtab->data, nla_data(tab), 1024);
+		memcpy(rtab->data, nla_data(tab), TC_RTAB_SIZE);
 		if (r->linklayer == TC_LINKLAYER_UNAWARE)
 			r->linklayer = __detect_linklayer(r, rtab->data);
 		rtab->next = qdisc_rtab_list;
@@ -530,7 +530,7 @@ static struct qdisc_size_table *qdisc_get_stab(struct nlattr *opt,
 		return ERR_PTR(-EINVAL);
 	}
 
-	stab = kmalloc(struct_size(stab, data, tsize), GFP_KERNEL);
+	stab = kmalloc_flex(*stab, data, tsize);
 	if (!stab)
 		return ERR_PTR(-ENOMEM);
 
@@ -668,7 +668,7 @@ static struct hlist_head *qdisc_class_hash_alloc(unsigned int n)
 	struct hlist_head *h;
 	unsigned int i;
 
-	h = kvmalloc_array(n, sizeof(struct hlist_head), GFP_KERNEL);
+	h = kvmalloc_objs(struct hlist_head, n);
 
 	if (h != NULL) {
 		for (i = 0; i < n; i++)
@@ -1120,7 +1120,7 @@ static int qdisc_graft(struct net_device *dev, struct Qdisc *parent,
 		}
 
 		if (dev->flags & IFF_UP)
-			dev_deactivate(dev);
+			dev_deactivate(dev, false);
 
 		qdisc_offload_graft_root(dev, new, old, extack);
 
@@ -1353,7 +1353,7 @@ err_out4:
 		ops->destroy(sch);
 	qdisc_put_stab(rtnl_dereference(sch->stab));
 err_out3:
-	lockdep_unregister_key(&sch->root_lock_key);
+	qdisc_lock_uninit(sch, ops);
 	netdev_put(dev, &sch->dev_tracker);
 	qdisc_free(sch);
 err_out2:
@@ -1598,6 +1598,11 @@ static int __tc_modify_qdisc(struct sk_buff *skb, struct nlmsghdr *n,
 				if (!p) {
 					NL_SET_ERR_MSG(extack, "Failed to find specified qdisc");
 					return -ENOENT;
+				}
+				if (p->flags & TCQ_F_INGRESS) {
+					NL_SET_ERR_MSG(extack,
+						       "Cannot add children to ingress/clsact qdisc");
+					return -EOPNOTSUPP;
 				}
 				q = qdisc_leaf(p, clid, extack);
 				if (IS_ERR(q))
@@ -2474,7 +2479,8 @@ static struct pernet_operations psched_net_ops = {
 };
 
 #if IS_ENABLED(CONFIG_MITIGATION_RETPOLINE)
-DEFINE_STATIC_KEY_FALSE(tc_skip_wrapper);
+DEFINE_STATIC_KEY_FALSE(tc_skip_wrapper_act);
+DEFINE_STATIC_KEY_FALSE(tc_skip_wrapper_cls);
 #endif
 
 static const struct rtnl_msg_handler psched_rtnl_msg_handlers[] __initconst = {

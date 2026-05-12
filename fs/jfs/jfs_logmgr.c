@@ -74,12 +74,6 @@ static struct lbuf *log_redrive_list;
 static DEFINE_SPINLOCK(log_redrive_lock);
 
 
-/*
- *	log read/write serialization (per log)
- */
-#define LOG_LOCK_INIT(log)	mutex_init(&(log)->loglock)
-#define LOG_LOCK(log)		mutex_lock(&((log)->loglock))
-#define LOG_UNLOCK(log)		mutex_unlock(&((log)->loglock))
 
 
 /*
@@ -204,9 +198,13 @@ static void write_special_inodes(struct jfs_log *log,
 	struct jfs_sb_info *sbi;
 
 	list_for_each_entry(sbi, &log->sb_list, log_list) {
-		writer(sbi->ipbmap->i_mapping);
-		writer(sbi->ipimap->i_mapping);
-		writer(sbi->direct_inode->i_mapping);
+		/* These pointers can be NULL before list_del during umount */
+		if (sbi->ipbmap)
+			writer(sbi->ipbmap->i_mapping);
+		if (sbi->ipimap)
+			writer(sbi->ipimap->i_mapping);
+		if (sbi->direct_inode)
+			writer(sbi->direct_inode->i_mapping);
 	}
 }
 
@@ -1087,7 +1085,7 @@ int lmLogOpen(struct super_block *sb)
 		}
 	}
 
-	if (!(log = kzalloc(sizeof(struct jfs_log), GFP_KERNEL))) {
+	if (!(log = kzalloc_obj(struct jfs_log))) {
 		mutex_unlock(&jfs_log_mutex);
 		return -ENOMEM;
 	}
@@ -1156,7 +1154,7 @@ static int open_inline_log(struct super_block *sb)
 	struct jfs_log *log;
 	int rc;
 
-	if (!(log = kzalloc(sizeof(struct jfs_log), GFP_KERNEL)))
+	if (!(log = kzalloc_obj(struct jfs_log)))
 		return -ENOMEM;
 	INIT_LIST_HEAD(&log->sb_list);
 	init_waitqueue_head(&log->syncwait);
@@ -1190,7 +1188,7 @@ static int open_dummy_log(struct super_block *sb)
 
 	mutex_lock(&jfs_log_mutex);
 	if (!dummy_log) {
-		dummy_log = kzalloc(sizeof(struct jfs_log), GFP_KERNEL);
+		dummy_log = kzalloc_obj(struct jfs_log);
 		if (!dummy_log) {
 			mutex_unlock(&jfs_log_mutex);
 			return -ENOMEM;
@@ -1199,7 +1197,6 @@ static int open_dummy_log(struct super_block *sb)
 		init_waitqueue_head(&dummy_log->syncwait);
 		dummy_log->no_integrity = 1;
 		/* Make up some stuff */
-		dummy_log->base = 0;
 		dummy_log->size = 1024;
 		rc = lmLogInit(dummy_log);
 		if (rc) {
@@ -1819,7 +1816,7 @@ static int lbmLogInit(struct jfs_log * log)
 			goto error;
 		buffer = page_address(page);
 		for (offset = 0; offset < PAGE_SIZE; offset += LOGPSIZE) {
-			lbuf = kmalloc(sizeof(struct lbuf), GFP_KERNEL);
+			lbuf = kmalloc_obj(struct lbuf);
 			if (lbuf == NULL) {
 				if (offset == 0)
 					__free_page(page);
@@ -2181,8 +2178,6 @@ static void lbmIODone(struct bio *bio)
 
 	LCACHE_LOCK(flags);		/* disable+lock */
 
-	bp->l_flag |= lbmDONE;
-
 	if (bio->bi_status) {
 		bp->l_flag |= lbmERROR;
 
@@ -2197,12 +2192,10 @@ static void lbmIODone(struct bio *bio)
 	if (bp->l_flag & lbmREAD) {
 		bp->l_flag &= ~lbmREAD;
 
-		LCACHE_UNLOCK(flags);	/* unlock+enable */
-
 		/* wakeup I/O initiator */
 		LCACHE_WAKEUP(&bp->l_ioevent);
 
-		return;
+		goto out;
 	}
 
 	/*
@@ -2226,8 +2219,7 @@ static void lbmIODone(struct bio *bio)
 
 	if (bp->l_flag & lbmDIRECT) {
 		LCACHE_WAKEUP(&bp->l_ioevent);
-		LCACHE_UNLOCK(flags);
-		return;
+		goto out;
 	}
 
 	tail = log->wqueue;
@@ -2279,8 +2271,6 @@ static void lbmIODone(struct bio *bio)
 	 * leave buffer for i/o initiator to dispose
 	 */
 	if (bp->l_flag & lbmSYNC) {
-		LCACHE_UNLOCK(flags);	/* unlock+enable */
-
 		/* wakeup I/O initiator */
 		LCACHE_WAKEUP(&bp->l_ioevent);
 	}
@@ -2291,6 +2281,7 @@ static void lbmIODone(struct bio *bio)
 	else if (bp->l_flag & lbmGC) {
 		LCACHE_UNLOCK(flags);
 		lmPostGC(bp);
+		LCACHE_LOCK(flags);		/* disable+lock */
 	}
 
 	/*
@@ -2303,15 +2294,18 @@ static void lbmIODone(struct bio *bio)
 		assert(bp->l_flag & lbmRELEASE);
 		assert(bp->l_flag & lbmFREE);
 		lbmfree(bp);
-
-		LCACHE_UNLOCK(flags);	/* unlock+enable */
 	}
+
+out:
+	bp->l_flag |= lbmDONE;
+	LCACHE_UNLOCK(flags);
 }
 
 int jfsIOWait(void *arg)
 {
 	struct lbuf *bp;
 
+	set_freezable();
 	do {
 		spin_lock_irq(&log_redrive_lock);
 		while ((bp = log_redrive_list)) {

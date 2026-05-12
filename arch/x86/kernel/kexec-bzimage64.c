@@ -16,8 +16,11 @@
 #include <linux/kexec.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
+#include <linux/libfdt.h>
+#include <linux/of_fdt.h>
 #include <linux/efi.h>
 #include <linux/random.h>
+#include <linux/sysfb.h>
 
 #include <asm/bootparam.h>
 #include <asm/setup.h>
@@ -190,6 +193,13 @@ setup_efi_state(struct boot_params *params, unsigned long params_load_addr,
 	struct efi_info *current_ei = &boot_params.efi_info;
 	struct efi_info *ei = &params->efi_info;
 
+	if (!params->acpi_rsdp_addr) {
+		if (efi.acpi20 != EFI_INVALID_TABLE_ADDR)
+			params->acpi_rsdp_addr = efi.acpi20;
+		else if (efi.acpi != EFI_INVALID_TABLE_ADDR)
+			params->acpi_rsdp_addr = efi.acpi;
+	}
+
 	if (!efi_enabled(EFI_RUNTIME_SERVICES))
 		return 0;
 
@@ -211,6 +221,28 @@ setup_efi_state(struct boot_params *params, unsigned long params_load_addr,
 	return 0;
 }
 #endif /* CONFIG_EFI */
+
+#ifdef CONFIG_OF_FLATTREE
+static void setup_dtb(struct boot_params *params,
+		      unsigned long params_load_addr,
+		      unsigned int dtb_setup_data_offset)
+{
+	struct setup_data *sd = (void *)params + dtb_setup_data_offset;
+	unsigned long setup_data_phys, dtb_len;
+
+	dtb_len = fdt_totalsize(initial_boot_params);
+	sd->type = SETUP_DTB;
+	sd->len = dtb_len;
+
+	/* Carry over current boot DTB with setup_data */
+	memcpy(sd->data, initial_boot_params, dtb_len);
+
+	/* Add setup data */
+	setup_data_phys = params_load_addr + dtb_setup_data_offset;
+	sd->next = params->hdr.setup_data;
+	params->hdr.setup_data = setup_data_phys;
+}
+#endif /* CONFIG_OF_FLATTREE */
 
 static void
 setup_ima_state(const struct kimage *image, struct boot_params *params,
@@ -279,7 +311,8 @@ setup_boot_parameters(struct kimage *image, struct boot_params *params,
 	params->hdr.hardware_subarch = boot_params.hdr.hardware_subarch;
 
 	/* Copying screen_info will do? */
-	memcpy(&params->screen_info, &screen_info, sizeof(struct screen_info));
+	memcpy(&params->screen_info, &sysfb_primary_display.screen,
+	       sizeof(sysfb_primary_display.screen));
 
 	/* Fill in memsize later */
 	params->screen_info.ext_mem_k = 0;
@@ -334,6 +367,17 @@ setup_boot_parameters(struct kimage *image, struct boot_params *params,
 			setup_data_offset);
 	setup_data_offset += sizeof(struct setup_data) +
 			sizeof(struct efi_setup_data);
+#endif
+
+#ifdef CONFIG_OF_FLATTREE
+	if (image->force_dtb && initial_boot_params) {
+		setup_dtb(params, params_load_addr, setup_data_offset);
+		setup_data_offset += sizeof(struct setup_data) +
+				     fdt_totalsize(initial_boot_params);
+	} else {
+		pr_debug("Not carrying over DTB, force_dtb = %d\n",
+			 image->force_dtb);
+	}
 #endif
 
 	if (IS_ENABLED(CONFIG_IMA_KEXEC)) {
@@ -481,12 +525,8 @@ static void *bzImage64_load(struct kimage *image, char *kernel,
 		if (ret)
 			return ERR_PTR(ret);
 		ret = crash_load_dm_crypt_keys(image);
-		if (ret == -ENOENT) {
-			kexec_dprintk("No dm crypt key to load\n");
-		} else if (ret) {
-			pr_err("Failed to load dm crypt keys\n");
+		if (ret)
 			return ERR_PTR(ret);
-		}
 		if (image->dm_crypt_keys_addr &&
 		    cmdline_len + MAX_ELFCOREHDR_STR_LEN + MAX_DMCRYPTKEYS_STR_LEN >
 			    header->cmdline_size) {
@@ -529,6 +569,12 @@ static void *bzImage64_load(struct kimage *image, char *kernel,
 				sizeof(struct setup_data) +
 				RNG_SEED_LENGTH;
 
+#ifdef CONFIG_OF_FLATTREE
+	if (image->force_dtb && initial_boot_params)
+		kbuf.bufsz += sizeof(struct setup_data) +
+			      fdt_totalsize(initial_boot_params);
+#endif
+
 	if (IS_ENABLED(CONFIG_IMA_KEXEC))
 		kbuf.bufsz += sizeof(struct setup_data) +
 			      sizeof(struct ima_setup_data);
@@ -537,7 +583,7 @@ static void *bzImage64_load(struct kimage *image, char *kernel,
 		kbuf.bufsz += sizeof(struct setup_data) +
 			      sizeof(struct kho_data);
 
-	params = kzalloc(kbuf.bufsz, GFP_KERNEL);
+	params = kvzalloc(kbuf.bufsz, GFP_KERNEL);
 	if (!params)
 		return ERR_PTR(-ENOMEM);
 	efi_map_offset = params_cmdline_sz;
@@ -632,7 +678,7 @@ static void *bzImage64_load(struct kimage *image, char *kernel,
 		goto out_free_params;
 
 	/* Allocate loader specific data */
-	ldata = kzalloc(sizeof(struct bzimage64_data), GFP_KERNEL);
+	ldata = kzalloc_obj(struct bzimage64_data);
 	if (!ldata) {
 		ret = -ENOMEM;
 		goto out_free_params;
@@ -647,7 +693,7 @@ static void *bzImage64_load(struct kimage *image, char *kernel,
 	return ldata;
 
 out_free_params:
-	kfree(params);
+	kvfree(params);
 	return ERR_PTR(ret);
 }
 
@@ -659,7 +705,7 @@ static int bzImage64_cleanup(void *loader_data)
 	if (!ldata)
 		return 0;
 
-	kfree(ldata->bootparams_buf);
+	kvfree(ldata->bootparams_buf);
 	ldata->bootparams_buf = NULL;
 
 	return 0;

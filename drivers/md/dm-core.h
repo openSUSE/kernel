@@ -139,7 +139,6 @@ struct mapped_device {
 	struct srcu_struct io_barrier;
 
 #ifdef CONFIG_BLK_DEV_ZONED
-	unsigned int nr_zones;
 	void *zone_revalidate_map;
 	struct task_struct *revalidate_map_task;
 #endif
@@ -162,6 +161,7 @@ struct mapped_device {
 #define DMF_SUSPENDED_INTERNALLY 7
 #define DMF_POST_SUSPENDING 8
 #define DMF_EMULATE_ZONE_APPEND 9
+#define DMF_QUEUE_STOPPED 10
 
 static inline sector_t dm_get_size(struct mapped_device *md)
 {
@@ -215,7 +215,6 @@ struct dm_table {
 
 	/* a list of devices used by this table */
 	struct list_head devices;
-	struct rw_semaphore devices_lock;
 
 	/* events get handed up using this callback */
 	void (*event_fn)(void *data);
@@ -291,6 +290,7 @@ struct dm_io {
 	struct dm_io *next;
 	struct dm_stats_aux stats_aux;
 	blk_status_t status;
+	bool requeue_flush_with_data;
 	atomic_t io_count;
 	struct mapped_device *md;
 

@@ -18,7 +18,7 @@
 #include <asm/sigcontext.h>
 #include <asm/ptrace.h>
 
-#include "../../kselftest.h"
+#include "kselftest.h"
 
 /* <linux/elf.h> and <sys/auxv.h> don't like each other, so: */
 #ifndef NT_ARM_ZA
@@ -107,7 +107,6 @@ static int get_zt(pid_t pid, char zt[ZT_SIG_REG_BYTES])
 	iov.iov_len = ZT_SIG_REG_BYTES;
 	return ptrace(PTRACE_GETREGSET, pid, NT_ARM_ZT, &iov);
 }
-
 
 static int set_zt(pid_t pid, const char zt[ZT_SIG_REG_BYTES])
 {

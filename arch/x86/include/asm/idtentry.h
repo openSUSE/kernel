@@ -393,7 +393,7 @@ static __always_inline void __##func(struct pt_regs *regs)
 
 /**
  * DEFINE_IDTENTRY_VC_KERNEL - Emit code for VMM communication handler
-			       when raised from kernel mode
+ *			       when raised from kernel mode
  * @func:	Function name of the entry point
  *
  * Maps to DEFINE_IDTENTRY_RAW_ERRORCODE
@@ -403,7 +403,7 @@ static __always_inline void __##func(struct pt_regs *regs)
 
 /**
  * DEFINE_IDTENTRY_VC_USER - Emit code for VMM communication handler
-			     when raised from user mode
+ *			     when raised from user mode
  * @func:	Function name of the entry point
  *
  * Maps to DEFINE_IDTENTRY_RAW_ERRORCODE
@@ -460,17 +460,12 @@ __visible noinstr void func(struct pt_regs *regs,			\
 #endif
 
 void idt_install_sysvec(unsigned int n, const void *function);
-
-#ifdef CONFIG_X86_FRED
 void fred_install_sysvec(unsigned int vector, const idtentry_t function);
-#else
-static inline void fred_install_sysvec(unsigned int vector, const idtentry_t function) { }
-#endif
 
 #define sysvec_install(vector, function) {				\
-	if (cpu_feature_enabled(X86_FEATURE_FRED))			\
+	if (IS_ENABLED(CONFIG_X86_FRED))				\
 		fred_install_sysvec(vector, function);			\
-	else								\
+	if (!cpu_feature_enabled(X86_FEATURE_FRED))			\
 		idt_install_sysvec(vector, asm_##function);		\
 }
 
@@ -749,6 +744,12 @@ DECLARE_IDTENTRY_SYSVEC(POSTED_INTR_NESTED_VECTOR,	sysvec_kvm_posted_intr_nested
 # define fred_sysvec_kvm_posted_intr_ipi		NULL
 # define fred_sysvec_kvm_posted_intr_wakeup_ipi		NULL
 # define fred_sysvec_kvm_posted_intr_nested_ipi		NULL
+#endif
+
+# ifdef CONFIG_GUEST_PERF_EVENTS
+DECLARE_IDTENTRY_SYSVEC(PERF_GUEST_MEDIATED_PMI_VECTOR,	sysvec_perf_guest_mediated_pmi_handler);
+#else
+# define fred_sysvec_perf_guest_mediated_pmi_handler	NULL
 #endif
 
 # ifdef CONFIG_X86_POSTED_MSI

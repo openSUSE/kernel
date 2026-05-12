@@ -290,15 +290,13 @@ static int tsc2046_adc_read_one(struct tsc2046_adc_priv *priv, int ch_idx,
 	if (sizeof(struct tsc2046_adc_atom) * max_count > PAGE_SIZE)
 		return -ENOSPC;
 
-	struct tsc2046_adc_atom *tx_buf __free(kfree) = kcalloc(max_count,
-								sizeof(*tx_buf),
-								GFP_KERNEL);
+	struct tsc2046_adc_atom *tx_buf __free(kfree) = kzalloc_objs(*tx_buf,
+								     max_count);
 	if (!tx_buf)
 		return -ENOMEM;
 
-	struct tsc2046_adc_atom *rx_buf __free(kfree) = kcalloc(max_count,
-								sizeof(*rx_buf),
-								GFP_KERNEL);
+	struct tsc2046_adc_atom *rx_buf __free(kfree) = kzalloc_objs(*rx_buf,
+								     max_count);
 	if (!rx_buf)
 		return -ENOMEM;
 
@@ -535,8 +533,7 @@ static enum hrtimer_restart tsc2046_adc_timer(struct hrtimer *hrtimer)
 		if (priv->poll_cnt < TI_TSC2046_POLL_CNT) {
 			priv->poll_cnt++;
 			hrtimer_start(&priv->trig_timer,
-				      ns_to_ktime(priv->scan_interval_us *
-						  NSEC_PER_USEC),
+				      us_to_ktime(priv->scan_interval_us),
 				      HRTIMER_MODE_REL_SOFT);
 
 			if (priv->poll_cnt >= TI_TSC2046_MIN_POLL_CNT) {
@@ -605,8 +602,7 @@ static void tsc2046_adc_reenable_trigger(struct iio_trigger *trig)
 	 * many samples. Reduce the sample rate for default (touchscreen) use
 	 * case.
 	 */
-	tim = ns_to_ktime((priv->scan_interval_us - priv->time_per_scan_us) *
-			  NSEC_PER_USEC);
+	tim = us_to_ktime(priv->scan_interval_us - priv->time_per_scan_us);
 	hrtimer_start(&priv->trig_timer, tim, HRTIMER_MODE_REL_SOFT);
 }
 

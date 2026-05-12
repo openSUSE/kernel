@@ -3,7 +3,7 @@
  * Copyright (c) 2014 Red Hat, Inc.
  * All Rights Reserved.
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -2690,7 +2690,7 @@ xfs_rmap_finish_one(
 
 	trace_xfs_rmap_deferred(mp, ri);
 
-	if (XFS_TEST_ERROR(false, mp, XFS_ERRTAG_RMAP_FINISH_ONE))
+	if (XFS_TEST_ERROR(mp, XFS_ERRTAG_RMAP_FINISH_ONE))
 		return -EIO;
 
 	/*

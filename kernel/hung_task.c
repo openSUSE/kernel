@@ -24,6 +24,7 @@
 #include <linux/sched/sysctl.h>
 #include <linux/hung_task.h>
 #include <linux/rwsem.h>
+#include <linux/sys_info.h>
 
 #include <trace/events/sched.h>
 
@@ -35,7 +36,7 @@ static int __read_mostly sysctl_hung_task_check_count = PID_MAX_LIMIT;
 /*
  * Total number of tasks detected as hung since boot:
  */
-static unsigned long __read_mostly sysctl_hung_task_detect_count;
+static atomic_long_t sysctl_hung_task_detect_count = ATOMIC_LONG_INIT(0);
 
 /*
  * Limit number of tasks checked in a batch.
@@ -50,7 +51,6 @@ static unsigned long __read_mostly sysctl_hung_task_detect_count;
  * Zero means infinite timeout - no checking done:
  */
 unsigned long __read_mostly sysctl_hung_task_timeout_secs = CONFIG_DEFAULT_HUNG_TASK_TIMEOUT;
-EXPORT_SYMBOL_GPL(sysctl_hung_task_timeout_secs);
 
 /*
  * Zero (default value) means use sysctl_hung_task_timeout_secs:
@@ -60,11 +60,16 @@ static unsigned long __read_mostly sysctl_hung_task_check_interval_secs;
 static int __read_mostly sysctl_hung_task_warnings = 10;
 
 static int __read_mostly did_panic;
-static bool hung_task_show_lock;
 static bool hung_task_call_panic;
-static bool hung_task_show_all_bt;
 
 static struct task_struct *watchdog_task;
+
+/*
+ * A bitmask to control what kinds of system info to be printed when
+ * a hung task is detected, it could be task, memory, lock etc. Refer
+ * include/linux/sys_info.h for detailed bit definition.
+ */
+static unsigned long hung_task_si_mask;
 
 #ifdef CONFIG_SMP
 /*
@@ -81,7 +86,7 @@ static unsigned int __read_mostly sysctl_hung_task_all_cpu_backtrace;
  * hung task is detected:
  */
 static unsigned int __read_mostly sysctl_hung_task_panic =
-	IS_ENABLED(CONFIG_BOOTPARAM_HUNG_TASK_PANIC);
+	CONFIG_BOOTPARAM_HUNG_TASK_PANIC;
 
 static int
 hung_task_panic(struct notifier_block *this, unsigned long event, void *ptr)
@@ -95,9 +100,41 @@ static struct notifier_block panic_block = {
 	.notifier_call = hung_task_panic,
 };
 
+static bool task_is_hung(struct task_struct *t, unsigned long timeout)
+{
+	unsigned long switch_count = t->nvcsw + t->nivcsw;
+	unsigned int state = READ_ONCE(t->__state);
+
+	/*
+	 * skip the TASK_KILLABLE tasks -- these can be killed
+	 * skip the TASK_IDLE tasks -- those are genuinely idle
+	 * skip the TASK_FROZEN task -- it reasonably stops scheduling by freezer
+	 */
+	if (!(state & TASK_UNINTERRUPTIBLE) ||
+	    (state & (TASK_WAKEKILL | TASK_NOLOAD | TASK_FROZEN)))
+		return false;
+
+	/*
+	 * When a freshly created task is scheduled once, changes its state to
+	 * TASK_UNINTERRUPTIBLE without having ever been switched out once, it
+	 * musn't be checked.
+	 */
+	if (unlikely(!switch_count))
+		return false;
+
+	if (switch_count != t->last_switch_count) {
+		t->last_switch_count = switch_count;
+		t->last_switch_time = jiffies;
+		return false;
+	}
+	if (time_is_after_jiffies(t->last_switch_time + timeout * HZ))
+		return false;
+
+	return true;
+}
 
 #ifdef CONFIG_DETECT_HUNG_TASK_BLOCKER
-static void debug_show_blocker(struct task_struct *task)
+static void debug_show_blocker(struct task_struct *task, unsigned long timeout)
 {
 	struct task_struct *g, *t;
 	unsigned long owner, blocker, blocker_type;
@@ -174,66 +211,48 @@ static void debug_show_blocker(struct task_struct *task)
 			       t->pid, rwsem_blocked_by);
 			break;
 		}
-		sched_show_task(t);
+		/* Avoid duplicated task dump, skip if the task is also hung. */
+		if (!task_is_hung(t, timeout))
+			sched_show_task(t);
 		return;
 	}
 }
 #else
-static inline void debug_show_blocker(struct task_struct *task)
+static inline void debug_show_blocker(struct task_struct *task, unsigned long timeout)
 {
 }
 #endif
 
-static void check_hung_task(struct task_struct *t, unsigned long timeout)
+/**
+ * hung_task_info - Print diagnostic details for a hung task
+ * @t: Pointer to the detected hung task.
+ * @timeout: Timeout threshold for detecting hung tasks
+ * @this_round_count: Count of hung tasks detected in the current iteration
+ *
+ * Print structured information about the specified hung task, if warnings
+ * are enabled or if the panic batch threshold is exceeded.
+ */
+static void hung_task_info(struct task_struct *t, unsigned long timeout,
+			   unsigned long this_round_count)
 {
-	unsigned long switch_count = t->nvcsw + t->nivcsw;
-
-	/*
-	 * Ensure the task is not frozen.
-	 * Also, skip vfork and any other user process that freezer should skip.
-	 */
-	if (unlikely(READ_ONCE(t->__state) & TASK_FROZEN))
-		return;
-
-	/*
-	 * When a freshly created task is scheduled once, changes its state to
-	 * TASK_UNINTERRUPTIBLE without having ever been switched out once, it
-	 * musn't be checked.
-	 */
-	if (unlikely(!switch_count))
-		return;
-
-	if (switch_count != t->last_switch_count) {
-		t->last_switch_count = switch_count;
-		t->last_switch_time = jiffies;
-		return;
-	}
-	if (time_is_after_jiffies(t->last_switch_time + timeout * HZ))
-		return;
-
-	/*
-	 * This counter tracks the total number of tasks detected as hung
-	 * since boot.
-	 */
-	sysctl_hung_task_detect_count++;
-
 	trace_sched_process_hang(t);
 
-	if (sysctl_hung_task_panic) {
+	if (sysctl_hung_task_panic && this_round_count >= sysctl_hung_task_panic) {
 		console_verbose();
-		hung_task_show_lock = true;
 		hung_task_call_panic = true;
 	}
 
 	/*
-	 * Ok, the task did not get scheduled for more than 2 minutes,
-	 * complain:
+	 * The given task did not get scheduled for more than
+	 * CONFIG_DEFAULT_HUNG_TASK_TIMEOUT. Therefore, complain
+	 * accordingly
 	 */
 	if (sysctl_hung_task_warnings || hung_task_call_panic) {
 		if (sysctl_hung_task_warnings > 0)
 			sysctl_hung_task_warnings--;
-		pr_err("INFO: task %s:%d blocked for more than %ld seconds.\n",
-		       t->comm, t->pid, (jiffies - t->last_switch_time) / HZ);
+		pr_err("INFO: task %s:%d blocked%s for more than %ld seconds.\n",
+		       t->comm, t->pid, t->in_iowait ? " in I/O wait" : "",
+		       (jiffies - t->last_switch_time) / HZ);
 		pr_err("      %s %s %.*s\n",
 			print_tainted(), init_utsname()->release,
 			(int)strcspn(init_utsname()->version, " "),
@@ -243,11 +262,8 @@ static void check_hung_task(struct task_struct *t, unsigned long timeout)
 		pr_err("\"echo 0 > /proc/sys/kernel/hung_task_timeout_secs\""
 			" disables this message.\n");
 		sched_show_task(t);
-		debug_show_blocker(t);
-		hung_task_show_lock = true;
+		debug_show_blocker(t, timeout);
 
-		if (sysctl_hung_task_all_cpu_backtrace)
-			hung_task_show_all_bt = true;
 		if (!sysctl_hung_task_warnings)
 			pr_info("Future hung task reports are suppressed, see sysctl kernel.hung_task_warnings\n");
 	}
@@ -280,14 +296,16 @@ static bool rcu_lock_break(struct task_struct *g, struct task_struct *t)
 
 /*
  * Check whether a TASK_UNINTERRUPTIBLE does not get woken up for
- * a really long time (120 seconds). If that happens, print out
- * a warning.
+ * a really long time. If that happens, print out a warning.
  */
 static void check_hung_uninterruptible_tasks(unsigned long timeout)
 {
 	int max_count = sysctl_hung_task_check_count;
 	unsigned long last_break = jiffies;
 	struct task_struct *g, *t;
+	unsigned long this_round_count;
+	int need_warning = sysctl_hung_task_warnings;
+	unsigned long si_mask = hung_task_si_mask;
 
 	/*
 	 * If the system crashed already then all bets are off,
@@ -296,11 +314,9 @@ static void check_hung_uninterruptible_tasks(unsigned long timeout)
 	if (test_taint(TAINT_DIE) || did_panic)
 		return;
 
-	hung_task_show_lock = false;
+	this_round_count = 0;
 	rcu_read_lock();
 	for_each_process_thread(g, t) {
-		unsigned int state;
-
 		if (!max_count--)
 			goto unlock;
 		if (time_after(jiffies, last_break + HUNG_TASK_LOCK_BREAK)) {
@@ -308,25 +324,33 @@ static void check_hung_uninterruptible_tasks(unsigned long timeout)
 				goto unlock;
 			last_break = jiffies;
 		}
-		/*
-		 * skip the TASK_KILLABLE tasks -- these can be killed
-		 * skip the TASK_IDLE tasks -- those are genuinely idle
-		 */
-		state = READ_ONCE(t->__state);
-		if ((state & TASK_UNINTERRUPTIBLE) &&
-		    !(state & TASK_WAKEKILL) &&
-		    !(state & TASK_NOLOAD))
-			check_hung_task(t, timeout);
+
+		if (task_is_hung(t, timeout)) {
+			/*
+			 * Increment the global counter so that userspace could
+			 * start migrating tasks ASAP. But count the current
+			 * round separately because userspace could reset
+			 * the global counter at any time.
+			 */
+			atomic_long_inc(&sysctl_hung_task_detect_count);
+			this_round_count++;
+			hung_task_info(t, timeout, this_round_count);
+		}
 	}
  unlock:
 	rcu_read_unlock();
-	if (hung_task_show_lock)
-		debug_show_all_locks();
 
-	if (hung_task_show_all_bt) {
-		hung_task_show_all_bt = false;
-		trigger_all_cpu_backtrace();
+	if (!this_round_count)
+		return;
+
+	if (need_warning || hung_task_call_panic) {
+		si_mask |= SYS_INFO_LOCKS;
+
+		if (sysctl_hung_task_all_cpu_backtrace)
+			si_mask |= SYS_INFO_ALL_BT;
 	}
+
+	sys_info(si_mask);
 
 	if (hung_task_call_panic)
 		panic("hung_task: blocked tasks");
@@ -341,6 +365,46 @@ static long hung_timeout_jiffies(unsigned long last_checked,
 }
 
 #ifdef CONFIG_SYSCTL
+
+/**
+ * proc_dohung_task_detect_count - proc handler for hung_task_detect_count
+ * @table: Pointer to the struct ctl_table definition for this proc entry
+ * @dir: Flag indicating the operation
+ * @buffer: User space buffer for data transfer
+ * @lenp: Pointer to the length of the data being transferred
+ * @ppos: Pointer to the current file offset
+ *
+ * This handler is used for reading the current hung task detection count
+ * and for resetting it to zero when a write operation is performed using a
+ * zero value only.
+ * Return: 0 on success, or a negative error code on failure.
+ */
+static int proc_dohung_task_detect_count(const struct ctl_table *table, int dir,
+					 void *buffer, size_t *lenp, loff_t *ppos)
+{
+	unsigned long detect_count;
+	struct ctl_table proxy_table;
+	int err;
+
+	proxy_table = *table;
+	proxy_table.data = &detect_count;
+
+	if (SYSCTL_KERN_TO_USER(dir))
+		detect_count = atomic_long_read(&sysctl_hung_task_detect_count);
+
+	err = proc_doulongvec_minmax(&proxy_table, dir, buffer, lenp, ppos);
+	if (err < 0)
+		return err;
+
+	if (SYSCTL_USER_TO_KERN(dir)) {
+		if (detect_count)
+			return -EINVAL;
+		atomic_long_set(&sysctl_hung_task_detect_count, 0);
+	}
+
+	return 0;
+}
+
 /*
  * Process updating of timeout sysctl
  */
@@ -385,7 +449,7 @@ static const struct ctl_table hung_task_sysctls[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec_minmax,
 		.extra1		= SYSCTL_ZERO,
-		.extra2		= SYSCTL_ONE,
+		.extra2		= SYSCTL_INT_MAX,
 	},
 	{
 		.procname	= "hung_task_check_count",
@@ -421,10 +485,16 @@ static const struct ctl_table hung_task_sysctls[] = {
 	},
 	{
 		.procname	= "hung_task_detect_count",
-		.data		= &sysctl_hung_task_detect_count,
 		.maxlen		= sizeof(unsigned long),
-		.mode		= 0444,
-		.proc_handler	= proc_doulongvec_minmax,
+		.mode		= 0644,
+		.proc_handler	= proc_dohung_task_detect_count,
+	},
+	{
+		.procname	= "hung_task_sys_info",
+		.data		= &hung_task_si_mask,
+		.maxlen         = sizeof(hung_task_si_mask),
+		.mode		= 0644,
+		.proc_handler	= sysctl_sys_info_handler,
 	},
 };
 

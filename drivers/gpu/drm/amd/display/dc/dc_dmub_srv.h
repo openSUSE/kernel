@@ -56,6 +56,7 @@ struct dc_dmub_srv {
 	union dmub_shared_state_ips_driver_signals driver_signals;
 	bool idle_allowed;
 	bool needs_idle_wake;
+	bool cursor_offload_enabled;
 };
 
 bool dc_dmub_srv_wait_for_pending(struct dc_dmub_srv *dc_dmub_srv);
@@ -239,11 +240,11 @@ struct lsdma_linear_sub_window_copy_params {
 	uint32_t src_slice_pitch;
 	uint32_t dst_slice_pitch;
 
-	uint32_t tmz              : 1;
+	uint32_t tmz              : 4;
 	uint32_t element_size     : 3;
 	uint32_t src_cache_policy : 3;
 	uint32_t dst_cache_policy : 3;
-	uint32_t padding          : 22;
+	uint32_t padding          : 19;
 };
 
 bool dmub_lsdma_send_linear_sub_window_copy_command(
@@ -285,12 +286,13 @@ struct lsdma_send_tiled_to_tiled_copy_command_params {
 	uint32_t swizzle_mode     : 5;
 	uint32_t element_size     : 3;
 	uint32_t dcc              : 1;
-	uint32_t tmz              : 1;
+	uint32_t tmz              : 4;
 	uint32_t read_compress    : 2;
 	uint32_t write_compress   : 2;
 	uint32_t max_com          : 2;
 	uint32_t max_uncom        : 1;
-	uint32_t padding          : 9;
+	uint32_t src_cache_policy : 3;
+	uint32_t dst_cache_policy : 3;
 };
 
 bool dmub_lsdma_send_tiled_to_tiled_copy_command(
@@ -326,9 +328,60 @@ bool dc_dmub_srv_ips_query_residency_info(const struct dc_context *ctx, uint8_t 
 					  enum ips_residency_mode ips_mode);
 
 /**
+ * dc_dmub_srv_cursor_offload_init() - Enables or disables cursor offloading for a stream.
+ *
+ * @dc: pointer to DC object
+ */
+void dc_dmub_srv_cursor_offload_init(struct dc *dc);
+
+/**
+ * dc_dmub_srv_control_cursor_offload() - Enables or disables cursor offloading for a stream.
+ *
+ * @dc: pointer to DC object
+ * @context: the DC context to reference for pipe allocations
+ * @stream: the stream to control
+ * @enable: true to enable cursor offload, false to disable
+ */
+void dc_dmub_srv_control_cursor_offload(struct dc *dc, struct dc_state *context,
+					const struct dc_stream_state *stream, bool enable);
+
+/**
+ * dc_dmub_srv_program_cursor_now() - Requests immediate cursor programming for a given pipe.
+ *
+ * @dc: pointer to DC object
+ * @pipe: top-most pipe for a stream.
+ */
+void dc_dmub_srv_program_cursor_now(struct dc *dc, const struct pipe_ctx *pipe);
+
+/**
+ * dc_dmub_srv_is_cursor_offload_enabled() - Checks if cursor offload is supported.
+ *
+ * @dc: pointer to DC object
+ *
+ * Return: true if cursor offload is supported, false otherwise
+ */
+bool dc_dmub_srv_is_cursor_offload_enabled(const struct dc *dc);
+
+/**
+ * dc_dmub_srv_boot_time_crc_init() - Initializes DMUB boot time CRC.
+ *
+ * @dc - pointer to DC object
+ * @gpu_addr - address for the boot time CRC buffer
+ * @size - size of the boot time CRC buffer
+ */
+void dc_dmub_srv_boot_time_crc_init(const struct dc *dc, uint64_t gpu_addr, uint32_t size);
+
+/**
  * dc_dmub_srv_release_hw() - Notifies DMUB service that HW access is no longer required.
  *
  * @dc - pointer to DC object
  */
 void dc_dmub_srv_release_hw(const struct dc *dc);
+
+/**
+ * dc_dmub_srv_log_preos_dmcub_info() - Logs preos dmcub fw info.
+ *
+ * @dc - pointer to DC object
+ */
+void dc_dmub_srv_log_preos_dmcub_info(struct dc_dmub_srv *dc_dmub_srv);
 #endif /* _DMUB_DC_SRV_H_ */

@@ -7,6 +7,7 @@
 
 #include <linux/kernel.h>
 #include <linux/device.h>
+#include <linux/hex.h>
 #include <linux/if.h>
 #include <linux/if_ether.h>
 #include <linux/interrupt.h>
@@ -625,7 +626,6 @@ static ssize_t ieee80211_if_fmt_aqm(
 	txqi = to_txq_info(sdata->vif.txq);
 
 	spin_lock_bh(&local->fq.lock);
-	rcu_read_lock();
 
 	len = scnprintf(buf,
 			buflen,
@@ -642,7 +642,6 @@ static ssize_t ieee80211_if_fmt_aqm(
 			txqi->tin.tx_bytes,
 			txqi->tin.tx_packets);
 
-	rcu_read_unlock();
 	spin_unlock_bh(&local->fq.lock);
 
 	return len;

@@ -16,11 +16,13 @@
 #include <linux/cdev.h>
 #include <uapi/linux/vfio.h>
 #include <linux/iova_bitmap.h>
+#include <linux/uaccess.h>
 
 struct kvm;
 struct iommufd_ctx;
 struct iommufd_device;
 struct iommufd_access;
+struct vfio_info_cap;
 
 /*
  * VFIO devices can be placed in a set, this allows all devices to share this
@@ -51,6 +53,7 @@ struct vfio_device {
 	struct vfio_device_set *dev_set;
 	struct list_head dev_set_list;
 	unsigned int migration_flags;
+	u8 precopy_info_v2;
 	struct kvm *kvm;
 
 	/* Members below here are private, not for driver use */
@@ -71,13 +74,11 @@ struct vfio_device {
 	u8 iommufd_attached:1;
 #endif
 	u8 cdev_opened:1;
-#ifdef CONFIG_DEBUG_FS
 	/*
 	 * debug_root is a static property of the vfio_device
 	 * which must be set prior to registering the vfio_device.
 	 */
 	struct dentry *debug_root;
-#endif
 };
 
 /**
@@ -132,6 +133,9 @@ struct vfio_device_ops {
 			 size_t count, loff_t *size);
 	long	(*ioctl)(struct vfio_device *vdev, unsigned int cmd,
 			 unsigned long arg);
+	int	(*get_region_info_caps)(struct vfio_device *vdev,
+					struct vfio_region_info *info,
+					struct vfio_info_cap *caps);
 	int	(*mmap)(struct vfio_device *vdev, struct vm_area_struct *vma);
 	void	(*request)(struct vfio_device *vdev, unsigned int count);
 	int	(*match)(struct vfio_device *vdev, char *buf);
@@ -280,6 +284,44 @@ static inline int vfio_check_feature(u32 flags, size_t argsz, u32 supported_ops,
 	return 1;
 }
 
+/**
+ * vfio_check_precopy_ioctl - Validate user input for the VFIO_MIG_GET_PRECOPY_INFO ioctl
+ * @vdev: The vfio device
+ * @cmd: Cmd from the ioctl
+ * @arg: Arg from the ioctl
+ * @info: Driver pointer to hold the userspace input to the ioctl
+ *
+ * For use in a driver's get_precopy_info. Checks that the inputs to the
+ * VFIO_MIG_GET_PRECOPY_INFO ioctl are correct.
+
+ * Returns 0 on success, otherwise errno.
+ */
+
+static inline int
+vfio_check_precopy_ioctl(struct vfio_device *vdev, unsigned int cmd,
+			 unsigned long arg, struct vfio_precopy_info *info)
+{
+	unsigned long minsz;
+
+	if (cmd != VFIO_MIG_GET_PRECOPY_INFO)
+		return -ENOTTY;
+
+	minsz = offsetofend(struct vfio_precopy_info, dirty_bytes);
+
+	if (copy_from_user(info, (void __user *)arg, minsz))
+		return -EFAULT;
+
+	if (info->argsz < minsz)
+		return -EINVAL;
+
+	/* keep v1 behaviour as is for compatibility reasons */
+	if (vdev->precopy_info_v2)
+		/* flags are output, set its initial value to 0 */
+		info->flags = 0;
+
+	return 0;
+}
+
 struct vfio_device *_vfio_alloc_device(size_t size, struct device *dev,
 				       const struct vfio_device_ops *ops);
 #define vfio_alloc_device(dev_struct, member, dev, ops)				\
@@ -297,6 +339,8 @@ static inline void vfio_put_device(struct vfio_device *device)
 int vfio_register_group_dev(struct vfio_device *device);
 int vfio_register_emulated_iommu_dev(struct vfio_device *device);
 void vfio_unregister_group_dev(struct vfio_device *device);
+bool vfio_device_try_get_registration(struct vfio_device *device);
+void vfio_device_put_registration(struct vfio_device *device);
 
 int vfio_assign_device_set(struct vfio_device *device, void *set_id);
 unsigned int vfio_device_set_open_count(struct vfio_device_set *dev_set);

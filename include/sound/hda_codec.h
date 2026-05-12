@@ -336,6 +336,17 @@ snd_hda_codec_write(struct hda_codec *codec, hda_nid_t nid, int flags,
 	return snd_hdac_codec_write(&codec->core, nid, flags, verb, parm);
 }
 
+/* sync after write */
+static inline int
+snd_hda_codec_write_sync(struct hda_codec *codec, hda_nid_t nid, int flags,
+			 unsigned int verb, unsigned int parm)
+{
+	/* use snd_hda_codec_read() for writing;
+	 * the returned value is usually discarded
+	 */
+	return snd_hdac_codec_read(&codec->core, nid, flags, verb, parm);
+}
+
 #define snd_hda_param_read(codec, nid, param) \
 	snd_hdac_read_parm(&(codec)->core, nid, param)
 #define snd_hda_get_sub_nodes(codec, nid, start_nid) \
@@ -360,8 +371,8 @@ int snd_hda_override_conn_list(struct hda_codec *codec, hda_nid_t nid, int nums,
 int snd_hda_get_conn_index(struct hda_codec *codec, hda_nid_t mux,
 			   hda_nid_t nid, int recursive);
 unsigned int snd_hda_get_num_devices(struct hda_codec *codec, hda_nid_t nid);
-int snd_hda_get_devices(struct hda_codec *codec, hda_nid_t nid,
-			u8 *dev_list, int max_devices);
+unsigned int snd_hda_get_devices(struct hda_codec *codec, hda_nid_t nid,
+				u8 *dev_list, unsigned int max_devices);
 int snd_hda_get_dev_select(struct hda_codec *codec, hda_nid_t nid);
 int snd_hda_set_dev_select(struct hda_codec *codec, hda_nid_t nid, int dev_id);
 
@@ -470,6 +481,10 @@ void snd_hda_unlock_devices(struct hda_bus *bus);
 void snd_hda_bus_reset(struct hda_bus *bus);
 void snd_hda_bus_reset_codecs(struct hda_bus *bus);
 
+void snd_hda_codec_set_gpio(struct hda_codec *codec, unsigned int mask,
+			    unsigned int dir, unsigned int data,
+			    unsigned int delay);
+
 int snd_hda_codec_set_name(struct hda_codec *codec, const char *name);
 
 /*
@@ -502,6 +517,36 @@ static inline bool hda_codec_need_resume(struct hda_codec *codec)
 {
 	return !codec->relaxed_resume && codec->jacktbl.used;
 }
+
+/*
+ * PM with auto-cleanup: call like CLASS(snd_hda_power, pm)(codec)
+ * If the error handling is needed, refer pm.err.
+ */
+struct __hda_power_obj {
+	struct hda_codec *codec;
+	int err;
+};
+
+static inline struct __hda_power_obj __snd_hda_power_up(struct hda_codec *codec)
+{
+	struct __hda_power_obj T = { .codec = codec };
+	T.err = snd_hda_power_up(codec);
+	return T;
+}
+
+static inline struct __hda_power_obj __snd_hda_power_up_pm(struct hda_codec *codec)
+{
+	struct __hda_power_obj T = { .codec = codec };
+	T.err = snd_hda_power_up_pm(codec);
+	return T;
+}
+
+DEFINE_CLASS(snd_hda_power, struct __hda_power_obj,
+	     snd_hda_power_down((_T).codec), __snd_hda_power_up(codec),
+	     struct hda_codec *codec)
+DEFINE_CLASS(snd_hda_power_pm, struct __hda_power_obj,
+	     snd_hda_power_down_pm((_T).codec), __snd_hda_power_up_pm(codec),
+	     struct hda_codec *codec)
 
 #ifdef CONFIG_SND_HDA_PATCH_LOADER
 /*

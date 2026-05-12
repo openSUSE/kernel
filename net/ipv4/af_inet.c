@@ -102,8 +102,8 @@
 #include <net/gro.h>
 #include <net/gso.h>
 #include <net/tcp.h>
+#include <net/psp.h>
 #include <net/udp.h>
-#include <net/udplite.h>
 #include <net/ping.h>
 #include <linux/skbuff.h>
 #include <net/sock.h>
@@ -122,6 +122,12 @@
 #include <net/rps.h>
 
 #include <trace/events/sock.h>
+
+/* Keep the definition of IPv6 disable here for now, to avoid annoying linker
+ * issues in case IPv6=m
+ */
+int disable_ipv6_mod;
+EXPORT_SYMBOL(disable_ipv6_mod);
 
 /* The inetsw table contains everything that inet_create needs to
  * build a new socket.
@@ -158,6 +164,7 @@ void inet_sock_destruct(struct sock *sk)
 	kfree(rcu_dereference_protected(inet->inet_opt, 1));
 	dst_release(rcu_dereference_protected(sk->sk_dst_cache, 1));
 	dst_release(rcu_dereference_protected(sk->sk_rx_dst, 1));
+	psp_sk_assoc_free(sk);
 }
 EXPORT_SYMBOL(inet_sock_destruct);
 
@@ -439,7 +446,7 @@ int inet_release(struct socket *sock)
 }
 EXPORT_SYMBOL(inet_release);
 
-int inet_bind_sk(struct sock *sk, struct sockaddr *uaddr, int addr_len)
+int inet_bind_sk(struct sock *sk, struct sockaddr_unsized *uaddr, int addr_len)
 {
 	u32 flags = BIND_WITH_LOCK;
 	int err;
@@ -462,13 +469,13 @@ int inet_bind_sk(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 	return __inet_bind(sk, uaddr, addr_len, flags);
 }
 
-int inet_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
+int inet_bind(struct socket *sock, struct sockaddr_unsized *uaddr, int addr_len)
 {
 	return inet_bind_sk(sock->sk, uaddr, addr_len);
 }
 EXPORT_SYMBOL(inet_bind);
 
-int __inet_bind(struct sock *sk, struct sockaddr *uaddr, int addr_len,
+int __inet_bind(struct sock *sk, struct sockaddr_unsized *uaddr, int addr_len,
 		u32 flags)
 {
 	struct sockaddr_in *addr = (struct sockaddr_in *)uaddr;
@@ -565,7 +572,7 @@ out:
 	return err;
 }
 
-int inet_dgram_connect(struct socket *sock, struct sockaddr *uaddr,
+int inet_dgram_connect(struct socket *sock, struct sockaddr_unsized *uaddr,
 		       int addr_len, int flags)
 {
 	struct sock *sk = sock->sk;
@@ -621,7 +628,7 @@ static long inet_wait_for_connect(struct sock *sk, long timeo, int writebias)
  *	Connect to a remote host. There is regrettably still a little
  *	TCP 'magic' in here.
  */
-int __inet_stream_connect(struct socket *sock, struct sockaddr *uaddr,
+int __inet_stream_connect(struct socket *sock, struct sockaddr_unsized *uaddr,
 			  int addr_len, int flags, int is_sendmsg)
 {
 	struct sock *sk = sock->sk;
@@ -739,7 +746,7 @@ sock_error:
 }
 EXPORT_SYMBOL(__inet_stream_connect);
 
-int inet_stream_connect(struct socket *sock, struct sockaddr *uaddr,
+int inet_stream_connect(struct socket *sock, struct sockaddr_unsized *uaddr,
 			int addr_len, int flags)
 {
 	int err;
@@ -753,6 +760,11 @@ EXPORT_SYMBOL(inet_stream_connect);
 
 void __inet_accept(struct socket *sock, struct socket *newsock, struct sock *newsk)
 {
+	if (mem_cgroup_sockets_enabled) {
+		mem_cgroup_sk_alloc(newsk);
+		__sk_charge(newsk, GFP_KERNEL);
+	}
+
 	sock_rps_record_flow(newsk);
 	WARN_ON(!((1 << newsk->sk_state) &
 		  (TCPF_ESTABLISHED | TCPF_SYN_RECV |
@@ -766,6 +778,7 @@ void __inet_accept(struct socket *sock, struct socket *newsock, struct sock *new
 
 	newsock->state = SS_CONNECTED;
 }
+EXPORT_SYMBOL_GPL(__inet_accept);
 
 /*
  *	Accept a pending connection. The TCP layer now gives BSD semantics.
@@ -811,7 +824,7 @@ int inet_getname(struct socket *sock, struct sockaddr *uaddr,
 		}
 		sin->sin_port = inet->inet_dport;
 		sin->sin_addr.s_addr = inet->inet_daddr;
-		BPF_CGROUP_RUN_SA_PROG(sk, (struct sockaddr *)sin, &sin_addr_len,
+		BPF_CGROUP_RUN_SA_PROG(sk, sin, &sin_addr_len,
 				       CGROUP_INET4_GETPEERNAME);
 	} else {
 		__be32 addr = inet->inet_rcv_saddr;
@@ -819,7 +832,7 @@ int inet_getname(struct socket *sock, struct sockaddr *uaddr,
 			addr = inet->inet_saddr;
 		sin->sin_port = inet->inet_sport;
 		sin->sin_addr.s_addr = addr;
-		BPF_CGROUP_RUN_SA_PROG(sk, (struct sockaddr *)sin, &sin_addr_len,
+		BPF_CGROUP_RUN_SA_PROG(sk, sin, &sin_addr_len,
 				       CGROUP_INET4_GETSOCKNAME);
 	}
 	release_sock(sk);
@@ -844,11 +857,13 @@ EXPORT_SYMBOL_GPL(inet_send_prepare);
 int inet_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
 {
 	struct sock *sk = sock->sk;
+	const struct proto *prot;
 
 	if (unlikely(inet_send_prepare(sk)))
 		return -EAGAIN;
 
-	return INDIRECT_CALL_2(sk->sk_prot->sendmsg, tcp_sendmsg, udp_sendmsg,
+	prot = READ_ONCE(sk->sk_prot);
+	return INDIRECT_CALL_2(prot->sendmsg, tcp_sendmsg, udp_sendmsg,
 			       sk, msg, size);
 }
 EXPORT_SYMBOL(inet_sendmsg);
@@ -868,23 +883,18 @@ void inet_splice_eof(struct socket *sock)
 }
 EXPORT_SYMBOL_GPL(inet_splice_eof);
 
-INDIRECT_CALLABLE_DECLARE(int udp_recvmsg(struct sock *, struct msghdr *,
-					  size_t, int, int *));
 int inet_recvmsg(struct socket *sock, struct msghdr *msg, size_t size,
 		 int flags)
 {
 	struct sock *sk = sock->sk;
-	int addr_len = 0;
-	int err;
+	const struct proto *prot;
 
 	if (likely(!(flags & MSG_ERRQUEUE)))
 		sock_rps_record_flow(sk);
 
-	err = INDIRECT_CALL_2(sk->sk_prot->recvmsg, tcp_recvmsg, udp_recvmsg,
-			      sk, msg, size, flags, &addr_len);
-	if (err >= 0)
-		msg->msg_namelen = addr_len;
-	return err;
+	prot = READ_ONCE(sk->sk_prot);
+	return INDIRECT_CALL_2(prot->recvmsg, tcp_recvmsg, udp_recvmsg,
+			       sk, msg, size, flags);
 }
 EXPORT_SYMBOL(inet_recvmsg);
 
@@ -1081,6 +1091,7 @@ const struct proto_ops inet_stream_ops = {
 	.compat_ioctl	   = inet_compat_ioctl,
 #endif
 	.set_rcvlowat	   = tcp_set_rcvlowat,
+	.set_rcvbuf	   = tcp_set_rcvbuf,
 };
 EXPORT_SYMBOL(inet_stream_ops);
 
@@ -1393,14 +1404,10 @@ struct sk_buff *inet_gso_segment(struct sk_buff *skb,
 
 	segs = ERR_PTR(-EPROTONOSUPPORT);
 
-	if (!skb->encapsulation || encap) {
-		udpfrag = !!(skb_shinfo(skb)->gso_type & SKB_GSO_UDP);
-		fixedid = !!(skb_shinfo(skb)->gso_type & SKB_GSO_TCP_FIXEDID);
+	fixedid = !!(skb_shinfo(skb)->gso_type & (SKB_GSO_TCP_FIXEDID << encap));
 
-		/* fixed ID is invalid if DF bit is not set */
-		if (fixedid && !(ip_hdr(skb)->frag_off & htons(IP_DF)))
-			goto out;
-	}
+	if (!skb->encapsulation || encap)
+		udpfrag = !!(skb_shinfo(skb)->gso_type & SKB_GSO_UDP);
 
 	ops = rcu_dereference(inet_offloads[proto]);
 	if (likely(ops && ops->callbacks.gso_segment)) {
@@ -1573,15 +1580,15 @@ __be32 inet_current_timestamp(void)
 }
 EXPORT_SYMBOL(inet_current_timestamp);
 
-int inet_recv_error(struct sock *sk, struct msghdr *msg, int len, int *addr_len)
+int inet_recv_error(struct sock *sk, struct msghdr *msg, int len)
 {
 	unsigned int family = READ_ONCE(sk->sk_family);
 
 	if (family == AF_INET)
-		return ip_recv_error(sk, msg, len, addr_len);
+		return ip_recv_error(sk, msg, len);
 #if IS_ENABLED(CONFIG_IPV6)
 	if (family == AF_INET6)
-		return pingv6_ops.ipv6_recv_error(sk, msg, len, addr_len);
+		return pingv6_ops.ipv6_recv_error(sk, msg, len);
 #endif
 	return -EINVAL;
 }
@@ -1727,14 +1734,10 @@ static __net_init int ipv4_mib_init_net(struct net *net)
 	net->mib.udp_statistics = alloc_percpu(struct udp_mib);
 	if (!net->mib.udp_statistics)
 		goto err_udp_mib;
-	net->mib.udplite_statistics = alloc_percpu(struct udp_mib);
-	if (!net->mib.udplite_statistics)
-		goto err_udplite_mib;
 	net->mib.icmp_statistics = alloc_percpu(struct icmp_mib);
 	if (!net->mib.icmp_statistics)
 		goto err_icmp_mib;
-	net->mib.icmpmsg_statistics = kzalloc(sizeof(struct icmpmsg_mib),
-					      GFP_KERNEL);
+	net->mib.icmpmsg_statistics = kzalloc_obj(struct icmpmsg_mib);
 	if (!net->mib.icmpmsg_statistics)
 		goto err_icmpmsg_mib;
 
@@ -1744,8 +1747,6 @@ static __net_init int ipv4_mib_init_net(struct net *net)
 err_icmpmsg_mib:
 	free_percpu(net->mib.icmp_statistics);
 err_icmp_mib:
-	free_percpu(net->mib.udplite_statistics);
-err_udplite_mib:
 	free_percpu(net->mib.udp_statistics);
 err_udp_mib:
 	free_percpu(net->mib.net_statistics);
@@ -1761,7 +1762,6 @@ static __net_exit void ipv4_mib_exit_net(struct net *net)
 {
 	kfree(net->mib.icmpmsg_statistics);
 	free_percpu(net->mib.icmp_statistics);
-	free_percpu(net->mib.udplite_statistics);
 	free_percpu(net->mib.udp_statistics);
 	free_percpu(net->mib.net_statistics);
 	free_percpu(net->mib.ip_statistics);
@@ -1976,9 +1976,6 @@ static int __init inet_init(void)
 
 	/* Setup UDP memory threshold */
 	udp_init();
-
-	/* Add UDP-Lite (RFC 3828) */
-	udplite4_register();
 
 	raw_init();
 

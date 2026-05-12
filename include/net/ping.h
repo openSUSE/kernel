@@ -20,8 +20,7 @@
 
 /* Compatibility glue so we can support IPv6 when it's compiled as a module */
 struct pingv6_ops {
-	int (*ipv6_recv_error)(struct sock *sk, struct msghdr *msg, int len,
-			       int *addr_len);
+	int (*ipv6_recv_error)(struct sock *sk, struct msghdr *msg, int len);
 	void (*ip6_datagram_recv_common_ctl)(struct sock *sk,
 					     struct msghdr *msg,
 					     struct sk_buff *skb);
@@ -54,18 +53,17 @@ struct pingfakehdr {
 };
 
 int  ping_get_port(struct sock *sk, unsigned short ident);
-int ping_hash(struct sock *sk);
 void ping_unhash(struct sock *sk);
 
 int  ping_init_sock(struct sock *sk);
 void ping_close(struct sock *sk, long timeout);
-int  ping_bind(struct sock *sk, struct sockaddr *uaddr, int addr_len);
+int  ping_bind(struct sock *sk, struct sockaddr_unsized *uaddr, int addr_len);
 void ping_err(struct sk_buff *skb, int offset, u32 info);
 int  ping_getfrag(void *from, char *to, int offset, int fraglen, int odd,
 		  struct sk_buff *);
 
 int  ping_recvmsg(struct sock *sk, struct msghdr *msg, size_t len,
-		  int flags, int *addr_len);
+		  int flags);
 int  ping_common_sendmsg(int family, struct msghdr *msg, size_t len,
 			 void *user_icmph, size_t icmph_len);
 int  ping_queue_rcv_skb(struct sock *sk, struct sk_buff *skb);

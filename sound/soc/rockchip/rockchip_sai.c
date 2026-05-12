@@ -628,6 +628,10 @@ static int rockchip_sai_hw_params(struct snd_pcm_substream *substream,
 
 	regmap_update_bits(sai->regmap, reg, SAI_XCR_VDW_MASK | SAI_XCR_CSR_MASK, val);
 
+	if (!sai->is_tdm)
+		regmap_update_bits(sai->regmap, reg, SAI_XCR_SBW_MASK,
+				   SAI_XCR_SBW(params_physical_width(params)));
+
 	regmap_read(sai->regmap, reg, &val);
 
 	slot_width = SAI_XCR_SBW_V(val);
@@ -1227,7 +1231,7 @@ static int rockchip_sai_wait_time_info(struct snd_kcontrol *kcontrol,
 static int rockchip_sai_rd_wait_time_get(struct snd_kcontrol *kcontrol,
 					 struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct rk_sai_dev *sai = snd_soc_component_get_drvdata(component);
 
 	ucontrol->value.integer.value[0] = sai->wait_time[SNDRV_PCM_STREAM_CAPTURE];
@@ -1238,7 +1242,7 @@ static int rockchip_sai_rd_wait_time_get(struct snd_kcontrol *kcontrol,
 static int rockchip_sai_rd_wait_time_put(struct snd_kcontrol *kcontrol,
 					 struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct rk_sai_dev *sai = snd_soc_component_get_drvdata(component);
 
 	if (ucontrol->value.integer.value[0] > WAIT_TIME_MS_MAX)
@@ -1252,7 +1256,7 @@ static int rockchip_sai_rd_wait_time_put(struct snd_kcontrol *kcontrol,
 static int rockchip_sai_wr_wait_time_get(struct snd_kcontrol *kcontrol,
 					 struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct rk_sai_dev *sai = snd_soc_component_get_drvdata(component);
 
 	ucontrol->value.integer.value[0] = sai->wait_time[SNDRV_PCM_STREAM_PLAYBACK];
@@ -1263,7 +1267,7 @@ static int rockchip_sai_wr_wait_time_get(struct snd_kcontrol *kcontrol,
 static int rockchip_sai_wr_wait_time_put(struct snd_kcontrol *kcontrol,
 					 struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct rk_sai_dev *sai = snd_soc_component_get_drvdata(component);
 
 	if (ucontrol->value.integer.value[0] > WAIT_TIME_MS_MAX)
@@ -1487,8 +1491,9 @@ static int rockchip_sai_probe(struct platform_device *pdev)
 	return 0;
 
 err_runtime_suspend:
-	/* If we're !CONFIG_PM, we get -ENOSYS and disable manually */
-	if (pm_runtime_put(&pdev->dev))
+	if (IS_ENABLED(CONFIG_PM))
+		pm_runtime_put(&pdev->dev);
+	else
 		rockchip_sai_runtime_suspend(&pdev->dev);
 
 	return ret;

@@ -60,7 +60,7 @@ pmc_ssram_telemetry_add_pmt(struct pci_dev *pcidev, u64 ssram_base, void __iomem
 	info.base_addr = ssram_base;
 	info.parent = &pcidev->dev;
 
-	return intel_vsec_register(pcidev, &info);
+	return intel_vsec_register(&pcidev->dev, &info);
 }
 
 static inline u64 get_base(void __iomem *addr, u32 offset)
@@ -190,6 +190,7 @@ static const struct pci_device_id intel_pmc_ssram_telemetry_pci_ids[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PMC_DEVID_LNL_SOCM) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PMC_DEVID_PTL_PCDH) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PMC_DEVID_PTL_PCDP) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PMC_DEVID_WCL_PCDN) },
 	{ }
 };
 MODULE_DEVICE_TABLE(pci, intel_pmc_ssram_telemetry_pci_ids);

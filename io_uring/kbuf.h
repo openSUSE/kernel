@@ -14,8 +14,8 @@ enum {
 
 struct io_buffer_list {
 	/*
-	 * If ->buf_nr_pages is set, then buf_pages/buf_ring are used. If not,
-	 * then these are classic provided buffers and ->buf_list is used.
+	 * If the IOBL_BUF_RING flag is set, then buf_ring is used. If not, then
+	 * these are classic provided buffers and ->buf_list is used.
 	 */
 	union {
 		struct list_head buf_list;
@@ -27,12 +27,17 @@ struct io_buffer_list {
 	__u16 bgid;
 
 	/* below is for ring provided buffers */
-	__u16 buf_nr_pages;
-	__u16 nr_entries;
 	__u16 head;
 	__u16 mask;
 
 	__u16 flags;
+
+	/*
+	 * minimum required amount to be left to reuse an incrementally
+	 * consumed buffer. If less than this is left at consumption time,
+	 * buffer is done and head is incremented to the next buffer.
+	 */
+	__u32 min_left_sub_one;
 
 	struct io_mapped_region region;
 };
@@ -62,11 +67,12 @@ struct buf_sel_arg {
 	unsigned short partial_map;
 };
 
-void __user *io_buffer_select(struct io_kiocb *req, size_t *len,
-			      unsigned buf_group, unsigned int issue_flags);
+struct io_br_sel io_buffer_select(struct io_kiocb *req, size_t *len,
+				  unsigned buf_group, unsigned int issue_flags);
 int io_buffers_select(struct io_kiocb *req, struct buf_sel_arg *arg,
-		      unsigned int issue_flags);
-int io_buffers_peek(struct io_kiocb *req, struct buf_sel_arg *arg);
+		      struct io_br_sel *sel, unsigned int issue_flags);
+int io_buffers_peek(struct io_kiocb *req, struct buf_sel_arg *arg,
+		    struct io_br_sel *sel);
 void io_destroy_buffers(struct io_ring_ctx *ctx);
 
 int io_remove_buffers_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe);
@@ -80,23 +86,18 @@ int io_register_pbuf_status(struct io_ring_ctx *ctx, void __user *arg);
 bool io_kbuf_recycle_legacy(struct io_kiocb *req, unsigned issue_flags);
 void io_kbuf_drop_legacy(struct io_kiocb *req);
 
-unsigned int __io_put_kbufs(struct io_kiocb *req, int len, int nbufs);
+unsigned int __io_put_kbufs(struct io_kiocb *req, struct io_buffer_list *bl,
+			    int len, int nbufs);
 bool io_kbuf_commit(struct io_kiocb *req,
 		    struct io_buffer_list *bl, int len, int nr);
 
 struct io_mapped_region *io_pbuf_get_region(struct io_ring_ctx *ctx,
 					    unsigned int bgid);
 
-static inline bool io_kbuf_recycle_ring(struct io_kiocb *req)
+static inline bool io_kbuf_recycle_ring(struct io_kiocb *req,
+					struct io_buffer_list *bl)
 {
-	/*
-	 * We don't need to recycle for REQ_F_BUFFER_RING, we can just clear
-	 * the flag and hence ensure that bl->head doesn't get incremented.
-	 * If the tail has already been incremented, hang on to it.
-	 * The exception is partial io, that case we should increment bl->head
-	 * to monopolize the buffer.
-	 */
-	if (req->buf_list) {
+	if (bl) {
 		req->flags &= ~(REQ_F_BUFFER_RING|REQ_F_BUFFERS_COMMIT);
 		return true;
 	}
@@ -110,30 +111,31 @@ static inline bool io_do_buffer_select(struct io_kiocb *req)
 	return !(req->flags & (REQ_F_BUFFER_SELECTED|REQ_F_BUFFER_RING));
 }
 
-static inline bool io_kbuf_recycle(struct io_kiocb *req, unsigned issue_flags)
+static inline bool io_kbuf_recycle(struct io_kiocb *req, struct io_buffer_list *bl,
+				   unsigned issue_flags)
 {
 	if (req->flags & REQ_F_BL_NO_RECYCLE)
 		return false;
+	if (req->flags & REQ_F_BUFFER_RING)
+		return io_kbuf_recycle_ring(req, bl);
 	if (req->flags & REQ_F_BUFFER_SELECTED)
 		return io_kbuf_recycle_legacy(req, issue_flags);
-	if (req->flags & REQ_F_BUFFER_RING)
-		return io_kbuf_recycle_ring(req);
 	return false;
 }
 
 static inline unsigned int io_put_kbuf(struct io_kiocb *req, int len,
-				       unsigned issue_flags)
+				       struct io_buffer_list *bl)
 {
 	if (!(req->flags & (REQ_F_BUFFER_RING | REQ_F_BUFFER_SELECTED)))
 		return 0;
-	return __io_put_kbufs(req, len, 1);
+	return __io_put_kbufs(req, bl, len, 1);
 }
 
 static inline unsigned int io_put_kbufs(struct io_kiocb *req, int len,
-					int nbufs, unsigned issue_flags)
+					struct io_buffer_list *bl, int nbufs)
 {
 	if (!(req->flags & (REQ_F_BUFFER_RING | REQ_F_BUFFER_SELECTED)))
 		return 0;
-	return __io_put_kbufs(req, len, nbufs);
+	return __io_put_kbufs(req, bl, len, nbufs);
 }
 #endif

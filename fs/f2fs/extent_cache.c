@@ -34,7 +34,7 @@ bool sanity_check_extent_cache(struct inode *inode, struct folio *ifolio)
 	if (!f2fs_is_valid_blkaddr(sbi, ei.blk, DATA_GENERIC_ENHANCE) ||
 	    !f2fs_is_valid_blkaddr(sbi, ei.blk + ei.len - 1,
 					DATA_GENERIC_ENHANCE)) {
-		f2fs_warn(sbi, "%s: inode (ino=%lx) extent info [%u, %u, %u] is incorrect, run fsck to fix",
+		f2fs_warn(sbi, "%s: inode (ino=%llx) extent info [%u, %u, %u] is incorrect, run fsck to fix",
 			  __func__, inode->i_ino,
 			  ei.blk, ei.fofs, ei.len);
 		return false;
@@ -50,14 +50,14 @@ bool sanity_check_extent_cache(struct inode *inode, struct folio *ifolio)
 
 		if (devi == 0) {
 			f2fs_warn(sbi,
-			    "%s: inode (ino=%lx) is an alias of meta device",
+			    "%s: inode (ino=%llx) is an alias of meta device",
 			    __func__, inode->i_ino);
 			return false;
 		}
 
 		if (bdev_is_zoned(FDEV(devi).bdev)) {
 			f2fs_warn(sbi,
-			    "%s: device alias inode (ino=%lx)'s extent info "
+			    "%s: device alias inode (ino=%llx)'s extent info "
 			    "[%u, %u, %u] maps to zoned block device",
 			    __func__, inode->i_ino, ei.blk, ei.fofs, ei.len);
 			return false;
@@ -65,7 +65,7 @@ bool sanity_check_extent_cache(struct inode *inode, struct folio *ifolio)
 		return true;
 	}
 
-	f2fs_warn(sbi, "%s: device alias inode (ino=%lx)'s extent info "
+	f2fs_warn(sbi, "%s: device alias inode (ino=%llx)'s extent info "
 			"[%u, %u, %u] is inconsistent w/ any devices",
 			__func__, inode->i_ino, ei.blk, ei.fofs, ei.len);
 	return false;
@@ -119,9 +119,10 @@ static bool __may_extent_tree(struct inode *inode, enum extent_type type)
 	if (!__init_may_extent_tree(inode, type))
 		return false;
 
+	if (is_inode_flag_set(inode, FI_NO_EXTENT))
+		return false;
+
 	if (type == EX_READ) {
-		if (is_inode_flag_set(inode, FI_NO_EXTENT))
-			return false;
 		if (is_inode_flag_set(inode, FI_COMPRESSED_FILE) &&
 				 !f2fs_sb_has_readonly(F2FS_I_SB(inode)))
 			return false;
@@ -604,7 +605,13 @@ static struct extent_node *__insert_extent_tree(struct f2fs_sb_info *sbi,
 			p = &(*p)->rb_right;
 			leftmost = false;
 		} else {
+			f2fs_err_ratelimited(sbi, "%s: corrupted extent, type: %d, "
+				"extent node in rb tree [%u, %u, %u], age [%llu, %llu], "
+				"extent node to insert [%u, %u, %u], age [%llu, %llu]",
+				__func__, et->type, en->ei.fofs, en->ei.blk, en->ei.len, en->ei.age,
+				en->ei.last_blocks, ei->fofs, ei->blk, ei->len, ei->age, ei->last_blocks);
 			f2fs_bug_on(sbi, 1);
+			return NULL;
 		}
 	}
 
@@ -638,6 +645,8 @@ static unsigned int __destroy_extent_node(struct inode *inode,
 
 	while (atomic_read(&et->node_cnt)) {
 		write_lock(&et->lock);
+		if (!is_inode_flag_set(inode, FI_NO_EXTENT))
+			set_inode_flag(inode, FI_NO_EXTENT);
 		node_cnt += __free_extent_tree(sbi, et, nr_shrink);
 		write_unlock(&et->lock);
 	}
@@ -664,6 +673,15 @@ static void __update_extent_tree_range(struct inode *inode,
 	if (!et)
 		return;
 
+	if (unlikely(len == 0)) {
+		f2fs_err_ratelimited(sbi, "%s: extent len is zero, type: %d, "
+			"extent [%u, %u, %u], age [%llu, %llu]",
+			__func__, type, tei->fofs, tei->blk, tei->len,
+			tei->age, tei->last_blocks);
+		f2fs_bug_on(sbi, 1);
+		return;
+	}
+
 	if (type == EX_READ)
 		trace_f2fs_update_read_extent_tree_range(inode, fofs, len,
 						tei->blk, 0);
@@ -673,12 +691,12 @@ static void __update_extent_tree_range(struct inode *inode,
 
 	write_lock(&et->lock);
 
-	if (type == EX_READ) {
-		if (is_inode_flag_set(inode, FI_NO_EXTENT)) {
-			write_unlock(&et->lock);
-			return;
-		}
+	if (is_inode_flag_set(inode, FI_NO_EXTENT)) {
+		write_unlock(&et->lock);
+		return;
+	}
 
+	if (type == EX_READ) {
 		prev = et->largest;
 		dei.len = 0;
 
@@ -793,7 +811,7 @@ static void __update_extent_tree_range(struct inode *inode,
 	}
 	goto out_read_extent_cache;
 update_age_extent_cache:
-	if (!tei->last_blocks)
+	if (tei->last_blocks == F2FS_EXTENT_AGE_INVALID)
 		goto out_read_extent_cache;
 
 	__set_extent_info(&ei, fofs, len, 0, false,
@@ -897,7 +915,7 @@ static int __get_new_block_age(struct inode *inode, struct extent_info *ei,
 			cur_age = cur_blocks - tei.last_blocks;
 		else
 			/* allocated_data_blocks overflow */
-			cur_age = ULLONG_MAX - tei.last_blocks + cur_blocks;
+			cur_age = (ULLONG_MAX - 1) - tei.last_blocks + cur_blocks;
 
 		if (tei.age)
 			ei->age = __calculate_block_age(sbi, cur_age, tei.age);
@@ -1099,6 +1117,7 @@ void f2fs_update_age_extent_cache_range(struct dnode_of_data *dn,
 	struct extent_info ei = {
 		.fofs = fofs,
 		.len = len,
+		.last_blocks = F2FS_EXTENT_AGE_INVALID,
 	};
 
 	if (!__may_extent_tree(dn->inode, EX_BLOCK_AGE))

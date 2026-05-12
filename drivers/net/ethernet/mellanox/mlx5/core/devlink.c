@@ -10,6 +10,7 @@
 #include "esw/qos.h"
 #include "sf/dev/dev.h"
 #include "sf/sf.h"
+#include "lib/nv_param.h"
 
 static int mlx5_devlink_flash_update(struct devlink *devlink,
 				     struct devlink_flash_update_params *params,
@@ -106,9 +107,7 @@ mlx5_devlink_info_get(struct devlink *devlink, struct devlink_info_req *req,
 	if (err)
 		return err;
 
-	err = mlx5_fw_version_query(dev, &running_fw, &stored_fw);
-	if (err)
-		return err;
+	mlx5_fw_version_query(dev, &running_fw, &stored_fw);
 
 	snprintf(version_str, sizeof(version_str), "%d.%d.%04d",
 		 mlx5_fw_ver_major(running_fw), mlx5_fw_ver_minor(running_fw),
@@ -196,16 +195,16 @@ static int mlx5_devlink_reload_down(struct devlink *devlink, bool netns_change,
 	struct pci_dev *pdev = dev->pdev;
 	int ret = 0;
 
+	if (mlx5_fw_reset_in_progress(dev)) {
+		NL_SET_ERR_MSG_MOD(extack, "Can't reload during firmware reset");
+		return -EBUSY;
+	}
+
 	if (mlx5_dev_is_lightweight(dev)) {
 		if (action != DEVLINK_RELOAD_ACTION_DRIVER_REINIT)
 			return -EOPNOTSUPP;
 		mlx5_unload_one_light(dev);
 		return 0;
-	}
-
-	if (mlx5_lag_is_active(dev)) {
-		NL_SET_ERR_MSG_MOD(extack, "reload is unsupported in Lag mode");
-		return -EOPNOTSUPP;
 	}
 
 	if (mlx5_core_is_mp_slave(dev)) {
@@ -293,7 +292,7 @@ static int mlx5_devlink_trap_init(struct devlink *devlink, const struct devlink_
 	struct mlx5_core_dev *dev = devlink_priv(devlink);
 	struct mlx5_devlink_trap *dl_trap;
 
-	dl_trap = kzalloc(sizeof(*dl_trap), GFP_KERNEL);
+	dl_trap = kzalloc_obj(*dl_trap);
 	if (!dl_trap)
 		return -ENOMEM;
 
@@ -534,6 +533,25 @@ mlx5_devlink_hairpin_queue_size_validate(struct devlink *devlink, u32 id,
 	return 0;
 }
 
+static int mlx5_devlink_num_doorbells_validate(struct devlink *devlink, u32 id,
+					       union devlink_param_value val,
+					       struct netlink_ext_ack *extack)
+{
+	struct mlx5_core_dev *mdev = devlink_priv(devlink);
+	u32 val32 = val.vu32;
+	u32 max_num_channels;
+
+	max_num_channels = mlx5e_get_max_num_channels(mdev);
+	if (val32 > max_num_channels) {
+		NL_SET_ERR_MSG_FMT_MOD(extack,
+				       "Requested num_doorbells (%u) exceeds max number of channels (%u)",
+				       val32, max_num_channels);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static void mlx5_devlink_hairpin_params_init_values(struct devlink *devlink)
 {
 	struct mlx5_core_dev *dev = devlink_priv(devlink);
@@ -613,6 +631,9 @@ static const struct devlink_param mlx5_devlink_eth_params[] = {
 			     "hairpin_queue_size", DEVLINK_PARAM_TYPE_U32,
 			     BIT(DEVLINK_PARAM_CMODE_DRIVERINIT), NULL, NULL,
 			     mlx5_devlink_hairpin_queue_size_validate),
+	DEVLINK_PARAM_GENERIC(NUM_DOORBELLS,
+			      BIT(DEVLINK_PARAM_CMODE_DRIVERINIT), NULL, NULL,
+			      mlx5_devlink_num_doorbells_validate),
 };
 
 static int mlx5_devlink_eth_params_register(struct devlink *devlink)
@@ -636,6 +657,10 @@ static int mlx5_devlink_eth_params_register(struct devlink *devlink)
 
 	mlx5_devlink_hairpin_params_init_values(devlink);
 
+	value.vu32 = MLX5_DEFAULT_NUM_DOORBELLS;
+	devl_param_driverinit_value_set(devlink,
+					DEVLINK_PARAM_GENERIC_ID_NUM_DOORBELLS,
+					value);
 	return 0;
 }
 
@@ -648,6 +673,105 @@ static void mlx5_devlink_eth_params_unregister(struct devlink *devlink)
 
 	devl_params_unregister(devlink, mlx5_devlink_eth_params,
 			       ARRAY_SIZE(mlx5_devlink_eth_params));
+}
+
+#define MLX5_PCIE_CONG_THRESH_MAX	10000
+#define MLX5_PCIE_CONG_THRESH_DEF_LOW	7500
+#define MLX5_PCIE_CONG_THRESH_DEF_HIGH	9000
+
+static int
+mlx5_devlink_pcie_cong_thresh_validate(struct devlink *devl, u32 id,
+				       union devlink_param_value val,
+				       struct netlink_ext_ack *extack)
+{
+	if (val.vu16 > MLX5_PCIE_CONG_THRESH_MAX) {
+		NL_SET_ERR_MSG_FMT_MOD(extack, "Value %u > max supported (%u)",
+				       val.vu16, MLX5_PCIE_CONG_THRESH_MAX);
+
+		return -EINVAL;
+	}
+
+	switch (id) {
+	case MLX5_DEVLINK_PARAM_ID_PCIE_CONG_IN_LOW:
+	case MLX5_DEVLINK_PARAM_ID_PCIE_CONG_IN_HIGH:
+	case MLX5_DEVLINK_PARAM_ID_PCIE_CONG_OUT_LOW:
+	case MLX5_DEVLINK_PARAM_ID_PCIE_CONG_OUT_HIGH:
+		break;
+	default:
+		return -EOPNOTSUPP;
+	}
+
+	return 0;
+}
+
+static void mlx5_devlink_pcie_cong_init_values(struct devlink *devlink)
+{
+	union devlink_param_value value;
+	u32 id;
+
+	value.vu16 = MLX5_PCIE_CONG_THRESH_DEF_LOW;
+	id = MLX5_DEVLINK_PARAM_ID_PCIE_CONG_IN_LOW;
+	devl_param_driverinit_value_set(devlink, id, value);
+
+	value.vu16 = MLX5_PCIE_CONG_THRESH_DEF_HIGH;
+	id = MLX5_DEVLINK_PARAM_ID_PCIE_CONG_IN_HIGH;
+	devl_param_driverinit_value_set(devlink, id, value);
+
+	value.vu16 = MLX5_PCIE_CONG_THRESH_DEF_LOW;
+	id = MLX5_DEVLINK_PARAM_ID_PCIE_CONG_OUT_LOW;
+	devl_param_driverinit_value_set(devlink, id, value);
+
+	value.vu16 = MLX5_PCIE_CONG_THRESH_DEF_HIGH;
+	id = MLX5_DEVLINK_PARAM_ID_PCIE_CONG_OUT_HIGH;
+	devl_param_driverinit_value_set(devlink, id, value);
+}
+
+static const struct devlink_param mlx5_devlink_pcie_cong_params[] = {
+	DEVLINK_PARAM_DRIVER(MLX5_DEVLINK_PARAM_ID_PCIE_CONG_IN_LOW,
+			     "pcie_cong_inbound_low", DEVLINK_PARAM_TYPE_U16,
+			     BIT(DEVLINK_PARAM_CMODE_DRIVERINIT), NULL, NULL,
+			     mlx5_devlink_pcie_cong_thresh_validate),
+	DEVLINK_PARAM_DRIVER(MLX5_DEVLINK_PARAM_ID_PCIE_CONG_IN_HIGH,
+			     "pcie_cong_inbound_high", DEVLINK_PARAM_TYPE_U16,
+			     BIT(DEVLINK_PARAM_CMODE_DRIVERINIT), NULL, NULL,
+			     mlx5_devlink_pcie_cong_thresh_validate),
+	DEVLINK_PARAM_DRIVER(MLX5_DEVLINK_PARAM_ID_PCIE_CONG_OUT_LOW,
+			     "pcie_cong_outbound_low", DEVLINK_PARAM_TYPE_U16,
+			     BIT(DEVLINK_PARAM_CMODE_DRIVERINIT), NULL, NULL,
+			     mlx5_devlink_pcie_cong_thresh_validate),
+	DEVLINK_PARAM_DRIVER(MLX5_DEVLINK_PARAM_ID_PCIE_CONG_OUT_HIGH,
+			     "pcie_cong_outbound_high", DEVLINK_PARAM_TYPE_U16,
+			     BIT(DEVLINK_PARAM_CMODE_DRIVERINIT), NULL, NULL,
+			     mlx5_devlink_pcie_cong_thresh_validate),
+};
+
+static int mlx5_devlink_pcie_cong_params_register(struct devlink *devlink)
+{
+	struct mlx5_core_dev *dev = devlink_priv(devlink);
+	int err;
+
+	if (!mlx5_pcie_cong_event_supported(dev))
+		return 0;
+
+	err = devl_params_register(devlink, mlx5_devlink_pcie_cong_params,
+				   ARRAY_SIZE(mlx5_devlink_pcie_cong_params));
+	if (err)
+		return err;
+
+	mlx5_devlink_pcie_cong_init_values(devlink);
+
+	return 0;
+}
+
+static void mlx5_devlink_pcie_cong_params_unregister(struct devlink *devlink)
+{
+	struct mlx5_core_dev *dev = devlink_priv(devlink);
+
+	if (!mlx5_pcie_cong_event_supported(dev))
+		return;
+
+	devl_params_unregister(devlink, mlx5_devlink_pcie_cong_params,
+			       ARRAY_SIZE(mlx5_devlink_pcie_cong_params));
 }
 
 static int mlx5_devlink_enable_rdma_validate(struct devlink *devlink, u32 id,
@@ -895,8 +1019,20 @@ int mlx5_devlink_params_register(struct devlink *devlink)
 	if (err)
 		goto max_uc_list_err;
 
+	err = mlx5_devlink_pcie_cong_params_register(devlink);
+	if (err)
+		goto pcie_cong_err;
+
+	err = mlx5_nv_param_register_dl_params(devlink);
+	if (err)
+		goto nv_param_err;
+
 	return 0;
 
+nv_param_err:
+	mlx5_devlink_pcie_cong_params_unregister(devlink);
+pcie_cong_err:
+	mlx5_devlink_max_uc_list_params_unregister(devlink);
 max_uc_list_err:
 	mlx5_devlink_auxdev_params_unregister(devlink);
 auxdev_reg_err:
@@ -907,6 +1043,8 @@ auxdev_reg_err:
 
 void mlx5_devlink_params_unregister(struct devlink *devlink)
 {
+	mlx5_nv_param_unregister_dl_params(devlink);
+	mlx5_devlink_pcie_cong_params_unregister(devlink);
 	mlx5_devlink_max_uc_list_params_unregister(devlink);
 	mlx5_devlink_auxdev_params_unregister(devlink);
 	devl_params_unregister(devlink, mlx5_devlink_params,

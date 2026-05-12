@@ -201,7 +201,7 @@ __clk_rcg2_recalc_rate(struct clk_hw *hw, unsigned long parent_rate, u32 cfg)
 		regmap_read(rcg->clkr.regmap, RCG_M_OFFSET(rcg), &m);
 		m &= mask;
 		regmap_read(rcg->clkr.regmap, RCG_N_OFFSET(rcg), &n);
-		n =  ~n;
+		n = ~n;
 		n &= mask;
 		n += m;
 		mode = cfg & CFG_MODE_MASK;
@@ -274,7 +274,7 @@ static int _freq_tbl_determine_rate(struct clk_hw *hw, const struct freq_tbl *f,
 			rate = tmp;
 		}
 	} else {
-		rate =  clk_hw_get_rate(p);
+		rate = clk_hw_get_rate(p);
 	}
 	req->best_parent_hw = p;
 	req->best_parent_rate = rate;
@@ -311,7 +311,7 @@ __clk_rcg2_select_conf(struct clk_hw *hw, const struct freq_multi_tbl *f,
 		if (!p)
 			continue;
 
-		parent_rate =  clk_hw_get_rate(p);
+		parent_rate = clk_hw_get_rate(p);
 		rate = calc_rate(parent_rate, conf->n, conf->m, conf->n, conf->pre_div);
 
 		if (rate == req_rate) {
@@ -382,7 +382,7 @@ static int _freq_tbl_fm_determine_rate(struct clk_hw *hw, const struct freq_mult
 			rate = tmp;
 		}
 	} else {
-		rate =  clk_hw_get_rate(p);
+		rate = clk_hw_get_rate(p);
 	}
 
 	req->best_parent_hw = p;
@@ -755,7 +755,7 @@ static int clk_rcg2_get_duty_cycle(struct clk_hw *hw, struct clk_duty *duty)
 static int clk_rcg2_set_duty_cycle(struct clk_hw *hw, struct clk_duty *duty)
 {
 	struct clk_rcg2 *rcg = to_clk_rcg2(hw);
-	u32 notn_m, n, m, d, not2d, mask, duty_per, cfg;
+	u32 notn_m, n, m, d, not2d, mask, cfg;
 	int ret;
 
 	/* Duty-cycle cannot be modified for non-MND RCGs */
@@ -774,10 +774,8 @@ static int clk_rcg2_set_duty_cycle(struct clk_hw *hw, struct clk_duty *duty)
 
 	n = (~(notn_m) + m) & mask;
 
-	duty_per = (duty->num * 100) / duty->den;
-
 	/* Calculate 2d value */
-	d = DIV_ROUND_CLOSEST(n * duty_per * 2, 100);
+	d = DIV_ROUND_CLOSEST(n * duty->num * 2, duty->den);
 
 	/*
 	 * Check bit widths of 2d. If D is too big reduce duty cycle.
@@ -1119,6 +1117,8 @@ static const struct frac_entry frac_table_pixel[] = {
 	{ 4, 9 },
 	{ 1, 1 },
 	{ 2, 3 },
+	{ 16, 35},
+	{ 4, 15},
 	{ }
 };
 
@@ -1266,6 +1266,7 @@ static int clk_gfx3d_determine_rate(struct clk_hw *hw,
 	if (req->max_rate < parent_req.max_rate)
 		parent_req.max_rate = req->max_rate;
 
+	parent_req.best_parent_hw = req->best_parent_hw;
 	ret = __clk_determine_rate(req->best_parent_hw, &parent_req);
 	if (ret)
 		return ret;
@@ -1651,7 +1652,7 @@ static int clk_rcg2_dfs_populate_freq_table(struct clk_rcg2 *rcg)
 	int i;
 
 	/* Allocate space for 1 extra since table is NULL terminated */
-	freq_tbl = kcalloc(MAX_PERF_LEVEL + 1, sizeof(*freq_tbl), GFP_KERNEL);
+	freq_tbl = kzalloc_objs(*freq_tbl, MAX_PERF_LEVEL + 1);
 	if (!freq_tbl)
 		return -ENOMEM;
 	rcg->freq_tbl = freq_tbl;

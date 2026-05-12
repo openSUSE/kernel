@@ -30,12 +30,12 @@
 
 #include <drm/drm_mm.h>
 
-#include "gt/intel_ggtt_fencing.h"
 #include "gem/i915_gem_object.h"
-
-#include "i915_gem_gtt.h"
+#include "gt/intel_ggtt_fencing.h"
 
 #include "i915_active.h"
+#include "i915_gem_gtt.h"
+#include "i915_ptr_util.h"
 #include "i915_request.h"
 #include "i915_vma_resource.h"
 #include "i915_vma_types.h"
@@ -402,11 +402,6 @@ i915_vma_unpin_fence(struct i915_vma *vma)
 {
 	if (vma->fence)
 		__i915_vma_unpin_fence(vma);
-}
-
-static inline int i915_vma_fence_id(const struct i915_vma *vma)
-{
-	return vma->fence ? vma->fence->id : -1;
 }
 
 void i915_vma_parked(struct intel_gt *gt);

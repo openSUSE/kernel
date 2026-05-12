@@ -34,13 +34,13 @@
 #include <drm/drm_edid.h>
 #include <drm/drm_file.h>
 #include <drm/drm_print.h>
+#include <drm/intel/pci_config.h>
 
 #include "intel_acpi.h"
 #include "intel_backlight.h"
 #include "intel_display_core.h"
 #include "intel_display_types.h"
 #include "intel_opregion.h"
-#include "intel_pci_config.h"
 
 #define OPREGION_HEADER_OFFSET 0
 #define OPREGION_ACPI_OFFSET   0x100
@@ -898,7 +898,7 @@ int intel_opregion_setup(struct intel_display *display)
 		return -ENOTSUPP;
 	}
 
-	opregion = kzalloc(sizeof(*opregion), GFP_KERNEL);
+	opregion = kzalloc_obj(*opregion);
 	if (!opregion)
 		return -ENOMEM;
 

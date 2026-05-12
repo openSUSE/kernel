@@ -27,6 +27,7 @@
 #include <linux/kernel_stat.h>
 
 #include <linux/cgroup-defs.h>
+#include <linux/cgroup_namespace.h>
 
 struct kernel_clone_args;
 
@@ -40,6 +41,14 @@ struct kernel_clone_args;
 #define CGROUP_WEIGHT_MAX		10000
 
 #ifdef CONFIG_CGROUPS
+
+/*
+ * To avoid confusing the compiler (and generating warnings) with code
+ * that attempts to access what would be a 0-element array (i.e. sized
+ * to a potentially empty array when CGROUP_SUBSYS_COUNT == 0), this
+ * constant expression can be added.
+ */
+#define CGROUP_HAS_SUBSYS_CONFIG	(CGROUP_SUBSYS_COUNT > 0)
 
 enum css_task_iter_flags {
 	CSS_TASK_ITER_PROCS    = (1U << 0),  /* walk only threadgroup leaders */
@@ -75,6 +84,7 @@ enum cgroup_lifetime_events {
 extern struct file_system_type cgroup_fs_type;
 extern struct cgroup_root cgrp_dfl_root;
 extern struct css_set init_css_set;
+extern struct mutex cgroup_mutex;
 extern spinlock_t css_set_lock;
 extern struct blocking_notifier_head cgroup_lifetime_notifier;
 
@@ -101,6 +111,8 @@ extern struct blocking_notifier_head cgroup_lifetime_notifier;
  */
 #define cgroup_subsys_on_dfl(ss)						\
 	static_branch_likely(&ss ## _on_dfl_key)
+
+bool cgroup_on_dfl(const struct cgroup *cgrp);
 
 bool css_has_online_children(struct cgroup_subsys_state *css);
 struct cgroup_subsys_state *css_from_id(int id, struct cgroup_subsys *ss);
@@ -136,9 +148,10 @@ extern void cgroup_cancel_fork(struct task_struct *p,
 			       struct kernel_clone_args *kargs);
 extern void cgroup_post_fork(struct task_struct *p,
 			     struct kernel_clone_args *kargs);
-void cgroup_exit(struct task_struct *p);
-void cgroup_release(struct task_struct *p);
-void cgroup_free(struct task_struct *p);
+void cgroup_task_exit(struct task_struct *p);
+void cgroup_task_dead(struct task_struct *p);
+void cgroup_task_release(struct task_struct *p);
+void cgroup_task_free(struct task_struct *p);
 
 int cgroup_init_early(void);
 int cgroup_init(void);
@@ -272,6 +285,32 @@ void css_task_iter_end(struct css_task_iter *it);
 	for ((pos) = css_next_descendant_post(NULL, (css)); (pos);	\
 	     (pos) = css_next_descendant_post((pos), (css)))
 
+/* iterate over child cgrps, lock should be held throughout iteration */
+#define cgroup_for_each_live_child(child, cgrp)				\
+	list_for_each_entry((child), &(cgrp)->self.children, self.sibling) \
+		if (({ lockdep_assert_held(&cgroup_mutex);		\
+		       cgroup_is_dead(child); }))			\
+			;						\
+		else
+
+/* walk live descendants in pre order */
+#define cgroup_for_each_live_descendant_pre(dsct, d_css, cgrp)		\
+	css_for_each_descendant_pre((d_css), cgroup_css((cgrp), NULL))	\
+		if (({ lockdep_assert_held(&cgroup_mutex);		\
+		       (dsct) = (d_css)->cgroup;			\
+		       cgroup_is_dead(dsct); }))			\
+			;						\
+		else
+
+/* walk live descendants in postorder */
+#define cgroup_for_each_live_descendant_post(dsct, d_css, cgrp)		\
+	css_for_each_descendant_post((d_css), cgroup_css((cgrp), NULL))	\
+		if (({ lockdep_assert_held(&cgroup_mutex);		\
+		       (dsct) = (d_css)->cgroup;			\
+		       cgroup_is_dead(dsct); }))			\
+			;						\
+		else
+
 /**
  * cgroup_taskset_for_each - iterate cgroup_taskset
  * @task: the loop cursor
@@ -335,6 +374,27 @@ static inline u64 cgroup_id(const struct cgroup *cgrp)
 }
 
 /**
+ * cgroup_css - obtain a cgroup's css for the specified subsystem
+ * @cgrp: the cgroup of interest
+ * @ss: the subsystem of interest (%NULL returns @cgrp->self)
+ *
+ * Return @cgrp's css (cgroup_subsys_state) associated with @ss.  This
+ * function must be called either under cgroup_mutex or rcu_read_lock() and
+ * the caller is responsible for pinning the returned css if it wants to
+ * keep accessing it outside the said locks.  This function may return
+ * %NULL if @cgrp doesn't have @subsys_id enabled.
+ */
+static inline struct cgroup_subsys_state *cgroup_css(struct cgroup *cgrp,
+						     struct cgroup_subsys *ss)
+{
+	if (CGROUP_HAS_SUBSYS_CONFIG && ss)
+		return rcu_dereference_check(cgrp->subsys[ss->id],
+					lockdep_is_held(&cgroup_mutex));
+	else
+		return &cgrp->self;
+}
+
+/**
  * css_is_dying - test whether the specified css is dying
  * @css: target css
  *
@@ -354,6 +414,11 @@ static inline bool css_is_dying(struct cgroup_subsys_state *css)
 	return css->flags & CSS_DYING;
 }
 
+static inline bool css_is_online(struct cgroup_subsys_state *css)
+{
+	return css->flags & CSS_ONLINE;
+}
+
 static inline bool css_is_self(struct cgroup_subsys_state *css)
 {
 	if (css == &css->cgroup->self) {
@@ -363,6 +428,11 @@ static inline bool css_is_self(struct cgroup_subsys_state *css)
 	}
 
 	return false;
+}
+
+static inline bool cgroup_is_dead(const struct cgroup *cgrp)
+{
+	return !(cgrp->self.flags & CSS_ONLINE);
 }
 
 static inline void cgroup_get(struct cgroup *cgrp)
@@ -379,8 +449,6 @@ static inline void cgroup_put(struct cgroup *cgrp)
 {
 	css_put(&cgrp->self);
 }
-
-extern struct mutex cgroup_mutex;
 
 static inline void cgroup_lock(void)
 {
@@ -650,6 +718,7 @@ static inline void cgroup_kthread_ready(void)
 }
 
 void cgroup_path_from_kernfs_id(u64 id, char *buf, size_t buflen);
+struct cgroup *__cgroup_get_from_id(u64 id);
 struct cgroup *cgroup_get_from_id(u64 id);
 #else /* !CONFIG_CGROUPS */
 
@@ -673,9 +742,10 @@ static inline void cgroup_cancel_fork(struct task_struct *p,
 				      struct kernel_clone_args *kargs) {}
 static inline void cgroup_post_fork(struct task_struct *p,
 				    struct kernel_clone_args *kargs) {}
-static inline void cgroup_exit(struct task_struct *p) {}
-static inline void cgroup_release(struct task_struct *p) {}
-static inline void cgroup_free(struct task_struct *p) {}
+static inline void cgroup_task_exit(struct task_struct *p) {}
+static inline void cgroup_task_dead(struct task_struct *p) {}
+static inline void cgroup_task_release(struct task_struct *p) {}
+static inline void cgroup_task_free(struct task_struct *p) {}
 
 static inline int cgroup_init_early(void) { return 0; }
 static inline int cgroup_init(void) { return 0; }
@@ -782,52 +852,6 @@ static inline void cgroup_sk_clone(struct sock_cgroup_data *skcd) {}
 static inline void cgroup_sk_free(struct sock_cgroup_data *skcd) {}
 
 #endif	/* CONFIG_CGROUP_DATA */
-
-struct cgroup_namespace {
-	struct ns_common	ns;
-	struct user_namespace	*user_ns;
-	struct ucounts		*ucounts;
-	struct css_set          *root_cset;
-};
-
-extern struct cgroup_namespace init_cgroup_ns;
-
-#ifdef CONFIG_CGROUPS
-
-void free_cgroup_ns(struct cgroup_namespace *ns);
-
-struct cgroup_namespace *copy_cgroup_ns(unsigned long flags,
-					struct user_namespace *user_ns,
-					struct cgroup_namespace *old_ns);
-
-int cgroup_path_ns(struct cgroup *cgrp, char *buf, size_t buflen,
-		   struct cgroup_namespace *ns);
-
-static inline void get_cgroup_ns(struct cgroup_namespace *ns)
-{
-	refcount_inc(&ns->ns.count);
-}
-
-static inline void put_cgroup_ns(struct cgroup_namespace *ns)
-{
-	if (refcount_dec_and_test(&ns->ns.count))
-		free_cgroup_ns(ns);
-}
-
-#else /* !CONFIG_CGROUPS */
-
-static inline void free_cgroup_ns(struct cgroup_namespace *ns) { }
-static inline struct cgroup_namespace *
-copy_cgroup_ns(unsigned long flags, struct user_namespace *user_ns,
-	       struct cgroup_namespace *old_ns)
-{
-	return old_ns;
-}
-
-static inline void get_cgroup_ns(struct cgroup_namespace *ns) { }
-static inline void put_cgroup_ns(struct cgroup_namespace *ns) { }
-
-#endif /* !CONFIG_CGROUPS */
 
 #ifdef CONFIG_CGROUPS
 

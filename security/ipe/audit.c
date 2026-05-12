@@ -46,6 +46,7 @@ static const char *const audit_op_names[__IPE_OP_MAX + 1] = {
 
 static const char *const audit_hook_names[__IPE_HOOK_MAX] = {
 	"BPRM_CHECK",
+	"BPRM_CREDS_FOR_EXEC",
 	"MMAP",
 	"MPROTECT",
 	"KERNEL_READ",
@@ -152,7 +153,7 @@ void ipe_audit_match(const struct ipe_eval_ctx *const ctx,
 		if (inode) {
 			audit_log_format(ab, " dev=");
 			audit_log_untrustedstring(ab, inode->i_sb->s_id);
-			audit_log_format(ab, " ino=%lu", inode->i_ino);
+			audit_log_format(ab, " ino=%llu", inode->i_ino);
 		} else {
 			audit_log_format(ab, " dev=? ino=?");
 		}

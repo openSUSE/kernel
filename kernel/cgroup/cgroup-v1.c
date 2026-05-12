@@ -10,6 +10,7 @@
 #include <linux/sched/task.h>
 #include <linux/magic.h>
 #include <linux/slab.h>
+#include <linux/string.h>
 #include <linux/vmalloc.h>
 #include <linux/delayacct.h>
 #include <linux/pid_namespace.h>
@@ -27,7 +28,7 @@
 #define CGROUP_PIDLIST_DESTROY_DELAY	HZ
 
 /* Controllers blocked by the commandline in v1 */
-static u16 cgroup_no_v1_mask;
+static u32 cgroup_no_v1_mask;
 
 /* disable named v1 mounts */
 static bool cgroup_no_v1_named;
@@ -68,7 +69,7 @@ int cgroup_attach_task_all(struct task_struct *from, struct task_struct *tsk)
 	int retval = 0;
 
 	cgroup_lock();
-	cgroup_attach_lock(true);
+	cgroup_attach_lock(CGRP_ATTACH_LOCK_GLOBAL, NULL);
 	for_each_root(root) {
 		struct cgroup *from_cgrp;
 
@@ -80,7 +81,7 @@ int cgroup_attach_task_all(struct task_struct *from, struct task_struct *tsk)
 		if (retval)
 			break;
 	}
-	cgroup_attach_unlock(true);
+	cgroup_attach_unlock(CGRP_ATTACH_LOCK_GLOBAL, NULL);
 	cgroup_unlock();
 
 	return retval;
@@ -117,7 +118,7 @@ int cgroup_transfer_tasks(struct cgroup *to, struct cgroup *from)
 
 	cgroup_lock();
 
-	cgroup_attach_lock(true);
+	cgroup_attach_lock(CGRP_ATTACH_LOCK_GLOBAL, NULL);
 
 	/* all tasks in @from are being moved, all csets are source */
 	spin_lock_irq(&css_set_lock);
@@ -153,7 +154,7 @@ int cgroup_transfer_tasks(struct cgroup *to, struct cgroup *from)
 	} while (task && !ret);
 out_err:
 	cgroup_migrate_finish(&mgctx);
-	cgroup_attach_unlock(true);
+	cgroup_attach_unlock(CGRP_ATTACH_LOCK_GLOBAL, NULL);
 	cgroup_unlock();
 	return ret;
 }
@@ -316,7 +317,7 @@ static struct cgroup_pidlist *cgroup_pidlist_find_create(struct cgroup *cgrp,
 		return l;
 
 	/* entry not found; create a new one */
-	l = kzalloc(sizeof(struct cgroup_pidlist), GFP_KERNEL);
+	l = kzalloc_obj(struct cgroup_pidlist);
 	if (!l)
 		return l;
 
@@ -351,7 +352,7 @@ static int pidlist_array_load(struct cgroup *cgrp, enum cgroup_filetype type,
 	 * show up until sometime later on.
 	 */
 	length = cgroup_task_count(cgrp);
-	array = kvmalloc_array(length, sizeof(pid_t), GFP_KERNEL);
+	array = kvmalloc_objs(pid_t, length);
 	if (!array)
 		return -ENOMEM;
 	/* now, populate the array */
@@ -502,13 +503,13 @@ static ssize_t __cgroup1_procs_write(struct kernfs_open_file *of,
 	struct task_struct *task;
 	const struct cred *cred, *tcred;
 	ssize_t ret;
-	bool locked;
+	enum cgroup_attach_lock_mode lock_mode;
 
 	cgrp = cgroup_kn_lock_live(of->kn, false);
 	if (!cgrp)
 		return -ENODEV;
 
-	task = cgroup_procs_write_start(buf, threadgroup, &locked);
+	task = cgroup_procs_write_start(buf, threadgroup, &lock_mode);
 	ret = PTR_ERR_OR_ZERO(task);
 	if (ret)
 		goto out_unlock;
@@ -531,7 +532,7 @@ static ssize_t __cgroup1_procs_write(struct kernfs_open_file *of,
 	ret = cgroup_attach_task(cgrp, task, threadgroup);
 
 out_finish:
-	cgroup_procs_write_finish(task, locked);
+	cgroup_procs_write_finish(task, lock_mode);
 out_unlock:
 	cgroup_kn_unlock(of->kn);
 
@@ -1036,13 +1037,13 @@ int cgroup1_parse_param(struct fs_context *fc, struct fs_parameter *param)
 static int check_cgroupfs_options(struct fs_context *fc)
 {
 	struct cgroup_fs_context *ctx = cgroup_fc2context(fc);
-	u16 mask = U16_MAX;
-	u16 enabled = 0;
+	u32 mask = U32_MAX;
+	u32 enabled = 0;
 	struct cgroup_subsys *ss;
 	int i;
 
 #ifdef CONFIG_CPUSETS
-	mask = ~((u16)1 << cpuset_cgrp_id);
+	mask = ~((u32)1 << cpuset_cgrp_id);
 #endif
 	for_each_subsys(ss, i)
 		if (cgroup_ssid_enabled(i) && !cgroup1_ssid_disabled(i) &&
@@ -1094,7 +1095,7 @@ int cgroup1_reconfigure(struct fs_context *fc)
 	struct kernfs_root *kf_root = kernfs_root_from_sb(fc->root->d_sb);
 	struct cgroup_root *root = cgroup_root_from_kf(kf_root);
 	int ret = 0;
-	u16 added_mask, removed_mask;
+	u32 added_mask, removed_mask;
 
 	cgroup_lock_and_drain_offline(&cgrp_dfl_root.cgrp);
 
@@ -1133,7 +1134,7 @@ int cgroup1_reconfigure(struct fs_context *fc)
 
 	if (ctx->release_agent) {
 		spin_lock(&release_agent_path_lock);
-		strcpy(root->release_agent_path, ctx->release_agent);
+		strscpy(root->release_agent_path, ctx->release_agent);
 		spin_unlock(&release_agent_path_lock);
 	}
 
@@ -1236,7 +1237,7 @@ static int cgroup1_root_to_use(struct fs_context *fc)
 	if (ctx->ns != &init_cgroup_ns)
 		return -EPERM;
 
-	root = kzalloc(sizeof(*root), GFP_KERNEL);
+	root = kzalloc_obj(*root);
 	if (!root)
 		return -ENOMEM;
 
@@ -1325,7 +1326,7 @@ static int __init cgroup1_wq_init(void)
 	 * Cap @max_active to 1 too.
 	 */
 	cgroup_pidlist_destroy_wq = alloc_workqueue("cgroup_pidlist_destroy",
-						    0, 1);
+						    WQ_PERCPU, 1);
 	BUG_ON(!cgroup_pidlist_destroy_wq);
 	return 0;
 }
@@ -1342,7 +1343,7 @@ static int __init cgroup_no_v1(char *str)
 			continue;
 
 		if (!strcmp(token, "all")) {
-			cgroup_no_v1_mask = U16_MAX;
+			cgroup_no_v1_mask = U32_MAX;
 			continue;
 		}
 

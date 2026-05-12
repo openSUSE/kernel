@@ -32,8 +32,7 @@ static int wx_alloc_vf_macvlans(struct wx *wx, u8 num_vfs)
 	if (!num_vf_macvlans)
 		return -EINVAL;
 
-	mv_list = kcalloc(num_vf_macvlans, sizeof(struct vf_macvlans),
-			  GFP_KERNEL);
+	mv_list = kzalloc_objs(struct vf_macvlans, num_vf_macvlans);
 	if (!mv_list)
 		return -ENOMEM;
 
@@ -88,8 +87,7 @@ static int __wx_enable_sriov(struct wx *wx, u8 num_vfs)
 		wx->ring_feature[RING_F_VMDQ].limit = 1;
 	wx->ring_feature[RING_F_VMDQ].offset = num_vfs;
 
-	wx->vfinfo = kcalloc(num_vfs, sizeof(struct vf_data_storage),
-			     GFP_KERNEL);
+	wx->vfinfo = kzalloc_objs(struct vf_data_storage, num_vfs);
 	if (!wx->vfinfo)
 		return -ENOMEM;
 
@@ -122,6 +120,10 @@ static int __wx_enable_sriov(struct wx *wx, u8 num_vfs)
 	      WX_CFG_PORT_CTL_NUM_VT_MASK,
 	      value);
 
+	/* Disable RSC when in SR-IOV mode */
+	clear_bit(WX_FLAG_RSC_CAPABLE, wx->flags);
+	clear_bit(WX_FLAG_RSC_ENABLED, wx->flags);
+
 	return ret;
 }
 
@@ -150,6 +152,12 @@ static int wx_pci_sriov_enable(struct pci_dev *dev,
 	struct wx *wx = pci_get_drvdata(dev);
 	int err = 0, i;
 
+	if (netif_is_rxfh_configured(wx->netdev)) {
+		wx_err(wx, "Cannot enable SR-IOV while RXFH is configured\n");
+		wx_err(wx, "Run 'ethtool -X <if> default' to reset RSS table\n");
+		return -EBUSY;
+	}
+
 	err = __wx_enable_sriov(wx, num_vfs);
 	if (err)
 		return err;
@@ -173,12 +181,20 @@ err_out:
 	return err;
 }
 
-static void wx_pci_sriov_disable(struct pci_dev *dev)
+static int wx_pci_sriov_disable(struct pci_dev *dev)
 {
 	struct wx *wx = pci_get_drvdata(dev);
 
+	if (netif_is_rxfh_configured(wx->netdev)) {
+		wx_err(wx, "Cannot disable SR-IOV while RXFH is configured\n");
+		wx_err(wx, "Run 'ethtool -X <if> default' to reset RSS table\n");
+		return -EBUSY;
+	}
+
 	wx_disable_sriov(wx);
 	wx_sriov_reinit(wx);
+
+	return 0;
 }
 
 int wx_pci_sriov_configure(struct pci_dev *pdev, int num_vfs)
@@ -187,10 +203,8 @@ int wx_pci_sriov_configure(struct pci_dev *pdev, int num_vfs)
 	int err;
 
 	if (!num_vfs) {
-		if (!pci_vfs_assigned(pdev)) {
-			wx_pci_sriov_disable(pdev);
-			return 0;
-		}
+		if (!pci_vfs_assigned(pdev))
+			return wx_pci_sriov_disable(pdev);
 
 		wx_err(wx, "can't free VFs because some are assigned to VMs.\n");
 		return -EBUSY;

@@ -241,7 +241,7 @@ unsigned int dev_pm_opp_get_level(struct dev_pm_opp *opp)
 {
 	if (IS_ERR_OR_NULL(opp) || !opp->available) {
 		pr_err("%s: Invalid parameters\n", __func__);
-		return 0;
+		return U32_MAX;
 	}
 
 	return opp->level;
@@ -309,9 +309,9 @@ EXPORT_SYMBOL_GPL(dev_pm_opp_is_turbo);
  */
 unsigned long dev_pm_opp_get_max_clock_latency(struct device *dev)
 {
-	struct opp_table *opp_table __free(put_opp_table);
+	struct opp_table *opp_table __free(put_opp_table) =
+		_find_opp_table(dev);
 
-	opp_table = _find_opp_table(dev);
 	if (IS_ERR(opp_table))
 		return 0;
 
@@ -327,7 +327,6 @@ EXPORT_SYMBOL_GPL(dev_pm_opp_get_max_clock_latency);
  */
 unsigned long dev_pm_opp_get_max_volt_latency(struct device *dev)
 {
-	struct opp_table *opp_table __free(put_opp_table);
 	struct dev_pm_opp *opp;
 	struct regulator *reg;
 	unsigned long latency_ns = 0;
@@ -337,7 +336,9 @@ unsigned long dev_pm_opp_get_max_volt_latency(struct device *dev)
 		unsigned long max;
 	} *uV;
 
-	opp_table = _find_opp_table(dev);
+	struct opp_table *opp_table __free(put_opp_table) =
+		_find_opp_table(dev);
+
 	if (IS_ERR(opp_table))
 		return 0;
 
@@ -409,10 +410,11 @@ EXPORT_SYMBOL_GPL(dev_pm_opp_get_max_transition_latency);
  */
 unsigned long dev_pm_opp_get_suspend_opp_freq(struct device *dev)
 {
-	struct opp_table *opp_table __free(put_opp_table);
 	unsigned long freq = 0;
 
-	opp_table = _find_opp_table(dev);
+	struct opp_table *opp_table __free(put_opp_table) =
+		_find_opp_table(dev);
+
 	if (IS_ERR(opp_table))
 		return 0;
 
@@ -447,9 +449,9 @@ int _get_opp_count(struct opp_table *opp_table)
  */
 int dev_pm_opp_get_opp_count(struct device *dev)
 {
-	struct opp_table *opp_table __free(put_opp_table);
+	struct opp_table *opp_table __free(put_opp_table) =
+		_find_opp_table(dev);
 
-	opp_table = _find_opp_table(dev);
 	if (IS_ERR(opp_table)) {
 		dev_dbg(dev, "%s: OPP table not found (%ld)\n",
 			__func__, PTR_ERR(opp_table));
@@ -474,6 +476,16 @@ static unsigned long _read_level(struct dev_pm_opp *opp, int index)
 static unsigned long _read_bw(struct dev_pm_opp *opp, int index)
 {
 	return opp->bandwidth[index].peak;
+}
+
+static unsigned long _read_opp_key(struct dev_pm_opp *opp, int index,
+				   struct dev_pm_opp_key *key)
+{
+	key->bw = opp->bandwidth ? opp->bandwidth[index].peak : 0;
+	key->freq = opp->rates[index];
+	key->level = opp->level;
+
+	return true;
 }
 
 /* Generic comparison helpers */
@@ -509,6 +521,22 @@ static bool _compare_floor(struct dev_pm_opp **opp, struct dev_pm_opp *temp_opp,
 	return false;
 }
 
+static bool _compare_opp_key_exact(struct dev_pm_opp **opp,
+		struct dev_pm_opp *temp_opp, struct dev_pm_opp_key *opp_key,
+		struct dev_pm_opp_key *key)
+{
+	bool level_match = (key->level == OPP_LEVEL_UNSET || opp_key->level == key->level);
+	bool freq_match = (key->freq == 0 || opp_key->freq == key->freq);
+	bool bw_match = (key->bw == 0 || opp_key->bw == key->bw);
+
+	if (freq_match && level_match && bw_match) {
+		*opp = temp_opp;
+		return true;
+	}
+
+	return false;
+}
+
 /* Generic key finding helpers */
 static struct dev_pm_opp *_opp_table_find_key(struct opp_table *opp_table,
 		unsigned long *key, int index, bool available,
@@ -541,6 +569,37 @@ static struct dev_pm_opp *_opp_table_find_key(struct opp_table *opp_table,
 	return opp;
 }
 
+static struct dev_pm_opp *_opp_table_find_opp_key(struct opp_table *opp_table,
+		struct dev_pm_opp_key *key, bool available,
+		unsigned long (*read)(struct dev_pm_opp *opp, int index,
+				      struct dev_pm_opp_key *key),
+		bool (*compare)(struct dev_pm_opp **opp, struct dev_pm_opp *temp_opp,
+				struct dev_pm_opp_key *opp_key, struct dev_pm_opp_key *key),
+		bool (*assert)(struct opp_table *opp_table, unsigned int index))
+{
+	struct dev_pm_opp *temp_opp, *opp = ERR_PTR(-ERANGE);
+	struct dev_pm_opp_key temp_key;
+
+	/* Assert that the requirement is met */
+	if (!assert(opp_table, 0))
+		return ERR_PTR(-EINVAL);
+
+	guard(mutex)(&opp_table->lock);
+
+	list_for_each_entry(temp_opp, &opp_table->opp_list, node) {
+		if (temp_opp->available == available) {
+			read(temp_opp, 0, &temp_key);
+			if (compare(&opp, temp_opp, &temp_key, key)) {
+				/* Increment the reference count of OPP */
+				dev_pm_opp_get(opp);
+				break;
+			}
+		}
+	}
+
+	return opp;
+}
+
 static struct dev_pm_opp *
 _find_key(struct device *dev, unsigned long *key, int index, bool available,
 	  unsigned long (*read)(struct dev_pm_opp *opp, int index),
@@ -548,9 +607,9 @@ _find_key(struct device *dev, unsigned long *key, int index, bool available,
 			  unsigned long opp_key, unsigned long key),
 	  bool (*assert)(struct opp_table *opp_table, unsigned int index))
 {
-	struct opp_table *opp_table __free(put_opp_table);
+	struct opp_table *opp_table __free(put_opp_table) =
+		_find_opp_table(dev);
 
-	opp_table = _find_opp_table(dev);
 	if (IS_ERR(opp_table)) {
 		dev_err(dev, "%s: OPP table not found (%ld)\n", __func__,
 			PTR_ERR(opp_table));
@@ -631,6 +690,48 @@ struct dev_pm_opp *dev_pm_opp_find_freq_exact(struct device *dev,
 			       assert_single_clk);
 }
 EXPORT_SYMBOL_GPL(dev_pm_opp_find_freq_exact);
+
+/**
+ * dev_pm_opp_find_key_exact() - Search for an OPP with exact key set
+ * @dev:		Device for which the OPP is being searched
+ * @key:		OPP key set to match
+ * @available:		true/false - match for available OPP
+ *
+ * Search for an exact match of the key set in the OPP table.
+ *
+ * Return: A matching opp on success, else ERR_PTR in case of error.
+ * Possible error values:
+ * EINVAL:	for bad pointers
+ * ERANGE:	no match found for search
+ * ENODEV:	if device not found in list of registered devices
+ *
+ * Note: 'available' is a modifier for the search. If 'available' == true,
+ * then the match is for exact matching key and is available in the stored
+ * OPP table. If false, the match is for exact key which is not available.
+ *
+ * This provides a mechanism to enable an OPP which is not available currently
+ * or the opposite as well.
+ *
+ * The callers are required to call dev_pm_opp_put() for the returned OPP after
+ * use.
+ */
+struct dev_pm_opp *dev_pm_opp_find_key_exact(struct device *dev,
+					     struct dev_pm_opp_key *key,
+					     bool available)
+{
+	struct opp_table *opp_table __free(put_opp_table) = _find_opp_table(dev);
+
+	if (IS_ERR(opp_table)) {
+		dev_err(dev, "%s: OPP table not found (%ld)\n", __func__,
+			PTR_ERR(opp_table));
+		return ERR_CAST(opp_table);
+	}
+
+	return _opp_table_find_opp_key(opp_table, key, available,
+				       _read_opp_key, _compare_opp_key_exact,
+				       assert_single_clk);
+}
+EXPORT_SYMBOL_GPL(dev_pm_opp_find_key_exact);
 
 /**
  * dev_pm_opp_find_freq_exact_indexed() - Search for an exact freq for the
@@ -1311,12 +1412,13 @@ static int _set_opp(struct device *dev, struct opp_table *opp_table,
  */
 int dev_pm_opp_set_rate(struct device *dev, unsigned long target_freq)
 {
-	struct opp_table *opp_table __free(put_opp_table);
 	struct dev_pm_opp *opp __free(put_opp) = NULL;
 	unsigned long freq = 0, temp_freq;
 	bool forced = false;
 
-	opp_table = _find_opp_table(dev);
+	struct opp_table *opp_table __free(put_opp_table) =
+		_find_opp_table(dev);
+
 	if (IS_ERR(opp_table)) {
 		dev_err(dev, "%s: device's opp table doesn't exist\n", __func__);
 		return PTR_ERR(opp_table);
@@ -1378,9 +1480,9 @@ EXPORT_SYMBOL_GPL(dev_pm_opp_set_rate);
  */
 int dev_pm_opp_set_opp(struct device *dev, struct dev_pm_opp *opp)
 {
-	struct opp_table *opp_table __free(put_opp_table);
+	struct opp_table *opp_table __free(put_opp_table) =
+		_find_opp_table(dev);
 
-	opp_table = _find_opp_table(dev);
 	if (IS_ERR(opp_table)) {
 		dev_err(dev, "%s: device opp doesn't exist\n", __func__);
 		return PTR_ERR(opp_table);
@@ -1430,7 +1532,7 @@ static struct opp_table *_allocate_opp_table(struct device *dev, int index)
 	 * Allocate a new OPP table. In the infrequent case where a new
 	 * device is needed to be added, we pay this penalty.
 	 */
-	opp_table = kzalloc(sizeof(*opp_table), GFP_KERNEL);
+	opp_table = kzalloc_obj(*opp_table);
 	if (!opp_table)
 		return ERR_PTR(-ENOMEM);
 
@@ -1695,10 +1797,11 @@ EXPORT_SYMBOL_GPL(dev_pm_opp_put);
  */
 void dev_pm_opp_remove(struct device *dev, unsigned long freq)
 {
-	struct opp_table *opp_table __free(put_opp_table);
 	struct dev_pm_opp *opp = NULL, *iter;
 
-	opp_table = _find_opp_table(dev);
+	struct opp_table *opp_table __free(put_opp_table) =
+		_find_opp_table(dev);
+
 	if (IS_ERR(opp_table))
 		return;
 
@@ -1786,9 +1889,9 @@ bool _opp_remove_all_static(struct opp_table *opp_table)
  */
 void dev_pm_opp_remove_all_dynamic(struct device *dev)
 {
-	struct opp_table *opp_table __free(put_opp_table);
+	struct opp_table *opp_table __free(put_opp_table) =
+		_find_opp_table(dev);
 
-	opp_table = _find_opp_table(dev);
 	if (IS_ERR(opp_table))
 		return;
 
@@ -2157,9 +2260,7 @@ static int _opp_set_regulators(struct opp_table *opp_table, struct device *dev,
 	if (opp_table->regulators)
 		return 0;
 
-	opp_table->regulators = kmalloc_array(count,
-					      sizeof(*opp_table->regulators),
-					      GFP_KERNEL);
+	opp_table->regulators = kmalloc_objs(*opp_table->regulators, count);
 	if (!opp_table->regulators)
 		return -ENOMEM;
 
@@ -2261,8 +2362,7 @@ static int _opp_set_clknames(struct opp_table *opp_table, struct device *dev,
 	if (opp_table->clks)
 		return 0;
 
-	opp_table->clks = kmalloc_array(count, sizeof(*opp_table->clks),
-					GFP_KERNEL);
+	opp_table->clks = kmalloc_objs(*opp_table->clks, count);
 	if (!opp_table->clks)
 		return -ENOMEM;
 
@@ -2447,7 +2547,7 @@ int dev_pm_opp_set_config(struct device *dev, struct dev_pm_opp_config *config)
 	unsigned int id;
 	int ret;
 
-	data = kmalloc(sizeof(*data), GFP_KERNEL);
+	data = kmalloc_obj(*data);
 	if (!data)
 		return -ENOMEM;
 
@@ -2642,8 +2742,8 @@ struct dev_pm_opp *dev_pm_opp_xlate_required_opp(struct opp_table *src_table,
 					break;
 				}
 			}
-			break;
 		}
+		break;
 	}
 
 	if (IS_ERR(dest_opp)) {
@@ -2772,10 +2872,11 @@ static int _opp_set_availability(struct device *dev, unsigned long freq,
 				 bool availability_req)
 {
 	struct dev_pm_opp *opp __free(put_opp) = ERR_PTR(-ENODEV), *tmp_opp;
-	struct opp_table *opp_table __free(put_opp_table);
 
 	/* Find the opp_table */
-	opp_table = _find_opp_table(dev);
+	struct opp_table *opp_table __free(put_opp_table) =
+		_find_opp_table(dev);
+
 	if (IS_ERR(opp_table)) {
 		dev_warn(dev, "%s: Device OPP not found (%ld)\n", __func__,
 			 PTR_ERR(opp_table));
@@ -2833,11 +2934,12 @@ int dev_pm_opp_adjust_voltage(struct device *dev, unsigned long freq,
 
 {
 	struct dev_pm_opp *opp __free(put_opp) = ERR_PTR(-ENODEV), *tmp_opp;
-	struct opp_table *opp_table __free(put_opp_table);
 	int r;
 
 	/* Find the opp_table */
-	opp_table = _find_opp_table(dev);
+	struct opp_table *opp_table __free(put_opp_table) =
+		_find_opp_table(dev);
+
 	if (IS_ERR(opp_table)) {
 		r = PTR_ERR(opp_table);
 		dev_warn(dev, "%s: Device OPP not found (%d)\n", __func__, r);
@@ -2887,12 +2989,13 @@ EXPORT_SYMBOL_GPL(dev_pm_opp_adjust_voltage);
  */
 int dev_pm_opp_sync_regulators(struct device *dev)
 {
-	struct opp_table *opp_table __free(put_opp_table);
 	struct regulator *reg;
 	int ret, i;
 
 	/* Device may not have OPP table */
-	opp_table = _find_opp_table(dev);
+	struct opp_table *opp_table __free(put_opp_table) =
+		_find_opp_table(dev);
+
 	if (IS_ERR(opp_table))
 		return 0;
 
@@ -2963,9 +3066,9 @@ EXPORT_SYMBOL_GPL(dev_pm_opp_disable);
  */
 int dev_pm_opp_register_notifier(struct device *dev, struct notifier_block *nb)
 {
-	struct opp_table *opp_table __free(put_opp_table);
+	struct opp_table *opp_table __free(put_opp_table) =
+		_find_opp_table(dev);
 
-	opp_table = _find_opp_table(dev);
 	if (IS_ERR(opp_table))
 		return PTR_ERR(opp_table);
 
@@ -2983,9 +3086,9 @@ EXPORT_SYMBOL(dev_pm_opp_register_notifier);
 int dev_pm_opp_unregister_notifier(struct device *dev,
 				   struct notifier_block *nb)
 {
-	struct opp_table *opp_table __free(put_opp_table);
+	struct opp_table *opp_table __free(put_opp_table) =
+		_find_opp_table(dev);
 
-	opp_table = _find_opp_table(dev);
 	if (IS_ERR(opp_table))
 		return PTR_ERR(opp_table);
 
@@ -3002,10 +3105,10 @@ EXPORT_SYMBOL(dev_pm_opp_unregister_notifier);
  */
 void dev_pm_opp_remove_table(struct device *dev)
 {
-	struct opp_table *opp_table __free(put_opp_table);
-
 	/* Check for existing table for 'dev' */
-	opp_table = _find_opp_table(dev);
+	struct opp_table *opp_table __free(put_opp_table) =
+		_find_opp_table(dev);
+
 	if (IS_ERR(opp_table)) {
 		int error = PTR_ERR(opp_table);
 

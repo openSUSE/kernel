@@ -11,9 +11,11 @@ use crate::{
     alloc::KVec,
     bindings,
     error::{to_result, Result},
+    fmt,
     prelude::*,
     str::{CStr, CString},
-    types::{ARef, Opaque},
+    sync::aref::ARef,
+    types::Opaque,
 };
 
 /// A reference-counted fwnode_handle.
@@ -68,16 +70,16 @@ impl FwNode {
         unsafe { bindings::is_of_node(self.as_raw()) }
     }
 
-    /// Returns an object that implements [`Display`](core::fmt::Display) for
+    /// Returns an object that implements [`Display`](fmt::Display) for
     /// printing the name of a node.
     ///
     /// This is an alternative to the default `Display` implementation, which
     /// prints the full path.
-    pub fn display_name(&self) -> impl core::fmt::Display + '_ {
+    pub fn display_name(&self) -> impl fmt::Display + '_ {
         struct FwNodeDisplayName<'a>(&'a FwNode);
 
-        impl core::fmt::Display for FwNodeDisplayName<'_> {
-            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        impl fmt::Display for FwNodeDisplayName<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 // SAFETY: `self` is valid by its type invariant.
                 let name = unsafe { bindings::fwnode_get_name(self.0.as_raw()) };
                 if name.is_null() {
@@ -87,7 +89,7 @@ impl FwNode {
                 // - `fwnode_get_name` returns null or a valid C string.
                 // - `name` was checked to be non-null.
                 let name = unsafe { CStr::from_char_ptr(name) };
-                write!(f, "{name}")
+                fmt::Display::fmt(name, f)
             }
         }
 
@@ -177,11 +179,11 @@ impl FwNode {
     /// # Examples
     ///
     /// ```
-    /// # use kernel::{c_str, device::{Device, property::FwNode}, str::CString};
+    /// # use kernel::{device::{Device, property::FwNode}, str::CString};
     /// fn examples(dev: &Device) -> Result {
     ///     let fwnode = dev.fwnode().ok_or(ENOENT)?;
-    ///     let b: u32 = fwnode.property_read(c_str!("some-number")).required_by(dev)?;
-    ///     if let Some(s) = fwnode.property_read::<CString>(c_str!("some-str")).optional() {
+    ///     let b: u32 = fwnode.property_read(c"some-number").required_by(dev)?;
+    ///     if let Some(s) = fwnode.property_read::<CString>(c"some-str").optional() {
     ///         // ...
     ///     }
     ///     Ok(())
@@ -351,14 +353,14 @@ impl FwNodeReferenceArgs {
     }
 }
 
-impl core::fmt::Debug for FwNodeReferenceArgs {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Debug for FwNodeReferenceArgs {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.as_slice())
     }
 }
 
 // SAFETY: Instances of `FwNode` are always reference-counted.
-unsafe impl crate::types::AlwaysRefCounted for FwNode {
+unsafe impl crate::sync::aref::AlwaysRefCounted for FwNode {
     fn inc_ref(&self) {
         // SAFETY: The existence of a shared reference guarantees that the
         // refcount is non-zero.
@@ -377,8 +379,8 @@ enum Node<'a> {
     Owned(ARef<FwNode>),
 }
 
-impl core::fmt::Display for FwNode {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Display for FwNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // The logic here is the same as the one in lib/vsprintf.c
         // (fwnode_full_name_string).
 
@@ -413,9 +415,9 @@ impl core::fmt::Display for FwNode {
                 // SAFETY: `fwnode_get_name_prefix` returns null or a
                 // valid C string.
                 let prefix = unsafe { CStr::from_char_ptr(prefix) };
-                write!(f, "{prefix}")?;
+                fmt::Display::fmt(prefix, f)?;
             }
-            write!(f, "{}", fwnode.display_name())?;
+            fmt::Display::fmt(&fwnode.display_name(), f)?;
         }
 
         Ok(())

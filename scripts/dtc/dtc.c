@@ -15,7 +15,7 @@ int quiet;		/* Level of quietness */
 unsigned int reservenum;/* Number of memory reservation slots */
 int minsize;		/* Minimum blob size */
 int padsize;		/* Additional padding to blob */
-int alignsize;		/* Additional padding to blob accroding to the alignsize */
+int alignsize;		/* Additional padding to blob according to the alignsize */
 int phandle_format = PHANDLE_EPAPR;	/* Use linux,phandle or phandle properties */
 int generate_symbols;	/* enable symbols & fixup support */
 int generate_fixups;		/* suppress generation of fixups on symbol support */
@@ -289,7 +289,9 @@ int main(int argc, char *argv[])
 		if (!depfile)
 			die("Couldn't open dependency file %s: %s\n", depname,
 			    strerror(errno));
-		fprintf(depfile, "%s:", outname);
+
+		fprint_path_escaped(depfile, outname);
+		fputc(':', depfile);
 	}
 
 	if (inform == NULL)
@@ -336,8 +338,13 @@ int main(int argc, char *argv[])
 	if (auto_label_aliases)
 		generate_label_tree(dti, "aliases", false);
 
+	generate_labels_from_tree(dti, "__symbols__");
+
 	if (generate_symbols)
 		generate_label_tree(dti, "__symbols__", true);
+
+	fixup_phandles(dti, "__fixups__");
+	local_fixup_phandles(dti, "__local_fixups__");
 
 	if (generate_fixups) {
 		generate_fixups_tree(dti, "__fixups__");

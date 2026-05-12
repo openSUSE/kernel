@@ -29,6 +29,38 @@ refactorings already and are an expert in the specific area
 Subsystem-wide refactorings
 ===========================
 
+Open-code drm_simple_encoder_init()
+-----------------------------------
+
+The helper drm_simple_encoder_init() was supposed to simplify encoder
+initialization. Instead it only added an intermediate layer between atomic
+modesetting and the DRM driver.
+
+The task here is to remove drm_simple_encoder_init(). Search for a driver
+that calls drm_simple_encoder_init() and inline the helper. The driver will
+also need its own instance of drm_encoder_funcs.
+
+Contact: Thomas Zimmermann, respective driver maintainer
+
+Level: Easy
+
+Replace struct drm_simple_display_pipe with regular atomic helpers
+------------------------------------------------------------------
+
+The data type struct drm_simple_display_pipe and its helpers were supposed
+to simplify driver development. Instead they only added an intermediate layer
+between atomic modesetting and the DRM driver.
+
+There are still drivers that use drm_simple_display_pipe. The task here is to
+convert them to use regular atomic helpers. Search for a driver that calls
+drm_simple_display_pipe_init() and inline all helpers from drm_simple_kms_helper.c
+into the driver, such that no simple-KMS interfaces are required. Please also
+rename all inlined fucntions according to driver conventions.
+
+Contact: Thomas Zimmermann, respective driver maintainer
+
+Level: Easy
+
 Remove custom dumb_map_offset implementations
 ---------------------------------------------
 
@@ -120,29 +152,6 @@ Contact: Simona Vetter, respective driver maintainers
 
 Level: Advanced
 
-Rename drm_atomic_state
------------------------
-
-The KMS framework uses two slightly different definitions for the ``state``
-concept. For a given object (plane, CRTC, encoder, etc., so
-``drm_$OBJECT_state``), the state is the entire state of that object. However,
-at the device level, ``drm_atomic_state`` refers to a state update for a
-limited number of objects.
-
-The state isn't the entire device state, but only the full state of some
-objects in that device. This is confusing to newcomers, and
-``drm_atomic_state`` should be renamed to something clearer like
-``drm_atomic_commit``.
-
-In addition to renaming the structure itself, it would also imply renaming some
-related functions (``drm_atomic_state_alloc``, ``drm_atomic_state_get``,
-``drm_atomic_state_put``, ``drm_atomic_state_init``,
-``__drm_atomic_state_free``, etc.).
-
-Contact: Maxime Ripard <mripard@kernel.org>
-
-Level: Advanced
-
 Fallout from atomic KMS
 -----------------------
 
@@ -172,31 +181,6 @@ interfaces to fix these issues:
 Contact: Simona Vetter
 
 Level: Intermediate
-
-Get rid of dev->struct_mutex from GEM drivers
----------------------------------------------
-
-``dev->struct_mutex`` is the Big DRM Lock from legacy days and infested
-everything. Nowadays in modern drivers the only bit where it's mandatory is
-serializing GEM buffer object destruction. Which unfortunately means drivers
-have to keep track of that lock and either call ``unreference`` or
-``unreference_locked`` depending upon context.
-
-Core GEM doesn't have a need for ``struct_mutex`` any more since kernel 4.8,
-and there's a GEM object ``free`` callback for any drivers which are
-entirely ``struct_mutex`` free.
-
-For drivers that need ``struct_mutex`` it should be replaced with a driver-
-private lock. The tricky part is the BO free functions, since those can't
-reliably take that lock any more. Instead state needs to be protected with
-suitable subordinate locks or some cleanup work pushed to a worker thread. For
-performance-critical drivers it might also be better to go with a more
-fine-grained per-buffer object and per-context lockings scheme. Currently only
-the ``msm`` and `i915` drivers use ``struct_mutex``.
-
-Contact: Simona Vetter, respective driver maintainers
-
-Level: Advanced
 
 Move Buffer Object Locking to dma_resv_lock()
 ---------------------------------------------
@@ -531,6 +515,22 @@ Contact: Maxime Ripard <mripard@kernel.org>,
 
 Level: Intermediate
 
+Convert users of of_drm_find_bridge() to of_drm_find_and_get_bridge()
+---------------------------------------------------------------------
+
+Taking a struct drm_bridge pointer requires getting a reference and putting
+it after disposing of the pointer. Most functions returning a struct
+drm_bridge pointer already call drm_bridge_get() to increment the refcount
+and their users have been updated to call drm_bridge_put() when
+appropriate. of_drm_find_bridge() does not get a reference and it has been
+deprecated in favor of of_drm_find_and_get_bridge() which does, but some
+users still need to be converted.
+
+Contact: Maxime Ripard <mripard@kernel.org>,
+         Luca Ceresoli <luca.ceresoli@bootlin.com>
+
+Level: Intermediate
+
 Core refactorings
 =================
 
@@ -648,6 +648,43 @@ Contact: Thomas Zimmermann <tzimmermann@suse.de>, Simona Vetter
 
 Level: Advanced
 
+Implement a new DUMB_CREATE2 ioctl
+----------------------------------
+
+The current DUMB_CREATE ioctl is not well defined. Instead of a pixel and
+framebuffer format, it only accepts a color mode of vague semantics. Assuming
+a linear framebuffer, the color mode gives an idea of the supported pixel
+format. But userspace effectively has to guess the correct values. It really
+only works reliably with framebuffers in XRGB8888. Userspace has begun to
+workaround these limitations by computing arbitrary format's buffer sizes and
+calculating their sizes in terms of XRGB8888 pixels.
+
+One possible solution is a new ioctl DUMB_CREATE2. It should accept a DRM
+format and a format modifier to resolve the color mode's ambiguity. As
+framebuffers can be multi-planar, the new ioctl has to return the buffer size,
+pitch and GEM handle for each individual color plane.
+
+In the first step, the new ioctl can be limited to the current features of
+the existing DUMB_CREATE. Individual drivers can then be extended to support
+multi-planar formats. Rockchip might require this and would be a good candidate.
+
+It might also be helpful to userspace to query information about the size of
+a potential buffer, if allocated. Userspace would supply geometry and format;
+the kernel would return minimal allocation sizes and scanline pitch. There is
+interest to allocate that memory from another device and provide it to the
+DRM driver (say via dma-buf).
+
+Another requested feature is the ability to allocate a buffer by size, without
+format. Accelators use this for their buffer allocation and it could likely be
+generalized.
+
+In addition to the kernel implementation, there must be user-space support
+for the new ioctl. There's code in Mesa that might be able to use the new
+call.
+
+Contact: Thomas Zimmermann <tzimmermann@suse.de>
+
+Level: Advanced
 
 Better Testing
 ==============
@@ -865,6 +902,51 @@ and adding support for that in the userspace stack.
 Contact: Christian König
 
 Level: Starter
+
+DRM GPU Scheduler
+=================
+
+Provide a universal successor for drm_sched_resubmit_jobs()
+-----------------------------------------------------------
+
+drm_sched_resubmit_jobs() is deprecated. Main reason being that it leads to
+reinitializing dma_fences. See that function's docu for details. The better
+approach for valid resubmissions by amdgpu and Xe is (apparently) to figure out
+which job (and, through association: which entity) caused the hang. Then, the
+job's buffer data, together with all other jobs' buffer data currently in the
+same hardware ring, must be invalidated. This can for example be done by
+overwriting it. amdgpu currently determines which jobs are in the ring and need
+to be overwritten by keeping copies of the job. Xe obtains that information by
+directly accessing drm_sched's pending_list.
+
+Tasks:
+
+1. implement scheduler functionality through which the driver can obtain the
+   information which *broken* jobs are currently in the hardware ring.
+2. Such infrastructure would then typically be used in
+   drm_sched_backend_ops.timedout_job(). Document that.
+3. Port a driver as first user.
+4. Document the new alternative in the docu of deprecated
+   drm_sched_resubmit_jobs().
+
+Contact: Christian König <christian.koenig@amd.com>
+         Philipp Stanner <phasta@kernel.org>
+
+Level: Advanced
+
+Add locking for runqueues
+-------------------------
+
+There is an old FIXME by Sima in include/drm/gpu_scheduler.h. It details that
+struct drm_sched_rq is read at many places without any locks, not even with a
+READ_ONCE. At XDC 2025 no one could really tell why that is the case, whether
+locks are needed and whether they could be added. (But for real, that should
+probably be locked!). Check whether it's possible to add locks everywhere, and
+do so if yes.
+
+Contact: Philipp Stanner <phasta@kernel.org>
+
+Level: Intermediate
 
 Outside DRM
 ===========

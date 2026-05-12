@@ -74,7 +74,7 @@ struct dentry;
  * @V4L2_FL_USES_V4L2_FH:
  *	indicates that file->private_data points to &struct v4l2_fh.
  *	This flag is set by the core when v4l2_fh_init() is called.
- *	All new drivers should use it.
+ *	All drivers must use it.
  * @V4L2_FL_QUIRK_INVERTED_CROP:
  *	some old M2M drivers use g/s_crop/cropcap incorrectly: crop and
  *	compose are swapped. If this flag is set, then the selection
@@ -320,8 +320,8 @@ struct video_device {
 	typeof(__entity) __me_vdev_ent = __entity;			\
 									\
 	__me_vdev_ent ?							\
-		container_of(__me_vdev_ent,  struct video_device, entity) : \
-		NULL;							\
+		container_of_const(__me_vdev_ent,  struct video_device, \
+				   entity) : NULL;			\
 })
 
 /**
@@ -330,7 +330,7 @@ struct video_device {
  *
  * @cd: pointer to &struct device
  */
-#define to_video_device(cd) container_of(cd, struct video_device, dev)
+#define to_video_device(cd) container_of_const(cd, struct video_device, dev)
 
 /**
  * __video_register_device - register video4linux devices

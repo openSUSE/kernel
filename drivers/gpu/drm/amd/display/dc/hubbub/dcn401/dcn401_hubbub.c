@@ -41,7 +41,7 @@
 #define FN(reg_name, field_name) \
 	hubbub2->shifts->field_name, hubbub2->masks->field_name
 
-static void dcn401_init_crb(struct hubbub *hubbub)
+void dcn401_init_crb(struct hubbub *hubbub)
 {
 	struct dcn20_hubbub *hubbub2 = TO_DCN20_HUBBUB(hubbub);
 
@@ -70,6 +70,7 @@ bool hubbub401_program_urgent_watermarks(
 		unsigned int refclk_mhz,
 		bool safe_to_lower)
 {
+	(void)refclk_mhz;
 	struct dcn20_hubbub *hubbub2 = TO_DCN20_HUBBUB(hubbub);
 	bool wm_pending = false;
 
@@ -188,6 +189,7 @@ bool hubbub401_program_stutter_watermarks(
 		unsigned int refclk_mhz,
 		bool safe_to_lower)
 {
+	(void)refclk_mhz;
 	struct dcn20_hubbub *hubbub2 = TO_DCN20_HUBBUB(hubbub);
 	bool wm_pending = false;
 
@@ -287,6 +289,7 @@ bool hubbub401_program_pstate_watermarks(
 		unsigned int refclk_mhz,
 		bool safe_to_lower)
 {
+	(void)refclk_mhz;
 	struct dcn20_hubbub *hubbub2 = TO_DCN20_HUBBUB(hubbub);
 	bool wm_pending = false;
 
@@ -414,6 +417,7 @@ bool hubbub401_program_usr_watermarks(
 		unsigned int refclk_mhz,
 		bool safe_to_lower)
 {
+	(void)refclk_mhz;
 	struct dcn20_hubbub *hubbub2 = TO_DCN20_HUBBUB(hubbub);
 	bool wm_pending = false;
 
@@ -829,7 +833,7 @@ bool hubbub401_get_dcc_compression_cap(struct hubbub *hubbub,
 		struct dc_surface_dcc_cap *output)
 {
 	struct dc *dc = hubbub->ctx->dc;
-	const unsigned int max_dcc_plane_width = dc->caps.dcc_plane_width_limit;
+	const int max_dcc_plane_width = (int)dc->caps.dcc_plane_width_limit;
 	/* DCN4_Programming_Guide_DCHUB.docx, Section 5.11.2.2 */
 	enum dcc_control dcc_control;
 	unsigned int plane0_bpe, plane1_bpe;
@@ -1110,7 +1114,7 @@ bool hubbub401_get_dcc_compression_cap(struct hubbub *hubbub,
 	return true;
 }
 
-static void dcn401_program_det_segments(struct hubbub *hubbub, int hubp_inst, unsigned det_buffer_size_seg)
+void dcn401_program_det_segments(struct hubbub *hubbub, int hubp_inst, unsigned det_buffer_size_seg)
 {
 	struct dcn20_hubbub *hubbub2 = TO_DCN20_HUBBUB(hubbub);
 
@@ -1147,11 +1151,9 @@ static void dcn401_program_det_segments(struct hubbub *hubbub, int hubp_inst, un
 	}
 }
 
-static void dcn401_program_compbuf_segments(struct hubbub *hubbub, unsigned compbuf_size_seg, bool safe_to_increase)
+void dcn401_program_compbuf_segments(struct hubbub *hubbub, unsigned compbuf_size_seg, bool safe_to_increase)
 {
 	struct dcn20_hubbub *hubbub2 = TO_DCN20_HUBBUB(hubbub);
-
-	unsigned int cur_compbuf_size_seg = 0;
 
 	if (safe_to_increase || compbuf_size_seg <= hubbub2->compbuf_size_segments) {
 		if (compbuf_size_seg > hubbub2->compbuf_size_segments) {
@@ -1165,12 +1167,10 @@ static void dcn401_program_compbuf_segments(struct hubbub *hubbub, unsigned comp
 				+ hubbub2->det3_size + compbuf_size_seg <= hubbub2->crb_size_segs);
 		REG_UPDATE(DCHUBBUB_COMPBUF_CTRL, COMPBUF_SIZE, compbuf_size_seg);
 		hubbub2->compbuf_size_segments = compbuf_size_seg;
-
-		ASSERT(REG_GET(DCHUBBUB_COMPBUF_CTRL, CONFIG_ERROR, &cur_compbuf_size_seg) && !cur_compbuf_size_seg);
 	}
 }
 
-static void dcn401_wait_for_det_update(struct hubbub *hubbub, int hubp_inst)
+void dcn401_wait_for_det_update(struct hubbub *hubbub, int hubp_inst)
 {
 	struct dcn20_hubbub *hubbub2 = TO_DCN20_HUBBUB(hubbub);
 
@@ -1192,12 +1192,13 @@ static void dcn401_wait_for_det_update(struct hubbub *hubbub, int hubp_inst)
 	}
 }
 
-static bool dcn401_program_arbiter(struct hubbub *hubbub, struct dml2_display_arb_regs *arb_regs, bool safe_to_lower)
+bool dcn401_program_arbiter(struct hubbub *hubbub, struct dml2_display_arb_regs *arb_regs, bool safe_to_lower)
 {
 	struct dcn20_hubbub *hubbub2 = TO_DCN20_HUBBUB(hubbub);
 
 	bool wm_pending = false;
 	uint32_t temp;
+	bool allow_sdpif_rate_limit_when_cstate_req = arb_regs->allow_sdpif_rate_limit_when_cstate_req != 0;
 
 	/* request backpressure and outstanding return threshold (unused)*/
 	//REG_UPDATE(DCHUBBUB_TIMEOUT_DETECTION_CTRL1, DCHUBBUB_TIMEOUT_REQ_STALL_THRESHOLD, arb_regs->req_stall_threshold);
@@ -1205,8 +1206,8 @@ static bool dcn401_program_arbiter(struct hubbub *hubbub, struct dml2_display_ar
 	/* P-State stall threshold */
 	REG_UPDATE(DCHUBBUB_TIMEOUT_DETECTION_CTRL2, DCHUBBUB_TIMEOUT_PSTATE_STALL_THRESHOLD, arb_regs->pstate_stall_threshold);
 
-	if (safe_to_lower || arb_regs->allow_sdpif_rate_limit_when_cstate_req > hubbub2->allow_sdpif_rate_limit_when_cstate_req) {
-		hubbub2->allow_sdpif_rate_limit_when_cstate_req = arb_regs->allow_sdpif_rate_limit_when_cstate_req;
+	if (safe_to_lower || allow_sdpif_rate_limit_when_cstate_req > hubbub2->allow_sdpif_rate_limit_when_cstate_req) {
+		hubbub2->allow_sdpif_rate_limit_when_cstate_req = allow_sdpif_rate_limit_when_cstate_req;
 
 		/* only update the required bits */
 		REG_GET(DCHUBBUB_CTRL_STATUS, DCHUBBUB_HW_DEBUG, &temp);
@@ -1247,8 +1248,7 @@ static const struct hubbub_funcs hubbub4_01_funcs = {
 	.program_compbuf_segments = dcn401_program_compbuf_segments,
 	.wait_for_det_update = dcn401_wait_for_det_update,
 	.program_arbiter = dcn401_program_arbiter,
-	.get_det_sizes = hubbub3_get_det_sizes,
-	.compbuf_config_error = hubbub3_compbuf_config_error,
+	.hubbub_read_reg_state = hubbub3_read_reg_state
 };
 
 void hubbub401_construct(struct dcn20_hubbub *hubbub2,

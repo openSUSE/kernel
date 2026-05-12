@@ -274,10 +274,6 @@ are the following:
 	The time it takes to switch the CPUs belonging to this policy from one
 	P-state to another, in nanoseconds.
 
-	If unknown or if known to be so high that the scaling driver does not
-	work with the `ondemand`_ governor, -1 (:c:macro:`CPUFREQ_ETERNAL`)
-	will be returned by reads from this attribute.
-
 ``related_cpus``
 	List of all (online and offline) CPUs belonging to this policy.
 
@@ -443,7 +439,7 @@ This governor exposes only one tunable:
 ``rate_limit_us``
 	Minimum time (in microseconds) that has to pass between two consecutive
 	runs of governor computations (default: 1.5 times the scaling driver's
-	transition latency or the maximum 2ms).
+	transition latency or 1ms if the driver does not provide a latency value).
 
 	The purpose of this tunable is to reduce the scheduler context overhead
 	of the governor which might be excessive without it.

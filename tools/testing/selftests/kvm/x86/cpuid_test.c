@@ -140,10 +140,10 @@ static void run_vcpu(struct kvm_vcpu *vcpu, int stage)
 	}
 }
 
-struct kvm_cpuid2 *vcpu_alloc_cpuid(struct kvm_vm *vm, vm_vaddr_t *p_gva, struct kvm_cpuid2 *cpuid)
+struct kvm_cpuid2 *vcpu_alloc_cpuid(struct kvm_vm *vm, gva_t *p_gva, struct kvm_cpuid2 *cpuid)
 {
 	int size = sizeof(*cpuid) + cpuid->nent * sizeof(cpuid->entries[0]);
-	vm_vaddr_t gva = vm_vaddr_alloc(vm, size, KVM_UTIL_MIN_VADDR);
+	gva_t gva = vm_alloc(vm, size, KVM_UTIL_MIN_VADDR);
 	struct kvm_cpuid2 *guest_cpuids = addr_gva2hva(vm, gva);
 
 	memcpy(guest_cpuids, cpuid, size);
@@ -155,10 +155,25 @@ struct kvm_cpuid2 *vcpu_alloc_cpuid(struct kvm_vm *vm, vm_vaddr_t *p_gva, struct
 static void set_cpuid_after_run(struct kvm_vcpu *vcpu)
 {
 	struct kvm_cpuid_entry2 *ent;
+	struct kvm_sregs sregs;
 	int rc;
 	u32 eax, ebx, x;
 
 	/* Setting unmodified CPUID is allowed */
+	rc = __vcpu_set_cpuid(vcpu);
+	TEST_ASSERT(!rc, "Setting unmodified CPUID after KVM_RUN failed: %d", rc);
+
+	/*
+	 * Toggle CR4 bits that affect dynamic CPUID feature flags to verify
+	 * setting unmodified CPUID succeeds with runtime CPUID updates.
+	 */
+	vcpu_sregs_get(vcpu, &sregs);
+	if (kvm_cpu_has(X86_FEATURE_XSAVE))
+		sregs.cr4 ^= X86_CR4_OSXSAVE;
+	if (kvm_cpu_has(X86_FEATURE_PKU))
+		sregs.cr4 ^= X86_CR4_PKE;
+	vcpu_sregs_set(vcpu, &sregs);
+
 	rc = __vcpu_set_cpuid(vcpu);
 	TEST_ASSERT(!rc, "Setting unmodified CPUID after KVM_RUN failed: %d", rc);
 
@@ -202,7 +217,7 @@ static void test_get_cpuid2(struct kvm_vcpu *vcpu)
 int main(void)
 {
 	struct kvm_vcpu *vcpu;
-	vm_vaddr_t cpuid_gva;
+	gva_t cpuid_gva;
 	struct kvm_vm *vm;
 	int stage;
 

@@ -155,15 +155,15 @@ static inline void wrgs32(u32 v, addr_t addr)
 static inline bool memcmp_fs(const void *s1, addr_t s2, size_t len)
 {
 	bool diff;
-	asm volatile("fs repe cmpsb" CC_SET(nz)
-		     : CC_OUT(nz) (diff), "+D" (s1), "+S" (s2), "+c" (len));
+	asm volatile("fs repe cmpsb"
+		     : "=@ccnz" (diff), "+D" (s1), "+S" (s2), "+c" (len));
 	return diff;
 }
 static inline bool memcmp_gs(const void *s1, addr_t s2, size_t len)
 {
 	bool diff;
-	asm volatile("gs repe cmpsb" CC_SET(nz)
-		     : CC_OUT(nz) (diff), "+D" (s1), "+S" (s2), "+c" (len));
+	asm volatile("gs repe cmpsb"
+		     : "=@ccnz" (diff), "+D" (s1), "+S" (s2), "+c" (len));
 	return diff;
 }
 
@@ -193,8 +193,6 @@ static inline bool heap_free(size_t n)
 
 void copy_to_fs(addr_t dst, void *src, size_t len);
 void *copy_from_fs(void *dst, addr_t src, size_t len);
-void copy_to_gs(addr_t dst, void *src, size_t len);
-void *copy_from_gs(void *dst, addr_t src, size_t len);
 
 /* a20.c */
 int enable_a20(void);

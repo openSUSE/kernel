@@ -58,7 +58,7 @@ struct drm_crtc;
 struct drm_pending_vblank_event;
 struct drm_plane;
 struct drm_bridge;
-struct drm_atomic_state;
+struct drm_atomic_commit;
 
 struct drm_crtc_helper_funcs;
 struct drm_plane_helper_funcs;
@@ -186,7 +186,7 @@ struct drm_crtc_state {
 	 * this case the driver will send the VBLANK event on its own when the
 	 * writeback job is complete.
 	 */
-	bool no_vblank : 1;
+	bool no_vblank;
 
 	/**
 	 * @plane_mask: Bitmask of drm_plane_mask(plane) of planes attached to
@@ -275,6 +275,18 @@ struct drm_crtc_state {
 	struct drm_property_blob *gamma_lut;
 
 	/**
+	 * @background_color:
+	 *
+	 * RGB value representing the CRTC's background color.  The background
+	 * color (aka "canvas color") of a CRTC is the color that will be used
+	 * for pixels not covered by a plane, or covered by transparent pixels
+	 * of a plane.  The value here should be built using DRM_ARGB64_PREP*()
+	 * helpers, while the individual color components can be extracted with
+	 * desired precision via the DRM_ARGB64_GET*() macros.
+	 */
+	u64 background_color;
+
+	/**
 	 * @target_vblank:
 	 *
 	 * Target vertical blank period when a page flip
@@ -316,6 +328,17 @@ struct drm_crtc_state {
 	 * Scaling filter to be applied
 	 */
 	enum drm_scaling_filter scaling_filter;
+
+	/**
+	 * @sharpness_strength:
+	 *
+	 * Used by the user to set the sharpness intensity.
+	 * The value ranges from 0-255.
+	 * Default value is 0 which disable the sharpness feature.
+	 * Any value greater than 0 enables sharpening with the
+	 * specified strength.
+	 */
+	u8 sharpness_strength;
 
 	/**
 	 * @event:
@@ -383,8 +406,8 @@ struct drm_crtc_state {
 	 */
 	struct drm_crtc_commit *commit;
 
-	/** @state: backpointer to global drm_atomic_state */
-	struct drm_atomic_state *state;
+	/** @state: backpointer to global drm_atomic_commit */
+	struct drm_atomic_commit *state;
 };
 
 /**
@@ -1089,13 +1112,19 @@ struct drm_crtc {
 	struct drm_property *scaling_filter_property;
 
 	/**
+	 * @sharpness_strength_property: property to apply
+	 * the intensity of the sharpness requested.
+	 */
+	struct drm_property *sharpness_strength_property;
+
+	/**
 	 * @state:
 	 *
 	 * Current atomic state for this CRTC.
 	 *
 	 * This is protected by @mutex. Note that nonblocking atomic commits
 	 * access the current CRTC state without taking locks. Either by going
-	 * through the &struct drm_atomic_state pointers, see
+	 * through the &struct drm_atomic_commit pointers, see
 	 * for_each_oldnew_crtc_in_state(), for_each_old_crtc_in_state() and
 	 * for_each_new_crtc_in_state(). Or through careful ordering of atomic
 	 * commit operations as implemented in the atomic helpers, see
@@ -1188,7 +1217,7 @@ struct drm_crtc {
  * @num_connectors: size of @connectors array
  *
  * This represents a modeset configuration for the legacy SETCRTC ioctl and is
- * also used internally. Atomic drivers instead use &drm_atomic_state.
+ * also used internally. Atomic drivers instead use &drm_atomic_commit.
  */
 struct drm_mode_set {
 	struct drm_framebuffer *fb;
@@ -1324,4 +1353,5 @@ static inline struct drm_crtc *drm_crtc_find(struct drm_device *dev,
 int drm_crtc_create_scaling_filter_property(struct drm_crtc *crtc,
 					    unsigned int supported_filters);
 bool drm_crtc_in_clone_mode(struct drm_crtc_state *crtc_state);
+int drm_crtc_create_sharpness_strength_property(struct drm_crtc *crtc);
 #endif /* __DRM_CRTC_H__ */

@@ -7,86 +7,37 @@
 
 #include <linux/kernel.h>
 #include <linux/types.h>
-#include <linux/crypto.h>
 #include <linux/export.h>
 #include <linux/err.h>
-#include <crypto/aes.h>
+#include <crypto/aes-cbc-macs.h>
 
 #include <net/mac80211.h>
 #include "key.h"
 #include "aes_cmac.h"
 
-#define CMAC_TLEN 8 /* CMAC TLen = 64 bits (8 octets) */
-#define CMAC_TLEN_256 16 /* CMAC TLen = 128 bits (16 octets) */
 #define AAD_LEN 20
 
-static const u8 zero[CMAC_TLEN_256];
+static const u8 zero[IEEE80211_CMAC_256_MIC_LEN];
 
-void ieee80211_aes_cmac(struct crypto_shash *tfm, const u8 *aad,
-			const u8 *data, size_t data_len, u8 *mic)
+void ieee80211_aes_cmac(const struct aes_cmac_key *key, const u8 *aad,
+			const u8 *data, size_t data_len, u8 *mic,
+			unsigned int mic_len)
 {
-	SHASH_DESC_ON_STACK(desc, tfm);
+	struct aes_cmac_ctx ctx;
 	u8 out[AES_BLOCK_SIZE];
 	const __le16 *fc;
 
-	desc->tfm = tfm;
-
-	crypto_shash_init(desc);
-	crypto_shash_update(desc, aad, AAD_LEN);
+	aes_cmac_init(&ctx, key);
+	aes_cmac_update(&ctx, aad, AAD_LEN);
 	fc = (const __le16 *)aad;
 	if (ieee80211_is_beacon(*fc)) {
 		/* mask Timestamp field to zero */
-		crypto_shash_update(desc, zero, 8);
-		crypto_shash_update(desc, data + 8, data_len - 8 - CMAC_TLEN);
+		aes_cmac_update(&ctx, zero, 8);
+		aes_cmac_update(&ctx, data + 8, data_len - 8 - mic_len);
 	} else {
-		crypto_shash_update(desc, data, data_len - CMAC_TLEN);
+		aes_cmac_update(&ctx, data, data_len - mic_len);
 	}
-	crypto_shash_finup(desc, zero, CMAC_TLEN, out);
-
-	memcpy(mic, out, CMAC_TLEN);
-}
-
-void ieee80211_aes_cmac_256(struct crypto_shash *tfm, const u8 *aad,
-			    const u8 *data, size_t data_len, u8 *mic)
-{
-	SHASH_DESC_ON_STACK(desc, tfm);
-	const __le16 *fc;
-
-	desc->tfm = tfm;
-
-	crypto_shash_init(desc);
-	crypto_shash_update(desc, aad, AAD_LEN);
-	fc = (const __le16 *)aad;
-	if (ieee80211_is_beacon(*fc)) {
-		/* mask Timestamp field to zero */
-		crypto_shash_update(desc, zero, 8);
-		crypto_shash_update(desc, data + 8,
-				    data_len - 8 - CMAC_TLEN_256);
-	} else {
-		crypto_shash_update(desc, data, data_len - CMAC_TLEN_256);
-	}
-	crypto_shash_finup(desc, zero, CMAC_TLEN_256, mic);
-}
-
-struct crypto_shash *ieee80211_aes_cmac_key_setup(const u8 key[],
-						  size_t key_len)
-{
-	struct crypto_shash *tfm;
-
-	tfm = crypto_alloc_shash("cmac(aes)", 0, 0);
-	if (!IS_ERR(tfm)) {
-		int err = crypto_shash_setkey(tfm, key, key_len);
-
-		if (err) {
-			crypto_free_shash(tfm);
-			return ERR_PTR(err);
-		}
-	}
-
-	return tfm;
-}
-
-void ieee80211_aes_cmac_key_free(struct crypto_shash *tfm)
-{
-	crypto_free_shash(tfm);
+	aes_cmac_update(&ctx, zero, mic_len);
+	aes_cmac_final(&ctx, out);
+	memcpy(mic, out, mic_len);
 }

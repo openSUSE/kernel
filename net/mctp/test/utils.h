@@ -18,17 +18,14 @@ struct mctp_test_dev {
 
 	unsigned short lladdr_len;
 	unsigned char lladdr[MAX_ADDR_LEN];
+
+	struct sk_buff_head pkts;
 };
 
 struct mctp_test_dev;
 
 struct mctp_test_route {
 	struct mctp_route	rt;
-};
-
-struct mctp_test_pktqueue {
-	unsigned int magic;
-	struct sk_buff_head pkts;
 };
 
 struct mctp_test_bind_setup {
@@ -45,6 +42,7 @@ struct mctp_test_bind_setup {
 };
 
 struct mctp_test_dev *mctp_test_create_dev(void);
+struct mctp_test_dev *mctp_test_create_dev_with_addr(mctp_eid_t eid);
 struct mctp_test_dev *mctp_test_create_dev_lladdr(unsigned short lladdr_len,
 						  const unsigned char *lladdr);
 void mctp_test_destroy_dev(struct mctp_test_dev *dev);
@@ -59,11 +57,7 @@ struct mctp_test_route *mctp_test_create_route_gw(struct net *net,
 						  mctp_eid_t gw,
 						  unsigned int mtu);
 void mctp_test_dst_setup(struct kunit *test, struct mctp_dst *dst,
-			 struct mctp_test_dev *dev,
-			 struct mctp_test_pktqueue *tpq, unsigned int mtu);
-void mctp_test_dst_release(struct mctp_dst *dst,
-			   struct mctp_test_pktqueue *tpq);
-void mctp_test_pktqueue_init(struct mctp_test_pktqueue *tpq);
+			 struct mctp_test_dev *dev, unsigned int mtu);
 void mctp_test_route_destroy(struct kunit *test, struct mctp_test_route *rt);
 void mctp_test_skb_set_dev(struct sk_buff *skb, struct mctp_test_dev *dev);
 struct sk_buff *mctp_test_create_skb(const struct mctp_hdr *hdr,

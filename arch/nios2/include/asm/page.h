@@ -26,7 +26,7 @@
 #define PAGE_OFFSET	\
 	(CONFIG_NIOS2_MEM_BASE + CONFIG_NIOS2_KERNEL_REGION_BASE)
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 
 /*
  * This gives the physical RAM offset.
@@ -45,6 +45,7 @@
 
 struct page;
 
+#define clear_user_page clear_user_page
 extern void clear_user_page(void *addr, unsigned long vaddr, struct page *page);
 extern void copy_user_page(void *vto, void *vfrom, unsigned long vaddr,
 				struct page *to);
@@ -84,12 +85,12 @@ extern struct page *mem_map;
 # define virt_to_page(vaddr)	pfn_to_page(PFN_DOWN(virt_to_phys(vaddr)))
 # define virt_addr_valid(vaddr)	pfn_valid(PFN_DOWN(virt_to_phys(vaddr)))
 
-# define VM_DATA_DEFAULT_FLAGS	VM_DATA_FLAGS_NON_EXEC
+# define VMA_DATA_DEFAULT_FLAGS	VMA_DATA_FLAGS_NON_EXEC
 
 #include <asm-generic/memory_model.h>
 
 #include <asm-generic/getorder.h>
 
-#endif /* !__ASSEMBLY__ */
+#endif /* !__ASSEMBLER__ */
 
 #endif /* _ASM_NIOS2_PAGE_H */

@@ -107,7 +107,7 @@ static bool mlx5_sd_is_supported(struct mlx5_core_dev *dev, u8 host_buses)
 	/* Disconnect secondaries from the network */
 	if (!MLX5_CAP_GEN(dev, eswitch_manager))
 		return false;
-	if (!MLX5_CAP_GEN(dev, silent_mode))
+	if (!MLX5_CAP_GEN(dev, silent_mode_set))
 		return false;
 
 	/* RX steering from primary to secondaries */
@@ -187,7 +187,7 @@ static int sd_init(struct mlx5_core_dev *dev)
 		return 0;
 	}
 
-	sd = kzalloc(sizeof(*sd), GFP_KERNEL);
+	sd = kzalloc_obj(*sd);
 	if (!sd)
 		return -ENOMEM;
 
@@ -210,15 +210,19 @@ static void sd_cleanup(struct mlx5_core_dev *dev)
 static int sd_register(struct mlx5_core_dev *dev)
 {
 	struct mlx5_devcom_comp_dev *devcom, *pos;
+	struct mlx5_devcom_match_attr attr = {};
 	struct mlx5_core_dev *peer, *primary;
 	struct mlx5_sd *sd, *primary_sd;
 	int err, i;
 
 	sd = mlx5_get_sd(dev);
+	attr.key.val = sd->group_id;
+	attr.flags = MLX5_DEVCOM_MATCH_FLAGS_NS;
+	attr.net = mlx5_core_net(dev);
 	devcom = mlx5_devcom_register_component(dev->priv.devc, MLX5_DEVCOM_SD_GROUP,
-						sd->group_id, NULL, dev);
-	if (IS_ERR(devcom))
-		return PTR_ERR(devcom);
+						&attr, NULL, dev);
+	if (!devcom)
+		return -EINVAL;
 
 	sd->devcom = devcom;
 

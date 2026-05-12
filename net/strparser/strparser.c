@@ -45,6 +45,14 @@ static void strp_abort_strp(struct strparser *strp, int err)
 
 	strp->stopped = 1;
 
+	if (strp->skb_head) {
+		kfree_skb(strp->skb_head);
+		strp->skb_head = NULL;
+	}
+
+	strp->skb_nextp = NULL;
+	strp->need_bytes = 0;
+
 	if (strp->sk) {
 		struct sock *sk = strp->sk;
 
@@ -127,7 +135,7 @@ static int __strp_recv(read_descriptor_t *desc, struct sk_buff *orig_skb,
 		}
 
 		if (!strp->skb_nextp) {
-			/* We are going to append to the frags_list of head.
+			/* We are going to append to the frag_list of head.
 			 * Need to unshare the frag_list.
 			 */
 			err = skb_unclone(head, GFP_ATOMIC);
@@ -238,7 +246,7 @@ static int __strp_recv(read_descriptor_t *desc, struct sk_buff *orig_skb,
 				strp_parser_err(strp, -EMSGSIZE, desc);
 				break;
 			} else if (len <= (ssize_t)head->len -
-					  skb->len - stm->strp.offset) {
+					  (ssize_t)skb->len - stm->strp.offset) {
 				/* Length must be into new skb (and also
 				 * greater than zero)
 				 */

@@ -159,7 +159,7 @@ static int vidioc_enum_framesizes(struct file *file, void *fh,
 				  struct v4l2_frmsizeenum *fsize)
 {
 	const struct mtk_video_fmt *fmt;
-	struct mtk_vcodec_enc_ctx *ctx = fh_to_enc_ctx(fh);
+	struct mtk_vcodec_enc_ctx *ctx = file_to_enc_ctx(file);
 
 	if (fsize->index != 0)
 		return -EINVAL;
@@ -183,7 +183,7 @@ static int vidioc_enum_fmt_vid_cap(struct file *file, void *priv,
 				   struct v4l2_fmtdesc *f)
 {
 	const struct mtk_vcodec_enc_pdata *pdata =
-		fh_to_enc_ctx(priv)->dev->venc_pdata;
+		file_to_enc_ctx(file)->dev->venc_pdata;
 
 	return vidioc_enum_fmt(f, pdata->capture_formats,
 			       pdata->num_capture_formats);
@@ -193,15 +193,14 @@ static int vidioc_enum_fmt_vid_out(struct file *file, void *priv,
 				   struct v4l2_fmtdesc *f)
 {
 	const struct mtk_vcodec_enc_pdata *pdata =
-		fh_to_enc_ctx(priv)->dev->venc_pdata;
+		file_to_enc_ctx(file)->dev->venc_pdata;
 
 	return vidioc_enum_fmt(f, pdata->output_formats,
 			       pdata->num_output_formats);
 }
 
-static int mtk_vcodec_enc_get_chip_name(void *priv)
+static int mtk_vcodec_enc_get_chip_name(struct mtk_vcodec_enc_ctx *ctx)
 {
-	struct mtk_vcodec_enc_ctx *ctx = fh_to_enc_ctx(priv);
 	struct device *dev = &ctx->dev->plat_dev->dev;
 
 	if (of_device_is_compatible(dev->of_node, "mediatek,mt8173-vcodec-enc"))
@@ -221,9 +220,9 @@ static int mtk_vcodec_enc_get_chip_name(void *priv)
 static int vidioc_venc_querycap(struct file *file, void *priv,
 				struct v4l2_capability *cap)
 {
-	struct mtk_vcodec_enc_ctx *ctx = fh_to_enc_ctx(priv);
+	struct mtk_vcodec_enc_ctx *ctx = file_to_enc_ctx(file);
 	struct device *dev = &ctx->dev->plat_dev->dev;
-	int platform_name = mtk_vcodec_enc_get_chip_name(priv);
+	int platform_name = mtk_vcodec_enc_get_chip_name(ctx);
 
 	strscpy(cap->driver, dev->driver->name, sizeof(cap->driver));
 	snprintf(cap->card, sizeof(cap->card), "MT%d video encoder", platform_name);
@@ -234,7 +233,7 @@ static int vidioc_venc_querycap(struct file *file, void *priv,
 static int vidioc_venc_s_parm(struct file *file, void *priv,
 			      struct v4l2_streamparm *a)
 {
-	struct mtk_vcodec_enc_ctx *ctx = fh_to_enc_ctx(priv);
+	struct mtk_vcodec_enc_ctx *ctx = file_to_enc_ctx(file);
 	struct v4l2_fract *timeperframe = &a->parm.output.timeperframe;
 
 	if (a->type != V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE)
@@ -257,7 +256,7 @@ static int vidioc_venc_s_parm(struct file *file, void *priv,
 static int vidioc_venc_g_parm(struct file *file, void *priv,
 			      struct v4l2_streamparm *a)
 {
-	struct mtk_vcodec_enc_ctx *ctx = fh_to_enc_ctx(priv);
+	struct mtk_vcodec_enc_ctx *ctx = file_to_enc_ctx(file);
 
 	if (a->type != V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE)
 		return -EINVAL;
@@ -414,7 +413,7 @@ static void mtk_venc_set_param(struct mtk_vcodec_enc_ctx *ctx,
 static int vidioc_venc_s_fmt_cap(struct file *file, void *priv,
 			     struct v4l2_format *f)
 {
-	struct mtk_vcodec_enc_ctx *ctx = fh_to_enc_ctx(priv);
+	struct mtk_vcodec_enc_ctx *ctx = file_to_enc_ctx(file);
 	const struct mtk_vcodec_enc_pdata *pdata = ctx->dev->venc_pdata;
 	struct vb2_queue *vq;
 	struct mtk_q_data *q_data = mtk_venc_get_q_data(ctx, f->type);
@@ -422,10 +421,6 @@ static int vidioc_venc_s_fmt_cap(struct file *file, void *priv,
 	const struct mtk_video_fmt *fmt;
 
 	vq = v4l2_m2m_get_vq(ctx->m2m_ctx, f->type);
-	if (!vq) {
-		mtk_v4l2_venc_err(ctx, "fail to get vq");
-		return -EINVAL;
-	}
 
 	if (vb2_is_busy(vq)) {
 		mtk_v4l2_venc_err(ctx, "queue busy");
@@ -469,7 +464,7 @@ static int vidioc_venc_s_fmt_cap(struct file *file, void *priv,
 static int vidioc_venc_s_fmt_out(struct file *file, void *priv,
 			     struct v4l2_format *f)
 {
-	struct mtk_vcodec_enc_ctx *ctx = fh_to_enc_ctx(priv);
+	struct mtk_vcodec_enc_ctx *ctx = file_to_enc_ctx(file);
 	const struct mtk_vcodec_enc_pdata *pdata = ctx->dev->venc_pdata;
 	struct vb2_queue *vq;
 	struct mtk_q_data *q_data = mtk_venc_get_q_data(ctx, f->type);
@@ -477,10 +472,6 @@ static int vidioc_venc_s_fmt_out(struct file *file, void *priv,
 	const struct mtk_video_fmt *fmt;
 
 	vq = v4l2_m2m_get_vq(ctx->m2m_ctx, f->type);
-	if (!vq) {
-		mtk_v4l2_venc_err(ctx, "fail to get vq");
-		return -EINVAL;
-	}
 
 	if (vb2_is_busy(vq)) {
 		mtk_v4l2_venc_err(ctx, "queue busy");
@@ -524,15 +515,9 @@ static int vidioc_venc_g_fmt(struct file *file, void *priv,
 			     struct v4l2_format *f)
 {
 	struct v4l2_pix_format_mplane *pix = &f->fmt.pix_mp;
-	struct mtk_vcodec_enc_ctx *ctx = fh_to_enc_ctx(priv);
-	struct vb2_queue *vq;
+	struct mtk_vcodec_enc_ctx *ctx = file_to_enc_ctx(file);
 	struct mtk_q_data *q_data = mtk_venc_get_q_data(ctx, f->type);
 	int i;
-
-	vq = v4l2_m2m_get_vq(ctx->m2m_ctx, f->type);
-	if (!vq)
-		return -EINVAL;
-
 
 	pix->width = q_data->coded_width;
 	pix->height = q_data->coded_height;
@@ -557,7 +542,7 @@ static int vidioc_try_fmt_vid_cap_mplane(struct file *file, void *priv,
 					 struct v4l2_format *f)
 {
 	const struct mtk_video_fmt *fmt;
-	struct mtk_vcodec_enc_ctx *ctx = fh_to_enc_ctx(priv);
+	struct mtk_vcodec_enc_ctx *ctx = file_to_enc_ctx(file);
 	const struct mtk_vcodec_enc_pdata *pdata = ctx->dev->venc_pdata;
 
 	fmt = mtk_venc_find_format(f->fmt.pix.pixelformat, pdata);
@@ -579,7 +564,7 @@ static int vidioc_try_fmt_vid_out_mplane(struct file *file, void *priv,
 					 struct v4l2_format *f)
 {
 	const struct mtk_video_fmt *fmt;
-	struct mtk_vcodec_enc_ctx *ctx = fh_to_enc_ctx(priv);
+	struct mtk_vcodec_enc_ctx *ctx = file_to_enc_ctx(file);
 	const struct mtk_vcodec_enc_pdata *pdata = ctx->dev->venc_pdata;
 
 	fmt = mtk_venc_find_format(f->fmt.pix.pixelformat, pdata);
@@ -600,7 +585,7 @@ static int vidioc_try_fmt_vid_out_mplane(struct file *file, void *priv,
 static int vidioc_venc_g_selection(struct file *file, void *priv,
 				     struct v4l2_selection *s)
 {
-	struct mtk_vcodec_enc_ctx *ctx = fh_to_enc_ctx(priv);
+	struct mtk_vcodec_enc_ctx *ctx = file_to_enc_ctx(file);
 	struct mtk_q_data *q_data = mtk_venc_get_q_data(ctx, s->type);
 
 	if (s->type != V4L2_BUF_TYPE_VIDEO_OUTPUT)
@@ -630,7 +615,7 @@ static int vidioc_venc_g_selection(struct file *file, void *priv,
 static int vidioc_venc_s_selection(struct file *file, void *priv,
 				     struct v4l2_selection *s)
 {
-	struct mtk_vcodec_enc_ctx *ctx = fh_to_enc_ctx(priv);
+	struct mtk_vcodec_enc_ctx *ctx = file_to_enc_ctx(file);
 	struct mtk_q_data *q_data = mtk_venc_get_q_data(ctx, s->type);
 
 	if (s->type != V4L2_BUF_TYPE_VIDEO_OUTPUT)
@@ -655,7 +640,7 @@ static int vidioc_venc_s_selection(struct file *file, void *priv,
 static int vidioc_venc_qbuf(struct file *file, void *priv,
 			    struct v4l2_buffer *buf)
 {
-	struct mtk_vcodec_enc_ctx *ctx = fh_to_enc_ctx(priv);
+	struct mtk_vcodec_enc_ctx *ctx = file_to_enc_ctx(file);
 
 	if (ctx->state == MTK_STATE_ABORT) {
 		mtk_v4l2_venc_err(ctx, "[%d] Call on QBUF after unrecoverable error",
@@ -669,7 +654,7 @@ static int vidioc_venc_qbuf(struct file *file, void *priv,
 static int vidioc_venc_dqbuf(struct file *file, void *priv,
 			     struct v4l2_buffer *buf)
 {
-	struct mtk_vcodec_enc_ctx *ctx = fh_to_enc_ctx(priv);
+	struct mtk_vcodec_enc_ctx *ctx = file_to_enc_ctx(file);
 	int ret;
 
 	if (ctx->state == MTK_STATE_ABORT) {
@@ -707,7 +692,7 @@ static int vidioc_venc_dqbuf(struct file *file, void *priv,
 static int vidioc_encoder_cmd(struct file *file, void *priv,
 			      struct v4l2_encoder_cmd *cmd)
 {
-	struct mtk_vcodec_enc_ctx *ctx = fh_to_enc_ctx(priv);
+	struct mtk_vcodec_enc_ctx *ctx = file_to_enc_ctx(file);
 	struct vb2_queue *src_vq, *dst_vq;
 	int ret;
 
@@ -865,7 +850,7 @@ static void vb2ops_venc_buf_queue(struct vb2_buffer *vb)
 static int vb2ops_venc_start_streaming(struct vb2_queue *q, unsigned int count)
 {
 	struct mtk_vcodec_enc_ctx *ctx = vb2_get_drv_priv(q);
-	struct venc_enc_param param;
+	struct venc_enc_param param = { };
 	int ret;
 	int i;
 
@@ -1019,7 +1004,7 @@ static int mtk_venc_encode_header(void *priv)
 	int ret;
 	struct vb2_v4l2_buffer *src_buf, *dst_buf;
 	struct mtk_vcodec_mem bs_buf;
-	struct venc_done_result enc_result;
+	struct venc_done_result enc_result = { };
 
 	dst_buf = v4l2_m2m_dst_buf_remove(ctx->m2m_ctx);
 	if (!dst_buf) {
@@ -1064,7 +1049,7 @@ static int mtk_venc_encode_header(void *priv)
 
 static int mtk_venc_param_change(struct mtk_vcodec_enc_ctx *ctx)
 {
-	struct venc_enc_param enc_prm;
+	struct venc_enc_param enc_prm = { };
 	struct vb2_v4l2_buffer *vb2_v4l2 = v4l2_m2m_next_src_buf(ctx->m2m_ctx);
 	struct mtk_video_enc_buf *mtk_buf;
 	int ret = 0;
@@ -1075,7 +1060,6 @@ static int mtk_venc_param_change(struct mtk_vcodec_enc_ctx *ctx)
 
 	mtk_buf = container_of(vb2_v4l2, struct mtk_video_enc_buf, m2m_buf.vb);
 
-	memset(&enc_prm, 0, sizeof(enc_prm));
 	if (mtk_buf->param_change == MTK_ENCODE_PARAM_NONE)
 		return 0;
 
@@ -1138,9 +1122,9 @@ static void mtk_venc_worker(struct work_struct *work)
 	struct mtk_vcodec_enc_ctx *ctx = container_of(work, struct mtk_vcodec_enc_ctx,
 				    encode_work);
 	struct vb2_v4l2_buffer *src_buf, *dst_buf;
-	struct venc_frm_buf frm_buf;
+	struct venc_frm_buf frm_buf = { };
 	struct mtk_vcodec_mem bs_buf;
-	struct venc_done_result enc_result;
+	struct venc_done_result enc_result = { };
 	int ret, i;
 
 	/* check dst_buf, dst_buf may be removed in device_run
@@ -1168,7 +1152,6 @@ static void mtk_venc_worker(struct work_struct *work)
 		return;
 	}
 
-	memset(&frm_buf, 0, sizeof(frm_buf));
 	for (i = 0; i < src_buf->vb2_buf.num_planes ; i++) {
 		frm_buf.fb_addr[i].dma_addr =
 				vb2_dma_contig_plane_dma_addr(&src_buf->vb2_buf, i);

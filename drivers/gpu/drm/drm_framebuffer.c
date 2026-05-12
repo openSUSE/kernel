@@ -747,7 +747,7 @@ int drm_mode_dirtyfb_ioctl(struct drm_device *dev,
 			ret = -EINVAL;
 			goto out_err1;
 		}
-		clips = kcalloc(num_clips, sizeof(*clips), GFP_KERNEL);
+		clips = kzalloc_objs(*clips, num_clips);
 		if (!clips) {
 			ret = -ENOMEM;
 			goto out_err1;
@@ -1000,7 +1000,7 @@ static int atomic_remove_fb(struct drm_framebuffer *fb)
 {
 	struct drm_modeset_acquire_ctx ctx;
 	struct drm_device *dev = fb->dev;
-	struct drm_atomic_state *state;
+	struct drm_atomic_commit *state;
 	struct drm_plane *plane;
 	struct drm_connector *conn __maybe_unused;
 	struct drm_connector_state *conn_state;
@@ -1011,7 +1011,7 @@ static int atomic_remove_fb(struct drm_framebuffer *fb)
 retry_disable:
 	drm_modeset_acquire_init(&ctx, 0);
 
-	state = drm_atomic_state_alloc(dev);
+	state = drm_atomic_commit_alloc(dev);
 	if (!state) {
 		ret = -ENOMEM;
 		goto out;
@@ -1048,7 +1048,7 @@ retry:
 				    plane_state->crtc->base.id,
 				    plane_state->crtc->name, fb->base.id);
 
-			crtc_state = drm_atomic_get_existing_crtc_state(state, plane_state->crtc);
+			crtc_state = drm_atomic_get_new_crtc_state(state, plane_state->crtc);
 
 			ret = drm_atomic_add_affected_connectors(state, plane_state->crtc);
 			if (ret)
@@ -1081,12 +1081,12 @@ retry:
 
 unlock:
 	if (ret == -EDEADLK) {
-		drm_atomic_state_clear(state);
+		drm_atomic_commit_clear(state);
 		drm_modeset_backoff(&ctx);
 		goto retry;
 	}
 
-	drm_atomic_state_put(state);
+	drm_atomic_commit_put(state);
 
 out:
 	drm_modeset_drop_locks(&ctx);

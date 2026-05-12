@@ -225,7 +225,7 @@ static int appletbdrm_send_msg(struct appletbdrm_device *adev, __le32 msg)
 	struct appletbdrm_msg_simple_request *request;
 	int ret;
 
-	request = kzalloc(sizeof(*request), GFP_KERNEL);
+	request = kzalloc_obj(*request);
 	if (!request)
 		return -ENOMEM;
 
@@ -260,7 +260,7 @@ static int appletbdrm_get_information(struct appletbdrm_device *adev)
 	__le32 pixel_format;
 	int ret;
 
-	info = kzalloc(sizeof(*info), GFP_KERNEL);
+	info = kzalloc_obj(*info);
 	if (!info)
 		return -ENOMEM;
 
@@ -316,7 +316,7 @@ static const u32 appletbdrm_primary_plane_formats[] = {
 };
 
 static int appletbdrm_primary_plane_helper_atomic_check(struct drm_plane *plane,
-						   struct drm_atomic_state *state)
+						   struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *new_plane_state = drm_atomic_get_new_plane_state(state, plane);
 	struct drm_plane_state *old_plane_state = drm_atomic_get_old_plane_state(state, plane);
@@ -353,12 +353,12 @@ static int appletbdrm_primary_plane_helper_atomic_check(struct drm_plane *plane,
 		       frames_size +
 		       sizeof(struct appletbdrm_fb_request_footer), 16);
 
-	appletbdrm_state->request = kzalloc(request_size, GFP_KERNEL);
+	appletbdrm_state->request = kvzalloc(request_size, GFP_KERNEL);
 
 	if (!appletbdrm_state->request)
 		return -ENOMEM;
 
-	appletbdrm_state->response = kzalloc(sizeof(*appletbdrm_state->response), GFP_KERNEL);
+	appletbdrm_state->response = kzalloc_obj(*appletbdrm_state->response);
 
 	if (!appletbdrm_state->response)
 		return -ENOMEM;
@@ -468,7 +468,7 @@ end_fb_cpu_access:
 }
 
 static void appletbdrm_primary_plane_helper_atomic_update(struct drm_plane *plane,
-						     struct drm_atomic_state *old_state)
+						     struct drm_atomic_commit *old_state)
 {
 	struct appletbdrm_device *adev = drm_to_adev(plane->dev);
 	struct drm_device *drm = plane->dev;
@@ -485,7 +485,7 @@ static void appletbdrm_primary_plane_helper_atomic_update(struct drm_plane *plan
 }
 
 static void appletbdrm_primary_plane_helper_atomic_disable(struct drm_plane *plane,
-							   struct drm_atomic_state *state)
+							   struct drm_atomic_commit *state)
 {
 	struct drm_device *dev = plane->dev;
 	struct appletbdrm_device *adev = drm_to_adev(dev);
@@ -505,7 +505,7 @@ static void appletbdrm_primary_plane_reset(struct drm_plane *plane)
 
 	WARN_ON(plane->state);
 
-	appletbdrm_state = kzalloc(sizeof(*appletbdrm_state), GFP_KERNEL);
+	appletbdrm_state = kzalloc_obj(*appletbdrm_state);
 	if (!appletbdrm_state)
 		return;
 
@@ -520,7 +520,7 @@ static struct drm_plane_state *appletbdrm_primary_plane_duplicate_state(struct d
 	if (WARN_ON(!plane->state))
 		return NULL;
 
-	appletbdrm_state = kzalloc(sizeof(*appletbdrm_state), GFP_KERNEL);
+	appletbdrm_state = kzalloc_obj(*appletbdrm_state);
 	if (!appletbdrm_state)
 		return NULL;
 
@@ -543,7 +543,7 @@ static void appletbdrm_primary_plane_destroy_state(struct drm_plane *plane,
 {
 	struct appletbdrm_plane_state *appletbdrm_state = to_appletbdrm_plane_state(state);
 
-	kfree(appletbdrm_state->request);
+	kvfree(appletbdrm_state->request);
 	kfree(appletbdrm_state->response);
 
 	__drm_gem_destroy_shadow_plane_state(&appletbdrm_state->base);

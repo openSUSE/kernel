@@ -14,17 +14,23 @@
 struct io_uring_cmd {
 	struct file	*file;
 	const struct io_uring_sqe *sqe;
-	/* callback to defer completions to task context */
-	void (*task_work_cb)(struct io_uring_cmd *cmd, unsigned);
 	u32		cmd_op;
 	u32		flags;
 	u8		pdu[32]; /* available inline for free use */
+	u8		unused[8];
 };
 
-static inline const void *io_uring_sqe_cmd(const struct io_uring_sqe *sqe)
-{
-	return sqe->cmd;
-}
+#define io_uring_sqe128_cmd(sqe, type)	({					\
+	BUILD_BUG_ON(sizeof(type) > ((2 * sizeof(struct io_uring_sqe)) -	\
+				     offsetof(struct io_uring_sqe, cmd)));	\
+	(const type *)(sqe)->cmd;						\
+})
+
+#define io_uring_sqe_cmd(sqe, type)	({					\
+	BUILD_BUG_ON(sizeof(type) > (sizeof(struct io_uring_sqe) -		\
+				     offsetof(struct io_uring_sqe, cmd)));	\
+	(const type *)(sqe)->cmd;						\
+})
 
 static inline void io_uring_cmd_private_sz_check(size_t cmd_sz)
 {
@@ -53,11 +59,11 @@ int io_uring_cmd_import_fixed_vec(struct io_uring_cmd *ioucmd,
  * Note: the caller should never hard code @issue_flags and is only allowed
  * to pass the mask provided by the core io_uring code.
  */
-void io_uring_cmd_done(struct io_uring_cmd *cmd, ssize_t ret, u64 res2,
-			unsigned issue_flags);
+void __io_uring_cmd_done(struct io_uring_cmd *cmd, s32 ret, u64 res2,
+			 unsigned issue_flags, bool is_cqe32);
 
 void __io_uring_cmd_do_in_task(struct io_uring_cmd *ioucmd,
-			    void (*task_work_cb)(struct io_uring_cmd *, unsigned),
+			    io_req_tw_func_t task_work_cb,
 			    unsigned flags);
 
 /*
@@ -69,6 +75,21 @@ void io_uring_cmd_mark_cancelable(struct io_uring_cmd *cmd,
 
 /* Execute the request from a blocking context */
 void io_uring_cmd_issue_blocking(struct io_uring_cmd *ioucmd);
+
+/*
+ * Select a buffer from the provided buffer group for multishot uring_cmd.
+ * Returns the selected buffer address and size.
+ */
+struct io_br_sel io_uring_cmd_buffer_select(struct io_uring_cmd *ioucmd,
+					    unsigned buf_group, size_t *len,
+					    unsigned int issue_flags);
+
+/*
+ * Complete a multishot uring_cmd event. This will post a CQE to the completion
+ * queue and update the provided buffer.
+ */
+bool io_uring_mshot_cmd_post_cqe(struct io_uring_cmd *ioucmd,
+				 struct io_br_sel *sel, unsigned int issue_flags);
 
 #else
 static inline int
@@ -86,13 +107,12 @@ static inline int io_uring_cmd_import_fixed_vec(struct io_uring_cmd *ioucmd,
 {
 	return -EOPNOTSUPP;
 }
-static inline void io_uring_cmd_done(struct io_uring_cmd *cmd, ssize_t ret,
-		u64 ret2, unsigned issue_flags)
+static inline void __io_uring_cmd_done(struct io_uring_cmd *cmd, s32 ret,
+		u64 ret2, unsigned issue_flags, bool is_cqe32)
 {
 }
 static inline void __io_uring_cmd_do_in_task(struct io_uring_cmd *ioucmd,
-			    void (*task_work_cb)(struct io_uring_cmd *, unsigned),
-			    unsigned flags)
+			    io_req_tw_func_t task_work_cb, unsigned flags)
 {
 }
 static inline void io_uring_cmd_mark_cancelable(struct io_uring_cmd *cmd,
@@ -102,28 +122,36 @@ static inline void io_uring_cmd_mark_cancelable(struct io_uring_cmd *cmd,
 static inline void io_uring_cmd_issue_blocking(struct io_uring_cmd *ioucmd)
 {
 }
+static inline struct io_br_sel
+io_uring_cmd_buffer_select(struct io_uring_cmd *ioucmd, unsigned buf_group,
+			   size_t *len, unsigned int issue_flags)
+{
+	return (struct io_br_sel) { .val = -EOPNOTSUPP };
+}
+static inline bool io_uring_mshot_cmd_post_cqe(struct io_uring_cmd *ioucmd,
+				struct io_br_sel *sel, unsigned int issue_flags)
+{
+	return true;
+}
 #endif
 
-/*
- * Polled completions must ensure they are coming from a poll queue, and
- * hence are completed inside the usual poll handling loops.
- */
-static inline void io_uring_cmd_iopoll_done(struct io_uring_cmd *ioucmd,
-					    ssize_t ret, ssize_t res2)
+static inline struct io_uring_cmd *io_uring_cmd_from_tw(struct io_tw_req tw_req)
 {
-	lockdep_assert(in_task());
-	io_uring_cmd_done(ioucmd, ret, res2, 0);
+	return io_kiocb_to_cmd(tw_req.req, struct io_uring_cmd);
 }
+
+/* task_work executor checks the deferred list completion */
+#define IO_URING_CMD_TASK_WORK_ISSUE_FLAGS IO_URING_F_COMPLETE_DEFER
 
 /* users must follow the IOU_F_TWQ_LAZY_WAKE semantics */
 static inline void io_uring_cmd_do_in_task_lazy(struct io_uring_cmd *ioucmd,
-			void (*task_work_cb)(struct io_uring_cmd *, unsigned))
+			io_req_tw_func_t task_work_cb)
 {
 	__io_uring_cmd_do_in_task(ioucmd, task_work_cb, IOU_F_TWQ_LAZY_WAKE);
 }
 
 static inline void io_uring_cmd_complete_in_task(struct io_uring_cmd *ioucmd,
-			void (*task_work_cb)(struct io_uring_cmd *, unsigned))
+			io_req_tw_func_t task_work_cb)
 {
 	__io_uring_cmd_do_in_task(ioucmd, task_work_cb, 0);
 }
@@ -140,6 +168,18 @@ static inline struct task_struct *io_uring_cmd_get_task(struct io_uring_cmd *cmd
 static inline void *io_uring_cmd_ctx_handle(struct io_uring_cmd *cmd)
 {
 	return cmd_to_io_kiocb(cmd)->ctx;
+}
+
+static inline void io_uring_cmd_done(struct io_uring_cmd *ioucmd, s32 ret,
+				     unsigned issue_flags)
+{
+	return __io_uring_cmd_done(ioucmd, ret, 0, issue_flags, false);
+}
+
+static inline void io_uring_cmd_done32(struct io_uring_cmd *ioucmd, s32 ret,
+				       u64 res2, unsigned issue_flags)
+{
+	return __io_uring_cmd_done(ioucmd, ret, res2, issue_flags, true);
 }
 
 int io_buffer_register_bvec(struct io_uring_cmd *cmd, struct request *rq,

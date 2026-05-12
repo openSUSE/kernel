@@ -3,7 +3,6 @@
 
 . "$(cd "$(dirname "$0")" && pwd)"/test_common.sh
 
-TID="loop_04"
 ERR_CODE=0
 
 _prep_test "loop" "mkfs & mount & umount with zero copy"
@@ -16,6 +15,6 @@ _check_add_dev $TID $?
 _mkfs_mount_test /dev/ublkb"${dev_id}"
 ERR_CODE=$?
 
-_cleanup_test "loop"
+_cleanup_test
 
 _show_result $TID $ERR_CODE

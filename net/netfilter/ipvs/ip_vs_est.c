@@ -12,8 +12,7 @@
  *              get_stats()) do the per cpu summing.
  */
 
-#define KMSG_COMPONENT "IPVS"
-#define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
+#define pr_fmt(fmt) "IPVS: " fmt
 
 #include <linux/kernel.h>
 #include <linux/jiffies.h>
@@ -231,7 +230,7 @@ static int ip_vs_estimation_kthread(void *data)
 void ip_vs_est_reload_start(struct netns_ipvs *ipvs)
 {
 	/* Ignore reloads before first service is added */
-	if (!ipvs->enable)
+	if (!READ_ONCE(ipvs->enable))
 		return;
 	ip_vs_est_stopped_recalc(ipvs);
 	/* Bump the kthread configuration genid */
@@ -306,7 +305,7 @@ static int ip_vs_est_add_kthread(struct netns_ipvs *ipvs)
 	int i;
 
 	if ((unsigned long)ipvs->est_kt_count >= ipvs->est_max_threads &&
-	    ipvs->enable && ipvs->est_max_threads)
+	    READ_ONCE(ipvs->enable) && ipvs->est_max_threads)
 		return -EINVAL;
 
 	mutex_lock(&ipvs->est_mutex);
@@ -326,7 +325,7 @@ static int ip_vs_est_add_kthread(struct netns_ipvs *ipvs)
 		id = i;
 	}
 
-	kd = kzalloc(sizeof(*kd), GFP_KERNEL);
+	kd = kzalloc_obj(*kd);
 	if (!kd)
 		goto out;
 	kd->ipvs = ipvs;
@@ -343,7 +342,7 @@ static int ip_vs_est_add_kthread(struct netns_ipvs *ipvs)
 	}
 
 	/* Start kthread tasks only when services are present */
-	if (ipvs->enable && !ip_vs_est_stopped(ipvs)) {
+	if (READ_ONCE(ipvs->enable) && !ip_vs_est_stopped(ipvs)) {
 		ret = ip_vs_est_kthread_start(ipvs, kd);
 		if (ret < 0)
 			goto out;
@@ -444,7 +443,7 @@ add_est:
 
 	td = rcu_dereference_protected(kd->ticks[row], 1);
 	if (!td) {
-		td = kzalloc(sizeof(*td), GFP_KERNEL);
+		td = kzalloc_obj(*td);
 		if (!td) {
 			ret = -ENOMEM;
 			goto out;
@@ -486,7 +485,7 @@ int ip_vs_start_estimator(struct netns_ipvs *ipvs, struct ip_vs_stats *stats)
 	struct ip_vs_estimator *est = &stats->est;
 	int ret;
 
-	if (!ipvs->est_max_threads && ipvs->enable)
+	if (!ipvs->est_max_threads && READ_ONCE(ipvs->enable))
 		ipvs->est_max_threads = ip_vs_est_max_threads(ipvs);
 
 	est->ktid = -1;
@@ -603,7 +602,7 @@ static void ip_vs_est_drain_temp_list(struct netns_ipvs *ipvs)
 	while (1) {
 		int max = 16;
 
-		mutex_lock(&__ip_vs_mutex);
+		mutex_lock(&ipvs->service_mutex);
 
 		while (max-- > 0) {
 			est = hlist_entry_safe(ipvs->est_temp_list.first,
@@ -623,12 +622,12 @@ static void ip_vs_est_drain_temp_list(struct netns_ipvs *ipvs)
 			}
 			goto unlock;
 		}
-		mutex_unlock(&__ip_vs_mutex);
+		mutex_unlock(&ipvs->service_mutex);
 		cond_resched();
 	}
 
 unlock:
-	mutex_unlock(&__ip_vs_mutex);
+	mutex_unlock(&ipvs->service_mutex);
 }
 
 /* Calculate limits for all kthreads */
@@ -648,9 +647,9 @@ static int ip_vs_est_calc_limits(struct netns_ipvs *ipvs, int *chain_max)
 	u64 val;
 
 	INIT_HLIST_HEAD(&chain);
-	mutex_lock(&__ip_vs_mutex);
+	mutex_lock(&ipvs->service_mutex);
 	kd = ipvs->est_kt_arr[0];
-	mutex_unlock(&__ip_vs_mutex);
+	mutex_unlock(&ipvs->service_mutex);
 	s = kd ? kd->calc_stats : NULL;
 	if (!s)
 		goto out;
@@ -663,7 +662,7 @@ static int ip_vs_est_calc_limits(struct netns_ipvs *ipvs, int *chain_max)
 			/* Wait for cpufreq frequency transition */
 			wait_event_idle_timeout(wq, kthread_should_stop(),
 						HZ / 50);
-			if (!ipvs->enable || kthread_should_stop())
+			if (!READ_ONCE(ipvs->enable) || kthread_should_stop())
 				goto stop;
 		}
 
@@ -681,7 +680,7 @@ static int ip_vs_est_calc_limits(struct netns_ipvs *ipvs, int *chain_max)
 		rcu_read_unlock();
 		local_bh_enable();
 
-		if (!ipvs->enable || kthread_should_stop())
+		if (!READ_ONCE(ipvs->enable) || kthread_should_stop())
 			goto stop;
 		cond_resched();
 
@@ -749,7 +748,7 @@ static void ip_vs_est_calc_phase(struct netns_ipvs *ipvs)
 	if (!ip_vs_est_calc_limits(ipvs, &chain_max))
 		return;
 
-	mutex_lock(&__ip_vs_mutex);
+	mutex_lock(&ipvs->service_mutex);
 
 	/* Stop all other tasks, so that we can immediately move the
 	 * estimators to est_temp_list without RCU grace period
@@ -757,7 +756,7 @@ static void ip_vs_est_calc_phase(struct netns_ipvs *ipvs)
 	mutex_lock(&ipvs->est_mutex);
 	for (id = 1; id < ipvs->est_kt_count; id++) {
 		/* netns clean up started, abort */
-		if (!ipvs->enable)
+		if (!READ_ONCE(ipvs->enable))
 			goto unlock2;
 		kd = ipvs->est_kt_arr[id];
 		if (!kd)
@@ -787,7 +786,7 @@ last_kt:
 	id = ipvs->est_kt_count;
 
 next_kt:
-	if (!ipvs->enable || kthread_should_stop())
+	if (!READ_ONCE(ipvs->enable) || kthread_should_stop())
 		goto unlock;
 	id--;
 	if (id < 0)
@@ -816,9 +815,9 @@ walk_chain:
 		/* Give chance estimators to be added (to est_temp_list)
 		 * and deleted (releasing kthread contexts)
 		 */
-		mutex_unlock(&__ip_vs_mutex);
+		mutex_unlock(&ipvs->service_mutex);
 		cond_resched();
-		mutex_lock(&__ip_vs_mutex);
+		mutex_lock(&ipvs->service_mutex);
 
 		/* Current kt released ? */
 		if (id >= ipvs->est_kt_count)
@@ -894,7 +893,7 @@ unlock2:
 	mutex_unlock(&ipvs->est_mutex);
 
 unlock:
-	mutex_unlock(&__ip_vs_mutex);
+	mutex_unlock(&ipvs->service_mutex);
 }
 
 void ip_vs_zero_estimator(struct ip_vs_stats *stats)

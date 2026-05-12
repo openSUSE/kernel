@@ -56,6 +56,36 @@ int optee_rpmb_intf_rdev(struct notifier_block *intf, unsigned long action,
 	return 0;
 }
 
+int optee_set_dma_mask(struct optee *optee, u_int pa_width)
+{
+	u64 mask = DMA_BIT_MASK(min(64, pa_width));
+
+	return dma_coerce_mask_and_coherent(&optee->teedev->dev, mask);
+}
+
+int optee_get_revision(struct tee_device *teedev, char *buf, size_t len)
+{
+	struct optee *optee = tee_get_drvdata(teedev);
+	u64 build_id;
+
+	if (!optee)
+		return -ENODEV;
+	if (!buf || !len)
+		return -EINVAL;
+
+	build_id = optee->revision.os_build_id;
+	if (build_id)
+		scnprintf(buf, len, "%u.%u (%016llx)",
+			  optee->revision.os_major,
+			  optee->revision.os_minor,
+			  (unsigned long long)build_id);
+	else
+		scnprintf(buf, len, "%u.%u", optee->revision.os_major,
+			  optee->revision.os_minor);
+
+	return 0;
+}
+
 static void optee_bus_scan(struct work_struct *work)
 {
 	WARN_ON(optee_enumerate_devices(PTA_CMD_GET_DEVICES_SUPP));
@@ -72,7 +102,7 @@ static ssize_t rpmb_routing_model_show(struct device *dev,
 	else
 		s = "user";
 
-	return scnprintf(buf, PAGE_SIZE, "%s\n", s);
+	return sysfs_emit(buf, "%s\n", s);
 }
 static DEVICE_ATTR_RO(rpmb_routing_model);
 
@@ -95,7 +125,7 @@ int optee_open(struct tee_context *ctx, bool cap_memref_null)
 	struct tee_device *teedev = ctx->teedev;
 	struct optee *optee = tee_get_drvdata(teedev);
 
-	ctxdata = kzalloc(sizeof(*ctxdata), GFP_KERNEL);
+	ctxdata = kzalloc_obj(*ctxdata);
 	if (!ctxdata)
 		return -ENOMEM;
 

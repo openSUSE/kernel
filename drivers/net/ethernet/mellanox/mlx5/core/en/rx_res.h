@@ -21,13 +21,14 @@ enum mlx5e_rx_res_features {
 	MLX5E_RX_RES_FEATURE_INNER_FT = BIT(0),
 	MLX5E_RX_RES_FEATURE_PTP = BIT(1),
 	MLX5E_RX_RES_FEATURE_MULTI_VHCA = BIT(2),
+	MLX5E_RX_RES_FEATURE_SELF_LB_BLOCK = BIT(3),
 };
 
 /* Setup */
 struct mlx5e_rx_res *
 mlx5e_rx_res_create(struct mlx5_core_dev *mdev, enum mlx5e_rx_res_features features,
 		    unsigned int max_nch, u32 drop_rqn,
-		    const struct mlx5e_packet_merge_param *init_pkt_merge_param,
+		    const struct mlx5e_packet_merge_param *pkt_merge_param,
 		    unsigned int init_nch);
 void mlx5e_rx_res_destroy(struct mlx5e_rx_res *res);
 

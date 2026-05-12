@@ -783,6 +783,8 @@ static enum bp_result external_encoder_control_v3(
 	struct bios_parser *bp,
 	struct bp_external_encoder_control *cntl)
 {
+	(void)bp;
+	(void)cntl;
 	/* TODO */
 	return BP_RESULT_OK;
 }
@@ -927,8 +929,8 @@ static enum bp_result set_dce_clock_v2_1(
 					&atom_clock_type))
 		return BP_RESULT_BADINPUT;
 
-	params.param.dceclksrc  = atom_pll_id;
-	params.param.dceclktype = atom_clock_type;
+	params.param.dceclksrc = (uint8_t)atom_pll_id;
+	params.param.dceclktype = (uint8_t)atom_clock_type;
 
 	if (bp_params->clock_type == DCECLOCK_TYPE_DPREFCLK) {
 		if (bp_params->flags.USE_GENLOCK_AS_SOURCE_FOR_DPREFCLK)

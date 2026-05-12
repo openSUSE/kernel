@@ -52,6 +52,7 @@
 #include <linux/user_namespace.h>
 
 #include "fuse_i.h"
+#include "fuse_dev_i.h"
 
 #define CUSE_CONNTBL_LEN	64
 
@@ -361,7 +362,7 @@ static void cuse_process_init_reply(struct fuse_mount *fm,
 
 	/* devt determined, create device */
 	rc = -ENOMEM;
-	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+	dev = kzalloc_obj(*dev);
 	if (!dev)
 		goto err_region;
 
@@ -442,7 +443,7 @@ static int cuse_send_init(struct cuse_conn *cc)
 	if (!folio)
 		goto err;
 
-	ia = kzalloc(sizeof(*ia), GFP_KERNEL);
+	ia = kzalloc_obj(*ia);
 	if (!ia)
 		goto err_free_folio;
 
@@ -504,7 +505,7 @@ static int cuse_channel_open(struct inode *inode, struct file *file)
 	int rc;
 
 	/* set up cuse_conn */
-	cc = kzalloc(sizeof(*cc), GFP_KERNEL);
+	cc = kzalloc_obj(*cc);
 	if (!cc)
 		return -ENOMEM;
 
@@ -526,7 +527,7 @@ static int cuse_channel_open(struct inode *inode, struct file *file)
 	cc->fc.initialized = 1;
 	rc = cuse_send_init(cc);
 	if (rc) {
-		fuse_dev_free(fud);
+		fuse_dev_put(fud);
 		return rc;
 	}
 	file->private_data = fud;
@@ -547,7 +548,7 @@ static int cuse_channel_open(struct inode *inode, struct file *file)
  */
 static int cuse_channel_release(struct inode *inode, struct file *file)
 {
-	struct fuse_dev *fud = file->private_data;
+	struct fuse_dev *fud = __fuse_get_dev(file);
 	struct cuse_conn *cc = fc_to_cc(fud->fc);
 
 	/* remove from the conntbl, no more access from this point on */

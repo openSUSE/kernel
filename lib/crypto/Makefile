@@ -8,6 +8,10 @@ quiet_cmd_perlasm = PERLASM $@
 quiet_cmd_perlasm_with_args = PERLASM $@
       cmd_perlasm_with_args = $(PERL) $(<) void $(@)
 
+ppc64-perlasm-flavour-y := linux-ppc64
+ppc64-perlasm-flavour-$(CONFIG_PPC64_ELF_ABI_V2) := linux-ppc64-elfv2
+ppc64-perlasm-flavour-$(CONFIG_CPU_LITTLE_ENDIAN) := linux-ppc64le
+
 obj-$(CONFIG_KUNIT)				+= tests/
 
 obj-$(CONFIG_CRYPTO_HASH_INFO)			+= hash_info.o
@@ -15,12 +19,46 @@ obj-$(CONFIG_CRYPTO_HASH_INFO)			+= hash_info.o
 obj-$(CONFIG_CRYPTO_LIB_UTILS)			+= libcryptoutils.o
 libcryptoutils-y				:= memneq.o utils.o
 
-# chacha is used by the /dev/random driver which is always builtin
-obj-y						+= chacha.o
-obj-$(CONFIG_CRYPTO_LIB_CHACHA_GENERIC)		+= libchacha.o
+################################################################################
 
-obj-$(CONFIG_CRYPTO_LIB_AES)			+= libaes.o
-libaes-y					:= aes.o
+obj-$(CONFIG_CRYPTO_LIB_AES) += libaes.o
+libaes-y := aes.o
+ifeq ($(CONFIG_CRYPTO_LIB_AES_ARCH),y)
+CFLAGS_aes.o += -I$(src)/$(SRCARCH)
+
+libaes-$(CONFIG_ARM) += arm/aes-cipher-core.o
+libaes-$(CONFIG_ARM64) += arm64/aes-cipher-core.o \
+			  arm64/aes-ce-core.o \
+			  arm64/aes-ce.o \
+			  arm64/aes-neon.o
+
+ifeq ($(CONFIG_PPC),y)
+ifeq ($(CONFIG_SPE),y)
+libaes-y += powerpc/aes-spe-core.o \
+	    powerpc/aes-spe-keys.o \
+	    powerpc/aes-spe-modes.o \
+	    powerpc/aes-tab-4k.o
+else
+libaes-y += powerpc/aesp8-ppc.o
+quiet_cmd_perlasm_aes = PERLASM $@
+      cmd_perlasm_aes = $(PERL) $< $(ppc64-perlasm-flavour-y) $@
+# Use if_changed instead of cmd, in case the flavour changed.
+$(obj)/powerpc/aesp8-ppc.S: $(src)/powerpc/aesp8-ppc.pl FORCE
+	$(call if_changed,perlasm_aes)
+targets += powerpc/aesp8-ppc.S
+OBJECT_FILES_NON_STANDARD_powerpc/aesp8-ppc.o := y
+endif # !CONFIG_SPE
+endif # CONFIG_PPC
+
+libaes-$(CONFIG_RISCV) += riscv/aes-riscv64-zvkned.o
+libaes-$(CONFIG_SPARC) += sparc/aes_asm.o
+libaes-$(CONFIG_X86) += x86/aes-aesni.o
+endif # CONFIG_CRYPTO_LIB_AES_ARCH
+
+# clean-files must be defined unconditionally
+clean-files += powerpc/aesp8-ppc.S
+
+################################################################################
 
 obj-$(CONFIG_CRYPTO_LIB_AESCFB)			+= libaescfb.o
 libaescfb-y					:= aescfb.o
@@ -33,39 +71,213 @@ libarc4-y					:= arc4.o
 
 obj-$(CONFIG_CRYPTO_LIB_GF128MUL)		+= gf128mul.o
 
+################################################################################
+
+obj-$(CONFIG_CRYPTO_LIB_BLAKE2B) += libblake2b.o
+libblake2b-y := blake2b.o
+ifeq ($(CONFIG_CRYPTO_LIB_BLAKE2B_ARCH),y)
+CFLAGS_blake2b.o += -I$(src)/$(SRCARCH)
+libblake2b-$(CONFIG_ARM) += arm/blake2b-neon-core.o
+endif # CONFIG_CRYPTO_LIB_BLAKE2B_ARCH
+
+################################################################################
+
 # blake2s is used by the /dev/random driver which is always builtin
-obj-y						+= libblake2s.o
-libblake2s-y					:= blake2s.o
-libblake2s-$(CONFIG_CRYPTO_LIB_BLAKE2S_GENERIC)	+= blake2s-generic.o
-libblake2s-$(CONFIG_CRYPTO_SELFTESTS)		+= blake2s-selftest.o
+obj-y += blake2s.o
+ifeq ($(CONFIG_CRYPTO_LIB_BLAKE2S_ARCH),y)
+CFLAGS_blake2s.o += -I$(src)/$(SRCARCH)
+obj-$(CONFIG_ARM) += arm/blake2s-core.o
+obj-$(CONFIG_X86) += x86/blake2s-core.o
+endif
+
+################################################################################
+
+# chacha20_block() is used by the /dev/random driver which is always builtin
+obj-y += chacha-block-generic.o
+
+obj-$(CONFIG_CRYPTO_LIB_CHACHA) += libchacha.o
+libchacha-y := chacha.o
+
+ifeq ($(CONFIG_CRYPTO_LIB_CHACHA_ARCH),y)
+CFLAGS_chacha.o += -I$(src)/$(SRCARCH)
+
+ifeq ($(CONFIG_ARM),y)
+libchacha-y += arm/chacha-scalar-core.o
+libchacha-$(CONFIG_KERNEL_MODE_NEON) += arm/chacha-neon-core.o
+endif
+
+libchacha-$(CONFIG_ARM64) += arm64/chacha-neon-core.o
+
+ifeq ($(CONFIG_MIPS),y)
+libchacha-y += mips/chacha-core.o
+AFLAGS_mips/chacha-core.o += -O2 # needed to fill branch delay slots
+endif
+
+libchacha-$(CONFIG_PPC) += powerpc/chacha-p10le-8x.o
+libchacha-$(CONFIG_RISCV) += riscv/chacha-riscv64-zvkb.o
+libchacha-$(CONFIG_S390) += s390/chacha-s390.o
+libchacha-$(CONFIG_X86) += x86/chacha-ssse3-x86_64.o \
+			   x86/chacha-avx2-x86_64.o \
+			   x86/chacha-avx512vl-x86_64.o
+endif # CONFIG_CRYPTO_LIB_CHACHA_ARCH
+
+################################################################################
 
 obj-$(CONFIG_CRYPTO_LIB_CHACHA20POLY1305)	+= libchacha20poly1305.o
 libchacha20poly1305-y				+= chacha20poly1305.o
-libchacha20poly1305-$(CONFIG_CRYPTO_SELFTESTS)	+= chacha20poly1305-selftest.o
 
-obj-$(CONFIG_CRYPTO_LIB_CURVE25519_GENERIC)	+= libcurve25519-generic.o
-libcurve25519-generic-y				:= curve25519-fiat32.o
-libcurve25519-generic-$(CONFIG_ARCH_SUPPORTS_INT128)	:= curve25519-hacl64.o
-libcurve25519-generic-y				+= curve25519-generic.o
+################################################################################
+
+obj-$(CONFIG_CRYPTO_LIB_CURVE25519) += libcurve25519.o
+libcurve25519-y := curve25519.o
+
+# Disable GCOV in odd or sensitive code
+GCOV_PROFILE_curve25519.o := n
+
+ifeq ($(CONFIG_ARCH_SUPPORTS_INT128),y)
+libcurve25519-$(CONFIG_CRYPTO_LIB_CURVE25519_GENERIC) += curve25519-hacl64.o
+else
+libcurve25519-$(CONFIG_CRYPTO_LIB_CURVE25519_GENERIC) += curve25519-fiat32.o
+endif
 # clang versions prior to 18 may blow out the stack with KASAN
-ifeq ($(call clang-min-version, 180000),)
+ifeq ($(CONFIG_CC_IS_CLANG)_$(call clang-min-version, 180000),y_)
 KASAN_SANITIZE_curve25519-hacl64.o := n
 endif
 
-obj-$(CONFIG_CRYPTO_LIB_CURVE25519)		+= libcurve25519.o
-libcurve25519-y					+= curve25519.o
-libcurve25519-$(CONFIG_CRYPTO_SELFTESTS)	+= curve25519-selftest.o
+ifeq ($(CONFIG_CRYPTO_LIB_CURVE25519_ARCH),y)
+CFLAGS_curve25519.o += -I$(src)/$(SRCARCH)
+libcurve25519-$(CONFIG_ARM) += arm/curve25519-core.o
+libcurve25519-$(CONFIG_PPC) += powerpc/curve25519-ppc64le_asm.o
+endif
+
+################################################################################
 
 obj-$(CONFIG_CRYPTO_LIB_DES)			+= libdes.o
 libdes-y					:= des.o
 
-obj-$(CONFIG_CRYPTO_LIB_POLY1305)		+= libpoly1305.o
-libpoly1305-y					+= poly1305.o
+################################################################################
 
-obj-$(CONFIG_CRYPTO_LIB_POLY1305_GENERIC)	+= libpoly1305-generic.o
-libpoly1305-generic-y				:= poly1305-donna32.o
-libpoly1305-generic-$(CONFIG_ARCH_SUPPORTS_INT128) := poly1305-donna64.o
-libpoly1305-generic-y				+= poly1305-generic.o
+obj-$(CONFIG_CRYPTO_LIB_GF128HASH) += libgf128hash.o
+libgf128hash-y := gf128hash.o
+ifeq ($(CONFIG_CRYPTO_LIB_GF128HASH_ARCH),y)
+CFLAGS_gf128hash.o += -I$(src)/$(SRCARCH)
+libgf128hash-$(CONFIG_ARM) += arm/ghash-neon-core.o
+libgf128hash-$(CONFIG_ARM64) += arm64/ghash-neon-core.o \
+				arm64/polyval-ce-core.o
+
+ifeq ($(CONFIG_PPC),y)
+libgf128hash-y += powerpc/ghashp8-ppc.o
+quiet_cmd_perlasm_ghash = PERLASM $@
+      cmd_perlasm_ghash = $(PERL) $< $(ppc64-perlasm-flavour-y) $@
+$(obj)/powerpc/ghashp8-ppc.S: $(src)/powerpc/ghashp8-ppc.pl FORCE
+	$(call if_changed,perlasm_ghash)
+targets += powerpc/ghashp8-ppc.S
+OBJECT_FILES_NON_STANDARD_powerpc/ghashp8-ppc.o := y
+endif
+
+libgf128hash-$(CONFIG_RISCV) += riscv/ghash-riscv64-zvkg.o
+libgf128hash-$(CONFIG_X86) += x86/ghash-pclmul.o \
+			      x86/polyval-pclmul-avx.o
+endif # CONFIG_CRYPTO_LIB_GF128HASH_ARCH
+
+# clean-files must be defined unconditionally
+clean-files += powerpc/ghashp8-ppc.S
+
+################################################################################
+
+obj-$(CONFIG_CRYPTO_LIB_MD5) += libmd5.o
+libmd5-y := md5.o
+ifeq ($(CONFIG_CRYPTO_LIB_MD5_ARCH),y)
+CFLAGS_md5.o += -I$(src)/$(SRCARCH)
+libmd5-$(CONFIG_PPC) += powerpc/md5-asm.o
+endif # CONFIG_CRYPTO_LIB_MD5_ARCH
+
+################################################################################
+
+obj-$(CONFIG_CRYPTO_LIB_MLDSA) += libmldsa.o
+libmldsa-y := mldsa.o
+
+################################################################################
+
+obj-$(CONFIG_CRYPTO_LIB_NH) += libnh.o
+libnh-y := nh.o
+ifeq ($(CONFIG_CRYPTO_LIB_NH_ARCH),y)
+CFLAGS_nh.o += -I$(src)/$(SRCARCH)
+libnh-$(CONFIG_ARM) += arm/nh-neon-core.o
+libnh-$(CONFIG_ARM64) += arm64/nh-neon-core.o
+libnh-$(CONFIG_X86) += x86/nh-sse2.o x86/nh-avx2.o
+endif
+
+################################################################################
+
+obj-$(CONFIG_CRYPTO_LIB_POLY1305) += libpoly1305.o
+libpoly1305-y := poly1305.o
+ifeq ($(CONFIG_ARCH_SUPPORTS_INT128),y)
+libpoly1305-$(CONFIG_CRYPTO_LIB_POLY1305_GENERIC) += poly1305-donna64.o
+else
+libpoly1305-$(CONFIG_CRYPTO_LIB_POLY1305_GENERIC) += poly1305-donna32.o
+endif
+
+ifeq ($(CONFIG_CRYPTO_LIB_POLY1305_ARCH),y)
+CFLAGS_poly1305.o += -I$(src)/$(SRCARCH)
+
+ifeq ($(CONFIG_ARM),y)
+libpoly1305-y += arm/poly1305-core.o
+$(obj)/arm/poly1305-core.S: $(src)/arm/poly1305-armv4.pl
+	$(call cmd,perlasm)
+# massage the perlasm code a bit so we only get the NEON routine if we need it
+poly1305-aflags-$(CONFIG_CPU_V7) := -U__LINUX_ARM_ARCH__ -D__LINUX_ARM_ARCH__=5
+poly1305-aflags-$(CONFIG_KERNEL_MODE_NEON) := -U__LINUX_ARM_ARCH__ -D__LINUX_ARM_ARCH__=7
+AFLAGS_arm/poly1305-core.o += $(poly1305-aflags-y) $(aflags-thumb2-y)
+endif
+
+ifeq ($(CONFIG_ARM64),y)
+libpoly1305-y += arm64/poly1305-core.o
+$(obj)/arm64/poly1305-core.S: $(src)/arm64/poly1305-armv8.pl
+	$(call cmd,perlasm_with_args)
+endif
+
+ifeq ($(CONFIG_MIPS),y)
+libpoly1305-y += mips/poly1305-core.o
+poly1305-perlasm-flavour-$(CONFIG_32BIT) := o32
+poly1305-perlasm-flavour-$(CONFIG_64BIT) := 64
+quiet_cmd_perlasm_poly1305 = PERLASM $@
+      cmd_perlasm_poly1305 = $(PERL) $< $(poly1305-perlasm-flavour-y) $@
+# Use if_changed instead of cmd, in case the flavour changed.
+$(obj)/mips/poly1305-core.S: $(src)/mips/poly1305-mips.pl FORCE
+	$(call if_changed,perlasm_poly1305)
+targets += mips/poly1305-core.S
+endif
+
+libpoly1305-$(CONFIG_PPC) += powerpc/poly1305-p10le_64.o
+
+ifeq ($(CONFIG_RISCV),y)
+libpoly1305-y += riscv/poly1305-core.o
+poly1305-perlasm-flavour-$(CONFIG_32BIT) := 32
+poly1305-perlasm-flavour-$(CONFIG_64BIT) := 64
+quiet_cmd_perlasm_poly1305 = PERLASM $@
+      cmd_perlasm_poly1305 = $(PERL) $< $(poly1305-perlasm-flavour-y) $@
+# Use if_changed instead of cmd, in case the flavour changed.
+$(obj)/riscv/poly1305-core.S: $(src)/riscv/poly1305-riscv.pl FORCE
+	$(call if_changed,perlasm_poly1305)
+targets += riscv/poly1305-core.S
+AFLAGS_riscv/poly1305-core.o += -Dpoly1305_init=poly1305_block_init
+endif
+
+ifeq ($(CONFIG_X86),y)
+libpoly1305-y += x86/poly1305-x86_64-cryptogams.o
+$(obj)/x86/poly1305-x86_64-cryptogams.S: $(src)/x86/poly1305-x86_64-cryptogams.pl
+	$(call cmd,perlasm)
+endif
+
+endif # CONFIG_CRYPTO_LIB_POLY1305_ARCH
+
+# clean-files must be defined unconditionally
+clean-files += arm/poly1305-core.S \
+	       arm64/poly1305-core.S \
+	       mips/poly1305-core.S \
+	       riscv/poly1305-core.S \
+	       x86/poly1305-x86_64-cryptogams.S
 
 ################################################################################
 
@@ -104,10 +316,9 @@ AFLAGS_arm/sha256-core.o += $(aflags-thumb2-y)
 endif
 
 ifeq ($(CONFIG_ARM64),y)
-libsha256-y += arm64/sha256-core.o
+libsha256-y += arm64/sha256-ce.o arm64/sha256-core.o
 $(obj)/arm64/sha256-core.S: $(src)/arm64/sha2-armv8.pl
 	$(call cmd,perlasm_with_args)
-libsha256-$(CONFIG_KERNEL_MODE_NEON) += arm64/sha256-ce.o
 endif
 
 libsha256-$(CONFIG_PPC) += powerpc/sha256-spe-asm.o
@@ -134,10 +345,9 @@ AFLAGS_arm/sha512-core.o += $(aflags-thumb2-y)
 endif
 
 ifeq ($(CONFIG_ARM64),y)
-libsha512-y += arm64/sha512-core.o
+libsha512-y += arm64/sha512-ce-core.o arm64/sha512-core.o
 $(obj)/arm64/sha512-core.S: $(src)/arm64/sha2-armv8.pl
 	$(call cmd,perlasm_with_args)
-libsha512-$(CONFIG_KERNEL_MODE_NEON) += arm64/sha512-ce-core.o
 endif
 
 libsha512-$(CONFIG_RISCV) += riscv/sha512-riscv64-zvknhb-zvkb.o
@@ -149,20 +359,31 @@ endif # CONFIG_CRYPTO_LIB_SHA512_ARCH
 
 ################################################################################
 
+obj-$(CONFIG_CRYPTO_LIB_SHA3) += libsha3.o
+libsha3-y := sha3.o
+
+ifeq ($(CONFIG_CRYPTO_LIB_SHA3_ARCH),y)
+CFLAGS_sha3.o += -I$(src)/$(SRCARCH)
+libsha3-$(CONFIG_ARM64) += arm64/sha3-ce-core.o
+endif # CONFIG_CRYPTO_LIB_SHA3_ARCH
+
+################################################################################
+
+obj-$(CONFIG_CRYPTO_LIB_SM3) += libsm3.o
+libsm3-y := sm3.o
+ifeq ($(CONFIG_CRYPTO_LIB_SM3_ARCH),y)
+CFLAGS_sm3.o += -I$(src)/$(SRCARCH)
+libsm3-$(CONFIG_ARM64) += arm64/sm3-ce-core.o \
+			  arm64/sm3-neon-core.o
+libsm3-$(CONFIG_RISCV) += riscv/sm3-riscv64-zvksh-zvkb.o
+libsm3-$(CONFIG_X86) += x86/sm3-avx-asm_64.o
+endif # CONFIG_CRYPTO_LIB_SM3_ARCH
+
+################################################################################
+
 obj-$(CONFIG_MPILIB) += mpi/
 
 obj-$(CONFIG_CRYPTO_SELFTESTS_FULL)		+= simd.o
-
-obj-$(CONFIG_CRYPTO_LIB_SM3)			+= libsm3.o
-libsm3-y					:= sm3.o
-
-obj-$(CONFIG_ARM) += arm/
-obj-$(CONFIG_ARM64) += arm64/
-obj-$(CONFIG_MIPS) += mips/
-obj-$(CONFIG_PPC) += powerpc/
-obj-$(CONFIG_RISCV) += riscv/
-obj-$(CONFIG_S390) += s390/
-obj-$(CONFIG_X86) += x86/
 
 # clean-files must be defined unconditionally
 clean-files += arm/sha256-core.S arm/sha512-core.S

@@ -1724,7 +1724,7 @@ intel_tv_detect(struct drm_connector *connector,
 		return connector->status;
 
 	if (force) {
-		struct drm_atomic_state *state;
+		struct drm_atomic_commit *state;
 
 		state = intel_load_detect_get_pipe(connector, ctx);
 		if (IS_ERR(state))
@@ -1847,7 +1847,7 @@ static const struct drm_connector_funcs intel_tv_connector_funcs = {
 };
 
 static int intel_tv_atomic_check(struct drm_connector *connector,
-				 struct drm_atomic_state *state)
+				 struct drm_atomic_commit *state)
 {
 	struct drm_connector_state *new_state;
 	struct drm_crtc_state *new_crtc_state;
@@ -1966,7 +1966,7 @@ intel_tv_init(struct intel_display *display)
 	    (tv_dac_off & TVDAC_STATE_CHG_EN) != 0)
 		return;
 
-	intel_tv = kzalloc(sizeof(*intel_tv), GFP_KERNEL);
+	intel_tv = kzalloc_obj(*intel_tv);
 	if (!intel_tv) {
 		return;
 	}

@@ -640,7 +640,6 @@ struct r5conf {
 					    * (fresh device added).
 					    * Cleared when a sync completes.
 					    */
-	int			recovery_disabled;
 	/* per cpu variables */
 	struct raid5_percpu __percpu *percpu;
 	int scribble_disks;
@@ -690,6 +689,9 @@ struct r5conf {
 	struct list_head	pending_list;
 	int			pending_data_cnt;
 	struct r5pending_data	*next_pending_data;
+
+	mempool_t		*ctx_pool;
+	int			ctx_size;
 };
 
 #if PAGE_SIZE == DEFAULT_STRIPE_SIZE
@@ -799,7 +801,6 @@ raid5_get_dev_page(struct stripe_head *sh, int disk_idx)
 }
 #endif
 
-void md_raid5_kick_device(struct r5conf *conf);
 int raid5_set_cache_size(struct mddev *mddev, int size);
 sector_t raid5_compute_blocknr(struct stripe_head *sh, int i, int previous);
 void raid5_release_stripe(struct stripe_head *sh);

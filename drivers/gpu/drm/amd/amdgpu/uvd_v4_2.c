@@ -93,6 +93,11 @@ static void uvd_v4_2_ring_set_wptr(struct amdgpu_ring *ring)
 static int uvd_v4_2_early_init(struct amdgpu_ip_block *ip_block)
 {
 	struct amdgpu_device *adev = ip_block->adev;
+
+	/* UVD doesn't work without DPM, it needs DPM to ungate it. */
+	if (!amdgpu_dpm)
+		return -ENOENT;
+
 	adev->uvd.num_uvd_inst = 1;
 
 	uvd_v4_2_set_ring_funcs(adev);
@@ -167,7 +172,7 @@ static int uvd_v4_2_hw_init(struct amdgpu_ip_block *ip_block)
 
 	r = amdgpu_ring_alloc(ring, 10);
 	if (r) {
-		DRM_ERROR("amdgpu: ring failed to lock UVD ring (%d).\n", r);
+		drm_err(adev_to_drm(adev), "ring alloc failed (%d).\n", r);
 		goto done;
 	}
 
@@ -194,7 +199,7 @@ static int uvd_v4_2_hw_init(struct amdgpu_ip_block *ip_block)
 
 done:
 	if (!r)
-		DRM_INFO("UVD initialized successfully.\n");
+		drm_info(adev_to_drm(adev), "UVD initialized successfully.\n");
 
 	return r;
 }

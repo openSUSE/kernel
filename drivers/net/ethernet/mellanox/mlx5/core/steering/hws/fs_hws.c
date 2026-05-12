@@ -478,7 +478,7 @@ mlx5_fs_get_cached_hws_data(struct xarray *cache_xa, unsigned long index)
 	xa_lock(cache_xa);
 	fs_hws_data = xa_load(cache_xa, index);
 	if (!fs_hws_data) {
-		fs_hws_data = kzalloc(sizeof(*fs_hws_data), GFP_ATOMIC);
+		fs_hws_data = kzalloc_obj(*fs_hws_data, GFP_ATOMIC);
 		if (!fs_hws_data) {
 			xa_unlock(cache_xa);
 			return NULL;
@@ -572,12 +572,12 @@ static void mlx5_fs_put_dest_action_sampler(struct mlx5_fs_hws_context *fs_ctx,
 static struct mlx5hws_action *
 mlx5_fs_create_action_dest_array(struct mlx5hws_context *ctx,
 				 struct mlx5hws_action_dest_attr *dests,
-				 u32 num_of_dests, bool ignore_flow_level)
+				 u32 num_of_dests)
 {
 	u32 flags = MLX5HWS_ACTION_FLAG_HWS_FDB | MLX5HWS_ACTION_FLAG_SHARED;
 
 	return mlx5hws_action_create_dest_array(ctx, num_of_dests, dests,
-						ignore_flow_level, flags);
+						flags);
 }
 
 static struct mlx5hws_action *
@@ -759,22 +759,19 @@ static int mlx5_fs_fte_get_hws_actions(struct mlx5_flow_root_namespace *ns,
 	int num_actions = 0;
 	int err;
 
-	*ractions = kcalloc(MLX5_FLOW_CONTEXT_ACTION_MAX, sizeof(**ractions),
-			    GFP_KERNEL);
+	*ractions = kzalloc_objs(**ractions, MLX5_FLOW_CONTEXT_ACTION_MAX);
 	if (!*ractions) {
 		err = -ENOMEM;
 		goto out_err;
 	}
 
-	fs_actions = kcalloc(MLX5_FLOW_CONTEXT_ACTION_MAX,
-			     sizeof(*fs_actions), GFP_KERNEL);
+	fs_actions = kzalloc_objs(*fs_actions, MLX5_FLOW_CONTEXT_ACTION_MAX);
 	if (!fs_actions) {
 		err = -ENOMEM;
 		goto free_actions_alloc;
 	}
 
-	dest_actions = kcalloc(MLX5_FLOW_CONTEXT_ACTION_MAX,
-			       sizeof(*dest_actions), GFP_KERNEL);
+	dest_actions = kzalloc_objs(*dest_actions, MLX5_FLOW_CONTEXT_ACTION_MAX);
 	if (!dest_actions) {
 		err = -ENOMEM;
 		goto free_fs_actions_alloc;
@@ -1014,19 +1011,14 @@ static int mlx5_fs_fte_get_hws_actions(struct mlx5_flow_root_namespace *ns,
 		}
 		(*ractions)[num_actions++].action = dest_actions->dest;
 	} else if (num_dest_actions > 1) {
-		bool ignore_flow_level;
-
 		if (num_actions == MLX5_FLOW_CONTEXT_ACTION_MAX ||
 		    num_fs_actions == MLX5_FLOW_CONTEXT_ACTION_MAX) {
 			err = -EOPNOTSUPP;
 			goto free_actions;
 		}
-		ignore_flow_level =
-			!!(fte_action->flags & FLOW_ACT_IGNORE_FLOW_LEVEL);
 		tmp_action =
 			mlx5_fs_create_action_dest_array(ctx, dest_actions,
-							 num_dest_actions,
-							 ignore_flow_level);
+							 num_dest_actions);
 		if (!tmp_action) {
 			err = -EOPNOTSUPP;
 			goto free_actions;
@@ -1244,7 +1236,7 @@ mlx5_fs_get_pr_encap_pool(struct mlx5_core_dev *dev, struct xarray *pr_pools,
 	if (pr_pool)
 		return pr_pool;
 
-	pr_pool = kzalloc(sizeof(*pr_pool), GFP_KERNEL);
+	pr_pool = kzalloc_obj(*pr_pool);
 	if (!pr_pool)
 		return ERR_PTR(-ENOMEM);
 	err = mlx5_fs_hws_pr_pool_init(pr_pool, dev, size, reformat_type);
@@ -1435,7 +1427,7 @@ mlx5_fs_create_mh_pool(struct mlx5_core_dev *dev,
 	struct mlx5_fs_pool *pool;
 	int err;
 
-	pool = kzalloc(sizeof(*pool), GFP_KERNEL);
+	pool = kzalloc_obj(*pool);
 	if (!pool)
 		return ERR_PTR(-ENOMEM);
 	err = mlx5_fs_hws_mh_pool_init(pool, dev, pattern);

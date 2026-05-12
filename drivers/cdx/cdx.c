@@ -170,7 +170,7 @@ static int cdx_unregister_device(struct device *dev,
 	return 0;
 }
 
-static void cdx_unregister_devices(struct bus_type *bus)
+static void cdx_unregister_devices(const struct bus_type *bus)
 {
 	/* Reset all the devices attached to cdx bus */
 	bus_for_each_dev(bus, NULL, NULL, cdx_unregister_device);
@@ -310,7 +310,7 @@ static int cdx_probe(struct device *dev)
 	 * Setup MSI device data so that generic MSI alloc/free can
 	 * be used by the device driver.
 	 */
-	if (cdx->msi_domain) {
+	if (IS_ENABLED(CONFIG_GENERIC_MSI_IRQ) && cdx->msi_domain) {
 		error = msi_setup_device_data(&cdx_dev->dev);
 		if (error)
 			return error;
@@ -608,7 +608,6 @@ static ssize_t rescan_store(const struct bus_type *bus,
 {
 	struct cdx_controller *cdx;
 	struct platform_device *pd;
-	struct device_node *np;
 	bool val;
 
 	if (kstrtobool(buf, &val) < 0)
@@ -617,19 +616,16 @@ static ssize_t rescan_store(const struct bus_type *bus,
 	if (!val)
 		return -EINVAL;
 
-	mutex_lock(&cdx_controller_lock);
+	guard(mutex)(&cdx_controller_lock);
 
 	/* Unregister all the devices on the bus */
 	cdx_unregister_devices(&cdx_bus_type);
 
 	/* Rescan all the devices */
-	for_each_compatible_node(np, NULL, compat_node_name) {
+	for_each_compatible_node_scoped(np, NULL, compat_node_name) {
 		pd = of_find_device_by_node(np);
-		if (!pd) {
-			of_node_put(np);
-			count = -EINVAL;
-			goto unlock;
-		}
+		if (!pd)
+			return -EINVAL;
 
 		cdx = platform_get_drvdata(pd);
 		if (cdx && cdx->controller_registered && cdx->ops->scan)
@@ -637,9 +633,6 @@ static ssize_t rescan_store(const struct bus_type *bus,
 
 		put_device(&pd->dev);
 	}
-
-unlock:
-	mutex_unlock(&cdx_controller_lock);
 
 	return count;
 }
@@ -651,7 +644,7 @@ static struct attribute *cdx_bus_attrs[] = {
 };
 ATTRIBUTE_GROUPS(cdx_bus);
 
-struct bus_type cdx_bus_type = {
+const struct bus_type cdx_bus_type = {
 	.name		= "cdx",
 	.match		= cdx_bus_match,
 	.probe		= cdx_probe,
@@ -796,7 +789,7 @@ int cdx_device_add(struct cdx_dev_params *dev_params)
 	struct cdx_device *cdx_dev;
 	int ret, i;
 
-	cdx_dev = kzalloc(sizeof(*cdx_dev), GFP_KERNEL);
+	cdx_dev = kzalloc_obj(*cdx_dev);
 	if (!cdx_dev)
 		return -ENOMEM;
 
@@ -833,7 +826,7 @@ int cdx_device_add(struct cdx_dev_params *dev_params)
 		     ((cdx->id << CDX_CONTROLLER_ID_SHIFT) | (cdx_dev->bus_num & CDX_BUS_NUM_MASK)),
 		     cdx_dev->dev_num);
 
-	if (cdx->msi_domain) {
+	if (IS_ENABLED(CONFIG_GENERIC_MSI_IRQ) && cdx->msi_domain) {
 		cdx_dev->num_msi = dev_params->num_msi;
 		dev_set_msi_domain(&cdx_dev->dev, cdx->msi_domain);
 	}
@@ -883,7 +876,7 @@ struct device *cdx_bus_add(struct cdx_controller *cdx, u8 bus_num)
 	struct cdx_device *cdx_dev;
 	int ret;
 
-	cdx_dev = kzalloc(sizeof(*cdx_dev), GFP_KERNEL);
+	cdx_dev = kzalloc_obj(*cdx_dev);
 	if (!cdx_dev)
 		return NULL;
 

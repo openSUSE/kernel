@@ -138,6 +138,7 @@ struct tty_port {
 					   kernel */
 
 void tty_port_init(struct tty_port *port);
+void tty_port_link_wq(struct tty_port *port, struct workqueue_struct *flip_wq);
 void tty_port_link_device(struct tty_port *port, struct tty_driver *driver,
 		unsigned index);
 struct device *tty_port_register_device(struct tty_port *port,
@@ -163,6 +164,18 @@ static inline struct tty_port *tty_port_get(struct tty_port *port)
 	if (port && kref_get_unless_zero(&port->kref))
 		return port;
 	return NULL;
+}
+
+/*
+ * Never overwrite the workqueue set by tty_port_link_wq().
+ * No effect when %TTY_DRIVER_NO_WORKQUEUE is set, as driver->flip_wq is
+ * %NULL.
+ */
+static inline void tty_port_link_driver_wq(struct tty_port *port,
+					   struct tty_driver *driver)
+{
+	if (!port->buf.flip_wq)
+		tty_port_link_wq(port, driver->flip_wq);
 }
 
 /* If the cts flow control is enabled, return true. */
@@ -269,5 +282,19 @@ static inline void tty_port_tty_vhangup(struct tty_port *port)
 {
 	__tty_port_tty_hangup(port, false, false);
 }
+
+#ifdef CONFIG_TTY
+void tty_kref_put(struct tty_struct *tty);
+__DEFINE_CLASS_IS_CONDITIONAL(tty_port_tty, true);
+__DEFINE_UNLOCK_GUARD(tty_port_tty, struct tty_struct, tty_kref_put(_T->lock));
+static inline class_tty_port_tty_t class_tty_port_tty_constructor(struct tty_port *tport)
+{
+	class_tty_port_tty_t _t = {
+		.lock = tty_port_tty_get(tport),
+	};
+	return _t;
+}
+#define scoped_tty()	((struct tty_struct *)(__guard_ptr(tty_port_tty)(&scope)))
+#endif
 
 #endif

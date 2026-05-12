@@ -11,8 +11,6 @@ use core::{
 };
 use pin_init::{PinInit, Wrapper, Zeroable};
 
-pub use crate::sync::aref::{ARef, AlwaysRefCounted};
-
 /// Used to transfer ownership to and from foreign (non-Rust) languages.
 ///
 /// Ownership is transferred from Rust to a foreign language by calling [`Self::into_foreign`] and
@@ -289,7 +287,6 @@ impl<T, F: FnOnce(T)> Drop for ScopeGuard<T, F> {
 /// # Examples
 ///
 /// ```
-/// # #![expect(unreachable_pub, clippy::disallowed_names)]
 /// use kernel::types::Opaque;
 /// # // Emulate a C struct binding which is from C, maybe uninitialized or not, only the C side
 /// # // knows.

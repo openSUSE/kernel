@@ -26,13 +26,7 @@ config NET_DSA_LOOP
 
 source "drivers/net/dsa/hirschmann/Kconfig"
 
-config NET_DSA_LANTIQ_GSWIP
-	tristate "Lantiq / Intel GSWIP"
-	depends on HAS_IOMEM
-	select NET_DSA_TAG_GSWIP
-	help
-	  This enables support for the Lantiq / Intel GSWIP 2.1 found in
-	  the xrx200 / VR9 SoC.
+source "drivers/net/dsa/lantiq/Kconfig"
 
 config NET_DSA_MT7530
 	tristate "MediaTek MT7530 and MT7531 Ethernet switch support"
@@ -80,6 +74,8 @@ source "drivers/net/dsa/microchip/Kconfig"
 
 source "drivers/net/dsa/mv88e6xxx/Kconfig"
 
+source "drivers/net/dsa/mxl862xx/Kconfig"
+
 source "drivers/net/dsa/ocelot/Kconfig"
 
 source "drivers/net/dsa/qca/Kconfig"
@@ -98,6 +94,14 @@ config NET_DSA_RZN1_A5PSW
 	help
 	  This driver supports the A5PSW switch, which is embedded in Renesas
 	  RZ/N1 SoC.
+
+config NET_DSA_KS8995
+	tristate "Micrel KS8995 family 5-ports 10/100 Ethernet switches"
+	depends on SPI
+	select NET_DSA_TAG_NONE
+	help
+	  This driver supports the Micrel KS8995 family of 10/100 Mbit ethernet
+	  switches, managed over SPI.
 
 config NET_DSA_SMSC_LAN9303
 	tristate
@@ -152,4 +156,12 @@ config NET_DSA_VITESSE_VSC73XX_PLATFORM
 	  This enables support for the Vitesse VSC7385, VSC7388, VSC7395
 	  and VSC7398 SparX integrated ethernet switches, connected over
 	  a CPU-attached address bus and work in memory-mapped I/O mode.
+
+config NET_DSA_YT921X
+	tristate "Motorcomm YT9215 ethernet switch chip support"
+	select NET_DSA_TAG_YT921X
+	select NET_IEEE8021Q_HELPERS if DCB
+	help
+	  This enables support for the Motorcomm YT9215 ethernet switch
+	  chip.
 endmenu

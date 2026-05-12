@@ -2,6 +2,8 @@
 #ifndef _LINUX_KHUGEPAGED_H
 #define _LINUX_KHUGEPAGED_H
 
+#include <linux/mm.h>
+
 extern unsigned int khugepaged_max_ptes_none __read_mostly;
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 extern struct attribute_group khugepaged_attr_group;
@@ -15,18 +17,18 @@ extern void khugepaged_enter_vma(struct vm_area_struct *vma,
 				 vm_flags_t vm_flags);
 extern void khugepaged_min_free_kbytes_update(void);
 extern bool current_is_khugepaged(void);
-extern int collapse_pte_mapped_thp(struct mm_struct *mm, unsigned long addr,
-				   bool install_pmd);
+void collapse_pte_mapped_thp(struct mm_struct *mm, unsigned long addr,
+		bool install_pmd);
 
 static inline void khugepaged_fork(struct mm_struct *mm, struct mm_struct *oldmm)
 {
-	if (test_bit(MMF_VM_HUGEPAGE, &oldmm->flags))
+	if (mm_flags_test(MMF_VM_HUGEPAGE, oldmm))
 		__khugepaged_enter(mm);
 }
 
 static inline void khugepaged_exit(struct mm_struct *mm)
 {
-	if (test_bit(MMF_VM_HUGEPAGE, &mm->flags))
+	if (mm_flags_test(MMF_VM_HUGEPAGE, mm))
 		__khugepaged_exit(mm);
 }
 #else /* CONFIG_TRANSPARENT_HUGEPAGE */
@@ -40,10 +42,9 @@ static inline void khugepaged_enter_vma(struct vm_area_struct *vma,
 					vm_flags_t vm_flags)
 {
 }
-static inline int collapse_pte_mapped_thp(struct mm_struct *mm,
-					  unsigned long addr, bool install_pmd)
+static inline void collapse_pte_mapped_thp(struct mm_struct *mm,
+		unsigned long addr, bool install_pmd)
 {
-	return 0;
 }
 
 static inline void khugepaged_min_free_kbytes_update(void)

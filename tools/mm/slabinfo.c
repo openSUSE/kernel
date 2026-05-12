@@ -155,6 +155,7 @@ static void usage(void)
 
 static unsigned long read_obj(const char *name)
 {
+	size_t len;
 	FILE *f = fopen(name, "r");
 
 	if (!f) {
@@ -165,8 +166,10 @@ static unsigned long read_obj(const char *name)
 		if (!fgets(buffer, sizeof(buffer), f))
 			buffer[0] = 0;
 		fclose(f);
-		if (buffer[strlen(buffer)] == '\n')
-			buffer[strlen(buffer)] = 0;
+		len = strlen(buffer);
+
+		if (len > 0 && buffer[len - 1] == '\n')
+			buffer[len - 1] = 0;
 	}
 	return strlen(buffer);
 }
@@ -1402,7 +1405,7 @@ struct option opts[] = {
 	{ "numa", no_argument, NULL, 'n' },
 	{ "lines", required_argument, NULL, 'N'},
 	{ "ops", no_argument, NULL, 'o' },
-	{ "partial", no_argument, NULL, 'p'},
+	{ "partial", no_argument, NULL, 'P'},
 	{ "report", no_argument, NULL, 'r' },
 	{ "shrink", no_argument, NULL, 's' },
 	{ "Size", no_argument, NULL, 'S'},

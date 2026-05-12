@@ -93,7 +93,7 @@ int torture_hrtimeout_ns(ktime_t baset_ns, u32 fuzzt_ns, const enum hrtimer_mode
 {
 	ktime_t hto = baset_ns;
 
-	if (trsp)
+	if (trsp && fuzzt_ns)
 		hto += torture_random(trsp) % fuzzt_ns;
 	set_current_state(TASK_IDLE);
 	return schedule_hrtimeout(&hto, mode);
@@ -359,6 +359,8 @@ torture_onoff(void *arg)
 		torture_hrtimeout_jiffies(onoff_holdoff, &rand);
 		VERBOSE_TOROUT_STRING("torture_onoff end holdoff");
 	}
+	while (!rcu_inkernel_boot_has_ended())
+		schedule_timeout_interruptible(HZ / 10);
 	while (!torture_must_stop()) {
 		if (disable_onoff_at_boot && !rcu_inkernel_boot_has_ended()) {
 			torture_hrtimeout_jiffies(HZ / 10, &rand);
@@ -492,7 +494,7 @@ void torture_shuffle_task_register(struct task_struct *tp)
 
 	if (WARN_ON_ONCE(tp == NULL))
 		return;
-	stp = kmalloc(sizeof(*stp), GFP_KERNEL);
+	stp = kmalloc_obj(*stp);
 	if (WARN_ON_ONCE(stp == NULL))
 		return;
 	stp->st_t = tp;
@@ -797,8 +799,9 @@ static unsigned long torture_init_jiffies;
 static void
 torture_print_module_parms(void)
 {
-	pr_alert("torture module --- %s:  disable_onoff_at_boot=%d ftrace_dump_at_shutdown=%d verbose_sleep_frequency=%d verbose_sleep_duration=%d random_shuffle=%d\n",
-		 torture_type, disable_onoff_at_boot, ftrace_dump_at_shutdown, verbose_sleep_frequency, verbose_sleep_duration, random_shuffle);
+	pr_alert("torture module --- %s:  disable_onoff_at_boot=%d ftrace_dump_at_shutdown=%d verbose_sleep_frequency=%d verbose_sleep_duration=%d random_shuffle=%d%s\n",
+		 torture_type, disable_onoff_at_boot, ftrace_dump_at_shutdown, verbose_sleep_frequency, verbose_sleep_duration, random_shuffle,
+		 rcu_inkernel_boot_has_ended() ? "" : " still booting");
 }
 
 /*

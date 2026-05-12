@@ -17,6 +17,7 @@
 #include <drm/drm_crtc.h>
 #include <drm/drm_device.h>
 #include <drm/drm_gem_dma_helper.h>
+#include <drm/drm_print.h>
 #include <drm/drm_vblank.h>
 
 #include "rcar_cmm.h"
@@ -518,7 +519,7 @@ static void rcar_du_cmm_setup(struct drm_crtc *crtc)
 	if (drm_lut)
 		cmm_config.lut.table = (struct drm_color_lut *)drm_lut->data;
 
-	rcar_cmm_setup(rcrtc->cmm, &cmm_config);
+	rcar_cmm_setup(rcrtc->cmm->dev, &cmm_config);
 }
 
 /* -----------------------------------------------------------------------------
@@ -667,7 +668,7 @@ static void rcar_du_crtc_stop(struct rcar_du_crtc *rcrtc)
 		rcar_du_vsp_disable(rcrtc);
 
 	if (rcrtc->cmm)
-		rcar_cmm_disable(rcrtc->cmm);
+		rcar_cmm_disable(rcrtc->cmm->dev);
 
 	/*
 	 * Select switch sync mode. This stops display operation and configures
@@ -688,7 +689,7 @@ static void rcar_du_crtc_stop(struct rcar_du_crtc *rcrtc)
  */
 
 static int rcar_du_crtc_atomic_check(struct drm_crtc *crtc,
-				     struct drm_atomic_state *state)
+				     struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *crtc_state = drm_atomic_get_new_crtc_state(state,
 									  crtc);
@@ -719,14 +720,14 @@ static int rcar_du_crtc_atomic_check(struct drm_crtc *crtc,
 }
 
 static void rcar_du_crtc_atomic_enable(struct drm_crtc *crtc,
-				       struct drm_atomic_state *state)
+				       struct drm_atomic_commit *state)
 {
 	struct rcar_du_crtc *rcrtc = to_rcar_crtc(crtc);
 	struct rcar_du_crtc_state *rstate = to_rcar_crtc_state(crtc->state);
 	struct rcar_du_device *rcdu = rcrtc->dev;
 
 	if (rcrtc->cmm)
-		rcar_cmm_enable(rcrtc->cmm);
+		rcar_cmm_enable(rcrtc->cmm->dev);
 	rcar_du_crtc_get(rcrtc);
 
 	/*
@@ -767,7 +768,7 @@ static void rcar_du_crtc_atomic_enable(struct drm_crtc *crtc,
 }
 
 static void rcar_du_crtc_atomic_disable(struct drm_crtc *crtc,
-					struct drm_atomic_state *state)
+					struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *old_state = drm_atomic_get_old_crtc_state(state,
 									 crtc);
@@ -811,7 +812,7 @@ static void rcar_du_crtc_atomic_disable(struct drm_crtc *crtc,
 }
 
 static void rcar_du_crtc_atomic_begin(struct drm_crtc *crtc,
-				      struct drm_atomic_state *state)
+				      struct drm_atomic_commit *state)
 {
 	struct rcar_du_crtc *rcrtc = to_rcar_crtc(crtc);
 
@@ -840,7 +841,7 @@ static void rcar_du_crtc_atomic_begin(struct drm_crtc *crtc,
 }
 
 static void rcar_du_crtc_atomic_flush(struct drm_crtc *crtc,
-				      struct drm_atomic_state *state)
+				      struct drm_atomic_commit *state)
 {
 	struct rcar_du_crtc *rcrtc = to_rcar_crtc(crtc);
 	struct drm_device *dev = rcrtc->crtc.dev;
@@ -993,7 +994,7 @@ static void rcar_du_crtc_cleanup(struct drm_crtc *crtc)
 
 	rcar_du_crtc_crc_cleanup(rcrtc);
 
-	return drm_crtc_cleanup(crtc);
+	drm_crtc_cleanup(crtc);
 }
 
 static void rcar_du_crtc_reset(struct drm_crtc *crtc)
@@ -1005,7 +1006,7 @@ static void rcar_du_crtc_reset(struct drm_crtc *crtc)
 		crtc->state = NULL;
 	}
 
-	state = kzalloc(sizeof(*state), GFP_KERNEL);
+	state = kzalloc_obj(*state);
 	if (state == NULL)
 		return;
 
@@ -1102,7 +1103,7 @@ static int rcar_du_crtc_set_crc_source(struct drm_crtc *crtc,
 	struct rcar_du_crtc *rcrtc = to_rcar_crtc(crtc);
 	struct drm_modeset_acquire_ctx ctx;
 	struct drm_crtc_state *crtc_state;
-	struct drm_atomic_state *state;
+	struct drm_atomic_commit *state;
 	enum vsp1_du_crc_source source;
 	unsigned int index;
 	int ret;
@@ -1116,7 +1117,7 @@ static int rcar_du_crtc_set_crc_source(struct drm_crtc *crtc,
 	/* Perform an atomic commit to set the CRC source. */
 	drm_modeset_acquire_init(&ctx, 0);
 
-	state = drm_atomic_state_alloc(crtc->dev);
+	state = drm_atomic_commit_alloc(crtc->dev);
 	if (!state) {
 		ret = -ENOMEM;
 		goto unlock;
@@ -1139,12 +1140,12 @@ retry:
 	}
 
 	if (ret == -EDEADLK) {
-		drm_atomic_state_clear(state);
+		drm_atomic_commit_clear(state);
 		drm_modeset_backoff(&ctx);
 		goto retry;
 	}
 
-	drm_atomic_state_put(state);
+	drm_atomic_commit_put(state);
 
 unlock:
 	drm_modeset_drop_locks(&ctx);
@@ -1299,8 +1300,8 @@ int rcar_du_crtc_create(struct rcar_du_group *rgrp, unsigned int swindex,
 		return ret;
 
 	/* CMM might be disabled for this CRTC. */
-	if (rcdu->cmms[swindex]) {
-		rcrtc->cmm = rcdu->cmms[swindex];
+	if (rcdu->cmms[swindex].dev) {
+		rcrtc->cmm = &rcdu->cmms[swindex];
 		rgrp->cmms_mask |= BIT(hwindex % 2);
 
 		drm_mode_crtc_set_gamma_size(crtc, CM2_LUT_SIZE);

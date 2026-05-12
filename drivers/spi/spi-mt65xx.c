@@ -563,6 +563,22 @@ static void mtk_spi_setup_packet(struct spi_controller *host)
 	writel(reg_val, mdata->base + SPI_CFG1_REG);
 }
 
+inline u32 mtk_spi_set_nbit(u32 nbit)
+{
+	switch (nbit) {
+	default:
+		pr_warn_once("unknown nbit mode %u. Falling back to single mode\n",
+			     nbit);
+		fallthrough;
+	case SPI_NBITS_SINGLE:
+		return 0x0;
+	case SPI_NBITS_DUAL:
+		return 0x1;
+	case SPI_NBITS_QUAD:
+		return 0x2;
+	}
+}
+
 static void mtk_spi_enable_transfer(struct spi_controller *host)
 {
 	u32 cmd;
@@ -729,10 +745,16 @@ static int mtk_spi_transfer_one(struct spi_controller *host,
 
 	/* prepare xfer direction and duplex mode */
 	if (mdata->dev_comp->ipm_design) {
-		if (!xfer->tx_buf || !xfer->rx_buf) {
+		if (xfer->tx_buf && xfer->rx_buf) {
+			reg_val &= ~SPI_CFG3_IPM_HALF_DUPLEX_EN;
+		} else if (xfer->tx_buf) {
 			reg_val |= SPI_CFG3_IPM_HALF_DUPLEX_EN;
-			if (xfer->rx_buf)
-				reg_val |= SPI_CFG3_IPM_HALF_DUPLEX_DIR;
+			reg_val &= ~SPI_CFG3_IPM_HALF_DUPLEX_DIR;
+			reg_val |= mtk_spi_set_nbit(xfer->tx_nbits);
+		} else {
+			reg_val |= SPI_CFG3_IPM_HALF_DUPLEX_EN;
+			reg_val |= SPI_CFG3_IPM_HALF_DUPLEX_DIR;
+			reg_val |= mtk_spi_set_nbit(xfer->rx_nbits);
 		}
 		writel(reg_val, mdata->base + SPI_CFG3_IPM_REG);
 	}
@@ -1159,10 +1181,9 @@ static int mtk_spi_probe(struct platform_device *pdev)
 
 	host = devm_spi_alloc_host(dev, sizeof(*mdata));
 	if (!host)
-		return dev_err_probe(dev, -ENOMEM, "failed to alloc spi host\n");
+		return -ENOMEM;
 
 	host->auto_runtime_pm = true;
-	host->dev.of_node = dev->of_node;
 	host->mode_bits = SPI_CPOL | SPI_CPHA | SPI_LSB_FIRST;
 
 	host->set_cs = mtk_spi_set_cs;
@@ -1298,13 +1319,13 @@ static int mtk_spi_probe(struct platform_device *pdev)
 
 	ret = devm_request_threaded_irq(dev, irq, mtk_spi_interrupt,
 					mtk_spi_interrupt_thread,
-					IRQF_TRIGGER_NONE, dev_name(dev), host);
+					IRQF_ONESHOT, dev_name(dev), host);
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to register irq\n");
 
 	pm_runtime_enable(dev);
 
-	ret = devm_spi_register_controller(dev, host);
+	ret = spi_register_controller(host);
 	if (ret) {
 		pm_runtime_disable(dev);
 		return dev_err_probe(dev, ret, "failed to register host\n");
@@ -1318,6 +1339,8 @@ static void mtk_spi_remove(struct platform_device *pdev)
 	struct spi_controller *host = platform_get_drvdata(pdev);
 	struct mtk_spi *mdata = spi_controller_get_devdata(host);
 	int ret;
+
+	spi_unregister_controller(host);
 
 	cpu_latency_qos_remove_request(&mdata->qos_request);
 	if (mdata->use_spimem && !completion_done(&mdata->spimem_done))

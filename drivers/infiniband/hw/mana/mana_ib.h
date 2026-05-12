@@ -8,7 +8,7 @@
 
 #include <rdma/ib_verbs.h>
 #include <rdma/ib_mad.h>
-#include <rdma/ib_umem.h>
+#include <rdma/iter.h>
 #include <rdma/mana-abi.h>
 #include <rdma/uverbs_ioctl.h>
 #include <linux/dmapool.h>
@@ -42,6 +42,8 @@
  * The buffer used for writing AV
  */
 #define MANA_AV_BUFFER_SIZE	64
+
+#define MANA_GSI_QPN		(1)
 
 struct mana_ib_adapter_caps {
 	u32 max_sq_id;
@@ -123,10 +125,20 @@ struct mana_ib_ah {
 	dma_addr_t dma_handle;
 };
 
+struct mana_ib_mw {
+	struct ib_mw ibmw;
+	mana_handle_t mw_handle;
+};
+
 struct mana_ib_mr {
 	struct ib_mr ibmr;
 	struct ib_umem *umem;
 	mana_handle_t mr_handle;
+};
+
+struct mana_ib_dm {
+	struct ib_dm ibdm;
+	mana_handle_t dm_handle;
 };
 
 struct mana_ib_cq {
@@ -410,7 +422,7 @@ struct mana_ib_ah_attr {
 	u8 traffic_class;
 	u16 src_port;
 	u16 dest_port;
-	u32 reserved;
+	u32 flow_label;
 };
 
 struct mana_rnic_set_qp_state_req {
@@ -427,8 +439,15 @@ struct mana_rnic_set_qp_state_req {
 	u32 retry_cnt;
 	u32 rnr_retry;
 	u32 min_rnr_timer;
-	u32 reserved;
+	u32 rate_limit;
 	struct mana_ib_ah_attr ah_attr;
+	u64 reserved1;
+	u32 qkey;
+	u32 qp_access_flags;
+	u8 local_ack_timeout;
+	u8 max_rd_atomic;
+	u16 reserved2;
+	u32 reserved3;
 }; /* HW Data */
 
 struct mana_rnic_set_qp_state_resp {
@@ -718,11 +737,22 @@ int mana_ib_post_recv(struct ib_qp *ibqp, const struct ib_recv_wr *wr,
 int mana_ib_post_send(struct ib_qp *ibqp, const struct ib_send_wr *wr,
 		      const struct ib_send_wr **bad_wr);
 
+void mana_drain_gsi_sqs(struct mana_ib_dev *mdev);
 int mana_ib_poll_cq(struct ib_cq *ibcq, int num_entries, struct ib_wc *wc);
 int mana_ib_arm_cq(struct ib_cq *ibcq, enum ib_cq_notify_flags flags);
+
+int mana_ib_alloc_mw(struct ib_mw *mw, struct ib_udata *udata);
+int mana_ib_dealloc_mw(struct ib_mw *mw);
 
 struct ib_mr *mana_ib_reg_user_mr_dmabuf(struct ib_pd *ibpd, u64 start, u64 length,
 					 u64 iova, int fd, int mr_access_flags,
 					 struct ib_dmah *dmah,
 					 struct uverbs_attr_bundle *attrs);
+
+struct ib_dm *mana_ib_alloc_dm(struct ib_device *dev, struct ib_ucontext *context,
+			       struct ib_dm_alloc_attr *attr, struct uverbs_attr_bundle *attrs);
+int mana_ib_dealloc_dm(struct ib_dm *dm, struct uverbs_attr_bundle *attrs);
+struct ib_mr *mana_ib_reg_dm_mr(struct ib_pd *pd, struct ib_dm *dm, struct ib_dm_mr_attr *attr,
+				struct uverbs_attr_bundle *attrs);
+
 #endif

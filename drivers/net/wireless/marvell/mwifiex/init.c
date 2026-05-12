@@ -25,7 +25,7 @@ static int mwifiex_add_bss_prio_tbl(struct mwifiex_private *priv)
 	struct mwifiex_bss_prio_node *bss_prio;
 	struct mwifiex_bss_prio_tbl *tbl = adapter->bss_prio_tbl;
 
-	bss_prio = kzalloc(sizeof(struct mwifiex_bss_prio_node), GFP_KERNEL);
+	bss_prio = kzalloc_obj(struct mwifiex_bss_prio_node);
 	if (!bss_prio)
 		return -ENOMEM;
 
@@ -391,7 +391,7 @@ static void mwifiex_invalidate_lists(struct mwifiex_adapter *adapter)
 static void
 mwifiex_adapter_cleanup(struct mwifiex_adapter *adapter)
 {
-	timer_delete(&adapter->wakeup_timer);
+	timer_delete_sync(&adapter->wakeup_timer);
 	cancel_delayed_work_sync(&adapter->devdump_work);
 	mwifiex_cancel_all_pending_cmd(adapter);
 	wake_up_interruptible(&adapter->cmd_wait_q.wait);

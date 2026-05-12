@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 
+#include <linux/crc32.h>
 #include "messages.h"
 #include "fs.h"
 #include "accessors.h"
@@ -8,13 +9,11 @@
 static const struct btrfs_csums {
 	u16		size;
 	const char	name[10];
-	const char	driver[12];
 } btrfs_csums[] = {
 	[BTRFS_CSUM_TYPE_CRC32] = { .size = 4, .name = "crc32c" },
 	[BTRFS_CSUM_TYPE_XXHASH] = { .size = 8, .name = "xxhash64" },
 	[BTRFS_CSUM_TYPE_SHA256] = { .size = 32, .name = "sha256" },
-	[BTRFS_CSUM_TYPE_BLAKE2] = { .size = 32, .name = "blake2b",
-				     .driver = "blake2b-256" },
+	[BTRFS_CSUM_TYPE_BLAKE2] = { .size = 32, .name = "blake2b" },
 };
 
 /* This exists for btrfs-progs usages. */
@@ -37,21 +36,142 @@ const char *btrfs_super_csum_name(u16 csum_type)
 	return btrfs_csums[csum_type].name;
 }
 
-/*
- * Return driver name if defined, otherwise the name that's also a valid driver
- * name.
- */
-const char *btrfs_super_csum_driver(u16 csum_type)
-{
-	/* csum type is validated at mount time */
-	return btrfs_csums[csum_type].driver[0] ?
-		btrfs_csums[csum_type].driver :
-		btrfs_csums[csum_type].name;
-}
-
 size_t __attribute_const__ btrfs_get_num_csums(void)
 {
 	return ARRAY_SIZE(btrfs_csums);
+}
+
+void btrfs_csum(u16 csum_type, const u8 *data, size_t len, u8 *out)
+{
+	switch (csum_type) {
+	case BTRFS_CSUM_TYPE_CRC32:
+		put_unaligned_le32(~crc32c(~0, data, len), out);
+		break;
+	case BTRFS_CSUM_TYPE_XXHASH:
+		put_unaligned_le64(xxh64(data, len, 0), out);
+		break;
+	case BTRFS_CSUM_TYPE_SHA256:
+		sha256(data, len, out);
+		break;
+	case BTRFS_CSUM_TYPE_BLAKE2:
+		blake2b(NULL, 0, data, len, out, 32);
+		break;
+	default:
+		/* Checksum type is validated at mount time. */
+		BUG();
+	}
+}
+
+void btrfs_csum_init(struct btrfs_csum_ctx *ctx, u16 csum_type)
+{
+	ctx->csum_type = csum_type;
+	switch (ctx->csum_type) {
+	case BTRFS_CSUM_TYPE_CRC32:
+		ctx->crc32 = ~0;
+		break;
+	case BTRFS_CSUM_TYPE_XXHASH:
+		xxh64_reset(&ctx->xxh64, 0);
+		break;
+	case BTRFS_CSUM_TYPE_SHA256:
+		sha256_init(&ctx->sha256);
+		break;
+	case BTRFS_CSUM_TYPE_BLAKE2:
+		blake2b_init(&ctx->blake2b, 32);
+		break;
+	default:
+		/* Checksume type is validated at mount time. */
+		BUG();
+	}
+}
+
+void btrfs_csum_update(struct btrfs_csum_ctx *ctx, const u8 *data, size_t len)
+{
+	switch (ctx->csum_type) {
+	case BTRFS_CSUM_TYPE_CRC32:
+		ctx->crc32 = crc32c(ctx->crc32, data, len);
+		break;
+	case BTRFS_CSUM_TYPE_XXHASH:
+		xxh64_update(&ctx->xxh64, data, len);
+		break;
+	case BTRFS_CSUM_TYPE_SHA256:
+		sha256_update(&ctx->sha256, data, len);
+		break;
+	case BTRFS_CSUM_TYPE_BLAKE2:
+		blake2b_update(&ctx->blake2b, data, len);
+		break;
+	default:
+		/* Checksum type is validated at mount time. */
+		BUG();
+	}
+}
+
+void btrfs_csum_final(struct btrfs_csum_ctx *ctx, u8 *out)
+{
+	switch (ctx->csum_type) {
+	case BTRFS_CSUM_TYPE_CRC32:
+		put_unaligned_le32(~ctx->crc32, out);
+		break;
+	case BTRFS_CSUM_TYPE_XXHASH:
+		put_unaligned_le64(xxh64_digest(&ctx->xxh64), out);
+		break;
+	case BTRFS_CSUM_TYPE_SHA256:
+		sha256_final(&ctx->sha256, out);
+		break;
+	case BTRFS_CSUM_TYPE_BLAKE2:
+		blake2b_final(&ctx->blake2b, out);
+		break;
+	default:
+		/* Checksum type is validated at mount time. */
+		BUG();
+	}
+}
+
+/*
+ * We support the following block sizes for all systems:
+ *
+ * - 4K
+ *   This is the most common block size. For PAGE SIZE > 4K cases the subpage
+ *   mode is used.
+ *
+ * - PAGE_SIZE
+ *   The straightforward block size to support.
+ *
+ * And extra support for the following block sizes based on the kernel config:
+ *
+ * - MIN_BLOCKSIZE
+ *   This is either 4K (regular builds) or 2K (debug builds)
+ *   This allows testing subpage routines on x86_64.
+ */
+bool __attribute_const__ btrfs_supported_blocksize(u32 blocksize)
+{
+	/* @blocksize should be validated first. */
+	ASSERT(is_power_of_2(blocksize) && blocksize >= BTRFS_MIN_BLOCKSIZE &&
+	       blocksize <= BTRFS_MAX_BLOCKSIZE);
+
+	if (blocksize == PAGE_SIZE || blocksize == SZ_4K || blocksize == BTRFS_MIN_BLOCKSIZE)
+		return true;
+#ifdef CONFIG_BTRFS_EXPERIMENTAL
+	/*
+	 * For bs > ps support it's done by specifying a minimal folio order
+	 * for filemap, thus implying large data folios.
+	 * For HIGHMEM systems, we can not always access the content of a (large)
+	 * folio in one go, but go through them page by page.
+	 *
+	 * A lot of features don't implement a proper PAGE sized loop for large
+	 * folios, this includes:
+	 *
+	 * - compression
+	 * - verity
+	 * - encoded write
+	 *
+	 * Considering HIGHMEM is such a pain to deal with and it's going
+	 * to be deprecated eventually, just reject HIGHMEM && bs > ps cases.
+	 */
+	if (IS_ENABLED(CONFIG_HIGHMEM) && blocksize > PAGE_SIZE)
+		return false;
+	return true;
+#endif
+	return false;
 }
 
 /*

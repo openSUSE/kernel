@@ -4,6 +4,7 @@
 
 #include <linux/blk-mq.h>
 #include <linux/bio-integrity.h>
+#include <linux/blk-mq-dma.h>
 
 struct request;
 
@@ -13,6 +14,7 @@ enum blk_integrity_flags {
 	BLK_INTEGRITY_DEVICE_CAPABLE	= 1 << 2,
 	BLK_INTEGRITY_REF_TAG		= 1 << 3,
 	BLK_INTEGRITY_STACKED		= 1 << 4,
+	BLK_SPLIT_INTERVAL_CAPABLE	= 1 << 5,
 };
 
 const char *blk_integrity_profile_name(struct blk_integrity *bi);
@@ -26,11 +28,17 @@ static inline bool queue_limits_stack_integrity_bdev(struct queue_limits *t,
 
 #ifdef CONFIG_BLK_DEV_INTEGRITY
 int blk_rq_map_integrity_sg(struct request *, struct scatterlist *);
+
 int blk_rq_count_integrity_sg(struct request_queue *, struct bio *);
 int blk_rq_integrity_map_user(struct request *rq, void __user *ubuf,
 			      ssize_t bytes);
 int blk_get_meta_cap(struct block_device *bdev, unsigned int cmd,
 		     struct logical_block_metadata_cap __user *argp);
+bool blk_rq_integrity_dma_map_iter_start(struct request *req,
+		struct device *dma_dev,  struct dma_iova_state *state,
+		struct blk_dma_iter *iter);
+bool blk_rq_integrity_dma_map_iter_next(struct request *req,
+		struct device *dma_dev, struct blk_dma_iter *iter);
 
 static inline bool
 blk_integrity_queue_supports_integrity(struct request_queue *q)
@@ -79,7 +87,7 @@ static inline unsigned int bio_integrity_bytes(struct blk_integrity *bi,
 	return bio_integrity_intervals(bi, sectors) * bi->metadata_size;
 }
 
-static inline bool blk_integrity_rq(struct request *rq)
+static inline bool blk_integrity_rq(const struct request *rq)
 {
 	return rq->cmd_flags & REQ_INTEGRITY;
 }
@@ -115,6 +123,17 @@ static inline int blk_rq_integrity_map_user(struct request *rq,
 {
 	return -EINVAL;
 }
+static inline bool blk_rq_integrity_dma_map_iter_start(struct request *req,
+		struct device *dma_dev,  struct dma_iova_state *state,
+		struct blk_dma_iter *iter)
+{
+	return false;
+}
+static inline bool blk_rq_integrity_dma_map_iter_next(struct request *req,
+		struct device *dma_dev, struct blk_dma_iter *iter)
+{
+	return false;
+}
 static inline struct blk_integrity *bdev_get_integrity(struct block_device *b)
 {
 	return NULL;
@@ -145,9 +164,9 @@ static inline unsigned int bio_integrity_bytes(struct blk_integrity *bi,
 {
 	return 0;
 }
-static inline int blk_integrity_rq(struct request *rq)
+static inline bool blk_integrity_rq(const struct request *rq)
 {
-	return 0;
+	return false;
 }
 
 static inline struct bio_vec rq_integrity_vec(struct request *rq)
@@ -156,5 +175,28 @@ static inline struct bio_vec rq_integrity_vec(struct request *rq)
 	return (struct bio_vec){ };
 }
 #endif /* CONFIG_BLK_DEV_INTEGRITY */
+
+enum bio_integrity_action {
+	BI_ACT_BUFFER		= (1u << 0),	/* allocate buffer */
+	BI_ACT_CHECK		= (1u << 1),	/* generate / verify PI */
+	BI_ACT_ZERO		= (1u << 2),	/* zero buffer */
+};
+
+/**
+ * bio_integrity_action - return the integrity action needed for a bio
+ * @bio:	bio to operate on
+ *
+ * Returns the mask of integrity actions (BI_ACT_*) that need to be performed
+ * for @bio.
+ */
+unsigned int __bio_integrity_action(struct bio *bio);
+static inline unsigned int bio_integrity_action(struct bio *bio)
+{
+	if (!blk_get_integrity(bio->bi_bdev->bd_disk))
+		return 0;
+	if (bio_integrity(bio))
+		return 0;
+	return __bio_integrity_action(bio);
+}
 
 #endif /* _LINUX_BLK_INTEGRITY_H */

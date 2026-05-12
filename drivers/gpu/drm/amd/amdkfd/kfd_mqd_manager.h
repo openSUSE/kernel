@@ -68,7 +68,7 @@
  */
 extern int pipe_priority_map[];
 struct mqd_manager {
-	struct kfd_mem_obj*	(*allocate_mqd)(struct kfd_node *kfd,
+	struct kfd_mem_obj*	(*allocate_mqd)(struct mqd_manager *mm,
 		struct queue_properties *q);
 
 	void	(*init_mqd)(struct mqd_manager *mm, void **mqd,
@@ -102,7 +102,8 @@ struct mqd_manager {
 				  u32 *ctl_stack_used_size,
 				  u32 *save_area_used_size);
 
-	void	(*get_checkpoint_info)(struct mqd_manager *mm, void *mqd, uint32_t *ctl_stack_size);
+	int	(*get_checkpoint_info)(struct mqd_manager *mm, void *mqd,
+				       uint32_t *ctl_stack_size);
 
 	void	(*checkpoint_mqd)(struct mqd_manager *mm,
 				  void *mqd,
@@ -153,10 +154,10 @@ struct mqd_user_context_save_area_header {
 	uint32_t wave_state_size;
 };
 
-struct kfd_mem_obj *allocate_hiq_mqd(struct kfd_node *dev,
+struct kfd_mem_obj *allocate_hiq_mqd(struct mqd_manager *mm,
 				struct queue_properties *q);
 
-struct kfd_mem_obj *allocate_sdma_mqd(struct kfd_node *dev,
+struct kfd_mem_obj *allocate_sdma_mqd(struct mqd_manager *mm,
 					struct queue_properties *q);
 void free_mqd_hiq_sdma(struct mqd_manager *mm, void *mqd,
 				struct kfd_mem_obj *mqd_mem_obj);

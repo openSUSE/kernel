@@ -17,6 +17,7 @@
 #include <drm/drm_gem_atomic_helper.h>
 #include <drm/drm_gem_shmem_helper.h>
 #include <drm/drm_gem_framebuffer_helper.h>
+#include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 
 /*
@@ -773,7 +774,7 @@ static u8 pack_pixels_to_byte(__le32 *src_pixels, int i, int j,
 }
 
 static int pixpaper_plane_helper_atomic_check(struct drm_plane *plane,
-					      struct drm_atomic_state *state)
+					      struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *new_plane_state =
 		drm_atomic_get_new_plane_state(state, plane);
@@ -796,7 +797,7 @@ static int pixpaper_plane_helper_atomic_check(struct drm_plane *plane,
 }
 
 static int pixpaper_crtc_helper_atomic_check(struct drm_crtc *crtc,
-					     struct drm_atomic_state *state)
+					     struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *crtc_state =
 		drm_atomic_get_new_crtc_state(state, crtc);
@@ -808,7 +809,7 @@ static int pixpaper_crtc_helper_atomic_check(struct drm_crtc *crtc,
 }
 
 static void pixpaper_crtc_atomic_enable(struct drm_crtc *crtc,
-					struct drm_atomic_state *state)
+					struct drm_atomic_commit *state)
 {
 	struct pixpaper_panel *panel = to_pixpaper_panel(crtc->dev);
 	struct drm_device *drm = &panel->drm;
@@ -833,7 +834,7 @@ exit_drm_dev:
 }
 
 static void pixpaper_crtc_atomic_disable(struct drm_crtc *crtc,
-					 struct drm_atomic_state *state)
+					 struct drm_atomic_commit *state)
 {
 	struct pixpaper_panel *panel = to_pixpaper_panel(crtc->dev);
 	struct drm_device *drm = &panel->drm;
@@ -857,7 +858,7 @@ exit_drm_dev:
 }
 
 static void pixpaper_plane_atomic_update(struct drm_plane *plane,
-					 struct drm_atomic_state *state)
+					 struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *plane_state =
 		drm_atomic_get_new_plane_state(state, plane);
@@ -968,8 +969,8 @@ static const struct drm_crtc_funcs pixpaper_crtc_funcs = {
 	.atomic_destroy_state = drm_atomic_helper_crtc_destroy_state,
 };
 
-static int pixpaper_mode_valid(struct drm_crtc *crtc,
-			       const struct drm_display_mode *mode)
+static enum drm_mode_status
+pixpaper_mode_valid(struct drm_crtc *crtc, const struct drm_display_mode *mode)
 {
 	if (mode->hdisplay == PIXPAPER_WIDTH &&
 	    mode->vdisplay == PIXPAPER_HEIGHT) {

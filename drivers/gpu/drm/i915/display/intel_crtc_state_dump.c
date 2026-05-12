@@ -250,7 +250,7 @@ void intel_crtc_state_dump(const struct intel_crtc_state *pipe_config,
 			   str_enabled_disabled(pipe_config->has_sel_update),
 			   str_enabled_disabled(pipe_config->has_panel_replay),
 			   str_enabled_disabled(pipe_config->enable_psr2_sel_fetch));
-		drm_printf(&p, "minimum HBlank: %d\n", pipe_config->min_hblank);
+		drm_printf(&p, "minimum hblank: %d\n", pipe_config->min_hblank);
 	}
 
 	drm_printf(&p, "audio: %i, infoframes: %i, infoframes enabled: 0x%x\n",
@@ -289,10 +289,9 @@ void intel_crtc_state_dump(const struct intel_crtc_state *pipe_config,
 	drm_printf(&p, "scanline offset: %d\n",
 		   intel_crtc_scanline_offset(pipe_config));
 
-	drm_printf(&p, "vblank delay: %d, framestart delay: %d, MSA timing delay: %d\n",
-		   pipe_config->hw.adjusted_mode.crtc_vblank_start -
-		   pipe_config->hw.adjusted_mode.crtc_vdisplay,
-		   pipe_config->framestart_delay, pipe_config->msa_timing_delay);
+	drm_printf(&p, "framestart delay: %d, MSA timing delay: %d, set context latency: %d\n",
+		   pipe_config->framestart_delay, pipe_config->msa_timing_delay,
+		   pipe_config->set_context_latency);
 
 	drm_printf(&p, "vrr: %s, fixed rr: %s, vmin: %d, vmax: %d, flipline: %d, pipeline full: %d, guardband: %d vsync start: %d, vsync end: %d\n",
 		   str_yes_no(pipe_config->vrr.enable),
@@ -304,6 +303,14 @@ void intel_crtc_state_dump(const struct intel_crtc_state *pipe_config,
 	drm_printf(&p, "vrr: vmin vblank: %d, vmax vblank: %d, vmin vtotal: %d, vmax vtotal: %d\n",
 		   intel_vrr_vmin_vblank_start(pipe_config), intel_vrr_vmax_vblank_start(pipe_config),
 		   intel_vrr_vmin_vtotal(pipe_config), intel_vrr_vmax_vtotal(pipe_config));
+	drm_printf(&p, "vrr: dc balance: %s, vmin: %d vmax: %d guardband: %d, slope: %d max increase: %d max decrease: %d vblank target: %d\n",
+		   str_yes_no(pipe_config->vrr.dc_balance.enable),
+		   pipe_config->vrr.dc_balance.vmin, pipe_config->vrr.dc_balance.vmax,
+		   pipe_config->vrr.dc_balance.guardband,
+		   pipe_config->vrr.dc_balance.slope,
+		   pipe_config->vrr.dc_balance.max_increase,
+		   pipe_config->vrr.dc_balance.max_decrease,
+		   pipe_config->vrr.dc_balance.vblank_target);
 
 	drm_printf(&p, "requested mode: " DRM_MODE_FMT "\n",
 		   DRM_MODE_ARG(&pipe_config->hw.mode));
@@ -313,19 +320,23 @@ void intel_crtc_state_dump(const struct intel_crtc_state *pipe_config,
 	drm_printf(&p, "pipe mode: " DRM_MODE_FMT "\n",
 		   DRM_MODE_ARG(&pipe_config->hw.pipe_mode));
 	intel_dump_crtc_timings(&p, &pipe_config->hw.pipe_mode);
-	drm_printf(&p, "port clock: %d, pipe src: " DRM_RECT_FMT ", pixel rate %d\n",
-		   pipe_config->port_clock, DRM_RECT_ARG(&pipe_config->pipe_src),
-		   pipe_config->pixel_rate);
+	drm_printf(&p, "port clock: %d, pixel rate %d, min cdclk %d, min voltage level %d\n",
+		   pipe_config->port_clock, pipe_config->pixel_rate,
+		   pipe_config->min_cdclk, pipe_config->min_voltage_level);
 
 	drm_printf(&p, "linetime: %d, ips linetime: %d\n",
 		   pipe_config->linetime, pipe_config->ips_linetime);
 
 	if (DISPLAY_VER(display) >= 9)
-		drm_printf(&p, "num_scalers: %d, scaler_users: 0x%x, scaler_id: %d, scaling_filter: %d\n",
+		drm_printf(&p, "num_scalers: %d, scaler_users: 0x%x, scaler_id: %d, scaling_filter: %d, sharpness_strength: %d\n",
 			   crtc->num_scalers,
 			   pipe_config->scaler_state.scaler_users,
 			   pipe_config->scaler_state.scaler_id,
-			   pipe_config->hw.scaling_filter);
+			   pipe_config->hw.scaling_filter,
+			   pipe_config->hw.sharpness_strength);
+
+	drm_printf(&p, "pipe src: " DRM_RECT_FMT "\n",
+		   DRM_RECT_ARG(&pipe_config->pipe_src));
 
 	if (HAS_GMCH(display))
 		drm_printf(&p, "gmch pfit: control: 0x%08x, ratios: 0x%08x, lvds border: 0x%08x\n",
@@ -337,6 +348,11 @@ void intel_crtc_state_dump(const struct intel_crtc_state *pipe_config,
 			   DRM_RECT_ARG(&pipe_config->pch_pfit.dst),
 			   str_enabled_disabled(pipe_config->pch_pfit.enabled),
 			   str_yes_no(pipe_config->pch_pfit.force_thru));
+
+	drm_printf(&p, "sharpness strength: %d, sharpness tap size: %d, sharpness enable: %d\n",
+		   pipe_config->pch_pfit.casf.strength,
+		   pipe_config->pch_pfit.casf.win_size,
+		   pipe_config->pch_pfit.casf.enable);
 
 	drm_printf(&p, "ips: %i, double wide: %i, drrs: %i\n",
 		   pipe_config->ips_enabled, pipe_config->double_wide,

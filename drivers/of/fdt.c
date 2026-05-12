@@ -68,7 +68,7 @@ void __init of_fdt_limit_memory(int limit)
 
 bool of_fdt_device_is_available(const void *blob, unsigned long node)
 {
-	const char *status = fdt_getprop(blob, node, "status", NULL);
+	const char *status = fdt_stringlist_get(blob, node, "status", 0, NULL);
 
 	if (!status)
 		return true;
@@ -503,8 +503,8 @@ void __init early_init_fdt_scan_reserved_mem(void)
 	if (!initial_boot_params)
 		return;
 
-	fdt_scan_reserved_mem();
 	fdt_reserve_elfcorehdr();
+	fdt_scan_reserved_mem();
 
 	/* Process header /memreserve/ fields */
 	for (n = 0; ; n++) {
@@ -625,6 +625,47 @@ const void *__init of_get_flat_dt_prop(unsigned long node, const char *name,
 	return fdt_getprop(initial_boot_params, node, name, size);
 }
 
+const __be32 *__init of_flat_dt_get_addr_size_prop(unsigned long node,
+						   const char *name,
+						   int *entries)
+{
+	const __be32 *prop;
+	int len, elen = (dt_root_addr_cells + dt_root_size_cells) * sizeof(__be32);
+
+	prop = of_get_flat_dt_prop(node, name, &len);
+	if (!prop || len % elen) {
+		*entries = 0;
+		return NULL;
+	}
+
+	*entries = len / elen;
+	return prop;
+}
+
+bool __init of_flat_dt_get_addr_size(unsigned long node, const char *name,
+				     u64 *addr, u64 *size)
+{
+	const __be32 *prop;
+	int entries;
+
+	prop = of_flat_dt_get_addr_size_prop(node, name, &entries);
+	if (!prop || entries != 1)
+		return false;
+
+	of_flat_dt_read_addr_size(prop, 0, addr, size);
+	return true;
+}
+
+void __init of_flat_dt_read_addr_size(const __be32 *prop, int entry_index,
+				      u64 *addr, u64 *size)
+{
+	int entry_cells = dt_root_addr_cells + dt_root_size_cells;
+	prop += entry_cells * entry_index;
+
+	*addr = dt_mem_next_cell(dt_root_addr_cells, &prop);
+	*size = dt_mem_next_cell(dt_root_size_cells, &prop);
+}
+
 /**
  * of_fdt_is_compatible - Return true if given node from the given blob has
  * compat in its compatible list
@@ -636,22 +677,15 @@ const void *__init of_get_flat_dt_prop(unsigned long node, const char *name,
  * specific compatible values.
  */
 static int of_fdt_is_compatible(const void *blob,
-		      unsigned long node, const char *compat)
+			      unsigned long node, const char *compat)
 {
 	const char *cp;
-	int cplen;
-	unsigned long l, score = 0;
+	int idx = 0, score = 0;
 
-	cp = fdt_getprop(blob, node, "compatible", &cplen);
-	if (cp == NULL)
-		return 0;
-	while (cplen > 0) {
+	while ((cp = fdt_stringlist_get(blob, node, "compatible", idx++, NULL))) {
 		score++;
 		if (of_compat_cmp(cp, compat, strlen(compat)) == 0)
 			return score;
-		l = strlen(cp) + 1;
-		cp += l;
-		cplen -= l;
 	}
 
 	return 0;
@@ -700,9 +734,10 @@ const char * __init of_flat_dt_get_machine_name(void)
 	const char *name;
 	unsigned long dt_root = of_get_flat_dt_root();
 
-	name = of_get_flat_dt_prop(dt_root, "model", NULL);
+	name = fdt_stringlist_get(initial_boot_params, dt_root, "model", 0, NULL);
 	if (!name)
-		name = of_get_flat_dt_prop(dt_root, "compatible", NULL);
+		name = fdt_stringlist_get(initial_boot_params, dt_root,
+					  "compatible", 0, NULL);
 	return name;
 }
 
@@ -734,19 +769,14 @@ const void * __init of_flat_dt_match_machine(const void *default_match,
 	}
 	if (!best_data) {
 		const char *prop;
-		int size;
+		int idx = 0, size;
 
 		pr_err("\n unrecognized device tree list:\n[ ");
 
-		prop = of_get_flat_dt_prop(dt_root, "compatible", &size);
-		if (prop) {
-			while (size > 0) {
-				printk("'%s' ", prop);
-				size -= strlen(prop) + 1;
-				prop += strlen(prop) + 1;
-			}
-		}
-		printk("]\n\n");
+		while ((prop = fdt_stringlist_get(initial_boot_params, dt_root,
+						  "compatible", idx++, &size)))
+			pr_err("'%s' ", prop);
+		pr_err("]\n\n");
 		return NULL;
 	}
 
@@ -812,23 +842,37 @@ static void __init early_init_dt_check_for_initrd(unsigned long node)
  */
 static void __init early_init_dt_check_for_elfcorehdr(unsigned long node)
 {
-	const __be32 *prop;
-	int len;
-
 	if (!IS_ENABLED(CONFIG_CRASH_DUMP))
 		return;
 
 	pr_debug("Looking for elfcorehdr property... ");
 
-	prop = of_get_flat_dt_prop(node, "linux,elfcorehdr", &len);
-	if (!prop || (len < (dt_root_addr_cells + dt_root_size_cells)))
+	if (!of_flat_dt_get_addr_size(node, "linux,elfcorehdr",
+				      &elfcorehdr_addr, &elfcorehdr_size))
 		return;
-
-	elfcorehdr_addr = dt_mem_next_cell(dt_root_addr_cells, &prop);
-	elfcorehdr_size = dt_mem_next_cell(dt_root_size_cells, &prop);
 
 	pr_debug("elfcorehdr_start=0x%llx elfcorehdr_size=0x%llx\n",
 		 elfcorehdr_addr, elfcorehdr_size);
+}
+
+static void __init early_init_dt_check_for_dmcryptkeys(unsigned long node)
+{
+	const char *prop_name = "linux,dmcryptkeys";
+	const __be32 *prop;
+
+	if (!IS_ENABLED(CONFIG_CRASH_DM_CRYPT))
+		return;
+
+	pr_debug("Looking for dmcryptkeys property... ");
+
+	prop = of_get_flat_dt_prop(node, prop_name, NULL);
+	if (!prop)
+		return;
+
+	dm_crypt_keys_addr = dt_mem_next_cell(dt_root_addr_cells, &prop);
+
+	/* Property only accessible to crash dump kernel */
+	fdt_delprop(initial_boot_params, node, prop_name);
 }
 
 static unsigned long chosen_node_offset = -FDT_ERR_NOTFOUND;
@@ -849,8 +893,9 @@ static unsigned long chosen_node_offset = -FDT_ERR_NOTFOUND;
 void __init early_init_dt_check_for_usable_mem_range(void)
 {
 	struct memblock_region rgn[MAX_USABLE_RANGES] = {0};
-	const __be32 *prop, *endp;
+	const __be32 *prop;
 	int len, i;
+	u64 base, size;
 	unsigned long node = chosen_node_offset;
 
 	if ((long)node < 0)
@@ -858,14 +903,17 @@ void __init early_init_dt_check_for_usable_mem_range(void)
 
 	pr_debug("Looking for usable-memory-range property... ");
 
-	prop = of_get_flat_dt_prop(node, "linux,usable-memory-range", &len);
-	if (!prop || (len % (dt_root_addr_cells + dt_root_size_cells)))
+	prop = of_flat_dt_get_addr_size_prop(node, "linux,usable-memory-range",
+					     &len);
+	if (!prop)
 		return;
 
-	endp = prop + (len / sizeof(__be32));
-	for (i = 0; i < MAX_USABLE_RANGES && prop < endp; i++) {
-		rgn[i].base = dt_mem_next_cell(dt_root_addr_cells, &prop);
-		rgn[i].size = dt_mem_next_cell(dt_root_size_cells, &prop);
+	len = min(len, MAX_USABLE_RANGES);
+
+	for (i = 0; i < len; i++) {
+		of_flat_dt_read_addr_size(prop, i, &base, &size);
+		rgn[i].base = base;
+		rgn[i].size = size;
 
 		pr_debug("cap_mem_regions[%d]: base=%pa, size=%pa\n",
 			 i, &rgn[i].base, &rgn[i].size);
@@ -883,25 +931,17 @@ static void __init early_init_dt_check_kho(void)
 {
 	unsigned long node = chosen_node_offset;
 	u64 fdt_start, fdt_size, scratch_start, scratch_size;
-	const __be32 *p;
-	int l;
 
 	if (!IS_ENABLED(CONFIG_KEXEC_HANDOVER) || (long)node < 0)
 		return;
 
-	p = of_get_flat_dt_prop(node, "linux,kho-fdt", &l);
-	if (l != (dt_root_addr_cells + dt_root_size_cells) * sizeof(__be32))
+	if (!of_flat_dt_get_addr_size(node, "linux,kho-fdt",
+				      &fdt_start, &fdt_size))
 		return;
 
-	fdt_start = dt_mem_next_cell(dt_root_addr_cells, &p);
-	fdt_size = dt_mem_next_cell(dt_root_addr_cells, &p);
-
-	p = of_get_flat_dt_prop(node, "linux,kho-scratch", &l);
-	if (l != (dt_root_addr_cells + dt_root_size_cells) * sizeof(__be32))
+	if (!of_flat_dt_get_addr_size(node, "linux,kho-scratch",
+				      &scratch_start, &scratch_size))
 		return;
-
-	scratch_start = dt_mem_next_cell(dt_root_addr_cells, &p);
-	scratch_size = dt_mem_next_cell(dt_root_addr_cells, &p);
 
 	kho_populate(fdt_start, fdt_size, scratch_start, scratch_size);
 }
@@ -923,9 +963,9 @@ int __init early_init_dt_scan_chosen_stdout(void)
 	if (offset < 0)
 		return -ENOENT;
 
-	p = fdt_getprop(fdt, offset, "stdout-path", &l);
+	p = fdt_stringlist_get(fdt, offset, "stdout-path", 0, &l);
 	if (!p)
-		p = fdt_getprop(fdt, offset, "linux,stdout-path", &l);
+		p = fdt_stringlist_get(fdt, offset, "linux,stdout-path", 0, &l);
 	if (!p || !l)
 		return -ENOENT;
 
@@ -1001,9 +1041,10 @@ int __init early_init_dt_scan_memory(void)
 	const void *fdt = initial_boot_params;
 
 	fdt_for_each_subnode(node, fdt, 0) {
-		const char *type = of_get_flat_dt_prop(node, "device_type", NULL);
-		const __be32 *reg, *endp;
-		int l;
+		const char *type = fdt_stringlist_get(fdt, node,
+						      "device_type", 0, NULL);
+		const __be32 *reg;
+		int i, l;
 		bool hotpluggable;
 
 		/* We are scanning "memory" nodes only */
@@ -1013,23 +1054,21 @@ int __init early_init_dt_scan_memory(void)
 		if (!of_fdt_device_is_available(fdt, node))
 			continue;
 
-		reg = of_get_flat_dt_prop(node, "linux,usable-memory", &l);
+		reg = of_flat_dt_get_addr_size_prop(node, "linux,usable-memory", &l);
 		if (reg == NULL)
-			reg = of_get_flat_dt_prop(node, "reg", &l);
+			reg = of_flat_dt_get_addr_size_prop(node, "reg", &l);
 		if (reg == NULL)
 			continue;
 
-		endp = reg + (l / sizeof(__be32));
 		hotpluggable = of_get_flat_dt_prop(node, "hotpluggable", NULL);
 
-		pr_debug("memory scan node %s, reg size %d,\n",
+		pr_debug("memory scan node %s, reg {addr,size} entries %d,\n",
 			 fdt_get_name(fdt, node, NULL), l);
 
-		while ((endp - reg) >= (dt_root_addr_cells + dt_root_size_cells)) {
+		for (i = 0; i < l; i++) {
 			u64 base, size;
 
-			base = dt_mem_next_cell(dt_root_addr_cells, &reg);
-			size = dt_mem_next_cell(dt_root_size_cells, &reg);
+			of_flat_dt_read_addr_size(reg, i, &base, &size);
 
 			if (size == 0)
 				continue;
@@ -1068,6 +1107,7 @@ int __init early_init_dt_scan_chosen(char *cmdline)
 
 	early_init_dt_check_for_initrd(node);
 	early_init_dt_check_for_elfcorehdr(node);
+	early_init_dt_check_for_dmcryptkeys(node);
 
 	rng_seed = of_get_flat_dt_prop(node, "rng-seed", &l);
 	if (rng_seed && l > 0) {
@@ -1245,7 +1285,7 @@ void __init unflatten_device_tree(void)
 	void *fdt = initial_boot_params;
 
 	/* Save the statically-placed regions in the reserved_mem array */
-	fdt_scan_reserved_mem_reg_nodes();
+	fdt_scan_reserved_mem_late();
 
 	/* Populate an empty root node when bootloader doesn't provide one */
 	if (!fdt) {

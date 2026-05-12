@@ -33,7 +33,6 @@
 struct meson_encoder_cvbs {
 	struct drm_encoder	encoder;
 	struct drm_bridge	bridge;
-	struct drm_bridge	*next_bridge;
 	struct meson_drm	*priv;
 };
 
@@ -89,7 +88,7 @@ static int meson_encoder_cvbs_attach(struct drm_bridge *bridge,
 	struct meson_encoder_cvbs *meson_encoder_cvbs =
 					bridge_to_meson_encoder_cvbs(bridge);
 
-	return drm_bridge_attach(encoder, meson_encoder_cvbs->next_bridge,
+	return drm_bridge_attach(encoder, meson_encoder_cvbs->bridge.next_bridge,
 				 &meson_encoder_cvbs->bridge, flags);
 }
 
@@ -140,7 +139,7 @@ static int meson_encoder_cvbs_atomic_check(struct drm_bridge *bridge,
 }
 
 static void meson_encoder_cvbs_atomic_enable(struct drm_bridge *bridge,
-					     struct drm_atomic_state *state)
+					     struct drm_atomic_commit *state)
 {
 	struct meson_encoder_cvbs *encoder_cvbs = bridge_to_meson_encoder_cvbs(bridge);
 	struct meson_drm *priv = encoder_cvbs->priv;
@@ -191,7 +190,7 @@ static void meson_encoder_cvbs_atomic_enable(struct drm_bridge *bridge,
 }
 
 static void meson_encoder_cvbs_atomic_disable(struct drm_bridge *bridge,
-					      struct drm_atomic_state *state)
+					      struct drm_atomic_commit *state)
 {
 	struct meson_encoder_cvbs *meson_encoder_cvbs =
 					bridge_to_meson_encoder_cvbs(bridge);
@@ -241,9 +240,9 @@ int meson_encoder_cvbs_probe(struct meson_drm *priv)
 		return 0;
 	}
 
-	meson_encoder_cvbs->next_bridge = of_drm_find_bridge(remote);
+	meson_encoder_cvbs->bridge.next_bridge = of_drm_find_and_get_bridge(remote);
 	of_node_put(remote);
-	if (!meson_encoder_cvbs->next_bridge)
+	if (!meson_encoder_cvbs->bridge.next_bridge)
 		return dev_err_probe(priv->dev, -EPROBE_DEFER,
 				     "Failed to find CVBS Connector bridge\n");
 
@@ -279,8 +278,6 @@ int meson_encoder_cvbs_probe(struct meson_drm *priv)
 	if (IS_ERR(connector))
 		return dev_err_probe(priv->dev, PTR_ERR(connector),
 				     "Unable to create CVBS bridge connector\n");
-
-	drm_connector_attach_encoder(connector, &meson_encoder_cvbs->encoder);
 
 	priv->encoders[MESON_ENC_CVBS] = meson_encoder_cvbs;
 

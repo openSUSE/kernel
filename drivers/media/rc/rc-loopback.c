@@ -185,7 +185,7 @@ static int loop_set_wakeup_filter(struct rc_dev *dev,
 		return 0;
 
 	/* encode the specified filter and loop it back */
-	raw = kmalloc_array(max, sizeof(*raw), GFP_KERNEL);
+	raw = kmalloc_objs(*raw, max);
 	if (!raw)
 		return -ENOMEM;
 
@@ -263,6 +263,7 @@ static int __init loop_init(void)
 static void __exit loop_exit(void)
 {
 	rc_unregister_device(loopdev.dev);
+	rc_free_device(loopdev.dev);
 }
 
 module_init(loop_init);

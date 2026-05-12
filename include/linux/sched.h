@@ -41,7 +41,7 @@
 #include <linux/task_io_accounting.h>
 #include <linux/posix-timers_types.h>
 #include <linux/restart_block.h>
-#include <uapi/linux/rseq.h>
+#include <linux/rseq_types.h>
 #include <linux/seqlock_types.h>
 #include <linux/kcsan.h>
 #include <linux/rv.h>
@@ -49,6 +49,10 @@
 #include <linux/tracepoint-defs.h>
 #include <linux/unwind_deferred_types.h>
 #include <asm/kmap_size.h>
+#include <linux/time64.h>
+#ifndef COMPILE_OFFSETS
+#include <generated/rq-offsets.h>
+#endif
 
 /* task_struct member predeclarations (sorted alphabetically): */
 struct audit_context;
@@ -83,6 +87,7 @@ struct signal_struct;
 struct task_delay_info;
 struct task_group;
 struct task_struct;
+struct timespec64;
 struct user_event_mm;
 
 #include <linux/sched/ext.h>
@@ -432,6 +437,9 @@ struct sched_info {
 	/* When were we last queued to run? */
 	unsigned long long		last_queued;
 
+	/* Timestamp of max time spent waiting on a runqueue: */
+	struct timespec64		max_run_delay_ts;
+
 #endif /* CONFIG_SCHED_INFO */
 };
 
@@ -571,6 +579,7 @@ struct sched_entity {
 	u64				deadline;
 	u64				min_vruntime;
 	u64				min_slice;
+	u64				max_slice;
 
 	struct list_head		group_node;
 	unsigned char			on_rq;
@@ -583,15 +592,10 @@ struct sched_entity {
 	u64				sum_exec_runtime;
 	u64				prev_sum_exec_runtime;
 	u64				vruntime;
-	union {
-		/*
-		 * When !@on_rq this field is vlag.
-		 * When cfs_rq->curr == se (which implies @on_rq)
-		 * this field is vprot. See protect_slice().
-		 */
-		s64                     vlag;
-		u64                     vprot;
-	};
+	/* Approximated virtual lag: */
+	s64				vlag;
+	/* 'Protected' deadline, to give out minimum quantums: */
+	u64				vprot;
 	u64				slice;
 
 	u64				nr_migrations;
@@ -634,8 +638,8 @@ struct sched_rt_entity {
 #endif
 } __randomize_layout;
 
-typedef bool (*dl_server_has_tasks_f)(struct sched_dl_entity *);
-typedef struct task_struct *(*dl_server_pick_f)(struct sched_dl_entity *);
+struct rq_flags;
+typedef struct task_struct *(*dl_server_pick_f)(struct sched_dl_entity *, struct rq_flags *rf);
 
 struct sched_dl_entity {
 	struct rb_node			rb_node;
@@ -682,20 +686,22 @@ struct sched_dl_entity {
 	 *
 	 * @dl_server tells if this is a server entity.
 	 *
-	 * @dl_defer tells if this is a deferred or regular server. For
-	 * now only defer server exists.
-	 *
-	 * @dl_defer_armed tells if the deferrable server is waiting
-	 * for the replenishment timer to activate it.
-	 *
 	 * @dl_server_active tells if the dlserver is active(started).
 	 * dlserver is started on first cfs enqueue on an idle runqueue
 	 * and is stopped when a dequeue results in 0 cfs tasks on the
 	 * runqueue. In other words, dlserver is active only when cpu's
 	 * runqueue has atleast one cfs task.
 	 *
+	 * @dl_defer tells if this is a deferred or regular server. For
+	 * now only defer server exists.
+	 *
+	 * @dl_defer_armed tells if the deferrable server is waiting
+	 * for the replenishment timer to activate it.
+	 *
 	 * @dl_defer_running tells if the deferrable server is actually
 	 * running, skipping the defer phase.
+	 *
+	 * @dl_defer_idle tracks idle state
 	 */
 	unsigned int			dl_throttled      : 1;
 	unsigned int			dl_yielded        : 1;
@@ -706,7 +712,7 @@ struct sched_dl_entity {
 	unsigned int			dl_defer	  : 1;
 	unsigned int			dl_defer_armed	  : 1;
 	unsigned int			dl_defer_running  : 1;
-	unsigned int			dl_server_idle    : 1;
+	unsigned int			dl_defer_idle     : 1;
 
 	/*
 	 * Bandwidth enforcement timer. Each -deadline task has its
@@ -728,12 +734,8 @@ struct sched_dl_entity {
 	 * dl_server_update().
 	 *
 	 * @rq the runqueue this server is for
-	 *
-	 * @server_has_tasks() returns true if @server_pick return a
-	 * runnable task.
 	 */
 	struct rq			*rq;
-	dl_server_has_tasks_f		server_has_tasks;
 	dl_server_pick_f		server_pick_task;
 
 #ifdef CONFIG_RT_MUTEXES
@@ -883,6 +885,11 @@ struct task_struct {
 
 #ifdef CONFIG_CGROUP_SCHED
 	struct task_group		*sched_task_group;
+#ifdef CONFIG_CFS_BANDWIDTH
+	struct callback_head		sched_throttle_work;
+	struct list_head		throttle_node;
+	bool				throttled;
+#endif
 #endif
 
 
@@ -939,12 +946,12 @@ struct task_struct {
 
 #ifdef CONFIG_TASKS_TRACE_RCU
 	int				trc_reader_nesting;
-	int				trc_ipi_to_cpu;
-	union rcu_special		trc_reader_special;
-	struct list_head		trc_holdout_list;
-	struct list_head		trc_blkd_node;
-	int				trc_blkd_cpu;
+	struct srcu_ctr __percpu	*trc_reader_scp;
 #endif /* #ifdef CONFIG_TASKS_TRACE_RCU */
+
+#ifdef CONFIG_TRIVIAL_PREEMPT_RCU
+	int				rcu_trivial_preempt_nesting;
+#endif /* #ifdef CONFIG_TRIVIAL_PREEMPT_RCU */
 
 	struct sched_info		sched_info;
 
@@ -954,7 +961,6 @@ struct task_struct {
 
 	struct mm_struct		*mm;
 	struct mm_struct		*active_mm;
-	struct address_space		*faults_disabled_mapping;
 
 	int				exit_state;
 	int				exit_code;
@@ -1157,12 +1163,9 @@ struct task_struct {
 	/*
 	 * executable name, excluding path.
 	 *
-	 * - normally initialized begin_new_exec()
-	 * - set it with set_task_comm()
-	 *   - strscpy_pad() to ensure it is always NUL-terminated and
-	 *     zero-padded
-	 *   - task_lock() to ensure the operation is atomic and the name is
-	 *     fully updated.
+	 * - normally initialized by begin_new_exec()
+	 * - set it with set_task_comm() to ensure it is always
+	 *   NUL-terminated and zero-padded
 	 */
 	char				comm[TASK_COMM_LEN];
 
@@ -1184,6 +1187,7 @@ struct task_struct {
 
 #ifdef CONFIG_IO_URING
 	struct io_uring_task		*io_uring;
+	struct io_restriction		*io_uring_restrict;
 #endif
 
 	/* Namespaces: */
@@ -1235,6 +1239,7 @@ struct task_struct {
 #endif
 
 	struct mutex			*blocked_on;	/* lock we're blocked on */
+	raw_spinlock_t			blocked_lock;
 
 #ifdef CONFIG_DETECT_HUNG_TASK_BLOCKER
 	/*
@@ -1318,7 +1323,10 @@ struct task_struct {
 	struct css_set __rcu		*cgroups;
 	/* cg_list protected by css_set_lock and tsk->alloc_lock: */
 	struct list_head		cg_list;
-#endif
+#ifdef CONFIG_PREEMPT_RT
+	struct llist_node		cg_dead_lnode;
+#endif	/* CONFIG_PREEMPT_RT */
+#endif	/* CONFIG_CGROUPS */
 #ifdef CONFIG_X86_CPU_RESCTRL
 	u32				closid;
 	u32				rmid;
@@ -1400,33 +1408,8 @@ struct task_struct {
 	unsigned long			numa_pages_migrated;
 #endif /* CONFIG_NUMA_BALANCING */
 
-#ifdef CONFIG_RSEQ
-	struct rseq __user *rseq;
-	u32 rseq_len;
-	u32 rseq_sig;
-	/*
-	 * RmW on rseq_event_mask must be performed atomically
-	 * with respect to preemption.
-	 */
-	unsigned long rseq_event_mask;
-# ifdef CONFIG_DEBUG_RSEQ
-	/*
-	 * This is a place holder to save a copy of the rseq fields for
-	 * validation of read-only fields. The struct rseq has a
-	 * variable-length array at the end, so it cannot be used
-	 * directly. Reserve a size large enough for the known fields.
-	 */
-	char				rseq_fields[sizeof(struct rseq)];
-# endif
-#endif
-
-#ifdef CONFIG_SCHED_MM_CID
-	int				mm_cid;		/* Current cid in mm */
-	int				last_mm_cid;	/* Most recent cid in mm */
-	int				migrate_from_cpu;
-	int				mm_cid_active;	/* Whether cid bitmap is active */
-	struct callback_head		cid_work;
-#endif
+	struct rseq_data		rseq;
+	struct sched_mm_cid		mm_cid;
 
 	struct tlbflush_unmap_batch	tlb_ubc;
 
@@ -1434,6 +1417,10 @@ struct task_struct {
 	struct pipe_inode_info		*splice_pipe;
 
 	struct page_frag		task_frag;
+
+#ifdef CONFIG_ARCH_HAS_LAZY_MMU_MODE
+	struct lazy_mmu_state		lazy_mmu_state;
+#endif
 
 #ifdef CONFIG_TASK_DELAY_ACCT
 	struct task_delay_info		*delays;
@@ -1548,7 +1535,7 @@ struct task_struct {
 	/* Used by memcontrol for targeted memcg charge: */
 	struct mem_cgroup		*active_memcg;
 
-	/* Cache for current->cgroups->memcg->objcg lookups: */
+	/* Cache for current->cgroups->memcg->nodeinfo[nid]->objcg lookups: */
 	struct obj_cgroup		*objcg;
 #endif
 
@@ -1718,6 +1705,47 @@ static inline char task_state_to_char(struct task_struct *tsk)
 	return task_index_to_char(task_state_index(tsk));
 }
 
+#ifdef CONFIG_ARCH_HAS_LAZY_MMU_MODE
+/**
+ * __task_lazy_mmu_mode_active() - Test the lazy MMU mode state for a task.
+ * @tsk: The task to check.
+ *
+ * Test whether @tsk has its lazy MMU mode state set to active (i.e. enabled
+ * and not paused).
+ *
+ * This function only considers the state saved in task_struct; to test whether
+ * current actually is in lazy MMU mode, is_lazy_mmu_mode_active() should be
+ * used instead.
+ *
+ * This function is intended for architectures that implement the lazy MMU
+ * mode; it must not be called from generic code.
+ */
+static inline bool __task_lazy_mmu_mode_active(struct task_struct *tsk)
+{
+	struct lazy_mmu_state *state = &tsk->lazy_mmu_state;
+
+	return state->enable_count > 0 && state->pause_count == 0;
+}
+
+/**
+ * is_lazy_mmu_mode_active() - Test whether we are currently in lazy MMU mode.
+ *
+ * Test whether the current context is in lazy MMU mode. This is true if both:
+ * 1. We are not in interrupt context
+ * 2. Lazy MMU mode is active for the current task
+ *
+ * This function is intended for architectures that implement the lazy MMU
+ * mode; it must not be called from generic code.
+ */
+static inline bool is_lazy_mmu_mode_active(void)
+{
+	if (in_interrupt())
+		return false;
+
+	return __task_lazy_mmu_mode_active(current);
+}
+#endif
+
 extern struct pid *cad_pid;
 
 /*
@@ -1792,6 +1820,11 @@ static __always_inline bool is_percpu_thread(void)
 		(current->nr_cpus_allowed  == 1);
 }
 
+static __always_inline bool is_user_task(struct task_struct *task)
+{
+	return task->mm && !(task->flags & (PF_KTHREAD | PF_USER_WORKER));
+}
+
 /* Per-process atomic flags. */
 #define PFA_NO_NEW_PRIVS		0	/* May not gain new privileges. */
 #define PFA_SPREAD_PAGE			1	/* Spread page cache over cpuset */
@@ -1855,8 +1888,8 @@ extern int task_can_attach(struct task_struct *p);
 extern int dl_bw_alloc(int cpu, u64 dl_bw);
 extern void dl_bw_free(int cpu, u64 dl_bw);
 
-/* do_set_cpus_allowed() - consider using set_cpus_allowed_ptr() instead */
-extern void do_set_cpus_allowed(struct task_struct *p, const struct cpumask *new_mask);
+/* set_cpus_allowed_force() - consider using set_cpus_allowed_ptr() instead */
+extern void set_cpus_allowed_force(struct task_struct *p, const struct cpumask *new_mask);
 
 /**
  * set_cpus_allowed_ptr - set CPU affinity mask of a task
@@ -1890,11 +1923,11 @@ static inline int task_nice(const struct task_struct *p)
 extern int can_nice(const struct task_struct *p, const int nice);
 extern int task_curr(const struct task_struct *p);
 extern int idle_cpu(int cpu);
-extern int available_idle_cpu(int cpu);
 extern int sched_setscheduler(struct task_struct *, int, const struct sched_param *);
 extern int sched_setscheduler_nocheck(struct task_struct *, int, const struct sched_param *);
 extern void sched_set_fifo(struct task_struct *p);
 extern void sched_set_fifo_low(struct task_struct *p);
+extern void sched_set_fifo_secondary(struct task_struct *p);
 extern void sched_set_normal(struct task_struct *p, int nice);
 extern int sched_setattr(struct task_struct *, const struct sched_attr *);
 extern int sched_setattr_nocheck(struct task_struct *, const struct sched_attr *);
@@ -2052,6 +2085,13 @@ static inline int test_tsk_need_resched(struct task_struct *tsk)
 	return unlikely(test_tsk_thread_flag(tsk,TIF_NEED_RESCHED));
 }
 
+static inline void set_need_resched_current(void)
+{
+	lockdep_assert_irqs_disabled();
+	set_tsk_need_resched(current);
+	set_preempt_need_resched();
+}
+
 /*
  * cond_resched() and cond_resched_lock(): latency reduction via
  * explicit rescheduling in places that are safe. The return
@@ -2102,9 +2142,9 @@ static inline int _cond_resched(void)
 	_cond_resched();			\
 })
 
-extern int __cond_resched_lock(spinlock_t *lock);
-extern int __cond_resched_rwlock_read(rwlock_t *lock);
-extern int __cond_resched_rwlock_write(rwlock_t *lock);
+extern int __cond_resched_lock(spinlock_t *lock) __must_hold(lock);
+extern int __cond_resched_rwlock_read(rwlock_t *lock) __must_hold_shared(lock);
+extern int __cond_resched_rwlock_write(rwlock_t *lock) __must_hold(lock);
 
 #define MIGHT_RESCHED_RCU_SHIFT		8
 #define MIGHT_RESCHED_PREEMPT_MASK	((1U << MIGHT_RESCHED_RCU_SHIFT) - 1)
@@ -2141,67 +2181,99 @@ extern int __cond_resched_rwlock_write(rwlock_t *lock);
 })
 
 #ifndef CONFIG_PREEMPT_RT
+
+/*
+ * With proxy exec, if a task has been proxy-migrated, it may be a donor
+ * on a cpu that it can't actually run on. Thus we need a special state
+ * to denote that the task is being woken, but that it needs to be
+ * evaluated for return-migration before it is run. So if the task is
+ * blocked_on PROXY_WAKING, return migrate it before running it.
+ */
+#define PROXY_WAKING ((struct mutex *)(-1L))
+
 static inline struct mutex *__get_task_blocked_on(struct task_struct *p)
 {
-	struct mutex *m = p->blocked_on;
-
-	if (m)
-		lockdep_assert_held_once(&m->wait_lock);
-	return m;
+	lockdep_assert_held_once(&p->blocked_lock);
+	return p->blocked_on == PROXY_WAKING ? NULL : p->blocked_on;
 }
 
 static inline void __set_task_blocked_on(struct task_struct *p, struct mutex *m)
 {
-	struct mutex *blocked_on = READ_ONCE(p->blocked_on);
-
 	WARN_ON_ONCE(!m);
 	/* The task should only be setting itself as blocked */
 	WARN_ON_ONCE(p != current);
-	/* Currently we serialize blocked_on under the mutex::wait_lock */
-	lockdep_assert_held_once(&m->wait_lock);
+	/* Currently we serialize blocked_on under the task::blocked_lock */
+	lockdep_assert_held_once(&p->blocked_lock);
 	/*
 	 * Check ensure we don't overwrite existing mutex value
 	 * with a different mutex. Note, setting it to the same
 	 * lock repeatedly is ok.
 	 */
-	WARN_ON_ONCE(blocked_on && blocked_on != m);
-	WRITE_ONCE(p->blocked_on, m);
-}
-
-static inline void set_task_blocked_on(struct task_struct *p, struct mutex *m)
-{
-	guard(raw_spinlock_irqsave)(&m->wait_lock);
-	__set_task_blocked_on(p, m);
+	WARN_ON_ONCE(p->blocked_on && p->blocked_on != m);
+	p->blocked_on = m;
 }
 
 static inline void __clear_task_blocked_on(struct task_struct *p, struct mutex *m)
 {
-	if (m) {
-		struct mutex *blocked_on = READ_ONCE(p->blocked_on);
-
-		/* Currently we serialize blocked_on under the mutex::wait_lock */
-		lockdep_assert_held_once(&m->wait_lock);
-		/*
-		 * There may be cases where we re-clear already cleared
-		 * blocked_on relationships, but make sure we are not
-		 * clearing the relationship with a different lock.
-		 */
-		WARN_ON_ONCE(blocked_on && blocked_on != m);
-	}
-	WRITE_ONCE(p->blocked_on, NULL);
+	/* Currently we serialize blocked_on under the task::blocked_lock */
+	lockdep_assert_held_once(&p->blocked_lock);
+	/*
+	 * There may be cases where we re-clear already cleared
+	 * blocked_on relationships, but make sure we are not
+	 * clearing the relationship with a different lock.
+	 */
+	WARN_ON_ONCE(m && p->blocked_on && p->blocked_on != m && p->blocked_on != PROXY_WAKING);
+	p->blocked_on = NULL;
 }
 
 static inline void clear_task_blocked_on(struct task_struct *p, struct mutex *m)
 {
-	guard(raw_spinlock_irqsave)(&m->wait_lock);
+	guard(raw_spinlock_irqsave)(&p->blocked_lock);
 	__clear_task_blocked_on(p, m);
 }
+
+static inline void __set_task_blocked_on_waking(struct task_struct *p, struct mutex *m)
+{
+	/* Currently we serialize blocked_on under the task::blocked_lock */
+	lockdep_assert_held_once(&p->blocked_lock);
+
+	if (!sched_proxy_exec()) {
+		__clear_task_blocked_on(p, m);
+		return;
+	}
+
+	/* Don't set PROXY_WAKING if blocked_on was already cleared */
+	if (!p->blocked_on)
+		return;
+	/*
+	 * There may be cases where we set PROXY_WAKING on tasks that were
+	 * already set to waking, but make sure we are not changing
+	 * the relationship with a different lock.
+	 */
+	WARN_ON_ONCE(m && p->blocked_on != m && p->blocked_on != PROXY_WAKING);
+	p->blocked_on = PROXY_WAKING;
+}
+
+static inline void set_task_blocked_on_waking(struct task_struct *p, struct mutex *m)
+{
+	guard(raw_spinlock_irqsave)(&p->blocked_lock);
+	__set_task_blocked_on_waking(p, m);
+}
+
 #else
 static inline void __clear_task_blocked_on(struct task_struct *p, struct rt_mutex *m)
 {
 }
 
 static inline void clear_task_blocked_on(struct task_struct *p, struct rt_mutex *m)
+{
+}
+
+static inline void __set_task_blocked_on_waking(struct task_struct *p, struct rt_mutex *m)
+{
+}
+
+static inline void set_task_blocked_on_waking(struct task_struct *p, struct rt_mutex *m)
 {
 }
 #endif /* !CONFIG_PREEMPT_RT */
@@ -2311,5 +2383,139 @@ static __always_inline void alloc_tag_restore(struct alloc_tag *tag, struct allo
 #define alloc_tag_save(_tag)			NULL
 #define alloc_tag_restore(_tag, _old)		do {} while (0)
 #endif
+
+/* Avoids recursive inclusion hell */
+#ifdef CONFIG_SCHED_MM_CID
+void sched_mm_cid_before_execve(struct task_struct *t);
+void sched_mm_cid_after_execve(struct task_struct *t);
+void sched_mm_cid_exit(struct task_struct *t);
+static __always_inline int task_mm_cid(struct task_struct *t)
+{
+	return t->mm_cid.cid & ~(MM_CID_ONCPU | MM_CID_TRANSIT);
+}
+#else
+static inline void sched_mm_cid_before_execve(struct task_struct *t) { }
+static inline void sched_mm_cid_after_execve(struct task_struct *t) { }
+static inline void sched_mm_cid_exit(struct task_struct *t) { }
+static __always_inline int task_mm_cid(struct task_struct *t)
+{
+	/*
+	 * Use the processor id as a fall-back when the mm cid feature is
+	 * disabled. This provides functional per-cpu data structure accesses
+	 * in user-space, althrough it won't provide the memory usage benefits.
+	 */
+	return task_cpu(t);
+}
+#endif
+
+#ifndef MODULE
+#ifndef COMPILE_OFFSETS
+
+extern void ___migrate_enable(void);
+
+struct rq;
+DECLARE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
+
+/*
+ * The "struct rq" is not available here, so we can't access the
+ * "runqueues" with this_cpu_ptr(), as the compilation will fail in
+ * this_cpu_ptr() -> raw_cpu_ptr() -> __verify_pcpu_ptr():
+ *   typeof((ptr) + 0)
+ *
+ * So use arch_raw_cpu_ptr()/PERCPU_PTR() directly here.
+ */
+#ifdef CONFIG_SMP
+#define this_rq_raw() arch_raw_cpu_ptr(&runqueues)
+#else
+#define this_rq_raw() PERCPU_PTR(&runqueues)
+#endif
+#define this_rq_pinned() (*(unsigned int *)((void *)this_rq_raw() + RQ_nr_pinned))
+
+static inline void __migrate_enable(void)
+{
+	struct task_struct *p = current;
+
+#ifdef CONFIG_DEBUG_PREEMPT
+	/*
+	 * Check both overflow from migrate_disable() and superfluous
+	 * migrate_enable().
+	 */
+	if (WARN_ON_ONCE((s16)p->migration_disabled <= 0))
+		return;
+#endif
+
+	if (p->migration_disabled > 1) {
+		p->migration_disabled--;
+		return;
+	}
+
+	/*
+	 * Ensure stop_task runs either before or after this, and that
+	 * __set_cpus_allowed_ptr(SCA_MIGRATE_ENABLE) doesn't schedule().
+	 */
+	guard(preempt)();
+	if (unlikely(p->cpus_ptr != &p->cpus_mask))
+		___migrate_enable();
+	/*
+	 * Mustn't clear migration_disabled() until cpus_ptr points back at the
+	 * regular cpus_mask, otherwise things that race (eg.
+	 * select_fallback_rq) get confused.
+	 */
+	barrier();
+	p->migration_disabled = 0;
+	this_rq_pinned()--;
+}
+
+static inline void __migrate_disable(void)
+{
+	struct task_struct *p = current;
+
+	if (p->migration_disabled) {
+#ifdef CONFIG_DEBUG_PREEMPT
+		/*
+		 *Warn about overflow half-way through the range.
+		 */
+		WARN_ON_ONCE((s16)p->migration_disabled < 0);
+#endif
+		p->migration_disabled++;
+		return;
+	}
+
+	guard(preempt)();
+	this_rq_pinned()++;
+	p->migration_disabled = 1;
+}
+#else /* !COMPILE_OFFSETS */
+static inline void __migrate_disable(void) { }
+static inline void __migrate_enable(void) { }
+#endif /* !COMPILE_OFFSETS */
+
+/*
+ * So that it is possible to not export the runqueues variable, define and
+ * export migrate_enable/migrate_disable in kernel/sched/core.c too, and use
+ * them for the modules. The macro "INSTANTIATE_EXPORTED_MIGRATE_DISABLE" will
+ * be defined in kernel/sched/core.c.
+ */
+#ifndef INSTANTIATE_EXPORTED_MIGRATE_DISABLE
+static __always_inline void migrate_disable(void)
+{
+	__migrate_disable();
+}
+
+static __always_inline void migrate_enable(void)
+{
+	__migrate_enable();
+}
+#else /* INSTANTIATE_EXPORTED_MIGRATE_DISABLE */
+extern void migrate_disable(void);
+extern void migrate_enable(void);
+#endif /* INSTANTIATE_EXPORTED_MIGRATE_DISABLE */
+
+#else /* MODULE */
+extern void migrate_disable(void);
+extern void migrate_enable(void);
+#endif /* MODULE */
+
+DEFINE_LOCK_GUARD_0(migrate, migrate_disable(), migrate_enable())
 
 #endif

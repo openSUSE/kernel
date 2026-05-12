@@ -157,7 +157,7 @@ static int src_get_rsc_ctrl_blk(void **rblk)
 	struct src_rsc_ctrl_blk *blk;
 
 	*rblk = NULL;
-	blk = kzalloc(sizeof(*blk), GFP_KERNEL);
+	blk = kzalloc_obj(*blk);
 	if (!blk)
 		return -ENOMEM;
 
@@ -483,7 +483,7 @@ static int src_mgr_get_ctrl_blk(void **rblk)
 	struct src_mgr_ctrl_blk *blk;
 
 	*rblk = NULL;
-	blk = kzalloc(sizeof(*blk), GFP_KERNEL);
+	blk = kzalloc_obj(*blk);
 	if (!blk)
 		return -ENOMEM;
 
@@ -504,7 +504,7 @@ static int srcimp_mgr_get_ctrl_blk(void **rblk)
 	struct srcimp_mgr_ctrl_blk *blk;
 
 	*rblk = NULL;
-	blk = kzalloc(sizeof(*blk), GFP_KERNEL);
+	blk = kzalloc_obj(*blk);
 	if (!blk)
 		return -ENOMEM;
 
@@ -691,7 +691,7 @@ static int amixer_rsc_get_ctrl_blk(void **rblk)
 	struct amixer_rsc_ctrl_blk *blk;
 
 	*rblk = NULL;
-	blk = kzalloc(sizeof(*blk), GFP_KERNEL);
+	blk = kzalloc_obj(*blk);
 	if (!blk)
 		return -ENOMEM;
 
@@ -898,7 +898,7 @@ static int dai_get_ctrl_blk(void **rblk)
 	struct dai_ctrl_blk *blk;
 
 	*rblk = NULL;
-	blk = kzalloc(sizeof(*blk), GFP_KERNEL);
+	blk = kzalloc_obj(*blk);
 	if (!blk)
 		return -ENOMEM;
 
@@ -947,7 +947,7 @@ static int dao_get_ctrl_blk(void **rblk)
 	struct dao_ctrl_blk *blk;
 
 	*rblk = NULL;
-	blk = kzalloc(sizeof(*blk), GFP_KERNEL);
+	blk = kzalloc_obj(*blk);
 	if (!blk)
 		return -ENOMEM;
 
@@ -1031,7 +1031,7 @@ static int daio_mgr_dsb_dao(void *blk, unsigned int idx)
 	return 0;
 }
 
-static int daio_mgr_dao_init(void *blk, unsigned int idx, unsigned int conf)
+static int daio_mgr_dao_init(struct hw *hw __maybe_unused, void *blk, unsigned int idx, unsigned int conf)
 {
 	struct daio_mgr_ctrl_blk *ctl = blk;
 
@@ -1141,7 +1141,7 @@ static int daio_mgr_get_ctrl_blk(struct hw *hw, void **rblk)
 	struct daio_mgr_ctrl_blk *blk;
 
 	*rblk = NULL;
-	blk = kzalloc(sizeof(*blk), GFP_KERNEL);
+	blk = kzalloc_obj(*blk);
 	if (!blk)
 		return -ENOMEM;
 
@@ -1775,6 +1775,7 @@ static struct capabilities hw_capabilities(struct hw *hw)
 	/* SB073x and Vista compatible cards have no digit IO switch */
 	cap.digit_io_switch = !(hw->model == CTSB073X || hw->model == CTUAA);
 	cap.dedicated_mic = 0;
+	cap.dedicated_rca = 0;
 	cap.output_switch = 0;
 	cap.mic_source_switch = 0;
 
@@ -2091,57 +2092,30 @@ static int hw_resume(struct hw *hw, struct card_conf *info)
 
 static u32 hw_read_20kx(struct hw *hw, u32 reg)
 {
-	u32 value;
-	unsigned long flags;
-
-	spin_lock_irqsave(
-		&container_of(hw, struct hw20k1, hw)->reg_20k1_lock, flags);
+	guard(spinlock_irqsave)(&container_of(hw, struct hw20k1, hw)->reg_20k1_lock);
 	outl(reg, hw->io_base + 0x0);
-	value = inl(hw->io_base + 0x4);
-	spin_unlock_irqrestore(
-		&container_of(hw, struct hw20k1, hw)->reg_20k1_lock, flags);
-
-	return value;
+	return inl(hw->io_base + 0x4);
 }
 
 static void hw_write_20kx(struct hw *hw, u32 reg, u32 data)
 {
-	unsigned long flags;
-
-	spin_lock_irqsave(
-		&container_of(hw, struct hw20k1, hw)->reg_20k1_lock, flags);
+	guard(spinlock_irqsave)(&container_of(hw, struct hw20k1, hw)->reg_20k1_lock);
 	outl(reg, hw->io_base + 0x0);
 	outl(data, hw->io_base + 0x4);
-	spin_unlock_irqrestore(
-		&container_of(hw, struct hw20k1, hw)->reg_20k1_lock, flags);
-
 }
 
 static u32 hw_read_pci(struct hw *hw, u32 reg)
 {
-	u32 value;
-	unsigned long flags;
-
-	spin_lock_irqsave(
-		&container_of(hw, struct hw20k1, hw)->reg_pci_lock, flags);
+	guard(spinlock_irqsave)(&container_of(hw, struct hw20k1, hw)->reg_pci_lock);
 	outl(reg, hw->io_base + 0x10);
-	value = inl(hw->io_base + 0x14);
-	spin_unlock_irqrestore(
-		&container_of(hw, struct hw20k1, hw)->reg_pci_lock, flags);
-
-	return value;
+	return inl(hw->io_base + 0x14);
 }
 
 static void hw_write_pci(struct hw *hw, u32 reg, u32 data)
 {
-	unsigned long flags;
-
-	spin_lock_irqsave(
-		&container_of(hw, struct hw20k1, hw)->reg_pci_lock, flags);
+	guard(spinlock_irqsave)(&container_of(hw, struct hw20k1, hw)->reg_pci_lock);
 	outl(reg, hw->io_base + 0x10);
 	outl(data, hw->io_base + 0x14);
-	spin_unlock_irqrestore(
-		&container_of(hw, struct hw20k1, hw)->reg_pci_lock, flags);
 }
 
 static const struct hw ct20k1_preset = {
@@ -2253,7 +2227,7 @@ int create_20k1_hw_obj(struct hw **rhw)
 	struct hw20k1 *hw20k1;
 
 	*rhw = NULL;
-	hw20k1 = kzalloc(sizeof(*hw20k1), GFP_KERNEL);
+	hw20k1 = kzalloc_obj(*hw20k1);
 	if (!hw20k1)
 		return -ENOMEM;
 

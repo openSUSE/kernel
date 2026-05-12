@@ -49,7 +49,7 @@ int __gfs2_trans_begin(struct gfs2_trans *tr, struct gfs2_sbd *sdp,
 	}
 	BUG_ON(blocks == 0 && revokes == 0);
 
-	if (!test_bit(SDF_JOURNAL_LIVE, &sdp->sd_flags))
+	if (gfs2_withdrawn(sdp))
 		return -EROFS;
 
 	tr->tr_ip = ip;
@@ -85,25 +85,30 @@ int __gfs2_trans_begin(struct gfs2_trans *tr, struct gfs2_sbd *sdp,
 	 */
 
 	down_read(&sdp->sd_log_flush_lock);
+	if (unlikely(!test_bit(SDF_JOURNAL_LIVE, &sdp->sd_flags)))
+		goto out_not_live;
 	if (gfs2_log_try_reserve(sdp, tr, &extra_revokes))
 		goto reserved;
+
 	up_read(&sdp->sd_log_flush_lock);
 	gfs2_log_reserve(sdp, tr, &extra_revokes);
 	down_read(&sdp->sd_log_flush_lock);
+	if (unlikely(!test_bit(SDF_JOURNAL_LIVE, &sdp->sd_flags))) {
+		revokes = tr->tr_revokes + extra_revokes;
+		gfs2_log_release_revokes(sdp, revokes);
+		gfs2_log_release(sdp, tr->tr_reserved);
+		goto out_not_live;
+	}
 
 reserved:
 	gfs2_log_release_revokes(sdp, extra_revokes);
-	if (unlikely(!test_bit(SDF_JOURNAL_LIVE, &sdp->sd_flags))) {
-		gfs2_log_release_revokes(sdp, tr->tr_revokes);
-		up_read(&sdp->sd_log_flush_lock);
-		gfs2_log_release(sdp, tr->tr_reserved);
-		sb_end_intwrite(sdp->sd_vfs);
-		return -EROFS;
-	}
-
 	current->journal_info = tr;
-
 	return 0;
+
+out_not_live:
+	up_read(&sdp->sd_log_flush_lock);
+	sb_end_intwrite(sdp->sd_vfs);
+	return -EROFS;
 }
 
 int gfs2_trans_begin(struct gfs2_sbd *sdp, unsigned int blocks,
@@ -171,7 +176,6 @@ static struct gfs2_bufdata *gfs2_alloc_bufdata(struct gfs2_glock *gl,
 	INIT_LIST_HEAD(&bd->bd_list);
 	INIT_LIST_HEAD(&bd->bd_ail_st_list);
 	INIT_LIST_HEAD(&bd->bd_ail_gl_list);
-	bh->b_private = bd;
 	return bd;
 }
 
@@ -192,7 +196,7 @@ static struct gfs2_bufdata *gfs2_alloc_bufdata(struct gfs2_glock *gl,
 void gfs2_trans_add_data(struct gfs2_glock *gl, struct buffer_head *bh)
 {
 	struct gfs2_trans *tr = current->journal_info;
-	struct gfs2_sbd *sdp = gl->gl_name.ln_sbd;
+	struct gfs2_sbd *sdp = glock_sbd(gl);
 	struct gfs2_bufdata *bd;
 
 	lock_buffer(bh);
@@ -200,17 +204,20 @@ void gfs2_trans_add_data(struct gfs2_glock *gl, struct buffer_head *bh)
 		set_bit(TR_TOUCHED, &tr->tr_flags);
 		goto out;
 	}
-	gfs2_log_lock(sdp);
+	spin_lock(&sdp->sd_log_lock);
 	bd = bh->b_private;
 	if (bd == NULL) {
-		gfs2_log_unlock(sdp);
+		spin_unlock(&sdp->sd_log_lock);
 		unlock_buffer(bh);
-		if (bh->b_private == NULL)
-			bd = gfs2_alloc_bufdata(gl, bh);
-		else
-			bd = bh->b_private;
+		bd = gfs2_alloc_bufdata(gl, bh);
 		lock_buffer(bh);
-		gfs2_log_lock(sdp);
+		spin_lock(&sdp->sd_log_lock);
+		if (bh->b_private) {
+			kmem_cache_free(gfs2_bufdata_cachep, bd);
+			bd = bh->b_private;
+		} else {
+			bh->b_private = bd;
+		}
 	}
 	gfs2_assert(sdp, bd->bd_gl == gl);
 	set_bit(TR_TOUCHED, &tr->tr_flags);
@@ -221,7 +228,7 @@ void gfs2_trans_add_data(struct gfs2_glock *gl, struct buffer_head *bh)
 		tr->tr_num_databuf_new++;
 		list_add_tail(&bd->bd_list, &tr->tr_databuf);
 	}
-	gfs2_log_unlock(sdp);
+	spin_unlock(&sdp->sd_log_lock);
 out:
 	unlock_buffer(bh);
 }
@@ -250,31 +257,31 @@ void gfs2_trans_add_databufs(struct gfs2_glock *gl, struct folio *folio,
 void gfs2_trans_add_meta(struct gfs2_glock *gl, struct buffer_head *bh)
 {
 
-	struct gfs2_sbd *sdp = gl->gl_name.ln_sbd;
+	struct gfs2_sbd *sdp = glock_sbd(gl);
 	struct super_block *sb = sdp->sd_vfs;
 	struct gfs2_bufdata *bd;
 	struct gfs2_meta_header *mh;
 	struct gfs2_trans *tr = current->journal_info;
-	bool withdraw = false;
 
 	lock_buffer(bh);
 	if (buffer_pinned(bh)) {
 		set_bit(TR_TOUCHED, &tr->tr_flags);
 		goto out;
 	}
-	gfs2_log_lock(sdp);
+	spin_lock(&sdp->sd_log_lock);
 	bd = bh->b_private;
 	if (bd == NULL) {
-		gfs2_log_unlock(sdp);
+		spin_unlock(&sdp->sd_log_lock);
 		unlock_buffer(bh);
-		folio_lock(bh->b_folio);
-		if (bh->b_private == NULL)
-			bd = gfs2_alloc_bufdata(gl, bh);
-		else
-			bd = bh->b_private;
-		folio_unlock(bh->b_folio);
+		bd = gfs2_alloc_bufdata(gl, bh);
 		lock_buffer(bh);
-		gfs2_log_lock(sdp);
+		spin_lock(&sdp->sd_log_lock);
+		if (bh->b_private) {
+			kmem_cache_free(gfs2_bufdata_cachep, bd);
+			bd = bh->b_private;
+		} else {
+			bh->b_private = bd;
+		}
 	}
 	gfs2_assert(sdp, bd->bd_gl == gl);
 	set_bit(TR_TOUCHED, &tr->tr_flags);
@@ -289,14 +296,14 @@ void gfs2_trans_add_meta(struct gfs2_glock *gl, struct buffer_head *bh)
 		       (unsigned long long)bd->bd_bh->b_blocknr);
 		BUG();
 	}
-	if (gfs2_withdrawing_or_withdrawn(sdp)) {
+	if (gfs2_withdrawn(sdp)) {
 		fs_info(sdp, "GFS2:adding buf while withdrawn! 0x%llx\n",
 			(unsigned long long)bd->bd_bh->b_blocknr);
 		goto out_unlock;
 	}
 	if (unlikely(sb->s_writers.frozen == SB_FREEZE_COMPLETE)) {
 		fs_info(sdp, "GFS2:adding buf while frozen\n");
-		withdraw = true;
+		gfs2_withdraw(sdp);
 		goto out_unlock;
 	}
 	gfs2_pin(sdp, bd->bd_bh);
@@ -305,9 +312,7 @@ void gfs2_trans_add_meta(struct gfs2_glock *gl, struct buffer_head *bh)
 	list_add(&bd->bd_list, &tr->tr_buf);
 	tr->tr_num_buf_new++;
 out_unlock:
-	gfs2_log_unlock(sdp);
-	if (withdraw)
-		gfs2_assert_withdraw(sdp, 0);
+	spin_unlock(&sdp->sd_log_lock);
 out:
 	unlock_buffer(bh);
 }
@@ -327,7 +332,7 @@ void gfs2_trans_remove_revoke(struct gfs2_sbd *sdp, u64 blkno, unsigned int len)
 	struct gfs2_bufdata *bd, *tmp;
 	unsigned int n = len;
 
-	gfs2_log_lock(sdp);
+	spin_lock(&sdp->sd_log_lock);
 	list_for_each_entry_safe(bd, tmp, &sdp->sd_log_revokes, bd_list) {
 		if ((bd->bd_blkno >= blkno) && (bd->bd_blkno < (blkno + len))) {
 			list_del_init(&bd->bd_list);
@@ -341,7 +346,7 @@ void gfs2_trans_remove_revoke(struct gfs2_sbd *sdp, u64 blkno, unsigned int len)
 				break;
 		}
 	}
-	gfs2_log_unlock(sdp);
+	spin_unlock(&sdp->sd_log_lock);
 }
 
 void gfs2_trans_free(struct gfs2_sbd *sdp, struct gfs2_trans *tr)

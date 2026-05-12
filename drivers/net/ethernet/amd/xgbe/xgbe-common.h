@@ -227,13 +227,29 @@
 #define MAC_TICSNR                      0x0d5C
 #define MAC_TECNR                       0x0d60
 #define MAC_TECSNR                      0x0d64
-
+#define MAC_PPSCR			0x0d70
+#define MAC_PPS0_TTSR			0x0d80
+#define MAC_PPS0_TTNSR			0x0d84
+#define MAC_PPS0_INTERVAL		0x0d88
+#define MAC_PPS0_WIDTH			0x0d8C
 #define MAC_QTFCR_INC			4
 #define MAC_MACA_INC			4
 #define MAC_HTR_INC			4
 
 #define MAC_RQC2_INC			4
 #define MAC_RQC2_Q_PER_REG		4
+
+/* PPS helpers */
+#define PPSEN0				BIT(4)
+#define MAC_PPSx_TTSR(x)		((MAC_PPS0_TTSR) + ((x) * 0x10))
+#define MAC_PPSx_TTNSR(x)		((MAC_PPS0_TTNSR) + ((x) * 0x10))
+#define MAC_PPSx_INTERVAL(x)		((MAC_PPS0_INTERVAL) + ((x) * 0x10))
+#define MAC_PPSx_WIDTH(x)		((MAC_PPS0_WIDTH) + ((x) * 0x10))
+#define PPS_MAXIDX(x)			((((x) + 1) * 8) - 1)
+#define PPS_MINIDX(x)			((x) * 8)
+#define XGBE_PPSCMD_STOP		0x5
+#define XGBE_PPSCMD_START		0x2
+#define XGBE_PPSTARGET_PULSE		0x2
 
 /* MAC register entry bit positions and sizes */
 #define MAC_HWF0R_ADDMACADRSEL_INDEX	18
@@ -314,6 +330,10 @@
 #define MAC_ISR_SMI_WIDTH		1
 #define MAC_ISR_TSIS_INDEX		12
 #define MAC_ISR_TSIS_WIDTH		1
+#define MAC_ISR_LS_INDEX		24
+#define MAC_ISR_LS_WIDTH		2
+#define MAC_ISR_LSI_INDEX		0
+#define MAC_ISR_LSI_WIDTH		1
 #define MAC_MACA1HR_AE_INDEX		31
 #define MAC_MACA1HR_AE_WIDTH		1
 #define MAC_MDIOIER_SNGLCOMPIE_INDEX	12
@@ -415,7 +435,7 @@
 #define MAC_SSIR_SSINC_INDEX		16
 #define MAC_SSIR_SSINC_WIDTH		8
 #define MAC_TCR_SS_INDEX		29
-#define MAC_TCR_SS_WIDTH		2
+#define MAC_TCR_SS_WIDTH		3
 #define MAC_TCR_TE_INDEX		0
 #define MAC_TCR_TE_WIDTH		1
 #define MAC_TCR_VNE_INDEX		24
@@ -496,8 +516,10 @@
 #define MAC_VR_SNPSVER_WIDTH		8
 #define MAC_VR_USERVER_INDEX		16
 #define MAC_VR_USERVER_WIDTH		8
+#define MAC_PPSx_TTNSR_TRGTBUSY0_INDEX	31
+#define MAC_PPSx_TTNSR_TRGTBUSY0_WIDTH	1
 
-/* MMC register offsets */
+ /* MMC register offsets */
 #define MMC_CR				0x0800
 #define MMC_RISR			0x0804
 #define MMC_TISR			0x0808
@@ -580,6 +602,7 @@
 #define MMC_RXVLANFRAMES_GB_LO		0x0998
 #define MMC_RXVLANFRAMES_GB_HI		0x099c
 #define MMC_RXWATCHDOGERROR		0x09a0
+#define MMC_RXALIGNMENTERROR		0x09bc
 
 /* MMC register entry bit positions and sizes */
 #define MMC_CR_CR_INDEX				0
@@ -640,6 +663,8 @@
 #define MMC_RISR_RXVLANFRAMES_GB_WIDTH		1
 #define MMC_RISR_RXWATCHDOGERROR_INDEX		22
 #define MMC_RISR_RXWATCHDOGERROR_WIDTH		1
+#define MMC_RISR_RXALIGNMENTERROR_INDEX		27
+#define MMC_RISR_RXALIGNMENTERROR_WIDTH		1
 #define MMC_TIER_ALL_INTERRUPTS_INDEX		0
 #define MMC_TIER_ALL_INTERRUPTS_WIDTH		18
 #define MMC_TISR_TXOCTETCOUNT_GB_INDEX		0
@@ -811,6 +836,8 @@
 #define PCS_V2_YC_WINDOW_SELECT		0x18064
 #define PCS_V3_RN_WINDOW_DEF		0xf8078
 #define PCS_V3_RN_WINDOW_SELECT		0xf807c
+#define PCS_P100a_WINDOW_DEF		0x8060
+#define PCS_P100a_WINDOW_SELECT		0x8080
 
 #define PCS_RN_SMN_BASE_ADDR		0x11e00000
 #define PCS_RN_PORT_ADDR_SIZE		0x100000
@@ -947,7 +974,7 @@
 #define XP_PROP_0_PORT_MODE_INDEX		8
 #define XP_PROP_0_PORT_MODE_WIDTH		4
 #define XP_PROP_0_PORT_SPEEDS_INDEX		22
-#define XP_PROP_0_PORT_SPEEDS_WIDTH		5
+#define XP_PROP_0_PORT_SPEEDS_WIDTH		6
 #define XP_PROP_1_MAX_RX_DMA_INDEX		24
 #define XP_PROP_1_MAX_RX_DMA_WIDTH		5
 #define XP_PROP_1_MAX_RX_QUEUES_INDEX		8

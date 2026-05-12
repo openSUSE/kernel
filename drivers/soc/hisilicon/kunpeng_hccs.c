@@ -616,8 +616,7 @@ static int hccs_get_all_port_info_on_die(struct hccs_dev *hdev,
 	int ret;
 	u8 i;
 
-	attrs = kcalloc(die->port_num, sizeof(struct hccs_port_attr),
-			GFP_KERNEL);
+	attrs = kzalloc_objs(struct hccs_port_attr, die->port_num);
 	if (!attrs)
 		return -ENOMEM;
 
@@ -962,7 +961,7 @@ static ssize_t link_fsm_show(struct kobject *kobj,
 	struct hccs_link_status link_status = {0};
 	const struct {
 		u8 link_fsm;
-		char *str;
+		const char *str;
 	} link_fsm_map[] = {
 		{HCCS_PORT_RESET, "reset"},
 		{HCCS_PORT_SETUP, "setup"},
@@ -1464,7 +1463,7 @@ static ssize_t dec_lane_of_type_store(struct kobject *kobj, struct kobj_attribut
 		goto out;
 	if (!all_in_idle) {
 		ret = -EBUSY;
-		dev_err(hdev->dev, "please don't decrese lanes on high load with %s, ret = %d.\n",
+		dev_err(hdev->dev, "please don't decrease lanes on high load with %s, ret = %d.\n",
 			hccs_port_type_to_name(hdev, port_type), ret);
 		goto out;
 	}
@@ -1622,8 +1621,7 @@ static void hccs_remove_topo_dirs(struct hccs_dev *hdev)
 	hccs_remove_misc_sysfs(hdev);
 }
 
-static int hccs_create_hccs_dir(struct hccs_dev *hdev,
-				struct hccs_die_info *die,
+static int hccs_create_hccs_dir(struct hccs_die_info *die,
 				struct hccs_port_info *port)
 {
 	int ret;
@@ -1655,7 +1653,7 @@ static int hccs_create_die_dir(struct hccs_dev *hdev,
 
 	for (i = 0; i < die->port_num; i++) {
 		port = &die->ports[i];
-		ret = hccs_create_hccs_dir(hdev, die, port);
+		ret = hccs_create_hccs_dir(die, port);
 		if (ret) {
 			dev_err(hdev->dev, "create hccs%u dir failed.\n",
 				port->port_id);

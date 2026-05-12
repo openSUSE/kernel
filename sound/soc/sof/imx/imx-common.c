@@ -81,14 +81,10 @@ EXPORT_SYMBOL(imx8_dump);
 
 static void imx_handle_reply(struct imx_dsp_ipc *ipc)
 {
-	struct snd_sof_dev *sdev;
-	unsigned long flags;
+	struct snd_sof_dev *sdev = imx_dsp_get_data(ipc);
 
-	sdev = imx_dsp_get_data(ipc);
-
-	spin_lock_irqsave(&sdev->ipc_lock, flags);
+	guard(spinlock_irqsave)(&sdev->ipc_lock);
 	snd_sof_ipc_process_reply(sdev, 0);
-	spin_unlock_irqrestore(&sdev->ipc_lock, flags);
 }
 
 static void imx_handle_request(struct imx_dsp_ipc *ipc)
@@ -316,9 +312,9 @@ static int imx_parse_ioremap_memory(struct snd_sof_dev *sdev)
 		}
 
 		sdev->bar[blk_type] = devm_ioremap_resource(sdev->dev, res);
-		if (!sdev->bar[blk_type])
+		if (IS_ERR(sdev->bar[blk_type]))
 			return dev_err_probe(sdev->dev,
-					     -ENOMEM,
+					     PTR_ERR(sdev->bar[blk_type]),
 					     "failed to ioremap %s region\n",
 					     chip_info->memory[i].name);
 	}
@@ -354,8 +350,8 @@ static int imx_probe(struct snd_sof_dev *sdev)
 
 	common = devm_kzalloc(sdev->dev, sizeof(*common), GFP_KERNEL);
 	if (!common)
-		return dev_err_probe(sdev->dev, -ENOMEM,
-				     "failed to allocate common data\n");
+		return -ENOMEM;
+
 	sdev->pdata->hw_pdata = common;
 
 	common->ipc_dev = platform_device_register_data(sdev->dev, "imx-dsp",
@@ -382,7 +378,7 @@ static int imx_probe(struct snd_sof_dev *sdev)
 				       imx_unregister_action,
 				       sdev);
 	if (ret)
-		return dev_err_probe(sdev->dev, ret, "failed to add devm action\n");
+		return ret;
 
 	common->ipc_handle = dev_get_drvdata(&common->ipc_dev->dev);
 	if (!common->ipc_handle)

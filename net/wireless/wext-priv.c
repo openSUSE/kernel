@@ -1,11 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * This file implement the Wireless Extensions priv API.
  *
  * Authors :	Jean Tourrilhes - HPL - <jt@hpl.hp.com>
  * Copyright (c) 1997-2007 Jean Tourrilhes, All Rights Reserved.
  * Copyright	2009 Johannes Berg <johannes@sipsolutions.net>
- *
- * (As all part of the Linux kernel, this file is GPL)
  */
 #include <linux/slab.h>
 #include <linux/wireless.h>
@@ -228,6 +227,10 @@ int compat_private_call(struct net_device *dev, struct iwreq *iwr,
 		struct iw_point iwp;
 
 		iwp_compat = (struct compat_iw_point *) &iwr->u.data;
+
+		/* struct iw_point has a 32bit hole on 64bit arches. */
+		memset(&iwp, 0, sizeof(iwp));
+
 		iwp.pointer = compat_ptr(iwp_compat->pointer);
 		iwp.length = iwp_compat->length;
 		iwp.flags = iwp_compat->flags;

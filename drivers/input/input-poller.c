@@ -4,6 +4,7 @@
  */
 
 #include <linux/device.h>
+#include <linux/export.h>
 #include <linux/input.h>
 #include <linux/jiffies.h>
 #include <linux/mutex.h>
@@ -70,7 +71,7 @@ int input_setup_polling(struct input_dev *dev,
 {
 	struct input_dev_poller *poller;
 
-	poller = kzalloc(sizeof(*poller), GFP_KERNEL);
+	poller = kzalloc_obj(*poller);
 	if (!poller) {
 		/*
 		 * We want to show message even though kzalloc() may have

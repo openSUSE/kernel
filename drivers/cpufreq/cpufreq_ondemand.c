@@ -30,29 +30,6 @@ static struct od_ops od_ops;
 static unsigned int default_powersave_bias;
 
 /*
- * Not all CPUs want IO time to be accounted as busy; this depends on how
- * efficient idling at a higher frequency/voltage is.
- * Pavel Machek says this is not so for various generations of AMD and old
- * Intel systems.
- * Mike Chan (android.com) claims this is also not true for ARM.
- * Because of this, whitelist specific known (series) of CPUs by default, and
- * leave all others up to the user.
- */
-static int should_io_be_busy(void)
-{
-#if defined(CONFIG_X86)
-	/*
-	 * For Intel, Core 2 (model 15) and later have an efficient idle.
-	 */
-	if (boot_cpu_data.x86_vendor == X86_VENDOR_INTEL &&
-			boot_cpu_data.x86 == 6 &&
-			boot_cpu_data.x86_model >= 15)
-		return 1;
-#endif
-	return 0;
-}
-
-/*
  * Find right freq to be set now with powersave_bias on.
  * Returns the freq_hi to be used right now and will set freq_hi_delay_us,
  * freq_lo, and freq_lo_delay_us in percpu area for averaging freqs.
@@ -345,7 +322,7 @@ static struct policy_dbs_info *od_alloc(void)
 {
 	struct od_policy_dbs_info *dbs_info;
 
-	dbs_info = kzalloc(sizeof(*dbs_info), GFP_KERNEL);
+	dbs_info = kzalloc_obj(*dbs_info);
 	return dbs_info ? &dbs_info->policy_dbs : NULL;
 }
 
@@ -357,17 +334,12 @@ static void od_free(struct policy_dbs_info *policy_dbs)
 static int od_init(struct dbs_data *dbs_data)
 {
 	struct od_dbs_tuners *tuners;
-	u64 idle_time;
-	int cpu;
 
-	tuners = kzalloc(sizeof(*tuners), GFP_KERNEL);
+	tuners = kzalloc_obj(*tuners);
 	if (!tuners)
 		return -ENOMEM;
 
-	cpu = get_cpu();
-	idle_time = get_cpu_idle_time_us(cpu, NULL);
-	put_cpu();
-	if (idle_time != -1ULL) {
+	if (tick_nohz_is_active()) {
 		/* Idle micro accounting is supported. Use finer thresholds */
 		dbs_data->up_threshold = MICRO_FREQUENCY_UP_THRESHOLD;
 	} else {
@@ -377,7 +349,7 @@ static int od_init(struct dbs_data *dbs_data)
 	dbs_data->sampling_down_factor = DEF_SAMPLING_DOWN_FACTOR;
 	dbs_data->ignore_nice_load = 0;
 	tuners->powersave_bias = default_powersave_bias;
-	dbs_data->io_is_busy = should_io_be_busy();
+	dbs_data->io_is_busy = od_should_io_be_busy();
 
 	dbs_data->tuners = tuners;
 	return 0;

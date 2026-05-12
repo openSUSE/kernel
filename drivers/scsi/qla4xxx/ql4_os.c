@@ -155,7 +155,8 @@ static int qla4xxx_get_host_stats(struct Scsi_Host *shost, char *buf, int len);
 /*
  * SCSI host template entry points
  */
-static int qla4xxx_queuecommand(struct Scsi_Host *h, struct scsi_cmnd *cmd);
+static enum scsi_qc_status qla4xxx_queuecommand(struct Scsi_Host *h,
+						struct scsi_cmnd *cmd);
 static int qla4xxx_eh_abort(struct scsi_cmnd *cmd);
 static int qla4xxx_eh_device_reset(struct scsi_cmnd *cmd);
 static int qla4xxx_eh_target_reset(struct scsi_cmnd *cmd);
@@ -4104,10 +4105,11 @@ void qla4xxx_srb_compl(struct kref *ref)
  * The mid-level driver tries to ensure that queuecommand never gets
  * invoked concurrently with itself or the interrupt handler (although
  * the interrupt handler may call this routine as part of request-
- * completion handling).   Unfortunely, it sometimes calls the scheduler
+ * completion handling). Unfortunately, it sometimes calls the scheduler
  * in interrupt context which is a big NO! NO!.
  **/
-static int qla4xxx_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *cmd)
+static enum scsi_qc_status qla4xxx_queuecommand(struct Scsi_Host *host,
+						struct scsi_cmnd *cmd)
 {
 	struct scsi_qla_host *ha = to_qla_host(host);
 	struct ddb_entry *ddb_entry = cmd->device->hostdata;
@@ -4647,7 +4649,7 @@ static int qla4xxx_cmd_wait(struct scsi_qla_host *ha)
 			cmd = scsi_host_find_tag(ha->host, index);
 			/*
 			 * We cannot just check if the index is valid,
-			 * becase if we are run from the scsi eh, then
+			 * because if we are run from the scsi eh, then
 			 * the scsi/block layer is going to prevent
 			 * the tag from being released.
 			 */
@@ -4952,7 +4954,7 @@ recover_ha_init_adapter:
 	/* Upon successful firmware/chip reset, re-initialize the adapter */
 	if (status == QLA_SUCCESS) {
 		/* For ISP-4xxx, force function 1 to always initialize
-		 * before function 3 to prevent both funcions from
+		 * before function 3 to prevent both functions from
 		 * stepping on top of the other */
 		if (is_qla40XX(ha) && (ha->mac_index == 3))
 			ssleep(6);
@@ -6914,7 +6916,7 @@ static int qla4xxx_sess_conn_setup(struct scsi_qla_host *ha,
 	struct ddb_entry *ddb_entry = NULL;
 
 	/* Create session object, with INVALID_ENTRY,
-	 * the targer_id would get set when we issue the login
+	 * the target_id would get set when we issue the login
 	 */
 	cls_sess = iscsi_session_setup(&qla4xxx_iscsi_transport, ha->host,
 				       cmds_max, sizeof(struct ddb_entry),
@@ -8819,7 +8821,7 @@ skip_retry_init:
 	}
 	INIT_WORK(&ha->dpc_work, qla4xxx_do_dpc);
 
-	ha->task_wq = alloc_workqueue("qla4xxx_%lu_task", WQ_MEM_RECLAIM, 1,
+	ha->task_wq = alloc_workqueue("qla4xxx_%lu_task", WQ_MEM_RECLAIM | WQ_PERCPU, 1,
 				      ha->host_no);
 	if (!ha->task_wq) {
 		ql4_printk(KERN_WARNING, ha, "Unable to start task thread!\n");
@@ -9795,11 +9797,6 @@ qla4xxx_pci_slot_reset(struct pci_dev *pdev)
 	 * IOV states
 	 */
 	pci_restore_state(pdev);
-
-	/* pci_restore_state() clears the saved_state flag of the device
-	 * save restored state which resets saved_state flag
-	 */
-	pci_save_state(pdev);
 
 	/* Initialize device or resume if in suspended state */
 	rc = pci_enable_device(pdev);

@@ -1102,7 +1102,7 @@ static struct usb_request *cdnsp_gadget_ep_alloc_request(struct usb_ep *ep,
 	struct cdnsp_ep *pep = to_cdnsp_ep(ep);
 	struct cdnsp_request *preq;
 
-	preq = kzalloc(sizeof(*preq), gfp_flags);
+	preq = kzalloc_obj(*preq, gfp_flags);
 	if (!preq)
 		return NULL;
 
@@ -1905,7 +1905,7 @@ static int __cdnsp_gadget_init(struct cdns *cdns)
 
 	cdns_drd_gadget_on(cdns);
 
-	pdev = kzalloc(sizeof(*pdev), GFP_KERNEL);
+	pdev = kzalloc_obj(*pdev);
 	if (!pdev)
 		return -ENOMEM;
 
@@ -1976,7 +1976,10 @@ static int __cdnsp_gadget_init(struct cdns *cdns)
 	return 0;
 
 del_gadget:
-	usb_del_gadget_udc(&pdev->gadget);
+	usb_del_gadget(&pdev->gadget);
+	cdnsp_gadget_free_endpoints(pdev);
+	usb_put_gadget(&pdev->gadget);
+	goto halt_pdev;
 free_endpoints:
 	cdnsp_gadget_free_endpoints(pdev);
 halt_pdev:
@@ -1996,10 +1999,10 @@ static void cdnsp_gadget_exit(struct cdns *cdns)
 	struct cdnsp_device *pdev = cdns->gadget_dev;
 
 	devm_free_irq(pdev->dev, cdns->dev_irq, pdev);
-	pm_runtime_mark_last_busy(cdns->dev);
 	pm_runtime_put_autosuspend(cdns->dev);
-	usb_del_gadget_udc(&pdev->gadget);
+	usb_del_gadget(&pdev->gadget);
 	cdnsp_gadget_free_endpoints(pdev);
+	usb_put_gadget(&pdev->gadget);
 	cdnsp_mem_cleanup(pdev);
 	kfree(pdev);
 	cdns->gadget_dev = NULL;

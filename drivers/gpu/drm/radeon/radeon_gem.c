@@ -28,6 +28,7 @@
 
 #include <linux/debugfs.h>
 #include <linux/iosys-map.h>
+#include <linux/overflow.h>
 #include <linux/pci.h>
 
 #include <drm/drm_device.h>
@@ -86,7 +87,7 @@ static void radeon_gem_object_free(struct drm_gem_object *gobj)
 
 	if (robj) {
 		radeon_mn_unregister(robj);
-		ttm_bo_put(&robj->tbo);
+		ttm_bo_fini(&robj->tbo);
 	}
 }
 
@@ -110,7 +111,7 @@ int radeon_gem_object_create(struct radeon_device *rdev, unsigned long size,
 	 */
 	max_size = rdev->mc.gtt_size - rdev->gart_pin_size;
 	if (size > max_size) {
-		DRM_DEBUG("Allocation size %ldMb bigger than %ldMb limit\n",
+		DRM_DEBUG("Allocation size %luMb bigger than %luMb limit\n",
 			  size >> 20, max_size >> 20);
 		return -ENOMEM;
 	}
@@ -560,7 +561,7 @@ int radeon_gem_set_tiling_ioctl(struct drm_device *dev, void *data,
 	struct radeon_bo *robj;
 	int r = 0;
 
-	DRM_DEBUG("%d \n", args->handle);
+	DRM_DEBUG("%u \n", args->handle);
 	gobj = drm_gem_object_lookup(filp, args->handle);
 	if (gobj == NULL)
 		return -ENOENT;
@@ -812,6 +813,7 @@ int radeon_align_pitch(struct radeon_device *rdev, int width, int cpp, bool tile
 	int aligned = width;
 	int align_large = (ASIC_IS_AVIVO(rdev)) || tiled;
 	int pitch_mask = 0;
+	int pitch;
 
 	switch (cpp) {
 	case 1:
@@ -826,9 +828,12 @@ int radeon_align_pitch(struct radeon_device *rdev, int width, int cpp, bool tile
 		break;
 	}
 
-	aligned += pitch_mask;
+	if (check_add_overflow(aligned, pitch_mask, &aligned))
+		return 0;
 	aligned &= ~pitch_mask;
-	return aligned * cpp;
+	if (check_mul_overflow(aligned, cpp, &pitch))
+		return 0;
+	return pitch;
 }
 
 int radeon_mode_dumb_create(struct drm_file *file_priv,
@@ -842,8 +847,12 @@ int radeon_mode_dumb_create(struct drm_file *file_priv,
 
 	args->pitch = radeon_align_pitch(rdev, args->width,
 					 DIV_ROUND_UP(args->bpp, 8), 0);
+	if (!args->pitch)
+		return -EINVAL;
 	args->size = (u64)args->pitch * args->height;
 	args->size = ALIGN(args->size, PAGE_SIZE);
+	if (!args->size)
+		return -EINVAL;
 
 	r = radeon_gem_object_create(rdev, args->size, 0,
 				     RADEON_GEM_DOMAIN_VRAM, 0,
@@ -886,7 +895,7 @@ static int radeon_debugfs_gem_info_show(struct seq_file *m, void *unused)
 			placement = " CPU";
 			break;
 		}
-		seq_printf(m, "bo[0x%08x] %8ldkB %8ldMB %s pid %8ld\n",
+		seq_printf(m, "bo[0x%08x] %8lukB %8luMB %s pid %8lu\n",
 			   i, radeon_bo_size(rbo) >> 10, radeon_bo_size(rbo) >> 20,
 			   placement, (unsigned long)rbo->pid);
 		i++;

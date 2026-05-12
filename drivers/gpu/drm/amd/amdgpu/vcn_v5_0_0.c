@@ -129,7 +129,7 @@ static int vcn_v5_0_0_sw_init(struct amdgpu_ip_block *ip_block)
 	int i, r;
 
 	for (i = 0; i < adev->vcn.num_vcn_inst; i++) {
-		volatile struct amdgpu_vcn5_fw_shared *fw_shared;
+		struct amdgpu_vcn5_fw_shared *fw_shared;
 
 		if (adev->vcn.harvest_config & (1 << i))
 			continue;
@@ -174,6 +174,10 @@ static int vcn_v5_0_0_sw_init(struct amdgpu_ip_block *ip_block)
 		fw_shared->present_flag_0 = cpu_to_le32(AMDGPU_FW_SHARED_FLAG_0_UNIFIED_QUEUE);
 		fw_shared->sq.is_enabled = 1;
 
+		fw_shared->present_flag_0 |= cpu_to_le32(AMDGPU_VCN_SMU_DPM_INTERFACE_FLAG);
+		fw_shared->smu_dpm_interface.smu_interface_type = (adev->flags & AMD_IS_APU) ?
+			AMDGPU_VCN_SMU_DPM_INTERFACE_APU : AMDGPU_VCN_SMU_DPM_INTERFACE_DGPU;
+
 		if (amdgpu_vcnfw_log)
 			amdgpu_vcn_fwlog_init(&adev->vcn.inst[i]);
 
@@ -211,7 +215,7 @@ static int vcn_v5_0_0_sw_fini(struct amdgpu_ip_block *ip_block)
 
 	if (drm_dev_enter(adev_to_drm(adev), &idx)) {
 		for (i = 0; i < adev->vcn.num_vcn_inst; i++) {
-			volatile struct amdgpu_vcn5_fw_shared *fw_shared;
+			struct amdgpu_vcn5_fw_shared *fw_shared;
 
 			if (adev->vcn.harvest_config & (1 << i))
 				continue;
@@ -232,11 +236,8 @@ static int vcn_v5_0_0_sw_fini(struct amdgpu_ip_block *ip_block)
 
 	amdgpu_vcn_sysfs_reset_mask_fini(adev);
 
-	for (i = 0; i < adev->vcn.num_vcn_inst; i++) {
-		r = amdgpu_vcn_sw_fini(adev, i);
-		if (r)
-			return r;
-	}
+	for (i = 0; i < adev->vcn.num_vcn_inst; i++)
+		amdgpu_vcn_sw_fini(adev, i);
 
 	return 0;
 }
@@ -695,7 +696,7 @@ static int vcn_v5_0_0_start_dpg_mode(struct amdgpu_vcn_inst *vinst,
 {
 	struct amdgpu_device *adev = vinst->adev;
 	int inst_idx = vinst->inst;
-	volatile struct amdgpu_vcn5_fw_shared *fw_shared = adev->vcn.inst[inst_idx].fw_shared.cpu_addr;
+	struct amdgpu_vcn5_fw_shared *fw_shared = adev->vcn.inst[inst_idx].fw_shared.cpu_addr;
 	struct amdgpu_ring *ring;
 	uint32_t tmp;
 	int ret;
@@ -805,7 +806,7 @@ static int vcn_v5_0_0_start(struct amdgpu_vcn_inst *vinst)
 {
 	struct amdgpu_device *adev = vinst->adev;
 	int i = vinst->inst;
-	volatile struct amdgpu_vcn5_fw_shared *fw_shared;
+	struct amdgpu_vcn5_fw_shared *fw_shared;
 	struct amdgpu_ring *ring;
 	uint32_t tmp;
 	int j, k, r;
@@ -998,7 +999,7 @@ static int vcn_v5_0_0_stop(struct amdgpu_vcn_inst *vinst)
 {
 	struct amdgpu_device *adev = vinst->adev;
 	int i = vinst->inst;
-	volatile struct amdgpu_vcn5_fw_shared *fw_shared;
+	struct amdgpu_vcn5_fw_shared *fw_shared;
 	uint32_t tmp;
 	int r = 0;
 
@@ -1206,6 +1207,7 @@ static const struct amdgpu_ring_funcs vcn_v5_0_0_unified_ring_vm_funcs = {
 	.type = AMDGPU_RING_TYPE_VCN_ENC,
 	.align_mask = 0x3f,
 	.nop = VCN_ENC_CMD_NO_OP,
+	.no_user_fence = true,
 	.get_rptr = vcn_v5_0_0_unified_ring_get_rptr,
 	.get_wptr = vcn_v5_0_0_unified_ring_get_wptr,
 	.set_wptr = vcn_v5_0_0_unified_ring_set_wptr,

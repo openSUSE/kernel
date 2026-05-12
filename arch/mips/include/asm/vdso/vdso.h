@@ -4,12 +4,15 @@
  * Author: Alex Smith <alex.smith@imgtec.com>
  */
 
+#ifndef __ASM_VDSO_VDSO_H
+#define __ASM_VDSO_VDSO_H
+
 #include <asm/sgidefs.h>
 #include <vdso/page.h>
 
 #define __VDSO_PAGES 4
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 
 #include <asm/asm.h>
 #include <asm/vdso.h>
@@ -69,4 +72,6 @@ static inline void __iomem *get_gic(const struct vdso_time_data *data)
 
 #endif /* CONFIG_CLKSRC_MIPS_GIC */
 
-#endif /* __ASSEMBLY__ */
+#endif /* __ASSEMBLER__ */
+
+#endif /* __ASM_VDSO_VDSO_H */

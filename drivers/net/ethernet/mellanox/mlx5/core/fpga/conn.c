@@ -421,6 +421,13 @@ static int mlx5_fpga_conn_create_cq(struct mlx5_fpga_conn *conn, int cq_size)
 	__be64 *pas;
 	u32 i;
 
+	conn->cq.mcq.cqe_sz     = 64;
+	conn->cq.mcq.set_ci_db  = conn->cq.wq_ctrl.db.db;
+	conn->cq.mcq.arm_db     = conn->cq.wq_ctrl.db.db + 1;
+	*conn->cq.mcq.set_ci_db = 0;
+	conn->cq.mcq.vector     = 0;
+	conn->cq.mcq.comp       = mlx5_fpga_conn_cq_complete;
+
 	cq_size = roundup_pow_of_two(cq_size);
 	MLX5_SET(cqc, temp_cqc, log_cq_size, ilog2(cq_size));
 
@@ -468,16 +475,7 @@ static int mlx5_fpga_conn_create_cq(struct mlx5_fpga_conn *conn, int cq_size)
 	if (err)
 		goto err_cqwq;
 
-	conn->cq.mcq.cqe_sz     = 64;
-	conn->cq.mcq.set_ci_db  = conn->cq.wq_ctrl.db.db;
-	conn->cq.mcq.arm_db     = conn->cq.wq_ctrl.db.db + 1;
-	*conn->cq.mcq.set_ci_db = 0;
-	*conn->cq.mcq.arm_db    = 0;
-	conn->cq.mcq.vector     = 0;
-	conn->cq.mcq.comp       = mlx5_fpga_conn_cq_complete;
-	conn->cq.mcq.uar        = fdev->conn_res.uar;
 	tasklet_setup(&conn->cq.tasklet, mlx5_fpga_conn_cq_tasklet);
-
 	mlx5_fpga_dbg(fdev, "Created CQ #0x%x\n", conn->cq.mcq.cqn);
 
 	goto out;
@@ -533,17 +531,13 @@ static int mlx5_fpga_conn_create_qp(struct mlx5_fpga_conn *conn,
 	if (err)
 		goto out;
 
-	conn->qp.rq.bufs = kvcalloc(conn->qp.rq.size,
-				    sizeof(conn->qp.rq.bufs[0]),
-				    GFP_KERNEL);
+	conn->qp.rq.bufs = kvzalloc_objs(conn->qp.rq.bufs[0], conn->qp.rq.size);
 	if (!conn->qp.rq.bufs) {
 		err = -ENOMEM;
 		goto err_wq;
 	}
 
-	conn->qp.sq.bufs = kvcalloc(conn->qp.sq.size,
-				    sizeof(conn->qp.sq.bufs[0]),
-				    GFP_KERNEL);
+	conn->qp.sq.bufs = kvzalloc_objs(conn->qp.sq.bufs[0], conn->qp.sq.size);
 	if (!conn->qp.sq.bufs) {
 		err = -ENOMEM;
 		goto err_rq_bufs;
@@ -818,7 +812,7 @@ struct mlx5_fpga_conn *mlx5_fpga_conn_create(struct mlx5_fpga_device *fdev,
 	if (!attr->recv_cb)
 		return ERR_PTR(-EINVAL);
 
-	conn = kzalloc(sizeof(*conn), GFP_KERNEL);
+	conn = kzalloc_obj(*conn);
 	if (!conn)
 		return ERR_PTR(-ENOMEM);
 

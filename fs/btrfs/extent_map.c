@@ -319,8 +319,15 @@ static void dump_extent_map(struct btrfs_fs_info *fs_info, const char *prefix,
 /* Internal sanity checks for btrfs debug builds. */
 static void validate_extent_map(struct btrfs_fs_info *fs_info, struct extent_map *em)
 {
+	const u32 blocksize = fs_info->sectorsize;
+
 	if (!IS_ENABLED(CONFIG_BTRFS_DEBUG))
 		return;
+
+	if (!IS_ALIGNED(em->start, blocksize) ||
+	    !IS_ALIGNED(em->len, blocksize))
+		dump_extent_map(fs_info, "unaligned start offset or length members", em);
+
 	if (em->disk_bytenr < EXTENT_MAP_LAST_BYTE) {
 		if (em->disk_num_bytes == 0)
 			dump_extent_map(fs_info, "zero disk_num_bytes", em);
@@ -334,6 +341,11 @@ static void validate_extent_map(struct btrfs_fs_info *fs_info, struct extent_map
 			dump_extent_map(fs_info,
 		"ram_bytes mismatch with disk_num_bytes for non-compressed em",
 					em);
+		if (!IS_ALIGNED(em->disk_bytenr, blocksize) ||
+		    !IS_ALIGNED(em->disk_num_bytes, blocksize) ||
+		    !IS_ALIGNED(em->offset, blocksize) ||
+		    !IS_ALIGNED(em->ram_bytes, blocksize))
+			dump_extent_map(fs_info, "unaligned members", em);
 	} else if (em->offset) {
 		dump_extent_map(fs_info, "non-zero offset for hole/inline", em);
 	}
@@ -460,7 +472,7 @@ void btrfs_clear_em_logging(struct btrfs_inode *inode, struct extent_map *em)
 
 static inline void setup_extent_mapping(struct btrfs_inode *inode,
 					struct extent_map *em,
-					int modified)
+					bool modified)
 {
 	refcount_inc(&em->refs);
 
@@ -486,7 +498,7 @@ static inline void setup_extent_mapping(struct btrfs_inode *inode,
  * taken, or a reference dropped if the merge attempt was successful.
  */
 static int add_extent_mapping(struct btrfs_inode *inode,
-			      struct extent_map *em, int modified)
+			      struct extent_map *em, bool modified)
 {
 	struct extent_map_tree *tree = &inode->extent_tree;
 	struct btrfs_root *root = inode->root;
@@ -509,7 +521,7 @@ static int add_extent_mapping(struct btrfs_inode *inode,
 }
 
 static struct extent_map *lookup_extent_mapping(struct extent_map_tree *tree,
-						u64 start, u64 len, int strict)
+						u64 start, u64 len, bool strict)
 {
 	struct extent_map *em;
 	struct rb_node *rb_node;
@@ -548,7 +560,7 @@ static struct extent_map *lookup_extent_mapping(struct extent_map_tree *tree,
 struct extent_map *btrfs_lookup_extent_mapping(struct extent_map_tree *tree,
 					       u64 start, u64 len)
 {
-	return lookup_extent_mapping(tree, start, len, 1);
+	return lookup_extent_mapping(tree, start, len, true);
 }
 
 /*
@@ -566,7 +578,7 @@ struct extent_map *btrfs_lookup_extent_mapping(struct extent_map_tree *tree,
 struct extent_map *btrfs_search_extent_mapping(struct extent_map_tree *tree,
 					       u64 start, u64 len)
 {
-	return lookup_extent_mapping(tree, start, len, 0);
+	return lookup_extent_mapping(tree, start, len, false);
 }
 
 /*
@@ -594,7 +606,7 @@ void btrfs_remove_extent_mapping(struct btrfs_inode *inode, struct extent_map *e
 static void replace_extent_mapping(struct btrfs_inode *inode,
 				   struct extent_map *cur,
 				   struct extent_map *new,
-				   int modified)
+				   bool modified)
 {
 	struct btrfs_fs_info *fs_info = inode->root->fs_info;
 	struct extent_map_tree *tree = &inode->extent_tree;
@@ -670,7 +682,7 @@ static noinline int merge_extent_mapping(struct btrfs_inode *inode,
 	em->len = end - start;
 	if (em->disk_bytenr < EXTENT_MAP_LAST_BYTE)
 		em->offset += start_diff;
-	return add_extent_mapping(inode, em, 0);
+	return add_extent_mapping(inode, em, false);
 }
 
 /*
@@ -707,7 +719,7 @@ int btrfs_add_extent_mapping(struct btrfs_inode *inode,
 	if (em->disk_bytenr == EXTENT_MAP_INLINE)
 		ASSERT(em->start == 0);
 
-	ret = add_extent_mapping(inode, em, 0);
+	ret = add_extent_mapping(inode, em, false);
 	/* it is possible that someone inserted the extent into the tree
 	 * while we had the lock dropped.  It is also possible that
 	 * an overlapping map exists in the tree
@@ -1057,7 +1069,7 @@ int btrfs_split_extent_map(struct btrfs_inode *inode, u64 start, u64 len, u64 pr
 	btrfs_lock_extent(&inode->io_tree, start, start + len - 1, NULL);
 	write_lock(&em_tree->lock);
 	em = btrfs_lookup_extent_mapping(em_tree, start, len);
-	if (!em) {
+	if (unlikely(!em)) {
 		ret = -EIO;
 		goto out_unlock;
 	}
@@ -1082,7 +1094,7 @@ int btrfs_split_extent_map(struct btrfs_inode *inode, u64 start, u64 len, u64 pr
 	split_pre->flags = flags;
 	split_pre->generation = em->generation;
 
-	replace_extent_mapping(inode, em, split_pre, 1);
+	replace_extent_mapping(inode, em, split_pre, true);
 
 	/*
 	 * Now we only have an extent_map at:
@@ -1098,7 +1110,7 @@ int btrfs_split_extent_map(struct btrfs_inode *inode, u64 start, u64 len, u64 pr
 	split_mid->ram_bytes = split_mid->len;
 	split_mid->flags = flags;
 	split_mid->generation = em->generation;
-	add_extent_mapping(inode, split_mid, 1);
+	add_extent_mapping(inode, split_mid, true);
 
 	/* Once for us */
 	btrfs_free_extent_map(em);
@@ -1306,7 +1318,7 @@ static void btrfs_extent_map_shrinker_worker(struct work_struct *work)
 	if (trace_btrfs_extent_map_shrinker_scan_enter_enabled()) {
 		s64 nr = percpu_counter_sum_positive(&fs_info->evictable_extent_maps);
 
-		trace_btrfs_extent_map_shrinker_scan_enter(fs_info, nr);
+		trace_call__btrfs_extent_map_shrinker_scan_enter(fs_info, nr);
 	}
 
 	while (ctx.scanned < ctx.nr_to_scan && !btrfs_fs_closing(fs_info)) {
@@ -1346,7 +1358,7 @@ static void btrfs_extent_map_shrinker_worker(struct work_struct *work)
 	if (trace_btrfs_extent_map_shrinker_scan_exit_enabled()) {
 		s64 nr = percpu_counter_sum_positive(&fs_info->evictable_extent_maps);
 
-		trace_btrfs_extent_map_shrinker_scan_exit(fs_info, nr_dropped, nr);
+		trace_call__btrfs_extent_map_shrinker_scan_exit(fs_info, nr_dropped, nr);
 	}
 
 	atomic64_set(&fs_info->em_shrinker_nr_to_scan, 0);
@@ -1372,7 +1384,7 @@ void btrfs_free_extent_maps(struct btrfs_fs_info *fs_info, long nr_to_scan)
 	if (atomic64_cmpxchg(&fs_info->em_shrinker_nr_to_scan, 0, nr_to_scan) != 0)
 		return;
 
-	queue_work(system_unbound_wq, &fs_info->em_shrinker_work);
+	queue_work(system_dfl_wq, &fs_info->em_shrinker_work);
 }
 
 void btrfs_init_extent_map_shrinker_work(struct btrfs_fs_info *fs_info)

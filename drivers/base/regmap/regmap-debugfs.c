@@ -12,6 +12,7 @@
 #include <linux/uaccess.h>
 #include <linux/device.h>
 #include <linux/list.h>
+#include <linux/idr.h>
 
 #include "internal.h"
 
@@ -20,7 +21,7 @@ struct regmap_debugfs_node {
 	struct list_head link;
 };
 
-static unsigned int dummy_index;
+static DEFINE_IDA(dummy_ida);
 static struct dentry *regmap_debugfs_root;
 static LIST_HEAD(regmap_debugfs_early_list);
 static DEFINE_MUTEX(regmap_debugfs_early_lock);
@@ -130,7 +131,7 @@ static unsigned int regmap_debugfs_get_dump_start(struct regmap *map,
 
 			/* No cache entry?  Start a new one */
 			if (!c) {
-				c = kzalloc(sizeof(*c), GFP_KERNEL);
+				c = kzalloc_obj(*c);
 				if (!c) {
 					regmap_debugfs_free_dump_cache(map);
 					mutex_unlock(&map->cache_lock);
@@ -539,6 +540,7 @@ void regmap_debugfs_init(struct regmap *map)
 	struct regmap_range_node *range_node;
 	const char *devname = "dummy";
 	const char *name = map->name;
+	int id;
 
 	/*
 	 * Userspace can initiate reads from the hardware over debugfs.
@@ -555,7 +557,7 @@ void regmap_debugfs_init(struct regmap *map)
 	/* If we don't have the debugfs root yet, postpone init */
 	if (!regmap_debugfs_root) {
 		struct regmap_debugfs_node *node;
-		node = kzalloc(sizeof(*node), GFP_KERNEL);
+		node = kzalloc_obj(*node);
 		if (!node)
 			return;
 		node->map = map;
@@ -567,6 +569,7 @@ void regmap_debugfs_init(struct regmap *map)
 
 	INIT_LIST_HEAD(&map->debugfs_off_cache);
 	mutex_init(&map->cache_lock);
+	map->debugfs_dummy_id = -1;
 
 	if (map->dev)
 		devname = dev_name(map->dev);
@@ -585,12 +588,16 @@ void regmap_debugfs_init(struct regmap *map)
 
 	if (!strcmp(name, "dummy")) {
 		kfree(map->debugfs_name);
-		map->debugfs_name = kasprintf(GFP_KERNEL, "dummy%d",
-						dummy_index);
-		if (!map->debugfs_name)
+		id = ida_alloc(&dummy_ida, GFP_KERNEL);
+		if (id < 0)
 			return;
+		map->debugfs_name = kasprintf(GFP_KERNEL, "dummy%d", id);
+		if (!map->debugfs_name) {
+			ida_free(&dummy_ida, id);
+			return;
+		}
+		map->debugfs_dummy_id = id;
 		name = map->debugfs_name;
-		dummy_index++;
 	}
 
 	map->debugfs = debugfs_create_dir(name, regmap_debugfs_root);
@@ -660,6 +667,10 @@ void regmap_debugfs_exit(struct regmap *map)
 		mutex_lock(&map->cache_lock);
 		regmap_debugfs_free_dump_cache(map);
 		mutex_unlock(&map->cache_lock);
+		if (map->debugfs_dummy_id >= 0) {
+			ida_free(&dummy_ida, map->debugfs_dummy_id);
+			map->debugfs_dummy_id = -1;
+		}
 		kfree(map->debugfs_name);
 		map->debugfs_name = NULL;
 	} else {

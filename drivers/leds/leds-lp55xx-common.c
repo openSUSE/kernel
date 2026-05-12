@@ -212,7 +212,7 @@ int lp55xx_update_program_memory(struct lp55xx_chip *chip,
 	 * For LED chip that support page, PAGE is already set in load_engine.
 	 */
 	if (!cfg->pages_per_engine)
-		start_addr += LP55xx_BYTES_PER_PAGE * idx;
+		start_addr += LP55xx_BYTES_PER_PAGE * (idx - 1);
 
 	for (page = 0; page < program_length / LP55xx_BYTES_PER_PAGE; page++) {
 		/* Write to the next page each 32 bytes (if supported) */
@@ -1204,7 +1204,6 @@ static struct lp55xx_platform_data *lp55xx_of_populate_pdata(struct device *dev,
 							     struct device_node *np,
 							     struct lp55xx_chip *chip)
 {
-	struct device_node *child;
 	struct lp55xx_platform_data *pdata;
 	struct lp55xx_led_config *cfg;
 	int num_channels;
@@ -1229,12 +1228,10 @@ static struct lp55xx_platform_data *lp55xx_of_populate_pdata(struct device *dev,
 	pdata->num_channels = num_channels;
 	cfg->max_channel = chip->cfg->max_channel;
 
-	for_each_available_child_of_node(np, child) {
+	for_each_available_child_of_node_scoped(np, child) {
 		ret = lp55xx_parse_logical_led(child, cfg, i);
-		if (ret) {
-			of_node_put(child);
+		if (ret)
 			return ERR_PTR(-EINVAL);
-		}
 		i++;
 	}
 

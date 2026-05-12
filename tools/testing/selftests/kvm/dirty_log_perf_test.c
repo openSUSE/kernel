@@ -20,43 +20,11 @@
 #include "guest_modes.h"
 #include "ucall_common.h"
 
-#ifdef __aarch64__
-#include "arm64/vgic.h"
-
-static int gic_fd;
-
-static void arch_setup_vm(struct kvm_vm *vm, unsigned int nr_vcpus)
-{
-	/*
-	 * The test can still run even if hardware does not support GICv3, as it
-	 * is only an optimization to reduce guest exits.
-	 */
-	gic_fd = vgic_v3_setup(vm, nr_vcpus, 64);
-}
-
-static void arch_cleanup_vm(struct kvm_vm *vm)
-{
-	if (gic_fd > 0)
-		close(gic_fd);
-}
-
-#else /* __aarch64__ */
-
-static void arch_setup_vm(struct kvm_vm *vm, unsigned int nr_vcpus)
-{
-}
-
-static void arch_cleanup_vm(struct kvm_vm *vm)
-{
-}
-
-#endif
-
 /* How many host loops to run by default (one KVM_GET_DIRTY_LOG for each loop)*/
 #define TEST_HOST_LOOP_N		2UL
 
 static int nr_vcpus = 1;
-static uint64_t guest_percpu_mem_size = DEFAULT_PER_VCPU_MEM_SIZE;
+static u64 guest_percpu_mem_size = DEFAULT_PER_VCPU_MEM_SIZE;
 static bool run_vcpus_while_disabling_dirty_logging;
 
 /* Host variables */
@@ -69,7 +37,7 @@ static void vcpu_worker(struct memstress_vcpu_args *vcpu_args)
 {
 	struct kvm_vcpu *vcpu = vcpu_args->vcpu;
 	int vcpu_idx = vcpu_args->vcpu_idx;
-	uint64_t pages_count = 0;
+	u64 pages_count = 0;
 	struct kvm_run *run;
 	struct timespec start;
 	struct timespec ts_diff;
@@ -125,11 +93,11 @@ static void vcpu_worker(struct memstress_vcpu_args *vcpu_args)
 
 struct test_params {
 	unsigned long iterations;
-	uint64_t phys_offset;
+	u64 phys_offset;
 	bool partition_vcpu_memory_access;
 	enum vm_mem_backing_src_type backing_src;
 	int slots;
-	uint32_t write_percent;
+	u32 write_percent;
 	bool random_access;
 };
 
@@ -138,9 +106,9 @@ static void run_test(enum vm_guest_mode mode, void *arg)
 	struct test_params *p = arg;
 	struct kvm_vm *vm;
 	unsigned long **bitmaps;
-	uint64_t guest_num_pages;
-	uint64_t host_num_pages;
-	uint64_t pages_per_slot;
+	u64 guest_num_pages;
+	u64 host_num_pages;
+	u64 pages_per_slot;
 	struct timespec start;
 	struct timespec ts_diff;
 	struct timespec get_dirty_log_total = (struct timespec){0};
@@ -165,8 +133,6 @@ static void run_test(enum vm_guest_mode mode, void *arg)
 	if (dirty_log_manual_caps)
 		vm_enable_cap(vm, KVM_CAP_MANUAL_DIRTY_LOG_PROTECT2,
 			      dirty_log_manual_caps);
-
-	arch_setup_vm(vm, nr_vcpus);
 
 	/* Start the iterations */
 	iteration = 0;
@@ -285,7 +251,6 @@ static void run_test(enum vm_guest_mode mode, void *arg)
 	}
 
 	memstress_free_bitmaps(bitmaps, p->slots);
-	arch_cleanup_vm(vm);
 	memstress_destroy_vm(vm);
 }
 

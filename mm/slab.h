@@ -21,14 +21,12 @@
 # define system_has_freelist_aba()	system_has_cmpxchg128()
 # define try_cmpxchg_freelist		try_cmpxchg128
 # endif
-#define this_cpu_try_cmpxchg_freelist	this_cpu_try_cmpxchg128
 typedef u128 freelist_full_t;
 #else /* CONFIG_64BIT */
 # ifdef system_has_cmpxchg64
 # define system_has_freelist_aba()	system_has_cmpxchg64()
 # define try_cmpxchg_freelist		try_cmpxchg64
 # endif
-#define this_cpu_try_cmpxchg_freelist	this_cpu_try_cmpxchg64
 typedef u64 freelist_full_t;
 #endif /* CONFIG_64BIT */
 
@@ -40,52 +38,48 @@ typedef u64 freelist_full_t;
  * Freelist pointer and counter to cmpxchg together, avoids the typical ABA
  * problems with cmpxchg of just a pointer.
  */
-typedef union {
-	struct {
-		void *freelist;
-		unsigned long counter;
+struct freelist_counters {
+	union {
+		struct {
+			void *freelist;
+			union {
+				unsigned long counters;
+				struct {
+					unsigned inuse:16;
+					unsigned objects:15;
+					/*
+					 * If slab debugging is enabled then the
+					 * frozen bit can be reused to indicate
+					 * that the slab was corrupted
+					 */
+					unsigned frozen:1;
+#ifdef CONFIG_64BIT
+					/*
+					 * Some optimizations use free bits in 'counters' field
+					 * to save memory. In case ->stride field is not available,
+					 * such optimizations are disabled.
+					 */
+					unsigned int stride;
+#endif
+				};
+			};
+		};
+#ifdef system_has_freelist_aba
+		freelist_full_t freelist_counters;
+#endif
 	};
-	freelist_full_t full;
-} freelist_aba_t;
+};
 
 /* Reuses the bits in struct page */
 struct slab {
-	unsigned long flags;
+	memdesc_flags_t flags;
 
 	struct kmem_cache *slab_cache;
 	union {
 		struct {
-			union {
-				struct list_head slab_list;
-#ifdef CONFIG_SLUB_CPU_PARTIAL
-				struct {
-					struct slab *next;
-					int slabs;	/* Nr of slabs left */
-				};
-#endif
-			};
+			struct list_head slab_list;
 			/* Double-word boundary */
-			union {
-				struct {
-					void *freelist;		/* first free object */
-					union {
-						unsigned long counters;
-						struct {
-							unsigned inuse:16;
-							unsigned objects:15;
-							/*
-							 * If slab debugging is enabled then the
-							 * frozen bit can be reused to indicate
-							 * that the slab was corrupted
-							 */
-							unsigned frozen:1;
-						};
-					};
-				};
-#ifdef system_has_freelist_aba
-				freelist_aba_t freelist_counter;
-#endif
-			};
+			struct freelist_counters;
 		};
 		struct rcu_head rcu_head;
 	};
@@ -100,7 +94,7 @@ struct slab {
 #define SLAB_MATCH(pg, sl)						\
 	static_assert(offsetof(struct page, pg) == offsetof(struct slab, sl))
 SLAB_MATCH(flags, flags);
-SLAB_MATCH(compound_head, slab_cache);	/* Ensure bit 0 is clear */
+SLAB_MATCH(compound_info, slab_cache);	/* Ensure bit 0 is clear */
 SLAB_MATCH(_refcount, __page_refcount);
 #ifdef CONFIG_MEMCG
 SLAB_MATCH(memcg_data, obj_exts);
@@ -110,21 +104,8 @@ SLAB_MATCH(_unused_slab_obj_exts, obj_exts);
 #undef SLAB_MATCH
 static_assert(sizeof(struct slab) <= sizeof(struct page));
 #if defined(system_has_freelist_aba)
-static_assert(IS_ALIGNED(offsetof(struct slab, freelist), sizeof(freelist_aba_t)));
+static_assert(IS_ALIGNED(offsetof(struct slab, freelist), sizeof(struct freelist_counters)));
 #endif
-
-/**
- * folio_slab - Converts from folio to slab.
- * @folio: The folio.
- *
- * Currently struct slab is a different representation of a folio where
- * folio_test_slab() is true.
- *
- * Return: The slab which contains this folio.
- */
-#define folio_slab(folio)	(_Generic((folio),			\
-	const struct folio *:	(const struct slab *)(folio),		\
-	struct folio *:		(struct slab *)(folio)))
 
 /**
  * slab_folio - The folio allocated for a slab
@@ -142,20 +123,20 @@ static_assert(IS_ALIGNED(offsetof(struct slab, freelist), sizeof(freelist_aba_t)
 	struct slab *:		(struct folio *)s))
 
 /**
- * page_slab - Converts from first struct page to slab.
- * @p: The first (either head of compound or single) page of slab.
+ * page_slab - Converts from struct page to its slab.
+ * @page: A page which may or may not belong to a slab.
  *
- * A temporary wrapper to convert struct page to struct slab in situations where
- * we know the page is the compound head, or single order-0 page.
- *
- * Long-term ideally everything would work with struct slab directly or go
- * through folio to struct slab.
- *
- * Return: The slab which contains this page
+ * Return: The slab which contains this page or NULL if the page does
+ * not belong to a slab.  This includes pages returned from large kmalloc.
  */
-#define page_slab(p)		(_Generic((p),				\
-	const struct page *:	(const struct slab *)(p),		\
-	struct page *:		(struct slab *)(p)))
+static inline struct slab *page_slab(const struct page *page)
+{
+	page = compound_head(page);
+	if (data_race(page->page_type >> 24) != PGTY_slab)
+		page = NULL;
+
+	return (struct slab *)page;
+}
 
 /**
  * slab_page - The first struct page allocated for a slab
@@ -174,22 +155,17 @@ static inline void *slab_address(const struct slab *slab)
 
 static inline int slab_nid(const struct slab *slab)
 {
-	return folio_nid(slab_folio(slab));
+	return memdesc_nid(slab->flags);
 }
 
 static inline pg_data_t *slab_pgdat(const struct slab *slab)
 {
-	return folio_pgdat(slab_folio(slab));
+	return NODE_DATA(slab_nid(slab));
 }
 
 static inline struct slab *virt_to_slab(const void *addr)
 {
-	struct folio *folio = virt_to_folio(addr);
-
-	if (!folio_test_slab(folio))
-		return NULL;
-
-	return folio_slab(folio);
+	return page_slab(virt_to_page(addr));
 }
 
 static inline int slab_order(const struct slab *slab)
@@ -202,23 +178,6 @@ static inline size_t slab_size(const struct slab *slab)
 	return PAGE_SIZE << slab_order(slab);
 }
 
-#ifdef CONFIG_SLUB_CPU_PARTIAL
-#define slub_percpu_partial(c)			((c)->partial)
-
-#define slub_set_percpu_partial(c, p)		\
-({						\
-	slub_percpu_partial(c) = (p)->next;	\
-})
-
-#define slub_percpu_partial_read_once(c)	READ_ONCE(slub_percpu_partial(c))
-#else
-#define slub_percpu_partial(c)			NULL
-
-#define slub_set_percpu_partial(c, p)
-
-#define slub_percpu_partial_read_once(c)	NULL
-#endif // CONFIG_SLUB_CPU_PARTIAL
-
 /*
  * Word size structure that can be atomically updated or read and that
  * contains both the order and the number of objects that a slab of the
@@ -228,13 +187,16 @@ struct kmem_cache_order_objects {
 	unsigned int x;
 };
 
+struct kmem_cache_per_node_ptrs {
+	struct node_barn *barn;
+	struct kmem_cache_node *node;
+};
+
 /*
  * Slab cache management.
  */
 struct kmem_cache {
-#ifndef CONFIG_SLUB_TINY
-	struct kmem_cache_cpu __percpu *cpu_slab;
-#endif
+	struct slub_percpu_sheaves __percpu *cpu_sheaves;
 	/* Used for retrieving partial slabs, etc. */
 	slab_flags_t flags;
 	unsigned long min_partial;
@@ -242,12 +204,7 @@ struct kmem_cache {
 	unsigned int object_size;	/* Object size without metadata */
 	struct reciprocal_value reciprocal_size;
 	unsigned int offset;		/* Free pointer offset */
-#ifdef CONFIG_SLUB_CPU_PARTIAL
-	/* Number of per cpu partial objects to keep around */
-	unsigned int cpu_partial;
-	/* Number of per cpu partial slabs to keep around */
-	unsigned int cpu_partial_slabs;
-#endif
+	unsigned int sheaf_capacity;
 	struct kmem_cache_order_objects oo;
 
 	/* Allocation and freeing of slabs */
@@ -287,16 +244,35 @@ struct kmem_cache {
 	unsigned int usersize;		/* Usercopy region size */
 #endif
 
-	struct kmem_cache_node *node[MAX_NUMNODES];
+#ifdef CONFIG_SLUB_STATS
+	struct kmem_cache_stats __percpu *cpu_stats;
+#endif
+
+	struct kmem_cache_per_node_ptrs per_node[MAX_NUMNODES];
 };
+
+/*
+ * Every cache has !NULL s->cpu_sheaves but they may point to the
+ * bootstrap_sheaf temporarily during init, or permanently for the boot caches
+ * and caches with debugging enabled, or all caches with CONFIG_SLUB_TINY. This
+ * helper distinguishes whether cache has real non-bootstrap sheaves.
+ */
+static inline bool cache_has_sheaves(struct kmem_cache *s)
+{
+	/* Test CONFIG_SLUB_TINY for code elimination purposes */
+	return !IS_ENABLED(CONFIG_SLUB_TINY) && s->sheaf_capacity;
+}
 
 #if defined(CONFIG_SYSFS) && !defined(CONFIG_SLUB_TINY)
 #define SLAB_SUPPORTS_SYSFS 1
 void sysfs_slab_unlink(struct kmem_cache *s);
 void sysfs_slab_release(struct kmem_cache *s);
+int sysfs_slab_alias(struct kmem_cache *s, const char *name);
 #else
 static inline void sysfs_slab_unlink(struct kmem_cache *s) { }
 static inline void sysfs_slab_release(struct kmem_cache *s) { }
+static inline int sysfs_slab_alias(struct kmem_cache *s, const char *name)
+							{ return 0; }
 #endif
 
 void *fixup_red_left(struct kmem_cache *s, void *p);
@@ -315,14 +291,14 @@ static inline void *nearest_obj(struct kmem_cache *cache,
 
 /* Determine object index from a given position */
 static inline unsigned int __obj_to_index(const struct kmem_cache *cache,
-					  void *addr, void *obj)
+					  void *addr, const void *obj)
 {
 	return reciprocal_divide(kasan_reset_tag(obj) - addr,
 				 cache->reciprocal_size);
 }
 
 static inline unsigned int obj_to_index(const struct kmem_cache *cache,
-					const struct slab *slab, void *obj)
+					const struct slab *slab, const void *obj)
 {
 	if (is_kfence_address(obj))
 		return 0;
@@ -413,11 +389,7 @@ extern void create_boot_cache(struct kmem_cache *, const char *name,
 			unsigned int useroffset, unsigned int usersize);
 
 int slab_unmergeable(struct kmem_cache *s);
-struct kmem_cache *find_mergeable(unsigned size, unsigned align,
-		slab_flags_t flags, const char *name, void (*ctor)(void *));
-struct kmem_cache *
-__kmem_cache_alias(const char *name, unsigned int size, unsigned int align,
-		   slab_flags_t flags, void (*ctor)(void *));
+bool slab_args_unmergeable(struct kmem_cache_args *args, slab_flags_t flags);
 
 slab_flags_t kmem_cache_flags(slab_flags_t flags, const char *name);
 
@@ -432,6 +404,10 @@ static inline bool is_kmalloc_normal(struct kmem_cache *s)
 		return false;
 	return !(s->flags & (SLAB_CACHE_DMA|SLAB_ACCOUNT|SLAB_RECLAIM_ACCOUNT));
 }
+
+bool __kfree_rcu_sheaf(struct kmem_cache *s, void *obj);
+void flush_all_rcu_sheaves(void);
+void flush_rcu_sheaves_on_cache(struct kmem_cache *s);
 
 #define SLAB_CORE_FLAGS (SLAB_HWCACHE_ALIGN | SLAB_CACHE_DMA | \
 			 SLAB_CACHE_DMA32 | SLAB_PANIC | \
@@ -511,6 +487,24 @@ bool slab_in_kunit_test(void);
 static inline bool slab_in_kunit_test(void) { return false; }
 #endif
 
+/*
+ * slub is about to manipulate internal object metadata.  This memory lies
+ * outside the range of the allocated object, so accessing it would normally
+ * be reported by kasan as a bounds error.  metadata_access_enable() is used
+ * to tell kasan that these accesses are OK.
+ */
+static inline void metadata_access_enable(void)
+{
+	kasan_disable_current();
+	kmsan_disable_current();
+}
+
+static inline void metadata_access_disable(void)
+{
+	kmsan_enable_current();
+	kasan_enable_current();
+}
+
 #ifdef CONFIG_SLAB_OBJ_EXT
 
 /*
@@ -518,19 +512,94 @@ static inline bool slab_in_kunit_test(void) { return false; }
  * associated with a slab.
  * @slab: a pointer to the slab struct
  *
- * Returns a pointer to the object extension vector associated with the slab,
- * or NULL if no such vector has been associated yet.
+ * Returns the address of the object extension vector associated with the slab,
+ * or zero if no such vector has been associated yet.
+ * Do not dereference the return value directly; use get/put_slab_obj_exts()
+ * pair and slab_obj_ext() to access individual elements.
+ *
+ * Example usage:
+ *
+ * obj_exts = slab_obj_exts(slab);
+ * if (obj_exts) {
+ *         get_slab_obj_exts(obj_exts);
+ *         obj_ext = slab_obj_ext(slab, obj_exts, obj_to_index(s, slab, obj));
+ *         // do something with obj_ext
+ *         put_slab_obj_exts(obj_exts);
+ * }
+ *
+ * Note that the get/put semantics does not involve reference counting.
+ * Instead, it updates kasan/kmsan depth so that accesses to slabobj_ext
+ * won't be reported as access violations.
  */
-static inline struct slabobj_ext *slab_obj_exts(struct slab *slab)
+static inline unsigned long slab_obj_exts(struct slab *slab)
 {
 	unsigned long obj_exts = READ_ONCE(slab->obj_exts);
 
 #ifdef CONFIG_MEMCG
-	VM_BUG_ON_PAGE(obj_exts && !(obj_exts & MEMCG_DATA_OBJEXTS),
-							slab_page(slab));
+	/*
+	 * obj_exts should be either NULL, a valid pointer with
+	 * MEMCG_DATA_OBJEXTS bit set or be equal to OBJEXTS_ALLOC_FAIL.
+	 */
+	VM_BUG_ON_PAGE(obj_exts && !(obj_exts & MEMCG_DATA_OBJEXTS) &&
+		       obj_exts != OBJEXTS_ALLOC_FAIL, slab_page(slab));
 	VM_BUG_ON_PAGE(obj_exts & MEMCG_DATA_KMEM, slab_page(slab));
 #endif
-	return (struct slabobj_ext *)(obj_exts & ~OBJEXTS_FLAGS_MASK);
+
+	return obj_exts & ~OBJEXTS_FLAGS_MASK;
+}
+
+static inline void get_slab_obj_exts(unsigned long obj_exts)
+{
+	VM_WARN_ON_ONCE(!obj_exts);
+	metadata_access_enable();
+}
+
+static inline void put_slab_obj_exts(unsigned long obj_exts)
+{
+	metadata_access_disable();
+}
+
+#ifdef CONFIG_64BIT
+static inline void slab_set_stride(struct slab *slab, unsigned int stride)
+{
+	slab->stride = stride;
+}
+static inline unsigned int slab_get_stride(struct slab *slab)
+{
+	return slab->stride;
+}
+#else
+static inline void slab_set_stride(struct slab *slab, unsigned int stride)
+{
+	VM_WARN_ON_ONCE(stride != sizeof(struct slabobj_ext));
+}
+static inline unsigned int slab_get_stride(struct slab *slab)
+{
+	return sizeof(struct slabobj_ext);
+}
+#endif
+
+/*
+ * slab_obj_ext - get the pointer to the slab object extension metadata
+ * associated with an object in a slab.
+ * @slab: a pointer to the slab struct
+ * @obj_exts: a pointer to the object extension vector
+ * @index: an index of the object
+ *
+ * Returns a pointer to the object extension associated with the object.
+ * Must be called within a section covered by get/put_slab_obj_exts().
+ */
+static inline struct slabobj_ext *slab_obj_ext(struct slab *slab,
+					       unsigned long obj_exts,
+					       unsigned int index)
+{
+	struct slabobj_ext *obj_ext;
+
+	VM_WARN_ON_ONCE(obj_exts != slab_obj_exts(slab));
+
+	obj_ext = (struct slabobj_ext *)(obj_exts +
+					 slab_get_stride(slab) * index);
+	return kasan_reset_tag(obj_ext);
 }
 
 int alloc_slab_obj_exts(struct slab *slab, struct kmem_cache *s,
@@ -538,10 +607,21 @@ int alloc_slab_obj_exts(struct slab *slab, struct kmem_cache *s,
 
 #else /* CONFIG_SLAB_OBJ_EXT */
 
-static inline struct slabobj_ext *slab_obj_exts(struct slab *slab)
+static inline unsigned long slab_obj_exts(struct slab *slab)
+{
+	return 0;
+}
+
+static inline struct slabobj_ext *slab_obj_ext(struct slab *slab,
+					       unsigned long obj_exts,
+					       unsigned int index)
 {
 	return NULL;
 }
+
+static inline void slab_set_stride(struct slab *slab, unsigned int stride) { }
+static inline unsigned int slab_get_stride(struct slab *slab) { return 0; }
+
 
 #endif /* CONFIG_SLAB_OBJ_EXT */
 
@@ -555,36 +635,19 @@ static inline enum node_stat_item cache_vmstat_idx(struct kmem_cache *s)
 bool __memcg_slab_post_alloc_hook(struct kmem_cache *s, struct list_lru *lru,
 				  gfp_t flags, size_t size, void **p);
 void __memcg_slab_free_hook(struct kmem_cache *s, struct slab *slab,
-			    void **p, int objects, struct slabobj_ext *obj_exts);
+			    void **p, int objects, unsigned long obj_exts);
 #endif
 
 void kvfree_rcu_cb(struct rcu_head *head);
 
-size_t __ksize(const void *objp);
-
-static inline size_t slab_ksize(const struct kmem_cache *s)
+static inline unsigned int large_kmalloc_order(const struct page *page)
 {
-#ifdef CONFIG_SLUB_DEBUG
-	/*
-	 * Debugging requires use of the padding between object
-	 * and whatever may come after it.
-	 */
-	if (s->flags & (SLAB_RED_ZONE | SLAB_POISON))
-		return s->object_size;
-#endif
-	if (s->flags & SLAB_KASAN)
-		return s->object_size;
-	/*
-	 * If we have the need to store the freelist pointer
-	 * back there or track user information then we can
-	 * only use the space before that information.
-	 */
-	if (s->flags & (SLAB_TYPESAFE_BY_RCU | SLAB_STORE_USER))
-		return s->inuse;
-	/*
-	 * Else we can use all the padding etc for the allocation
-	 */
-	return s->size;
+	return page[1].flags.f & 0xff;
+}
+
+static inline size_t large_kmalloc_size(const struct page *page)
+{
+	return PAGE_SIZE << large_kmalloc_order(page);
 }
 
 #ifdef CONFIG_SLUB_DEBUG
@@ -655,6 +718,8 @@ void __kmem_obj_info(struct kmem_obj_info *kpp, void *object, struct slab *slab)
 
 void __check_heap_object(const void *ptr, unsigned long n,
 			 const struct slab *slab, bool to_user);
+
+void defer_free_barrier(void);
 
 static inline bool slub_debug_orig_size(struct kmem_cache *s)
 {

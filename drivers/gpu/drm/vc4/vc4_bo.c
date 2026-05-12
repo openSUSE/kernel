@@ -19,9 +19,9 @@
 #include <linux/dma-buf.h>
 
 #include <drm/drm_fourcc.h>
+#include <drm/drm_print.h>
 
 #include "vc4_drv.h"
-#include "uapi/drm/vc4_drm.h"
 
 static const struct drm_gem_object_funcs vc4_gem_object_funcs;
 
@@ -204,8 +204,7 @@ static struct list_head *vc4_get_cache_list_for_size(struct drm_device *dev,
 		struct list_head *new_list;
 		uint32_t i;
 
-		new_list = kmalloc_array(new_size, sizeof(struct list_head),
-					 GFP_KERNEL);
+		new_list = kmalloc_objs(struct list_head, new_size);
 		if (!new_list)
 			return NULL;
 
@@ -399,7 +398,7 @@ struct drm_gem_object *vc4_create_object(struct drm_device *dev, size_t size)
 	if (WARN_ON_ONCE(vc4->gen > VC4_GEN_4))
 		return ERR_PTR(-ENODEV);
 
-	bo = kzalloc(sizeof(*bo), GFP_KERNEL);
+	bo = kzalloc_obj(*bo);
 	if (!bo)
 		return ERR_PTR(-ENOMEM);
 
@@ -556,7 +555,7 @@ static void vc4_free_object(struct drm_gem_object *gem_bo)
 	mutex_lock(&vc4->bo_lock);
 	/* If the object references someone else's memory, we can't cache it.
 	 */
-	if (gem_bo->import_attach) {
+	if (drm_gem_is_imported(gem_bo)) {
 		vc4_bo_destroy(bo);
 		goto out;
 	}
@@ -738,12 +737,15 @@ static int vc4_gem_object_mmap(struct drm_gem_object *obj, struct vm_area_struct
 		return -EINVAL;
 	}
 
+	mutex_lock(&bo->madv_lock);
 	if (bo->madv != VC4_MADV_WILLNEED) {
 		DRM_DEBUG("mmapping of %s BO not allowed\n",
 			  bo->madv == VC4_MADV_DONTNEED ?
 			  "purgeable" : "purged");
+		mutex_unlock(&bo->madv_lock);
 		return -EINVAL;
 	}
+	mutex_unlock(&bo->madv_lock);
 
 	return drm_gem_dma_mmap(&bo->base, vma);
 }
@@ -1014,8 +1016,7 @@ int vc4_bo_cache_init(struct drm_device *dev)
 	 * use.  This lets us avoid a bunch of string reallocation in
 	 * the kernel's draw and BO allocation paths.
 	 */
-	vc4->bo_labels = kcalloc(VC4_BO_TYPE_COUNT, sizeof(*vc4->bo_labels),
-				 GFP_KERNEL);
+	vc4->bo_labels = kzalloc_objs(*vc4->bo_labels, VC4_BO_TYPE_COUNT);
 	if (!vc4->bo_labels)
 		return -ENOMEM;
 	vc4->num_labels = VC4_BO_TYPE_COUNT;

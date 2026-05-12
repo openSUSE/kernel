@@ -395,7 +395,7 @@ static void cscfg_remove_owned_csdev_configs(struct coresight_device *csdev, voi
 	if (list_empty(&csdev->config_csdev_list))
 		return;
 
-  guard(raw_spinlock_irqsave)(&csdev->cscfg_csdev_lock);
+	guard(raw_spinlock_irqsave)(&csdev->cscfg_csdev_lock);
 
 	list_for_each_entry_safe(config_csdev, tmp, &csdev->config_csdev_list, node) {
 		if (config_csdev->config_desc->load_owner == load_owner)
@@ -756,7 +756,7 @@ static int cscfg_list_add_csdev(struct coresight_device *csdev,
 	struct cscfg_registered_csdev *csdev_item;
 
 	/* allocate the list entry structure */
-	csdev_item = kzalloc(sizeof(struct cscfg_registered_csdev), GFP_KERNEL);
+	csdev_item = kzalloc_obj(struct cscfg_registered_csdev);
 	if (!csdev_item)
 		return -ENOMEM;
 
@@ -1190,7 +1190,7 @@ static int cscfg_create_device(void)
 		goto create_dev_exit_unlock;
 	}
 
-	cscfg_mgr = kzalloc(sizeof(struct cscfg_manager), GFP_KERNEL);
+	cscfg_mgr = kzalloc_obj(struct cscfg_manager);
 	if (!cscfg_mgr)
 		goto create_dev_exit_unlock;
 

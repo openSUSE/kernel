@@ -5,13 +5,22 @@
 //! To make this driver probe, QEMU must be run with `-device pci-testdev`.
 
 use kernel::{
-    auxiliary, bindings, c_str, device::Core, driver, error::Error, pci, prelude::*, InPlaceModule,
+    auxiliary,
+    device::{
+        Bound,
+        Core, //
+    },
+    devres::Devres,
+    driver,
+    pci,
+    prelude::*,
+    InPlaceModule, //
 };
 
-use pin_init::PinInit;
+use core::any::TypeId;
 
 const MODULE_NAME: &CStr = <LocalModule as kernel::ModuleMetadata>::NAME;
-const AUXILIARY_NAME: &CStr = c_str!("auxiliary");
+const AUXILIARY_NAME: &CStr = c"auxiliary";
 
 struct AuxiliaryDriver;
 
@@ -27,33 +36,33 @@ impl auxiliary::Driver for AuxiliaryDriver {
 
     const ID_TABLE: auxiliary::IdTable<Self::IdInfo> = &AUX_TABLE;
 
-    fn probe(adev: &auxiliary::Device<Core>, _info: &Self::IdInfo) -> Result<Pin<KBox<Self>>> {
+    fn probe(adev: &auxiliary::Device<Core>, _info: &Self::IdInfo) -> impl PinInit<Self, Error> {
         dev_info!(
-            adev.as_ref(),
+            adev,
             "Probing auxiliary driver for auxiliary device with id={}\n",
             adev.id()
         );
 
         ParentDriver::connect(adev)?;
 
-        let this = KBox::new(Self, GFP_KERNEL)?;
-
-        Ok(this.into())
+        Ok(Self)
     }
 }
 
+#[pin_data]
 struct ParentDriver {
-    _reg: [auxiliary::Registration; 2],
+    private: TypeId,
+    #[pin]
+    _reg0: Devres<auxiliary::Registration>,
+    #[pin]
+    _reg1: Devres<auxiliary::Registration>,
 }
 
 kernel::pci_device_table!(
     PCI_TABLE,
     MODULE_PCI_TABLE,
     <ParentDriver as pci::Driver>::IdInfo,
-    [(
-        pci::DeviceId::from_id(bindings::PCI_VENDOR_ID_REDHAT, 0x5),
-        ()
-    )]
+    [(pci::DeviceId::from_id(pci::Vendor::REDHAT, 0x5), ())]
 );
 
 impl pci::Driver for ParentDriver {
@@ -61,32 +70,33 @@ impl pci::Driver for ParentDriver {
 
     const ID_TABLE: pci::IdTable<Self::IdInfo> = &PCI_TABLE;
 
-    fn probe(pdev: &pci::Device<Core>, _info: &Self::IdInfo) -> Result<Pin<KBox<Self>>> {
-        let this = KBox::new(
-            Self {
-                _reg: [
-                    auxiliary::Registration::new(pdev.as_ref(), AUXILIARY_NAME, 0, MODULE_NAME)?,
-                    auxiliary::Registration::new(pdev.as_ref(), AUXILIARY_NAME, 1, MODULE_NAME)?,
-                ],
-            },
-            GFP_KERNEL,
-        )?;
-
-        Ok(this.into())
+    fn probe(pdev: &pci::Device<Core>, _info: &Self::IdInfo) -> impl PinInit<Self, Error> {
+        try_pin_init!(Self {
+            private: TypeId::of::<Self>(),
+            _reg0 <- auxiliary::Registration::new(pdev.as_ref(), AUXILIARY_NAME, 0, MODULE_NAME),
+            _reg1 <- auxiliary::Registration::new(pdev.as_ref(), AUXILIARY_NAME, 1, MODULE_NAME),
+        })
     }
 }
 
 impl ParentDriver {
-    fn connect(adev: &auxiliary::Device) -> Result<()> {
-        let parent = adev.parent().ok_or(EINVAL)?;
-        let pdev: &pci::Device = parent.try_into()?;
+    fn connect(adev: &auxiliary::Device<Bound>) -> Result {
+        let dev = adev.parent();
+        let pdev: &pci::Device<Bound> = dev.try_into()?;
+        let drvdata = dev.drvdata::<Self>()?;
 
         dev_info!(
-            adev.as_ref(),
-            "Connect auxiliary {} with parent: VendorID={:#x}, DeviceID={:#x}\n",
+            dev,
+            "Connect auxiliary {} with parent: VendorID={}, DeviceID={:#x}\n",
             adev.id(),
             pdev.vendor_id(),
             pdev.device_id()
+        );
+
+        dev_info!(
+            dev,
+            "We have access to the private data of {:?}.\n",
+            drvdata.private
         );
 
         Ok(())

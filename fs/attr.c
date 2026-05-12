@@ -46,8 +46,8 @@ int setattr_should_drop_sgid(struct mnt_idmap *idmap,
 EXPORT_SYMBOL(setattr_should_drop_sgid);
 
 /**
- * setattr_should_drop_suidgid - determine whether the set{g,u}id bit needs to
- *                               be dropped
+ * setattr_should_drop_suidgid - determine whether the set{g,u}id bit
+ *                               needs to be dropped
  * @idmap:	idmap of the mount @inode was found from
  * @inode:	inode to check
  *
@@ -165,11 +165,21 @@ int setattr_prepare(struct mnt_idmap *idmap, struct dentry *dentry,
 	unsigned int ia_valid = attr->ia_valid;
 
 	/*
-	 * First check size constraints.  These can't be overriden using
+	 * First check size constraints.  These can't be overridden using
 	 * ATTR_FORCE.
 	 */
 	if (ia_valid & ATTR_SIZE) {
-		int error = inode_newsize_ok(inode, attr->ia_size);
+		int error;
+
+		/*
+		 * Verity files are immutable, so deny truncates.  This isn't
+		 * covered by the open-time check because sys_truncate() takes a
+		 * path, not an open file.
+		 */
+		if (IS_ENABLED(CONFIG_FS_VERITY) && IS_VERITY(inode))
+			return -EPERM;
+
+		error = inode_newsize_ok(inode, attr->ia_size);
 		if (error)
 			return error;
 	}
@@ -286,20 +296,12 @@ static void setattr_copy_mgtime(struct inode *inode, const struct iattr *attr)
 	unsigned int ia_valid = attr->ia_valid;
 	struct timespec64 now;
 
-	if (ia_valid & ATTR_CTIME) {
-		/*
-		 * In the case of an update for a write delegation, we must respect
-		 * the value in ia_ctime and not use the current time.
-		 */
-		if (ia_valid & ATTR_DELEG)
-			now = inode_set_ctime_deleg(inode, attr->ia_ctime);
-		else
-			now = inode_set_ctime_current(inode);
-	} else {
-		/* If ATTR_CTIME isn't set, then ATTR_MTIME shouldn't be either. */
-		WARN_ON_ONCE(ia_valid & ATTR_MTIME);
+	if (ia_valid & ATTR_CTIME_SET)
+		now = inode_set_ctime_deleg(inode, attr->ia_ctime);
+	else if (ia_valid & ATTR_CTIME)
+		now = inode_set_ctime_current(inode);
+	else
 		now = current_time(inode);
-	}
 
 	if (ia_valid & ATTR_ATIME_SET)
 		inode_set_atime_to_ts(inode, attr->ia_atime);
@@ -359,12 +361,11 @@ void setattr_copy(struct mnt_idmap *idmap, struct inode *inode,
 		inode_set_atime_to_ts(inode, attr->ia_atime);
 	if (ia_valid & ATTR_MTIME)
 		inode_set_mtime_to_ts(inode, attr->ia_mtime);
-	if (ia_valid & ATTR_CTIME) {
-		if (ia_valid & ATTR_DELEG)
-			inode_set_ctime_deleg(inode, attr->ia_ctime);
-		else
-			inode_set_ctime_to_ts(inode, attr->ia_ctime);
-	}
+
+	if (ia_valid & ATTR_CTIME_SET)
+		inode_set_ctime_deleg(inode, attr->ia_ctime);
+	else if (ia_valid & ATTR_CTIME)
+		inode_set_ctime_to_ts(inode, attr->ia_ctime);
 }
 EXPORT_SYMBOL(setattr_copy);
 
@@ -424,7 +425,7 @@ EXPORT_SYMBOL(may_setattr);
  * performed on the raw inode simply pass @nop_mnt_idmap.
  */
 int notify_change(struct mnt_idmap *idmap, struct dentry *dentry,
-		  struct iattr *attr, struct inode **delegated_inode)
+		  struct iattr *attr, struct delegated_inode *delegated_inode)
 {
 	struct inode *inode = dentry->d_inode;
 	umode_t mode = inode->i_mode;
@@ -463,15 +464,18 @@ int notify_change(struct mnt_idmap *idmap, struct dentry *dentry,
 
 	now = current_time(inode);
 
-	attr->ia_ctime = now;
-	if (!(ia_valid & ATTR_ATIME_SET))
-		attr->ia_atime = now;
-	else
+	if (ia_valid & ATTR_ATIME_SET)
 		attr->ia_atime = timestamp_truncate(attr->ia_atime, inode);
-	if (!(ia_valid & ATTR_MTIME_SET))
-		attr->ia_mtime = now;
 	else
+		attr->ia_atime = now;
+	if (ia_valid & ATTR_CTIME_SET)
+		attr->ia_ctime = timestamp_truncate(attr->ia_ctime, inode);
+	else
+		attr->ia_ctime = now;
+	if (ia_valid & ATTR_MTIME_SET)
 		attr->ia_mtime = timestamp_truncate(attr->ia_mtime, inode);
+	else
+		attr->ia_mtime = now;
 
 	if (ia_valid & ATTR_KILL_PRIV) {
 		error = security_inode_need_killpriv(dentry);

@@ -474,7 +474,7 @@ static bool __intel_sdvo_write_cmd(struct intel_sdvo *intel_sdvo, u8 cmd,
 	if (!buf)
 		return false;
 
-	msgs = kcalloc(args_len + 3, sizeof(*msgs), GFP_KERNEL);
+	msgs = kzalloc_objs(*msgs, args_len + 3);
 	if (!msgs) {
 		kfree(buf);
 		return false;
@@ -2512,7 +2512,7 @@ static const struct drm_connector_funcs intel_sdvo_connector_funcs = {
 };
 
 static int intel_sdvo_atomic_check(struct drm_connector *conn,
-				   struct drm_atomic_state *state)
+				   struct drm_atomic_commit *state)
 {
 	struct drm_connector_state *new_conn_state =
 		drm_atomic_get_new_connector_state(state, conn);
@@ -2774,11 +2774,11 @@ static struct intel_sdvo_connector *intel_sdvo_connector_alloc(void)
 	struct intel_sdvo_connector *sdvo_connector;
 	struct intel_sdvo_connector_state *conn_state;
 
-	sdvo_connector = kzalloc(sizeof(*sdvo_connector), GFP_KERNEL);
+	sdvo_connector = kzalloc_obj(*sdvo_connector);
 	if (!sdvo_connector)
 		return NULL;
 
-	conn_state = kzalloc(sizeof(*conn_state), GFP_KERNEL);
+	conn_state = kzalloc_obj(*conn_state);
 	if (!conn_state) {
 		kfree(sdvo_connector);
 		return NULL;
@@ -3389,7 +3389,7 @@ bool intel_sdvo_init(struct intel_display *display,
 	if (!assert_sdvo_port_valid(display, port))
 		return false;
 
-	intel_sdvo = kzalloc(sizeof(*intel_sdvo), GFP_KERNEL);
+	intel_sdvo = kzalloc_obj(*intel_sdvo);
 	if (!intel_sdvo)
 		return false;
 

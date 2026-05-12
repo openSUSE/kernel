@@ -56,6 +56,7 @@
 #include "util/debug.h"
 #include "util/ordered-events.h"
 #include "util/pfm.h"
+#include "dwarf-regs.h"
 
 #include <assert.h>
 #include <elf.h>
@@ -1387,13 +1388,6 @@ out_join_thread:
 }
 
 static int
-callchain_opt(const struct option *opt, const char *arg, int unset)
-{
-	symbol_conf.use_callchain = true;
-	return record_callchain_opt(opt, arg, unset);
-}
-
-static int
 parse_callchain_opt(const struct option *opt, const char *arg, int unset)
 {
 	struct callchain_param *callchain = opt->value;
@@ -1412,6 +1406,24 @@ parse_callchain_opt(const struct option *opt, const char *arg, int unset)
 
 	return parse_callchain_top_opt(arg);
 }
+
+static int
+callchain_opt(const struct option *opt, const char *arg __maybe_unused, int unset)
+{
+	struct callchain_param *callchain = opt->value;
+
+	/*
+	 * The -g option only sets the callchain if not already configured by
+	 * .perfconfig. It does, however, enable it.
+	 */
+	if (callchain->record_mode != CALLCHAIN_NONE) {
+		callchain->enabled = true;
+		return 0;
+	}
+
+	return parse_callchain_opt(opt, EM_HOST != EM_S390 ? "fp" : "dwarf", unset);
+}
+
 
 static int perf_top_config(const char *var, const char *value, void *cb __maybe_unused)
 {
@@ -1437,11 +1449,10 @@ parse_percent_limit(const struct option *opt, const char *arg,
 	return 0;
 }
 
-const char top_callchain_help[] = CALLCHAIN_RECORD_HELP CALLCHAIN_REPORT_HELP
-	"\n\t\t\t\tDefault: fp,graph,0.5,caller,function";
-
 int cmd_top(int argc, const char **argv)
 {
+	static const char top_callchain_help[] = CALLCHAIN_RECORD_HELP CALLCHAIN_REPORT_HELP
+		"\n\t\t\t\tDefault: fp,graph,0.5,caller,function";
 	char errbuf[BUFSIZ];
 	struct perf_top top = {
 		.count_filter	     = 5,
@@ -1694,12 +1705,23 @@ int cmd_top(int argc, const char **argv)
 	if (annotate_check_args() < 0)
 		goto out_delete_evlist;
 
-	if (!top.evlist->core.nr_entries) {
-		bool can_profile_kernel = perf_event_paranoid_check(1);
-		int err = parse_event(top.evlist, can_profile_kernel ? "cycles:P" : "cycles:Pu");
+	status = target__validate(target);
+	if (status) {
+		target__strerror(target, status, errbuf, BUFSIZ);
+		ui__warning("%s\n", errbuf);
+	}
 
-		if (err)
+	if (target__none(target))
+		target->system_wide = true;
+
+	if (!top.evlist->core.nr_entries) {
+		struct evlist *def_evlist = evlist__new_default(target, callchain_param.enabled);
+
+		if (!def_evlist)
 			goto out_delete_evlist;
+
+		evlist__splice_list_tail(top.evlist, &def_evlist->core.entries);
+		evlist__delete(def_evlist);
 	}
 
 	status = evswitch__init(&top.evswitch, top.evlist, stderr);
@@ -1786,12 +1808,6 @@ int cmd_top(int argc, const char **argv)
 		goto out_delete_evlist;
 	}
 
-	status = target__validate(target);
-	if (status) {
-		target__strerror(target, status, errbuf, BUFSIZ);
-		ui__warning("%s\n", errbuf);
-	}
-
 	if (top.uid_str) {
 		uid_t uid = parse_uid(top.uid_str);
 
@@ -1804,9 +1820,6 @@ int cmd_top(int argc, const char **argv)
 		if (status)
 			goto out_delete_evlist;
 	}
-
-	if (target__none(target))
-		target->system_wide = true;
 
 	if (evlist__create_maps(top.evlist, target) < 0) {
 		ui__error("Couldn't create thread/CPU maps: %s\n",

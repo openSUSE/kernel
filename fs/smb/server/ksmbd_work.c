@@ -28,8 +28,8 @@ struct ksmbd_work *ksmbd_alloc_work_struct(void)
 		INIT_LIST_HEAD(&work->fp_entry);
 		INIT_LIST_HEAD(&work->aux_read_list);
 		work->iov_alloc_cnt = 4;
-		work->iov = kcalloc(work->iov_alloc_cnt, sizeof(struct kvec),
-				    KSMBD_DEFAULT_GFP);
+		work->iov = kzalloc_objs(struct kvec, work->iov_alloc_cnt,
+					 KSMBD_DEFAULT_GFP);
 		if (!work->iov) {
 			kmem_cache_free(work_cache, work);
 			work = NULL;
@@ -78,7 +78,7 @@ int ksmbd_work_pool_init(void)
 
 int ksmbd_workqueue_init(void)
 {
-	ksmbd_wq = alloc_workqueue("ksmbd-io", 0, 0);
+	ksmbd_wq = alloc_workqueue("ksmbd-io", WQ_PERCPU, 0);
 	if (!ksmbd_wq)
 		return -ENOMEM;
 	return 0;
@@ -111,7 +111,7 @@ static int __ksmbd_iov_pin_rsp(struct ksmbd_work *work, void *ib, int len,
 
 	if (aux_size) {
 		need_iov_cnt++;
-		ar = kmalloc(sizeof(struct aux_read), KSMBD_DEFAULT_GFP);
+		ar = kmalloc_obj(struct aux_read, KSMBD_DEFAULT_GFP);
 		if (!ar)
 			return -ENOMEM;
 	}

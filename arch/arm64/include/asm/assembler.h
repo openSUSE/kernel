@@ -5,7 +5,7 @@
  * Copyright (C) 1996-2000 Russell King
  * Copyright (C) 2012 ARM Ltd.
  */
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 #error "Only include this from assembly code"
 #endif
 
@@ -325,14 +325,14 @@ alternative_cb_end
  * tcr_set_t0sz - update TCR.T0SZ so that we can load the ID map
  */
 	.macro	tcr_set_t0sz, valreg, t0sz
-	bfi	\valreg, \t0sz, #TCR_T0SZ_OFFSET, #TCR_TxSZ_WIDTH
+	bfi	\valreg, \t0sz, #TCR_EL1_T0SZ_SHIFT, #TCR_EL1_T0SZ_WIDTH
 	.endm
 
 /*
  * tcr_set_t1sz - update TCR.T1SZ
  */
 	.macro	tcr_set_t1sz, valreg, t1sz
-	bfi	\valreg, \t1sz, #TCR_T1SZ_OFFSET, #TCR_TxSZ_WIDTH
+	bfi	\valreg, \t1sz, #TCR_EL1_T1SZ_SHIFT, #TCR_EL1_T1SZ_WIDTH
 	.endm
 
 /*
@@ -371,16 +371,18 @@ alternative_endif
  * [start, end) with dcache line size explicitly provided.
  *
  * 	op:		operation passed to dc instruction
- * 	domain:		domain used in dsb instruciton
  * 	start:          starting virtual address of the region
  * 	end:            end virtual address of the region
  *	linesz:		dcache line size
  * 	fixup:		optional label to branch to on user fault
  * 	Corrupts:       start, end, tmp
  */
-	.macro dcache_by_myline_op op, domain, start, end, linesz, tmp, fixup
+	.macro dcache_by_myline_op_nosync op, start, end, linesz, tmp, fixup
 	sub	\tmp, \linesz, #1
 	bic	\start, \start, \tmp
+alternative_if ARM64_WORKAROUND_4311569
+	mov	\tmp, \start
+alternative_else_nop_endif
 .Ldcache_op\@:
 	.ifc	\op, cvau
 	__dcache_op_workaround_clean_cache \op, \start
@@ -402,25 +404,46 @@ alternative_endif
 	add	\start, \start, \linesz
 	cmp	\start, \end
 	b.lo	.Ldcache_op\@
-	dsb	\domain
+alternative_if ARM64_WORKAROUND_4311569
+	.ifnc	\op, cvau
+	mov	\start, \tmp
+	mov	\tmp, xzr
+	cbnz	\start, .Ldcache_op\@
+	.endif
+alternative_else_nop_endif
 
 	_cond_uaccess_extable .Ldcache_op\@, \fixup
 	.endm
 
 /*
  * Macro to perform a data cache maintenance for the interval
- * [start, end)
+ * [start, end) without waiting for completion
  *
  * 	op:		operation passed to dc instruction
- * 	domain:		domain used in dsb instruciton
+ * 	start:          starting virtual address of the region
+ * 	end:            end virtual address of the region
+ * 	fixup:		optional label to branch to on user fault
+ * 	Corrupts:       start, end, tmp1, tmp2
+ */
+	.macro dcache_by_line_op_nosync op, start, end, tmp1, tmp2, fixup
+	dcache_line_size \tmp1, \tmp2
+	dcache_by_myline_op_nosync \op, \start, \end, \tmp1, \tmp2, \fixup
+	.endm
+
+/*
+ * Macro to perform a data cache maintenance for the interval
+ * [start, end) and wait for completion
+ *
+ * 	op:		operation passed to dc instruction
+ * 	domain:		domain used in dsb instruction
  * 	start:          starting virtual address of the region
  * 	end:            end virtual address of the region
  * 	fixup:		optional label to branch to on user fault
  * 	Corrupts:       start, end, tmp1, tmp2
  */
 	.macro dcache_by_line_op op, domain, start, end, tmp1, tmp2, fixup
-	dcache_line_size \tmp1, \tmp2
-	dcache_by_myline_op \op, \domain, \start, \end, \tmp1, \tmp2, \fixup
+	dcache_by_line_op_nosync \op, \start, \end, \tmp1, \tmp2, \fixup
+	dsb \domain
 	.endm
 
 /*
@@ -589,7 +612,7 @@ alternative_endif
 	.macro	offset_ttbr1, ttbr, tmp
 #if defined(CONFIG_ARM64_VA_BITS_52) && !defined(CONFIG_ARM64_LPA2)
 	mrs	\tmp, tcr_el1
-	and	\tmp, \tmp, #TCR_T1SZ_MASK
+	and	\tmp, \tmp, #TCR_EL1_T1SZ_MASK
 	cmp	\tmp, #TCR_T1SZ(VA_BITS_MIN)
 	orr	\tmp, \ttbr, #TTBR1_BADDR_4852_OFFSET
 	csel	\ttbr, \tmp, \ttbr, eq
@@ -737,28 +760,6 @@ alternative_endif
 .macro set_sctlr_el2, reg
 	set_sctlr sctlr_el2, \reg
 .endm
-
-	/*
-	 * Check whether asm code should yield as soon as it is able. This is
-	 * the case if we are currently running in task context, and the
-	 * TIF_NEED_RESCHED flag is set. (Note that the TIF_NEED_RESCHED flag
-	 * is stored negated in the top word of the thread_info::preempt_count
-	 * field)
-	 */
-	.macro		cond_yield, lbl:req, tmp:req, tmp2
-#ifdef CONFIG_PREEMPT_VOLUNTARY
-	get_current_task \tmp
-	ldr		\tmp, [\tmp, #TSK_TI_PREEMPT]
-	/*
-	 * If we are serving a softirq, there is no point in yielding: the
-	 * softirq will not be preempted no matter what we do, so we should
-	 * run to completion as quickly as we can. The preempt_count field will
-	 * have BIT(SOFTIRQ_SHIFT) set in this case, so the zero check will
-	 * catch this case too.
-	 */
-	cbz		\tmp, \lbl
-#endif
-	.endm
 
 /*
  * Branch Target Identifier (BTI)

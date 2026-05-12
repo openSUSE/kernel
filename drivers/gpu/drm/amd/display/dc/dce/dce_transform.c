@@ -154,10 +154,13 @@ static bool dce60_setup_scaling_configuration(
 	REG_SET(SCL_BYPASS_CONTROL, 0, SCL_BYPASS_MODE, 0);
 
 	if (data->taps.h_taps + data->taps.v_taps <= 2) {
-		/* Set bypass */
+		/* Disable scaler functionality */
+		REG_WRITE(SCL_SCALER_ENABLE, 0);
 
-		/* DCE6 has no SCL_MODE register, skip scale mode programming */
-
+		/* Clear registers that can cause glitches even when the scaler is off */
+		REG_WRITE(SCL_TAP_CONTROL, 0);
+		REG_WRITE(SCL_AUTOMATIC_MODE_CONTROL, 0);
+		REG_WRITE(SCL_F_SHARP_CONTROL, 0);
 		return false;
 	}
 
@@ -165,7 +168,7 @@ static bool dce60_setup_scaling_configuration(
 			SCL_H_NUM_OF_TAPS, data->taps.h_taps - 1,
 			SCL_V_NUM_OF_TAPS, data->taps.v_taps - 1);
 
-	/* DCE6 has no SCL_MODE register, skip scale mode programming */
+	REG_WRITE(SCL_SCALER_ENABLE, 1);
 
 	/* DCE6 has no SCL_BOUNDARY_MODE bit, skip replace out of bound pixels */
 
@@ -279,6 +282,7 @@ static void calculate_inits(
 	const struct scaler_data *data,
 	struct scl_ratios_inits *inits)
 {
+	(void)xfm_dce;
 	struct fixed31_32 h_init;
 	struct fixed31_32 v_init;
 
@@ -502,6 +506,8 @@ static void dce60_transform_set_scaler(
 	REG_SET(DC_LB_MEM_SIZE, 0,
 		DC_LB_MEM_SIZE, xfm_dce->lb_memory_size);
 
+	REG_WRITE(SCL_UPDATE, 0x00010000);
+
 	/* Clear SCL_F_SHARP_CONTROL value to 0 */
 	REG_WRITE(SCL_F_SHARP_CONTROL, 0);
 
@@ -527,8 +533,7 @@ static void dce60_transform_set_scaler(
 		if (coeffs_v != xfm_dce->filter_v || coeffs_h != xfm_dce->filter_h) {
 			/* 4. Program vertical filters */
 			if (xfm_dce->filter_v == NULL)
-				REG_SET(SCL_VERT_FILTER_CONTROL, 0,
-						SCL_V_2TAP_HARDCODE_COEF_EN, 0);
+				REG_WRITE(SCL_VERT_FILTER_CONTROL, 0);
 			program_multi_taps_filter(
 					xfm_dce,
 					data->taps.v_taps,
@@ -542,8 +547,7 @@ static void dce60_transform_set_scaler(
 
 			/* 5. Program horizontal filters */
 			if (xfm_dce->filter_h == NULL)
-				REG_SET(SCL_HORZ_FILTER_CONTROL, 0,
-						SCL_H_2TAP_HARDCODE_COEF_EN, 0);
+				REG_WRITE(SCL_HORZ_FILTER_CONTROL, 0);
 			program_multi_taps_filter(
 					xfm_dce,
 					data->taps.h_taps,
@@ -566,6 +570,8 @@ static void dce60_transform_set_scaler(
 	/* DCE6 has no SCL_COEF_UPDATE_COMPLETE bit to flip to new coefficient memory */
 
 	/* DCE6 DATA_FORMAT register does not support ALPHA_EN */
+
+	REG_WRITE(SCL_UPDATE, 0);
 }
 #endif
 
@@ -796,7 +802,7 @@ static void program_bit_depth_reduction(
 
 	ASSERT(depth <= COLOR_DEPTH_121212); /* Invalid clamp bit depth */
 
-	spatial_dither_enable = bit_depth_params->flags.SPATIAL_DITHER_ENABLED;
+	spatial_dither_enable = bit_depth_params->flags.SPATIAL_DITHER_ENABLED != 0;
 	/* Default to 12 bit truncation without rounding */
 	trunc_round_depth = DCP_OUT_TRUNC_ROUND_DEPTH_12BIT;
 	trunc_mode = DCP_OUT_TRUNC_ROUND_MODE_TRUNCATE;
@@ -829,9 +835,9 @@ static void program_bit_depth_reduction(
 		   spatial_dither_enable,
 		   DCP_SPATIAL_DITHER_MODE_A_AA_A,
 		   DCP_SPATIAL_DITHER_DEPTH_30BPP,
-		   bit_depth_params->flags.FRAME_RANDOM,
-		   bit_depth_params->flags.RGB_RANDOM,
-		   bit_depth_params->flags.HIGHPASS_RANDOM);
+		   bit_depth_params->flags.FRAME_RANDOM != 0,
+		   bit_depth_params->flags.RGB_RANDOM != 0,
+		   bit_depth_params->flags.HIGHPASS_RANDOM != 0);
 }
 
 #if defined(CONFIG_DRM_AMD_DC_SI)
@@ -1167,13 +1173,13 @@ bool dce_transform_get_optimal_number_of_taps(
 {
 	struct dce_transform *xfm_dce = TO_DCE_TRANSFORM(xfm);
 	int pixel_width = scl_data->viewport.width;
-	int max_num_of_lines;
+	uint32_t max_num_of_lines;
 
 	if (xfm_dce->prescaler_on &&
 			(scl_data->viewport.width > scl_data->recout.width))
 		pixel_width = scl_data->recout.width;
 
-	max_num_of_lines = dce_transform_get_max_num_of_supported_lines(
+	max_num_of_lines = (uint32_t)dce_transform_get_max_num_of_supported_lines(
 		xfm_dce,
 		scl_data->lb_params.depth,
 		pixel_width);
@@ -1235,6 +1241,7 @@ static void program_color_matrix(
 	const struct out_csc_color_matrix *tbl_entry,
 	enum grph_color_adjust_option options)
 {
+	(void)options;
 	{
 		REG_SET_2(OUTPUT_CSC_C11_C12, 0,
 			OUTPUT_CSC_C11, tbl_entry->regval[0],

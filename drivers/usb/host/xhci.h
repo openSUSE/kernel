@@ -12,6 +12,7 @@
 #ifndef __LINUX_XHCI_HCD_H
 #define __LINUX_XHCI_HCD_H
 
+#include <linux/bits.h>
 #include <linux/usb.h>
 #include <linux/timer.h>
 #include <linux/kernel.h>
@@ -34,8 +35,16 @@
 
 /* Max number of USB devices for any host controller - limit in section 6.1 */
 #define MAX_HC_SLOTS		256
-/* Section 5.3.3 - MaxPorts */
+/*
+ * Max Number of Ports. xHCI specification section 5.3.3
+ * Valid values are in the range of 1 to 255.
+ */
 #define MAX_HC_PORTS		127
+/*
+ * Max number of Interrupter Register Sets. xHCI specification section 5.3.3
+ * Valid values are in the range of 1 to 1024.
+ */
+#define MAX_HC_INTRS		128
 
 /*
  * xHCI register interface.
@@ -66,13 +75,19 @@ struct xhci_cap_regs {
 	/* Reserved up to (CAPLENGTH - 0x1C) */
 };
 
-/* Number of registers per port */
-#define	NUM_PORT_REGS	4
-
-#define PORTSC		0
-#define PORTPMSC	1
-#define PORTLI		2
-#define PORTHLPMC	3
+/*
+ * struct xhci_port_regs - Host Controller USB Port Register Set. xHCI spec 5.4.8
+ * @portsc:	Port Status and Control
+ * @portpmsc:	Port Power Management Status and Control
+ * @portli:	Port Link Info
+ * @porthlmpc:	Port Hardware LPM Control
+ */
+struct xhci_port_regs {
+	__le32	portsc;
+	__le32	portpmsc;
+	__le32	portli;
+	__le32	porthlmpc;
+};
 
 /**
  * struct xhci_op_regs - xHCI Host Controller Operational Registers.
@@ -85,16 +100,7 @@ struct xhci_cap_regs {
  * @cmd_ring:		CRP - 64-bit Command Ring Pointer
  * @dcbaa_ptr:		DCBAAP - 64-bit Device Context Base Address Array Pointer
  * @config_reg:		CONFIG - Configure Register
- * @port_status_base:	PORTSCn - base address for Port Status and Control
- * 			Each port has a Port Status and Control register,
- * 			followed by a Port Power Management Status and Control
- * 			register, a Port Link Info register, and a reserved
- * 			register.
- * @port_power_base:	PORTPMSCn - base address for
- * 			Port Power Management Status and Control
- * @port_link_base:	PORTLIn - base address for Port Link Info (current
- * 			Link PM state and control) for USB 2.1 and USB 3.0
- * 			devices.
+ * @port_regs:		Port Register Sets, from 1 to MaxPorts (defined by HCSPARAMS1).
  */
 struct xhci_op_regs {
 	__le32	command;
@@ -110,13 +116,7 @@ struct xhci_op_regs {
 	__le32	config_reg;
 	/* rsvd: offset 0x3C-3FF */
 	__le32	reserved4[241];
-	/* port 1 registers, which serve as a base address for other ports */
-	__le32	port_status_base;
-	__le32	port_power_base;
-	__le32	port_link_base;
-	__le32	reserved5;
-	/* registers for ports 2-255 */
-	__le32	reserved6[NUM_PORT_REGS*254];
+	struct xhci_port_regs port_regs[];
 };
 
 /* USBCMD - USB command - command bitmasks */
@@ -126,17 +126,17 @@ struct xhci_op_regs {
  * PCI config regs).  HC does NOT drive a USB reset on the downstream ports.
  * The xHCI driver must reinitialize the xHC after setting this bit.
  */
-#define CMD_RESET	(1 << 1)
+#define CMD_RESET	BIT(1)
 /* Event Interrupt Enable - a '1' allows interrupts from the host controller */
 #define CMD_EIE		XHCI_CMD_EIE
 /* Host System Error Interrupt Enable - get out-of-band signal for HC errors */
 #define CMD_HSEIE	XHCI_CMD_HSEIE
 /* bits 4:6 are reserved (and should be preserved on writes). */
 /* light reset (port status stays unchanged) - reset completed when this is 0 */
-#define CMD_LRESET	(1 << 7)
+#define CMD_LRESET	BIT(7)
 /* host controller save/restore state. */
-#define CMD_CSS		(1 << 8)
-#define CMD_CRS		(1 << 9)
+#define CMD_CSS		BIT(8)
+#define CMD_CRS		BIT(9)
 /* Enable Wrap Event - '1' means xHC generates an event when MFINDEX wraps. */
 #define CMD_EWE		XHCI_CMD_EWE
 /* MFINDEX power management - '1' means xHC can stop MFINDEX counter if all root
@@ -144,9 +144,9 @@ struct xhci_op_regs {
  * '0' means the xHC can power it off if all ports are in the disconnect,
  * disabled, or powered-off state.
  */
-#define CMD_PM_INDEX	(1 << 11)
+#define CMD_PM_INDEX	BIT(11)
 /* bit 14 Extended TBC Enable, changes Isoc TRB fields to support larger TBC */
-#define CMD_ETE		(1 << 14)
+#define CMD_ETE		BIT(14)
 /* bits 15:31 are reserved (and should be preserved on writes). */
 
 #define XHCI_RESET_LONG_USEC		(10 * 1000 * 1000)
@@ -156,22 +156,22 @@ struct xhci_op_regs {
 /* HC not running - set to 1 when run/stop bit is cleared. */
 #define STS_HALT	XHCI_STS_HALT
 /* serious error, e.g. PCI parity error.  The HC will clear the run/stop bit. */
-#define STS_FATAL	(1 << 2)
+#define STS_FATAL	BIT(2)
 /* event interrupt - clear this prior to clearing any IP flags in IR set*/
-#define STS_EINT	(1 << 3)
+#define STS_EINT	BIT(3)
 /* port change detect */
-#define STS_PORT	(1 << 4)
+#define STS_PORT	BIT(4)
 /* bits 5:7 reserved and zeroed */
 /* save state status - '1' means xHC is saving state */
-#define STS_SAVE	(1 << 8)
+#define STS_SAVE	BIT(8)
 /* restore state status - '1' means xHC is restoring state */
-#define STS_RESTORE	(1 << 9)
+#define STS_RESTORE	BIT(9)
 /* true: save or restore error */
-#define STS_SRE		(1 << 10)
+#define STS_SRE		BIT(10)
 /* true: Controller Not Ready to accept doorbell or op reg writes after reset */
 #define STS_CNR		XHCI_STS_CNR
 /* true: internal Host Controller Error - SW needs to reset and reinitialize */
-#define STS_HCE		(1 << 12)
+#define STS_HCE		BIT(12)
 /* bits 13:31 reserved and should be preserved */
 
 /*
@@ -183,17 +183,17 @@ struct xhci_op_regs {
 /* Most of the device notification types should only be used for debug.
  * SW does need to pay attention to function wake notifications.
  */
-#define	DEV_NOTE_FWAKE		(1 << 1)
+#define	DEV_NOTE_FWAKE		BIT(1)
 
 /* CRCR - Command Ring Control Register - cmd_ring bitmasks */
 /* bit 0 - Cycle bit indicates the ownership of the command ring */
-#define CMD_RING_CYCLE		(1 << 0)
+#define CMD_RING_CYCLE		BIT(0)
 /* stop ring operation after completion of the currently executing command */
-#define CMD_RING_PAUSE		(1 << 1)
+#define CMD_RING_PAUSE		BIT(1)
 /* stop ring immediately - abort the currently executing command */
-#define CMD_RING_ABORT		(1 << 2)
+#define CMD_RING_ABORT		BIT(2)
 /* true: command ring is running */
-#define CMD_RING_RUNNING	(1 << 3)
+#define CMD_RING_RUNNING	BIT(3)
 /* bits 63:6 - Command Ring pointer */
 #define CMD_RING_PTR_MASK	GENMASK_ULL(63, 6)
 
@@ -201,9 +201,9 @@ struct xhci_op_regs {
 /* bits 0:7 - maximum number of device slots enabled (NumSlotsEn) */
 #define MAX_DEVS(p)	((p) & 0xff)
 /* bit 8: U3 Entry Enabled, assert PLC when root port enters U3, xhci 1.1 */
-#define CONFIG_U3E		(1 << 8)
+#define CONFIG_U3E		BIT(8)
 /* bit 9: Configuration Information Enable, xhci 1.1 */
-#define CONFIG_CIE		(1 << 9)
+#define CONFIG_CIE		BIT(9)
 /* bits 10:31 - reserved and should be preserved */
 
 /* bits 15:0 - HCD page shift bit */
@@ -236,9 +236,9 @@ struct xhci_intr_reg {
 
 /* iman bitmasks */
 /* bit 0 - Interrupt Pending (IP), whether there is an interrupt pending. Write-1-to-clear. */
-#define	IMAN_IP			(1 << 0)
+#define	IMAN_IP			BIT(0)
 /* bit 1 - Interrupt Enable (IE), whether the interrupter is capable of generating an interrupt */
-#define	IMAN_IE			(1 << 1)
+#define	IMAN_IE			BIT(1)
 
 /* imod bitmasks */
 /*
@@ -268,7 +268,7 @@ struct xhci_intr_reg {
  * bit 3 - Event Handler Busy (EHB), whether the event ring is scheduled to be serviced by
  * a work queue (or delayed service routine)?
  */
-#define ERST_EHB		(1 << 3)
+#define ERST_EHB		BIT(3)
 /* bits 63:4 - Event Ring Dequeue Pointer */
 #define ERST_PTR_MASK		GENMASK_ULL(63, 4)
 
@@ -284,7 +284,7 @@ struct xhci_intr_reg {
 struct xhci_run_regs {
 	__le32			microframe_index;
 	__le32			rsvd[7];
-	struct xhci_intr_reg	ir_set[128];
+	struct xhci_intr_reg	ir_set[1024];
 };
 
 /**
@@ -357,15 +357,15 @@ struct xhci_slot_ctx {
 #define GET_DEV_SPEED(n) (((n) & DEV_SPEED) >> 20)
 /* bit 24 reserved */
 /* Is this LS/FS device connected through a HS hub? - bit 25 */
-#define DEV_MTT		(0x1 << 25)
+#define DEV_MTT		BIT(25)
 /* Set if the device is a hub - bit 26 */
-#define DEV_HUB		(0x1 << 26)
+#define DEV_HUB		BIT(26)
 /* Index of the last valid endpoint context in this device context - 27:31 */
 #define LAST_CTX_MASK	(0x1f << 27)
 #define LAST_CTX(p)	((p) << 27)
 #define LAST_CTX_TO_EP_NUM(p)	(((p) >> 27) - 1)
-#define SLOT_FLAG	(1 << 0)
-#define EP0_FLAG	(1 << 1)
+#define SLOT_FLAG	BIT(0)
+#define EP0_FLAG	BIT(1)
 
 /* dev_info2 bitmasks */
 /* Max Exit Latency (ms) - worst case time to wake up all links in dev path */
@@ -464,7 +464,7 @@ struct xhci_ep_ctx {
 #define EP_MAXPSTREAMS(p)		(((p) << 10) & EP_MAXPSTREAMS_MASK)
 #define CTX_TO_EP_MAXPSTREAMS(p)	(((p) & EP_MAXPSTREAMS_MASK) >> 10)
 /* Endpoint is set up with a Linear Stream Array (vs. Secondary Stream Array) */
-#define	EP_HAS_LSA		(1 << 15)
+#define	EP_HAS_LSA		BIT(15)
 /* hosts with LEC=1 use bits 31:24 as ESIT high bits. */
 #define CTX_TO_MAX_ESIT_PAYLOAD_HI(p)	(((p) >> 24) & 0xff)
 
@@ -499,8 +499,9 @@ struct xhci_ep_ctx {
 #define CTX_TO_MAX_ESIT_PAYLOAD(p)	(((p) >> 16) & 0xffff)
 
 /* deq bitmasks */
-#define EP_CTX_CYCLE_MASK		(1 << 0)
-#define SCTX_DEQ_MASK			(~0xfL)
+#define EP_CTX_CYCLE_MASK		BIT(0)
+/* bits 63:4 - TR Dequeue Pointer */
+#define TR_DEQ_PTR_MASK			GENMASK_ULL(63, 4)
 
 
 /**
@@ -661,18 +662,18 @@ struct xhci_virt_ep {
 	struct xhci_ring		*new_ring;
 	unsigned int			err_count;
 	unsigned int			ep_state;
-#define SET_DEQ_PENDING		(1 << 0)
-#define EP_HALTED		(1 << 1)	/* For stall handling */
-#define EP_STOP_CMD_PENDING	(1 << 2)	/* For URB cancellation */
+#define SET_DEQ_PENDING		BIT(0)
+#define EP_HALTED		BIT(1)	/* For stall handling */
+#define EP_STOP_CMD_PENDING	BIT(2)	/* For URB cancellation */
 /* Transitioning the endpoint to using streams, don't enqueue URBs */
-#define EP_GETTING_STREAMS	(1 << 3)
-#define EP_HAS_STREAMS		(1 << 4)
+#define EP_GETTING_STREAMS	BIT(3)
+#define EP_HAS_STREAMS		BIT(4)
 /* Transitioning the endpoint to not using streams, don't enqueue URBs */
-#define EP_GETTING_NO_STREAMS	(1 << 5)
-#define EP_HARD_CLEAR_TOGGLE	(1 << 6)
-#define EP_SOFT_CLEAR_TOGGLE	(1 << 7)
+#define EP_GETTING_NO_STREAMS	BIT(5)
+#define EP_HARD_CLEAR_TOGGLE	BIT(6)
+#define EP_SOFT_CLEAR_TOGGLE	BIT(7)
 /* usb_hub_clear_tt_buffer is in progress */
-#define EP_CLEARING_TT		(1 << 8)
+#define EP_CLEARING_TT		BIT(8)
 	/* ----  Related to URB cancellation ---- */
 	struct list_head	cancelled_td_list;
 	struct xhci_hcd		*xhci;
@@ -799,7 +800,6 @@ struct xhci_device_context_array {
 	/* private xHCD pointers */
 	dma_addr_t	dma;
 };
-/* TODO: write function to set the 64-bit device DMA address */
 /*
  * TODO: change this to be dynamically sized at HC mem init time since the HC
  * might not be able to handle the maximum number of devices possible.
@@ -955,7 +955,7 @@ struct xhci_link_trb {
 };
 
 /* control bitfields */
-#define LINK_TOGGLE	(0x1<<1)
+#define LINK_TOGGLE	BIT(1)
 
 /* Command completion event TRB */
 struct xhci_event_cmd {
@@ -969,13 +969,13 @@ struct xhci_event_cmd {
 #define COMP_PARAM(p)	((p) & 0xffffff) /* Command Completion Parameter */
 
 /* Address device - disable SetAddress */
-#define TRB_BSR		(1<<9)
+#define TRB_BSR		BIT(9)
 
 /* Configure Endpoint - Deconfigure */
-#define TRB_DC		(1<<9)
+#define TRB_DC		BIT(9)
 
 /* Stop Ring - Transfer State Preserve */
-#define TRB_TSP		(1<<9)
+#define TRB_TSP		BIT(9)
 
 enum xhci_ep_reset_type {
 	EP_HARD_RESET,
@@ -1018,13 +1018,13 @@ enum xhci_setup_dev {
 #define SCT_FOR_TRB(p)			(((p) & 0x7) << 1)
 
 /* Link TRB specific fields */
-#define TRB_TC			(1<<1)
+#define TRB_TC			BIT(1)
 
 /* Port Status Change Event TRB fields */
 /* Port ID - bits 31:24 */
 #define GET_PORT_ID(p)		(((p) & (0xff << 24)) >> 24)
 
-#define EVENT_DATA		(1 << 2)
+#define EVENT_DATA		BIT(2)
 
 /* Normal TRB fields */
 /* transfer_len bitmasks - bits 0:16 */
@@ -1039,36 +1039,36 @@ enum xhci_setup_dev {
 #define GET_INTR_TARGET(p)	(((p) >> 22) & 0x3ff)
 
 /* Cycle bit - indicates TRB ownership by HC or HCD */
-#define TRB_CYCLE		(1<<0)
+#define TRB_CYCLE		BIT(0)
 /*
  * Force next event data TRB to be evaluated before task switch.
  * Used to pass OS data back after a TD completes.
  */
-#define TRB_ENT			(1<<1)
+#define TRB_ENT			BIT(1)
 /* Interrupt on short packet */
-#define TRB_ISP			(1<<2)
+#define TRB_ISP			BIT(2)
 /* Set PCIe no snoop attribute */
-#define TRB_NO_SNOOP		(1<<3)
+#define TRB_NO_SNOOP		BIT(3)
 /* Chain multiple TRBs into a TD */
-#define TRB_CHAIN		(1<<4)
+#define TRB_CHAIN		BIT(4)
 /* Interrupt on completion */
-#define TRB_IOC			(1<<5)
+#define TRB_IOC			BIT(5)
 /* The buffer pointer contains immediate data */
-#define TRB_IDT			(1<<6)
+#define TRB_IDT			BIT(6)
 /* TDs smaller than this might use IDT */
 #define TRB_IDT_MAX_SIZE	8
 
 /* Block Event Interrupt */
-#define	TRB_BEI			(1<<9)
+#define	TRB_BEI			BIT(9)
 
 /* Control transfer TRB specific fields */
-#define TRB_DIR_IN		(1<<16)
+#define TRB_DIR_IN		BIT(16)
 #define	TRB_TX_TYPE(p)		((p) << 16)
 #define	TRB_DATA_OUT		2
 #define	TRB_DATA_IN		3
 
 /* Isochronous TRB specific fields */
-#define TRB_SIA			(1<<31)
+#define TRB_SIA			BIT(31)
 #define TRB_FRAME_ID(p)		(((p) & 0x7ff) << 20)
 #define GET_FRAME_ID(p)		(((p) >> 20) & 0x7ff)
 /* Total burst count field, Rsvdz on xhci 1.1 with Extended TBC enabled (ETE) */
@@ -1473,7 +1473,7 @@ struct xhci_port_cap {
 };
 
 struct xhci_port {
-	__le32 __iomem		*addr;
+	struct xhci_port_regs __iomem	*port_reg;
 	int			hw_portnum;
 	int			hcd_portnum;
 	struct xhci_hub		*rhub;
@@ -1509,7 +1509,6 @@ struct xhci_hcd {
 	struct xhci_doorbell_array __iomem *dba;
 
 	/* Cached register copies of read-only HC data */
-	__u32		hcs_params1;
 	__u32		hcs_params2;
 	__u32		hcs_params3;
 	__u32		hcc_params;
@@ -1520,6 +1519,8 @@ struct xhci_hcd {
 	/* packed release number */
 	u16		hci_version;
 	u16		max_interrupters;
+	u8		max_slots;
+	u8		max_ports;
 	/* imod_interval in ns (I * 250ns) */
 	u32		imod_interval;
 	u32		page_size;
@@ -1535,9 +1536,9 @@ struct xhci_hcd {
 	struct xhci_interrupter **interrupters;
 	struct xhci_ring	*cmd_ring;
 	unsigned int            cmd_ring_state;
-#define CMD_RING_STATE_RUNNING         (1 << 0)
-#define CMD_RING_STATE_ABORTED         (1 << 1)
-#define CMD_RING_STATE_STOPPED         (1 << 2)
+#define CMD_RING_STATE_RUNNING         BIT(0)
+#define CMD_RING_STATE_ABORTED         BIT(1)
+#define CMD_RING_STATE_STOPPED         BIT(2)
 	struct list_head        cmd_list;
 	unsigned int		cmd_ring_reserved_trbs;
 	struct delayed_work	cmd_timer;
@@ -1578,9 +1579,9 @@ struct xhci_hcd {
  *
  * There are no reports of xHCI host controllers that display this issue.
  */
-#define XHCI_STATE_DYING	(1 << 0)
-#define XHCI_STATE_HALTED	(1 << 1)
-#define XHCI_STATE_REMOVING	(1 << 2)
+#define XHCI_STATE_DYING	BIT(0)
+#define XHCI_STATE_HALTED	BIT(1)
+#define XHCI_STATE_REMOVING	BIT(2)
 	unsigned long long	quirks;
 #define	XHCI_LINK_TRB_QUIRK	BIT_ULL(0)
 #define XHCI_RESET_EP_QUIRK	BIT_ULL(1) /* Deprecated */
@@ -1792,6 +1793,7 @@ void xhci_dbg_trace(struct xhci_hcd *xhci, void (*trace)(struct va_format *),
 void xhci_mem_cleanup(struct xhci_hcd *xhci);
 int xhci_mem_init(struct xhci_hcd *xhci, gfp_t flags);
 void xhci_free_virt_device(struct xhci_hcd *xhci, struct xhci_virt_device *dev, int slot_id);
+void xhci_free_virt_devices_depth_first(struct xhci_hcd *xhci, int slot_id);
 int xhci_alloc_virt_device(struct xhci_hcd *xhci, int slot_id, struct usb_device *udev, gfp_t flags);
 int xhci_setup_addressable_virt_dev(struct xhci_hcd *xhci, struct usb_device *udev);
 void xhci_copy_ep0_dequeue_into_input_ctx(struct xhci_hcd *xhci,
@@ -1803,6 +1805,7 @@ void xhci_update_tt_active_eps(struct xhci_hcd *xhci,
 		struct xhci_virt_device *virt_dev,
 		int old_active_eps);
 void xhci_clear_endpoint_bw_info(struct xhci_bw_info *bw_info);
+void xhci_rh_bw_cleanup(struct xhci_hcd *xhci);
 void xhci_update_bw_info(struct xhci_hcd *xhci,
 		struct xhci_container_ctx *in_ctx,
 		struct xhci_input_control_ctx *ctrl_ctx,
@@ -1823,6 +1826,7 @@ void xhci_ring_free(struct xhci_hcd *xhci, struct xhci_ring *ring);
 int xhci_ring_expansion(struct xhci_hcd *xhci, struct xhci_ring *ring,
 		unsigned int num_trbs, gfp_t flags);
 void xhci_initialize_ring_info(struct xhci_ring *ring);
+void xhci_ring_init(struct xhci_hcd *xhci, struct xhci_ring *ring);
 void xhci_free_endpoint_ring(struct xhci_hcd *xhci,
 		struct xhci_virt_device *virt_dev,
 		unsigned int ep_index);
@@ -1958,6 +1962,10 @@ void xhci_update_erst_dequeue(struct xhci_hcd *xhci,
 			      struct xhci_interrupter *ir,
 			      bool clear_ehb);
 void xhci_add_interrupter(struct xhci_hcd *xhci, unsigned int intr_num);
+int xhci_usb_endpoint_maxp(struct usb_device *udev,
+			   struct usb_host_endpoint *host_ep);
+void xhci_portsc_writel(struct xhci_port *port, u32 val);
+u32 xhci_portsc_readl(struct xhci_port *port);
 
 /* xHCI roothub code */
 void xhci_set_link_state(struct xhci_hcd *xhci, struct xhci_port *port,
@@ -2396,25 +2404,48 @@ static inline const char *xhci_decode_portsc(char *str, u32 portsc)
 	if (portsc == ~(u32)0)
 		return str;
 
-	ret += sprintf(str + ret, "%s %s %s Link:%s PortSpeed:%d ",
-		      portsc & PORT_POWER	? "Powered" : "Powered-off",
-		      portsc & PORT_CONNECT	? "Connected" : "Not-connected",
-		      portsc & PORT_PE		? "Enabled" : "Disabled",
-		      xhci_portsc_link_state_string(portsc),
-		      DEV_PORT_SPEED(portsc));
+	ret += sprintf(str + ret, "Speed=%d ", DEV_PORT_SPEED(portsc));
+	ret += sprintf(str + ret, "Link=%s ", xhci_portsc_link_state_string(portsc));
 
+	/* RO/ROS: Read-only */
+	if (portsc & PORT_CONNECT)
+		ret += sprintf(str + ret, "CCS ");
 	if (portsc & PORT_OC)
-		ret += sprintf(str + ret, "OverCurrent ");
-	if (portsc & PORT_RESET)
-		ret += sprintf(str + ret, "In-Reset ");
+		ret += sprintf(str + ret, "OCA "); /* No set for USB2 ports */
+	if (portsc & PORT_CAS)
+		ret += sprintf(str + ret, "CAS ");
+	if (portsc & PORT_DEV_REMOVE)
+		ret += sprintf(str + ret, "DR ");
 
-	ret += sprintf(str + ret, "Change: ");
+	/* RWS; writing 1 sets the bit, writing 0 clears the bit. */
+	if (portsc & PORT_POWER)
+		ret += sprintf(str + ret, "PP ");
+	if (portsc & PORT_WKCONN_E)
+		ret += sprintf(str + ret, "WCE ");
+	if (portsc & PORT_WKDISC_E)
+		ret += sprintf(str + ret, "WDE ");
+	if (portsc & PORT_WKOC_E)
+		ret += sprintf(str + ret, "WOE ");
+
+	/* RW; writing 1 sets the bit, writing 0 clears the bit */
+	if (portsc & PORT_LINK_STROBE)
+		ret += sprintf(str + ret, "LWS "); /* LWS 0 write is ignored */
+
+	/* RW1S; writing 1 sets the bit, writing 0 has no effect */
+	if (portsc & PORT_RESET)
+		ret += sprintf(str + ret, "PR ");
+	if (portsc & PORT_WR)
+		ret += sprintf(str + ret, "WPR "); /* RsvdZ for USB2 ports */
+
+	/* RW1CS; writing 1 clears the bit, writing 0 has no effect. */
+	if (portsc & PORT_PE)
+		ret += sprintf(str + ret, "PED ");
 	if (portsc & PORT_CSC)
 		ret += sprintf(str + ret, "CSC ");
 	if (portsc & PORT_PEC)
-		ret += sprintf(str + ret, "PEC ");
+		ret += sprintf(str + ret, "PEC "); /* No set for USB3 ports */
 	if (portsc & PORT_WRC)
-		ret += sprintf(str + ret, "WRC ");
+		ret += sprintf(str + ret, "WRC "); /* RsvdZ for USB2 ports */
 	if (portsc & PORT_OCC)
 		ret += sprintf(str + ret, "OCC ");
 	if (portsc & PORT_RC)
@@ -2422,17 +2453,7 @@ static inline const char *xhci_decode_portsc(char *str, u32 portsc)
 	if (portsc & PORT_PLC)
 		ret += sprintf(str + ret, "PLC ");
 	if (portsc & PORT_CEC)
-		ret += sprintf(str + ret, "CEC ");
-	if (portsc & PORT_CAS)
-		ret += sprintf(str + ret, "CAS ");
-
-	ret += sprintf(str + ret, "Wake: ");
-	if (portsc & PORT_WKCONN_E)
-		ret += sprintf(str + ret, "WCE ");
-	if (portsc & PORT_WKDISC_E)
-		ret += sprintf(str + ret, "WDE ");
-	if (portsc & PORT_WKOC_E)
-		ret += sprintf(str + ret, "WOE ");
+		ret += sprintf(str + ret, "CEC "); /* RsvdZ for USB2 ports */
 
 	return str;
 }

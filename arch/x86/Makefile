@@ -13,8 +13,8 @@ else
 endif
 
 ifdef CONFIG_CC_IS_GCC
-RETPOLINE_CFLAGS	:= $(call cc-option,-mindirect-branch=thunk-extern -mindirect-branch-register)
-RETPOLINE_VDSO_CFLAGS	:= $(call cc-option,-mindirect-branch=thunk-inline -mindirect-branch-register)
+RETPOLINE_CFLAGS	:= -mindirect-branch=thunk-extern -mindirect-branch-register
+RETPOLINE_VDSO_CFLAGS	:= -mindirect-branch=thunk-inline -mindirect-branch-register
 endif
 ifdef CONFIG_CC_IS_CLANG
 RETPOLINE_CFLAGS	:= -mretpoline-external-thunk
@@ -37,17 +37,19 @@ export RETPOLINE_VDSO_CFLAGS
 
 # For gcc stack alignment is specified with -mpreferred-stack-boundary,
 # clang has the option -mstack-alignment for that purpose.
-ifneq ($(call cc-option, -mpreferred-stack-boundary=4),)
+ifdef CONFIG_CC_IS_GCC
       cc_stack_align4 := -mpreferred-stack-boundary=2
       cc_stack_align8 := -mpreferred-stack-boundary=3
-else ifneq ($(call cc-option, -mstack-alignment=16),)
+endif
+ifdef CONFIG_CC_IS_CLANG
       cc_stack_align4 := -mstack-alignment=4
       cc_stack_align8 := -mstack-alignment=8
 endif
 
 # How to compile the 16-bit code.  Note we always compile for -march=i386;
 # that way we can complain to the user if the CPU is insufficient.
-REALMODE_CFLAGS	:= -std=gnu11 -m16 -g -Os -DDISABLE_BRANCH_PROFILING -D__DISABLE_EXPORTS \
+REALMODE_CFLAGS	:= $(CC_FLAGS_DIALECT) -m16 -g -Os \
+		   -DDISABLE_BRANCH_PROFILING -D__DISABLE_EXPORTS \
 		   -Wall -Wstrict-prototypes -march=i386 -mregparm=3 \
 		   -fno-strict-aliasing -fomit-frame-pointer -fno-pic \
 		   -mno-mmx -mno-sse $(call cc-option,-fcf-protection=none)
@@ -57,9 +59,6 @@ REALMODE_CFLAGS += -fno-stack-protector
 REALMODE_CFLAGS += -Wno-address-of-packed-member
 REALMODE_CFLAGS += $(cc_stack_align4)
 REALMODE_CFLAGS += $(CLANG_FLAGS)
-ifdef CONFIG_CC_IS_CLANG
-REALMODE_CFLAGS += -Wno-gnu
-endif
 export REALMODE_CFLAGS
 
 # BITS is used as extension for files which are available in a 32 bit
@@ -74,7 +73,7 @@ export BITS
 #
 #    https://gcc.gnu.org/bugzilla/show_bug.cgi?id=53383
 #
-KBUILD_CFLAGS += -mno-sse -mno-mmx -mno-sse2 -mno-3dnow -mno-avx
+KBUILD_CFLAGS += -mno-sse -mno-mmx -mno-sse2 -mno-3dnow -mno-avx -mno-sse4a
 KBUILD_RUSTFLAGS += --target=$(objtree)/scripts/target.json
 KBUILD_RUSTFLAGS += -Ctarget-feature=-sse,-sse2,-sse3,-ssse3,-sse4.1,-sse4.2,-avx,-avx2
 
@@ -83,19 +82,7 @@ KBUILD_RUSTFLAGS += -Ctarget-feature=-sse,-sse2,-sse3,-ssse3,-sse4.1,-sse4.2,-av
 #
 CC_FLAGS_FPU := -msse -msse2
 ifdef CONFIG_CC_IS_GCC
-# Stack alignment mismatch, proceed with caution.
-# GCC < 7.1 cannot compile code using `double` and -mpreferred-stack-boundary=3
-# (8B stack alignment).
-# See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=53383
-#
-# The "-msse" in the first argument is there so that the
-# -mpreferred-stack-boundary=3 build error:
-#
-#  -mpreferred-stack-boundary=3 is not between 4 and 12
-#
-# can be triggered. Otherwise gcc doesn't complain.
 CC_FLAGS_FPU += -mhard-float
-CC_FLAGS_FPU += $(call cc-option,-msse -mpreferred-stack-boundary=3,-mpreferred-stack-boundary=4)
 endif
 
 ifeq ($(CONFIG_X86_KERNEL_IBT),y)
@@ -109,7 +96,7 @@ ifeq ($(CONFIG_X86_KERNEL_IBT),y)
 #   https://gcc.gnu.org/bugzilla/show_bug.cgi?id=104816
 #
 KBUILD_CFLAGS += $(call cc-option,-fcf-protection=branch -fno-jump-tables)
-KBUILD_RUSTFLAGS += -Zcf-protection=branch -Zno-jump-tables
+KBUILD_RUSTFLAGS += -Zcf-protection=branch $(if $(call rustc-min-version,109300),-Cjump-tables=n,-Zno-jump-tables)
 else
 KBUILD_CFLAGS += $(call cc-option,-fcf-protection=none)
 endif
@@ -159,7 +146,7 @@ else
 
         # Don't autogenerate traditional x87 instructions
         KBUILD_CFLAGS += -mno-80387
-        KBUILD_CFLAGS += $(call cc-option,-mno-fp-ret-in-387)
+        KBUILD_CFLAGS += -mno-fp-ret-in-387
 
         # By default gcc and clang use a stack alignment of 16 bytes for x86.
         # However the standard kernel entry on x86-64 leaves the stack on an
@@ -171,7 +158,7 @@ else
         KBUILD_CFLAGS += $(cc_stack_align8)
 
 	# Use -mskip-rax-setup if supported.
-	KBUILD_CFLAGS += $(call cc-option,-mskip-rax-setup)
+	KBUILD_CFLAGS += -mskip-rax-setup
 
 ifdef CONFIG_X86_NATIVE_CPU
         KBUILD_CFLAGS += -march=native
@@ -261,7 +248,7 @@ endif
 
 
 archscripts: scripts_basic
-	$(Q)$(MAKE) $(build)=arch/x86/tools relocs
+	$(Q)$(MAKE) $(build)=arch/x86/tools relocs vdso2c
 
 ###
 # Syscall table generation
@@ -286,7 +273,6 @@ archprepare: $(cpufeaturemasks.hdr)
 ###
 # Kernel objects
 
-core-y  += arch/x86/boot/startup/
 libs-y  += arch/x86/lib/
 
 # drivers-y are linked after core-y
@@ -328,9 +314,9 @@ PHONY += install
 install:
 	$(call cmd,install)
 
-vdso-install-$(CONFIG_X86_64)		+= arch/x86/entry/vdso/vdso64.so.dbg
-vdso-install-$(CONFIG_X86_X32_ABI)	+= arch/x86/entry/vdso/vdsox32.so.dbg
-vdso-install-$(CONFIG_COMPAT_32)	+= arch/x86/entry/vdso/vdso32.so.dbg
+vdso-install-$(CONFIG_X86_64)	   += arch/x86/entry/vdso/vdso64/vdso64.so.dbg
+vdso-install-$(CONFIG_X86_X32_ABI) += arch/x86/entry/vdso/vdso64/vdsox32.so.dbg
+vdso-install-$(CONFIG_COMPAT_32)   += arch/x86/entry/vdso/vdso32/vdso32.so.dbg
 
 archprepare: checkbin
 checkbin:

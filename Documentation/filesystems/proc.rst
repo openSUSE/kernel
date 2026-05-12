@@ -48,7 +48,7 @@ fixes/update part 1.1  Stefani Seibold <stefani@seibold.net>    June 9 2009
   3.11	/proc/<pid>/patch_state - Livepatch patch operation state
   3.12	/proc/<pid>/arch_status - Task architecture specific information
   3.13  /proc/<pid>/fd - List of symlinks to open files
-  3.14  /proc/<pid/ksm_stat - Information about the process's ksm status.
+  3.14  /proc/<pid>/ksm_stat - Information about the process's ksm status.
 
   4	Configuring procfs
   4.1	Mount options
@@ -61,19 +61,6 @@ Preface
 0.1 Introduction/Credits
 ------------------------
 
-This documentation is  part of a soon (or  so we hope) to be  released book on
-the SuSE  Linux distribution. As  there is  no complete documentation  for the
-/proc file system and we've used  many freely available sources to write these
-chapters, it  seems only fair  to give the work  back to the  Linux community.
-This work is  based on the 2.2.*  kernel version and the  upcoming 2.4.*. I'm
-afraid it's still far from complete, but we  hope it will be useful. As far as
-we know, it is the first 'all-in-one' document about the /proc file system. It
-is focused  on the Intel  x86 hardware,  so if you  are looking for  PPC, ARM,
-SPARC, AXP, etc., features, you probably  won't find what you are looking for.
-It also only covers IPv4 networking, not IPv6 nor other protocols - sorry. But
-additions and patches  are welcome and will  be added to this  document if you
-mail them to Bodo.
-
 We'd like  to  thank Alan Cox, Rik van Riel, and Alexey Kuznetsov and a lot of
 other people for help compiling this documentation. We'd also like to extend a
 special thank  you to Andi Kleen for documentation, which we relied on heavily
@@ -81,16 +68,8 @@ to create  this  document,  as well as the additional information he provided.
 Thanks to  everybody  else  who contributed source or docs to the Linux kernel
 and helped create a great piece of software... :)
 
-If you  have  any comments, corrections or additions, please don't hesitate to
-contact Bodo  Bauer  at  bb@ricochet.net.  We'll  be happy to add them to this
-document.
-
 The   latest   version    of   this   document   is    available   online   at
 https://www.kernel.org/doc/html/latest/filesystems/proc.html
-
-If  the above  direction does  not works  for you,  you could  try the  kernel
-mailing  list  at  linux-kernel@vger.kernel.org  and/or try  to  reach  me  at
-comandante@zaralinux.com.
 
 0.2 Legal Stuff
 ---------------
@@ -291,8 +270,9 @@ It's slow but very precise.
  HugetlbPages                size of hugetlb memory portions
  CoreDumping                 process's memory is currently being dumped
                              (killing the process may lead to a corrupted core)
- THP_enabled		     process is allowed to use THP (returns 0 when
-			     PR_SET_THP_DISABLE is set on the process
+ THP_enabled                 process is allowed to use THP (returns 0 when
+                             PR_SET_THP_DISABLE is set on the process to disable
+                             THP completely, not just partially)
  Threads                     number of threads
  SigQ                        number of signals queued/max. number for queue
  SigPnd                      bitmap of pending signals for the thread
@@ -484,26 +464,37 @@ Memory Area, or VMA) there is a series of lines such as the following::
     KSM:                   0 kB
     LazyFree:              0 kB
     AnonHugePages:         0 kB
+    FilePmdMapped:         0 kB
     ShmemPmdMapped:        0 kB
     Shared_Hugetlb:        0 kB
     Private_Hugetlb:       0 kB
     Swap:                  0 kB
     SwapPss:               0 kB
-    KernelPageSize:        4 kB
-    MMUPageSize:           4 kB
     Locked:                0 kB
     THPeligible:           0
     VmFlags: rd ex mr mw me dw
 
 The first of these lines shows the same information as is displayed for
 the mapping in /proc/PID/maps.  Following lines show the size of the
-mapping (size); the size of each page allocated when backing a VMA
-(KernelPageSize), which is usually the same as the size in the page table
-entries; the page size used by the MMU when backing a VMA (in most cases,
-the same as KernelPageSize); the amount of the mapping that is currently
-resident in RAM (RSS); the process's proportional share of this mapping
-(PSS); and the number of clean and dirty shared and private pages in the
-mapping.
+mapping (size); the smallest possible page size allocated when backing a
+VMA (KernelPageSize), which is the granularity in which VMA modifications
+can be performed; the smallest possible page size that could be used by the
+MMU (MMUPageSize) when backing a VMA; the amount of the mapping that is
+currently resident in RAM (RSS); the process's proportional share of this
+mapping (PSS); and the number of clean and dirty shared and private pages
+in the mapping.
+
+"KernelPageSize" always corresponds to "MMUPageSize", except when a larger
+kernel page size is emulated on a system with a smaller page size used by the
+MMU, which is the case for some PPC64 setups with hugetlb.  Furthermore,
+"KernelPageSize" and "MMUPageSize" always correspond to the smallest
+possible granularity (fallback) that can be encountered in a VMA throughout
+its lifetime.  These values are not affected by Transparent Huge Pages
+being in effect, or any usage of larger MMU page sizes (either through
+architectural huge-page mappings or other explicit/implicit coalescing of
+virtual ranges performed by the MMU).  "AnonHugePages", "ShmemPmdMapped" and
+"FilePmdMapped" provide insight into the usage of PMD-level architectural
+huge-page mappings.
 
 The "proportional set size" (PSS) of a process is the count of pages it has
 in memory, where each page is divided by the number of processes sharing it.
@@ -548,10 +539,15 @@ pressure if the memory is clean. Please note that the printed value might
 be lower than the real value due to optimizations used in the current
 implementation. If this is not desirable please file a bug report.
 
-"AnonHugePages" shows the amount of memory backed by transparent hugepage.
+"AnonHugePages", "ShmemPmdMapped" and "FilePmdMapped" show the amount of
+memory backed by Transparent Huge Pages that are currently mapped by
+architectural huge-page mappings at the PMD level. "AnonHugePages"
+corresponds to memory that does not belong to a file, "ShmemPmdMapped" to
+shared memory (shmem/tmpfs) and "FilePmdMapped" to file-backed memory
+(excluding shmem/tmpfs).
 
-"ShmemPmdMapped" shows the amount of shared (shmem/tmpfs) memory backed by
-huge pages.
+There are no dedicated entries for Transparent Huge Pages (or similar concepts)
+that are not mapped by architectural huge-page mappings at the PMD level.
 
 "Shared_Hugetlb" and "Private_Hugetlb" show the amounts of memory backed by
 hugetlbfs page which is *not* counted in "RSS" or "PSS" field for historical
@@ -569,11 +565,15 @@ does not take into account swapped out page of underlying shmem objects.
 naturally aligned THP pages of any currently enabled size. 1 if true, 0
 otherwise.
 
+If both the kernel and the CPU support protection keys (pkeys),
+"ProtectionKey" indicates the memory protection key associated with the
+virtual memory area.
+
 "VmFlags" field deserves a separate description. This member represents the
 kernel flags associated with the particular virtual memory area in two letter
 encoded manner. The codes are the following:
 
-    ==    =======================================
+    ==    =============================================================
     rd    readable
     wr    writeable
     ex    executable
@@ -611,7 +611,8 @@ encoded manner. The codes are the following:
     sl    sealed
     lf    lock on fault pages
     dp    always lazily freeable mapping
-    ==    =======================================
+    gu    maybe contains guard regions (if not set, definitely doesn't)
+    ==    =============================================================
 
 Note that there is no guarantee that every flag and associated mnemonic will
 be present in all further kernel releases. Things get changed, the flags may
@@ -746,7 +747,7 @@ files are there, and which are missing.
               in the kernel image
  cpuinfo      Info about the CPU
  devices      Available devices (block and character)
- dma          Used DMS channels
+ dma          Used DMA channels
  filesystems  Supported filesystems
  driver       Various drivers grouped here, currently rtc	(2.4)
  execdomains  Execdomains, related to security			(2.4)
@@ -880,14 +881,13 @@ i386 and x86_64 platforms support the new IRQ vector displays.
 Of some interest is the introduction of the /proc/irq directory to 2.4.
 It could be used to set IRQ to CPU affinity. This means that you can "hook" an
 IRQ to only one CPU, or to exclude a CPU of handling IRQs. The contents of the
-irq subdir is one subdir for each IRQ, and two files; default_smp_affinity and
-prof_cpu_mask.
+irq subdir is one subdir for each IRQ, and default_smp_affinity.
 
 For example::
 
   > ls /proc/irq/
-  0  10  12  14  16  18  2  4  6  8  prof_cpu_mask
-  1  11  13  15  17  19  3  5  7  9  default_smp_affinity
+  0  10  12  14  16  18  2  4  6  8  default_smp_affinity
+  1  11  13  15  17  19  3  5  7  9
   > ls /proc/irq/0/
   smp_affinity
 
@@ -917,9 +917,6 @@ IRQs which have not yet been allocated/activated, and hence which lack a
 The node file on an SMP system shows the node to which the device using the IRQ
 reports itself as being attached. This hardware locality information does not
 include information about any possible driver locality preference.
-
-prof_cpu_mask specifies which CPUs are to be profiled by the system wide
-profiler. Default value is ffffffff (all CPUs if there are only 32 of them).
 
 The way IRQs are routed is handled by the IO-APIC, and it's Round Robin
 between all the CPUs which are allowed to handle it. As usual the kernel has
@@ -1008,6 +1005,19 @@ number, module (if originates from a loadable module) and the function calling
 the allocation. The number of bytes allocated and number of calls at each
 location are reported. The first line indicates the version of the file, the
 second line is the header listing fields in the file.
+If file version is 2.0 or higher then each line may contain additional
+<key>:<value> pairs representing extra information about the call site.
+For example if the counters are not accurate, the line will be appended with
+"accurate:no" pair.
+
+Supported markers in v2:
+accurate:no
+
+              Absolute values of the counters in this line are not accurate
+              because of the failure to allocate memory to track some of the
+              allocations made at this location.  Deltas in these counters are
+              accurate, therefore counters can be used to track allocation size
+              and count changes.
 
 Example output.
 
@@ -1095,6 +1105,8 @@ Example output. You may not have all of these fields.
     CmaFree:               0 kB
     Unaccepted:            0 kB
     Balloon:               0 kB
+    GPUActive:             0 kB
+    GPUReclaim:            0 kB
     HugePages_Total:       0
     HugePages_Free:        0
     HugePages_Rsvd:        0
@@ -1275,6 +1287,12 @@ Unaccepted
               Memory that has not been accepted by the guest
 Balloon
               Memory returned to Host by VM Balloon Drivers
+GPUActive
+              System memory allocated to active GPU objects
+GPUReclaim
+              System memory stored in GPU pools for reuse. This memory is not
+              counted in GPUActive. It is shrinker reclaimable memory kept in a reuse
+              pool because it has non-standard page table attributes, like WC or UC.
 HugePages_Total, HugePages_Free, HugePages_Rsvd, HugePages_Surp, Hugepagesize, Hugetlb
               See Documentation/admin-guide/mm/hugetlbpage.rst.
 DirectMap4k, DirectMap2M, DirectMap1G
@@ -2166,6 +2184,20 @@ DMA Buffer files
 where 'size' is the size of the DMA buffer in bytes. 'count' is the file count of
 the DMA buffer file. 'exp_name' is the name of the DMA buffer exporter.
 
+VFIO Device files
+~~~~~~~~~~~~~~~~~
+
+::
+
+	pos:    0
+	flags:  02000002
+	mnt_id: 17
+	ino:    5122
+	vfio-device-syspath: /sys/devices/pci0000:e0/0000:e0:01.1/0000:e1:00.0/0000:e2:05.0/0000:e8:00.0
+
+where 'vfio-device-syspath' is the sysfs path corresponding to the VFIO device
+file.
+
 3.9	/proc/<pid>/map_files - Information about memory mapped files
 ---------------------------------------------------------------------
 This directory contains symbolic links which represent memory mapped files
@@ -2281,8 +2313,8 @@ The number of open files for the process is stored in 'size' member
 of stat() output for /proc/<pid>/fd for fast access.
 -------------------------------------------------------
 
-3.14 /proc/<pid/ksm_stat - Information about the process's ksm status
----------------------------------------------------------------------
+3.14 /proc/<pid>/ksm_stat - Information about the process's ksm status
+----------------------------------------------------------------------
 When CONFIG_KSM is enabled, each process has this file which displays
 the information of ksm merging status.
 
@@ -2362,6 +2394,7 @@ The following mount options are supported:
 	hidepid=	Set /proc/<pid>/ access mode.
 	gid=		Set the group authorized to learn processes information.
 	subset=		Show only the specified subset of procfs.
+	pidns=		Specify a the namespace used by this procfs.
 	=========	========================================================
 
 hidepid=off or hidepid=0 means classic mode - everybody may access all
@@ -2393,6 +2426,13 @@ information about processes information, just add identd to this group.
 
 subset=pid hides all top level files and directories in the procfs that
 are not related to tasks.
+
+pidns= specifies a pid namespace (either as a string path to something like
+`/proc/$pid/ns/pid`, or a file descriptor when using `FSCONFIG_SET_FD`) that
+will be used by the procfs instance when translating pids. By default, procfs
+will use the calling process's active pid namespace. Note that the pid
+namespace of an existing procfs instance cannot be modified (attempting to do
+so will give an `-EBUSY` error).
 
 Chapter 5: Filesystem behavior
 ==============================

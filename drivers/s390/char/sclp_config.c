@@ -3,8 +3,7 @@
  *    Copyright IBM Corp. 2007
  */
 
-#define KMSG_COMPONENT "sclp_config"
-#define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
+#define pr_fmt(fmt) "sclp_config: " fmt
 
 #include <linux/init.h>
 #include <linux/errno.h>
@@ -81,14 +80,11 @@ static void sclp_conf_receiver_fn(struct evbuf_header *evbuf)
 
 static struct sclp_register sclp_conf_register =
 {
-#ifdef CONFIG_SCLP_OFB
 	.send_mask    = EVTYP_CONFMGMDATA_MASK,
-#endif
 	.receive_mask = EVTYP_CONFMGMDATA_MASK,
 	.receiver_fn  = sclp_conf_receiver_fn,
 };
 
-#ifdef CONFIG_SCLP_OFB
 static int sclp_ofb_send_req(char *ev_data, size_t len)
 {
 	static DEFINE_MUTEX(send_mutex);
@@ -144,11 +140,9 @@ static const struct bin_attribute ofb_bin_attr = {
 	},
 	.write = sysfs_ofb_data_write,
 };
-#endif
 
 static int __init sclp_ofb_setup(void)
 {
-#ifdef CONFIG_SCLP_OFB
 	struct kset *ofb_kset;
 	int rc;
 
@@ -160,7 +154,6 @@ static int __init sclp_ofb_setup(void)
 		kset_unregister(ofb_kset);
 		return rc;
 	}
-#endif
 	return 0;
 }
 

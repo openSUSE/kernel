@@ -3,7 +3,7 @@
  * Copyright (c) 2000-2005 Silicon Graphics, Inc.
  * All Rights Reserved.
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -37,10 +37,15 @@
 #include "xfs_ioctl.h"
 #include "xfs_xattr.h"
 #include "xfs_rtbitmap.h"
+#include "xfs_rtrmap_btree.h"
 #include "xfs_file.h"
 #include "xfs_exchrange.h"
 #include "xfs_handle.h"
 #include "xfs_rtgroup.h"
+#include "xfs_healthmon.h"
+#include "xfs_verify_media.h"
+#include "xfs_zone_priv.h"
+#include "xfs_zone_alloc.h"
 
 #include <linux/mount.h>
 #include <linux/fileattr.h>
@@ -411,6 +416,7 @@ xfs_ioc_rtgroup_geometry(
 {
 	struct xfs_rtgroup	*rtg;
 	struct xfs_rtgroup_geometry rgeo;
+	xfs_rgblock_t		highest_rgbno;
 	int			error;
 
 	if (copy_from_user(&rgeo, arg, sizeof(rgeo)))
@@ -430,6 +436,21 @@ xfs_ioc_rtgroup_geometry(
 	xfs_rtgroup_put(rtg);
 	if (error)
 		return error;
+
+	if (xfs_has_zoned(mp)) {
+		xfs_rtgroup_lock(rtg, XFS_RTGLOCK_RMAP);
+		if (rtg->rtg_open_zone) {
+			rgeo.rg_writepointer = rtg->rtg_open_zone->oz_allocated;
+		} else {
+			highest_rgbno = xfs_rtrmap_highest_rgbno(rtg);
+			if (highest_rgbno == NULLRGBLOCK)
+				rgeo.rg_writepointer = 0;
+			else
+				rgeo.rg_writepointer = highest_rgbno + 1;
+		}
+		xfs_rtgroup_unlock(rtg, XFS_RTGLOCK_RMAP);
+		rgeo.rg_flags |= XFS_RTGROUP_GEOM_WRITEPOINTER;
+	}
 
 	if (copy_to_user(arg, &rgeo, sizeof(rgeo)))
 		return -EFAULT;
@@ -511,9 +532,6 @@ xfs_fileattr_get(
 	struct file_kattr	*fa)
 {
 	struct xfs_inode	*ip = XFS_I(d_inode(dentry));
-
-	if (d_is_special(dentry))
-		return -ENOTTY;
 
 	xfs_ilock(ip, XFS_ILOCK_SHARED);
 	xfs_fill_fsxattr(ip, XFS_DATA_FORK, fa);
@@ -736,9 +754,6 @@ xfs_fileattr_set(
 
 	trace_xfs_ioctl_setattr(ip);
 
-	if (d_is_special(dentry))
-		return -ENOTTY;
-
 	if (!fa->fsx_valid) {
 		if (fa->flags & ~(FS_IMMUTABLE_FL | FS_APPEND_FL |
 				  FS_NOATIME_FL | FS_NODUMP_FL |
@@ -900,7 +915,7 @@ xfs_ioc_getbmap(
 	if (bmx.bmv_count >= INT_MAX / recsize)
 		return -ENOMEM;
 
-	buf = kvcalloc(bmx.bmv_count, sizeof(*buf), GFP_KERNEL);
+	buf = kvzalloc_objs(*buf, bmx.bmv_count);
 	if (!buf)
 		return -ENOMEM;
 
@@ -1209,21 +1224,21 @@ xfs_file_ioctl(
 				current->comm);
 		return -ENOTTY;
 	case XFS_IOC_DIOINFO: {
-		struct xfs_buftarg	*target = xfs_inode_buftarg(ip);
+		struct kstat		st;
 		struct dioattr		da;
 
-		da.d_mem = target->bt_logical_sectorsize;
+		error = vfs_getattr(&filp->f_path, &st, STATX_DIOALIGN, 0);
+		if (error)
+			return error;
 
 		/*
-		 * See xfs_report_dioalign() for an explanation about why this
-		 * reports a value larger than the sector size for COW inodes.
+		 * Some userspace directly feeds the return value to
+		 * posix_memalign, which fails for values that are smaller than
+		 * the pointer size.  Round up the value to not break userspace.
 		 */
-		if (xfs_is_cow_inode(ip))
-			da.d_miniosz = xfs_inode_alloc_unitsize(ip);
-		else
-			da.d_miniosz = target->bt_logical_sectorsize;
+		da.d_mem = roundup(st.dio_mem_align, sizeof(void *));
+		da.d_miniosz = st.dio_offset_align;
 		da.d_maxiosz = INT_MAX & ~(da.d_miniosz - 1);
-
 		if (copy_to_user(arg, &da, sizeof(da)))
 			return -EFAULT;
 		return 0;
@@ -1414,10 +1429,8 @@ xfs_file_ioctl(
 
 		trace_xfs_ioc_free_eofblocks(mp, &icw, _RET_IP_);
 
-		sb_start_write(mp->m_super);
-		error = xfs_blockgc_free_space(mp, &icw);
-		sb_end_write(mp->m_super);
-		return error;
+		guard(super_write)(mp->m_super);
+		return xfs_blockgc_free_space(mp, &icw);
 	}
 
 	case XFS_IOC_EXCHANGE_RANGE:
@@ -1426,6 +1439,11 @@ xfs_file_ioctl(
 		return xfs_ioc_start_commit(filp, arg);
 	case XFS_IOC_COMMIT_RANGE:
 		return xfs_ioc_commit_range(filp, arg);
+
+	case XFS_IOC_HEALTH_MONITOR:
+		return xfs_ioc_health_monitor(filp, arg);
+	case XFS_IOC_VERIFY_MEDIA:
+		return xfs_ioc_verify_media(filp, arg);
 
 	default:
 		return -ENOTTY;

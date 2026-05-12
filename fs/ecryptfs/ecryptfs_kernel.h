@@ -14,12 +14,14 @@
 #ifndef ECRYPTFS_KERNEL_H
 #define ECRYPTFS_KERNEL_H
 
+#include <crypto/md5.h>
 #include <crypto/skcipher.h>
 #include <keys/user-type.h>
 #include <keys/encrypted-type.h>
 #include <linux/kernel.h>
 #include <linux/fs.h>
 #include <linux/fs_stack.h>
+#include <linux/hex.h>
 #include <linux/namei.h>
 #include <linux/scatterlist.h>
 #include <linux/hash.h>
@@ -137,8 +139,6 @@ ecryptfs_get_key_payload_data(struct key *key)
 					+ MAGIC_ECRYPTFS_MARKER_SIZE_BYTES)
 #define ECRYPTFS_DEFAULT_CIPHER "aes"
 #define ECRYPTFS_DEFAULT_KEY_BYTES 16
-#define ECRYPTFS_DEFAULT_HASH "md5"
-#define ECRYPTFS_TAG_70_DIGEST ECRYPTFS_DEFAULT_HASH
 #define ECRYPTFS_TAG_1_PACKET_TYPE 0x01
 #define ECRYPTFS_TAG_3_PACKET_TYPE 0x8C
 #define ECRYPTFS_TAG_11_PACKET_TYPE 0xED
@@ -163,8 +163,6 @@ ecryptfs_get_key_payload_data(struct key *key)
  * ECRYPTFS_MAX_IV_BYTES */
 #define ECRYPTFS_FILENAME_MIN_RANDOM_PREPEND_BYTES 16
 #define ECRYPTFS_NON_NULL 0x42 /* A reasonable substitute for NULL */
-#define MD5_DIGEST_SIZE 16
-#define ECRYPTFS_TAG_70_DIGEST_SIZE MD5_DIGEST_SIZE
 #define ECRYPTFS_TAG_70_MIN_METADATA_SIZE (1 + ECRYPTFS_MIN_PKT_LEN_SIZE \
 					   + ECRYPTFS_SIG_SIZE + 1 + 1)
 #define ECRYPTFS_TAG_70_MAX_METADATA_SIZE (1 + ECRYPTFS_MAX_PKT_LEN_SIZE \
@@ -237,8 +235,6 @@ struct ecryptfs_crypt_stat {
 	unsigned int extent_mask;
 	struct ecryptfs_mount_crypt_stat *mount_crypt_stat;
 	struct crypto_skcipher *tfm;
-	struct crypto_shash *hash_tfm; /* Crypto context for generating
-					* the initialization vectors */
 	unsigned char cipher[ECRYPTFS_MAX_CIPHER_NAME_SIZE + 1];
 	unsigned char key[ECRYPTFS_MAX_KEY_BYTES];
 	unsigned char root_iv[ECRYPTFS_MAX_IV_BYTES];
@@ -256,13 +252,6 @@ struct ecryptfs_inode_info {
 	atomic_t lower_file_count;
 	struct file *lower_file;
 	struct ecryptfs_crypt_stat crypt_stat;
-};
-
-/* dentry private data. Each dentry must keep track of a lower
- * vfsmount too. */
-struct ecryptfs_dentry_info {
-	struct path lower_path;
-	struct rcu_head rcu;
 };
 
 /**
@@ -348,6 +337,7 @@ struct ecryptfs_mount_crypt_stat {
 /* superblock private data. */
 struct ecryptfs_sb_info {
 	struct super_block *wsi_sb;
+	struct vfsmount *lower_mnt;
 	struct ecryptfs_mount_crypt_stat mount_crypt_stat;
 };
 
@@ -370,7 +360,7 @@ struct ecryptfs_message {
 	/* Inherits from msg_ctx->index */
 	u32 index;
 	u32 data_len;
-	u8 data[];
+	u8 data[] __counted_by(data_len);
 };
 
 struct ecryptfs_msg_ctx {
@@ -494,22 +484,25 @@ ecryptfs_set_superblock_lower(struct super_block *sb,
 }
 
 static inline void
-ecryptfs_set_dentry_private(struct dentry *dentry,
-			    struct ecryptfs_dentry_info *dentry_info)
+ecryptfs_set_dentry_lower(struct dentry *dentry,
+			  struct dentry *lower_dentry)
 {
-	dentry->d_fsdata = dentry_info;
+	dentry->d_fsdata = lower_dentry;
 }
 
 static inline struct dentry *
 ecryptfs_dentry_to_lower(struct dentry *dentry)
 {
-	return ((struct ecryptfs_dentry_info *)dentry->d_fsdata)->lower_path.dentry;
+	return dentry->d_fsdata;
 }
 
-static inline const struct path *
-ecryptfs_dentry_to_lower_path(struct dentry *dentry)
+static inline struct path
+ecryptfs_lower_path(struct dentry *dentry)
 {
-	return &((struct ecryptfs_dentry_info *)dentry->d_fsdata)->lower_path;
+	return (struct path){
+		.mnt = ecryptfs_superblock_to_private(dentry->d_sb)->lower_mnt,
+		.dentry = ecryptfs_dentry_to_lower(dentry)
+	};
 }
 
 #define ecryptfs_printk(type, fmt, arg...) \
@@ -532,7 +525,6 @@ extern unsigned int ecryptfs_number_of_users;
 
 extern struct kmem_cache *ecryptfs_auth_tok_list_item_cache;
 extern struct kmem_cache *ecryptfs_file_info_cache;
-extern struct kmem_cache *ecryptfs_dentry_info_cache;
 extern struct kmem_cache *ecryptfs_inode_info_cache;
 extern struct kmem_cache *ecryptfs_sb_info_cache;
 extern struct kmem_cache *ecryptfs_header_cache;
@@ -551,19 +543,17 @@ int ecryptfs_decode_and_decrypt_filename(char **decrypted_name,
 					 size_t *decrypted_name_size,
 					 struct super_block *sb,
 					 const char *name, size_t name_size);
-int ecryptfs_fill_zeros(struct file *file, loff_t new_length);
 int ecryptfs_encrypt_and_encode_filename(
 	char **encoded_name,
 	size_t *encoded_name_size,
 	struct ecryptfs_mount_crypt_stat *mount_crypt_stat,
 	const char *name, size_t name_size);
-struct dentry *ecryptfs_lower_dentry(struct dentry *this_dentry);
 void ecryptfs_dump_hex(char *data, int bytes);
 int virt_to_scatterlist(const void *addr, int size, struct scatterlist *sg,
 			int sg_size);
 int ecryptfs_compute_root_iv(struct ecryptfs_crypt_stat *crypt_stat);
 void ecryptfs_rotate_iv(unsigned char *iv);
-int ecryptfs_init_crypt_stat(struct ecryptfs_crypt_stat *crypt_stat);
+void ecryptfs_init_crypt_stat(struct ecryptfs_crypt_stat *crypt_stat);
 void ecryptfs_destroy_crypt_stat(struct ecryptfs_crypt_stat *crypt_stat);
 void ecryptfs_destroy_mount_crypt_stat(
 	struct ecryptfs_mount_crypt_stat *mount_crypt_stat);
@@ -582,7 +572,7 @@ int ecryptfs_read_and_validate_header_region(struct inode *inode);
 int ecryptfs_read_and_validate_xattr_region(struct dentry *dentry,
 					    struct inode *inode);
 u8 ecryptfs_code_for_cipher_string(char *cipher_name, size_t key_bytes);
-int ecryptfs_cipher_code_to_string(char *str, u8 cipher_code);
+int ecryptfs_cipher_code_to_string(char *str, size_t size, u8 cipher_code);
 void ecryptfs_set_default_sizes(struct ecryptfs_crypt_stat *crypt_stat);
 int ecryptfs_generate_key_packet_set(char *dest_base,
 				     struct ecryptfs_crypt_stat *crypt_stat,
@@ -698,8 +688,8 @@ ecryptfs_parse_tag_70_packet(char **filename, size_t *filename_size,
 			     char *data, size_t max_packet_size);
 int ecryptfs_set_f_namelen(long *namelen, long lower_namelen,
 			   struct ecryptfs_mount_crypt_stat *mount_crypt_stat);
-int ecryptfs_derive_iv(char *iv, struct ecryptfs_crypt_stat *crypt_stat,
-		       loff_t offset);
+void ecryptfs_derive_iv(char *iv, struct ecryptfs_crypt_stat *crypt_stat,
+			loff_t offset);
 
 extern const struct xattr_handler * const ecryptfs_xattr_handlers[];
 

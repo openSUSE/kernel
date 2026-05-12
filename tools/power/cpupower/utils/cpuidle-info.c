@@ -111,7 +111,7 @@ static void proc_cpuidle_cpu_output(unsigned int cpu)
 	printf(_("max_cstate:              C%u\n"), cstates-1);
 	printf(_("maximum allowed latency: %lu usec\n"), max_allowed_cstate);
 	printf(_("states:\t\n"));
-	for (cstate = 1; cstate < cstates; cstate++) {
+	for (cstate = 0; cstate < cstates; cstate++) {
 		printf(_("    C%d:                  "
 			 "type[C%d] "), cstate, cstate);
 		printf(_("promotion[--] demotion[--] "));
@@ -139,8 +139,6 @@ static inline void cpuidle_exit(int fail)
 
 int cmd_idle_info(int argc, char **argv)
 {
-	extern char *optarg;
-	extern int optind, opterr, optopt;
 	int ret = 0, cont = 1, output_param = 0, verbose = 1;
 	unsigned int cpu = 0;
 

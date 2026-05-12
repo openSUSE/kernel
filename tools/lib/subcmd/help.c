@@ -75,6 +75,9 @@ void exclude_cmds(struct cmdnames *cmds, struct cmdnames *excludes)
 	size_t ci, cj, ei;
 	int cmp;
 
+	if (!excludes->cnt)
+		return;
+
 	ci = cj = ei = 0;
 	while (ci < cmds->cnt && ei < excludes->cnt) {
 		cmp = strcmp(cmds->names[ci]->name, excludes->names[ei]->name);
@@ -94,11 +97,13 @@ void exclude_cmds(struct cmdnames *cmds, struct cmdnames *excludes)
 			ei++;
 		}
 	}
-	if (ci != cj) {
-		while (ci < cmds->cnt) {
-			cmds->names[cj++] = cmds->names[ci];
-			cmds->names[ci++] = NULL;
+	while (ci < cmds->cnt) {
+		if (ci != cj) {
+			cmds->names[cj] = cmds->names[ci];
+			cmds->names[ci] = NULL;
 		}
+		ci++;
+		cj++;
 	}
 	for (ci = cj; ci < cmds->cnt; ci++)
 		assert(cmds->names[ci] == NULL);

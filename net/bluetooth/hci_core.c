@@ -117,6 +117,7 @@ bool hci_discovery_active(struct hci_dev *hdev)
 		return false;
 	}
 }
+EXPORT_SYMBOL(hci_discovery_active);
 
 void hci_discovery_set_state(struct hci_dev *hdev, int state)
 {
@@ -261,7 +262,7 @@ u32 hci_inquiry_cache_update(struct hci_dev *hdev, struct inquiry_data *data,
 	}
 
 	/* Entry not in the cache. Add new one. */
-	ie = kzalloc(sizeof(*ie), GFP_KERNEL);
+	ie = kzalloc_obj(*ie);
 	if (!ie) {
 		flags |= MGMT_DEV_FOUND_CONFIRM_NAME;
 		goto done;
@@ -796,7 +797,7 @@ int hci_get_dev_list(void __user *arg)
 	if (!dev_num || dev_num > (PAGE_SIZE * 2) / sizeof(*dr))
 		return -EINVAL;
 
-	dl = kzalloc(struct_size(dl, dev_req, dev_num), GFP_KERNEL);
+	dl = kzalloc_flex(*dl, dev_req, dev_num);
 	if (!dl)
 		return -ENOMEM;
 
@@ -1285,7 +1286,7 @@ struct link_key *hci_add_link_key(struct hci_dev *hdev, struct hci_conn *conn,
 		key = old_key;
 	} else {
 		old_key_type = conn ? conn->key_type : 0xff;
-		key = kzalloc(sizeof(*key), GFP_KERNEL);
+		key = kzalloc_obj(*key);
 		if (!key)
 			return NULL;
 		list_add_rcu(&key->list, &hdev->link_keys);
@@ -1330,7 +1331,7 @@ struct smp_ltk *hci_add_ltk(struct hci_dev *hdev, bdaddr_t *bdaddr,
 	if (old_key)
 		key = old_key;
 	else {
-		key = kzalloc(sizeof(*key), GFP_KERNEL);
+		key = kzalloc_obj(*key);
 		if (!key)
 			return NULL;
 		list_add_rcu(&key->list, &hdev->long_term_keys);
@@ -1355,7 +1356,7 @@ struct smp_irk *hci_add_irk(struct hci_dev *hdev, bdaddr_t *bdaddr,
 
 	irk = hci_find_irk_by_addr(hdev, bdaddr, addr_type);
 	if (!irk) {
-		irk = kzalloc(sizeof(*irk), GFP_KERNEL);
+		irk = kzalloc_obj(*irk);
 		if (!irk)
 			return NULL;
 
@@ -1549,7 +1550,7 @@ int hci_add_remote_oob_data(struct hci_dev *hdev, bdaddr_t *bdaddr,
 
 	data = hci_find_remote_oob_data(hdev, bdaddr, bdaddr_type);
 	if (!data) {
-		data = kmalloc(sizeof(*data), GFP_KERNEL);
+		data = kmalloc_obj(*data);
 		if (!data)
 			return -ENOMEM;
 
@@ -1717,7 +1718,7 @@ struct adv_info *hci_add_adv_instance(struct hci_dev *hdev, u8 instance,
 		    instance < 1 || instance > hdev->le_num_of_adv_sets + 1)
 			return ERR_PTR(-EOVERFLOW);
 
-		adv = kzalloc(sizeof(*adv), GFP_KERNEL);
+		adv = kzalloc_obj(*adv);
 		if (!adv)
 			return ERR_PTR(-ENOMEM);
 
@@ -2106,7 +2107,7 @@ int hci_bdaddr_list_add(struct list_head *list, bdaddr_t *bdaddr, u8 type)
 	if (hci_bdaddr_list_lookup(list, bdaddr, type))
 		return -EEXIST;
 
-	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+	entry = kzalloc_obj(*entry);
 	if (!entry)
 		return -ENOMEM;
 
@@ -2129,7 +2130,7 @@ int hci_bdaddr_list_add_with_irk(struct list_head *list, bdaddr_t *bdaddr,
 	if (hci_bdaddr_list_lookup(list, bdaddr, type))
 		return -EEXIST;
 
-	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+	entry = kzalloc_obj(*entry);
 	if (!entry)
 		return -ENOMEM;
 
@@ -2158,7 +2159,7 @@ int hci_bdaddr_list_add_with_flags(struct list_head *list, bdaddr_t *bdaddr,
 	if (hci_bdaddr_list_lookup(list, bdaddr, type))
 		return -EEXIST;
 
-	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+	entry = kzalloc_obj(*entry);
 	if (!entry)
 		return -ENOMEM;
 
@@ -2275,7 +2276,7 @@ struct hci_conn_params *hci_conn_params_add(struct hci_dev *hdev,
 	if (params)
 		return params;
 
-	params = kzalloc(sizeof(*params), GFP_KERNEL);
+	params = kzalloc_obj(*params);
 	if (!params) {
 		bt_dev_err(hdev, "out of memory");
 		return NULL;
@@ -3267,6 +3268,8 @@ static void hci_queue_acl(struct hci_chan *chan, struct sk_buff_head *queue,
 
 		spin_unlock_bh(&queue->lock);
 	}
+
+	bt_dev_dbg(hdev, "chan %p queued %d", chan, skb_queue_len(queue));
 }
 
 void hci_send_acl(struct hci_chan *chan, struct sk_buff *skb, __u16 flags)
@@ -3298,6 +3301,10 @@ void hci_send_sco(struct hci_conn *conn, struct sk_buff *skb)
 	hci_skb_pkt_type(skb) = HCI_SCODATA_PKT;
 
 	skb_queue_tail(&conn->data_q, skb);
+
+	bt_dev_dbg(hdev, "hcon %p queued %d", conn,
+		   skb_queue_len(&conn->data_q));
+
 	queue_work(hdev->workqueue, &hdev->tx_work);
 }
 
@@ -3357,6 +3364,8 @@ static void hci_queue_iso(struct hci_conn *conn, struct sk_buff_head *queue,
 			__skb_queue_tail(queue, skb);
 		} while (list);
 	}
+
+	bt_dev_dbg(hdev, "hcon %p queued %d", conn, skb_queue_len(queue));
 }
 
 void hci_send_iso(struct hci_conn *conn, struct sk_buff *skb)
@@ -3399,8 +3408,7 @@ static inline void hci_quote_sent(struct hci_conn *conn, int num, int *quote)
 	case CIS_LINK:
 	case BIS_LINK:
 	case PA_LINK:
-		cnt = hdev->iso_mtu ? hdev->iso_cnt :
-			hdev->le_mtu ? hdev->le_cnt : hdev->acl_cnt;
+		cnt = hdev->iso_cnt;
 		break;
 	default:
 		cnt = 0;
@@ -3427,6 +3435,10 @@ static struct hci_conn *hci_low_sent(struct hci_dev *hdev, __u8 type,
 		if (c->type != type ||
 		    skb_queue_empty(&c->data_q))
 			continue;
+
+		bt_dev_dbg(hdev, "hcon %p state %s queued %d", c,
+			   state_to_string(c->state),
+			   skb_queue_len(&c->data_q));
 
 		if (c->state != BT_CONNECTED && c->state != BT_CONFIG)
 			continue;
@@ -3586,24 +3598,37 @@ static void hci_prio_recalculate(struct hci_dev *hdev, __u8 type)
 
 static void __check_timeout(struct hci_dev *hdev, unsigned int cnt, u8 type)
 {
-	unsigned long last_tx;
+	unsigned long timeout;
 
 	if (hci_dev_test_flag(hdev, HCI_UNCONFIGURED))
 		return;
 
 	switch (type) {
+	case ACL_LINK:
+		/* tx timeout must be longer than maximum link supervision
+		 * timeout (40.9 seconds)
+		 */
+		timeout = hdev->acl_last_tx + HCI_ACL_TX_TIMEOUT;
+		break;
 	case LE_LINK:
-		last_tx = hdev->le_last_tx;
+		/* tx timeout must be longer than maximum link supervision
+		 * timeout (40.9 seconds)
+		 */
+		timeout = hdev->le_last_tx + HCI_ACL_TX_TIMEOUT;
+		break;
+	case CIS_LINK:
+	case BIS_LINK:
+	case PA_LINK:
+		/* tx timeout must be longer than the maximum transport latency
+		 * (8.388607 seconds)
+		 */
+		timeout = hdev->iso_last_tx + HCI_ISO_TX_TIMEOUT;
 		break;
 	default:
-		last_tx = hdev->acl_last_tx;
-		break;
+		return;
 	}
 
-	/* tx timeout must be longer than maximum link supervision timeout
-	 * (40.9 seconds)
-	 */
-	if (!cnt && time_after(jiffies, last_tx + HCI_ACL_TX_TIMEOUT))
+	if (!cnt && time_after(jiffies, timeout))
 		hci_link_tx_to(hdev, type);
 }
 
@@ -3759,12 +3784,16 @@ static void hci_sched_iso(struct hci_dev *hdev, __u8 type)
 	if (!hci_conn_num(hdev, type))
 		return;
 
-	cnt = hdev->iso_pkts ? &hdev->iso_cnt :
-		hdev->le_pkts ? &hdev->le_cnt : &hdev->acl_cnt;
+	cnt = &hdev->iso_cnt;
+
+	__check_timeout(hdev, *cnt, type);
+
 	while (*cnt && (conn = hci_low_sent(hdev, type, &quote))) {
 		while (quote-- && (skb = skb_dequeue(&conn->data_q))) {
 			BT_DBG("skb %p len %d", skb, skb->len);
+
 			hci_send_conn_frame(hdev, conn, skb);
+			hdev->iso_last_tx = jiffies;
 
 			conn->sent++;
 			if (conn->sent == ~0)
@@ -3804,13 +3833,14 @@ static void hci_tx_work(struct work_struct *work)
 static void hci_acldata_packet(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	struct hci_acl_hdr *hdr;
-	struct hci_conn *conn;
 	__u16 handle, flags;
+	int err;
 
 	hdr = skb_pull_data(skb, sizeof(*hdr));
 	if (!hdr) {
 		bt_dev_err(hdev, "ACL packet too small");
-		goto drop;
+		kfree_skb(skb);
+		return;
 	}
 
 	handle = __le16_to_cpu(hdr->handle);
@@ -3822,36 +3852,27 @@ static void hci_acldata_packet(struct hci_dev *hdev, struct sk_buff *skb)
 
 	hdev->stat.acl_rx++;
 
-	hci_dev_lock(hdev);
-	conn = hci_conn_hash_lookup_handle(hdev, handle);
-	hci_dev_unlock(hdev);
-
-	if (conn) {
-		hci_conn_enter_active_mode(conn, BT_POWER_FORCE_ACTIVE_OFF);
-
-		/* Send to upper protocol */
-		l2cap_recv_acldata(conn, skb, flags);
-		return;
-	} else {
+	err = l2cap_recv_acldata(hdev, handle, skb, flags);
+	if (err == -ENOENT)
 		bt_dev_err(hdev, "ACL packet for unknown connection handle %d",
 			   handle);
-	}
-
-drop:
-	kfree_skb(skb);
+	else if (err)
+		bt_dev_dbg(hdev, "ACL packet recv for handle %d failed: %d",
+			   handle, err);
 }
 
 /* SCO data packet */
 static void hci_scodata_packet(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	struct hci_sco_hdr *hdr;
-	struct hci_conn *conn;
 	__u16 handle, flags;
+	int err;
 
 	hdr = skb_pull_data(skb, sizeof(*hdr));
 	if (!hdr) {
 		bt_dev_err(hdev, "SCO packet too small");
-		goto drop;
+		kfree_skb(skb);
+		return;
 	}
 
 	handle = __le16_to_cpu(hdr->handle);
@@ -3863,34 +3884,28 @@ static void hci_scodata_packet(struct hci_dev *hdev, struct sk_buff *skb)
 
 	hdev->stat.sco_rx++;
 
-	hci_dev_lock(hdev);
-	conn = hci_conn_hash_lookup_handle(hdev, handle);
-	hci_dev_unlock(hdev);
+	hci_skb_pkt_status(skb) = flags & 0x03;
 
-	if (conn) {
-		/* Send to upper protocol */
-		hci_skb_pkt_status(skb) = flags & 0x03;
-		sco_recv_scodata(conn, skb);
-		return;
-	} else {
+	err = sco_recv_scodata(hdev, handle, skb);
+	if (err == -ENOENT)
 		bt_dev_err_ratelimited(hdev, "SCO packet for unknown connection handle %d",
 				       handle);
-	}
-
-drop:
-	kfree_skb(skb);
+	else if (err)
+		bt_dev_dbg(hdev, "SCO packet recv for handle %d failed: %d",
+			   handle, err);
 }
 
 static void hci_isodata_packet(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	struct hci_iso_hdr *hdr;
-	struct hci_conn *conn;
 	__u16 handle, flags;
+	int err;
 
 	hdr = skb_pull_data(skb, sizeof(*hdr));
 	if (!hdr) {
 		bt_dev_err(hdev, "ISO packet too small");
-		goto drop;
+		kfree_skb(skb);
+		return;
 	}
 
 	handle = __le16_to_cpu(hdr->handle);
@@ -3900,22 +3915,13 @@ static void hci_isodata_packet(struct hci_dev *hdev, struct sk_buff *skb)
 	bt_dev_dbg(hdev, "len %d handle 0x%4.4x flags 0x%4.4x", skb->len,
 		   handle, flags);
 
-	hci_dev_lock(hdev);
-	conn = hci_conn_hash_lookup_handle(hdev, handle);
-	hci_dev_unlock(hdev);
-
-	if (!conn) {
-		bt_dev_err(hdev, "ISO packet for unknown connection handle %d",
-			   handle);
-		goto drop;
-	}
-
-	/* Send to upper protocol */
-	iso_recv(conn, skb, flags);
-	return;
-
-drop:
-	kfree_skb(skb);
+	err = iso_recv(hdev, handle, skb, flags);
+	if (err == -ENOENT)
+		bt_dev_err_ratelimited(hdev, "ISO packet for unknown connection handle %d",
+				       handle);
+	else if (err)
+		bt_dev_dbg(hdev, "ISO packet recv for handle %d failed: %d",
+			   handle, err);
 }
 
 static bool hci_req_is_complete(struct hci_dev *hdev)
@@ -4093,7 +4099,7 @@ static void hci_rx_work(struct work_struct *work)
 	}
 }
 
-static void hci_send_cmd_sync(struct hci_dev *hdev, struct sk_buff *skb)
+static int hci_send_cmd_sync(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	int err;
 
@@ -4105,29 +4111,35 @@ static void hci_send_cmd_sync(struct hci_dev *hdev, struct sk_buff *skb)
 	if (!hdev->sent_cmd) {
 		skb_queue_head(&hdev->cmd_q, skb);
 		queue_work(hdev->workqueue, &hdev->cmd_work);
-		return;
+		return -EINVAL;
 	}
 
 	if (hci_skb_opcode(skb) != HCI_OP_NOP) {
 		err = hci_send_frame(hdev, skb);
 		if (err < 0) {
 			hci_cmd_sync_cancel_sync(hdev, -err);
-			return;
+			return err;
 		}
 		atomic_dec(&hdev->cmd_cnt);
+	} else {
+		err = -ENODATA;
+		kfree_skb(skb);
 	}
 
-	if (hdev->req_status == HCI_REQ_PEND &&
+	if (READ_ONCE(hdev->req_status) == HCI_REQ_PEND &&
 	    !hci_dev_test_and_set_flag(hdev, HCI_CMD_PENDING)) {
 		kfree_skb(hdev->req_skb);
 		hdev->req_skb = skb_clone(hdev->sent_cmd, GFP_KERNEL);
 	}
+
+	return err;
 }
 
 static void hci_cmd_work(struct work_struct *work)
 {
 	struct hci_dev *hdev = container_of(work, struct hci_dev, cmd_work);
 	struct sk_buff *skb;
+	int err;
 
 	BT_DBG("%s cmd_cnt %d cmd queued %d", hdev->name,
 	       atomic_read(&hdev->cmd_cnt), skb_queue_len(&hdev->cmd_q));
@@ -4138,7 +4150,9 @@ static void hci_cmd_work(struct work_struct *work)
 		if (!skb)
 			return;
 
-		hci_send_cmd_sync(hdev, skb);
+		err = hci_send_cmd_sync(hdev, skb);
+		if (err)
+			return;
 
 		rcu_read_lock();
 		if (test_bit(HCI_RESET, &hdev->flags) ||

@@ -2,7 +2,7 @@
 /*
  * test_maple_tree.c: Test the maple tree API
  * Copyright (c) 2018-2022 Oracle Corporation
- * Author: Liam R. Howlett <Liam.Howlett@Oracle.com>
+ * Author: Liam R. Howlett <liam@infradead.org>
  *
  * Any tests that only require the interface of the tree.
  */
@@ -1024,6 +1024,7 @@ static noinline void __init check_ranges(struct maple_tree *mt)
 	mt_set_non_kernel(10);
 	check_store_range(mt, r[10], r[11], xa_mk_value(r[10]), 0);
 	MT_BUG_ON(mt, !mt_height(mt));
+	mt_validate(mt);
 	mtree_destroy(mt);
 
 	/* Create tree of 1-200 */
@@ -1031,11 +1032,13 @@ static noinline void __init check_ranges(struct maple_tree *mt)
 	/* Store 45-168 */
 	check_store_range(mt, r[10], r[11], xa_mk_value(r[10]), 0);
 	MT_BUG_ON(mt, !mt_height(mt));
+	mt_validate(mt);
 	mtree_destroy(mt);
 
 	check_seq(mt, 30, false);
 	check_store_range(mt, 6, 18, xa_mk_value(6), 0);
 	MT_BUG_ON(mt, !mt_height(mt));
+	mt_validate(mt);
 	mtree_destroy(mt);
 
 	/* Overwrite across multiple levels. */
@@ -1061,6 +1064,7 @@ static noinline void __init check_ranges(struct maple_tree *mt)
 	check_load(mt, r[13] + 1, xa_mk_value(r[13] + 1));
 	check_load(mt, 135, NULL);
 	check_load(mt, 140, NULL);
+	mt_validate(mt);
 	mt_set_non_kernel(0);
 	MT_BUG_ON(mt, !mt_height(mt));
 	mtree_destroy(mt);
@@ -1285,14 +1289,20 @@ static noinline void __init check_ranges(struct maple_tree *mt)
 		MT_BUG_ON(mt, mt_height(mt) >= 4);
 	}
 	/*  Cause a 3 child split all the way up the tree. */
-	for (i = 5; i < 215; i += 10)
+	for (i = 5; i < 215; i += 10) {
 		check_store_range(mt, 11450 + i, 11450 + i + 1, NULL, 0);
-	for (i = 5; i < 65; i += 10)
+		mt_validate(mt);
+	}
+	for (i = 5; i < 65; i += 10) {
 		check_store_range(mt, 11770 + i, 11770 + i + 1, NULL, 0);
+		mt_validate(mt);
+	}
 
 	MT_BUG_ON(mt, mt_height(mt) >= 4);
-	for (i = 5; i < 45; i += 10)
+	for (i = 5; i < 45; i += 10) {
 		check_store_range(mt, 11700 + i, 11700 + i + 1, NULL, 0);
+		mt_validate(mt);
+	}
 	if (!MAPLE_32BIT)
 		MT_BUG_ON(mt, mt_height(mt) < 4);
 	mtree_destroy(mt);
@@ -1304,17 +1314,42 @@ static noinline void __init check_ranges(struct maple_tree *mt)
 		val2 = (i+1)*10;
 		check_store_range(mt, val, val2, xa_mk_value(val), 0);
 		MT_BUG_ON(mt, mt_height(mt) >= 4);
+		mt_validate(mt);
 	}
 	/* Fill parents and leaves before split. */
-	for (i = 5; i < 455; i += 10)
-		check_store_range(mt, 7800 + i, 7800 + i + 1, NULL, 0);
+	val = 7660;
+	for (i = 5; i < 490; i += 5) {
+		val += 5;
+		check_store_range(mt, val, val + 1, NULL, 0);
+		mt_validate(mt);
+		MT_BUG_ON(mt, mt_height(mt) >= 4);
+	}
 
-	for (i = 1; i < 16; i++)
-		check_store_range(mt, 8185 + i, 8185 + i + 1,
-				  xa_mk_value(8185+i), 0);
-	MT_BUG_ON(mt, mt_height(mt) >= 4);
+	val = 9460;
+	/* Fill parents and leaves before split. */
+	for (i = 1; i < 10; i++) {
+		val++;
+		check_store_range(mt, val, val + 1, xa_mk_value(val), 0);
+		mt_validate(mt);
+	}
+
+	val = 8000;
+	for (i = 1; i < 14; i++) {
+		val++;
+		check_store_range(mt, val, val + 1, xa_mk_value(val), 0);
+		mt_validate(mt);
+	}
+
+
+	check_store_range(mt, 8051, 8051, xa_mk_value(8081), 0);
+	check_store_range(mt, 8052, 8052, xa_mk_value(8082), 0);
+	check_store_range(mt, 8083, 8083, xa_mk_value(8083), 0);
+	check_store_range(mt, 8084, 8084, xa_mk_value(8084), 0);
+	check_store_range(mt, 8085, 8085, xa_mk_value(8085), 0);
 	/* triple split across multiple levels. */
-	check_store_range(mt, 8184, 8184, xa_mk_value(8184), 0);
+	check_store_range(mt, 8099, 8100, xa_mk_value(1), 0);
+
+	mt_validate(mt);
 	if (!MAPLE_32BIT)
 		MT_BUG_ON(mt, mt_height(mt) != 4);
 }
@@ -2746,139 +2781,6 @@ static noinline void __init check_fuzzer(struct maple_tree *mt)
 	mtree_test_erase(mt, ULONG_MAX - 10);
 }
 
-/* duplicate the tree with a specific gap */
-static noinline void __init check_dup_gaps(struct maple_tree *mt,
-				    unsigned long nr_entries, bool zero_start,
-				    unsigned long gap)
-{
-	unsigned long i = 0;
-	struct maple_tree newmt;
-	int ret;
-	void *tmp;
-	MA_STATE(mas, mt, 0, 0);
-	MA_STATE(newmas, &newmt, 0, 0);
-	struct rw_semaphore newmt_lock;
-
-	init_rwsem(&newmt_lock);
-	mt_set_external_lock(&newmt, &newmt_lock);
-
-	if (!zero_start)
-		i = 1;
-
-	mt_zero_nr_tallocated();
-	for (; i <= nr_entries; i++)
-		mtree_store_range(mt, i*10, (i+1)*10 - gap,
-				  xa_mk_value(i), GFP_KERNEL);
-
-	mt_init_flags(&newmt, MT_FLAGS_ALLOC_RANGE | MT_FLAGS_LOCK_EXTERN);
-	mt_set_non_kernel(99999);
-	down_write(&newmt_lock);
-	ret = mas_expected_entries(&newmas, nr_entries);
-	mt_set_non_kernel(0);
-	MT_BUG_ON(mt, ret != 0);
-
-	rcu_read_lock();
-	mas_for_each(&mas, tmp, ULONG_MAX) {
-		newmas.index = mas.index;
-		newmas.last = mas.last;
-		mas_store(&newmas, tmp);
-	}
-	rcu_read_unlock();
-	mas_destroy(&newmas);
-
-	__mt_destroy(&newmt);
-	up_write(&newmt_lock);
-}
-
-/* Duplicate many sizes of trees.  Mainly to test expected entry values */
-static noinline void __init check_dup(struct maple_tree *mt)
-{
-	int i;
-	int big_start = 100010;
-
-	/* Check with a value at zero */
-	for (i = 10; i < 1000; i++) {
-		mt_init_flags(mt, MT_FLAGS_ALLOC_RANGE);
-		check_dup_gaps(mt, i, true, 5);
-		mtree_destroy(mt);
-		rcu_barrier();
-	}
-
-	cond_resched();
-	mt_cache_shrink();
-	/* Check with a value at zero, no gap */
-	for (i = 1000; i < 2000; i++) {
-		mt_init_flags(mt, MT_FLAGS_ALLOC_RANGE);
-		check_dup_gaps(mt, i, true, 0);
-		mtree_destroy(mt);
-		rcu_barrier();
-	}
-
-	cond_resched();
-	mt_cache_shrink();
-	/* Check with a value at zero and unreasonably large */
-	for (i = big_start; i < big_start + 10; i++) {
-		mt_init_flags(mt, MT_FLAGS_ALLOC_RANGE);
-		check_dup_gaps(mt, i, true, 5);
-		mtree_destroy(mt);
-		rcu_barrier();
-	}
-
-	cond_resched();
-	mt_cache_shrink();
-	/* Small to medium size not starting at zero*/
-	for (i = 200; i < 1000; i++) {
-		mt_init_flags(mt, MT_FLAGS_ALLOC_RANGE);
-		check_dup_gaps(mt, i, false, 5);
-		mtree_destroy(mt);
-		rcu_barrier();
-	}
-
-	cond_resched();
-	mt_cache_shrink();
-	/* Unreasonably large not starting at zero*/
-	for (i = big_start; i < big_start + 10; i++) {
-		mt_init_flags(mt, MT_FLAGS_ALLOC_RANGE);
-		check_dup_gaps(mt, i, false, 5);
-		mtree_destroy(mt);
-		rcu_barrier();
-		cond_resched();
-		mt_cache_shrink();
-	}
-
-	/* Check non-allocation tree not starting at zero */
-	for (i = 1500; i < 3000; i++) {
-		mt_init_flags(mt, 0);
-		check_dup_gaps(mt, i, false, 5);
-		mtree_destroy(mt);
-		rcu_barrier();
-		cond_resched();
-		if (i % 2 == 0)
-			mt_cache_shrink();
-	}
-
-	mt_cache_shrink();
-	/* Check non-allocation tree starting at zero */
-	for (i = 200; i < 1000; i++) {
-		mt_init_flags(mt, 0);
-		check_dup_gaps(mt, i, true, 5);
-		mtree_destroy(mt);
-		rcu_barrier();
-		cond_resched();
-	}
-
-	mt_cache_shrink();
-	/* Unreasonably large */
-	for (i = big_start + 5; i < big_start + 10; i++) {
-		mt_init_flags(mt, 0);
-		check_dup_gaps(mt, i, true, 5);
-		mtree_destroy(mt);
-		rcu_barrier();
-		mt_cache_shrink();
-		cond_resched();
-	}
-}
-
 static noinline void __init check_bnode_min_spanning(struct maple_tree *mt)
 {
 	int i = 50;
@@ -3562,7 +3464,7 @@ static noinline void __init check_state_handling(struct maple_tree *mt)
 	MT_BUG_ON(mt, mas.last != 0x1500);
 	MT_BUG_ON(mt, !mas_is_active(&mas));
 
-	/* find: start ->active on value */;
+	/* find: start ->active on value */
 	mas_set(&mas, 1200);
 	entry = mas_find(&mas, ULONG_MAX);
 	MT_BUG_ON(mt, entry != ptr);
@@ -4078,10 +3980,6 @@ static int __init maple_tree_seed(void)
 	mtree_destroy(&tree);
 
 	mt_init_flags(&tree, MT_FLAGS_ALLOC_RANGE);
-	check_dup(&tree);
-	mtree_destroy(&tree);
-
-	mt_init_flags(&tree, MT_FLAGS_ALLOC_RANGE);
 	check_bnode_min_spanning(&tree);
 	mtree_destroy(&tree);
 
@@ -4123,6 +4021,6 @@ static void __exit maple_tree_harvest(void)
 
 module_init(maple_tree_seed);
 module_exit(maple_tree_harvest);
-MODULE_AUTHOR("Liam R. Howlett <Liam.Howlett@Oracle.com>");
+MODULE_AUTHOR("Liam R. Howlett <liam@infradead.org>");
 MODULE_DESCRIPTION("maple tree API test module");
 MODULE_LICENSE("GPL");

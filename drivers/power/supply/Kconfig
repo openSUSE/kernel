@@ -35,6 +35,9 @@ config APM_POWER
 	  Say Y here to enable support APM status emulation using
 	  battery class devices.
 
+config ADC_BATTERY_HELPER
+	tristate
+
 config GENERIC_ADC_BATTERY
 	tristate "Generic battery support using IIO"
 	depends on IIO
@@ -226,6 +229,17 @@ config BATTERY_SAMSUNG_SDI
 	  Say Y to enable support for Samsung SDI battery data.
 	  These batteries are used in Samsung mobile phones.
 
+config BATTERY_S2MU005
+	tristate "Samsung S2MU005 PMIC fuel gauge driver"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  Say Y to enable support for the Samsung S2MU005 PMIC integrated
+	  fuel gauge, which works indepenently of the PMIC battery charger
+	  counterpart, and reports battery metrics.
+
+	  This driver, if built as a module, will be called s2mu005-fuel-gauge.
+
 config BATTERY_COLLIE
 	tristate "Sharp SL-5500 (collie) battery"
 	depends on SA1100_COLLIE && MCP_UCB1200
@@ -243,6 +257,18 @@ config BATTERY_INGENIC
 
 	  This driver can also be built as a module. If so, the module will be
 	  called ingenic-battery.
+
+config BATTERY_INTEL_DC_TI
+	tristate "Intel Bay / Cherry Trail Dollar Cove TI battery driver"
+	depends on INTEL_SOC_PMIC_CHTDC_TI && INTEL_DC_TI_ADC && IIO && ACPI
+	select ADC_BATTERY_HELPER
+	help
+	  Choose this option if you want to monitor battery status on Intel
+	  Bay Trail / Cherry Trail tablets using the Dollar Cove TI PMIC's
+	  coulomb-counter as fuel-gauge.
+
+	  To compile this driver as a module, choose M here: the module will be
+	  called intel_dc_ti_battery.
 
 config BATTERY_IPAQ_MICRO
 	tristate "iPAQ Atmel Micro ASIC battery driver"
@@ -471,6 +497,17 @@ config CHARGER_88PM860X
 	help
 	  Say Y here to enable charger for Marvell 88PM860x chip.
 
+config CHARGER_PF1550
+	tristate "NXP PF1550 battery charger driver"
+	depends on MFD_PF1550
+	help
+	  Say Y to enable support for the NXP PF1550 battery charger.
+	  The device is a single cell Li-Ion/Li-Polymer battery charger for
+	  portable application.
+
+	  This driver can also be built as a module. If so, the module will be
+	  called pf1550-charger.
+
 config BATTERY_RX51
 	tristate "Nokia RX-51 (N900) battery driver"
 	depends on TWL4030_MADC
@@ -604,6 +641,17 @@ config CHARGER_MAX77705
 	depends on MFD_MAX77705
 	help
 	  Say Y to enable support for the Maxim MAX77705 battery charger.
+
+config CHARGER_MAX77759
+	tristate "Maxim MAX77759 battery charger driver"
+	depends on MFD_MAX77759 && REGULATOR
+	default MFD_MAX77759
+	help
+	  Say M or Y here to enable the MAX77759 battery charger. MAX77759
+	  charger is a function of the MAX77759 PMIC. This is a dual input
+	  switch-mode charger. This driver supports buck and OTG boost modes.
+
+	  If built as a module, it will be called max77759_charger.
 
 config CHARGER_MAX77976
 	tristate "Maxim MAX77976 battery charger driver"
@@ -767,6 +815,13 @@ config CHARGER_BQ2515X
 	  rail, ADC for battery and system monitoring, and push-button
 	  controller.
 
+config CHARGER_BQ257XX
+	tristate "TI BQ257XX battery charger family"
+	depends on MFD_BQ257XX
+	help
+	  Say Y to enable support for the TI BQ257XX family of battery
+	  charging integrated circuits.
+
 config CHARGER_BQ25890
 	tristate "TI BQ25890 battery charger driver"
 	depends on I2C
@@ -909,6 +964,21 @@ config CHARGER_RT9471
 	  This driver can also be built as a module. If so, the module will be
 	  called rt9471.
 
+config CHARGER_RT9756
+	tristate "Richtek RT9756 smart cap divider charger driver"
+	depends on I2C
+	select REGMAP_I2C
+	select LINEAR_RANGES
+	help
+	  This adds support for Richtek RT9756 smart cap divider charger driver.
+	  It's a high efficiency and high charge current charger. the device
+	  integrates smart cap divider topology with 9-channel high speed
+	  ADCs that can provide input and output voltage, current and
+	  temperature monitoring.
+
+	  This driver can also be built as a module. If so, the module will be
+	  called rt9756.
+
 config CHARGER_CROS_USBPD
 	tristate "ChromeOS EC based USBPD charger"
 	depends on CROS_USBPD_NOTIFY
@@ -973,6 +1043,15 @@ config CHARGER_UCS1002
 	help
 	  Say Y to enable support for Microchip UCS1002 Programmable
 	  USB Port Power Controller with Charger Emulation.
+
+config CHARGER_BD71828
+	tristate "Power-supply driver for ROHM BD71828 and BD71815 PMIC"
+	depends on MFD_ROHM_BD71828
+	help
+	  Say Y here to enable support for charger and battery
+	  in ROHM BD71815, BD71817, ROHM BD71828 power management
+	  ICs. This driver gets various bits of information about battery
+	  and charger states.
 
 config CHARGER_BD99954
 	tristate "ROHM bd99954 charger driver"
@@ -1043,6 +1122,7 @@ config CHARGER_SURFACE
 config BATTERY_UG3105
 	tristate "uPI uG3105 battery monitor driver"
 	depends on I2C
+	select ADC_BATTERY_HELPER
 	help
 	  Battery monitor driver for the uPI uG3105 battery monitor.
 
@@ -1073,5 +1153,16 @@ config FUEL_GAUGE_MM8013
 	  It enables the monitoring of many battery parameters, including
 	  the state of charge, temperature, cycle count, actual and design
 	  capacity, etc.
+
+config MACSMC_POWER
+	tristate "Apple SMC Battery and Power Driver"
+	depends on MFD_MACSMC
+	help
+	  This driver provides support for the battery and AC adapter on
+	  Apple Silicon machines. It exposes battery telemetry (voltage,
+	  current, health) and AC adapter status through the standard Linux
+	  power supply framework.
+
+	  Say Y or M here if you have an Apple Silicon based Mac.
 
 endif # POWER_SUPPLY

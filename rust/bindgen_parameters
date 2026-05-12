@@ -15,13 +15,13 @@
 --opaque-type x86_msi_data
 --opaque-type x86_msi_addr_lo
 
-# `try` is a reserved keyword since Rust 2018; solved in `bindgen` v0.59.2,
-# commit 2aed6b021680 ("context: Escape the try keyword properly").
---opaque-type kunit_try_catch
-
 # If SMP is disabled, `arch_spinlock_t` is defined as a ZST which triggers a Rust
 # warning. We don't need to peek into it anyway.
 --opaque-type spinlock
+
+# enums that appear in indirect function calls should specify a cfi type
+--newtype-enum lru_status
+--with-attribute-custom-enum=lru_status='#[cfi_encoding="10lru_status"]'
 
 # `seccomp`'s comment gets understood as a doctest
 --no-doc-comments
@@ -34,3 +34,33 @@
 # We use const helpers to aid bindgen, to avoid conflicts when constants are
 # recognized, block generation of the non-helper constants.
 --blocklist-item ARCH_SLAB_MINALIGN
+--blocklist-item ARCH_KMALLOC_MINALIGN
+--blocklist-item VM_MERGEABLE
+--blocklist-item VM_READ
+--blocklist-item VM_WRITE
+--blocklist-item VM_EXEC
+--blocklist-item VM_SHARED
+--blocklist-item VM_MAYREAD
+--blocklist-item VM_MAYWRITE
+--blocklist-item VM_MAYEXEC
+--blocklist-item VM_MAYEXEC
+--blocklist-item VM_PFNMAP
+--blocklist-item VM_IO
+--blocklist-item VM_DONTCOPY
+--blocklist-item VM_DONTEXPAND
+--blocklist-item VM_LOCKONFAULT
+--blocklist-item VM_ACCOUNT
+--blocklist-item VM_NORESERVE
+--blocklist-item VM_HUGETLB
+--blocklist-item VM_SYNC
+--blocklist-item VM_ARCH_1
+--blocklist-item VM_WIPEONFORK
+--blocklist-item VM_DONTDUMP
+--blocklist-item VM_SOFTDIRTY
+--blocklist-item VM_MIXEDMAP
+--blocklist-item VM_HUGEPAGE
+--blocklist-item VM_NOHUGEPAGE
+
+# Structs should implement `Zeroable` when all of their fields do.
+--with-derive-custom-struct .*=MaybeZeroable
+--with-derive-custom-union .*=MaybeZeroable

@@ -269,7 +269,7 @@ il3945_get_free_frame(struct il_priv *il)
 	struct il3945_frame *frame;
 	struct list_head *element;
 	if (list_empty(&il->free_frames)) {
-		frame = kzalloc(sizeof(*frame), GFP_KERNEL);
+		frame = kzalloc_obj(*frame);
 		if (!frame) {
 			IL_ERR("Could not allocate frame!\n");
 			return NULL;
@@ -979,9 +979,10 @@ il3945_rx_allocate(struct il_priv *il, gfp_t priority)
 	struct page *page;
 	dma_addr_t page_dma;
 	unsigned long flags;
-	gfp_t gfp_mask = priority;
 
 	while (1) {
+		gfp_t gfp_mask = priority;
+
 		spin_lock_irqsave(&rxq->lock, flags);
 		if (list_empty(&rxq->rx_used)) {
 			spin_unlock_irqrestore(&rxq->lock, flags);
@@ -1002,9 +1003,9 @@ il3945_rx_allocate(struct il_priv *il, gfp_t priority)
 				D_INFO("Failed to allocate SKB buffer.\n");
 			if (rxq->free_count <= RX_LOW_WATERMARK &&
 			    net_ratelimit())
-				IL_ERR("Failed to allocate SKB buffer with %0x."
+				IL_ERR("Failed to allocate SKB buffer with %pGg. "
 				       "Only %u free buffers remaining.\n",
-				       priority, rxq->free_count);
+				       &gfp_mask, rxq->free_count);
 			/* We don't reschedule replenish work here -- we will
 			 * call the restock method and if it still needs
 			 * more buffers it will schedule replenish */
@@ -3224,7 +3225,9 @@ il3945_store_measurement(struct device *d, struct device_attribute *attr,
 
 	D_INFO("Invoking measurement of type %d on " "channel %d (for '%s')\n",
 	       type, params.channel, buf);
+	mutex_lock(&il->mutex);
 	il3945_get_measurement(il, &params, type);
+	mutex_unlock(&il->mutex);
 
 	return count;
 }

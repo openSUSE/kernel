@@ -71,6 +71,7 @@ static const uint32_t abm_gain_stepsize = 0x0060;
 
 static bool dce_dmcu_init(struct dmcu *dmcu)
 {
+	(void)dmcu;
 	// Do nothing
 	return true;
 }
@@ -1105,7 +1106,7 @@ struct dmcu *dce_dmcu_create(
 	const struct dce_dmcu_shift *dmcu_shift,
 	const struct dce_dmcu_mask *dmcu_mask)
 {
-	struct dce_dmcu *dmcu_dce = kzalloc(sizeof(*dmcu_dce), GFP_KERNEL);
+	struct dce_dmcu *dmcu_dce = kzalloc_obj(*dmcu_dce);
 
 	if (dmcu_dce == NULL) {
 		BREAK_TO_DEBUGGER();
@@ -1126,7 +1127,7 @@ struct dmcu *dcn10_dmcu_create(
 	const struct dce_dmcu_shift *dmcu_shift,
 	const struct dce_dmcu_mask *dmcu_mask)
 {
-	struct dce_dmcu *dmcu_dce = kzalloc(sizeof(*dmcu_dce), GFP_ATOMIC);
+	struct dce_dmcu *dmcu_dce = kzalloc_obj(*dmcu_dce);
 
 	if (dmcu_dce == NULL) {
 		BREAK_TO_DEBUGGER();
@@ -1147,7 +1148,7 @@ struct dmcu *dcn20_dmcu_create(
 	const struct dce_dmcu_shift *dmcu_shift,
 	const struct dce_dmcu_mask *dmcu_mask)
 {
-	struct dce_dmcu *dmcu_dce = kzalloc(sizeof(*dmcu_dce), GFP_ATOMIC);
+	struct dce_dmcu *dmcu_dce = kzalloc_obj(*dmcu_dce);
 
 	if (dmcu_dce == NULL) {
 		BREAK_TO_DEBUGGER();
@@ -1168,7 +1169,7 @@ struct dmcu *dcn21_dmcu_create(
 	const struct dce_dmcu_shift *dmcu_shift,
 	const struct dce_dmcu_mask *dmcu_mask)
 {
-	struct dce_dmcu *dmcu_dce = kzalloc(sizeof(*dmcu_dce), GFP_ATOMIC);
+	struct dce_dmcu *dmcu_dce = kzalloc_obj(*dmcu_dce);
 
 	if (dmcu_dce == NULL) {
 		BREAK_TO_DEBUGGER();

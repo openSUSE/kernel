@@ -44,6 +44,11 @@ static int joystick_dac[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 29};
 static int channels[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 24};
 static int pcm_channels[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 2};
 
+struct snd_gusextreme {
+	struct snd_es1688 es1688;
+	struct snd_gus_card *gus;
+};
+
 module_param_array(index, int, NULL, 0444);
 MODULE_PARM_DESC(index, "Index value for " CRD_NAME " soundcard.");
 module_param_array(id, charp, NULL, 0444);
@@ -142,18 +147,15 @@ static int snd_gusextreme_gus_card_create(struct snd_card *card,
 			0, channels[n], pcm_channels[n], 0, rgus);
 }
 
-static int snd_gusextreme_detect(struct snd_gus_card *gus,
-				 struct snd_es1688 *es1688)
+static void snd_gusextreme_enable_gf1(struct snd_gus_card *gus,
+				      struct snd_es1688 *es1688)
 {
-	unsigned long flags;
-	unsigned char d;
-
 	/*
 	 * This is main stuff - enable access to GF1 chip...
 	 * I'm not sure, if this will work for card which have
 	 * ES1688 chip in another place than 0x220.
-         *
-         * I used reverse-engineering in DOSEMU. [--jk]
+	 *
+	 * I used reverse-engineering in DOSEMU. [--jk]
 	 *
 	 * ULTRINIT.EXE:
 	 * 0x230 = 0,2,3
@@ -162,18 +164,25 @@ static int snd_gusextreme_detect(struct snd_gus_card *gus,
 	 * 0x260 = 2,2,1
 	 */
 
-	spin_lock_irqsave(&es1688->mixer_lock, flags);
-	snd_es1688_mixer_write(es1688, 0x40, 0x0b);	/* don't change!!! */
-	spin_unlock_irqrestore(&es1688->mixer_lock, flags);
+	scoped_guard(spinlock_irqsave, &es1688->mixer_lock) {
+		snd_es1688_mixer_write(es1688, 0x40, 0x0b); /* don't change!!! */
+	}
 
-	spin_lock_irqsave(&es1688->reg_lock, flags);
-	outb(gus->gf1.port & 0x040 ? 2 : 0, ES1688P(es1688, INIT1));
-	outb(0, 0x201);
-	outb(gus->gf1.port & 0x020 ? 2 : 0, ES1688P(es1688, INIT1));
-	outb(0, 0x201);
-	outb(gus->gf1.port & 0x010 ? 3 : 1, ES1688P(es1688, INIT1));
-	spin_unlock_irqrestore(&es1688->reg_lock, flags);
+	scoped_guard(spinlock_irqsave, &es1688->reg_lock) {
+		outb(gus->gf1.port & 0x040 ? 2 : 0, ES1688P(es1688, INIT1));
+		outb(0, 0x201);
+		outb(gus->gf1.port & 0x020 ? 2 : 0, ES1688P(es1688, INIT1));
+		outb(0, 0x201);
+		outb(gus->gf1.port & 0x010 ? 3 : 1, ES1688P(es1688, INIT1));
+	}
+}
 
+static int snd_gusextreme_detect(struct snd_gus_card *gus,
+				 struct snd_es1688 *es1688)
+{
+	unsigned char d;
+
+	snd_gusextreme_enable_gf1(gus, es1688);
 	udelay(100);
 
 	snd_gf1_i_write8(gus, SNDRV_GF1_GB_RESET, 0);	/* reset GF1 */
@@ -224,16 +233,18 @@ static int snd_gusextreme_probe(struct device *dev, unsigned int n)
 {
 	struct snd_card *card;
 	struct snd_gus_card *gus;
+	struct snd_gusextreme *gusextreme;
 	struct snd_es1688 *es1688;
 	struct snd_opl3 *opl3;
 	int error;
 
 	error = snd_devm_card_new(dev, index[n], id[n], THIS_MODULE,
-				  sizeof(struct snd_es1688), &card);
+				  sizeof(*gusextreme), &card);
 	if (error < 0)
 		return error;
 
-	es1688 = card->private_data;
+	gusextreme = card->private_data;
+	es1688 = &gusextreme->es1688;
 
 	if (mpu_port[n] == SNDRV_AUTO_PORT)
 		mpu_port[n] = 0;
@@ -251,6 +262,7 @@ static int snd_gusextreme_probe(struct device *dev, unsigned int n)
 	error = snd_gusextreme_gus_card_create(card, dev, n, &gus);
 	if (error < 0)
 		return error;
+	gusextreme->gus = gus;
 
 	error = snd_gusextreme_detect(gus, es1688);
 	if (error < 0)
@@ -322,10 +334,36 @@ static int snd_gusextreme_probe(struct device *dev, unsigned int n)
 	return 0;
 }
 
+#ifdef CONFIG_PM
+static int snd_gusextreme_suspend(struct device *dev, unsigned int n,
+				  pm_message_t state)
+{
+	struct snd_card *card = dev_get_drvdata(dev);
+	struct snd_gusextreme *gusextreme = card->private_data;
+
+	return snd_gus_suspend(gusextreme->gus);
+}
+
+static int snd_gusextreme_resume(struct device *dev, unsigned int n)
+{
+	struct snd_card *card = dev_get_drvdata(dev);
+	struct snd_gusextreme *gusextreme = card->private_data;
+	int err;
+
+	err = snd_es1688_reset(&gusextreme->es1688);
+	if (err < 0)
+		return err;
+
+	snd_gusextreme_enable_gf1(gusextreme->gus, &gusextreme->es1688);
+	usleep_range(100, 200);
+	return snd_gus_resume(gusextreme->gus);
+}
+#endif
+
 static struct isa_driver snd_gusextreme_driver = {
 	.match		= snd_gusextreme_match,
 	.probe		= snd_gusextreme_probe,
-#if 0	/* FIXME */
+#ifdef CONFIG_PM
 	.suspend	= snd_gusextreme_suspend,
 	.resume		= snd_gusextreme_resume,
 #endif

@@ -17,7 +17,6 @@
 #include <asm/desc.h>
 #include <asm/e820/api.h>
 #include <asm/sev.h>
-#include <asm/ibt.h>
 #include <asm/hypervisor.h>
 #include <hyperv/hvhdk.h>
 #include <asm/mshyperv.h>
@@ -37,7 +36,45 @@
 #include <linux/export.h>
 
 void *hv_hypercall_pg;
+
+#ifdef CONFIG_X86_64
+static u64 __hv_hyperfail(u64 control, u64 param1, u64 param2)
+{
+	return U64_MAX;
+}
+
+DEFINE_STATIC_CALL(__hv_hypercall, __hv_hyperfail);
+
+u64 hv_std_hypercall(u64 control, u64 param1, u64 param2)
+{
+	u64 hv_status;
+
+	register u64 __r8 asm("r8") = param2;
+	asm volatile ("call " STATIC_CALL_TRAMP_STR(__hv_hypercall)
+		      : "=a" (hv_status), ASM_CALL_CONSTRAINT,
+		        "+c" (control), "+d" (param1), "+r" (__r8)
+		      : : "cc", "memory", "r9", "r10", "r11");
+
+	return hv_status;
+}
+
+typedef u64 (*hv_hypercall_f)(u64 control, u64 param1, u64 param2);
+
+static inline void hv_set_hypercall_pg(void *ptr)
+{
+	hv_hypercall_pg = ptr;
+
+	if (!ptr)
+		ptr = &__hv_hyperfail;
+	static_call_update(__hv_hypercall, (hv_hypercall_f)ptr);
+}
+#else
+static inline void hv_set_hypercall_pg(void *ptr)
+{
+	hv_hypercall_pg = ptr;
+}
 EXPORT_SYMBOL_GPL(hv_hypercall_pg);
+#endif
 
 union hv_ghcb * __percpu *hv_ghcb_pg;
 
@@ -66,9 +103,9 @@ static int hyperv_init_ghcb(void)
 	 */
 	rdmsrq(MSR_AMD64_SEV_ES_GHCB, ghcb_gpa);
 
-	/* Mask out vTOM bit. ioremap_cache() maps decrypted */
+	/* Mask out vTOM bit and map as decrypted */
 	ghcb_gpa &= ~ms_hyperv.shared_gpa_boundary;
-	ghcb_va = (void *)ioremap_cache(ghcb_gpa, HV_HYP_PAGE_SIZE);
+	ghcb_va = memremap(ghcb_gpa, HV_HYP_PAGE_SIZE, MEMREMAP_WB | MEMREMAP_DEC);
 	if (!ghcb_va)
 		return -ENOMEM;
 
@@ -132,6 +169,10 @@ static int hv_cpu_init(unsigned int cpu)
 		msr.enable = 1;
 		wrmsrq(HV_X64_MSR_VP_ASSIST_PAGE, msr.as_uint64);
 	}
+
+	/* Allow Hyper-V stimer vector to be injected from Hypervisor. */
+	if (ms_hyperv.misc_features & HV_STIMER_DIRECT_MODE_AVAILABLE)
+		apic_update_vector(cpu, HYPERV_STIMER0_VECTOR, true);
 
 	return hyperv_init_ghcb();
 }
@@ -236,9 +277,12 @@ static int hv_cpu_die(unsigned int cpu)
 	if (hv_ghcb_pg) {
 		ghcb_va = (void **)this_cpu_ptr(hv_ghcb_pg);
 		if (*ghcb_va)
-			iounmap(*ghcb_va);
+			memunmap(*ghcb_va);
 		*ghcb_va = NULL;
 	}
+
+	if (ms_hyperv.misc_features & HV_STIMER_DIRECT_MODE_AVAILABLE)
+		apic_update_vector(cpu, HYPERV_STIMER0_VECTOR, false);
 
 	hv_common_cpu_die(cpu);
 
@@ -314,7 +358,7 @@ static int __init hv_pci_init(void)
 	return 1;
 }
 
-static int hv_suspend(void)
+static int hv_suspend(void *data)
 {
 	union hv_x64_msr_hypercall_contents hypercall_msr;
 	int ret;
@@ -330,7 +374,7 @@ static int hv_suspend(void)
 	 * pointer is restored on resume.
 	 */
 	hv_hypercall_pg_saved = hv_hypercall_pg;
-	hv_hypercall_pg = NULL;
+	hv_set_hypercall_pg(NULL);
 
 	/* Disable the hypercall page in the hypervisor */
 	rdmsrq(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
@@ -341,7 +385,7 @@ static int hv_suspend(void)
 	return ret;
 }
 
-static void hv_resume(void)
+static void hv_resume(void *data)
 {
 	union hv_x64_msr_hypercall_contents hypercall_msr;
 	int ret;
@@ -356,7 +400,7 @@ static void hv_resume(void)
 		vmalloc_to_pfn(hv_hypercall_pg_saved);
 	wrmsrq(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
 
-	hv_hypercall_pg = hv_hypercall_pg_saved;
+	hv_set_hypercall_pg(hv_hypercall_pg_saved);
 	hv_hypercall_pg_saved = NULL;
 
 	/*
@@ -368,9 +412,13 @@ static void hv_resume(void)
 }
 
 /* Note: when the ops are called, only CPU0 is online and IRQs are disabled. */
-static struct syscore_ops hv_syscore_ops = {
+static const struct syscore_ops hv_syscore_ops = {
 	.suspend	= hv_suspend,
 	.resume		= hv_resume,
+};
+
+static struct syscore hv_syscore = {
+	.ops = &hv_syscore_ops,
 };
 
 static void (* __initdata old_setup_percpu_clockev)(void);
@@ -419,9 +467,7 @@ void __init hyperv_init(void)
 	if (hv_isolation_type_tdx())
 		hv_vp_assist_page = NULL;
 	else
-		hv_vp_assist_page = kcalloc(nr_cpu_ids,
-					    sizeof(*hv_vp_assist_page),
-					    GFP_KERNEL);
+		hv_vp_assist_page = kzalloc_objs(*hv_vp_assist_page, nr_cpu_ids);
 	if (!hv_vp_assist_page) {
 		ms_hyperv.hints &= ~HV_X64_ENLIGHTENED_VMCS_RECOMMENDED;
 
@@ -476,8 +522,8 @@ void __init hyperv_init(void)
 	if (hv_isolation_type_tdx() && !ms_hyperv.paravisor_present)
 		goto skip_hypercall_pg_init;
 
-	hv_hypercall_pg = __vmalloc_node_range(PAGE_SIZE, 1, VMALLOC_START,
-			VMALLOC_END, GFP_KERNEL, PAGE_KERNEL_ROX,
+	hv_hypercall_pg = __vmalloc_node_range(PAGE_SIZE, 1, MODULES_VADDR,
+			MODULES_END, GFP_KERNEL, PAGE_KERNEL_ROX,
 			VM_FLUSH_RESET_PERMS, NUMA_NO_NODE,
 			__builtin_return_address(0));
 	if (hv_hypercall_pg == NULL)
@@ -510,32 +556,18 @@ void __init hyperv_init(void)
 		memunmap(src);
 
 		hv_remap_tsc_clocksource();
+		hv_sleep_notifiers_register();
 	} else {
 		hypercall_msr.guest_physical_address = vmalloc_to_pfn(hv_hypercall_pg);
 		wrmsrq(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
 	}
 
-skip_hypercall_pg_init:
-	/*
-	 * Some versions of Hyper-V that provide IBT in guest VMs have a bug
-	 * in that there's no ENDBR64 instruction at the entry to the
-	 * hypercall page. Because hypercalls are invoked via an indirect call
-	 * to the hypercall page, all hypercall attempts fail when IBT is
-	 * enabled, and Linux panics. For such buggy versions, disable IBT.
-	 *
-	 * Fixed versions of Hyper-V always provide ENDBR64 on the hypercall
-	 * page, so if future Linux kernel versions enable IBT for 32-bit
-	 * builds, additional hypercall page hackery will be required here
-	 * to provide an ENDBR32.
-	 */
-#ifdef CONFIG_X86_KERNEL_IBT
-	if (cpu_feature_enabled(X86_FEATURE_IBT) &&
-	    *(u32 *)hv_hypercall_pg != gen_endbr()) {
-		setup_clear_cpu_cap(X86_FEATURE_IBT);
-		pr_warn("Disabling IBT because of Hyper-V bug\n");
-	}
-#endif
+	hv_set_hypercall_pg(hv_hypercall_pg);
 
+	if (hv_root_partition())        /* after set hypercall pg */
+		hv_root_crash_init();
+
+skip_hypercall_pg_init:
 	/*
 	 * hyperv_init() is called before LAPIC is initialized: see
 	 * apic_intr_mode_init() -> x86_platform.apic_post_init() and
@@ -550,7 +582,7 @@ skip_hypercall_pg_init:
 
 	x86_init.pci.arch_init = hv_pci_init;
 
-	register_syscore_ops(&hv_syscore_ops);
+	register_syscore(&hv_syscore);
 
 	if (ms_hyperv.priv_high & HV_ACCESS_PARTITION_ID)
 		hv_get_partition_id();
@@ -601,9 +633,13 @@ void hyperv_cleanup(void)
 	hv_ivm_msr_write(HV_X64_MSR_GUEST_OS_ID, 0);
 
 	/*
-	 * Reset hypercall page reference before reset the page,
-	 * let hypercall operations fail safely rather than
-	 * panic the kernel for using invalid hypercall page
+	 * Reset hv_hypercall_pg before resetting it in the hypervisor.
+	 * hv_set_hypercall_pg(NULL) is not used because at this point in the
+	 * panic path other CPUs have been stopped, causing static_call_update()
+	 * to hang. So resetting hv_hypercall_pg to cause hypercalls to fail
+	 * cleanly is only operative on 32-bit builds. But this is OK as it is
+	 * just a preventative measure to ease detecting a hypercall being made
+	 * after this point, which shouldn't be happening anyway.
 	 */
 	hv_hypercall_pg = NULL;
 

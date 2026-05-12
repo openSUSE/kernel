@@ -13,6 +13,7 @@
 #include <linux/mount.h>
 #include <linux/blkdev.h>
 #include <linux/backing-dev.h>
+#include <linux/filelock.h>
 #include <linux/fsnotify.h>
 #include <linux/security.h>
 #include <linux/falloc.h>
@@ -140,8 +141,7 @@ static int fat_ioctl_fitrim(struct inode *inode, unsigned long arg)
 	if (copy_from_user(&range, user_range, sizeof(range)))
 		return -EFAULT;
 
-	range.minlen = max_t(unsigned int, range.minlen,
-			     bdev_discard_granularity(sb->s_bdev));
+	range.minlen = max(range.minlen, bdev_discard_granularity(sb->s_bdev));
 
 	err = fat_trim_fs(inode, &range);
 	if (err < 0)
@@ -186,13 +186,15 @@ static int fat_file_release(struct inode *inode, struct file *filp)
 int fat_file_fsync(struct file *filp, loff_t start, loff_t end, int datasync)
 {
 	struct inode *inode = filp->f_mapping->host;
+	struct inode *fat_inode = MSDOS_SB(inode->i_sb)->fat_inode;
 	int err;
 
-	err = __generic_file_fsync(filp, start, end, datasync);
+	err = mmb_fsync_noflush(filp, &MSDOS_I(inode)->i_metadata_bhs,
+				start, end, datasync);
 	if (err)
 		return err;
 
-	err = sync_mapping_buffers(MSDOS_SB(inode->i_sb)->fat_inode->i_mapping);
+	err = mmb_sync(&MSDOS_I(fat_inode)->i_metadata_bhs);
 	if (err)
 		return err;
 
@@ -212,6 +214,7 @@ const struct file_operations fat_file_operations = {
 	.splice_read	= filemap_splice_read,
 	.splice_write	= iter_file_splice_write,
 	.fallocate	= fat_fallocate,
+	.setlease	= generic_setlease,
 };
 
 static int fat_cont_expand(struct inode *inode, loff_t size)
@@ -224,7 +227,7 @@ static int fat_cont_expand(struct inode *inode, loff_t size)
 	if (err)
 		goto out;
 
-	fat_truncate_time(inode, NULL, S_CTIME|S_MTIME);
+	fat_truncate_time(inode, NULL, FAT_UPDATE_CMTIME);
 	mark_inode_dirty(inode);
 	if (IS_SYNC(inode)) {
 		int err2;
@@ -235,7 +238,7 @@ static int fat_cont_expand(struct inode *inode, loff_t size)
 		 */
 		err = filemap_fdatawrite_range(mapping, start,
 					       start + count - 1);
-		err2 = sync_mapping_buffers(mapping);
+		err2 = mmb_sync(&MSDOS_I(inode)->i_metadata_bhs);
 		if (!err)
 			err = err2;
 		err2 = write_inode_now(inode, 1);
@@ -327,7 +330,7 @@ static int fat_free(struct inode *inode, int skip)
 		MSDOS_I(inode)->i_logstart = 0;
 	}
 	MSDOS_I(inode)->i_attrs |= ATTR_ARCH;
-	fat_truncate_time(inode, NULL, S_CTIME|S_MTIME);
+	fat_truncate_time(inode, NULL, FAT_UPDATE_CMTIME);
 	if (wait) {
 		err = fat_sync_inode(inode);
 		if (err) {
@@ -553,15 +556,13 @@ int fat_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 	}
 
 	/*
-	 * setattr_copy can't truncate these appropriately, so we'll
-	 * copy them ourselves
+	 * setattr_copy can't truncate these appropriately, so we'll copy them
+	 * ourselves.  See fat_truncate_time for the c/mtime logic on fat.
 	 */
 	if (attr->ia_valid & ATTR_ATIME)
-		fat_truncate_time(inode, &attr->ia_atime, S_ATIME);
-	if (attr->ia_valid & ATTR_CTIME)
-		fat_truncate_time(inode, &attr->ia_ctime, S_CTIME);
+		fat_truncate_time(inode, &attr->ia_atime, FAT_UPDATE_ATIME);
 	if (attr->ia_valid & ATTR_MTIME)
-		fat_truncate_time(inode, &attr->ia_mtime, S_MTIME);
+		fat_truncate_time(inode, &attr->ia_mtime, FAT_UPDATE_CMTIME);
 	attr->ia_valid &= ~(ATTR_ATIME|ATTR_CTIME|ATTR_MTIME);
 
 	setattr_copy(idmap, inode, attr);

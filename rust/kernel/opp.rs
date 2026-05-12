@@ -12,11 +12,12 @@ use crate::{
     clk::Hertz,
     cpumask::{Cpumask, CpumaskVar},
     device::Device,
-    error::{code::*, from_err_ptr, from_result, to_result, Error, Result, VTABLE_DEFAULT_ERROR},
-    ffi::c_ulong,
+    error::{code::*, from_err_ptr, from_result, to_result, Result, VTABLE_DEFAULT_ERROR},
+    ffi::{c_char, c_ulong},
     prelude::*,
     str::CString,
-    types::{ARef, AlwaysRefCounted, Opaque},
+    sync::aref::{ARef, AlwaysRefCounted},
+    types::Opaque,
 };
 
 #[cfg(CONFIG_CPU_FREQ)]
@@ -86,13 +87,13 @@ use core::{marker::PhantomData, ptr};
 
 use macros::vtable;
 
-/// Creates a null-terminated slice of pointers to [`Cstring`]s.
-fn to_c_str_array(names: &[CString]) -> Result<KVec<*const u8>> {
+/// Creates a null-terminated slice of pointers to [`CString`]s.
+fn to_c_str_array(names: &[CString]) -> Result<KVec<*const c_char>> {
     // Allocated a null-terminated vector of pointers.
     let mut list = KVec::with_capacity(names.len() + 1, GFP_KERNEL)?;
 
     for name in names.iter() {
-        list.push(name.as_ptr().cast(), GFP_KERNEL)?;
+        list.push(name.as_char_ptr(), GFP_KERNEL)?;
     }
 
     list.push(ptr::null(), GFP_KERNEL)?;
@@ -162,7 +163,7 @@ impl From<MicroWatt> for c_ulong {
 /// use kernel::device::Device;
 /// use kernel::error::Result;
 /// use kernel::opp::{Data, MicroVolt, Token};
-/// use kernel::types::ARef;
+/// use kernel::sync::aref::ARef;
 ///
 /// fn create_opp(dev: &ARef<Device>, freq: Hertz, volt: MicroVolt, level: u32) -> Result<Token> {
 ///     let data = Data::new(freq, volt, level, false);
@@ -211,7 +212,7 @@ impl Drop for Token {
 /// use kernel::device::Device;
 /// use kernel::error::Result;
 /// use kernel::opp::{Data, MicroVolt, Token};
-/// use kernel::types::ARef;
+/// use kernel::sync::aref::ARef;
 ///
 /// fn create_opp(dev: &ARef<Device>, freq: Hertz, volt: MicroVolt, level: u32) -> Result<Token> {
 ///     let data = Data::new(freq, volt, level, false);
@@ -262,7 +263,7 @@ impl Data {
 /// use kernel::clk::Hertz;
 /// use kernel::error::Result;
 /// use kernel::opp::{OPP, SearchType, Table};
-/// use kernel::types::ARef;
+/// use kernel::sync::aref::ARef;
 ///
 /// fn find_opp(table: &Table, freq: Hertz) -> Result<ARef<OPP>> {
 ///     let opp = table.opp_from_freq(freq, Some(true), None, SearchType::Exact)?;
@@ -335,7 +336,7 @@ impl Drop for ConfigToken {
 /// use kernel::error::Result;
 /// use kernel::opp::{Config, ConfigOps, ConfigToken};
 /// use kernel::str::CString;
-/// use kernel::types::ARef;
+/// use kernel::sync::aref::ARef;
 /// use kernel::macros::vtable;
 ///
 /// #[derive(Default)]
@@ -442,69 +443,70 @@ impl<T: ConfigOps + Default> Config<T> {
     ///
     /// The returned [`ConfigToken`] will remove the configuration when dropped.
     pub fn set(self, dev: &Device) -> Result<ConfigToken> {
-        let (_clk_list, clk_names) = match &self.clk_names {
-            Some(x) => {
-                let list = to_c_str_array(x)?;
-                let ptr = list.as_ptr();
-                (Some(list), ptr)
-            }
-            None => (None, ptr::null()),
+        let clk_names = self.clk_names.as_deref().map(to_c_str_array).transpose()?;
+        let regulator_names = self
+            .regulator_names
+            .as_deref()
+            .map(to_c_str_array)
+            .transpose()?;
+
+        let set_config = || {
+            let clk_names = clk_names.as_ref().map_or(ptr::null(), |c| c.as_ptr());
+            let regulator_names = regulator_names.as_ref().map_or(ptr::null(), |c| c.as_ptr());
+
+            let prop_name = self
+                .prop_name
+                .as_ref()
+                .map_or(ptr::null(), |p| p.as_char_ptr());
+
+            let (supported_hw, supported_hw_count) = self
+                .supported_hw
+                .as_ref()
+                .map_or((ptr::null(), 0), |hw| (hw.as_ptr(), hw.len() as u32));
+
+            let (required_dev, required_dev_index) = self
+                .required_dev
+                .as_ref()
+                .map_or((ptr::null_mut(), 0), |(dev, idx)| (dev.as_raw(), *idx));
+
+            let mut config = bindings::dev_pm_opp_config {
+                clk_names,
+                config_clks: if T::HAS_CONFIG_CLKS {
+                    Some(Self::config_clks)
+                } else {
+                    None
+                },
+                prop_name,
+                regulator_names,
+                config_regulators: if T::HAS_CONFIG_REGULATORS {
+                    Some(Self::config_regulators)
+                } else {
+                    None
+                },
+                supported_hw,
+                supported_hw_count,
+
+                required_dev,
+                required_dev_index,
+            };
+
+            // SAFETY: The requirements are satisfied by the existence of [`Device`] and its safety
+            // requirements. The OPP core guarantees not to access fields of [`Config`] after this
+            // call and so we don't need to save a copy of them for future use.
+            let ret = unsafe { bindings::dev_pm_opp_set_config(dev.as_raw(), &mut config) };
+
+            to_result(ret).map(|()| ConfigToken(ret))
         };
 
-        let (_regulator_list, regulator_names) = match &self.regulator_names {
-            Some(x) => {
-                let list = to_c_str_array(x)?;
-                let ptr = list.as_ptr();
-                (Some(list), ptr)
-            }
-            None => (None, ptr::null()),
-        };
+        // Ensure the closure does not accidentally drop owned data; if violated, the compiler
+        // produces E0525 with e.g.:
+        //
+        // ```
+        // closure is `FnOnce` because it moves the variable `clk_names` out of its environment
+        // ```
+        let _: &dyn Fn() -> _ = &set_config;
 
-        let prop_name = self
-            .prop_name
-            .as_ref()
-            .map_or(ptr::null(), |p| p.as_char_ptr());
-
-        let (supported_hw, supported_hw_count) = self
-            .supported_hw
-            .as_ref()
-            .map_or((ptr::null(), 0), |hw| (hw.as_ptr(), hw.len() as u32));
-
-        let (required_dev, required_dev_index) = self
-            .required_dev
-            .as_ref()
-            .map_or((ptr::null_mut(), 0), |(dev, idx)| (dev.as_raw(), *idx));
-
-        let mut config = bindings::dev_pm_opp_config {
-            clk_names,
-            config_clks: if T::HAS_CONFIG_CLKS {
-                Some(Self::config_clks)
-            } else {
-                None
-            },
-            prop_name,
-            regulator_names,
-            config_regulators: if T::HAS_CONFIG_REGULATORS {
-                Some(Self::config_regulators)
-            } else {
-                None
-            },
-            supported_hw,
-            supported_hw_count,
-
-            required_dev,
-            required_dev_index,
-        };
-
-        // SAFETY: The requirements are satisfied by the existence of [`Device`] and its safety
-        // requirements. The OPP core guarantees not to access fields of [`Config`] after this call
-        // and so we don't need to save a copy of them for future use.
-        let ret = unsafe { bindings::dev_pm_opp_set_config(dev.as_raw(), &mut config) };
-        if ret < 0 {
-            Err(Error::from_errno(ret))
-        } else {
-            Ok(ConfigToken(ret))
-        }
+        set_config()
     }
 
     /// Config's clk callback.
@@ -581,7 +583,7 @@ impl<T: ConfigOps + Default> Config<T> {
 /// use kernel::device::Device;
 /// use kernel::error::Result;
 /// use kernel::opp::Table;
-/// use kernel::types::ARef;
+/// use kernel::sync::aref::ARef;
 ///
 /// fn get_table(dev: &ARef<Device>, mask: &mut Cpumask, freq: Hertz) -> Result<Table> {
 ///     let mut opp_table = Table::from_of_cpumask(dev, mask)?;
@@ -713,11 +715,8 @@ impl Table {
         // SAFETY: The requirements are satisfied by the existence of [`Device`] and its safety
         // requirements.
         let ret = unsafe { bindings::dev_pm_opp_get_opp_count(self.dev.as_raw()) };
-        if ret < 0 {
-            Err(Error::from_errno(ret))
-        } else {
-            Ok(ret as u32)
-        }
+
+        to_result(ret).map(|()| ret as u32)
     }
 
     /// Returns max clock latency (in nanoseconds) of the [`OPP`]s in the [`Table`].

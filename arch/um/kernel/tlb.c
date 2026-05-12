@@ -29,10 +29,9 @@ static int kern_map(struct mm_id *mm_idp,
 		    unsigned long virt, unsigned long len, int prot,
 		    int phys_fd, unsigned long long offset)
 {
-	/* TODO: Why is executable needed to be always set in the kernel? */
 	return os_map_memory((void *)virt, phys_fd, offset, len,
 			     prot & UM_PROT_READ, prot & UM_PROT_WRITE,
-			     1);
+			     prot & UM_PROT_EXEC);
 }
 
 static int kern_unmap(struct mm_id *mm_idp,
@@ -162,8 +161,11 @@ int um_tlb_sync(struct mm_struct *mm)
 {
 	pgd_t *pgd;
 	struct vm_ops ops;
-	unsigned long addr = mm->context.sync_tlb_range_from, next;
+	unsigned long addr, next;
 	int ret = 0;
+
+	guard(spinlock_irqsave)(&mm->page_table_lock);
+	guard(spinlock_irqsave)(&mm->context.sync_tlb_lock);
 
 	if (mm->context.sync_tlb_range_to == 0)
 		return 0;
@@ -177,6 +179,7 @@ int um_tlb_sync(struct mm_struct *mm)
 		ops.unmap = unmap;
 	}
 
+	addr = mm->context.sync_tlb_range_from;
 	pgd = pgd_offset(mm, addr);
 	do {
 		next = pgd_addr_end(addr, mm->context.sync_tlb_range_to);

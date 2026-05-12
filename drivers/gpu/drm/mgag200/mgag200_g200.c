@@ -7,6 +7,7 @@
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_gem_atomic_helper.h>
+#include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 
 #include "mgag200_drv.h"
@@ -61,7 +62,7 @@ static void mgag200_g200_init_registers(struct mgag200_g200_device *g200)
  * PIXPLLC
  */
 
-static int mgag200_g200_pixpllc_atomic_check(struct drm_crtc *crtc, struct drm_atomic_state *new_state)
+static int mgag200_g200_pixpllc_atomic_check(struct drm_crtc *crtc, struct drm_atomic_commit *new_state)
 {
 	static const int post_div_max = 7;
 	static const int in_div_min = 1;
@@ -137,7 +138,7 @@ static int mgag200_g200_pixpllc_atomic_check(struct drm_crtc *crtc, struct drm_a
 }
 
 static void mgag200_g200_pixpllc_atomic_update(struct drm_crtc *crtc,
-					       struct drm_atomic_state *old_state)
+					       struct drm_atomic_commit *old_state)
 {
 	struct drm_device *dev = crtc->dev;
 	struct mga_device *mdev = to_mga_device(dev);

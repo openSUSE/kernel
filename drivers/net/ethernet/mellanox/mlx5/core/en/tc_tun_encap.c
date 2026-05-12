@@ -87,7 +87,7 @@ int mlx5e_tc_set_attr_rx_tun(struct mlx5e_tc_flow *flow,
 	void *daddr, *saddr;
 	u8 ip_version;
 
-	tun_attr = kvzalloc(sizeof(*tun_attr), GFP_KERNEL);
+	tun_attr = kvzalloc_obj(*tun_attr);
 	if (!tun_attr)
 		return -ENOMEM;
 
@@ -172,8 +172,8 @@ void mlx5e_tc_encap_flows_add(struct mlx5e_priv *priv,
 						     &reformat_params,
 						     MLX5_FLOW_NAMESPACE_FDB);
 	if (IS_ERR(e->pkt_reformat)) {
-		mlx5_core_warn(priv->mdev, "Failed to offload cached encapsulation header, %lu\n",
-			       PTR_ERR(e->pkt_reformat));
+		mlx5_core_warn(priv->mdev, "Failed to offload cached encapsulation header, %pe\n",
+			       e->pkt_reformat);
 		return;
 	}
 	e->flags |= MLX5_ENCAP_ENTRY_VALID;
@@ -402,7 +402,7 @@ void mlx5e_tc_update_neigh_used_value(struct mlx5e_neigh_hash_entry *nhe)
 		tbl = &arp_tbl;
 #if IS_ENABLED(CONFIG_IPV6)
 	else if (m_neigh->family == AF_INET6)
-		tbl = ipv6_stub->nd_tbl;
+		tbl = &nd_tbl;
 #endif
 	else
 		return;
@@ -864,7 +864,7 @@ int mlx5e_attach_encap(struct mlx5e_priv *priv,
 		goto attach_flow;
 	}
 
-	e = kzalloc(sizeof(*e), GFP_KERNEL);
+	e = kzalloc_obj(*e);
 	if (!e) {
 		err = -ENOMEM;
 		goto out_err;
@@ -976,7 +976,7 @@ int mlx5e_attach_decap(struct mlx5e_priv *priv,
 		goto found;
 	}
 
-	d = kzalloc(sizeof(*d), GFP_KERNEL);
+	d = kzalloc_obj(*d);
 	if (!d) {
 		err = -ENOMEM;
 		goto out_err;
@@ -1205,7 +1205,7 @@ mlx5e_route_get_create(struct mlx5e_priv *priv,
 		return r;
 	}
 
-	r = kzalloc(sizeof(*r), GFP_KERNEL);
+	r = kzalloc_obj(*r);
 	if (!r)
 		return ERR_PTR(-ENOMEM);
 
@@ -1251,7 +1251,7 @@ mlx5e_tc_init_fib_work(unsigned long event, struct net_device *ul_dev, gfp_t fla
 {
 	struct mlx5e_tc_fib_event_data *fib_work;
 
-	fib_work = kzalloc(sizeof(*fib_work), flags);
+	fib_work = kzalloc_obj(*fib_work, flags);
 	if (WARN_ON(!fib_work))
 		return NULL;
 
@@ -1845,8 +1845,8 @@ static int mlx5e_tc_tun_fib_event(struct notifier_block *nb, unsigned long event
 			queue_work(priv->wq, &fib_work->work);
 		} else if (IS_ERR(fib_work)) {
 			NL_SET_ERR_MSG_MOD(info->extack, "Failed to init fib work");
-			mlx5_core_warn(priv->mdev, "Failed to init fib work, %ld\n",
-				       PTR_ERR(fib_work));
+			mlx5_core_warn(priv->mdev, "Failed to init fib work, %pe\n",
+				       fib_work);
 		}
 
 		break;
@@ -1862,7 +1862,7 @@ struct mlx5e_tc_tun_encap *mlx5e_tc_tun_init(struct mlx5e_priv *priv)
 	struct mlx5e_tc_tun_encap *encap;
 	int err;
 
-	encap = kvzalloc(sizeof(*encap), GFP_KERNEL);
+	encap = kvzalloc_obj(*encap);
 	if (!encap)
 		return ERR_PTR(-ENOMEM);
 

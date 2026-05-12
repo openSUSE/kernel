@@ -2,7 +2,7 @@
 /*
     V4L2 device support.
 
-    Copyright (C) 2008  Hans Verkuil <hverkuil@xs4all.nl>
+    Copyright (C) 2008  Hans Verkuil <hverkuil@kernel.org>
 
  */
 
@@ -205,7 +205,7 @@ int __v4l2_device_register_subdev_nodes(struct v4l2_device *v4l2_dev,
 		if (sd->devnode)
 			continue;
 
-		vdev = kzalloc(sizeof(*vdev), GFP_KERNEL);
+		vdev = kzalloc_obj(*vdev);
 		if (!vdev) {
 			err = -ENOMEM;
 			goto clean_up;

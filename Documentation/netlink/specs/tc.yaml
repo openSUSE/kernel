@@ -5,7 +5,7 @@ protocol: netlink-raw
 uapi-header: linux/pkt_cls.h
 protonum: 0
 
-doc:
+doc: >-
   Netlink raw family for tc qdisc, chain, class and filter configuration
   over rtnetlink.
 
@@ -2207,6 +2207,9 @@ attribute-sets:
       -
         name: blue-timer-us
         type: s32
+      -
+        name: active-queues
+        type: u32
   -
     name: cake-tin-stats-attrs
     name-prefix: tca-cake-tin-stats-

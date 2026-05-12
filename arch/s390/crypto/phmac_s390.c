@@ -5,8 +5,7 @@
  * s390 specific HMAC support for protected keys.
  */
 
-#define KMSG_COMPONENT	"phmac_s390"
-#define pr_fmt(fmt)	KMSG_COMPONENT ": " fmt
+#define pr_fmt(fmt) "phmac_s390: " fmt
 
 #include <asm/cpacf.h>
 #include <asm/pkey.h>
@@ -23,6 +22,10 @@
 
 static struct crypto_engine *phmac_crypto_engine;
 #define MAX_QLEN 10
+
+static bool pkey_clrkey_allowed;
+module_param_named(clrkey, pkey_clrkey_allowed, bool, 0444);
+MODULE_PARM_DESC(clrkey, "Allow clear key material (default N)");
 
 /*
  * A simple hash walk helper
@@ -169,11 +172,18 @@ struct kmac_sha2_ctx {
 	u64 buflen[2];
 };
 
+enum async_op {
+	OP_NOP = 0,
+	OP_UPDATE,
+	OP_FINAL,
+	OP_FINUP,
+};
+
 /* phmac request context */
 struct phmac_req_ctx {
 	struct hash_walk_helper hwh;
 	struct kmac_sha2_ctx kmac_ctx;
-	bool final;
+	enum async_op async_op;
 };
 
 /*
@@ -305,9 +315,13 @@ static inline int phmac_tfm_ctx_setkey(struct phmac_tfm_ctx *tfm_ctx,
  * This function may sleep - don't call in non-sleeping context.
  */
 static inline int convert_key(const u8 *key, unsigned int keylen,
-			      struct phmac_protkey *pk)
+			      struct phmac_protkey *pk, bool tested)
 {
+	u32 xflags = PKEY_XFLAG_NOMEMALLOC;
 	int rc, i;
+
+	if (tested && !pkey_clrkey_allowed)
+		xflags |= PKEY_XFLAG_NOCLEARKEY;
 
 	pk->len = sizeof(pk->protkey);
 
@@ -322,7 +336,7 @@ static inline int convert_key(const u8 *key, unsigned int keylen,
 		}
 		rc = pkey_key2protkey(key, keylen,
 				      pk->protkey, &pk->len, &pk->type,
-				      PKEY_XFLAG_NOMEMALLOC);
+				      xflags);
 	}
 
 out:
@@ -344,7 +358,7 @@ out:
  * unnecessary additional conversion but never to invalid data on the
  * hash operation.
  */
-static int phmac_convert_key(struct phmac_tfm_ctx *tfm_ctx)
+static int phmac_convert_key(struct phmac_tfm_ctx *tfm_ctx, bool tested)
 {
 	struct phmac_protkey pk;
 	int rc;
@@ -353,7 +367,7 @@ static int phmac_convert_key(struct phmac_tfm_ctx *tfm_ctx)
 	tfm_ctx->pk_state = PK_STATE_CONVERT_IN_PROGRESS;
 	spin_unlock_bh(&tfm_ctx->pk_lock);
 
-	rc = convert_key(tfm_ctx->keybuf, tfm_ctx->keylen, &pk);
+	rc = convert_key(tfm_ctx->keybuf, tfm_ctx->keylen, &pk, tested);
 
 	/* update context */
 	spin_lock_bh(&tfm_ctx->pk_lock);
@@ -398,6 +412,7 @@ static int phmac_kmac_update(struct ahash_request *req, bool maysleep)
 	struct kmac_sha2_ctx *ctx = &req_ctx->kmac_ctx;
 	struct hash_walk_helper *hwh = &req_ctx->hwh;
 	unsigned int bs = crypto_ahash_blocksize(tfm);
+	bool tested = crypto_ahash_tested(tfm);
 	unsigned int offset, k, n;
 	int rc = 0;
 
@@ -438,7 +453,7 @@ static int phmac_kmac_update(struct ahash_request *req, bool maysleep)
 					rc = -EKEYEXPIRED;
 					goto out;
 				}
-				rc = phmac_convert_key(tfm_ctx);
+				rc = phmac_convert_key(tfm_ctx, tested);
 				if (rc)
 					goto out;
 				spin_lock_bh(&tfm_ctx->pk_lock);
@@ -474,7 +489,7 @@ static int phmac_kmac_update(struct ahash_request *req, bool maysleep)
 					rc = -EKEYEXPIRED;
 					goto out;
 				}
-				rc = phmac_convert_key(tfm_ctx);
+				rc = phmac_convert_key(tfm_ctx, tested);
 				if (rc)
 					goto out;
 				spin_lock_bh(&tfm_ctx->pk_lock);
@@ -511,6 +526,7 @@ static int phmac_kmac_final(struct ahash_request *req, bool maysleep)
 	struct kmac_sha2_ctx *ctx = &req_ctx->kmac_ctx;
 	unsigned int ds = crypto_ahash_digestsize(tfm);
 	unsigned int bs = crypto_ahash_blocksize(tfm);
+	bool tested = crypto_ahash_tested(tfm);
 	unsigned int k, n;
 	int rc = 0;
 
@@ -531,7 +547,7 @@ static int phmac_kmac_final(struct ahash_request *req, bool maysleep)
 			rc = -EKEYEXPIRED;
 			goto out;
 		}
-		rc = phmac_convert_key(tfm_ctx);
+		rc = phmac_convert_key(tfm_ctx, tested);
 		if (rc)
 			goto out;
 		spin_lock_bh(&tfm_ctx->pk_lock);
@@ -610,6 +626,7 @@ static int phmac_update(struct ahash_request *req)
 	 * using engine to serialize requests.
 	 */
 	if (rc == 0 || rc == -EKEYEXPIRED) {
+		req_ctx->async_op = OP_UPDATE;
 		atomic_inc(&tfm_ctx->via_engine_ctr);
 		rc = crypto_transfer_hash_request_to_engine(phmac_crypto_engine, req);
 		if (rc != -EINPROGRESS)
@@ -647,8 +664,7 @@ static int phmac_final(struct ahash_request *req)
 	 * using engine to serialize requests.
 	 */
 	if (rc == 0 || rc == -EKEYEXPIRED) {
-		req->nbytes = 0;
-		req_ctx->final = true;
+		req_ctx->async_op = OP_FINAL;
 		atomic_inc(&tfm_ctx->via_engine_ctr);
 		rc = crypto_transfer_hash_request_to_engine(phmac_crypto_engine, req);
 		if (rc != -EINPROGRESS)
@@ -676,13 +692,16 @@ static int phmac_finup(struct ahash_request *req)
 	if (rc)
 		goto out;
 
+	req_ctx->async_op = OP_FINUP;
+
 	/* Try synchronous operations if no active engine usage */
 	if (!atomic_read(&tfm_ctx->via_engine_ctr)) {
 		rc = phmac_kmac_update(req, false);
 		if (rc == 0)
-			req->nbytes = 0;
+			req_ctx->async_op = OP_FINAL;
 	}
-	if (!rc && !req->nbytes && !atomic_read(&tfm_ctx->via_engine_ctr)) {
+	if (!rc && req_ctx->async_op == OP_FINAL &&
+	    !atomic_read(&tfm_ctx->via_engine_ctr)) {
 		rc = phmac_kmac_final(req, false);
 		if (rc == 0)
 			goto out;
@@ -694,7 +713,7 @@ static int phmac_finup(struct ahash_request *req)
 	 * using engine to serialize requests.
 	 */
 	if (rc == 0 || rc == -EKEYEXPIRED) {
-		req_ctx->final = true;
+		/* req->async_op has been set to either OP_FINUP or OP_FINAL */
 		atomic_inc(&tfm_ctx->via_engine_ctr);
 		rc = crypto_transfer_hash_request_to_engine(phmac_crypto_engine, req);
 		if (rc != -EINPROGRESS)
@@ -732,11 +751,12 @@ static int phmac_setkey(struct crypto_ahash *tfm,
 	struct phmac_tfm_ctx *tfm_ctx = crypto_ahash_ctx(tfm);
 	unsigned int ds = crypto_ahash_digestsize(tfm);
 	unsigned int bs = crypto_ahash_blocksize(tfm);
+	bool tested = crypto_ahash_tested(tfm);
 	unsigned int tmpkeylen;
 	u8 *tmpkey = NULL;
 	int rc = 0;
 
-	if (!crypto_ahash_tested(tfm)) {
+	if (!tested) {
 		/*
 		 * selftest running: key is a raw hmac clear key and needs
 		 * to get embedded into a 'clear key token' in order to have
@@ -761,7 +781,7 @@ static int phmac_setkey(struct crypto_ahash *tfm,
 		goto out;
 
 	/* convert raw key into protected key */
-	rc = phmac_convert_key(tfm_ctx);
+	rc = phmac_convert_key(tfm_ctx, tested);
 	if (rc)
 		goto out;
 
@@ -855,15 +875,16 @@ static int phmac_do_one_request(struct crypto_engine *engine, void *areq)
 
 	/*
 	 * Three kinds of requests come in here:
-	 * update when req->nbytes > 0 and req_ctx->final is false
-	 * final when req->nbytes = 0 and req_ctx->final is true
-	 * finup when req->nbytes > 0 and req_ctx->final is true
-	 * For update and finup the hwh walk needs to be prepared and
-	 * up to date but the actual nr of bytes in req->nbytes may be
-	 * any non zero number. For final there is no hwh walk needed.
+	 * 1. req->async_op == OP_UPDATE with req->nbytes > 0
+	 * 2. req->async_op == OP_FINUP with req->nbytes > 0
+	 * 3. req->async_op == OP_FINAL
+	 * For update and finup the hwh walk has already been prepared
+	 * by the caller. For final there is no hwh walk needed.
 	 */
 
-	if (req->nbytes) {
+	switch (req_ctx->async_op) {
+	case OP_UPDATE:
+	case OP_FINUP:
 		rc = phmac_kmac_update(req, true);
 		if (rc == -EKEYEXPIRED) {
 			/*
@@ -880,10 +901,11 @@ static int phmac_do_one_request(struct crypto_engine *engine, void *areq)
 			hwh_advance(hwh, rc);
 			goto out;
 		}
-		req->nbytes = 0;
-	}
-
-	if (req_ctx->final) {
+		if (req_ctx->async_op == OP_UPDATE)
+			break;
+		req_ctx->async_op = OP_FINAL;
+		fallthrough;
+	case OP_FINAL:
 		rc = phmac_kmac_final(req, true);
 		if (rc == -EKEYEXPIRED) {
 			/*
@@ -897,10 +919,14 @@ static int phmac_do_one_request(struct crypto_engine *engine, void *areq)
 			cond_resched();
 			return -ENOSPC;
 		}
+		break;
+	default:
+		/* unknown/unsupported/unimplemented asynch op */
+		return -EOPNOTSUPP;
 	}
 
 out:
-	if (rc || req_ctx->final)
+	if (rc || req_ctx->async_op == OP_FINAL)
 		memzero_explicit(kmac_ctx, sizeof(*kmac_ctx));
 	pr_debug("request complete with rc=%d\n", rc);
 	local_bh_disable();

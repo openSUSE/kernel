@@ -4,6 +4,7 @@
  * Copyright (c) 2015-2016 HGST, a Western Digital Company.
  */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+#include <linux/hex.h>
 #include <linux/module.h>
 #include <linux/random.h>
 #include <linux/rculist.h>
@@ -26,6 +27,8 @@ static DEFINE_IDA(cntlid_ida);
 
 struct workqueue_struct *nvmet_wq;
 EXPORT_SYMBOL_GPL(nvmet_wq);
+struct workqueue_struct *nvmet_aen_wq;
+EXPORT_SYMBOL_GPL(nvmet_aen_wq);
 
 /*
  * This read/write semaphore is used to synchronize access to configuration
@@ -40,7 +43,7 @@ EXPORT_SYMBOL_GPL(nvmet_wq);
  *  - the nvmet_transports array
  *
  * When updating any of those lists/structures write lock should be obtained,
- * while when reading (popolating discovery log page or checking host-subsystem
+ * while when reading (populating discovery log page or checking host-subsystem
  * link) read lock is obtained to allow concurrent reads.
  */
 DECLARE_RWSEM(nvmet_config_sem);
@@ -193,7 +196,7 @@ void nvmet_add_async_event(struct nvmet_ctrl *ctrl, u8 event_type,
 {
 	struct nvmet_async_event *aen;
 
-	aen = kmalloc(sizeof(*aen), GFP_KERNEL);
+	aen = kmalloc_obj(*aen);
 	if (!aen)
 		return;
 
@@ -205,7 +208,7 @@ void nvmet_add_async_event(struct nvmet_ctrl *ctrl, u8 event_type,
 	list_add_tail(&aen->entry, &ctrl->async_events);
 	mutex_unlock(&ctrl->lock);
 
-	queue_work(nvmet_wq, &ctrl->async_event_work);
+	queue_work(nvmet_aen_wq, &ctrl->async_event_work);
 }
 
 static void nvmet_add_to_changed_ns_log(struct nvmet_ctrl *ctrl, __le32 nsid)
@@ -367,6 +370,14 @@ int nvmet_enable_port(struct nvmet_port *port)
 					       NVMET_MIN_QUEUE_SIZE,
 					       NVMET_MAX_QUEUE_SIZE);
 
+	/*
+	 * If the transport didn't set the mdts properly, then clamp it to the
+	 * target limits. Also set default values in case the transport didn't
+	 * set it at all.
+	 */
+	if (port->mdts < 0 || port->mdts > NVMET_MAX_MDTS)
+		port->mdts = 0;
+
 	port->enabled = true;
 	port->tr_ops = ops;
 	return 0;
@@ -513,15 +524,14 @@ static int nvmet_p2pmem_ns_enable(struct nvmet_ns *ns)
 	return 0;
 }
 
-/*
- * Note: ctrl->subsys->lock should be held when calling this function
- */
 static void nvmet_p2pmem_ns_add_p2p(struct nvmet_ctrl *ctrl,
 				    struct nvmet_ns *ns)
 {
 	struct device *clients[2];
 	struct pci_dev *p2p_dev;
 	int ret;
+
+	lockdep_assert_held(&ctrl->subsys->lock);
 
 	if (!ctrl->p2p_client || !ns->use_p2pmem)
 		return;
@@ -693,7 +703,7 @@ struct nvmet_ns *nvmet_ns_alloc(struct nvmet_subsys *subsys, u32 nsid)
 	if (subsys->nr_namespaces == NVMET_MAX_NAMESPACES)
 		goto out_unlock;
 
-	ns = kzalloc(sizeof(*ns), GFP_KERNEL);
+	ns = kzalloc_obj(*ns);
 	if (!ns)
 		goto out_unlock;
 
@@ -1539,14 +1549,13 @@ bool nvmet_host_allowed(struct nvmet_subsys *subsys, const char *hostnqn)
 	return false;
 }
 
-/*
- * Note: ctrl->subsys->lock should be held when calling this function
- */
 static void nvmet_setup_p2p_ns_map(struct nvmet_ctrl *ctrl,
 		struct device *p2p_client)
 {
 	struct nvmet_ns *ns;
 	unsigned long idx;
+
+	lockdep_assert_held(&ctrl->subsys->lock);
 
 	if (!p2p_client)
 		return;
@@ -1557,13 +1566,12 @@ static void nvmet_setup_p2p_ns_map(struct nvmet_ctrl *ctrl,
 		nvmet_p2pmem_ns_add_p2p(ctrl, ns);
 }
 
-/*
- * Note: ctrl->subsys->lock should be held when calling this function
- */
 static void nvmet_release_p2p_ns_map(struct nvmet_ctrl *ctrl)
 {
 	struct radix_tree_iter iter;
 	void __rcu **slot;
+
+	lockdep_assert_held(&ctrl->subsys->lock);
 
 	radix_tree_for_each_slot(slot, &ctrl->p2p_ns_map, &iter, 0)
 		pci_dev_put(radix_tree_deref_slot(slot));
@@ -1611,7 +1619,7 @@ struct nvmet_ctrl *nvmet_alloc_ctrl(struct nvmet_alloc_ctrl_args *args)
 	up_read(&nvmet_config_sem);
 
 	args->status = NVME_SC_INTERNAL;
-	ctrl = kzalloc(sizeof(*ctrl), GFP_KERNEL);
+	ctrl = kzalloc_obj(*ctrl);
 	if (!ctrl)
 		goto out_put_subsystem;
 	mutex_init(&ctrl->lock);
@@ -1631,7 +1639,6 @@ struct nvmet_ctrl *nvmet_alloc_ctrl(struct nvmet_alloc_ctrl_args *args)
 	INIT_WORK(&ctrl->fatal_err_work, nvmet_fatal_error_handler);
 	INIT_DELAYED_WORK(&ctrl->ka_work, nvmet_keep_alive_timer);
 
-	memcpy(ctrl->subsysnqn, args->subsysnqn, NVMF_NQN_SIZE);
 	memcpy(ctrl->hostnqn, args->hostnqn, NVMF_NQN_SIZE);
 
 	kref_init(&ctrl->ref);
@@ -1645,14 +1652,11 @@ struct nvmet_ctrl *nvmet_alloc_ctrl(struct nvmet_alloc_ctrl_args *args)
 	if (!ctrl->changed_ns_list)
 		goto out_free_ctrl;
 
-	ctrl->sqs = kcalloc(subsys->max_qid + 1,
-			sizeof(struct nvmet_sq *),
-			GFP_KERNEL);
+	ctrl->sqs = kzalloc_objs(struct nvmet_sq *, subsys->max_qid + 1);
 	if (!ctrl->sqs)
 		goto out_free_changed_ns_list;
 
-	ctrl->cqs = kcalloc(subsys->max_qid + 1, sizeof(struct nvmet_cq *),
-			   GFP_KERNEL);
+	ctrl->cqs = kzalloc_objs(struct nvmet_cq *, subsys->max_qid + 1);
 	if (!ctrl->cqs)
 		goto out_free_sqs;
 
@@ -1692,7 +1696,7 @@ struct nvmet_ctrl *nvmet_alloc_ctrl(struct nvmet_alloc_ctrl_args *args)
 	if (args->hostid)
 		uuid_copy(&ctrl->hostid, args->hostid);
 
-	dhchap_status = nvmet_setup_auth(ctrl, args->sq);
+	dhchap_status = nvmet_setup_auth(ctrl, args->sq, false);
 	if (dhchap_status) {
 		pr_err("Failed to setup authentication, dhchap status %u\n",
 		       dhchap_status);
@@ -1747,7 +1751,7 @@ static void nvmet_ctrl_free(struct kref *ref)
 
 	nvmet_stop_keep_alive_timer(ctrl);
 
-	flush_work(&ctrl->async_event_work);
+	cancel_work_sync(&ctrl->async_event_work);
 	cancel_work_sync(&ctrl->fatal_err_work);
 
 	nvmet_destroy_auth(ctrl);
@@ -1832,7 +1836,7 @@ struct nvmet_subsys *nvmet_subsys_alloc(const char *subsysnqn,
 	char serial[NVMET_SN_MAX_SIZE / 2];
 	int ret;
 
-	subsys = kzalloc(sizeof(*subsys), GFP_KERNEL);
+	subsys = kzalloc_obj(*subsys);
 	if (!subsys)
 		return ERR_PTR(-ENOMEM);
 
@@ -1906,6 +1910,8 @@ static void nvmet_subsys_free(struct kref *ref)
 	struct nvmet_subsys *subsys =
 		container_of(ref, struct nvmet_subsys, ref);
 
+	WARN_ON_ONCE(!list_empty(&subsys->ctrls));
+	WARN_ON_ONCE(!list_empty(&subsys->hosts));
 	WARN_ON_ONCE(!xa_empty(&subsys->namespaces));
 
 	nvmet_debugfs_subsys_free(subsys);
@@ -1946,12 +1952,13 @@ static int __init nvmet_init(void)
 	if (!nvmet_bvec_cache)
 		return -ENOMEM;
 
-	zbd_wq = alloc_workqueue("nvmet-zbd-wq", WQ_MEM_RECLAIM, 0);
+	zbd_wq = alloc_workqueue("nvmet-zbd-wq", WQ_MEM_RECLAIM | WQ_PERCPU,
+				 0);
 	if (!zbd_wq)
 		goto out_destroy_bvec_cache;
 
 	buffered_io_wq = alloc_workqueue("nvmet-buffered-io-wq",
-			WQ_MEM_RECLAIM, 0);
+			WQ_MEM_RECLAIM | WQ_PERCPU, 0);
 	if (!buffered_io_wq)
 		goto out_free_zbd_work_queue;
 
@@ -1960,9 +1967,14 @@ static int __init nvmet_init(void)
 	if (!nvmet_wq)
 		goto out_free_buffered_work_queue;
 
+	nvmet_aen_wq = alloc_workqueue("nvmet-aen-wq",
+			WQ_MEM_RECLAIM | WQ_UNBOUND, 0);
+	if (!nvmet_aen_wq)
+		goto out_free_nvmet_work_queue;
+
 	error = nvmet_init_debugfs();
 	if (error)
-		goto out_free_nvmet_work_queue;
+		goto out_free_nvmet_aen_work_queue;
 
 	error = nvmet_init_discovery();
 	if (error)
@@ -1978,6 +1990,8 @@ out_exit_discovery:
 	nvmet_exit_discovery();
 out_exit_debugfs:
 	nvmet_exit_debugfs();
+out_free_nvmet_aen_work_queue:
+	destroy_workqueue(nvmet_aen_wq);
 out_free_nvmet_work_queue:
 	destroy_workqueue(nvmet_wq);
 out_free_buffered_work_queue:
@@ -1995,6 +2009,7 @@ static void __exit nvmet_exit(void)
 	nvmet_exit_discovery();
 	nvmet_exit_debugfs();
 	ida_destroy(&cntlid_ida);
+	destroy_workqueue(nvmet_aen_wq);
 	destroy_workqueue(nvmet_wq);
 	destroy_workqueue(buffered_io_wq);
 	destroy_workqueue(zbd_wq);

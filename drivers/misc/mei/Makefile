@@ -21,6 +21,9 @@ mei-me-objs += hw-me.o
 obj-$(CONFIG_INTEL_MEI_GSC) += mei-gsc.o
 mei-gsc-objs := gsc-me.o
 
+obj-$(CONFIG_INTEL_MEI_CSC) += mei-csc.o
+mei-csc-objs := pci-csc.o
+
 obj-$(CONFIG_INTEL_MEI_TXE) += mei-txe.o
 mei-txe-objs := pci-txe.o
 mei-txe-objs += hw-txe.o
@@ -31,6 +34,7 @@ CFLAGS_mei-trace.o = -I$(src)
 obj-$(CONFIG_INTEL_MEI_HDCP) += hdcp/
 obj-$(CONFIG_INTEL_MEI_PXP) += pxp/
 obj-$(CONFIG_INTEL_MEI_GSC_PROXY) += gsc_proxy/
+obj-$(CONFIG_INTEL_MEI_LB) += mei_lb.o
 
 obj-$(CONFIG_INTEL_MEI_VSC_HW) += mei-vsc-hw.o
 mei-vsc-hw-y := vsc-tp.o

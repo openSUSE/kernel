@@ -237,12 +237,12 @@ static struct aac_driver_ident aac_drivers[] = {
  *	TODO: unify with aac_scsi_cmd().
  */
 
-static int aac_queuecommand(struct Scsi_Host *shost,
-			    struct scsi_cmnd *cmd)
+static enum scsi_qc_status aac_queuecommand(struct Scsi_Host *shost,
+					    struct scsi_cmnd *cmd)
 {
 	aac_priv(cmd)->owner = AAC_OWNER_LOWLEVEL;
 
-	return aac_scsi_cmd(cmd) ? FAILED : 0;
+	return aac_scsi_cmd(cmd) ? SCSI_MLQUEUE_HOST_BUSY : 0;
 }
 
 /**
@@ -273,7 +273,7 @@ struct aac_driver_ident* aac_get_driver_ident(int devtype)
 /**
  *	aac_biosparm	-	return BIOS parameters for disk
  *	@sdev: The scsi device corresponding to the disk
- *	@bdev: the block device corresponding to the disk
+ *	@disk: the gendisk corresponding to the disk
  *	@capacity: the sector capacity of the disk
  *	@geom: geometry block to fill in
  *
@@ -292,7 +292,7 @@ struct aac_driver_ident* aac_get_driver_ident(int devtype)
  *	be displayed.
  */
 
-static int aac_biosparm(struct scsi_device *sdev, struct block_device *bdev,
+static int aac_biosparm(struct scsi_device *sdev, struct gendisk *disk,
 			sector_t capacity, int *geom)
 {
 	struct diskparm *param = (struct diskparm *)geom;
@@ -324,7 +324,7 @@ static int aac_biosparm(struct scsi_device *sdev, struct block_device *bdev,
 	 *	entry whose end_head matches one of the standard geometry
 	 *	translations ( 64/32, 128/32, 255/63 ).
 	 */
-	buf = scsi_bios_ptable(bdev);
+	buf = scsi_bios_ptable(disk);
 	if (!buf)
 		return 0;
 	if (*(__le16 *)(buf + 0x40) == cpu_to_le16(MSDOS_LABEL_MAGIC)) {
@@ -1661,9 +1661,7 @@ static int aac_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (aac_reset_devices || reset_devices)
 		aac->init_reset = true;
 
-	aac->fibs = kcalloc(shost->can_queue + AAC_NUM_MGT_FIB,
-			    sizeof(struct fib),
-			    GFP_KERNEL);
+	aac->fibs = kzalloc_objs(struct fib, shost->can_queue + AAC_NUM_MGT_FIB);
 	if (!aac->fibs) {
 		error = -ENOMEM;
 		goto out_free_host;

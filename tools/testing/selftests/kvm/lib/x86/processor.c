@@ -6,8 +6,12 @@
 #include "linux/bitmap.h"
 #include "test_util.h"
 #include "kvm_util.h"
+#include "pmu.h"
 #include "processor.h"
+#include "smm.h"
+#include "svm_util.h"
 #include "sev.h"
+#include "vmx.h"
 
 #ifndef NUM_INTERRUPTS
 #define NUM_INTERRUPTS 256
@@ -17,13 +21,48 @@
 #define KERNEL_DS	0x10
 #define KERNEL_TSS	0x18
 
-vm_vaddr_t exception_handlers;
+gva_t exception_handlers;
 bool host_cpu_is_amd;
 bool host_cpu_is_intel;
+bool host_cpu_is_hygon;
+bool host_cpu_is_amd_compatible;
 bool is_forced_emulation_enabled;
-uint64_t guest_tsc_khz;
+u64 guest_tsc_khz;
 
-static void regs_dump(FILE *stream, struct kvm_regs *regs, uint8_t indent)
+const char *ex_str(int vector)
+{
+	switch (vector) {
+#define VEC_STR(v) case v##_VECTOR: return "#" #v
+	case DE_VECTOR: return "no exception";
+	case KVM_MAGIC_DE_VECTOR: return "#DE";
+	VEC_STR(DB);
+	VEC_STR(NMI);
+	VEC_STR(BP);
+	VEC_STR(OF);
+	VEC_STR(BR);
+	VEC_STR(UD);
+	VEC_STR(NM);
+	VEC_STR(DF);
+	VEC_STR(TS);
+	VEC_STR(NP);
+	VEC_STR(SS);
+	VEC_STR(GP);
+	VEC_STR(PF);
+	VEC_STR(MF);
+	VEC_STR(AC);
+	VEC_STR(MC);
+	VEC_STR(XM);
+	VEC_STR(VE);
+	VEC_STR(CP);
+	VEC_STR(HV);
+	VEC_STR(VC);
+	VEC_STR(SX);
+	default: return "#??";
+#undef VEC_STR
+	}
+}
+
+static void regs_dump(FILE *stream, struct kvm_regs *regs, u8 indent)
 {
 	fprintf(stream, "%*srax: 0x%.16llx rbx: 0x%.16llx "
 		"rcx: 0x%.16llx rdx: 0x%.16llx\n",
@@ -47,7 +86,7 @@ static void regs_dump(FILE *stream, struct kvm_regs *regs, uint8_t indent)
 }
 
 static void segment_dump(FILE *stream, struct kvm_segment *segment,
-			 uint8_t indent)
+			 u8 indent)
 {
 	fprintf(stream, "%*sbase: 0x%.16llx limit: 0x%.8x "
 		"selector: 0x%.4x type: 0x%.2x\n",
@@ -64,7 +103,7 @@ static void segment_dump(FILE *stream, struct kvm_segment *segment,
 }
 
 static void dtable_dump(FILE *stream, struct kvm_dtable *dtable,
-			uint8_t indent)
+			u8 indent)
 {
 	fprintf(stream, "%*sbase: 0x%.16llx limit: 0x%.4x "
 		"padding: 0x%.4x 0x%.4x 0x%.4x\n",
@@ -72,7 +111,7 @@ static void dtable_dump(FILE *stream, struct kvm_dtable *dtable,
 		dtable->padding[0], dtable->padding[1], dtable->padding[2]);
 }
 
-static void sregs_dump(FILE *stream, struct kvm_sregs *sregs, uint8_t indent)
+static void sregs_dump(FILE *stream, struct kvm_sregs *sregs, u8 indent)
 {
 	unsigned int i;
 
@@ -122,47 +161,83 @@ bool kvm_is_tdp_enabled(void)
 		return get_kvm_amd_param_bool("npt");
 }
 
-void virt_arch_pgd_alloc(struct kvm_vm *vm)
+static void virt_mmu_init(struct kvm_vm *vm, struct kvm_mmu *mmu,
+			  struct pte_masks *pte_masks)
 {
-	TEST_ASSERT(vm->mode == VM_MODE_PXXV48_4K, "Attempt to use "
-		"unknown or unsupported guest mode, mode: 0x%x", vm->mode);
-
-	/* If needed, create page map l4 table. */
-	if (!vm->pgd_created) {
-		vm->pgd = vm_alloc_page_table(vm);
-		vm->pgd_created = true;
+	/* If needed, create the top-level page table. */
+	if (!mmu->pgd_created) {
+		mmu->pgd = vm_alloc_page_table(vm);
+		mmu->pgd_created = true;
+		mmu->arch.pte_masks = *pte_masks;
 	}
+
+	TEST_ASSERT(mmu->pgtable_levels == 4 || mmu->pgtable_levels == 5,
+		    "Selftests MMU only supports 4-level and 5-level paging, not %u-level paging",
+		    mmu->pgtable_levels);
 }
 
-static void *virt_get_pte(struct kvm_vm *vm, uint64_t *parent_pte,
-			  uint64_t vaddr, int level)
+void virt_arch_pgd_alloc(struct kvm_vm *vm)
 {
-	uint64_t pt_gpa = PTE_GET_PA(*parent_pte);
-	uint64_t *page_table = addr_gpa2hva(vm, pt_gpa);
-	int index = (vaddr >> PG_LEVEL_SHIFT(level)) & 0x1ffu;
+	TEST_ASSERT(vm->mode == VM_MODE_PXXVYY_4K,
+		    "Unknown or unsupported guest mode: 0x%x", vm->mode);
 
-	TEST_ASSERT((*parent_pte & PTE_PRESENT_MASK) || parent_pte == &vm->pgd,
+	struct pte_masks pte_masks = (struct pte_masks){
+		.present	=	BIT_ULL(0),
+		.writable	=	BIT_ULL(1),
+		.user		=	BIT_ULL(2),
+		.accessed	=	BIT_ULL(5),
+		.dirty		=	BIT_ULL(6),
+		.huge		=	BIT_ULL(7),
+		.nx		=	BIT_ULL(63),
+		.executable	=	0,
+		.c		=	vm->arch.c_bit,
+		.s		=	vm->arch.s_bit,
+	};
+
+	virt_mmu_init(vm, &vm->mmu, &pte_masks);
+}
+
+void tdp_mmu_init(struct kvm_vm *vm, int pgtable_levels,
+		  struct pte_masks *pte_masks)
+{
+	TEST_ASSERT(!vm->stage2_mmu.pgtable_levels, "TDP MMU already initialized");
+
+	vm->stage2_mmu.pgtable_levels = pgtable_levels;
+	virt_mmu_init(vm, &vm->stage2_mmu, pte_masks);
+}
+
+static void *virt_get_pte(struct kvm_vm *vm, struct kvm_mmu *mmu,
+			  u64 *parent_pte, gva_t gva, int level)
+{
+	u64 pt_gpa = PTE_GET_PA(*parent_pte);
+	u64 *page_table = addr_gpa2hva(vm, pt_gpa);
+	int index = (gva >> PG_LEVEL_SHIFT(level)) & 0x1ffu;
+
+	TEST_ASSERT((*parent_pte == mmu->pgd) || is_present_pte(mmu, parent_pte),
 		    "Parent PTE (level %d) not PRESENT for gva: 0x%08lx",
-		    level + 1, vaddr);
+		    level + 1, gva);
 
 	return &page_table[index];
 }
 
-static uint64_t *virt_create_upper_pte(struct kvm_vm *vm,
-				       uint64_t *parent_pte,
-				       uint64_t vaddr,
-				       uint64_t paddr,
-				       int current_level,
-				       int target_level)
+static u64 *virt_create_upper_pte(struct kvm_vm *vm,
+				  struct kvm_mmu *mmu,
+				  u64 *parent_pte,
+				  gva_t gva,
+				  gpa_t gpa,
+				  int current_level,
+				  int target_level)
 {
-	uint64_t *pte = virt_get_pte(vm, parent_pte, vaddr, current_level);
+	u64 *pte = virt_get_pte(vm, mmu, parent_pte, gva, current_level);
 
-	paddr = vm_untag_gpa(vm, paddr);
+	gpa = vm_untag_gpa(vm, gpa);
 
-	if (!(*pte & PTE_PRESENT_MASK)) {
-		*pte = PTE_PRESENT_MASK | PTE_WRITABLE_MASK;
+	if (!is_present_pte(mmu, pte)) {
+		*pte = PTE_PRESENT_MASK(mmu) | PTE_READABLE_MASK(mmu) |
+		       PTE_WRITABLE_MASK(mmu) | PTE_EXECUTABLE_MASK(mmu) |
+		       PTE_ALWAYS_SET_MASK(mmu);
 		if (current_level == target_level)
-			*pte |= PTE_LARGE_MASK | (paddr & PHYSICAL_PAGE_MASK);
+			*pte |= PTE_HUGE_MASK(mmu) | (gpa & PHYSICAL_PAGE_MASK);
 		else
 			*pte |= vm_alloc_page_table(vm) & PHYSICAL_PAGE_MASK;
 	} else {
@@ -172,81 +247,84 @@ static uint64_t *virt_create_upper_pte(struct kvm_vm *vm,
 		 * this level.
 		 */
 		TEST_ASSERT(current_level != target_level,
-			    "Cannot create hugepage at level: %u, vaddr: 0x%lx",
-			    current_level, vaddr);
-		TEST_ASSERT(!(*pte & PTE_LARGE_MASK),
-			    "Cannot create page table at level: %u, vaddr: 0x%lx",
-			    current_level, vaddr);
+			    "Cannot create hugepage at level: %u, gva: 0x%lx",
+			    current_level, gva);
+		TEST_ASSERT(!is_huge_pte(mmu, pte),
+			    "Cannot create page table at level: %u, gva: 0x%lx",
+			    current_level, gva);
 	}
 	return pte;
 }
 
-void __virt_pg_map(struct kvm_vm *vm, uint64_t vaddr, uint64_t paddr, int level)
+void __virt_pg_map(struct kvm_vm *vm, struct kvm_mmu *mmu, gva_t gva,
+		   gpa_t gpa, int level)
 {
-	const uint64_t pg_size = PG_LEVEL_SIZE(level);
-	uint64_t *pml4e, *pdpe, *pde;
-	uint64_t *pte;
+	const u64 pg_size = PG_LEVEL_SIZE(level);
+	u64 *pte = &mmu->pgd;
+	int current_level;
 
-	TEST_ASSERT(vm->mode == VM_MODE_PXXV48_4K,
-		    "Unknown or unsupported guest mode, mode: 0x%x", vm->mode);
+	TEST_ASSERT(vm->mode == VM_MODE_PXXVYY_4K,
+		    "Unknown or unsupported guest mode: 0x%x", vm->mode);
 
-	TEST_ASSERT((vaddr % pg_size) == 0,
+	TEST_ASSERT((gva % pg_size) == 0,
 		    "Virtual address not aligned,\n"
-		    "vaddr: 0x%lx page size: 0x%lx", vaddr, pg_size);
-	TEST_ASSERT(sparsebit_is_set(vm->vpages_valid, (vaddr >> vm->page_shift)),
-		    "Invalid virtual address, vaddr: 0x%lx", vaddr);
-	TEST_ASSERT((paddr % pg_size) == 0,
+		    "gva: 0x%lx page size: 0x%lx", gva, pg_size);
+	TEST_ASSERT(sparsebit_is_set(vm->vpages_valid, (gva >> vm->page_shift)),
+		    "Invalid virtual address, gva: 0x%lx", gva);
+	TEST_ASSERT((gpa % pg_size) == 0,
 		    "Physical address not aligned,\n"
-		    "  paddr: 0x%lx page size: 0x%lx", paddr, pg_size);
-	TEST_ASSERT((paddr >> vm->page_shift) <= vm->max_gfn,
+		    "  gpa: 0x%lx page size: 0x%lx", gpa, pg_size);
+	TEST_ASSERT((gpa >> vm->page_shift) <= vm->max_gfn,
 		    "Physical address beyond maximum supported,\n"
-		    "  paddr: 0x%lx vm->max_gfn: 0x%lx vm->page_size: 0x%x",
-		    paddr, vm->max_gfn, vm->page_size);
-	TEST_ASSERT(vm_untag_gpa(vm, paddr) == paddr,
-		    "Unexpected bits in paddr: %lx", paddr);
+		    "  gpa: 0x%lx vm->max_gfn: 0x%lx vm->page_size: 0x%x",
+		    gpa, vm->max_gfn, vm->page_size);
+	TEST_ASSERT(vm_untag_gpa(vm, gpa) == gpa,
+		    "Unexpected bits in gpa: %lx", gpa);
+
+	TEST_ASSERT(!PTE_EXECUTABLE_MASK(mmu) || !PTE_NX_MASK(mmu),
+		    "X and NX bit masks cannot be used simultaneously");
 
 	/*
 	 * Allocate upper level page tables, if not already present.  Return
 	 * early if a hugepage was created.
 	 */
-	pml4e = virt_create_upper_pte(vm, &vm->pgd, vaddr, paddr, PG_LEVEL_512G, level);
-	if (*pml4e & PTE_LARGE_MASK)
-		return;
-
-	pdpe = virt_create_upper_pte(vm, pml4e, vaddr, paddr, PG_LEVEL_1G, level);
-	if (*pdpe & PTE_LARGE_MASK)
-		return;
-
-	pde = virt_create_upper_pte(vm, pdpe, vaddr, paddr, PG_LEVEL_2M, level);
-	if (*pde & PTE_LARGE_MASK)
-		return;
+	for (current_level = mmu->pgtable_levels;
+	     current_level > PG_LEVEL_4K;
+	     current_level--) {
+		pte = virt_create_upper_pte(vm, mmu, pte, gva, gpa,
+					    current_level, level);
+		if (is_huge_pte(mmu, pte))
+			return;
+	}
 
 	/* Fill in page table entry. */
-	pte = virt_get_pte(vm, pde, vaddr, PG_LEVEL_4K);
-	TEST_ASSERT(!(*pte & PTE_PRESENT_MASK),
-		    "PTE already present for 4k page at vaddr: 0x%lx", vaddr);
-	*pte = PTE_PRESENT_MASK | PTE_WRITABLE_MASK | (paddr & PHYSICAL_PAGE_MASK);
+	pte = virt_get_pte(vm, mmu, pte, gva, PG_LEVEL_4K);
+	TEST_ASSERT(!is_present_pte(mmu, pte),
+		    "PTE already present for 4k page at gva: 0x%lx", gva);
+	*pte = PTE_PRESENT_MASK(mmu) | PTE_READABLE_MASK(mmu) |
+	       PTE_WRITABLE_MASK(mmu) | PTE_EXECUTABLE_MASK(mmu) |
+	       PTE_ALWAYS_SET_MASK(mmu) | (gpa & PHYSICAL_PAGE_MASK);
 
 	/*
 	 * Neither SEV nor TDX supports shared page tables, so only the final
 	 * leaf PTE needs manually set the C/S-bit.
 	 */
-	if (vm_is_gpa_protected(vm, paddr))
-		*pte |= vm->arch.c_bit;
+	if (vm_is_gpa_protected(vm, gpa))
+		*pte |= PTE_C_BIT_MASK(mmu);
 	else
-		*pte |= vm->arch.s_bit;
+		*pte |= PTE_S_BIT_MASK(mmu);
 }
 
-void virt_arch_pg_map(struct kvm_vm *vm, uint64_t vaddr, uint64_t paddr)
+void virt_arch_pg_map(struct kvm_vm *vm, gva_t gva, gpa_t gpa)
 {
-	__virt_pg_map(vm, vaddr, paddr, PG_LEVEL_4K);
+	__virt_pg_map(vm, &vm->mmu, gva, gpa, PG_LEVEL_4K);
 }
 
-void virt_map_level(struct kvm_vm *vm, uint64_t vaddr, uint64_t paddr,
-		    uint64_t nr_bytes, int level)
+void virt_map_level(struct kvm_vm *vm, gva_t gva, gpa_t gpa,
+		    u64 nr_bytes, int level)
 {
-	uint64_t pg_size = PG_LEVEL_SIZE(level);
-	uint64_t nr_pages = nr_bytes / pg_size;
+	u64 pg_size = PG_LEVEL_SIZE(level);
+	u64 nr_pages = nr_bytes / pg_size;
 	int i;
 
 	TEST_ASSERT(nr_bytes % pg_size == 0,
@@ -254,16 +332,19 @@ void virt_map_level(struct kvm_vm *vm, uint64_t vaddr, uint64_t paddr,
 		    nr_bytes, pg_size);
 
 	for (i = 0; i < nr_pages; i++) {
-		__virt_pg_map(vm, vaddr, paddr, level);
+		__virt_pg_map(vm, &vm->mmu, gva, gpa, level);
+		sparsebit_set_num(vm->vpages_mapped, gva >> vm->page_shift,
+				  nr_bytes / PAGE_SIZE);
 
-		vaddr += pg_size;
-		paddr += pg_size;
+		gva += pg_size;
+		gpa += pg_size;
 	}
 }
 
-static bool vm_is_target_pte(uint64_t *pte, int *level, int current_level)
+static bool vm_is_target_pte(struct kvm_mmu *mmu, u64 *pte,
+			     int *level, int current_level)
 {
-	if (*pte & PTE_LARGE_MASK) {
+	if (is_huge_pte(mmu, pte)) {
 		TEST_ASSERT(*level == PG_LEVEL_NONE ||
 			    *level == current_level,
 			    "Unexpected hugepage at level %d", current_level);
@@ -273,60 +354,65 @@ static bool vm_is_target_pte(uint64_t *pte, int *level, int current_level)
 	return *level == current_level;
 }
 
-uint64_t *__vm_get_page_table_entry(struct kvm_vm *vm, uint64_t vaddr,
-				    int *level)
+static u64 *__vm_get_page_table_entry(struct kvm_vm *vm,
+				      struct kvm_mmu *mmu,
+				      gva_t gva,
+				      int *level)
 {
-	uint64_t *pml4e, *pdpe, *pde;
+	int va_width = 12 + (mmu->pgtable_levels) * 9;
+	u64 *pte = &mmu->pgd;
+	int current_level;
 
 	TEST_ASSERT(!vm->arch.is_pt_protected,
 		    "Walking page tables of protected guests is impossible");
 
-	TEST_ASSERT(*level >= PG_LEVEL_NONE && *level < PG_LEVEL_NUM,
+	TEST_ASSERT(*level >= PG_LEVEL_NONE && *level <= mmu->pgtable_levels,
 		    "Invalid PG_LEVEL_* '%d'", *level);
 
-	TEST_ASSERT(vm->mode == VM_MODE_PXXV48_4K, "Attempt to use "
-		"unknown or unsupported guest mode, mode: 0x%x", vm->mode);
-	TEST_ASSERT(sparsebit_is_set(vm->vpages_valid,
-		(vaddr >> vm->page_shift)),
-		"Invalid virtual address, vaddr: 0x%lx",
-		vaddr);
+	TEST_ASSERT(vm->mode == VM_MODE_PXXVYY_4K,
+		    "Unknown or unsupported guest mode: 0x%x", vm->mode);
+	TEST_ASSERT(sparsebit_is_set(vm->vpages_valid, (gva >> vm->page_shift)),
+		    "Invalid virtual address, gva: 0x%lx", gva);
 	/*
-	 * Based on the mode check above there are 48 bits in the vaddr, so
-	 * shift 16 to sign extend the last bit (bit-47),
+	 * Check that the gva is a sign-extended va_width value.
 	 */
-	TEST_ASSERT(vaddr == (((int64_t)vaddr << 16) >> 16),
-		"Canonical check failed.  The virtual address is invalid.");
+	TEST_ASSERT(gva == (((s64)gva << (64 - va_width) >> (64 - va_width))),
+		    "Canonical check failed.  The virtual address is invalid.");
 
-	pml4e = virt_get_pte(vm, &vm->pgd, vaddr, PG_LEVEL_512G);
-	if (vm_is_target_pte(pml4e, level, PG_LEVEL_512G))
-		return pml4e;
+	for (current_level = mmu->pgtable_levels;
+	     current_level > PG_LEVEL_4K;
+	     current_level--) {
+		pte = virt_get_pte(vm, mmu, pte, gva, current_level);
+		if (vm_is_target_pte(mmu, pte, level, current_level))
+			return pte;
+	}
 
-	pdpe = virt_get_pte(vm, pml4e, vaddr, PG_LEVEL_1G);
-	if (vm_is_target_pte(pdpe, level, PG_LEVEL_1G))
-		return pdpe;
-
-	pde = virt_get_pte(vm, pdpe, vaddr, PG_LEVEL_2M);
-	if (vm_is_target_pte(pde, level, PG_LEVEL_2M))
-		return pde;
-
-	return virt_get_pte(vm, pde, vaddr, PG_LEVEL_4K);
+	return virt_get_pte(vm, mmu, pte, gva, PG_LEVEL_4K);
 }
 
-uint64_t *vm_get_page_table_entry(struct kvm_vm *vm, uint64_t vaddr)
+u64 *tdp_get_pte(struct kvm_vm *vm, u64 l2_gpa)
 {
 	int level = PG_LEVEL_4K;
 
-	return __vm_get_page_table_entry(vm, vaddr, &level);
+	return __vm_get_page_table_entry(vm, &vm->stage2_mmu, l2_gpa, &level);
 }
 
-void virt_arch_dump(FILE *stream, struct kvm_vm *vm, uint8_t indent)
+u64 *vm_get_pte(struct kvm_vm *vm, gva_t gva)
 {
-	uint64_t *pml4e, *pml4e_start;
-	uint64_t *pdpe, *pdpe_start;
-	uint64_t *pde, *pde_start;
-	uint64_t *pte, *pte_start;
+	int level = PG_LEVEL_4K;
 
-	if (!vm->pgd_created)
+	return __vm_get_page_table_entry(vm, &vm->mmu, gva, &level);
+}
+
+void virt_arch_dump(FILE *stream, struct kvm_vm *vm, u8 indent)
+{
+	struct kvm_mmu *mmu = &vm->mmu;
+	u64 *pml4e, *pml4e_start;
+	u64 *pdpe, *pdpe_start;
+	u64 *pde, *pde_start;
+	u64 *pte, *pte_start;
+
+	if (!mmu->pgd_created)
 		return;
 
 	fprintf(stream, "%*s                                          "
@@ -334,47 +420,47 @@ void virt_arch_dump(FILE *stream, struct kvm_vm *vm, uint8_t indent)
 	fprintf(stream, "%*s      index hvaddr         gpaddr         "
 		"addr         w exec dirty\n",
 		indent, "");
-	pml4e_start = (uint64_t *) addr_gpa2hva(vm, vm->pgd);
-	for (uint16_t n1 = 0; n1 <= 0x1ffu; n1++) {
+	pml4e_start = (u64 *)addr_gpa2hva(vm, mmu->pgd);
+	for (u16 n1 = 0; n1 <= 0x1ffu; n1++) {
 		pml4e = &pml4e_start[n1];
-		if (!(*pml4e & PTE_PRESENT_MASK))
+		if (!is_present_pte(mmu, pml4e))
 			continue;
 		fprintf(stream, "%*spml4e 0x%-3zx %p 0x%-12lx 0x%-10llx %u "
 			" %u\n",
 			indent, "",
 			pml4e - pml4e_start, pml4e,
 			addr_hva2gpa(vm, pml4e), PTE_GET_PFN(*pml4e),
-			!!(*pml4e & PTE_WRITABLE_MASK), !!(*pml4e & PTE_NX_MASK));
+			is_writable_pte(mmu, pml4e), is_nx_pte(mmu, pml4e));
 
 		pdpe_start = addr_gpa2hva(vm, *pml4e & PHYSICAL_PAGE_MASK);
-		for (uint16_t n2 = 0; n2 <= 0x1ffu; n2++) {
+		for (u16 n2 = 0; n2 <= 0x1ffu; n2++) {
 			pdpe = &pdpe_start[n2];
-			if (!(*pdpe & PTE_PRESENT_MASK))
+			if (!is_present_pte(mmu, pdpe))
 				continue;
 			fprintf(stream, "%*spdpe  0x%-3zx %p 0x%-12lx 0x%-10llx "
 				"%u  %u\n",
 				indent, "",
 				pdpe - pdpe_start, pdpe,
 				addr_hva2gpa(vm, pdpe),
-				PTE_GET_PFN(*pdpe), !!(*pdpe & PTE_WRITABLE_MASK),
-				!!(*pdpe & PTE_NX_MASK));
+				PTE_GET_PFN(*pdpe), is_writable_pte(mmu, pdpe),
+				is_nx_pte(mmu, pdpe));
 
 			pde_start = addr_gpa2hva(vm, *pdpe & PHYSICAL_PAGE_MASK);
-			for (uint16_t n3 = 0; n3 <= 0x1ffu; n3++) {
+			for (u16 n3 = 0; n3 <= 0x1ffu; n3++) {
 				pde = &pde_start[n3];
-				if (!(*pde & PTE_PRESENT_MASK))
+				if (!is_present_pte(mmu, pde))
 					continue;
 				fprintf(stream, "%*spde   0x%-3zx %p "
 					"0x%-12lx 0x%-10llx %u  %u\n",
 					indent, "", pde - pde_start, pde,
 					addr_hva2gpa(vm, pde),
-					PTE_GET_PFN(*pde), !!(*pde & PTE_WRITABLE_MASK),
-					!!(*pde & PTE_NX_MASK));
+					PTE_GET_PFN(*pde), is_writable_pte(mmu, pde),
+					is_nx_pte(mmu, pde));
 
 				pte_start = addr_gpa2hva(vm, *pde & PHYSICAL_PAGE_MASK);
-				for (uint16_t n4 = 0; n4 <= 0x1ffu; n4++) {
+				for (u16 n4 = 0; n4 <= 0x1ffu; n4++) {
 					pte = &pte_start[n4];
-					if (!(*pte & PTE_PRESENT_MASK))
+					if (!is_present_pte(mmu, pte))
 						continue;
 					fprintf(stream, "%*spte   0x%-3zx %p "
 						"0x%-12lx 0x%-10llx %u  %u "
@@ -383,17 +469,81 @@ void virt_arch_dump(FILE *stream, struct kvm_vm *vm, uint8_t indent)
 						pte - pte_start, pte,
 						addr_hva2gpa(vm, pte),
 						PTE_GET_PFN(*pte),
-						!!(*pte & PTE_WRITABLE_MASK),
-						!!(*pte & PTE_NX_MASK),
-						!!(*pte & PTE_DIRTY_MASK),
-						((uint64_t) n1 << 27)
-							| ((uint64_t) n2 << 18)
-							| ((uint64_t) n3 << 9)
-							| ((uint64_t) n4));
+						is_writable_pte(mmu, pte),
+						is_nx_pte(mmu, pte),
+						is_dirty_pte(mmu, pte),
+						((u64)n1 << 27)
+							| ((u64)n2 << 18)
+							| ((u64)n3 << 9)
+							| ((u64)n4));
 				}
 			}
 		}
 	}
+}
+
+void vm_enable_tdp(struct kvm_vm *vm)
+{
+	if (kvm_cpu_has(X86_FEATURE_VMX))
+		vm_enable_ept(vm);
+	else
+		vm_enable_npt(vm);
+}
+
+bool kvm_cpu_has_tdp(void)
+{
+	return kvm_cpu_has_ept() || kvm_cpu_has_npt();
+}
+
+void __tdp_map(struct kvm_vm *vm, gpa_t l2_gpa, gpa_t gpa, u64 size, int level)
+{
+	size_t page_size = PG_LEVEL_SIZE(level);
+	size_t npages = size / page_size;
+
+	TEST_ASSERT(l2_gpa + size > l2_gpa, "L2 GPA overflow");
+	TEST_ASSERT(gpa + size > gpa, "GPA overflow");
+
+	while (npages--) {
+		__virt_pg_map(vm, &vm->stage2_mmu, l2_gpa, gpa, level);
+		l2_gpa += page_size;
+		gpa += page_size;
+	}
+}
+
+void tdp_map(struct kvm_vm *vm, gpa_t l2_gpa, gpa_t gpa, u64 size)
+{
+	__tdp_map(vm, l2_gpa, gpa, size, PG_LEVEL_4K);
+}
+
+/* Prepare an identity extended page table that maps all the
+ * physical pages in VM.
+ */
+void tdp_identity_map_default_memslots(struct kvm_vm *vm)
+{
+	u32 s, memslot = 0;
+	sparsebit_idx_t i, last;
+	struct userspace_mem_region *region = memslot2region(vm, memslot);
+
+	/* Only memslot 0 is mapped here, ensure it's the only one being used */
+	for (s = 0; s < NR_MEM_REGIONS; s++)
+		TEST_ASSERT_EQ(vm->memslots[s], 0);
+
+	i = (region->region.guest_phys_addr >> vm->page_shift) - 1;
+	last = i + (region->region.memory_size >> vm->page_shift);
+	for (;;) {
+		i = sparsebit_next_clear(region->unused_phy_pages, i);
+		if (i > last)
+			break;
+
+		tdp_map(vm, (u64)i << vm->page_shift,
+			(u64)i << vm->page_shift, 1 << vm->page_shift);
+	}
+}
+
+/* Identity map a region with 1GiB Pages. */
+void tdp_identity_map_1g(struct kvm_vm *vm, u64 addr, u64 size)
+{
+	__tdp_map(vm, addr, addr, size, PG_LEVEL_1G);
 }
 
 /*
@@ -463,12 +613,12 @@ static void kvm_seg_set_kernel_data_64bit(struct kvm_segment *segp)
 	segp->present = true;
 }
 
-vm_paddr_t addr_arch_gva2gpa(struct kvm_vm *vm, vm_vaddr_t gva)
+gpa_t addr_arch_gva2gpa(struct kvm_vm *vm, gva_t gva)
 {
 	int level = PG_LEVEL_NONE;
-	uint64_t *pte = __vm_get_page_table_entry(vm, gva, &level);
+	u64 *pte = __vm_get_page_table_entry(vm, &vm->mmu, gva, &level);
 
-	TEST_ASSERT(*pte & PTE_PRESENT_MASK,
+	TEST_ASSERT(is_present_pte(&vm->mmu, pte),
 		    "Leaf PTE not PRESENT for gva: 0x%08lx", gva);
 
 	/*
@@ -478,7 +628,7 @@ vm_paddr_t addr_arch_gva2gpa(struct kvm_vm *vm, vm_vaddr_t gva)
 	return vm_untag_gpa(vm, PTE_GET_PA(*pte)) | (gva & ~HUGEPAGE_MASK(level));
 }
 
-static void kvm_seg_set_tss_64bit(vm_vaddr_t base, struct kvm_segment *segp)
+static void kvm_seg_set_tss_64bit(gva_t base, struct kvm_segment *segp)
 {
 	memset(segp, 0, sizeof(*segp));
 	segp->base = base;
@@ -492,7 +642,8 @@ static void vcpu_init_sregs(struct kvm_vm *vm, struct kvm_vcpu *vcpu)
 {
 	struct kvm_sregs sregs;
 
-	TEST_ASSERT_EQ(vm->mode, VM_MODE_PXXV48_4K);
+	TEST_ASSERT(vm->mode == VM_MODE_PXXVYY_4K,
+		    "Unknown or unsupported guest mode: 0x%x", vm->mode);
 
 	/* Set mode specific system register values. */
 	vcpu_sregs_get(vcpu, &sregs);
@@ -506,6 +657,8 @@ static void vcpu_init_sregs(struct kvm_vm *vm, struct kvm_vcpu *vcpu)
 	sregs.cr4 |= X86_CR4_PAE | X86_CR4_OSFXSR;
 	if (kvm_cpu_has(X86_FEATURE_XSAVE))
 		sregs.cr4 |= X86_CR4_OSXSAVE;
+	if (vm->mmu.pgtable_levels == 5)
+		sregs.cr4 |= X86_CR4_LA57;
 	sregs.efer |= (EFER_LME | EFER_LMA | EFER_NX);
 
 	kvm_seg_set_unusable(&sregs.ldt);
@@ -515,7 +668,7 @@ static void vcpu_init_sregs(struct kvm_vm *vm, struct kvm_vcpu *vcpu)
 	kvm_seg_set_kernel_data_64bit(&sregs.gs);
 	kvm_seg_set_tss_64bit(vm->arch.tss, &sregs.tr);
 
-	sregs.cr3 = vm->pgd;
+	sregs.cr3 = vm->mmu.pgd;
 	vcpu_sregs_set(vcpu, &sregs);
 }
 
@@ -557,7 +710,7 @@ static bool kvm_fixup_exception(struct ex_regs *regs)
 		return false;
 
 	if (regs->vector == DE_VECTOR)
-		return false;
+		regs->vector = KVM_MAGIC_DE_VECTOR;
 
 	regs->rip = regs->r11;
 	regs->r9 = regs->vector;
@@ -588,16 +741,16 @@ static void vm_init_descriptor_tables(struct kvm_vm *vm)
 	struct kvm_segment seg;
 	int i;
 
-	vm->arch.gdt = __vm_vaddr_alloc_page(vm, MEM_REGION_DATA);
-	vm->arch.idt = __vm_vaddr_alloc_page(vm, MEM_REGION_DATA);
-	vm->handlers = __vm_vaddr_alloc_page(vm, MEM_REGION_DATA);
-	vm->arch.tss = __vm_vaddr_alloc_page(vm, MEM_REGION_DATA);
+	vm->arch.gdt = __vm_alloc_page(vm, MEM_REGION_DATA);
+	vm->arch.idt = __vm_alloc_page(vm, MEM_REGION_DATA);
+	vm->handlers = __vm_alloc_page(vm, MEM_REGION_DATA);
+	vm->arch.tss = __vm_alloc_page(vm, MEM_REGION_DATA);
 
 	/* Handlers have the same address in both address spaces.*/
 	for (i = 0; i < NUM_INTERRUPTS; i++)
 		set_idt_entry(vm, i, (unsigned long)(&idt_handlers)[i], 0, KERNEL_CS);
 
-	*(vm_vaddr_t *)addr_gva2hva(vm, (vm_vaddr_t)(&exception_handlers)) = vm->handlers;
+	*(gva_t *)addr_gva2hva(vm, (gva_t)(&exception_handlers)) = vm->handlers;
 
 	kvm_seg_set_kernel_code_64bit(&seg);
 	kvm_seg_fill_gdt_64bit(vm, &seg);
@@ -612,9 +765,9 @@ static void vm_init_descriptor_tables(struct kvm_vm *vm)
 void vm_install_exception_handler(struct kvm_vm *vm, int vector,
 			       void (*handler)(struct ex_regs *))
 {
-	vm_vaddr_t *handlers = (vm_vaddr_t *)addr_gva2hva(vm, vm->handlers);
+	gva_t *handlers = (gva_t *)addr_gva2hva(vm, vm->handlers);
 
-	handlers[vector] = (vm_vaddr_t)handler;
+	handlers[vector] = (gva_t)handler;
 }
 
 void assert_on_unhandled_exception(struct kvm_vcpu *vcpu)
@@ -625,7 +778,7 @@ void assert_on_unhandled_exception(struct kvm_vcpu *vcpu)
 		REPORT_GUEST_ASSERT(uc);
 }
 
-void kvm_arch_vm_post_create(struct kvm_vm *vm)
+void kvm_arch_vm_post_create(struct kvm_vm *vm, unsigned int nr_vcpus)
 {
 	int r;
 
@@ -637,7 +790,10 @@ void kvm_arch_vm_post_create(struct kvm_vm *vm)
 
 	sync_global_to_guest(vm, host_cpu_is_intel);
 	sync_global_to_guest(vm, host_cpu_is_amd);
+	sync_global_to_guest(vm, host_cpu_is_hygon);
+	sync_global_to_guest(vm, host_cpu_is_amd_compatible);
 	sync_global_to_guest(vm, is_forced_emulation_enabled);
+	sync_global_to_guest(vm, pmu_errata_mask);
 
 	if (is_sev_vm(vm)) {
 		struct kvm_sev_init init = { 0 };
@@ -660,18 +816,17 @@ void vcpu_arch_set_entry_point(struct kvm_vcpu *vcpu, void *guest_code)
 	vcpu_regs_set(vcpu, &regs);
 }
 
-struct kvm_vcpu *vm_arch_vcpu_add(struct kvm_vm *vm, uint32_t vcpu_id)
+struct kvm_vcpu *vm_arch_vcpu_add(struct kvm_vm *vm, u32 vcpu_id)
 {
 	struct kvm_mp_state mp_state;
 	struct kvm_regs regs;
-	vm_vaddr_t stack_vaddr;
+	gva_t stack_gva;
 	struct kvm_vcpu *vcpu;
 
-	stack_vaddr = __vm_vaddr_alloc(vm, DEFAULT_STACK_PGS * getpagesize(),
-				       DEFAULT_GUEST_STACK_VADDR_MIN,
-				       MEM_REGION_DATA);
+	stack_gva = __vm_alloc(vm, DEFAULT_STACK_PGS * getpagesize(),
+			       DEFAULT_GUEST_STACK_VADDR_MIN, MEM_REGION_DATA);
 
-	stack_vaddr += DEFAULT_STACK_PGS * getpagesize();
+	stack_gva += DEFAULT_STACK_PGS * getpagesize();
 
 	/*
 	 * Align stack to match calling sequence requirements in section "The
@@ -682,9 +837,9 @@ struct kvm_vcpu *vm_arch_vcpu_add(struct kvm_vm *vm, uint32_t vcpu_id)
 	 * If this code is ever used to launch a vCPU with 32-bit entry point it
 	 * may need to subtract 4 bytes instead of 8 bytes.
 	 */
-	TEST_ASSERT(IS_ALIGNED(stack_vaddr, PAGE_SIZE),
-		    "__vm_vaddr_alloc() did not provide a page-aligned address");
-	stack_vaddr -= 8;
+	TEST_ASSERT(IS_ALIGNED(stack_gva, PAGE_SIZE),
+		    "__vm_alloc() did not provide a page-aligned address");
+	stack_gva -= 8;
 
 	vcpu = __vm_vcpu_add(vm, vcpu_id);
 	vcpu_init_cpuid(vcpu, kvm_get_supported_cpuid());
@@ -694,7 +849,7 @@ struct kvm_vcpu *vm_arch_vcpu_add(struct kvm_vm *vm, uint32_t vcpu_id)
 	/* Setup guest general purpose registers */
 	vcpu_regs_get(vcpu, &regs);
 	regs.rflags = regs.rflags | 0x2;
-	regs.rsp = stack_vaddr;
+	regs.rsp = stack_gva;
 	vcpu_regs_set(vcpu, &regs);
 
 	/* Setup the MP state */
@@ -711,7 +866,7 @@ struct kvm_vcpu *vm_arch_vcpu_add(struct kvm_vm *vm, uint32_t vcpu_id)
 	return vcpu;
 }
 
-struct kvm_vcpu *vm_arch_vcpu_recreate(struct kvm_vm *vm, uint32_t vcpu_id)
+struct kvm_vcpu *vm_arch_vcpu_recreate(struct kvm_vm *vm, u32 vcpu_id)
 {
 	struct kvm_vcpu *vcpu = __vm_vcpu_add(vm, vcpu_id);
 
@@ -746,9 +901,9 @@ const struct kvm_cpuid2 *kvm_get_supported_cpuid(void)
 	return kvm_supported_cpuid;
 }
 
-static uint32_t __kvm_cpu_has(const struct kvm_cpuid2 *cpuid,
-			      uint32_t function, uint32_t index,
-			      uint8_t reg, uint8_t lo, uint8_t hi)
+static u32 __kvm_cpu_has(const struct kvm_cpuid2 *cpuid,
+			 u32 function, u32 index,
+			 u8 reg, u8 lo, u8 hi)
 {
 	const struct kvm_cpuid_entry2 *entry;
 	int i;
@@ -775,14 +930,14 @@ bool kvm_cpuid_has(const struct kvm_cpuid2 *cpuid,
 			     feature.reg, feature.bit, feature.bit);
 }
 
-uint32_t kvm_cpuid_property(const struct kvm_cpuid2 *cpuid,
-			    struct kvm_x86_cpu_property property)
+u32 kvm_cpuid_property(const struct kvm_cpuid2 *cpuid,
+		       struct kvm_x86_cpu_property property)
 {
 	return __kvm_cpu_has(cpuid, property.function, property.index,
 			     property.reg, property.lo_bit, property.hi_bit);
 }
 
-uint64_t kvm_get_feature_msr(uint64_t msr_index)
+u64 kvm_get_feature_msr(u64 msr_index)
 {
 	struct {
 		struct kvm_msrs header;
@@ -801,7 +956,7 @@ uint64_t kvm_get_feature_msr(uint64_t msr_index)
 	return buffer.entry.data;
 }
 
-void __vm_xsave_require_permission(uint64_t xfeature, const char *name)
+void __vm_xsave_require_permission(u64 xfeature, const char *name)
 {
 	int kvm_fd;
 	u64 bitmask;
@@ -858,7 +1013,7 @@ void vcpu_init_cpuid(struct kvm_vcpu *vcpu, const struct kvm_cpuid2 *cpuid)
 
 void vcpu_set_cpuid_property(struct kvm_vcpu *vcpu,
 			     struct kvm_x86_cpu_property property,
-			     uint32_t value)
+			     u32 value)
 {
 	struct kvm_cpuid_entry2 *entry;
 
@@ -873,7 +1028,7 @@ void vcpu_set_cpuid_property(struct kvm_vcpu *vcpu,
 	TEST_ASSERT_EQ(kvm_cpuid_property(vcpu->cpuid, property), value);
 }
 
-void vcpu_clear_cpuid_entry(struct kvm_vcpu *vcpu, uint32_t function)
+void vcpu_clear_cpuid_entry(struct kvm_vcpu *vcpu, u32 function)
 {
 	struct kvm_cpuid_entry2 *entry = vcpu_get_cpuid_entry(vcpu, function);
 
@@ -902,7 +1057,7 @@ void vcpu_set_or_clear_cpuid_feature(struct kvm_vcpu *vcpu,
 	vcpu_set_cpuid(vcpu);
 }
 
-uint64_t vcpu_get_msr(struct kvm_vcpu *vcpu, uint64_t msr_index)
+u64 vcpu_get_msr(struct kvm_vcpu *vcpu, u64 msr_index)
 {
 	struct {
 		struct kvm_msrs header;
@@ -917,7 +1072,7 @@ uint64_t vcpu_get_msr(struct kvm_vcpu *vcpu, uint64_t msr_index)
 	return buffer.entry.data;
 }
 
-int _vcpu_set_msr(struct kvm_vcpu *vcpu, uint64_t msr_index, uint64_t msr_value)
+int _vcpu_set_msr(struct kvm_vcpu *vcpu, u64 msr_index, u64 msr_value)
 {
 	struct {
 		struct kvm_msrs header;
@@ -945,28 +1100,28 @@ void vcpu_args_set(struct kvm_vcpu *vcpu, unsigned int num, ...)
 	vcpu_regs_get(vcpu, &regs);
 
 	if (num >= 1)
-		regs.rdi = va_arg(ap, uint64_t);
+		regs.rdi = va_arg(ap, u64);
 
 	if (num >= 2)
-		regs.rsi = va_arg(ap, uint64_t);
+		regs.rsi = va_arg(ap, u64);
 
 	if (num >= 3)
-		regs.rdx = va_arg(ap, uint64_t);
+		regs.rdx = va_arg(ap, u64);
 
 	if (num >= 4)
-		regs.rcx = va_arg(ap, uint64_t);
+		regs.rcx = va_arg(ap, u64);
 
 	if (num >= 5)
-		regs.r8 = va_arg(ap, uint64_t);
+		regs.r8 = va_arg(ap, u64);
 
 	if (num >= 6)
-		regs.r9 = va_arg(ap, uint64_t);
+		regs.r9 = va_arg(ap, u64);
 
 	vcpu_regs_set(vcpu, &regs);
 	va_end(ap);
 }
 
-void vcpu_arch_dump(FILE *stream, struct kvm_vcpu *vcpu, uint8_t indent)
+void vcpu_arch_dump(FILE *stream, struct kvm_vcpu *vcpu, u8 indent)
 {
 	struct kvm_regs regs;
 	struct kvm_sregs sregs;
@@ -1035,7 +1190,7 @@ const struct kvm_msr_list *kvm_get_feature_msr_index_list(void)
 	return list;
 }
 
-bool kvm_msr_is_in_save_restore_list(uint32_t msr_index)
+bool kvm_msr_is_in_save_restore_list(u32 msr_index)
 {
 	const struct kvm_msr_list *list = kvm_get_msr_index_list();
 	int i;
@@ -1166,7 +1321,7 @@ void kvm_init_vm_address_properties(struct kvm_vm *vm)
 }
 
 const struct kvm_cpuid_entry2 *get_cpuid_entry(const struct kvm_cpuid2 *cpuid,
-					       uint32_t function, uint32_t index)
+					       u32 function, u32 index)
 {
 	int i;
 
@@ -1183,7 +1338,7 @@ const struct kvm_cpuid_entry2 *get_cpuid_entry(const struct kvm_cpuid2 *cpuid,
 
 #define X86_HYPERCALL(inputs...)					\
 ({									\
-	uint64_t r;							\
+	u64 r;							\
 									\
 	asm volatile("test %[use_vmmcall], %[use_vmmcall]\n\t"		\
 		     "jnz 1f\n\t"					\
@@ -1192,23 +1347,23 @@ const struct kvm_cpuid_entry2 *get_cpuid_entry(const struct kvm_cpuid2 *cpuid,
 		     "1: vmmcall\n\t"					\
 		     "2:"						\
 		     : "=a"(r)						\
-		     : [use_vmmcall] "r" (host_cpu_is_amd), inputs);	\
+		     : [use_vmmcall] "r" (host_cpu_is_amd_compatible),	\
+		       inputs);						\
 									\
 	r;								\
 })
 
-uint64_t kvm_hypercall(uint64_t nr, uint64_t a0, uint64_t a1, uint64_t a2,
-		       uint64_t a3)
+u64 kvm_hypercall(u64 nr, u64 a0, u64 a1, u64 a2, u64 a3)
 {
 	return X86_HYPERCALL("a"(nr), "b"(a0), "c"(a1), "d"(a2), "S"(a3));
 }
 
-uint64_t __xen_hypercall(uint64_t nr, uint64_t a0, void *a1)
+u64 __xen_hypercall(u64 nr, u64 a0, void *a1)
 {
 	return X86_HYPERCALL("a"(nr), "D"(a0), "S"(a1));
 }
 
-void xen_hypercall(uint64_t nr, uint64_t a0, void *a1)
+void xen_hypercall(u64 nr, u64 a0, void *a1)
 {
 	GUEST_ASSERT(!__xen_hypercall(nr, a0, a1));
 }
@@ -1217,7 +1372,7 @@ unsigned long vm_compute_max_gfn(struct kvm_vm *vm)
 {
 	const unsigned long num_ht_pages = 12 << (30 - vm->page_shift); /* 12 GiB */
 	unsigned long ht_gfn, max_gfn, max_pfn;
-	uint8_t maxphyaddr, guest_maxphyaddr;
+	u8 maxphyaddr, guest_maxphyaddr;
 
 	/*
 	 * Use "guest MAXPHYADDR" from KVM if it's available.  Guest MAXPHYADDR
@@ -1232,8 +1387,8 @@ unsigned long vm_compute_max_gfn(struct kvm_vm *vm)
 
 	max_gfn = (1ULL << (guest_maxphyaddr - vm->page_shift)) - 1;
 
-	/* Avoid reserved HyperTransport region on AMD processors.  */
-	if (!host_cpu_is_amd)
+	/* Avoid reserved HyperTransport region on AMD or Hygon processors. */
+	if (!host_cpu_is_amd_compatible)
 		return max_gfn;
 
 	/* On parts with <40 physical address bits, the area is fully hidden */
@@ -1247,7 +1402,7 @@ unsigned long vm_compute_max_gfn(struct kvm_vm *vm)
 
 	/*
 	 * Otherwise it's at the top of the physical address space, possibly
-	 * reduced due to SME by bits 11:6 of CPUID[0x8000001f].EBX.  Use
+	 * reduced due to SME or CSV by bits 11:6 of CPUID[0x8000001f].EBX.  Use
 	 * the old conservative value if MAXPHYADDR is not enumerated.
 	 */
 	if (!this_cpu_has_p(X86_PROPERTY_MAX_PHY_ADDR))
@@ -1268,7 +1423,11 @@ void kvm_selftest_arch_init(void)
 {
 	host_cpu_is_intel = this_cpu_is_intel();
 	host_cpu_is_amd = this_cpu_is_amd();
+	host_cpu_is_hygon = this_cpu_is_hygon();
+	host_cpu_is_amd_compatible = host_cpu_is_amd || host_cpu_is_hygon;
 	is_forced_emulation_enabled = kvm_is_forced_emulation_enabled();
+
+	kvm_init_pmu_errata();
 }
 
 bool sys_clocksource_is_based_on_tsc(void)
@@ -1280,4 +1439,33 @@ bool sys_clocksource_is_based_on_tsc(void)
 	free(clk_name);
 
 	return ret;
+}
+
+bool kvm_arch_has_default_irqchip(void)
+{
+	return true;
+}
+
+void setup_smram(struct kvm_vm *vm, struct kvm_vcpu *vcpu, u64 smram_gpa,
+		 const void *smi_handler, size_t handler_size)
+{
+	vm_userspace_mem_region_add(vm, VM_MEM_SRC_ANONYMOUS, smram_gpa,
+				    SMRAM_MEMSLOT, SMRAM_PAGES, 0);
+	TEST_ASSERT(vm_phy_pages_alloc(vm, SMRAM_PAGES, smram_gpa,
+				       SMRAM_MEMSLOT) == smram_gpa,
+		    "Could not allocate guest physical addresses for SMRAM");
+
+	memset(addr_gpa2hva(vm, smram_gpa), 0x0, SMRAM_SIZE);
+	memcpy(addr_gpa2hva(vm, smram_gpa) + 0x8000, smi_handler, handler_size);
+	vcpu_set_msr(vcpu, MSR_IA32_SMBASE, smram_gpa);
+}
+
+void inject_smi(struct kvm_vcpu *vcpu)
+{
+	struct kvm_vcpu_events events;
+
+	vcpu_events_get(vcpu, &events);
+	events.smi.pending = 1;
+	events.flags |= KVM_VCPUEVENT_VALID_SMM;
+	vcpu_events_set(vcpu, &events);
 }

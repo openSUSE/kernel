@@ -42,12 +42,13 @@ MODULE_FIRMWARE("amdgpu/gc_12_0_1_uni_mes.bin");
 
 static int mes_v12_0_hw_init(struct amdgpu_ip_block *ip_block);
 static int mes_v12_0_hw_fini(struct amdgpu_ip_block *ip_block);
-static int mes_v12_0_kiq_hw_init(struct amdgpu_device *adev);
-static int mes_v12_0_kiq_hw_fini(struct amdgpu_device *adev);
+static int mes_v12_0_kiq_hw_init(struct amdgpu_device *adev, uint32_t xcc_id);
+static int mes_v12_0_kiq_hw_fini(struct amdgpu_device *adev, uint32_t xcc_id);
 
 #define MES_EOP_SIZE   2048
 
-#define MES12_HUNG_DB_OFFSET_ARRAY_SIZE 4
+#define MES12_HUNG_DB_OFFSET_ARRAY_SIZE 8 /* [0:3] = db offset [4:7] hqd info */
+#define MES12_HUNG_HQD_INFO_OFFSET	4
 
 static void mes_v12_0_ring_set_wptr(struct amdgpu_ring *ring)
 {
@@ -228,7 +229,12 @@ static int mes_v12_0_submit_pkt_and_poll_completion(struct amdgpu_mes *mes,
 			pipe, x_pkt->header.opcode);
 
 	r = amdgpu_fence_wait_polling(ring, seq, timeout);
-	if (r < 1 || !*status_ptr) {
+
+	/*
+	 * status_ptr[31:0] == 0 (fail) or status_ptr[63:0] == 1 (success).
+	 * If status_ptr[31:0] == 0 then status_ptr[63:32] will have debug error information.
+	 */
+	if (r < 1 || !(lower_32_bits(*status_ptr))) {
 
 		if (misc_op_str)
 			dev_err(adev->dev, "MES(%d) failed to respond to msg=%s (%s)\n",
@@ -355,6 +361,7 @@ static int mes_v12_0_remove_hw_queue(struct amdgpu_mes *mes,
 				     struct mes_remove_queue_input *input)
 {
 	union MESAPI__REMOVE_QUEUE mes_remove_queue_pkt;
+	uint32_t mes_rev = mes->sched_version & AMDGPU_MES_VERSION_MASK;
 
 	memset(&mes_remove_queue_pkt, 0, sizeof(mes_remove_queue_pkt));
 
@@ -364,6 +371,9 @@ static int mes_v12_0_remove_hw_queue(struct amdgpu_mes *mes,
 
 	mes_remove_queue_pkt.doorbell_offset = input->doorbell_offset;
 	mes_remove_queue_pkt.gang_context_addr = input->gang_context_addr;
+
+	if (mes_rev >= 0x5a)
+		mes_remove_queue_pkt.remove_queue_after_reset = input->remove_queue_after_reset;
 
 	return mes_v12_0_submit_pkt_and_poll_completion(mes,
 			AMDGPU_MES_SCHED_PIPE,
@@ -689,7 +699,7 @@ static int mes_v12_0_misc_op(struct amdgpu_mes *mes,
 		break;
 
 	default:
-		DRM_ERROR("unsupported misc op (%d) \n", input->op);
+		DRM_ERROR("unsupported misc op (%d)\n", input->op);
 		return -EINVAL;
 	}
 
@@ -721,6 +731,9 @@ static int mes_v12_0_set_hw_resources(struct amdgpu_mes *mes, int pipe)
 	int i;
 	struct amdgpu_device *adev = mes->adev;
 	union MESAPI_SET_HW_RESOURCES mes_set_hw_res_pkt;
+	uint32_t mes_rev = (pipe == AMDGPU_MES_SCHED_PIPE) ?
+		(mes->sched_version & AMDGPU_MES_VERSION_MASK) :
+		(mes->kiq_version & AMDGPU_MES_VERSION_MASK);
 
 	memset(&mes_set_hw_res_pkt, 0, sizeof(mes_set_hw_res_pkt));
 
@@ -775,7 +788,7 @@ static int mes_v12_0_set_hw_resources(struct amdgpu_mes *mes, int pipe)
 	 * handling support, other queue will not use the oversubscribe timer.
 	 * handling  mode - 0: disabled; 1: basic version; 2: basic+ version
 	 */
-	mes_set_hw_res_pkt.oversubscription_timer = 50;
+	mes_set_hw_res_pkt.oversubscription_timer = mes_rev < 0x8b ? 0 : 50;
 	mes_set_hw_res_pkt.unmapped_doorbell_handling = 1;
 
 	if (amdgpu_mes_log_enable) {
@@ -924,7 +937,7 @@ static int mes_v12_0_detect_and_reset_hung_queues(struct amdgpu_mes *mes,
 	mes_reset_queue_pkt.queue_type =
 		convert_to_mes_queue_type(input->queue_type);
 	mes_reset_queue_pkt.doorbell_offset_addr =
-		mes->hung_queue_db_array_gpu_addr;
+		mes->hung_queue_db_array_gpu_addr[0];
 
 	if (input->detect_only)
 		mes_reset_queue_pkt.hang_detect_only = 1;
@@ -1474,7 +1487,7 @@ static int mes_v12_0_queue_init(struct amdgpu_device *adev,
 
 	if (pipe == AMDGPU_MES_SCHED_PIPE) {
 		if (adev->enable_uni_mes)
-			r = amdgpu_mes_map_legacy_queue(adev, ring);
+			r = amdgpu_mes_map_legacy_queue(adev, ring, 0);
 		else
 			r = mes_v12_0_kiq_enable_queue(adev);
 		if (r)
@@ -1724,7 +1737,7 @@ static void mes_v12_0_kiq_setting(struct amdgpu_ring *ring)
 	WREG32_SOC15(GC, 0, regRLC_CP_SCHEDULERS, tmp | 0x80);
 }
 
-static int mes_v12_0_kiq_hw_init(struct amdgpu_device *adev)
+static int mes_v12_0_kiq_hw_init(struct amdgpu_device *adev, uint32_t xcc_id)
 {
 	int r = 0;
 	struct amdgpu_ip_block *ip_block;
@@ -1786,13 +1799,13 @@ failure:
 	return r;
 }
 
-static int mes_v12_0_kiq_hw_fini(struct amdgpu_device *adev)
+static int mes_v12_0_kiq_hw_fini(struct amdgpu_device *adev, uint32_t xcc_id)
 {
 	if (adev->mes.ring[0].sched.ready) {
 		if (adev->enable_uni_mes)
 			amdgpu_mes_unmap_legacy_queue(adev,
 				      &adev->mes.ring[AMDGPU_MES_SCHED_PIPE],
-				      RESET_QUEUES, 0, 0);
+				      RESET_QUEUES, 0, 0, 0);
 		else
 			mes_v12_0_kiq_dequeue_sched(adev);
 
@@ -1894,8 +1907,9 @@ static int mes_v12_0_early_init(struct amdgpu_ip_block *ip_block)
 	struct amdgpu_device *adev = ip_block->adev;
 	int pipe, r;
 
-	adev->mes.hung_queue_db_array_size =
-		MES12_HUNG_DB_OFFSET_ARRAY_SIZE;
+	adev->mes.hung_queue_db_array_size = MES12_HUNG_DB_OFFSET_ARRAY_SIZE;
+	adev->mes.hung_queue_hqd_info_offset = MES12_HUNG_HQD_INFO_OFFSET;
+
 	for (pipe = 0; pipe < AMDGPU_MAX_MES_PIPES; pipe++) {
 		r = amdgpu_mes_init_microcode(adev, pipe);
 		if (r)

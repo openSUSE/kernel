@@ -383,11 +383,6 @@ DSA data structures are defined in ``include/net/dsa.h`` as well as
   well as various properties of its ports: names/labels, and finally a routing
   table indication (when cascading switches)
 
-- ``dsa_platform_data``: platform device configuration data which can reference
-  a collection of dsa_chip_data structures if multiple switches are cascaded,
-  the conduit network device this switch tree is attached to needs to be
-  referenced
-
 - ``dsa_switch_tree``: structure assigned to the conduit network device under
   ``dsa_ptr``, this structure references a dsa_platform_data structure as well as
   the tagging protocol supported by the switch tree, and which receive/transmit
@@ -1104,12 +1099,11 @@ health of the network and for discovery of other nodes.
 In Linux, both HSR and PRP are implemented in the hsr driver, which
 instantiates a virtual, stackable network interface with two member ports.
 The driver only implements the basic roles of DANH (Doubly Attached Node
-implementing HSR) and DANP (Doubly Attached Node implementing PRP); the roles
-of RedBox and QuadBox are not implemented (therefore, bridging a hsr network
-interface with a physical switch port does not produce the expected result).
+implementing HSR), DANP (Doubly Attached Node implementing PRP) and RedBox
+(allows non-HSR devices to connect to the ring via Interlink ports).
 
-A driver which is able of offloading certain functions of a DANP or DANH should
-declare the corresponding netdev features as indicated by the documentation at
+A driver which is able of offloading certain functions should declare the
+corresponding netdev features as indicated by the documentation at
 ``Documentation/networking/netdev-features.rst``. Additionally, the following
 methods must be implemented:
 
@@ -1119,6 +1113,14 @@ methods must be implemented:
   sent to the CPU.
 - ``port_hsr_leave``: function invoked when a given switch port leaves a
   DANP/DANH and returns to normal operation as a standalone port.
+
+Note that the ``NETIF_F_HW_HSR_DUP`` feature relies on transmission towards
+multiple ports, which is generally available whenever the tagging protocol uses
+the ``dsa_xmit_port_mask()`` helper function. If the helper is used, the HSR
+offload feature should also be set. The ``dsa_port_simple_hsr_join()`` and
+``dsa_port_simple_hsr_leave()`` methods can be used as generic implementations
+of ``port_hsr_join`` and ``port_hsr_leave``, if this is the only supported
+offload feature.
 
 TODO
 ====

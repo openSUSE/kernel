@@ -142,6 +142,7 @@ struct bcm63xx_hsspi {
 	u32 wait_mode;
 	u32 xfer_mode;
 	u32 prepend_cnt;
+	u32 md_start;
 	u8 *prepend_buf;
 };
 
@@ -268,18 +269,20 @@ static bool bcm63xx_prepare_prepend_transfer(struct spi_controller *host,
 {
 
 	struct bcm63xx_hsspi *bs = spi_controller_get_devdata(host);
-	bool tx_only = false;
+	bool tx_only = false, multidata = false;
 	struct spi_transfer *t;
 
 	/*
 	 * Multiple transfers within a message may be combined into one transfer
 	 * to the controller using its prepend feature. A SPI message is prependable
 	 * only if the following are all true:
-	 *   1. One or more half duplex write transfer in single bit mode
-	 *   2. Optional full duplex read/write at the end
-	 *   3. No delay and cs_change between transfers
+	 *   1. One or more half duplex write transfers at the start
+	 *   2. Optional switch from single to dual bit within the write transfers
+	 *   3. Optional full duplex read/write at the end if all single bit
+	 *   4. No delay and cs_change between transfers
 	 */
 	bs->prepend_cnt = 0;
+	bs->md_start = 0;
 	list_for_each_entry(t, &msg->transfers, transfer_list) {
 		if ((spi_delay_to_ns(&t->delay, t) > 0) || t->cs_change) {
 			bcm63xx_prepend_printk_on_checkfail(bs,
@@ -297,21 +300,34 @@ static bool bcm63xx_prepare_prepend_transfer(struct spi_controller *host,
 				return false;
 			}
 
-			if (t->tx_nbits > SPI_NBITS_SINGLE &&
-				!list_is_last(&t->transfer_list, &msg->transfers)) {
+			if (t->tx_nbits == SPI_NBITS_SINGLE &&
+			    !list_is_last(&t->transfer_list, &msg->transfers) &&
+			    multidata) {
 				bcm63xx_prepend_printk_on_checkfail(bs,
-					 "multi-bit prepend buf not supported!\n");
+					 "single-bit after multi-bit not supported!\n");
 				return false;
 			}
 
-			if (t->tx_nbits == SPI_NBITS_SINGLE) {
-				memcpy(bs->prepend_buf + bs->prepend_cnt, t->tx_buf, t->len);
-				bs->prepend_cnt += t->len;
-			}
+			if (t->tx_nbits > SPI_NBITS_SINGLE)
+				multidata = true;
+
+			memcpy(bs->prepend_buf + bs->prepend_cnt, t->tx_buf, t->len);
+			bs->prepend_cnt += t->len;
+
+			if (t->tx_nbits == SPI_NBITS_SINGLE)
+				bs->md_start += t->len;
+
 		} else {
 			if (!list_is_last(&t->transfer_list, &msg->transfers)) {
 				bcm63xx_prepend_printk_on_checkfail(bs,
 					 "rx/tx_rx transfer not supported when it is not last one!\n");
+				return false;
+			}
+
+			if (t->rx_buf && t->rx_nbits == SPI_NBITS_SINGLE &&
+			    multidata) {
+				bcm63xx_prepend_printk_on_checkfail(bs,
+					 "single-bit after multi-bit not supported!\n");
 				return false;
 			}
 		}
@@ -319,9 +335,9 @@ static bool bcm63xx_prepare_prepend_transfer(struct spi_controller *host,
 		if (list_is_last(&t->transfer_list, &msg->transfers)) {
 			memcpy(t_prepend, t, sizeof(struct spi_transfer));
 
-			if (tx_only && t->tx_nbits == SPI_NBITS_SINGLE) {
+			if (tx_only) {
 				/*
-				 * if the last one is also a single bit tx only transfer, merge
+				 * if the last one is also a tx only transfer, merge
 				 * all of them into one single tx transfer
 				 */
 				t_prepend->len = bs->prepend_cnt;
@@ -329,7 +345,7 @@ static bool bcm63xx_prepare_prepend_transfer(struct spi_controller *host,
 				bs->prepend_cnt = 0;
 			} else {
 				/*
-				 * if the last one is not a tx only transfer or dual tx xfer, all
+				 * if the last one is not a tx only transfer, all
 				 * the previous transfers are sent through prepend bytes and
 				 * make sure it does not exceed the max prepend len
 				 */
@@ -338,6 +354,15 @@ static bool bcm63xx_prepare_prepend_transfer(struct spi_controller *host,
 						"exceed max prepend len, abort prepending transfers!\n");
 					return false;
 				}
+			}
+			/*
+			 * If switching from single-bit to multi-bit, make sure
+			 * the start offset does not exceed the maximum
+			 */
+			if (multidata && bs->md_start > HSSPI_MAX_PREPEND_LEN) {
+				bcm63xx_prepend_printk_on_checkfail(bs,
+					"exceed max multi-bit offset, abort prepending transfers!\n");
+				return false;
 			}
 		}
 	}
@@ -381,11 +406,11 @@ static int bcm63xx_hsspi_do_prepend_txrx(struct spi_device *spi,
 
 		if (t->rx_nbits == SPI_NBITS_DUAL) {
 			reg |= 1 << MODE_CTRL_MULTIDATA_RD_SIZE_SHIFT;
-			reg |= bs->prepend_cnt << MODE_CTRL_MULTIDATA_RD_STRT_SHIFT;
+			reg |= bs->md_start << MODE_CTRL_MULTIDATA_RD_STRT_SHIFT;
 		}
 		if (t->tx_nbits == SPI_NBITS_DUAL) {
 			reg |= 1 << MODE_CTRL_MULTIDATA_WR_SIZE_SHIFT;
-			reg |= bs->prepend_cnt << MODE_CTRL_MULTIDATA_WR_STRT_SHIFT;
+			reg |= bs->md_start << MODE_CTRL_MULTIDATA_WR_STRT_SHIFT;
 		}
 	}
 
@@ -692,13 +717,6 @@ static bool bcm63xx_hsspi_mem_supports_op(struct spi_mem *mem,
 	if (!spi_mem_default_supports_op(mem, op))
 		return false;
 
-	/* Controller doesn't support spi mem dual io mode */
-	if ((op->cmd.opcode == SPINOR_OP_READ_1_2_2) ||
-		(op->cmd.opcode == SPINOR_OP_READ_1_2_2_4B) ||
-		(op->cmd.opcode == SPINOR_OP_READ_1_2_2_DTR) ||
-		(op->cmd.opcode == SPINOR_OP_READ_1_2_2_DTR_4B))
-		return false;
-
 	return true;
 }
 
@@ -740,8 +758,7 @@ static int bcm63xx_hsspi_probe(struct platform_device *pdev)
 	if (IS_ERR(regs))
 		return PTR_ERR(regs);
 
-	clk = devm_clk_get(dev, "hsspi");
-
+	clk = devm_clk_get_enabled(dev, "hsspi");
 	if (IS_ERR(clk))
 		return PTR_ERR(clk);
 
@@ -749,41 +766,26 @@ static int bcm63xx_hsspi_probe(struct platform_device *pdev)
 	if (IS_ERR(reset))
 		return PTR_ERR(reset);
 
-	ret = clk_prepare_enable(clk);
-	if (ret)
-		return ret;
-
 	ret = reset_control_reset(reset);
-	if (ret) {
-		dev_err(dev, "unable to reset device: %d\n", ret);
-		goto out_disable_clk;
-	}
+	if (ret)
+		return dev_err_probe(dev, ret, "unable to reset device: %d\n", ret);
 
 	rate = clk_get_rate(clk);
 	if (!rate) {
-		pll_clk = devm_clk_get(dev, "pll");
-
-		if (IS_ERR(pll_clk)) {
-			ret = PTR_ERR(pll_clk);
-			goto out_disable_clk;
-		}
-
-		ret = clk_prepare_enable(pll_clk);
-		if (ret)
-			goto out_disable_clk;
+		pll_clk = devm_clk_get_enabled(dev, "pll");
+		if (IS_ERR(pll_clk))
+			return dev_err_probe(dev, PTR_ERR(pll_clk),
+					     "failed enable pll clk\n");
 
 		rate = clk_get_rate(pll_clk);
-		if (!rate) {
-			ret = -EINVAL;
-			goto out_disable_pll_clk;
-		}
+		if (!rate)
+			return dev_err_probe(dev, -EINVAL,
+					     "failed get pll clk rate\n");
 	}
 
 	host = spi_alloc_host(&pdev->dev, sizeof(*bs));
-	if (!host) {
-		ret = -ENOMEM;
-		goto out_disable_pll_clk;
-	}
+	if (!host)
+		return dev_err_probe(dev, -ENOMEM, "alloc host no mem\n");
 
 	bs = spi_controller_get_devdata(host);
 	bs->pdev = pdev;
@@ -804,7 +806,6 @@ static int bcm63xx_hsspi_probe(struct platform_device *pdev)
 	init_completion(&bs->done);
 
 	host->mem_ops = &bcm63xx_hsspi_mem_ops;
-	host->dev.of_node = dev->of_node;
 	if (!dev->of_node)
 		host->bus_num = HSSPI_BUS_NUM;
 
@@ -856,7 +857,7 @@ static int bcm63xx_hsspi_probe(struct platform_device *pdev)
 	}
 
 	/* register and we are done */
-	ret = devm_spi_register_controller(dev, host);
+	ret = spi_register_controller(host);
 	if (ret)
 		goto out_sysgroup_disable;
 
@@ -870,10 +871,6 @@ out_pm_disable:
 	pm_runtime_disable(&pdev->dev);
 out_put_host:
 	spi_controller_put(host);
-out_disable_pll_clk:
-	clk_disable_unprepare(pll_clk);
-out_disable_clk:
-	clk_disable_unprepare(clk);
 	return ret;
 }
 
@@ -883,11 +880,15 @@ static void bcm63xx_hsspi_remove(struct platform_device *pdev)
 	struct spi_controller *host = platform_get_drvdata(pdev);
 	struct bcm63xx_hsspi *bs = spi_controller_get_devdata(host);
 
+	spi_controller_get(host);
+
+	spi_unregister_controller(host);
+
 	/* reset the hardware and block queue progress */
 	__raw_writel(0, bs->regs + HSSPI_INT_MASK_REG);
-	clk_disable_unprepare(bs->pll_clk);
-	clk_disable_unprepare(bs->clk);
 	sysfs_remove_group(&pdev->dev.kobj, &bcm63xx_hsspi_group);
+
+	spi_controller_put(host);
 }
 
 #ifdef CONFIG_PM_SLEEP

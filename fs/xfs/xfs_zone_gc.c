@@ -3,7 +3,7 @@
  * Copyright (c) 2023-2025 Christoph Hellwig.
  * Copyright (c) 2024-2025, Western Digital Corporation or its affiliates.
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
 #include "xfs_log_format.h"
@@ -16,6 +16,8 @@
 #include "xfs_rmap.h"
 #include "xfs_rtbitmap.h"
 #include "xfs_rtrmap_btree.h"
+#include "xfs_errortag.h"
+#include "xfs_error.h"
 #include "xfs_zone_alloc.h"
 #include "xfs_zone_priv.h"
 #include "xfs_zones.h"
@@ -50,23 +52,11 @@
  */
 
 /*
- * Size of each GC scratch pad.  This is also the upper bound for each
- * GC I/O, which helps to keep latency down.
+ * Size of each GC scratch allocation, and the number of buffers.
  */
-#define XFS_GC_CHUNK_SIZE	SZ_1M
-
-/*
- * Scratchpad data to read GCed data into.
- *
- * The offset member tracks where the next allocation starts, and freed tracks
- * the amount of space that is not used anymore.
- */
-#define XFS_ZONE_GC_NR_SCRATCH	2
-struct xfs_zone_scratch {
-	struct folio			*folio;
-	unsigned int			offset;
-	unsigned int			freed;
-};
+#define XFS_GC_BUF_SIZE		SZ_1M
+#define XFS_GC_NR_BUFS		2
+static_assert(XFS_GC_NR_BUFS < BIO_MAX_VECS);
 
 /*
  * Chunk that is read and written for each GC operation.
@@ -106,7 +96,6 @@ struct xfs_gc_bio {
 	 */
 	xfs_fsblock_t			old_startblock;
 	xfs_daddr_t			new_daddr;
-	struct xfs_zone_scratch		*scratch;
 
 	/* Are we writing to a sequential write required zone? */
 	bool				is_seq;
@@ -114,8 +103,9 @@ struct xfs_gc_bio {
 	/* Open Zone being written to */
 	struct xfs_open_zone		*oz;
 
+	struct xfs_rtgroup		*victim_rtg;
+
 	/* Bio used for reads and writes, including the bvec used by it */
-	struct bio_vec			bv;
 	struct bio			bio;	/* must be last */
 };
 
@@ -135,15 +125,23 @@ struct xfs_zone_gc_iter {
  */
 struct xfs_zone_gc_data {
 	struct xfs_mount		*mp;
+	struct xfs_open_zone		*oz;
 
 	/* bioset used to allocate the gc_bios */
 	struct bio_set			bio_set;
 
 	/*
-	 * Scratchpad used, and index to indicated which one is used.
+	 * Scratchpad to buffer GC data, organized as a ring buffer over
+	 * discontiguous folios.  scratch_head is where the buffer is filled,
+	 * scratch_tail tracks the buffer space freed, and scratch_available
+	 * counts the space available in the ring buffer between the head and
+	 * the tail.
 	 */
-	struct xfs_zone_scratch		scratch[XFS_ZONE_GC_NR_SCRATCH];
-	unsigned int			scratch_idx;
+	struct folio			*scratch_folios[XFS_GC_NR_BUFS];
+	unsigned int			scratch_size;
+	unsigned int			scratch_available;
+	unsigned int			scratch_head;
+	unsigned int			scratch_tail;
 
 	/*
 	 * List of bios currently being read, written and reset.
@@ -173,26 +171,37 @@ xfs_zoned_need_gc(
 	s64			available, free, threshold;
 	s32			remainder;
 
-	if (!xfs_group_marked(mp, XG_TYPE_RTG, XFS_RTG_RECLAIMABLE))
+	/* If we have no reclaimable blocks, running GC is useless. */
+	if (!xfs_zoned_have_reclaimable(mp->m_zone_info))
 		return false;
 
+	/*
+	 * In order to avoid file fragmentation as much as possible, we should
+	 * make sure that we can open enough zones. So trigger GC if the number
+	 * of blocks immediately available for writes is lower than the total
+	 * number of blocks from all possible open zones.
+	 */
 	available = xfs_estimate_freecounter(mp, XC_FREE_RTAVAILABLE);
-
 	if (available <
-	    mp->m_groups[XG_TYPE_RTG].blocks *
-	    (mp->m_max_open_zones - XFS_OPEN_GC_ZONES))
+	    xfs_rtgs_to_rfsbs(mp, mp->m_max_open_zones - XFS_OPEN_GC_ZONES))
 		return true;
 
-	free = xfs_estimate_freecounter(mp, XC_FREE_RTEXTENTS);
+	/*
+	 * For cases where the user wants to be more aggressive with GC,
+	 * the sysfs attribute zonegc_low_space may be set to a non zero value,
+	 * to indicate that GC should try to maintain at least zonegc_low_space
+	 * percent of the free space to be directly available for writing. Check
+	 * this here.
+	 */
+	if (!mp->m_zonegc_low_space)
+		return false;
 
+	free = xfs_estimate_freecounter(mp, XC_FREE_RTEXTENTS);
 	threshold = div_s64_rem(free, 100, &remainder);
 	threshold = threshold * mp->m_zonegc_low_space +
 		    remainder * div_s64(mp->m_zonegc_low_space, 100);
 
-	if (available < threshold)
-		return true;
-
-	return false;
+	return available < threshold;
 }
 
 static struct xfs_zone_gc_data *
@@ -202,28 +211,24 @@ xfs_zone_gc_data_alloc(
 	struct xfs_zone_gc_data	*data;
 	int			i;
 
-	data = kzalloc(sizeof(*data), GFP_KERNEL);
+	data = kzalloc_obj(*data);
 	if (!data)
 		return NULL;
-	data->iter.recs = kcalloc(XFS_ZONE_GC_RECS, sizeof(*data->iter.recs),
-			GFP_KERNEL);
+	data->iter.recs = kzalloc_objs(*data->iter.recs, XFS_ZONE_GC_RECS);
 	if (!data->iter.recs)
 		goto out_free_data;
 
-	/*
-	 * We actually only need a single bio_vec.  It would be nice to have
-	 * a flag that only allocates the inline bvecs and not the separate
-	 * bvec pool.
-	 */
 	if (bioset_init(&data->bio_set, 16, offsetof(struct xfs_gc_bio, bio),
 			BIOSET_NEED_BVECS))
 		goto out_free_recs;
-	for (i = 0; i < XFS_ZONE_GC_NR_SCRATCH; i++) {
-		data->scratch[i].folio =
-			folio_alloc(GFP_KERNEL, get_order(XFS_GC_CHUNK_SIZE));
-		if (!data->scratch[i].folio)
+	for (i = 0; i < XFS_GC_NR_BUFS; i++) {
+		data->scratch_folios[i] =
+			folio_alloc(GFP_KERNEL, get_order(XFS_GC_BUF_SIZE));
+		if (!data->scratch_folios[i])
 			goto out_free_scratch;
 	}
+	data->scratch_size = XFS_GC_BUF_SIZE * XFS_GC_NR_BUFS;
+	data->scratch_available = data->scratch_size;
 	INIT_LIST_HEAD(&data->reading);
 	INIT_LIST_HEAD(&data->writing);
 	INIT_LIST_HEAD(&data->resetting);
@@ -232,7 +237,7 @@ xfs_zone_gc_data_alloc(
 
 out_free_scratch:
 	while (--i >= 0)
-		folio_put(data->scratch[i].folio);
+		folio_put(data->scratch_folios[i]);
 	bioset_exit(&data->bio_set);
 out_free_recs:
 	kfree(data->iter.recs);
@@ -247,8 +252,8 @@ xfs_zone_gc_data_free(
 {
 	int			i;
 
-	for (i = 0; i < XFS_ZONE_GC_NR_SCRATCH; i++)
-		folio_put(data->scratch[i].folio);
+	for (i = 0; i < XFS_GC_NR_BUFS; i++)
+		folio_put(data->scratch_folios[i]);
 	bioset_exit(&data->bio_set);
 	kfree(data->iter.recs);
 	kfree(data);
@@ -264,6 +269,7 @@ xfs_zone_gc_iter_init(
 	iter->rec_count = 0;
 	iter->rec_idx = 0;
 	iter->victim_rtg = victim_rtg;
+	atomic_inc(&victim_rtg->rtg_gccount);
 }
 
 /*
@@ -362,13 +368,14 @@ xfs_zone_gc_query(
 
 	return 0;
 done:
+	atomic_dec(&iter->victim_rtg->rtg_gccount);
 	xfs_rtgroup_rele(iter->victim_rtg);
 	iter->victim_rtg = NULL;
 	return 0;
 }
 
 static bool
-xfs_zone_gc_iter_next(
+xfs_zone_gc_iter_irec(
 	struct xfs_mount	*mp,
 	struct xfs_zone_gc_iter	*iter,
 	struct xfs_rmap_irec	*chunk_rec,
@@ -376,9 +383,6 @@ xfs_zone_gc_iter_next(
 {
 	struct xfs_rmap_irec	*irec;
 	int			error;
-
-	if (!iter->victim_rtg)
-		return false;
 
 retry:
 	if (iter->rec_idx == iter->rec_count) {
@@ -451,6 +455,20 @@ xfs_zone_gc_pick_victim_from(
 		if (!rtg)
 			continue;
 
+		/*
+		 * If the zone is already undergoing GC, don't pick it again.
+		 *
+		 * This prevents us from picking one of the zones for which we
+		 * already submitted GC I/O, but for which the remapping hasn't
+		 * concluded yet.  This won't cause data corruption, but
+		 * increases write amplification and slows down GC, so this is
+		 * a bad thing.
+		 */
+		if (atomic_read(&rtg->rtg_gccount)) {
+			xfs_rtgroup_rele(rtg);
+			continue;
+		}
+
 		/* skip zones that are just waiting for a reset */
 		if (rtg_rmap(rtg)->i_used_blocks == 0 ||
 		    rtg_rmap(rtg)->i_used_blocks >= victim_used) {
@@ -491,21 +509,6 @@ xfs_zone_gc_select_victim(
 	struct xfs_rtgroup	*victim_rtg = NULL;
 	unsigned int		bucket;
 
-	if (xfs_is_shutdown(mp))
-		return false;
-
-	if (iter->victim_rtg)
-		return true;
-
-	/*
-	 * Don't start new work if we are asked to stop or park.
-	 */
-	if (kthread_should_stop() || kthread_should_park())
-		return false;
-
-	if (!xfs_zoned_need_gc(mp))
-		return false;
-
 	spin_lock(&zi->zi_used_buckets_lock);
 	for (bucket = 0; bucket < XFS_ZONE_USED_BUCKETS; bucket++) {
 		victim_rtg = xfs_zone_gc_pick_victim_from(mp, bucket);
@@ -522,10 +525,11 @@ xfs_zone_gc_select_victim(
 	return true;
 }
 
-static struct xfs_open_zone *
-xfs_zone_gc_steal_open(
-	struct xfs_zone_info	*zi)
+static int
+xfs_zone_gc_steal_open_zone(
+	struct xfs_zone_gc_data	*data)
 {
+	struct xfs_zone_info	*zi = data->mp->m_zone_info;
 	struct xfs_open_zone	*oz, *found = NULL;
 
 	spin_lock(&zi->zi_open_zones_lock);
@@ -533,76 +537,64 @@ xfs_zone_gc_steal_open(
 		if (!found || oz->oz_allocated < found->oz_allocated)
 			found = oz;
 	}
-
-	if (found) {
-		found->oz_is_gc = true;
-		list_del_init(&found->oz_entry);
-		zi->zi_nr_open_zones--;
+	if (!found) {
+		spin_unlock(&zi->zi_open_zones_lock);
+		return -EIO;
 	}
 
+	trace_xfs_zone_gc_target_stolen(found->oz_rtg);
+	found->oz_is_gc = true;
+	zi->zi_nr_open_zones--;
+	zi->zi_nr_open_gc_zones++;
 	spin_unlock(&zi->zi_open_zones_lock);
-	return found;
-}
 
-static struct xfs_open_zone *
-xfs_zone_gc_select_target(
-	struct xfs_mount	*mp)
-{
-	struct xfs_zone_info	*zi = mp->m_zone_info;
-	struct xfs_open_zone	*oz = zi->zi_open_gc_zone;
-
-	/*
-	 * We need to wait for pending writes to finish.
-	 */
-	if (oz && oz->oz_written < rtg_blocks(oz->oz_rtg))
-		return NULL;
-
-	ASSERT(zi->zi_nr_open_zones <=
-		mp->m_max_open_zones - XFS_OPEN_GC_ZONES);
-	oz = xfs_open_zone(mp, WRITE_LIFE_NOT_SET, true);
-	if (oz)
-		trace_xfs_zone_gc_target_opened(oz->oz_rtg);
-	spin_lock(&zi->zi_open_zones_lock);
-	zi->zi_open_gc_zone = oz;
-	spin_unlock(&zi->zi_open_zones_lock);
-	return oz;
+	atomic_inc(&found->oz_ref);
+	data->oz = found;
+	return 0;
 }
 
 /*
- * Ensure we have a valid open zone to write the GC data to.
- *
- * If the current target zone has space keep writing to it, else first wait for
- * all pending writes and then pick a new one.
+ * Ensure we have a valid open zone to write to.
  */
-static struct xfs_open_zone *
-xfs_zone_gc_ensure_target(
-	struct xfs_mount	*mp)
-{
-	struct xfs_open_zone	*oz = mp->m_zone_info->zi_open_gc_zone;
-
-	if (!oz || oz->oz_allocated == rtg_blocks(oz->oz_rtg))
-		return xfs_zone_gc_select_target(mp);
-	return oz;
-}
-
-static unsigned int
-xfs_zone_gc_scratch_available(
-	struct xfs_zone_gc_data	*data)
-{
-	return XFS_GC_CHUNK_SIZE - data->scratch[data->scratch_idx].offset;
-}
-
 static bool
-xfs_zone_gc_space_available(
+xfs_zone_gc_select_target(
 	struct xfs_zone_gc_data	*data)
 {
-	struct xfs_open_zone	*oz;
+	struct xfs_zone_info	*zi = data->mp->m_zone_info;
 
-	oz = xfs_zone_gc_ensure_target(data->mp);
-	if (!oz)
+	if (data->oz) {
+		/*
+		 * If we have space available, just keep using the existing
+		 * zone.
+		 */
+		if (data->oz->oz_allocated < rtg_blocks(data->oz->oz_rtg))
+			return true;
+
+		/*
+		 * Wait for all writes to the current zone to finish before
+		 * picking a new one.
+		 */
+		if (data->oz->oz_written < rtg_blocks(data->oz->oz_rtg))
+			return false;
+
+		xfs_open_zone_put(data->oz);
+	}
+
+	/*
+	 * Open a new zone when there is none currently in use.
+	 */
+	ASSERT(zi->zi_nr_open_zones <=
+		data->mp->m_max_open_zones - XFS_OPEN_GC_ZONES);
+	data->oz = xfs_open_zone(data->mp, WRITE_LIFE_NOT_SET, true);
+	if (!data->oz)
 		return false;
-	return oz->oz_allocated < rtg_blocks(oz->oz_rtg) &&
-		xfs_zone_gc_scratch_available(data);
+	trace_xfs_zone_gc_target_opened(data->oz->oz_rtg);
+	atomic_inc(&data->oz->oz_ref);
+	spin_lock(&zi->zi_open_zones_lock);
+	zi->zi_nr_open_gc_zones++;
+	list_add_tail(&data->oz->oz_entry, &zi->zi_open_zones);
+	spin_unlock(&zi->zi_open_zones_lock);
+	return true;
 }
 
 static void
@@ -617,7 +609,7 @@ xfs_zone_gc_end_io(
 	wake_up_process(data->mp->m_zone_info->zi_gc_thread);
 }
 
-static struct xfs_open_zone *
+static bool
 xfs_zone_gc_alloc_blocks(
 	struct xfs_zone_gc_data	*data,
 	xfs_extlen_t		*count_fsb,
@@ -625,14 +617,9 @@ xfs_zone_gc_alloc_blocks(
 	bool			*is_seq)
 {
 	struct xfs_mount	*mp = data->mp;
-	struct xfs_open_zone	*oz;
+	struct xfs_open_zone	*oz = data->oz;
 
-	oz = xfs_zone_gc_ensure_target(mp);
-	if (!oz)
-		return NULL;
-
-	*count_fsb = min(*count_fsb,
-		XFS_B_TO_FSB(mp, xfs_zone_gc_scratch_available(data)));
+	*count_fsb = min(*count_fsb, XFS_B_TO_FSB(mp, data->scratch_available));
 
 	/*
 	 * Directly allocate GC blocks from the reserved pool.
@@ -652,15 +639,59 @@ xfs_zone_gc_alloc_blocks(
 	spin_unlock(&mp->m_sb_lock);
 
 	if (!*count_fsb)
-		return NULL;
+		return false;
 
-	*daddr = xfs_gbno_to_daddr(&oz->oz_rtg->rtg_group, 0);
+	*daddr = xfs_gbno_to_daddr(rtg_group(oz->oz_rtg), 0);
 	*is_seq = bdev_zone_is_seq(mp->m_rtdev_targp->bt_bdev, *daddr);
 	if (!*is_seq)
 		*daddr += XFS_FSB_TO_BB(mp, oz->oz_allocated);
 	oz->oz_allocated += *count_fsb;
 	atomic_inc(&oz->oz_ref);
-	return oz;
+	return true;
+}
+
+static void
+xfs_zone_gc_add_data(
+	struct xfs_gc_bio	*chunk)
+{
+	struct xfs_zone_gc_data	*data = chunk->data;
+	unsigned int		len = chunk->len;
+	unsigned int		off = data->scratch_head;
+
+	do {
+		unsigned int	this_off = off % XFS_GC_BUF_SIZE;
+		unsigned int	this_len = min(len, XFS_GC_BUF_SIZE - this_off);
+
+		bio_add_folio_nofail(&chunk->bio,
+				data->scratch_folios[off / XFS_GC_BUF_SIZE],
+				this_len, this_off);
+		len -= this_len;
+		off += this_len;
+		if (off == data->scratch_size)
+			off = 0;
+	} while (len);
+}
+
+static bool
+xfs_zone_gc_can_start_chunk(
+	struct xfs_zone_gc_data	*data)
+{
+
+	if (xfs_is_shutdown(data->mp))
+		return false;
+	if (!data->scratch_available)
+		return false;
+
+	if (!data->iter.victim_rtg) {
+		if (kthread_should_stop() || kthread_should_park())
+			return false;
+		if (!xfs_zoned_need_gc(data->mp))
+			return false;
+		if (!xfs_zone_gc_select_victim(data))
+			return false;
+	}
+
+	return xfs_zone_gc_select_target(data);
 }
 
 static bool
@@ -670,7 +701,6 @@ xfs_zone_gc_start_chunk(
 	struct xfs_zone_gc_iter	*iter = &data->iter;
 	struct xfs_mount	*mp = data->mp;
 	struct block_device	*bdev = mp->m_rtdev_targp->bt_bdev;
-	struct xfs_open_zone	*oz;
 	struct xfs_rmap_irec	irec;
 	struct xfs_gc_bio	*chunk;
 	struct xfs_inode	*ip;
@@ -678,20 +708,25 @@ xfs_zone_gc_start_chunk(
 	xfs_daddr_t		daddr;
 	bool			is_seq;
 
-	if (xfs_is_shutdown(mp))
+	if (!xfs_zone_gc_can_start_chunk(data))
 		return false;
 
-	if (!xfs_zone_gc_iter_next(mp, iter, &irec, &ip))
+	set_current_state(TASK_RUNNING);
+	if (!xfs_zone_gc_iter_irec(mp, iter, &irec, &ip))
 		return false;
-	oz = xfs_zone_gc_alloc_blocks(data, &irec.rm_blockcount, &daddr,
-			&is_seq);
-	if (!oz) {
+
+	if (!xfs_zone_gc_alloc_blocks(data, &irec.rm_blockcount, &daddr,
+			&is_seq)) {
 		xfs_irele(ip);
 		return false;
 	}
 
-	bio = bio_alloc_bioset(bdev, 1, REQ_OP_READ, GFP_NOFS, &data->bio_set);
-
+	/*
+	 * Scratch allocation can wrap around to the same buffer again,
+	 * provision an extra bvec for that case.
+	 */
+	bio = bio_alloc_bioset(bdev, XFS_GC_NR_BUFS + 1, REQ_OP_READ, GFP_NOFS,
+			&data->bio_set);
 	chunk = container_of(bio, struct xfs_gc_bio, bio);
 	chunk->ip = ip;
 	chunk->offset = XFS_FSB_TO_B(mp, irec.rm_offset);
@@ -700,19 +735,21 @@ xfs_zone_gc_start_chunk(
 		xfs_rgbno_to_rtb(iter->victim_rtg, irec.rm_startblock);
 	chunk->new_daddr = daddr;
 	chunk->is_seq = is_seq;
-	chunk->scratch = &data->scratch[data->scratch_idx];
 	chunk->data = data;
-	chunk->oz = oz;
+	chunk->oz = data->oz;
+	chunk->victim_rtg = iter->victim_rtg;
+	atomic_inc(&rtg_group(chunk->victim_rtg)->xg_active_ref);
+	atomic_inc(&chunk->victim_rtg->rtg_gccount);
 
 	bio->bi_iter.bi_sector = xfs_rtb_to_daddr(mp, chunk->old_startblock);
 	bio->bi_end_io = xfs_zone_gc_end_io;
-	bio_add_folio_nofail(bio, chunk->scratch->folio, chunk->len,
-			chunk->scratch->offset);
-	chunk->scratch->offset += chunk->len;
-	if (chunk->scratch->offset == XFS_GC_CHUNK_SIZE) {
-		data->scratch_idx =
-			(data->scratch_idx + 1) % XFS_ZONE_GC_NR_SCRATCH;
-	}
+	xfs_zone_gc_add_data(chunk);
+	data->scratch_head =
+		(data->scratch_head + chunk->len) % data->scratch_size;
+	data->scratch_available -= chunk->len;
+
+	XFS_STATS_INC(mp, xs_gc_read_calls);
+
 	WRITE_ONCE(chunk->state, XFS_GC_BIO_NEW);
 	list_add_tail(&chunk->entry, &data->reading);
 	xfs_zone_gc_iter_advance(iter, irec.rm_blockcount);
@@ -725,6 +762,8 @@ static void
 xfs_zone_gc_free_chunk(
 	struct xfs_gc_bio	*chunk)
 {
+	atomic_dec(&chunk->victim_rtg->rtg_gccount);
+	xfs_rtgroup_rele(chunk->victim_rtg);
 	list_del(&chunk->entry);
 	xfs_open_zone_put(chunk->oz);
 	xfs_irele(chunk->ip);
@@ -777,13 +816,16 @@ xfs_zone_gc_split_write(
 	ihold(VFS_I(chunk->ip));
 	split_chunk->ip = chunk->ip;
 	split_chunk->is_seq = chunk->is_seq;
-	split_chunk->scratch = chunk->scratch;
 	split_chunk->offset = chunk->offset;
 	split_chunk->len = split_len;
 	split_chunk->old_startblock = chunk->old_startblock;
 	split_chunk->new_daddr = chunk->new_daddr;
 	split_chunk->oz = chunk->oz;
 	atomic_inc(&chunk->oz->oz_ref);
+
+	split_chunk->victim_rtg = chunk->victim_rtg;
+	atomic_inc(&rtg_group(chunk->victim_rtg)->xg_active_ref);
+	atomic_inc(&chunk->victim_rtg->rtg_gccount);
 
 	chunk->offset += split_len;
 	chunk->len -= split_len;
@@ -801,8 +843,6 @@ xfs_zone_gc_write_chunk(
 {
 	struct xfs_zone_gc_data	*data = chunk->data;
 	struct xfs_mount	*mp = chunk->ip->i_mount;
-	phys_addr_t		bvec_paddr =
-		bvec_phys(bio_first_bvec_all(&chunk->bio));
 	struct xfs_gc_bio	*split_chunk;
 
 	if (chunk->bio.bi_status)
@@ -812,13 +852,13 @@ xfs_zone_gc_write_chunk(
 		return;
 	}
 
+	XFS_STATS_INC(mp, xs_gc_write_calls);
+	XFS_STATS_ADD(mp, xs_gc_bytes, chunk->len);
+
 	WRITE_ONCE(chunk->state, XFS_GC_BIO_NEW);
 	list_move_tail(&chunk->entry, &data->writing);
 
-	bio_reset(&chunk->bio, mp->m_rtdev_targp->bt_bdev, REQ_OP_WRITE);
-	bio_add_folio_nofail(&chunk->bio, chunk->scratch->folio, chunk->len,
-			offset_in_folio(chunk->scratch->folio, bvec_paddr));
-
+	bio_reuse(&chunk->bio, REQ_OP_WRITE);
 	while ((split_chunk = xfs_zone_gc_split_write(data, chunk)))
 		xfs_zone_gc_submit_write(data, split_chunk);
 	xfs_zone_gc_submit_write(data, chunk);
@@ -829,6 +869,7 @@ xfs_zone_gc_finish_chunk(
 	struct xfs_gc_bio	*chunk)
 {
 	uint			iolock = XFS_IOLOCK_EXCL | XFS_MMAPLOCK_EXCL;
+	struct xfs_zone_gc_data	*data = chunk->data;
 	struct xfs_inode	*ip = chunk->ip;
 	struct xfs_mount	*mp = ip->i_mount;
 	int			error;
@@ -840,11 +881,9 @@ xfs_zone_gc_finish_chunk(
 		return;
 	}
 
-	chunk->scratch->freed += chunk->len;
-	if (chunk->scratch->freed == chunk->scratch->offset) {
-		chunk->scratch->offset = 0;
-		chunk->scratch->freed = 0;
-	}
+	data->scratch_tail =
+		(data->scratch_tail + chunk->len) % data->scratch_size;
+	data->scratch_available += chunk->len;
 
 	/*
 	 * Cycle through the iolock and wait for direct I/O and layouts to
@@ -885,7 +924,7 @@ xfs_zone_gc_finish_reset(
 		goto out;
 	}
 
-	xfs_group_set_mark(&rtg->rtg_group, XFS_RTG_FREE);
+	xfs_group_set_mark(rtg_group(rtg), XFS_RTG_FREE);
 	atomic_inc(&zi->zi_nr_free_zones);
 
 	xfs_zoned_add_available(mp, rtg_blocks(rtg));
@@ -896,39 +935,55 @@ out:
 	bio_put(&chunk->bio);
 }
 
-static bool
-xfs_zone_gc_prepare_reset(
+static void
+xfs_submit_zone_reset_bio(
 	struct bio		*bio,
-	struct xfs_rtgroup	*rtg)
+	void			*priv)
 {
+	struct xfs_rtgroup	*rtg = priv;
+	struct xfs_mount	*mp = rtg_mount(rtg);
+
 	trace_xfs_zone_reset(rtg);
 
 	ASSERT(rtg_rmap(rtg)->i_used_blocks == 0);
-	bio->bi_iter.bi_sector = xfs_gbno_to_daddr(&rtg->rtg_group, 0);
-	if (!bdev_zone_is_seq(bio->bi_bdev, bio->bi_iter.bi_sector)) {
-		if (!bdev_max_discard_sectors(bio->bi_bdev))
-			return false;
-		bio->bi_opf = REQ_OP_DISCARD | REQ_SYNC;
-		bio->bi_iter.bi_size =
-			XFS_FSB_TO_B(rtg_mount(rtg), rtg_blocks(rtg));
+
+	if (XFS_TEST_ERROR(mp, XFS_ERRTAG_ZONE_RESET)) {
+		bio_io_error(bio);
+		return;
 	}
 
-	return true;
+	XFS_STATS_INC(mp, xs_gc_zone_reset_calls);
+
+	bio->bi_iter.bi_sector = xfs_gbno_to_daddr(rtg_group(rtg), 0);
+	if (!bdev_zone_is_seq(bio->bi_bdev, bio->bi_iter.bi_sector)) {
+		/*
+		 * Also use the bio to drive the state machine when neither
+		 * zone reset nor discard is supported to keep things simple.
+		 */
+		if (!bdev_max_discard_sectors(bio->bi_bdev)) {
+			bio_endio(bio);
+			return;
+		}
+		bio->bi_opf &= ~REQ_OP_ZONE_RESET;
+		bio->bi_opf |= REQ_OP_DISCARD;
+		bio->bi_iter.bi_size = XFS_FSB_TO_B(mp, rtg_blocks(rtg));
+	}
+
+	submit_bio(bio);
 }
 
 int
 xfs_zone_gc_reset_sync(
 	struct xfs_rtgroup	*rtg)
 {
-	int			error = 0;
 	struct bio		bio;
+	int			error;
 
 	bio_init(&bio, rtg_mount(rtg)->m_rtdev_targp->bt_bdev, NULL, 0,
-			REQ_OP_ZONE_RESET);
-	if (xfs_zone_gc_prepare_reset(&bio, rtg))
-		error = submit_bio_wait(&bio);
+			REQ_OP_ZONE_RESET | REQ_SYNC);
+	bio_await(&bio, rtg, xfs_submit_zone_reset_bio);
+	error = blk_status_to_errno(bio.bi_status);
 	bio_uninit(&bio);
-
 	return error;
 }
 
@@ -963,15 +1018,7 @@ xfs_zone_gc_reset_zones(
 		chunk->data = data;
 		WRITE_ONCE(chunk->state, XFS_GC_BIO_NEW);
 		list_add_tail(&chunk->entry, &data->resetting);
-
-		/*
-		 * Also use the bio to drive the state machine when neither
-		 * zone reset nor discard is supported to keep things simple.
-		 */
-		if (xfs_zone_gc_prepare_reset(bio, rtg))
-			submit_bio(bio);
-		else
-			bio_endio(bio);
+		xfs_submit_zone_reset_bio(bio, rtg);
 	} while (next);
 }
 
@@ -982,7 +1029,7 @@ xfs_zone_gc_reset_zones(
  * Note that the order of the chunks is preserved so that we don't undo the
  * optimal order established by xfs_zone_gc_query().
  */
-static bool
+static void
 xfs_zone_gc_handle_work(
 	struct xfs_zone_gc_data	*data)
 {
@@ -996,30 +1043,22 @@ xfs_zone_gc_handle_work(
 	zi->zi_reset_list = NULL;
 	spin_unlock(&zi->zi_reset_list_lock);
 
-	if (!xfs_zone_gc_select_victim(data) ||
-	    !xfs_zone_gc_space_available(data)) {
-		if (list_empty(&data->reading) &&
-		    list_empty(&data->writing) &&
-		    list_empty(&data->resetting) &&
-		    !reset_list)
-			return false;
-	}
-
-	__set_current_state(TASK_RUNNING);
-	try_to_freeze();
-
-	if (reset_list)
+	if (reset_list) {
+		set_current_state(TASK_RUNNING);
 		xfs_zone_gc_reset_zones(data, reset_list);
+	}
 
 	list_for_each_entry_safe(chunk, next, &data->resetting, entry) {
 		if (READ_ONCE(chunk->state) != XFS_GC_BIO_DONE)
 			break;
+		set_current_state(TASK_RUNNING);
 		xfs_zone_gc_finish_reset(chunk);
 	}
 
 	list_for_each_entry_safe(chunk, next, &data->writing, entry) {
 		if (READ_ONCE(chunk->state) != XFS_GC_BIO_DONE)
 			break;
+		set_current_state(TASK_RUNNING);
 		xfs_zone_gc_finish_chunk(chunk);
 	}
 
@@ -1027,6 +1066,7 @@ xfs_zone_gc_handle_work(
 	list_for_each_entry_safe(chunk, next, &data->reading, entry) {
 		if (READ_ONCE(chunk->state) != XFS_GC_BIO_DONE)
 			break;
+		set_current_state(TASK_RUNNING);
 		xfs_zone_gc_write_chunk(chunk);
 	}
 	blk_finish_plug(&plug);
@@ -1035,7 +1075,6 @@ xfs_zone_gc_handle_work(
 	while (xfs_zone_gc_start_chunk(data))
 		;
 	blk_finish_plug(&plug);
-	return true;
 }
 
 /*
@@ -1059,8 +1098,18 @@ xfs_zoned_gcd(
 	for (;;) {
 		set_current_state(TASK_INTERRUPTIBLE | TASK_FREEZABLE);
 		xfs_set_zonegc_running(mp);
-		if (xfs_zone_gc_handle_work(data))
+
+		xfs_zone_gc_handle_work(data);
+
+		/*
+		 * Only sleep if nothing set the state to running.  Else check for
+		 * work again as someone might have queued up more work and woken
+		 * us in the meantime.
+		 */
+		if (get_current_state() == TASK_RUNNING) {
+			try_to_freeze();
 			continue;
+		}
 
 		if (list_empty(&data->reading) &&
 		    list_empty(&data->writing) &&
@@ -1085,6 +1134,8 @@ xfs_zoned_gcd(
 	}
 	xfs_clear_zonegc_running(mp);
 
+	if (data->oz)
+		xfs_open_zone_put(data->oz);
 	if (data->iter.victim_rtg)
 		xfs_rtgroup_rele(data->iter.victim_rtg);
 
@@ -1109,60 +1160,68 @@ xfs_zone_gc_stop(
 		kthread_park(mp->m_zone_info->zi_gc_thread);
 }
 
+void
+xfs_zone_gc_wakeup(
+	struct xfs_mount	*mp)
+{
+	struct super_block      *sb = mp->m_super;
+
+	/*
+	 * If we are unmounting the file system we must not try to
+	 * wake gc as m_zone_info might have been freed already.
+	 */
+	if (down_read_trylock(&sb->s_umount)) {
+		if (!xfs_is_readonly(mp))
+			wake_up_process(mp->m_zone_info->zi_gc_thread);
+		up_read(&sb->s_umount);
+	}
+}
+
 int
 xfs_zone_gc_mount(
 	struct xfs_mount	*mp)
 {
 	struct xfs_zone_info	*zi = mp->m_zone_info;
 	struct xfs_zone_gc_data	*data;
-	struct xfs_open_zone	*oz;
 	int			error;
 
+	data = xfs_zone_gc_data_alloc(mp);
+	if (!data)
+		return -ENOMEM;
+
 	/*
-	 * If there are no free zones available for GC, pick the open zone with
+	 * If there are no free zones available for GC, or the number of open
+	 * zones has reached the open zone limit, pick the open zone with
 	 * the least used space to GC into.  This should only happen after an
-	 * unclean shutdown near ENOSPC while GC was ongoing.
-	 *
-	 * We also need to do this for the first gc zone allocation if we
-	 * unmounted while at the open limit.
+	 * unclean shutdown while GC was ongoing.  Otherwise a GC zone will
+	 * be selected from the free zone pool on demand.
 	 */
 	if (!xfs_group_marked(mp, XG_TYPE_RTG, XFS_RTG_FREE) ||
-	    zi->zi_nr_open_zones == mp->m_max_open_zones)
-		oz = xfs_zone_gc_steal_open(zi);
-	else
-		oz = xfs_open_zone(mp, WRITE_LIFE_NOT_SET, true);
-	if (!oz) {
-		xfs_warn(mp, "unable to allocate a zone for gc");
-		error = -EIO;
-		goto out;
+	    zi->zi_nr_open_zones >= mp->m_max_open_zones) {
+		error = xfs_zone_gc_steal_open_zone(data);
+		if (error) {
+			xfs_warn(mp, "unable to steal an open zone for gc");
+			goto out_free_gc_data;
+		}
 	}
 
-	trace_xfs_zone_gc_target_opened(oz->oz_rtg);
-	zi->zi_open_gc_zone = oz;
-
-	data = xfs_zone_gc_data_alloc(mp);
-	if (!data) {
-		error = -ENOMEM;
-		goto out_put_gc_zone;
-	}
-
-	mp->m_zone_info->zi_gc_thread = kthread_create(xfs_zoned_gcd, data,
+	zi->zi_gc_thread = kthread_create(xfs_zoned_gcd, data,
 			"xfs-zone-gc/%s", mp->m_super->s_id);
-	if (IS_ERR(mp->m_zone_info->zi_gc_thread)) {
+	if (IS_ERR(zi->zi_gc_thread)) {
 		xfs_warn(mp, "unable to create zone gc thread");
-		error = PTR_ERR(mp->m_zone_info->zi_gc_thread);
-		goto out_free_gc_data;
+		error = PTR_ERR(zi->zi_gc_thread);
+		goto out_put_oz;
 	}
 
 	/* xfs_zone_gc_start will unpark for rw mounts */
-	kthread_park(mp->m_zone_info->zi_gc_thread);
+	kthread_park(zi->zi_gc_thread);
 	return 0;
 
+out_put_oz:
+	if (data->oz)
+		xfs_open_zone_put(data->oz);
 out_free_gc_data:
 	kfree(data);
-out_put_gc_zone:
-	xfs_open_zone_put(zi->zi_open_gc_zone);
-out:
 	return error;
 }
 
@@ -1173,6 +1232,4 @@ xfs_zone_gc_unmount(
 	struct xfs_zone_info	*zi = mp->m_zone_info;
 
 	kthread_stop(zi->zi_gc_thread);
-	if (zi->zi_open_gc_zone)
-		xfs_open_zone_put(zi->zi_open_gc_zone);
 }

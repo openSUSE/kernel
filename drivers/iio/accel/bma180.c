@@ -139,11 +139,6 @@ struct bma180_data {
 	int scale;
 	int bw;
 	bool pmode;
-	/* Ensure timestamp is naturally aligned */
-	struct {
-		s16 chan[4];
-		aligned_s64 timestamp;
-	} scan;
 };
 
 enum bma180_chan {
@@ -870,6 +865,10 @@ static irqreturn_t bma180_trigger_handler(int irq, void *p)
 	struct bma180_data *data = iio_priv(indio_dev);
 	s64 time_ns = iio_get_time_ns(indio_dev);
 	int bit, ret, i = 0;
+	struct {
+		s16 chan[4];
+		aligned_s64 timestamp;
+	} scan = { };
 
 	mutex_lock(&data->mutex);
 
@@ -879,12 +878,12 @@ static irqreturn_t bma180_trigger_handler(int irq, void *p)
 			mutex_unlock(&data->mutex);
 			goto err;
 		}
-		data->scan.chan[i++] = ret;
+		scan.chan[i++] = ret;
 	}
 
 	mutex_unlock(&data->mutex);
 
-	iio_push_to_buffers_with_ts(indio_dev, &data->scan, sizeof(data->scan), time_ns);
+	iio_push_to_buffers_with_ts(indio_dev, &scan, sizeof(scan), time_ns);
 err:
 	iio_trigger_notify_done(indio_dev->trig);
 
@@ -987,8 +986,9 @@ static int bma180_probe(struct i2c_client *client)
 		}
 
 		ret = devm_request_irq(dev, client->irq,
-			iio_trigger_generic_data_rdy_poll, IRQF_TRIGGER_RISING,
-			"bma180_event", data->trig);
+				       iio_trigger_generic_data_rdy_poll,
+				       IRQF_TRIGGER_RISING | IRQF_NO_THREAD,
+				       "bma180_event", data->trig);
 		if (ret) {
 			dev_err(dev, "unable to request IRQ\n");
 			goto err_trigger_free;

@@ -44,11 +44,66 @@
  */
 #define MAX_PIPES 6
 #define MAX_PHANTOM_PIPES (MAX_PIPES / 2)
-#define MAX_LINKS (MAX_PIPES * 2 +2)
+
+#define MAX_DPIA 6
+#define MAX_CONNECTOR 6
+#define MAX_VIRTUAL_LINKS 4
+
+#define MAX_LINKS (MAX_DPIA + MAX_CONNECTOR + MAX_VIRTUAL_LINKS)
+
+/**
+ * define MAX_DIG_LINK_ENCODERS - maximum number of digital encoders
+ *
+ * Digital encoders are ENGINE_ID_DIGA...G, there are at most 7,
+ * although not every GPU may have that many.
+ */
 #define MAX_DIG_LINK_ENCODERS 7
+
+/**
+ * define MAX_DAC_LINK_ENCODERS - maximum number of analog link encoders
+ *
+ * Analog encoders are ENGINE_ID_DACA/B, there are at most 2,
+ * although not every GPU may have that many. Modern GPUs typically
+ * don't have analog encoders.
+ */
+#define MAX_DAC_LINK_ENCODERS 2
+
+/**
+ * define MAX_LINK_ENCODERS - maximum number link encoders in total
+ *
+ * This includes both analog and digital encoders.
+ */
+#define MAX_LINK_ENCODERS (MAX_DIG_LINK_ENCODERS + MAX_DAC_LINK_ENCODERS)
+
 #define MAX_DWB_PIPES	1
 #define MAX_HPO_DP2_ENCODERS	4
 #define MAX_HPO_DP2_LINK_ENCODERS	4
+
+/* Pipe topology snapshot structures */
+#define MAX_TOPOLOGY_SNAPSHOTS 4
+
+struct pipe_topology_line {
+	bool is_phantom_pipe;
+	int plane_idx;
+	int slice_idx;
+	int stream_idx;
+	int dpp_inst;
+	int opp_inst;
+	int tg_inst;
+};
+
+struct pipe_topology_snapshot {
+	struct pipe_topology_line pipe_log_lines[MAX_PIPES];
+	int line_count;
+	uint64_t timestamp_us;
+	int stream_count;
+	int phantom_stream_count;
+};
+
+struct pipe_topology_history {
+	struct pipe_topology_snapshot snapshots[MAX_TOPOLOGY_SNAPSHOTS];
+	int current_snapshot_index;
+};
 
 struct gamma_curve {
 	uint32_t offset;
@@ -97,6 +152,13 @@ struct dc_rgb {
 	uint32_t blue;
 };
 
+struct tetrahedral_33x33x33 {
+	struct dc_rgb lut0[8985];
+	struct dc_rgb lut1[8984];
+	struct dc_rgb lut2[8984];
+	struct dc_rgb lut3[8984];
+};
+
 struct tetrahedral_17x17x17 {
 	struct dc_rgb lut0[1229];
 	struct dc_rgb lut1[1228];
@@ -110,14 +172,23 @@ struct tetrahedral_9x9x9 {
 	struct dc_rgb lut3[182];
 };
 
+enum lut_dimension {
+	LUT_DIM_INVALID = 0,
+	LUT_DIM_9 = 9,
+	LUT_DIM_17 = 17,
+	LUT_DIM_33 = 33,
+};
+
 struct tetrahedral_params {
 	union {
+//TODO: Uncomment when in use.
+//		struct tetrahedral_33x33x33 tetrahedral_33;
 		struct tetrahedral_17x17x17 tetrahedral_17;
 		struct tetrahedral_9x9x9 tetrahedral_9;
 	};
 	bool use_tetrahedral_9;
 	bool use_12bits;
-
+	enum lut_dimension lut_dim;
 };
 
 /* arr_curve_points - regamma regions/segments specification
@@ -185,7 +256,7 @@ struct default_adjustment {
 	enum dc_color_space out_color_space;
 	enum dc_color_space in_color_space;
 	enum dc_color_depth color_depth;
-	enum pixel_format surface_pixel_format;
+	enum dc_pixel_format surface_pixel_format;
 	enum graphics_csc_adjust_type csc_adjust_type;
 	bool force_hw_default;
 };

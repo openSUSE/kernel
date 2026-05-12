@@ -182,7 +182,7 @@ static int spear_cpufreq_probe(struct platform_device *pdev)
 
 	if (of_property_read_u32(np, "clock-latency",
 				&spear_cpufreq.transition_latency))
-		spear_cpufreq.transition_latency = CPUFREQ_ETERNAL;
+		spear_cpufreq.transition_latency = CPUFREQ_DEFAULT_TRANSITION_LATENCY_NS;
 
 	cnt = of_property_count_u32_elems(np, "cpufreq_tbl");
 	if (cnt <= 0) {
@@ -191,7 +191,7 @@ static int spear_cpufreq_probe(struct platform_device *pdev)
 		goto out_put_node;
 	}
 
-	freq_tbl = kcalloc(cnt + 1, sizeof(*freq_tbl), GFP_KERNEL);
+	freq_tbl = kzalloc_objs(*freq_tbl, cnt + 1);
 	if (!freq_tbl) {
 		ret = -ENOMEM;
 		goto out_put_node;

@@ -66,7 +66,6 @@ static void esw_destroy_legacy_fdb_table(struct mlx5_eswitch *esw)
 	esw->fdb_table.legacy.addr_grp = NULL;
 	esw->fdb_table.legacy.allmulti_grp = NULL;
 	esw->fdb_table.legacy.promisc_grp = NULL;
-	atomic64_set(&esw->user_count, 0);
 }
 
 static int esw_create_legacy_fdb_table(struct mlx5_eswitch *esw)
@@ -260,7 +259,7 @@ static int _mlx5_eswitch_set_vepa_locked(struct mlx5_eswitch *esw,
 	if (err)
 		return err;
 
-	spec = kvzalloc(sizeof(*spec), GFP_KERNEL);
+	spec = kvzalloc_obj(*spec);
 	if (!spec) {
 		err = -ENOMEM;
 		goto out;

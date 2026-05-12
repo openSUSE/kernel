@@ -19,6 +19,25 @@
 #include "cache.h"
 #include "io.h"
 #include "metric.h"
+#include "subvolume_metrics.h"
+
+/*
+ * Record I/O for subvolume metrics tracking.
+ *
+ * Callers must ensure bytes > 0 for reads (ret > 0 check) to avoid counting
+ * EOF as an I/O operation. For writes, the condition is (ret >= 0 && len > 0).
+ */
+static inline void ceph_record_subvolume_io(struct inode *inode, bool is_write,
+					    ktime_t start, ktime_t end,
+					    size_t bytes)
+{
+	if (!bytes)
+		return;
+
+	ceph_subvolume_metrics_record_io(ceph_sb_to_mdsc(inode->i_sb),
+					 ceph_inode(inode),
+					 is_write, bytes, start, end);
+}
 
 static __le32 ceph_flags_sys2wire(struct ceph_mds_client *mdsc, u32 flags)
 {
@@ -140,7 +159,7 @@ static ssize_t iter_get_bvecs_alloc(struct iov_iter *iter, size_t maxsize,
 	 * __iter_get_bvecs() may populate only part of the array -- zero it
 	 * out.
 	 */
-	bv = kvmalloc_array(npages, sizeof(*bv), GFP_KERNEL | __GFP_ZERO);
+	bv = kvmalloc_objs(*bv, npages, GFP_KERNEL | __GFP_ZERO);
 	if (!bv)
 		return -ENOMEM;
 
@@ -397,7 +416,7 @@ int ceph_open(struct inode *inode, struct file *file)
 	if (!dentry) {
 		do_sync = true;
 	} else {
-		struct ceph_path_info path_info;
+		struct ceph_path_info path_info = {0};
 		path = ceph_mdsc_build_path(mdsc, dentry, &path_info, 0);
 		if (IS_ERR(path)) {
 			do_sync = true;
@@ -579,8 +598,7 @@ static void wake_async_create_waiters(struct inode *inode,
 
 	spin_lock(&ci->i_ceph_lock);
 	if (ci->i_ceph_flags & CEPH_I_ASYNC_CREATE) {
-		ci->i_ceph_flags &= ~CEPH_I_ASYNC_CREATE;
-		wake_up_bit(&ci->i_ceph_flags, CEPH_ASYNC_CREATE_BIT);
+		clear_and_wake_up_bit(CEPH_ASYNC_CREATE_BIT, &ci->i_ceph_flags);
 
 		if (ci->i_ceph_flags & CEPH_I_ASYNC_CHECK_CAPS) {
 			ci->i_ceph_flags &= ~CEPH_I_ASYNC_CHECK_CAPS;
@@ -741,7 +759,7 @@ static int ceph_finish_async_create(struct inode *dir, struct inode *inode,
 		      vino.ino, ceph_ino(dir), dentry->d_name.name);
 		ceph_dir_clear_ordered(dir);
 		ceph_init_inode_acls(inode, as_ctx);
-		if (inode->i_state & I_NEW) {
+		if (inode_state_read_once(inode) & I_NEW) {
 			/*
 			 * If it's not I_NEW, then someone created this before
 			 * we got here. Assume the server is aware of it at
@@ -762,8 +780,7 @@ static int ceph_finish_async_create(struct inode *dir, struct inode *inode,
 	}
 
 	spin_lock(&dentry->d_lock);
-	di->flags &= ~CEPH_DENTRY_ASYNC_CREATE;
-	wake_up_bit(&di->flags, CEPH_DENTRY_ASYNC_CREATE_BIT);
+	clear_and_wake_up_bit(CEPH_DENTRY_ASYNC_CREATE_BIT, &di->flags);
 	spin_unlock(&dentry->d_lock);
 
 	return ret;
@@ -809,7 +826,7 @@ int ceph_atomic_open(struct inode *dir, struct dentry *dentry,
 	if (!dn) {
 		try_async = false;
 	} else {
-		struct ceph_path_info path_info;
+		struct ceph_path_info path_info = {0};
 		path = ceph_mdsc_build_path(mdsc, dn, &path_info, 0);
 		if (IS_ERR(path)) {
 			try_async = false;
@@ -903,7 +920,7 @@ retry:
 				new_inode = NULL;
 				goto out_req;
 			}
-			WARN_ON_ONCE(!(new_inode->i_state & I_NEW));
+			WARN_ON_ONCE(!(inode_state_read_once(new_inode) & I_NEW));
 
 			spin_lock(&dentry->d_lock);
 			di->flags |= CEPH_DENTRY_ASYNC_CREATE;
@@ -1142,6 +1159,15 @@ ssize_t __ceph_sync_read(struct inode *inode, loff_t *ki_pos,
 					 req->r_start_latency,
 					 req->r_end_latency,
 					 read_len, ret);
+		/*
+		 * Only record subvolume metrics for actual bytes read.
+		 * ret == 0 means EOF (no data), not an I/O operation.
+		 */
+		if (ret > 0)
+			ceph_record_subvolume_io(inode, false,
+						 req->r_start_latency,
+						 req->r_end_latency,
+						 ret);
 
 		if (ret > 0)
 			objver = req->r_version;
@@ -1346,7 +1372,7 @@ static void ceph_aio_complete_req(struct ceph_osd_request *req)
 		struct ceph_aio_work *aio_work;
 		BUG_ON(!aio_req->write);
 
-		aio_work = kmalloc(sizeof(*aio_work), GFP_NOFS);
+		aio_work = kmalloc_obj(*aio_work, GFP_NOFS);
 		if (aio_work) {
 			INIT_WORK(&aio_work->work, ceph_aio_retry_work);
 			aio_work->req = req;
@@ -1387,12 +1413,23 @@ static void ceph_aio_complete_req(struct ceph_osd_request *req)
 
 	/* r_start_latency == 0 means the request was not submitted */
 	if (req->r_start_latency) {
-		if (aio_req->write)
+		if (aio_req->write) {
 			ceph_update_write_metrics(metric, req->r_start_latency,
 						  req->r_end_latency, len, rc);
-		else
+			if (rc >= 0 && len)
+				ceph_record_subvolume_io(inode, true,
+							 req->r_start_latency,
+							 req->r_end_latency,
+							 len);
+		} else {
 			ceph_update_read_metrics(metric, req->r_start_latency,
 						 req->r_end_latency, len, rc);
+			if (rc > 0)
+				ceph_record_subvolume_io(inode, false,
+							 req->r_start_latency,
+							 req->r_end_latency,
+							 rc);
+		}
 	}
 
 	put_bvecs(osd_data->bvec_pos.bvecs, osd_data->num_bvecs,
@@ -1574,7 +1611,7 @@ ceph_direct_read_write(struct kiocb *iocb, struct iov_iter *iter,
 		 */
 		if (pos == iocb->ki_pos && !is_sync_kiocb(iocb) &&
 		    (len == count || pos + count <= i_size_read(inode))) {
-			aio_req = kzalloc(sizeof(*aio_req), GFP_KERNEL);
+			aio_req = kzalloc_obj(*aio_req);
 			if (aio_req) {
 				aio_req->iocb = iocb;
 				aio_req->write = write;
@@ -1616,12 +1653,23 @@ ceph_direct_read_write(struct kiocb *iocb, struct iov_iter *iter,
 		ceph_osdc_start_request(req->r_osdc, req);
 		ret = ceph_osdc_wait_request(&fsc->client->osdc, req);
 
-		if (write)
+		if (write) {
 			ceph_update_write_metrics(metric, req->r_start_latency,
 						  req->r_end_latency, len, ret);
-		else
+			if (ret >= 0 && len)
+				ceph_record_subvolume_io(inode, true,
+							 req->r_start_latency,
+							 req->r_end_latency,
+							 len);
+		} else {
 			ceph_update_read_metrics(metric, req->r_start_latency,
 						 req->r_end_latency, len, ret);
+			if (ret > 0)
+				ceph_record_subvolume_io(inode, false,
+							 req->r_start_latency,
+							 req->r_end_latency,
+							 ret);
+		}
 
 		size = i_size_read(inode);
 		if (!write) {
@@ -1874,6 +1922,11 @@ ceph_sync_write(struct kiocb *iocb, struct iov_iter *from, loff_t pos,
 						 req->r_start_latency,
 						 req->r_end_latency,
 						 read_len, ret);
+			if (ret > 0)
+				ceph_record_subvolume_io(inode, false,
+							 req->r_start_latency,
+							 req->r_end_latency,
+							 ret);
 
 			/* Ok if object is not already present */
 			if (ret == -ENOENT) {
@@ -2038,6 +2091,11 @@ ceph_sync_write(struct kiocb *iocb, struct iov_iter *from, loff_t pos,
 
 		ceph_update_write_metrics(&fsc->mdsc->metric, req->r_start_latency,
 					  req->r_end_latency, len, ret);
+		if (ret >= 0 && write_len)
+			ceph_record_subvolume_io(inode, true,
+						 req->r_start_latency,
+						 req->r_end_latency,
+						 write_len);
 		ceph_osdc_put_request(req);
 		if (ret != 0) {
 			doutc(cl, "osd write returned %d\n", ret);
@@ -2121,10 +2179,10 @@ again:
 	if (ceph_inode_is_shutdown(inode))
 		return -ESTALE;
 
-	if (direct_lock)
-		ceph_start_io_direct(inode);
-	else
-		ceph_start_io_read(inode);
+	ret = direct_lock ? ceph_start_io_direct(inode) :
+			    ceph_start_io_read(inode);
+	if (ret)
+		return ret;
 
 	if (!(fi->flags & CEPH_F_SYNC) && !direct_lock)
 		want |= CEPH_CAP_FILE_CACHE;
@@ -2277,7 +2335,9 @@ static ssize_t ceph_splice_read(struct file *in, loff_t *ppos,
 	    (fi->flags & CEPH_F_SYNC))
 		return copy_splice_read(in, ppos, pipe, len, flags);
 
-	ceph_start_io_read(inode);
+	ret = ceph_start_io_read(inode);
+	if (ret)
+		return ret;
 
 	want = CEPH_CAP_FILE_CACHE;
 	if (fi->fmode & CEPH_FILE_MODE_LAZY)
@@ -2356,10 +2416,10 @@ static ssize_t ceph_write_iter(struct kiocb *iocb, struct iov_iter *from)
 		direct_lock = true;
 
 retry_snap:
-	if (direct_lock)
-		ceph_start_io_direct(inode);
-	else
-		ceph_start_io_write(inode);
+	err = direct_lock ? ceph_start_io_direct(inode) :
+			    ceph_start_io_write(inode);
+	if (err)
+		goto out_unlocked;
 
 	if (iocb->ki_flags & IOCB_APPEND) {
 		err = ceph_do_getattr(inode, CEPH_STAT_CAP_SIZE, false);
@@ -2568,6 +2628,7 @@ static int ceph_zero_partial_object(struct inode *inode,
 	struct ceph_inode_info *ci = ceph_inode(inode);
 	struct ceph_fs_client *fsc = ceph_inode_to_fs_client(inode);
 	struct ceph_osd_request *req;
+	struct ceph_snap_context *snapc;
 	int ret = 0;
 	loff_t zero = 0;
 	int op;
@@ -2582,12 +2643,25 @@ static int ceph_zero_partial_object(struct inode *inode,
 		op = CEPH_OSD_OP_ZERO;
 	}
 
+	spin_lock(&ci->i_ceph_lock);
+	if (__ceph_have_pending_cap_snap(ci)) {
+		struct ceph_cap_snap *capsnap =
+				list_last_entry(&ci->i_cap_snaps,
+						struct ceph_cap_snap,
+						ci_item);
+		snapc = ceph_get_snap_context(capsnap->context);
+	} else {
+		BUG_ON(!ci->i_head_snapc);
+		snapc = ceph_get_snap_context(ci->i_head_snapc);
+	}
+	spin_unlock(&ci->i_ceph_lock);
+
 	req = ceph_osdc_new_request(&fsc->client->osdc, &ci->i_layout,
 					ceph_vino(inode),
 					offset, length,
 					0, 1, op,
 					CEPH_OSD_FLAG_WRITE,
-					NULL, 0, 0, false);
+					snapc, 0, 0, false);
 	if (IS_ERR(req)) {
 		ret = PTR_ERR(req);
 		goto out;
@@ -2601,6 +2675,7 @@ static int ceph_zero_partial_object(struct inode *inode,
 	ceph_osdc_put_request(req);
 
 out:
+	ceph_put_snap_context(snapc);
 	return ret;
 }
 
@@ -2878,7 +2953,7 @@ static ssize_t ceph_do_objects_copy(struct ceph_inode_info *src_ci, u64 *src_off
 	struct ceph_object_id src_oid, dst_oid;
 	struct ceph_osd_client *osdc;
 	struct ceph_osd_request *req;
-	size_t bytes = 0;
+	ssize_t bytes = 0;
 	u64 src_objnum, src_objoff, dst_objnum, dst_objoff;
 	u32 src_objlen, dst_objlen;
 	u32 object_size = src_ci->i_layout.object_size;
@@ -2928,7 +3003,7 @@ static ssize_t ceph_do_objects_copy(struct ceph_inode_info *src_ci, u64 *src_off
 					"OSDs don't support copy-from2; disabling copy offload\n");
 			}
 			doutc(cl, "returned %d\n", ret);
-			if (!bytes)
+			if (bytes <= 0)
 				bytes = ret;
 			goto out;
 		}
@@ -3169,7 +3244,6 @@ const struct file_operations ceph_file_fops = {
 	.mmap_prepare = ceph_mmap_prepare,
 	.fsync = ceph_fsync,
 	.lock = ceph_lock,
-	.setlease = simple_nosetlease,
 	.flock = ceph_flock,
 	.splice_read = ceph_splice_read,
 	.splice_write = iter_file_splice_write,

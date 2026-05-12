@@ -160,15 +160,13 @@ static void output_urb_complete(struct urb *urb)
 {
 	struct snd_usb_midi2_urb *ctx = urb->context;
 	struct snd_usb_midi2_endpoint *ep = ctx->ep;
-	unsigned long flags;
 
-	spin_lock_irqsave(&ep->lock, flags);
+	guard(spinlock_irqsave)(&ep->lock);
 	set_bit(ctx->index, &ep->urb_free);
 	if (urb->status >= 0 && atomic_read(&ep->running))
 		submit_output_urbs_locked(ep);
 	if (ep->urb_free == ep->urb_free_mask)
 		wake_up(&ep->wait);
-	spin_unlock_irqrestore(&ep->lock, flags);
 }
 
 /* prepare for input submission: just set the buffer length */
@@ -189,10 +187,9 @@ static void input_urb_complete(struct urb *urb)
 {
 	struct snd_usb_midi2_urb *ctx = urb->context;
 	struct snd_usb_midi2_endpoint *ep = ctx->ep;
-	unsigned long flags;
 	int len;
 
-	spin_lock_irqsave(&ep->lock, flags);
+	guard(spinlock_irqsave)(&ep->lock);
 	if (ep->disconnected || urb->status < 0)
 		goto dequeue;
 	len = urb->actual_length;
@@ -208,22 +205,18 @@ static void input_urb_complete(struct urb *urb)
 	submit_input_urbs_locked(ep);
 	if (ep->urb_free == ep->urb_free_mask)
 		wake_up(&ep->wait);
-	spin_unlock_irqrestore(&ep->lock, flags);
 }
 
 /* URB submission helper; for both direction */
 static void submit_io_urbs(struct snd_usb_midi2_endpoint *ep)
 {
-	unsigned long flags;
-
 	if (!ep)
 		return;
-	spin_lock_irqsave(&ep->lock, flags);
+	guard(spinlock_irqsave)(&ep->lock);
 	if (ep->direction == STR_IN)
 		submit_input_urbs_locked(ep);
 	else
 		submit_output_urbs_locked(ep);
-	spin_unlock_irqrestore(&ep->lock, flags);
 }
 
 /* kill URBs for close, suspend and disconnect */
@@ -248,13 +241,12 @@ static void drain_urb_queue(struct snd_usb_midi2_endpoint *ep)
 {
 	if (!ep)
 		return;
-	spin_lock_irq(&ep->lock);
+	guard(spinlock_irq)(&ep->lock);
 	atomic_set(&ep->running, 0);
 	wait_event_lock_irq_timeout(ep->wait,
 				    ep->disconnected ||
 				    ep->urb_free == ep->urb_free_mask,
 				    ep->lock, msecs_to_jiffies(500));
-	spin_unlock_irq(&ep->lock);
 }
 
 /* release URBs for an EP */
@@ -440,7 +432,7 @@ static int create_midi2_endpoint(struct snd_usb_midi2_interface *umidi,
 		      hostep->desc.bEndpointAddress,
 		      ms_ep->bNumGrpTrmBlock);
 
-	ep = kzalloc(sizeof(*ep), GFP_KERNEL);
+	ep = kzalloc_obj(*ep);
 	if (!ep)
 		return -ENOMEM;
 
@@ -701,7 +693,7 @@ static int create_midi2_ump(struct snd_usb_midi2_interface *umidi,
 	char idstr[16];
 	int err;
 
-	rmidi = kzalloc(sizeof(*rmidi), GFP_KERNEL);
+	rmidi = kzalloc_obj(*rmidi);
 	if (!rmidi)
 		return -ENOMEM;
 	INIT_LIST_HEAD(&rmidi->list);
@@ -1065,10 +1057,8 @@ static void set_fallback_rawmidi_names(struct snd_usb_midi2_interface *umidi)
 			strscpy(ump->core.name, ump->info.name,
 				sizeof(ump->core.name));
 		/* use serial number string as unique UMP product id */
-		if (!*ump->info.product_id && dev->descriptor.iSerialNumber)
-			usb_string(dev, dev->descriptor.iSerialNumber,
-				   ump->info.product_id,
-				   sizeof(ump->info.product_id));
+		if (!*ump->info.product_id && dev->serial && *dev->serial)
+			strscpy(ump->info.product_id, dev->serial);
 	}
 }
 
@@ -1109,7 +1099,7 @@ int snd_usb_midi_v2_create(struct snd_usb_audio *chip,
 		      hostif->desc.bInterfaceNumber,
 		      hostif->desc.bAlternateSetting);
 
-	umidi = kzalloc(sizeof(*umidi), GFP_KERNEL);
+	umidi = kzalloc_obj(*umidi);
 	if (!umidi)
 		return -ENOMEM;
 	umidi->chip = chip;

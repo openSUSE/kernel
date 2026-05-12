@@ -977,7 +977,7 @@ static const char *mt7981_ethernet_groups[] = { "smi_mdc_mdio", "gbe_ext_mdc_mdi
 	"wf0_mode1", "wf0_mode3", "mt7531_int", };
 static const char *mt7981_ant_groups[] = { "ant_sel", };
 
-static const struct function_desc mt7981_functions[] = {
+static const struct pinfunction mt7981_functions[] = {
 	PINCTRL_PIN_FUNCTION("wa_aice", mt7981_wa_aice),
 	PINCTRL_PIN_FUNCTION("dfd", mt7981_dfd),
 	PINCTRL_PIN_FUNCTION("jtag", mt7981_jtag),
@@ -1019,7 +1019,7 @@ static struct mtk_pin_soc mt7981_data = {
 	.nfuncs = ARRAY_SIZE(mt7981_functions),
 	.eint_hw = &mt7981_eint_hw,
 	.gpio_m = 0,
-	.ies_present = false,
+	.ies_present = true,
 	.base_names = mt7981_pinctrl_register_base_names,
 	.nbase_names = ARRAY_SIZE(mt7981_pinctrl_register_base_names),
 	.bias_disable_set = mtk_pinconf_bias_disable_set,

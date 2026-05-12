@@ -65,8 +65,7 @@ int pvrdma_page_dir_init(struct pvrdma_dev *dev, struct pvrdma_page_dir *pdir,
 		goto err;
 
 	pdir->ntables = PVRDMA_PAGE_DIR_TABLE(npages - 1) + 1;
-	pdir->tables = kcalloc(pdir->ntables, sizeof(*pdir->tables),
-			       GFP_KERNEL);
+	pdir->tables = kzalloc_objs(*pdir->tables, pdir->ntables);
 	if (!pdir->tables)
 		goto err;
 
@@ -81,8 +80,7 @@ int pvrdma_page_dir_init(struct pvrdma_dev *dev, struct pvrdma_page_dir *pdir,
 	pdir->npages = npages;
 
 	if (alloc_pages) {
-		pdir->pages = kcalloc(npages, sizeof(*pdir->pages),
-				      GFP_KERNEL);
+		pdir->pages = kzalloc_objs(*pdir->pages, npages);
 		if (!pdir->pages)
 			goto err;
 

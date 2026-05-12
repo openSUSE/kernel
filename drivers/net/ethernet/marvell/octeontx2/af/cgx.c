@@ -21,8 +21,7 @@
 #include "rvu.h"
 #include "lmac_common.h"
 
-#define DRV_NAME	"Marvell-CGX/RPM"
-#define DRV_STRING      "Marvell CGX/RPM Driver"
+#define DRV_NAME	"Marvell-CGX-RPM"
 
 #define CGX_RX_STAT_GLOBAL_INDEX	9
 
@@ -1726,7 +1725,7 @@ static int cgx_lmac_init(struct cgx *cgx)
 		cgx->lmac_count = cgx->max_lmac_per_mac;
 
 	for (i = 0; i < cgx->lmac_count; i++) {
-		lmac = kzalloc(sizeof(struct lmac), GFP_KERNEL);
+		lmac = kzalloc_obj(struct lmac);
 		if (!lmac)
 			return -ENOMEM;
 		lmac->name = kcalloc(1, sizeof("cgx_fwi_xxx_yyy"), GFP_KERNEL);
@@ -1823,7 +1822,9 @@ static int cgx_lmac_exit(struct cgx *cgx)
 			continue;
 		cgx->mac_ops->mac_pause_frm_config(cgx, lmac->lmac_id, false);
 		cgx_configure_interrupt(cgx, lmac, lmac->lmac_id, true);
-		kfree(lmac->mac_to_index_bmap.bmap);
+		rvu_free_bitmap(&lmac->mac_to_index_bmap);
+		rvu_free_bitmap(&lmac->rx_fc_pfvf_bmap);
+		rvu_free_bitmap(&lmac->tx_fc_pfvf_bmap);
 		kfree(lmac->name);
 		kfree(lmac);
 	}
@@ -1982,6 +1983,7 @@ static int cgx_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	    !is_cgx_mapped_to_nix(pdev->subsystem_device, cgx->cgx_id)) {
 		dev_notice(dev, "CGX %d not mapped to NIX, skipping probe\n",
 			   cgx->cgx_id);
+		err = -ENODEV;
 		goto err_release_regions;
 	}
 
@@ -1994,7 +1996,7 @@ static int cgx_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	nvec = pci_msix_vec_count(cgx->pdev);
 	err = pci_alloc_irq_vectors(pdev, nvec, nvec, PCI_IRQ_MSIX);
-	if (err < 0 || err != nvec) {
+	if (err < 0) {
 		dev_err(dev, "Request for %d msix vectors failed, err %d\n",
 			nvec, err);
 		goto err_release_regions;
@@ -2005,7 +2007,7 @@ static int cgx_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	/* init wq for processing linkup requests */
 	INIT_WORK(&cgx->cgx_cmd_work, cgx_lmac_linkup_work);
-	cgx->cgx_cmd_workq = alloc_workqueue("cgx_cmd_workq", 0, 0);
+	cgx->cgx_cmd_workq = alloc_workqueue("cgx_cmd_workq", WQ_PERCPU, 0);
 	if (!cgx->cgx_cmd_workq) {
 		dev_err(dev, "alloc workqueue failed for cgx cmd");
 		err = -ENOMEM;

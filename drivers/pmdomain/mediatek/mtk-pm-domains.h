@@ -13,7 +13,13 @@
 #define MTK_SCPD_EXT_BUCK_ISO		BIT(6)
 #define MTK_SCPD_HAS_INFRA_NAO		BIT(7)
 #define MTK_SCPD_STRICT_BUS_PROTECTION	BIT(8)
-#define MTK_SCPD_CAPS(_scpd, _x)	((_scpd)->data->caps & (_x))
+#define MTK_SCPD_SRAM_PDN_INVERTED	BIT(9)
+#define MTK_SCPD_MODEM_PWRSEQ		BIT(10)
+#define MTK_SCPD_SKIP_RESET_B		BIT(11)
+#define MTK_SCPD_INFRA_PWR_CTL		BIT(12)
+#define MTK_SCPD_CAPS(_scpd, _x)	((_scpd)->data ?		\
+					 (_scpd)->data->caps & (_x) :	\
+					 (_scpd)->hwv_data->caps & (_x))
 
 #define SPM_VDE_PWR_CON			0x0210
 #define SPM_MFG_PWR_CON			0x0214
@@ -50,30 +56,49 @@ enum scpsys_bus_prot_flags {
 	BUS_PROT_REG_UPDATE = BIT(1),
 	BUS_PROT_IGNORE_CLR_ACK = BIT(2),
 	BUS_PROT_INVERTED = BIT(3),
-	BUS_PROT_COMPONENT_INFRA = BIT(4),
-	BUS_PROT_COMPONENT_SMI = BIT(5),
-	BUS_PROT_STA_COMPONENT_INFRA_NAO = BIT(6),
+	BUS_PROT_IGNORE_SUBCLK = BIT(4),
 };
 
-#define _BUS_PROT(_set_clr_mask, _set, _clr, _sta_mask, _sta, _flags) {	\
-		.bus_prot_set_clr_mask = (_set_clr_mask),	\
-		.bus_prot_set = _set,				\
-		.bus_prot_clr = _clr,				\
-		.bus_prot_sta_mask = (_sta_mask),		\
-		.bus_prot_sta = _sta,				\
-		.flags = _flags					\
+enum scpsys_bus_prot_block {
+	BUS_PROT_BLOCK_INFRA,
+	BUS_PROT_BLOCK_INFRA_NAO,
+	BUS_PROT_BLOCK_SMI,
+	BUS_PROT_BLOCK_SPM,
+	BUS_PROT_BLOCK_COUNT,
+};
+
+#define _BUS_PROT_STA(_hwip, _sta_hwip, _set_clr_mask, _set, _clr,	\
+		      _sta_mask, _sta, _flags)				\
+	{								\
+		.bus_prot_block = BUS_PROT_BLOCK_##_hwip,		\
+		.bus_prot_sta_block = BUS_PROT_BLOCK_##_sta_hwip,	\
+		.bus_prot_set_clr_mask = (_set_clr_mask),		\
+		.bus_prot_set = _set,					\
+		.bus_prot_clr = _clr,					\
+		.bus_prot_sta_mask = (_sta_mask),			\
+		.bus_prot_sta = _sta,					\
+		.flags = _flags						\
 	}
 
-#define BUS_PROT_WR(_hwip, _mask, _set, _clr, _sta) \
-		_BUS_PROT(_mask, _set, _clr, _mask, _sta, BUS_PROT_COMPONENT_##_hwip)
+#define _BUS_PROT(_hwip, _set_clr_mask, _set, _clr, _sta_mask,		\
+		  _sta, _flags)						\
+	_BUS_PROT_STA(_hwip, _hwip, _set_clr_mask, _set, _clr,		\
+		      _sta_mask, _sta, _flags)
 
-#define BUS_PROT_WR_IGN(_hwip, _mask, _set, _clr, _sta) \
-		_BUS_PROT(_mask, _set, _clr, _mask, _sta, \
-			  BUS_PROT_COMPONENT_##_hwip | BUS_PROT_IGNORE_CLR_ACK)
+#define BUS_PROT_WR(_hwip, _mask, _set, _clr, _sta)			\
+		_BUS_PROT(_hwip, _mask, _set, _clr,  _mask, _sta, 0)
 
-#define BUS_PROT_UPDATE(_hwip, _mask, _set, _clr, _sta) \
-		_BUS_PROT(_mask, _set, _clr, _mask, _sta, \
-			  BUS_PROT_COMPONENT_##_hwip | BUS_PROT_REG_UPDATE)
+#define BUS_PROT_WR_IGN(_hwip, _mask, _set, _clr, _sta)		\
+		_BUS_PROT(_hwip, _mask, _set, _clr, _mask, _sta,	\
+			  BUS_PROT_IGNORE_CLR_ACK)
+
+#define BUS_PROT_UPDATE(_hwip, _mask, _set, _clr, _sta)			\
+		_BUS_PROT(_hwip, _mask, _set, _clr, _mask, _sta,	\
+			  BUS_PROT_REG_UPDATE)
+
+#define BUS_PROT_WR_IGN_SUBCLK(_hwip, _mask, _set, _clr, _sta)		\
+		_BUS_PROT(_hwip, _mask, _set, _clr, _mask, _sta,	\
+			  BUS_PROT_IGNORE_CLR_ACK | BUS_PROT_IGNORE_SUBCLK)
 
 #define BUS_PROT_INFRA_UPDATE_TOPAXI(_mask)			\
 		BUS_PROT_UPDATE(INFRA, _mask,			\
@@ -82,6 +107,8 @@ enum scpsys_bus_prot_flags {
 				INFRA_TOPAXI_PROTECTSTA1)
 
 struct scpsys_bus_prot_data {
+	u8 bus_prot_block;
+	u8 bus_prot_sta_block;
 	u32 bus_prot_set_clr_mask;
 	u32 bus_prot_set;
 	u32 bus_prot_clr;
@@ -91,34 +118,97 @@ struct scpsys_bus_prot_data {
 };
 
 /**
+ * enum scpsys_rtff_type - Type of RTFF Hardware for power domain
+ * @SCPSYS_RTFF_NONE:          RTFF HW not present or domain not RTFF managed
+ * @SCPSYS_RTFF_TYPE_GENERIC:  Non-CPU, peripheral-generic RTFF HW
+ * @SCPSYS_RTFF_TYPE_PCIE_PHY: PCI-Express PHY specific RTFF HW
+ * @SCPSYS_RTFF_TYPE_STOR_UFS: Storage (UFS) specific RTFF HW
+ * @SCPSYS_RTFF_TYPE_MAX:      Number of supported RTFF HW Types
+ */
+enum scpsys_rtff_type {
+	SCPSYS_RTFF_NONE = 0,
+	SCPSYS_RTFF_TYPE_GENERIC,
+	SCPSYS_RTFF_TYPE_PCIE_PHY,
+	SCPSYS_RTFF_TYPE_STOR_UFS,
+	SCPSYS_RTFF_TYPE_MAX
+};
+
+/**
+ * enum scpsys_mtcmos_type - Type of power domain controller
+ * @SCPSYS_MTCMOS_TYPE_DIRECT_CTL: Power domains are controlled with direct access
+ * @SCPSYS_MTCMOS_TYPE_HW_VOTER:   Hardware-assisted voted power domain control
+ * @SCPSYS_MTCMOS_TYPE_MAX:        Number of supported power domain types
+ */
+enum scpsys_mtcmos_type {
+	SCPSYS_MTCMOS_TYPE_DIRECT_CTL = 0,
+	SCPSYS_MTCMOS_TYPE_HW_VOTER,
+	SCPSYS_MTCMOS_TYPE_MAX
+};
+
+/**
  * struct scpsys_domain_data - scp domain data for power on/off flow
  * @name: The name of the power domain.
  * @sta_mask: The mask for power on/off status bit.
+ * @sta2nd_mask: The mask for second power on/off status bit.
  * @ctl_offs: The offset for main power control register.
  * @sram_pdn_bits: The mask for sram power control bits.
  * @sram_pdn_ack_bits: The mask for sram power control acked bits.
  * @ext_buck_iso_offs: The offset for external buck isolation
  * @ext_buck_iso_mask: The mask for external buck isolation
  * @caps: The flag for active wake-up action.
+ * @rtff_type: The power domain RTFF HW type
  * @bp_cfg: bus protection configuration for any subsystem
  */
 struct scpsys_domain_data {
 	const char *name;
 	u32 sta_mask;
+	u32 sta2nd_mask;
 	int ctl_offs;
 	u32 sram_pdn_bits;
 	u32 sram_pdn_ack_bits;
 	int ext_buck_iso_offs;
 	u32 ext_buck_iso_mask;
 	u16 caps;
+	enum scpsys_rtff_type rtff_type;
 	const struct scpsys_bus_prot_data bp_cfg[SPM_MAX_BUS_PROT_DATA];
 	int pwr_sta_offs;
 	int pwr_sta2nd_offs;
 };
 
+/**
+ * struct scpsys_hwv_domain_data - Hardware Voter power domain data
+ * @name:       Name of the power domain
+ * @set:        Offset of the HWV SET register
+ * @clr:        Offset of the HWV CLEAR register
+ * @done:       Offset of the HWV DONE register
+ * @en:         Offset of the HWV ENABLE register
+ * @set_sta:    Offset of the HWV SET STATUS register
+ * @clr_sta:    Offset of the HWV CLEAR STATUS register
+ * @setclr_bit: The SET/CLR bit to enable/disable the power domain
+ * @sta_bit:    The SET/CLR STA bit to check for on/off ACK
+ * @caps:       The flag for active wake-up action
+ */
+struct scpsys_hwv_domain_data {
+	const char *name;
+	u16 set;
+	u16 clr;
+	u16 done;
+	u16 en;
+	u16 set_sta;
+	u16 clr_sta;
+	u8 setclr_bit;
+	u8 sta_bit;
+	u16 caps;
+};
+
 struct scpsys_soc_data {
 	const struct scpsys_domain_data *domains_data;
 	int num_domains;
+	const struct scpsys_hwv_domain_data *hwv_domains_data;
+	int num_hwv_domains;
+	enum scpsys_bus_prot_block *bus_prot_blocks;
+	int num_bus_prot_blocks;
+	enum scpsys_mtcmos_type type;
 };
 
 #endif /* __SOC_MEDIATEK_MTK_PM_DOMAINS_H */

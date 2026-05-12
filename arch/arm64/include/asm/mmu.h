@@ -10,19 +10,11 @@
 #define MMCF_AARCH32	0x1	/* mm context flag for AArch32 executables */
 #define USER_ASID_BIT	48
 #define USER_ASID_FLAG	(UL(1) << USER_ASID_BIT)
-#define TTBR_ASID_MASK	(UL(0xffff) << 48)
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 
 #include <linux/refcount.h>
 #include <asm/cpufeature.h>
-
-enum pgtable_type {
-	TABLE_PTE,
-	TABLE_PMD,
-	TABLE_PUD,
-	TABLE_P4D,
-};
 
 typedef struct {
 	atomic64_t	id;
@@ -78,6 +70,8 @@ extern void create_pgd_mapping(struct mm_struct *mm, phys_addr_t phys,
 			       pgprot_t prot, bool page_mappings_only);
 extern void *fixmap_remap_fdt(phys_addr_t dt_phys, int *size, pgprot_t prot);
 extern void mark_linear_text_alias_ro(void);
+extern int split_kernel_leaf_mapping(unsigned long start, unsigned long end);
+extern void linear_map_maybe_split_to_ptes(void);
 
 /*
  * This check is triggered during the early boot before the cpufeature
@@ -104,5 +98,13 @@ static inline bool kaslr_requires_kpti(void)
 	return true;
 }
 
-#endif	/* !__ASSEMBLY__ */
+#ifdef CONFIG_UNMAP_KERNEL_AT_EL0
+void kpti_install_ng_mappings(void);
+#else
+static inline void kpti_install_ng_mappings(void) {}
+#endif
+
+extern bool page_alloc_available;
+
+#endif	/* !__ASSEMBLER__ */
 #endif

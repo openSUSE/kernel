@@ -29,7 +29,7 @@ void flush_icache_all(void)
 	 * Make sure all previous writes to the D$ are ordered before making
 	 * the IPI. The RISC-V spec states that a hart must execute a data fence
 	 * before triggering a remote fence.i in order to make the modification
-	 * visable for remote harts.
+	 * visible for remote harts.
 	 *
 	 * IPIs on RISC-V are triggered by MMIO writes to either CLINT or
 	 * S-IMSIC, so the fence ensures previous data writes "happen before"
@@ -101,9 +101,9 @@ void flush_icache_pte(struct mm_struct *mm, pte_t pte)
 {
 	struct folio *folio = page_folio(pte_page(pte));
 
-	if (!test_bit(PG_dcache_clean, &folio->flags)) {
+	if (!test_bit(PG_dcache_clean, &folio->flags.f)) {
 		flush_icache_mm(mm, false);
-		set_bit(PG_dcache_clean, &folio->flags);
+		set_bit(PG_dcache_clean, &folio->flags.f);
 	}
 }
 #endif /* CONFIG_MMU */

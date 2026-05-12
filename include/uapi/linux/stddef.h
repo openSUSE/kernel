@@ -2,7 +2,9 @@
 #ifndef _UAPI_LINUX_STDDEF_H
 #define _UAPI_LINUX_STDDEF_H
 
+#ifdef __KERNEL__
 #include <linux/compiler_types.h>
+#endif
 
 #ifndef __always_inline
 #define __always_inline inline
@@ -68,6 +70,10 @@
 
 #ifndef __counted_by_be
 #define __counted_by_be(m)
+#endif
+
+#ifndef __counted_by_ptr
+#define __counted_by_ptr(m)
 #endif
 
 #ifdef __KERNEL__

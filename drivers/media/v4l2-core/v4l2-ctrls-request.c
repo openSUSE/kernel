@@ -2,7 +2,7 @@
 /*
  * V4L2 controls framework Request API implementation.
  *
- * Copyright (C) 2018-2021  Hans Verkuil <hverkuil-cisco@xs4all.nl>
+ * Copyright (C) 2018-2021  Hans Verkuil <hverkuil@kernel.org>
  */
 
 #define pr_fmt(fmt) "v4l2-ctrls: " fmt
@@ -198,7 +198,7 @@ v4l2_ctrls_find_req_obj(struct v4l2_ctrl_handler *hdl,
 	if (!set)
 		return ERR_PTR(-ENOMEM);
 
-	new_hdl = kzalloc(sizeof(*new_hdl), GFP_KERNEL);
+	new_hdl = kzalloc_obj(*new_hdl);
 	if (!new_hdl)
 		return ERR_PTR(-ENOMEM);
 
@@ -341,7 +341,7 @@ void v4l2_ctrl_request_complete(struct media_request *req,
 		int ret;
 
 		/* Create a new request so the driver can return controls */
-		hdl = kzalloc(sizeof(*hdl), GFP_KERNEL);
+		hdl = kzalloc_obj(*hdl);
 		if (!hdl)
 			return;
 

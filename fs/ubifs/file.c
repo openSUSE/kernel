@@ -90,7 +90,7 @@ static int read_block(struct inode *inode, struct folio *folio, size_t offset,
 	return 0;
 
 dump:
-	ubifs_err(c, "bad data node (block %u, inode %lu)",
+	ubifs_err(c, "bad data node (block %u, inode %llu)",
 		  block, inode->i_ino);
 	ubifs_dump_node(c, dn, UBIFS_MAX_DATA_NODE_SZ);
 	return -EINVAL;
@@ -106,8 +106,8 @@ static int do_readpage(struct folio *folio)
 	loff_t i_size = i_size_read(inode);
 	size_t offset = 0;
 
-	dbg_gen("ino %lu, pg %lu, i_size %lld, flags %#lx",
-		inode->i_ino, folio->index, i_size, folio->flags);
+	dbg_gen("ino %llu, pg %lu, i_size %lld, flags %#lx",
+		inode->i_ino, folio->index, i_size, folio->flags.f);
 	ubifs_assert(c, !folio_test_checked(folio));
 	ubifs_assert(c, !folio->private);
 
@@ -162,7 +162,7 @@ static int do_readpage(struct folio *folio)
 			dbg_gen("hole");
 			err = 0;
 		} else {
-			ubifs_err(c, "cannot read page %lu of inode %lu, error %d",
+			ubifs_err(c, "cannot read page %lu of inode %llu, error %d",
 				  folio->index, inode->i_ino, err);
 		}
 	}
@@ -212,7 +212,7 @@ static int write_begin_slow(struct address_space *mapping,
 	int err, appending = !!(pos + len > inode->i_size);
 	struct folio *folio;
 
-	dbg_gen("ino %lu, pos %llu, len %u, i_size %lld",
+	dbg_gen("ino %llu, pos %llu, len %u, i_size %lld",
 		inode->i_ino, pos, len, inode->i_size);
 
 	/*
@@ -526,7 +526,7 @@ static int ubifs_write_end(const struct kiocb *iocb,
 	loff_t end_pos = pos + len;
 	int appending = !!(end_pos > inode->i_size);
 
-	dbg_gen("ino %lu, pos %llu, pg %lu, len %u, copied %d, i_size %lld",
+	dbg_gen("ino %llu, pos %llu, pg %lu, len %u, copied %d, i_size %lld",
 		inode->i_ino, pos, folio->index, len, copied, inode->i_size);
 
 	if (unlikely(copied < len && !folio_test_uptodate(folio))) {
@@ -599,8 +599,8 @@ static int populate_page(struct ubifs_info *c, struct folio *folio,
 	size_t offset = 0;
 	pgoff_t end_index;
 
-	dbg_gen("ino %lu, pg %lu, i_size %lld, flags %#lx",
-		inode->i_ino, folio->index, i_size, folio->flags);
+	dbg_gen("ino %llu, pg %lu, i_size %lld, flags %#lx",
+		inode->i_ino, folio->index, i_size, folio->flags.f);
 
 	end_index = (i_size - 1) >> PAGE_SHIFT;
 	if (!i_size || folio->index > end_index) {
@@ -680,7 +680,7 @@ out_hole:
 	return 0;
 
 out_err:
-	ubifs_err(c, "bad data node (block %u, inode %lu)",
+	ubifs_err(c, "bad data node (block %u, inode %llu)",
 		  page_block, inode->i_ino);
 	return -EINVAL;
 }
@@ -848,7 +848,7 @@ static int ubifs_bulk_read(struct folio *folio)
 	if (mutex_trylock(&c->bu_mutex))
 		bu = &c->bu;
 	else {
-		bu = kmalloc(sizeof(struct bu_info), GFP_NOFS | __GFP_NOWARN);
+		bu = kmalloc_obj(struct bu_info, GFP_NOFS | __GFP_NOWARN);
 		if (!bu)
 			goto out_unlock;
 
@@ -913,7 +913,7 @@ static int do_writepage(struct folio *folio, size_t len)
 	}
 	if (err) {
 		mapping_set_error(folio->mapping, err);
-		ubifs_err(c, "cannot write folio %lu of inode %lu, error %d",
+		ubifs_err(c, "cannot write folio %lu of inode %llu, error %d",
 			  folio->index, inode->i_ino, err);
 		ubifs_ro_mode(c, err);
 	}
@@ -987,8 +987,8 @@ static int ubifs_writepage(struct folio *folio, struct writeback_control *wbc)
 	loff_t i_size =  i_size_read(inode), synced_i_size;
 	int err, len = folio_size(folio);
 
-	dbg_gen("ino %lu, pg %lu, pg flags %#lx",
-		inode->i_ino, folio->index, folio->flags);
+	dbg_gen("ino %llu, pg %lu, pg flags %#lx",
+		inode->i_ino, folio->index, folio->flags.f);
 	ubifs_assert(c, folio->private != NULL);
 
 	/* Is the folio fully outside @i_size? (truncate in progress) */
@@ -1106,7 +1106,7 @@ static int do_truncation(struct ubifs_info *c, struct inode *inode,
 	int offset = new_size & (UBIFS_BLOCK_SIZE - 1), budgeted = 1;
 	struct ubifs_inode *ui = ubifs_inode(inode);
 
-	dbg_gen("ino %lu, size %lld -> %lld", inode->i_ino, old_size, new_size);
+	dbg_gen("ino %llu, size %lld -> %lld", inode->i_ino, old_size, new_size);
 	memset(&req, 0, sizeof(struct ubifs_budget_req));
 
 	/*
@@ -1258,7 +1258,7 @@ int ubifs_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 	struct inode *inode = d_inode(dentry);
 	struct ubifs_info *c = inode->i_sb->s_fs_info;
 
-	dbg_gen("ino %lu, mode %#x, ia_valid %#x",
+	dbg_gen("ino %llu, mode %#x, ia_valid %#x",
 		inode->i_ino, inode->i_mode, attr->ia_valid);
 	err = setattr_prepare(&nop_mnt_idmap, dentry, attr);
 	if (err)
@@ -1308,7 +1308,7 @@ int ubifs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 	struct ubifs_info *c = inode->i_sb->s_fs_info;
 	int err;
 
-	dbg_gen("syncing inode %lu", inode->i_ino);
+	dbg_gen("syncing inode %llu", inode->i_ino);
 
 	if (c->ro_mount)
 		/*
@@ -1323,7 +1323,7 @@ int ubifs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 	inode_lock(inode);
 
 	/* Synchronize the inode unless this is a 'datasync()' call. */
-	if (!datasync || (inode->i_state & I_DIRTY_DATASYNC)) {
+	if (!datasync || (inode_state_read_once(inode) & I_DIRTY_DATASYNC)) {
 		err = inode->i_sb->s_op->write_inode(inode, NULL);
 		if (err)
 			goto out;
@@ -1361,17 +1361,8 @@ static inline int mctime_update_needed(const struct inode *inode,
 	return 0;
 }
 
-/**
- * ubifs_update_time - update time of inode.
- * @inode: inode to update
- * @flags: time updating control flag determines updating
- *	    which time fields of @inode
- *
- * This function updates time of the inode.
- *
- * Returns: %0 for success or a negative error code otherwise.
- */
-int ubifs_update_time(struct inode *inode, int flags)
+int ubifs_update_time(struct inode *inode, enum fs_update_time type,
+		unsigned int flags)
 {
 	struct ubifs_inode *ui = ubifs_inode(inode);
 	struct ubifs_info *c = inode->i_sb->s_fs_info;
@@ -1379,17 +1370,22 @@ int ubifs_update_time(struct inode *inode, int flags)
 			.dirtied_ino_d = ALIGN(ui->data_len, 8) };
 	int err, release;
 
-	if (!IS_ENABLED(CONFIG_UBIFS_ATIME_SUPPORT)) {
-		generic_update_time(inode, flags);
-		return 0;
-	}
+	/* ubifs sets S_NOCMTIME on all inodes, this should not happen. */
+	if (WARN_ON_ONCE(type != FS_UPD_ATIME))
+		return -EIO;
+
+	if (!IS_ENABLED(CONFIG_UBIFS_ATIME_SUPPORT))
+		return generic_update_time(inode, type, flags);
+
+	if (flags & IOCB_NOWAIT)
+		return -EAGAIN;
 
 	err = ubifs_budget_space(c, &req);
 	if (err)
 		return err;
 
 	mutex_lock(&ui->ui_mutex);
-	inode_update_timestamps(inode, flags);
+	inode_update_time(inode, type, flags);
 	release = ui->dirty;
 	__mark_inode_dirty(inode, I_DIRTY_SYNC);
 	mutex_unlock(&ui->ui_mutex);
@@ -1499,7 +1495,7 @@ static vm_fault_t ubifs_vm_page_mkwrite(struct vm_fault *vmf)
 	struct ubifs_budget_req req = { .new_page = 1 };
 	int err, update_time;
 
-	dbg_gen("ino %lu, pg %lu, i_size %lld",	inode->i_ino, folio->index,
+	dbg_gen("ino %llu, pg %lu, i_size %lld",	inode->i_ino, folio->index,
 		i_size_read(inode));
 	ubifs_assert(c, !c->ro_media && !c->ro_mount);
 
@@ -1535,7 +1531,7 @@ static vm_fault_t ubifs_vm_page_mkwrite(struct vm_fault *vmf)
 	err = ubifs_budget_space(c, &req);
 	if (unlikely(err)) {
 		if (err == -ENOSPC)
-			ubifs_warn(c, "out of space for mmapped file (inode number %lu)",
+			ubifs_warn(c, "out of space for mmapped file (inode number %llu)",
 				   inode->i_ino);
 		return VM_FAULT_SIGBUS;
 	}

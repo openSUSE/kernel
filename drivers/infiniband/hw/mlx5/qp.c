@@ -416,7 +416,7 @@ static void mlx5_ib_qp_event(struct mlx5_core_qp *qp, int type)
 	if (!ibqp->event_handler)
 		goto out_no_handler;
 
-	qpe_work = kzalloc(sizeof(*qpe_work), GFP_ATOMIC);
+	qpe_work = kzalloc_obj(*qpe_work, GFP_ATOMIC);
 	if (!qpe_work)
 		goto out_no_handler;
 
@@ -1185,8 +1185,7 @@ static int _create_kernel_qp(struct mlx5_ib_dev *dev,
 					sizeof(*qp->sq.wr_data), GFP_KERNEL);
 	qp->rq.wrid = kvmalloc_array(qp->rq.wqe_cnt,
 				     sizeof(*qp->rq.wrid), GFP_KERNEL);
-	qp->sq.w_list = kvmalloc_array(qp->sq.wqe_cnt,
-				       sizeof(*qp->sq.w_list), GFP_KERNEL);
+	qp->sq.w_list = kvmalloc_objs(*qp->sq.w_list, qp->sq.wqe_cnt);
 	qp->sq.wqe_head = kvmalloc_array(qp->sq.wqe_cnt,
 					 sizeof(*qp->sq.wqe_head), GFP_KERNEL);
 
@@ -1274,7 +1273,7 @@ static int get_ts_format(struct mlx5_ib_dev *dev, struct mlx5_ib_cq *cq,
 		}
 		return MLX5_TIMESTAMP_FORMAT_REAL_TIME;
 	}
-	if (cq->create_flags & IB_UVERBS_CQ_FLAGS_TIMESTAMP_COMPLETION) {
+	if (cq->private_flags & MLX5_IB_CQ_PR_TIMESTAMP_COMPLETION) {
 		if (!fr_sup) {
 			mlx5_ib_dbg(dev,
 				    "Free running TS format is not supported\n");
@@ -3451,10 +3450,11 @@ int mlx5r_ib_rate(struct mlx5_ib_dev *dev, u8 rate)
 {
 	u32 stat_rate_support;
 
-	if (rate == IB_RATE_PORT_CURRENT || rate == IB_RATE_800_GBPS)
+	if (rate == IB_RATE_PORT_CURRENT || rate == IB_RATE_800_GBPS ||
+	    rate == IB_RATE_1600_GBPS)
 		return 0;
 
-	if (rate < IB_RATE_2_5_GBPS || rate > IB_RATE_800_GBPS)
+	if (rate < IB_RATE_2_5_GBPS || rate > IB_RATE_1600_GBPS)
 		return -EINVAL;
 
 	stat_rate_support = MLX5_CAP_GEN(dev->mdev, stat_rate_support);
@@ -4361,6 +4361,11 @@ static int __mlx5_ib_modify_qp(struct ib_qp *ibqp,
 	optpar |= ib_mask_to_mlx5_opt(attr_mask);
 	optpar &= opt_mask[mlx5_cur][mlx5_new][mlx5_st];
 
+	if (attr_mask & IB_QP_RATE_LIMIT && qp->type != IB_QPT_RAW_PACKET) {
+		err = -EOPNOTSUPP;
+		goto out;
+	}
+
 	if (qp->type == IB_QPT_RAW_PACKET ||
 	    qp->flags & IB_QP_CREATE_SOURCE_QPN) {
 		struct mlx5_modify_raw_qp_param raw_qp_param = {};
@@ -4687,7 +4692,7 @@ int mlx5_ib_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
 	struct mlx5_ib_dev *dev = to_mdev(ibqp->device);
 	struct mlx5_ib_modify_qp_resp resp = {};
 	struct mlx5_ib_qp *qp = to_mqp(ibqp);
-	struct mlx5_ib_modify_qp ucmd = {};
+	struct mlx5_ib_modify_qp ucmd;
 	enum ib_qp_type qp_type;
 	enum ib_qp_state cur_state, new_state;
 	int err = -EINVAL;
@@ -4702,20 +4707,12 @@ int mlx5_ib_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
 		return -ENOSYS;
 
 	if (udata && udata->inlen) {
-		if (udata->inlen < offsetofend(typeof(ucmd), ece_options))
-			return -EINVAL;
+		err = ib_copy_validate_udata_in_cm(udata, ucmd, ece_options,
+						   MLX5_IB_MODIFY_QP_OOO_DP);
+		if (err)
+			return err;
 
-		if (udata->inlen > sizeof(ucmd) &&
-		    !ib_is_udata_cleared(udata, sizeof(ucmd),
-					 udata->inlen - sizeof(ucmd)))
-			return -EOPNOTSUPP;
-
-		if (ib_copy_from_udata(&ucmd, udata,
-				       min(udata->inlen, sizeof(ucmd))))
-			return -EFAULT;
-
-		if (ucmd.comp_mask & ~MLX5_IB_MODIFY_QP_OOO_DP ||
-		    memchr_inv(&ucmd.burst_info.reserved, 0,
+		if (memchr_inv(&ucmd.burst_info.reserved, 0,
 			       sizeof(ucmd.burst_info.reserved)))
 			return -EOPNOTSUPP;
 
@@ -5382,33 +5379,18 @@ static int prepare_user_rq(struct ib_pd *pd,
 			   struct mlx5_ib_rwq *rwq)
 {
 	struct mlx5_ib_dev *dev = to_mdev(pd->device);
-	struct mlx5_ib_create_wq ucmd = {};
+	struct mlx5_ib_create_wq ucmd;
 	int err;
-	size_t required_cmd_sz;
 
-	required_cmd_sz = offsetofend(struct mlx5_ib_create_wq,
-				      single_stride_log_num_of_bytes);
-	if (udata->inlen < required_cmd_sz) {
-		mlx5_ib_dbg(dev, "invalid inlen\n");
-		return -EINVAL;
-	}
-
-	if (udata->inlen > sizeof(ucmd) &&
-	    !ib_is_udata_cleared(udata, sizeof(ucmd),
-				 udata->inlen - sizeof(ucmd))) {
-		mlx5_ib_dbg(dev, "inlen is not supported\n");
-		return -EOPNOTSUPP;
-	}
-
-	if (ib_copy_from_udata(&ucmd, udata, min(sizeof(ucmd), udata->inlen))) {
+	err = ib_copy_validate_udata_in_cm(udata, ucmd,
+					   single_stride_log_num_of_bytes,
+					   MLX5_IB_CREATE_WQ_STRIDING_RQ);
+	if (err) {
 		mlx5_ib_dbg(dev, "copy failed\n");
-		return -EFAULT;
+		return err;
 	}
 
-	if (ucmd.comp_mask & (~MLX5_IB_CREATE_WQ_STRIDING_RQ)) {
-		mlx5_ib_dbg(dev, "invalid comp mask\n");
-		return -EOPNOTSUPP;
-	} else if (ucmd.comp_mask & MLX5_IB_CREATE_WQ_STRIDING_RQ) {
+	if (ucmd.comp_mask & MLX5_IB_CREATE_WQ_STRIDING_RQ) {
 		if (!MLX5_CAP_GEN(dev->mdev, striding_rq)) {
 			mlx5_ib_dbg(dev, "Striding RQ is not supported\n");
 			return -EOPNOTSUPP;
@@ -5482,7 +5464,7 @@ struct ib_wq *mlx5_ib_create_wq(struct ib_pd *pd,
 	dev = to_mdev(pd->device);
 	switch (init_attr->wq_type) {
 	case IB_WQT_RQ:
-		rwq = kzalloc(sizeof(*rwq), GFP_KERNEL);
+		rwq = kzalloc_obj(*rwq);
 		if (!rwq)
 			return ERR_PTR(-ENOMEM);
 		err = prepare_user_rq(pd, init_attr, udata, rwq);
@@ -5621,7 +5603,6 @@ int mlx5_ib_modify_wq(struct ib_wq *wq, struct ib_wq_attr *wq_attr,
 	struct mlx5_ib_dev *dev = to_mdev(wq->device);
 	struct mlx5_ib_rwq *rwq = to_mrwq(wq);
 	struct mlx5_ib_modify_wq ucmd = {};
-	size_t required_cmd_sz;
 	int curr_wq_state;
 	int wq_state;
 	int inlen;
@@ -5629,19 +5610,11 @@ int mlx5_ib_modify_wq(struct ib_wq *wq, struct ib_wq_attr *wq_attr,
 	void *rqc;
 	void *in;
 
-	required_cmd_sz = offsetofend(struct mlx5_ib_modify_wq, reserved);
-	if (udata->inlen < required_cmd_sz)
-		return -EINVAL;
+	err = ib_copy_validate_udata_in_cm(udata, ucmd, reserved, 0);
+	if (err)
+		return err;
 
-	if (udata->inlen > sizeof(ucmd) &&
-	    !ib_is_udata_cleared(udata, sizeof(ucmd),
-				 udata->inlen - sizeof(ucmd)))
-		return -EOPNOTSUPP;
-
-	if (ib_copy_from_udata(&ucmd, udata, min(sizeof(ucmd), udata->inlen)))
-		return -EFAULT;
-
-	if (ucmd.comp_mask || ucmd.reserved)
+	if (ucmd.reserved)
 		return -EOPNOTSUPP;
 
 	inlen = MLX5_ST_SZ_BYTES(modify_rq_in);

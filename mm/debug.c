@@ -67,7 +67,7 @@ static const char *page_type_name(unsigned int page_type)
 	return page_type_names[i];
 }
 
-static void __dump_folio(struct folio *folio, struct page *page,
+static void __dump_folio(const struct folio *folio, const struct page *page,
 		unsigned long pfn, unsigned long idx)
 {
 	struct address_space *mapping = folio_mapping(folio);
@@ -182,7 +182,7 @@ void dump_mm(const struct mm_struct *mm)
 		"start_code %lx end_code %lx start_data %lx end_data %lx\n"
 		"start_brk %lx brk %lx start_stack %lx\n"
 		"arg_start %lx arg_end %lx env_start %lx env_end %lx\n"
-		"binfmt %px flags %lx\n"
+		"binfmt %px flags %*pb\n"
 #ifdef CONFIG_AIO
 		"ioctx_table %px\n"
 #endif
@@ -211,7 +211,7 @@ void dump_mm(const struct mm_struct *mm)
 		mm->start_code, mm->end_code, mm->start_data, mm->end_data,
 		mm->start_brk, mm->brk, mm->start_stack,
 		mm->arg_start, mm->arg_end, mm->env_start, mm->env_end,
-		mm->binfmt, mm->flags,
+		mm->binfmt, NUM_MM_FLAG_BITS, __mm_flags_get_bitmap(mm),
 #ifdef CONFIG_AIO
 		mm->ioctx_table,
 #endif
@@ -327,7 +327,7 @@ static int __init setup_vm_debug(char *str)
 
 	while (*str) {
 		switch (tolower(*str)) {
-		case'p':
+		case 'p':
 			__page_init_poisoning = true;
 			break;
 		default:

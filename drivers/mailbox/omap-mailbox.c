@@ -21,9 +21,6 @@
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/mailbox_controller.h>
-#include <linux/mailbox_client.h>
-
-#include "mailbox.h"
 
 #define MAILBOX_REVISION		0x000
 #define MAILBOX_MESSAGE(m)		(0x040 + 4 * (m))
@@ -68,6 +65,7 @@ struct omap_mbox_fifo {
 
 struct omap_mbox_match_data {
 	u32 intr_type;
+	bool is_exclusive;
 };
 
 struct omap_mbox_device {
@@ -78,6 +76,7 @@ struct omap_mbox_device {
 	u32 num_users;
 	u32 num_fifos;
 	u32 intr_type;
+	const struct omap_mbox_match_data *mbox_data;
 };
 
 struct omap_mbox {
@@ -239,7 +238,7 @@ static int omap_mbox_startup(struct omap_mbox *mbox)
 	}
 
 	if (mbox->send_no_irq)
-		mbox->chan->txdone_method = TXDONE_BY_ACK;
+		mbox->chan->txdone_method = MBOX_TXDONE_BY_ACK;
 
 	omap_mbox_enable_irq(mbox, IRQ_RX);
 
@@ -341,11 +340,13 @@ static int omap_mbox_suspend(struct device *dev)
 	if (pm_runtime_status_suspended(dev))
 		return 0;
 
-	for (fifo = 0; fifo < mdev->num_fifos; fifo++) {
-		if (mbox_read_reg(mdev, MAILBOX_MSGSTATUS(fifo))) {
-			dev_err(mdev->dev, "fifo %d has unexpected unread messages\n",
-				fifo);
-			return -EBUSY;
+	if (mdev->mbox_data->is_exclusive) {
+		for (fifo = 0; fifo < mdev->num_fifos; fifo++) {
+			if (mbox_read_reg(mdev, MAILBOX_MSGSTATUS(fifo))) {
+				dev_err(mdev->dev, "fifo %d has unexpected unread messages\n",
+					fifo);
+				return -EBUSY;
+			}
 		}
 	}
 
@@ -378,8 +379,9 @@ static const struct dev_pm_ops omap_mbox_pm_ops = {
 	SET_SYSTEM_SLEEP_PM_OPS(omap_mbox_suspend, omap_mbox_resume)
 };
 
-static const struct omap_mbox_match_data omap2_data = { MBOX_INTR_CFG_TYPE1 };
-static const struct omap_mbox_match_data omap4_data = { MBOX_INTR_CFG_TYPE2 };
+static const struct omap_mbox_match_data omap2_data = { MBOX_INTR_CFG_TYPE1, true };
+static const struct omap_mbox_match_data omap4_data = { MBOX_INTR_CFG_TYPE2, true };
+static const struct omap_mbox_match_data am654_data = { MBOX_INTR_CFG_TYPE2, false };
 
 static const struct of_device_id omap_mailbox_of_match[] = {
 	{
@@ -396,11 +398,11 @@ static const struct of_device_id omap_mailbox_of_match[] = {
 	},
 	{
 		.compatible	= "ti,am654-mailbox",
-		.data		= &omap4_data,
+		.data		= &am654_data,
 	},
 	{
 		.compatible	= "ti,am64-mailbox",
-		.data		= &omap4_data,
+		.data		= &am654_data,
 	},
 	{
 		/* end */
@@ -449,7 +451,6 @@ static int omap_mbox_probe(struct platform_device *pdev)
 	struct omap_mbox_fifo *fifo;
 	struct device_node *node = pdev->dev.of_node;
 	struct device_node *child;
-	const struct omap_mbox_match_data *match_data;
 	struct mbox_controller *controller;
 	u32 intr_type, info_count;
 	u32 num_users, num_fifos;
@@ -461,11 +462,6 @@ static int omap_mbox_probe(struct platform_device *pdev)
 		pr_err("%s: only DT-based devices are supported\n", __func__);
 		return -ENODEV;
 	}
-
-	match_data = of_device_get_match_data(&pdev->dev);
-	if (!match_data)
-		return -ENODEV;
-	intr_type = match_data->intr_type;
 
 	if (of_property_read_u32(node, "ti,mbox-num-users", &num_users))
 		return -ENODEV;
@@ -482,6 +478,12 @@ static int omap_mbox_probe(struct platform_device *pdev)
 	mdev = devm_kzalloc(&pdev->dev, sizeof(*mdev), GFP_KERNEL);
 	if (!mdev)
 		return -ENOMEM;
+
+	mdev->mbox_data = device_get_match_data(&pdev->dev);
+	if (!mdev->mbox_data)
+		return -ENODEV;
+
+	intr_type = mdev->mbox_data->intr_type;
 
 	mdev->mbox_base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(mdev->mbox_base))

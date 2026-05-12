@@ -337,11 +337,15 @@ struct mmc_slot {
 
 struct regulator;
 struct mmc_pwrseq;
+struct notifier_block;
 
 struct mmc_supply {
 	struct regulator *vmmc;		/* Card power supply */
 	struct regulator *vqmmc;	/* Optional Vccq supply */
 	struct regulator *vqmmc2;	/* Optional supply for phy */
+
+	struct notifier_block vmmc_nb;	/* Notifier for vmmc */
+	struct work_struct uv_work;	/* Undervoltage work */
 };
 
 struct mmc_ctx {
@@ -482,21 +486,29 @@ struct mmc_host {
 
 	struct mmc_ios		ios;		/* current io bus settings */
 
+	bool			claimed;	/* host exclusively claimed */
+
 	/* group bitfields together to minimize padding */
 	unsigned int		use_spi_crc:1;
-	unsigned int		claimed:1;	/* host exclusively claimed */
 	unsigned int		doing_init_tune:1; /* initial tuning in progress */
-	unsigned int		can_retune:1;	/* re-tuning can be used */
 	unsigned int		doing_retune:1;	/* re-tuning in progress */
-	unsigned int		retune_now:1;	/* do re-tuning at next req */
-	unsigned int		retune_paused:1; /* re-tuning is temporarily disabled */
 	unsigned int		retune_crc_disable:1; /* don't trigger retune upon crc */
 	unsigned int		can_dma_map_merge:1; /* merging can be used */
 	unsigned int		vqmmc_enabled:1; /* vqmmc regulator is enabled */
 
+	/*
+	 * Indicates if an undervoltage event has already been handled.
+	 * This prevents repeated regulator notifiers from triggering
+	 * multiple REGULATOR_EVENT_UNDER_VOLTAGE events.
+	 */
+	unsigned int		undervoltage:1;	 /* Undervoltage state */
+
 	int			rescan_disable;	/* disable card detection */
 	int			rescan_entered;	/* used with nonremovable devices */
 
+	bool			can_retune;	/* re-tuning can be used */
+	bool			retune_now;	/* do re-tuning at next req */
+	bool			retune_paused;	/* re-tuning is temporarily disabled */
 	int			need_retune;	/* re-tuning is needed */
 	int			hold_retune;	/* hold off re-tuning */
 	unsigned int		retune_period;	/* re-tuning period in secs */
@@ -565,6 +577,7 @@ struct mmc_host {
 	int			hsq_depth;
 
 	u32			err_stats[MMC_ERR_MAX];
+	u32			max_sd_hs_hz;
 	unsigned long		private[] ____cacheline_aligned;
 };
 
@@ -743,5 +756,6 @@ int mmc_send_status(struct mmc_card *card, u32 *status);
 int mmc_send_tuning(struct mmc_host *host, u32 opcode, int *cmd_error);
 int mmc_send_abort_tuning(struct mmc_host *host, u32 opcode);
 int mmc_get_ext_csd(struct mmc_card *card, u8 **new_ext_csd);
+int mmc_read_tuning(struct mmc_host *host, unsigned int blksz, unsigned int blocks);
 
 #endif /* LINUX_MMC_HOST_H */

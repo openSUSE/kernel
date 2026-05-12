@@ -3,7 +3,7 @@
  * Copyright (c) 2000-2002,2005 Silicon Graphics, Inc.
  * All Rights Reserved.
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_format.h"
 #include "xfs_log_format.h"
@@ -376,8 +376,8 @@ xfs_alloc_compute_diff(
 	xfs_agblock_t	freeend;	/* end of freespace extent */
 	xfs_agblock_t	newbno1;	/* return block number */
 	xfs_agblock_t	newbno2;	/* other new block number */
-	xfs_extlen_t	newlen1=0;	/* length with newbno1 */
-	xfs_extlen_t	newlen2=0;	/* length with newbno2 */
+	xfs_extlen_t	newlen1 = 0;	/* length with newbno1 */
+	xfs_extlen_t	newlen2 = 0;	/* length with newbno2 */
 	xfs_agblock_t	wantend;	/* end of target extent */
 	bool		userdata = datatype & XFS_ALLOC_USERDATA;
 
@@ -577,8 +577,8 @@ xfs_alloc_fixup_trees(
 	int		i;		/* operation results */
 	xfs_agblock_t	nfbno1;		/* first new free startblock */
 	xfs_agblock_t	nfbno2;		/* second new free startblock */
-	xfs_extlen_t	nflen1=0;	/* first new free length */
-	xfs_extlen_t	nflen2=0;	/* second new free length */
+	xfs_extlen_t	nflen1 = 0;	/* first new free length */
+	xfs_extlen_t	nflen2 = 0;	/* second new free length */
 	struct xfs_mount *mp;
 	bool		fixup_longest = false;
 
@@ -3321,7 +3321,7 @@ xfs_agf_read_verify(
 		xfs_verifier_error(bp, -EFSBADCRC, __this_address);
 	else {
 		fa = xfs_agf_verify(bp);
-		if (XFS_TEST_ERROR(fa, mp, XFS_ERRTAG_ALLOC_READ_AGF))
+		if (fa || XFS_TEST_ERROR(mp, XFS_ERRTAG_ALLOC_READ_AGF))
 			xfs_verifier_error(bp, -EFSCORRUPTED, fa);
 	}
 }
@@ -4019,8 +4019,7 @@ __xfs_free_extent(
 	ASSERT(len != 0);
 	ASSERT(type != XFS_AG_RESV_AGFL);
 
-	if (XFS_TEST_ERROR(false, mp,
-			XFS_ERRTAG_FREE_EXTENT))
+	if (XFS_TEST_ERROR(mp, XFS_ERRTAG_FREE_EXTENT))
 		return -EIO;
 
 	error = xfs_free_extent_fix_freelist(tp, pag, &agbp);

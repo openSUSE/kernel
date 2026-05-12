@@ -13,6 +13,7 @@
 #define _SMC_CORE_H
 
 #include <linux/atomic.h>
+#include <linux/types.h>
 #include <linux/smc.h>
 #include <linux/pci.h>
 #include <rdma/ib_verbs.h>
@@ -33,6 +34,8 @@
 					 * distributions may modify it to a value between
 					 * 16-255 as needed.
 					 */
+#define SMCR_MAX_SEND_WR_DEF	16	/* Default number of work requests per send queue */
+#define SMCR_MAX_RECV_WR_DEF	48	/* Default number of work requests per recv queue */
 
 struct smc_lgr_list {			/* list of link group definition */
 	struct list_head	list;
@@ -172,6 +175,8 @@ struct smc_link {
 	struct completion	llc_testlink_resp; /* wait for rx of testlink */
 	int			llc_testlink_time; /* testlink interval */
 	atomic_t		conn_cnt; /* connections on this link */
+	u16			max_send_wr;
+	u16			max_recv_wr;
 };
 
 /* For now we just allow one parallel link per link group. The SMC protocol
@@ -221,6 +226,10 @@ struct smc_buf_desc {
 					/* virtually contiguous */
 		};
 		struct { /* SMC-D */
+			/* SMC-D tx buffer */
+			bool		is_attached;
+					/* no need for explicit writes */
+			 /* SMC-D rx buffer: */
 			unsigned short	sba_idx;
 					/* SBA index number */
 			u64		token;
@@ -361,6 +370,10 @@ struct smc_link_group {
 						/* max conn can be assigned to lgr */
 			u8			max_links;
 						/* max links can be added in lgr */
+			u16			max_send_wr;
+						/* number of WR buffers on send */
+			u16			max_recv_wr;
+						/* number of WR buffers on recv */
 		};
 		struct { /* SMC-D */
 			struct smcd_gid		peer_gid;

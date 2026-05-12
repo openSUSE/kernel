@@ -40,7 +40,7 @@ static void __fbnic_mbx_invalidate_desc(struct fbnic_dev *fbd, int mbx_idx,
 	fw_wr32(fbd, desc_offset + 1, 0);
 }
 
-static u64 __fbnic_mbx_rd_desc(struct fbnic_dev *fbd, int mbx_idx, int desc_idx)
+u64 __fbnic_mbx_rd_desc(struct fbnic_dev *fbd, int mbx_idx, int desc_idx)
 {
 	u32 desc_offset = FBNIC_IPC_MBX(mbx_idx, desc_idx);
 	u64 desc;
@@ -201,12 +201,11 @@ static int fbnic_mbx_alloc_rx_msgs(struct fbnic_dev *fbd)
 		return -ENODEV;
 
 	/* Fill all but 1 unused descriptors in the Rx queue. */
-	count = (head - tail - 1) % FBNIC_IPC_MBX_DESC_LEN;
+	count = (head - tail - 1) & (FBNIC_IPC_MBX_DESC_LEN - 1);
 	while (!err && count--) {
 		struct fbnic_tlv_msg *msg;
 
-		msg = (struct fbnic_tlv_msg *)__get_free_page(GFP_ATOMIC |
-							      __GFP_NOWARN);
+		msg = (struct fbnic_tlv_msg *)__get_free_page(GFP_KERNEL);
 		if (!msg) {
 			err = -ENOMEM;
 			break;
@@ -380,6 +379,37 @@ fbnic_fw_get_cmpl_by_type(struct fbnic_dev *fbd, u32 msg_type)
 }
 
 /**
+ * fbnic_fw_xmit_test_msg - Create and transmit a test message to FW mailbox
+ * @fbd: FBNIC device structure
+ * @cmpl: fw completion struct
+ *
+ * Return: zero on success, negative value on failure
+ *
+ * Generates a single page mailbox test message and places it in the Tx
+ * mailbox queue. Expectation is that the FW will validate that the nested
+ * value matches the external values, and then will echo them back to us.
+ *
+ * Also sets a completion slot for use in the completion wait calls when
+ * the cmpl arg is non-NULL.
+ */
+int fbnic_fw_xmit_test_msg(struct fbnic_dev *fbd,
+			   struct fbnic_fw_completion *cmpl)
+{
+	struct fbnic_tlv_msg *test_msg;
+	int err;
+
+	test_msg = fbnic_tlv_test_create(fbd);
+	if (!test_msg)
+		return -ENOMEM;
+
+	err = fbnic_mbx_map_req_w_cmpl(fbd, test_msg, cmpl);
+	if (err)
+		free_page((unsigned long)test_msg);
+
+	return err;
+}
+
+/**
  * fbnic_fw_xmit_simple_msg - Transmit a simple single TLV message w/o data
  * @fbd: FBNIC device structure
  * @msg_type: ENUM value indicating message type to send
@@ -416,8 +446,9 @@ static int fbnic_fw_xmit_simple_msg(struct fbnic_dev *fbd, u32 msg_type)
 	return err;
 }
 
-static void fbnic_mbx_init_desc_ring(struct fbnic_dev *fbd, int mbx_idx)
+static int fbnic_mbx_init_desc_ring(struct fbnic_dev *fbd, int mbx_idx)
 {
+	u8 tlp_attr = fbd->relaxed_ord ? FBNIC_TLP_ATTR_RO : 0;
 	struct fbnic_fw_mbx *mbx = &fbd->mbx[mbx_idx];
 
 	mbx->ready = true;
@@ -426,17 +457,28 @@ static void fbnic_mbx_init_desc_ring(struct fbnic_dev *fbd, int mbx_idx)
 	case FBNIC_IPC_MBX_RX_IDX:
 		/* Enable DMA writes from the device */
 		wr32(fbd, FBNIC_PUL_OB_TLP_HDR_AW_CFG,
-		     FBNIC_PUL_OB_TLP_HDR_AW_CFG_BME);
+		     FBNIC_PUL_OB_TLP_HDR_AW_CFG_BME |
+		     FIELD_PREP(FBNIC_PUL_OB_TLP_HDR_AW_CFG_RDE_ATTR,
+				tlp_attr) |
+		     FIELD_PREP(FBNIC_PUL_OB_TLP_HDR_AW_CFG_TQM_ATTR,
+				tlp_attr));
 
 		/* Make sure we have a page for the FW to write to */
-		fbnic_mbx_alloc_rx_msgs(fbd);
-		break;
+		return fbnic_mbx_alloc_rx_msgs(fbd);
 	case FBNIC_IPC_MBX_TX_IDX:
 		/* Enable DMA reads from the device */
 		wr32(fbd, FBNIC_PUL_OB_TLP_HDR_AR_CFG,
-		     FBNIC_PUL_OB_TLP_HDR_AR_CFG_BME);
+		     FBNIC_PUL_OB_TLP_HDR_AR_CFG_BME |
+		     FIELD_PREP(FBNIC_PUL_OB_TLP_HDR_AR_CFG_TDE_ATTR,
+				tlp_attr) |
+		     FIELD_PREP(FBNIC_PUL_OB_TLP_HDR_AR_CFG_RQM_ATTR,
+				tlp_attr) |
+		     FIELD_PREP(FBNIC_PUL_OB_TLP_HDR_AR_CFG_TQM_ATTR,
+				tlp_attr));
 		break;
 	}
+
+	return 0;
 }
 
 static bool fbnic_mbx_event(struct fbnic_dev *fbd)
@@ -494,6 +536,11 @@ int fbnic_fw_xmit_ownership_msg(struct fbnic_dev *fbd, bool take_ownership)
 	fbd->last_heartbeat_response = req_time - HZ;
 
 	fbd->last_heartbeat_request = req_time;
+
+	/* Set prev_firmware_time to 0 to avoid triggering firmware crash
+	 * detection until we receive the second uptime in a heartbeat resp.
+	 */
+	fbd->prev_firmware_time = 0;
 
 	/* Set heartbeat detection based on if we are taking ownership */
 	fbd->fw_heartbeat_enabled = take_ownership;
@@ -653,10 +700,14 @@ static int fbnic_fw_parse_cap_resp(void *opaque, struct fbnic_tlv_msg **results)
 	fbd->fw_cap.anti_rollback_version =
 		fta_get_uint(results, FBNIC_FW_CAP_RESP_ANTI_ROLLBACK_VERSION);
 
+	/* Always assume we need a BMC reinit */
+	fbd->fw_cap.need_bmc_tcam_reinit = true;
+
 	return 0;
 }
 
 static const struct fbnic_tlv_index fbnic_ownership_resp_index[] = {
+	FBNIC_TLV_ATTR_U64(FBNIC_FW_OWNERSHIP_TIME),
 	FBNIC_TLV_ATTR_LAST
 };
 
@@ -668,10 +719,14 @@ static int fbnic_fw_parse_ownership_resp(void *opaque,
 	/* Count the ownership response as a heartbeat reply */
 	fbd->last_heartbeat_response = jiffies;
 
+	/* Capture firmware time for logging and firmware crash check */
+	fbd->firmware_time = fta_get_uint(results, FBNIC_FW_OWNERSHIP_TIME);
+
 	return 0;
 }
 
 static const struct fbnic_tlv_index fbnic_heartbeat_resp_index[] = {
+	FBNIC_TLV_ATTR_U64(FBNIC_FW_HEARTBEAT_UPTIME),
 	FBNIC_TLV_ATTR_LAST
 };
 
@@ -681,6 +736,9 @@ static int fbnic_fw_parse_heartbeat_resp(void *opaque,
 	struct fbnic_dev *fbd = (struct fbnic_dev *)opaque;
 
 	fbd->last_heartbeat_response = jiffies;
+
+	/* Capture firmware time for logging and firmware crash check */
+	fbd->firmware_time = fta_get_uint(results, FBNIC_FW_HEARTBEAT_UPTIME);
 
 	return 0;
 }
@@ -703,6 +761,7 @@ static int fbnic_fw_xmit_heartbeat_message(struct fbnic_dev *fbd)
 		goto free_message;
 
 	fbd->last_heartbeat_request = req_time;
+	fbd->prev_firmware_time = fbd->firmware_time;
 
 	return err;
 
@@ -763,7 +822,8 @@ void fbnic_fw_check_heartbeat(struct fbnic_dev *fbd)
 		return;
 
 	/* Was the last heartbeat response long time ago? */
-	if (!fbnic_fw_heartbeat_current(fbd)) {
+	if (!fbnic_fw_heartbeat_current(fbd) ||
+	    fbd->firmware_time < fbd->prev_firmware_time) {
 		dev_warn(fbd->dev,
 			 "Firmware did not respond to heartbeat message\n");
 		fbd->fw_heartbeat_enabled = false;
@@ -773,6 +833,215 @@ void fbnic_fw_check_heartbeat(struct fbnic_dev *fbd)
 	err = fbnic_fw_xmit_heartbeat_message(fbd);
 	if (err)
 		dev_warn(fbd->dev, "Failed to send heartbeat message\n");
+}
+
+/**
+ * fbnic_fw_xmit_coredump_info_msg - Create and transmit a coredump info message
+ * @fbd: FBNIC device structure
+ * @cmpl_data: Structure to store info in
+ * @force: Force coredump event if one hasn't already occurred
+ *
+ * Return: zero on success, negative errno on failure
+ *
+ * Asks the FW for info related to coredump. If a coredump doesn't exist it
+ * can optionally force one if force is true.
+ */
+int fbnic_fw_xmit_coredump_info_msg(struct fbnic_dev *fbd,
+				    struct fbnic_fw_completion *cmpl_data,
+				    bool force)
+{
+	struct fbnic_tlv_msg *msg;
+	int err = 0;
+
+	msg = fbnic_tlv_msg_alloc(FBNIC_TLV_MSG_ID_COREDUMP_GET_INFO_REQ);
+	if (!msg)
+		return -ENOMEM;
+
+	if (force) {
+		err = fbnic_tlv_attr_put_flag(msg, FBNIC_FW_COREDUMP_REQ_INFO_CREATE);
+		if (err)
+			goto free_msg;
+	}
+
+	err = fbnic_mbx_map_req_w_cmpl(fbd, msg, cmpl_data);
+	if (err)
+		goto free_msg;
+
+	return 0;
+
+free_msg:
+	free_page((unsigned long)msg);
+	return err;
+}
+
+static const struct fbnic_tlv_index fbnic_coredump_info_resp_index[] = {
+	FBNIC_TLV_ATTR_FLAG(FBNIC_FW_COREDUMP_INFO_AVAILABLE),
+	FBNIC_TLV_ATTR_U32(FBNIC_FW_COREDUMP_INFO_SIZE),
+	FBNIC_TLV_ATTR_S32(FBNIC_FW_COREDUMP_INFO_ERROR),
+	FBNIC_TLV_ATTR_LAST
+};
+
+static int
+fbnic_fw_parse_coredump_info_resp(void *opaque, struct fbnic_tlv_msg **results)
+{
+	struct fbnic_fw_completion *cmpl_data;
+	struct fbnic_dev *fbd = opaque;
+	u32 msg_type;
+	s32 err;
+
+	/* Verify we have a completion pointer to provide with data */
+	msg_type = FBNIC_TLV_MSG_ID_COREDUMP_GET_INFO_RESP;
+	cmpl_data = fbnic_fw_get_cmpl_by_type(fbd, msg_type);
+	if (!cmpl_data)
+		return -ENOSPC;
+
+	err = fta_get_sint(results, FBNIC_FW_COREDUMP_INFO_ERROR);
+	if (err)
+		goto msg_err;
+
+	if (!results[FBNIC_FW_COREDUMP_INFO_AVAILABLE]) {
+		err = -ENOENT;
+		goto msg_err;
+	}
+
+	cmpl_data->u.coredump_info.size =
+		fta_get_uint(results, FBNIC_FW_COREDUMP_INFO_SIZE);
+
+msg_err:
+	cmpl_data->result = err;
+	complete(&cmpl_data->done);
+	fbnic_fw_put_cmpl(cmpl_data);
+
+	return err;
+}
+
+/**
+ * fbnic_fw_xmit_coredump_read_msg - Create and transmit a coredump read request
+ * @fbd: FBNIC device structure
+ * @cmpl_data: Completion struct to store coredump
+ * @offset: Offset into coredump requested
+ * @length: Length of section of coredump to fetch
+ *
+ * Return: zero on success, negative errno on failure
+ *
+ * Asks the firmware to provide a section of the coredump back in a message.
+ * The response will have an offset and size matching the values provided.
+ */
+int fbnic_fw_xmit_coredump_read_msg(struct fbnic_dev *fbd,
+				    struct fbnic_fw_completion *cmpl_data,
+				    u32 offset, u32 length)
+{
+	struct fbnic_tlv_msg *msg;
+	int err = 0;
+
+	msg = fbnic_tlv_msg_alloc(FBNIC_TLV_MSG_ID_COREDUMP_READ_REQ);
+	if (!msg)
+		return -ENOMEM;
+
+	if (offset) {
+		err = fbnic_tlv_attr_put_int(msg, FBNIC_FW_COREDUMP_READ_OFFSET,
+					     offset);
+		if (err)
+			goto free_message;
+	}
+
+	if (length) {
+		err = fbnic_tlv_attr_put_int(msg, FBNIC_FW_COREDUMP_READ_LENGTH,
+					     length);
+		if (err)
+			goto free_message;
+	}
+
+	err = fbnic_mbx_map_req_w_cmpl(fbd, msg, cmpl_data);
+	if (err)
+		goto free_message;
+
+	return 0;
+
+free_message:
+	free_page((unsigned long)msg);
+	return err;
+}
+
+static const struct fbnic_tlv_index fbnic_coredump_resp_index[] = {
+	FBNIC_TLV_ATTR_U32(FBNIC_FW_COREDUMP_READ_OFFSET),
+	FBNIC_TLV_ATTR_U32(FBNIC_FW_COREDUMP_READ_LENGTH),
+	FBNIC_TLV_ATTR_RAW_DATA(FBNIC_FW_COREDUMP_READ_DATA),
+	FBNIC_TLV_ATTR_S32(FBNIC_FW_COREDUMP_READ_ERROR),
+	FBNIC_TLV_ATTR_LAST
+};
+
+static int fbnic_fw_parse_coredump_resp(void *opaque,
+					struct fbnic_tlv_msg **results)
+{
+	struct fbnic_fw_completion *cmpl_data;
+	u32 index, last_offset, last_length;
+	struct fbnic_dev *fbd = opaque;
+	struct fbnic_tlv_msg *data_hdr;
+	u32 length, offset;
+	u32 msg_type;
+	s32 err;
+
+	/* Verify we have a completion pointer to provide with data */
+	msg_type = FBNIC_TLV_MSG_ID_COREDUMP_READ_RESP;
+	cmpl_data = fbnic_fw_get_cmpl_by_type(fbd, msg_type);
+	if (!cmpl_data)
+		return -ENOSPC;
+
+	err = fta_get_sint(results, FBNIC_FW_COREDUMP_READ_ERROR);
+	if (err)
+		goto msg_err;
+
+	data_hdr = results[FBNIC_FW_COREDUMP_READ_DATA];
+	if (!data_hdr) {
+		err = -ENODATA;
+		goto msg_err;
+	}
+
+	offset = fta_get_uint(results, FBNIC_FW_COREDUMP_READ_OFFSET);
+	length = fta_get_uint(results, FBNIC_FW_COREDUMP_READ_LENGTH);
+
+	if (length > le16_to_cpu(data_hdr->hdr.len) - sizeof(u32)) {
+		dev_err(fbd->dev, "length greater than size of message\n");
+		err = -EINVAL;
+		goto msg_err;
+	}
+
+	/* Only the last offset can have a length != stride */
+	last_length =
+		(cmpl_data->u.coredump.size % cmpl_data->u.coredump.stride) ? :
+		cmpl_data->u.coredump.stride;
+	last_offset = cmpl_data->u.coredump.size - last_length;
+
+	/* Verify offset and length */
+	if (offset % cmpl_data->u.coredump.stride || offset > last_offset) {
+		dev_err(fbd->dev, "offset %d out of range\n", offset);
+		err = -EINVAL;
+	} else if (length != ((offset == last_offset) ?
+			      last_length : cmpl_data->u.coredump.stride)) {
+		dev_err(fbd->dev, "length %d out of range for offset %d\n",
+			length, offset);
+		err = -EINVAL;
+	}
+	if (err)
+		goto msg_err;
+
+	/* If data pointer is NULL it is already filled, just skip the copy */
+	index = offset / cmpl_data->u.coredump.stride;
+	if (!cmpl_data->u.coredump.data[index])
+		goto msg_err;
+
+	/* Copy data and mark index filled by setting pointer to NULL */
+	memcpy(cmpl_data->u.coredump.data[index],
+	       fbnic_tlv_attr_get_value_ptr(data_hdr), length);
+	cmpl_data->u.coredump.data[index] = NULL;
+
+msg_err:
+	cmpl_data->result = err;
+	complete(&cmpl_data->done);
+	fbnic_fw_put_cmpl(cmpl_data);
+
+	return err;
 }
 
 int fbnic_fw_xmit_fw_start_upgrade(struct fbnic_dev *fbd,
@@ -955,6 +1224,138 @@ static int fbnic_fw_parse_fw_finish_upgrade_req(void *opaque,
 	fbnic_fw_put_cmpl(cmpl_data);
 
 	return 0;
+}
+
+/**
+ * fbnic_fw_xmit_qsfp_read_msg - Transmit a QSFP read request
+ * @fbd: FBNIC device structure
+ * @cmpl_data: Structure to store EEPROM response in
+ * @page: Refers to page number on page enabled QSFP modules
+ * @bank: Refers to a collection of pages
+ * @offset: Offset into QSFP EEPROM requested
+ * @length: Length of section of QSFP EEPROM to fetch
+ *
+ * Return: zero on success, negative value on failure
+ *
+ * Asks the firmware to provide a section of the QSFP EEPROM back in a
+ * message. The response will have an offset and size matching the values
+ * provided.
+ */
+int fbnic_fw_xmit_qsfp_read_msg(struct fbnic_dev *fbd,
+				struct fbnic_fw_completion *cmpl_data,
+				u32 page, u32 bank, u32 offset, u32 length)
+{
+	struct fbnic_tlv_msg *msg;
+	int err = 0;
+
+	if (!length || length > TLV_MAX_DATA)
+		return -EINVAL;
+
+	msg = fbnic_tlv_msg_alloc(FBNIC_TLV_MSG_ID_QSFP_READ_REQ);
+	if (!msg)
+		return -ENOMEM;
+
+	err = fbnic_tlv_attr_put_int(msg, FBNIC_FW_QSFP_BANK, bank);
+	if (err)
+		goto free_message;
+
+	err = fbnic_tlv_attr_put_int(msg, FBNIC_FW_QSFP_PAGE, page);
+	if (err)
+		goto free_message;
+
+	err = fbnic_tlv_attr_put_int(msg, FBNIC_FW_QSFP_OFFSET, offset);
+	if (err)
+		goto free_message;
+
+	err = fbnic_tlv_attr_put_int(msg, FBNIC_FW_QSFP_LENGTH, length);
+	if (err)
+		goto free_message;
+
+	err = fbnic_mbx_map_req_w_cmpl(fbd, msg, cmpl_data);
+	if (err)
+		goto free_message;
+
+	return 0;
+
+free_message:
+	free_page((unsigned long)msg);
+	return err;
+}
+
+static const struct fbnic_tlv_index fbnic_qsfp_read_resp_index[] = {
+	FBNIC_TLV_ATTR_U32(FBNIC_FW_QSFP_BANK),
+	FBNIC_TLV_ATTR_U32(FBNIC_FW_QSFP_PAGE),
+	FBNIC_TLV_ATTR_U32(FBNIC_FW_QSFP_OFFSET),
+	FBNIC_TLV_ATTR_U32(FBNIC_FW_QSFP_LENGTH),
+	FBNIC_TLV_ATTR_RAW_DATA(FBNIC_FW_QSFP_DATA),
+	FBNIC_TLV_ATTR_S32(FBNIC_FW_QSFP_ERROR),
+	FBNIC_TLV_ATTR_LAST
+};
+
+static int fbnic_fw_parse_qsfp_read_resp(void *opaque,
+					 struct fbnic_tlv_msg **results)
+{
+	struct fbnic_fw_completion *cmpl_data;
+	struct fbnic_dev *fbd = opaque;
+	struct fbnic_tlv_msg *data_hdr;
+	u32 length, offset, page, bank;
+	u8 *data;
+	s32 err;
+
+	/* Verify we have a completion pointer to provide with data */
+	cmpl_data = fbnic_fw_get_cmpl_by_type(fbd,
+					      FBNIC_TLV_MSG_ID_QSFP_READ_RESP);
+	if (!cmpl_data)
+		return -ENOSPC;
+
+	bank = fta_get_uint(results, FBNIC_FW_QSFP_BANK);
+	if (bank != cmpl_data->u.qsfp.bank) {
+		dev_warn(fbd->dev, "bank not equal to bank requested: %d vs %d\n",
+			 bank, cmpl_data->u.qsfp.bank);
+		err = -EINVAL;
+		goto msg_err;
+	}
+
+	page = fta_get_uint(results, FBNIC_FW_QSFP_PAGE);
+	if (page != cmpl_data->u.qsfp.page) {
+		dev_warn(fbd->dev, "page not equal to page requested: %d vs %d\n",
+			 page, cmpl_data->u.qsfp.page);
+		err = -EINVAL;
+		goto msg_err;
+	}
+
+	offset = fta_get_uint(results, FBNIC_FW_QSFP_OFFSET);
+	length = fta_get_uint(results, FBNIC_FW_QSFP_LENGTH);
+
+	if (length != cmpl_data->u.qsfp.length ||
+	    offset != cmpl_data->u.qsfp.offset) {
+		dev_warn(fbd->dev,
+			 "offset/length not equal to size requested: %d/%d vs %d/%d\n",
+			 offset, length,
+			 cmpl_data->u.qsfp.offset, cmpl_data->u.qsfp.length);
+		err = -EINVAL;
+		goto msg_err;
+	}
+
+	err = fta_get_sint(results, FBNIC_FW_QSFP_ERROR);
+	if (err)
+		goto msg_err;
+
+	data_hdr = results[FBNIC_FW_QSFP_DATA];
+	if (!data_hdr) {
+		err = -ENODATA;
+		goto msg_err;
+	}
+
+	/* Copy data */
+	data = fbnic_tlv_attr_get_value_ptr(data_hdr);
+	memcpy(cmpl_data->u.qsfp.data, data, length);
+msg_err:
+	cmpl_data->result = err;
+	complete(&cmpl_data->done);
+	fbnic_fw_put_cmpl(cmpl_data);
+
+	return err;
 }
 
 /**
@@ -1197,13 +1598,40 @@ free_message:
 	return err;
 }
 
+static int
+fbnic_fw_parser_test(void *opaque, struct fbnic_tlv_msg **results)
+{
+	struct fbnic_fw_completion *cmpl;
+	struct fbnic_dev *fbd = opaque;
+	int err;
+
+	/* find cmpl */
+	cmpl = fbnic_fw_get_cmpl_by_type(fbd, FBNIC_TLV_MSG_ID_TEST);
+	if (!cmpl)
+		return -ENOSPC;
+
+	err = fbnic_tlv_parser_test(opaque, results);
+
+	cmpl->result = err;
+	complete(&cmpl->done);
+	fbnic_fw_put_cmpl(cmpl);
+
+	return err;
+}
+
 static const struct fbnic_tlv_parser fbnic_fw_tlv_parser[] = {
+	FBNIC_TLV_PARSER(TEST, fbnic_tlv_test_index, fbnic_fw_parser_test),
 	FBNIC_TLV_PARSER(FW_CAP_RESP, fbnic_fw_cap_resp_index,
 			 fbnic_fw_parse_cap_resp),
 	FBNIC_TLV_PARSER(OWNERSHIP_RESP, fbnic_ownership_resp_index,
 			 fbnic_fw_parse_ownership_resp),
 	FBNIC_TLV_PARSER(HEARTBEAT_RESP, fbnic_heartbeat_resp_index,
 			 fbnic_fw_parse_heartbeat_resp),
+	FBNIC_TLV_PARSER(COREDUMP_GET_INFO_RESP,
+			 fbnic_coredump_info_resp_index,
+			 fbnic_fw_parse_coredump_info_resp),
+	FBNIC_TLV_PARSER(COREDUMP_READ_RESP, fbnic_coredump_resp_index,
+			 fbnic_fw_parse_coredump_resp),
 	FBNIC_TLV_PARSER(FW_START_UPGRADE_RESP,
 			 fbnic_fw_start_upgrade_resp_index,
 			 fbnic_fw_parse_fw_start_upgrade_resp),
@@ -1213,6 +1641,9 @@ static const struct fbnic_tlv_parser fbnic_fw_tlv_parser[] = {
 	FBNIC_TLV_PARSER(FW_FINISH_UPGRADE_REQ,
 			 fbnic_fw_finish_upgrade_req_index,
 			 fbnic_fw_parse_fw_finish_upgrade_req),
+	FBNIC_TLV_PARSER(QSFP_READ_RESP,
+			 fbnic_qsfp_read_resp_index,
+			 fbnic_fw_parse_qsfp_read_resp),
 	FBNIC_TLV_PARSER(TSENE_READ_RESP,
 			 fbnic_tsene_read_resp_index,
 			 fbnic_fw_parse_tsene_read_resp),
@@ -1225,7 +1656,7 @@ static const struct fbnic_tlv_parser fbnic_fw_tlv_parser[] = {
 static void fbnic_mbx_process_rx_msgs(struct fbnic_dev *fbd)
 {
 	struct fbnic_fw_mbx *rx_mbx = &fbd->mbx[FBNIC_IPC_MBX_RX_IDX];
-	u8 head = rx_mbx->head;
+	u8 head = rx_mbx->head, tail = rx_mbx->tail;
 	u64 desc, length;
 
 	while (head != rx_mbx->tail) {
@@ -1236,8 +1667,8 @@ static void fbnic_mbx_process_rx_msgs(struct fbnic_dev *fbd)
 		if (!(desc & FBNIC_IPC_MBX_DESC_FW_CMPL))
 			break;
 
-		dma_unmap_single(fbd->dev, rx_mbx->buf_info[head].addr,
-				 PAGE_SIZE, DMA_FROM_DEVICE);
+		dma_sync_single_for_cpu(fbd->dev, rx_mbx->buf_info[head].addr,
+					FBNIC_RX_PAGE_SIZE, DMA_FROM_DEVICE);
 
 		msg = rx_mbx->buf_info[head].msg;
 
@@ -1270,19 +1701,26 @@ static void fbnic_mbx_process_rx_msgs(struct fbnic_dev *fbd)
 
 		dev_dbg(fbd->dev, "Parsed msg type %d\n", msg->hdr.type);
 next_page:
+		fw_wr32(fbd, FBNIC_IPC_MBX(FBNIC_IPC_MBX_RX_IDX, head), 0);
 
-		free_page((unsigned long)rx_mbx->buf_info[head].msg);
+		rx_mbx->buf_info[tail] = rx_mbx->buf_info[head];
 		rx_mbx->buf_info[head].msg = NULL;
+		rx_mbx->buf_info[head].addr = 0;
 
-		head++;
-		head %= FBNIC_IPC_MBX_DESC_LEN;
+		__fbnic_mbx_wr_desc(fbd, FBNIC_IPC_MBX_RX_IDX, tail,
+				    FIELD_PREP(FBNIC_IPC_MBX_DESC_LEN_MASK,
+					       FBNIC_RX_PAGE_SIZE) |
+				    (rx_mbx->buf_info[tail].addr &
+				     FBNIC_IPC_MBX_DESC_ADDR_MASK) |
+				    FBNIC_IPC_MBX_DESC_HOST_CMPL);
+
+		head = (head + 1) & (FBNIC_IPC_MBX_DESC_LEN - 1);
+		tail = (tail + 1) & (FBNIC_IPC_MBX_DESC_LEN - 1);
 	}
 
 	/* Record head for next interrupt */
 	rx_mbx->head = head;
-
-	/* Make sure we have at least one page for the FW to write to */
-	fbnic_mbx_alloc_rx_msgs(fbd);
+	rx_mbx->tail = tail;
 }
 
 void fbnic_mbx_poll(struct fbnic_dev *fbd)
@@ -1317,8 +1755,11 @@ int fbnic_mbx_poll_tx_ready(struct fbnic_dev *fbd)
 	} while (!fbnic_mbx_event(fbd));
 
 	/* FW has shown signs of life. Enable DMA and start Tx/Rx */
-	for (i = 0; i < FBNIC_IPC_MBX_INDICES; i++)
-		fbnic_mbx_init_desc_ring(fbd, i);
+	for (i = 0; i < FBNIC_IPC_MBX_INDICES; i++) {
+		err = fbnic_mbx_init_desc_ring(fbd, i);
+		if (err)
+			goto clean_mbx;
+	}
 
 	/* Request an update from the firmware. This should overwrite
 	 * mgmt.version once we get the actual version from the firmware
@@ -1410,6 +1851,156 @@ void fbnic_mbx_flush_tx(struct fbnic_dev *fbd)
 	} while (time_is_after_jiffies(timeout));
 }
 
+/**
+ * fbnic_fw_mbx_self_test() - verify firmware interface
+ * @fbd: device to test
+ *
+ * This function tests the interfaces to/from the firmware.
+ *
+ * Return: See enum fbnic_fw_self_test_codes
+ **/
+enum fbnic_fw_self_test_codes fbnic_fw_mbx_self_test(struct fbnic_dev *fbd)
+{
+	enum fbnic_fw_self_test_codes err;
+	struct fbnic_fw_completion *cmpl;
+
+	/* Skip test if FW interface is not present */
+	if (!fbnic_fw_present(fbd))
+		return FBNIC_TEST_FW_NO_FIRMWARE;
+
+	cmpl = fbnic_fw_alloc_cmpl(FBNIC_TLV_MSG_ID_TEST);
+	if (!cmpl)
+		return FBNIC_TEST_FW_NO_CMPL;
+
+	/* Load a test message onto the FW mailbox interface
+	 * and arm the completion.
+	 */
+	err = fbnic_fw_xmit_test_msg(fbd, cmpl);
+	if (err) {
+		err = FBNIC_TEST_FW_NO_XMIT;
+		goto exit_free;
+	}
+
+	/* Verify we received a message back */
+	if (!fbnic_mbx_wait_for_cmpl(cmpl)) {
+		err = FBNIC_TEST_FW_NO_MSG;
+		goto exit_cleanup;
+	}
+
+	/* Verify there were no parsing errors */
+	if (cmpl->result)
+		err = FBNIC_TEST_FW_PARSE;
+exit_cleanup:
+	fbnic_mbx_clear_cmpl(fbd, cmpl);
+exit_free:
+	fbnic_fw_put_cmpl(cmpl);
+
+	return err;
+}
+
+int fbnic_fw_xmit_rpc_macda_sync(struct fbnic_dev *fbd)
+{
+	struct fbnic_tlv_msg *mac_array;
+	int i, addr_count = 0, err;
+	struct fbnic_tlv_msg *msg;
+	u32 rx_flags = 0;
+
+	/* Nothing to do if there is no FW to sync with */
+	if (!fbd->mbx[FBNIC_IPC_MBX_TX_IDX].ready)
+		return 0;
+
+	msg = fbnic_tlv_msg_alloc(FBNIC_TLV_MSG_ID_RPC_MAC_SYNC_REQ);
+	if (!msg)
+		return -ENOMEM;
+
+	mac_array = fbnic_tlv_attr_nest_start(msg,
+					      FBNIC_FW_RPC_MAC_SYNC_UC_ARRAY);
+	if (!mac_array)
+		goto free_message_nospc;
+
+	/* Populate the unicast MAC addrs and capture PROMISC/ALLMULTI flags */
+	for (addr_count = 0, i = FBNIC_RPC_TCAM_MACDA_PROMISC_IDX;
+	     i >= fbd->mac_addr_boundary; i--) {
+		struct fbnic_mac_addr *mac_addr = &fbd->mac_addr[i];
+
+		if (mac_addr->state != FBNIC_TCAM_S_VALID)
+			continue;
+		if (test_bit(FBNIC_MAC_ADDR_T_ALLMULTI, mac_addr->act_tcam))
+			rx_flags |= FW_RPC_MAC_SYNC_RX_FLAGS_ALLMULTI;
+		if (test_bit(FBNIC_MAC_ADDR_T_PROMISC, mac_addr->act_tcam))
+			rx_flags |= FW_RPC_MAC_SYNC_RX_FLAGS_PROMISC;
+		if (!test_bit(FBNIC_MAC_ADDR_T_UNICAST, mac_addr->act_tcam))
+			continue;
+		if (addr_count == FW_RPC_MAC_SYNC_UC_ARRAY_SIZE) {
+			rx_flags |= FW_RPC_MAC_SYNC_RX_FLAGS_PROMISC;
+			continue;
+		}
+
+		err = fbnic_tlv_attr_put_value(mac_array,
+					       FBNIC_FW_RPC_MAC_SYNC_MAC_ADDR,
+					       mac_addr->value.addr8,
+					       ETH_ALEN);
+		if (err)
+			goto free_message;
+		addr_count++;
+	}
+
+	/* Close array */
+	fbnic_tlv_attr_nest_stop(msg);
+
+	mac_array = fbnic_tlv_attr_nest_start(msg,
+					      FBNIC_FW_RPC_MAC_SYNC_MC_ARRAY);
+	if (!mac_array)
+		goto free_message_nospc;
+
+	/* Repeat for multicast addrs, record BROADCAST/ALLMULTI flags */
+	for (addr_count = 0, i = FBNIC_RPC_TCAM_MACDA_BROADCAST_IDX;
+	     i < fbd->mac_addr_boundary; i++) {
+		struct fbnic_mac_addr *mac_addr = &fbd->mac_addr[i];
+
+		if (mac_addr->state != FBNIC_TCAM_S_VALID)
+			continue;
+		if (test_bit(FBNIC_MAC_ADDR_T_BROADCAST, mac_addr->act_tcam))
+			rx_flags |= FW_RPC_MAC_SYNC_RX_FLAGS_BROADCAST;
+		if (test_bit(FBNIC_MAC_ADDR_T_ALLMULTI, mac_addr->act_tcam))
+			rx_flags |= FW_RPC_MAC_SYNC_RX_FLAGS_ALLMULTI;
+		if (!test_bit(FBNIC_MAC_ADDR_T_MULTICAST, mac_addr->act_tcam))
+			continue;
+		if (addr_count == FW_RPC_MAC_SYNC_MC_ARRAY_SIZE) {
+			rx_flags |= FW_RPC_MAC_SYNC_RX_FLAGS_ALLMULTI;
+			continue;
+		}
+
+		err = fbnic_tlv_attr_put_value(mac_array,
+					       FBNIC_FW_RPC_MAC_SYNC_MAC_ADDR,
+					       mac_addr->value.addr8,
+					       ETH_ALEN);
+		if (err)
+			goto free_message;
+		addr_count++;
+	}
+
+	/* Close array */
+	fbnic_tlv_attr_nest_stop(msg);
+
+	/* Report flags at end of list */
+	err = fbnic_tlv_attr_put_int(msg, FBNIC_FW_RPC_MAC_SYNC_RX_FLAGS,
+				     rx_flags);
+	if (err)
+		goto free_message;
+
+	/* Send message off to FW notifying it of current RPC config */
+	err = fbnic_mbx_map_tlv_msg(fbd, msg);
+	if (err)
+		goto free_message;
+	return 0;
+free_message_nospc:
+	err = -ENOSPC;
+free_message:
+	free_page((unsigned long)msg);
+	return err;
+}
+
 void fbnic_get_fw_ver_commit_str(struct fbnic_dev *fbd, char *fw_version,
 				 const size_t str_sz)
 {
@@ -1423,11 +2014,12 @@ void fbnic_get_fw_ver_commit_str(struct fbnic_dev *fbd, char *fw_version,
 				 fw_version, str_sz);
 }
 
-struct fbnic_fw_completion *fbnic_fw_alloc_cmpl(u32 msg_type)
+struct fbnic_fw_completion *__fbnic_fw_alloc_cmpl(u32 msg_type,
+						  size_t priv_size)
 {
 	struct fbnic_fw_completion *cmpl;
 
-	cmpl = kzalloc(sizeof(*cmpl), GFP_KERNEL);
+	cmpl = kzalloc(sizeof(*cmpl) + priv_size, GFP_KERNEL);
 	if (!cmpl)
 		return NULL;
 
@@ -1436,6 +2028,11 @@ struct fbnic_fw_completion *fbnic_fw_alloc_cmpl(u32 msg_type)
 	kref_init(&cmpl->ref_count);
 
 	return cmpl;
+}
+
+struct fbnic_fw_completion *fbnic_fw_alloc_cmpl(u32 msg_type)
+{
+	return __fbnic_fw_alloc_cmpl(msg_type, 0);
 }
 
 void fbnic_fw_put_cmpl(struct fbnic_fw_completion *fw_cmpl)

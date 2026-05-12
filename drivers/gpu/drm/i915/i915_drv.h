@@ -60,8 +60,8 @@
 #include "intel_step.h"
 #include "intel_uncore.h"
 
-struct dram_info;
 struct drm_i915_clock_gating_funcs;
+struct i915_overlay;
 struct intel_display;
 struct intel_pxp;
 struct vlv_s0ix_state;
@@ -114,8 +114,7 @@ struct i915_gem_mm {
 	struct intel_memory_region *stolen_region;
 	/** Memory allocator for GTT stolen memory */
 	struct drm_mm stolen;
-	/** Protects the usage of the GTT stolen memory allocator. This is
-	 * always the inner lock when overlapping with struct_mutex. */
+	/** Protects the usage of the GTT stolen memory allocator */
 	struct mutex stolen_lock;
 
 	/* Protects bound_list/unbound_list and #drm_i915_gem_object.mm.link */
@@ -141,11 +140,6 @@ struct i915_gem_mm {
 	 * waiting on an RCU barrier if no objects are waiting to be freed.
 	 */
 	atomic_t free_count;
-
-	/**
-	 * tmpfs instance used for shmem backed objects
-	 */
-	struct vfsmount *gemfs;
 
 	struct intel_memory_region *regions[INTEL_REGION_UNKNOWN];
 
@@ -175,6 +169,7 @@ struct i915_selftest_stash {
 struct drm_i915_private {
 	struct drm_device drm;
 
+	/* display device data, must be placed after drm device member */
 	struct intel_display *display;
 
 	/* FIXME: Device release actions should all be moved to drmm_ */
@@ -222,6 +217,9 @@ struct drm_i915_private {
 
 	bool irqs_enabled;
 
+	/* LPT/WPT IOSF sideband protection */
+	struct mutex sbi_lock;
+
 	/* VLV/CHV IOSF sideband */
 	struct {
 		struct mutex lock; /* protect sideband access */
@@ -232,13 +230,10 @@ struct drm_i915_private {
 	/* Sideband mailbox protection */
 	struct mutex sb_lock;
 
-	/** Cached value of IMR to avoid reads in updating the bitfield */
-	u32 irq_mask;
+	/* Cached value of gen 2-4 IMR to avoid reads in updating the bitfield */
+	u32 gen2_imr_mask;
 
 	bool preserve_bios_swizzle;
-
-	unsigned int hpll_freq;
-	unsigned int czclk_freq;
 
 	/**
 	 * wq - Driver workqueue for GEM.
@@ -254,7 +249,7 @@ struct drm_i915_private {
 	 *
 	 * This workqueue should be used for all unordered work
 	 * scheduling within i915, which used to be scheduled on the
-	 * system_wq before moving to a driver instance due
+	 * system_percpu_wq before moving to a driver instance due
 	 * deprecation of flush_scheduled_work().
 	 */
 	struct workqueue_struct *unordered_wq;
@@ -278,8 +273,6 @@ struct drm_i915_private {
 
 	u32 suspend_count;
 	struct vlv_s0ix_state *vlv_s0ix_state;
-
-	const struct dram_info *dram_info;
 
 	struct intel_runtime_pm runtime_pm;
 
@@ -311,12 +304,18 @@ struct drm_i915_private {
 		struct file *mmap_singleton;
 	} gem;
 
+	spinlock_t frontbuffer_lock; /* protects obj->frontbuffer (write-side) */
+
 	struct intel_pxp *pxp;
+
+	struct i915_overlay *overlay;
 
 	struct i915_pmu pmu;
 
 	/* The TTM device structure. */
 	struct ttm_device bdev;
+
+	atomic_t pending_fb_pin;
 
 	I915_SELFTEST_DECLARE(struct i915_selftest_stash selftest;)
 
@@ -488,16 +487,6 @@ IS_SUBPLATFORM(const struct drm_i915_private *i915,
 #define IS_ALDERLAKE_P(i915) IS_PLATFORM(i915, INTEL_ALDERLAKE_P)
 #define IS_DG2(i915)	IS_PLATFORM(i915, INTEL_DG2)
 #define IS_METEORLAKE(i915) IS_PLATFORM(i915, INTEL_METEORLAKE)
-/*
- * Display code shared by i915 and Xe relies on macros like IS_LUNARLAKE,
- * so we need to define these even on platforms that the i915 base driver
- * doesn't support.  Ensure the parameter is used in the definition to
- * avoid 'unused variable' warnings when compiling the shared display code
- * for i915.
- */
-#define IS_LUNARLAKE(i915) (0 && i915)
-#define IS_BATTLEMAGE(i915)  (0 && i915)
-#define IS_PANTHERLAKE(i915) (0 && i915)
 
 #define IS_ARROWLAKE_H(i915) \
 	IS_SUBPLATFORM(i915, INTEL_METEORLAKE, INTEL_SUBPLATFORM_ARL_H)
@@ -602,8 +591,7 @@ IS_SUBPLATFORM(const struct drm_i915_private *i915,
 /* With the 945 and later, Y tiling got adjusted so that it was 32 128-byte
  * rows, which changed the alignment requirements and fence programming.
  */
-#define HAS_128_BYTE_Y_TILING(i915) (GRAPHICS_VER(i915) != 2 && \
-					 !(IS_I915G(i915) || IS_I915GM(i915)))
+#define HAS_128_BYTE_Y_TILING(i915) (!IS_I915G(i915) && !IS_I915GM(i915))
 
 #define HAS_RC6(i915)		 (INTEL_INFO(i915)->has_rc6)
 #define HAS_RC6p(i915)		 (INTEL_INFO(i915)->has_rc6p)

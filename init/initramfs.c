@@ -19,6 +19,7 @@
 #include <linux/init_syscalls.h>
 #include <linux/umh.h>
 #include <linux/security.h>
+#include <linux/overflow.h>
 
 #include "do_mounts.h"
 #include "initramfs_internal.h"
@@ -101,14 +102,14 @@ static char __init *find_link(int major, int minor, int ino,
 			continue;
 		return (*p)->name;
 	}
-	q = kmalloc(sizeof(struct hash), GFP_KERNEL);
+	q = kmalloc_obj(struct hash);
 	if (!q)
 		panic_show_mem("can't allocate link hash entry");
 	q->major = major;
 	q->minor = minor;
 	q->ino = ino;
 	q->mode = mode;
-	strcpy(q->name, name);
+	strscpy(q->name, name);
 	q->next = NULL;
 	*p = q;
 	hardlink_seen = true;
@@ -152,7 +153,7 @@ static void __init dir_add(const char *name, size_t nlen, time64_t mtime)
 {
 	struct dir_entry *de;
 
-	de = kmalloc(sizeof(struct dir_entry) + nlen, GFP_KERNEL);
+	de = kmalloc_flex(*de, name, nlen);
 	if (!de)
 		panic_show_mem("can't allocate dir_entry buffer");
 	INIT_LIST_HEAD(&de->list);
@@ -211,7 +212,7 @@ static void __init parse_header(char *s)
 	hdr_csum = parsed[12];
 }
 
-/* FSM */
+/* Finite-state machine */
 
 static __initdata enum state {
 	Start,
@@ -516,7 +517,7 @@ char * __init unpack_to_rootfs(char *buf, unsigned long len)
 		char header[CPIO_HDRLEN];
 		char symlink[PATH_MAX + N_ALIGN(PATH_MAX) + 1];
 		char name[N_ALIGN(PATH_MAX)];
-	} *bufs = kmalloc(sizeof(*bufs), GFP_KERNEL);
+	} *bufs = kmalloc_obj(*bufs);
 
 	if (!bufs)
 		panic_show_mem("can't allocate buffers");
@@ -651,13 +652,6 @@ disable:
 
 void __weak __init free_initrd_mem(unsigned long start, unsigned long end)
 {
-#ifdef CONFIG_ARCH_KEEP_MEMBLOCK
-	unsigned long aligned_start = ALIGN_DOWN(start, PAGE_SIZE);
-	unsigned long aligned_end = ALIGN(end, PAGE_SIZE);
-
-	memblock_free((void *)aligned_start, aligned_end - aligned_start);
-#endif
-
 	free_reserved_area((void *)start, (void *)end, POISON_FREE_INITMEM,
 			"initrd");
 }

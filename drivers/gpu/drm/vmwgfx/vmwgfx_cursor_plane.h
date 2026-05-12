@@ -33,6 +33,7 @@ static const u32 __maybe_unused vmw_cursor_plane_formats[] = {
 enum vmw_cursor_update_type {
 	VMW_CURSOR_UPDATE_NONE = 0,
 	VMW_CURSOR_UPDATE_LEGACY,
+	VMW_CURSOR_UPDATE_GB_ONLY,
 	VMW_CURSOR_UPDATE_MOB,
 };
 
@@ -70,9 +71,9 @@ void vmw_cursor_cmd_dma_snoop(SVGA3dCmdHeader *header,
 void vmw_cursor_plane_destroy(struct drm_plane *plane);
 
 int vmw_cursor_plane_atomic_check(struct drm_plane *plane,
-				  struct drm_atomic_state *state);
+				  struct drm_atomic_commit *state);
 void vmw_cursor_plane_atomic_update(struct drm_plane *plane,
-				    struct drm_atomic_state *state);
+				    struct drm_atomic_commit *state);
 int vmw_cursor_plane_prepare_fb(struct drm_plane *plane,
 				struct drm_plane_state *new_state);
 void vmw_cursor_plane_cleanup_fb(struct drm_plane *plane,

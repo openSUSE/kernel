@@ -120,7 +120,7 @@ static struct page *__dma_direct_alloc_pages(struct device *dev, size_t size,
 		gfp_t gfp, bool allow_highmem)
 {
 	int node = dev_to_node(dev);
-	struct page *page = NULL;
+	struct page *page;
 	u64 phys_limit;
 
 	WARN_ON_ONCE(!PAGE_ALIGNED(size));
@@ -131,30 +131,25 @@ static struct page *__dma_direct_alloc_pages(struct device *dev, size_t size,
 	gfp |= dma_direct_optimal_gfp_mask(dev, &phys_limit);
 	page = dma_alloc_contiguous(dev, size, gfp);
 	if (page) {
-		if (!dma_coherent_ok(dev, page_to_phys(page), size) ||
-		    (!allow_highmem && PageHighMem(page))) {
-			dma_free_contiguous(dev, page, size);
-			page = NULL;
-		}
+		if (dma_coherent_ok(dev, page_to_phys(page), size) &&
+		    (allow_highmem || !PageHighMem(page)))
+			return page;
+
+		dma_free_contiguous(dev, page, size);
 	}
-again:
-	if (!page)
-		page = alloc_pages_node(node, gfp, get_order(size));
-	if (page && !dma_coherent_ok(dev, page_to_phys(page), size)) {
+
+	while ((page = alloc_pages_node(node, gfp, get_order(size)))
+	       && !dma_coherent_ok(dev, page_to_phys(page), size)) {
 		__free_pages(page, get_order(size));
-		page = NULL;
 
 		if (IS_ENABLED(CONFIG_ZONE_DMA32) &&
 		    phys_limit < DMA_BIT_MASK(64) &&
-		    !(gfp & (GFP_DMA32 | GFP_DMA))) {
+		    !(gfp & (GFP_DMA32 | GFP_DMA)))
 			gfp |= GFP_DMA32;
-			goto again;
-		}
-
-		if (IS_ENABLED(CONFIG_ZONE_DMA) && !(gfp & GFP_DMA)) {
+		else if (IS_ENABLED(CONFIG_ZONE_DMA) && !(gfp & GFP_DMA))
 			gfp = (gfp & ~GFP_DMA32) | GFP_DMA;
-			goto again;
-		}
+		else
+			return NULL;
 	}
 
 	return page;
@@ -411,6 +406,8 @@ void dma_direct_sync_sg_for_device(struct device *dev,
 			arch_sync_dma_for_device(paddr, sg->length,
 					dir);
 	}
+	if (!dev_is_dma_coherent(dev))
+		arch_sync_dma_flush();
 }
 #endif
 
@@ -430,13 +427,12 @@ void dma_direct_sync_sg_for_cpu(struct device *dev,
 			arch_sync_dma_for_cpu(paddr, sg->length, dir);
 
 		swiotlb_sync_single_for_cpu(dev, paddr, sg->length, dir);
-
-		if (dir == DMA_FROM_DEVICE)
-			arch_dma_mark_clean(paddr, sg->length);
 	}
 
-	if (!dev_is_dma_coherent(dev))
+	if (!dev_is_dma_coherent(dev)) {
+		arch_sync_dma_flush();
 		arch_sync_dma_for_cpu_all();
+	}
 }
 
 /*
@@ -448,14 +444,19 @@ void dma_direct_unmap_sg(struct device *dev, struct scatterlist *sgl,
 {
 	struct scatterlist *sg;
 	int i;
+	bool need_sync = false;
 
 	for_each_sg(sgl,  sg, nents, i) {
-		if (sg_dma_is_bus_address(sg))
+		if (sg_dma_is_bus_address(sg)) {
 			sg_dma_unmark_bus_address(sg);
-		else
-			dma_direct_unmap_page(dev, sg->dma_address,
-					      sg_dma_len(sg), dir, attrs);
+		} else {
+			need_sync = true;
+			dma_direct_unmap_phys(dev, sg->dma_address,
+					      sg_dma_len(sg), dir, attrs, false);
+		}
 	}
+	if (need_sync && !dev_is_dma_coherent(dev))
+		arch_sync_dma_flush();
 }
 #endif
 
@@ -465,6 +466,7 @@ int dma_direct_map_sg(struct device *dev, struct scatterlist *sgl, int nents,
 	struct pci_p2pdma_map_state p2pdma_state = {};
 	struct scatterlist *sg;
 	int i, ret;
+	bool need_sync = false;
 
 	for_each_sg(sgl, sg, nents, i) {
 		switch (pci_p2pdma_state(&p2pdma_state, dev, sg_page(sg))) {
@@ -476,16 +478,18 @@ int dma_direct_map_sg(struct device *dev, struct scatterlist *sgl, int nents,
 			 */
 			break;
 		case PCI_P2PDMA_MAP_NONE:
-			sg->dma_address = dma_direct_map_page(dev, sg_page(sg),
-					sg->offset, sg->length, dir, attrs);
+			need_sync = true;
+			sg->dma_address = dma_direct_map_phys(dev, sg_phys(sg),
+					sg->length, dir, attrs, false);
 			if (sg->dma_address == DMA_MAPPING_ERROR) {
 				ret = -EIO;
 				goto out_unmap;
 			}
 			break;
 		case PCI_P2PDMA_MAP_BUS_ADDR:
-			sg->dma_address = pci_p2pdma_bus_addr_map(&p2pdma_state,
-					sg_phys(sg));
+			sg->dma_address = pci_p2pdma_bus_addr_map(
+				p2pdma_state.mem, sg_phys(sg));
+			sg_dma_len(sg) = sg->length;
 			sg_dma_mark_bus_address(sg);
 			continue;
 		default:
@@ -495,27 +499,13 @@ int dma_direct_map_sg(struct device *dev, struct scatterlist *sgl, int nents,
 		sg_dma_len(sg) = sg->length;
 	}
 
+	if (need_sync && !dev_is_dma_coherent(dev))
+		arch_sync_dma_flush();
 	return nents;
 
 out_unmap:
 	dma_direct_unmap_sg(dev, sgl, i, dir, attrs | DMA_ATTR_SKIP_CPU_SYNC);
 	return ret;
-}
-
-dma_addr_t dma_direct_map_resource(struct device *dev, phys_addr_t paddr,
-		size_t size, enum dma_data_direction dir, unsigned long attrs)
-{
-	dma_addr_t dma_addr = paddr;
-
-	if (unlikely(!dma_capable(dev, dma_addr, size, false))) {
-		dev_err_once(dev,
-			     "DMA addr %pad+%zu overflow (mask %llx, bus limit %llx).\n",
-			     &dma_addr, size, *dev->dma_mask, dev->bus_dma_limit);
-		WARN_ON_ONCE(1);
-		return DMA_MAPPING_ERROR;
-	}
-
-	return dma_addr;
 }
 
 int dma_direct_get_sgtable(struct device *dev, struct sg_table *sgt,
@@ -677,7 +667,7 @@ int dma_direct_set_offset(struct device *dev, phys_addr_t cpu_start,
 	if (!offset)
 		return 0;
 
-	map = kcalloc(2, sizeof(*map), GFP_KERNEL);
+	map = kzalloc_objs(*map, 2);
 	if (!map)
 		return -ENOMEM;
 	map[0].cpu_start = cpu_start;

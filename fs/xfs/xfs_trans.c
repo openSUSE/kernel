@@ -4,7 +4,7 @@
  * Copyright (C) 2010 Red Hat, Inc.
  * All Rights Reserved.
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -123,8 +123,6 @@ xfs_trans_dup(
 
 	ntp->t_rtx_res = tp->t_rtx_res - tp->t_rtx_res_used;
 	tp->t_rtx_res = tp->t_rtx_res_used;
-
-	xfs_trans_switch_context(tp, ntp);
 
 	/* move deferred ops over to the new tp */
 	xfs_defer_move(ntp, tp);
@@ -452,19 +450,17 @@ xfs_trans_mod_sb(
  */
 STATIC void
 xfs_trans_apply_sb_deltas(
-	xfs_trans_t	*tp)
+	struct xfs_trans	*tp)
 {
-	struct xfs_dsb	*sbp;
-	struct xfs_buf	*bp;
-	int		whole = 0;
-
-	bp = xfs_trans_getsb(tp);
-	sbp = bp->b_addr;
+	struct xfs_mount	*mp = tp->t_mountp;
+	struct xfs_buf		*bp = xfs_trans_getsb(tp);
+	struct xfs_dsb		*sbp = bp->b_addr;
+	int			whole = 0;
 
 	/*
 	 * Only update the superblock counters if we are logging them
 	 */
-	if (!xfs_has_lazysbcount((tp->t_mountp))) {
+	if (!xfs_has_lazysbcount(mp)) {
 		if (tp->t_icount_delta)
 			be64_add_cpu(&sbp->sb_icount, tp->t_icount_delta);
 		if (tp->t_ifree_delta)
@@ -491,8 +487,7 @@ xfs_trans_apply_sb_deltas(
 	 * write the correct value ondisk.
 	 */
 	if ((tp->t_frextents_delta || tp->t_res_frextents_delta) &&
-	    !xfs_has_rtgroups(tp->t_mountp)) {
-		struct xfs_mount	*mp = tp->t_mountp;
+	    !xfs_has_rtgroups(mp)) {
 		int64_t			rtxdelta;
 
 		rtxdelta = tp->t_frextents_delta + tp->t_res_frextents_delta;
@@ -505,6 +500,8 @@ xfs_trans_apply_sb_deltas(
 
 	if (tp->t_dblocks_delta) {
 		be64_add_cpu(&sbp->sb_dblocks, tp->t_dblocks_delta);
+		mp->m_ddev_targp->bt_nr_sectors +=
+			XFS_FSB_TO_BB(mp, tp->t_dblocks_delta);
 		whole = 1;
 	}
 	if (tp->t_agcount_delta) {
@@ -524,7 +521,7 @@ xfs_trans_apply_sb_deltas(
 		 * recompute the ondisk rtgroup block log.  The incore values
 		 * will be recomputed in xfs_trans_unreserve_and_mod_sb.
 		 */
-		if (xfs_has_rtgroups(tp->t_mountp)) {
+		if (xfs_has_rtgroups(mp)) {
 			sbp->sb_rgblklog = xfs_compute_rgblklog(
 						be32_to_cpu(sbp->sb_rgextents),
 						be32_to_cpu(sbp->sb_rextsize));
@@ -537,6 +534,8 @@ xfs_trans_apply_sb_deltas(
 	}
 	if (tp->t_rblocks_delta) {
 		be64_add_cpu(&sbp->sb_rblocks, tp->t_rblocks_delta);
+		mp->m_rtdev_targp->bt_nr_sectors +=
+			XFS_FSB_TO_BB(mp, tp->t_rblocks_delta);
 		whole = 1;
 	}
 	if (tp->t_rextents_delta) {
@@ -1042,6 +1041,12 @@ xfs_trans_roll(
 	 * locked be logged in the prior and the next transactions.
 	 */
 	tp = *tpp;
+	/*
+	 * __xfs_trans_commit cleared the NOFS flag by calling into
+	 * xfs_trans_free.  Set it again here before doing memory
+	 * allocations.
+	 */
+	xfs_trans_set_context(tp);
 	error = xfs_log_regrant(tp->t_mountp, tp->t_ticket);
 	if (error)
 		return error;

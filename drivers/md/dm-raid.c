@@ -744,7 +744,7 @@ static struct raid_set *raid_set_alloc(struct dm_target *ti, struct raid_type *r
 		return ERR_PTR(-EINVAL);
 	}
 
-	rs = kzalloc(struct_size(rs, dev, raid_devs), GFP_KERNEL);
+	rs = kzalloc_flex(*rs, dev, raid_devs);
 	if (!rs) {
 		ti->error = "Cannot allocate raid context";
 		return ERR_PTR(-ENOMEM);
@@ -2287,6 +2287,8 @@ static int super_init_validation(struct raid_set *rs, struct md_rdev *rdev)
 
 			mddev->reshape_position = le64_to_cpu(sb->reshape_position);
 			rs->raid_type = get_raid_type_by_ll(mddev->level, mddev->layout);
+			if (!rs->raid_type)
+				return -EINVAL;
 		}
 
 	} else {
@@ -3247,7 +3249,7 @@ size_check:
 	rs_reset_inconclusive_reshape(rs);
 
 	/* Start raid set read-only and assumed clean to change in raid_resume() */
-	rs->md.ro = 1;
+	rs->md.ro = MD_RDONLY;
 	rs->md.in_sync = 1;
 
 	/* Has to be held on running the array */
@@ -3385,7 +3387,7 @@ static enum sync_state decipher_sync_action(struct mddev *mddev, unsigned long r
 	/* The MD sync thread can be done with io or be interrupted but still be running */
 	if (!test_bit(MD_RECOVERY_DONE, &recovery) &&
 	    (test_bit(MD_RECOVERY_RUNNING, &recovery) ||
-	     (!mddev->ro && test_bit(MD_RECOVERY_NEEDED, &recovery)))) {
+	     (md_is_rdwr(mddev) && test_bit(MD_RECOVERY_NEEDED, &recovery)))) {
 		if (test_bit(MD_RECOVERY_RESHAPE, &recovery))
 			return st_reshape;
 
@@ -3775,11 +3777,11 @@ static int raid_message(struct dm_target *ti, unsigned int argc, char **argv,
 		} else
 			return -EINVAL;
 	}
-	if (mddev->ro == 2) {
+	if (mddev->ro == MD_AUTO_READ) {
 		/* A write to sync_action is enough to justify
 		 * canceling read-auto mode
 		 */
-		mddev->ro = 0;
+		mddev->ro = MD_RDWR;
 		if (!mddev->suspended)
 			md_wakeup_thread(mddev->sync_thread);
 	}
@@ -3813,8 +3815,10 @@ static void raid_io_hints(struct dm_target *ti, struct queue_limits *limits)
 	struct raid_set *rs = ti->private;
 	unsigned int chunk_size_bytes = to_bytes(rs->md.chunk_sectors);
 
-	limits->io_min = chunk_size_bytes;
-	limits->io_opt = chunk_size_bytes * mddev_data_stripes(rs);
+	if (chunk_size_bytes) {
+		limits->io_min = chunk_size_bytes;
+		limits->io_opt = chunk_size_bytes * mddev_data_stripes(rs);
+	}
 }
 
 static void raid_presuspend(struct dm_target *ti)
@@ -3858,6 +3862,7 @@ static void raid_postsuspend(struct dm_target *ti)
 		 */
 		md_stop_writes(&rs->md);
 		mddev_suspend(&rs->md, false);
+		rs->md.ro = MD_RDONLY;
 	}
 }
 
@@ -3953,9 +3958,11 @@ static int __load_dirty_region_bitmap(struct raid_set *rs)
 	    !test_and_set_bit(RT_FLAG_RS_BITMAP_LOADED, &rs->runtime_flags)) {
 		struct mddev *mddev = &rs->md;
 
-		r = mddev->bitmap_ops->load(mddev);
-		if (r)
-			DMERR("Failed to load bitmap");
+		if (md_bitmap_enabled(mddev, false)) {
+			r = mddev->bitmap_ops->load(mddev);
+			if (r)
+				DMERR("Failed to load bitmap");
+		}
 	}
 
 	return r;
@@ -3968,7 +3975,7 @@ static void rs_update_sbs(struct raid_set *rs)
 	int ro = mddev->ro;
 
 	set_bit(MD_SB_CHANGE_DEVS, &mddev->sb_flags);
-	mddev->ro = 0;
+	mddev->ro = MD_RDWR;
 	md_update_sb(mddev, 1);
 	mddev->ro = ro;
 }
@@ -4070,10 +4077,12 @@ static int raid_preresume(struct dm_target *ti)
 	       mddev->bitmap_info.chunksize != to_bytes(rs->requested_bitmap_chunk_sectors)))) {
 		int chunksize = to_bytes(rs->requested_bitmap_chunk_sectors) ?: mddev->bitmap_info.chunksize;
 
-		r = mddev->bitmap_ops->resize(mddev, mddev->dev_sectors,
-					      chunksize, false);
-		if (r)
-			DMERR("Failed to resize bitmap");
+		if (md_bitmap_enabled(mddev, false)) {
+			r = mddev->bitmap_ops->resize(mddev, mddev->dev_sectors,
+						      chunksize);
+			if (r)
+				DMERR("Failed to resize bitmap");
+		}
 	}
 
 	/* Check for any resize/reshape on @rs and adjust/initiate */
@@ -4125,7 +4134,7 @@ static void raid_resume(struct dm_target *ti)
 		WARN_ON_ONCE(rcu_dereference_protected(mddev->sync_thread,
 						       lockdep_is_held(&mddev->reconfig_mutex)));
 		clear_bit(RT_FLAG_RS_FROZEN, &rs->runtime_flags);
-		mddev->ro = 0;
+		mddev->ro = MD_RDWR;
 		mddev->in_sync = 0;
 		md_unfrozen_sync_thread(mddev);
 		mddev_unlock_and_resume(mddev);

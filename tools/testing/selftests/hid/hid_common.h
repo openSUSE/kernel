@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /* Copyright (c) 2022-2024 Red Hat */
 
-#include "../kselftest_harness.h"
+#include "kselftest_harness.h"
 
 #include <fcntl.h>
 #include <fnmatch.h>
@@ -230,6 +230,12 @@ static int uhid_event(struct __test_metadata *_metadata, int fd)
 		break;
 	case UHID_SET_REPORT:
 		UHID_LOG("UHID_SET_REPORT from uhid-dev");
+
+		answer.type = UHID_SET_REPORT_REPLY;
+		answer.u.set_report_reply.id = ev.u.set_report.id;
+		answer.u.set_report_reply.err = 0; /* success */
+
+		uhid_write(_metadata, fd, &answer);
 		break;
 	default:
 		TH_LOG("Invalid event from uhid-dev: %u", ev.type);

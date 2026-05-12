@@ -88,8 +88,6 @@ int tp_pmu__for_each_tp_sys(void *state, tp_sys_callback cb)
 			continue;
 
 		ret = cb(state, events_ent->d_name);
-		if (ret)
-			break;
 	}
 	close(events_dir.dirfd);
 	return ret;
@@ -194,7 +192,7 @@ bool tp_pmu__have_event(struct perf_pmu *pmu __maybe_unused, const char *name)
 	char *dup_name, *colon;
 	int id;
 
-	colon = strchr(name, ':');
+	colon = strchr((char *)name, ':');
 	if (colon == NULL)
 		return false;
 

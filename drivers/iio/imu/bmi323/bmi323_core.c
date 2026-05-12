@@ -156,7 +156,6 @@ struct bmi323_data {
 	struct iio_mount_matrix orientation;
 	enum bmi323_irq_pin irq_pin;
 	struct iio_trigger *trig;
-	bool drdy_trigger_enabled;
 	enum bmi323_state state;
 	s64 fifo_tstamp, old_fifo_tstamp;
 	u32 odrns[BMI323_SENSORS_CNT];
@@ -2112,8 +2111,7 @@ int bmi323_core_probe(struct device *dev)
 
 	indio_dev = devm_iio_device_alloc(dev, sizeof(*data));
 	if (!indio_dev)
-		return dev_err_probe(dev, -ENOMEM,
-				     "Failed to allocate device\n");
+		return -ENOMEM;
 
 	ret = devm_regulator_bulk_get_enable(dev, ARRAY_SIZE(regulator_names),
 					     regulator_names);

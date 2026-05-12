@@ -132,7 +132,7 @@ struct drm_master *drm_master_create(struct drm_device *dev)
 {
 	struct drm_master *master;
 
-	master = kzalloc(sizeof(*master), GFP_KERNEL);
+	master = kzalloc_obj(*master);
 	if (!master)
 		return NULL;
 
@@ -347,7 +347,7 @@ void drm_master_release(struct drm_file *file_priv)
 	if (!drm_is_current_master_locked(file_priv))
 		goto out;
 
-	if (dev->master == file_priv->master)
+	if (dev->master && dev->master == file_priv->master)
 		drm_drop_master(dev, file_priv);
 out:
 	if (drm_core_check_feature(dev, DRIVER_MODESET) && file_priv->is_master) {

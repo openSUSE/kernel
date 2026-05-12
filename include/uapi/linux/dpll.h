@@ -2,6 +2,7 @@
 /* Do not edit directly, auto-generated from: */
 /*	Documentation/netlink/specs/dpll.yaml */
 /* YNL-GEN uapi header */
+/* To regenerate run: tools/net/ynl/ynl-regen.sh */
 
 #ifndef _UAPI_LINUX_DPLL_H
 #define _UAPI_LINUX_DPLL_H
@@ -190,7 +191,8 @@ enum dpll_pin_capabilities {
 	DPLL_PIN_CAPABILITIES_STATE_CAN_CHANGE = 4,
 };
 
-#define DPLL_PHASE_OFFSET_DIVIDER	1000
+#define DPLL_PHASE_OFFSET_DIVIDER		1000
+#define DPLL_PIN_MEASURED_FREQUENCY_DIVIDER	1000
 
 /**
  * enum dpll_feature_state - Allow control (enable/disable) and status checking
@@ -216,6 +218,8 @@ enum dpll_a {
 	DPLL_A_LOCK_STATUS_ERROR,
 	DPLL_A_CLOCK_QUALITY_LEVEL,
 	DPLL_A_PHASE_OFFSET_MONITOR,
+	DPLL_A_PHASE_OFFSET_AVG_FACTOR,
+	DPLL_A_FREQUENCY_MONITOR,
 
 	__DPLL_A_MAX,
 	DPLL_A_MAX = (__DPLL_A_MAX - 1)
@@ -250,6 +254,9 @@ enum dpll_a_pin {
 	DPLL_A_PIN_ESYNC_FREQUENCY_SUPPORTED,
 	DPLL_A_PIN_ESYNC_PULSE,
 	DPLL_A_PIN_REFERENCE_SYNC,
+	DPLL_A_PIN_PHASE_ADJUST_GRAN,
+	DPLL_A_PIN_FRACTIONAL_FREQUENCY_OFFSET_PPT,
+	DPLL_A_PIN_MEASURED_FREQUENCY,
 
 	__DPLL_A_PIN_MAX,
 	DPLL_A_PIN_MAX = (__DPLL_A_PIN_MAX - 1)

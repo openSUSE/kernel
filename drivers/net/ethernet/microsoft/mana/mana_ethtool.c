@@ -15,66 +15,69 @@ struct mana_stats_desc {
 static const struct mana_stats_desc mana_eth_stats[] = {
 	{"stop_queue", offsetof(struct mana_ethtool_stats, stop_queue)},
 	{"wake_queue", offsetof(struct mana_ethtool_stats, wake_queue)},
-	{"hc_rx_discards_no_wqe", offsetof(struct mana_ethtool_stats,
-					   hc_rx_discards_no_wqe)},
-	{"hc_rx_err_vport_disabled", offsetof(struct mana_ethtool_stats,
-					      hc_rx_err_vport_disabled)},
-	{"hc_rx_bytes", offsetof(struct mana_ethtool_stats, hc_rx_bytes)},
-	{"hc_rx_ucast_pkts", offsetof(struct mana_ethtool_stats,
-				      hc_rx_ucast_pkts)},
-	{"hc_rx_ucast_bytes", offsetof(struct mana_ethtool_stats,
-				       hc_rx_ucast_bytes)},
-	{"hc_rx_bcast_pkts", offsetof(struct mana_ethtool_stats,
-				      hc_rx_bcast_pkts)},
-	{"hc_rx_bcast_bytes", offsetof(struct mana_ethtool_stats,
-				       hc_rx_bcast_bytes)},
-	{"hc_rx_mcast_pkts", offsetof(struct mana_ethtool_stats,
-			hc_rx_mcast_pkts)},
-	{"hc_rx_mcast_bytes", offsetof(struct mana_ethtool_stats,
-				       hc_rx_mcast_bytes)},
-	{"hc_tx_err_gf_disabled", offsetof(struct mana_ethtool_stats,
-					   hc_tx_err_gf_disabled)},
-	{"hc_tx_err_vport_disabled", offsetof(struct mana_ethtool_stats,
-					      hc_tx_err_vport_disabled)},
-	{"hc_tx_err_inval_vportoffset_pkt",
-	 offsetof(struct mana_ethtool_stats,
-		  hc_tx_err_inval_vportoffset_pkt)},
-	{"hc_tx_err_vlan_enforcement", offsetof(struct mana_ethtool_stats,
-						hc_tx_err_vlan_enforcement)},
-	{"hc_tx_err_eth_type_enforcement",
-	 offsetof(struct mana_ethtool_stats, hc_tx_err_eth_type_enforcement)},
-	{"hc_tx_err_sa_enforcement", offsetof(struct mana_ethtool_stats,
-					      hc_tx_err_sa_enforcement)},
-	{"hc_tx_err_sqpdid_enforcement",
-	 offsetof(struct mana_ethtool_stats, hc_tx_err_sqpdid_enforcement)},
-	{"hc_tx_err_cqpdid_enforcement",
-	 offsetof(struct mana_ethtool_stats, hc_tx_err_cqpdid_enforcement)},
-	{"hc_tx_err_mtu_violation", offsetof(struct mana_ethtool_stats,
-					     hc_tx_err_mtu_violation)},
-	{"hc_tx_err_inval_oob", offsetof(struct mana_ethtool_stats,
-					 hc_tx_err_inval_oob)},
-	{"hc_tx_err_gdma", offsetof(struct mana_ethtool_stats,
-				    hc_tx_err_gdma)},
-	{"hc_tx_bytes", offsetof(struct mana_ethtool_stats, hc_tx_bytes)},
-	{"hc_tx_ucast_pkts", offsetof(struct mana_ethtool_stats,
-					hc_tx_ucast_pkts)},
-	{"hc_tx_ucast_bytes", offsetof(struct mana_ethtool_stats,
-					hc_tx_ucast_bytes)},
-	{"hc_tx_bcast_pkts", offsetof(struct mana_ethtool_stats,
-					hc_tx_bcast_pkts)},
-	{"hc_tx_bcast_bytes", offsetof(struct mana_ethtool_stats,
-					hc_tx_bcast_bytes)},
-	{"hc_tx_mcast_pkts", offsetof(struct mana_ethtool_stats,
-					hc_tx_mcast_pkts)},
-	{"hc_tx_mcast_bytes", offsetof(struct mana_ethtool_stats,
-					hc_tx_mcast_bytes)},
 	{"tx_cq_err", offsetof(struct mana_ethtool_stats, tx_cqe_err)},
 	{"tx_cqe_unknown_type", offsetof(struct mana_ethtool_stats,
 					tx_cqe_unknown_type)},
-	{"rx_coalesced_err", offsetof(struct mana_ethtool_stats,
-					rx_coalesced_err)},
+	{"tx_linear_pkt_cnt", offsetof(struct mana_ethtool_stats,
+				       tx_linear_pkt_cnt)},
 	{"rx_cqe_unknown_type", offsetof(struct mana_ethtool_stats,
 					rx_cqe_unknown_type)},
+};
+
+static const struct mana_stats_desc mana_hc_stats[] = {
+	{"hc_rx_discards_no_wqe", offsetof(struct mana_ethtool_hc_stats,
+					   hc_rx_discards_no_wqe)},
+	{"hc_rx_err_vport_disabled", offsetof(struct mana_ethtool_hc_stats,
+					      hc_rx_err_vport_disabled)},
+	{"hc_rx_bytes", offsetof(struct mana_ethtool_hc_stats, hc_rx_bytes)},
+	{"hc_rx_ucast_pkts", offsetof(struct mana_ethtool_hc_stats,
+				      hc_rx_ucast_pkts)},
+	{"hc_rx_ucast_bytes", offsetof(struct mana_ethtool_hc_stats,
+				       hc_rx_ucast_bytes)},
+	{"hc_rx_bcast_pkts", offsetof(struct mana_ethtool_hc_stats,
+				      hc_rx_bcast_pkts)},
+	{"hc_rx_bcast_bytes", offsetof(struct mana_ethtool_hc_stats,
+				       hc_rx_bcast_bytes)},
+	{"hc_rx_mcast_pkts", offsetof(struct mana_ethtool_hc_stats,
+				      hc_rx_mcast_pkts)},
+	{"hc_rx_mcast_bytes", offsetof(struct mana_ethtool_hc_stats,
+				       hc_rx_mcast_bytes)},
+	{"hc_tx_err_gf_disabled", offsetof(struct mana_ethtool_hc_stats,
+					   hc_tx_err_gf_disabled)},
+	{"hc_tx_err_vport_disabled", offsetof(struct mana_ethtool_hc_stats,
+					      hc_tx_err_vport_disabled)},
+	{"hc_tx_err_inval_vportoffset_pkt",
+	 offsetof(struct mana_ethtool_hc_stats,
+		  hc_tx_err_inval_vportoffset_pkt)},
+	{"hc_tx_err_vlan_enforcement", offsetof(struct mana_ethtool_hc_stats,
+						hc_tx_err_vlan_enforcement)},
+	{"hc_tx_err_eth_type_enforcement",
+	 offsetof(struct mana_ethtool_hc_stats, hc_tx_err_eth_type_enforcement)},
+	{"hc_tx_err_sa_enforcement", offsetof(struct mana_ethtool_hc_stats,
+					      hc_tx_err_sa_enforcement)},
+	{"hc_tx_err_sqpdid_enforcement",
+	 offsetof(struct mana_ethtool_hc_stats, hc_tx_err_sqpdid_enforcement)},
+	{"hc_tx_err_cqpdid_enforcement",
+	 offsetof(struct mana_ethtool_hc_stats, hc_tx_err_cqpdid_enforcement)},
+	{"hc_tx_err_mtu_violation", offsetof(struct mana_ethtool_hc_stats,
+					     hc_tx_err_mtu_violation)},
+	{"hc_tx_err_inval_oob", offsetof(struct mana_ethtool_hc_stats,
+					 hc_tx_err_inval_oob)},
+	{"hc_tx_err_gdma", offsetof(struct mana_ethtool_hc_stats,
+				    hc_tx_err_gdma)},
+	{"hc_tx_bytes", offsetof(struct mana_ethtool_hc_stats, hc_tx_bytes)},
+	{"hc_tx_ucast_pkts", offsetof(struct mana_ethtool_hc_stats,
+					hc_tx_ucast_pkts)},
+	{"hc_tx_ucast_bytes", offsetof(struct mana_ethtool_hc_stats,
+					hc_tx_ucast_bytes)},
+	{"hc_tx_bcast_pkts", offsetof(struct mana_ethtool_hc_stats,
+					hc_tx_bcast_pkts)},
+	{"hc_tx_bcast_bytes", offsetof(struct mana_ethtool_hc_stats,
+					hc_tx_bcast_bytes)},
+	{"hc_tx_mcast_pkts", offsetof(struct mana_ethtool_hc_stats,
+					hc_tx_mcast_pkts)},
+	{"hc_tx_mcast_bytes", offsetof(struct mana_ethtool_hc_stats,
+					hc_tx_mcast_bytes)},
 };
 
 static const struct mana_stats_desc mana_phy_stats[] = {
@@ -138,7 +141,7 @@ static int mana_get_sset_count(struct net_device *ndev, int stringset)
 	if (stringset != ETH_SS_STATS)
 		return -EINVAL;
 
-	return ARRAY_SIZE(mana_eth_stats) + ARRAY_SIZE(mana_phy_stats) +
+	return ARRAY_SIZE(mana_eth_stats) + ARRAY_SIZE(mana_phy_stats) + ARRAY_SIZE(mana_hc_stats) +
 			num_queues * (MANA_STATS_RX_COUNT + MANA_STATS_TX_COUNT);
 }
 
@@ -146,13 +149,15 @@ static void mana_get_strings(struct net_device *ndev, u32 stringset, u8 *data)
 {
 	struct mana_port_context *apc = netdev_priv(ndev);
 	unsigned int num_queues = apc->num_queues;
-	int i;
+	int i, j;
 
 	if (stringset != ETH_SS_STATS)
 		return;
-
 	for (i = 0; i < ARRAY_SIZE(mana_eth_stats); i++)
 		ethtool_puts(&data, mana_eth_stats[i].name);
+
+	for (i = 0; i < ARRAY_SIZE(mana_hc_stats); i++)
+		ethtool_puts(&data, mana_hc_stats[i].name);
 
 	for (i = 0; i < ARRAY_SIZE(mana_phy_stats); i++)
 		ethtool_puts(&data, mana_phy_stats[i].name);
@@ -163,6 +168,9 @@ static void mana_get_strings(struct net_device *ndev, u32 stringset, u8 *data)
 		ethtool_sprintf(&data, "rx_%d_xdp_drop", i);
 		ethtool_sprintf(&data, "rx_%d_xdp_tx", i);
 		ethtool_sprintf(&data, "rx_%d_xdp_redirect", i);
+		ethtool_sprintf(&data, "rx_%d_pkt_len0_err", i);
+		for (j = 0; j < MANA_RXCOMP_OOB_NUM_PPI - 1; j++)
+			ethtool_sprintf(&data, "rx_%d_coalesced_cqe_%d", i, j + 2);
 	}
 
 	for (i = 0; i < num_queues; i++) {
@@ -186,6 +194,7 @@ static void mana_get_ethtool_stats(struct net_device *ndev,
 	struct mana_port_context *apc = netdev_priv(ndev);
 	unsigned int num_queues = apc->num_queues;
 	void *eth_stats = &apc->eth_stats;
+	void *hc_stats = &apc->ac->hc_stats;
 	void *phy_stats = &apc->phy_stats;
 	struct mana_stats_rx *rx_stats;
 	struct mana_stats_tx *tx_stats;
@@ -195,6 +204,8 @@ static void mana_get_ethtool_stats(struct net_device *ndev,
 	u64 xdp_xmit;
 	u64 xdp_drop;
 	u64 xdp_tx;
+	u64 pkt_len0_err;
+	u64 coalesced_cqe[MANA_RXCOMP_OOB_NUM_PPI - 1];
 	u64 tso_packets;
 	u64 tso_bytes;
 	u64 tso_inner_packets;
@@ -203,12 +214,10 @@ static void mana_get_ethtool_stats(struct net_device *ndev,
 	u64 short_pkt_fmt;
 	u64 csum_partial;
 	u64 mana_map_err;
-	int q, i = 0;
+	int q, i = 0, j;
 
 	if (!apc->port_is_up)
 		return;
-	/* we call mana function to update stats from GDMA */
-	mana_query_gf_stats(apc);
 
 	/* We call this mana function to get the phy stats from GDMA and includes
 	 * aggregate tx/rx drop counters, Per-TC(Traffic Channel) tx/rx and pause
@@ -218,6 +227,9 @@ static void mana_get_ethtool_stats(struct net_device *ndev,
 
 	for (q = 0; q < ARRAY_SIZE(mana_eth_stats); q++)
 		data[i++] = *(u64 *)(eth_stats + mana_eth_stats[q].offset);
+
+	for (q = 0; q < ARRAY_SIZE(mana_hc_stats); q++)
+		data[i++] = *(u64 *)(hc_stats + mana_hc_stats[q].offset);
 
 	for (q = 0; q < ARRAY_SIZE(mana_phy_stats); q++)
 		data[i++] = *(u64 *)(phy_stats + mana_phy_stats[q].offset);
@@ -232,6 +244,9 @@ static void mana_get_ethtool_stats(struct net_device *ndev,
 			xdp_drop = rx_stats->xdp_drop;
 			xdp_tx = rx_stats->xdp_tx;
 			xdp_redirect = rx_stats->xdp_redirect;
+			pkt_len0_err = rx_stats->pkt_len0_err;
+			for (j = 0; j < MANA_RXCOMP_OOB_NUM_PPI - 1; j++)
+				coalesced_cqe[j] = rx_stats->coalesced_cqe[j];
 		} while (u64_stats_fetch_retry(&rx_stats->syncp, start));
 
 		data[i++] = packets;
@@ -239,6 +254,9 @@ static void mana_get_ethtool_stats(struct net_device *ndev,
 		data[i++] = xdp_drop;
 		data[i++] = xdp_tx;
 		data[i++] = xdp_redirect;
+		data[i++] = pkt_len0_err;
+		for (j = 0; j < MANA_RXCOMP_OOB_NUM_PPI - 1; j++)
+			data[i++] = coalesced_cqe[j];
 	}
 
 	for (q = 0; q < num_queues; q++) {
@@ -273,18 +291,11 @@ static void mana_get_ethtool_stats(struct net_device *ndev,
 	}
 }
 
-static int mana_get_rxnfc(struct net_device *ndev, struct ethtool_rxnfc *cmd,
-			  u32 *rules)
+static u32 mana_get_rx_ring_count(struct net_device *ndev)
 {
 	struct mana_port_context *apc = netdev_priv(ndev);
 
-	switch (cmd->cmd) {
-	case ETHTOOL_GRXRINGS:
-		cmd->data = apc->num_queues;
-		return 0;
-	}
-
-	return -EOPNOTSUPP;
+	return apc->num_queues;
 }
 
 static u32 mana_get_rxfh_key_size(struct net_device *ndev)
@@ -386,6 +397,61 @@ static void mana_get_channels(struct net_device *ndev,
 
 	channel->max_combined = apc->max_queues;
 	channel->combined_count = apc->num_queues;
+}
+
+#define MANA_RX_CQE_NSEC_DEF 2048
+static int mana_get_coalesce(struct net_device *ndev,
+			     struct ethtool_coalesce *ec,
+			     struct kernel_ethtool_coalesce *kernel_coal,
+			     struct netlink_ext_ack *extack)
+{
+	struct mana_port_context *apc = netdev_priv(ndev);
+
+	kernel_coal->rx_cqe_frames =
+		apc->cqe_coalescing_enable ? MANA_RXCOMP_OOB_NUM_PPI : 1;
+
+	kernel_coal->rx_cqe_nsecs = apc->cqe_coalescing_timeout_ns;
+
+	/* Return the default timeout value for old FW not providing
+	 * this value.
+	 */
+	if (apc->port_is_up && apc->cqe_coalescing_enable &&
+	    !kernel_coal->rx_cqe_nsecs)
+		kernel_coal->rx_cqe_nsecs = MANA_RX_CQE_NSEC_DEF;
+
+	return 0;
+}
+
+static int mana_set_coalesce(struct net_device *ndev,
+			     struct ethtool_coalesce *ec,
+			     struct kernel_ethtool_coalesce *kernel_coal,
+			     struct netlink_ext_ack *extack)
+{
+	struct mana_port_context *apc = netdev_priv(ndev);
+	u8 saved_cqe_coalescing_enable;
+	int err;
+
+	if (kernel_coal->rx_cqe_frames != 1 &&
+	    kernel_coal->rx_cqe_frames != MANA_RXCOMP_OOB_NUM_PPI) {
+		NL_SET_ERR_MSG_FMT(extack,
+				   "rx-frames must be 1 or %u, got %u",
+				   MANA_RXCOMP_OOB_NUM_PPI,
+				   kernel_coal->rx_cqe_frames);
+		return -EINVAL;
+	}
+
+	saved_cqe_coalescing_enable = apc->cqe_coalescing_enable;
+	apc->cqe_coalescing_enable =
+		kernel_coal->rx_cqe_frames == MANA_RXCOMP_OOB_NUM_PPI;
+
+	if (!apc->port_is_up)
+		return 0;
+
+	err = mana_config_rss(apc, TRI_STATE_TRUE, false, false);
+	if (err)
+		apc->cqe_coalescing_enable = saved_cqe_coalescing_enable;
+
+	return err;
 }
 
 static int mana_set_channels(struct net_device *ndev,
@@ -508,16 +574,19 @@ static int mana_get_link_ksettings(struct net_device *ndev,
 }
 
 const struct ethtool_ops mana_ethtool_ops = {
+	.supported_coalesce_params = ETHTOOL_COALESCE_RX_CQE_FRAMES,
 	.get_ethtool_stats	= mana_get_ethtool_stats,
 	.get_sset_count		= mana_get_sset_count,
 	.get_strings		= mana_get_strings,
-	.get_rxnfc		= mana_get_rxnfc,
+	.get_rx_ring_count	= mana_get_rx_ring_count,
 	.get_rxfh_key_size	= mana_get_rxfh_key_size,
 	.get_rxfh_indir_size	= mana_rss_indir_size,
 	.get_rxfh		= mana_get_rxfh,
 	.set_rxfh		= mana_set_rxfh,
 	.get_channels		= mana_get_channels,
 	.set_channels		= mana_set_channels,
+	.get_coalesce		= mana_get_coalesce,
+	.set_coalesce		= mana_set_coalesce,
 	.get_ringparam          = mana_get_ringparam,
 	.set_ringparam          = mana_set_ringparam,
 	.get_link_ksettings	= mana_get_link_ksettings,

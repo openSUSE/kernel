@@ -28,7 +28,6 @@
 #include <linux/seqlock.h>
 #include <linux/mutex.h>
 #include <linux/timer.h>
-#include <linux/wait.h>
 #include <linux/sched/signal.h>
 #include <linux/blockgroup_lock.h>
 #include <linux/percpu_counter.h>
@@ -92,7 +91,7 @@
  */
 #ifdef CONFIG_EXT4_DEBUG
 #define ext_debug(ino, fmt, ...)					\
-	pr_debug("[%s/%d] EXT4-fs (%s): ino %lu: (%s, %d): %s:" fmt,	\
+	pr_debug("[%s/%d] EXT4-fs (%s): ino %llu: (%s, %d): %s:" fmt,	\
 		 current->comm, task_pid_nr(current),			\
 		 ino->i_sb->s_id, ino->i_ino, __FILE__, __LINE__,	\
 		 __func__, ##__VA_ARGS__)
@@ -260,6 +259,7 @@ struct ext4_map_blocks {
 	ext4_lblk_t m_lblk;
 	unsigned int m_len;
 	unsigned int m_flags;
+	u64 m_seq;
 };
 
 /*
@@ -367,7 +367,14 @@ struct ext4_io_submit {
 								  blkbits))
 #define EXT4_B_TO_LBLK(inode, offset) \
 	(round_up((offset), i_blocksize(inode)) >> (inode)->i_blkbits)
+#define EXT4_LBLK_TO_B(inode, lblk) ((loff_t)(lblk) << (inode)->i_blkbits)
 
+/* Translate a block number to a page index */
+#define EXT4_LBLK_TO_PG(inode, lblk)	(EXT4_LBLK_TO_B((inode), (lblk)) >> \
+					 PAGE_SHIFT)
+/* Translate a page index to a block number */
+#define EXT4_PG_TO_LBLK(inode, pnum)	(((loff_t)(pnum) << PAGE_SHIFT) >> \
+					 (inode)->i_blkbits)
 /* Translate a block number to a cluster number */
 #define EXT4_B2C(sbi, blk)	((blk) >> (sbi)->s_cluster_bits)
 /* Translate a cluster number to a block number */
@@ -694,13 +701,13 @@ enum {
 	/* Caller is from the delayed allocation writeout path
 	 * finally doing the actual allocation of delayed blocks */
 #define EXT4_GET_BLOCKS_DELALLOC_RESERVE	0x0004
-	/* caller is from the direct IO path, request to creation of an
-	unwritten extents if not allocated, split the unwritten
-	extent if blocks has been preallocated already*/
-#define EXT4_GET_BLOCKS_PRE_IO			0x0008
+	/*
+	 * This means that we cannot merge newly allocated extents, and if we
+	 * found an unwritten extent, we need to split it.
+	 */
+#define EXT4_GET_BLOCKS_SPLIT_NOMERGE		0x0008
+	/* Convert unwritten extent to initialized. */
 #define EXT4_GET_BLOCKS_CONVERT			0x0010
-#define EXT4_GET_BLOCKS_IO_CREATE_EXT		(EXT4_GET_BLOCKS_PRE_IO|\
-					 EXT4_GET_BLOCKS_CREATE_UNWRIT_EXT)
 	/* Eventual metadata allocation (due to growing extent tree)
 	 * should not fail, so try to use reserved blocks for that.*/
 #define EXT4_GET_BLOCKS_METADATA_NOFAIL		0x0020
@@ -1074,9 +1081,6 @@ struct ext4_inode_info {
 
 	spinlock_t i_raw_lock;	/* protects updates to the raw inode */
 
-	/* Fast commit wait queue for this inode */
-	wait_queue_head_t i_fc_wait;
-
 	/*
 	 * Protect concurrent accesses on i_fc_lblk_start, i_fc_lblk_len
 	 * and inode's EXT4_FC_STATE_COMMITTING state bit.
@@ -1113,6 +1117,7 @@ struct ext4_inode_info {
 	struct rw_semaphore i_data_sem;
 	struct inode vfs_inode;
 	struct jbd2_inode *jinode;
+	struct mapping_metadata_bhs i_metadata_bhs;
 
 	/*
 	 * File creation time. Its function is same as that of
@@ -1138,6 +1143,8 @@ struct ext4_inode_info {
 	ext4_lblk_t i_es_shrink_lblk;	/* Offset where we start searching for
 					   extents to shrink. Protected by
 					   i_es_lock  */
+	u64 i_es_seq;			/* Change counter for extents.
+					   Protected by i_es_lock */
 
 	/* ialloc */
 	ext4_group_t	i_last_alloc_group;
@@ -1182,6 +1189,10 @@ struct ext4_inode_info {
 	__u32 i_csum_seed;
 
 	kprojid_t i_projid;
+
+#ifdef CONFIG_FS_ENCRYPTION
+	struct fscrypt_inode_info *i_crypt_info;
+#endif
 };
 
 /*
@@ -1442,7 +1453,9 @@ struct ext4_super_block {
 	__le16  s_encoding;		/* Filename charset encoding */
 	__le16  s_encoding_flags;	/* Filename charset encoding flags */
 	__le32  s_orphan_file_inum;	/* Inode for tracking orphan inodes */
-	__le32	s_reserved[94];		/* Padding to the end of the block */
+	__le16	s_def_resuid_hi;
+	__le16	s_def_resgid_hi;
+	__le32	s_reserved[93];		/* Padding to the end of the block */
 	__le32	s_checksum;		/* crc32c(superblock) */
 };
 
@@ -1554,6 +1567,7 @@ struct ext4_sb_info {
 	struct proc_dir_entry *s_proc;
 	struct kobject s_kobj;
 	struct completion s_kobj_unregister;
+	struct mutex s_error_notify_mutex; /* protects sysfs_notify vs kobject_del */
 	struct super_block *s_sb;
 	struct buffer_head *s_mmp_bh;
 
@@ -1663,6 +1677,8 @@ struct ext4_sb_info {
 
 	/* timer for periodic error stats printing */
 	struct timer_list s_err_report;
+	/* timeout in seconds for s_err_report; 0 disables the timer. */
+	unsigned long s_err_report_sec;
 
 	/* Lazy inode table initialization info */
 	struct ext4_li_request *s_li_request;
@@ -1674,6 +1690,11 @@ struct ext4_sb_info {
 
 	/* record the last minlen when FITRIM is called. */
 	unsigned long s_last_trim_minblks;
+
+	/* minimum folio order of a page cache allocation */
+	u16 s_min_folio_order;
+	/* supported maximum folio order, 0 means not supported */
+	u16 s_max_folio_order;
 
 	/* Precomputed FS UUID checksum for seeding other checksums */
 	__u32 s_csum_seed;
@@ -1761,6 +1782,10 @@ struct ext4_sb_info {
 	 * Main fast commit lock. This lock protects accesses to the
 	 * following fields:
 	 * ei->i_fc_list, s_fc_dentry_q, s_fc_q, s_fc_bytes, s_fc_bh.
+	 *
+	 * s_fc_lock can be taken from reclaim context (inode eviction) and is
+	 * thus reclaim unsafe. Use ext4_fc_lock()/ext4_fc_unlock() helpers
+	 * when acquiring / releasing the lock.
 	 */
 	struct mutex s_fc_lock;
 	struct buffer_head *s_fc_bh;
@@ -1805,11 +1830,35 @@ static inline void ext4_writepages_up_write(struct super_block *sb, int ctx)
 	percpu_up_write(&EXT4_SB(sb)->s_writepages_rwsem);
 }
 
+static inline int ext4_fc_lock(struct super_block *sb)
+{
+	mutex_lock(&EXT4_SB(sb)->s_fc_lock);
+	return memalloc_nofs_save();
+}
+
+static inline void ext4_fc_unlock(struct super_block *sb, int ctx)
+{
+	memalloc_nofs_restore(ctx);
+	mutex_unlock(&EXT4_SB(sb)->s_fc_lock);
+}
+
 static inline int ext4_valid_inum(struct super_block *sb, unsigned long ino)
 {
 	return ino == EXT4_ROOT_INO ||
 		(ino >= EXT4_FIRST_INO(sb) &&
 		 ino <= le32_to_cpu(EXT4_SB(sb)->s_es->s_inodes_count));
+}
+
+static inline int ext4_get_resuid(struct ext4_super_block *es)
+{
+	return le16_to_cpu(es->s_def_resuid) |
+		le16_to_cpu(es->s_def_resuid_hi) << 16;
+}
+
+static inline int ext4_get_resgid(struct ext4_super_block *es)
+{
+	return le16_to_cpu(es->s_def_resgid) |
+		le16_to_cpu(es->s_def_resgid_hi) << 16;
 }
 
 /*
@@ -1980,6 +2029,16 @@ static inline bool ext4_verity_in_progress(struct inode *inode)
 }
 
 #define NEXT_ORPHAN(inode) EXT4_I(inode)->i_dtime
+
+/*
+ * Check whether the inode is tracked as orphan (either in orphan file or
+ * orphan list).
+ */
+static inline bool ext4_inode_orphan_tracked(struct inode *inode)
+{
+	return ext4_test_inode_state(inode, EXT4_STATE_ORPHAN_FILE) ||
+		!list_empty(&EXT4_I(inode)->i_orphan);
+}
 
 /*
  * Codes for operating systems
@@ -2317,7 +2376,6 @@ static inline int ext4_emergency_state(struct super_block *sb)
 #define EXT4_DEF_SB_UPDATE_INTERVAL_SEC (3600) /* seconds (1 hour) */
 #define EXT4_DEF_SB_UPDATE_INTERVAL_KB (16384) /* kilobytes (16MB) */
 
-
 /*
  * Minimum number of groups in a flexgroup before we separate out
  * directories into the first block group of a flexgroup
@@ -2440,28 +2498,19 @@ static inline unsigned int ext4_dir_rec_len(__u8 name_len,
 	return (rec_len & ~EXT4_DIR_ROUND);
 }
 
-/*
- * If we ever get support for fs block sizes > page_size, we'll need
- * to remove the #if statements in the next two functions...
- */
 static inline unsigned int
 ext4_rec_len_from_disk(__le16 dlen, unsigned blocksize)
 {
 	unsigned len = le16_to_cpu(dlen);
 
-#if (PAGE_SIZE >= 65536)
 	if (len == EXT4_MAX_REC_LEN || len == 0)
 		return blocksize;
 	return (len & 65532) | ((len & 3) << 16);
-#else
-	return len;
-#endif
 }
 
 static inline __le16 ext4_rec_len_to_disk(unsigned len, unsigned blocksize)
 {
 	BUG_ON((len > blocksize) || (blocksize > (1 << 18)) || (len & 3));
-#if (PAGE_SIZE >= 65536)
 	if (len < 65536)
 		return cpu_to_le16(len);
 	if (len == blocksize) {
@@ -2471,9 +2520,6 @@ static inline __le16 ext4_rec_len_to_disk(unsigned len, unsigned blocksize)
 			return cpu_to_le16(0);
 	}
 	return cpu_to_le16((len & 65532) | ((len >> 16) & 3));
-#else
-	return cpu_to_le16(len);
-#endif
 }
 
 /*
@@ -2926,7 +2972,8 @@ void __ext4_fc_track_unlink(handle_t *handle, struct inode *inode,
 void __ext4_fc_track_link(handle_t *handle, struct inode *inode,
 	struct dentry *dentry);
 void ext4_fc_track_unlink(handle_t *handle, struct dentry *dentry);
-void ext4_fc_track_link(handle_t *handle, struct dentry *dentry);
+void ext4_fc_track_link(handle_t *handle, struct inode *inode,
+			struct dentry *dentry);
 void __ext4_fc_track_create(handle_t *handle, struct inode *inode,
 			    struct dentry *dentry);
 void ext4_fc_track_create(handle_t *handle, struct dentry *dentry);
@@ -3051,8 +3098,9 @@ extern int ext4_chunk_trans_blocks(struct inode *, int nrblocks);
 extern int ext4_chunk_trans_extent(struct inode *inode, int nrblocks);
 extern int ext4_meta_trans_blocks(struct inode *inode, int lblocks,
 				  int pextents);
-extern int ext4_zero_partial_blocks(handle_t *handle, struct inode *inode,
-			     loff_t lstart, loff_t lend);
+extern int ext4_block_zero_eof(struct inode *inode, loff_t from, loff_t end);
+extern int ext4_zero_partial_blocks(struct inode *inode, loff_t lstart,
+				    loff_t length, bool *did_zero);
 extern vm_fault_t ext4_page_mkwrite(struct vm_fault *vmf);
 extern qsize_t *ext4_get_reserved_space(struct inode *inode);
 extern int ext4_get_projid(struct inode *inode, kprojid_t *projid);
@@ -3134,6 +3182,8 @@ extern struct buffer_head *ext4_sb_bread(struct super_block *sb,
 					 sector_t block, blk_opf_t op_flags);
 extern struct buffer_head *ext4_sb_bread_unmovable(struct super_block *sb,
 						   sector_t block);
+extern struct buffer_head *ext4_sb_bread_nofail(struct super_block *sb,
+						sector_t block);
 extern void ext4_read_bh_nowait(struct buffer_head *bh, blk_opf_t op_flags,
 				bh_end_io_t *end_io, bool simu_fail);
 extern int ext4_read_bh(struct buffer_head *bh, blk_opf_t op_flags,
@@ -3153,6 +3203,7 @@ extern void ext4_mark_group_bitmap_corrupted(struct super_block *sb,
 					     unsigned int flags);
 extern unsigned int ext4_num_base_meta_blocks(struct super_block *sb,
 					      ext4_group_t block_group);
+extern void print_daily_error_info(struct timer_list *t);
 
 extern __printf(7, 8)
 void __ext4_error(struct super_block *, const char *, unsigned int, bool,
@@ -3178,7 +3229,7 @@ extern void __dump_mmp_msg(struct super_block *, struct mmp_struct *mmp,
 extern __printf(7, 8)
 void __ext4_grp_locked_error(const char *, unsigned int,
 			     struct super_block *, ext4_group_t,
-			     unsigned long, ext4_fsblk_t,
+			     u64, ext4_fsblk_t,
 			     const char *, ...);
 
 #define EXT4_ERROR_INODE(inode, fmt, a...) \
@@ -3668,7 +3719,7 @@ extern int ext4_handle_dirty_dirblock(handle_t *handle, struct inode *inode,
 extern int __ext4_unlink(struct inode *dir, const struct qstr *d_name,
 			 struct inode *inode, struct dentry *dentry);
 extern int __ext4_link(struct inode *dir, struct inode *inode,
-		       struct dentry *dentry);
+		       const struct qstr *d_name, struct dentry *dentry);
 
 #define S_SHIFT 12
 static const unsigned char ext4_type_by_mode[(S_IFMT >> S_SHIFT) + 1] = {
@@ -3689,8 +3740,8 @@ static inline void ext4_set_de_type(struct super_block *sb,
 }
 
 /* readpages.c */
-extern int ext4_mpage_readpages(struct inode *inode,
-		struct readahead_control *rac, struct folio *folio);
+int ext4_read_folio(struct file *file, struct folio *folio);
+void ext4_readahead(struct readahead_control *rac);
 extern int __init ext4_init_post_read_processing(void);
 extern void ext4_exit_post_read_processing(void);
 
@@ -3749,6 +3800,10 @@ extern int ext4_convert_unwritten_io_end_vec(handle_t *handle,
 					     ext4_io_end_t *io_end);
 extern int ext4_map_blocks(handle_t *handle, struct inode *inode,
 			   struct ext4_map_blocks *map, int flags);
+extern int ext4_map_query_blocks(handle_t *handle, struct inode *inode,
+				  struct ext4_map_blocks *map, int flags);
+extern int ext4_map_create_blocks(handle_t *handle, struct inode *inode,
+				  struct ext4_map_blocks *map, int flags);
 extern int ext4_ext_calc_credits_for_single_extent(struct inode *inode,
 						   int num,
 						   struct ext4_ext_path *path);
@@ -3863,7 +3918,6 @@ static inline void ext4_clear_io_unwritten_flag(ext4_io_end_t *io_end)
 }
 
 extern const struct iomap_ops ext4_iomap_ops;
-extern const struct iomap_ops ext4_iomap_overwrite_ops;
 extern const struct iomap_ops ext4_iomap_report_ops;
 
 static inline int ext4_buffer_uptodate(struct buffer_head *bh)
@@ -3890,9 +3944,11 @@ static inline bool ext4_inode_can_atomic_write(struct inode *inode)
 extern int ext4_block_write_begin(handle_t *handle, struct folio *folio,
 				  loff_t pos, unsigned len,
 				  get_block_t *get_block);
-#endif	/* __KERNEL__ */
 
-#define EFSBADCRC	EBADMSG		/* Bad CRC detected */
-#define EFSCORRUPTED	EUCLEAN		/* Filesystem is corrupted */
+#if IS_ENABLED(CONFIG_EXT4_KUNIT_TESTS)
+#define EXPORT_SYMBOL_FOR_EXT4_TEST(sym) \
+	EXPORT_SYMBOL_FOR_MODULES(sym, "ext4-test")
+#endif
+#endif	/* __KERNEL__ */
 
 #endif	/* _EXT4_H */

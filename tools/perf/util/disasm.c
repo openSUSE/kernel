@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <ctype.h>
+#include <elf.h>
+#ifndef EF_CSKY_ABIMASK
+#define EF_CSKY_ABIMASK	0XF0000000
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -9,47 +13,45 @@
 #include <unistd.h>
 
 #include <linux/string.h>
+#include <linux/zalloc.h>
 #include <subcmd/run-command.h>
 
 #include "annotate.h"
 #include "annotate-data.h"
 #include "build-id.h"
+#include "capstone.h"
 #include "debug.h"
 #include "disasm.h"
-#include "disasm_bpf.h"
 #include "dso.h"
 #include "dwarf-regs.h"
 #include "env.h"
 #include "evsel.h"
+#include "libbfd.h"
+#include "llvm.h"
 #include "map.h"
 #include "maps.h"
 #include "namespaces.h"
 #include "srcline.h"
 #include "symbol.h"
+#include "thread.h"
 #include "util.h"
 
 static regex_t	 file_lineno;
 
 /* These can be referred from the arch-dependent code */
-static struct ins_ops call_ops;
-static struct ins_ops dec_ops;
-static struct ins_ops jump_ops;
-static struct ins_ops mov_ops;
-static struct ins_ops nop_ops;
-static struct ins_ops lock_ops;
-static struct ins_ops ret_ops;
-static struct ins_ops load_store_ops;
-static struct ins_ops arithmetic_ops;
-
-static int jump__scnprintf(struct ins *ins, char *bf, size_t size,
-			   struct ins_operands *ops, int max_ins_name);
-static int call__scnprintf(struct ins *ins, char *bf, size_t size,
-			   struct ins_operands *ops, int max_ins_name);
+const struct ins_ops call_ops;
+const struct ins_ops dec_ops;
+const struct ins_ops jump_ops;
+const struct ins_ops mov_ops;
+const struct ins_ops nop_ops;
+const struct ins_ops lock_ops;
+const struct ins_ops ret_ops;
+const struct ins_ops load_store_ops;
+const struct ins_ops arithmetic_ops;
 
 static void ins__sort(struct arch *arch);
 static int disasm_line__parse(char *line, const char **namep, char **rawp);
 static int disasm_line__parse_powerpc(struct disasm_line *dl, struct annotate_args *args);
-static char *expand_tabs(char *line, char **storage, size_t *storage_len);
 
 static __attribute__((constructor)) void symbol__init_regexpr(void)
 {
@@ -65,7 +67,8 @@ static int arch__grow_instructions(struct arch *arch)
 		goto grow_from_non_allocated_table;
 
 	new_nr_allocated = arch->nr_instructions_allocated + 128;
-	new_instructions = realloc(arch->instructions, new_nr_allocated * sizeof(struct ins));
+	new_instructions = realloc((void *)arch->instructions,
+				   new_nr_allocated * sizeof(struct ins));
 	if (new_instructions == NULL)
 		return -1;
 
@@ -80,11 +83,11 @@ grow_from_non_allocated_table:
 	if (new_instructions == NULL)
 		return -1;
 
-	memcpy(new_instructions, arch->instructions, arch->nr_instructions);
+	memcpy(new_instructions, arch->instructions, arch->nr_instructions * sizeof(struct ins));
 	goto out_update_instructions;
 }
 
-static int arch__associate_ins_ops(struct arch* arch, const char *name, struct ins_ops *ops)
+int arch__associate_ins_ops(struct arch *arch, const char *name, const struct ins_ops *ops)
 {
 	struct ins *ins;
 
@@ -92,7 +95,7 @@ static int arch__associate_ins_ops(struct arch* arch, const char *name, struct i
 	    arch__grow_instructions(arch))
 		return -1;
 
-	ins = &arch->instructions[arch->nr_instructions];
+	ins = (struct ins *)&arch->instructions[arch->nr_instructions];
 	ins->name = strdup(name);
 	if (!ins->name)
 		return -1;
@@ -104,130 +107,100 @@ static int arch__associate_ins_ops(struct arch* arch, const char *name, struct i
 	return 0;
 }
 
-#include "arch/arc/annotate/instructions.c"
-#include "arch/arm/annotate/instructions.c"
-#include "arch/arm64/annotate/instructions.c"
-#include "arch/csky/annotate/instructions.c"
-#include "arch/loongarch/annotate/instructions.c"
-#include "arch/mips/annotate/instructions.c"
-#include "arch/x86/annotate/instructions.c"
-#include "arch/powerpc/annotate/instructions.c"
-#include "arch/riscv64/annotate/instructions.c"
-#include "arch/s390/annotate/instructions.c"
-#include "arch/sparc/annotate/instructions.c"
-
-static struct arch architectures[] = {
-	{
-		.name = "arc",
-		.init = arc__annotate_init,
-	},
-	{
-		.name = "arm",
-		.init = arm__annotate_init,
-	},
-	{
-		.name = "arm64",
-		.init = arm64__annotate_init,
-	},
-	{
-		.name = "csky",
-		.init = csky__annotate_init,
-	},
-	{
-		.name = "mips",
-		.init = mips__annotate_init,
-		.objdump = {
-			.comment_char = '#',
-		},
-	},
-	{
-		.name = "x86",
-		.init = x86__annotate_init,
-		.instructions = x86__instructions,
-		.nr_instructions = ARRAY_SIZE(x86__instructions),
-		.insn_suffix = "bwlq",
-		.objdump =  {
-			.comment_char = '#',
-			.register_char = '%',
-			.memory_ref_char = '(',
-			.imm_char = '$',
-		},
-#ifdef HAVE_LIBDW_SUPPORT
-		.update_insn_state = update_insn_state_x86,
-#endif
-	},
-	{
-		.name = "powerpc",
-		.init = powerpc__annotate_init,
-#ifdef HAVE_LIBDW_SUPPORT
-		.update_insn_state = update_insn_state_powerpc,
-#endif
-	},
-	{
-		.name = "riscv64",
-		.init = riscv64__annotate_init,
-	},
-	{
-		.name = "s390",
-		.init = s390__annotate_init,
-		.objdump =  {
-			.comment_char = '#',
-		},
-	},
-	{
-		.name = "sparc",
-		.init = sparc__annotate_init,
-		.objdump = {
-			.comment_char = '#',
-		},
-	},
-	{
-		.name = "loongarch",
-		.init = loongarch__annotate_init,
-		.objdump = {
-			.comment_char = '#',
-		},
-	},
-};
-
-static int arch__key_cmp(const void *name, const void *archp)
+static int e_machine_and_eflags__cmp(const struct e_machine_and_e_flags *val1,
+				     const struct e_machine_and_e_flags *val2)
 {
-	const struct arch *arch = archp;
+	if (val1->e_machine == val2->e_machine) {
+		if (val1->e_machine != EM_CSKY)
+			return 0;
+		if ((val1->e_flags & EF_CSKY_ABIMASK) < (val2->e_flags & EF_CSKY_ABIMASK))
+			return -1;
+		return (val1->e_flags & EF_CSKY_ABIMASK) > (val2->e_flags & EF_CSKY_ABIMASK);
+	}
+	return val1->e_machine < val2->e_machine ? -1 : 1;
+}
 
-	return strcmp(name, arch->name);
+static int arch__key_cmp(const void *key, const void *archp)
+{
+	const struct arch *const *arch = archp;
+
+	return e_machine_and_eflags__cmp(key, &(*arch)->id);
 }
 
 static int arch__cmp(const void *a, const void *b)
 {
-	const struct arch *aa = a;
-	const struct arch *ab = b;
+	const struct arch *const *aa = a;
+	const struct arch *const *ab = b;
 
-	return strcmp(aa->name, ab->name);
+	return e_machine_and_eflags__cmp(&(*aa)->id, &(*ab)->id);
 }
 
-static void arch__sort(void)
+const struct arch *arch__find(uint16_t e_machine, uint32_t e_flags, const char *cpuid)
 {
-	const int nmemb = ARRAY_SIZE(architectures);
+	static const struct arch *(*const arch_new_fn[])(const struct e_machine_and_e_flags *id,
+							 const char *cpuid) = {
+		[EM_386]	= arch__new_x86,
+		[EM_ARC]	= arch__new_arc,
+		[EM_ARM]	= arch__new_arm,
+		[EM_AARCH64]	= arch__new_arm64,
+		[EM_CSKY]	= arch__new_csky,
+		[EM_LOONGARCH]	= arch__new_loongarch,
+		[EM_MIPS]	= arch__new_mips,
+		[EM_PPC64]	= arch__new_powerpc,
+		[EM_PPC]	= arch__new_powerpc,
+		[EM_RISCV]	= arch__new_riscv64,
+		[EM_S390]	= arch__new_s390,
+		[EM_SPARC]	= arch__new_sparc,
+		[EM_SPARCV9]	= arch__new_sparc,
+		[EM_X86_64]	= arch__new_x86,
+	};
+	static const struct arch **archs;
+	static size_t num_archs;
+	struct e_machine_and_e_flags key = {
+		.e_machine = e_machine,
+		.e_flags = e_flags,
+	};
+	const struct arch *result = NULL, **tmp;
 
-	qsort(architectures, nmemb, sizeof(struct arch), arch__cmp);
-}
-
-struct arch *arch__find(const char *name)
-{
-	const int nmemb = ARRAY_SIZE(architectures);
-	static bool sorted;
-
-	if (!sorted) {
-		arch__sort();
-		sorted = true;
+	if (num_archs > 0) {
+		tmp = bsearch(&key, archs, num_archs, sizeof(*archs), arch__key_cmp);
+		if (tmp)
+			result = *tmp;
 	}
 
-	return bsearch(name, architectures, nmemb, sizeof(struct arch), arch__key_cmp);
+	if (result)
+		return result;
+
+	if (e_machine >= ARRAY_SIZE(arch_new_fn) || arch_new_fn[e_machine] == NULL) {
+		errno = ENOTSUP;
+		return NULL;
+	}
+
+	tmp = reallocarray(archs, num_archs + 1, sizeof(*archs));
+	if (!tmp)
+		return NULL;
+
+	result = arch_new_fn[e_machine](&key, cpuid);
+	if (!result) {
+		pr_err("%s: failed to initialize %s (%u) arch priv area\n",
+			__func__, result->name, e_machine);
+		free(tmp);
+		return NULL;
+	}
+	archs = tmp;
+	archs[num_archs++] = result;
+	qsort(archs, num_archs, sizeof(*archs), arch__cmp);
+	return result;
 }
 
-bool arch__is(struct arch *arch, const char *name)
+bool arch__is_x86(const struct arch *arch)
 {
-	return !strcmp(arch->name, name);
+	return arch->id.e_machine == EM_386 || arch->id.e_machine == EM_X86_64;
+}
+
+bool arch__is_powerpc(const struct arch *arch)
+{
+	return arch->id.e_machine == EM_PPC || arch->id.e_machine == EM_PPC64;
 }
 
 static void ins_ops__delete(struct ins_operands *ops)
@@ -240,13 +213,13 @@ static void ins_ops__delete(struct ins_operands *ops)
 	zfree(&ops->target.name);
 }
 
-static int ins__raw_scnprintf(struct ins *ins, char *bf, size_t size,
-			      struct ins_operands *ops, int max_ins_name)
+int ins__raw_scnprintf(const struct ins *ins, char *bf, size_t size,
+			   struct ins_operands *ops, int max_ins_name)
 {
 	return scnprintf(bf, size, "%-*s %s", max_ins_name, ins->name, ops->raw);
 }
 
-int ins__scnprintf(struct ins *ins, char *bf, size_t size,
+int ins__scnprintf(const struct ins *ins, char *bf, size_t size,
 		   struct ins_operands *ops, int max_ins_name)
 {
 	if (ins->ops->scnprintf)
@@ -255,7 +228,7 @@ int ins__scnprintf(struct ins *ins, char *bf, size_t size,
 	return ins__raw_scnprintf(ins, bf, size, ops, max_ins_name);
 }
 
-bool ins__is_fused(struct arch *arch, const char *ins1, const char *ins2)
+bool ins__is_fused(const struct arch *arch, const char *ins1, const char *ins2)
 {
 	if (!arch || !arch->ins_is_fused)
 		return false;
@@ -263,14 +236,12 @@ bool ins__is_fused(struct arch *arch, const char *ins1, const char *ins2)
 	return arch->ins_is_fused(arch, ins1, ins2);
 }
 
-static int call__parse(struct arch *arch, struct ins_operands *ops, struct map_symbol *ms,
+static int call__parse(const struct arch *arch, struct ins_operands *ops, struct map_symbol *ms,
 		struct disasm_line *dl __maybe_unused)
 {
 	char *endptr, *tok, *name;
 	struct map *map = ms->map;
-	struct addr_map_symbol target = {
-		.ms = { .map = map, },
-	};
+	struct addr_map_symbol target;
 
 	ops->target.addr = strtoull(ops->raw, &endptr, 16);
 
@@ -295,12 +266,16 @@ static int call__parse(struct arch *arch, struct ins_operands *ops, struct map_s
 	if (ops->target.name == NULL)
 		return -1;
 find_target:
-	target.addr = map__objdump_2mem(map, ops->target.addr);
+	target = (struct addr_map_symbol) {
+		.ms = { .map = map__get(map), },
+		.addr = map__objdump_2mem(map, ops->target.addr),
+	};
 
-	if (maps__find_ams(ms->maps, &target) == 0 &&
+	if (maps__find_ams(thread__maps(ms->thread), &target) == 0 &&
 	    map__rip_2objdump(target.ms.map, map__map_ip(target.ms.map, target.addr)) == ops->target.addr)
 		ops->target.sym = target.ms.sym;
 
+	addr_map_symbol__exit(&target);
 	return 0;
 
 indirect_call:
@@ -316,8 +291,8 @@ indirect_call:
 	goto find_target;
 }
 
-static int call__scnprintf(struct ins *ins, char *bf, size_t size,
-			   struct ins_operands *ops, int max_ins_name)
+int call__scnprintf(const struct ins *ins, char *bf, size_t size,
+		      struct ins_operands *ops, int max_ins_name)
 {
 	if (ops->target.sym)
 		return scnprintf(bf, size, "%-*s %s", max_ins_name, ins->name, ops->target.sym->name);
@@ -331,14 +306,15 @@ static int call__scnprintf(struct ins *ins, char *bf, size_t size,
 	return scnprintf(bf, size, "%-*s *%" PRIx64, max_ins_name, ins->name, ops->target.addr);
 }
 
-static struct ins_ops call_ops = {
+const struct ins_ops call_ops = {
 	.parse	   = call__parse,
 	.scnprintf = call__scnprintf,
+	.is_call   = true,
 };
 
 bool ins__is_call(const struct ins *ins)
 {
-	return ins->ops == &call_ops || ins->ops == &s390_call_ops || ins->ops == &loongarch_call_ops;
+	return ins->ops && ins->ops->is_call;
 }
 
 /*
@@ -359,13 +335,13 @@ static inline const char *validate_comma(const char *c, struct ins_operands *ops
 	return c;
 }
 
-static int jump__parse(struct arch *arch, struct ins_operands *ops, struct map_symbol *ms,
+static int jump__parse(const struct arch *arch, struct ins_operands *ops, struct map_symbol *ms,
 		struct disasm_line *dl __maybe_unused)
 {
 	struct map *map = ms->map;
 	struct symbol *sym = ms->sym;
 	struct addr_map_symbol target = {
-		.ms = { .map = map, },
+		.ms = { .map = map__get(map), },
 	};
 	const char *c = strchr(ops->raw, ',');
 	u64 start, end;
@@ -390,13 +366,16 @@ static int jump__parse(struct arch *arch, struct ins_operands *ops, struct map_s
 	 * skip over possible up to 2 operands to get to address, e.g.:
 	 * tbnz	 w0, #26, ffff0000083cd190 <security_file_permission+0xd0>
 	 */
-	if (c++ != NULL) {
+	if (c != NULL) {
+		c++;
 		ops->target.addr = strtoull(c, NULL, 16);
 		if (!ops->target.addr) {
 			c = strchr(c, ',');
 			c = validate_comma(c, ops);
-			if (c++ != NULL)
+			if (c != NULL) {
+				c++;
 				ops->target.addr = strtoull(c, NULL, 16);
+			}
 		}
 	} else {
 		ops->target.addr = strtoull(ops->raw, NULL, 16);
@@ -406,7 +385,7 @@ static int jump__parse(struct arch *arch, struct ins_operands *ops, struct map_s
 	start = map__unmap_ip(map, sym->start);
 	end = map__unmap_ip(map, sym->end);
 
-	ops->target.outside = target.addr < start || target.addr > end;
+	ops->target.outside = target.addr < start || target.addr >= end;
 
 	/*
 	 * FIXME: things like this in _cpp_lex_token (gcc's cc1 program):
@@ -426,7 +405,7 @@ static int jump__parse(struct arch *arch, struct ins_operands *ops, struct map_s
 	 * Actual navigation will come next, with further understanding of how
 	 * the symbol searching and disassembly should be done.
 	 */
-	if (maps__find_ams(ms->maps, &target) == 0 &&
+	if (maps__find_ams(thread__maps(ms->thread), &target) == 0 &&
 	    map__rip_2objdump(target.ms.map, map__map_ip(target.ms.map, target.addr)) == ops->target.addr)
 		ops->target.sym = target.ms.sym;
 
@@ -436,12 +415,12 @@ static int jump__parse(struct arch *arch, struct ins_operands *ops, struct map_s
 	} else {
 		ops->target.offset_avail = false;
 	}
-
+	addr_map_symbol__exit(&target);
 	return 0;
 }
 
-static int jump__scnprintf(struct ins *ins, char *bf, size_t size,
-			   struct ins_operands *ops, int max_ins_name)
+int jump__scnprintf(const struct ins *ins, char *bf, size_t size,
+		      struct ins_operands *ops, int max_ins_name)
 {
 	const char *c;
 
@@ -473,7 +452,7 @@ static int jump__scnprintf(struct ins *ins, char *bf, size_t size,
 			 ops->target.offset);
 }
 
-static void jump__delete(struct ins_operands *ops __maybe_unused)
+void jump__delete(struct ins_operands *ops __maybe_unused)
 {
 	/*
 	 * The ops->jump.raw_comment and ops->jump.raw_func_start belong to the
@@ -481,15 +460,16 @@ static void jump__delete(struct ins_operands *ops __maybe_unused)
 	 */
 }
 
-static struct ins_ops jump_ops = {
+const struct ins_ops jump_ops = {
 	.free	   = jump__delete,
 	.parse	   = jump__parse,
 	.scnprintf = jump__scnprintf,
+	.is_jump   = true,
 };
 
 bool ins__is_jump(const struct ins *ins)
 {
-	return ins->ops == &jump_ops || ins->ops == &loongarch_jump_ops;
+	return ins->ops && ins->ops->is_jump;
 }
 
 static int comment__symbol(char *raw, char *comment, u64 *addrp, char **namep)
@@ -519,7 +499,7 @@ static int comment__symbol(char *raw, char *comment, u64 *addrp, char **namep)
 	return 0;
 }
 
-static int lock__parse(struct arch *arch, struct ins_operands *ops, struct map_symbol *ms,
+static int lock__parse(const struct arch *arch, struct ins_operands *ops, struct map_symbol *ms,
 		struct disasm_line *dl __maybe_unused)
 {
 	ops->locked.ops = zalloc(sizeof(*ops->locked.ops));
@@ -545,7 +525,7 @@ out_free_ops:
 	return 0;
 }
 
-static int lock__scnprintf(struct ins *ins, char *bf, size_t size,
+static int lock__scnprintf(const struct ins *ins, char *bf, size_t size,
 			   struct ins_operands *ops, int max_ins_name)
 {
 	int printed;
@@ -573,7 +553,7 @@ static void lock__delete(struct ins_operands *ops)
 	zfree(&ops->target.name);
 }
 
-static struct ins_ops lock_ops = {
+const struct ins_ops lock_ops = {
 	.free	   = lock__delete,
 	.parse	   = lock__parse,
 	.scnprintf = lock__scnprintf,
@@ -586,7 +566,7 @@ static struct ins_ops lock_ops = {
  * But it doesn't care segment selectors like %gs:0x5678(%rcx), so just check
  * the input string after 'memory_ref_char' if exists.
  */
-static bool check_multi_regs(struct arch *arch, const char *op)
+static bool check_multi_regs(const struct arch *arch, const char *op)
 {
 	int count = 0;
 
@@ -607,8 +587,9 @@ static bool check_multi_regs(struct arch *arch, const char *op)
 	return count > 1;
 }
 
-static int mov__parse(struct arch *arch, struct ins_operands *ops, struct map_symbol *ms __maybe_unused,
-		struct disasm_line *dl __maybe_unused)
+static int mov__parse(const struct arch *arch, struct ins_operands *ops,
+		      struct map_symbol *ms __maybe_unused,
+		      struct disasm_line *dl __maybe_unused)
 {
 	char *s = strchr(ops->raw, ','), *target, *comment, prev;
 
@@ -673,105 +654,22 @@ out_free_source:
 	return -1;
 }
 
-static int mov__scnprintf(struct ins *ins, char *bf, size_t size,
-			   struct ins_operands *ops, int max_ins_name)
+int mov__scnprintf(const struct ins *ins, char *bf, size_t size,
+		     struct ins_operands *ops, int max_ins_name)
 {
 	return scnprintf(bf, size, "%-*s %s,%s", max_ins_name, ins->name,
 			 ops->source.name ?: ops->source.raw,
 			 ops->target.name ?: ops->target.raw);
 }
 
-static struct ins_ops mov_ops = {
+const struct ins_ops mov_ops = {
 	.parse	   = mov__parse,
 	.scnprintf = mov__scnprintf,
 };
 
-#define PPC_22_30(R)    (((R) >> 1) & 0x1ff)
-#define MINUS_EXT_XO_FORM	234
-#define SUB_EXT_XO_FORM		232
-#define	ADD_ZERO_EXT_XO_FORM	202
-#define	SUB_ZERO_EXT_XO_FORM	200
-
-static int arithmetic__scnprintf(struct ins *ins, char *bf, size_t size,
-		struct ins_operands *ops, int max_ins_name)
-{
-	return scnprintf(bf, size, "%-*s %s", max_ins_name, ins->name,
-			ops->raw);
-}
-
-/*
- * Sets the fields: multi_regs and "mem_ref".
- * "mem_ref" is set for ops->source which is later used to
- * fill the objdump->memory_ref-char field. This ops is currently
- * used by powerpc and since binary instruction code is used to
- * extract opcode, regs and offset, no other parsing is needed here.
- *
- * Dont set multi regs for 4 cases since it has only one operand
- * for source:
- * - Add to Minus One Extended XO-form ( Ex: addme, addmeo )
- * - Subtract From Minus One Extended XO-form ( Ex: subfme )
- * - Add to Zero Extended XO-form ( Ex: addze, addzeo )
- * - Subtract From Zero Extended XO-form ( Ex: subfze )
- */
-static int arithmetic__parse(struct arch *arch __maybe_unused, struct ins_operands *ops,
-		struct map_symbol *ms __maybe_unused, struct disasm_line *dl)
-{
-	int opcode = PPC_OP(dl->raw.raw_insn);
-
-	ops->source.mem_ref = false;
-	if (opcode == 31) {
-		if ((opcode != MINUS_EXT_XO_FORM) && (opcode != SUB_EXT_XO_FORM) \
-				&& (opcode != ADD_ZERO_EXT_XO_FORM) && (opcode != SUB_ZERO_EXT_XO_FORM))
-			ops->source.multi_regs = true;
-	}
-
-	ops->target.mem_ref = false;
-	ops->target.multi_regs = false;
-
-	return 0;
-}
-
-static struct ins_ops arithmetic_ops = {
-	.parse     = arithmetic__parse,
-	.scnprintf = arithmetic__scnprintf,
-};
-
-static int load_store__scnprintf(struct ins *ins, char *bf, size_t size,
-		struct ins_operands *ops, int max_ins_name)
-{
-	return scnprintf(bf, size, "%-*s %s", max_ins_name, ins->name,
-			ops->raw);
-}
-
-/*
- * Sets the fields: multi_regs and "mem_ref".
- * "mem_ref" is set for ops->source which is later used to
- * fill the objdump->memory_ref-char field. This ops is currently
- * used by powerpc and since binary instruction code is used to
- * extract opcode, regs and offset, no other parsing is needed here
- */
-static int load_store__parse(struct arch *arch __maybe_unused, struct ins_operands *ops,
-		struct map_symbol *ms __maybe_unused, struct disasm_line *dl __maybe_unused)
-{
-	ops->source.mem_ref = true;
-	ops->source.multi_regs = false;
-	/* opcode 31 is of X form */
-	if (PPC_OP(dl->raw.raw_insn) == 31)
-		ops->source.multi_regs = true;
-
-	ops->target.mem_ref = false;
-	ops->target.multi_regs = false;
-
-	return 0;
-}
-
-static struct ins_ops load_store_ops = {
-	.parse     = load_store__parse,
-	.scnprintf = load_store__scnprintf,
-};
-
-static int dec__parse(struct arch *arch __maybe_unused, struct ins_operands *ops, struct map_symbol *ms __maybe_unused,
-		struct disasm_line *dl __maybe_unused)
+static int dec__parse(const struct arch *arch __maybe_unused, struct ins_operands *ops,
+		      struct map_symbol *ms __maybe_unused,
+		      struct disasm_line *dl __maybe_unused)
 {
 	char *target, *comment, *s, prev;
 
@@ -798,33 +696,33 @@ static int dec__parse(struct arch *arch __maybe_unused, struct ins_operands *ops
 	return 0;
 }
 
-static int dec__scnprintf(struct ins *ins, char *bf, size_t size,
+static int dec__scnprintf(const struct ins *ins, char *bf, size_t size,
 			   struct ins_operands *ops, int max_ins_name)
 {
 	return scnprintf(bf, size, "%-*s %s", max_ins_name, ins->name,
 			 ops->target.name ?: ops->target.raw);
 }
 
-static struct ins_ops dec_ops = {
+const struct ins_ops dec_ops = {
 	.parse	   = dec__parse,
 	.scnprintf = dec__scnprintf,
 };
 
-static int nop__scnprintf(struct ins *ins __maybe_unused, char *bf, size_t size,
+static int nop__scnprintf(const struct ins *ins __maybe_unused, char *bf, size_t size,
 			  struct ins_operands *ops __maybe_unused, int max_ins_name)
 {
 	return scnprintf(bf, size, "%-*s", max_ins_name, "nop");
 }
 
-static struct ins_ops nop_ops = {
+const struct ins_ops nop_ops = {
 	.scnprintf = nop__scnprintf,
 };
 
-static struct ins_ops ret_ops = {
+const struct ins_ops ret_ops = {
 	.scnprintf = ins__raw_scnprintf,
 };
 
-bool ins__is_nop(const struct ins *ins)
+static bool ins__is_nop(const struct ins *ins)
 {
 	return ins->ops == &nop_ops;
 }
@@ -858,20 +756,21 @@ static void ins__sort(struct arch *arch)
 {
 	const int nmemb = arch->nr_instructions;
 
-	qsort(arch->instructions, nmemb, sizeof(struct ins), ins__cmp);
+	qsort((void *)arch->instructions, nmemb, sizeof(struct ins), ins__cmp);
 }
 
-static struct ins_ops *__ins__find(struct arch *arch, const char *name, struct disasm_line *dl)
+static const struct ins_ops *__ins__find(const struct arch *arch, const char *name,
+				     struct disasm_line *dl)
 {
-	struct ins *ins;
+	const struct ins *ins;
 	const int nmemb = arch->nr_instructions;
 
-	if (arch__is(arch, "powerpc")) {
+	if (arch__is_powerpc(arch)) {
 		/*
 		 * For powerpc, identify the instruction ops
 		 * from the opcode using raw_insn.
 		 */
-		struct ins_ops *ops;
+		const struct ins_ops *ops;
 
 		ops = check_ppc_insn(dl);
 		if (ops)
@@ -879,8 +778,8 @@ static struct ins_ops *__ins__find(struct arch *arch, const char *name, struct d
 	}
 
 	if (!arch->sorted_instructions) {
-		ins__sort(arch);
-		arch->sorted_instructions = true;
+		ins__sort((struct arch *)arch);
+		((struct arch *)arch)->sorted_instructions = true;
 	}
 
 	ins = bsearch(name, arch->instructions, nmemb, sizeof(struct ins), ins__key_cmp);
@@ -907,17 +806,18 @@ static struct ins_ops *__ins__find(struct arch *arch, const char *name, struct d
 	return ins ? ins->ops : NULL;
 }
 
-struct ins_ops *ins__find(struct arch *arch, const char *name, struct disasm_line *dl)
+const struct ins_ops *ins__find(const struct arch *arch, const char *name, struct disasm_line *dl)
 {
-	struct ins_ops *ops = __ins__find(arch, name, dl);
+	const struct ins_ops *ops = __ins__find(arch, name, dl);
 
 	if (!ops && arch->associate_instruction_ops)
-		ops = arch->associate_instruction_ops(arch, name);
+		ops = arch->associate_instruction_ops((struct arch *)arch, name);
 
 	return ops;
 }
 
-static void disasm_line__init_ins(struct disasm_line *dl, struct arch *arch, struct map_symbol *ms)
+static void disasm_line__init_ins(struct disasm_line *dl, const struct arch *arch,
+				    struct map_symbol *ms)
 {
 	dl->ins.ops = ins__find(arch, dl->ins.name, dl);
 
@@ -1009,13 +909,14 @@ static void annotation_line__init(struct annotation_line *al,
 	al->offset = args->offset;
 	al->line = strdup(args->line);
 	al->line_nr = args->line_nr;
-	al->fileloc = args->fileloc;
+	al->fileloc = args->fileloc ? strdup(args->fileloc) : NULL;
 	al->data_nr = nr;
 }
 
 static void annotation_line__exit(struct annotation_line *al)
 {
 	zfree_srcline(&al->path);
+	zfree(&al->fileloc);
 	zfree(&al->line);
 	zfree(&al->cycles);
 	zfree(&al->br_cntr);
@@ -1042,7 +943,7 @@ static size_t disasm_line_size(int nr)
 struct disasm_line *disasm_line__new(struct annotate_args *args)
 {
 	struct disasm_line *dl = NULL;
-	struct annotation *notes = symbol__annotation(args->ms.sym);
+	struct annotation *notes = symbol__annotation(args->ms->sym);
 	int nr = notes->src->nr_events;
 
 	dl = zalloc(disasm_line_size(nr));
@@ -1051,23 +952,22 @@ struct disasm_line *disasm_line__new(struct annotate_args *args)
 
 	annotation_line__init(&dl->al, args, nr);
 	if (dl->al.line == NULL)
-		goto out_delete;
+		goto out_free_line;
 
 	if (args->offset != -1) {
-		if (arch__is(args->arch, "powerpc")) {
+		if (arch__is_powerpc(args->arch)) {
 			if (disasm_line__parse_powerpc(dl, args) < 0)
 				goto out_free_line;
 		} else if (disasm_line__parse(dl->al.line, &dl->ins.name, &dl->ops.raw) < 0)
 			goto out_free_line;
 
-		disasm_line__init_ins(dl, args->arch, &args->ms);
+		disasm_line__init_ins(dl, args->arch, args->ms);
 	}
 
 	return dl;
 
 out_free_line:
-	zfree(&dl->al.line);
-out_delete:
+	annotation_line__exit(&dl->al);
 	free(dl);
 	return NULL;
 }
@@ -1115,7 +1015,7 @@ static int symbol__parse_objdump_line(struct symbol *sym,
 				      struct annotate_args *args,
 				      char *parsed_line, int *line_nr, char **fileloc)
 {
-	struct map *map = args->ms.map;
+	struct map *map = args->ms->map;
 	struct annotation *notes = symbol__annotation(sym);
 	struct disasm_line *dl;
 	char *tmp;
@@ -1147,7 +1047,7 @@ static int symbol__parse_objdump_line(struct symbol *sym,
 	args->line    = parsed_line;
 	args->line_nr = *line_nr;
 	args->fileloc = *fileloc;
-	args->ms.sym  = sym;
+	args->ms->sym  = sym;
 
 	dl = disasm_line__new(args);
 	(*line_nr)++;
@@ -1165,12 +1065,14 @@ static int symbol__parse_objdump_line(struct symbol *sym,
 	if (dl->ins.ops && ins__is_call(&dl->ins) && !dl->ops.target.sym) {
 		struct addr_map_symbol target = {
 			.addr = dl->ops.target.addr,
-			.ms = { .map = map, },
+			.ms = { .map = map__get(map), },
 		};
 
-		if (!maps__find_ams(args->ms.maps, &target) &&
+		if (!maps__find_ams(thread__maps(args->ms->thread), &target) &&
 		    target.ms.sym->start == target.al_addr)
 			dl->ops.target.sym = target.ms.sym;
+
+		addr_map_symbol__exit(&target);
 	}
 
 	annotation_line__add(&dl->al, &notes->src->source);
@@ -1330,425 +1232,11 @@ fallback:
 	return 0;
 }
 
-#ifdef HAVE_LIBCAPSTONE_SUPPORT
-#include <capstone/capstone.h>
-
-int capstone_init(struct machine *machine, csh *cs_handle, bool is64, bool disassembler_style);
-
-static int open_capstone_handle(struct annotate_args *args, bool is_64bit,
-				csh *handle)
-{
-	struct annotation_options *opt = args->options;
-	cs_mode mode = is_64bit ? CS_MODE_64 : CS_MODE_32;
-
-	/* TODO: support more architectures */
-	if (!arch__is(args->arch, "x86"))
-		return -1;
-
-	if (cs_open(CS_ARCH_X86, mode, handle) != CS_ERR_OK)
-		return -1;
-
-	if (!opt->disassembler_style ||
-	    !strcmp(opt->disassembler_style, "att"))
-		cs_option(*handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_ATT);
-
-	/*
-	 * Resolving address operands to symbols is implemented
-	 * on x86 by investigating instruction details.
-	 */
-	cs_option(*handle, CS_OPT_DETAIL, CS_OPT_ON);
-
-	return 0;
-}
-#endif
-
-#if defined(HAVE_LIBCAPSTONE_SUPPORT) || defined(HAVE_LIBLLVM_SUPPORT)
-struct find_file_offset_data {
-	u64 ip;
-	u64 offset;
-};
-
-/* This will be called for each PHDR in an ELF binary */
-static int find_file_offset(u64 start, u64 len, u64 pgoff, void *arg)
-{
-	struct find_file_offset_data *data = arg;
-
-	if (start <= data->ip && data->ip < start + len) {
-		data->offset = pgoff + data->ip - start;
-		return 1;
-	}
-	return 0;
-}
-
-static u8 *
-read_symbol(const char *filename, struct map *map, struct symbol *sym,
-	    u64 *len, bool *is_64bit)
-{
-	struct dso *dso = map__dso(map);
-	struct nscookie nsc;
-	u64 start = map__rip_2objdump(map, sym->start);
-	u64 end = map__rip_2objdump(map, sym->end);
-	int fd, count;
-	u8 *buf = NULL;
-	struct find_file_offset_data data = {
-		.ip = start,
-	};
-
-	*is_64bit = false;
-
-	nsinfo__mountns_enter(dso__nsinfo(dso), &nsc);
-	fd = open(filename, O_RDONLY);
-	nsinfo__mountns_exit(&nsc);
-	if (fd < 0)
-		return NULL;
-
-	if (file__read_maps(fd, /*exe=*/true, find_file_offset, &data,
-			    is_64bit) == 0)
-		goto err;
-
-	*len = end - start;
-	buf = malloc(*len);
-	if (buf == NULL)
-		goto err;
-
-	count = pread(fd, buf, *len, data.offset);
-	close(fd);
-	fd = -1;
-
-	if ((u64)count != *len)
-		goto err;
-
-	return buf;
-
-err:
-	if (fd >= 0)
-		close(fd);
-	free(buf);
-	return NULL;
-}
-#endif
-
-#if !defined(HAVE_LIBCAPSTONE_SUPPORT) || !defined(HAVE_LIBLLVM_SUPPORT)
-static void symbol__disassembler_missing(const char *disassembler, const char *filename,
-					 struct symbol *sym)
-{
-	pr_debug("The %s disassembler isn't linked in for %s in %s\n",
-		 disassembler, sym->name, filename);
-}
-#endif
-
-#ifdef HAVE_LIBCAPSTONE_SUPPORT
-static void print_capstone_detail(cs_insn *insn, char *buf, size_t len,
-				  struct annotate_args *args, u64 addr)
-{
-	int i;
-	struct map *map = args->ms.map;
-	struct symbol *sym;
-
-	/* TODO: support more architectures */
-	if (!arch__is(args->arch, "x86"))
-		return;
-
-	if (insn->detail == NULL)
-		return;
-
-	for (i = 0; i < insn->detail->x86.op_count; i++) {
-		cs_x86_op *op = &insn->detail->x86.operands[i];
-		u64 orig_addr;
-
-		if (op->type != X86_OP_MEM)
-			continue;
-
-		/* only print RIP-based global symbols for now */
-		if (op->mem.base != X86_REG_RIP)
-			continue;
-
-		/* get the target address */
-		orig_addr = addr + insn->size + op->mem.disp;
-		addr = map__objdump_2mem(map, orig_addr);
-
-		if (dso__kernel(map__dso(map))) {
-			/*
-			 * The kernel maps can be splitted into sections,
-			 * let's find the map first and the search the symbol.
-			 */
-			map = maps__find(map__kmaps(map), addr);
-			if (map == NULL)
-				continue;
-		}
-
-		/* convert it to map-relative address for search */
-		addr = map__map_ip(map, addr);
-
-		sym = map__find_symbol(map, addr);
-		if (sym == NULL)
-			continue;
-
-		if (addr == sym->start) {
-			scnprintf(buf, len, "\t# %"PRIx64" <%s>",
-				  orig_addr, sym->name);
-		} else {
-			scnprintf(buf, len, "\t# %"PRIx64" <%s+%#"PRIx64">",
-				  orig_addr, sym->name, addr - sym->start);
-		}
-		break;
-	}
-}
-
-static int symbol__disassemble_capstone_powerpc(char *filename, struct symbol *sym,
-					struct annotate_args *args)
-{
-	struct annotation *notes = symbol__annotation(sym);
-	struct map *map = args->ms.map;
-	struct dso *dso = map__dso(map);
-	struct nscookie nsc;
-	u64 start = map__rip_2objdump(map, sym->start);
-	u64 end = map__rip_2objdump(map, sym->end);
-	u64 len = end - start;
-	u64 offset;
-	int i, fd, count;
-	bool is_64bit = false;
-	bool needs_cs_close = false;
-	u8 *buf = NULL;
-	struct find_file_offset_data data = {
-		.ip = start,
-	};
-	csh handle;
-	char disasm_buf[512];
-	struct disasm_line *dl;
-	u32 *line;
-	bool disassembler_style = false;
-
-	if (args->options->objdump_path)
-		return -1;
-
-	nsinfo__mountns_enter(dso__nsinfo(dso), &nsc);
-	fd = open(filename, O_RDONLY);
-	nsinfo__mountns_exit(&nsc);
-	if (fd < 0)
-		return -1;
-
-	if (file__read_maps(fd, /*exe=*/true, find_file_offset, &data,
-			    &is_64bit) == 0)
-		goto err;
-
-	if (!args->options->disassembler_style ||
-			!strcmp(args->options->disassembler_style, "att"))
-		disassembler_style = true;
-
-	if (capstone_init(maps__machine(args->ms.maps), &handle, is_64bit, disassembler_style) < 0)
-		goto err;
-
-	needs_cs_close = true;
-
-	buf = malloc(len);
-	if (buf == NULL)
-		goto err;
-
-	count = pread(fd, buf, len, data.offset);
-	close(fd);
-	fd = -1;
-
-	if ((u64)count != len)
-		goto err;
-
-	line = (u32 *)buf;
-
-	/* add the function address and name */
-	scnprintf(disasm_buf, sizeof(disasm_buf), "%#"PRIx64" <%s>:",
-		  start, sym->name);
-
-	args->offset = -1;
-	args->line = disasm_buf;
-	args->line_nr = 0;
-	args->fileloc = NULL;
-	args->ms.sym = sym;
-
-	dl = disasm_line__new(args);
-	if (dl == NULL)
-		goto err;
-
-	annotation_line__add(&dl->al, &notes->src->source);
-
-	/*
-	 * TODO: enable disassm for powerpc
-	 * count = cs_disasm(handle, buf, len, start, len, &insn);
-	 *
-	 * For now, only binary code is saved in disassembled line
-	 * to be used in "type" and "typeoff" sort keys. Each raw code
-	 * is 32 bit instruction. So use "len/4" to get the number of
-	 * entries.
-	 */
-	count = len/4;
-
-	for (i = 0, offset = 0; i < count; i++) {
-		args->offset = offset;
-		sprintf(args->line, "%x", line[i]);
-
-		dl = disasm_line__new(args);
-		if (dl == NULL)
-			break;
-
-		annotation_line__add(&dl->al, &notes->src->source);
-
-		offset += 4;
-	}
-
-	/* It failed in the middle */
-	if (offset != len) {
-		struct list_head *list = &notes->src->source;
-
-		/* Discard all lines and fallback to objdump */
-		while (!list_empty(list)) {
-			dl = list_first_entry(list, struct disasm_line, al.node);
-
-			list_del_init(&dl->al.node);
-			disasm_line__free(dl);
-		}
-		count = -1;
-	}
-
-out:
-	if (needs_cs_close)
-		cs_close(&handle);
-	free(buf);
-	return count < 0 ? count : 0;
-
-err:
-	if (fd >= 0)
-		close(fd);
-	count = -1;
-	goto out;
-}
-
-static int symbol__disassemble_capstone(char *filename, struct symbol *sym,
-					struct annotate_args *args)
-{
-	struct annotation *notes = symbol__annotation(sym);
-	struct map *map = args->ms.map;
-	u64 start = map__rip_2objdump(map, sym->start);
-	u64 len;
-	u64 offset;
-	int i, count, free_count;
-	bool is_64bit = false;
-	bool needs_cs_close = false;
-	u8 *buf = NULL;
-	csh handle;
-	cs_insn *insn = NULL;
-	char disasm_buf[512];
-	struct disasm_line *dl;
-
-	if (args->options->objdump_path)
-		return -1;
-
-	buf = read_symbol(filename, map, sym, &len, &is_64bit);
-	if (buf == NULL)
-		return -1;
-
-	/* add the function address and name */
-	scnprintf(disasm_buf, sizeof(disasm_buf), "%#"PRIx64" <%s>:",
-		  start, sym->name);
-
-	args->offset = -1;
-	args->line = disasm_buf;
-	args->line_nr = 0;
-	args->fileloc = NULL;
-	args->ms.sym = sym;
-
-	dl = disasm_line__new(args);
-	if (dl == NULL)
-		goto err;
-
-	annotation_line__add(&dl->al, &notes->src->source);
-
-	if (open_capstone_handle(args, is_64bit, &handle) < 0)
-		goto err;
-
-	needs_cs_close = true;
-
-	free_count = count = cs_disasm(handle, buf, len, start, len, &insn);
-	for (i = 0, offset = 0; i < count; i++) {
-		int printed;
-
-		printed = scnprintf(disasm_buf, sizeof(disasm_buf),
-				    "       %-7s %s",
-				    insn[i].mnemonic, insn[i].op_str);
-		print_capstone_detail(&insn[i], disasm_buf + printed,
-				      sizeof(disasm_buf) - printed, args,
-				      start + offset);
-
-		args->offset = offset;
-		args->line = disasm_buf;
-
-		dl = disasm_line__new(args);
-		if (dl == NULL)
-			goto err;
-
-		annotation_line__add(&dl->al, &notes->src->source);
-
-		offset += insn[i].size;
-	}
-
-	/* It failed in the middle: probably due to unknown instructions */
-	if (offset != len) {
-		struct list_head *list = &notes->src->source;
-
-		/* Discard all lines and fallback to objdump */
-		while (!list_empty(list)) {
-			dl = list_first_entry(list, struct disasm_line, al.node);
-
-			list_del_init(&dl->al.node);
-			disasm_line__free(dl);
-		}
-		count = -1;
-	}
-
-out:
-	if (needs_cs_close) {
-		cs_close(&handle);
-		if (free_count > 0)
-			cs_free(insn, free_count);
-	}
-	free(buf);
-	return count < 0 ? count : 0;
-
-err:
-	if (needs_cs_close) {
-		struct disasm_line *tmp;
-
-		/*
-		 * It probably failed in the middle of the above loop.
-		 * Release any resources it might add.
-		 */
-		list_for_each_entry_safe(dl, tmp, &notes->src->source, al.node) {
-			list_del(&dl->al.node);
-			disasm_line__free(dl);
-		}
-	}
-	count = -1;
-	goto out;
-}
-#else // HAVE_LIBCAPSTONE_SUPPORT
-static int symbol__disassemble_capstone(char *filename, struct symbol *sym,
-					struct annotate_args *args __maybe_unused)
-{
-	symbol__disassembler_missing("capstone", filename, sym);
-	return -1;
-}
-
-static int symbol__disassemble_capstone_powerpc(char *filename, struct symbol *sym,
-						struct annotate_args *args __maybe_unused)
-{
-	symbol__disassembler_missing("capstone powerpc", filename, sym);
-	return -1;
-}
-#endif // HAVE_LIBCAPSTONE_SUPPORT
-
 static int symbol__disassemble_raw(char *filename, struct symbol *sym,
 					struct annotate_args *args)
 {
 	struct annotation *notes = symbol__annotation(sym);
-	struct map *map = args->ms.map;
+	struct map *map = args->ms->map;
 	struct dso *dso = map__dso(map);
 	u64 start = map__rip_2objdump(map, sym->start);
 	u64 end = map__rip_2objdump(map, sym->end);
@@ -1785,7 +1273,7 @@ static int symbol__disassemble_raw(char *filename, struct symbol *sym,
 	args->line = disasm_buf;
 	args->line_nr = 0;
 	args->fileloc = NULL;
-	args->ms.sym = sym;
+	args->ms->sym = sym;
 
 	dl = disasm_line__new(args);
 	if (dl == NULL)
@@ -1830,201 +1318,12 @@ err:
 	goto out;
 }
 
-#ifdef HAVE_LIBLLVM_SUPPORT
-#include <llvm-c/Disassembler.h>
-#include <llvm-c/Target.h>
-#include "util/llvm-c-helpers.h"
-
-struct symbol_lookup_storage {
-	u64 branch_addr;
-	u64 pcrel_load_addr;
-};
-
-/*
- * Whenever LLVM wants to resolve an address into a symbol, it calls this
- * callback. We don't ever actually _return_ anything (in particular, because
- * it puts quotation marks around what we return), but we use this as a hint
- * that there is a branch or PC-relative address in the expression that we
- * should add some textual annotation for after the instruction. The caller
- * will use this information to add the actual annotation.
- */
-static const char *
-symbol_lookup_callback(void *disinfo, uint64_t value,
-		       uint64_t *ref_type,
-		       uint64_t address __maybe_unused,
-		       const char **ref __maybe_unused)
-{
-	struct symbol_lookup_storage *storage = disinfo;
-
-	if (*ref_type == LLVMDisassembler_ReferenceType_In_Branch)
-		storage->branch_addr = value;
-	else if (*ref_type == LLVMDisassembler_ReferenceType_In_PCrel_Load)
-		storage->pcrel_load_addr = value;
-	*ref_type = LLVMDisassembler_ReferenceType_InOut_None;
-	return NULL;
-}
-
-static int symbol__disassemble_llvm(char *filename, struct symbol *sym,
-				    struct annotate_args *args)
-{
-	struct annotation *notes = symbol__annotation(sym);
-	struct map *map = args->ms.map;
-	struct dso *dso = map__dso(map);
-	u64 start = map__rip_2objdump(map, sym->start);
-	u8 *buf;
-	u64 len;
-	u64 pc;
-	bool is_64bit;
-	char triplet[64];
-	char disasm_buf[2048];
-	size_t disasm_len;
-	struct disasm_line *dl;
-	LLVMDisasmContextRef disasm = NULL;
-	struct symbol_lookup_storage storage;
-	char *line_storage = NULL;
-	size_t line_storage_len = 0;
-	int ret = -1;
-
-	if (args->options->objdump_path)
-		return -1;
-
-	LLVMInitializeAllTargetInfos();
-	LLVMInitializeAllTargetMCs();
-	LLVMInitializeAllDisassemblers();
-
-	buf = read_symbol(filename, map, sym, &len, &is_64bit);
-	if (buf == NULL)
-		return -1;
-
-	if (arch__is(args->arch, "x86")) {
-		if (is_64bit)
-			scnprintf(triplet, sizeof(triplet), "x86_64-pc-linux");
-		else
-			scnprintf(triplet, sizeof(triplet), "i686-pc-linux");
-	} else {
-		scnprintf(triplet, sizeof(triplet), "%s-linux-gnu",
-			  args->arch->name);
-	}
-
-	disasm = LLVMCreateDisasm(triplet, &storage, 0, NULL,
-				  symbol_lookup_callback);
-	if (disasm == NULL)
-		goto err;
-
-	if (args->options->disassembler_style &&
-	    !strcmp(args->options->disassembler_style, "intel"))
-		LLVMSetDisasmOptions(disasm,
-				     LLVMDisassembler_Option_AsmPrinterVariant);
-
-	/*
-	 * This needs to be set after AsmPrinterVariant, due to a bug in LLVM;
-	 * setting AsmPrinterVariant makes a new instruction printer, making it
-	 * forget about the PrintImmHex flag (which is applied before if both
-	 * are given to the same call).
-	 */
-	LLVMSetDisasmOptions(disasm, LLVMDisassembler_Option_PrintImmHex);
-
-	/* add the function address and name */
-	scnprintf(disasm_buf, sizeof(disasm_buf), "%#"PRIx64" <%s>:",
-		  start, sym->name);
-
-	args->offset = -1;
-	args->line = disasm_buf;
-	args->line_nr = 0;
-	args->fileloc = NULL;
-	args->ms.sym = sym;
-
-	dl = disasm_line__new(args);
-	if (dl == NULL)
-		goto err;
-
-	annotation_line__add(&dl->al, &notes->src->source);
-
-	pc = start;
-	for (u64 offset = 0; offset < len; ) {
-		unsigned int ins_len;
-
-		storage.branch_addr = 0;
-		storage.pcrel_load_addr = 0;
-
-		ins_len = LLVMDisasmInstruction(disasm, buf + offset,
-						len - offset, pc,
-						disasm_buf, sizeof(disasm_buf));
-		if (ins_len == 0)
-			goto err;
-		disasm_len = strlen(disasm_buf);
-
-		if (storage.branch_addr != 0) {
-			char *name = llvm_name_for_code(dso, filename,
-							storage.branch_addr);
-			if (name != NULL) {
-				disasm_len += scnprintf(disasm_buf + disasm_len,
-							sizeof(disasm_buf) -
-								disasm_len,
-							" <%s>", name);
-				free(name);
-			}
-		}
-		if (storage.pcrel_load_addr != 0) {
-			char *name = llvm_name_for_data(dso, filename,
-							storage.pcrel_load_addr);
-			disasm_len += scnprintf(disasm_buf + disasm_len,
-						sizeof(disasm_buf) - disasm_len,
-						"  # %#"PRIx64,
-						storage.pcrel_load_addr);
-			if (name) {
-				disasm_len += scnprintf(disasm_buf + disasm_len,
-							sizeof(disasm_buf) -
-							disasm_len,
-							" <%s>", name);
-				free(name);
-			}
-		}
-
-		args->offset = offset;
-		args->line = expand_tabs(disasm_buf, &line_storage,
-					 &line_storage_len);
-		args->line_nr = 0;
-		args->fileloc = NULL;
-		args->ms.sym = sym;
-
-		llvm_addr2line(filename, pc, &args->fileloc,
-			       (unsigned int *)&args->line_nr, false, NULL);
-
-		dl = disasm_line__new(args);
-		if (dl == NULL)
-			goto err;
-
-		annotation_line__add(&dl->al, &notes->src->source);
-
-		free(args->fileloc);
-		pc += ins_len;
-		offset += ins_len;
-	}
-
-	ret = 0;
-
-err:
-	LLVMDisasmDispose(disasm);
-	free(buf);
-	free(line_storage);
-	return ret;
-}
-#else // HAVE_LIBLLVM_SUPPORT
-static int symbol__disassemble_llvm(char *filename, struct symbol *sym,
-				    struct annotate_args *args __maybe_unused)
-{
-	symbol__disassembler_missing("LLVM", filename, sym);
-	return -1;
-}
-#endif // HAVE_LIBLLVM_SUPPORT
-
 /*
  * Possibly create a new version of line with tabs expanded. Returns the
  * existing or new line, storage is updated if a new line is allocated. If
  * allocation fails then NULL is returned.
  */
-static char *expand_tabs(char *line, char **storage, size_t *storage_len)
+char *expand_tabs(char *line, char **storage, size_t *storage_len)
 {
 	size_t i, src, dst, len, new_storage_len, num_tabs;
 	char *new_line;
@@ -2079,11 +1378,28 @@ static char *expand_tabs(char *line, char **storage, size_t *storage_len)
 	return new_line;
 }
 
+static int symbol__disassemble_bpf_image(struct symbol *sym, struct annotate_args *args)
+{
+	struct annotation *notes = symbol__annotation(sym);
+	struct disasm_line *dl;
+
+	args->offset = -1;
+	args->line = strdup("to be implemented");
+	args->line_nr = 0;
+	args->fileloc = NULL;
+	dl = disasm_line__new(args);
+	if (dl)
+		annotation_line__add(&dl->al, &notes->src->source);
+
+	zfree(&args->line);
+	return 0;
+}
+
 static int symbol__disassemble_objdump(const char *filename, struct symbol *sym,
 				       struct annotate_args *args)
 {
 	struct annotation_options *opts = &annotate_opts;
-	struct map *map = args->ms.map;
+	struct map *map = args->ms->map;
 	struct dso *dso = map__dso(map);
 	char *command;
 	FILE *file;
@@ -2102,6 +1418,12 @@ static int symbol__disassemble_objdump(const char *filename, struct symbol *sym,
 	};
 	struct child_process objdump_process;
 	int err;
+
+	if (dso__binary_type(dso) == DSO_BINARY_TYPE__BPF_PROG_INFO)
+		return symbol__disassemble_bpf_libbfd(sym, args);
+
+	if (dso__binary_type(dso) == DSO_BINARY_TYPE__BPF_IMAGE)
+		return symbol__disassemble_bpf_image(sym, args);
 
 	err = asprintf(&command,
 		 "%s %s%s --start-address=0x%016" PRIx64
@@ -2220,7 +1542,7 @@ out_free_command:
 int symbol__disassemble(struct symbol *sym, struct annotate_args *args)
 {
 	struct annotation_options *options = args->options;
-	struct map *map = args->ms.map;
+	struct map *map = args->ms->map;
 	struct dso *dso = map__dso(map);
 	char symfs_filename[PATH_MAX];
 	bool delete_extract = false;
@@ -2237,11 +1559,7 @@ int symbol__disassemble(struct symbol *sym, struct annotate_args *args)
 
 	pr_debug("annotating [%p] %30s : [%p] %30s\n", dso, dso__long_name(dso), sym, sym->name);
 
-	if (dso__binary_type(dso) == DSO_BINARY_TYPE__BPF_PROG_INFO) {
-		return symbol__disassemble_bpf(sym, args);
-	} else if (dso__binary_type(dso) == DSO_BINARY_TYPE__BPF_IMAGE) {
-		return symbol__disassemble_bpf_image(sym, args);
-	} else if (dso__binary_type(dso) == DSO_BINARY_TYPE__NOT_FOUND) {
+	if (dso__binary_type(dso) == DSO_BINARY_TYPE__NOT_FOUND) {
 		return SYMBOL_ANNOTATE_ERRNO__COULDNT_DETERMINE_FILE_TYPE;
 	} else if (dso__is_kcore(dso)) {
 		kce.addr = map__rip_2objdump(map, sym->start);
@@ -2270,7 +1588,7 @@ int symbol__disassemble(struct symbol *sym, struct annotate_args *args)
 	 * and typeoff, disassemble to mnemonic notation is not required in
 	 * case of powerpc.
 	 */
-	if (arch__is(args->arch, "powerpc")) {
+	if (arch__is_powerpc(args->arch)) {
 		extern const char *sort_order;
 
 		if (sort_order && !strstr(sort_order, "sym")) {

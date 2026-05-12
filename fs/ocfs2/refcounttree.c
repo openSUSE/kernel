@@ -31,9 +31,9 @@
 #include <linux/blkdev.h>
 #include <linux/slab.h>
 #include <linux/writeback.h>
-#include <linux/pagevec.h>
 #include <linux/swap.h>
 #include <linux/security.h>
+#include <linux/string.h>
 #include <linux/fsnotify.h>
 #include <linux/quotaops.h>
 #include <linux/namei.h>
@@ -310,7 +310,7 @@ ocfs2_allocate_refcount_tree(struct ocfs2_super *osb, u64 rf_blkno)
 {
 	struct ocfs2_refcount_tree *new;
 
-	new = kzalloc(sizeof(struct ocfs2_refcount_tree), GFP_NOFS);
+	new = kzalloc_obj(struct ocfs2_refcount_tree, GFP_NOFS);
 	if (!new)
 		return NULL;
 
@@ -621,7 +621,7 @@ static int ocfs2_create_refcount_tree(struct inode *inode,
 	/* Initialize ocfs2_refcount_block. */
 	rb = (struct ocfs2_refcount_block *)new_bh->b_data;
 	memset(rb, 0, inode->i_sb->s_blocksize);
-	strcpy((void *)rb, OCFS2_REFCOUNT_BLOCK_SIGNATURE);
+	strscpy(rb->rf_signature, OCFS2_REFCOUNT_BLOCK_SIGNATURE);
 	rb->rf_suballoc_slot = cpu_to_le16(meta_ac->ac_alloc_slot);
 	rb->rf_suballoc_loc = cpu_to_le64(suballoc_loc);
 	rb->rf_suballoc_bit = cpu_to_le16(suballoc_bit_start);
@@ -1562,7 +1562,7 @@ static int ocfs2_new_leaf_refcount_block(handle_t *handle,
 	/* Initialize ocfs2_refcount_block. */
 	new_rb = (struct ocfs2_refcount_block *)new_bh->b_data;
 	memset(new_rb, 0, sb->s_blocksize);
-	strcpy((void *)new_rb, OCFS2_REFCOUNT_BLOCK_SIGNATURE);
+	strscpy(new_rb->rf_signature, OCFS2_REFCOUNT_BLOCK_SIGNATURE);
 	new_rb->rf_suballoc_slot = cpu_to_le16(meta_ac->ac_alloc_slot);
 	new_rb->rf_suballoc_loc = cpu_to_le64(suballoc_loc);
 	new_rb->rf_suballoc_bit = cpu_to_le16(suballoc_bit_start);
@@ -2340,7 +2340,7 @@ static int ocfs2_mark_extent_refcounted(struct inode *inode,
 					   cpos, len, phys);
 
 	if (!ocfs2_refcount_tree(OCFS2_SB(inode->i_sb))) {
-		ret = ocfs2_error(inode->i_sb, "Inode %lu want to use refcount tree, but the feature bit is not set in the super block\n",
+		ret = ocfs2_error(inode->i_sb, "Inode %llu want to use refcount tree, but the feature bit is not set in the super block\n",
 				  inode->i_ino);
 		goto out;
 	}
@@ -2523,7 +2523,7 @@ int ocfs2_prepare_refcount_change_for_del(struct inode *inode,
 	u64 start_cpos = ocfs2_blocks_to_clusters(inode->i_sb, phys_blkno);
 
 	if (!ocfs2_refcount_tree(OCFS2_SB(inode->i_sb))) {
-		ret = ocfs2_error(inode->i_sb, "Inode %lu want to use refcount tree, but the feature bit is not set in the super block\n",
+		ret = ocfs2_error(inode->i_sb, "Inode %llu want to use refcount tree, but the feature bit is not set in the super block\n",
 				  inode->i_ino);
 		goto out;
 	}
@@ -2649,7 +2649,7 @@ static int ocfs2_refcount_cal_cow_clusters(struct inode *inode,
 
 		if (el->l_tree_depth) {
 			ret = ocfs2_error(inode->i_sb,
-					  "Inode %lu has non zero tree depth in leaf block %llu\n",
+					  "Inode %llu has non zero tree depth in leaf block %llu\n",
 					  inode->i_ino,
 					  (unsigned long long)eb_bh->b_blocknr);
 			goto out;
@@ -2661,7 +2661,7 @@ static int ocfs2_refcount_cal_cow_clusters(struct inode *inode,
 		rec = &el->l_recs[i];
 
 		if (ocfs2_is_empty_extent(rec)) {
-			mlog_bug_on_msg(i != 0, "Inode %lu has empty record in "
+			mlog_bug_on_msg(i != 0, "Inode %llu has empty record in "
 					"index %d\n", inode->i_ino, i);
 			continue;
 		}
@@ -3324,7 +3324,7 @@ static int ocfs2_replace_cow(struct ocfs2_cow_context *context)
 	struct ocfs2_super *osb = OCFS2_SB(inode->i_sb);
 
 	if (!ocfs2_refcount_tree(osb)) {
-		return ocfs2_error(inode->i_sb, "Inode %lu want to use refcount tree, but the feature bit is not set in the super block\n",
+		return ocfs2_error(inode->i_sb, "Inode %llu want to use refcount tree, but the feature bit is not set in the super block\n",
 				   inode->i_ino);
 	}
 
@@ -3396,7 +3396,7 @@ static int ocfs2_refcount_cow_hunk(struct inode *inode,
 
 	BUG_ON(cow_len == 0);
 
-	context = kzalloc(sizeof(struct ocfs2_cow_context), GFP_NOFS);
+	context = kzalloc_obj(struct ocfs2_cow_context, GFP_NOFS);
 	if (!context) {
 		ret = -ENOMEM;
 		mlog_errno(ret);
@@ -3605,7 +3605,7 @@ int ocfs2_refcount_cow_xattr(struct inode *inode,
 
 	BUG_ON(cow_len == 0);
 
-	context = kzalloc(sizeof(struct ocfs2_cow_context), GFP_NOFS);
+	context = kzalloc_obj(struct ocfs2_cow_context, GFP_NOFS);
 	if (!context) {
 		ret = -ENOMEM;
 		mlog_errno(ret);
@@ -4418,7 +4418,7 @@ int ocfs2_reflink_ioctl(struct inode *inode,
 		return error;
 	}
 
-	new_dentry = user_path_create(AT_FDCWD, newname, &new_path, 0);
+	new_dentry = start_creating_user_path(AT_FDCWD, newname, &new_path, 0);
 	error = PTR_ERR(new_dentry);
 	if (IS_ERR(new_dentry)) {
 		mlog_errno(error);
@@ -4435,7 +4435,7 @@ int ocfs2_reflink_ioctl(struct inode *inode,
 				  d_inode(new_path.dentry),
 				  new_dentry, preserve);
 out_dput:
-	done_path_create(&new_path, new_dentry);
+	end_creating_path(&new_path, new_dentry);
 out:
 	path_put(&old_path);
 

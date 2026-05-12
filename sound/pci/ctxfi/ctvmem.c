@@ -29,7 +29,7 @@
 static struct ct_vm_block *
 get_vm_block(struct ct_vm *vm, unsigned int size, struct ct_atc *atc)
 {
-	struct ct_vm_block *block = NULL, *entry;
+	struct ct_vm_block *block, *entry;
 	struct list_head *pos;
 
 	size = CT_PAGE_ALIGN(size);
@@ -39,26 +39,25 @@ get_vm_block(struct ct_vm *vm, unsigned int size, struct ct_atc *atc)
 		return NULL;
 	}
 
-	mutex_lock(&vm->lock);
+	guard(mutex)(&vm->lock);
 	list_for_each(pos, &vm->unused) {
 		entry = list_entry(pos, struct ct_vm_block, list);
 		if (entry->size >= size)
 			break; /* found a block that is big enough */
 	}
 	if (pos == &vm->unused)
-		goto out;
+		return NULL;
 
 	if (entry->size == size) {
 		/* Move the vm node from unused list to used list directly */
 		list_move(&entry->list, &vm->used);
 		vm->size -= size;
-		block = entry;
-		goto out;
+		return entry;
 	}
 
-	block = kzalloc(sizeof(*block), GFP_KERNEL);
+	block = kzalloc_obj(*block);
 	if (!block)
-		goto out;
+		return NULL;
 
 	block->addr = entry->addr;
 	block->size = size;
@@ -67,8 +66,6 @@ get_vm_block(struct ct_vm *vm, unsigned int size, struct ct_atc *atc)
 	entry->size -= size;
 	vm->size -= size;
 
- out:
-	mutex_unlock(&vm->lock);
 	return block;
 }
 
@@ -79,7 +76,7 @@ static void put_vm_block(struct ct_vm *vm, struct ct_vm_block *block)
 
 	block->size = CT_PAGE_ALIGN(block->size);
 
-	mutex_lock(&vm->lock);
+	guard(mutex)(&vm->lock);
 	list_del(&block->list);
 	vm->size += block->size;
 
@@ -116,7 +113,6 @@ static void put_vm_block(struct ct_vm *vm, struct ct_vm_block *block)
 		pos = pre;
 		pre = pos->prev;
 	}
-	mutex_unlock(&vm->lock);
 }
 
 /* Map host addr (kmalloced/vmalloced) to device logical addr. */
@@ -174,7 +170,7 @@ int ct_vm_create(struct ct_vm **rvm, struct pci_dev *pci)
 
 	*rvm = NULL;
 
-	vm = kzalloc(sizeof(*vm), GFP_KERNEL);
+	vm = kzalloc_obj(*vm);
 	if (!vm)
 		return -ENOMEM;
 
@@ -199,7 +195,7 @@ int ct_vm_create(struct ct_vm **rvm, struct pci_dev *pci)
 	vm->get_ptp_phys = ct_get_ptp_phys;
 	INIT_LIST_HEAD(&vm->unused);
 	INIT_LIST_HEAD(&vm->used);
-	block = kzalloc(sizeof(*block), GFP_KERNEL);
+	block = kzalloc_obj(*block);
 	if (NULL != block) {
 		block->addr = 0;
 		block->size = vm->size;

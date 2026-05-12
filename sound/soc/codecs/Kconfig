@@ -46,7 +46,6 @@ config SND_SOC_ALL_CODECS
 	imply SND_SOC_AK4554
 	imply SND_SOC_AK4613
 	imply SND_SOC_AK4619
-	imply SND_SOC_AK4641
 	imply SND_SOC_AK4642
 	imply SND_SOC_AK4671
 	imply SND_SOC_AK5386
@@ -106,6 +105,7 @@ config SND_SOC_ALL_CODECS
 	imply SND_SOC_CS48L32
 	imply SND_SOC_CS53L30
 	imply SND_SOC_CS530X_I2C
+	imply SND_SOC_CS530X_SPI
 	imply SND_SOC_CX20442
 	imply SND_SOC_CX2072X
 	imply SND_SOC_DA7210
@@ -125,6 +125,7 @@ config SND_SOC_ALL_CODECS
 	imply SND_SOC_ES7134
 	imply SND_SOC_ES7241
 	imply SND_SOC_FRAMER
+	imply SND_SOC_FS210X
 	imply SND_SOC_GTM601
 	imply SND_SOC_HDAC_HDMI
 	imply SND_SOC_HDAC_HDA
@@ -169,6 +170,7 @@ config SND_SOC_ALL_CODECS
 	imply SND_SOC_MT6359
 	imply SND_SOC_MT6660
 	imply SND_SOC_NAU8315
+	imply SND_SOC_NAU8325
 	imply SND_SOC_NAU8540
 	imply SND_SOC_NAU8810
 	imply SND_SOC_NAU8821
@@ -177,6 +179,7 @@ config SND_SOC_ALL_CODECS
 	imply SND_SOC_NAU8825
 	imply SND_SOC_HDMI_CODEC
 	imply SND_SOC_PCM1681
+	imply SND_SOC_PCM1754
 	imply SND_SOC_PCM1789_I2C
 	imply SND_SOC_PCM179X_I2C
 	imply SND_SOC_PCM179X_SPI
@@ -192,6 +195,7 @@ config SND_SOC_ALL_CODECS
 	imply SND_SOC_PCM512x_SPI
 	imply SND_SOC_PCM6240
 	imply SND_SOC_PEB2466
+	imply SND_SOC_PM4125_SDW
 	imply SND_SOC_RK3308
 	imply SND_SOC_RK3328
 	imply SND_SOC_RK817
@@ -207,6 +211,7 @@ config SND_SOC_ALL_CODECS
 	imply SND_SOC_RT1305
 	imply SND_SOC_RT1308
 	imply SND_SOC_RT5514
+	imply SND_SOC_RT5575
 	imply SND_SOC_RT5616
 	imply SND_SOC_RT5631
 	imply SND_SOC_RT5640
@@ -265,6 +270,7 @@ config SND_SOC_ALL_CODECS
 	imply SND_SOC_TAS2770
 	imply SND_SOC_TAS2780
 	imply SND_SOC_TAS2781_I2C
+	imply SND_SOC_TAS2783_SDW
 	imply SND_SOC_TAS5086
 	imply SND_SOC_TAS571X
 	imply SND_SOC_TAS5720
@@ -300,7 +306,6 @@ config SND_SOC_ALL_CODECS
 	imply SND_SOC_LPASS_MACRO_COMMON
 	imply SND_SOC_LPASS_RX_MACRO
 	imply SND_SOC_LPASS_TX_MACRO
-	imply SND_SOC_WL1273
 	imply SND_SOC_WM0010
 	imply SND_SOC_WM1250_EV1
 	imply SND_SOC_WM2000
@@ -393,31 +398,21 @@ config SND_SOC_WM_HUBS
 	default m if SND_SOC_WM8993=m || SND_SOC_WM8994=m
 
 config SND_SOC_WM_ADSP
-	tristate
+	tristate "Cirrus Logic wm_adsp driver" if KUNIT
 	select FW_CS_DSP
 	select SND_SOC_COMPRESS
-	default y if SND_SOC_MADERA=y
-	default y if SND_SOC_CS47L24=y
-	default y if SND_SOC_WM5102=y
-	default y if SND_SOC_WM5110=y
-	default y if SND_SOC_WM2200=y
-	default y if SND_SOC_CS35L41_SPI=y
-	default y if SND_SOC_CS35L41_I2C=y
-	default y if SND_SOC_CS35L45_SPI=y
-	default y if SND_SOC_CS35L45_I2C=y
-	default y if SND_SOC_CS35L56=y
-	default y if SND_SOC_CS48L32=y
-	default m if SND_SOC_MADERA=m
-	default m if SND_SOC_CS47L24=m
-	default m if SND_SOC_WM5102=m
-	default m if SND_SOC_WM5110=m
-	default m if SND_SOC_WM2200=m
-	default m if SND_SOC_CS35L41_SPI=m
-	default m if SND_SOC_CS35L41_I2C=m
-	default m if SND_SOC_CS35L45_SPI=m
-	default m if SND_SOC_CS35L45_I2C=m
-	default m if SND_SOC_CS35L56=m
-	default m if SND_SOC_CS48L32=m
+
+config SND_SOC_WM_ADSP_TEST
+	tristate "KUnit tests for Cirrus Logic wm_adsp" if !KUNIT_ALL_TESTS
+	depends on KUNIT
+	depends on SND_SOC_WM_ADSP
+	default KUNIT_ALL_TESTS
+	help
+	  This builds KUnit tests for the Cirrus Logic wm_adsp library.
+	  For more information on KUnit and unit tests in general,
+	  please refer to the KUnit documentation in
+	  Documentation/dev-tools/kunit/.
+	  If in doubt, say "N".
 
 config SND_SOC_AB8500_CODEC
 	tristate
@@ -619,10 +614,6 @@ config SND_SOC_AK4619
         tristate "AKM AK4619 CODEC"
         depends on I2C
 
-config SND_SOC_AK4641
-	tristate
-	depends on I2C
-
 config SND_SOC_AK4642
 	tristate "AKM AK4642 CODEC"
 	depends on I2C
@@ -771,7 +762,6 @@ config SND_SOC_CQ0093VC
 config SND_SOC_CROS_EC_CODEC
 	tristate "codec driver for ChromeOS EC"
 	depends on CROS_EC
-	select CRYPTO
 	select CRYPTO_LIB_SHA256
 	help
 	  If you say yes here you will get support for the
@@ -780,9 +770,14 @@ config SND_SOC_CROS_EC_CODEC
 config SND_SOC_CS_AMP_LIB
 	tristate
 
+config SND_SOC_CS_AMP_LIB_TEST_HOOKS
+	bool
+	depends on SND_SOC_CS_AMP_LIB
+
 config SND_SOC_CS_AMP_LIB_TEST
 	tristate "KUnit test for Cirrus Logic cs-amp-lib" if !KUNIT_ALL_TESTS
 	depends on SND_SOC_CS_AMP_LIB && KUNIT
+	select SND_SOC_CS_AMP_LIB_TEST_HOOKS
 	default KUNIT_ALL_TESTS
 	help
 	  This builds KUnit tests for the Cirrus Logic common
@@ -817,6 +812,7 @@ config SND_SOC_CS35L41_LIB
 
 config SND_SOC_CS35L41
 	tristate
+	select SND_SOC_WM_ADSP
 
 config SND_SOC_CS35L41_SPI
 	tristate "Cirrus Logic CS35L41 CODEC (SPI)"
@@ -835,6 +831,7 @@ config SND_SOC_CS35L41_I2C
 config SND_SOC_CS35L45
 	tristate
 	select REGMAP_IRQ
+	select SND_SOC_WM_ADSP
 
 config SND_SOC_CS35L45_SPI
 	tristate "Cirrus Logic CS35L45 CODEC (SPI)"
@@ -858,6 +855,7 @@ config SND_SOC_CS35L45_I2C
 
 config SND_SOC_CS35L56
 	tristate
+	select SND_SOC_WM_ADSP
 
 config SND_SOC_CS35L56_SHARED
 	select SND_SOC_CS_AMP_LIB
@@ -891,6 +889,78 @@ config SND_SOC_CS35L56_SDW
 	select SND_SOC_CS35L56_SHARED
 	help
 	  Enable support for Cirrus Logic CS35L56 boosted amplifier with SoundWire control
+
+config SND_SOC_CS35L56_CAL_DEBUGFS_COMMON
+	bool
+
+menu "CS35L56 driver options"
+	depends on SND_SOC_CS35L56
+
+config SND_SOC_CS35L56_CAL_DEBUGFS
+	bool "CS35L56 create debugfs for factory calibration"
+	default N
+	depends on DEBUG_FS
+	select SND_SOC_CS35L56_CAL_DEBUGFS_COMMON
+	help
+	  Create debugfs entries used during factory-line manufacture
+	  for factory calibration.
+
+	  If unsure select "N".
+
+config SND_SOC_CS35L56_CAL_SET_CTRL
+	bool "CS35L56 ALSA control to restore factory calibration"
+	default N
+	select SND_SOC_CS35L56_CAL_DEBUGFS_COMMON
+	help
+	  Allow restoring factory calibration data through an ALSA
+	  control. This is only needed on platforms without UEFI or
+	  some other method of non-volatile storage that the driver
+	  can access directly.
+
+	  On most platforms this is not needed.
+
+	  If unsure select "N".
+
+config SND_SOC_CS35L56_CAL_PERFORM_CTRL
+	bool "CS35L56 ALSA control to perform factory calibration"
+	default N
+	select SND_SOC_CS35L56_CAL_DEBUGFS_COMMON
+	help
+	  Allow performing factory calibration data through an ALSA
+	  control. It is recommended to use the debugfs method instead
+	  because debugfs has restricted access permissions.
+
+	  On most platforms this is not needed.
+
+	  If unsure select "N".
+
+config SND_SOC_CS35L56_TEST
+	tristate "KUnit test for Cirrus Logic cs35l56 driver" if !KUNIT_ALL_TESTS
+	depends on SND_SOC_CS35L56 && KUNIT
+	default KUNIT_ALL_TESTS
+	select SND_SOC_CS_AMP_LIB_TEST_HOOKS
+	help
+	  This builds KUnit tests for the Cirrus Logic cs35l56
+	  codec driver.
+
+	  For more information on KUnit and unit tests in general,
+	  please refer to the KUnit documentation in
+	  Documentation/dev-tools/kunit/.
+	  If in doubt, say "N".
+
+config SND_SOC_CS35L56_SHARED_TEST
+	tristate "KUnit test for Cirrus Logic cs35l56-shared" if !KUNIT_ALL_TESTS
+	depends on SND_SOC_CS35L56_SHARED && KUNIT
+	default KUNIT_ALL_TESTS
+	help
+	  This builds KUnit tests for the Cirrus Logic cs35l56-shared
+	  module.
+
+	  For more information on KUnit and unit tests in general,
+	  please refer to the KUnit documentation in
+	  Documentation/dev-tools/kunit/.
+	  If in doubt, say "N".
+endmenu
 
 config SND_SOC_CS40L50
 	tristate "Cirrus Logic CS40L50 CODEC"
@@ -1036,6 +1106,7 @@ config SND_SOC_CS47L15
 config SND_SOC_CS47L24
 	tristate
 	depends on MFD_CS47L24 && MFD_ARIZONA
+	select SND_SOC_WM_ADSP
 
 config SND_SOC_CS47L35
 	tristate
@@ -1057,6 +1128,7 @@ config SND_SOC_CS48L32
 	tristate "Cirrus Logic CS48L32 audio DSP"
 	depends on SPI_MASTER
 	select REGMAP_SPI
+	select SND_SOC_WM_ADSP
 	help
 	  Build the codec driver for the Cirrus Logic CS48L32 audio DSP.
 
@@ -1077,6 +1149,15 @@ config SND_SOC_CS530X_I2C
 	help
 	  Enable support for Cirrus Logic CS530X ADCs
 	  with I2C control.
+
+config SND_SOC_CS530X_SPI
+	tristate "Cirrus Logic CS530x ADCs (SPI)"
+	depends on SPI_MASTER
+	select REGMAP_SPI
+	select SND_SOC_CS530X
+	help
+	  Enable support for Cirrus Logic CS530X ADCs
+	  with SPI control.
 
 config SND_SOC_CX20442
 	tristate
@@ -1232,6 +1313,21 @@ config SND_SOC_FRAMER
 	  To compile this driver as a module, choose M here: the module
 	  will be called snd-soc-framer.
 
+config SND_SOC_FS_AMP_LIB
+	select CRC16
+	tristate
+
+config SND_SOC_FS210X
+	tristate 'FourSemi FS2104/5S digital audio amplifier'
+	depends on I2C
+	select GPIOLIB
+	select REGMAP_I2C
+	select SND_SOC_FS_AMP_LIB
+	help
+	  Enable support for FourSemi FS2104/5S digital audio amplifier.
+	  The FS2104/5S are Inductor-Less, Stereo, Closed-Loop,
+	  Digital Input Class-D Power Amplifiers with Enhanced Signal Processing.
+	  The amplifiers support I2C and I2S/TDM.
 
 config SND_SOC_GTM601
 	tristate 'GTM601 UMTS modem audio codec'
@@ -1291,6 +1387,7 @@ config SND_SOC_LOCHNAGAR_SC
 
 config SND_SOC_MADERA
 	tristate
+	select SND_SOC_WM_ADSP
 	default y if SND_SOC_CS47L15=y
 	default y if SND_SOC_CS47L35=y
 	default y if SND_SOC_CS47L85=y
@@ -1426,6 +1523,10 @@ config SND_SOC_PCM1681
 	tristate "Texas Instruments PCM1681 CODEC"
 	depends on I2C
 
+config SND_SOC_PCM1754
+	tristate "Texas Instruments PCM1754 CODEC"
+	depends on GPIOLIB
+
 config SND_SOC_PCM1789
 	tristate
 
@@ -1541,6 +1642,25 @@ config SND_SOC_PEB2466
 
 	  To compile this driver as a module, choose M here: the module
 	  will be called snd-soc-peb2466.
+
+config SND_SOC_PM4125
+	depends on SND_SOC_PM4125_SDW
+	select SND_SOC_WCD_COMMON
+	tristate
+	depends on SOUNDWIRE || !SOUNDWIRE
+
+config SND_SOC_PM4125_SDW
+	tristate "PM4125 audio codec - SDW"
+	select SND_SOC_PM4125
+	select SND_SOC_WCD_MBHC
+	select REGMAP_IRQ
+	select SND_SOC_WCD_COMMON
+	depends on SOUNDWIRE
+	select REGMAP_SOUNDWIRE
+	help
+	  The PMIC PM4125 has an in-built audio codec IC used with SoCs
+	  like QCM2290, and it is connected via soundwire and SPMI.
+	  To compile this codec driver say Y or m.
 
 config SND_SOC_RK3308
 	tristate "Rockchip RK3308 audio CODEC"
@@ -1698,6 +1818,16 @@ config SND_SOC_RT5514_SPI
 config SND_SOC_RT5514_SPI_BUILTIN
 	bool # force RT5514_SPI to be built-in to avoid link errors
 	default SND_SOC_RT5514=y && SND_SOC_RT5514_SPI=m
+
+config SND_SOC_RT5575
+	tristate "Realtek ALC5575 Codec - I2C"
+	depends on I2C
+
+config SND_SOC_RT5575_SPI
+	bool "Realtek ALC5575 Codec - SPI"
+	depends on SPI_MASTER && I2C
+	depends on SND_SOC_RT5575
+	depends on SPI_MASTER=y || SND_SOC_RT5575=m
 
 config SND_SOC_RT5616
 	tristate "Realtek RT5616 CODEC"
@@ -1902,6 +2032,7 @@ config SND_SOC_SGTL5000
 
 config SND_SOC_SI476X
 	tristate
+	depends on MFD_SI476X_CORE
 
 config SND_SOC_SIGMADSP
 	tristate
@@ -2058,6 +2189,20 @@ config SND_SOC_TAS2781_I2C
 	  algo coefficient setting, for one, two or even multiple TAS2781
 	  chips.
 
+config SND_SOC_TAS2783_SDW
+	tristate "Texas Instruments TAS2783 speaker amplifier (sdw)"
+	depends on SOUNDWIRE
+	depends on SND_SOC_SDCA
+	depends on EFI
+	select REGMAP_SOUNDWIRE
+	select REGMAP_SOUNDWIRE_MBQ
+	select CRC32
+	help
+	  Enable support for Texas Instruments TAS2783A Digital input
+	  mono Class-D and DSP-inside audio power amplifiers. TAS2783
+	  driver implements a flexible and configurable algorithm
+	  cofficient setting, for one, two or multiple TAS2783 chips.
+
 config SND_SOC_TAS5086
 	tristate "Texas Instruments TAS5086 speaker amplifier"
 	depends on I2C
@@ -2175,6 +2320,7 @@ config SND_SOC_TLV320AIC3X_SPI
 config SND_SOC_TLV320DAC33
 	tristate
 	depends on I2C
+	depends on GPIOLIB_LEGACY
 
 config SND_SOC_TLV320ADCX140
 	tristate "Texas Instruments TLV320ADCX140 CODEC family"
@@ -2227,10 +2373,16 @@ config SND_SOC_UDA1342
 	  mic inputs), stereo audio DAC, with basic audio processing.
 
 config SND_SOC_UDA1380
-	tristate
+	tristate "Philips UDA1380 CODEC"
 	depends on I2C
+	help
+	  The UDA1380 codec is used in the HTC Magician and on a number of
+	  Samsung reference boards, as well as the LPC32xx series.
 
 config SND_SOC_WCD_CLASSH
+	tristate
+
+config SND_SOC_WCD_COMMON
 	tristate
 
 config SND_SOC_WCD9335
@@ -2251,9 +2403,11 @@ config SND_SOC_WCD934X
 	tristate "WCD9340/WCD9341 Codec"
 	depends on COMMON_CLK
 	depends on SLIMBUS
+	depends on SOUNDWIRE || !SOUNDWIRE
 	select REGMAP_IRQ
 	select REGMAP_SLIMBUS
 	select SND_SOC_WCD_CLASSH
+	select SND_SOC_WCD_COMMON
 	select SND_SOC_WCD_MBHC
 	depends on MFD_WCD934X || COMPILE_TEST
 	help
@@ -2265,6 +2419,7 @@ config SND_SOC_WCD937X
 	tristate
 	depends on SOUNDWIRE || !SOUNDWIRE
 	select SND_SOC_WCD_CLASSH
+	select SND_SOC_WCD_COMMON
 
 config SND_SOC_WCD937X_SDW
 	tristate "WCD9370/WCD9375 Codec - SDW"
@@ -2284,6 +2439,7 @@ config SND_SOC_WCD938X
 	tristate
 	depends on SOUNDWIRE || !SOUNDWIRE
 	select SND_SOC_WCD_CLASSH
+	select SND_SOC_WCD_COMMON
 	select MULTIPLEXER
 
 config SND_SOC_WCD938X_SDW
@@ -2303,6 +2459,7 @@ config SND_SOC_WCD939X
 	depends on SOUNDWIRE || !SOUNDWIRE
 	depends on TYPEC || !TYPEC
 	select SND_SOC_WCD_CLASSH
+	select SND_SOC_WCD_COMMON
 
 config SND_SOC_WCD939X_SDW
 	tristate "WCD9390/WCD9395 Codec - SDW"
@@ -2315,9 +2472,6 @@ config SND_SOC_WCD939X_SDW
 	help
 	  The WCD9390/9395 is a audio codec IC Integrated in
 	  Qualcomm SoCs like SM8650.
-
-config SND_SOC_WL1273
-	tristate
 
 config SND_SOC_WM0010
 	tristate
@@ -2334,6 +2488,7 @@ config SND_SOC_WM2000
 config SND_SOC_WM2200
 	tristate
 	depends on I2C
+	select SND_SOC_WM_ADSP
 
 config SND_SOC_WM5100
 	tristate
@@ -2342,10 +2497,12 @@ config SND_SOC_WM5100
 config SND_SOC_WM5102
 	tristate
 	depends on MFD_WM5102 && MFD_ARIZONA
+	select SND_SOC_WM_ADSP
 
 config SND_SOC_WM5110
 	tristate
 	depends on MFD_WM5110 && MFD_ARIZONA
+	select SND_SOC_WM_ADSP
 
 config SND_SOC_WM8350
 	tristate
@@ -2654,6 +2811,10 @@ config SND_SOC_MT6660
 
 config SND_SOC_NAU8315
 	tristate "Nuvoton Technology Corporation NAU8315 CODEC"
+
+config SND_SOC_NAU8325
+	tristate "Nuvoton Technology Corporation NAU8325 CODEC"
+	depends on I2C
 
 config SND_SOC_NAU8540
 	tristate "Nuvoton Technology Corporation NAU85L40 CODEC"

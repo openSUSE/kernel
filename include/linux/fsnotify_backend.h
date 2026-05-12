@@ -273,6 +273,8 @@ struct fsnotify_group {
 			int f_flags; /* event_f_flags from fanotify_init() */
 			struct ucounts *ucounts;
 			mempool_t error_events_pool;
+			/* chained on perm_group_list */
+			struct list_head perm_grp_list;
 		} fanotify_data;
 #endif /* CONFIG_FANOTIFY */
 	};
@@ -551,7 +553,7 @@ struct fsnotify_mark_connector {
 		/* Used listing heads to free after srcu period expires */
 		struct fsnotify_mark_connector *destroy_next;
 	};
-	struct hlist_head list;
+	struct hlist_head list;	/* List of marks */
 };
 
 /*
@@ -560,6 +562,9 @@ struct fsnotify_mark_connector {
  */
 struct fsnotify_sb_info {
 	struct fsnotify_mark_connector __rcu *sb_marks;
+	/* List of connectors for inode marks */
+	struct list_head inode_conn_list;
+	spinlock_t list_lock;	/* Lock protecting inode_conn_list */
 	/*
 	 * Number of inode/mount/sb objects that are being watched in this sb.
 	 * Note that inodes objects are currently double-accounted.
@@ -910,6 +915,7 @@ extern void fsnotify_clear_marks_by_group(struct fsnotify_group *group,
 					  unsigned int obj_type);
 extern void fsnotify_get_mark(struct fsnotify_mark *mark);
 extern void fsnotify_put_mark(struct fsnotify_mark *mark);
+struct fsnotify_mark *fsnotify_next_mark(struct fsnotify_mark *mark);
 extern void fsnotify_finish_user_wait(struct fsnotify_iter_info *iter_info);
 extern bool fsnotify_prepare_user_wait(struct fsnotify_iter_info *iter_info);
 

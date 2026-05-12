@@ -13,7 +13,6 @@
 #include <linux/proc_fs.h>
 #include <linux/uaccess.h>
 #include <uapi/linux/ethtool.h>
-#include "cifspdu.h"
 #include "cifsglob.h"
 #include "cifsproto.h"
 #include "cifs_debug.h"
@@ -34,21 +33,6 @@ cifs_dump_mem(char *label, void *data, int length)
 	pr_debug("%s: dump of %d bytes of data at 0x%p\n", label, length, data);
 	print_hex_dump(KERN_DEBUG, "", DUMP_PREFIX_OFFSET, 16, 4,
 		       data, length, true);
-}
-
-void cifs_dump_detail(void *buf, struct TCP_Server_Info *server)
-{
-#ifdef CONFIG_CIFS_DEBUG2
-	struct smb_hdr *smb = buf;
-
-	cifs_dbg(VFS, "Cmd: %d Err: 0x%x Flags: 0x%x Flgs2: 0x%x Mid: %d Pid: %d Wct: %d\n",
-		 smb->Command, smb->Status.CifsError, smb->Flags,
-		 smb->Flags2, smb->Mid, smb->Pid, smb->WordCount);
-	if (!server->ops->check_message(buf, server->total_read, server)) {
-		cifs_dbg(VFS, "smb buf %p len %u\n", smb,
-			 server->ops->calc_smb_size(smb));
-	}
-#endif /* CONFIG_CIFS_DEBUG2 */
 }
 
 void cifs_dump_mids(struct TCP_Server_Info *server)
@@ -78,9 +62,9 @@ void cifs_dump_mids(struct TCP_Server_Info *server)
 		cifs_dbg(VFS, "IsMult: %d IsEnd: %d\n",
 			 mid_entry->multiRsp, mid_entry->multiEnd);
 		if (mid_entry->resp_buf) {
-			cifs_dump_detail(mid_entry->resp_buf, server);
-			cifs_dump_mem("existing buf: ",
-				mid_entry->resp_buf, 62);
+			server->ops->dump_detail(mid_entry->resp_buf,
+					 mid_entry->response_pdu_len, server);
+			cifs_dump_mem("existing buf: ", mid_entry->resp_buf, 62);
 		}
 	}
 	spin_unlock(&server->mid_queue_lock);
@@ -239,14 +223,18 @@ static int cifs_debug_files_proc_show(struct seq_file *m, void *v)
 	struct cifs_ses *ses;
 	struct cifs_tcon *tcon;
 	struct cifsFileInfo *cfile;
+	struct inode *inode;
+	struct cifsInodeInfo *cinode;
+	char lease[4];
+	int n;
 
 	seq_puts(m, "# Version:1\n");
 	seq_puts(m, "# Format:\n");
 	seq_puts(m, "# <tree id> <ses id> <persistent fid> <flags> <count> <pid> <uid>");
 #ifdef CONFIG_CIFS_DEBUG2
-	seq_printf(m, " <filename> <mid>\n");
+	seq_puts(m, " <filename> <lease> <lease-key> <mid>\n");
 #else
-	seq_printf(m, " <filename>\n");
+	seq_puts(m, " <filename> <lease> <lease-key>\n");
 #endif /* CIFS_DEBUG2 */
 	spin_lock(&cifs_tcp_ses_lock);
 	list_for_each_entry(server, &cifs_tcp_ses_list, tcp_ses_list) {
@@ -266,11 +254,37 @@ static int cifs_debug_files_proc_show(struct seq_file *m, void *v)
 						cfile->pid,
 						from_kuid(&init_user_ns, cfile->uid),
 						cfile->dentry);
+
+					/* Append lease/oplock caching state as RHW letters */
+					inode = d_inode(cfile->dentry);
+					cinode = NULL;
+					n = 0;
+					if (inode) {
+						cinode = CIFS_I(inode);
+						if (CIFS_CACHE_READ(cinode))
+							lease[n++] = 'R';
+						if (CIFS_CACHE_HANDLE(cinode))
+							lease[n++] = 'H';
+						if (CIFS_CACHE_WRITE(cinode))
+							lease[n++] = 'W';
+					}
+					lease[n] = '\0';
+					seq_puts(m, " ");
+					if (n)
+						seq_printf(m, "%s", lease);
+					else
+						seq_puts(m, "NONE");
+
+					seq_puts(m, " ");
+					if (cinode && cinode->lease_granted)
+						seq_printf(m, "%pUl", cinode->lease_key);
+					else
+						seq_puts(m, "-");
+
 #ifdef CONFIG_CIFS_DEBUG2
-					seq_printf(m, " %llu\n", cfile->fid.mid);
-#else
+					seq_printf(m, " %llu", cfile->fid.mid);
+#endif /* CONFIG_CIFS_DEBUG2 */
 					seq_printf(m, "\n");
-#endif /* CIFS_DEBUG2 */
 				}
 				spin_unlock(&tcon->open_file_lock);
 			}
@@ -292,8 +306,11 @@ static int cifs_debug_dirs_proc_show(struct seq_file *m, void *v)
 	LIST_HEAD(entry);
 
 	seq_puts(m, "# Version:1\n");
+#ifdef CONFIG_CIFS_DEBUG
+	seq_puts(m, "# Write 0 to this file to drop all cached directory entries\n");
+#endif /* CONFIG_CIFS_DEBUG */
 	seq_puts(m, "# Format:\n");
-	seq_puts(m, "# <tree id> <sess id> <persistent fid> <path>\n");
+	seq_puts(m, "# <tree id> <sess id> <persistent fid> <lease-key> <path>\n");
 
 	spin_lock(&cifs_tcp_ses_lock);
 	list_for_each(stmp, &cifs_tcp_ses_list) {
@@ -307,17 +324,27 @@ static int cifs_debug_dirs_proc_show(struct seq_file *m, void *v)
 				if (!cfids)
 					continue;
 				spin_lock(&cfids->cfid_list_lock); /* check lock ordering */
-				seq_printf(m, "Num entries: %d\n", cfids->num_entries);
+				seq_printf(m, "Num entries: %d, cached_dirents: %lu entries, %llu bytes\n",
+						cfids->num_entries,
+						(unsigned long)atomic_long_read(&cfids->total_dirents_entries),
+						(unsigned long long)atomic64_read(&cfids->total_dirents_bytes));
 				list_for_each_entry(cfid, &cfids->entries, entry) {
-					seq_printf(m, "0x%x 0x%llx 0x%llx     %s",
+					seq_printf(m, "0x%x 0x%llx 0x%llx ",
 						tcon->tid,
 						ses->Suid,
-						cfid->fid.persistent_fid,
-						cfid->path);
+						cfid->fid.persistent_fid);
+					if (cfid->has_lease)
+						seq_printf(m, "%pUl ", cfid->fid.lease_key);
+					else
+						seq_puts(m, "- ");
+					seq_printf(m, "%s", cfid->path);
 					if (cfid->file_all_info_is_valid)
 						seq_printf(m, "\tvalid file info");
 					if (cfid->dirents.is_valid)
 						seq_printf(m, ", valid dirents");
+					if (!list_empty(&cfid->dirents.entries))
+						seq_printf(m, ", dirents: %lu entries, %lu bytes",
+						cfid->dirents.entries_count, cfid->dirents.bytes_used);
 					seq_printf(m, "\n");
 				}
 				spin_unlock(&cfids->cfid_list_lock);
@@ -328,6 +355,51 @@ static int cifs_debug_dirs_proc_show(struct seq_file *m, void *v)
 	seq_putc(m, '\n');
 	return 0;
 }
+
+#ifdef CONFIG_CIFS_DEBUG
+static int cifs_debug_dirs_proc_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, cifs_debug_dirs_proc_show, NULL);
+}
+
+/* Drop all cached directory entries across all CIFS mounts. */
+static ssize_t cifs_debug_dirs_proc_write(struct file *file, const char __user *buffer,
+					  size_t count, loff_t *ppos)
+{
+	int rc, v;
+
+	rc = kstrtoint_from_user(buffer, count, 10, &v);
+	if (rc)
+		return rc;
+
+	if (v == 0) {
+		struct TCP_Server_Info *server;
+		struct cifs_ses *ses;
+		struct cifs_tcon *tcon;
+
+		spin_lock(&cifs_tcp_ses_lock);
+		list_for_each_entry(server, &cifs_tcp_ses_list, tcp_ses_list) {
+			list_for_each_entry(ses, &server->smb_ses_list, smb_ses_list) {
+				if (cifs_ses_exiting(ses))
+					continue;
+				list_for_each_entry(tcon, &ses->tcon_list, tcon_list)
+					invalidate_all_cached_dirs(tcon, false);
+			}
+		}
+		spin_unlock(&cifs_tcp_ses_lock);
+	}
+
+	return count;
+}
+
+static const struct proc_ops cifs_debug_dirs_proc_ops = {
+	.proc_open	= cifs_debug_dirs_proc_open,
+	.proc_read	= seq_read,
+	.proc_lseek	= seq_lseek,
+	.proc_release	= single_release,
+	.proc_write	= cifs_debug_dirs_proc_write,
+};
+#endif /* CONFIG_CIFS_DEBUG */
 
 static __always_inline const char *compression_alg_str(__le16 alg)
 {
@@ -427,11 +499,6 @@ static int cifs_debug_data_proc_show(struct seq_file *m, void *v)
 	c = 0;
 	spin_lock(&cifs_tcp_ses_lock);
 	list_for_each_entry(server, &cifs_tcp_ses_list, tcp_ses_list) {
-#ifdef CONFIG_CIFS_SMB_DIRECT
-		struct smbdirect_socket *sc;
-		struct smbdirect_socket_parameters *sp;
-#endif
-
 		/* channel info will be printed as a part of sessions below */
 		if (SERVER_IS_CHAN(server))
 			continue;
@@ -446,68 +513,7 @@ static int cifs_debug_data_proc_show(struct seq_file *m, void *v)
 		seq_printf(m, "\nClientGUID: %pUL", server->client_guid);
 		spin_unlock(&server->srv_lock);
 #ifdef CONFIG_CIFS_SMB_DIRECT
-		if (!server->rdma)
-			goto skip_rdma;
-
-		if (!server->smbd_conn) {
-			seq_printf(m, "\nSMBDirect transport not available");
-			goto skip_rdma;
-		}
-		sc = &server->smbd_conn->socket;
-		sp = &sc->parameters;
-
-		seq_printf(m, "\nSMBDirect (in hex) protocol version: %x "
-			"transport status: %x",
-			server->smbd_conn->protocol,
-			server->smbd_conn->socket.status);
-		seq_printf(m, "\nConn receive_credit_max: %x "
-			"send_credit_target: %x max_send_size: %x",
-			sp->recv_credit_max,
-			sp->send_credit_target,
-			sp->max_send_size);
-		seq_printf(m, "\nConn max_fragmented_recv_size: %x "
-			"max_fragmented_send_size: %x max_receive_size:%x",
-			sp->max_fragmented_recv_size,
-			sp->max_fragmented_send_size,
-			sp->max_recv_size);
-		seq_printf(m, "\nConn keep_alive_interval: %x "
-			"max_readwrite_size: %x rdma_readwrite_threshold: %x",
-			sp->keepalive_interval_msec * 1000,
-			sp->max_read_write_size,
-			server->smbd_conn->rdma_readwrite_threshold);
-		seq_printf(m, "\nDebug count_get_receive_buffer: %x "
-			"count_put_receive_buffer: %x count_send_empty: %x",
-			server->smbd_conn->count_get_receive_buffer,
-			server->smbd_conn->count_put_receive_buffer,
-			server->smbd_conn->count_send_empty);
-		seq_printf(m, "\nRead Queue count_reassembly_queue: %x "
-			"count_enqueue_reassembly_queue: %x "
-			"count_dequeue_reassembly_queue: %x "
-			"reassembly_data_length: %x "
-			"reassembly_queue_length: %x",
-			server->smbd_conn->count_reassembly_queue,
-			server->smbd_conn->count_enqueue_reassembly_queue,
-			server->smbd_conn->count_dequeue_reassembly_queue,
-			sc->recv_io.reassembly.data_length,
-			sc->recv_io.reassembly.queue_length);
-		seq_printf(m, "\nCurrent Credits send_credits: %x "
-			"receive_credits: %x receive_credit_target: %x",
-			atomic_read(&server->smbd_conn->send_credits),
-			atomic_read(&server->smbd_conn->receive_credits),
-			server->smbd_conn->receive_credit_target);
-		seq_printf(m, "\nPending send_pending: %x ",
-			atomic_read(&server->smbd_conn->send_pending));
-		seq_printf(m, "\nReceive buffers count_receive_queue: %x ",
-			server->smbd_conn->count_receive_queue);
-		seq_printf(m, "\nMR responder_resources: %x "
-			"max_frmr_depth: %x mr_type: %x",
-			server->smbd_conn->responder_resources,
-			server->smbd_conn->max_frmr_depth,
-			server->smbd_conn->mr_type);
-		seq_printf(m, "\nMR mr_ready_count: %x mr_used_count: %x",
-			atomic_read(&server->smbd_conn->mr_ready_count),
-			atomic_read(&server->smbd_conn->mr_used_count));
-skip_rdma:
+		smbd_debug_proc_show(server, m);
 #endif
 		seq_printf(m, "\nNumber of credits: %d,%d,%d Dialect 0x%x",
 			server->credits,
@@ -927,9 +933,11 @@ cifs_proc_init(void)
 	proc_create_single("open_files", 0400, proc_fs_cifs,
 			cifs_debug_files_proc_show);
 
-	proc_create_single("open_dirs", 0400, proc_fs_cifs,
-			cifs_debug_dirs_proc_show);
-
+#ifdef CONFIG_CIFS_DEBUG
+	proc_create("open_dirs", 0600, proc_fs_cifs, &cifs_debug_dirs_proc_ops);
+#else /* CONFIG_CIFS_DEBUG */
+	proc_create_single("open_dirs", 0400, proc_fs_cifs, cifs_debug_dirs_proc_show);
+#endif /* !CONFIG_CIFS_DEBUG */
 	proc_create("Stats", 0644, proc_fs_cifs, &cifs_stats_proc_ops);
 	proc_create("cifsFYI", 0644, proc_fs_cifs, &cifsFYI_proc_ops);
 	proc_create("traceSMB", 0644, proc_fs_cifs, &traceSMB_proc_ops);
@@ -1279,11 +1287,11 @@ static const struct proc_ops cifs_mount_params_proc_ops = {
 };
 
 #else
-inline void cifs_proc_init(void)
+void cifs_proc_init(void)
 {
 }
 
-inline void cifs_proc_clean(void)
+void cifs_proc_clean(void)
 {
 }
 #endif /* PROC_FS */

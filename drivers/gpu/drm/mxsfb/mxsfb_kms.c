@@ -26,6 +26,7 @@
 #include <drm/drm_gem_atomic_helper.h>
 #include <drm/drm_gem_dma_helper.h>
 #include <drm/drm_plane.h>
+#include <drm/drm_print.h>
 #include <drm/drm_vblank.h>
 
 #include "mxsfb_drv.h"
@@ -309,7 +310,7 @@ static void mxsfb_crtc_mode_set_nofb(struct mxsfb_drm_private *mxsfb,
 }
 
 static int mxsfb_crtc_atomic_check(struct drm_crtc *crtc,
-				   struct drm_atomic_state *state)
+				   struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *crtc_state = drm_atomic_get_new_crtc_state(state,
 									  crtc);
@@ -325,7 +326,7 @@ static int mxsfb_crtc_atomic_check(struct drm_crtc *crtc,
 }
 
 static void mxsfb_crtc_atomic_flush(struct drm_crtc *crtc,
-				    struct drm_atomic_state *state)
+				    struct drm_atomic_commit *state)
 {
 	struct drm_pending_vblank_event *event;
 
@@ -344,7 +345,7 @@ static void mxsfb_crtc_atomic_flush(struct drm_crtc *crtc,
 }
 
 static void mxsfb_crtc_atomic_enable(struct drm_crtc *crtc,
-				     struct drm_atomic_state *state)
+				     struct drm_atomic_commit *state)
 {
 	struct mxsfb_drm_private *mxsfb = to_mxsfb_drm_private(crtc->dev);
 	struct drm_plane_state *new_pstate = drm_atomic_get_new_plane_state(state,
@@ -398,7 +399,7 @@ static void mxsfb_crtc_atomic_enable(struct drm_crtc *crtc,
 }
 
 static void mxsfb_crtc_atomic_disable(struct drm_crtc *crtc,
-				      struct drm_atomic_state *state)
+				      struct drm_atomic_commit *state)
 {
 	struct mxsfb_drm_private *mxsfb = to_mxsfb_drm_private(crtc->dev);
 	struct drm_device *drm = mxsfb->drm;
@@ -519,7 +520,7 @@ static const struct drm_encoder_funcs mxsfb_encoder_funcs = {
  */
 
 static int mxsfb_plane_atomic_check(struct drm_plane *plane,
-				    struct drm_atomic_state *state)
+				    struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *plane_state = drm_atomic_get_new_plane_state(state,
 									     plane);
@@ -536,7 +537,7 @@ static int mxsfb_plane_atomic_check(struct drm_plane *plane,
 }
 
 static void mxsfb_plane_primary_atomic_update(struct drm_plane *plane,
-					      struct drm_atomic_state *state)
+					      struct drm_atomic_commit *state)
 {
 	struct mxsfb_drm_private *mxsfb = to_mxsfb_drm_private(plane->dev);
 	struct drm_plane_state *new_pstate = drm_atomic_get_new_plane_state(state,
@@ -549,7 +550,7 @@ static void mxsfb_plane_primary_atomic_update(struct drm_plane *plane,
 }
 
 static void mxsfb_plane_overlay_atomic_update(struct drm_plane *plane,
-					      struct drm_atomic_state *state)
+					      struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *old_pstate = drm_atomic_get_old_plane_state(state,
 									    plane);
@@ -612,7 +613,7 @@ static void mxsfb_plane_overlay_atomic_update(struct drm_plane *plane,
 }
 
 static void mxsfb_plane_overlay_atomic_disable(struct drm_plane *plane,
-					       struct drm_atomic_state *state)
+					       struct drm_atomic_commit *state)
 {
 	struct mxsfb_drm_private *mxsfb = to_mxsfb_drm_private(plane->dev);
 

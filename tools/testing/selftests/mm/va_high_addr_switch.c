@@ -10,7 +10,7 @@
 #include <string.h>
 
 #include "vm_util.h"
-#include "../kselftest.h"
+#include "kselftest.h"
 
 /*
  * The hint addr value is used to allocate addresses
@@ -230,10 +230,10 @@ void testcases_init(void)
 			.msg = "mmap(-1, MAP_HUGETLB) again",
 		},
 		{
-			.addr = (void *)(addr_switch_hint - pagesize),
+			.addr = (void *)(addr_switch_hint - hugepagesize),
 			.size = 2 * hugepagesize,
 			.flags = MAP_HUGETLB | MAP_PRIVATE | MAP_ANONYMOUS,
-			.msg = "mmap(addr_switch_hint - pagesize, 2*hugepagesize, MAP_HUGETLB)",
+			.msg = "mmap(addr_switch_hint - hugepagesize, 2*hugepagesize, MAP_HUGETLB)",
 			.low_addr_required = 1,
 			.keep_mapped = 1,
 		},
@@ -322,7 +322,7 @@ static int supported_arch(void)
 
 int main(int argc, char **argv)
 {
-	int ret;
+	int ret, hugetlb_ret = KSFT_PASS;
 
 	if (!supported_arch())
 		return KSFT_SKIP;
@@ -331,6 +331,10 @@ int main(int argc, char **argv)
 
 	ret = run_test(testcases, sz_testcases);
 	if (argc == 2 && !strcmp(argv[1], "--run-hugetlb"))
-		ret = run_test(hugetlb_testcases, sz_hugetlb_testcases);
-	return ret;
+		hugetlb_ret = run_test(hugetlb_testcases, sz_hugetlb_testcases);
+
+	if (ret == KSFT_PASS && hugetlb_ret == KSFT_PASS)
+		return KSFT_PASS;
+	else
+		return KSFT_FAIL;
 }

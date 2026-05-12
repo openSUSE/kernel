@@ -74,6 +74,12 @@ static inline int pinconf_set_config(struct pinctrl_dev *pctldev, unsigned int p
 	return -ENOTSUPP;
 }
 
+static inline int pin_config_get_for_pin(struct pinctrl_dev *pctldev, unsigned int pin,
+			   unsigned long *config)
+{
+	return -ENOTSUPP;
+}
+
 #endif
 
 #if defined(CONFIG_PINCONF) && defined(CONFIG_DEBUG_FS)
@@ -156,6 +162,22 @@ static inline int
 pinconf_generic_parse_dt_pinmux(struct device_node *np, struct device *dev,
 				unsigned int **pid, unsigned int **pmux,
 				unsigned int *npins)
+{
+	return -ENOTSUPP;
+}
+#endif
+
+#if defined(CONFIG_GENERIC_PINCTRL) && defined (CONFIG_OF)
+int pinctrl_generic_pins_function_dt_node_to_map(struct pinctrl_dev *pctldev,
+						 struct device_node *np,
+						 struct pinctrl_map **maps,
+						 unsigned int *num_maps);
+#else
+static inline int
+pinctrl_generic_pins_function_dt_node_to_map(struct pinctrl_dev *pctldev,
+					     struct device_node *np,
+					     struct pinctrl_map **maps,
+					     unsigned int *num_maps)
 {
 	return -ENOTSUPP;
 }

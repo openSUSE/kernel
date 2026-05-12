@@ -441,7 +441,7 @@ repeat:
 	read_unlock(&journal->j_state_lock);
 	current->journal_info = handle;
 
-	rwsem_acquire_read(&journal->j_trans_commit_map, 0, 0, _THIS_IP_);
+	rwsem_acquire_read(&journal->j_trans_commit_map, 0, 1, _THIS_IP_);
 	jbd2_journal_free_transaction(new_transaction);
 	/*
 	 * Ensure that no allocations done while the transaction is open are
@@ -474,7 +474,8 @@ handle_t *jbd2__journal_start(journal_t *journal, int nblocks, int rsv_blocks,
 		return ERR_PTR(-EROFS);
 
 	if (handle) {
-		J_ASSERT(handle->h_transaction->t_journal == journal);
+		if (WARN_ON_ONCE(handle->h_transaction->t_journal != journal))
+			return ERR_PTR(-EINVAL);
 		handle->h_ref++;
 		return handle;
 	}
@@ -1036,7 +1037,13 @@ repeat:
 	 */
 	if (!jh->b_transaction) {
 		JBUFFER_TRACE(jh, "no transaction");
-		J_ASSERT_JH(jh, !jh->b_next_transaction);
+		if (WARN_ON_ONCE(jh->b_next_transaction)) {
+			spin_unlock(&jh->b_state_lock);
+			unlock_buffer(bh);
+			error = -EINVAL;
+			jbd2_journal_abort(journal, error);
+			goto out;
+		}
 		JBUFFER_TRACE(jh, "file as BJ_Reserved");
 		/*
 		 * Make sure all stores to jh (b_modified, b_frozen_data) are
@@ -1069,13 +1076,27 @@ repeat:
 	 */
 	if (jh->b_frozen_data) {
 		JBUFFER_TRACE(jh, "has frozen data");
-		J_ASSERT_JH(jh, jh->b_next_transaction == NULL);
+		if (WARN_ON_ONCE(jh->b_next_transaction)) {
+			spin_unlock(&jh->b_state_lock);
+			error = -EINVAL;
+			jbd2_journal_abort(journal, error);
+			goto out;
+		}
 		goto attach_next;
 	}
 
 	JBUFFER_TRACE(jh, "owned by older transaction");
-	J_ASSERT_JH(jh, jh->b_next_transaction == NULL);
-	J_ASSERT_JH(jh, jh->b_transaction == journal->j_committing_transaction);
+	if (WARN_ON_ONCE(jh->b_next_transaction ||
+			 jh->b_transaction !=
+			 journal->j_committing_transaction)) {
+		pr_err("JBD2: %s: assertion failure: b_next_transaction=%p b_transaction=%p j_committing_transaction=%p\n",
+		       journal->j_devname, jh->b_next_transaction,
+		       jh->b_transaction, journal->j_committing_transaction);
+		spin_unlock(&jh->b_state_lock);
+		error = -EINVAL;
+		jbd2_journal_abort(journal, error);
+		goto out;
+	}
 
 	/*
 	 * There is one case we have to be very careful about.  If the
@@ -1219,7 +1240,8 @@ int jbd2_journal_get_write_access(handle_t *handle, struct buffer_head *bh)
 		return -EROFS;
 
 	journal = handle->h_transaction->t_journal;
-	if (jbd2_check_fs_dev_write_error(journal)) {
+	rc = jbd2_check_fs_dev_write_error(journal);
+	if (rc) {
 		/*
 		 * If the fs dev has writeback errors, it may have failed
 		 * to async write out metadata buffers in the background.
@@ -1227,7 +1249,7 @@ int jbd2_journal_get_write_access(handle_t *handle, struct buffer_head *bh)
 		 * it out again, which may lead to on-disk filesystem
 		 * inconsistency. Aborting journal can avoid it happen.
 		 */
-		jbd2_journal_abort(journal, -EIO);
+		jbd2_journal_abort(journal, rc);
 		return -EIO;
 	}
 
@@ -1284,15 +1306,29 @@ int jbd2_journal_get_create_access(handle_t *handle, struct buffer_head *bh)
 	 * committing transaction's lists, but it HAS to be in Forget state in
 	 * that case: the transaction must have deleted the buffer for it to be
 	 * reused here.
+	 * In the case of file system data inconsistency, for example, if the
+	 * block bitmap of a referenced block is not set, it can lead to the
+	 * situation where a block being committed is allocated and used again.
+	 * As a result, the following condition will not be satisfied, so here
+	 * we directly trigger a JBD abort instead of immediately invoking
+	 * bugon.
 	 */
 	spin_lock(&jh->b_state_lock);
-	J_ASSERT_JH(jh, (jh->b_transaction == transaction ||
-		jh->b_transaction == NULL ||
-		(jh->b_transaction == journal->j_committing_transaction &&
-			  jh->b_jlist == BJ_Forget)));
+	if (!(jh->b_transaction == transaction || jh->b_transaction == NULL ||
+	      (jh->b_transaction == journal->j_committing_transaction &&
+	       jh->b_jlist == BJ_Forget)) || jh->b_next_transaction != NULL) {
+		err = -EROFS;
+		spin_unlock(&jh->b_state_lock);
+		jbd2_journal_abort(journal, err);
+		goto out;
+	}
 
-	J_ASSERT_JH(jh, jh->b_next_transaction == NULL);
-	J_ASSERT_JH(jh, buffer_locked(jh2bh(jh)));
+	if (WARN_ON_ONCE(!buffer_locked(jh2bh(jh)))) {
+		err = -EINVAL;
+		spin_unlock(&jh->b_state_lock);
+		jbd2_journal_abort(journal, err);
+		goto out;
+	}
 
 	if (jh->b_transaction == NULL) {
 		/*
@@ -1481,7 +1517,7 @@ void jbd2_buffer_abort_trigger(struct journal_head *jh,
 int jbd2_journal_dirty_metadata(handle_t *handle, struct buffer_head *bh)
 {
 	transaction_t *transaction = handle->h_transaction;
-	journal_t *journal;
+	journal_t *journal = transaction->t_journal;
 	struct journal_head *jh;
 	int ret = 0;
 
@@ -1505,8 +1541,14 @@ int jbd2_journal_dirty_metadata(handle_t *handle, struct buffer_head *bh)
 	if (data_race(jh->b_transaction != transaction &&
 	    jh->b_next_transaction != transaction)) {
 		spin_lock(&jh->b_state_lock);
-		J_ASSERT_JH(jh, jh->b_transaction == transaction ||
-				jh->b_next_transaction == transaction);
+		if (WARN_ON_ONCE(jh->b_transaction != transaction &&
+				 jh->b_next_transaction != transaction)) {
+			pr_err("JBD2: %s: assertion failure: b_transaction=%p transaction=%p b_next_transaction=%p\n",
+			       journal->j_devname, jh->b_transaction,
+			       transaction, jh->b_next_transaction);
+			ret = -EINVAL;
+			goto out_unlock_bh;
+		}
 		spin_unlock(&jh->b_state_lock);
 	}
 	if (data_race(jh->b_modified == 1)) {
@@ -1514,15 +1556,15 @@ int jbd2_journal_dirty_metadata(handle_t *handle, struct buffer_head *bh)
 		if (data_race(jh->b_transaction == transaction &&
 		    jh->b_jlist != BJ_Metadata)) {
 			spin_lock(&jh->b_state_lock);
-			if (jh->b_transaction == transaction &&
-			    jh->b_jlist != BJ_Metadata)
-				pr_err("JBD2: assertion failure: h_type=%u "
-				       "h_line_no=%u block_no=%llu jlist=%u\n",
+			if (WARN_ON_ONCE(jh->b_transaction == transaction &&
+					 jh->b_jlist != BJ_Metadata)) {
+				pr_err("JBD2: assertion failure: h_type=%u h_line_no=%u block_no=%llu jlist=%u\n",
 				       handle->h_type, handle->h_line_no,
 				       (unsigned long long) bh->b_blocknr,
 				       jh->b_jlist);
-			J_ASSERT_JH(jh, jh->b_transaction != transaction ||
-					jh->b_jlist == BJ_Metadata);
+				ret = -EINVAL;
+				goto out_unlock_bh;
+			}
 			spin_unlock(&jh->b_state_lock);
 		}
 		goto out;
@@ -1541,8 +1583,6 @@ int jbd2_journal_dirty_metadata(handle_t *handle, struct buffer_head *bh)
 		ret = -EROFS;
 		goto out_unlock_bh;
 	}
-
-	journal = transaction->t_journal;
 
 	if (jh->b_modified == 0) {
 		/*
@@ -1621,7 +1661,10 @@ int jbd2_journal_dirty_metadata(handle_t *handle, struct buffer_head *bh)
 	}
 
 	/* That test should have eliminated the following case: */
-	J_ASSERT_JH(jh, jh->b_frozen_data == NULL);
+	if (WARN_ON_ONCE(jh->b_frozen_data)) {
+		ret = -EINVAL;
+		goto out_unlock_bh;
+	}
 
 	JBUFFER_TRACE(jh, "file as BJ_Metadata");
 	spin_lock(&journal->j_list_lock);
@@ -1659,6 +1702,8 @@ int jbd2_journal_forget(handle_t *handle, struct buffer_head *bh)
 	int drop_reserve = 0;
 	int err = 0;
 	int was_modified = 0;
+	int wait_for_writeback = 0;
+	int abort_journal = 0;
 
 	if (is_handle_aborted(handle))
 		return -EROFS;
@@ -1692,7 +1737,11 @@ int jbd2_journal_forget(handle_t *handle, struct buffer_head *bh)
 	jh->b_modified = 0;
 
 	if (jh->b_transaction == transaction) {
-		J_ASSERT_JH(jh, !jh->b_frozen_data);
+		if (WARN_ON_ONCE(jh->b_frozen_data)) {
+			err = -EINVAL;
+			abort_journal = 1;
+			goto drop;
+		}
 
 		/* If we are forgetting a buffer which is already part
 		 * of this transaction, then we can just drop it from
@@ -1731,8 +1780,11 @@ int jbd2_journal_forget(handle_t *handle, struct buffer_head *bh)
 		}
 		spin_unlock(&journal->j_list_lock);
 	} else if (jh->b_transaction) {
-		J_ASSERT_JH(jh, (jh->b_transaction ==
-				 journal->j_committing_transaction));
+		if (WARN_ON_ONCE(jh->b_transaction != journal->j_committing_transaction)) {
+			err = -EINVAL;
+			abort_journal = 1;
+			goto drop;
+		}
 		/* However, if the buffer is still owned by a prior
 		 * (committing) transaction, we can't drop it yet... */
 		JBUFFER_TRACE(jh, "belongs to older transaction");
@@ -1750,7 +1802,11 @@ int jbd2_journal_forget(handle_t *handle, struct buffer_head *bh)
 			jh->b_next_transaction = transaction;
 			spin_unlock(&journal->j_list_lock);
 		} else {
-			J_ASSERT(jh->b_next_transaction == transaction);
+			if (WARN_ON_ONCE(jh->b_next_transaction != transaction)) {
+				err = -EINVAL;
+				abort_journal = 1;
+				goto drop;
+			}
 
 			/*
 			 * only drop a reference if this transaction modified
@@ -1782,18 +1838,24 @@ int jbd2_journal_forget(handle_t *handle, struct buffer_head *bh)
 		}
 
 		/*
-		 * The buffer is still not written to disk, we should
-		 * attach this buffer to current transaction so that the
-		 * buffer can be checkpointed only after the current
-		 * transaction commits.
+		 * The buffer has not yet been written to disk. We should
+		 * either clear the buffer or ensure that the ongoing I/O
+		 * is completed, and attach this buffer to current
+		 * transaction so that the buffer can be checkpointed only
+		 * after the current transaction commits.
 		 */
 		clear_buffer_dirty(bh);
+		wait_for_writeback = 1;
 		__jbd2_journal_file_buffer(jh, transaction, BJ_Forget);
 		spin_unlock(&journal->j_list_lock);
 	}
 drop:
 	__brelse(bh);
 	spin_unlock(&jh->b_state_lock);
+	if (abort_journal)
+		jbd2_journal_abort(journal, err);
+	if (wait_for_writeback)
+		wait_on_buffer(bh);
 	jbd2_journal_put_journal_head(jh);
 	if (drop_reserve) {
 		/* no need to reserve log space for this block -bzzz */
@@ -2116,7 +2178,8 @@ bool jbd2_journal_try_to_free_buffers(journal_t *journal, struct folio *folio)
 	struct buffer_head *bh;
 	bool ret = false;
 
-	J_ASSERT(folio_test_locked(folio));
+	if (WARN_ON_ONCE(!folio_test_locked(folio)))
+		return false;
 
 	head = folio_buffers(folio);
 	bh = head;
@@ -2631,23 +2694,32 @@ static int jbd2_journal_file_inode(handle_t *handle, struct jbd2_inode *jinode,
 {
 	transaction_t *transaction = handle->h_transaction;
 	journal_t *journal;
+	pgoff_t start_page, end_page;
+	int err = 0;
+	int abort_transaction = 0;
 
 	if (is_handle_aborted(handle))
 		return -EROFS;
 	journal = transaction->t_journal;
 
-	jbd2_debug(4, "Adding inode %lu, tid:%d\n", jinode->i_vfs_inode->i_ino,
+	jbd2_debug(4, "Adding inode %llu, tid:%d\n", jinode->i_vfs_inode->i_ino,
 			transaction->t_tid);
 
-	spin_lock(&journal->j_list_lock);
-	jinode->i_flags |= flags;
+	start_page = (pgoff_t)(start_byte >> PAGE_SHIFT);
+	end_page = (pgoff_t)(end_byte >> PAGE_SHIFT) + 1;
 
-	if (jinode->i_dirty_end) {
-		jinode->i_dirty_start = min(jinode->i_dirty_start, start_byte);
-		jinode->i_dirty_end = max(jinode->i_dirty_end, end_byte);
+	spin_lock(&journal->j_list_lock);
+	WRITE_ONCE(jinode->i_flags, jinode->i_flags | flags);
+
+	if (jinode->i_dirty_start_page != jinode->i_dirty_end_page) {
+		WRITE_ONCE(jinode->i_dirty_start_page,
+			   min(jinode->i_dirty_start_page, start_page));
+		WRITE_ONCE(jinode->i_dirty_end_page,
+			   max(jinode->i_dirty_end_page, end_page));
 	} else {
-		jinode->i_dirty_start = start_byte;
-		jinode->i_dirty_end = end_byte;
+		/* Publish a new non-empty range by making end visible first. */
+		WRITE_ONCE(jinode->i_dirty_end_page, end_page);
+		WRITE_ONCE(jinode->i_dirty_start_page, start_page);
 	}
 
 	/* Is inode already attached where we need it? */
@@ -2665,20 +2737,33 @@ static int jbd2_journal_file_inode(handle_t *handle, struct jbd2_inode *jinode,
 	/* On some different transaction's list - should be
 	 * the committing one */
 	if (jinode->i_transaction) {
-		J_ASSERT(jinode->i_next_transaction == NULL);
-		J_ASSERT(jinode->i_transaction ==
-					journal->j_committing_transaction);
+		if (WARN_ON_ONCE(jinode->i_next_transaction ||
+				 jinode->i_transaction !=
+				 journal->j_committing_transaction)) {
+			pr_err("JBD2: %s: assertion failure: i_next_transaction=%p i_transaction=%p j_committing_transaction=%p\n",
+			       journal->j_devname, jinode->i_next_transaction,
+			       jinode->i_transaction,
+			       journal->j_committing_transaction);
+			err = -EINVAL;
+			abort_transaction = 1;
+			goto done;
+		}
 		jinode->i_next_transaction = transaction;
 		goto done;
 	}
 	/* Not on any transaction list... */
-	J_ASSERT(!jinode->i_next_transaction);
+	if (WARN_ON_ONCE(jinode->i_next_transaction)) {
+		err = -EINVAL;
+		abort_transaction = 1;
+		goto done;
+	}
 	jinode->i_transaction = transaction;
 	list_add(&jinode->i_list, &transaction->t_inode_list);
 done:
 	spin_unlock(&journal->j_list_lock);
-
-	return 0;
+	if (abort_transaction)
+		jbd2_journal_abort(journal, err);
+	return err;
 }
 
 int jbd2_journal_inode_ranged_write(handle_t *handle,
@@ -2724,7 +2809,7 @@ int jbd2_journal_begin_ordered_truncate(journal_t *journal,
 	int ret = 0;
 
 	/* This is a quick check to avoid locking if not necessary */
-	if (!jinode->i_transaction)
+	if (!READ_ONCE(jinode->i_transaction))
 		goto out;
 	/* Locks are here just to force reading of recent values, it is
 	 * enough that the transaction was not committing before we started

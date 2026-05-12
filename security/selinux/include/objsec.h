@@ -26,23 +26,25 @@
 #include <linux/lsm_hooks.h>
 #include <linux/msg.h>
 #include <net/net_namespace.h>
+#include <linux/bpf.h>
 #include "flask.h"
 #include "avc.h"
 
 struct avdc_entry {
 	u32 isid; /* inode SID */
-	u32 allowed; /* allowed permission bitmask */
-	u32 audited; /* audited permission bitmask */
-	bool permissive; /* AVC permissive flag */
+	struct av_decision avd; /* av decision */
 };
 
-struct task_security_struct {
+struct cred_security_struct {
 	u32 osid; /* SID prior to last execve */
 	u32 sid; /* current SID */
 	u32 exec_sid; /* exec SID */
 	u32 create_sid; /* fscreate SID */
 	u32 keycreate_sid; /* keycreate SID */
 	u32 sockcreate_sid; /* fscreate SID */
+} __randomize_layout;
+
+struct task_security_struct {
 #define TSEC_AVDC_DIR_SIZE (1 << 2)
 	struct {
 		u32 sid; /* current SID for cached entries */
@@ -53,10 +55,11 @@ struct task_security_struct {
 	} avdcache;
 } __randomize_layout;
 
-static inline bool task_avdcache_permnoaudit(struct task_security_struct *tsec)
+static inline bool task_avdcache_permnoaudit(struct task_security_struct *tsec,
+					     u32 sid)
 {
 	return (tsec->avdcache.permissive_neveraudit &&
-		tsec->sid == tsec->avdcache.sid &&
+		sid == tsec->avdcache.sid &&
 		tsec->avdcache.seqno == avc_policy_seqno());
 }
 
@@ -83,10 +86,15 @@ struct file_security_struct {
 	u32 pseqno; /* Policy seqno at the time of file open */
 };
 
+struct backing_file_security_struct {
+	u32 uf_sid; /* associated user file fsec->sid */
+};
+
 struct superblock_security_struct {
 	u32 sid; /* SID of file system superblock */
 	u32 def_sid; /* default SID for labeling */
 	u32 mntpoint_sid; /* SECURITY_FS_USE_MNTPOINT context for files */
+	u32 creator_sid; /* SID of privileged process */
 	unsigned short behavior; /* labeling behavior */
 	unsigned short flags; /* which mount options were specified */
 	struct mutex lock;
@@ -164,6 +172,8 @@ struct pkey_security_struct {
 
 struct bpf_security_struct {
 	u32 sid; /* SID of bpf obj creator */
+	u32 perms; /* permissions for allowed bpf token commands */
+	u32 grantor_sid; /* SID of token grantor */
 };
 
 struct perf_event_security_struct {
@@ -171,14 +181,27 @@ struct perf_event_security_struct {
 };
 
 extern struct lsm_blob_sizes selinux_blob_sizes;
-static inline struct task_security_struct *selinux_cred(const struct cred *cred)
+static inline struct cred_security_struct *selinux_cred(const struct cred *cred)
 {
 	return cred->security + selinux_blob_sizes.lbs_cred;
+}
+
+static inline struct task_security_struct *
+selinux_task(const struct task_struct *task)
+{
+	return task->security + selinux_blob_sizes.lbs_task;
 }
 
 static inline struct file_security_struct *selinux_file(const struct file *file)
 {
 	return file->f_security + selinux_blob_sizes.lbs_file;
+}
+
+static inline struct backing_file_security_struct *
+selinux_backing_file(const struct file *backing_file)
+{
+	void *blob = backing_file_security(backing_file);
+	return blob + selinux_blob_sizes.lbs_backing_file;
 }
 
 static inline struct inode_security_struct *
@@ -206,9 +229,9 @@ selinux_ipc(const struct kern_ipc_perm *ipc)
  */
 static inline u32 current_sid(void)
 {
-	const struct task_security_struct *tsec = selinux_cred(current_cred());
+	const struct cred_security_struct *crsec = selinux_cred(current_cred());
 
-	return tsec->sid;
+	return crsec->sid;
 }
 
 static inline struct superblock_security_struct *
@@ -245,4 +268,23 @@ selinux_perf_event(void *perf_event)
 	return perf_event + selinux_blob_sizes.lbs_perf_event;
 }
 
+#ifdef CONFIG_BPF_SYSCALL
+static inline struct bpf_security_struct *
+selinux_bpf_map_security(struct bpf_map *map)
+{
+	return map->security + selinux_blob_sizes.lbs_bpf_map;
+}
+
+static inline struct bpf_security_struct *
+selinux_bpf_prog_security(struct bpf_prog *prog)
+{
+	return prog->aux->security + selinux_blob_sizes.lbs_bpf_prog;
+}
+
+static inline struct bpf_security_struct *
+selinux_bpf_token_security(struct bpf_token *token)
+{
+	return token->security + selinux_blob_sizes.lbs_bpf_token;
+}
+#endif /* CONFIG_BPF_SYSCALL */
 #endif /* _SELINUX_OBJSEC_H_ */

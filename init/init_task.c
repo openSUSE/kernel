@@ -27,6 +27,9 @@ static struct signal_struct init_signals = {
 	},
 	.multiprocess	= HLIST_HEAD_INIT,
 	.rlim		= INIT_RLIMITS,
+#ifdef CONFIG_CGROUPS
+	.cgroup_threadgroup_rwsem	= __RWSEM_INITIALIZER(init_signals.cgroup_threadgroup_rwsem),
+#endif
 	.cred_guard_mutex = __MUTEX_INITIALIZER(init_signals.cred_guard_mutex),
 	.exec_update_lock = __RWSEM_INITIALIZER(init_signals.exec_update_lock),
 #ifdef CONFIG_POSIX_TIMERS
@@ -59,6 +62,33 @@ unsigned long init_shadow_call_stack[SCS_SIZE / sizeof(long)] = {
 };
 #endif
 
+/* init to 2 - one for init_task, one to ensure it is never freed */
+static struct group_info init_groups = { .usage = REFCOUNT_INIT(2) };
+
+/*
+ * The initial credentials for the initial task
+ */
+static struct cred init_cred = {
+	.usage			= ATOMIC_INIT(4),
+	.uid			= GLOBAL_ROOT_UID,
+	.gid			= GLOBAL_ROOT_GID,
+	.suid			= GLOBAL_ROOT_UID,
+	.sgid			= GLOBAL_ROOT_GID,
+	.euid			= GLOBAL_ROOT_UID,
+	.egid			= GLOBAL_ROOT_GID,
+	.fsuid			= GLOBAL_ROOT_UID,
+	.fsgid			= GLOBAL_ROOT_GID,
+	.securebits		= SECUREBITS_DEFAULT,
+	.cap_inheritable	= CAP_EMPTY_SET,
+	.cap_permitted		= CAP_FULL_SET,
+	.cap_effective		= CAP_FULL_SET,
+	.cap_bset		= CAP_FULL_SET,
+	.user			= INIT_USER,
+	.user_ns		= &init_user_ns,
+	.group_info		= &init_groups,
+	.ucounts		= &init_ucounts,
+};
+
 /*
  * Set up the first task table, touch at your own risk!. Base=0,
  * limit=0x1fffff (=2MB)
@@ -83,7 +113,6 @@ struct task_struct init_task __aligned(L1_CACHE_BYTES) = {
 	.nr_cpus_allowed= NR_CPUS,
 	.mm		= NULL,
 	.active_mm	= &init_mm,
-	.faults_disabled_mapping = NULL,
 	.restart_block	= {
 		.fn = do_no_restart_syscall,
 	},
@@ -140,6 +169,7 @@ struct task_struct init_task __aligned(L1_CACHE_BYTES) = {
 	.journal_info	= NULL,
 	INIT_CPU_TIMERS(init_task)
 	.pi_lock	= __RAW_SPIN_LOCK_UNLOCKED(init_task.pi_lock),
+	.blocked_lock	= __RAW_SPIN_LOCK_UNLOCKED(init_task.blocked_lock),
 	.timer_slack_ns = 50000, /* 50 usec default slack */
 	.thread_pid	= &init_struct_pid,
 	.thread_node	= LIST_HEAD_INIT(init_signals.thread_head),
@@ -165,9 +195,6 @@ struct task_struct init_task __aligned(L1_CACHE_BYTES) = {
 #endif
 #ifdef CONFIG_TASKS_TRACE_RCU
 	.trc_reader_nesting = 0,
-	.trc_reader_special.s = 0,
-	.trc_holdout_list = LIST_HEAD_INIT(init_task.trc_holdout_list),
-	.trc_blkd_node = LIST_HEAD_INIT(init_task.trc_blkd_node),
 #endif
 #ifdef CONFIG_CPUSETS
 	.mems_allowed_seq = SEQCNT_SPINLOCK_ZERO(init_task.mems_allowed_seq,
@@ -219,6 +246,9 @@ struct task_struct init_task __aligned(L1_CACHE_BYTES) = {
 #endif
 #ifdef CONFIG_SECCOMP_FILTER
 	.seccomp	= { .filter_count = ATOMIC_INIT(0) },
+#endif
+#ifdef CONFIG_SCHED_MM_CID
+	.mm_cid		= { .cid = MM_CID_UNSET, },
 #endif
 };
 EXPORT_SYMBOL(init_task);

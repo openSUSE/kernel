@@ -18,6 +18,7 @@
 #include <linux/in6.h>
 #include <linux/un.h>
 #include <linux/filter.h>
+#include <linux/rcupdate_trace.h>
 #include <net/sock.h>
 #include <linux/namei.h>
 #include "bpf_testmod.h"
@@ -60,6 +61,18 @@ struct bpf_testmod_struct_arg_5 {
 	short b;
 	int c;
 	long d;
+};
+
+union bpf_testmod_union_arg_1 {
+	char a;
+	short b;
+	struct bpf_testmod_struct_arg_1 arg;
+};
+
+union bpf_testmod_union_arg_2 {
+	int a;
+	long b;
+	struct bpf_testmod_struct_arg_2 arg;
 };
 
 __bpf_hook_start();
@@ -125,6 +138,20 @@ bpf_testmod_test_struct_arg_9(u64 a, void *b, short c, int d, void *e, char f,
 {
 	bpf_testmod_test_struct_arg_result = a + (long)b + c + d + (long)e +
 		f + g + h.a + h.b + h.c + h.d + i;
+	return bpf_testmod_test_struct_arg_result;
+}
+
+noinline int
+bpf_testmod_test_union_arg_1(union bpf_testmod_union_arg_1 a, int b, int c)
+{
+	bpf_testmod_test_struct_arg_result = a.arg.a + b + c;
+	return bpf_testmod_test_struct_arg_result;
+}
+
+noinline int
+bpf_testmod_test_union_arg_2(int a, union bpf_testmod_union_arg_2 b)
+{
+	bpf_testmod_test_struct_arg_result = a + b.arg.a + b.arg.b;
 	return bpf_testmod_test_struct_arg_result;
 }
 
@@ -218,6 +245,32 @@ __bpf_kfunc void bpf_kfunc_rcu_task_test(struct task_struct *ptr)
 {
 }
 
+__bpf_kfunc struct task_struct *bpf_kfunc_ret_rcu_test(void)
+{
+	return NULL;
+}
+
+__bpf_kfunc int *bpf_kfunc_ret_rcu_test_nostruct(int rdonly_buf_size)
+{
+	return NULL;
+}
+
+static struct prog_test_member trusted_ptr;
+
+__bpf_kfunc struct prog_test_member *bpf_kfunc_get_default_trusted_ptr_test(void)
+{
+	return &trusted_ptr;
+}
+
+__bpf_kfunc void bpf_kfunc_put_default_trusted_ptr_test(struct prog_test_member *trusted_ptr)
+{
+	/*
+	 * This BPF kfunc doesn't actually have any put/KF_ACQUIRE
+	 * semantics. We're simply wanting to simulate a BPF kfunc that takes a
+	 * struct prog_test_member pointer as an argument.
+	 */
+}
+
 __bpf_kfunc struct bpf_testmod_ctx *
 bpf_testmod_ctx_create(int *err)
 {
@@ -248,6 +301,12 @@ __bpf_kfunc void bpf_testmod_ctx_release(struct bpf_testmod_ctx *ctx)
 	if (refcount_dec_and_test(&ctx->usage))
 		call_rcu(&ctx->rcu, testmod_free_cb);
 }
+
+__bpf_kfunc void bpf_testmod_ctx_release_dtor(void *ctx)
+{
+	bpf_testmod_ctx_release(ctx);
+}
+CFI_NOSEAL(bpf_testmod_ctx_release_dtor);
 
 static struct bpf_testmod_ops3 *st_ops3;
 
@@ -354,11 +413,15 @@ __weak noinline struct file *bpf_testmod_return_ptr(int arg)
 
 noinline int bpf_testmod_fentry_test1(int a)
 {
+	trace_bpf_testmod_fentry_test1_tp(a);
+
 	return a + 1;
 }
 
 noinline int bpf_testmod_fentry_test2(int a, u64 b)
 {
+	trace_bpf_testmod_fentry_test2_tp(a, b);
+
 	return a + b;
 }
 
@@ -381,7 +444,36 @@ noinline int bpf_testmod_fentry_test11(u64 a, void *b, short c, int d,
 	return a + (long)b + c + d + (long)e + f + g + h + i + j + k;
 }
 
+noinline void bpf_testmod_stacktrace_test(void)
+{
+	/* used for stacktrace test as attach function */
+	asm volatile ("");
+}
+
+noinline void bpf_testmod_stacktrace_test_3(void)
+{
+	bpf_testmod_stacktrace_test();
+	asm volatile ("");
+}
+
+noinline void bpf_testmod_stacktrace_test_2(void)
+{
+	bpf_testmod_stacktrace_test_3();
+	asm volatile ("");
+}
+
+noinline void bpf_testmod_stacktrace_test_1(void)
+{
+	bpf_testmod_stacktrace_test_2();
+	asm volatile ("");
+}
+
 int bpf_testmod_fentry_ok;
+
+noinline int bpf_testmod_trampoline_count_test(void)
+{
+	return 0;
+}
 
 noinline ssize_t
 bpf_testmod_test_read(struct file *file, struct kobject *kobj,
@@ -398,6 +490,8 @@ bpf_testmod_test_read(struct file *file, struct kobject *kobj,
 	struct bpf_testmod_struct_arg_3 *struct_arg3;
 	struct bpf_testmod_struct_arg_4 struct_arg4 = {21, 22};
 	struct bpf_testmod_struct_arg_5 struct_arg5 = {23, 24, 25, 26};
+	union bpf_testmod_union_arg_1 union_arg1 = { .arg = {1} };
+	union bpf_testmod_union_arg_2 union_arg2 = { .arg = {2, 3} };
 	int i = 1;
 
 	while (bpf_testmod_return_ptr(i))
@@ -414,6 +508,9 @@ bpf_testmod_test_read(struct file *file, struct kobject *kobj,
 					    (void *)20, struct_arg4, 23);
 	(void)bpf_testmod_test_struct_arg_9(16, (void *)17, 18, 19, (void *)20,
 					    21, 22, struct_arg5, 27);
+
+	(void)bpf_testmod_test_union_arg_1(union_arg1, 4, 5);
+	(void)bpf_testmod_test_union_arg_2(6, union_arg2);
 
 	(void)bpf_testmod_test_arg_ptr_to_struct(&struct_arg1_2);
 
@@ -455,6 +552,10 @@ bpf_testmod_test_read(struct file *file, struct kobject *kobj,
 	    bpf_testmod_fentry_test11(16, (void *)17, 18, 19, (void *)20,
 			21, 22, 23, 24, 25, 26) != 231)
 		goto out;
+
+	bpf_testmod_trampoline_count_test();
+
+	bpf_testmod_stacktrace_test_1();
 
 	bpf_testmod_fentry_ok = 1;
 out:
@@ -501,14 +602,20 @@ static struct bin_attribute bin_attr_bpf_testmod_file __ro_after_init = {
 #ifdef __x86_64__
 
 static int
+uprobe_handler(struct uprobe_consumer *self, struct pt_regs *regs, __u64 *data)
+{
+	regs->cx = 0x87654321feebdaed;
+	return 0;
+}
+
+static int
 uprobe_ret_handler(struct uprobe_consumer *self, unsigned long func,
 		   struct pt_regs *regs, __u64 *data)
 
 {
 	regs->ax  = 0x12345678deadbeef;
-	regs->cx  = 0x87654321feebdaed;
 	regs->r11 = (u64) -1;
-	return true;
+	return 0;
 }
 
 struct testmod_uprobe {
@@ -520,6 +627,7 @@ struct testmod_uprobe {
 static DEFINE_MUTEX(testmod_uprobe_mutex);
 
 static struct testmod_uprobe uprobe = {
+	.consumer.handler = uprobe_handler,
 	.consumer.ret_handler = uprobe_ret_handler,
 };
 
@@ -615,23 +723,28 @@ BTF_ID_FLAGS(func, bpf_iter_testmod_seq_next, KF_ITER_NEXT | KF_RET_NULL)
 BTF_ID_FLAGS(func, bpf_iter_testmod_seq_destroy, KF_ITER_DESTROY)
 BTF_ID_FLAGS(func, bpf_iter_testmod_seq_value)
 BTF_ID_FLAGS(func, bpf_kfunc_common_test)
+BTF_ID_FLAGS(func, bpf_kfunc_call_test_mem_len_pass1)
 BTF_ID_FLAGS(func, bpf_kfunc_dynptr_test)
 BTF_ID_FLAGS(func, bpf_kfunc_nested_acquire_nonzero_offset_test, KF_ACQUIRE)
 BTF_ID_FLAGS(func, bpf_kfunc_nested_acquire_zero_offset_test, KF_ACQUIRE)
 BTF_ID_FLAGS(func, bpf_kfunc_nested_release_test, KF_RELEASE)
-BTF_ID_FLAGS(func, bpf_kfunc_trusted_vma_test, KF_TRUSTED_ARGS)
-BTF_ID_FLAGS(func, bpf_kfunc_trusted_task_test, KF_TRUSTED_ARGS)
-BTF_ID_FLAGS(func, bpf_kfunc_trusted_num_test, KF_TRUSTED_ARGS)
+BTF_ID_FLAGS(func, bpf_kfunc_trusted_vma_test)
+BTF_ID_FLAGS(func, bpf_kfunc_trusted_task_test)
+BTF_ID_FLAGS(func, bpf_kfunc_trusted_num_test)
 BTF_ID_FLAGS(func, bpf_kfunc_rcu_task_test, KF_RCU)
+BTF_ID_FLAGS(func, bpf_kfunc_ret_rcu_test, KF_RET_NULL | KF_RCU_PROTECTED)
+BTF_ID_FLAGS(func, bpf_kfunc_ret_rcu_test_nostruct, KF_RET_NULL | KF_RCU_PROTECTED)
 BTF_ID_FLAGS(func, bpf_testmod_ctx_create, KF_ACQUIRE | KF_RET_NULL)
 BTF_ID_FLAGS(func, bpf_testmod_ctx_release, KF_RELEASE)
 BTF_ID_FLAGS(func, bpf_testmod_ops3_call_test_1)
 BTF_ID_FLAGS(func, bpf_testmod_ops3_call_test_2)
+BTF_ID_FLAGS(func, bpf_kfunc_get_default_trusted_ptr_test);
+BTF_ID_FLAGS(func, bpf_kfunc_put_default_trusted_ptr_test);
 BTF_KFUNCS_END(bpf_testmod_common_kfunc_ids)
 
 BTF_ID_LIST(bpf_testmod_dtor_ids)
 BTF_ID(struct, bpf_testmod_ctx)
-BTF_ID(func, bpf_testmod_ctx_release)
+BTF_ID(func, bpf_testmod_ctx_release_dtor)
 
 static const struct btf_kfunc_id_set bpf_testmod_common_kfunc_set = {
 	.owner = THIS_MODULE,
@@ -655,10 +768,61 @@ __bpf_kfunc struct sock *bpf_kfunc_call_test3(struct sock *sk)
 
 __bpf_kfunc long noinline bpf_kfunc_call_test4(signed char a, short b, int c, long d)
 {
-	/* Provoke the compiler to assume that the caller has sign-extended a,
+	/*
+	 * Make val as volatile to avoid compiler optimizations.
+	 * Verify that negative signed values remain negative after
+	 * sign-extension (JIT must sign-extend, not zero-extend).
+	 */
+	volatile long val;
+
+	/* val will be positive, if JIT does zero-extension instead of sign-extension */
+	val = a;
+	if (val >= 0)
+		return 1;
+
+	val = b;
+	if (val >= 0)
+		return 2;
+
+	val = c;
+	if (val >= 0)
+		return 3;
+
+	/*
+	 * Provoke the compiler to assume that the caller has sign-extended a,
 	 * b and c on platforms where this is required (e.g. s390x).
 	 */
 	return (long)a + (long)b + (long)c + d;
+}
+
+__bpf_kfunc int bpf_kfunc_call_test5(u8 a, u16 b, u32 c)
+{
+	/*
+	 * Make val as volatile to avoid compiler optimizations on the below checks
+	 * In C, assigning u8/u16/u32 to long performs zero-extension.
+	 */
+	volatile long val = a;
+
+	/* Check zero-extension */
+	if (val != (unsigned long)a)
+		return 1;
+	/* Check no sign-extension */
+	if (val < 0)
+		return 2;
+
+	val = b;
+	if (val != (unsigned long)b)
+		return 3;
+	if (val < 0)
+		return 4;
+
+	val = c;
+	if (val != (unsigned long)c)
+		return 5;
+	if (val < 0)
+		return 6;
+
+	return 0;
 }
 
 static struct prog_test_ref_kfunc prog_test_struct = {
@@ -781,6 +945,32 @@ __bpf_kfunc void bpf_kfunc_call_test_sleepable(void)
 {
 }
 
+struct bpf_kfunc_rcu_tasks_trace_data {
+	struct rcu_head rcu;
+	int *done;
+};
+
+static void bpf_kfunc_rcu_tasks_trace_cb(struct rcu_head *rhp)
+{
+	struct bpf_kfunc_rcu_tasks_trace_data *data;
+
+	data = container_of(rhp, struct bpf_kfunc_rcu_tasks_trace_data, rcu);
+	WRITE_ONCE(*data->done, 1);
+	kfree(data);
+}
+
+__bpf_kfunc int bpf_kfunc_call_test_call_rcu_tasks_trace(int *done)
+{
+	struct bpf_kfunc_rcu_tasks_trace_data *data;
+
+	data = kmalloc(sizeof(*data), GFP_ATOMIC);
+	if (!data)
+		return -ENOMEM;
+	data->done = done;
+	call_rcu_tasks_trace(&data->rcu, bpf_kfunc_rcu_tasks_trace_cb);
+	return 0;
+}
+
 __bpf_kfunc int bpf_kfunc_init_sock(struct init_sock_args *args)
 {
 	int proto;
@@ -850,7 +1040,7 @@ __bpf_kfunc int bpf_kfunc_call_kernel_connect(struct addr_args *args)
 		goto out;
 	}
 
-	err = kernel_connect(sock, (struct sockaddr *)&args->addr,
+	err = kernel_connect(sock, (struct sockaddr_unsized *)&args->addr,
 			     args->addrlen, 0);
 out:
 	mutex_unlock(&sock_lock);
@@ -873,7 +1063,7 @@ __bpf_kfunc int bpf_kfunc_call_kernel_bind(struct addr_args *args)
 		goto out;
 	}
 
-	err = kernel_bind(sock, (struct sockaddr *)&args->addr, args->addrlen);
+	err = kernel_bind(sock, (struct sockaddr_unsized *)&args->addr, args->addrlen);
 out:
 	mutex_unlock(&sock_lock);
 
@@ -1057,13 +1247,47 @@ __bpf_kfunc int bpf_kfunc_st_ops_inc10(struct st_ops_args *args)
 	return args->a;
 }
 
+__bpf_kfunc int bpf_kfunc_multi_st_ops_test_1(struct st_ops_args *args, u32 id);
+__bpf_kfunc int bpf_kfunc_multi_st_ops_test_1_assoc(struct st_ops_args *args, struct bpf_prog_aux *aux);
+
+__bpf_kfunc int bpf_kfunc_implicit_arg(int a, struct bpf_prog_aux *aux);
+__bpf_kfunc int bpf_kfunc_implicit_arg_legacy(int a, int b, struct bpf_prog_aux *aux);
+__bpf_kfunc int bpf_kfunc_implicit_arg_legacy_impl(int a, int b, struct bpf_prog_aux *aux);
+
+/* hook targets */
+noinline void bpf_testmod_test_hardirq_fn(void) { barrier(); }
+noinline void bpf_testmod_test_softirq_fn(void) { barrier(); }
+
+/* Tasklet for SoftIRQ context */
+static void ctx_check_tasklet_fn(struct tasklet_struct *t)
+{
+	bpf_testmod_test_softirq_fn();
+}
+
+DECLARE_TASKLET(ctx_check_tasklet, ctx_check_tasklet_fn);
+
+/* IRQ Work for HardIRQ context */
+static void ctx_check_irq_fn(struct irq_work *work)
+{
+	bpf_testmod_test_hardirq_fn();
+	tasklet_schedule(&ctx_check_tasklet);
+}
+
+static struct irq_work ctx_check_irq = IRQ_WORK_INIT_HARD(ctx_check_irq_fn);
+
+/* The kfunc trigger */
+__bpf_kfunc void bpf_kfunc_trigger_ctx_check(void)
+{
+	irq_work_queue(&ctx_check_irq);
+}
+
 BTF_KFUNCS_START(bpf_testmod_check_kfunc_ids)
 BTF_ID_FLAGS(func, bpf_testmod_test_mod_kfunc)
 BTF_ID_FLAGS(func, bpf_kfunc_call_test1)
 BTF_ID_FLAGS(func, bpf_kfunc_call_test2)
 BTF_ID_FLAGS(func, bpf_kfunc_call_test3)
 BTF_ID_FLAGS(func, bpf_kfunc_call_test4)
-BTF_ID_FLAGS(func, bpf_kfunc_call_test_mem_len_pass1)
+BTF_ID_FLAGS(func, bpf_kfunc_call_test5)
 BTF_ID_FLAGS(func, bpf_kfunc_call_test_mem_len_fail1)
 BTF_ID_FLAGS(func, bpf_kfunc_call_test_mem_len_fail2)
 BTF_ID_FLAGS(func, bpf_kfunc_call_test_acquire, KF_ACQUIRE | KF_RET_NULL)
@@ -1079,11 +1303,12 @@ BTF_ID_FLAGS(func, bpf_kfunc_call_test_pass2)
 BTF_ID_FLAGS(func, bpf_kfunc_call_test_fail1)
 BTF_ID_FLAGS(func, bpf_kfunc_call_test_fail2)
 BTF_ID_FLAGS(func, bpf_kfunc_call_test_fail3)
-BTF_ID_FLAGS(func, bpf_kfunc_call_test_ref, KF_TRUSTED_ARGS | KF_RCU)
+BTF_ID_FLAGS(func, bpf_kfunc_call_test_ref, KF_RCU)
 BTF_ID_FLAGS(func, bpf_kfunc_call_test_destructive, KF_DESTRUCTIVE)
 BTF_ID_FLAGS(func, bpf_kfunc_call_test_static_unused_arg)
 BTF_ID_FLAGS(func, bpf_kfunc_call_test_offset)
 BTF_ID_FLAGS(func, bpf_kfunc_call_test_sleepable, KF_SLEEPABLE)
+BTF_ID_FLAGS(func, bpf_kfunc_call_test_call_rcu_tasks_trace)
 BTF_ID_FLAGS(func, bpf_kfunc_init_sock, KF_SLEEPABLE)
 BTF_ID_FLAGS(func, bpf_kfunc_close_sock, KF_SLEEPABLE)
 BTF_ID_FLAGS(func, bpf_kfunc_call_kernel_connect, KF_SLEEPABLE)
@@ -1093,10 +1318,16 @@ BTF_ID_FLAGS(func, bpf_kfunc_call_kernel_sendmsg, KF_SLEEPABLE)
 BTF_ID_FLAGS(func, bpf_kfunc_call_sock_sendmsg, KF_SLEEPABLE)
 BTF_ID_FLAGS(func, bpf_kfunc_call_kernel_getsockname, KF_SLEEPABLE)
 BTF_ID_FLAGS(func, bpf_kfunc_call_kernel_getpeername, KF_SLEEPABLE)
-BTF_ID_FLAGS(func, bpf_kfunc_st_ops_test_prologue, KF_TRUSTED_ARGS | KF_SLEEPABLE)
-BTF_ID_FLAGS(func, bpf_kfunc_st_ops_test_epilogue, KF_TRUSTED_ARGS | KF_SLEEPABLE)
-BTF_ID_FLAGS(func, bpf_kfunc_st_ops_test_pro_epilogue, KF_TRUSTED_ARGS | KF_SLEEPABLE)
-BTF_ID_FLAGS(func, bpf_kfunc_st_ops_inc10, KF_TRUSTED_ARGS)
+BTF_ID_FLAGS(func, bpf_kfunc_st_ops_test_prologue, KF_SLEEPABLE)
+BTF_ID_FLAGS(func, bpf_kfunc_st_ops_test_epilogue, KF_SLEEPABLE)
+BTF_ID_FLAGS(func, bpf_kfunc_st_ops_test_pro_epilogue, KF_SLEEPABLE)
+BTF_ID_FLAGS(func, bpf_kfunc_st_ops_inc10)
+BTF_ID_FLAGS(func, bpf_kfunc_multi_st_ops_test_1)
+BTF_ID_FLAGS(func, bpf_kfunc_multi_st_ops_test_1_assoc, KF_IMPLICIT_ARGS)
+BTF_ID_FLAGS(func, bpf_kfunc_implicit_arg, KF_IMPLICIT_ARGS)
+BTF_ID_FLAGS(func, bpf_kfunc_implicit_arg_legacy, KF_IMPLICIT_ARGS)
+BTF_ID_FLAGS(func, bpf_kfunc_implicit_arg_legacy_impl)
+BTF_ID_FLAGS(func, bpf_kfunc_trigger_ctx_check)
 BTF_KFUNCS_END(bpf_testmod_check_kfunc_ids)
 
 static int bpf_testmod_ops_init(struct btf *btf)
@@ -1187,6 +1418,12 @@ static int bpf_testmod_ops__test_refcounted(int dummy,
 	return 0;
 }
 
+static int bpf_testmod_ops__test_refcounted_multi(int dummy, struct task_struct *task__nullable,
+						  struct task_struct *task__ref)
+{
+	return 0;
+}
+
 static struct task_struct *
 bpf_testmod_ops__test_return_ref_kptr(int dummy, struct task_struct *task__ref,
 				      struct cgroup *cgrp)
@@ -1199,6 +1436,7 @@ static struct bpf_testmod_ops __bpf_testmod_ops = {
 	.test_2 = bpf_testmod_test_2,
 	.test_maybe_null = bpf_testmod_ops__test_maybe_null,
 	.test_refcounted = bpf_testmod_ops__test_refcounted,
+	.test_refcounted_multi = bpf_testmod_ops__test_refcounted_multi,
 	.test_return_ref_kptr = bpf_testmod_ops__test_return_ref_kptr,
 };
 
@@ -1528,7 +1766,158 @@ static struct bpf_struct_ops testmod_st_ops = {
 	.owner = THIS_MODULE,
 };
 
+struct hlist_head multi_st_ops_list;
+static DEFINE_SPINLOCK(multi_st_ops_lock);
+
+static int multi_st_ops_init(struct btf *btf)
+{
+	spin_lock_init(&multi_st_ops_lock);
+	INIT_HLIST_HEAD(&multi_st_ops_list);
+
+	return 0;
+}
+
+static int multi_st_ops_init_member(const struct btf_type *t,
+				    const struct btf_member *member,
+				    void *kdata, const void *udata)
+{
+	return 0;
+}
+
+static struct bpf_testmod_multi_st_ops *multi_st_ops_find_nolock(u32 id)
+{
+	struct bpf_testmod_multi_st_ops *st_ops;
+
+	hlist_for_each_entry(st_ops, &multi_st_ops_list, node) {
+		if (st_ops->id == id)
+			return st_ops;
+	}
+
+	return NULL;
+}
+
+/* Call test_1() of the struct_ops map identified by the id */
+int bpf_kfunc_multi_st_ops_test_1(struct st_ops_args *args, u32 id)
+{
+	struct bpf_testmod_multi_st_ops *st_ops;
+	unsigned long flags;
+	int ret = -1;
+
+	spin_lock_irqsave(&multi_st_ops_lock, flags);
+	st_ops = multi_st_ops_find_nolock(id);
+	if (st_ops)
+		ret = st_ops->test_1(args);
+	spin_unlock_irqrestore(&multi_st_ops_lock, flags);
+
+	return ret;
+}
+
+/* Call test_1() of the associated struct_ops map */
+int bpf_kfunc_multi_st_ops_test_1_assoc(struct st_ops_args *args, struct bpf_prog_aux *aux)
+{
+	struct bpf_testmod_multi_st_ops *st_ops;
+	int ret = -1;
+
+	st_ops = (struct bpf_testmod_multi_st_ops *)bpf_prog_get_assoc_struct_ops(aux);
+	if (st_ops)
+		ret = st_ops->test_1(args);
+
+	return ret;
+}
+
+int bpf_kfunc_implicit_arg(int a, struct bpf_prog_aux *aux)
+{
+	if (aux && a > 0)
+		return a;
+	return -EINVAL;
+}
+
+int bpf_kfunc_implicit_arg_legacy(int a, int b, struct bpf_prog_aux *aux)
+{
+	if (aux)
+		return a + b;
+	return -EINVAL;
+}
+
+int bpf_kfunc_implicit_arg_legacy_impl(int a, int b, struct bpf_prog_aux *aux)
+{
+	return bpf_kfunc_implicit_arg_legacy(a, b, aux);
+}
+
+static int multi_st_ops_reg(void *kdata, struct bpf_link *link)
+{
+	struct bpf_testmod_multi_st_ops *st_ops =
+		(struct bpf_testmod_multi_st_ops *)kdata;
+	unsigned long flags;
+	int err = 0;
+	u32 id;
+
+	if (!st_ops->test_1)
+		return -EINVAL;
+
+	id = bpf_struct_ops_id(kdata);
+
+	spin_lock_irqsave(&multi_st_ops_lock, flags);
+	if (multi_st_ops_find_nolock(id)) {
+		pr_err("multi_st_ops(id:%d) has already been registered\n", id);
+		err = -EEXIST;
+		goto unlock;
+	}
+
+	st_ops->id = id;
+	hlist_add_head(&st_ops->node, &multi_st_ops_list);
+unlock:
+	spin_unlock_irqrestore(&multi_st_ops_lock, flags);
+
+	return err;
+}
+
+static void multi_st_ops_unreg(void *kdata, struct bpf_link *link)
+{
+	struct bpf_testmod_multi_st_ops *st_ops;
+	unsigned long flags;
+	u32 id;
+
+	id = bpf_struct_ops_id(kdata);
+
+	spin_lock_irqsave(&multi_st_ops_lock, flags);
+	st_ops = multi_st_ops_find_nolock(id);
+	if (st_ops)
+		hlist_del(&st_ops->node);
+	spin_unlock_irqrestore(&multi_st_ops_lock, flags);
+}
+
+static int bpf_testmod_multi_st_ops__test_1(struct st_ops_args *args)
+{
+	return 0;
+}
+
+static struct bpf_testmod_multi_st_ops multi_st_ops_cfi_stubs = {
+	.test_1 = bpf_testmod_multi_st_ops__test_1,
+};
+
+struct bpf_struct_ops testmod_multi_st_ops = {
+	.verifier_ops = &bpf_testmod_verifier_ops,
+	.init = multi_st_ops_init,
+	.init_member = multi_st_ops_init_member,
+	.reg = multi_st_ops_reg,
+	.unreg = multi_st_ops_unreg,
+	.cfi_stubs = &multi_st_ops_cfi_stubs,
+	.name = "bpf_testmod_multi_st_ops",
+	.owner = THIS_MODULE,
+};
+
 extern int bpf_fentry_test1(int a);
+
+BTF_KFUNCS_START(bpf_testmod_trampoline_count_ids)
+BTF_ID_FLAGS(func, bpf_testmod_trampoline_count_test)
+BTF_KFUNCS_END(bpf_testmod_trampoline_count_ids)
+
+static const struct
+btf_kfunc_id_set bpf_testmod_trampoline_count_fmodret_set = {
+	.owner = THIS_MODULE,
+	.set = &bpf_testmod_trampoline_count_ids,
+};
 
 static int bpf_testmod_init(void)
 {
@@ -1546,10 +1935,12 @@ static int bpf_testmod_init(void)
 	ret = ret ?: register_btf_kfunc_id_set(BPF_PROG_TYPE_TRACING, &bpf_testmod_kfunc_set);
 	ret = ret ?: register_btf_kfunc_id_set(BPF_PROG_TYPE_SYSCALL, &bpf_testmod_kfunc_set);
 	ret = ret ?: register_btf_kfunc_id_set(BPF_PROG_TYPE_STRUCT_OPS, &bpf_testmod_kfunc_set);
+	ret = ret ?: register_btf_fmodret_id_set(&bpf_testmod_trampoline_count_fmodret_set);
 	ret = ret ?: register_bpf_struct_ops(&bpf_bpf_testmod_ops, bpf_testmod_ops);
 	ret = ret ?: register_bpf_struct_ops(&bpf_testmod_ops2, bpf_testmod_ops2);
 	ret = ret ?: register_bpf_struct_ops(&bpf_testmod_ops3, bpf_testmod_ops3);
 	ret = ret ?: register_bpf_struct_ops(&testmod_st_ops, bpf_testmod_st_ops);
+	ret = ret ?: register_bpf_struct_ops(&testmod_multi_st_ops, bpf_testmod_multi_st_ops);
 	ret = ret ?: register_btf_id_dtor_kfuncs(bpf_testmod_dtors,
 						 ARRAY_SIZE(bpf_testmod_dtors),
 						 THIS_MODULE);
@@ -1585,6 +1976,10 @@ static void bpf_testmod_exit(void)
          */
 	while (refcount_read(&prog_test_struct.cnt) > 1)
 		msleep(20);
+
+	/* Clean up irqwork and tasklet */
+	irq_work_sync(&ctx_check_irq);
+	tasklet_kill(&ctx_check_tasklet);
 
 	bpf_kfunc_close_sock();
 	sysfs_remove_bin_file(kernel_kobj, &bin_attr_bpf_testmod_file);

@@ -3,9 +3,11 @@
  * Copyright © 2014-2016 Intel Corporation
  */
 
+#include <linux/vmalloc.h>
+
 #include <drm/drm_cache.h>
 #include <drm/drm_panic.h>
-#include <linux/vmalloc.h>
+#include <drm/drm_print.h>
 
 #include "display/intel_fb.h"
 #include "display/intel_display_types.h"
@@ -312,7 +314,7 @@ static void *i915_gem_object_map_page(struct drm_i915_gem_object *obj,
 
 	if (n_pages > ARRAY_SIZE(stack)) {
 		/* Too big for stack -- allocate temporary array instead */
-		pages = kvmalloc_array(n_pages, sizeof(*pages), GFP_KERNEL);
+		pages = kvmalloc_objs(*pages, n_pages);
 		if (!pages)
 			return ERR_PTR(-ENOMEM);
 	}
@@ -357,23 +359,13 @@ static void *i915_gem_object_map_pfn(struct drm_i915_gem_object *obj,
 	return vaddr ?: ERR_PTR(-ENOMEM);
 }
 
-struct i915_panic_data {
+struct intel_panic {
 	struct page **pages;
 	int page;
 	void *vaddr;
 };
 
-struct i915_framebuffer {
-	struct intel_framebuffer base;
-	struct i915_panic_data panic;
-};
-
-static inline struct i915_panic_data *to_i915_panic_data(struct intel_framebuffer *fb)
-{
-	return &container_of_const(fb, struct i915_framebuffer, base)->panic;
-}
-
-static void i915_panic_kunmap(struct i915_panic_data *panic)
+static void i915_panic_kunmap(struct intel_panic *panic)
 {
 	if (panic->vaddr) {
 		drm_clflush_virt_range(panic->vaddr, PAGE_SIZE);
@@ -390,7 +382,7 @@ static struct page **i915_gem_object_panic_pages(struct drm_i915_gem_object *obj
 	struct sgt_iter iter;
 
 	/* For a 3840x2160 32 bits Framebuffer, this should require ~64K */
-	pages = kmalloc_array(n_pages, sizeof(*pages), GFP_ATOMIC);
+	pages = kmalloc_objs(*pages, n_pages, GFP_ATOMIC);
 	if (!pages)
 		return NULL;
 
@@ -420,7 +412,7 @@ static void i915_gem_object_panic_page_set_pixel(struct drm_scanout_buffer *sb, 
 	unsigned int new_page;
 	unsigned int offset;
 	struct intel_framebuffer *fb = (struct intel_framebuffer *)sb->private;
-	struct i915_panic_data *panic = to_i915_panic_data(fb);
+	struct intel_panic *panic = fb->panic;
 
 	if (fb->panic_tiling)
 		offset = fb->panic_tiling(sb->width, x, y);
@@ -441,14 +433,13 @@ static void i915_gem_object_panic_page_set_pixel(struct drm_scanout_buffer *sb, 
 	}
 }
 
-struct intel_framebuffer *i915_gem_object_alloc_framebuffer(void)
+struct intel_panic *i915_gem_object_alloc_panic(void)
 {
-	struct i915_framebuffer *i915_fb;
+	struct intel_panic *panic;
 
-	i915_fb = kzalloc(sizeof(*i915_fb), GFP_KERNEL);
-	if (i915_fb)
-		return &i915_fb->base;
-	return NULL;
+	panic = kzalloc_obj(*panic);
+
+	return panic;
 }
 
 /*
@@ -456,12 +447,11 @@ struct intel_framebuffer *i915_gem_object_alloc_framebuffer(void)
  * Use current vaddr if it exists, or setup a list of pages.
  * pfn is not supported yet.
  */
-int i915_gem_object_panic_setup(struct drm_scanout_buffer *sb)
+int i915_gem_object_panic_setup(struct intel_panic *panic, struct drm_scanout_buffer *sb,
+				struct drm_gem_object *_obj, bool panic_tiling)
 {
 	enum i915_map_type has_type;
-	struct intel_framebuffer *fb = (struct intel_framebuffer *)sb->private;
-	struct i915_panic_data *panic = to_i915_panic_data(fb);
-	struct drm_i915_gem_object *obj = to_intel_bo(intel_fb_bo(&fb->base));
+	struct drm_i915_gem_object *obj = to_intel_bo(_obj);
 	void *ptr;
 
 	ptr = page_unpack_bits(obj->mm.mapping, &has_type);
@@ -471,7 +461,7 @@ int i915_gem_object_panic_setup(struct drm_scanout_buffer *sb)
 		else
 			iosys_map_set_vaddr(&sb->map[0], ptr);
 
-		if (fb->panic_tiling)
+		if (panic_tiling)
 			sb->set_pixel = i915_gem_object_panic_map_set_pixel;
 		return 0;
 	}
@@ -486,10 +476,8 @@ int i915_gem_object_panic_setup(struct drm_scanout_buffer *sb)
 	return -EOPNOTSUPP;
 }
 
-void i915_gem_object_panic_finish(struct intel_framebuffer *fb)
+void i915_gem_object_panic_finish(struct intel_panic *panic)
 {
-	struct i915_panic_data *panic = to_i915_panic_data(fb);
-
 	i915_panic_kunmap(panic);
 	panic->page = -1;
 	kfree(panic->pages);
@@ -779,7 +767,7 @@ __i915_gem_object_get_page(struct drm_i915_gem_object *obj, pgoff_t n)
 	GEM_BUG_ON(!i915_gem_object_has_struct_page(obj));
 
 	sg = i915_gem_object_get_sg(obj, n, &offset);
-	return nth_page(sg_page(sg), offset);
+	return sg_page(sg) + offset;
 }
 
 /* Like i915_gem_object_get_page(), but mark the returned page dirty */

@@ -3,11 +3,11 @@
 #include <linux/net_tstamp.h>
 #include <linux/ptp_clock_kernel.h>
 
-#include "netlink.h"
-#include "common.h"
 #include "bitset.h"
-#include "../core/dev.h"
+#include "common.h"
+#include "netlink.h"
 #include "ts.h"
+#include "../core/dev.h"
 
 struct tsconfig_req_info {
 	struct ethnl_req_info base;
@@ -202,10 +202,10 @@ static int tsconfig_send_reply(struct net_device *dev, struct genl_info *info)
 	int reply_len = 0;
 	int ret;
 
-	req_info = kzalloc(sizeof(*req_info), GFP_KERNEL);
+	req_info = kzalloc_obj(*req_info);
 	if (!req_info)
 		return -ENOMEM;
-	reply_data = kmalloc(sizeof(*reply_data), GFP_KERNEL);
+	reply_data = kmalloc_obj(*reply_data);
 	if (!reply_data) {
 		kfree(req_info);
 		return -ENOMEM;
@@ -280,7 +280,7 @@ tsconfig_set_hwprov_from_desc(struct net_device *dev,
 		source = HWTSTAMP_SOURCE_PHYLIB;
 	}
 
-	hwprov = kzalloc(sizeof(*hwprov), GFP_KERNEL);
+	hwprov = kzalloc_obj(*hwprov);
 	if (!hwprov)
 		return ERR_PTR(-ENOMEM);
 
@@ -423,13 +423,11 @@ static int ethnl_set_tsconfig(struct ethnl_req_info *req_base,
 			return ret;
 	}
 
-	if (hwprov_mod || config_mod) {
-		ret = tsconfig_send_reply(dev, info);
-		if (ret && ret != -EOPNOTSUPP) {
-			NL_SET_ERR_MSG(info->extack,
-				       "error while reading the new configuration set");
-			return ret;
-		}
+	ret = tsconfig_send_reply(dev, info);
+	if (ret && ret != -EOPNOTSUPP) {
+		NL_SET_ERR_MSG(info->extack,
+			       "error while reading the new configuration set");
+		return ret;
 	}
 
 	/* tsconfig has no notification */

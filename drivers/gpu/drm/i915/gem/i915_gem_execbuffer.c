@@ -9,6 +9,7 @@
 #include <linux/uaccess.h>
 
 #include <drm/drm_auth.h>
+#include <drm/drm_print.h>
 #include <drm/drm_syncobj.h>
 
 #include "gem/i915_gem_ioctls.h"
@@ -182,7 +183,7 @@ enum {
  * the object. Simple! ... The relocation entries are stored in user memory
  * and so to access them we have to copy them into a local buffer. That copy
  * has to avoid taking any pagefaults as they may lead back to a GEM object
- * requiring the struct_mutex (i.e. recursive deadlock). So once again we split
+ * requiring the vm->mutex (i.e. recursive deadlock). So once again we split
  * the relocation into multiple passes. First we try to do everything within an
  * atomic context (avoid the pagefaults) which requires that we never wait. If
  * we detect that we may wait, or if we need to fault, then we have to fallback
@@ -897,6 +898,8 @@ static struct i915_vma *eb_lookup_vma(struct i915_execbuffer *eb, u32 handle)
 		vma = radix_tree_lookup(&eb->gem_context->handles_vma, handle);
 		if (likely(vma))
 			vma = i915_vma_tryget(vma);
+		else
+			vma = NULL;
 		rcu_read_unlock();
 		if (likely(vma))
 			return vma;
@@ -2005,7 +2008,7 @@ static int eb_capture_stage(struct i915_execbuffer *eb)
 		for_each_batch_create_order(eb, j) {
 			struct i915_capture_list *capture;
 
-			capture = kmalloc(sizeof(*capture), GFP_KERNEL);
+			capture = kmalloc_obj(*capture);
 			if (!capture)
 				continue;
 
@@ -3189,7 +3192,7 @@ eb_composite_fence_create(struct i915_execbuffer *eb, int out_fence_fd)
 
 	GEM_BUG_ON(!intel_context_is_parent(eb->context));
 
-	fences = kmalloc_array(eb->num_batches, sizeof(*fences), GFP_KERNEL);
+	fences = kmalloc_objs(*fences, eb->num_batches);
 	if (!fences)
 		return ERR_PTR(-ENOMEM);
 
@@ -3202,8 +3205,7 @@ eb_composite_fence_create(struct i915_execbuffer *eb, int out_fence_fd)
 	fence_array = dma_fence_array_create(eb->num_batches,
 					     fences,
 					     eb->context->parallel.fence_context,
-					     eb->context->parallel.seqno++,
-					     false);
+					     eb->context->parallel.seqno++);
 	if (!fence_array) {
 		kfree(fences);
 		return ERR_PTR(-ENOMEM);

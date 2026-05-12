@@ -85,7 +85,7 @@ static struct vgic_irq *vgic_add_lpi(struct kvm *kvm, u32 intid,
 	if (irq)
 		return irq;
 
-	irq = kzalloc(sizeof(struct vgic_irq), GFP_KERNEL_ACCOUNT);
+	irq = kzalloc_obj(struct vgic_irq, GFP_KERNEL_ACCOUNT);
 	if (!irq)
 		return ERR_PTR(-ENOMEM);
 
@@ -99,7 +99,7 @@ static struct vgic_irq *vgic_add_lpi(struct kvm *kvm, u32 intid,
 	raw_spin_lock_init(&irq->irq_lock);
 
 	irq->config = VGIC_CONFIG_EDGE;
-	kref_init(&irq->refcount);
+	refcount_set(&irq->refcount, 1);
 	irq->intid = intid;
 	irq->target_vcpu = vcpu;
 	irq->group = 1;
@@ -111,25 +111,22 @@ static struct vgic_irq *vgic_add_lpi(struct kvm *kvm, u32 intid,
 	 * check that we don't add a second list entry with the same LPI.
 	 */
 	oldirq = xa_load(&dist->lpi_xa, intid);
-	if (vgic_try_get_irq_kref(oldirq)) {
+	if (vgic_try_get_irq_ref(oldirq)) {
 		/* Someone was faster with adding this LPI, lets use that. */
 		kfree(irq);
 		irq = oldirq;
-
-		goto out_unlock;
+	} else {
+		ret = xa_err(__xa_store(&dist->lpi_xa, intid, irq, 0));
 	}
 
-	ret = xa_err(__xa_store(&dist->lpi_xa, intid, irq, 0));
+	xa_unlock_irqrestore(&dist->lpi_xa, flags);
+
 	if (ret) {
 		xa_release(&dist->lpi_xa, intid);
 		kfree(irq);
-	}
 
-out_unlock:
-	xa_unlock_irqrestore(&dist->lpi_xa, flags);
-
-	if (ret)
 		return ERR_PTR(ret);
+	}
 
 	/*
 	 * We "cache" the configuration table entries in our struct vgic_irq's.
@@ -547,7 +544,7 @@ static struct vgic_irq *vgic_its_check_cache(struct kvm *kvm, phys_addr_t db,
 	rcu_read_lock();
 
 	irq = xa_load(&its->translation_cache, cache_key);
-	if (!vgic_try_get_irq_kref(irq))
+	if (!vgic_try_get_irq_ref(irq))
 		irq = NULL;
 
 	rcu_read_unlock();
@@ -571,7 +568,7 @@ static void vgic_its_cache_translation(struct kvm *kvm, struct vgic_its *its,
 	 * its_lock, as the ITE (and the reference it holds) cannot be freed.
 	 */
 	lockdep_assert_held(&its->its_lock);
-	vgic_get_irq_kref(irq);
+	vgic_get_irq_ref(irq);
 
 	old = xa_store(&its->translation_cache, cache_key, irq, GFP_KERNEL_ACCOUNT);
 
@@ -963,7 +960,7 @@ static int vgic_its_alloc_collection(struct vgic_its *its,
 {
 	struct its_collection *collection;
 
-	collection = kzalloc(sizeof(*collection), GFP_KERNEL_ACCOUNT);
+	collection = kzalloc_obj(*collection, GFP_KERNEL_ACCOUNT);
 	if (!collection)
 		return -ENOMEM;
 
@@ -1007,7 +1004,7 @@ static struct its_ite *vgic_its_alloc_ite(struct its_device *device,
 {
 	struct its_ite *ite;
 
-	ite = kzalloc(sizeof(*ite), GFP_KERNEL_ACCOUNT);
+	ite = kzalloc_obj(*ite, GFP_KERNEL_ACCOUNT);
 	if (!ite)
 		return ERR_PTR(-ENOMEM);
 
@@ -1134,7 +1131,7 @@ static struct its_device *vgic_its_alloc_device(struct vgic_its *its,
 {
 	struct its_device *device;
 
-	device = kzalloc(sizeof(*device), GFP_KERNEL_ACCOUNT);
+	device = kzalloc_obj(*device, GFP_KERNEL_ACCOUNT);
 	if (!device)
 		return ERR_PTR(-ENOMEM);
 
@@ -1849,7 +1846,7 @@ static int vgic_its_create(struct kvm_device *dev, u32 type)
 	if (type != KVM_DEV_TYPE_ARM_VGIC_ITS)
 		return -ENODEV;
 
-	its = kzalloc(sizeof(struct vgic_its), GFP_KERNEL_ACCOUNT);
+	its = kzalloc_obj(struct vgic_its, GFP_KERNEL_ACCOUNT);
 	if (!its)
 		return -ENOMEM;
 

@@ -148,7 +148,7 @@ static bool afs_dir_check_block(struct afs_vnode *dvnode, size_t progress,
 				union afs_xdr_dir_block *block)
 {
 	if (block->hdr.magic != AFS_DIR_MAGIC) {
-		pr_warn("%s(%lx): [%zx] bad magic %04x\n",
+		pr_warn("%s(%llx): [%zx] bad magic %04x\n",
 		       __func__, dvnode->netfs.inode.i_ino,
 		       progress, ntohs(block->hdr.magic));
 		trace_afs_dir_check_failed(dvnode, progress);
@@ -214,7 +214,7 @@ static int afs_dir_check(struct afs_vnode *dvnode)
  */
 static int afs_dir_open(struct inode *inode, struct file *file)
 {
-	_enter("{%lu}", inode->i_ino);
+	_enter("{%llu}", inode->i_ino);
 
 	BUILD_BUG_ON(sizeof(union afs_xdr_dir_block) != 2048);
 	BUILD_BUG_ON(sizeof(union afs_xdr_dirent) != 32);
@@ -523,7 +523,7 @@ static int afs_dir_iterate(struct inode *dir, struct dir_context *ctx,
 	int retry_limit = 100;
 	int ret;
 
-	_enter("{%lu},%llx,,", dir->i_ino, ctx->pos);
+	_enter("{%llu},%llx,,", dir->i_ino, ctx->pos);
 
 	do {
 		if (--retry_limit < 0) {
@@ -610,7 +610,7 @@ static int afs_do_lookup_one(struct inode *dir, const struct qstr *name,
 	};
 	int ret;
 
-	_enter("{%lu},{%.*s},", dir->i_ino, name->len, name->name);
+	_enter("{%llu},{%.*s},", dir->i_ino, name->len, name->name);
 
 	/* search the directory */
 	ret = afs_dir_iterate(dir, &cookie.ctx, NULL, _dir_version);
@@ -779,13 +779,13 @@ static struct inode *afs_do_lookup(struct inode *dir, struct dentry *dentry)
 	struct afs_vnode *dvnode = AFS_FS_I(dir), *vnode;
 	struct inode *inode = NULL, *ti;
 	afs_dataversion_t data_version = READ_ONCE(dvnode->status.data_version);
-	bool supports_ibulk;
+	bool supports_ibulk, isnew;
 	long ret;
 	int i;
 
-	_enter("{%lu},%p{%pd},", dir->i_ino, dentry, dentry);
+	_enter("{%llu},%p{%pd},", dir->i_ino, dentry, dentry);
 
-	cookie = kzalloc(sizeof(struct afs_lookup_cookie), GFP_KERNEL);
+	cookie = kzalloc_obj(struct afs_lookup_cookie);
 	if (!cookie)
 		return ERR_PTR(-ENOMEM);
 
@@ -834,9 +834,8 @@ static struct inode *afs_do_lookup(struct inode *dir, struct dentry *dentry)
 
 	/* Need space for examining all the selected files */
 	if (op->nr_files > 2) {
-		op->more_files = kvcalloc(op->nr_files - 2,
-					  sizeof(struct afs_vnode_param),
-					  GFP_KERNEL);
+		op->more_files = kvzalloc_objs(struct afs_vnode_param,
+					       op->nr_files - 2);
 		if (!op->more_files) {
 			afs_op_nomem(op);
 			goto out_op;
@@ -850,7 +849,7 @@ static struct inode *afs_do_lookup(struct inode *dir, struct dentry *dentry)
 			 * callback counters.
 			 */
 			ti = ilookup5_nowait(dir->i_sb, vp->fid.vnode,
-					     afs_ilookup5_test_by_fid, &vp->fid);
+					     afs_ilookup5_test_by_fid, &vp->fid, &isnew);
 			if (!IS_ERR_OR_NULL(ti)) {
 				vnode = AFS_FS_I(ti);
 				vp->dv_before = vnode->status.data_version;
@@ -1823,7 +1822,8 @@ error:
 
 static void afs_rename_success(struct afs_operation *op)
 {
-	struct afs_vnode *vnode = AFS_FS_I(d_inode(op->dentry));
+	struct afs_vnode *vnode = op->more_files[0].vnode;
+	struct afs_vnode *new_vnode = op->more_files[1].vnode;
 
 	_enter("op=%08x", op->debug_id);
 
@@ -1834,22 +1834,40 @@ static void afs_rename_success(struct afs_operation *op)
 		op->ctime = op->file[1].scb.status.mtime_client;
 		afs_vnode_commit_status(op, &op->file[1]);
 	}
+	if (op->more_files[0].scb.have_status)
+		afs_vnode_commit_status(op, &op->more_files[0]);
+	if (op->more_files[1].scb.have_status)
+		afs_vnode_commit_status(op, &op->more_files[1]);
 
 	/* If we're moving a subdir between dirs, we need to update
 	 * its DV counter too as the ".." will be altered.
 	 */
-	if (S_ISDIR(vnode->netfs.inode.i_mode) &&
-	    op->file[0].vnode != op->file[1].vnode) {
-		u64 new_dv;
+	if (op->file[0].vnode != op->file[1].vnode) {
+		if (S_ISDIR(vnode->netfs.inode.i_mode)) {
+			u64 new_dv;
 
-		write_seqlock(&vnode->cb_lock);
+			write_seqlock(&vnode->cb_lock);
 
-		new_dv = vnode->status.data_version + 1;
-		trace_afs_set_dv(vnode, new_dv);
-		vnode->status.data_version = new_dv;
-		inode_set_iversion_raw(&vnode->netfs.inode, new_dv);
+			new_dv = vnode->status.data_version + 1;
+			trace_afs_set_dv(vnode, new_dv);
+			vnode->status.data_version = new_dv;
+			inode_set_iversion_raw(&vnode->netfs.inode, new_dv);
 
-		write_sequnlock(&vnode->cb_lock);
+			write_sequnlock(&vnode->cb_lock);
+		}
+
+		if ((op->rename.rename_flags & RENAME_EXCHANGE) &&
+		    S_ISDIR(new_vnode->netfs.inode.i_mode)) {
+			u64 new_dv;
+
+			write_seqlock(&new_vnode->cb_lock);
+
+			new_dv = new_vnode->status.data_version + 1;
+			new_vnode->status.data_version = new_dv;
+			inode_set_iversion_raw(&new_vnode->netfs.inode, new_dv);
+
+			write_sequnlock(&new_vnode->cb_lock);
+		}
 	}
 }
 
@@ -1900,8 +1918,8 @@ static void afs_rename_edit_dir(struct afs_operation *op)
 	if (S_ISDIR(vnode->netfs.inode.i_mode) &&
 	    new_dvnode != orig_dvnode &&
 	    test_bit(AFS_VNODE_DIR_VALID, &vnode->flags))
-		afs_edit_dir_update_dotdot(vnode, new_dvnode,
-					   afs_edit_dir_for_rename_sub);
+		afs_edit_dir_update(vnode, &dotdot_name, new_dvnode,
+				    afs_edit_dir_for_rename_sub);
 
 	new_inode = d_inode(new_dentry);
 	if (new_inode) {
@@ -1915,9 +1933,6 @@ static void afs_rename_edit_dir(struct afs_operation *op)
 
 	/* Now we can update d_fsdata on the dentries to reflect their
 	 * new parent's data_version.
-	 *
-	 * Note that if we ever implement RENAME_EXCHANGE, we'll have
-	 * to update both dentries with opposing dir versions.
 	 */
 	afs_update_dentry_version(op, new_dvp, op->dentry);
 	afs_update_dentry_version(op, new_dvp, op->dentry_2);
@@ -1928,6 +1943,67 @@ static void afs_rename_edit_dir(struct afs_operation *op)
 	fscache_end_operation(&orig_cres);
 	if (new_dvnode != orig_dvnode)
 		fscache_end_operation(&new_cres);
+}
+
+static void afs_rename_exchange_edit_dir(struct afs_operation *op)
+{
+	struct afs_vnode_param *orig_dvp = &op->file[0];
+	struct afs_vnode_param *new_dvp = &op->file[1];
+	struct afs_vnode *orig_dvnode = orig_dvp->vnode;
+	struct afs_vnode *new_dvnode = new_dvp->vnode;
+	struct afs_vnode *old_vnode = op->more_files[0].vnode;
+	struct afs_vnode *new_vnode = op->more_files[1].vnode;
+	struct dentry *old_dentry = op->dentry;
+	struct dentry *new_dentry = op->dentry_2;
+
+	_enter("op=%08x", op->debug_id);
+
+	if (new_dvnode == orig_dvnode) {
+		down_write(&orig_dvnode->validate_lock);
+		if (test_bit(AFS_VNODE_DIR_VALID, &orig_dvnode->flags) &&
+		    orig_dvnode->status.data_version == orig_dvp->dv_before + orig_dvp->dv_delta) {
+			afs_edit_dir_update(orig_dvnode, &old_dentry->d_name,
+					    new_vnode, afs_edit_dir_for_rename_0);
+			afs_edit_dir_update(orig_dvnode, &new_dentry->d_name,
+					    old_vnode, afs_edit_dir_for_rename_1);
+		}
+
+		d_exchange(old_dentry, new_dentry);
+		up_write(&orig_dvnode->validate_lock);
+	} else {
+		down_write(&orig_dvnode->validate_lock);
+		if (test_bit(AFS_VNODE_DIR_VALID, &orig_dvnode->flags) &&
+		    orig_dvnode->status.data_version == orig_dvp->dv_before + orig_dvp->dv_delta)
+			afs_edit_dir_update(orig_dvnode, &old_dentry->d_name,
+					    new_vnode, afs_edit_dir_for_rename_0);
+
+		up_write(&orig_dvnode->validate_lock);
+		down_write(&new_dvnode->validate_lock);
+
+		if (test_bit(AFS_VNODE_DIR_VALID, &new_dvnode->flags) &&
+		    new_dvnode->status.data_version == new_dvp->dv_before + new_dvp->dv_delta)
+			afs_edit_dir_update(new_dvnode, &new_dentry->d_name,
+					    old_vnode, afs_edit_dir_for_rename_1);
+
+		if (S_ISDIR(old_vnode->netfs.inode.i_mode) &&
+		    test_bit(AFS_VNODE_DIR_VALID, &old_vnode->flags))
+			afs_edit_dir_update(old_vnode, &dotdot_name, new_dvnode,
+					    afs_edit_dir_for_rename_sub);
+
+		if (S_ISDIR(new_vnode->netfs.inode.i_mode) &&
+		    test_bit(AFS_VNODE_DIR_VALID, &new_vnode->flags))
+			afs_edit_dir_update(new_vnode, &dotdot_name, orig_dvnode,
+					    afs_edit_dir_for_rename_sub);
+
+		/* Now we can update d_fsdata on the dentries to reflect their
+		 * new parents' data_version.
+		 */
+		afs_update_dentry_version(op, new_dvp, old_dentry);
+		afs_update_dentry_version(op, orig_dvp, new_dentry);
+
+		d_exchange(old_dentry, new_dentry);
+		up_write(&new_dvnode->validate_lock);
+	}
 }
 
 static void afs_rename_put(struct afs_operation *op)
@@ -1948,6 +2024,32 @@ static const struct afs_operation_ops afs_rename_operation = {
 	.put		= afs_rename_put,
 };
 
+#if 0 /* Autoswitched in yfs_fs_rename_replace(). */
+static const struct afs_operation_ops afs_rename_replace_operation = {
+	.issue_afs_rpc	= NULL,
+	.issue_yfs_rpc	= yfs_fs_rename_replace,
+	.success	= afs_rename_success,
+	.edit_dir	= afs_rename_edit_dir,
+	.put		= afs_rename_put,
+};
+#endif
+
+static const struct afs_operation_ops afs_rename_noreplace_operation = {
+	.issue_afs_rpc	= NULL,
+	.issue_yfs_rpc	= yfs_fs_rename_noreplace,
+	.success	= afs_rename_success,
+	.edit_dir	= afs_rename_edit_dir,
+	.put		= afs_rename_put,
+};
+
+static const struct afs_operation_ops afs_rename_exchange_operation = {
+	.issue_afs_rpc	= NULL,
+	.issue_yfs_rpc	= yfs_fs_rename_exchange,
+	.success	= afs_rename_success,
+	.edit_dir	= afs_rename_exchange_edit_dir,
+	.put		= afs_rename_put,
+};
+
 /*
  * rename a file in an AFS filesystem and/or move it between directories
  */
@@ -1956,10 +2058,10 @@ static int afs_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 		      struct dentry *new_dentry, unsigned int flags)
 {
 	struct afs_operation *op;
-	struct afs_vnode *orig_dvnode, *new_dvnode, *vnode;
+	struct afs_vnode *orig_dvnode, *new_dvnode, *vnode, *new_vnode = NULL;
 	int ret;
 
-	if (flags)
+	if (flags & ~(RENAME_NOREPLACE | RENAME_EXCHANGE))
 		return -EINVAL;
 
 	/* Don't allow silly-rename files be moved around. */
@@ -1969,6 +2071,8 @@ static int afs_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 	vnode = AFS_FS_I(d_inode(old_dentry));
 	orig_dvnode = AFS_FS_I(old_dir);
 	new_dvnode = AFS_FS_I(new_dir);
+	if (d_is_positive(new_dentry))
+		new_vnode = AFS_FS_I(d_inode(new_dentry));
 
 	_enter("{%llx:%llu},{%llx:%llu},{%llx:%llu},{%pd}",
 	       orig_dvnode->fid.vid, orig_dvnode->fid.vnode,
@@ -1989,6 +2093,11 @@ static int afs_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 	if (ret < 0)
 		goto error;
 
+	ret = -ENOMEM;
+	op->more_files = kvzalloc_objs(struct afs_vnode_param, 2);
+	if (!op->more_files)
+		goto error;
+
 	afs_op_set_vnode(op, 0, orig_dvnode);
 	afs_op_set_vnode(op, 1, new_dvnode); /* May be same as orig_dvnode */
 	op->file[0].dv_delta = 1;
@@ -1997,46 +2106,63 @@ static int afs_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 	op->file[1].modification = true;
 	op->file[0].update_ctime = true;
 	op->file[1].update_ctime = true;
+	op->more_files[0].vnode		= vnode;
+	op->more_files[0].speculative	= true;
+	op->more_files[1].vnode		= new_vnode;
+	op->more_files[1].speculative	= true;
+	op->nr_files = 4;
 
 	op->dentry		= old_dentry;
 	op->dentry_2		= new_dentry;
+	op->rename.rename_flags	= flags;
 	op->rename.new_negative	= d_is_negative(new_dentry);
-	op->ops			= &afs_rename_operation;
 
-	/* For non-directories, check whether the target is busy and if so,
-	 * make a copy of the dentry and then do a silly-rename.  If the
-	 * silly-rename succeeds, the copied dentry is hashed and becomes the
-	 * new target.
-	 */
-	if (d_is_positive(new_dentry) && !d_is_dir(new_dentry)) {
-		/* To prevent any new references to the target during the
-		 * rename, we unhash the dentry in advance.
+	if (flags & RENAME_NOREPLACE) {
+		op->ops		= &afs_rename_noreplace_operation;
+	} else if (flags & RENAME_EXCHANGE) {
+		op->ops		= &afs_rename_exchange_operation;
+		d_drop(new_dentry);
+	} else {
+		/* If we might displace the target, we might need to do silly
+		 * rename.
 		 */
-		if (!d_unhashed(new_dentry)) {
-			d_drop(new_dentry);
-			op->rename.rehash = new_dentry;
-		}
+		op->ops	= &afs_rename_operation;
 
-		if (d_count(new_dentry) > 2) {
-			/* copy the target dentry's name */
-			op->rename.tmp = d_alloc(new_dentry->d_parent,
-						 &new_dentry->d_name);
-			if (!op->rename.tmp) {
-				afs_op_nomem(op);
-				goto error;
+		/* For non-directories, check whether the target is busy and if
+		 * so, make a copy of the dentry and then do a silly-rename.
+		 * If the silly-rename succeeds, the copied dentry is hashed
+		 * and becomes the new target.
+		 */
+		if (d_is_positive(new_dentry) && !d_is_dir(new_dentry)) {
+			/* To prevent any new references to the target during
+			 * the rename, we unhash the dentry in advance.
+			 */
+			if (!d_unhashed(new_dentry)) {
+				d_drop(new_dentry);
+				op->rename.rehash = new_dentry;
 			}
 
-			ret = afs_sillyrename(new_dvnode,
-					      AFS_FS_I(d_inode(new_dentry)),
-					      new_dentry, op->key);
-			if (ret) {
-				afs_op_set_error(op, ret);
-				goto error;
-			}
+			if (d_count(new_dentry) > 2) {
+				/* copy the target dentry's name */
+				op->rename.tmp = d_alloc(new_dentry->d_parent,
+							 &new_dentry->d_name);
+				if (!op->rename.tmp) {
+					afs_op_nomem(op);
+					goto error;
+				}
 
-			op->dentry_2 = op->rename.tmp;
-			op->rename.rehash = NULL;
-			op->rename.new_negative = true;
+				ret = afs_sillyrename(new_dvnode,
+						      AFS_FS_I(d_inode(new_dentry)),
+						      new_dentry, op->key);
+				if (ret) {
+					afs_op_set_error(op, ret);
+					goto error;
+				}
+
+				op->dentry_2 = op->rename.tmp;
+				op->rename.rehash = NULL;
+				op->rename.new_negative = true;
+			}
 		}
 	}
 
@@ -2052,6 +2178,8 @@ static int afs_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 	d_drop(old_dentry);
 
 	ret = afs_do_sync_operation(op);
+	if (ret == -ENOTSUPP)
+		ret = -EINVAL;
 out:
 	afs_dir_unuse_cookie(orig_dvnode, ret);
 	if (new_dvnode != orig_dvnode)

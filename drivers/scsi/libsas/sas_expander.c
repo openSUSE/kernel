@@ -433,7 +433,7 @@ static int sas_expander_discover(struct domain_device *dev)
 	struct expander_device *ex = &dev->ex_dev;
 	int res;
 
-	ex->ex_phy = kcalloc(ex->num_phys, sizeof(*ex->ex_phy), GFP_KERNEL);
+	ex->ex_phy = kzalloc_objs(*ex->ex_phy, ex->num_phys);
 	if (!ex->ex_phy)
 		return -ENOMEM;
 
@@ -1313,10 +1313,7 @@ static int sas_check_parent_topology(struct domain_device *child)
 	int i;
 	int res = 0;
 
-	if (!child->parent)
-		return 0;
-
-	if (!dev_is_expander(child->parent->dev_type))
+	if (!dev_parent_is_expander(child))
 		return 0;
 
 	parent_ex = &child->parent->ex_dev;

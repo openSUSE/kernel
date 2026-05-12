@@ -22,6 +22,7 @@
 #include <linux/device.h>
 #include <linux/init.h>
 #include <linux/iopoll.h>
+#include <linux/math64.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/of.h>
@@ -74,6 +75,17 @@
 #define MSTOP_OFF(conf)		FIELD_GET(GENMASK(31, 16), (conf))
 #define MSTOP_MASK(conf)	FIELD_GET(GENMASK(15, 0), (conf))
 
+#define PLL5_FOUTVCO_MIN	800000000
+#define PLL5_FOUTVCO_MAX	3000000000
+#define PLL5_POSTDIV_MIN	1
+#define PLL5_POSTDIV_MAX	7
+#define PLL5_REFDIV_MIN		1
+#define PLL5_REFDIV_MAX		2
+#define PLL5_INTIN_MIN		20
+#define PLL5_INTIN_MAX		320
+#define PLL5_HSCLK_MIN		10000000
+#define PLL5_HSCLK_MAX		187500000
+
 /**
  * struct clk_hw_data - clock hardware data
  * @hw: clock hw
@@ -122,12 +134,18 @@ struct div_hw_data {
 
 struct rzg2l_pll5_param {
 	u32 pl5_fracin;
+	u16 pl5_intin;
 	u8 pl5_refdiv;
-	u8 pl5_intin;
 	u8 pl5_postdiv1;
 	u8 pl5_postdiv2;
 	u8 pl5_spread;
 };
+
+/* PLL5 output will be used for DPI or MIPI-DSI */
+static int dsi_div_target = PLL5_TARGET_DPI;
+
+/* Required division ratio for MIPI D-PHY clock depending on number of lanes and bpp. */
+static u8 dsi_div_ab_desired;
 
 struct rzg2l_pll5_mux_dsi_div_param {
 	u8 clksrc;
@@ -169,6 +187,11 @@ struct rzg2l_cpg_priv {
 
 	struct rzg2l_pll5_mux_dsi_div_param mux_dsi_div_params;
 };
+
+static inline u8 rzg2l_cpg_div_ab(u8 a, u8 b)
+{
+	return (b + 1) << a;
+}
 
 static void rzg2l_cpg_del_clk_provider(void *data)
 {
@@ -556,23 +579,120 @@ rzg2l_cpg_sd_mux_clk_register(const struct cpg_core_clk *core,
 	return clk_hw->clk;
 }
 
+/*
+ * VCO-->[POSTDIV1,2]--FOUTPOSTDIV--------------->|
+ *                          |                     |-->[1/(DSI DIV A * B)]--> MIPI_DSI_VCLK
+ *                          |-->[1/2]--FOUT1PH0-->|
+ *                          |
+ *                          |------->[1/16]--------------------------------> hsclk (MIPI-PHY)
+ */
 static unsigned long
-rzg2l_cpg_get_foutpostdiv_rate(struct rzg2l_pll5_param *params,
+rzg2l_cpg_get_foutpostdiv_rate(struct rzg2l_cpg_priv *priv,
+			       struct rzg2l_pll5_param *params,
 			       unsigned long rate)
 {
-	unsigned long foutpostdiv_rate, foutvco_rate;
+	const u32 extal_hz = EXTAL_FREQ_IN_MEGA_HZ * MEGA;
+	unsigned long foutpostdiv_rate;
+	unsigned int a, b, odd;
+	unsigned long hsclk;
+	u8 dsi_div_ab_calc;
+	u64 foutvco_rate;
 
-	params->pl5_intin = rate / MEGA;
-	params->pl5_fracin = div_u64(((u64)rate % MEGA) << 24, MEGA);
-	params->pl5_refdiv = 2;
-	params->pl5_postdiv1 = 1;
-	params->pl5_postdiv2 = 1;
+	if (dsi_div_target == PLL5_TARGET_DSI) {
+		/* Check hsclk */
+		hsclk = rate * dsi_div_ab_desired / 16;
+		if (hsclk < PLL5_HSCLK_MIN || hsclk > PLL5_HSCLK_MAX) {
+			dev_err(priv->dev, "hsclk out of range\n");
+			return 0;
+		}
+
+		/* Determine the correct clock source based on even/odd of the divider */
+		odd = dsi_div_ab_desired & 1;
+		if (odd) {
+			priv->mux_dsi_div_params.clksrc = 0;	/* FOUTPOSTDIV */
+			dsi_div_ab_calc = dsi_div_ab_desired;
+		} else {
+			priv->mux_dsi_div_params.clksrc = 1;	/*  FOUT1PH0 */
+			dsi_div_ab_calc = dsi_div_ab_desired / 2;
+		}
+
+		/* Calculate the DIV_DSI_A and DIV_DSI_B based on the desired divider */
+		for (a = 0; a < 4; a++) {
+			/* FOUT1PH0: Max output of DIV_DSI_A is 750MHz so at least 1/2 to be safe */
+			if (!odd && a == 0)
+				continue;
+
+			/* FOUTPOSTDIV: DIV_DSI_A must always be 1/1 */
+			if (odd && a != 0)
+				break;
+
+			for (b = 0; b < 16; b++) {
+				/* FOUTPOSTDIV: DIV_DSI_B must always be odd divider 1/(b+1) */
+				if (odd && b & 1)
+					continue;
+
+				if (rzg2l_cpg_div_ab(a, b) == dsi_div_ab_calc) {
+					priv->mux_dsi_div_params.dsi_div_a = a;
+					priv->mux_dsi_div_params.dsi_div_b = b;
+					goto calc_pll_clk;
+				}
+			}
+		}
+
+		dev_err(priv->dev, "Failed to calculate DIV_DSI_A,B\n");
+
+		return 0;
+	} else if (dsi_div_target == PLL5_TARGET_DPI) {
+		/* Fixed settings for DPI */
+		priv->mux_dsi_div_params.clksrc = 0;
+		priv->mux_dsi_div_params.dsi_div_a = 3; /* Divided by 8 */
+		priv->mux_dsi_div_params.dsi_div_b = 0; /* Divided by 1 */
+		dsi_div_ab_desired = rzg2l_cpg_div_ab(priv->mux_dsi_div_params.dsi_div_a,
+						      priv->mux_dsi_div_params.dsi_div_b);
+	}
+
+calc_pll_clk:
+	/* PLL5 (MIPI_DSI_PLLCLK) = VCO / POSTDIV1 / POSTDIV2 */
+	for (params->pl5_postdiv1 = PLL5_POSTDIV_MIN;
+	     params->pl5_postdiv1 <= PLL5_POSTDIV_MAX;
+	     params->pl5_postdiv1++) {
+		for (params->pl5_postdiv2 = PLL5_POSTDIV_MIN;
+		     params->pl5_postdiv2 <= PLL5_POSTDIV_MAX;
+		     params->pl5_postdiv2++) {
+			foutvco_rate = rate * params->pl5_postdiv1 * params->pl5_postdiv2 *
+				       dsi_div_ab_desired;
+			if (foutvco_rate <= PLL5_FOUTVCO_MIN || foutvco_rate >= PLL5_FOUTVCO_MAX)
+				continue;
+
+			for (params->pl5_refdiv = PLL5_REFDIV_MIN;
+			     params->pl5_refdiv <= PLL5_REFDIV_MAX;
+			     params->pl5_refdiv++) {
+				u32 rem;
+
+				params->pl5_intin = div_u64_rem(foutvco_rate * params->pl5_refdiv,
+								extal_hz, &rem);
+
+				if (params->pl5_intin < PLL5_INTIN_MIN ||
+				    params->pl5_intin > PLL5_INTIN_MAX)
+					continue;
+
+				params->pl5_fracin = div_u64((u64)rem << 24, extal_hz);
+
+				goto clk_valid;
+			}
+		}
+	}
+
+	dev_err(priv->dev, "Failed to calculate PLL5 settings\n");
+	return 0;
+
+clk_valid:
 	params->pl5_spread = 0x16;
 
 	foutvco_rate = div_u64(mul_u32_u32(EXTAL_FREQ_IN_MEGA_HZ * MEGA,
 					   (params->pl5_intin << 24) + params->pl5_fracin),
 			       params->pl5_refdiv) >> 24;
-	foutpostdiv_rate = DIV_ROUND_CLOSEST_ULL(foutvco_rate,
+	foutpostdiv_rate = DIV_U64_ROUND_CLOSEST(foutvco_rate,
 						 params->pl5_postdiv1 * params->pl5_postdiv2);
 
 	return foutpostdiv_rate;
@@ -607,7 +727,7 @@ static unsigned long rzg2l_cpg_get_vclk_parent_rate(struct clk_hw *hw,
 	struct rzg2l_pll5_param params;
 	unsigned long parent_rate;
 
-	parent_rate = rzg2l_cpg_get_foutpostdiv_rate(&params, rate);
+	parent_rate = rzg2l_cpg_get_foutpostdiv_rate(priv, &params, rate);
 
 	if (priv->mux_dsi_div_params.clksrc)
 		parent_rate /= 2;
@@ -623,8 +743,18 @@ static int rzg2l_cpg_dsi_div_determine_rate(struct clk_hw *hw,
 
 	req->best_parent_rate = rzg2l_cpg_get_vclk_parent_rate(hw, req->rate);
 
+	if (!req->best_parent_rate)
+		return -EINVAL;
+
 	return 0;
 }
+
+void rzg2l_cpg_dsi_div_set_divider(u8 divider, int target)
+{
+	dsi_div_ab_desired = divider;
+	dsi_div_target = target;
+}
+EXPORT_SYMBOL_GPL(rzg2l_cpg_dsi_div_set_divider);
 
 static int rzg2l_cpg_dsi_div_set_rate(struct clk_hw *hw,
 				      unsigned long rate,
@@ -796,22 +926,6 @@ struct sipll5 {
 
 #define to_sipll5(_hw)	container_of(_hw, struct sipll5, hw)
 
-static unsigned long rzg2l_cpg_get_vclk_rate(struct clk_hw *hw,
-					     unsigned long rate)
-{
-	struct sipll5 *sipll5 = to_sipll5(hw);
-	struct rzg2l_cpg_priv *priv = sipll5->priv;
-	unsigned long vclk;
-
-	vclk = rate / ((1 << priv->mux_dsi_div_params.dsi_div_a) *
-		       (priv->mux_dsi_div_params.dsi_div_b + 1));
-
-	if (priv->mux_dsi_div_params.clksrc)
-		vclk /= 2;
-
-	return vclk;
-}
-
 static unsigned long rzg2l_cpg_sipll5_recalc_rate(struct clk_hw *hw,
 						  unsigned long parent_rate)
 {
@@ -824,11 +938,10 @@ static unsigned long rzg2l_cpg_sipll5_recalc_rate(struct clk_hw *hw,
 	return pll5_rate;
 }
 
-static long rzg2l_cpg_sipll5_round_rate(struct clk_hw *hw,
-					unsigned long rate,
-					unsigned long *parent_rate)
+static int rzg2l_cpg_sipll5_determine_rate(struct clk_hw *hw,
+					   struct clk_rate_request *req)
 {
-	return rate;
+	return 0;
 }
 
 static int rzg2l_cpg_sipll5_set_rate(struct clk_hw *hw,
@@ -857,16 +970,16 @@ static int rzg2l_cpg_sipll5_set_rate(struct clk_hw *hw,
 	if (!rate)
 		return -EINVAL;
 
-	vclk_rate = rzg2l_cpg_get_vclk_rate(hw, rate);
+	vclk_rate = rate / dsi_div_ab_desired;
 	sipll5->foutpostdiv_rate =
-		rzg2l_cpg_get_foutpostdiv_rate(&params, vclk_rate);
+		rzg2l_cpg_get_foutpostdiv_rate(priv, &params, vclk_rate);
 
 	/* Put PLL5 into standby mode */
 	writel(CPG_SIPLL5_STBY_RESETB_WEN, priv->base + CPG_SIPLL5_STBY);
 	ret = readl_poll_timeout(priv->base + CPG_SIPLL5_MON, val,
 				 !(val & CPG_SIPLL5_MON_PLL5_LOCK), 100, 250000);
 	if (ret) {
-		dev_err(priv->dev, "failed to release pll5 lock");
+		dev_err(priv->dev, "failed to release pll5 lock\n");
 		return ret;
 	}
 
@@ -893,7 +1006,7 @@ static int rzg2l_cpg_sipll5_set_rate(struct clk_hw *hw,
 	ret = readl_poll_timeout(priv->base + CPG_SIPLL5_MON, val,
 				 (val & CPG_SIPLL5_MON_PLL5_LOCK), 100, 250000);
 	if (ret) {
-		dev_err(priv->dev, "failed to lock pll5");
+		dev_err(priv->dev, "failed to lock pll5\n");
 		return ret;
 	}
 
@@ -902,7 +1015,7 @@ static int rzg2l_cpg_sipll5_set_rate(struct clk_hw *hw,
 
 static const struct clk_ops rzg2l_cpg_sipll5_ops = {
 	.recalc_rate = rzg2l_cpg_sipll5_recalc_rate,
-	.round_rate = rzg2l_cpg_sipll5_round_rate,
+	.determine_rate = rzg2l_cpg_sipll5_determine_rate,
 	.set_rate = rzg2l_cpg_sipll5_set_rate,
 };
 
@@ -946,9 +1059,7 @@ rzg2l_cpg_sipll5_register(const struct cpg_core_clk *core,
 	if (ret)
 		return ERR_PTR(ret);
 
-	priv->mux_dsi_div_params.clksrc = 1; /* Use clk src 1 for DSI */
-	priv->mux_dsi_div_params.dsi_div_a = 1; /* Divided by 2 */
-	priv->mux_dsi_div_params.dsi_div_b = 2; /* Divided by 3 */
+	rzg2l_cpg_dsi_div_set_divider(8, PLL5_TARGET_DPI);
 
 	return clk_hw->clk;
 }
@@ -1103,7 +1214,7 @@ static struct clk
 	}
 
 	if (IS_ERR(clk))
-		dev_err(dev, "Cannot get %s clock %u: %ld", type, clkidx,
+		dev_err(dev, "Cannot get %s clock %u: %ld\n", type, clkidx,
 			PTR_ERR(clk));
 	else
 		dev_dbg(dev, "clock (%u, %u) is %pC at %lu Hz\n",
@@ -1178,7 +1289,7 @@ rzg2l_cpg_register_core_clk(const struct cpg_core_clk *core,
 		goto fail;
 	}
 
-	if (IS_ERR_OR_NULL(clk))
+	if (IS_ERR(clk))
 		goto fail;
 
 	dev_dbg(dev, "Core clock %pC at %lu Hz\n", clk, clk_get_rate(clk));
@@ -1328,7 +1439,8 @@ static int rzg2l_mod_clock_mstop_show(struct seq_file *s, void *what)
 }
 DEFINE_SHOW_ATTRIBUTE(rzg2l_mod_clock_mstop);
 
-static int rzg2l_mod_clock_endisable(struct clk_hw *hw, bool enable)
+static int rzg2l_mod_clock_endisable_helper(struct clk_hw *hw, bool enable,
+					    bool set_mstop_state)
 {
 	struct mod_clock *clock = to_mod_clock(hw);
 	struct rzg2l_cpg_priv *priv = clock->priv;
@@ -1353,9 +1465,11 @@ static int rzg2l_mod_clock_endisable(struct clk_hw *hw, bool enable)
 	scoped_guard(spinlock_irqsave, &priv->rmw_lock) {
 		if (enable) {
 			writel(value, priv->base + CLK_ON_R(reg));
-			rzg2l_mod_clock_module_set_state(clock, false);
+			if (set_mstop_state)
+				rzg2l_mod_clock_module_set_state(clock, false);
 		} else {
-			rzg2l_mod_clock_module_set_state(clock, true);
+			if (set_mstop_state)
+				rzg2l_mod_clock_module_set_state(clock, true);
 			writel(value, priv->base + CLK_ON_R(reg));
 		}
 	}
@@ -1373,6 +1487,11 @@ static int rzg2l_mod_clock_endisable(struct clk_hw *hw, bool enable)
 			CLK_ON_R(reg), hw->clk);
 
 	return error;
+}
+
+static int rzg2l_mod_clock_endisable(struct clk_hw *hw, bool enable)
+{
+	return rzg2l_mod_clock_endisable_helper(hw, enable, true);
 }
 
 static int rzg2l_mod_clock_enable(struct clk_hw *hw)
@@ -1475,6 +1594,35 @@ static struct mstop *rzg2l_mod_clock_get_mstop(struct rzg2l_cpg_priv *priv, u32 
 	return NULL;
 }
 
+static void rzg2l_mod_clock_init_mstop_helper(struct rzg2l_cpg_priv *priv,
+					      struct mod_clock *clk)
+{
+	/*
+	 * Out of reset all modules are enabled. Set module state in case
+	 * associated clocks are disabled at probe/resume. Otherwise module
+	 * is in invalid HW state.
+	 */
+	scoped_guard(spinlock_irqsave, &priv->rmw_lock) {
+		if (!rzg2l_mod_clock_is_enabled(&clk->hw))
+			rzg2l_mod_clock_module_set_state(clk, true);
+	}
+}
+
+static void rzg2l_mod_enable_crit_clock_init_mstop(struct rzg2l_cpg_priv *priv)
+{
+	struct mod_clock *clk;
+	struct clk_hw *hw;
+
+	for_each_mod_clock(clk, hw, priv) {
+		if ((clk_hw_get_flags(&clk->hw) & CLK_IS_CRITICAL) &&
+		    (!rzg2l_mod_clock_is_enabled(&clk->hw)))
+			rzg2l_mod_clock_endisable_helper(&clk->hw, true, false);
+
+		if (clk->mstop)
+			rzg2l_mod_clock_init_mstop_helper(priv, clk);
+	}
+}
+
 static void rzg2l_mod_clock_init_mstop(struct rzg2l_cpg_priv *priv)
 {
 	struct mod_clock *clk;
@@ -1484,15 +1632,7 @@ static void rzg2l_mod_clock_init_mstop(struct rzg2l_cpg_priv *priv)
 		if (!clk->mstop)
 			continue;
 
-		/*
-		 * Out of reset all modules are enabled. Set module state
-		 * in case associated clocks are disabled at probe. Otherwise
-		 * module is in invalid HW state.
-		 */
-		scoped_guard(spinlock_irqsave, &priv->rmw_lock) {
-			if (!rzg2l_mod_clock_is_enabled(&clk->hw))
-				rzg2l_mod_clock_module_set_state(clk, true);
-		}
+		rzg2l_mod_clock_init_mstop_helper(priv, clk);
 	}
 }
 
@@ -1639,8 +1779,8 @@ fail:
 
 #define rcdev_to_priv(x)	container_of(x, struct rzg2l_cpg_priv, rcdev)
 
-static int rzg2l_cpg_assert(struct reset_controller_dev *rcdev,
-			    unsigned long id)
+static int __rzg2l_cpg_assert(struct reset_controller_dev *rcdev,
+			      unsigned long id, bool assert)
 {
 	struct rzg2l_cpg_priv *priv = rcdev_to_priv(rcdev);
 	const struct rzg2l_cpg_info *info = priv->info;
@@ -1648,9 +1788,21 @@ static int rzg2l_cpg_assert(struct reset_controller_dev *rcdev,
 	u32 mask = BIT(info->resets[id].bit);
 	s8 monbit = info->resets[id].monbit;
 	u32 value = mask << 16;
+	u32 mon;
+	int ret;
 
-	dev_dbg(rcdev->dev, "assert id:%ld offset:0x%x\n", id, CLK_RST_R(reg));
+	dev_dbg(rcdev->dev, "%s id:%ld offset:0x%x\n",
+		assert ? "assert" : "deassert", id, CLK_RST_R(reg));
 
+	if (assert) {
+		for (unsigned int i = 0; i < priv->info->num_crit_resets; i++) {
+			if (id == priv->info->crit_resets[i])
+				return 0;
+		}
+	}
+
+	if (!assert)
+		value |= mask;
 	writel(value, priv->base + CLK_RST_R(reg));
 
 	if (info->has_clk_mon_regs) {
@@ -1664,38 +1816,40 @@ static int rzg2l_cpg_assert(struct reset_controller_dev *rcdev,
 		return 0;
 	}
 
-	return readl_poll_timeout_atomic(priv->base + reg, value,
-					 value & mask, 10, 200);
+	ret = readl_poll_timeout_atomic(priv->base + reg, mon,
+					assert == !!(mon & mask), 10, 200);
+	if (ret) {
+		value ^= mask;
+		writel(value, priv->base + CLK_RST_R(info->resets[id].off));
+	}
+
+	return ret;
+}
+
+static int rzg2l_cpg_assert(struct reset_controller_dev *rcdev,
+			    unsigned long id)
+{
+	return __rzg2l_cpg_assert(rcdev, id, true);
 }
 
 static int rzg2l_cpg_deassert(struct reset_controller_dev *rcdev,
 			      unsigned long id)
 {
-	struct rzg2l_cpg_priv *priv = rcdev_to_priv(rcdev);
-	const struct rzg2l_cpg_info *info = priv->info;
-	unsigned int reg = info->resets[id].off;
-	u32 mask = BIT(info->resets[id].bit);
-	s8 monbit = info->resets[id].monbit;
-	u32 value = (mask << 16) | mask;
+	return __rzg2l_cpg_assert(rcdev, id, false);
+}
 
-	dev_dbg(rcdev->dev, "deassert id:%ld offset:0x%x\n", id,
-		CLK_RST_R(reg));
+static int rzg2l_cpg_deassert_crit_resets(struct reset_controller_dev *rcdev,
+					  const struct rzg2l_cpg_info *info)
+{
+	int ret;
 
-	writel(value, priv->base + CLK_RST_R(reg));
-
-	if (info->has_clk_mon_regs) {
-		reg = CLK_MRST_R(reg);
-	} else if (monbit >= 0) {
-		reg = CPG_RST_MON;
-		mask = BIT(monbit);
-	} else {
-		/* Wait for at least one cycle of the RCLK clock (@ ca. 32 kHz) */
-		udelay(35);
-		return 0;
+	for (unsigned int i = 0; i < info->num_crit_resets; i++) {
+		ret = rzg2l_cpg_deassert(rcdev, info->crit_resets[i]);
+		if (ret)
+			return ret;
 	}
 
-	return readl_poll_timeout_atomic(priv->base + reg, value,
-					 !(value & mask), 10, 200);
+	return 0;
 }
 
 static int rzg2l_cpg_reset(struct reset_controller_dev *rcdev,
@@ -1947,6 +2101,10 @@ static int __init rzg2l_cpg_probe(struct platform_device *pdev)
 	if (error)
 		return error;
 
+	error = rzg2l_cpg_deassert_crit_resets(&priv->rcdev, info);
+	if (error)
+		return error;
+
 	debugfs_create_file("mstop", 0444, NULL, priv, &rzg2l_mod_clock_mstop_fops);
 	return 0;
 }
@@ -1954,8 +2112,13 @@ static int __init rzg2l_cpg_probe(struct platform_device *pdev)
 static int rzg2l_cpg_resume(struct device *dev)
 {
 	struct rzg2l_cpg_priv *priv = dev_get_drvdata(dev);
+	int ret;
 
-	rzg2l_mod_clock_init_mstop(priv);
+	ret = rzg2l_cpg_deassert_crit_resets(&priv->rcdev, priv->info);
+	if (ret)
+		return ret;
+
+	rzg2l_mod_enable_crit_clock_init_mstop(priv);
 
 	return 0;
 }
@@ -1987,6 +2150,12 @@ static const struct of_device_id rzg2l_cpg_match[] = {
 	{
 		.compatible = "renesas,r9a08g045-cpg",
 		.data = &r9a08g045_cpg_info,
+	},
+#endif
+#ifdef CONFIG_CLK_R9A08G046
+	{
+		.compatible = "renesas,r9a08g046-cpg",
+		.data = &r9a08g046_cpg_info,
 	},
 #endif
 #ifdef CONFIG_CLK_R9A09G011

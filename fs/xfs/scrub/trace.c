@@ -3,7 +3,7 @@
  * Copyright (C) 2017-2023 Oracle.  All Rights Reserved.
  * Author: Darrick J. Wong <djwong@kernel.org>
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -22,6 +22,7 @@
 #include "xfs_parent.h"
 #include "xfs_metafile.h"
 #include "xfs_rtgroup.h"
+#include "xfs_trans.h"
 #include "scrub/scrub.h"
 #include "scrub/xfile.h"
 #include "scrub/xfarray.h"

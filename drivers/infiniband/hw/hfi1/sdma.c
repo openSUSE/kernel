@@ -937,7 +937,7 @@ ssize_t sdma_set_cpu_to_sde_map(struct sdma_engine *sde, const char *buf,
 		rht_node = rhashtable_lookup_fast(dd->sdma_rht, &cpu,
 						  sdma_rht_params);
 		if (!rht_node) {
-			rht_node = kzalloc(sizeof(*rht_node), GFP_KERNEL);
+			rht_node = kzalloc_obj(*rht_node);
 			if (!rht_node) {
 				ret = -ENOMEM;
 				goto out;
@@ -990,7 +990,7 @@ ssize_t sdma_set_cpu_to_sde_map(struct sdma_engine *sde, const char *buf,
 	}
 
 	/* Clean up old mappings */
-	for_each_cpu(cpu, cpu_online_mask) {
+	for_each_online_cpu(cpu) {
 		struct sdma_rht_node *rht_node;
 
 		/* Don't cleanup sdes that are set in the new mask */
@@ -1481,7 +1481,7 @@ int sdma_init(struct hfi1_devdata *dd, u8 port)
 	if (ret < 0)
 		goto bail;
 
-	tmp_sdma_rht = kzalloc(sizeof(*tmp_sdma_rht), GFP_KERNEL);
+	tmp_sdma_rht = kzalloc_obj(*tmp_sdma_rht);
 	if (!tmp_sdma_rht) {
 		ret = -ENOMEM;
 		goto bail;
@@ -3017,7 +3017,7 @@ static int _extend_sdma_tx_descs(struct hfi1_devdata *dd, struct sdma_txreq *tx)
 	if (unlikely(tx->num_desc == MAX_DESC))
 		goto enomem;
 
-	descp = kmalloc_array(MAX_DESC, sizeof(struct sdma_desc), GFP_ATOMIC);
+	descp = kmalloc_objs(struct sdma_desc, MAX_DESC, GFP_ATOMIC);
 	if (!descp)
 		goto enomem;
 	tx->descp = descp;

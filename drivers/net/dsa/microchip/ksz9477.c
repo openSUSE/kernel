@@ -224,14 +224,13 @@ static int ksz9477_pcs_read(struct mii_bus *bus, int phy, int mmd, int reg)
 				else
 					duplex = DUPLEX_HALF;
 
-				if (!p->phydev.link ||
-				    p->phydev.speed != speed ||
-				    p->phydev.duplex != duplex) {
+				if (!p->link || p->speed != speed ||
+				    p->duplex != duplex) {
 					u16 ctrl;
 
-					p->phydev.link = 1;
-					p->phydev.speed = speed;
-					p->phydev.duplex = duplex;
+					p->link = true;
+					p->speed = speed;
+					p->duplex = duplex;
 					port_sgmii_r(dev, port, mmd, MII_BMCR,
 						     &ctrl);
 					ctrl &= BMCR_ANENABLE;
@@ -241,10 +240,10 @@ static int ksz9477_pcs_read(struct mii_bus *bus, int phy, int mmd, int reg)
 						     ctrl);
 				}
 			} else {
-				p->phydev.link = 0;
+				p->link = false;
 			}
 		} else if (reg == MII_BMSR) {
-			p->phydev.link = (val & BMSR_LSTATUS);
+			p->link = !!(val & BMSR_LSTATUS);
 		}
 	}
 
@@ -311,36 +310,33 @@ static int ksz9477_pcs_write(struct mii_bus *bus, int phy, int mmd, int reg,
 
 int ksz9477_pcs_create(struct ksz_device *dev)
 {
-	/* This chip has a SGMII port. */
-	if (ksz_has_sgmii_port(dev)) {
-		int port = ksz_get_sgmii_port(dev);
-		struct ksz_port *p = &dev->ports[port];
-		struct phylink_pcs *pcs;
-		struct mii_bus *bus;
-		int ret;
+	int port = ksz_get_sgmii_port(dev);
+	struct ksz_port *p = &dev->ports[port];
+	struct phylink_pcs *pcs;
+	struct mii_bus *bus;
+	int ret;
 
-		bus = devm_mdiobus_alloc(dev->dev);
-		if (!bus)
-			return -ENOMEM;
+	bus = devm_mdiobus_alloc(dev->dev);
+	if (!bus)
+		return -ENOMEM;
 
-		bus->name = "ksz_pcs_mdio_bus";
-		snprintf(bus->id, MII_BUS_ID_SIZE, "%s-pcs",
-			 dev_name(dev->dev));
-		bus->read_c45 = &ksz9477_pcs_read;
-		bus->write_c45 = &ksz9477_pcs_write;
-		bus->parent = dev->dev;
-		bus->phy_mask = ~0;
-		bus->priv = dev;
+	bus->name = "ksz_pcs_mdio_bus";
+	snprintf(bus->id, MII_BUS_ID_SIZE, "%s-pcs",
+		 dev_name(dev->dev));
+	bus->read_c45 = &ksz9477_pcs_read;
+	bus->write_c45 = &ksz9477_pcs_write;
+	bus->parent = dev->dev;
+	bus->phy_mask = ~0;
+	bus->priv = dev;
 
-		ret = devm_mdiobus_register(dev->dev, bus);
-		if (ret)
-			return ret;
+	ret = devm_mdiobus_register(dev->dev, bus);
+	if (ret)
+		return ret;
 
-		pcs = xpcs_create_pcs_mdiodev(bus, 0);
-		if (IS_ERR(pcs))
-			return PTR_ERR(pcs);
-		p->pcs = pcs;
-	}
+	pcs = xpcs_create_pcs_mdiodev(bus, 0);
+	if (IS_ERR(pcs))
+		return PTR_ERR(pcs);
+	p->pcs = pcs;
 
 	return 0;
 }
@@ -529,7 +525,7 @@ int ksz9477_r_phy(struct ksz_device *dev, u16 addr, u16 reg, u16 *data)
 	 * A fixed PHY can be setup in the device tree, but this function is
 	 * still called for that port during initialization.
 	 * For RGMII PHY there is no way to access it so the fixed PHY should
-	 * be used.  For SGMII PHY the supporting code will be added later.
+	 * be used.
 	 */
 	if (!dev->info->internal_phy[addr]) {
 		struct ksz_port *p = &dev->ports[addr];
@@ -557,7 +553,7 @@ int ksz9477_r_phy(struct ksz_device *dev, u16 addr, u16 reg, u16 *data)
 			val = 0x0700;
 			break;
 		case MII_STAT1000:
-			if (p->phydev.speed == SPEED_1000)
+			if (p->speed == SPEED_1000)
 				val = 0x3800;
 			else
 				val = 0;
@@ -1355,9 +1351,15 @@ void ksz9477_config_cpu_port(struct dsa_switch *ds)
 	}
 }
 
+#define RESV_MCAST_CNT	8
+
+static u8 reserved_mcast_map[RESV_MCAST_CNT] = { 0, 1, 3, 16, 32, 33, 2, 17 };
+
 int ksz9477_enable_stp_addr(struct ksz_device *dev)
 {
+	u8 i, ports, update;
 	const u32 *masks;
+	bool override;
 	u32 data;
 	int ret;
 
@@ -1366,23 +1368,87 @@ int ksz9477_enable_stp_addr(struct ksz_device *dev)
 	/* Enable Reserved multicast table */
 	ksz_cfg(dev, REG_SW_LUE_CTRL_0, SW_RESV_MCAST_ENABLE, true);
 
-	/* Set the Override bit for forwarding BPDU packet to CPU */
-	ret = ksz_write32(dev, REG_SW_ALU_VAL_B,
-			  ALU_V_OVERRIDE | BIT(dev->cpu_port));
-	if (ret < 0)
-		return ret;
+	/* The reserved multicast address table has 8 entries.  Each entry has
+	 * a default value of which port to forward.  It is assumed the host
+	 * port is the last port in most of the switches, but that is not the
+	 * case for KSZ9477 or maybe KSZ9897.  For LAN937X family the default
+	 * port is port 5, the first RGMII port.  It is okay for LAN9370, a
+	 * 5-port switch, but may not be correct for the other 8-port
+	 * versions.  It is necessary to update the whole table to forward to
+	 * the right ports.
+	 * Furthermore PTP messages can use a reserved multicast address and
+	 * the host will not receive them if this table is not correct.
+	 */
+	for (i = 0; i < RESV_MCAST_CNT; i++) {
+		data = reserved_mcast_map[i] <<
+			dev->info->shifts[ALU_STAT_INDEX];
+		data |= ALU_STAT_START |
+			masks[ALU_STAT_DIRECT] |
+			masks[ALU_RESV_MCAST_ADDR] |
+			masks[ALU_STAT_READ];
+		ret = ksz_write32(dev, REG_SW_ALU_STAT_CTRL__4, data);
+		if (ret < 0)
+			return ret;
 
-	data = ALU_STAT_START | ALU_RESV_MCAST_ADDR | masks[ALU_STAT_WRITE];
+		/* wait to be finished */
+		ret = ksz9477_wait_alu_sta_ready(dev);
+		if (ret < 0)
+			return ret;
 
-	ret = ksz_write32(dev, REG_SW_ALU_STAT_CTRL__4, data);
-	if (ret < 0)
-		return ret;
+		ret = ksz_read32(dev, REG_SW_ALU_VAL_B, &data);
+		if (ret < 0)
+			return ret;
 
-	/* wait to be finished */
-	ret = ksz9477_wait_alu_sta_ready(dev);
-	if (ret < 0) {
-		dev_err(dev->dev, "Failed to update Reserved Multicast table\n");
-		return ret;
+		override = false;
+		ports = data & dev->port_mask;
+		switch (i) {
+		case 0:
+		case 6:
+			/* Change the host port. */
+			update = BIT(dev->cpu_port);
+			override = true;
+			break;
+		case 2:
+			/* Change the host port. */
+			update = BIT(dev->cpu_port);
+			break;
+		case 4:
+		case 5:
+		case 7:
+			/* Skip the host port. */
+			update = dev->port_mask & ~BIT(dev->cpu_port);
+			break;
+		default:
+			update = ports;
+			break;
+		}
+		if (update != ports || override) {
+			data &= ~dev->port_mask;
+			data |= update;
+			/* Set Override bit to receive frame even when port is
+			 * closed.
+			 */
+			if (override)
+				data |= ALU_V_OVERRIDE;
+			ret = ksz_write32(dev, REG_SW_ALU_VAL_B, data);
+			if (ret < 0)
+				return ret;
+
+			data = reserved_mcast_map[i] <<
+			       dev->info->shifts[ALU_STAT_INDEX];
+			data |= ALU_STAT_START |
+				masks[ALU_STAT_DIRECT] |
+				masks[ALU_RESV_MCAST_ADDR] |
+				masks[ALU_STAT_WRITE];
+			ret = ksz_write32(dev, REG_SW_ALU_STAT_CTRL__4, data);
+			if (ret < 0)
+				return ret;
+
+			/* wait to be finished */
+			ret = ksz9477_wait_alu_sta_ready(dev);
+			if (ret < 0)
+				return ret;
+		}
 	}
 
 	return 0;

@@ -1133,8 +1133,8 @@ static void handle_slaves_guid_change(struct mlx4_ib_dev *dev, u32 port_num,
 	if (!mlx4_is_mfunc(dev->dev) || !mlx4_is_master(dev->dev))
 		return;
 
-	in_mad  = kmalloc(sizeof *in_mad, GFP_KERNEL);
-	out_mad = kmalloc(sizeof *out_mad, GFP_KERNEL);
+	in_mad = kmalloc_obj(*in_mad);
+	out_mad = kmalloc_obj(*out_mad);
 	if (!in_mad || !out_mad)
 		goto out;
 
@@ -1612,15 +1612,11 @@ static int mlx4_ib_alloc_pv_bufs(struct mlx4_ib_demux_pv_ctx *ctx,
 
 	tun_qp = &ctx->qp[qp_type];
 
-	tun_qp->ring = kcalloc(nmbr_bufs,
-			       sizeof(struct mlx4_ib_buf),
-			       GFP_KERNEL);
+	tun_qp->ring = kzalloc_objs(struct mlx4_ib_buf, nmbr_bufs);
 	if (!tun_qp->ring)
 		return -ENOMEM;
 
-	tun_qp->tx_ring = kcalloc(nmbr_bufs,
-				  sizeof (struct mlx4_ib_tun_tx_buf),
-				  GFP_KERNEL);
+	tun_qp->tx_ring = kzalloc_objs(struct mlx4_ib_tun_tx_buf, nmbr_bufs);
 	if (!tun_qp->tx_ring) {
 		kfree(tun_qp->ring);
 		tun_qp->ring = NULL;
@@ -1836,9 +1832,9 @@ static int create_pv_sqp(struct mlx4_ib_demux_pv_ctx *ctx,
 	tun_qp->qp = ib_create_qp(ctx->pd, &qp_init_attr.init_attr);
 	if (IS_ERR(tun_qp->qp)) {
 		ret = PTR_ERR(tun_qp->qp);
+		pr_err("Couldn't create %s QP (%pe)\n",
+		       create_tun ? "tunnel" : "special", tun_qp->qp);
 		tun_qp->qp = NULL;
-		pr_err("Couldn't create %s QP (%d)\n",
-		       create_tun ? "tunnel" : "special", ret);
 		return ret;
 	}
 
@@ -1958,7 +1954,7 @@ static int alloc_pv_object(struct mlx4_ib_dev *dev, int slave, int port,
 	struct mlx4_ib_demux_pv_ctx *ctx;
 
 	*ret_ctx = NULL;
-	ctx = kzalloc(sizeof (struct mlx4_ib_demux_pv_ctx), GFP_KERNEL);
+	ctx = kzalloc_obj(struct mlx4_ib_demux_pv_ctx);
 	if (!ctx)
 		return -ENOMEM;
 
@@ -2017,14 +2013,14 @@ static int create_pv_resources(struct ib_device *ibdev, int slave, int port,
 			       NULL, ctx, &cq_attr);
 	if (IS_ERR(ctx->cq)) {
 		ret = PTR_ERR(ctx->cq);
-		pr_err("Couldn't create tunnel CQ (%d)\n", ret);
+		pr_err("Couldn't create tunnel CQ (%pe)\n", ctx->cq);
 		goto err_buf;
 	}
 
 	ctx->pd = ib_alloc_pd(ctx->ib_dev, 0);
 	if (IS_ERR(ctx->pd)) {
 		ret = PTR_ERR(ctx->pd);
-		pr_err("Couldn't create tunnel PD (%d)\n", ret);
+		pr_err("Couldn't create tunnel PD (%pe)\n", ctx->pd);
 		goto err_cq;
 	}
 
@@ -2161,8 +2157,8 @@ static int mlx4_ib_alloc_demux_ctx(struct mlx4_ib_dev *dev,
 	int ret = 0;
 	int i;
 
-	ctx->tun = kcalloc(dev->dev->caps.sqp_demux,
-			   sizeof (struct mlx4_ib_demux_pv_ctx *), GFP_KERNEL);
+	ctx->tun = kzalloc_objs(struct mlx4_ib_demux_pv_ctx *,
+				dev->dev->caps.sqp_demux);
 	if (!ctx->tun)
 		return -ENOMEM;
 

@@ -15,9 +15,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include "../kselftest_harness.h"
-
-#define __maybe_unused __attribute__((__unused__))
+#include "kselftest_harness.h"
 
 static int sigio_count;
 

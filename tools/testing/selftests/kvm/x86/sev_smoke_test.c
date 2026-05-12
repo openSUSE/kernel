@@ -13,16 +13,42 @@
 #include "linux/psp-sev.h"
 #include "sev.h"
 
+static void guest_sev_test_msr(u32 msr)
+{
+	u64 val = rdmsr(msr);
+
+	wrmsr(msr, val);
+	GUEST_ASSERT(val == rdmsr(msr));
+}
+
+#define guest_sev_test_reg(reg)			\
+do {						\
+	u64 val = get_##reg();			\
+						\
+	set_##reg(val);				\
+	GUEST_ASSERT(val == get_##reg());	\
+} while (0)
+
+static void guest_sev_test_regs(void)
+{
+	guest_sev_test_msr(MSR_EFER);
+	guest_sev_test_reg(cr0);
+	guest_sev_test_reg(cr3);
+	guest_sev_test_reg(cr4);
+	guest_sev_test_reg(cr8);
+}
 
 #define XFEATURE_MASK_X87_AVX (XFEATURE_MASK_FP | XFEATURE_MASK_SSE | XFEATURE_MASK_YMM)
 
 static void guest_snp_code(void)
 {
-	uint64_t sev_msr = rdmsr(MSR_AMD64_SEV);
+	u64 sev_msr = rdmsr(MSR_AMD64_SEV);
 
 	GUEST_ASSERT(sev_msr & MSR_AMD64_SEV_ENABLED);
 	GUEST_ASSERT(sev_msr & MSR_AMD64_SEV_ES_ENABLED);
 	GUEST_ASSERT(sev_msr & MSR_AMD64_SEV_SNP_ENABLED);
+
+	guest_sev_test_regs();
 
 	wrmsr(MSR_AMD64_SEV_ES_GHCB, GHCB_MSR_TERM_REQ);
 	vmgexit();
@@ -33,6 +59,8 @@ static void guest_sev_es_code(void)
 	/* TODO: Check CPUID after GHCB-based hypercall support is added. */
 	GUEST_ASSERT(rdmsr(MSR_AMD64_SEV) & MSR_AMD64_SEV_ENABLED);
 	GUEST_ASSERT(rdmsr(MSR_AMD64_SEV) & MSR_AMD64_SEV_ES_ENABLED);
+
+	guest_sev_test_regs();
 
 	/*
 	 * TODO: Add GHCB and ucall support for SEV-ES guests.  For now, simply
@@ -46,6 +74,8 @@ static void guest_sev_code(void)
 {
 	GUEST_ASSERT(this_cpu_has(X86_FEATURE_SEV));
 	GUEST_ASSERT(rdmsr(MSR_AMD64_SEV) & MSR_AMD64_SEV_ENABLED);
+
+	guest_sev_test_regs();
 
 	GUEST_DONE();
 }
@@ -74,19 +104,19 @@ static void compare_xsave(u8 *from_host, u8 *from_guest)
 		abort();
 }
 
-static void test_sync_vmsa(uint32_t type, uint64_t policy)
+static void test_sync_vmsa(u32 type, u64 policy)
 {
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
-	vm_vaddr_t gva;
+	gva_t gva;
 	void *hva;
 
 	double x87val = M_PI;
 	struct kvm_xsave __attribute__((aligned(64))) xsave = { 0 };
 
 	vm = vm_sev_create_with_one_vcpu(type, guest_code_xsave, &vcpu);
-	gva = vm_vaddr_alloc_shared(vm, PAGE_SIZE, KVM_UTIL_MIN_VADDR,
-				    MEM_REGION_TEST_DATA);
+	gva = vm_alloc_shared(vm, PAGE_SIZE, KVM_UTIL_MIN_VADDR,
+			      MEM_REGION_TEST_DATA);
 	hva = addr_gva2hva(vm, gva);
 
 	vcpu_args_set(vcpu, 1, gva);
@@ -104,7 +134,7 @@ static void test_sync_vmsa(uint32_t type, uint64_t policy)
 	vm_sev_launch(vm, policy, NULL);
 
 	/* This page is shared, so make it decrypted.  */
-	memset(hva, 0, 4096);
+	memset(hva, 0, PAGE_SIZE);
 
 	vcpu_run(vcpu);
 
@@ -120,7 +150,7 @@ static void test_sync_vmsa(uint32_t type, uint64_t policy)
 	kvm_vm_free(vm);
 }
 
-static void test_sev(void *guest_code, uint32_t type, uint64_t policy)
+static void test_sev(void *guest_code, u32 type, u64 policy)
 {
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
@@ -171,7 +201,7 @@ static void guest_shutdown_code(void)
 	__asm__ __volatile__("ud2");
 }
 
-static void test_sev_shutdown(uint32_t type, uint64_t policy)
+static void test_sev_shutdown(u32 type, u64 policy)
 {
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
@@ -188,7 +218,7 @@ static void test_sev_shutdown(uint32_t type, uint64_t policy)
 	kvm_vm_free(vm);
 }
 
-static void test_sev_smoke(void *guest, uint32_t type, uint64_t policy)
+static void test_sev_smoke(void *guest, u32 type, u64 policy)
 {
 	const u64 xf_mask = XFEATURE_MASK_X87_AVX;
 

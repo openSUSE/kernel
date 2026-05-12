@@ -1,7 +1,7 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017-2024 Broadcom. All Rights Reserved. The term *
+ * Copyright (C) 2017-2026 Broadcom. All Rights Reserved. The term *
  * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.     *
  * Copyright (C) 2004-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
@@ -311,7 +311,6 @@ struct lpfc_defer_flogi_acc {
 	u16 rx_id;
 	u16 ox_id;
 	struct lpfc_nodelist *ndlp;
-
 };
 
 #define LPFC_VMID_TIMER   300	/* timer interval in seconds */
@@ -553,8 +552,6 @@ struct lpfc_cgn_info {
 	);
 
 	__le32   cgn_info_crc;
-#define LPFC_CGN_CRC32_MAGIC_NUMBER	0x1EDC6F41
-#define LPFC_CGN_CRC32_SEED		0xFFFFFFFF
 };
 
 #define LPFC_CGN_INFO_SZ	(sizeof(struct lpfc_cgn_info) -  \
@@ -634,6 +631,7 @@ struct lpfc_vport {
 #define FC_CT_RSPN_ID		0x8	 /* RSPN_ID accepted by switch */
 #define FC_CT_RFT_ID		0x10	 /* RFT_ID accepted by switch */
 #define FC_CT_RPRT_DEFER	0x20	 /* Defer issuing FDMI RPRT */
+#define FC_CT_RSPNI_PNI		0x40	 /* RSPNI_PNI accepted by switch */
 
 	struct list_head fc_nodes;
 	spinlock_t fc_nodes_list_lock; /* spinlock for fc_nodes list */
@@ -661,14 +659,11 @@ struct lpfc_vport {
 	uint32_t num_disc_nodes;	/* in addition to hba_state */
 	uint32_t gidft_inp;		/* cnt of outstanding GID_FTs */
 
-	uint32_t fc_nlp_cnt;	/* outstanding NODELIST requests */
 	uint32_t fc_rscn_id_cnt;	/* count of RSCNs payloads in list */
 	uint32_t fc_rscn_flush;		/* flag use of fc_rscn_id_list */
 	struct lpfc_dmabuf *fc_rscn_id_list[FC_MAX_HOLD_RSCN];
 	struct lpfc_name fc_nodename;	/* fc nodename */
 	struct lpfc_name fc_portname;	/* fc portname */
-
-	struct lpfc_work_evt disc_timeout_evt;
 
 	struct timer_list fc_disctmo;	/* Discovery rescue timer */
 	uint8_t fc_ns_retry;	/* retries for fabric nameserver */
@@ -744,12 +739,6 @@ struct lpfc_vport {
 	struct lpfc_vmid_priority_info vmid_priority;
 
 #ifdef CONFIG_SCSI_LPFC_DEBUG_FS
-	struct dentry *debug_disc_trc;
-	struct dentry *debug_nodelist;
-	struct dentry *debug_nvmestat;
-	struct dentry *debug_scsistat;
-	struct dentry *debug_ioktime;
-	struct dentry *debug_hdwqstat;
 	struct dentry *vport_debugfs_root;
 	struct lpfc_debugfs_trc *disc_trc;
 	atomic_t disc_trc_cnt;
@@ -767,7 +756,6 @@ struct lpfc_vport {
 	/* There is a single nvme instance per vport. */
 	struct nvme_fc_local_port *localport;
 	uint8_t  nvmei_support; /* driver supports NVME Initiator */
-	uint32_t last_fcp_wqidx;
 	uint32_t rcv_flogi_cnt; /* How many unsol FLOGIs ACK'd. */
 };
 
@@ -822,9 +810,10 @@ struct unsol_rcv_ct_ctx {
 #define LPFC_USER_LINK_SPEED_16G	16	/* 16 Gigabaud */
 #define LPFC_USER_LINK_SPEED_32G	32	/* 32 Gigabaud */
 #define LPFC_USER_LINK_SPEED_64G	64	/* 64 Gigabaud */
-#define LPFC_USER_LINK_SPEED_MAX	LPFC_USER_LINK_SPEED_64G
+#define LPFC_USER_LINK_SPEED_128G	128	/* 128 Gigabaud */
+#define LPFC_USER_LINK_SPEED_MAX	LPFC_USER_LINK_SPEED_128G
 
-#define LPFC_LINK_SPEED_STRING "0, 1, 2, 4, 8, 10, 16, 32, 64"
+#define LPFC_LINK_SPEED_STRING "0, 1, 2, 4, 8, 10, 16, 32, 64, 128"
 
 enum nemb_type {
 	nemb_mse = 1,
@@ -1027,7 +1016,6 @@ struct lpfc_hba {
 #define LPFC_SLI3_CRP_ENABLED		0x08
 #define LPFC_SLI3_BG_ENABLED		0x20
 #define LPFC_SLI3_DSS_ENABLED		0x40
-#define LPFC_SLI4_PERFH_ENABLED		0x80
 #define LPFC_SLI4_PHWQ_ENABLED		0x100
 	uint32_t iocb_cmd_size;
 	uint32_t iocb_rsp_size;
@@ -1060,8 +1048,6 @@ struct lpfc_hba {
 
 	struct lpfc_dmabuf hbqslimp;
 
-	uint16_t pci_cfg_value;
-
 	uint8_t fc_linkspeed;	/* Link speed after last READ_LA */
 
 	uint32_t fc_eventTag;	/* event tag for link attention */
@@ -1088,8 +1074,9 @@ struct lpfc_hba {
 
 	struct lpfc_stats fc_stat;
 
-	struct lpfc_nodelist fc_fcpnodev; /* nodelist entry for no device */
 	uint32_t nport_event_cnt;	/* timestamp for nlplist entry */
+
+	unsigned long pni;		/* 64-bit Platform Name Identifier */
 
 	uint8_t  wwnn[8];
 	uint8_t  wwpn[8];
@@ -1201,7 +1188,6 @@ struct lpfc_hba {
 	uint32_t cfg_ras_fwlog_func;
 	uint32_t cfg_enable_bbcr;	/* Enable BB Credit Recovery */
 	uint32_t cfg_enable_dpp;	/* Enable Direct Packet Push */
-	uint32_t cfg_enable_pbde;
 	uint32_t cfg_enable_mi;
 	struct nvmet_fc_target_port *targetport;
 	lpfc_vpd_t vpd;		/* vital product data */
@@ -1228,9 +1214,6 @@ struct lpfc_hba {
 	uint32_t hbq_in_use;		/* HBQs in use flag */
 	uint32_t hbq_count;	        /* Count of configured HBQs */
 	struct hbq_s hbqs[LPFC_MAX_HBQS]; /* local copy of hbq indicies  */
-
-	atomic_t fcp_qidx;         /* next FCP WQ (RR Policy) */
-	atomic_t nvme_qidx;        /* next NVME WQ (RR Policy) */
 
 	phys_addr_t pci_bar0_map;     /* Physical address for PCI BAR0 */
 	phys_addr_t pci_bar1_map;     /* Physical address for PCI BAR1 */
@@ -1348,30 +1331,9 @@ struct lpfc_hba {
 	unsigned long last_ramp_down_time;
 #ifdef CONFIG_SCSI_LPFC_DEBUG_FS
 	struct dentry *hba_debugfs_root;
-	atomic_t debugfs_vport_count;
-	struct dentry *debug_multixri_pools;
-	struct dentry *debug_hbqinfo;
-	struct dentry *debug_dumpHostSlim;
-	struct dentry *debug_dumpHBASlim;
-	struct dentry *debug_InjErrLBA;  /* LBA to inject errors at */
-	struct dentry *debug_InjErrNPortID;  /* NPortID to inject errors at */
-	struct dentry *debug_InjErrWWPN;  /* WWPN to inject errors at */
-	struct dentry *debug_writeGuard; /* inject write guard_tag errors */
-	struct dentry *debug_writeApp;   /* inject write app_tag errors */
-	struct dentry *debug_writeRef;   /* inject write ref_tag errors */
-	struct dentry *debug_readGuard;  /* inject read guard_tag errors */
-	struct dentry *debug_readApp;    /* inject read app_tag errors */
-	struct dentry *debug_readRef;    /* inject read ref_tag errors */
+	unsigned int debugfs_vport_count;
 
-	struct dentry *debug_nvmeio_trc;
 	struct lpfc_debugfs_nvmeio_trc *nvmeio_trc;
-	struct dentry *debug_hdwqinfo;
-#ifdef LPFC_HDWQ_LOCK_STAT
-	struct dentry *debug_lockstat;
-#endif
-	struct dentry *debug_cgn_buffer;
-	struct dentry *debug_rx_monitor;
-	struct dentry *debug_ras_log;
 	atomic_t nvmeio_trc_cnt;
 	uint32_t nvmeio_trc_size;
 	uint32_t nvmeio_trc_output_idx;
@@ -1388,19 +1350,10 @@ struct lpfc_hba {
 	sector_t lpfc_injerr_lba;
 #define LPFC_INJERR_LBA_OFF	(sector_t)(-1)
 
-	struct dentry *debug_slow_ring_trc;
 	struct lpfc_debugfs_trc *slow_ring_trc;
 	atomic_t slow_ring_trc_cnt;
 	/* iDiag debugfs sub-directory */
 	struct dentry *idiag_root;
-	struct dentry *idiag_pci_cfg;
-	struct dentry *idiag_bar_acc;
-	struct dentry *idiag_que_info;
-	struct dentry *idiag_que_acc;
-	struct dentry *idiag_drb_acc;
-	struct dentry *idiag_ctl_acc;
-	struct dentry *idiag_mbx_acc;
-	struct dentry *idiag_ext_acc;
 	uint8_t lpfc_idiag_last_eq;
 #endif
 	uint16_t nvmeio_trc_on;
@@ -1711,8 +1664,9 @@ lpfc_phba_elsring(struct lpfc_hba *phba)
  * @mask: Pointer to phba's cpumask member.
  * @start: starting cpu index
  *
- * Note: If no valid cpu found, then nr_cpu_ids is returned.
+ * Returns: next online CPU in @mask on success
  *
+ * Note: If no valid cpu found, then nr_cpu_ids is returned.
  **/
 static __always_inline unsigned int
 lpfc_next_online_cpu(const struct cpumask *mask, unsigned int start)
@@ -1724,8 +1678,9 @@ lpfc_next_online_cpu(const struct cpumask *mask, unsigned int start)
  * lpfc_next_present_cpu - Finds next present CPU after n
  * @n: the cpu prior to search
  *
- * Note: If no next present cpu, then fallback to first present cpu.
+ * Returns: next present CPU after CPU @n
  *
+ * Note: If no next present cpu, then fallback to first present cpu.
  **/
 static __always_inline unsigned int lpfc_next_present_cpu(int n)
 {
@@ -1735,7 +1690,7 @@ static __always_inline unsigned int lpfc_next_present_cpu(int n)
 /**
  * lpfc_sli4_mod_hba_eq_delay - update EQ delay
  * @phba: Pointer to HBA context object.
- * @q: The Event Queue to update.
+ * @eq: The Event Queue to update.
  * @delay: The delay value (in us) to be written.
  *
  **/
@@ -1797,8 +1752,9 @@ static const char *routine(enum enum_name table_key)			\
  * Pr Tag     1               0              N
  * Pr Tag     1               1              Y
  * Pr Tag     2               *              Y
- ---------------------------------------------------
+ * ---------------------------------------------------
  *
+ * Returns: whether VMID is enabled
  **/
 static inline int lpfc_is_vmid_enabled(struct lpfc_hba *phba)
 {

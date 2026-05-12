@@ -19,9 +19,18 @@ extern "C" {
 #define AMDXDNA_INVALID_BO_HANDLE	0
 #define AMDXDNA_INVALID_FENCE_HANDLE	0
 
+/*
+ * Define hardware context priority
+ */
+#define AMDXDNA_QOS_REALTIME_PRIORITY	0x100
+#define AMDXDNA_QOS_HIGH_PRIORITY	0x180
+#define AMDXDNA_QOS_NORMAL_PRIORITY	0x200
+#define AMDXDNA_QOS_LOW_PRIORITY	0x280
+
 enum amdxdna_device_type {
 	AMDXDNA_DEV_TYPE_UNKNOWN = -1,
-	AMDXDNA_DEV_TYPE_KMQ,
+	AMDXDNA_DEV_TYPE_KMQ = 0,
+	AMDXDNA_DEV_TYPE_PF = 2,
 };
 
 enum amdxdna_drm_ioctl_id {
@@ -148,10 +157,11 @@ struct amdxdna_drm_config_hwctx {
 
 enum amdxdna_bo_type {
 	AMDXDNA_BO_INVALID = 0,
-	AMDXDNA_BO_SHMEM,
-	AMDXDNA_BO_DEV_HEAP,
-	AMDXDNA_BO_DEV,
-	AMDXDNA_BO_CMD,
+	AMDXDNA_BO_SHMEM = 1, /* Be compatible with legacy application code. */
+	AMDXDNA_BO_SHARE = 1,
+	AMDXDNA_BO_DEV_HEAP = 2,
+	AMDXDNA_BO_DEV = 3,
+	AMDXDNA_BO_CMD = 4,
 };
 
 /**
@@ -345,7 +355,8 @@ struct amdxdna_drm_query_clock_metadata {
 };
 
 enum amdxdna_sensor_type {
-	AMDXDNA_SENSOR_TYPE_POWER
+	AMDXDNA_SENSOR_TYPE_POWER,
+	AMDXDNA_SENSOR_TYPE_COLUMN_UTILIZATION
 };
 
 /**
@@ -442,6 +453,52 @@ enum amdxdna_drm_get_param {
 	DRM_AMDXDNA_QUERY_HW_CONTEXTS,
 	DRM_AMDXDNA_QUERY_FIRMWARE_VERSION = 8,
 	DRM_AMDXDNA_GET_POWER_MODE,
+	DRM_AMDXDNA_QUERY_TELEMETRY,
+	DRM_AMDXDNA_GET_FORCE_PREEMPT_STATE,
+	DRM_AMDXDNA_QUERY_RESOURCE_INFO,
+	DRM_AMDXDNA_GET_FRAME_BOUNDARY_PREEMPT_STATE,
+};
+
+/**
+ * struct amdxdna_drm_get_resource_info - Get resource information
+ */
+struct amdxdna_drm_get_resource_info {
+	/** @npu_clk_max: max H-Clocks */
+	__u64 npu_clk_max;
+	/** @npu_tops_max: max TOPs */
+	__u64 npu_tops_max;
+	/** @npu_task_max: max number of tasks */
+	__u64 npu_task_max;
+	/** @npu_tops_curr: current TOPs */
+	__u64 npu_tops_curr;
+	/** @npu_task_curr: current number of tasks */
+	__u64 npu_task_curr;
+};
+
+/**
+ * struct amdxdna_drm_attribute_state - State of an attribute
+ */
+struct amdxdna_drm_attribute_state {
+	/** @state: enabled or disabled */
+	__u8 state;
+	/** @pad: MBZ */
+	__u8 pad[7];
+};
+
+/**
+ * struct amdxdna_drm_query_telemetry_header - Telemetry data header
+ */
+struct amdxdna_drm_query_telemetry_header {
+	/** @major: Firmware telemetry interface major version number */
+	__u32 major;
+	/** @minor: Firmware telemetry interface minor version number */
+	__u32 minor;
+	/** @type: Telemetry query type */
+	__u32 type;
+	/** @map_num_elements: Total number of elements in the map table */
+	__u32 map_num_elements;
+	/** @map: Element map */
+	__u32 map[];
 };
 
 /**
@@ -523,7 +580,49 @@ struct amdxdna_drm_hwctx_entry {
 	__u32 pad;
 };
 
+/**
+ * struct amdxdna_async_error - XDNA async error structure
+ */
+struct amdxdna_async_error {
+	/** @err_code: Error code. */
+	__u64 err_code;
+	/** @ts_us: Timestamp. */
+	__u64 ts_us;
+	/** @ex_err_code: Extra error code */
+	__u64 ex_err_code;
+};
+
+/**
+ * struct amdxdna_drm_bo_usage - all types of BO usage
+ * BOs managed by XRT/SHIM/driver is counted as internal.
+ * Others are counted as external which are managed by applications.
+ *
+ * Among all types of BOs:
+ *   AMDXDNA_BO_DEV_HEAP - is counted for internal.
+ *   AMDXDNA_BO_SHARE    - is counted for external.
+ *   AMDXDNA_BO_CMD      - is counted for internal.
+ *   AMDXDNA_BO_DEV      - is counted by heap_usage only, not internal
+ *                         or external. It does not add to the total memory
+ *                         footprint since its mem comes from heap which is
+ *                         already counted as internal.
+ */
+struct amdxdna_drm_bo_usage {
+	/** @pid: The ID of the process to query from. */
+	__s64 pid;
+	/** @total_usage: Total BO size used by process. */
+	__u64 total_usage;
+	/** @internal_usage: Total internal BO size used by process. */
+	__u64 internal_usage;
+	/** @heap_usage: Total device BO size used by process. */
+	__u64 heap_usage;
+};
+
+/*
+ * Supported params in struct amdxdna_drm_get_array
+ */
 #define DRM_AMDXDNA_HW_CONTEXT_ALL	0
+#define DRM_AMDXDNA_HW_LAST_ASYNC_ERR	2
+#define DRM_AMDXDNA_BO_USAGE		6
 
 /**
  * struct amdxdna_drm_get_array - Get information array.
@@ -536,6 +635,12 @@ struct amdxdna_drm_get_array {
 	 *
 	 * %DRM_AMDXDNA_HW_CONTEXT_ALL:
 	 * Returns all created hardware contexts.
+	 *
+	 * %DRM_AMDXDNA_HW_LAST_ASYNC_ERR:
+	 * Returns last async error.
+	 *
+	 * %DRM_AMDXDNA_BO_USAGE:
+	 * Returns usage of heap/internal/external BOs.
 	 */
 	__u32 param;
 	/**
@@ -566,6 +671,8 @@ enum amdxdna_drm_set_param {
 	DRM_AMDXDNA_SET_POWER_MODE,
 	DRM_AMDXDNA_WRITE_AIE_MEM,
 	DRM_AMDXDNA_WRITE_AIE_REG,
+	DRM_AMDXDNA_SET_FORCE_PREEMPT,
+	DRM_AMDXDNA_SET_FRAME_BOUNDARY_PREEMPT,
 };
 
 /**

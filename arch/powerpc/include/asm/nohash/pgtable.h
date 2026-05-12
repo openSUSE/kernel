@@ -2,7 +2,7 @@
 #ifndef _ASM_POWERPC_NOHASH_PGTABLE_H
 #define _ASM_POWERPC_NOHASH_PGTABLE_H
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 static inline pte_basic_t pte_update(struct mm_struct *mm, unsigned long addr, pte_t *p,
 				     unsigned long clr, unsigned long set, int huge);
 #endif
@@ -27,7 +27,9 @@ static inline pte_basic_t pte_update(struct mm_struct *mm, unsigned long addr, p
 #define PAGE_KERNEL_RO	__pgprot(_PAGE_BASE | _PAGE_KERNEL_RO)
 #define PAGE_KERNEL_ROX	__pgprot(_PAGE_BASE | _PAGE_KERNEL_ROX)
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
+
+#include <linux/page_table_check.h>
 
 extern int icache_44x_need_flush;
 
@@ -99,8 +101,8 @@ static inline pte_basic_t pte_update(struct mm_struct *mm, unsigned long addr, p
 }
 #endif
 
-static inline int ptep_test_and_clear_young(struct vm_area_struct *vma,
-					    unsigned long addr, pte_t *ptep)
+static inline bool ptep_test_and_clear_young(struct vm_area_struct *vma,
+		unsigned long addr, pte_t *ptep)
 {
 	unsigned long old;
 
@@ -122,7 +124,11 @@ static inline void ptep_set_wrprotect(struct mm_struct *mm, unsigned long addr,
 static inline pte_t ptep_get_and_clear(struct mm_struct *mm, unsigned long addr,
 				       pte_t *ptep)
 {
-	return __pte(pte_update(mm, addr, ptep, ~0UL, 0, 0));
+	pte_t old_pte = __pte(pte_update(mm, addr, ptep, ~0UL, 0, 0));
+
+	page_table_check_pte_clear(mm, addr, old_pte);
+
+	return old_pte;
 }
 #define __HAVE_ARCH_PTEP_GET_AND_CLEAR
 
@@ -241,6 +247,11 @@ static inline bool pte_access_permitted(pte_t pte, bool write)
 		return false;
 
 	return true;
+}
+
+static inline bool pte_user_accessible_page(struct mm_struct *mm, unsigned long addr, pte_t pte)
+{
+	return pte_present(pte) && !is_kernel_addr(addr);
 }
 
 /* Conversion functions: convert a page and protection to a page entry,
@@ -373,5 +384,5 @@ static inline void __set_pte_at(struct mm_struct *mm, unsigned long addr,
 int map_kernel_page(unsigned long va, phys_addr_t pa, pgprot_t prot);
 void unmap_kernel_page(unsigned long va);
 
-#endif /* __ASSEMBLY__ */
+#endif /* __ASSEMBLER__ */
 #endif

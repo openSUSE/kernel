@@ -985,7 +985,7 @@ static int process_irq_handler_exit_event(const struct perf_tool *tool,
 	return 0;
 }
 
-const struct evsel_str_handler irq_tp_handlers[] = {
+static const struct evsel_str_handler irq_tp_handlers[] = {
 	{ "irq:irq_handler_entry", process_irq_handler_entry_event, },
 	{ "irq:irq_handler_exit",  process_irq_handler_exit_event,  },
 };
@@ -1080,7 +1080,7 @@ static int process_softirq_exit_event(const struct perf_tool *tool,
 	return 0;
 }
 
-const struct evsel_str_handler softirq_tp_handlers[] = {
+static const struct evsel_str_handler softirq_tp_handlers[] = {
 	{ "irq:softirq_raise", process_softirq_raise_event, },
 	{ "irq:softirq_entry", process_softirq_entry_event, },
 	{ "irq:softirq_exit",  process_softirq_exit_event,  },
@@ -1211,7 +1211,7 @@ static int process_workqueue_execute_end_event(const struct perf_tool *tool,
 	return 0;
 }
 
-const struct evsel_str_handler workqueue_tp_handlers[] = {
+static const struct evsel_str_handler workqueue_tp_handlers[] = {
 	{ "workqueue:workqueue_activate_work", process_workqueue_activate_work_event, },
 	{ "workqueue:workqueue_execute_start", process_workqueue_execute_start_event, },
 	{ "workqueue:workqueue_execute_end",   process_workqueue_execute_end_event,   },
@@ -1281,7 +1281,7 @@ static int process_sched_switch_event(const struct perf_tool *tool,
 	return 0;
 }
 
-const struct evsel_str_handler sched_tp_handlers[] = {
+static const struct evsel_str_handler sched_tp_handlers[] = {
 	{ "sched:sched_switch",  process_sched_switch_event, },
 };
 
@@ -1561,13 +1561,13 @@ static void print_bad_events(struct perf_kwork *kwork)
 	}
 }
 
-const char *graph_load = "||||||||||||||||||||||||||||||||||||||||||||||||";
-const char *graph_idle = "                                                ";
 static void top_print_per_cpu_load(struct perf_kwork *kwork)
 {
 	int i, load_width;
 	u64 total, load, load_ratio;
 	struct kwork_top_stat *stat = &kwork->top_stat;
+	const char *graph_load = "||||||||||||||||||||||||||||||||||||||||||||||||";
+	const char *graph_idle = "                                                ";
 
 	for (i = 0; i < MAX_NR_CPUS; i++) {
 		total = stat->cpus_runtime[i].total;
@@ -2208,7 +2208,7 @@ static int perf_kwork__top(struct perf_kwork *kwork)
 	struct __top_cpus_runtime *cpus_runtime;
 	int ret = 0;
 
-	cpus_runtime = zalloc(sizeof(struct __top_cpus_runtime) * (MAX_NR_CPUS + 1));
+	cpus_runtime = calloc(MAX_NR_CPUS + 1, sizeof(struct __top_cpus_runtime));
 	if (!cpus_runtime)
 		return -1;
 
@@ -2273,12 +2273,23 @@ static void setup_event_list(struct perf_kwork *kwork,
 	pr_debug("\n");
 }
 
+#define STRDUP_FAIL_EXIT(s)		\
+	({	char *_p;		\
+		_p = strdup(s);		\
+		if (!_p) {		\
+			ret = -ENOMEM;	\
+			goto EXIT;	\
+		}			\
+		_p;			\
+	})
+
 static int perf_kwork__record(struct perf_kwork *kwork,
 			      int argc, const char **argv)
 {
 	const char **rec_argv;
 	unsigned int rec_argc, i, j;
 	struct kwork_class *class;
+	int ret;
 
 	const char *const record_args[] = {
 		"record",
@@ -2298,17 +2309,17 @@ static int perf_kwork__record(struct perf_kwork *kwork,
 		return -ENOMEM;
 
 	for (i = 0; i < ARRAY_SIZE(record_args); i++)
-		rec_argv[i] = strdup(record_args[i]);
+		rec_argv[i] = STRDUP_FAIL_EXIT(record_args[i]);
 
 	list_for_each_entry(class, &kwork->class_list, list) {
 		for (j = 0; j < class->nr_tracepoints; j++) {
-			rec_argv[i++] = strdup("-e");
-			rec_argv[i++] = strdup(class->tp_handlers[j].name);
+			rec_argv[i++] = STRDUP_FAIL_EXIT("-e");
+			rec_argv[i++] = STRDUP_FAIL_EXIT(class->tp_handlers[j].name);
 		}
 	}
 
 	for (j = 1; j < (unsigned int)argc; j++, i++)
-		rec_argv[i] = argv[j];
+		rec_argv[i] = STRDUP_FAIL_EXIT(argv[j]);
 
 	BUG_ON(i != rec_argc);
 
@@ -2317,7 +2328,13 @@ static int perf_kwork__record(struct perf_kwork *kwork,
 		pr_debug("%s ", rec_argv[j]);
 	pr_debug("\n");
 
-	return cmd_record(i, rec_argv);
+	ret = cmd_record(i, rec_argv);
+
+EXIT:
+	for (i = 0; i < rec_argc; i++)
+		free((void *)rec_argv[i]);
+	free(rec_argv);
+	return ret;
 }
 
 int cmd_kwork(int argc, const char **argv)
@@ -2406,8 +2423,8 @@ int cmd_kwork(int argc, const char **argv)
 		    "Display call chains if present"),
 	OPT_UINTEGER(0, "max-stack", &kwork.max_stack,
 		   "Maximum number of functions to display backtrace."),
-	OPT_STRING(0, "symfs", &symbol_conf.symfs, "directory",
-		    "Look for files with symbols relative to this directory"),
+	OPT_CALLBACK(0, "symfs", NULL, "directory[,layout]", SYMFS_HELP,
+		     symbol__config_symfs),
 	OPT_STRING(0, "time", &kwork.time_str, "str",
 		   "Time span for analysis (start,stop)"),
 	OPT_STRING('C', "cpu", &kwork.cpu_list, "cpu",

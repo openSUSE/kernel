@@ -128,7 +128,7 @@ static int scpi_cpufreq_init(struct cpufreq_policy *policy)
 		goto out_free_opp;
 	}
 
-	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
+	priv = kzalloc_obj(*priv);
 	if (!priv) {
 		ret = -ENOMEM;
 		goto out_free_opp;
@@ -157,7 +157,7 @@ static int scpi_cpufreq_init(struct cpufreq_policy *policy)
 
 	latency = scpi_ops->get_transition_latency(cpu_dev);
 	if (!latency)
-		latency = CPUFREQ_ETERNAL;
+		latency = CPUFREQ_DEFAULT_TRANSITION_LATENCY_NS;
 
 	policy->cpuinfo.transition_latency = latency;
 

@@ -103,8 +103,10 @@ static int gmc_v10_0_process_interrupt(struct amdgpu_device *adev,
 	uint32_t vmhub_index = entry->client_id == SOC15_IH_CLIENTID_VMC ?
 			       AMDGPU_MMHUB0(0) : AMDGPU_GFXHUB(0);
 	struct amdgpu_vmhub *hub = &adev->vmhub[vmhub_index];
-	bool retry_fault = !!(entry->src_data[1] & 0x80);
-	bool write_fault = !!(entry->src_data[1] & 0x20);
+	bool retry_fault = !!(entry->src_data[1] &
+			      AMDGPU_GMC9_FAULT_SOURCE_DATA_RETRY);
+	bool write_fault = !!(entry->src_data[1] &
+			      AMDGPU_GMC9_FAULT_SOURCE_DATA_WRITE);
 	struct amdgpu_task_info *task_info;
 	uint32_t status = 0;
 	u64 addr;
@@ -113,27 +115,10 @@ static int gmc_v10_0_process_interrupt(struct amdgpu_device *adev,
 	addr |= ((u64)entry->src_data[1] & 0xf) << 44;
 
 	if (retry_fault) {
+		int ret = amdgpu_gmc_handle_retry_fault(adev, entry, addr, 0, 0,
+							write_fault);
 		/* Returning 1 here also prevents sending the IV to the KFD */
-
-		/* Process it onyl if it's the first fault for this address */
-		if (entry->ih != &adev->irq.ih_soft &&
-		    amdgpu_gmc_filter_faults(adev, entry->ih, addr, entry->pasid,
-					     entry->timestamp))
-			return 1;
-
-		/* Delegate it to a different ring if the hardware hasn't
-		 * already done it.
-		 */
-		if (entry->ih == &adev->irq.ih) {
-			amdgpu_irq_delegate(adev, entry, 8);
-			return 1;
-		}
-
-		/* Try to handle the recoverable page faults by filling page
-		 * tables
-		 */
-		if (amdgpu_vm_handle_fault(adev, entry->pasid, 0, 0, addr,
-					   entry->timestamp, write_fault))
+		if (ret == 1)
 			return 1;
 	}
 
@@ -722,20 +707,16 @@ static int gmc_v10_0_mc_init(struct amdgpu_device *adev)
 	adev->gmc.visible_vram_size = adev->gmc.aper_size;
 
 	/* set the gart size */
-	if (amdgpu_gart_size == -1) {
-		switch (amdgpu_ip_version(adev, GC_HWIP, 0)) {
-		default:
-			adev->gmc.gart_size = 512ULL << 20;
-			break;
-		case IP_VERSION(10, 3, 1):   /* DCE SG support */
-		case IP_VERSION(10, 3, 3):   /* DCE SG support */
-		case IP_VERSION(10, 3, 6):   /* DCE SG support */
-		case IP_VERSION(10, 3, 7):   /* DCE SG support */
-			adev->gmc.gart_size = 1024ULL << 20;
-			break;
-		}
-	} else {
-		adev->gmc.gart_size = (u64)amdgpu_gart_size << 20;
+	switch (amdgpu_ip_version(adev, GC_HWIP, 0)) {
+	case IP_VERSION(10, 3, 1):   /* DCE SG support */
+	case IP_VERSION(10, 3, 3):   /* DCE SG support */
+	case IP_VERSION(10, 3, 6):   /* DCE SG support */
+	case IP_VERSION(10, 3, 7):   /* DCE SG support */
+		amdgpu_gmc_set_gart_size(adev, SZ_1G);
+		break;
+	default:
+		amdgpu_gmc_set_gart_size(adev, SZ_512M);
+		break;
 	}
 
 	gmc_v10_0_vram_gtt_location(adev, &adev->gmc);
@@ -782,7 +763,7 @@ static int gmc_v10_0_sw_init(struct amdgpu_ip_block *ip_block)
 		adev->gmc.vram_type = AMDGPU_VRAM_TYPE_GDDR6;
 		adev->gmc.vram_width = 1 * 128; /* numchan * chansize */
 	} else {
-		r = amdgpu_atomfirmware_get_vram_info(adev,
+		r = amdgpu_gmc_get_vram_info(adev,
 				&vram_width, &vram_type, &vram_vendor);
 		adev->gmc.vram_width = vram_width;
 
@@ -865,7 +846,7 @@ static int gmc_v10_0_sw_init(struct amdgpu_ip_block *ip_block)
 
 	r = dma_set_mask_and_coherent(adev->dev, DMA_BIT_MASK(44));
 	if (r) {
-		dev_warn(adev->dev, "amdgpu: No suitable DMA available.\n");
+		drm_warn(adev_to_drm(adev), "No suitable DMA available.\n");
 		return r;
 	}
 
@@ -874,8 +855,6 @@ static int gmc_v10_0_sw_init(struct amdgpu_ip_block *ip_block)
 	r = gmc_v10_0_mc_init(adev);
 	if (r)
 		return r;
-
-	amdgpu_gmc_get_vbios_allocations(adev);
 
 	/* Memory manager */
 	r = amdgpu_bo_init(adev);
@@ -972,7 +951,7 @@ static int gmc_v10_0_gart_enable(struct amdgpu_device *adev)
 	if (!adev->in_s0ix)
 		gmc_v10_0_flush_gpu_tlb(adev, 0, AMDGPU_GFXHUB(0), 0);
 
-	DRM_INFO("PCIE GART of %uM enabled (table at 0x%016llX).\n",
+	drm_info(adev_to_drm(adev), "PCIE GART of %uM enabled (table at 0x%016llX).\n",
 		 (unsigned int)(adev->gmc.gart_size >> 20),
 		 (unsigned long long)amdgpu_bo_gpu_offset(adev->gart.bo));
 

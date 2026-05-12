@@ -22,6 +22,7 @@
 #include <linux/mm.h>
 #include <linux/percpu.h>
 #include <linux/hardirq.h>
+#include <linux/page_table_check.h>
 #include <linux/hugetlb.h>
 #include <asm/tlbflush.h>
 #include <asm/tlb.h>
@@ -87,9 +88,9 @@ static pte_t set_pte_filter_hash(pte_t pte, unsigned long addr)
 		struct folio *folio = maybe_pte_to_folio(pte);
 		if (!folio)
 			return pte;
-		if (!test_bit(PG_dcache_clean, &folio->flags)) {
+		if (!test_bit(PG_dcache_clean, &folio->flags.f)) {
 			flush_dcache_icache_folio(folio);
-			set_bit(PG_dcache_clean, &folio->flags);
+			set_bit(PG_dcache_clean, &folio->flags.f);
 		}
 	}
 	return pte;
@@ -127,13 +128,13 @@ static inline pte_t set_pte_filter(pte_t pte, unsigned long addr)
 		return pte;
 
 	/* If the page clean, we move on */
-	if (test_bit(PG_dcache_clean, &folio->flags))
+	if (test_bit(PG_dcache_clean, &folio->flags.f))
 		return pte;
 
 	/* If it's an exec fault, we flush the cache and make it clean */
 	if (is_exec_fault()) {
 		flush_dcache_icache_folio(folio);
-		set_bit(PG_dcache_clean, &folio->flags);
+		set_bit(PG_dcache_clean, &folio->flags.f);
 		return pte;
 	}
 
@@ -175,12 +176,12 @@ static pte_t set_access_flags_filter(pte_t pte, struct vm_area_struct *vma,
 		goto bail;
 
 	/* If the page is already clean, we move on */
-	if (test_bit(PG_dcache_clean, &folio->flags))
+	if (test_bit(PG_dcache_clean, &folio->flags.f))
 		goto bail;
 
 	/* Clean the page and set PG_dcache_clean */
 	flush_dcache_icache_folio(folio);
-	set_bit(PG_dcache_clean, &folio->flags);
+	set_bit(PG_dcache_clean, &folio->flags.f);
 
  bail:
 	return pte_mkexec(pte);
@@ -206,6 +207,9 @@ void set_ptes(struct mm_struct *mm, unsigned long addr, pte_t *ptep,
 	 * and not hw_valid ptes. Hence there is no translation cache flush
 	 * involved that need to be batched.
 	 */
+
+	page_table_check_ptes_set(mm, addr, ptep, pte, nr);
+
 	for (;;) {
 
 		/*
@@ -222,6 +226,14 @@ void set_ptes(struct mm_struct *mm, unsigned long addr, pte_t *ptep,
 		addr += PAGE_SIZE;
 		pte = pte_next_pfn(pte);
 	}
+}
+
+void set_pte_at_unchecked(struct mm_struct *mm, unsigned long addr,
+			  pte_t *ptep, pte_t pte)
+{
+	VM_WARN_ON(pte_hw_valid(*ptep) && !pte_protnone(*ptep));
+	pte = set_pte_filter(pte, addr);
+	__set_pte_at(mm, addr, ptep, pte, 0);
 }
 
 void unmap_kernel_page(unsigned long va)

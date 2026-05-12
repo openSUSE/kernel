@@ -67,7 +67,7 @@ static int snd_create_std_mono_ctl_offset(struct usb_mixer_interface *mixer,
 	struct usb_mixer_elem_info *cval;
 	struct snd_kcontrol *kctl;
 
-	cval = kzalloc(sizeof(*cval), GFP_KERNEL);
+	cval = kzalloc_obj(*cval);
 	if (!cval)
 		return -ENOMEM;
 
@@ -151,7 +151,7 @@ static int add_single_ctl_with_resume(struct usb_mixer_interface *mixer,
 	struct usb_mixer_elem_list *list;
 	struct snd_kcontrol *kctl;
 
-	list = kzalloc(sizeof(*list), GFP_KERNEL);
+	list = kzalloc_obj(*list);
 	if (!list)
 		return -ENOMEM;
 	if (listp)
@@ -274,7 +274,7 @@ static int snd_usb_soundblaster_remote_init(struct usb_mixer_interface *mixer)
 	mixer->rc_urb = usb_alloc_urb(0, GFP_KERNEL);
 	if (!mixer->rc_urb)
 		return -ENOMEM;
-	mixer->rc_setup_packet = kmalloc(sizeof(*mixer->rc_setup_packet), GFP_KERNEL);
+	mixer->rc_setup_packet = kmalloc_obj(*mixer->rc_setup_packet);
 	if (!mixer->rc_setup_packet) {
 		usb_free_urb(mixer->rc_urb);
 		mixer->rc_urb = NULL;
@@ -307,17 +307,12 @@ static int snd_audigy2nx_led_update(struct usb_mixer_interface *mixer,
 	struct snd_usb_audio *chip = mixer->chip;
 	int err;
 
-	err = snd_usb_lock_shutdown(chip);
-	if (err < 0)
-		return err;
+	CLASS(snd_usb_lock, pm)(chip);
+	if (pm.err < 0)
+		return pm.err;
 
-	if (chip->usb_id == USB_ID(0x041e, 0x3042))
-		err = snd_usb_ctl_msg(chip->dev,
-				      usb_sndctrlpipe(chip->dev, 0), 0x24,
-				      USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_OTHER,
-				      !value, 0, NULL, 0);
-	/* USB X-Fi S51 Pro */
-	if (chip->usb_id == USB_ID(0x041e, 0x30df))
+	if (chip->usb_id == USB_ID(0x041e, 0x3042) ||	/* USB X-Fi S51 */
+	    chip->usb_id == USB_ID(0x041e, 0x30df))	/* USB X-Fi S51 Pro */
 		err = snd_usb_ctl_msg(chip->dev,
 				      usb_sndctrlpipe(chip->dev, 0), 0x24,
 				      USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_OTHER,
@@ -327,7 +322,6 @@ static int snd_audigy2nx_led_update(struct usb_mixer_interface *mixer,
 				      usb_sndctrlpipe(chip->dev, 0), 0x24,
 				      USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_OTHER,
 				      value, index + 2, NULL, 0);
-	snd_usb_unlock_shutdown(chip);
 	return err;
 }
 
@@ -438,15 +432,14 @@ static void snd_audigy2nx_proc_read(struct snd_info_entry *entry,
 
 	for (i = 0; jacks[i].name; ++i) {
 		snd_iprintf(buffer, "%s: ", jacks[i].name);
-		err = snd_usb_lock_shutdown(mixer->chip);
-		if (err < 0)
+		CLASS(snd_usb_lock, pm)(mixer->chip);
+		if (pm.err < 0)
 			return;
 		err = snd_usb_ctl_msg(mixer->chip->dev,
 				      usb_rcvctrlpipe(mixer->chip->dev, 0),
 				      UAC_GET_MEM, USB_DIR_IN | USB_TYPE_CLASS |
 				      USB_RECIP_INTERFACE, 0,
 				      jacks[i].unitid << 8, buf, 3);
-		snd_usb_unlock_shutdown(mixer->chip);
 		if (err == 3 && (buf[0] == 3 || buf[0] == 6))
 			snd_iprintf(buffer, "%02x %02x\n", buf[1], buf[2]);
 		else
@@ -474,21 +467,18 @@ static int snd_emu0204_ch_switch_update(struct usb_mixer_interface *mixer,
 					int value)
 {
 	struct snd_usb_audio *chip = mixer->chip;
-	int err;
 	unsigned char buf[2];
 
-	err = snd_usb_lock_shutdown(chip);
-	if (err < 0)
-		return err;
+	CLASS(snd_usb_lock, pm)(chip);
+	if (pm.err < 0)
+		return pm.err;
 
 	buf[0] = 0x01;
 	buf[1] = value ? 0x02 : 0x01;
-	err = snd_usb_ctl_msg(chip->dev,
-			      usb_sndctrlpipe(chip->dev, 0), UAC_SET_CUR,
-			      USB_RECIP_INTERFACE | USB_TYPE_CLASS | USB_DIR_OUT,
-			      0x0400, 0x0e00, buf, 2);
-	snd_usb_unlock_shutdown(chip);
-	return err;
+	return snd_usb_ctl_msg(chip->dev,
+			       usb_sndctrlpipe(chip->dev, 0), UAC_SET_CUR,
+			       USB_RECIP_INTERFACE | USB_TYPE_CLASS | USB_DIR_OUT,
+			       0x0400, 0x0e00, buf, 2);
 }
 
 static int snd_emu0204_ch_switch_put(struct snd_kcontrol *kcontrol,
@@ -626,7 +616,7 @@ static int snd_dualsense_ih_connect(struct input_handler *handler,
 	struct input_handle *handle;
 	int err;
 
-	handle = kzalloc(sizeof(*handle), GFP_KERNEL);
+	handle = kzalloc_obj(*handle);
 	if (!handle)
 		return -ENOMEM;
 
@@ -723,7 +713,7 @@ static int snd_dualsense_jack_create(struct usb_mixer_interface *mixer,
 	struct snd_kcontrol *kctl;
 	int err;
 
-	mei = kzalloc(sizeof(*mei), GFP_KERNEL);
+	mei = kzalloc_obj(*mei);
 	if (!mei)
 		return -ENOMEM;
 
@@ -804,17 +794,14 @@ static int snd_xonar_u1_switch_update(struct usb_mixer_interface *mixer,
 				      unsigned char status)
 {
 	struct snd_usb_audio *chip = mixer->chip;
-	int err;
 
-	err = snd_usb_lock_shutdown(chip);
-	if (err < 0)
-		return err;
-	err = snd_usb_ctl_msg(chip->dev,
-			      usb_sndctrlpipe(chip->dev, 0), 0x08,
-			      USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_OTHER,
-			      50, 0, &status, 1);
-	snd_usb_unlock_shutdown(chip);
-	return err;
+	CLASS(snd_usb_lock, pm)(chip);
+	if (pm.err < 0)
+		return pm.err;
+	return snd_usb_ctl_msg(chip->dev,
+			       usb_sndctrlpipe(chip->dev, 0), 0x08,
+			       USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_OTHER,
+			       50, 0, &status, 1);
 }
 
 static int snd_xonar_u1_switch_put(struct snd_kcontrol *kcontrol,
@@ -945,20 +932,17 @@ static int snd_mbox1_clk_switch_get(struct snd_kcontrol *kctl,
 	struct snd_usb_audio *chip = list->mixer->chip;
 	int err;
 
-	err = snd_usb_lock_shutdown(chip);
-	if (err < 0)
-		goto err;
+	CLASS(snd_usb_lock, pm)(chip);
+	if (pm.err < 0)
+		return pm.err;
 
 	err = snd_mbox1_is_spdif_synced(chip);
 	if (err < 0)
-		goto err;
+		return err;
 
 	kctl->private_value = err;
-	err = 0;
 	ucontrol->value.enumerated.item[0] = kctl->private_value;
-err:
-	snd_usb_unlock_shutdown(chip);
-	return err;
+	return 0;
 }
 
 static int snd_mbox1_clk_switch_update(struct usb_mixer_interface *mixer, int is_spdif_sync)
@@ -966,27 +950,24 @@ static int snd_mbox1_clk_switch_update(struct usb_mixer_interface *mixer, int is
 	struct snd_usb_audio *chip = mixer->chip;
 	int err;
 
-	err = snd_usb_lock_shutdown(chip);
-	if (err < 0)
-		return err;
+	CLASS(snd_usb_lock, pm)(chip);
+	if (pm.err < 0)
+		return pm.err;
 
 	err = snd_mbox1_is_spdif_input(chip);
 	if (err < 0)
-		goto err;
+		return err;
 
 	err = snd_mbox1_is_spdif_synced(chip);
 	if (err < 0)
-		goto err;
+		return err;
 
 	/* FIXME: hardcoded sample rate */
 	err = snd_mbox1_set_clk_source(chip, is_spdif_sync ? 0 : 48000);
 	if (err < 0)
-		goto err;
+		return err;
 
-	err = snd_mbox1_is_spdif_synced(chip);
-err:
-	snd_usb_unlock_shutdown(chip);
-	return err;
+	return snd_mbox1_is_spdif_synced(chip);
 }
 
 static int snd_mbox1_clk_switch_put(struct snd_kcontrol *kctl,
@@ -1037,26 +1018,23 @@ static int snd_mbox1_src_switch_update(struct usb_mixer_interface *mixer, int is
 	struct snd_usb_audio *chip = mixer->chip;
 	int err;
 
-	err = snd_usb_lock_shutdown(chip);
+	CLASS(snd_usb_lock, pm)(chip);
+	if (pm.err < 0)
+		return pm.err;
+
+	err = snd_mbox1_is_spdif_input(chip);
+	if (err < 0)
+		return err;
+
+	err = snd_mbox1_set_input_source(chip, is_spdif_input);
 	if (err < 0)
 		return err;
 
 	err = snd_mbox1_is_spdif_input(chip);
 	if (err < 0)
-		goto err;
+		return err;
 
-	err = snd_mbox1_set_input_source(chip, is_spdif_input);
-	if (err < 0)
-		goto err;
-
-	err = snd_mbox1_is_spdif_input(chip);
-	if (err < 0)
-		goto err;
-
-	err = snd_mbox1_is_spdif_synced(chip);
-err:
-	snd_usb_unlock_shutdown(chip);
-	return err;
+	return snd_mbox1_is_spdif_synced(chip);
 }
 
 static int snd_mbox1_src_switch_put(struct snd_kcontrol *kctl,
@@ -1167,17 +1145,14 @@ static int snd_ni_update_cur_val(struct usb_mixer_elem_list *list)
 {
 	struct snd_usb_audio *chip = list->mixer->chip;
 	unsigned int pval = list->kctl->private_value;
-	int err;
 
-	err = snd_usb_lock_shutdown(chip);
-	if (err < 0)
-		return err;
-	err = usb_control_msg(chip->dev, usb_sndctrlpipe(chip->dev, 0),
-			      (pval >> 16) & 0xff,
-			      USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_DIR_OUT,
-			      pval >> 24, pval & 0xffff, NULL, 0, 1000);
-	snd_usb_unlock_shutdown(chip);
-	return err;
+	CLASS(snd_usb_lock, pm)(chip);
+	if (pm.err < 0)
+		return pm.err;
+	return usb_control_msg(chip->dev, usb_sndctrlpipe(chip->dev, 0),
+			       (pval >> 16) & 0xff,
+			       USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_DIR_OUT,
+			       pval >> 24, pval & 0xffff, NULL, 0, 1000);
 }
 
 static int snd_nativeinstruments_control_put(struct snd_kcontrol *kcontrol,
@@ -1329,23 +1304,20 @@ static int snd_ftu_eff_switch_update(struct usb_mixer_elem_list *list)
 	struct snd_usb_audio *chip = list->mixer->chip;
 	unsigned int pval = list->kctl->private_value;
 	unsigned char value[2];
-	int err;
 
 	value[0] = pval >> 24;
 	value[1] = 0;
 
-	err = snd_usb_lock_shutdown(chip);
-	if (err < 0)
-		return err;
-	err = snd_usb_ctl_msg(chip->dev,
-			      usb_sndctrlpipe(chip->dev, 0),
-			      UAC_SET_CUR,
-			      USB_RECIP_INTERFACE | USB_TYPE_CLASS | USB_DIR_OUT,
-			      pval & 0xff00,
-			      snd_usb_ctrl_intf(list->mixer->hostif) | ((pval & 0xff) << 8),
-			      value, 2);
-	snd_usb_unlock_shutdown(chip);
-	return err;
+	CLASS(snd_usb_lock, pm)(chip);
+	if (pm.err < 0)
+		return pm.err;
+	return snd_usb_ctl_msg(chip->dev,
+			       usb_sndctrlpipe(chip->dev, 0),
+			       UAC_SET_CUR,
+			       USB_RECIP_INTERFACE | USB_TYPE_CLASS | USB_DIR_OUT,
+			       pval & 0xff00,
+			       snd_usb_ctrl_intf(list->mixer->hostif) | ((pval & 0xff) << 8),
+			       value, 2);
 }
 
 static int snd_ftu_eff_switch_put(struct snd_kcontrol *kctl,
@@ -1566,15 +1538,17 @@ void snd_emuusb_set_samplerate(struct snd_usb_audio *chip,
 {
 	struct usb_mixer_interface *mixer;
 	struct usb_mixer_elem_info *cval;
+	int err;
 	int unitid = 12; /* SampleRate ExtensionUnit ID */
 
 	list_for_each_entry(mixer, &chip->mixer_list, list) {
 		if (mixer->id_elems[unitid]) {
 			cval = mixer_elem_list_to_info(mixer->id_elems[unitid]);
-			snd_usb_mixer_set_ctl_value(cval, UAC_SET_CUR,
-						    cval->control << 8,
-						    samplerate_id);
-			snd_usb_mixer_notify_id(mixer, unitid);
+			err = snd_usb_mixer_set_ctl_value(cval, UAC_SET_CUR,
+							  cval->control << 8,
+							  samplerate_id);
+			if (!err)
+				snd_usb_mixer_notify_id(mixer, unitid);
 			break;
 		}
 	}
@@ -1908,9 +1882,9 @@ static int snd_microii_spdif_default_get(struct snd_kcontrol *kcontrol,
 	unsigned char data[3];
 	int rate;
 
-	err = snd_usb_lock_shutdown(chip);
-	if (err < 0)
-		return err;
+	CLASS(snd_usb_lock, pm)(chip);
+	if (pm.err < 0)
+		return pm.err;
 
 	ucontrol->value.iec958.status[0] = kcontrol->private_value & 0xff;
 	ucontrol->value.iec958.status[1] = (kcontrol->private_value >> 8) & 0xff;
@@ -1918,15 +1892,11 @@ static int snd_microii_spdif_default_get(struct snd_kcontrol *kcontrol,
 
 	/* use known values for that card: interface#1 altsetting#1 */
 	iface = usb_ifnum_to_if(chip->dev, 1);
-	if (!iface || iface->num_altsetting < 2) {
-		err = -EINVAL;
-		goto end;
-	}
+	if (!iface || iface->num_altsetting < 2)
+		return -EINVAL;
 	alts = &iface->altsetting[1];
-	if (get_iface_desc(alts)->bNumEndpoints < 1) {
-		err = -EINVAL;
-		goto end;
-	}
+	if (get_iface_desc(alts)->bNumEndpoints < 1)
+		return -EINVAL;
 	ep = get_endpoint(alts, 0)->bEndpointAddress;
 
 	err = snd_usb_ctl_msg(chip->dev,
@@ -1938,16 +1908,13 @@ static int snd_microii_spdif_default_get(struct snd_kcontrol *kcontrol,
 			      data,
 			      sizeof(data));
 	if (err < 0)
-		goto end;
+		return err;
 
 	rate = data[0] | (data[1] << 8) | (data[2] << 16);
 	ucontrol->value.iec958.status[3] = (rate == 48000) ?
 			IEC958_AES3_CON_FS_48000 : IEC958_AES3_CON_FS_44100;
 
-	err = 0;
- end:
-	snd_usb_unlock_shutdown(chip);
-	return err;
+	return 0;
 }
 
 static int snd_microii_spdif_default_update(struct usb_mixer_elem_list *list)
@@ -1957,9 +1924,9 @@ static int snd_microii_spdif_default_update(struct usb_mixer_elem_list *list)
 	u8 reg;
 	int err;
 
-	err = snd_usb_lock_shutdown(chip);
-	if (err < 0)
-		return err;
+	CLASS(snd_usb_lock, pm)(chip);
+	if (pm.err < 0)
+		return pm.err;
 
 	reg = ((pval >> 4) & 0xf0) | (pval & 0x0f);
 	err = snd_usb_ctl_msg(chip->dev,
@@ -1971,7 +1938,7 @@ static int snd_microii_spdif_default_update(struct usb_mixer_elem_list *list)
 			      NULL,
 			      0);
 	if (err < 0)
-		goto end;
+		return err;
 
 	reg = (pval & IEC958_AES0_NONAUDIO) ? 0xa0 : 0x20;
 	reg |= (pval >> 12) & 0x0f;
@@ -1983,11 +1950,6 @@ static int snd_microii_spdif_default_update(struct usb_mixer_elem_list *list)
 			      3,
 			      NULL,
 			      0);
-	if (err < 0)
-		goto end;
-
- end:
-	snd_usb_unlock_shutdown(chip);
 	return err;
 }
 
@@ -2042,23 +2004,19 @@ static int snd_microii_spdif_switch_update(struct usb_mixer_elem_list *list)
 {
 	struct snd_usb_audio *chip = list->mixer->chip;
 	u8 reg = list->kctl->private_value;
-	int err;
 
-	err = snd_usb_lock_shutdown(chip);
-	if (err < 0)
-		return err;
+	CLASS(snd_usb_lock, pm)(chip);
+	if (pm.err < 0)
+		return pm.err;
 
-	err = snd_usb_ctl_msg(chip->dev,
-			      usb_sndctrlpipe(chip->dev, 0),
-			      UAC_SET_CUR,
-			      USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_OTHER,
-			      reg,
-			      9,
-			      NULL,
-			      0);
-
-	snd_usb_unlock_shutdown(chip);
-	return err;
+	return snd_usb_ctl_msg(chip->dev,
+			       usb_sndctrlpipe(chip->dev, 0),
+			       UAC_SET_CUR,
+			       USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_OTHER,
+			       reg,
+			       9,
+			       NULL,
+			       0);
 }
 
 static int snd_microii_spdif_switch_put(struct snd_kcontrol *kcontrol,
@@ -2069,7 +2027,7 @@ static int snd_microii_spdif_switch_put(struct snd_kcontrol *kcontrol,
 	int err;
 
 	reg = ucontrol->value.integer.value[0] ? 0x28 : 0x2a;
-	if (reg != list->kctl->private_value)
+	if (reg == list->kctl->private_value)
 		return 0;
 
 	kcontrol->private_value = reg;
@@ -2137,21 +2095,18 @@ static int snd_soundblaster_e1_switch_update(struct usb_mixer_interface *mixer,
 					     unsigned char state)
 {
 	struct snd_usb_audio *chip = mixer->chip;
-	int err;
 	unsigned char buff[2];
 
 	buff[0] = 0x02;
 	buff[1] = state ? 0x02 : 0x00;
 
-	err = snd_usb_lock_shutdown(chip);
-	if (err < 0)
-		return err;
-	err = snd_usb_ctl_msg(chip->dev,
-			      usb_sndctrlpipe(chip->dev, 0), HID_REQ_SET_REPORT,
-			      USB_TYPE_CLASS | USB_RECIP_INTERFACE | USB_DIR_OUT,
-			      0x0202, 3, buff, 2);
-	snd_usb_unlock_shutdown(chip);
-	return err;
+	CLASS(snd_usb_lock, pm)(chip);
+	if (pm.err < 0)
+		return pm.err;
+	return snd_usb_ctl_msg(chip->dev,
+			       usb_sndctrlpipe(chip->dev, 0), HID_REQ_SET_REPORT,
+			       USB_TYPE_CLASS | USB_RECIP_INTERFACE | USB_DIR_OUT,
+			       0x0202, 3, buff, 2);
 }
 
 static int snd_soundblaster_e1_switch_put(struct snd_kcontrol *kcontrol,
@@ -2273,32 +2228,28 @@ static int realtek_ctl_connector_get(struct snd_kcontrol *kcontrol,
 	bool presence;
 	int err;
 
-	err = snd_usb_lock_shutdown(chip);
-	if (err < 0)
-		return err;
+	CLASS(snd_usb_lock, pm)(chip);
+	if (pm.err < 0)
+		return pm.err;
 	err = realtek_hda_get(chip,
 			      HDA_VERB_CMD(AC_VERB_GET_PIN_SENSE, node_id, 0),
 			      &sense);
 	if (err < 0)
-		goto err;
+		return err;
 	if (pv & REALTEK_MIC_FLAG) {
 		err = realtek_hda_set(chip,
 				      HDA_VERB_CMD(AC_VERB_SET_COEF_INDEX,
 						   REALTEK_VENDOR_REGISTERS,
 						   REALTEK_CBJ_CTRL2));
 		if (err < 0)
-			goto err;
+			return err;
 		err = realtek_hda_get(chip,
 				      HDA_VERB_CMD(AC_VERB_GET_PROC_COEF,
 						   REALTEK_VENDOR_REGISTERS, 0),
 				      &cbj_ctrl2);
 		if (err < 0)
-			goto err;
+			return err;
 	}
-err:
-	snd_usb_unlock_shutdown(chip);
-	if (err < 0)
-		return err;
 
 	presence = sense & AC_PINSENSE_PRESENCE;
 	if (pv & REALTEK_MIC_FLAG)
@@ -2323,22 +2274,22 @@ static int realtek_resume_jack(struct usb_mixer_elem_list *list)
 }
 
 static int realtek_add_jack(struct usb_mixer_interface *mixer,
-			    char *name, u32 val)
+			    char *name, u32 val, int unitid,
+			    const struct snd_kcontrol_new *kctl_new)
 {
 	struct usb_mixer_elem_info *cval;
 	struct snd_kcontrol *kctl;
 
-	cval = kzalloc(sizeof(*cval), GFP_KERNEL);
+	cval = kzalloc_obj(*cval);
 	if (!cval)
 		return -ENOMEM;
-	snd_usb_mixer_elem_init_std(&cval->head, mixer,
-				    REALTEK_JACK_INTERRUPT_NODE);
+	snd_usb_mixer_elem_init_std(&cval->head, mixer, unitid);
 	cval->head.resume = realtek_resume_jack;
 	cval->val_type = USB_MIXER_BOOLEAN;
 	cval->channels = 1;
 	cval->min = 0;
 	cval->max = 1;
-	kctl = snd_ctl_new1(&realtek_connector_ctl_ro, cval);
+	kctl = snd_ctl_new1(kctl_new, cval);
 	if (!kctl) {
 		kfree(cval);
 		return -ENOMEM;
@@ -2368,14 +2319,20 @@ static int dell_dock_mixer_create(struct usb_mixer_interface *mixer)
 			USB_RECIP_DEVICE | USB_TYPE_VENDOR | USB_DIR_OUT,
 			0, 0, NULL, 0);
 
-	err = realtek_add_jack(mixer, "Line Out Jack", REALTEK_LINE1);
+	err = realtek_add_jack(mixer, "Line Out Jack", REALTEK_LINE1,
+			       REALTEK_JACK_INTERRUPT_NODE,
+			       &realtek_connector_ctl_ro);
 	if (err < 0)
 		return err;
-	err = realtek_add_jack(mixer, "Headphone Jack", REALTEK_HP_OUT);
+	err = realtek_add_jack(mixer, "Headphone Jack", REALTEK_HP_OUT,
+			       REALTEK_JACK_INTERRUPT_NODE,
+			       &realtek_connector_ctl_ro);
 	if (err < 0)
 		return err;
 	err = realtek_add_jack(mixer, "Headset Mic Jack",
-			       REALTEK_HP_OUT | REALTEK_MIC_FLAG);
+			       REALTEK_HP_OUT | REALTEK_MIC_FLAG,
+			       REALTEK_JACK_INTERRUPT_NODE,
+			       &realtek_connector_ctl_ro);
 	if (err < 0)
 		return err;
 	return 0;
@@ -2402,6 +2359,105 @@ static int dell_dock_mixer_init(struct usb_mixer_interface *mixer)
 	dell_dock_init_vol(mixer, 2, 19);
 	return 0;
 }
+
+/*
+ * HP Thunderbolt Dock G2 jack detection
+ *
+ * Similar to the Dell WD15/WD19, but with different commands.
+ */
+
+#define HP_DOCK_JACK_INTERRUPT_NODE	7
+
+#define HP_DOCK_GET			37
+
+#define HP_DOCK_JACK_PRESENCE		0xffb8
+#define HP_DOCK_JACK_PRESENCE_BIT	BIT(2)
+
+#define HP_DOCK_MIC_SENSE		0xf753
+#define HP_DOCK_MIC_SENSE_COMPLETE_BIT	BIT(4)
+
+#define HP_DOCK_MIC_SENSE_MASK		(BIT(2) | BIT(1) | BIT(0))
+/* #define HP_DOCK_MIC_SENSE_PRESENT	0x2 */
+#define HP_DOCK_MIC_SENSE_NOT_PRESENT	0x4
+
+static int hp_dock_ctl_connector_get(struct snd_kcontrol *kcontrol,
+				     struct snd_ctl_elem_value *ucontrol)
+{
+	struct usb_mixer_elem_info *cval = snd_kcontrol_chip(kcontrol);
+	struct snd_usb_audio *chip = cval->head.mixer->chip;
+	u32 pv = kcontrol->private_value;
+	bool presence;
+	int err;
+	u8 buf;
+
+	CLASS(snd_usb_lock, pm)(chip);
+	if (pm.err < 0)
+		return pm.err;
+
+	err = snd_usb_ctl_msg(chip->dev, usb_rcvctrlpipe(chip->dev, 0),
+		       HP_DOCK_GET,
+		       USB_RECIP_DEVICE | USB_TYPE_VENDOR | USB_DIR_IN,
+		       0, HP_DOCK_JACK_PRESENCE, &buf, sizeof(buf));
+	if (err < 0)
+		return err;
+
+	presence = !(buf & HP_DOCK_JACK_PRESENCE_BIT);
+
+	if (pv && presence) {
+		for (int i = 0; i < 20; i++) {
+			err = snd_usb_ctl_msg(chip->dev, usb_rcvctrlpipe(chip->dev, 0),
+			       HP_DOCK_GET,
+			       USB_RECIP_DEVICE | USB_TYPE_VENDOR | USB_DIR_IN,
+			       0, HP_DOCK_MIC_SENSE, &buf, sizeof(buf));
+			if (err < 0)
+				return err;
+
+			/* Mic sense is complete, we have a result. */
+			if (buf & HP_DOCK_MIC_SENSE_COMPLETE_BIT)
+				break;
+
+			msleep(100);
+		}
+
+		/*
+		 * If we reach the retry limit without mic sense having
+		 * completed, buf will contain HP_DOCK_MIC_SENSE_PRESENT,
+		 * thus presence remains true even when detection fails.
+		 */
+		if ((buf & HP_DOCK_MIC_SENSE_MASK) == HP_DOCK_MIC_SENSE_NOT_PRESENT)
+			presence = false;
+	}
+	ucontrol->value.integer.value[0] = presence;
+	return 0;
+}
+
+static const struct snd_kcontrol_new hp_dock_connector_ctl_ro = {
+	.iface = SNDRV_CTL_ELEM_IFACE_CARD,
+	.name = "", /* will be filled later manually */
+	.access = SNDRV_CTL_ELEM_ACCESS_READ,
+	.info = snd_ctl_boolean_mono_info,
+	.get = hp_dock_ctl_connector_get,
+};
+
+static int hp_dock_mixer_create(struct usb_mixer_interface *mixer)
+{
+	int err;
+
+	err = realtek_add_jack(mixer, "Headsets Playback Jack", 0,
+			       HP_DOCK_JACK_INTERRUPT_NODE,
+			       &hp_dock_connector_ctl_ro);
+	if (err < 0)
+		return err;
+
+	err = realtek_add_jack(mixer, "Headset Capture Jack", 1,
+			       HP_DOCK_JACK_INTERRUPT_NODE,
+			       &hp_dock_connector_ctl_ro);
+	if (err < 0)
+		return err;
+
+	return 0;
+}
+
 
 /* RME Class Compliant device quirks */
 
@@ -2485,14 +2541,12 @@ static int snd_rme_get_status1(struct snd_kcontrol *kcontrol,
 {
 	struct usb_mixer_elem_list *list = snd_kcontrol_chip(kcontrol);
 	struct snd_usb_audio *chip = list->mixer->chip;
-	int err;
 
-	err = snd_usb_lock_shutdown(chip);
-	if (err < 0)
-		return err;
-	err = snd_rme_read_value(chip, SND_RME_GET_STATUS1, status1);
-	snd_usb_unlock_shutdown(chip);
-	return err;
+	*status1 = 0;
+	CLASS(snd_usb_lock, pm)(chip);
+	if (pm.err < 0)
+		return pm.err;
+	return snd_rme_read_value(chip, SND_RME_GET_STATUS1, status1);
 }
 
 static int snd_rme_rate_get(struct snd_kcontrol *kcontrol,
@@ -2609,22 +2663,19 @@ static int snd_rme_current_freq_get(struct snd_kcontrol *kcontrol,
 	unsigned int freq;
 	int err;
 
-	err = snd_usb_lock_shutdown(chip);
-	if (err < 0)
-		return err;
+	CLASS(snd_usb_lock, pm)(chip);
+	if (pm.err < 0)
+		return pm.err;
 	err = snd_rme_read_value(chip, SND_RME_GET_STATUS1, &status1);
 	if (err < 0)
-		goto end;
+		return err;
 	err = snd_rme_read_value(chip, SND_RME_GET_CURRENT_FREQ, &den);
 	if (err < 0)
-		goto end;
+		return err;
 	freq = (den == 0) ? 0 : div64_u64(num, den);
 	freq <<= SND_RME_CLK_FREQMUL(status1);
 	ucontrol->value.integer.value[0] = freq;
-
-end:
-	snd_usb_unlock_shutdown(chip);
-	return err;
+	return 0;
 }
 
 static int snd_rme_rate_info(struct snd_kcontrol *kcontrol,
@@ -2831,13 +2882,12 @@ enum {
 static int snd_bbfpro_ctl_update(struct usb_mixer_interface *mixer, u8 reg,
 				 u8 index, u8 value)
 {
-	int err;
 	u16 usb_req, usb_idx, usb_val;
 	struct snd_usb_audio *chip = mixer->chip;
 
-	err = snd_usb_lock_shutdown(chip);
-	if (err < 0)
-		return err;
+	CLASS(snd_usb_lock, pm)(chip);
+	if (pm.err < 0)
+		return pm.err;
 
 	if (reg == SND_BBFPRO_CTL_REG1) {
 		usb_req = SND_BBFPRO_USBREQ_CTL_REG1;
@@ -2854,13 +2904,10 @@ static int snd_bbfpro_ctl_update(struct usb_mixer_interface *mixer, u8 reg,
 		usb_val = value ? usb_idx : 0;
 	}
 
-	err = snd_usb_ctl_msg(chip->dev,
-			      usb_sndctrlpipe(chip->dev, 0), usb_req,
-			      USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-			      usb_val, usb_idx, NULL, 0);
-
-	snd_usb_unlock_shutdown(chip);
-	return err;
+	return snd_usb_ctl_msg(chip->dev,
+			       usb_sndctrlpipe(chip->dev, 0), usb_req,
+			       USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+			       usb_val, usb_idx, NULL, 0);
 }
 
 static int snd_bbfpro_ctl_get(struct snd_kcontrol *kcontrol,
@@ -2975,7 +3022,6 @@ static int snd_bbfpro_ctl_resume(struct usb_mixer_elem_list *list)
 static int snd_bbfpro_gain_update(struct usb_mixer_interface *mixer,
 				  u8 channel, u8 gain)
 {
-	int err;
 	struct snd_usb_audio *chip = mixer->chip;
 
 	if (channel < 2) {
@@ -2986,18 +3032,15 @@ static int snd_bbfpro_gain_update(struct usb_mixer_interface *mixer,
 			gain = ((gain % 6) << 5) | (60 / 3);
 	}
 
-	err = snd_usb_lock_shutdown(chip);
-	if (err < 0)
-		return err;
+	CLASS(snd_usb_lock, pm)(chip);
+	if (pm.err < 0)
+		return pm.err;
 
-	err = snd_usb_ctl_msg(chip->dev,
-			      usb_sndctrlpipe(chip->dev, 0),
-			      SND_BBFPRO_USBREQ_GAIN,
-			      USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-			      gain, channel, NULL, 0);
-
-	snd_usb_unlock_shutdown(chip);
-	return err;
+	return snd_usb_ctl_msg(chip->dev,
+			       usb_sndctrlpipe(chip->dev, 0),
+			       SND_BBFPRO_USBREQ_GAIN,
+			       USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+			       gain, channel, NULL, 0);
 }
 
 static int snd_bbfpro_gain_get(struct snd_kcontrol *kcontrol,
@@ -3084,14 +3127,13 @@ static int snd_bbfpro_vol_update(struct usb_mixer_interface *mixer, u16 index,
 				 u32 value)
 {
 	struct snd_usb_audio *chip = mixer->chip;
-	int err;
 	u16 idx;
 	u16 usb_idx, usb_val;
 	u32 v;
 
-	err = snd_usb_lock_shutdown(chip);
-	if (err < 0)
-		return err;
+	CLASS(snd_usb_lock, pm)(chip);
+	if (pm.err < 0)
+		return pm.err;
 
 	idx = index & SND_BBFPRO_MIXER_IDX_MASK;
 	// 18 bit linear volume, split so 2 bits end up in index.
@@ -3099,15 +3141,12 @@ static int snd_bbfpro_vol_update(struct usb_mixer_interface *mixer, u16 index,
 	usb_idx = idx | (v & 0x3) << 14;
 	usb_val = (v >> 2) & 0xffff;
 
-	err = snd_usb_ctl_msg(chip->dev,
-			      usb_sndctrlpipe(chip->dev, 0),
-			      SND_BBFPRO_USBREQ_MIXER,
-			      USB_DIR_OUT | USB_TYPE_VENDOR |
-			      USB_RECIP_DEVICE,
-			      usb_val, usb_idx, NULL, 0);
-
-	snd_usb_unlock_shutdown(chip);
-	return err;
+	return snd_usb_ctl_msg(chip->dev,
+			       usb_sndctrlpipe(chip->dev, 0),
+			       SND_BBFPRO_USBREQ_MIXER,
+			       USB_DIR_OUT | USB_TYPE_VENDOR |
+			       USB_RECIP_DEVICE,
+			       usb_val, usb_idx, NULL, 0);
 }
 
 static int snd_bbfpro_vol_get(struct snd_kcontrol *kcontrol,
@@ -3374,10 +3413,6 @@ static int snd_bbfpro_controls_create(struct usb_mixer_interface *mixer)
 /* Reg is overloaded, 0-7 for status halfwords or 16 or 18 for control registers */
 #define RME_DIGIFACE_REGISTER(reg, mask) (((reg) << 16) | (mask))
 #define RME_DIGIFACE_INVERT BIT(31)
-
-/* Nonconst helpers */
-#define field_get(_mask, _reg) (((_reg) & (_mask)) >> (ffs(_mask) - 1))
-#define field_prep(_mask, _val) (((_val) << (ffs(_mask) - 1)) & (_mask))
 
 static int snd_rme_digiface_write_reg(struct snd_kcontrol *kcontrol, int item, u16 mask, u16 val)
 {
@@ -4212,26 +4247,22 @@ static int snd_djm_controls_info(struct snd_kcontrol *kctl,
 static int snd_djm_controls_update(struct usb_mixer_interface *mixer,
 				   u8 device_idx, u8 group, u16 value)
 {
-	int err;
 	const struct snd_djm_device *device = &snd_djm_devices[device_idx];
 
 	if (group >= device->ncontrols || value >= device->controls[group].noptions)
 		return -EINVAL;
 
-	err = snd_usb_lock_shutdown(mixer->chip);
-	if (err)
-		return err;
+	CLASS(snd_usb_lock, pm)(mixer->chip);
+	if (pm.err)
+		return pm.err;
 
-	err = snd_usb_ctl_msg(mixer->chip->dev,
-			      usb_sndctrlpipe(mixer->chip->dev, 0),
-			      USB_REQ_SET_FEATURE,
-			      USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-			      device->controls[group].options[value],
-			      device->controls[group].wIndex,
-			      NULL, 0);
-
-	snd_usb_unlock_shutdown(mixer->chip);
-	return err;
+	return snd_usb_ctl_msg(mixer->chip->dev,
+			       usb_sndctrlpipe(mixer->chip->dev, 0),
+			       USB_REQ_SET_FEATURE,
+			       USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+			       device->controls[group].options[value],
+			       device->controls[group].wIndex,
+			       NULL, 0);
 }
 
 static int snd_djm_controls_get(struct snd_kcontrol *kctl,
@@ -4383,6 +4414,9 @@ int snd_usb_mixer_apply_create_quirk(struct usb_mixer_interface *mixer)
 		err = snd_create_std_mono_table(mixer, ebox44_table);
 		break;
 
+	case USB_ID(0x1235, 0x8010): /* Focusrite Forte */
+		err = snd_forte_controls_create(mixer);
+		break;
 	case USB_ID(0x1235, 0x8012): /* Focusrite Scarlett 6i6 */
 	case USB_ID(0x1235, 0x8002): /* Focusrite Scarlett 8i6 */
 	case USB_ID(0x1235, 0x8004): /* Focusrite Scarlett 18i6 */
@@ -4445,6 +4479,9 @@ int snd_usb_mixer_apply_create_quirk(struct usb_mixer_interface *mixer)
 	case USB_ID(0x194f, 0x010d): /* Presonus Studio 1824c */
 		err = snd_sc1810_init_mixer(mixer);
 		break;
+	case USB_ID(0x194f, 0x0107): /* Presonus Studio 1824 */
+		err = snd_sc1810_init_mixer(mixer);
+		break;
 	case USB_ID(0x2a39, 0x3fb0): /* RME Babyface Pro FS */
 		err = snd_bbfpro_controls_create(mixer);
 		break;
@@ -4475,6 +4512,9 @@ int snd_usb_mixer_apply_create_quirk(struct usb_mixer_interface *mixer)
 		break;
 	case USB_ID(0x2b73, 0x0034): /* Pioneer DJ DJM-V10 */
 		err = snd_djm_controls_create(mixer, SND_DJM_V10_IDX);
+		break;
+	case USB_ID(0x03f0, 0x0269): /* HP TB Dock G2 */
+		err = hp_dock_mixer_create(mixer);
 		break;
 	}
 
@@ -4553,6 +4593,24 @@ static void snd_dragonfly_quirk_db_scale(struct usb_mixer_interface *mixer,
 	}
 }
 
+static void snd_usb_mv_silicon_quirks(struct usb_mixer_interface *mixer,
+				      struct usb_mixer_elem_info *cval,
+				      struct snd_kcontrol *kctl)
+{
+	if (cval->min == 0 && cval->max == 4096 && cval->res == 1) {
+		/* The final effects will be printed later. */
+		usb_audio_info(mixer->chip, "applying MV-SILICON quirks (0/4096/1 variant)\n");
+
+		/* Respect MIN_MUTE set by module parameters. */
+		if (!(mixer->chip->quirk_flags & QUIRK_FLAG_MIXER_PLAYBACK_MIN_MUTE))
+			mixer->chip->quirk_flags |= QUIRK_FLAG_MIXER_PLAYBACK_LINEAR_VOL;
+		if (!(mixer->chip->quirk_flags & QUIRK_FLAG_MIXER_CAPTURE_MIN_MUTE))
+			mixer->chip->quirk_flags |= QUIRK_FLAG_MIXER_CAPTURE_LINEAR_VOL;
+	} else {
+		usb_audio_dbg(mixer->chip, "not applying MV-SILICON quirks on unknown variant");
+	}
+}
+
 /*
  * Some Plantronics headsets have control names that don't meet ALSA naming
  * standards. This function fixes nonstandard source names. By the time
@@ -4599,6 +4657,25 @@ triggered:
 	usb_audio_dbg(chip, "something wrong in kctl name %s\n", id->name);
 }
 
+static void snd_usb_mixer_fu_quirk_linear_scale(struct usb_mixer_interface *mixer,
+						struct usb_mixer_elem_info *cval,
+						struct snd_kcontrol *kctl)
+{
+	static const DECLARE_TLV_DB_LINEAR(scale, TLV_DB_GAIN_MUTE, 0);
+
+	if (cval->min_mute) {
+		/*
+		 * We are clearing SNDRV_CTL_ELEM_ACCESS_TLV_CALLBACK,
+		 * resulting in min_mute being a no-op.
+		 */
+		usb_audio_warn(mixer->chip, "LINEAR_VOL overrides MIN_MUTE\n");
+	}
+
+	kctl->tlv.p = scale;
+	kctl->vd[0].access |= SNDRV_CTL_ELEM_ACCESS_TLV_READ;
+	kctl->vd[0].access &= ~SNDRV_CTL_ELEM_ACCESS_TLV_CALLBACK;
+}
+
 void snd_usb_mixer_fu_apply_quirk(struct usb_mixer_interface *mixer,
 				  struct usb_mixer_elem_info *cval, int unitid,
 				  struct snd_kcontrol *kctl)
@@ -4610,10 +4687,39 @@ void snd_usb_mixer_fu_apply_quirk(struct usb_mixer_interface *mixer,
 		break;
 	}
 
+	if (cval->control == UAC_FU_VOLUME &&
+	    !strncmp(mixer->chip->card->longname, "MV-SILICON", 10))
+		snd_usb_mv_silicon_quirks(mixer, cval, kctl);
+
 	/* lowest playback value is muted on some devices */
-	if (mixer->chip->quirk_flags & QUIRK_FLAG_MIXER_MIN_MUTE)
-		if (strstr(kctl->id.name, "Playback"))
+	if (mixer->chip->quirk_flags & QUIRK_FLAG_MIXER_PLAYBACK_MIN_MUTE)
+		if (strstr(kctl->id.name, "Playback")) {
+			usb_audio_info(mixer->chip,
+				       "applying playback min mute quirk\n");
 			cval->min_mute = 1;
+		}
+
+	/* lowest capture value is muted on some devices */
+	if (mixer->chip->quirk_flags & QUIRK_FLAG_MIXER_CAPTURE_MIN_MUTE)
+		if (strstr(kctl->id.name, "Capture")) {
+			usb_audio_info(mixer->chip,
+				       "applying capture min mute quirk\n");
+			cval->min_mute = 1;
+		}
+
+	if (mixer->chip->quirk_flags & QUIRK_FLAG_MIXER_PLAYBACK_LINEAR_VOL)
+		if (cval->control == UAC_FU_VOLUME && strstr(kctl->id.name, "Playback")) {
+			usb_audio_info(mixer->chip,
+				       "applying playback linear volume quirk\n");
+			snd_usb_mixer_fu_quirk_linear_scale(mixer, cval, kctl);
+		}
+
+	if (mixer->chip->quirk_flags & QUIRK_FLAG_MIXER_CAPTURE_LINEAR_VOL)
+		if (cval->control == UAC_FU_VOLUME && strstr(kctl->id.name, "Capture")) {
+			usb_audio_info(mixer->chip,
+				       "applying capture linear volume quirk\n");
+			snd_usb_mixer_fu_quirk_linear_scale(mixer, cval, kctl);
+		}
 
 	/* ALSA-ify some Plantronics headset control names */
 	if (USB_ID_VENDOR(mixer->chip->usb_id) == 0x047f &&

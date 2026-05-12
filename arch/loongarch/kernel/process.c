@@ -52,6 +52,7 @@
 #include <asm/switch_to.h>
 #include <asm/unwind.h>
 #include <asm/vdso.h>
+#include <asm/vdso/vdso.h>
 
 #ifdef CONFIG_STACKPROTECTOR
 #include <linux/stackprotector.h>
@@ -130,6 +131,13 @@ int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 
 	preempt_enable();
 
+	if (IS_ENABLED(CONFIG_RANDSTRUCT)) {
+		memcpy(dst, src, sizeof(struct task_struct));
+		return 0;
+	}
+
+	dst->thread.fpu.fcsr =  src->thread.fpu.fcsr;
+
 	if (!used_math())
 		memcpy(dst, src, offsetof(struct task_struct, thread.fpu.fpr));
 	else
@@ -167,7 +175,7 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 	unsigned long childksp;
 	unsigned long tls = args->tls;
 	unsigned long usp = args->stack;
-	unsigned long clone_flags = args->flags;
+	u64 clone_flags = args->flags;
 	struct pt_regs *childregs, *regs = current_pt_regs();
 
 	childksp = (unsigned long)task_stack_page(p) + THREAD_SIZE;
@@ -377,8 +385,11 @@ void arch_trigger_cpumask_backtrace(const cpumask_t *mask, int exclude_cpu)
 	nmi_trigger_cpumask_backtrace(mask, exclude_cpu, raise_backtrace);
 }
 
-#ifdef CONFIG_64BIT
+#ifdef CONFIG_32BIT
+void loongarch_dump_regs32(u32 *uregs, const struct pt_regs *regs)
+#else
 void loongarch_dump_regs64(u64 *uregs, const struct pt_regs *regs)
+#endif
 {
 	unsigned int i;
 
@@ -395,4 +406,3 @@ void loongarch_dump_regs64(u64 *uregs, const struct pt_regs *regs)
 	uregs[LOONGARCH_EF_CSR_ECFG] = regs->csr_ecfg;
 	uregs[LOONGARCH_EF_CSR_ESTAT] = regs->csr_estat;
 }
-#endif /* CONFIG_64BIT */

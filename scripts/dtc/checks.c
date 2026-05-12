@@ -324,7 +324,7 @@ ERROR(node_name_chars, check_node_name_chars, NODECHARS);
 static void check_node_name_chars_strict(struct check *c, struct dt_info *dti,
 					 struct node *node)
 {
-	int n = strspn(node->name, c->data);
+	size_t n = strspn(node->name, c->data);
 
 	if (n < node->basenamelen)
 		FAIL(c, dti, node, "Character '%c' not recommended in node name",
@@ -339,6 +339,14 @@ static void check_node_name_format(struct check *c, struct dt_info *dti,
 		FAIL(c, dti, node, "multiple '@' characters in node name");
 }
 ERROR(node_name_format, check_node_name_format, NULL, &node_name_chars);
+
+static void check_node_name_not_empty(struct check *c, struct dt_info *dti,
+				      struct node *node)
+{
+	if (node->basenamelen == 0 && node->parent != NULL)
+		FAIL(c, dti, node, "Empty node name");
+}
+ERROR(node_name_not_empty, check_node_name_not_empty, NULL, &node_name_chars);
 
 static void check_node_name_vs_property_name(struct check *c,
 					     struct dt_info *dti,
@@ -718,11 +726,14 @@ static void check_alias_paths(struct check *c, struct dt_info *dti,
 			continue;
 		}
 
-		if (!prop->val.val || !get_node_by_path(dti->dt, prop->val.val)) {
+		/* This check does not work for overlays with external paths */
+		if (!(dti->dtsflags & DTSF_PLUGIN) &&
+		    (!prop->val.val || !get_node_by_path(dti->dt, prop->val.val))) {
 			FAIL_PROP(c, dti, node, prop, "aliases property is not a valid node (%s)",
 				  prop->val.val);
 			continue;
 		}
+
 		if (strspn(prop->name, LOWERCASE DIGITS "-") != strlen(prop->name))
 			FAIL(c, dti, node, "aliases property name must include only lowercase and '-'");
 	}
@@ -1024,7 +1035,7 @@ static void check_i2c_bus_bridge(struct check *c, struct dt_info *dti, struct no
 	} else if (strprefixeq(node->name, node->basenamelen, "i2c")) {
 		struct node *child;
 		for_each_child(node, child) {
-			if (strprefixeq(child->name, node->basenamelen, "i2c-bus"))
+			if (strprefixeq(child->name, child->basenamelen, "i2c-bus"))
 				return;
 		}
 		node->bus = &i2c_bus;
@@ -1217,9 +1228,7 @@ WARNING(avoid_default_addr_size, check_avoid_default_addr_size, NULL,
 static void check_avoid_unnecessary_addr_size(struct check *c, struct dt_info *dti,
 					      struct node *node)
 {
-	struct property *prop;
 	struct node *child;
-	bool has_reg = false;
 
 	if (!node->parent || node->addr_cells < 0 || node->size_cells < 0)
 		return;
@@ -1228,13 +1237,18 @@ static void check_avoid_unnecessary_addr_size(struct check *c, struct dt_info *d
 		return;
 
 	for_each_child(node, child) {
-		prop = get_property(child, "reg");
-		if (prop)
-			has_reg = true;
+		/*
+		 * Even if the child devices' address space is not mapped into
+		 * the parent bus (no 'ranges' property on node), children can
+		 * still have registers on a local bus, or map local addresses
+		 * to another subordinate address space. The properties on the
+		 * child nodes then make #address-cells/#size-cells necessary:
+		 */
+		if (get_property(child, "reg") || get_property(child, "ranges"))
+			return;
 	}
 
-	if (!has_reg)
-		FAIL(c, dti, node, "unnecessary #address-cells/#size-cells without \"ranges\", \"dma-ranges\" or child \"reg\" property");
+	FAIL(c, dti, node, "unnecessary #address-cells/#size-cells without \"ranges\", \"dma-ranges\" or child \"reg\" or \"ranges\" property");
 }
 WARNING(avoid_unnecessary_addr_size, check_avoid_unnecessary_addr_size, NULL, &avoid_default_addr_size);
 
@@ -1673,6 +1687,10 @@ static void check_interrupt_map(struct check *c,
 		cellprop = get_property(provider_node, "#address-cells");
 		if (cellprop)
 			parent_cellsize += propval_cell(cellprop);
+		else
+			FAIL_PROP(c, dti, node, irq_map_prop,
+				"Missing property '#address-cells' in node %s, using 0 as fallback",
+				provider_node->fullpath);
 
 		cell += 1 + parent_cellsize;
 		if (cell > map_cells)
@@ -1887,34 +1905,9 @@ static void check_graph_endpoint(struct check *c, struct dt_info *dti,
 }
 WARNING(graph_endpoint, check_graph_endpoint, NULL, &graph_nodes);
 
-static void check_graph_child_address(struct check *c, struct dt_info *dti,
-				      struct node *node)
-{
-	int cnt = 0;
-	struct node *child;
-
-	if (node->bus != &graph_ports_bus && node->bus != &graph_port_bus)
-		return;
-
-	for_each_child(node, child) {
-		struct property *prop = get_property(child, "reg");
-
-		/* No error if we have any non-zero unit address */
-                if (prop && propval_cell(prop) != 0 )
-			return;
-
-		cnt++;
-	}
-
-	if (cnt == 1 && node->addr_cells != -1)
-		FAIL(c, dti, node, "graph node has single child node '%s', #address-cells/#size-cells are not necessary",
-		     node->children->name);
-}
-WARNING(graph_child_address, check_graph_child_address, NULL, &graph_nodes, &graph_port, &graph_endpoint);
-
 static struct check *check_table[] = {
 	&duplicate_node_names, &duplicate_property_names,
-	&node_name_chars, &node_name_format, &property_name_chars,
+	&node_name_chars, &node_name_format, &node_name_not_empty, &property_name_chars,
 	&name_is_string, &name_properties, &node_name_vs_property_name,
 
 	&duplicate_label,
@@ -1998,7 +1991,7 @@ static struct check *check_table[] = {
 
 	&alias_paths,
 
-	&graph_nodes, &graph_child_address, &graph_port, &graph_endpoint,
+	&graph_nodes, &graph_port, &graph_endpoint,
 
 	&always_fail,
 };

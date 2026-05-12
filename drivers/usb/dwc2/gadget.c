@@ -397,7 +397,7 @@ static struct usb_request *dwc2_hsotg_ep_alloc_request(struct usb_ep *ep,
 {
 	struct dwc2_hsotg_req *req;
 
-	req = kzalloc(sizeof(*req), flags);
+	req = kzalloc_obj(*req, flags);
 	if (!req)
 		return NULL;
 
@@ -4607,7 +4607,9 @@ static int dwc2_hsotg_udc_stop(struct usb_gadget *gadget)
 	/* Exit clock gating when driver is stopped. */
 	if (hsotg->params.power_down == DWC2_POWER_DOWN_PARAM_NONE &&
 	    hsotg->bus_suspended && !hsotg->params.no_clock_gating) {
+		spin_lock_irqsave(&hsotg->lock, flags);
 		dwc2_gadget_exit_clock_gating(hsotg, 0);
+		spin_unlock_irqrestore(&hsotg->lock, flags);
 	}
 
 	/* all endpoints should be shutdown */

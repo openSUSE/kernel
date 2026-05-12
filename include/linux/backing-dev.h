@@ -66,16 +66,6 @@ static inline void wb_stat_mod(struct bdi_writeback *wb,
 	percpu_counter_add_batch(&wb->stat[item], amount, WB_STAT_BATCH);
 }
 
-static inline void inc_wb_stat(struct bdi_writeback *wb, enum wb_stat_item item)
-{
-	wb_stat_mod(wb, item, 1);
-}
-
-static inline void dec_wb_stat(struct bdi_writeback *wb, enum wb_stat_item item)
-{
-	wb_stat_mod(wb, item, -1);
-}
-
 static inline s64 wb_stat(struct bdi_writeback *wb, enum wb_stat_item item)
 {
 	return percpu_counter_read_positive(&wb->stat[item]);
@@ -118,12 +108,10 @@ int bdi_set_strict_limit(struct backing_dev_info *bdi, unsigned int strict_limit
  *
  * BDI_CAP_WRITEBACK:		Supports dirty page writeback, and dirty pages
  *				should contribute to accounting
- * BDI_CAP_WRITEBACK_ACCT:	Automatically account writeback pages
  * BDI_CAP_STRICTLIMIT:		Keep number of dirty pages below bdi threshold
  */
 #define BDI_CAP_WRITEBACK		(1 << 0)
-#define BDI_CAP_WRITEBACK_ACCT		(1 << 1)
-#define BDI_CAP_STRICTLIMIT		(1 << 2)
+#define BDI_CAP_STRICTLIMIT		(1 << 1)
 
 extern struct backing_dev_info noop_backing_dev_info;
 
@@ -146,6 +134,19 @@ struct backing_dev_info *inode_to_bdi(struct inode *inode);
 static inline bool mapping_can_writeback(struct address_space *mapping)
 {
 	return inode_to_bdi(mapping->host)->capabilities & BDI_CAP_WRITEBACK;
+}
+
+/* Must not be used by file systems that support cgroup writeback */
+static inline int bdi_wb_dirty_exceeded(struct backing_dev_info *bdi)
+{
+	return bdi->wb.dirty_exceeded;
+}
+
+/* Must not be used by file systems that support cgroup writeback */
+static inline void bdi_wb_stat_mod(struct inode *inode, enum wb_stat_item item,
+				   s64 amount)
+{
+	wb_stat_mod(&inode_to_bdi(inode)->wb, item, amount);
 }
 
 #ifdef CONFIG_CGROUP_WRITEBACK
@@ -289,10 +290,11 @@ unlocked_inode_to_wb_begin(struct inode *inode, struct wb_lock_cookie *cookie)
 	rcu_read_lock();
 
 	/*
-	 * Paired with store_release in inode_switch_wbs_work_fn() and
+	 * Paired with a release fence in inode_do_switch_wbs() and
 	 * ensures that we see the new wb if we see cleared I_WB_SWITCH.
 	 */
-	cookie->locked = smp_load_acquire(&inode->i_state) & I_WB_SWITCH;
+	cookie->locked = inode_state_read_once(inode) & I_WB_SWITCH;
+	smp_rmb();
 
 	if (unlikely(cookie->locked))
 		xa_lock_irqsave(&inode->i_mapping->i_pages, cookie->flags);

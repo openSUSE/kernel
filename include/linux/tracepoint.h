@@ -108,18 +108,35 @@ void for_each_tracepoint_in_module(struct module *mod,
  * An alternative is to use the following for batch reclaim associated
  * with a given tracepoint:
  *
- * - tracepoint_is_faultable() == false: call_rcu()
+ * - tracepoint_is_faultable() == false: call_srcu()
  * - tracepoint_is_faultable() == true:  call_rcu_tasks_trace()
  */
 #ifdef CONFIG_TRACEPOINTS
+extern struct srcu_struct tracepoint_srcu;
 static inline void tracepoint_synchronize_unregister(void)
 {
 	synchronize_rcu_tasks_trace();
-	synchronize_rcu();
+	synchronize_srcu(&tracepoint_srcu);
 }
 static inline bool tracepoint_is_faultable(struct tracepoint *tp)
 {
 	return tp->ext && tp->ext->faultable;
+}
+/*
+ * Run RCU callback with the appropriate grace period wait for non-faultable
+ * tracepoints, e.g., those used in atomic context.
+ */
+static inline void call_tracepoint_unregister_atomic(struct rcu_head *rcu, rcu_callback_t func)
+{
+	call_srcu(&tracepoint_srcu, rcu, func);
+}
+/*
+ * Run RCU callback with the appropriate grace period wait for faultable
+ * tracepoints, e.g., those used in syscall context.
+ */
+static inline void call_tracepoint_unregister_syscall(struct rcu_head *rcu, rcu_callback_t func)
+{
+	call_rcu_tasks_trace(rcu, func);
 }
 #else
 static inline void tracepoint_synchronize_unregister(void)
@@ -128,6 +145,10 @@ static inline bool tracepoint_is_faultable(struct tracepoint *tp)
 {
 	return false;
 }
+static inline void call_tracepoint_unregister_atomic(struct rcu_head *rcu, rcu_callback_t func)
+{  }
+static inline void call_tracepoint_unregister_syscall(struct rcu_head *rcu, rcu_callback_t func)
+{  }
 #endif
 
 #ifdef CONFIG_HAVE_SYSCALL_TRACEPOINTS
@@ -181,7 +202,7 @@ static inline struct tracepoint *tracepoint_ptr_deref(tracepoint_ptr_t *p)
 #define TP_CONDITION(args...)	args
 
 /*
- * Individual subsystem my have a separate configuration to
+ * Individual subsystem may have a separate configuration to
  * enable their tracepoints. By default, this file will create
  * the tracepoints if CONFIG_TRACEPOINTS is defined. If a subsystem
  * wants to be able to disable its tracepoints from being created
@@ -220,6 +241,15 @@ static inline struct tracepoint *tracepoint_ptr_deref(tracepoint_ptr_t *p)
 	{								\
 		__do_trace_##name(args);				\
 	}
+
+/*
+ * When a tracepoint is used, it's name is added to the __tracepoint_check
+ * section. This section is only used at build time to make sure all
+ * defined tracepoints are used. It is discarded after the build.
+ */
+# define TRACEPOINT_CHECK(name)						\
+	static const char __used __section("__tracepoint_check")	\
+	__trace_check_##name[] = #name;
 
 /*
  * Make sure the alignment of the structure in the __tracepoints section will
@@ -266,12 +296,13 @@ static inline struct tracepoint *tracepoint_ptr_deref(tracepoint_ptr_t *p)
 		return static_branch_unlikely(&__tracepoint_##name.key);\
 	}
 
-#define __DECLARE_TRACE(name, proto, args, cond, data_proto)		\
+#define __DECLARE_TRACE(name, proto, args, cond, data_proto)			\
 	__DECLARE_TRACE_COMMON(name, PARAMS(proto), PARAMS(args), PARAMS(data_proto)) \
 	static inline void __do_trace_##name(proto)			\
 	{								\
+		TRACEPOINT_CHECK(name)					\
 		if (cond) {						\
-			guard(preempt_notrace)();			\
+			guard(srcu_fast_notrace)(&tracepoint_srcu);	\
 			__DO_TRACE_CALL(name, TP_ARGS(args));		\
 		}							\
 	}								\
@@ -283,12 +314,17 @@ static inline struct tracepoint *tracepoint_ptr_deref(tracepoint_ptr_t *p)
 			WARN_ONCE(!rcu_is_watching(),			\
 				  "RCU not watching for tracepoint");	\
 		}							\
+	}								\
+	static inline void trace_call__##name(proto)			\
+	{								\
+		__do_trace_##name(args);				\
 	}
 
 #define __DECLARE_TRACE_SYSCALL(name, proto, args, data_proto)		\
 	__DECLARE_TRACE_COMMON(name, PARAMS(proto), PARAMS(args), PARAMS(data_proto)) \
 	static inline void __do_trace_##name(proto)			\
 	{								\
+		TRACEPOINT_CHECK(name)					\
 		guard(rcu_tasks_trace)();				\
 		__DO_TRACE_CALL(name, TP_ARGS(args));			\
 	}								\
@@ -301,6 +337,11 @@ static inline struct tracepoint *tracepoint_ptr_deref(tracepoint_ptr_t *p)
 			WARN_ONCE(!rcu_is_watching(),			\
 				  "RCU not watching for tracepoint");	\
 		}							\
+	}								\
+	static inline void trace_call__##name(proto)			\
+	{								\
+		might_fault();						\
+		__do_trace_##name(args);				\
 	}
 
 /*
@@ -371,10 +412,12 @@ static inline struct tracepoint *tracepoint_ptr_deref(tracepoint_ptr_t *p)
 	__DEFINE_TRACE_EXT(_name, NULL, PARAMS(_proto), PARAMS(_args));
 
 #define EXPORT_TRACEPOINT_SYMBOL_GPL(name)				\
+	TRACEPOINT_CHECK(name)						\
 	EXPORT_SYMBOL_GPL(__tracepoint_##name);				\
 	EXPORT_SYMBOL_GPL(__traceiter_##name);				\
 	EXPORT_STATIC_CALL_GPL(tp_func_##name)
 #define EXPORT_TRACEPOINT_SYMBOL(name)					\
+	TRACEPOINT_CHECK(name)						\
 	EXPORT_SYMBOL(__tracepoint_##name);				\
 	EXPORT_SYMBOL(__traceiter_##name);				\
 	EXPORT_STATIC_CALL(tp_func_##name)
@@ -383,6 +426,8 @@ static inline struct tracepoint *tracepoint_ptr_deref(tracepoint_ptr_t *p)
 #else /* !TRACEPOINTS_ENABLED */
 #define __DECLARE_TRACE_COMMON(name, proto, args, data_proto)		\
 	static inline void trace_##name(proto)				\
+	{ }								\
+	static inline void trace_call__##name(proto)			\
 	{ }								\
 	static inline int						\
 	register_trace_##name(void (*probe)(data_proto),		\

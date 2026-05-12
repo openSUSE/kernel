@@ -30,15 +30,11 @@ static bool mlx5_esw_bridge_dev_same_hw(struct net_device *dev, struct mlx5_eswi
 {
 	struct mlx5e_priv *priv = netdev_priv(dev);
 	struct mlx5_core_dev *mdev, *esw_mdev;
-	u64 system_guid, esw_system_guid;
 
 	mdev = priv->mdev;
 	esw_mdev = esw->dev;
 
-	system_guid = mlx5_query_nic_system_image_guid(mdev);
-	esw_system_guid = mlx5_query_nic_system_image_guid(esw_mdev);
-
-	return system_guid == esw_system_guid;
+	return mlx5_same_hw_devs(mdev, esw_mdev);
 }
 
 static struct net_device *
@@ -398,7 +394,7 @@ mlx5_esw_bridge_init_switchdev_fdb_work(struct net_device *dev, bool add,
 	struct mlx5_bridge_switchdev_fdb_work *work;
 	u8 *addr;
 
-	work = kzalloc(sizeof(*work), GFP_ATOMIC);
+	work = kzalloc_obj(*work, GFP_ATOMIC);
 	if (!work)
 		return ERR_PTR(-ENOMEM);
 
@@ -488,8 +484,8 @@ static int mlx5_esw_bridge_switchdev_event(struct notifier_block *nb,
 							       fdb_info,
 							       br_offloads);
 		if (IS_ERR(work)) {
-			WARN_ONCE(1, "Failed to init switchdev work, err=%ld",
-				  PTR_ERR(work));
+			WARN_ONCE(1, "Failed to init switchdev work, err=%pe",
+				  work);
 			return notifier_from_errno(PTR_ERR(work));
 		}
 
@@ -527,7 +523,8 @@ void mlx5e_rep_bridge_init(struct mlx5e_priv *priv)
 	br_offloads = mlx5_esw_bridge_init(esw);
 	rtnl_unlock();
 	if (IS_ERR(br_offloads)) {
-		esw_warn(mdev, "Failed to init esw bridge (err=%ld)\n", PTR_ERR(br_offloads));
+		esw_warn(mdev, "Failed to init esw bridge (err=%pe)\n",
+			 br_offloads);
 		return;
 	}
 

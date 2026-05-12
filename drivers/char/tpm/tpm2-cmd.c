@@ -11,14 +11,17 @@
  * used by the kernel internally.
  */
 
+#include "linux/dev_printk.h"
+#include "linux/tpm.h"
 #include "tpm.h"
 #include <crypto/hash_info.h>
+#include <linux/unaligned.h>
 
 static bool disable_pcr_integrity;
 module_param(disable_pcr_integrity, bool, 0444);
 MODULE_PARM_DESC(disable_pcr_integrity, "Disable integrity protection of TPM2_PCR_Extend");
 
-static struct tpm2_hash tpm2_hash_map[] = {
+static const struct tpm2_hash tpm2_hash_map[] = {
 	{HASH_ALGO_SHA1, TPM_ALG_SHA1},
 	{HASH_ALGO_SHA256, TPM_ALG_SHA256},
 	{HASH_ALGO_SHA384, TPM_ALG_SHA384},
@@ -26,121 +29,70 @@ static struct tpm2_hash tpm2_hash_map[] = {
 	{HASH_ALGO_SM3_256, TPM_ALG_SM3_256},
 };
 
+int tpm2_find_hash_alg(unsigned int crypto_id)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(tpm2_hash_map); i++)
+		if (crypto_id == tpm2_hash_map[i].crypto_id)
+			return tpm2_hash_map[i].tpm_id;
+
+	return -EINVAL;
+}
+EXPORT_SYMBOL_GPL(tpm2_find_hash_alg);
+
 int tpm2_get_timeouts(struct tpm_chip *chip)
 {
-	/* Fixed timeouts for TPM2 */
 	chip->timeout_a = msecs_to_jiffies(TPM2_TIMEOUT_A);
 	chip->timeout_b = msecs_to_jiffies(TPM2_TIMEOUT_B);
 	chip->timeout_c = msecs_to_jiffies(TPM2_TIMEOUT_C);
 	chip->timeout_d = msecs_to_jiffies(TPM2_TIMEOUT_D);
-
-	/* PTP spec timeouts */
-	chip->duration[TPM_SHORT] = msecs_to_jiffies(TPM2_DURATION_SHORT);
-	chip->duration[TPM_MEDIUM] = msecs_to_jiffies(TPM2_DURATION_MEDIUM);
-	chip->duration[TPM_LONG] = msecs_to_jiffies(TPM2_DURATION_LONG);
-
-	/* Key creation commands long timeouts */
-	chip->duration[TPM_LONG_LONG] =
-		msecs_to_jiffies(TPM2_DURATION_LONG_LONG);
-
 	chip->flags |= TPM_CHIP_FLAG_HAVE_TIMEOUTS;
-
 	return 0;
 }
 
-/**
- * tpm2_ordinal_duration_index() - returns an index to the chip duration table
- * @ordinal: TPM command ordinal.
- *
- * The function returns an index to the chip duration table
- * (enum tpm_duration), that describes the maximum amount of
- * time the chip could take to return the result for a  particular ordinal.
- *
- * The values of the MEDIUM, and LONG durations are taken
- * from the PC Client Profile (PTP) specification (750, 2000 msec)
- *
- * LONG_LONG is for commands that generates keys which empirically takes
- * a longer time on some systems.
- *
- * Return:
- * * TPM_MEDIUM
- * * TPM_LONG
- * * TPM_LONG_LONG
- * * TPM_UNDEFINED
+/*
+ * Contains the maximum durations in milliseconds for TPM2 commands.
  */
-static u8 tpm2_ordinal_duration_index(u32 ordinal)
-{
-	switch (ordinal) {
-	/* Startup */
-	case TPM2_CC_STARTUP:                 /* 144 */
-		return TPM_MEDIUM;
-
-	case TPM2_CC_SELF_TEST:               /* 143 */
-		return TPM_LONG;
-
-	case TPM2_CC_GET_RANDOM:              /* 17B */
-		return TPM_LONG;
-
-	case TPM2_CC_SEQUENCE_UPDATE:         /* 15C */
-		return TPM_MEDIUM;
-	case TPM2_CC_SEQUENCE_COMPLETE:       /* 13E */
-		return TPM_MEDIUM;
-	case TPM2_CC_EVENT_SEQUENCE_COMPLETE: /* 185 */
-		return TPM_MEDIUM;
-	case TPM2_CC_HASH_SEQUENCE_START:     /* 186 */
-		return TPM_MEDIUM;
-
-	case TPM2_CC_VERIFY_SIGNATURE:        /* 177 */
-		return TPM_LONG_LONG;
-
-	case TPM2_CC_PCR_EXTEND:              /* 182 */
-		return TPM_MEDIUM;
-
-	case TPM2_CC_HIERARCHY_CONTROL:       /* 121 */
-		return TPM_LONG;
-	case TPM2_CC_HIERARCHY_CHANGE_AUTH:   /* 129 */
-		return TPM_LONG;
-
-	case TPM2_CC_GET_CAPABILITY:          /* 17A */
-		return TPM_MEDIUM;
-
-	case TPM2_CC_NV_READ:                 /* 14E */
-		return TPM_LONG;
-
-	case TPM2_CC_CREATE_PRIMARY:          /* 131 */
-		return TPM_LONG_LONG;
-	case TPM2_CC_CREATE:                  /* 153 */
-		return TPM_LONG_LONG;
-	case TPM2_CC_CREATE_LOADED:           /* 191 */
-		return TPM_LONG_LONG;
-
-	default:
-		return TPM_UNDEFINED;
-	}
-}
+static const struct {
+	unsigned long ordinal;
+	unsigned long duration;
+} tpm2_ordinal_duration_map[] = {
+	{TPM2_CC_STARTUP, 750},
+	{TPM2_CC_SELF_TEST, 3000},
+	{TPM2_CC_GET_RANDOM, 2000},
+	{TPM2_CC_SEQUENCE_UPDATE, 750},
+	{TPM2_CC_SEQUENCE_COMPLETE, 750},
+	{TPM2_CC_EVENT_SEQUENCE_COMPLETE, 750},
+	{TPM2_CC_HASH_SEQUENCE_START, 750},
+	{TPM2_CC_VERIFY_SIGNATURE, 30000},
+	{TPM2_CC_PCR_EXTEND, 750},
+	{TPM2_CC_HIERARCHY_CONTROL, 2000},
+	{TPM2_CC_HIERARCHY_CHANGE_AUTH, 2000},
+	{TPM2_CC_GET_CAPABILITY, 750},
+	{TPM2_CC_NV_READ, 2000},
+	{TPM2_CC_CREATE_PRIMARY, 30000},
+	{TPM2_CC_CREATE, 30000},
+	{TPM2_CC_CREATE_LOADED, 30000},
+};
 
 /**
- * tpm2_calc_ordinal_duration() - calculate the maximum command duration
- * @chip:    TPM chip to use.
+ * tpm2_calc_ordinal_duration() - Calculate the maximum command duration
  * @ordinal: TPM command ordinal.
  *
- * The function returns the maximum amount of time the chip could take
- * to return the result for a particular ordinal in jiffies.
- *
- * Return: A maximal duration time for an ordinal in jiffies.
+ * Returns the maximum amount of time the chip is expected by kernel to
+ * take in jiffies.
  */
-unsigned long tpm2_calc_ordinal_duration(struct tpm_chip *chip, u32 ordinal)
+unsigned long tpm2_calc_ordinal_duration(u32 ordinal)
 {
-	unsigned int index;
+	int i;
 
-	index = tpm2_ordinal_duration_index(ordinal);
+	for (i = 0; i < ARRAY_SIZE(tpm2_ordinal_duration_map); i++)
+		if (ordinal == tpm2_ordinal_duration_map[i].ordinal)
+			return msecs_to_jiffies(tpm2_ordinal_duration_map[i].duration);
 
-	if (index != TPM_UNDEFINED)
-		return chip->duration[index];
-	else
-		return msecs_to_jiffies(TPM2_DURATION_DEFAULT);
+	return msecs_to_jiffies(TPM2_DURATION_DEFAULT);
 }
-
 
 struct tpm2_pcr_read_out {
 	__be32	update_cnt;
@@ -250,11 +202,15 @@ int tpm2_pcr_extend(struct tpm_chip *chip, u32 pcr_idx,
 	}
 
 	if (!disable_pcr_integrity) {
-		tpm_buf_append_name(chip, &buf, pcr_idx, NULL);
+		rc = tpm_buf_append_name(chip, &buf, pcr_idx, NULL);
+		if (rc) {
+			tpm_buf_destroy(&buf);
+			return rc;
+		}
 		tpm_buf_append_hmac_session(chip, &buf, 0, NULL, 0);
 	} else {
 		tpm_buf_append_handle(chip, &buf, pcr_idx);
-		tpm_buf_append_auth(chip, &buf, 0, NULL, 0);
+		tpm_buf_append_auth(chip, &buf, NULL, 0);
 	}
 
 	tpm_buf_append_u32(&buf, chip->nr_allocated_banks);
@@ -265,8 +221,14 @@ int tpm2_pcr_extend(struct tpm_chip *chip, u32 pcr_idx,
 			       chip->allocated_banks[i].digest_size);
 	}
 
-	if (!disable_pcr_integrity)
-		tpm_buf_fill_hmac_session(chip, &buf);
+	if (!disable_pcr_integrity) {
+		rc = tpm_buf_fill_hmac_session(chip, &buf);
+		if (rc) {
+			tpm_buf_destroy(&buf);
+			return rc;
+		}
+	}
+
 	rc = tpm_transmit_cmd(chip, &buf, 0, "attempting extend a PCR value");
 	if (!disable_pcr_integrity)
 		rc = tpm_buf_check_hmac_response(chip, &buf, rc);
@@ -320,11 +282,22 @@ int tpm2_get_random(struct tpm_chip *chip, u8 *dest, size_t max)
 
 	do {
 		tpm_buf_reset(&buf, TPM2_ST_SESSIONS, TPM2_CC_GET_RANDOM);
-		tpm_buf_append_hmac_session_opt(chip, &buf, TPM2_SA_ENCRYPT
-						| TPM2_SA_CONTINUE_SESSION,
-						NULL, 0);
+		if (tpm2_chip_auth(chip)) {
+			tpm_buf_append_hmac_session(chip, &buf,
+						    TPM2_SA_ENCRYPT |
+						    TPM2_SA_CONTINUE_SESSION,
+						    NULL, 0);
+		} else  {
+			offset = buf.handles * 4 + TPM_HEADER_SIZE;
+			head = (struct tpm_header *)buf.data;
+			if (tpm_buf_length(&buf) == offset)
+				head->tag = cpu_to_be16(TPM2_ST_NO_SESSIONS);
+		}
 		tpm_buf_append_u16(&buf, num_bytes);
-		tpm_buf_fill_hmac_session(chip, &buf);
+		err = tpm_buf_fill_hmac_session(chip, &buf);
+		if (err)
+			goto out;
+
 		err = tpm_transmit_cmd(chip, &buf,
 				       offsetof(struct tpm2_get_random_out,
 						buffer),
@@ -601,11 +574,9 @@ ssize_t tpm2_get_pcr_allocation(struct tpm_chip *chip)
 
 	nr_possible_banks = be32_to_cpup(
 		(__be32 *)&buf.data[TPM_HEADER_SIZE + 5]);
-
-	chip->allocated_banks = kcalloc(nr_possible_banks,
-					sizeof(*chip->allocated_banks),
-					GFP_KERNEL);
-	if (!chip->allocated_banks) {
+	if (nr_possible_banks > TPM2_MAX_PCR_BANKS) {
+		pr_err("tpm: out of bank capacity: %u > %u\n",
+		       nr_possible_banks, TPM2_MAX_PCR_BANKS);
 		rc = -ENOMEM;
 		goto out;
 	}

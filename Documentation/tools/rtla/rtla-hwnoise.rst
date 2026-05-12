@@ -1,5 +1,7 @@
 .. SPDX-License-Identifier: GPL-2.0
 
+.. |tool| replace:: hwnoise
+
 ============
 rtla-hwnoise
 ============
@@ -27,11 +29,11 @@ collection of the tracer output.
 
 OPTIONS
 =======
-.. include:: common_osnoise_options.rst
+.. include:: common_osnoise_options.txt
 
-.. include:: common_top_options.rst
+.. include:: common_top_options.txt
 
-.. include:: common_options.rst
+.. include:: common_options.txt
 
 EXAMPLE
 =======
@@ -98,10 +100,10 @@ SEE ALSO
 
 **rtla-osnoise**\(1)
 
-Osnoise tracer documentation: <https://www.kernel.org/doc/html/latest/trace/osnoise-tracer.html>
+`Osnoise tracer <https://docs.kernel.org/trace/osnoise-tracer.html>`__
 
 AUTHOR
 ======
 Written by Daniel Bristot de Oliveira <bristot@kernel.org>
 
-.. include:: common_appendix.rst
+.. include:: common_appendix.txt

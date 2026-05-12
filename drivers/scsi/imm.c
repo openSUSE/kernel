@@ -925,7 +925,7 @@ static int imm_engine(imm_struct *dev, struct scsi_cmnd *const cmd)
 	return 0;
 }
 
-static int imm_queuecommand_lck(struct scsi_cmnd *cmd)
+static enum scsi_qc_status imm_queuecommand_lck(struct scsi_cmnd *cmd)
 {
 	imm_struct *dev = imm_dev(cmd->device->host);
 
@@ -954,7 +954,7 @@ static DEF_SCSI_QCMD(imm_queuecommand)
  * be done in sd.c.  Even if it gets fixed there, this will still
  * work.
  */
-static int imm_biosparam(struct scsi_device *sdev, struct block_device *dev,
+static int imm_biosparam(struct scsi_device *sdev, struct gendisk *unused,
 			 sector_t capacity, int ip[])
 {
 	ip[0] = 0x40;
@@ -1158,7 +1158,7 @@ static int __imm_attach(struct parport *pb)
 
 	init_waitqueue_head(&waiting);
 
-	dev = kzalloc(sizeof(imm_struct), GFP_KERNEL);
+	dev = kzalloc_obj(imm_struct);
 	if (!dev)
 		return -ENOMEM;
 
@@ -1260,6 +1260,7 @@ static void imm_detach(struct parport *pb)
 	imm_struct *dev;
 	list_for_each_entry(dev, &imm_hosts, list) {
 		if (dev->dev->port == pb) {
+			disable_delayed_work_sync(&dev->imm_tq);
 			list_del_init(&dev->list);
 			scsi_remove_host(dev->host);
 			scsi_host_put(dev->host);

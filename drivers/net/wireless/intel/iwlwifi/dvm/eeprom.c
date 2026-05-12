@@ -766,7 +766,7 @@ static int iwl_init_otp_access(struct iwl_trans *trans)
 {
 	int ret;
 
-	ret = iwl_finish_nic_init(trans);
+	ret = iwl_trans_activate_nic(trans);
 	if (ret)
 		return ret;
 
@@ -1067,8 +1067,7 @@ iwl_parse_eeprom_data(struct iwl_trans *trans, const struct iwl_rf_cfg *cfg,
 	if (WARN_ON(!cfg || !cfg->eeprom_params))
 		return NULL;
 
-	data = kzalloc(struct_size(data, channels, IWL_NUM_CHANNELS),
-		       GFP_KERNEL);
+	data = kzalloc_flex(*data, channels, IWL_NUM_CHANNELS);
 	if (!data)
 		return NULL;
 

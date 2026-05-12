@@ -300,6 +300,7 @@ struct cmb_dataset {
  * @cmb         Specifics associated to TPDM CMB.
  * @dsb_msr_num Number of MSR supported by DSB TPDM
  * @cmb_msr_num Number of MSR supported by CMB TPDM
+ * @traceid	Trace ID of the path.
  */
 
 struct tpdm_drvdata {
@@ -313,6 +314,7 @@ struct tpdm_drvdata {
 	struct cmb_dataset	*cmb;
 	u32			dsb_msr_num;
 	u32			cmb_msr_num;
+	u8			traceid;
 };
 
 /* Enumerate members of various datasets */
@@ -343,4 +345,16 @@ struct tpdm_dataset_attribute {
 	enum dataset_mem mem;
 	u32 idx;
 };
+
+static inline bool coresight_device_is_tpdm(struct coresight_device *csdev)
+{
+	return (coresight_is_device_source(csdev)) &&
+		(csdev->subtype.source_subtype ==
+			CORESIGHT_DEV_SUBTYPE_SOURCE_TPDM);
+}
+
+static inline bool coresight_is_static_tpdm(struct coresight_device *csdev)
+{
+	return (coresight_device_is_tpdm(csdev) && !csdev->access.base);
+}
 #endif  /* _CORESIGHT_CORESIGHT_TPDM_H */

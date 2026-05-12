@@ -157,6 +157,24 @@ void mte_enable_kernel_asymm(void)
 		mte_enable_kernel_sync();
 	}
 }
+
+int mte_enable_kernel_store_only(void)
+{
+	/*
+	 * If the CPU does not support MTE store only,
+	 * the kernel checks all operations.
+	 */
+	if (!cpus_have_cap(ARM64_MTE_STORE_ONLY))
+		return -EINVAL;
+
+	sysreg_clear_set(sctlr_el1, SCTLR_EL1_TCSO_MASK,
+			 SYS_FIELD_PREP(SCTLR_EL1, TCSO, 1));
+	isb();
+
+	pr_info_once("MTE: enabled store only mode at EL1\n");
+
+	return 0;
+}
 #endif
 
 #ifdef CONFIG_KASAN_HW_TAGS
@@ -273,6 +291,9 @@ void mte_thread_switch(struct task_struct *next)
 	/* TCO may not have been disabled on exception entry for the current task. */
 	mte_disable_tco_entry(next);
 
+	if (!system_uses_mte_async_or_asymm_mode())
+		return;
+
 	/*
 	 * Check if an async tag exception occurred at EL1.
 	 *
@@ -297,8 +318,8 @@ void mte_cpu_setup(void)
 	 * CnP is not a boot feature so MTE gets enabled before CnP, but let's
 	 * make sure that is the case.
 	 */
-	BUG_ON(read_sysreg(ttbr0_el1) & TTBR_CNP_BIT);
-	BUG_ON(read_sysreg(ttbr1_el1) & TTBR_CNP_BIT);
+	BUG_ON(read_sysreg(ttbr0_el1) & TTBRx_EL1_CnP);
+	BUG_ON(read_sysreg(ttbr1_el1) & TTBRx_EL1_CnP);
 
 	/* Normal Tagged memory type at the corresponding MAIR index */
 	sysreg_clear_set(mair_el1,
@@ -330,6 +351,9 @@ void mte_cpu_setup(void)
 void mte_suspend_enter(void)
 {
 	if (!system_supports_mte())
+		return;
+
+	if (!system_uses_mte_async_or_asymm_mode())
 		return;
 
 	/*
@@ -458,9 +482,10 @@ static int __access_remote_tags(struct mm_struct *mm, unsigned long addr,
 
 		folio = page_folio(page);
 		if (folio_test_hugetlb(folio))
-			WARN_ON_ONCE(!folio_test_hugetlb_mte_tagged(folio));
+			WARN_ON_ONCE(!folio_test_hugetlb_mte_tagged(folio) &&
+				     !is_huge_zero_folio(folio));
 		else
-			WARN_ON_ONCE(!page_mte_tagged(page));
+			WARN_ON_ONCE(!page_mte_tagged(page) && !is_zero_page(page));
 
 		/* limit access to the end of the page */
 		offset = offset_in_page(addr);

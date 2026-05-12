@@ -92,17 +92,19 @@ static int clk_half_divider_bestdiv(struct clk_hw *hw, unsigned long rate,
 	return bestdiv;
 }
 
-static long clk_half_divider_round_rate(struct clk_hw *hw, unsigned long rate,
-					unsigned long *prate)
+static int clk_half_divider_determine_rate(struct clk_hw *hw,
+					   struct clk_rate_request *req)
 {
 	struct clk_divider *divider = to_clk_divider(hw);
 	int div;
 
-	div = clk_half_divider_bestdiv(hw, rate, prate,
+	div = clk_half_divider_bestdiv(hw, req->rate, &req->best_parent_rate,
 				       divider->width,
 				       divider->flags);
 
-	return DIV_ROUND_UP_ULL(((u64)*prate * 2), div * 2 + 3);
+	req->rate = DIV_ROUND_UP_ULL(((u64)req->best_parent_rate * 2), div * 2 + 3);
+
+	return 0;
 }
 
 static int clk_half_divider_set_rate(struct clk_hw *hw, unsigned long rate,
@@ -141,7 +143,7 @@ static int clk_half_divider_set_rate(struct clk_hw *hw, unsigned long rate,
 
 static const struct clk_ops clk_half_divider_ops = {
 	.recalc_rate = clk_half_divider_recalc_rate,
-	.round_rate = clk_half_divider_round_rate,
+	.determine_rate = clk_half_divider_determine_rate,
 	.set_rate = clk_half_divider_set_rate,
 };
 
@@ -174,7 +176,7 @@ struct clk *rockchip_clk_register_halfdiv(const char *name,
 			     *gate_ops = NULL;
 
 	if (num_parents > 1) {
-		mux = kzalloc(sizeof(*mux), GFP_KERNEL);
+		mux = kzalloc_obj(*mux);
 		if (!mux)
 			return ERR_PTR(-ENOMEM);
 
@@ -188,7 +190,7 @@ struct clk *rockchip_clk_register_halfdiv(const char *name,
 	}
 
 	if (gate_offset >= 0) {
-		gate = kzalloc(sizeof(*gate), GFP_KERNEL);
+		gate = kzalloc_obj(*gate);
 		if (!gate)
 			goto err_gate;
 
@@ -200,7 +202,7 @@ struct clk *rockchip_clk_register_halfdiv(const char *name,
 	}
 
 	if (div_width > 0) {
-		div = kzalloc(sizeof(*div), GFP_KERNEL);
+		div = kzalloc_obj(*div);
 		if (!div)
 			goto err_div;
 

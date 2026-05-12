@@ -398,14 +398,42 @@ static u32 iwl_mld_get_htc_flags(struct ieee80211_link_sta *link_sta)
 	return htc_flags;
 }
 
+/* Note: modifies the command depending on FW command version */
 static int iwl_mld_send_sta_cmd(struct iwl_mld *mld,
-				const struct iwl_sta_cfg_cmd *cmd)
+				struct iwl_sta_cfg_cmd *cmd)
 {
-	u32 cmd_id = WIDE_ID(MAC_CONF_GROUP, STA_CONFIG_CMD);
-	int cmd_len = iwl_fw_lookup_cmd_ver(mld->fw, cmd_id, 0) > 1 ?
-		      sizeof(*cmd) :
-		      sizeof(struct iwl_sta_cfg_cmd_v1);
-	int ret = iwl_mld_send_cmd_pdu(mld, cmd_id, cmd, cmd_len);
+	int cmd_id = WIDE_ID(MAC_CONF_GROUP, STA_CONFIG_CMD);
+	int cmd_ver = iwl_fw_lookup_cmd_ver(mld->fw, cmd_id, 0);
+	int len = sizeof(*cmd);
+	int ret;
+
+	if (cmd_ver < 2) {
+		IWL_ERR(mld, "Unsupported STA_CONFIG_CMD version %d\n",
+			cmd_ver);
+		return -EINVAL;
+	} else if (cmd_ver == 2) {
+		struct iwl_sta_cfg_cmd_v2 *cmd_v2 = (void *)cmd;
+
+		if (WARN_ON(cmd->station_type == cpu_to_le32(STATION_TYPE_NAN_PEER_NMI) ||
+			    cmd->station_type == cpu_to_le32(STATION_TYPE_NAN_PEER_NDI) ||
+			    hweight32(le32_to_cpu(cmd->link_mask)) != 1))
+			return -EINVAL;
+		/*
+		 * These fields are located in a different place in the struct of v2.
+		 * The assumption is that UHR won't be used with FW that has v2.
+		 */
+		if (WARN_ON(cmd->mic_prep_pad_delay || cmd->mic_compute_pad_delay))
+			return -EINVAL;
+
+		len = sizeof(struct iwl_sta_cfg_cmd_v2);
+		cmd_v2->link_id = cpu_to_le32(__ffs(le32_to_cpu(cmd->link_mask)));
+	} else if (WARN_ON(cmd->station_type != cpu_to_le32(STATION_TYPE_NAN_PEER_NMI) &&
+			   cmd->station_type != cpu_to_le32(STATION_TYPE_NAN_PEER_NDI) &&
+			   hweight32(le32_to_cpu(cmd->link_mask)) != 1)) {
+		return -EINVAL;
+	}
+
+	ret = iwl_mld_send_cmd_pdu(mld, cmd_id, cmd, len);
 	if (ret)
 		IWL_ERR(mld, "STA_CONFIG_CMD send failed, ret=0x%x\n", ret);
 	return ret;
@@ -433,8 +461,8 @@ iwl_mld_add_modify_sta_cmd(struct iwl_mld *mld,
 		return -EINVAL;
 
 	cmd.sta_id = cpu_to_le32(fw_id);
+	cmd.link_mask = cpu_to_le32(BIT(mld_link->fw_id));
 	cmd.station_type = cpu_to_le32(mld_sta->sta_type);
-	cmd.link_id = cpu_to_le32(mld_link->fw_id);
 
 	memcpy(&cmd.peer_mld_address, sta->addr, ETH_ALEN);
 	memcpy(&cmd.peer_link_address, link_sta->addr, ETH_ALEN);
@@ -500,7 +528,7 @@ iwl_mld_add_modify_sta_cmd(struct iwl_mld *mld,
 	return iwl_mld_send_sta_cmd(mld, &cmd);
 }
 
-IWL_MLD_ALLOC_FN(link_sta, link_sta)
+static IWL_MLD_ALLOC_FN(link_sta, link_sta)
 
 static int
 iwl_mld_add_link_sta(struct iwl_mld *mld, struct ieee80211_link_sta *link_sta)
@@ -541,7 +569,7 @@ iwl_mld_add_link_sta(struct iwl_mld *mld, struct ieee80211_link_sta *link_sta)
 	if (link_sta == &link_sta->sta->deflink) {
 		mld_link_sta = &mld_sta->deflink;
 	} else {
-		mld_link_sta = kzalloc(sizeof(*mld_link_sta), GFP_KERNEL);
+		mld_link_sta = kzalloc_obj(*mld_link_sta);
 		if (!mld_link_sta)
 			return -ENOMEM;
 	}
@@ -662,8 +690,7 @@ iwl_mld_alloc_dup_data(struct iwl_mld *mld, struct iwl_mld_sta *mld_sta)
 	if (mld->fw_status.in_hw_restart)
 		return 0;
 
-	dup_data = kcalloc(mld->trans->info.num_rxqs, sizeof(*dup_data),
-			   GFP_KERNEL);
+	dup_data = kzalloc_objs(*dup_data, mld->trans->info.num_rxqs);
 	if (!dup_data)
 		return -ENOMEM;
 
@@ -697,9 +724,8 @@ static void iwl_mld_alloc_mpdu_counters(struct iwl_mld *mld,
 	    sta->tdls || !ieee80211_vif_is_mld(vif))
 		return;
 
-	mld_sta->mpdu_counters = kcalloc(mld->trans->info.num_rxqs,
-					 sizeof(*mld_sta->mpdu_counters),
-					 GFP_KERNEL);
+	mld_sta->mpdu_counters = kzalloc_objs(*mld_sta->mpdu_counters,
+				              mld->trans->info.num_rxqs);
 	if (!mld_sta->mpdu_counters)
 		return;
 
@@ -729,14 +755,14 @@ iwl_mld_init_sta(struct iwl_mld *mld, struct ieee80211_sta *sta,
 }
 
 int iwl_mld_add_sta(struct iwl_mld *mld, struct ieee80211_sta *sta,
-		    struct ieee80211_vif *vif, enum iwl_fw_sta_type type)
+		    struct ieee80211_vif *vif)
 {
 	struct iwl_mld_sta *mld_sta = iwl_mld_sta_from_mac80211(sta);
 	struct ieee80211_link_sta *link_sta;
 	int link_id;
 	int ret;
 
-	ret = iwl_mld_init_sta(mld, sta, vif, type);
+	ret = iwl_mld_init_sta(mld, sta, vif, STATION_TYPE_PEER);
 	if (ret)
 		return ret;
 
@@ -892,7 +918,7 @@ static void iwl_mld_count_mpdu(struct ieee80211_link_sta *link_sta, int queue,
 		       sizeof(queue_counter->per_link));
 		queue_counter->window_start_time = jiffies;
 
-		IWL_DEBUG_INFO(mld, "MPDU counters are cleared\n");
+		IWL_DEBUG_EHT(mld, "MPDU counters are cleared\n");
 	}
 
 	link_counter = &queue_counter->per_link[mld_link->fw_id];
@@ -912,7 +938,7 @@ static void iwl_mld_count_mpdu(struct ieee80211_link_sta *link_sta, int queue,
 	if (!(mld_vif->emlsr.blocked_reasons & IWL_MLD_EMLSR_BLOCKED_TPT))
 		goto unlock;
 
-	for (int i = 0; i <= IWL_FW_MAX_LINK_ID; i++)
+	for (int i = 0; i < IWL_FW_MAX_LINKS; i++)
 		total_mpdus += tx ? queue_counter->per_link[i].tx :
 				    queue_counter->per_link[i].rx;
 
@@ -986,7 +1012,7 @@ iwl_mld_add_internal_sta_to_fw(struct iwl_mld *mld,
 		return iwl_mld_send_aux_sta_cmd(mld, internal_sta);
 
 	cmd.sta_id = cpu_to_le32((u8)internal_sta->sta_id);
-	cmd.link_id = cpu_to_le32(fw_link_id);
+	cmd.link_mask = cpu_to_le32(BIT(fw_link_id));
 	cmd.station_type = cpu_to_le32(internal_sta->sta_type);
 
 	/* FW doesn't allow to add a IGTK/BIGTK if the sta isn't marked as MFP.
@@ -1165,7 +1191,8 @@ void iwl_mld_remove_aux_sta(struct iwl_mld *mld,
 	struct iwl_mld_vif *mld_vif = iwl_mld_vif_from_mac80211(vif);
 
 	if (WARN_ON(vif->type != NL80211_IFTYPE_P2P_DEVICE &&
-		    vif->type != NL80211_IFTYPE_STATION))
+		    vif->type != NL80211_IFTYPE_STATION &&
+		    vif->type != NL80211_IFTYPE_NAN))
 		return;
 
 	iwl_mld_remove_internal_sta(mld, &mld_vif->aux_sta, false,

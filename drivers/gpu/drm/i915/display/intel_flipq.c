@@ -6,17 +6,18 @@
 #include <linux/pci.h>
 
 #include <drm/drm_print.h>
+#include <drm/intel/step.h>
 
-#include "i915_utils.h"
-#include "intel_step.h"
 #include "intel_crtc.h"
 #include "intel_de.h"
 #include "intel_display_core.h"
 #include "intel_display_types.h"
-#include "intel_flipq.h"
+#include "intel_display_utils.h"
+#include "intel_display_wa.h"
 #include "intel_dmc.h"
 #include "intel_dmc_regs.h"
 #include "intel_dsb.h"
+#include "intel_flipq.h"
 #include "intel_vblank.h"
 #include "intel_vrr.h"
 
@@ -163,10 +164,10 @@ static void intel_flipq_preempt(struct intel_crtc *crtc, bool preempt)
 		     PIPEDMC_FQ_CTRL_PREEMPT, preempt ? PIPEDMC_FQ_CTRL_PREEMPT : 0);
 
 	if (preempt &&
-	    intel_de_wait_for_clear(display,
-				    PIPEDMC_FQ_STATUS(crtc->pipe),
-				    PIPEDMC_FQ_STATUS_BUSY,
-				    intel_flipq_preempt_timeout_ms(display)))
+	    intel_de_wait_for_clear_ms(display,
+				       PIPEDMC_FQ_STATUS(crtc->pipe),
+				       PIPEDMC_FQ_STATUS_BUSY,
+				       intel_flipq_preempt_timeout_ms(display)))
 		drm_err(display->drm, "[CRTC:%d:%s] flip queue preempt timeout\n",
 			crtc->base.base.id, crtc->base.name);
 }
@@ -447,19 +448,11 @@ void intel_flipq_add(struct intel_crtc *crtc,
 	intel_flipq_sw_dmc_wake(crtc);
 }
 
-/* Wa_18034343758 */
-static bool need_dmc_halt_wa(struct intel_display *display)
-{
-	return DISPLAY_VER(display) == 20 ||
-		(display->platform.pantherlake &&
-		 IS_DISPLAY_STEP(display, STEP_A0, STEP_B0));
-}
-
 void intel_flipq_wait_dmc_halt(struct intel_dsb *dsb, struct intel_crtc *crtc)
 {
 	struct intel_display *display = to_intel_display(crtc);
 
-	if (need_dmc_halt_wa(display))
+	if (intel_display_wa(display, INTEL_DISPLAY_WA_18034343758))
 		intel_dsb_wait_usec(dsb, 2);
 }
 
@@ -467,6 +460,6 @@ void intel_flipq_unhalt_dmc(struct intel_dsb *dsb, struct intel_crtc *crtc)
 {
 	struct intel_display *display = to_intel_display(crtc);
 
-	if (need_dmc_halt_wa(display))
+	if (intel_display_wa(display, INTEL_DISPLAY_WA_18034343758))
 		intel_dsb_reg_write(dsb, PIPEDMC_CTL(crtc->pipe), 0);
 }

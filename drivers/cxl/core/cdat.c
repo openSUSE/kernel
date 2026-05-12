@@ -69,7 +69,7 @@ static int cdat_dsmas_handler(union acpi_subtable_headers *header, void *arg,
 	/* Skip common header */
 	dsmas = (struct acpi_cdat_dsmas *)(hdr + 1);
 
-	dent = kzalloc(sizeof(*dent), GFP_KERNEL);
+	dent = kzalloc_obj(*dent);
 	if (!dent)
 		return -ENOMEM;
 
@@ -213,7 +213,7 @@ static int cxl_port_perf_data_calculate(struct cxl_port *port,
 	if (!cxl_root)
 		return -ENODEV;
 
-	if (!cxl_root->ops || !cxl_root->ops->qos_class)
+	if (!cxl_root->ops.qos_class)
 		return -EOPNOTSUPP;
 
 	xa_for_each(dsmas_xa, index, dent) {
@@ -221,9 +221,9 @@ static int cxl_port_perf_data_calculate(struct cxl_port *port,
 
 		cxl_coordinates_combine(dent->coord, dent->cdat_coord, ep_c);
 		dent->entries = 1;
-		rc = cxl_root->ops->qos_class(cxl_root,
-					      &dent->coord[ACCESS_COORDINATE_CPU],
-					      1, &qos_class);
+		rc = cxl_root->ops.qos_class(cxl_root,
+					     &dent->coord[ACCESS_COORDINATE_CPU],
+					     1, &qos_class);
 		if (rc != 1)
 			continue;
 
@@ -338,7 +338,7 @@ static int match_cxlrd_hb(struct device *dev, void *data)
 
 	guard(rwsem_read)(&cxl_rwsem.region);
 	for (int i = 0; i < cxlsd->nr_targets; i++) {
-		if (host_bridge == cxlsd->target[i]->dport_dev)
+		if (cxlsd->target[i] && host_bridge == cxlsd->target[i]->dport_dev)
 			return 1;
 	}
 
@@ -440,8 +440,8 @@ static int cdat_sslbis_handler(union acpi_subtable_headers *header, void *arg,
 	} *tbl = (struct acpi_cdat_sslbis_table *)header;
 	int size = sizeof(header->cdat) + sizeof(tbl->sslbis_header);
 	struct acpi_cdat_sslbis *sslbis;
-	struct cxl_port *port = arg;
-	struct device *dev = &port->dev;
+	struct cxl_dport *dport = arg;
+	struct device *dev = &dport->port->dev;
 	int remain, entries, i;
 	u16 len;
 
@@ -467,8 +467,6 @@ static int cdat_sslbis_handler(union acpi_subtable_headers *header, void *arg,
 		u16 y = le16_to_cpu((__force __le16)tbl->entries[i].porty_id);
 		__le64 le_base;
 		__le16 le_val;
-		struct cxl_dport *dport;
-		unsigned long index;
 		u16 dsp_id;
 		u64 val;
 
@@ -499,28 +497,27 @@ static int cdat_sslbis_handler(union acpi_subtable_headers *header, void *arg,
 		val = cdat_normalize(le16_to_cpu(le_val), le64_to_cpu(le_base),
 				     sslbis->data_type);
 
-		xa_for_each(&port->dports, index, dport) {
-			if (dsp_id == ACPI_CDAT_SSLBIS_ANY_PORT ||
-			    dsp_id == dport->port_id) {
-				cxl_access_coordinate_set(dport->coord,
-							  sslbis->data_type,
-							  val);
-			}
+		if (dsp_id == ACPI_CDAT_SSLBIS_ANY_PORT ||
+		    dsp_id == dport->port_id) {
+			cxl_access_coordinate_set(dport->coord,
+						  sslbis->data_type, val);
+			return 0;
 		}
 	}
 
 	return 0;
 }
 
-void cxl_switch_parse_cdat(struct cxl_port *port)
+void cxl_switch_parse_cdat(struct cxl_dport *dport)
 {
+	struct cxl_port *port = dport->port;
 	int rc;
 
 	if (!port->cdat.table)
 		return;
 
 	rc = cdat_table_parse(ACPI_CDAT_TYPE_SSLBIS, cdat_sslbis_handler,
-			      port, port->cdat.table, port->cdat.length);
+			      dport, port->cdat.table, port->cdat.length);
 	rc = cdat_table_parse_output(rc);
 	if (rc)
 		dev_dbg(&port->dev, "Failed to parse SSLBIS: %d\n", rc);
@@ -672,7 +669,7 @@ static int cxl_endpoint_gather_bandwidth(struct cxl_region *cxlr,
 	perf_ctx = xa_load(usp_xa, index);
 	if (!perf_ctx) {
 		struct cxl_perf_ctx *c __free(kfree) =
-			kzalloc(sizeof(*perf_ctx), GFP_KERNEL);
+			kzalloc_obj(*perf_ctx);
 
 		if (!c)
 			return -ENOMEM;
@@ -759,7 +756,7 @@ static struct xarray *cxl_switch_gather_bandwidth(struct cxl_region *cxlr,
 						  bool *gp_is_root)
 {
 	struct xarray *res_xa __free(free_perf_xa) =
-		kzalloc(sizeof(*res_xa), GFP_KERNEL);
+		kzalloc_obj(*res_xa);
 	struct access_coordinate coords[ACCESS_COORDINATE_MAX];
 	struct cxl_perf_ctx *ctx, *us_ctx;
 	unsigned long index, us_index;
@@ -798,7 +795,7 @@ static struct xarray *cxl_switch_gather_bandwidth(struct cxl_region *cxlr,
 		us_ctx = xa_load(res_xa, us_index);
 		if (!us_ctx) {
 			struct cxl_perf_ctx *n __free(kfree) =
-				kzalloc(sizeof(*n), GFP_KERNEL);
+				kzalloc_obj(*n);
 
 			if (!n)
 				return ERR_PTR(-ENOMEM);
@@ -829,7 +826,7 @@ static struct xarray *cxl_switch_gather_bandwidth(struct cxl_region *cxlr,
 		cxl_coordinates_combine(coords, coords, ctx->coord);
 
 		/*
-		 * Take the min of the calculated bandwdith and the upstream
+		 * Take the min of the calculated bandwidth and the upstream
 		 * switch SSLBIS bandwidth if there's a parent switch
 		 */
 		if (!is_root)
@@ -865,7 +862,7 @@ static struct xarray *cxl_switch_gather_bandwidth(struct cxl_region *cxlr,
 static struct xarray *cxl_rp_gather_bandwidth(struct xarray *xa)
 {
 	struct xarray *hb_xa __free(free_perf_xa) =
-		kzalloc(sizeof(*hb_xa), GFP_KERNEL);
+		kzalloc_obj(*hb_xa);
 	struct cxl_perf_ctx *ctx;
 	unsigned long index;
 
@@ -882,7 +879,7 @@ static struct xarray *cxl_rp_gather_bandwidth(struct xarray *xa)
 		hb_ctx = xa_load(hb_xa, hb_index);
 		if (!hb_ctx) {
 			struct cxl_perf_ctx *n __free(kfree) =
-				kzalloc(sizeof(*n), GFP_KERNEL);
+				kzalloc_obj(*n);
 
 			if (!n)
 				return ERR_PTR(-ENOMEM);
@@ -909,7 +906,7 @@ static struct xarray *cxl_rp_gather_bandwidth(struct xarray *xa)
 static struct xarray *cxl_hb_gather_bandwidth(struct xarray *xa)
 {
 	struct xarray *mw_xa __free(free_perf_xa) =
-		kzalloc(sizeof(*mw_xa), GFP_KERNEL);
+		kzalloc_obj(*mw_xa);
 	struct cxl_perf_ctx *ctx;
 	unsigned long index;
 
@@ -931,7 +928,7 @@ static struct xarray *cxl_hb_gather_bandwidth(struct xarray *xa)
 		mw_ctx = xa_load(mw_xa, mw_index);
 		if (!mw_ctx) {
 			struct cxl_perf_ctx *n __free(kfree) =
-				kzalloc(sizeof(*n), GFP_KERNEL);
+				kzalloc_obj(*n);
 
 			if (!n)
 				return ERR_PTR(-ENOMEM);
@@ -952,7 +949,7 @@ static struct xarray *cxl_hb_gather_bandwidth(struct xarray *xa)
 /**
  * cxl_region_update_bandwidth - Update the bandwidth access coordinates of a region
  * @cxlr: The region being operated on
- * @input_xa: xarray holds cxl_perf_ctx wht calculated bandwidth per ACPI0017 instance
+ * @input_xa: xarray holds cxl_perf_ctx with calculated bandwidth per ACPI0017 instance
  */
 static void cxl_region_update_bandwidth(struct cxl_region *cxlr,
 					struct xarray *input_xa)
@@ -990,7 +987,7 @@ void cxl_region_shared_upstream_bandwidth_update(struct cxl_region *cxlr)
 	lockdep_assert_held(&cxl_rwsem.dpa);
 
 	struct xarray *usp_xa __free(free_perf_xa) =
-		kzalloc(sizeof(*usp_xa), GFP_KERNEL);
+		kzalloc_obj(*usp_xa);
 
 	if (!usp_xa)
 		return;
@@ -1074,15 +1071,4 @@ void cxl_region_perf_data_calculate(struct cxl_region *cxlr,
 		cxlr->coord[i].read_bandwidth += perf->coord[i].read_bandwidth;
 		cxlr->coord[i].write_bandwidth += perf->coord[i].write_bandwidth;
 	}
-}
-
-int cxl_update_hmat_access_coordinates(int nid, struct cxl_region *cxlr,
-				       enum access_coordinate_class access)
-{
-	return hmat_update_target_coordinates(nid, &cxlr->coord[access], access);
-}
-
-bool cxl_need_node_perf_attrs_update(int nid)
-{
-	return !acpi_node_backed_by_real_pxm(nid);
 }

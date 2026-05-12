@@ -66,14 +66,7 @@ static const struct k_clock clock_realtime, clock_monotonic;
 #error "SIGEV_THREAD_ID must not share bit with other SIGEV values!"
 #endif
 
-static struct k_itimer *__lock_timer(timer_t timer_id);
-
-#define lock_timer(tid)							\
-({	struct k_itimer *__timr;					\
-	__cond_lock(&__timr->it_lock, __timr = __lock_timer(tid));	\
-	__timr;								\
-})
-
+static struct k_itimer *lock_timer(timer_t timer_id);
 static inline void unlock_timer(struct k_itimer *timr)
 {
 	if (likely((timr)))
@@ -85,7 +78,7 @@ static inline void unlock_timer(struct k_itimer *timr)
 
 #define scoped_timer				(scope)
 
-DEFINE_CLASS(lock_timer, struct k_itimer *, unlock_timer(_T), __lock_timer(id), timer_t id);
+DEFINE_CLASS(lock_timer, struct k_itimer *, unlock_timer(_T), lock_timer(id), timer_t id);
 DEFINE_CLASS_IS_COND_GUARD(lock_timer);
 
 static struct timer_hash_bucket *hash_bucket(struct signal_struct *sig, unsigned int nr)
@@ -299,8 +292,7 @@ static void common_hrtimer_rearm(struct k_itimer *timr)
 {
 	struct hrtimer *timer = &timr->it.real.timer;
 
-	timr->it_overrun += hrtimer_forward(timer, timer->base->get_time(),
-					    timr->it_interval);
+	timr->it_overrun += hrtimer_forward_now(timer, timr->it_interval);
 	hrtimer_restart(timer);
 }
 
@@ -476,12 +468,6 @@ static int do_timer_create(clockid_t which_clock, struct sigevent *event,
 	if (!kc->timer_create)
 		return -EOPNOTSUPP;
 
-	new_timer = alloc_posix_timer();
-	if (unlikely(!new_timer))
-		return -EAGAIN;
-
-	spin_lock_init(&new_timer->it_lock);
-
 	/* Special case for CRIU to restore timers with a given timer ID. */
 	if (unlikely(current->signal->timer_create_restore_ids)) {
 		if (copy_from_user(&req_id, created_timer_id, sizeof(req_id)))
@@ -490,6 +476,12 @@ static int do_timer_create(clockid_t which_clock, struct sigevent *event,
 		if ((unsigned int)req_id > INT_MAX)
 			return -EINVAL;
 	}
+
+	new_timer = alloc_posix_timer();
+	if (unlikely(!new_timer))
+		return -EAGAIN;
+
+	spin_lock_init(&new_timer->it_lock);
 
 	/*
 	 * Add the timer to the hash table. The timer is not yet valid
@@ -535,7 +527,7 @@ static int do_timer_create(clockid_t which_clock, struct sigevent *event,
 		goto out;
 	}
 	/*
-	 * After succesful copy out, the timer ID is visible to user space
+	 * After successful copy out, the timer ID is visible to user space
 	 * now but not yet valid because new_timer::signal low order bit is 1.
 	 *
 	 * Complete the initialization with the clock specific create
@@ -601,7 +593,7 @@ COMPAT_SYSCALL_DEFINE3(timer_create, clockid_t, which_clock,
 }
 #endif
 
-static struct k_itimer *__lock_timer(timer_t timer_id)
+static struct k_itimer *lock_timer(timer_t timer_id)
 {
 	struct k_itimer *timr;
 
@@ -825,7 +817,7 @@ static void common_hrtimer_arm(struct k_itimer *timr, ktime_t expires,
 	hrtimer_setup(&timr->it.real.timer, posix_timer_fn, timr->it_clock, mode);
 
 	if (!absolute)
-		expires = ktime_add_safe(expires, timer->base->get_time());
+		expires = ktime_add_safe(expires, hrtimer_cb_get_time(timer));
 	hrtimer_set_expires(timer, expires);
 
 	if (!sigev_none)
@@ -1100,7 +1092,7 @@ void exit_itimers(struct task_struct *tsk)
 	}
 
 	/*
-	 * There should be no timers on the ignored list. itimer_delete() has
+	 * There should be no timers on the ignored list. posix_timer_delete() has
 	 * mopped them up.
 	 */
 	if (!WARN_ON_ONCE(!hlist_empty(&tsk->signal->ignored_posix_timers)))
@@ -1243,7 +1235,7 @@ SYSCALL_DEFINE2(clock_adjtime, const clockid_t, which_clock,
  *    sys_clock_settime(). The kernel internal timekeeping is always using
  *    nanoseconds precision independent of the clocksource device which is
  *    used to read the time from. The resolution of that device only
- *    affects the presicion of the time returned by sys_clock_gettime().
+ *    affects the precision of the time returned by sys_clock_gettime().
  *
  * Returns:
  *	0		Success. @tp contains the resolution

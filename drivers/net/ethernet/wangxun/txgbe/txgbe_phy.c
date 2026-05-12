@@ -579,7 +579,6 @@ int txgbe_init_phy(struct txgbe *txgbe)
 
 	switch (wx->mac.type) {
 	case wx_mac_aml40:
-		return 0;
 	case wx_mac_aml:
 		return txgbe_phylink_init_aml(txgbe);
 	case wx_mac_sp:
@@ -653,13 +652,14 @@ void txgbe_remove_phy(struct txgbe *txgbe)
 {
 	switch (txgbe->wx->mac.type) {
 	case wx_mac_aml40:
-		return;
 	case wx_mac_aml:
 		phylink_destroy(txgbe->wx->phylink);
 		return;
 	case wx_mac_sp:
 		if (txgbe->wx->media_type == wx_media_copper) {
+			rtnl_lock();
 			phylink_disconnect_phy(txgbe->wx->phylink);
+			rtnl_unlock();
 			phylink_destroy(txgbe->wx->phylink);
 			return;
 		}

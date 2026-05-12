@@ -135,7 +135,7 @@ int virtsnd_pcm_msg_alloc(struct virtio_pcm_substream *vss,
 	struct snd_pcm_runtime *runtime = vss->substream->runtime;
 	unsigned int i;
 
-	vss->msgs = kcalloc(periods, sizeof(*vss->msgs), GFP_KERNEL);
+	vss->msgs = kzalloc_objs(*vss->msgs, periods);
 	if (!vss->msgs)
 		return -ENOMEM;
 
@@ -146,7 +146,7 @@ int virtsnd_pcm_msg_alloc(struct virtio_pcm_substream *vss,
 		int sg_num = virtsnd_pcm_sg_num(data, period_bytes);
 		struct virtio_pcm_msg *msg;
 
-		msg = kzalloc(struct_size(msg, sgs, sg_num + 2), GFP_KERNEL);
+		msg = kzalloc_flex(*msg, sgs, sg_num + 2);
 		if (!msg)
 			return -ENOMEM;
 
@@ -272,14 +272,8 @@ int virtsnd_pcm_msg_send(struct virtio_pcm_substream *vss, unsigned long offset,
  */
 unsigned int virtsnd_pcm_msg_pending_num(struct virtio_pcm_substream *vss)
 {
-	unsigned int num;
-	unsigned long flags;
-
-	spin_lock_irqsave(&vss->lock, flags);
-	num = vss->msg_count;
-	spin_unlock_irqrestore(&vss->lock, flags);
-
-	return num;
+	guard(spinlock_irqsave)(&vss->lock);
+	return vss->msg_count;
 }
 
 /**
@@ -308,7 +302,7 @@ static void virtsnd_pcm_msg_complete(struct virtio_pcm_msg *msg,
 	 * in the virtqueue. Therefore, on each completion of an I/O message,
 	 * the hw_ptr value is unconditionally advanced.
 	 */
-	spin_lock(&vss->lock);
+	guard(spinlock)(&vss->lock);
 	/*
 	 * If the capture substream returned an incorrect status, then just
 	 * increase the hw_ptr by the message size.
@@ -338,7 +332,6 @@ static void virtsnd_pcm_msg_complete(struct virtio_pcm_msg *msg,
 	} else if (!vss->msg_count) {
 		wake_up_all(&vss->msg_empty);
 	}
-	spin_unlock(&vss->lock);
 }
 
 /**
@@ -351,15 +344,13 @@ static inline void virtsnd_pcm_notify_cb(struct virtio_snd_queue *queue)
 {
 	struct virtio_pcm_msg *msg;
 	u32 written_bytes;
-	unsigned long flags;
 
-	spin_lock_irqsave(&queue->lock, flags);
+	guard(spinlock_irqsave)(&queue->lock);
 	do {
 		virtqueue_disable_cb(queue->vqueue);
 		while ((msg = virtqueue_get_buf(queue->vqueue, &written_bytes)))
 			virtsnd_pcm_msg_complete(msg, written_bytes);
 	} while (!virtqueue_enable_cb(queue->vqueue));
-	spin_unlock_irqrestore(&queue->lock, flags);
 }
 
 /**

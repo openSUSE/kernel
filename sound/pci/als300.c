@@ -342,8 +342,7 @@ static int snd_als300_playback_open(struct snd_pcm_substream *substream)
 {
 	struct snd_als300 *chip = snd_pcm_substream_chip(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
-	struct snd_als300_substream_data *data = kzalloc(sizeof(*data),
-								GFP_KERNEL);
+	struct snd_als300_substream_data *data = kzalloc_obj(*data);
 
 	if (!data)
 		return -ENOMEM;
@@ -370,8 +369,7 @@ static int snd_als300_capture_open(struct snd_pcm_substream *substream)
 {
 	struct snd_als300 *chip = snd_pcm_substream_chip(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
-	struct snd_als300_substream_data *data = kzalloc(sizeof(*data),
-								GFP_KERNEL);
+	struct snd_als300_substream_data *data = kzalloc_obj(*data);
 
 	if (!data)
 		return -ENOMEM;
@@ -402,7 +400,7 @@ static int snd_als300_playback_prepare(struct snd_pcm_substream *substream)
 	unsigned short period_bytes = snd_pcm_lib_period_bytes(substream);
 	unsigned short buffer_bytes = snd_pcm_lib_buffer_bytes(substream);
 	
-	spin_lock_irq(&chip->reg_lock);
+	guard(spinlock_irq)(&chip->reg_lock);
 	tmp = snd_als300_gcr_read(chip->port, PLAYBACK_CONTROL);
 	tmp &= ~TRANSFER_START;
 
@@ -419,7 +417,6 @@ static int snd_als300_playback_prepare(struct snd_pcm_substream *substream)
 					runtime->dma_addr);
 	snd_als300_gcr_write(chip->port, PLAYBACK_END,
 					runtime->dma_addr + buffer_bytes - 1);
-	spin_unlock_irq(&chip->reg_lock);
 	return 0;
 }
 
@@ -431,7 +428,7 @@ static int snd_als300_capture_prepare(struct snd_pcm_substream *substream)
 	unsigned short period_bytes = snd_pcm_lib_period_bytes(substream);
 	unsigned short buffer_bytes = snd_pcm_lib_buffer_bytes(substream);
 
-	spin_lock_irq(&chip->reg_lock);
+	guard(spinlock_irq)(&chip->reg_lock);
 	tmp = snd_als300_gcr_read(chip->port, RECORD_CONTROL);
 	tmp &= ~TRANSFER_START;
 
@@ -448,7 +445,6 @@ static int snd_als300_capture_prepare(struct snd_pcm_substream *substream)
 					runtime->dma_addr);
 	snd_als300_gcr_write(chip->port, RECORD_END,
 					runtime->dma_addr + buffer_bytes - 1);
-	spin_unlock_irq(&chip->reg_lock);
 	return 0;
 }
 
@@ -463,7 +459,7 @@ static int snd_als300_trigger(struct snd_pcm_substream *substream, int cmd)
 	data = substream->runtime->private_data;
 	reg = data->control_register;
 
-	spin_lock(&chip->reg_lock);
+	guard(spinlock)(&chip->reg_lock);
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_START:
 	case SNDRV_PCM_TRIGGER_RESUME:
@@ -492,7 +488,6 @@ static int snd_als300_trigger(struct snd_pcm_substream *substream, int cmd)
 		snd_als300_dbgplay("TRIGGER INVALID\n");
 		ret = -EINVAL;
 	}
-	spin_unlock(&chip->reg_lock);
 	return ret;
 }
 
@@ -506,10 +501,10 @@ static snd_pcm_uframes_t snd_als300_pointer(struct snd_pcm_substream *substream)
 	data = substream->runtime->private_data;
 	period_bytes = snd_pcm_lib_period_bytes(substream);
 	
-	spin_lock(&chip->reg_lock);
-	current_ptr = (u16) snd_als300_gcr_read(chip->port,
-					data->block_counter_register) + 4;
-	spin_unlock(&chip->reg_lock);
+	scoped_guard(spinlock, &chip->reg_lock) {
+		current_ptr = (u16) snd_als300_gcr_read(chip->port,
+							data->block_counter_register) + 4;
+	}
 	if (current_ptr > period_bytes)
 		current_ptr = 0;
 	else
@@ -563,10 +558,9 @@ static int snd_als300_new_pcm(struct snd_als300 *chip)
 
 static void snd_als300_init(struct snd_als300 *chip)
 {
-	unsigned long flags;
 	u32 tmp;
 	
-	spin_lock_irqsave(&chip->reg_lock, flags);
+	guard(spinlock_irqsave)(&chip->reg_lock);
 	chip->revision = (snd_als300_gcr_read(chip->port, MISC_CONTROL) >> 16)
 								& 0x0000000F;
 	/* Setup DRAM */
@@ -591,7 +585,6 @@ static void snd_als300_init(struct snd_als300 *chip)
 	tmp = snd_als300_gcr_read(chip->port, PLAYBACK_CONTROL);
 	snd_als300_gcr_write(chip->port, PLAYBACK_CONTROL,
 			tmp & ~TRANSFER_START);
-	spin_unlock_irqrestore(&chip->reg_lock, flags);
 }
 
 static int snd_als300_create(struct snd_card *card,

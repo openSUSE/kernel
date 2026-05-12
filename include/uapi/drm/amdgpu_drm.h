@@ -118,7 +118,7 @@ extern "C" {
 					 AMDGPU_GEM_DOMAIN_VRAM | \
 					 AMDGPU_GEM_DOMAIN_GDS | \
 					 AMDGPU_GEM_DOMAIN_GWS | \
-					 AMDGPU_GEM_DOMAIN_OA | \
+					 AMDGPU_GEM_DOMAIN_OA |	\
 					 AMDGPU_GEM_DOMAIN_DOORBELL)
 
 /* Flag that CPU access will be required for the case of VRAM domain */
@@ -479,7 +479,9 @@ struct drm_amdgpu_userq_signal {
 	 * @num_syncobj_handles: A count that represents the number of syncobj handles in
 	 * @syncobj_handles.
 	 */
-	__u64	num_syncobj_handles;
+	__u16	num_syncobj_handles;
+	__u16	pad0;
+	__u32	pad1;
 	/**
 	 * @bo_read_handles: The list of BO handles that the submitted user queue job
 	 * is using for read only. This will update BO fences in the kernel.
@@ -563,7 +565,8 @@ struct drm_amdgpu_userq_wait {
 	 * @num_syncobj_handles: A count that represents the number of syncobj handles in
 	 * @syncobj_handles.
 	 */
-	__u32	num_syncobj_handles;
+	__u16	num_syncobj_handles;
+	__u16	pad0;
 	/**
 	 * @num_bo_read_handles: A count that represents the number of read BO handles in
 	 * @bo_read_handles.
@@ -879,7 +882,7 @@ struct drm_amdgpu_gem_list_handles_entry {
 #define AMDGPU_VM_PAGE_WRITEABLE	(1 << 2)
 /* executable mapping, new for VI */
 #define AMDGPU_VM_PAGE_EXECUTABLE	(1 << 3)
-/* partially resident texture */
+/* unmapped page of partially resident textures */
 #define AMDGPU_VM_PAGE_PRT		(1 << 4)
 /* MTYPE flags use bit 5 to 8 */
 #define AMDGPU_VM_MTYPE_MASK		(0xf << 5)
@@ -1084,10 +1087,11 @@ struct drm_amdgpu_cs_chunk_cp_gfx_shadow {
  *  Query h/w info: Flag that this is integrated (a.h.a. fusion) GPU
  *
  */
-#define AMDGPU_IDS_FLAGS_FUSION         0x1
-#define AMDGPU_IDS_FLAGS_PREEMPTION     0x2
-#define AMDGPU_IDS_FLAGS_TMZ            0x4
-#define AMDGPU_IDS_FLAGS_CONFORMANT_TRUNC_COORD 0x8
+#define AMDGPU_IDS_FLAGS_FUSION			0x01
+#define AMDGPU_IDS_FLAGS_PREEMPTION		0x02
+#define AMDGPU_IDS_FLAGS_TMZ			0x04
+#define AMDGPU_IDS_FLAGS_CONFORMANT_TRUNC_COORD	0x08
+#define AMDGPU_IDS_FLAGS_GANG_SUBMIT		0x10
 
 /*
  *  Query h/w info: Flag identifying VF/PF/PT mode
@@ -1422,6 +1426,7 @@ struct drm_amdgpu_info_vbios {
 #define AMDGPU_VRAM_TYPE_LPDDR4 11
 #define AMDGPU_VRAM_TYPE_LPDDR5 12
 #define AMDGPU_VRAM_TYPE_HBM3E 13
+#define AMDGPU_VRAM_TYPE_HBM4 14
 
 struct drm_amdgpu_info_device {
 	/** PCI Device ID */
@@ -1550,27 +1555,6 @@ struct drm_amdgpu_info_hw_ip {
 	__u32  userq_num_slots;
 };
 
-/* GFX metadata BO sizes and alignment info (in bytes) */
-struct drm_amdgpu_info_uq_fw_areas_gfx {
-	/* shadow area size */
-	__u32 shadow_size;
-	/* shadow area base virtual mem alignment */
-	__u32 shadow_alignment;
-	/* context save area size */
-	__u32 csa_size;
-	/* context save area base virtual mem alignment */
-	__u32 csa_alignment;
-};
-
-/* IP specific fw related information used in the
- * subquery AMDGPU_INFO_UQ_FW_AREAS
- */
-struct drm_amdgpu_info_uq_fw_areas {
-	union {
-		struct drm_amdgpu_info_uq_fw_areas_gfx gfx;
-	};
-};
-
 struct drm_amdgpu_info_num_handles {
 	/** Max handles as supported by firmware for UVD */
 	__u32  uvd_max_handles;
@@ -1645,9 +1629,25 @@ struct drm_amdgpu_info_uq_metadata_gfx {
 	__u32 csa_alignment;
 };
 
+struct drm_amdgpu_info_uq_metadata_compute {
+	/* EOP size for gfx11 */
+	__u32 eop_size;
+	/* EOP base virtual alignment for gfx11 */
+	__u32 eop_alignment;
+};
+
+struct drm_amdgpu_info_uq_metadata_sdma {
+	/* context save area size for sdma6 */
+	__u32 csa_size;
+	/* context save area base virtual alignment for sdma6 */
+	__u32 csa_alignment;
+};
+
 struct drm_amdgpu_info_uq_metadata {
 	union {
 		struct drm_amdgpu_info_uq_metadata_gfx gfx;
+		struct drm_amdgpu_info_uq_metadata_compute compute;
+		struct drm_amdgpu_info_uq_metadata_sdma sdma;
 	};
 };
 
@@ -1670,16 +1670,8 @@ struct drm_amdgpu_info_uq_metadata {
 #define AMDGPU_FAMILY_GC_10_3_6			149 /* GC 10.3.6 */
 #define AMDGPU_FAMILY_GC_10_3_7			151 /* GC 10.3.7 */
 #define AMDGPU_FAMILY_GC_11_5_0			150 /* GC 11.5.0 */
+#define AMDGPU_FAMILY_GC_11_5_4			154 /* GC 11.5.4 */
 #define AMDGPU_FAMILY_GC_12_0_0			152 /* GC 12.0.0 */
-
-/* FIXME wrong namespace! */
-struct drm_color_ctm_3x4 {
-	/*
-	 * Conversion matrix with 3x4 dimensions in S31.32 sign-magnitude
-	 * (not two's complement!) format.
-	 */
-	__u64 matrix[12];
-};
 
 #if defined(__cplusplus)
 }

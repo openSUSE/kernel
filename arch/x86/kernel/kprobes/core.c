@@ -141,7 +141,6 @@ bool can_boost(struct insn *insn, void *addr)
 {
 	kprobe_opcode_t opcode;
 	insn_byte_t prefix;
-	int i;
 
 	if (search_exception_tables((unsigned long)addr))
 		return false;	/* Page fault may occur on this address. */
@@ -154,7 +153,7 @@ bool can_boost(struct insn *insn, void *addr)
 	if (insn->opcode.nbytes != 1)
 		return false;
 
-	for_each_insn_prefix(insn, i, prefix) {
+	for_each_insn_prefix(insn, prefix) {
 		insn_attr_t attr;
 
 		attr = inat_get_opcode_attribute(prefix);
@@ -339,7 +338,7 @@ static bool can_probe(unsigned long paddr)
 	if (is_exception_insn(&insn))
 		return false;
 
-	if (IS_ENABLED(CONFIG_CFI_CLANG)) {
+	if (IS_ENABLED(CONFIG_CFI)) {
 		/*
 		 * The compiler generates the following instruction sequence
 		 * for indirect call checks and cfi.c decodes this;

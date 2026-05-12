@@ -175,7 +175,7 @@ struct dbg_reg_def_t dbg_reg_def[DBG_MAX_REG_NUM] = {
 	{DBG_REG_T1, GDB_SIZEOF_REG, offsetof(struct pt_regs, t1)},
 	{DBG_REG_T2, GDB_SIZEOF_REG, offsetof(struct pt_regs, t2)},
 	{DBG_REG_FP, GDB_SIZEOF_REG, offsetof(struct pt_regs, s0)},
-	{DBG_REG_S1, GDB_SIZEOF_REG, offsetof(struct pt_regs, a1)},
+	{DBG_REG_S1, GDB_SIZEOF_REG, offsetof(struct pt_regs, s1)},
 	{DBG_REG_A0, GDB_SIZEOF_REG, offsetof(struct pt_regs, a0)},
 	{DBG_REG_A1, GDB_SIZEOF_REG, offsetof(struct pt_regs, a1)},
 	{DBG_REG_A2, GDB_SIZEOF_REG, offsetof(struct pt_regs, a2)},
@@ -244,8 +244,9 @@ sleeping_thread_to_gdb_regs(unsigned long *gdb_regs, struct task_struct *task)
 	gdb_regs[DBG_REG_S6_OFF] = task->thread.s[6];
 	gdb_regs[DBG_REG_S7_OFF] = task->thread.s[7];
 	gdb_regs[DBG_REG_S8_OFF] = task->thread.s[8];
-	gdb_regs[DBG_REG_S9_OFF] = task->thread.s[10];
-	gdb_regs[DBG_REG_S10_OFF] = task->thread.s[11];
+	gdb_regs[DBG_REG_S9_OFF] = task->thread.s[9];
+	gdb_regs[DBG_REG_S10_OFF] = task->thread.s[10];
+	gdb_regs[DBG_REG_S11_OFF] = task->thread.s[11];
 	gdb_regs[DBG_REG_EPC_OFF] = task->thread.ra;
 }
 
@@ -265,10 +266,10 @@ void kgdb_arch_handle_qxfer_pkt(char *remcom_in_buffer,
 {
 	if (!strncmp(remcom_in_buffer, gdb_xfer_read_target,
 		     sizeof(gdb_xfer_read_target)))
-		strcpy(remcom_out_buffer, riscv_gdb_stub_target_desc);
+		strscpy(remcom_out_buffer, riscv_gdb_stub_target_desc, BUFMAX);
 	else if (!strncmp(remcom_in_buffer, gdb_xfer_read_cpuxml,
 			  sizeof(gdb_xfer_read_cpuxml)))
-		strcpy(remcom_out_buffer, riscv_gdb_stub_cpuxml);
+		strscpy(remcom_out_buffer, riscv_gdb_stub_cpuxml, BUFMAX);
 }
 
 static inline void kgdb_arch_update_addr(struct pt_regs *regs,

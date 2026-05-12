@@ -338,6 +338,8 @@ u32 aarch64_insn_gen_cond_branch_imm(unsigned long pc, unsigned long addr,
 	long offset;
 
 	offset = label_imm_common(pc, addr, SZ_1M);
+	if (offset >= SZ_1M)
+		return AARCH64_BREAK_FAULT;
 
 	insn = aarch64_insn_get_bcond_value();
 
@@ -611,7 +613,6 @@ u32 aarch64_insn_gen_load_store_ex(enum aarch64_insn_register reg,
 					    state);
 }
 
-#ifdef CONFIG_ARM64_LSE_ATOMICS
 static u32 aarch64_insn_encode_ldst_order(enum aarch64_insn_mem_order_type type,
 					  u32 insn)
 {
@@ -755,7 +756,6 @@ u32 aarch64_insn_gen_cas(enum aarch64_insn_register result,
 	return aarch64_insn_encode_register(AARCH64_INSN_REGTYPE_RS, insn,
 					    value);
 }
-#endif
 
 u32 aarch64_insn_gen_add_sub_imm(enum aarch64_insn_register dst,
 				 enum aarch64_insn_register src,

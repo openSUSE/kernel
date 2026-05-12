@@ -50,6 +50,14 @@ struct dg2_snps_phy_buf_trans {
 	u8 post_cursor;
 };
 
+struct xe3plpd_lt_phy_buf_trans {
+	u8 txswing;
+	u8 txswing_level;
+	u8 pre_cursor;
+	u8 main_cursor;
+	u8 post_cursor;
+};
+
 union intel_ddi_buf_trans_entry {
 	struct hsw_ddi_buf_trans hsw;
 	struct bxt_ddi_buf_trans bxt;
@@ -57,6 +65,7 @@ union intel_ddi_buf_trans_entry {
 	struct icl_mg_phy_ddi_buf_trans mg;
 	struct tgl_dkl_phy_ddi_buf_trans dkl;
 	struct dg2_snps_phy_buf_trans snps;
+	struct xe3plpd_lt_phy_buf_trans lt;
 };
 
 struct intel_ddi_buf_trans {
@@ -68,5 +77,8 @@ struct intel_ddi_buf_trans {
 bool is_hobl_buf_trans(const struct intel_ddi_buf_trans *table);
 
 void intel_ddi_buf_trans_init(struct intel_encoder *encoder);
+const struct intel_ddi_buf_trans *
+intel_ddi_buf_trans_get(struct intel_encoder *encoder,
+			const struct intel_crtc_state *crtc_state, int *n_entries);
 
 #endif

@@ -30,6 +30,7 @@
 #include <linux/msi.h>
 #include <linux/of.h>
 #include <linux/aperture.h>
+#include <linux/unaligned.h>
 #include "pci.h"
 
 #ifndef ARCH_PCI_DEV_GROUPS
@@ -177,6 +178,13 @@ static ssize_t resource_show(struct device *dev, struct device_attribute *attr,
 
 	for (i = 0; i < max; i++) {
 		struct resource *res =  &pci_dev->resource[i];
+		struct resource zerores = {};
+
+		/* For backwards compatibility */
+		if (pci_resource_is_bridge_win(i) &&
+		    res->flags & (IORESOURCE_UNSET | IORESOURCE_DISABLED))
+			res = &zerores;
+
 		pci_resource_to_user(pci_dev, i, res, &start, &end);
 		len += sysfs_emit_at(buf, len, "0x%016llx 0x%016llx 0x%016llx\n",
 				     (unsigned long long)start,
@@ -201,8 +209,14 @@ static ssize_t max_link_width_show(struct device *dev,
 				   struct device_attribute *attr, char *buf)
 {
 	struct pci_dev *pdev = to_pci_dev(dev);
+	ssize_t ret;
 
-	return sysfs_emit(buf, "%u\n", pcie_get_width_cap(pdev));
+	/* We read PCI_EXP_LNKCAP, so we need the device to be accessible. */
+	pci_config_pm_runtime_get(pdev);
+	ret = sysfs_emit(buf, "%u\n", pcie_get_width_cap(pdev));
+	pci_config_pm_runtime_put(pdev);
+
+	return ret;
 }
 static DEVICE_ATTR_RO(max_link_width);
 
@@ -214,7 +228,10 @@ static ssize_t current_link_speed_show(struct device *dev,
 	int err;
 	enum pci_bus_speed speed;
 
+	pci_config_pm_runtime_get(pci_dev);
 	err = pcie_capability_read_word(pci_dev, PCI_EXP_LNKSTA, &linkstat);
+	pci_config_pm_runtime_put(pci_dev);
+
 	if (err)
 		return -EINVAL;
 
@@ -231,7 +248,10 @@ static ssize_t current_link_width_show(struct device *dev,
 	u16 linkstat;
 	int err;
 
+	pci_config_pm_runtime_get(pci_dev);
 	err = pcie_capability_read_word(pci_dev, PCI_EXP_LNKSTA, &linkstat);
+	pci_config_pm_runtime_put(pci_dev);
+
 	if (err)
 		return -EINVAL;
 
@@ -247,7 +267,10 @@ static ssize_t secondary_bus_number_show(struct device *dev,
 	u8 sec_bus;
 	int err;
 
+	pci_config_pm_runtime_get(pci_dev);
 	err = pci_read_config_byte(pci_dev, PCI_SECONDARY_BUS, &sec_bus);
+	pci_config_pm_runtime_put(pci_dev);
+
 	if (err)
 		return -EINVAL;
 
@@ -263,7 +286,10 @@ static ssize_t subordinate_bus_number_show(struct device *dev,
 	u8 sub_bus;
 	int err;
 
+	pci_config_pm_runtime_get(pci_dev);
 	err = pci_read_config_byte(pci_dev, PCI_SUBORDINATE_BUS, &sub_bus);
+	pci_config_pm_runtime_put(pci_dev);
+
 	if (err)
 		return -EINVAL;
 
@@ -351,6 +377,9 @@ static ssize_t numa_node_store(struct device *dev,
 
 	if (node != NUMA_NO_NODE && !node_online(node))
 		return -EINVAL;
+
+	if (node == dev->numa_node)
+		return count;
 
 	add_taint(TAINT_FIRMWARE_WORKAROUND, LOCKDEP_STILL_OK);
 	pci_alert(pdev, FW_BUG "Overriding NUMA node to %d.  Contact your vendor for updates.",
@@ -527,7 +556,6 @@ static ssize_t reset_subordinate_store(struct device *dev,
 				const char *buf, size_t count)
 {
 	struct pci_dev *pdev = to_pci_dev(dev);
-	struct pci_bus *bus = pdev->subordinate;
 	unsigned long val;
 
 	if (!capable(CAP_SYS_ADMIN))
@@ -537,7 +565,7 @@ static ssize_t reset_subordinate_store(struct device *dev,
 		return -EINVAL;
 
 	if (val) {
-		int ret = __pci_reset_bus(bus);
+		int ret = pci_try_reset_bridge(pdev);
 
 		if (ret)
 			return ret;
@@ -589,33 +617,6 @@ static ssize_t devspec_show(struct device *dev,
 static DEVICE_ATTR_RO(devspec);
 #endif
 
-static ssize_t driver_override_store(struct device *dev,
-				     struct device_attribute *attr,
-				     const char *buf, size_t count)
-{
-	struct pci_dev *pdev = to_pci_dev(dev);
-	int ret;
-
-	ret = driver_set_override(dev, &pdev->driver_override, buf, count);
-	if (ret)
-		return ret;
-
-	return count;
-}
-
-static ssize_t driver_override_show(struct device *dev,
-				    struct device_attribute *attr, char *buf)
-{
-	struct pci_dev *pdev = to_pci_dev(dev);
-	ssize_t len;
-
-	device_lock(dev);
-	len = sysfs_emit(buf, "%s\n", pdev->driver_override);
-	device_unlock(dev);
-	return len;
-}
-static DEVICE_ATTR_RW(driver_override);
-
 static struct attribute *pci_dev_attrs[] = {
 	&dev_attr_power_state.attr,
 	&dev_attr_resource.attr,
@@ -643,7 +644,6 @@ static struct attribute *pci_dev_attrs[] = {
 #ifdef CONFIG_OF
 	&dev_attr_devspec.attr,
 #endif
-	&dev_attr_driver_override.attr,
 	&dev_attr_ari_enabled.attr,
 	NULL,
 };
@@ -693,6 +693,22 @@ static ssize_t boot_vga_show(struct device *dev, struct device_attribute *attr,
 			     IORESOURCE_ROM_SHADOW));
 }
 static DEVICE_ATTR_RO(boot_vga);
+
+static ssize_t serial_number_show(struct device *dev,
+				  struct device_attribute *attr, char *buf)
+{
+	struct pci_dev *pci_dev = to_pci_dev(dev);
+	u64 dsn;
+	u8 bytes[8];
+
+	dsn = pci_get_dsn(pci_dev);
+	if (!dsn)
+		return -EIO;
+
+	put_unaligned_be64(dsn, bytes);
+	return sysfs_emit(buf, "%8phD\n", bytes);
+}
+static DEVICE_ATTR_ADMIN_RO(serial_number);
 
 static ssize_t pci_read_config(struct file *filp, struct kobject *kobj,
 			       const struct bin_attribute *bin_attr, char *buf,
@@ -995,8 +1011,7 @@ void pci_create_legacy_files(struct pci_bus *b)
 	if (!sysfs_initialized)
 		return;
 
-	b->legacy_io = kcalloc(2, sizeof(struct bin_attribute),
-			       GFP_ATOMIC);
+	b->legacy_io = kzalloc_objs(struct bin_attribute, 2, GFP_ATOMIC);
 	if (!b->legacy_io)
 		goto kzalloc_err;
 
@@ -1475,8 +1490,9 @@ static ssize_t reset_method_store(struct device *dev,
 		return count;
 	}
 
-	pm_runtime_get_sync(dev);
-	struct device *pmdev __free(pm_runtime_put) = dev;
+	PM_RUNTIME_ACQUIRE(dev, pm);
+	if (PM_RUNTIME_ACQUIRE_ERR(&pm))
+		return -ENXIO;
 
 	if (sysfs_streq(buf, "default")) {
 		pci_init_reset_methods(pdev);
@@ -1544,7 +1560,7 @@ static ssize_t __resource_resize_show(struct device *dev, int n, char *buf)
 	pci_config_pm_runtime_get(pdev);
 
 	ret = sysfs_emit(buf, "%016llx\n",
-			 (u64)pci_rebar_get_possible_sizes(pdev, n));
+			 pci_rebar_get_possible_sizes(pdev, n));
 
 	pci_config_pm_runtime_put(pdev);
 
@@ -1555,8 +1571,9 @@ static ssize_t __resource_resize_store(struct device *dev, int n,
 				       const char *buf, size_t count)
 {
 	struct pci_dev *pdev = to_pci_dev(dev);
-	unsigned long size, flags;
-	int ret, i;
+	struct pci_bus *bus = pdev->bus;
+	unsigned long size;
+	int ret;
 	u16 cmd;
 
 	if (kstrtoul(buf, 0, &size) < 0)
@@ -1581,19 +1598,11 @@ static ssize_t __resource_resize_store(struct device *dev, int n,
 	pci_write_config_word(pdev, PCI_COMMAND,
 			      cmd & ~PCI_COMMAND_MEMORY);
 
-	flags = pci_resource_flags(pdev, n);
-
 	pci_remove_resource_files(pdev);
 
-	for (i = 0; i < PCI_BRIDGE_RESOURCES; i++) {
-		if (pci_resource_len(pdev, i) &&
-		    pci_resource_flags(pdev, i) == flags)
-			pci_release_resource(pdev, i);
-	}
+	ret = pci_resize_resource(pdev, n, size, 0);
 
-	ret = pci_resize_resource(pdev, n, size);
-
-	pci_assign_unassigned_bus_resources(pdev->bus);
+	pci_assign_unassigned_bus_resources(bus);
 
 	if (pci_create_resource_files(pdev))
 		pci_warn(pdev, "Failed to recreate resource files after BAR resizing\n");
@@ -1698,6 +1707,7 @@ late_initcall(pci_sysfs_init);
 
 static struct attribute *pci_dev_dev_attrs[] = {
 	&dev_attr_boot_vga.attr,
+	&dev_attr_serial_number.attr,
 	NULL,
 };
 
@@ -1708,6 +1718,9 @@ static umode_t pci_dev_attrs_are_visible(struct kobject *kobj,
 	struct pci_dev *pdev = to_pci_dev(dev);
 
 	if (a == &dev_attr_boot_vga.attr && pci_is_vga(pdev))
+		return a->mode;
+
+	if (a == &dev_attr_serial_number.attr && pci_get_dsn(pdev))
 		return a->mode;
 
 	return 0;
@@ -1815,6 +1828,10 @@ const struct attribute_group *pci_dev_attr_groups[] = {
 #endif
 #ifdef CONFIG_PCI_DOE
 	&pci_doe_sysfs_group,
+#endif
+#ifdef CONFIG_PCI_TSM
+	&pci_tsm_auth_attr_group,
+	&pci_tsm_attr_group,
 #endif
 	NULL,
 };

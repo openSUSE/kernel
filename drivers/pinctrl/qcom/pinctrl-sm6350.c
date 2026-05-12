@@ -33,7 +33,6 @@
 		.io_reg = 0x4 + REG_SIZE * id,		\
 		.intr_cfg_reg = 0x8 + REG_SIZE * id,		\
 		.intr_status_reg = 0xc + REG_SIZE * id,	\
-		.intr_target_reg = 0x8 + REG_SIZE * id,	\
 		.mux_bit = 2,			\
 		.pull_bit = 0,			\
 		.drv_bit = 6,			\
@@ -59,7 +58,6 @@
 		.io_reg = 0,				\
 		.intr_cfg_reg = 0,			\
 		.intr_status_reg = 0,			\
-		.intr_target_reg = 0,			\
 		.mux_bit = -1,				\
 		.pull_bit = pull,			\
 		.drv_bit = drv,				\
@@ -84,7 +82,6 @@
 		.io_reg = offset + 0x4,			\
 		.intr_cfg_reg = 0,			\
 		.intr_status_reg = 0,			\
-		.intr_target_reg = 0,			\
 		.mux_bit = -1,				\
 		.pull_bit = 3,				\
 		.drv_bit = 0,				\
@@ -1048,7 +1045,7 @@ static const struct pinfunction sm6350_functions[] = {
 	MSM_PIN_FUNCTION(gp_pdm0),
 	MSM_PIN_FUNCTION(gp_pdm1),
 	MSM_PIN_FUNCTION(gp_pdm2),
-	MSM_PIN_FUNCTION(gpio),
+	MSM_GPIO_PIN_FUNCTION(gpio),
 	MSM_PIN_FUNCTION(gps_tx),
 	MSM_PIN_FUNCTION(ibi_i3c),
 	MSM_PIN_FUNCTION(jitter_bist),

@@ -155,7 +155,16 @@ static u8 get_st_modes(struct pci_dev *pdev)
 	return reg;
 }
 
-static u32 get_st_table_loc(struct pci_dev *pdev)
+/**
+ * pcie_tph_get_st_table_loc - Return the device's ST table location
+ * @pdev: PCI device to query
+ *
+ * Return:
+ *  PCI_TPH_LOC_NONE - Not present
+ *  PCI_TPH_LOC_CAP  - Located in the TPH Requester Extended Capability
+ *  PCI_TPH_LOC_MSIX - Located in the MSI-X Table
+ */
+u32 pcie_tph_get_st_table_loc(struct pci_dev *pdev)
 {
 	u32 reg;
 
@@ -163,6 +172,7 @@ static u32 get_st_table_loc(struct pci_dev *pdev)
 
 	return FIELD_GET(PCI_TPH_CAP_LOC_MASK, reg);
 }
+EXPORT_SYMBOL(pcie_tph_get_st_table_loc);
 
 /*
  * Return the size of ST table. If ST table is not in TPH Requester Extended
@@ -174,7 +184,7 @@ u16 pcie_tph_get_st_table_size(struct pci_dev *pdev)
 	u32 loc;
 
 	/* Check ST table location first */
-	loc = get_st_table_loc(pdev);
+	loc = pcie_tph_get_st_table_loc(pdev);
 
 	/* Convert loc to match with PCI_TPH_LOC_* defined in pci_regs.h */
 	loc = FIELD_PREP(PCI_TPH_CAP_LOC_MASK, loc);
@@ -226,21 +236,27 @@ static int write_tag_to_st_table(struct pci_dev *pdev, int index, u16 tag)
  * with a specific CPU
  * @pdev: PCI device
  * @mem_type: target memory type (volatile or persistent RAM)
- * @cpu_uid: associated CPU id
+ * @cpu: associated CPU id
  * @tag: Steering Tag to be returned
  *
  * Return the Steering Tag for a target memory that is associated with a
- * specific CPU as indicated by cpu_uid.
+ * specific CPU as indicated by cpu.
  *
  * Return: 0 if success, otherwise negative value (-errno)
  */
 int pcie_tph_get_cpu_st(struct pci_dev *pdev, enum tph_mem_type mem_type,
-			unsigned int cpu_uid, u16 *tag)
+			unsigned int cpu, u16 *tag)
 {
 #ifdef CONFIG_ACPI
 	struct pci_dev *rp;
 	acpi_handle rp_acpi_handle;
 	union st_info info;
+	u32 cpu_uid;
+	int ret;
+
+	ret = acpi_get_cpu_uid(cpu, &cpu_uid);
+	if (ret != 0)
+		return ret;
 
 	rp = pcie_find_root_port(pdev);
 	if (!rp || !rp->bus || !rp->bus->bridge)
@@ -255,9 +271,9 @@ int pcie_tph_get_cpu_st(struct pci_dev *pdev, enum tph_mem_type mem_type,
 
 	*tag = tph_extract_tag(mem_type, pdev->tph_req_type, &info);
 
-	pci_dbg(pdev, "get steering tag: mem_type=%s, cpu_uid=%d, tag=%#04x\n",
+	pci_dbg(pdev, "get steering tag: mem_type=%s, cpu=%d, tag=%#04x\n",
 		(mem_type == TPH_MEM_TYPE_VM) ? "volatile" : "persistent",
-		cpu_uid, *tag);
+		cpu, *tag);
 
 	return 0;
 #else
@@ -299,7 +315,7 @@ int pcie_tph_set_st_entry(struct pci_dev *pdev, unsigned int index, u16 tag)
 	 */
 	set_ctrl_reg_req_en(pdev, PCI_TPH_REQ_DISABLE);
 
-	loc = get_st_table_loc(pdev);
+	loc = pcie_tph_get_st_table_loc(pdev);
 	/* Convert loc to match with PCI_TPH_LOC_* */
 	loc = FIELD_PREP(PCI_TPH_CAP_LOC_MASK, loc);
 
@@ -397,10 +413,13 @@ int pcie_enable_tph(struct pci_dev *pdev, int mode)
 	else
 		pdev->tph_req_type = PCI_TPH_REQ_TPH_ONLY;
 
-	rp_req_type = get_rp_completer_type(pdev);
+	/* Check if the device is behind a Root Port */
+	if (pci_pcie_type(pdev) != PCI_EXP_TYPE_RC_END) {
+		rp_req_type = get_rp_completer_type(pdev);
 
-	/* Final req_type is the smallest value of two */
-	pdev->tph_req_type = min(pdev->tph_req_type, rp_req_type);
+		/* Final req_type is the smallest value of two */
+		pdev->tph_req_type = min(pdev->tph_req_type, rp_req_type);
+	}
 
 	if (pdev->tph_req_type == PCI_TPH_REQ_DISABLE)
 		return -EINVAL;

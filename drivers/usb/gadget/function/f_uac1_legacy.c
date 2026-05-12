@@ -251,7 +251,7 @@ static struct f_audio_buf *f_audio_buffer_alloc(int buf_size)
 {
 	struct f_audio_buf *copy_buf;
 
-	copy_buf = kzalloc(sizeof *copy_buf, GFP_ATOMIC);
+	copy_buf = kzalloc_obj(*copy_buf, GFP_ATOMIC);
 	if (!copy_buf)
 		return ERR_PTR(-ENOMEM);
 
@@ -360,19 +360,46 @@ static int f_audio_out_ep_complete(struct usb_ep *ep, struct usb_request *req)
 static void f_audio_complete(struct usb_ep *ep, struct usb_request *req)
 {
 	struct f_audio *audio = req->context;
-	int status = req->status;
-	u32 data = 0;
 	struct usb_ep *out_ep = audio->out_ep;
 
-	switch (status) {
-
-	case 0:				/* normal completion? */
-		if (ep == out_ep)
+	switch (req->status) {
+	case 0:
+		if (ep == out_ep) {
 			f_audio_out_ep_complete(ep, req);
-		else if (audio->set_con) {
-			memcpy(&data, req->buf, req->length);
-			audio->set_con->set(audio->set_con, audio->set_cmd,
-					le16_to_cpu(data));
+		} else if (audio->set_con) {
+			struct usb_audio_control *con = audio->set_con;
+			u8 type = con->type;
+			u32 data;
+			bool valid_request = false;
+
+			switch (type) {
+			case UAC_FU_MUTE: {
+				u8 value;
+
+				if (req->actual == sizeof(value)) {
+					memcpy(&value, req->buf, sizeof(value));
+					data = value;
+					valid_request = true;
+				}
+				break;
+			}
+			case UAC_FU_VOLUME: {
+				__le16 value;
+
+				if (req->actual == sizeof(value)) {
+					memcpy(&value, req->buf, sizeof(value));
+					data = le16_to_cpu(value);
+					valid_request = true;
+				}
+				break;
+			}
+			}
+
+			if (valid_request)
+				con->set(con, audio->set_cmd, data);
+			else
+				usb_ep_set_halt(ep);
+
 			audio->set_con = NULL;
 		}
 		break;
@@ -812,7 +839,7 @@ static void f_uac1_attr_release(struct config_item *item)
 	usb_put_function_instance(&opts->func_inst);
 }
 
-static struct configfs_item_operations f_uac1_item_ops = {
+static const struct configfs_item_operations f_uac1_item_ops = {
 	.release	= f_uac1_attr_release,
 };
 
@@ -942,7 +969,7 @@ static struct usb_function_instance *f_audio_alloc_inst(void)
 {
 	struct f_uac1_legacy_opts *opts;
 
-	opts = kzalloc(sizeof(*opts), GFP_KERNEL);
+	opts = kzalloc_obj(*opts);
 	if (!opts)
 		return ERR_PTR(-ENOMEM);
 
@@ -985,7 +1012,7 @@ static struct usb_function *f_audio_alloc(struct usb_function_instance *fi)
 	struct f_uac1_legacy_opts *opts;
 
 	/* allocate and initialize one new instance */
-	audio = kzalloc(sizeof(*audio), GFP_KERNEL);
+	audio = kzalloc_obj(*audio);
 	if (!audio)
 		return ERR_PTR(-ENOMEM);
 

@@ -17,7 +17,6 @@ subdir-ccflags-y += $(condflags)
 # The following turn off the warnings enabled by -Wextra
 subdir-ccflags-y += -Wno-missing-field-initializers
 subdir-ccflags-y += -Wno-sign-compare
-subdir-ccflags-y += -Wno-type-limits
 subdir-ccflags-y += -Wno-shift-negative-value
 
 obj-$(CONFIG_BTRFS_FS) := btrfs.o
@@ -36,7 +35,7 @@ btrfs-y += super.o ctree.o extent-tree.o print-tree.o root-tree.o dir-item.o \
 	   lru_cache.o raid-stripe-tree.o fiemap.o direct-io.o
 
 btrfs-$(CONFIG_BTRFS_FS_POSIX_ACL) += acl.o
-btrfs-$(CONFIG_BTRFS_FS_REF_VERIFY) += ref-verify.o
+btrfs-$(CONFIG_BTRFS_DEBUG) += ref-verify.o
 btrfs-$(CONFIG_BLK_DEV_ZONED) += zoned.o
 btrfs-$(CONFIG_FS_VERITY) += verity.o
 
@@ -44,4 +43,9 @@ btrfs-$(CONFIG_BTRFS_FS_RUN_SANITY_TESTS) += tests/free-space-tests.o \
 	tests/extent-buffer-tests.o tests/btrfs-tests.o \
 	tests/extent-io-tests.o tests/inode-tests.o tests/qgroup-tests.o \
 	tests/free-space-tree-tests.o tests/extent-map-tests.o \
-	tests/raid-stripe-tree-tests.o tests/delayed-refs-tests.o
+	tests/raid-stripe-tree-tests.o tests/delayed-refs-tests.o \
+	tests/chunk-allocation-tests.o
+
+ifeq ($(CONFIG_BLK_DEV_ZONED),y)
+btrfs-$(CONFIG_BTRFS_FS_RUN_SANITY_TESTS) += tests/zoned-tests.o
+endif

@@ -14,6 +14,7 @@
 #include <asm/insn-def.h>
 #include <asm/cpufeature-macros.h>
 #include <asm/processor.h>
+#include <asm/errata_list.h>
 
 #define __arch_xchg_masked(sc_sfx, swap_sfx, prepend, sc_append,		\
 			   swap_append, r, p, n)				\
@@ -133,6 +134,7 @@
 ({										\
 	if (IS_ENABLED(CONFIG_RISCV_ISA_ZABHA) &&				\
 	    IS_ENABLED(CONFIG_RISCV_ISA_ZACAS) &&				\
+	    IS_ENABLED(CONFIG_TOOLCHAIN_HAS_ZACAS) &&				\
 	    riscv_has_extension_unlikely(RISCV_ISA_EXT_ZABHA) &&		\
 	    riscv_has_extension_unlikely(RISCV_ISA_EXT_ZACAS)) {		\
 		r = o;								\
@@ -180,6 +182,7 @@
 		       r, p, co, o, n)					\
 ({									\
 	if (IS_ENABLED(CONFIG_RISCV_ISA_ZACAS) &&			\
+	    IS_ENABLED(CONFIG_TOOLCHAIN_HAS_ZACAS) &&			\
 	    riscv_has_extension_unlikely(RISCV_ISA_EXT_ZACAS)) {	\
 		r = o;							\
 									\
@@ -315,7 +318,7 @@
 	arch_cmpxchg_release((ptr), (o), (n));				\
 })
 
-#if defined(CONFIG_64BIT) && defined(CONFIG_RISCV_ISA_ZACAS)
+#if defined(CONFIG_64BIT) && defined(CONFIG_RISCV_ISA_ZACAS) && defined(CONFIG_TOOLCHAIN_HAS_ZACAS)
 
 #define system_has_cmpxchg128()        riscv_has_extension_unlikely(RISCV_ISA_EXT_ZACAS)
 
@@ -351,7 +354,7 @@ union __u128_halves {
 #define arch_cmpxchg128_local(ptr, o, n)					\
 	__arch_cmpxchg128((ptr), (o), (n), "")
 
-#endif /* CONFIG_64BIT && CONFIG_RISCV_ISA_ZACAS */
+#endif /* CONFIG_64BIT && CONFIG_RISCV_ISA_ZACAS && CONFIG_TOOLCHAIN_HAS_ZACAS */
 
 #ifdef CONFIG_RISCV_ISA_ZAWRS
 /*
@@ -370,9 +373,10 @@ static __always_inline void __cmpwait(volatile void *ptr,
 	u32 *__ptr32b;
 	ulong __s, __val, __mask;
 
-	asm goto(ALTERNATIVE("j %l[no_zawrs]", "nop",
-			     0, RISCV_ISA_EXT_ZAWRS, 1)
-		 : : : : no_zawrs);
+	if (!riscv_has_extension_likely(RISCV_ISA_EXT_ZAWRS)) {
+		ALT_RISCV_PAUSE();
+		return;
+	}
 
 	switch (size) {
 	case 1:
@@ -434,11 +438,6 @@ static __always_inline void __cmpwait(volatile void *ptr,
 	default:
 		BUILD_BUG();
 	}
-
-	return;
-
-no_zawrs:
-	asm volatile(RISCV_PAUSE : : : "memory");
 }
 
 #define __cmpwait_relaxed(ptr, val) \

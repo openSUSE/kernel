@@ -246,9 +246,11 @@ void evlist__reset_prev_raw_counts(struct evlist *evlist)
 
 static void evsel__copy_prev_raw_counts(struct evsel *evsel)
 {
-	int idx, nthreads = perf_thread_map__nr(evsel->core.threads);
+	int nthreads = perf_thread_map__nr(evsel->core.threads);
 
 	for (int thread = 0; thread < nthreads; thread++) {
+		unsigned int idx;
+
 		perf_cpu_map__for_each_idx(idx, evsel__cpus(evsel)) {
 			*perf_counts(evsel->counts, idx, thread) =
 				*perf_counts(evsel->prev_raw_counts, idx, thread);
@@ -580,7 +582,7 @@ static void evsel__update_percore_stats(struct evsel *evsel, struct aggr_cpu_id 
 	struct perf_counts_values counts = { 0, };
 	struct aggr_cpu_id id;
 	struct perf_cpu cpu;
-	int idx;
+	unsigned int idx;
 
 	/* collect per-core counts */
 	perf_cpu_map__for_each_cpu(cpu, idx, evsel->core.cpus) {
@@ -617,7 +619,7 @@ static void evsel__process_percore(struct evsel *evsel)
 	struct perf_stat_evsel *ps = evsel->stats;
 	struct aggr_cpu_id core_id;
 	struct perf_cpu cpu;
-	int idx;
+	unsigned int idx;
 
 	if (!evsel->percore)
 		return;
@@ -645,7 +647,8 @@ void perf_stat_process_percore(struct perf_stat_config *config, struct evlist *e
 		evsel__process_percore(evsel);
 }
 
-int perf_event__process_stat_event(struct perf_session *session,
+int perf_event__process_stat_event(const struct perf_tool *tool __maybe_unused,
+				   struct perf_session *session,
 				   union perf_event *event)
 {
 	struct perf_counts_values count, *ptr;
@@ -715,60 +718,4 @@ size_t perf_event__fprintf_stat_config(union perf_event *event, FILE *fp)
 	ret += fprintf(fp, "... interval  %u\n", sc.interval);
 
 	return ret;
-}
-
-int create_perf_stat_counter(struct evsel *evsel,
-			     struct perf_stat_config *config,
-			     struct target *target,
-			     int cpu_map_idx)
-{
-	struct perf_event_attr *attr = &evsel->core.attr;
-	struct evsel *leader = evsel__leader(evsel);
-
-	attr->read_format = PERF_FORMAT_TOTAL_TIME_ENABLED |
-			    PERF_FORMAT_TOTAL_TIME_RUNNING;
-
-	/*
-	 * The event is part of non trivial group, let's enable
-	 * the group read (for leader) and ID retrieval for all
-	 * members.
-	 */
-	if (leader->core.nr_members > 1)
-		attr->read_format |= PERF_FORMAT_ID|PERF_FORMAT_GROUP;
-
-	attr->inherit = !config->no_inherit && list_empty(&evsel->bpf_counter_list);
-
-	/*
-	 * Some events get initialized with sample_(period/type) set,
-	 * like tracepoints. Clear it up for counting.
-	 */
-	attr->sample_period = 0;
-
-	if (config->identifier)
-		attr->sample_type = PERF_SAMPLE_IDENTIFIER;
-
-	if (config->all_user) {
-		attr->exclude_kernel = 1;
-		attr->exclude_user   = 0;
-	}
-
-	if (config->all_kernel) {
-		attr->exclude_kernel = 0;
-		attr->exclude_user   = 1;
-	}
-
-	/*
-	 * Disabling all counters initially, they will be enabled
-	 * either manually by us or by kernel via enable_on_exec
-	 * set later.
-	 */
-	if (evsel__is_group_leader(evsel)) {
-		attr->disabled = 1;
-
-		if (target__enable_on_exec(target))
-			attr->enable_on_exec = 1;
-	}
-
-	return evsel__open_per_cpu_and_thread(evsel, evsel__cpus(evsel), cpu_map_idx,
-					      evsel->core.threads);
 }

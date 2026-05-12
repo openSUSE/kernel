@@ -22,6 +22,7 @@
 #include <drm/drm_bridge_connector.h>
 #include <drm/drm_of.h>
 #include <drm/drm_panel.h>
+#include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_simple_kms_helper.h>
 
@@ -625,12 +626,6 @@ static int rockchip_lvds_bind(struct device *dev, struct device *master,
 				"failed to initialize bridge connector: %pe\n",
 				connector);
 			ret = PTR_ERR(connector);
-			goto err_free_bridge;
-		}
-
-		ret = drm_connector_attach_encoder(connector, encoder);
-		if (ret < 0) {
-			drm_err(drm_dev, "failed to attach encoder: %d\n", ret);
 			goto err_free_bridge;
 		}
 	}

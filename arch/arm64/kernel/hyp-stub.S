@@ -54,6 +54,11 @@ SYM_CODE_START_LOCAL(elx_sync)
 1:	cmp	x0, #HVC_FINALISE_EL2
 	b.eq	__finalise_el2
 
+	cmp	x0, #HVC_GET_ICH_VTR_EL2
+	b.ne	2f
+	mrs_s	x1, SYS_ICH_VTR_EL2
+	b	9f
+
 2:	cmp	x0, #HVC_SOFT_RESTART
 	b.ne	3f
 	mov	x0, x2
@@ -98,7 +103,6 @@ SYM_CODE_START_LOCAL(__finalise_el2)
 	// Engage the VHE magic!
 	mov_q	x0, HCR_HOST_VHE_FLAGS
 	msr_hcr_el2 x0
-	isb
 
 	// Use the EL1 allocated stack, per-cpu offset
 	mrs	x0, sp_el1

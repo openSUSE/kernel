@@ -1877,7 +1877,7 @@ class OvsPacket(GenericNetlinkSocket):
                     elif msg["cmd"] == OvsPacket.OVS_PACKET_CMD_EXECUTE:
                         up.execute(msg)
                     else:
-                        print("Unkonwn cmd: %d" % msg["cmd"])
+                        print("Unknown cmd: %d" % msg["cmd"])
             except NetlinkError as ne:
                 raise ne
 
@@ -2583,7 +2583,7 @@ def main(argv):
     prverscheck = pyroute2.__version__.split(".")
     if int(prverscheck[0]) == 0 and int(prverscheck[1]) < 6:
         print("Need to upgrade the python pyroute2 package to >= 0.6.")
-        sys.exit(0)
+        sys.exit(1)
 
     parser = argparse.ArgumentParser()
     parser.add_argument(

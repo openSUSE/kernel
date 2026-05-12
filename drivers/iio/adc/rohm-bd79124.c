@@ -75,7 +75,7 @@
 
 /*
  * The high limit, low limit and last measurement result are each stored in
- * 2 consequtive registers. 4 bits are in the high bits of the first register
+ * 2 consecutive registers. 4 bits are in the high bits of the first register
  * and 8 bits in the next register.
  *
  * These macros return the address of the first reg for the given channel.
@@ -126,13 +126,8 @@ struct bd79124_data {
 };
 
 static const struct regmap_range bd79124_ro_ranges[] = {
-	{
-		.range_min = BD79124_REG_EVENT_FLAG,
-		.range_max = BD79124_REG_EVENT_FLAG,
-	}, {
-		.range_min = BD79124_REG_RECENT_CH0_LSB,
-		.range_max = BD79124_REG_RECENT_CH7_MSB,
-	},
+	regmap_reg_range(BD79124_REG_EVENT_FLAG, BD79124_REG_EVENT_FLAG),
+	regmap_reg_range(BD79124_REG_RECENT_CH0_LSB, BD79124_REG_RECENT_CH7_MSB),
 };
 
 static const struct regmap_access_table bd79124_ro_regs = {
@@ -141,22 +136,11 @@ static const struct regmap_access_table bd79124_ro_regs = {
 };
 
 static const struct regmap_range bd79124_volatile_ranges[] = {
-	{
-		.range_min = BD79124_REG_RECENT_CH0_LSB,
-		.range_max = BD79124_REG_RECENT_CH7_MSB,
-	}, {
-		.range_min = BD79124_REG_EVENT_FLAG,
-		.range_max = BD79124_REG_EVENT_FLAG,
-	}, {
-		.range_min = BD79124_REG_EVENT_FLAG_HI,
-		.range_max = BD79124_REG_EVENT_FLAG_HI,
-	}, {
-		.range_min = BD79124_REG_EVENT_FLAG_LO,
-		.range_max = BD79124_REG_EVENT_FLAG_LO,
-	}, {
-		.range_min = BD79124_REG_SYSTEM_STATUS,
-		.range_max = BD79124_REG_SYSTEM_STATUS,
-	},
+	regmap_reg_range(BD79124_REG_RECENT_CH0_LSB, BD79124_REG_RECENT_CH7_MSB),
+	regmap_reg_range(BD79124_REG_EVENT_FLAG, BD79124_REG_EVENT_FLAG),
+	regmap_reg_range(BD79124_REG_EVENT_FLAG_HI, BD79124_REG_EVENT_FLAG_HI),
+	regmap_reg_range(BD79124_REG_EVENT_FLAG_LO, BD79124_REG_EVENT_FLAG_LO),
+	regmap_reg_range(BD79124_REG_SYSTEM_STATUS, BD79124_REG_SYSTEM_STATUS),
 };
 
 static const struct regmap_access_table bd79124_volatile_regs = {
@@ -165,13 +149,8 @@ static const struct regmap_access_table bd79124_volatile_regs = {
 };
 
 static const struct regmap_range bd79124_precious_ranges[] = {
-	{
-		.range_min = BD79124_REG_EVENT_FLAG_HI,
-		.range_max = BD79124_REG_EVENT_FLAG_HI,
-	}, {
-		.range_min = BD79124_REG_EVENT_FLAG_LO,
-		.range_max = BD79124_REG_EVENT_FLAG_LO,
-	},
+	regmap_reg_range(BD79124_REG_EVENT_FLAG_HI, BD79124_REG_EVENT_FLAG_HI),
+	regmap_reg_range(BD79124_REG_EVENT_FLAG_LO, BD79124_REG_EVENT_FLAG_LO),
 };
 
 static const struct regmap_access_table bd79124_precious_regs = {
@@ -983,7 +962,7 @@ static int bd79124_hw_init(struct bd79124_data *data)
 	if (ret)
 		return ret;
 
-	/* Enable writing the measured values to the regsters */
+	/* Enable writing the measured values to the registers */
 	ret = regmap_set_bits(data->map, BD79124_REG_GEN_CFG,
 			      BD79124_MSK_STATS_EN);
 	if (ret)

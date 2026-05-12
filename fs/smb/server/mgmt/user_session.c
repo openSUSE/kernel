@@ -12,13 +12,16 @@
 #include "user_session.h"
 #include "user_config.h"
 #include "tree_connect.h"
+#include "share_config.h"
 #include "../transport_ipc.h"
 #include "../connection.h"
 #include "../vfs_cache.h"
+#include "../misc.h"
+#include "../stats.h"
 
 static DEFINE_IDA(session_ida);
 
-#define SESSION_HASH_BITS		3
+#define SESSION_HASH_BITS		12
 static DEFINE_HASHTABLE(sessions_table, SESSION_HASH_BITS);
 static DECLARE_RWSEM(sessions_table_lock);
 
@@ -27,17 +30,236 @@ struct ksmbd_session_rpc {
 	unsigned int		method;
 };
 
+#ifdef CONFIG_PROC_FS
+
+static const struct ksmbd_const_name ksmbd_sess_cap_const_names[] = {
+	{SMB2_GLOBAL_CAP_DFS, "dfs"},
+	{SMB2_GLOBAL_CAP_LEASING, "lease"},
+	{SMB2_GLOBAL_CAP_LARGE_MTU, "large-mtu"},
+	{SMB2_GLOBAL_CAP_MULTI_CHANNEL, "multi-channel"},
+	{SMB2_GLOBAL_CAP_PERSISTENT_HANDLES, "persistent-handles"},
+	{SMB2_GLOBAL_CAP_DIRECTORY_LEASING, "dir-lease"},
+	{SMB2_GLOBAL_CAP_ENCRYPTION, "encryption"}
+};
+
+static const struct ksmbd_const_name ksmbd_cipher_const_names[] = {
+	{le16_to_cpu(SMB2_ENCRYPTION_AES128_CCM), "aes128-ccm"},
+	{le16_to_cpu(SMB2_ENCRYPTION_AES128_GCM), "aes128-gcm"},
+	{le16_to_cpu(SMB2_ENCRYPTION_AES256_CCM), "aes256-ccm"},
+	{le16_to_cpu(SMB2_ENCRYPTION_AES256_GCM), "aes256-gcm"},
+};
+
+static const struct ksmbd_const_name ksmbd_signing_const_names[] = {
+	{SIGNING_ALG_HMAC_SHA256, "hmac-sha256"},
+	{SIGNING_ALG_AES_CMAC, "aes-cmac"},
+	{SIGNING_ALG_AES_GMAC, "aes-gmac"},
+};
+
+static const char *session_state_string(struct ksmbd_session *session)
+{
+	switch (session->state) {
+	case SMB2_SESSION_VALID:
+		return "valid";
+	case SMB2_SESSION_IN_PROGRESS:
+		return "progress";
+	case SMB2_SESSION_EXPIRED:
+		return "expired";
+	default:
+		return "";
+	}
+}
+
+static const char *session_user_name(struct ksmbd_session *session)
+{
+	if (user_guest(session->user))
+		return "(Guest)";
+	else if (ksmbd_anonymous_user(session->user))
+		return "(Anonymous)";
+	return session->user->name;
+}
+
+static int show_proc_session(struct seq_file *m, void *v)
+{
+	struct ksmbd_session *sess;
+	struct ksmbd_tree_connect *tree_conn;
+	struct ksmbd_share_config *share_conf;
+	struct channel *chan;
+	unsigned long id;
+	int i = 0;
+
+	sess = (struct ksmbd_session *)m->private;
+	ksmbd_user_session_get(sess);
+
+	i = 0;
+	down_read(&sess->chann_lock);
+	xa_for_each(&sess->ksmbd_chann_list, id, chan) {
+#if IS_ENABLED(CONFIG_IPV6)
+		if (chan->conn->inet_addr)
+			seq_printf(m, "%-20s\t%pI4\n", "client",
+					&chan->conn->inet_addr);
+		else
+			seq_printf(m, "%-20s\t%pI6c\n", "client",
+					&chan->conn->inet6_addr);
+#else
+		seq_printf(m, "%-20s\t%pI4\n", "client",
+				&chan->conn->inet_addr);
+#endif
+		seq_printf(m, "%-20s\t%s\n", "user", session_user_name(sess));
+		seq_printf(m, "%-20s\t%llu\n", "id", sess->id);
+		seq_printf(m, "%-20s\t%s\n", "state",
+				session_state_string(sess));
+
+		seq_printf(m, "%-20s\t", "capabilities");
+		ksmbd_proc_show_flag_names(m,
+				ksmbd_sess_cap_const_names,
+				ARRAY_SIZE(ksmbd_sess_cap_const_names),
+				chan->conn->vals->req_capabilities);
+
+		if (sess->sign) {
+			seq_printf(m, "%-20s\t", "signing");
+			ksmbd_proc_show_const_name(m, "%s\t",
+					ksmbd_signing_const_names,
+					ARRAY_SIZE(ksmbd_signing_const_names),
+					le16_to_cpu(chan->conn->signing_algorithm));
+		} else if (sess->enc) {
+			seq_printf(m, "%-20s\t", "encryption");
+			ksmbd_proc_show_const_name(m, "%s\t",
+					ksmbd_cipher_const_names,
+					ARRAY_SIZE(ksmbd_cipher_const_names),
+					le16_to_cpu(chan->conn->cipher_type));
+		}
+		i++;
+	}
+	up_read(&sess->chann_lock);
+
+	seq_printf(m, "%-20s\t%d\n", "channels", i);
+
+	i = 0;
+	down_read(&sess->tree_conns_lock);
+	xa_for_each(&sess->tree_conns, id, tree_conn) {
+		share_conf = tree_conn->share_conf;
+		seq_printf(m, "%-20s\t%s\t%8d", "share",
+			   share_conf->name, tree_conn->id);
+		if (test_share_config_flag(share_conf, KSMBD_SHARE_FLAG_PIPE))
+			seq_printf(m, " %s ", "pipe");
+		else
+			seq_printf(m, " %s ", "disk");
+		seq_putc(m, '\n');
+	}
+	up_read(&sess->tree_conns_lock);
+
+	ksmbd_user_session_put(sess);
+	return 0;
+}
+
+void ksmbd_proc_show_flag_names(struct seq_file *m,
+				const struct ksmbd_const_name *table,
+				int count,
+				unsigned int flags)
+{
+	int i;
+
+	for (i = 0; i < count; i++) {
+		if (table[i].const_value & flags)
+			seq_printf(m, "0x%08x\t", table[i].const_value);
+	}
+	seq_putc(m, '\n');
+}
+
+void ksmbd_proc_show_const_name(struct seq_file *m,
+				const char *format,
+				const struct ksmbd_const_name *table,
+				int count,
+				unsigned int const_value)
+{
+	int i;
+
+	for (i = 0; i < count; i++) {
+		if (table[i].const_value & const_value)
+			seq_printf(m, format, table[i].name);
+	}
+	seq_putc(m, '\n');
+}
+
+static int create_proc_session(struct ksmbd_session *sess)
+{
+	char name[30];
+
+	snprintf(name, sizeof(name), "sessions/%llu", sess->id);
+	sess->proc_entry = ksmbd_proc_create(name,
+					     show_proc_session, sess);
+	return 0;
+}
+
+static void delete_proc_session(struct ksmbd_session *sess)
+{
+	if (sess->proc_entry)
+		proc_remove(sess->proc_entry);
+}
+
+static int show_proc_sessions(struct seq_file *m, void *v)
+{
+	struct ksmbd_session *session;
+	struct channel *chan;
+	int i;
+	unsigned long id;
+
+	seq_printf(m, "#%-40s %-15s %-10s %-10s\n",
+		   "<client>", "<user>", "<sess_id>", "<state>");
+
+	down_read(&sessions_table_lock);
+	hash_for_each(sessions_table, i, session, hlist) {
+		down_read(&session->chann_lock);
+		xa_for_each(&session->ksmbd_chann_list, id, chan) {
+			down_read(&chan->conn->session_lock);
+			ksmbd_user_session_get(session);
+
+#if IS_ENABLED(CONFIG_IPV6)
+			if (!chan->conn->inet_addr)
+				seq_printf(m, " %-40pI6c", &chan->conn->inet6_addr);
+			else
+#endif
+				seq_printf(m, " %-40pI4", &chan->conn->inet_addr);
+			seq_printf(m, " %-15s %-10llu %-10s\n",
+				   session_user_name(session),
+				   session->id,
+				   session_state_string(session));
+
+			ksmbd_user_session_put(session);
+			up_read(&chan->conn->session_lock);
+		}
+		up_read(&session->chann_lock);
+	}
+	up_read(&sessions_table_lock);
+	return 0;
+}
+
+int create_proc_sessions(void)
+{
+	if (!ksmbd_proc_create("sessions/sessions",
+			       show_proc_sessions, NULL))
+		return -ENOMEM;
+	return 0;
+}
+#else
+int create_proc_sessions(void) { return 0; }
+static int create_proc_session(struct ksmbd_session *sess) { return 0; }
+static void delete_proc_session(struct ksmbd_session *sess) {}
+#endif
+
 static void free_channel_list(struct ksmbd_session *sess)
 {
 	struct channel *chann;
 	unsigned long index;
 
+	down_write(&sess->chann_lock);
 	xa_for_each(&sess->ksmbd_chann_list, index, chann) {
 		xa_erase(&sess->ksmbd_chann_list, index);
 		kfree(chann);
 	}
 
 	xa_destroy(&sess->ksmbd_chann_list);
+	up_write(&sess->chann_lock);
 }
 
 static void __session_rpc_close(struct ksmbd_session *sess,
@@ -100,33 +322,36 @@ int ksmbd_session_rpc_open(struct ksmbd_session *sess, char *rpc_name)
 	if (!method)
 		return -EINVAL;
 
-	entry = kzalloc(sizeof(struct ksmbd_session_rpc), KSMBD_DEFAULT_GFP);
+	entry = kzalloc_obj(struct ksmbd_session_rpc, KSMBD_DEFAULT_GFP);
 	if (!entry)
 		return -ENOMEM;
 
-	down_read(&sess->rpc_lock);
 	entry->method = method;
 	entry->id = id = ksmbd_ipc_id_alloc();
 	if (id < 0)
 		goto free_entry;
+
+	down_write(&sess->rpc_lock);
 	old = xa_store(&sess->rpc_handle_list, id, entry, KSMBD_DEFAULT_GFP);
-	if (xa_is_err(old))
+	if (xa_is_err(old)) {
+		up_write(&sess->rpc_lock);
 		goto free_id;
+	}
 
 	resp = ksmbd_rpc_open(sess, id);
-	if (!resp)
-		goto erase_xa;
+	if (!resp) {
+		xa_erase(&sess->rpc_handle_list, entry->id);
+		up_write(&sess->rpc_lock);
+		goto free_id;
+	}
 
-	up_read(&sess->rpc_lock);
+	up_write(&sess->rpc_lock);
 	kvfree(resp);
 	return id;
-erase_xa:
-	xa_erase(&sess->rpc_handle_list, entry->id);
 free_id:
 	ksmbd_rpc_id_free(entry->id);
 free_entry:
 	kfree(entry);
-	up_read(&sess->rpc_lock);
 	return -EINVAL;
 }
 
@@ -145,7 +370,9 @@ int ksmbd_session_rpc_method(struct ksmbd_session *sess, int id)
 {
 	struct ksmbd_session_rpc *entry;
 
+	lockdep_assert_held(&sess->rpc_lock);
 	entry = xa_load(&sess->rpc_handle_list, id);
+
 	return entry ? entry->method : 0;
 }
 
@@ -154,16 +381,17 @@ void ksmbd_session_destroy(struct ksmbd_session *sess)
 	if (!sess)
 		return;
 
+	delete_proc_session(sess);
+	ksmbd_tree_conn_session_logoff(sess);
+	ksmbd_destroy_file_table(sess);
 	if (sess->user)
 		ksmbd_free_user(sess->user);
-
-	ksmbd_tree_conn_session_logoff(sess);
-	ksmbd_destroy_file_table(&sess->file_table);
 	ksmbd_launch_ksmbd_durable_scavenger();
 	ksmbd_session_rpc_clear_list(sess);
 	free_channel_list(sess);
 	kfree(sess->Preauth_HashValue);
 	ksmbd_release_id(&session_ida, sess->id);
+	ida_destroy(&sess->tree_conn_ida);
 	kfree(sess);
 }
 
@@ -215,7 +443,9 @@ static int ksmbd_chann_del(struct ksmbd_conn *conn, struct ksmbd_session *sess)
 {
 	struct channel *chann;
 
+	down_write(&sess->chann_lock);
 	chann = xa_erase(&sess->ksmbd_chann_list, (long)conn);
+	up_write(&sess->chann_lock);
 	if (!chann)
 		return -ENOENT;
 
@@ -318,10 +548,17 @@ struct ksmbd_session *ksmbd_session_lookup_all(struct ksmbd_conn *conn,
 	struct ksmbd_session *sess;
 
 	sess = ksmbd_session_lookup(conn, id);
-	if (!sess && conn->binding)
+	if (!sess && conn->binding) {
 		sess = ksmbd_session_lookup_slowpath(id);
-	if (sess && sess->state != SMB2_SESSION_VALID)
+		if (sess && !xa_load(&sess->ksmbd_chann_list, (long)conn)) {
+			ksmbd_user_session_put(sess);
+			sess = NULL;
+		}
+	}
+	if (sess && sess->state != SMB2_SESSION_VALID) {
+		ksmbd_user_session_put(sess);
 		sess = NULL;
+	}
 	return sess;
 }
 
@@ -346,7 +583,7 @@ struct preauth_session *ksmbd_preauth_session_alloc(struct ksmbd_conn *conn,
 {
 	struct preauth_session *sess;
 
-	sess = kmalloc(sizeof(struct preauth_session), KSMBD_DEFAULT_GFP);
+	sess = kmalloc_obj(struct preauth_session, KSMBD_DEFAULT_GFP);
 	if (!sess)
 		return NULL;
 
@@ -385,7 +622,7 @@ void destroy_previous_session(struct ksmbd_conn *conn,
 		goto out;
 	}
 
-	ksmbd_destroy_file_table(&prev_sess->file_table);
+	ksmbd_destroy_file_table(prev_sess);
 	prev_sess->state = SMB2_SESSION_EXPIRED;
 	ksmbd_all_conn_set_status(id, KSMBD_SESS_NEED_SETUP);
 	ksmbd_launch_ksmbd_durable_scavenger();
@@ -430,9 +667,11 @@ static struct ksmbd_session *__session_create(int protocol)
 	if (protocol != CIFDS_SESSION_FLAG_SMB2)
 		return NULL;
 
-	sess = kzalloc(sizeof(struct ksmbd_session), KSMBD_DEFAULT_GFP);
+	sess = kzalloc_obj(struct ksmbd_session, KSMBD_DEFAULT_GFP);
 	if (!sess)
 		return NULL;
+
+	ida_init(&sess->tree_conn_ida);
 
 	if (ksmbd_init_file_table(&sess->file_table))
 		goto error;
@@ -444,20 +683,21 @@ static struct ksmbd_session *__session_create(int protocol)
 	xa_init(&sess->ksmbd_chann_list);
 	xa_init(&sess->rpc_handle_list);
 	sess->sequence_number = 1;
-	rwlock_init(&sess->tree_conns_lock);
 	atomic_set(&sess->refcnt, 2);
+	init_rwsem(&sess->tree_conns_lock);
 	init_rwsem(&sess->rpc_lock);
+	init_rwsem(&sess->chann_lock);
 
 	ret = __init_smb2_session(sess);
 	if (ret)
 		goto error;
 
-	ida_init(&sess->tree_conn_ida);
-
 	down_write(&sessions_table_lock);
 	hash_add(sessions_table, &sess->hlist, sess->id);
 	up_write(&sessions_table_lock);
 
+	create_proc_session(sess);
+	ksmbd_counter_inc(KSMBD_COUNTER_SESSIONS);
 	return sess;
 
 error:

@@ -28,16 +28,10 @@
 #include <linux/sched.h>
 #include <linux/sunrpc/clnt.h>
 #include <linux/sunrpc/svc_xprt.h>
-#include <linux/lockd/nlm.h>
-#include <linux/lockd/lockd.h>
+
+#include "lockd.h"
 
 #define NLMDBG_FACILITY		NLMDBG_SVCLOCK
-
-#ifdef CONFIG_LOCKD_V4
-#define nlm_deadlock	nlm4_deadlock
-#else
-#define nlm_deadlock	nlm_lck_denied
-#endif
 
 static void nlmsvc_release_block(struct nlm_block *block);
 static void	nlmsvc_insert_block(struct nlm_block *block, unsigned long);
@@ -79,6 +73,11 @@ static const char *nlmdbg_cookie2a(const struct nlm_cookie *cookie)
 	*p = '\0';
 
 	return buf;
+}
+#else
+static inline const char *nlmdbg_cookie2a(const struct nlm_cookie *cookie)
+{
+	return "???";
 }
 #endif
 
@@ -233,7 +232,7 @@ nlmsvc_create_block(struct svc_rqst *rqstp, struct nlm_host *host,
 		return NULL;
 
 	/* Allocate memory for block, and initialize arguments */
-	block = kzalloc(sizeof(*block), GFP_KERNEL);
+	block = kzalloc_obj(*block);
 	if (block == NULL)
 		goto failed;
 	kref_init(&block->b_count);
@@ -380,7 +379,7 @@ static struct nlm_lockowner *nlmsvc_find_lockowner(struct nlm_host *host, pid_t 
 
 	if (res == NULL) {
 		spin_unlock(&host->h_lock);
-		new = kmalloc(sizeof(*res), GFP_KERNEL);
+		new = kmalloc_obj(*res);
 		spin_lock(&host->h_lock);
 		res = __nlmsvc_find_lockowner(host, pid);
 		if (res == NULL && new != NULL) {
@@ -463,7 +462,7 @@ nlmsvc_defer_lock_rqst(struct svc_rqst *rqstp, struct nlm_block *block)
 		block->b_deferred_req =
 			rqstp->rq_chandle.defer(block->b_cache_req);
 		if (block->b_deferred_req != NULL)
-			status = nlm_drop_reply;
+			status = nlm__int__drop_reply;
 	}
 	dprintk("lockd: nlmsvc_defer_lock_rqst block %p flags %d status %d\n",
 		block, block->b_flags, ntohl(status));
@@ -487,13 +486,16 @@ nlmsvc_lock(struct svc_rqst *rqstp, struct nlm_file *file,
 	int			async_block = 0;
 	__be32			ret;
 
-	dprintk("lockd: nlmsvc_lock(%s/%ld, ty=%d, pi=%d, %Ld-%Ld, bl=%d)\n",
+	dprintk("lockd: nlmsvc_lock(%s/%llu, ty=%d, pi=%d, %Ld-%Ld, bl=%d)\n",
 				inode->i_sb->s_id, inode->i_ino,
 				lock->fl.c.flc_type,
 				lock->fl.c.flc_pid,
 				(long long)lock->fl.fl_start,
 				(long long)lock->fl.fl_end,
 				wait);
+
+	if (nlmsvc_file_cannot_lock(file))
+		return nlm_lck_denied_nolocks;
 
 	if (!locks_can_async_lock(nlmsvc_file_file(file)->f_op)) {
 		async_block = wait;
@@ -528,7 +530,7 @@ nlmsvc_lock(struct svc_rqst *rqstp, struct nlm_file *file,
 			ret = nlm_lck_denied;
 			goto out;
 		}
-		ret = nlm_drop_reply;
+		ret = nlm__int__drop_reply;
 		goto out;
 	}
 
@@ -586,7 +588,7 @@ nlmsvc_lock(struct svc_rqst *rqstp, struct nlm_file *file,
 			goto out;
 		case -EDEADLK:
 			nlmsvc_remove_block(block);
-			ret = nlm_deadlock;
+			ret = nlm__int__deadlock;
 			goto out;
 		default:			/* includes ENOLCK */
 			nlmsvc_remove_block(block);
@@ -614,12 +616,15 @@ nlmsvc_testlock(struct svc_rqst *rqstp, struct nlm_file *file,
 	int			mode;
 	__be32			ret;
 
-	dprintk("lockd: nlmsvc_testlock(%s/%ld, ty=%d, %Ld-%Ld)\n",
+	dprintk("lockd: nlmsvc_testlock(%s/%llu, ty=%d, %Ld-%Ld)\n",
 				nlmsvc_file_inode(file)->i_sb->s_id,
 				nlmsvc_file_inode(file)->i_ino,
 				lock->fl.c.flc_type,
 				(long long)lock->fl.fl_start,
 				(long long)lock->fl.fl_end);
+
+	if (nlmsvc_file_cannot_lock(file))
+		return nlm_lck_denied_nolocks;
 
 	if (locks_in_grace(SVC_NET(rqstp))) {
 		ret = nlm_lck_denied_grace_period;
@@ -627,32 +632,31 @@ nlmsvc_testlock(struct svc_rqst *rqstp, struct nlm_file *file,
 	}
 
 	mode = lock_to_openmode(&lock->fl);
-	error = vfs_test_lock(file->f_file[mode], &lock->fl);
+	locks_init_lock(&conflock->fl);
+	/* vfs_test_lock only uses start, end, and owner, but tests flc_file */
+	conflock->fl.c.flc_file = lock->fl.c.flc_file;
+	conflock->fl.fl_start = lock->fl.fl_start;
+	conflock->fl.fl_end = lock->fl.fl_end;
+	conflock->fl.c.flc_owner = lock->fl.c.flc_owner;
+	error = vfs_test_lock(file->f_file[mode], &conflock->fl);
 	if (error) {
-		/* We can't currently deal with deferred test requests */
-		if (error == FILE_LOCK_DEFERRED)
-			WARN_ON_ONCE(1);
-
 		ret = nlm_lck_denied_nolocks;
 		goto out;
 	}
 
-	if (lock->fl.c.flc_type == F_UNLCK) {
+	if (conflock->fl.c.flc_type == F_UNLCK) {
 		ret = nlm_granted;
 		goto out;
 	}
 
 	dprintk("lockd: conflicting lock(ty=%d, %Ld-%Ld)\n",
-		lock->fl.c.flc_type, (long long)lock->fl.fl_start,
-		(long long)lock->fl.fl_end);
+		conflock->fl.c.flc_type, (long long)conflock->fl.fl_start,
+		(long long)conflock->fl.fl_end);
 	conflock->caller = "somehost";	/* FIXME */
 	conflock->len = strlen(conflock->caller);
 	conflock->oh.len = 0;		/* don't return OH info */
-	conflock->svid = lock->fl.c.flc_pid;
-	conflock->fl.c.flc_type = lock->fl.c.flc_type;
-	conflock->fl.fl_start = lock->fl.fl_start;
-	conflock->fl.fl_end = lock->fl.fl_end;
-	locks_release_private(&lock->fl);
+	conflock->svid = conflock->fl.c.flc_pid;
+	locks_release_private(&conflock->fl);
 
 	ret = nlm_lck_denied;
 out:
@@ -671,12 +675,15 @@ nlmsvc_unlock(struct net *net, struct nlm_file *file, struct nlm_lock *lock)
 {
 	int	error = 0;
 
-	dprintk("lockd: nlmsvc_unlock(%s/%ld, pi=%d, %Ld-%Ld)\n",
+	dprintk("lockd: nlmsvc_unlock(%s/%llu, pi=%d, %Ld-%Ld)\n",
 				nlmsvc_file_inode(file)->i_sb->s_id,
 				nlmsvc_file_inode(file)->i_ino,
 				lock->fl.c.flc_pid,
 				(long long)lock->fl.fl_start,
 				(long long)lock->fl.fl_end);
+
+	if (nlmsvc_file_cannot_lock(file))
+		return nlm_lck_denied_nolocks;
 
 	/* First, cancel any lock that might be there */
 	nlmsvc_cancel_blocked(net, file, lock);
@@ -708,12 +715,15 @@ nlmsvc_cancel_blocked(struct net *net, struct nlm_file *file, struct nlm_lock *l
 	int status = 0;
 	int mode;
 
-	dprintk("lockd: nlmsvc_cancel(%s/%ld, pi=%d, %Ld-%Ld)\n",
+	dprintk("lockd: nlmsvc_cancel(%s/%llu, pi=%d, %Ld-%Ld)\n",
 				nlmsvc_file_inode(file)->i_sb->s_id,
 				nlmsvc_file_inode(file)->i_ino,
 				lock->fl.c.flc_pid,
 				(long long)lock->fl.fl_start,
 				(long long)lock->fl.fl_end);
+
+	if (nlmsvc_file_cannot_lock(file))
+		return nlm_lck_denied_nolocks;
 
 	if (locks_in_grace(net))
 		return nlm_lck_denied_grace_period;
@@ -980,7 +990,7 @@ nlmsvc_grant_reply(struct nlm_cookie *cookie, __be32 status)
 	struct file_lock	*fl;
 	int			error;
 
-	dprintk("grant_reply: looking for cookie %x, s=%d \n",
+	dprintk("grant_reply: looking for cookie %x, s=%d\n",
 		*(unsigned int *)(cookie->data), status);
 	if (!(block = nlmsvc_find_block(cookie)))
 		return;

@@ -29,7 +29,7 @@ static union perf_capabilities {
 		u64 pebs_baseline:1;
 		u64	perf_metrics:1;
 		u64	pebs_output_pt_available:1;
-		u64	anythread_deprecated:1;
+		u64	pebs_timing_info:1;
 	};
 	u64	capabilities;
 } host_cap;
@@ -44,6 +44,7 @@ static const union perf_capabilities immutable_caps = {
 	.pebs_arch_reg = 1,
 	.pebs_format = -1,
 	.pebs_baseline = 1,
+	.pebs_timing_info = 1,
 };
 
 static const union perf_capabilities format_caps = {
@@ -51,16 +52,16 @@ static const union perf_capabilities format_caps = {
 	.pebs_format = -1,
 };
 
-static void guest_test_perf_capabilities_gp(uint64_t val)
+static void guest_test_perf_capabilities_gp(u64 val)
 {
-	uint8_t vector = wrmsr_safe(MSR_IA32_PERF_CAPABILITIES, val);
+	u8 vector = wrmsr_safe(MSR_IA32_PERF_CAPABILITIES, val);
 
 	__GUEST_ASSERT(vector == GP_VECTOR,
-		       "Expected #GP for value '0x%lx', got vector '0x%x'",
-		       val, vector);
+		       "Expected #GP for value '0x%lx', got %s",
+		       val, ex_str(vector));
 }
 
-static void guest_code(uint64_t current_val)
+static void guest_code(u64 current_val)
 {
 	int i;
 
@@ -128,7 +129,7 @@ KVM_ONE_VCPU_TEST(vmx_pmu_caps, basic_perf_capabilities, guest_code)
 
 KVM_ONE_VCPU_TEST(vmx_pmu_caps, fungible_perf_capabilities, guest_code)
 {
-	const uint64_t fungible_caps = host_cap.capabilities & ~immutable_caps.capabilities;
+	const u64 fungible_caps = host_cap.capabilities & ~immutable_caps.capabilities;
 	int bit;
 
 	for_each_set_bit(bit, &fungible_caps, 64) {
@@ -147,7 +148,7 @@ KVM_ONE_VCPU_TEST(vmx_pmu_caps, fungible_perf_capabilities, guest_code)
  */
 KVM_ONE_VCPU_TEST(vmx_pmu_caps, immutable_perf_capabilities, guest_code)
 {
-	const uint64_t reserved_caps = (~host_cap.capabilities |
+	const u64 reserved_caps = (~host_cap.capabilities |
 					immutable_caps.capabilities) &
 				       ~format_caps.capabilities;
 	union perf_capabilities val = host_cap;
@@ -209,7 +210,7 @@ KVM_ONE_VCPU_TEST(vmx_pmu_caps, lbr_perf_capabilities, guest_code)
 
 KVM_ONE_VCPU_TEST(vmx_pmu_caps, perf_capabilities_unsupported, guest_code)
 {
-	uint64_t val;
+	u64 val;
 	int i, r;
 
 	vcpu_set_msr(vcpu, MSR_IA32_PERF_CAPABILITIES, host_cap.capabilities);

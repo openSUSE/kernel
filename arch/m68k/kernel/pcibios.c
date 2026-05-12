@@ -27,14 +27,18 @@
  * which might be mirrored at 0x0100-0x03ff..
  */
 resource_size_t pcibios_align_resource(void *data, const struct resource *res,
-	resource_size_t size, resource_size_t align)
+				       const struct resource *empty_res,
+				       resource_size_t size,
+				       resource_size_t align)
 {
+	struct pci_dev *dev = data;
 	resource_size_t start = res->start;
 
 	if ((res->flags & IORESOURCE_IO) && (start & 0x300))
 		start = (start + 0x3ff) & ~0x3ff;
 
-	start = (start + align - 1) & ~(align - 1);
+	if (res->flags & IORESOURCE_MEM)
+		return pci_align_resource(dev, res, empty_res, size, align);
 
 	return start;
 }
@@ -44,41 +48,24 @@ resource_size_t pcibios_align_resource(void *data, const struct resource *res,
  */
 int pcibios_enable_device(struct pci_dev *dev, int mask)
 {
-	struct resource *r;
 	u16 cmd, newcmd;
-	int idx;
+	int ret;
 
-	pci_read_config_word(dev, PCI_COMMAND, &cmd);
-	newcmd = cmd;
-
-	for (idx = 0; idx < 6; idx++) {
-		/* Only set up the requested stuff */
-		if (!(mask & (1 << idx)))
-			continue;
-
-		r = dev->resource + idx;
-		if (!r->start && r->end) {
-			pr_err("PCI: Device %s not available because of resource collisions\n",
-				pci_name(dev));
-			return -EINVAL;
-		}
-		if (r->flags & IORESOURCE_IO)
-			newcmd |= PCI_COMMAND_IO;
-		if (r->flags & IORESOURCE_MEM)
-			newcmd |= PCI_COMMAND_MEMORY;
-	}
+	ret = pci_enable_resources(dev, mask);
+	if (ret < 0)
+		return ret;
 
 	/*
 	 * Bridges (eg, cardbus bridges) need to be fully enabled
 	 */
-	if ((dev->class >> 16) == PCI_BASE_CLASS_BRIDGE)
+	if ((dev->class >> 16) == PCI_BASE_CLASS_BRIDGE) {
+		pci_read_config_word(dev, PCI_COMMAND, &cmd);
 		newcmd |= PCI_COMMAND_IO | PCI_COMMAND_MEMORY;
-
-
-	if (newcmd != cmd) {
-		pr_info("PCI: enabling device %s (0x%04x -> 0x%04x)\n",
-			pci_name(dev), cmd, newcmd);
-		pci_write_config_word(dev, PCI_COMMAND, newcmd);
+		if (newcmd != cmd) {
+			pr_info("PCI: enabling bridge %s (0x%04x -> 0x%04x)\n",
+				pci_name(dev), cmd, newcmd);
+			pci_write_config_word(dev, PCI_COMMAND, newcmd);
+		}
 	}
 	return 0;
 }

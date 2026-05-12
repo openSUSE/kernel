@@ -21,9 +21,10 @@
 #include <linux/file.h>
 #include <linux/gtp.h>
 
+#include <net/flow.h>
+#include <net/inet_dscp.h>
 #include <net/net_namespace.h>
 #include <net/protocol.h>
-#include <net/inet_dscp.h>
 #include <net/inet_sock.h>
 #include <net/ip.h>
 #include <net/ipv6.h>
@@ -352,7 +353,7 @@ static struct rtable *ip4_route_output_gtp(struct flowi4 *fl4,
 	fl4->flowi4_oif		= sk->sk_bound_dev_if;
 	fl4->daddr		= daddr;
 	fl4->saddr		= saddr;
-	fl4->flowi4_tos		= inet_dscp_to_dsfield(inet_sk_dscp(inet_sk(sk)));
+	fl4->flowi4_dscp	= inet_sk_dscp(inet_sk(sk));
 	fl4->flowi4_scope	= ip_sock_rt_scope(sk);
 	fl4->flowi4_proto	= sk->sk_protocol;
 
@@ -373,7 +374,7 @@ static struct rt6_info *ip6_route_output_gtp(struct net *net,
 	fl6->saddr		= *saddr;
 	fl6->flowi6_proto	= sk->sk_protocol;
 
-	dst = ipv6_stub->ipv6_dst_lookup_flow(net, sk, fl6, NULL);
+	dst = ip6_dst_lookup_flow(net, sk, fl6, NULL);
 	if (IS_ERR(dst))
 		return ERR_PTR(-ENETUNREACH);
 
@@ -632,7 +633,7 @@ static void gtp1u_build_echo_msg(struct gtp1_header_long *hdr, __u8 msg_type)
 	hdr->tid = 0;
 
 	/* seq, npdu and next should be counted to the length of the GTP packet
-	 * that's why szie of gtp1_header should be subtracted,
+	 * that's why size of gtp1_header should be subtracted,
 	 * not size of gtp1_header_long.
 	 */
 
@@ -1622,13 +1623,13 @@ static int gtp_hashtable_new(struct gtp_dev *gtp, int hsize)
 {
 	int i;
 
-	gtp->addr_hash = kmalloc_array(hsize, sizeof(struct hlist_head),
-				       GFP_KERNEL | __GFP_NOWARN);
+	gtp->addr_hash = kmalloc_objs(struct hlist_head, hsize,
+				      GFP_KERNEL | __GFP_NOWARN);
 	if (gtp->addr_hash == NULL)
 		return -ENOMEM;
 
-	gtp->tid_hash = kmalloc_array(hsize, sizeof(struct hlist_head),
-				      GFP_KERNEL | __GFP_NOWARN);
+	gtp->tid_hash = kmalloc_objs(struct hlist_head, hsize,
+				     GFP_KERNEL | __GFP_NOWARN);
 	if (gtp->tid_hash == NULL)
 		goto err1;
 
@@ -1916,7 +1917,7 @@ static struct pdp_ctx *gtp_pdp_add(struct gtp_dev *gtp, struct sock *sk,
 
 	}
 
-	pctx = kmalloc(sizeof(*pctx), GFP_ATOMIC);
+	pctx = kmalloc_obj(*pctx, GFP_ATOMIC);
 	if (pctx == NULL)
 		return ERR_PTR(-ENOMEM);
 
@@ -2399,15 +2400,17 @@ static int gtp_genl_send_echo_req(struct sk_buff *skb, struct genl_info *info)
 		return -ENODEV;
 	}
 
+	local_bh_disable();
 	udp_tunnel_xmit_skb(rt, sk, skb_to_send,
 			    fl4.saddr, fl4.daddr,
-			    fl4.flowi4_tos,
+			    inet_dscp_to_dsfield(fl4.flowi4_dscp),
 			    ip4_dst_hoplimit(&rt->dst),
 			    0,
 			    port, port,
 			    !net_eq(sock_net(sk),
 				    dev_net(gtp->dev)),
 			    false, 0);
+	local_bh_enable();
 	return 0;
 }
 

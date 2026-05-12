@@ -21,7 +21,7 @@
 #include <linux/mount.h>
 
 #include "../filesystems/wrappers.h"
-#include "../kselftest_harness.h"
+#include "kselftest_harness.h"
 
 #ifndef CLONE_NEWNS
 #define CLONE_NEWNS 0x00020000
@@ -1020,7 +1020,7 @@ FIXTURE_SETUP(mount_setattr_idmapped)
 			"size=100000,mode=700"), 0);
 
 	ASSERT_EQ(mount("testing", "/mnt", "tmpfs", MS_NOATIME | MS_NODEV,
-			"size=2m,mode=700"), 0);
+			"size=256m,mode=700"), 0);
 
 	ASSERT_EQ(mkdir("/mnt/A", 0777), 0);
 

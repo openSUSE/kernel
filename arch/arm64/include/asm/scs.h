@@ -2,13 +2,18 @@
 #ifndef _ASM_SCS_H
 #define _ASM_SCS_H
 
-#ifdef __ASSEMBLY__
+#ifdef __ASSEMBLER__
 
 #include <asm/asm-offsets.h>
 #include <asm/sysreg.h>
 
 #ifdef CONFIG_SHADOW_CALL_STACK
 	scs_sp	.req	x18
+
+	.macro scs_load_current_base
+	get_current_task scs_sp
+	ldr	scs_sp, [scs_sp, #TSK_TI_SCS_BASE]
+	.endm
 
 	.macro scs_load_current
 	get_current_task scs_sp
@@ -19,6 +24,9 @@
 	str	scs_sp, [\tsk, #TSK_TI_SCS_SP]
 	.endm
 #else
+	.macro scs_load_current_base
+	.endm
+
 	.macro scs_load_current
 	.endm
 
@@ -53,8 +61,8 @@ enum {
 	EDYNSCS_INVALID_CFA_OPCODE		= 4,
 };
 
-int __pi_scs_patch(const u8 eh_frame[], int size);
+int __pi_scs_patch(const u8 eh_frame[], int size, bool skip_dry_run);
 
-#endif /* __ASSEMBLY __ */
+#endif /* __ASSEMBLER__ */
 
 #endif /* _ASM_SCS_H */

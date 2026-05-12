@@ -269,6 +269,7 @@ enum iwl_dev_tx_power_cmd_mode {
 #define IWL_NUM_CHAIN_LIMITS	2
 #define IWL_NUM_SUB_BANDS_V1	5
 #define IWL_NUM_SUB_BANDS_V2	11
+#define IWL_NUM_SUB_BANDS_V3	12
 
 /**
  * struct iwl_dev_tx_power_common - Common part of the TX power reduction cmd
@@ -425,24 +426,38 @@ struct iwl_dev_tx_power_cmd_v10 {
 	__le32 flags;
 } __packed; /* TX_REDUCED_POWER_API_S_VER_10 */
 
+struct iwl_dev_tx_power_cmd_v11 {
+	__le16 per_chain[IWL_NUM_CHAIN_TABLES_V2][IWL_NUM_CHAIN_LIMITS][IWL_NUM_SUB_BANDS_V3];
+	u8 per_chain_restriction_changed;
+	u8 reserved;
+	__le32 timer_period;
+	__le32 flags;
+} __packed; /* TX_REDUCED_POWER_API_S_VER_11 */
+
 /*
  * struct iwl_dev_tx_power_cmd - TX power reduction command (multiversion)
  * @common: common part of the command
  * @v9: version 9 part of the command
  * @v10: version 10 part of the command
+ * @v11: version 11 part of the command
  */
 struct iwl_dev_tx_power_cmd {
 	struct iwl_dev_tx_power_common common;
 	union {
 		struct iwl_dev_tx_power_cmd_v9 v9;
 		struct iwl_dev_tx_power_cmd_v10 v10;
+		struct iwl_dev_tx_power_cmd_v11 v11;
 	};
-} __packed; /* TX_REDUCED_POWER_API_S_VER_9_VER10 */
+} __packed; /* TX_REDUCED_POWER_API_S_VER_9
+	     * TX_REDUCED_POWER_API_S_VER_10
+	     * TX_REDUCED_POWER_API_S_VER_11
+	     */
 
 #define IWL_NUM_GEO_PROFILES		3
 #define IWL_NUM_GEO_PROFILES_V3		8
 #define IWL_NUM_BANDS_PER_CHAIN_V1	2
 #define IWL_NUM_BANDS_PER_CHAIN_V2	3
+#define IWL_NUM_BANDS_PER_CHAIN_V6	4
 
 /**
  * enum iwl_geo_per_chain_offset_operation - type of operation
@@ -524,12 +539,25 @@ struct iwl_geo_tx_power_profiles_cmd_v5 {
 	__le32 table_revision;
 } __packed; /* PER_CHAIN_LIMIT_OFFSET_CMD_VER_5 */
 
+/**
+ * struct iwl_geo_tx_power_profiles_cmd_v6 - struct for PER_CHAIN_LIMIT_OFFSET_CMD cmd.
+ * @ops: operations, value from &enum iwl_geo_per_chain_offset_operation
+ * @table: offset profile per band.
+ * @bios_hdr: describes the revision and the source of the BIOS
+ */
+struct iwl_geo_tx_power_profiles_cmd_v6 {
+	__le32 ops;
+	struct iwl_per_chain_offset table[IWL_NUM_GEO_PROFILES_V3][IWL_NUM_BANDS_PER_CHAIN_V6];
+	struct iwl_bios_config_hdr bios_hdr;
+} __packed; /* PER_CHAIN_LIMIT_OFFSET_CMD_VER_6 */
+
 union iwl_geo_tx_power_profiles_cmd {
 	struct iwl_geo_tx_power_profiles_cmd_v1 v1;
 	struct iwl_geo_tx_power_profiles_cmd_v2 v2;
 	struct iwl_geo_tx_power_profiles_cmd_v3 v3;
 	struct iwl_geo_tx_power_profiles_cmd_v4 v4;
 	struct iwl_geo_tx_power_profiles_cmd_v5 v5;
+	struct iwl_geo_tx_power_profiles_cmd_v6 v6;
 };
 
 /**
@@ -571,17 +599,19 @@ enum iwl_ppag_flags {
 /**
  * union iwl_ppag_table_cmd - union for all versions of PPAG command
  * @v1: command version 1 structure.
- * @v2: command version from 2 to 6 are same structure as v2.
- *	but has a different format of the flags bitmap
- * @v3: command version 7 structure.
+ * @v5: command version 5 structure.
+ * @v7: command version 7 structure.
+ * @v8: command version 8 structure.
  * @v1.flags: values from &enum iwl_ppag_flags
  * @v1.gain: table of antenna gain values per chain and sub-band
  * @v1.reserved: reserved
- * @v2.flags: values from &enum iwl_ppag_flags
- * @v2.gain: table of antenna gain values per chain and sub-band
- * @v3.ppag_config_info: see @struct bios_value_u32
- * @v3.gain: table of antenna gain values per chain and sub-band
- * @v3.reserved: reserved
+ * @v5.flags: values from &enum iwl_ppag_flags
+ * @v5.gain: table of antenna gain values per chain and sub-band
+ * @v7.ppag_config_info: see @struct bios_value_u32
+ * @v7.gain: table of antenna gain values per chain and sub-band
+ * @v7.reserved: reserved
+ * @v8.ppag_config_info: see @struct bios_value_u32
+ * @v8.gain: table of antenna gain values per chain and sub-band
  */
 union iwl_ppag_table_cmd {
 	struct {
@@ -593,29 +623,22 @@ union iwl_ppag_table_cmd {
 		__le32 flags;
 		s8 gain[IWL_NUM_CHAIN_LIMITS][IWL_NUM_SUB_BANDS_V2];
 		s8 reserved[2];
-	} __packed v2; /* PER_PLAT_ANTENNA_GAIN_CMD_API_S_VER_2, VER3, VER4,
-			* VER5, VER6
-			*/
+	} __packed v5; /* PER_PLAT_ANTENNA_GAIN_CMD_API_S_VER_5 */
 	struct {
 		struct bios_value_u32 ppag_config_info;
 		s8 gain[IWL_NUM_CHAIN_LIMITS][IWL_NUM_SUB_BANDS_V2];
 		s8 reserved[2];
-	} __packed v3; /* PER_PLAT_ANTENNA_GAIN_CMD_API_S_VER_7 */
+	} __packed v7; /* PER_PLAT_ANTENNA_GAIN_CMD_API_S_VER_7 */
+	struct {
+		struct bios_value_u32 ppag_config_info;
+		s8 gain[IWL_NUM_CHAIN_LIMITS][IWL_NUM_SUB_BANDS_V3];
+	} __packed v8; /* PER_PLAT_ANTENNA_GAIN_CMD_API_S_VER_8 */
 } __packed;
 
-#define IWL_PPAG_CMD_V4_MASK (IWL_PPAG_ETSI_MASK | IWL_PPAG_CHINA_MASK)
-#define IWL_PPAG_CMD_V5_MASK (IWL_PPAG_CMD_V4_MASK | \
+#define IWL_PPAG_CMD_V1_MASK (IWL_PPAG_ETSI_MASK | IWL_PPAG_CHINA_MASK)
+#define IWL_PPAG_CMD_V5_MASK (IWL_PPAG_CMD_V1_MASK | \
 			      IWL_PPAG_ETSI_LPI_UHB_MASK | \
 			      IWL_PPAG_USA_LPI_UHB_MASK)
-
-#define IWL_PPAG_CMD_V6_MASK (IWL_PPAG_CMD_V5_MASK |		\
-			      IWL_PPAG_ETSI_VLP_UHB_MASK |	\
-			      IWL_PPAG_ETSI_SP_UHB_MASK |	\
-			      IWL_PPAG_USA_VLP_UHB_MASK |	\
-			      IWL_PPAG_USA_SP_UHB_MASK |	\
-			      IWL_PPAG_CANADA_LPI_UHB_MASK |	\
-			      IWL_PPAG_CANADA_VLP_UHB_MASK |	\
-			      IWL_PPAG_CANADA_SP_UHB_MASK)
 
 #define MCC_TO_SAR_OFFSET_TABLE_ROW_SIZE	26
 #define MCC_TO_SAR_OFFSET_TABLE_COL_SIZE	13
@@ -632,7 +655,7 @@ struct iwl_sar_offset_mapping_cmd {
 } __packed; /*SAR_OFFSET_MAPPING_TABLE_CMD_API_S*/
 
 /**
- * struct iwl_beacon_filter_cmd
+ * struct iwl_beacon_filter_cmd - beacon filter command
  * REPLY_BEACON_FILTERING_CMD = 0xd2 (command)
  * @bf_energy_delta: Used for RSSI filtering, if in 'normal' state. Send beacon
  *      to driver if delta in Energy values calculated for this and last
@@ -774,11 +797,11 @@ enum iwl_6ghz_ap_type {
 }; /* PHY_AP_TYPE_API_E_VER_1 */
 
 /**
- * struct iwl_txpower_constraints_cmd
+ * struct iwl_txpower_constraints_cmd - TX power constraints command
  * AP_TX_POWER_CONSTRAINTS_CMD
  * Used for VLP/LPI/AFC Access Point power constraints for 6GHz channels
  * @link_id: linkId
- * @ap_type: see &enum iwl_ap_type
+ * @ap_type: see &enum iwl_6ghz_ap_type
  * @eirp_pwr: 8-bit 2s complement signed integer in the range
  *	-64 dBm to 63 dBm with a 0.5 dB step
  *	default &DEFAULT_TPE_TX_POWER (no maximum limit)
@@ -798,4 +821,5 @@ struct iwl_txpower_constraints_cmd {
 	__s8 psd_pwr[IWL_MAX_TX_EIRP_PSD_PWR_MAX_SIZE];
 	u8 reserved[3];
 } __packed; /* PHY_AP_TX_POWER_CONSTRAINTS_CMD_API_S_VER_1 */
+
 #endif /* __iwl_fw_api_power_h__ */

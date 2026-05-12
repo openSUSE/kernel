@@ -99,7 +99,7 @@ static int atmel_ecdh_set_secret(struct crypto_kpp *tfm, const void *buf,
 		return crypto_kpp_set_secret(ctx->fallback, buf, len);
 	}
 
-	cmd = kmalloc(sizeof(*cmd), GFP_KERNEL);
+	cmd = kmalloc_obj(*cmd);
 	if (!cmd)
 		return -ENOMEM;
 
@@ -182,7 +182,7 @@ static int atmel_ecdh_compute_shared_secret(struct kpp_request *req)
 	gfp = (req->base.flags & CRYPTO_TFM_REQ_MAY_SLEEP) ? GFP_KERNEL :
 							     GFP_ATOMIC;
 
-	work_data = kmalloc(sizeof(*work_data), gfp);
+	work_data = kmalloc_obj(*work_data, gfp);
 	if (!work_data)
 		return -ENOMEM;
 
@@ -261,6 +261,7 @@ static int atmel_ecdh_init_tfm(struct crypto_kpp *tfm)
 	if (IS_ERR(fallback)) {
 		dev_err(&ctx->client->dev, "Failed to allocate transformation for '%s': %ld\n",
 			alg, PTR_ERR(fallback));
+		atmel_ecc_i2c_client_free(ctx->client);
 		return PTR_ERR(fallback);
 	}
 

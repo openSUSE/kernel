@@ -19,6 +19,7 @@
 #include <linux/node.h>
 #include <linux/compiler.h>
 #include <linux/mutex.h>
+#include <linux/memory_hotplug.h>
 
 #define MIN_MEMORY_BLOCK_SIZE     (1UL << SECTION_SIZE_BITS)
 
@@ -64,10 +65,20 @@ struct memory_group {
 	};
 };
 
+enum memory_block_state {
+	/* These states are exposed to userspace as text strings in sysfs */
+	MEM_ONLINE,		/* exposed to userspace */
+	MEM_GOING_OFFLINE,	/* exposed to userspace */
+	MEM_OFFLINE,		/* exposed to userspace */
+	MEM_GOING_ONLINE,
+	MEM_CANCEL_ONLINE,
+	MEM_CANCEL_OFFLINE,
+};
+
 struct memory_block {
 	unsigned long start_section_nr;
-	unsigned long state;		/* serialized by the dev->lock */
-	int online_type;		/* for passing data to online routine */
+	enum memory_block_state state;	/* serialized by the dev->lock */
+	enum mmop online_type;	/* for passing data to online routine */
 	int nid;			/* NID for this memory block */
 	/*
 	 * The single zone of this memory block if all PFNs of this memory block
@@ -89,24 +100,7 @@ int arch_get_memory_phys_device(unsigned long start_pfn);
 unsigned long memory_block_size_bytes(void);
 int set_memory_block_size_order(unsigned int order);
 
-/* These states are exposed to userspace as text strings in sysfs */
-#define	MEM_ONLINE		(1<<0) /* exposed to userspace */
-#define	MEM_GOING_OFFLINE	(1<<1) /* exposed to userspace */
-#define	MEM_OFFLINE		(1<<2) /* exposed to userspace */
-#define	MEM_GOING_ONLINE	(1<<3)
-#define	MEM_CANCEL_ONLINE	(1<<4)
-#define	MEM_CANCEL_OFFLINE	(1<<5)
-#define	MEM_PREPARE_ONLINE	(1<<6)
-#define	MEM_FINISH_OFFLINE	(1<<7)
-
 struct memory_notify {
-	/*
-	 * The altmap_start_pfn and altmap_nr_pages fields are designated for
-	 * specifying the altmap range and are exclusively intended for use in
-	 * MEM_PREPARE_ONLINE/MEM_FINISH_OFFLINE notifiers.
-	 */
-	unsigned long altmap_start_pfn;
-	unsigned long altmap_nr_pages;
 	unsigned long start_pfn;
 	unsigned long nr_pages;
 };
@@ -115,13 +109,13 @@ struct notifier_block;
 struct mem_section;
 
 /*
- * Priorities for the hotplug memory callback routines (stored in decreasing
- * order in the callback chain)
+ * Priorities for the hotplug memory callback routines. Invoked from
+ * high to low. Higher priorities correspond to higher numbers.
  */
 #define DEFAULT_CALLBACK_PRI	0
 #define SLAB_CALLBACK_PRI	1
-#define HMAT_CALLBACK_PRI	2
 #define CXL_CALLBACK_PRI	5
+#define HMAT_CALLBACK_PRI	6
 #define MM_COMPUTE_BATCH_PRI	10
 #define CPUSET_CALLBACK_PRI	10
 #define MEMTIER_HOTPLUG_PRI	100
@@ -139,7 +133,7 @@ static inline int register_memory_notifier(struct notifier_block *nb)
 static inline void unregister_memory_notifier(struct notifier_block *nb)
 {
 }
-static inline int memory_notify(unsigned long val, void *v)
+static inline int memory_notify(enum memory_block_state state, void *v)
 {
 	return 0;
 }
@@ -159,11 +153,11 @@ static inline unsigned long memory_block_advised_max_size(void)
 extern int register_memory_notifier(struct notifier_block *nb);
 extern void unregister_memory_notifier(struct notifier_block *nb);
 int create_memory_block_devices(unsigned long start, unsigned long size,
-				struct vmem_altmap *altmap,
+				int nid, struct vmem_altmap *altmap,
 				struct memory_group *group);
 void remove_memory_block_devices(unsigned long start, unsigned long size);
 extern void memory_dev_init(void);
-extern int memory_notify(unsigned long val, void *v);
+extern int memory_notify(enum memory_block_state state, void *v);
 extern struct memory_block *find_memory_block(unsigned long section_nr);
 typedef int (*walk_memory_blocks_func_t)(struct memory_block *, void *);
 extern int walk_memory_blocks(unsigned long start, unsigned long size,
@@ -202,8 +196,7 @@ static inline unsigned long phys_to_block_id(unsigned long phys)
 }
 
 #ifdef CONFIG_NUMA
-void memory_block_add_nid(struct memory_block *mem, int nid,
-			  enum meminit_context context);
+void memory_block_add_nid_early(struct memory_block *mem, int nid);
 #endif /* CONFIG_NUMA */
 int memory_block_advise_max_size(unsigned long size);
 unsigned long memory_block_advised_max_size(void);

@@ -768,7 +768,6 @@ static int mxic_spi_probe(struct platform_device *pdev)
 	mxic = spi_controller_get_devdata(host);
 	mxic->dev = &pdev->dev;
 
-	host->dev.of_node = pdev->dev.of_node;
 
 	mxic->ps_clk = devm_clk_get(&pdev->dev, "ps_clk");
 	if (IS_ERR(mxic->ps_clk))
@@ -833,9 +832,10 @@ static void mxic_spi_remove(struct platform_device *pdev)
 	struct spi_controller *host = platform_get_drvdata(pdev);
 	struct mxic_spi *mxic = spi_controller_get_devdata(host);
 
+	spi_unregister_controller(host);
+
 	pm_runtime_disable(&pdev->dev);
 	mxic_spi_mem_ecc_remove(mxic);
-	spi_unregister_controller(host);
 }
 
 static const struct of_device_id mxic_spi_of_ids[] = {

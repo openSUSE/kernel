@@ -54,7 +54,7 @@ static int mlx5_core_func_to_vport(const struct mlx5_core_dev *dev,
 
 /**
  * mlx5_get_default_msix_vec_count - Get the default number of MSI-X vectors
- *                                   to be ssigned to each VF.
+ *                                   to be assigned to each VF.
  * @dev: PF to work on
  * @num_vfs: Number of enabled VFs
  */
@@ -261,7 +261,7 @@ struct mlx5_irq *mlx5_irq_alloc(struct mlx5_irq_pool *pool, int i,
 	struct mlx5_irq *irq;
 	int err;
 
-	irq = kzalloc(sizeof(*irq), GFP_KERNEL);
+	irq = kzalloc_obj(*irq);
 	if (!irq || !zalloc_cpumask_var(&irq->mask, GFP_KERNEL)) {
 		kfree(irq);
 		return ERR_PTR(-ENOMEM);
@@ -324,10 +324,8 @@ err_xa:
 	free_irq(irq->map.virq, &irq->nh);
 err_req_irq:
 #ifdef CONFIG_RFS_ACCEL
-	if (i && rmap && *rmap) {
-		free_irq_cpu_rmap(*rmap);
-		*rmap = NULL;
-	}
+	if (i && rmap && *rmap)
+		irq_cpu_rmap_remove(*rmap, irq->map.virq);
 err_irq_rmap:
 #endif
 	if (i && pci_msix_can_alloc_dyn(dev->pdev))
@@ -473,7 +471,7 @@ struct mlx5_irq *mlx5_ctrl_irq_request(struct mlx5_core_dev *dev)
 	struct irq_affinity_desc *af_desc;
 	struct mlx5_irq *irq;
 
-	af_desc = kvzalloc(sizeof(*af_desc), GFP_KERNEL);
+	af_desc = kvzalloc_obj(*af_desc);
 	if (!af_desc)
 		return ERR_PTR(-ENOMEM);
 
@@ -558,7 +556,7 @@ struct mlx5_irq *mlx5_irq_request_vector(struct mlx5_core_dev *dev, u16 cpu,
 	struct irq_affinity_desc *af_desc;
 	struct mlx5_irq *irq;
 
-	af_desc = kvzalloc(sizeof(*af_desc), GFP_KERNEL);
+	af_desc = kvzalloc_obj(*af_desc);
 	if (!af_desc)
 		return ERR_PTR(-ENOMEM);
 
@@ -580,7 +578,7 @@ static struct mlx5_irq_pool *
 irq_pool_alloc(struct mlx5_core_dev *dev, int start, int size, char *name,
 	       u32 min_threshold, u32 max_threshold)
 {
-	struct mlx5_irq_pool *pool = kvzalloc(sizeof(*pool), GFP_KERNEL);
+	struct mlx5_irq_pool *pool = kvzalloc_obj(*pool);
 
 	if (!pool)
 		return ERR_PTR(-ENOMEM);

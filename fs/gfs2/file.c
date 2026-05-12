@@ -637,7 +637,7 @@ int gfs2_open_common(struct inode *inode, struct file *file)
 			file->f_mode |= FMODE_CAN_ODIRECT;
 	}
 
-	fp = kzalloc(sizeof(struct gfs2_file), GFP_NOFS);
+	fp = kzalloc_obj(struct gfs2_file, GFP_NOFS);
 	if (!fp)
 		return -ENOMEM;
 
@@ -744,7 +744,7 @@ static int gfs2_fsync(struct file *file, loff_t start, loff_t end,
 {
 	struct address_space *mapping = file->f_mapping;
 	struct inode *inode = mapping->host;
-	int sync_state = inode->i_state & I_DIRTY;
+	int sync_state = inode_state_read_once(inode) & I_DIRTY;
 	struct gfs2_inode *ip = GFS2_I(inode);
 	int ret = 0, ret1 = 0;
 
@@ -1029,7 +1029,7 @@ static ssize_t gfs2_file_buffered_write(struct kiocb *iocb,
 	 */
 
 	if (inode == sdp->sd_rindex) {
-		statfs_gh = kmalloc(sizeof(*statfs_gh), GFP_NOFS);
+		statfs_gh = kmalloc_obj(*statfs_gh, GFP_NOFS);
 		if (!statfs_gh)
 			return -ENOMEM;
 	}
@@ -1442,22 +1442,29 @@ static int gfs2_lock(struct file *file, int cmd, struct file_lock *fl)
 	struct gfs2_inode *ip = GFS2_I(file->f_mapping->host);
 	struct gfs2_sbd *sdp = GFS2_SB(file->f_mapping->host);
 	struct lm_lockstruct *ls = &sdp->sd_lockstruct;
+	int ret;
 
 	if (!(fl->c.flc_flags & FL_POSIX))
 		return -ENOLCK;
-	if (gfs2_withdrawing_or_withdrawn(sdp)) {
+	if (gfs2_withdrawn(sdp)) {
 		if (lock_is_unlock(fl))
 			locks_lock_file_wait(file, fl);
 		return -EIO;
 	}
-	if (cmd == F_CANCELLK)
-		return dlm_posix_cancel(ls->ls_dlm, ip->i_no_addr, file, fl);
-	else if (IS_GETLK(cmd))
-		return dlm_posix_get(ls->ls_dlm, ip->i_no_addr, file, fl);
-	else if (lock_is_unlock(fl))
-		return dlm_posix_unlock(ls->ls_dlm, ip->i_no_addr, file, fl);
-	else
-		return dlm_posix_lock(ls->ls_dlm, ip->i_no_addr, file, cmd, fl);
+	down_read(&ls->ls_sem);
+	ret = -ENODEV;
+	if (likely(ls->ls_dlm != NULL)) {
+		if (cmd == F_CANCELLK)
+			ret = dlm_posix_cancel(ls->ls_dlm, ip->i_no_addr, file, fl);
+		else if (IS_GETLK(cmd))
+			ret = dlm_posix_get(ls->ls_dlm, ip->i_no_addr, file, fl);
+		else if (lock_is_unlock(fl))
+			ret = dlm_posix_unlock(ls->ls_dlm, ip->i_no_addr, file, fl);
+		else
+			ret = dlm_posix_lock(ls->ls_dlm, ip->i_no_addr, file, cmd, fl);
+	}
+	up_read(&ls->ls_sem);
+	return ret;
 }
 
 static void __flock_holder_uninit(struct file *file, struct gfs2_holder *fl_gh)
@@ -1586,7 +1593,6 @@ const struct file_operations gfs2_file_fops = {
 	.flock		= gfs2_flock,
 	.splice_read	= copy_splice_read,
 	.splice_write	= gfs2_file_splice_write,
-	.setlease	= simple_nosetlease,
 	.fallocate	= gfs2_fallocate,
 	.fop_flags	= FOP_ASYNC_LOCK,
 };
@@ -1631,5 +1637,6 @@ const struct file_operations gfs2_dir_fops_nolock = {
 	.release	= gfs2_release,
 	.fsync		= gfs2_fsync,
 	.llseek		= default_llseek,
+	.setlease	= generic_setlease,
 };
 

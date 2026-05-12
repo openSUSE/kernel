@@ -68,17 +68,17 @@ int hubbub3_init_dchub_sys_ctx(struct hubbub *hubbub,
 	struct dcn_vmid_page_table_config phys_config;
 
 	REG_SET(DCN_VM_FB_LOCATION_BASE, 0,
-			FB_BASE, pa_config->system_aperture.fb_base >> 24);
+			FB_BASE, ADDR_HI24(pa_config->system_aperture.fb_base));
 	REG_SET(DCN_VM_FB_LOCATION_TOP, 0,
-			FB_TOP, pa_config->system_aperture.fb_top >> 24);
+			FB_TOP, ADDR_HI24(pa_config->system_aperture.fb_top));
 	REG_SET(DCN_VM_FB_OFFSET, 0,
-			FB_OFFSET, pa_config->system_aperture.fb_offset >> 24);
+			FB_OFFSET, ADDR_HI24(pa_config->system_aperture.fb_offset));
 	REG_SET(DCN_VM_AGP_BOT, 0,
-			AGP_BOT, pa_config->system_aperture.agp_bot >> 24);
+			AGP_BOT, ADDR_HI24(pa_config->system_aperture.agp_bot));
 	REG_SET(DCN_VM_AGP_TOP, 0,
-			AGP_TOP, pa_config->system_aperture.agp_top >> 24);
+			AGP_TOP, ADDR_HI24(pa_config->system_aperture.agp_top));
 	REG_SET(DCN_VM_AGP_BASE, 0,
-			AGP_BASE, pa_config->system_aperture.agp_base >> 24);
+			AGP_BASE, ADDR_HI24(pa_config->system_aperture.agp_base));
 
 	if (pa_config->gart_config.page_table_start_addr != pa_config->gart_config.page_table_end_addr) {
 		phys_config.page_table_start_addr = pa_config->gart_config.page_table_start_addr >> 12;
@@ -440,33 +440,15 @@ void hubbub3_init_watermarks(struct hubbub *hubbub)
 	REG_WRITE(DCHUBBUB_ARB_ALLOW_DRAM_CLK_CHANGE_WATERMARK_D, reg);
 }
 
-void hubbub3_get_det_sizes(struct hubbub *hubbub, uint32_t *curr_det_sizes, uint32_t *target_det_sizes)
+void hubbub3_read_reg_state(struct hubbub *hubbub, struct dcn_hubbub_reg_state *hubbub_reg_state)
 {
 	struct dcn20_hubbub *hubbub1 = TO_DCN20_HUBBUB(hubbub);
 
-	REG_GET_2(DCHUBBUB_DET0_CTRL, DET0_SIZE_CURRENT, &curr_det_sizes[0],
-		DET0_SIZE, &target_det_sizes[0]);
-
-	REG_GET_2(DCHUBBUB_DET1_CTRL, DET1_SIZE_CURRENT, &curr_det_sizes[1],
-		DET1_SIZE, &target_det_sizes[1]);
-
-	REG_GET_2(DCHUBBUB_DET2_CTRL, DET2_SIZE_CURRENT, &curr_det_sizes[2],
-		DET2_SIZE, &target_det_sizes[2]);
-
-	REG_GET_2(DCHUBBUB_DET3_CTRL, DET3_SIZE_CURRENT, &curr_det_sizes[3],
-		DET3_SIZE, &target_det_sizes[3]);
-
-}
-
-uint32_t hubbub3_compbuf_config_error(struct hubbub *hubbub)
-{
-	struct dcn20_hubbub *hubbub1 = TO_DCN20_HUBBUB(hubbub);
-	uint32_t compbuf_config_error = 0;
-
-	REG_GET(DCHUBBUB_COMPBUF_CTRL, CONFIG_ERROR,
-		&compbuf_config_error);
-
-	return compbuf_config_error;
+	hubbub_reg_state->det0_ctrl = REG_READ(DCHUBBUB_DET0_CTRL);
+	hubbub_reg_state->det1_ctrl = REG_READ(DCHUBBUB_DET1_CTRL);
+	hubbub_reg_state->det2_ctrl = REG_READ(DCHUBBUB_DET2_CTRL);
+	hubbub_reg_state->det3_ctrl = REG_READ(DCHUBBUB_DET3_CTRL);
+	hubbub_reg_state->compbuf_ctrl = REG_READ(DCHUBBUB_COMPBUF_CTRL);
 }
 
 static const struct hubbub_funcs hubbub30_funcs = {
@@ -486,8 +468,7 @@ static const struct hubbub_funcs hubbub30_funcs = {
 	.force_pstate_change_control = hubbub3_force_pstate_change_control,
 	.init_watermarks = hubbub3_init_watermarks,
 	.hubbub_read_state = hubbub2_read_state,
-	.get_det_sizes = hubbub3_get_det_sizes,
-	.compbuf_config_error = hubbub3_compbuf_config_error,
+	.hubbub_read_reg_state = hubbub3_read_reg_state
 };
 
 void hubbub3_construct(struct dcn20_hubbub *hubbub3,

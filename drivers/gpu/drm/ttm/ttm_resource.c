@@ -34,9 +34,10 @@
 #include <drm/ttm/ttm_resource.h>
 #include <drm/ttm/ttm_tt.h>
 
+#include <drm/drm_print.h>
 #include <drm/drm_util.h>
 
-/* Detach the cursor from the bulk move list*/
+/* Detach the cursor from the bulk move list */
 static void
 ttm_resource_cursor_clear_bulk(struct ttm_resource_cursor *cursor)
 {
@@ -104,9 +105,9 @@ void ttm_resource_cursor_init(struct ttm_resource_cursor *cursor,
  * ttm_resource_cursor_fini() - Finalize the LRU list cursor usage
  * @cursor: The struct ttm_resource_cursor to finalize.
  *
- * The function pulls the LRU list cursor off any lists it was previusly
+ * The function pulls the LRU list cursor off any lists it was previously
  * attached to. Needs to be called with the LRU lock held. The function
- * can be called multiple times after eachother.
+ * can be called multiple times after each other.
  */
 void ttm_resource_cursor_fini(struct ttm_resource_cursor *cursor)
 {
@@ -316,10 +317,10 @@ void ttm_resource_move_to_lru_tail(struct ttm_resource *res)
 }
 
 /**
- * ttm_resource_init - resource object constructure
- * @bo: buffer object this resources is allocated for
+ * ttm_resource_init - resource object constructor
+ * @bo: buffer object this resource is allocated for
  * @place: placement of the resource
- * @res: the resource object to inistilize
+ * @res: the resource object to initialize
  *
  * Initialize a new resource object. Counterpart of ttm_resource_fini().
  */
@@ -434,7 +435,7 @@ EXPORT_SYMBOL(ttm_resource_free);
  * @size: How many bytes the new allocation needs.
  *
  * Test if @res intersects with @place and @size. Used for testing if evictions
- * are valueable or not.
+ * are valuable or not.
  *
  * Returns true if the res placement intersects with @place and @size.
  */
@@ -444,9 +445,6 @@ bool ttm_resource_intersects(struct ttm_device *bdev,
 			     size_t size)
 {
 	struct ttm_resource_manager *man;
-
-	if (!res)
-		return false;
 
 	man = ttm_manager_type(bdev, res->mem_type);
 	if (!place || !man->func->intersects)
@@ -515,7 +513,7 @@ void ttm_resource_set_bo(struct ttm_resource *res,
  * @bdev: ttm device this manager belongs to
  * @size: size of managed resources in arbitrary units
  *
- * Initialise core parts of a manager object.
+ * Initialize core parts of a manager object.
  */
 void ttm_resource_manager_init(struct ttm_resource_manager *man,
 			       struct ttm_device *bdev,
@@ -523,22 +521,23 @@ void ttm_resource_manager_init(struct ttm_resource_manager *man,
 {
 	unsigned i;
 
-	spin_lock_init(&man->move_lock);
 	man->bdev = bdev;
 	man->size = size;
 	man->usage = 0;
 
 	for (i = 0; i < TTM_MAX_BO_PRIORITY; ++i)
 		INIT_LIST_HEAD(&man->lru[i]);
-	man->move = NULL;
+	spin_lock_init(&man->eviction_lock);
+	for (i = 0; i < TTM_NUM_MOVE_FENCES; i++)
+		man->eviction_fences[i] = NULL;
 }
 EXPORT_SYMBOL(ttm_resource_manager_init);
 
 /*
  * ttm_resource_manager_evict_all
  *
- * @bdev - device to use
- * @man - manager to use
+ * @bdev: device to use
+ * @man: manager to use
  *
  * Evict all the objects out of a memory manager until it is empty.
  * Part of memory manager cleanup sequence.
@@ -546,12 +545,9 @@ EXPORT_SYMBOL(ttm_resource_manager_init);
 int ttm_resource_manager_evict_all(struct ttm_device *bdev,
 				   struct ttm_resource_manager *man)
 {
-	struct ttm_operation_ctx ctx = {
-		.interruptible = false,
-		.no_wait_gpu = false,
-	};
+	struct ttm_operation_ctx ctx = { };
 	struct dma_fence *fence;
-	int ret;
+	int ret, i;
 
 	do {
 		ret = ttm_bo_evict_first(bdev, man, &ctx);
@@ -561,18 +557,24 @@ int ttm_resource_manager_evict_all(struct ttm_device *bdev,
 	if (ret && ret != -ENOENT)
 		return ret;
 
-	spin_lock(&man->move_lock);
-	fence = dma_fence_get(man->move);
-	spin_unlock(&man->move_lock);
+	ret = 0;
 
-	if (fence) {
-		ret = dma_fence_wait(fence, false);
-		dma_fence_put(fence);
-		if (ret)
-			return ret;
+	spin_lock(&man->eviction_lock);
+	for (i = 0; i < TTM_NUM_MOVE_FENCES; i++) {
+		fence = man->eviction_fences[i];
+		if (fence && !dma_fence_is_signaled(fence)) {
+			dma_fence_get(fence);
+			spin_unlock(&man->eviction_lock);
+			ret = dma_fence_wait(fence, false);
+			dma_fence_put(fence);
+			if (ret)
+				return ret;
+			spin_lock(&man->eviction_lock);
+		}
 	}
+	spin_unlock(&man->eviction_lock);
 
-	return 0;
+	return ret;
 }
 EXPORT_SYMBOL(ttm_resource_manager_evict_all);
 
@@ -586,6 +588,9 @@ EXPORT_SYMBOL(ttm_resource_manager_evict_all);
 uint64_t ttm_resource_manager_usage(struct ttm_resource_manager *man)
 {
 	uint64_t usage;
+
+	if (WARN_ON_ONCE(!man->bdev))
+		return 0;
 
 	spin_lock(&man->bdev->lru_lock);
 	usage = man->usage;
@@ -617,11 +622,11 @@ ttm_resource_cursor_check_bulk(struct ttm_resource_cursor *cursor,
 			       struct ttm_lru_item *next_lru)
 {
 	struct ttm_resource *next = ttm_lru_item_to_res(next_lru);
-	struct ttm_lru_bulk_move *bulk = NULL;
-	struct ttm_buffer_object *bo = next->bo;
+	struct ttm_lru_bulk_move *bulk;
 
 	lockdep_assert_held(&cursor->man->bdev->lru_lock);
-	bulk = bo->bulk_move;
+
+	bulk = next->bo->bulk_move;
 
 	if (cursor->bulk != bulk) {
 		if (bulk) {
@@ -877,7 +882,7 @@ out_err:
 
 /**
  * ttm_kmap_iter_linear_io_fini - Clean up an iterator for linear io memory
- * @iter_io: The iterator to initialize
+ * @iter_io: The iterator to finalize
  * @bdev: The TTM device
  * @mem: The ttm resource representing the iomap.
  *
@@ -916,15 +921,15 @@ DEFINE_SHOW_ATTRIBUTE(ttm_resource_manager);
 /**
  * ttm_resource_manager_create_debugfs - Create debugfs entry for specified
  * resource manager.
- * @man: The TTM resource manager for which the debugfs stats file be creates
+ * @man: The TTM resource manager for which the debugfs stats file to be created
  * @parent: debugfs directory in which the file will reside
  * @name: The filename to create.
  *
- * This function setups up a debugfs file that can be used to look
+ * This function sets up a debugfs file that can be used to look
  * at debug statistics of the specified ttm_resource_manager.
  */
 void ttm_resource_manager_create_debugfs(struct ttm_resource_manager *man,
-					 struct dentry * parent,
+					 struct dentry *parent,
 					 const char *name)
 {
 #if defined(CONFIG_DEBUG_FS)

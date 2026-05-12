@@ -39,16 +39,6 @@
 #define INVALID_PAE_ROOT	0
 #define IS_VALID_PAE_ROOT(x)	(!!(x))
 
-static inline hpa_t kvm_mmu_get_dummy_root(void)
-{
-	return my_zero_pfn(0) << PAGE_SHIFT;
-}
-
-static inline bool kvm_mmu_is_dummy_root(hpa_t shadow_page)
-{
-	return is_zero_pfn(shadow_page >> PAGE_SHIFT);
-}
-
 typedef u64 __rcu *tdp_ptep_t;
 
 struct kvm_mmu_page {
@@ -411,12 +401,14 @@ static inline int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 	return r;
 }
 
-int kvm_mmu_max_mapping_level(struct kvm *kvm,
+int kvm_mmu_max_mapping_level(struct kvm *kvm, struct kvm_page_fault *fault,
 			      const struct kvm_memory_slot *slot, gfn_t gfn);
 void kvm_mmu_hugepage_adjust(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault);
 void disallowed_hugepage_adjust(struct kvm_page_fault *fault, u64 spte, int cur_level);
 
-void track_possible_nx_huge_page(struct kvm *kvm, struct kvm_mmu_page *sp);
-void untrack_possible_nx_huge_page(struct kvm *kvm, struct kvm_mmu_page *sp);
+void track_possible_nx_huge_page(struct kvm *kvm, struct kvm_mmu_page *sp,
+				 enum kvm_mmu_type mmu_type);
+void untrack_possible_nx_huge_page(struct kvm *kvm, struct kvm_mmu_page *sp,
+				   enum kvm_mmu_type mmu_type);
 
 #endif /* __KVM_X86_MMU_INTERNAL_H */

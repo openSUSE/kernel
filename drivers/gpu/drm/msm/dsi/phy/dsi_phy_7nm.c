@@ -41,8 +41,8 @@
 #define VCO_REF_CLK_RATE		19200000
 #define FRAC_BITS 18
 
-/* Hardware is pre V4.1 */
-#define DSI_PHY_7NM_QUIRK_PRE_V4_1	BIT(0)
+/* Hardware is V4.0 */
+#define DSI_PHY_7NM_QUIRK_V4_0		BIT(0)
 /* Hardware is V4.1 */
 #define DSI_PHY_7NM_QUIRK_V4_1		BIT(1)
 /* Hardware is V4.2 */
@@ -51,8 +51,8 @@
 #define DSI_PHY_7NM_QUIRK_V4_3		BIT(3)
 /* Hardware is V5.2 */
 #define DSI_PHY_7NM_QUIRK_V5_2		BIT(4)
-/* Hardware is V7.0 */
-#define DSI_PHY_7NM_QUIRK_V7_0		BIT(5)
+/* Hardware is V7.2 */
+#define DSI_PHY_7NM_QUIRK_V7_2		BIT(5)
 
 struct dsi_pll_config {
 	bool enable_ssc;
@@ -141,9 +141,9 @@ static void dsi_pll_calc_dec_frac(struct dsi_pll_7nm *pll, struct dsi_pll_config
 	dec_multiple = div_u64(pll_freq * multiplier, divider);
 	dec = div_u64_rem(dec_multiple, multiplier, &frac);
 
-	if (pll->phy->cfg->quirks & DSI_PHY_7NM_QUIRK_PRE_V4_1) {
+	if (pll->phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V4_0) {
 		config->pll_clock_inverters = 0x28;
-	} else if ((pll->phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V7_0)) {
+	} else if ((pll->phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V7_2)) {
 		if (pll_freq < 163000000ULL)
 			config->pll_clock_inverters = 0xa0;
 		else if (pll_freq < 175000000ULL)
@@ -264,7 +264,7 @@ static void dsi_pll_config_hzindep_reg(struct dsi_pll_7nm *pll)
 	void __iomem *base = pll->phy->pll_base;
 	u8 analog_controls_five_1 = 0x01, vco_config_1 = 0x00;
 
-	if (!(pll->phy->cfg->quirks & DSI_PHY_7NM_QUIRK_PRE_V4_1))
+	if (!(pll->phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V4_0))
 		if (pll->vco_current_rate >= 3100000000ULL)
 			analog_controls_five_1 = 0x03;
 
@@ -284,7 +284,7 @@ static void dsi_pll_config_hzindep_reg(struct dsi_pll_7nm *pll)
 	}
 
 	if ((pll->phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V5_2) ||
-	    (pll->phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V7_0)) {
+	    (pll->phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V7_2)) {
 		if (pll->vco_current_rate < 1557000000ULL)
 			vco_config_1 = 0x08;
 		else
@@ -313,10 +313,10 @@ static void dsi_pll_config_hzindep_reg(struct dsi_pll_7nm *pll)
 	writel(0x29, base + REG_DSI_7nm_PHY_PLL_PFILT);
 	writel(0x2f, base + REG_DSI_7nm_PHY_PLL_PFILT);
 	writel(0x2a, base + REG_DSI_7nm_PHY_PLL_IFILT);
-	writel(!(pll->phy->cfg->quirks & DSI_PHY_7NM_QUIRK_PRE_V4_1) ? 0x3f : 0x22,
+	writel(!(pll->phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V4_0) ? 0x3f : 0x22,
 	       base + REG_DSI_7nm_PHY_PLL_IFILT);
 
-	if (!(pll->phy->cfg->quirks & DSI_PHY_7NM_QUIRK_PRE_V4_1)) {
+	if (!(pll->phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V4_0)) {
 		writel(0x22, base + REG_DSI_7nm_PHY_PLL_PERF_OPTIMIZE);
 		if (pll->slave)
 			writel(0x22, pll->slave->phy->pll_base + REG_DSI_7nm_PHY_PLL_PERF_OPTIMIZE);
@@ -426,11 +426,8 @@ static void dsi_pll_enable_pll_bias(struct dsi_pll_7nm *pll)
 	u32 data;
 
 	spin_lock_irqsave(&pll->pll_enable_lock, flags);
-	if (pll->pll_enable_cnt++) {
-		spin_unlock_irqrestore(&pll->pll_enable_lock, flags);
-		WARN_ON(pll->pll_enable_cnt == INT_MAX);
-		return;
-	}
+	pll->pll_enable_cnt++;
+	WARN_ON(pll->pll_enable_cnt == INT_MAX);
 
 	data = readl(pll->phy->base + REG_DSI_7nm_PHY_CMN_CTRL_0);
 	data |= DSI_7nm_PHY_CMN_CTRL_0_PLL_SHUTDOWNB;
@@ -702,7 +699,7 @@ static int dsi_7nm_set_usecase(struct msm_dsi_phy *phy)
 	case MSM_DSI_PHY_MASTER:
 		pll_7nm->slave = pll_7nm_list[(pll_7nm->phy->id + 1) % DSI_MAX];
 		/* v7.0: Enable ATB_EN0 and alternate clock output to external phy */
-		if (phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V7_0)
+		if (phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V7_2)
 			writel(0x07, base + REG_DSI_7nm_PHY_CMN_CTRL_5);
 		break;
 	case MSM_DSI_PHY_SLAVE:
@@ -876,7 +873,6 @@ static int dsi_pll_7nm_init(struct msm_dsi_phy *phy)
 	spin_lock_init(&pll_7nm->pll_enable_lock);
 
 	pll_7nm->phy = phy;
-	phy->pll_data = pll_7nm;
 
 	ret = pll_7nm_register(pll_7nm, phy->provided_clocks->hws);
 	if (ret) {
@@ -932,7 +928,7 @@ static void dsi_phy_hw_v4_0_lane_settings(struct msm_dsi_phy *phy)
 	const u8 *tx_dctrl = tx_dctrl_0;
 	void __iomem *lane_base = phy->lane_base;
 
-	if (!(phy->cfg->quirks & DSI_PHY_7NM_QUIRK_PRE_V4_1))
+	if (!(phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V4_0))
 		tx_dctrl = tx_dctrl_1;
 
 	/* Strength ctrl settings */
@@ -965,10 +961,8 @@ static int dsi_7nm_phy_enable(struct msm_dsi_phy *phy,
 	u32 const delay_us = 5;
 	u32 const timeout_us = 1000;
 	struct msm_dsi_dphy_timing *timing = &phy->timing;
-	struct dsi_pll_7nm *pll = phy->pll_data;
 	void __iomem *base = phy->base;
 	bool less_than_1500_mhz;
-	unsigned long flags;
 	u32 vreg_ctrl_0, vreg_ctrl_1, lane_ctrl0;
 	u32 glbl_pemph_ctrl_0;
 	u32 glbl_str_swi_cal_sel_ctrl, glbl_hstx_str_ctrl_0;
@@ -993,7 +987,7 @@ static int dsi_7nm_phy_enable(struct msm_dsi_phy *phy,
 	/* Request for REFGEN READY */
 	if ((phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V4_3) ||
 	    (phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V5_2) ||
-	    (phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V7_0)) {
+	    (phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V7_2)) {
 		writel(0x1, phy->base + REG_DSI_7nm_PHY_CMN_GLBL_DIGTOP_SPARE10);
 		udelay(500);
 	}
@@ -1027,7 +1021,7 @@ static int dsi_7nm_phy_enable(struct msm_dsi_phy *phy,
 		lane_ctrl0 = 0x1f;
 	}
 
-	if ((phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V7_0)) {
+	if ((phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V7_2)) {
 		if (phy->cphy_mode) {
 			/* TODO: different for second phy */
 			vreg_ctrl_0 = 0x57;
@@ -1090,13 +1084,10 @@ static int dsi_7nm_phy_enable(struct msm_dsi_phy *phy,
 		glbl_rescode_bot_ctrl = 0x3c;
 	}
 
-	spin_lock_irqsave(&pll->pll_enable_lock, flags);
-	pll->pll_enable_cnt = 1;
 	/* de-assert digital and pll power down */
 	data = DSI_7nm_PHY_CMN_CTRL_0_DIGTOP_PWRDN_B |
 	       DSI_7nm_PHY_CMN_CTRL_0_PLL_SHUTDOWNB;
 	writel(data, base + REG_DSI_7nm_PHY_CMN_CTRL_0);
-	spin_unlock_irqrestore(&pll->pll_enable_lock, flags);
 
 	/* Assert PLL core reset */
 	writel(0x00, base + REG_DSI_7nm_PHY_CMN_PLL_CNTRL);
@@ -1106,7 +1097,7 @@ static int dsi_7nm_phy_enable(struct msm_dsi_phy *phy,
 
 	/* program CMN_CTRL_4 for minor_ver 2 chipsets*/
 	if ((phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V5_2) ||
-	    (phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V7_0) ||
+	    (phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V7_2) ||
 	    (readl(base + REG_DSI_7nm_PHY_CMN_REVISION_ID0) & (0xf0)) == 0x20)
 		writel(0x04, base + REG_DSI_7nm_PHY_CMN_CTRL_4);
 
@@ -1209,9 +1200,7 @@ static bool dsi_7nm_set_continuous_clock(struct msm_dsi_phy *phy, bool enable)
 
 static void dsi_7nm_phy_disable(struct msm_dsi_phy *phy)
 {
-	struct dsi_pll_7nm *pll = phy->pll_data;
 	void __iomem *base = phy->base;
-	unsigned long flags;
 	u32 data;
 
 	DBG("");
@@ -1224,7 +1213,7 @@ static void dsi_7nm_phy_disable(struct msm_dsi_phy *phy)
 	/* Turn off REFGEN Vote */
 	if ((phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V4_3) ||
 	    (phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V5_2) ||
-	    (phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V7_0)) {
+	    (phy->cfg->quirks & DSI_PHY_7NM_QUIRK_V7_2)) {
 		writel(0x0, base + REG_DSI_7nm_PHY_CMN_GLBL_DIGTOP_SPARE10);
 		wmb();
 		/* Delay to ensure HW removes vote before PHY shut down */
@@ -1238,11 +1227,8 @@ static void dsi_7nm_phy_disable(struct msm_dsi_phy *phy)
 	writel(data, base + REG_DSI_7nm_PHY_CMN_CTRL_0);
 	writel(0, base + REG_DSI_7nm_PHY_CMN_LANE_CTRL0);
 
-	spin_lock_irqsave(&pll->pll_enable_lock, flags);
-	pll->pll_enable_cnt = 0;
 	/* Turn off all PHY blocks */
 	writel(0x00, base + REG_DSI_7nm_PHY_CMN_CTRL_0);
-	spin_unlock_irqrestore(&pll->pll_enable_lock, flags);
 
 	/* make sure phy is turned off */
 	wmb();
@@ -1333,7 +1319,7 @@ const struct msm_dsi_phy_cfg dsi_phy_7nm_8150_cfgs = {
 	.max_pll_rate = 3500000000UL,
 	.io_start = { 0xae94400, 0xae96400 },
 	.num_dsi_phy = 2,
-	.quirks = DSI_PHY_7NM_QUIRK_PRE_V4_1,
+	.quirks = DSI_PHY_7NM_QUIRK_V4_0,
 };
 
 const struct msm_dsi_phy_cfg dsi_phy_7nm_7280_cfgs = {
@@ -1516,5 +1502,28 @@ const struct msm_dsi_phy_cfg dsi_phy_3nm_8750_cfgs = {
 #endif
 	.io_start = { 0xae95000, 0xae97000 },
 	.num_dsi_phy = 2,
-	.quirks = DSI_PHY_7NM_QUIRK_V7_0,
+	.quirks = DSI_PHY_7NM_QUIRK_V7_2,
+};
+
+const struct msm_dsi_phy_cfg dsi_phy_3nm_kaanapali_cfgs = {
+	.has_phy_lane = true,
+	.regulator_data = dsi_phy_7nm_98000uA_regulators,
+	.num_regulators = ARRAY_SIZE(dsi_phy_7nm_98000uA_regulators),
+	.ops = {
+		.enable = dsi_7nm_phy_enable,
+		.disable = dsi_7nm_phy_disable,
+		.pll_init = dsi_pll_7nm_init,
+		.save_pll_state = dsi_7nm_pll_save_state,
+		.restore_pll_state = dsi_7nm_pll_restore_state,
+		.set_continuous_clock = dsi_7nm_set_continuous_clock,
+	},
+	.min_pll_rate = 600000000UL,
+#ifdef CONFIG_64BIT
+	.max_pll_rate = 5000000000UL,
+#else
+	.max_pll_rate = ULONG_MAX,
+#endif
+	.io_start = { 0x9ac1000, 0x9ac4000 },
+	.num_dsi_phy = 2,
+	.quirks = DSI_PHY_7NM_QUIRK_V7_2,
 };

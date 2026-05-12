@@ -10,6 +10,14 @@
 
 /* ------------------------------------------------------------------------
  * GUIDs
+ *
+ * The GUID returned by lsusb can be converted to this format with the
+ * following python snippet:
+ *
+ * import uuid
+ * id = "{01234567-89ab-cdef-0123-456789abcdef}"
+ * le = uuid.UUID(id).bytes_le
+ * print("{" + ", ".join([f"0x{b:02x}" for b in le]) + "}")
  */
 #define UVC_GUID_UVC_CAMERA \
 	{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, \
@@ -29,9 +37,31 @@
 #define UVC_GUID_EXT_GPIO_CONTROLLER \
 	{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, \
 	 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x03}
+#define UVC_GUID_CHROMEOS_XU \
+	{0x24, 0xe9, 0xd7, 0x74, 0xc9, 0x49, 0x45, 0x4a, \
+	 0x98, 0xa3, 0xc8, 0x07, 0x7e, 0x05, 0x1c, 0xa3}
 #define UVC_GUID_MSXU_1_5 \
 	{0xdc, 0x95, 0x3f, 0x0f, 0x32, 0x26, 0x4e, 0x4c, \
 	 0x92, 0xc9, 0xa0, 0x47, 0x82, 0xf4, 0x3b, 0xc8}
+
+/* https://learn.microsoft.com/en-us/windows-hardware/drivers/stream/uvc-extensions-1-5#222-extension-unit-controls */
+#define UVC_MSXU_CONTROL_FOCUS			0x01
+#define UVC_MSXU_CONTROL_EXPOSURE		0x02
+#define UVC_MSXU_CONTROL_EVCOMPENSATION		0x03
+#define UVC_MSXU_CONTROL_WHITEBALANCE		0x04
+#define UVC_MSXU_CONTROL_FACE_AUTHENTICATION	0x06
+#define UVC_MSXU_CONTROL_CAMERA_EXTRINSICS	0x07
+#define UVC_MSXU_CONTROL_CAMERA_INTRINSICS	0x08
+#define UVC_MSXU_CONTROL_METADATA		0x09
+#define UVC_MSXU_CONTROL_IR_TORCH		0x0a
+#define UVC_MSXU_CONTROL_DIGITALWINDOW		0x0b
+#define UVC_MSXU_CONTROL_DIGITALWINDOW_CONFIG	0x0c
+#define UVC_MSXU_CONTROL_VIDEO_HDR		0x0d
+#define UVC_MSXU_CONTROL_FRAMERATE_THROTTLE	0x0e
+#define UVC_MSXU_CONTROL_FIELDOFVIEW2_CONFIG	0x0f
+#define UVC_MSXU_CONTROL_FIELDOFVIEW2		0x10
+
+#define UVC_CROSXU_CONTROL_IQ_PROFILE		0x04
 
 #define UVC_GUID_FORMAT_MJPEG \
 	{ 'M',  'J',  'P',  'G', 0x00, 0x00, 0x10, 0x00, \
@@ -107,6 +137,9 @@
 	 0x9f, 0x53, 0x00, 0x20, 0xaf, 0x0b, 0xa7, 0x70}
 #define UVC_GUID_FORMAT_M420 \
 	{ 'M',  '4',  '2',  '0', 0x00, 0x00, 0x10, 0x00, \
+	 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}
+#define UVC_GUID_FORMAT_P010 \
+	{ 'P',  '0',  '1',  '0', 0x00, 0x00, 0x10, 0x00, \
 	 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}
 
 #define UVC_GUID_FORMAT_H264 \

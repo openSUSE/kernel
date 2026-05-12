@@ -538,8 +538,7 @@ static void kunit_resource_test_action_ordering(struct kunit *test)
 
 static int kunit_resource_test_init(struct kunit *test)
 {
-	struct kunit_test_resource_context *ctx =
-			kzalloc(sizeof(*ctx), GFP_KERNEL);
+	struct kunit_test_resource_context *ctx = kzalloc_obj(*ctx);
 
 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, ctx);
 
@@ -739,7 +738,7 @@ static struct kunit_case kunit_current_test_cases[] = {
 
 static void test_dev_action(void *priv)
 {
-	*(void **)priv = (void *)1;
+	*(long *)priv = 1;
 }
 
 static void kunit_device_test(struct kunit *test)

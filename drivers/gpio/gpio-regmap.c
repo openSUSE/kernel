@@ -31,6 +31,12 @@ struct gpio_regmap {
 	unsigned int reg_clr_base;
 	unsigned int reg_dir_in_base;
 	unsigned int reg_dir_out_base;
+	unsigned long *fixed_direction_output;
+
+#ifdef CONFIG_REGMAP_IRQ
+	int regmap_irq_line;
+	struct regmap_irq_chip_data *irq_chip_data;
+#endif
 
 	int (*reg_mask_xlate)(struct gpio_regmap *gpio, unsigned int base,
 			      unsigned int offset, unsigned int *reg,
@@ -76,7 +82,11 @@ static int gpio_regmap_get(struct gpio_chip *chip, unsigned int offset)
 	if (ret)
 		return ret;
 
-	ret = regmap_read(gpio->regmap, reg, &val);
+	/* ensure we don't spoil any register cache with pin input values */
+	if (gpio->reg_dat_base == gpio->reg_set_base)
+		ret = regmap_read_bypassed(gpio->regmap, reg, &val);
+	else
+		ret = regmap_read(gpio->regmap, reg, &val);
 	if (ret)
 		return ret;
 
@@ -88,7 +98,7 @@ static int gpio_regmap_set(struct gpio_chip *chip, unsigned int offset,
 {
 	struct gpio_regmap *gpio = gpiochip_get_data(chip);
 	unsigned int base = gpio_regmap_addr(gpio->reg_set_base);
-	unsigned int reg, mask;
+	unsigned int reg, mask, mask_val;
 	int ret;
 
 	ret = gpio->reg_mask_xlate(gpio, base, offset, &reg, &mask);
@@ -96,9 +106,15 @@ static int gpio_regmap_set(struct gpio_chip *chip, unsigned int offset,
 		return ret;
 
 	if (val)
-		ret = regmap_update_bits(gpio->regmap, reg, mask, mask);
+		mask_val = mask;
 	else
-		ret = regmap_update_bits(gpio->regmap, reg, mask, 0);
+		mask_val = 0;
+
+	/* ignore input values which shadow the old output value */
+	if (gpio->reg_dat_base == gpio->reg_set_base)
+		ret = regmap_write_bits(gpio->regmap, reg, mask, mask_val);
+	else
+		ret = regmap_update_bits(gpio->regmap, reg, mask, mask_val);
 
 	return ret;
 }
@@ -128,6 +144,13 @@ static int gpio_regmap_get_direction(struct gpio_chip *chip,
 	struct gpio_regmap *gpio = gpiochip_get_data(chip);
 	unsigned int base, val, reg, mask;
 	int invert, ret;
+
+	if (gpio->fixed_direction_output) {
+		if (test_bit(offset, gpio->fixed_direction_output))
+			return GPIO_LINE_DIRECTION_OUT;
+		else
+			return GPIO_LINE_DIRECTION_IN;
+	}
 
 	if (gpio->reg_dat_base && !gpio->reg_set_base)
 		return GPIO_LINE_DIRECTION_IN;
@@ -215,6 +238,7 @@ EXPORT_SYMBOL_GPL(gpio_regmap_get_drvdata);
  */
 struct gpio_regmap *gpio_regmap_register(const struct gpio_regmap_config *config)
 {
+	struct irq_domain *irq_domain;
 	struct gpio_regmap *gpio;
 	struct gpio_chip *chip;
 	int ret;
@@ -235,7 +259,7 @@ struct gpio_regmap *gpio_regmap_register(const struct gpio_regmap_config *config
 	if (config->reg_dir_out_base && config->reg_dir_in_base)
 		return ERR_PTR(-EINVAL);
 
-	gpio = kzalloc(sizeof(*gpio), GFP_KERNEL);
+	gpio = kzalloc_obj(*gpio);
 	if (!gpio)
 		return ERR_PTR(-ENOMEM);
 
@@ -255,6 +279,7 @@ struct gpio_regmap *gpio_regmap_register(const struct gpio_regmap_config *config
 	chip->names = config->names;
 	chip->label = config->label ?: dev_name(config->parent);
 	chip->can_sleep = regmap_might_sleep(config->regmap);
+	chip->init_valid_mask = config->init_valid_mask;
 
 	chip->request = gpiochip_generic_request;
 	chip->free = gpiochip_generic_free;
@@ -274,7 +299,18 @@ struct gpio_regmap *gpio_regmap_register(const struct gpio_regmap_config *config
 	if (!chip->ngpio) {
 		ret = gpiochip_get_ngpios(chip, chip->parent);
 		if (ret)
-			return ERR_PTR(ret);
+			goto err_free_gpio;
+	}
+
+	if (config->fixed_direction_output) {
+		gpio->fixed_direction_output = bitmap_alloc(chip->ngpio,
+							    GFP_KERNEL);
+		if (!gpio->fixed_direction_output) {
+			ret = -ENOMEM;
+			goto err_free_gpio;
+		}
+		bitmap_copy(gpio->fixed_direction_output,
+			    config->fixed_direction_output, chip->ngpio);
 	}
 
 	/* if not set, assume there is only one register */
@@ -293,10 +329,24 @@ struct gpio_regmap *gpio_regmap_register(const struct gpio_regmap_config *config
 
 	ret = gpiochip_add_data(chip, gpio);
 	if (ret < 0)
-		goto err_free_gpio;
+		goto err_free_bitmap;
 
-	if (config->irq_domain) {
-		ret = gpiochip_irqchip_add_domain(chip, config->irq_domain);
+#ifdef CONFIG_REGMAP_IRQ
+	if (config->regmap_irq_chip) {
+		gpio->regmap_irq_line = config->regmap_irq_line;
+		ret = regmap_add_irq_chip_fwnode(dev_fwnode(config->parent), config->regmap,
+						 config->regmap_irq_line, config->regmap_irq_flags,
+						 0, config->regmap_irq_chip, &gpio->irq_chip_data);
+		if (ret)
+			goto err_remove_gpiochip;
+
+		irq_domain = regmap_irq_get_domain(gpio->irq_chip_data);
+	} else
+#endif
+	irq_domain = config->irq_domain;
+
+	if (irq_domain) {
+		ret = gpiochip_irqchip_add_domain(chip, irq_domain);
 		if (ret)
 			goto err_remove_gpiochip;
 	}
@@ -305,6 +355,8 @@ struct gpio_regmap *gpio_regmap_register(const struct gpio_regmap_config *config
 
 err_remove_gpiochip:
 	gpiochip_remove(chip);
+err_free_bitmap:
+	bitmap_free(gpio->fixed_direction_output);
 err_free_gpio:
 	kfree(gpio);
 	return ERR_PTR(ret);
@@ -317,7 +369,13 @@ EXPORT_SYMBOL_GPL(gpio_regmap_register);
  */
 void gpio_regmap_unregister(struct gpio_regmap *gpio)
 {
+#ifdef CONFIG_REGMAP_IRQ
+	if (gpio->irq_chip_data)
+		regmap_del_irq_chip(gpio->regmap_irq_line, gpio->irq_chip_data);
+#endif
+
 	gpiochip_remove(&gpio->gpio_chip);
+	bitmap_free(gpio->fixed_direction_output);
 	kfree(gpio);
 }
 EXPORT_SYMBOL_GPL(gpio_regmap_unregister);

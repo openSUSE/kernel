@@ -179,29 +179,47 @@ Phase offset measurement and adjustment
 Device may provide ability to measure a phase difference between signals
 on a pin and its parent dpll device. If pin-dpll phase offset measurement
 is supported, it shall be provided with ``DPLL_A_PIN_PHASE_OFFSET``
-attribute for each parent dpll device.
+attribute for each parent dpll device. The reported phase offset may be
+computed as the average of prior values and the current measurement, using
+the following formula:
+
+.. math::
+   curr\_avg = prev\_avg * \frac{2^N-1}{2^N} + new\_val * \frac{1}{2^N}
+
+where `curr_avg` is the current reported phase offset, `prev_avg` is the
+previously reported value, `new_val` is the current measurement, and `N` is
+the averaging factor. Configured averaging factor value is provided with
+``DPLL_A_PHASE_OFFSET_AVG_FACTOR`` attribute of a device and value change can
+be requested with the same attribute with ``DPLL_CMD_DEVICE_SET`` command.
+
+  ================================== ======================================
+  ``DPLL_A_PHASE_OFFSET_AVG_FACTOR`` attr configured value of phase offset
+                                     averaging factor
+  ================================== ======================================
 
 Device may also provide ability to adjust a signal phase on a pin.
-If pin phase adjustment is supported, minimal and maximal values that pin
-handle shall be provide to the user on ``DPLL_CMD_PIN_GET`` respond
-with ``DPLL_A_PIN_PHASE_ADJUST_MIN`` and ``DPLL_A_PIN_PHASE_ADJUST_MAX``
+If pin phase adjustment is supported, minimal and maximal values and
+granularity that pin handle shall be provided to the user on
+``DPLL_CMD_PIN_GET`` respond with ``DPLL_A_PIN_PHASE_ADJUST_MIN``,
+``DPLL_A_PIN_PHASE_ADJUST_MAX`` and ``DPLL_A_PIN_PHASE_ADJUST_GRAN``
 attributes. Configured phase adjust value is provided with
 ``DPLL_A_PIN_PHASE_ADJUST`` attribute of a pin, and value change can be
 requested with the same attribute with ``DPLL_CMD_PIN_SET`` command.
 
-  =============================== ======================================
-  ``DPLL_A_PIN_ID``               configured pin id
-  ``DPLL_A_PIN_PHASE_ADJUST_MIN`` attr minimum value of phase adjustment
-  ``DPLL_A_PIN_PHASE_ADJUST_MAX`` attr maximum value of phase adjustment
-  ``DPLL_A_PIN_PHASE_ADJUST``     attr configured value of phase
-                                  adjustment on parent dpll device
-  ``DPLL_A_PIN_PARENT_DEVICE``    nested attribute for requesting
-                                  configuration on given parent dpll
-                                  device
-    ``DPLL_A_PIN_PARENT_ID``      parent dpll device id
-    ``DPLL_A_PIN_PHASE_OFFSET``   attr measured phase difference
-                                  between a pin and parent dpll device
-  =============================== ======================================
+  ================================ ==========================================
+  ``DPLL_A_PIN_ID``                configured pin id
+  ``DPLL_A_PIN_PHASE_ADJUST_GRAN`` attr granularity of phase adjustment value
+  ``DPLL_A_PIN_PHASE_ADJUST_MIN``  attr minimum value of phase adjustment
+  ``DPLL_A_PIN_PHASE_ADJUST_MAX``  attr maximum value of phase adjustment
+  ``DPLL_A_PIN_PHASE_ADJUST``      attr configured value of phase
+                                   adjustment on parent dpll device
+  ``DPLL_A_PIN_PARENT_DEVICE``     nested attribute for requesting
+                                   configuration on given parent dpll
+                                   device
+    ``DPLL_A_PIN_PARENT_ID``       parent dpll device id
+    ``DPLL_A_PIN_PHASE_OFFSET``    attr measured phase difference
+                                   between a pin and parent dpll device
+  ================================ ==========================================
 
 All phase related values are provided in pico seconds, which represents
 time difference between signals phase. The negative value means that
@@ -230,6 +248,24 @@ in the ``DPLL_A_PIN_PHASE_OFFSET`` attribute.
 
   =============================== ========================
   ``DPLL_A_PHASE_OFFSET_MONITOR`` attr state of a feature
+  =============================== ========================
+
+Frequency monitor
+=================
+
+Some DPLL devices may offer the capability to measure the actual
+frequency of all available input pins. The attribute and current feature state
+shall be included in the response message of the ``DPLL_CMD_DEVICE_GET``
+command for supported DPLL devices. In such cases, users can also control
+the feature using the ``DPLL_CMD_DEVICE_SET`` command by setting the
+``enum dpll_feature_state`` values for the attribute.
+Once enabled the measured input frequency for each input pin shall be
+returned in the ``DPLL_A_PIN_MEASURED_FREQUENCY`` attribute. The value
+is in millihertz (mHz), using ``DPLL_PIN_MEASURED_FREQUENCY_DIVIDER``
+as the divider.
+
+  =============================== ========================
+  ``DPLL_A_FREQUENCY_MONITOR``    attr state of a feature
   =============================== ========================
 
 Embedded SYNC
@@ -368,6 +404,8 @@ according to attribute purpose.
                                        frequencies
       ``DPLL_A_PIN_ANY_FREQUENCY_MIN`` attr minimum value of frequency
       ``DPLL_A_PIN_ANY_FREQUENCY_MAX`` attr maximum value of frequency
+    ``DPLL_A_PIN_PHASE_ADJUST_GRAN``   attr granularity of phase
+                                       adjustment value
     ``DPLL_A_PIN_PHASE_ADJUST_MIN``    attr minimum value of phase
                                        adjustment
     ``DPLL_A_PIN_PHASE_ADJUST_MAX``    attr maximum value of phase
@@ -391,6 +429,8 @@ according to attribute purpose.
       ``DPLL_A_PIN_STATE``             attr state of pin on the parent
                                        pin
     ``DPLL_A_PIN_CAPABILITIES``        attr bitmask of pin capabilities
+    ``DPLL_A_PIN_MEASURED_FREQUENCY``  attr measured frequency of
+                                       an input pin in mHz
   ==================================== ==================================
 
   ==================================== =================================

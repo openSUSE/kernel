@@ -33,7 +33,10 @@ struct tc_action {
 	struct tcf_t			tcfa_tm;
 	struct gnet_stats_basic_sync	tcfa_bstats;
 	struct gnet_stats_basic_sync	tcfa_bstats_hw;
-	struct gnet_stats_queue		tcfa_qstats;
+
+	atomic_t			tcfa_drops;
+	atomic_t			tcfa_overlimits;
+
 	struct net_rate_estimator __rcu *tcfa_rate_est;
 	spinlock_t			tcfa_lock;
 	struct gnet_stats_basic_sync __percpu *cpu_bstats;
@@ -53,7 +56,6 @@ struct tc_action {
 #define tcf_action	common.tcfa_action
 #define tcf_tm		common.tcfa_tm
 #define tcf_bstats	common.tcfa_bstats
-#define tcf_qstats	common.tcfa_qstats
 #define tcf_rate_est	common.tcfa_rate_est
 #define tcf_lock	common.tcfa_lock
 
@@ -68,6 +70,7 @@ struct tc_action {
 #define TCA_ACT_FLAGS_REPLACE	(1U << (TCA_ACT_FLAGS_USER_BITS + 2))
 #define TCA_ACT_FLAGS_NO_RTNL	(1U << (TCA_ACT_FLAGS_USER_BITS + 3))
 #define TCA_ACT_FLAGS_AT_INGRESS	(1U << (TCA_ACT_FLAGS_USER_BITS + 4))
+#define TCA_ACT_FLAGS_AT_INGRESS_OR_CLSACT	(1U << (TCA_ACT_FLAGS_USER_BITS + 5))
 
 /* Update lastuse only if needed, to avoid dirtying a cache line.
  * We use a temp variable to avoid fetching jiffies twice.
@@ -157,7 +160,7 @@ int tc_action_net_init(struct net *net, struct tc_action_net *tn,
 {
 	int err = 0;
 
-	tn->idrinfo = kmalloc(sizeof(*tn->idrinfo), GFP_KERNEL);
+	tn->idrinfo = kmalloc_obj(*tn->idrinfo);
 	if (!tn->idrinfo)
 		return -ENOMEM;
 	tn->ops = ops;
@@ -241,9 +244,7 @@ static inline void tcf_action_inc_drop_qstats(struct tc_action *a)
 		qstats_drop_inc(this_cpu_ptr(a->cpu_qstats));
 		return;
 	}
-	spin_lock(&a->tcfa_lock);
-	qstats_drop_inc(&a->tcfa_qstats);
-	spin_unlock(&a->tcfa_lock);
+	atomic_inc(&a->tcfa_drops);
 }
 
 static inline void tcf_action_inc_overlimit_qstats(struct tc_action *a)
@@ -252,9 +253,7 @@ static inline void tcf_action_inc_overlimit_qstats(struct tc_action *a)
 		qstats_overlimit_inc(this_cpu_ptr(a->cpu_qstats));
 		return;
 	}
-	spin_lock(&a->tcfa_lock);
-	qstats_overlimit_inc(&a->tcfa_qstats);
-	spin_unlock(&a->tcfa_lock);
+	atomic_inc(&a->tcfa_overlimits);
 }
 
 void tcf_action_update_stats(struct tc_action *a, u64 bytes, u64 packets,

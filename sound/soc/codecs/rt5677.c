@@ -706,8 +706,7 @@ static void rt5677_set_dsp_mode(struct rt5677_priv *rt5677, bool on)
 
 static unsigned int rt5677_set_vad_source(struct rt5677_priv *rt5677)
 {
-	struct snd_soc_dapm_context *dapm =
-			snd_soc_component_get_dapm(rt5677->component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(rt5677->component);
 	/* Force dapm to sync before we enable the
 	 * DSP to prevent write corruption
 	 */
@@ -2733,11 +2732,12 @@ static int rt5677_vref_event(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
 {
 	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	struct rt5677_priv *rt5677 = snd_soc_component_get_drvdata(component);
 
 	switch (event) {
 	case SND_SOC_DAPM_POST_PMU:
-		if (snd_soc_component_get_bias_level(component) != SND_SOC_BIAS_ON &&
+		if (snd_soc_dapm_get_bias_level(dapm) != SND_SOC_BIAS_ON &&
 			!rt5677->is_vref_slow) {
 			mdelay(20);
 			regmap_update_bits(rt5677->regmap, RT5677_PWR_ANLG1,
@@ -4643,8 +4643,8 @@ static int rt5677_set_bias_level(struct snd_soc_component *component,
 			enum snd_soc_bias_level level)
 {
 	struct rt5677_priv *rt5677 = snd_soc_component_get_drvdata(component);
-	enum snd_soc_bias_level prev_bias =
-		snd_soc_component_get_bias_level(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
+	enum snd_soc_bias_level prev_bias = snd_soc_dapm_get_bias_level(dapm);
 
 	switch (level) {
 	case SND_SOC_BIAS_ON:
@@ -4880,7 +4880,7 @@ static void rt5677_free_gpio(struct i2c_client *i2c)
 
 static int rt5677_probe(struct snd_soc_component *component)
 {
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	struct rt5677_priv *rt5677 = snd_soc_component_get_drvdata(component);
 	int i;
 
@@ -4896,7 +4896,7 @@ static int rt5677_probe(struct snd_soc_component *component)
 			ARRAY_SIZE(rt5677_dmic2_clk_1));
 	}
 
-	snd_soc_component_force_bias_level(component, SND_SOC_BIAS_OFF);
+	snd_soc_dapm_force_bias_level(dapm, SND_SOC_BIAS_OFF);
 
 	regmap_update_bits(rt5677->regmap, RT5677_DIG_MISC,
 			~RT5677_IRQ_DEBOUNCE_SEL_MASK, 0x0020);
@@ -5204,9 +5204,16 @@ MODULE_DEVICE_TABLE(of, rt5677_of_match);
 static const struct acpi_device_id rt5677_acpi_match[] = {
 	{ "10EC5677", RT5677 },
 	{ "RT5677CE", RT5677 },
+	{ "10EC5677", RT5677 },
 	{ }
 };
 MODULE_DEVICE_TABLE(acpi, rt5677_acpi_match);
+
+static const struct i2c_device_id rt5677_i2c_id[] = {
+	{ "rt5677", RT5677 },
+	{ }
+};
+MODULE_DEVICE_TABLE(i2c, rt5677_i2c_id);
 
 static void rt5677_read_device_properties(struct rt5677_priv *rt5677,
 		struct device *dev)
@@ -5529,9 +5536,17 @@ static int rt5677_init_irq(struct i2c_client *i2c)
 	return ret;
 }
 
+static const struct acpi_gpio_params rt5677_acpi_reset_gpios = {0, 0, true};
+static const struct acpi_gpio_params rt5677_acpi_ldo2_gpios = {1, 0, false};
+
+static const struct acpi_gpio_mapping rt5677_acpi_gpios[] = {
+	{ "realtek,reset-gpios", &rt5677_acpi_reset_gpios, 1 },
+	{ "realtek,pow-ldo2-gpios", &rt5677_acpi_ldo2_gpios, 1 },
+	{},
+};
+
 static int rt5677_i2c_probe(struct i2c_client *i2c)
 {
-	struct device *dev = &i2c->dev;
 	struct rt5677_priv *rt5677;
 	int ret;
 	unsigned int val;
@@ -5546,9 +5561,12 @@ static int rt5677_i2c_probe(struct i2c_client *i2c)
 	INIT_DELAYED_WORK(&rt5677->dsp_work, rt5677_dsp_work);
 	i2c_set_clientdata(i2c, rt5677);
 
-	rt5677->type = (enum rt5677_type)(uintptr_t)device_get_match_data(dev);
+	rt5677->type = (enum rt5677_type)(uintptr_t)i2c_get_match_data(i2c);
 	if (rt5677->type == 0)
 		return -EINVAL;
+
+	if (devm_acpi_dev_add_driver_gpios(rt5677->dev, rt5677_acpi_gpios))
+		dev_warn(rt5677->dev, "Unable to add GPIO mapping table\n");
 
 	rt5677_read_device_properties(rt5677, &i2c->dev);
 
@@ -5563,12 +5581,19 @@ static int rt5677_i2c_probe(struct i2c_client *i2c)
 		dev_err(&i2c->dev, "Failed to request POW_LDO2: %d\n", ret);
 		return ret;
 	}
+
 	rt5677->reset_pin = devm_gpiod_get_optional(&i2c->dev,
-			"realtek,reset", GPIOD_OUT_LOW);
+			"realtek,reset", GPIOD_OUT_HIGH);
+
 	if (IS_ERR(rt5677->reset_pin)) {
 		ret = PTR_ERR(rt5677->reset_pin);
 		dev_err(&i2c->dev, "Failed to request RESET: %d\n", ret);
 		return ret;
+	}
+
+	if (rt5677->reset_pin) {
+		msleep(1);
+		gpiod_set_value_cansleep(rt5677->reset_pin, 0);
 	}
 
 	if (rt5677->pow_ldo2 || rt5677->reset_pin) {
@@ -5596,7 +5621,13 @@ static int rt5677_i2c_probe(struct i2c_client *i2c)
 		return ret;
 	}
 
-	regmap_read(rt5677->regmap, RT5677_VENDOR_ID2, &val);
+	ret = regmap_read(rt5677->regmap, RT5677_VENDOR_ID2, &val);
+	if (ret) {
+		dev_err(&i2c->dev,
+			"Failed to read ID register: %d\n", ret);
+		return -ENODEV;
+	}
+
 	if (val != RT5677_DEVICE_ID) {
 		dev_err(&i2c->dev,
 			"Device with ID register %#x is not rt5677\n", val);
@@ -5665,6 +5696,7 @@ static struct i2c_driver rt5677_i2c_driver = {
 		.of_match_table = rt5677_of_match,
 		.acpi_match_table = rt5677_acpi_match,
 	},
+	.id_table = rt5677_i2c_id,
 	.probe    = rt5677_i2c_probe,
 	.remove   = rt5677_i2c_remove,
 };

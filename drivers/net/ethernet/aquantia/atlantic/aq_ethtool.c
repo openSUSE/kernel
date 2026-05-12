@@ -500,20 +500,25 @@ static int aq_ethtool_set_rss(struct net_device *netdev,
 	return err;
 }
 
+static u32 aq_ethtool_get_rx_ring_count(struct net_device *ndev)
+{
+	struct aq_nic_cfg_s *cfg;
+	struct aq_nic_s *aq_nic;
+
+	aq_nic = netdev_priv(ndev);
+	cfg = aq_nic_get_cfg(aq_nic);
+
+	return cfg->vecs;
+}
+
 static int aq_ethtool_get_rxnfc(struct net_device *ndev,
 				struct ethtool_rxnfc *cmd,
 				u32 *rule_locs)
 {
 	struct aq_nic_s *aq_nic = netdev_priv(ndev);
-	struct aq_nic_cfg_s *cfg;
 	int err = 0;
 
-	cfg = aq_nic_get_cfg(aq_nic);
-
 	switch (cmd->cmd) {
-	case ETHTOOL_GRXRINGS:
-		cmd->data = cfg->vecs;
-		break;
 	case ETHTOOL_GRXCLSRLCNT:
 		cmd->rule_cnt = aq_get_rxnfc_count_all_rules(aq_nic);
 		break;
@@ -978,6 +983,38 @@ static int aq_ethtool_set_phy_tunable(struct net_device *ndev,
 	return err;
 }
 
+static bool aq_ethtool_can_read_module_eeprom(struct aq_nic_s *aq_nic)
+{
+	return aq_nic->aq_fw_ops->read_module_eeprom ||
+		aq_nic->aq_hw_ops->hw_read_module_eeprom;
+}
+
+static int aq_ethtool_read_module_eeprom(struct aq_nic_s *aq_nic, u8 dev_addr,
+					 u8 reg_start_addr, int len, u8 *data)
+{
+	const struct aq_fw_ops *fw_ops = aq_nic->aq_fw_ops;
+	const struct aq_hw_ops *hw_ops = aq_nic->aq_hw_ops;
+	int err = -EOPNOTSUPP;
+
+	if (fw_ops->read_module_eeprom) {
+		err = fw_ops->read_module_eeprom(aq_nic->aq_hw, dev_addr,
+						 reg_start_addr, len, data);
+
+		/* If the only error is that the firmware version doesn't
+		 * support reading EEPROM, we can still attempt to read it
+		 * directly from the hardware if supported.
+		 */
+		if (err != -EOPNOTSUPP)
+			return err;
+	}
+
+	if (hw_ops->hw_read_module_eeprom)
+		err = hw_ops->hw_read_module_eeprom(aq_nic->aq_hw, dev_addr,
+						    reg_start_addr, len, data);
+
+	return err;
+}
+
 static int aq_ethtool_get_module_info(struct net_device *ndev,
 				      struct ethtool_modinfo *modinfo)
 {
@@ -987,16 +1024,18 @@ static int aq_ethtool_get_module_info(struct net_device *ndev,
 
 	/* Module EEPROM is only supported for controllers with external PHY */
 	if (aq_nic->aq_nic_cfg.aq_hw_caps->media_type != AQ_HW_MEDIA_TYPE_FIBRE ||
-	    !aq_nic->aq_hw_ops->hw_read_module_eeprom)
+	    !aq_ethtool_can_read_module_eeprom(aq_nic))
 		return -EOPNOTSUPP;
 
-	err = aq_nic->aq_hw_ops->hw_read_module_eeprom(aq_nic->aq_hw,
-		SFF_8472_ID_ADDR, SFF_8472_COMP_ADDR, 1, &compliance_val);
+	err = aq_ethtool_read_module_eeprom(aq_nic, SFF_8472_ID_ADDR,
+					    SFF_8472_COMP_ADDR, 1,
+					    &compliance_val);
 	if (err)
 		return err;
 
-	err = aq_nic->aq_hw_ops->hw_read_module_eeprom(aq_nic->aq_hw,
-		SFF_8472_ID_ADDR, SFF_8472_DOM_TYPE_ADDR, 1, &dom_type);
+	err = aq_ethtool_read_module_eeprom(aq_nic, SFF_8472_ID_ADDR,
+					    SFF_8472_DOM_TYPE_ADDR, 1,
+					    &dom_type);
 	if (err)
 		return err;
 
@@ -1017,7 +1056,7 @@ static int aq_ethtool_get_module_eeprom(struct net_device *ndev,
 	unsigned int first, last, len;
 	int err;
 
-	if (!aq_nic->aq_hw_ops->hw_read_module_eeprom)
+	if (!aq_ethtool_can_read_module_eeprom(aq_nic))
 		return -EOPNOTSUPP;
 
 	first = ee->offset;
@@ -1027,8 +1066,8 @@ static int aq_ethtool_get_module_eeprom(struct net_device *ndev,
 		len = min(last, ETH_MODULE_SFF_8079_LEN);
 		len -= first;
 
-		err = aq_nic->aq_hw_ops->hw_read_module_eeprom(aq_nic->aq_hw,
-			SFF_8472_ID_ADDR, first, len, data);
+		err = aq_ethtool_read_module_eeprom(aq_nic, SFF_8472_ID_ADDR,
+						    first, len, data);
 		if (err)
 			return err;
 
@@ -1040,8 +1079,9 @@ static int aq_ethtool_get_module_eeprom(struct net_device *ndev,
 		len -= first;
 		first -= ETH_MODULE_SFF_8079_LEN;
 
-		err = aq_nic->aq_hw_ops->hw_read_module_eeprom(aq_nic->aq_hw,
-			SFF_8472_DIAGNOSTICS_ADDR, first, len, data);
+		err = aq_ethtool_read_module_eeprom(aq_nic,
+						    SFF_8472_DIAGNOSTICS_ADDR,
+						    first, len, data);
 		if (err)
 			return err;
 	}
@@ -1072,6 +1112,7 @@ const struct ethtool_ops aq_ethtool_ops = {
 	.set_rxfh            = aq_ethtool_set_rss,
 	.get_rxnfc           = aq_ethtool_get_rxnfc,
 	.set_rxnfc           = aq_ethtool_set_rxnfc,
+	.get_rx_ring_count   = aq_ethtool_get_rx_ring_count,
 	.get_msglevel        = aq_get_msg_level,
 	.set_msglevel        = aq_set_msg_level,
 	.get_sset_count      = aq_ethtool_get_sset_count,

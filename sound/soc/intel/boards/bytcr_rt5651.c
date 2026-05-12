@@ -58,7 +58,8 @@ enum {
 	BYT_RT5651_OVCD_SF_1P5	= (RT5651_OVCD_SF_1P5 << 13),
 };
 
-#define BYT_RT5651_MAP(quirk)		((quirk) & GENMASK(3, 0))
+#define BYT_RT5651_MAP_MASK		GENMASK(3, 0)
+#define BYT_RT5651_MAP(quirk)		((quirk) & BYT_RT5651_MAP_MASK)
 #define BYT_RT5651_JDSRC(quirk)		(((quirk) & GENMASK(7, 4)) >> 4)
 #define BYT_RT5651_OVCD_TH(quirk)	(((quirk) & GENMASK(12, 8)) >> 8)
 #define BYT_RT5651_OVCD_SF(quirk)	(((quirk) & GENMASK(14, 13)) >> 13)
@@ -100,14 +101,29 @@ MODULE_PARM_DESC(quirk, "Board-specific quirk override");
 
 static void log_quirks(struct device *dev)
 {
-	if (BYT_RT5651_MAP(byt_rt5651_quirk) == BYT_RT5651_DMIC_MAP)
+	int map;
+
+	map = BYT_RT5651_MAP(byt_rt5651_quirk);
+	switch (map) {
+	case BYT_RT5651_DMIC_MAP:
 		dev_info(dev, "quirk DMIC_MAP enabled");
-	if (BYT_RT5651_MAP(byt_rt5651_quirk) == BYT_RT5651_IN1_MAP)
+		break;
+	case BYT_RT5651_IN1_MAP:
 		dev_info(dev, "quirk IN1_MAP enabled");
-	if (BYT_RT5651_MAP(byt_rt5651_quirk) == BYT_RT5651_IN2_MAP)
+		break;
+	case BYT_RT5651_IN2_MAP:
 		dev_info(dev, "quirk IN2_MAP enabled");
-	if (BYT_RT5651_MAP(byt_rt5651_quirk) == BYT_RT5651_IN1_IN2_MAP)
+		break;
+	case BYT_RT5651_IN1_IN2_MAP:
 		dev_info(dev, "quirk IN1_IN2_MAP enabled");
+		break;
+	default:
+		dev_warn_once(dev, "quirk sets invalid input map: 0x%x, default to DMIC_MAP\n", map);
+		byt_rt5651_quirk &= ~BYT_RT5651_MAP_MASK;
+		byt_rt5651_quirk |= BYT_RT5651_DMIC_MAP;
+		break;
+	}
+
 	if (BYT_RT5651_JDSRC(byt_rt5651_quirk)) {
 		dev_info(dev, "quirk realtek,jack-detect-source %ld\n",
 			 BYT_RT5651_JDSRC(byt_rt5651_quirk));
@@ -172,8 +188,7 @@ static int byt_rt5651_prepare_and_enable_pll1(struct snd_soc_dai *codec_dai,
 static int platform_clock_control(struct snd_soc_dapm_widget *w,
 				  struct snd_kcontrol *k, int  event)
 {
-	struct snd_soc_dapm_context *dapm = w->dapm;
-	struct snd_soc_card *card = dapm->card;
+	struct snd_soc_card *card = snd_soc_dapm_to_card(w->dapm);
 	struct snd_soc_dai *codec_dai;
 	struct byt_rt5651_private *priv = snd_soc_card_get_drvdata(card);
 	int ret;
@@ -190,10 +205,12 @@ static int platform_clock_control(struct snd_soc_dapm_widget *w,
 	if (SND_SOC_DAPM_EVENT_ON(event)) {
 		ret = clk_prepare_enable(priv->mclk);
 		if (ret < 0) {
-			dev_err(card->dev, "could not configure MCLK state");
+			dev_err(card->dev, "could not configure MCLK state: %d\n", ret);
 			return ret;
 		}
 		ret = byt_rt5651_prepare_and_enable_pll1(codec_dai, 48000, 50);
+		if (ret < 0)
+			clk_disable_unprepare(priv->mclk);
 	} else {
 		/*
 		 * Set codec clock source to internal clock before
@@ -218,7 +235,7 @@ static int platform_clock_control(struct snd_soc_dapm_widget *w,
 static int rt5651_ext_amp_power_event(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
 {
-	struct snd_soc_card *card = w->dapm->card;
+	struct snd_soc_card *card = snd_soc_dapm_to_card(w->dapm);
 	struct byt_rt5651_private *priv = snd_soc_card_get_drvdata(card);
 
 	if (SND_SOC_DAPM_EVENT_ON(event))
@@ -563,6 +580,7 @@ static int byt_rt5651_add_codec_device_props(struct device *i2c_dev,
 static int byt_rt5651_init(struct snd_soc_pcm_runtime *runtime)
 {
 	struct snd_soc_card *card = runtime->card;
+	struct snd_soc_dapm_context *dapm = snd_soc_card_to_dapm(card);
 	struct snd_soc_component *codec = snd_soc_rtd_to_codec(runtime, 0)->component;
 	struct byt_rt5651_private *priv = snd_soc_card_get_drvdata(card);
 	const struct snd_soc_dapm_route *custom_map;
@@ -570,7 +588,7 @@ static int byt_rt5651_init(struct snd_soc_pcm_runtime *runtime)
 	int report;
 	int ret;
 
-	card->dapm.idle_bias_off = true;
+	snd_soc_dapm_set_idle_bias(dapm, false);
 
 	/* Start with RC clk for jack-detect (we disable MCLK below) */
 	if (byt_rt5651_quirk & BYT_RT5651_MCLK_EN)
@@ -594,24 +612,24 @@ static int byt_rt5651_init(struct snd_soc_pcm_runtime *runtime)
 		custom_map = byt_rt5651_intmic_dmic_map;
 		num_routes = ARRAY_SIZE(byt_rt5651_intmic_dmic_map);
 	}
-	ret = snd_soc_dapm_add_routes(&card->dapm, custom_map, num_routes);
+	ret = snd_soc_dapm_add_routes(dapm, custom_map, num_routes);
 	if (ret)
 		return ret;
 
 	if (byt_rt5651_quirk & BYT_RT5651_SSP2_AIF2) {
-		ret = snd_soc_dapm_add_routes(&card->dapm,
+		ret = snd_soc_dapm_add_routes(dapm,
 					byt_rt5651_ssp2_aif2_map,
 					ARRAY_SIZE(byt_rt5651_ssp2_aif2_map));
 	} else if (byt_rt5651_quirk & BYT_RT5651_SSP0_AIF1) {
-		ret = snd_soc_dapm_add_routes(&card->dapm,
+		ret = snd_soc_dapm_add_routes(dapm,
 					byt_rt5651_ssp0_aif1_map,
 					ARRAY_SIZE(byt_rt5651_ssp0_aif1_map));
 	} else if (byt_rt5651_quirk & BYT_RT5651_SSP0_AIF2) {
-		ret = snd_soc_dapm_add_routes(&card->dapm,
+		ret = snd_soc_dapm_add_routes(dapm,
 					byt_rt5651_ssp0_aif2_map,
 					ARRAY_SIZE(byt_rt5651_ssp0_aif2_map));
 	} else {
-		ret = snd_soc_dapm_add_routes(&card->dapm,
+		ret = snd_soc_dapm_add_routes(dapm,
 					byt_rt5651_ssp2_aif1_map,
 					ARRAY_SIZE(byt_rt5651_ssp2_aif1_map));
 	}

@@ -190,6 +190,21 @@ int br_switchdev_port_vlan_add(struct net_device *dev, u16 vid, u16 flags,
 	return switchdev_port_obj_add(dev, &v.obj, extack);
 }
 
+int br_switchdev_port_vlan_no_foreign_add(struct net_device *dev, u16 vid, u16 flags,
+					  bool changed, struct netlink_ext_ack *extack)
+{
+	struct switchdev_obj_port_vlan v = {
+		.obj.orig_dev = dev,
+		.obj.id = SWITCHDEV_OBJ_ID_PORT_VLAN,
+		.obj.flags = SWITCHDEV_F_NO_FOREIGN,
+		.flags = flags,
+		.vid = vid,
+		.changed = changed,
+	};
+
+	return switchdev_port_obj_add(dev, &v.obj, extack);
+}
+
 int br_switchdev_port_vlan_del(struct net_device *dev, u16 vid)
 {
 	struct switchdev_obj_port_vlan v = {
@@ -661,7 +676,7 @@ void br_switchdev_mdb_notify(struct net_device *dev,
 	mdb.obj.orig_dev = pg->key.port->dev;
 	switch (type) {
 	case RTM_NEWMDB:
-		complete_info = kmalloc(sizeof(*complete_info), GFP_ATOMIC);
+		complete_info = kmalloc_obj(*complete_info, GFP_ATOMIC);
 		if (!complete_info)
 			break;
 		complete_info->port = pg->key.port;

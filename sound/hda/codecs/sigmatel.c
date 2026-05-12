@@ -309,15 +309,7 @@ static void stac_gpio_set(struct hda_codec *codec, unsigned int mask,
 	/* Configure GPIOx as CMOS */
 	snd_hda_codec_write(codec, fg, 0, 0x7e7, 0);
 
-	snd_hda_codec_write(codec, fg, 0,
-			    AC_VERB_SET_GPIO_MASK, gpiomask);
-	snd_hda_codec_read(codec, fg, 0,
-			   AC_VERB_SET_GPIO_DIRECTION, gpiodir); /* sync */
-
-	msleep(1);
-
-	snd_hda_codec_read(codec, fg, 0,
-			   AC_VERB_SET_GPIO_DATA, gpiostate); /* sync */
+	snd_hda_codec_set_gpio(codec, gpiomask, gpiodir, gpiostate, 1);
 }
 
 /* hook for controlling mic-mute LED GPIO */
@@ -4456,7 +4448,7 @@ static int alloc_stac_spec(struct hda_codec *codec)
 {
 	struct sigmatel_spec *spec;
 
-	spec = kzalloc(sizeof(*spec), GFP_KERNEL);
+	spec = kzalloc_obj(*spec);
 	if (!spec)
 		return -ENOMEM;
 	snd_hda_gen_spec_init(&spec->gen);

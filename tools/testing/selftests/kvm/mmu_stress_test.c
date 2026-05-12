@@ -20,19 +20,19 @@
 static bool mprotect_ro_done;
 static bool all_vcpus_hit_ro_fault;
 
-static void guest_code(uint64_t start_gpa, uint64_t end_gpa, uint64_t stride)
+static void guest_code(u64 start_gpa, u64 end_gpa, u64 stride)
 {
-	uint64_t gpa;
+	gpa_t gpa;
 	int i;
 
 	for (i = 0; i < 2; i++) {
 		for (gpa = start_gpa; gpa < end_gpa; gpa += stride)
-			vcpu_arch_put_guest(*((volatile uint64_t *)gpa), gpa);
+			vcpu_arch_put_guest(*((volatile u64 *)gpa), gpa);
 		GUEST_SYNC(i);
 	}
 
 	for (gpa = start_gpa; gpa < end_gpa; gpa += stride)
-		*((volatile uint64_t *)gpa);
+		*((volatile u64 *)gpa);
 	GUEST_SYNC(2);
 
 	/*
@@ -55,7 +55,7 @@ static void guest_code(uint64_t start_gpa, uint64_t end_gpa, uint64_t stride)
 #elif defined(__aarch64__)
 			asm volatile("str %0, [%0]" :: "r" (gpa) : "memory");
 #else
-			vcpu_arch_put_guest(*((volatile uint64_t *)gpa), gpa);
+			vcpu_arch_put_guest(*((volatile u64 *)gpa), gpa);
 #endif
 	} while (!READ_ONCE(mprotect_ro_done) || !READ_ONCE(all_vcpus_hit_ro_fault));
 
@@ -68,7 +68,7 @@ static void guest_code(uint64_t start_gpa, uint64_t end_gpa, uint64_t stride)
 #endif
 
 	for (gpa = start_gpa; gpa < end_gpa; gpa += stride)
-		vcpu_arch_put_guest(*((volatile uint64_t *)gpa), gpa);
+		vcpu_arch_put_guest(*((volatile u64 *)gpa), gpa);
 	GUEST_SYNC(4);
 
 	GUEST_ASSERT(0);
@@ -76,8 +76,8 @@ static void guest_code(uint64_t start_gpa, uint64_t end_gpa, uint64_t stride)
 
 struct vcpu_info {
 	struct kvm_vcpu *vcpu;
-	uint64_t start_gpa;
-	uint64_t end_gpa;
+	u64 start_gpa;
+	u64 end_gpa;
 };
 
 static int nr_vcpus;
@@ -203,10 +203,10 @@ static void *vcpu_worker(void *data)
 }
 
 static pthread_t *spawn_workers(struct kvm_vm *vm, struct kvm_vcpu **vcpus,
-				uint64_t start_gpa, uint64_t end_gpa)
+				u64 start_gpa, u64 end_gpa)
 {
 	struct vcpu_info *info;
-	uint64_t gpa, nr_bytes;
+	gpa_t gpa, nr_bytes;
 	pthread_t *threads;
 	int i;
 
@@ -217,7 +217,7 @@ static pthread_t *spawn_workers(struct kvm_vm *vm, struct kvm_vcpu **vcpus,
 	TEST_ASSERT(info, "Failed to allocate vCPU gpa ranges");
 
 	nr_bytes = ((end_gpa - start_gpa) / nr_vcpus) &
-			~((uint64_t)vm->page_size - 1);
+			~((u64)vm->page_size - 1);
 	TEST_ASSERT(nr_bytes, "C'mon, no way you have %d CPUs", nr_vcpus);
 
 	for (i = 0, gpa = start_gpa; i < nr_vcpus; i++, gpa += nr_bytes) {
@@ -263,8 +263,10 @@ static void calc_default_nr_vcpus(void)
 	TEST_ASSERT(!r, "sched_getaffinity failed, errno = %d (%s)",
 		    errno, strerror(errno));
 
-	nr_vcpus = CPU_COUNT(&possible_mask) * 3/4;
+	nr_vcpus = CPU_COUNT(&possible_mask);
 	TEST_ASSERT(nr_vcpus > 0, "Uh, no CPUs?");
+	if (nr_vcpus >= 2)
+		nr_vcpus = nr_vcpus * 3/4;
 }
 
 int main(int argc, char *argv[])
@@ -276,11 +278,11 @@ int main(int argc, char *argv[])
 	 * just below the 4gb boundary.  This test could create memory at
 	 * 1gb-3gb,but it's simpler to skip straight to 4gb.
 	 */
-	const uint64_t start_gpa = SZ_4G;
+	const u64 start_gpa = SZ_4G;
 	const int first_slot = 1;
 
 	struct timespec time_start, time_run1, time_reset, time_run2, time_ro, time_rw;
-	uint64_t max_gpa, gpa, slot_size, max_mem, i;
+	u64 max_gpa, gpa, slot_size, max_mem, i;
 	int max_slots, slot, opt, fd;
 	bool hugepages = false;
 	struct kvm_vcpu **vcpus;
@@ -339,14 +341,13 @@ int main(int argc, char *argv[])
 	TEST_ASSERT(max_gpa > (4 * slot_size), "MAXPHYADDR <4gb ");
 
 	fd = kvm_memfd_alloc(slot_size, hugepages);
-	mem = mmap(NULL, slot_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-	TEST_ASSERT(mem != MAP_FAILED, "mmap() failed");
+	mem = kvm_mmap(slot_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd);
 
 	TEST_ASSERT(!madvise(mem, slot_size, MADV_NOHUGEPAGE), "madvise() failed");
 
 	/* Pre-fault the memory to avoid taking mmap_sem on guest page faults. */
 	for (i = 0; i < slot_size; i += vm->page_size)
-		((uint8_t *)mem)[i] = 0xaa;
+		((u8 *)mem)[i] = 0xaa;
 
 	gpa = 0;
 	for (slot = first_slot; slot < max_slots; slot++) {
@@ -361,11 +362,9 @@ int main(int argc, char *argv[])
 
 #ifdef __x86_64__
 		/* Identity map memory in the guest using 1gb pages. */
-		for (i = 0; i < slot_size; i += SZ_1G)
-			__virt_pg_map(vm, gpa + i, gpa + i, PG_LEVEL_1G);
+		virt_map_level(vm, gpa, gpa, slot_size, PG_LEVEL_1G);
 #else
-		for (i = 0; i < slot_size; i += vm->page_size)
-			virt_pg_map(vm, gpa + i, gpa + i);
+		virt_map(vm, gpa, gpa, slot_size >> vm->page_shift);
 #endif
 	}
 
@@ -413,7 +412,7 @@ int main(int argc, char *argv[])
 	for (slot = (slot - 1) & ~1ull; slot >= first_slot; slot -= 2)
 		vm_set_user_memory_region(vm, slot, 0, 0, 0, NULL);
 
-	munmap(mem, slot_size / 2);
+	kvm_munmap(mem, slot_size / 2);
 
 	/* Sanity check that the vCPUs actually ran. */
 	for (i = 0; i < nr_vcpus; i++)

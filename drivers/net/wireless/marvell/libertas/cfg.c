@@ -1507,7 +1507,7 @@ static int lbs_cfg_set_default_key(struct wiphy *wiphy,
 }
 
 
-static int lbs_cfg_add_key(struct wiphy *wiphy, struct net_device *netdev,
+static int lbs_cfg_add_key(struct wiphy *wiphy, struct wireless_dev *wdev,
 			   int link_id, u8 idx, bool pairwise,
 			   const u8 *mac_addr, struct key_params *params)
 {
@@ -1516,7 +1516,7 @@ static int lbs_cfg_add_key(struct wiphy *wiphy, struct net_device *netdev,
 	u16 key_type;
 	int ret = 0;
 
-	if (netdev == priv->mesh_dev)
+	if (wdev->netdev == priv->mesh_dev)
 		return -EOPNOTSUPP;
 
 	lbs_deb_assoc("add_key: cipher 0x%x, mac_addr %pM\n",
@@ -1568,7 +1568,7 @@ static int lbs_cfg_add_key(struct wiphy *wiphy, struct net_device *netdev,
 }
 
 
-static int lbs_cfg_del_key(struct wiphy *wiphy, struct net_device *netdev,
+static int lbs_cfg_del_key(struct wiphy *wiphy, struct wireless_dev *wdev,
 			   int link_id, u8 key_index, bool pairwise,
 			   const u8 *mac_addr)
 {
@@ -1607,7 +1607,7 @@ static int lbs_cfg_del_key(struct wiphy *wiphy, struct net_device *netdev,
  * Get station
  */
 
-static int lbs_cfg_get_station(struct wiphy *wiphy, struct net_device *dev,
+static int lbs_cfg_get_station(struct wiphy *wiphy, struct wireless_dev *wdev,
 			       const u8 *mac, struct station_info *sinfo)
 {
 	struct lbs_private *priv = wiphy_priv(wiphy);
@@ -2094,7 +2094,7 @@ struct wireless_dev *lbs_cfg_alloc(struct device *dev)
 	int ret = 0;
 	struct wireless_dev *wdev;
 
-	wdev = kzalloc(sizeof(struct wireless_dev), GFP_KERNEL);
+	wdev = kzalloc_obj(struct wireless_dev);
 	if (!wdev)
 		return ERR_PTR(-ENOMEM);
 

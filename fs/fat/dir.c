@@ -16,6 +16,8 @@
 
 #include <linux/slab.h>
 #include <linux/compat.h>
+#include <linux/filelock.h>
+#include <linux/hex.h>
 #include <linux/uaccess.h>
 #include <linux/iversion.h>
 #include "fat.h"
@@ -876,6 +878,7 @@ const struct file_operations fat_dir_operations = {
 	.compat_ioctl	= fat_compat_dir_ioctl,
 #endif
 	.fsync		= fat_file_fsync,
+	.setlease	= generic_setlease,
 };
 
 static int fat_get_short_entry(struct inode *dir, loff_t *pos,
@@ -1024,7 +1027,7 @@ static int __fat_remove_entries(struct inode *dir, loff_t pos, int nr_slots)
 			de++;
 			nr_slots--;
 		}
-		mark_buffer_dirty_inode(bh, dir);
+		mmb_mark_buffer_dirty(bh, &MSDOS_I(dir)->i_metadata_bhs);
 		if (IS_DIRSYNC(dir))
 			err = sync_dirty_buffer(bh);
 		brelse(bh);
@@ -1059,7 +1062,7 @@ int fat_remove_entries(struct inode *dir, struct fat_slot_info *sinfo)
 		de--;
 		nr_slots--;
 	}
-	mark_buffer_dirty_inode(bh, dir);
+	mmb_mark_buffer_dirty(bh, &MSDOS_I(dir)->i_metadata_bhs);
 	if (IS_DIRSYNC(dir))
 		err = sync_dirty_buffer(bh);
 	brelse(bh);
@@ -1080,7 +1083,7 @@ int fat_remove_entries(struct inode *dir, struct fat_slot_info *sinfo)
 		}
 	}
 
-	fat_truncate_time(dir, NULL, S_ATIME|S_MTIME);
+	fat_truncate_time(dir, NULL, FAT_UPDATE_ATIME | FAT_UPDATE_CMTIME);
 	if (IS_DIRSYNC(dir))
 		(void)fat_sync_inode(dir);
 	else
@@ -1111,7 +1114,7 @@ static int fat_zeroed_cluster(struct inode *dir, sector_t blknr, int nr_used,
 		memset(bhs[n]->b_data, 0, sb->s_blocksize);
 		set_buffer_uptodate(bhs[n]);
 		unlock_buffer(bhs[n]);
-		mark_buffer_dirty_inode(bhs[n], dir);
+		mmb_mark_buffer_dirty(bhs[n], &MSDOS_I(dir)->i_metadata_bhs);
 
 		n++;
 		blknr++;
@@ -1192,7 +1195,7 @@ int fat_alloc_new_dir(struct inode *dir, struct timespec64 *ts)
 	memset(de + 2, 0, sb->s_blocksize - 2 * sizeof(*de));
 	set_buffer_uptodate(bhs[0]);
 	unlock_buffer(bhs[0]);
-	mark_buffer_dirty_inode(bhs[0], dir);
+	mmb_mark_buffer_dirty(bhs[0], &MSDOS_I(dir)->i_metadata_bhs);
 
 	err = fat_zeroed_cluster(dir, blknr, 1, bhs, MAX_BUF_PER_PAGE);
 	if (err)
@@ -1209,7 +1212,7 @@ EXPORT_SYMBOL_GPL(fat_alloc_new_dir);
 
 static int fat_add_new_entries(struct inode *dir, void *slots, int nr_slots,
 			       int *nr_cluster, struct msdos_dir_entry **de,
-			       struct buffer_head **bh, loff_t *i_pos)
+			       struct buffer_head **bh)
 {
 	struct super_block *sb = dir->i_sb;
 	struct msdos_sb_info *sbi = MSDOS_SB(sb);
@@ -1254,7 +1257,8 @@ static int fat_add_new_entries(struct inode *dir, void *slots, int nr_slots,
 			memcpy(bhs[n]->b_data, slots, copy);
 			set_buffer_uptodate(bhs[n]);
 			unlock_buffer(bhs[n]);
-			mark_buffer_dirty_inode(bhs[n], dir);
+			mmb_mark_buffer_dirty(bhs[n],
+					      &MSDOS_I(dir)->i_metadata_bhs);
 			slots += copy;
 			size -= copy;
 			if (!size)
@@ -1269,7 +1273,6 @@ static int fat_add_new_entries(struct inode *dir, void *slots, int nr_slots,
 	get_bh(bhs[n]);
 	*bh = bhs[n];
 	*de = (struct msdos_dir_entry *)((*bh)->b_data + offset);
-	*i_pos = fat_make_i_pos(sb, *bh, *de);
 
 	/* Second stage: clear the rest of cluster, and write outs */
 	err = fat_zeroed_cluster(dir, start_blknr, ++n, bhs, MAX_BUF_PER_PAGE);
@@ -1298,7 +1301,7 @@ int fat_add_entries(struct inode *dir, void *slots, int nr_slots,
 	struct buffer_head *bh, *prev, *bhs[3]; /* 32*slots (672bytes) */
 	struct msdos_dir_entry *de;
 	int err, free_slots, i, nr_bhs;
-	loff_t pos, i_pos;
+	loff_t pos;
 
 	sinfo->nr_slots = nr_slots;
 
@@ -1354,9 +1357,10 @@ found:
 
 		/* Fill the long name slots. */
 		for (i = 0; i < long_bhs; i++) {
-			int copy = min_t(int, sb->s_blocksize - offset, size);
+			int copy = umin(sb->s_blocksize - offset, size);
 			memcpy(bhs[i]->b_data + offset, slots, copy);
-			mark_buffer_dirty_inode(bhs[i], dir);
+			mmb_mark_buffer_dirty(bhs[i],
+					      &MSDOS_I(dir)->i_metadata_bhs);
 			offset = 0;
 			slots += copy;
 			size -= copy;
@@ -1365,9 +1369,10 @@ found:
 			err = fat_sync_bhs(bhs, long_bhs);
 		if (!err && i < nr_bhs) {
 			/* Fill the short name slot. */
-			int copy = min_t(int, sb->s_blocksize - offset, size);
+			int copy = umin(sb->s_blocksize - offset, size);
 			memcpy(bhs[i]->b_data + offset, slots, copy);
-			mark_buffer_dirty_inode(bhs[i], dir);
+			mmb_mark_buffer_dirty(bhs[i],
+					      &MSDOS_I(dir)->i_metadata_bhs);
 			if (IS_DIRSYNC(dir))
 				err = sync_dirty_buffer(bhs[i]);
 		}
@@ -1386,7 +1391,7 @@ found:
 		 * add the cluster to dir.
 		 */
 		cluster = fat_add_new_entries(dir, slots, nr_slots, &nr_cluster,
-					      &de, &bh, &i_pos);
+					      &de, &bh);
 		if (cluster < 0) {
 			err = cluster;
 			goto error_remove;

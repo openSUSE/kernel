@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
- * Copyright (C) 2025 Intel Corporation
+ * Copyright (C) 2025-2026 Intel Corporation
  */
 
 #include "mld.h"
@@ -12,8 +12,7 @@
 static int iwl_mld_init_time_sync(struct iwl_mld *mld, u32 protocols,
 				  const u8 *addr)
 {
-	struct iwl_mld_time_sync_data *time_sync = kzalloc(sizeof(*time_sync),
-							   GFP_KERNEL);
+	struct iwl_mld_time_sync_data *time_sync = kzalloc_obj(*time_sync);
 
 	if (!time_sync)
 		return -ENOMEM;
@@ -117,9 +116,9 @@ static bool iwl_mld_is_skb_match(struct sk_buff *skb, u8 *addr, u8 dialog_token)
 	u8 skb_dialog_token;
 
 	if (ieee80211_is_timing_measurement(skb))
-		skb_dialog_token = mgmt->u.action.u.wnm_timing_msr.dialog_token;
+		skb_dialog_token = mgmt->u.action.wnm_timing_msr.dialog_token;
 	else
-		skb_dialog_token = mgmt->u.action.u.ftm.dialog_token;
+		skb_dialog_token = mgmt->u.action.ftm.dialog_token;
 
 	if ((ether_addr_equal(mgmt->sa, addr) ||
 	     ether_addr_equal(mgmt->da, addr)) &&

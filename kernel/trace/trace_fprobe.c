@@ -99,20 +99,21 @@ static struct tracepoint_user *__tracepoint_user_init(const char *name, struct t
 	struct tracepoint_user *tuser __free(tuser_free) = NULL;
 	int ret;
 
-	tuser = kzalloc(sizeof(*tuser), GFP_KERNEL);
+	tuser = kzalloc_obj(*tuser);
 	if (!tuser)
 		return NULL;
 	tuser->name = kstrdup(name, GFP_KERNEL);
 	if (!tuser->name)
 		return NULL;
 
+	/* Register tracepoint if it is loaded. */
 	if (tpoint) {
+		tuser->tpoint = tpoint;
 		ret = tracepoint_user_register(tuser);
 		if (ret)
 			return ERR_PTR(ret);
 	}
 
-	tuser->tpoint = tpoint;
 	tuser->refcount = 1;
 	INIT_LIST_HEAD(&tuser->list);
 	list_add(&tuser->list, &tracepoint_user_list);
@@ -522,13 +523,14 @@ static int fentry_dispatcher(struct fprobe *fp, unsigned long entry_ip,
 			     void *entry_data)
 {
 	struct trace_fprobe *tf = container_of(fp, struct trace_fprobe, fp);
+	unsigned int flags = trace_probe_load_flag(&tf->tp);
 	int ret = 0;
 
-	if (trace_probe_test_flag(&tf->tp, TP_FLAG_TRACE))
+	if (flags & TP_FLAG_TRACE)
 		fentry_trace_func(tf, entry_ip, fregs);
 
 #ifdef CONFIG_PERF_EVENTS
-	if (trace_probe_test_flag(&tf->tp, TP_FLAG_PROFILE))
+	if (flags & TP_FLAG_PROFILE)
 		ret = fentry_perf_func(tf, entry_ip, fregs);
 #endif
 	return ret;
@@ -540,11 +542,12 @@ static void fexit_dispatcher(struct fprobe *fp, unsigned long entry_ip,
 			     void *entry_data)
 {
 	struct trace_fprobe *tf = container_of(fp, struct trace_fprobe, fp);
+	unsigned int flags = trace_probe_load_flag(&tf->tp);
 
-	if (trace_probe_test_flag(&tf->tp, TP_FLAG_TRACE))
+	if (flags & TP_FLAG_TRACE)
 		fexit_trace_func(tf, entry_ip, ret_ip, fregs, entry_data);
 #ifdef CONFIG_PERF_EVENTS
-	if (trace_probe_test_flag(&tf->tp, TP_FLAG_PROFILE))
+	if (flags & TP_FLAG_PROFILE)
 		fexit_perf_func(tf, entry_ip, ret_ip, fregs, entry_data);
 #endif
 }
@@ -576,7 +579,7 @@ static struct trace_fprobe *alloc_trace_fprobe(const char *group,
 	struct trace_fprobe *tf __free(free_trace_fprobe) = NULL;
 	int ret = -ENOMEM;
 
-	tf = kzalloc(struct_size(tf, tp.args, nargs), GFP_KERNEL);
+	tf = kzalloc_flex(*tf, tp.args, nargs);
 	if (!tf)
 		return ERR_PTR(ret);
 
@@ -629,7 +632,7 @@ print_fentry_event(struct trace_iterator *iter, int flags,
 
 	trace_seq_printf(s, "%s: (", trace_probe_name(tp));
 
-	if (!seq_print_ip_sym(s, field->ip, flags | TRACE_ITER_SYM_OFFSET))
+	if (!seq_print_ip_sym_offset(s, field->ip, flags))
 		goto out;
 
 	trace_seq_putc(s, ')');
@@ -659,12 +662,12 @@ print_fexit_event(struct trace_iterator *iter, int flags,
 
 	trace_seq_printf(s, "%s: (", trace_probe_name(tp));
 
-	if (!seq_print_ip_sym(s, field->ret_ip, flags | TRACE_ITER_SYM_OFFSET))
+	if (!seq_print_ip_sym_offset(s, field->ret_ip, flags))
 		goto out;
 
 	trace_seq_puts(s, " <- ");
 
-	if (!seq_print_ip_sym(s, field->func, flags & ~TRACE_ITER_SYM_OFFSET))
+	if (!seq_print_ip_sym_no_offset(s, field->func, flags))
 		goto out;
 
 	trace_seq_putc(s, ')');
@@ -1400,7 +1403,7 @@ static int trace_fprobe_create_cb(int argc, const char *argv[])
 	struct traceprobe_parse_context *ctx __free(traceprobe_parse_context) = NULL;
 	int ret;
 
-	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	ctx = kzalloc_obj(*ctx);
 	if (!ctx)
 		return -ENOMEM;
 
@@ -1511,6 +1514,10 @@ static int disable_trace_fprobe(struct trace_event_call *call,
 	if (!trace_probe_is_enabled(tp)) {
 		list_for_each_entry(tf, trace_probe_probe_list(tp), tp.list) {
 			unregister_fprobe(&tf->fp);
+			if (tf->tuser) {
+				tracepoint_user_put(tf->tuser);
+				tf->tuser = NULL;
+			}
 		}
 	}
 

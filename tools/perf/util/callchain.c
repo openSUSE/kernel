@@ -30,7 +30,9 @@
 #include "map.h"
 #include "callchain.h"
 #include "branch.h"
+#include "record.h"
 #include "symbol.h"
+#include "thread.h"
 #include "util.h"
 #include "../perf.h"
 
@@ -169,7 +171,7 @@ static int get_stack_size(const char *str, unsigned long *_size)
 static int
 __parse_callchain_report_opt(const char *arg, bool allow_record_opt)
 {
-	char *tok;
+	char *tok, *arg_copy;
 	char *endptr, *saveptr = NULL;
 	bool minpcnt_set = false;
 	bool record_opt_set = false;
@@ -181,12 +183,17 @@ __parse_callchain_report_opt(const char *arg, bool allow_record_opt)
 	if (!arg)
 		return 0;
 
-	while ((tok = strtok_r((char *)arg, ",", &saveptr)) != NULL) {
+	arg_copy = strdup(arg);
+	if (!arg_copy)
+		return -ENOMEM;
+
+	tok = strtok_r(arg_copy, ",", &saveptr);
+	while (tok) {
 		if (!strncmp(tok, "none", strlen(tok))) {
 			callchain_param.mode = CHAIN_NONE;
 			callchain_param.enabled = false;
 			symbol_conf.use_callchain = false;
-			return 0;
+			goto out;
 		}
 
 		if (!parse_callchain_mode(tok) ||
@@ -213,30 +220,35 @@ try_numbers:
 			unsigned long size = 0;
 
 			if (get_stack_size(tok, &size) < 0)
-				return -1;
+				goto err_out;
 			callchain_param.dump_size = size;
 			try_stack_size = false;
 		} else if (!minpcnt_set) {
 			/* try to get the min percent */
 			callchain_param.min_percent = strtod(tok, &endptr);
 			if (tok == endptr)
-				return -1;
+				goto err_out;
 			minpcnt_set = true;
 		} else {
 			/* try print limit at last */
 			callchain_param.print_limit = strtoul(tok, &endptr, 0);
 			if (tok == endptr)
-				return -1;
+				goto err_out;
 		}
 next:
-		arg = NULL;
+		tok = strtok_r(NULL, ",", &saveptr);
 	}
 
 	if (callchain_register_param(&callchain_param) < 0) {
 		pr_err("Can't register callchain params\n");
-		return -1;
+		goto err_out;
 	}
+out:
+	free(arg_copy);
 	return 0;
+err_out:
+	free(arg_copy);
+	return -1;
 }
 
 int parse_callchain_report_opt(const char *arg)
@@ -256,14 +268,12 @@ int parse_callchain_record(const char *arg, struct callchain_param *param)
 	int ret = -1;
 
 	/* We need buffer that we know we can write to. */
-	buf = malloc(strlen(arg) + 1);
+	buf = strdup(arg);
 	if (!buf)
 		return -ENOMEM;
 
-	strcpy(buf, arg);
-
-	tok = strtok_r((char *)buf, ",", &saveptr);
-	name = tok ? : (char *)buf;
+	tok = strtok_r(buf, ",", &saveptr);
+	name = tok ? : buf;
 
 	do {
 		/* Framepointer style */
@@ -275,9 +285,13 @@ int parse_callchain_record(const char *arg, struct callchain_param *param)
 			if (tok) {
 				unsigned long size;
 
-				size = strtoul(tok, &name, 0);
-				if (size < (unsigned) sysctl__max_stack())
-					param->max_stack = size;
+				if (!strncmp(tok, "defer", sizeof("defer"))) {
+					param->defer = true;
+				} else {
+					size = strtoul(tok, &name, 0);
+					if (size < (unsigned) sysctl__max_stack())
+						param->max_stack = size;
+				}
 			}
 			break;
 
@@ -314,6 +328,50 @@ int parse_callchain_record(const char *arg, struct callchain_param *param)
 	} while (0);
 
 	free(buf);
+
+	if (param->defer && param->record_mode != CALLCHAIN_FP) {
+		pr_err("callchain: deferred callchain only works with FP\n");
+		return -EINVAL;
+	}
+
+	return ret;
+}
+
+static void callchain_debug(const struct callchain_param *callchain)
+{
+	static const char *str[CALLCHAIN_MAX] = { "NONE", "FP", "DWARF", "LBR" };
+
+	pr_debug("callchain: type %s\n", str[callchain->record_mode]);
+
+	if (callchain->record_mode == CALLCHAIN_DWARF)
+		pr_debug("callchain: stack dump size %d\n",
+			 callchain->dump_size);
+}
+
+int record_opts__parse_callchain(struct record_opts *record,
+				 struct callchain_param *callchain,
+				 const char *arg, bool unset)
+{
+	int ret;
+
+	callchain->enabled = !unset;
+
+	/* --no-call-graph */
+	if (unset) {
+		callchain->record_mode = CALLCHAIN_NONE;
+		pr_debug("callchain: disabled\n");
+		return 0;
+	}
+
+	ret = parse_callchain_record_opt(arg, callchain);
+	if (!ret) {
+		/* Enable data address sampling for DWARF unwind. */
+		if (callchain->record_mode == CALLCHAIN_DWARF &&
+		    !record->record_data_mmap_set)
+			record->record_data_mmap = true;
+		callchain_debug(callchain);
+	}
+
 	return ret;
 }
 
@@ -1032,7 +1090,7 @@ merge_chain_branch(struct callchain_cursor *cursor,
 
 	list_for_each_entry_safe(list, next_list, &src->val, list) {
 		struct map_symbol ms = {
-			.maps = maps__get(list->ms.maps),
+			.thread = thread__get(list->ms.thread),
 			.map = map__get(list->ms.map),
 		};
 		callchain_cursor_append(cursor, list->ip, &ms, false, NULL, 0, 0, 0, list->srcline);
@@ -1137,10 +1195,11 @@ int hist_entry__append_callchain(struct hist_entry *he, struct perf_sample *samp
 int fill_callchain_info(struct addr_location *al, struct callchain_cursor_node *node,
 			bool hide_unresolved)
 {
-	struct machine *machine = node->ms.maps ? maps__machine(node->ms.maps) : NULL;
+	struct machine *machine = NULL;
 
-	maps__put(al->maps);
-	al->maps = maps__get(node->ms.maps);
+	if (node->ms.thread)
+		machine = maps__machine(thread__maps(node->ms.thread));
+
 	map__put(al->map);
 	al->map = map__get(node->ms.map);
 	al->sym = node->ms.sym;
@@ -1153,7 +1212,7 @@ int fill_callchain_info(struct addr_location *al, struct callchain_cursor_node *
 		if (al->map == NULL)
 			goto out;
 	}
-	if (maps__equal(al->maps, machine__kernel_maps(machine))) {
+	if (maps__equal(thread__maps(al->thread), machine__kernel_maps(machine))) {
 		if (machine__is_host(machine)) {
 			al->cpumode = PERF_RECORD_MISC_KERNEL;
 			al->level = 'k';
@@ -1669,7 +1728,7 @@ void callchain_cursor_reset(struct callchain_cursor *cursor)
 		map_symbol__exit(&node->ms);
 }
 
-void callchain_param_setup(u64 sample_type, const char *arch)
+void callchain_param_setup(u64 sample_type, uint16_t e_machine)
 {
 	if (symbol_conf.use_callchain || symbol_conf.cumulate_callchain) {
 		if ((sample_type & PERF_SAMPLE_REGS_USER) &&
@@ -1691,7 +1750,7 @@ void callchain_param_setup(u64 sample_type, const char *arch)
 	 * erroneous entries. Always skipping the LR and starting from the FP
 	 * can result in missing entries.
 	 */
-	if (callchain_param.record_mode == CALLCHAIN_FP && !strcmp(arch, "arm64"))
+	if (callchain_param.record_mode == CALLCHAIN_FP && e_machine == EM_AARCH64)
 		dwarf_callchain_users = true;
 }
 
@@ -1826,5 +1885,44 @@ int sample__for_each_callchain_node(struct thread *thread, struct evsel *evsel,
 
 		callchain_cursor_advance(cursor);
 	}
+	return 0;
+}
+
+/*
+ * This function merges earlier samples (@sample_orig) waiting for deferred
+ * user callchains with the matching callchain record (@sample_callchain)
+ * which is delivered now.  The @sample_orig->callchain should be released
+ * after use if ->deferred_callchain is set.
+ */
+int sample__merge_deferred_callchain(struct perf_sample *sample_orig,
+				     struct perf_sample *sample_callchain)
+{
+	u64 nr_orig = sample_orig->callchain->nr - 1;
+	u64 nr_deferred = sample_callchain->callchain->nr;
+	struct ip_callchain *callchain;
+
+	if (sample_orig->merged_callchain) {
+		/* Already merged. */
+		return -EINVAL;
+	}
+
+	if (sample_orig->callchain->nr < 2) {
+		sample_orig->deferred_callchain = false;
+		return -EINVAL;
+	}
+
+	callchain = calloc(1 + nr_orig + nr_deferred, sizeof(u64));
+	if (callchain == NULL)
+		return -ENOMEM;
+
+	callchain->nr = nr_orig + nr_deferred;
+	/* copy original including PERF_CONTEXT_USER_DEFERRED (but the cookie) */
+	memcpy(callchain->ips, sample_orig->callchain->ips, nr_orig * sizeof(u64));
+	/* copy deferred user callchains */
+	memcpy(&callchain->ips[nr_orig], sample_callchain->callchain->ips,
+	       nr_deferred * sizeof(u64));
+
+	sample_orig->merged_callchain = true;
+	sample_orig->callchain = callchain;
 	return 0;
 }

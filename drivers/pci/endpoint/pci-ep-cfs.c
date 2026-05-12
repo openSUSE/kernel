@@ -23,7 +23,6 @@ struct pci_epf_group {
 	struct config_group group;
 	struct config_group primary_epc_group;
 	struct config_group secondary_epc_group;
-	struct delayed_work cfs_work;
 	struct pci_epf *epf;
 	int index;
 };
@@ -69,8 +68,8 @@ static int pci_secondary_epc_epf_link(struct config_item *epf_item,
 	return 0;
 }
 
-static void pci_secondary_epc_epf_unlink(struct config_item *epc_item,
-					 struct config_item *epf_item)
+static void pci_secondary_epc_epf_unlink(struct config_item *epf_item,
+					 struct config_item *epc_item)
 {
 	struct pci_epf_group *epf_group = to_pci_epf_group(epf_item->ci_parent);
 	struct pci_epc_group *epc_group = to_pci_epc_group(epc_item);
@@ -85,7 +84,7 @@ static void pci_secondary_epc_epf_unlink(struct config_item *epc_item,
 	pci_epc_remove_epf(epc, epf, SECONDARY_INTERFACE);
 }
 
-static struct configfs_item_operations pci_secondary_epc_item_ops = {
+static const struct configfs_item_operations pci_secondary_epc_item_ops = {
 	.allow_link	= pci_secondary_epc_epf_link,
 	.drop_link	= pci_secondary_epc_epf_unlink,
 };
@@ -103,7 +102,7 @@ static struct config_group
 	secondary_epc_group = &epf_group->secondary_epc_group;
 	config_group_init_type_name(secondary_epc_group, "secondary",
 				    &pci_secondary_epc_type);
-	configfs_register_group(&epf_group->group, secondary_epc_group);
+	configfs_add_default_group(secondary_epc_group, &epf_group->group);
 
 	return secondary_epc_group;
 }
@@ -133,8 +132,8 @@ static int pci_primary_epc_epf_link(struct config_item *epf_item,
 	return 0;
 }
 
-static void pci_primary_epc_epf_unlink(struct config_item *epc_item,
-				       struct config_item *epf_item)
+static void pci_primary_epc_epf_unlink(struct config_item *epf_item,
+				       struct config_item *epc_item)
 {
 	struct pci_epf_group *epf_group = to_pci_epf_group(epf_item->ci_parent);
 	struct pci_epc_group *epc_group = to_pci_epc_group(epc_item);
@@ -149,7 +148,7 @@ static void pci_primary_epc_epf_unlink(struct config_item *epc_item,
 	pci_epc_remove_epf(epc, epf, PRIMARY_INTERFACE);
 }
 
-static struct configfs_item_operations pci_primary_epc_item_ops = {
+static const struct configfs_item_operations pci_primary_epc_item_ops = {
 	.allow_link	= pci_primary_epc_epf_link,
 	.drop_link	= pci_primary_epc_epf_unlink,
 };
@@ -166,7 +165,7 @@ static struct config_group
 
 	config_group_init_type_name(primary_epc_group, "primary",
 				    &pci_primary_epc_type);
-	configfs_register_group(&epf_group->group, primary_epc_group);
+	configfs_add_default_group(primary_epc_group, &epf_group->group);
 
 	return primary_epc_group;
 }
@@ -257,7 +256,7 @@ static void pci_epc_epf_unlink(struct config_item *epc_item,
 	pci_epc_remove_epf(epc, epf, PRIMARY_INTERFACE);
 }
 
-static struct configfs_item_operations pci_epc_item_ops = {
+static const struct configfs_item_operations pci_epc_item_ops = {
 	.allow_link	= pci_epc_epf_link,
 	.drop_link	= pci_epc_epf_unlink,
 };
@@ -275,7 +274,7 @@ struct config_group *pci_ep_cfs_add_epc_group(const char *name)
 	struct config_group *group;
 	struct pci_epc_group *epc_group;
 
-	epc_group = kzalloc(sizeof(*epc_group), GFP_KERNEL);
+	epc_group = kzalloc_obj(*epc_group);
 	if (!epc_group) {
 		ret = -ENOMEM;
 		goto err;
@@ -508,7 +507,7 @@ static void pci_epf_release(struct config_item *item)
 	kfree(epf_group);
 }
 
-static struct configfs_item_operations pci_epf_ops = {
+static const struct configfs_item_operations pci_epf_ops = {
 	.allow_link		= pci_epf_vepf_link,
 	.drop_link		= pci_epf_vepf_unlink,
 	.release		= pci_epf_release,
@@ -566,28 +565,31 @@ static void pci_ep_cfs_add_type_group(struct pci_epf_group *epf_group)
 
 	if (IS_ERR(group)) {
 		dev_err(&epf_group->epf->dev,
-			"failed to create epf type specific attributes\n");
+			"failed to create epf type specific attributes: %pe\n",
+			group);
 		return;
 	}
 
-	configfs_register_group(&epf_group->group, group);
+	configfs_add_default_group(group, &epf_group->group);
 }
 
-static void pci_epf_cfs_work(struct work_struct *work)
+static void pci_epf_cfs_add_sub_groups(struct pci_epf_group *epf_group)
 {
-	struct pci_epf_group *epf_group;
 	struct config_group *group;
 
-	epf_group = container_of(work, struct pci_epf_group, cfs_work.work);
 	group = pci_ep_cfs_add_primary_group(epf_group);
 	if (IS_ERR(group)) {
-		pr_err("failed to create 'primary' EPC interface\n");
+		dev_err(&epf_group->epf->dev,
+			"failed to create 'primary' EPC interface: %pe\n",
+			group);
 		return;
 	}
 
 	group = pci_ep_cfs_add_secondary_group(epf_group);
 	if (IS_ERR(group)) {
-		pr_err("failed to create 'secondary' EPC interface\n");
+		dev_err(&epf_group->epf->dev,
+			"failed to create 'secondary' EPC interface: %pe\n",
+			group);
 		return;
 	}
 
@@ -602,7 +604,7 @@ static struct config_group *pci_epf_make(struct config_group *group,
 	char *epf_name;
 	int index, err;
 
-	epf_group = kzalloc(sizeof(*epf_group), GFP_KERNEL);
+	epf_group = kzalloc_obj(*epf_group);
 	if (!epf_group)
 		return ERR_PTR(-ENOMEM);
 
@@ -627,8 +629,9 @@ static struct config_group *pci_epf_make(struct config_group *group,
 
 	epf = pci_epf_create(epf_name);
 	if (IS_ERR(epf)) {
-		pr_err("failed to create endpoint function device\n");
-		err = -EINVAL;
+		err = PTR_ERR(epf);
+		pr_err("failed to create endpoint function device (%s): %d\n",
+			epf_name, err);
 		goto free_name;
 	}
 
@@ -637,9 +640,7 @@ static struct config_group *pci_epf_make(struct config_group *group,
 
 	kfree(epf_name);
 
-	INIT_DELAYED_WORK(&epf_group->cfs_work, pci_epf_cfs_work);
-	queue_delayed_work(system_wq, &epf_group->cfs_work,
-			   msecs_to_jiffies(1));
+	pci_epf_cfs_add_sub_groups(epf_group);
 
 	return &epf_group->group;
 
@@ -662,7 +663,7 @@ static void pci_epf_drop(struct config_group *group, struct config_item *item)
 	config_item_put(item);
 }
 
-static struct configfs_group_operations pci_epf_group_ops = {
+static const struct configfs_group_operations pci_epf_group_ops = {
 	.make_group     = &pci_epf_make,
 	.drop_item      = &pci_epf_drop,
 };
@@ -679,8 +680,8 @@ struct config_group *pci_ep_cfs_add_epf_group(const char *name)
 	group = configfs_register_default_group(functions_group, name,
 						&pci_epf_group_type);
 	if (IS_ERR(group))
-		pr_err("failed to register configfs group for %s function\n",
-		       name);
+		pr_err("failed to register configfs group for %s function: %pe\n",
+		       name, group);
 
 	return group;
 }

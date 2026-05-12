@@ -164,8 +164,7 @@ retry:
 		 */
 		if (sync)
 			return -EOPNOTSUPP;
-		cn_resp = kzalloc(sizeof(struct nfs42_copy_notify_res),
-				  GFP_KERNEL);
+		cn_resp = kzalloc_obj(struct nfs42_copy_notify_res);
 		if (unlikely(cn_resp == NULL))
 			return -ENOMEM;
 
@@ -456,4 +455,5 @@ const struct file_operations nfs4_file_operations = {
 #else
 	.llseek		= nfs_file_llseek,
 #endif
+	.fop_flags	= FOP_DONTCACHE,
 };

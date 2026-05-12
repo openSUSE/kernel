@@ -515,19 +515,18 @@ void rt_mutex_debug_task_free(struct task_struct *task)
 
 #ifdef CONFIG_PREEMPT_RT
 /* Mutexes */
-void __mutex_rt_init(struct mutex *mutex, const char *name,
-		     struct lock_class_key *key)
+static void __mutex_rt_init_generic(struct mutex *mutex)
 {
+	rt_mutex_base_init(&mutex->rtmutex);
 	debug_check_no_locks_freed((void *)mutex, sizeof(*mutex));
-	lockdep_init_map_wait(&mutex->dep_map, name, key, 0, LD_WAIT_SLEEP);
 }
-EXPORT_SYMBOL(__mutex_rt_init);
 
 static __always_inline int __mutex_lock_common(struct mutex *lock,
 					       unsigned int state,
 					       unsigned int subclass,
 					       struct lockdep_map *nest_lock,
 					       unsigned long ip)
+	__acquires(lock) __no_context_analysis
 {
 	int ret;
 
@@ -542,6 +541,13 @@ static __always_inline int __mutex_lock_common(struct mutex *lock,
 }
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
+void mutex_rt_init_lockdep(struct mutex *mutex, const char *name, struct lock_class_key *key)
+{
+	__mutex_rt_init_generic(mutex);
+	lockdep_init_map_wait(&mutex->dep_map, name, key, 0, LD_WAIT_SLEEP);
+}
+EXPORT_SYMBOL(mutex_rt_init_lockdep);
+
 void __sched mutex_lock_nested(struct mutex *lock, unsigned int subclass)
 {
 	__mutex_lock_common(lock, TASK_UNINTERRUPTIBLE, subclass, NULL, _RET_IP_);
@@ -598,6 +604,12 @@ int __sched _mutex_trylock_nest_lock(struct mutex *lock,
 EXPORT_SYMBOL_GPL(_mutex_trylock_nest_lock);
 #else /* CONFIG_DEBUG_LOCK_ALLOC */
 
+void mutex_rt_init_generic(struct mutex *mutex)
+{
+	__mutex_rt_init_generic(mutex);
+}
+EXPORT_SYMBOL(mutex_rt_init_generic);
+
 void __sched mutex_lock(struct mutex *lock)
 {
 	__mutex_lock_common(lock, TASK_UNINTERRUPTIBLE, 0, NULL, _RET_IP_);
@@ -636,6 +648,7 @@ EXPORT_SYMBOL(mutex_trylock);
 #endif /* !CONFIG_DEBUG_LOCK_ALLOC */
 
 void __sched mutex_unlock(struct mutex *lock)
+	__releases(lock) __no_context_analysis
 {
 	mutex_release(&lock->dep_map, _RET_IP_);
 	__rt_mutex_unlock(&lock->rtmutex);

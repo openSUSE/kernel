@@ -150,8 +150,8 @@ static int mlxsw_ports_init(struct mlxsw_core *mlxsw_core, bool reload)
 	else
 		mlxsw_core->max_ports = MLXSW_PORT_MAX_PORTS_DEFAULT + 1;
 
-	mlxsw_core->ports = kcalloc(mlxsw_core->max_ports,
-				    sizeof(struct mlxsw_core_port), GFP_KERNEL);
+	mlxsw_core->ports = kzalloc_objs(struct mlxsw_core_port,
+					 mlxsw_core->max_ports);
 	if (!mlxsw_core->ports)
 		return -ENOMEM;
 
@@ -886,7 +886,7 @@ static int mlxsw_emad_init(struct mlxsw_core *mlxsw_core)
 	if (!(mlxsw_core->bus->features & MLXSW_BUS_F_TXRX))
 		return 0;
 
-	emad_wq = alloc_workqueue("mlxsw_core_emad", 0, 0);
+	emad_wq = alloc_workqueue("mlxsw_core_emad", WQ_PERCPU, 0);
 	if (!emad_wq)
 		return -ENOMEM;
 	mlxsw_core->emad_wq = emad_wq;
@@ -1793,7 +1793,7 @@ static void mlxsw_core_health_listener_func(const struct mlxsw_reg_info *reg,
 	struct mlxsw_core_health_event *event;
 	struct mlxsw_core *mlxsw_core = priv;
 
-	event = kmalloc(sizeof(*event), GFP_ATOMIC);
+	event = kmalloc_obj(*event, GFP_ATOMIC);
 	if (!event)
 		return;
 	event->mlxsw_core = mlxsw_core;
@@ -2043,7 +2043,7 @@ static int mlxsw_core_health_init(struct mlxsw_core *mlxsw_core)
 		return 0;
 
 	fw_fatal = devl_health_reporter_create(devlink, &mlxsw_core_health_fw_fatal_ops,
-					       0, mlxsw_core);
+					       mlxsw_core);
 	if (IS_ERR(fw_fatal)) {
 		dev_err(mlxsw_core->bus_info->dev, "Failed to create fw fatal reporter");
 		return PTR_ERR(fw_fatal);
@@ -2376,7 +2376,7 @@ int mlxsw_core_rx_listener_register(struct mlxsw_core *mlxsw_core,
 	rxl_item = __find_rx_listener_item(mlxsw_core, rxl);
 	if (rxl_item)
 		return -EEXIST;
-	rxl_item = kmalloc(sizeof(*rxl_item), GFP_KERNEL);
+	rxl_item = kmalloc_obj(*rxl_item);
 	if (!rxl_item)
 		return -ENOMEM;
 	rxl_item->rxl = *rxl;
@@ -2475,7 +2475,7 @@ int mlxsw_core_event_listener_register(struct mlxsw_core *mlxsw_core,
 	el_item = __find_event_listener_item(mlxsw_core, el);
 	if (el_item)
 		return -EEXIST;
-	el_item = kmalloc(sizeof(*el_item), GFP_KERNEL);
+	el_item = kmalloc_obj(*el_item);
 	if (!el_item)
 		return -ENOMEM;
 	el_item->mlxsw_core = mlxsw_core;
@@ -2684,7 +2684,7 @@ static int mlxsw_core_reg_access_emad(struct mlxsw_core *mlxsw_core,
 	struct mlxsw_reg_trans *trans;
 	int err;
 
-	trans = kzalloc(sizeof(*trans), GFP_KERNEL);
+	trans = kzalloc_obj(*trans);
 	if (!trans)
 		return -ENOMEM;
 
@@ -2785,7 +2785,7 @@ int mlxsw_core_irq_event_handler_register(struct mlxsw_core *mlxsw_core,
 {
 	struct mlxsw_core_irq_event_handler_item *item;
 
-	item = kzalloc(sizeof(*item), GFP_KERNEL);
+	item = kzalloc_obj(*item);
 	if (!item)
 		return -ENOMEM;
 	item->cb = cb;
@@ -3381,7 +3381,7 @@ static int __init mlxsw_core_module_init(void)
 	if (err)
 		return err;
 
-	mlxsw_wq = alloc_workqueue(mlxsw_core_driver_name, 0, 0);
+	mlxsw_wq = alloc_workqueue(mlxsw_core_driver_name, WQ_PERCPU, 0);
 	if (!mlxsw_wq) {
 		err = -ENOMEM;
 		goto err_alloc_workqueue;

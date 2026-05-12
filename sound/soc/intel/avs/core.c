@@ -27,6 +27,7 @@
 #include "../../codecs/hda.h"
 #include "avs.h"
 #include "cldma.h"
+#include "debug.h"
 #include "messages.h"
 #include "pcm.h"
 
@@ -896,7 +897,7 @@ static const struct pci_device_id avs_ids[] = {
 	{ PCI_DEVICE_DATA(INTEL, HDA_KBL_H, &skl_desc) },
 	{ PCI_DEVICE_DATA(INTEL, HDA_CML_S, &skl_desc) },
 	{ PCI_DEVICE_DATA(INTEL, HDA_APL, &apl_desc) },
-	{ PCI_DEVICE_DATA(INTEL, HDA_GML, &apl_desc) },
+	{ PCI_DEVICE_DATA(INTEL, HDA_GLK, &apl_desc) },
 	{ PCI_DEVICE_DATA(INTEL, HDA_CNL_LP,	&cnl_desc) },
 	{ PCI_DEVICE_DATA(INTEL, HDA_CNL_H,	&cnl_desc) },
 	{ PCI_DEVICE_DATA(INTEL, HDA_CML_LP,	&cnl_desc) },

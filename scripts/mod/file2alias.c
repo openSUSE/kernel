@@ -94,6 +94,7 @@ module_alias_printf(struct module *mod, bool append_wildcard,
 		}
 	}
 
+	new->builtin_modname = NULL;
 	list_add_tail(&new->node, &mod->aliases);
 }
 
@@ -1109,6 +1110,14 @@ static void do_cpu_entry(struct module *mod, void *symval)
 	module_alias_printf(mod, false, "cpu:type:*:feature:*%04X*", feature);
 }
 
+/* Looks like: mcb:16zN */
+static void do_mcb_entry(struct module *mod, void *symval)
+{
+	DEF_FIELD(symval, mcb_device_id, device);
+
+	module_alias_printf(mod, false, "mcb:16z%03d", device);
+}
+
 /* Looks like: mei:S:uuid:N:* */
 static void do_mei_entry(struct module *mod, void *symval)
 {
@@ -1443,6 +1452,7 @@ static const struct devtable devtable[] = {
 	{"mipscdmm", SIZE_mips_cdmm_device_id, do_mips_cdmm_entry},
 	{"x86cpu", SIZE_x86_cpu_id, do_x86cpu_entry},
 	{"cpu", SIZE_cpu_feature, do_cpu_entry},
+	{"mcb", SIZE_mcb_device_id, do_mcb_entry},
 	{"mei", SIZE_mei_cl_device_id, do_mei_entry},
 	{"rapidio", SIZE_rio_device_id, do_rio_entry},
 	{"ulpi", SIZE_ulpi_device_id, do_ulpi_entry},
@@ -1476,8 +1486,8 @@ void handle_moddevtable(struct module *mod, struct elf_info *info,
 {
 	void *symval;
 	char *zeros = NULL;
-	const char *type, *name;
-	size_t typelen;
+	const char *type, *name, *modname;
+	size_t typelen, modnamelen;
 	static const char *prefix = "__mod_device_table__";
 
 	/* We're looking for a section relative symbol */
@@ -1488,10 +1498,20 @@ void handle_moddevtable(struct module *mod, struct elf_info *info,
 	if (ELF_ST_TYPE(sym->st_info) != STT_OBJECT)
 		return;
 
-	/* All our symbols are of form __mod_device_table__<type>__<name>. */
+	/* All our symbols are of form __mod_device_table__kmod_<modname>__<type>__<name>. */
 	if (!strstarts(symname, prefix))
 		return;
-	type = symname + strlen(prefix);
+
+	modname = strstr(symname, "__kmod_");
+	if (!modname)
+		return;
+	modname += strlen("__kmod_");
+
+	type = strstr(modname, "__");
+	if (!type)
+		return;
+	modnamelen = type - modname;
+	type += strlen("__");
 
 	name = strstr(type, "__");
 	if (!name)
@@ -1514,6 +1534,22 @@ void handle_moddevtable(struct module *mod, struct elf_info *info,
 			do_table(name, symval, sym->st_size, p->id_size,
 				 p->device_id, p->do_entry, mod);
 			break;
+		}
+	}
+
+	if (mod->is_vmlinux) {
+		struct module_alias *alias;
+
+		/*
+		 * If this is vmlinux, record the name of the builtin module.
+		 * Traverse the linked list in the reverse order, and set the
+		 * builtin_modname unless it has already been set in the
+		 * previous call.
+		 */
+		list_for_each_entry_reverse(alias, &mod->aliases, node) {
+			if (alias->builtin_modname)
+				break;
+			alias->builtin_modname = xstrndup(modname, modnamelen);
 		}
 	}
 

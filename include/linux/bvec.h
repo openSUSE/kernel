@@ -22,11 +22,8 @@ struct page;
  * @bv_len:    Number of bytes in the address range.
  * @bv_offset: Start of the address range relative to the start of @bv_page.
  *
- * The following holds for a bvec if n * PAGE_SIZE < bv_offset + bv_len:
- *
- *   nth_page(@bv_page, n) == @bv_page + n
- *
- * This holds because page_is_mergeable() checks the above property.
+ * All pages within a bio_vec starting from @bv_page are contiguous and
+ * can simply be iterated (see bvec_advance()).
  */
 struct bio_vec {
 	struct page	*bv_page;
@@ -78,14 +75,27 @@ static inline void bvec_set_virt(struct bio_vec *bv, void *vaddr,
 }
 
 struct bvec_iter {
-	sector_t		bi_sector;	/* device address in 512 byte
-						   sectors */
-	unsigned int		bi_size;	/* residual I/O count */
+	/*
+	 * Current device address in 512 byte sectors. Only updated by the bio
+	 * iter wrappers and not the bvec iterator helpers themselves.
+	 */
+	sector_t		bi_sector;
 
-	unsigned int		bi_idx;		/* current index into bvl_vec */
+	/*
+	 * Remaining size in bytes.
+	 */
+	unsigned int		bi_size;
 
-	unsigned int            bi_bvec_done;	/* number of bytes completed in
-						   current bvec */
+	/*
+	 * Current index into the bvec array. This indexes into `bi_io_vec` when
+	 * iterating a bvec array that is part of a `bio`.
+	 */
+	unsigned int		bi_idx;
+
+	/*
+	 * Current offset in the bvec entry pointed to by `bi_idx`.
+	 */
+	unsigned int		bi_bvec_done;
 } __packed __aligned(4);
 
 struct bvec_iter_all {
@@ -192,15 +202,6 @@ static inline void bvec_iter_advance_single(const struct bio_vec *bv,
 	     (iter).bi_size &&						\
 		((bvl = mp_bvec_iter_bvec((bio_vec), (iter))), 1);	\
 	     bvec_iter_advance_single((bio_vec), &(iter), (bvl).bv_len))
-
-/* for iterating one bio from start to end */
-#define BVEC_ITER_ALL_INIT (struct bvec_iter)				\
-{									\
-	.bi_sector	= 0,						\
-	.bi_size	= UINT_MAX,					\
-	.bi_idx		= 0,						\
-	.bi_bvec_done	= 0,						\
-}
 
 static inline struct bio_vec *bvec_init_iter_all(struct bvec_iter_all *iter_all)
 {

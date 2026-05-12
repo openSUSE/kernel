@@ -175,11 +175,9 @@ struct sii902x {
 	struct i2c_client *i2c;
 	struct regmap *regmap;
 	struct drm_bridge bridge;
-	struct drm_bridge *next_bridge;
 	struct drm_connector connector;
 	struct gpio_desc *reset_gpio;
 	struct i2c_mux_core *i2cmux;
-	bool sink_is_hdmi;
 	u32 bus_width;
 
 	/*
@@ -315,8 +313,6 @@ static int sii902x_get_modes(struct drm_connector *connector)
 		drm_edid_free(drm_edid);
 	}
 
-	sii902x->sink_is_hdmi = connector->display_info.is_hdmi;
-
 	return num;
 }
 
@@ -325,7 +321,7 @@ static const struct drm_connector_helper_funcs sii902x_connector_helper_funcs = 
 };
 
 static void sii902x_bridge_atomic_disable(struct drm_bridge *bridge,
-					  struct drm_atomic_state *state)
+					  struct drm_atomic_commit *state)
 {
 	struct sii902x *sii902x = bridge_to_sii902x(bridge);
 
@@ -339,12 +335,20 @@ static void sii902x_bridge_atomic_disable(struct drm_bridge *bridge,
 }
 
 static void sii902x_bridge_atomic_enable(struct drm_bridge *bridge,
-					 struct drm_atomic_state *state)
+					 struct drm_atomic_commit *state)
 {
 	struct sii902x *sii902x = bridge_to_sii902x(bridge);
+	struct drm_connector *connector;
+	u8 output_mode = SII902X_SYS_CTRL_OUTPUT_DVI;
+
+	connector = drm_atomic_get_new_connector_for_encoder(state, bridge->encoder);
+	if (connector && connector->display_info.is_hdmi)
+		output_mode = SII902X_SYS_CTRL_OUTPUT_HDMI;
 
 	mutex_lock(&sii902x->mutex);
 
+	regmap_update_bits(sii902x->regmap, SII902X_SYS_CTRL_DATA,
+			   SII902X_SYS_CTRL_OUTPUT_MODE, output_mode);
 	regmap_update_bits(sii902x->regmap, SII902X_PWR_STATE_CTRL,
 			   SII902X_AVI_POWER_STATE_MSK,
 			   SII902X_AVI_POWER_STATE_D(0));
@@ -359,15 +363,11 @@ static void sii902x_bridge_mode_set(struct drm_bridge *bridge,
 				    const struct drm_display_mode *adj)
 {
 	struct sii902x *sii902x = bridge_to_sii902x(bridge);
-	u8 output_mode = SII902X_SYS_CTRL_OUTPUT_DVI;
 	struct regmap *regmap = sii902x->regmap;
 	u8 buf[HDMI_INFOFRAME_SIZE(AVI)];
 	struct hdmi_avi_infoframe frame;
 	u16 pixel_clock_10kHz = adj->clock / 10;
 	int ret;
-
-	if (sii902x->sink_is_hdmi)
-		output_mode = SII902X_SYS_CTRL_OUTPUT_HDMI;
 
 	buf[0] = pixel_clock_10kHz & 0xff;
 	buf[1] = pixel_clock_10kHz >> 8;
@@ -383,11 +383,6 @@ static void sii902x_bridge_mode_set(struct drm_bridge *bridge,
 		 SII902X_TPI_AVI_INPUT_COLORSPACE_RGB;
 
 	mutex_lock(&sii902x->mutex);
-
-	ret = regmap_update_bits(sii902x->regmap, SII902X_SYS_CTRL_DATA,
-				 SII902X_SYS_CTRL_OUTPUT_MODE, output_mode);
-	if (ret)
-		goto out;
 
 	ret = regmap_bulk_write(regmap, SII902X_TPI_VIDEO_DATA, buf, 10);
 	if (ret)
@@ -425,7 +420,7 @@ static int sii902x_bridge_attach(struct drm_bridge *bridge,
 	int ret;
 
 	if (flags & DRM_BRIDGE_ATTACH_NO_CONNECTOR)
-		return drm_bridge_attach(encoder, sii902x->next_bridge,
+		return drm_bridge_attach(encoder, sii902x->bridge.next_bridge,
 					 bridge, flags);
 
 	drm_connector_helper_add(&sii902x->connector,
@@ -1208,9 +1203,9 @@ static int sii902x_probe(struct i2c_client *client)
 			return -ENODEV;
 		}
 
-		sii902x->next_bridge = of_drm_find_bridge(remote);
+		sii902x->bridge.next_bridge = of_drm_find_and_get_bridge(remote);
 		of_node_put(remote);
-		if (!sii902x->next_bridge)
+		if (!sii902x->bridge.next_bridge)
 			return dev_err_probe(dev, -EPROBE_DEFER,
 					     "Failed to find remote bridge\n");
 	}

@@ -14,7 +14,6 @@ config X86_32
 	select ARCH_WANT_IPC_PARSE_VERSION
 	select CLKSRC_I8253
 	select CLONE_BACKWARDS
-	select GENERIC_VDSO_32
 	select HAVE_DEBUG_STACKOVERFLOW
 	select KMAP_LOCAL
 	select MODULES_USE_ELF_REL
@@ -26,7 +25,6 @@ config X86_64
 	depends on 64BIT
 	# Options that are inherently 64-bit kernel only:
 	select ARCH_HAS_GIGANTIC_PAGE
-	select ARCH_HAS_PTDUMP
 	select ARCH_SUPPORTS_MSEAL_SYSTEM_MAPPINGS
 	select ARCH_SUPPORTS_INT128 if CC_HAS_INT128
 	select ARCH_SUPPORTS_PER_VMA_LOCK
@@ -71,7 +69,6 @@ config X86
 	select ARCH_CORRECT_STACKTRACE_ON_KRETPROBE
 	select ARCH_ENABLE_HUGEPAGE_MIGRATION if X86_64 && HUGETLB_PAGE && MIGRATION
 	select ARCH_ENABLE_MEMORY_HOTPLUG if X86_64
-	select ARCH_ENABLE_MEMORY_HOTREMOVE if MEMORY_HOTPLUG
 	select ARCH_ENABLE_SPLIT_PMD_PTLOCK if (PGTABLE_LEVELS > 2) && (X86_64 || X86_PAE)
 	select ARCH_ENABLE_THP_MIGRATION if X86_64 && TRANSPARENT_HUGEPAGE
 	select ARCH_HAS_ACPI_TABLE_UPGRADE	if ACPI
@@ -99,6 +96,7 @@ config X86
 	select ARCH_HAS_NON_OVERLAPPING_ADDRESS_SPACE
 	select ARCH_HAS_PMEM_API		if X86_64
 	select ARCH_HAS_PREEMPT_LAZY
+	select ARCH_HAS_PTDUMP
 	select ARCH_HAS_PTE_SPECIAL
 	select ARCH_HAS_HW_PTE_YOUNG
 	select ARCH_HAS_NONLEAF_PMD_YOUNG	if PGTABLE_LEVELS > 2
@@ -127,8 +125,8 @@ config X86
 	select ARCH_SUPPORTS_PAGE_TABLE_CHECK	if X86_64
 	select ARCH_SUPPORTS_NUMA_BALANCING	if X86_64
 	select ARCH_SUPPORTS_KMAP_LOCAL_FORCE_MAP	if NR_CPUS <= 4096
-	select ARCH_SUPPORTS_CFI_CLANG		if X86_64
-	select ARCH_USES_CFI_TRAPS		if X86_64 && CFI_CLANG
+	select ARCH_SUPPORTS_CFI		if X86_64
+	select ARCH_USES_CFI_TRAPS		if X86_64 && CFI
 	select ARCH_SUPPORTS_LTO_CLANG
 	select ARCH_SUPPORTS_LTO_CLANG_THIN
 	select ARCH_SUPPORTS_RT
@@ -142,6 +140,7 @@ config X86
 	select ARCH_USE_SYM_ANNOTATIONS
 	select ARCH_WANT_BATCHED_UNMAP_TLB_FLUSH
 	select ARCH_WANT_DEFAULT_BPF_JIT	if X86_64
+	select ARCH_WANTS_CLOCKSOURCE_READ_INLINE	if X86_64
 	select ARCH_WANTS_DYNAMIC_TASK_STRUCT
 	select ARCH_WANTS_NO_INSTR
 	select ARCH_WANT_GENERAL_HUGETLB
@@ -164,6 +163,7 @@ config X86
 	select EDAC_SUPPORT
 	select GENERIC_CLOCKEVENTS_BROADCAST	if X86_64 || (X86_32 && X86_LOCAL_APIC)
 	select GENERIC_CLOCKEVENTS_BROADCAST_IDLE	if GENERIC_CLOCKEVENTS_BROADCAST
+	select GENERIC_CLOCKEVENTS_COUPLED_INLINE	if X86_64
 	select GENERIC_CLOCKEVENTS_MIN_ADJUST
 	select GENERIC_CMOS_UPDATE
 	select GENERIC_CPU_AUTOPROBE
@@ -182,8 +182,6 @@ config X86
 	select GENERIC_SMP_IDLE_THREAD
 	select GENERIC_TIME_VSYSCALL
 	select GENERIC_GETTIMEOFDAY
-	select GENERIC_VDSO_DATA_STORE
-	select GENERIC_VDSO_TIME_NS
 	select GENERIC_VDSO_OVERFLOW_PROTECT
 	select GUP_GET_PXX_LOW_HIGH		if X86_PAE
 	select HARDIRQS_SW_RESEND
@@ -233,12 +231,14 @@ config X86
 	select HAVE_DYNAMIC_FTRACE_WITH_ARGS	if X86_64
 	select HAVE_FTRACE_REGS_HAVING_PT_REGS	if X86_64
 	select HAVE_DYNAMIC_FTRACE_WITH_DIRECT_CALLS
+	select HAVE_DYNAMIC_FTRACE_WITH_JMP	if X86_64
 	select HAVE_SAMPLE_FTRACE_DIRECT	if X86_64
 	select HAVE_SAMPLE_FTRACE_DIRECT_MULTI	if X86_64
 	select HAVE_EBPF_JIT
 	select HAVE_EFFICIENT_UNALIGNED_ACCESS
 	select HAVE_EISA			if X86_32
 	select HAVE_EXIT_THREAD
+	select HAVE_GENERIC_TIF_BITS
 	select HAVE_GUP_FAST
 	select HAVE_FENTRY			if X86_64 || DYNAMIC_FTRACE
 	select HAVE_FTRACE_GRAPH_FUNC		if HAVE_FUNCTION_GRAPH_TRACER
@@ -263,6 +263,7 @@ config X86
 	select HAVE_FUNCTION_ERROR_INJECTION
 	select HAVE_KRETPROBES
 	select HAVE_RETHOOK
+	select HAVE_KLP_BUILD			if X86_64
 	select HAVE_LIVEPATCH			if X86_64
 	select HAVE_MIXED_BREAKPOINTS_REGS
 	select HAVE_MOD_ARCH_SPECIFIC
@@ -281,6 +282,7 @@ config X86
 	select HAVE_PCI
 	select HAVE_PERF_REGS
 	select HAVE_PERF_USER_STACK_DUMP
+	select ASYNC_KERNEL_PGTABLE_FREE	if IOMMU_SVA
 	select MMU_GATHER_RCU_TABLE_FREE
 	select MMU_GATHER_MERGE_VMAS
 	select HAVE_POSIX_CPU_TIMERS_TASK_WORK
@@ -299,6 +301,7 @@ config X86
 	select HAVE_SYSCALL_TRACEPOINTS
 	select HAVE_UACCESS_VALIDATION		if HAVE_OBJTOOL
 	select HAVE_UNSTABLE_SCHED_CLOCK
+	select HAVE_UNWIND_USER_FP		if X86_64
 	select HAVE_USER_RETURN_NOTIFIER
 	select HAVE_GENERIC_VDSO
 	select VDSO_GETRANDOM			if X86_64
@@ -329,7 +332,11 @@ config X86
 	select FUNCTION_ALIGNMENT_4B
 	imply IMA_SECURE_AND_OR_TRUSTED_BOOT    if EFI
 	select HAVE_DYNAMIC_FTRACE_NO_PATCHABLE
-	select ARCH_SUPPORTS_PT_RECLAIM		if X86_64
+	select ARCH_SUPPORTS_SCHED_SMT		if SMP
+	select SCHED_SMT			if SMP
+	select ARCH_SUPPORTS_SCHED_CLUSTER	if SMP
+	select ARCH_SUPPORTS_SCHED_MC		if SMP
+	select HAVE_SINGLE_FTRACE_DIRECT_OPS	if X86_64 && DYNAMIC_FTRACE_WITH_DIRECT_CALLS
 
 config INSTRUCTION_DECODER
 	def_bool y
@@ -377,7 +384,7 @@ config GENERIC_CSUM
 config GENERIC_BUG
 	def_bool y
 	depends on BUG
-	select GENERIC_BUG_RELATIVE_POINTERS if X86_64
+	select GENERIC_BUG_RELATIVE_POINTERS
 
 config GENERIC_BUG_RELATIVE_POINTERS
 	bool
@@ -410,10 +417,6 @@ config HAVE_INTEL_TXT
 	def_bool y
 	depends on INTEL_IOMMU && ACPI
 
-config X86_64_SMP
-	def_bool y
-	depends on X86_64 && SMP
-
 config ARCH_SUPPORTS_UPROBES
 	def_bool y
 
@@ -443,11 +446,6 @@ config SMP
 	  you say Y here, the kernel will run on many, but not all,
 	  uniprocessor machines. On a uniprocessor machine, the kernel
 	  will run faster if you say N here.
-
-	  Note that if you say Y here and choose architecture "586" or
-	  "Pentium" under "Processor family", the kernel will not work on 486
-	  architectures. Similarly, multiprocessor kernels for the "PPro"
-	  architecture may not work on all Pentium based boards.
 
 	  People using multiprocessor machines who say Y here should also say
 	  Y to "Enhanced Real Time Clock Support", below. The "Advanced Power
@@ -482,6 +480,19 @@ config X86_X2APIC
 	  to older APIC implementations.
 
 	  If in doubt, say Y.
+
+config AMD_SECURE_AVIC
+	bool "AMD Secure AVIC"
+	depends on AMD_MEM_ENCRYPT && X86_X2APIC
+	help
+	  Enable this to get AMD Secure AVIC support on guests that have this feature.
+
+	  AMD Secure AVIC provides hardware acceleration for performance sensitive
+	  APIC accesses and support for managing guest owned APIC state for SEV-SNP
+	  guests. Secure AVIC does not support xAPIC mode. It has functional
+	  dependency on x2apic being enabled in the guest.
+
+	  If you don't know what to do here, say N.
 
 config X86_POSTED_MSI
 	bool "Enable MSI and MSI-x delivery by posted interrupts"
@@ -525,11 +536,24 @@ config X86_CPU_RESCTRL
 
 	  Say N if unsure.
 
+config X86_CPU_RESCTRL_INTEL_AET
+	bool "Intel Application Energy Telemetry"
+	depends on X86_64 && X86_CPU_RESCTRL && CPU_SUP_INTEL && INTEL_PMT_TELEMETRY=y && INTEL_TPMI=y
+	help
+	  Enable per-RMID telemetry events in resctrl.
+
+	  Intel feature that collects per-RMID execution data
+	  about energy consumption, measure of frequency independent
+	  activity and other performance metrics. Data is aggregated
+	  per package.
+
+	  Say N if unsure.
+
 config X86_FRED
 	bool "Flexible Return and Event Delivery"
 	depends on X86_64
 	help
-	  When enabled, try to use Flexible Return and Event Delivery
+	  When enabled, use Flexible Return and Event Delivery
 	  instead of the legacy SYSCALL/SYSENTER/IDT architecture for
 	  ring transitions and exception/interrupt handling if the
 	  system supports it.
@@ -784,6 +808,7 @@ if HYPERVISOR_GUEST
 config PARAVIRT
 	bool "Enable paravirtualization code"
 	depends on HAVE_STATIC_CALL
+	select HAVE_PV_STEAL_CLOCK_GEN
 	help
 	  This changes the kernel so it can modify itself when it is run
 	  under a hypervisor, potentially improving performance significantly
@@ -793,13 +818,7 @@ config PARAVIRT
 config PARAVIRT_XXL
 	bool
 	depends on X86_64
-
-config PARAVIRT_DEBUG
-	bool "paravirt-ops debugging"
-	depends on PARAVIRT && DEBUG_KERNEL
-	help
-	  Enable to debug paravirt_ops internals.  Specifically, BUG if
-	  a paravirt_op is missing when it is called.
+	select ARCH_HAS_LAZY_MMU_MODE
 
 config PARAVIRT_SPINLOCKS
 	bool "Paravirtualization layer for spinlocks"
@@ -878,6 +897,15 @@ config ACRN_GUEST
 	  real-time and safety-criticality in mind. It is built for embedded
 	  IOT with small footprint and real-time features. More details can be
 	  found in https://projectacrn.org/.
+
+config BHYVE_GUEST
+	bool "Bhyve (BSD Hypervisor) Guest support"
+	depends on X86_64
+	help
+	  This option allows to run Linux to recognise when it is running as a
+	  guest in the Bhyve hypervisor, and to support more than 255 vCPUs when
+	  when doing so. More details about Bhyve can be found at https://bhyve.org
+	  and https://wiki.freebsd.org/bhyve/.
 
 config INTEL_TDX_GUEST
 	bool "Intel TDX (Trust Domain Extensions) - Guest Support"
@@ -1030,29 +1058,6 @@ config NR_CPUS
 
 	  This is purely to save memory: each supported CPU adds about 8KB
 	  to the kernel image.
-
-config SCHED_CLUSTER
-	bool "Cluster scheduler support"
-	depends on SMP
-	default y
-	help
-	  Cluster scheduler support improves the CPU scheduler's decision
-	  making when dealing with machines that have clusters of CPUs.
-	  Cluster usually means a couple of CPUs which are placed closely
-	  by sharing mid-level caches, last-level cache tags or internal
-	  busses.
-
-config SCHED_SMT
-	def_bool y if SMP
-
-config SCHED_MC
-	def_bool y
-	prompt "Multi-core scheduler support"
-	depends on SMP
-	help
-	  Multi-core scheduler support improves the CPU scheduler's decision
-	  making when dealing with multi-core CPU chips at a cost of slightly
-	  increased overhead in some places. If unsure say N here.
 
 config SCHED_MC_PRIO
 	bool "CPU core priorities scheduler support"
@@ -1340,7 +1345,7 @@ config MICROCODE_LATE_LOADING
 	  use this at your own risk. Late loading taints the kernel unless the
 	  microcode header indicates that it is safe for late loading via the
 	  minimal revision check. This minimal revision check can be enforced on
-	  the kernel command line with "microcode.minrev=Y".
+	  the kernel command line with "microcode=force_minrev".
 
 config MICROCODE_LATE_FORCE_MINREV
 	bool "Enforce late microcode loading minimal revision check"
@@ -1356,9 +1361,23 @@ config MICROCODE_LATE_FORCE_MINREV
 	  revision check fails.
 
 	  This minimal revision check can also be controlled via the
-	  "microcode.minrev" parameter on the kernel command line.
+	  "microcode=force_minrev" parameter on the kernel command line.
 
 	  If unsure say Y.
+
+config MICROCODE_DBG
+	bool "Enable microcode loader debugging"
+	default n
+	depends on MICROCODE
+	help
+	  Enable code which allows to debug the microcode loader. When running
+	  in a guest the patch loading is simulated but everything else
+	  related to patch parsing and handling is done as on baremetal with
+	  the purpose of debugging solely the software side of things. On
+	  baremetal, it simply dumps additional debugging information during
+	  normal operation.
+
+	  You almost certainly want to say n here.
 
 config X86_MSR
 	tristate "/dev/cpu/*/msr - Model-specific register support"
@@ -1552,7 +1571,6 @@ config ARCH_SPARSEMEM_ENABLE
 	def_bool y
 	select SPARSEMEM_STATIC if X86_32
 	select SPARSEMEM_VMEMMAP_ENABLE if X86_64
-	select SPARSEMEM_VMEMMAP if X86_64
 
 config ARCH_SPARSEMEM_DEFAULT
 	def_bool X86_64 || (NUMA && X86_32)
@@ -1753,11 +1771,7 @@ config X86_UMIP
 config CC_HAS_IBT
 	# GCC >= 9 and binutils >= 2.29
 	# Retpoline check to work around https://gcc.gnu.org/bugzilla/show_bug.cgi?id=93654
-	# Clang/LLVM >= 14
-	# https://github.com/llvm/llvm-project/commit/e0b89df2e0f0130881bf6c39bf31d7f6aac00e0f
-	# https://github.com/llvm/llvm-project/commit/dfcf69770bc522b9e411c66454934a37c1f35332
-	def_bool ((CC_IS_GCC && $(cc-option, -fcf-protection=branch -mindirect-branch-register)) || \
-		  (CC_IS_CLANG && CLANG_VERSION >= 140000)) && \
+	def_bool ((CC_IS_GCC && $(cc-option, -fcf-protection=branch -mindirect-branch-register)) || CC_IS_CLANG) && \
 		  $(as-instr,endbr64)
 
 config X86_CET
@@ -1769,8 +1783,6 @@ config X86_KERNEL_IBT
 	prompt "Indirect Branch Tracking"
 	def_bool y
 	depends on X86_64 && CC_HAS_IBT && HAVE_OBJTOOL
-	# https://github.com/llvm/llvm-project/commit/9d7001eba9c4cb311e03cd8cdc231f9e579f2d0f
-	depends on !LD_IS_LLD || LLD_VERSION >= 140000
 	select OBJTOOL
 	select X86_CET
 	help
@@ -1810,7 +1822,7 @@ config ARCH_PKEY_BITS
 choice
 	prompt "TSX enable mode"
 	depends on CPU_SUP_INTEL
-	default X86_INTEL_TSX_MODE_OFF
+	default X86_INTEL_TSX_MODE_AUTO
 	help
 	  Intel's TSX (Transactional Synchronization Extensions) feature
 	  allows to optimize locking protocols through lock elision which
@@ -1873,6 +1885,7 @@ config X86_USER_SHADOW_STACK
 	bool "X86 userspace shadow stack"
 	depends on AS_WRUSS
 	depends on X86_64
+	depends on PER_VMA_LOCK
 	select ARCH_USES_HIGH_VMA_FLAGS
 	select ARCH_HAS_USER_SHADOW_STACK
 	select X86_CET
@@ -1896,7 +1909,6 @@ config INTEL_TDX_HOST
 	depends on X86_X2APIC
 	select ARCH_KEEP_MEMBLOCK
 	depends on CONTIG_ALLOC
-	depends on !KEXEC_CORE
 	depends on X86_MCE
 	help
 	  Intel Trust Domain Extensions (TDX) protects guest VMs from malicious
@@ -2396,11 +2408,11 @@ config FUNCTION_PADDING_CFI
 	default  3 if FUNCTION_ALIGNMENT_8B
 	default  0
 
-# Basically: FUNCTION_ALIGNMENT - 5*CFI_CLANG
+# Basically: FUNCTION_ALIGNMENT - 5*CFI
 # except Kconfig can't do arithmetic :/
 config FUNCTION_PADDING_BYTES
 	int
-	default FUNCTION_PADDING_CFI if CFI_CLANG
+	default FUNCTION_PADDING_CFI if CFI
 	default FUNCTION_ALIGNMENT
 
 config CALL_PADDING
@@ -2410,7 +2422,7 @@ config CALL_PADDING
 
 config FINEIBT
 	def_bool y
-	depends on X86_KERNEL_IBT && CFI_CLANG && MITIGATION_RETPOLINE
+	depends on X86_KERNEL_IBT && CFI && MITIGATION_RETPOLINE
 	select CALL_PADDING
 
 config FINEIBT_BHI
@@ -2427,7 +2439,7 @@ config CALL_THUNKS
 
 config PREFIX_SYMBOLS
 	def_bool y
-	depends on CALL_PADDING && !CFI_CLANG
+	depends on CALL_PADDING && !CFI
 
 menuconfig CPU_MITIGATIONS
 	bool "Mitigations for CPU vulnerabilities"
@@ -2755,11 +2767,6 @@ menuconfig APM
 	  This driver does not spin down disk drives (see the hdparm(8)
 	  manpage ("man 8 hdparm") for that), and it doesn't turn off
 	  VESA-compliant "green" monitors.
-
-	  This driver does not support the TI 4000M TravelMate and the ACER
-	  486/DX4/75 because they don't have compliant BIOSes. Many "green"
-	  desktop machines also don't have compliant BIOSes, and this driver
-	  may cause those machines to panic during the boot phase.
 
 	  Generally, if you don't have a battery in your machine, there isn't
 	  much point in using this driver and you should say N. If you get

@@ -100,17 +100,9 @@ static int create_rstor_token(unsigned long ssp, unsigned long *token_addr)
 static unsigned long alloc_shstk(unsigned long addr, unsigned long size,
 				 unsigned long token_offset, bool set_res_tok)
 {
-	int flags = MAP_ANONYMOUS | MAP_PRIVATE | MAP_ABOVE4G;
-	struct mm_struct *mm = current->mm;
-	unsigned long mapped_addr, unused;
+	unsigned long mapped_addr;
 
-	if (addr)
-		flags |= MAP_FIXED_NOREPLACE;
-
-	mmap_write_lock(mm);
-	mapped_addr = do_mmap(NULL, addr, size, PROT_READ, flags,
-			      VM_SHADOW_STACK | VM_WRITE, 0, &unused, NULL);
-	mmap_write_unlock(mm);
+	mapped_addr = vm_mmap_shadow_stack(addr, size, MAP_ABOVE4G);
 
 	if (!set_res_tok || IS_ERR_VALUE(mapped_addr))
 		goto out;
@@ -191,7 +183,7 @@ void reset_thread_features(void)
 	current->thread.features_locked = 0;
 }
 
-unsigned long shstk_alloc_thread_stack(struct task_struct *tsk, unsigned long clone_flags,
+unsigned long shstk_alloc_thread_stack(struct task_struct *tsk, u64 clone_flags,
 				       unsigned long stack_size)
 {
 	struct thread_shstk *shstk = &tsk->thread.shstk;
@@ -246,6 +238,46 @@ static unsigned long get_user_shstk_addr(void)
 	return ssp;
 }
 
+int shstk_pop(u64 *val)
+{
+	int ret = 0;
+	u64 ssp;
+
+	if (!features_enabled(ARCH_SHSTK_SHSTK))
+		return -ENOTSUPP;
+
+	fpregs_lock_and_load();
+
+	rdmsrq(MSR_IA32_PL3_SSP, ssp);
+	if (val && get_user(*val, (__user u64 *)ssp))
+		ret = -EFAULT;
+	else
+		wrmsrq(MSR_IA32_PL3_SSP, ssp + SS_FRAME_SIZE);
+	fpregs_unlock();
+
+	return ret;
+}
+
+int shstk_push(u64 val)
+{
+	u64 ssp;
+	int ret;
+
+	if (!features_enabled(ARCH_SHSTK_SHSTK))
+		return -ENOTSUPP;
+
+	fpregs_lock_and_load();
+
+	rdmsrq(MSR_IA32_PL3_SSP, ssp);
+	ssp -= SS_FRAME_SIZE;
+	ret = write_user_shstk_64((__user void *)ssp, val);
+	if (!ret)
+		wrmsrq(MSR_IA32_PL3_SSP, ssp);
+	fpregs_unlock();
+
+	return ret;
+}
+
 #define SHSTK_DATA_BIT BIT(63)
 
 static int put_shstk_data(u64 __user *addr, u64 data)
@@ -294,10 +326,8 @@ static int shstk_push_sigframe(unsigned long *ssp)
 
 static int shstk_pop_sigframe(unsigned long *ssp)
 {
-	struct vm_area_struct *vma;
 	unsigned long token_addr;
-	bool need_to_check_vma;
-	int err = 1;
+	unsigned int seq;
 
 	/*
 	 * It is possible for the SSP to be off the end of a shadow stack by 4
@@ -308,24 +338,35 @@ static int shstk_pop_sigframe(unsigned long *ssp)
 	if (!IS_ALIGNED(*ssp, 8))
 		return -EINVAL;
 
-	need_to_check_vma = PAGE_ALIGN(*ssp) == *ssp;
+	do {
+		struct vm_area_struct *vma;
+		bool valid_vma;
+		int err;
 
-	if (need_to_check_vma)
-		mmap_read_lock_killable(current->mm);
+		if (mmap_read_lock_killable(current->mm))
+			return -EINTR;
 
-	err = get_shstk_data(&token_addr, (unsigned long __user *)*ssp);
-	if (unlikely(err))
-		goto out_err;
-
-	if (need_to_check_vma) {
 		vma = find_vma(current->mm, *ssp);
-		if (!vma || !(vma->vm_flags & VM_SHADOW_STACK)) {
-			err = -EFAULT;
-			goto out_err;
-		}
+		valid_vma = vma && (vma->vm_flags & VM_SHADOW_STACK);
 
+		/*
+		 * VMAs can change between get_shstk_data() and find_vma().
+		 * Watch for changes and ensure that 'token_addr' comes from
+		 * 'vma' by recording a seqcount.
+		 *
+		 * Ignore the return value of mmap_lock_speculate_try_begin()
+		 * because the mmap lock excludes the possibility of writers.
+		 */
+		mmap_lock_speculate_try_begin(current->mm, &seq);
 		mmap_read_unlock(current->mm);
-	}
+
+		if (!valid_vma)
+			return -EINVAL;
+
+		err = get_shstk_data(&token_addr, (unsigned long __user *)*ssp);
+		if (err)
+			return err;
+	} while (mmap_lock_speculate_retry(current->mm, seq));
 
 	/* Restore SSP aligned? */
 	if (unlikely(!IS_ALIGNED(token_addr, 8)))
@@ -338,10 +379,6 @@ static int shstk_pop_sigframe(unsigned long *ssp)
 	*ssp = token_addr;
 
 	return 0;
-out_err:
-	if (need_to_check_vma)
-		mmap_read_unlock(current->mm);
-	return err;
 }
 
 int setup_signal_shadow_stack(struct ksignal *ksig)

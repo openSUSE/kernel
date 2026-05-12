@@ -17,6 +17,7 @@
 #include <asm/processor.h>	/* For TASK_SIZE */
 #include <asm/machvec.h>
 #include <asm/setup.h>
+#include <linux/page_table_check.h>
 
 struct mm_struct;
 struct vm_area_struct;
@@ -107,7 +108,7 @@ struct vm_area_struct;
 
 #define _PAGE_NORMAL(x) __pgprot(_PAGE_VALID | __ACCESS_BITS | (x))
 
-#define _PAGE_P(x) _PAGE_NORMAL((x) | (((x) & _PAGE_FOW)?0:_PAGE_FOW))
+#define _PAGE_P(x) _PAGE_NORMAL((x) | _PAGE_FOW)
 #define _PAGE_S(x) _PAGE_NORMAL(x)
 
 /*
@@ -126,33 +127,15 @@ struct vm_area_struct;
 #define pgprot_noncached(prot)	(prot)
 
 /*
- * BAD_PAGETABLE is used when we need a bogus page-table, while
- * BAD_PAGE is used for a bogus page.
- *
- * ZERO_PAGE is a global shared page that is always zero:  used
- * for zero-mapped memory areas etc..
+ * All caching attribute macros are identity on Alpha, so the generic
+ * pgprot_modify() degenerates to tautological self-comparisons.
+ * Override it to just return newprot directly.
  */
-extern pte_t __bad_page(void);
-extern pmd_t * __bad_pagetable(void);
-
-extern unsigned long __zero_page(void);
-
-#define BAD_PAGETABLE	__bad_pagetable()
-#define BAD_PAGE	__bad_page()
-#define ZERO_PAGE(vaddr)	(virt_to_page(ZERO_PGE))
-
-/* number of bits that fit into a memory pointer */
-#define BITS_PER_PTR			(8*sizeof(unsigned long))
-
-/* to align the pointer to a pointer address */
-#define PTR_MASK			(~(sizeof(void*)-1))
-
-/* sizeof(void*)==1<<SIZEOF_PTR_LOG2 */
-#define SIZEOF_PTR_LOG2			3
-
-/* to find an entry in a page-table */
-#define PAGE_PTR(address)		\
-  ((unsigned long)(address)>>(PAGE_SHIFT-SIZEOF_PTR_LOG2)&PTR_MASK&~PAGE_MASK)
+#define pgprot_modify pgprot_modify
+static inline pgprot_t pgprot_modify(pgprot_t oldprot, pgprot_t newprot)
+{
+	return newprot;
+}
 
 /*
  * On certain platforms whose physical address space can overlap KSEG,
@@ -206,6 +189,9 @@ extern inline void pud_set(pud_t * pudp, pmd_t * pmdp)
 { pud_val(*pudp) = _PAGE_TABLE | ((((unsigned long) pmdp) - PAGE_OFFSET) << (32-PAGE_SHIFT)); }
 
 
+extern void migrate_flush_tlb_page(struct vm_area_struct *vma,
+					unsigned long addr);
+
 extern inline unsigned long
 pmd_page_vaddr(pmd_t pmd)
 {
@@ -225,7 +211,7 @@ extern inline int pte_none(pte_t pte)		{ return !pte_val(pte); }
 extern inline int pte_present(pte_t pte)	{ return pte_val(pte) & _PAGE_VALID; }
 extern inline void pte_clear(struct mm_struct *mm, unsigned long addr, pte_t *ptep)
 {
-	pte_val(*ptep) = 0;
+	WRITE_ONCE(pte_val(*ptep), 0);
 }
 
 extern inline int pmd_none(pmd_t pmd)		{ return !pmd_val(pmd); }
@@ -287,6 +273,33 @@ extern inline pte_t * pte_offset_kernel(pmd_t * dir, unsigned long address)
 
 extern pgd_t swapper_pg_dir[1024];
 
+#ifdef CONFIG_COMPACTION
+#define __HAVE_ARCH_PTEP_GET_AND_CLEAR
+
+static inline pte_t ptep_get_and_clear(struct mm_struct *mm,
+					unsigned long address,
+					pte_t *ptep)
+{
+	pte_t pte = READ_ONCE(*ptep);
+
+	pte_clear(mm, address, ptep);
+	return pte;
+}
+
+#define __HAVE_ARCH_PTEP_CLEAR_FLUSH
+
+static inline pte_t ptep_clear_flush(struct vm_area_struct *vma,
+				unsigned long addr, pte_t *ptep)
+{
+	struct mm_struct *mm = vma->vm_mm;
+	pte_t pte = ptep_get_and_clear(mm, addr, ptep);
+
+	page_table_check_pte_clear(mm, addr, pte);
+	migrate_flush_tlb_page(vma, addr);
+	return pte;
+}
+
+#endif
 /*
  * The Alpha doesn't have any external MMU info:  the kernel page
  * tables contain all the necessary information.

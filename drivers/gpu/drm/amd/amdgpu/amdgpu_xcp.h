@@ -41,6 +41,9 @@
 
 #define AMDGPU_XCP_OPS_KFD	(1 << 0)
 
+#define XCP_INST_MASK(num_inst, xcp_id)		\
+	(num_inst ? GENMASK(num_inst - 1, 0) << (xcp_id * num_inst) : 0)
+
 struct amdgpu_fpriv;
 
 enum AMDGPU_XCP_IP_BLOCK {
@@ -129,6 +132,8 @@ struct amdgpu_xcp_mgr {
 	struct amdgpu_xcp_cfg *xcp_cfg;
 	uint32_t supp_xcp_modes;
 	uint32_t avail_xcp_modes;
+	/* used to determin KFD memory alloc mode for each partition */
+	uint32_t mem_alloc_mode;
 };
 
 struct amdgpu_xcp_mgr_funcs {

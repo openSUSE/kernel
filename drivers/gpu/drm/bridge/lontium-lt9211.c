@@ -121,8 +121,7 @@ static int lt9211_read_chipid(struct lt9211 *ctx)
 	}
 
 	/* Test for known Chip ID. */
-	if (chipid[0] != REG_CHIPID0_VALUE || chipid[1] != REG_CHIPID1_VALUE ||
-	    chipid[2] != REG_CHIPID2_VALUE) {
+	if (chipid[0] != REG_CHIPID0_VALUE || chipid[1] != REG_CHIPID1_VALUE) {
 		dev_err(ctx->dev, "Unknown Chip ID: 0x%02x 0x%02x 0x%02x\n",
 			chipid[0], chipid[1], chipid[2]);
 		return -EINVAL;
@@ -456,7 +455,7 @@ static int lt9211_configure_tx(struct lt9211 *ctx, bool jeida,
 }
 
 static void lt9211_atomic_enable(struct drm_bridge *bridge,
-				 struct drm_atomic_state *state)
+				 struct drm_atomic_commit *state)
 {
 	struct lt9211 *ctx = bridge_to_lt9211(bridge);
 	const struct drm_bridge_state *bridge_state;
@@ -553,7 +552,7 @@ static void lt9211_atomic_enable(struct drm_bridge *bridge,
 }
 
 static void lt9211_atomic_disable(struct drm_bridge *bridge,
-				  struct drm_atomic_state *state)
+				  struct drm_atomic_commit *state)
 {
 	struct lt9211 *ctx = bridge_to_lt9211(bridge);
 	int ret;

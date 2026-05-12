@@ -176,7 +176,7 @@ static int snd_imx_open(struct snd_soc_component *component,
 	struct imx_pcm_runtime_data *iprtd;
 	int ret;
 
-	iprtd = kzalloc(sizeof(*iprtd), GFP_KERNEL);
+	iprtd = kzalloc_obj(*iprtd);
 	if (iprtd == NULL)
 		return -ENOMEM;
 	runtime->private_data = iprtd;
@@ -273,8 +273,8 @@ static const struct snd_soc_component_driver imx_soc_component_fiq = {
 	.prepare	= snd_imx_pcm_prepare,
 	.trigger	= snd_imx_pcm_trigger,
 	.pointer	= snd_imx_pcm_pointer,
-	.pcm_construct	= snd_imx_pcm_new,
-	.pcm_destruct	= snd_imx_pcm_free,
+	.pcm_new	= snd_imx_pcm_new,
+	.pcm_free	= snd_imx_pcm_free,
 };
 
 int imx_pcm_fiq_init(struct platform_device *pdev,

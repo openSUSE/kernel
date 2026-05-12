@@ -196,7 +196,7 @@ static const struct tegra_cpufreq_soc tegra234_cpufreq_soc = {
 	.refclk_delta_min = 16000,
 };
 
-static const struct tegra_cpufreq_soc tegra239_cpufreq_soc = {
+static const struct tegra_cpufreq_soc tegra238_cpufreq_soc = {
 	.ops = &tegra234_cpufreq_ops,
 	.actmon_cntr_base = 0x4000,
 	.maxcpus_per_cluster = 8,
@@ -463,7 +463,7 @@ static int tegra_cpufreq_init_cpufreq_table(struct cpufreq_policy *policy,
 		return ret;
 	}
 
-	freq_table = kcalloc((max_opps + 1), sizeof(*freq_table), GFP_KERNEL);
+	freq_table = kzalloc_objs(*freq_table, (max_opps + 1));
 	if (!freq_table)
 		return -ENOMEM;
 
@@ -750,7 +750,8 @@ static int tegra194_cpufreq_probe(struct platform_device *pdev)
 	if (IS_ERR(bpmp))
 		return PTR_ERR(bpmp);
 
-	read_counters_wq = alloc_workqueue("read_counters_wq", __WQ_LEGACY, 1);
+	read_counters_wq = alloc_workqueue("read_counters_wq",
+					   __WQ_LEGACY | WQ_PERCPU, 1);
 	if (!read_counters_wq) {
 		dev_err(&pdev->dev, "fail to create_workqueue\n");
 		err = -EINVAL;
@@ -806,7 +807,7 @@ static void tegra194_cpufreq_remove(struct platform_device *pdev)
 static const struct of_device_id tegra194_cpufreq_of_match[] = {
 	{ .compatible = "nvidia,tegra194-ccplex", .data = &tegra194_cpufreq_soc },
 	{ .compatible = "nvidia,tegra234-ccplex-cluster", .data = &tegra234_cpufreq_soc },
-	{ .compatible = "nvidia,tegra239-ccplex-cluster", .data = &tegra239_cpufreq_soc },
+	{ .compatible = "nvidia,tegra238-ccplex-cluster", .data = &tegra238_cpufreq_soc },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, tegra194_cpufreq_of_match);

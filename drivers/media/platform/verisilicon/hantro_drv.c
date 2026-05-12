@@ -13,6 +13,7 @@
 #include <linux/clk.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/of_platform.h>
 #include <linux/platform_device.h>
 #include <linux/pm.h>
 #include <linux/pm_runtime.h>
@@ -183,7 +184,7 @@ static void device_run(void *priv)
 	if (ret)
 		goto err_cancel_job;
 
-	v4l2_m2m_buf_copy_metadata(src, dst, true);
+	v4l2_m2m_buf_copy_metadata(src, dst);
 
 	if (ctx->codec_ops->run(ctx))
 		goto err_cancel_job;
@@ -639,7 +640,7 @@ static int hantro_open(struct file *filp)
 	 * helper functions used here.
 	 */
 
-	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	ctx = kzalloc_obj(*ctx);
 	if (!ctx)
 		return -ENOMEM;
 
@@ -662,8 +663,7 @@ static int hantro_open(struct file *filp)
 	}
 
 	v4l2_fh_init(&ctx->fh, vdev);
-	filp->private_data = &ctx->fh;
-	v4l2_fh_add(&ctx->fh);
+	v4l2_fh_add(&ctx->fh, filp);
 
 	hantro_reset_fmts(ctx);
 
@@ -677,7 +677,7 @@ static int hantro_open(struct file *filp)
 	return 0;
 
 err_fh_free:
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, filp);
 	v4l2_fh_exit(&ctx->fh);
 err_ctx_free:
 	kfree(ctx);
@@ -686,15 +686,14 @@ err_ctx_free:
 
 static int hantro_release(struct file *filp)
 {
-	struct hantro_ctx *ctx =
-		container_of(filp->private_data, struct hantro_ctx, fh);
+	struct hantro_ctx *ctx = file_to_ctx(filp);
 
 	/*
 	 * No need for extra locking because this was the last reference
 	 * to this file.
 	 */
 	v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, filp);
 	v4l2_fh_exit(&ctx->fh);
 	v4l2_ctrl_handler_free(&ctx->ctrl_handler);
 	kfree(ctx);
@@ -917,6 +916,8 @@ static int hantro_add_func(struct hantro_dev *vpu, unsigned int funcid)
 		vpu->decoder = func;
 		v4l2_disable_ioctl(vfd, VIDIOC_TRY_ENCODER_CMD);
 		v4l2_disable_ioctl(vfd, VIDIOC_ENCODER_CMD);
+		v4l2_disable_ioctl(vfd, VIDIOC_G_SELECTION);
+		v4l2_disable_ioctl(vfd, VIDIOC_S_SELECTION);
 	}
 
 	video_set_drvdata(vfd, vpu);
@@ -1033,6 +1034,41 @@ static int hantro_disable_multicore(struct hantro_dev *vpu)
 	}
 
 	return 0;
+}
+
+static struct v4l2_m2m_dev *hantro_get_v4l2_m2m_dev(struct hantro_dev *vpu)
+{
+	struct device_node *node;
+	struct hantro_dev *shared_vpu;
+
+	if (!vpu->variant || !vpu->variant->shared_devices)
+		goto init_new_m2m_dev;
+
+	for_each_matching_node(node, vpu->variant->shared_devices) {
+		struct platform_device *pdev;
+		struct v4l2_m2m_dev *m2m_dev;
+
+		pdev = of_find_device_by_node(node);
+		if (!pdev)
+			continue;
+
+		shared_vpu = platform_get_drvdata(pdev);
+		if (IS_ERR_OR_NULL(shared_vpu) || shared_vpu == vpu) {
+			platform_device_put(pdev);
+			continue;
+		}
+
+		v4l2_m2m_get(shared_vpu->m2m_dev);
+		m2m_dev = shared_vpu->m2m_dev;
+		platform_device_put(pdev);
+
+		of_node_put(node);
+
+		return m2m_dev;
+	}
+
+init_new_m2m_dev:
+	return v4l2_m2m_init(&vpu_m2m_ops);
 }
 
 static int hantro_probe(struct platform_device *pdev)
@@ -1186,7 +1222,7 @@ static int hantro_probe(struct platform_device *pdev)
 	}
 	platform_set_drvdata(pdev, vpu);
 
-	vpu->m2m_dev = v4l2_m2m_init(&vpu_m2m_ops);
+	vpu->m2m_dev = hantro_get_v4l2_m2m_dev(vpu);
 	if (IS_ERR(vpu->m2m_dev)) {
 		v4l2_err(&vpu->v4l2_dev, "Failed to init mem2mem device\n");
 		ret = PTR_ERR(vpu->m2m_dev);
@@ -1225,7 +1261,7 @@ err_rm_enc_func:
 	hantro_remove_enc_func(vpu);
 err_m2m_rel:
 	media_device_cleanup(&vpu->mdev);
-	v4l2_m2m_release(vpu->m2m_dev);
+	v4l2_m2m_put(vpu->m2m_dev);
 err_v4l2_unreg:
 	v4l2_device_unregister(&vpu->v4l2_dev);
 err_clk_unprepare:
@@ -1248,7 +1284,7 @@ static void hantro_remove(struct platform_device *pdev)
 	hantro_remove_dec_func(vpu);
 	hantro_remove_enc_func(vpu);
 	media_device_cleanup(&vpu->mdev);
-	v4l2_m2m_release(vpu->m2m_dev);
+	v4l2_m2m_put(vpu->m2m_dev);
 	v4l2_device_unregister(&vpu->v4l2_dev);
 	clk_bulk_unprepare(vpu->variant->num_clocks, vpu->clocks);
 	reset_control_assert(vpu->resets);

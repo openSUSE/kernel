@@ -464,7 +464,6 @@ static int dlm_do_recovery(struct dlm_ctxt *dlm)
 	}
 
 	if (dlm->reco.dead_node == O2NM_INVALID_NODE_NUM) {
-		// mlog(0, "nothing to recover!  sleeping now!\n");
 		spin_unlock(&dlm->spinlock);
 		/* return to main thread loop and sleep. */
 		return 0;
@@ -744,7 +743,7 @@ static int dlm_init_recovery_area(struct dlm_ctxt *dlm, u8 dead_node)
 		}
 		BUG_ON(num == dead_node);
 
-		ndata = kzalloc(sizeof(*ndata), GFP_NOFS);
+		ndata = kzalloc_obj(*ndata, GFP_NOFS);
 		if (!ndata) {
 			dlm_destroy_recovery_area(dlm);
 			return -ENOMEM;
@@ -831,7 +830,7 @@ int dlm_request_all_locks_handler(struct o2net_msg *msg, u32 len, void *data,
 	}
 	BUG_ON(lr->dead_node != dlm->reco.dead_node);
 
-	item = kzalloc(sizeof(*item), GFP_NOFS);
+	item = kzalloc_obj(*item, GFP_NOFS);
 	if (!item) {
 		dlm_put(dlm);
 		return -ENOMEM;
@@ -1383,7 +1382,7 @@ int dlm_mig_lockres_handler(struct o2net_msg *msg, u32 len, void *data,
 
 	ret = -ENOMEM;
 	buf = kmalloc(be16_to_cpu(msg->data_len), GFP_NOFS);
-	item = kzalloc(sizeof(*item), GFP_NOFS);
+	item = kzalloc_obj(*item, GFP_NOFS);
 	if (!buf || !item)
 		goto leave;
 

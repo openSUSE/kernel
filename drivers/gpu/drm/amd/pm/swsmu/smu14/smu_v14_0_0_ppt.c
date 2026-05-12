@@ -65,6 +65,9 @@
 
 #define SMU_MALL_PG_CONFIG_DEFAULT SMU_MALL_PG_CONFIG_DRIVER_CONTROL_ALWAYS_ON
 
+#define SMU14_DRIVER_IF_VERSION_SMU_V14_0_0 0x7
+#define SMU14_DRIVER_IF_VERSION_SMU_V14_0_1 0x6
+
 #define SMU_14_0_0_UMD_PSTATE_GFXCLK			700
 #define SMU_14_0_0_UMD_PSTATE_SOCCLK			678
 #define SMU_14_0_0_UMD_PSTATE_FCLK			1800
@@ -72,19 +75,21 @@
 #define SMU_14_0_4_UMD_PSTATE_GFXCLK			938
 #define SMU_14_0_4_UMD_PSTATE_SOCCLK			938
 
-#define FEATURE_MASK(feature) (1ULL << feature)
-#define SMC_DPM_FEATURE ( \
-	FEATURE_MASK(FEATURE_CCLK_DPM_BIT) | \
-	FEATURE_MASK(FEATURE_VCN_DPM_BIT)	 | \
-	FEATURE_MASK(FEATURE_FCLK_DPM_BIT)	 | \
-	FEATURE_MASK(FEATURE_SOCCLK_DPM_BIT)	 | \
-	FEATURE_MASK(FEATURE_LCLK_DPM_BIT)	 | \
-	FEATURE_MASK(FEATURE_SHUBCLK_DPM_BIT)	 | \
-	FEATURE_MASK(FEATURE_DCFCLK_DPM_BIT)| \
-	FEATURE_MASK(FEATURE_ISP_DPM_BIT)| \
-	FEATURE_MASK(FEATURE_IPU_DPM_BIT)	| \
-	FEATURE_MASK(FEATURE_GFX_DPM_BIT)	| \
-	FEATURE_MASK(FEATURE_VPE_DPM_BIT))
+static const struct smu_feature_bits smu_v14_0_0_dpm_features = {
+	.bits = {
+		SMU_FEATURE_BIT_INIT(FEATURE_CCLK_DPM_BIT),
+		SMU_FEATURE_BIT_INIT(FEATURE_VCN_DPM_BIT),
+		SMU_FEATURE_BIT_INIT(FEATURE_FCLK_DPM_BIT),
+		SMU_FEATURE_BIT_INIT(FEATURE_SOCCLK_DPM_BIT),
+		SMU_FEATURE_BIT_INIT(FEATURE_LCLK_DPM_BIT),
+		SMU_FEATURE_BIT_INIT(FEATURE_SHUBCLK_DPM_BIT),
+		SMU_FEATURE_BIT_INIT(FEATURE_DCFCLK_DPM_BIT),
+		SMU_FEATURE_BIT_INIT(FEATURE_ISP_DPM_BIT),
+		SMU_FEATURE_BIT_INIT(FEATURE_IPU_DPM_BIT),
+		SMU_FEATURE_BIT_INIT(FEATURE_GFX_DPM_BIT),
+		SMU_FEATURE_BIT_INIT(FEATURE_VPE_DPM_BIT)
+	}
+};
 
 enum smu_mall_pg_config {
 	SMU_MALL_PG_CONFIG_PMFW_CONTROL = 0,
@@ -186,6 +191,7 @@ static int smu_v14_0_0_init_smc_tables(struct smu_context *smu)
 {
 	struct smu_table_context *smu_table = &smu->smu_table;
 	struct smu_table *tables = smu_table->tables;
+	int ret;
 
 	SMU_TABLE_INIT(tables, SMU_TABLE_WATERMARKS, sizeof(Watermarks_t),
 		PAGE_SIZE, AMDGPU_GEM_DOMAIN_VRAM);
@@ -194,7 +200,7 @@ static int smu_v14_0_0_init_smc_tables(struct smu_context *smu)
 	SMU_TABLE_INIT(tables, SMU_TABLE_SMU_METRICS, sizeof(SmuMetrics_t),
 		PAGE_SIZE, AMDGPU_GEM_DOMAIN_VRAM);
 
-	smu_table->metrics_table = kzalloc(sizeof(SmuMetrics_t), GFP_KERNEL);
+	smu_table->metrics_table = kzalloc_obj(SmuMetrics_t);
 	if (!smu_table->metrics_table)
 		goto err0_out;
 	smu_table->metrics_time = 0;
@@ -203,13 +209,14 @@ static int smu_v14_0_0_init_smc_tables(struct smu_context *smu)
 	if (!smu_table->clocks_table)
 		goto err1_out;
 
-	smu_table->watermarks_table = kzalloc(sizeof(Watermarks_t), GFP_KERNEL);
+	smu_table->watermarks_table = kzalloc_obj(Watermarks_t);
 	if (!smu_table->watermarks_table)
 		goto err2_out;
 
-	smu_table->gpu_metrics_table_size = sizeof(struct gpu_metrics_v3_0);
-	smu_table->gpu_metrics_table = kzalloc(smu_table->gpu_metrics_table_size, GFP_KERNEL);
-	if (!smu_table->gpu_metrics_table)
+	ret = smu_driver_table_init(smu, SMU_DRIVER_TABLE_GPU_METRICS,
+				    sizeof(struct gpu_metrics_v3_0),
+				    SMU_GPU_METRICS_CACHE_INTERVAL);
+	if (ret)
 		goto err3_out;
 
 	return 0;
@@ -237,8 +244,7 @@ static int smu_v14_0_0_fini_smc_tables(struct smu_context *smu)
 	kfree(smu_table->watermarks_table);
 	smu_table->watermarks_table = NULL;
 
-	kfree(smu_table->gpu_metrics_table);
-	smu_table->gpu_metrics_table = NULL;
+	smu_driver_table_fini(smu, SMU_DRIVER_TABLE_GPU_METRICS);
 
 	return 0;
 }
@@ -469,14 +475,15 @@ static int smu_v14_0_0_read_sensor(struct smu_context *smu,
 static bool smu_v14_0_0_is_dpm_running(struct smu_context *smu)
 {
 	int ret = 0;
-	uint64_t feature_enabled;
+	struct smu_feature_bits feature_enabled;
 
 	ret = smu_cmn_get_enabled_mask(smu, &feature_enabled);
 
 	if (ret)
 		return false;
 
-	return !!(feature_enabled & SMC_DPM_FEATURE);
+	return smu_feature_bits_test_mask(&feature_enabled,
+					  smu_v14_0_0_dpm_features.bits);
 }
 
 static int smu_v14_0_0_set_watermarks_table(struct smu_context *smu,
@@ -538,11 +545,11 @@ static int smu_v14_0_0_set_watermarks_table(struct smu_context *smu,
 }
 
 static ssize_t smu_v14_0_0_get_gpu_metrics(struct smu_context *smu,
-						void **table)
+					   void **table)
 {
-	struct smu_table_context *smu_table = &smu->smu_table;
 	struct gpu_metrics_v3_0 *gpu_metrics =
-		(struct gpu_metrics_v3_0 *)smu_table->gpu_metrics_table;
+		(struct gpu_metrics_v3_0 *)smu_driver_table_ptr(
+			smu, SMU_DRIVER_TABLE_GPU_METRICS);
 	SmuMetrics_t metrics;
 	int ret = 0;
 
@@ -610,6 +617,8 @@ static ssize_t smu_v14_0_0_get_gpu_metrics(struct smu_context *smu,
 	gpu_metrics->system_clock_counter = ktime_get_boottime_ns();
 
 	*table = (void *)gpu_metrics;
+
+	smu_driver_table_update_cache_time(smu, SMU_DRIVER_TABLE_GPU_METRICS);
 
 	return sizeof(struct gpu_metrics_v3_0);
 }
@@ -1129,14 +1138,13 @@ static int smu_v14_0_common_get_dpm_level_count(struct smu_context *smu,
 	return 0;
 }
 
-static int smu_v14_0_0_print_clk_levels(struct smu_context *smu,
-					enum smu_clk_type clk_type, char *buf)
+static int smu_v14_0_0_emit_clk_levels(struct smu_context *smu,
+				       enum smu_clk_type clk_type, char *buf,
+				       int *offset)
 {
-	int i, idx, ret = 0, size = 0;
+	int i, idx, ret = 0, size = *offset, start_offset = *offset;
 	uint32_t cur_value = 0, value = 0, count = 0;
 	uint32_t min, max;
-
-	smu_cmn_get_sysfs_buf(&buf, &size);
 
 	switch (clk_type) {
 	case SMU_OD_SCLK:
@@ -1161,17 +1169,17 @@ static int smu_v14_0_0_print_clk_levels(struct smu_context *smu,
 	case SMU_FCLK:
 		ret = smu_v14_0_0_get_current_clk_freq(smu, clk_type, &cur_value);
 		if (ret)
-			break;
+			return ret;
 
 		ret = smu_v14_0_common_get_dpm_level_count(smu, clk_type, &count);
 		if (ret)
-			break;
+			return ret;
 
 		for (i = 0; i < count; i++) {
 			idx = (clk_type == SMU_MCLK) ? (count - i - 1) : i;
 			ret = smu_v14_0_common_get_dpm_freq_by_index(smu, clk_type, idx, &value);
 			if (ret)
-				break;
+				return ret;
 
 			size += sysfs_emit_at(buf, size, "%d: %uMhz %s\n", i, value,
 					      cur_value == value ? "*" : "");
@@ -1181,7 +1189,7 @@ static int smu_v14_0_0_print_clk_levels(struct smu_context *smu,
 	case SMU_SCLK:
 		ret = smu_v14_0_0_get_current_clk_freq(smu, clk_type, &cur_value);
 		if (ret)
-			break;
+			return ret;
 		min = (smu->gfx_actual_hard_min_freq > 0) ? smu->gfx_actual_hard_min_freq : smu->gfx_default_hard_min_freq;
 		max = (smu->gfx_actual_soft_max_freq > 0) ? smu->gfx_actual_soft_max_freq : smu->gfx_default_soft_max_freq;
 		if (cur_value  == max)
@@ -1202,7 +1210,9 @@ static int smu_v14_0_0_print_clk_levels(struct smu_context *smu,
 		break;
 	}
 
-	return size;
+	*offset += size - start_offset;
+
+	return 0;
 }
 
 static int smu_v14_0_0_set_soft_freq_limited_range(struct smu_context *smu,
@@ -1513,9 +1523,10 @@ static int smu_v14_0_1_set_fine_grain_gfx_freq_parameters(struct smu_context *sm
 
 	smu->gfx_default_hard_min_freq = clk_table->MinGfxClk;
 	smu->gfx_default_soft_max_freq = clk_table->MaxGfxClk;
-	smu->gfx_actual_hard_min_freq = 0;
-	smu->gfx_actual_soft_max_freq = 0;
-
+	if (smu->gfx_actual_hard_min_freq == 0)
+		smu->gfx_actual_hard_min_freq = smu->gfx_default_hard_min_freq;
+	if (smu->gfx_actual_soft_max_freq == 0)
+		smu->gfx_actual_soft_max_freq = smu->gfx_default_soft_max_freq;
 	return 0;
 }
 
@@ -1525,8 +1536,10 @@ static int smu_v14_0_0_set_fine_grain_gfx_freq_parameters(struct smu_context *sm
 
 	smu->gfx_default_hard_min_freq = clk_table->MinGfxClk;
 	smu->gfx_default_soft_max_freq = clk_table->MaxGfxClk;
-	smu->gfx_actual_hard_min_freq = 0;
-	smu->gfx_actual_soft_max_freq = 0;
+	if (smu->gfx_actual_hard_min_freq == 0)
+		smu->gfx_actual_hard_min_freq = smu->gfx_default_hard_min_freq;
+	if (smu->gfx_actual_soft_max_freq == 0)
+		smu->gfx_actual_soft_max_freq = smu->gfx_default_soft_max_freq;
 
 	return 0;
 }
@@ -1664,15 +1677,36 @@ static int smu_v14_0_common_set_mall_enable(struct smu_context *smu)
 	return ret;
 }
 
+static int smu_v14_0_0_restore_user_od_settings(struct smu_context *smu)
+{
+	int ret;
+
+	ret = smu_cmn_send_smc_msg_with_param(smu, SMU_MSG_SetHardMinGfxClk,
+					      smu->gfx_actual_hard_min_freq,
+					      NULL);
+	if (ret) {
+		dev_err(smu->adev->dev, "Failed to restore hard min sclk!\n");
+		return ret;
+	}
+
+	ret = smu_cmn_send_smc_msg_with_param(smu, SMU_MSG_SetSoftMaxGfxClk,
+					      smu->gfx_actual_soft_max_freq,
+					      NULL);
+	if (ret) {
+		dev_err(smu->adev->dev, "Failed to restore soft max sclk!\n");
+		return ret;
+	}
+
+	return 0;
+}
+
 static const struct pptable_funcs smu_v14_0_0_ppt_funcs = {
 	.check_fw_status = smu_v14_0_check_fw_status,
-	.check_fw_version = smu_v14_0_check_fw_version,
+	.check_fw_version = smu_cmn_check_fw_version,
 	.init_smc_tables = smu_v14_0_0_init_smc_tables,
 	.fini_smc_tables = smu_v14_0_0_fini_smc_tables,
 	.get_vbios_bootup_values = smu_v14_0_get_vbios_bootup_values,
 	.system_features_control = smu_v14_0_0_system_features_control,
-	.send_smc_msg_with_param = smu_cmn_send_smc_msg_with_param,
-	.send_smc_msg = smu_cmn_send_smc_msg,
 	.dpm_set_vcn_enable = smu_v14_0_set_vcn_enable,
 	.dpm_set_jpeg_enable = smu_v14_0_set_jpeg_enable,
 	.set_default_dpm_table = smu_v14_0_set_default_dpm_tables,
@@ -1687,8 +1721,9 @@ static const struct pptable_funcs smu_v14_0_0_ppt_funcs = {
 	.mode2_reset = smu_v14_0_0_mode2_reset,
 	.get_dpm_ultimate_freq = smu_v14_0_common_get_dpm_ultimate_freq,
 	.set_soft_freq_limited_range = smu_v14_0_0_set_soft_freq_limited_range,
+	.restore_user_od_settings = smu_v14_0_0_restore_user_od_settings,
 	.od_edit_dpm_table = smu_v14_0_od_edit_dpm_table,
-	.print_clk_levels = smu_v14_0_0_print_clk_levels,
+	.emit_clk_levels = smu_v14_0_0_emit_clk_levels,
 	.force_clk_levels = smu_v14_0_0_force_clk_levels,
 	.set_performance_level = smu_v14_0_common_set_performance_level,
 	.set_fine_grain_gfx_freq_parameters = smu_v14_0_common_set_fine_grain_gfx_freq_parameters,
@@ -1700,23 +1735,41 @@ static const struct pptable_funcs smu_v14_0_0_ppt_funcs = {
 	.set_mall_enable = smu_v14_0_common_set_mall_enable,
 };
 
-static void smu_v14_0_0_set_smu_mailbox_registers(struct smu_context *smu)
+static void smu_v14_0_0_init_msg_ctl(struct smu_context *smu)
 {
 	struct amdgpu_device *adev = smu->adev;
+	struct smu_msg_ctl *ctl = &smu->msg_ctl;
 
-	smu->param_reg = SOC15_REG_OFFSET(MP1, 0, mmMP1_SMN_C2PMSG_82);
-	smu->msg_reg = SOC15_REG_OFFSET(MP1, 0, mmMP1_SMN_C2PMSG_66);
-	smu->resp_reg = SOC15_REG_OFFSET(MP1, 0, mmMP1_SMN_C2PMSG_90);
+	ctl->smu = smu;
+	mutex_init(&ctl->lock);
+	ctl->config.msg_reg = SOC15_REG_OFFSET(MP1, 0, mmMP1_SMN_C2PMSG_66);
+	ctl->config.resp_reg = SOC15_REG_OFFSET(MP1, 0, mmMP1_SMN_C2PMSG_90);
+	ctl->config.arg_regs[0] = SOC15_REG_OFFSET(MP1, 0, mmMP1_SMN_C2PMSG_82);
+	ctl->config.num_arg_regs = 1;
+	ctl->ops = &smu_msg_v1_ops;
+	ctl->default_timeout = adev->usec_timeout * 20;
+	ctl->message_map = smu_v14_0_0_message_map;
 }
 
 void smu_v14_0_0_set_ppt_funcs(struct smu_context *smu)
 {
+	struct amdgpu_device *adev = smu->adev;
 
 	smu->ppt_funcs = &smu_v14_0_0_ppt_funcs;
-	smu->message_map = smu_v14_0_0_message_map;
 	smu->feature_map = smu_v14_0_0_feature_mask_map;
 	smu->table_map = smu_v14_0_0_table_map;
 	smu->is_apu = true;
 
-	smu_v14_0_0_set_smu_mailbox_registers(smu);
+	switch (amdgpu_ip_version(adev, MP1_HWIP, 0)) {
+	case IP_VERSION(14, 0, 0):
+	case IP_VERSION(14, 0, 4):
+	case IP_VERSION(14, 0, 5):
+		smu->smc_driver_if_version = SMU14_DRIVER_IF_VERSION_SMU_V14_0_0;
+		break;
+	case IP_VERSION(14, 0, 1):
+		smu->smc_driver_if_version = SMU14_DRIVER_IF_VERSION_SMU_V14_0_1;
+		break;
+	}
+
+	smu_v14_0_0_init_msg_ctl(smu);
 }

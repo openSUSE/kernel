@@ -97,7 +97,7 @@ config POWER_RESET_GEMINI_POWEROFF
 
 config POWER_RESET_GPIO
 	bool "GPIO power-off driver"
-	depends on OF_GPIO
+	depends on OF
 	help
 	  This driver supports turning off your board via a GPIO line.
 	  If your board needs a GPIO high/low to power down, say Y and
@@ -105,7 +105,7 @@ config POWER_RESET_GPIO
 
 config POWER_RESET_GPIO_RESTART
 	bool "GPIO restart driver"
-	depends on OF_GPIO
+	depends on OF
 	help
 	  This driver supports restarting your board via a GPIO line.
 	  If your board needs a GPIO high/low to restart, say Y and
@@ -181,7 +181,7 @@ config POWER_RESET_PIIX4_POWEROFF
 
 config POWER_RESET_LTC2952
 	bool "LTC2952 PowerPath power-off driver"
-	depends on OF_GPIO
+	depends on OF
 	help
 	  This driver supports an external powerdown trigger and board power
 	  down via the LTC2952. Bindings are made in the device tree.
@@ -198,7 +198,7 @@ config POWER_RESET_MT6323
 
 config POWER_RESET_QNAP
 	bool "QNAP power-off driver"
-	depends on OF_GPIO && PLAT_ORION
+	depends on PLAT_ORION
 	help
 	  This driver supports turning off QNAP NAS devices by sending
 	  commands to the microcontroller which controls the main power.
@@ -224,6 +224,13 @@ config POWER_RESET_ST
 	depends on ARCH_STI
 	help
 	  Reset support for STMicroelectronics boards.
+
+config POWER_RESET_TH1520_AON
+	tristate "T-Head TH1520 AON firmware poweroff and reset driver"
+	depends on TH1520_PM_DOMAINS
+	help
+	  This driver supports power-off and reset operations for T-Head
+	  TH1520 SoCs running the AON firmware.
 
 config POWER_RESET_TORADEX_EC
 	tristate "Toradex Embedded Controller power-off and reset driver"
@@ -275,6 +282,15 @@ config POWER_RESET_KEYSTONE
 	select MFD_SYSCON
 	help
 	  Reboot support for the KEYSTONE SoCs.
+
+config POWER_RESET_SPACEMIT_P1
+	tristate "SpacemiT P1 poweroff and reset driver"
+	depends on ARCH_SPACEMIT || COMPILE_TEST
+	depends on MFD_SPACEMIT_P1
+	default MFD_SPACEMIT_P1
+	help
+	  This driver supports power-off and reset operations for the SpacemiT
+	  P1 PMIC.
 
 config POWER_RESET_SYSCON
 	bool "Generic SYSCON regmap reset driver"
@@ -337,5 +353,15 @@ config POWER_MLXBF
 	depends on (GPIO_MLXBF2 || GPIO_MLXBF3) && ACPI
 	help
 	  This driver supports reset or low power mode handling for Mellanox BlueField.
+
+config POWER_RESET_QEMU_VIRT_CTRL
+	tristate "QEMU Virt Machine System Controller"
+	depends on HAS_IOMEM
+	help
+	  This driver supports the system reset and power off functionality
+	  provided by the QEMU 'virt-ctrl' device.
+
+	  Say Y here if you are running Linux on a QEMU virtual machine that
+	  provides this controller, such as the m68k virt machine.
 
 endif

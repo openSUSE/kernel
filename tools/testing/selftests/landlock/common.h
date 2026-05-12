@@ -17,14 +17,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include "../kselftest_harness.h"
+#include "kselftest_harness.h"
 #include "wrappers.h"
 
 #define TMP_DIR "tmp"
-
-#ifndef __maybe_unused
-#define __maybe_unused __attribute__((__unused__))
-#endif
 
 /* TEST_F_FORK() should not be used for new tests. */
 #define TEST_F_FORK(fixture_name, test_name) TEST_F(fixture_name, test_name)
@@ -241,6 +237,7 @@ struct service_fixture {
 			struct sockaddr_un unix_addr;
 			socklen_t unix_addr_len;
 		};
+		struct sockaddr_storage _largest;
 	};
 };
 

@@ -10,6 +10,7 @@
 #include <drm/drm_gem_atomic_helper.h>
 #include <drm/drm_fourcc.h>
 #include <drm/drm_framebuffer.h>
+#include <drm/drm_print.h>
 
 #include "omap_dmm_tiler.h"
 #include "omap_drv.h"
@@ -61,7 +62,7 @@ static void omap_plane_cleanup_fb(struct drm_plane *plane,
 }
 
 static void omap_plane_atomic_update(struct drm_plane *plane,
-				     struct drm_atomic_state *state)
+				     struct drm_atomic_commit *state)
 {
 	struct omap_drm_private *priv = plane->dev->dev_private;
 	struct drm_plane_state *new_state = drm_atomic_get_new_plane_state(state,
@@ -166,7 +167,7 @@ static void omap_plane_atomic_update(struct drm_plane *plane,
 }
 
 static void omap_plane_atomic_disable(struct drm_plane *plane,
-				      struct drm_atomic_state *state)
+				      struct drm_atomic_commit *state)
 {
 	struct omap_drm_private *priv = plane->dev->dev_private;
 	struct omap_plane *omap_plane = to_omap_plane(plane);
@@ -198,7 +199,7 @@ static void omap_plane_atomic_disable(struct drm_plane *plane,
 #define FRAC_16_16(mult, div)    (((mult) << 16) / (div))
 
 static int omap_plane_atomic_check(struct drm_plane *plane,
-				   struct drm_atomic_state *state)
+				   struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *new_plane_state = drm_atomic_get_new_plane_state(state,
 										 plane);
@@ -229,7 +230,7 @@ static int omap_plane_atomic_check(struct drm_plane *plane,
 	if (!crtc)
 		return 0;
 
-	crtc_state = drm_atomic_get_existing_crtc_state(state, crtc);
+	crtc_state = drm_atomic_get_new_crtc_state(state, crtc);
 	/* we should have a crtc state if the plane is attached to a crtc */
 	if (WARN_ON(!crtc_state))
 		return 0;
@@ -409,7 +410,7 @@ static void omap_plane_reset(struct drm_plane *plane)
 	if (plane->state)
 		drm_atomic_helper_plane_destroy_state(plane, plane->state);
 
-	omap_state = kzalloc(sizeof(*omap_state), GFP_KERNEL);
+	omap_state = kzalloc_obj(*omap_state);
 	if (!omap_state)
 		return;
 
@@ -426,7 +427,7 @@ omap_plane_atomic_duplicate_state(struct drm_plane *plane)
 
 	current_state = to_omap_plane_state(plane->state);
 
-	state = kmalloc(sizeof(*state), GFP_KERNEL);
+	state = kmalloc_obj(*state);
 	if (!state)
 		return NULL;
 
@@ -532,7 +533,7 @@ struct drm_plane *omap_plane_init(struct drm_device *dev,
 	if (WARN_ON(idx >= num_planes))
 		return ERR_PTR(-EINVAL);
 
-	omap_plane = kzalloc(sizeof(*omap_plane), GFP_KERNEL);
+	omap_plane = kzalloc_obj(*omap_plane);
 	if (!omap_plane)
 		return ERR_PTR(-ENOMEM);
 

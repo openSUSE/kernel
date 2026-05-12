@@ -225,7 +225,6 @@ static const unsigned int qdsd_data3_pins[] = { 91 };
 		.io_reg = 0x4 + 0x1000 * id,			\
 		.intr_cfg_reg = 0x8 + 0x1000 * id,		\
 		.intr_status_reg = 0xc + 0x1000 * id,		\
-		.intr_target_reg = 0x8 + 0x1000 * id,		\
 		.mux_bit = 2,					\
 		.pull_bit = 0,					\
 		.drv_bit = 6,					\
@@ -251,7 +250,6 @@ static const unsigned int qdsd_data3_pins[] = { 91 };
 		.io_reg = 0,				\
 		.intr_cfg_reg = 0,			\
 		.intr_status_reg = 0,			\
-		.intr_target_reg = 0,			\
 		.mux_bit = -1,				\
 		.pull_bit = pull,			\
 		.drv_bit = drv,				\
@@ -861,7 +859,7 @@ static const struct pinfunction mdm9607_functions[] = {
 	MSM_PIN_FUNCTION(gcc_plltest),
 	MSM_PIN_FUNCTION(gcc_tlmm),
 	MSM_PIN_FUNCTION(gmac_mdio),
-	MSM_PIN_FUNCTION(gpio),
+	MSM_GPIO_PIN_FUNCTION(gpio),
 	MSM_PIN_FUNCTION(gsm0_tx),
 	MSM_PIN_FUNCTION(lcd_rst),
 	MSM_PIN_FUNCTION(ldo_en),

@@ -10,6 +10,7 @@
 #include <linux/kstrtox.h>
 #include <linux/workqueue.h>
 #include <linux/greybus.h>
+#include <linux/string_choices.h>
 
 #define SVC_INTF_EJECT_TIMEOUT		9000
 #define SVC_INTF_ACTIVATE_TIMEOUT	6000
@@ -73,7 +74,7 @@ static ssize_t watchdog_show(struct device *dev, struct device_attribute *attr,
 	struct gb_svc *svc = to_gb_svc(dev);
 
 	return sprintf(buf, "%s\n",
-		       gb_svc_watchdog_enabled(svc) ? "enabled" : "disabled");
+		       str_enabled_disabled(gb_svc_watchdog_enabled(svc)));
 }
 
 static ssize_t watchdog_store(struct device *dev,
@@ -774,15 +775,13 @@ static void gb_svc_pwrmon_debugfs_init(struct gb_svc *svc)
 	if (!rail_count || rail_count > GB_SVC_PWRMON_MAX_RAIL_COUNT)
 		goto err_pwrmon_debugfs;
 
-	bufsize = sizeof(*rail_names) +
-		GB_SVC_PWRMON_RAIL_NAME_BUFSIZE * rail_count;
+	bufsize = struct_size(rail_names, name, rail_count);
 
-	rail_names = kzalloc(bufsize, GFP_KERNEL);
+	rail_names = kzalloc_flex(*rail_names, name, rail_count);
 	if (!rail_names)
 		goto err_pwrmon_debugfs;
 
-	svc->pwrmon_rails = kcalloc(rail_count, sizeof(*svc->pwrmon_rails),
-				    GFP_KERNEL);
+	svc->pwrmon_rails = kzalloc_objs(*svc->pwrmon_rails, rail_count);
 	if (!svc->pwrmon_rails)
 		goto err_pwrmon_debugfs_free;
 
@@ -1127,7 +1126,7 @@ static int gb_svc_queue_deferred_request(struct gb_operation *operation)
 	struct gb_svc *svc = gb_connection_get_data(operation->connection);
 	struct gb_svc_deferred_request *dr;
 
-	dr = kmalloc(sizeof(*dr), GFP_KERNEL);
+	dr = kmalloc_obj(*dr);
 	if (!dr)
 		return -ENOMEM;
 
@@ -1314,7 +1313,7 @@ struct gb_svc *gb_svc_create(struct gb_host_device *hd)
 {
 	struct gb_svc *svc;
 
-	svc = kzalloc(sizeof(*svc), GFP_KERNEL);
+	svc = kzalloc_obj(*svc);
 	if (!svc)
 		return NULL;
 

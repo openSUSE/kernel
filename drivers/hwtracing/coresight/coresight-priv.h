@@ -135,8 +135,7 @@ static inline void CS_UNLOCK(void __iomem *addr)
 }
 
 void coresight_disable_path(struct coresight_path *path);
-int coresight_enable_path(struct coresight_path *path, enum cs_mode mode,
-			  void *sink_data);
+int coresight_enable_path(struct coresight_path *path, enum cs_mode mode);
 struct coresight_device *coresight_get_sink(struct coresight_path *path);
 struct coresight_device *coresight_get_sink_by_id(u32 id);
 struct coresight_device *
@@ -240,8 +239,7 @@ static inline void *coresight_get_uci_data_from_amba(const struct amba_id *table
 	return NULL;
 }
 
-void coresight_release_platform_data(struct coresight_device *csdev,
-				     struct device *dev,
+void coresight_release_platform_data(struct device *dev,
 				     struct coresight_platform_data *pdata);
 struct coresight_device *
 coresight_find_csdev_by_fwnode(struct fwnode_handle *r_fwnode);

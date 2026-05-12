@@ -46,7 +46,7 @@ static int parse_subpart(struct cmdline_subpart **subpart, char *partdef)
 
 	*subpart = NULL;
 
-	new_subpart = kzalloc(sizeof(struct cmdline_subpart), GFP_KERNEL);
+	new_subpart = kzalloc_obj(struct cmdline_subpart);
 	if (!new_subpart)
 		return -ENOMEM;
 
@@ -122,7 +122,7 @@ static int parse_parts(struct cmdline_parts **parts, char *bdevdef)
 
 	*parts = NULL;
 
-	newparts = kzalloc(sizeof(struct cmdline_parts), GFP_KERNEL);
+	newparts = kzalloc_obj(struct cmdline_parts);
 	if (!newparts)
 		return -ENOMEM;
 
@@ -229,7 +229,6 @@ static int add_part(int slot, struct cmdline_subpart *subpart,
 		struct parsed_partitions *state)
 {
 	struct partition_meta_info *info;
-	char tmp[sizeof(info->volname) + 4];
 
 	if (slot >= state->limit)
 		return 1;
@@ -244,8 +243,7 @@ static int add_part(int slot, struct cmdline_subpart *subpart,
 
 	strscpy(info->volname, subpart->name, sizeof(info->volname));
 
-	snprintf(tmp, sizeof(tmp), "(%s)", info->volname);
-	strlcat(state->pp_buf, tmp, PAGE_SIZE);
+	seq_buf_printf(&state->pp_buf, "(%s)", info->volname);
 
 	state->parts[slot].has_info = true;
 
@@ -379,7 +377,7 @@ int cmdline_partition(struct parsed_partitions *state)
 	cmdline_parts_set(parts, disk_size, state);
 	cmdline_parts_verifier(1, state);
 
-	strlcat(state->pp_buf, "\n", PAGE_SIZE);
+	seq_buf_puts(&state->pp_buf, "\n");
 
 	return 1;
 }

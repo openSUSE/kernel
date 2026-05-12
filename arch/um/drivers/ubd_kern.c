@@ -69,11 +69,11 @@ struct io_thread_req {
 };
 
 
-static struct io_thread_req * (*irq_req_buffer)[];
+static struct io_thread_req **irq_req_buffer;
 static struct io_thread_req *irq_remainder;
 static int irq_remainder_size;
 
-static struct io_thread_req * (*io_req_buffer)[];
+static struct io_thread_req **io_req_buffer;
 static struct io_thread_req *io_remainder;
 static int io_remainder_size;
 
@@ -108,7 +108,7 @@ static DEFINE_MUTEX(ubd_lock);
 
 static int ubd_ioctl(struct block_device *bdev, blk_mode_t mode,
 		     unsigned int cmd, unsigned long arg);
-static int ubd_getgeo(struct block_device *bdev, struct hd_geometry *geo);
+static int ubd_getgeo(struct gendisk *disk, struct hd_geometry *geo);
 
 #define MAX_DEV (16)
 
@@ -370,7 +370,7 @@ __uml_help(ubd_setup,
 "    useful when a unique number should be given to the device. Note when\n"
 "    specifying a label, the filename2 must be also presented. It can be\n"
 "    an empty string, in which case the backing file is not used:\n"
-"       ubd0=File,,Serial\n"
+"       ubd0=File,,Serial\n\n"
 );
 
 static int udb_setup(char *str)
@@ -398,7 +398,7 @@ static int thread_fd = -1;
 
 static int bulk_req_safe_read(
 	int fd,
-	struct io_thread_req * (*request_buffer)[],
+	struct io_thread_req **request_buffer,
 	struct io_thread_req **remainder,
 	int *remainder_size,
 	int max_recs
@@ -465,7 +465,7 @@ static irqreturn_t ubd_intr(int irq, void *dev)
 			&irq_remainder, &irq_remainder_size,
 			UBD_REQ_BUFFER_SIZE)) >= 0) {
 		for (i = 0; i < len / sizeof(struct io_thread_req *); i++)
-			ubd_end_request((*irq_req_buffer)[i]);
+			ubd_end_request(irq_req_buffer[i]);
 	}
 
 	if (len < 0 && len != -EAGAIN)
@@ -1069,20 +1069,16 @@ static int __init ubd_init(void)
 	if (register_blkdev(UBD_MAJOR, "ubd"))
 		return -1;
 
-	irq_req_buffer = kmalloc_array(UBD_REQ_BUFFER_SIZE,
-				       sizeof(struct io_thread_req *),
-				       GFP_KERNEL
-		);
+	irq_req_buffer = kmalloc_objs(struct io_thread_req *,
+				      UBD_REQ_BUFFER_SIZE);
 	irq_remainder = 0;
 
 	if (irq_req_buffer == NULL) {
 		printk(KERN_ERR "Failed to initialize ubd buffering\n");
 		return -ENOMEM;
 	}
-	io_req_buffer = kmalloc_array(UBD_REQ_BUFFER_SIZE,
-				      sizeof(struct io_thread_req *),
-				      GFP_KERNEL
-		);
+	io_req_buffer = kmalloc_objs(struct io_thread_req *,
+				     UBD_REQ_BUFFER_SIZE);
 
 	io_remainder = 0;
 
@@ -1324,9 +1320,9 @@ static blk_status_t ubd_queue_rq(struct blk_mq_hw_ctx *hctx,
 	return res;
 }
 
-static int ubd_getgeo(struct block_device *bdev, struct hd_geometry *geo)
+static int ubd_getgeo(struct gendisk *disk, struct hd_geometry *geo)
 {
-	struct ubd *ubd_dev = bdev->bd_disk->private_data;
+	struct ubd *ubd_dev = disk->private_data;
 
 	geo->heads = 128;
 	geo->sectors = 32;
@@ -1516,7 +1512,7 @@ void *io_thread(void *arg)
 		}
 
 		for (count = 0; count < n/sizeof(struct io_thread_req *); count++) {
-			struct io_thread_req *req = (*io_req_buffer)[count];
+			struct io_thread_req *req = io_req_buffer[count];
 			int i;
 
 			io_count++;

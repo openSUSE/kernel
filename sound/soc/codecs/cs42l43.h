@@ -44,6 +44,8 @@ struct cs42l43_codec {
 	struct device *dev;
 	struct cs42l43 *core;
 	struct snd_soc_component *component;
+	struct irq_domain *dom;
+	unsigned int shutter_irqs[4];
 
 	struct clk *mclk;
 
@@ -59,7 +61,7 @@ struct cs42l43_codec {
 	unsigned int refclk_freq;
 	struct completion pll_ready;
 
-	unsigned int decim_cache[4];
+	unsigned int decim_cache[6];
 	unsigned int adc_ena;
 	unsigned int hp_ena;
 
@@ -101,7 +103,7 @@ struct cs42l43_codec {
 	bool hp_ilimited;
 	int hp_ilimit_count;
 
-	struct snd_kcontrol *kctl[5];
+	struct snd_kcontrol *kctl[7];
 };
 
 #if IS_REACHABLE(CONFIG_SND_SOC_CS42L43_SDW)
@@ -130,6 +132,7 @@ static inline int cs42l43_sdw_add_peripheral(struct snd_pcm_substream *substream
 int cs42l43_set_jack(struct snd_soc_component *component,
 		     struct snd_soc_jack *jack, void *d);
 void cs42l43_bias_sense_timeout(struct work_struct *work);
+void cs42l43_clear_jack(struct cs42l43_codec *priv);
 void cs42l43_tip_sense_work(struct work_struct *work);
 irqreturn_t cs42l43_bias_detect_clamp(int irq, void *data);
 irqreturn_t cs42l43_button_press(int irq, void *data);

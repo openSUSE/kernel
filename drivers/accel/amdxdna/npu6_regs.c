@@ -13,6 +13,7 @@
 #include "amdxdna_pci_drv.h"
 
 /* NPU Public Registers on MpNPUAxiXbar (refer to Diag npu_registers.h) */
+#define MPNPU_PWAITMODE                0x301003C
 #define MPNPU_PUB_SEC_INTR             0x3010060
 #define MPNPU_PUB_PWRMGMT_INTR         0x3010064
 #define MPNPU_PUB_SCRATCH0             0x301006C
@@ -62,15 +63,15 @@
 #define NPU6_SRAM_BAR_BASE	MMNPU_APERTURE1_BASE
 
 static const struct amdxdna_dev_priv npu6_dev_priv = {
-	.fw_path        = "amdnpu/17f0_10/npu.sbin",
-	.protocol_major = 0x6,
-	.protocol_minor = 12,
+	.fw_path        = "amdnpu/17f0_10/",
 	.rt_config	= npu4_default_rt_cfg,
 	.dpm_clk_tbl	= npu4_dpm_clk_table,
 	.col_align	= COL_ALIGN_NATURE,
+	.col_opc	= 4096,
 	.mbox_dev_addr  = NPU6_MBOX_BAR_BASE,
 	.mbox_size      = 0, /* Use BAR size */
 	.sram_dev_addr  = NPU6_SRAM_BAR_BASE,
+	.hwctx_limit    = 16,
 	.sram_offs      = {
 		DEFINE_BAR_OFFSET(MBOX_CHANN_OFF, NPU6_SRAM, MPNPU_SRAM_X2I_MAILBOX_0),
 		DEFINE_BAR_OFFSET(FW_ALIVE_OFF,   NPU6_SRAM, MPNPU_SRAM_X2I_MAILBOX_15),
@@ -83,6 +84,7 @@ static const struct amdxdna_dev_priv npu6_dev_priv = {
 		DEFINE_BAR_OFFSET(PSP_INTR_REG,   NPU6_PSP, MP0_C2PMSG_73),
 		DEFINE_BAR_OFFSET(PSP_STATUS_REG, NPU6_PSP, MP0_C2PMSG_123),
 		DEFINE_BAR_OFFSET(PSP_RESP_REG,   NPU6_REG, MPNPU_PUB_SCRATCH3),
+		DEFINE_BAR_OFFSET(PSP_PWAITMODE_REG, NPU6_REG, MPNPU_PWAITMODE),
 	},
 	.smu_regs_off   = {
 		DEFINE_BAR_OFFSET(SMU_CMD_REG,  NPU6_SMU, MP1_C2PMSG_0),
@@ -91,9 +93,7 @@ static const struct amdxdna_dev_priv npu6_dev_priv = {
 		DEFINE_BAR_OFFSET(SMU_RESP_REG, NPU6_SMU, MP1_C2PMSG_61),
 		DEFINE_BAR_OFFSET(SMU_OUT_REG,  NPU6_SMU, MP1_C2PMSG_60),
 	},
-	.hw_ops         = {
-		.set_dpm = npu4_set_dpm,
-	},
+	.hw_ops         = &npu4_hw_ops
 
 };
 
@@ -107,8 +107,10 @@ const struct amdxdna_dev_info dev_npu6_info = {
 	.dev_mem_buf_shift = 15, /* 32 KiB aligned */
 	.dev_mem_base      = AIE2_DEVM_BASE,
 	.dev_mem_size      = AIE2_DEVM_SIZE,
-	.vbnv              = "RyzenAI-npu6",
+	.default_vbnv      = "RyzenAI-npu6",
 	.device_type       = AMDXDNA_DEV_TYPE_KMQ,
+	.rev_vbnv_tbl      = npu4_rev_vbnv_tbl,
 	.dev_priv          = &npu6_dev_priv,
+	.fw_feature_tbl    = npu4_fw_feature_table,
 	.ops               = &aie2_ops,
 };

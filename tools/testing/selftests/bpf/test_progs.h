@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <string.h>
 #include <assert.h>
+#include <regex.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <time.h>
@@ -180,6 +181,7 @@ struct msg {
 extern struct test_env env;
 
 void test__force_log(void);
+bool test__start_subtest_with_desc(const char *name, const char *description);
 bool test__start_subtest(const char *name);
 void test__end_subtest(void);
 void test__skip(void);
@@ -545,5 +547,21 @@ extern void test_loader_fini(struct test_loader *tester);
 	test_loader__run_subtests(&tester, #skel, skel##__elf_bytes);	       \
 	test_loader_fini(&tester);					       \
 })
+
+struct expect_msg {
+	const char *substr; /* substring match */
+	regex_t regex;
+	bool is_regex;
+	bool on_next_line;
+	bool negative;
+};
+
+struct expected_msgs {
+	struct expect_msg *patterns;
+	size_t cnt;
+};
+
+void validate_msgs(const char *log_buf, struct expected_msgs *msgs,
+		   void (*emit_fn)(const char *buf, bool force));
 
 #endif /* __TEST_PROGS_H */

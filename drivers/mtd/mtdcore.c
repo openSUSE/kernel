@@ -34,6 +34,7 @@
 
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/partitions.h>
+#include <linux/mtd/concat.h>
 
 #include "mtdcore.h"
 
@@ -384,14 +385,64 @@ EXPORT_SYMBOL_GPL(mtd_check_expert_analysis_mode);
 
 static struct dentry *dfs_dir_mtd;
 
+static int mtd_ooblayout_show(struct seq_file *s, void *p,
+			      int (*iter)(struct mtd_info *, int section,
+					  struct mtd_oob_region *region))
+{
+	struct mtd_info *mtd = s->private;
+	int section;
+
+	for (section = 0;; section++) {
+		struct mtd_oob_region region;
+		int err;
+
+		err = iter(mtd, section, &region);
+		if (err) {
+			if (err == -ERANGE)
+				break;
+
+			return err;
+		}
+
+		seq_printf(s, "%-3d %4u %4u\n", section, region.offset,
+			   region.length);
+	}
+
+	return 0;
+}
+
+static int mtd_ooblayout_ecc_show(struct seq_file *s, void *p)
+{
+	return mtd_ooblayout_show(s, p, mtd_ooblayout_ecc);
+}
+DEFINE_SHOW_ATTRIBUTE(mtd_ooblayout_ecc);
+
+static int mtd_ooblayout_free_show(struct seq_file *s, void *p)
+{
+	return mtd_ooblayout_show(s, p, mtd_ooblayout_free);
+}
+DEFINE_SHOW_ATTRIBUTE(mtd_ooblayout_free);
+
 static void mtd_debugfs_populate(struct mtd_info *mtd)
 {
 	struct device *dev = &mtd->dev;
+	struct mtd_oob_region region;
 
 	if (IS_ERR_OR_NULL(dfs_dir_mtd))
 		return;
 
 	mtd->dbg.dfs_dir = debugfs_create_dir(dev_name(dev), dfs_dir_mtd);
+	if (IS_ERR_OR_NULL(mtd->dbg.dfs_dir))
+		return;
+
+	/* Create ooblayout files only if at least one region is present. */
+	if (mtd_ooblayout_ecc(mtd, 0, &region) == 0)
+		debugfs_create_file("ooblayout_ecc", 0444, mtd->dbg.dfs_dir,
+				    mtd, &mtd_ooblayout_ecc_fops);
+
+	if (mtd_ooblayout_free(mtd, 0, &region) == 0)
+		debugfs_create_file("ooblayout_free", 0444, mtd->dbg.dfs_dir,
+				    mtd, &mtd_ooblayout_free_fops);
 }
 
 #ifndef CONFIG_MMU
@@ -1070,6 +1121,12 @@ int mtd_device_parse_register(struct mtd_info *mtd, const char * const *types,
 			goto out;
 	}
 
+	if (IS_REACHABLE(CONFIG_MTD_VIRT_CONCAT)) {
+		ret = mtd_virt_concat_node_create();
+		if (ret < 0)
+			goto out;
+	}
+
 	/* Prefer parsed partitions over driver-provided fallback */
 	ret = parse_mtd_partitions(mtd, types, parser_data);
 	if (ret == -EPROBE_DEFER)
@@ -1087,6 +1144,11 @@ int mtd_device_parse_register(struct mtd_info *mtd, const char * const *types,
 	if (ret)
 		goto out;
 
+	if (IS_REACHABLE(CONFIG_MTD_VIRT_CONCAT)) {
+		ret = mtd_virt_concat_create_join();
+		if (ret < 0)
+			goto out;
+	}
 	/*
 	 * FIXME: some drivers unfortunately call this function more than once.
 	 * So we have to check if we've already assigned the reboot notifier.
@@ -1136,6 +1198,11 @@ int mtd_device_unregister(struct mtd_info *master)
 	nvmem_unregister(master->otp_user_nvmem);
 	nvmem_unregister(master->otp_factory_nvmem);
 
+	if (IS_REACHABLE(CONFIG_MTD_VIRT_CONCAT)) {
+		err = mtd_virt_concat_destroy(master);
+		if (err)
+			return err;
+	}
 	err = del_mtd_partitions(master);
 	if (err)
 		return err;
@@ -2339,6 +2406,7 @@ EXPORT_SYMBOL_GPL(mtd_block_isbad);
 int mtd_block_markbad(struct mtd_info *mtd, loff_t ofs)
 {
 	struct mtd_info *master = mtd_get_master(mtd);
+	loff_t moffs;
 	int ret;
 
 	if (!master->_block_markbad)
@@ -2351,7 +2419,15 @@ int mtd_block_markbad(struct mtd_info *mtd, loff_t ofs)
 	if (mtd->flags & MTD_SLC_ON_MLC_EMULATION)
 		ofs = (loff_t)mtd_div_by_eb(ofs, mtd) * master->erasesize;
 
-	ret = master->_block_markbad(master, mtd_get_master_ofs(mtd, ofs));
+	moffs = mtd_get_master_ofs(mtd, ofs);
+
+	if (master->_block_isbad) {
+		ret = master->_block_isbad(master, moffs);
+		if (ret > 0)
+			return 0;
+	}
+
+	ret = master->_block_markbad(master, moffs);
 	if (ret)
 		return ret;
 
@@ -2562,6 +2638,10 @@ err_reg:
 
 static void __exit cleanup_mtd(void)
 {
+	if (IS_REACHABLE(CONFIG_MTD_VIRT_CONCAT)) {
+		mtd_virt_concat_destroy_joins();
+		mtd_virt_concat_destroy_items();
+	}
 	debugfs_remove_recursive(dfs_dir_mtd);
 	cleanup_mtdchar();
 	if (proc_mtd)

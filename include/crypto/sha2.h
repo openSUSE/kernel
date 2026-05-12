@@ -190,7 +190,7 @@ static inline void sha224_update(struct sha224_ctx *ctx,
  *
  * Context: Any context.
  */
-void sha224_final(struct sha224_ctx *ctx, u8 out[SHA224_DIGEST_SIZE]);
+void sha224_final(struct sha224_ctx *ctx, u8 out[at_least SHA224_DIGEST_SIZE]);
 
 /**
  * sha224() - Compute SHA-224 message digest in one shot
@@ -200,7 +200,7 @@ void sha224_final(struct sha224_ctx *ctx, u8 out[SHA224_DIGEST_SIZE]);
  *
  * Context: Any context.
  */
-void sha224(const u8 *data, size_t len, u8 out[SHA224_DIGEST_SIZE]);
+void sha224(const u8 *data, size_t len, u8 out[at_least SHA224_DIGEST_SIZE]);
 
 /**
  * struct hmac_sha224_key - Prepared key for HMAC-SHA224
@@ -287,7 +287,8 @@ static inline void hmac_sha224_update(struct hmac_sha224_ctx *ctx,
  *
  * Context: Any context.
  */
-void hmac_sha224_final(struct hmac_sha224_ctx *ctx, u8 out[SHA224_DIGEST_SIZE]);
+void hmac_sha224_final(struct hmac_sha224_ctx *ctx,
+		       u8 out[at_least SHA224_DIGEST_SIZE]);
 
 /**
  * hmac_sha224() - Compute HMAC-SHA224 in one shot, using a prepared key
@@ -301,7 +302,8 @@ void hmac_sha224_final(struct hmac_sha224_ctx *ctx, u8 out[SHA224_DIGEST_SIZE]);
  * Context: Any context.
  */
 void hmac_sha224(const struct hmac_sha224_key *key,
-		 const u8 *data, size_t data_len, u8 out[SHA224_DIGEST_SIZE]);
+		 const u8 *data, size_t data_len,
+		 u8 out[at_least SHA224_DIGEST_SIZE]);
 
 /**
  * hmac_sha224_usingrawkey() - Compute HMAC-SHA224 in one shot, using a raw key
@@ -318,7 +320,7 @@ void hmac_sha224(const struct hmac_sha224_key *key,
  */
 void hmac_sha224_usingrawkey(const u8 *raw_key, size_t raw_key_len,
 			     const u8 *data, size_t data_len,
-			     u8 out[SHA224_DIGEST_SIZE]);
+			     u8 out[at_least SHA224_DIGEST_SIZE]);
 
 /**
  * struct sha256_ctx - Context for hashing a message with SHA-256
@@ -363,7 +365,7 @@ static inline void sha256_update(struct sha256_ctx *ctx,
  *
  * Context: Any context.
  */
-void sha256_final(struct sha256_ctx *ctx, u8 out[SHA256_DIGEST_SIZE]);
+void sha256_final(struct sha256_ctx *ctx, u8 out[at_least SHA256_DIGEST_SIZE]);
 
 /**
  * sha256() - Compute SHA-256 message digest in one shot
@@ -373,7 +375,36 @@ void sha256_final(struct sha256_ctx *ctx, u8 out[SHA256_DIGEST_SIZE]);
  *
  * Context: Any context.
  */
-void sha256(const u8 *data, size_t len, u8 out[SHA256_DIGEST_SIZE]);
+void sha256(const u8 *data, size_t len, u8 out[at_least SHA256_DIGEST_SIZE]);
+
+/**
+ * sha256_finup_2x() - Compute two SHA-256 digests from a common initial
+ *		       context.  On some CPUs, this is faster than sequentially
+ *		       computing each digest.
+ * @ctx: an optional initial context, which may have already processed data.  If
+ *	 NULL, a default initial context is used (equivalent to sha256_init()).
+ * @data1: data for the first message
+ * @data2: data for the second message
+ * @len: the length of each of @data1 and @data2, in bytes
+ * @out1: (output) the first SHA-256 message digest
+ * @out2: (output) the second SHA-256 message digest
+ *
+ * Context: Any context.
+ */
+void sha256_finup_2x(const struct sha256_ctx *ctx, const u8 *data1,
+		     const u8 *data2, size_t len,
+		     u8 out1[at_least SHA256_DIGEST_SIZE],
+		     u8 out2[at_least SHA256_DIGEST_SIZE]);
+
+/**
+ * sha256_finup_2x_is_optimized() - Check if sha256_finup_2x() is using a real
+ *				    interleaved implementation, as opposed to a
+ *				    sequential fallback
+ * @return: true if optimized
+ *
+ * Context: Any context.
+ */
+bool sha256_finup_2x_is_optimized(void);
 
 /**
  * struct hmac_sha256_key - Prepared key for HMAC-SHA256
@@ -460,7 +491,8 @@ static inline void hmac_sha256_update(struct hmac_sha256_ctx *ctx,
  *
  * Context: Any context.
  */
-void hmac_sha256_final(struct hmac_sha256_ctx *ctx, u8 out[SHA256_DIGEST_SIZE]);
+void hmac_sha256_final(struct hmac_sha256_ctx *ctx,
+		       u8 out[at_least SHA256_DIGEST_SIZE]);
 
 /**
  * hmac_sha256() - Compute HMAC-SHA256 in one shot, using a prepared key
@@ -474,7 +506,8 @@ void hmac_sha256_final(struct hmac_sha256_ctx *ctx, u8 out[SHA256_DIGEST_SIZE]);
  * Context: Any context.
  */
 void hmac_sha256(const struct hmac_sha256_key *key,
-		 const u8 *data, size_t data_len, u8 out[SHA256_DIGEST_SIZE]);
+		 const u8 *data, size_t data_len,
+		 u8 out[at_least SHA256_DIGEST_SIZE]);
 
 /**
  * hmac_sha256_usingrawkey() - Compute HMAC-SHA256 in one shot, using a raw key
@@ -491,7 +524,7 @@ void hmac_sha256(const struct hmac_sha256_key *key,
  */
 void hmac_sha256_usingrawkey(const u8 *raw_key, size_t raw_key_len,
 			     const u8 *data, size_t data_len,
-			     u8 out[SHA256_DIGEST_SIZE]);
+			     u8 out[at_least SHA256_DIGEST_SIZE]);
 
 /* State for the SHA-512 (and SHA-384) compression function */
 struct sha512_block_state {
@@ -570,7 +603,7 @@ static inline void sha384_update(struct sha384_ctx *ctx,
  *
  * Context: Any context.
  */
-void sha384_final(struct sha384_ctx *ctx, u8 out[SHA384_DIGEST_SIZE]);
+void sha384_final(struct sha384_ctx *ctx, u8 out[at_least SHA384_DIGEST_SIZE]);
 
 /**
  * sha384() - Compute SHA-384 message digest in one shot
@@ -580,7 +613,7 @@ void sha384_final(struct sha384_ctx *ctx, u8 out[SHA384_DIGEST_SIZE]);
  *
  * Context: Any context.
  */
-void sha384(const u8 *data, size_t len, u8 out[SHA384_DIGEST_SIZE]);
+void sha384(const u8 *data, size_t len, u8 out[at_least SHA384_DIGEST_SIZE]);
 
 /**
  * struct hmac_sha384_key - Prepared key for HMAC-SHA384
@@ -667,7 +700,8 @@ static inline void hmac_sha384_update(struct hmac_sha384_ctx *ctx,
  *
  * Context: Any context.
  */
-void hmac_sha384_final(struct hmac_sha384_ctx *ctx, u8 out[SHA384_DIGEST_SIZE]);
+void hmac_sha384_final(struct hmac_sha384_ctx *ctx,
+		       u8 out[at_least SHA384_DIGEST_SIZE]);
 
 /**
  * hmac_sha384() - Compute HMAC-SHA384 in one shot, using a prepared key
@@ -681,7 +715,8 @@ void hmac_sha384_final(struct hmac_sha384_ctx *ctx, u8 out[SHA384_DIGEST_SIZE]);
  * Context: Any context.
  */
 void hmac_sha384(const struct hmac_sha384_key *key,
-		 const u8 *data, size_t data_len, u8 out[SHA384_DIGEST_SIZE]);
+		 const u8 *data, size_t data_len,
+		 u8 out[at_least SHA384_DIGEST_SIZE]);
 
 /**
  * hmac_sha384_usingrawkey() - Compute HMAC-SHA384 in one shot, using a raw key
@@ -698,7 +733,7 @@ void hmac_sha384(const struct hmac_sha384_key *key,
  */
 void hmac_sha384_usingrawkey(const u8 *raw_key, size_t raw_key_len,
 			     const u8 *data, size_t data_len,
-			     u8 out[SHA384_DIGEST_SIZE]);
+			     u8 out[at_least SHA384_DIGEST_SIZE]);
 
 /**
  * struct sha512_ctx - Context for hashing a message with SHA-512
@@ -743,7 +778,7 @@ static inline void sha512_update(struct sha512_ctx *ctx,
  *
  * Context: Any context.
  */
-void sha512_final(struct sha512_ctx *ctx, u8 out[SHA512_DIGEST_SIZE]);
+void sha512_final(struct sha512_ctx *ctx, u8 out[at_least SHA512_DIGEST_SIZE]);
 
 /**
  * sha512() - Compute SHA-512 message digest in one shot
@@ -753,7 +788,7 @@ void sha512_final(struct sha512_ctx *ctx, u8 out[SHA512_DIGEST_SIZE]);
  *
  * Context: Any context.
  */
-void sha512(const u8 *data, size_t len, u8 out[SHA512_DIGEST_SIZE]);
+void sha512(const u8 *data, size_t len, u8 out[at_least SHA512_DIGEST_SIZE]);
 
 /**
  * struct hmac_sha512_key - Prepared key for HMAC-SHA512
@@ -840,7 +875,8 @@ static inline void hmac_sha512_update(struct hmac_sha512_ctx *ctx,
  *
  * Context: Any context.
  */
-void hmac_sha512_final(struct hmac_sha512_ctx *ctx, u8 out[SHA512_DIGEST_SIZE]);
+void hmac_sha512_final(struct hmac_sha512_ctx *ctx,
+		       u8 out[at_least SHA512_DIGEST_SIZE]);
 
 /**
  * hmac_sha512() - Compute HMAC-SHA512 in one shot, using a prepared key
@@ -854,7 +890,8 @@ void hmac_sha512_final(struct hmac_sha512_ctx *ctx, u8 out[SHA512_DIGEST_SIZE]);
  * Context: Any context.
  */
 void hmac_sha512(const struct hmac_sha512_key *key,
-		 const u8 *data, size_t data_len, u8 out[SHA512_DIGEST_SIZE]);
+		 const u8 *data, size_t data_len,
+		 u8 out[at_least SHA512_DIGEST_SIZE]);
 
 /**
  * hmac_sha512_usingrawkey() - Compute HMAC-SHA512 in one shot, using a raw key
@@ -871,6 +908,6 @@ void hmac_sha512(const struct hmac_sha512_key *key,
  */
 void hmac_sha512_usingrawkey(const u8 *raw_key, size_t raw_key_len,
 			     const u8 *data, size_t data_len,
-			     u8 out[SHA512_DIGEST_SIZE]);
+			     u8 out[at_least SHA512_DIGEST_SIZE]);
 
 #endif /* _CRYPTO_SHA2_H */

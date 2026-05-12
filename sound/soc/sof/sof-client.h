@@ -18,18 +18,12 @@ struct sof_ipc4_fw_module;
 /**
  * struct sof_client_dev - SOF client device
  * @auxdev:	auxiliary device
- * @sdev:	pointer to SOF core device struct
- * @list:	item in SOF core client dev list
  * @data:	device specific data
  */
 struct sof_client_dev {
 	struct auxiliary_device auxdev;
-	struct snd_sof_dev *sdev;
-	struct list_head list;
 	void *data;
 };
-
-#define sof_client_dev_to_sof_dev(cdev)		((cdev)->sdev)
 
 #define auxiliary_dev_to_sof_client_dev(auxiliary_dev) \
 	container_of(auxiliary_dev, struct sof_client_dev, auxdev)
@@ -47,12 +41,17 @@ int sof_client_ipc_set_get_data(struct sof_client_dev *cdev, void *ipc_msg,
 				bool set);
 
 struct sof_ipc4_fw_module *sof_client_ipc4_find_module(struct sof_client_dev *c, const guid_t *u);
+struct snd_sof_widget *sof_client_ipc4_find_swidget_by_id(struct sof_client_dev *cdev,
+							  u32 module_id, int instance_id);
 
 struct dentry *sof_client_get_debugfs_root(struct sof_client_dev *cdev);
 struct device *sof_client_get_dma_dev(struct sof_client_dev *cdev);
 const struct sof_ipc_fw_version *sof_client_get_fw_version(struct sof_client_dev *cdev);
 size_t sof_client_get_ipc_max_payload_size(struct sof_client_dev *cdev);
 enum sof_ipc_type sof_client_get_ipc_type(struct sof_client_dev *cdev);
+
+/* DSP/firmware boot request */
+int sof_client_boot_dsp(struct sof_client_dev *cdev);
 
 /* module refcount management of SOF core */
 int sof_client_core_module_get(struct sof_client_dev *cdev);

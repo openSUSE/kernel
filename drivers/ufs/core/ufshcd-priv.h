@@ -6,6 +6,8 @@
 #include <linux/pm_runtime.h>
 #include <ufs/ufshcd.h>
 
+void ufshcd_enable_intr(struct ufs_hba *hba, u32 intrs);
+
 static inline bool ufshcd_is_user_access_allowed(struct ufs_hba *hba)
 {
 	return !hba->shutting_down;
@@ -65,7 +67,7 @@ void ufshcd_compl_one_cqe(struct ufs_hba *hba, int task_tag,
 			  struct cq_entry *cqe);
 int ufshcd_mcq_init(struct ufs_hba *hba);
 void ufshcd_mcq_disable(struct ufs_hba *hba);
-int ufshcd_mcq_decide_queue_depth(struct ufs_hba *hba);
+int ufshcd_get_hba_mac(struct ufs_hba *hba);
 int ufshcd_mcq_memory_alloc(struct ufs_hba *hba);
 struct ufs_hw_queue *ufshcd_mcq_req_to_hwq(struct ufs_hba *hba,
 					   struct request *req);
@@ -74,15 +76,25 @@ void ufshcd_mcq_compl_all_cqes_lock(struct ufs_hba *hba,
 bool ufshcd_cmd_inflight(struct scsi_cmnd *cmd);
 int ufshcd_mcq_sq_cleanup(struct ufs_hba *hba, int task_tag);
 int ufshcd_mcq_abort(struct scsi_cmnd *cmd);
+u32 ufshcd_mcq_read_mcqiacr(struct ufs_hba *hba, int i);
+void ufshcd_mcq_write_mcqiacr(struct ufs_hba *hba, u32 val, int i);
 int ufshcd_try_to_abort_task(struct ufs_hba *hba, int tag);
-void ufshcd_release_scsi_cmd(struct ufs_hba *hba,
-			     struct ufshcd_lrb *lrbp);
+void ufshcd_release_scsi_cmd(struct ufs_hba *hba, struct scsi_cmnd *cmd);
+int ufshcd_pause_command_processing(struct ufs_hba *hba, u64 timeout_us);
+void ufshcd_resume_command_processing(struct ufs_hba *hba);
+int ufshcd_scale_clks(struct ufs_hba *hba, unsigned long freq, bool scale_up);
 
-#define SD_ASCII_STD true
-#define SD_RAW false
-int ufshcd_read_string_desc(struct ufs_hba *hba, u8 desc_index,
-			    u8 **buf, bool ascii);
+/**
+ * enum ufs_descr_fmt - UFS string descriptor format
+ * @SD_RAW: Raw UTF-16 format
+ * @SD_ASCII_STD: Convert to null-terminated ASCII string
+ */
+enum ufs_descr_fmt {
+	SD_RAW = 0,
+	SD_ASCII_STD = 1,
+};
 
+int ufshcd_read_string_desc(struct ufs_hba *hba, u8 desc_index, u8 **buf, enum ufs_descr_fmt fmt);
 int ufshcd_send_uic_cmd(struct ufs_hba *hba, struct uic_command *uic_cmd);
 int ufshcd_send_bsg_uic_cmd(struct ufs_hba *hba, struct uic_command *uic_cmd);
 
@@ -95,6 +107,16 @@ int ufshcd_exec_raw_upiu_cmd(struct ufs_hba *hba,
 
 int ufshcd_wb_toggle(struct ufs_hba *hba, bool enable);
 int ufshcd_read_device_lvl_exception_id(struct ufs_hba *hba, u64 *exception_id);
+
+int ufshcd_uic_tx_eqtr(struct ufs_hba *hba, int gear);
+void ufshcd_apply_valid_tx_eq_settings(struct ufs_hba *hba);
+int ufshcd_config_tx_eq_settings(struct ufs_hba *hba,
+				 struct ufs_pa_layer_attr *pwr_mode,
+				 bool force_tx_eqtr);
+void ufshcd_print_tx_eq_params(struct ufs_hba *hba);
+bool ufshcd_is_txeq_presets_used(struct ufs_hba *hba);
+bool ufshcd_is_txeq_preset_selected(u8 preshoot, u8 deemphasis);
+int ufshcd_retrain_tx_eq(struct ufs_hba *hba, u32 gear);
 
 /* Wrapper functions for safely calling variant operations */
 static inline const char *ufshcd_get_var_name(struct ufs_hba *hba)
@@ -160,14 +182,24 @@ static inline int ufshcd_vops_link_startup_notify(struct ufs_hba *hba,
 	return 0;
 }
 
+static inline int ufshcd_vops_negotiate_pwr_mode(struct ufs_hba *hba,
+						 const struct ufs_pa_layer_attr *dev_max_params,
+						 struct ufs_pa_layer_attr *dev_req_params)
+{
+	if (hba->vops && hba->vops->negotiate_pwr_mode)
+		return hba->vops->negotiate_pwr_mode(hba, dev_max_params,
+					dev_req_params);
+
+	return -ENOTSUPP;
+}
+
 static inline int ufshcd_vops_pwr_change_notify(struct ufs_hba *hba,
 				enum ufs_notify_change_status status,
-				const struct ufs_pa_layer_attr *dev_max_params,
 				struct ufs_pa_layer_attr *dev_req_params)
 {
 	if (hba->vops && hba->vops->pwr_change_notify)
 		return hba->vops->pwr_change_notify(hba, status,
-					dev_max_params, dev_req_params);
+					dev_req_params);
 
 	return -ENOTSUPP;
 }
@@ -280,6 +312,38 @@ static inline u32 ufshcd_vops_freq_to_gear_speed(struct ufs_hba *hba, unsigned l
 	return 0;
 }
 
+static inline int ufshcd_vops_get_rx_fom(struct ufs_hba *hba,
+					 struct ufs_pa_layer_attr *pwr_mode,
+					 struct tx_eqtr_iter *h_iter,
+					 struct tx_eqtr_iter *d_iter)
+{
+	if (hba->vops && hba->vops->get_rx_fom)
+		return hba->vops->get_rx_fom(hba, pwr_mode, h_iter, d_iter);
+
+	return 0;
+}
+
+static inline int ufshcd_vops_apply_tx_eqtr_settings(struct ufs_hba *hba,
+						     struct ufs_pa_layer_attr *pwr_mode,
+						     struct tx_eqtr_iter *h_iter,
+						     struct tx_eqtr_iter *d_iter)
+{
+	if (hba->vops && hba->vops->apply_tx_eqtr_settings)
+		return hba->vops->apply_tx_eqtr_settings(hba, pwr_mode, h_iter, d_iter);
+
+	return 0;
+}
+
+static inline int ufshcd_vops_tx_eqtr_notify(struct ufs_hba *hba,
+					     enum ufs_notify_change_status status,
+					     struct ufs_pa_layer_attr *pwr_mode)
+{
+	if (hba->vops && hba->vops->tx_eqtr_notify)
+		return hba->vops->tx_eqtr_notify(hba, status, pwr_mode);
+
+	return 0;
+}
+
 extern const struct ufs_pm_lvl_states ufs_pm_lvl_states[];
 
 /**
@@ -341,9 +405,9 @@ static inline int ufshcd_rpm_resume(struct ufs_hba *hba)
 	return pm_runtime_resume(&hba->ufs_device_wlun->sdev_gendev);
 }
 
-static inline int ufshcd_rpm_put(struct ufs_hba *hba)
+static inline void ufshcd_rpm_put(struct ufs_hba *hba)
 {
-	return pm_runtime_put(&hba->ufs_device_wlun->sdev_gendev);
+	pm_runtime_put(&hba->ufs_device_wlun->sdev_gendev);
 }
 
 /**
@@ -359,6 +423,21 @@ static inline bool ufs_is_valid_unit_desc_lun(struct ufs_dev_info *dev_info, u8 
 		return false;
 	}
 	return lun == UFS_UPIU_RPMB_WLUN || (lun < dev_info->max_lu_supported);
+}
+
+/*
+ * Convert a block layer tag into a SCSI command pointer. This function is
+ * called once per I/O completion path and is also called from error paths.
+ */
+static inline struct scsi_cmnd *ufshcd_tag_to_cmd(struct ufs_hba *hba, u32 tag)
+{
+	struct blk_mq_tags *tags = hba->host->tag_set.shared_tags;
+	struct request *rq = blk_mq_tag_to_rq(tags, tag);
+
+	if (WARN_ON_ONCE(!rq))
+		return NULL;
+
+	return blk_mq_rq_to_pdu(rq);
 }
 
 static inline void ufshcd_inc_sq_tail(struct ufs_hw_queue *q)
@@ -410,5 +489,18 @@ static inline u32 ufshcd_mcq_get_sq_head_slot(struct ufs_hw_queue *q)
 
 	return val / sizeof(struct utp_transfer_req_desc);
 }
+
+#if IS_ENABLED(CONFIG_RPMB)
+int ufs_rpmb_probe(struct ufs_hba *hba);
+void ufs_rpmb_remove(struct ufs_hba *hba);
+#else
+static inline int ufs_rpmb_probe(struct ufs_hba *hba)
+{
+	return 0;
+}
+static inline void ufs_rpmb_remove(struct ufs_hba *hba)
+{
+}
+#endif
 
 #endif /* _UFSHCD_PRIV_H_ */

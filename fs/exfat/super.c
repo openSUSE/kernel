@@ -31,6 +31,16 @@ static void exfat_free_iocharset(struct exfat_sb_info *sbi)
 		kfree(sbi->options.iocharset);
 }
 
+static void exfat_set_iocharset(struct exfat_mount_options *opts,
+				char *iocharset)
+{
+	opts->iocharset = iocharset;
+	if (!strcmp(opts->iocharset, "utf8"))
+		opts->utf8 = 1;
+	else
+		opts->utf8 = 0;
+}
+
 static void exfat_put_super(struct super_block *sb)
 {
 	struct exfat_sb_info *sbi = EXFAT_SB(sb);
@@ -243,11 +253,11 @@ static const struct fs_parameter_spec exfat_parameters[] = {
 	fsparam_u32oct("allow_utime",		Opt_allow_utime),
 	fsparam_string("iocharset",		Opt_charset),
 	fsparam_enum("errors",			Opt_errors, exfat_param_enums),
-	fsparam_flag("discard",			Opt_discard),
+	fsparam_flag_no("discard",		Opt_discard),
 	fsparam_flag("keep_last_dots",		Opt_keep_last_dots),
 	fsparam_flag("sys_tz",			Opt_sys_tz),
 	fsparam_s32("time_offset",		Opt_time_offset),
-	fsparam_flag("zero_size_dir",		Opt_zero_size_dir),
+	fsparam_flag_no("zero_size_dir",	Opt_zero_size_dir),
 	__fsparam(NULL, "utf8",			Opt_utf8, fs_param_deprecated,
 		  NULL),
 	__fsparam(NULL, "debug",		Opt_debug, fs_param_deprecated,
@@ -292,14 +302,14 @@ static int exfat_parse_param(struct fs_context *fc, struct fs_parameter *param)
 		break;
 	case Opt_charset:
 		exfat_free_iocharset(sbi);
-		opts->iocharset = param->string;
+		exfat_set_iocharset(opts, param->string);
 		param->string = NULL;
 		break;
 	case Opt_errors:
 		opts->errors = result.uint_32;
 		break;
 	case Opt_discard:
-		opts->discard = 1;
+		opts->discard = !result.negated;
 		break;
 	case Opt_keep_last_dots:
 		opts->keep_last_dots = 1;
@@ -317,7 +327,7 @@ static int exfat_parse_param(struct fs_context *fc, struct fs_parameter *param)
 		opts->time_offset = result.int_32;
 		break;
 	case Opt_zero_size_dir:
-		opts->zero_size_dir = true;
+		opts->zero_size_dir = !result.negated;
 		break;
 	case Opt_utf8:
 	case Opt_debug:
@@ -423,7 +433,10 @@ static int exfat_read_boot_sector(struct super_block *sb)
 	struct exfat_sb_info *sbi = EXFAT_SB(sb);
 
 	/* set block size to read super block */
-	sb_min_blocksize(sb, 512);
+	if (!sb_min_blocksize(sb, 512)) {
+		exfat_err(sb, "unable to set blocksize");
+		return -EINVAL;
+	}
 
 	/* read boot sector */
 	sbi->boot_bh = sb_bread(sb, 0);
@@ -518,9 +531,14 @@ static int exfat_read_boot_sector(struct super_block *sb)
 	if (sbi->vol_flags & MEDIA_FAILURE)
 		exfat_warn(sb, "Medium has reported failures. Some data may be lost.");
 
-	/* exFAT file size is limited by a disk volume size */
-	sb->s_maxbytes = (u64)(sbi->num_clusters - EXFAT_RESERVED_CLUSTERS) <<
-		sbi->cluster_size_bits;
+	/*
+	 * Set to the max possible volume size for this volume's cluster size so
+	 * that any integer overflow from bytes to cluster size conversion is
+	 * checked in inode_newsize_ok(). Clamped to MAX_LFS_FILESIZE for 32-bit
+	 * machines.
+	 */
+	sb->s_maxbytes = min(MAX_LFS_FILESIZE,
+			     EXFAT_CLU_TO_B((loff_t)EXFAT_MAX_NUM_CLUSTER, sbi));
 
 	/* check logical sector size */
 	if (exfat_calibrate_blocksize(sb, 1 << p_boot->sect_size_bits))
@@ -616,6 +634,17 @@ static int __exfat_fill_super(struct super_block *sb,
 		goto free_bh;
 	}
 
+	if (!exfat_test_bitmap(sb, sbi->root_dir)) {
+		exfat_warn(sb, "failed to test first cluster bit of root dir(%u)",
+			   sbi->root_dir);
+		/*
+		 * The first cluster bit of the root directory should never
+		 * be unset except when storage is corrupted. This bit is
+		 * set to allow operations after mount.
+		 */
+		exfat_set_bitmap(sb, sbi->root_dir, false);
+	}
+
 	ret = exfat_count_used_clusters(sb, &sbi->used_clusters);
 	if (ret) {
 		exfat_err(sb, "failed to scan clusters");
@@ -664,8 +693,8 @@ static int exfat_fill_super(struct super_block *sb, struct fs_context *fc)
 	/* set up enough so that it can read an inode */
 	exfat_hash_init(sb);
 
-	if (!strcmp(sbi->options.iocharset, "utf8"))
-		opts->utf8 = 1;
+	if (sbi->options.utf8)
+		set_default_d_op(sb, &exfat_utf8_dentry_ops);
 	else {
 		sbi->nls_io = load_nls(sbi->options.iocharset);
 		if (!sbi->nls_io) {
@@ -674,12 +703,8 @@ static int exfat_fill_super(struct super_block *sb, struct fs_context *fc)
 			err = -EINVAL;
 			goto free_table;
 		}
-	}
-
-	if (sbi->options.utf8)
-		set_default_d_op(sb, &exfat_utf8_dentry_ops);
-	else
 		set_default_d_op(sb, &exfat_dentry_ops);
+	}
 
 	root_inode = new_inode(sb);
 	if (!root_inode) {
@@ -742,12 +767,44 @@ static void exfat_free(struct fs_context *fc)
 static int exfat_reconfigure(struct fs_context *fc)
 {
 	struct super_block *sb = fc->root->d_sb;
+	struct exfat_sb_info *remount_sbi = fc->s_fs_info;
+	struct exfat_sb_info *sbi = EXFAT_SB(sb);
+	struct exfat_mount_options *new_opts = &remount_sbi->options;
+	struct exfat_mount_options *cur_opts = &sbi->options;
+
 	fc->sb_flags |= SB_NODIRATIME;
 
 	sync_filesystem(sb);
-	mutex_lock(&EXFAT_SB(sb)->s_lock);
+	mutex_lock(&sbi->s_lock);
 	exfat_clear_volume_dirty(sb);
-	mutex_unlock(&EXFAT_SB(sb)->s_lock);
+	mutex_unlock(&sbi->s_lock);
+
+	if (new_opts->allow_utime == (unsigned short)-1)
+		new_opts->allow_utime = ~new_opts->fs_dmask & 0022;
+
+	/*
+	 * Since the old settings of these mount options are cached in
+	 * inodes or dentries, they cannot be modified dynamically.
+	 */
+	if (strcmp(new_opts->iocharset, cur_opts->iocharset) ||
+	    new_opts->keep_last_dots != cur_opts->keep_last_dots ||
+	    new_opts->sys_tz != cur_opts->sys_tz ||
+	    new_opts->time_offset != cur_opts->time_offset ||
+	    !uid_eq(new_opts->fs_uid, cur_opts->fs_uid) ||
+	    !gid_eq(new_opts->fs_gid, cur_opts->fs_gid) ||
+	    new_opts->fs_fmask != cur_opts->fs_fmask ||
+	    new_opts->fs_dmask != cur_opts->fs_dmask ||
+	    new_opts->allow_utime != cur_opts->allow_utime)
+		return -EINVAL;
+
+	if (new_opts->discard != cur_opts->discard &&
+	    new_opts->discard &&
+	    !bdev_max_discard_sectors(sb->s_bdev)) {
+		exfat_warn(sb, "remounting with \"discard\" option, but the device does not support discard");
+		return -EINVAL;
+	}
+
+	swap(*cur_opts, *new_opts);
 
 	return 0;
 }
@@ -763,7 +820,7 @@ static int exfat_init_fs_context(struct fs_context *fc)
 {
 	struct exfat_sb_info *sbi;
 
-	sbi = kzalloc(sizeof(struct exfat_sb_info), GFP_KERNEL);
+	sbi = kzalloc_obj(struct exfat_sb_info);
 	if (!sbi)
 		return -ENOMEM;
 
@@ -772,13 +829,24 @@ static int exfat_init_fs_context(struct fs_context *fc)
 	ratelimit_state_init(&sbi->ratelimit, DEFAULT_RATELIMIT_INTERVAL,
 			DEFAULT_RATELIMIT_BURST);
 
-	sbi->options.fs_uid = current_uid();
-	sbi->options.fs_gid = current_gid();
-	sbi->options.fs_fmask = current->fs->umask;
-	sbi->options.fs_dmask = current->fs->umask;
+	if (fc->purpose == FS_CONTEXT_FOR_RECONFIGURE && fc->root) {
+		struct super_block *sb = fc->root->d_sb;
+		struct exfat_mount_options *cur_opts = &EXFAT_SB(sb)->options;
+
+		sbi->options.fs_uid = cur_opts->fs_uid;
+		sbi->options.fs_gid = cur_opts->fs_gid;
+		sbi->options.fs_fmask = cur_opts->fs_fmask;
+		sbi->options.fs_dmask = cur_opts->fs_dmask;
+	} else {
+		sbi->options.fs_uid = current_uid();
+		sbi->options.fs_gid = current_gid();
+		sbi->options.fs_fmask = current->fs->umask;
+		sbi->options.fs_dmask = current->fs->umask;
+	}
+
 	sbi->options.allow_utime = -1;
-	sbi->options.iocharset = exfat_default_iocharset;
 	sbi->options.errors = EXFAT_ERRORS_RO;
+	exfat_set_iocharset(&sbi->options, exfat_default_iocharset);
 
 	fc->s_fs_info = sbi;
 	fc->ops = &exfat_context_ops;

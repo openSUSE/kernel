@@ -35,6 +35,7 @@ static void dsc_write_to_registers(struct display_stream_compressor *dsc, const 
 static const struct dsc_funcs dcn20_dsc_funcs = {
 	.dsc_get_enc_caps = dsc2_get_enc_caps,
 	.dsc_read_state = dsc2_read_state,
+	.dsc_read_reg_state = dsc2_read_reg_state,
 	.dsc_validate_stream = dsc2_validate_stream,
 	.dsc_set_config = dsc2_set_config,
 	.dsc_get_packed_pps = dsc2_get_packed_pps,
@@ -99,7 +100,7 @@ void dsc2_get_enc_caps(struct dsc_enc_caps *dsc_enc_caps, int pixel_clock_100Hz)
 	dsc_enc_caps->color_formats.bits.RGB = 1;
 	dsc_enc_caps->color_formats.bits.YCBCR_444 = 1;
 	dsc_enc_caps->color_formats.bits.YCBCR_SIMPLE_422 = 1;
-	dsc_enc_caps->color_formats.bits.YCBCR_NATIVE_422 = 0;
+	dsc_enc_caps->color_formats.bits.YCBCR_NATIVE_422 = 1;
 	dsc_enc_caps->color_formats.bits.YCBCR_NATIVE_420 = 1;
 
 	dsc_enc_caps->color_depth.bits.COLOR_DEPTH_8_BPC = 1;
@@ -155,13 +156,21 @@ void dsc2_read_state(struct display_stream_compressor *dsc, struct dcn_dsc_state
 		DSCRM_DSC_OPP_PIPE_SOURCE, &s->dsc_opp_source);
 }
 
+void dsc2_read_reg_state(struct display_stream_compressor *dsc, struct dcn_dsc_reg_state *dccg_reg_state)
+{
+	struct dcn20_dsc *dsc20 = TO_DCN20_DSC(dsc);
+
+	dccg_reg_state->dsc_top_control = REG_READ(DSC_TOP_CONTROL);
+	dccg_reg_state->dscc_interrupt_control_status = REG_READ(DSCC_INTERRUPT_CONTROL_STATUS);
+}
 
 bool dsc2_validate_stream(struct display_stream_compressor *dsc, const struct dsc_config *dsc_cfg)
 {
 	struct dsc_optc_config dsc_optc_cfg;
 	struct dcn20_dsc *dsc20 = TO_DCN20_DSC(dsc);
+	uint32_t max_image_width = (uint32_t)dsc20->max_image_width;
 
-	if (dsc_cfg->pic_width > dsc20->max_image_width)
+	if (dsc_cfg->pic_width > max_image_width)
 		return false;
 
 	return dsc_prepare_config(dsc_cfg, &dsc20->reg_vals, &dsc_optc_cfg);
@@ -397,19 +406,20 @@ bool dsc_prepare_config(const struct dsc_config *dsc_cfg, struct dsc_reg_values 
 	dsc_reg_vals->pixel_format = dsc_dc_pixel_encoding_to_dsc_pixel_format(dsc_cfg->pixel_encoding, dsc_cfg->dc_dsc_cfg.ycbcr422_simple);
 	dsc_reg_vals->num_slices_h = dsc_cfg->dc_dsc_cfg.num_slices_h;
 	dsc_reg_vals->num_slices_v = dsc_cfg->dc_dsc_cfg.num_slices_v;
-	dsc_reg_vals->pps.dsc_version_minor = dsc_cfg->dc_dsc_cfg.version_minor;
-	dsc_reg_vals->pps.pic_width = dsc_cfg->pic_width;
-	dsc_reg_vals->pps.pic_height = dsc_cfg->pic_height;
+	dsc_reg_vals->pps.dsc_version_minor = (u8)dsc_cfg->dc_dsc_cfg.version_minor;
+	dsc_reg_vals->pps.pic_width = (u16)dsc_cfg->pic_width;
+	dsc_reg_vals->pps.pic_height = (u16)dsc_cfg->pic_height;
 	dsc_reg_vals->pps.bits_per_component = dsc_dc_color_depth_to_dsc_bits_per_comp(dsc_cfg->color_depth);
 	dsc_reg_vals->pps.block_pred_enable = dsc_cfg->dc_dsc_cfg.block_pred_enable;
-	dsc_reg_vals->pps.line_buf_depth = dsc_cfg->dc_dsc_cfg.linebuf_depth;
+	dsc_reg_vals->pps.line_buf_depth = (u8)dsc_cfg->dc_dsc_cfg.linebuf_depth;
 	dsc_reg_vals->alternate_ich_encoding_en = dsc_reg_vals->pps.dsc_version_minor == 1 ? 0 : 1;
 	dsc_reg_vals->ich_reset_at_eol = (dsc_cfg->is_odm || dsc_reg_vals->num_slices_h > 1) ? 0xF : 0;
 
+	// Need to find the ceiling value for the slice width
+	dsc_reg_vals->pps.slice_width = (u16)((dsc_cfg->pic_width + dsc_cfg->dsc_padding + dsc_cfg->dc_dsc_cfg.num_slices_h - 1) / dsc_cfg->dc_dsc_cfg.num_slices_h);
 	// TODO: in addition to validating slice height (pic height must be divisible by slice height),
 	// see what happens when the same condition doesn't apply for slice_width/pic_width.
-	dsc_reg_vals->pps.slice_width = dsc_cfg->pic_width / dsc_cfg->dc_dsc_cfg.num_slices_h;
-	dsc_reg_vals->pps.slice_height = dsc_cfg->pic_height / dsc_cfg->dc_dsc_cfg.num_slices_v;
+	dsc_reg_vals->pps.slice_height = (u16)(dsc_cfg->pic_height / dsc_cfg->dc_dsc_cfg.num_slices_v);
 
 	ASSERT(dsc_reg_vals->pps.slice_height * dsc_cfg->dc_dsc_cfg.num_slices_v == dsc_cfg->pic_height);
 	if (!(dsc_reg_vals->pps.slice_height * dsc_cfg->dc_dsc_cfg.num_slices_v == dsc_cfg->pic_height)) {
@@ -419,9 +429,9 @@ bool dsc_prepare_config(const struct dsc_config *dsc_cfg, struct dsc_reg_values 
 
 	dsc_reg_vals->bpp_x32 = dsc_cfg->dc_dsc_cfg.bits_per_pixel << 1;
 	if (dsc_reg_vals->pixel_format == DSC_PIXFMT_NATIVE_YCBCR420 || dsc_reg_vals->pixel_format == DSC_PIXFMT_NATIVE_YCBCR422)
-		dsc_reg_vals->pps.bits_per_pixel = dsc_reg_vals->bpp_x32;
+		dsc_reg_vals->pps.bits_per_pixel = (u16)dsc_reg_vals->bpp_x32;
 	else
-		dsc_reg_vals->pps.bits_per_pixel = dsc_reg_vals->bpp_x32 >> 1;
+		dsc_reg_vals->pps.bits_per_pixel = (u16)(dsc_reg_vals->bpp_x32 >> 1);
 
 	dsc_reg_vals->pps.convert_rgb = dsc_reg_vals->pixel_format == DSC_PIXFMT_RGB ? 1 : 0;
 	dsc_reg_vals->pps.native_422 = (dsc_reg_vals->pixel_format == DSC_PIXFMT_NATIVE_YCBCR422);

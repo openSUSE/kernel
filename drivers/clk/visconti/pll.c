@@ -100,8 +100,8 @@ static unsigned long visconti_get_pll_rate_from_data(struct visconti_pll *pll,
 	return rate_table[0].rate;
 }
 
-static long visconti_pll_round_rate(struct clk_hw *hw,
-				    unsigned long rate, unsigned long *prate)
+static int visconti_pll_determine_rate(struct clk_hw *hw,
+				       struct clk_rate_request *req)
 {
 	struct visconti_pll *pll = to_visconti_pll(hw);
 	const struct visconti_pll_rate_table *rate_table = pll->rate_table;
@@ -109,11 +109,16 @@ static long visconti_pll_round_rate(struct clk_hw *hw,
 
 	/* Assuming rate_table is in descending order */
 	for (i = 0; i < pll->rate_count; i++)
-		if (rate >= rate_table[i].rate)
-			return rate_table[i].rate;
+		if (req->rate >= rate_table[i].rate) {
+			req->rate = rate_table[i].rate;
+
+			return 0;
+		}
 
 	/* return minimum supported value */
-	return rate_table[i - 1].rate;
+	req->rate = rate_table[i - 1].rate;
+
+	return 0;
 }
 
 static unsigned long visconti_pll_recalc_rate(struct clk_hw *hw,
@@ -232,7 +237,7 @@ static const struct clk_ops visconti_pll_ops = {
 	.enable = visconti_pll_enable,
 	.disable = visconti_pll_disable,
 	.is_enabled = visconti_pll_is_enabled,
-	.round_rate = visconti_pll_round_rate,
+	.determine_rate = visconti_pll_determine_rate,
 	.recalc_rate = visconti_pll_recalc_rate,
 	.set_rate = visconti_pll_set_rate,
 };
@@ -244,13 +249,13 @@ static struct clk_hw *visconti_register_pll(struct visconti_pll_provider *ctx,
 					    const struct visconti_pll_rate_table *rate_table,
 					    spinlock_t *lock)
 {
-	struct clk_init_data init;
+	struct clk_init_data init = {};
 	struct visconti_pll *pll;
 	struct clk_hw *pll_hw_clk;
 	size_t len;
 	int ret;
 
-	pll = kzalloc(sizeof(*pll), GFP_KERNEL);
+	pll = kzalloc_obj(*pll);
 	if (!pll)
 		return ERR_PTR(-ENOMEM);
 
@@ -325,7 +330,7 @@ struct visconti_pll_provider * __init visconti_init_pll(struct device_node *np,
 	struct visconti_pll_provider *ctx;
 	int i;
 
-	ctx = kzalloc(struct_size(ctx, clk_data.hws, nr_plls), GFP_KERNEL);
+	ctx = kzalloc_flex(*ctx, clk_data.hws, nr_plls);
 	if (!ctx)
 		return ERR_PTR(-ENOMEM);
 

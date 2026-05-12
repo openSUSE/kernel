@@ -395,8 +395,7 @@ static void *bsd_alloc (unsigned char *options, int opt_len, int decomp)
  * Allocate the main control structure for this instance.
  */
     maxmaxcode = MAXCODE(bits);
-    db         = kzalloc(sizeof (struct bsd_db),
-					    GFP_KERNEL);
+    db         = kzalloc_obj(struct bsd_db);
     if (!db)
       {
 	return NULL;
@@ -406,7 +405,7 @@ static void *bsd_alloc (unsigned char *options, int opt_len, int decomp)
  * Allocate space for the dictionary. This may be more than one page in
  * length.
  */
-    db->dict = vmalloc(array_size(hsize, sizeof(struct bsd_dict)));
+    db->dict = vmalloc_array(hsize, sizeof(struct bsd_dict));
     if (!db->dict)
       {
 	bsd_free (db);
@@ -425,7 +424,7 @@ static void *bsd_alloc (unsigned char *options, int opt_len, int decomp)
  */
     else
       {
-        db->lens = vmalloc(array_size(sizeof(db->lens[0]), (maxmaxcode + 1)));
+        db->lens = vmalloc_array(maxmaxcode + 1, sizeof(db->lens[0]));
 	if (!db->lens)
 	  {
 	    bsd_free (db);

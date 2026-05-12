@@ -46,7 +46,7 @@ static __always_inline void arch_atomic64_set(atomic64_t *v, s64 i)
 #endif
 
 /*
- * First, the atomic ops that have no ordering constraints and therefor don't
+ * First, the atomic ops that have no ordering constraints and therefore don't
  * have the AQ or RL bits set.  These don't return anything, so there's only
  * one version to worry about.
  */
@@ -81,7 +81,7 @@ ATOMIC_OPS(xor, xor,  i)
 
 /*
  * Atomic ops that have ordered, relaxed, acquire, and release variants.
- * There's two flavors of these: the arithmatic ops have both fetch and return
+ * There's two flavors of these: the arithmetic ops have both fetch and return
  * versions, while the logical ops only have fetch versions.
  */
 #define ATOMIC_FETCH_OP(op, asm_op, I, asm_type, c_type, prefix)	\
@@ -203,7 +203,7 @@ ATOMIC_OPS(xor, xor, i)
 		"	add            %[rc], %[p], %[a]\n"		\
 		"	sc." sfx ".rl  %[rc], %[rc], %[c]\n"		\
 		"	bnez           %[rc], 0b\n"			\
-		"	fence          rw, rw\n"			\
+		RISCV_FULL_BARRIER					\
 		"1:\n"							\
 		: [p]"=&r" (_prev), [rc]"=&r" (_rc), [c]"+A" (counter)	\
 		: [a]"r" (_a), [u]"r" (_u)				\
@@ -242,7 +242,7 @@ static __always_inline s64 arch_atomic64_fetch_add_unless(atomic64_t *v, s64 a, 
 		"	addi            %[rc], %[p], 1\n"		\
 		"	sc." sfx ".rl   %[rc], %[rc], %[c]\n"		\
 		"	bnez            %[rc], 0b\n"			\
-		"	fence           rw, rw\n"			\
+		RISCV_FULL_BARRIER					\
 		"1:\n"							\
 		: [p]"=&r" (_prev), [rc]"=&r" (_rc), [c]"+A" (counter)	\
 		:							\
@@ -268,7 +268,7 @@ static __always_inline bool arch_atomic_inc_unless_negative(atomic_t *v)
 		"	addi            %[rc], %[p], -1\n"		\
 		"	sc." sfx ".rl   %[rc], %[rc], %[c]\n"		\
 		"	bnez            %[rc], 0b\n"			\
-		"	fence           rw, rw\n"			\
+		RISCV_FULL_BARRIER					\
 		"1:\n"							\
 		: [p]"=&r" (_prev), [rc]"=&r" (_rc), [c]"+A" (counter)	\
 		:							\
@@ -294,7 +294,7 @@ static __always_inline bool arch_atomic_dec_unless_positive(atomic_t *v)
 		"	bltz           %[rc], 1f\n"			\
 		"	sc." sfx ".rl  %[rc], %[rc], %[c]\n"		\
 		"	bnez           %[rc], 0b\n"			\
-		"	fence          rw, rw\n"			\
+		RISCV_FULL_BARRIER					\
 		"1:\n"							\
 		: [p]"=&r" (_prev), [rc]"=&r" (_rc), [c]"+A" (counter)	\
 		:							\

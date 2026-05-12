@@ -98,22 +98,27 @@ static unsigned long iproc_asiu_clk_recalc_rate(struct clk_hw *hw,
 	return clk->rate;
 }
 
-static long iproc_asiu_clk_round_rate(struct clk_hw *hw, unsigned long rate,
-				      unsigned long *parent_rate)
+static int iproc_asiu_clk_determine_rate(struct clk_hw *hw,
+					 struct clk_rate_request *req)
 {
 	unsigned int div;
 
-	if (rate == 0 || *parent_rate == 0)
+	if (req->rate == 0 || req->best_parent_rate == 0)
 		return -EINVAL;
 
-	if (rate == *parent_rate)
-		return *parent_rate;
+	if (req->rate == req->best_parent_rate)
+		return 0;
 
-	div = DIV_ROUND_CLOSEST(*parent_rate, rate);
-	if (div < 2)
-		return *parent_rate;
+	div = DIV_ROUND_CLOSEST(req->best_parent_rate, req->rate);
+	if (div < 2) {
+		req->rate = req->best_parent_rate;
 
-	return *parent_rate / div;
+		return 0;
+	}
+
+	req->rate = req->best_parent_rate / div;
+
+	return 0;
 }
 
 static int iproc_asiu_clk_set_rate(struct clk_hw *hw, unsigned long rate,
@@ -168,7 +173,7 @@ static const struct clk_ops iproc_asiu_ops = {
 	.enable = iproc_asiu_clk_enable,
 	.disable = iproc_asiu_clk_disable,
 	.recalc_rate = iproc_asiu_clk_recalc_rate,
-	.round_rate = iproc_asiu_clk_round_rate,
+	.determine_rate = iproc_asiu_clk_determine_rate,
 	.set_rate = iproc_asiu_clk_set_rate,
 };
 
@@ -183,17 +188,16 @@ void __init iproc_asiu_setup(struct device_node *node,
 	if (WARN_ON(!gate || !div))
 		return;
 
-	asiu = kzalloc(sizeof(*asiu), GFP_KERNEL);
+	asiu = kzalloc_obj(*asiu);
 	if (WARN_ON(!asiu))
 		return;
 
-	asiu->clk_data = kzalloc(struct_size(asiu->clk_data, hws, num_clks),
-				 GFP_KERNEL);
+	asiu->clk_data = kzalloc_flex(*asiu->clk_data, hws, num_clks);
 	if (WARN_ON(!asiu->clk_data))
 		goto err_clks;
 	asiu->clk_data->num = num_clks;
 
-	asiu->clks = kcalloc(num_clks, sizeof(*asiu->clks), GFP_KERNEL);
+	asiu->clks = kzalloc_objs(*asiu->clks, num_clks);
 	if (WARN_ON(!asiu->clks))
 		goto err_asiu_clks;
 

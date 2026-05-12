@@ -24,6 +24,7 @@
  */
 
 #include <linux/bitfield.h>
+#include <linux/export.h>
 #include <linux/gpio/consumer.h>
 #include <linux/input.h>
 #include <linux/input/mt.h>
@@ -626,6 +627,14 @@ static int goodix_berlin_input_dev_config(struct goodix_berlin_core *cd,
 	input_set_abs_params(cd->input_dev, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
 
 	touchscreen_parse_properties(cd->input_dev, true, &cd->props);
+
+	/*
+	 * The resolution of these touchscreens is about 10 units/mm, the actual
+	 * resolution does not matter much since we set INPUT_PROP_DIRECT.
+	 * Set it to 10 to ensure userspace isn't off by an order of magnitude.
+	 */
+	input_abs_set_res(cd->input_dev, ABS_MT_POSITION_X, 10);
+	input_abs_set_res(cd->input_dev, ABS_MT_POSITION_Y, 10);
 
 	error = input_mt_init_slots(cd->input_dev, GOODIX_BERLIN_MAX_TOUCH,
 				    INPUT_MT_DIRECT | INPUT_MT_DROP_UNUSED);

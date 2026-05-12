@@ -565,7 +565,7 @@ static struct vsp1_pipeline *vsp1_video_pipeline_get(struct vsp1_video *video)
 	 * when the last reference is released.
 	 */
 	if (!video->rwpf->entity.pipe) {
-		pipe = kzalloc(sizeof(*pipe), GFP_KERNEL);
+		pipe = kzalloc_obj(*pipe);
 		if (!pipe)
 			return ERR_PTR(-ENOMEM);
 
@@ -720,8 +720,7 @@ static int vsp1_video_pipeline_setup_partitions(struct vsp1_pipeline *pipe)
 	}
 
 	pipe->partitions = DIV_ROUND_UP(format->width, div_size);
-	pipe->part_table = kcalloc(pipe->partitions, sizeof(*pipe->part_table),
-				   GFP_KERNEL);
+	pipe->part_table = kzalloc_objs(*pipe->part_table, pipe->partitions);
 	if (!pipe->part_table)
 		return -ENOMEM;
 
@@ -896,7 +895,7 @@ static const struct vb2_ops vsp1_video_queue_qops = {
 static int
 vsp1_video_querycap(struct file *file, void *fh, struct v4l2_capability *cap)
 {
-	struct v4l2_fh *vfh = file->private_data;
+	struct v4l2_fh *vfh = file_to_v4l2_fh(file);
 	struct vsp1_video *video = to_vsp1_video(vfh->vdev);
 
 	cap->capabilities = V4L2_CAP_DEVICE_CAPS | V4L2_CAP_STREAMING
@@ -912,7 +911,7 @@ vsp1_video_querycap(struct file *file, void *fh, struct v4l2_capability *cap)
 static int vsp1_video_enum_format(struct file *file, void *fh,
 				  struct v4l2_fmtdesc *f)
 {
-	struct v4l2_fh *vfh = file->private_data;
+	struct v4l2_fh *vfh = file_to_v4l2_fh(file);
 	struct vsp1_video *video = to_vsp1_video(vfh->vdev);
 	const struct vsp1_format_info *info;
 
@@ -933,7 +932,7 @@ static int vsp1_video_enum_format(struct file *file, void *fh,
 static int
 vsp1_video_get_format(struct file *file, void *fh, struct v4l2_format *format)
 {
-	struct v4l2_fh *vfh = file->private_data;
+	struct v4l2_fh *vfh = file_to_v4l2_fh(file);
 	struct vsp1_video *video = to_vsp1_video(vfh->vdev);
 
 	if (format->type != video->queue.type)
@@ -949,7 +948,7 @@ vsp1_video_get_format(struct file *file, void *fh, struct v4l2_format *format)
 static int
 vsp1_video_try_format(struct file *file, void *fh, struct v4l2_format *format)
 {
-	struct v4l2_fh *vfh = file->private_data;
+	struct v4l2_fh *vfh = file_to_v4l2_fh(file);
 	struct vsp1_video *video = to_vsp1_video(vfh->vdev);
 
 	if (format->type != video->queue.type)
@@ -961,7 +960,7 @@ vsp1_video_try_format(struct file *file, void *fh, struct v4l2_format *format)
 static int
 vsp1_video_set_format(struct file *file, void *fh, struct v4l2_format *format)
 {
-	struct v4l2_fh *vfh = file->private_data;
+	struct v4l2_fh *vfh = file_to_v4l2_fh(file);
 	struct vsp1_video *video = to_vsp1_video(vfh->vdev);
 	const struct vsp1_format_info *info;
 	int ret;
@@ -991,7 +990,7 @@ done:
 static int
 vsp1_video_streamon(struct file *file, void *fh, enum v4l2_buf_type type)
 {
-	struct v4l2_fh *vfh = file->private_data;
+	struct v4l2_fh *vfh = file_to_v4l2_fh(file);
 	struct vsp1_video *video = to_vsp1_video(vfh->vdev);
 	struct media_device *mdev = &video->vsp1->media_dev;
 	struct vsp1_pipeline *pipe;
@@ -1074,18 +1073,16 @@ static int vsp1_video_open(struct file *file)
 	struct v4l2_fh *vfh;
 	int ret = 0;
 
-	vfh = kzalloc(sizeof(*vfh), GFP_KERNEL);
+	vfh = kzalloc_obj(*vfh);
 	if (vfh == NULL)
 		return -ENOMEM;
 
 	v4l2_fh_init(vfh, &video->video);
-	v4l2_fh_add(vfh);
-
-	file->private_data = vfh;
+	v4l2_fh_add(vfh, file);
 
 	ret = vsp1_device_get(video->vsp1);
 	if (ret < 0) {
-		v4l2_fh_del(vfh);
+		v4l2_fh_del(vfh, file);
 		v4l2_fh_exit(vfh);
 		kfree(vfh);
 	}

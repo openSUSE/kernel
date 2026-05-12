@@ -14,6 +14,8 @@
 #include <linux/mutex.h>
 #include <linux/page_counter.h>
 #include <linux/parser.h>
+#include <linux/refcount.h>
+#include <linux/rculist.h>
 #include <linux/slab.h>
 
 struct dmem_cgroup_region {
@@ -70,7 +72,9 @@ struct dmem_cgroup_pool_state {
 	struct rcu_head rcu;
 
 	struct page_counter cnt;
+	struct dmem_cgroup_pool_state *parent;
 
+	refcount_t ref;
 	bool inited;
 };
 
@@ -86,6 +90,9 @@ struct dmem_cgroup_pool_state {
  */
 static DEFINE_SPINLOCK(dmemcg_lock);
 static LIST_HEAD(dmem_cgroup_regions);
+
+static void dmemcg_free_region(struct kref *ref);
+static void dmemcg_pool_free_rcu(struct rcu_head *rcu);
 
 static inline struct dmemcg_state *
 css_to_dmemcs(struct cgroup_subsys_state *css)
@@ -103,10 +110,38 @@ static struct dmemcg_state *parent_dmemcs(struct dmemcg_state *cg)
 	return cg->css.parent ? css_to_dmemcs(cg->css.parent) : NULL;
 }
 
+static void dmemcg_pool_get(struct dmem_cgroup_pool_state *pool)
+{
+	refcount_inc(&pool->ref);
+}
+
+static bool dmemcg_pool_tryget(struct dmem_cgroup_pool_state *pool)
+{
+	return refcount_inc_not_zero(&pool->ref);
+}
+
+static void dmemcg_pool_put(struct dmem_cgroup_pool_state *pool)
+{
+	if (!refcount_dec_and_test(&pool->ref))
+		return;
+
+	call_rcu(&pool->rcu, dmemcg_pool_free_rcu);
+}
+
+static void dmemcg_pool_free_rcu(struct rcu_head *rcu)
+{
+	struct dmem_cgroup_pool_state *pool = container_of(rcu, typeof(*pool), rcu);
+
+	if (pool->parent)
+		dmemcg_pool_put(pool->parent);
+	kref_put(&pool->region->ref, dmemcg_free_region);
+	kfree(pool);
+}
+
 static void free_cg_pool(struct dmem_cgroup_pool_state *pool)
 {
 	list_del(&pool->region_node);
-	kfree(pool);
+	dmemcg_pool_put(pool);
 }
 
 static void
@@ -187,7 +222,7 @@ static void dmemcs_free(struct cgroup_subsys_state *css)
 static struct cgroup_subsys_state *
 dmemcs_alloc(struct cgroup_subsys_state *parent_css)
 {
-	struct dmemcg_state *dmemcs = kzalloc(sizeof(*dmemcs), GFP_KERNEL);
+	struct dmemcg_state *dmemcs = kzalloc_obj(*dmemcs);
 	if (!dmemcs)
 		return ERR_PTR(-ENOMEM);
 
@@ -324,7 +359,7 @@ alloc_pool_single(struct dmemcg_state *dmemcs, struct dmem_cgroup_region *region
 	struct dmem_cgroup_pool_state *pool, *ppool = NULL;
 
 	if (!*allocpool) {
-		pool = kzalloc(sizeof(*pool), GFP_NOWAIT);
+		pool = kzalloc_obj(*pool, GFP_NOWAIT);
 		if (!pool)
 			return ERR_PTR(-ENOMEM);
 	} else {
@@ -341,6 +376,12 @@ alloc_pool_single(struct dmemcg_state *dmemcs, struct dmem_cgroup_region *region
 	page_counter_init(&pool->cnt,
 			  ppool ? &ppool->cnt : NULL, true);
 	reset_all_resource_limits(pool);
+	refcount_set(&pool->ref, 1);
+	kref_get(&region->ref);
+	if (ppool && !pool->parent) {
+		pool->parent = ppool;
+		dmemcg_pool_get(ppool);
+	}
 
 	list_add_tail_rcu(&pool->css_node, &dmemcs->pools);
 	list_add_tail(&pool->region_node, &region->pools);
@@ -388,6 +429,10 @@ get_cg_pool_locked(struct dmemcg_state *dmemcs, struct dmem_cgroup_region *regio
 
 		/* Fix up parent links, mark as inited. */
 		pool->cnt.parent = &ppool->cnt;
+		if (ppool && !pool->parent) {
+			pool->parent = ppool;
+			dmemcg_pool_get(ppool);
+		}
 		pool->inited = true;
 
 		pool = ppool;
@@ -422,7 +467,7 @@ static void dmemcg_free_region(struct kref *ref)
  */
 void dmem_cgroup_unregister_region(struct dmem_cgroup_region *region)
 {
-	struct list_head *entry;
+	struct dmem_cgroup_pool_state *pool, *next;
 
 	if (!region)
 		return;
@@ -432,11 +477,10 @@ void dmem_cgroup_unregister_region(struct dmem_cgroup_region *region)
 	/* Remove from global region list */
 	list_del_rcu(&region->region_node);
 
-	list_for_each_rcu(entry, &region->pools) {
-		struct dmem_cgroup_pool_state *pool =
-			container_of(entry, typeof(*pool), region_node);
-
+	list_for_each_entry_safe(pool, next, &region->pools, region_node) {
 		list_del_rcu(&pool->css_node);
+		list_del(&pool->region_node);
+		dmemcg_pool_put(pool);
 	}
 
 	/*
@@ -477,7 +521,7 @@ struct dmem_cgroup_region *dmem_cgroup_register_region(u64 size, const char *fmt
 	if (!region_name)
 		return ERR_PTR(-ENOMEM);
 
-	ret = kzalloc(sizeof(*ret), GFP_KERNEL);
+	ret = kzalloc_obj(*ret);
 	if (!ret) {
 		kfree(region_name);
 		return ERR_PTR(-ENOMEM);
@@ -517,8 +561,10 @@ static struct dmem_cgroup_region *dmemcg_get_region_by_name(const char *name)
  */
 void dmem_cgroup_pool_state_put(struct dmem_cgroup_pool_state *pool)
 {
-	if (pool)
+	if (pool) {
 		css_put(&pool->cs->css);
+		dmemcg_pool_put(pool);
+	}
 }
 EXPORT_SYMBOL_GPL(dmem_cgroup_pool_state_put);
 
@@ -532,6 +578,8 @@ get_cg_pool_unlocked(struct dmemcg_state *cg, struct dmem_cgroup_region *region)
 	pool = find_cg_pool_locked(cg, region);
 	if (pool && !READ_ONCE(pool->inited))
 		pool = NULL;
+	if (pool && !dmemcg_pool_tryget(pool))
+		pool = NULL;
 	rcu_read_unlock();
 
 	while (!pool) {
@@ -540,6 +588,8 @@ get_cg_pool_unlocked(struct dmemcg_state *cg, struct dmem_cgroup_region *region)
 			pool = get_cg_pool_locked(cg, region, &allocpool);
 		else
 			pool = ERR_PTR(-ENODEV);
+		if (!IS_ERR(pool))
+			dmemcg_pool_get(pool);
 		spin_unlock(&dmemcg_lock);
 
 		if (pool == ERR_PTR(-ENOMEM)) {
@@ -547,7 +597,7 @@ get_cg_pool_unlocked(struct dmemcg_state *cg, struct dmem_cgroup_region *region)
 			if (WARN_ON(allocpool))
 				continue;
 
-			allocpool = kzalloc(sizeof(*allocpool), GFP_KERNEL);
+			allocpool = kzalloc_obj(*allocpool);
 			if (allocpool) {
 				pool = NULL;
 				continue;
@@ -575,6 +625,7 @@ void dmem_cgroup_uncharge(struct dmem_cgroup_pool_state *pool, u64 size)
 
 	page_counter_uncharge(&pool->cnt, size);
 	css_put(&pool->cs->css);
+	dmemcg_pool_put(pool);
 }
 EXPORT_SYMBOL_GPL(dmem_cgroup_uncharge);
 
@@ -626,7 +677,9 @@ int dmem_cgroup_try_charge(struct dmem_cgroup_region *region, u64 size,
 		if (ret_limit_pool) {
 			*ret_limit_pool = container_of(fail, struct dmem_cgroup_pool_state, cnt);
 			css_get(&(*ret_limit_pool)->cs->css);
+			dmemcg_pool_get(*ret_limit_pool);
 		}
+		dmemcg_pool_put(pool);
 		ret = -EAGAIN;
 		goto err;
 	}
@@ -654,8 +707,7 @@ static int dmem_cgroup_region_capacity_show(struct seq_file *sf, void *v)
 	return 0;
 }
 
-static int dmemcg_parse_limit(char *options, struct dmem_cgroup_region *region,
-			      u64 *new_limit)
+static int dmemcg_parse_limit(char *options, u64 *new_limit)
 {
 	char *end;
 
@@ -699,6 +751,9 @@ static ssize_t dmemcg_limit_write(struct kernfs_open_file *of,
 		if (!region_name[0])
 			continue;
 
+		if (!options || !*options)
+			return -EINVAL;
+
 		rcu_read_lock();
 		region = dmemcg_get_region_by_name(region_name);
 		rcu_read_unlock();
@@ -706,7 +761,7 @@ static ssize_t dmemcg_limit_write(struct kernfs_open_file *of,
 		if (!region)
 			return -EINVAL;
 
-		err = dmemcg_parse_limit(options, region, &new_limit);
+		err = dmemcg_parse_limit(options, &new_limit);
 		if (err < 0)
 			goto out_put;
 
@@ -718,6 +773,7 @@ static ssize_t dmemcg_limit_write(struct kernfs_open_file *of,
 
 		/* And commit */
 		apply(pool, new_limit);
+		dmemcg_pool_put(pool);
 
 out_put:
 		kref_put(&region->ref, dmemcg_free_region);

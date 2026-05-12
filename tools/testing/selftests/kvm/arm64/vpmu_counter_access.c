@@ -28,31 +28,25 @@
 struct vpmu_vm {
 	struct kvm_vm *vm;
 	struct kvm_vcpu *vcpu;
-	int gic_fd;
 };
 
 static struct vpmu_vm vpmu_vm;
 
 struct pmreg_sets {
-	uint64_t set_reg_id;
-	uint64_t clr_reg_id;
+	u64 set_reg_id;
+	u64 clr_reg_id;
 };
 
 #define PMREG_SET(set, clr) {.set_reg_id = set, .clr_reg_id = clr}
 
-static uint64_t get_pmcr_n(uint64_t pmcr)
+static u64 get_pmcr_n(u64 pmcr)
 {
 	return FIELD_GET(ARMV8_PMU_PMCR_N, pmcr);
 }
 
-static void set_pmcr_n(uint64_t *pmcr, uint64_t pmcr_n)
+static u64 get_counters_mask(u64 n)
 {
-	u64p_replace_bits((__u64 *) pmcr, pmcr_n, ARMV8_PMU_PMCR_N);
-}
-
-static uint64_t get_counters_mask(uint64_t n)
-{
-	uint64_t mask = BIT(ARMV8_PMU_CYCLE_IDX);
+	u64 mask = BIT(ARMV8_PMU_CYCLE_IDX);
 
 	if (n)
 		mask |= GENMASK(n - 1, 0);
@@ -95,7 +89,7 @@ static inline void write_sel_evtyper(int sel, unsigned long val)
 
 static void pmu_disable_reset(void)
 {
-	uint64_t pmcr = read_sysreg(pmcr_el0);
+	u64 pmcr = read_sysreg(pmcr_el0);
 
 	/* Reset all counters, disabling them */
 	pmcr &= ~ARMV8_PMU_PMCR_E;
@@ -175,7 +169,7 @@ struct pmc_accessor pmc_accessors[] = {
 
 #define GUEST_ASSERT_BITMAP_REG(regname, mask, set_expected)			 \
 {										 \
-	uint64_t _tval = read_sysreg(regname);					 \
+	u64 _tval = read_sysreg(regname);					 \
 										 \
 	if (set_expected)							 \
 		__GUEST_ASSERT((_tval & mask),					 \
@@ -191,7 +185,7 @@ struct pmc_accessor pmc_accessors[] = {
  * Check if @mask bits in {PMCNTEN,PMINTEN,PMOVS}{SET,CLR} registers
  * are set or cleared as specified in @set_expected.
  */
-static void check_bitmap_pmu_regs(uint64_t mask, bool set_expected)
+static void check_bitmap_pmu_regs(u64 mask, bool set_expected)
 {
 	GUEST_ASSERT_BITMAP_REG(pmcntenset_el0, mask, set_expected);
 	GUEST_ASSERT_BITMAP_REG(pmcntenclr_el0, mask, set_expected);
@@ -213,7 +207,7 @@ static void check_bitmap_pmu_regs(uint64_t mask, bool set_expected)
  */
 static void test_bitmap_pmu_regs(int pmc_idx, bool set_op)
 {
-	uint64_t pmcr_n, test_bit = BIT(pmc_idx);
+	u64 pmcr_n, test_bit = BIT(pmc_idx);
 	bool set_expected = false;
 
 	if (set_op) {
@@ -238,7 +232,7 @@ static void test_bitmap_pmu_regs(int pmc_idx, bool set_op)
  */
 static void test_access_pmc_regs(struct pmc_accessor *acc, int pmc_idx)
 {
-	uint64_t write_data, read_data;
+	u64 write_data, read_data;
 
 	/* Disable all PMCs and reset all PMCs to zero. */
 	pmu_disable_reset();
@@ -293,11 +287,11 @@ static void test_access_pmc_regs(struct pmc_accessor *acc, int pmc_idx)
 }
 
 #define INVALID_EC	(-1ul)
-uint64_t expected_ec = INVALID_EC;
+u64 expected_ec = INVALID_EC;
 
 static void guest_sync_handler(struct ex_regs *regs)
 {
-	uint64_t esr, ec;
+	u64 esr, ec;
 
 	esr = read_sysreg(esr_el1);
 	ec = ESR_ELx_EC(esr);
@@ -357,9 +351,9 @@ static void test_access_invalid_pmc_regs(struct pmc_accessor *acc, int pmc_idx)
  * if reading/writing PMU registers for implemented or unimplemented
  * counters works as expected.
  */
-static void guest_code(uint64_t expected_pmcr_n)
+static void guest_code(u64 expected_pmcr_n)
 {
-	uint64_t pmcr, pmcr_n, unimp_mask;
+	u64 pmcr, pmcr_n, unimp_mask;
 	int i, pmc;
 
 	__GUEST_ASSERT(expected_pmcr_n <= ARMV8_PMU_MAX_GENERAL_COUNTERS,
@@ -408,16 +402,12 @@ static void guest_code(uint64_t expected_pmcr_n)
 static void create_vpmu_vm(void *guest_code)
 {
 	struct kvm_vcpu_init init;
-	uint8_t pmuver, ec;
-	uint64_t dfr0, irq = 23;
+	u8 pmuver, ec;
+	u64 dfr0, irq = 23;
 	struct kvm_device_attr irq_attr = {
 		.group = KVM_ARM_VCPU_PMU_V3_CTRL,
 		.attr = KVM_ARM_VCPU_PMU_V3_IRQ,
-		.addr = (uint64_t)&irq,
-	};
-	struct kvm_device_attr init_attr = {
-		.group = KVM_ARM_VCPU_PMU_V3_CTRL,
-		.attr = KVM_ARM_VCPU_PMU_V3_INIT,
+		.addr = (u64)&irq,
 	};
 
 	/* The test creates the vpmu_vm multiple times. Ensure a clean state */
@@ -431,13 +421,12 @@ static void create_vpmu_vm(void *guest_code)
 	}
 
 	/* Create vCPU with PMUv3 */
-	vm_ioctl(vpmu_vm.vm, KVM_ARM_PREFERRED_TARGET, &init);
+	kvm_get_default_vcpu_target(vpmu_vm.vm, &init);
 	init.features[0] |= (1 << KVM_ARM_VCPU_PMU_V3);
 	vpmu_vm.vcpu = aarch64_vcpu_add(vpmu_vm.vm, 0, &init, guest_code);
 	vcpu_init_descriptor_tables(vpmu_vm.vcpu);
-	vpmu_vm.gic_fd = vgic_v3_setup(vpmu_vm.vm, 1, 64);
-	__TEST_REQUIRE(vpmu_vm.gic_fd >= 0,
-		       "Failed to create vgic-v3, skipping");
+
+	kvm_arch_vm_finalize_vcpus(vpmu_vm.vm);
 
 	/* Make sure that PMUv3 support is indicated in the ID register */
 	dfr0 = vcpu_get_reg(vpmu_vm.vcpu, KVM_ARM64_SYS_REG(SYS_ID_AA64DFR0_EL1));
@@ -446,18 +435,15 @@ static void create_vpmu_vm(void *guest_code)
 		    pmuver >= ID_AA64DFR0_EL1_PMUVer_IMP,
 		    "Unexpected PMUVER (0x%x) on the vCPU with PMUv3", pmuver);
 
-	/* Initialize vPMU */
 	vcpu_ioctl(vpmu_vm.vcpu, KVM_SET_DEVICE_ATTR, &irq_attr);
-	vcpu_ioctl(vpmu_vm.vcpu, KVM_SET_DEVICE_ATTR, &init_attr);
 }
 
 static void destroy_vpmu_vm(void)
 {
-	close(vpmu_vm.gic_fd);
 	kvm_vm_free(vpmu_vm.vm);
 }
 
-static void run_vcpu(struct kvm_vcpu *vcpu, uint64_t pmcr_n)
+static void run_vcpu(struct kvm_vcpu *vcpu, u64 pmcr_n)
 {
 	struct ucall uc;
 
@@ -475,52 +461,47 @@ static void run_vcpu(struct kvm_vcpu *vcpu, uint64_t pmcr_n)
 	}
 }
 
-static void test_create_vpmu_vm_with_pmcr_n(uint64_t pmcr_n, bool expect_fail)
+static void test_create_vpmu_vm_with_nr_counters(unsigned int nr_counters, bool expect_fail)
 {
 	struct kvm_vcpu *vcpu;
-	uint64_t pmcr, pmcr_orig;
+	unsigned int prev;
+	int ret;
 
 	create_vpmu_vm(guest_code);
 	vcpu = vpmu_vm.vcpu;
 
-	pmcr_orig = vcpu_get_reg(vcpu, KVM_ARM64_SYS_REG(SYS_PMCR_EL0));
-	pmcr = pmcr_orig;
+	prev = get_pmcr_n(vcpu_get_reg(vcpu, KVM_ARM64_SYS_REG(SYS_PMCR_EL0)));
 
-	/*
-	 * Setting a larger value of PMCR.N should not modify the field, and
-	 * return a success.
-	 */
-	set_pmcr_n(&pmcr, pmcr_n);
-	vcpu_set_reg(vcpu, KVM_ARM64_SYS_REG(SYS_PMCR_EL0), pmcr);
-	pmcr = vcpu_get_reg(vcpu, KVM_ARM64_SYS_REG(SYS_PMCR_EL0));
+	ret = __vcpu_device_attr_set(vcpu, KVM_ARM_VCPU_PMU_V3_CTRL,
+				     KVM_ARM_VCPU_PMU_V3_SET_NR_COUNTERS, &nr_counters);
 
 	if (expect_fail)
-		TEST_ASSERT(pmcr_orig == pmcr,
-			    "PMCR.N modified by KVM to a larger value (PMCR: 0x%lx) for pmcr_n: 0x%lx",
-			    pmcr, pmcr_n);
+		TEST_ASSERT(ret && errno == EINVAL,
+			    "Setting more PMU counters (%u) than available (%u) unexpectedly succeeded",
+			    nr_counters, prev);
 	else
-		TEST_ASSERT(pmcr_n == get_pmcr_n(pmcr),
-			    "Failed to update PMCR.N to %lu (received: %lu)",
-			    pmcr_n, get_pmcr_n(pmcr));
+		TEST_ASSERT(!ret, KVM_IOCTL_ERROR(KVM_SET_DEVICE_ATTR, ret));
+
+	vcpu_device_attr_set(vcpu, KVM_ARM_VCPU_PMU_V3_CTRL, KVM_ARM_VCPU_PMU_V3_INIT, NULL);
 }
 
 /*
  * Create a guest with one vCPU, set the PMCR_EL0.N for the vCPU to @pmcr_n,
  * and run the test.
  */
-static void run_access_test(uint64_t pmcr_n)
+static void run_access_test(u64 pmcr_n)
 {
-	uint64_t sp;
+	u64 sp;
 	struct kvm_vcpu *vcpu;
 	struct kvm_vcpu_init init;
 
 	pr_debug("Test with pmcr_n %lu\n", pmcr_n);
 
-	test_create_vpmu_vm_with_pmcr_n(pmcr_n, false);
+	test_create_vpmu_vm_with_nr_counters(pmcr_n, false);
 	vcpu = vpmu_vm.vcpu;
 
 	/* Save the initial sp to restore them later to run the guest again */
-	sp = vcpu_get_reg(vcpu, ARM64_CORE_REG(sp_el1));
+	sp = vcpu_get_reg(vcpu, ctxt_reg_alias(vcpu, SYS_SP_EL1));
 
 	run_vcpu(vcpu, pmcr_n);
 
@@ -528,12 +509,12 @@ static void run_access_test(uint64_t pmcr_n)
 	 * Reset and re-initialize the vCPU, and run the guest code again to
 	 * check if PMCR_EL0.N is preserved.
 	 */
-	vm_ioctl(vpmu_vm.vm, KVM_ARM_PREFERRED_TARGET, &init);
+	kvm_get_default_vcpu_target(vpmu_vm.vm, &init);
 	init.features[0] |= (1 << KVM_ARM_VCPU_PMU_V3);
 	aarch64_vcpu_setup(vcpu, &init);
 	vcpu_init_descriptor_tables(vcpu);
-	vcpu_set_reg(vcpu, ARM64_CORE_REG(sp_el1), sp);
-	vcpu_set_reg(vcpu, ARM64_CORE_REG(regs.pc), (uint64_t)guest_code);
+	vcpu_set_reg(vcpu, ctxt_reg_alias(vcpu, SYS_SP_EL1), sp);
+	vcpu_set_reg(vcpu, ARM64_CORE_REG(regs.pc), (u64)guest_code);
 
 	run_vcpu(vcpu, pmcr_n);
 
@@ -550,14 +531,14 @@ static struct pmreg_sets validity_check_reg_sets[] = {
  * Create a VM, and check if KVM handles the userspace accesses of
  * the PMU register sets in @validity_check_reg_sets[] correctly.
  */
-static void run_pmregs_validity_test(uint64_t pmcr_n)
+static void run_pmregs_validity_test(u64 pmcr_n)
 {
 	int i;
 	struct kvm_vcpu *vcpu;
-	uint64_t set_reg_id, clr_reg_id, reg_val;
-	uint64_t valid_counters_mask, max_counters_mask;
+	u64 set_reg_id, clr_reg_id, reg_val;
+	u64 valid_counters_mask, max_counters_mask;
 
-	test_create_vpmu_vm_with_pmcr_n(pmcr_n, false);
+	test_create_vpmu_vm_with_nr_counters(pmcr_n, false);
 	vcpu = vpmu_vm.vcpu;
 
 	valid_counters_mask = get_counters_mask(pmcr_n);
@@ -607,11 +588,11 @@ static void run_pmregs_validity_test(uint64_t pmcr_n)
  * the vCPU to @pmcr_n, which is larger than the host value.
  * The attempt should fail as @pmcr_n is too big to set for the vCPU.
  */
-static void run_error_test(uint64_t pmcr_n)
+static void run_error_test(u64 pmcr_n)
 {
 	pr_debug("Error test with pmcr_n %lu (larger than the host)\n", pmcr_n);
 
-	test_create_vpmu_vm_with_pmcr_n(pmcr_n, true);
+	test_create_vpmu_vm_with_nr_counters(pmcr_n, true);
 	destroy_vpmu_vm();
 }
 
@@ -619,9 +600,9 @@ static void run_error_test(uint64_t pmcr_n)
  * Return the default number of implemented PMU event counters excluding
  * the cycle counter (i.e. PMCR_EL0.N value) for the guest.
  */
-static uint64_t get_pmcr_n_limit(void)
+static u64 get_pmcr_n_limit(void)
 {
-	uint64_t pmcr;
+	u64 pmcr;
 
 	create_vpmu_vm(guest_code);
 	pmcr = vcpu_get_reg(vpmu_vm.vcpu, KVM_ARM64_SYS_REG(SYS_PMCR_EL0));
@@ -629,11 +610,25 @@ static uint64_t get_pmcr_n_limit(void)
 	return get_pmcr_n(pmcr);
 }
 
+static bool kvm_supports_nr_counters_attr(void)
+{
+	bool supported;
+
+	create_vpmu_vm(NULL);
+	supported = !__vcpu_has_device_attr(vpmu_vm.vcpu, KVM_ARM_VCPU_PMU_V3_CTRL,
+					    KVM_ARM_VCPU_PMU_V3_SET_NR_COUNTERS);
+	destroy_vpmu_vm();
+
+	return supported;
+}
+
 int main(void)
 {
-	uint64_t i, pmcr_n;
+	u64 i, pmcr_n;
 
 	TEST_REQUIRE(kvm_has_cap(KVM_CAP_ARM_PMU_V3));
+	TEST_REQUIRE(kvm_supports_vgic_v3());
+	TEST_REQUIRE(kvm_supports_nr_counters_attr());
 
 	pmcr_n = get_pmcr_n_limit();
 	for (i = 0; i <= pmcr_n; i++) {

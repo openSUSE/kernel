@@ -89,10 +89,8 @@ void qcom_clear_bam_transaction(struct qcom_nand_controller *nandc)
 	memset(&bam_txn->bam_positions, 0, sizeof(bam_txn->bam_positions));
 	bam_txn->last_data_desc = NULL;
 
-	sg_init_table(bam_txn->cmd_sgl, nandc->max_cwperpage *
-		      QPIC_PER_CW_CMD_SGL);
-	sg_init_table(bam_txn->data_sgl, nandc->max_cwperpage *
-		      QPIC_PER_CW_DATA_SGL);
+	sg_init_table(bam_txn->cmd_sgl, bam_txn->cmd_sgl_nitems);
+	sg_init_table(bam_txn->data_sgl, bam_txn->data_sgl_nitems);
 
 	reinit_completion(&bam_txn->txn_done);
 }
@@ -158,7 +156,7 @@ int qcom_prepare_bam_async_desc(struct qcom_nand_controller *nandc,
 	enum dma_transfer_direction dir_eng;
 	struct dma_async_tx_descriptor *dma_desc;
 
-	desc = kzalloc(sizeof(*desc), GFP_KERNEL);
+	desc = kzalloc_obj(*desc);
 	if (!desc)
 		return -ENOMEM;
 
@@ -366,7 +364,7 @@ int qcom_prep_adm_dma_desc(struct qcom_nand_controller *nandc, bool read,
 	struct scatterlist *sgl;
 	int ret;
 
-	desc = kzalloc(sizeof(*desc), GFP_KERNEL);
+	desc = kzalloc_obj(*desc);
 	if (!desc)
 		return -ENOMEM;
 

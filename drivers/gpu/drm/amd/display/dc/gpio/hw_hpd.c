@@ -35,7 +35,7 @@
 
 #undef FN
 #define FN(reg_name, field_name) \
-	hpd->shifts->field_name, hpd->masks->field_name
+	gpio_reg_shift(hpd->shifts->field_name), hpd->masks->field_name
 
 #define CTX \
 	hpd->base.base.ctx
@@ -132,7 +132,7 @@ void dal_hw_hpd_init(
 		*hw_hpd = NULL;
 	}
 
-	*hw_hpd = kzalloc(sizeof(struct hw_hpd), GFP_KERNEL);
+	*hw_hpd = kzalloc_obj(struct hw_hpd);
 	if (!*hw_hpd) {
 		ASSERT_CRITICAL(false);
 		return;

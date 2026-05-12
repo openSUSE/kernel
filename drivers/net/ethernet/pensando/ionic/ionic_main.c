@@ -72,7 +72,7 @@ static const char *ionic_error_to_str(enum ionic_status_code code)
 	}
 }
 
-static int ionic_error_to_errno(enum ionic_status_code code)
+int ionic_error_to_errno(enum ionic_status_code code)
 {
 	switch (code) {
 	case IONIC_RC_SUCCESS:
@@ -114,6 +114,7 @@ static int ionic_error_to_errno(enum ionic_status_code code)
 		return -EIO;
 	}
 }
+EXPORT_SYMBOL_NS(ionic_error_to_errno, "NET_IONIC");
 
 static const char *ionic_opcode_to_str(enum ionic_cmd_opcode opcode)
 {
@@ -282,7 +283,7 @@ bool ionic_notifyq_service(struct ionic_cq *cq)
 		if (lif->ionic->idev.fw_status_ready &&
 		    !test_bit(IONIC_LIF_F_FW_RESET, lif->state) &&
 		    !test_and_set_bit(IONIC_LIF_F_FW_STOPPING, lif->state)) {
-			work = kzalloc(sizeof(*work), GFP_ATOMIC);
+			work = kzalloc_obj(*work, GFP_ATOMIC);
 			if (!work) {
 				netdev_err(lif->netdev, "Reset event dropped\n");
 				clear_bit(IONIC_LIF_F_FW_STOPPING, lif->state);
@@ -480,6 +481,7 @@ int ionic_adminq_post_wait(struct ionic_lif *lif, struct ionic_admin_ctx *ctx)
 {
 	return __ionic_adminq_post_wait(lif, ctx, true);
 }
+EXPORT_SYMBOL_NS(ionic_adminq_post_wait, "NET_IONIC");
 
 int ionic_adminq_post_wait_nomsg(struct ionic_lif *lif, struct ionic_admin_ctx *ctx)
 {

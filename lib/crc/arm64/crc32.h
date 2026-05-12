@@ -2,10 +2,7 @@
 
 #include <asm/alternative.h>
 #include <asm/cpufeature.h>
-#include <asm/neon.h>
 #include <asm/simd.h>
-
-#include <crypto/internal/simd.h>
 
 // The minimum input length to consider the 4-way interleaved code path
 static const size_t min_len = 1024;
@@ -23,10 +20,10 @@ static inline u32 crc32_le_arch(u32 crc, const u8 *p, size_t len)
 	if (!alternative_has_cap_likely(ARM64_HAS_CRC32))
 		return crc32_le_base(crc, p, len);
 
-	if (len >= min_len && cpu_have_named_feature(PMULL) && crypto_simd_usable()) {
-		kernel_neon_begin();
-		crc = crc32_le_arm64_4way(crc, p, len);
-		kernel_neon_end();
+	if (len >= min_len && cpu_have_named_feature(PMULL) &&
+	    likely(may_use_simd())) {
+		scoped_ksimd()
+			crc = crc32_le_arm64_4way(crc, p, len);
 
 		p += round_down(len, 64);
 		len %= 64;
@@ -43,10 +40,10 @@ static inline u32 crc32c_arch(u32 crc, const u8 *p, size_t len)
 	if (!alternative_has_cap_likely(ARM64_HAS_CRC32))
 		return crc32c_base(crc, p, len);
 
-	if (len >= min_len && cpu_have_named_feature(PMULL) && crypto_simd_usable()) {
-		kernel_neon_begin();
-		crc = crc32c_le_arm64_4way(crc, p, len);
-		kernel_neon_end();
+	if (len >= min_len && cpu_have_named_feature(PMULL) &&
+	    likely(may_use_simd())) {
+		scoped_ksimd()
+			crc = crc32c_le_arm64_4way(crc, p, len);
 
 		p += round_down(len, 64);
 		len %= 64;
@@ -63,10 +60,10 @@ static inline u32 crc32_be_arch(u32 crc, const u8 *p, size_t len)
 	if (!alternative_has_cap_likely(ARM64_HAS_CRC32))
 		return crc32_be_base(crc, p, len);
 
-	if (len >= min_len && cpu_have_named_feature(PMULL) && crypto_simd_usable()) {
-		kernel_neon_begin();
-		crc = crc32_be_arm64_4way(crc, p, len);
-		kernel_neon_end();
+	if (len >= min_len && cpu_have_named_feature(PMULL) &&
+	    likely(may_use_simd())) {
+		scoped_ksimd()
+			crc = crc32_be_arm64_4way(crc, p, len);
 
 		p += round_down(len, 64);
 		len %= 64;

@@ -34,9 +34,6 @@
 
 extern pgd_t swapper_pg_dir[PTRS_PER_PGD];
 
-/* zero page used for uninitialized stuff */
-extern unsigned long *empty_zero_page;
-
 /* Just any arbitrary offset to the start of the vmalloc VM area: the
  * current 8MB value just means that there will be a 8MB "hole" after the
  * physical memory until the kernel virtual memory starts.  That means that
@@ -45,10 +42,12 @@ extern unsigned long *empty_zero_page;
  * area for the same reason. ;)
  */
 
-extern unsigned long end_iomem;
+#ifndef COMPILE_OFFSETS
+#include <as-layout.h> /* for high_physmem */
+#endif
 
 #define VMALLOC_OFFSET	(__va_space)
-#define VMALLOC_START ((end_iomem + VMALLOC_OFFSET) & ~(VMALLOC_OFFSET-1))
+#define VMALLOC_START	((high_physmem + VMALLOC_OFFSET) & ~(VMALLOC_OFFSET-1))
 #define VMALLOC_END	(TASK_SIZE-2*PAGE_SIZE)
 #define MODULES_VADDR	VMALLOC_START
 #define MODULES_END	VMALLOC_END
@@ -71,12 +70,6 @@ extern unsigned long end_iomem;
  * Also, write permissions imply read permissions. This is the closest we can
  * get..
  */
-
-/*
- * ZERO_PAGE is a global shared page that is always zero: used
- * for zero-mapped memory areas etc..
- */
-#define ZERO_PAGE(vaddr) virt_to_page(empty_zero_page)
 
 #define pte_clear(mm, addr, xp) pte_set_val(*(xp), (phys_t) 0, __pgprot(_PAGE_NEEDSYNC))
 
@@ -119,13 +112,12 @@ static inline int pte_none(pte_t pte)
  */
 static inline int pte_read(pte_t pte)
 {
-	return((pte_get_bits(pte, _PAGE_USER)) &&
-	       !(pte_get_bits(pte, _PAGE_PROTNONE)));
+	return !pte_get_bits(pte, _PAGE_PROTNONE);
 }
 
-static inline int pte_exec(pte_t pte){
-	return((pte_get_bits(pte, _PAGE_USER)) &&
-	       !(pte_get_bits(pte, _PAGE_PROTNONE)));
+static inline int pte_exec(pte_t pte)
+{
+	return !pte_get_bits(pte, _PAGE_PROTNONE);
 }
 
 static inline int pte_write(pte_t pte)
@@ -225,6 +217,8 @@ static inline void set_pte(pte_t *pteptr, pte_t pteval)
 static inline void um_tlb_mark_sync(struct mm_struct *mm, unsigned long start,
 				    unsigned long end)
 {
+	guard(spinlock_irqsave)(&mm->context.sync_tlb_lock);
+
 	if (!mm->context.sync_tlb_range_to) {
 		mm->context.sync_tlb_range_from = start;
 		mm->context.sync_tlb_range_to = end;

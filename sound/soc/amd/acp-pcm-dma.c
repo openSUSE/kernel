@@ -775,7 +775,7 @@ static int acp_dma_open(struct snd_soc_component *component,
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct audio_drv_data *intr_data = dev_get_drvdata(component->dev);
 	struct audio_substream_data *adata =
-		kzalloc(sizeof(struct audio_substream_data), GFP_KERNEL);
+		kzalloc_obj(struct audio_substream_data);
 	if (!adata)
 		return -ENOMEM;
 
@@ -1252,7 +1252,7 @@ static const struct snd_soc_component_driver acp_asoc_platform = {
 	.pointer	= acp_dma_pointer,
 	.delay		= acp_dma_delay,
 	.prepare	= acp_dma_prepare,
-	.pcm_construct	= acp_dma_new,
+	.pcm_new	= acp_dma_new,
 };
 
 static int acp_audio_probe(struct platform_device *pdev)

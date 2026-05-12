@@ -59,18 +59,9 @@ struct poly1305_desc_ctx {
 };
 
 void poly1305_init(struct poly1305_desc_ctx *desc,
-		   const u8 key[POLY1305_KEY_SIZE]);
+		   const u8 key[at_least POLY1305_KEY_SIZE]);
 void poly1305_update(struct poly1305_desc_ctx *desc,
 		     const u8 *src, unsigned int nbytes);
 void poly1305_final(struct poly1305_desc_ctx *desc, u8 *digest);
-
-#if IS_ENABLED(CONFIG_CRYPTO_ARCH_HAVE_LIB_POLY1305)
-bool poly1305_is_arch_optimized(void);
-#else
-static inline bool poly1305_is_arch_optimized(void)
-{
-	return false;
-}
-#endif
 
 #endif

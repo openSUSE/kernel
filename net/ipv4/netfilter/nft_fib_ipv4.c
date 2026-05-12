@@ -10,7 +10,7 @@
 #include <net/netfilter/nf_tables.h>
 #include <net/netfilter/nft_fib.h>
 
-#include <net/inet_dscp.h>
+#include <net/flow.h>
 #include <net/ip.h>
 #include <net/ip_fib.h>
 #include <net/route.h>
@@ -114,7 +114,7 @@ void nft_fib4_eval(const struct nft_expr *expr, struct nft_regs *regs,
 	if (priv->flags & NFTA_FIB_F_MARK)
 		fl4.flowi4_mark = pkt->skb->mark;
 
-	fl4.flowi4_tos = inet_dscp_to_dsfield(ip4h_dscp(iph));
+	fl4.flowi4_dscp = ip4h_dscp(iph);
 
 	if (priv->flags & NFTA_FIB_F_DADDR) {
 		fl4.daddr = iph->daddr;
@@ -163,7 +163,6 @@ static const struct nft_expr_ops nft_fib4_type_ops = {
 	.init		= nft_fib_init,
 	.dump		= nft_fib_dump,
 	.validate	= nft_fib_validate,
-	.reduce		= nft_fib_reduce,
 };
 
 static const struct nft_expr_ops nft_fib4_ops = {
@@ -173,7 +172,6 @@ static const struct nft_expr_ops nft_fib4_ops = {
 	.init		= nft_fib_init,
 	.dump		= nft_fib_dump,
 	.validate	= nft_fib_validate,
-	.reduce		= nft_fib_reduce,
 };
 
 static const struct nft_expr_ops *

@@ -30,9 +30,6 @@ struct trace_seq *get_trace_seq(void);
 int enable_tracer_by_name(struct tracefs_instance *inst, const char *tracer_name);
 void disable_tracer(struct tracefs_instance *inst);
 
-int enable_osnoise(struct trace_instance *trace);
-int enable_timerlat(struct trace_instance *trace);
-
 struct tracefs_instance *create_instance(char *instance_name);
 void destroy_instance(struct tracefs_instance *inst);
 
@@ -48,6 +45,6 @@ void trace_events_destroy(struct trace_instance *instance,
 int trace_events_enable(struct trace_instance *instance,
 			  struct trace_events *events);
 
-int trace_event_add_filter(struct trace_events *event, char *filter);
-int trace_event_add_trigger(struct trace_events *event, char *trigger);
+void trace_event_add_filter(struct trace_events *event, char *filter);
+void trace_event_add_trigger(struct trace_events *event, char *trigger);
 int trace_set_buffer_size(struct trace_instance *trace, int size);

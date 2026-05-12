@@ -14,7 +14,7 @@
 #include <linux/mman.h>
 #include <linux/syscalls.h>
 #include <linux/swap.h>
-#include <linux/swapops.h>
+#include <linux/leafops.h>
 #include <linux/shmem_fs.h>
 #include <linux/hugetlb.h>
 #include <linux/pgtable.h>
@@ -32,11 +32,22 @@ static int mincore_hugetlb(pte_t *pte, unsigned long hmask, unsigned long addr,
 	spinlock_t *ptl;
 
 	ptl = huge_pte_lock(hstate_vma(walk->vma), walk->mm, pte);
+
 	/*
 	 * Hugepages under user process are always in RAM and never
 	 * swapped out, but theoretically it needs to be checked.
 	 */
-	present = pte && !huge_pte_none_mostly(huge_ptep_get(walk->mm, addr, pte));
+	if (!pte) {
+		present = 0;
+	} else {
+		const pte_t ptep = huge_ptep_get(walk->mm, addr, pte);
+
+		if (huge_pte_none(ptep) || pte_is_marker(ptep))
+			present = 0;
+		else
+			present = 1;
+	}
+
 	for (; addr != end; vec++, addr += PAGE_SIZE)
 		*vec = present;
 	walk->private = vec;
@@ -45,6 +56,47 @@ static int mincore_hugetlb(pte_t *pte, unsigned long hmask, unsigned long addr,
 	BUG();
 #endif
 	return 0;
+}
+
+static unsigned char mincore_swap(swp_entry_t entry, bool shmem)
+{
+	struct swap_info_struct *si;
+	struct folio *folio = NULL;
+	unsigned char present = 0;
+
+	if (!IS_ENABLED(CONFIG_SWAP)) {
+		WARN_ON(1);
+		return 0;
+	}
+
+	/*
+	 * Shmem mapping may contain swapin error entries, which are
+	 * absent. Page table may contain migration or hwpoison
+	 * entries which are always uptodate.
+	 */
+	if (!softleaf_is_swap(entry))
+		return !shmem;
+
+	/*
+	 * Shmem mapping lookup is lockless, so we need to grab the swap
+	 * device. mincore page table walk locks the PTL, and the swap
+	 * device is stable, avoid touching the si for better performance.
+	 */
+	if (shmem) {
+		si = get_swap_device(entry);
+		if (!si)
+			return 0;
+	}
+	folio = swap_cache_get_folio(entry);
+	if (shmem)
+		put_swap_device(si);
+	/* The swap cache space contains either folio, shadow or NULL */
+	if (folio && !xa_is_value(folio)) {
+		present = folio_test_uptodate(folio);
+		folio_put(folio);
+	}
+
+	return present;
 }
 
 /*
@@ -64,8 +116,15 @@ static unsigned char mincore_page(struct address_space *mapping, pgoff_t index)
 	 * any other file mapping (ie. marked !present and faulted in with
 	 * tmpfs's .fault). So swapped out tmpfs mappings are tested here.
 	 */
-	folio = filemap_get_incore_folio(mapping, index);
-	if (!IS_ERR(folio)) {
+	folio = filemap_get_entry(mapping, index);
+	if (folio) {
+		if (xa_is_value(folio)) {
+			if (shmem_mapping(mapping))
+				return mincore_swap(radix_to_swp_entry(folio),
+						    true);
+			else
+				return 0;
+		}
 		present = folio_test_uptodate(folio);
 		folio_put(folio);
 	}
@@ -127,8 +186,8 @@ static int mincore_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
 		pte_t pte = ptep_get(ptep);
 
 		step = 1;
-		/* We need to do cache lookup too for pte markers */
-		if (pte_none_mostly(pte))
+		/* We need to do cache lookup too for markers */
+		if (pte_none(pte) || pte_is_marker(pte))
 			__mincore_unmapped_range(addr, addr + PAGE_SIZE,
 						 vma, vec);
 		else if (pte_present(pte)) {
@@ -143,23 +202,9 @@ static int mincore_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
 			for (i = 0; i < step; i++)
 				vec[i] = 1;
 		} else { /* pte is a swap entry */
-			swp_entry_t entry = pte_to_swp_entry(pte);
+			const softleaf_t entry = softleaf_from_pte(pte);
 
-			if (non_swap_entry(entry)) {
-				/*
-				 * migration or hwpoison entries are always
-				 * uptodate
-				 */
-				*vec = 1;
-			} else {
-#ifdef CONFIG_SWAP
-				*vec = mincore_page(swap_address_space(entry),
-						    swap_cache_index(entry));
-#else
-				WARN_ON(1);
-				*vec = 1;
-#endif
-			}
+			*vec = mincore_swap(entry, false);
 		}
 		vec += step;
 	}

@@ -3,8 +3,11 @@
  * Copyright © 2014-2018 Intel Corporation
  */
 
+#include <drm/intel/intel_gmd_misc_regs.h>
+
 #include "i915_drv.h"
 #include "i915_reg.h"
+#include "i915_mmio_range.h"
 #include "intel_context.h"
 #include "intel_engine_pm.h"
 #include "intel_engine_regs.h"
@@ -156,8 +159,7 @@ static void _wa_add(struct i915_wa_list *wal, const struct i915_wa *wa)
 	if (IS_ALIGNED(wal->count, grow)) { /* Either uninitialized or full. */
 		struct i915_wa *list;
 
-		list = kmalloc_array(ALIGN(wal->count + 1, grow), sizeof(*list),
-				     GFP_KERNEL);
+		list = kmalloc_objs(*list, ALIGN(wal->count + 1, grow));
 		if (!list) {
 			drm_err(&i915->drm, "No space for workaround init!\n");
 			return;
@@ -298,39 +300,39 @@ wa_mcr_write_clr(struct i915_wa_list *wal, i915_mcr_reg_t reg, u32 clr)
 static void
 wa_masked_en(struct i915_wa_list *wal, i915_reg_t reg, u32 val)
 {
-	wa_add(wal, reg, 0, _MASKED_BIT_ENABLE(val), val, true);
+	wa_add(wal, reg, 0, REG_MASKED_FIELD_ENABLE(val), val, true);
 }
 
 static void
 wa_mcr_masked_en(struct i915_wa_list *wal, i915_mcr_reg_t reg, u32 val)
 {
-	wa_mcr_add(wal, reg, 0, _MASKED_BIT_ENABLE(val), val, true);
+	wa_mcr_add(wal, reg, 0, REG_MASKED_FIELD_ENABLE(val), val, true);
 }
 
 static void
 wa_masked_dis(struct i915_wa_list *wal, i915_reg_t reg, u32 val)
 {
-	wa_add(wal, reg, 0, _MASKED_BIT_DISABLE(val), val, true);
+	wa_add(wal, reg, 0, REG_MASKED_FIELD_DISABLE(val), val, true);
 }
 
 static void
 wa_mcr_masked_dis(struct i915_wa_list *wal, i915_mcr_reg_t reg, u32 val)
 {
-	wa_mcr_add(wal, reg, 0, _MASKED_BIT_DISABLE(val), val, true);
+	wa_mcr_add(wal, reg, 0, REG_MASKED_FIELD_DISABLE(val), val, true);
 }
 
 static void
 wa_masked_field_set(struct i915_wa_list *wal, i915_reg_t reg,
 		    u32 mask, u32 val)
 {
-	wa_add(wal, reg, 0, _MASKED_FIELD(mask, val), mask, true);
+	wa_add(wal, reg, 0, REG_MASKED_FIELD(mask, val), mask, true);
 }
 
 static void
 wa_mcr_masked_field_set(struct i915_wa_list *wal, i915_mcr_reg_t reg,
 			u32 mask, u32 val)
 {
-	wa_mcr_add(wal, reg, 0, _MASKED_FIELD(mask, val), mask, true);
+	wa_mcr_add(wal, reg, 0, REG_MASKED_FIELD(mask, val), mask, true);
 }
 
 static void gen6_ctx_workarounds_init(struct intel_engine_cs *engine,
@@ -664,7 +666,7 @@ static void icl_ctx_workarounds_init(struct intel_engine_cs *engine,
 
 	/* WaEnableFloatBlendOptimization:icl */
 	wa_mcr_add(wal, GEN10_CACHE_MODE_SS, 0,
-		   _MASKED_BIT_ENABLE(FLOAT_BLEND_OPTIMIZATION_ENABLE),
+		   REG_MASKED_FIELD_ENABLE(FLOAT_BLEND_OPTIMIZATION_ENABLE),
 		   0 /* write-only, so skip validation */,
 		   true);
 
@@ -1129,7 +1131,7 @@ hsw_gt_workarounds_init(struct intel_gt *gt, struct i915_wa_list *wal)
 
 	wa_add(wal,
 	       HSW_ROW_CHICKEN3, 0,
-	       _MASKED_BIT_ENABLE(HSW_ROW_CHICKEN3_L3_GLOBAL_ATOMICS_DISABLE),
+	       REG_MASKED_FIELD_ENABLE(HSW_ROW_CHICKEN3_L3_GLOBAL_ATOMICS_DISABLE),
 	       0 /* XXX does this reg exist? */, true);
 
 	/* WaVSRefCountFullforceMissDisable:hsw */
@@ -2270,7 +2272,7 @@ rcs_engine_wa_init(struct intel_engine_cs *engine, struct i915_wa_list *wal)
 	    IS_DG2(i915)) {
 		/* Wa_14015150844 */
 		wa_mcr_add(wal, XEHP_HDC_CHICKEN0, 0,
-			   _MASKED_BIT_ENABLE(DIS_ATOMIC_CHAINING_TYPED_WRITES),
+			   REG_MASKED_FIELD_ENABLE(DIS_ATOMIC_CHAINING_TYPED_WRITES),
 			   0, true);
 	}
 
@@ -2661,7 +2663,7 @@ rcs_engine_wa_init(struct intel_engine_cs *engine, struct i915_wa_list *wal)
 	if (IS_GRAPHICS_VER(i915, 4, 6))
 		/* WaTimedSingleVertexDispatch:cl,bw,ctg,elk,ilk,snb */
 		wa_add(wal, RING_MI_MODE(RENDER_RING_BASE),
-		       0, _MASKED_BIT_ENABLE(VS_TIMER_DISPATCH),
+		       0, REG_MASKED_FIELD_ENABLE(VS_TIMER_DISPATCH),
 		       /* XXX bit doesn't stick on Broadwater */
 		       IS_I965G(i915) ? 0 : VS_TIMER_DISPATCH, true);
 
@@ -2677,7 +2679,7 @@ rcs_engine_wa_init(struct intel_engine_cs *engine, struct i915_wa_list *wal)
 		 * enabled.
 		 */
 		wa_add(wal, ECOSKPD(RENDER_RING_BASE),
-		       0, _MASKED_BIT_ENABLE(ECO_CONSTANT_BUFFER_SR_DISABLE),
+		       0, REG_MASKED_FIELD_ENABLE(ECO_CONSTANT_BUFFER_SR_DISABLE),
 		       0 /* XXX bit doesn't stick on Broadwater */,
 		       true);
 }
@@ -2877,7 +2879,7 @@ general_render_compute_wa_init(struct intel_engine_cs *engine, struct i915_wa_li
 		 * we need to explicitly skip the readback.
 		 */
 		wa_mcr_add(wal, GEN10_CACHE_MODE_SS, 0,
-			   _MASKED_BIT_ENABLE(ENABLE_PREFETCH_INTO_IC),
+			   REG_MASKED_FIELD_ENABLE(ENABLE_PREFETCH_INTO_IC),
 			   0 /* write-only, so skip validation */,
 			   true);
 	}
@@ -2923,7 +2925,7 @@ void intel_engine_apply_workarounds(struct intel_engine_cs *engine)
 	wa_list_apply(&engine->wa_list);
 }
 
-static const struct i915_range mcr_ranges_gen8[] = {
+static const struct i915_mmio_range mcr_ranges_gen8[] = {
 	{ .start = 0x5500, .end = 0x55ff },
 	{ .start = 0x7000, .end = 0x7fff },
 	{ .start = 0x9400, .end = 0x97ff },
@@ -2932,7 +2934,7 @@ static const struct i915_range mcr_ranges_gen8[] = {
 	{},
 };
 
-static const struct i915_range mcr_ranges_gen12[] = {
+static const struct i915_mmio_range mcr_ranges_gen12[] = {
 	{ .start =  0x8150, .end =  0x815f },
 	{ .start =  0x9520, .end =  0x955f },
 	{ .start =  0xb100, .end =  0xb3ff },
@@ -2941,7 +2943,7 @@ static const struct i915_range mcr_ranges_gen12[] = {
 	{},
 };
 
-static const struct i915_range mcr_ranges_xehp[] = {
+static const struct i915_mmio_range mcr_ranges_xehp[] = {
 	{ .start =  0x4000, .end =  0x4aff },
 	{ .start =  0x5200, .end =  0x52ff },
 	{ .start =  0x5400, .end =  0x7fff },
@@ -2960,7 +2962,7 @@ static const struct i915_range mcr_ranges_xehp[] = {
 
 static bool mcr_range(struct drm_i915_private *i915, u32 offset)
 {
-	const struct i915_range *mcr_ranges;
+	const struct i915_mmio_range *mcr_ranges;
 	int i;
 
 	if (GRAPHICS_VER_FULL(i915) >= IP_VER(12, 55))

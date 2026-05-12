@@ -181,6 +181,7 @@ int amdgpu_xcp_init(struct amdgpu_xcp_mgr *xcp_mgr, int num_xcps, int mode)
 	}
 
 	xcp_mgr->num_xcps = num_xcps;
+	xcp_mgr->mem_alloc_mode = AMDGPU_PARTITION_MEM_CAPPING_EVEN;
 	amdgpu_xcp_update_partition_sched_list(adev);
 
 	return 0;
@@ -334,7 +335,7 @@ int amdgpu_xcp_mgr_init(struct amdgpu_device *adev, int init_mode,
 	if (!xcp_funcs || !xcp_funcs->get_ip_details)
 		return -EINVAL;
 
-	xcp_mgr = kzalloc(sizeof(*xcp_mgr), GFP_KERNEL);
+	xcp_mgr = kzalloc_obj(*xcp_mgr);
 
 	if (!xcp_mgr)
 		return -ENOMEM;
@@ -465,15 +466,15 @@ int amdgpu_xcp_open_device(struct amdgpu_device *adev,
 void amdgpu_xcp_release_sched(struct amdgpu_device *adev,
 				  struct amdgpu_ctx_entity *entity)
 {
-	struct drm_gpu_scheduler *sched;
-	struct amdgpu_ring *ring;
+	struct drm_gpu_scheduler *sched =
+		container_of(entity->entity.rq, typeof(*sched), rq);
 
 	if (!adev->xcp_mgr)
 		return;
 
-	sched = entity->entity.rq->sched;
 	if (drm_sched_wqueue_ready(sched)) {
-		ring = to_amdgpu_ring(entity->entity.rq->sched);
+		struct amdgpu_ring *ring = to_amdgpu_ring(sched);
+
 		atomic_dec(&adev->xcp_mgr->xcp[ring->xcp_id].ref_cnt);
 	}
 }
@@ -540,6 +541,7 @@ static void amdgpu_set_xcp_id(struct amdgpu_device *adev,
 	case AMDGPU_HW_IP_GFX:
 	case AMDGPU_RING_TYPE_COMPUTE:
 	case AMDGPU_RING_TYPE_KIQ:
+	case AMDGPU_RING_TYPE_MES:
 		ip_blk = AMDGPU_XCP_GFX;
 		break;
 	case AMDGPU_RING_TYPE_SDMA:
@@ -906,7 +908,7 @@ static void amdgpu_xcp_cfg_sysfs_init(struct amdgpu_device *adev)
 	if (!adev->xcp_mgr)
 		return;
 
-	xcp_cfg = kzalloc(sizeof(*xcp_cfg), GFP_KERNEL);
+	xcp_cfg = kzalloc_obj(*xcp_cfg);
 	if (!xcp_cfg)
 		return;
 	xcp_cfg->xcp_mgr = adev->xcp_mgr;

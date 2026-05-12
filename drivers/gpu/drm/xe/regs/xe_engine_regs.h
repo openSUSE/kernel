@@ -96,6 +96,12 @@
 #define   ENABLE_SEMAPHORE_POLL_BIT		REG_BIT(13)
 
 #define RING_CMD_CCTL(base)			XE_REG((base) + 0xc4, XE_REG_OPTION_MASKED)
+
+#define CS_MMIO_GROUP_INSTANCE_SELECT(base)	XE_REG((base) + 0xcc)
+#define   SELECTIVE_READ_ADDRESSING		REG_BIT(30)
+#define   SELECTIVE_READ_GROUP			REG_GENMASK(29, 23)
+#define   SELECTIVE_READ_INSTANCE		REG_GENMASK(22, 16)
+
 /*
  * CMD_CCTL read/write fields take a MOCS value and _not_ a table index.
  * The lsb of each can be considered a separate enabling bit for encryption.
@@ -126,6 +132,14 @@
 #define RING_BBADDR(base)			XE_REG((base) + 0x140)
 #define RING_BBADDR_UDW(base)			XE_REG((base) + 0x168)
 
+#define PR_CTR_CTRL(base)			XE_REG((base) + 0x178)
+#define   CTR_COUNT_SELECT_FF			REG_BIT(31)
+#define   CTR_LOGIC_OP_MASK			REG_GENMASK(30, 0)
+#define     CTR_START				0
+#define     CTR_STOP				1
+#define   CTR_LOGIC_OP(OP)			REG_FIELD_PREP(CTR_LOGIC_OP_MASK, CTR_##OP)
+#define PR_CTR_THRSH(base)			XE_REG((base) + 0x17c)
+
 #define BCS_SWCTRL(base)			XE_REG((base) + 0x200, XE_REG_OPTION_MASKED)
 #define   BCS_SWCTRL_DISABLE_256B		REG_BIT(2)
 
@@ -141,6 +155,8 @@
 #define   INHIBIT_SWITCH_UNTIL_PREEMPTED	REG_BIT(31)
 #define   IDLE_DELAY				REG_GENMASK(20, 0)
 
+#define RING_CURRENT_LRCA(base)			XE_REG((base) + 0x240)
+
 #define RING_CONTEXT_CONTROL(base)		XE_REG((base) + 0x244, XE_REG_OPTION_MASKED)
 #define	  CTX_CTRL_PXP_ENABLE			REG_BIT(10)
 #define	  CTX_CTRL_OAC_CONTEXT_ENABLE		REG_BIT(8)
@@ -149,16 +165,17 @@
 #define	  CTX_CTRL_INHIBIT_SYN_CTX_SWITCH	REG_BIT(3)
 #define	  CTX_CTRL_ENGINE_CTX_RESTORE_INHIBIT	REG_BIT(0)
 
-#define RING_MODE(base)				XE_REG((base) + 0x29c)
-#define   GFX_DISABLE_LEGACY_MODE		REG_BIT(3)
+#define GFX_MODE(base)				XE_REG((base) + 0x29c, XE_REG_OPTION_MASKED)
 #define   GFX_MSIX_INTERRUPT_ENABLE		REG_BIT(13)
+#define   GFX_DISABLE_LEGACY_MODE		REG_BIT(3)
+
+#define RING_CSMQDEBUG(base)			XE_REG((base) + 0x2b0)
 
 #define RING_TIMESTAMP(base)			XE_REG((base) + 0x358)
 
 #define RING_TIMESTAMP_UDW(base)		XE_REG((base) + 0x358 + 4)
 #define   RING_VALID_MASK			0x00000001
 #define   RING_VALID				0x00000001
-#define   STOP_RING				REG_BIT(8)
 
 #define RING_CTX_TIMESTAMP(base)		XE_REG((base) + 0x3a8)
 #define RING_CTX_TIMESTAMP_UDW(base)		XE_REG((base) + 0x3ac)

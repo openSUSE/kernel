@@ -74,6 +74,10 @@ module_param(lapic_timer_advance, bool, 0444);
 #define LAPIC_TIMER_ADVANCE_NS_MAX     5000
 /* step-by-step approximation to mitigate fluctuation */
 #define LAPIC_TIMER_ADVANCE_ADJUST_STEP 8
+
+static bool __read_mostly vector_hashing_enabled = true;
+module_param_named(vector_hashing, vector_hashing_enabled, bool, 0444);
+
 static int kvm_lapic_msr_read(struct kvm_lapic *apic, u32 reg, u64 *data);
 static int kvm_lapic_msr_write(struct kvm_lapic *apic, u32 reg, u64 data);
 
@@ -101,8 +105,65 @@ bool kvm_apic_pending_eoi(struct kvm_vcpu *vcpu, int vector)
 		apic_test_vector(vector, apic->regs + APIC_IRR);
 }
 
+static bool kvm_lapic_advertise_suppress_eoi_broadcast(struct kvm *kvm)
+{
+	switch (kvm->arch.suppress_eoi_broadcast_mode) {
+	case KVM_SUPPRESS_EOI_BROADCAST_ENABLED:
+		return true;
+	case KVM_SUPPRESS_EOI_BROADCAST_DISABLED:
+		return false;
+	case KVM_SUPPRESS_EOI_BROADCAST_QUIRKED:
+		/*
+		 * The default in-kernel I/O APIC emulates the 82093AA and does not
+		 * implement an EOI register. Some guests (e.g. Windows with the
+		 * Hyper-V role enabled) disable LAPIC EOI broadcast without
+		 * checking the I/O APIC version, which can cause level-triggered
+		 * interrupts to never be EOI'd.
+		 *
+		 * To avoid this, KVM doesn't advertise Suppress EOI Broadcast
+		 * support when using the default in-kernel I/O APIC.
+		 *
+		 * Historically, in split IRQCHIP mode, KVM always advertised
+		 * Suppress EOI Broadcast support but did not actually suppress
+		 * EOIs, resulting in quirky behavior.
+		 */
+		return !ioapic_in_kernel(kvm);
+	default:
+		WARN_ON_ONCE(1);
+		return false;
+	}
+}
+
+bool kvm_lapic_suppress_eoi_broadcast(struct kvm_lapic *apic)
+{
+	struct kvm *kvm = apic->vcpu->kvm;
+
+	if (!(kvm_lapic_get_reg(apic, APIC_SPIV) & APIC_SPIV_DIRECTED_EOI))
+		return false;
+
+	switch (kvm->arch.suppress_eoi_broadcast_mode) {
+	case KVM_SUPPRESS_EOI_BROADCAST_ENABLED:
+		return true;
+	case KVM_SUPPRESS_EOI_BROADCAST_DISABLED:
+		return false;
+	case KVM_SUPPRESS_EOI_BROADCAST_QUIRKED:
+		/*
+		 * Historically, in split IRQCHIP mode, KVM ignored the suppress
+		 * EOI broadcast bit set by the guest and broadcasts EOIs to the
+		 * userspace I/O APIC. For In-kernel I/O APIC, the support itself
+		 * is not advertised, can only be enabled via KVM_SET_APIC_STATE,
+		 * and KVM's I/O APIC doesn't emulate Directed EOIs; but if the
+		 * feature is enabled, it is respected (with odd behavior).
+		 */
+		return ioapic_in_kernel(kvm);
+	default:
+		WARN_ON_ONCE(1);
+		return false;
+	}
+}
+
 __read_mostly DEFINE_STATIC_KEY_FALSE(kvm_has_noapic_vcpu);
-EXPORT_SYMBOL_GPL(kvm_has_noapic_vcpu);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_has_noapic_vcpu);
 
 __read_mostly DEFINE_STATIC_KEY_DEFERRED_FALSE(apic_hw_disabled, HZ);
 __read_mostly DEFINE_STATIC_KEY_DEFERRED_FALSE(apic_sw_disabled, HZ);
@@ -130,7 +191,7 @@ static bool kvm_can_post_timer_interrupt(struct kvm_vcpu *vcpu)
 		(kvm_mwait_in_guest(vcpu->kvm) || kvm_hlt_in_guest(vcpu->kvm));
 }
 
-bool kvm_can_use_hv_timer(struct kvm_vcpu *vcpu)
+static bool kvm_can_use_hv_timer(struct kvm_vcpu *vcpu)
 {
 	return kvm_x86_ops.set_hv_timer
 	       && !(kvm_mwait_in_guest(vcpu->kvm) ||
@@ -550,15 +611,9 @@ void kvm_apic_set_version(struct kvm_vcpu *vcpu)
 
 	v = APIC_VERSION | ((apic->nr_lvt_entries - 1) << 16);
 
-	/*
-	 * KVM emulates 82093AA datasheet (with in-kernel IOAPIC implementation)
-	 * which doesn't have EOI register; Some buggy OSes (e.g. Windows with
-	 * Hyper-V role) disable EOI broadcast in lapic not checking for IOAPIC
-	 * version first and level-triggered interrupts never get EOIed in
-	 * IOAPIC.
-	 */
+
 	if (guest_cpu_cap_has(vcpu, X86_FEATURE_X2APIC) &&
-	    !ioapic_in_kernel(vcpu->kvm))
+	    kvm_lapic_advertise_suppress_eoi_broadcast(vcpu->kvm))
 		v |= APIC_LVR_DIRECTED_EOI;
 	kvm_lapic_set_reg(apic, APIC_LVR, v);
 }
@@ -642,7 +697,7 @@ bool __kvm_apic_update_irr(unsigned long *pir, void *regs, int *max_irr)
 	return ((max_updated_irr != -1) &&
 		(max_updated_irr == *max_irr));
 }
-EXPORT_SYMBOL_GPL(__kvm_apic_update_irr);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(__kvm_apic_update_irr);
 
 bool kvm_apic_update_irr(struct kvm_vcpu *vcpu, unsigned long *pir, int *max_irr)
 {
@@ -653,7 +708,7 @@ bool kvm_apic_update_irr(struct kvm_vcpu *vcpu, unsigned long *pir, int *max_irr
 		apic->irr_pending = true;
 	return irr_updated;
 }
-EXPORT_SYMBOL_GPL(kvm_apic_update_irr);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_apic_update_irr);
 
 static inline int apic_search_irr(struct kvm_lapic *apic)
 {
@@ -662,8 +717,6 @@ static inline int apic_search_irr(struct kvm_lapic *apic)
 
 static inline int apic_find_highest_irr(struct kvm_lapic *apic)
 {
-	int result;
-
 	/*
 	 * Note that irr_pending is just a hint. It will be always
 	 * true with virtual interrupt delivery enabled.
@@ -671,10 +724,7 @@ static inline int apic_find_highest_irr(struct kvm_lapic *apic)
 	if (!apic->irr_pending)
 		return -1;
 
-	result = apic_search_irr(apic);
-	ASSERT(result == -1 || result >= 16);
-
-	return result;
+	return apic_search_irr(apic);
 }
 
 static inline void apic_clear_irr(int vec, struct kvm_lapic *apic)
@@ -693,7 +743,7 @@ void kvm_apic_clear_irr(struct kvm_vcpu *vcpu, int vec)
 {
 	apic_clear_irr(vec, vcpu->arch.apic);
 }
-EXPORT_SYMBOL_GPL(kvm_apic_clear_irr);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_apic_clear_irr);
 
 static void *apic_vector_to_isr(int vec, struct kvm_lapic *apic)
 {
@@ -727,8 +777,6 @@ static inline void apic_set_isr(int vec, struct kvm_lapic *apic)
 
 static inline int apic_find_highest_isr(struct kvm_lapic *apic)
 {
-	int result;
-
 	/*
 	 * Note that isr_count is always 1, and highest_isr_cache
 	 * is always -1, with APIC virtualization enabled.
@@ -738,10 +786,7 @@ static inline int apic_find_highest_isr(struct kvm_lapic *apic)
 	if (likely(apic->highest_isr_cache != -1))
 		return apic->highest_isr_cache;
 
-	result = apic_find_highest_vector(apic->regs + APIC_ISR);
-	ASSERT(result == -1 || result >= 16);
-
-	return result;
+	return apic_find_highest_vector(apic->regs + APIC_ISR);
 }
 
 static inline void apic_clear_isr(int vec, struct kvm_lapic *apic)
@@ -766,17 +811,6 @@ static inline void apic_clear_isr(int vec, struct kvm_lapic *apic)
 	}
 }
 
-void kvm_apic_update_hwapic_isr(struct kvm_vcpu *vcpu)
-{
-	struct kvm_lapic *apic = vcpu->arch.apic;
-
-	if (WARN_ON_ONCE(!lapic_in_kernel(vcpu)) || !apic->apicv_active)
-		return;
-
-	kvm_x86_call(hwapic_isr_update)(vcpu, apic_find_highest_isr(apic));
-}
-EXPORT_SYMBOL_GPL(kvm_apic_update_hwapic_isr);
-
 int kvm_lapic_find_highest_irr(struct kvm_vcpu *vcpu)
 {
 	/* This may race with setting of irr in __apic_accept_irq() and
@@ -786,19 +820,19 @@ int kvm_lapic_find_highest_irr(struct kvm_vcpu *vcpu)
 	 */
 	return apic_find_highest_irr(vcpu->arch.apic);
 }
-EXPORT_SYMBOL_GPL(kvm_lapic_find_highest_irr);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_lapic_find_highest_irr);
 
 static int __apic_accept_irq(struct kvm_lapic *apic, int delivery_mode,
 			     int vector, int level, int trig_mode,
-			     struct dest_map *dest_map);
+			     struct rtc_status *rtc_status);
 
 int kvm_apic_set_irq(struct kvm_vcpu *vcpu, struct kvm_lapic_irq *irq,
-		     struct dest_map *dest_map)
+		     struct rtc_status *rtc_status)
 {
 	struct kvm_lapic *apic = vcpu->arch.apic;
 
 	return __apic_accept_irq(apic, irq->delivery_mode, irq->vector,
-			irq->level, irq->trig_mode, dest_map);
+				 irq->level, irq->trig_mode, rtc_status);
 }
 
 static int __pv_send_ipi(unsigned long *ipi_bitmap, struct kvm_apic_map *map,
@@ -806,16 +840,16 @@ static int __pv_send_ipi(unsigned long *ipi_bitmap, struct kvm_apic_map *map,
 {
 	int i, count = 0;
 	struct kvm_vcpu *vcpu;
+	size_t map_index;
 
 	if (min > map->max_apic_id)
 		return 0;
 
-	min = array_index_nospec(min, map->max_apic_id + 1);
-
 	for_each_set_bit(i, ipi_bitmap,
-		min((u32)BITS_PER_LONG, (map->max_apic_id - min + 1))) {
-		if (map->phys_map[min + i]) {
-			vcpu = map->phys_map[min + i]->vcpu;
+			 min((u32)BITS_PER_LONG, (map->max_apic_id - min + 1))) {
+		map_index = array_index_nospec(min + i, map->max_apic_id + 1);
+		if (map->phys_map[map_index]) {
+			vcpu = map->phys_map[map_index]->vcpu;
 			count += kvm_apic_set_irq(vcpu, irq, NULL);
 		}
 	}
@@ -950,7 +984,7 @@ void kvm_apic_update_ppr(struct kvm_vcpu *vcpu)
 {
 	apic_update_ppr(vcpu->arch.apic);
 }
-EXPORT_SYMBOL_GPL(kvm_apic_update_ppr);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_apic_update_ppr);
 
 static void apic_set_tpr(struct kvm_lapic *apic, u32 tpr)
 {
@@ -1044,7 +1078,6 @@ bool kvm_apic_match_dest(struct kvm_vcpu *vcpu, struct kvm_lapic *source,
 	struct kvm_lapic *target = vcpu->arch.apic;
 	u32 mda = kvm_apic_mda(vcpu, dest, source, target);
 
-	ASSERT(target);
 	switch (shorthand) {
 	case APIC_DEST_NOSHORT:
 		if (dest_mode == APIC_DEST_PHYSICAL)
@@ -1061,21 +1094,14 @@ bool kvm_apic_match_dest(struct kvm_vcpu *vcpu, struct kvm_lapic *source,
 		return false;
 	}
 }
-EXPORT_SYMBOL_GPL(kvm_apic_match_dest);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_apic_match_dest);
 
-int kvm_vector_to_index(u32 vector, u32 dest_vcpus,
-		       const unsigned long *bitmap, u32 bitmap_size)
+static int kvm_vector_to_index(u32 vector, u32 dest_vcpus,
+			       const unsigned long *bitmap, u32 bitmap_size)
 {
-	u32 mod;
-	int i, idx = -1;
+	int idx = find_nth_bit(bitmap, bitmap_size, vector % dest_vcpus);
 
-	mod = vector % dest_vcpus;
-
-	for (i = 0; i <= mod; i++) {
-		idx = find_next_bit(bitmap, bitmap_size, idx + 1);
-		BUG_ON(idx == bitmap_size);
-	}
-
+	BUG_ON(idx >= bitmap_size);
 	return idx;
 }
 
@@ -1104,6 +1130,16 @@ static bool kvm_apic_is_broadcast_dest(struct kvm *kvm, struct kvm_lapic **src,
 	}
 
 	return false;
+}
+
+static bool kvm_lowest_prio_delivery(struct kvm_lapic_irq *irq)
+{
+	return (irq->delivery_mode == APIC_DM_LOWEST || irq->msi_redir_hint);
+}
+
+static int kvm_apic_compare_prio(struct kvm_vcpu *vcpu1, struct kvm_vcpu *vcpu2)
+{
+	return vcpu1->arch.apic_arb_prio - vcpu2->arch.apic_arb_prio;
 }
 
 /* Return true if the interrupt can be handled by using *bitmap as index mask
@@ -1149,7 +1185,7 @@ static inline bool kvm_apic_map_get_dest_lapic(struct kvm *kvm,
 	if (!kvm_lowest_prio_delivery(irq))
 		return true;
 
-	if (!kvm_vector_hashing_enabled()) {
+	if (!vector_hashing_enabled) {
 		lowest = -1;
 		for_each_set_bit(i, bitmap, 16) {
 			if (!(*dst)[i])
@@ -1179,8 +1215,9 @@ static inline bool kvm_apic_map_get_dest_lapic(struct kvm *kvm,
 	return true;
 }
 
-bool kvm_irq_delivery_to_apic_fast(struct kvm *kvm, struct kvm_lapic *src,
-		struct kvm_lapic_irq *irq, int *r, struct dest_map *dest_map)
+static bool __kvm_irq_delivery_to_apic_fast(struct kvm *kvm, struct kvm_lapic *src,
+					    struct kvm_lapic_irq *irq, int *r,
+					    struct rtc_status *rtc_status)
 {
 	struct kvm_apic_map *map;
 	unsigned long bitmap;
@@ -1195,7 +1232,7 @@ bool kvm_irq_delivery_to_apic_fast(struct kvm *kvm, struct kvm_lapic *src,
 			*r = 0;
 			return true;
 		}
-		*r = kvm_apic_set_irq(src->vcpu, irq, dest_map);
+		*r = kvm_apic_set_irq(src->vcpu, irq, rtc_status);
 		return true;
 	}
 
@@ -1208,12 +1245,19 @@ bool kvm_irq_delivery_to_apic_fast(struct kvm *kvm, struct kvm_lapic *src,
 		for_each_set_bit(i, &bitmap, 16) {
 			if (!dst[i])
 				continue;
-			*r += kvm_apic_set_irq(dst[i]->vcpu, irq, dest_map);
+			*r += kvm_apic_set_irq(dst[i]->vcpu, irq, rtc_status);
 		}
 	}
 
 	rcu_read_unlock();
 	return ret;
+}
+
+
+bool kvm_irq_delivery_to_apic_fast(struct kvm *kvm, struct kvm_lapic *src,
+				   struct kvm_lapic_irq *irq, int *r)
+{
+	return __kvm_irq_delivery_to_apic_fast(kvm, src, irq, r, NULL);
 }
 
 /*
@@ -1230,8 +1274,9 @@ bool kvm_irq_delivery_to_apic_fast(struct kvm *kvm, struct kvm_lapic *src,
  *	   interrupt.
  * - Otherwise, use remapped mode to inject the interrupt.
  */
-bool kvm_intr_is_single_vcpu_fast(struct kvm *kvm, struct kvm_lapic_irq *irq,
-			struct kvm_vcpu **dest_vcpu)
+static bool kvm_intr_is_single_vcpu_fast(struct kvm *kvm,
+					 struct kvm_lapic_irq *irq,
+					 struct kvm_vcpu **dest_vcpu)
 {
 	struct kvm_apic_map *map;
 	unsigned long bitmap;
@@ -1258,13 +1303,99 @@ bool kvm_intr_is_single_vcpu_fast(struct kvm *kvm, struct kvm_lapic_irq *irq,
 	return ret;
 }
 
+bool kvm_intr_is_single_vcpu(struct kvm *kvm, struct kvm_lapic_irq *irq,
+			     struct kvm_vcpu **dest_vcpu)
+{
+	int r = 0;
+	unsigned long i;
+	struct kvm_vcpu *vcpu;
+
+	if (kvm_intr_is_single_vcpu_fast(kvm, irq, dest_vcpu))
+		return true;
+
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		if (!kvm_apic_present(vcpu))
+			continue;
+
+		if (!kvm_apic_match_dest(vcpu, NULL, irq->shorthand,
+					irq->dest_id, irq->dest_mode))
+			continue;
+
+		if (++r == 2)
+			return false;
+
+		*dest_vcpu = vcpu;
+	}
+
+	return r == 1;
+}
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_intr_is_single_vcpu);
+
+int __kvm_irq_delivery_to_apic(struct kvm *kvm, struct kvm_lapic *src,
+			       struct kvm_lapic_irq *irq,
+			       struct rtc_status *rtc_status)
+{
+	int r = -1;
+	struct kvm_vcpu *vcpu, *lowest = NULL;
+	unsigned long i, dest_vcpu_bitmap[BITS_TO_LONGS(KVM_MAX_VCPUS)];
+	unsigned int dest_vcpus = 0;
+
+	if (__kvm_irq_delivery_to_apic_fast(kvm, src, irq, &r, rtc_status))
+		return r;
+
+	if (irq->dest_mode == APIC_DEST_PHYSICAL &&
+	    irq->dest_id == 0xff && kvm_lowest_prio_delivery(irq)) {
+		pr_info("apic: phys broadcast and lowest prio\n");
+		irq->delivery_mode = APIC_DM_FIXED;
+	}
+
+	memset(dest_vcpu_bitmap, 0, sizeof(dest_vcpu_bitmap));
+
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		if (!kvm_apic_present(vcpu))
+			continue;
+
+		if (!kvm_apic_match_dest(vcpu, src, irq->shorthand,
+					irq->dest_id, irq->dest_mode))
+			continue;
+
+		if (!kvm_lowest_prio_delivery(irq)) {
+			if (r < 0)
+				r = 0;
+			r += kvm_apic_set_irq(vcpu, irq, rtc_status);
+		} else if (kvm_apic_sw_enabled(vcpu->arch.apic)) {
+			if (!vector_hashing_enabled) {
+				if (!lowest)
+					lowest = vcpu;
+				else if (kvm_apic_compare_prio(vcpu, lowest) < 0)
+					lowest = vcpu;
+			} else {
+				__set_bit(i, dest_vcpu_bitmap);
+				dest_vcpus++;
+			}
+		}
+	}
+
+	if (dest_vcpus != 0) {
+		int idx = kvm_vector_to_index(irq->vector, dest_vcpus,
+					dest_vcpu_bitmap, KVM_MAX_VCPUS);
+
+		lowest = kvm_get_vcpu(kvm, idx);
+	}
+
+	if (lowest)
+		r = kvm_apic_set_irq(lowest, irq, rtc_status);
+
+	return r;
+}
+
 /*
  * Add a pending IRQ into lapic.
  * Return 1 if successfully added and 0 if discarded.
  */
 static int __apic_accept_irq(struct kvm_lapic *apic, int delivery_mode,
 			     int vector, int level, int trig_mode,
-			     struct dest_map *dest_map)
+			     struct rtc_status *rtc_status)
 {
 	int result = 0;
 	struct kvm_vcpu *vcpu = apic->vcpu;
@@ -1285,10 +1416,12 @@ static int __apic_accept_irq(struct kvm_lapic *apic, int delivery_mode,
 
 		result = 1;
 
-		if (dest_map) {
-			__set_bit(vcpu->vcpu_id, dest_map->map);
-			dest_map->vectors[vcpu->vcpu_id] = vector;
+#ifdef CONFIG_KVM_IOAPIC
+		if (rtc_status) {
+			__set_bit(vcpu->vcpu_id, rtc_status->map);
+			rtc_status->vectors[vcpu->vcpu_id] = vector;
 		}
+#endif
 
 		if (apic_test_vector(vector, apic->regs + APIC_TMR) != !!trig_mode) {
 			if (trig_mode)
@@ -1401,11 +1534,6 @@ void kvm_bitmap_or_dest_vcpus(struct kvm *kvm, struct kvm_lapic_irq *irq,
 	rcu_read_unlock();
 }
 
-int kvm_apic_compare_prio(struct kvm_vcpu *vcpu1, struct kvm_vcpu *vcpu2)
-{
-	return vcpu1->arch.apic_arb_prio - vcpu2->arch.apic_arb_prio;
-}
-
 static bool kvm_ioapic_handles_vector(struct kvm_lapic *apic, int vector)
 {
 	return test_bit(vector, apic->vcpu->arch.ioapic_handled_vectors);
@@ -1429,6 +1557,15 @@ static void kvm_ioapic_send_eoi(struct kvm_lapic *apic, int vector)
 
 	/* Request a KVM exit to inform the userspace IOAPIC. */
 	if (irqchip_split(apic->vcpu->kvm)) {
+		/*
+		 * Don't exit to userspace if the guest has enabled Directed
+		 * EOI, a.k.a. Suppress EOI Broadcasts, in which case the local
+		 * APIC doesn't broadcast EOIs (the guest must EOI the target
+		 * I/O APIC(s) directly).
+		 */
+		if (kvm_lapic_suppress_eoi_broadcast(apic))
+			return;
+
 		apic->vcpu->arch.pending_ioapic_eoi = vector;
 		kvm_make_request(KVM_REQ_IOAPIC_EOI_EXIT, apic->vcpu);
 		return;
@@ -1481,39 +1618,43 @@ void kvm_apic_set_eoi_accelerated(struct kvm_vcpu *vcpu, int vector)
 	kvm_ioapic_send_eoi(apic, vector);
 	kvm_make_request(KVM_REQ_EVENT, apic->vcpu);
 }
-EXPORT_SYMBOL_GPL(kvm_apic_set_eoi_accelerated);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_apic_set_eoi_accelerated);
+
+static void kvm_icr_to_lapic_irq(struct kvm_lapic *apic, u32 icr_low,
+				 u32 icr_high, struct kvm_lapic_irq *irq)
+{
+	/* KVM has no delay and should always clear the BUSY/PENDING flag. */
+	WARN_ON_ONCE(icr_low & APIC_ICR_BUSY);
+
+	irq->vector = icr_low & APIC_VECTOR_MASK;
+	irq->delivery_mode = icr_low & APIC_MODE_MASK;
+	irq->dest_mode = icr_low & APIC_DEST_MASK;
+	irq->level = (icr_low & APIC_INT_ASSERT) != 0;
+	irq->trig_mode = icr_low & APIC_INT_LEVELTRIG;
+	irq->shorthand = icr_low & APIC_SHORT_MASK;
+	irq->msi_redir_hint = false;
+	if (apic_x2apic_mode(apic))
+		irq->dest_id = icr_high;
+	else
+		irq->dest_id = GET_XAPIC_DEST_FIELD(icr_high);
+}
 
 void kvm_apic_send_ipi(struct kvm_lapic *apic, u32 icr_low, u32 icr_high)
 {
 	struct kvm_lapic_irq irq;
 
-	/* KVM has no delay and should always clear the BUSY/PENDING flag. */
-	WARN_ON_ONCE(icr_low & APIC_ICR_BUSY);
-
-	irq.vector = icr_low & APIC_VECTOR_MASK;
-	irq.delivery_mode = icr_low & APIC_MODE_MASK;
-	irq.dest_mode = icr_low & APIC_DEST_MASK;
-	irq.level = (icr_low & APIC_INT_ASSERT) != 0;
-	irq.trig_mode = icr_low & APIC_INT_LEVELTRIG;
-	irq.shorthand = icr_low & APIC_SHORT_MASK;
-	irq.msi_redir_hint = false;
-	if (apic_x2apic_mode(apic))
-		irq.dest_id = icr_high;
-	else
-		irq.dest_id = GET_XAPIC_DEST_FIELD(icr_high);
+	kvm_icr_to_lapic_irq(apic, icr_low, icr_high, &irq);
 
 	trace_kvm_apic_ipi(icr_low, irq.dest_id);
 
-	kvm_irq_delivery_to_apic(apic->vcpu->kvm, apic, &irq, NULL);
+	kvm_irq_delivery_to_apic(apic->vcpu->kvm, apic, &irq);
 }
-EXPORT_SYMBOL_GPL(kvm_apic_send_ipi);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_apic_send_ipi);
 
 static u32 apic_get_tmcct(struct kvm_lapic *apic)
 {
 	ktime_t remaining, now;
 	s64 ns;
-
-	ASSERT(apic != NULL);
 
 	/* if initial count is 0, current count should also be 0 */
 	if (kvm_lapic_get_reg(apic, APIC_TMICT) == 0 ||
@@ -1623,7 +1764,7 @@ u64 kvm_lapic_readable_reg_mask(struct kvm_lapic *apic)
 
 	return valid_reg_mask;
 }
-EXPORT_SYMBOL_GPL(kvm_lapic_readable_reg_mask);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_lapic_readable_reg_mask);
 
 static int kvm_lapic_reg_read(struct kvm_lapic *apic, u32 offset, int len,
 			      void *data)
@@ -1864,7 +2005,7 @@ void kvm_wait_lapic_expire(struct kvm_vcpu *vcpu)
 	    lapic_timer_int_injected(vcpu))
 		__kvm_wait_lapic_expire(vcpu);
 }
-EXPORT_SYMBOL_GPL(kvm_wait_lapic_expire);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_wait_lapic_expire);
 
 static void kvm_apic_inject_pending_timer_irqs(struct kvm_lapic *apic)
 {
@@ -2032,23 +2173,41 @@ static bool set_target_expiration(struct kvm_lapic *apic, u32 count_reg)
 
 static void advance_periodic_target_expiration(struct kvm_lapic *apic)
 {
+	struct kvm_timer *ktimer = &apic->lapic_timer;
 	ktime_t now = ktime_get();
 	u64 tscl = rdtsc();
 	ktime_t delta;
 
 	/*
-	 * Synchronize both deadlines to the same time source or
-	 * differences in the periods (caused by differences in the
-	 * underlying clocks or numerical approximation errors) will
-	 * cause the two to drift apart over time as the errors
-	 * accumulate.
+	 * Use kernel time as the time source for both the hrtimer deadline and
+	 * TSC-based deadline so that they stay synchronized.  Computing each
+	 * deadline independently will cause the two deadlines to drift apart
+	 * over time as differences in the periods accumulate, e.g. due to
+	 * differences in the underlying clocks or numerical approximation errors.
 	 */
-	apic->lapic_timer.target_expiration =
-		ktime_add_ns(apic->lapic_timer.target_expiration,
-				apic->lapic_timer.period);
-	delta = ktime_sub(apic->lapic_timer.target_expiration, now);
-	apic->lapic_timer.tscdeadline = kvm_read_l1_tsc(apic->vcpu, tscl) +
-		nsec_to_cycles(apic->vcpu, delta);
+	ktimer->target_expiration = ktime_add_ns(ktimer->target_expiration,
+						 ktimer->period);
+
+	/*
+	 * If the new expiration is in the past, e.g. because userspace stopped
+	 * running the VM for an extended duration, then force the expiration
+	 * to "now" and don't try to play catch-up with the missed events.  KVM
+	 * will only deliver a single interrupt regardless of how many events
+	 * are pending, i.e. restarting the timer with an expiration in the
+	 * past will do nothing more than waste host cycles, and can even lead
+	 * to a hard lockup in extreme cases.
+	 */
+	if (ktime_before(ktimer->target_expiration, now))
+		ktimer->target_expiration = now;
+
+	/*
+	 * Note, ensuring the expiration isn't in the past also prevents delta
+	 * from going negative, which could cause the TSC deadline to become
+	 * excessively large due to it an unsigned value.
+	 */
+	delta = ktime_sub(ktimer->target_expiration, now);
+	ktimer->tscdeadline = kvm_read_l1_tsc(apic->vcpu, tscl) +
+			      nsec_to_cycles(apic->vcpu, delta);
 }
 
 static void start_sw_period(struct kvm_lapic *apic)
@@ -2178,7 +2337,7 @@ void kvm_lapic_expired_hv_timer(struct kvm_vcpu *vcpu)
 out:
 	preempt_enable();
 }
-EXPORT_SYMBOL_GPL(kvm_lapic_expired_hv_timer);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_lapic_expired_hv_timer);
 
 void kvm_lapic_switch_to_hv_timer(struct kvm_vcpu *vcpu)
 {
@@ -2431,11 +2590,11 @@ void kvm_lapic_set_eoi(struct kvm_vcpu *vcpu)
 {
 	kvm_lapic_reg_write(vcpu->arch.apic, APIC_EOI, 0);
 }
-EXPORT_SYMBOL_GPL(kvm_lapic_set_eoi);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_lapic_set_eoi);
 
 #define X2APIC_ICR_RESERVED_BITS (GENMASK_ULL(31, 20) | GENMASK_ULL(17, 16) | BIT(13))
 
-int kvm_x2apic_icr_write(struct kvm_lapic *apic, u64 data)
+static int __kvm_x2apic_icr_write(struct kvm_lapic *apic, u64 data, bool fast)
 {
 	if (data & X2APIC_ICR_RESERVED_BITS)
 		return 1;
@@ -2450,7 +2609,20 @@ int kvm_x2apic_icr_write(struct kvm_lapic *apic, u64 data)
 	 */
 	data &= ~APIC_ICR_BUSY;
 
-	kvm_apic_send_ipi(apic, (u32)data, (u32)(data >> 32));
+	if (fast) {
+		struct kvm_lapic_irq irq;
+		int ignored;
+
+		kvm_icr_to_lapic_irq(apic, (u32)data, (u32)(data >> 32), &irq);
+
+		if (!kvm_irq_delivery_to_apic_fast(apic->vcpu->kvm, apic, &irq,
+						   &ignored))
+			return -EWOULDBLOCK;
+
+		trace_kvm_apic_ipi((u32)data, irq.dest_id);
+	} else {
+		kvm_apic_send_ipi(apic, (u32)data, (u32)(data >> 32));
+	}
 	if (kvm_x86_ops.x2apic_icr_is_split) {
 		kvm_lapic_set_reg(apic, APIC_ICR, data);
 		kvm_lapic_set_reg(apic, APIC_ICR2, data >> 32);
@@ -2459,6 +2631,16 @@ int kvm_x2apic_icr_write(struct kvm_lapic *apic, u64 data)
 	}
 	trace_kvm_apic_write(APIC_ICR, data);
 	return 0;
+}
+
+static int kvm_x2apic_icr_write(struct kvm_lapic *apic, u64 data)
+{
+	return __kvm_x2apic_icr_write(apic, data, false);
+}
+
+int kvm_x2apic_icr_write_fast(struct kvm_lapic *apic, u64 data)
+{
+	return __kvm_x2apic_icr_write(apic, data, true);
 }
 
 static u64 kvm_x2apic_icr_read(struct kvm_lapic *apic)
@@ -2474,6 +2656,9 @@ static u64 kvm_x2apic_icr_read(struct kvm_lapic *apic)
 void kvm_apic_write_nodecode(struct kvm_vcpu *vcpu, u32 offset)
 {
 	struct kvm_lapic *apic = vcpu->arch.apic;
+
+	if (KVM_BUG_ON(!lapic_in_kernel(vcpu), vcpu->kvm))
+		return;
 
 	/*
 	 * ICR is a single 64-bit register when x2APIC is enabled, all others
@@ -2491,7 +2676,7 @@ void kvm_apic_write_nodecode(struct kvm_vcpu *vcpu, u32 offset)
 	else
 		kvm_lapic_reg_write(apic, offset, kvm_lapic_get_reg(apic, offset));
 }
-EXPORT_SYMBOL_GPL(kvm_apic_write_nodecode);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_apic_write_nodecode);
 
 void kvm_free_lapic(struct kvm_vcpu *vcpu)
 {
@@ -2629,7 +2814,7 @@ int kvm_apic_set_base(struct kvm_vcpu *vcpu, u64 value, bool host_initiated)
 	kvm_recalculate_apic_map(vcpu->kvm);
 	return 0;
 }
-EXPORT_SYMBOL_GPL(kvm_apic_set_base);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_apic_set_base);
 
 void kvm_apic_update_apicv(struct kvm_vcpu *vcpu)
 {
@@ -2650,10 +2835,18 @@ void kvm_apic_update_apicv(struct kvm_vcpu *vcpu)
 	 */
 	apic->irr_pending = true;
 
-	if (apic->apicv_active)
+	/*
+	 * Update SVI when APICv gets enabled, otherwise SVI won't reflect the
+	 * highest bit in vISR and the next accelerated EOI in the guest won't
+	 * be virtualized correctly (the CPU uses SVI to determine which vISR
+	 * vector to clear).
+	 */
+	if (apic->apicv_active) {
 		apic->isr_count = 1;
-	else
+		kvm_x86_call(hwapic_isr_update)(vcpu, apic_find_highest_isr(apic));
+	} else {
 		apic->isr_count = count_vectors(apic->regs + APIC_ISR);
+	}
 
 	apic->highest_isr_cache = -1;
 }
@@ -2661,26 +2854,23 @@ void kvm_apic_update_apicv(struct kvm_vcpu *vcpu)
 int kvm_alloc_apic_access_page(struct kvm *kvm)
 {
 	void __user *hva;
-	int ret = 0;
 
-	mutex_lock(&kvm->slots_lock);
+	guard(mutex)(&kvm->slots_lock);
+
 	if (kvm->arch.apic_access_memslot_enabled ||
 	    kvm->arch.apic_access_memslot_inhibited)
-		goto out;
+		return 0;
 
 	hva = __x86_set_memory_region(kvm, APIC_ACCESS_PAGE_PRIVATE_MEMSLOT,
 				      APIC_DEFAULT_PHYS_BASE, PAGE_SIZE);
-	if (IS_ERR(hva)) {
-		ret = PTR_ERR(hva);
-		goto out;
-	}
+	if (IS_ERR(hva))
+		return PTR_ERR(hva);
 
 	kvm->arch.apic_access_memslot_enabled = true;
-out:
-	mutex_unlock(&kvm->slots_lock);
-	return ret;
+
+	return 0;
 }
-EXPORT_SYMBOL_GPL(kvm_alloc_apic_access_page);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_alloc_apic_access_page);
 
 void kvm_inhibit_apic_access_page(struct kvm_vcpu *vcpu)
 {
@@ -2784,10 +2974,8 @@ void kvm_lapic_reset(struct kvm_vcpu *vcpu, bool init_event)
 
 	vcpu->arch.pv_eoi.msr_val = 0;
 	apic_update_ppr(apic);
-	if (apic->apicv_active) {
+	if (apic->apicv_active)
 		kvm_x86_call(apicv_post_state_restore)(vcpu);
-		kvm_x86_call(hwapic_isr_update)(vcpu, -1);
-	}
 
 	vcpu->arch.apic_arb_prio = 0;
 	vcpu->arch.apic_attention = 0;
@@ -2856,9 +3044,9 @@ static enum hrtimer_restart apic_timer_fn(struct hrtimer *data)
 
 	apic_timer_expired(apic, true);
 
-	if (lapic_is_periodic(apic)) {
+	if (lapic_is_periodic(apic) && !WARN_ON_ONCE(!apic->lapic_timer.period)) {
 		advance_periodic_target_expiration(apic);
-		hrtimer_add_expires_ns(&ktimer->timer, ktimer->period);
+		hrtimer_set_expires(&ktimer->timer, ktimer->target_expiration);
 		return HRTIMER_RESTART;
 	} else
 		return HRTIMER_NORESTART;
@@ -2868,14 +3056,12 @@ int kvm_create_lapic(struct kvm_vcpu *vcpu)
 {
 	struct kvm_lapic *apic;
 
-	ASSERT(vcpu != NULL);
-
 	if (!irqchip_in_kernel(vcpu->kvm)) {
 		static_branch_inc(&kvm_has_noapic_vcpu);
 		return 0;
 	}
 
-	apic = kzalloc(sizeof(*apic), GFP_KERNEL_ACCOUNT);
+	apic = kzalloc_obj(*apic, GFP_KERNEL_ACCOUNT);
 	if (!apic)
 		goto nomem;
 
@@ -2944,7 +3130,7 @@ int kvm_apic_has_interrupt(struct kvm_vcpu *vcpu)
 	__apic_update_ppr(apic, &ppr);
 	return apic_has_interrupt_for_ppr(apic, ppr);
 }
-EXPORT_SYMBOL_GPL(kvm_apic_has_interrupt);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_apic_has_interrupt);
 
 int kvm_apic_accept_pic_intr(struct kvm_vcpu *vcpu)
 {
@@ -3003,7 +3189,7 @@ void kvm_apic_ack_interrupt(struct kvm_vcpu *vcpu, int vector)
 	}
 
 }
-EXPORT_SYMBOL_GPL(kvm_apic_ack_interrupt);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_apic_ack_interrupt);
 
 static int kvm_apic_state_fixup(struct kvm_vcpu *vcpu,
 		struct kvm_lapic_state *s, bool set)
@@ -3100,10 +3286,8 @@ int kvm_apic_set_state(struct kvm_vcpu *vcpu, struct kvm_lapic_state *s)
 	__start_apic_timer(apic, APIC_TMCCT);
 	kvm_lapic_set_reg(apic, APIC_TMCCT, 0);
 	kvm_apic_update_apicv(vcpu);
-	if (apic->apicv_active) {
+	if (apic->apicv_active)
 		kvm_x86_call(apicv_post_state_restore)(vcpu);
-		kvm_x86_call(hwapic_isr_update)(vcpu, apic_find_highest_isr(apic));
-	}
 	kvm_make_request(KVM_REQ_EVENT, vcpu);
 
 #ifdef CONFIG_KVM_IOAPIC
@@ -3366,7 +3550,6 @@ int kvm_apic_accept_events(struct kvm_vcpu *vcpu)
 	 * wait-for-SIPI (WFS).
 	 */
 	if (!kvm_apic_init_sipi_allowed(vcpu)) {
-		WARN_ON_ONCE(vcpu->arch.mp_state == KVM_MP_STATE_INIT_RECEIVED);
 		clear_bit(KVM_APIC_SIPI, &apic->pending_events);
 		return 0;
 	}

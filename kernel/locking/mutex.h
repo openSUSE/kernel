@@ -7,6 +7,7 @@
  *  Copyright (C) 2004, 2005, 2006 Red Hat, Inc., Ingo Molnar <mingo@redhat.com>
  */
 #ifndef CONFIG_PREEMPT_RT
+#include <linux/mutex.h>
 /*
  * This is the control structure for tasks blocked on mutex, which resides
  * on the blocked task's kernel stack:
@@ -47,6 +48,12 @@ static inline struct task_struct *__mutex_owner(struct mutex *lock)
 	return (struct task_struct *)(atomic_long_read(&lock->owner) & ~MUTEX_FLAGS);
 }
 
+static inline struct mutex *get_task_blocked_on(struct task_struct *p)
+{
+	guard(raw_spinlock_irqsave)(&p->blocked_lock);
+	return __get_task_blocked_on(p);
+}
+
 #ifdef CONFIG_DEBUG_MUTEXES
 extern void debug_mutex_lock_common(struct mutex *lock,
 				    struct mutex_waiter *waiter);
@@ -59,8 +66,7 @@ extern void debug_mutex_add_waiter(struct mutex *lock,
 extern void debug_mutex_remove_waiter(struct mutex *lock, struct mutex_waiter *waiter,
 				      struct task_struct *task);
 extern void debug_mutex_unlock(struct mutex *lock);
-extern void debug_mutex_init(struct mutex *lock, const char *name,
-			     struct lock_class_key *key);
+extern void debug_mutex_init(struct mutex *lock);
 #else /* CONFIG_DEBUG_MUTEXES */
 # define debug_mutex_lock_common(lock, waiter)		do { } while (0)
 # define debug_mutex_wake_waiter(lock, waiter)		do { } while (0)
@@ -68,6 +74,6 @@ extern void debug_mutex_init(struct mutex *lock, const char *name,
 # define debug_mutex_add_waiter(lock, waiter, ti)	do { } while (0)
 # define debug_mutex_remove_waiter(lock, waiter, ti)	do { } while (0)
 # define debug_mutex_unlock(lock)			do { } while (0)
-# define debug_mutex_init(lock, name, key)		do { } while (0)
+# define debug_mutex_init(lock)				do { } while (0)
 #endif /* !CONFIG_DEBUG_MUTEXES */
 #endif /* CONFIG_PREEMPT_RT */

@@ -90,7 +90,7 @@ struct page;
 #define virt_to_page(kaddr) pfn_to_page(PFN_DOWN(__pa(kaddr)))
 
 /* Default vm area behavior is non-executable.  */
-#define VM_DATA_DEFAULT_FLAGS	VM_DATA_FLAGS_NON_EXEC
+#define VMA_DATA_DEFAULT_FLAGS	VMA_DATA_FLAGS_NON_EXEC
 
 #define virt_addr_valid(kaddr) pfn_valid(__pa(kaddr) >> PAGE_SHIFT)
 
@@ -113,7 +113,6 @@ static inline void clear_page(void *page)
 /*
  * Under assumption that kernel always "sees" user map...
  */
-#define clear_user_page(page, vaddr, pg)	clear_page(page)
 #define copy_user_page(to, from, vaddr, pg)	copy_page(to, from)
 
 static inline unsigned long virt_to_pfn(const void *kaddr)

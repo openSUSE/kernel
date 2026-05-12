@@ -196,7 +196,7 @@ static u64 read_imc_reg(struct skx_imc *imc, int chan, u32 offset, u8 width)
 	case 8:
 		return I10NM_GET_REG64(imc, chan, offset);
 	default:
-		i10nm_printk(KERN_ERR, "Invalid readd RRL 0x%x width %d\n", offset, width);
+		i10nm_printk(KERN_ERR, "Invalid read RRL 0x%x width %d\n", offset, width);
 		return 0;
 	}
 }
@@ -468,17 +468,18 @@ static int i10nm_get_imc_num(struct res_config *cfg)
 			return -ENODEV;
 		}
 
-		if (imc_num > I10NM_NUM_DDR_IMC) {
-			i10nm_printk(KERN_ERR, "Need to make I10NM_NUM_DDR_IMC >= %d\n", imc_num);
-			return -EINVAL;
-		}
-
 		if (cfg->ddr_imc_num != imc_num) {
 			/*
-			 * Store the number of present DDR memory controllers.
+			 * Update the configuration data to reflect the number of
+			 * present DDR memory controllers.
 			 */
 			cfg->ddr_imc_num = imc_num;
 			edac_dbg(2, "Set DDR MC number: %d", imc_num);
+
+			/* Release and reallocate skx_dev list with the updated number. */
+			skx_remove();
+			if (skx_get_all_bus_mappings(cfg, &i10nm_edac_list) <= 0)
+				return -ENODEV;
 		}
 
 		return 0;
@@ -579,6 +580,10 @@ static bool i10nm_mc_decode_available(struct mce *mce)
 		if (bank < 13 || bank > 20)
 			return false;
 		break;
+	case GNR:
+		if (bank < 13 || bank > 24)
+			return false;
+		break;
 	default:
 		return false;
 	}
@@ -635,6 +640,16 @@ static bool i10nm_mc_decode(struct decoded_addr *res)
 		res->bank_group  |= GET_BITFIELD(m->misc, 41, 41) << 2;
 		res->rank         = GET_BITFIELD(m->misc, 57, 57);
 		res->dimm         = GET_BITFIELD(m->misc, 58, 58);
+		break;
+	case GNR:
+		res->imc          = m->bank - 13;
+		res->channel      = 0;
+		res->column       = GET_BITFIELD(m->misc, 9, 18) << 2;
+		res->row          = GET_BITFIELD(m->misc, 19, 36);
+		res->bank_group   = GET_BITFIELD(m->misc, 39, 41);
+		res->bank_address = GET_BITFIELD(m->misc, 37, 38);
+		res->rank         = GET_BITFIELD(m->misc, 55, 56);
+		res->dimm         = GET_BITFIELD(m->misc, 57, 57);
 		break;
 	default:
 		return false;
@@ -1057,6 +1072,15 @@ static bool i10nm_check_ecc(struct skx_imc *imc, int chan)
 	return !!GET_BITFIELD(mcmtr, 2, 2);
 }
 
+static bool i10nm_channel_disabled(struct skx_imc *imc, int chan)
+{
+	u32 mcmtr = I10NM_GET_MCMTR(imc, chan);
+
+	edac_dbg(1, "mc%d ch%d mcmtr reg %x\n", imc->mc, chan, mcmtr);
+
+	return (mcmtr == ~0 || GET_BITFIELD(mcmtr, 18, 18));
+}
+
 static int i10nm_get_dimm_config(struct mem_ctl_info *mci,
 				 struct res_config *cfg)
 {
@@ -1069,6 +1093,11 @@ static int i10nm_get_dimm_config(struct mem_ctl_info *mci,
 	for (i = 0; i < imc->num_channels; i++) {
 		if (!imc->mbase)
 			continue;
+
+		if (i10nm_channel_disabled(imc, i)) {
+			edac_dbg(1, "mc%d ch%d is disabled.\n", imc->mc, i);
+			continue;
+		}
 
 		ndimms = 0;
 
@@ -1183,7 +1212,8 @@ static int __init i10nm_init(void)
 				d->imc[i].num_dimms    = cfg->ddr_dimm_num;
 			}
 
-			rc = skx_register_mci(&d->imc[i], d->imc[i].mdev,
+			rc = skx_register_mci(&d->imc[i], &d->imc[i].mdev->dev,
+					      pci_name(d->imc[i].mdev),
 					      "Intel_10nm Socket", EDAC_MOD_STR,
 					      i10nm_get_dimm_config, cfg);
 			if (rc < 0)

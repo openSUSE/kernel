@@ -797,7 +797,7 @@ static int ibmvfc_init_event_pool(struct ibmvfc_host *vhost,
 		return 0;
 
 	pool->size = queue->total_depth;
-	pool->events = kcalloc(pool->size, sizeof(*pool->events), GFP_KERNEL);
+	pool->events = kzalloc_objs(*pool->events, pool->size);
 	if (!pool->events)
 		return -ENOMEM;
 
@@ -1960,7 +1960,8 @@ static struct ibmvfc_cmd *ibmvfc_init_vfc_cmd(struct ibmvfc_event *evt, struct s
  * Returns:
  *	0 on success / other on failure
  **/
-static int ibmvfc_queuecommand(struct Scsi_Host *shost, struct scsi_cmnd *cmnd)
+static enum scsi_qc_status ibmvfc_queuecommand(struct Scsi_Host *shost,
+					       struct scsi_cmnd *cmnd)
 {
 	struct ibmvfc_host *vhost = shost_priv(shost);
 	struct fc_rport *rport = starget_to_rport(scsi_target(cmnd->device));
@@ -4965,7 +4966,8 @@ static void ibmvfc_discover_targets_done(struct ibmvfc_event *evt)
 	switch (mad_status) {
 	case IBMVFC_MAD_SUCCESS:
 		ibmvfc_dbg(vhost, "Discover Targets succeeded\n");
-		vhost->num_targets = be32_to_cpu(rsp->num_written);
+		vhost->num_targets = min_t(u32, be32_to_cpu(rsp->num_written),
+					   max_targets);
 		ibmvfc_set_host_action(vhost, IBMVFC_HOST_ACTION_ALLOC_TGTS);
 		break;
 	case IBMVFC_MAD_FAILED:
@@ -6056,9 +6058,7 @@ static int ibmvfc_alloc_channels(struct ibmvfc_host *vhost,
 	int i, j;
 	int rc = 0;
 
-	channels->scrqs = kcalloc(channels->max_queues,
-				  sizeof(*channels->scrqs),
-				  GFP_KERNEL);
+	channels->scrqs = kzalloc_objs(*channels->scrqs, channels->max_queues);
 	if (!channels->scrqs)
 		return -ENOMEM;
 
@@ -6210,8 +6210,8 @@ static int ibmvfc_alloc_mem(struct ibmvfc_host *vhost)
 	if (ibmvfc_alloc_disc_buf(dev, &vhost->scsi_scrqs))
 		goto free_login_buffer;
 
-	vhost->trace = kcalloc(IBMVFC_NUM_TRACE_ENTRIES,
-			       sizeof(struct ibmvfc_trace_entry), GFP_KERNEL);
+	vhost->trace = kzalloc_objs(struct ibmvfc_trace_entry,
+				    IBMVFC_NUM_TRACE_ENTRIES);
 	atomic_set(&vhost->trace_index, -1);
 
 	if (!vhost->trace)

@@ -10,9 +10,9 @@
 #include <uapi/drm/xe_drm.h>
 
 #include "xe_configfs.h"
+#include "xe_device.h"
 #include "xe_gt.h"
 #include "xe_gt_topology.h"
-#include "xe_macros.h"
 #include "xe_reg_sr.h"
 #include "xe_sriov.h"
 
@@ -55,6 +55,13 @@ static bool rule_matches(const struct xe_device *xe,
 		case XE_RTP_MATCH_SUBPLATFORM:
 			match = xe->info.platform == r->platform &&
 				xe->info.subplatform == r->subplatform;
+			break;
+		case XE_RTP_MATCH_PLATFORM_STEP:
+			if (drm_WARN_ON(&xe->drm, xe->info.step.platform == STEP_NONE))
+				return false;
+
+			match = xe->info.step.platform >= r->step_start &&
+				xe->info.step.platform < r->step_end;
 			break;
 		case XE_RTP_MATCH_GRAPHICS_VERSION:
 			if (drm_WARN_ON(&xe->drm, !gt))
@@ -133,10 +140,7 @@ static bool rule_matches(const struct xe_device *xe,
 			match = hwe->class != r->engine_class;
 			break;
 		case XE_RTP_MATCH_FUNC:
-			if (drm_WARN_ON(&xe->drm, !gt))
-				return false;
-
-			match = r->match_func(gt, hwe);
+			match = r->match_func(xe, gt, hwe);
 			break;
 		default:
 			drm_warn(&xe->drm, "Invalid RTP match %u\n",
@@ -274,6 +278,8 @@ static void rtp_mark_active(struct xe_device *xe,
  * @sr: Save-restore struct where matching rules execute the action. This can be
  *      viewed as the "coalesced view" of multiple the tables. The bits for each
  *      register set are expected not to collide with previously added entries
+ * @process_in_vf: Whether this RTP table should get processed for SR-IOV VF
+ *      devices.  Should generally only be 'true' for LRC tables.
  *
  * Walk the table pointed by @entries (with an empty sentinel) and add all
  * entries with matching rules to @sr. If @hwe is not NULL, its mmio_base is
@@ -282,7 +288,8 @@ static void rtp_mark_active(struct xe_device *xe,
 void xe_rtp_process_to_sr(struct xe_rtp_process_ctx *ctx,
 			  const struct xe_rtp_entry_sr *entries,
 			  size_t n_entries,
-			  struct xe_reg_sr *sr)
+			  struct xe_reg_sr *sr,
+			  bool process_in_vf)
 {
 	const struct xe_rtp_entry_sr *entry;
 	struct xe_hw_engine *hwe = NULL;
@@ -290,6 +297,9 @@ void xe_rtp_process_to_sr(struct xe_rtp_process_ctx *ctx,
 	struct xe_device *xe = NULL;
 
 	rtp_get_context(ctx, &hwe, &gt, &xe);
+
+	if (!process_in_vf && IS_SRIOV_VF(xe))
+		return;
 
 	xe_assert(xe, entries);
 
@@ -343,13 +353,22 @@ void xe_rtp_process(struct xe_rtp_process_ctx *ctx,
 }
 EXPORT_SYMBOL_IF_KUNIT(xe_rtp_process);
 
-bool xe_rtp_match_even_instance(const struct xe_gt *gt,
+bool xe_rtp_match_always(const struct xe_device *xe,
+			 const struct xe_gt *gt,
+			 const struct xe_hw_engine *hwe)
+{
+	return true;
+}
+
+bool xe_rtp_match_even_instance(const struct xe_device *xe,
+				const struct xe_gt *gt,
 				const struct xe_hw_engine *hwe)
 {
 	return hwe->instance % 2 == 0;
 }
 
-bool xe_rtp_match_first_render_or_compute(const struct xe_gt *gt,
+bool xe_rtp_match_first_render_or_compute(const struct xe_device *xe,
+					  const struct xe_gt *gt,
 					  const struct xe_hw_engine *hwe)
 {
 	u64 render_compute_mask = gt->info.engine_mask &
@@ -359,14 +378,37 @@ bool xe_rtp_match_first_render_or_compute(const struct xe_gt *gt,
 		hwe->engine_id == __ffs(render_compute_mask);
 }
 
-bool xe_rtp_match_not_sriov_vf(const struct xe_gt *gt,
+bool xe_rtp_match_not_sriov_vf(const struct xe_device *xe,
+			       const struct xe_gt *gt,
 			       const struct xe_hw_engine *hwe)
 {
-	return !IS_SRIOV_VF(gt_to_xe(gt));
+	return !IS_SRIOV_VF(xe);
 }
 
-bool xe_rtp_match_psmi_enabled(const struct xe_gt *gt,
+bool xe_rtp_match_psmi_enabled(const struct xe_device *xe,
+			       const struct xe_gt *gt,
 			       const struct xe_hw_engine *hwe)
 {
-	return xe_configfs_get_psmi_enabled(to_pci_dev(gt_to_xe(gt)->drm.dev));
+	return xe_configfs_get_psmi_enabled(to_pci_dev(xe->drm.dev));
+}
+
+bool xe_rtp_match_gt_has_discontiguous_dss_groups(const struct xe_device *xe,
+						  const struct xe_gt *gt,
+						  const struct xe_hw_engine *hwe)
+{
+	return xe_gt_has_discontiguous_dss_groups(gt);
+}
+
+bool xe_rtp_match_has_flat_ccs(const struct xe_device *xe,
+			       const struct xe_gt *gt,
+			       const struct xe_hw_engine *hwe)
+{
+	return xe->info.has_flat_ccs;
+}
+
+bool xe_rtp_match_has_msix(const struct xe_device *xe,
+			   const struct xe_gt *gt,
+			   const struct xe_hw_engine *hwe)
+{
+	return xe_device_has_msix(xe);
 }

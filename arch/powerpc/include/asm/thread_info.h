@@ -41,7 +41,7 @@
 
 #define THREAD_ALIGN		(1 << THREAD_ALIGN_SHIFT)
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 #include <linux/cache.h>
 #include <asm/processor.h>
 #include <asm/accounting.h>
@@ -89,7 +89,7 @@ extern int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src
 void arch_setup_new_exec(void);
 #define arch_setup_new_exec arch_setup_new_exec
 
-#endif /* __ASSEMBLY__ */
+#endif /* __ASSEMBLER__ */
 
 /*
  * thread information flag bit numbers
@@ -154,15 +154,13 @@ void arch_setup_new_exec(void);
 /* Don't move TLF_NAPPING without adjusting the code in entry_32.S */
 #define TLF_NAPPING		0	/* idle thread enabled NAP mode */
 #define TLF_SLEEPING		1	/* suspend code enabled SLEEP mode */
-#define TLF_LAZY_MMU		3	/* tlb_batch is active */
 #define TLF_RUNLATCH		4	/* Is the runlatch enabled? */
 
 #define _TLF_NAPPING		(1 << TLF_NAPPING)
 #define _TLF_SLEEPING		(1 << TLF_SLEEPING)
-#define _TLF_LAZY_MMU		(1 << TLF_LAZY_MMU)
 #define _TLF_RUNLATCH		(1 << TLF_RUNLATCH)
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 
 static inline void clear_thread_local_flags(unsigned int flags)
 {
@@ -233,7 +231,7 @@ static inline int arch_within_stack_frames(const void * const stack,
 extern void *emergency_ctx[];
 #endif
 
-#endif	/* !__ASSEMBLY__ */
+#endif	/* !__ASSEMBLER__ */
 
 #endif /* __KERNEL__ */
 

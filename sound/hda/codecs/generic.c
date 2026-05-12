@@ -863,7 +863,7 @@ static void sync_power_state_change(struct hda_codec *codec, hda_nid_t nid)
 {
 	if (nid) {
 		msleep(10);
-		snd_hda_codec_read(codec, nid, 0, AC_VERB_GET_POWER_STATE, 0);
+		snd_hda_codec_write_sync(codec, nid, 0, AC_VERB_GET_POWER_STATE, 0);
 	}
 }
 
@@ -1118,12 +1118,11 @@ static int hda_gen_bind_mute_get(struct snd_kcontrol *kcontrol,
 	unsigned long pval;
 	int err;
 
-	mutex_lock(&codec->control_mutex);
+	guard(mutex)(&codec->control_mutex);
 	pval = kcontrol->private_value;
 	kcontrol->private_value = pval & ~AMP_VAL_IDX_MASK; /* index 0 */
 	err = snd_hda_mixer_amp_switch_get(kcontrol, ucontrol);
 	kcontrol->private_value = pval;
-	mutex_unlock(&codec->control_mutex);
 	return err;
 }
 
@@ -1136,7 +1135,7 @@ static int hda_gen_bind_mute_put(struct snd_kcontrol *kcontrol,
 
 	sync_auto_mute_bits(kcontrol, ucontrol);
 
-	mutex_lock(&codec->control_mutex);
+	guard(mutex)(&codec->control_mutex);
 	pval = kcontrol->private_value;
 	indices = (pval & AMP_VAL_IDX_MASK) >> AMP_VAL_IDX_SHIFT;
 	for (i = 0; i < indices; i++) {
@@ -1148,7 +1147,6 @@ static int hda_gen_bind_mute_put(struct snd_kcontrol *kcontrol,
 		change |= err;
 	}
 	kcontrol->private_value = pval;
-	mutex_unlock(&codec->control_mutex);
 	return err < 0 ? err : change;
 }
 
@@ -1519,7 +1517,7 @@ static int count_multiio_pins(struct hda_codec *codec, hda_nid_t reference_pin)
 /*
  * multi-io helper
  *
- * When hardwired is set, try to fill ony hardwired pins, and returns
+ * When hardwired is set, try to fill only hardwired pins, and returns
  * zero if any pins are filled, non-zero if nothing found.
  * When hardwired is off, try to fill possible input pins, and returns
  * the badness value.
@@ -1986,15 +1984,15 @@ static int parse_output_paths(struct hda_codec *codec)
 {
 	struct hda_gen_spec *spec = codec->spec;
 	struct auto_pin_cfg *cfg = &spec->autocfg;
-	struct auto_pin_cfg *best_cfg;
 	unsigned int val;
 	int best_badness = INT_MAX;
 	int badness;
 	bool fill_hardwired = true, fill_mio_first = true;
 	bool best_wired = true, best_mio = true;
 	bool hp_spk_swapped = false;
+	struct auto_pin_cfg *best_cfg __free(kfree) =
+		kmalloc_obj(*best_cfg);
 
-	best_cfg = kmalloc(sizeof(*best_cfg), GFP_KERNEL);
 	if (!best_cfg)
 		return -ENOMEM;
 	*best_cfg = *cfg;
@@ -2002,10 +2000,8 @@ static int parse_output_paths(struct hda_codec *codec)
 	for (;;) {
 		badness = fill_and_eval_dacs(codec, fill_hardwired,
 					     fill_mio_first);
-		if (badness < 0) {
-			kfree(best_cfg);
+		if (badness < 0)
 			return badness;
-		}
 		debug_badness("==> lo_type=%d, wired=%d, mio=%d, badness=0x%x\n",
 			      cfg->line_out_type, fill_hardwired, fill_mio_first,
 			      badness);
@@ -2098,7 +2094,6 @@ static int parse_output_paths(struct hda_codec *codec)
 	if (spec->indep_hp && !indep_hp_possible(codec))
 		spec->indep_hp = 0;
 
-	kfree(best_cfg);
 	return 0;
 }
 
@@ -2249,11 +2244,9 @@ static int indep_hp_put(struct snd_kcontrol *kcontrol,
 	unsigned int select = ucontrol->value.enumerated.item[0];
 	int ret = 0;
 
-	mutex_lock(&spec->pcm_mutex);
-	if (spec->active_streams) {
-		ret = -EBUSY;
-		goto unlock;
-	}
+	guard(mutex)(&spec->pcm_mutex);
+	if (spec->active_streams)
+		return -EBUSY;
 
 	if (spec->indep_hp_enabled != select) {
 		hda_nid_t *dacp;
@@ -2285,8 +2278,6 @@ static int indep_hp_put(struct snd_kcontrol *kcontrol,
 		call_hp_automute(codec, NULL);
 		ret = 1;
 	}
- unlock:
-	mutex_unlock(&spec->pcm_mutex);
 	return ret;
 }
 
@@ -3475,22 +3466,20 @@ static int cap_put_caller(struct snd_kcontrol *kcontrol,
 
 	imux = &spec->input_mux;
 	adc_idx = kcontrol->id.index;
-	mutex_lock(&codec->control_mutex);
-	for (i = 0; i < imux->num_items; i++) {
-		path = get_input_path(codec, adc_idx, i);
-		if (!path || !path->ctls[type])
-			continue;
-		kcontrol->private_value = path->ctls[type];
-		ret = func(kcontrol, ucontrol);
-		if (ret < 0) {
-			err = ret;
-			break;
+	scoped_guard(mutex, &codec->control_mutex) {
+		for (i = 0; i < imux->num_items; i++) {
+			path = get_input_path(codec, adc_idx, i);
+			if (!path || !path->ctls[type])
+				continue;
+			kcontrol->private_value = path->ctls[type];
+			ret = func(kcontrol, ucontrol);
+			if (ret < 0)
+				return ret;
+			if (ret > 0)
+				err = 1;
 		}
-		if (ret > 0)
-			err = 1;
 	}
-	mutex_unlock(&codec->control_mutex);
-	if (err >= 0 && spec->cap_sync_hook)
+	if (spec->cap_sync_hook)
 		spec->cap_sync_hook(codec, kcontrol, ucontrol);
 	return err;
 }
@@ -4900,7 +4889,7 @@ static int check_auto_mic_availability(struct hda_codec *codec)
  * snd_hda_gen_path_power_filter - power_filter hook to make inactive widgets
  * into power down
  * @codec: the HDA codec
- * @nid: NID to evalute
+ * @nid: NID to evaluate
  * @power_state: target power state
  */
 unsigned int snd_hda_gen_path_power_filter(struct hda_codec *codec,
@@ -5332,17 +5321,17 @@ static int playback_pcm_open(struct hda_pcm_stream *hinfo,
 	struct hda_gen_spec *spec = codec->spec;
 	int err;
 
-	mutex_lock(&spec->pcm_mutex);
+	guard(mutex)(&spec->pcm_mutex);
 	err = snd_hda_multi_out_analog_open(codec,
 					    &spec->multiout, substream,
 					     hinfo);
-	if (!err) {
-		spec->active_streams |= 1 << STREAM_MULTI_OUT;
-		call_pcm_playback_hook(hinfo, codec, substream,
-				       HDA_GEN_PCM_ACT_OPEN);
-	}
-	mutex_unlock(&spec->pcm_mutex);
-	return err;
+	if (err < 0)
+		return err;
+
+	spec->active_streams |= 1 << STREAM_MULTI_OUT;
+	call_pcm_playback_hook(hinfo, codec, substream,
+			       HDA_GEN_PCM_ACT_OPEN);
+	return 0;
 }
 
 static int playback_pcm_prepare(struct hda_pcm_stream *hinfo,
@@ -5381,11 +5370,11 @@ static int playback_pcm_close(struct hda_pcm_stream *hinfo,
 			      struct snd_pcm_substream *substream)
 {
 	struct hda_gen_spec *spec = codec->spec;
-	mutex_lock(&spec->pcm_mutex);
+
+	guard(mutex)(&spec->pcm_mutex);
 	spec->active_streams &= ~(1 << STREAM_MULTI_OUT);
 	call_pcm_playback_hook(hinfo, codec, substream,
 			       HDA_GEN_PCM_ACT_CLOSE);
-	mutex_unlock(&spec->pcm_mutex);
 	return 0;
 }
 
@@ -5434,14 +5423,13 @@ static int alt_playback_pcm_open(struct hda_pcm_stream *hinfo,
 	struct hda_gen_spec *spec = codec->spec;
 	int err = 0;
 
-	mutex_lock(&spec->pcm_mutex);
+	guard(mutex)(&spec->pcm_mutex);
 	if (spec->indep_hp && !spec->indep_hp_enabled)
 		err = -EBUSY;
 	else
 		spec->active_streams |= 1 << STREAM_INDEP_HP;
 	call_pcm_playback_hook(hinfo, codec, substream,
 			       HDA_GEN_PCM_ACT_OPEN);
-	mutex_unlock(&spec->pcm_mutex);
 	return err;
 }
 
@@ -5450,11 +5438,11 @@ static int alt_playback_pcm_close(struct hda_pcm_stream *hinfo,
 				  struct snd_pcm_substream *substream)
 {
 	struct hda_gen_spec *spec = codec->spec;
-	mutex_lock(&spec->pcm_mutex);
+
+	guard(mutex)(&spec->pcm_mutex);
 	spec->active_streams &= ~(1 << STREAM_INDEP_HP);
 	call_pcm_playback_hook(hinfo, codec, substream,
 			       HDA_GEN_PCM_ACT_CLOSE);
-	mutex_unlock(&spec->pcm_mutex);
 	return 0;
 }
 
@@ -6107,7 +6095,7 @@ static int snd_hda_gen_probe(struct hda_codec *codec,
 	struct hda_gen_spec *spec;
 	int err;
 
-	spec = kzalloc(sizeof(*spec), GFP_KERNEL);
+	spec = kzalloc_obj(*spec);
 	if (!spec)
 		return -ENOMEM;
 	snd_hda_gen_spec_init(spec);

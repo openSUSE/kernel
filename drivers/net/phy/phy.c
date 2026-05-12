@@ -405,12 +405,14 @@ int phy_mii_ioctl(struct phy_device *phydev, struct ifreq *ifr, int cmd)
 		return 0;
 
 	case SIOCSHWTSTAMP:
-		if (phydev->mii_ts && phydev->mii_ts->hwtstamp) {
+		if (phydev->mii_ts && phydev->mii_ts->hwtstamp_set) {
 			if (copy_from_user(&cfg, ifr->ifr_data, sizeof(cfg)))
 				return -EFAULT;
 
 			hwtstamp_config_to_kernel(&kernel_cfg, &cfg);
-			ret = phydev->mii_ts->hwtstamp(phydev->mii_ts, &kernel_cfg, &extack);
+			ret = phydev->mii_ts->hwtstamp_set(phydev->mii_ts,
+							   &kernel_cfg,
+							   &extack);
 			if (ret)
 				return ret;
 
@@ -476,6 +478,9 @@ int __phy_hwtstamp_get(struct phy_device *phydev,
 	if (!phydev)
 		return -ENODEV;
 
+	if (phydev->mii_ts && phydev->mii_ts->hwtstamp_get)
+		return phydev->mii_ts->hwtstamp_get(phydev->mii_ts, config);
+
 	return -EOPNOTSUPP;
 }
 
@@ -493,8 +498,9 @@ int __phy_hwtstamp_set(struct phy_device *phydev,
 	if (!phydev)
 		return -ENODEV;
 
-	if (phydev->mii_ts && phydev->mii_ts->hwtstamp)
-		return phydev->mii_ts->hwtstamp(phydev->mii_ts, config, extack);
+	if (phydev->mii_ts && phydev->mii_ts->hwtstamp_set)
+		return phydev->mii_ts->hwtstamp_set(phydev->mii_ts, config,
+						    extack);
 
 	return -EOPNOTSUPP;
 }
@@ -730,7 +736,7 @@ int phy_ethtool_set_plca_cfg(struct phy_device *phydev,
 		goto out;
 	}
 
-	curr_plca_cfg = kmalloc(sizeof(*curr_plca_cfg), GFP_KERNEL);
+	curr_plca_cfg = kmalloc_obj(*curr_plca_cfg);
 	if (!curr_plca_cfg) {
 		ret = -ENOMEM;
 		goto out;
@@ -1363,13 +1369,36 @@ void phy_error(struct phy_device *phydev)
 EXPORT_SYMBOL(phy_error);
 
 /**
+ * phy_write_barrier - ensure the last write completed for this PHY device
+ * @phydev: target phy_device struct
+ *
+ * MDIO bus controllers are not required to wait for write transactions to
+ * complete before returning. Calling this function ensures that the previous
+ * write has completed.
+ */
+static void phy_write_barrier(struct phy_device *phydev)
+{
+	if (mdiobus_read(phydev->mdio.bus, phydev->mdio.addr, MII_PHYSID1) ==
+	    -EOPNOTSUPP)
+		mdiobus_c45_read(phydev->mdio.bus, phydev->mdio.addr,
+				 MDIO_MMD_PMAPMD, MII_PHYSID1);
+}
+
+/**
  * phy_disable_interrupts - Disable the PHY interrupts from the PHY side
  * @phydev: target phy_device struct
  */
 int phy_disable_interrupts(struct phy_device *phydev)
 {
+	int err;
+
 	/* Disable PHY interrupts */
-	return phy_config_interrupt(phydev, PHY_INTERRUPT_DISABLED);
+	err = phy_config_interrupt(phydev, PHY_INTERRUPT_DISABLED);
+	if (err)
+		return err;
+
+	phy_write_barrier(phydev);
+	return 0;
 }
 
 /**
@@ -1548,9 +1577,24 @@ static enum phy_state_work _phy_state_machine(struct phy_device *phydev)
 		}
 		break;
 	case PHY_HALTED:
+		if (phydev->link) {
+			if (phydev->autoneg == AUTONEG_ENABLE) {
+				phydev->speed = SPEED_UNKNOWN;
+				phydev->duplex = DUPLEX_UNKNOWN;
+			}
+			if (phydev->master_slave_state !=
+						MASTER_SLAVE_STATE_UNSUPPORTED)
+				phydev->master_slave_state =
+						MASTER_SLAVE_STATE_UNKNOWN;
+			phydev->mdix = ETH_TP_MDI_INVALID;
+			linkmode_zero(phydev->lp_advertising);
+		}
+		fallthrough;
 	case PHY_ERROR:
 		if (phydev->link) {
 			phydev->link = 0;
+			phydev->eee_active = false;
+			phydev->enable_tx_lpi = false;
 			phy_link_down(phydev);
 		}
 		state_work = PHY_STATE_WORK_SUSPEND;

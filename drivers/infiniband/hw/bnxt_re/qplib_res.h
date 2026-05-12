@@ -39,7 +39,7 @@
 #ifndef __BNXT_QPLIB_RES_H__
 #define __BNXT_QPLIB_RES_H__
 
-#include "bnxt_ulp.h"
+#include <linux/bnxt/ulp.h>
 
 extern const struct bnxt_qplib_gid bnxt_qplib_gid_zero;
 
@@ -65,6 +65,7 @@ struct bnxt_qplib_drv_modes {
 	bool db_push;
 	bool dbr_pacing;
 	u32 toggle_bits;
+	u8 roce_mirror;
 };
 
 enum bnxt_re_toggle_modes {
@@ -197,6 +198,7 @@ struct bnxt_qplib_hwq {
 	u32				cons;		/* raw */
 	u8				cp_bit;
 	u8				is_user;
+	u8				pg_sz_lvl;
 	u64				*pad_pg;
 	u32				pad_stride;
 	u32				pad_pgofft;
@@ -303,6 +305,7 @@ struct bnxt_qplib_ctx {
 	struct bnxt_qplib_hwq		tim_tbl;
 	struct bnxt_qplib_tqm_ctx	tqm_ctx;
 	struct bnxt_qplib_stats		stats;
+	struct bnxt_qplib_stats		stats3;
 	struct bnxt_qplib_vf_res	vf_res;
 };
 
@@ -354,6 +357,11 @@ static inline u8 bnxt_qplib_get_ring_type(struct bnxt_qplib_chip_ctx *cctx)
 	return bnxt_qplib_is_chip_gen_p5_p7(cctx) ?
 	       RING_ALLOC_REQ_RING_TYPE_NQ :
 	       RING_ALLOC_REQ_RING_TYPE_ROCE_CMPL;
+}
+
+static inline u64 bnxt_qplib_get_base_addr(struct bnxt_qplib_hwq *hwq)
+{
+	return hwq->pbl[PBL_LVL_0].pg_map_arr[0];
 }
 
 static inline u8 bnxt_qplib_base_pg_size(struct bnxt_qplib_hwq *hwq)
@@ -428,19 +436,27 @@ int bnxt_qplib_alloc_dpi(struct bnxt_qplib_res *res,
 			 void *app, u8 type);
 int bnxt_qplib_dealloc_dpi(struct bnxt_qplib_res *res,
 			   struct bnxt_qplib_dpi *dpi);
+int bnxt_qplib_alloc_uc_dpi(struct bnxt_qplib_res *res,
+			    struct bnxt_qplib_dpi *dpi);
+int bnxt_qplib_free_uc_dpi(struct bnxt_qplib_res *res,
+			   struct bnxt_qplib_dpi *dpi);
 void bnxt_qplib_cleanup_res(struct bnxt_qplib_res *res);
 int bnxt_qplib_init_res(struct bnxt_qplib_res *res);
 void bnxt_qplib_free_res(struct bnxt_qplib_res *res);
 int bnxt_qplib_alloc_res(struct bnxt_qplib_res *res, struct net_device *netdev);
-void bnxt_qplib_free_ctx(struct bnxt_qplib_res *res,
-			 struct bnxt_qplib_ctx *ctx);
-int bnxt_qplib_alloc_ctx(struct bnxt_qplib_res *res,
-			 struct bnxt_qplib_ctx *ctx,
-			 bool virt_fn, bool is_p5);
+void bnxt_qplib_free_hwctx(struct bnxt_qplib_res *res,
+			   struct bnxt_qplib_ctx *ctx);
+int bnxt_qplib_alloc_hwctx(struct bnxt_qplib_res *res,
+			   struct bnxt_qplib_ctx *ctx);
 int bnxt_qplib_map_db_bar(struct bnxt_qplib_res *res);
 void bnxt_qplib_unmap_db_bar(struct bnxt_qplib_res *res);
 
 int bnxt_qplib_determine_atomics(struct pci_dev *dev);
+int bnxt_qplib_alloc_stats_ctx(struct pci_dev *pdev,
+			       struct bnxt_qplib_chip_ctx *cctx,
+			       struct bnxt_qplib_stats *stats);
+void bnxt_qplib_free_stats_ctx(struct pci_dev *pdev,
+			       struct bnxt_qplib_stats *stats);
 
 static inline void bnxt_qplib_hwq_incr_prod(struct bnxt_qplib_db_info *dbinfo,
 					    struct bnxt_qplib_hwq *hwq, u32 cnt)
@@ -582,6 +598,11 @@ static inline u8 bnxt_qplib_dbr_pacing_en(struct bnxt_qplib_chip_ctx *cctx)
 	return cctx->modes.dbr_pacing;
 }
 
+static inline u8 bnxt_qplib_roce_mirror_supported(struct bnxt_qplib_chip_ctx *cctx)
+{
+	return cctx->modes.roce_mirror;
+}
+
 static inline bool _is_alloc_mr_unified(u16 dev_cap_flags)
 {
 	return dev_cap_flags & CREQ_QUERY_FUNC_RESP_SB_MR_REGISTER_ALLOC;
@@ -610,6 +631,12 @@ static inline bool _is_cq_coalescing_supported(u16 dev_cap_ext_flags2)
 static inline bool _is_max_srq_ext_supported(u16 dev_cap_ext_flags_2)
 {
 	return !!(dev_cap_ext_flags_2 & CREQ_QUERY_FUNC_RESP_SB_MAX_SRQ_EXTENDED);
+}
+
+static inline bool _is_modify_qp_rate_limit_supported(u16 dev_cap_ext_flags2)
+{
+	return dev_cap_ext_flags2 &
+		CREQ_QUERY_FUNC_RESP_SB_MODIFY_QP_RATE_LIMIT_SUPPORTED;
 }
 
 #endif /* __BNXT_QPLIB_RES_H__ */

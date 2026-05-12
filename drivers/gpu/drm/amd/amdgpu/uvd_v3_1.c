@@ -242,6 +242,10 @@ static void uvd_v3_1_mc_resume(struct amdgpu_device *adev)
 	uint64_t addr;
 	uint32_t size;
 
+	/* When the keyselect is already set, don't perturb it. */
+	if (RREG32(mmUVD_FW_START))
+		return;
+
 	/* program the VCPU memory controller bits 0-27 */
 	addr = (adev->uvd.inst->gpu_addr + AMDGPU_UVD_FIRMWARE_OFFSET) >> 3;
 	size = AMDGPU_UVD_FIRMWARE_SIZE(adev) >> 3;
@@ -283,6 +287,12 @@ static int uvd_v3_1_fw_validate(struct amdgpu_device *adev)
 {
 	int i;
 	uint32_t keysel = adev->uvd.keyselect;
+
+	if (RREG32(mmUVD_FW_START) & UVD_FW_STATUS__PASS_MASK) {
+		dev_dbg(adev->dev, "UVD keyselect already set: 0x%x (on CPU: 0x%x)\n",
+			RREG32(mmUVD_FW_START), adev->uvd.keyselect);
+		return 0;
+	}
 
 	WREG32(mmUVD_FW_START, keysel);
 
@@ -660,7 +670,7 @@ static int uvd_v3_1_hw_init(struct amdgpu_ip_block *ip_block)
 
 	r = uvd_v3_1_fw_validate(adev);
 	if (r) {
-		DRM_ERROR("amdgpu: UVD Firmware validate fail (%d).\n", r);
+		drm_err(adev_to_drm(adev), "UVD Firmware validate fail (%d).\n", r);
 		return r;
 	}
 
@@ -668,13 +678,13 @@ static int uvd_v3_1_hw_init(struct amdgpu_ip_block *ip_block)
 
 	r = amdgpu_ring_test_helper(ring);
 	if (r) {
-		DRM_ERROR("amdgpu: UVD ring test fail (%d).\n", r);
+		drm_err(adev_to_drm(adev), "UVD ring test failed (%d).\n", r);
 		goto done;
 	}
 
 	r = amdgpu_ring_alloc(ring, 10);
 	if (r) {
-		DRM_ERROR("amdgpu: ring failed to lock UVD ring (%d).\n", r);
+		drm_err(adev_to_drm(adev), "ring alloc failed (%d).\n", r);
 		goto done;
 	}
 
@@ -701,7 +711,7 @@ static int uvd_v3_1_hw_init(struct amdgpu_ip_block *ip_block)
 
 done:
 	if (!r)
-		DRM_INFO("UVD initialized successfully.\n");
+		drm_info(adev_to_drm(adev), "UVD initialized successfully.\n");
 
 	return r;
 }

@@ -465,6 +465,16 @@ static int __v4l2_fwnode_endpoint_parse(struct fwnode_handle *fwnode,
 	enum v4l2_mbus_type mbus_type;
 	int rval;
 
+	/*
+	 * Return -EPROBE_DEFER if there's no endpoint -- in case the endpoint's
+	 * origin is a software node, it may be that the endpoint has not been
+	 * instantiated yet, but will be with probing of another driver. This is
+	 * the case with the IPU bridge; once we have no such cases left, return
+	 * another error such as -EINVAL.
+	 */
+	if (!fwnode)
+		return -EPROBE_DEFER;
+
 	pr_debug("===== begin parsing endpoint %pfw\n", fwnode);
 
 	fwnode_property_read_u32(fwnode, "bus-type", &bus_type);
@@ -782,7 +792,7 @@ int v4l2_fwnode_connector_add_link(struct fwnode_handle *fwnode,
 	if (!connector_ep)
 		return -ENOTCONN;
 
-	link = kzalloc(sizeof(*link), GFP_KERNEL);
+	link = kzalloc_obj(*link);
 	if (!link) {
 		err = -ENOMEM;
 		goto err;
@@ -1254,7 +1264,7 @@ int v4l2_async_register_subdev_sensor(struct v4l2_subdev *sd)
 	if (WARN_ON(!sd->dev))
 		return -ENODEV;
 
-	notifier = kzalloc(sizeof(*notifier), GFP_KERNEL);
+	notifier = kzalloc_obj(*notifier);
 	if (!notifier)
 		return -ENOMEM;
 

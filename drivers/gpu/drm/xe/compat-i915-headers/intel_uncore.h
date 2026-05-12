@@ -6,11 +6,10 @@
 #ifndef __INTEL_UNCORE_H__
 #define __INTEL_UNCORE_H__
 
+#include "i915_reg_defs.h"
 #include "xe_device.h"
 #include "xe_device_types.h"
 #include "xe_mmio.h"
-
-#define FORCEWAKE_ALL XE_FORCEWAKE_ALL
 
 static inline struct intel_uncore *to_intel_uncore(struct drm_device *drm)
 {
@@ -38,6 +37,14 @@ static inline u8 intel_uncore_read8(struct intel_uncore *uncore,
 	struct xe_reg reg = XE_REG(i915_mmio_reg_offset(i915_reg));
 
 	return xe_mmio_read8(__compat_uncore_to_mmio(uncore), reg);
+}
+
+static inline void intel_uncore_write8(struct intel_uncore *uncore,
+				       i915_reg_t i915_reg, u8 val)
+{
+	struct xe_reg reg = XE_REG(i915_mmio_reg_offset(i915_reg));
+
+	xe_mmio_write8(__compat_uncore_to_mmio(uncore), reg, val);
 }
 
 static inline u16 intel_uncore_read16(struct intel_uncore *uncore,
@@ -91,48 +98,6 @@ static inline u32 intel_uncore_rmw(struct intel_uncore *uncore,
 	return xe_mmio_rmw32(__compat_uncore_to_mmio(uncore), reg, clear, set);
 }
 
-static inline int intel_wait_for_register(struct intel_uncore *uncore,
-					  i915_reg_t i915_reg, u32 mask,
-					  u32 value, unsigned int timeout)
-{
-	struct xe_reg reg = XE_REG(i915_mmio_reg_offset(i915_reg));
-
-	return xe_mmio_wait32(__compat_uncore_to_mmio(uncore), reg, mask, value,
-			      timeout * USEC_PER_MSEC, NULL, false);
-}
-
-static inline int intel_wait_for_register_fw(struct intel_uncore *uncore,
-					     i915_reg_t i915_reg, u32 mask,
-					     u32 value, unsigned int timeout,
-					     u32 *out_value)
-{
-	struct xe_reg reg = XE_REG(i915_mmio_reg_offset(i915_reg));
-
-	return xe_mmio_wait32(__compat_uncore_to_mmio(uncore), reg, mask, value,
-			      timeout * USEC_PER_MSEC, out_value, false);
-}
-
-static inline int
-__intel_wait_for_register(struct intel_uncore *uncore, i915_reg_t i915_reg,
-			  u32 mask, u32 value, unsigned int fast_timeout_us,
-			  unsigned int slow_timeout_ms, u32 *out_value)
-{
-	struct xe_reg reg = XE_REG(i915_mmio_reg_offset(i915_reg));
-	bool atomic;
-
-	/*
-	 * Replicate the behavior from i915 here, in which sleep is not
-	 * performed if slow_timeout_ms == 0. This is necessary because
-	 * of some paths in display code where waits are done in atomic
-	 * context.
-	 */
-	atomic = !slow_timeout_ms && fast_timeout_us > 0;
-
-	return xe_mmio_wait32(__compat_uncore_to_mmio(uncore), reg, mask, value,
-			      fast_timeout_us + 1000 * slow_timeout_ms,
-			      out_value, atomic);
-}
-
 static inline u32 intel_uncore_read_fw(struct intel_uncore *uncore,
 				       i915_reg_t i915_reg)
 {
@@ -165,9 +130,10 @@ static inline void intel_uncore_write_notrace(struct intel_uncore *uncore,
 	xe_mmio_write32(__compat_uncore_to_mmio(uncore), reg, val);
 }
 
-#define intel_uncore_forcewake_get(x, y) do { } while (0)
-#define intel_uncore_forcewake_put(x, y) do { } while (0)
-
-#define intel_uncore_arm_unclaimed_mmio_detection(x) do { } while (0)
+static inline bool
+intel_uncore_arm_unclaimed_mmio_detection(struct intel_uncore *uncore)
+{
+	return false;
+}
 
 #endif /* __INTEL_UNCORE_H__ */

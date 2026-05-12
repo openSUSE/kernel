@@ -195,8 +195,7 @@ static int stk1160_scan_usb(struct usb_interface *intf, struct usb_device *udev,
 			if (udev->speed == USB_SPEED_HIGH)
 				size = size * hb_mult(sizedescr);
 
-			if (usb_endpoint_xfer_isoc(desc) &&
-			    usb_endpoint_dir_in(desc)) {
+			if (usb_endpoint_is_isoc_in(desc)) {
 				switch (desc->bEndpointAddress) {
 				case STK1160_EP_AUDIO:
 					has_audio = true;
@@ -296,7 +295,7 @@ static int stk1160_probe(struct usb_interface *interface,
 		return rc;
 	}
 
-	dev = kzalloc(sizeof(struct stk1160), GFP_KERNEL);
+	dev = kzalloc_obj(struct stk1160);
 	if (dev == NULL) {
 		kfree(alt_max_pkt_size);
 		return -ENOMEM;

@@ -587,7 +587,7 @@ static int media_pipeline_add_pad(struct media_pipeline *pipe,
 		}
 	}
 
-	ppad = kzalloc(sizeof(*ppad), GFP_KERNEL);
+	ppad = kzalloc_obj(*ppad);
 	if (!ppad)
 		return -ENOMEM;
 
@@ -682,8 +682,8 @@ done:
 		return 0;
 
 	dev_dbg(walk->mdev->dev,
-		"media pipeline: adding unconnected pads of '%s'\n",
-		local->entity->name);
+		"media pipeline: adding unconnected pads of '%s' reachable from pad %u\n",
+		origin->entity->name, origin->index);
 
 	media_entity_for_each_pad(origin->entity, local) {
 		/*
@@ -691,7 +691,7 @@ done:
 		 * (already discovered through iterating over links) and pads
 		 * not internally connected.
 		 */
-		if (origin == local || !local->num_links ||
+		if (origin == local || local->num_links ||
 		    !media_entity_has_pad_interdep(origin->entity, origin->index,
 						   local->index))
 			continue;
@@ -977,7 +977,7 @@ __must_check int media_pipeline_alloc_start(struct media_pad *pad)
 	 */
 	pipe = media_pad_pipeline(pad);
 	if (!pipe) {
-		new_pipe = kzalloc(sizeof(*new_pipe), GFP_KERNEL);
+		new_pipe = kzalloc_obj(*new_pipe);
 		if (!new_pipe) {
 			ret = -ENOMEM;
 			goto out;
@@ -1061,7 +1061,7 @@ static struct media_link *media_add_link(struct list_head *head)
 {
 	struct media_link *link;
 
-	link = kzalloc(sizeof(*link), GFP_KERNEL);
+	link = kzalloc_obj(*link);
 	if (link == NULL)
 		return NULL;
 
@@ -1547,7 +1547,7 @@ struct media_intf_devnode *media_devnode_create(struct media_device *mdev,
 {
 	struct media_intf_devnode *devnode;
 
-	devnode = kzalloc(sizeof(*devnode), GFP_KERNEL);
+	devnode = kzalloc_obj(*devnode);
 	if (!devnode)
 		return NULL;
 

@@ -330,7 +330,7 @@ struct regmap *devm_regmap_init_sch56xx(struct device *dev, struct mutex *lock, 
 	if (config->reg_bits != 16 && config->val_bits != 8)
 		return ERR_PTR(-EOPNOTSUPP);
 
-	context = kzalloc(sizeof(*context), GFP_KERNEL);
+	context = kzalloc_obj(*context);
 	if (!context)
 		return ERR_PTR(-ENOMEM);
 
@@ -544,10 +544,8 @@ void sch56xx_watchdog_register(struct device *parent, u16 addr, u32 revision,
 
 	watchdog_set_drvdata(&data->wddev, data);
 	err = devm_watchdog_register_device(parent, &data->wddev);
-	if (err) {
-		pr_err("Registering watchdog chardev: %d\n", err);
+	if (err)
 		devm_kfree(parent, data);
-	}
 }
 EXPORT_SYMBOL(sch56xx_watchdog_register);
 

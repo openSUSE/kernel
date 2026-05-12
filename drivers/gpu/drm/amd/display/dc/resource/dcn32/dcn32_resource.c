@@ -65,11 +65,12 @@
 #include "dce/dce_audio.h"
 #include "dce/dce_hwseq.h"
 #include "clk_mgr.h"
-#include "virtual/virtual_stream_encoder.h"
+#include "dio/virtual/virtual_stream_encoder.h"
+#include "dio/dcn10/dcn10_dio.h"
 #include "dml/display_mode_vba.h"
 #include "dcn32/dcn32_dccg.h"
 #include "dcn10/dcn10_resource.h"
-#include "link.h"
+#include "link_service.h"
 #include "dcn31/dcn31_panel_cntl.h"
 
 #include "dcn30/dcn30_dwb.h"
@@ -92,7 +93,7 @@
 
 #include "dc_state_priv.h"
 
-#include "dml2/dml2_wrapper.h"
+#include "dml2_0/dml2_wrapper.h"
 
 #define DC_LOGGER_INIT(logger)
 
@@ -643,6 +644,19 @@ static const struct dcn20_vmid_mask vmid_masks = {
 		DCN20_VMID_MASK_SH_LIST(_MASK)
 };
 
+static struct dcn_dio_registers dio_regs;
+
+#define DIO_MASK_SH_LIST(mask_sh)\
+		HWS_SF(, DIO_MEM_PWR_CTRL, I2C_LIGHT_SLEEP_FORCE, mask_sh)
+
+static const struct dcn_dio_shift dio_shift = {
+		DIO_MASK_SH_LIST(__SHIFT)
+};
+
+static const struct dcn_dio_mask dio_mask = {
+		DIO_MASK_SH_LIST(_MASK)
+};
+
 static const struct resource_caps res_cap_dcn32 = {
 	.num_timing_generator = 4,
 	.num_opp = 4,
@@ -738,6 +752,10 @@ static const struct dc_debug_options debug_defaults_drv = {
 	.disable_dp_plus_plus_wa = true,
 	.fpo_vactive_min_active_margin_us = 200,
 	.fpo_vactive_max_blank_us = 1000,
+	.disable_stutter_for_wm_program = true
+};
+
+static const struct dc_check_config config_defaults = {
 	.enable_legacy_fast_update = false,
 };
 
@@ -746,7 +764,7 @@ static struct dce_aux *dcn32_aux_engine_create(
 	uint32_t inst)
 {
 	struct aux_engine_dce110 *aux_engine =
-		kzalloc(sizeof(struct aux_engine_dce110), GFP_KERNEL);
+		kzalloc_obj(struct aux_engine_dce110);
 
 	if (!aux_engine)
 		return NULL;
@@ -786,7 +804,7 @@ static struct dce_i2c_hw *dcn32_i2c_hw_create(
 	uint32_t inst)
 {
 	struct dce_i2c_hw *dce_i2c_hw =
-		kzalloc(sizeof(struct dce_i2c_hw), GFP_KERNEL);
+		kzalloc_obj(struct dce_i2c_hw);
 
 	if (!dce_i2c_hw)
 		return NULL;
@@ -813,7 +831,7 @@ static struct clock_source *dcn32_clock_source_create(
 		bool dp_clk_src)
 {
 	struct dce110_clk_src *clk_src =
-		kzalloc(sizeof(struct dce110_clk_src), GFP_KERNEL);
+		kzalloc_obj(struct dce110_clk_src);
 
 	if (!clk_src)
 		return NULL;
@@ -829,12 +847,27 @@ static struct clock_source *dcn32_clock_source_create(
 	return NULL;
 }
 
+static struct dio *dcn32_dio_create(struct dc_context *ctx)
+{
+	struct dcn10_dio *dio10 = kzalloc_obj(struct dcn10_dio);
+
+	if (!dio10)
+		return NULL;
+
+#undef REG_STRUCT
+#define REG_STRUCT dio_regs
+	DIO_REG_LIST_DCN10();
+
+	dcn10_dio_construct(dio10, ctx, &dio_regs, &dio_shift, &dio_mask);
+
+	return &dio10->base;
+}
+
 static struct hubbub *dcn32_hubbub_create(struct dc_context *ctx)
 {
 	int i;
 
-	struct dcn20_hubbub *hubbub2 = kzalloc(sizeof(struct dcn20_hubbub),
-					  GFP_KERNEL);
+	struct dcn20_hubbub *hubbub2 = kzalloc_obj(struct dcn20_hubbub);
 
 	if (!hubbub2)
 		return NULL;
@@ -889,7 +922,7 @@ static struct hubp *dcn32_hubp_create(
 	uint32_t inst)
 {
 	struct dcn20_hubp *hubp2 =
-		kzalloc(sizeof(struct dcn20_hubp), GFP_KERNEL);
+		kzalloc_obj(struct dcn20_hubp);
 
 	if (!hubp2)
 		return NULL;
@@ -921,7 +954,7 @@ static struct dpp *dcn32_dpp_create(
 	uint32_t inst)
 {
 	struct dcn3_dpp *dpp3 =
-		kzalloc(sizeof(struct dcn3_dpp), GFP_KERNEL);
+		kzalloc_obj(struct dcn3_dpp);
 
 	if (!dpp3)
 		return NULL;
@@ -947,8 +980,7 @@ static struct mpc *dcn32_mpc_create(
 		int num_mpcc,
 		int num_rmu)
 {
-	struct dcn30_mpc *mpc30 = kzalloc(sizeof(struct dcn30_mpc),
-					  GFP_KERNEL);
+	struct dcn30_mpc *mpc30 = kzalloc_obj(struct dcn30_mpc);
 
 	if (!mpc30)
 		return NULL;
@@ -971,7 +1003,7 @@ static struct output_pixel_processor *dcn32_opp_create(
 	struct dc_context *ctx, uint32_t inst)
 {
 	struct dcn20_opp *opp2 =
-		kzalloc(sizeof(struct dcn20_opp), GFP_KERNEL);
+		kzalloc_obj(struct dcn20_opp);
 
 	if (!opp2) {
 		BREAK_TO_DEBUGGER();
@@ -996,7 +1028,7 @@ static struct timing_generator *dcn32_timing_generator_create(
 		uint32_t instance)
 {
 	struct optc *tgn10 =
-		kzalloc(sizeof(struct optc), GFP_KERNEL);
+		kzalloc_obj(struct optc);
 
 	if (!tgn10)
 		return NULL;
@@ -1037,7 +1069,7 @@ static struct link_encoder *dcn32_link_encoder_create(
 	const struct encoder_init_data *enc_init_data)
 {
 	struct dcn20_link_encoder *enc20 =
-		kzalloc(sizeof(struct dcn20_link_encoder), GFP_KERNEL);
+		kzalloc_obj(struct dcn20_link_encoder);
 
 	if (!enc20 || enc_init_data->hpd_source >= ARRAY_SIZE(link_enc_hpd_regs))
 		return NULL;
@@ -1081,7 +1113,7 @@ static struct link_encoder *dcn32_link_encoder_create(
 struct panel_cntl *dcn32_panel_cntl_create(const struct panel_cntl_init_data *init_data)
 {
 	struct dcn31_panel_cntl *panel_cntl =
-		kzalloc(sizeof(struct dcn31_panel_cntl), GFP_KERNEL);
+		kzalloc_obj(struct dcn31_panel_cntl);
 
 	if (!panel_cntl)
 		return NULL;
@@ -1120,7 +1152,7 @@ static struct vpg *dcn32_vpg_create(
 	struct dc_context *ctx,
 	uint32_t inst)
 {
-	struct dcn30_vpg *vpg3 = kzalloc(sizeof(struct dcn30_vpg), GFP_KERNEL);
+	struct dcn30_vpg *vpg3 = kzalloc_obj(struct dcn30_vpg);
 
 	if (!vpg3)
 		return NULL;
@@ -1150,7 +1182,7 @@ static struct afmt *dcn32_afmt_create(
 	struct dc_context *ctx,
 	uint32_t inst)
 {
-	struct dcn30_afmt *afmt3 = kzalloc(sizeof(struct dcn30_afmt), GFP_KERNEL);
+	struct dcn30_afmt *afmt3 = kzalloc_obj(struct dcn30_afmt);
 
 	if (!afmt3)
 		return NULL;
@@ -1176,7 +1208,7 @@ static struct apg *dcn31_apg_create(
 	struct dc_context *ctx,
 	uint32_t inst)
 {
-	struct dcn31_apg *apg31 = kzalloc(sizeof(struct dcn31_apg), GFP_KERNEL);
+	struct dcn31_apg *apg31 = kzalloc_obj(struct dcn31_apg);
 
 	if (!apg31)
 		return NULL;
@@ -1207,13 +1239,13 @@ static struct stream_encoder *dcn32_stream_encoder_create(
 	int afmt_inst;
 
 	/* Mapping of VPG, AFMT, DME register blocks to DIO block instance */
-	if (eng_id <= ENGINE_ID_DIGF) {
-		vpg_inst = eng_id;
-		afmt_inst = eng_id;
-	} else
+	if (eng_id < 0 || eng_id >= ARRAY_SIZE(stream_enc_regs))
 		return NULL;
 
-	enc1 = kzalloc(sizeof(struct dcn10_stream_encoder), GFP_KERNEL);
+	vpg_inst = eng_id;
+	afmt_inst = eng_id;
+
+	enc1 = kzalloc_obj(struct dcn10_stream_encoder);
 	vpg = dcn32_vpg_create(ctx, vpg_inst);
 	afmt = dcn32_afmt_create(ctx, afmt_inst);
 
@@ -1271,7 +1303,7 @@ static struct hpo_dp_stream_encoder *dcn32_hpo_dp_stream_encoder_create(
 	apg_inst = hpo_dp_inst;
 
 	/* allocate HPO stream encoder and create VPG sub-block */
-	hpo_dp_enc31 = kzalloc(sizeof(struct dcn31_hpo_dp_stream_encoder), GFP_KERNEL);
+	hpo_dp_enc31 = kzalloc_obj(struct dcn31_hpo_dp_stream_encoder);
 	vpg = dcn32_vpg_create(ctx, vpg_inst);
 	apg = dcn31_apg_create(ctx, apg_inst);
 
@@ -1304,7 +1336,7 @@ static struct hpo_dp_link_encoder *dcn32_hpo_dp_link_encoder_create(
 	struct dcn31_hpo_dp_link_encoder *hpo_dp_enc31;
 
 	/* allocate HPO link encoder */
-	hpo_dp_enc31 = kzalloc(sizeof(struct dcn31_hpo_dp_link_encoder), GFP_KERNEL);
+	hpo_dp_enc31 = kzalloc_obj(struct dcn31_hpo_dp_link_encoder);
 	if (!hpo_dp_enc31)
 		return NULL; /* out of memory */
 
@@ -1323,7 +1355,7 @@ static struct hpo_dp_link_encoder *dcn32_hpo_dp_link_encoder_create(
 static struct dce_hwseq *dcn32_hwseq_create(
 	struct dc_context *ctx)
 {
-	struct dce_hwseq *hws = kzalloc(sizeof(struct dce_hwseq), GFP_KERNEL);
+	struct dce_hwseq *hws = kzalloc_obj(struct dce_hwseq);
 
 #undef REG_STRUCT
 #define REG_STRUCT hwseq_reg
@@ -1492,6 +1524,11 @@ static void dcn32_resource_destruct(struct dcn32_resource_pool *pool)
 	if (pool->base.dccg != NULL)
 		dcn_dccg_destroy(&pool->base.dccg);
 
+	if (pool->base.dio != NULL) {
+		kfree(TO_DCN10_DIO(pool->base.dio));
+		pool->base.dio = NULL;
+	}
+
 	if (pool->base.oem_device != NULL) {
 		struct dc *dc = pool->base.oem_device->ctx->dc;
 
@@ -1506,8 +1543,7 @@ static bool dcn32_dwbc_create(struct dc_context *ctx, struct resource_pool *pool
 	uint32_t dwb_count = pool->res_cap->num_dwb;
 
 	for (i = 0; i < dwb_count; i++) {
-		struct dcn30_dwbc *dwbc30 = kzalloc(sizeof(struct dcn30_dwbc),
-						    GFP_KERNEL);
+		struct dcn30_dwbc *dwbc30 = kzalloc_obj(struct dcn30_dwbc);
 
 		if (!dwbc30) {
 			dm_error("DC: failed to create dwbc30!\n");
@@ -1535,8 +1571,7 @@ static bool dcn32_mmhubbub_create(struct dc_context *ctx, struct resource_pool *
 	uint32_t dwb_count = pool->res_cap->num_dwb;
 
 	for (i = 0; i < dwb_count; i++) {
-		struct dcn30_mmhubbub *mcif_wb30 = kzalloc(sizeof(struct dcn30_mmhubbub),
-						    GFP_KERNEL);
+		struct dcn30_mmhubbub *mcif_wb30 = kzalloc_obj(struct dcn30_mmhubbub);
 
 		if (!mcif_wb30) {
 			dm_error("DC: failed to create mcif_wb30!\n");
@@ -1562,7 +1597,7 @@ static struct display_stream_compressor *dcn32_dsc_create(
 	struct dc_context *ctx, uint32_t inst)
 {
 	struct dcn20_dsc *dsc =
-		kzalloc(sizeof(struct dcn20_dsc), GFP_KERNEL);
+		kzalloc_obj(struct dcn20_dsc);
 
 	if (!dsc) {
 		BREAK_TO_DEBUGGER();
@@ -1750,8 +1785,8 @@ static bool dml1_validate(struct dc *dc, struct dc_state *context, enum dc_valid
 
 	int vlevel = 0;
 	int pipe_cnt = 0;
-	display_e2e_pipe_params_st *pipes = kcalloc(dc->res_pool->pipe_count,
-			sizeof(display_e2e_pipe_params_st), GFP_KERNEL);
+	display_e2e_pipe_params_st *pipes = kzalloc_objs(display_e2e_pipe_params_st,
+							 dc->res_pool->pipe_count);
 
 	/* To handle Freesync properly, setting FreeSync DML parameters
 	 * to its default state for the first stage of validation
@@ -1785,7 +1820,10 @@ static bool dml1_validate(struct dc *dc, struct dc_state *context, enum dc_valid
 
 	dc->res_pool->funcs->calculate_wm_and_dlg(dc, context, pipes, pipe_cnt, vlevel);
 
+	DC_FP_START();
 	dcn32_override_min_req_memclk(dc, context);
+	DC_FP_END();
+
 	dcn32_override_min_req_dcfclk(dc, context);
 
 	BW_VAL_TRACE_END_WATERMARKS();
@@ -1843,7 +1881,7 @@ enum dc_status dcn32_validate_bandwidth(struct dc *dc,
 				dc_state_set_stream_cursor_subvp_limit(stream, context, true);
 				status = DC_FAIL_HW_CURSOR_SUPPORT;
 			}
-		};
+		}
 	}
 
 	if (validate_mode == DC_VALIDATE_MODE_AND_PROGRAMMING && status == DC_FAIL_HW_CURSOR_SUPPORT) {
@@ -2109,6 +2147,7 @@ static struct resource_funcs dcn32_res_pool_funcs = {
 	.patch_unknown_plane_state = dcn20_patch_unknown_plane_state,
 	.update_soc_for_wm_a = dcn30_update_soc_for_wm_a,
 	.add_phantom_pipes = dcn32_add_phantom_pipes,
+	.get_default_tiling_info = dcn10_get_default_tiling_info,
 	.build_pipe_pix_clk_params = dcn20_build_pipe_pix_clk_params,
 	.calculate_mall_ways_from_bytes = dcn32_calculate_mall_ways_from_bytes,
 	.get_vstartup_for_pipe = dcn10_get_vstartup_for_pipe,
@@ -2187,7 +2226,7 @@ static bool dcn32_resource_construct(
 	/*************************************************
 	 *  Resource + asic cap harcoding                *
 	 *************************************************/
-	pool->base.underlay_pipe_index = NO_UNDERLAY_PIPE;
+	pool->base.underlay_pipe_index = (unsigned int)NO_UNDERLAY_PIPE;
 	pool->base.timing_generator_count = num_pipes;
 	pool->base.pipe_count = num_pipes;
 	pool->base.mpcc_count = num_pipes;
@@ -2196,7 +2235,8 @@ static bool dcn32_resource_construct(
 	dc->caps.i2c_speed_in_khz_hdcp = 100; /*1.4 w/a applied by default*/
 	/* TODO: Bring max_cursor_size back to 256 after subvp cursor corruption is fixed*/
 	dc->caps.max_cursor_size = 64;
-	dc->caps.max_buffered_cursor_size = 64; // sqrt(16 * 1024 / 4)
+	/* floor(sqrt(buf_size_bytes / bpp ) * bpp, fixed_req_size) / bpp = max_width */
+	dc->caps.max_buffered_cursor_size = 64; // floor(sqrt(16 * 1024 / 4) * 4, 256) / 4 = 64
 	dc->caps.min_horizontal_blanking_period = 80;
 	dc->caps.dmdata_alloc_size = 2048;
 	dc->caps.mall_size_per_mem_channel = 4;
@@ -2262,7 +2302,7 @@ static bool dcn32_resource_construct(
 	dc->caps.color.dpp.ocsc = 0;
 
 	dc->caps.color.mpc.gamut_remap = 1;
-	dc->caps.color.mpc.num_3dluts = pool->base.res_cap->num_mpc_3dlut; //4, configurable to be before or after BLND in MPCC
+	dc->caps.color.mpc.num_3dluts = (uint16_t)pool->base.res_cap->num_mpc_3dlut; //4, configurable to be before or after BLND in MPCC
 	dc->caps.color.mpc.ogam_ram = 1;
 	dc->caps.color.mpc.ogam_rom_caps.srgb = 0;
 	dc->caps.color.mpc.ogam_rom_caps.bt2020 = 0;
@@ -2293,6 +2333,7 @@ static bool dcn32_resource_construct(
 			dc->caps.vbios_lttpr_aware = true;
 		}
 	}
+	dc->check_config = config_defaults;
 
 	if (dc->ctx->dce_environment == DCE_ENV_PRODUCTION_DRV)
 		dc->debug = debug_defaults_drv;
@@ -2365,6 +2406,14 @@ static bool dcn32_resource_construct(
 	if (pool->base.hubbub == NULL) {
 		BREAK_TO_DEBUGGER();
 		dm_error("DC: failed to create hubbub!\n");
+		goto create_fail;
+	}
+
+	/* DIO */
+	pool->base.dio = dcn32_dio_create(ctx);
+	if (pool->base.dio == NULL) {
+		BREAK_TO_DEBUGGER();
+		dm_error("DC: failed to create dio!\n");
 		goto create_fail;
 	}
 
@@ -2565,12 +2614,12 @@ struct resource_pool *dcn32_create_resource_pool(
 		struct dc *dc)
 {
 	struct dcn32_resource_pool *pool =
-		kzalloc(sizeof(struct dcn32_resource_pool), GFP_KERNEL);
+		kzalloc_obj(struct dcn32_resource_pool);
 
 	if (!pool)
 		return NULL;
 
-	if (dcn32_resource_construct(init_data->num_virtual_links, dc, pool))
+	if (dcn32_resource_construct((uint8_t)init_data->num_virtual_links, dc, pool))
 		return &pool->base;
 
 	BREAK_TO_DEBUGGER();
@@ -2698,7 +2747,7 @@ static struct pipe_ctx *find_idle_secondary_pipe_check_mpo(
 		if ((res_ctx->pipe_ctx[preferred_pipe_idx].stream == NULL) &&
 			!(next_odm_mpo_pipe && next_odm_mpo_pipe->pipe_idx == preferred_pipe_idx)) {
 			secondary_pipe = &res_ctx->pipe_ctx[preferred_pipe_idx];
-			secondary_pipe->pipe_idx = preferred_pipe_idx;
+			secondary_pipe->pipe_idx = (uint8_t)preferred_pipe_idx;
 		}
 	}
 
@@ -2711,7 +2760,7 @@ static struct pipe_ctx *find_idle_secondary_pipe_check_mpo(
 			if ((res_ctx->pipe_ctx[i].stream == NULL) &&
 				!(next_odm_mpo_pipe && next_odm_mpo_pipe->pipe_idx == i)) {
 				secondary_pipe = &res_ctx->pipe_ctx[i];
-				secondary_pipe->pipe_idx = i;
+				secondary_pipe->pipe_idx = (uint8_t)i;
 				break;
 			}
 		}
@@ -2745,7 +2794,7 @@ static struct pipe_ctx *dcn32_acquire_idle_pipe_for_head_pipe_in_layer(
 	pipe = &old_ctx->pipe_ctx[head_index];
 	if (pipe->bottom_pipe && res_ctx->pipe_ctx[pipe->bottom_pipe->pipe_idx].stream == NULL) {
 		idle_pipe = &res_ctx->pipe_ctx[pipe->bottom_pipe->pipe_idx];
-		idle_pipe->pipe_idx = pipe->bottom_pipe->pipe_idx;
+		idle_pipe->pipe_idx = (uint8_t)pipe->bottom_pipe->pipe_idx;
 	} else {
 		idle_pipe = find_idle_secondary_pipe_check_mpo(res_ctx, pool, head_pipe);
 		if (!idle_pipe)
@@ -2759,7 +2808,7 @@ static struct pipe_ctx *dcn32_acquire_idle_pipe_for_head_pipe_in_layer(
 	idle_pipe->plane_res.hubp = pool->hubps[idle_pipe->pipe_idx];
 	idle_pipe->plane_res.ipp = pool->ipps[idle_pipe->pipe_idx];
 	idle_pipe->plane_res.dpp = pool->dpps[idle_pipe->pipe_idx];
-	idle_pipe->plane_res.mpcc_inst = pool->dpps[idle_pipe->pipe_idx]->inst;
+	idle_pipe->plane_res.mpcc_inst = (uint8_t)pool->dpps[idle_pipe->pipe_idx]->inst;
 
 	return idle_pipe;
 }
@@ -2810,7 +2859,7 @@ struct pipe_ctx *dcn32_acquire_free_pipe_as_secondary_dpp_pipe(
 					pool, opp_head_pipe);
 	if (free_pipe_idx >= 0) {
 		free_pipe = &new_ctx->res_ctx.pipe_ctx[free_pipe_idx];
-		free_pipe->pipe_idx = free_pipe_idx;
+		free_pipe->pipe_idx = (uint8_t)free_pipe_idx;
 		free_pipe->stream = opp_head_pipe->stream;
 		free_pipe->stream_res.tg = opp_head_pipe->stream_res.tg;
 		free_pipe->stream_res.opp = opp_head_pipe->stream_res.opp;
@@ -2819,7 +2868,7 @@ struct pipe_ctx *dcn32_acquire_free_pipe_as_secondary_dpp_pipe(
 		free_pipe->plane_res.ipp = pool->ipps[free_pipe->pipe_idx];
 		free_pipe->plane_res.dpp = pool->dpps[free_pipe->pipe_idx];
 		free_pipe->plane_res.mpcc_inst =
-				pool->dpps[free_pipe->pipe_idx]->inst;
+				(uint8_t)pool->dpps[free_pipe->pipe_idx]->inst;
 	} else {
 		ASSERT(opp_head_pipe);
 		free_pipe = NULL;
@@ -2841,7 +2890,7 @@ struct pipe_ctx *dcn32_acquire_free_pipe_as_secondary_opp_head(
 
 	if (free_pipe_idx >= 0) {
 		free_pipe = &new_ctx->res_ctx.pipe_ctx[free_pipe_idx];
-		free_pipe->pipe_idx = free_pipe_idx;
+		free_pipe->pipe_idx = (uint8_t)free_pipe_idx;
 		free_pipe->stream = otg_master->stream;
 		free_pipe->stream_res.tg = otg_master->stream_res.tg;
 		free_pipe->stream_res.dsc = NULL;
@@ -2851,8 +2900,8 @@ struct pipe_ctx *dcn32_acquire_free_pipe_as_secondary_opp_head(
 		free_pipe->plane_res.ipp = pool->ipps[free_pipe_idx];
 		free_pipe->plane_res.xfm = pool->transforms[free_pipe_idx];
 		free_pipe->plane_res.dpp = pool->dpps[free_pipe_idx];
-		free_pipe->plane_res.mpcc_inst = pool->dpps[free_pipe_idx]->inst;
-		free_pipe->hblank_borrow = otg_master->hblank_borrow;
+		free_pipe->plane_res.mpcc_inst = (uint8_t)pool->dpps[free_pipe_idx]->inst;
+		free_pipe->dsc_padding_params = otg_master->dsc_padding_params;
 		if (free_pipe->stream->timing.flags.DSC == 1) {
 			dcn20_acquire_dsc(free_pipe->stream->ctx->dc,
 					&new_ctx->res_ctx,

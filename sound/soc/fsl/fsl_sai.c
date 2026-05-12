@@ -7,6 +7,7 @@
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/dmaengine.h>
+#include <linux/firmware/imx/sm.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/pinctrl/consumer.h>
@@ -38,6 +39,52 @@ static const unsigned int fsl_sai_rates[] = {
 static const struct snd_pcm_hw_constraint_list fsl_sai_rate_constraints = {
 	.count = ARRAY_SIZE(fsl_sai_rates),
 	.list = fsl_sai_rates,
+};
+
+static const char * const inc_mode[] = {
+	"On enabled and bitcount increment", "On enabled"
+};
+
+static SOC_ENUM_SINGLE_DECL(transmit_tstmp_enum,
+			    FSL_SAI_TTCTL, FSL_SAI_xTCTL_TSINC_SHIFT, inc_mode);
+static SOC_ENUM_SINGLE_DECL(receive_tstmp_enum,
+			    FSL_SAI_RTCTL, FSL_SAI_xTCTL_TSINC_SHIFT, inc_mode);
+
+static const struct snd_kcontrol_new fsl_sai_timestamp_ctrls[] = {
+	FSL_ASOC_SINGLE_EXT("Transmit Timestamp Control Switch", FSL_SAI_TTCTL,
+			    FSL_SAI_xTCTL_TSEN_SHIFT, 1, 0,
+			    fsl_asoc_get_volsw, fsl_asoc_put_volsw),
+	FSL_ASOC_ENUM_EXT("Transmit Timestamp Increment", transmit_tstmp_enum,
+			  fsl_asoc_get_enum_double, fsl_asoc_put_enum_double),
+	FSL_ASOC_SINGLE_EXT("Transmit Timestamp Reset Switch", FSL_SAI_TTCTL,
+			    FSL_SAI_xTCTL_RTSC_SHIFT, 1, 0,
+			    fsl_asoc_get_volsw, fsl_asoc_put_volsw),
+	FSL_ASOC_SINGLE_EXT("Transmit Bit Counter Reset Switch", FSL_SAI_TTCTL,
+			    FSL_SAI_xTCTL_RBC_SHIFT, 1, 0,
+			    fsl_asoc_get_volsw, fsl_asoc_put_volsw),
+	FSL_ASOC_SINGLE_XR_SX_EXT_RO("Transmit Timestamp Counter", FSL_SAI_TTCTN,
+				     1, 32, 0, 0xffffffff, 0, fsl_asoc_get_xr_sx),
+	FSL_ASOC_SINGLE_XR_SX_EXT_RO("Transmit Bit Counter", FSL_SAI_TBCTN,
+				     1, 32, 0, 0xffffffff, 0, fsl_asoc_get_xr_sx),
+	FSL_ASOC_SINGLE_XR_SX_EXT_RO("Transmit Latched Timestamp Counter", FSL_SAI_TTCAP,
+				     1, 32, 0, 0xffffffff, 0, fsl_asoc_get_xr_sx),
+	FSL_ASOC_SINGLE_EXT("Receive Timestamp Control Switch", FSL_SAI_RTCTL,
+			    FSL_SAI_xTCTL_TSEN_SHIFT, 1, 0,
+			    fsl_asoc_get_volsw, fsl_asoc_put_volsw),
+	FSL_ASOC_ENUM_EXT("Receive Timestamp Increment", receive_tstmp_enum,
+			  fsl_asoc_get_enum_double, fsl_asoc_put_enum_double),
+	FSL_ASOC_SINGLE_EXT("Receive Timestamp Reset Switch", FSL_SAI_RTCTL,
+			    FSL_SAI_xTCTL_RTSC_SHIFT, 1, 0,
+			    fsl_asoc_get_volsw, fsl_asoc_put_volsw),
+	FSL_ASOC_SINGLE_EXT("Receive Bit Counter Reset Switch", FSL_SAI_RTCTL,
+			    FSL_SAI_xTCTL_RBC_SHIFT, 1, 0,
+			    fsl_asoc_get_volsw, fsl_asoc_put_volsw),
+	FSL_ASOC_SINGLE_XR_SX_EXT_RO("Receive Timestamp Counter", FSL_SAI_RTCTN,
+				     1, 32, 0, 0xffffffff, 0, fsl_asoc_get_xr_sx),
+	FSL_ASOC_SINGLE_XR_SX_EXT_RO("Receive Bit Counter", FSL_SAI_RBCTN,
+				     1, 32, 0, 0xffffffff, 0, fsl_asoc_get_xr_sx),
+	FSL_ASOC_SINGLE_XR_SX_EXT_RO("Receive Latched Timestamp Counter", FSL_SAI_RTCAP,
+				     1, 32, 0, 0xffffffff, 0, fsl_asoc_get_xr_sx),
 };
 
 /**
@@ -353,7 +400,6 @@ static int fsl_sai_set_dai_fmt_tr(struct snd_soc_dai *cpu_dai,
 		break;
 	case SND_SOC_DAIFMT_PDM:
 		val_cr2 |= FSL_SAI_CR2_BCP;
-		val_cr4 &= ~FSL_SAI_CR4_MF;
 		sai->is_pdm_mode = true;
 		break;
 	case SND_SOC_DAIFMT_RIGHT_J:
@@ -638,7 +684,7 @@ static int fsl_sai_hw_params(struct snd_pcm_substream *substream,
 	val_cr5 |= FSL_SAI_CR5_WNW(slot_width);
 	val_cr5 |= FSL_SAI_CR5_W0W(slot_width);
 
-	if (sai->is_lsb_first || sai->is_pdm_mode)
+	if (sai->is_lsb_first)
 		val_cr5 |= FSL_SAI_CR5_FBT(0);
 	else
 		val_cr5 |= FSL_SAI_CR5_FBT(word_width - 1);
@@ -653,12 +699,12 @@ static int fsl_sai_hw_params(struct snd_pcm_substream *substream,
 		val_cr4 |= FSL_SAI_CR4_CHMOD;
 
 	/*
-	 * For SAI provider mode, when Tx(Rx) sync with Rx(Tx) clock, Rx(Tx) will
-	 * generate bclk and frame clock for Tx(Rx), we should set RCR4(TCR4),
-	 * RCR5(TCR5) for playback(capture), or there will be sync error.
+	 * When Tx(Rx) sync with Rx(Tx) clock, Rx(Tx) will provide bclk and
+	 * frame clock for Tx(Rx). We should set RCR4(TCR4), RCR5(TCR5)
+	 * for playback(capture), or there will be sync error.
 	 */
 
-	if (!sai->is_consumer_mode[tx] && fsl_sai_dir_is_synced(sai, adir)) {
+	if (fsl_sai_dir_is_synced(sai, adir)) {
 		regmap_update_bits(sai->regmap, FSL_SAI_xCR4(!tx, ofs),
 				   FSL_SAI_CR4_SYWD_MASK | FSL_SAI_CR4_FRSZ_MASK |
 				   FSL_SAI_CR4_CHMOD_MASK,
@@ -918,8 +964,14 @@ static int fsl_sai_startup(struct snd_pcm_substream *substream,
 					   tx ? sai->dma_params_tx.maxburst :
 					   sai->dma_params_rx.maxburst);
 
-	ret = snd_pcm_hw_constraint_list(substream->runtime, 0,
-					 SNDRV_PCM_HW_PARAM_RATE, &sai->constraint_rates);
+	if (sai->is_consumer_mode[tx])
+		ret = snd_pcm_hw_constraint_list(substream->runtime, 0,
+						 SNDRV_PCM_HW_PARAM_RATE,
+						 &fsl_sai_rate_constraints);
+	else
+		ret = snd_pcm_hw_constraint_list(substream->runtime, 0,
+						 SNDRV_PCM_HW_PARAM_RATE,
+						 &sai->constraint_rates);
 
 	return ret;
 }
@@ -1004,6 +1056,17 @@ static int fsl_sai_dai_resume(struct snd_soc_component *component)
 	return 0;
 }
 
+static int fsl_sai_component_probe(struct snd_soc_component *component)
+{
+	struct fsl_sai *sai = snd_soc_component_get_drvdata(component);
+
+	if (sai->verid.feature & FSL_SAI_VERID_TSTMP_EN)
+		snd_soc_add_component_controls(component, fsl_sai_timestamp_ctrls,
+					       ARRAY_SIZE(fsl_sai_timestamp_ctrls));
+
+	return 0;
+}
+
 static struct snd_soc_dai_driver fsl_sai_dai_template[] = {
 	{
 		.name = "sai-tx-rx",
@@ -1057,6 +1120,7 @@ static struct snd_soc_dai_driver fsl_sai_dai_template[] = {
 
 static const struct snd_soc_component_driver fsl_component = {
 	.name			= "fsl-sai",
+	.probe			= fsl_sai_component_probe,
 	.resume			= fsl_sai_dai_resume,
 	.legacy_dai_naming	= 1,
 };
@@ -1076,6 +1140,7 @@ static const struct reg_default fsl_sai_reg_defaults_ofs0[] = {
 	{FSL_SAI_TDR6, 0},
 	{FSL_SAI_TDR7, 0},
 	{FSL_SAI_TMR, 0},
+	{FSL_SAI_TTCTL, 0},
 	{FSL_SAI_RCR1(0), 0},
 	{FSL_SAI_RCR2(0), 0},
 	{FSL_SAI_RCR3(0), 0},
@@ -1099,12 +1164,14 @@ static const struct reg_default fsl_sai_reg_defaults_ofs8[] = {
 	{FSL_SAI_TDR6, 0},
 	{FSL_SAI_TDR7, 0},
 	{FSL_SAI_TMR, 0},
+	{FSL_SAI_TTCTL, 0},
 	{FSL_SAI_RCR1(8), 0},
 	{FSL_SAI_RCR2(8), 0},
 	{FSL_SAI_RCR3(8), 0},
 	{FSL_SAI_RCR4(8), 0},
 	{FSL_SAI_RCR5(8), 0},
 	{FSL_SAI_RMR, 0},
+	{FSL_SAI_RTCTL, 0},
 	{FSL_SAI_MCTL, 0},
 	{FSL_SAI_MDIV, 0},
 };
@@ -1202,6 +1269,14 @@ static bool fsl_sai_volatile_reg(struct device *dev, unsigned int reg)
 	case FSL_SAI_RDR5:
 	case FSL_SAI_RDR6:
 	case FSL_SAI_RDR7:
+	case FSL_SAI_TTCTN:
+	case FSL_SAI_RTCTN:
+	case FSL_SAI_TTCTL:
+	case FSL_SAI_TBCTN:
+	case FSL_SAI_TTCAP:
+	case FSL_SAI_RTCTL:
+	case FSL_SAI_RBCTN:
+	case FSL_SAI_RTCAP:
 		return true;
 	default:
 		return false;
@@ -1244,7 +1319,6 @@ static struct regmap_config fsl_sai_regmap_config = {
 	.reg_bits = 32,
 	.reg_stride = 4,
 	.val_bits = 32,
-	.fast_io = true,
 
 	.max_register = FSL_SAI_RMR,
 	.reg_defaults = fsl_sai_reg_defaults_ofs0,
@@ -1346,7 +1420,7 @@ static int fsl_sai_read_dlcfg(struct fsl_sai *sai)
 
 	num_cfg = elems / 3;
 	/*  Add one more for default value */
-	cfg = devm_kzalloc(&pdev->dev, (num_cfg + 1) * sizeof(*cfg), GFP_KERNEL);
+	cfg = devm_kcalloc(&pdev->dev, num_cfg + 1, sizeof(*cfg), GFP_KERNEL);
 	if (!cfg)
 		return -ENOMEM;
 
@@ -1418,10 +1492,12 @@ static int fsl_sai_probe(struct platform_device *pdev)
 	struct fsl_sai *sai;
 	struct regmap *gpr;
 	void __iomem *base;
+	const char *str = NULL;
 	char tmp[8];
 	int irq, ret, i;
 	int index;
 	u32 dmas[4];
+	u32 val;
 
 	sai = devm_kzalloc(dev, sizeof(*sai), GFP_KERNEL);
 	if (!sai)
@@ -1590,6 +1666,24 @@ static int fsl_sai_probe(struct platform_device *pdev)
 	ret = pm_runtime_put_sync(dev);
 	if (ret < 0 && ret != -ENOSYS)
 		goto err_pm_get_sync;
+
+	if (of_device_is_compatible(np, "fsl,imx952-sai") &&
+	    !of_property_read_string(np, "fsl,sai-amix-mode", &str)) {
+		if (!strcmp(str, "bypass"))
+			val = FSL_SAI_AMIX_BYPASS;
+		else if (!strcmp(str, "audmix"))
+			val = FSL_SAI_AMIX_AUDMIX;
+		else
+			val = FSL_SAI_AMIX_NONE;
+
+		if (val < FSL_SAI_AMIX_NONE) {
+			ret = scmi_imx_misc_ctrl_set(SCMI_IMX952_CTRL_BYPASS_AUDMIX, val);
+			if (ret) {
+				dev_err_probe(dev, ret, "Error setting audmix mode\n");
+				goto err_pm_get_sync;
+			}
+		}
+	}
 
 	/*
 	 * Register platform component before registering cpu dai for there

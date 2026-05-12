@@ -15,6 +15,7 @@
 #include <drm/drm_framebuffer.h>
 #include <drm/drm_gem_dma_helper.h>
 #include <drm/drm_plane_helper.h>
+#include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 
 #include "fsl_dcu_drm_drv.h"
@@ -35,7 +36,7 @@ static int fsl_dcu_drm_plane_index(struct drm_plane *plane)
 }
 
 static int fsl_dcu_drm_plane_atomic_check(struct drm_plane *plane,
-					  struct drm_atomic_state *state)
+					  struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *new_plane_state = drm_atomic_get_new_plane_state(state,
 										 plane);
@@ -61,7 +62,7 @@ static int fsl_dcu_drm_plane_atomic_check(struct drm_plane *plane,
 }
 
 static void fsl_dcu_drm_plane_atomic_disable(struct drm_plane *plane,
-					     struct drm_atomic_state *state)
+					     struct drm_atomic_commit *state)
 {
 	struct fsl_dcu_drm_device *fsl_dev = plane->dev->dev_private;
 	unsigned int value;
@@ -77,7 +78,7 @@ static void fsl_dcu_drm_plane_atomic_disable(struct drm_plane *plane,
 }
 
 static void fsl_dcu_drm_plane_atomic_update(struct drm_plane *plane,
-					    struct drm_atomic_state *state)
+					    struct drm_atomic_commit *state)
 
 {
 	struct fsl_dcu_drm_device *fsl_dev = plane->dev->dev_private;
@@ -208,7 +209,7 @@ struct drm_plane *fsl_dcu_drm_primary_create_plane(struct drm_device *dev)
 	struct drm_plane *primary;
 	int ret;
 
-	primary = kzalloc(sizeof(*primary), GFP_KERNEL);
+	primary = kzalloc_obj(*primary);
 	if (!primary) {
 		DRM_DEBUG_KMS("Failed to allocate primary plane\n");
 		return NULL;

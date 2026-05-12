@@ -29,6 +29,9 @@
 
 #include "intel_display_types.h"
 
+struct intel_dsi_host;
+struct ref_tracker;
+
 #define INTEL_DSI_VIDEO_MODE	0
 #define INTEL_DSI_COMMAND_MODE	1
 
@@ -37,13 +40,11 @@
 #define DSI_DUAL_LINK_FRONT_BACK	1
 #define DSI_DUAL_LINK_PIXEL_ALT		2
 
-struct intel_dsi_host;
-
 struct intel_dsi {
 	struct intel_encoder base;
 
 	struct intel_dsi_host *dsi_hosts[I915_MAX_PORTS];
-	intel_wakeref_t io_wakeref[I915_MAX_PORTS];
+	struct ref_tracker *io_wakeref[I915_MAX_PORTS];
 
 	/* GPIO Desc for panel and backlight control */
 	struct gpio_desc *gpio_panel;
@@ -79,9 +80,10 @@ struct intel_dsi {
 	/* NON_BURST_SYNC_PULSE, NON_BURST_SYNC_EVENTS, or BURST_MODE */
 	int video_mode;
 
-	/* eot for MIPI_EOT_DISABLE register */
-	u8 eotp_pkt;
-	u8 clock_stop;
+	bool lp_clock_during_lpm;
+	bool blanking_pkt;
+	bool eot_pkt;
+	bool clock_stop;
 
 	u8 escape_clk_div;
 	u8 dual_link;

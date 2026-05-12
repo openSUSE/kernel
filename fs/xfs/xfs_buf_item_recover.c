@@ -3,7 +3,7 @@
  * Copyright (c) 2000-2006 Silicon Graphics, Inc.
  * All Rights Reserved.
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -90,7 +90,7 @@ xlog_add_buffer_cancelled(
 		return false;
 	}
 
-	bcp = kmalloc(sizeof(struct xfs_buf_cancel), GFP_KERNEL | __GFP_NOFAIL);
+	bcp = kmalloc_obj(struct xfs_buf_cancel, GFP_KERNEL | __GFP_NOFAIL);
 	bcp->bc_blkno = blkno;
 	bcp->bc_len = len;
 	bcp->bc_refcount = 1;
@@ -736,6 +736,16 @@ xlog_recover_do_primary_sb_buffer(
 	 */
 	xfs_sb_from_disk(&mp->m_sb, dsb);
 
+	/*
+	 * Grow can change the device size.  Mirror that into the buftarg.
+	 */
+	mp->m_ddev_targp->bt_nr_sectors =
+		XFS_FSB_TO_BB(mp, mp->m_sb.sb_dblocks);
+	if (mp->m_rtdev_targp && mp->m_rtdev_targp != mp->m_ddev_targp) {
+		mp->m_rtdev_targp->bt_nr_sectors =
+			XFS_FSB_TO_BB(mp, mp->m_sb.sb_rblocks);
+	}
+
 	if (mp->m_sb.sb_agcount < orig_agcount) {
 		xfs_alert(mp, "Shrinking AG count in log recovery not supported");
 		return -EFSCORRUPTED;
@@ -1170,8 +1180,7 @@ xlog_alloc_buf_cancel_table(
 
 	ASSERT(log->l_buf_cancel_table == NULL);
 
-	p = kmalloc_array(XLOG_BC_TABLE_SIZE, sizeof(struct list_head),
-			  GFP_KERNEL);
+	p = kmalloc_objs(struct list_head, XLOG_BC_TABLE_SIZE);
 	if (!p)
 		return -ENOMEM;
 

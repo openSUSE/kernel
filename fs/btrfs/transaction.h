@@ -12,12 +12,9 @@
 #include <linux/time64.h>
 #include <linux/mutex.h>
 #include <linux/wait.h>
+#include <linux/xarray.h>
 #include "btrfs_inode.h"
 #include "delayed-ref.h"
-#include "extent-io-tree.h"
-#include "block-rsv.h"
-#include "messages.h"
-#include "misc.h"
 
 struct dentry;
 struct inode;
@@ -166,6 +163,8 @@ struct btrfs_trans_handle {
 	struct btrfs_fs_info *fs_info;
 	struct list_head new_bgs;
 	struct btrfs_block_rsv delayed_rsv;
+	/* Extent buffers with writeback inhibited by this handle. */
+	struct xarray writeback_inhibited_ebs;
 };
 
 /*

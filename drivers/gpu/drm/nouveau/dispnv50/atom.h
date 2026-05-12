@@ -7,7 +7,7 @@
 struct nouveau_encoder;
 
 struct nv50_atom {
-	struct drm_atomic_state state;
+	struct drm_atomic_commit state;
 
 	struct list_head outp;
 	bool lock_core;
@@ -149,11 +149,24 @@ struct nv50_head_atom {
 };
 
 static inline struct nv50_head_atom *
-nv50_head_atom_get(struct drm_atomic_state *state, struct drm_crtc *crtc)
+nv50_head_atom_get(struct drm_atomic_commit *state, struct drm_crtc *crtc)
 {
 	struct drm_crtc_state *statec = drm_atomic_get_crtc_state(state, crtc);
+
 	if (IS_ERR(statec))
 		return (void *)statec;
+
+	return nv50_head_atom(statec);
+}
+
+static inline struct nv50_head_atom *
+nv50_head_atom_get_new(struct drm_atomic_commit *state, struct drm_crtc *crtc)
+{
+	struct drm_crtc_state *statec = drm_atomic_get_new_crtc_state(state, crtc);
+
+	if (!statec)
+		return NULL;
+
 	return nv50_head_atom(statec);
 }
 

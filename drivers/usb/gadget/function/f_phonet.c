@@ -333,6 +333,15 @@ static void pn_rx_complete(struct usb_ep *ep, struct usb_request *req)
 		if (unlikely(!skb))
 			break;
 
+		if (unlikely(skb_shinfo(skb)->nr_frags >= MAX_SKB_FRAGS)) {
+			/* Frame count from host exceeds frags[] capacity */
+			dev_kfree_skb_any(skb);
+			if (fp->rx.skb == skb)
+				fp->rx.skb = NULL;
+			dev->stats.rx_length_errors++;
+			break;
+		}
+
 		if (skb->len == 0) { /* First fragment */
 			skb->protocol = htons(ETH_P_PHONET);
 			skb_reset_mac_header(skb);
@@ -585,7 +594,7 @@ static void phonet_attr_release(struct config_item *item)
 	usb_put_function_instance(&opts->func_inst);
 }
 
-static struct configfs_item_operations phonet_item_ops = {
+static const struct configfs_item_operations phonet_item_ops = {
 	.release		= phonet_attr_release,
 };
 
@@ -623,7 +632,7 @@ static struct usb_function_instance *phonet_alloc_inst(void)
 {
 	struct f_phonet_opts *opts;
 
-	opts = kzalloc(sizeof(*opts), GFP_KERNEL);
+	opts = kzalloc_obj(*opts);
 	if (!opts)
 		return ERR_PTR(-ENOMEM);
 
@@ -669,7 +678,7 @@ static struct usb_function *phonet_alloc(struct usb_function_instance *fi)
 	struct f_phonet *fp;
 	struct f_phonet_opts *opts;
 
-	fp = kzalloc(struct_size(fp, out_reqv, phonet_rxq_size), GFP_KERNEL);
+	fp = kzalloc_flex(*fp, out_reqv, phonet_rxq_size);
 	if (!fp)
 		return ERR_PTR(-ENOMEM);
 

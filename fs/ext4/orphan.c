@@ -8,6 +8,8 @@
 #include "ext4.h"
 #include "ext4_jbd2.h"
 
+#define EXT4_MAX_ORPHAN_FILE_BLOCKS 512
+
 static int ext4_orphan_file_add(handle_t *handle, struct inode *inode)
 {
 	int i, j, start;
@@ -107,13 +109,9 @@ int ext4_orphan_add(handle_t *handle, struct inode *inode)
 	if (!sbi->s_journal || is_bad_inode(inode))
 		return 0;
 
-	WARN_ON_ONCE(!(inode->i_state & (I_NEW | I_FREEING)) &&
+	WARN_ON_ONCE(!(inode_state_read_once(inode) & (I_NEW | I_FREEING)) &&
 		     !inode_is_locked(inode));
-	/*
-	 * Inode orphaned in orphan file or in orphan list?
-	 */
-	if (ext4_test_inode_state(inode, EXT4_STATE_ORPHAN_FILE) ||
-	    !list_empty(&EXT4_I(inode)->i_orphan))
+	if (ext4_inode_orphan_tracked(inode))
 		return 0;
 
 	/*
@@ -181,8 +179,8 @@ int ext4_orphan_add(handle_t *handle, struct inode *inode)
 	} else
 		brelse(iloc.bh);
 
-	ext4_debug("superblock will point to %lu\n", inode->i_ino);
-	ext4_debug("orphan inode %lu will point to %d\n",
+	ext4_debug("superblock will point to %llu\n", inode->i_ino);
+	ext4_debug("orphan inode %llu will point to %d\n",
 			inode->i_ino, NEXT_ORPHAN(inode));
 out:
 	ext4_std_error(sb, err);
@@ -236,7 +234,7 @@ int ext4_orphan_del(handle_t *handle, struct inode *inode)
 	if (!sbi->s_journal && !(sbi->s_mount_state & EXT4_ORPHAN_FS))
 		return 0;
 
-	WARN_ON_ONCE(!(inode->i_state & (I_NEW | I_FREEING)) &&
+	WARN_ON_ONCE(!(inode_state_read_once(inode) & (I_NEW | I_FREEING)) &&
 		     !inode_is_locked(inode));
 	if (ext4_test_inode_state(inode, EXT4_STATE_ORPHAN_FILE))
 		return ext4_orphan_file_del(handle, inode);
@@ -251,7 +249,7 @@ int ext4_orphan_del(handle_t *handle, struct inode *inode)
 	}
 
 	mutex_lock(&sbi->s_orphan_lock);
-	ext4_debug("remove inode %lu from orphan list\n", inode->i_ino);
+	ext4_debug("remove inode %llu from orphan list\n", inode->i_ino);
 
 	prev = ei->i_orphan.prev;
 	list_del_init(&ei->i_orphan);
@@ -286,7 +284,7 @@ int ext4_orphan_del(handle_t *handle, struct inode *inode)
 		struct inode *i_prev =
 			&list_entry(prev, struct ext4_inode_info, i_orphan)->vfs_inode;
 
-		ext4_debug("orphan inode %lu will point to %u\n",
+		ext4_debug("orphan inode %llu will point to %u\n",
 			  i_prev->i_ino, ino_next);
 		err = ext4_reserve_inode_write(handle, i_prev, &iloc2);
 		if (err) {
@@ -330,9 +328,9 @@ static void ext4_process_orphan(struct inode *inode,
 	if (inode->i_nlink) {
 		if (test_opt(sb, DEBUG))
 			ext4_msg(sb, KERN_DEBUG,
-				"%s: truncating inode %lu to %lld bytes",
+				"%s: truncating inode %llu to %lld bytes",
 				__func__, inode->i_ino, inode->i_size);
-		ext4_debug("truncating inode %lu to %lld bytes\n",
+		ext4_debug("truncating inode %llu to %lld bytes\n",
 			   inode->i_ino, inode->i_size);
 		inode_lock(inode);
 		truncate_inode_pages(inode->i_mapping, inode->i_size);
@@ -351,9 +349,9 @@ static void ext4_process_orphan(struct inode *inode,
 	} else {
 		if (test_opt(sb, DEBUG))
 			ext4_msg(sb, KERN_DEBUG,
-				"%s: deleting unreferenced inode %lu",
+				"%s: deleting unreferenced inode %llu",
 				__func__, inode->i_ino);
-		ext4_debug("deleting unreferenced inode %lu\n",
+		ext4_debug("deleting unreferenced inode %llu\n",
 			   inode->i_ino);
 		(*nr_orphans)++;
 	}
@@ -517,7 +515,7 @@ void ext4_release_orphan_info(struct super_block *sb)
 		return;
 	for (i = 0; i < oi->of_blocks; i++)
 		brelse(oi->of_binfo[i].ob_bh);
-	kfree(oi->of_binfo);
+	kvfree(oi->of_binfo);
 }
 
 static struct ext4_orphan_block_tail *ext4_orphan_block_tail(
@@ -587,11 +585,20 @@ int ext4_init_orphan_info(struct super_block *sb)
 		ext4_msg(sb, KERN_ERR, "get orphan inode failed");
 		return PTR_ERR(inode);
 	}
+	/*
+	 * This is just an artificial limit to prevent corrupted fs from
+	 * consuming absurd amounts of memory when pinning blocks of orphan
+	 * file in memory.
+	 */
+	if (inode->i_size > (EXT4_MAX_ORPHAN_FILE_BLOCKS << inode->i_blkbits)) {
+		ext4_msg(sb, KERN_ERR, "orphan file too big: %llu",
+			 (unsigned long long)inode->i_size);
+		ret = -EFSCORRUPTED;
+		goto out_put;
+	}
 	oi->of_blocks = inode->i_size >> sb->s_blocksize_bits;
 	oi->of_csum_seed = EXT4_I(inode)->i_csum_seed;
-	oi->of_binfo = kmalloc_array(oi->of_blocks,
-				     sizeof(struct ext4_orphan_block),
-				     GFP_KERNEL);
+	oi->of_binfo = kvmalloc_objs(struct ext4_orphan_block, oi->of_blocks);
 	if (!oi->of_binfo) {
 		ret = -ENOMEM;
 		goto out_put;
@@ -630,7 +637,7 @@ int ext4_init_orphan_info(struct super_block *sb)
 out_free:
 	for (i--; i >= 0; i--)
 		brelse(oi->of_binfo[i].ob_bh);
-	kfree(oi->of_binfo);
+	kvfree(oi->of_binfo);
 out_put:
 	iput(inode);
 	return ret;

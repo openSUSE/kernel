@@ -24,9 +24,6 @@ static void tcp6_check_fraglist_gro(struct list_head *head, struct sk_buff *skb,
 	struct net *net;
 	int iif, sdif;
 
-	if (likely(!(skb->dev->features & NETIF_F_GRO_FRAGLIST)))
-		return;
-
 	p = tcp_gro_lookup(head, th);
 	if (p) {
 		NAPI_GRO_CB(skb)->is_flist = NAPI_GRO_CB(p)->is_flist;
@@ -36,8 +33,7 @@ static void tcp6_check_fraglist_gro(struct list_head *head, struct sk_buff *skb,
 	inet6_get_iif_sdif(skb, &iif, &sdif);
 	hdr = skb_gro_network_header(skb);
 	net = dev_net_rcu(skb->dev);
-	sk = __inet6_lookup_established(net, net->ipv4.tcp_death_row.hashinfo,
-					&hdr->saddr, th->source,
+	sk = __inet6_lookup_established(net, &hdr->saddr, th->source,
 					&hdr->daddr, ntohs(th->dest),
 					iif, sdif);
 	NAPI_GRO_CB(skb)->is_flist = !sk;
@@ -46,8 +42,8 @@ static void tcp6_check_fraglist_gro(struct list_head *head, struct sk_buff *skb,
 #endif /* IS_ENABLED(CONFIG_IPV6) */
 }
 
-INDIRECT_CALLABLE_SCOPE
-struct sk_buff *tcp6_gro_receive(struct list_head *head, struct sk_buff *skb)
+static __always_inline struct sk_buff *tcp6_gro_receive(struct list_head *head,
+							struct sk_buff *skb)
 {
 	struct tcphdr *th;
 
@@ -61,7 +57,8 @@ struct sk_buff *tcp6_gro_receive(struct list_head *head, struct sk_buff *skb)
 	if (!th)
 		goto flush;
 
-	tcp6_check_fraglist_gro(head, skb, th);
+	if (unlikely(skb->dev->features & NETIF_F_GRO_FRAGLIST))
+		tcp6_check_fraglist_gro(head, skb, th);
 
 	return tcp_gro_receive(head, skb, th);
 
@@ -70,7 +67,7 @@ flush:
 	return NULL;
 }
 
-INDIRECT_CALLABLE_SCOPE int tcp6_gro_complete(struct sk_buff *skb, int thoff)
+static __always_inline int tcp6_gro_complete(struct sk_buff *skb, int thoff)
 {
 	const u16 offset = NAPI_GRO_CB(skb)->network_offsets[skb->encapsulation];
 	const struct ipv6hdr *iph = (struct ipv6hdr *)(skb->data + offset);
@@ -171,7 +168,8 @@ static struct sk_buff *tcp6_gso_segment(struct sk_buff *skb,
 	if (skb_shinfo(skb)->gso_type & SKB_GSO_FRAGLIST) {
 		struct tcphdr *th = tcp_hdr(skb);
 
-		if (skb_pagelen(skb) - th->doff * 4 == skb_shinfo(skb)->gso_size)
+		if ((skb_pagelen(skb) - th->doff * 4 == skb_shinfo(skb)->gso_size) &&
+		    !(skb_shinfo(skb)->gso_type & SKB_GSO_DODGY))
 			return __tcp6_gso_segment_list(skb, features);
 
 		skb->ip_summed = CHECKSUM_NONE;

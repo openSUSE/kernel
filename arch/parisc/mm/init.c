@@ -604,9 +604,6 @@ void __init mem_init(void)
 #endif
 }
 
-unsigned long *empty_zero_page __ro_after_init;
-EXPORT_SYMBOL(empty_zero_page);
-
 /*
  * pagetable_init() sets up the page tables
  *
@@ -639,9 +636,6 @@ static void __init pagetable_init(void)
 			  initrd_end - initrd_start, PAGE_KERNEL, 0);
 	}
 #endif
-
-	empty_zero_page = memblock_alloc_or_panic(PAGE_SIZE, PAGE_SIZE);
-
 }
 
 static void __init gateway_init(void)
@@ -693,13 +687,9 @@ static void __init fixmap_init(void)
 	} while (addr < end);
 }
 
-static void __init parisc_bootmem_free(void)
+void __init arch_zone_limits_init(unsigned long *max_zone_pfns)
 {
-	unsigned long max_zone_pfn[MAX_NR_ZONES] = { 0, };
-
-	max_zone_pfn[0] = memblock_end_of_DRAM();
-
-	free_area_init(max_zone_pfn);
+	max_zone_pfns[ZONE_NORMAL] = PFN_DOWN(memblock_end_of_DRAM());
 }
 
 void __init paging_init(void)
@@ -710,9 +700,6 @@ void __init paging_init(void)
 	fixmap_init();
 	flush_cache_all_local(); /* start with known state */
 	flush_tlb_all_local(NULL);
-
-	sparse_init();
-	parisc_bootmem_free();
 }
 
 static void alloc_btlb(unsigned long start, unsigned long end, int *slot,

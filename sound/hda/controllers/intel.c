@@ -295,6 +295,9 @@ enum {
 #define AZX_DCAPS_INTEL_LNL \
 	(AZX_DCAPS_INTEL_SKYLAKE | AZX_DCAPS_PIO_COMMANDS)
 
+#define AZX_DCAPS_INTEL_NVL \
+	(AZX_DCAPS_INTEL_LNL & ~AZX_DCAPS_NO_ALIGN_BUFSIZE)
+
 /* quirks for ATI SB / AMD Hudson */
 #define AZX_DCAPS_PRESET_ATI_SB \
 	(AZX_DCAPS_NO_TCSEL | AZX_DCAPS_POSFIX_LPIB |\
@@ -764,12 +767,11 @@ static void azx_clear_irq_pending(struct azx *chip)
 	struct hdac_bus *bus = azx_bus(chip);
 	struct hdac_stream *s;
 
-	spin_lock_irq(&bus->reg_lock);
+	guard(spinlock_irq)(&bus->reg_lock);
 	list_for_each_entry(s, &bus->stream_list, list) {
 		struct azx_dev *azx_dev = stream_to_azx_dev(s);
 		azx_dev->irq_pending = 0;
 	}
-	spin_unlock_irq(&bus->reg_lock);
 }
 
 static int azx_acquire_irq(struct azx *chip, int do_disconnect)
@@ -915,17 +917,17 @@ static void azx_shutdown_chip(struct azx *chip)
 static void azx_add_card_list(struct azx *chip)
 {
 	struct hda_intel *hda = container_of(chip, struct hda_intel, chip);
-	mutex_lock(&card_list_lock);
+
+	guard(mutex)(&card_list_lock);
 	list_add(&hda->list, &card_list);
-	mutex_unlock(&card_list_lock);
 }
 
 static void azx_del_card_list(struct azx *chip)
 {
 	struct hda_intel *hda = container_of(chip, struct hda_intel, chip);
-	mutex_lock(&card_list_lock);
+
+	guard(mutex)(&card_list_lock);
 	list_del_init(&hda->list);
-	mutex_unlock(&card_list_lock);
 }
 
 /* trigger power-save check at writing parameter */
@@ -942,7 +944,7 @@ static int __maybe_unused param_set_xint(const char *val, const struct kernel_pa
 	if (pm_blacklist > 0)
 		return 0;
 
-	mutex_lock(&card_list_lock);
+	guard(mutex)(&card_list_lock);
 	list_for_each_entry(hda, &card_list, list) {
 		chip = &hda->chip;
 		if (!hda->probe_continued || chip->disabled ||
@@ -950,7 +952,6 @@ static int __maybe_unused param_set_xint(const char *val, const struct kernel_pa
 			continue;
 		snd_hda_set_power_save(&chip->bus, power_save * 1000);
 	}
-	mutex_unlock(&card_list_lock);
 	return 0;
 }
 
@@ -1384,9 +1385,6 @@ static void azx_free(struct azx *chip)
 	azx_free_streams(chip);
 	snd_hdac_bus_exit(bus);
 
-#ifdef CONFIG_SND_HDA_PATCH_LOADER
-	release_firmware(chip->fw);
-#endif
 	display_power(chip, false);
 
 	if (chip->driver_caps & AZX_DCAPS_I915_COMPONENT)
@@ -1753,6 +1751,8 @@ static int default_bdl_pos_adj(struct azx *chip)
 		return 1;
 	case AZX_DRIVER_ZHAOXINHDMI:
 		return 128;
+	case AZX_DRIVER_NVIDIA:
+		return 64;
 	default:
 		return 32;
 	}
@@ -1905,11 +1905,6 @@ static int azx_first_init(struct azx *chip)
 		chip->gts_present = true;
 #endif
 
-	if (chip->msi && chip->driver_caps & AZX_DCAPS_NO_MSI64) {
-		dev_dbg(card->dev, "Disabling 64bit MSI\n");
-		pci->no_64bit_msi = true;
-	}
-
 	pci_set_master(pci);
 
 	gcap = azx_readw(chip, GCAP);
@@ -1959,6 +1954,11 @@ static int azx_first_init(struct azx *chip)
 	if (dma_set_mask_and_coherent(&pci->dev, DMA_BIT_MASK(dma_bits)))
 		dma_set_mask_and_coherent(&pci->dev, DMA_BIT_MASK(32));
 	dma_set_max_seg_size(&pci->dev, UINT_MAX);
+
+	if (chip->msi && chip->driver_caps & AZX_DCAPS_NO_MSI64) {
+		dev_dbg(card->dev, "Restricting MSI to %u-bit\n", dma_bits);
+		pci->msi_addr_mask = DMA_BIT_MASK(dma_bits);
+	}
 
 	/* read number of streams from GCAP register instead of using
 	 * hardcoded value
@@ -2034,24 +2034,6 @@ static int azx_first_init(struct azx *chip)
 	return 0;
 }
 
-#ifdef CONFIG_SND_HDA_PATCH_LOADER
-/* callback from request_firmware_nowait() */
-static void azx_firmware_cb(const struct firmware *fw, void *context)
-{
-	struct snd_card *card = context;
-	struct azx *chip = card->private_data;
-
-	if (fw)
-		chip->fw = fw;
-	else
-		dev_err(card->dev, "Cannot load firmware, continue without patching\n");
-	if (!chip->disabled) {
-		/* continue probing */
-		azx_probe_continue(chip);
-	}
-}
-#endif
-
 static int disable_msi_reset_irq(struct azx *chip)
 {
 	struct hdac_bus *bus = azx_bus(chip);
@@ -2085,6 +2067,11 @@ static struct pci_device_id driver_denylist_ideapad_z570[] = {
 	{}
 };
 
+static struct pci_device_id driver_denylist_msi_x870e[] = {
+	{ PCI_DEVICE_SUB(0x1022, 0x15e3, 0x1462, 0xee59) }, /* MSI X870E Tomahawk WiFi */
+	{}
+};
+
 /* DMI-based denylist, to be used when:
  *  - PCI subsystem IDs are zero, impossible to distinguish from valid sound cards.
  *  - Different modifications of the same laptop use different GPU models.
@@ -2097,6 +2084,14 @@ static const struct dmi_system_id driver_denylist_dmi[] = {
 			DMI_MATCH(DMI_PRODUCT_VERSION, "Ideapad Z570"),
 		},
 		.driver_data = &driver_denylist_ideapad_z570,
+	},
+	{
+		/* PCI device matching alone incorrectly matches some laptops */
+		.matches = {
+			DMI_MATCH(DMI_BOARD_VENDOR, "Micro-Star International Co., Ltd."),
+			DMI_MATCH(DMI_BOARD_NAME, "MAG X870E TOMAHAWK WIFI (MS-7E59)"),
+		},
+		.driver_data = &driver_denylist_msi_x870e,
 	},
 	{}
 };
@@ -2115,7 +2110,6 @@ static int azx_probe(struct pci_dev *pci,
 	struct snd_card *card;
 	struct hda_intel *hda;
 	struct azx *chip;
-	bool schedule_probe;
 	int dev;
 	int err;
 
@@ -2211,22 +2205,7 @@ static int azx_probe(struct pci_dev *pci,
 		chip->disabled = true;
 	}
 
-	schedule_probe = !chip->disabled;
-
-#ifdef CONFIG_SND_HDA_PATCH_LOADER
-	if (patch[dev] && *patch[dev]) {
-		dev_info(card->dev, "Applying patch firmware '%s'\n",
-			 patch[dev]);
-		err = request_firmware_nowait(THIS_MODULE, true, patch[dev],
-					      &pci->dev, GFP_KERNEL, card,
-					      azx_firmware_cb);
-		if (err < 0)
-			goto out_free;
-		schedule_probe = false; /* continued in azx_firmware_cb() */
-	}
-#endif /* CONFIG_SND_HDA_PATCH_LOADER */
-
-	if (schedule_probe)
+	if (!chip->disabled)
 		schedule_delayed_work(&hda->probe_work, 0);
 
 	set_bit(dev, probed_devs);
@@ -2355,11 +2334,20 @@ static int azx_probe_continue(struct azx *chip)
 	}
 
 #ifdef CONFIG_SND_HDA_PATCH_LOADER
-	if (chip->fw) {
-		err = snd_hda_load_patch(&chip->bus, chip->fw->size,
-					 chip->fw->data);
-		if (err < 0)
-			goto out_free;
+	if (patch[dev] && *patch[dev]) {
+		const struct firmware *fw = NULL;
+
+		dev_info(&pci->dev, "Applying patch firmware '%s'\n",
+			 patch[dev]);
+		if (request_firmware(&fw, patch[dev], &pci->dev) < 0) {
+			dev_err(&pci->dev,
+				"Cannot load firmware, continue without patching\n");
+		} else {
+			err = snd_hda_load_patch(&chip->bus, fw->size, fw->data);
+			release_firmware(fw);
+			if (err < 0)
+				goto out_free;
+		}
 	}
 #endif
 
@@ -2420,20 +2408,7 @@ static void azx_remove(struct pci_dev *pci)
 		/* cancel the pending probing work */
 		chip = card->private_data;
 		hda = container_of(chip, struct hda_intel, chip);
-		/* FIXME: below is an ugly workaround.
-		 * Both device_release_driver() and driver_probe_device()
-		 * take *both* the device's and its parent's lock before
-		 * calling the remove() and probe() callbacks.  The codec
-		 * probe takes the locks of both the codec itself and its
-		 * parent, i.e. the PCI controller dev.  Meanwhile, when
-		 * the PCI controller is unbound, it takes its lock, too
-		 * ==> ouch, a deadlock!
-		 * As a workaround, we unlock temporarily here the controller
-		 * device during cancel_work_sync() call.
-		 */
-		device_unlock(&pci->dev);
 		cancel_delayed_work_sync(&hda->probe_work);
-		device_lock(&pci->dev);
 
 		clear_bit(chip->dev_index, probed_devs);
 		pci_set_drvdata(pci, NULL);
@@ -2551,10 +2526,13 @@ static const struct pci_device_id azx_ids[] = {
 	{ PCI_DEVICE_DATA(INTEL, HDA_PTL_H, AZX_DRIVER_SKL | AZX_DCAPS_INTEL_LNL) },
 	/* Wildcat Lake */
 	{ PCI_DEVICE_DATA(INTEL, HDA_WCL, AZX_DRIVER_SKL | AZX_DCAPS_INTEL_LNL) },
+	/* Nova Lake */
+	{ PCI_DEVICE_DATA(INTEL, HDA_NVL, AZX_DRIVER_SKL | AZX_DCAPS_INTEL_NVL) },
+	{ PCI_DEVICE_DATA(INTEL, HDA_NVL_S, AZX_DRIVER_SKL | AZX_DCAPS_INTEL_NVL) },
 	/* Apollolake (Broxton-P) */
 	{ PCI_DEVICE_DATA(INTEL, HDA_APL, AZX_DRIVER_SKL | AZX_DCAPS_INTEL_BROXTON) },
 	/* Gemini-Lake */
-	{ PCI_DEVICE_DATA(INTEL, HDA_GML, AZX_DRIVER_SKL | AZX_DCAPS_INTEL_BROXTON) },
+	{ PCI_DEVICE_DATA(INTEL, HDA_GLK, AZX_DRIVER_SKL | AZX_DCAPS_INTEL_BROXTON) },
 	/* Haswell */
 	{ PCI_DEVICE_DATA(INTEL, HDA_HSW_0, AZX_DRIVER_HDMI | AZX_DCAPS_INTEL_HASWELL) },
 	{ PCI_DEVICE_DATA(INTEL, HDA_HSW_2, AZX_DRIVER_HDMI | AZX_DCAPS_INTEL_HASWELL) },

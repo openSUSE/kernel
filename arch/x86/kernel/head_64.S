@@ -33,7 +33,7 @@
  * because we need identity-mapped pages.
  */
 
-	__HEAD
+	__INIT
 	.code64
 SYM_CODE_START_NOALIGN(startup_64)
 	UNWIND_HINT_END_OF_STACK
@@ -71,7 +71,7 @@ SYM_CODE_START_NOALIGN(startup_64)
 	xorl	%edx, %edx
 	wrmsr
 
-	call	startup_64_setup_gdt_idt
+	call	__pi_startup_64_setup_gdt_idt
 
 	/* Now switch to __KERNEL_CS so IRET works reliably */
 	pushq	$__KERNEL_CS
@@ -91,7 +91,7 @@ SYM_CODE_START_NOALIGN(startup_64)
 	 * subsequent code. Pass the boot_params pointer as the first argument.
 	 */
 	movq	%r15, %rdi
-	call	sme_enable
+	call	__pi_sme_enable
 #endif
 
 	/* Sanitize CPU configuration */
@@ -111,7 +111,7 @@ SYM_CODE_START_NOALIGN(startup_64)
 	 * programmed into CR3.
 	 */
 	movq	%r15, %rsi
-	call	__startup_64
+	call	__pi___startup_64
 
 	/* Form the CR3 value being sure to include the CR3 modifier */
 	leaq	early_top_pgt(%rip), %rcx
@@ -562,7 +562,7 @@ SYM_CODE_START_NOALIGN(vc_no_ghcb)
 	/* Call C handler */
 	movq    %rsp, %rdi
 	movq	ORIG_RAX(%rsp), %rsi
-	call    do_vc_no_ghcb
+	call    __pi_do_vc_no_ghcb
 
 	/* Unwind pt_regs */
 	POP_REGS
@@ -616,38 +616,10 @@ SYM_DATA(early_recursion_flag, .long 0)
 
 	.data
 
-#if defined(CONFIG_XEN_PV) || defined(CONFIG_PVH)
-SYM_DATA_START_PTI_ALIGNED(init_top_pgt)
-	.quad   level3_ident_pgt - __START_KERNEL_map + _KERNPG_TABLE_NOENC
-	.org    init_top_pgt + L4_PAGE_OFFSET*8, 0
-	.quad   level3_ident_pgt - __START_KERNEL_map + _KERNPG_TABLE_NOENC
-	.org    init_top_pgt + L4_START_KERNEL*8, 0
-	/* (2^48-(2*1024*1024*1024))/(2^39) = 511 */
-	.quad   level3_kernel_pgt - __START_KERNEL_map + _PAGE_TABLE_NOENC
-	.fill	PTI_USER_PGD_FILL,8,0
-SYM_DATA_END(init_top_pgt)
-
-SYM_DATA_START_PAGE_ALIGNED(level3_ident_pgt)
-	.quad	level2_ident_pgt - __START_KERNEL_map + _KERNPG_TABLE_NOENC
-	.fill	511, 8, 0
-SYM_DATA_END(level3_ident_pgt)
-SYM_DATA_START_PAGE_ALIGNED(level2_ident_pgt)
-	/*
-	 * Since I easily can, map the first 1G.
-	 * Don't set NX because code runs from these pages.
-	 *
-	 * Note: This sets _PAGE_GLOBAL despite whether
-	 * the CPU supports it or it is enabled.  But,
-	 * the CPU should ignore the bit.
-	 */
-	PMDS(0, __PAGE_KERNEL_IDENT_LARGE_EXEC, PTRS_PER_PMD)
-SYM_DATA_END(level2_ident_pgt)
-#else
 SYM_DATA_START_PTI_ALIGNED(init_top_pgt)
 	.fill	512,8,0
 	.fill	PTI_USER_PGD_FILL,8,0
 SYM_DATA_END(init_top_pgt)
-#endif
 
 SYM_DATA_START_PAGE_ALIGNED(level4_kernel_pgt)
 	.fill	511,8,0
@@ -712,10 +684,3 @@ SYM_PIC_ALIAS(phys_base);
 EXPORT_SYMBOL(phys_base)
 
 #include "../xen/xen-head.S"
-
-	__PAGE_ALIGNED_BSS
-SYM_DATA_START_PAGE_ALIGNED(empty_zero_page)
-	.skip PAGE_SIZE
-SYM_DATA_END(empty_zero_page)
-EXPORT_SYMBOL(empty_zero_page)
-

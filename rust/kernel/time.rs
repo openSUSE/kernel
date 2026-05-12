@@ -25,6 +25,7 @@
 //! C header: [`include/linux/ktime.h`](srctree/include/linux/ktime.h).
 
 use core::marker::PhantomData;
+use core::ops;
 
 pub mod delay;
 pub mod hrtimer;
@@ -59,7 +60,13 @@ pub fn msecs_to_jiffies(msecs: Msecs) -> Jiffies {
 /// cases the user of the clock has to decide which clock is best suited for the
 /// purpose. In most scenarios clock [`Monotonic`] is the best choice as it
 /// provides a accurate monotonic notion of time (leap second smearing ignored).
-pub trait ClockSource {
+///
+/// # Safety
+///
+/// Implementers must ensure that `ktime_get()` returns a value in the inclusive range
+/// `0..=KTIME_MAX` (i.e., greater than or equal to 0 and less than or equal to
+/// `KTIME_MAX`, where `KTIME_MAX` equals `i64::MAX`).
+pub unsafe trait ClockSource {
     /// The kernel clock ID associated with this clock source.
     ///
     /// This constant corresponds to the C side `clockid_t` value.
@@ -67,7 +74,7 @@ pub trait ClockSource {
 
     /// Get the current time from the clock source.
     ///
-    /// The function must return a value in the range from 0 to `KTIME_MAX`.
+    /// The function must return a value in the range `0..=KTIME_MAX`.
     fn ktime_get() -> bindings::ktime_t;
 }
 
@@ -84,7 +91,9 @@ pub trait ClockSource {
 /// count time that the system is suspended.
 pub struct Monotonic;
 
-impl ClockSource for Monotonic {
+// SAFETY: The kernel's `ktime_get()` is guaranteed to return a value
+// in `0..=KTIME_MAX`.
+unsafe impl ClockSource for Monotonic {
     const ID: bindings::clockid_t = bindings::CLOCK_MONOTONIC as bindings::clockid_t;
 
     fn ktime_get() -> bindings::ktime_t {
@@ -109,7 +118,9 @@ impl ClockSource for Monotonic {
 /// the clock will experience discontinuity around leap second adjustment.
 pub struct RealTime;
 
-impl ClockSource for RealTime {
+// SAFETY: The kernel's `ktime_get_real()` is guaranteed to return a value
+// in `0..=KTIME_MAX`.
+unsafe impl ClockSource for RealTime {
     const ID: bindings::clockid_t = bindings::CLOCK_REALTIME as bindings::clockid_t;
 
     fn ktime_get() -> bindings::ktime_t {
@@ -127,7 +138,9 @@ impl ClockSource for RealTime {
 /// discontinuities if the time is changed using settimeofday(2) or similar.
 pub struct BootTime;
 
-impl ClockSource for BootTime {
+// SAFETY: The kernel's `ktime_get_boottime()` is guaranteed to return a value
+// in `0..=KTIME_MAX`.
+unsafe impl ClockSource for BootTime {
     const ID: bindings::clockid_t = bindings::CLOCK_BOOTTIME as bindings::clockid_t;
 
     fn ktime_get() -> bindings::ktime_t {
@@ -149,7 +162,9 @@ impl ClockSource for BootTime {
 /// The acronym TAI refers to International Atomic Time.
 pub struct Tai;
 
-impl ClockSource for Tai {
+// SAFETY: The kernel's `ktime_get_clocktai()` is guaranteed to return a value
+// in `0..=KTIME_MAX`.
+unsafe impl ClockSource for Tai {
     const ID: bindings::clockid_t = bindings::CLOCK_TAI as bindings::clockid_t;
 
     fn ktime_get() -> bindings::ktime_t {
@@ -200,9 +215,31 @@ impl<C: ClockSource> Instant<C> {
     pub(crate) fn as_nanos(&self) -> i64 {
         self.inner
     }
+
+    /// Create an [`Instant`] from a `ktime_t` without checking if it is non-negative.
+    ///
+    /// # Panics
+    ///
+    /// On debug builds, this function will panic if `ktime` is not in the range from 0 to
+    /// `KTIME_MAX`.
+    ///
+    /// # Safety
+    ///
+    /// The caller promises that `ktime` is in the range from 0 to `KTIME_MAX`.
+    #[inline]
+    pub(crate) unsafe fn from_ktime(ktime: bindings::ktime_t) -> Self {
+        debug_assert!(ktime >= 0);
+
+        // INVARIANT: Our safety contract ensures that `ktime` is in the range from 0 to
+        // `KTIME_MAX`.
+        Self {
+            inner: ktime,
+            _c: PhantomData,
+        }
+    }
 }
 
-impl<C: ClockSource> core::ops::Sub for Instant<C> {
+impl<C: ClockSource> ops::Sub for Instant<C> {
     type Output = Delta;
 
     // By the type invariant, it never overflows.
@@ -210,6 +247,46 @@ impl<C: ClockSource> core::ops::Sub for Instant<C> {
     fn sub(self, other: Instant<C>) -> Delta {
         Delta {
             nanos: self.inner - other.inner,
+        }
+    }
+}
+
+impl<T: ClockSource> ops::Add<Delta> for Instant<T> {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, rhs: Delta) -> Self::Output {
+        // INVARIANT: With arithmetic over/underflow checks enabled, this will panic if we overflow
+        // (e.g. go above `KTIME_MAX`)
+        let res = self.inner + rhs.nanos;
+
+        // INVARIANT: With overflow checks enabled, we verify here that the value is >= 0
+        #[cfg(CONFIG_RUST_OVERFLOW_CHECKS)]
+        assert!(res >= 0);
+
+        Self {
+            inner: res,
+            _c: PhantomData,
+        }
+    }
+}
+
+impl<T: ClockSource> ops::Sub<Delta> for Instant<T> {
+    type Output = Self;
+
+    #[inline]
+    fn sub(self, rhs: Delta) -> Self::Output {
+        // INVARIANT: With arithmetic over/underflow checks enabled, this will panic if we overflow
+        // (e.g. go above `KTIME_MAX`)
+        let res = self.inner - rhs.nanos;
+
+        // INVARIANT: With overflow checks enabled, we verify here that the value is >= 0
+        #[cfg(CONFIG_RUST_OVERFLOW_CHECKS)]
+        assert!(res >= 0);
+
+        Self {
+            inner: res,
+            _c: PhantomData,
         }
     }
 }
@@ -224,9 +301,87 @@ pub struct Delta {
     nanos: i64,
 }
 
+impl ops::Add for Delta {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, rhs: Self) -> Self {
+        Self {
+            nanos: self.nanos + rhs.nanos,
+        }
+    }
+}
+
+impl ops::AddAssign for Delta {
+    #[inline]
+    fn add_assign(&mut self, rhs: Self) {
+        self.nanos += rhs.nanos;
+    }
+}
+
+impl ops::Sub for Delta {
+    type Output = Self;
+
+    #[inline]
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self {
+            nanos: self.nanos - rhs.nanos,
+        }
+    }
+}
+
+impl ops::SubAssign for Delta {
+    #[inline]
+    fn sub_assign(&mut self, rhs: Self) {
+        self.nanos -= rhs.nanos;
+    }
+}
+
+impl ops::Mul<i64> for Delta {
+    type Output = Self;
+
+    #[inline]
+    fn mul(self, rhs: i64) -> Self::Output {
+        Self {
+            nanos: self.nanos * rhs,
+        }
+    }
+}
+
+impl ops::MulAssign<i64> for Delta {
+    #[inline]
+    fn mul_assign(&mut self, rhs: i64) {
+        self.nanos *= rhs;
+    }
+}
+
+impl ops::Div for Delta {
+    type Output = i64;
+
+    #[inline]
+    fn div(self, rhs: Self) -> Self::Output {
+        #[cfg(CONFIG_64BIT)]
+        {
+            self.nanos / rhs.nanos
+        }
+
+        #[cfg(not(CONFIG_64BIT))]
+        {
+            // SAFETY: This function is always safe to call regardless of the input values
+            unsafe { bindings::div64_s64(self.nanos, rhs.nanos) }
+        }
+    }
+}
+
 impl Delta {
     /// A span of time equal to zero.
     pub const ZERO: Self = Self { nanos: 0 };
+
+    /// Create a new [`Delta`] from a number of nanoseconds.
+    #[inline]
+    pub const fn from_nanos(nanos: i64) -> Self {
+        Self { nanos }
+    }
 
     /// Create a new [`Delta`] from a number of microseconds.
     ///
@@ -310,6 +465,32 @@ impl Delta {
         // SAFETY: It is always safe to call `ktime_to_ms()` with any value.
         unsafe {
             bindings::ktime_to_ms(self.as_nanos())
+        }
+    }
+
+    /// Return `self % dividend` where `dividend` is in nanoseconds.
+    ///
+    /// The kernel doesn't have any emulation for `s64 % s64` on 32 bit platforms, so this is
+    /// limited to 32 bit dividends.
+    #[inline]
+    pub fn rem_nanos(self, dividend: i32) -> Self {
+        #[cfg(CONFIG_64BIT)]
+        {
+            Self {
+                nanos: self.as_nanos() % i64::from(dividend),
+            }
+        }
+
+        #[cfg(not(CONFIG_64BIT))]
+        {
+            let mut rem = 0;
+
+            // SAFETY: `rem` is in the stack, so we can always provide a valid pointer to it.
+            unsafe { bindings::div_s64_rem(self.as_nanos(), dividend, &mut rem) };
+
+            Self {
+                nanos: i64::from(rem),
+            }
         }
     }
 }

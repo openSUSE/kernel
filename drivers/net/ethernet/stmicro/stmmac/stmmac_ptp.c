@@ -10,6 +10,8 @@
 #include "stmmac.h"
 #include "stmmac_ptp.h"
 
+#define PTP_SAFE_TIME_OFFSET_NS	500000
+
 /**
  * stmmac_adjust_freq
  *
@@ -55,7 +57,7 @@ static int stmmac_adjust_time(struct ptp_clock_info *ptp, s64 delta)
 	bool xmac, est_rst = false;
 	int ret;
 
-	xmac = priv->plat->has_gmac4 || priv->plat->has_xgmac;
+	xmac = dwmac_is_xmac(priv->plat->core_type);
 
 	if (delta < 0) {
 		neg_adj = 1;
@@ -171,7 +173,11 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 	u32 acr_value;
 
 	switch (rq->type) {
-	case PTP_CLK_REQ_PEROUT:
+	case PTP_CLK_REQ_PEROUT: {
+		struct timespec64 curr_time;
+		u64 target_ns = 0;
+		u64 ns = 0;
+
 		/* Reject requests with unsupported flags */
 		if (rq->perout.flags)
 			return -EOPNOTSUPP;
@@ -180,6 +186,31 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 
 		cfg->start.tv_sec = rq->perout.start.sec;
 		cfg->start.tv_nsec = rq->perout.start.nsec;
+
+		/* A time set in the past won't trigger the start of the flexible PPS generation for
+		 * the GMAC5. For some reason it does for the GMAC4 but setting a time in the past
+		 * should be addressed anyway. Therefore, any value set it the past is considered as
+		 * an offset compared to the current MAC system time.
+		 * Be aware that an offset too low may not trigger flexible PPS generation
+		 * if time spent in this configuration makes the targeted time already outdated.
+		 * To address this, add a safe time offset.
+		 */
+		if (!cfg->start.tv_sec && cfg->start.tv_nsec < PTP_SAFE_TIME_OFFSET_NS)
+			cfg->start.tv_nsec += PTP_SAFE_TIME_OFFSET_NS;
+
+		target_ns = cfg->start.tv_nsec + ((u64)cfg->start.tv_sec * NSEC_PER_SEC);
+
+		stmmac_get_systime(priv, priv->ptpaddr, &ns);
+		if (ns > TIME64_MAX - PTP_SAFE_TIME_OFFSET_NS)
+			return -EINVAL;
+
+		curr_time = ns_to_timespec64(ns);
+		if (target_ns < ns + PTP_SAFE_TIME_OFFSET_NS) {
+			cfg->start = timespec64_add_safe(cfg->start, curr_time);
+			if (cfg->start.tv_sec == TIME64_MAX)
+				return -EINVAL;
+		}
+
 		cfg->period.tv_sec = rq->perout.period.sec;
 		cfg->period.tv_nsec = rq->perout.period.nsec;
 
@@ -190,6 +221,7 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 					     priv->systime_flags);
 		write_unlock_irqrestore(&priv->ptp_lock, flags);
 		break;
+	}
 	case PTP_CLK_REQ_EXTTS: {
 		u8 channel;
 
@@ -247,10 +279,7 @@ static int stmmac_get_syncdevicetime(ktime_t *device,
 {
 	struct stmmac_priv *priv = (struct stmmac_priv *)ctx;
 
-	if (priv->plat->crosststamp)
-		return priv->plat->crosststamp(device, system, ctx);
-	else
-		return -EOPNOTSUPP;
+	return priv->plat->crosststamp(device, system, ctx);
 }
 
 static int stmmac_getcrosststamp(struct ptp_clock_info *ptp,
@@ -278,7 +307,6 @@ const struct ptp_clock_info stmmac_ptp_clock_ops = {
 	.gettime64 = stmmac_get_time,
 	.settime64 = stmmac_set_time,
 	.enable = stmmac_enable,
-	.getcrosststamp = stmmac_getcrosststamp,
 };
 
 /* structure describing a PTP hardware clock */
@@ -296,7 +324,6 @@ const struct ptp_clock_info dwmac1000_ptp_clock_ops = {
 	.gettime64 = stmmac_get_time,
 	.settime64 = stmmac_set_time,
 	.enable = dwmac1000_ptp_enable,
-	.getcrosststamp = stmmac_getcrosststamp,
 };
 
 /**
@@ -307,30 +334,36 @@ const struct ptp_clock_info dwmac1000_ptp_clock_ops = {
  */
 void stmmac_ptp_register(struct stmmac_priv *priv)
 {
-	int i;
+	unsigned int pps_out_num = priv->dma_cap.pps_out_num;
+	unsigned int n_ext_ts;
 
-	for (i = 0; i < priv->dma_cap.pps_out_num; i++) {
-		if (i >= STMMAC_PPS_MAX)
-			break;
-		priv->pps[i].available = true;
+	if (pps_out_num > STMMAC_PPS_MAX) {
+		dev_warn(priv->device,
+			 "pps outputs (%u) exceeds driver maximum, limiting to %u\n",
+			 pps_out_num, STMMAC_PPS_MAX);
+		pps_out_num = STMMAC_PPS_MAX;
 	}
 
 	/* Calculate the clock domain crossing (CDC) error if necessary */
 	priv->plat->cdc_error_adj = 0;
-	if (priv->plat->has_gmac4)
+	if (priv->plat->core_type == DWMAC_CORE_GMAC4)
 		priv->plat->cdc_error_adj = (2 * NSEC_PER_SEC) / priv->plat->clk_ptp_rate;
 
 	/* Update the ptp clock parameters based on feature discovery, when
 	 * available
 	 */
-	if (priv->dma_cap.pps_out_num)
-		priv->ptp_clock_ops.n_per_out = priv->dma_cap.pps_out_num;
+	if (pps_out_num)
+		priv->ptp_clock_ops.n_per_out = pps_out_num;
 
-	if (priv->dma_cap.aux_snapshot_n)
-		priv->ptp_clock_ops.n_ext_ts = priv->dma_cap.aux_snapshot_n;
+	n_ext_ts = priv->dma_cap.aux_snapshot_n;
+	if (n_ext_ts)
+		priv->ptp_clock_ops.n_ext_ts = n_ext_ts;
 
 	if (priv->plat->ptp_max_adj)
 		priv->ptp_clock_ops.max_adj = priv->plat->ptp_max_adj;
+
+	if (priv->plat->crosststamp)
+		priv->ptp_clock_ops.getcrosststamp = stmmac_getcrosststamp;
 
 	rwlock_init(&priv->ptp_lock);
 	mutex_init(&priv->aux_ts_lock);
@@ -340,8 +373,12 @@ void stmmac_ptp_register(struct stmmac_priv *priv)
 	if (IS_ERR(priv->ptp_clock)) {
 		netdev_err(priv->dev, "ptp_clock_register failed\n");
 		priv->ptp_clock = NULL;
-	} else if (priv->ptp_clock)
+	}
+
+	if (priv->ptp_clock)
 		netdev_info(priv->dev, "registered PTP clock\n");
+	else
+		mutex_destroy(&priv->aux_ts_lock);
 }
 
 /**
@@ -357,7 +394,7 @@ void stmmac_ptp_unregister(struct stmmac_priv *priv)
 		priv->ptp_clock = NULL;
 		pr_debug("Removed PTP HW clock successfully on %s\n",
 			 priv->dev->name);
-	}
 
-	mutex_destroy(&priv->aux_ts_lock);
+		mutex_destroy(&priv->aux_ts_lock);
+	}
 }

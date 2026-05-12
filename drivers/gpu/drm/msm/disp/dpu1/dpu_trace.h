@@ -72,23 +72,20 @@ TRACE_EVENT(dpu_perf_set_danger_luts,
 );
 
 TRACE_EVENT(dpu_perf_set_ot,
-	TP_PROTO(u32 pnum, u32 xin_id, u32 rd_lim, u32 vbif_idx),
-	TP_ARGS(pnum, xin_id, rd_lim, vbif_idx),
+	TP_PROTO(u32 pnum, u32 xin_id, u32 rd_lim),
+	TP_ARGS(pnum, xin_id, rd_lim),
 	TP_STRUCT__entry(
 			__field(u32, pnum)
 			__field(u32, xin_id)
 			__field(u32, rd_lim)
-			__field(u32, vbif_idx)
 	),
 	TP_fast_assign(
 			__entry->pnum = pnum;
 			__entry->xin_id = xin_id;
 			__entry->rd_lim = rd_lim;
-			__entry->vbif_idx = vbif_idx;
 	),
-	TP_printk("pnum:%d xin_id:%d ot:%d vbif:%d",
-			__entry->pnum, __entry->xin_id, __entry->rd_lim,
-			__entry->vbif_idx)
+	TP_printk("pnum:%d xin_id:%d ot:%d",
+			__entry->pnum, __entry->xin_id, __entry->rd_lim)
 )
 
 TRACE_EVENT(dpu_cmd_release_bw,
@@ -651,9 +648,9 @@ TRACE_EVENT(dpu_crtc_setup_mixer,
 	TP_PROTO(uint32_t crtc_id, uint32_t plane_id,
 		 struct drm_plane_state *state, struct dpu_plane_state *pstate,
 		 uint32_t stage_idx, uint32_t pixel_format,
-		 uint64_t modifier),
+		 struct dpu_sw_pipe *pipe, uint64_t modifier),
 	TP_ARGS(crtc_id, plane_id, state, pstate, stage_idx,
-		pixel_format, modifier),
+		pixel_format, pipe, modifier),
 	TP_STRUCT__entry(
 		__field(	uint32_t,		crtc_id		)
 		__field(	uint32_t,		plane_id	)
@@ -676,9 +673,9 @@ TRACE_EVENT(dpu_crtc_setup_mixer,
 		__entry->dst_rect = drm_plane_state_dest(state);
 		__entry->stage_idx = stage_idx;
 		__entry->stage = pstate->stage;
-		__entry->sspp = pstate->pipe.sspp->idx;
-		__entry->multirect_idx = pstate->pipe.multirect_index;
-		__entry->multirect_mode = pstate->pipe.multirect_mode;
+		__entry->sspp = pipe->sspp->idx;
+		__entry->multirect_idx = pipe->multirect_index;
+		__entry->multirect_mode = pipe->multirect_mode;
 		__entry->pixel_format = pixel_format;
 		__entry->modifier = modifier;
 	),
@@ -861,17 +858,15 @@ TRACE_EVENT(dpu_rm_reserve_lms,
 );
 
 TRACE_EVENT(dpu_vbif_wait_xin_halt_fail,
-	TP_PROTO(enum dpu_vbif index, u32 xin_id),
-	TP_ARGS(index, xin_id),
+	TP_PROTO(u32 xin_id),
+	TP_ARGS(xin_id),
 	TP_STRUCT__entry(
-		__field(	enum dpu_vbif,	index	)
 		__field(	u32,		xin_id	)
 	),
 	TP_fast_assign(
-		__entry->index = index;
 		__entry->xin_id = xin_id;
 	),
-	TP_printk("index:%d xin_id:%u", __entry->index, __entry->xin_id)
+	TP_printk("xin_id:%u", __entry->xin_id)
 );
 
 TRACE_EVENT(dpu_pp_connect_ext_te,

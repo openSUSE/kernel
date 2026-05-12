@@ -3,8 +3,8 @@
 DAMON Maintainer Entry Profile
 ==============================
 
-The DAMON subsystem covers the files that are listed in 'DATA ACCESS MONITOR'
-section of 'MAINTAINERS' file.
+The DAMON subsystem covers the files that are listed in 'DAMON' section of
+'MAINTAINERS' file.
 
 The mailing lists for the subsystem are damon@lists.linux.dev and
 linux-mm@kvack.org.  Patches should be made against the `mm-new tree
@@ -27,8 +27,8 @@ maintainer.
 
 Note again the patches for `mm-new tree
 <https://git.kernel.org/akpm/mm/h/mm-new>`_ are queued by the memory management
-subsystem maintainer.  If the patches requires some patches in `damon/next tree
-<https://git.kernel.org/sj/h/damon/next>`_ which not yet merged in mm-new,
+subsystem maintainer.  If the patches require some patches in `damon/next tree
+<https://git.kernel.org/sj/h/damon/next>`_ which have not yet merged in mm-new,
 please make sure the requirement is clearly specified.
 
 Submit checklist addendum
@@ -48,8 +48,7 @@ Further doing below and putting the results will be helpful.
 - Run `damon-tests/corr
   <https://github.com/damonitor/damon-tests/tree/master/corr>`_ for normal
   changes.
-- Run `damon-tests/perf
-  <https://github.com/damonitor/damon-tests/tree/master/perf>`_ for performance
+- Measure impacts on benchmarks or real world workloads for performance
   changes.
 
 Key cycle dates
@@ -57,17 +56,17 @@ Key cycle dates
 
 Patches can be sent anytime.  Key cycle dates of the `mm-new
 <https://git.kernel.org/akpm/mm/h/mm-new>`_, `mm-unstable
-<https://git.kernel.org/akpm/mm/h/mm-unstable>`_and `mm-stable
+<https://git.kernel.org/akpm/mm/h/mm-unstable>`_ and `mm-stable
 <https://git.kernel.org/akpm/mm/h/mm-stable>`_ trees depend on the memory
 management subsystem maintainer.
 
 Review cadence
 --------------
 
-The DAMON maintainer does the work on the usual work hour (09:00 to 17:00,
-Mon-Fri) in PT (Pacific Time).  The response to patches will occasionally be
-slow.  Do not hesitate to send a ping if you have not heard back within a week
-of sending a patch.
+The DAMON maintainer usually work in a flexible way, except early morning in PT
+(Pacific Time).  The response to patches will occasionally be slow.  Do not
+hesitate to send a ping if you have not heard back within a week of sending a
+patch.
 
 Mailing tool
 ------------
@@ -89,20 +88,15 @@ the maintainer.
 Community meetup
 ----------------
 
-DAMON community is maintaining two bi-weekly meetup series for community
-members who prefer synchronous conversations over mails.
+DAMON community has a bi-weekly meetup series for members who prefer
+synchronous conversations over mails.  It is for discussions on specific topics
+between a group of members including the maintainer.  The maintainer shares the
+available time slots, and attendees should reserve one of those at least 24
+hours before the time slot, by reaching out to the maintainer.
 
-The first one is for any discussion between every community member.  No
-reservation is needed.
-
-The seconds one is for discussions on specific topics between restricted
-members including the maintainer.  The maintainer shares the available time
-slots, and attendees should reserve one of those at least 24 hours before the
-time slot, by reaching out to the maintainer.
-
-Schedules and available reservation time slots are available at the Google `doc
+Schedules and reservation status are available at the Google `doc
 <https://docs.google.com/document/d/1v43Kcj3ly4CYqmAkMaZzLiM2GEnWfgdGbZAH3mi2vpM/edit?usp=sharing>`_.
 There is also a public Google `calendar
 <https://calendar.google.com/calendar/u/0?cid=ZDIwOTA4YTMxNjc2MDQ3NTIyMmUzYTM5ZmQyM2U4NDA0ZGIwZjBiYmJlZGQxNDM0MmY4ZTRjOTE0NjdhZDRiY0Bncm91cC5jYWxlbmRhci5nb29nbGUuY29t>`_
-that has the events.  Anyone can subscribe it.  DAMON maintainer will also
-provide periodic reminder to the mailing list (damon@lists.linux.dev).
+that has the events.  Anyone can subscribe to it.  DAMON maintainer will also
+provide periodic reminders to the mailing list (damon@lists.linux.dev).

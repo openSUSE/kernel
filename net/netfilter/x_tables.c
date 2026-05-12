@@ -501,6 +501,17 @@ int xt_check_match(struct xt_mtchk_param *par,
 				    par->match->table, par->table);
 		return -EINVAL;
 	}
+
+	/* NFPROTO_UNSPEC implies NF_INET_* hooks which do not overlap with
+	 * NF_ARP_IN,OUT,FORWARD, allow explicit extensions with NFPROTO_ARP
+	 * support.
+	 */
+	if (par->family == NFPROTO_ARP &&
+	    par->match->family != NFPROTO_ARP) {
+		pr_info_ratelimited("%s_tables: %s match: not valid for this family\n",
+				    xt_prefix[par->family], par->match->name);
+		return -EINVAL;
+	}
 	if (par->match->hooks && (par->hook_mask & ~par->match->hooks) != 0) {
 		char used[64], allow[64];
 
@@ -808,13 +819,17 @@ EXPORT_SYMBOL_GPL(xt_compat_match_to_user);
 
 /* non-compat version may have padding after verdict */
 struct compat_xt_standard_target {
-	struct compat_xt_entry_target t;
-	compat_uint_t verdict;
+	/* Must be last as it ends in a flexible-array member. */
+	TRAILING_OVERLAP(struct compat_xt_entry_target, t, data,
+		compat_uint_t verdict;
+	);
 };
 
 struct compat_xt_error_target {
-	struct compat_xt_entry_target t;
-	char errorname[XT_FUNCTION_MAXNAMELEN];
+	/* Must be last as it ends in a flexible-array member. */
+	TRAILING_OVERLAP(struct compat_xt_entry_target, t, data,
+		char errorname[XT_FUNCTION_MAXNAMELEN];
+	);
 };
 
 int xt_compat_check_entry_offsets(const void *base, const char *elems,
@@ -1016,6 +1031,18 @@ int xt_check_target(struct xt_tgchk_param *par,
 				    par->target->table, par->table);
 		return -EINVAL;
 	}
+
+	/* NFPROTO_UNSPEC implies NF_INET_* hooks which do not overlap with
+	 * NF_ARP_IN,OUT,FORWARD, allow explicit extensions with NFPROTO_ARP
+	 * support.
+	 */
+	if (par->family == NFPROTO_ARP &&
+	    par->target->family != NFPROTO_ARP) {
+		pr_info_ratelimited("%s_tables: %s target: not valid for this family\n",
+				    xt_prefix[par->family], par->target->name);
+		return -EINVAL;
+	}
+
 	if (par->target->hooks && (par->hook_mask & ~par->target->hooks) != 0) {
 		char used[64], allow[64];
 
@@ -1742,7 +1769,7 @@ xt_hook_ops_alloc(const struct xt_table *table, nf_hookfn *fn)
 	if (!num_hooks)
 		return ERR_PTR(-EINVAL);
 
-	ops = kcalloc(num_hooks, sizeof(*ops), GFP_KERNEL);
+	ops = kzalloc_objs(*ops, num_hooks);
 	if (ops == NULL)
 		return ERR_PTR(-ENOMEM);
 
@@ -1764,7 +1791,7 @@ EXPORT_SYMBOL_GPL(xt_hook_ops_alloc);
 int xt_register_template(const struct xt_table *table,
 			 int (*table_init)(struct net *net))
 {
-	int ret = -EEXIST, af = table->af;
+	int ret = -EBUSY, af = table->af;
 	struct xt_template *t;
 
 	mutex_lock(&xt[af].mutex);
@@ -1775,7 +1802,7 @@ int xt_register_template(const struct xt_table *table,
 	}
 
 	ret = -ENOMEM;
-	t = kzalloc(sizeof(*t), GFP_KERNEL);
+	t = kzalloc_obj(*t);
 	if (!t)
 		goto out_unlock;
 
@@ -1993,7 +2020,7 @@ static int __init xt_init(void)
 		}
 	}
 
-	xt = kcalloc(NFPROTO_NUMPROTO, sizeof(struct xt_af), GFP_KERNEL);
+	xt = kzalloc_objs(struct xt_af, NFPROTO_NUMPROTO);
 	if (!xt)
 		return -ENOMEM;
 

@@ -434,7 +434,7 @@ static int tegra_bpmp_probe_clocks(struct tegra_bpmp *bpmp,
 
 	dev_dbg(bpmp->dev, "maximum clock ID: %u\n", max_id);
 
-	clocks = kcalloc(max_id + 1, sizeof(*clocks), GFP_KERNEL);
+	clocks = kzalloc_objs(*clocks, max_id + 1);
 	if (!clocks)
 		return -ENOMEM;
 
@@ -635,7 +635,7 @@ static int tegra_bpmp_register_clocks(struct tegra_bpmp *bpmp,
 
 	bpmp->num_clocks = count;
 
-	bpmp->clocks = devm_kcalloc(bpmp->dev, count, sizeof(struct tegra_bpmp_clk), GFP_KERNEL);
+	bpmp->clocks = devm_kcalloc(bpmp->dev, count, sizeof(*bpmp->clocks), GFP_KERNEL);
 	if (!bpmp->clocks)
 		return -ENOMEM;
 

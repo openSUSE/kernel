@@ -179,7 +179,7 @@ struct dma_fence_array *dma_fence_array_alloc(int num_fences)
 {
 	struct dma_fence_array *array;
 
-	return kzalloc(struct_size(array, callbacks, num_fences), GFP_KERNEL);
+	return kzalloc_flex(*array, callbacks, num_fences);
 }
 EXPORT_SYMBOL(dma_fence_array_alloc);
 
@@ -190,26 +190,37 @@ EXPORT_SYMBOL(dma_fence_array_alloc);
  * @fences:		[in]	array containing the fences
  * @context:		[in]	fence context to use
  * @seqno:		[in]	sequence number to use
- * @signal_on_any:	[in]	signal on any fence in the array
  *
  * Implementation of @dma_fence_array_create without allocation. Useful to init
  * a preallocated dma fence array in the path of reclaim or dma fence signaling.
  */
 void dma_fence_array_init(struct dma_fence_array *array,
 			  int num_fences, struct dma_fence **fences,
-			  u64 context, unsigned seqno,
-			  bool signal_on_any)
+			  u64 context, unsigned seqno)
 {
+	static struct lock_class_key dma_fence_array_lock_key;
+
 	WARN_ON(!num_fences || !fences);
 
 	array->num_fences = num_fences;
 
-	spin_lock_init(&array->lock);
-	dma_fence_init(&array->base, &dma_fence_array_ops, &array->lock,
-		       context, seqno);
+	dma_fence_init(&array->base, &dma_fence_array_ops, NULL, context,
+		       seqno);
 	init_irq_work(&array->work, irq_dma_fence_array_work);
 
-	atomic_set(&array->num_pending, signal_on_any ? 1 : num_fences);
+	/*
+	 * dma_fence_array_enable_signaling() is invoked while holding
+	 * array->base.inline_lock and may call dma_fence_add_callback()
+	 * on the underlying fences, which takes their inline_lock.
+	 *
+	 * Since both locks share the same lockdep class, this legitimate
+	 * nesting confuses lockdep and triggers a recursive locking
+	 * warning. Assign a separate lockdep class to the array lock
+	 * to model this hierarchy correctly.
+	 */
+	lockdep_set_class(&array->base.inline_lock, &dma_fence_array_lock_key);
+
+	atomic_set(&array->num_pending, num_fences);
 	array->fences = fences;
 
 	array->base.error = PENDING_ERROR;
@@ -236,7 +247,6 @@ EXPORT_SYMBOL(dma_fence_array_init);
  * @fences:		[in]	array containing the fences
  * @context:		[in]	fence context to use
  * @seqno:		[in]	sequence number to use
- * @signal_on_any:	[in]	signal on any fence in the array
  *
  * Allocate a dma_fence_array object and initialize the base fence with
  * dma_fence_init().
@@ -251,8 +261,7 @@ EXPORT_SYMBOL(dma_fence_array_init);
  */
 struct dma_fence_array *dma_fence_array_create(int num_fences,
 					       struct dma_fence **fences,
-					       u64 context, unsigned seqno,
-					       bool signal_on_any)
+					       u64 context, unsigned seqno)
 {
 	struct dma_fence_array *array;
 
@@ -260,8 +269,7 @@ struct dma_fence_array *dma_fence_array_create(int num_fences,
 	if (!array)
 		return NULL;
 
-	dma_fence_array_init(array, num_fences, fences,
-			     context, seqno, signal_on_any);
+	dma_fence_array_init(array, num_fences, fences, context, seqno);
 
 	return array;
 }

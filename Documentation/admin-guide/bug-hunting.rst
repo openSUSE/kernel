@@ -52,14 +52,14 @@ line is usually required to identify and handle the bug. Along this chapter,
 we'll refer to "Oops" for all kinds of stack traces that need to be analyzed.
 
 If the kernel is compiled with ``CONFIG_DEBUG_INFO``, you can enhance the
-quality of the stack trace by using file:`scripts/decode_stacktrace.sh`.
+quality of the stack trace by using ``scripts/decode_stacktrace.sh``.
 
 Modules linked in
 -----------------
 
 Modules that are tainted or are being loaded or unloaded are marked with
 "(...)", where the taint flags are described in
-file:`Documentation/admin-guide/tainted-kernels.rst`, "being loaded" is
+Documentation/admin-guide/tainted-kernels.rst, "being loaded" is
 annotated with "+", and "being unloaded" is annotated with "-".
 
 
@@ -235,7 +235,7 @@ Dave Miller)::
          mov        0x8(%ebp), %ebx         ! %ebx = skb->sk
          mov        0x13c(%ebx), %eax       ! %eax = inet_sk(sk)->opt
 
-file:`scripts/decodecode` can be used to automate most of this, depending
+``scripts/decodecode`` can be used to automate most of this, depending
 on what CPU architecture is being debugged.
 
 Reporting the bug
@@ -252,7 +252,7 @@ For example, if you find a bug at the gspca's sonixj.c file, you can get
 its maintainers with::
 
 	$ ./scripts/get_maintainer.pl --bug -f drivers/media/usb/gspca/sonixj.c
-	Hans Verkuil <hverkuil@xs4all.nl> (odd fixer:GSPCA USB WEBCAM DRIVER,commit_signer:1/1=100%)
+	Hans Verkuil <hverkuil@kernel.org> (odd fixer:GSPCA USB WEBCAM DRIVER,commit_signer:1/1=100%)
 	Mauro Carvalho Chehab <mchehab@kernel.org> (maintainer:MEDIA INPUT INFRASTRUCTURE (V4L/DVB),commit_signer:1/1=100%)
 	Tejun Heo <tj@kernel.org> (commit_signer:1/1=100%)
 	Bhaktipriya Shridhar <bhaktipriya96@gmail.com> (commit_signer:1/1=100%,authored:1/1=100%,added_lines:4/4=100%,removed_lines:9/9=100%)

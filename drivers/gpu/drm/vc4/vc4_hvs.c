@@ -26,6 +26,7 @@
 
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_drv.h>
+#include <drm/drm_print.h>
 #include <drm/drm_vblank.h>
 
 #include <soc/bcm2835/raspberrypi-firmware.h>
@@ -786,7 +787,7 @@ void vc4_hvs_stop_channel(struct vc4_hvs *hvs, unsigned int chan)
 		__vc4_hvs_stop_channel(hvs, chan);
 }
 
-int vc4_hvs_atomic_check(struct drm_crtc *crtc, struct drm_atomic_state *state)
+int vc4_hvs_atomic_check(struct drm_crtc *crtc, struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *crtc_state = drm_atomic_get_new_crtc_state(state, crtc);
 	struct vc4_crtc_state *vc4_state = to_vc4_crtc_state(crtc_state);
@@ -881,7 +882,7 @@ static void vc4_hvs_update_dlist(struct drm_crtc *crtc)
 }
 
 void vc4_hvs_atomic_begin(struct drm_crtc *crtc,
-			  struct drm_atomic_state *state)
+			  struct drm_atomic_commit *state)
 {
 	struct vc4_crtc *vc4_crtc = to_vc4_crtc(crtc);
 	struct vc4_crtc_state *vc4_state = to_vc4_crtc_state(crtc->state);
@@ -893,7 +894,7 @@ void vc4_hvs_atomic_begin(struct drm_crtc *crtc,
 }
 
 void vc4_hvs_atomic_enable(struct drm_crtc *crtc,
-			   struct drm_atomic_state *state)
+			   struct drm_atomic_commit *state)
 {
 	struct drm_device *dev = crtc->dev;
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
@@ -911,7 +912,7 @@ void vc4_hvs_atomic_enable(struct drm_crtc *crtc,
 }
 
 void vc4_hvs_atomic_disable(struct drm_crtc *crtc,
-			    struct drm_atomic_state *state)
+			    struct drm_atomic_commit *state)
 {
 	struct drm_device *dev = crtc->dev;
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
@@ -923,7 +924,7 @@ void vc4_hvs_atomic_disable(struct drm_crtc *crtc,
 }
 
 void vc4_hvs_atomic_flush(struct drm_crtc *crtc,
-			  struct drm_atomic_state *state)
+			  struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *old_state = drm_atomic_get_old_crtc_state(state,
 									 crtc);

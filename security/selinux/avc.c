@@ -30,13 +30,14 @@
 #include "avc.h"
 #include "avc_ss.h"
 #include "classmap.h"
+#include "hash.h"
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/avc.h>
 
-#define AVC_CACHE_SLOTS			512
-#define AVC_DEF_CACHE_THRESHOLD		512
-#define AVC_CACHE_RECLAIM		16
+#define AVC_CACHE_SLOTS		(1 << CONFIG_SECURITY_SELINUX_AVC_HASH_BITS)
+#define AVC_DEF_CACHE_THRESHOLD	AVC_CACHE_SLOTS
+#define AVC_CACHE_RECLAIM	16
 
 #ifdef CONFIG_SECURITY_SELINUX_AVC_STATS
 #define avc_cache_stats_incr(field)	this_cpu_inc(avc_cache_stats.field)
@@ -124,7 +125,7 @@ static struct kmem_cache *avc_xperms_cachep __ro_after_init;
 
 static inline u32 avc_hash(u32 ssid, u32 tsid, u16 tclass)
 {
-	return (ssid ^ (tsid<<2) ^ (tclass<<4)) & (AVC_CACHE_SLOTS - 1);
+	return av_hash(ssid, tsid, (u32)tclass, (u32)(AVC_CACHE_SLOTS - 1));
 }
 
 /**
@@ -292,27 +293,26 @@ static struct avc_xperms_decision_node
 	struct avc_xperms_decision_node *xpd_node;
 	struct extended_perms_decision *xpd;
 
-	xpd_node = kmem_cache_zalloc(avc_xperms_decision_cachep,
-				     GFP_NOWAIT | __GFP_NOWARN);
+	xpd_node = kmem_cache_zalloc(avc_xperms_decision_cachep, GFP_NOWAIT);
 	if (!xpd_node)
 		return NULL;
 
 	xpd = &xpd_node->xpd;
 	if (which & XPERMS_ALLOWED) {
 		xpd->allowed = kmem_cache_zalloc(avc_xperms_data_cachep,
-						GFP_NOWAIT | __GFP_NOWARN);
+						 GFP_NOWAIT);
 		if (!xpd->allowed)
 			goto error;
 	}
 	if (which & XPERMS_AUDITALLOW) {
 		xpd->auditallow = kmem_cache_zalloc(avc_xperms_data_cachep,
-						GFP_NOWAIT | __GFP_NOWARN);
+						    GFP_NOWAIT);
 		if (!xpd->auditallow)
 			goto error;
 	}
 	if (which & XPERMS_DONTAUDIT) {
 		xpd->dontaudit = kmem_cache_zalloc(avc_xperms_data_cachep,
-						GFP_NOWAIT | __GFP_NOWARN);
+						   GFP_NOWAIT);
 		if (!xpd->dontaudit)
 			goto error;
 	}
@@ -340,7 +340,7 @@ static struct avc_xperms_node *avc_xperms_alloc(void)
 {
 	struct avc_xperms_node *xp_node;
 
-	xp_node = kmem_cache_zalloc(avc_xperms_cachep, GFP_NOWAIT | __GFP_NOWARN);
+	xp_node = kmem_cache_zalloc(avc_xperms_cachep, GFP_NOWAIT);
 	if (!xp_node)
 		return xp_node;
 	INIT_LIST_HEAD(&xp_node->xpd_head);
@@ -495,7 +495,7 @@ static struct avc_node *avc_alloc_node(void)
 {
 	struct avc_node *node;
 
-	node = kmem_cache_zalloc(avc_node_cachep, GFP_NOWAIT | __GFP_NOWARN);
+	node = kmem_cache_zalloc(avc_node_cachep, GFP_NOWAIT);
 	if (!node)
 		goto out;
 
@@ -794,7 +794,7 @@ int __init avc_add_callback(int (*callback)(u32 event), u32 events)
 	struct avc_callback_node *c;
 	int rc = 0;
 
-	c = kmalloc(sizeof(*c), GFP_KERNEL);
+	c = kmalloc_obj(*c);
 	if (!c) {
 		rc = -ENOMEM;
 		goto out;

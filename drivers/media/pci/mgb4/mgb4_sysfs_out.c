@@ -143,6 +143,64 @@ end:
 	return ret;
 }
 
+static ssize_t color_mapping_show(struct device *dev,
+				  struct device_attribute *attr, char *buf)
+{
+	struct video_device *vdev = to_video_device(dev);
+	struct mgb4_vout_dev *voutdev = video_get_drvdata(vdev);
+	u32 config = mgb4_read_reg(&voutdev->mgbdev->video,
+	  voutdev->config->regs.config);
+
+	switch ((config >> 6) & 3) {
+	case 0: /* SPWG/VESA */
+		return sprintf(buf, "1\n");
+	case 1: /* ZDML */
+		return sprintf(buf, "2\n");
+	case 2: /* OLDI/JEIDA */
+		return sprintf(buf, "0\n");
+	default:
+		return -EIO;
+	}
+}
+
+/*
+ * Color mapping change is expected to be called on live streams. Video device
+ * locking/queue check is not needed.
+ */
+static ssize_t color_mapping_store(struct device *dev,
+				   struct device_attribute *attr,
+				   const char *buf, size_t count)
+{
+	struct video_device *vdev = to_video_device(dev);
+	struct mgb4_vout_dev *voutdev = video_get_drvdata(vdev);
+	u32 fpga_data;
+	unsigned long val;
+	int ret;
+
+	ret = kstrtoul(buf, 10, &val);
+	if (ret)
+		return ret;
+
+	switch (val) {
+	case 0: /* OLDI/JEIDA */
+		fpga_data = 2;
+		break;
+	case 1: /* SPWG/VESA */
+		fpga_data = 0;
+		break;
+	case 2: /* ZDML */
+		fpga_data = 1;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	mgb4_mask_reg(&voutdev->mgbdev->video, voutdev->config->regs.config,
+		      3U << 6, fpga_data << 6);
+
+	return count;
+}
+
 static ssize_t display_width_show(struct device *dev,
 				  struct device_attribute *attr, char *buf)
 {
@@ -665,6 +723,7 @@ static ssize_t pclk_frequency_store(struct device *dev,
 {
 	struct video_device *vdev = to_video_device(dev);
 	struct mgb4_vout_dev *voutdev = video_get_drvdata(vdev);
+	struct mgb4_dev *mgbdev = voutdev->mgbdev;
 	unsigned long val;
 	int ret;
 	unsigned int dp;
@@ -679,14 +738,16 @@ static ssize_t pclk_frequency_store(struct device *dev,
 		return -EBUSY;
 	}
 
-	dp = (val > 50000) ? 1 : 0;
+	dp = (MGB4_IS_FPDL3(mgbdev) && val > 50000) ? 1 : 0;
 	voutdev->freq = mgb4_cmt_set_vout_freq(voutdev, val >> dp) << dp;
-
-	mgb4_mask_reg(&voutdev->mgbdev->video, voutdev->config->regs.config,
-		      0x10, dp << 4);
-	mutex_lock(&voutdev->mgbdev->i2c_lock);
-	ret = mgb4_i2c_mask_byte(&voutdev->ser, 0x4F, 1 << 6, ((~dp) & 1) << 6);
-	mutex_unlock(&voutdev->mgbdev->i2c_lock);
+	mgb4_mask_reg(&mgbdev->video, voutdev->config->regs.config, 0x10,
+		      dp << 4);
+	if (MGB4_IS_FPDL3(mgbdev)) {
+		mutex_lock(&mgbdev->i2c_lock);
+		ret = mgb4_i2c_mask_byte(&voutdev->ser, 0x4F, 1 << 6,
+					 ((~dp) & 1) << 6);
+		mutex_unlock(&mgbdev->i2c_lock);
+	}
 
 	mutex_unlock(voutdev->vdev.lock);
 
@@ -708,6 +769,7 @@ static DEVICE_ATTR_RW(hback_porch);
 static DEVICE_ATTR_RW(hfront_porch);
 static DEVICE_ATTR_RW(vback_porch);
 static DEVICE_ATTR_RW(vfront_porch);
+static DEVICE_ATTR_RW(color_mapping);
 
 static DEVICE_ATTR_RW(fpdl3_output_width);
 
@@ -728,14 +790,36 @@ struct attribute *mgb4_fpdl3_out_attrs[] = {
 	&dev_attr_vback_porch.attr,
 	&dev_attr_vfront_porch.attr,
 	&dev_attr_fpdl3_output_width.attr,
+	&dev_attr_color_mapping.attr,
 	NULL
 };
 
-struct attribute *mgb4_gmsl_out_attrs[] = {
+struct attribute *mgb4_gmsl3_out_attrs[] = {
 	&dev_attr_output_id.attr,
 	&dev_attr_video_source.attr,
 	&dev_attr_display_width.attr,
 	&dev_attr_display_height.attr,
 	&dev_attr_frame_rate.attr,
+	&dev_attr_color_mapping.attr,
+	NULL
+};
+
+struct attribute *mgb4_gmsl1_out_attrs[] = {
+	&dev_attr_output_id.attr,
+	&dev_attr_video_source.attr,
+	&dev_attr_display_width.attr,
+	&dev_attr_display_height.attr,
+	&dev_attr_frame_rate.attr,
+	&dev_attr_hsync_polarity.attr,
+	&dev_attr_vsync_polarity.attr,
+	&dev_attr_de_polarity.attr,
+	&dev_attr_pclk_frequency.attr,
+	&dev_attr_hsync_width.attr,
+	&dev_attr_vsync_width.attr,
+	&dev_attr_hback_porch.attr,
+	&dev_attr_hfront_porch.attr,
+	&dev_attr_vback_porch.attr,
+	&dev_attr_vfront_porch.attr,
+	&dev_attr_color_mapping.attr,
 	NULL
 };

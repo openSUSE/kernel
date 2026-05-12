@@ -395,7 +395,7 @@ static int rza2_dt_node_to_map(struct pinctrl_dev *pctldev,
 
 	/* Create map where to retrieve function and mux settings from */
 	*num_maps = 0;
-	*map = kzalloc(sizeof(**map), GFP_KERNEL);
+	*map = kzalloc_obj(**map);
 	if (!*map) {
 		ret = -ENOMEM;
 		goto remove_function;
@@ -442,7 +442,7 @@ static int rza2_set_mux(struct pinctrl_dev *pctldev, unsigned int selector,
 			unsigned int group)
 {
 	struct rza2_pinctrl_priv *priv = pinctrl_dev_get_drvdata(pctldev);
-	struct function_desc *func;
+	const struct function_desc *func;
 	unsigned int i, *psel_val;
 	struct group_desc *grp;
 

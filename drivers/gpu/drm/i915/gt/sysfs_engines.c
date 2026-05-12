@@ -7,6 +7,7 @@
 #include <linux/sysfs.h>
 
 #include "i915_drv.h"
+#include "i915_timer_util.h"
 #include "intel_engine.h"
 #include "intel_engine_heartbeat.h"
 #include "sysfs_engines.h"
@@ -429,7 +430,7 @@ kobj_engine(struct kobject *dir, struct intel_engine_cs *engine)
 {
 	struct kobj_engine *ke;
 
-	ke = kzalloc(sizeof(*ke), GFP_KERNEL);
+	ke = kzalloc_obj(*ke);
 	if (!ke)
 		return NULL;
 
@@ -457,7 +458,7 @@ static void add_defaults(struct kobj_engine *parent)
 	};
 	struct kobj_engine *ke;
 
-	ke = kzalloc(sizeof(*ke), GFP_KERNEL);
+	ke = kzalloc_obj(*ke);
 	if (!ke)
 		return;
 

@@ -611,7 +611,8 @@ static struct iova_magazine *iova_magazine_alloc(gfp_t flags)
 
 static void iova_magazine_free(struct iova_magazine *mag)
 {
-	kmem_cache_free(iova_magazine_cache, mag);
+	if (mag)
+		kmem_cache_free(iova_magazine_cache, mag);
 }
 
 static void
@@ -715,9 +716,8 @@ int iova_domain_init_rcaches(struct iova_domain *iovad)
 	unsigned int cpu;
 	int i, ret;
 
-	iovad->rcaches = kcalloc(IOVA_RANGE_CACHE_MAX_SIZE,
-				 sizeof(struct iova_rcache),
-				 GFP_KERNEL);
+	iovad->rcaches = kzalloc_objs(struct iova_rcache,
+				      IOVA_RANGE_CACHE_MAX_SIZE);
 	if (!iovad->rcaches)
 		return -ENOMEM;
 

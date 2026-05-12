@@ -296,7 +296,6 @@ static void otg_timer(struct timer_list *t)
 	if (err < 0)
 		dev_err(dev, "%s resume work: %i\n", __func__, err);
 	spin_unlock_irqrestore(&musb->lock, flags);
-	pm_runtime_mark_last_busy(dev);
 	pm_runtime_put_autosuspend(dev);
 }
 
@@ -839,7 +838,7 @@ static int dsps_setup_optional_vbus_irq(struct platform_device *pdev,
 {
 	int error;
 
-	glue->vbus_irq = platform_get_irq_byname(pdev, "vbus");
+	glue->vbus_irq = platform_get_irq_byname_optional(pdev, "vbus");
 	if (glue->vbus_irq == -EPROBE_DEFER)
 		return -EPROBE_DEFER;
 

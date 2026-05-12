@@ -187,7 +187,7 @@ static int acp6x_pdm_dma_open(struct snd_soc_component *component,
 
 	runtime = substream->runtime;
 	adata = dev_get_drvdata(component->dev);
-	pdm_data = kzalloc(sizeof(*pdm_data), GFP_KERNEL);
+	pdm_data = kzalloc_obj(*pdm_data);
 	if (!pdm_data)
 		return -EINVAL;
 
@@ -346,7 +346,7 @@ static const struct snd_soc_component_driver acp6x_pdm_component = {
 	.close			= acp6x_pdm_dma_close,
 	.hw_params		= acp6x_pdm_dma_hw_params,
 	.pointer		= acp6x_pdm_dma_pointer,
-	.pcm_construct		= acp6x_pdm_dma_new,
+	.pcm_new		= acp6x_pdm_dma_new,
 	.legacy_dai_naming	= 1,
 };
 

@@ -12,6 +12,7 @@
 
 #include <linux/dcache.h>
 #include <linux/file.h>
+#include <linux/fips.h>
 #include <linux/module.h>
 #include <linux/namei.h>
 #include <linux/skbuff.h>
@@ -22,6 +23,7 @@
 #include <linux/fs_stack.h>
 #include <linux/sysfs.h>
 #include <linux/slab.h>
+#include <linux/string.h>
 #include <linux/magic.h>
 #include "ecryptfs_kernel.h"
 
@@ -106,15 +108,14 @@ static int ecryptfs_init_lower_file(struct dentry *dentry,
 				    struct file **lower_file)
 {
 	const struct cred *cred = current_cred();
-	const struct path *path = ecryptfs_dentry_to_lower_path(dentry);
+	struct path path = ecryptfs_lower_path(dentry);
 	int rc;
 
-	rc = ecryptfs_privileged_open(lower_file, path->dentry, path->mnt,
-				      cred);
+	rc = ecryptfs_privileged_open(lower_file, path.dentry, path.mnt, cred);
 	if (rc) {
 		printk(KERN_ERR "Error opening lower file "
 		       "for lower_dentry [0x%p] and lower_mnt [0x%p]; "
-		       "rc = [%d]\n", path->dentry, path->mnt, rc);
+		       "rc = [%d]\n", path.dentry, path.mnt, rc);
 		(*lower_file) = NULL;
 	}
 	return rc;
@@ -354,13 +355,13 @@ static int ecryptfs_validate_options(struct fs_context *fc)
 		int cipher_name_len = strlen(ECRYPTFS_DEFAULT_CIPHER);
 
 		BUG_ON(cipher_name_len > ECRYPTFS_MAX_CIPHER_NAME_SIZE);
-		strcpy(mount_crypt_stat->global_default_cipher_name,
-		       ECRYPTFS_DEFAULT_CIPHER);
+		strscpy(mount_crypt_stat->global_default_cipher_name,
+			ECRYPTFS_DEFAULT_CIPHER);
 	}
 	if ((mount_crypt_stat->flags & ECRYPTFS_GLOBAL_ENCRYPT_FILENAMES)
 	    && !ctx->fn_cipher_name_set)
-		strcpy(mount_crypt_stat->global_default_fn_cipher_name,
-		       mount_crypt_stat->global_default_cipher_name);
+		strscpy(mount_crypt_stat->global_default_fn_cipher_name,
+			mount_crypt_stat->global_default_cipher_name);
 	if (!ctx->cipher_key_bytes_set)
 		mount_crypt_stat->global_default_cipher_key_size = 0;
 	if ((mount_crypt_stat->flags & ECRYPTFS_GLOBAL_ENCRYPT_FILENAMES)
@@ -437,7 +438,6 @@ static int ecryptfs_get_tree(struct fs_context *fc)
 	struct ecryptfs_fs_context *ctx = fc->fs_private;
 	struct ecryptfs_sb_info *sbi = fc->s_fs_info;
 	struct ecryptfs_mount_crypt_stat *mount_crypt_stat;
-	struct ecryptfs_dentry_info *root_info;
 	const char *err = "Getting sb failed";
 	struct inode *inode;
 	struct path path;
@@ -453,6 +453,12 @@ static int ecryptfs_get_tree(struct fs_context *fc)
 	rc = ecryptfs_validate_options(fc);
 	if (rc) {
 		err = "Error validating options";
+		goto out;
+	}
+
+	if (fips_enabled) {
+		rc = -EINVAL;
+		err = "eCryptfs support is disabled due to FIPS";
 		goto out;
 	}
 
@@ -525,6 +531,7 @@ static int ecryptfs_get_tree(struct fs_context *fc)
 	s->s_blocksize = path.dentry->d_sb->s_blocksize;
 	s->s_magic = ECRYPTFS_SUPER_MAGIC;
 	s->s_stack_depth = path.dentry->d_sb->s_stack_depth + 1;
+	s->s_time_gran = path.dentry->d_sb->s_time_gran;
 
 	rc = -EINVAL;
 	if (s->s_stack_depth > FILESYSTEM_MAX_STACK_DEPTH) {
@@ -543,14 +550,8 @@ static int ecryptfs_get_tree(struct fs_context *fc)
 		goto out_free;
 	}
 
-	rc = -ENOMEM;
-	root_info = kmem_cache_zalloc(ecryptfs_dentry_info_cache, GFP_KERNEL);
-	if (!root_info)
-		goto out_free;
-
-	/* ->kill_sb() will take care of root_info */
-	ecryptfs_set_dentry_private(s->s_root, root_info);
-	root_info->lower_path = path;
+	ecryptfs_set_dentry_lower(s->s_root, path.dentry);
+	ecryptfs_superblock_to_private(s)->lower_mnt = path.mnt;
 
 	s->s_flags |= SB_ACTIVE;
 	fc->root = dget(s->s_root);
@@ -580,6 +581,7 @@ static void ecryptfs_kill_block_super(struct super_block *sb)
 	kill_anon_super(sb);
 	if (!sb_info)
 		return;
+	mntput(sb_info->lower_mnt);
 	ecryptfs_destroy_mount_crypt_stat(&sb_info->mount_crypt_stat);
 	kmem_cache_free(ecryptfs_sb_info_cache, sb_info);
 }
@@ -609,7 +611,7 @@ static int ecryptfs_init_fs_context(struct fs_context *fc)
 	struct ecryptfs_fs_context *ctx;
 	struct ecryptfs_sb_info *sbi = NULL;
 
-	ctx = kzalloc(sizeof(struct ecryptfs_fs_context), GFP_KERNEL);
+	ctx = kzalloc_obj(struct ecryptfs_fs_context);
 	if (!ctx)
 		return -ENOMEM;
 	sbi = kmem_cache_zalloc(ecryptfs_sb_info_cache, GFP_KERNEL);
@@ -666,11 +668,6 @@ static struct ecryptfs_cache_info {
 		.cache = &ecryptfs_file_info_cache,
 		.name = "ecryptfs_file_cache",
 		.size = sizeof(struct ecryptfs_file_info),
-	},
-	{
-		.cache = &ecryptfs_dentry_info_cache,
-		.name = "ecryptfs_dentry_info_cache",
-		.size = sizeof(struct ecryptfs_dentry_info),
 	},
 	{
 		.cache = &ecryptfs_inode_info_cache,

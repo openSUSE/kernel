@@ -7,13 +7,12 @@
 #include <linux/atomic.h>
 #include <linux/sizes.h>
 #include "btrfs_inode.h"
-#include "fs.h"
 
 struct address_space;
 struct folio;
 
 /*
- * Extra info for subpapge bitmap.
+ * Extra info for subpage bitmap.
  *
  * For subpage we pack all uptodate/dirty/writeback/ordered bitmaps into
  * one larger bitmap.

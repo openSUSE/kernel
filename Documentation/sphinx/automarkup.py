@@ -46,6 +46,12 @@ RE_namespace = re.compile(r'^\s*..\s*c:namespace::\s*(\S+)\s*$')
 #
 Skipnames = [ 'for', 'if', 'register', 'sizeof', 'struct', 'unsigned' ]
 
+#
+# Common English words that should not be recognized as C identifiers
+# when following struct/union/enum/typedef keywords.
+# Example: "a simple struct that" in workqueue.rst should not be marked as code.
+#
+Skipidentifiers = [ 'that', 'which', 'where', 'whose' ]
 
 #
 # Many places in the docs refer to common system calls.  It is
@@ -163,6 +169,10 @@ def markup_c_ref(docname, app, match):
     if c_namespace:
         possible_targets.insert(0, c_namespace + "." + base_target)
 
+    # Skip common English words that match identifier pattern but are not C code.
+    if base_target in Skipidentifiers:
+        return target_text
+
     if base_target not in Skipnames:
         for target in possible_targets:
             if not (match.re == RE_function and target in Skipfuncs):
@@ -244,7 +254,7 @@ def add_and_resolve_xref(app, docname, domain, reftype, target, contnode=None):
     return contnode
 
 #
-# Variant of markup_abi_ref() that warns whan a reference is not found
+# Variant of markup_abi_ref() that warns when a reference is not found
 #
 def markup_abi_file_ref(docname, app, match):
     return markup_abi_ref(docname, app, match, warning=True)

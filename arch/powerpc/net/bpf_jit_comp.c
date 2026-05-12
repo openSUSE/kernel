@@ -129,48 +129,87 @@ bool bpf_jit_needs_zext(void)
 	return true;
 }
 
-struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *fp)
+static void priv_stack_init_guard(void __percpu *priv_stack_ptr, int alloc_size)
+{
+	int cpu, underflow_idx = (alloc_size - PRIV_STACK_GUARD_SZ) >> 3;
+	u64 *stack_ptr;
+
+	for_each_possible_cpu(cpu) {
+		stack_ptr = per_cpu_ptr(priv_stack_ptr, cpu);
+		stack_ptr[0] = PRIV_STACK_GUARD_VAL;
+		stack_ptr[1] = PRIV_STACK_GUARD_VAL;
+		stack_ptr[underflow_idx] = PRIV_STACK_GUARD_VAL;
+		stack_ptr[underflow_idx + 1] = PRIV_STACK_GUARD_VAL;
+	}
+}
+
+static void priv_stack_check_guard(void __percpu *priv_stack_ptr, int alloc_size,
+								struct bpf_prog *fp)
+{
+	int cpu, underflow_idx = (alloc_size - PRIV_STACK_GUARD_SZ) >> 3;
+	u64 *stack_ptr;
+
+	for_each_possible_cpu(cpu) {
+		stack_ptr = per_cpu_ptr(priv_stack_ptr, cpu);
+		if (stack_ptr[0] != PRIV_STACK_GUARD_VAL ||
+			stack_ptr[1] != PRIV_STACK_GUARD_VAL ||
+			stack_ptr[underflow_idx] != PRIV_STACK_GUARD_VAL ||
+			stack_ptr[underflow_idx + 1] != PRIV_STACK_GUARD_VAL) {
+			pr_err("BPF private stack overflow/underflow detected for prog %s\n",
+			bpf_jit_get_prog_name(fp));
+			break;
+		}
+	}
+}
+
+struct bpf_prog *bpf_int_jit_compile(struct bpf_verifier_env *env, struct bpf_prog *fp)
 {
 	u32 proglen;
 	u32 alloclen;
 	u8 *image = NULL;
-	u32 *code_base;
-	u32 *addrs;
-	struct powerpc_jit_data *jit_data;
+	u32 *code_base = NULL;
+	u32 *addrs = NULL;
+	struct powerpc_jit_data *jit_data = NULL;
 	struct codegen_context cgctx;
 	int pass;
 	int flen;
+	int priv_stack_alloc_size;
+	void __percpu *priv_stack_ptr = NULL;
 	struct bpf_binary_header *fhdr = NULL;
 	struct bpf_binary_header *hdr = NULL;
-	struct bpf_prog *org_fp = fp;
-	struct bpf_prog *tmp_fp;
-	bool bpf_blinded = false;
 	bool extra_pass = false;
 	u8 *fimage = NULL;
-	u32 *fcode_base;
+	u32 *fcode_base = NULL;
 	u32 extable_len;
 	u32 fixup_len;
 
 	if (!fp->jit_requested)
-		return org_fp;
-
-	tmp_fp = bpf_jit_blind_constants(org_fp);
-	if (IS_ERR(tmp_fp))
-		return org_fp;
-
-	if (tmp_fp != org_fp) {
-		bpf_blinded = true;
-		fp = tmp_fp;
-	}
+		return fp;
 
 	jit_data = fp->aux->jit_data;
 	if (!jit_data) {
-		jit_data = kzalloc(sizeof(*jit_data), GFP_KERNEL);
-		if (!jit_data) {
-			fp = org_fp;
-			goto out;
-		}
+		jit_data = kzalloc_obj(*jit_data);
+		if (!jit_data)
+			return fp;
 		fp->aux->jit_data = jit_data;
+	}
+
+	priv_stack_ptr = fp->aux->priv_stack_ptr;
+	if (!priv_stack_ptr && fp->aux->jits_use_priv_stack) {
+		/*
+		 * Allocate private stack of size equivalent to
+		 * verifier-calculated stack size plus two memory
+		 * guard regions to detect private stack overflow
+		 * and underflow.
+		 */
+		priv_stack_alloc_size = round_up(fp->aux->stack_depth, 16) +
+							2 * PRIV_STACK_GUARD_SZ;
+		priv_stack_ptr = __alloc_percpu_gfp(priv_stack_alloc_size, 16, GFP_KERNEL);
+		if (!priv_stack_ptr)
+			goto out_priv_stack;
+
+		priv_stack_init_guard(priv_stack_ptr, priv_stack_alloc_size);
+		fp->aux->priv_stack_ptr = priv_stack_ptr;
 	}
 
 	flen = fp->len;
@@ -194,23 +233,37 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *fp)
 	}
 
 	addrs = kcalloc(flen + 1, sizeof(*addrs), GFP_KERNEL);
-	if (addrs == NULL) {
-		fp = org_fp;
-		goto out_addrs;
-	}
+	if (addrs == NULL)
+		goto out_err;
 
 	memset(&cgctx, 0, sizeof(struct codegen_context));
 	bpf_jit_init_reg_mapping(&cgctx);
 
 	/* Make sure that the stack is quadword aligned. */
 	cgctx.stack_size = round_up(fp->aux->stack_depth, 16);
+	cgctx.arena_vm_start = bpf_arena_get_kern_vm_start(fp->aux->arena);
+	cgctx.user_vm_start = bpf_arena_get_user_vm_start(fp->aux->arena);
+	cgctx.is_subprog = bpf_is_subprog(fp);
+	cgctx.exception_boundary = fp->aux->exception_boundary;
+	cgctx.exception_cb = fp->aux->exception_cb;
+	cgctx.priv_sp = priv_stack_ptr;
+	cgctx.priv_stack_size = 0;
+	if (priv_stack_ptr) {
+		/*
+		 * priv_stack_size required for setting bpf FP inside
+		 * percpu allocation.
+		 * stack_size is marked 0 to prevent allocation on
+		 * general stack and offset calculation don't go for
+		 * a toss in bpf_jit_stack_offsetof() & bpf_jit_stack_local()
+		 */
+		cgctx.priv_stack_size = cgctx.stack_size;
+		cgctx.stack_size = 0;
+	}
 
 	/* Scouting faux-generate pass 0 */
-	if (bpf_jit_build_body(fp, NULL, NULL, &cgctx, addrs, 0, false)) {
+	if (bpf_jit_build_body(fp, NULL, NULL, &cgctx, addrs, 0, false))
 		/* We hit something illegal or unsupported. */
-		fp = org_fp;
-		goto out_addrs;
-	}
+		goto out_err;
 
 	/*
 	 * If we have seen a tail call, we need a second pass.
@@ -221,10 +274,8 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *fp)
 	 */
 	if (cgctx.seen & SEEN_TAILCALL || !is_offset_in_branch_range((long)cgctx.idx * 4)) {
 		cgctx.idx = 0;
-		if (bpf_jit_build_body(fp, NULL, NULL, &cgctx, addrs, 0, false)) {
-			fp = org_fp;
-			goto out_addrs;
-		}
+		if (bpf_jit_build_body(fp, NULL, NULL, &cgctx, addrs, 0, false))
+			goto out_err;
 	}
 
 	bpf_jit_realloc_regs(&cgctx);
@@ -245,10 +296,8 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *fp)
 
 	fhdr = bpf_jit_binary_pack_alloc(alloclen, &fimage, 4, &hdr, &image,
 					      bpf_jit_fill_ill_insns);
-	if (!fhdr) {
-		fp = org_fp;
-		goto out_addrs;
-	}
+	if (!fhdr)
+		goto out_err;
 
 	if (extable_len)
 		fp->aux->extable = (void *)fimage + FUNCTION_DESCR_SIZE + proglen + fixup_len;
@@ -267,8 +316,7 @@ skip_init_ctx:
 				       extra_pass)) {
 			bpf_arch_text_copy(&fhdr->size, &hdr->size, sizeof(hdr->size));
 			bpf_jit_binary_pack_free(fhdr, hdr);
-			fp = org_fp;
-			goto out_addrs;
+			goto out_err;
 		}
 		bpf_jit_build_epilogue(code_base, &cgctx);
 
@@ -290,17 +338,30 @@ skip_init_ctx:
 	((u64 *)image)[1] = local_paca->kernel_toc;
 #endif
 
+	if (!fp->is_func || extra_pass) {
+		if (bpf_jit_binary_pack_finalize(fhdr, hdr))
+			goto out_err;
+	}
+
 	fp->bpf_func = (void *)fimage;
 	fp->jited = 1;
 	fp->jited_len = cgctx.idx * 4 + FUNCTION_DESCR_SIZE;
 
 	if (!fp->is_func || extra_pass) {
-		if (bpf_jit_binary_pack_finalize(fhdr, hdr)) {
-			fp = org_fp;
-			goto out_addrs;
-		}
 		bpf_prog_fill_jited_linfo(fp, addrs);
+		/*
+		 * On ABI V1, executable code starts after the function
+		 * descriptor, so adjust base accordingly.
+		 */
+		bpf_prog_update_insn_ptrs(fp, addrs,
+				(void *)fimage + FUNCTION_DESCR_SIZE);
+
 out_addrs:
+		if (!image && priv_stack_ptr) {
+			fp->aux->priv_stack_ptr = NULL;
+			free_percpu(priv_stack_ptr);
+		}
+out_priv_stack:
 		kfree(addrs);
 		kfree(jit_data);
 		fp->aux->jit_data = NULL;
@@ -313,11 +374,15 @@ out_addrs:
 		jit_data->hdr = hdr;
 	}
 
-out:
-	if (bpf_blinded)
-		bpf_jit_prog_release_other(fp, fp == org_fp ? tmp_fp : org_fp);
-
 	return fp;
+
+out_err:
+	if (extra_pass) {
+		fp->bpf_func = NULL;
+		fp->jited = 0;
+		fp->jited_len = 0;
+	}
+	goto out_addrs;
 }
 
 /*
@@ -326,7 +391,7 @@ out:
  */
 int bpf_add_extable_entry(struct bpf_prog *fp, u32 *image, u32 *fimage, int pass,
 			  struct codegen_context *ctx, int insn_idx, int jmp_off,
-			  int dst_reg)
+			  int dst_reg, u32 code)
 {
 	off_t offset;
 	unsigned long pc;
@@ -355,6 +420,9 @@ int bpf_add_extable_entry(struct bpf_prog *fp, u32 *image, u32 *fimage, int pass
 		(ctx->exentry_idx * BPF_FIXUP_LEN * 4);
 
 	fixup[0] = PPC_RAW_LI(dst_reg, 0);
+	if (BPF_CLASS(code) == BPF_ST || BPF_CLASS(code) == BPF_STX)
+		fixup[0] = PPC_RAW_NOP();
+
 	if (IS_ENABLED(CONFIG_PPC32))
 		fixup[1] = PPC_RAW_LI(dst_reg - 1, 0); /* clear higher 32-bit register too */
 
@@ -411,6 +479,8 @@ void bpf_jit_free(struct bpf_prog *fp)
 	if (fp->jited) {
 		struct powerpc_jit_data *jit_data = fp->aux->jit_data;
 		struct bpf_binary_header *hdr;
+		void __percpu *priv_stack_ptr;
+		int priv_stack_alloc_size;
 
 		/*
 		 * If we fail the final pass of JIT (from jit_subprogs),
@@ -424,20 +494,91 @@ void bpf_jit_free(struct bpf_prog *fp)
 		}
 		hdr = bpf_jit_binary_pack_hdr(fp);
 		bpf_jit_binary_pack_free(hdr, NULL);
+		priv_stack_ptr = fp->aux->priv_stack_ptr;
+		if (priv_stack_ptr) {
+			priv_stack_alloc_size = round_up(fp->aux->stack_depth, 16) +
+							2 * PRIV_STACK_GUARD_SZ;
+			priv_stack_check_guard(priv_stack_ptr, priv_stack_alloc_size, fp);
+			free_percpu(priv_stack_ptr);
+		}
 		WARN_ON_ONCE(!bpf_prog_kallsyms_verify_off(fp));
 	}
 
 	bpf_prog_unlock_free(fp);
 }
 
+bool bpf_jit_supports_exceptions(void)
+{
+	return IS_ENABLED(CONFIG_PPC64);
+}
+
+bool bpf_jit_supports_subprog_tailcalls(void)
+{
+	return IS_ENABLED(CONFIG_PPC64);
+}
+
 bool bpf_jit_supports_kfunc_call(void)
 {
+	return IS_ENABLED(CONFIG_PPC64);
+}
+
+bool bpf_jit_supports_private_stack(void)
+{
+	return IS_ENABLED(CONFIG_PPC64);
+}
+
+bool bpf_jit_supports_fsession(void)
+{
+	/*
+	 * TODO: Remove after validating support
+	 * for fsession and trampoline on ppc32.
+	 */
+	if (IS_ENABLED(CONFIG_PPC32))
+		return -EOPNOTSUPP;
 	return true;
+}
+
+bool bpf_jit_supports_arena(void)
+{
+	return IS_ENABLED(CONFIG_PPC64);
 }
 
 bool bpf_jit_supports_far_kfunc_call(void)
 {
 	return IS_ENABLED(CONFIG_PPC64);
+}
+
+bool bpf_jit_supports_insn(struct bpf_insn *insn, bool in_arena)
+{
+	if (!in_arena)
+		return true;
+	switch (insn->code) {
+	case BPF_STX | BPF_ATOMIC | BPF_H:
+	case BPF_STX | BPF_ATOMIC | BPF_B:
+	case BPF_STX | BPF_ATOMIC | BPF_W:
+	case BPF_STX | BPF_ATOMIC | BPF_DW:
+		if (bpf_atomic_is_load_store(insn))
+			return false;
+		return IS_ENABLED(CONFIG_PPC64);
+	}
+	return true;
+}
+
+bool bpf_jit_supports_percpu_insn(void)
+{
+	return IS_ENABLED(CONFIG_PPC64);
+}
+
+bool bpf_jit_inlines_helper_call(s32 imm)
+{
+	switch (imm) {
+	case BPF_FUNC_get_smp_processor_id:
+	case BPF_FUNC_get_current_task:
+	case BPF_FUNC_get_current_task_btf:
+		return true;
+	default:
+		return false;
+	}
 }
 
 void *arch_alloc_bpf_trampoline(unsigned int size)
@@ -574,15 +715,35 @@ static int invoke_bpf_mod_ret(u32 *image, u32 *ro_image, struct codegen_context 
 	return 0;
 }
 
-static void bpf_trampoline_setup_tail_call_cnt(u32 *image, struct codegen_context *ctx,
-					       int func_frame_offset, int r4_off)
+/*
+ * Refer __arch_prepare_bpf_trampoline() for stack component details.
+ *
+ * The tailcall count/reference is present in caller's stack frame. The
+ * tail_call_info is saved at the same offset on the trampoline frame
+ * for the traced function (BPF subprog/callee) to fetch it.
+ */
+static void bpf_trampoline_setup_tail_call_info(u32 *image, struct codegen_context *ctx,
+						int bpf_frame_size, int r4_off)
 {
 	if (IS_ENABLED(CONFIG_PPC64)) {
-		/* See bpf_jit_stack_tailcallcnt() */
-		int tailcallcnt_offset = 6 * 8;
+		EMIT(PPC_RAW_LD(_R4, _R1, bpf_frame_size));
+		/* Refer to trampoline's Generated stack layout */
+		EMIT(PPC_RAW_LD(_R3, _R4, -BPF_PPC_TAILCALL));
 
-		EMIT(PPC_RAW_LL(_R3, _R1, func_frame_offset - tailcallcnt_offset));
-		EMIT(PPC_RAW_STL(_R3, _R1, -tailcallcnt_offset));
+		/*
+		 * Setting the tail_call_info in trampoline's frame
+		 * depending on if previous frame had value or reference.
+		 */
+		EMIT(PPC_RAW_CMPLWI(_R3, MAX_TAIL_CALL_CNT));
+		PPC_BCC_CONST_SHORT(COND_GT, 8);
+		EMIT(PPC_RAW_ADDI(_R3, _R4, -BPF_PPC_TAILCALL));
+
+		/*
+		 * Trampoline's tail_call_info is at the same offset, as that of
+		 * any bpf program, with reference to previous frame. Update the
+		 * address of main's tail_call_info in trampoline frame.
+		 */
+		EMIT(PPC_RAW_STL(_R3, _R1, bpf_frame_size - BPF_PPC_TAILCALL));
 	} else {
 		/* See bpf_jit_stack_offsetof() and BPF_PPC_TC */
 		EMIT(PPC_RAW_LL(_R4, _R1, r4_off));
@@ -590,26 +751,23 @@ static void bpf_trampoline_setup_tail_call_cnt(u32 *image, struct codegen_contex
 }
 
 static void bpf_trampoline_restore_tail_call_cnt(u32 *image, struct codegen_context *ctx,
-						 int func_frame_offset, int r4_off)
+						 int bpf_frame_size, int r4_off)
 {
-	if (IS_ENABLED(CONFIG_PPC64)) {
-		/* See bpf_jit_stack_tailcallcnt() */
-		int tailcallcnt_offset = 6 * 8;
-
-		EMIT(PPC_RAW_LL(_R3, _R1, -tailcallcnt_offset));
-		EMIT(PPC_RAW_STL(_R3, _R1, func_frame_offset - tailcallcnt_offset));
-	} else {
-		/* See bpf_jit_stack_offsetof() and BPF_PPC_TC */
+	if (IS_ENABLED(CONFIG_PPC32)) {
+		/*
+		 * Restore tailcall for 32-bit powerpc
+		 * See bpf_jit_stack_offsetof() and BPF_PPC_TC
+		 */
 		EMIT(PPC_RAW_STL(_R4, _R1, r4_off));
 	}
 }
 
-static void bpf_trampoline_save_args(u32 *image, struct codegen_context *ctx, int func_frame_offset,
-				     int nr_regs, int regs_off)
+static void bpf_trampoline_save_args(u32 *image, struct codegen_context *ctx,
+				     int bpf_frame_size, int nr_regs, int regs_off)
 {
 	int param_save_area_offset;
 
-	param_save_area_offset = func_frame_offset; /* the two frames we alloted */
+	param_save_area_offset = bpf_frame_size;
 	param_save_area_offset += STACK_FRAME_MIN_SIZE; /* param save area is past frame header */
 
 	for (int i = 0; i < nr_regs; i++) {
@@ -632,11 +790,11 @@ static void bpf_trampoline_restore_args_regs(u32 *image, struct codegen_context 
 
 /* Used when we call into the traced function. Replicate parameter save area */
 static void bpf_trampoline_restore_args_stack(u32 *image, struct codegen_context *ctx,
-					      int func_frame_offset, int nr_regs, int regs_off)
+					      int bpf_frame_size, int nr_regs, int regs_off)
 {
 	int param_save_area_offset;
 
-	param_save_area_offset = func_frame_offset; /* the two frames we alloted */
+	param_save_area_offset = bpf_frame_size;
 	param_save_area_offset += STACK_FRAME_MIN_SIZE; /* param save area is past frame header */
 
 	for (int i = 8; i < nr_regs; i++) {
@@ -652,12 +810,16 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *rw_im
 					 struct bpf_tramp_links *tlinks,
 					 void *func_addr)
 {
-	int regs_off, nregs_off, ip_off, run_ctx_off, retval_off, nvr_off, alt_lr_off, r4_off = 0;
-	int i, ret, nr_regs, bpf_frame_size = 0, bpf_dummy_frame_size = 0, func_frame_offset;
+	int regs_off, func_meta_off, ip_off, run_ctx_off, retval_off;
+	int nvr_off, alt_lr_off, r4_off = 0;
 	struct bpf_tramp_links *fmod_ret = &tlinks[BPF_TRAMP_MODIFY_RETURN];
 	struct bpf_tramp_links *fentry = &tlinks[BPF_TRAMP_FENTRY];
 	struct bpf_tramp_links *fexit = &tlinks[BPF_TRAMP_FEXIT];
+	int i, ret, nr_regs, retaddr_off, bpf_frame_size = 0;
 	struct codegen_context codegen_ctx, *ctx;
+	int cookie_off, cookie_cnt, cookie_ctx_off;
+	int fsession_cnt = bpf_fsession_cnt(tlinks);
+	u64 func_meta;
 	u32 *image = (u32 *)rw_image;
 	ppc_inst_t branch_insn;
 	u32 *branches = NULL;
@@ -682,24 +844,22 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *rw_im
 	 * Generated stack layout:
 	 *
 	 * func prev back chain         [ back chain        ]
-	 *                              [                   ]
-	 * bpf prog redzone/tailcallcnt [ ...               ] 64 bytes (64-bit powerpc)
-	 *                              [                   ] --
-	 * LR save area                 [ r0 save (64-bit)  ]   | header
-	 *                              [ r0 save (32-bit)  ]   |
-	 * dummy frame for unwind       [ back chain 1      ] --
+	 *                              [ tail_call_info    ] optional - 64-bit powerpc
 	 *                              [ padding           ] align stack frame
 	 *       r4_off                 [ r4 (tailcallcnt)  ] optional - 32-bit powerpc
 	 *       alt_lr_off             [ real lr (ool stub)] optional - actual lr
+	 *       retaddr_off            [ return address    ]
 	 *                              [ r26               ]
 	 *       nvr_off                [ r25               ] nvr save area
 	 *       retval_off             [ return value      ]
 	 *                              [ reg argN          ]
 	 *                              [ ...               ]
-	 *       regs_off               [ reg_arg1          ] prog ctx context
-	 *       nregs_off              [ args count        ]
-	 *       ip_off                 [ traced function   ]
+	 *       regs_off               [ reg_arg1          ] prog_ctx
+	 *       func_meta_off          [ args count        ] ((u64 *)prog_ctx)[-1]
+	 *       ip_off                 [ traced function   ] ((u64 *)prog_ctx)[-2]
+	 *                              [ stack cookieN     ]
 	 *                              [ ...               ]
+	 *       cookie_off             [ stack cookie1     ]
 	 *       run_ctx_off            [ bpf_tramp_run_ctx ]
 	 *                              [ reg argN          ]
 	 *                              [ ...               ]
@@ -731,16 +891,21 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *rw_im
 	run_ctx_off = bpf_frame_size;
 	bpf_frame_size += round_up(sizeof(struct bpf_tramp_run_ctx), SZL);
 
+	/* room for session cookies */
+	cookie_off = bpf_frame_size;
+	cookie_cnt = bpf_fsession_cookie_cnt(tlinks);
+	bpf_frame_size += cookie_cnt * 8;
+
 	/* Room for IP address argument */
 	ip_off = bpf_frame_size;
 	if (flags & BPF_TRAMP_F_IP_ARG)
 		bpf_frame_size += SZL;
 
-	/* Room for args count */
-	nregs_off = bpf_frame_size;
+	/* Room for function metadata, arg regs count */
+	func_meta_off = bpf_frame_size;
 	bpf_frame_size += SZL;
 
-	/* Room for args */
+	/* Room for arg regs */
 	regs_off = bpf_frame_size;
 	bpf_frame_size += nr_regs * SZL;
 
@@ -753,6 +918,10 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *rw_im
 	/* Room for nvr save area */
 	nvr_off = bpf_frame_size;
 	bpf_frame_size += 2 * SZL;
+
+	/* Save area for return address */
+	retaddr_off = bpf_frame_size;
+	bpf_frame_size += SZL;
 
 	/* Optional save area for actual LR in case of ool ftrace */
 	if (IS_ENABLED(CONFIG_PPC_FTRACE_OUT_OF_LINE)) {
@@ -769,19 +938,19 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *rw_im
 		}
 	}
 
+	/*
+	 * Save tailcall count pointer at the same offset on the
+	 * stack where subprogs expect it
+	 */
+	if ((flags & BPF_TRAMP_F_CALL_ORIG) &&
+		(flags & BPF_TRAMP_F_TAIL_CALL_CTX))
+		bpf_frame_size += BPF_PPC_TAILCALL;
+
 	/* Padding to align stack frame, if any */
 	bpf_frame_size = round_up(bpf_frame_size, SZL * 2);
 
-	/* Dummy frame size for proper unwind - includes 64-bytes red zone for 64-bit powerpc */
-	bpf_dummy_frame_size = STACK_FRAME_MIN_SIZE + 64;
-
-	/* Offset to the traced function's stack frame */
-	func_frame_offset = bpf_dummy_frame_size + bpf_frame_size;
-
-	/* Create dummy frame for unwind, store original return value */
+	/*  Store original return value */
 	EMIT(PPC_RAW_STL(_R0, _R1, PPC_LR_STKOFF));
-	/* Protect red zone where tail call count goes */
-	EMIT(PPC_RAW_STLU(_R1, _R1, -bpf_dummy_frame_size));
 
 	/* Create our stack frame */
 	EMIT(PPC_RAW_STLU(_R1, _R1, -bpf_frame_size));
@@ -796,38 +965,48 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *rw_im
 	if (IS_ENABLED(CONFIG_PPC32) && nr_regs < 2)
 		EMIT(PPC_RAW_STL(_R4, _R1, r4_off));
 
-	bpf_trampoline_save_args(image, ctx, func_frame_offset, nr_regs, regs_off);
+	bpf_trampoline_save_args(image, ctx, bpf_frame_size, nr_regs, regs_off);
 
-	/* Save our return address */
+	/* Save our LR/return address */
 	EMIT(PPC_RAW_MFLR(_R3));
 	if (IS_ENABLED(CONFIG_PPC_FTRACE_OUT_OF_LINE))
 		EMIT(PPC_RAW_STL(_R3, _R1, alt_lr_off));
 	else
-		EMIT(PPC_RAW_STL(_R3, _R1, bpf_frame_size + PPC_LR_STKOFF));
+		EMIT(PPC_RAW_STL(_R3, _R1, retaddr_off));
 
 	/*
-	 * Save ip address of the traced function.
-	 * We could recover this from LR, but we will need to address for OOL trampoline,
-	 * and optional GEP area.
+	 * Derive IP address of the traced function.
+	 * In case of CONFIG_PPC_FTRACE_OUT_OF_LINE or BPF program, LR points to the instruction
+	 * after the 'bl' instruction in the OOL stub. Refer to ftrace_init_ool_stub() and
+	 * bpf_arch_text_poke() for OOL stub of kernel functions and bpf programs respectively.
+	 * Relevant stub sequence:
+	 *
+	 *               bl <tramp>
+	 *   LR (R3) =>  mtlr r0
+	 *               b <func_addr+4>
+	 *
+	 * Recover kernel function/bpf program address from the unconditional
+	 * branch instruction at the end of OOL stub.
 	 */
 	if (IS_ENABLED(CONFIG_PPC_FTRACE_OUT_OF_LINE) || flags & BPF_TRAMP_F_IP_ARG) {
 		EMIT(PPC_RAW_LWZ(_R4, _R3, 4));
 		EMIT(PPC_RAW_SLWI(_R4, _R4, 6));
 		EMIT(PPC_RAW_SRAWI(_R4, _R4, 6));
 		EMIT(PPC_RAW_ADD(_R3, _R3, _R4));
-		EMIT(PPC_RAW_ADDI(_R3, _R3, 4));
 	}
 
 	if (flags & BPF_TRAMP_F_IP_ARG)
 		EMIT(PPC_RAW_STL(_R3, _R1, ip_off));
 
-	if (IS_ENABLED(CONFIG_PPC_FTRACE_OUT_OF_LINE))
-		/* Fake our LR for unwind */
-		EMIT(PPC_RAW_STL(_R3, _R1, bpf_frame_size + PPC_LR_STKOFF));
+	if (IS_ENABLED(CONFIG_PPC_FTRACE_OUT_OF_LINE)) {
+		/* Fake our LR for BPF_TRAMP_F_CALL_ORIG case */
+		EMIT(PPC_RAW_ADDI(_R3, _R3, 4));
+		EMIT(PPC_RAW_STL(_R3, _R1, retaddr_off));
+	}
 
-	/* Save function arg count -- see bpf_get_func_arg_cnt() */
-	EMIT(PPC_RAW_LI(_R3, nr_regs));
-	EMIT(PPC_RAW_STL(_R3, _R1, nregs_off));
+	/* Save function arg regs count -- see bpf_get_func_arg_cnt() */
+	func_meta = nr_regs;
+	store_func_meta(image, ctx, func_meta, func_meta_off);
 
 	/* Save nv regs */
 	EMIT(PPC_RAW_STL(_R25, _R1, nvr_off));
@@ -841,10 +1020,28 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *rw_im
 			return ret;
 	}
 
-	for (i = 0; i < fentry->nr_links; i++)
+	if (fsession_cnt) {
+		/*
+		 * Clear all the session cookies' values
+		 * Clear the return value to make sure fentry always get 0
+		 */
+		prepare_for_fsession_fentry(image, ctx, cookie_cnt, cookie_off, retval_off);
+	}
+
+	cookie_ctx_off = (regs_off - cookie_off) / 8;
+
+	for (i = 0; i < fentry->nr_links; i++) {
+		if (bpf_prog_calls_session_cookie(fentry->links[i])) {
+			u64 meta = func_meta | (cookie_ctx_off << BPF_TRAMP_COOKIE_INDEX_SHIFT);
+
+			store_func_meta(image, ctx, meta, func_meta_off);
+			cookie_ctx_off--;
+		}
+
 		if (invoke_bpf_prog(image, ro_image, ctx, fentry->links[i], regs_off, retval_off,
 				    run_ctx_off, flags & BPF_TRAMP_F_RET_FENTRY_RET))
 			return -EINVAL;
+	}
 
 	if (fmod_ret->nr_links) {
 		branches = kcalloc(fmod_ret->nr_links, sizeof(u32), GFP_KERNEL);
@@ -861,19 +1058,19 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *rw_im
 	/* Call the traced function */
 	if (flags & BPF_TRAMP_F_CALL_ORIG) {
 		/*
-		 * The address in LR save area points to the correct point in the original function
+		 * retaddr on trampoline stack points to the correct point in the original function
 		 * with both PPC_FTRACE_OUT_OF_LINE as well as with traditional ftrace instruction
 		 * sequence
 		 */
-		EMIT(PPC_RAW_LL(_R3, _R1, bpf_frame_size + PPC_LR_STKOFF));
+		EMIT(PPC_RAW_LL(_R3, _R1, retaddr_off));
 		EMIT(PPC_RAW_MTCTR(_R3));
 
 		/* Replicate tail_call_cnt before calling the original BPF prog */
 		if (flags & BPF_TRAMP_F_TAIL_CALL_CTX)
-			bpf_trampoline_setup_tail_call_cnt(image, ctx, func_frame_offset, r4_off);
+			bpf_trampoline_setup_tail_call_info(image, ctx, bpf_frame_size, r4_off);
 
 		/* Restore args */
-		bpf_trampoline_restore_args_stack(image, ctx, func_frame_offset, nr_regs, regs_off);
+		bpf_trampoline_restore_args_stack(image, ctx, bpf_frame_size, nr_regs, regs_off);
 
 		/* Restore TOC for 64-bit */
 		if (IS_ENABLED(CONFIG_PPC64_ELF_ABI_V2) && !IS_ENABLED(CONFIG_PPC_KERNEL_PCREL))
@@ -887,7 +1084,7 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *rw_im
 
 		/* Restore updated tail_call_cnt */
 		if (flags & BPF_TRAMP_F_TAIL_CALL_CTX)
-			bpf_trampoline_restore_tail_call_cnt(image, ctx, func_frame_offset, r4_off);
+			bpf_trampoline_restore_tail_call_cnt(image, ctx, bpf_frame_size, r4_off);
 
 		/* Reserve space to patch branch instruction to skip fexit progs */
 		if (ro_image) /* image is NULL for dummy pass */
@@ -906,12 +1103,27 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *rw_im
 		image[branches[i]] = ppc_inst_val(branch_insn);
 	}
 
-	for (i = 0; i < fexit->nr_links; i++)
+	/* set the "is_return" flag for fsession */
+	func_meta |= (1ULL << BPF_TRAMP_IS_RETURN_SHIFT);
+	if (fsession_cnt)
+		store_func_meta(image, ctx, func_meta, func_meta_off);
+
+	cookie_ctx_off = (regs_off - cookie_off) / 8;
+
+	for (i = 0; i < fexit->nr_links; i++) {
+		if (bpf_prog_calls_session_cookie(fexit->links[i])) {
+			u64 meta = func_meta | (cookie_ctx_off << BPF_TRAMP_COOKIE_INDEX_SHIFT);
+
+			store_func_meta(image, ctx, meta, func_meta_off);
+			cookie_ctx_off--;
+		}
+
 		if (invoke_bpf_prog(image, ro_image, ctx, fexit->links[i], regs_off, retval_off,
 				    run_ctx_off, false)) {
 			ret = -EINVAL;
 			goto cleanup;
 		}
+	}
 
 	if (flags & BPF_TRAMP_F_CALL_ORIG) {
 		if (ro_image) /* image is NULL for dummy pass */
@@ -939,7 +1151,7 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *rw_im
 		EMIT(PPC_RAW_LD(_R2, _R1, 24));
 	if (flags & BPF_TRAMP_F_SKIP_FRAME) {
 		/* Skip the traced function and return to parent */
-		EMIT(PPC_RAW_ADDI(_R1, _R1, func_frame_offset));
+		EMIT(PPC_RAW_ADDI(_R1, _R1, bpf_frame_size));
 		EMIT(PPC_RAW_LL(_R0, _R1, PPC_LR_STKOFF));
 		EMIT(PPC_RAW_MTLR(_R0));
 		EMIT(PPC_RAW_BLR());
@@ -947,13 +1159,13 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *rw_im
 		if (IS_ENABLED(CONFIG_PPC_FTRACE_OUT_OF_LINE)) {
 			EMIT(PPC_RAW_LL(_R0, _R1, alt_lr_off));
 			EMIT(PPC_RAW_MTLR(_R0));
-			EMIT(PPC_RAW_ADDI(_R1, _R1, func_frame_offset));
+			EMIT(PPC_RAW_ADDI(_R1, _R1, bpf_frame_size));
 			EMIT(PPC_RAW_LL(_R0, _R1, PPC_LR_STKOFF));
 			EMIT(PPC_RAW_BLR());
 		} else {
-			EMIT(PPC_RAW_LL(_R0, _R1, bpf_frame_size + PPC_LR_STKOFF));
+			EMIT(PPC_RAW_LL(_R0, _R1, retaddr_off));
 			EMIT(PPC_RAW_MTCTR(_R0));
-			EMIT(PPC_RAW_ADDI(_R1, _R1, func_frame_offset));
+			EMIT(PPC_RAW_ADDI(_R1, _R1, bpf_frame_size));
 			EMIT(PPC_RAW_LL(_R0, _R1, PPC_LR_STKOFF));
 			EMIT(PPC_RAW_MTLR(_R0));
 			EMIT(PPC_RAW_BCTR());
@@ -1081,8 +1293,9 @@ static void do_isync(void *info __maybe_unused)
  * execute isync (or some CSI) so that they don't go back into the
  * trampoline again.
  */
-int bpf_arch_text_poke(void *ip, enum bpf_text_poke_type poke_type,
-		       void *old_addr, void *new_addr)
+int bpf_arch_text_poke(void *ip, enum bpf_text_poke_type old_t,
+		       enum bpf_text_poke_type new_t, void *old_addr,
+		       void *new_addr)
 {
 	unsigned long bpf_func, bpf_func_end, size, offset;
 	ppc_inst_t old_inst, new_inst;
@@ -1093,10 +1306,9 @@ int bpf_arch_text_poke(void *ip, enum bpf_text_poke_type poke_type,
 		return -EOPNOTSUPP;
 
 	bpf_func = (unsigned long)ip;
-	branch_flags = poke_type == BPF_MOD_CALL ? BRANCH_SET_LINK : 0;
 
 	/* We currently only support poking bpf programs */
-	if (!__bpf_address_lookup(bpf_func, &size, &offset, name)) {
+	if (!bpf_address_lookup(bpf_func, &size, &offset, name)) {
 		pr_err("%s (0x%lx): kernel/modules are not supported\n", __func__, bpf_func);
 		return -EOPNOTSUPP;
 	}
@@ -1106,7 +1318,7 @@ int bpf_arch_text_poke(void *ip, enum bpf_text_poke_type poke_type,
 	 * an unconditional branch instruction at im->ip_after_call
 	 */
 	if (offset) {
-		if (poke_type != BPF_MOD_JUMP) {
+		if (old_t == BPF_MOD_CALL || new_t == BPF_MOD_CALL) {
 			pr_err("%s (0x%lx): calls are not supported in bpf prog body\n", __func__,
 			       bpf_func);
 			return -EOPNOTSUPP;
@@ -1140,6 +1352,7 @@ int bpf_arch_text_poke(void *ip, enum bpf_text_poke_type poke_type,
 	}
 
 	old_inst = ppc_inst(PPC_RAW_NOP());
+	branch_flags = old_t == BPF_MOD_CALL ? BRANCH_SET_LINK : 0;
 	if (old_addr) {
 		if (is_offset_in_branch_range(ip - old_addr))
 			create_branch(&old_inst, ip, (unsigned long)old_addr, branch_flags);
@@ -1148,6 +1361,7 @@ int bpf_arch_text_poke(void *ip, enum bpf_text_poke_type poke_type,
 				      branch_flags);
 	}
 	new_inst = ppc_inst(PPC_RAW_NOP());
+	branch_flags = new_t == BPF_MOD_CALL ? BRANCH_SET_LINK : 0;
 	if (new_addr) {
 		if (is_offset_in_branch_range(ip - new_addr))
 			create_branch(&new_inst, ip, (unsigned long)new_addr, branch_flags);

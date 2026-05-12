@@ -3,6 +3,8 @@
  * Description: uring_cmd based ublk
  */
 
+#include <linux/fs.h>
+#include <sys/un.h>
 #include "kublk.h"
 
 #define MAX_NR_TGT_ARG 	64
@@ -102,6 +104,15 @@ static int ublk_ctrl_stop_dev(struct ublk_dev *dev)
 {
 	struct ublk_ctrl_cmd_data data = {
 		.cmd_op	= UBLK_U_CMD_STOP_DEV,
+	};
+
+	return __ublk_ctrl_cmd(dev, &data);
+}
+
+static int ublk_ctrl_try_stop_dev(struct ublk_dev *dev)
+{
+	struct ublk_ctrl_cmd_data data = {
+		.cmd_op	= UBLK_U_CMD_TRY_STOP_DEV,
 	};
 
 	return __ublk_ctrl_cmd(dev, &data);
@@ -415,13 +426,17 @@ static void ublk_queue_deinit(struct ublk_queue *q)
 	if (q->io_cmd_buf)
 		munmap(q->io_cmd_buf, ublk_queue_cmd_buf_sz(q));
 
-	for (i = 0; i < nr_ios; i++)
+	for (i = 0; i < nr_ios; i++) {
 		free(q->ios[i].buf_addr);
+		free(q->ios[i].integrity_buf);
+	}
 }
 
 static void ublk_thread_deinit(struct ublk_thread *t)
 {
 	io_uring_unregister_buffers(&t->ring);
+
+	ublk_batch_free_buf(t);
 
 	io_uring_unregister_ring_fd(&t->ring);
 
@@ -432,19 +447,22 @@ static void ublk_thread_deinit(struct ublk_thread *t)
 	}
 }
 
-static int ublk_queue_init(struct ublk_queue *q, unsigned long long extra_flags)
+static int ublk_queue_init(struct ublk_queue *q, unsigned long long extra_flags,
+			   __u8 metadata_size)
 {
 	struct ublk_dev *dev = q->dev;
 	int depth = dev->dev_info.queue_depth;
 	int i;
-	int cmd_buf_size, io_buf_size;
+	int cmd_buf_size, io_buf_size, integrity_size;
 	unsigned long off;
 
+	pthread_spin_init(&q->lock, PTHREAD_PROCESS_PRIVATE);
 	q->tgt_ops = dev->tgt.ops;
 	q->flags = 0;
 	q->q_depth = depth;
 	q->flags = dev->dev_info.flags;
 	q->flags |= extra_flags;
+	q->metadata_size = metadata_size;
 
 	/* Cache fd in queue for fast path access */
 	q->ublk_fd = dev->fds[0];
@@ -460,10 +478,22 @@ static int ublk_queue_init(struct ublk_queue *q, unsigned long long extra_flags)
 	}
 
 	io_buf_size = dev->dev_info.max_io_buf_bytes;
+	integrity_size = ublk_integrity_len(q, io_buf_size);
 	for (i = 0; i < q->q_depth; i++) {
 		q->ios[i].buf_addr = NULL;
 		q->ios[i].flags = UBLKS_IO_NEED_FETCH_RQ | UBLKS_IO_FREE;
 		q->ios[i].tag = i;
+
+		if (integrity_size) {
+			q->ios[i].integrity_buf = malloc(integrity_size);
+			if (!q->ios[i].integrity_buf) {
+				ublk_err("ublk dev %d queue %d io %d malloc(%d) failed: %m\n",
+					 dev->dev_info.dev_id, q->q_id, i,
+					 integrity_size);
+				goto fail;
+			}
+		}
+
 
 		if (ublk_queue_no_buf(q))
 			continue;
@@ -491,6 +521,10 @@ static int ublk_thread_init(struct ublk_thread *t, unsigned long long extra_flag
 	int ring_depth = dev->tgt.sq_depth, cq_depth = dev->tgt.cq_depth;
 	int ret;
 
+	/* FETCH_IO_CMDS is multishot, so increase cq depth for BATCH_IO */
+	if (ublk_dev_batch_io(dev))
+		cq_depth += dev->dev_info.queue_depth * 2;
+
 	ret = ublk_setup_ring(&t->ring, ring_depth, cq_depth,
 			IORING_SETUP_COOP_TASKRUN |
 			IORING_SETUP_SINGLE_ISSUER |
@@ -505,11 +539,29 @@ static int ublk_thread_init(struct ublk_thread *t, unsigned long long extra_flag
 		unsigned nr_ios = dev->dev_info.queue_depth * dev->dev_info.nr_hw_queues;
 		unsigned max_nr_ios_per_thread = nr_ios / dev->nthreads;
 		max_nr_ios_per_thread += !!(nr_ios % dev->nthreads);
-		ret = io_uring_register_buffers_sparse(
-			&t->ring, max_nr_ios_per_thread);
+
+		t->nr_bufs = max_nr_ios_per_thread;
+	} else {
+		t->nr_bufs = 0;
+	}
+
+	if (ublk_dev_batch_io(dev))
+		 ublk_batch_prepare(t);
+
+	if (t->nr_bufs) {
+		ret = io_uring_register_buffers_sparse(&t->ring, t->nr_bufs);
 		if (ret) {
-			ublk_err("ublk dev %d thread %d register spare buffers failed %d",
+			ublk_err("ublk dev %d thread %d register spare buffers failed %d\n",
 					dev->dev_info.dev_id, t->idx, ret);
+			goto fail;
+		}
+	}
+
+	if (ublk_dev_batch_io(dev)) {
+		ret = ublk_batch_alloc_buf(t);
+		if (ret) {
+			ublk_err("ublk dev %d thread %d alloc batch buf failed %d\n",
+				dev->dev_info.dev_id, t->idx, ret);
 			goto fail;
 		}
 	}
@@ -579,21 +631,68 @@ static void ublk_dev_unprep(struct ublk_dev *dev)
 	close(dev->fds[0]);
 }
 
-static void ublk_set_auto_buf_reg(const struct ublk_queue *q,
+static void ublk_set_auto_buf_reg(const struct ublk_thread *t,
+				  const struct ublk_queue *q,
 				  struct io_uring_sqe *sqe,
 				  unsigned short tag)
 {
 	struct ublk_auto_buf_reg buf = {};
 
 	if (q->tgt_ops->buf_index)
-		buf.index = q->tgt_ops->buf_index(q, tag);
+		buf.index = q->tgt_ops->buf_index(t, q, tag);
 	else
-		buf.index = q->ios[tag].buf_index;
+		buf.index = ublk_io_buf_idx(t, q, tag);
 
 	if (ublk_queue_auto_zc_fallback(q))
 		buf.flags = UBLK_AUTO_BUF_REG_FALLBACK;
 
 	sqe->addr = ublk_auto_buf_reg_to_sqe_addr(&buf);
+}
+
+/* Copy in pieces to test the buffer offset logic */
+#define UBLK_USER_COPY_LEN 2048
+
+static void ublk_user_copy(const struct ublk_io *io, __u8 match_ublk_op)
+{
+	const struct ublk_queue *q = ublk_io_to_queue(io);
+	const struct ublksrv_io_desc *iod = ublk_get_iod(q, io->tag);
+	__u64 off = ublk_user_copy_offset(q->q_id, io->tag);
+	__u8 ublk_op = ublksrv_get_op(iod);
+	__u32 len = iod->nr_sectors << 9;
+	void *addr = io->buf_addr;
+	ssize_t copied;
+
+	if (ublk_op != match_ublk_op)
+		return;
+
+	while (len) {
+		__u32 copy_len = min(len, UBLK_USER_COPY_LEN);
+
+		if (ublk_op == UBLK_IO_OP_WRITE)
+			copied = pread(q->ublk_fd, addr, copy_len, off);
+		else if (ublk_op == UBLK_IO_OP_READ)
+			copied = pwrite(q->ublk_fd, addr, copy_len, off);
+		else
+			assert(0);
+		assert(copied == (ssize_t)copy_len);
+		addr += copy_len;
+		off += copy_len;
+		len -= copy_len;
+	}
+
+	if (!(iod->op_flags & UBLK_IO_F_INTEGRITY))
+		return;
+
+	len = ublk_integrity_len(q, iod->nr_sectors << 9);
+	off = ublk_user_copy_offset(q->q_id, io->tag);
+	off |= UBLKSRV_IO_INTEGRITY_FLAG;
+	if (ublk_op == UBLK_IO_OP_WRITE)
+		copied = pread(q->ublk_fd, io->integrity_buf, len, off);
+	else if (ublk_op == UBLK_IO_OP_READ)
+		copied = pwrite(q->ublk_fd, io->integrity_buf, len, off);
+	else
+		assert(0);
+	assert(copied == (ssize_t)len);
 }
 
 int ublk_queue_io_cmd(struct ublk_thread *t, struct ublk_io *io)
@@ -618,9 +717,12 @@ int ublk_queue_io_cmd(struct ublk_thread *t, struct ublk_io *io)
 
 	if (io->flags & UBLKS_IO_NEED_GET_DATA)
 		cmd_op = UBLK_U_IO_NEED_GET_DATA;
-	else if (io->flags & UBLKS_IO_NEED_COMMIT_RQ_COMP)
+	else if (io->flags & UBLKS_IO_NEED_COMMIT_RQ_COMP) {
+		if (ublk_queue_use_user_copy(q))
+			ublk_user_copy(io, UBLK_IO_OP_READ);
+
 		cmd_op = UBLK_U_IO_COMMIT_AND_FETCH_REQ;
-	else if (io->flags & UBLKS_IO_NEED_FETCH_RQ)
+	} else if (io->flags & UBLKS_IO_NEED_FETCH_RQ)
 		cmd_op = UBLK_U_IO_FETCH_REQ;
 
 	if (io_uring_sq_space_left(&t->ring) < 1)
@@ -649,13 +751,13 @@ int ublk_queue_io_cmd(struct ublk_thread *t, struct ublk_io *io)
 	sqe[0]->rw_flags	= 0;
 	cmd->tag	= io->tag;
 	cmd->q_id	= q->q_id;
-	if (!ublk_queue_no_buf(q))
+	if (!ublk_queue_no_buf(q) && !ublk_queue_use_user_copy(q))
 		cmd->addr	= (__u64) (uintptr_t) io->buf_addr;
 	else
 		cmd->addr	= 0;
 
 	if (ublk_queue_use_auto_zc(q))
-		ublk_set_auto_buf_reg(q, sqe[0], io->tag);
+		ublk_set_auto_buf_reg(t, q, sqe[0], io->tag);
 
 	user_data = build_user_data(io->tag, _IOC_NR(cmd_op), 0, q->q_id, 0);
 	io_uring_sqe_set_data64(sqe[0], user_data);
@@ -695,6 +797,8 @@ static void ublk_submit_fetch_commands(struct ublk_thread *t)
 			q = &t->dev->q[q_id];
 			io = &q->ios[tag];
 			io->buf_index = j++;
+			if (q->tgt_ops->pre_fetch_io)
+				q->tgt_ops->pre_fetch_io(t, q, tag, false);
 			ublk_queue_io_cmd(t, io);
 		}
 	} else {
@@ -706,6 +810,8 @@ static void ublk_submit_fetch_commands(struct ublk_thread *t)
 		for (i = 0; i < q->q_depth; i++) {
 			io = &q->ios[i];
 			io->buf_index = i;
+			if (q->tgt_ops->pre_fetch_io)
+				q->tgt_ops->pre_fetch_io(t, q, i, false);
 			ublk_queue_io_cmd(t, io);
 		}
 	}
@@ -718,7 +824,7 @@ static int ublk_thread_is_idle(struct ublk_thread *t)
 
 static int ublk_thread_is_done(struct ublk_thread *t)
 {
-	return (t->state & UBLKS_T_STOPPING) && ublk_thread_is_idle(t);
+	return (t->state & UBLKS_T_STOPPING) && ublk_thread_is_idle(t) && !t->cmd_inflight;
 }
 
 static inline void ublksrv_handle_tgt_cqe(struct ublk_thread *t,
@@ -744,13 +850,19 @@ static void ublk_handle_uring_cmd(struct ublk_thread *t,
 	unsigned tag = user_data_to_tag(cqe->user_data);
 	struct ublk_io *io = &q->ios[tag];
 
+	t->cmd_inflight--;
+
 	if (!fetch) {
 		t->state |= UBLKS_T_STOPPING;
 		io->flags &= ~UBLKS_IO_NEED_FETCH_RQ;
 	}
 
 	if (cqe->res == UBLK_IO_RES_OK) {
-		assert(tag < q->q_depth);
+		ublk_assert(tag < q->q_depth);
+
+		if (ublk_queue_use_user_copy(q))
+			ublk_user_copy(io, UBLK_IO_OP_WRITE);
+
 		if (q->tgt_ops->queue_io)
 			q->tgt_ops->queue_io(t, q, tag);
 	} else if (cqe->res == UBLK_IO_RES_NEED_GET_DATA) {
@@ -774,28 +886,30 @@ static void ublk_handle_cqe(struct ublk_thread *t,
 {
 	struct ublk_dev *dev = t->dev;
 	unsigned q_id = user_data_to_q_id(cqe->user_data);
-	struct ublk_queue *q = &dev->q[q_id];
 	unsigned cmd_op = user_data_to_op(cqe->user_data);
 
-	if (cqe->res < 0 && cqe->res != -ENODEV)
-		ublk_err("%s: res %d userdata %llx queue state %x\n", __func__,
-				cqe->res, cqe->user_data, q->flags);
+	if (cqe->res < 0 && cqe->res != -ENODEV && cqe->res != -ENOBUFS)
+		ublk_err("%s: res %d userdata %llx thread state %x\n", __func__,
+				cqe->res, cqe->user_data, t->state);
 
-	ublk_dbg(UBLK_DBG_IO_CMD, "%s: res %d (qid %d tag %u cmd_op %u target %d/%d) stopping %d\n",
-			__func__, cqe->res, q->q_id, user_data_to_tag(cqe->user_data),
-			cmd_op, is_target_io(cqe->user_data),
+	ublk_dbg(UBLK_DBG_IO_CMD, "%s: res %d (thread %d qid %d tag %u cmd_op %x "
+			"data %lx target %d/%d) stopping %d\n",
+			__func__, cqe->res, t->idx, q_id,
+			user_data_to_tag(cqe->user_data),
+			cmd_op, cqe->user_data, is_target_io(cqe->user_data),
 			user_data_to_tgt_data(cqe->user_data),
 			(t->state & UBLKS_T_STOPPING));
 
 	/* Don't retrieve io in case of target io */
 	if (is_target_io(cqe->user_data)) {
-		ublksrv_handle_tgt_cqe(t, q, cqe);
+		ublksrv_handle_tgt_cqe(t, &dev->q[q_id], cqe);
 		return;
 	}
 
-	t->cmd_inflight--;
-
-	ublk_handle_uring_cmd(t, q, cqe);
+	if (ublk_thread_batch_io(t))
+		ublk_batch_compl_cmd(t, cqe);
+	else
+		ublk_handle_uring_cmd(t, &dev->q[q_id], cqe);
 }
 
 static int ublk_reap_events_uring(struct ublk_thread *t)
@@ -827,7 +941,13 @@ static int ublk_process_io(struct ublk_thread *t)
 		return -ENODEV;
 
 	ret = io_uring_submit_and_wait(&t->ring, 1);
-	reapped = ublk_reap_events_uring(t);
+	if (ublk_thread_batch_io(t)) {
+		ublk_batch_prep_commit(t);
+		reapped = ublk_reap_events_uring(t);
+		ublk_batch_commit_io_cmds(t);
+	} else {
+		reapped = ublk_reap_events_uring(t);
+	}
 
 	ublk_dbg(UBLK_DBG_THREAD, "submit result %d, reapped %d stop %d idle %d\n",
 			ret, reapped, (t->state & UBLKS_T_STOPPING),
@@ -836,56 +956,104 @@ static int ublk_process_io(struct ublk_thread *t)
 	return reapped;
 }
 
-static void ublk_thread_set_sched_affinity(const struct ublk_thread *t,
-		cpu_set_t *cpuset)
-{
-        if (sched_setaffinity(0, sizeof(*cpuset), cpuset) < 0)
-		ublk_err("ublk dev %u thread %u set affinity failed",
-				t->dev->dev_info.dev_id, t->idx);
-}
-
 struct ublk_thread_info {
 	struct ublk_dev 	*dev;
+	pthread_t		thread;
 	unsigned		idx;
 	sem_t 			*ready;
 	cpu_set_t 		*affinity;
 	unsigned long long	extra_flags;
+	unsigned char		(*q_thread_map)[UBLK_MAX_QUEUES];
 };
 
-static void *ublk_io_handler_fn(void *data)
+static void ublk_thread_set_sched_affinity(const struct ublk_thread_info *info)
 {
-	struct ublk_thread_info *info = data;
-	struct ublk_thread *t = &info->dev->threads[info->idx];
+	if (pthread_setaffinity_np(pthread_self(), sizeof(*info->affinity), info->affinity) < 0)
+		ublk_err("ublk dev %u thread %u set affinity failed",
+				info->dev->dev_info.dev_id, info->idx);
+}
+
+static void ublk_batch_setup_queues(struct ublk_thread *t)
+{
+	int i;
+
+	for (i = 0; i < t->dev->dev_info.nr_hw_queues; i++) {
+		struct ublk_queue *q = &t->dev->q[i];
+		int ret;
+
+		/*
+		 * Only prepare io commands in the mapped thread context,
+		 * otherwise io command buffer index may not work as expected
+		 */
+		if (t->q_map[i] == 0)
+			continue;
+
+		if (q->tgt_ops->pre_fetch_io)
+			q->tgt_ops->pre_fetch_io(t, q, 0, true);
+
+		ret = ublk_batch_queue_prep_io_cmds(t, q);
+		ublk_assert(ret >= 0);
+	}
+}
+
+static __attribute__((noinline)) int __ublk_io_handler_fn(struct ublk_thread_info *info)
+{
+	struct ublk_thread t = {
+		.dev = info->dev,
+		.idx = info->idx,
+	};
 	int dev_id = info->dev->dev_info.dev_id;
 	int ret;
 
-	t->dev = info->dev;
-	t->idx = info->idx;
+	/* Copy per-thread queue mapping into thread-local variable */
+	if (info->q_thread_map)
+		memcpy(t.q_map, info->q_thread_map[info->idx], sizeof(t.q_map));
 
-	ret = ublk_thread_init(t, info->extra_flags);
+	ret = ublk_thread_init(&t, info->extra_flags);
 	if (ret) {
 		ublk_err("ublk dev %d thread %u init failed\n",
-				dev_id, t->idx);
-		return NULL;
+				dev_id, t.idx);
+		return ret;
 	}
-	/* IO perf is sensitive with queue pthread affinity on NUMA machine*/
-	if (info->affinity)
-		ublk_thread_set_sched_affinity(t, info->affinity);
 	sem_post(info->ready);
 
 	ublk_dbg(UBLK_DBG_THREAD, "tid %d: ublk dev %d thread %u started\n",
-			gettid(), dev_id, t->idx);
+			gettid(), dev_id, t.idx);
 
-	/* submit all io commands to ublk driver */
-	ublk_submit_fetch_commands(t);
+	if (!ublk_thread_batch_io(&t)) {
+		/* submit all io commands to ublk driver */
+		ublk_submit_fetch_commands(&t);
+	} else {
+		ublk_batch_setup_queues(&t);
+		ublk_batch_start_fetch(&t);
+	}
+
 	do {
-		if (ublk_process_io(t) < 0)
+		if (ublk_process_io(&t) < 0)
 			break;
 	} while (1);
 
 	ublk_dbg(UBLK_DBG_THREAD, "tid %d: ublk dev %d thread %d exiting\n",
-		 gettid(), dev_id, t->idx);
-	ublk_thread_deinit(t);
+		 gettid(), dev_id, t.idx);
+	ublk_thread_deinit(&t);
+	return 0;
+}
+
+static void *ublk_io_handler_fn(void *data)
+{
+	struct ublk_thread_info *info = data;
+
+	/*
+	 * IO perf is sensitive with queue pthread affinity on NUMA machine
+	 *
+	 * Set sched_affinity at beginning, so following allocated memory/pages
+	 * could be CPU/NUMA aware.
+	 */
+	if (info->affinity)
+		ublk_thread_set_sched_affinity(info);
+
+	__ublk_io_handler_fn(info);
+
 	return NULL;
 }
 
@@ -925,12 +1093,316 @@ static int ublk_send_dev_event(const struct dev_ctx *ctx, struct ublk_dev *dev, 
 }
 
 
+/*
+ * Shared memory registration socket listener.
+ *
+ * The parent daemon context listens on a per-device unix socket at
+ * /run/ublk/ublkb<dev_id>.sock for shared memory registration requests
+ * from clients. Clients send a memfd via SCM_RIGHTS; the server
+ * registers it with the kernel, mmaps it, and returns the assigned index.
+ */
+#define UBLK_SHMEM_SOCK_DIR	"/run/ublk"
+
+/* defined in kublk.h, shared with file_backed.c (loop target) */
+struct ublk_shmem_entry shmem_table[UBLK_BUF_MAX];
+int shmem_count;
+
+static void ublk_shmem_sock_path(int dev_id, char *buf, size_t len)
+{
+	snprintf(buf, len, "%s/ublkb%d.sock", UBLK_SHMEM_SOCK_DIR, dev_id);
+}
+
+static int ublk_shmem_sock_create(int dev_id)
+{
+	struct sockaddr_un addr = { .sun_family = AF_UNIX };
+	char path[108];
+	int fd;
+
+	mkdir(UBLK_SHMEM_SOCK_DIR, 0755);
+	ublk_shmem_sock_path(dev_id, path, sizeof(path));
+	unlink(path);
+
+	fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
+	if (fd < 0)
+		return -1;
+
+	snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", path);
+	if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+		close(fd);
+		return -1;
+	}
+
+	listen(fd, 4);
+	ublk_dbg(UBLK_DBG_DEV, "shmem socket created: %s\n", path);
+	return fd;
+}
+
+static void ublk_shmem_sock_destroy(int dev_id, int sock_fd)
+{
+	char path[108];
+
+	if (sock_fd >= 0)
+		close(sock_fd);
+	ublk_shmem_sock_path(dev_id, path, sizeof(path));
+	unlink(path);
+}
+
+/* Receive a memfd from a client via SCM_RIGHTS */
+static int ublk_shmem_recv_fd(int client_fd)
+{
+	char buf[1];
+	struct iovec iov = { .iov_base = buf, .iov_len = sizeof(buf) };
+	union {
+		char cmsg_buf[CMSG_SPACE(sizeof(int))];
+		struct cmsghdr align;
+	} u;
+	struct msghdr msg = {
+		.msg_iov = &iov,
+		.msg_iovlen = 1,
+		.msg_control = u.cmsg_buf,
+		.msg_controllen = sizeof(u.cmsg_buf),
+	};
+	struct cmsghdr *cmsg;
+
+	if (recvmsg(client_fd, &msg, 0) <= 0)
+		return -1;
+
+	cmsg = CMSG_FIRSTHDR(&msg);
+	if (!cmsg || cmsg->cmsg_level != SOL_SOCKET ||
+	    cmsg->cmsg_type != SCM_RIGHTS)
+		return -1;
+
+	return *(int *)CMSG_DATA(cmsg);
+}
+
+/* Register a shared memory buffer: store fd, mmap it, return index */
+static int ublk_shmem_register(int shmem_fd)
+{
+	off_t size;
+	void *base;
+	int idx;
+
+	if (shmem_count >= UBLK_BUF_MAX)
+		return -1;
+
+	size = lseek(shmem_fd, 0, SEEK_END);
+	if (size <= 0)
+		return -1;
+
+	base = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED,
+		    shmem_fd, 0);
+	if (base == MAP_FAILED)
+		return -1;
+
+	idx = shmem_count++;
+	shmem_table[idx].fd = shmem_fd;
+	shmem_table[idx].mmap_base = base;
+	shmem_table[idx].size = size;
+
+	ublk_dbg(UBLK_DBG_DEV, "shmem registered: index=%d fd=%d size=%zu\n",
+		 idx, shmem_fd, (size_t)size);
+	return idx;
+}
+
+static void ublk_shmem_unregister_all(void)
+{
+	int i;
+
+	for (i = 0; i < shmem_count; i++) {
+		if (shmem_table[i].mmap_base) {
+			munmap(shmem_table[i].mmap_base,
+			       shmem_table[i].size);
+			close(shmem_table[i].fd);
+			shmem_table[i].mmap_base = NULL;
+		}
+	}
+	shmem_count = 0;
+}
+
+static int ublk_ctrl_reg_buf(struct ublk_dev *dev, void *addr, size_t size,
+			     __u32 flags)
+{
+	struct ublk_shmem_buf_reg buf_reg = {
+		.addr = (unsigned long)addr,
+		.len = size,
+		.flags = flags,
+	};
+	struct ublk_ctrl_cmd_data data = {
+		.cmd_op = UBLK_U_CMD_REG_BUF,
+		.flags = CTRL_CMD_HAS_BUF,
+		.addr = (unsigned long)&buf_reg,
+		.len = sizeof(buf_reg),
+	};
+
+	return __ublk_ctrl_cmd(dev, &data);
+}
+
+/*
+ * Handle one client connection: receive memfd, mmap it, register
+ * the VA range with kernel, send back the assigned index.
+ */
+static void ublk_shmem_handle_client(int sock_fd, struct ublk_dev *dev)
+{
+	int client_fd, memfd, idx, ret;
+	int32_t reply;
+	off_t size;
+	void *base;
+
+	client_fd = accept(sock_fd, NULL, NULL);
+	if (client_fd < 0)
+		return;
+
+	memfd = ublk_shmem_recv_fd(client_fd);
+	if (memfd < 0) {
+		reply = -1;
+		goto out;
+	}
+
+	/* mmap the memfd in server address space */
+	size = lseek(memfd, 0, SEEK_END);
+	if (size <= 0) {
+		reply = -1;
+		close(memfd);
+		goto out;
+	}
+	base = mmap(NULL, size, PROT_READ | PROT_WRITE,
+		    MAP_SHARED | MAP_POPULATE, memfd, 0);
+	if (base == MAP_FAILED) {
+		reply = -1;
+		close(memfd);
+		goto out;
+	}
+
+	/* Register server's VA range with kernel for PFN matching */
+	ret = ublk_ctrl_reg_buf(dev, base, size, 0);
+	if (ret < 0) {
+		ublk_dbg(UBLK_DBG_DEV,
+			 "shmem_zc: kernel reg failed %d\n", ret);
+		munmap(base, size);
+		close(memfd);
+		reply = ret;
+		goto out;
+	}
+
+	/* Store in table for I/O handling */
+	idx = ublk_shmem_register(memfd);
+	if (idx >= 0) {
+		shmem_table[idx].mmap_base = base;
+		shmem_table[idx].size = size;
+	}
+	reply = idx;
+out:
+	send(client_fd, &reply, sizeof(reply), 0);
+	close(client_fd);
+}
+
+struct shmem_listener_info {
+	int dev_id;
+	int stop_efd;		/* eventfd to signal listener to stop */
+	int sock_fd;		/* listener socket fd (output) */
+	struct ublk_dev *dev;
+};
+
+/*
+ * Socket listener thread: runs in the parent daemon context alongside
+ * the I/O threads. Accepts shared memory registration requests from
+ * clients via SCM_RIGHTS. Exits when stop_efd is signaled.
+ */
+static void *ublk_shmem_listener_fn(void *data)
+{
+	struct shmem_listener_info *info = data;
+	struct pollfd pfds[2];
+
+	info->sock_fd = ublk_shmem_sock_create(info->dev_id);
+	if (info->sock_fd < 0)
+		return NULL;
+
+	pfds[0].fd = info->sock_fd;
+	pfds[0].events = POLLIN;
+	pfds[1].fd = info->stop_efd;
+	pfds[1].events = POLLIN;
+
+	while (1) {
+		int ret = poll(pfds, 2, -1);
+
+		if (ret < 0)
+			break;
+
+		/* Stop signal from parent */
+		if (pfds[1].revents & POLLIN)
+			break;
+
+		/* Client connection */
+		if (pfds[0].revents & POLLIN)
+			ublk_shmem_handle_client(info->sock_fd, info->dev);
+	}
+
+	return NULL;
+}
+
+static int ublk_shmem_htlb_setup(const struct dev_ctx *ctx,
+				 struct ublk_dev *dev)
+{
+	int fd, idx, ret;
+	struct stat st;
+	void *base;
+
+	fd = open(ctx->htlb_path, O_RDWR);
+	if (fd < 0) {
+		ublk_err("htlb: can't open %s\n", ctx->htlb_path);
+		return -errno;
+	}
+
+	if (fstat(fd, &st) < 0 || st.st_size <= 0) {
+		ublk_err("htlb: invalid file size\n");
+		close(fd);
+		return -EINVAL;
+	}
+
+	base = mmap(NULL, st.st_size,
+		    ctx->rdonly_shmem_buf ? PROT_READ : PROT_READ | PROT_WRITE,
+		    MAP_SHARED | MAP_POPULATE, fd, 0);
+	if (base == MAP_FAILED) {
+		ublk_err("htlb: mmap failed\n");
+		close(fd);
+		return -ENOMEM;
+	}
+
+	ret = ublk_ctrl_reg_buf(dev, base, st.st_size,
+			       ctx->rdonly_shmem_buf ? UBLK_SHMEM_BUF_READ_ONLY : 0);
+	if (ret < 0) {
+		ublk_err("htlb: reg_buf failed: %d\n", ret);
+		munmap(base, st.st_size);
+		close(fd);
+		return ret;
+	}
+
+	if (shmem_count >= UBLK_BUF_MAX) {
+		munmap(base, st.st_size);
+		close(fd);
+		return -ENOMEM;
+	}
+
+	idx = shmem_count++;
+	shmem_table[idx].fd = fd;
+	shmem_table[idx].mmap_base = base;
+	shmem_table[idx].size = st.st_size;
+
+	ublk_dbg(UBLK_DBG_DEV, "htlb registered: index=%d size=%zu\n",
+		 idx, (size_t)st.st_size);
+	return 0;
+}
+
 static int ublk_start_daemon(const struct dev_ctx *ctx, struct ublk_dev *dev)
 {
 	const struct ublksrv_ctrl_dev_info *dinfo = &dev->dev_info;
+	struct shmem_listener_info linfo = {};
 	struct ublk_thread_info *tinfo;
 	unsigned long long extra_flags = 0;
 	cpu_set_t *affinity_buf;
+	unsigned char (*q_thread_map)[UBLK_MAX_QUEUES] = NULL;
+	uint64_t stop_val = 1;
+	pthread_t listener;
 	void *thread_ret;
 	sem_t ready;
 	int ret, i;
@@ -950,6 +1422,16 @@ static int ublk_start_daemon(const struct dev_ctx *ctx, struct ublk_dev *dev)
 	if (ret)
 		return ret;
 
+	if (ublk_dev_batch_io(dev)) {
+		q_thread_map = calloc(dev->nthreads, sizeof(*q_thread_map));
+		if (!q_thread_map) {
+			ret = -ENOMEM;
+			goto fail;
+		}
+		ublk_batch_setup_map(q_thread_map, dev->nthreads,
+				     dinfo->nr_hw_queues);
+	}
+
 	if (ctx->auto_zc_fallback)
 		extra_flags = UBLKS_Q_AUTO_BUF_REG_FALLBACK;
 	if (ctx->no_ublk_fixed_fd)
@@ -959,7 +1441,8 @@ static int ublk_start_daemon(const struct dev_ctx *ctx, struct ublk_dev *dev)
 		dev->q[i].dev = dev;
 		dev->q[i].q_id = i;
 
-		ret = ublk_queue_init(&dev->q[i], extra_flags);
+		ret = ublk_queue_init(&dev->q[i], extra_flags,
+				      ctx->metadata_size);
 		if (ret) {
 			ublk_err("ublk dev %d queue %d init queue failed\n",
 				 dinfo->dev_id, i);
@@ -972,6 +1455,7 @@ static int ublk_start_daemon(const struct dev_ctx *ctx, struct ublk_dev *dev)
 		tinfo[i].idx = i;
 		tinfo[i].ready = &ready;
 		tinfo[i].extra_flags = extra_flags;
+		tinfo[i].q_thread_map = q_thread_map;
 
 		/*
 		 * If threads are not tied 1:1 to queues, setting thread
@@ -983,15 +1467,15 @@ static int ublk_start_daemon(const struct dev_ctx *ctx, struct ublk_dev *dev)
 		 */
 		if (dev->nthreads == dinfo->nr_hw_queues)
 			tinfo[i].affinity = &affinity_buf[i];
-		pthread_create(&dev->threads[i].thread, NULL,
+		pthread_create(&tinfo[i].thread, NULL,
 				ublk_io_handler_fn,
 				&tinfo[i]);
 	}
 
 	for (i = 0; i < dev->nthreads; i++)
 		sem_wait(&ready);
-	free(tinfo);
 	free(affinity_buf);
+	free(q_thread_map);
 
 	/* everything is fine now, start us */
 	if (ctx->recovery)
@@ -1002,7 +1486,18 @@ static int ublk_start_daemon(const struct dev_ctx *ctx, struct ublk_dev *dev)
 	}
 	if (ret < 0) {
 		ublk_err("%s: ublk_ctrl_start_dev failed: %d\n", __func__, ret);
-		goto fail;
+		/* stop device so that inflight uring_cmd can be cancelled */
+		ublk_ctrl_stop_dev(dev);
+		goto fail_start;
+	}
+
+	if (ctx->htlb_path) {
+		ret = ublk_shmem_htlb_setup(ctx, dev);
+		if (ret < 0) {
+			ublk_err("htlb setup failed: %d\n", ret);
+			ublk_ctrl_stop_dev(dev);
+			goto fail_start;
+		}
 	}
 
 	ublk_ctrl_get_info(dev);
@@ -1010,10 +1505,31 @@ static int ublk_start_daemon(const struct dev_ctx *ctx, struct ublk_dev *dev)
 		ublk_ctrl_dump(dev);
 	else
 		ublk_send_dev_event(ctx, dev, dev->dev_info.dev_id);
+fail_start:
+	/*
+	 * Wait for I/O threads to exit. While waiting, a listener
+	 * thread accepts shared memory registration requests from
+	 * clients via a per-device unix socket (SCM_RIGHTS fd passing).
+	 */
+	linfo.dev_id = dinfo->dev_id;
+	linfo.dev = dev;
+	linfo.stop_efd = eventfd(0, 0);
+	if (linfo.stop_efd >= 0)
+		pthread_create(&listener, NULL,
+			       ublk_shmem_listener_fn, &linfo);
 
-	/* wait until we are terminated */
-	for (i = 0; i < dev->nthreads; i++)
-		pthread_join(dev->threads[i].thread, &thread_ret);
+	for (i = 0; i < (int)dev->nthreads; i++)
+		pthread_join(tinfo[i].thread, &thread_ret);
+
+	/* Signal listener thread to stop and wait for it */
+	if (linfo.stop_efd >= 0) {
+		write(linfo.stop_efd, &stop_val, sizeof(stop_val));
+		pthread_join(listener, NULL);
+		close(linfo.stop_efd);
+		ublk_shmem_sock_destroy(dinfo->dev_id, linfo.sock_fd);
+	}
+	ublk_shmem_unregister_all();
+	free(tinfo);
  fail:
 	for (i = 0; i < dinfo->nr_hw_queues; i++)
 		ublk_queue_deinit(&dev->q[i]);
@@ -1159,7 +1675,8 @@ static int __cmd_dev_add(const struct dev_ctx *ctx)
 		goto fail;
 	}
 
-	if (nthreads != nr_queues && !ctx->per_io_tasks) {
+	if (nthreads != nr_queues && (!ctx->per_io_tasks &&
+				!(ctx->flags & UBLK_F_BATCH_IO))) {
 		ublk_err("%s: threads %u must be same as queues %u if "
 			"not using per_io_tasks\n",
 			__func__, nthreads, nr_queues);
@@ -1219,7 +1736,7 @@ static int __cmd_dev_add(const struct dev_ctx *ctx)
 	}
 
 	ret = ublk_start_daemon(ctx, dev);
-	ublk_dbg(UBLK_DBG_DEV, "%s: daemon exit %d\b", ret);
+	ublk_dbg(UBLK_DBG_DEV, "%s: daemon exit %d\n", __func__, ret);
 	if (ret < 0)
 		ublk_ctrl_del_dev(dev);
 
@@ -1339,6 +1856,42 @@ static int cmd_dev_del(struct dev_ctx *ctx)
 	return 0;
 }
 
+static int cmd_dev_stop(struct dev_ctx *ctx)
+{
+	int number = ctx->dev_id;
+	struct ublk_dev *dev;
+	int ret;
+
+	if (number < 0) {
+		ublk_err("%s: device id is required\n", __func__);
+		return -EINVAL;
+	}
+
+	dev = ublk_ctrl_init();
+	dev->dev_info.dev_id = number;
+
+	ret = ublk_ctrl_get_info(dev);
+	if (ret < 0)
+		goto fail;
+
+	if (ctx->safe_stop) {
+		ret = ublk_ctrl_try_stop_dev(dev);
+		if (ret < 0)
+			ublk_err("%s: try_stop dev %d failed ret %d\n",
+					__func__, number, ret);
+	} else {
+		ret = ublk_ctrl_stop_dev(dev);
+		if (ret < 0)
+			ublk_err("%s: stop dev %d failed ret %d\n",
+					__func__, number, ret);
+	}
+
+fail:
+	ublk_ctrl_deinit(dev);
+
+	return ret;
+}
+
 static int __cmd_dev_list(struct dev_ctx *ctx)
 {
 	struct ublk_dev *dev = ublk_ctrl_init();
@@ -1384,21 +1937,28 @@ static int cmd_dev_list(struct dev_ctx *ctx)
 static int cmd_dev_get_features(void)
 {
 #define const_ilog2(x) (63 - __builtin_clzll(x))
+#define FEAT_NAME(f) [const_ilog2(f)] = #f
 	static const char *feat_map[] = {
-		[const_ilog2(UBLK_F_SUPPORT_ZERO_COPY)] = "ZERO_COPY",
-		[const_ilog2(UBLK_F_URING_CMD_COMP_IN_TASK)] = "COMP_IN_TASK",
-		[const_ilog2(UBLK_F_NEED_GET_DATA)] = "GET_DATA",
-		[const_ilog2(UBLK_F_USER_RECOVERY)] = "USER_RECOVERY",
-		[const_ilog2(UBLK_F_USER_RECOVERY_REISSUE)] = "RECOVERY_REISSUE",
-		[const_ilog2(UBLK_F_UNPRIVILEGED_DEV)] = "UNPRIVILEGED_DEV",
-		[const_ilog2(UBLK_F_CMD_IOCTL_ENCODE)] = "CMD_IOCTL_ENCODE",
-		[const_ilog2(UBLK_F_USER_COPY)] = "USER_COPY",
-		[const_ilog2(UBLK_F_ZONED)] = "ZONED",
-		[const_ilog2(UBLK_F_USER_RECOVERY_FAIL_IO)] = "RECOVERY_FAIL_IO",
-		[const_ilog2(UBLK_F_UPDATE_SIZE)] = "UPDATE_SIZE",
-		[const_ilog2(UBLK_F_AUTO_BUF_REG)] = "AUTO_BUF_REG",
-		[const_ilog2(UBLK_F_QUIESCE)] = "QUIESCE",
-		[const_ilog2(UBLK_F_PER_IO_DAEMON)] = "PER_IO_DAEMON",
+		FEAT_NAME(UBLK_F_SUPPORT_ZERO_COPY),
+		FEAT_NAME(UBLK_F_URING_CMD_COMP_IN_TASK),
+		FEAT_NAME(UBLK_F_NEED_GET_DATA),
+		FEAT_NAME(UBLK_F_USER_RECOVERY),
+		FEAT_NAME(UBLK_F_USER_RECOVERY_REISSUE),
+		FEAT_NAME(UBLK_F_UNPRIVILEGED_DEV),
+		FEAT_NAME(UBLK_F_CMD_IOCTL_ENCODE),
+		FEAT_NAME(UBLK_F_USER_COPY),
+		FEAT_NAME(UBLK_F_ZONED),
+		FEAT_NAME(UBLK_F_USER_RECOVERY_FAIL_IO),
+		FEAT_NAME(UBLK_F_UPDATE_SIZE),
+		FEAT_NAME(UBLK_F_AUTO_BUF_REG),
+		FEAT_NAME(UBLK_F_QUIESCE),
+		FEAT_NAME(UBLK_F_PER_IO_DAEMON),
+		FEAT_NAME(UBLK_F_BUF_REG_OFF_DAEMON),
+		FEAT_NAME(UBLK_F_INTEGRITY),
+		FEAT_NAME(UBLK_F_SAFE_STOP_DEV),
+		FEAT_NAME(UBLK_F_BATCH_IO),
+		FEAT_NAME(UBLK_F_NO_AUTO_PART_SCAN),
+		FEAT_NAME(UBLK_F_SHMEM_ZC),
 	};
 	struct ublk_dev *dev;
 	__u64 features = 0;
@@ -1425,7 +1985,7 @@ static int cmd_dev_get_features(void)
 				feat = feat_map[i];
 			else
 				feat = "unknown";
-			printf("\t%-20s: 0x%llx\n", feat, 1ULL << i);
+			printf("0x%-16llx: %s\n", 1ULL << i, feat);
 		}
 	}
 
@@ -1491,9 +2051,12 @@ static void __cmd_create_help(char *exe, bool recovery)
 
 	printf("%s %s -t [null|loop|stripe|fault_inject] [-q nr_queues] [-d depth] [-n dev_id]\n",
 			exe, recovery ? "recover" : "add");
-	printf("\t[--foreground] [--quiet] [-z] [--auto_zc] [--auto_zc_fallback] [--debug_mask mask] [-r 0|1 ] [-g]\n");
+	printf("\t[--foreground] [--quiet] [-z] [--auto_zc] [--auto_zc_fallback] [--debug_mask mask] [-r 0|1] [-g] [-u]\n");
 	printf("\t[-e 0|1 ] [-i 0|1] [--no_ublk_fixed_fd]\n");
 	printf("\t[--nthreads threads] [--per_io_tasks]\n");
+	printf("\t[--integrity_capable] [--integrity_reftag] [--metadata_size SIZE] "
+		 "[--pi_offset OFFSET] [--csum_type ip|t10dif|nvme] [--tag_size SIZE]\n");
+	printf("\t[--batch|-b] [--no_auto_part_scan]\n");
 	printf("\t[target options] [backfile1] [backfile2] ...\n");
 	printf("\tdefault: nr_queues=2(max 32), depth=128(max 1024), dev_id=-1(auto allocation)\n");
 	printf("\tdefault: nthreads=nr_queues");
@@ -1526,6 +2089,8 @@ static int cmd_dev_help(char *exe)
 
 	printf("%s del [-n dev_id] -a \n", exe);
 	printf("\t -a delete all devices -n delete specified device\n\n");
+	printf("%s stop -n dev_id [--safe]\n", exe);
+	printf("\t --safe only stop if device has no active openers\n\n");
 	printf("%s list [-n dev_id] -a \n", exe);
 	printf("\t -a list all devices, -n list specified device, default -a \n\n");
 	printf("%s features\n", exe);
@@ -1552,20 +2117,35 @@ int main(int argc, char *argv[])
 		{ "get_data",		1,	NULL, 'g'},
 		{ "auto_zc",		0,	NULL,  0 },
 		{ "auto_zc_fallback", 	0,	NULL,  0 },
+		{ "user_copy",		0,	NULL, 'u'},
 		{ "size",		1,	NULL, 's'},
 		{ "nthreads",		1,	NULL,  0 },
 		{ "per_io_tasks",	0,	NULL,  0 },
 		{ "no_ublk_fixed_fd",	0,	NULL,  0 },
+		{ "integrity_capable",	0,	NULL,  0 },
+		{ "integrity_reftag",	0,	NULL,  0 },
+		{ "metadata_size",	1,	NULL,  0 },
+		{ "pi_offset",		1,	NULL,  0 },
+		{ "csum_type",		1,	NULL,  0 },
+		{ "tag_size",		1,	NULL,  0 },
+		{ "safe",		0,	NULL,  0 },
+		{ "batch",              0,      NULL, 'b'},
+		{ "no_auto_part_scan",	0,	NULL,  0 },
+		{ "shmem_zc",		0,	NULL,  0  },
+		{ "htlb",		1,	NULL,  0  },
+		{ "rdonly_shmem_buf",	0,	NULL,  0  },
 		{ 0, 0, 0, 0 }
 	};
 	const struct ublk_tgt_ops *ops = NULL;
 	int option_idx, opt;
 	const char *cmd = argv[1];
 	struct dev_ctx ctx = {
+		._evtfd         =       -1,
 		.queue_depth	=	128,
 		.nr_hw_queues	=	2,
 		.dev_id		=	-1,
 		.tgt_type	=	"unknown",
+		.csum_type	=	LBMD_PI_CSUM_NONE,
 	};
 	int ret = -EINVAL, i;
 	int tgt_argc = 1;
@@ -1577,11 +2157,14 @@ int main(int argc, char *argv[])
 
 	opterr = 0;
 	optind = 2;
-	while ((opt = getopt_long(argc, argv, "t:n:d:q:r:e:i:s:gaz",
+	while ((opt = getopt_long(argc, argv, "t:n:d:q:r:e:i:s:gazub",
 				  longopts, &option_idx)) != -1) {
 		switch (opt) {
 		case 'a':
 			ctx.all = 1;
+			break;
+		case 'b':
+			ctx.flags |= UBLK_F_BATCH_IO;
 			break;
 		case 'n':
 			ctx.dev_id = strtol(optarg, NULL, 10);
@@ -1597,7 +2180,7 @@ int main(int argc, char *argv[])
 			ctx.queue_depth = strtol(optarg, NULL, 10);
 			break;
 		case 'z':
-			ctx.flags |= UBLK_F_SUPPORT_ZERO_COPY | UBLK_F_USER_COPY;
+			ctx.flags |= UBLK_F_SUPPORT_ZERO_COPY;
 			break;
 		case 'r':
 			value = strtol(optarg, NULL, 10);
@@ -1616,6 +2199,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'g':
 			ctx.flags |= UBLK_F_NEED_GET_DATA;
+			break;
+		case 'u':
+			ctx.flags |= UBLK_F_USER_COPY;
 			break;
 		case 's':
 			ctx.size = strtoull(optarg, NULL, 10);
@@ -1637,6 +2223,38 @@ int main(int argc, char *argv[])
 				ctx.per_io_tasks = 1;
 			if (!strcmp(longopts[option_idx].name, "no_ublk_fixed_fd"))
 				ctx.no_ublk_fixed_fd = 1;
+			if (!strcmp(longopts[option_idx].name, "integrity_capable"))
+				ctx.integrity_flags |= LBMD_PI_CAP_INTEGRITY;
+			if (!strcmp(longopts[option_idx].name, "integrity_reftag"))
+				ctx.integrity_flags |= LBMD_PI_CAP_REFTAG;
+			if (!strcmp(longopts[option_idx].name, "metadata_size"))
+				ctx.metadata_size = strtoul(optarg, NULL, 0);
+			if (!strcmp(longopts[option_idx].name, "pi_offset"))
+				ctx.pi_offset = strtoul(optarg, NULL, 0);
+			if (!strcmp(longopts[option_idx].name, "csum_type")) {
+				if (!strcmp(optarg, "ip")) {
+					ctx.csum_type = LBMD_PI_CSUM_IP;
+				} else if (!strcmp(optarg, "t10dif")) {
+					ctx.csum_type = LBMD_PI_CSUM_CRC16_T10DIF;
+				} else if (!strcmp(optarg, "nvme")) {
+					ctx.csum_type = LBMD_PI_CSUM_CRC64_NVME;
+				} else {
+					ublk_err("invalid csum_type: %s\n", optarg);
+					return -EINVAL;
+				}
+			}
+			if (!strcmp(longopts[option_idx].name, "tag_size"))
+				ctx.tag_size = strtoul(optarg, NULL, 0);
+			if (!strcmp(longopts[option_idx].name, "safe"))
+				ctx.safe_stop = 1;
+			if (!strcmp(longopts[option_idx].name, "no_auto_part_scan"))
+				ctx.flags |= UBLK_F_NO_AUTO_PART_SCAN;
+			if (!strcmp(longopts[option_idx].name, "shmem_zc"))
+				ctx.flags |= UBLK_F_SHMEM_ZC;
+			if (!strcmp(longopts[option_idx].name, "htlb"))
+				ctx.htlb_path = strdup(optarg);
+			if (!strcmp(longopts[option_idx].name, "rdonly_shmem_buf"))
+				ctx.rdonly_shmem_buf = 1;
 			break;
 		case '?':
 			/*
@@ -1660,6 +2278,11 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	if (ctx.per_io_tasks && (ctx.flags & UBLK_F_BATCH_IO)) {
+		ublk_err("per_io_task and F_BATCH_IO conflict\n");
+		return -EINVAL;
+	}
+
 	/* auto_zc_fallback depends on F_AUTO_BUF_REG & F_SUPPORT_ZERO_COPY */
 	if (ctx.auto_zc_fallback &&
 	    !((ctx.flags & UBLK_F_AUTO_BUF_REG) &&
@@ -1667,6 +2290,37 @@ int main(int argc, char *argv[])
 		ublk_err("%s: auto_zc_fallback is set but neither "
 				"F_AUTO_BUF_REG nor F_SUPPORT_ZERO_COPY is enabled\n",
 					__func__);
+		return -EINVAL;
+	}
+
+	if (!!(ctx.flags & UBLK_F_NEED_GET_DATA) +
+	    !!(ctx.flags & UBLK_F_USER_COPY) +
+	    (ctx.flags & UBLK_F_SUPPORT_ZERO_COPY && !ctx.auto_zc_fallback) +
+	    (ctx.flags & UBLK_F_AUTO_BUF_REG && !ctx.auto_zc_fallback) +
+	    ctx.auto_zc_fallback > 1) {
+		fprintf(stderr, "too many data copy modes specified\n");
+		return -EINVAL;
+	}
+
+	if (ctx.metadata_size) {
+		if (!(ctx.flags & UBLK_F_USER_COPY)) {
+			ublk_err("integrity requires user_copy\n");
+			return -EINVAL;
+		}
+
+		ctx.flags |= UBLK_F_INTEGRITY;
+	} else if (ctx.integrity_flags ||
+		   ctx.pi_offset ||
+		   ctx.csum_type != LBMD_PI_CSUM_NONE ||
+		   ctx.tag_size) {
+		ublk_err("integrity parameters require metadata_size\n");
+		return -EINVAL;
+	}
+
+	if ((ctx.flags & UBLK_F_AUTO_BUF_REG) &&
+			(ctx.flags & UBLK_F_BATCH_IO) &&
+			(ctx.nthreads > ctx.nr_hw_queues)) {
+		ublk_err("too many threads for F_AUTO_BUF_REG & F_BATCH_IO\n");
 		return -EINVAL;
 	}
 
@@ -1695,6 +2349,8 @@ int main(int argc, char *argv[])
 		}
 	} else if (!strcmp(cmd, "del"))
 		ret = cmd_dev_del(&ctx);
+	else if (!strcmp(cmd, "stop"))
+		ret = cmd_dev_stop(&ctx);
 	else if (!strcmp(cmd, "list")) {
 		ctx.all = 1;
 		ret = cmd_dev_list(&ctx);

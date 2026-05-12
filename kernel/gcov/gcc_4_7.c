@@ -18,7 +18,9 @@
 #include <linux/mm.h>
 #include "gcov.h"
 
-#if (__GNUC__ >= 14)
+#if (__GNUC__ >= 15)
+#define GCOV_COUNTERS			10
+#elif (__GNUC__ >= 14)
 #define GCOV_COUNTERS			9
 #elif (__GNUC__ >= 10)
 #define GCOV_COUNTERS			8
@@ -296,8 +298,7 @@ struct gcov_info *gcov_info_dup(struct gcov_info *info)
 	if (!dup->filename)
 		goto err_free;
 
-	dup->functions = kcalloc(info->n_functions,
-				 sizeof(struct gcov_fn_info *), GFP_KERNEL);
+	dup->functions = kzalloc_objs(struct gcov_fn_info *, info->n_functions);
 	if (!dup->functions)
 		goto err_free;
 

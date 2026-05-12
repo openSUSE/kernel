@@ -15,6 +15,7 @@
 #include <linux/platform_device.h>
 #include <net/ip.h>
 #include <net/ipv6.h>
+#include <net/page_pool/helpers.h>
 
 #include "bcmasp.h"
 #include "bcmasp_intf_defs.h"
@@ -231,39 +232,6 @@ help:
 	return skb;
 }
 
-static unsigned long bcmasp_rx_edpkt_dma_rq(struct bcmasp_intf *intf)
-{
-	return rx_edpkt_dma_rq(intf, RX_EDPKT_DMA_VALID);
-}
-
-static void bcmasp_rx_edpkt_cfg_wq(struct bcmasp_intf *intf, dma_addr_t addr)
-{
-	rx_edpkt_cfg_wq(intf, addr, RX_EDPKT_RING_BUFFER_READ);
-}
-
-static void bcmasp_rx_edpkt_dma_wq(struct bcmasp_intf *intf, dma_addr_t addr)
-{
-	rx_edpkt_dma_wq(intf, addr, RX_EDPKT_DMA_READ);
-}
-
-static unsigned long bcmasp_tx_spb_dma_rq(struct bcmasp_intf *intf)
-{
-	return tx_spb_dma_rq(intf, TX_SPB_DMA_READ);
-}
-
-static void bcmasp_tx_spb_dma_wq(struct bcmasp_intf *intf, dma_addr_t addr)
-{
-	tx_spb_dma_wq(intf, addr, TX_SPB_DMA_VALID);
-}
-
-static const struct bcmasp_intf_ops bcmasp_intf_ops = {
-	.rx_desc_read = bcmasp_rx_edpkt_dma_rq,
-	.rx_buffer_write = bcmasp_rx_edpkt_cfg_wq,
-	.rx_desc_write = bcmasp_rx_edpkt_dma_wq,
-	.tx_read = bcmasp_tx_spb_dma_rq,
-	.tx_write = bcmasp_tx_spb_dma_wq,
-};
-
 static netdev_tx_t bcmasp_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct bcmasp_intf *intf = netdev_priv(dev);
@@ -368,7 +336,7 @@ static netdev_tx_t bcmasp_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	skb_tx_timestamp(skb);
 
-	bcmasp_intf_tx_write(intf, intf->tx_spb_dma_valid);
+	tx_spb_dma_wq(intf, intf->tx_spb_dma_valid, TX_SPB_DMA_VALID);
 
 	if (tx_spb_ring_full(intf, MAX_SKB_FRAGS + 1))
 		netif_stop_queue(dev);
@@ -449,7 +417,7 @@ static int bcmasp_tx_reclaim(struct bcmasp_intf *intf)
 	struct bcmasp_desc *desc;
 	dma_addr_t mapping;
 
-	read = bcmasp_intf_tx_read(intf);
+	read = tx_spb_dma_rq(intf, TX_SPB_DMA_READ);
 	while (intf->tx_spb_dma_read != read) {
 		txcb = &intf->tx_cbs[intf->tx_spb_clean_index];
 		mapping = dma_unmap_addr(txcb, dma_addr);
@@ -515,23 +483,27 @@ static int bcmasp_rx_poll(struct napi_struct *napi, int budget)
 	struct bcmasp_desc *desc;
 	struct sk_buff *skb;
 	dma_addr_t valid;
+	struct page *page;
 	void *data;
 	u64 flags;
 	u32 len;
 
-	valid = bcmasp_intf_rx_desc_read(intf) + 1;
+	/* Hardware advances DMA_VALID as it writes each descriptor
+	 * (RBUF_4K streaming mode); software chases with rx_edpkt_dma_read.
+	 */
+	valid = rx_edpkt_dma_rq(intf, RX_EDPKT_DMA_VALID) + 1;
 	if (valid == intf->rx_edpkt_dma_addr + DESC_RING_SIZE)
 		valid = intf->rx_edpkt_dma_addr;
 
 	while ((processed < budget) && (valid != intf->rx_edpkt_dma_read)) {
 		desc = &intf->rx_edpkt_cpu[intf->rx_edpkt_index];
 
-		/* Ensure that descriptor has been fully written to DRAM by
-		 * hardware before reading by the CPU
+		/* Ensure the descriptor has been fully written to DRAM by
+		 * the hardware before the CPU reads it.
 		 */
 		rmb();
 
-		/* Calculate virt addr by offsetting from physical addr */
+		/* Locate the packet data inside the streaming ring buffer. */
 		data = intf->rx_ring_cpu +
 			(DESC_ADDR(desc->buf) - intf->rx_ring_dma);
 
@@ -557,19 +529,38 @@ static int bcmasp_rx_poll(struct napi_struct *napi, int budget)
 
 		len = desc->size;
 
-		skb = napi_alloc_skb(napi, len);
+		/* Allocate a page pool page as the SKB data area so the
+		 * kernel can recycle it efficiently after the packet is
+		 * consumed, avoiding repeated slab allocations.
+		 */
+		page = page_pool_dev_alloc_pages(intf->rx_page_pool);
+		if (!page) {
+			u64_stats_update_begin(&stats->syncp);
+			u64_stats_inc(&stats->rx_dropped);
+			u64_stats_update_end(&stats->syncp);
+			intf->mib.alloc_rx_skb_failed++;
+			goto next;
+		}
+
+		skb = napi_build_skb(page_address(page), PAGE_SIZE);
 		if (!skb) {
 			u64_stats_update_begin(&stats->syncp);
 			u64_stats_inc(&stats->rx_dropped);
 			u64_stats_update_end(&stats->syncp);
 			intf->mib.alloc_rx_skb_failed++;
-
+			page_pool_recycle_direct(intf->rx_page_pool, page);
 			goto next;
 		}
 
+		/* Reserve headroom then copy the full descriptor payload
+		 * (hardware prepends a 2-byte alignment pad at the start).
+		 */
+		skb_reserve(skb, NET_SKB_PAD);
 		skb_put(skb, len);
 		memcpy(skb->data, data, len);
+		skb_mark_for_recycle(skb);
 
+		/* Skip the 2-byte hardware alignment pad. */
 		skb_pull(skb, 2);
 		len -= 2;
 		if (likely(intf->crc_fwd)) {
@@ -591,8 +582,9 @@ static int bcmasp_rx_poll(struct napi_struct *napi, int budget)
 		u64_stats_update_end(&stats->syncp);
 
 next:
-		bcmasp_intf_rx_buffer_write(intf, (DESC_ADDR(desc->buf) +
-					    desc->size));
+		/* Return this portion of the streaming ring buffer to HW. */
+		rx_edpkt_cfg_wq(intf, (DESC_ADDR(desc->buf) + desc->size),
+				RX_EDPKT_RING_BUFFER_READ);
 
 		processed++;
 		intf->rx_edpkt_dma_read =
@@ -603,7 +595,7 @@ next:
 						 DESC_RING_COUNT);
 	}
 
-	bcmasp_intf_rx_desc_write(intf, intf->rx_edpkt_dma_read);
+	rx_edpkt_dma_wq(intf, intf->rx_edpkt_dma_read, RX_EDPKT_DMA_READ);
 
 	if (processed < budget && napi_complete_done(&intf->rx_napi, processed))
 		bcmasp_enable_rx_irq(intf, 1);
@@ -694,12 +686,31 @@ static void bcmasp_adj_link(struct net_device *dev)
 		phy_print_status(phydev);
 }
 
-static int bcmasp_alloc_buffers(struct bcmasp_intf *intf)
+static struct page_pool *
+bcmasp_rx_page_pool_create(struct bcmasp_intf *intf)
+{
+	struct page_pool_params pp_params = {
+		.order		= 0,
+		.flags		= 0,
+		.pool_size	= NUM_4K_BUFFERS,
+		.nid		= NUMA_NO_NODE,
+		.dev		= &intf->parent->pdev->dev,
+		.napi		= &intf->rx_napi,
+		.netdev		= intf->ndev,
+		.offset		= 0,
+		.max_len	= PAGE_SIZE,
+	};
+
+	return page_pool_create(&pp_params);
+}
+
+static int bcmasp_alloc_rx_buffers(struct bcmasp_intf *intf)
 {
 	struct device *kdev = &intf->parent->pdev->dev;
 	struct page *buffer_pg;
+	int ret;
 
-	/* Alloc RX */
+	/* Contiguous streaming ring that hardware writes packet data into. */
 	intf->rx_buf_order = get_order(RING_BUFFER_SIZE);
 	buffer_pg = alloc_pages(GFP_KERNEL, intf->rx_buf_order);
 	if (!buffer_pg)
@@ -708,13 +719,55 @@ static int bcmasp_alloc_buffers(struct bcmasp_intf *intf)
 	intf->rx_ring_cpu = page_to_virt(buffer_pg);
 	intf->rx_ring_dma = dma_map_page(kdev, buffer_pg, 0, RING_BUFFER_SIZE,
 					 DMA_FROM_DEVICE);
-	if (dma_mapping_error(kdev, intf->rx_ring_dma))
-		goto free_rx_buffer;
+	if (dma_mapping_error(kdev, intf->rx_ring_dma)) {
+		ret = -ENOMEM;
+		goto free_ring_pages;
+	}
+
+	/* Page pool for SKB data areas (copy targets, not DMA buffers). */
+	intf->rx_page_pool = bcmasp_rx_page_pool_create(intf);
+	if (IS_ERR(intf->rx_page_pool)) {
+		ret = PTR_ERR(intf->rx_page_pool);
+		intf->rx_page_pool = NULL;
+		goto free_ring_dma;
+	}
+
+	return 0;
+
+free_ring_dma:
+	dma_unmap_page(kdev, intf->rx_ring_dma, RING_BUFFER_SIZE,
+		       DMA_FROM_DEVICE);
+free_ring_pages:
+	__free_pages(buffer_pg, intf->rx_buf_order);
+	return ret;
+}
+
+static void bcmasp_reclaim_rx_buffers(struct bcmasp_intf *intf)
+{
+	struct device *kdev = &intf->parent->pdev->dev;
+
+	page_pool_destroy(intf->rx_page_pool);
+	intf->rx_page_pool = NULL;
+	dma_unmap_page(kdev, intf->rx_ring_dma, RING_BUFFER_SIZE,
+		       DMA_FROM_DEVICE);
+	__free_pages(virt_to_page(intf->rx_ring_cpu), intf->rx_buf_order);
+}
+
+static int bcmasp_alloc_buffers(struct bcmasp_intf *intf)
+{
+	struct device *kdev = &intf->parent->pdev->dev;
+	int ret;
+
+	/* Alloc RX */
+	ret = bcmasp_alloc_rx_buffers(intf);
+	if (ret)
+		return ret;
 
 	intf->rx_edpkt_cpu = dma_alloc_coherent(kdev, DESC_RING_SIZE,
-						&intf->rx_edpkt_dma_addr, GFP_KERNEL);
+						&intf->rx_edpkt_dma_addr,
+						GFP_KERNEL);
 	if (!intf->rx_edpkt_cpu)
-		goto free_rx_buffer_dma;
+		goto free_rx_buffers;
 
 	/* Alloc TX */
 	intf->tx_spb_cpu = dma_alloc_coherent(kdev, DESC_RING_SIZE,
@@ -722,8 +775,7 @@ static int bcmasp_alloc_buffers(struct bcmasp_intf *intf)
 	if (!intf->tx_spb_cpu)
 		goto free_rx_edpkt_dma;
 
-	intf->tx_cbs = kcalloc(DESC_RING_COUNT, sizeof(struct bcmasp_tx_cb),
-			       GFP_KERNEL);
+	intf->tx_cbs = kzalloc_objs(struct bcmasp_tx_cb, DESC_RING_COUNT);
 	if (!intf->tx_cbs)
 		goto free_tx_spb_dma;
 
@@ -735,11 +787,8 @@ free_tx_spb_dma:
 free_rx_edpkt_dma:
 	dma_free_coherent(kdev, DESC_RING_SIZE, intf->rx_edpkt_cpu,
 			  intf->rx_edpkt_dma_addr);
-free_rx_buffer_dma:
-	dma_unmap_page(kdev, intf->rx_ring_dma, RING_BUFFER_SIZE,
-		       DMA_FROM_DEVICE);
-free_rx_buffer:
-	__free_pages(buffer_pg, intf->rx_buf_order);
+free_rx_buffers:
+	bcmasp_reclaim_rx_buffers(intf);
 
 	return -ENOMEM;
 }
@@ -751,9 +800,7 @@ static void bcmasp_reclaim_free_buffers(struct bcmasp_intf *intf)
 	/* RX buffers */
 	dma_free_coherent(kdev, DESC_RING_SIZE, intf->rx_edpkt_cpu,
 			  intf->rx_edpkt_dma_addr);
-	dma_unmap_page(kdev, intf->rx_ring_dma, RING_BUFFER_SIZE,
-		       DMA_FROM_DEVICE);
-	__free_pages(virt_to_page(intf->rx_ring_cpu), intf->rx_buf_order);
+	bcmasp_reclaim_rx_buffers(intf);
 
 	/* TX buffers */
 	dma_free_coherent(kdev, DESC_RING_SIZE, intf->tx_spb_cpu,
@@ -772,7 +819,7 @@ static void bcmasp_init_rx(struct bcmasp_intf *intf)
 	/* Make sure channels are disabled */
 	rx_edpkt_cfg_wl(intf, 0x0, RX_EDPKT_CFG_ENABLE);
 
-	/* Rx SPB */
+	/* Streaming data ring: hardware writes raw packet bytes here. */
 	rx_edpkt_cfg_wq(intf, intf->rx_ring_dma, RX_EDPKT_RING_BUFFER_READ);
 	rx_edpkt_cfg_wq(intf, intf->rx_ring_dma, RX_EDPKT_RING_BUFFER_WRITE);
 	rx_edpkt_cfg_wq(intf, intf->rx_ring_dma, RX_EDPKT_RING_BUFFER_BASE);
@@ -781,7 +828,9 @@ static void bcmasp_init_rx(struct bcmasp_intf *intf)
 	rx_edpkt_cfg_wq(intf, intf->rx_ring_dma_valid,
 			RX_EDPKT_RING_BUFFER_VALID);
 
-	/* EDPKT */
+	/* EDPKT descriptor ring: hardware fills descriptors pointing into
+	 * the streaming ring buffer above (RBUF_4K mode).
+	 */
 	rx_edpkt_cfg_wl(intf, (RX_EDPKT_CFG_CFG0_RBUF_4K <<
 			RX_EDPKT_CFG_CFG0_DBUF_SHIFT) |
 		       (RX_EDPKT_CFG_CFG0_64_ALN <<
@@ -1261,7 +1310,7 @@ struct bcmasp_intf *bcmasp_interface_create(struct bcmasp_priv *priv,
 		netdev_err(intf->ndev, "invalid PHY mode: %s for port %d\n",
 			   phy_modes(intf->phy_interface), intf->port);
 		ret = -EINVAL;
-		goto err_free_netdev;
+		goto err_deregister_fixed_link;
 	}
 
 	ret = of_get_ethdev_address(ndev_dn, ndev);
@@ -1271,7 +1320,6 @@ struct bcmasp_intf *bcmasp_interface_create(struct bcmasp_priv *priv,
 	}
 
 	SET_NETDEV_DEV(ndev, dev);
-	intf->ops = &bcmasp_intf_ops;
 	ndev->netdev_ops = &bcmasp_netdev_ops;
 	ndev->ethtool_ops = &bcmasp_ethtool_ops;
 	intf->msg_enable = netif_msg_init(-1, NETIF_MSG_DRV |
@@ -1286,6 +1334,9 @@ struct bcmasp_intf *bcmasp_interface_create(struct bcmasp_priv *priv,
 
 	return intf;
 
+err_deregister_fixed_link:
+	if (of_phy_is_fixed_link(ndev_dn))
+		of_phy_deregister_fixed_link(ndev_dn);
 err_free_netdev:
 	free_netdev(ndev);
 err:
@@ -1333,10 +1384,8 @@ static void bcmasp_suspend_to_wol(struct bcmasp_intf *intf)
 
 	umac_enable_set(intf, UMC_CMD_RX_EN, 1);
 
-	if (intf->parent->wol_irq > 0) {
-		wakeup_intr2_core_wl(intf->parent, 0xffffffff,
-				     ASP_WAKEUP_INTR2_MASK_CLEAR);
-	}
+	wakeup_intr2_core_wl(intf->parent, 0xffffffff,
+			     ASP_WAKEUP_INTR2_MASK_CLEAR);
 
 	if (ndev->phydev && ndev->phydev->eee_cfg.eee_enabled &&
 	    intf->parent->eee_fixup)
@@ -1389,10 +1438,8 @@ static void bcmasp_resume_from_wol(struct bcmasp_intf *intf)
 	reg &= ~UMC_MPD_CTRL_MPD_EN;
 	umac_wl(intf, reg, UMC_MPD_CTRL);
 
-	if (intf->parent->wol_irq > 0) {
-		wakeup_intr2_core_wl(intf->parent, 0xffffffff,
-				     ASP_WAKEUP_INTR2_MASK_SET);
-	}
+	wakeup_intr2_core_wl(intf->parent, 0xffffffff,
+			     ASP_WAKEUP_INTR2_MASK_SET);
 }
 
 int bcmasp_interface_resume(struct bcmasp_intf *intf)

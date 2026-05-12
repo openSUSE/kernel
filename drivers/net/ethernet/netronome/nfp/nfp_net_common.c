@@ -1554,7 +1554,7 @@ struct nfp_net_dp *nfp_net_clone_dp(struct nfp_net *nn)
 {
 	struct nfp_net_dp *new;
 
-	new = kmalloc(sizeof(*new), GFP_KERNEL);
+	new = kmalloc_obj(*new);
 	if (!new)
 		return NULL;
 
@@ -2537,8 +2537,7 @@ nfp_net_alloc(struct pci_dev *pdev, const struct nfp_dev_info *dev_info,
 				  nn->dp.num_r_vecs, num_online_cpus());
 	nn->max_r_vecs = nn->dp.num_r_vecs;
 
-	nn->dp.xsk_pools = kcalloc(nn->max_r_vecs, sizeof(*nn->dp.xsk_pools),
-				   GFP_KERNEL);
+	nn->dp.xsk_pools = kzalloc_objs(*nn->dp.xsk_pools, nn->max_r_vecs);
 	if (!nn->dp.xsk_pools) {
 		err = -ENOMEM;
 		goto err_free_nn;
@@ -2557,14 +2556,16 @@ nfp_net_alloc(struct pci_dev *pdev, const struct nfp_dev_info *dev_info,
 	err = nfp_net_tlv_caps_parse(&nn->pdev->dev, nn->dp.ctrl_bar,
 				     &nn->tlv_caps);
 	if (err)
-		goto err_free_nn;
+		goto err_free_xsk_pools;
 
 	err = nfp_ccm_mbox_alloc(nn);
 	if (err)
-		goto err_free_nn;
+		goto err_free_xsk_pools;
 
 	return nn;
 
+err_free_xsk_pools:
+	kfree(nn->dp.xsk_pools);
 err_free_nn:
 	if (nn->dp.netdev)
 		free_netdev(nn->dp.netdev);

@@ -241,6 +241,20 @@ definitions:
       Value of (DPLL_A_PHASE_OFFSET % DPLL_PHASE_OFFSET_DIVIDER) is a
       fractional part of a measured phase offset value.
   -
+    type: const
+    name: pin-measured-frequency-divider
+    value: 1000
+    doc: |
+      pin measured frequency divider allows userspace to calculate
+      a value of measured input frequency as a fractional value with
+      three digit decimal precision (millihertz).
+      Value of (DPLL_A_PIN_MEASURED_FREQUENCY /
+      DPLL_PIN_MEASURED_FREQUENCY_DIVIDER) is an integer part of
+      a measured frequency value.
+      Value of (DPLL_A_PIN_MEASURED_FREQUENCY %
+      DPLL_PIN_MEASURED_FREQUENCY_DIVIDER) is a fractional part of
+      a measured frequency value.
+  -
     type: enum
     name: feature-state
     doc: |
@@ -315,6 +329,17 @@ attribute-sets:
           If enabled, dpll device shall monitor and notify all currently
           available inputs for changes of their phase offset against the
           dpll device.
+      -
+        name: phase-offset-avg-factor
+        type: u32
+        doc: Averaging factor applied to calculation of reported phase offset.
+      -
+        name: frequency-monitor
+        type: u32
+        enum: feature-state
+        doc: Current or desired state of the frequency monitor feature.
+          If enabled, dpll device shall measure all currently available
+          inputs for their actual input frequency.
   -
     name: pin
     enum-name: dpll_a_pin
@@ -436,6 +461,33 @@ attribute-sets:
         doc: |
           Capable pin provides list of pins that can be bound to create a
           reference-sync pin pair.
+      -
+        name: phase-adjust-gran
+        type: u32
+        doc: |
+          Granularity of phase adjustment, in picoseconds. The value of
+          phase adjustment must be a multiple of this granularity.
+      -
+        name: fractional-frequency-offset-ppt
+        type: sint
+        doc: |
+          The FFO (Fractional Frequency Offset) of the pin with respect to
+          the nominal frequency.
+          Value = (frequency_measured - frequency_nominal) / frequency_nominal
+          Value is in PPT (parts per trillion, 10^-12).
+          Note: This attribute provides higher resolution than the standard
+          fractional-frequency-offset (which is in PPM).
+      -
+        name: measured-frequency
+        type: u64
+        doc: |
+          The measured frequency of the input pin in millihertz (mHz).
+          Value of (DPLL_A_PIN_MEASURED_FREQUENCY /
+          DPLL_PIN_MEASURED_FREQUENCY_DIVIDER) is an integer part (Hz)
+          of a measured frequency value.
+          Value of (DPLL_A_PIN_MEASURED_FREQUENCY %
+          DPLL_PIN_MEASURED_FREQUENCY_DIVIDER) is a fractional part
+          of a measured frequency value.
 
   -
     name: pin-parent-device
@@ -523,6 +575,8 @@ operations:
             - clock-id
             - type
             - phase-offset-monitor
+            - phase-offset-avg-factor
+            - frequency-monitor
 
       dump:
         reply: *dev-attrs
@@ -539,7 +593,10 @@ operations:
         request:
           attributes:
             - id
+            - mode
             - phase-offset-monitor
+            - phase-offset-avg-factor
+            - frequency-monitor
     -
       name: device-create-ntf
       doc: Notification about device appearing
@@ -599,6 +656,8 @@ operations:
         reply: &pin-attrs
           attributes:
             - id
+            - module-name
+            - clock-id
             - board-label
             - panel-label
             - package-label
@@ -608,14 +667,17 @@ operations:
             - capabilities
             - parent-device
             - parent-pin
+            - phase-adjust-gran
             - phase-adjust-min
             - phase-adjust-max
             - phase-adjust
             - fractional-frequency-offset
+            - fractional-frequency-offset-ppt
             - esync-frequency
             - esync-frequency-supported
             - esync-pulse
             - reference-sync
+            - measured-frequency
 
       dump:
         request:

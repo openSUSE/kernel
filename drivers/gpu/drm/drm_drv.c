@@ -53,6 +53,7 @@
 #include <drm/drm_panic.h>
 #include <drm/drm_print.h>
 #include <drm/drm_privacy_screen_machine.h>
+#include <drm/drm_ras_genl_family.h>
 
 #include "drm_crtc_internal.h"
 #include "drm_internal.h"
@@ -586,7 +587,7 @@ int drm_dev_wedged_event(struct drm_device *dev, unsigned long method,
 		snprintf(event_string, sizeof(event_string), "%s", "WEDGED=unknown");
 
 	drm_info(dev, "device wedged, %s\n", method == DRM_WEDGE_RECOVERY_NONE ?
-		 "but recovered through reset" : "needs recovery");
+		 "but no recovery needed" : "needs recovery");
 
 	if (info && (info->comm[0] != '\0') && (info->pid >= 0)) {
 		snprintf(pid_string, sizeof(pid_string), "PID=%u", info->pid);
@@ -696,7 +697,6 @@ static void drm_dev_init_release(struct drm_device *dev, void *res)
 	mutex_destroy(&dev->master_mutex);
 	mutex_destroy(&dev->clientlist_mutex);
 	mutex_destroy(&dev->filelist_mutex);
-	mutex_destroy(&dev->struct_mutex);
 }
 
 static int drm_dev_init(struct drm_device *dev,
@@ -734,10 +734,10 @@ static int drm_dev_init(struct drm_device *dev,
 	INIT_LIST_HEAD(&dev->filelist);
 	INIT_LIST_HEAD(&dev->filelist_internal);
 	INIT_LIST_HEAD(&dev->clientlist);
+	INIT_LIST_HEAD(&dev->client_sysrq_list);
 	INIT_LIST_HEAD(&dev->vblank_event_list);
 
 	spin_lock_init(&dev->event_lock);
-	mutex_init(&dev->struct_mutex);
 	mutex_init(&dev->filelist_mutex);
 	mutex_init(&dev->clientlist_mutex);
 	mutex_init(&dev->master_mutex);
@@ -1102,6 +1102,7 @@ int drm_dev_register(struct drm_device *dev, unsigned long flags)
 			goto err_unload;
 	}
 	drm_panic_register(dev);
+	drm_client_sysrq_register(dev);
 
 	DRM_INFO("Initialized %s %d.%d.%d for %s on minor %d\n",
 		 driver->name, driver->major, driver->minor,
@@ -1146,6 +1147,7 @@ void drm_dev_unregister(struct drm_device *dev)
 {
 	dev->registered = false;
 
+	drm_client_sysrq_unregister(dev);
 	drm_panic_unregister(dev);
 
 	drm_client_dev_unregister(dev);
@@ -1222,6 +1224,7 @@ static const struct file_operations drm_stub_fops = {
 
 static void drm_core_exit(void)
 {
+	drm_ras_genl_family_unregister();
 	drm_privacy_screen_lookup_exit();
 	drm_panic_exit();
 	accel_core_exit();
@@ -1259,6 +1262,10 @@ static int __init drm_core_init(void)
 	drm_panic_init();
 
 	drm_privacy_screen_lookup_init();
+
+	ret = drm_ras_genl_family_register();
+	if (ret < 0)
+		goto error;
 
 	drm_core_init_complete = true;
 

@@ -63,14 +63,11 @@ static int of_mdiobus_register_device(struct mii_bus *mdio,
 	/* Associate the OF node with the device structure so it
 	 * can be looked up later.
 	 */
-	fwnode_handle_get(fwnode);
-	device_set_node(&mdiodev->dev, fwnode);
+	device_set_node(&mdiodev->dev, fwnode_handle_get(fwnode));
 
 	/* All data is now stored in the mdiodev struct; register it. */
 	rc = mdio_device_register(mdiodev);
 	if (rc) {
-		device_set_node(&mdiodev->dev, NULL);
-		fwnode_handle_put(fwnode);
 		mdio_device_free(mdiodev);
 		return rc;
 	}
@@ -447,6 +444,8 @@ int of_phy_register_fixed_link(struct device_node *np)
 	/* Old binding */
 	if (of_property_read_u32_array(np, "fixed-link", fixed_link_prop,
 				       ARRAY_SIZE(fixed_link_prop)) == 0) {
+		pr_warn_once("%pOF uses deprecated array-style fixed-link binding!\n",
+			     np);
 		status.link = 1;
 		status.duplex = fixed_link_prop[1];
 		status.speed  = fixed_link_prop[2];
@@ -473,6 +472,5 @@ void of_phy_deregister_fixed_link(struct device_node *np)
 	fixed_phy_unregister(phydev);
 
 	put_device(&phydev->mdio.dev);	/* of_phy_find_device() */
-	phy_device_free(phydev);	/* fixed_phy_register() */
 }
 EXPORT_SYMBOL(of_phy_deregister_fixed_link);

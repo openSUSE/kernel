@@ -167,7 +167,18 @@ Description:
 		is required is a consistent labeling.  Units after application
 		of scale and offset are millivolts.
 
+What:		/sys/bus/iio/devices/iio:deviceX/in_altvoltageY_rms_raw
+KernelVersion:	6.18
+Contact:	linux-iio@vger.kernel.org
+Description:
+		Raw (unscaled) Root Mean Square (RMS) voltage measurement from
+		channel Y. Units after application of scale and offset are
+		millivolts.
+
 What:		/sys/bus/iio/devices/iio:deviceX/in_powerY_raw
+What:		/sys/bus/iio/devices/iio:deviceX/in_powerY_active_raw
+What:		/sys/bus/iio/devices/iio:deviceX/in_powerY_reactive_raw
+What:		/sys/bus/iio/devices/iio:deviceX/in_powerY_apparent_raw
 KernelVersion:	4.5
 Contact:	linux-iio@vger.kernel.org
 Description:
@@ -175,6 +186,13 @@ Description:
 		channel Y. The number must always be specified and
 		unique to allow association with event codes. Units after
 		application of scale and offset are milliwatts.
+
+What:		/sys/bus/iio/devices/iio:deviceX/in_powerY_powerfactor
+KernelVersion:	6.18
+Contact:	linux-iio@vger.kernel.org
+Description:
+		Power factor measurement from channel Y. Power factor is the
+		ratio of active power to apparent power. The value is unitless.
 
 What:		/sys/bus/iio/devices/iio:deviceX/in_capacitanceY_raw
 KernelVersion:	3.2
@@ -880,6 +898,7 @@ What:		/sys/.../iio:deviceX/events/in_tempY_thresh_rising_en
 What:		/sys/.../iio:deviceX/events/in_tempY_thresh_falling_en
 What:		/sys/.../iio:deviceX/events/in_capacitanceY_thresh_rising_en
 What:		/sys/.../iio:deviceX/events/in_capacitanceY_thresh_falling_en
+What:		/sys/.../iio:deviceX/events/in_pressure_thresh_rising_en
 KernelVersion:	2.6.37
 Contact:	linux-iio@vger.kernel.org
 Description:
@@ -908,6 +927,7 @@ What:		/sys/.../iio:deviceX/events/in_accel_y_roc_rising_en
 What:		/sys/.../iio:deviceX/events/in_accel_y_roc_falling_en
 What:		/sys/.../iio:deviceX/events/in_accel_z_roc_rising_en
 What:		/sys/.../iio:deviceX/events/in_accel_z_roc_falling_en
+What:		/sys/.../iio:deviceX/events/in_accel_x&y&z_roc_rising_en
 What:		/sys/.../iio:deviceX/events/in_anglvel_x_roc_rising_en
 What:		/sys/.../iio:deviceX/events/in_anglvel_x_roc_falling_en
 What:		/sys/.../iio:deviceX/events/in_anglvel_y_roc_rising_en
@@ -983,6 +1003,7 @@ Description:
 		to the raw signal, allowing slow tracking to resume and the
 		adaptive threshold event detection to function as expected.
 
+What:		/sys/.../events/in_accel_mag_adaptive_rising_value
 What:		/sys/.../events/in_accel_thresh_rising_value
 What:		/sys/.../events/in_accel_thresh_falling_value
 What:		/sys/.../events/in_accel_x_raw_thresh_rising_value
@@ -1027,6 +1048,7 @@ What:		/sys/.../events/in_capacitanceY_thresh_rising_value
 What:		/sys/.../events/in_capacitanceY_thresh_falling_value
 What:		/sys/.../events/in_capacitanceY_thresh_adaptive_rising_value
 What:		/sys/.../events/in_capacitanceY_thresh_falling_rising_value
+What:		/sys/.../events/in_pressure_thresh_rising_value
 KernelVersion:	2.6.37
 Contact:	linux-iio@vger.kernel.org
 Description:
@@ -1129,6 +1151,7 @@ Description:
 		will get activated once in_voltage0_raw goes above 1200 and will become
 		deactivated again once the value falls below 1150.
 
+What:		/sys/.../events/in_accel_roc_rising_value
 What:		/sys/.../events/in_accel_x_raw_roc_rising_value
 What:		/sys/.../events/in_accel_x_raw_roc_falling_value
 What:		/sys/.../events/in_accel_y_raw_roc_rising_value
@@ -1175,6 +1198,8 @@ Description:
 		value is in raw device units or in processed units (as _raw
 		and _input do on sysfs direct channel read attributes).
 
+What:		/sys/.../events/in_accel_mag_adaptive_rising_period
+What:		/sys/.../events/in_accel_roc_rising_period
 What:		/sys/.../events/in_accel_x_thresh_rising_period
 What:		/sys/.../events/in_accel_x_thresh_falling_period
 What:		/sys/.../events/in_accel_x_roc_rising_period
@@ -1344,6 +1369,15 @@ Description:
 		number or direction is not specified, applies to all channels of
 		this type.
 
+What:		/sys/.../iio:deviceX/events/in_accel_x_mag_adaptive_rising_en
+What:		/sys/.../iio:deviceX/events/in_accel_y_mag_adaptive_rising_en
+What:		/sys/.../iio:deviceX/events/in_accel_z_mag_adaptive_rising_en
+KernelVersion:	2.6.37
+Contact:	linux-iio@vger.kernel.org
+Description:
+		Similar to in_accel_x_thresh[_rising|_falling]_en, but here the
+		magnitude of the channel is compared to the adaptive threshold.
+
 What:		/sys/.../iio:deviceX/events/in_accel_mag_referenced_en
 What:		/sys/.../iio:deviceX/events/in_accel_mag_referenced_rising_en
 What:		/sys/.../iio:deviceX/events/in_accel_mag_referenced_falling_en
@@ -1394,7 +1428,7 @@ KernelVersion:	2.6.35
 Contact:	linux-iio@vger.kernel.org
 Description:
 		The name of the trigger source being used, as per string given
-		in /sys/class/iio/triggerY/name.
+		in /sys/bus/iio/devices/triggerY/name.
 
 What:		/sys/bus/iio/devices/iio:deviceX/bufferY/length
 KernelVersion:	5.11
@@ -1569,6 +1603,9 @@ Description:
 
 What:		/sys/.../iio:deviceX/in_energy_input
 What:		/sys/.../iio:deviceX/in_energy_raw
+What:		/sys/.../iio:deviceX/in_energyY_active_raw
+What:		/sys/.../iio:deviceX/in_energyY_reactive_raw
+What:		/sys/.../iio:deviceX/in_energyY_apparent_raw
 KernelVersion:	4.0
 Contact:	linux-iio@vger.kernel.org
 Description:
@@ -1706,6 +1743,14 @@ Description:
 		channels refer to the same signal. The 'i' channel contains the in-phase
 		component of the signal while the 'q' channel contains the quadrature
 		component.
+
+What:		/sys/bus/iio/devices/iio:deviceX/in_altcurrentY_rms_raw
+KernelVersion:	6.18
+Contact:	linux-iio@vger.kernel.org
+Description:
+		Raw (unscaled no bias removal etc.) Root Mean Square (RMS) current
+		measurement from channel Y. Units after application of scale and
+		offset are milliamps.
 
 What:		/sys/.../iio:deviceX/in_energy_en
 What:		/sys/.../iio:deviceX/in_distance_en
@@ -2281,21 +2326,28 @@ Description:
 		  conversion time. Poor noise performance.
 		* "sinc3" - The digital sinc3 filter. Moderate 1st
 		  conversion time. Good noise performance.
-		* "sinc4" - Sinc 4. Excellent noise performance. Long
-		  1st conversion time.
-		* "sinc5" - The digital sinc5 filter. Excellent noise
-		  performance
-		* "sinc4+sinc1" - Sinc4 + averaging by 8. Low 1st conversion
-		  time.
-		* "sinc3+rej60" - Sinc3 + 60Hz rejection.
-		* "sinc3+sinc1" - Sinc3 + averaging by 8. Low 1st conversion
-		  time.
 		* "sinc3+pf1" - Sinc3 + device specific Post Filter 1.
 		* "sinc3+pf2" - Sinc3 + device specific Post Filter 2.
 		* "sinc3+pf3" - Sinc3 + device specific Post Filter 3.
 		* "sinc3+pf4" - Sinc3 + device specific Post Filter 4.
-		* "sinc5+pf1" - Sinc5 + device specific Post Filter 1.
+		* "sinc3+rej60" - Sinc3 + 60Hz rejection.
+		* "sinc3+sinc1" - Sinc3 + averaging by 8. Low 1st conversion
+		  time.
+		* "sinc4" - Sinc 4. Excellent noise performance. Long
+		  1st conversion time.
+		* "sinc4+lp" - Sinc4 + Low Pass Filter.
+		* "sinc4+sinc1" - Sinc4 + averaging by 8. Low 1st conversion
+		  time.
+		* "sinc4+rej60" - Sinc4 + 60Hz rejection.
+		* "sinc5" - The digital sinc5 filter. Excellent noise
+		  performance
 		* "sinc5+avg" - Sinc5 + averaging by 4.
+		* "sinc5+pf1" - Sinc5 + device specific Post Filter 1.
+		* "sinc5+sinc1" - Sinc5 + Sinc1.
+		* "sinc5+sinc1+pf1" - Sinc5 + Sinc1 + device specific Post Filter 1.
+		* "sinc5+sinc1+pf2" - Sinc5 + Sinc1 + device specific Post Filter 2.
+		* "sinc5+sinc1+pf3" - Sinc5 + Sinc1 + device specific Post Filter 3.
+		* "sinc5+sinc1+pf4" - Sinc5 + Sinc1 + device specific Post Filter 4.
 		* "wideband" - filter with wideband low ripple passband
 		  and sharp transition band.
 
@@ -2386,3 +2438,23 @@ Description:
 		Value representing the user's attention to the system expressed
 		in units as percentage. This usually means if the user is
 		looking at the screen or not.
+
+What:		/sys/.../events/in_accel_value_available
+KernelVersion:	6.18
+Contact:	linux-iio@vger.kernel.org
+Description:
+		List of available threshold values for acceleration event
+		generation. Applies to all event types on in_accel channels.
+		Units after application of scale and offset are m/s^2.
+		Expressed as:
+
+		- a range specified as "[min step max]"
+
+What:		/sys/.../events/in_accel_period_available
+KernelVersion:	6.18
+Contact:	linux-iio@vger.kernel.org
+Description:
+		List of available periods for accelerometer event detection in
+		seconds, expressed as:
+
+		- a range specified as "[min step max]"

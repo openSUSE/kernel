@@ -33,6 +33,7 @@
 #include <linux/tcp.h>
 #include <linux/time_types.h>
 #include <linux/sockios.h>
+#include <linux/compiler.h>
 
 extern int optind;
 
@@ -51,6 +52,7 @@ enum cfg_mode {
 	CFG_MODE_POLL,
 	CFG_MODE_MMAP,
 	CFG_MODE_SENDFILE,
+	CFG_MODE_SPLICE,
 };
 
 enum cfg_peek {
@@ -123,7 +125,7 @@ static void die_usage(void)
 	fprintf(stderr, "\t-j     -- add additional sleep at connection start and tear down "
 		"-- for MPJ tests\n");
 	fprintf(stderr, "\t-l     -- listens mode, accepts incoming connection\n");
-	fprintf(stderr, "\t-m [poll|mmap|sendfile] -- use poll(default)/mmap+write/sendfile\n");
+	fprintf(stderr, "\t-m [poll|mmap|sendfile|splice] -- use poll(default)/mmap+write/sendfile/splice\n");
 	fprintf(stderr, "\t-M mark -- set socket packet mark\n");
 	fprintf(stderr, "\t-o option -- test sockopt <option>\n");
 	fprintf(stderr, "\t-p num -- use port num\n");
@@ -140,7 +142,7 @@ static void die_usage(void)
 	exit(1);
 }
 
-static void xerror(const char *fmt, ...)
+static void __noreturn xerror(const char *fmt, ...)
 {
 	va_list ap;
 
@@ -257,7 +259,7 @@ static void set_transparent(int fd, int pf)
 	}
 }
 
-static void set_mptfo(int fd, int pf)
+static void set_mptfo(int fd)
 {
 	int qlen = 25;
 
@@ -334,7 +336,7 @@ static int sock_listen_mptcp(const char * const listenaddr,
 			set_transparent(sock, pf);
 
 		if (cfg_sockopt_types.mptfo)
-			set_mptfo(sock, pf);
+			set_mptfo(sock);
 
 		if (bind(sock, a->ai_addr, a->ai_addrlen) == 0)
 			break; /* success */
@@ -405,21 +407,18 @@ static int sock_connect_mptcp(const char * const remoteaddr,
 				*peer = a;
 				break; /* success */
 			}
+			perror("sendto()");
 		} else {
 			if (connect(sock, a->ai_addr, a->ai_addrlen) == 0) {
 				*peer = a;
 				break; /* success */
 			}
-		}
-		if (cfg_sockopt_types.mptfo) {
-			perror("sendto()");
-			close(sock);
-			sock = -1;
-		} else {
 			perror("connect()");
-			close(sock);
-			sock = -1;
 		}
+
+		/* error */
+		close(sock);
+		sock = -1;
 	}
 
 	freeaddrinfo(addr);
@@ -710,8 +709,14 @@ static int copyfd_io_poll(int infd, int peerfd, int outfd,
 
 				bw = do_rnd_write(peerfd, winfo->buf + winfo->off, winfo->len);
 				if (bw < 0) {
-					if (cfg_rcv_trunc)
-						return 0;
+					/* expected reset, continue to read */
+					if (cfg_rcv_trunc &&
+					    (errno == ECONNRESET ||
+					     errno == EPIPE)) {
+						fds.events &= ~POLLOUT;
+						continue;
+					}
+
 					perror("write");
 					return 111;
 				}
@@ -737,8 +742,10 @@ static int copyfd_io_poll(int infd, int peerfd, int outfd,
 		}
 
 		if (fds.revents & (POLLERR | POLLNVAL)) {
-			if (cfg_rcv_trunc)
-				return 0;
+			if (cfg_rcv_trunc) {
+				fds.events &= ~(POLLERR | POLLNVAL);
+				continue;
+			}
 			fprintf(stderr, "Unexpected revents: "
 				"POLLERR/POLLNVAL(%x)\n", fds.revents);
 			return 5;
@@ -926,6 +933,71 @@ static int copyfd_io_sendfile(int infd, int peerfd, int outfd,
 	return err;
 }
 
+static int do_splice(const int infd, const int outfd, const size_t len,
+		     struct wstate *winfo)
+{
+	ssize_t in_bytes, out_bytes;
+	int pipefd[2];
+	int err;
+
+	err = pipe(pipefd);
+	if (err) {
+		perror("pipe");
+		return 2;
+	}
+
+again:
+	in_bytes = splice(infd, NULL, pipefd[1], NULL, len - winfo->total_len,
+			  SPLICE_F_MOVE | SPLICE_F_MORE);
+	if (in_bytes < 0) {
+		perror("splice in");
+		err = 3;
+	} else if (in_bytes > 0) {
+		out_bytes = splice(pipefd[0], NULL, outfd, NULL, in_bytes,
+				   SPLICE_F_MOVE | SPLICE_F_MORE);
+		if (out_bytes < 0) {
+			perror("splice out");
+			err = 4;
+		} else if (in_bytes != out_bytes) {
+			fprintf(stderr, "Unexpected transfer: %zu vs %zu\n",
+				in_bytes, out_bytes);
+			err = 5;
+		} else {
+			goto again;
+		}
+	}
+
+	close(pipefd[0]);
+	close(pipefd[1]);
+
+	return err;
+}
+
+static int copyfd_io_splice(int infd, int peerfd, int outfd, unsigned int size,
+			    bool *in_closed_after_out, struct wstate *winfo)
+{
+	int err;
+
+	if (listen_mode) {
+		err = do_splice(peerfd, outfd, size, winfo);
+		if (err)
+			return err;
+
+		err = do_splice(infd, peerfd, size, winfo);
+	} else {
+		err = do_splice(infd, peerfd, size, winfo);
+		if (err)
+			return err;
+
+		shut_wr(peerfd);
+
+		err = do_splice(peerfd, outfd, size, winfo);
+		*in_closed_after_out = true;
+	}
+
+	return err;
+}
+
 static int copyfd_io(int infd, int peerfd, int outfd, bool close_peerfd, struct wstate *winfo)
 {
 	bool in_closed_after_out = false;
@@ -956,6 +1028,14 @@ static int copyfd_io(int infd, int peerfd, int outfd, bool close_peerfd, struct 
 			return file_size;
 		ret = copyfd_io_sendfile(infd, peerfd, outfd, file_size,
 					 &in_closed_after_out, winfo);
+		break;
+
+	case CFG_MODE_SPLICE:
+		file_size = get_infd_size(infd);
+		if (file_size < 0)
+			return file_size;
+		ret = copyfd_io_splice(infd, peerfd, outfd, file_size,
+				       &in_closed_after_out, winfo);
 		break;
 
 	default:
@@ -1064,6 +1144,8 @@ static void check_getpeername_connect(int fd)
 	socklen_t salen = sizeof(ss);
 	char a[INET6_ADDRSTRLEN];
 	char b[INET6_ADDRSTRLEN];
+	const char *iface;
+	size_t len;
 
 	if (getpeername(fd, (struct sockaddr *)&ss, &salen) < 0) {
 		perror("getpeername");
@@ -1073,7 +1155,13 @@ static void check_getpeername_connect(int fd)
 	xgetnameinfo((struct sockaddr *)&ss, salen,
 		     a, sizeof(a), b, sizeof(b));
 
-	if (strcmp(cfg_host, a) || strcmp(cfg_port, b))
+	iface = strchr(cfg_host, '%');
+	if (iface)
+		len = iface - cfg_host;
+	else
+		len = strlen(cfg_host) + 1;
+
+	if (strncmp(cfg_host, a, len) || strcmp(cfg_port, b))
 		fprintf(stderr, "%s: %s vs %s, %s vs %s\n", __func__,
 			cfg_host, a, cfg_port, b);
 }
@@ -1093,6 +1181,7 @@ int main_loop_s(int listensock)
 	struct pollfd polls;
 	socklen_t salen;
 	int remotesock;
+	int err = 0;
 	int fd = 0;
 
 again:
@@ -1125,7 +1214,7 @@ again:
 		SOCK_TEST_TCPULP(remotesock, 0);
 
 		memset(&winfo, 0, sizeof(winfo));
-		copyfd_io(fd, remotesock, 1, true, &winfo);
+		err = copyfd_io(fd, remotesock, 1, true, &winfo);
 	} else {
 		perror("accept");
 		return 1;
@@ -1134,10 +1223,10 @@ again:
 	if (cfg_input)
 		close(fd);
 
-	if (--cfg_repeat > 0)
+	if (!err && --cfg_repeat > 0)
 		goto again;
 
-	return 0;
+	return err;
 }
 
 static void init_rng(void)
@@ -1247,7 +1336,7 @@ void xdisconnect(int fd)
 	else
 		xerror("bad family");
 
-	strcpy(cmd, "ss -M | grep -q ");
+	strcpy(cmd, "ss -Mnt | grep -q ");
 	cmdlen = strlen(cmd);
 	if (!inet_ntop(addr.ss_family, raw_addr, &cmd[cmdlen],
 		       sizeof(cmd) - cmdlen))
@@ -1257,7 +1346,7 @@ void xdisconnect(int fd)
 
 	/*
 	 * wait until the pending data is completely flushed and all
-	 * the MPTCP sockets reached the closed status.
+	 * the sockets reached the closed status.
 	 * disconnect will bypass/ignore/drop any pending data.
 	 */
 	for (i = 0; ; i += msec_sleep) {
@@ -1278,8 +1367,8 @@ void xdisconnect(int fd)
 
 int main_loop(void)
 {
+	struct addrinfo *peer = NULL;
 	int fd = 0, ret, fd_in = 0;
-	struct addrinfo *peer;
 	struct wstate winfo;
 
 	if (cfg_input && cfg_sockopt_types.mptfo) {
@@ -1362,12 +1451,15 @@ int parse_mode(const char *mode)
 		return CFG_MODE_MMAP;
 	if (!strcasecmp(mode, "sendfile"))
 		return CFG_MODE_SENDFILE;
+	if (!strcasecmp(mode, "splice"))
+		return CFG_MODE_SPLICE;
 
 	fprintf(stderr, "Unknown test mode: %s\n", mode);
 	fprintf(stderr, "Supported modes are:\n");
 	fprintf(stderr, "\t\t\"poll\" - interleaved read/write using poll()\n");
 	fprintf(stderr, "\t\t\"mmap\" - send entire input file (mmap+write), then read response (-l will read input first)\n");
 	fprintf(stderr, "\t\t\"sendfile\" - send entire input file (sendfile), then read response (-l will read input first)\n");
+	fprintf(stderr, "\t\t\"splice\" - send entire input file (splice), then read response (-l will read input first)\n");
 
 	die_usage();
 
@@ -1432,7 +1524,7 @@ static void parse_opts(int argc, char **argv)
 			 */
 			if (cfg_truncate < 0) {
 				cfg_rcv_trunc = true;
-				signal(SIGPIPE, handle_signal);
+				signal(SIGPIPE, SIG_IGN);
 			}
 			break;
 		case 'j':

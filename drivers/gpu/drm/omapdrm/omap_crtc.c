@@ -10,6 +10,7 @@
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_crtc.h>
 #include <drm/drm_mode.h>
+#include <drm/drm_print.h>
 #include <drm/drm_vblank.h>
 
 #include "omap_drv.h"
@@ -445,7 +446,7 @@ static void omap_crtc_arm_event(struct drm_crtc *crtc)
 }
 
 static void omap_crtc_atomic_enable(struct drm_crtc *crtc,
-				    struct drm_atomic_state *state)
+				    struct drm_atomic_commit *state)
 {
 	struct omap_drm_private *priv = crtc->dev->dev_private;
 	struct omap_crtc *omap_crtc = to_omap_crtc(crtc);
@@ -471,7 +472,7 @@ static void omap_crtc_atomic_enable(struct drm_crtc *crtc,
 }
 
 static void omap_crtc_atomic_disable(struct drm_crtc *crtc,
-				     struct drm_atomic_state *state)
+				     struct drm_atomic_commit *state)
 {
 	struct omap_drm_private *priv = crtc->dev->dev_private;
 	struct omap_crtc *omap_crtc = to_omap_crtc(crtc);
@@ -576,7 +577,7 @@ static bool omap_crtc_is_manually_updated(struct drm_crtc *crtc)
 }
 
 static int omap_crtc_atomic_check(struct drm_crtc *crtc,
-				struct drm_atomic_state *state)
+				struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *crtc_state = drm_atomic_get_new_crtc_state(state,
 									  crtc);
@@ -608,12 +609,12 @@ static int omap_crtc_atomic_check(struct drm_crtc *crtc,
 }
 
 static void omap_crtc_atomic_begin(struct drm_crtc *crtc,
-				   struct drm_atomic_state *state)
+				   struct drm_atomic_commit *state)
 {
 }
 
 static void omap_crtc_atomic_flush(struct drm_crtc *crtc,
-				   struct drm_atomic_state *state)
+				   struct drm_atomic_commit *state)
 {
 	struct omap_drm_private *priv = crtc->dev->dev_private;
 	struct omap_crtc *omap_crtc = to_omap_crtc(crtc);
@@ -715,7 +716,7 @@ static void omap_crtc_reset(struct drm_crtc *crtc)
 
 	kfree(crtc->state);
 
-	state = kzalloc(sizeof(*state), GFP_KERNEL);
+	state = kzalloc_obj(*state);
 	if (state)
 		__drm_atomic_helper_crtc_reset(crtc, &state->base);
 }
@@ -730,7 +731,7 @@ omap_crtc_duplicate_state(struct drm_crtc *crtc)
 
 	current_state = to_omap_crtc_state(crtc->state);
 
-	state = kmalloc(sizeof(*state), GFP_KERNEL);
+	state = kmalloc_obj(*state);
 	if (!state)
 		return NULL;
 
@@ -792,7 +793,7 @@ struct drm_crtc *omap_crtc_init(struct drm_device *dev,
 
 	DBG("%s", channel_names[channel]);
 
-	omap_crtc = kzalloc(sizeof(*omap_crtc), GFP_KERNEL);
+	omap_crtc = kzalloc_obj(*omap_crtc);
 	if (!omap_crtc)
 		return ERR_PTR(-ENOMEM);
 

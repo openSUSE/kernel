@@ -8,6 +8,7 @@ config PARISC
 	select HAVE_FUNCTION_GRAPH_TRACER
 	select HAVE_SYSCALL_TRACEPOINTS
 	select ARCH_WANT_FRAME_POINTERS
+	select ARCH_WANTS_MODULES_TEXT_SECTIONS if !64BIT
 	select ARCH_HAS_CPU_CACHE_ALIASING
 	select ARCH_HAS_DMA_ALLOC if PA11
 	select ARCH_HAS_DMA_OPS
@@ -31,6 +32,9 @@ config PARISC
 	select HAVE_KERNEL_UNCOMPRESSED
 	select HAVE_PCI
 	select HAVE_PERF_EVENTS
+	select HAVE_PERF_REGS
+	select HAVE_PERF_USER_STACK_DUMP
+	select PERF_USE_VMALLOC
 	select HAVE_KERNEL_BZIP2
 	select HAVE_KERNEL_GZIP
 	select HAVE_KERNEL_LZ4
@@ -44,6 +48,7 @@ config PARISC
 	select ARCH_HAVE_NMI_SAFE_CMPXCHG
 	select GENERIC_SMP_IDLE_THREAD
 	select GENERIC_ARCH_TOPOLOGY if SMP
+	select ARCH_SUPPORTS_SCHED_MC if SMP && PA8X00
 	select GENERIC_CPU_DEVICES if !SMP
 	select GENERIC_LIB_DEVMEM_IS_ALLOWED
 	select SYSCTL_ARCH_UNALIGN_ALLOW
@@ -75,6 +80,7 @@ config PARISC
 	select GENERIC_CLOCKEVENTS
 	select CPU_NO_EFFICIENT_FFS
 	select THREAD_INFO_IN_TASK
+	select MMU_GATHER_RCU_TABLE_FREE
 	select NEED_DMA_MAP_STATE
 	select NEED_SG_DMA_LENGTH
 	select HAVE_ARCH_KGDB
@@ -124,6 +130,9 @@ config GENERIC_BUG
 
 config GENERIC_BUG_RELATIVE_POINTERS
 	bool
+
+config GENERIC_CSUM
+	def_bool y
 
 config GENERIC_HWEIGHT
 	bool
@@ -319,14 +328,6 @@ config SMP
 
 	  If you don't know what to do here, say N.
 
-config SCHED_MC
-	bool "Multi-core scheduler support"
-	depends on GENERIC_ARCH_TOPOLOGY && PA8X00
-	help
-	  Multi-core scheduler support improves the CPU scheduler's decision
-	  making when dealing with multi-core CPU chips at a cost of slightly
-	  increased overhead in some places. If unsure say N here.
-
 config IRQSTACKS
 	bool "Use separate kernel stacks when processing interrupts"
 	default y
@@ -357,7 +358,8 @@ config ARCH_SPARSEMEM_DEFAULT
 source "kernel/Kconfig.hz"
 
 config COMPAT
-	def_bool y
+	bool "Kernel support for 32-bit binaries"
+	default 64BIT
 	depends on 64BIT
 
 config AUDIT_ARCH

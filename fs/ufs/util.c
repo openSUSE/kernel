@@ -27,7 +27,7 @@ struct ufs_buffer_head * _ubh_bread_ (struct ufs_sb_private_info * uspi,
 	count = size >> uspi->s_fshift;
 	if (count > UFS_MAXFRAG)
 		return NULL;
-	ubh = kmalloc (sizeof (struct ufs_buffer_head), GFP_NOFS);
+	ubh = kmalloc_obj(struct ufs_buffer_head, GFP_NOFS);
 	if (!ubh)
 		return NULL;
 	ubh->fragment = fragment;
@@ -203,7 +203,7 @@ struct folio *ufs_get_locked_folio(struct address_space *mapping,
 		folio = read_mapping_folio(mapping, index, NULL);
 
 		if (IS_ERR(folio)) {
-			printk(KERN_ERR "ufs_change_blocknr: read_mapping_folio error: ino %lu, index: %lu\n",
+			printk(KERN_ERR "ufs_change_blocknr: read_mapping_folio error: ino %llu, index: %lu\n",
 			       mapping->host->i_ino, index);
 			return folio;
 		}

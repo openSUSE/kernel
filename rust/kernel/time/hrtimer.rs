@@ -66,11 +66,352 @@
 //!
 //! A `restart` operation on a timer in the **stopped** state is equivalent to a
 //! `start` operation.
+//!
+//! When a type implements both `HrTimerPointer` and `Clone`, it is possible to
+//! issue the `start` operation while the timer is in the **started** state. In
+//! this case the `start` operation is equivalent to the `restart` operation.
+//!
+//! # Examples
+//!
+//! ## Using an intrusive timer living in a [`Box`]
+//!
+//! ```
+//! # use kernel::{
+//! #     alloc::flags,
+//! #     impl_has_hr_timer,
+//! #     prelude::*,
+//! #     sync::{
+//! #         atomic::{ordering, Atomic},
+//! #         completion::Completion,
+//! #         Arc,
+//! #     },
+//! #     time::{
+//! #         hrtimer::{
+//! #             RelativeMode, HrTimer, HrTimerCallback, HrTimerPointer,
+//! #             HrTimerRestart, HrTimerCallbackContext
+//! #         },
+//! #         Delta, Monotonic,
+//! #     },
+//! # };
+//!
+//! #[pin_data]
+//! struct Shared {
+//!     #[pin]
+//!     flag: Atomic<u64>,
+//!     #[pin]
+//!     cond: Completion,
+//! }
+//!
+//! impl Shared {
+//!     fn new() -> impl PinInit<Self> {
+//!         pin_init!(Self {
+//!             flag <- Atomic::new(0),
+//!             cond <- Completion::new(),
+//!         })
+//!     }
+//! }
+//!
+//! #[pin_data]
+//! struct BoxIntrusiveHrTimer {
+//!     #[pin]
+//!     timer: HrTimer<Self>,
+//!     shared: Arc<Shared>,
+//! }
+//!
+//! impl BoxIntrusiveHrTimer {
+//!     fn new() -> impl PinInit<Self, kernel::error::Error> {
+//!         try_pin_init!(Self {
+//!             timer <- HrTimer::new(),
+//!             shared: Arc::pin_init(Shared::new(), flags::GFP_KERNEL)?,
+//!         })
+//!     }
+//! }
+//!
+//! impl HrTimerCallback for BoxIntrusiveHrTimer {
+//!     type Pointer<'a> = Pin<KBox<Self>>;
+//!
+//!     fn run(this: Pin<&mut Self>, _ctx: HrTimerCallbackContext<'_, Self>) -> HrTimerRestart {
+//!         pr_info!("Timer called\n");
+//!
+//!         let flag = this.shared.flag.fetch_add(1, ordering::Full);
+//!         this.shared.cond.complete_all();
+//!
+//!         if flag == 4 {
+//!             HrTimerRestart::NoRestart
+//!         } else {
+//!             HrTimerRestart::Restart
+//!         }
+//!     }
+//! }
+//!
+//! impl_has_hr_timer! {
+//!     impl HasHrTimer<Self> for BoxIntrusiveHrTimer {
+//!         mode: RelativeMode<Monotonic>, field: self.timer
+//!     }
+//! }
+//!
+//! let has_timer = Box::pin_init(BoxIntrusiveHrTimer::new(), GFP_KERNEL)?;
+//! let shared = has_timer.shared.clone();
+//! let _handle = has_timer.start(Delta::from_micros(200));
+//!
+//! while shared.flag.load(ordering::Relaxed) != 5 {
+//!     shared.cond.wait_for_completion();
+//! }
+//!
+//! pr_info!("Counted to 5\n");
+//! # Ok::<(), kernel::error::Error>(())
+//! ```
+//!
+//! ## Using an intrusive timer in an [`Arc`]
+//!
+//! ```
+//! # use kernel::{
+//! #     alloc::flags,
+//! #     impl_has_hr_timer,
+//! #     prelude::*,
+//! #     sync::{
+//! #         atomic::{ordering, Atomic},
+//! #         completion::Completion,
+//! #         Arc, ArcBorrow,
+//! #     },
+//! #     time::{
+//! #         hrtimer::{
+//! #             RelativeMode, HrTimer, HrTimerCallback, HrTimerPointer, HrTimerRestart,
+//! #             HasHrTimer, HrTimerCallbackContext
+//! #         },
+//! #         Delta, Monotonic,
+//! #     },
+//! # };
+//!
+//! #[pin_data]
+//! struct ArcIntrusiveHrTimer {
+//!     #[pin]
+//!     timer: HrTimer<Self>,
+//!     #[pin]
+//!     flag: Atomic<u64>,
+//!     #[pin]
+//!     cond: Completion,
+//! }
+//!
+//! impl ArcIntrusiveHrTimer {
+//!     fn new() -> impl PinInit<Self> {
+//!         pin_init!(Self {
+//!             timer <- HrTimer::new(),
+//!             flag <- Atomic::new(0),
+//!             cond <- Completion::new(),
+//!         })
+//!     }
+//! }
+//!
+//! impl HrTimerCallback for ArcIntrusiveHrTimer {
+//!     type Pointer<'a> = Arc<Self>;
+//!
+//!     fn run(
+//!         this: ArcBorrow<'_, Self>,
+//!         _ctx: HrTimerCallbackContext<'_, Self>,
+//!     ) -> HrTimerRestart {
+//!         pr_info!("Timer called\n");
+//!
+//!         let flag = this.flag.fetch_add(1, ordering::Full);
+//!         this.cond.complete_all();
+//!
+//!         if flag == 4 {
+//!             HrTimerRestart::NoRestart
+//!         } else {
+//!             HrTimerRestart::Restart
+//!         }
+//!     }
+//! }
+//!
+//! impl_has_hr_timer! {
+//!     impl HasHrTimer<Self> for ArcIntrusiveHrTimer {
+//!         mode: RelativeMode<Monotonic>, field: self.timer
+//!     }
+//! }
+//!
+//! let has_timer = Arc::pin_init(ArcIntrusiveHrTimer::new(), GFP_KERNEL)?;
+//! let _handle = has_timer.clone().start(Delta::from_micros(200));
+//!
+//! while has_timer.flag.load(ordering::Relaxed) != 5 {
+//!     has_timer.cond.wait_for_completion();
+//! }
+//!
+//! pr_info!("Counted to 5\n");
+//! # Ok::<(), kernel::error::Error>(())
+//! ```
+//!
+//! ## Using a stack-based timer
+//!
+//! ```
+//! # use kernel::{
+//! #     impl_has_hr_timer,
+//! #     prelude::*,
+//! #     sync::{
+//! #         atomic::{ordering, Atomic},
+//! #         completion::Completion,
+//! #     },
+//! #     time::{
+//! #         hrtimer::{
+//! #             ScopedHrTimerPointer, HrTimer, HrTimerCallback, HrTimerPointer, HrTimerRestart,
+//! #             HasHrTimer, RelativeMode, HrTimerCallbackContext
+//! #         },
+//! #         Delta, Monotonic,
+//! #     },
+//! # };
+//! # use pin_init::stack_pin_init;
+//!
+//! #[pin_data]
+//! struct IntrusiveHrTimer {
+//!     #[pin]
+//!     timer: HrTimer<Self>,
+//!     #[pin]
+//!     flag: Atomic<u64>,
+//!     #[pin]
+//!     cond: Completion,
+//! }
+//!
+//! impl IntrusiveHrTimer {
+//!     fn new() -> impl PinInit<Self> {
+//!         pin_init!(Self {
+//!             timer <- HrTimer::new(),
+//!             flag <- Atomic::new(0),
+//!             cond <- Completion::new(),
+//!         })
+//!     }
+//! }
+//!
+//! impl HrTimerCallback for IntrusiveHrTimer {
+//!     type Pointer<'a> = Pin<&'a Self>;
+//!
+//!     fn run(this: Pin<&Self>, _ctx: HrTimerCallbackContext<'_, Self>) -> HrTimerRestart {
+//!         pr_info!("Timer called\n");
+//!
+//!         this.flag.store(1, ordering::Release);
+//!         this.cond.complete_all();
+//!
+//!         HrTimerRestart::NoRestart
+//!     }
+//! }
+//!
+//! impl_has_hr_timer! {
+//!     impl HasHrTimer<Self> for IntrusiveHrTimer {
+//!         mode: RelativeMode<Monotonic>, field: self.timer
+//!     }
+//! }
+//!
+//! stack_pin_init!( let has_timer = IntrusiveHrTimer::new() );
+//! has_timer.as_ref().start_scoped(Delta::from_micros(200), || {
+//!     while has_timer.flag.load(ordering::Relaxed) != 1 {
+//!         has_timer.cond.wait_for_completion();
+//!     }
+//! });
+//!
+//! pr_info!("Flag raised\n");
+//! # Ok::<(), kernel::error::Error>(())
+//! ```
+//!
+//! ## Using a mutable stack-based timer
+//!
+//! ```
+//! # use kernel::{
+//! #     alloc::flags,
+//! #     impl_has_hr_timer,
+//! #     prelude::*,
+//! #     sync::{
+//! #         atomic::{ordering, Atomic},
+//! #         completion::Completion,
+//! #         Arc,
+//! #     },
+//! #     time::{
+//! #         hrtimer::{
+//! #             ScopedHrTimerPointer, HrTimer, HrTimerCallback, HrTimerPointer, HrTimerRestart,
+//! #             HasHrTimer, RelativeMode, HrTimerCallbackContext
+//! #         },
+//! #         Delta, Monotonic,
+//! #     },
+//! # };
+//! # use pin_init::stack_try_pin_init;
+//!
+//! #[pin_data]
+//! struct Shared {
+//!     #[pin]
+//!     flag: Atomic<u64>,
+//!     #[pin]
+//!     cond: Completion,
+//! }
+//!
+//! impl Shared {
+//!     fn new() -> impl PinInit<Self> {
+//!         pin_init!(Self {
+//!             flag <- Atomic::new(0),
+//!             cond <- Completion::new(),
+//!         })
+//!     }
+//! }
+//!
+//! #[pin_data]
+//! struct IntrusiveHrTimer {
+//!     #[pin]
+//!     timer: HrTimer<Self>,
+//!     shared: Arc<Shared>,
+//! }
+//!
+//! impl IntrusiveHrTimer {
+//!     fn new() -> impl PinInit<Self, kernel::error::Error> {
+//!         try_pin_init!(Self {
+//!             timer <- HrTimer::new(),
+//!             shared: Arc::pin_init(Shared::new(), flags::GFP_KERNEL)?,
+//!         })
+//!     }
+//! }
+//!
+//! impl HrTimerCallback for IntrusiveHrTimer {
+//!     type Pointer<'a> = Pin<&'a mut Self>;
+//!
+//!     fn run(this: Pin<&mut Self>, _ctx: HrTimerCallbackContext<'_, Self>) -> HrTimerRestart {
+//!         pr_info!("Timer called\n");
+//!
+//!         let flag = this.shared.flag.fetch_add(1, ordering::Full);
+//!         this.shared.cond.complete_all();
+//!
+//!         if flag == 4 {
+//!             HrTimerRestart::NoRestart
+//!         } else {
+//!             HrTimerRestart::Restart
+//!         }
+//!     }
+//! }
+//!
+//! impl_has_hr_timer! {
+//!     impl HasHrTimer<Self> for IntrusiveHrTimer {
+//!         mode: RelativeMode<Monotonic>, field: self.timer
+//!     }
+//! }
+//!
+//! stack_try_pin_init!( let has_timer =? IntrusiveHrTimer::new() );
+//! let shared = has_timer.shared.clone();
+//!
+//! has_timer.as_mut().start_scoped(Delta::from_micros(200), || {
+//!     while shared.flag.load(ordering::Relaxed) != 5 {
+//!         shared.cond.wait_for_completion();
+//!     }
+//! });
+//!
+//! pr_info!("Counted to 5\n");
+//! # Ok::<(), kernel::error::Error>(())
+//! ```
+//!
+//! [`Arc`]: kernel::sync::Arc
 
 use super::{ClockSource, Delta, Instant};
 use crate::{prelude::*, types::Opaque};
-use core::marker::PhantomData;
+use core::{marker::PhantomData, ptr::NonNull};
 use pin_init::PinInit;
+
+/// A type-alias to refer to the [`Instant<C>`] for a given `T` from [`HrTimer<T>`].
+///
+/// Where `C` is the [`ClockSource`] of the [`HrTimer`].
+pub type HrTimerInstant<T> = Instant<<<T as HasHrTimer<T>>::TimerMode as HrTimerMode>::Clock>;
 
 /// A timer backed by a C `struct hrtimer`.
 ///
@@ -162,6 +503,84 @@ impl<T> HrTimer<T> {
         // SAFETY: `c_timer_ptr` is initialized and valid. Synchronization is
         // handled on the C side.
         unsafe { bindings::hrtimer_cancel(c_timer_ptr) != 0 }
+    }
+
+    /// Forward the timer expiry for a given timer pointer.
+    ///
+    /// # Safety
+    ///
+    /// - `self_ptr` must point to a valid `Self`.
+    /// - The caller must either have exclusive access to the data pointed at by `self_ptr`, or be
+    ///   within the context of the timer callback.
+    #[inline]
+    unsafe fn raw_forward(self_ptr: *mut Self, now: HrTimerInstant<T>, interval: Delta) -> u64
+    where
+        T: HasHrTimer<T>,
+    {
+        // SAFETY:
+        // * The C API requirements for this function are fulfilled by our safety contract.
+        // * `self_ptr` is guaranteed to point to a valid `Self` via our safety contract
+        unsafe {
+            bindings::hrtimer_forward(Self::raw_get(self_ptr), now.as_nanos(), interval.as_nanos())
+        }
+    }
+
+    /// Conditionally forward the timer.
+    ///
+    /// If the timer expires after `now`, this function does nothing and returns 0. If the timer
+    /// expired at or before `now`, this function forwards the timer by `interval` until the timer
+    /// expires after `now` and then returns the number of times the timer was forwarded by
+    /// `interval`.
+    ///
+    /// This function is mainly useful for timer types which can provide exclusive access to the
+    /// timer when the timer is not running. For forwarding the timer from within the timer callback
+    /// context, see [`HrTimerCallbackContext::forward()`].
+    ///
+    /// Returns the number of overruns that occurred as a result of the timer expiry change.
+    pub fn forward(self: Pin<&mut Self>, now: HrTimerInstant<T>, interval: Delta) -> u64
+    where
+        T: HasHrTimer<T>,
+    {
+        // SAFETY: `raw_forward` does not move `Self`
+        let this = unsafe { self.get_unchecked_mut() };
+
+        // SAFETY: By existence of `Pin<&mut Self>`, the pointer passed to `raw_forward` points to a
+        // valid `Self` that we have exclusive access to.
+        unsafe { Self::raw_forward(this, now, interval) }
+    }
+
+    /// Conditionally forward the timer.
+    ///
+    /// This is a variant of [`forward()`](Self::forward) that uses an interval after the current
+    /// time of the base clock for the [`HrTimer`].
+    pub fn forward_now(self: Pin<&mut Self>, interval: Delta) -> u64
+    where
+        T: HasHrTimer<T>,
+    {
+        self.forward(HrTimerInstant::<T>::now(), interval)
+    }
+
+    /// Return the time expiry for this [`HrTimer`].
+    ///
+    /// This value should only be used as a snapshot, as the actual expiry time could change after
+    /// this function is called.
+    pub fn expires(&self) -> HrTimerInstant<T>
+    where
+        T: HasHrTimer<T>,
+    {
+        // SAFETY: `self` is an immutable reference and thus always points to a valid `HrTimer`.
+        let c_timer_ptr = unsafe { HrTimer::raw_get(self) };
+
+        // SAFETY:
+        // - Timers cannot have negative ktime_t values as their expiration time.
+        // - There's no actual locking here, a racy read is fine and expected
+        unsafe {
+            Instant::from_ktime(
+                // This `read_volatile` is intended to correspond to a READ_ONCE call.
+                // FIXME(read_once): Replace with `read_once` when available on the Rust side.
+                core::ptr::read_volatile(&raw const ((*c_timer_ptr).node.expires)),
+            )
+        }
     }
 }
 
@@ -300,9 +719,13 @@ pub trait HrTimerCallback {
     type Pointer<'a>: RawHrTimerCallback;
 
     /// Called by the timer logic when the timer fires.
-    fn run(this: <Self::Pointer<'_> as RawHrTimerCallback>::CallbackTarget<'_>) -> HrTimerRestart
+    fn run(
+        this: <Self::Pointer<'_> as RawHrTimerCallback>::CallbackTarget<'_>,
+        ctx: HrTimerCallbackContext<'_, Self>,
+    ) -> HrTimerRestart
     where
-        Self: Sized;
+        Self: Sized,
+        Self: HasHrTimer<Self>;
 }
 
 /// A handle representing a potentially running timer.
@@ -324,6 +747,8 @@ pub unsafe trait HrTimerHandle {
     /// Note that the timer might be started by a concurrent start operation. If
     /// so, the timer might not be in the **stopped** state when this function
     /// returns.
+    ///
+    /// Returns `true` if the timer was running.
     fn cancel(&mut self) -> bool;
 }
 
@@ -583,6 +1008,63 @@ impl<C: ClockSource> HrTimerMode for RelativePinnedHardMode<C> {
 
     type Clock = C;
     type Expires = Delta;
+}
+
+/// Privileged smart-pointer for a [`HrTimer`] callback context.
+///
+/// Many [`HrTimer`] methods can only be called in two situations:
+///
+/// * When the caller has exclusive access to the `HrTimer` and the `HrTimer` is guaranteed not to
+///   be running.
+/// * From within the context of an `HrTimer`'s callback method.
+///
+/// This type provides access to said methods from within a timer callback context.
+///
+/// # Invariants
+///
+/// * The existence of this type means the caller is currently within the callback for an
+///   [`HrTimer`].
+/// * `self.0` always points to a live instance of [`HrTimer<T>`].
+pub struct HrTimerCallbackContext<'a, T: HasHrTimer<T>>(NonNull<HrTimer<T>>, PhantomData<&'a ()>);
+
+impl<'a, T: HasHrTimer<T>> HrTimerCallbackContext<'a, T> {
+    /// Create a new [`HrTimerCallbackContext`].
+    ///
+    /// # Safety
+    ///
+    /// This function relies on the caller being within the context of a timer callback, so it must
+    /// not be used anywhere except for within implementations of [`RawHrTimerCallback::run`]. The
+    /// caller promises that `timer` points to a valid initialized instance of
+    /// [`bindings::hrtimer`].
+    ///
+    /// The returned `Self` must not outlive the function context of [`RawHrTimerCallback::run`]
+    /// where this function is called.
+    pub(crate) unsafe fn from_raw(timer: *mut HrTimer<T>) -> Self {
+        // SAFETY: The caller guarantees `timer` is a valid pointer to an initialized
+        // `bindings::hrtimer`
+        // INVARIANT: Our safety contract ensures that we're within the context of a timer callback
+        // and that `timer` points to a live instance of `HrTimer<T>`.
+        Self(unsafe { NonNull::new_unchecked(timer) }, PhantomData)
+    }
+
+    /// Conditionally forward the timer.
+    ///
+    /// This function is identical to [`HrTimer::forward()`] except that it may only be used from
+    /// within the context of a [`HrTimer`] callback.
+    pub fn forward(&mut self, now: HrTimerInstant<T>, interval: Delta) -> u64 {
+        // SAFETY:
+        // - We are guaranteed to be within the context of a timer callback by our type invariants
+        // - By our type invariants, `self.0` always points to a valid `HrTimer<T>`
+        unsafe { HrTimer::<T>::raw_forward(self.0.as_ptr(), now, interval) }
+    }
+
+    /// Conditionally forward the timer.
+    ///
+    /// This is a variant of [`HrTimerCallbackContext::forward()`] that uses an interval after the
+    /// current time of the base clock for the [`HrTimer`].
+    pub fn forward_now(&mut self, duration: Delta) -> u64 {
+        self.forward(HrTimerInstant::<T>::now(), duration)
+    }
 }
 
 /// Use to implement the [`HasHrTimer<T>`] trait.

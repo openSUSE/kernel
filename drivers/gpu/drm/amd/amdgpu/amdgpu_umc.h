@@ -113,6 +113,8 @@ struct amdgpu_umc_ras {
 	uint32_t (*get_die_id_from_pa)(struct amdgpu_device *adev,
 			uint64_t mca_addr, uint64_t retired_page);
 	void (*get_retire_flip_bits)(struct amdgpu_device *adev);
+	void (*mca_ipid_parse)(struct amdgpu_device *adev, uint64_t ipid,
+			uint32_t *did, uint32_t *ch, uint32_t *umc_inst, uint32_t *sid);
 };
 
 struct amdgpu_umc_funcs {
@@ -157,6 +159,9 @@ int amdgpu_umc_pasid_poison_handler(struct amdgpu_device *adev,
 			enum amdgpu_ras_block block, uint16_t pasid,
 			pasid_notify pasid_fn, void *data, uint32_t reset);
 int amdgpu_umc_process_ecc_irq(struct amdgpu_device *adev,
+		struct amdgpu_irq_src *source,
+		struct amdgpu_iv_entry *entry);
+int amdgpu_umc_uniras_process_ecc_irq(struct amdgpu_device *adev,
 		struct amdgpu_irq_src *source,
 		struct amdgpu_iv_entry *entry);
 int amdgpu_umc_fill_error_record(struct ras_err_data *err_data,

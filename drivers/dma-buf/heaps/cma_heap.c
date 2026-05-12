@@ -21,6 +21,8 @@
 #include <linux/io.h>
 #include <linux/mm.h>
 #include <linux/module.h>
+#include <linux/of.h>
+#include <linux/of_reserved_mem.h>
 #include <linux/scatterlist.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
@@ -58,7 +60,7 @@ static int cma_heap_attach(struct dma_buf *dmabuf,
 	struct dma_heap_attachment *a;
 	int ret;
 
-	a = kzalloc(sizeof(*a), GFP_KERNEL);
+	a = kzalloc_obj(*a);
 	if (!a)
 		return -ENOMEM;
 
@@ -292,7 +294,7 @@ static struct dma_buf *cma_heap_allocate(struct dma_heap *heap,
 	int ret = -ENOMEM;
 	pgoff_t pg;
 
-	buffer = kzalloc(sizeof(*buffer), GFP_KERNEL);
+	buffer = kzalloc_obj(*buffer);
 	if (!buffer)
 		return ERR_PTR(-ENOMEM);
 
@@ -313,10 +315,7 @@ static struct dma_buf *cma_heap_allocate(struct dma_heap *heap,
 		struct page *page = cma_pages;
 
 		while (nr_clear_pages > 0) {
-			void *vaddr = kmap_local_page(page);
-
-			memset(vaddr, 0, PAGE_SIZE);
-			kunmap_local(vaddr);
+			clear_highpage(page);
 			/*
 			 * Avoid wasting time zeroing memory if the process
 			 * has been killed by SIGKILL.
@@ -327,10 +326,10 @@ static struct dma_buf *cma_heap_allocate(struct dma_heap *heap,
 			nr_clear_pages--;
 		}
 	} else {
-		memset(page_address(cma_pages), 0, size);
+		clear_pages(page_address(cma_pages), pagecount);
 	}
 
-	buffer->pages = kmalloc_array(pagecount, sizeof(*buffer->pages), GFP_KERNEL);
+	buffer->pages = kmalloc_objs(*buffer->pages, pagecount);
 	if (!buffer->pages) {
 		ret = -ENOMEM;
 		goto free_cma;
@@ -375,7 +374,7 @@ static int __init __add_cma_heap(struct cma *cma, const char *name)
 	struct dma_heap_export_info exp_info;
 	struct cma_heap *cma_heap;
 
-	cma_heap = kzalloc(sizeof(*cma_heap), GFP_KERNEL);
+	cma_heap = kzalloc_obj(*cma_heap);
 	if (!cma_heap)
 		return -ENOMEM;
 	cma_heap->cma = cma;
@@ -395,33 +394,29 @@ static int __init __add_cma_heap(struct cma *cma, const char *name)
 	return 0;
 }
 
-static int __init add_default_cma_heap(void)
+static int __init add_cma_heaps(void)
 {
 	struct cma *default_cma = dev_get_cma_area(NULL);
-	const char *legacy_cma_name;
+	struct cma *cma;
+	unsigned int i;
 	int ret;
 
-	if (!default_cma)
-		return 0;
+	if (default_cma) {
+		ret = __add_cma_heap(default_cma, DEFAULT_CMA_NAME);
+		if (ret)
+			return ret;
+	}
 
-	ret = __add_cma_heap(default_cma, DEFAULT_CMA_NAME);
-	if (ret)
-		return ret;
-
-	if (IS_ENABLED(CONFIG_DMABUF_HEAPS_CMA_LEGACY)) {
-		legacy_cma_name = cma_get_name(default_cma);
-		if (!strcmp(legacy_cma_name, DEFAULT_CMA_NAME)) {
-			pr_warn("legacy name and default name are the same, skipping legacy heap\n");
-			return 0;
+	for (i = 0; (cma = dma_contiguous_get_area_by_idx(i)) != NULL; i++) {
+		ret = __add_cma_heap(cma, cma_get_name(cma));
+		if (ret) {
+			pr_warn("Failed to add CMA heap %s", cma_get_name(cma));
+			continue;
 		}
 
-		ret = __add_cma_heap(default_cma, legacy_cma_name);
-		if (ret)
-			pr_warn("failed to add legacy heap: %pe\n",
-				ERR_PTR(ret));
 	}
 
 	return 0;
 }
-module_init(add_default_cma_heap);
+module_init(add_cma_heaps);
 MODULE_DESCRIPTION("DMA-BUF CMA Heap");

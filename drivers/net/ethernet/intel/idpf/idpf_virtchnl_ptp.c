@@ -39,8 +39,7 @@ int idpf_ptp_get_caps(struct idpf_adapter *adapter)
 	u32 temp_offset;
 	int reply_sz;
 
-	recv_ptp_caps_msg = kzalloc(sizeof(struct virtchnl2_ptp_get_caps),
-				    GFP_KERNEL);
+	recv_ptp_caps_msg = kzalloc_obj(struct virtchnl2_ptp_get_caps);
 	if (!recv_ptp_caps_msg)
 		return -ENOMEM;
 
@@ -395,7 +394,7 @@ int idpf_ptp_get_vport_tstamps_caps(struct idpf_vport *vport)
 	for (u16 i = 0; i < tstamp_caps->num_entries; i++) {
 		__le32 offset_l, offset_h;
 
-		ptp_tx_tstamp = kzalloc(sizeof(*ptp_tx_tstamp), GFP_KERNEL);
+		ptp_tx_tstamp = kzalloc_obj(*ptp_tx_tstamp);
 		if (!ptp_tx_tstamp) {
 			err = -ENOMEM;
 			goto err_free_ptp_tx_stamp_list;
@@ -517,9 +516,14 @@ idpf_ptp_get_tstamp_value(struct idpf_vport *vport,
 	shhwtstamps.hwtstamp = ns_to_ktime(tstamp);
 	skb_tstamp_tx(ptp_tx_tstamp->skb, &shhwtstamps);
 	consume_skb(ptp_tx_tstamp->skb);
+	ptp_tx_tstamp->skb = NULL;
 
 	list_add(&ptp_tx_tstamp->list_member,
 		 &tx_tstamp_caps->latches_free);
+
+	u64_stats_update_begin(&vport->tstamp_stats.stats_sync);
+	u64_stats_inc(&vport->tstamp_stats.packets);
+	u64_stats_update_end(&vport->tstamp_stats.stats_sync);
 
 	return 0;
 }

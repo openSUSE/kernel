@@ -99,3 +99,19 @@ end:
 	res_spin_lock__destroy(skel);
 	return;
 }
+
+void serial_test_res_spin_lock_stress(void)
+{
+	if (libbpf_num_possible_cpus() < 3) {
+		test__skip();
+		return;
+	}
+
+	ASSERT_OK(load_module("bpf_test_rqspinlock.ko", false), "load module AA");
+	sleep(5);
+	unload_module("bpf_test_rqspinlock", false);
+	/*
+	 * Insert bpf_test_rqspinlock.ko manually with test_mode=[1|2] to test
+	 * other cases (ABBA, ABBCCA).
+	 */
+}

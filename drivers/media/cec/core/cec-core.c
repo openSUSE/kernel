@@ -237,7 +237,7 @@ struct cec_adapter *cec_allocate_adapter(const struct cec_adap_ops *ops,
 		return ERR_PTR(-EINVAL);
 	if (WARN_ON(!available_las || available_las > CEC_MAX_LOG_ADDRS))
 		return ERR_PTR(-EINVAL);
-	adap = kzalloc(sizeof(*adap), GFP_KERNEL);
+	adap = kzalloc_obj(*adap);
 	if (!adap)
 		return ERR_PTR(-ENOMEM);
 	strscpy(adap->name, name, sizeof(adap->name));
@@ -338,8 +338,8 @@ int cec_register_adapter(struct cec_adapter *adap,
 	res = cec_devnode_register(&adap->devnode, adap->owner);
 	if (res) {
 #ifdef CONFIG_MEDIA_CEC_RC
-		/* Note: rc_unregister also calls rc_free */
 		rc_unregister_device(adap->rc);
+		rc_free_device(adap->rc);
 		adap->rc = NULL;
 #endif
 		return res;
@@ -421,6 +421,7 @@ static int __init cec_devnode_init(void)
 
 	ret = bus_register(&cec_bus_type);
 	if (ret < 0) {
+		debugfs_remove_recursive(top_cec_dir);
 		unregister_chrdev_region(cec_dev_t, CEC_NUM_DEVICES);
 		pr_warn("cec: bus_register failed\n");
 		return -EIO;
@@ -439,6 +440,6 @@ static void __exit cec_devnode_exit(void)
 subsys_initcall(cec_devnode_init);
 module_exit(cec_devnode_exit)
 
-MODULE_AUTHOR("Hans Verkuil <hansverk@cisco.com>");
+MODULE_AUTHOR("Hans Verkuil <hverkuil@kernel.org>");
 MODULE_DESCRIPTION("Device node registration for cec drivers");
 MODULE_LICENSE("GPL");

@@ -137,7 +137,7 @@ int radeon_fence_emit(struct radeon_device *rdev,
 	u64 seq;
 
 	/* we are protected by the ring emission mutex */
-	*fence = kmalloc(sizeof(struct radeon_fence), GFP_KERNEL);
+	*fence = kmalloc_obj(struct radeon_fence);
 	if ((*fence) == NULL)
 		return -ENOMEM;
 
@@ -360,13 +360,6 @@ static bool radeon_fence_is_signaled(struct dma_fence *f)
 	if (atomic64_read(&rdev->fence_drv[ring].last_seq) >= seq)
 		return true;
 
-	if (down_read_trylock(&rdev->exclusive_lock)) {
-		radeon_fence_process(rdev, ring);
-		up_read(&rdev->exclusive_lock);
-
-		if (atomic64_read(&rdev->fence_drv[ring].last_seq) >= seq)
-			return true;
-	}
 	return false;
 }
 

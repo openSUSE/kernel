@@ -15,7 +15,7 @@
  *    Converted to new API by Alan Cox <alan@lxorguk.ukuu.org.uk>
  *    Various bugfixes and enhancements by Russell Kroll <rkroll@exploits.org>
  *
- * Converted to the radio-isa framework by Hans Verkuil <hansverk@cisco.com>
+ * Converted to the radio-isa framework by Hans Verkuil <hverkuil@kernel.org>
  * Converted to V4L2 API by Mauro Carvalho Chehab <mchehab@kernel.org>
  *
  * Note: this card seems to swap the left and right audio channels!
@@ -179,7 +179,7 @@ static unsigned long gemtek_convfreq(unsigned long freq)
 
 static struct radio_isa_card *gemtek_alloc(void)
 {
-	struct gemtek *gt = kzalloc(sizeof(*gt), GFP_KERNEL);
+	struct gemtek *gt = kzalloc_obj(*gt);
 
 	if (gt)
 		gt->muted = true;

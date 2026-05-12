@@ -11,6 +11,7 @@
 #include <linux/audit.h>
 #include <linux/security.h>
 #include <linux/cpuset.h>
+#include <linux/sched/cputime.h>
 #include <linux/io_uring.h>
 
 #include <uapi/linux/io_uring.h>
@@ -18,6 +19,7 @@
 #include "io_uring.h"
 #include "tctx.h"
 #include "napi.h"
+#include "cancel.h"
 #include "sqpoll.h"
 
 #define IORING_SQPOLL_CAP_ENTRIES_VALUE 8
@@ -151,7 +153,7 @@ static struct io_sq_data *io_get_sq_data(struct io_uring_params *p,
 			return sqd;
 	}
 
-	sqd = kzalloc(sizeof(*sqd), GFP_KERNEL);
+	sqd = kzalloc_obj(*sqd);
 	if (!sqd)
 		return ERR_PTR(-ENOMEM);
 
@@ -169,7 +171,38 @@ static inline bool io_sqd_events_pending(struct io_sq_data *sqd)
 	return READ_ONCE(sqd->state);
 }
 
-static int __io_sq_thread(struct io_ring_ctx *ctx, bool cap_entries)
+struct io_sq_time {
+	bool started;
+	u64 usec;
+};
+
+u64 io_sq_cpu_usec(struct task_struct *tsk)
+{
+	u64 utime, stime;
+
+	task_cputime_adjusted(tsk, &utime, &stime);
+	do_div(stime, 1000);
+	return stime;
+}
+
+static void io_sq_update_worktime(struct io_sq_data *sqd, struct io_sq_time *ist)
+{
+	if (!ist->started)
+		return;
+	ist->started = false;
+	sqd->work_time += io_sq_cpu_usec(current) - ist->usec;
+}
+
+static void io_sq_start_worktime(struct io_sq_time *ist)
+{
+	if (ist->started)
+		return;
+	ist->started = true;
+	ist->usec = io_sq_cpu_usec(current);
+}
+
+static int __io_sq_thread(struct io_ring_ctx *ctx, struct io_sq_data *sqd,
+			  bool cap_entries, struct io_sq_time *ist)
 {
 	unsigned int to_submit;
 	int ret = 0;
@@ -179,14 +212,16 @@ static int __io_sq_thread(struct io_ring_ctx *ctx, bool cap_entries)
 	if (cap_entries && to_submit > IORING_SQPOLL_CAP_ENTRIES_VALUE)
 		to_submit = IORING_SQPOLL_CAP_ENTRIES_VALUE;
 
-	if (to_submit || !wq_list_empty(&ctx->iopoll_list)) {
+	if (to_submit || !list_empty(&ctx->iopoll_list)) {
 		const struct cred *creds = NULL;
+
+		io_sq_start_worktime(ist);
 
 		if (ctx->sq_creds != current_cred())
 			creds = override_creds(ctx->sq_creds);
 
 		mutex_lock(&ctx->uring_lock);
-		if (!wq_list_empty(&ctx->iopoll_list))
+		if (!list_empty(&ctx->iopoll_list))
 			io_do_iopoll(ctx, true);
 
 		/*
@@ -255,23 +290,11 @@ static bool io_sq_tw_pending(struct llist_node *retry_list)
 	return retry_list || !llist_empty(&tctx->task_list);
 }
 
-static void io_sq_update_worktime(struct io_sq_data *sqd, struct rusage *start)
-{
-	struct rusage end;
-
-	getrusage(current, RUSAGE_SELF, &end);
-	end.ru_stime.tv_sec -= start->ru_stime.tv_sec;
-	end.ru_stime.tv_usec -= start->ru_stime.tv_usec;
-
-	sqd->work_time += end.ru_stime.tv_usec + end.ru_stime.tv_sec * 1000000;
-}
-
 static int io_sq_thread(void *data)
 {
 	struct llist_node *retry_list = NULL;
 	struct io_sq_data *sqd = data;
 	struct io_ring_ctx *ctx;
-	struct rusage start;
 	unsigned long timeout = 0;
 	char buf[TASK_COMM_LEN] = {};
 	DEFINE_WAIT(wait);
@@ -309,6 +332,7 @@ static int io_sq_thread(void *data)
 	mutex_lock(&sqd->lock);
 	while (1) {
 		bool cap_entries, sqt_spin = false;
+		struct io_sq_time ist = { };
 
 		if (io_sqd_events_pending(sqd) || signal_pending(current)) {
 			if (io_sqd_handle_event(sqd))
@@ -317,25 +341,27 @@ static int io_sq_thread(void *data)
 		}
 
 		cap_entries = !list_is_singular(&sqd->ctx_list);
-		getrusage(current, RUSAGE_SELF, &start);
 		list_for_each_entry(ctx, &sqd->ctx_list, sqd_list) {
-			int ret = __io_sq_thread(ctx, cap_entries);
+			int ret = __io_sq_thread(ctx, sqd, cap_entries, &ist);
 
-			if (!sqt_spin && (ret > 0 || !wq_list_empty(&ctx->iopoll_list)))
+			if (!sqt_spin && (ret > 0 || !list_empty(&ctx->iopoll_list)))
 				sqt_spin = true;
 		}
 		if (io_sq_tw(&retry_list, IORING_TW_CAP_ENTRIES_VALUE))
 			sqt_spin = true;
 
-		list_for_each_entry(ctx, &sqd->ctx_list, sqd_list)
-			if (io_napi(ctx))
+		list_for_each_entry(ctx, &sqd->ctx_list, sqd_list) {
+			if (io_napi(ctx)) {
+				io_sq_start_worktime(&ist);
 				io_napi_sqpoll_busy_poll(ctx);
+			}
+		}
+
+		io_sq_update_worktime(sqd, &ist);
 
 		if (sqt_spin || !time_after(jiffies, timeout)) {
-			if (sqt_spin) {
-				io_sq_update_worktime(sqd, &start);
+			if (sqt_spin)
 				timeout = jiffies + sqd->sq_thread_idle;
-			}
 			if (unlikely(need_resched())) {
 				mutex_unlock(&sqd->lock);
 				cond_resched();
@@ -353,7 +379,7 @@ static int io_sq_thread(void *data)
 				atomic_or(IORING_SQ_NEED_WAKEUP,
 						&ctx->rings->sq_flags);
 				if ((ctx->flags & IORING_SETUP_IOPOLL) &&
-				    !wq_list_empty(&ctx->iopoll_list)) {
+				    !list_empty(&ctx->iopoll_list)) {
 					needs_sched = false;
 					break;
 				}
@@ -432,6 +458,7 @@ __cold int io_sq_offload_create(struct io_ring_ctx *ctx,
 			return -EINVAL;
 	}
 	if (ctx->flags & IORING_SETUP_SQPOLL) {
+		struct io_uring_task *tctx;
 		struct task_struct *tsk;
 		struct io_sq_data *sqd;
 		bool attached;
@@ -498,8 +525,13 @@ __cold int io_sq_offload_create(struct io_ring_ctx *ctx,
 		rcu_assign_pointer(sqd->thread, tsk);
 		mutex_unlock(&sqd->lock);
 
+		ret = 0;
 		get_task_struct(tsk);
-		ret = io_uring_alloc_task_context(tsk, ctx);
+		tctx = io_uring_alloc_task_context(tsk, ctx);
+		if (!IS_ERR(tctx))
+			tsk->io_uring = tctx;
+		else
+			ret = PTR_ERR(tctx);
 		wake_up_new_task(tsk);
 		if (ret)
 			goto err;

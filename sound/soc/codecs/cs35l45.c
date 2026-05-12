@@ -198,8 +198,7 @@ static int cs35l45_activate_ctl(struct snd_soc_component *component,
 static int cs35l45_amplifier_mode_get(struct snd_kcontrol *kcontrol,
 				      struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component =
-			snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct cs35l45_private *cs35l45 =
 			snd_soc_component_get_drvdata(component);
 
@@ -211,12 +210,11 @@ static int cs35l45_amplifier_mode_get(struct snd_kcontrol *kcontrol,
 static int cs35l45_amplifier_mode_put(struct snd_kcontrol *kcontrol,
 				      struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component =
-			snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct cs35l45_private *cs35l45 =
 			snd_soc_component_get_drvdata(component);
 	struct snd_soc_dapm_context *dapm =
-			snd_soc_component_get_dapm(component);
+			snd_soc_component_to_dapm(component);
 	unsigned int amp_state;
 	int ret;
 
@@ -235,7 +233,7 @@ static int cs35l45_amplifier_mode_put(struct snd_kcontrol *kcontrol,
 
 	regmap_clear_bits(cs35l45->regmap, CS35L45_BLOCK_ENABLES,
 				  CS35L45_AMP_EN_MASK);
-	snd_soc_component_disable_pin_unlocked(component, "SPK");
+	snd_soc_dapm_disable_pin_unlocked(dapm, "SPK");
 	snd_soc_dapm_sync_unlocked(dapm);
 
 	if (ucontrol->value.integer.value[0] == AMP_MODE_SPK) {
@@ -289,7 +287,7 @@ static int cs35l45_amplifier_mode_put(struct snd_kcontrol *kcontrol,
 		regmap_set_bits(cs35l45->regmap, CS35L45_BLOCK_ENABLES,
 				CS35L45_AMP_EN_MASK);
 
-	snd_soc_component_enable_pin_unlocked(component, "SPK");
+	snd_soc_dapm_enable_pin_unlocked(dapm, "SPK");
 	snd_soc_dapm_sync_unlocked(dapm);
 	snd_soc_dapm_mutex_unlock(dapm);
 
@@ -455,7 +453,7 @@ static const struct snd_soc_dapm_widget cs35l45_dapm_widgets[] = {
 	SND_SOC_DAPM_AIF_OUT("ASP_TX2", NULL, 1, CS35L45_ASP_ENABLES1, CS35L45_ASP_TX2_EN_SHIFT, 0),
 	SND_SOC_DAPM_AIF_OUT("ASP_TX3", NULL, 2, CS35L45_ASP_ENABLES1, CS35L45_ASP_TX3_EN_SHIFT, 0),
 	SND_SOC_DAPM_AIF_OUT("ASP_TX4", NULL, 3, CS35L45_ASP_ENABLES1, CS35L45_ASP_TX4_EN_SHIFT, 0),
-	SND_SOC_DAPM_AIF_OUT("ASP_TX5", NULL, 3, CS35L45_ASP_ENABLES1, CS35L45_ASP_TX5_EN_SHIFT, 0),
+	SND_SOC_DAPM_AIF_OUT("ASP_TX5", NULL, 4, CS35L45_ASP_ENABLES1, CS35L45_ASP_TX5_EN_SHIFT, 0),
 
 	SND_SOC_DAPM_MUX("ASP_TX1 Source", SND_SOC_NOPM, 0, 0, &cs35l45_asp_muxes[0]),
 	SND_SOC_DAPM_MUX("ASP_TX2 Source", SND_SOC_NOPM, 0, 0, &cs35l45_asp_muxes[1]),
@@ -986,6 +984,7 @@ static int cs35l45_runtime_suspend(struct device *dev)
 	if (!cs35l45->dsp.preloaded || !cs35l45->dsp.cs_dsp.running)
 		return 0;
 
+	wm_adsp_hibernate(&cs35l45->dsp, true);
 	cs35l45_enter_hibernate(cs35l45);
 
 	regcache_cache_only(cs35l45->regmap, true);
@@ -1015,6 +1014,8 @@ static int cs35l45_runtime_resume(struct device *dev)
 	ret = regcache_sync(cs35l45->regmap);
 	if (ret != 0)
 		dev_warn(cs35l45->dev, "regcache_sync failed: %d\n", ret);
+
+	wm_adsp_hibernate(&cs35l45->dsp, false);
 
 	/* Clear global error status */
 	regmap_clear_bits(cs35l45->regmap, CS35L45_ERROR_RELEASE, CS35L45_GLOBAL_ERR_RLS_MASK);

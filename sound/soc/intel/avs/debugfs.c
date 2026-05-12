@@ -13,6 +13,7 @@
 #include <linux/string_helpers.h>
 #include <sound/soc.h>
 #include "avs.h"
+#include "debug.h"
 #include "messages.h"
 
 static unsigned int __kfifo_fromio(struct kfifo *fifo, const void __iomem *src, unsigned int len)
@@ -118,16 +119,13 @@ static ssize_t probe_points_read(struct file *file, char __user *to, size_t coun
 	}
 
 	for (i = 0; i < num_desc; i++) {
-		ret = snprintf(buf + len, PAGE_SIZE - len,
-			       "Id: %#010x  Purpose: %d  Node id: %#x\n",
-			       desc[i].id.value, desc[i].purpose, desc[i].node_id.val);
-		if (ret < 0)
-			goto free_desc;
+		ret = scnprintf(buf + len, PAGE_SIZE - len,
+				"Id: %#010x  Purpose: %d  Node id: %#x\n",
+				desc[i].id.value, desc[i].purpose, desc[i].node_id.val);
 		len += ret;
 	}
 
 	ret = simple_read_from_buffer(to, count, ppos, buf, len);
-free_desc:
 	kfree(desc);
 exit:
 	kfree(buf);

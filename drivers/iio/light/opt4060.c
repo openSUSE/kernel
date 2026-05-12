@@ -302,41 +302,23 @@ static int opt4060_set_driver_state(struct iio_dev *indio_dev,
 				    bool continuous_irq)
 {
 	struct opt4060_chip *chip = iio_priv(indio_dev);
-	int ret = 0;
-any_mode_retry:
-	if (iio_device_claim_buffer_mode(indio_dev)) {
-		/*
-		 * This one is a *bit* hacky. If we cannot claim buffer mode,
-		 * then try direct mode so that we make sure things cannot
-		 * concurrently change. And we just keep trying until we get one
-		 * of the modes...
-		 */
-		if (!iio_device_claim_direct(indio_dev))
-			goto any_mode_retry;
-		/*
-		 * This path means that we managed to claim direct mode. In
-		 * this case the buffer isn't enabled and it's okay to leave
-		 * continuous mode for sampling and/or irq.
-		 */
-		ret = opt4060_set_state_common(chip, continuous_sampling,
-					       continuous_irq);
-		iio_device_release_direct(indio_dev);
-		return ret;
-	} else {
-		/*
-		 * This path means that we managed to claim buffer mode. In
-		 * this case the buffer is enabled and irq and sampling must go
-		 * to or remain continuous, but only if the trigger is from this
-		 * device.
-		 */
-		if (!iio_trigger_validate_own_device(indio_dev->trig, indio_dev))
-			ret = opt4060_set_state_common(chip, true, true);
-		else
-			ret = opt4060_set_state_common(chip, continuous_sampling,
-						       continuous_irq);
-		iio_device_release_buffer_mode(indio_dev);
-	}
-	return ret;
+
+	IIO_DEV_GUARD_CURRENT_MODE(indio_dev);
+
+	/*
+	 * If we manage to claim buffer mode and we are using our own trigger,
+	 * IRQ and sampling must go to or remain continuous.
+	 */
+	if (iio_buffer_enabled(indio_dev) &&
+	    iio_trigger_validate_own_device(indio_dev->trig, indio_dev))
+		return opt4060_set_state_common(chip, true, true);
+
+	/*
+	 * This path means that we managed to claim direct mode. In this case
+	 * the buffer isn't enabled and it's okay to leave continuous mode for
+	 * sampling and/or irq.
+	 */
+	return opt4060_set_state_common(chip, continuous_sampling, continuous_irq);
 }
 
 /*
@@ -1104,7 +1086,7 @@ static irqreturn_t opt4060_trigger_handler(int irq, void *p)
 		}
 	}
 
-	iio_push_to_buffers_with_timestamp(idev, &raw, pf->timestamp);
+	iio_push_to_buffers_with_ts(idev, &raw, sizeof(raw), pf->timestamp);
 err_read:
 	iio_trigger_notify_done(idev->trig);
 	return IRQ_HANDLED;
@@ -1212,7 +1194,7 @@ static int opt4060_setup_trigger(struct opt4060_chip *chip, struct iio_dev *idev
 	name = devm_kasprintf(chip->dev, GFP_KERNEL, "%s-opt4060",
 			      dev_name(chip->dev));
 	if (!name)
-		return dev_err_probe(chip->dev, -ENOMEM, "Failed to alloc chip name\n");
+		return -ENOMEM;
 
 	ret = devm_request_threaded_irq(chip->dev, chip->irq, NULL, opt4060_irq_thread,
 					IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
@@ -1299,8 +1281,7 @@ static int opt4060_probe(struct i2c_client *client)
 
 	ret = devm_add_action_or_reset(dev, opt4060_chip_off_action, chip);
 	if (ret < 0)
-		return dev_err_probe(dev, ret,
-				     "Failed to setup power off action\n");
+		return ret;
 
 	ret = opt4060_setup_buffer(chip, indio_dev);
 	if (ret)

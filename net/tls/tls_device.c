@@ -123,17 +123,19 @@ static void tls_device_queue_ctx_destruction(struct tls_context *ctx)
 /* We assume that the socket is already connected */
 static struct net_device *get_netdev_for_sock(struct sock *sk)
 {
-	struct dst_entry *dst = sk_dst_get(sk);
-	struct net_device *netdev = NULL;
+	struct net_device *dev, *lowest_dev = NULL;
+	struct dst_entry *dst;
 
-	if (likely(dst)) {
-		netdev = netdev_sk_get_lowest_dev(dst->dev, sk);
-		dev_hold(netdev);
+	rcu_read_lock();
+	dst = __sk_dst_get(sk);
+	dev = dst ? dst_dev_rcu(dst) : NULL;
+	if (likely(dev)) {
+		lowest_dev = netdev_sk_get_lowest_dev(dev, sk);
+		dev_hold(lowest_dev);
 	}
+	rcu_read_unlock();
 
-	dst_release(dst);
-
-	return netdev;
+	return lowest_dev;
 }
 
 static void destroy_record(struct tls_record_info *record)
@@ -344,7 +346,7 @@ static int tls_create_new_record(struct tls_offload_context_tx *offload_ctx,
 	struct tls_record_info *record;
 	skb_frag_t *frag;
 
-	record = kmalloc(sizeof(*record), GFP_KERNEL);
+	record = kmalloc_obj(*record);
 	if (!record)
 		return -ENOMEM;
 
@@ -371,7 +373,8 @@ static int tls_do_allocation(struct sock *sk,
 	if (!offload_ctx->open_record) {
 		if (unlikely(!skb_page_frag_refill(prepend_size, pfrag,
 						   sk->sk_allocation))) {
-			READ_ONCE(sk->sk_prot)->enter_memory_pressure(sk);
+			if (!sk->sk_bypass_prot_mem)
+				READ_ONCE(sk->sk_prot)->enter_memory_pressure(sk);
 			sk_stream_moderate_sndbuf(sk);
 			return -ENOMEM;
 		}
@@ -459,7 +462,7 @@ static int tls_push_data(struct sock *sk,
 	/* TLS_HEADER_SIZE is not counted as part of the TLS record, and
 	 * we need to leave room for an authentication tag.
 	 */
-	max_open_record_len = TLS_MAX_PAYLOAD_SIZE +
+	max_open_record_len = tls_ctx->tx_max_payload_len +
 			      prot->prepend_size;
 	do {
 		rc = tls_do_allocation(sk, ctx, pfrag, prot->prepend_size);
@@ -721,8 +724,10 @@ tls_device_rx_resync_async(struct tls_offload_resync_async *resync_async,
 		/* shouldn't get to wraparound:
 		 * too long in async stage, something bad happened
 		 */
-		if (WARN_ON_ONCE(resync_async->rcd_delta == USHRT_MAX))
+		if (WARN_ON_ONCE(resync_async->rcd_delta == USHRT_MAX)) {
+			tls_offload_rx_resync_async_request_cancel(resync_async);
 			return false;
+		}
 
 		/* asynchronous stage: log all headers seq such that
 		 * req_seq <= seq <= end_seq, and wait for real resync request
@@ -1035,7 +1040,7 @@ static struct tls_offload_context_tx *alloc_offload_ctx_tx(struct tls_context *c
 	struct tls_offload_context_tx *offload_ctx;
 	__be64 rcd_sn;
 
-	offload_ctx = kzalloc(sizeof(*offload_ctx), GFP_KERNEL);
+	offload_ctx = kzalloc_obj(*offload_ctx);
 	if (!offload_ctx)
 		return NULL;
 
@@ -1105,7 +1110,7 @@ int tls_set_device_offload(struct sock *sk)
 	memcpy(ctx->tx.iv + cipher_desc->salt, iv, cipher_desc->iv);
 	memcpy(ctx->tx.rec_seq, rec_seq, cipher_desc->rec_seq);
 
-	start_marker_record = kmalloc(sizeof(*start_marker_record), GFP_KERNEL);
+	start_marker_record = kmalloc_obj(*start_marker_record);
 	if (!start_marker_record) {
 		rc = -ENOMEM;
 		goto release_netdev;
@@ -1219,7 +1224,7 @@ int tls_set_device_offload_rx(struct sock *sk, struct tls_context *ctx)
 		goto release_lock;
 	}
 
-	context = kzalloc(sizeof(*context), GFP_KERNEL);
+	context = kzalloc_obj(*context);
 	if (!context) {
 		rc = -ENOMEM;
 		goto release_lock;
@@ -1410,7 +1415,7 @@ int __init tls_device_init(void)
 	if (!dummy_page)
 		return -ENOMEM;
 
-	destruct_wq = alloc_workqueue("ktls_device_destruct", 0, 0);
+	destruct_wq = alloc_workqueue("ktls_device_destruct", WQ_PERCPU, 0);
 	if (!destruct_wq) {
 		err = -ENOMEM;
 		goto err_free_dummy;

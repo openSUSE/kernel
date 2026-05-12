@@ -64,7 +64,7 @@ static irqreturn_t intel_sst_interrupt_mrfld(int irq, void *context)
 		header.p.header_high.part.done = 0;
 		sst_shim_write64(drv->shim, drv->ipc_reg.ipcx, header.full);
 
-		/* write 1 to clear status register */;
+		/* write 1 to clear status register */
 		isr.part.done_interrupt = 1;
 		sst_shim_write64(drv->shim, SST_ISRX, isr.full);
 		spin_unlock(&drv->ipc_spin_lock);
@@ -463,7 +463,7 @@ static int intel_sst_suspend(struct device *dev)
 		return -EBUSY;
 
 	/* save the memories */
-	fw_save = kzalloc(sizeof(*fw_save), GFP_KERNEL);
+	fw_save = kzalloc_obj(*fw_save);
 	if (!fw_save)
 		return -ENOMEM;
 	fw_save->iram = kvzalloc(ctx->iram_end - ctx->iram_base, GFP_KERNEL);

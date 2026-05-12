@@ -7,6 +7,7 @@
 #include <drm/drm_device.h>
 #include <drm/drm_print.h>
 #include <linux/dma-buf.h>
+#include <linux/overflow.h>
 #include <linux/pagemap.h>
 #include <linux/vmalloc.h>
 
@@ -16,7 +17,6 @@
 struct amdxdna_ubuf_priv {
 	struct page **pages;
 	u64 nr_pages;
-	enum amdxdna_ubuf_flag flags;
 	struct mm_struct *mm;
 };
 
@@ -27,33 +27,33 @@ static struct sg_table *amdxdna_ubuf_map(struct dma_buf_attachment *attach,
 	struct sg_table *sg;
 	int ret;
 
-	sg = kzalloc(sizeof(*sg), GFP_KERNEL);
+	sg = kzalloc_obj(*sg);
 	if (!sg)
 		return ERR_PTR(-ENOMEM);
 
 	ret = sg_alloc_table_from_pages(sg, ubuf->pages, ubuf->nr_pages, 0,
 					ubuf->nr_pages << PAGE_SHIFT, GFP_KERNEL);
 	if (ret)
-		return ERR_PTR(ret);
+		goto err_free_sg;
 
-	if (ubuf->flags & AMDXDNA_UBUF_FLAG_MAP_DMA) {
-		ret = dma_map_sgtable(attach->dev, sg, direction, 0);
-		if (ret)
-			return ERR_PTR(ret);
-	}
+	ret = dma_map_sgtable(attach->dev, sg, direction, 0);
+	if (ret)
+		goto err_free_table;
 
 	return sg;
+
+err_free_table:
+	sg_free_table(sg);
+err_free_sg:
+	kfree(sg);
+	return ERR_PTR(ret);
 }
 
 static void amdxdna_ubuf_unmap(struct dma_buf_attachment *attach,
 			       struct sg_table *sg,
 			       enum dma_data_direction direction)
 {
-	struct amdxdna_ubuf_priv *ubuf = attach->dmabuf->priv;
-
-	if (ubuf->flags & AMDXDNA_UBUF_FLAG_MAP_DMA)
-		dma_unmap_sgtable(attach->dev, sg, direction, 0);
-
+	dma_unmap_sgtable(attach->dev, sg, direction, 0);
 	sg_free_table(sg);
 	kfree(sg);
 }
@@ -125,8 +125,27 @@ static const struct dma_buf_ops amdxdna_ubuf_dmabuf_ops = {
 	.vunmap = amdxdna_ubuf_vunmap,
 };
 
+static int readonly_va_entry(struct amdxdna_drm_va_entry *va_ent)
+{
+	struct mm_struct *mm = current->mm;
+	struct vm_area_struct *vma;
+	int ret;
+
+	mmap_read_lock(mm);
+
+	vma = find_vma(mm, va_ent->vaddr);
+	if (!vma ||
+	    vma->vm_start > va_ent->vaddr ||
+	    vma->vm_end - va_ent->vaddr < va_ent->len)
+		ret = -ENOENT;
+	else
+		ret = vma->vm_flags & VM_WRITE ? 0 : 1;
+
+	mmap_read_unlock(mm);
+	return ret;
+}
+
 struct dma_buf *amdxdna_get_ubuf(struct drm_device *dev,
-				 enum amdxdna_ubuf_flag flags,
 				 u32 num_entries, void __user *va_entries)
 {
 	struct amdxdna_dev *xdna = to_xdna_dev(dev);
@@ -135,21 +154,21 @@ struct dma_buf *amdxdna_get_ubuf(struct drm_device *dev,
 	struct amdxdna_ubuf_priv *ubuf;
 	u32 npages, start = 0;
 	struct dma_buf *dbuf;
+	bool readonly = true;
 	int i, ret;
 	DEFINE_DMA_BUF_EXPORT_INFO(exp_info);
 
 	if (!can_do_mlock())
 		return ERR_PTR(-EPERM);
 
-	ubuf = kzalloc(sizeof(*ubuf), GFP_KERNEL);
+	ubuf = kzalloc_obj(*ubuf);
 	if (!ubuf)
 		return ERR_PTR(-ENOMEM);
 
-	ubuf->flags = flags;
 	ubuf->mm = current->mm;
 	mmgrab(ubuf->mm);
 
-	va_ent = kvcalloc(num_entries, sizeof(*va_ent), GFP_KERNEL);
+	va_ent = kvzalloc_objs(*va_ent, num_entries);
 	if (!va_ent) {
 		ret = -ENOMEM;
 		goto free_ubuf;
@@ -170,7 +189,14 @@ struct dma_buf *amdxdna_get_ubuf(struct drm_device *dev,
 			goto free_ent;
 		}
 
-		exp_info.size += va_ent[i].len;
+		if (check_add_overflow(exp_info.size, va_ent[i].len, &exp_info.size)) {
+			ret = -EINVAL;
+			goto free_ent;
+		}
+
+		/* Pin pages as writable as long as not all entries are read-only. */
+		if (readonly && readonly_va_entry(&va_ent[i]) != 1)
+			readonly = false;
 	}
 
 	ubuf->nr_pages = exp_info.size >> PAGE_SHIFT;
@@ -183,7 +209,7 @@ struct dma_buf *amdxdna_get_ubuf(struct drm_device *dev,
 		goto sub_pin_cnt;
 	}
 
-	ubuf->pages = kvmalloc_array(ubuf->nr_pages, sizeof(*ubuf->pages), GFP_KERNEL);
+	ubuf->pages = kvmalloc_objs(*ubuf->pages, ubuf->nr_pages);
 	if (!ubuf->pages) {
 		ret = -ENOMEM;
 		goto sub_pin_cnt;
@@ -193,20 +219,24 @@ struct dma_buf *amdxdna_get_ubuf(struct drm_device *dev,
 		npages = va_ent[i].len >> PAGE_SHIFT;
 
 		ret = pin_user_pages_fast(va_ent[i].vaddr, npages,
-					  FOLL_WRITE | FOLL_LONGTERM,
+					  (readonly ? 0 : FOLL_WRITE) | FOLL_LONGTERM,
 					  &ubuf->pages[start]);
-		if (ret < 0 || ret != npages) {
-			ret = -ENOMEM;
+		if (ret >= 0) {
+			start += ret;
+			if (ret != npages) {
+				XDNA_ERR(xdna, "Partially pinned pages %d/%u", ret, npages);
+				ret = -ENOMEM;
+				goto destroy_pages;
+			}
+		} else {
 			XDNA_ERR(xdna, "Failed to pin pages ret %d", ret);
 			goto destroy_pages;
 		}
-
-		start += ret;
 	}
 
 	exp_info.ops = &amdxdna_ubuf_dmabuf_ops;
 	exp_info.priv = ubuf;
-	exp_info.flags = O_RDWR | O_CLOEXEC;
+	exp_info.flags = (readonly ? O_RDONLY : O_RDWR) | O_CLOEXEC;
 
 	dbuf = dma_buf_export(&exp_info);
 	if (IS_ERR(dbuf)) {

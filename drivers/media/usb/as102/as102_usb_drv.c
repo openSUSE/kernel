@@ -345,7 +345,7 @@ static int as102_usb_probe(struct usb_interface *intf,
 		return -EINVAL;
 	}
 
-	as102_dev = kzalloc(sizeof(struct as102_dev_t), GFP_KERNEL);
+	as102_dev = kzalloc_obj(struct as102_dev_t);
 	if (as102_dev == NULL)
 		return -ENOMEM;
 
@@ -403,7 +403,9 @@ static int as102_usb_probe(struct usb_interface *intf,
 failed_dvb:
 	as102_free_usb_stream_buffer(as102_dev);
 failed_stream:
+	usb_set_intfdata(intf, NULL);
 	usb_deregister_dev(intf, &as102_usb_class_driver);
+	return ret;
 failed:
 	usb_put_dev(as102_dev->bus_adap.usb_dev);
 	usb_set_intfdata(intf, NULL);

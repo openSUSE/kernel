@@ -8,7 +8,6 @@
 
 #include <linux/completion.h>
 #include <linux/firmware.h>
-#include <crypto/hash.h>
 #include <crypto/sha1.h>
 
 #include "s3fwrn5.h"
@@ -411,27 +410,13 @@ int s3fwrn5_fw_download(struct s3fwrn5_fw_info *fw_info)
 	struct device *dev = &fw_info->ndev->nfc_dev->dev;
 	struct s3fwrn5_fw_image *fw = &fw_info->fw;
 	u8 hash_data[SHA1_DIGEST_SIZE];
-	struct crypto_shash *tfm;
 	u32 image_size, off;
 	int ret;
 
 	image_size = fw_info->sector_size * fw->image_sectors;
 
 	/* Compute SHA of firmware data */
-
-	tfm = crypto_alloc_shash("sha1", 0, 0);
-	if (IS_ERR(tfm)) {
-		dev_err(dev, "Cannot allocate shash (code=%pe)\n", tfm);
-		return PTR_ERR(tfm);
-	}
-
-	ret = crypto_shash_tfm_digest(tfm, fw->image, image_size, hash_data);
-
-	crypto_free_shash(tfm);
-	if (ret) {
-		dev_err(dev, "Cannot compute hash (code=%d)\n", ret);
-		return ret;
-	}
+	sha1(fw->image, image_size, hash_data);
 
 	/* Firmware update process */
 
@@ -469,7 +454,7 @@ void s3fwrn5_fw_init(struct s3fwrn5_fw_info *fw_info, const char *fw_name)
 	fw_info->parity = 0x00;
 	fw_info->rsp = NULL;
 	fw_info->fw.fw = NULL;
-	strcpy(fw_info->fw_name, fw_name);
+	strscpy(fw_info->fw_name, fw_name);
 	init_completion(&fw_info->completion);
 }
 

@@ -27,6 +27,10 @@ FULL_AMD_PATH=$(src)/..
 DISPLAY_FOLDER_NAME=display
 FULL_AMD_DISPLAY_PATH = $(FULL_AMD_PATH)/$(DISPLAY_FOLDER_NAME)
 
+ifdef CONFIG_GCOV_PROFILE_AMDGPU
+GCOV_PROFILE := y
+endif
+
 ccflags-y := -I$(FULL_AMD_PATH)/include/asic_reg \
 	-I$(FULL_AMD_PATH)/include \
 	-I$(FULL_AMD_PATH)/amdgpu \
@@ -37,7 +41,8 @@ ccflags-y := -I$(FULL_AMD_PATH)/include/asic_reg \
 	-I$(FULL_AMD_DISPLAY_PATH)/modules/inc \
 	-I$(FULL_AMD_DISPLAY_PATH)/dc \
 	-I$(FULL_AMD_DISPLAY_PATH)/amdgpu_dm \
-	-I$(FULL_AMD_PATH)/amdkfd
+	-I$(FULL_AMD_PATH)/amdkfd \
+	-I$(FULL_AMD_PATH)/ras/ras_mgr
 
 # Locally disable W=1 warnings enabled in drm subsystem Makefile
 subdir-ccflags-y += -Wno-override-init
@@ -46,7 +51,7 @@ subdir-ccflags-$(CONFIG_DRM_AMDGPU_WERROR) += -Werror
 amdgpu-y := amdgpu_drv.o
 
 # add KMS driver
-amdgpu-y += amdgpu_device.o amdgpu_doorbell_mgr.o amdgpu_kms.o \
+amdgpu-y += amdgpu_device.o amdgpu_reg_access.o amdgpu_doorbell_mgr.o amdgpu_kms.o \
 	amdgpu_atombios.o atombios_crtc.o amdgpu_connectors.o \
 	atom.o amdgpu_fence.o amdgpu_ttm.o amdgpu_object.o amdgpu_gart.o \
 	amdgpu_encoders.o amdgpu_display.o amdgpu_i2c.o \
@@ -77,7 +82,7 @@ amdgpu-$(CONFIG_DRM_AMDGPU_CIK)+= cik.o cik_ih.o \
 	dce_v8_0.o gfx_v7_0.o cik_sdma.o uvd_v4_2.o vce_v2_0.o
 
 amdgpu-$(CONFIG_DRM_AMDGPU_SI)+= si.o gmc_v6_0.o gfx_v6_0.o si_ih.o si_dma.o dce_v6_0.o \
-	uvd_v3_1.o
+	uvd_v3_1.o vce_v1_0.o
 
 amdgpu-y += \
 	vi.o mxgpu_vi.o nbio_v6_1.o soc15.o emu_soc.o mxgpu_ai.o nbio_v7_0.o vega10_reg_init.o \
@@ -85,7 +90,7 @@ amdgpu-y += \
 	nbio_v7_2.o hdp_v4_0.o hdp_v5_0.o aldebaran_reg_init.o aldebaran.o soc21.o soc24.o \
 	sienna_cichlid.o smu_v13_0_10.o nbio_v4_3.o hdp_v6_0.o nbio_v7_7.o hdp_v5_2.o lsdma_v6_0.o \
 	nbio_v7_9.o aqua_vanjaram.o nbio_v7_11.o lsdma_v7_0.o hdp_v7_0.o nbif_v6_3_1.o \
-	cyan_skillfish_reg_init.o
+	cyan_skillfish_reg_init.o soc_v1_0.o lsdma_v7_1.o nbio_v6_3_2.o
 
 # add DF block
 amdgpu-y += \
@@ -103,7 +108,8 @@ amdgpu-y += \
 	gfxhub_v2_0.o mmhub_v2_0.o gmc_v10_0.o gfxhub_v2_1.o mmhub_v2_3.o \
 	mmhub_v1_7.o gfxhub_v3_0.o mmhub_v3_0.o mmhub_v3_0_2.o gmc_v11_0.o \
 	mmhub_v3_0_1.o gfxhub_v3_0_3.o gfxhub_v1_2.o mmhub_v1_8.o mmhub_v3_3.o \
-	gfxhub_v11_5_0.o mmhub_v4_1_0.o gfxhub_v12_0.o gmc_v12_0.o
+	gfxhub_v11_5_0.o mmhub_v4_1_0.o gfxhub_v12_0.o gmc_v12_0.o \
+	mmhub_v4_2_0.o gfxhub_v12_1.o gmc_v12_1.o
 
 # add UMC block
 amdgpu-y += \
@@ -133,12 +139,13 @@ amdgpu-y += \
 	psp_v12_0.o \
 	psp_v13_0.o \
 	psp_v13_0_4.o \
-	psp_v14_0.o
+	psp_v14_0.o \
+	psp_v15_0.o \
+	psp_v15_0_8.o
 
 # add DCE block
 amdgpu-y += \
 	dce_v10_0.o \
-	dce_v11_0.o \
 	amdgpu_vkms.o
 
 # add GFX block
@@ -156,7 +163,9 @@ amdgpu-y += \
 	gfx_v11_0_3.o \
 	imu_v11_0_3.o \
 	gfx_v12_0.o \
-	imu_v12_0.o
+	gfx_v12_1.o \
+	imu_v12_0.o \
+	imu_v12_1.o
 
 # add async DMA block
 amdgpu-y += \
@@ -169,13 +178,15 @@ amdgpu-y += \
 	sdma_v5_0.o \
 	sdma_v5_2.o \
 	sdma_v6_0.o \
-	sdma_v7_0.o
+	sdma_v7_0.o \
+	sdma_v7_1.o
 
 # add MES block
 amdgpu-y += \
 	amdgpu_mes.o \
 	mes_v11_0.o \
 	mes_v12_0.o \
+	mes_v12_1.o
 
 # add GFX userqueue support
 amdgpu-y += mes_userqueue.o
@@ -206,6 +217,7 @@ amdgpu-y += \
 	vcn_v4_0_5.o \
 	vcn_v5_0_0.o \
 	vcn_v5_0_1.o \
+	vcn_v5_0_2.o \
 	amdgpu_jpeg.o \
 	jpeg_v1_0.o \
 	jpeg_v2_0.o \
@@ -215,7 +227,9 @@ amdgpu-y += \
 	jpeg_v4_0_3.o \
 	jpeg_v4_0_5.o \
 	jpeg_v5_0_0.o \
-	jpeg_v5_0_1.o
+	jpeg_v5_0_1.o \
+	jpeg_v5_0_2.o \
+	jpeg_v5_3_0.o
 
 # add VPE block
 amdgpu-y += \
@@ -244,7 +258,9 @@ amdgpu-y += \
 	smuio_v13_0.o \
 	smuio_v13_0_3.o \
 	smuio_v13_0_6.o \
-	smuio_v14_0_2.o
+	smuio_v14_0_2.o \
+	smuio_v15_0_0.o \
+	smuio_v15_0_8.o
 
 # add reset block
 amdgpu-y += \
@@ -275,7 +291,8 @@ amdgpu-y += \
 	amdgpu_amdkfd_gfx_v10.o \
 	amdgpu_amdkfd_gfx_v10_3.o \
 	amdgpu_amdkfd_gfx_v11.o \
-	amdgpu_amdkfd_gfx_v12.o
+	amdgpu_amdkfd_gfx_v12.o \
+	amdgpu_amdkfd_gfx_v12_1.o
 
 ifneq ($(CONFIG_DRM_AMDGPU_CIK),)
 amdgpu-y += amdgpu_amdkfd_gfx_v7.o
@@ -324,5 +341,10 @@ amdgpu-y += \
 	isp_v4_1_0.o \
 	isp_v4_1_1.o
 endif
+
+AMD_GPU_RAS_PATH := ../ras
+AMD_GPU_RAS_FULL_PATH := $(FULL_AMD_PATH)/ras
+include $(AMD_GPU_RAS_FULL_PATH)/Makefile
+amdgpu-y += $(AMD_GPU_RAS_FILES)
 
 obj-$(CONFIG_DRM_AMDGPU)+= amdgpu.o

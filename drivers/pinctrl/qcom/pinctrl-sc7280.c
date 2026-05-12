@@ -31,7 +31,6 @@
 		.io_reg = 0x1000 * id + 0x4,		\
 		.intr_cfg_reg = 0x1000 * id + 0x8,	\
 		.intr_status_reg = 0x1000 * id + 0xc,	\
-		.intr_target_reg = 0x1000 * id + 0x8,	\
 		.mux_bit = 2,			\
 		.pull_bit = 0,			\
 		.drv_bit = 6,			\
@@ -59,7 +58,6 @@
 		.io_reg = 0,				\
 		.intr_cfg_reg = 0,			\
 		.intr_status_reg = 0,			\
-		.intr_target_reg = 0,			\
 		.mux_bit = -1,				\
 		.pull_bit = pull,			\
 		.drv_bit = drv,				\
@@ -84,7 +82,6 @@
 		.io_reg = offset + 0x4,			\
 		.intr_cfg_reg = 0,			\
 		.intr_status_reg = 0,			\
-		.intr_target_reg = 0,			\
 		.mux_bit = -1,				\
 		.pull_bit = 3,				\
 		.drv_bit = 0,				\
@@ -1153,11 +1150,11 @@ static const struct pinfunction sc7280_functions[] = {
 	MSM_PIN_FUNCTION(dp_lcd),
 	MSM_PIN_FUNCTION(edp_hot),
 	MSM_PIN_FUNCTION(edp_lcd),
-	MSM_PIN_FUNCTION(egpio),
+	MSM_GPIO_PIN_FUNCTION(egpio),
 	MSM_PIN_FUNCTION(gcc_gp1),
 	MSM_PIN_FUNCTION(gcc_gp2),
 	MSM_PIN_FUNCTION(gcc_gp3),
-	MSM_PIN_FUNCTION(gpio),
+	MSM_GPIO_PIN_FUNCTION(gpio),
 	MSM_PIN_FUNCTION(host2wlan_sol),
 	MSM_PIN_FUNCTION(ibi_i3c),
 	MSM_PIN_FUNCTION(jitter_bist),

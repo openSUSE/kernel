@@ -44,8 +44,6 @@ bool radeon_atpx_dgpu_req_power_for_displays(void);
 static inline bool radeon_atpx_dgpu_req_power_for_displays(void) { return false; }
 #endif
 
-#define ACPI_AC_CLASS           "ac_adapter"
-
 struct atif_verify_interface {
 	u16 size;		/* structure size in bytes (includes size field) */
 	u16 version;		/* version */
@@ -408,7 +406,6 @@ static int radeon_atif_handler(struct radeon_device *rdev,
 			pm_runtime_get_sync(rdev_to_drm(rdev)->dev);
 			/* Just fire off a uevent and let userspace tell us what to do */
 			drm_helper_hpd_irq_event(rdev_to_drm(rdev));
-			pm_runtime_mark_last_busy(rdev_to_drm(rdev)->dev);
 			pm_runtime_put_autosuspend(rdev_to_drm(rdev)->dev);
 		}
 	}

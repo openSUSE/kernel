@@ -15,6 +15,7 @@
 #include <linux/mm.h>
 #include <linux/dma-mapping.h>
 #include <linux/scatterlist.h>
+#include <linux/string.h>
 #include <linux/highmem.h>
 #include <linux/crypto.h>
 #include <linux/hw_random.h>
@@ -913,11 +914,10 @@ static void hifn_init_pll(struct hifn_device *dev)
 	else
 		pllcfg |= HIFN_PLL_REF_CLK_HBI;
 
-	if (hifn_pll_ref[3] != '\0')
-		freq = simple_strtoul(hifn_pll_ref + 3, NULL, 10);
-	else {
+	if (hifn_pll_ref[3] == '\0' ||
+	    kstrtouint(hifn_pll_ref + 3, 10, &freq)) {
 		freq = 66;
-		dev_info(&dev->pdev->dev, "assuming %uMHz clock speed, override with hifn_pll_ref=%.3s<frequency>\n",
+		dev_info(&dev->pdev->dev, "assuming %u MHz clock speed, override with hifn_pll_ref=%.3s<frequency>\n",
 			 freq, hifn_pll_ref);
 	}
 
@@ -2249,7 +2249,7 @@ static int hifn_alg_alloc(struct hifn_device *dev, const struct hifn_alg_templat
 	struct hifn_crypto_alg *alg;
 	int err;
 
-	alg = kzalloc(sizeof(*alg), GFP_KERNEL);
+	alg = kzalloc_obj(*alg);
 	if (!alg)
 		return -ENOMEM;
 
@@ -2257,8 +2257,7 @@ static int hifn_alg_alloc(struct hifn_device *dev, const struct hifn_alg_templat
 	alg->alg.init = hifn_init_tfm;
 
 	err = -EINVAL;
-	if (snprintf(alg->alg.base.cra_name, CRYPTO_MAX_ALG_NAME,
-		     "%s", t->name) >= CRYPTO_MAX_ALG_NAME)
+	if (strscpy(alg->alg.base.cra_name, t->name) < 0)
 		goto out_free_alg;
 	if (snprintf(alg->alg.base.cra_driver_name, CRYPTO_MAX_ALG_NAME,
 		     "%s-%s", t->drv_name, dev->name) >= CRYPTO_MAX_ALG_NAME)
@@ -2368,7 +2367,7 @@ static int hifn_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	INIT_LIST_HEAD(&dev->alg_list);
 
-	snprintf(dev->name, sizeof(dev->name), "%s", name);
+	strscpy(dev->name, name);
 	spin_lock_init(&dev->lock);
 
 	for (i = 0; i < 3; ++i) {

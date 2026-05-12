@@ -648,8 +648,7 @@ int dma_resv_get_singleton(struct dma_resv *obj, enum dma_resv_usage usage,
 	}
 
 	array = dma_fence_array_create(count, fences,
-				       dma_fence_context_alloc(1),
-				       1, false);
+				       dma_fence_context_alloc(1), 1);
 	if (!array) {
 		while (count--)
 			dma_fence_put(fences[count]);
@@ -790,8 +789,11 @@ static int __init dma_resv_lockdep(void)
 	mmap_read_lock(mm);
 	ww_acquire_init(&ctx, &reservation_ww_class);
 	ret = dma_resv_lock(&obj, &ctx);
-	if (ret == -EDEADLK)
+	if (ret) {
+		/* Only EDEADLK from the error injection is possible here */
+		WARN_ON(ret != -EDEADLK);
 		dma_resv_lock_slow(&obj, &ctx);
+	}
 	fs_reclaim_acquire(GFP_KERNEL);
 	/* for unmap_mapping_range on trylocked buffer objects in shrinkers */
 	i_mmap_lock_write(&mapping);

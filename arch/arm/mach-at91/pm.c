@@ -982,15 +982,12 @@ static void __init at91_pm_sram_init(void)
 	struct gen_pool *sram_pool;
 	phys_addr_t sram_pbase;
 	unsigned long sram_base;
-	struct device_node *node;
 	struct platform_device *pdev = NULL;
 
-	for_each_compatible_node(node, NULL, "mmio-sram") {
+	for_each_compatible_node_scoped(node, NULL, "mmio-sram") {
 		pdev = of_find_device_by_node(node);
-		if (pdev) {
-			of_node_put(node);
+		if (pdev)
 			break;
-		}
 	}
 
 	if (!pdev) {
@@ -1364,7 +1361,7 @@ static const struct pmc_info pmc_infos[] __initconst = {
 		.version = AT91_PMC_V1,
 	},
 	{
-		.uhp_udp_mask = AT91SAM926x_PMC_UHP | AT91SAM926x_PMC_UDP,
+		.uhp_udp_mask = AT91SAM926x_PMC_UHP,
 		.mckr = 0x28,
 		.version = AT91_PMC_V2,
 	},

@@ -190,9 +190,18 @@ static void rcu_init_one_nocb(struct rcu_node *rnp)
 	init_swait_queue_head(&rnp->nocb_gp_wq[1]);
 }
 
+/* Clear any pending deferred wakeup timer (nocb_gp_lock must be held). */
+static void nocb_defer_wakeup_cancel(struct rcu_data *rdp_gp)
+{
+	if (rdp_gp->nocb_defer_wakeup > RCU_NOCB_WAKE_NOT) {
+		WRITE_ONCE(rdp_gp->nocb_defer_wakeup, RCU_NOCB_WAKE_NOT);
+		timer_delete(&rdp_gp->nocb_timer);
+	}
+}
+
 static bool __wake_nocb_gp(struct rcu_data *rdp_gp,
 			   struct rcu_data *rdp,
-			   bool force, unsigned long flags)
+			   unsigned long flags)
 	__releases(rdp_gp->nocb_gp_lock)
 {
 	bool needwake = false;
@@ -204,12 +213,9 @@ static bool __wake_nocb_gp(struct rcu_data *rdp_gp,
 		return false;
 	}
 
-	if (rdp_gp->nocb_defer_wakeup > RCU_NOCB_WAKE_NOT) {
-		WRITE_ONCE(rdp_gp->nocb_defer_wakeup, RCU_NOCB_WAKE_NOT);
-		timer_delete(&rdp_gp->nocb_timer);
-	}
+	nocb_defer_wakeup_cancel(rdp_gp);
 
-	if (force || READ_ONCE(rdp_gp->nocb_gp_sleep)) {
+	if (READ_ONCE(rdp_gp->nocb_gp_sleep)) {
 		WRITE_ONCE(rdp_gp->nocb_gp_sleep, false);
 		needwake = true;
 	}
@@ -225,13 +231,13 @@ static bool __wake_nocb_gp(struct rcu_data *rdp_gp,
 /*
  * Kick the GP kthread for this NOCB group.
  */
-static bool wake_nocb_gp(struct rcu_data *rdp, bool force)
+static bool wake_nocb_gp(struct rcu_data *rdp)
 {
 	unsigned long flags;
 	struct rcu_data *rdp_gp = rdp->nocb_gp_rdp;
 
 	raw_spin_lock_irqsave(&rdp_gp->nocb_gp_lock, flags);
-	return __wake_nocb_gp(rdp_gp, rdp, force, flags);
+	return __wake_nocb_gp(rdp_gp, rdp, flags);
 }
 
 #ifdef CONFIG_RCU_LAZY
@@ -373,6 +379,38 @@ static void rcu_nocb_try_flush_bypass(struct rcu_data *rdp, unsigned long j)
 }
 
 /*
+ * Determine if the bypass queue needs to be flushed based on time and size.
+ * For lazy-only bypass queues, use the lazy flush timeout; otherwise flush
+ * based on jiffy advancement. The flush_faster controls flush aggressiveness.
+ */
+static bool nocb_bypass_needs_flush(struct rcu_data *rdp, long bypass_ncbs,
+				    long lazy_ncbs, unsigned long j,
+				    bool flush_faster)
+{
+	bool bypass_is_lazy;
+	unsigned long bypass_first;
+	unsigned long flush_timeout;
+	long qhimark_thresh;
+
+	if (!bypass_ncbs)
+		return false;
+
+	qhimark_thresh = flush_faster ? qhimark : 2 * qhimark;
+	if (bypass_ncbs >= qhimark_thresh)
+		return true;
+
+	bypass_first = READ_ONCE(rdp->nocb_bypass_first);
+	bypass_is_lazy = (bypass_ncbs == lazy_ncbs);
+
+	if (bypass_is_lazy)
+		flush_timeout = rcu_get_jiffies_lazy_flush();
+	else
+		flush_timeout = flush_faster ? 0 : 1;
+
+	return time_after(j, bypass_first + flush_timeout);
+}
+
+/*
  * See whether it is appropriate to use the ->nocb_bypass list in order
  * to control contention on ->nocb_lock.  A limited number of direct
  * enqueues are permitted into ->cblist per jiffy.  If ->nocb_bypass
@@ -398,7 +436,8 @@ static bool rcu_nocb_try_bypass(struct rcu_data *rdp, struct rcu_head *rhp,
 	unsigned long cur_gp_seq;
 	unsigned long j = jiffies;
 	long ncbs = rcu_cblist_n_cbs(&rdp->nocb_bypass);
-	bool bypass_is_lazy = (ncbs == READ_ONCE(rdp->lazy_len));
+	long lazy_len = READ_ONCE(rdp->lazy_len);
+	bool bypass_is_lazy = (ncbs == lazy_len);
 
 	lockdep_assert_irqs_disabled();
 
@@ -450,10 +489,7 @@ static bool rcu_nocb_try_bypass(struct rcu_data *rdp, struct rcu_head *rhp,
 
 	// If ->nocb_bypass has been used too long or is too full,
 	// flush ->nocb_bypass to ->cblist.
-	if ((ncbs && !bypass_is_lazy && j != READ_ONCE(rdp->nocb_bypass_first)) ||
-	    (ncbs &&  bypass_is_lazy &&
-	     (time_after(j, READ_ONCE(rdp->nocb_bypass_first) + rcu_get_jiffies_lazy_flush()))) ||
-	    ncbs >= qhimark) {
+	if (nocb_bypass_needs_flush(rdp, ncbs, lazy_len, j, true)) {
 		rcu_nocb_lock(rdp);
 		*was_alldone = !rcu_segcblist_pend_cbs(&rdp->cblist);
 
@@ -518,22 +554,17 @@ static bool rcu_nocb_try_bypass(struct rcu_data *rdp, struct rcu_head *rhp,
 }
 
 /*
- * Awaken the no-CBs grace-period kthread if needed, either due to it
- * legitimately being asleep or due to overload conditions.
- *
- * If warranted, also wake up the kthread servicing this CPUs queues.
+ * Awaken the no-CBs grace-period kthread if needed due to it legitimately
+ * being asleep.
  */
 static void __call_rcu_nocb_wake(struct rcu_data *rdp, bool was_alldone,
 				 unsigned long flags)
 				 __releases(rdp->nocb_lock)
 {
 	long bypass_len;
-	unsigned long cur_gp_seq;
-	unsigned long j;
 	long lazy_len;
 	long len;
 	struct task_struct *t;
-	struct rcu_data *rdp_gp = rdp->nocb_gp_rdp;
 
 	// If we are being polled or there is no kthread, just leave.
 	t = READ_ONCE(rdp->nocb_gp_kthread);
@@ -549,47 +580,26 @@ static void __call_rcu_nocb_wake(struct rcu_data *rdp, bool was_alldone,
 	lazy_len = READ_ONCE(rdp->lazy_len);
 	if (was_alldone) {
 		rdp->qlen_last_fqs_check = len;
+		rcu_nocb_unlock(rdp);
 		// Only lazy CBs in bypass list
 		if (lazy_len && bypass_len == lazy_len) {
-			rcu_nocb_unlock(rdp);
 			wake_nocb_gp_defer(rdp, RCU_NOCB_WAKE_LAZY,
 					   TPS("WakeLazy"));
 		} else if (!irqs_disabled_flags(flags)) {
 			/* ... if queue was empty ... */
-			rcu_nocb_unlock(rdp);
-			wake_nocb_gp(rdp, false);
+			wake_nocb_gp(rdp);
 			trace_rcu_nocb_wake(rcu_state.name, rdp->cpu,
 					    TPS("WakeEmpty"));
 		} else {
-			rcu_nocb_unlock(rdp);
 			wake_nocb_gp_defer(rdp, RCU_NOCB_WAKE,
 					   TPS("WakeEmptyIsDeferred"));
 		}
-	} else if (len > rdp->qlen_last_fqs_check + qhimark) {
-		/* ... or if many callbacks queued. */
-		rdp->qlen_last_fqs_check = len;
-		j = jiffies;
-		if (j != rdp->nocb_gp_adv_time &&
-		    rcu_segcblist_nextgp(&rdp->cblist, &cur_gp_seq) &&
-		    rcu_seq_done(&rdp->mynode->gp_seq, cur_gp_seq)) {
-			rcu_advance_cbs_nowake(rdp->mynode, rdp);
-			rdp->nocb_gp_adv_time = j;
-		}
-		smp_mb(); /* Enqueue before timer_pending(). */
-		if ((rdp->nocb_cb_sleep ||
-		     !rcu_segcblist_ready_cbs(&rdp->cblist)) &&
-		    !timer_pending(&rdp_gp->nocb_timer)) {
-			rcu_nocb_unlock(rdp);
-			wake_nocb_gp_defer(rdp, RCU_NOCB_WAKE_FORCE,
-					   TPS("WakeOvfIsDeferred"));
-		} else {
-			rcu_nocb_unlock(rdp);
-			trace_rcu_nocb_wake(rcu_state.name, rdp->cpu, TPS("WakeNot"));
-		}
-	} else {
-		rcu_nocb_unlock(rdp);
-		trace_rcu_nocb_wake(rcu_state.name, rdp->cpu, TPS("WakeNot"));
+
+		return;
 	}
+
+	rcu_nocb_unlock(rdp);
+	trace_rcu_nocb_wake(rcu_state.name, rdp->cpu, TPS("WakeNot"));
 }
 
 static void call_rcu_nocb(struct rcu_data *rdp, struct rcu_head *head,
@@ -693,15 +703,8 @@ static void nocb_gp_wait(struct rcu_data *my_rdp)
 		bypass_ncbs = rcu_cblist_n_cbs(&rdp->nocb_bypass);
 		lazy_ncbs = READ_ONCE(rdp->lazy_len);
 
-		if (bypass_ncbs && (lazy_ncbs == bypass_ncbs) &&
-		    (time_after(j, READ_ONCE(rdp->nocb_bypass_first) + rcu_get_jiffies_lazy_flush()) ||
-		     bypass_ncbs > 2 * qhimark)) {
-			flush_bypass = true;
-		} else if (bypass_ncbs && (lazy_ncbs != bypass_ncbs) &&
-		    (time_after(j, READ_ONCE(rdp->nocb_bypass_first) + 1) ||
-		     bypass_ncbs > 2 * qhimark)) {
-			flush_bypass = true;
-		} else if (!bypass_ncbs && rcu_segcblist_empty(&rdp->cblist)) {
+		flush_bypass = nocb_bypass_needs_flush(rdp, bypass_ncbs, lazy_ncbs, j, false);
+		if (!flush_bypass && !bypass_ncbs && rcu_segcblist_empty(&rdp->cblist)) {
 			rcu_nocb_unlock_irqrestore(rdp, flags);
 			continue; /* No callbacks here, try next. */
 		}
@@ -814,10 +817,7 @@ static void nocb_gp_wait(struct rcu_data *my_rdp)
 		if (rdp_toggling)
 			my_rdp->nocb_toggling_rdp = NULL;
 
-		if (my_rdp->nocb_defer_wakeup > RCU_NOCB_WAKE_NOT) {
-			WRITE_ONCE(my_rdp->nocb_defer_wakeup, RCU_NOCB_WAKE_NOT);
-			timer_delete(&my_rdp->nocb_timer);
-		}
+		nocb_defer_wakeup_cancel(my_rdp);
 		WRITE_ONCE(my_rdp->nocb_gp_sleep, true);
 		raw_spin_unlock_irqrestore(&my_rdp->nocb_gp_lock, flags);
 	} else {
@@ -966,7 +966,6 @@ static bool do_nocb_deferred_wakeup_common(struct rcu_data *rdp_gp,
 					   unsigned long flags)
 	__releases(rdp_gp->nocb_gp_lock)
 {
-	int ndw;
 	int ret;
 
 	if (!rcu_nocb_need_deferred_wakeup(rdp_gp, level)) {
@@ -974,8 +973,7 @@ static bool do_nocb_deferred_wakeup_common(struct rcu_data *rdp_gp,
 		return false;
 	}
 
-	ndw = rdp_gp->nocb_defer_wakeup;
-	ret = __wake_nocb_gp(rdp_gp, rdp, ndw == RCU_NOCB_WAKE_FORCE, flags);
+	ret = __wake_nocb_gp(rdp_gp, rdp, flags);
 	trace_rcu_nocb_wake(rcu_state.name, rdp->cpu, TPS("DeferredWake"));
 
 	return ret;
@@ -991,7 +989,6 @@ static void do_nocb_deferred_wakeup_timer(struct timer_list *t)
 	trace_rcu_nocb_wake(rcu_state.name, rdp->cpu, TPS("Timer"));
 
 	raw_spin_lock_irqsave(&rdp->nocb_gp_lock, flags);
-	smp_mb__after_spinlock(); /* Timer expire before wakeup. */
 	do_nocb_deferred_wakeup_common(rdp, rdp, RCU_NOCB_WAKE_BYPASS, flags);
 }
 
@@ -1107,30 +1104,6 @@ static int rcu_nocb_rdp_deoffload(struct rcu_data *rdp)
 	return 0;
 }
 
-int rcu_nocb_cpu_deoffload(int cpu)
-{
-	struct rcu_data *rdp = per_cpu_ptr(&rcu_data, cpu);
-	int ret = 0;
-
-	cpus_read_lock();
-	mutex_lock(&rcu_state.nocb_mutex);
-	if (rcu_rdp_is_offloaded(rdp)) {
-		if (!cpu_online(cpu)) {
-			ret = rcu_nocb_rdp_deoffload(rdp);
-			if (!ret)
-				cpumask_clear_cpu(cpu, rcu_nocb_mask);
-		} else {
-			pr_info("NOCB: Cannot CB-deoffload online CPU %d\n", rdp->cpu);
-			ret = -EINVAL;
-		}
-	}
-	mutex_unlock(&rcu_state.nocb_mutex);
-	cpus_read_unlock();
-
-	return ret;
-}
-EXPORT_SYMBOL_GPL(rcu_nocb_cpu_deoffload);
-
 static bool rcu_nocb_rdp_offload_wait_cond(struct rcu_data *rdp)
 {
 	unsigned long flags;
@@ -1175,27 +1148,51 @@ static int rcu_nocb_rdp_offload(struct rcu_data *rdp)
 	return 0;
 }
 
-int rcu_nocb_cpu_offload(int cpu)
+/* Common helper for CPU offload/deoffload operations. */
+static int rcu_nocb_cpu_toggle_offload(int cpu, bool offload)
 {
 	struct rcu_data *rdp = per_cpu_ptr(&rcu_data, cpu);
 	int ret = 0;
 
 	cpus_read_lock();
 	mutex_lock(&rcu_state.nocb_mutex);
-	if (!rcu_rdp_is_offloaded(rdp)) {
-		if (!cpu_online(cpu)) {
-			ret = rcu_nocb_rdp_offload(rdp);
-			if (!ret)
-				cpumask_set_cpu(cpu, rcu_nocb_mask);
-		} else {
-			pr_info("NOCB: Cannot CB-offload online CPU %d\n", rdp->cpu);
-			ret = -EINVAL;
-		}
+
+	/* Already in desired state, nothing to do. */
+	if (rcu_rdp_is_offloaded(rdp) == offload)
+		goto out_unlock;
+
+	if (cpu_online(cpu)) {
+		pr_info("NOCB: Cannot CB-%soffload online CPU %d\n",
+			offload ? "" : "de", rdp->cpu);
+		ret = -EINVAL;
+		goto out_unlock;
 	}
+
+	if (offload) {
+		ret = rcu_nocb_rdp_offload(rdp);
+		if (!ret)
+			cpumask_set_cpu(cpu, rcu_nocb_mask);
+	} else {
+		ret = rcu_nocb_rdp_deoffload(rdp);
+		if (!ret)
+			cpumask_clear_cpu(cpu, rcu_nocb_mask);
+	}
+
+out_unlock:
 	mutex_unlock(&rcu_state.nocb_mutex);
 	cpus_read_unlock();
-
 	return ret;
+}
+
+int rcu_nocb_cpu_deoffload(int cpu)
+{
+	return rcu_nocb_cpu_toggle_offload(cpu, false /* de-offload */);
+}
+EXPORT_SYMBOL_GPL(rcu_nocb_cpu_deoffload);
+
+int rcu_nocb_cpu_offload(int cpu)
+{
+	return rcu_nocb_cpu_toggle_offload(cpu, true /* offload */);
 }
 EXPORT_SYMBOL_GPL(rcu_nocb_cpu_offload);
 
@@ -1272,7 +1269,7 @@ lazy_rcu_shrink_scan(struct shrinker *shrink, struct shrink_control *sc)
 		}
 		rcu_nocb_try_flush_bypass(rdp, jiffies);
 		rcu_nocb_unlock_irqrestore(rdp, flags);
-		wake_nocb_gp(rdp, false);
+		wake_nocb_gp(rdp);
 		sc->nr_to_scan -= _count;
 		count += _count;
 		if (sc->nr_to_scan <= 0)
@@ -1657,7 +1654,7 @@ static void rcu_init_one_nocb(struct rcu_node *rnp)
 {
 }
 
-static bool wake_nocb_gp(struct rcu_data *rdp, bool force)
+static bool wake_nocb_gp(struct rcu_data *rdp)
 {
 	return false;
 }

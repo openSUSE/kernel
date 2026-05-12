@@ -3,7 +3,6 @@
 
 . "$(cd "$(dirname "$0")" && pwd)"/test_common.sh
 
-TID="loop_03"
 ERR_CODE=0
 
 if ! _have_program fio; then
@@ -20,6 +19,6 @@ _check_add_dev $TID $?
 _run_fio_verify_io --filename=/dev/ublkb"${dev_id}" --size=256M
 ERR_CODE=$?
 
-_cleanup_test "loop"
+_cleanup_test
 
 _show_result $TID $ERR_CODE

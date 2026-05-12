@@ -94,6 +94,84 @@ with the help of _DSD (Device Specific Data), introduced in ACPI 5.1::
 For more information about the ACPI GPIO bindings see
 Documentation/firmware-guide/acpi/gpio-properties.rst.
 
+Software Nodes
+--------------
+
+Software nodes allow board-specific code to construct an in-memory,
+device-tree-like structure using struct software_node and struct
+property_entry. This structure can then be associated with a platform device,
+allowing drivers to use the standard device properties API to query
+configuration, just as they would on an ACPI or device tree system.
+
+Software-node-backed GPIOs are described using the ``PROPERTY_ENTRY_GPIO()``
+macro, which ties a software node representing the GPIO controller with
+consumer device. It allows consumers to use regular gpiolib APIs, such as
+gpiod_get(), gpiod_get_optional().
+
+The software node representing a GPIO controller must be attached to the
+GPIO controller device - either as the primary or the secondary firmware node.
+
+For example, here is how to describe a single GPIO-connected LED. This is an
+alternative to using platform_data on legacy systems.
+
+.. code-block:: c
+
+	#include <linux/property.h>
+	#include <linux/gpio/machine.h>
+	#include <linux/gpio/property.h>
+
+	/*
+	 * 1. Define a node for the GPIO controller.
+	 */
+	static const struct software_node gpio_controller_node = {
+		.name = "gpio-foo",
+	};
+
+	/* 2. Define the properties for the LED device. */
+	static const struct property_entry led_device_props[] = {
+		PROPERTY_ENTRY_STRING("label", "myboard:green:status"),
+		PROPERTY_ENTRY_STRING("linux,default-trigger", "heartbeat"),
+		PROPERTY_ENTRY_GPIO("gpios", &gpio_controller_node, 42, GPIO_ACTIVE_HIGH),
+		{ }
+	};
+
+	/* 3. Define the software node for the LED device. */
+	static const struct software_node led_device_swnode = {
+		.name = "status-led",
+		.properties = led_device_props,
+	};
+
+	/*
+	 * 4. Register the software nodes and the platform device.
+	 */
+	const struct software_node *swnodes[] = {
+		&gpio_controller_node,
+		&led_device_swnode,
+		NULL
+	};
+	software_node_register_node_group(swnodes);
+
+	/*
+	 * 5. Attach the GPIO controller's software node to the device and
+	 *    register it.
+	 */
+	 static void gpio_foo_register(void)
+	 {
+		struct platform_device_info pdev_info = {
+			.name = "gpio-foo",
+			.id = PLATFORM_DEVID_NONE,
+			.swnode = &gpio_controller_node
+		};
+
+		platform_device_register_full(&pdev_info);
+	 }
+
+	// Then register a platform_device for "leds-gpio" and associate
+	// it with &led_device_swnode via .fwnode.
+
+For a complete guide on converting board files to use software nodes, see
+Documentation/driver-api/gpio/legacy-boards.rst.
+
 Platform Data
 -------------
 Finally, GPIOs can be bound to devices and functions using platform data. Board
@@ -173,22 +251,6 @@ mapping and is thus transparent to GPIO consumers.
 
 A set of functions such as gpiod_set_value() is available to work with
 the new descriptor-oriented interface.
-
-Boards using platform data can also hog GPIO lines by defining GPIO hog tables.
-
-.. code-block:: c
-
-        struct gpiod_hog gpio_hog_table[] = {
-                GPIO_HOG("gpio.0", 10, "foo", GPIO_ACTIVE_LOW, GPIOD_OUT_HIGH),
-                { }
-        };
-
-And the table can be added to the board code as follows::
-
-        gpiod_add_hogs(gpio_hog_table);
-
-The line will be hogged as soon as the gpiochip is created or - in case the
-chip was created earlier - when the hog table is registered.
 
 Arrays of pins
 --------------

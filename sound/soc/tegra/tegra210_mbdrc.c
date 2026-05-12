@@ -235,7 +235,7 @@ static int tegra210_mbdrc_get(struct snd_kcontrol *kcontrol,
 {
 	struct soc_mixer_control *mc =
 		(struct soc_mixer_control *)kcontrol->private_value;
-	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *cmpnt = snd_kcontrol_chip(kcontrol);
 	struct tegra210_ope *ope = snd_soc_component_get_drvdata(cmpnt);
 	unsigned int val;
 
@@ -251,7 +251,7 @@ static int tegra210_mbdrc_put(struct snd_kcontrol *kcontrol,
 {
 	struct soc_mixer_control *mc =
 		(struct soc_mixer_control *)kcontrol->private_value;
-	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *cmpnt = snd_kcontrol_chip(kcontrol);
 	struct tegra210_ope *ope = snd_soc_component_get_drvdata(cmpnt);
 	unsigned int val = ucontrol->value.integer.value[0];
 	bool change = false;
@@ -267,7 +267,7 @@ static int tegra210_mbdrc_put(struct snd_kcontrol *kcontrol,
 static int tegra210_mbdrc_get_enum(struct snd_kcontrol *kcontrol,
 				   struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *cmpnt = snd_kcontrol_chip(kcontrol);
 	struct tegra210_ope *ope = snd_soc_component_get_drvdata(cmpnt);
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 	unsigned int val;
@@ -282,7 +282,7 @@ static int tegra210_mbdrc_get_enum(struct snd_kcontrol *kcontrol,
 static int tegra210_mbdrc_put_enum(struct snd_kcontrol *kcontrol,
 				   struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *cmpnt = snd_kcontrol_chip(kcontrol);
 	struct tegra210_ope *ope = snd_soc_component_get_drvdata(cmpnt);
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 	bool change = false;
@@ -305,15 +305,16 @@ static int tegra210_mbdrc_band_params_get(struct snd_kcontrol *kcontrol,
 					  struct snd_ctl_elem_value *ucontrol)
 {
 	struct tegra_soc_bytes *params = (void *)kcontrol->private_value;
-	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *cmpnt = snd_kcontrol_chip(kcontrol);
 	struct tegra210_ope *ope = snd_soc_component_get_drvdata(cmpnt);
+	int val_bytes = snd_soc_component_regmap_val_bytes(cmpnt);
 	u32 *data = (u32 *)ucontrol->value.bytes.data;
 	u32 regs = params->soc.base;
 	u32 mask = params->soc.mask;
 	u32 shift = params->shift;
 	unsigned int i;
 
-	for (i = 0; i < params->soc.num_regs; i++, regs += cmpnt->val_bytes) {
+	for (i = 0; i < params->soc.num_regs; i++, regs += val_bytes) {
 		regmap_read(ope->mbdrc_regmap, regs, &data[i]);
 
 		data[i] = ((data[i] & mask) >> shift);
@@ -326,8 +327,9 @@ static int tegra210_mbdrc_band_params_put(struct snd_kcontrol *kcontrol,
 					  struct snd_ctl_elem_value *ucontrol)
 {
 	struct tegra_soc_bytes *params = (void *)kcontrol->private_value;
-	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *cmpnt = snd_kcontrol_chip(kcontrol);
 	struct tegra210_ope *ope = snd_soc_component_get_drvdata(cmpnt);
+	int val_bytes = snd_soc_component_regmap_val_bytes(cmpnt);
 	u32 *data = (u32 *)ucontrol->value.bytes.data;
 	u32 regs = params->soc.base;
 	u32 mask = params->soc.mask;
@@ -335,7 +337,7 @@ static int tegra210_mbdrc_band_params_put(struct snd_kcontrol *kcontrol,
 	bool change = false;
 	unsigned int i;
 
-	for (i = 0; i < params->soc.num_regs; i++, regs += cmpnt->val_bytes) {
+	for (i = 0; i < params->soc.num_regs; i++, regs += val_bytes) {
 		bool update = false;
 
 		regmap_update_bits_check(ope->mbdrc_regmap, regs, mask,
@@ -351,15 +353,16 @@ static int tegra210_mbdrc_threshold_get(struct snd_kcontrol *kcontrol,
 					struct snd_ctl_elem_value *ucontrol)
 {
 	struct tegra_soc_bytes *params = (void *)kcontrol->private_value;
-	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *cmpnt = snd_kcontrol_chip(kcontrol);
 	struct tegra210_ope *ope = snd_soc_component_get_drvdata(cmpnt);
+	int val_bytes = snd_soc_component_regmap_val_bytes(cmpnt);
 	u32 *data = (u32 *)ucontrol->value.bytes.data;
 	u32 regs = params->soc.base;
 	u32 num_regs = params->soc.num_regs;
 	u32 val;
 	unsigned int i;
 
-	for (i = 0; i < num_regs; i += 4, regs += cmpnt->val_bytes) {
+	for (i = 0; i < num_regs; i += 4, regs += val_bytes) {
 		regmap_read(ope->mbdrc_regmap, regs, &val);
 
 		data[i] = (val & TEGRA210_MBDRC_THRESH_1ST_MASK) >>
@@ -379,15 +382,16 @@ static int tegra210_mbdrc_threshold_put(struct snd_kcontrol *kcontrol,
 					struct snd_ctl_elem_value *ucontrol)
 {
 	struct tegra_soc_bytes *params = (void *)kcontrol->private_value;
-	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *cmpnt = snd_kcontrol_chip(kcontrol);
 	struct tegra210_ope *ope = snd_soc_component_get_drvdata(cmpnt);
+	int val_bytes = snd_soc_component_regmap_val_bytes(cmpnt);
 	u32 *data = (u32 *)ucontrol->value.bytes.data;
 	u32 regs = params->soc.base;
 	u32 num_regs = params->soc.num_regs;
 	bool change = false;
 	unsigned int i;
 
-	for (i = 0; i < num_regs; i += 4, regs += cmpnt->val_bytes) {
+	for (i = 0; i < num_regs; i += 4, regs += val_bytes) {
 		bool update = false;
 
 		data[i] = (((data[i] >> TEGRA210_MBDRC_THRESH_1ST_SHIFT) &
@@ -412,10 +416,11 @@ static int tegra210_mbdrc_biquad_coeffs_get(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
 	struct tegra_soc_bytes *params = (void *)kcontrol->private_value;
-	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *cmpnt = snd_kcontrol_chip(kcontrol);
+	int val_bytes = snd_soc_component_regmap_val_bytes(cmpnt);
 	u32 *data = (u32 *)ucontrol->value.bytes.data;
 
-	memset(data, 0, params->soc.num_regs * cmpnt->val_bytes);
+	memset(data, 0, params->soc.num_regs * val_bytes);
 
 	return 0;
 }
@@ -424,10 +429,11 @@ static int tegra210_mbdrc_biquad_coeffs_put(struct snd_kcontrol *kcontrol,
 					    struct snd_ctl_elem_value *ucontrol)
 {
 	struct tegra_soc_bytes *params = (void *)kcontrol->private_value;
-	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *cmpnt = snd_kcontrol_chip(kcontrol);
 	struct tegra210_ope *ope = snd_soc_component_get_drvdata(cmpnt);
+	int val_bytes = snd_soc_component_regmap_val_bytes(cmpnt);
 	u32 reg_ctrl = params->soc.base;
-	u32 reg_data = reg_ctrl + cmpnt->val_bytes;
+	u32 reg_data = reg_ctrl + val_bytes;
 	u32 *data = (u32 *)ucontrol->value.bytes.data;
 
 	tegra210_mbdrc_write_ram(ope->mbdrc_regmap, reg_ctrl, reg_data,
@@ -452,7 +458,7 @@ static int tegra210_mbdrc_vol_get(struct snd_kcontrol *kcontrol,
 {
 	struct soc_mixer_control *mc =
 		(struct soc_mixer_control *)kcontrol->private_value;
-	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *cmpnt = snd_kcontrol_chip(kcontrol);
 	struct tegra210_ope *ope = snd_soc_component_get_drvdata(cmpnt);
 	int val;
 
@@ -469,7 +475,7 @@ static int tegra210_mbdrc_vol_put(struct snd_kcontrol *kcontrol,
 {
 	struct soc_mixer_control *mc =
 		(struct soc_mixer_control *)kcontrol->private_value;
-	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *cmpnt = snd_kcontrol_chip(kcontrol);
 	struct tegra210_ope *ope = snd_soc_component_get_drvdata(cmpnt);
 	int val = ucontrol->value.integer.value[0];
 	bool change = false;
@@ -763,6 +769,7 @@ static const struct regmap_config tegra210_mbdrc_regmap_cfg = {
 	.precious_reg		= tegra210_mbdrc_precious_reg,
 	.reg_defaults		= tegra210_mbdrc_reg_defaults,
 	.num_reg_defaults	= ARRAY_SIZE(tegra210_mbdrc_reg_defaults),
+	.reg_default_cb		= regmap_default_zero_cb,
 	.cache_type		= REGCACHE_FLAT,
 };
 
@@ -987,14 +994,14 @@ int tegra210_mbdrc_regmap_init(struct platform_device *pdev)
 
 	child = of_get_child_by_name(dev->of_node, "dynamic-range-compressor");
 	if (!child)
-		return -ENODEV;
+		return dev_err_probe(dev, -ENODEV,
+				     "missing 'dynamic-range-compressor' DT child node\n");
 
 	err = of_address_to_resource(child, 0, &mem);
 	of_node_put(child);
-	if (err < 0) {
-		dev_err(dev, "fail to get MBDRC resource\n");
-		return err;
-	}
+	if (err < 0)
+		return dev_err_probe(dev, err,
+				     "failed to get MBDRC resource\n");
 
 	mem.flags = IORESOURCE_MEM;
 	regs = devm_ioremap_resource(dev, &mem);
@@ -1003,10 +1010,9 @@ int tegra210_mbdrc_regmap_init(struct platform_device *pdev)
 
 	ope->mbdrc_regmap = devm_regmap_init_mmio(dev, regs,
 						  &tegra210_mbdrc_regmap_cfg);
-	if (IS_ERR(ope->mbdrc_regmap)) {
-		dev_err(dev, "regmap init failed\n");
-		return PTR_ERR(ope->mbdrc_regmap);
-	}
+	if (IS_ERR(ope->mbdrc_regmap))
+		return dev_err_probe(dev, PTR_ERR(ope->mbdrc_regmap),
+				     "MBDRC regmap init failed\n");
 
 	regcache_cache_only(ope->mbdrc_regmap, true);
 

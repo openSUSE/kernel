@@ -616,7 +616,7 @@ kvaser_usb_leaf_frame_to_cmd(const struct kvaser_usb_net_priv *priv,
 	u8 *cmd_tx_can_flags = NULL;		/* GCC */
 	struct can_frame *cf = (struct can_frame *)skb->data;
 
-	cmd = kmalloc(sizeof(*cmd), GFP_ATOMIC);
+	cmd = kmalloc_obj(*cmd, GFP_ATOMIC);
 	if (cmd) {
 		cmd->u.tx_can.tid = transid & 0xff;
 		cmd->len = *cmd_len = CMD_HEADER_LEN +
@@ -685,7 +685,7 @@ static int kvaser_usb_leaf_wait_cmd(const struct kvaser_usb *dev, u8 id,
 			 * for further details.
 			 */
 			if (tmp->len == 0) {
-				pos = round_up(pos,
+				pos = round_up(pos + 1,
 					       le16_to_cpu
 						(dev->bulk_in->wMaxPacketSize));
 				continue;
@@ -723,7 +723,7 @@ static int kvaser_usb_leaf_send_simple_cmd(const struct kvaser_usb *dev,
 	struct kvaser_cmd *cmd;
 	int rc;
 
-	cmd = kmalloc(sizeof(*cmd), GFP_KERNEL);
+	cmd = kmalloc_obj(*cmd);
 	if (!cmd)
 		return -ENOMEM;
 
@@ -873,7 +873,7 @@ static int kvaser_usb_leaf_get_single_capability(struct kvaser_usb *dev,
 	int err;
 	int i;
 
-	cmd = kzalloc(sizeof(*cmd), GFP_KERNEL);
+	cmd = kzalloc_obj(*cmd);
 	if (!cmd)
 		return -ENOMEM;
 
@@ -970,7 +970,7 @@ static int kvaser_usb_leaf_set_led(struct kvaser_usb_net_priv *priv,
 	struct kvaser_cmd *cmd;
 	int ret;
 
-	cmd = kzalloc(sizeof(*cmd), GFP_KERNEL);
+	cmd = kzalloc_obj(*cmd);
 	if (!cmd)
 		return -ENOMEM;
 
@@ -1079,7 +1079,7 @@ static int kvaser_usb_leaf_simple_cmd_async(struct kvaser_usb_net_priv *priv,
 	struct kvaser_cmd *cmd;
 	int err;
 
-	cmd = kzalloc(sizeof(*cmd), GFP_ATOMIC);
+	cmd = kzalloc_obj(*cmd, GFP_ATOMIC);
 	if (!cmd)
 		return -ENOMEM;
 
@@ -1732,7 +1732,7 @@ static void kvaser_usb_leaf_read_bulk_callback(struct kvaser_usb *dev,
 		 * number of events in case of a heavy rx load on the bus.
 		 */
 		if (cmd->len == 0) {
-			pos = round_up(pos, le16_to_cpu
+			pos = round_up(pos + 1, le16_to_cpu
 						(dev->bulk_in->wMaxPacketSize));
 			continue;
 		}
@@ -1752,7 +1752,7 @@ static int kvaser_usb_leaf_set_opt_mode(const struct kvaser_usb_net_priv *priv)
 	struct kvaser_cmd *cmd;
 	int rc;
 
-	cmd = kzalloc(sizeof(*cmd), GFP_KERNEL);
+	cmd = kzalloc_obj(*cmd);
 	if (!cmd)
 		return -ENOMEM;
 
@@ -1824,7 +1824,7 @@ static int kvaser_usb_leaf_flush_queue(struct kvaser_usb_net_priv *priv)
 	struct kvaser_cmd *cmd;
 	int rc;
 
-	cmd = kzalloc(sizeof(*cmd), GFP_KERNEL);
+	cmd = kzalloc_obj(*cmd);
 	if (!cmd)
 		return -ENOMEM;
 
@@ -1881,7 +1881,7 @@ static int kvaser_usb_leaf_set_bittiming(const struct net_device *netdev,
 	struct kvaser_cmd *cmd;
 	int rc;
 
-	cmd = kmalloc(sizeof(*cmd), GFP_KERNEL);
+	cmd = kmalloc_obj(*cmd);
 	if (!cmd)
 		return -ENOMEM;
 
@@ -1957,27 +1957,18 @@ static int kvaser_usb_leaf_get_berr_counter(const struct net_device *netdev,
 
 static int kvaser_usb_leaf_setup_endpoints(struct kvaser_usb *dev)
 {
-	const struct usb_host_interface *iface_desc;
-	struct usb_endpoint_descriptor *endpoint;
-	int i;
+	struct usb_host_interface *iface_desc;
+	int ret;
 
 	iface_desc = dev->intf->cur_altsetting;
 
-	for (i = 0; i < iface_desc->desc.bNumEndpoints; ++i) {
-		endpoint = &iface_desc->endpoint[i].desc;
+	/* use first bulk endpoint for in and out */
+	ret = usb_find_common_endpoints(iface_desc, &dev->bulk_in, &dev->bulk_out,
+					NULL, NULL);
+	if (ret)
+		return -ENODEV;
 
-		if (!dev->bulk_in && usb_endpoint_is_bulk_in(endpoint))
-			dev->bulk_in = endpoint;
-
-		if (!dev->bulk_out && usb_endpoint_is_bulk_out(endpoint))
-			dev->bulk_out = endpoint;
-
-		/* use first bulk endpoint for in and out */
-		if (dev->bulk_in && dev->bulk_out)
-			return 0;
-	}
-
-	return -ENODEV;
+	return 0;
 }
 
 const struct kvaser_usb_dev_ops kvaser_usb_leaf_dev_ops = {

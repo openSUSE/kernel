@@ -143,6 +143,7 @@ static int hsr_portdev_setup(struct hsr_priv *hsr, struct net_device *dev,
 			     struct netlink_ext_ack *extack)
 
 {
+	struct netdev_lag_upper_info lag_upper_info;
 	struct net_device *hsr_dev;
 	struct hsr_port *master;
 	int res;
@@ -159,7 +160,9 @@ static int hsr_portdev_setup(struct hsr_priv *hsr, struct net_device *dev,
 	master = hsr_port_get_hsr(hsr, HSR_PT_MASTER);
 	hsr_dev = master->dev;
 
-	res = netdev_upper_dev_link(dev, hsr_dev, extack);
+	lag_upper_info.tx_type = NETDEV_LAG_TX_TYPE_BROADCAST;
+	lag_upper_info.hash_type = NETDEV_LAG_HASH_UNKNOWN;
+	res = netdev_master_upper_dev_link(dev, hsr_dev, NULL, &lag_upper_info, extack);
 	if (res)
 		goto fail_upper_dev_link;
 
@@ -195,7 +198,7 @@ int hsr_add_port(struct hsr_priv *hsr, struct net_device *dev,
 	if (port)
 		return -EBUSY;	/* This port already exists */
 
-	port = kzalloc(sizeof(*port), GFP_KERNEL);
+	port = kzalloc_obj(*port);
 	if (!port)
 		return -ENOMEM;
 
@@ -204,13 +207,13 @@ int hsr_add_port(struct hsr_priv *hsr, struct net_device *dev,
 	port->type = type;
 	ether_addr_copy(port->original_macaddress, dev->dev_addr);
 
+	list_add_tail_rcu(&port->port_list, &hsr->ports);
+
 	if (type != HSR_PT_MASTER) {
 		res = hsr_portdev_setup(hsr, dev, port, extack);
 		if (res)
 			goto fail_dev_setup;
 	}
-
-	list_add_tail_rcu(&port->port_list, &hsr->ports);
 
 	master = hsr_port_get_hsr(hsr, HSR_PT_MASTER);
 	netdev_update_features(master->dev);
@@ -219,7 +222,8 @@ int hsr_add_port(struct hsr_priv *hsr, struct net_device *dev,
 	return 0;
 
 fail_dev_setup:
-	kfree(port);
+	list_del_rcu(&port->port_list);
+	kfree_rcu(port, rcu);
 	return res;
 }
 
@@ -239,7 +243,11 @@ void hsr_del_port(struct hsr_port *port)
 		if (!port->hsr->fwd_offloaded)
 			dev_set_promiscuity(port->dev, -1);
 		netdev_upper_dev_unlink(port->dev, master->dev);
-		eth_hw_addr_set(port->dev, port->original_macaddress);
+		if (hsr->prot_version == PRP_V1 &&
+		    port->type == HSR_PT_SLAVE_B) {
+			eth_hw_addr_set(port->dev, port->original_macaddress);
+			call_netdevice_notifiers(NETDEV_CHANGEADDR, port->dev);
+		}
 	}
 
 	kfree_rcu(port, rcu);

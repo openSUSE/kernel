@@ -177,9 +177,6 @@ extern unsigned long sparc_ramdisk_image64;
 extern unsigned int sparc_ramdisk_image;
 extern unsigned int sparc_ramdisk_size;
 
-struct page *mem_map_zero __read_mostly;
-EXPORT_SYMBOL(mem_map_zero);
-
 unsigned int sparc64_highest_unlocked_tlb_ent __read_mostly;
 
 unsigned long sparc64_kern_pri_context __read_mostly;
@@ -224,7 +221,7 @@ inline void flush_dcache_folio_impl(struct folio *folio)
 	((1UL<<ilog2(roundup_pow_of_two(NR_CPUS)))-1UL)
 
 #define dcache_dirty_cpu(folio) \
-	(((folio)->flags >> PG_dcache_cpu_shift) & PG_dcache_cpu_mask)
+	(((folio)->flags.f >> PG_dcache_cpu_shift) & PG_dcache_cpu_mask)
 
 static inline void set_dcache_dirty(struct folio *folio, int this_cpu)
 {
@@ -243,7 +240,7 @@ static inline void set_dcache_dirty(struct folio *folio, int this_cpu)
 			     "bne,pn	%%xcc, 1b\n\t"
 			     " nop"
 			     : /* no outputs */
-			     : "r" (mask), "r" (non_cpu_bits), "r" (&folio->flags)
+			     : "r" (mask), "r" (non_cpu_bits), "r" (&folio->flags.f)
 			     : "g1", "g7");
 }
 
@@ -265,7 +262,7 @@ static inline void clear_dcache_dirty_cpu(struct folio *folio, unsigned long cpu
 			     " nop\n"
 			     "2:"
 			     : /* no outputs */
-			     : "r" (cpu), "r" (mask), "r" (&folio->flags),
+			     : "r" (cpu), "r" (mask), "r" (&folio->flags.f),
 			       "i" (PG_dcache_cpu_mask),
 			       "i" (PG_dcache_cpu_shift)
 			     : "g1", "g7");
@@ -292,7 +289,7 @@ static void flush_dcache(unsigned long pfn)
 		struct folio *folio = page_folio(page);
 		unsigned long pg_flags;
 
-		pg_flags = folio->flags;
+		pg_flags = folio->flags.f;
 		if (pg_flags & (1UL << PG_dcache_dirty)) {
 			int cpu = ((pg_flags >> PG_dcache_cpu_shift) &
 				   PG_dcache_cpu_mask);
@@ -358,30 +355,24 @@ static void __init pud_huge_patch(void)
 bool __init arch_hugetlb_valid_size(unsigned long size)
 {
 	unsigned int hugepage_shift = ilog2(size);
-	unsigned short hv_pgsz_idx;
 	unsigned int hv_pgsz_mask;
 
 	switch (hugepage_shift) {
 	case HPAGE_16GB_SHIFT:
 		hv_pgsz_mask = HV_PGSZ_MASK_16GB;
-		hv_pgsz_idx = HV_PGSZ_IDX_16GB;
 		pud_huge_patch();
 		break;
 	case HPAGE_2GB_SHIFT:
 		hv_pgsz_mask = HV_PGSZ_MASK_2GB;
-		hv_pgsz_idx = HV_PGSZ_IDX_2GB;
 		break;
 	case HPAGE_256MB_SHIFT:
 		hv_pgsz_mask = HV_PGSZ_MASK_256MB;
-		hv_pgsz_idx = HV_PGSZ_IDX_256MB;
 		break;
 	case HPAGE_SHIFT:
 		hv_pgsz_mask = HV_PGSZ_MASK_4MB;
-		hv_pgsz_idx = HV_PGSZ_IDX_4MB;
 		break;
 	case HPAGE_64K_SHIFT:
 		hv_pgsz_mask = HV_PGSZ_MASK_64K;
-		hv_pgsz_idx = HV_PGSZ_IDX_64K;
 		break;
 	default:
 		hv_pgsz_mask = 0;
@@ -480,7 +471,7 @@ void flush_dcache_folio(struct folio *folio)
 
 	mapping = folio_flush_mapping(folio);
 	if (mapping && !mapping_mapped(mapping)) {
-		bool dirty = test_bit(PG_dcache_dirty, &folio->flags);
+		bool dirty = test_bit(PG_dcache_dirty, &folio->flags.f);
 		if (dirty) {
 			int dirty_cpu = dcache_dirty_cpu(folio);
 
@@ -1615,8 +1606,6 @@ static unsigned long __init bootmem_init(unsigned long phys_base)
 
 	/* XXX cpu notifier XXX */
 
-	sparse_init();
-
 	return end_pfn;
 }
 
@@ -2279,6 +2268,11 @@ static void __init reduce_memory(phys_addr_t limit_ram)
 	memblock_enforce_memory_limit(limit_ram);
 }
 
+void __init arch_zone_limits_init(unsigned long *max_zone_pfns)
+{
+	max_zone_pfns[ZONE_NORMAL] = last_valid_pfn;
+}
+
 void __init paging_init(void)
 {
 	unsigned long end_pfn, shift, phys_base;
@@ -2454,16 +2448,6 @@ void __init paging_init(void)
 
 	kernel_physical_mapping_init();
 
-	{
-		unsigned long max_zone_pfns[MAX_NR_ZONES];
-
-		memset(max_zone_pfns, 0, sizeof(max_zone_pfns));
-
-		max_zone_pfns[ZONE_NORMAL] = end_pfn;
-
-		free_area_init(max_zone_pfns);
-	}
-
 	printk("Booting Linux...\n");
 }
 
@@ -2503,6 +2487,15 @@ static void __init register_page_bootmem_info(void)
 			register_page_bootmem_info_node(NODE_DATA(i));
 #endif
 }
+
+void __init arch_setup_zero_pages(void)
+{
+	phys_addr_t zero_page_pa = kern_base +
+		((unsigned long)&empty_zero_page[0] - KERNBASE);
+
+	__zero_page = phys_to_page(zero_page_pa);
+}
+
 void __init mem_init(void)
 {
 	/*
@@ -2512,18 +2505,6 @@ void __init mem_init(void)
 	 * deferred pages for us.
 	 */
 	register_page_bootmem_info();
-
-	/*
-	 * Set up the zero page, mark it reserved, so that page count
-	 * is not manipulated when freeing the page from user ptes.
-	 */
-	mem_map_zero = alloc_pages(GFP_KERNEL|__GFP_ZERO, 0);
-	if (mem_map_zero == NULL) {
-		prom_printf("paging_init: Cannot alloc zero page.\n");
-		prom_halt();
-	}
-	mark_page_reserved(mem_map_zero);
-
 
 	if (tlb_type == cheetah || tlb_type == cheetah_plus)
 		cheetah_ecache_flush_init();
@@ -2581,8 +2562,8 @@ unsigned long _PAGE_CACHE __read_mostly;
 EXPORT_SYMBOL(_PAGE_CACHE);
 
 #ifdef CONFIG_SPARSEMEM_VMEMMAP
-int __meminit vmemmap_populate(unsigned long vstart, unsigned long vend,
-			       int node, struct vmem_altmap *altmap)
+void __meminit vmemmap_set_pmd(pmd_t *pmd, void *p, int node,
+			       unsigned long addr, unsigned long next)
 {
 	unsigned long pte_base;
 
@@ -2595,39 +2576,24 @@ int __meminit vmemmap_populate(unsigned long vstart, unsigned long vend,
 
 	pte_base |= _PAGE_PMD_HUGE;
 
-	vstart = vstart & PMD_MASK;
-	vend = ALIGN(vend, PMD_SIZE);
-	for (; vstart < vend; vstart += PMD_SIZE) {
-		pgd_t *pgd = vmemmap_pgd_populate(vstart, node);
-		unsigned long pte;
-		p4d_t *p4d;
-		pud_t *pud;
-		pmd_t *pmd;
+	pmd_val(*pmd) = pte_base | __pa(p);
+}
 
-		if (!pgd)
-			return -ENOMEM;
+int __meminit vmemmap_check_pmd(pmd_t *pmdp, int node,
+				unsigned long addr, unsigned long next)
+{
+	int large = pmd_leaf(*pmdp);
 
-		p4d = vmemmap_p4d_populate(pgd, vstart, node);
-		if (!p4d)
-			return -ENOMEM;
+	if (large)
+		vmemmap_verify((pte_t *)pmdp, node, addr, next);
 
-		pud = vmemmap_pud_populate(p4d, vstart, node);
-		if (!pud)
-			return -ENOMEM;
+	return large;
+}
 
-		pmd = pmd_offset(pud, vstart);
-		pte = pmd_val(*pmd);
-		if (!(pte & _PAGE_VALID)) {
-			void *block = vmemmap_alloc_block(PMD_SIZE, node);
-
-			if (!block)
-				return -ENOMEM;
-
-			pmd_val(*pmd) = pte_base | __pa(block);
-		}
-	}
-
-	return 0;
+int __meminit vmemmap_populate(unsigned long vstart, unsigned long vend,
+			       int node, struct vmem_altmap *altmap)
+{
+	return vmemmap_populate_hugepages(vstart, vend, node, NULL);
 }
 #endif /* CONFIG_SPARSEMEM_VMEMMAP */
 
@@ -3083,7 +3049,7 @@ static int __init report_memory(void)
 	kernel_lds_init();
 
 	for (i = 0; i < pavail_ents; i++) {
-		res = kzalloc(sizeof(struct resource), GFP_KERNEL);
+		res = kzalloc_obj(struct resource);
 
 		if (!res) {
 			pr_warn("Failed to allocate source.\n");

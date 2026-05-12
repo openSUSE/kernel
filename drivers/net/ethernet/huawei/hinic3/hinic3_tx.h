@@ -58,7 +58,7 @@ enum hinic3_tx_offload_type {
 #define SQ_CTRL_QUEUE_INFO_SET(val, member) \
 	FIELD_PREP(SQ_CTRL_QUEUE_INFO_##member##_MASK, val)
 #define SQ_CTRL_QUEUE_INFO_GET(val, member) \
-	FIELD_GET(SQ_CTRL_QUEUE_INFO_##member##_MASK, val)
+	FIELD_GET(SQ_CTRL_QUEUE_INFO_##member##_MASK, le32_to_cpu(val))
 
 #define SQ_CTRL_MAX_PLDOFF  221
 
@@ -77,17 +77,17 @@ enum hinic3_tx_offload_type {
 	FIELD_PREP(SQ_TASK_INFO3_##member##_MASK, val)
 
 struct hinic3_sq_wqe_desc {
-	u32 ctrl_len;
-	u32 queue_info;
-	u32 hi_addr;
-	u32 lo_addr;
+	__le32 ctrl_len;
+	__le32 queue_info;
+	__le32 hi_addr;
+	__le32 lo_addr;
 };
 
 struct hinic3_sq_task {
-	u32 pkt_info0;
-	u32 ip_identify;
-	u32 rsvd;
-	u32 vlan_offload;
+	__le32 pkt_info0;
+	__le32 ip_identify;
+	__le32 rsvd;
+	__le32 vlan_offload;
 };
 
 struct hinic3_sq_wqe_combo {
@@ -98,6 +98,20 @@ struct hinic3_sq_wqe_combo {
 	u16                       first_bds_num;
 	u32                       wqe_type;
 	u32                       task_type;
+};
+
+struct hinic3_txq_stats {
+	u64                   packets;
+	u64                   bytes;
+	u64                   busy;
+	u64                   dropped;
+	u64                   skb_pad_err;
+	u64                   frag_len_overflow;
+	u64                   offload_cow_skb_err;
+	u64                   map_frag_err;
+	u64                   unknown_tunnel_pkt;
+	u64                   frag_size_err;
+	struct u64_stats_sync syncp;
 };
 
 struct hinic3_dma_info {
@@ -123,10 +137,24 @@ struct hinic3_txq {
 
 	struct hinic3_tx_info   *tx_info;
 	struct hinic3_io_queue  *sq;
+
+	struct hinic3_txq_stats txq_stats;
 } ____cacheline_aligned;
+
+struct hinic3_dyna_txq_res {
+	struct hinic3_tx_info  *tx_info;
+	struct hinic3_dma_info *bds;
+};
 
 int hinic3_alloc_txqs(struct net_device *netdev);
 void hinic3_free_txqs(struct net_device *netdev);
+
+int hinic3_alloc_txqs_res(struct net_device *netdev, u16 num_sq,
+			  u32 sq_depth, struct hinic3_dyna_txq_res *txqs_res);
+void hinic3_free_txqs_res(struct net_device *netdev, u16 num_sq,
+			  u32 sq_depth, struct hinic3_dyna_txq_res *txqs_res);
+int hinic3_configure_txqs(struct net_device *netdev, u16 num_sq,
+			  u32 sq_depth, struct hinic3_dyna_txq_res *txqs_res);
 
 netdev_tx_t hinic3_xmit_frame(struct sk_buff *skb, struct net_device *netdev);
 bool hinic3_tx_poll(struct hinic3_txq *txq, int budget);

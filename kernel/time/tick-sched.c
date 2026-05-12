@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- *  Copyright(C) 2005-2006, Thomas Gleixner <tglx@linutronix.de>
+ *  Copyright(C) 2005-2006, Linutronix GmbH, Thomas Gleixner <tglx@kernel.org>
  *  Copyright(C) 2005-2007, Red Hat, Inc., Ingo Molnar
  *  Copyright(C) 2006-2007  Timesys Corp., Thomas Gleixner
  *
@@ -201,6 +201,27 @@ static inline void tick_sched_flag_clear(struct tick_sched *ts,
 	ts->flags &= ~flag;
 }
 
+/*
+ * Allow only one non-timekeeper CPU at a time update jiffies from
+ * the timer tick.
+ *
+ * Returns true if update was run.
+ */
+static bool tick_limited_update_jiffies64(struct tick_sched *ts, ktime_t now)
+{
+	static atomic_t in_progress;
+	int inp;
+
+	inp = atomic_read(&in_progress);
+	if (inp || !atomic_try_cmpxchg(&in_progress, &inp, 1))
+		return false;
+
+	if (ts->last_tick_jiffies == jiffies)
+		tick_do_update_jiffies64(now);
+	atomic_set(&in_progress, 0);
+	return true;
+}
+
 #define MAX_STALLED_JIFFIES 5
 
 static void tick_sched_do_timer(struct tick_sched *ts, ktime_t now)
@@ -239,10 +260,11 @@ static void tick_sched_do_timer(struct tick_sched *ts, ktime_t now)
 		ts->stalled_jiffies = 0;
 		ts->last_tick_jiffies = READ_ONCE(jiffies);
 	} else {
-		if (++ts->stalled_jiffies == MAX_STALLED_JIFFIES) {
-			tick_do_update_jiffies64(now);
-			ts->stalled_jiffies = 0;
-			ts->last_tick_jiffies = READ_ONCE(jiffies);
+		if (++ts->stalled_jiffies >= MAX_STALLED_JIFFIES) {
+			if (tick_limited_update_jiffies64(ts, now)) {
+				ts->stalled_jiffies = 0;
+				ts->last_tick_jiffies = READ_ONCE(jiffies);
+			}
 		}
 	}
 
@@ -321,6 +343,9 @@ static atomic_t tick_dep_mask;
 static bool check_tick_dependency(atomic_t *dep)
 {
 	int val = atomic_read(dep);
+
+	if (likely(!tracepoint_enabled(tick_stop)))
+		return !!val;
 
 	if (val & TICK_DEP_MASK_POSIX_TIMER) {
 		trace_tick_stop(0, TICK_DEP_MASK_POSIX_TIMER);
@@ -671,7 +696,7 @@ void __init tick_nohz_init(void)
  * NO HZ enabled ?
  */
 bool tick_nohz_enabled __read_mostly  = true;
-unsigned long tick_nohz_active  __read_mostly;
+static unsigned long tick_nohz_active  __read_mostly;
 /*
  * Enable / Disable tickless mode
  */
@@ -681,6 +706,12 @@ static int __init setup_tick_nohz(char *str)
 }
 
 __setup("nohz=", setup_tick_nohz);
+
+bool tick_nohz_is_active(void)
+{
+	return tick_nohz_active;
+}
+EXPORT_SYMBOL_GPL(tick_nohz_is_active);
 
 bool tick_nohz_tick_stopped(void)
 {
@@ -833,19 +864,32 @@ u64 get_cpu_iowait_time_us(int cpu, u64 *last_update_time)
 }
 EXPORT_SYMBOL_GPL(get_cpu_iowait_time_us);
 
+/* Simplified variant of hrtimer_forward_now() */
+static ktime_t tick_forward_now(ktime_t expires, ktime_t now)
+{
+	ktime_t delta = now - expires;
+
+	if (likely(delta < TICK_NSEC))
+		return expires + TICK_NSEC;
+
+	expires += TICK_NSEC * ktime_divns(delta, TICK_NSEC);
+	if (expires > now)
+		return expires;
+	return expires + TICK_NSEC;
+}
+
 static void tick_nohz_restart(struct tick_sched *ts, ktime_t now)
 {
-	hrtimer_cancel(&ts->sched_timer);
-	hrtimer_set_expires(&ts->sched_timer, ts->last_tick);
+	ktime_t expires = ts->last_tick;
 
-	/* Forward the time to expire in the future */
-	hrtimer_forward(&ts->sched_timer, now, TICK_NSEC);
+	if (now >= expires)
+		expires = tick_forward_now(expires, now);
 
 	if (tick_sched_flag_test(ts, TS_FLAG_HIGHRES)) {
-		hrtimer_start_expires(&ts->sched_timer,
-				      HRTIMER_MODE_ABS_PINNED_HARD);
+		hrtimer_start(&ts->sched_timer,	expires, HRTIMER_MODE_ABS_PINNED_HARD);
 	} else {
-		tick_program_event(hrtimer_get_expires(&ts->sched_timer), 1);
+		hrtimer_set_expires(&ts->sched_timer, expires);
+		tick_program_event(expires, 1);
 	}
 
 	/*
@@ -1152,16 +1196,15 @@ static bool report_idle_softirq(void)
 			return false;
 	}
 
-	if (ratelimit >= 10)
-		return false;
-
 	/* On RT, softirq handling may be waiting on some lock */
 	if (local_bh_blocked())
 		return false;
 
-	pr_warn("NOHZ tick-stop error: local softirq work is pending, handler #%02x!!!\n",
-		pending);
-	ratelimit++;
+	if (ratelimit < 10) {
+		pr_warn("NOHZ tick-stop error: local softirq work is pending, handler #%02x!!!\n",
+			pending);
+		ratelimit++;
+	}
 
 	return true;
 }
@@ -1483,6 +1526,7 @@ static void tick_nohz_lowres_handler(struct clock_event_device *dev)
 	struct tick_sched *ts = this_cpu_ptr(&tick_cpu_sched);
 
 	dev->next_event = KTIME_MAX;
+	dev->next_event_forced = 0;
 
 	if (likely(tick_nohz_handler(&ts->sched_timer) == HRTIMER_RESTART))
 		tick_program_event(hrtimer_get_expires(&ts->sched_timer), 1);

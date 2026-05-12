@@ -48,12 +48,14 @@ struct rtp_test_case {
 	const struct xe_rtp_entry *entries;
 };
 
-static bool match_yes(const struct xe_gt *gt, const struct xe_hw_engine *hwe)
+static bool match_yes(const struct xe_device *xe, const struct xe_gt *gt,
+		      const struct xe_hw_engine *hwe)
 {
 	return true;
 }
 
-static bool match_no(const struct xe_gt *gt, const struct xe_hw_engine *hwe)
+static bool match_no(const struct xe_device *xe, const struct xe_gt *gt,
+		     const struct xe_hw_engine *hwe)
 {
 	return false;
 }
@@ -320,7 +322,8 @@ static void xe_rtp_process_to_sr_tests(struct kunit *test)
 		count_rtp_entries++;
 
 	xe_rtp_process_ctx_enable_active_tracking(&ctx, &active, count_rtp_entries);
-	xe_rtp_process_to_sr(&ctx, param->entries, count_rtp_entries, reg_sr);
+	xe_rtp_process_to_sr(&ctx, param->entries, count_rtp_entries,
+			     reg_sr, false);
 
 	xa_for_each(&reg_sr->xa, idx, sre) {
 		if (idx == param->expected_reg.addr)

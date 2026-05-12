@@ -1,18 +1,29 @@
 // SPDX-License-Identifier: GPL-2.0
 
-use kernel::{device, devres::Devres, error::code::*, pci, prelude::*, sync::Arc};
+use kernel::{
+    device,
+    devres::Devres,
+    fmt,
+    io::Io,
+    num::Bounded,
+    pci,
+    prelude::*,
+    sync::Arc, //
+};
 
-use crate::driver::Bar0;
-use crate::falcon::{gsp::Gsp, sec2::Sec2, Falcon};
-use crate::fb::FbLayout;
-use crate::fb::SysmemFlush;
-use crate::firmware::fwsec::{FwsecCommand, FwsecFirmware};
-use crate::firmware::{Firmware, FIRMWARE_VERSION};
-use crate::gfw;
-use crate::regs;
-use crate::util;
-use crate::vbios::Vbios;
-use core::fmt;
+use crate::{
+    bounded_enum,
+    driver::Bar0,
+    falcon::{
+        gsp::Gsp as GspFalcon,
+        sec2::Sec2 as Sec2Falcon,
+        Falcon, //
+    },
+    fb::SysmemFlush,
+    gfw,
+    gsp::Gsp,
+    regs,
+};
 
 macro_rules! define_chipset {
     ({ $($variant:ident = $value:expr),* $(,)* }) =>
@@ -28,13 +39,23 @@ macro_rules! define_chipset {
                 $( Chipset::$variant, )*
             ];
 
-            pub(crate) const NAMES: [&'static str; Self::ALL.len()] = [
-                $( util::const_bytes_to_str(
-                        util::to_lowercase_bytes::<{ stringify!($variant).len() }>(
-                            stringify!($variant)
-                        ).as_slice()
-                ), )*
-            ];
+            ::kernel::macros::paste!(
+            /// Returns the name of this chipset, in lowercase.
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// let chipset = Chipset::GA102;
+            /// assert_eq!(chipset.name(), "ga102");
+            /// ```
+            pub(crate) const fn name(&self) -> &'static str {
+                match *self {
+                $(
+                    Chipset::$variant => stringify!([<$variant:lower>]),
+                )*
+                }
+            }
+            );
         }
 
         // TODO[FPRI]: replace with something like derive(FromPrimitive)
@@ -74,7 +95,7 @@ define_chipset!({
 });
 
 impl Chipset {
-    pub(crate) fn arch(&self) -> Architecture {
+    pub(crate) const fn arch(self) -> Architecture {
         match self {
             Self::TU102 | Self::TU104 | Self::TU106 | Self::TU117 | Self::TU116 => {
                 Architecture::Turing
@@ -86,6 +107,13 @@ impl Chipset {
                 Architecture::Ada
             }
         }
+    }
+
+    /// Returns `true` if this chipset requires the PIO-loaded bootloader in order to boot FWSEC.
+    ///
+    /// This includes all chipsets < GA102.
+    pub(crate) const fn needs_fwsec_bootloader(self) -> bool {
+        matches!(self.arch(), Architecture::Turing) || matches!(self, Self::GA100)
     }
 }
 
@@ -103,37 +131,26 @@ impl fmt::Display for Chipset {
     }
 }
 
-/// Enum representation of the GPU generation.
-#[derive(fmt::Debug)]
-pub(crate) enum Architecture {
-    Turing = 0x16,
-    Ampere = 0x17,
-    Ada = 0x19,
-}
-
-impl TryFrom<u8> for Architecture {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self> {
-        match value {
-            0x16 => Ok(Self::Turing),
-            0x17 => Ok(Self::Ampere),
-            0x19 => Ok(Self::Ada),
-            _ => Err(ENODEV),
-        }
+bounded_enum! {
+    /// Enum representation of the GPU generation.
+    #[derive(fmt::Debug, Copy, Clone)]
+    pub(crate) enum Architecture with TryFrom<Bounded<u32, 6>> {
+        Turing = 0x16,
+        Ampere = 0x17,
+        Ada = 0x19,
     }
 }
 
 pub(crate) struct Revision {
-    major: u8,
-    minor: u8,
+    major: Bounded<u8, 4>,
+    minor: Bounded<u8, 4>,
 }
 
-impl Revision {
-    fn from_boot0(boot0: regs::NV_PMC_BOOT_0) -> Self {
+impl From<regs::NV_PMC_BOOT_42> for Revision {
+    fn from(boot0: regs::NV_PMC_BOOT_42) -> Self {
         Self {
-            major: boot0.major_revision(),
-            minor: boot0.minor_revision(),
+            major: boot0.major_revision().cast(),
+            minor: boot0.minor_revision().cast(),
         }
     }
 }
@@ -144,169 +161,128 @@ impl fmt::Display for Revision {
     }
 }
 
-/// Structure holding the metadata of the GPU.
+/// Structure holding a basic description of the GPU: `Chipset` and `Revision`.
 pub(crate) struct Spec {
     chipset: Chipset,
-    /// The revision of the chipset.
     revision: Revision,
 }
 
 impl Spec {
-    fn new(bar: &Bar0) -> Result<Spec> {
-        let boot0 = regs::NV_PMC_BOOT_0::read(bar);
+    fn new(dev: &device::Device, bar: &Bar0) -> Result<Spec> {
+        // Some brief notes about boot0 and boot42, in chronological order:
+        //
+        // NV04 through NV50:
+        //
+        //    Not supported by Nova. boot0 is necessary and sufficient to identify these GPUs.
+        //    boot42 may not even exist on some of these GPUs.
+        //
+        // Fermi through Volta:
+        //
+        //     Not supported by Nova. boot0 is still sufficient to identify these GPUs, but boot42
+        //     is also guaranteed to be both present and accurate.
+        //
+        // Turing and later:
+        //
+        //     Supported by Nova. Identified by first checking boot0 to ensure that the GPU is not
+        //     from an earlier (pre-Fermi) era, and then using boot42 to precisely identify the GPU.
+        //     Somewhere in the Rubin timeframe, boot0 will no longer have space to add new GPU IDs.
 
-        Ok(Self {
-            chipset: boot0.chipset()?,
-            revision: Revision::from_boot0(boot0),
+        let boot0 = bar.read(regs::NV_PMC_BOOT_0);
+
+        if boot0.is_older_than_fermi() {
+            return Err(ENODEV);
+        }
+
+        let boot42 = bar.read(regs::NV_PMC_BOOT_42);
+        Spec::try_from(boot42).inspect_err(|_| {
+            dev_err!(dev, "Unsupported chipset: {}\n", boot42);
         })
     }
 }
 
+impl TryFrom<regs::NV_PMC_BOOT_42> for Spec {
+    type Error = Error;
+
+    fn try_from(boot42: regs::NV_PMC_BOOT_42) -> Result<Self> {
+        Ok(Self {
+            chipset: boot42.chipset()?,
+            revision: boot42.into(),
+        })
+    }
+}
+
+impl fmt::Display for Spec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(fmt!(
+            "Chipset: {}, Architecture: {:?}, Revision: {}",
+            self.chipset,
+            self.chipset.arch(),
+            self.revision
+        ))
+    }
+}
+
 /// Structure holding the resources required to operate the GPU.
-#[pin_data(PinnedDrop)]
+#[pin_data]
 pub(crate) struct Gpu {
     spec: Spec,
     /// MMIO mapping of PCI BAR 0
     bar: Arc<Devres<Bar0>>,
-    fw: Firmware,
     /// System memory page required for flushing all pending GPU-side memory writes done through
     /// PCIE into system memory, via sysmembar (A GPU-initiated HW memory-barrier operation).
     sysmem_flush: SysmemFlush,
-}
-
-#[pinned_drop]
-impl PinnedDrop for Gpu {
-    fn drop(self: Pin<&mut Self>) {
-        // Unregister the sysmem flush page before we release it.
-        self.bar
-            .try_access_with(|b| self.sysmem_flush.unregister(b));
-    }
+    /// GSP falcon instance, used for GSP boot up and cleanup.
+    gsp_falcon: Falcon<GspFalcon>,
+    /// SEC2 falcon instance, used for GSP boot up and cleanup.
+    sec2_falcon: Falcon<Sec2Falcon>,
+    /// GSP runtime data. Temporarily an empty placeholder.
+    #[pin]
+    gsp: Gsp,
 }
 
 impl Gpu {
-    /// Helper function to load and run the FWSEC-FRTS firmware and confirm that it has properly
-    /// created the WPR2 region.
-    ///
-    /// TODO: this needs to be moved into a larger type responsible for booting the whole GSP
-    /// (`GspBooter`?).
-    fn run_fwsec_frts(
-        dev: &device::Device<device::Bound>,
-        falcon: &Falcon<Gsp>,
-        bar: &Bar0,
-        bios: &Vbios,
-        fb_layout: &FbLayout,
-    ) -> Result<()> {
-        // Check that the WPR2 region does not already exists - if it does, we cannot run
-        // FWSEC-FRTS until the GPU is reset.
-        if regs::NV_PFB_PRI_MMU_WPR2_ADDR_HI::read(bar).higher_bound() != 0 {
-            dev_err!(
-                dev,
-                "WPR2 region already exists - GPU needs to be reset to proceed\n"
-            );
-            return Err(EBUSY);
-        }
+    pub(crate) fn new<'a>(
+        pdev: &'a pci::Device<device::Bound>,
+        devres_bar: Arc<Devres<Bar0>>,
+        bar: &'a Bar0,
+    ) -> impl PinInit<Self, Error> + 'a {
+        try_pin_init!(Self {
+            spec: Spec::new(pdev.as_ref(), bar).inspect(|spec| {
+                dev_info!(pdev,"NVIDIA ({})\n", spec);
+            })?,
 
-        let fwsec_frts = FwsecFirmware::new(
-            dev,
-            falcon,
-            bar,
-            bios,
-            FwsecCommand::Frts {
-                frts_addr: fb_layout.frts.start,
-                frts_size: fb_layout.frts.end - fb_layout.frts.start,
+            // We must wait for GFW_BOOT completion before doing any significant setup on the GPU.
+            _: {
+                gfw::wait_gfw_boot_completion(bar)
+                    .inspect_err(|_| dev_err!(pdev, "GFW boot did not complete\n"))?;
             },
-        )?;
 
-        // Run FWSEC-FRTS to create the WPR2 region.
-        fwsec_frts.run(dev, falcon, bar)?;
+            sysmem_flush: SysmemFlush::register(pdev.as_ref(), bar, spec.chipset)?,
 
-        // SCRATCH_E contains the error code for FWSEC-FRTS.
-        let frts_status = regs::NV_PBUS_SW_SCRATCH_0E::read(bar).frts_err_code();
-        if frts_status != 0 {
-            dev_err!(
-                dev,
-                "FWSEC-FRTS returned with error code {:#x}",
-                frts_status
-            );
+            gsp_falcon: Falcon::new(
+                pdev.as_ref(),
+                spec.chipset,
+            )
+            .inspect(|falcon| falcon.clear_swgen0_intr(bar))?,
 
-            return Err(EIO);
-        }
+            sec2_falcon: Falcon::new(pdev.as_ref(), spec.chipset)?,
 
-        // Check that the WPR2 region has been created as we requested.
-        let (wpr2_lo, wpr2_hi) = (
-            regs::NV_PFB_PRI_MMU_WPR2_ADDR_LO::read(bar).lower_bound(),
-            regs::NV_PFB_PRI_MMU_WPR2_ADDR_HI::read(bar).higher_bound(),
-        );
+            gsp <- Gsp::new(pdev),
 
-        match (wpr2_lo, wpr2_hi) {
-            (_, 0) => {
-                dev_err!(dev, "WPR2 region not created after running FWSEC-FRTS\n");
+            _: { gsp.boot(pdev, bar, spec.chipset, gsp_falcon, sec2_falcon)? },
 
-                Err(EIO)
-            }
-            (wpr2_lo, _) if wpr2_lo != fb_layout.frts.start => {
-                dev_err!(
-                    dev,
-                    "WPR2 region created at unexpected address {:#x}; expected {:#x}\n",
-                    wpr2_lo,
-                    fb_layout.frts.start,
-                );
-
-                Err(EIO)
-            }
-            (wpr2_lo, wpr2_hi) => {
-                dev_dbg!(dev, "WPR2: {:#x}-{:#x}\n", wpr2_lo, wpr2_hi);
-                dev_dbg!(dev, "GPU instance built\n");
-
-                Ok(())
-            }
-        }
+            bar: devres_bar,
+        })
     }
 
-    pub(crate) fn new(
-        pdev: &pci::Device<device::Bound>,
-        devres_bar: Arc<Devres<Bar0>>,
-    ) -> Result<impl PinInit<Self>> {
-        let bar = devres_bar.access(pdev.as_ref())?;
-        let spec = Spec::new(bar)?;
-        let fw = Firmware::new(pdev.as_ref(), spec.chipset, FIRMWARE_VERSION)?;
-
-        dev_info!(
-            pdev.as_ref(),
-            "NVIDIA (Chipset: {}, Architecture: {:?}, Revision: {})\n",
-            spec.chipset,
-            spec.chipset.arch(),
-            spec.revision
-        );
-
-        // We must wait for GFW_BOOT completion before doing any significant setup on the GPU.
-        gfw::wait_gfw_boot_completion(bar)
-            .inspect_err(|_| dev_err!(pdev.as_ref(), "GFW boot did not complete"))?;
-
-        let sysmem_flush = SysmemFlush::register(pdev.as_ref(), bar, spec.chipset)?;
-
-        let gsp_falcon = Falcon::<Gsp>::new(
-            pdev.as_ref(),
-            spec.chipset,
-            bar,
-            spec.chipset > Chipset::GA100,
-        )?;
-        gsp_falcon.clear_swgen0_intr(bar);
-
-        let _sec2_falcon = Falcon::<Sec2>::new(pdev.as_ref(), spec.chipset, bar, true)?;
-
-        let fb_layout = FbLayout::new(spec.chipset, bar)?;
-        dev_dbg!(pdev.as_ref(), "{:#x?}\n", fb_layout);
-
-        let bios = Vbios::new(pdev, bar)?;
-
-        Self::run_fwsec_frts(pdev.as_ref(), &gsp_falcon, bar, &bios, &fb_layout)?;
-
-        Ok(pin_init!(Self {
-            spec,
-            bar: devres_bar,
-            fw,
-            sysmem_flush,
-        }))
+    /// Called when the corresponding [`Device`](device::Device) is unbound.
+    ///
+    /// Note: This method must only be called from `Driver::unbind`.
+    pub(crate) fn unbind(&self, dev: &device::Device<device::Core>) {
+        kernel::warn_on!(self
+            .bar
+            .access(dev)
+            .inspect(|bar| self.sysmem_flush.unregister(bar))
+            .is_err());
     }
 }

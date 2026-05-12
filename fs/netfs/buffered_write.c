@@ -10,7 +10,6 @@
 #include <linux/mm.h>
 #include <linux/pagemap.h>
 #include <linux/slab.h>
-#include <linux/pagevec.h>
 #include "internal.h"
 
 static void __netfs_set_group(struct folio *folio, struct netfs_group *netfs_group)
@@ -302,7 +301,7 @@ ssize_t netfs_perform_write(struct kiocb *iocb, struct iov_iter *iter,
 				goto copied;
 			}
 
-			finfo = kzalloc(sizeof(*finfo), GFP_KERNEL);
+			finfo = kzalloc_obj(*finfo);
 			if (!finfo) {
 				iov_iter_revert(iter, copied);
 				ret = -ENOMEM;
@@ -347,7 +346,7 @@ ssize_t netfs_perform_write(struct kiocb *iocb, struct iov_iter *iter,
 		folio_put(folio);
 		ret = filemap_write_and_wait_range(mapping, fpos, fpos + flen - 1);
 		if (ret < 0)
-			goto error_folio_unlock;
+			goto out;
 		continue;
 
 	copied:
@@ -535,7 +534,7 @@ vm_fault_t netfs_page_mkwrite(struct vm_fault *vmf, struct netfs_group *netfs_gr
 		folio_unlock(folio);
 		err = filemap_fdatawrite_range(mapping,
 					       folio_pos(folio),
-					       folio_pos(folio) + folio_size(folio));
+					       folio_next_pos(folio));
 		switch (err) {
 		case 0:
 			ret = VM_FAULT_RETRY;

@@ -7,7 +7,7 @@
  * Copyright 2006-2010	Johannes Berg <johannes@sipsolutions.net>
  * Copyright 2013-2014 Intel Mobile Communications GmbH
  * Copyright 2015-2017	Intel Deutschland GmbH
- * Copyright (C) 2018-2025 Intel Corporation
+ * Copyright (C) 2018-2026 Intel Corporation
  */
 
 #include <linux/ethtool.h>
@@ -101,16 +101,6 @@ struct wiphy;
  * @IEEE80211_CHAN_NO_10MHZ: 10 MHz bandwidth is not permitted
  *	on this channel.
  * @IEEE80211_CHAN_NO_HE: HE operation is not permitted on this channel.
- * @IEEE80211_CHAN_1MHZ: 1 MHz bandwidth is permitted
- *	on this channel.
- * @IEEE80211_CHAN_2MHZ: 2 MHz bandwidth is permitted
- *	on this channel.
- * @IEEE80211_CHAN_4MHZ: 4 MHz bandwidth is permitted
- *	on this channel.
- * @IEEE80211_CHAN_8MHZ: 8 MHz bandwidth is permitted
- *	on this channel.
- * @IEEE80211_CHAN_16MHZ: 16 MHz bandwidth is permitted
- *	on this channel.
  * @IEEE80211_CHAN_NO_320MHZ: If the driver supports 320 MHz on the band,
  *	this flag indicates that a 320 MHz channel cannot use this
  *	channel as the control or any of the secondary channels.
@@ -129,6 +119,14 @@ struct wiphy;
  *	with very low power (VLP), even if otherwise set to NO_IR.
  * @IEEE80211_CHAN_ALLOW_20MHZ_ACTIVITY: Allow activity on a 20 MHz channel,
  *	even if otherwise set to NO_IR.
+ * @IEEE80211_CHAN_S1G_NO_PRIMARY: Prevents the channel for use as an S1G
+ *	primary channel. Does not prevent the wider operating channel
+ *	described by the chandef from being used. In order for a 2MHz primary
+ *	to be used, both 1MHz subchannels shall not contain this flag.
+ * @IEEE80211_CHAN_NO_4MHZ: 4 MHz bandwidth is not permitted on this channel.
+ * @IEEE80211_CHAN_NO_8MHZ: 8 MHz bandwidth is not permitted on this channel.
+ * @IEEE80211_CHAN_NO_16MHZ: 16 MHz bandwidth is not permitted on this channel.
+ * @IEEE80211_CHAN_NO_UHR: UHR operation is not permitted on this channel.
  */
 enum ieee80211_channel_flags {
 	IEEE80211_CHAN_DISABLED			= BIT(0),
@@ -145,11 +143,8 @@ enum ieee80211_channel_flags {
 	IEEE80211_CHAN_NO_20MHZ			= BIT(11),
 	IEEE80211_CHAN_NO_10MHZ			= BIT(12),
 	IEEE80211_CHAN_NO_HE			= BIT(13),
-	IEEE80211_CHAN_1MHZ			= BIT(14),
-	IEEE80211_CHAN_2MHZ			= BIT(15),
-	IEEE80211_CHAN_4MHZ			= BIT(16),
-	IEEE80211_CHAN_8MHZ			= BIT(17),
-	IEEE80211_CHAN_16MHZ			= BIT(18),
+	/* can use free bits here */
+	IEEE80211_CHAN_NO_UHR			= BIT(18),
 	IEEE80211_CHAN_NO_320MHZ		= BIT(19),
 	IEEE80211_CHAN_NO_EHT			= BIT(20),
 	IEEE80211_CHAN_DFS_CONCURRENT		= BIT(21),
@@ -158,6 +153,10 @@ enum ieee80211_channel_flags {
 	IEEE80211_CHAN_CAN_MONITOR		= BIT(24),
 	IEEE80211_CHAN_ALLOW_6GHZ_VLP_AP	= BIT(25),
 	IEEE80211_CHAN_ALLOW_20MHZ_ACTIVITY     = BIT(26),
+	IEEE80211_CHAN_S1G_NO_PRIMARY		= BIT(27),
+	IEEE80211_CHAN_NO_4MHZ			= BIT(28),
+	IEEE80211_CHAN_NO_8MHZ			= BIT(29),
+	IEEE80211_CHAN_NO_16MHZ			= BIT(30),
 };
 
 #define IEEE80211_CHAN_NO_HT40 \
@@ -191,6 +190,8 @@ enum ieee80211_channel_flags {
  *	on this channel.
  * @dfs_state_entered: timestamp (jiffies) when the dfs state was entered.
  * @dfs_cac_ms: DFS CAC time in milliseconds, this is valid for DFS channels.
+ * @cac_start_time: timestamp (CLOCK_BOOTTIME, nanoseconds) when CAC was
+ *	started on this channel. Zero when CAC is not in progress.
  * @psd: power spectral density (in dBm)
  */
 struct ieee80211_channel {
@@ -208,6 +209,7 @@ struct ieee80211_channel {
 	enum nl80211_dfs_state dfs_state;
 	unsigned long dfs_state_entered;
 	unsigned int dfs_cac_ms;
+	u64 cac_start_time;
 	s8 psd;
 };
 
@@ -432,6 +434,18 @@ struct ieee80211_sta_eht_cap {
 	u8 eht_ppe_thres[IEEE80211_EHT_PPE_THRES_MAX_LEN];
 };
 
+/**
+ * struct ieee80211_sta_uhr_cap - STA's UHR capabilities
+ * @has_uhr: true iff UHR is supported and data is valid
+ * @mac: fixed MAC capabilities
+ * @phy: fixed PHY capabilities
+ */
+struct ieee80211_sta_uhr_cap {
+	bool has_uhr;
+	struct ieee80211_uhr_cap_mac mac;
+	struct ieee80211_uhr_cap_phy phy;
+};
+
 /* sparse defines __CHECKER__; see Documentation/dev-tools/sparse.rst */
 #ifdef __CHECKER__
 /*
@@ -457,6 +471,7 @@ struct ieee80211_sta_eht_cap {
  * @he_6ghz_capa: HE 6 GHz capabilities, must be filled in for a
  *	6 GHz band channel (and 0 may be valid value).
  * @eht_cap: STA's EHT capabilities
+ * @uhr_cap: STA's UHR capabilities
  * @vendor_elems: vendor element(s) to advertise
  * @vendor_elems.data: vendor element(s) data
  * @vendor_elems.len: vendor element(s) length
@@ -466,6 +481,7 @@ struct ieee80211_sband_iftype_data {
 	struct ieee80211_sta_he_cap he_cap;
 	struct ieee80211_he_6ghz_capa he_6ghz_capa;
 	struct ieee80211_sta_eht_cap eht_cap;
+	struct ieee80211_sta_uhr_cap uhr_cap;
 	struct {
 		const u8 *data;
 		unsigned int len;
@@ -688,7 +704,7 @@ ieee80211_get_he_6ghz_capa(const struct ieee80211_supported_band *sband,
 }
 
 /**
- * ieee80211_get_eht_iftype_cap - return ETH capabilities for an sband's iftype
+ * ieee80211_get_eht_iftype_cap - return EHT capabilities for an sband's iftype
  * @sband: the sband to search for the iftype on
  * @iftype: enum nl80211_iftype
  *
@@ -703,6 +719,26 @@ ieee80211_get_eht_iftype_cap(const struct ieee80211_supported_band *sband,
 
 	if (data && data->eht_cap.has_eht)
 		return &data->eht_cap;
+
+	return NULL;
+}
+
+/**
+ * ieee80211_get_uhr_iftype_cap - return UHR capabilities for an sband's iftype
+ * @sband: the sband to search for the iftype on
+ * @iftype: enum nl80211_iftype
+ *
+ * Return: pointer to the struct ieee80211_sta_uhr_cap, or NULL is none found
+ */
+static inline const struct ieee80211_sta_uhr_cap *
+ieee80211_get_uhr_iftype_cap(const struct ieee80211_supported_band *sband,
+			     enum nl80211_iftype iftype)
+{
+	const struct ieee80211_sband_iftype_data *data =
+		ieee80211_get_sband_iftype_data(sband, iftype);
+
+	if (data && data->uhr_cap.has_uhr)
+		return &data->uhr_cap;
 
 	return NULL;
 }
@@ -789,8 +825,7 @@ struct vif_params {
  * @key: key material
  * @key_len: length of key material
  * @cipher: cipher suite selector
- * @seq: sequence counter (IV/PN) for TKIP and CCMP keys, only used
- *	with the get_key() callback, must be in little endian,
+ * @seq: sequence counter (IV/PN), must be in little endian,
  *	length given by @seq_len.
  * @seq_len: length of @seq.
  * @vlan_id: vlan_id for VLAN group key (if nonzero)
@@ -821,6 +856,9 @@ struct key_params {
  * @punctured: mask of the punctured 20 MHz subchannels, with
  *	bits turned on being disabled (punctured); numbered
  *	from lower to higher frequency (like in the spec)
+ * @s1g_primary_2mhz: Indicates if the control channel pointed to
+ *	by 'chan' exists as a 1MHz primary subchannel within an
+ *	S1G 2MHz primary channel.
  */
 struct cfg80211_chan_def {
 	struct ieee80211_channel *chan;
@@ -830,6 +868,7 @@ struct cfg80211_chan_def {
 	struct ieee80211_edmg edmg;
 	u16 freq1_offset;
 	u16 punctured;
+	bool s1g_primary_2mhz;
 };
 
 /*
@@ -841,9 +880,12 @@ struct cfg80211_bitrate_mask {
 		u8 ht_mcs[IEEE80211_HT_MCS_MASK_LEN];
 		u16 vht_mcs[NL80211_VHT_NSS_MAX];
 		u16 he_mcs[NL80211_HE_NSS_MAX];
+		u16 eht_mcs[NL80211_EHT_NSS_MAX];
 		enum nl80211_txrate_gi gi;
 		enum nl80211_he_gi he_gi;
+		enum nl80211_eht_gi eht_gi;
 		enum nl80211_he_ltf he_ltf;
+		enum nl80211_eht_ltf eht_ltf;
 	} control[NUM_NL80211_BANDS];
 };
 
@@ -971,7 +1013,8 @@ cfg80211_chandef_identical(const struct cfg80211_chan_def *chandef1,
 		chandef1->center_freq1 == chandef2->center_freq1 &&
 		chandef1->freq1_offset == chandef2->freq1_offset &&
 		chandef1->center_freq2 == chandef2->center_freq2 &&
-		chandef1->punctured == chandef2->punctured);
+		chandef1->punctured == chandef2->punctured &&
+		chandef1->s1g_primary_2mhz == chandef2->s1g_primary_2mhz);
 }
 
 /**
@@ -988,6 +1031,18 @@ cfg80211_chandef_is_edmg(const struct cfg80211_chan_def *chandef)
 }
 
 /**
+ * cfg80211_chandef_is_s1g - check if chandef represents an S1G channel
+ * @chandef: the channel definition
+ *
+ * Return: %true if S1G.
+ */
+static inline bool
+cfg80211_chandef_is_s1g(const struct cfg80211_chan_def *chandef)
+{
+	return chandef->chan->band == NL80211_BAND_S1GHZ;
+}
+
+/**
  * cfg80211_chandef_compatible - check if two channel definitions are compatible
  * @chandef1: first channel definition
  * @chandef2: second channel definition
@@ -998,6 +1053,7 @@ cfg80211_chandef_is_edmg(const struct cfg80211_chan_def *chandef)
 const struct cfg80211_chan_def *
 cfg80211_chandef_compatible(const struct cfg80211_chan_def *chandef1,
 			    const struct cfg80211_chan_def *chandef2);
+
 
 /**
  * nl80211_chan_width_to_mhz - get the channel width in MHz
@@ -1469,6 +1525,7 @@ struct cfg80211_s1g_short_beacon {
  * @he_cap: HE capabilities (or %NULL if HE isn't enabled)
  * @eht_cap: EHT capabilities (or %NULL if EHT isn't enabled)
  * @eht_oper: EHT operation IE (or %NULL if EHT isn't enabled)
+ * @uhr_oper: UHR operation (or %NULL if UHR isn't enabled)
  * @ht_required: stations must support HT
  * @vht_required: stations must support VHT
  * @twt_responder: Enable Target Wait Time
@@ -1508,6 +1565,7 @@ struct cfg80211_ap_settings {
 	const struct ieee80211_he_operation *he_oper;
 	const struct ieee80211_eht_cap_elem *eht_cap;
 	const struct ieee80211_eht_operation *eht_oper;
+	const struct ieee80211_uhr_operation *uhr_oper;
 	bool ht_required, vht_required, he_required, sae_h2e_required;
 	bool twt_responder;
 	u32 flags;
@@ -1681,6 +1739,8 @@ struct sta_txpwr {
  * @eht_capa: EHT capabilities of station
  * @eht_capa_len: the length of the EHT capabilities
  * @s1g_capa: S1G capabilities of station
+ * @uhr_capa: UHR capabilities of the station
+ * @uhr_capa_len: the length of the UHR capabilities
  */
 struct link_station_parameters {
 	const u8 *mld_mac;
@@ -1700,6 +1760,8 @@ struct link_station_parameters {
 	const struct ieee80211_eht_cap_elem *eht_capa;
 	u8 eht_capa_len;
 	const struct ieee80211_s1g_cap *s1g_capa;
+	const struct ieee80211_uhr_cap *uhr_capa;
+	u8 uhr_capa_len;
 };
 
 /**
@@ -1768,6 +1830,8 @@ struct cfg80211_ttlm_params {
  *	present/updated
  * @eml_cap: EML capabilities of this station
  * @link_sta_params: link related params.
+ * @epp_peer: EPP peer indication
+ * @nmi_mac: MAC address of the NMI station of the NAN peer
  */
 struct station_parameters {
 	struct net_device *vlan;
@@ -1794,6 +1858,8 @@ struct station_parameters {
 	bool eml_cap_present;
 	u16 eml_cap;
 	struct link_station_parameters link_sta_params;
+	bool epp_peer;
+	const u8 *nmi_mac;
 };
 
 /**
@@ -1833,6 +1899,8 @@ struct station_del_parameters {
  *	entry that is operating, has been marked authorized by userspace)
  * @CFG80211_STA_MESH_PEER_KERNEL: peer on mesh interface (kernel managed)
  * @CFG80211_STA_MESH_PEER_USER: peer on mesh interface (user managed)
+ * @CFG80211_STA_NAN_MGMT: NAN management interface station
+ * @CFG80211_STA_NAN_DATA: NAN data path station
  */
 enum cfg80211_station_type {
 	CFG80211_STA_AP_CLIENT,
@@ -1844,6 +1912,8 @@ enum cfg80211_station_type {
 	CFG80211_STA_TDLS_PEER_ACTIVE,
 	CFG80211_STA_MESH_PEER_KERNEL,
 	CFG80211_STA_MESH_PEER_USER,
+	CFG80211_STA_NAN_MGMT,
+	CFG80211_STA_NAN_DATA,
 };
 
 /**
@@ -1879,6 +1949,11 @@ int cfg80211_check_station_change(struct wiphy *wiphy,
  * @RATE_INFO_FLAGS_EXTENDED_SC_DMG: 60GHz extended SC MCS
  * @RATE_INFO_FLAGS_EHT_MCS: EHT MCS information
  * @RATE_INFO_FLAGS_S1G_MCS: MCS field filled with S1G MCS
+ * @RATE_INFO_FLAGS_UHR_MCS: UHR MCS information
+ * @RATE_INFO_FLAGS_UHR_ELR_MCS: UHR ELR MCS was used
+ *	(set together with @RATE_INFO_FLAGS_UHR_MCS)
+ * @RATE_INFO_FLAGS_UHR_IM: UHR Interference Mitigation
+ *	was used
  */
 enum rate_info_flags {
 	RATE_INFO_FLAGS_MCS			= BIT(0),
@@ -1890,6 +1965,9 @@ enum rate_info_flags {
 	RATE_INFO_FLAGS_EXTENDED_SC_DMG		= BIT(6),
 	RATE_INFO_FLAGS_EHT_MCS			= BIT(7),
 	RATE_INFO_FLAGS_S1G_MCS			= BIT(8),
+	RATE_INFO_FLAGS_UHR_MCS			= BIT(9),
+	RATE_INFO_FLAGS_UHR_ELR_MCS		= BIT(10),
+	RATE_INFO_FLAGS_UHR_IM			= BIT(11),
 };
 
 /**
@@ -1905,7 +1983,7 @@ enum rate_info_flags {
  * @RATE_INFO_BW_160: 160 MHz bandwidth
  * @RATE_INFO_BW_HE_RU: bandwidth determined by HE RU allocation
  * @RATE_INFO_BW_320: 320 MHz bandwidth
- * @RATE_INFO_BW_EHT_RU: bandwidth determined by EHT RU allocation
+ * @RATE_INFO_BW_EHT_RU: bandwidth determined by EHT/UHR RU allocation
  * @RATE_INFO_BW_1: 1 MHz bandwidth
  * @RATE_INFO_BW_2: 2 MHz bandwidth
  * @RATE_INFO_BW_4: 4 MHz bandwidth
@@ -1936,7 +2014,7 @@ enum rate_info_bw {
  *
  * @flags: bitflag of flags from &enum rate_info_flags
  * @legacy: bitrate in 100kbit/s for 802.11abg
- * @mcs: mcs index if struct describes an HT/VHT/HE/EHT/S1G rate
+ * @mcs: mcs index if struct describes an HT/VHT/HE/EHT/S1G/UHR rate
  * @nss: number of streams (VHT & HE only)
  * @bw: bandwidth (from &enum rate_info_bw)
  * @he_gi: HE guard interval (from &enum nl80211_he_gi)
@@ -2454,6 +2532,29 @@ struct mpath_info {
 	u32 path_change_count;
 
 	int generation;
+};
+
+/**
+ * enum wiphy_bss_param_flags - bit positions for supported bss parameters.
+ *
+ * @WIPHY_BSS_PARAM_CTS_PROT: support changing CTS protection.
+ * @WIPHY_BSS_PARAM_SHORT_PREAMBLE: support changing short preamble usage.
+ * @WIPHY_BSS_PARAM_SHORT_SLOT_TIME: support changing short slot time usage.
+ * @WIPHY_BSS_PARAM_BASIC_RATES: support reconfiguring basic rates.
+ * @WIPHY_BSS_PARAM_AP_ISOLATE: support changing AP isolation.
+ * @WIPHY_BSS_PARAM_HT_OPMODE: support changing HT operating mode.
+ * @WIPHY_BSS_PARAM_P2P_CTWINDOW: support reconfiguring ctwindow.
+ * @WIPHY_BSS_PARAM_P2P_OPPPS: support changing P2P opportunistic power-save.
+ */
+enum wiphy_bss_param_flags {
+	WIPHY_BSS_PARAM_CTS_PROT = BIT(0),
+	WIPHY_BSS_PARAM_SHORT_PREAMBLE = BIT(1),
+	WIPHY_BSS_PARAM_SHORT_SLOT_TIME = BIT(2),
+	WIPHY_BSS_PARAM_BASIC_RATES = BIT(3),
+	WIPHY_BSS_PARAM_AP_ISOLATE = BIT(4),
+	WIPHY_BSS_PARAM_HT_OPMODE = BIT(5),
+	WIPHY_BSS_PARAM_P2P_CTWINDOW = BIT(6),
+	WIPHY_BSS_PARAM_P2P_OPPPS = BIT(7),
 };
 
 /**
@@ -3181,8 +3282,6 @@ struct cfg80211_auth_request {
  *	if this is %NULL for a link, that link is not requested
  * @elems: extra elements for the per-STA profile for this link
  * @elems_len: length of the elements
- * @disabled: If set this link should be included during association etc. but it
- *	should not be used until enabled by the AP MLD.
  * @error: per-link error code, must be <= 0. If there is an error, then the
  *	operation as a whole must fail.
  */
@@ -3190,7 +3289,6 @@ struct cfg80211_assoc_link {
 	struct cfg80211_bss *bss;
 	const u8 *elems;
 	size_t elems_len;
-	bool disabled;
 	int error;
 };
 
@@ -3223,6 +3321,7 @@ struct cfg80211_ml_reconf_req {
  *	Drivers shall disable MLO features for the current association if this
  *	flag is not set.
  * @ASSOC_REQ_SPP_AMSDU: SPP A-MSDUs will be used on this connection (if any)
+ * @ASSOC_REQ_DISABLE_UHR: Disable UHR
  */
 enum cfg80211_assoc_req_flags {
 	ASSOC_REQ_DISABLE_HT			= BIT(0),
@@ -3233,6 +3332,7 @@ enum cfg80211_assoc_req_flags {
 	ASSOC_REQ_DISABLE_EHT			= BIT(5),
 	CONNECT_REQ_MLO_SUPPORT			= BIT(6),
 	ASSOC_REQ_SPP_AMSDU			= BIT(7),
+	ASSOC_REQ_DISABLE_UHR			= BIT(8),
 };
 
 /**
@@ -3887,6 +3987,109 @@ struct cfg80211_qos_map {
 };
 
 /**
+ * DOC: Neighbor Awareness Networking (NAN)
+ *
+ * NAN uses two interface types:
+ *
+ * - %NL80211_IFTYPE_NAN: a non-netdev interface. This has two roles: (1) holds
+ *   the configuration of all NAN activities (DE parameters, synchronisation
+ *   parameters, local schedule, etc.), and (2) uses as the NAN Management
+ *   Interface (NMI), which is used for NAN management communication.
+ *
+ * - %NL80211_IFTYPE_NAN_DATA: The NAN Data Interface (NDI), used for data
+ *   communication with NAN peers.
+ *
+ * An NDI interface can only be started (IFF_UP) if the NMI one is running and
+ * NAN is started. Before NAN is stopped, all associated NDI interfaces
+ * must be stopped first.
+ *
+ * The local schedule specifies which channels the device is available on and
+ * when. Must be cancelled before NAN is stopped.
+ *
+ * NAN Stations
+ * ~~~~~~~~~~~~
+ *
+ * There are two types of stations corresponding to the two interface types:
+ *
+ * - NMI station: Represents the NAN peer. Peer-specific data such as the peer's
+ *   schedule and the HT, VHT and HE capabilities belongs to the NMI station.
+ *   Also used for Tx/Rx of NAN management frames to/from the peer.
+ *   Added on the %NL80211_IFTYPE_NAN interface.
+ *
+ * - NDI station: Used for Tx/Rx of data frames (and non-NAN management frames)
+ *   for a specific NDP established with the NAN peer. Added on the
+ *   %NL80211_IFTYPE_NAN_DATA interface.
+ *
+ * A peer may reuse its NMI address as the NDI address. In that case, two
+ * separate stations should be added even though they share the same MAC
+ * address.
+ *
+ * HT, VHT and HE capabilities should not changes after it was set. It is the
+ * driver's responsibility to check that.
+ *
+ * An NDI station can only be added if the corresponding NMI station has already
+ * been configured with HT (and possibly VHT and HE) capabilities. It is the
+ * driver's responsibility to check that.
+ *
+ * All NDI stations must be removed before corresponding NMI station is removed.
+ * Therefore, removing a NMI station implies that the associated NDI station(s)
+ * (if any) will be removed first.
+ *
+ * NAN Dependencies
+ * ~~~~~~~~~~~~~~~~
+ *
+ * The following diagram shows the dependencies between NAN components.
+ * An arrow from A to B means A must be started/added before B, and B must be
+ * stopped/removed before A:
+ *
+ *       +-------------+
+ *       |  NMI iface  |---(local schedule)
+ *       +------+------+
+ *          /       \
+ *         v         v
+ *   +-----------+  +-------------+
+ *   | NDI iface |  |   NMI sta   |---(peer schedule)
+ *   +-----+-----+  +------+------+
+ *          \           /
+ *           v         v
+ *          +----------+
+ *          | NDI sta  |
+ *          +----------+
+ */
+
+/**
+ * struct cfg80211_nan_band_config - NAN band specific configuration
+ *
+ * @chan: Pointer to the IEEE 802.11 channel structure. The channel to be used
+ *	for NAN operations on this band. For 2.4 GHz band, this is always
+ *	channel 6. For 5 GHz band, the channel is either 44 or 149, according
+ *	to the regulatory constraints. If chan pointer is NULL the entire band
+ *	configuration entry is considered invalid and should not be used.
+ * @rssi_close: RSSI close threshold used for NAN state transition algorithm
+ *	as described in chapters 3.3.6 and 3.3.7 "NAN Device Role and State
+ *	Transition" of Wi-Fi Aware Specification v4.0. If not
+ *	specified (set to 0), default device value is used. The value should
+ *	be greater than -60 dBm.
+ * @rssi_middle: RSSI middle threshold used for NAN state transition algorithm.
+ *	as described in chapters 3.3.6 and 3.3.7 "NAN Device Role and State
+ *	Transition" of Wi-Fi Aware Specification v4.0. If not
+ *	specified (set to 0), default device value is used. The value should be
+ *	greater than -75 dBm and less than rssi_close.
+ * @awake_dw_interval: Committed DW interval. Valid values range: 0-5. 0
+ *	indicates no wakeup for DW and can't be used on 2.4GHz band, otherwise
+ *	2^(n-1).
+ * @disable_scan: If true, the device will not scan this band for cluster
+ *	 merge. Disabling scan on 2.4 GHz band is not allowed.
+ */
+struct cfg80211_nan_band_config {
+	struct ieee80211_channel *chan;
+	s8 rssi_close;
+	s8 rssi_middle;
+	u8 awake_dw_interval;
+	bool disable_scan;
+};
+
+/**
  * struct cfg80211_nan_conf - NAN configuration
  *
  * This struct defines NAN configuration parameters
@@ -3895,10 +4098,129 @@ struct cfg80211_qos_map {
  * @bands: operating bands, a bitmap of &enum nl80211_band values.
  *	For instance, for NL80211_BAND_2GHZ, bit 0 would be set
  *	(i.e. BIT(NL80211_BAND_2GHZ)).
+ * @cluster_id: cluster ID used for NAN synchronization. This is a MAC address
+ *	that can take a value from 50-6F-9A-01-00-00 to 50-6F-9A-01-FF-FF.
+ * @scan_period: period (in seconds) between NAN scans.
+ * @scan_dwell_time: dwell time (in milliseconds) for NAN scans.
+ * @discovery_beacon_interval: interval (in TUs) for discovery beacons.
+ * @enable_dw_notification: flag to enable/disable discovery window
+ *	notifications.
+ * @band_cfgs: array of band specific configurations, indexed by
+ *	&enum nl80211_band values.
+ * @extra_nan_attrs: pointer to additional NAN attributes.
+ * @extra_nan_attrs_len: length of the additional NAN attributes.
+ * @vendor_elems: pointer to vendor-specific elements.
+ * @vendor_elems_len: length of the vendor-specific elements.
  */
 struct cfg80211_nan_conf {
 	u8 master_pref;
 	u8 bands;
+	u8 cluster_id[ETH_ALEN] __aligned(2);
+	u16 scan_period;
+	u16 scan_dwell_time;
+	u8 discovery_beacon_interval;
+	bool enable_dw_notification;
+	struct cfg80211_nan_band_config band_cfgs[NUM_NL80211_BANDS];
+	const u8 *extra_nan_attrs;
+	u16 extra_nan_attrs_len;
+	const u8 *vendor_elems;
+	u16 vendor_elems_len;
+};
+
+#define CFG80211_NAN_SCHED_NUM_TIME_SLOTS 32
+
+/**
+ * struct cfg80211_nan_channel - NAN channel configuration
+ *
+ * This struct defines a NAN channel configuration
+ *
+ * @chandef: the channel definition
+ * @channel_entry: pointer to the Channel Entry blob as defined in Wi-Fi Aware
+ *	(TM) 4.0 specification Table 100 (Channel Entry format for the NAN
+ *	Availability attribute).
+ * @rx_nss: number of spatial streams supported on this channel
+ */
+struct cfg80211_nan_channel {
+	struct cfg80211_chan_def chandef;
+	const u8 *channel_entry;
+	u8 rx_nss;
+};
+
+/**
+ * struct cfg80211_nan_local_sched - NAN local schedule
+ *
+ * This struct defines NAN local schedule parameters
+ *
+ * @schedule: a mapping of time slots to chandef indexes in %nan_channels.
+ *	An unscheduled slot will be set to %NL80211_NAN_SCHED_NOT_AVAIL_SLOT.
+ * @n_channels: number of channel definitions in %nan_channels.
+ * @nan_avail_blob: pointer to NAN Availability attribute blob.
+ *	See %NL80211_ATTR_NAN_AVAIL_BLOB for more details.
+ * @nan_avail_blob_len: length of the @nan_avail_blob in bytes.
+ * @deferred: if true, the command containing this schedule configuration is a
+ *	request from the device to perform an announced schedule update. This
+ *	means that it needs to send the updated NAN availability to the peers,
+ *	and do the actual switch on the right time (i.e. at the end of the slot
+ *	after the slot in which the updated NAN Availability was sent).
+ *	See %NL80211_ATTR_NAN_SCHED_DEFERRED for more details.
+ *	If false, the schedule is applied immediately.
+ * @nan_channels: array of NAN channel definitions that can be scheduled.
+ */
+struct cfg80211_nan_local_sched {
+	u8 schedule[CFG80211_NAN_SCHED_NUM_TIME_SLOTS];
+	u8 n_channels;
+	const u8 *nan_avail_blob;
+	u16 nan_avail_blob_len;
+	bool deferred;
+	struct cfg80211_nan_channel nan_channels[] __counted_by(n_channels);
+};
+
+/**
+ * struct cfg80211_nan_peer_map - NAN peer schedule map
+ *
+ * This struct defines a single NAN peer schedule map
+ *
+ * @map_id: map ID of this schedule map
+ * @schedule: a mapping of time slots to chandef indexes in the schedule's
+ *	@nan_channels. Each slot lasts 16TUs. An unscheduled slot will be
+ *	set to %NL80211_NAN_SCHED_NOT_AVAIL_SLOT.
+ */
+struct cfg80211_nan_peer_map {
+	u8 map_id;
+	u8 schedule[CFG80211_NAN_SCHED_NUM_TIME_SLOTS];
+};
+
+#define CFG80211_NAN_MAX_PEER_MAPS 2
+#define CFG80211_NAN_INVALID_MAP_ID 0xff
+
+/**
+ * struct cfg80211_nan_peer_sched - NAN peer schedule
+ *
+ * This struct defines NAN peer schedule parameters for a peer.
+ *
+ * @peer_addr: MAC address of the peer (NMI address)
+ * @seq_id: sequence ID of the peer schedule.
+ * @committed_dw: committed DW as published by the peer.
+ *	See %NL80211_ATTR_NAN_COMMITTED_DW
+ * @max_chan_switch: maximum channel switch time in microseconds as published
+ *	by the peer. See %NL80211_ATTR_NAN_MAX_CHAN_SWITCH_TIME.
+ * @init_ulw: initial ULWs as published by the peer.
+ * @ulw_size: number of bytes in @init_ulw.
+ * @n_channels: number of channel definitions in @nan_channels.
+ * @nan_channels: array of NAN channel definitions for this schedule.
+ * @maps: array of peer schedule maps. Unused entries have
+ *	map_id = %CFG80211_NAN_INVALID_MAP_ID.
+ */
+struct cfg80211_nan_peer_sched {
+	const u8 *peer_addr;
+	u8 seq_id;
+	u16 committed_dw;
+	u16 max_chan_switch;
+	const u8 *init_ulw;
+	u16 ulw_size;
+	u8 n_channels;
+	struct cfg80211_nan_channel *nan_channels;
+	struct cfg80211_nan_peer_map maps[CFG80211_NAN_MAX_PEER_MAPS];
 };
 
 /**
@@ -3907,10 +4229,17 @@ struct cfg80211_nan_conf {
  *
  * @CFG80211_NAN_CONF_CHANGED_PREF: master preference
  * @CFG80211_NAN_CONF_CHANGED_BANDS: operating bands
+ * @CFG80211_NAN_CONF_CHANGED_CONFIG: changed additional configuration.
+ *	When this flag is set, it indicates that some additional attribute(s)
+ *	(other then master_pref and bands) have been changed. In this case,
+ *	all the unchanged attributes will be properly configured to their
+ *	previous values. The driver doesn't need to store any
+ *	previous configuration besides master_pref and bands.
  */
 enum cfg80211_nan_conf_changes {
 	CFG80211_NAN_CONF_CHANGED_PREF = BIT(0),
 	CFG80211_NAN_CONF_CHANGED_BANDS = BIT(1),
+	CFG80211_NAN_CONF_CHANGED_CONFIG = BIT(2),
 };
 
 /**
@@ -4087,6 +4416,7 @@ struct cfg80211_ftm_responder_stats {
  * @num_bursts_exp: actual number of bursts exponent negotiated
  * @burst_duration: actual burst duration negotiated
  * @ftms_per_burst: actual FTMs per burst negotiated
+ * @burst_period: actual burst period negotiated in units of 100ms
  * @lci_len: length of LCI information (if present)
  * @civicloc_len: length of civic location information (if present)
  * @lci: LCI data (may be %NULL)
@@ -4128,6 +4458,7 @@ struct cfg80211_pmsr_ftm_result {
 	u8 num_bursts_exp;
 	u8 burst_duration;
 	u8 ftms_per_burst;
+	u16 burst_period;
 	s32 rssi_avg;
 	s32 rssi_spread;
 	struct rate_info tx_rate, rx_rate;
@@ -4190,7 +4521,9 @@ struct cfg80211_pmsr_result {
  * @burst_period: burst period to use
  * @asap: indicates to use ASAP mode
  * @num_bursts_exp: number of bursts exponent
- * @burst_duration: burst duration
+ * @burst_duration: burst duration. If @trigger_based or @non_trigger_based is
+ *	set, this is the burst duration in milliseconds, and zero means the
+ *	device should pick an appropriate value based on @ftms_per_burst.
  * @ftms_per_burst: number of FTMs per burst
  * @ftmr_retries: number of retries for FTM request
  * @request_lci: request LCI information
@@ -4203,6 +4536,8 @@ struct cfg80211_pmsr_result {
  *		 EDCA based ranging will be used.
  * @lmr_feedback: negotiate for I2R LMR feedback. Only valid if either
  *		 @trigger_based or @non_trigger_based is set.
+ * @rsta: Operate as the RSTA in the measurement. Only valid if @lmr_feedback
+ *	and either @trigger_based or @non_trigger_based is set.
  * @bss_color: the bss color of the responder. Optional. Set to zero to
  *	indicate the driver should set the BSS color. Only valid if
  *	@non_trigger_based or @trigger_based is set.
@@ -4218,7 +4553,8 @@ struct cfg80211_pmsr_ftm_request_peer {
 	   request_civicloc:1,
 	   trigger_based:1,
 	   non_trigger_based:1,
-	   lmr_feedback:1;
+	   lmr_feedback:1,
+	   rsta:1;
 	u8 num_bursts_exp;
 	u8 burst_duration;
 	u8 ftms_per_burst;
@@ -4667,6 +5003,19 @@ struct mgmt_frame_regs {
  * @nan_change_conf: changes NAN configuration. The changed parameters must
  *	be specified in @changes (using &enum cfg80211_nan_conf_changes);
  *	All other parameters must be ignored.
+ * @nan_set_local_sched: configure the local schedule for NAN. The schedule
+ *	consists of an array of %cfg80211_nan_channel and the schedule itself,
+ *	in which each entry maps each time slot to the channel on which the
+ *	radio should operate on. If the chandef of a NAN channel is not
+ *	changed, the channel entry must also remain unchanged. It is the
+ *	driver's responsibility to verify this.
+ * @nan_set_peer_sched: configure the peer schedule for NAN. The schedule
+ *	consists of an array of %cfg80211_nan_channel and the schedule itself,
+ *	in which each entry maps each time slot to a channel on which the
+ *	radio should operate on. In addition, it contains more peer's schedule
+ *	information such as committed DW, etc. When updating an existing peer
+ *	schedule, the full new schedule is provided - partial updates are not
+ *	supported, and the new schedule completely replaces the previous one.
  *
  * @set_multicast_to_unicast: configure multicast to unicast conversion for BSS
  *
@@ -4761,24 +5110,24 @@ struct cfg80211_ops {
 				 struct wireless_dev *wdev,
 				 unsigned int link_id);
 
-	int	(*add_key)(struct wiphy *wiphy, struct net_device *netdev,
+	int	(*add_key)(struct wiphy *wiphy, struct wireless_dev *wdev,
 			   int link_id, u8 key_index, bool pairwise,
 			   const u8 *mac_addr, struct key_params *params);
-	int	(*get_key)(struct wiphy *wiphy, struct net_device *netdev,
+	int	(*get_key)(struct wiphy *wiphy, struct wireless_dev *wdev,
 			   int link_id, u8 key_index, bool pairwise,
 			   const u8 *mac_addr, void *cookie,
 			   void (*callback)(void *cookie, struct key_params*));
-	int	(*del_key)(struct wiphy *wiphy, struct net_device *netdev,
+	int	(*del_key)(struct wiphy *wiphy, struct wireless_dev *wdev,
 			   int link_id, u8 key_index, bool pairwise,
 			   const u8 *mac_addr);
 	int	(*set_default_key)(struct wiphy *wiphy,
 				   struct net_device *netdev, int link_id,
 				   u8 key_index, bool unicast, bool multicast);
 	int	(*set_default_mgmt_key)(struct wiphy *wiphy,
-					struct net_device *netdev, int link_id,
+					struct wireless_dev *wdev, int link_id,
 					u8 key_index);
 	int	(*set_default_beacon_key)(struct wiphy *wiphy,
-					  struct net_device *netdev,
+					  struct wireless_dev *wdev,
 					  int link_id,
 					  u8 key_index);
 
@@ -4790,17 +5139,17 @@ struct cfg80211_ops {
 			   unsigned int link_id);
 
 
-	int	(*add_station)(struct wiphy *wiphy, struct net_device *dev,
+	int	(*add_station)(struct wiphy *wiphy, struct wireless_dev *wdev,
 			       const u8 *mac,
 			       struct station_parameters *params);
-	int	(*del_station)(struct wiphy *wiphy, struct net_device *dev,
+	int	(*del_station)(struct wiphy *wiphy, struct wireless_dev *wdev,
 			       struct station_del_parameters *params);
-	int	(*change_station)(struct wiphy *wiphy, struct net_device *dev,
+	int	(*change_station)(struct wiphy *wiphy, struct wireless_dev *wdev,
 				  const u8 *mac,
 				  struct station_parameters *params);
-	int	(*get_station)(struct wiphy *wiphy, struct net_device *dev,
+	int	(*get_station)(struct wiphy *wiphy, struct wireless_dev *wdev,
 			       const u8 *mac, struct station_info *sinfo);
-	int	(*dump_station)(struct wiphy *wiphy, struct net_device *dev,
+	int	(*dump_station)(struct wiphy *wiphy, struct wireless_dev *wdev,
 				int idx, u8 *mac, struct station_info *sinfo);
 
 	int	(*add_mpath)(struct wiphy *wiphy, struct net_device *dev,
@@ -5044,7 +5393,12 @@ struct cfg80211_ops {
 				   struct wireless_dev *wdev,
 				   struct cfg80211_nan_conf *conf,
 				   u32 changes);
-
+	int	(*nan_set_local_sched)(struct wiphy *wiphy,
+				       struct wireless_dev *wdev,
+				       struct cfg80211_nan_local_sched *sched);
+	int	(*nan_set_peer_sched)(struct wiphy *wiphy,
+				      struct wireless_dev *wdev,
+				      struct cfg80211_nan_peer_sched *sched);
 	int	(*set_multicast_to_unicast)(struct wiphy *wiphy,
 					    struct net_device *dev,
 					    const bool enabled);
@@ -5538,6 +5892,18 @@ cfg80211_get_iftype_ext_capa(struct wiphy *wiphy, enum nl80211_iftype type);
  *	not limited)
  * @ftm.trigger_based: trigger based ranging measurement is supported
  * @ftm.non_trigger_based: non trigger based ranging measurement is supported
+ * @ftm.support_6ghz: supports ranging in 6 GHz band
+ * @ftm.max_tx_ltf_rep: maximum number of TX LTF repetitions supported (0 means
+ *	only one LTF, no repetitions)
+ * @ftm.max_rx_ltf_rep: maximum number of RX LTF repetitions supported (0 means
+ *	only one LTF, no repetitions)
+ * @ftm.max_tx_sts: maximum number of TX STS supported (zero based)
+ * @ftm.max_rx_sts: maximum number of RX STS supported (zero based)
+ * @ftm.max_total_ltf_tx: maximum total number of LTFs that can be transmitted
+ *	(0 means unknown)
+ * @ftm.max_total_ltf_rx: maximum total number of LTFs that can be received
+ *	(0 means unknown)
+ * @ftm.support_rsta: supports operating as RSTA in PMSR FTM request
  */
 struct cfg80211_pmsr_capabilities {
 	unsigned int max_peers;
@@ -5555,7 +5921,15 @@ struct cfg80211_pmsr_capabilities {
 		   request_lci:1,
 		   request_civicloc:1,
 		   trigger_based:1,
-		   non_trigger_based:1;
+		   non_trigger_based:1,
+		   support_6ghz:1;
+		u8 max_tx_ltf_rep;
+		u8 max_rx_ltf_rep;
+		u8 max_tx_sts;
+		u8 max_rx_sts;
+		u8 max_total_ltf_tx;
+		u8 max_total_ltf_rx;
+		u8 support_rsta:1;
 	} ftm;
 };
 
@@ -5581,9 +5955,13 @@ struct wiphy_iftype_akm_suites {
  *
  * @rts_threshold: RTS threshold (dot11RTSThreshold);
  *	-1 (default) = RTS/CTS disabled
+ * @radio_debugfsdir: Pointer to debugfs directory containing the radio-
+ *	specific parameters.
+ *	NULL (default) = Debugfs directory not created
  */
 struct wiphy_radio_cfg {
 	u32 rts_threshold;
+	struct dentry *radio_debugfsdir;
 };
 
 /**
@@ -5620,6 +5998,53 @@ struct wiphy_radio {
 	int n_iface_combinations;
 
 	u32 antenna_mask;
+};
+
+/**
+ * enum wiphy_nan_flags - NAN capabilities
+ *
+ * @WIPHY_NAN_FLAGS_CONFIGURABLE_SYNC: Device supports NAN configurable
+ *     synchronization.
+ * @WIPHY_NAN_FLAGS_USERSPACE_DE: Device doesn't support DE offload.
+ */
+enum wiphy_nan_flags {
+	WIPHY_NAN_FLAGS_CONFIGURABLE_SYNC = BIT(0),
+	WIPHY_NAN_FLAGS_USERSPACE_DE   = BIT(1),
+};
+
+/**
+ * struct wiphy_nan_capa - NAN capabilities
+ *
+ * This structure describes the NAN capabilities of a wiphy.
+ *
+ * @flags: NAN capabilities flags, see &enum wiphy_nan_flags
+ * @op_mode: NAN operation mode, as defined in Wi-Fi Aware (TM) specification
+ *     Table 81.
+ * @n_antennas: number of antennas supported by the device for Tx/Rx. Lower
+ *     nibble indicates the number of TX antennas and upper nibble indicates the
+ *     number of RX antennas. Value 0 indicates the information is not
+ *     available.
+ * @max_channel_switch_time: maximum channel switch time in milliseconds.
+ * @dev_capabilities: NAN device capabilities as defined in Wi-Fi Aware (TM)
+ *     specification Table 79 (Capabilities field).
+ * @phy: Band-agnostic capabilities for NAN data interfaces. Since NAN
+ *     operates on multiple channels simultaneously, these capabilities apply
+ *     across all bands. Valid only if NL80211_IFTYPE_NAN_DATA is supported.
+ * @phy.ht: HT capabilities (mandatory for NAN data)
+ * @phy.vht: VHT capabilities (optional)
+ * @phy.he: HE capabilities (optional)
+ */
+struct wiphy_nan_capa {
+	u32 flags;
+	u8 op_mode;
+	u8 n_antennas;
+	u16 max_channel_switch_time;
+	u8 dev_capabilities;
+	struct {
+		struct ieee80211_sta_ht_cap ht;
+		struct ieee80211_sta_vht_cap vht;
+		struct ieee80211_sta_he_cap he;
+	} phy;
 };
 
 #define CFG80211_HW_TIMESTAMP_ALL_PEERS	0xffff
@@ -5782,6 +6207,11 @@ struct wiphy_radio {
  *	and probe responses.  This value should be set if the driver
  *	wishes to limit the number of csa counters. Default (0) means
  *	infinite.
+ * @bss_param_support: bitmask indicating which bss_parameters as defined in
+ *	&struct bss_parameters the driver can actually handle in the
+ *	.change_bss() callback. The bit positions are defined in &enum
+ *	wiphy_bss_param_flags.
+ *
  * @bss_select_support: bitmask indicating the BSS selection criteria supported
  *	by the driver in the .connect() callback. The bit position maps to the
  *	attribute indices defined in &enum nl80211_bss_select_attr.
@@ -5790,6 +6220,7 @@ struct wiphy_radio {
  *	bitmap of &enum nl80211_band values.  For instance, for
  *	NL80211_BAND_2GHZ, bit 0 would be set
  *	(i.e. BIT(NL80211_BAND_2GHZ)).
+ * @nan_capa: NAN capabilities
  *
  * @txq_limit: configuration of internal TX queue frame limit
  * @txq_memory_limit: configuration internal TX queue memory limit
@@ -5967,9 +6398,11 @@ struct wiphy {
 
 	u8 max_num_csa_counters;
 
+	u32 bss_param_support;
 	u32 bss_select_support;
 
 	u8 nan_supported_bands;
+	struct wiphy_nan_capa nan_capa;
 
 	u32 txq_limit;
 	u32 txq_memory_limit;
@@ -6289,6 +6722,11 @@ static inline void wiphy_delayed_work_init(struct wiphy_delayed_work *dwork,
  * after wiphy_lock() was called. Therefore, wiphy_cancel_work() can
  * use just cancel_work() instead of cancel_work_sync(), it requires
  * being in a section protected by wiphy_lock().
+ *
+ * Note that these are scheduled with a timer where the accuracy
+ * becomes less the longer in the future the scheduled timer is. Use
+ * wiphy_hrtimer_work_queue() if the timer must be not be late by more
+ * than approximately 10 percent.
  */
 void wiphy_delayed_work_queue(struct wiphy *wiphy,
 			      struct wiphy_delayed_work *dwork,
@@ -6360,6 +6798,79 @@ void wiphy_delayed_work_flush(struct wiphy *wiphy,
 bool wiphy_delayed_work_pending(struct wiphy *wiphy,
 				struct wiphy_delayed_work *dwork);
 
+struct wiphy_hrtimer_work {
+	struct wiphy_work work;
+	struct wiphy *wiphy;
+	struct hrtimer timer;
+};
+
+enum hrtimer_restart wiphy_hrtimer_work_timer(struct hrtimer *t);
+
+static inline void wiphy_hrtimer_work_init(struct wiphy_hrtimer_work *hrwork,
+					   wiphy_work_func_t func)
+{
+	hrtimer_setup(&hrwork->timer, wiphy_hrtimer_work_timer,
+		      CLOCK_BOOTTIME, HRTIMER_MODE_REL);
+	wiphy_work_init(&hrwork->work, func);
+}
+
+/**
+ * wiphy_hrtimer_work_queue - queue hrtimer work for the wiphy
+ * @wiphy: the wiphy to queue for
+ * @hrwork: the high resolution timer worker
+ * @delay: the delay given as a ktime_t
+ *
+ * Please refer to wiphy_delayed_work_queue(). The difference is that
+ * the hrtimer work uses a high resolution timer for scheduling. This
+ * may be needed if timeouts might be scheduled further in the future
+ * and the accuracy of the normal timer is not sufficient.
+ *
+ * Expect a delay of a few milliseconds as the timer is scheduled
+ * with some slack and some more time may pass between queueing the
+ * work and its start.
+ */
+void wiphy_hrtimer_work_queue(struct wiphy *wiphy,
+			      struct wiphy_hrtimer_work *hrwork,
+			      ktime_t delay);
+
+/**
+ * wiphy_hrtimer_work_cancel - cancel previously queued hrtimer work
+ * @wiphy: the wiphy, for debug purposes
+ * @hrtimer: the hrtimer work to cancel
+ *
+ * Cancel the work *without* waiting for it, this assumes being
+ * called under the wiphy mutex acquired by wiphy_lock().
+ */
+void wiphy_hrtimer_work_cancel(struct wiphy *wiphy,
+			       struct wiphy_hrtimer_work *hrtimer);
+
+/**
+ * wiphy_hrtimer_work_flush - flush previously queued hrtimer work
+ * @wiphy: the wiphy, for debug purposes
+ * @hrwork: the hrtimer work to flush
+ *
+ * Flush the work (i.e. run it if pending). This must be called
+ * under the wiphy mutex acquired by wiphy_lock().
+ */
+void wiphy_hrtimer_work_flush(struct wiphy *wiphy,
+			      struct wiphy_hrtimer_work *hrwork);
+
+/**
+ * wiphy_hrtimer_work_pending - Find out whether a wiphy hrtimer
+ * work item is currently pending.
+ *
+ * @wiphy: the wiphy, for debug purposes
+ * @hrwork: the hrtimer work in question
+ *
+ * Return: true if timer is pending, false otherwise
+ *
+ * Please refer to the wiphy_delayed_work_pending() documentation as
+ * this is the equivalent function for hrtimer based delayed work
+ * items.
+ */
+bool wiphy_hrtimer_work_pending(struct wiphy *wiphy,
+				struct wiphy_hrtimer_work *hrwork);
+
 /**
  * enum ieee80211_ap_reg_power - regulatory power for an Access Point
  *
@@ -6427,8 +6938,8 @@ enum ieee80211_ap_reg_power {
  *	the P2P Device.
  * @ps: powersave mode is enabled
  * @ps_timeout: dynamic powersave timeout
- * @ap_unexpected_nlportid: (private) netlink port ID of application
- *	registered for unexpected class 3 frames (AP mode)
+ * @unexpected_nlportid: (private) netlink port ID of application
+ *	registered for unexpected frames (AP mode or NAN_DATA mode)
  * @conn: (private) cfg80211 software SME connection state machine data
  * @connect_keys: (private) keys to set after connection is established
  * @conn_bss_type: connecting/connected BSS type
@@ -6490,7 +7001,7 @@ struct wireless_dev {
 	bool ps;
 	int ps_timeout;
 
-	u32 ap_unexpected_nlportid;
+	u32 unexpected_nlportid;
 
 	u32 owner_nlportid;
 	bool nl_owner_dead;
@@ -6548,6 +7059,12 @@ struct wireless_dev {
 		struct {
 			struct cfg80211_chan_def chandef;
 		} ocb;
+		struct {
+			u8 cluster_id[ETH_ALEN] __aligned(2);
+			u8 n_channels;
+			struct cfg80211_chan_def *chandefs;
+			bool sched_update_pending;
+		} nan;
 	} u;
 
 	struct {
@@ -6656,16 +7173,6 @@ ieee80211_channel_to_khz(const struct ieee80211_channel *chan)
 }
 
 /**
- * ieee80211_s1g_channel_width - get allowed channel width from @chan
- *
- * Only allowed for band NL80211_BAND_S1GHZ
- * @chan: channel
- * Return: The allowed channel width for this center_freq
- */
-enum nl80211_chan_width
-ieee80211_s1g_channel_width(const struct ieee80211_channel *chan);
-
-/**
  * ieee80211_channel_to_freq_khz - convert channel number to frequency
  * @chan: channel number
  * @band: band, necessary due to channel number overlap
@@ -6742,6 +7249,19 @@ static inline bool cfg80211_channel_is_psc(struct ieee80211_channel *chan)
 
 	return ieee80211_frequency_to_channel(chan->center_freq) % 16 == 5;
 }
+
+/**
+ * ieee80211_radio_freq_range_valid - Check if the radio supports the
+ * specified frequency range
+ *
+ * @radio: wiphy radio
+ * @freq: the frequency (in KHz) to be queried
+ * @width: the bandwidth (in KHz) to be queried
+ *
+ * Return: whether or not the given frequency range is valid for the given radio
+ */
+bool ieee80211_radio_freq_range_valid(const struct wiphy_radio *radio,
+				      u32 freq, u32 width);
 
 /**
  * cfg80211_radio_chandef_valid - Check if the radio supports the chandef
@@ -8649,35 +9169,35 @@ static inline void cfg80211_sinfo_release_content(struct station_info *sinfo)
 /**
  * cfg80211_new_sta - notify userspace about station
  *
- * @dev: the netdev
+ * @wdev: the wireless device
  * @mac_addr: the station's address
  * @sinfo: the station information
  * @gfp: allocation flags
  */
-void cfg80211_new_sta(struct net_device *dev, const u8 *mac_addr,
+void cfg80211_new_sta(struct wireless_dev *wdev, const u8 *mac_addr,
 		      struct station_info *sinfo, gfp_t gfp);
 
 /**
  * cfg80211_del_sta_sinfo - notify userspace about deletion of a station
- * @dev: the netdev
+ * @wdev: the wireless device
  * @mac_addr: the station's address. For MLD station, MLD address is used.
  * @sinfo: the station information/statistics
  * @gfp: allocation flags
  */
-void cfg80211_del_sta_sinfo(struct net_device *dev, const u8 *mac_addr,
+void cfg80211_del_sta_sinfo(struct wireless_dev *wdev, const u8 *mac_addr,
 			    struct station_info *sinfo, gfp_t gfp);
 
 /**
  * cfg80211_del_sta - notify userspace about deletion of a station
  *
- * @dev: the netdev
+ * @wdev: the wireless device
  * @mac_addr: the station's address. For MLD station, MLD address is used.
  * @gfp: allocation flags
  */
-static inline void cfg80211_del_sta(struct net_device *dev,
+static inline void cfg80211_del_sta(struct wireless_dev *wdev,
 				    const u8 *mac_addr, gfp_t gfp)
 {
-	cfg80211_del_sta_sinfo(dev, mac_addr, NULL, gfp);
+	cfg80211_del_sta_sinfo(wdev, mac_addr, NULL, gfp);
 }
 
 /**
@@ -9052,9 +9572,10 @@ void cfg80211_pmksa_candidate_notify(struct net_device *dev, int index,
  * @addr: the transmitter address
  * @gfp: context flags
  *
- * This function is used in AP mode (only!) to inform userspace that
- * a spurious class 3 frame was received, to be able to deauth the
- * sender.
+ * This function is used in AP mode to inform userspace that a spurious
+ * class 3 frame was received, to be able to deauth the sender.
+ * It is also used in NAN_DATA mode to report frames from unknown peers
+ * (A2 not assigned to any active NDP), per Wi-Fi Aware (TM) 4.0 specification 6.2.5.
  * Return: %true if the frame was passed to userspace (or this failed
  * for a reason other than not having a subscription.)
  */
@@ -9548,11 +10069,26 @@ int cfg80211_iter_combinations(struct wiphy *wiphy,
  * @wiphy: the wiphy
  * @chan: channel for which the supported radio index is required
  *
- * Return: radio index on success or a negative error code
+ * Return: radio index on success or -EINVAL otherwise
  */
 int cfg80211_get_radio_idx_by_chan(struct wiphy *wiphy,
 				   const struct ieee80211_channel *chan);
 
+/**
+ * cfg80211_stop_link - stop AP/P2P_GO link if link_id is non-negative or stops
+ *                      all links on the interface.
+ *
+ * @wiphy: the wiphy
+ * @wdev: wireless device
+ * @link_id: valid link ID in case of MLO AP/P2P_GO Operation or else -1
+ * @gfp: context flags
+ *
+ * If link_id is set during MLO operation, stops only the specified AP/P2P_GO
+ * link and if link_id is set to -1 or last link is stopped, the entire
+ * interface is stopped as if AP was stopped, IBSS/mesh left, STA disconnected.
+ */
+void cfg80211_stop_link(struct wiphy *wiphy, struct wireless_dev *wdev,
+			int link_id, gfp_t gfp);
 
 /**
  * cfg80211_stop_iface - trigger interface disconnection
@@ -9566,8 +10102,11 @@ int cfg80211_get_radio_idx_by_chan(struct wiphy *wiphy,
  *
  * Note: This doesn't need any locks and is asynchronous.
  */
-void cfg80211_stop_iface(struct wiphy *wiphy, struct wireless_dev *wdev,
-			 gfp_t gfp);
+static inline void
+cfg80211_stop_iface(struct wiphy *wiphy, struct wireless_dev *wdev, gfp_t gfp)
+{
+	cfg80211_stop_link(wiphy, wdev, -1, gfp);
+}
 
 /**
  * cfg80211_shutdown_all_interfaces - shut down all interfaces for a wiphy
@@ -9682,6 +10221,18 @@ void cfg80211_nan_func_terminated(struct wireless_dev *wdev,
 				  u8 inst_id,
 				  enum nl80211_nan_func_term_reason reason,
 				  u64 cookie, gfp_t gfp);
+
+/**
+ * cfg80211_nan_sched_update_done - notify deferred schedule update completion
+ * @wdev: the wireless device reporting the event
+ * @success: whether or not the schedule update was successful
+ * @gfp: allocation flags
+ *
+ * This function notifies user space that a deferred local NAN schedule update
+ * (requested with %NL80211_ATTR_NAN_SCHED_DEFERRED) has been completed.
+ */
+void cfg80211_nan_sched_update_done(struct wireless_dev *wdev, bool success,
+				    gfp_t gfp);
 
 /* ethtool helper */
 void cfg80211_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info);
@@ -9901,6 +10452,36 @@ static inline int cfg80211_color_change_notify(struct net_device *dev,
 }
 
 /**
+ * cfg80211_6ghz_power_type - determine AP regulatory power type
+ * @control: control flags
+ * @client_flags: &enum ieee80211_channel_flags for station mode to enable
+ *	SP to LPI fallback, zero otherwise.
+ *
+ * Return: regulatory power type from &enum ieee80211_ap_reg_power
+ */
+static inline enum ieee80211_ap_reg_power
+cfg80211_6ghz_power_type(u8 control, u32 client_flags)
+{
+	switch (u8_get_bits(control, IEEE80211_HE_6GHZ_OPER_CTRL_REG_INFO)) {
+	case IEEE80211_6GHZ_CTRL_REG_LPI_AP:
+	case IEEE80211_6GHZ_CTRL_REG_INDOOR_LPI_AP:
+	case IEEE80211_6GHZ_CTRL_REG_AP_ROLE_NOT_RELEVANT:
+	case IEEE80211_6GHZ_CTRL_REG_INDOOR_SP_AP_OLD:
+		return IEEE80211_REG_LPI_AP;
+	case IEEE80211_6GHZ_CTRL_REG_SP_AP:
+		return IEEE80211_REG_SP_AP;
+	case IEEE80211_6GHZ_CTRL_REG_VLP_AP:
+		return IEEE80211_REG_VLP_AP;
+	case IEEE80211_6GHZ_CTRL_REG_INDOOR_SP_AP:
+		if (client_flags & IEEE80211_CHAN_NO_6GHZ_AFC_CLIENT)
+			return IEEE80211_REG_LPI_AP;
+		return IEEE80211_REG_SP_AP;
+	default:
+		return IEEE80211_REG_UNSET_AP;
+	}
+}
+
+/**
  * cfg80211_links_removed - Notify about removed STA MLD setup links.
  * @dev: network device.
  * @link_mask: BIT mask of removed STA MLD setup link IDs.
@@ -9970,6 +10551,62 @@ void cfg80211_schedule_channels_check(struct wireless_dev *wdev);
  */
 void cfg80211_epcs_changed(struct net_device *netdev, bool enabled);
 
+/**
+ * cfg80211_next_nan_dw_notif - Notify about the next NAN Discovery Window (DW)
+ * @wdev: Pointer to the wireless device structure
+ * @chan: DW channel (6, 44 or 149)
+ * @gfp: Memory allocation flags
+ */
+void cfg80211_next_nan_dw_notif(struct wireless_dev *wdev,
+				struct ieee80211_channel *chan, gfp_t gfp);
+
+/**
+ * cfg80211_nan_cluster_joined - Notify about NAN cluster join
+ * @wdev: Pointer to the wireless device structure
+ * @cluster_id: Cluster ID of the NAN cluster that was joined or started
+ * @new_cluster: Indicates if this is a new cluster or an existing one
+ * @gfp: Memory allocation flags
+ *
+ * This function is used to notify user space when a NAN cluster has been
+ * joined, providing the cluster ID and a flag whether it is a new cluster.
+ */
+void cfg80211_nan_cluster_joined(struct wireless_dev *wdev,
+				 const u8 *cluster_id, bool new_cluster,
+				 gfp_t gfp);
+
+/**
+ * cfg80211_nan_ulw_update - Notify user space about ULW update
+ * @wdev: Pointer to the wireless device structure
+ * @ulw: Pointer to the ULW blob data
+ * @ulw_len: Length of the ULW blob in bytes
+ * @gfp: Memory allocation flags
+ *
+ * This function is used by drivers to notify user space when the device's
+ * ULW (Unaligned Schedule) blob has been updated. User space can use this
+ * blob to attach to frames sent to peers.
+ */
+void cfg80211_nan_ulw_update(struct wireless_dev *wdev,
+			     const u8 *ulw, size_t ulw_len, gfp_t gfp);
+
+/**
+ * cfg80211_nan_channel_evac - Notify user space about NAN channel evacuation
+ * @wdev: Pointer to the wireless device structure
+ * @chandef: Pointer to the channel definition of the NAN channel that was
+ *	evacuated
+ * @gfp: Memory allocation flags
+ *
+ * This function is used by drivers to notify user space when a NAN
+ * channel has been evacuated (i.e. ULWed) due to channel resource conflicts
+ * with other interfaces.
+ * This can happen when another interface sharing the channel resource with NAN
+ * needs to move to a different channel (e.g. due to channel switch or link
+ * switch). User space may reconfigure the local schedule to exclude the
+ * evacuated channel.
+ */
+void cfg80211_nan_channel_evac(struct wireless_dev *wdev,
+			       const struct cfg80211_chan_def *chandef,
+			       gfp_t gfp);
+
 #ifdef CONFIG_CFG80211_DEBUGFS
 /**
  * wiphy_locked_debugfs_read - do a locked read in debugfs
@@ -10019,5 +10656,96 @@ ssize_t wiphy_locked_debugfs_write(struct wiphy *wiphy, struct file *file,
 						      void *data),
 				   void *data);
 #endif
+
+/**
+ * cfg80211_s1g_get_start_freq_khz - get S1G chandef start frequency
+ * @chandef: the chandef to use
+ *
+ * Return: the chandefs starting frequency in KHz
+ */
+static inline u32
+cfg80211_s1g_get_start_freq_khz(const struct cfg80211_chan_def *chandef)
+{
+	u32 bw_mhz = cfg80211_chandef_get_width(chandef);
+	u32 center_khz =
+		MHZ_TO_KHZ(chandef->center_freq1) + chandef->freq1_offset;
+	return center_khz - bw_mhz * 500 + 500;
+}
+
+/**
+ * cfg80211_s1g_get_end_freq_khz - get S1G chandef end frequency
+ * @chandef: the chandef to use
+ *
+ * Return: the chandefs ending frequency in KHz
+ */
+static inline u32
+cfg80211_s1g_get_end_freq_khz(const struct cfg80211_chan_def *chandef)
+{
+	u32 bw_mhz = cfg80211_chandef_get_width(chandef);
+	u32 center_khz =
+		MHZ_TO_KHZ(chandef->center_freq1) + chandef->freq1_offset;
+	return center_khz + bw_mhz * 500 - 500;
+}
+
+/**
+ * cfg80211_s1g_get_primary_sibling - retrieve the sibling 1MHz subchannel
+ *	for an S1G chandef using a 2MHz primary channel.
+ * @wiphy: wiphy the channel belongs to
+ * @chandef: the chandef to use
+ *
+ * When chandef::s1g_primary_2mhz is set to true, we are operating on a 2MHz
+ * primary channel. The 1MHz subchannel designated by the primary channel
+ * location exists within chandef::chan, whilst the 'sibling' is denoted as
+ * being the other 1MHz subchannel that make up the 2MHz primary channel.
+ *
+ * Returns: the sibling 1MHz &struct ieee80211_channel, or %NULL on failure.
+ */
+static inline struct ieee80211_channel *
+cfg80211_s1g_get_primary_sibling(struct wiphy *wiphy,
+				 const struct cfg80211_chan_def *chandef)
+{
+	int width_mhz = cfg80211_chandef_get_width(chandef);
+	u32 pri_1mhz_khz, sibling_1mhz_khz, op_low_1mhz_khz, pri_index;
+
+	if (!chandef->s1g_primary_2mhz || width_mhz < 2)
+		return NULL;
+
+	pri_1mhz_khz = ieee80211_channel_to_khz(chandef->chan);
+	op_low_1mhz_khz = cfg80211_s1g_get_start_freq_khz(chandef);
+
+	/*
+	 * Compute the index of the primary 1 MHz subchannel within the
+	 * operating channel, relative to the lowest 1 MHz center frequency.
+	 * Flip the least significant bit to select the even/odd sibling,
+	 * then translate that index back into a channel frequency.
+	 */
+	pri_index = (pri_1mhz_khz - op_low_1mhz_khz) / 1000;
+	sibling_1mhz_khz = op_low_1mhz_khz + ((pri_index ^ 1) * 1000);
+
+	return ieee80211_get_channel_khz(wiphy, sibling_1mhz_khz);
+}
+
+
+/**
+ * cfg80211_incumbent_signal_notify - Notify userspace of incumbent signal detection
+ * @wiphy: the wiphy to use
+ * @chandef: channel definition in which the interference was detected
+ * @signal_interference_bitmap: bitmap indicating interference across 20 MHz segments
+ * @gfp: allocation context for message creation and multicast; pass GFP_ATOMIC
+ *	if called from atomic context (e.g. firmware event handler), otherwise
+ *	GFP_KERNEL
+ *
+ * Use this function to notify userspace when an incumbent signal is detected on
+ * the operating channel in the 6 GHz band. The notification includes the
+ * current channel definition and a bitmap representing interference across
+ * the operating bandwidth. Each bit in the bitmap corresponds to a 20 MHz
+ * segment, with the lowest bit representing the lowest frequency segment.
+ * Punctured sub-channels are included in the bitmap structure but are always
+ * set to zero since interference detection is not performed on them.
+ */
+void cfg80211_incumbent_signal_notify(struct wiphy *wiphy,
+				      const struct cfg80211_chan_def *chandef,
+				      u32 signal_interference_bitmap,
+				      gfp_t gfp);
 
 #endif /* __NET_CFG80211_H */

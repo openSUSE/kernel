@@ -20,7 +20,6 @@
 
 #define KPMSIZE sizeof(u64)
 #define KPMMASK (KPMSIZE - 1)
-#define KPMBITS (KPMSIZE * BITS_PER_BYTE)
 
 enum kpage_operation {
 	KPAGE_FLAGS,
@@ -163,7 +162,7 @@ u64 stable_page_flags(const struct page *page)
 	snapshot_page(&ps, page);
 	folio = &ps.folio_snapshot;
 
-	k = folio->flags;
+	k = folio->flags.f;
 	mapping = (unsigned long)folio->mapping;
 	is_anon = mapping & FOLIO_MAPPING_ANON;
 
@@ -238,7 +237,7 @@ u64 stable_page_flags(const struct page *page)
 	if (u & (1 << KPF_HUGE))
 		u |= kpf_copy_bit(k, KPF_HWPOISON,	PG_hwpoison);
 	else
-		u |= kpf_copy_bit(ps.page_snapshot.flags, KPF_HWPOISON, PG_hwpoison);
+		u |= kpf_copy_bit(ps.page_snapshot.flags.f, KPF_HWPOISON, PG_hwpoison);
 #endif
 
 	u |= kpf_copy_bit(k, KPF_RESERVED,	PG_reserved);
@@ -256,6 +255,7 @@ u64 stable_page_flags(const struct page *page)
 
 	return u;
 }
+EXPORT_SYMBOL_GPL(stable_page_flags);
 
 /* /proc/kpageflags - an array exposing page flags
  *

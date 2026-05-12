@@ -192,6 +192,14 @@ static int scs_handle_fde_frame(const struct eh_frame *frame,
 			size -= 2;
 			break;
 
+		case DW_CFA_advance_loc4:
+			loc += *opcode++ * code_alignment_factor;
+			loc += (*opcode++ << 8) * code_alignment_factor;
+			loc += (*opcode++ << 16) * code_alignment_factor;
+			loc += ((u64)*opcode++ << 24) * code_alignment_factor;
+			size -= 4;
+			break;
+
 		case DW_CFA_def_cfa:
 		case DW_CFA_offset_extended:
 			size = skip_xleb128(&opcode, size);
@@ -225,7 +233,7 @@ static int scs_handle_fde_frame(const struct eh_frame *frame,
 	return 0;
 }
 
-int scs_patch(const u8 eh_frame[], int size)
+int scs_patch(const u8 eh_frame[], int size, bool skip_dry_run)
 {
 	int code_alignment_factor = 1;
 	bool fde_use_sdata8 = false;
@@ -277,11 +285,13 @@ int scs_patch(const u8 eh_frame[], int size)
 			}
 		} else {
 			ret = scs_handle_fde_frame(frame, code_alignment_factor,
-						   fde_use_sdata8, true);
+						   fde_use_sdata8, !skip_dry_run);
 			if (ret)
 				return ret;
-			scs_handle_fde_frame(frame, code_alignment_factor,
-					     fde_use_sdata8, false);
+
+			if (!skip_dry_run)
+				scs_handle_fde_frame(frame, code_alignment_factor,
+						     fde_use_sdata8, false);
 		}
 
 		p += sizeof(frame->size) + frame->size;

@@ -488,7 +488,7 @@ at91_clk_register_master_internal(struct regmap *regmap,
 	if (!name || !num_parents || !(parent_names || parent_hws) || !lock)
 		return ERR_PTR(-EINVAL);
 
-	master = kzalloc(sizeof(*master), GFP_KERNEL);
+	master = kzalloc_obj(*master);
 	if (!master)
 		return ERR_PTR(-ENOMEM);
 
@@ -579,6 +579,9 @@ clk_sama7g5_master_recalc_rate(struct clk_hw *hw,
 			       unsigned long parent_rate)
 {
 	struct clk_master *master = to_clk_master(hw);
+
+	if (master->div == MASTER_PRES_MAX)
+		return DIV_ROUND_CLOSEST_ULL(parent_rate, 3);
 
 	return DIV_ROUND_CLOSEST_ULL(parent_rate, (1 << master->div));
 }
@@ -828,7 +831,7 @@ at91_clk_sama7g5_register_master(struct regmap *regmap,
 	    !lock || id > MASTER_MAX_ID)
 		return ERR_PTR(-EINVAL);
 
-	master = kzalloc(sizeof(*master), GFP_KERNEL);
+	master = kzalloc_obj(*master);
 	if (!master)
 		return ERR_PTR(-ENOMEM);
 

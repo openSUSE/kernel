@@ -260,8 +260,8 @@ static int rts51x_bulk_transport(struct us_data *us, u8 lun,
 	 * try to compute the actual residue, based on how much data
 	 * was really transferred and what the device tells us
 	 */
-	if (residue)
-		residue = residue < buf_len ? residue : buf_len;
+	if (residue > buf_len)
+		residue = buf_len;
 
 	if (act_len)
 		*act_len = buf_len - residue;
@@ -976,7 +976,7 @@ static int init_realtek_cr(struct us_data *us)
 	struct rts51x_chip *chip;
 	int size, i, retval;
 
-	chip = kzalloc(sizeof(struct rts51x_chip), GFP_KERNEL);
+	chip = kzalloc_obj(struct rts51x_chip);
 	if (!chip)
 		return -ENOMEM;
 

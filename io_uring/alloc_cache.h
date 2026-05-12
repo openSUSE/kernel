@@ -1,7 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef IOU_ALLOC_CACHE_H
 #define IOU_ALLOC_CACHE_H
 
 #include <linux/io_uring_types.h>
+#include <linux/kasan.h>
 
 /*
  * Don't allow the cache to grow beyond this size.
@@ -62,7 +64,7 @@ static inline void *io_cache_alloc(struct io_alloc_cache *cache, gfp_t gfp)
 static inline void io_cache_free(struct io_alloc_cache *cache, void *obj)
 {
 	if (!io_alloc_cache_put(cache, obj))
-		kfree(obj);
+		kvfree(obj);
 }
 
 #endif

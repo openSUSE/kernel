@@ -26,6 +26,7 @@ struct env {
 	bool list;
 	bool affinity;
 	bool quiet;
+	bool stacktrace;
 	int consumer_cnt;
 	int producer_cnt;
 	int nr_cpus;
@@ -46,6 +47,7 @@ struct bench_res {
 	unsigned long gp_ns;
 	unsigned long gp_ct;
 	unsigned int stime;
+	unsigned long duration_ns;
 };
 
 struct bench {

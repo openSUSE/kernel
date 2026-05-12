@@ -272,7 +272,7 @@ static int __init dm_init(void)
 	int r, i;
 
 #if (IS_ENABLED(CONFIG_IMA) && !IS_ENABLED(CONFIG_IMA_DISABLE_HTABLE))
-	DMWARN("CONFIG_IMA_DISABLE_HTABLE is disabled."
+	DMINFO("CONFIG_IMA_DISABLE_HTABLE is disabled."
 	       " Duplicate IMA measurements will not be recorded in the IMA log.");
 #endif
 
@@ -403,9 +403,9 @@ static void do_deferred_remove(struct work_struct *w)
 	dm_deferred_remove();
 }
 
-static int dm_blk_getgeo(struct block_device *bdev, struct hd_geometry *geo)
+static int dm_blk_getgeo(struct gendisk *disk, struct hd_geometry *geo)
 {
-	struct mapped_device *md = bdev->bd_disk->private_data;
+	struct mapped_device *md = disk->private_data;
 
 	return dm_get_geometry(md, geo);
 }
@@ -490,18 +490,13 @@ u64 dm_start_time_ns_from_clone(struct bio *bio)
 }
 EXPORT_SYMBOL_GPL(dm_start_time_ns_from_clone);
 
-static inline bool bio_is_flush_with_data(struct bio *bio)
-{
-	return ((bio->bi_opf & REQ_PREFLUSH) && bio->bi_iter.bi_size);
-}
-
 static inline unsigned int dm_io_sectors(struct dm_io *io, struct bio *bio)
 {
 	/*
 	 * If REQ_PREFLUSH set, don't account payload, it will be
 	 * submitted (and accounted) after this flush completes.
 	 */
-	if (bio_is_flush_with_data(bio))
+	if (io->requeue_flush_with_data)
 		return 0;
 	if (unlikely(dm_io_flagged(io, DM_IO_WAS_SPLIT)))
 		return io->sectors;
@@ -590,6 +585,7 @@ static struct dm_io *alloc_io(struct mapped_device *md, struct bio *bio, gfp_t g
 	io = container_of(tio, struct dm_io, tio);
 	io->magic = DM_IO_MAGIC;
 	io->status = BLK_STS_OK;
+	io->requeue_flush_with_data = false;
 
 	/* one ref is for submission, the other is for completion */
 	atomic_set(&io->io_count, 2);
@@ -948,6 +944,7 @@ static void __dm_io_complete(struct dm_io *io, bool first_stage)
 	struct mapped_device *md = io->md;
 	blk_status_t io_error;
 	bool requeued;
+	bool requeue_flush_with_data;
 
 	requeued = dm_handle_requeue(io, first_stage);
 	if (requeued && first_stage)
@@ -964,6 +961,7 @@ static void __dm_io_complete(struct dm_io *io, bool first_stage)
 		__dm_start_io_acct(io);
 		dm_end_io_acct(io);
 	}
+	requeue_flush_with_data = io->requeue_flush_with_data;
 	free_io(io);
 	smp_wmb();
 	this_cpu_dec(*md->pending_io);
@@ -976,7 +974,7 @@ static void __dm_io_complete(struct dm_io *io, bool first_stage)
 	if (requeued)
 		return;
 
-	if (bio_is_flush_with_data(bio)) {
+	if (unlikely(requeue_flush_with_data)) {
 		/*
 		 * Preflush done for flush with data, reissue
 		 * without REQ_PREFLUSH.
@@ -1323,6 +1321,7 @@ void dm_accept_partial_bio(struct bio *bio, unsigned int n_sectors)
 	BUG_ON(dm_tio_flagged(tio, DM_TIO_IS_DUPLICATE_BIO));
 	BUG_ON(bio_sectors > *tio->len_ptr);
 	BUG_ON(n_sectors > bio_sectors);
+	BUG_ON(bio->bi_opf & REQ_ATOMIC);
 
 	if (static_branch_unlikely(&zoned_enabled) &&
 	    unlikely(bdev_is_zoned(bio->bi_bdev))) {
@@ -1364,6 +1363,8 @@ void dm_submit_bio_remap(struct bio *clone, struct bio *tgt_clone)
 	/* establish bio that will get submitted */
 	if (!tgt_clone)
 		tgt_clone = clone;
+
+	bio_clone_blkg_association(tgt_clone, io->orig_bio);
 
 	/*
 	 * Account io->origin_bio to DM dev on behalf of target
@@ -1737,8 +1738,12 @@ static blk_status_t __split_and_process_bio(struct clone_info *ci)
 	ci->submit_as_polled = !!(ci->bio->bi_opf & REQ_POLLED);
 
 	len = min_t(sector_t, max_io_len(ti, ci->sector), ci->sector_count);
-	if (ci->bio->bi_opf & REQ_ATOMIC && len != ci->sector_count)
-		return BLK_STS_IOERR;
+	if (ci->bio->bi_opf & REQ_ATOMIC) {
+		if (unlikely(!dm_target_supports_atomic_writes(ti->type)))
+			return BLK_STS_IOERR;
+		if (unlikely(len != ci->sector_count))
+			return BLK_STS_IOERR;
+	}
 
 	setup_split_accounting(ci, len);
 
@@ -1996,12 +2001,30 @@ static void dm_split_and_process_bio(struct mapped_device *md,
 	}
 	init_clone_info(&ci, io, map, bio, is_abnormal);
 
-	if (bio->bi_opf & REQ_PREFLUSH) {
+	if (unlikely((bio->bi_opf & REQ_PREFLUSH) != 0)) {
+		/*
+		 * The "flush_bypasses_map" is set on targets where it is safe
+		 * to skip the map function and submit bios directly to the
+		 * underlying block devices - currently, it is set for dm-linear
+		 * and dm-stripe.
+		 *
+		 * If we have just one underlying device (i.e. there is one
+		 * linear target or multiple linear targets pointing to the same
+		 * device), we can send the flush with data directly to it.
+		 */
+		if (bio->bi_iter.bi_size && map->flush_bypasses_map) {
+			struct list_head *devices = dm_table_get_devices(map);
+			if (devices->next == devices->prev)
+				goto send_preflush_with_data;
+		}
+		if (bio->bi_iter.bi_size)
+			io->requeue_flush_with_data = true;
 		__send_empty_flush(&ci);
 		/* dm_io_complete submits any data associated with flush */
 		goto out;
 	}
 
+send_preflush_with_data:
 	if (static_branch_unlikely(&zoned_enabled) &&
 	    (bio_op(bio) == REQ_OP_ZONE_RESET_ALL)) {
 		error = __send_zone_reset_all(&ci);
@@ -2345,7 +2368,8 @@ static struct mapped_device *alloc_dev(int minor)
 
 	format_dev_t(md->name, MKDEV(_major, minor));
 
-	md->wq = alloc_workqueue("kdmflush/%s", WQ_MEM_RECLAIM, 0, md->name);
+	md->wq = alloc_workqueue("kdmflush/%s", WQ_MEM_RECLAIM | WQ_PERCPU, 0,
+				 md->name);
 	if (!md->wq)
 		goto bad;
 
@@ -2423,7 +2447,6 @@ static struct dm_table *__bind(struct mapped_device *md, struct dm_table *t,
 {
 	struct dm_table *old_map;
 	sector_t size, old_size;
-	int ret;
 
 	lockdep_assert_held(&md->suspend_lock);
 
@@ -2438,11 +2461,13 @@ static struct dm_table *__bind(struct mapped_device *md, struct dm_table *t,
 
 	set_capacity(md->disk, size);
 
-	ret = dm_table_set_restrictions(t, md->queue, limits);
-	if (ret) {
-		set_capacity(md->disk, old_size);
-		old_map = ERR_PTR(ret);
-		goto out;
+	if (limits) {
+		int ret = dm_table_set_restrictions(t, md->queue, limits);
+		if (ret) {
+			set_capacity(md->disk, old_size);
+			old_map = ERR_PTR(ret);
+			goto out;
+		}
 	}
 
 	/*
@@ -2820,6 +2845,7 @@ static void dm_wq_work(struct work_struct *work)
 
 static void dm_queue_flush(struct mapped_device *md)
 {
+	clear_bit(DMF_NOFLUSH_SUSPENDING, &md->flags);
 	clear_bit(DMF_BLOCK_IO_FOR_SUSPEND, &md->flags);
 	smp_mb__after_atomic();
 	queue_work(md->wq, &md->work);
@@ -2832,6 +2858,7 @@ struct dm_table *dm_swap_table(struct mapped_device *md, struct dm_table *table)
 {
 	struct dm_table *live_map = NULL, *map = ERR_PTR(-EINVAL);
 	struct queue_limits limits;
+	bool update_limits = true;
 	int r;
 
 	mutex_lock(&md->suspend_lock);
@@ -2841,19 +2868,30 @@ struct dm_table *dm_swap_table(struct mapped_device *md, struct dm_table *table)
 		goto out;
 
 	/*
+	 * To avoid a potential deadlock locking the queue limits, disallow
+	 * updating the queue limits during a table swap, when updating an
+	 * immutable request-based dm device (dm-multipath) during a noflush
+	 * suspend. It is userspace's responsibility to make sure that the new
+	 * table uses the same limits as the existing table, if it asks for a
+	 * noflush suspend.
+	 */
+	if (dm_request_based(md) && md->immutable_target &&
+	    __noflush_suspending(md))
+		update_limits = false;
+	/*
 	 * If the new table has no data devices, retain the existing limits.
 	 * This helps multipath with queue_if_no_path if all paths disappear,
 	 * then new I/O is queued based on these limits, and then some paths
 	 * reappear.
 	 */
-	if (dm_table_has_no_data_devices(table)) {
+	else if (dm_table_has_no_data_devices(table)) {
 		live_map = dm_get_live_table_fast(md);
 		if (live_map)
 			limits = md->queue->limits;
 		dm_put_live_table_fast(md);
 	}
 
-	if (!live_map) {
+	if (update_limits && !live_map) {
 		r = dm_calculate_queue_limits(table, &limits);
 		if (r) {
 			map = ERR_PTR(r);
@@ -2861,7 +2899,7 @@ struct dm_table *dm_swap_table(struct mapped_device *md, struct dm_table *table)
 		}
 	}
 
-	map = __bind(md, table, &limits);
+	map = __bind(md, table, update_limits ? &limits : NULL);
 	dm_issue_global_event();
 
 out:
@@ -2908,13 +2946,12 @@ static int __dm_suspend(struct mapped_device *md, struct dm_table *map,
 {
 	bool do_lockfs = suspend_flags & DM_SUSPEND_LOCKFS_FLAG;
 	bool noflush = suspend_flags & DM_SUSPEND_NOFLUSH_FLAG;
-	int r;
+	int r = 0;
 
 	lockdep_assert_held(&md->suspend_lock);
 
 	/*
 	 * DMF_NOFLUSH_SUSPENDING must be set before presuspend.
-	 * This flag is cleared before dm_suspend returns.
 	 */
 	if (noflush)
 		set_bit(DMF_NOFLUSH_SUSPENDING, &md->flags);
@@ -2960,8 +2997,10 @@ static int __dm_suspend(struct mapped_device *md, struct dm_table *map,
 	 * Stop md->queue before flushing md->wq in case request-based
 	 * dm defers requests to md->wq from md->queue.
 	 */
-	if (dm_request_based(md))
+	if (map && dm_request_based(md)) {
 		dm_stop_queue(md->queue);
+		set_bit(DMF_QUEUE_STOPPED, &md->flags);
+	}
 
 	flush_workqueue(md->wq);
 
@@ -2970,12 +3009,11 @@ static int __dm_suspend(struct mapped_device *md, struct dm_table *map,
 	 * We call dm_wait_for_completion to wait for all existing requests
 	 * to finish.
 	 */
-	r = dm_wait_for_completion(md, task_state);
+	if (map)
+		r = dm_wait_for_completion(md, task_state);
 	if (!r)
 		set_bit(dmf_suspended_flag, &md->flags);
 
-	if (noflush)
-		clear_bit(DMF_NOFLUSH_SUSPENDING, &md->flags);
 	if (map)
 		synchronize_srcu(&md->io_barrier);
 
@@ -2983,7 +3021,7 @@ static int __dm_suspend(struct mapped_device *md, struct dm_table *map,
 	if (r < 0) {
 		dm_queue_flush(md);
 
-		if (dm_request_based(md))
+		if (test_and_clear_bit(DMF_QUEUE_STOPPED, &md->flags))
 			dm_start_queue(md->queue);
 
 		unlock_fs(md);
@@ -3067,7 +3105,7 @@ static int __dm_resume(struct mapped_device *md, struct dm_table *map)
 	 * so that mapping of targets can work correctly.
 	 * Request-based dm is queueing the deferred I/Os in its request_queue.
 	 */
-	if (dm_request_based(md))
+	if (test_and_clear_bit(DMF_QUEUE_STOPPED, &md->flags))
 		dm_start_queue(md->queue);
 
 	unlock_fs(md);

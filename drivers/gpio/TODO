@@ -58,45 +58,6 @@ Work items:
 
 -------------------------------------------------------------------------------
 
-Get rid of <linux/of_gpio.h>
-
-This header and helpers appeared at one point when there was no proper
-driver infrastructure for doing simpler MMIO GPIO devices and there was
-no core support for parsing device tree GPIOs from the core library with
-the [devm_]gpiod_get() calls we have today that will implicitly go into
-the device tree back-end. It is legacy and should not be used in new code.
-
-Work items:
-
-- Change all consumer drivers that #include <linux/of_gpio.h> to
-  #include <linux/gpio/consumer.h> and stop doing custom parsing of the
-  GPIO lines from the device tree. This can be tricky and often involves
-  changing board files, etc.
-
-- Pull semantics for legacy device tree (OF) GPIO lookups into
-  gpiolib-of.c: in some cases subsystems are doing custom flags and
-  lookups for polarity inversion, open drain and what not. As we now
-  handle this with generic OF bindings, pull all legacy handling into
-  gpiolib so the library API becomes narrow and deep and handle all
-  legacy bindings internally. (See e.g. commits 6953c57ab172,
-  6a537d48461d etc)
-
-- Delete <linux/of_gpio.h> when all the above is complete and everything
-  uses <linux/gpio/consumer.h> or <linux/gpio/driver.h> instead.
-
--------------------------------------------------------------------------------
-
-Get rid of <linux/gpio/legacy-of-mm-gpiochip.h>
-
-Work items:
-
-- Get rid of struct of_mm_gpio_chip altogether: use the generic  MMIO
-  GPIO for all current users (see below). Delete struct of_mm_gpio_chip,
-  to_of_mm_gpio_chip(), of_mm_gpiochip_add_data(), of_mm_gpiochip_remove(),
-  CONFIG_OF_GPIO_MM_GPIOCHIP from the kernel.
-
--------------------------------------------------------------------------------
-
 Collect drivers
 
 Collect GPIO drivers from arch/* and other places that should be placed
@@ -130,11 +91,6 @@ Work items:
 - Expand the MMIO GPIO or write a new library for port-mapped I/O
   helpers (x86 inb()/outb()) and convert port-mapped I/O drivers to use
   this with dry-coding and sending to maintainers to test
-
-- Move the MMIO GPIO specific fields out of struct gpio_chip into a
-  dedicated structure. Currently every GPIO chip has them if gpio-mmio is
-  enabled in Kconfig even if it itself doesn't register with the helper
-  library.
 
 -------------------------------------------------------------------------------
 
@@ -173,18 +129,6 @@ A small number of drivers have been converted (pl061, tegra186, msm,
 amd, apple), and can be used as examples of how to proceed with this
 conversion. Note that drivers using the generic irqchip framework
 cannot be converted yet, but watch this space!
-
--------------------------------------------------------------------------------
-
-Convert all GPIO chips to using the new, value returning line setters
-
-struct gpio_chip's set() and set_multiple() callbacks are now deprecated. They
-return void and thus do not allow drivers to indicate failure to set the line
-value back to the caller.
-
-We've now added new variants - set_rv() and set_multiple_rv() that return an
-integer. Let's convert all GPIO drivers treewide to use the new callbacks,
-remove the old ones and finally rename the new ones back to the old names.
 
 -------------------------------------------------------------------------------
 

@@ -1549,7 +1549,7 @@ static u16 b43_nphy_gen_load_samples(struct b43_wldev *dev, u32 freq, u16 max,
 		len = bw << 1;
 	}
 
-	samples = kcalloc(len, sizeof(struct cordic_iq), GFP_KERNEL);
+	samples = kzalloc_objs(struct cordic_iq, len);
 	if (!samples) {
 		b43err(dev->wl, "allocation for samples generation failed\n");
 		return 0;
@@ -6417,7 +6417,7 @@ static int b43_nphy_op_allocate(struct b43_wldev *dev)
 {
 	struct b43_phy_n *nphy;
 
-	nphy = kzalloc(sizeof(*nphy), GFP_KERNEL);
+	nphy = kzalloc_obj(*nphy);
 	if (!nphy)
 		return -ENOMEM;
 
@@ -6566,19 +6566,19 @@ static void b43_nphy_op_software_rfkill(struct b43_wldev *dev,
 
 			b43_radio_mask(dev, 0x09, ~0x2);
 
-			b43_radio_write(dev, 0x204D, 0);
-			b43_radio_write(dev, 0x2053, 0);
-			b43_radio_write(dev, 0x2058, 0);
-			b43_radio_write(dev, 0x205E, 0);
-			b43_radio_mask(dev, 0x2062, ~0xF0);
-			b43_radio_write(dev, 0x2064, 0);
+			b43_radio_write(dev, B2056_TX0 | B2056_TX_PADA_BOOST_TUNE, 0);
+			b43_radio_write(dev, B2056_TX0 | B2056_TX_PADG_BOOST_TUNE, 0);
+			b43_radio_write(dev, B2056_TX0 | B2056_TX_PGAA_BOOST_TUNE, 0);
+			b43_radio_write(dev, B2056_TX0 | B2056_TX_PGAG_BOOST_TUNE, 0);
+			b43_radio_mask(dev, B2056_TX0 | B2056_TX_MIXA_BOOST_TUNE, ~0xF0);
+			b43_radio_write(dev, B2056_TX0 | B2056_TX_MIXG_BOOST_TUNE, 0);
 
-			b43_radio_write(dev, 0x304D, 0);
-			b43_radio_write(dev, 0x3053, 0);
-			b43_radio_write(dev, 0x3058, 0);
-			b43_radio_write(dev, 0x305E, 0);
-			b43_radio_mask(dev, 0x3062, ~0xF0);
-			b43_radio_write(dev, 0x3064, 0);
+			b43_radio_write(dev, B2056_TX1 | B2056_TX_PADA_BOOST_TUNE, 0);
+			b43_radio_write(dev, B2056_TX1 | B2056_TX_PADG_BOOST_TUNE, 0);
+			b43_radio_write(dev, B2056_TX1 | B2056_TX_PGAA_BOOST_TUNE, 0);
+			b43_radio_write(dev, B2056_TX1 | B2056_TX_PGAG_BOOST_TUNE, 0);
+			b43_radio_mask(dev, B2056_TX1 | B2056_TX_MIXA_BOOST_TUNE, ~0xF0);
+			b43_radio_write(dev, B2056_TX1 | B2056_TX_MIXG_BOOST_TUNE, 0);
 		}
 	} else {
 		if (phy->rev >= 19) {

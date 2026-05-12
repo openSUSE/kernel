@@ -21,7 +21,7 @@ static int rt722_sdca_mbq_size(struct device *dev, unsigned int reg)
 	switch (reg) {
 	case 0x2f01 ... 0x2f0a:
 	case 0x2f35 ... 0x2f36:
-	case 0x2f50:
+	case 0x2f50 ... 0x2f52:
 	case 0x2f54:
 	case 0x2f58 ... 0x2f5d:
 	case SDW_SDCA_CTL(FUNC_NUM_JACK_CODEC, RT722_SDCA_ENT0, RT722_SDCA_CTL_FUNC_STATUS, 0):
@@ -419,14 +419,16 @@ static int rt722_sdca_sdw_probe(struct sdw_slave *slave,
 	struct regmap *regmap;
 
 	/* Regmap Initialization */
-	regmap = devm_regmap_init_sdw_mbq_cfg(slave, &rt722_sdca_regmap, &rt722_mbq_config);
+	regmap = devm_regmap_init_sdw_mbq_cfg(&slave->dev, slave,
+					      &rt722_sdca_regmap,
+					      &rt722_mbq_config);
 	if (IS_ERR(regmap))
 		return PTR_ERR(regmap);
 
 	return rt722_sdca_init(&slave->dev, regmap, slave);
 }
 
-static int rt722_sdca_sdw_remove(struct sdw_slave *slave)
+static void rt722_sdca_sdw_remove(struct sdw_slave *slave)
 {
 	struct rt722_sdca_priv *rt722 = dev_get_drvdata(&slave->dev);
 
@@ -440,8 +442,6 @@ static int rt722_sdca_sdw_remove(struct sdw_slave *slave)
 
 	mutex_destroy(&rt722->calibrate_mutex);
 	mutex_destroy(&rt722->disable_irq_lock);
-
-	return 0;
 }
 
 static const struct sdw_device_id rt722_sdca_id[] = {

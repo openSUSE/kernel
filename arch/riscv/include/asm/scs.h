@@ -2,7 +2,7 @@
 #ifndef _ASM_SCS_H
 #define _ASM_SCS_H
 
-#ifdef __ASSEMBLY__
+#ifdef __ASSEMBLER__
 #include <asm/asm-offsets.h>
 
 #ifdef CONFIG_SHADOW_CALL_STACK
@@ -10,7 +10,6 @@
 /* Load init_shadow_call_stack to gp. */
 .macro scs_load_init_stack
 	la	gp, init_shadow_call_stack
-	XIP_FIXUP_OFFSET gp
 .endm
 
 /* Load the per-CPU IRQ shadow call stack to gp. */
@@ -49,6 +48,6 @@ _skip_scs:
 .endm
 
 #endif /* CONFIG_SHADOW_CALL_STACK */
-#endif /* __ASSEMBLY__ */
+#endif /* __ASSEMBLER__ */
 
 #endif /* _ASM_SCS_H */

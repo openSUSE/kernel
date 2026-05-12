@@ -3,7 +3,7 @@
  * Copyright (c) 2000-2002,2005 Silicon Graphics, Inc.
  * All Rights Reserved.
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -306,7 +306,7 @@ xfs_btree_check_block(
 
 	fa = __xfs_btree_check_block(cur, block, level, bp);
 	if (XFS_IS_CORRUPT(mp, fa != NULL) ||
-	    XFS_TEST_ERROR(false, mp, xfs_btree_block_errtag(cur))) {
+	    XFS_TEST_ERROR(mp, xfs_btree_block_errtag(cur))) {
 		if (bp)
 			trace_xfs_btree_corrupt(bp, _RET_IP_);
 		xfs_btree_mark_sick(cur);

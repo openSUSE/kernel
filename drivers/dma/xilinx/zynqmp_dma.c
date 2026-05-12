@@ -482,8 +482,7 @@ static int zynqmp_dma_alloc_chan_resources(struct dma_chan *dchan)
 	if (ret < 0)
 		return ret;
 
-	chan->sw_desc_pool = kcalloc(ZYNQMP_DMA_NUM_DESCS, sizeof(*desc),
-				     GFP_KERNEL);
+	chan->sw_desc_pool = kzalloc_objs(*desc, ZYNQMP_DMA_NUM_DESCS);
 	if (!chan->sw_desc_pool)
 		return -ENOMEM;
 
@@ -695,7 +694,6 @@ static void zynqmp_dma_free_chan_resources(struct dma_chan *dchan)
 		(2 * ZYNQMP_DMA_DESC_SIZE(chan) * ZYNQMP_DMA_NUM_DESCS),
 		chan->desc_pool_v, chan->desc_pool_p);
 	kfree(chan->sw_desc_pool);
-	pm_runtime_mark_last_busy(chan->dev);
 	pm_runtime_put_autosuspend(chan->dev);
 }
 
@@ -1145,7 +1143,6 @@ static int zynqmp_dma_probe(struct platform_device *pdev)
 		goto free_chan_resources;
 	}
 
-	pm_runtime_mark_last_busy(zdev->dev);
 	pm_runtime_put_sync_autosuspend(zdev->dev);
 
 	return 0;
@@ -1173,9 +1170,9 @@ static void zynqmp_dma_remove(struct platform_device *pdev)
 	dma_async_device_unregister(&zdev->common);
 
 	zynqmp_dma_chan_remove(zdev->chan);
-	pm_runtime_disable(zdev->dev);
-	if (!pm_runtime_enabled(zdev->dev))
+	if (pm_runtime_active(zdev->dev))
 		zynqmp_dma_runtime_suspend(zdev->dev);
+	pm_runtime_disable(zdev->dev);
 }
 
 static const struct of_device_id zynqmp_dma_of_match[] = {
@@ -1193,6 +1190,7 @@ static struct platform_driver zynqmp_dma_driver = {
 	},
 	.probe = zynqmp_dma_probe,
 	.remove = zynqmp_dma_remove,
+	.shutdown = zynqmp_dma_remove,
 };
 
 module_platform_driver(zynqmp_dma_driver);

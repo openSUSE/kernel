@@ -3,8 +3,8 @@
  * Copyright © 2022 Intel Corporation
  */
 
-#ifndef _XE_WA_
-#define _XE_WA_
+#ifndef _XE_WA_H_
+#define _XE_WA_H_
 
 #include "xe_assert.h"
 
@@ -22,7 +22,7 @@ void xe_wa_process_engine(struct xe_hw_engine *hwe);
 void xe_wa_process_lrc(struct xe_hw_engine *hwe);
 void xe_wa_apply_tile_workarounds(struct xe_tile *tile);
 void xe_wa_device_dump(struct xe_device *xe, struct drm_printer *p);
-void xe_wa_dump(struct xe_gt *gt, struct drm_printer *p);
+int xe_wa_gt_dump(struct xe_gt *gt, struct drm_printer *p);
 
 /**
  * XE_GT_WA - Out-of-band GT workarounds, to be queried and called as needed.

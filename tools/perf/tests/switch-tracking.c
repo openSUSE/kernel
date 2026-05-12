@@ -239,11 +239,13 @@ static int add_event(struct evlist *evlist, struct list_head *events,
 
 	if (!sample.time) {
 		pr_debug("event with no time\n");
+		perf_sample__exit(&sample);
 		return -1;
 	}
 
 	node->event_time = sample.time;
 
+	perf_sample__exit(&sample);
 	return 0;
 }
 
@@ -332,7 +334,7 @@ out_free_nodes:
 static int test__switch_tracking(struct test_suite *test __maybe_unused, int subtest __maybe_unused)
 {
 	const char *sched_switch = "sched:sched_switch";
-	const char *cycles = "cycles:u";
+	const char *cycles = "cpu-cycles:u";
 	struct switch_tracking switch_tracking = { .tids = NULL, };
 	struct record_opts opts = {
 		.mmap_pages	     = UINT_MAX,

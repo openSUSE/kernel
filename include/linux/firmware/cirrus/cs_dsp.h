@@ -102,7 +102,7 @@ struct cs_dsp_coeff_ctl {
 	const char *subname;
 	unsigned int subname_len;
 	unsigned int offset;
-	size_t len;
+	unsigned int len;
 	unsigned int type;
 	unsigned int flags;
 	unsigned int set:1;
@@ -179,6 +179,7 @@ struct cs_dsp {
 
 	bool booted;
 	bool running;
+	bool hibernating;
 
 	struct list_head ctl_list;
 
@@ -188,8 +189,8 @@ struct cs_dsp {
 
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *debugfs_root;
-	char *wmfw_file_name;
-	char *bin_file_name;
+	const char *wmfw_file_name;
+	const char *bin_file_name;
 #endif
 };
 
@@ -353,5 +354,7 @@ static inline bool cs_dsp_chunk_valid_addr(struct cs_dsp_chunk *ch, void *addr)
 int cs_dsp_chunk_write(struct cs_dsp_chunk *ch, int nbits, u32 val);
 int cs_dsp_chunk_flush(struct cs_dsp_chunk *ch);
 int cs_dsp_chunk_read(struct cs_dsp_chunk *ch, int nbits);
+
+void cs_dsp_hibernate(struct cs_dsp *dsp, bool hibernating);
 
 #endif

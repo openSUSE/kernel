@@ -33,14 +33,19 @@
  *
  */
 
-#include "i915_drv.h"
-#include "i915_reg.h"
+#include <drm/drm_print.h>
+#include <drm/intel/intel_gmd_misc_regs.h>
+
 #include "gt/intel_context.h"
 #include "gt/intel_engine_regs.h"
 #include "gt/intel_gpu_commands.h"
 #include "gt/intel_gt_regs.h"
 #include "gt/intel_ring.h"
+
 #include "gvt.h"
+#include "i915_drv.h"
+#include "i915_reg.h"
+#include "i915_wait_util.h"
 #include "trace.h"
 
 #define GEN9_MOCS_SIZE		64
@@ -471,7 +476,7 @@ bool is_inhibit_context(struct intel_context *ce)
 {
 	const u32 *reg_state = ce->lrc_reg_state;
 	u32 inhibit_mask =
-		_MASKED_BIT_ENABLE(CTX_CTRL_ENGINE_CTX_RESTORE_INHIBIT);
+		REG_MASKED_FIELD_ENABLE(CTX_CTRL_ENGINE_CTX_RESTORE_INHIBIT);
 
 	return inhibit_mask ==
 		(reg_state[CTX_CONTEXT_CONTROL_VAL] & inhibit_mask);

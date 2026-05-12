@@ -131,7 +131,8 @@ struct iio_cb_buffer;
 /**
  * iio_channel_get_all_cb() - register callback for triggered capture
  * @dev:		Pointer to client device.
- * @cb:			Callback function.
+ * @cb:			Callback function. Must be safe to call from any context
+ *			(e.g. must not sleep).
  * @private:		Private data passed to callback.
  *
  * NB right now we have no ability to mux data from multiple devices.
@@ -380,6 +381,24 @@ int iio_read_channel_offset(struct iio_channel *chan, int *val,
  */
 int iio_read_channel_scale(struct iio_channel *chan, int *val,
 			   int *val2);
+
+/**
+ * iio_multiply_value() - Multiply an IIO value
+ * @result:	Destination pointer for the multiplication result
+ * @multiplier:	Multiplier.
+ * @type:	One of the IIO_VAL_* constants. This decides how the @val and
+ *		@val2 parameters are interpreted.
+ * @val:	Value being multiplied.
+ * @val2:	Value being multiplied. @val2 use depends on type.
+ *
+ * Multiply an IIO value with a s64 multiplier storing the result as
+ * IIO_VAL_INT. This is typically used for scaling.
+ *
+ * Returns:
+ * IIO_VAL_INT on success or a negative error-number on failure.
+ */
+int iio_multiply_value(int *result, s64 multiplier,
+		       unsigned int type, int val, int val2);
 
 /**
  * iio_convert_raw_to_processed() - Converts a raw value to a processed value

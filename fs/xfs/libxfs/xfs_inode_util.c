@@ -4,7 +4,7 @@
  * All Rights Reserved.
  */
 #include <linux/iversion.h>
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -299,17 +299,6 @@ xfs_inode_init(
 		} else {
 			inode_init_owner(args->idmap, inode, dir, args->mode);
 		}
-
-		/*
-		 * If the group ID of the new file does not match the effective
-		 * group ID or one of the supplementary group IDs, the S_ISGID
-		 * bit is cleared (and only if the irix_sgid_inherit
-		 * compatibility variable is set).
-		 */
-		if (irix_sgid_inherit && (inode->i_mode & S_ISGID) &&
-		    !vfsgid_in_group_p(i_gid_into_vfsgid(args->idmap, inode)))
-			inode->i_mode &= ~S_ISGID;
-
 		ip->i_projid = xfs_get_initial_prid(pip);
 	}
 

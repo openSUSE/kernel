@@ -12,6 +12,7 @@
 #include <drm/drm_atomic_uapi.h>
 #include <drm/drm_fourcc.h>
 #include <drm/drm_plane_helper.h>
+#include <drm/drm_print.h>
 
 #include "armada_crtc.h"
 #include "armada_drm.h"
@@ -68,7 +69,7 @@ static inline u32 armada_csc(struct drm_plane_state *state)
 
 /* === Plane support === */
 static void armada_drm_overlay_plane_atomic_update(struct drm_plane *plane,
-	struct drm_atomic_state *state)
+	struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *old_state = drm_atomic_get_old_plane_state(state,
 									   plane);
@@ -219,7 +220,7 @@ static void armada_drm_overlay_plane_atomic_update(struct drm_plane *plane,
 }
 
 static void armada_drm_overlay_plane_atomic_disable(struct drm_plane *plane,
-	struct drm_atomic_state *state)
+	struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *old_state = drm_atomic_get_old_plane_state(state,
 									   plane);
@@ -261,7 +262,7 @@ armada_overlay_plane_update(struct drm_plane *plane, struct drm_crtc *crtc,
 	uint32_t src_x, uint32_t src_y, uint32_t src_w, uint32_t src_h,
 	struct drm_modeset_acquire_ctx *ctx)
 {
-	struct drm_atomic_state *state;
+	struct drm_atomic_commit *state;
 	struct drm_plane_state *plane_state;
 	int ret = 0;
 
@@ -269,7 +270,7 @@ armada_overlay_plane_update(struct drm_plane *plane, struct drm_crtc *crtc,
 				 crtc_x, crtc_y, crtc_w, crtc_h,
 				 src_x, src_y, src_w, src_h);
 
-	state = drm_atomic_state_alloc(plane->dev);
+	state = drm_atomic_commit_alloc(plane->dev);
 	if (!state)
 		return -ENOMEM;
 
@@ -296,7 +297,7 @@ armada_overlay_plane_update(struct drm_plane *plane, struct drm_crtc *crtc,
 
 	ret = drm_atomic_nonblocking_commit(state);
 fail:
-	drm_atomic_state_put(state);
+	drm_atomic_commit_put(state);
 	return ret;
 }
 
@@ -309,7 +310,7 @@ static void armada_overlay_reset(struct drm_plane *plane)
 	kfree(plane->state);
 	plane->state = NULL;
 
-	state = kzalloc(sizeof(*state), GFP_KERNEL);
+	state = kzalloc_obj(*state);
 	if (state) {
 		state->colorkey_yr = 0xfefefe00;
 		state->colorkey_ug = 0x01010100;
@@ -549,7 +550,7 @@ int armada_overlay_plane_create(struct drm_device *dev, unsigned long crtcs)
 	if (ret)
 		return ret;
 
-	overlay = kzalloc(sizeof(*overlay), GFP_KERNEL);
+	overlay = kzalloc_obj(*overlay);
 	if (!overlay)
 		return -ENOMEM;
 

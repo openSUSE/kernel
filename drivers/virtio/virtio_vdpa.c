@@ -80,7 +80,7 @@ static void virtio_vdpa_set_status(struct virtio_device *vdev, u8 status)
 {
 	struct vdpa_device *vdpa = vd_get_vdpa(vdev);
 
-	return vdpa_set_status(vdpa, status);
+	vdpa_set_status(vdpa, status);
 }
 
 static void virtio_vdpa_reset(struct virtio_device *vdev)
@@ -133,12 +133,12 @@ virtio_vdpa_setup_vq(struct virtio_device *vdev, unsigned int index,
 		     const char *name, bool ctx)
 {
 	struct vdpa_device *vdpa = vd_get_vdpa(vdev);
-	struct device *dma_dev;
 	const struct vdpa_config_ops *ops = vdpa->config;
 	bool (*notify)(struct virtqueue *vq) = virtio_vdpa_notify;
 	struct vdpa_callback cb;
 	struct virtqueue *vq;
 	u64 desc_addr, driver_addr, device_addr;
+	union virtio_map map = {0};
 	/* Assume split virtqueue, switch to packed if necessary */
 	struct vdpa_vq_state state = {0};
 	u32 align, max_num, min_num = 1;
@@ -176,22 +176,26 @@ virtio_vdpa_setup_vq(struct virtio_device *vdev, unsigned int index,
 	if (ops->get_vq_num_min)
 		min_num = ops->get_vq_num_min(vdpa);
 
-	may_reduce_num = (max_num == min_num) ? false : true;
+	may_reduce_num = (max_num != min_num);
 
 	/* Create the vring */
 	align = ops->get_vq_align(vdpa);
 
-	if (ops->get_vq_dma_dev)
-		dma_dev = ops->get_vq_dma_dev(vdpa, index);
+	if (ops->get_vq_map)
+		map = ops->get_vq_map(vdpa, index);
 	else
-		dma_dev = vdpa_get_dma_dev(vdpa);
-	vq = vring_create_virtqueue_dma(index, max_num, align, vdev,
+		map = vdpa_get_map(vdpa);
+
+	vq = vring_create_virtqueue_map(index, max_num, align, vdev,
 					true, may_reduce_num, ctx,
-					notify, callback, name, dma_dev);
+					notify, callback, name, map);
 	if (!vq) {
 		err = -ENOMEM;
 		goto error_new_virtqueue;
 	}
+
+	if (index == 0)
+		vdev->vmap = map;
 
 	vq->num_max = max_num;
 
@@ -283,7 +287,7 @@ create_affinity_masks(unsigned int nvecs, struct irq_affinity *affd)
 	if (!affvecs)
 		return NULL;
 
-	masks = kcalloc(nvecs, sizeof(*masks), GFP_KERNEL);
+	masks = kzalloc_objs(*masks, nvecs);
 	if (!masks)
 		return NULL;
 
@@ -458,13 +462,15 @@ static int virtio_vdpa_probe(struct vdpa_device *vdpa)
 	struct virtio_vdpa_device *vd_dev, *reg_dev = NULL;
 	int ret = -EINVAL;
 
-	vd_dev = kzalloc(sizeof(*vd_dev), GFP_KERNEL);
+	vd_dev = kzalloc_obj(*vd_dev);
 	if (!vd_dev)
 		return -ENOMEM;
 
-	vd_dev->vdev.dev.parent = vdpa_get_dma_dev(vdpa);
+	vd_dev->vdev.dev.parent = vdpa->map ? &vdpa->dev :
+				  vdpa_get_map(vdpa).dma_dev;
 	vd_dev->vdev.dev.release = virtio_vdpa_release_dev;
 	vd_dev->vdev.config = &virtio_vdpa_config_ops;
+	vd_dev->vdev.map = vdpa->map;
 	vd_dev->vdpa = vdpa;
 
 	vd_dev->vdev.id.device = ops->get_device_id(vdpa);

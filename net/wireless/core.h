@@ -289,6 +289,7 @@ struct cfg80211_event {
 			u8 td_bitmap_len;
 		} pa;
 	};
+	int link_id;
 };
 
 struct cfg80211_cached_keys {
@@ -316,6 +317,9 @@ void cfg80211_cqm_rssi_notify_work(struct wiphy *wiphy,
 				   struct wiphy_work *work);
 
 void cfg80211_destroy_ifaces(struct cfg80211_registered_device *rdev);
+
+void cfg80211_close_dependents(struct cfg80211_registered_device *rdev,
+			       struct wireless_dev *wdev);
 
 /* free object */
 void cfg80211_dev_free(struct cfg80211_registered_device *rdev);
@@ -480,6 +484,10 @@ void cfg80211_set_dfs_state(struct wiphy *wiphy,
 			    const struct cfg80211_chan_def *chandef,
 			    enum nl80211_dfs_state dfs_state);
 
+void cfg80211_set_cac_state(struct wiphy *wiphy,
+			    const struct cfg80211_chan_def *chandef,
+			    bool cac_ongoing);
+
 void cfg80211_dfs_channels_update_work(struct work_struct *work);
 
 void cfg80211_sched_dfs_chan_update(struct cfg80211_registered_device *rdev);
@@ -489,6 +497,7 @@ cfg80211_start_background_radar_detection(struct cfg80211_registered_device *rde
 					  struct wireless_dev *wdev,
 					  struct cfg80211_chan_def *chandef);
 
+void cfg80211_stop_radar_detection(struct wireless_dev *wdev);
 void cfg80211_stop_background_radar_detection(struct wireless_dev *wdev);
 
 void cfg80211_background_cac_done_wk(struct work_struct *work);
@@ -535,8 +544,12 @@ int cfg80211_validate_beacon_int(struct cfg80211_registered_device *rdev,
 void cfg80211_update_iface_num(struct cfg80211_registered_device *rdev,
 			       enum nl80211_iftype iftype, int num);
 
+void cfg80211_leave_locked(struct cfg80211_registered_device *rdev,
+			   struct wireless_dev *wdev, int link_id);
+
 void cfg80211_leave(struct cfg80211_registered_device *rdev,
-		    struct wireless_dev *wdev);
+		    struct wireless_dev *wdev,
+		    int link_id);
 
 void cfg80211_stop_p2p_device(struct cfg80211_registered_device *rdev,
 			      struct wireless_dev *wdev);
@@ -544,13 +557,18 @@ void cfg80211_stop_p2p_device(struct cfg80211_registered_device *rdev,
 void cfg80211_stop_nan(struct cfg80211_registered_device *rdev,
 		       struct wireless_dev *wdev);
 
+int cfg80211_nan_set_local_schedule(struct cfg80211_registered_device *rdev,
+				    struct wireless_dev *wdev,
+				    struct cfg80211_nan_local_sched *sched);
+
 struct cfg80211_internal_bss *
 cfg80211_bss_update(struct cfg80211_registered_device *rdev,
 		    struct cfg80211_internal_bss *tmp,
 		    bool signal_valid, unsigned long ts);
 
 enum ieee80211_ap_reg_power
-cfg80211_get_6ghz_power_type(const u8 *elems, size_t elems_len);
+cfg80211_get_6ghz_power_type(const u8 *elems, size_t elems_len,
+			     u32 client_flags);
 
 #ifdef CONFIG_CFG80211_DEVELOPER_WARNINGS
 #define CFG80211_DEV_WARN_ON(cond)	WARN_ON(cond)

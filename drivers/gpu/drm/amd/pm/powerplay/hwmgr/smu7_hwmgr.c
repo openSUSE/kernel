@@ -787,7 +787,7 @@ static int smu7_setup_dpm_tables_v0(struct pp_hwmgr *hwmgr)
 		hwmgr->dyn_state.vddc_dependency_on_mclk;
 	struct phm_cac_leakage_table *std_voltage_table =
 		hwmgr->dyn_state.cac_leakage_table;
-	uint32_t i;
+	uint32_t i, clk;
 
 	PP_ASSERT_WITH_CODE(allowed_vdd_sclk_table != NULL,
 		"SCLK dependency table is missing. This table is mandatory", return -EINVAL);
@@ -804,10 +804,12 @@ static int smu7_setup_dpm_tables_v0(struct pp_hwmgr *hwmgr)
 	data->dpm_table.sclk_table.count = 0;
 
 	for (i = 0; i < allowed_vdd_sclk_table->count; i++) {
+		clk = min(allowed_vdd_sclk_table->entries[i].clk, data->sclk_cap);
+
 		if (i == 0 || data->dpm_table.sclk_table.dpm_levels[data->dpm_table.sclk_table.count-1].value !=
-				allowed_vdd_sclk_table->entries[i].clk) {
+				clk) {
 			data->dpm_table.sclk_table.dpm_levels[data->dpm_table.sclk_table.count].value =
-				allowed_vdd_sclk_table->entries[i].clk;
+				clk;
 			data->dpm_table.sclk_table.dpm_levels[data->dpm_table.sclk_table.count].enabled = (i == 0) ? 1 : 0;
 			data->dpm_table.sclk_table.count++;
 		}
@@ -2794,11 +2796,11 @@ static int smu7_patch_dependency_tables_with_leakage(struct pp_hwmgr *hwmgr)
 	if (tmp)
 		return -EINVAL;
 
-	tmp = smu7_patch_vddc(hwmgr, hwmgr->dyn_state.vddc_dep_on_dal_pwrl);
+	tmp = smu7_patch_vddci(hwmgr, hwmgr->dyn_state.vddci_dependency_on_mclk);
 	if (tmp)
 		return -EINVAL;
 
-	tmp = smu7_patch_vddci(hwmgr, hwmgr->dyn_state.vddci_dependency_on_mclk);
+	tmp = smu7_patch_vddc(hwmgr, hwmgr->dyn_state.vddc_dependency_on_display_clock);
 	if (tmp)
 		return -EINVAL;
 
@@ -2883,8 +2885,8 @@ static int smu7_set_private_data_based_on_pptable_v0(struct pp_hwmgr *hwmgr)
 
 static int smu7_hwmgr_backend_fini(struct pp_hwmgr *hwmgr)
 {
-	kfree(hwmgr->dyn_state.vddc_dep_on_dal_pwrl);
-	hwmgr->dyn_state.vddc_dep_on_dal_pwrl = NULL;
+	kfree(hwmgr->dyn_state.vddc_dependency_on_display_clock);
+	hwmgr->dyn_state.vddc_dependency_on_display_clock = NULL;
 	kfree(hwmgr->backend);
 	hwmgr->backend = NULL;
 
@@ -2955,17 +2957,82 @@ static int smu7_update_edc_leakage_table(struct pp_hwmgr *hwmgr)
 	return ret;
 }
 
+static int smu7_init_voltage_dependency_on_display_clock_table(struct pp_hwmgr *hwmgr)
+{
+	struct phm_clock_voltage_dependency_table *table;
+
+	if (!amdgpu_device_ip_get_ip_block(hwmgr->adev, AMD_IP_BLOCK_TYPE_DCE))
+		return 0;
+
+	table = kzalloc(struct_size(table, entries, 4), GFP_KERNEL);
+	if (!table)
+		return -ENOMEM;
+
+	if (hwmgr->chip_id >= CHIP_POLARIS10) {
+		table->entries[0].clk = 38918;
+		table->entries[1].clk = 45900;
+		table->entries[2].clk = 66700;
+		table->entries[3].clk = 113200;
+
+		table->entries[0].v = 700;
+		table->entries[1].v = 740;
+		table->entries[2].v = 800;
+		table->entries[3].v = 900;
+	} else {
+		if (hwmgr->chip_family == AMDGPU_FAMILY_CZ) {
+			table->entries[0].clk = 35200;
+			table->entries[1].clk = 35200;
+			table->entries[2].clk = 46700;
+			table->entries[3].clk = 64300;
+		} else {
+			table->entries[0].clk = 0;
+			table->entries[1].clk = 35200;
+			table->entries[2].clk = 54000;
+			table->entries[3].clk = 62500;
+		}
+
+		table->entries[0].v = 0;
+		table->entries[1].v = 720;
+		table->entries[2].v = 810;
+		table->entries[3].v = 900;
+	}
+
+	table->count = 4;
+	hwmgr->dyn_state.vddc_dependency_on_display_clock = table;
+	return 0;
+}
+
+static void smu7_set_sclk_cap(struct pp_hwmgr *hwmgr)
+{
+	struct amdgpu_device *adev = hwmgr->adev;
+	struct smu7_hwmgr *data = (struct smu7_hwmgr *)(hwmgr->backend);
+
+	data->sclk_cap = 0xffffffff;
+
+	if (hwmgr->od_enabled)
+		return;
+
+	/* R9 390X board: last sclk dpm level is unstable, use lower sclk */
+	if (adev->pdev->device == 0x67B0 &&
+	    adev->pdev->subsystem_vendor == 0x1043)
+		data->sclk_cap = 104000; /* 1040 MHz */
+
+	if (data->sclk_cap != 0xffffffff)
+		dev_info(adev->dev, "sclk cap: %u kHz on quirky ASIC\n", data->sclk_cap * 10);
+}
+
 static int smu7_hwmgr_backend_init(struct pp_hwmgr *hwmgr)
 {
 	struct amdgpu_device *adev = hwmgr->adev;
 	struct smu7_hwmgr *data;
 	int result = 0;
 
-	data = kzalloc(sizeof(struct smu7_hwmgr), GFP_KERNEL);
+	data = kzalloc_obj(struct smu7_hwmgr);
 	if (data == NULL)
 		return -ENOMEM;
 
 	hwmgr->backend = data;
+	smu7_set_sclk_cap(hwmgr);
 	smu7_patch_voltage_workaround(hwmgr);
 	smu7_init_dpm_defaults(hwmgr);
 
@@ -2983,6 +3050,10 @@ static int smu7_hwmgr_backend_init(struct pp_hwmgr *hwmgr)
 		smu7_get_elb_voltages(hwmgr);
 	}
 
+	result = smu7_init_voltage_dependency_on_display_clock_table(hwmgr);
+	if (result)
+		goto fail;
+
 	if (hwmgr->pp_table_version == PP_TABLE_V1) {
 		smu7_complete_dependency_tables(hwmgr);
 		smu7_set_private_data_based_on_pptable_v1(hwmgr);
@@ -2990,12 +3061,6 @@ static int smu7_hwmgr_backend_init(struct pp_hwmgr *hwmgr)
 		smu7_patch_dependency_tables_with_leakage(hwmgr);
 		smu7_set_private_data_based_on_pptable_v0(hwmgr);
 	}
-
-	/* Initalize Dynamic State Adjustment Rule Settings */
-	result = phm_initializa_dynamic_state_adjustment_rule_settings(hwmgr);
-
-	if (result)
-		goto fail;
 
 	data->is_tlu_enabled = false;
 
@@ -3079,13 +3144,40 @@ static int smu7_force_dpm_highest(struct pp_hwmgr *hwmgr)
 	return 0;
 }
 
+static uint32_t smu7_lookup_vddc_from_dispclk(struct pp_hwmgr *hwmgr)
+{
+	const struct amd_pp_display_configuration *cfg = hwmgr->display_config;
+	const struct phm_clock_voltage_dependency_table *vddc_dep_on_dispclk =
+			hwmgr->dyn_state.vddc_dependency_on_display_clock;
+	uint32_t i;
+
+	if (!vddc_dep_on_dispclk || !vddc_dep_on_dispclk->count ||
+	    !cfg || !cfg->num_display || !cfg->display_clk)
+		return 0;
+
+	/* Start from 1 because ClocksStateUltraLow should not be used according to DC. */
+	for (i = 1; i < vddc_dep_on_dispclk->count; ++i)
+		if (vddc_dep_on_dispclk->entries[i].clk >= cfg->display_clk)
+			return vddc_dep_on_dispclk->entries[i].v;
+
+	return vddc_dep_on_dispclk->entries[vddc_dep_on_dispclk->count - 1].v;
+}
+
+static void smu7_apply_minimum_dce_voltage_request(struct pp_hwmgr *hwmgr)
+{
+	uint32_t req_vddc = smu7_lookup_vddc_from_dispclk(hwmgr);
+
+	smum_send_msg_to_smc_with_parameter(hwmgr,
+			PPSMC_MSG_VddC_Request,
+			req_vddc * VOLTAGE_SCALE,
+			NULL);
+}
+
 static int smu7_upload_dpm_level_enable_mask(struct pp_hwmgr *hwmgr)
 {
 	struct smu7_hwmgr *data = (struct smu7_hwmgr *)(hwmgr->backend);
 
-	if (hwmgr->pp_table_version == PP_TABLE_V1)
-		phm_apply_dal_min_voltage_request(hwmgr);
-/* TO DO  for v0 iceland and Ci*/
+	smu7_apply_minimum_dce_voltage_request(hwmgr);
 
 	if (!data->sclk_dpm_key_disabled) {
 		if (data->dpm_level_enable_mask.sclk_dpm_enable_mask)
@@ -3821,7 +3913,7 @@ static int smu7_get_pp_table_entry_callback_func_v0(struct pp_hwmgr *hwmgr,
 
 	/* Performance levels are arranged from low to high. */
 	performance_level->memory_clock = memory_clock;
-	performance_level->engine_clock = engine_clock;
+	performance_level->engine_clock = min(engine_clock, data->sclk_cap);
 
 	pcie_gen_from_bios = visland_clk_info->ucPCIEGen;
 
@@ -4652,7 +4744,7 @@ static const struct amdgpu_irq_src_funcs smu7_irq_funcs = {
 static int smu7_register_irq_handlers(struct pp_hwmgr *hwmgr)
 {
 	struct amdgpu_irq_src *source =
-		kzalloc(sizeof(struct amdgpu_irq_src), GFP_KERNEL);
+		kzalloc_obj(struct amdgpu_irq_src);
 
 	if (!source)
 		return -ENOMEM;
@@ -4961,8 +5053,9 @@ static int smu7_force_clock_level(struct pp_hwmgr *hwmgr,
 	return 0;
 }
 
-static int smu7_print_clock_levels(struct pp_hwmgr *hwmgr,
-		enum pp_clock_type type, char *buf)
+static int smu7_emit_clock_levels(struct pp_hwmgr *hwmgr,
+				  enum pp_clock_type type, char *buf,
+				  int *offset)
 {
 	struct smu7_hwmgr *data = (struct smu7_hwmgr *)(hwmgr->backend);
 	struct smu7_single_dpm_table *sclk_table = &(data->dpm_table.sclk_table);
@@ -4971,7 +5064,7 @@ static int smu7_print_clock_levels(struct pp_hwmgr *hwmgr,
 	struct smu7_odn_dpm_table *odn_table = &(data->odn_dpm_table);
 	struct phm_odn_clock_levels *odn_sclk_table = &(odn_table->odn_core_clock_dpm_levels);
 	struct phm_odn_clock_levels *odn_mclk_table = &(odn_table->odn_memory_clock_dpm_levels);
-	int size = 0, ret = 0;
+	int size = *offset, ret = 0;
 	uint32_t i, now, clock, pcie_speed;
 
 	switch (type) {
@@ -4987,9 +5080,10 @@ static int smu7_print_clock_levels(struct pp_hwmgr *hwmgr,
 		now = i;
 
 		for (i = 0; i < sclk_table->count; i++)
-			size += sprintf(buf + size, "%d: %uMhz %s\n",
-					i, sclk_table->dpm_levels[i].value / 100,
-					(i == now) ? "*" : "");
+			size += sysfs_emit_at(buf, size, "%d: %uMhz %s\n", i,
+					      sclk_table->dpm_levels[i].value /
+						      100,
+					      (i == now) ? "*" : "");
 		break;
 	case PP_MCLK:
 		ret = smum_send_msg_to_smc(hwmgr, PPSMC_MSG_API_GetMclkFrequency, &clock);
@@ -5003,9 +5097,10 @@ static int smu7_print_clock_levels(struct pp_hwmgr *hwmgr,
 		now = i;
 
 		for (i = 0; i < mclk_table->count; i++)
-			size += sprintf(buf + size, "%d: %uMhz %s\n",
-					i, mclk_table->dpm_levels[i].value / 100,
-					(i == now) ? "*" : "");
+			size += sysfs_emit_at(buf, size, "%d: %uMhz %s\n", i,
+					      mclk_table->dpm_levels[i].value /
+						      100,
+					      (i == now) ? "*" : "");
 		break;
 	case PP_PCIE:
 		pcie_speed = smu7_get_current_pcie_speed(hwmgr);
@@ -5017,48 +5112,68 @@ static int smu7_print_clock_levels(struct pp_hwmgr *hwmgr,
 		now = i;
 
 		for (i = 0; i < pcie_table->count; i++)
-			size += sprintf(buf + size, "%d: %s %s\n", i,
-					(pcie_table->dpm_levels[i].value == 0) ? "2.5GT/s, x8" :
-					(pcie_table->dpm_levels[i].value == 1) ? "5.0GT/s, x16" :
-					(pcie_table->dpm_levels[i].value == 2) ? "8.0GT/s, x16" : "",
-					(i == now) ? "*" : "");
+			size += sysfs_emit_at(
+				buf, size, "%d: %s %s\n", i,
+				(pcie_table->dpm_levels[i].value == 0) ?
+					"2.5GT/s, x8" :
+				(pcie_table->dpm_levels[i].value == 1) ?
+					"5.0GT/s, x16" :
+				(pcie_table->dpm_levels[i].value == 2) ?
+					"8.0GT/s, x16" :
+					"",
+				(i == now) ? "*" : "");
 		break;
 	case OD_SCLK:
 		if (hwmgr->od_enabled) {
-			size += sprintf(buf + size, "%s:\n", "OD_SCLK");
+			size += sysfs_emit_at(buf, size, "%s:\n", "OD_SCLK");
 			for (i = 0; i < odn_sclk_table->num_of_pl; i++)
-				size += sprintf(buf + size, "%d: %10uMHz %10umV\n",
-					i, odn_sclk_table->entries[i].clock/100,
+				size += sysfs_emit_at(
+					buf, size, "%d: %10uMHz %10umV\n", i,
+					odn_sclk_table->entries[i].clock / 100,
 					odn_sclk_table->entries[i].vddc);
 		}
 		break;
 	case OD_MCLK:
 		if (hwmgr->od_enabled) {
-			size += sprintf(buf + size, "%s:\n", "OD_MCLK");
+			size += sysfs_emit_at(buf, size, "%s:\n", "OD_MCLK");
 			for (i = 0; i < odn_mclk_table->num_of_pl; i++)
-				size += sprintf(buf + size, "%d: %10uMHz %10umV\n",
-					i, odn_mclk_table->entries[i].clock/100,
+				size += sysfs_emit_at(
+					buf, size, "%d: %10uMHz %10umV\n", i,
+					odn_mclk_table->entries[i].clock / 100,
 					odn_mclk_table->entries[i].vddc);
 		}
 		break;
 	case OD_RANGE:
 		if (hwmgr->od_enabled) {
-			size += sprintf(buf + size, "%s:\n", "OD_RANGE");
-			size += sprintf(buf + size, "SCLK: %7uMHz %10uMHz\n",
-				data->golden_dpm_table.sclk_table.dpm_levels[0].value/100,
-				hwmgr->platform_descriptor.overdriveLimit.engineClock/100);
-			size += sprintf(buf + size, "MCLK: %7uMHz %10uMHz\n",
-				data->golden_dpm_table.mclk_table.dpm_levels[0].value/100,
-				hwmgr->platform_descriptor.overdriveLimit.memoryClock/100);
-			size += sprintf(buf + size, "VDDC: %7umV %11umV\n",
-				data->odn_dpm_table.min_vddc,
-				data->odn_dpm_table.max_vddc);
+			size += sysfs_emit_at(buf, size, "%s:\n", "OD_RANGE");
+			size += sysfs_emit_at(
+				buf, size, "SCLK: %7uMHz %10uMHz\n",
+				data->golden_dpm_table.sclk_table.dpm_levels[0]
+						.value /
+					100,
+				hwmgr->platform_descriptor.overdriveLimit
+						.engineClock /
+					100);
+			size += sysfs_emit_at(
+				buf, size, "MCLK: %7uMHz %10uMHz\n",
+				data->golden_dpm_table.mclk_table.dpm_levels[0]
+						.value /
+					100,
+				hwmgr->platform_descriptor.overdriveLimit
+						.memoryClock /
+					100);
+			size += sysfs_emit_at(buf, size, "VDDC: %7umV %11umV\n",
+					      data->odn_dpm_table.min_vddc,
+					      data->odn_dpm_table.max_vddc);
 		}
 		break;
 	default:
 		break;
 	}
-	return size;
+
+	*offset = size;
+
+	return 0;
 }
 
 static void smu7_set_fan_control_mode(struct pp_hwmgr *hwmgr, uint32_t mode)
@@ -5444,8 +5559,7 @@ static int smu7_get_thermal_temperature_range(struct pp_hwmgr *hwmgr,
 		thermal_data->max = table_info->cac_dtp_table->usSoftwareShutdownTemp *
 			PP_TEMPERATURE_UNITS_PER_CENTIGRADES;
 	else if (hwmgr->pp_table_version == PP_TABLE_V0)
-		thermal_data->max = data->thermal_temp_setting.temperature_shutdown *
-			PP_TEMPERATURE_UNITS_PER_CENTIGRADES;
+		thermal_data->max = data->thermal_temp_setting.temperature_shutdown;
 
 	thermal_data->sw_ctf_threshold = thermal_data->max;
 
@@ -5776,7 +5890,7 @@ static const struct pp_hwmgr_func smu7_hwmgr_funcs = {
 	.set_fan_control_mode = smu7_set_fan_control_mode,
 	.get_fan_control_mode = smu7_get_fan_control_mode,
 	.force_clock_level = smu7_force_clock_level,
-	.print_clock_levels = smu7_print_clock_levels,
+	.emit_clock_levels = smu7_emit_clock_levels,
 	.powergate_gfx = smu7_powergate_gfx,
 	.get_sclk_od = smu7_get_sclk_od,
 	.set_sclk_od = smu7_set_sclk_od,

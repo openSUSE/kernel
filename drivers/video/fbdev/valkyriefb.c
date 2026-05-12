@@ -329,15 +329,17 @@ static int __init valkyriefb_init(void)
 
 		if (of_address_to_resource(dp, 0, &r)) {
 			printk(KERN_ERR "can't find address for valkyrie\n");
+			of_node_put(dp);
 			return 0;
 		}
 
 		frame_buffer_phys = r.start;
 		cmap_regs_phys = r.start + 0x304000;
+		of_node_put(dp);
 	}
 #endif /* ppc (!CONFIG_MAC) */
 
-	p = kzalloc(sizeof(*p), GFP_ATOMIC);
+	p = kzalloc_obj(*p, GFP_ATOMIC);
 	if (!p)
 		return -ENOMEM;
 

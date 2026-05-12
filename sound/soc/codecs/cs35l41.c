@@ -7,6 +7,7 @@
 // Author: David Rhodes <david.rhodes@cirrus.com>
 
 #include <linux/acpi.h>
+#include <acpi/acpi_bus.h>
 #include <linux/delay.h>
 #include <linux/err.h>
 #include <linux/init.h>
@@ -927,7 +928,7 @@ static const struct snd_soc_dapm_widget cs35l41_ext_bst_widget[] = {
 static int cs35l41_component_probe(struct snd_soc_component *component)
 {
 	struct cs35l41_private *cs35l41 = snd_soc_component_get_drvdata(component);
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	int ret;
 
 	if (cs35l41->hw_cfg.bst_type == CS35L41_EXT_BOOST) {
@@ -1147,45 +1148,56 @@ err_dsp:
 	return ret;
 }
 
-#ifdef CONFIG_ACPI
-static int cs35l41_acpi_get_name(struct cs35l41_private *cs35l41)
+static int cs35l41_get_system_name(struct cs35l41_private *cs35l41)
 {
 	struct acpi_device *adev = ACPI_COMPANION(cs35l41->dev);
-	acpi_handle handle = acpi_device_handle(adev);
-	const char *hid;
-	const char *sub;
+	const char *sub = NULL;
+	const char *tmp;
+	int ret = 0;
 
-	/* If there is no acpi_device, there is no ACPI for this system, return 0 */
-	if (!adev)
-		return 0;
+	/* If there is no acpi_device, there is no ACPI for this system, skip checking ACPI */
+	if (adev) {
+		acpi_handle handle = acpi_device_handle(adev);
 
-	sub = acpi_get_subsystem_id(handle);
-	if (IS_ERR(sub)) {
-		/* If no _SUB, fallback to _HID, otherwise fail */
-		if (PTR_ERR(sub) == -ENODATA) {
-			hid = acpi_device_hid(adev);
-			/* If dummy hid, return 0 and fallback to legacy firmware path */
-			if (!strcmp(hid, "device"))
-				return 0;
-			sub = kstrdup(hid, GFP_KERNEL);
-			if (!sub)
-				sub = ERR_PTR(-ENOMEM);
-
-		} else
-			return PTR_ERR(sub);
+		sub = acpi_get_subsystem_id(handle);
+		ret = PTR_ERR_OR_ZERO(sub);
+		if (ret) {
+			sub = NULL;
+			/* If no _SUB, fallback to _HID, otherwise fail */
+			if (ret == -ENODATA) {
+				tmp = acpi_device_hid(adev);
+				/* If dummy hid, return 0 and fallback to legacy firmware path */
+				if (!strcmp(tmp, "device")) {
+					ret = 0;
+					goto err;
+				}
+				sub = kstrdup(tmp, GFP_KERNEL);
+				if (!sub) {
+					ret = -ENOMEM;
+					goto err;
+				}
+			}
+		}
+	} else {
+		if (!device_property_read_string(cs35l41->dev, "cirrus,subsystem-id", &tmp)) {
+			sub = kstrdup(tmp, GFP_KERNEL);
+			if (!sub) {
+				ret = -ENOMEM;
+				goto err;
+			}
+		}
 	}
 
-	cs35l41->dsp.system_name = sub;
-	dev_dbg(cs35l41->dev, "Subsystem ID: %s\n", cs35l41->dsp.system_name);
+	if (sub) {
+		cs35l41->dsp.system_name = sub;
+		dev_info(cs35l41->dev, "Subsystem ID: %s\n", cs35l41->dsp.system_name);
+		return 0;
+	}
 
-	return 0;
+err:
+	dev_warn(cs35l41->dev, "Subsystem ID not found\n");
+	return ret;
 }
-#else
-static int cs35l41_acpi_get_name(struct cs35l41_private *cs35l41)
-{
-	return 0;
-}
-#endif /* CONFIG_ACPI */
 
 int cs35l41_probe(struct cs35l41_private *cs35l41, const struct cs35l41_hw_cfg *hw_cfg)
 {
@@ -1317,7 +1329,7 @@ int cs35l41_probe(struct cs35l41_private *cs35l41, const struct cs35l41_hw_cfg *
 		goto err;
 	}
 
-	ret = cs35l41_acpi_get_name(cs35l41);
+	ret = cs35l41_get_system_name(cs35l41);
 	if (ret < 0)
 		goto err;
 
@@ -1392,6 +1404,7 @@ static int cs35l41_runtime_suspend(struct device *dev)
 	if (!cs35l41->dsp.preloaded || !cs35l41->dsp.cs_dsp.running)
 		return 0;
 
+	wm_adsp_hibernate(&cs35l41->dsp, true);
 	cs35l41_enter_hibernate(dev, cs35l41->regmap, cs35l41->hw_cfg.bst_type);
 
 	regcache_cache_only(cs35l41->regmap, true);
@@ -1420,10 +1433,14 @@ static int cs35l41_runtime_resume(struct device *dev)
 	cs35l41_test_key_unlock(cs35l41->dev, cs35l41->regmap);
 	ret = regcache_sync(cs35l41->regmap);
 	cs35l41_test_key_lock(cs35l41->dev, cs35l41->regmap);
+
+	wm_adsp_hibernate(&cs35l41->dsp, false);
+
 	if (ret) {
 		dev_err(cs35l41->dev, "Failed to restore register cache: %d\n", ret);
 		return ret;
 	}
+
 	cs35l41_init_boost(cs35l41->dev, cs35l41->regmap, &cs35l41->hw_cfg);
 
 	return 0;

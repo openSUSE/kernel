@@ -126,6 +126,7 @@ n	[A-Za-z0-9_-]
 "select"		return T_SELECT;
 "source"		return T_SOURCE;
 "string"		return T_STRING;
+"transitional"		return T_TRANSITIONAL;
 "tristate"		return T_TRISTATE;
 "visible"		return T_VISIBLE;
 "||"			return T_OR;
@@ -401,7 +402,7 @@ void zconf_initscan(const char *name)
 		exit(1);
 	}
 
-	cur_filename = file_lookup(name);
+	cur_filename = file_lookup(name, NULL, 0);
 	yylineno = 1;
 }
 
@@ -442,7 +443,7 @@ void zconf_nextfile(const char *name)
 	}
 
 	yylineno = 1;
-	cur_filename = file_lookup(name);
+	cur_filename = file_lookup(name, cur_filename, cur_lineno);
 }
 
 static void zconf_endfile(void)

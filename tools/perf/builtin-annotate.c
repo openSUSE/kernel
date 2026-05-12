@@ -13,7 +13,6 @@
 #include <linux/list.h>
 #include "util/cache.h"
 #include <linux/rbtree.h>
-#include <linux/zalloc.h>
 #include "util/symbol.h"
 
 #include "util/debug.h"
@@ -313,14 +312,6 @@ out_put:
 	return ret;
 }
 
-static int process_feature_event(struct perf_session *session,
-				 union perf_event *event)
-{
-	if (event->feat.feat_id < HEADER_LAST_FEATURE)
-		return perf_event__process_feature(session, event);
-	return 0;
-}
-
 static int hist_entry__stdio_annotate(struct hist_entry *he,
 				    struct evsel *evsel,
 				    struct perf_annotate *ann)
@@ -519,7 +510,7 @@ find_next:
 			/* skip missing symbols */
 			nd = rb_next(nd);
 		} else if (use_browser == 1) {
-			key = hist_entry__tui_annotate(he, evsel, NULL);
+			key = hist_entry__tui_annotate(he, evsel, NULL, NO_ADDR);
 
 			switch (key) {
 			case -1:
@@ -743,8 +734,7 @@ int cmd_annotate(int argc, const char **argv)
 			&annotate.group_set,
 			"Show event group information together"),
 	OPT_STRING('C', "cpu", &annotate.cpu_list, "cpu", "list of cpus to profile"),
-	OPT_CALLBACK(0, "symfs", NULL, "directory",
-		     "Look for files with symbols relative to this directory",
+	OPT_CALLBACK(0, "symfs", NULL, "directory[,layout]", SYMFS_HELP,
 		     symbol__config_symfs),
 	OPT_BOOLEAN(0, "source", &annotate_opts.annotate_src,
 		    "Interleave source code with assembly code (default)"),
@@ -875,7 +865,7 @@ int cmd_annotate(int argc, const char **argv)
 	annotate.tool.id_index	= perf_event__process_id_index;
 	annotate.tool.auxtrace_info	= perf_event__process_auxtrace_info;
 	annotate.tool.auxtrace	= perf_event__process_auxtrace;
-	annotate.tool.feature	= process_feature_event;
+	annotate.tool.feature	= perf_event__process_feature;
 	annotate.tool.ordering_requires_timestamps = true;
 
 	annotate.session = perf_session__new(&data, &annotate.tool);
@@ -917,11 +907,6 @@ int cmd_annotate(int argc, const char **argv)
 		symbol_conf.annotate_data_sample = true;
 	} else if (annotate_opts.code_with_type) {
 		symbol_conf.annotate_data_member = true;
-
-		if (!annotate.use_stdio) {
-			pr_err("--code-with-type only works with --stdio.\n");
-			goto out_delete;
-		}
 	}
 
 	setup_browser(true);

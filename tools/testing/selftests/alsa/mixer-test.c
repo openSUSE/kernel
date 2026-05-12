@@ -25,7 +25,7 @@
 #include <poll.h>
 #include <stdint.h>
 
-#include "../kselftest.h"
+#include "kselftest.h"
 #include "alsa-local.h"
 
 #define TESTS_PER_CONTROL 7
@@ -53,10 +53,10 @@ struct ctl_data {
 	struct ctl_data *next;
 };
 
-int num_cards = 0;
-int num_controls = 0;
-struct card_data *card_list = NULL;
-struct ctl_data *ctl_list = NULL;
+int num_cards;
+int num_controls;
+struct card_data *card_list;
+struct ctl_data *ctl_list;
 
 static void find_controls(void)
 {

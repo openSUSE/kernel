@@ -9,9 +9,6 @@ menu "Memory Management options"
 config ARCH_NO_SWAP
 	bool
 
-config ZPOOL
-	bool
-
 menuconfig SWAP
 	bool "Support for paging of anonymous memory (swap)"
 	depends on MMU && BLOCK && !ARCH_NO_SWAP
@@ -26,7 +23,7 @@ config ZSWAP
 	bool "Compressed cache for swap pages"
 	depends on SWAP
 	select CRYPTO
-	select ZPOOL
+	select ZSMALLOC
 	help
 	  A lightweight compressed cache for swap pages.  It takes
 	  pages that are in the process of being swapped out and attempts to
@@ -125,45 +122,18 @@ config ZSWAP_COMPRESSOR_DEFAULT
        default "zstd" if ZSWAP_COMPRESSOR_DEFAULT_ZSTD
        default ""
 
-choice
-	prompt "Default allocator"
-	depends on ZSWAP
-	default ZSWAP_ZPOOL_DEFAULT_ZSMALLOC if MMU
-	help
-	  Selects the default allocator for the compressed cache for
-	  swap pages.
-	  The default is 'zbud' for compatibility, however please do
-	  read the description of each of the allocators below before
-	  making a right choice.
-
-	  The selection made here can be overridden by using the kernel
-	  command line 'zswap.zpool=' option.
-
-config ZSWAP_ZPOOL_DEFAULT_ZSMALLOC
-	bool "zsmalloc"
-	select ZSMALLOC
-	help
-	  Use the zsmalloc allocator as the default allocator.
-endchoice
-
-config ZSWAP_ZPOOL_DEFAULT
-       string
-       depends on ZSWAP
-       default "zsmalloc" if ZSWAP_ZPOOL_DEFAULT_ZSMALLOC
-       default ""
-
 config ZSMALLOC
 	tristate
-	prompt "N:1 compression allocator (zsmalloc)" if (ZSWAP || ZRAM)
-	depends on MMU
-	help
-	  zsmalloc is a slab-based memory allocator designed to store
-	  pages of various compression levels efficiently. It achieves
-	  the highest storage density with the least amount of fragmentation.
+
+if ZSMALLOC
+
+menu "Zsmalloc allocator options"
+	depends on ZSMALLOC
+
+comment "Zsmalloc is a common backend allocator for zswap & zram"
 
 config ZSMALLOC_STAT
 	bool "Export zsmalloc statistics"
-	depends on ZSMALLOC
 	select DEBUG_FS
 	help
 	  This option enables code in the zsmalloc to collect various
@@ -175,7 +145,6 @@ config ZSMALLOC_CHAIN_SIZE
 	int "Maximum number of physical pages per-zspage"
 	default 8
 	range 4 16
-	depends on ZSMALLOC
 	help
 	  This option sets the upper limit on the number of physical pages
 	  that a zmalloc page (zspage) can consist of. The optimal zspage
@@ -190,14 +159,20 @@ config ZSMALLOC_CHAIN_SIZE
 
 	  For more information, see zsmalloc documentation.
 
+endmenu
+
+endif
+
 menu "Slab allocator options"
 
 config SLUB
 	def_bool y
+	select IRQ_WORK
 
 config KVFREE_RCU_BATCHED
 	def_bool y
 	depends on !SLUB_TINY && !TINY_RCU
+	depends on !RCU_STRICT_GRACE_PERIOD
 
 config SLUB_TINY
 	bool "Configure for minimal memory footprint"
@@ -272,17 +247,6 @@ config SLUB_STATS
 	  supports the determination of the most active slabs to figure
 	  out which slabs are relevant to a particular load.
 	  Try running: slabinfo -DA
-
-config SLUB_CPU_PARTIAL
-	default y
-	depends on SMP && !SLUB_TINY
-	bool "Enable per cpu partial caches"
-	help
-	  Per cpu partial caches accelerate objects allocation and freeing
-	  that is local to a processor at the price of more indeterminism
-	  in the latency of the free. On overflow these caches will be cleared
-	  which requires the taking of locks that may cause latency spikes.
-	  Typically one would choose no for a realtime system.
 
 config RANDOM_KMALLOC_CACHES
 	default n
@@ -439,9 +403,8 @@ config SPARSEMEM_VMEMMAP_ENABLE
 	bool
 
 config SPARSEMEM_VMEMMAP
-	bool "Sparse Memory virtual memmap"
+	def_bool y
 	depends on SPARSEMEM && SPARSEMEM_VMEMMAP_ENABLE
-	default y
 	help
 	  SPARSEMEM_VMEMMAP uses a virtually mapped memmap to optimise
 	  pfn_to_page and page_to_pfn operations.  This is the most
@@ -503,14 +466,11 @@ config HAVE_BOOTMEM_INFO_NODE
 config ARCH_ENABLE_MEMORY_HOTPLUG
 	bool
 
-config ARCH_ENABLE_MEMORY_HOTREMOVE
-	bool
-
 # eventually, we can have this option just 'select SPARSEMEM'
 menuconfig MEMORY_HOTPLUG
 	bool "Memory hotplug"
 	select MEMORY_ISOLATION
-	depends on SPARSEMEM
+	depends on SPARSEMEM_VMEMMAP
 	depends on ARCH_ENABLE_MEMORY_HOTPLUG
 	depends on 64BIT
 	select NUMA_KEEP_MEMINFO if NUMA
@@ -578,8 +538,8 @@ endchoice
 config MEMORY_HOTREMOVE
 	bool "Allow for memory hot remove"
 	select HAVE_BOOTMEM_INFO_NODE if (X86_64 || PPC64)
-	depends on MEMORY_HOTPLUG && ARCH_ENABLE_MEMORY_HOTREMOVE
-	depends on MIGRATION
+	depends on MEMORY_HOTPLUG
+	select MIGRATION
 
 config MHP_MEMMAP_ON_MEMORY
 	def_bool y
@@ -610,6 +570,7 @@ config SPLIT_PTE_PTLOCKS
 	depends on !ARM || CPU_CACHE_VIPT
 	depends on !PARISC || PA20
 	depends on !SPARC32
+	depends on !UML
 
 config ARCH_ENABLE_SPLIT_PMD_PTLOCK
 	bool
@@ -620,23 +581,20 @@ config SPLIT_PMD_PTLOCKS
 
 #
 # support for memory balloon
-config MEMORY_BALLOON
+config BALLOON
 	bool
 
 #
-# support for memory balloon compaction
-config BALLOON_COMPACTION
-	bool "Allow for balloon memory compaction/migration"
+# support for memory balloon page migration
+config BALLOON_MIGRATION
+	bool "Allow for balloon memory migration"
 	default y
-	depends on COMPACTION && MEMORY_BALLOON
+	depends on MIGRATION && BALLOON
 	help
-	  Memory fragmentation introduced by ballooning might reduce
-	  significantly the number of 2MB contiguous memory blocks that can be
-	  used within a guest, thus imposing performance penalties associated
-	  with the reduced number of transparent huge pages that could be used
-	  by the guest workload. Allowing the compaction & migration for memory
-	  pages enlisted as being part of memory balloon devices avoids the
-	  scenario aforementioned and helps improving memory defragmentation.
+	  Allow for migration of pages inflated in a memory balloon such that
+	  they can be allocated from memory areas only available for movable
+	  allocations (e.g., ZONE_MOVABLE, CMA) and such that they can be
+	  migrated for memory defragmentation purposes by memory compaction.
 
 #
 # support for memory compaction
@@ -671,20 +629,20 @@ config PAGE_REPORTING
 	  those pages to another entity, such as a hypervisor, so that the
 	  memory can be freed within the host for other uses.
 
-#
-# support for page migration
-#
-config MIGRATION
-	bool "Page migration"
+config NUMA_MIGRATION
+	bool "NUMA page migration"
 	default y
-	depends on (NUMA || ARCH_ENABLE_MEMORY_HOTREMOVE || COMPACTION || CMA) && MMU
+	depends on NUMA && MMU
+	select MIGRATION
 	help
-	  Allows the migration of the physical location of pages of processes
-	  while the virtual addresses are not changed. This is useful in
-	  two situations. The first is on NUMA systems to put pages nearer
-	  to the processors accessing. The second is when allocating huge
-	  pages as migration can relocate pages to satisfy a huge page
-	  allocation instead of reclaiming.
+	  Support the migration of pages to other NUMA nodes, available to
+	  user space through interfaces like migrate_pages(), move_pages(),
+	  and mbind(). Selecting this option also enables support for page
+	  demotion for memory tiering.
+
+config MIGRATION
+	bool
+	depends on MMU
 
 config DEVICE_MIGRATION
 	def_bool MIGRATION && ZONE_DEVICE
@@ -721,15 +679,6 @@ config PCP_BATCH_SCALE_MAX
 
 config PHYS_ADDR_T_64BIT
 	def_bool 64BIT
-
-config BOUNCE
-	bool "Enable bounce buffers"
-	default y
-	depends on BLOCK && MMU && HIGHMEM
-	help
-	  Enable bounce buffers for devices that cannot access the full range of
-	  memory available to the CPU. Enabled by default when HIGHMEM is
-	  selected, but you may say n to override this.
 
 config MMU_NOTIFIER
 	bool
@@ -776,8 +725,7 @@ config MEMORY_FAILURE
 	depends on MMU
 	depends on ARCH_SUPPORTS_MEMORY_FAILURE
 	bool "Enable recovery from hardware memory errors"
-	select MEMORY_ISOLATION
-	select RAS
+	select INTERVAL_TREE
 	help
 	  Enables code to recover from some memory failures on systems
 	  with MCA recovery. This allows a system to continue running
@@ -822,6 +770,22 @@ config ARCH_WANT_GENERAL_HUGETLB
 
 config ARCH_WANTS_THP_SWAP
 	def_bool n
+
+config PERSISTENT_HUGE_ZERO_FOLIO
+	bool "Allocate a PMD sized folio for zeroing"
+	depends on TRANSPARENT_HUGEPAGE
+	help
+	  Enable this option to reduce the runtime refcounting overhead
+	  of the huge zero folio and expand the places in the kernel
+	  that can use huge zero folios. For instance, block I/O benefits
+	  from access to large folios for zeroing memory.
+
+	  With this option enabled, the huge zero folio is allocated
+	  once and never freed. One full huge page's worth of memory shall
+	  be used.
+
+	  Say Y if your system has lots of memory. Say N if you are
+	  memory constrained.
 
 config MM_ID
 	def_bool n
@@ -874,6 +838,97 @@ choice
 	  enabled at runtime via sysfs.
 endchoice
 
+choice
+	prompt "Shmem hugepage allocation defaults"
+	depends on TRANSPARENT_HUGEPAGE
+	default TRANSPARENT_HUGEPAGE_SHMEM_HUGE_NEVER
+	help
+	  Selects the hugepage allocation policy defaults for
+	  the internal shmem mount.
+
+	  The selection made here can be overridden by using the kernel
+	  command line 'transparent_hugepage_shmem=' option.
+
+	config TRANSPARENT_HUGEPAGE_SHMEM_HUGE_NEVER
+		bool "never"
+	help
+	  Disable hugepage allocation for shmem mount by default. It can
+	  still be enabled with the kernel command line
+	  'transparent_hugepage_shmem=' option or at runtime via sysfs
+	  knob. Note that madvise(MADV_COLLAPSE) can still cause
+	  transparent huge pages to be obtained even if this mode is
+	  specified.
+
+	config TRANSPARENT_HUGEPAGE_SHMEM_HUGE_ALWAYS
+		bool "always"
+	help
+	  Always attempt to allocate hugepage for shmem mount, can
+	  increase the memory footprint of applications without a
+	  guaranteed benefit but it will work automatically for all
+	  applications.
+
+	config TRANSPARENT_HUGEPAGE_SHMEM_HUGE_WITHIN_SIZE
+		bool "within_size"
+	help
+	  Enable hugepage allocation for shmem mount if the allocation
+	  will be fully within the i_size. This configuration also takes
+	  into account any madvise(MADV_HUGEPAGE) hints that may be
+	  provided by the applications.
+
+	config TRANSPARENT_HUGEPAGE_SHMEM_HUGE_ADVISE
+		bool "advise"
+	help
+	  Enable hugepage allocation for the shmem mount exclusively when
+	  applications supply the madvise(MADV_HUGEPAGE) hint.
+	  This ensures that hugepages are used only in response to explicit
+	  requests from applications.
+endchoice
+
+choice
+	prompt "Tmpfs hugepage allocation defaults"
+	depends on TRANSPARENT_HUGEPAGE
+	default TRANSPARENT_HUGEPAGE_TMPFS_HUGE_NEVER
+	help
+	  Selects the hugepage allocation policy defaults for
+	  the tmpfs mount.
+
+	  The selection made here can be overridden by using the kernel
+	  command line 'transparent_hugepage_tmpfs=' option.
+
+	config TRANSPARENT_HUGEPAGE_TMPFS_HUGE_NEVER
+		bool "never"
+	help
+	  Disable hugepage allocation for tmpfs mount by default. It can
+	  still be enabled with the kernel command line
+	  'transparent_hugepage_tmpfs=' option. Note that
+	  madvise(MADV_COLLAPSE) can still cause transparent huge pages
+	  to be obtained even if this mode is specified.
+
+	config TRANSPARENT_HUGEPAGE_TMPFS_HUGE_ALWAYS
+		bool "always"
+	help
+	  Always attempt to allocate hugepage for tmpfs mount, can
+	  increase the memory footprint of applications without a
+	  guaranteed benefit but it will work automatically for all
+	  applications.
+
+	config TRANSPARENT_HUGEPAGE_TMPFS_HUGE_WITHIN_SIZE
+		bool "within_size"
+	help
+	  Enable hugepage allocation for tmpfs mount if the allocation
+	  will be fully within the i_size. This configuration also takes
+	  into account any madvise(MADV_HUGEPAGE) hints that may be
+	  provided by the applications.
+
+	config TRANSPARENT_HUGEPAGE_TMPFS_HUGE_ADVISE
+		bool "advise"
+	help
+	  Enable hugepage allocation for the tmpfs mount exclusively when
+	  applications supply the madvise(MADV_HUGEPAGE) hint.
+	  This ensures that hugepages are used only in response to explicit
+	  requests from applications.
+endchoice
+
 config THP_SWAP
 	def_bool y
 	depends on TRANSPARENT_HUGEPAGE && ARCH_WANTS_THP_SWAP && SWAP && 64BIT
@@ -919,6 +974,16 @@ config PAGE_MAPCOUNT
 #
 config PGTABLE_HAS_HUGE_LEAVES
 	def_bool TRANSPARENT_HUGEPAGE || HUGETLB_PAGE
+
+#
+# We can end up creating gigantic folio.
+#
+config HAVE_GIGANTIC_FOLIOS
+	def_bool (HUGETLB_PAGE && ARCH_HAS_GIGANTIC_PAGE) || \
+		 (ZONE_DEVICE && HAVE_ARCH_TRANSPARENT_HUGEPAGE_PUD)
+
+config ASYNC_KERNEL_PGTABLE_FREE
+	def_bool n
 
 # TODO: Allow to be enabled without THP
 config ARCH_SUPPORTS_HUGE_PFNMAP
@@ -1140,10 +1205,14 @@ config ZONE_DEVICE
 	  Device memory hotplug support allows for establishing pmem,
 	  or other device driver discovered memory regions, in the
 	  memmap. This allows pfn_to_page() lookups of otherwise
-	  "device-physical" addresses which is needed for using a DAX
-	  mapping in an O_DIRECT operation, among other things.
+	  "device-physical" addresses which is needed for DAX, PCI_P2PDMA, and
+	  DEVICE_PRIVATE features among others.
 
-	  If FS_DAX is enabled, then say Y.
+	  Enabling this option will reduce the entropy of x86 KASLR memory
+	  regions. For example - on a 46 bit system, the entropy goes down
+	  from 16 bits to 15 bits. The actual reduction in entropy depends
+	  on the physical address bits, on processor features, kernel config
+	  (5 level page table) and physical memory present on the system.
 
 #
 # Helpers to mirror range of the CPU page tables of a process into device page
@@ -1367,20 +1436,39 @@ config ARCH_HAS_USER_SHADOW_STACK
 	  The architecture has hardware support for userspace shadow call
           stacks (eg, x86 CET, arm64 GCS or RISC-V Zicfiss).
 
-config ARCH_SUPPORTS_PT_RECLAIM
+config HAVE_ARCH_TLB_REMOVE_TABLE
 	def_bool n
 
 config PT_RECLAIM
-	bool "reclaim empty user page table pages"
-	default y
-	depends on ARCH_SUPPORTS_PT_RECLAIM && MMU && SMP
-	select MMU_GATHER_RCU_TABLE_FREE
+	def_bool y
+	depends on MMU_GATHER_RCU_TABLE_FREE && !HAVE_ARCH_TLB_REMOVE_TABLE
 	help
 	  Try to reclaim empty user page table pages in paths other than munmap
 	  and exit_mmap path.
 
 	  Note: now only empty user PTE page table pages will be reclaimed.
 
+config FIND_NORMAL_PAGE
+	def_bool n
+
+config ARCH_HAS_LAZY_MMU_MODE
+	bool
+	help
+	  The architecture uses the lazy MMU mode. This allows changes to
+	  MMU-related architectural state to be deferred until the mode is
+	  exited. See <linux/pgtable.h> for details.
+
+config LAZY_MMU_MODE_KUNIT_TEST
+	tristate "KUnit tests for the lazy MMU mode" if !KUNIT_ALL_TESTS
+	depends on ARCH_HAS_LAZY_MMU_MODE
+	depends on KUNIT
+	default KUNIT_ALL_TESTS
+	help
+	  Enable this option to check that the lazy MMU mode interface behaves
+	  as expected. Only tests for the generic interface are included (not
+	  architecture-specific behaviours).
+
+	  If unsure, say N.
 
 source "mm/damon/Kconfig"
 

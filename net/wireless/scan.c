@@ -729,7 +729,7 @@ cfg80211_parse_colocated_ap_iter(void *_data, u8 type,
 					   bss_params)))
 		return RNR_ITER_CONTINUE;
 
-	entry = kzalloc(sizeof(*entry), GFP_ATOMIC);
+	entry = kzalloc_obj(*entry, GFP_ATOMIC);
 	if (!entry)
 		return RNR_ITER_ERROR;
 
@@ -895,7 +895,7 @@ static int cfg80211_scan_6ghz(struct cfg80211_registered_device *rdev,
 			if (ret)
 				continue;
 
-			entry = kzalloc(sizeof(*entry), GFP_ATOMIC);
+			entry = kzalloc_obj(*entry, GFP_ATOMIC);
 			if (!entry)
 				continue;
 
@@ -1085,8 +1085,7 @@ int cfg80211_scan(struct cfg80211_registered_device *rdev)
 	if (!n_channels)
 		return cfg80211_scan_6ghz(rdev, true);
 
-	request = kzalloc(struct_size(request, req.channels, n_channels),
-			  GFP_KERNEL);
+	request = kzalloc_flex(*request, req.channels, n_channels);
 	if (!request)
 		return -ENOMEM;
 
@@ -1816,6 +1815,9 @@ static void cfg80211_update_hidden_bsses(struct cfg80211_internal_bss *known,
 		WARN_ON(ies != old_ies);
 
 		rcu_assign_pointer(bss->pub.beacon_ies, new_ies);
+
+		bss->ts = known->ts;
+		bss->pub.ts_boottime = known->pub.ts_boottime;
 	}
 }
 
@@ -1882,6 +1884,10 @@ cfg80211_update_known_bss(struct cfg80211_registered_device *rdev,
 {
 	lockdep_assert_held(&rdev->bss_lock);
 
+	/* Update time stamps */
+	known->ts = new->ts;
+	known->pub.ts_boottime = new->pub.ts_boottime;
+
 	/* Update IEs */
 	if (rcu_access_pointer(new->pub.proberesp_ies)) {
 		const struct cfg80211_bss_ies *old;
@@ -1945,8 +1951,6 @@ cfg80211_update_known_bss(struct cfg80211_registered_device *rdev,
 	if (signal_valid)
 		known->pub.signal = new->pub.signal;
 	known->pub.capability = new->pub.capability;
-	known->ts = new->ts;
-	known->pub.ts_boottime = new->pub.ts_boottime;
 	known->parent_tsf = new->parent_tsf;
 	known->pub.chains = new->pub.chains;
 	memcpy(known->pub.chain_signal, new->pub.chain_signal,
@@ -1954,7 +1958,7 @@ cfg80211_update_known_bss(struct cfg80211_registered_device *rdev,
 	ether_addr_copy(known->parent_bssid, new->parent_bssid);
 	known->pub.max_bssid_indicator = new->pub.max_bssid_indicator;
 	known->pub.bssid_index = new->pub.bssid_index;
-	known->pub.use_for &= new->pub.use_for;
+	known->pub.use_for = new->pub.use_for;
 	known->pub.cannot_use_reasons = new->pub.cannot_use_reasons;
 	known->bss_source = new->bss_source;
 
@@ -2207,7 +2211,8 @@ struct cfg80211_inform_single_bss_data {
 };
 
 enum ieee80211_ap_reg_power
-cfg80211_get_6ghz_power_type(const u8 *elems, size_t elems_len)
+cfg80211_get_6ghz_power_type(const u8 *elems, size_t elems_len,
+			     u32 client_flags)
 {
 	const struct ieee80211_he_6ghz_oper *he_6ghz_oper;
 	struct ieee80211_he_operation *he_oper;
@@ -2225,26 +2230,13 @@ cfg80211_get_6ghz_power_type(const u8 *elems, size_t elems_len)
 	if (!he_6ghz_oper)
 		return IEEE80211_REG_UNSET_AP;
 
-	switch (u8_get_bits(he_6ghz_oper->control,
-			    IEEE80211_HE_6GHZ_OPER_CTRL_REG_INFO)) {
-	case IEEE80211_6GHZ_CTRL_REG_LPI_AP:
-	case IEEE80211_6GHZ_CTRL_REG_INDOOR_LPI_AP:
-		return IEEE80211_REG_LPI_AP;
-	case IEEE80211_6GHZ_CTRL_REG_SP_AP:
-	case IEEE80211_6GHZ_CTRL_REG_INDOOR_SP_AP:
-	case IEEE80211_6GHZ_CTRL_REG_INDOOR_SP_AP_OLD:
-		return IEEE80211_REG_SP_AP;
-	case IEEE80211_6GHZ_CTRL_REG_VLP_AP:
-		return IEEE80211_REG_VLP_AP;
-	default:
-		return IEEE80211_REG_UNSET_AP;
-	}
+	return cfg80211_6ghz_power_type(he_6ghz_oper->control, client_flags);
 }
 
 static bool cfg80211_6ghz_power_type_valid(const u8 *elems, size_t elems_len,
 					   const u32 flags)
 {
-	switch (cfg80211_get_6ghz_power_type(elems, elems_len)) {
+	switch (cfg80211_get_6ghz_power_type(elems, elems_len, flags)) {
 	case IEEE80211_REG_LPI_AP:
 		return true;
 	case IEEE80211_REG_SP_AP:
@@ -2701,7 +2693,7 @@ cfg80211_defrag_mle(const struct element *mle, const u8 *ie, size_t ielen,
 		buf_len += elem->datalen;
 	}
 
-	res = kzalloc(struct_size(res, data, buf_len), gfp);
+	res = kzalloc_flex(*res, data, buf_len, gfp);
 	if (!res)
 		return NULL;
 
@@ -2917,9 +2909,8 @@ cfg80211_gen_reporter_rnr(struct cfg80211_bss *source_bss, bool is_mbssid,
 		le16_encode_bits(bss_change_count,
 				 IEEE80211_RNR_MLD_PARAMS_BSS_CHANGE_COUNT);
 
-	res = kzalloc(struct_size(res, data,
-				  sizeof(ap_info) + ap_info.tbtt_info_len),
-		      gfp);
+	res = kzalloc_flex(*res, data, sizeof(ap_info) + ap_info.tbtt_info_len,
+			   gfp);
 	if (!res)
 		return NULL;
 

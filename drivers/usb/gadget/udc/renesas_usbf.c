@@ -2081,7 +2081,7 @@ static struct usb_request *usbf_ep_alloc_request(struct usb_ep *_ep,
 	if (!_ep)
 		return NULL;
 
-	req = kzalloc(sizeof(*req), gfp_flags);
+	req = kzalloc_obj(*req, gfp_flags);
 	if (!req)
 		return NULL;
 
@@ -3262,7 +3262,9 @@ static int usbf_probe(struct platform_device *pdev)
 	if (IS_ERR(udc->regs))
 		return PTR_ERR(udc->regs);
 
-	devm_pm_runtime_enable(&pdev->dev);
+	ret = devm_pm_runtime_enable(&pdev->dev);
+	if (ret)
+		return ret;
 	ret = pm_runtime_resume_and_get(&pdev->dev);
 	if (ret < 0)
 		return ret;

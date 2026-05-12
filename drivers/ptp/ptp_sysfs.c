@@ -284,7 +284,7 @@ static ssize_t max_vclocks_store(struct device *dev,
 	size_t size;
 	u32 max;
 
-	if (kstrtou32(buf, 0, &max) || max == 0)
+	if (kstrtou32(buf, 0, &max) || max == 0 || max > PTP_MAX_VCLOCKS_LIMIT)
 		return -EINVAL;
 
 	if (max == ptp->max_vclocks)
@@ -443,12 +443,11 @@ int ptp_populate_pin_groups(struct ptp_clock *ptp)
 	if (!n_pins)
 		return 0;
 
-	ptp->pin_dev_attr = kcalloc(n_pins, sizeof(*ptp->pin_dev_attr),
-				    GFP_KERNEL);
+	ptp->pin_dev_attr = kzalloc_objs(*ptp->pin_dev_attr, n_pins);
 	if (!ptp->pin_dev_attr)
 		goto no_dev_attr;
 
-	ptp->pin_attr = kcalloc(1 + n_pins, sizeof(*ptp->pin_attr), GFP_KERNEL);
+	ptp->pin_attr = kzalloc_objs(*ptp->pin_attr, 1 + n_pins);
 	if (!ptp->pin_attr)
 		goto no_pin_attr;
 

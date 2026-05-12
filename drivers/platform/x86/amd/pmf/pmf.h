@@ -12,7 +12,10 @@
 #define PMF_H
 
 #include <linux/acpi.h>
+#include <linux/amd-pmf-io.h>
+#include <linux/circ_buf.h>
 #include <linux/input.h>
+#include <linux/mutex_types.h>
 #include <linux/platform_device.h>
 #include <linux/platform_profile.h>
 
@@ -93,6 +96,8 @@ struct cookie_header {
 #define PMF_POLICY_BIOS_OUTPUT_1				10
 #define PMF_POLICY_BIOS_OUTPUT_2				11
 #define PMF_POLICY_P3T						38
+#define PMF_POLICY_PMF_PPT					54
+#define PMF_POLICY_PMF_PPT_APU_ONLY				55
 #define PMF_POLICY_BIOS_OUTPUT_3				57
 #define PMF_POLICY_BIOS_OUTPUT_4				58
 #define PMF_POLICY_BIOS_OUTPUT_5				59
@@ -116,6 +121,23 @@ struct cookie_header {
 #define PMF_IF_V2		2
 
 #define APTS_MAX_STATES		16
+#define CUSTOM_BIOS_INPUT_BITS	GENMASK(16, 7)
+#define BIOS_INPUTS_MAX		10
+#define CUSTOM_BIOS_INPUT_RING_ENTRIES	64	/* Must be power of two for CIRC_* macros */
+
+/* amd_pmf_send_cmd() set/get */
+#define SET_CMD		false
+#define GET_CMD		true
+
+#define METRICS_TABLE_ID	7
+
+typedef void (*apmf_event_handler_t)(acpi_handle handle, u32 event, void *data);
+
+static const uuid_t amd_pmf_ta_uuid[] __used = { UUID_INIT(0xd9b39bf2, 0x66bd, 0x4154, 0xaf, 0xb8,
+							   0x8a, 0xcc, 0x2b, 0x2b, 0x60, 0xd6),
+						 UUID_INIT(0x6fd93b77, 0x3fb8, 0x524d, 0xb1, 0x2d,
+							   0xc5, 0x29, 0xb1, 0x3d, 0x85, 0x43),
+					       };
 
 /* APTS PMF BIOS Interface */
 struct amd_pmf_apts_output {
@@ -184,6 +206,24 @@ struct apmf_sbios_req {
 	u8 skin_temp_hs2;
 } __packed;
 
+/* As per APMF spec 1.3 */
+struct apmf_sbios_req_v1 {
+	u16 size;
+	u32 pending_req;
+	u8 rsvd;
+	u8 cql_event;
+	u8 amt_event;
+	u32 fppt;
+	u32 sppt;
+	u32 sppt_apu_only;
+	u32 spl;
+	u32 stt_min_limit;
+	u8 skin_temp_apu;
+	u8 skin_temp_hs2;
+	u8 enable_cnqf;
+	u32 custom_policy[BIOS_INPUTS_MAX];
+} __packed;
+
 struct apmf_sbios_req_v2 {
 	u16 size;
 	u32 pending_req;
@@ -193,7 +233,7 @@ struct apmf_sbios_req_v2 {
 	u32 stt_min_limit;
 	u8 skin_temp_apu;
 	u8 skin_temp_hs2;
-	u32 custom_policy[10];
+	u32 custom_policy[BIOS_INPUTS_MAX];
 } __packed;
 
 struct apmf_fan_idx {
@@ -220,12 +260,12 @@ struct smu_pmf_metrics_v2 {
 	u16 vclk_freq;			/* MHz */
 	u16 vcn_activity;		/* VCN busy % [0-100] */
 	u16 vpeclk_freq;		/* MHz */
-	u16 ipuclk_freq;		/* MHz */
-	u16 ipu_busy[8];		/* NPU busy % [0-100] */
+	u16 npuclk_freq;		/* MHz */
+	u16 npu_busy[8];		/* NPU busy % [0-100] */
 	u16 dram_reads;			/* MB/sec */
 	u16 dram_writes;		/* MB/sec */
 	u16 core_c0residency[16];	/* C0 residency % [0-100] */
-	u16 ipu_power;			/* mW */
+	u16 npu_power;			/* mW */
 	u32 apu_power;			/* mW */
 	u32 gfx_power;			/* mW */
 	u32 dgpu_power;			/* mW */
@@ -234,9 +274,9 @@ struct smu_pmf_metrics_v2 {
 	u32 filter_alpha_value;		/* time constant [us] */
 	u32 metrics_counter;
 	u16 memclk_freq;		/* MHz */
-	u16 mpipuclk_freq;		/* MHz */
-	u16 ipu_reads;			/* MB/sec */
-	u16 ipu_writes;			/* MB/sec */
+	u16 mpnpuclk_freq;		/* MHz */
+	u16 npu_reads;			/* MB/sec */
+	u16 npu_writes;			/* MB/sec */
 	u32 throttle_residency_prochot;
 	u32 throttle_residency_spl;
 	u32 throttle_residency_fppt;
@@ -331,6 +371,26 @@ enum power_modes_v2 {
 	POWER_MODE_V2_MAX,
 };
 
+struct pmf_bios_inputs_prev {
+	u32 custom_bios_inputs[BIOS_INPUTS_MAX];
+};
+
+/**
+ * struct pmf_bios_input_entry - Snapshot of custom BIOS input event
+ * @val: Array of custom BIOS input values
+ * @preq: Pending request value associated with this event
+ */
+struct pmf_bios_input_entry {
+	u32 val[BIOS_INPUTS_MAX];
+	u32 preq;
+};
+
+struct pmf_cbi_ring_buffer {
+	struct pmf_bios_input_entry data[CUSTOM_BIOS_INPUT_RING_ENTRIES];
+	int head;
+	int tail;
+};
+
 struct amd_pmf_dev {
 	void __iomem *regbase;
 	void __iomem *smu_virt_addr;
@@ -375,6 +435,13 @@ struct amd_pmf_dev {
 	struct resource *res;
 	struct apmf_sbios_req_v2 req; /* To get custom bios pending request */
 	struct mutex cb_mutex;
+	u32 notifications;
+	struct apmf_sbios_req_v1 req1;
+	struct pmf_bios_inputs_prev cb_prev; /* To preserve custom BIOS inputs */
+	bool cb_flag;			     /* To handle first custom BIOS input */
+	struct pmf_cbi_ring_buffer cbi_buf;
+	struct mutex cbi_mutex;		     /* Protects ring buffer access */
+	struct mutex metrics_mutex;
 };
 
 struct apmf_sps_prop_granular_v2 {
@@ -420,7 +487,7 @@ struct os_power_slider {
 struct amd_pmf_notify_smart_pc_update {
 	u16 size;
 	u32 pending_req;
-	u32 custom_bios[10];
+	u32 custom_bios[BIOS_INPUTS_MAX];
 } __packed;
 
 struct fan_table_control {
@@ -621,14 +688,35 @@ enum ta_slider {
 	TA_MAX,
 };
 
-enum apmf_smartpc_custom_bios_inputs {
-	APMF_SMARTPC_CUSTOM_BIOS_INPUT1,
-	APMF_SMARTPC_CUSTOM_BIOS_INPUT2,
+struct amd_pmf_pb_bitmap {
+	const char *name;
+	u32 bit_mask;
 };
 
-enum apmf_preq_smartpc {
-	NOTIFY_CUSTOM_BIOS_INPUT1 = 5,
-	NOTIFY_CUSTOM_BIOS_INPUT2,
+static const struct amd_pmf_pb_bitmap custom_bios_inputs[] __used = {
+	{"NOTIFY_CUSTOM_BIOS_INPUT1",     BIT(5)},
+	{"NOTIFY_CUSTOM_BIOS_INPUT2",     BIT(6)},
+	{"NOTIFY_CUSTOM_BIOS_INPUT3",     BIT(7)},
+	{"NOTIFY_CUSTOM_BIOS_INPUT4",     BIT(8)},
+	{"NOTIFY_CUSTOM_BIOS_INPUT5",     BIT(9)},
+	{"NOTIFY_CUSTOM_BIOS_INPUT6",     BIT(10)},
+	{"NOTIFY_CUSTOM_BIOS_INPUT7",     BIT(11)},
+	{"NOTIFY_CUSTOM_BIOS_INPUT8",     BIT(12)},
+	{"NOTIFY_CUSTOM_BIOS_INPUT9",     BIT(13)},
+	{"NOTIFY_CUSTOM_BIOS_INPUT10",    BIT(14)},
+};
+
+static const struct amd_pmf_pb_bitmap custom_bios_inputs_v1[] __used = {
+	{"NOTIFY_CUSTOM_BIOS_INPUT1",     BIT(7)},
+	{"NOTIFY_CUSTOM_BIOS_INPUT2",     BIT(8)},
+	{"NOTIFY_CUSTOM_BIOS_INPUT3",     BIT(9)},
+	{"NOTIFY_CUSTOM_BIOS_INPUT4",     BIT(10)},
+	{"NOTIFY_CUSTOM_BIOS_INPUT5",     BIT(11)},
+	{"NOTIFY_CUSTOM_BIOS_INPUT6",     BIT(12)},
+	{"NOTIFY_CUSTOM_BIOS_INPUT7",     BIT(13)},
+	{"NOTIFY_CUSTOM_BIOS_INPUT8",     BIT(14)},
+	{"NOTIFY_CUSTOM_BIOS_INPUT9",     BIT(15)},
+	{"NOTIFY_CUSTOM_BIOS_INPUT10",    BIT(16)},
 };
 
 enum platform_type {
@@ -677,6 +765,8 @@ struct pmf_action_table {
 	u32 stt_skintemp_apu;	/* in C */
 	u32 stt_skintemp_hs2;	/* in C */
 	u32 p3t_limit;		/* in mW */
+	u32 pmf_ppt;		/* in mW */
+	u32 pmf_ppt_apu_only;	/* in mW */
 };
 
 /* Input conditions */
@@ -686,8 +776,7 @@ struct ta_pmf_condition_info {
 	u32 power_slider;
 	u32 lid_state;
 	bool user_present;
-	u32 bios_input1;
-	u32 bios_input2;
+	u32 bios_input_1[2];
 	u32 monitor_count;
 	u32 rsvd2[2];
 	u32 bat_design;
@@ -711,7 +800,9 @@ struct ta_pmf_condition_info {
 	u32 workload_type;
 	u32 display_type;
 	u32 display_state;
-	u32 rsvd5[150];
+	u32 rsvd5_1[17];
+	u32 bios_input_2[8];
+	u32 rsvd5[125];
 };
 
 struct ta_pmf_load_policy_table {
@@ -737,6 +828,7 @@ struct ta_pmf_enact_table {
 struct ta_pmf_action {
 	u32 action_index;
 	u32 value;
+	u32 spl_arg;
 };
 
 /* Output actions from TA */
@@ -778,6 +870,7 @@ int apmf_os_power_slider_update(struct amd_pmf_dev *dev, u8 flag);
 int amd_pmf_set_dram_addr(struct amd_pmf_dev *dev, bool alloc_buffer);
 int amd_pmf_notify_sbios_heartbeat_event_v2(struct amd_pmf_dev *dev, u8 flag);
 u32 fixp_q88_fromint(u32 val);
+int is_apmf_bios_input_notifications_supported(struct amd_pmf_dev *pdev);
 
 /* SPS Layer */
 int amd_pmf_get_pprof_modes(struct amd_pmf_dev *pmf);
@@ -805,6 +898,7 @@ void amd_pmf_init_auto_mode(struct amd_pmf_dev *dev);
 void amd_pmf_deinit_auto_mode(struct amd_pmf_dev *dev);
 void amd_pmf_trans_automode(struct amd_pmf_dev *dev, int socket_power, ktime_t time_elapsed_ms);
 int apmf_get_sbios_requests(struct amd_pmf_dev *pdev, struct apmf_sbios_req *req);
+int apmf_get_sbios_requests_v1(struct amd_pmf_dev *pdev, struct apmf_sbios_req_v1 *req);
 int apmf_get_sbios_requests_v2(struct amd_pmf_dev *pdev, struct apmf_sbios_req_v2 *req);
 
 void amd_pmf_update_2_cql(struct amd_pmf_dev *dev, bool is_cql_event);
@@ -828,5 +922,10 @@ int amd_pmf_smartpc_apply_bios_output(struct amd_pmf_dev *dev, u32 val, u32 preq
 /* Smart PC - TA interfaces */
 void amd_pmf_populate_ta_inputs(struct amd_pmf_dev *dev, struct ta_pmf_enact_table *in);
 void amd_pmf_dump_ta_inputs(struct amd_pmf_dev *dev, struct ta_pmf_enact_table *in);
+int amd_pmf_invoke_cmd_enact(struct amd_pmf_dev *dev);
+
+int amd_pmf_tee_init(struct amd_pmf_dev *dev, const uuid_t *uuid);
+void amd_pmf_tee_deinit(struct amd_pmf_dev *dev);
+int amd_pmf_start_policy_engine(struct amd_pmf_dev *dev);
 
 #endif /* PMF_H */

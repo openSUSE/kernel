@@ -14,8 +14,6 @@ dtb-$(CONFIG_ARCH_QCOM) += \
 	qcom-apq8064-asus-nexus7-flo.dtb \
 	qcom-apq8064-lg-nexus4-mako.dtb \
 	qcom-apq8074-dragonboard.dtb \
-	qcom-apq8084-ifc6540.dtb \
-	qcom-apq8084-mtp.dtb \
 	qcom-ipq4018-ap120c-ac.dtb \
 	qcom-ipq4018-ap120c-ac-bit.dtb \
 	qcom-ipq4018-jalapeno.dtb \
@@ -43,6 +41,7 @@ dtb-$(CONFIG_ARCH_QCOM) += \
 	qcom-msm8926-samsung-matisselte.dtb \
 	qcom-msm8960-cdp.dtb \
 	qcom-msm8960-samsung-expressatt.dtb \
+	qcom-msm8960-sony-huashan.dtb \
 	qcom-msm8974-lge-nexus5-hammerhead.dtb \
 	qcom-msm8974-samsung-hlte.dtb \
 	qcom-msm8974-sony-xperia-rhine-amami.dtb \

@@ -30,33 +30,24 @@ struct sd_flag_debug {
 };
 extern const struct sd_flag_debug sd_flag_debug[];
 
+struct sched_domain_topology_level;
+
 #ifdef CONFIG_SCHED_SMT
-static inline int cpu_smt_flags(void)
-{
-	return SD_SHARE_CPUCAPACITY | SD_SHARE_LLC;
-}
+extern int cpu_smt_flags(void);
+extern const struct cpumask *tl_smt_mask(struct sched_domain_topology_level *tl, int cpu);
 #endif
 
 #ifdef CONFIG_SCHED_CLUSTER
-static inline int cpu_cluster_flags(void)
-{
-	return SD_CLUSTER | SD_SHARE_LLC;
-}
+extern int cpu_cluster_flags(void);
+extern const struct cpumask *tl_cls_mask(struct sched_domain_topology_level *tl, int cpu);
 #endif
 
 #ifdef CONFIG_SCHED_MC
-static inline int cpu_core_flags(void)
-{
-	return SD_SHARE_LLC;
-}
+extern int cpu_core_flags(void);
+extern const struct cpumask *tl_mc_mask(struct sched_domain_topology_level *tl, int cpu);
 #endif
 
-#ifdef CONFIG_NUMA
-static inline int cpu_numa_flags(void)
-{
-	return SD_NUMA;
-}
-#endif
+extern const struct cpumask *tl_pkg_mask(struct sched_domain_topology_level *tl, int cpu);
 
 extern int arch_asym_cpu_priority(int cpu);
 
@@ -101,6 +92,10 @@ struct sched_domain {
 	unsigned int nr_balance_failed; /* initialise to 0 */
 
 	/* idle_balance() stats */
+	unsigned int newidle_call;
+	unsigned int newidle_success;
+	unsigned int newidle_ratio;
+	u64 newidle_stamp;
 	u64 max_newidle_lb_cost;
 	unsigned long last_decay_max_lb_cost;
 
@@ -147,18 +142,30 @@ struct sched_domain {
 
 	unsigned int span_weight;
 	/*
-	 * Span of all CPUs in this domain.
+	 * See sched_domain_span(), on why flex arrays are broken.
 	 *
-	 * NOTE: this field is variable length. (Allocated dynamically
-	 * by attaching extra space to the end of the structure,
-	 * depending on how many CPUs the kernel has booted up with)
-	 */
 	unsigned long span[];
+	 */
 };
 
 static inline struct cpumask *sched_domain_span(struct sched_domain *sd)
 {
-	return to_cpumask(sd->span);
+	/*
+	 * Turns out that C flexible arrays are fundamentally broken since it
+	 * is allowed for offsetof(*sd, span) < sizeof(*sd), this means that
+	 * structure initialzation *sd = { ... }; which writes every byte
+	 * inside sizeof(*type), will over-write the start of the flexible
+	 * array.
+	 *
+	 * Luckily, the way we allocate sched_domain is by:
+	 *
+	 *   sizeof(*sd) + cpumask_size()
+	 *
+	 * this means that we have sufficient space for the whole flex array
+	 * *outside* of sizeof(*sd). So use that, and avoid using sd->span.
+	 */
+	unsigned long *bitmap = (void *)sd + sizeof(*sd);
+	return to_cpumask(bitmap);
 }
 
 extern void partition_sched_domains(int ndoms_new, cpumask_var_t doms_new[],
@@ -172,12 +179,11 @@ bool cpus_equal_capacity(int this_cpu, int that_cpu);
 bool cpus_share_cache(int this_cpu, int that_cpu);
 bool cpus_share_resources(int this_cpu, int that_cpu);
 
-typedef const struct cpumask *(*sched_domain_mask_f)(int cpu);
+typedef const struct cpumask *(*sched_domain_mask_f)(struct sched_domain_topology_level *tl, int cpu);
 typedef int (*sched_domain_flags_f)(void);
 
 struct sd_data {
 	struct sched_domain *__percpu *sd;
-	struct sched_domain_shared *__percpu *sds;
 	struct sched_group *__percpu *sg;
 	struct sched_group_capacity *__percpu *sgc;
 };

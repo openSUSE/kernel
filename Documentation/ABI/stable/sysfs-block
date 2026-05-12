@@ -603,16 +603,55 @@ Date:		July 2003
 Contact:	linux-block@vger.kernel.org
 Description:
 		[RW] This controls how many requests may be allocated in the
-		block layer for read or write requests. Note that the total
-		allocated number may be twice this amount, since it applies only
-		to reads or writes (not the accumulated sum).
+		block layer. Noted this value only represents the quantity for a
+		single blk_mq_tags instance. The actual number for the entire
+		device depends on the hardware queue count, whether elevator is
+		enabled, and whether tags are shared.
 
-		To avoid priority inversion through request starvation, a
-		request queue maintains a separate request pool per each cgroup
-		when CONFIG_BLK_CGROUP is enabled, and this parameter applies to
-		each such per-block-cgroup request pool.  IOW, if there are N
-		block cgroups, each request queue may have up to N request
-		pools, each independently regulated by nr_requests.
+
+What:		/sys/block/<disk>/queue/async_depth
+Date:		August 2025
+Contact:	linux-block@vger.kernel.org
+Description:
+		[RW] Controls how many asynchronous requests may be allocated
+		in the block layer. The value is always capped at nr_requests.
+
+		When no elevator is active (none):
+
+		- async_depth is always equal to nr_requests.
+
+		For bfq scheduler:
+
+		- By default, async_depth is set to 75% of nr_requests.
+		  Internal limits are then derived from this value:
+
+		  * Sync writes: limited to async_depth (≈75% of nr_requests).
+		  * Async I/O: limited to ~2/3 of async_depth (≈50% of
+		    nr_requests).
+
+		  If a bfq_queue is weight-raised:
+
+		  * Sync writes: limited to ~1/2 of async_depth (≈37% of
+		    nr_requests).
+		  * Async I/O: limited to ~1/4 of async_depth (≈18% of
+		    nr_requests).
+
+		- If the user writes a custom value to async_depth, BFQ will
+		  recompute these limits proportionally based on the new value.
+
+		For Kyber:
+
+		- By default async_depth is set to 75% of nr_requests.
+		- If the user writes a custom value to async_depth, then it
+		  overrides the default and directly controls the limit for
+		  writes and async I/O.
+
+		For mq-deadline:
+
+		- By default async_depth is set to nr_requests.
+		- If the user writes a custom value to async_depth, then it
+		  overrides the default and directly controls the limit for
+		  writes and async I/O.
 
 
 What:		/sys/block/<disk>/queue/nr_zones
@@ -846,6 +885,21 @@ Description:
 		However, since drive-managed zoned block devices do not support
 		zone commands, they will be treated as regular block devices and
 		zoned will report "none".
+
+What:		/sys/block/<disk>/queue/zoned_qd1_writes
+Date:		January 2026
+Contact:	Damien Le Moal <dlemoal@kernel.org>
+Description:
+		[RW] zoned_qd1_writes indicates if write operations to a zoned
+		block device are being handled using a single issuer context (a
+		kernel thread) operating at a maximum queue depth of 1. This
+		attribute is visible only for zoned block devices. The default
+		value for zoned block devices that are not rotational devices
+		(e.g. ZNS SSDs or zoned UFS devices) is 0. For rotational zoned
+		block devices (e.g. SMR HDDs) the default value is 1. Since
+		this default may not be appropriate for some devices, e.g.
+		remotely connected devices over high latency networks, the user
+		can disable this feature by setting this attribute to 0.
 
 
 What:		/sys/block/<disk>/hidden

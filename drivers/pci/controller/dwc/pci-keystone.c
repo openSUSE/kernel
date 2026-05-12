@@ -17,6 +17,7 @@
 #include <linux/irqchip/chained_irq.h>
 #include <linux/irqdomain.h>
 #include <linux/mfd/syscon.h>
+#include <linux/module.h>
 #include <linux/msi.h>
 #include <linux/of.h>
 #include <linux/of_irq.h>
@@ -777,29 +778,7 @@ err:
 	return ret;
 }
 
-#ifdef CONFIG_ARM
-/*
- * When a PCI device does not exist during config cycles, keystone host
- * gets a bus error instead of returning 0xffffffff (PCI_ERROR_RESPONSE).
- * This handler always returns 0 for this kind of fault.
- */
-static int ks_pcie_fault(unsigned long addr, unsigned int fsr,
-			 struct pt_regs *regs)
-{
-	unsigned long instr = *(unsigned long *) instruction_pointer(regs);
-
-	if ((instr & 0x0e100090) == 0x00100090) {
-		int reg = (instr >> 12) & 15;
-
-		regs->uregs[reg] = -1;
-		regs->ARM_pc += 4;
-	}
-
-	return 0;
-}
-#endif
-
-static int __init ks_pcie_init_id(struct keystone_pcie *ks_pcie)
+static int ks_pcie_init_id(struct keystone_pcie *ks_pcie)
 {
 	int ret;
 	unsigned int id;
@@ -831,7 +810,7 @@ static int __init ks_pcie_init_id(struct keystone_pcie *ks_pcie)
 	return 0;
 }
 
-static int __init ks_pcie_host_init(struct dw_pcie_rp *pp)
+static int ks_pcie_host_init(struct dw_pcie_rp *pp)
 {
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
 	struct keystone_pcie *ks_pcie = to_keystone_pcie(pci);
@@ -860,15 +839,6 @@ static int __init ks_pcie_host_init(struct dw_pcie_rp *pp)
 	ret = ks_pcie_init_id(ks_pcie);
 	if (ret < 0)
 		return ret;
-
-#ifdef CONFIG_ARM
-	/*
-	 * PCIe access errors that result into OCP errors are caught by ARM as
-	 * "External aborts"
-	 */
-	hook_fault_code(17, ks_pcie_fault, SIGBUS, 0,
-			"Asynchronous external abort");
-#endif
 
 	return 0;
 }
@@ -960,9 +930,21 @@ static int ks_pcie_am654_raise_irq(struct dw_pcie_ep *ep, u8 func_no,
 }
 
 static const struct pci_epc_features ks_pcie_am654_epc_features = {
-	.linkup_notifier = false,
+	DWC_EPC_COMMON_FEATURES,
 	.msi_capable = true,
 	.msix_capable = true,
+	/*
+	 * TODO: This driver is the only DWC glue driver that had BAR_RESERVED
+	 * BARs, but did not call dw_pcie_ep_reset_bar() for the reserved BARs.
+	 *
+	 * To not change the existing behavior, these BARs were not migrated to
+	 * BAR_DISABLED. If this driver wants the BAR_RESERVED BARs to be
+	 * disabled, it should migrate them to BAR_DISABLED.
+	 *
+	 * If they actually should be enabled, then the driver must also define
+	 * what is behind these reserved BARs, see the definition of struct
+	 * pci_epc_bar_rsvd_region.
+	 */
 	.bar[BAR_0] = { .type = BAR_RESERVED, },
 	.bar[BAR_1] = { .type = BAR_RESERVED, },
 	.bar[BAR_2] = { .type = BAR_RESIZABLE, },
@@ -1135,6 +1117,7 @@ static const struct of_device_id ks_pcie_of_match[] = {
 	},
 	{ },
 };
+MODULE_DEVICE_TABLE(of, ks_pcie_of_match);
 
 static int ks_pcie_probe(struct platform_device *pdev)
 {
@@ -1201,8 +1184,8 @@ static int ks_pcie_probe(struct platform_device *pdev)
 	if (irq < 0)
 		return irq;
 
-	ret = request_irq(irq, ks_pcie_err_irq_handler, IRQF_SHARED,
-			  "ks-pcie-error-irq", ks_pcie);
+	ret = devm_request_irq(dev, irq, ks_pcie_err_irq_handler, IRQF_SHARED,
+			       "ks-pcie-error-irq", ks_pcie);
 	if (ret < 0) {
 		dev_err(dev, "failed to request error IRQ %d\n",
 			irq);
@@ -1213,11 +1196,11 @@ static int ks_pcie_probe(struct platform_device *pdev)
 	if (ret)
 		num_lanes = 1;
 
-	phy = devm_kzalloc(dev, sizeof(*phy) * num_lanes, GFP_KERNEL);
+	phy = devm_kcalloc(dev, num_lanes, sizeof(*phy), GFP_KERNEL);
 	if (!phy)
 		return -ENOMEM;
 
-	link = devm_kzalloc(dev, sizeof(*link) * num_lanes, GFP_KERNEL);
+	link = devm_kcalloc(dev, num_lanes, sizeof(*link), GFP_KERNEL);
 	if (!link)
 		return -ENOMEM;
 
@@ -1338,6 +1321,8 @@ static int ks_pcie_probe(struct platform_device *pdev)
 		break;
 	default:
 		dev_err(dev, "INVALID device type %d\n", mode);
+		ret = -EINVAL;
+		goto err_get_sync;
 	}
 
 	ks_pcie_enable_error_irq(ks_pcie);
@@ -1380,4 +1365,45 @@ static struct platform_driver ks_pcie_driver = {
 		.of_match_table = ks_pcie_of_match,
 	},
 };
+
+#ifdef CONFIG_ARM
+/*
+ * When a PCI device does not exist during config cycles, keystone host
+ * gets a bus error instead of returning 0xffffffff (PCI_ERROR_RESPONSE).
+ * This handler always returns 0 for this kind of fault.
+ */
+static int ks_pcie_fault(unsigned long addr, unsigned int fsr,
+			 struct pt_regs *regs)
+{
+	unsigned long instr = *(unsigned long *)instruction_pointer(regs);
+
+	if ((instr & 0x0e100090) == 0x00100090) {
+		int reg = (instr >> 12) & 15;
+
+		regs->uregs[reg] = -1;
+		regs->ARM_pc += 4;
+	}
+
+	return 0;
+}
+
+static int __init ks_pcie_init(void)
+{
+	/*
+	 * PCIe access errors that result into OCP errors are caught by ARM as
+	 * "External aborts"
+	 */
+	if (of_find_matching_node(NULL, ks_pcie_of_match))
+		hook_fault_code(17, ks_pcie_fault, SIGBUS, 0,
+				"Asynchronous external abort");
+
+	return platform_driver_register(&ks_pcie_driver);
+}
+device_initcall(ks_pcie_init);
+#else
 builtin_platform_driver(ks_pcie_driver);
+#endif
+
+MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("PCIe controller driver for Texas Instruments Keystone SoCs");
+MODULE_AUTHOR("Murali Karicheri <m-karicheri2@ti.com>");

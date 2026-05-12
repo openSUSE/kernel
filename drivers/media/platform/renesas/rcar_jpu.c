@@ -480,9 +480,9 @@ static struct jpu_ctx *ctrl_to_ctx(struct v4l2_ctrl *c)
 	return container_of(c->handler, struct jpu_ctx, ctrl_handler);
 }
 
-static struct jpu_ctx *fh_to_ctx(struct v4l2_fh *fh)
+static struct jpu_ctx *file_to_ctx(struct file *filp)
 {
-	return container_of(fh, struct jpu_ctx, fh);
+	return container_of(file_to_v4l2_fh(filp), struct jpu_ctx, fh);
 }
 
 static void jpu_set_tbl(struct jpu *jpu, u32 reg, const unsigned int *tbl,
@@ -656,7 +656,7 @@ static u8 jpu_parse_hdr(void *buffer, unsigned long size, unsigned int *width,
 static int jpu_querycap(struct file *file, void *priv,
 			struct v4l2_capability *cap)
 {
-	struct jpu_ctx *ctx = fh_to_ctx(priv);
+	struct jpu_ctx *ctx = file_to_ctx(file);
 
 	if (ctx->encoder)
 		strscpy(cap->card, DRV_NAME " encoder", sizeof(cap->card));
@@ -714,7 +714,7 @@ static int jpu_enum_fmt(struct v4l2_fmtdesc *f, u32 type)
 static int jpu_enum_fmt_cap(struct file *file, void *priv,
 			    struct v4l2_fmtdesc *f)
 {
-	struct jpu_ctx *ctx = fh_to_ctx(priv);
+	struct jpu_ctx *ctx = file_to_ctx(file);
 
 	return jpu_enum_fmt(f, ctx->encoder ? JPU_ENC_CAPTURE :
 			    JPU_DEC_CAPTURE);
@@ -723,7 +723,7 @@ static int jpu_enum_fmt_cap(struct file *file, void *priv,
 static int jpu_enum_fmt_out(struct file *file, void *priv,
 			    struct v4l2_fmtdesc *f)
 {
-	struct jpu_ctx *ctx = fh_to_ctx(priv);
+	struct jpu_ctx *ctx = file_to_ctx(file);
 
 	return jpu_enum_fmt(f, ctx->encoder ? JPU_ENC_OUTPUT : JPU_DEC_OUTPUT);
 }
@@ -823,10 +823,7 @@ static int __jpu_try_fmt(struct jpu_ctx *ctx, struct jpu_fmt **fmtinfo,
 
 static int jpu_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 {
-	struct jpu_ctx *ctx = fh_to_ctx(priv);
-
-	if (!v4l2_m2m_get_vq(ctx->fh.m2m_ctx, f->type))
-		return -EINVAL;
+	struct jpu_ctx *ctx = file_to_ctx(file);
 
 	return __jpu_try_fmt(ctx, NULL, &f->fmt.pix_mp, f->type);
 }
@@ -834,15 +831,13 @@ static int jpu_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 static int jpu_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
 {
 	struct vb2_queue *vq;
-	struct jpu_ctx *ctx = fh_to_ctx(priv);
+	struct jpu_ctx *ctx = file_to_ctx(file);
 	struct v4l2_m2m_ctx *m2m_ctx = ctx->fh.m2m_ctx;
 	struct jpu_fmt *fmtinfo;
 	struct jpu_q_data *q_data;
 	int ret;
 
 	vq = v4l2_m2m_get_vq(m2m_ctx, f->type);
-	if (!vq)
-		return -EINVAL;
 
 	if (vb2_is_busy(vq)) {
 		v4l2_err(&ctx->jpu->v4l2_dev, "%s queue busy\n", __func__);
@@ -863,11 +858,8 @@ static int jpu_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
 
 static int jpu_g_fmt(struct file *file, void *priv, struct v4l2_format *f)
 {
+	struct jpu_ctx *ctx = file_to_ctx(file);
 	struct jpu_q_data *q_data;
-	struct jpu_ctx *ctx = fh_to_ctx(priv);
-
-	if (!v4l2_m2m_get_vq(ctx->fh.m2m_ctx, f->type))
-		return -EINVAL;
 
 	q_data = jpu_get_q_data(ctx, f->type);
 	f->fmt.pix_mp = q_data->format;
@@ -897,8 +889,8 @@ static const struct v4l2_ctrl_ops jpu_ctrl_ops = {
 
 static int jpu_streamon(struct file *file, void *priv, enum v4l2_buf_type type)
 {
-	struct jpu_ctx *ctx = fh_to_ctx(priv);
 	struct jpu_q_data *src_q_data, *dst_q_data, *orig, adj, *ref;
+	struct jpu_ctx *ctx = file_to_ctx(file);
 	enum v4l2_buf_type adj_type;
 
 	src_q_data = jpu_get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE);
@@ -1220,14 +1212,13 @@ static int jpu_open(struct file *file)
 	struct jpu_ctx *ctx;
 	int ret;
 
-	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	ctx = kzalloc_obj(*ctx);
 	if (!ctx)
 		return -ENOMEM;
 
 	v4l2_fh_init(&ctx->fh, vfd);
 	ctx->fh.ctrl_handler = &ctx->ctrl_handler;
-	file->private_data = &ctx->fh;
-	v4l2_fh_add(&ctx->fh);
+	v4l2_fh_add(&ctx->fh, file);
 
 	ctx->jpu = jpu;
 	ctx->encoder = vfd == &jpu->vfd_encoder;
@@ -1272,7 +1263,7 @@ jpu_reset_rollback:
 device_prepare_rollback:
 	mutex_unlock(&jpu->mutex);
 v4l_prepare_rollback:
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, file);
 	v4l2_fh_exit(&ctx->fh);
 	kfree(ctx);
 	return ret;
@@ -1280,12 +1271,12 @@ v4l_prepare_rollback:
 
 static int jpu_release(struct file *file)
 {
+	struct jpu_ctx *ctx = file_to_ctx(file);
 	struct jpu *jpu = video_drvdata(file);
-	struct jpu_ctx *ctx = fh_to_ctx(file->private_data);
 
 	v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
 	v4l2_ctrl_handler_free(&ctx->ctrl_handler);
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, file);
 	v4l2_fh_exit(&ctx->fh);
 	kfree(ctx);
 
@@ -1702,7 +1693,6 @@ static void jpu_remove(struct platform_device *pdev)
 	v4l2_device_unregister(&jpu->v4l2_dev);
 }
 
-#ifdef CONFIG_PM_SLEEP
 static int jpu_suspend(struct device *dev)
 {
 	struct jpu *jpu = dev_get_drvdata(dev);
@@ -1726,11 +1716,8 @@ static int jpu_resume(struct device *dev)
 
 	return 0;
 }
-#endif
 
-static const struct dev_pm_ops jpu_pm_ops = {
-	SET_SYSTEM_SLEEP_PM_OPS(jpu_suspend, jpu_resume)
-};
+static DEFINE_SIMPLE_DEV_PM_OPS(jpu_pm_ops, jpu_suspend, jpu_resume);
 
 static struct platform_driver jpu_driver = {
 	.probe = jpu_probe,
@@ -1738,13 +1725,13 @@ static struct platform_driver jpu_driver = {
 	.driver = {
 		.of_match_table = jpu_dt_ids,
 		.name = DRV_NAME,
-		.pm = &jpu_pm_ops,
+		.pm = pm_sleep_ptr(&jpu_pm_ops),
 	},
 };
 
 module_platform_driver(jpu_driver);
 
 MODULE_ALIAS("platform:" DRV_NAME);
-MODULE_AUTHOR("Mikhail Ulianov <mikhail.ulyanov@cogentembedded.com>");
+MODULE_AUTHOR("Mikhail Ulianov");
 MODULE_DESCRIPTION("Renesas R-Car JPEG processing unit driver");
 MODULE_LICENSE("GPL v2");

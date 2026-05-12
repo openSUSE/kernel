@@ -4,6 +4,7 @@
 #include <linux/socket.h>
 #include <linux/kernel.h>
 #include <net/dst_metadata.h>
+#include <net/flow.h>
 #include <net/udp.h>
 #include <net/udp_tunnel.h>
 #include <net/inet_dscp.h>
@@ -28,7 +29,7 @@ int udp_sock_create4(struct net *net, struct udp_port_cfg *cfg,
 	udp_addr.sin_family = AF_INET;
 	udp_addr.sin_addr = cfg->local_ip;
 	udp_addr.sin_port = cfg->local_udp_port;
-	err = kernel_bind(sock, (struct sockaddr *)&udp_addr,
+	err = kernel_bind(sock, (struct sockaddr_unsized *)&udp_addr,
 			  sizeof(udp_addr));
 	if (err < 0)
 		goto error;
@@ -37,7 +38,7 @@ int udp_sock_create4(struct net *net, struct udp_port_cfg *cfg,
 		udp_addr.sin_family = AF_INET;
 		udp_addr.sin_addr = cfg->peer_ip;
 		udp_addr.sin_port = cfg->peer_udp_port;
-		err = kernel_connect(sock, (struct sockaddr *)&udp_addr,
+		err = kernel_connect(sock, (struct sockaddr_unsized *)&udp_addr,
 				     sizeof(udp_addr), 0);
 		if (err < 0)
 			goto error;
@@ -253,7 +254,7 @@ struct rtable *udp_tunnel_dst_lookup(struct sk_buff *skb,
 	fl4.saddr = key->u.ipv4.src;
 	fl4.fl4_dport = dport;
 	fl4.fl4_sport = sport;
-	fl4.flowi4_tos = tos & INET_DSCP_MASK;
+	fl4.flowi4_dscp = inet_dsfield_to_dscp(tos);
 	fl4.flowi4_flags = key->flow_flags;
 
 	rt = ip_route_output_key(net, &fl4);

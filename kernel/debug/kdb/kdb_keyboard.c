@@ -1,8 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Kernel Debugger Architecture Dependent Console I/O handler
- *
- * This file is subject to the terms and conditions of the GNU General Public
- * License.
  *
  * Copyright (c) 1999-2006 Silicon Graphics, Inc.  All Rights Reserved.
  * Copyright (c) 2009 Wind River Systems, Inc.  All Rights Reserved.
@@ -144,9 +142,6 @@ int kdb_get_kbd_char(void)
 	case 0x4D: /* Right */
 		return CTRL('F');
 	}
-
-	if (scancode == 0xe0)
-		return -1;
 
 	/*
 	 * For Japanese 86/106 keyboards

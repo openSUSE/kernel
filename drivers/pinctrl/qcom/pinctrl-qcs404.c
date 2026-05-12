@@ -43,7 +43,6 @@ enum {
 		.io_reg = 0x1000 * id + 0x4,		\
 		.intr_cfg_reg = 0x1000 * id + 0x8,	\
 		.intr_status_reg = 0x1000 * id + 0xc,	\
-		.intr_target_reg = 0x1000 * id + 0x8,	\
 		.tile = _tile,			\
 		.mux_bit = 2,			\
 		.pull_bit = 0,			\
@@ -70,7 +69,6 @@ enum {
 		.io_reg = 0,				\
 		.intr_cfg_reg = 0,			\
 		.intr_status_reg = 0,			\
-		.intr_target_reg = 0,			\
 		.tile = SOUTH,				\
 		.mux_bit = -1,				\
 		.pull_bit = pull,			\
@@ -1296,7 +1294,7 @@ static const char * const i2s_3_ws_a_groups[] = {
 };
 
 static const struct pinfunction qcs404_functions[] = {
-	MSM_PIN_FUNCTION(gpio),
+	MSM_GPIO_PIN_FUNCTION(gpio),
 	MSM_PIN_FUNCTION(hdmi_tx),
 	MSM_PIN_FUNCTION(hdmi_ddc),
 	MSM_PIN_FUNCTION(blsp_uart_tx_a2),

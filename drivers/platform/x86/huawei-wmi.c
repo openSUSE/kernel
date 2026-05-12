@@ -81,6 +81,10 @@ static const struct key_entry huawei_wmi_keymap[] = {
 	{ KE_KEY,    0x289, { KEY_WLAN } },
 	// Huawei |M| key
 	{ KE_KEY,    0x28a, { KEY_CONFIG } },
+	// HONOR YOYO key
+	{ KE_KEY,    0x28b, { KEY_NOTIFICATION_CENTER } },
+	// HONOR print screen
+	{ KE_KEY,    0x28e, { KEY_PRINT } },
 	// Keyboard backlit
 	{ KE_IGNORE, 0x293, { KEY_KBDILLUMTOGGLE } },
 	{ KE_IGNORE, 0x294, { KEY_KBDILLUMUP } },
@@ -850,7 +854,7 @@ static __init int huawei_wmi_init(void)
 	struct platform_device *pdev;
 	int err;
 
-	huawei_wmi = kzalloc(sizeof(struct huawei_wmi), GFP_KERNEL);
+	huawei_wmi = kzalloc_obj(struct huawei_wmi);
 	if (!huawei_wmi)
 		return -ENOMEM;
 

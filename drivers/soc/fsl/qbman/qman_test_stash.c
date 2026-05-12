@@ -103,7 +103,7 @@ static int on_all_cpus(int (*fn)(void))
 {
 	int cpu;
 
-	for_each_cpu(cpu, cpu_online_mask) {
+	for_each_online_cpu(cpu) {
 		struct bstrap bstrap = {
 			.fn = fn,
 			.started = ATOMIC_INIT(0)
@@ -219,7 +219,7 @@ static int allocate_frame_data(void)
 
 	pcfg = qman_get_qm_portal_config(qman_dma_portal);
 
-	__frame_ptr = kmalloc(4 * HP_NUM_WORDS, GFP_KERNEL);
+	__frame_ptr = kmalloc_array(4, HP_NUM_WORDS, GFP_KERNEL);
 	if (!__frame_ptr)
 		return -ENOMEM;
 

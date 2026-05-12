@@ -144,6 +144,7 @@ enum mipi_dsi_pixel_format {
 	MIPI_DSI_FMT_RGB666,
 	MIPI_DSI_FMT_RGB666_PACKED,
 	MIPI_DSI_FMT_RGB565,
+	MIPI_DSI_FMT_RGB101010,
 };
 
 #define DSI_DEV_NAME_SIZE		20
@@ -235,6 +236,9 @@ extern const struct bus_type mipi_dsi_bus_type;
 static inline int mipi_dsi_pixel_format_to_bpp(enum mipi_dsi_pixel_format fmt)
 {
 	switch (fmt) {
+	case MIPI_DSI_FMT_RGB101010:
+		return 30;
+
 	case MIPI_DSI_FMT_RGB888:
 	case MIPI_DSI_FMT_RGB666:
 		return 24;
@@ -389,6 +393,7 @@ void mipi_dsi_dcs_set_page_address_multi(struct mipi_dsi_multi_context *ctx,
 void mipi_dsi_dcs_set_tear_scanline_multi(struct mipi_dsi_multi_context *ctx,
 					  u16 scanline);
 void mipi_dsi_dcs_set_tear_off_multi(struct mipi_dsi_multi_context *ctx);
+void mipi_dsi_shutdown_peripheral_multi(struct mipi_dsi_multi_context *ctx);
 
 /**
  * mipi_dsi_generic_write_seq_multi - transmit data using a generic write packet

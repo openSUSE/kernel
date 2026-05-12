@@ -316,7 +316,7 @@ static int rx8025_init_client(struct i2c_client *client)
 			return hour_reg;
 		rx8025->is_24 = (hour_reg & RX8035_BIT_HOUR_1224);
 	} else {
-		rx8025->is_24 = (ctrl[1] & RX8025_BIT_CTRL1_1224);
+		rx8025->is_24 = (ctrl[0] & RX8025_BIT_CTRL1_1224);
 	}
 out:
 	return err;
@@ -522,7 +522,6 @@ static const struct attribute_group rx8025_attr_group = {
 
 static int rx8025_probe(struct i2c_client *client)
 {
-	const struct i2c_device_id *id = i2c_match_id(rx8025_id, client);
 	struct i2c_adapter *adapter = client->adapter;
 	struct rx8025_data *rx8025;
 	int err = 0;
@@ -540,8 +539,7 @@ static int rx8025_probe(struct i2c_client *client)
 
 	i2c_set_clientdata(client, rx8025);
 
-	if (id)
-		rx8025->model = id->driver_data;
+	rx8025->model = (uintptr_t)i2c_get_match_data(client);
 
 	err = rx8025_init_client(client);
 	if (err)
@@ -564,8 +562,6 @@ static int rx8025_probe(struct i2c_client *client)
 		if (err)
 			clear_bit(RTC_FEATURE_ALARM, rx8025->rtc->features);
 	}
-
-	rx8025->rtc->max_user_freq = 1;
 
 	set_bit(RTC_FEATURE_ALARM_RES_MINUTE, rx8025->rtc->features);
 	clear_bit(RTC_FEATURE_UPDATE_INTERRUPT, rx8025->rtc->features);

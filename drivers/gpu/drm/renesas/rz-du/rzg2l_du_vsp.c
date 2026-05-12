@@ -20,6 +20,7 @@
 #include <drm/drm_vblank.h>
 
 #include <linux/bitops.h>
+#include <linux/device.h>
 #include <linux/dma-mapping.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
@@ -212,7 +213,7 @@ static int __rzg2l_du_vsp_plane_atomic_check(struct drm_plane *plane,
 }
 
 static int rzg2l_du_vsp_plane_atomic_check(struct drm_plane *plane,
-					   struct drm_atomic_state *state)
+					   struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *new_plane_state = drm_atomic_get_new_plane_state(state,
 										 plane);
@@ -222,7 +223,7 @@ static int rzg2l_du_vsp_plane_atomic_check(struct drm_plane *plane,
 }
 
 static void rzg2l_du_vsp_plane_atomic_update(struct drm_plane *plane,
-					     struct drm_atomic_state *state)
+					     struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *old_state = drm_atomic_get_old_plane_state(state, plane);
 	struct drm_plane_state *new_state = drm_atomic_get_new_plane_state(state, plane);
@@ -249,7 +250,7 @@ rzg2l_du_vsp_plane_atomic_duplicate_state(struct drm_plane *plane)
 	if (WARN_ON(!plane->state))
 		return NULL;
 
-	copy = kzalloc(sizeof(*copy), GFP_KERNEL);
+	copy = kzalloc_obj(*copy);
 	if (!copy)
 		return NULL;
 
@@ -274,7 +275,7 @@ static void rzg2l_du_vsp_plane_reset(struct drm_plane *plane)
 		plane->state = NULL;
 	}
 
-	state = kzalloc(sizeof(*state), GFP_KERNEL);
+	state = kzalloc_obj(*state);
 	if (!state)
 		return;
 
@@ -292,6 +293,9 @@ static const struct drm_plane_funcs rzg2l_du_vsp_plane_funcs = {
 static void rzg2l_du_vsp_cleanup(struct drm_device *dev, void *res)
 {
 	struct rzg2l_du_vsp *vsp = res;
+
+	if (vsp->link)
+		device_link_del(vsp->link);
 
 	put_device(vsp->vsp);
 }
@@ -316,6 +320,18 @@ int rzg2l_du_vsp_init(struct rzg2l_du_vsp *vsp, struct device_node *np,
 	ret = drmm_add_action_or_reset(&rcdu->ddev, rzg2l_du_vsp_cleanup, vsp);
 	if (ret < 0)
 		return ret;
+
+	/*
+	 * Enforce suspend/resume ordering between the DU (consumer) and the
+	 * VSP (supplier). The DU will be suspended before and resume after the
+	 * VSP.
+	 */
+	vsp->link = device_link_add(rcdu->dev, vsp->vsp, DL_FLAG_STATELESS);
+	if (!vsp->link) {
+		dev_err(rcdu->dev, "Failed to create device link to VSP %s\n",
+			dev_name(vsp->vsp));
+		return -EINVAL;
+	}
 
 	ret = vsp1_du_init(vsp->vsp);
 	if (ret < 0)

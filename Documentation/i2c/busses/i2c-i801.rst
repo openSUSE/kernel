@@ -50,6 +50,9 @@ Supported adapters:
   * Intel Birch Stream (SOC)
   * Intel Arrow Lake (SOC)
   * Intel Panther Lake (SOC)
+  * Intel Wildcat Lake (SOC)
+  * Intel Diamond Rapids (SOC)
+  * Intel Nova Lake (PCH)
 
    Datasheets: Publicly available at the Intel website
 

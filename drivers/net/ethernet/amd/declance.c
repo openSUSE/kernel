@@ -726,8 +726,10 @@ out:
 static irqreturn_t lance_dma_merr_int(int irq, void *dev_id)
 {
 	struct net_device *dev = dev_id;
+	u64 ldp = ioasic_read(IO_REG_LANCE_DMA_P);
 
-	printk(KERN_ERR "%s: DMA error\n", dev->name);
+	pr_err_ratelimited("%s: DMA error at %#010llx\n", dev->name,
+			   (ldp & 0x1f) << 29 | (ldp & 0xffffffe0) >> 3);
 	return IRQ_HANDLED;
 }
 
@@ -813,7 +815,7 @@ static int lance_open(struct net_device *dev)
 	if (lp->dma_irq >= 0) {
 		unsigned long flags;
 
-		if (request_irq(lp->dma_irq, lance_dma_merr_int, IRQF_ONESHOT,
+		if (request_irq(lp->dma_irq, lance_dma_merr_int, 0,
 				"lance error", dev)) {
 			free_irq(dev->irq, dev);
 			printk("%s: Can't get DMA IRQ %d\n", dev->name,

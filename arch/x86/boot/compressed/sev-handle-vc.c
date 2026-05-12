@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 
 #include "misc.h"
+#include "error.h"
 #include "sev.h"
 
 #include <linux/kernel.h>
@@ -14,6 +15,8 @@
 #include <asm/fpu/xcr.h>
 
 #define __BOOT_COMPRESSED
+#undef __init
+#define __init
 
 /* Basic instruction decoding support needed */
 #include "../../lib/inat.c"
@@ -26,11 +29,10 @@
 bool insn_has_rep_prefix(struct insn *insn)
 {
 	insn_byte_t p;
-	int i;
 
 	insn_get_prefixes(insn);
 
-	for_each_insn_prefix(insn, i, p) {
+	for_each_insn_prefix(insn, p) {
 		if (p == 0xf2 || p == 0xf3)
 			return true;
 	}

@@ -22,8 +22,15 @@ extern bool xen_pvh;
 #define xen_pvh			0
 #endif
 
+#ifdef CONFIG_X86
+#include <asm/cpufeature.h>
+
+#define xen_pv_domain()		(cpu_feature_enabled(X86_FEATURE_XENPV))
+#else
+#define xen_pv_domain()		0
+#endif
+
 #define xen_domain()		(xen_domain_type != XEN_NATIVE)
-#define xen_pv_domain()		(xen_domain_type == XEN_PV_DOMAIN)
 #define xen_hvm_domain()	(xen_domain_type == XEN_HVM_DOMAIN)
 #define xen_pvh_domain()	(xen_pvh)
 
@@ -62,11 +69,13 @@ extern u64 xen_saved_max_mem_size;
 #endif
 
 #ifdef CONFIG_XEN_UNPOPULATED_ALLOC
+extern unsigned long xen_unpopulated_pages;
 int xen_alloc_unpopulated_pages(unsigned int nr_pages, struct page **pages);
 void xen_free_unpopulated_pages(unsigned int nr_pages, struct page **pages);
 #include <linux/ioport.h>
 int arch_xen_unpopulated_init(struct resource **res);
 #else
+#define xen_unpopulated_pages 0UL
 #include <xen/balloon.h>
 static inline int xen_alloc_unpopulated_pages(unsigned int nr_pages,
 		struct page **pages)

@@ -199,8 +199,20 @@ struct annotation_write_ops {
 	void (*write_graph)(void *obj, int graph);
 };
 
+struct annotation_print_data {
+	struct hist_entry *he;
+	struct evsel *evsel;
+	const struct arch *arch;
+	struct debuginfo *dbg;
+	/* save data type info keyed by al->offset */
+	struct hashmap *type_hash;
+	/* It'll be set in hist_entry__annotate_printf() */
+	int addr_fmt_width;
+};
+
 void annotation_line__write(struct annotation_line *al, struct annotation *notes,
-			    struct annotation_write_ops *ops);
+			    const struct annotation_write_ops *ops,
+			    struct annotation_print_data *apd);
 
 int __annotation__scnprintf_samples_period(struct annotation *notes,
 					   char *bf, size_t size,
@@ -429,10 +441,10 @@ void symbol__annotate_zero_histograms(struct symbol *sym);
 
 int symbol__annotate(struct map_symbol *ms,
 		     struct evsel *evsel,
-		     struct arch **parch);
+		     const struct arch **parch);
 int symbol__annotate2(struct map_symbol *ms,
 		      struct evsel *evsel,
-		      struct arch **parch);
+		      const struct arch **parch);
 
 enum symbol_disassemble_errno {
 	SYMBOL_ANNOTATE_ERRNO__SUCCESS		= 0,
@@ -463,25 +475,14 @@ void symbol__annotate_zero_histogram(struct symbol *sym, struct evsel *evsel);
 void symbol__annotate_decay_histogram(struct symbol *sym, struct evsel *evsel);
 void annotated_source__purge(struct annotated_source *as);
 
-int map_symbol__annotation_dump(struct map_symbol *ms, struct evsel *evsel);
+int map_symbol__annotation_dump(struct map_symbol *ms, struct evsel *evsel,
+				struct hist_entry *he);
 
 bool ui__has_annotation(void);
 
 int hist_entry__annotate_printf(struct hist_entry *he, struct evsel *evsel);
 int hist_entry__tty_annotate(struct hist_entry *he, struct evsel *evsel);
 int hist_entry__tty_annotate2(struct hist_entry *he, struct evsel *evsel);
-
-#ifdef HAVE_SLANG_SUPPORT
-int symbol__tui_annotate(struct map_symbol *ms, struct evsel *evsel,
-			 struct hist_browser_timer *hbt);
-#else
-static inline int symbol__tui_annotate(struct map_symbol *ms __maybe_unused,
-				struct evsel *evsel  __maybe_unused,
-				struct hist_browser_timer *hbt __maybe_unused)
-{
-	return 0;
-}
-#endif
 
 void annotation_options__init(void);
 void annotation_options__exit(void);
@@ -545,7 +546,7 @@ struct annotated_insn_loc {
 	     i++, op_loc++)
 
 /* Get detailed location info in the instruction */
-int annotate_get_insn_location(struct arch *arch, struct disasm_line *dl,
+int annotate_get_insn_location(const struct arch *arch, struct disasm_line *dl,
 			       struct annotated_insn_loc *loc);
 
 /* Returns a data type from the sample instruction (if any) */
@@ -584,4 +585,6 @@ void debuginfo_cache__delete(void);
 int annotation_br_cntr_entry(char **str, int br_cntr_nr, u64 *br_cntr,
 			     int num_aggr, struct evsel *evsel);
 int annotation_br_cntr_abbr_list(char **str, struct evsel *evsel, bool header);
+
+int thread__get_arch(struct thread *thread, const struct arch **parch);
 #endif	/* __PERF_ANNOTATE_H */

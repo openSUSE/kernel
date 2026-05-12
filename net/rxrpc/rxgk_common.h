@@ -34,6 +34,7 @@ struct rxgk_context {
 };
 
 #define xdr_round_up(x) (round_up((x), sizeof(__be32)))
+#define xdr_round_down(x) (round_down((x), sizeof(__be32)))
 #define xdr_object_len(x) (4 + xdr_round_up(x))
 
 /*
@@ -88,11 +89,16 @@ int rxgk_decrypt_skb(const struct krb5_enctype *krb5,
 		*_offset += offset;
 		*_len = len;
 		break;
+	case -EBADMSG: /* Checksum mismatch. */
 	case -EPROTO:
-	case -EBADMSG:
 		*_error_code = RXGK_SEALEDINCON;
 		break;
+	case -EMSGSIZE:
+		*_error_code = RXGK_PACKETSHORT;
+		break;
+	case -ENOPKG: /* Would prefer RXGK_BADETYPE, but not available for YFS. */
 	default:
+		*_error_code = RXGK_INCONSISTENCY;
 		break;
 	}
 
@@ -127,11 +133,16 @@ int rxgk_verify_mic_skb(const struct krb5_enctype *krb5,
 		*_offset += offset;
 		*_len = len;
 		break;
+	case -EBADMSG: /* Checksum mismatch */
 	case -EPROTO:
-	case -EBADMSG:
 		*_error_code = RXGK_SEALEDINCON;
 		break;
+	case -EMSGSIZE:
+		*_error_code = RXGK_PACKETSHORT;
+		break;
+	case -ENOPKG: /* Would prefer RXGK_BADETYPE, but not available for YFS. */
 	default:
+		*_error_code = RXGK_INCONSISTENCY;
 		break;
 	}
 

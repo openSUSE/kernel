@@ -68,18 +68,20 @@
  * The magic limit was calculated so that it allows the monitoring
  * application to pick data once in two ticks. This way, another application,
  * which presumably drives the bus, gets to hog CPU, yet we collect our data.
- * If HZ is 100, a 480 mbit/s bus drives 614 KB every jiffy. USB has an
- * enormous overhead built into the bus protocol, so we need about 1000 KB.
+ *
+ * Originally, for a 480 Mbit/s bus this required a buffer of about 1 MB. For
+ * modern 20 Gbps buses, this value increases to over 50 MB. The maximum
+ * buffer size is set to 64 MiB to accommodate this.
  *
  * This is still too much for most cases, where we just snoop a few
  * descriptor fetches for enumeration. So, the default is a "reasonable"
- * amount for systems with HZ=250 and incomplete bus saturation.
+ * amount for typical, low-throughput use cases.
  *
  * XXX What about multi-megabyte URBs which take minutes to transfer?
  */
-#define BUFF_MAX  CHUNK_ALIGN(1200*1024)
-#define BUFF_DFL   CHUNK_ALIGN(300*1024)
-#define BUFF_MIN     CHUNK_ALIGN(8*1024)
+#define BUFF_MAX  CHUNK_ALIGN(64*1024*1024)
+#define BUFF_DFL      CHUNK_ALIGN(300*1024)
+#define BUFF_MIN        CHUNK_ALIGN(8*1024)
 
 /*
  * The per-event API header (2 per URB).
@@ -692,7 +694,7 @@ static int mon_bin_open(struct inode *inode, struct file *file)
 		return -ENODEV;
 	}
 
-	rp = kzalloc(sizeof(struct mon_reader_bin), GFP_KERNEL);
+	rp = kzalloc_obj(struct mon_reader_bin);
 	if (rp == NULL) {
 		rc = -ENOMEM;
 		goto err_alloc;
@@ -1027,8 +1029,7 @@ static long mon_bin_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 			return -EINVAL;
 
 		size = CHUNK_ALIGN(arg);
-		vec = kcalloc(size / CHUNK_SIZE, sizeof(struct mon_pgmap),
-			      GFP_KERNEL);
+		vec = kzalloc_objs(struct mon_pgmap, size / CHUNK_SIZE);
 		if (vec == NULL) {
 			ret = -ENOMEM;
 			break;

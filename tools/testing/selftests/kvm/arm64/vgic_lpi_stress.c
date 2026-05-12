@@ -23,11 +23,11 @@
 #define GIC_LPI_OFFSET	8192
 
 static size_t nr_iterations = 1000;
-static vm_paddr_t gpa_base;
+static gpa_t gpa_base;
 
 static struct kvm_vm *vm;
 static struct kvm_vcpu **vcpus;
-static int gic_fd, its_fd;
+static int its_fd;
 
 static struct test_data {
 	bool		request_vcpus_stop;
@@ -35,14 +35,14 @@ static struct test_data {
 	u32		nr_devices;
 	u32		nr_event_ids;
 
-	vm_paddr_t	device_table;
-	vm_paddr_t	collection_table;
-	vm_paddr_t	cmdq_base;
+	gpa_t		device_table;
+	gpa_t		collection_table;
+	gpa_t		cmdq_base;
 	void		*cmdq_base_va;
-	vm_paddr_t	itt_tables;
+	gpa_t		itt_tables;
 
-	vm_paddr_t	lpi_prop_table;
-	vm_paddr_t	lpi_pend_tables;
+	gpa_t		lpi_prop_table;
+	gpa_t		lpi_pend_tables;
 } test_data =  {
 	.nr_cpus	= 1,
 	.nr_devices	= 1,
@@ -73,7 +73,7 @@ static void guest_setup_its_mappings(void)
 	/* Round-robin the LPIs to all of the vCPUs in the VM */
 	coll_id = 0;
 	for (device_id = 0; device_id < nr_devices; device_id++) {
-		vm_paddr_t itt_base = test_data.itt_tables + (device_id * SZ_64K);
+		gpa_t itt_base = test_data.itt_tables + (device_id * SZ_64K);
 
 		its_send_mapd_cmd(test_data.cmdq_base_va, device_id,
 				  itt_base, SZ_64K, true);
@@ -118,11 +118,16 @@ static void guest_setup_gic(void)
 
 	guest_setup_its_mappings();
 	guest_invalidate_all_rdists();
+
+	/* SYNC to ensure ITS setup is complete */
+	for (cpuid = 0; cpuid < test_data.nr_cpus; cpuid++)
+		its_send_sync_cmd(test_data.cmdq_base_va, cpuid);
 }
 
 static void guest_code(size_t nr_lpis)
 {
 	guest_setup_gic();
+	local_irq_enable();
 
 	GUEST_SYNC(0);
 
@@ -183,7 +188,7 @@ static void setup_test_data(void)
 	size_t pages_per_64k = vm_calc_num_guest_pages(vm->mode, SZ_64K);
 	u32 nr_devices = test_data.nr_devices;
 	u32 nr_cpus = test_data.nr_cpus;
-	vm_paddr_t cmdq_base;
+	gpa_t cmdq_base;
 
 	test_data.device_table = vm_phy_pages_alloc(vm, pages_per_64k,
 						    gpa_base,
@@ -214,15 +219,12 @@ static void setup_test_data(void)
 
 static void setup_gic(void)
 {
-	gic_fd = vgic_v3_setup(vm, test_data.nr_cpus, 64);
-	__TEST_REQUIRE(gic_fd >= 0, "Failed to create GICv3");
-
 	its_fd = vgic_its_setup(vm);
 }
 
 static void signal_lpi(u32 device_id, u32 event_id)
 {
-	vm_paddr_t db_addr = GITS_BASE_GPA + GITS_TRANSLATER;
+	gpa_t db_addr = GITS_BASE_GPA + GITS_TRANSLATER;
 
 	struct kvm_msi msi = {
 		.address_lo	= db_addr,
@@ -334,7 +336,7 @@ static void setup_vm(void)
 {
 	int i;
 
-	vcpus = malloc(test_data.nr_cpus * sizeof(struct kvm_vcpu));
+	vcpus = malloc(test_data.nr_cpus * sizeof(struct kvm_vcpu *));
 	TEST_ASSERT(vcpus, "Failed to allocate vCPU array");
 
 	vm = vm_create_with_vcpus(test_data.nr_cpus, guest_code, vcpus);
@@ -355,7 +357,6 @@ static void setup_vm(void)
 static void destroy_vm(void)
 {
 	close(its_fd);
-	close(gic_fd);
 	kvm_vm_free(vm);
 	free(vcpus);
 }
@@ -373,6 +374,8 @@ int main(int argc, char **argv)
 {
 	u32 nr_threads;
 	int c;
+
+	TEST_REQUIRE(kvm_supports_vgic_v3());
 
 	while ((c = getopt(argc, argv, "hv:d:e:i:")) != -1) {
 		switch (c) {

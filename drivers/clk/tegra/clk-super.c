@@ -147,17 +147,10 @@ static int clk_super_determine_rate(struct clk_hw *hw,
 {
 	struct tegra_clk_super_mux *super = to_clk_super_mux(hw);
 	struct clk_hw *div_hw = &super->frac_div.hw;
-	unsigned long rate;
 
 	__clk_hw_set_clk(div_hw, hw);
 
-	rate = super->div_ops->round_rate(div_hw, req->rate,
-					  &req->best_parent_rate);
-	if (rate < 0)
-		return rate;
-
-	req->rate = rate;
-	return 0;
+	return super->div_ops->determine_rate(div_hw, req);
 }
 
 static unsigned long clk_super_recalc_rate(struct clk_hw *hw,
@@ -214,7 +207,7 @@ struct clk *tegra_clk_register_super_mux(const char *name,
 	struct clk *clk;
 	struct clk_init_data init;
 
-	super = kzalloc(sizeof(*super), GFP_KERNEL);
+	super = kzalloc_obj(*super);
 	if (!super)
 		return ERR_PTR(-ENOMEM);
 
@@ -250,7 +243,7 @@ struct clk *tegra_clk_register_super_clk(const char *name,
 	struct clk *clk;
 	struct clk_init_data init;
 
-	super = kzalloc(sizeof(*super), GFP_KERNEL);
+	super = kzalloc_obj(*super);
 	if (!super)
 		return ERR_PTR(-ENOMEM);
 

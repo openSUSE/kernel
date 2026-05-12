@@ -27,7 +27,6 @@ static inline void acpi_pci_link_init(void) {}
 void acpi_processor_init(void);
 void acpi_platform_init(void);
 void acpi_pnp_init(void);
-void acpi_int340x_thermal_init(void);
 int acpi_sysfs_init(void);
 void acpi_gpe_apply_masked_gpes(void);
 void acpi_container_init(void);
@@ -140,6 +139,7 @@ int __acpi_device_uevent_modalias(const struct acpi_device *adev,
 /* --------------------------------------------------------------------------
                                   Power Resource
    -------------------------------------------------------------------------- */
+void acpi_power_resources_init(void);
 void acpi_power_resources_list_free(struct list_head *list);
 int acpi_extract_power_resources(union acpi_object *package, unsigned int start,
 				 struct list_head *list);

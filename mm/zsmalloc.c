@@ -30,13 +30,13 @@
 #include <linux/highmem.h>
 #include <linux/string.h>
 #include <linux/slab.h>
+#include <linux/scatterlist.h>
 #include <linux/spinlock.h>
 #include <linux/sprintf.h>
 #include <linux/shrinker.h>
 #include <linux/types.h>
 #include <linux/debugfs.h>
 #include <linux/zsmalloc.h>
-#include <linux/zpool.h>
 #include <linux/fs.h>
 #include <linux/workqueue.h>
 #include "zpdesc.h"
@@ -106,7 +106,7 @@
 
 /*
  * On systems with 4K page size, this gives 255 size classes! There is a
- * trader-off here:
+ * trade-off here:
  *  - Large number of size classes is potentially wasteful as free page are
  *    spread across these classes
  *  - Small number of size classes causes large internal fragmentation
@@ -193,12 +193,13 @@ struct link_free {
 	};
 };
 
+static struct kmem_cache *handle_cachep;
+static struct kmem_cache *zspage_cachep;
+
 struct zs_pool {
 	const char *name;
 
 	struct size_class *size_class[ZS_SIZE_CLASSES];
-	struct kmem_cache *handle_cachep;
-	struct kmem_cache *zspage_cachep;
 
 	atomic_long_t pages_allocated;
 
@@ -371,60 +372,28 @@ static void init_deferred_free(struct zs_pool *pool) {}
 static void SetZsPageMovable(struct zs_pool *pool, struct zspage *zspage) {}
 #endif
 
-static int create_cache(struct zs_pool *pool)
+static unsigned long cache_alloc_handle(gfp_t gfp)
 {
-	char *name;
+	gfp = gfp & ~(__GFP_HIGHMEM | __GFP_MOVABLE);
 
-	name = kasprintf(GFP_KERNEL, "zs_handle-%s", pool->name);
-	if (!name)
-		return -ENOMEM;
-	pool->handle_cachep = kmem_cache_create(name, ZS_HANDLE_SIZE,
-						0, 0, NULL);
-	kfree(name);
-	if (!pool->handle_cachep)
-		return -EINVAL;
-
-	name = kasprintf(GFP_KERNEL, "zspage-%s", pool->name);
-	if (!name)
-		return -ENOMEM;
-	pool->zspage_cachep = kmem_cache_create(name, sizeof(struct zspage),
-						0, 0, NULL);
-	kfree(name);
-	if (!pool->zspage_cachep) {
-		kmem_cache_destroy(pool->handle_cachep);
-		pool->handle_cachep = NULL;
-		return -EINVAL;
-	}
-
-	return 0;
+	return (unsigned long)kmem_cache_alloc(handle_cachep, gfp);
 }
 
-static void destroy_cache(struct zs_pool *pool)
+static void cache_free_handle(unsigned long handle)
 {
-	kmem_cache_destroy(pool->handle_cachep);
-	kmem_cache_destroy(pool->zspage_cachep);
+	kmem_cache_free(handle_cachep, (void *)handle);
 }
 
-static unsigned long cache_alloc_handle(struct zs_pool *pool, gfp_t gfp)
+static struct zspage *cache_alloc_zspage(gfp_t gfp)
 {
-	return (unsigned long)kmem_cache_alloc(pool->handle_cachep,
-			gfp & ~(__GFP_HIGHMEM|__GFP_MOVABLE));
+	gfp = gfp & ~(__GFP_HIGHMEM | __GFP_MOVABLE);
+
+	return kmem_cache_zalloc(zspage_cachep, gfp);
 }
 
-static void cache_free_handle(struct zs_pool *pool, unsigned long handle)
+static void cache_free_zspage(struct zspage *zspage)
 {
-	kmem_cache_free(pool->handle_cachep, (void *)handle);
-}
-
-static struct zspage *cache_alloc_zspage(struct zs_pool *pool, gfp_t flags)
-{
-	return kmem_cache_zalloc(pool->zspage_cachep,
-			flags & ~(__GFP_HIGHMEM|__GFP_MOVABLE));
-}
-
-static void cache_free_zspage(struct zs_pool *pool, struct zspage *zspage)
-{
-	kmem_cache_free(pool->zspage_cachep, zspage);
+	kmem_cache_free(zspage_cachep, zspage);
 }
 
 /* class->lock(which owns the handle) synchronizes races */
@@ -432,78 +401,6 @@ static void record_obj(unsigned long handle, unsigned long obj)
 {
 	*(unsigned long *)handle = obj;
 }
-
-/* zpool driver */
-
-#ifdef CONFIG_ZPOOL
-
-static void *zs_zpool_create(const char *name, gfp_t gfp)
-{
-	/*
-	 * Ignore global gfp flags: zs_malloc() may be invoked from
-	 * different contexts and its caller must provide a valid
-	 * gfp mask.
-	 */
-	return zs_create_pool(name);
-}
-
-static void zs_zpool_destroy(void *pool)
-{
-	zs_destroy_pool(pool);
-}
-
-static int zs_zpool_malloc(void *pool, size_t size, gfp_t gfp,
-			   unsigned long *handle, const int nid)
-{
-	*handle = zs_malloc(pool, size, gfp, nid);
-
-	if (IS_ERR_VALUE(*handle))
-		return PTR_ERR((void *)*handle);
-	return 0;
-}
-static void zs_zpool_free(void *pool, unsigned long handle)
-{
-	zs_free(pool, handle);
-}
-
-static void *zs_zpool_obj_read_begin(void *pool, unsigned long handle,
-				     void *local_copy)
-{
-	return zs_obj_read_begin(pool, handle, local_copy);
-}
-
-static void zs_zpool_obj_read_end(void *pool, unsigned long handle,
-				  void *handle_mem)
-{
-	zs_obj_read_end(pool, handle, handle_mem);
-}
-
-static void zs_zpool_obj_write(void *pool, unsigned long handle,
-			       void *handle_mem, size_t mem_len)
-{
-	zs_obj_write(pool, handle, handle_mem, mem_len);
-}
-
-static u64 zs_zpool_total_pages(void *pool)
-{
-	return zs_get_total_pages(pool);
-}
-
-static struct zpool_driver zs_zpool_driver = {
-	.type =			  "zsmalloc",
-	.owner =		  THIS_MODULE,
-	.create =		  zs_zpool_create,
-	.destroy =		  zs_zpool_destroy,
-	.malloc =		  zs_zpool_malloc,
-	.free =			  zs_zpool_free,
-	.obj_read_begin =	  zs_zpool_obj_read_begin,
-	.obj_read_end  =	  zs_zpool_obj_read_end,
-	.obj_write =		  zs_zpool_obj_write,
-	.total_pages =		  zs_zpool_total_pages,
-};
-
-MODULE_ALIAS("zpool-zsmalloc");
-#endif /* CONFIG_ZPOOL */
 
 static inline bool __maybe_unused is_first_zpdesc(struct zpdesc *zpdesc)
 {
@@ -925,7 +822,7 @@ static void __free_zspage(struct zs_pool *pool, struct size_class *class,
 		zpdesc = next;
 	} while (zpdesc != NULL);
 
-	cache_free_zspage(pool, zspage);
+	cache_free_zspage(zspage);
 
 	class_stat_sub(class, ZS_OBJS_ALLOCATED, class->objs_per_zspage);
 	atomic_long_sub(class->pages_per_zspage, &pool->pages_allocated);
@@ -1038,7 +935,7 @@ static struct zspage *alloc_zspage(struct zs_pool *pool,
 {
 	int i;
 	struct zpdesc *zpdescs[ZS_MAX_PAGES_PER_ZSPAGE];
-	struct zspage *zspage = cache_alloc_zspage(pool, gfp);
+	struct zspage *zspage = cache_alloc_zspage(gfp);
 
 	if (!zspage)
 		return NULL;
@@ -1060,7 +957,7 @@ static struct zspage *alloc_zspage(struct zs_pool *pool,
 				zpdesc_dec_zone_page_state(zpdescs[i]);
 				free_zpdesc(zpdescs[i]);
 			}
-			cache_free_zspage(pool, zspage);
+			cache_free_zspage(zspage);
 			return NULL;
 		}
 		__zpdesc_set_zsmalloc(zpdesc);
@@ -1138,7 +1035,7 @@ unsigned long zs_get_total_pages(struct zs_pool *pool)
 EXPORT_SYMBOL_GPL(zs_get_total_pages);
 
 void *zs_obj_read_begin(struct zs_pool *pool, unsigned long handle,
-			void *local_copy)
+			size_t mem_len, void *local_copy)
 {
 	struct zspage *zspage;
 	struct zpdesc *zpdesc;
@@ -1160,7 +1057,10 @@ void *zs_obj_read_begin(struct zs_pool *pool, unsigned long handle,
 	class = zspage_class(pool, zspage);
 	off = offset_in_page(class->size * obj_idx);
 
-	if (off + class->size <= PAGE_SIZE) {
+	if (!ZsHugePage(zspage))
+		off += ZS_HANDLE_SIZE;
+
+	if (off + mem_len <= PAGE_SIZE) {
 		/* this object is contained entirely within a page */
 		addr = kmap_local_zpdesc(zpdesc);
 		addr += off;
@@ -1169,7 +1069,7 @@ void *zs_obj_read_begin(struct zs_pool *pool, unsigned long handle,
 
 		/* this object spans two pages */
 		sizes[0] = PAGE_SIZE - off;
-		sizes[1] = class->size - sizes[0];
+		sizes[1] = mem_len - sizes[0];
 		addr = local_copy;
 
 		memcpy_from_page(addr, zpdesc_page(zpdesc),
@@ -1180,15 +1080,12 @@ void *zs_obj_read_begin(struct zs_pool *pool, unsigned long handle,
 				 0, sizes[1]);
 	}
 
-	if (!ZsHugePage(zspage))
-		addr += ZS_HANDLE_SIZE;
-
 	return addr;
 }
 EXPORT_SYMBOL_GPL(zs_obj_read_begin);
 
 void zs_obj_read_end(struct zs_pool *pool, unsigned long handle,
-		     void *handle_mem)
+		     size_t mem_len, void *handle_mem)
 {
 	struct zspage *zspage;
 	struct zpdesc *zpdesc;
@@ -1202,9 +1099,10 @@ void zs_obj_read_end(struct zs_pool *pool, unsigned long handle,
 	class = zspage_class(pool, zspage);
 	off = offset_in_page(class->size * obj_idx);
 
-	if (off + class->size <= PAGE_SIZE) {
-		if (!ZsHugePage(zspage))
-			off += ZS_HANDLE_SIZE;
+	if (!ZsHugePage(zspage))
+		off += ZS_HANDLE_SIZE;
+
+	if (off + mem_len <= PAGE_SIZE) {
 		handle_mem -= off;
 		kunmap_local(handle_mem);
 	}
@@ -1212,6 +1110,68 @@ void zs_obj_read_end(struct zs_pool *pool, unsigned long handle,
 	zspage_read_unlock(zspage);
 }
 EXPORT_SYMBOL_GPL(zs_obj_read_end);
+
+void zs_obj_read_sg_begin(struct zs_pool *pool, unsigned long handle,
+			  struct scatterlist *sg, size_t mem_len)
+{
+	struct zspage *zspage;
+	struct zpdesc *zpdesc;
+	unsigned long obj, off;
+	unsigned int obj_idx;
+	struct size_class *class;
+
+	/* Guarantee we can get zspage from handle safely */
+	read_lock(&pool->lock);
+	obj = handle_to_obj(handle);
+	obj_to_location(obj, &zpdesc, &obj_idx);
+	zspage = get_zspage(zpdesc);
+
+	/* Make sure migration doesn't move any pages in this zspage */
+	zspage_read_lock(zspage);
+	read_unlock(&pool->lock);
+
+	class = zspage_class(pool, zspage);
+	off = offset_in_page(class->size * obj_idx);
+
+	if (!ZsHugePage(zspage))
+		off += ZS_HANDLE_SIZE;
+
+	if (off + mem_len <= PAGE_SIZE) {
+		/* this object is contained entirely within a page */
+		sg_init_table(sg, 1);
+		sg_set_page(sg, zpdesc_page(zpdesc), mem_len, off);
+	} else {
+		size_t sizes[2];
+
+		/* this object spans two pages */
+		sizes[0] = PAGE_SIZE - off;
+		sizes[1] = mem_len - sizes[0];
+
+		sg_init_table(sg, 2);
+		sg_set_page(sg, zpdesc_page(zpdesc), sizes[0], off);
+
+		zpdesc = get_next_zpdesc(zpdesc);
+		sg = sg_next(sg);
+
+		sg_set_page(sg, zpdesc_page(zpdesc), sizes[1], 0);
+	}
+}
+EXPORT_SYMBOL_GPL(zs_obj_read_sg_begin);
+
+void zs_obj_read_sg_end(struct zs_pool *pool, unsigned long handle)
+{
+	struct zspage *zspage;
+	struct zpdesc *zpdesc;
+	unsigned long obj;
+	unsigned int obj_idx;
+
+	obj = handle_to_obj(handle);
+	obj_to_location(obj, &zpdesc, &obj_idx);
+	zspage = get_zspage(zpdesc);
+
+	zspage_read_unlock(zspage);
+}
+EXPORT_SYMBOL_GPL(zs_obj_read_sg_end);
 
 void zs_obj_write(struct zs_pool *pool, unsigned long handle,
 		  void *handle_mem, size_t mem_len)
@@ -1348,7 +1308,7 @@ unsigned long zs_malloc(struct zs_pool *pool, size_t size, gfp_t gfp,
 	if (unlikely(size > ZS_MAX_ALLOC_SIZE))
 		return (unsigned long)ERR_PTR(-ENOSPC);
 
-	handle = cache_alloc_handle(pool, gfp);
+	handle = cache_alloc_handle(gfp);
 	if (!handle)
 		return (unsigned long)ERR_PTR(-ENOMEM);
 
@@ -1372,7 +1332,7 @@ unsigned long zs_malloc(struct zs_pool *pool, size_t size, gfp_t gfp,
 
 	zspage = alloc_zspage(pool, class, gfp, nid);
 	if (!zspage) {
-		cache_free_handle(pool, handle);
+		cache_free_handle(handle);
 		return (unsigned long)ERR_PTR(-ENOMEM);
 	}
 
@@ -1452,7 +1412,7 @@ void zs_free(struct zs_pool *pool, unsigned long handle)
 		free_zspage(pool, class, zspage);
 
 	spin_unlock(&class->lock);
-	cache_free_handle(pool, handle);
+	cache_free_handle(handle);
 }
 EXPORT_SYMBOL_GPL(zs_free);
 
@@ -1746,7 +1706,7 @@ static int zs_page_migrate(struct page *newpage, struct page *page,
 	 * instead.
 	 */
 	if (!zpdesc->zspage)
-		return MIGRATEPAGE_SUCCESS;
+		return 0;
 
 	/* The page is locked, so this pointer must remain valid */
 	zspage = get_zspage(zpdesc);
@@ -1767,7 +1727,19 @@ static int zs_page_migrate(struct page *newpage, struct page *page,
 	if (!zspage_write_trylock(zspage)) {
 		spin_unlock(&class->lock);
 		write_unlock(&pool->lock);
-		return -EINVAL;
+		/*
+		 * Return -EBUSY but not -EAGAIN: the zspage's reader-lock
+		 * owner may hold the lock for an unbounded duration due to a
+		 * slow decompression or reader-lock owner preemption.
+		 * Since migration retries are bounded by
+		 * NR_MAX_MIGRATE_PAGES_RETRY and performed with virtually no
+		 * delay between attempts, there is no guarantee the lock will
+		 * be released in time for a retry to succeed.
+		 * -EAGAIN implies "try again soon", which does not hold here.
+		 * -EBUSY more accurately conveys "resource is occupied,
+		 * migration cannot proceed".
+		 */
+		return -EBUSY;
 	}
 
 	/* We're committed, tell the world that this is a Zsmalloc page. */
@@ -1781,6 +1753,7 @@ static int zs_page_migrate(struct page *newpage, struct page *page,
 	 */
 	d_addr = kmap_local_zpdesc(newzpdesc);
 	copy_page(d_addr, s_addr);
+	kmsan_copy_page_meta(zpdesc_page(newzpdesc), zpdesc_page(zpdesc));
 	kunmap_local(d_addr);
 
 	for (addr = s_addr + offset; addr < s_addr + PAGE_SIZE;
@@ -1813,7 +1786,7 @@ static int zs_page_migrate(struct page *newpage, struct page *page,
 	reset_zpdesc(zpdesc);
 	zpdesc_put(zpdesc);
 
-	return MIGRATEPAGE_SUCCESS;
+	return 0;
 }
 
 static void zs_page_putback(struct page *page)
@@ -2102,7 +2075,7 @@ struct zs_pool *zs_create_pool(const char *name)
 	struct zs_pool *pool;
 	struct size_class *prev_class = NULL;
 
-	pool = kzalloc(sizeof(*pool), GFP_KERNEL);
+	pool = kzalloc_obj(*pool);
 	if (!pool)
 		return NULL;
 
@@ -2112,9 +2085,6 @@ struct zs_pool *zs_create_pool(const char *name)
 
 	pool->name = kstrdup(name, GFP_KERNEL);
 	if (!pool->name)
-		goto err;
-
-	if (create_cache(pool))
 		goto err;
 
 	/*
@@ -2171,7 +2141,7 @@ struct zs_pool *zs_create_pool(const char *name)
 			}
 		}
 
-		class = kzalloc(sizeof(struct size_class), GFP_KERNEL);
+		class = kzalloc_obj(struct size_class);
 		if (!class)
 			goto err;
 
@@ -2238,23 +2208,47 @@ void zs_destroy_pool(struct zs_pool *pool)
 		kfree(class);
 	}
 
-	destroy_cache(pool);
 	kfree(pool->name);
 	kfree(pool);
 }
 EXPORT_SYMBOL_GPL(zs_destroy_pool);
 
+static void zs_destroy_caches(void)
+{
+	kmem_cache_destroy(handle_cachep);
+	handle_cachep = NULL;
+	kmem_cache_destroy(zspage_cachep);
+	zspage_cachep = NULL;
+}
+
+static int __init zs_init_caches(void)
+{
+	handle_cachep = kmem_cache_create("zs_handle", ZS_HANDLE_SIZE,
+					  0, 0, NULL);
+	zspage_cachep = kmem_cache_create("zspage", sizeof(struct zspage),
+					  0, 0, NULL);
+
+	if (!handle_cachep || !zspage_cachep) {
+		zs_destroy_caches();
+		return -ENOMEM;
+	}
+	return 0;
+}
+
 static int __init zs_init(void)
 {
-	int rc __maybe_unused;
+	int rc;
 
-#ifdef CONFIG_ZPOOL
-	zpool_register_driver(&zs_zpool_driver);
-#endif
-#ifdef CONFIG_COMPACTION
-	rc = set_movable_ops(&zsmalloc_mops, PGTY_zsmalloc);
+	rc = zs_init_caches();
 	if (rc)
 		return rc;
+
+#ifdef CONFIG_COMPACTION
+	rc = set_movable_ops(&zsmalloc_mops, PGTY_zsmalloc);
+	if (rc) {
+		zs_destroy_caches();
+		return rc;
+	}
 #endif
 	zs_stat_init();
 	return 0;
@@ -2262,13 +2256,11 @@ static int __init zs_init(void)
 
 static void __exit zs_exit(void)
 {
-#ifdef CONFIG_ZPOOL
-	zpool_unregister_driver(&zs_zpool_driver);
-#endif
 #ifdef CONFIG_COMPACTION
 	set_movable_ops(NULL, PGTY_zsmalloc);
 #endif
 	zs_stat_exit();
+	zs_destroy_caches();
 }
 
 module_init(zs_init);

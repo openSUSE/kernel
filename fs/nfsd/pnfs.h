@@ -11,6 +11,9 @@
 
 struct xdr_stream;
 
+/* Cap exponential backoff between fence retries at 3 minutes */
+#define	MAX_FENCE_DELAY		((unsigned int)(3 * 60 * HZ))
+
 struct nfsd4_deviceid_map {
 	struct list_head	hash;
 	u64			idx;
@@ -29,15 +32,16 @@ struct nfsd4_layout_ops {
 	__be32 (*encode_getdeviceinfo)(struct xdr_stream *xdr,
 			const struct nfsd4_getdeviceinfo *gdevp);
 
-	__be32 (*proc_layoutget)(struct inode *, const struct svc_fh *fhp,
-			struct nfsd4_layoutget *lgp);
+	__be32 (*proc_layoutget)(struct svc_rqst *rqstp, struct inode *inode,
+			const struct svc_fh *fhp, struct nfsd4_layoutget *lgp);
 	__be32 (*encode_layoutget)(struct xdr_stream *xdr,
 			const struct nfsd4_layoutget *lgp);
 
 	__be32 (*proc_layoutcommit)(struct inode *inode,
+			struct svc_rqst *rqstp,
 			struct nfsd4_layoutcommit *lcp);
 
-	void (*fence_client)(struct nfs4_layout_stateid *ls,
+	bool (*fence_client)(struct nfs4_layout_stateid *ls,
 			     struct nfsd_file *file);
 };
 

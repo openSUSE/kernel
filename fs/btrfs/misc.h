@@ -11,6 +11,14 @@
 #include <linux/pagemap.h>
 #include <linux/math64.h>
 #include <linux/rbtree.h>
+#include <linux/bio.h>
+
+/*
+ * Convenience macros to define a pointer with the __free(kfree) and
+ * __free(kvfree) cleanup attributes and initialized to NULL.
+ */
+#define AUTO_KFREE(name)       *name __free(kfree) = NULL
+#define AUTO_KVFREE(name)      *name __free(kvfree) = NULL
 
 /*
  * Enumerate bits using enum autoincrement. Define the @name as the n-th bit.
@@ -19,6 +27,62 @@
 	__ ## name ## _BIT,                             \
 	name = (1U << __ ## name ## _BIT),              \
 	__ ## name ## _SEQ = __ ## name ## _BIT
+
+static inline phys_addr_t bio_iter_phys(const struct bio *bio,
+					const struct bvec_iter *iter)
+{
+	struct bio_vec bv = bio_iter_iovec(bio, *iter);
+
+	return bvec_phys(&bv);
+}
+
+/*
+ * Iterate bio using btrfs block size.
+ *
+ * This will handle large folio and highmem.
+ *
+ * @paddr:	Physical memory address of each iteration
+ * @bio:	The bio to iterate
+ * @iter:	The bvec_iter (pointer) to use.
+ * @blocksize:	The blocksize to iterate.
+ *
+ * This requires all folios in the bio to cover at least one block.
+ */
+#define btrfs_bio_for_each_block(paddr, bio, iter, blocksize)		\
+	for (; (iter)->bi_size &&					\
+	     (paddr = bio_iter_phys((bio), (iter)), 1);			\
+	     bio_advance_iter_single((bio), (iter), (blocksize)))
+
+/* Can only be called on a non-cloned bio. */
+static inline u32 bio_get_size(struct bio *bio)
+{
+	struct bio_vec *bvec;
+	u32 ret = 0;
+	int i;
+
+	bio_for_each_bvec_all(bvec, bio, i)
+		ret += bvec->bv_len;
+	return ret;
+}
+
+/* Initialize a bvec_iter to the size of the specified bio. */
+static inline struct bvec_iter init_bvec_iter_for_bio(struct bio *bio)
+{
+	const u32 bio_size = bio_get_size(bio);
+
+	return (struct bvec_iter) {
+		.bi_sector = 0,
+		.bi_size = bio_size,
+		.bi_idx = 0,
+		.bi_bvec_done = 0,
+	};
+}
+
+#define btrfs_bio_for_each_block_all(paddr, bio, blocksize)		\
+	for (struct bvec_iter iter = init_bvec_iter_for_bio(bio);	\
+	     (iter).bi_size &&						\
+	     (paddr = bio_iter_phys((bio), &(iter)), 1);		\
+	     bio_advance_iter_single((bio), &(iter), (blocksize)))
 
 static inline void cond_wake_up(struct wait_queue_head *wq)
 {
@@ -158,11 +222,6 @@ static inline bool bitmap_test_range_all_zero(const unsigned long *addr,
 
 	found_set = find_next_bit(addr, start + nbits, start);
 	return (found_set == start + nbits);
-}
-
-static inline u64 folio_end(struct folio *folio)
-{
-	return folio_pos(folio) + folio_size(folio);
 }
 
 #endif

@@ -77,7 +77,7 @@
 
 #define H_PAGE_4K_PFN 0
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 /* pte_clear moved to later in this file */
 
 #define PMD_BAD_BITS		(PTE_TABLE_SIZE-1)
@@ -155,7 +155,7 @@ static inline void huge_ptep_set_wrprotect(struct mm_struct *mm,
 #define __HAVE_ARCH_PTEP_CLEAR_YOUNG_FLUSH
 #define ptep_clear_flush_young(__vma, __address, __ptep)		\
 ({									\
-	int __young = ptep_test_and_clear_young(__vma, __address, __ptep);\
+	bool __young = ptep_test_and_clear_young(__vma, __address, __ptep);\
 	__young;							\
 })
 
@@ -209,6 +209,6 @@ void __patch_exception(int exc, unsigned long addr);
 	__patch_exception((exc), (unsigned long)&name); \
 } while (0)
 
-#endif /* __ASSEMBLY__ */
+#endif /* __ASSEMBLER__ */
 
 #endif /* _ASM_POWERPC_NOHASH_64_PGTABLE_H */

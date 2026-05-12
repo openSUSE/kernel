@@ -42,13 +42,6 @@
 extern unsigned long __atags_pointer;
 
 /*
- * empty_zero_page is a special page that is used for
- * zero-initialized data and COW.
- */
-struct page *empty_zero_page;
-EXPORT_SYMBOL(empty_zero_page);
-
-/*
  * The pmd table for the upper-most set of pages.
  */
 pmd_t *top_pmd;
@@ -737,7 +730,7 @@ static void *__init late_alloc(unsigned long sz)
 
 	if (!ptdesc || !pagetable_pte_ctor(NULL, ptdesc))
 		BUG();
-	return ptdesc_to_virt(ptdesc);
+	return ptdesc_address(ptdesc);
 }
 
 static pte_t * __init arm_pte_alloc(pmd_t *pmd, unsigned long addr,
@@ -1754,8 +1747,6 @@ static void __init early_fixmap_shutdown(void)
  */
 void __init paging_init(const struct machine_desc *mdesc)
 {
-	void *zero_page;
-
 #ifdef CONFIG_XIP_KERNEL
 	/* Store the kernel RW RAM region start/end in these variables */
 	kernel_sec_start = CONFIG_PHYS_OFFSET & SECTION_MASK;
@@ -1781,13 +1772,7 @@ void __init paging_init(const struct machine_desc *mdesc)
 
 	top_pmd = pmd_off_k(0xffff0000);
 
-	/* allocate the zero page. */
-	zero_page = early_alloc(PAGE_SIZE);
-
 	bootmem_init();
-
-	empty_zero_page = virt_to_page(zero_page);
-	__flush_dcache_folio(NULL, page_folio(empty_zero_page));
 }
 
 void __init early_mm_init(const struct machine_desc *mdesc)

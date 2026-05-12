@@ -17,6 +17,7 @@
 #include <linux/minmax.h>
 #include <linux/sched.h>
 #include <linux/spinlock.h>
+#include <linux/string.h>
 #include <linux/wait.h>
 
 #include "logger.h"
@@ -226,6 +227,7 @@ static inline u64 get_arrival_time(struct bio *bio)
 /**
  * check_for_drain_complete_locked() - Check whether a data_vio_pool has no outstanding data_vios
  *				       or waiters while holding the pool's lock.
+ * @pool: The data_vio pool.
  */
 static bool check_for_drain_complete_locked(struct data_vio_pool *pool)
 {
@@ -386,6 +388,7 @@ struct data_vio_compression_status advance_data_vio_compression_stage(struct dat
 
 /**
  * cancel_data_vio_compression() - Prevent this data_vio from being compressed or packed.
+ * @data_vio: The data_vio.
  *
  * Return: true if the data_vio is in the packer and the caller was the first caller to cancel it.
  */
@@ -482,6 +485,8 @@ static void attempt_logical_block_lock(struct vdo_completion *completion)
 /**
  * launch_data_vio() - (Re)initialize a data_vio to have a new logical block number, keeping the
  *		       same parent and other state and send it on its way.
+ * @data_vio: The data_vio to launch.
+ * @lbn: The logical block number.
  */
 static void launch_data_vio(struct data_vio *data_vio, logical_block_number_t lbn)
 {
@@ -507,18 +512,6 @@ static void launch_data_vio(struct data_vio *data_vio, logical_block_number_t lb
 	completion->error_handler = handle_data_vio_error;
 	set_data_vio_logical_callback(data_vio, attempt_logical_block_lock);
 	vdo_enqueue_completion(completion, VDO_DEFAULT_Q_MAP_BIO_PRIORITY);
-}
-
-static bool is_zero_block(char *block)
-{
-	int i;
-
-	for (i = 0; i < VDO_BLOCK_SIZE; i += sizeof(u64)) {
-		if (*((u64 *) &block[i]))
-			return false;
-	}
-
-	return true;
 }
 
 static void copy_from_bio(struct bio *bio, char *data_ptr)
@@ -572,7 +565,7 @@ static void launch_bio(struct vdo *vdo, struct data_vio *data_vio, struct bio *b
 		 * we acknowledge the bio.
 		 */
 		copy_from_bio(bio, data_vio->vio.data);
-		data_vio->is_zero = is_zero_block(data_vio->vio.data);
+		data_vio->is_zero = mem_is_zero(data_vio->vio.data, VDO_BLOCK_SIZE);
 		data_vio->write = true;
 	}
 
@@ -652,6 +645,7 @@ static void update_limiter(struct limiter *limiter)
 
 /**
  * schedule_releases() - Ensure that release processing is scheduled.
+ * @pool: The data_vio pool.
  *
  * If this call switches the state to processing, enqueue. Otherwise, some other thread has already
  * done so.
@@ -779,6 +773,8 @@ static void initialize_limiter(struct limiter *limiter, struct data_vio_pool *po
 
 /**
  * initialize_data_vio() - Allocate the components of a data_vio.
+ * @data_vio: The data_vio to initialize.
+ * @vdo: The vdo containing the data_vio.
  *
  * The caller is responsible for cleaning up the data_vio on error.
  *
@@ -846,8 +842,7 @@ int make_data_vio_pool(struct vdo *vdo, data_vio_count_t pool_size,
 	struct data_vio_pool *pool;
 	data_vio_count_t i;
 
-	result = vdo_allocate_extended(struct data_vio_pool, pool_size, struct data_vio,
-				       __func__, &pool);
+	result = vdo_allocate_extended(pool_size, data_vios, __func__, &pool);
 	if (result != VDO_SUCCESS)
 		return result;
 
@@ -891,6 +886,7 @@ int make_data_vio_pool(struct vdo *vdo, data_vio_count_t pool_size,
 
 /**
  * free_data_vio_pool() - Free a data_vio_pool and the data_vios in it.
+ * @pool: The data_vio pool to free.
  *
  * All data_vios must be returned to the pool before calling this function.
  */
@@ -955,6 +951,8 @@ static void wait_permit(struct limiter *limiter, struct bio *bio)
 
 /**
  * vdo_launch_bio() - Acquire a data_vio from the pool, assign the bio to it, and launch it.
+ * @pool: The data_vio pool.
+ * @bio: The bio to launch.
  *
  * This will block if data_vios or discard permits are not available.
  */
@@ -1005,6 +1003,7 @@ static void assert_on_vdo_cpu_thread(const struct vdo *vdo, const char *name)
 
 /**
  * drain_data_vio_pool() - Wait asynchronously for all data_vios to be returned to the pool.
+ * @pool: The data_vio pool.
  * @completion: The completion to notify when the pool has drained.
  */
 void drain_data_vio_pool(struct data_vio_pool *pool, struct vdo_completion *completion)
@@ -1016,6 +1015,7 @@ void drain_data_vio_pool(struct data_vio_pool *pool, struct vdo_completion *comp
 
 /**
  * resume_data_vio_pool() - Resume a data_vio pool.
+ * @pool: The data_vio pool.
  * @completion: The completion to notify when the pool has resumed.
  */
 void resume_data_vio_pool(struct data_vio_pool *pool, struct vdo_completion *completion)
@@ -1035,6 +1035,7 @@ static void dump_limiter(const char *name, struct limiter *limiter)
 
 /**
  * dump_data_vio_pool() - Dump a data_vio pool to the log.
+ * @pool: The data_vio pool.
  * @dump_vios: Whether to dump the details of each busy data_vio as well.
  */
 void dump_data_vio_pool(struct data_vio_pool *pool, bool dump_vios)
@@ -1125,6 +1126,7 @@ static void perform_cleanup_stage(struct data_vio *data_vio,
 /**
  * release_allocated_lock() - Release the PBN lock and/or the reference on the allocated block at
  *			      the end of processing a data_vio.
+ * @completion: The data_vio holding the lock.
  */
 static void release_allocated_lock(struct vdo_completion *completion)
 {
@@ -1205,6 +1207,7 @@ static void transfer_lock(struct data_vio *data_vio, struct lbn_lock *lock)
 /**
  * release_logical_lock() - Release the logical block lock and flush generation lock at the end of
  *			    processing a data_vio.
+ * @completion: The data_vio holding the lock.
  */
 static void release_logical_lock(struct vdo_completion *completion)
 {
@@ -1239,6 +1242,7 @@ static void clean_hash_lock(struct vdo_completion *completion)
 
 /**
  * finish_cleanup() - Make some assertions about a data_vio which has finished cleaning up.
+ * @data_vio: The data_vio.
  *
  * If it is part of a multi-block discard, starts on the next block, otherwise, returns it to the
  * pool.
@@ -1353,6 +1357,7 @@ void handle_data_vio_error(struct vdo_completion *completion)
 /**
  * get_data_vio_operation_name() - Get the name of the last asynchronous operation performed on a
  *				   data_vio.
+ * @data_vio: The data_vio.
  */
 const char *get_data_vio_operation_name(struct data_vio *data_vio)
 {
@@ -1366,7 +1371,7 @@ const char *get_data_vio_operation_name(struct data_vio *data_vio)
 
 /**
  * data_vio_allocate_data_block() - Allocate a data block.
- *
+ * @data_vio: The data_vio.
  * @write_lock_type: The type of write lock to obtain on the block.
  * @callback: The callback which will attempt an allocation in the current zone and continue if it
  *	      succeeds.
@@ -1390,6 +1395,7 @@ void data_vio_allocate_data_block(struct data_vio *data_vio,
 
 /**
  * release_data_vio_allocation_lock() - Release the PBN lock on a data_vio's allocated block.
+ * @data_vio: The data_vio.
  * @reset: If true, the allocation will be reset (i.e. any allocated pbn will be forgotten).
  *
  * If the reference to the locked block is still provisional, it will be released as well.
@@ -1410,6 +1416,7 @@ void release_data_vio_allocation_lock(struct data_vio *data_vio, bool reset)
 
 /**
  * uncompress_data_vio() - Uncompress the data a data_vio has just read.
+ * @data_vio: The data_vio.
  * @mapping_state: The mapping state indicating which fragment to decompress.
  * @buffer: The buffer to receive the uncompressed data.
  */
@@ -1459,7 +1466,7 @@ static void modify_for_partial_write(struct vdo_completion *completion)
 		copy_from_bio(bio, data + data_vio->offset);
 	}
 
-	data_vio->is_zero = is_zero_block(data);
+	data_vio->is_zero = mem_is_zero(data, VDO_BLOCK_SIZE);
 	data_vio->read = false;
 	launch_data_vio_logical_callback(data_vio,
 					 continue_data_vio_with_block_map_slot);
@@ -1530,6 +1537,7 @@ static void complete_zero_read(struct vdo_completion *completion)
 
 /**
  * read_block() - Read a block asynchronously.
+ * @completion: The data_vio doing the read.
  *
  * This is the callback registered in read_block_mapping().
  */
@@ -1686,6 +1694,7 @@ static void journal_remapping(struct vdo_completion *completion)
 
 /**
  * read_old_block_mapping() - Get the previous PBN/LBN mapping of an in-progress write.
+ * @completion: The data_vio doing the read.
  *
  * Gets the previous PBN mapped to this LBN from the block map, so as to make an appropriate
  * journal entry referencing the removal of this LBN->PBN mapping.
@@ -1715,6 +1724,7 @@ void update_metadata_for_data_vio_write(struct data_vio *data_vio, struct pbn_lo
 
 /**
  * pack_compressed_data() - Attempt to pack the compressed data_vio into a block.
+ * @completion: The data_vio.
  *
  * This is the callback registered in launch_compress_data_vio().
  */
@@ -1736,6 +1746,7 @@ static void pack_compressed_data(struct vdo_completion *completion)
 
 /**
  * compress_data_vio() - Do the actual work of compressing the data on a CPU queue.
+ * @completion: The data_vio.
  *
  * This callback is registered in launch_compress_data_vio().
  */
@@ -1765,6 +1776,7 @@ static void compress_data_vio(struct vdo_completion *completion)
 
 /**
  * launch_compress_data_vio() - Continue a write by attempting to compress the data.
+ * @data_vio: The data_vio.
  *
  * This is a re-entry point to vio_write used by hash locks.
  */
@@ -1807,7 +1819,8 @@ void launch_compress_data_vio(struct data_vio *data_vio)
 /**
  * hash_data_vio() - Hash the data in a data_vio and set the hash zone (which also flags the record
  *		     name as set).
-
+ * @completion: The data_vio.
+ *
  * This callback is registered in prepare_for_dedupe().
  */
 static void hash_data_vio(struct vdo_completion *completion)
@@ -1843,6 +1856,7 @@ static void prepare_for_dedupe(struct data_vio *data_vio)
 /**
  * write_bio_finished() - This is the bio_end_io function registered in write_block() to be called
  *			  when a data_vio's write to the underlying storage has completed.
+ * @bio: The bio to update.
  */
 static void write_bio_finished(struct bio *bio)
 {
@@ -1895,6 +1909,7 @@ void write_data_vio(struct data_vio *data_vio)
 
 /**
  * acknowledge_write_callback() - Acknowledge a write to the requestor.
+ * @completion: The data_vio.
  *
  * This callback is registered in allocate_block() and continue_write_with_block_map_slot().
  */
@@ -1920,6 +1935,7 @@ static void acknowledge_write_callback(struct vdo_completion *completion)
 
 /**
  * allocate_block() - Attempt to allocate a block in the current allocation zone.
+ * @completion: The data_vio.
  *
  * This callback is registered in continue_write_with_block_map_slot().
  */
@@ -1952,6 +1968,7 @@ static void allocate_block(struct vdo_completion *completion)
 
 /**
  * handle_allocation_error() - Handle an error attempting to allocate a block.
+ * @completion: The data_vio.
  *
  * This error handler is registered in continue_write_with_block_map_slot().
  */
@@ -1981,6 +1998,7 @@ static int assert_is_discard(struct data_vio *data_vio)
 
 /**
  * continue_data_vio_with_block_map_slot() - Read the data_vio's mapping from the block map.
+ * @completion: The data_vio to continue.
  *
  * This callback is registered in launch_read_data_vio().
  */

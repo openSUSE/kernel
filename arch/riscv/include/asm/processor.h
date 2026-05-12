@@ -16,6 +16,7 @@
 #include <asm/insn-def.h>
 #include <asm/alternative-macros.h>
 #include <asm/hwcap.h>
+#include <asm/usercfi.h>
 
 #define arch_get_mmap_end(addr, len, flags)			\
 ({								\
@@ -54,7 +55,7 @@
 #define TASK_UNMAPPED_BASE	PAGE_ALIGN(TASK_SIZE / 3)
 #endif
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 
 struct task_struct;
 struct pt_regs;
@@ -85,7 +86,7 @@ struct pt_regs;
  *    preempt_v. All preempt_v context should be dropped in such case because
  *    V-regs are caller-saved. Only sstatus.VS=ON is persisted across a
  *    schedule() call.
- *  - bit 30: The in-kernel preempt_v context is saved, and requries to be
+ *  - bit 30: The in-kernel preempt_v context is saved, and is required to be
  *    restored when returning to the context that owns the preempt_v.
  *  - bit 31: The in-kernel preempt_v context is dirty, as signaled by the
  *    trap entry code. Any context switches out-of current task need to save
@@ -215,6 +216,6 @@ long get_tagged_addr_ctrl(struct task_struct *task);
 #define GET_TAGGED_ADDR_CTRL()		get_tagged_addr_ctrl(current)
 #endif
 
-#endif /* __ASSEMBLY__ */
+#endif /* __ASSEMBLER__ */
 
 #endif /* _ASM_RISCV_PROCESSOR_H */

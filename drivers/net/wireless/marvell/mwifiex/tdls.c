@@ -755,16 +755,12 @@ mwifiex_construct_tdls_action_frame(struct mwifiex_private *priv,
 	switch (action_code) {
 	case WLAN_PUB_ACTION_TDLS_DISCOVER_RES:
 		/* See the layout of 'struct ieee80211_mgmt'. */
-		extra = sizeof(mgmt->u.action.u.tdls_discover_resp) +
-			sizeof(mgmt->u.action.category);
+		extra = IEEE80211_MIN_ACTION_SIZE(tdls_discover_resp) - 24;
 		skb_put(skb, extra);
 		mgmt->u.action.category = WLAN_CATEGORY_PUBLIC;
-		mgmt->u.action.u.tdls_discover_resp.action_code =
-					      WLAN_PUB_ACTION_TDLS_DISCOVER_RES;
-		mgmt->u.action.u.tdls_discover_resp.dialog_token =
-								   dialog_token;
-		mgmt->u.action.u.tdls_discover_resp.capability =
-							     cpu_to_le16(capab);
+		mgmt->u.action.action_code = WLAN_PUB_ACTION_TDLS_DISCOVER_RES;
+		mgmt->u.action.tdls_discover_resp.dialog_token = dialog_token;
+		mgmt->u.action.tdls_discover_resp.capability = cpu_to_le16(capab);
 		/* move back for addr4 */
 		memmove(pos + ETH_ALEN, &mgmt->u.action, extra);
 		/* init address 4 */
@@ -1356,7 +1352,7 @@ void mwifiex_add_auto_tdls_peer(struct mwifiex_private *priv, const u8 *mac)
 	}
 
 	/* create new TDLS peer */
-	tdls_peer = kzalloc(sizeof(*tdls_peer), GFP_ATOMIC);
+	tdls_peer = kzalloc_obj(*tdls_peer, GFP_ATOMIC);
 	if (tdls_peer) {
 		ether_addr_copy(tdls_peer->mac_addr, mac);
 		tdls_peer->tdls_status = TDLS_SETUP_INPROGRESS;

@@ -16,6 +16,7 @@
 #include "wx_lib.h"
 #include "wx_ptp.h"
 #include "wx_hw.h"
+#include "wx_vf_lib.h"
 
 /* Lookup table mapping the HW PTYPE to the bit field for decoding */
 static struct wx_dec_ptype wx_ptype_lookup[256] = {
@@ -178,20 +179,13 @@ static void wx_dma_sync_frag(struct wx_ring *rx_ring,
 
 static struct wx_rx_buffer *wx_get_rx_buffer(struct wx_ring *rx_ring,
 					     union wx_rx_desc *rx_desc,
-					     struct sk_buff **skb,
-					     int *rx_buffer_pgcnt)
+					     struct sk_buff **skb)
 {
 	struct wx_rx_buffer *rx_buffer;
 	unsigned int size;
 
 	rx_buffer = &rx_ring->rx_buffer_info[rx_ring->next_to_clean];
 	size = le16_to_cpu(rx_desc->wb.upper.length);
-
-#if (PAGE_SIZE < 8192)
-	*rx_buffer_pgcnt = page_count(rx_buffer->page);
-#else
-	*rx_buffer_pgcnt = 0;
-#endif
 
 	prefetchw(rx_buffer->page);
 	*skb = rx_buffer->skb;
@@ -220,8 +214,7 @@ skip_sync:
 
 static void wx_put_rx_buffer(struct wx_ring *rx_ring,
 			     struct wx_rx_buffer *rx_buffer,
-			     struct sk_buff *skb,
-			     int rx_buffer_pgcnt)
+			     struct sk_buff *skb)
 {
 	/* clear contents of rx_buffer */
 	rx_buffer->page = NULL;
@@ -234,7 +227,7 @@ static struct sk_buff *wx_build_skb(struct wx_ring *rx_ring,
 {
 	unsigned int size = le16_to_cpu(rx_desc->wb.upper.length);
 #if (PAGE_SIZE < 8192)
-	unsigned int truesize = WX_RX_BUFSZ;
+	unsigned int truesize = wx_rx_pg_size(rx_ring) / 2;
 #else
 	unsigned int truesize = ALIGN(size, L1_CACHE_BYTES);
 #endif
@@ -340,7 +333,7 @@ void wx_alloc_rx_buffers(struct wx_ring *rx_ring, u16 cleaned_count)
 		/* sync the buffer for use by the device */
 		dma_sync_single_range_for_device(rx_ring->dev, bi->dma,
 						 bi->page_offset,
-						 WX_RX_BUFSZ,
+						 rx_ring->rx_buf_len,
 						 DMA_FROM_DEVICE);
 
 		rx_desc->read.pkt_addr =
@@ -403,6 +396,7 @@ static bool wx_is_non_eop(struct wx_ring *rx_ring,
 			  union wx_rx_desc *rx_desc,
 			  struct sk_buff *skb)
 {
+	struct wx *wx = rx_ring->q_vector->wx;
 	u32 ntc = rx_ring->next_to_clean + 1;
 
 	/* fetch, update, and store next to clean */
@@ -410,6 +404,24 @@ static bool wx_is_non_eop(struct wx_ring *rx_ring,
 	rx_ring->next_to_clean = ntc;
 
 	prefetch(WX_RX_DESC(rx_ring, ntc));
+
+	/* update RSC append count if present */
+	if (test_bit(WX_FLAG_RSC_ENABLED, wx->flags)) {
+		__le32 rsc_enabled = rx_desc->wb.lower.lo_dword.data &
+				     cpu_to_le32(WX_RXD_RSCCNT_MASK);
+
+		if (unlikely(rsc_enabled)) {
+			u32 rsc_cnt = le32_to_cpu(rsc_enabled);
+
+			rsc_cnt >>= WX_RXD_RSCCNT_SHIFT;
+			WX_CB(skb)->append_cnt += rsc_cnt - 1;
+
+			/* update ntc based on RSC value */
+			ntc = le32_to_cpu(rx_desc->wb.upper.status_error);
+			ntc &= WX_RXD_NEXTP_MASK;
+			ntc >>= WX_RXD_NEXTP_SHIFT;
+		}
+	}
 
 	/* if we are the last buffer then there is nothing else to do */
 	if (likely(wx_test_staterr(rx_desc, WX_RXD_STAT_EOP)))
@@ -581,6 +593,33 @@ static void wx_rx_vlan(struct wx_ring *ring, union wx_rx_desc *rx_desc,
 	}
 }
 
+static void wx_set_rsc_gso_size(struct wx_ring *ring,
+				struct sk_buff *skb)
+{
+	u16 hdr_len = skb_headlen(skb);
+
+	/* set gso_size to avoid messing up TCP MSS */
+	skb_shinfo(skb)->gso_size = DIV_ROUND_UP((skb->len - hdr_len),
+						 WX_CB(skb)->append_cnt);
+	skb_shinfo(skb)->gso_type = SKB_GSO_TCPV4;
+}
+
+static void wx_update_rsc_stats(struct wx_ring *rx_ring,
+				struct sk_buff *skb)
+{
+	/* if append_cnt is 0 then frame is not RSC */
+	if (!WX_CB(skb)->append_cnt)
+		return;
+
+	rx_ring->rx_stats.rsc_count += WX_CB(skb)->append_cnt;
+	rx_ring->rx_stats.rsc_flush++;
+
+	wx_set_rsc_gso_size(rx_ring, skb);
+
+	/* gso_size is computed using append_cnt so always clear it last */
+	WX_CB(skb)->append_cnt = 0;
+}
+
 /**
  * wx_process_skb_fields - Populate skb header fields from Rx descriptor
  * @rx_ring: rx descriptor ring packet is being transacted on
@@ -596,6 +635,9 @@ static void wx_process_skb_fields(struct wx_ring *rx_ring,
 				  struct sk_buff *skb)
 {
 	struct wx *wx = netdev_priv(rx_ring->netdev);
+
+	if (test_bit(WX_FLAG_RSC_CAPABLE, wx->flags))
+		wx_update_rsc_stats(rx_ring, skb);
 
 	wx_rx_hash(rx_ring, rx_desc, skb);
 	wx_rx_checksum(rx_ring, rx_desc, skb);
@@ -635,7 +677,6 @@ static int wx_clean_rx_irq(struct wx_q_vector *q_vector,
 		struct wx_rx_buffer *rx_buffer;
 		union wx_rx_desc *rx_desc;
 		struct sk_buff *skb;
-		int rx_buffer_pgcnt;
 
 		/* return some buffers to hardware, one at a time is too slow */
 		if (cleaned_count >= WX_RX_BUFFER_WRITE) {
@@ -653,7 +694,7 @@ static int wx_clean_rx_irq(struct wx_q_vector *q_vector,
 		 */
 		dma_rmb();
 
-		rx_buffer = wx_get_rx_buffer(rx_ring, rx_desc, &skb, &rx_buffer_pgcnt);
+		rx_buffer = wx_get_rx_buffer(rx_ring, rx_desc, &skb);
 
 		/* retrieve a buffer from the ring */
 		skb = wx_build_skb(rx_ring, rx_buffer, rx_desc);
@@ -664,7 +705,7 @@ static int wx_clean_rx_irq(struct wx_q_vector *q_vector,
 			break;
 		}
 
-		wx_put_rx_buffer(rx_ring, rx_buffer, skb, rx_buffer_pgcnt);
+		wx_put_rx_buffer(rx_ring, rx_buffer, skb);
 		cleaned_count++;
 
 		/* place incomplete frames back on ring for completion */
@@ -734,9 +775,22 @@ static bool wx_clean_tx_irq(struct wx_q_vector *q_vector,
 		/* prevent any other reads prior to eop_desc */
 		smp_rmb();
 
-		/* if DD is not set pending work has not been completed */
-		if (!(eop_desc->wb.status & cpu_to_le32(WX_TXD_STAT_DD)))
+		if (tx_ring->headwb_mem) {
+			u32 head = *tx_ring->headwb_mem;
+
+			if (head == tx_ring->next_to_clean)
+				break;
+			else if (head > tx_ring->next_to_clean &&
+				 !(tx_buffer->next_eop >= tx_ring->next_to_clean &&
+				   tx_buffer->next_eop < head))
+				break;
+			else if (!(tx_buffer->next_eop >= tx_ring->next_to_clean ||
+				   tx_buffer->next_eop < head))
+				break;
+		} else if (!(eop_desc->wb.status & cpu_to_le32(WX_TXD_STAT_DD))) {
+			/* if DD is not set pending work has not been completed */
 			break;
+		}
 
 		/* clear next_to_watch to prevent false hangs */
 		tx_buffer->next_to_watch = NULL;
@@ -832,6 +886,36 @@ static bool wx_clean_tx_irq(struct wx_q_vector *q_vector,
 	return !!budget;
 }
 
+static void wx_update_rx_dim_sample(struct wx_q_vector *q_vector)
+{
+	struct dim_sample sample = {};
+
+	dim_update_sample(q_vector->total_events,
+			  q_vector->rx.total_packets,
+			  q_vector->rx.total_bytes,
+			  &sample);
+
+	net_dim(&q_vector->rx.dim, &sample);
+}
+
+static void wx_update_tx_dim_sample(struct wx_q_vector *q_vector)
+{
+	struct dim_sample sample = {};
+
+	dim_update_sample(q_vector->total_events,
+			  q_vector->tx.total_packets,
+			  q_vector->tx.total_bytes,
+			  &sample);
+
+	net_dim(&q_vector->tx.dim, &sample);
+}
+
+static void wx_update_dim_sample(struct wx_q_vector *q_vector)
+{
+	wx_update_rx_dim_sample(q_vector);
+	wx_update_tx_dim_sample(q_vector);
+}
+
 /**
  * wx_poll - NAPI polling RX/TX cleanup routine
  * @napi: napi struct with our devices info in it
@@ -878,6 +962,8 @@ static int wx_poll(struct napi_struct *napi, int budget)
 
 	/* all work done, exit the polling mode */
 	if (likely(napi_complete_done(napi, work_done))) {
+		if (wx->adaptive_itr)
+			wx_update_dim_sample(q_vector);
 		if (netif_running(wx->netdev))
 			wx_intr_enable(wx, WX_INTR_Q(q_vector->v_idx));
 	}
@@ -1041,6 +1127,10 @@ static int wx_tx_map(struct wx_ring *tx_ring,
 
 	/* set next_to_watch value indicating a packet is present */
 	first->next_to_watch = tx_desc;
+
+	/* set next_eop for amlite tx head wb */
+	if (tx_ring->headwb_mem)
+		first->next_eop = i;
 
 	i++;
 	if (i == tx_ring->count)
@@ -1591,6 +1681,65 @@ netdev_tx_t wx_xmit_frame(struct sk_buff *skb,
 }
 EXPORT_SYMBOL(wx_xmit_frame);
 
+static void wx_set_itr(struct wx_q_vector *q_vector)
+{
+	struct wx *wx = q_vector->wx;
+	u32 new_itr;
+
+	if (!wx->adaptive_itr)
+		return;
+
+	/* use the smallest value of new ITR delay calculations */
+	new_itr = min(q_vector->rx.itr, q_vector->tx.itr);
+	new_itr <<= 2;
+
+	if (new_itr != q_vector->itr) {
+		/* save the algorithm value here */
+		q_vector->itr = new_itr;
+
+		if (wx->pdev->is_virtfn)
+			wx_write_eitr_vf(q_vector);
+		else
+			wx_write_eitr(q_vector);
+	}
+}
+
+static void wx_rx_dim_work(struct work_struct *work)
+{
+	struct dim *dim = container_of(work, struct dim, work);
+	struct dim_cq_moder rx_moder;
+	struct wx_ring_container *rx;
+	struct wx_q_vector *q_vector;
+
+	rx = container_of(dim, struct wx_ring_container, dim);
+
+	rx_moder = net_dim_get_rx_moderation(dim->mode, dim->profile_ix);
+	rx->itr = rx_moder.usec;
+
+	q_vector = container_of(rx, struct wx_q_vector, rx);
+	wx_set_itr(q_vector);
+
+	dim->state = DIM_START_MEASURE;
+}
+
+static void wx_tx_dim_work(struct work_struct *work)
+{
+	struct dim *dim = container_of(work, struct dim, work);
+	struct dim_cq_moder tx_moder;
+	struct wx_ring_container *tx;
+	struct wx_q_vector *q_vector;
+
+	tx = container_of(dim, struct wx_ring_container, dim);
+
+	tx_moder = net_dim_get_tx_moderation(dim->mode, dim->profile_ix);
+	tx->itr = tx_moder.usec;
+
+	q_vector = container_of(tx, struct wx_q_vector, tx);
+	wx_set_itr(q_vector);
+
+	dim->state = DIM_START_MEASURE;
+}
+
 void wx_napi_enable_all(struct wx *wx)
 {
 	struct wx_q_vector *q_vector;
@@ -1598,6 +1747,11 @@ void wx_napi_enable_all(struct wx *wx)
 
 	for (q_idx = 0; q_idx < wx->num_q_vectors; q_idx++) {
 		q_vector = wx->q_vector[q_idx];
+
+		INIT_WORK(&q_vector->rx.dim.work, wx_rx_dim_work);
+		INIT_WORK(&q_vector->tx.dim.work, wx_tx_dim_work);
+		q_vector->rx.dim.mode = DIM_CQ_PERIOD_MODE_START_FROM_CQE;
+		q_vector->tx.dim.mode = DIM_CQ_PERIOD_MODE_START_FROM_CQE;
 		napi_enable(&q_vector->napi);
 	}
 }
@@ -1611,6 +1765,8 @@ void wx_napi_disable_all(struct wx *wx)
 	for (q_idx = 0; q_idx < wx->num_q_vectors; q_idx++) {
 		q_vector = wx->q_vector[q_idx];
 		napi_disable(&q_vector->napi);
+		disable_work_sync(&q_vector->rx.dim.work);
+		disable_work_sync(&q_vector->tx.dim.work);
 	}
 }
 EXPORT_SYMBOL(wx_napi_disable_all);
@@ -1749,16 +1905,14 @@ static int wx_acquire_msix_vectors(struct wx *wx)
 	nvecs = min_t(int, nvecs, num_online_cpus());
 	nvecs = min_t(int, nvecs, wx->mac.max_msix_vectors);
 
-	wx->msix_q_entries = kcalloc(nvecs, sizeof(struct msix_entry),
-				     GFP_KERNEL);
+	wx->msix_q_entries = kzalloc_objs(struct msix_entry, nvecs);
 	if (!wx->msix_q_entries)
 		return -ENOMEM;
 
 	/* One for non-queue interrupts */
 	nvecs += 1;
 
-	wx->msix_entry = kcalloc(1, sizeof(struct msix_entry),
-				 GFP_KERNEL);
+	wx->msix_entry = kzalloc_objs(struct msix_entry, 1);
 	if (!wx->msix_entry) {
 		kfree(wx->msix_q_entries);
 		wx->msix_q_entries = NULL;
@@ -1941,8 +2095,7 @@ static int wx_alloc_q_vector(struct wx *wx,
 	/* note this will allocate space for the ring structure as well! */
 	ring_count = txr_count + rxr_count;
 
-	q_vector = kzalloc(struct_size(q_vector, ring, ring_count),
-			   GFP_KERNEL);
+	q_vector = kzalloc_flex(*q_vector, ring, ring_count);
 	if (!q_vector)
 		return -ENOMEM;
 
@@ -2197,8 +2350,10 @@ irqreturn_t wx_msix_clean_rings(int __always_unused irq, void *data)
 	struct wx_q_vector *q_vector = data;
 
 	/* EIAM disabled interrupts (on this vector) for us */
-	if (q_vector->rx.ring || q_vector->tx.ring)
+	if (q_vector->rx.ring || q_vector->tx.ring) {
 		napi_schedule_irqoff(&q_vector->napi);
+		q_vector->total_events++;
+	}
 
 	return IRQ_HANDLED;
 }
@@ -2431,7 +2586,7 @@ static void wx_clean_rx_ring(struct wx_ring *rx_ring)
 		dma_sync_single_range_for_cpu(rx_ring->dev,
 					      rx_buffer->dma,
 					      rx_buffer->page_offset,
-					      WX_RX_BUFSZ,
+					      rx_ring->rx_buf_len,
 					      DMA_FROM_DEVICE);
 
 		/* free resources associated with mapping */
@@ -2582,6 +2737,16 @@ void wx_clean_all_tx_rings(struct wx *wx)
 }
 EXPORT_SYMBOL(wx_clean_all_tx_rings);
 
+static void wx_free_headwb_resources(struct wx_ring *tx_ring)
+{
+	if (!tx_ring->headwb_mem)
+		return;
+
+	dma_free_coherent(tx_ring->dev, sizeof(u32),
+			  tx_ring->headwb_mem, tx_ring->headwb_dma);
+	tx_ring->headwb_mem = NULL;
+}
+
 /**
  * wx_free_tx_resources - Free Tx Resources per Queue
  * @tx_ring: Tx descriptor ring for a specific queue
@@ -2601,6 +2766,8 @@ static void wx_free_tx_resources(struct wx_ring *tx_ring)
 	dma_free_coherent(tx_ring->dev, tx_ring->size,
 			  tx_ring->desc, tx_ring->dma);
 	tx_ring->desc = NULL;
+
+	wx_free_headwb_resources(tx_ring);
 }
 
 /**
@@ -2630,13 +2797,14 @@ static int wx_alloc_page_pool(struct wx_ring *rx_ring)
 
 	struct page_pool_params pp_params = {
 		.flags = PP_FLAG_DMA_MAP | PP_FLAG_DMA_SYNC_DEV,
-		.order = 0,
-		.pool_size = rx_ring->count,
+		.order = wx_rx_pg_order(rx_ring),
+		.pool_size = rx_ring->count * rx_ring->rx_buf_len /
+			     wx_rx_pg_size(rx_ring),
 		.nid = dev_to_node(rx_ring->dev),
 		.dev = rx_ring->dev,
 		.dma_dir = DMA_FROM_DEVICE,
 		.offset = 0,
-		.max_len = PAGE_SIZE,
+		.max_len = wx_rx_pg_size(rx_ring),
 	};
 
 	rx_ring->page_pool = page_pool_create(&pp_params);
@@ -2739,6 +2907,24 @@ err_setup_rx:
 	return err;
 }
 
+static void wx_setup_headwb_resources(struct wx_ring *tx_ring)
+{
+	struct wx *wx = netdev_priv(tx_ring->netdev);
+
+	if (!test_bit(WX_FLAG_TXHEAD_WB_ENABLED, wx->flags))
+		return;
+
+	if (!tx_ring->q_vector)
+		return;
+
+	tx_ring->headwb_mem = dma_alloc_coherent(tx_ring->dev,
+						 sizeof(u32),
+						 &tx_ring->headwb_dma,
+						 GFP_KERNEL);
+	if (!tx_ring->headwb_mem)
+		dev_info(tx_ring->dev, "Allocate headwb memory failed, disable it\n");
+}
+
 /**
  * wx_setup_tx_resources - allocate Tx resources (Descriptors)
  * @tx_ring: tx descriptor ring (for a specific queue) to setup
@@ -2778,6 +2964,8 @@ static int wx_setup_tx_resources(struct wx_ring *tx_ring)
 
 	if (!tx_ring->desc)
 		goto err;
+
+	wx_setup_headwb_resources(tx_ring);
 
 	tx_ring->next_to_use = 0;
 	tx_ring->next_to_clean = 0;
@@ -2915,14 +3103,8 @@ int wx_set_features(struct net_device *netdev, netdev_features_t features)
 	struct wx *wx = netdev_priv(netdev);
 	bool need_reset = false;
 
-	if (features & NETIF_F_RXHASH) {
-		wr32m(wx, WX_RDB_RA_CTL, WX_RDB_RA_CTL_RSS_EN,
-		      WX_RDB_RA_CTL_RSS_EN);
-		wx->rss_enabled = true;
-	} else {
-		wr32m(wx, WX_RDB_RA_CTL, WX_RDB_RA_CTL_RSS_EN, 0);
-		wx->rss_enabled = false;
-	}
+	wx->rss_enabled = !!(features & NETIF_F_RXHASH);
+	wx_enable_rss(wx, wx->rss_enabled);
 
 	netdev->features = features;
 
@@ -2931,8 +3113,25 @@ int wx_set_features(struct net_device *netdev, netdev_features_t features)
 	else if (changed & (NETIF_F_HW_VLAN_CTAG_RX | NETIF_F_HW_VLAN_CTAG_FILTER))
 		wx_set_rx_mode(netdev);
 
+	if (test_bit(WX_FLAG_RSC_CAPABLE, wx->flags)) {
+		if (!(features & NETIF_F_LRO)) {
+			if (test_bit(WX_FLAG_RSC_ENABLED, wx->flags))
+				need_reset = true;
+			clear_bit(WX_FLAG_RSC_ENABLED, wx->flags);
+		} else if (!(test_bit(WX_FLAG_RSC_ENABLED, wx->flags))) {
+			if (wx->rx_itr_setting == 1 ||
+			    wx->rx_itr_setting > WX_MIN_RSC_ITR) {
+				set_bit(WX_FLAG_RSC_ENABLED, wx->flags);
+				need_reset = true;
+			} else if (changed & NETIF_F_LRO) {
+				dev_info(&wx->pdev->dev,
+					 "rx-usecs set too low, disable RSC\n");
+			}
+		}
+	}
+
 	if (!(test_bit(WX_FLAG_FDIR_CAPABLE, wx->flags)))
-		return 0;
+		goto out;
 
 	/* Check if Flow Director n-tuple support was enabled or disabled.  If
 	 * the state changed, we need to reset.
@@ -2958,6 +3157,7 @@ int wx_set_features(struct net_device *netdev, netdev_features_t features)
 		break;
 	}
 
+out:
 	if (need_reset && wx->do_reset)
 		wx->do_reset(netdev);
 
@@ -3006,6 +3206,14 @@ netdev_features_t wx_fix_features(struct net_device *netdev,
 			wx_err(wx, "802.1Q and 802.1ad VLAN filtering must be either both on or both off.");
 		}
 	}
+
+	/* If Rx checksum is disabled, then RSC/LRO should also be disabled */
+	if (!(features & NETIF_F_RXCSUM))
+		features &= ~NETIF_F_LRO;
+
+	/* Turn off LRO if not RSC capable */
+	if (!test_bit(WX_FLAG_RSC_CAPABLE, wx->flags))
+		features &= ~NETIF_F_LRO;
 
 	return features;
 }

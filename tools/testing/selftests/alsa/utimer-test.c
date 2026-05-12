@@ -6,7 +6,7 @@
  *
  * Author: Ivan Orlov <ivan.orlov0322@gmail.com>
  */
-#include "../kselftest_harness.h"
+#include "kselftest_harness.h"
 #include <sound/asound.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <string.h>
+#include <errno.h>
 
 #define FRAME_RATE 8000
 #define PERIOD_SIZE 4410
@@ -52,7 +53,14 @@ FIXTURE_SETUP(timer_f) {
 	timer_dev_fd = open("/dev/snd/timer", O_RDONLY);
 	ASSERT_GE(timer_dev_fd, 0);
 
-	ASSERT_EQ(ioctl(timer_dev_fd, SNDRV_TIMER_IOCTL_CREATE, self->utimer_info), 0);
+	if (ioctl(timer_dev_fd, SNDRV_TIMER_IOCTL_CREATE, self->utimer_info) < 0) {
+		int err = errno;
+
+		close(timer_dev_fd);
+		if (err == ENOTTY || err == ENXIO)
+			SKIP(return, "CONFIG_SND_UTIMER not enabled");
+		ASSERT_EQ(err, 0);
+	}
 	ASSERT_GE(self->utimer_info->fd, 0);
 
 	close(timer_dev_fd);
@@ -141,7 +149,6 @@ TEST_F(timer_f, utimer) {
 TEST(wrong_timers_test) {
 	int timer_dev_fd;
 	int utimer_fd;
-	size_t i;
 	struct snd_timer_uinfo wrong_timer = {
 		.resolution = 0,
 		.id = UTIMER_DEFAULT_ID,

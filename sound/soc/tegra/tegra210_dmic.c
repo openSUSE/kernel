@@ -160,7 +160,7 @@ static int tegra210_dmic_hw_params(struct snd_pcm_substream *substream,
 static int tegra210_dmic_get_boost_gain(struct snd_kcontrol *kcontrol,
 					struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *comp = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *comp = snd_kcontrol_chip(kcontrol);
 	struct tegra210_dmic *dmic = snd_soc_component_get_drvdata(comp);
 
 	ucontrol->value.integer.value[0] = dmic->boost_gain;
@@ -171,7 +171,7 @@ static int tegra210_dmic_get_boost_gain(struct snd_kcontrol *kcontrol,
 static int tegra210_dmic_put_boost_gain(struct snd_kcontrol *kcontrol,
 					struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *comp = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *comp = snd_kcontrol_chip(kcontrol);
 	struct tegra210_dmic *dmic = snd_soc_component_get_drvdata(comp);
 	int value = ucontrol->value.integer.value[0];
 
@@ -186,7 +186,7 @@ static int tegra210_dmic_put_boost_gain(struct snd_kcontrol *kcontrol,
 static int tegra210_dmic_get_ch_select(struct snd_kcontrol *kcontrol,
 				       struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *comp = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *comp = snd_kcontrol_chip(kcontrol);
 	struct tegra210_dmic *dmic = snd_soc_component_get_drvdata(comp);
 
 	ucontrol->value.enumerated.item[0] = dmic->ch_select;
@@ -197,7 +197,7 @@ static int tegra210_dmic_get_ch_select(struct snd_kcontrol *kcontrol,
 static int tegra210_dmic_put_ch_select(struct snd_kcontrol *kcontrol,
 				       struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *comp = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *comp = snd_kcontrol_chip(kcontrol);
 	struct tegra210_dmic *dmic = snd_soc_component_get_drvdata(comp);
 	unsigned int value = ucontrol->value.enumerated.item[0];
 
@@ -212,7 +212,7 @@ static int tegra210_dmic_put_ch_select(struct snd_kcontrol *kcontrol,
 static int tegra210_dmic_get_mono_to_stereo(struct snd_kcontrol *kcontrol,
 					    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *comp = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *comp = snd_kcontrol_chip(kcontrol);
 	struct tegra210_dmic *dmic = snd_soc_component_get_drvdata(comp);
 
 	ucontrol->value.enumerated.item[0] = dmic->mono_to_stereo;
@@ -223,7 +223,7 @@ static int tegra210_dmic_get_mono_to_stereo(struct snd_kcontrol *kcontrol,
 static int tegra210_dmic_put_mono_to_stereo(struct snd_kcontrol *kcontrol,
 					    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *comp = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *comp = snd_kcontrol_chip(kcontrol);
 	struct tegra210_dmic *dmic = snd_soc_component_get_drvdata(comp);
 	unsigned int value = ucontrol->value.enumerated.item[0];
 
@@ -238,7 +238,7 @@ static int tegra210_dmic_put_mono_to_stereo(struct snd_kcontrol *kcontrol,
 static int tegra210_dmic_get_stereo_to_mono(struct snd_kcontrol *kcontrol,
 					    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *comp = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *comp = snd_kcontrol_chip(kcontrol);
 	struct tegra210_dmic *dmic = snd_soc_component_get_drvdata(comp);
 
 	ucontrol->value.enumerated.item[0] = dmic->stereo_to_mono;
@@ -249,7 +249,7 @@ static int tegra210_dmic_get_stereo_to_mono(struct snd_kcontrol *kcontrol,
 static int tegra210_dmic_put_stereo_to_mono(struct snd_kcontrol *kcontrol,
 					    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *comp = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *comp = snd_kcontrol_chip(kcontrol);
 	struct tegra210_dmic *dmic = snd_soc_component_get_drvdata(comp);
 	unsigned int value = ucontrol->value.enumerated.item[0];
 
@@ -264,7 +264,7 @@ static int tegra210_dmic_put_stereo_to_mono(struct snd_kcontrol *kcontrol,
 static int tegra210_dmic_get_osr_val(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *comp = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *comp = snd_kcontrol_chip(kcontrol);
 	struct tegra210_dmic *dmic = snd_soc_component_get_drvdata(comp);
 
 	ucontrol->value.enumerated.item[0] = dmic->osr_val;
@@ -275,7 +275,7 @@ static int tegra210_dmic_get_osr_val(struct snd_kcontrol *kcontrol,
 static int tegra210_dmic_put_osr_val(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *comp = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *comp = snd_kcontrol_chip(kcontrol);
 	struct tegra210_dmic *dmic = snd_soc_component_get_drvdata(comp);
 	unsigned int value = ucontrol->value.enumerated.item[0];
 
@@ -290,7 +290,7 @@ static int tegra210_dmic_put_osr_val(struct snd_kcontrol *kcontrol,
 static int tegra210_dmic_get_pol_sel(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *comp = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *comp = snd_kcontrol_chip(kcontrol);
 	struct tegra210_dmic *dmic = snd_soc_component_get_drvdata(comp);
 
 	ucontrol->value.enumerated.item[0] = dmic->lrsel;
@@ -301,7 +301,7 @@ static int tegra210_dmic_get_pol_sel(struct snd_kcontrol *kcontrol,
 static int tegra210_dmic_put_pol_sel(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *comp = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *comp = snd_kcontrol_chip(kcontrol);
 	struct tegra210_dmic *dmic = snd_soc_component_get_drvdata(comp);
 	unsigned int value = ucontrol->value.enumerated.item[0];
 
@@ -483,6 +483,7 @@ static const struct regmap_config tegra210_dmic_regmap_config = {
 	.volatile_reg = tegra210_dmic_volatile_reg,
 	.reg_defaults = tegra210_dmic_reg_defaults,
 	.num_reg_defaults = ARRAY_SIZE(tegra210_dmic_reg_defaults),
+	.reg_default_cb		= regmap_default_zero_cb,
 	.cache_type = REGCACHE_FLAT,
 };
 
@@ -506,10 +507,9 @@ static int tegra210_dmic_probe(struct platform_device *pdev)
 	dev_set_drvdata(dev, dmic);
 
 	dmic->clk_dmic = devm_clk_get(dev, "dmic");
-	if (IS_ERR(dmic->clk_dmic)) {
-		dev_err(dev, "can't retrieve DMIC clock\n");
-		return PTR_ERR(dmic->clk_dmic);
-	}
+	if (IS_ERR(dmic->clk_dmic))
+		return dev_err_probe(dev, PTR_ERR(dmic->clk_dmic),
+				     "can't retrieve DMIC clock\n");
 
 	regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(regs))
@@ -517,20 +517,18 @@ static int tegra210_dmic_probe(struct platform_device *pdev)
 
 	dmic->regmap = devm_regmap_init_mmio(dev, regs,
 					     &tegra210_dmic_regmap_config);
-	if (IS_ERR(dmic->regmap)) {
-		dev_err(dev, "regmap init failed\n");
-		return PTR_ERR(dmic->regmap);
-	}
+	if (IS_ERR(dmic->regmap))
+		return dev_err_probe(dev, PTR_ERR(dmic->regmap),
+				     "regmap init failed\n");
 
 	regcache_cache_only(dmic->regmap, true);
 
 	err = devm_snd_soc_register_component(dev, &tegra210_dmic_compnt,
 					      tegra210_dmic_dais,
 					      ARRAY_SIZE(tegra210_dmic_dais));
-	if (err) {
-		dev_err(dev, "can't register DMIC component, err: %d\n", err);
-		return err;
-	}
+	if (err)
+		return dev_err_probe(dev, err,
+				     "can't register DMIC component\n");
 
 	pm_runtime_enable(dev);
 

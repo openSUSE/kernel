@@ -135,7 +135,7 @@ acpi_parse_prmt(union acpi_subtable_headers *header, const unsigned long end)
 			goto parse_prmt_out4;
 		memmove(tm->mmio_info, temp_mmio, mmio_range_size);
 	} else {
-		tm->mmio_info = kmalloc(sizeof(*tm->mmio_info), GFP_KERNEL);
+		tm->mmio_info = kmalloc_obj(*tm->mmio_info);
 		if (!tm->mmio_info)
 			goto parse_prmt_out2;
 
@@ -150,15 +150,28 @@ acpi_parse_prmt(union acpi_subtable_headers *header, const unsigned long end)
 		th = &tm->handlers[cur_handler];
 
 		guid_copy(&th->guid, (guid_t *)handler_info->handler_guid);
+
+		/*
+		 * Print an error message if handler_address is NULL, the parse of VA also
+		 * can be skipped.
+		 */
+		if (unlikely(!handler_info->handler_address)) {
+			pr_info("Skipping handler with NULL address for GUID: %pUL",
+					(guid_t *)handler_info->handler_guid);
+			continue;
+		}
+
 		th->handler_addr =
 			(void *)efi_pa_va_lookup(&th->guid, handler_info->handler_address);
 		/*
-		 * Print a warning message if handler_addr is zero which is not expected to
-		 * ever happen.
+		 * Print a warning message and skip the parse of VA if handler_addr is zero
+		 * which is not expected to ever happen.
 		 */
-		if (unlikely(!th->handler_addr))
+		if (unlikely(!th->handler_addr)) {
 			pr_warn("Failed to find VA of handler for GUID: %pUL, PA: 0x%llx",
 				&th->guid, handler_info->handler_address);
+			continue;
+		}
 
 		th->static_data_buffer_addr =
 			efi_pa_va_lookup(&th->guid, handler_info->static_data_buffer_address);
@@ -230,6 +243,12 @@ static struct prm_handler_info *find_prm_handler(const guid_t *guid)
 {
 	return (struct prm_handler_info *) find_guid_info(guid, GET_HANDLER);
 }
+
+bool acpi_prm_handler_available(const guid_t *guid)
+{
+	return find_prm_handler(guid) && find_prm_module(guid);
+}
+EXPORT_SYMBOL_GPL(acpi_prm_handler_available);
 
 /* In-coming PRM commands */
 

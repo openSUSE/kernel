@@ -5,7 +5,7 @@
  */
 #include <linux/iversion.h>
 
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -877,6 +877,35 @@ xfs_create_tmpfile(
 	return error;
 }
 
+static inline int
+xfs_projid_differ(
+	struct xfs_inode	*tdp,
+	struct xfs_inode	*sip)
+{
+	/*
+	 * If we are using project inheritance, we only allow hard link/renames
+	 * creation in our tree when the project IDs are the same; else
+	 * the tree quota mechanism could be circumvented.
+	 */
+	if (unlikely((tdp->i_diflags & XFS_DIFLAG_PROJINHERIT) &&
+		     tdp->i_projid != sip->i_projid)) {
+		/*
+		 * Project quota setup skips special files which can
+		 * leave inodes in a PROJINHERIT directory without a
+		 * project ID set. We need to allow links to be made
+		 * to these "project-less" inodes because userspace
+		 * expects them to succeed after project ID setup,
+		 * but everything else should be rejected.
+		 */
+		if (!special_file(VFS_I(sip)->i_mode) ||
+		    sip->i_projid != 0) {
+			return -EXDEV;
+		}
+	}
+
+	return 0;
+}
+
 int
 xfs_link(
 	struct xfs_inode	*tdp,
@@ -930,27 +959,9 @@ xfs_link(
 		goto error_return;
 	}
 
-	/*
-	 * If we are using project inheritance, we only allow hard link
-	 * creation in our tree when the project IDs are the same; else
-	 * the tree quota mechanism could be circumvented.
-	 */
-	if (unlikely((tdp->i_diflags & XFS_DIFLAG_PROJINHERIT) &&
-		     tdp->i_projid != sip->i_projid)) {
-		/*
-		 * Project quota setup skips special files which can
-		 * leave inodes in a PROJINHERIT directory without a
-		 * project ID set. We need to allow links to be made
-		 * to these "project-less" inodes because userspace
-		 * expects them to succeed after project ID setup,
-		 * but everything else should be rejected.
-		 */
-		if (!special_file(VFS_I(sip)->i_mode) ||
-		    sip->i_projid != 0) {
-			error = -EXDEV;
-			goto error_return;
-		}
-	}
+	error = xfs_projid_differ(tdp, sip);
+	if (error)
+		goto error_return;
 
 	error = xfs_dir_add_child(tp, resblks, &du);
 	if (error)
@@ -1035,9 +1046,10 @@ xfs_itruncate_extents_flags(
 	int			error = 0;
 
 	xfs_assert_ilocked(ip, XFS_ILOCK_EXCL);
-	if (atomic_read(&VFS_I(ip)->i_count))
+	if (icount_read(VFS_I(ip)))
 		xfs_assert_ilocked(ip, XFS_IOLOCK_EXCL);
-	ASSERT(new_size <= XFS_ISIZE(ip));
+	if (whichfork == XFS_DATA_FORK)
+		ASSERT(new_size <= XFS_ISIZE(ip));
 	ASSERT(tp->t_flags & XFS_TRANS_PERM_LOG_RES);
 	ASSERT(ip->i_itemp != NULL);
 	ASSERT(ip->i_itemp->ili_lock_flags == 0);
@@ -1569,7 +1581,7 @@ xfs_iunlink_reload_next(
 	next_ip->i_prev_unlinked = prev_agino;
 	trace_xfs_iunlink_reload_next(next_ip);
 rele:
-	ASSERT(!(VFS_I(next_ip)->i_state & I_DONTCACHE));
+	ASSERT(!(inode_state_read_once(VFS_I(next_ip)) & I_DONTCACHE));
 	if (xfs_is_quotacheck_running(mp) && next_ip)
 		xfs_iflags_set(next_ip, XFS_IQUOTAUNCHECKED);
 	xfs_irele(next_ip);
@@ -1656,7 +1668,6 @@ retry:
 	spin_lock(&iip->ili_lock);
 	iip->ili_last_fields = iip->ili_fields;
 	iip->ili_fields = 0;
-	iip->ili_fsync_fields = 0;
 	spin_unlock(&iip->ili_lock);
 	ASSERT(iip->ili_last_fields);
 
@@ -1821,12 +1832,20 @@ static void
 xfs_iunpin(
 	struct xfs_inode	*ip)
 {
-	xfs_assert_ilocked(ip, XFS_ILOCK_EXCL | XFS_ILOCK_SHARED);
+	struct xfs_inode_log_item *iip = ip->i_itemp;
+	xfs_csn_t		seq = 0;
 
 	trace_xfs_inode_unpin_nowait(ip, _RET_IP_);
+	xfs_assert_ilocked(ip, XFS_ILOCK_EXCL | XFS_ILOCK_SHARED);
+
+	spin_lock(&iip->ili_lock);
+	seq = iip->ili_commit_seq;
+	spin_unlock(&iip->ili_lock);
+	if (!seq)
+		return;
 
 	/* Give the log a push to start the unpinning I/O */
-	xfs_log_force_seq(ip->i_mount, ip->i_itemp->ili_commit_seq, 0, NULL);
+	xfs_log_force_seq(ip->i_mount, seq, 0, NULL);
 
 }
 
@@ -2093,7 +2112,7 @@ xfs_rename_alloc_whiteout(
 	 */
 	xfs_setup_iops(tmpfile);
 	xfs_finish_inode_setup(tmpfile);
-	VFS_I(tmpfile)->i_state |= I_LINKABLE;
+	inode_state_set_raw(VFS_I(tmpfile), I_LINKABLE);
 
 	*wip = tmpfile;
 	return 0;
@@ -2227,16 +2246,9 @@ retry:
 	if (du_wip.ip)
 		xfs_trans_ijoin(tp, du_wip.ip, 0);
 
-	/*
-	 * If we are using project inheritance, we only allow renames
-	 * into our tree when the project IDs are the same; else the
-	 * tree quota mechanism would be circumvented.
-	 */
-	if (unlikely((target_dp->i_diflags & XFS_DIFLAG_PROJINHERIT) &&
-		     target_dp->i_projid != src_ip->i_projid)) {
-		error = -EXDEV;
+	error = xfs_projid_differ(target_dp, src_ip);
+	if (error)
 		goto out_trans_cancel;
-	}
 
 	/* RENAME_EXCHANGE is unique from here on. */
 	if (flags & RENAME_EXCHANGE) {
@@ -2319,7 +2331,7 @@ retry:
 		 * flag from the inode so it doesn't accidentally get misused in
 		 * future.
 		 */
-		VFS_I(du_wip.ip)->i_state &= ~I_LINKABLE;
+		inode_state_clear_raw(VFS_I(du_wip.ip), I_LINKABLE);
 	}
 
 out_commit:
@@ -2377,8 +2389,8 @@ xfs_iflush(
 	 * error handling as the caller will shutdown and fail the buffer.
 	 */
 	error = -EFSCORRUPTED;
-	if (XFS_TEST_ERROR(dip->di_magic != cpu_to_be16(XFS_DINODE_MAGIC),
-			       mp, XFS_ERRTAG_IFLUSH_1)) {
+	if (dip->di_magic != cpu_to_be16(XFS_DINODE_MAGIC) ||
+	    XFS_TEST_ERROR(mp, XFS_ERRTAG_IFLUSH_1)) {
 		xfs_alert_tag(mp, XFS_PTAG_IFLUSH,
 			"%s: Bad inode %llu magic number 0x%x, ptr "PTR_FMT,
 			__func__, ip->i_ino, be16_to_cpu(dip->di_magic), dip);
@@ -2394,29 +2406,27 @@ xfs_iflush(
 			goto flush_out;
 		}
 	} else if (S_ISREG(VFS_I(ip)->i_mode)) {
-		if (XFS_TEST_ERROR(
-		    ip->i_df.if_format != XFS_DINODE_FMT_EXTENTS &&
-		    ip->i_df.if_format != XFS_DINODE_FMT_BTREE,
-		    mp, XFS_ERRTAG_IFLUSH_3)) {
+		if ((ip->i_df.if_format != XFS_DINODE_FMT_EXTENTS &&
+		     ip->i_df.if_format != XFS_DINODE_FMT_BTREE) ||
+		    XFS_TEST_ERROR(mp, XFS_ERRTAG_IFLUSH_3)) {
 			xfs_alert_tag(mp, XFS_PTAG_IFLUSH,
 				"%s: Bad regular inode %llu, ptr "PTR_FMT,
 				__func__, ip->i_ino, ip);
 			goto flush_out;
 		}
 	} else if (S_ISDIR(VFS_I(ip)->i_mode)) {
-		if (XFS_TEST_ERROR(
-		    ip->i_df.if_format != XFS_DINODE_FMT_EXTENTS &&
-		    ip->i_df.if_format != XFS_DINODE_FMT_BTREE &&
-		    ip->i_df.if_format != XFS_DINODE_FMT_LOCAL,
-		    mp, XFS_ERRTAG_IFLUSH_4)) {
+		if ((ip->i_df.if_format != XFS_DINODE_FMT_EXTENTS &&
+		     ip->i_df.if_format != XFS_DINODE_FMT_BTREE &&
+		     ip->i_df.if_format != XFS_DINODE_FMT_LOCAL) ||
+		    XFS_TEST_ERROR(mp, XFS_ERRTAG_IFLUSH_4)) {
 			xfs_alert_tag(mp, XFS_PTAG_IFLUSH,
 				"%s: Bad directory inode %llu, ptr "PTR_FMT,
 				__func__, ip->i_ino, ip);
 			goto flush_out;
 		}
 	}
-	if (XFS_TEST_ERROR(ip->i_df.if_nextents + xfs_ifork_nextents(&ip->i_af) >
-				ip->i_nblocks, mp, XFS_ERRTAG_IFLUSH_5)) {
+	if (ip->i_df.if_nextents + xfs_ifork_nextents(&ip->i_af) >
+	    ip->i_nblocks || XFS_TEST_ERROR(mp, XFS_ERRTAG_IFLUSH_5)) {
 		xfs_alert_tag(mp, XFS_PTAG_IFLUSH,
 			"%s: detected corrupt incore inode %llu, "
 			"total extents = %llu nblocks = %lld, ptr "PTR_FMT,
@@ -2425,8 +2435,8 @@ xfs_iflush(
 			ip->i_nblocks, ip);
 		goto flush_out;
 	}
-	if (XFS_TEST_ERROR(ip->i_forkoff > mp->m_sb.sb_inodesize,
-				mp, XFS_ERRTAG_IFLUSH_6)) {
+	if (ip->i_forkoff > mp->m_sb.sb_inodesize ||
+	    XFS_TEST_ERROR(mp, XFS_ERRTAG_IFLUSH_6)) {
 		xfs_alert_tag(mp, XFS_PTAG_IFLUSH,
 			"%s: bad inode %llu, forkoff 0x%x, ptr "PTR_FMT,
 			__func__, ip->i_ino, ip->i_forkoff, ip);
@@ -2502,7 +2512,6 @@ flush_out:
 	spin_lock(&iip->ili_lock);
 	iip->ili_last_fields = iip->ili_fields;
 	iip->ili_fields = 0;
-	iip->ili_fsync_fields = 0;
 	set_bit(XFS_LI_FLUSHING, &iip->ili_item.li_flags);
 	spin_unlock(&iip->ili_lock);
 
@@ -2661,12 +2670,15 @@ int
 xfs_log_force_inode(
 	struct xfs_inode	*ip)
 {
+	struct xfs_inode_log_item *iip = ip->i_itemp;
 	xfs_csn_t		seq = 0;
 
-	xfs_ilock(ip, XFS_ILOCK_SHARED);
-	if (xfs_ipincount(ip))
-		seq = ip->i_itemp->ili_commit_seq;
-	xfs_iunlock(ip, XFS_ILOCK_SHARED);
+	if (!iip)
+		return 0;
+
+	spin_lock(&iip->ili_lock);
+	seq = iip->ili_commit_seq;
+	spin_unlock(&iip->ili_lock);
 
 	if (!seq)
 		return 0;

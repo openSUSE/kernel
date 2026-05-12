@@ -508,11 +508,16 @@ static int ieee80211_key_replace(struct ieee80211_sub_if_data *sdata,
 				ret = ieee80211_key_enable_hw_accel(new);
 		}
 	} else {
-		if (!new->local->wowlan)
+		if (!new->local->wowlan) {
 			ret = ieee80211_key_enable_hw_accel(new);
-		else if (link_id < 0 || !sdata->vif.active_links ||
-			 BIT(link_id) & sdata->vif.active_links)
+		} else if (link_id < 0 || !sdata->vif.active_links ||
+			 BIT(link_id) & sdata->vif.active_links) {
 			new->flags |= KEY_FLAG_UPLOADED_TO_HARDWARE;
+			if (!(new->conf.flags & (IEEE80211_KEY_FLAG_GENERATE_MMIC |
+						 IEEE80211_KEY_FLAG_PUT_MIC_SPACE |
+						 IEEE80211_KEY_FLAG_RESERVE_TAILROOM)))
+				decrease_tailroom_need_count(sdata, 1);
+		}
 	}
 
 	if (ret)
@@ -685,10 +690,9 @@ ieee80211_key_alloc(u32 cipher, int idx, size_t key_len,
 		 * Initialize AES key state here as an optimization so that
 		 * it does not need to be initialized for every packet.
 		 */
-		key->u.aes_cmac.tfm =
-			ieee80211_aes_cmac_key_setup(key_data, key_len);
-		if (IS_ERR(key->u.aes_cmac.tfm)) {
-			err = PTR_ERR(key->u.aes_cmac.tfm);
+		err = aes_cmac_preparekey(&key->u.aes_cmac.key, key_data,
+					  key_len);
+		if (err) {
 			kfree(key);
 			return ERR_PTR(err);
 		}
@@ -744,10 +748,6 @@ static void ieee80211_key_free_common(struct ieee80211_key *key)
 	case WLAN_CIPHER_SUITE_CCMP:
 	case WLAN_CIPHER_SUITE_CCMP_256:
 		ieee80211_aes_key_free(key->u.ccmp.tfm);
-		break;
-	case WLAN_CIPHER_SUITE_AES_CMAC:
-	case WLAN_CIPHER_SUITE_BIP_CMAC_256:
-		ieee80211_aes_cmac_key_free(key->u.aes_cmac.tfm);
 		break;
 	case WLAN_CIPHER_SUITE_BIP_GMAC_128:
 	case WLAN_CIPHER_SUITE_BIP_GMAC_256:
@@ -982,7 +982,8 @@ void ieee80211_reenable_keys(struct ieee80211_sub_if_data *sdata)
 
 	if (ieee80211_sdata_running(sdata)) {
 		list_for_each_entry(key, &sdata->key_list, list) {
-			increment_tailroom_need_count(sdata);
+			if (!(key->flags & KEY_FLAG_TAINTED))
+				increment_tailroom_need_count(sdata);
 			ieee80211_key_enable_hw_accel(key);
 		}
 	}

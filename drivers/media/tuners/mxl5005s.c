@@ -1174,7 +1174,12 @@ static u16 MXL5005_ControlInit(struct dvb_frontend *fe)
 	state->Init_Ctrl[39].bit[0] = 3;
 	state->Init_Ctrl[39].val[0] = 1;
 
+	return 0;
+}
 
+static u16 MXL5005_ControlInitCH(struct dvb_frontend *fe)
+{
+	struct mxl5005s_state *state = fe->tuner_priv;
 	state->CH_Ctrl_Num = CHCTRL_NUM ;
 
 	state->CH_Ctrl[0].Ctrl_Num = DN_POLY ;
@@ -1663,6 +1668,7 @@ static void InitTunerControls(struct dvb_frontend *fe)
 {
 	MXL5005_RegisterInit(fe);
 	MXL5005_ControlInit(fe);
+	MXL5005_ControlInitCH(fe);
 #ifdef _MXL_INTERNAL
 	MXL5005_MXLControlInit(fe);
 #endif
@@ -4103,7 +4109,7 @@ struct dvb_frontend *mxl5005s_attach(struct dvb_frontend *fe,
 	struct mxl5005s_state *state = NULL;
 	dprintk(1, "%s()\n", __func__);
 
-	state = kzalloc(sizeof(struct mxl5005s_state), GFP_KERNEL);
+	state = kzalloc_obj(struct mxl5005s_state);
 	if (state == NULL)
 		return NULL;
 

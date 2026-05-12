@@ -21,9 +21,11 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/regulator/consumer.h>
 #include <linux/scatterlist.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
+#include <linux/units.h>
 
 #define I2C_RS_TRANSFER			(1 << 4)
 #define I2C_ARB_LOST			(1 << 3)
@@ -685,7 +687,7 @@ static int mtk_i2c_get_clk_div_restri(struct mtk_i2c *i2c,
  * Check and Calculate i2c ac-timing
  *
  * Hardware design:
- * sample_ns = (1000000000 * (sample_cnt + 1)) / clk_src
+ * sample_ns = (HZ_PER_GHZ * (sample_cnt + 1)) / clk_src
  * xxx_cnt_div =  spec->min_xxx_ns / sample_ns
  *
  * Sample_ns is rounded down for xxx_cnt_div would be greater
@@ -701,9 +703,8 @@ static int mtk_i2c_check_ac_timing(struct mtk_i2c *i2c,
 {
 	const struct i2c_spec_values *spec;
 	unsigned int su_sta_cnt, low_cnt, high_cnt, max_step_cnt;
-	unsigned int sda_max, sda_min, clk_ns, max_sta_cnt = 0x3f;
-	unsigned int sample_ns = div_u64(1000000000ULL * (sample_cnt + 1),
-					 clk_src);
+	unsigned int sda_max, sda_min, max_sta_cnt = 0x3f;
+	unsigned int clk_ns, sample_ns;
 
 	if (!i2c->dev_comp->timing_adjust)
 		return 0;
@@ -713,8 +714,9 @@ static int mtk_i2c_check_ac_timing(struct mtk_i2c *i2c,
 
 	spec = mtk_i2c_get_spec(check_speed);
 
+	sample_ns = div_u64(1ULL * HZ_PER_GHZ * (sample_cnt + 1), clk_src);
 	if (i2c->dev_comp->ltiming_adjust)
-		clk_ns = 1000000000 / clk_src;
+		clk_ns = HZ_PER_GHZ / clk_src;
 	else
 		clk_ns = sample_ns / 2;
 
@@ -868,7 +870,7 @@ static int mtk_i2c_calculate_speed(struct mtk_i2c *i2c, unsigned int clk_src,
 	return 0;
 }
 
-static int mtk_i2c_set_speed(struct mtk_i2c *i2c, unsigned int parent_clk)
+static void mtk_i2c_set_speed(struct mtk_i2c *i2c, unsigned int parent_clk)
 {
 	unsigned int clk_src;
 	unsigned int step_cnt;
@@ -938,9 +940,6 @@ static int mtk_i2c_set_speed(struct mtk_i2c *i2c, unsigned int parent_clk)
 
 		break;
 	}
-
-
-	return 0;
 }
 
 static void i2c_dump_register(struct mtk_i2c *i2c)
@@ -1243,11 +1242,18 @@ static int mtk_i2c_transfer(struct i2c_adapter *adap,
 {
 	int ret;
 	int left_num = num;
+	bool write_then_read_en = false;
 	struct mtk_i2c *i2c = i2c_get_adapdata(adap);
+
+	if (i2c->adap.bus_regulator) {
+		ret = regulator_enable(i2c->adap.bus_regulator);
+		if (ret)
+			return ret;
+	}
 
 	ret = clk_bulk_enable(I2C_MT65XX_CLK_MAX, i2c->clocks);
 	if (ret)
-		return ret;
+		goto err_regulator;
 
 	i2c->auto_restart = i2c->dev_comp->auto_restart;
 
@@ -1256,6 +1262,7 @@ static int mtk_i2c_transfer(struct i2c_adapter *adap,
 		if (!(msgs[0].flags & I2C_M_RD) && (msgs[1].flags & I2C_M_RD) &&
 		    msgs[0].addr == msgs[1].addr) {
 			i2c->auto_restart = 0;
+			write_then_read_en = true;
 		}
 	}
 
@@ -1280,12 +1287,10 @@ static int mtk_i2c_transfer(struct i2c_adapter *adap,
 		else
 			i2c->op = I2C_MASTER_WR;
 
-		if (!i2c->auto_restart) {
-			if (num > 1) {
-				/* combined two messages into one transaction */
-				i2c->op = I2C_MASTER_WRRD;
-				left_num--;
-			}
+		if (write_then_read_en) {
+			/* combined two messages into one transaction */
+			i2c->op = I2C_MASTER_WRRD;
+			left_num--;
 		}
 
 		/* always use DMA mode. */
@@ -1293,13 +1298,20 @@ static int mtk_i2c_transfer(struct i2c_adapter *adap,
 		if (ret < 0)
 			goto err_exit;
 
-		msgs++;
+		if (i2c->op == I2C_MASTER_WRRD)
+			msgs += 2;
+		else
+			msgs++;
 	}
 	/* the return value is number of executed messages */
 	ret = num;
 
 err_exit:
 	clk_bulk_disable(I2C_MT65XX_CLK_MAX, i2c->clocks);
+err_regulator:
+	if (i2c->adap.bus_regulator)
+		regulator_disable(i2c->adap.bus_regulator);
+
 	return ret;
 }
 
@@ -1457,11 +1469,7 @@ static int mtk_i2c_probe(struct platform_device *pdev)
 
 	strscpy(i2c->adap.name, I2C_DRV_NAME, sizeof(i2c->adap.name));
 
-	ret = mtk_i2c_set_speed(i2c, clk_get_rate(i2c->clocks[speed_clk].clk));
-	if (ret) {
-		dev_err(&pdev->dev, "Failed to set the speed.\n");
-		return -EINVAL;
-	}
+	mtk_i2c_set_speed(i2c, clk_get_rate(i2c->clocks[speed_clk].clk));
 
 	if (i2c->dev_comp->max_dma_support > 32) {
 		ret = dma_set_mask(&pdev->dev,

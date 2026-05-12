@@ -40,10 +40,6 @@
 #define FN(reg_name, field_name) \
 	mpc30->mpc_shift->field_name, mpc30->mpc_mask->field_name
 
-
-#define NUM_ELEMENTS(a) (sizeof(a) / sizeof((a)[0]))
-
-
 void mpc3_mpc_init(struct mpc *mpc)
 {
 	struct dcn30_mpc *mpc30 = TO_DCN30_MPC(mpc);
@@ -117,6 +113,9 @@ void mpc3_set_out_rate_control(
 	bool rate_2x_mode,
 	struct mpc_dwb_flow_control *flow_control)
 {
+	(void)enable;
+	(void)rate_2x_mode;
+	(void)flow_control;
 	struct dcn30_mpc *mpc30 = TO_DCN30_MPC(mpc);
 
 	/* Always disable mpc out rate and flow control.
@@ -908,6 +907,7 @@ static void mpc3_set_3dlut_mode(
 		bool is_lut_size17x17x17,
 		uint32_t rmu_idx)
 {
+	(void)is_color_channel_12bits;
 	uint32_t lut_mode;
 	struct dcn30_mpc *mpc30 = TO_DCN30_MPC(mpc);
 
@@ -1428,7 +1428,7 @@ uint32_t mpcc3_acquire_rmu(struct mpc *mpc, int mpcc_id, int rmu_idx)
 	}
 
 	//no vacant RMU units or invalid parameters acquire_post_bldn_3dlut
-	return -1;
+	return (uint32_t)-1;
 }
 
 static int mpcc3_release_rmu(struct mpc *mpc, int mpcc_id)
@@ -1514,6 +1514,21 @@ static void mpc3_read_mpcc_state(
 		  MPCC_OGAM_SELECT_CURRENT, &s->rgam_lut);
 }
 
+void mpc3_read_reg_state(
+		struct mpc *mpc,
+		int mpcc_inst, struct dcn_mpc_reg_state *mpc_reg_state)
+{
+	struct dcn30_mpc *mpc30 = TO_DCN30_MPC(mpc);
+
+	mpc_reg_state->mpcc_bot_sel = REG_READ(MPCC_BOT_SEL[mpcc_inst]);
+	mpc_reg_state->mpcc_control = REG_READ(MPCC_CONTROL[mpcc_inst]);
+	mpc_reg_state->mpcc_ogam_control = REG_READ(MPCC_OGAM_CONTROL[mpcc_inst]);
+	mpc_reg_state->mpcc_opp_id = REG_READ(MPCC_OPP_ID[mpcc_inst]);
+	mpc_reg_state->mpcc_status = REG_READ(MPCC_STATUS[mpcc_inst]);
+	mpc_reg_state->mpcc_top_sel = REG_READ(MPCC_TOP_SEL[mpcc_inst]);
+
+}
+
 static const struct mpc_funcs dcn30_mpc_funcs = {
 	.read_mpcc_state = mpc3_read_mpcc_state,
 	.insert_plane = mpc1_insert_plane,
@@ -1544,6 +1559,7 @@ static const struct mpc_funcs dcn30_mpc_funcs = {
 	.release_rmu = mpcc3_release_rmu,
 	.power_on_mpc_mem_pwr = mpc3_power_on_ogam_lut,
 	.get_mpc_out_mux = mpc1_get_mpc_out_mux,
+	.mpc_read_reg_state = mpc3_read_reg_state,
 	.set_bg_color = mpc1_set_bg_color,
 	.set_mpc_mem_lp_mode = mpc3_set_mpc_mem_lp_mode,
 };

@@ -597,10 +597,6 @@ static int bcm_ptp_perout_locked(struct bcm_ptp_private *priv,
 
 	period = BCM_MAX_PERIOD_8NS;	/* write nonzero value */
 
-	/* Reject unsupported flags */
-	if (req->flags & ~PTP_PEROUT_DUTY_CYCLE)
-		return -EOPNOTSUPP;
-
 	if (req->flags & PTP_PEROUT_DUTY_CYCLE)
 		pulse = ktime_to_ns(ktime_set(req->on.sec, req->on.nsec));
 	else
@@ -741,6 +737,8 @@ static const struct ptp_clock_info bcm_ptp_clock_info = {
 	.n_pins		= 1,
 	.n_per_out	= 1,
 	.n_ext_ts	= 1,
+	.supported_perout_flags = PTP_PEROUT_DUTY_CYCLE,
+	.supported_extts_flags = PTP_STRICT_FLAGS | PTP_RISING_EDGE,
 };
 
 static void bcm_ptp_txtstamp(struct mii_timestamper *mii_ts,
@@ -782,9 +780,21 @@ out:
 	kfree_skb(skb);
 }
 
-static int bcm_ptp_hwtstamp(struct mii_timestamper *mii_ts,
-			    struct kernel_hwtstamp_config *cfg,
-			    struct netlink_ext_ack *extack)
+static int bcm_ptp_hwtstamp_get(struct mii_timestamper *mii_ts,
+				struct kernel_hwtstamp_config *cfg)
+{
+	struct bcm_ptp_private *priv = mii2priv(mii_ts);
+
+	cfg->rx_filter = priv->hwts_rx ? HWTSTAMP_FILTER_PTP_V2_EVENT
+				       : HWTSTAMP_FILTER_NONE;
+	cfg->tx_type = priv->tx_type;
+
+	return 0;
+}
+
+static int bcm_ptp_hwtstamp_set(struct mii_timestamper *mii_ts,
+				struct kernel_hwtstamp_config *cfg,
+				struct netlink_ext_ack *extack)
 {
 	struct bcm_ptp_private *priv = mii2priv(mii_ts);
 	u16 mode, ctrl;
@@ -900,7 +910,8 @@ static void bcm_ptp_init(struct bcm_ptp_private *priv)
 
 	priv->mii_ts.rxtstamp = bcm_ptp_rxtstamp;
 	priv->mii_ts.txtstamp = bcm_ptp_txtstamp;
-	priv->mii_ts.hwtstamp = bcm_ptp_hwtstamp;
+	priv->mii_ts.hwtstamp_set = bcm_ptp_hwtstamp_set;
+	priv->mii_ts.hwtstamp_get = bcm_ptp_hwtstamp_get;
 	priv->mii_ts.ts_info = bcm_ptp_ts_info;
 
 	priv->phydev->mii_ts = &priv->mii_ts;

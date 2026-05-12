@@ -19,6 +19,7 @@ struct minix_inode_info {
 		__u16 i1_data[16];
 		__u32 i2_data[16];
 	} u;
+	struct mapping_metadata_bhs i_metadata_bhs;
 	struct inode vfs_inode;
 };
 
@@ -42,6 +43,9 @@ struct minix_sb_info {
 	unsigned short s_version;
 };
 
+void __minix_error_inode(struct inode *inode, const char *function,
+			 unsigned int line, const char *fmt, ...);
+
 struct inode *minix_iget(struct super_block *, unsigned long);
 struct minix_inode *minix_V1_raw_inode(struct super_block *, ino_t, struct buffer_head **);
 struct minix2_inode *minix_V2_raw_inode(struct super_block *, ino_t, struct buffer_head **);
@@ -54,6 +58,8 @@ unsigned long minix_count_free_blocks(struct super_block *sb);
 int minix_getattr(struct mnt_idmap *, const struct path *,
 		struct kstat *, u32, unsigned int);
 int minix_prepare_chunk(struct folio *folio, loff_t pos, unsigned len);
+struct mapping_metadata_bhs *minix_get_metadata_bhs(struct inode *inode);
+int minix_fsync(struct file *file, loff_t start, loff_t end, int datasync);
 
 extern void V1_minix_truncate(struct inode *);
 extern void V2_minix_truncate(struct inode *);
@@ -167,5 +173,9 @@ static inline int minix_test_bit(int nr, const void *vaddr)
 #define minix_find_first_zero_bit	find_first_zero_bit_le
 
 #endif
+
+#define minix_error_inode(inode, fmt, ...)			\
+	__minix_error_inode((inode), __func__, __LINE__,	\
+			    (fmt), ##__VA_ARGS__)
 
 #endif /* FS_MINIX_H */

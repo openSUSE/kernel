@@ -2224,7 +2224,6 @@ static struct clk_rcg2 gcc_usb3_sec_phy_aux_clk_src = {
 };
 
 static const struct freq_tbl ftbl_gcc_usb4_1_master_clk_src[] = {
-	F(85714286, P_GCC_GPLL0_OUT_EVEN, 3.5, 0, 0),
 	F(175000000, P_GCC_GPLL8_OUT_MAIN, 4, 0, 0),
 	F(350000000, P_GCC_GPLL8_OUT_MAIN, 2, 0, 0),
 	{ }
@@ -6775,10 +6774,6 @@ static struct gdsc pcie_1_tunnel_gdsc = {
 	.flags = VOTABLE | RETAIN_FF_ENABLE,
 };
 
-/*
- * The Qualcomm PCIe driver does not yet implement suspend so to keep the
- * PCIe power domains always-on for now.
- */
 static struct gdsc pcie_2a_gdsc = {
 	.gdscr = 0x9d004,
 	.collapse_ctrl = 0x52128,

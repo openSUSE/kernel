@@ -5,6 +5,7 @@
 #include <linux/pci.h>
 #include <linux/mutex.h>
 #include <linux/iommu.h>
+#include <linux/irqdomain.h>
 #include <linux/pci_hotplug.h>
 #include <asm/pci_clp.h>
 #include <asm/pci_debug.h>
@@ -109,6 +110,7 @@ struct zpci_bus {
 	struct list_head	resources;
 	struct list_head	bus_next;
 	struct resource		bus_resource;
+	struct irq_domain	*msi_parent_domain;
 	int			topo;		/* TID if topo_is_tid, PCHID otherwise */
 	int			domain_nr;
 	u8			multifunction	: 1;
@@ -145,7 +147,6 @@ struct zpci_dev {
 	u8		has_resources	: 1;
 	u8		is_physfn	: 1;
 	u8		util_str_avail	: 1;
-	u8		irqs_registered	: 1;
 	u8		tid_avail	: 1;
 	u8		rtr_avail	: 1; /* Relaxed translation allowed */
 	unsigned int	devfn;		/* DEVFN part of the RID*/
@@ -207,6 +208,10 @@ extern const struct attribute_group zpci_ident_attr_group;
 			    &pfip_attr_group,		 \
 			    &zpci_ident_attr_group,
 
+extern const struct attribute_group zpci_slot_attr_group;
+
+#define ARCH_PCI_SLOT_GROUPS (&zpci_slot_attr_group)
+
 extern unsigned int s390_pci_force_floating __initdata;
 extern unsigned int s390_pci_no_rid;
 
@@ -245,6 +250,16 @@ int clp_refresh_fh(u32 fid, u32 *fh);
 
 /* UID */
 void update_uid_checking(bool new);
+
+/* Firmware Sysfs */
+int __init __zpci_fw_sysfs_init(void);
+
+static inline int __init zpci_fw_sysfs_init(void)
+{
+	if (IS_ENABLED(CONFIG_SYSFS))
+		return __zpci_fw_sysfs_init();
+	return 0;
+}
 
 /* IOMMU Interface */
 int zpci_init_iommu(struct zpci_dev *zdev);
@@ -301,6 +316,9 @@ int zpci_dma_exit_device(struct zpci_dev *zdev);
 /* IRQ */
 int __init zpci_irq_init(void);
 void __init zpci_irq_exit(void);
+int zpci_set_irq(struct zpci_dev *zdev);
+int zpci_create_parent_msi_domain(struct zpci_bus *zbus);
+void zpci_remove_parent_msi_domain(struct zpci_bus *zbus);
 
 /* FMB */
 int zpci_fmb_enable_device(struct zpci_dev *);

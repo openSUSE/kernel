@@ -107,7 +107,7 @@ struct uvc_video {
 	unsigned int width;
 	unsigned int height;
 	unsigned int imagesize;
-	unsigned int interval;
+	unsigned int interval;	/* in 100ns units */
 	struct mutex mutex;	/* protects frame parameters */
 
 	unsigned int uvc_num_requests;
@@ -117,6 +117,7 @@ struct uvc_video {
 	/* Requests */
 	bool is_enabled; /* tracks whether video stream is enabled */
 	unsigned int req_size;
+	unsigned int max_req_size;
 	struct list_head ureqs; /* all uvc_requests allocated by uvc_video */
 
 	/* USB requests that the video pump thread can encode into */
@@ -154,6 +155,9 @@ struct uvc_device {
 	enum uvc_state state;
 	struct usb_function func;
 	struct uvc_video video;
+	struct completion *vdev_release_done;
+	struct mutex lock;	/* protects func_unbound and func_connected */
+	bool func_unbound;
 	bool func_connected;
 	wait_queue_head_t func_connected_queue;
 
@@ -195,6 +199,11 @@ struct uvc_file_handle {
 
 #define to_uvc_file_handle(handle) \
 	container_of(handle, struct uvc_file_handle, vfh)
+
+static inline struct uvc_file_handle *file_to_uvc_file_handle(struct file *filp)
+{
+	return container_of(file_to_v4l2_fh(filp), struct uvc_file_handle, vfh);
+}
 
 /* ------------------------------------------------------------------------
  * Functions

@@ -41,7 +41,6 @@ enum {
 		.io_reg = 0x1000 * id + 0x4,		\
 		.intr_cfg_reg = 0x1000 * id + 0x8,	\
 		.intr_status_reg = 0x1000 * id + 0xc,	\
-		.intr_target_reg = 0x1000 * id + 0x8,	\
 		.tile = _tile,			\
 		.mux_bit = 2,			\
 		.pull_bit = 0,			\
@@ -68,7 +67,6 @@ enum {
 		.io_reg = 0,				\
 		.intr_cfg_reg = 0,			\
 		.intr_status_reg = 0,			\
-		.intr_target_reg = 0,			\
 		.tile = SOUTH,				\
 		.mux_bit = -1,				\
 		.pull_bit = pull,			\
@@ -94,7 +92,6 @@ enum {
 		.io_reg = offset + 0x4,			\
 		.intr_cfg_reg = 0,			\
 		.intr_status_reg = 0,			\
-		.intr_target_reg = 0,			\
 		.tile = SOUTH,				\
 		.mux_bit = -1,				\
 		.pull_bit = 3,				\
@@ -903,7 +900,7 @@ static const struct pinfunction sc7180_functions[] = {
 	MSM_PIN_FUNCTION(gcc_gp1),
 	MSM_PIN_FUNCTION(gcc_gp2),
 	MSM_PIN_FUNCTION(gcc_gp3),
-	MSM_PIN_FUNCTION(gpio),
+	MSM_GPIO_PIN_FUNCTION(gpio),
 	MSM_PIN_FUNCTION(gp_pdm0),
 	MSM_PIN_FUNCTION(gp_pdm1),
 	MSM_PIN_FUNCTION(gp_pdm2),

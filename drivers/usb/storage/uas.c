@@ -309,18 +309,18 @@ static void uas_stat_cmplt(struct urb *urb)
 	int status = urb->status;
 	bool success;
 
+	if (status) {
+		if (status != -ENOENT && status != -ECONNRESET && status != -ESHUTDOWN)
+			dev_err(&urb->dev->dev, "stat urb: status %d\n", status);
+		goto bail;
+	}
+
+	idx = be16_to_cpup(&iu->tag) - 1;
+
 	spin_lock_irqsave(&devinfo->lock, flags);
 
 	if (devinfo->resetting)
 		goto out;
-
-	if (status) {
-		if (status != -ENOENT && status != -ECONNRESET && status != -ESHUTDOWN)
-			dev_err(&urb->dev->dev, "stat urb: status %d\n", status);
-		goto out;
-	}
-
-	idx = be16_to_cpup(&iu->tag) - 1;
 	if (idx >= MAX_CMNDS || !devinfo->cmnd[idx]) {
 		dev_err(&urb->dev->dev,
 			"stat urb: no pending cmd for uas-tag %d\n", idx + 1);
@@ -375,9 +375,8 @@ static void uas_stat_cmplt(struct urb *urb)
 	default:
 		uas_log_cmd_state(cmnd, "bogus IU", iu->iu_id);
 	}
-out:
-	usb_free_urb(urb);
 	spin_unlock_irqrestore(&devinfo->lock, flags);
+	usb_free_urb(urb);
 
 	/* Unlinking of data urbs must be done without holding the lock */
 	if (data_in_urb) {
@@ -388,6 +387,12 @@ out:
 		usb_unlink_urb(data_out_urb);
 		usb_put_urb(data_out_urb);
 	}
+	return;
+
+out:
+	spin_unlock_irqrestore(&devinfo->lock, flags);
+bail:
+	usb_free_urb(urb);
 }
 
 static void uas_data_cmplt(struct urb *urb)
@@ -429,8 +434,8 @@ static void uas_data_cmplt(struct urb *urb)
 	}
 	uas_try_complete(cmnd, __func__);
 out:
-	usb_free_urb(urb);
 	spin_unlock_irqrestore(&devinfo->lock, flags);
+	usb_free_urb(urb);
 }
 
 static void uas_cmd_cmplt(struct urb *urb)
@@ -475,7 +480,7 @@ static struct urb *uas_alloc_sense_urb(struct uas_dev_info *devinfo, gfp_t gfp,
 	if (!urb)
 		goto out;
 
-	iu = kzalloc(sizeof(*iu), gfp);
+	iu = kzalloc_obj(*iu, gfp);
 	if (!iu)
 		goto free;
 
@@ -631,7 +636,7 @@ static int uas_submit_urbs(struct scsi_cmnd *cmnd,
 	return 0;
 }
 
-static int uas_queuecommand_lck(struct scsi_cmnd *cmnd)
+static enum scsi_qc_status uas_queuecommand_lck(struct scsi_cmnd *cmnd)
 {
 	struct scsi_device *sdev = cmnd->device;
 	struct uas_dev_info *devinfo = sdev->hostdata;
@@ -698,6 +703,10 @@ static int uas_queuecommand_lck(struct scsi_cmnd *cmnd)
 	 * of queueing, no matter how fatal the error
 	 */
 	if (err == -ENODEV) {
+		if (cmdinfo->state & (COMMAND_INFLIGHT | DATA_IN_URB_INFLIGHT |
+				DATA_OUT_URB_INFLIGHT))
+			goto out;
+
 		set_host_byte(cmnd, DID_NO_CONNECT);
 		scsi_done(cmnd);
 		goto zombie;
@@ -711,6 +720,7 @@ static int uas_queuecommand_lck(struct scsi_cmnd *cmnd)
 		uas_add_work(cmnd);
 	}
 
+out:
 	devinfo->cmnd[idx] = cmnd;
 zombie:
 	spin_unlock_irqrestore(&devinfo->lock, flags);
@@ -762,7 +772,7 @@ static int uas_eh_abort_handler(struct scsi_cmnd *cmnd)
 	return FAILED;
 }
 
-static int uas_eh_device_reset_handler(struct scsi_cmnd *cmnd)
+static int uas_eh_host_reset_handler(struct scsi_cmnd *cmnd)
 {
 	struct scsi_device *sdev = cmnd->device;
 	struct uas_dev_info *devinfo = sdev->hostdata;
@@ -908,7 +918,7 @@ static const struct scsi_host_template uas_host_template = {
 	.sdev_init = uas_sdev_init,
 	.sdev_configure = uas_sdev_configure,
 	.eh_abort_handler = uas_eh_abort_handler,
-	.eh_device_reset_handler = uas_eh_device_reset_handler,
+	.eh_host_reset_handler = uas_eh_host_reset_handler,
 	.this_id = -1,
 	.skip_settle_delay = 1,
 	/*
@@ -1265,7 +1275,7 @@ static int __init uas_init(void)
 {
 	int rv;
 
-	workqueue = alloc_workqueue("uas", WQ_MEM_RECLAIM, 0);
+	workqueue = alloc_workqueue("uas", WQ_MEM_RECLAIM | WQ_PERCPU, 0);
 	if (!workqueue)
 		return -ENOMEM;
 

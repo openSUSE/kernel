@@ -149,19 +149,25 @@ static int adf4350_set_freq(struct adf4350_state *st, unsigned long long freq)
 	if (freq > ADF4350_MAX_OUT_FREQ || freq < st->min_out_freq)
 		return -EINVAL;
 
+	st->r4_rf_div_sel = 0;
+
+	/*
+	 * NOTE: This iteratively shifts freq by a power of 2
+	 * (st->r4_rf_div_sel) to meet or exceed ADF4350_MIN_VCO_FREQ.
+	 * A constant-time approach using fls_long() was attempted but
+	 * deemed more complex without meaningful benefit for init code.
+	 */
+	while (freq < ADF4350_MIN_VCO_FREQ) {
+		freq <<= 1;
+		st->r4_rf_div_sel++;
+	}
+
 	if (freq > ADF4350_MAX_FREQ_45_PRESC) {
 		prescaler = ADF4350_REG1_PRESCALER;
 		mdiv = 75;
 	} else {
 		prescaler = 0;
 		mdiv = 23;
-	}
-
-	st->r4_rf_div_sel = 0;
-
-	while (freq < ADF4350_MIN_VCO_FREQ) {
-		freq <<= 1;
-		st->r4_rf_div_sel++;
 	}
 
 	/*
@@ -601,7 +607,7 @@ static int adf4350_probe(struct spi_device *spi)
 	if (dev_fwnode(&spi->dev)) {
 		pdata = adf4350_parse_dt(&spi->dev);
 		if (pdata == NULL)
-			return -EINVAL;
+			return -ENOMEM;
 	} else {
 		pdata = dev_get_platdata(&spi->dev);
 	}
@@ -673,8 +679,7 @@ static int adf4350_probe(struct spi_device *spi)
 
 	ret = devm_add_action_or_reset(&spi->dev, adf4350_power_down, indio_dev);
 	if (ret)
-		return dev_err_probe(&spi->dev, ret,
-				     "Failed to add action to managed power down\n");
+		return ret;
 
 	return devm_iio_device_register(&spi->dev, indio_dev);
 }

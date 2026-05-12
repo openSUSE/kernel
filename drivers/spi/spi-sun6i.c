@@ -673,7 +673,6 @@ static int sun6i_spi_probe(struct platform_device *pdev)
 	host->mode_bits = SPI_CPOL | SPI_CPHA | SPI_CS_HIGH | SPI_LSB_FIRST |
 			  sspi->cfg->mode_bits;
 	host->bits_per_word_mask = SPI_BPW_MASK(8);
-	host->dev.of_node = pdev->dev.of_node;
 	host->auto_runtime_pm = true;
 	host->max_transfer_size = sun6i_spi_max_transfer_size;
 
@@ -743,7 +742,7 @@ static int sun6i_spi_probe(struct platform_device *pdev)
 	pm_runtime_set_active(&pdev->dev);
 	pm_runtime_enable(&pdev->dev);
 
-	ret = devm_spi_register_controller(&pdev->dev, host);
+	ret = spi_register_controller(host);
 	if (ret) {
 		dev_err(&pdev->dev, "cannot register SPI host\n");
 		goto err_pm_disable;
@@ -769,12 +768,18 @@ static void sun6i_spi_remove(struct platform_device *pdev)
 {
 	struct spi_controller *host = platform_get_drvdata(pdev);
 
+	spi_controller_get(host);
+
+	spi_unregister_controller(host);
+
 	pm_runtime_force_suspend(&pdev->dev);
 
 	if (host->dma_tx)
 		dma_release_channel(host->dma_tx);
 	if (host->dma_rx)
 		dma_release_channel(host->dma_rx);
+
+	spi_controller_put(host);
 }
 
 static const struct sun6i_spi_cfg sun6i_a31_spi_cfg = {
@@ -795,10 +800,13 @@ static const struct sun6i_spi_cfg sun50i_r329_spi_cfg = {
 static const struct of_device_id sun6i_spi_match[] = {
 	{ .compatible = "allwinner,sun6i-a31-spi", .data = &sun6i_a31_spi_cfg },
 	{ .compatible = "allwinner,sun8i-h3-spi",  .data = &sun8i_h3_spi_cfg },
-	{
-		.compatible = "allwinner,sun50i-r329-spi",
-		.data = &sun50i_r329_spi_cfg
-	},
+	{ .compatible = "allwinner,sun50i-r329-spi", .data = &sun50i_r329_spi_cfg },
+	/*
+	 * A523's SPI controller has a combined RX buffer + FIFO counter
+	 * at offset 0x400, instead of split buffer count in FIFO status
+	 * register. But in practice we only care about the FIFO level.
+	 */
+	{ .compatible = "allwinner,sun55i-a523-spi", .data = &sun50i_r329_spi_cfg },
 	{}
 };
 MODULE_DEVICE_TABLE(of, sun6i_spi_match);

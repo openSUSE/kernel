@@ -4,6 +4,7 @@
 #ifndef _FBNIC_FW_H_
 #define _FBNIC_FW_H_
 
+#include <linux/completion.h>
 #include <linux/if_ether.h>
 #include <linux/types.h>
 
@@ -36,6 +37,7 @@ struct fbnic_fw_mbx {
  *                       + INDEX_SZ))
  */
 #define FBNIC_FW_MAX_LOG_HISTORY		14
+#define FBNIC_MBX_RX_TO_SEC			10
 
 struct fbnic_fw_ver {
 	u32 version;
@@ -51,8 +53,10 @@ struct fbnic_fw_cap {
 	} stored;
 	u8	active_slot;
 	u8	bmc_mac_addr[4][ETH_ALEN];
-	u8	bmc_present	: 1;
-	u8	all_multi	: 1;
+	u8	bmc_present		: 1;
+	u8	need_bmc_tcam_reinit	: 1;
+	u8	need_bmc_macda_sync	: 1;
+	u8	all_multi		: 1;
 	u8	link_speed;
 	u8	link_fec;
 	u32	anti_rollback_version;
@@ -65,9 +69,24 @@ struct fbnic_fw_completion {
 	int result;
 	union {
 		struct {
+			u32 size;
+		} coredump_info;
+		struct {
+			u32 size;
+			u16 stride;
+			u8 *data[];
+		} coredump;
+		struct {
 			u32 offset;
 			u32 length;
 		} fw_update;
+		struct {
+			u16 length;
+			u8 offset;
+			u8 page;
+			u8 bank;
+			u8 data[] __aligned(sizeof(u32)) __counted_by(length);
+		} qsfp;
 		struct {
 			s32 millivolts;
 			s32 millidegrees;
@@ -75,6 +94,7 @@ struct fbnic_fw_completion {
 	} u;
 };
 
+u64 __fbnic_mbx_rd_desc(struct fbnic_dev *fbd, int mbx_idx, int desc_idx);
 void fbnic_mbx_init(struct fbnic_dev *fbd);
 void fbnic_mbx_clean(struct fbnic_dev *fbd);
 int fbnic_mbx_set_cmpl(struct fbnic_dev *fbd,
@@ -84,21 +104,67 @@ void fbnic_mbx_clear_cmpl(struct fbnic_dev *fbd,
 void fbnic_mbx_poll(struct fbnic_dev *fbd);
 int fbnic_mbx_poll_tx_ready(struct fbnic_dev *fbd);
 void fbnic_mbx_flush_tx(struct fbnic_dev *fbd);
+
+/**
+ * enum fbnic_fw_self_test_codes - return codes from self test routines
+ *
+ * These are the codes returned from the self test routines and
+ * stored in the test result array indexed by the specific
+ * test name.
+ *
+ * @FBNIC_TEST_FW_SUCCESS: test success
+ * @FBNIC_TEST_FW_NO_FIRMWARE: FW interface not present
+ * @FBNIC_TEST_FW_NO_CMPL: No completion available
+ * @FBNIC_TEST_FW_NO_XMIT: Could not xmit message
+ * @FBNIC_TEST_FW_NO_MSG: no message returned
+ * @FBNIC_TEST_FW_PARSE: returned message had parsing error
+ */
+enum fbnic_fw_self_test_codes {
+	FBNIC_TEST_FW_SUCCESS = 0,
+	FBNIC_TEST_FW_NO_FIRMWARE = 10,
+	FBNIC_TEST_FW_NO_CMPL = 20,
+	FBNIC_TEST_FW_NO_XMIT = 30,
+	FBNIC_TEST_FW_NO_MSG = 40,
+	FBNIC_TEST_FW_PARSE = 50,
+};
+
+enum fbnic_fw_self_test_codes fbnic_fw_mbx_self_test(struct fbnic_dev *fbd);
+int fbnic_fw_xmit_test_msg(struct fbnic_dev *fbd,
+			   struct fbnic_fw_completion *c);
 int fbnic_fw_xmit_ownership_msg(struct fbnic_dev *fbd, bool take_ownership);
 int fbnic_fw_init_heartbeat(struct fbnic_dev *fbd, bool poll);
 void fbnic_fw_check_heartbeat(struct fbnic_dev *fbd);
+int fbnic_fw_xmit_coredump_info_msg(struct fbnic_dev *fbd,
+				    struct fbnic_fw_completion *cmpl_data,
+				    bool force);
+int fbnic_fw_xmit_coredump_read_msg(struct fbnic_dev *fbd,
+				    struct fbnic_fw_completion *cmpl_data,
+				    u32 offset, u32 length);
 int fbnic_fw_xmit_fw_start_upgrade(struct fbnic_dev *fbd,
 				   struct fbnic_fw_completion *cmpl_data,
 				   unsigned int id, unsigned int len);
 int fbnic_fw_xmit_fw_write_chunk(struct fbnic_dev *fbd,
 				 const u8 *data, u32 offset, u16 length,
 				 int cancel_error);
+int fbnic_fw_xmit_qsfp_read_msg(struct fbnic_dev *fbd,
+				struct fbnic_fw_completion *cmpl_data,
+				u32 page, u32 bank, u32 offset, u32 length);
 int fbnic_fw_xmit_tsene_read_msg(struct fbnic_dev *fbd,
 				 struct fbnic_fw_completion *cmpl_data);
 int fbnic_fw_xmit_send_logs(struct fbnic_dev *fbd, bool enable,
 			    bool send_log_history);
+int fbnic_fw_xmit_rpc_macda_sync(struct fbnic_dev *fbd);
+struct fbnic_fw_completion *__fbnic_fw_alloc_cmpl(u32 msg_type,
+						  size_t priv_size);
 struct fbnic_fw_completion *fbnic_fw_alloc_cmpl(u32 msg_type);
 void fbnic_fw_put_cmpl(struct fbnic_fw_completion *cmpl_data);
+
+static inline unsigned long
+fbnic_mbx_wait_for_cmpl(struct fbnic_fw_completion *cmpl)
+{
+	return wait_for_completion_timeout(&cmpl->done,
+					   FBNIC_MBX_RX_TO_SEC * HZ);
+}
 
 #define fbnic_mk_full_fw_ver_str(_rev_id, _delim, _commit, _str, _str_sz) \
 do {									\
@@ -132,17 +198,24 @@ enum {
 	FBNIC_TLV_MSG_ID_OWNERSHIP_RESP			= 0x13,
 	FBNIC_TLV_MSG_ID_HEARTBEAT_REQ			= 0x14,
 	FBNIC_TLV_MSG_ID_HEARTBEAT_RESP			= 0x15,
+	FBNIC_TLV_MSG_ID_COREDUMP_GET_INFO_REQ		= 0x18,
+	FBNIC_TLV_MSG_ID_COREDUMP_GET_INFO_RESP		= 0x19,
+	FBNIC_TLV_MSG_ID_COREDUMP_READ_REQ		= 0x20,
+	FBNIC_TLV_MSG_ID_COREDUMP_READ_RESP		= 0x21,
 	FBNIC_TLV_MSG_ID_FW_START_UPGRADE_REQ		= 0x22,
 	FBNIC_TLV_MSG_ID_FW_START_UPGRADE_RESP		= 0x23,
 	FBNIC_TLV_MSG_ID_FW_WRITE_CHUNK_REQ		= 0x24,
 	FBNIC_TLV_MSG_ID_FW_WRITE_CHUNK_RESP		= 0x25,
 	FBNIC_TLV_MSG_ID_FW_FINISH_UPGRADE_REQ		= 0x28,
 	FBNIC_TLV_MSG_ID_FW_FINISH_UPGRADE_RESP		= 0x29,
+	FBNIC_TLV_MSG_ID_QSFP_READ_REQ			= 0x38,
+	FBNIC_TLV_MSG_ID_QSFP_READ_RESP			= 0x39,
 	FBNIC_TLV_MSG_ID_TSENE_READ_REQ			= 0x3C,
 	FBNIC_TLV_MSG_ID_TSENE_READ_RESP		= 0x3D,
 	FBNIC_TLV_MSG_ID_LOG_SEND_LOGS_REQ		= 0x43,
 	FBNIC_TLV_MSG_ID_LOG_MSG_REQ			= 0x44,
 	FBNIC_TLV_MSG_ID_LOG_MSG_RESP			= 0x45,
+	FBNIC_TLV_MSG_ID_RPC_MAC_SYNC_REQ		= 0x46,
 };
 
 #define FBNIC_FW_CAP_RESP_VERSION_MAJOR		CSR_GENMASK(31, 24)
@@ -186,6 +259,16 @@ enum {
 };
 
 enum {
+	FBNIC_FW_QSFP_BANK			= 0x0,
+	FBNIC_FW_QSFP_PAGE			= 0x1,
+	FBNIC_FW_QSFP_OFFSET			= 0x2,
+	FBNIC_FW_QSFP_LENGTH			= 0x3,
+	FBNIC_FW_QSFP_ERROR			= 0x4,
+	FBNIC_FW_QSFP_DATA			= 0x5,
+	FBNIC_FW_QSFP_MSG_MAX
+};
+
+enum {
 	FBNIC_FW_TSENE_THERM			= 0x0,
 	FBNIC_FW_TSENE_VOLT			= 0x1,
 	FBNIC_FW_TSENE_ERROR			= 0x2,
@@ -194,7 +277,34 @@ enum {
 
 enum {
 	FBNIC_FW_OWNERSHIP_FLAG			= 0x0,
+	FBNIC_FW_OWNERSHIP_TIME			= 0x1,
 	FBNIC_FW_OWNERSHIP_MSG_MAX
+};
+
+enum {
+	FBNIC_FW_HEARTBEAT_UPTIME               = 0x0,
+	FBNIC_FW_HEARTBEAT_NUMBER_OF_MESSAGES   = 0x1,
+	FBNIC_FW_HEARTBEAT_MSG_MAX
+};
+
+enum {
+	FBNIC_FW_COREDUMP_REQ_INFO_CREATE	= 0x0,
+	FBNIC_FW_COREDUMP_REQ_INFO_MSG_MAX
+};
+
+enum {
+	FBNIC_FW_COREDUMP_INFO_AVAILABLE	= 0x0,
+	FBNIC_FW_COREDUMP_INFO_SIZE		= 0x1,
+	FBNIC_FW_COREDUMP_INFO_ERROR		= 0x2,
+	FBNIC_FW_COREDUMP_INFO_MSG_MAX
+};
+
+enum {
+	FBNIC_FW_COREDUMP_READ_OFFSET		= 0x0,
+	FBNIC_FW_COREDUMP_READ_LENGTH		= 0x1,
+	FBNIC_FW_COREDUMP_READ_DATA		= 0x2,
+	FBNIC_FW_COREDUMP_READ_ERROR		= 0x3,
+	FBNIC_FW_COREDUMP_READ_MSG_MAX
 };
 
 enum {
@@ -234,5 +344,20 @@ enum {
 	FBNIC_FW_LOG_MSG_ARRAY			= 0x6,
 	FBNIC_FW_LOG_MSG_MAX
 };
+
+enum {
+	FBNIC_FW_RPC_MAC_SYNC_RX_FLAGS		= 0x0,
+	FBNIC_FW_RPC_MAC_SYNC_UC_ARRAY		= 0x1,
+	FBNIC_FW_RPC_MAC_SYNC_MC_ARRAY		= 0x2,
+	FBNIC_FW_RPC_MAC_SYNC_MAC_ADDR		= 0x3,
+	FBNIC_FW_RPC_MAC_SYNC_MSG_MAX
+};
+
+#define FW_RPC_MAC_SYNC_RX_FLAGS_PROMISC	1
+#define FW_RPC_MAC_SYNC_RX_FLAGS_ALLMULTI	2
+#define FW_RPC_MAC_SYNC_RX_FLAGS_BROADCAST	4
+
+#define FW_RPC_MAC_SYNC_UC_ARRAY_SIZE		8
+#define FW_RPC_MAC_SYNC_MC_ARRAY_SIZE		8
 
 #endif /* _FBNIC_FW_H_ */

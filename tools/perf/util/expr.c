@@ -376,7 +376,8 @@ int expr__find_ids(const char *expr, const char *one,
 	if (one)
 		expr__del_id(ctx, one);
 
-	return ret;
+	/* A positive value means syntax error, convert to -EINVAL */
+	return ret > 0 ? -EINVAL : ret;
 }
 
 double expr_id_data__value(const struct expr_id_data *data)
@@ -401,16 +402,14 @@ double expr__get_literal(const char *literal, const struct expr_scanner_ctx *ctx
 	if (ev != TOOL_PMU__EVENT_NONE) {
 		u64 count;
 
-		if (tool_pmu__read_event(ev, /*evsel=*/NULL, &count))
+		if (tool_pmu__read_event(ev, /*evsel=*/NULL,
+					 ctx->system_wide, ctx->user_requested_cpu_list,
+					 &count))
 			result = count;
 		else
-			pr_err("Failure to read '%s'", literal);
-
-	} else if (!strcmp("#core_wide", literal)) {
-		result = core_wide(ctx->system_wide, ctx->user_requested_cpu_list)
-			? 1.0 : 0.0;
+			pr_err("Failure to read '%s'\n", literal);
 	} else {
-		pr_err("Unrecognized literal '%s'", literal);
+		pr_err("Unrecognized literal '%s'\n", literal);
 	}
 
 	pr_debug2("literal: %s = %f\n", literal, result);

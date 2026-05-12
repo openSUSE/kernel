@@ -36,9 +36,11 @@ struct iwl_probe_resp_data {
  * @he_ru_2mhz_block: 26-tone RU OFDMA transmissions should be blocked.
  * @igtk: fw can only have one IGTK at a time, whereas mac80211 can have two.
  *	This tracks the one IGTK that currently exists in FW.
+ * @bigtks: BIGTKs of the AP. Only valid for STA mode.
  * @bcast_sta: station used for broadcast packets. Used in AP, GO and IBSS.
  * @mcast_sta: station used for multicast packets. Used in AP, GO and IBSS.
  * @mon_sta: station used for TX injection in monitor interface.
+ * @last_cqm_rssi_event: rssi of the last cqm rssi event
  * @average_beacon_energy: average beacon energy for beacons received during
  *	client connections
  * @ap_early_keys: The firmware cannot install keys before bcast/mcast STAs,
@@ -59,11 +61,13 @@ struct iwl_mld_link {
 		struct ieee80211_chanctx_conf __rcu *chan_ctx;
 		bool he_ru_2mhz_block;
 		struct ieee80211_key_conf *igtk;
+		struct ieee80211_key_conf __rcu *bigtks[2];
 	);
 	/* And here fields that survive a fw restart */
 	struct iwl_mld_int_sta bcast_sta;
 	struct iwl_mld_int_sta mcast_sta;
 	struct iwl_mld_int_sta mon_sta;
+	int last_cqm_rssi_event;
 
 	/* we can only have 2 GTK + 2 IGTK + 2 BIGTK active at a time */
 	struct ieee80211_key_conf *ap_early_keys[6];

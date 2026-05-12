@@ -5803,7 +5803,7 @@ static int tg3_setup_fiber_mii_phy(struct tg3 *tp, bool force_reset)
 	u32 current_speed = SPEED_UNKNOWN;
 	u8 current_duplex = DUPLEX_UNKNOWN;
 	bool current_link_up = false;
-	u32 local_adv, remote_adv, sgsr;
+	u32 local_adv = 0, remote_adv = 0, sgsr;
 
 	if ((tg3_asic_rev(tp) == ASIC_REV_5719 ||
 	     tg3_asic_rev(tp) == ASIC_REV_5720) &&
@@ -5943,9 +5943,6 @@ static int tg3_setup_fiber_mii_phy(struct tg3 *tp, bool force_reset)
 			current_duplex = DUPLEX_FULL;
 		else
 			current_duplex = DUPLEX_HALF;
-
-		local_adv = 0;
-		remote_adv = 0;
 
 		if (bmcr & BMCR_ANENABLE) {
 			u32 common;
@@ -8732,9 +8729,8 @@ static int tg3_mem_tx_acquire(struct tg3 *tp)
 		tnapi++;
 
 	for (i = 0; i < tp->txq_cnt; i++, tnapi++) {
-		tnapi->tx_buffers = kcalloc(TG3_TX_RING_SIZE,
-					    sizeof(struct tg3_tx_ring_info),
-					    GFP_KERNEL);
+		tnapi->tx_buffers = kzalloc_objs(struct tg3_tx_ring_info,
+						 TG3_TX_RING_SIZE);
 		if (!tnapi->tx_buffers)
 			goto err_out;
 
@@ -12303,7 +12299,7 @@ static int tg3_get_link_ksettings(struct net_device *dev,
 	ethtool_convert_legacy_u32_to_link_mode(cmd->link_modes.advertising,
 						advertising);
 
-	if (netif_running(dev) && tp->link_up) {
+	if (netif_running(dev) && netif_carrier_ok(dev)) {
 		cmd->base.speed = tp->link_config.active_speed;
 		cmd->base.duplex = tp->link_config.active_duplex;
 		ethtool_convert_legacy_u32_to_link_mode(
@@ -12722,29 +12718,17 @@ static int tg3_get_sset_count(struct net_device *dev, int sset)
 	}
 }
 
-static int tg3_get_rxnfc(struct net_device *dev, struct ethtool_rxnfc *info,
-			 u32 *rules __always_unused)
+static u32 tg3_get_rx_ring_count(struct net_device *dev)
 {
 	struct tg3 *tp = netdev_priv(dev);
 
 	if (!tg3_flag(tp, SUPPORT_MSIX))
-		return -EOPNOTSUPP;
+		return 1;
 
-	switch (info->cmd) {
-	case ETHTOOL_GRXRINGS:
-		if (netif_running(tp->dev))
-			info->data = tp->rxq_cnt;
-		else {
-			info->data = num_online_cpus();
-			if (info->data > TG3_RSS_MAX_NUM_QS)
-				info->data = TG3_RSS_MAX_NUM_QS;
-		}
+	if (netif_running(tp->dev))
+		return tp->rxq_cnt;
 
-		return 0;
-
-	default:
-		return -EOPNOTSUPP;
-	}
+	return min_t(u32, netif_get_num_default_rss_queues(), tp->rxq_max);
 }
 
 static u32 tg3_get_rxfh_indir_size(struct net_device *dev)
@@ -13929,22 +13913,20 @@ static void tg3_self_test(struct net_device *dev, struct ethtool_test *etest,
 
 }
 
-static int tg3_hwtstamp_set(struct net_device *dev, struct ifreq *ifr)
+static int tg3_hwtstamp_set(struct net_device *dev,
+			    struct kernel_hwtstamp_config *stmpconf,
+			    struct netlink_ext_ack *extack)
 {
 	struct tg3 *tp = netdev_priv(dev);
-	struct hwtstamp_config stmpconf;
 
 	if (!tg3_flag(tp, PTP_CAPABLE))
 		return -EOPNOTSUPP;
 
-	if (copy_from_user(&stmpconf, ifr->ifr_data, sizeof(stmpconf)))
-		return -EFAULT;
-
-	if (stmpconf.tx_type != HWTSTAMP_TX_ON &&
-	    stmpconf.tx_type != HWTSTAMP_TX_OFF)
+	if (stmpconf->tx_type != HWTSTAMP_TX_ON &&
+	    stmpconf->tx_type != HWTSTAMP_TX_OFF)
 		return -ERANGE;
 
-	switch (stmpconf.rx_filter) {
+	switch (stmpconf->rx_filter) {
 	case HWTSTAMP_FILTER_NONE:
 		tp->rxptpctl = 0;
 		break;
@@ -14004,74 +13986,72 @@ static int tg3_hwtstamp_set(struct net_device *dev, struct ifreq *ifr)
 		tw32(TG3_RX_PTP_CTL,
 		     tp->rxptpctl | TG3_RX_PTP_CTL_HWTS_INTERLOCK);
 
-	if (stmpconf.tx_type == HWTSTAMP_TX_ON)
+	if (stmpconf->tx_type == HWTSTAMP_TX_ON)
 		tg3_flag_set(tp, TX_TSTAMP_EN);
 	else
 		tg3_flag_clear(tp, TX_TSTAMP_EN);
 
-	return copy_to_user(ifr->ifr_data, &stmpconf, sizeof(stmpconf)) ?
-		-EFAULT : 0;
+	return 0;
 }
 
-static int tg3_hwtstamp_get(struct net_device *dev, struct ifreq *ifr)
+static int tg3_hwtstamp_get(struct net_device *dev,
+			    struct kernel_hwtstamp_config *stmpconf)
 {
 	struct tg3 *tp = netdev_priv(dev);
-	struct hwtstamp_config stmpconf;
 
 	if (!tg3_flag(tp, PTP_CAPABLE))
 		return -EOPNOTSUPP;
 
-	stmpconf.flags = 0;
-	stmpconf.tx_type = (tg3_flag(tp, TX_TSTAMP_EN) ?
-			    HWTSTAMP_TX_ON : HWTSTAMP_TX_OFF);
+	stmpconf->flags = 0;
+	stmpconf->tx_type = tg3_flag(tp, TX_TSTAMP_EN) ?
+			    HWTSTAMP_TX_ON : HWTSTAMP_TX_OFF;
 
 	switch (tp->rxptpctl) {
 	case 0:
-		stmpconf.rx_filter = HWTSTAMP_FILTER_NONE;
+		stmpconf->rx_filter = HWTSTAMP_FILTER_NONE;
 		break;
 	case TG3_RX_PTP_CTL_RX_PTP_V1_EN | TG3_RX_PTP_CTL_ALL_V1_EVENTS:
-		stmpconf.rx_filter = HWTSTAMP_FILTER_PTP_V1_L4_EVENT;
+		stmpconf->rx_filter = HWTSTAMP_FILTER_PTP_V1_L4_EVENT;
 		break;
 	case TG3_RX_PTP_CTL_RX_PTP_V1_EN | TG3_RX_PTP_CTL_SYNC_EVNT:
-		stmpconf.rx_filter = HWTSTAMP_FILTER_PTP_V1_L4_SYNC;
+		stmpconf->rx_filter = HWTSTAMP_FILTER_PTP_V1_L4_SYNC;
 		break;
 	case TG3_RX_PTP_CTL_RX_PTP_V1_EN | TG3_RX_PTP_CTL_DELAY_REQ:
-		stmpconf.rx_filter = HWTSTAMP_FILTER_PTP_V1_L4_DELAY_REQ;
+		stmpconf->rx_filter = HWTSTAMP_FILTER_PTP_V1_L4_DELAY_REQ;
 		break;
 	case TG3_RX_PTP_CTL_RX_PTP_V2_EN | TG3_RX_PTP_CTL_ALL_V2_EVENTS:
-		stmpconf.rx_filter = HWTSTAMP_FILTER_PTP_V2_EVENT;
+		stmpconf->rx_filter = HWTSTAMP_FILTER_PTP_V2_EVENT;
 		break;
 	case TG3_RX_PTP_CTL_RX_PTP_V2_L2_EN | TG3_RX_PTP_CTL_ALL_V2_EVENTS:
-		stmpconf.rx_filter = HWTSTAMP_FILTER_PTP_V2_L2_EVENT;
+		stmpconf->rx_filter = HWTSTAMP_FILTER_PTP_V2_L2_EVENT;
 		break;
 	case TG3_RX_PTP_CTL_RX_PTP_V2_L4_EN | TG3_RX_PTP_CTL_ALL_V2_EVENTS:
-		stmpconf.rx_filter = HWTSTAMP_FILTER_PTP_V2_L4_EVENT;
+		stmpconf->rx_filter = HWTSTAMP_FILTER_PTP_V2_L4_EVENT;
 		break;
 	case TG3_RX_PTP_CTL_RX_PTP_V2_EN | TG3_RX_PTP_CTL_SYNC_EVNT:
-		stmpconf.rx_filter = HWTSTAMP_FILTER_PTP_V2_SYNC;
+		stmpconf->rx_filter = HWTSTAMP_FILTER_PTP_V2_SYNC;
 		break;
 	case TG3_RX_PTP_CTL_RX_PTP_V2_L2_EN | TG3_RX_PTP_CTL_SYNC_EVNT:
-		stmpconf.rx_filter = HWTSTAMP_FILTER_PTP_V2_L2_SYNC;
+		stmpconf->rx_filter = HWTSTAMP_FILTER_PTP_V2_L2_SYNC;
 		break;
 	case TG3_RX_PTP_CTL_RX_PTP_V2_L4_EN | TG3_RX_PTP_CTL_SYNC_EVNT:
-		stmpconf.rx_filter = HWTSTAMP_FILTER_PTP_V2_L4_SYNC;
+		stmpconf->rx_filter = HWTSTAMP_FILTER_PTP_V2_L4_SYNC;
 		break;
 	case TG3_RX_PTP_CTL_RX_PTP_V2_EN | TG3_RX_PTP_CTL_DELAY_REQ:
-		stmpconf.rx_filter = HWTSTAMP_FILTER_PTP_V2_DELAY_REQ;
+		stmpconf->rx_filter = HWTSTAMP_FILTER_PTP_V2_DELAY_REQ;
 		break;
 	case TG3_RX_PTP_CTL_RX_PTP_V2_L2_EN | TG3_RX_PTP_CTL_DELAY_REQ:
-		stmpconf.rx_filter = HWTSTAMP_FILTER_PTP_V2_L2_DELAY_REQ;
+		stmpconf->rx_filter = HWTSTAMP_FILTER_PTP_V2_L2_DELAY_REQ;
 		break;
 	case TG3_RX_PTP_CTL_RX_PTP_V2_L4_EN | TG3_RX_PTP_CTL_DELAY_REQ:
-		stmpconf.rx_filter = HWTSTAMP_FILTER_PTP_V2_L4_DELAY_REQ;
+		stmpconf->rx_filter = HWTSTAMP_FILTER_PTP_V2_L4_DELAY_REQ;
 		break;
 	default:
 		WARN_ON_ONCE(1);
 		return -ERANGE;
 	}
 
-	return copy_to_user(ifr->ifr_data, &stmpconf, sizeof(stmpconf)) ?
-		-EFAULT : 0;
+	return 0;
 }
 
 static int tg3_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
@@ -14125,12 +14105,6 @@ static int tg3_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		spin_unlock_bh(&tp->lock);
 
 		return err;
-
-	case SIOCSHWTSTAMP:
-		return tg3_hwtstamp_set(dev, ifr);
-
-	case SIOCGHWTSTAMP:
-		return tg3_hwtstamp_get(dev, ifr);
 
 	default:
 		/* do nothing */
@@ -14281,7 +14255,7 @@ static const struct ethtool_ops tg3_ethtool_ops = {
 	.get_coalesce		= tg3_get_coalesce,
 	.set_coalesce		= tg3_set_coalesce,
 	.get_sset_count		= tg3_get_sset_count,
-	.get_rxnfc		= tg3_get_rxnfc,
+	.get_rx_ring_count	= tg3_get_rx_ring_count,
 	.get_rxfh_indir_size    = tg3_get_rxfh_indir_size,
 	.get_rxfh		= tg3_get_rxfh,
 	.set_rxfh		= tg3_set_rxfh,
@@ -14407,6 +14381,8 @@ static const struct net_device_ops tg3_netdev_ops = {
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	.ndo_poll_controller	= tg3_poll_controller,
 #endif
+	.ndo_hwtstamp_get	= tg3_hwtstamp_get,
+	.ndo_hwtstamp_set	= tg3_hwtstamp_set,
 };
 
 static void tg3_get_eeprom_size(struct tg3 *tp)
@@ -17053,6 +17029,13 @@ static int tg3_get_invariants(struct tg3 *tp, const struct pci_device_id *ent)
 	return err;
 }
 
+static int tg3_is_default_mac_address(u8 *addr)
+{
+	static const u8 default_mac_address[ETH_ALEN] = { 0x00, 0x10, 0x18, 0x00, 0x00, 0x00 };
+
+	return ether_addr_equal(default_mac_address, addr);
+}
+
 static int tg3_get_device_address(struct tg3 *tp, u8 *addr)
 {
 	u32 hi, lo, mac_offset;
@@ -17126,6 +17109,10 @@ static int tg3_get_device_address(struct tg3 *tp, u8 *addr)
 
 	if (!is_valid_ether_addr(addr))
 		return -EINVAL;
+
+	if (tg3_is_default_mac_address(addr))
+		return device_get_mac_address(&tp->pdev->dev, addr);
+
 	return 0;
 }
 
@@ -18360,7 +18347,6 @@ static pci_ers_result_t tg3_io_slot_reset(struct pci_dev *pdev)
 
 	pci_set_master(pdev);
 	pci_restore_state(pdev);
-	pci_save_state(pdev);
 
 	if (!netdev || !netif_running(netdev)) {
 		rc = PCI_ERS_RESULT_RECOVERED;

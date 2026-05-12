@@ -37,7 +37,7 @@
 
 #undef FN
 #define FN(reg_name, field_name) \
-	generic->shifts->field_name, generic->masks->field_name
+	gpio_reg_shift(generic->shifts->field_name), generic->masks->field_name
 
 #define CTX \
 	generic->base.base.ctx
@@ -111,7 +111,7 @@ void dal_hw_generic_init(
 		*hw_generic = NULL;
 	}
 
-	*hw_generic = kzalloc(sizeof(struct hw_generic), GFP_KERNEL);
+	*hw_generic = kzalloc_obj(struct hw_generic);
 	if (!*hw_generic) {
 		ASSERT_CRITICAL(false);
 		return;

@@ -211,7 +211,7 @@ test and set for you.
 e.g.::
 
 	inode = iget_locked(sb, ino);
-	if (inode->i_state & I_NEW) {
+	if (inode_state_read_once(inode) & I_NEW) {
 		err = read_inode_from_disk(inode);
 		if (err < 0) {
 			iget_failed(inode);
@@ -340,8 +340,8 @@ of those. Caller makes sure async writeback cannot be running for the inode whil
 
 ->drop_inode() returns int now; it's called on final iput() with
 inode->i_lock held and it returns true if filesystems wants the inode to be
-dropped.  As before, generic_drop_inode() is still the default and it's been
-updated appropriately.  generic_delete_inode() is also alive and it consists
+dropped.  As before, inode_generic_drop() is still the default and it's been
+updated appropriately.  inode_just_drop() is also alive and it consists
 simply of return 1.  Note that all actual eviction work is done by caller after
 ->drop_inode() returns.
 
@@ -448,11 +448,8 @@ a file off.
 
 **mandatory**
 
-->get_sb() is gone.  Switch to use of ->mount().  Typically it's just
-a matter of switching from calling ``get_sb_``... to ``mount_``... and changing
-the function type.  If you were doing it manually, just switch from setting
-->mnt_root to some pointer to returning that pointer.  On errors return
-ERR_PTR(...).
+->get_sb() and ->mount() are gone. Switch to using the new mount API. See
+Documentation/filesystems/mount_api.rst for more details.
 
 ---
 
@@ -1285,3 +1282,106 @@ rather than a VMA, as the VMA at this stage is not yet valid.
 The vm_area_desc provides the minimum required information for a filesystem
 to initialise state upon memory mapping of a file-backed region, and output
 parameters for the file system to set this state.
+
+In nearly all cases, this is all that is required for a filesystem. However, if
+a filesystem needs to perform an operation such a pre-population of page tables,
+then that action can be specified in the vm_area_desc->action field, which can
+be configured using the mmap_action_*() helpers.
+
+---
+
+**mandatory**
+
+Several functions are renamed:
+
+-  kern_path_locked -> start_removing_path
+-  kern_path_create -> start_creating_path
+-  user_path_create -> start_creating_user_path
+-  user_path_locked_at -> start_removing_user_path_at
+-  done_path_create -> end_creating_path
+
+---
+
+**mandatory**
+
+Calling conventions for vfs_parse_fs_string() have changed; it does *not*
+take length anymore (value ? strlen(value) : 0 is used).  If you want
+a different length, use
+
+	vfs_parse_fs_qstr(fc, key, &QSTR_LEN(value, len))
+
+instead.
+
+---
+
+**mandatory**
+
+vfs_mkdir() now returns a dentry - the one returned by ->mkdir().  If
+that dentry is different from the dentry passed in, including if it is
+an IS_ERR() dentry pointer, the original dentry is dput().
+
+When vfs_mkdir() returns an error, and so both dputs() the original
+dentry and doesn't provide a replacement, it also unlocks the parent.
+Consequently the return value from vfs_mkdir() can be passed to
+end_creating() and the parent will be unlocked precisely when necessary.
+
+---
+
+**mandatory**
+
+kill_litter_super() is gone; convert to DCACHE_PERSISTENT use (as all
+in-tree filesystems have done).
+
+---
+
+**mandatory**
+
+The ->setlease() file_operation must now be explicitly set in order to provide
+support for leases. When set to NULL, the kernel will now return -EINVAL to
+attempts to set a lease. Filesystems that wish to use the kernel-internal lease
+implementation should set it to generic_setlease().
+
+---
+
+**mandatory**
+
+fs/namei.c primitives that consume filesystem references (do_renameat2(),
+do_linkat(), do_symlinkat(), do_mkdirat(), do_mknodat(), do_unlinkat()
+and do_rmdir()) are gone; they are replaced with non-consuming analogues
+(filename_renameat2(), etc.)
+Callers are adjusted - responsibility for dropping the filenames belongs
+to them now.
+
+---
+
+**mandatory**
+
+readlink_copy() now requires link length as the 4th argument. Said length needs
+to match what strlen() would return if it was ran on the string.
+
+However, if the string is freely accessible for the duration of inode's
+lifetime, consider using inode_set_cached_link() instead.
+
+---
+
+**mandatory**
+
+lookup_one_qstr_excl() is no longer exported - use start_creating() or
+similar.
+
+---
+
+** mandatory**
+
+lock_rename(), lock_rename_child(), unlock_rename() are no
+longer available.  Use start_renaming() or similar.
+
+---
+
+**recommended**
+
+If you really need to iterate through dentries for given inode, use
+for_each_alias(dentry, inode) instead of hlist_for_each_entry; better
+yet, see if any of the exported primitives could be used instead of
+the entire loop.  You still need to hold ->i_lock of the inode over
+either form of manual loop.

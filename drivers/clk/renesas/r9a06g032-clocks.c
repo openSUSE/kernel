@@ -891,7 +891,7 @@ r9a06g032_register_gate(struct r9a06g032_priv *clocks,
 	struct r9a06g032_clk_gate *g;
 	struct clk_init_data init = {};
 
-	g = kzalloc(sizeof(*g), GFP_KERNEL);
+	g = kzalloc_obj(*g);
 	if (!g)
 		return NULL;
 
@@ -1063,7 +1063,7 @@ r9a06g032_register_div(struct r9a06g032_priv *clocks,
 	struct clk_init_data init = {};
 	unsigned int i;
 
-	div = kzalloc(sizeof(*div), GFP_KERNEL);
+	div = kzalloc_obj(*div);
 	if (!div)
 		return NULL;
 
@@ -1149,7 +1149,7 @@ r9a06g032_register_bitsel(struct r9a06g032_priv *clocks,
 	const char *names[2];
 
 	/* allocate the gate */
-	g = kzalloc(sizeof(*g), GFP_KERNEL);
+	g = kzalloc_obj(*g);
 	if (!g)
 		return NULL;
 
@@ -1239,7 +1239,7 @@ r9a06g032_register_dualgate(struct r9a06g032_priv *clocks,
 	struct clk_init_data init = {};
 
 	/* allocate the gate */
-	g = kzalloc(sizeof(*g), GFP_KERNEL);
+	g = kzalloc_obj(*g);
 	if (!g)
 		return NULL;
 	g->clocks = clocks;
@@ -1333,17 +1333,18 @@ static int __init r9a06g032_clocks_probe(struct platform_device *pdev)
 	if (IS_ERR(mclk))
 		return PTR_ERR(mclk);
 
-	clocks->reg = of_iomap(np, 0);
-	if (WARN_ON(!clocks->reg))
-		return -ENOMEM;
+	clocks->reg = devm_of_iomap(dev, np, 0, NULL);
+	if (IS_ERR(clocks->reg))
+		return PTR_ERR(clocks->reg);
 
 	r9a06g032_init_h2mode(clocks);
 
 	/* Clear potentially pending resets */
 	writel(R9A06G032_SYSCTRL_WDA7RST_0 | R9A06G032_SYSCTRL_WDA7RST_1,
 	       clocks->reg + R9A06G032_SYSCTRL_RSTCTRL);
-	/* Allow software reset */
-	writel(R9A06G032_SYSCTRL_SWRST | R9A06G032_SYSCTRL_RSTEN_MRESET_EN,
+	/* Allow watchdog and software resets */
+	writel(R9A06G032_SYSCTRL_WDA7RST_0 | R9A06G032_SYSCTRL_WDA7RST_1 |
+	       R9A06G032_SYSCTRL_SWRST | R9A06G032_SYSCTRL_RSTEN_MRESET_EN,
 	       clocks->reg + R9A06G032_SYSCTRL_RSTEN);
 
 	error = devm_register_sys_off_handler(dev, SYS_OFF_MODE_RESTART, SYS_OFF_PRIO_HIGH,

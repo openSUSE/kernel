@@ -83,6 +83,8 @@ extern void check_nested_vcpu_requests(struct kvm_vcpu *vcpu);
 extern void kvm_nested_flush_hwstate(struct kvm_vcpu *vcpu);
 extern void kvm_nested_sync_hwstate(struct kvm_vcpu *vcpu);
 
+extern void kvm_nested_setup_mdcr_el2(struct kvm_vcpu *vcpu);
+
 struct kvm_s2_trans {
 	phys_addr_t output;
 	unsigned long block_size;
@@ -118,9 +120,42 @@ static inline bool kvm_s2_trans_writable(struct kvm_s2_trans *trans)
 	return trans->writable;
 }
 
-static inline bool kvm_s2_trans_executable(struct kvm_s2_trans *trans)
+static inline bool kvm_has_xnx(struct kvm *kvm)
 {
-	return !(trans->desc & BIT(54));
+	return cpus_have_final_cap(ARM64_HAS_XNX) &&
+		kvm_has_feat(kvm, ID_AA64MMFR1_EL1, XNX, IMP);
+}
+
+static inline bool kvm_s2_trans_exec_el0(struct kvm *kvm, struct kvm_s2_trans *trans)
+{
+	u8 xn = FIELD_GET(KVM_PTE_LEAF_ATTR_HI_S2_XN, trans->desc);
+
+	if (!kvm_has_xnx(kvm))
+		xn &= FIELD_PREP(KVM_PTE_LEAF_ATTR_HI_S2_XN, 0b10);
+
+	switch (xn) {
+	case 0b00:
+	case 0b01:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static inline bool kvm_s2_trans_exec_el1(struct kvm *kvm, struct kvm_s2_trans *trans)
+{
+	u8 xn = FIELD_GET(KVM_PTE_LEAF_ATTR_HI_S2_XN, trans->desc);
+
+	if (!kvm_has_xnx(kvm))
+		xn &= FIELD_PREP(KVM_PTE_LEAF_ATTR_HI_S2_XN, 0b10);
+
+	switch (xn) {
+	case 0b00:
+	case 0b11:
+		return true;
+	default:
+		return false;
+	}
 }
 
 extern int kvm_walk_nested_s2(struct kvm_vcpu *vcpu, phys_addr_t gipa,
@@ -265,7 +300,7 @@ static inline u64 decode_range_tlbi(u64 val, u64 *range, u16 *asid)
 	return base;
 }
 
-static inline unsigned int ps_to_output_size(unsigned int ps)
+static inline unsigned int ps_to_output_size(unsigned int ps, bool pa52bit)
 {
 	switch (ps) {
 	case 0: return 32;
@@ -273,7 +308,10 @@ static inline unsigned int ps_to_output_size(unsigned int ps)
 	case 2: return 40;
 	case 3: return 42;
 	case 4: return 44;
-	case 5:
+	case 5: return 48;
+	case 6: if (pa52bit)
+			return 52;
+		fallthrough;
 	default:
 		return 48;
 	}
@@ -285,13 +323,28 @@ enum trans_regime {
 	TR_EL2,
 };
 
+struct s1_walk_info;
+
+struct s1_walk_context {
+	struct s1_walk_info	*wi;
+	u64			table_ipa;
+	int			level;
+};
+
+struct s1_walk_filter {
+	int	(*fn)(struct s1_walk_context *, void *);
+	void	*priv;
+};
+
 struct s1_walk_info {
+	struct s1_walk_filter	*filter;
 	u64	     		baddr;
 	enum trans_regime	regime;
 	unsigned int		max_oa_bits;
 	unsigned int		pgshift;
 	unsigned int		txsz;
 	int 	     		sl;
+	u8			sh;
 	bool			as_el0;
 	bool	     		hpd;
 	bool			e0poe;
@@ -299,6 +352,8 @@ struct s1_walk_info {
 	bool			pan;
 	bool	     		be;
 	bool	     		s2;
+	bool			pa52bit;
+	bool			ha;
 };
 
 struct s1_walk_result {
@@ -334,11 +389,15 @@ struct s1_walk_result {
 
 int __kvm_translate_va(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 		       struct s1_walk_result *wr, u64 va);
+int __kvm_find_s1_desc_level(struct kvm_vcpu *vcpu, u64 va, u64 ipa,
+			     int *level);
 
 /* VNCR management */
 int kvm_vcpu_allocate_vncr_tlb(struct kvm_vcpu *vcpu);
 int kvm_handle_vncr_abort(struct kvm_vcpu *vcpu);
 void kvm_handle_s1e2_tlbi(struct kvm_vcpu *vcpu, u32 inst, u64 val);
+
+u16 get_asid_by_regime(struct kvm_vcpu *vcpu, enum trans_regime regime);
 
 #define vncr_fixmap(c)						\
 	({							\
@@ -346,5 +405,7 @@ void kvm_handle_s1e2_tlbi(struct kvm_vcpu *vcpu, u32 inst, u64 val);
 		BUG_ON(__c >= NR_CPUS);				\
 		(FIX_VNCR - __c);				\
 	})
+
+int __kvm_at_swap_desc(struct kvm *kvm, gpa_t ipa, u64 old, u64 new);
 
 #endif /* __ARM64_KVM_NESTED_H */

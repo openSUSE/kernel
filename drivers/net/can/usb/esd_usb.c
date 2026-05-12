@@ -9,6 +9,7 @@
 #include <linux/can.h>
 #include <linux/can/dev.h>
 #include <linux/can/error.h>
+#include <linux/err.h>
 #include <linux/ethtool.h>
 #include <linux/module.h>
 #include <linux/netdevice.h>
@@ -271,9 +272,13 @@ struct esd_usb {
 
 	struct usb_anchor rx_submitted;
 
+	unsigned int rx_pipe;
+	unsigned int tx_pipe;
+
 	int net_count;
 	u32 version;
 	int rxinitdone;
+	int in_usb_disconnect;
 	void *rxbuf[ESD_USB_MAX_RX_URBS];
 	dma_addr_t rxbuf_dma[ESD_USB_MAX_RX_URBS];
 };
@@ -480,7 +485,7 @@ static void esd_usb_tx_done_msg(struct esd_usb_net_priv *priv,
 static void esd_usb_read_bulk_callback(struct urb *urb)
 {
 	struct esd_usb *dev = urb->context;
-	int retval;
+	int err;
 	int pos = 0;
 	int i;
 
@@ -496,7 +501,7 @@ static void esd_usb_read_bulk_callback(struct urb *urb)
 
 	default:
 		dev_info(dev->udev->dev.parent,
-			 "Rx URB aborted (%d)\n", urb->status);
+			 "Rx URB aborted (%pe)\n", ERR_PTR(urb->status));
 		goto resubmit_urb;
 	}
 
@@ -535,19 +540,26 @@ static void esd_usb_read_bulk_callback(struct urb *urb)
 	}
 
 resubmit_urb:
-	usb_fill_bulk_urb(urb, dev->udev, usb_rcvbulkpipe(dev->udev, 1),
+	usb_fill_bulk_urb(urb, dev->udev, dev->rx_pipe,
 			  urb->transfer_buffer, ESD_USB_RX_BUFFER_SIZE,
 			  esd_usb_read_bulk_callback, dev);
 
-	retval = usb_submit_urb(urb, GFP_ATOMIC);
-	if (retval == -ENODEV) {
+	usb_anchor_urb(urb, &dev->rx_submitted);
+
+	err = usb_submit_urb(urb, GFP_ATOMIC);
+	if (!err)
+		return;
+
+	usb_unanchor_urb(urb);
+
+	if (err == -ENODEV) {
 		for (i = 0; i < dev->net_count; i++) {
 			if (dev->nets[i])
 				netif_device_detach(dev->nets[i]->netdev);
 		}
-	} else if (retval) {
+	} else {
 		dev_err(dev->udev->dev.parent,
-			"failed resubmitting read bulk urb: %d\n", retval);
+			"failed resubmitting read bulk urb: %pe\n", ERR_PTR(err));
 	}
 }
 
@@ -572,7 +584,7 @@ static void esd_usb_write_bulk_callback(struct urb *urb)
 		return;
 
 	if (urb->status)
-		netdev_info(netdev, "Tx URB aborted (%d)\n", urb->status);
+		netdev_info(netdev, "Tx URB aborted (%pe)\n", ERR_PTR(urb->status));
 
 	netif_trans_update(netdev);
 }
@@ -617,9 +629,7 @@ static int esd_usb_send_msg(struct esd_usb *dev, union esd_usb_msg *msg)
 {
 	int actual_length;
 
-	return usb_bulk_msg(dev->udev,
-			    usb_sndbulkpipe(dev->udev, 2),
-			    msg,
+	return usb_bulk_msg(dev->udev, dev->tx_pipe, msg,
 			    msg->hdr.len * sizeof(u32), /* convert to # of bytes */
 			    &actual_length,
 			    1000);
@@ -630,12 +640,8 @@ static int esd_usb_wait_msg(struct esd_usb *dev,
 {
 	int actual_length;
 
-	return usb_bulk_msg(dev->udev,
-			    usb_rcvbulkpipe(dev->udev, 1),
-			    msg,
-			    sizeof(*msg),
-			    &actual_length,
-			    1000);
+	return usb_bulk_msg(dev->udev, dev->rx_pipe, msg,
+			    sizeof(*msg), &actual_length, 1000);
 }
 
 static int esd_usb_setup_rx_urbs(struct esd_usb *dev)
@@ -668,8 +674,7 @@ static int esd_usb_setup_rx_urbs(struct esd_usb *dev)
 
 		urb->transfer_dma = buf_dma;
 
-		usb_fill_bulk_urb(urb, dev->udev,
-				  usb_rcvbulkpipe(dev->udev, 1),
+		usb_fill_bulk_urb(urb, dev->udev, dev->rx_pipe,
 				  buf, ESD_USB_RX_BUFFER_SIZE,
 				  esd_usb_read_bulk_callback, dev);
 		urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
@@ -717,7 +722,7 @@ static int esd_usb_start(struct esd_usb_net_priv *priv)
 	union esd_usb_msg *msg;
 	int err, i;
 
-	msg = kmalloc(sizeof(*msg), GFP_KERNEL);
+	msg = kmalloc_obj(*msg);
 	if (!msg) {
 		err = -ENOMEM;
 		goto out;
@@ -758,7 +763,7 @@ out:
 	if (err == -ENODEV)
 		netif_device_detach(netdev);
 	if (err)
-		netdev_err(netdev, "couldn't start device: %d\n", err);
+		netdev_err(netdev, "couldn't start device: %pe\n", ERR_PTR(err));
 
 	kfree(msg);
 	return err;
@@ -800,7 +805,6 @@ static int esd_usb_open(struct net_device *netdev)
 	/* finally start device */
 	err = esd_usb_start(priv);
 	if (err) {
-		netdev_warn(netdev, "couldn't start device: %d\n", err);
 		close_candev(netdev);
 		return err;
 	}
@@ -895,7 +899,7 @@ static netdev_tx_t esd_usb_start_xmit(struct sk_buff *skb,
 	/* hnd must not be 0 - MSB is stripped in txdone handling */
 	msg->tx.hnd = BIT(31) | i; /* returned in TX done message */
 
-	usb_fill_bulk_urb(urb, dev->udev, usb_sndbulkpipe(dev->udev, 2), buf,
+	usb_fill_bulk_urb(urb, dev->udev, dev->tx_pipe, buf,
 			  msg->hdr.len * sizeof(u32), /* convert to # of bytes */
 			  esd_usb_write_bulk_callback, context);
 
@@ -923,7 +927,7 @@ static netdev_tx_t esd_usb_start_xmit(struct sk_buff *skb,
 		if (err == -ENODEV)
 			netif_device_detach(netdev);
 		else
-			netdev_warn(netdev, "failed tx_urb %d\n", err);
+			netdev_warn(netdev, "failed tx_urb %pe\n", ERR_PTR(err));
 
 		goto releasebuf;
 	}
@@ -947,13 +951,14 @@ nourbmem:
 	return ret;
 }
 
-static int esd_usb_close(struct net_device *netdev)
+/* Stop interface */
+static int esd_usb_stop(struct esd_usb_net_priv *priv)
 {
-	struct esd_usb_net_priv *priv = netdev_priv(netdev);
 	union esd_usb_msg *msg;
+	int err;
 	int i;
 
-	msg = kmalloc(sizeof(*msg), GFP_KERNEL);
+	msg = kmalloc_obj(*msg);
 	if (!msg)
 		return -ENOMEM;
 
@@ -964,8 +969,11 @@ static int esd_usb_close(struct net_device *netdev)
 	msg->filter.option = ESD_USB_ID_ENABLE; /* start with segment 0 */
 	for (i = 0; i <= ESD_USB_MAX_ID_SEGMENT; i++)
 		msg->filter.mask[i] = 0;
-	if (esd_usb_send_msg(priv->usb, msg) < 0)
-		netdev_err(netdev, "sending idadd message failed\n");
+	err = esd_usb_send_msg(priv->usb, msg);
+	if (err < 0) {
+		netdev_err(priv->netdev, "sending idadd message failed: %pe\n", ERR_PTR(err));
+		goto bail;
+	}
 
 	/* set CAN controller to reset mode */
 	msg->hdr.len = sizeof(struct esd_usb_set_baudrate_msg) / sizeof(u32); /* # of 32bit words */
@@ -973,8 +981,25 @@ static int esd_usb_close(struct net_device *netdev)
 	msg->setbaud.net = priv->index;
 	msg->setbaud.rsvd = 0;
 	msg->setbaud.baud = cpu_to_le32(ESD_USB_NO_BAUDRATE);
-	if (esd_usb_send_msg(priv->usb, msg) < 0)
-		netdev_err(netdev, "sending setbaud message failed\n");
+	err = esd_usb_send_msg(priv->usb, msg);
+	if (err < 0)
+		netdev_err(priv->netdev, "sending setbaud message failed: %pe\n", ERR_PTR(err));
+
+bail:
+	kfree(msg);
+
+	return err;
+}
+
+static int esd_usb_close(struct net_device *netdev)
+{
+	struct esd_usb_net_priv *priv = netdev_priv(netdev);
+	int err = 0;
+
+	if (!priv->usb->in_usb_disconnect) {
+		/* It's moot to try this in usb_disconnect()! */
+		err = esd_usb_stop(priv);
+	}
 
 	priv->can.state = CAN_STATE_STOPPED;
 
@@ -982,16 +1007,13 @@ static int esd_usb_close(struct net_device *netdev)
 
 	close_candev(netdev);
 
-	kfree(msg);
-
-	return 0;
+	return err;
 }
 
 static const struct net_device_ops esd_usb_netdev_ops = {
 	.ndo_open = esd_usb_open,
 	.ndo_stop = esd_usb_close,
 	.ndo_start_xmit = esd_usb_start_xmit,
-	.ndo_change_mtu = can_change_mtu,
 };
 
 static const struct ethtool_ops esd_usb_ethtool_ops = {
@@ -1042,7 +1064,7 @@ static int esd_usb_2_set_bittiming(struct net_device *netdev)
 	if (priv->can.ctrlmode & CAN_CTRLMODE_3_SAMPLES)
 		canbtr |= ESD_USB_TRIPLE_SAMPLES;
 
-	msg = kmalloc(sizeof(*msg), GFP_KERNEL);
+	msg = kmalloc_obj(*msg);
 	if (!msg)
 		return -ENOMEM;
 
@@ -1104,7 +1126,7 @@ static int esd_usb_3_set_bittiming(struct net_device *netdev)
 	u16 flags = 0;
 	int err;
 
-	msg = kmalloc(sizeof(*msg), GFP_KERNEL);
+	msg = kmalloc_obj(*msg);
 	if (!msg)
 		return -ENOMEM;
 
@@ -1251,14 +1273,14 @@ static int esd_usb_probe_one_net(struct usb_interface *intf, int index)
 
 	err = register_candev(netdev);
 	if (err) {
-		dev_err(&intf->dev, "couldn't register CAN device: %d\n", err);
+		dev_err(&intf->dev, "couldn't register CAN device: %pe\n", ERR_PTR(err));
 		free_candev(netdev);
 		err = -ENOMEM;
 		goto done;
 	}
 
 	dev->nets[index] = priv;
-	netdev_info(netdev, "device %s registered\n", netdev->name);
+	netdev_info(netdev, "registered\n");
 
 done:
 	return err;
@@ -1272,23 +1294,31 @@ done:
 static int esd_usb_probe(struct usb_interface *intf,
 			 const struct usb_device_id *id)
 {
+	struct usb_endpoint_descriptor *ep_in, *ep_out;
 	struct esd_usb *dev;
 	union esd_usb_msg *msg;
 	int i, err;
 
-	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+	err = usb_find_common_endpoints(intf->cur_altsetting, &ep_in, &ep_out,
+					NULL, NULL);
+	if (err)
+		return err;
+
+	dev = kzalloc_obj(*dev);
 	if (!dev) {
 		err = -ENOMEM;
 		goto done;
 	}
 
 	dev->udev = interface_to_usbdev(intf);
+	dev->rx_pipe = usb_rcvbulkpipe(dev->udev, ep_in->bEndpointAddress);
+	dev->tx_pipe = usb_sndbulkpipe(dev->udev, ep_out->bEndpointAddress);
 
 	init_usb_anchor(&dev->rx_submitted);
 
 	usb_set_intfdata(intf, dev);
 
-	msg = kmalloc(sizeof(*msg), GFP_KERNEL);
+	msg = kmalloc_obj(*msg);
 	if (!msg) {
 		err = -ENOMEM;
 		goto free_msg;
@@ -1354,9 +1384,11 @@ static void esd_usb_disconnect(struct usb_interface *intf)
 	usb_set_intfdata(intf, NULL);
 
 	if (dev) {
+		dev->in_usb_disconnect = 1;
 		for (i = 0; i < dev->net_count; i++) {
 			if (dev->nets[i]) {
 				netdev = dev->nets[i]->netdev;
+				netdev_info(netdev, "unregister\n");
 				unregister_netdev(netdev);
 				free_candev(netdev);
 			}

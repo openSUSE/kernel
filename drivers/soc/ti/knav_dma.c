@@ -402,7 +402,7 @@ static int of_channel_match_helper(struct device_node *np, const char *name,
  * @name:	slave channel name
  * @config:	dma configuration parameters
  *
- * Returns pointer to appropriate DMA channel on success or error.
+ * Return: Pointer to appropriate DMA channel on success or NULL on error.
  */
 void *knav_dma_open_channel(struct device *dev, const char *name,
 					struct knav_dma_cfg *config)
@@ -414,13 +414,13 @@ void *knav_dma_open_channel(struct device *dev, const char *name,
 
 	if (!kdev) {
 		pr_err("keystone-navigator-dma driver not registered\n");
-		return (void *)-EINVAL;
+		return NULL;
 	}
 
 	chan_num = of_channel_match_helper(dev->of_node, name, &instance);
 	if (chan_num < 0) {
 		dev_err(kdev->dev, "No DMA instance with name %s\n", name);
-		return (void *)-EINVAL;
+		return NULL;
 	}
 
 	dev_dbg(kdev->dev, "initializing %s channel %d from DMA %s\n",
@@ -431,7 +431,7 @@ void *knav_dma_open_channel(struct device *dev, const char *name,
 	if (config->direction != DMA_MEM_TO_DEV &&
 	    config->direction != DMA_DEV_TO_MEM) {
 		dev_err(kdev->dev, "bad direction\n");
-		return (void *)-EINVAL;
+		return NULL;
 	}
 
 	/* Look for correct dma instance */
@@ -443,7 +443,7 @@ void *knav_dma_open_channel(struct device *dev, const char *name,
 	}
 	if (!dma) {
 		dev_err(kdev->dev, "No DMA instance with name %s\n", instance);
-		return (void *)-EINVAL;
+		return NULL;
 	}
 
 	/* Look for correct dma channel from dma instance */
@@ -463,14 +463,14 @@ void *knav_dma_open_channel(struct device *dev, const char *name,
 	if (!chan) {
 		dev_err(kdev->dev, "channel %d is not in DMA %s\n",
 				chan_num, instance);
-		return (void *)-EINVAL;
+		return NULL;
 	}
 
 	if (atomic_read(&chan->ref_count) >= 1) {
 		if (!check_config(chan, config)) {
 			dev_err(kdev->dev, "channel %d config miss-match\n",
 				chan_num);
-			return (void *)-EINVAL;
+			return NULL;
 		}
 	}
 
@@ -706,20 +706,15 @@ static int knav_dma_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct device_node *node = pdev->dev.of_node;
-	struct device_node *child;
 	int ret = 0;
 
-	if (!node) {
-		dev_err(&pdev->dev, "could not find device info\n");
-		return -EINVAL;
-	}
+	if (!node)
+		return dev_err_probe(dev, -EINVAL, "could not find device info\n");
 
 	kdev = devm_kzalloc(dev,
 			sizeof(struct knav_dma_pool_device), GFP_KERNEL);
-	if (!kdev) {
-		dev_err(dev, "could not allocate driver mem\n");
+	if (!kdev)
 		return -ENOMEM;
-	}
 
 	kdev->dev = dev;
 	INIT_LIST_HEAD(&kdev->list);
@@ -727,23 +722,21 @@ static int knav_dma_probe(struct platform_device *pdev)
 	pm_runtime_enable(kdev->dev);
 	ret = pm_runtime_resume_and_get(kdev->dev);
 	if (ret < 0) {
-		dev_err(kdev->dev, "unable to enable pktdma, err %d\n", ret);
+		dev_err(dev, "unable to enable pktdma, err %d\n", ret);
 		goto err_pm_disable;
 	}
 
 	/* Initialise all packet dmas */
-	for_each_child_of_node(node, child) {
+	for_each_child_of_node_scoped(node, child) {
 		ret = dma_init(node, child);
 		if (ret) {
-			of_node_put(child);
-			dev_err(&pdev->dev, "init failed with %d\n", ret);
+			dev_err(dev, "init failed with %d\n", ret);
 			break;
 		}
 	}
 
 	if (list_empty(&kdev->list)) {
-		dev_err(dev, "no valid dma instance\n");
-		ret = -ENODEV;
+		ret = dev_err_probe(dev, -ENODEV, "no valid dma instance\n");
 		goto err_put_sync;
 	}
 

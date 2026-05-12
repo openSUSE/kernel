@@ -101,7 +101,7 @@ vmw_du_plane_cleanup_fb(struct drm_plane *plane,
  * Returns 0 on success
  */
 int vmw_du_primary_plane_atomic_check(struct drm_plane *plane,
-				      struct drm_atomic_state *state)
+				      struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *new_state = drm_atomic_get_new_plane_state(state,
 									   plane);
@@ -132,7 +132,7 @@ int vmw_du_primary_plane_atomic_check(struct drm_plane *plane,
 }
 
 int vmw_du_crtc_atomic_check(struct drm_crtc *crtc,
-			     struct drm_atomic_state *state)
+			     struct drm_atomic_commit *state)
 {
 	struct vmw_private *vmw = vmw_priv(crtc->dev);
 	struct drm_crtc_state *new_state = drm_atomic_get_new_crtc_state(state,
@@ -169,7 +169,7 @@ int vmw_du_crtc_atomic_check(struct drm_crtc *crtc,
 
 
 void vmw_du_crtc_atomic_begin(struct drm_crtc *crtc,
-			      struct drm_atomic_state *state)
+			      struct drm_atomic_commit *state)
 {
 	vmw_vkms_crtc_atomic_begin(crtc, state);
 }
@@ -224,7 +224,7 @@ void vmw_du_crtc_reset(struct drm_crtc *crtc)
 		kfree(vmw_crtc_state_to_vcs(crtc->state));
 	}
 
-	vcs = kzalloc(sizeof(*vcs), GFP_KERNEL);
+	vcs = kzalloc_obj(*vcs);
 
 	if (!vcs) {
 		DRM_ERROR("Cannot allocate vmw_crtc_state\n");
@@ -300,7 +300,7 @@ void vmw_du_plane_reset(struct drm_plane *plane)
 	if (plane->state)
 		vmw_du_plane_destroy_state(plane, plane->state);
 
-	vps = kzalloc(sizeof(*vps), GFP_KERNEL);
+	vps = kzalloc_obj(*vps);
 
 	if (!vps) {
 		DRM_ERROR("Cannot allocate vmw_plane_state\n");
@@ -382,7 +382,7 @@ void vmw_du_connector_reset(struct drm_connector *connector)
 		kfree(vmw_connector_state_to_vcs(connector->state));
 	}
 
-	vcs = kzalloc(sizeof(*vcs), GFP_KERNEL);
+	vcs = kzalloc_obj(*vcs);
 
 	if (!vcs) {
 		DRM_ERROR("Cannot allocate vmw_connector_state\n");
@@ -543,7 +543,7 @@ static int vmw_kms_new_framebuffer_surface(struct vmw_private *dev_priv,
 		return -EINVAL;
 	}
 
-	vfbs = kzalloc(sizeof(*vfbs), GFP_KERNEL);
+	vfbs = kzalloc_obj(*vfbs);
 	if (!vfbs) {
 		ret = -ENOMEM;
 		goto out_err1;
@@ -552,6 +552,9 @@ static int vmw_kms_new_framebuffer_surface(struct vmw_private *dev_priv,
 	drm_helper_mode_fill_fb_struct(dev, &vfbs->base.base, info, mode_cmd);
 	memcpy(&vfbs->uo, uo, sizeof(vfbs->uo));
 	vmw_user_object_ref(&vfbs->uo);
+
+	if (vfbs->uo.buffer)
+		vfbs->base.base.obj[0] = &vfbs->uo.buffer->tbo.base;
 
 	*out = &vfbs->base;
 
@@ -629,7 +632,7 @@ static int vmw_kms_new_framebuffer_bo(struct vmw_private *dev_priv,
 		return -EINVAL;
 	}
 
-	vfbd = kzalloc(sizeof(*vfbd), GFP_KERNEL);
+	vfbd = kzalloc_obj(*vfbd);
 	if (!vfbd) {
 		ret = -ENOMEM;
 		goto out_err1;
@@ -763,13 +766,16 @@ err_out:
 		return ERR_PTR(ret);
 	}
 
-	ttm_bo_reserve(&bo->tbo, false, false, NULL);
-	ret = vmw_bo_dirty_add(bo);
-	if (!ret && surface && surface->res.func->dirty_alloc) {
-		surface->res.coherent = true;
-		ret = surface->res.func->dirty_alloc(&surface->res);
+	if (bo) {
+		ttm_bo_reserve(&bo->tbo, false, false, NULL);
+		ret = vmw_bo_dirty_add(bo);
+		if (!ret && surface && surface->res.func->dirty_alloc) {
+			surface->res.coherent = true;
+			if (surface->res.dirty == NULL)
+				ret = surface->res.func->dirty_alloc(&surface->res);
+		}
+		ttm_bo_unreserve(&bo->tbo);
 	}
-	ttm_bo_unreserve(&bo->tbo);
 
 	return &vfb->base;
 }
@@ -858,7 +864,7 @@ static int vmw_kms_check_display_memory(struct drm_device *dev,
  * pointer error, in particular -EDEADLK if locking needs to be rerun.
  */
 static struct drm_crtc_state *
-vmw_crtc_state_and_lock(struct drm_atomic_state *state, struct drm_crtc *crtc)
+vmw_crtc_state_and_lock(struct drm_atomic_commit *state, struct drm_crtc *crtc)
 {
 	struct drm_crtc_state *crtc_state;
 
@@ -889,7 +895,7 @@ vmw_crtc_state_and_lock(struct drm_atomic_state *state, struct drm_crtc *crtc)
  *   -EDEADLK if modeset locking needs to be rerun.
  */
 static int vmw_kms_check_implicit(struct drm_device *dev,
-				  struct drm_atomic_state *state)
+				  struct drm_atomic_commit *state)
 {
 	struct drm_framebuffer *implicit_fb = NULL;
 	struct drm_crtc *crtc;
@@ -927,7 +933,7 @@ static int vmw_kms_check_implicit(struct drm_device *dev,
 }
 
 /**
- * vmw_kms_check_topology - Validates topology in drm_atomic_state
+ * vmw_kms_check_topology - Validates topology in drm_atomic_commit
  * @dev: DRM device
  * @state: the driver state object
  *
@@ -935,7 +941,7 @@ static int vmw_kms_check_implicit(struct drm_device *dev,
  * 0 on success otherwise negative error code
  */
 static int vmw_kms_check_topology(struct drm_device *dev,
-				  struct drm_atomic_state *state)
+				  struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *old_crtc_state, *new_crtc_state;
 	struct drm_rect *rects;
@@ -943,8 +949,7 @@ static int vmw_kms_check_topology(struct drm_device *dev,
 	uint32_t i;
 	int ret = 0;
 
-	rects = kcalloc(dev->mode_config.num_crtc, sizeof(struct drm_rect),
-			GFP_KERNEL);
+	rects = kzalloc_objs(struct drm_rect, dev->mode_config.num_crtc);
 	if (!rects)
 		return -ENOMEM;
 
@@ -1030,7 +1035,7 @@ clean:
  */
 static int
 vmw_kms_atomic_check_modeset(struct drm_device *dev,
-			     struct drm_atomic_state *state)
+			     struct drm_atomic_commit *state)
 {
 	struct drm_crtc *crtc;
 	struct drm_crtc_state *crtc_state;
@@ -1128,7 +1133,7 @@ vmw_kms_create_hotplug_mode_update_property(struct vmw_private *dev_priv)
 }
 
 static void
-vmw_atomic_commit_tail(struct drm_atomic_state *old_state)
+vmw_atomic_commit_tail(struct drm_atomic_commit *old_state)
 {
 	struct vmw_private *vmw = vmw_priv(old_state->dev);
 	struct drm_crtc *crtc;
@@ -1417,8 +1422,7 @@ int vmw_kms_update_layout_ioctl(struct drm_device *dev, void *data,
 	}
 
 	rects_size = arg->num_outputs * sizeof(struct drm_vmw_rect);
-	rects = kcalloc(arg->num_outputs, sizeof(struct drm_vmw_rect),
-			GFP_KERNEL);
+	rects = kzalloc_objs(struct drm_vmw_rect, arg->num_outputs);
 	if (unlikely(!rects))
 		return -ENOMEM;
 

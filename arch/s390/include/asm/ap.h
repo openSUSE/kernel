@@ -38,16 +38,30 @@ typedef unsigned int ap_qid_t;
  * The ap queue status word is returned by all three AP functions
  * (PQAP, NQAP and DQAP).  There's a set of flags in the first
  * byte, followed by a 1 byte response code.
+ *
+ * For convenience the 'value' field is a 32 bit access of the
+ * whole status and the 'status_bits' and 'rc' fields comprise
+ * the leftmost 8 status bits and the response_code.
  */
 struct ap_queue_status {
-	unsigned int queue_empty	: 1;
-	unsigned int replies_waiting	: 1;
-	unsigned int queue_full		: 1;
-	unsigned int			: 3;
-	unsigned int async		: 1;
-	unsigned int irq_enabled	: 1;
-	unsigned int response_code	: 8;
-	unsigned int			: 16;
+	union {
+		unsigned int value			: 32;
+		struct {
+			unsigned int status_bits	: 8;
+			unsigned int rc			: 8;
+			unsigned int			: 16;
+		};
+		struct {
+			unsigned int queue_empty	: 1;
+			unsigned int replies_waiting	: 1;
+			unsigned int queue_full		: 1;
+			unsigned int			: 3;
+			unsigned int async		: 1;
+			unsigned int irq_enabled	: 1;
+			unsigned int response_code	: 8;
+			unsigned int			: 16;
+		};
+	};
 };
 
 /*
@@ -64,7 +78,7 @@ union ap_queue_status_reg {
 };
 
 /**
- * ap_intructions_available() - Test if AP instructions are available.
+ * ap_instructions_available() - Test if AP instructions are available.
  *
  * Returns true if the AP instructions are installed, otherwise false.
  */
@@ -143,7 +157,7 @@ static inline struct ap_queue_status ap_tapq(ap_qid_t qid,
 		"	lghi	2,0\n"			/* 0 into gr2 */
 		"	.insn	rre,0xb2af0000,0,0\n"	/* PQAP(TAPQ) */
 		"	lgr	%[reg1],1\n"		/* gr1 (status) into reg1 */
-		"	lgr	%[reg2],2\n"		/* gr2 into reg2 */
+		"	lgr	%[reg2],2"		/* gr2 into reg2 */
 		: [reg1] "=&d" (reg1.value), [reg2] "=&d" (reg2)
 		: [qid] "d" (qid)
 		: "cc", "0", "1", "2");
@@ -186,7 +200,7 @@ static inline struct ap_queue_status ap_rapq(ap_qid_t qid, int fbit)
 	asm volatile(
 		"	lgr	0,%[reg0]\n"		/* qid arg into gr0 */
 		"	.insn	rre,0xb2af0000,0,0\n"	/* PQAP(RAPQ) */
-		"	lgr	%[reg1],1\n"		/* gr1 (status) into reg1 */
+		"	lgr	%[reg1],1"		/* gr1 (status) into reg1 */
 		: [reg1] "=&d" (reg1.value)
 		: [reg0] "d" (reg0)
 		: "cc", "0", "1");
@@ -211,7 +225,7 @@ static inline struct ap_queue_status ap_zapq(ap_qid_t qid, int fbit)
 	asm volatile(
 		"	lgr	0,%[reg0]\n"		/* qid arg into gr0 */
 		"	.insn	rre,0xb2af0000,0,0\n"	/* PQAP(ZAPQ) */
-		"	lgr	%[reg1],1\n"		/* gr1 (status) into reg1 */
+		"	lgr	%[reg1],1"		/* gr1 (status) into reg1 */
 		: [reg1] "=&d" (reg1.value)
 		: [reg0] "d" (reg0)
 		: "cc", "0", "1");
@@ -315,7 +329,7 @@ static inline struct ap_queue_status ap_aqic(ap_qid_t qid,
 		"	lgr	1,%[reg1]\n"		/* irq ctrl into gr1 */
 		"	lgr	2,%[reg2]\n"		/* ni addr into gr2 */
 		"	.insn	rre,0xb2af0000,0,0\n"	/* PQAP(AQIC) */
-		"	lgr	%[reg1],1\n"		/* gr1 (status) into reg1 */
+		"	lgr	%[reg1],1"		/* gr1 (status) into reg1 */
 		: [reg1] "+&d" (reg1.value)
 		: [reg0] "d" (reg0), [reg2] "d" (reg2)
 		: "cc", "memory", "0", "1", "2");
@@ -363,7 +377,7 @@ static inline struct ap_queue_status ap_qact(ap_qid_t qid, int ifbit,
 		"	lgr	1,%[reg1]\n"		/* qact in info into gr1 */
 		"	.insn	rre,0xb2af0000,0,0\n"	/* PQAP(QACT) */
 		"	lgr	%[reg1],1\n"		/* gr1 (status) into reg1 */
-		"	lgr	%[reg2],2\n"		/* qact out info into reg2 */
+		"	lgr	%[reg2],2"		/* qact out info into reg2 */
 		: [reg1] "+&d" (reg1.value), [reg2] "=&d" (reg2)
 		: [reg0] "d" (reg0)
 		: "cc", "0", "1", "2");
@@ -388,7 +402,7 @@ static inline struct ap_queue_status ap_bapq(ap_qid_t qid)
 	asm volatile(
 		"	lgr	0,%[reg0]\n"		/* qid arg into gr0 */
 		"	.insn	rre,0xb2af0000,0,0\n"	/* PQAP(BAPQ) */
-		"	lgr	%[reg1],1\n"		/* gr1 (status) into reg1 */
+		"	lgr	%[reg1],1"		/* gr1 (status) into reg1 */
 		: [reg1] "=&d" (reg1.value)
 		: [reg0] "d" (reg0)
 		: "cc", "0", "1");
@@ -416,7 +430,7 @@ static inline struct ap_queue_status ap_aapq(ap_qid_t qid, unsigned int sec_idx)
 		"	lgr	0,%[reg0]\n"		/* qid arg into gr0 */
 		"	lgr	2,%[reg2]\n"		/* secret index into gr2 */
 		"	.insn	rre,0xb2af0000,0,0\n"	/* PQAP(AAPQ) */
-		"	lgr	%[reg1],1\n"		/* gr1 (status) into reg1 */
+		"	lgr	%[reg1],1"		/* gr1 (status) into reg1 */
 		: [reg1] "=&d" (reg1.value)
 		: [reg0] "d" (reg0), [reg2] "d" (reg2)
 		: "cc", "0", "1", "2");
@@ -453,7 +467,7 @@ static inline struct ap_queue_status ap_nqap(ap_qid_t qid,
 		"	lgr	0,%[reg0]\n"  /* qid param in gr0 */
 		"0:	.insn	rre,0xb2ad0000,%[nqap_r1],%[nqap_r2]\n"
 		"	brc	2,0b\n"       /* handle partial completion */
-		"	lgr	%[reg1],1\n"  /* gr1 (status) into reg1 */
+		"	lgr	%[reg1],1"    /* gr1 (status) into reg1 */
 		: [reg0] "+&d" (reg0), [reg1] "=&d" (reg1.value),
 		  [nqap_r2] "+&d" (nqap_r2.pair)
 		: [nqap_r1] "d" (nqap_r1.pair)
@@ -518,7 +532,7 @@ static inline struct ap_queue_status ap_dqap(ap_qid_t qid,
 		"	brc	6,0b\n"        /* handle partial complete */
 		"2:	lgr	%[reg0],0\n"   /* gr0 (qid + info) into reg0 */
 		"	lgr	%[reg1],1\n"   /* gr1 (status) into reg1 */
-		"	lgr	%[reg2],2\n"   /* gr2 (res length) into reg2 */
+		"	lgr	%[reg2],2"     /* gr2 (res length) into reg2 */
 		: [reg0] "+&d" (reg0), [reg1] "=&d" (reg1.value),
 		  [reg2] "=&d" (reg2), [rp1] "+&d" (rp1.pair),
 		  [rp2] "+&d" (rp2.pair)

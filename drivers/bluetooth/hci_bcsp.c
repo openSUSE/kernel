@@ -582,6 +582,9 @@ static int bcsp_recv(struct hci_uart *hu, const void *data, int count)
 	struct bcsp_struct *bcsp = hu->priv;
 	const unsigned char *ptr;
 
+	if (!test_bit(HCI_UART_REGISTERED, &hu->flags))
+		return -EUNATCH;
+
 	BT_DBG("hu %p count %d rx_state %d rx_count %ld",
 	       hu, count, bcsp->rx_state, bcsp->rx_count);
 
@@ -713,7 +716,7 @@ static int bcsp_open(struct hci_uart *hu)
 
 	BT_DBG("hu %p", hu);
 
-	bcsp = kzalloc(sizeof(*bcsp), GFP_KERNEL);
+	bcsp = kzalloc_obj(*bcsp);
 	if (!bcsp)
 		return -ENOMEM;
 

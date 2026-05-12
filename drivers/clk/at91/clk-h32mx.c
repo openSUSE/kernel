@@ -40,21 +40,32 @@ static unsigned long clk_sama5d4_h32mx_recalc_rate(struct clk_hw *hw,
 	return parent_rate;
 }
 
-static long clk_sama5d4_h32mx_round_rate(struct clk_hw *hw, unsigned long rate,
-				       unsigned long *parent_rate)
+static int clk_sama5d4_h32mx_determine_rate(struct clk_hw *hw,
+					    struct clk_rate_request *req)
 {
 	unsigned long div;
 
-	if (rate > *parent_rate)
-		return *parent_rate;
-	div = *parent_rate / 2;
-	if (rate < div)
-		return div;
+	if (req->rate > req->best_parent_rate) {
+		req->rate = req->best_parent_rate;
 
-	if (rate - div < *parent_rate - rate)
-		return div;
+		return 0;
+	}
+	div = req->best_parent_rate / 2;
+	if (req->rate < div) {
+		req->rate = div;
 
-	return *parent_rate;
+		return 0;
+	}
+
+	if (req->rate - div < req->best_parent_rate - req->rate) {
+		req->rate = div;
+
+		return 0;
+	}
+
+	req->rate = req->best_parent_rate;
+
+	return 0;
 }
 
 static int clk_sama5d4_h32mx_set_rate(struct clk_hw *hw, unsigned long rate,
@@ -77,7 +88,7 @@ static int clk_sama5d4_h32mx_set_rate(struct clk_hw *hw, unsigned long rate,
 
 static const struct clk_ops h32mx_ops = {
 	.recalc_rate = clk_sama5d4_h32mx_recalc_rate,
-	.round_rate = clk_sama5d4_h32mx_round_rate,
+	.determine_rate = clk_sama5d4_h32mx_determine_rate,
 	.set_rate = clk_sama5d4_h32mx_set_rate,
 };
 
@@ -89,7 +100,7 @@ at91_clk_register_h32mx(struct regmap *regmap, const char *name,
 	struct clk_init_data init;
 	int ret;
 
-	h32mxclk = kzalloc(sizeof(*h32mxclk), GFP_KERNEL);
+	h32mxclk = kzalloc_obj(*h32mxclk);
 	if (!h32mxclk)
 		return ERR_PTR(-ENOMEM);
 

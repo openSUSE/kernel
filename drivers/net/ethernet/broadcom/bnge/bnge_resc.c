@@ -34,6 +34,18 @@ static unsigned int bnge_get_max_func_stat_ctxs(struct bnge_dev *bd)
 	return bd->hw_resc.max_stat_ctxs;
 }
 
+bool bnge_aux_has_enough_resources(struct bnge_dev *bd)
+{
+	unsigned int max_stat_ctxs;
+
+	max_stat_ctxs = bnge_get_max_func_stat_ctxs(bd);
+	if (max_stat_ctxs <= BNGE_MIN_ROCE_STAT_CTXS ||
+	    bd->nq_nr_rings == max_stat_ctxs)
+		return false;
+
+	return true;
+}
+
 static unsigned int bnge_get_max_func_cp_rings(struct bnge_dev *bd)
 {
 	return bd->hw_resc.max_cp_rings;
@@ -46,7 +58,7 @@ static int bnge_aux_get_dflt_msix(struct bnge_dev *bd)
 	return min_t(int, roce_msix, num_online_cpus() + 1);
 }
 
-static u16 bnge_aux_get_msix(struct bnge_dev *bd)
+u16 bnge_aux_get_msix(struct bnge_dev *bd)
 {
 	if (bnge_is_roce_en(bd))
 		return bd->aux_num_msix;
@@ -164,7 +176,7 @@ static int bnge_adjust_rings(struct bnge_dev *bd, u16 *rx,
 	return bnge_fix_rings_count(rx, tx, max_nq, sh);
 }
 
-static int bnge_cal_nr_rss_ctxs(u16 rx_rings)
+int bnge_cal_nr_rss_ctxs(u16 rx_rings)
 {
 	if (!rx_rings)
 		return 0;
@@ -184,7 +196,7 @@ static u16 bnge_get_total_vnics(struct bnge_dev *bd, u16 rx_rings)
 	return 1;
 }
 
-static u32 bnge_get_rxfh_indir_size(struct bnge_dev *bd)
+u32 bnge_get_rxfh_indir_size(struct bnge_dev *bd)
 {
 	return bnge_cal_nr_rss_ctxs(bd->rx_nr_rings) *
 	       BNGE_RSS_TABLE_ENTRIES;
@@ -377,7 +389,7 @@ int bnge_alloc_irqs(struct bnge_dev *bd)
 	num_entries = irqs_demand;
 	if (pci_msix_can_alloc_dyn(bd->pdev))
 		num_entries = max;
-	bd->irq_tbl = kcalloc(num_entries, sizeof(*bd->irq_tbl), GFP_KERNEL);
+	bd->irq_tbl = kzalloc_objs(*bd->irq_tbl, num_entries);
 	if (!bd->irq_tbl) {
 		rc = -ENOMEM;
 		goto err_free_irqs;

@@ -96,7 +96,7 @@ static void i2c_payloads_add(
 	for (pos = 0; pos < len; pos += payload_size) {
 		struct i2c_payload payload = {
 			.write = write,
-			.address = address,
+			.address = (uint8_t)address,
 			.length = DDC_MIN(payload_size, len - pos),
 			.data = data + pos };
 		dal_vector_append(&payloads->payloads, &payload);
@@ -156,7 +156,7 @@ struct ddc_service *link_create_ddc_service(
 {
 	struct ddc_service *ddc_service;
 
-	ddc_service = kzalloc(sizeof(struct ddc_service), GFP_KERNEL);
+	ddc_service = kzalloc_obj(struct ddc_service);
 
 	if (!ddc_service)
 		return NULL;
@@ -384,8 +384,7 @@ bool link_query_ddc_data(
 		i2c_payloads_add(
 			&payloads, address, read_size, read_buf, false);
 
-		command.number_of_payloads =
-			i2c_payloads_get_count(&payloads);
+		command.number_of_payloads = (uint8_t)i2c_payloads_get_count(&payloads);
 
 		success = dm_helpers_submit_i2c(
 				ddc->ctx,
@@ -549,7 +548,8 @@ void write_scdc_data(struct ddc_service *ddc_service,
 	/*Lower than 340 Scramble bit from SCDC caps*/
 
 	if (ddc_service->link->local_sink &&
-		ddc_service->link->local_sink->edid_caps.panel_patch.skip_scdc_overwrite)
+		(ddc_service->link->local_sink->edid_caps.panel_patch.skip_scdc_overwrite ||
+		!ddc_service->link->local_sink->edid_caps.scdc_present))
 		return;
 
 	link_query_ddc_data(ddc_service, slave_address, &offset,

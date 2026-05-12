@@ -33,6 +33,9 @@ bool relaxed_maps;
 bool use_loader;
 struct btf *base_btf;
 struct hashmap *refs_table;
+bool sign_progs;
+const char *private_key_path;
+const char *cert_path;
 
 static void __noreturn clean_and_exit(int i)
 {
@@ -61,7 +64,7 @@ static int do_help(int argc, char **argv)
 		"       %s batch file FILE\n"
 		"       %s version\n"
 		"\n"
-		"       OBJECT := { prog | map | link | cgroup | perf | net | feature | btf | gen | struct_ops | iter }\n"
+		"       OBJECT := { prog | map | link | cgroup | perf | net | feature | btf | gen | struct_ops | iter | token }\n"
 		"       " HELP_SPEC_OPTIONS " |\n"
 		"                    {-V|--version} }\n"
 		"",
@@ -87,6 +90,7 @@ static const struct cmd commands[] = {
 	{ "gen",	do_gen },
 	{ "struct_ops",	do_struct_ops },
 	{ "iter",	do_iter },
+	{ "token",	do_token },
 	{ "version",	do_version },
 	{ 0 }
 };
@@ -128,6 +132,11 @@ static int do_version(int argc, char **argv)
 #else
 	const bool has_skeletons = true;
 #endif
+#ifdef BPFTOOL_WITHOUT_CRYPTO
+	const bool has_crypto = false;
+#else
+	const bool has_crypto = true;
+#endif
 	bool bootstrap = false;
 	int i;
 
@@ -159,6 +168,7 @@ static int do_version(int argc, char **argv)
 		jsonw_start_object(json_wtr);	/* features */
 		jsonw_bool_field(json_wtr, "libbfd", has_libbfd);
 		jsonw_bool_field(json_wtr, "llvm", has_llvm);
+		jsonw_bool_field(json_wtr, "crypto", has_crypto);
 		jsonw_bool_field(json_wtr, "skeletons", has_skeletons);
 		jsonw_bool_field(json_wtr, "bootstrap", bootstrap);
 		jsonw_end_object(json_wtr);	/* features */
@@ -177,6 +187,7 @@ static int do_version(int argc, char **argv)
 		printf("features:");
 		print_feature("libbfd", has_libbfd, &nb_features);
 		print_feature("llvm", has_llvm, &nb_features);
+		print_feature("crypto", has_crypto, &nb_features);
 		print_feature("skeletons", has_skeletons, &nb_features);
 		print_feature("bootstrap", bootstrap, &nb_features);
 		printf("\n");
@@ -447,6 +458,7 @@ int main(int argc, char **argv)
 		{ "nomount",	no_argument,	NULL,	'n' },
 		{ "debug",	no_argument,	NULL,	'd' },
 		{ "use-loader",	no_argument,	NULL,	'L' },
+		{ "sign",	no_argument,	NULL,	'S' },
 		{ "base-btf",	required_argument, NULL, 'B' },
 		{ 0 }
 	};
@@ -473,7 +485,7 @@ int main(int argc, char **argv)
 	bin_name = "bpftool";
 
 	opterr = 0;
-	while ((opt = getopt_long(argc, argv, "VhpjfLmndB:l",
+	while ((opt = getopt_long(argc, argv, "VhpjfLmndSi:k:B:l",
 				  options, NULL)) >= 0) {
 		switch (opt) {
 		case 'V':
@@ -519,6 +531,16 @@ int main(int argc, char **argv)
 		case 'L':
 			use_loader = true;
 			break;
+		case 'S':
+			sign_progs = true;
+			use_loader = true;
+			break;
+		case 'k':
+			private_key_path = optarg;
+			break;
+		case 'i':
+			cert_path = optarg;
+			break;
 		default:
 			p_err("unrecognized option '%s'", argv[optind - 1]);
 			if (json_output)
@@ -532,6 +554,16 @@ int main(int argc, char **argv)
 	argv += optind;
 	if (argc < 0)
 		usage();
+
+	if (sign_progs && (private_key_path == NULL || cert_path == NULL)) {
+		p_err("-i <identity_x509_cert> and -k <private_key> must be supplied with -S for signing");
+		return -EINVAL;
+	}
+
+	if (!sign_progs && (private_key_path != NULL || cert_path != NULL)) {
+		p_err("--sign (or -S) must be explicitly passed with -i <identity_x509_cert> and -k <private_key> to sign the programs");
+		return -EINVAL;
+	}
 
 	if (version_requested)
 		ret = do_version(argc, argv);

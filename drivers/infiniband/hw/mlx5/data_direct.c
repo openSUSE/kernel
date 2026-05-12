@@ -35,7 +35,7 @@ static int mlx5_data_direct_vpd_get_vuid(struct mlx5_data_direct_dev *dev)
 
 	vpd_data = pci_vpd_alloc(pdev, &vpd_size);
 	if (IS_ERR(vpd_data)) {
-		pci_err(pdev, "Unable to read VPD, err=%ld\n", PTR_ERR(vpd_data));
+		pci_err(pdev, "Unable to read VPD, err=%pe\n", vpd_data);
 		return PTR_ERR(vpd_data);
 	}
 
@@ -83,7 +83,7 @@ int mlx5_data_direct_ib_reg(struct mlx5_ib_dev *ibdev, char *vuid)
 	struct mlx5_data_direct_registration *reg;
 	struct mlx5_data_direct_dev *dev;
 
-	reg = kzalloc(sizeof(*reg), GFP_KERNEL);
+	reg = kzalloc_obj(*reg);
 	if (!reg)
 		return -ENOMEM;
 
@@ -160,7 +160,7 @@ static int mlx5_data_direct_probe(struct pci_dev *pdev, const struct pci_device_
 	struct mlx5_data_direct_dev *dev;
 	int err;
 
-	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+	dev = kzalloc_obj(*dev);
 	if (!dev)
 		return -ENOMEM;
 

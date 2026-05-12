@@ -250,6 +250,7 @@ void opp1_set_dyn_expansion(
 	enum dc_color_depth color_dpth,
 	enum signal_type signal)
 {
+	(void)color_sp;
 	struct dcn10_opp *oppn10 = TO_DCN10_OPP(opp);
 
 	REG_UPDATE_2(FMT_DYNAMIC_EXP_CNTL,
@@ -372,6 +373,17 @@ void opp1_pipe_clock_control(struct output_pixel_processor *opp, bool enable)
 	REG_UPDATE(OPP_PIPE_CONTROL, OPP_PIPE_CLOCK_EN, regval);
 }
 
+
+void opp1_read_reg_state(struct output_pixel_processor *opp, struct dcn_opp_reg_state *opp_reg_state)
+{
+	struct dcn10_opp *oppn10 = TO_DCN10_OPP(opp);
+
+	opp_reg_state->fmt_control = REG_READ(FMT_CONTROL);
+	opp_reg_state->opp_pipe_control = REG_READ(OPP_PIPE_CONTROL);
+	opp_reg_state->opp_pipe_crc_control = REG_READ(OPP_PIPE_CRC_CONTROL);
+	opp_reg_state->oppbuf_control = REG_READ(OPPBUF_CONTROL);
+}
+
 /*****************************************/
 /* Constructor, Destructor               */
 /*****************************************/
@@ -392,7 +404,8 @@ static const struct opp_funcs dcn10_opp_funcs = {
 		.opp_program_dpg_dimensions = NULL,
 		.dpg_is_blanked = NULL,
 		.dpg_is_pending = NULL,
-		.opp_destroy = opp1_destroy
+		.opp_destroy = opp1_destroy,
+		.opp_read_reg_state = opp1_read_reg_state
 };
 
 void dcn10_opp_construct(struct dcn10_opp *oppn10,

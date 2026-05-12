@@ -241,7 +241,7 @@ unsigned long get_fb_unmapped_area(struct file *filp, unsigned long orig_addr, u
 
 	if (flags & MAP_FIXED) {
 		/* Ok, don't mess with it. */
-		return mm_get_unmapped_area(current->mm, NULL, orig_addr, len, pgoff, flags);
+		return mm_get_unmapped_area(NULL, orig_addr, len, pgoff, flags);
 	}
 	flags &= ~MAP_SHARED;
 
@@ -254,7 +254,7 @@ unsigned long get_fb_unmapped_area(struct file *filp, unsigned long orig_addr, u
 		align_goal = (64UL * 1024);
 
 	do {
-		addr = mm_get_unmapped_area(current->mm, NULL, orig_addr,
+		addr = mm_get_unmapped_area(NULL, orig_addr,
 					    len + (align_goal - PAGE_SIZE), pgoff, flags);
 		if (!(addr & ~PAGE_MASK)) {
 			addr = (addr + (align_goal - 1UL)) & ~(align_goal - 1UL);
@@ -273,7 +273,7 @@ unsigned long get_fb_unmapped_area(struct file *filp, unsigned long orig_addr, u
 	 * be obtained.
 	 */
 	if (addr & ~PAGE_MASK)
-		addr = mm_get_unmapped_area(current->mm, NULL, orig_addr, len, pgoff, flags);
+		addr = mm_get_unmapped_area(NULL, orig_addr, len, pgoff, flags);
 
 	return addr;
 }
@@ -294,7 +294,7 @@ static unsigned long mmap_rnd(void)
 	return rnd << PAGE_SHIFT;
 }
 
-void arch_pick_mmap_layout(struct mm_struct *mm, struct rlimit *rlim_stack)
+void arch_pick_mmap_layout(struct mm_struct *mm, const struct rlimit *rlim_stack)
 {
 	unsigned long random_factor = mmap_rnd();
 	unsigned long gap;
@@ -309,7 +309,7 @@ void arch_pick_mmap_layout(struct mm_struct *mm, struct rlimit *rlim_stack)
 	    gap == RLIM_INFINITY ||
 	    sysctl_legacy_va_layout) {
 		mm->mmap_base = TASK_UNMAPPED_BASE + random_factor;
-		clear_bit(MMF_TOPDOWN, &mm->flags);
+		mm_flags_clear(MMF_TOPDOWN, mm);
 	} else {
 		/* We know it's 32-bit */
 		unsigned long task_size = STACK_TOP32;
@@ -320,7 +320,7 @@ void arch_pick_mmap_layout(struct mm_struct *mm, struct rlimit *rlim_stack)
 			gap = (task_size / 6 * 5);
 
 		mm->mmap_base = PAGE_ALIGN(task_size - gap - random_factor);
-		set_bit(MMF_TOPDOWN, &mm->flags);
+		mm_flags_set(MMF_TOPDOWN, mm);
 	}
 }
 
@@ -647,8 +647,7 @@ SYSCALL_DEFINE5(utrap_install, utrap_entry_t, type,
 	}
 	if (!current_thread_info()->utraps) {
 		current_thread_info()->utraps =
-			kcalloc(UT_TRAP_INSTRUCTION_31 + 1, sizeof(long),
-				GFP_KERNEL);
+			kzalloc_objs(long, UT_TRAP_INSTRUCTION_31 + 1);
 		if (!current_thread_info()->utraps)
 			return -ENOMEM;
 		current_thread_info()->utraps[0] = 1;
@@ -658,9 +657,7 @@ SYSCALL_DEFINE5(utrap_install, utrap_entry_t, type,
 			unsigned long *p = current_thread_info()->utraps;
 
 			current_thread_info()->utraps =
-				kmalloc_array(UT_TRAP_INSTRUCTION_31 + 1,
-					      sizeof(long),
-					      GFP_KERNEL);
+				kmalloc_objs(long, UT_TRAP_INSTRUCTION_31 + 1);
 			if (!current_thread_info()->utraps) {
 				current_thread_info()->utraps = p;
 				return -ENOMEM;

@@ -2,6 +2,7 @@
 /* Do not edit directly, auto-generated from: */
 /*	Documentation/netlink/specs/netdev.yaml */
 /* YNL-GEN uapi header */
+/* To regenerate run: tools/net/ynl/ynl-regen.sh */
 
 #ifndef _UAPI_LINUX_NETDEV_H
 #define _UAPI_LINUX_NETDEV_H
@@ -80,6 +81,7 @@ enum netdev_qstats_scope {
 enum netdev_napi_threaded {
 	NETDEV_NAPI_THREADED_DISABLED,
 	NETDEV_NAPI_THREADED_ENABLED,
+	NETDEV_NAPI_THREADED_BUSY_POLL,
 };
 
 enum {
@@ -158,6 +160,7 @@ enum {
 	NETDEV_A_QUEUE_DMABUF,
 	NETDEV_A_QUEUE_IO_URING,
 	NETDEV_A_QUEUE_XSK,
+	NETDEV_A_QUEUE_LEASE,
 
 	__NETDEV_A_QUEUE_MAX,
 	NETDEV_A_QUEUE_MAX = (__NETDEV_A_QUEUE_MAX - 1)
@@ -201,6 +204,15 @@ enum {
 };
 
 enum {
+	NETDEV_A_LEASE_IFINDEX = 1,
+	NETDEV_A_LEASE_QUEUE,
+	NETDEV_A_LEASE_NETNS_ID,
+
+	__NETDEV_A_LEASE_MAX,
+	NETDEV_A_LEASE_MAX = (__NETDEV_A_LEASE_MAX - 1)
+};
+
+enum {
 	NETDEV_A_DMABUF_IFINDEX = 1,
 	NETDEV_A_DMABUF_QUEUES,
 	NETDEV_A_DMABUF_FD,
@@ -226,6 +238,7 @@ enum {
 	NETDEV_CMD_BIND_RX,
 	NETDEV_CMD_NAPI_SET,
 	NETDEV_CMD_BIND_TX,
+	NETDEV_CMD_QUEUE_CREATE,
 
 	__NETDEV_CMD_MAX,
 	NETDEV_CMD_MAX = (__NETDEV_CMD_MAX - 1)

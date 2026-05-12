@@ -519,11 +519,11 @@ ahc_linux_info(struct Scsi_Host *host)
 /*
  * Queue an SCB to the controller.
  */
-static int ahc_linux_queue_lck(struct scsi_cmnd *cmd)
+static enum scsi_qc_status ahc_linux_queue_lck(struct scsi_cmnd *cmd)
 {
 	struct	 ahc_softc *ahc;
 	struct	 ahc_linux_device *dev = scsi_transport_device_data(cmd->device);
-	int rtn = SCSI_MLQUEUE_HOST_BUSY;
+	enum scsi_qc_status rtn = SCSI_MLQUEUE_HOST_BUSY;
 	unsigned long flags;
 
 	ahc = *(struct ahc_softc **)cmd->device->host->hostdata;
@@ -683,7 +683,7 @@ ahc_linux_sdev_configure(struct scsi_device *sdev, struct queue_limits *lim)
  * Return the disk geometry for the given SCSI device.
  */
 static int
-ahc_linux_biosparam(struct scsi_device *sdev, struct block_device *bdev,
+ahc_linux_biosparam(struct scsi_device *sdev, struct gendisk *disk,
 		    sector_t capacity, int geom[])
 {
 	int	 heads;
@@ -696,7 +696,7 @@ ahc_linux_biosparam(struct scsi_device *sdev, struct block_device *bdev,
 	ahc = *((struct ahc_softc **)sdev->host->hostdata);
 	channel = sdev_channel(sdev);
 
-	if (scsi_partsize(bdev, capacity, geom))
+	if (scsi_partsize(disk, capacity, geom))
 		return 0;
 
 	heads = 64;
@@ -823,7 +823,7 @@ ahc_dma_tag_create(struct ahc_softc *ahc, bus_dma_tag_t parent,
 {
 	bus_dma_tag_t dmat;
 
-	dmat = kmalloc(sizeof(*dmat), GFP_ATOMIC);
+	dmat = kmalloc_obj(*dmat, GFP_ATOMIC);
 	if (dmat == NULL)
 		return (ENOMEM);
 
@@ -1201,7 +1201,7 @@ ahc_platform_alloc(struct ahc_softc *ahc, void *platform_arg)
 {
 
 	ahc->platform_data =
-	    kzalloc(sizeof(struct ahc_platform_data), GFP_ATOMIC);
+	    kzalloc_obj(struct ahc_platform_data, GFP_ATOMIC);
 	if (ahc->platform_data == NULL)
 		return (ENOMEM);
 	ahc->platform_data->irq = AHC_LINUX_NOIRQ;

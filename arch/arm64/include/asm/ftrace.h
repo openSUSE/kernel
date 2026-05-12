@@ -37,7 +37,7 @@
  */
 #define ARCH_FTRACE_SHIFT_STACK_TRACER 1
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 #include <linux/compat.h>
 
 extern void _mcount(unsigned long);
@@ -153,6 +153,7 @@ ftrace_partial_regs(const struct ftrace_regs *fregs, struct pt_regs *regs)
 	regs->pc = afregs->pc;
 	regs->regs[29] = afregs->fp;
 	regs->regs[30] = afregs->lr;
+	regs->pstate = PSR_MODE_EL1h;
 	return regs;
 }
 
@@ -216,9 +217,9 @@ static inline bool arch_syscall_match_sym_name(const char *sym,
 	 */
 	return !strcmp(sym + 8, name);
 }
-#endif /* ifndef __ASSEMBLY__ */
+#endif /* ifndef __ASSEMBLER__ */
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
 
 void prepare_ftrace_return(unsigned long self_addr, unsigned long *parent,

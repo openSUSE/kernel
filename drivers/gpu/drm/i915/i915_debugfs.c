@@ -26,12 +26,15 @@
  *
  */
 
+#include <linux/debugfs.h>
 #include <linux/sched/mm.h>
 #include <linux/sort.h>
 #include <linux/string_helpers.h>
 
-#include <linux/debugfs.h>
 #include <drm/drm_debugfs.h>
+#include <drm/drm_print.h>
+#include <drm/intel/intel_gmd_misc_regs.h>
+#include <drm/intel/mchbar_regs.h>
 
 #include "gem/i915_gem_context.h"
 #include "gt/intel_gt.h"
@@ -54,7 +57,7 @@
 #include "i915_irq.h"
 #include "i915_reg.h"
 #include "i915_scheduler.h"
-#include "intel_mchbar_regs.h"
+#include "i915_wait_util.h"
 
 static inline struct drm_i915_private *node_to_i915(struct drm_info_node *node)
 {

@@ -38,6 +38,7 @@ obj-$(CONFIG_GENERIC_ARCH_TOPOLOGY)	+= topology.o
 obj-$(CONFIG_FUNCTION_TRACER)		+= ftrace.o
 obj-$(CONFIG_FUNCTION_GRAPH_TRACER)	+= ftrace.o
 obj-$(CONFIG_JUMP_LABEL)		+= jump_label.o
+obj-$(CONFIG_PERF_EVENTS)		+= perf_event.o perf_regs.o
 obj-$(CONFIG_KGDB)			+= kgdb.o
 obj-$(CONFIG_KPROBES)			+= kprobes.o
 obj-$(CONFIG_KEXEC_CORE)		+= kexec.o relocate_kernel.o
@@ -46,4 +47,5 @@ obj-$(CONFIG_KEXEC_FILE)		+= kexec_file.o
 # vdso
 obj-y			+= vdso.o
 obj-$(CONFIG_64BIT)	+= vdso64/
-obj-y			+= vdso32/
+obj-$(CONFIG_PA11)	+= vdso32/
+obj-$(CONFIG_COMPAT)	+= vdso32/

@@ -6,8 +6,9 @@
 #include <linux/ethtool_netlink.h>
 #include <linux/phy_link_topology.h>
 #include <linux/pm_runtime.h>
-#include "netlink.h"
+
 #include "module_fw.h"
+#include "netlink.h"
 
 static struct genl_family ethtool_genl_family;
 
@@ -420,6 +421,7 @@ ethnl_default_requests[__ETHTOOL_MSG_USER_CNT] = {
 	[ETHTOOL_MSG_TSCONFIG_GET]	= &ethnl_tsconfig_request_ops,
 	[ETHTOOL_MSG_TSCONFIG_SET]	= &ethnl_tsconfig_request_ops,
 	[ETHTOOL_MSG_PHY_GET]		= &ethnl_phy_request_ops,
+	[ETHTOOL_MSG_MSE_GET]		= &ethnl_mse_request_ops,
 };
 
 static struct ethnl_dump_ctx *ethnl_dump_context(struct netlink_callback *cb)
@@ -460,7 +462,8 @@ static int ethnl_default_parse(struct ethnl_req_info *req_info,
 		return ret;
 
 	if (request_ops->parse_request) {
-		ret = request_ops->parse_request(req_info, tb, info->extack);
+		ret = request_ops->parse_request(req_info, info, tb,
+						 info->extack);
 		if (ret < 0)
 			goto err_dev;
 	}
@@ -1533,6 +1536,15 @@ static const struct genl_ops ethtool_genl_ops[] = {
 		.doit	= ethnl_rss_delete_doit,
 		.policy	= ethnl_rss_delete_policy,
 		.maxattr = ARRAY_SIZE(ethnl_rss_delete_policy) - 1,
+	},
+	{
+		.cmd	= ETHTOOL_MSG_MSE_GET,
+		.doit	= ethnl_default_doit,
+		.start	= ethnl_perphy_start,
+		.dumpit	= ethnl_perphy_dumpit,
+		.done	= ethnl_perphy_done,
+		.policy = ethnl_mse_get_policy,
+		.maxattr = ARRAY_SIZE(ethnl_mse_get_policy) - 1,
 	},
 };
 

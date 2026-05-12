@@ -35,7 +35,6 @@
 		.io_reg = 0x4 + REG_SIZE * id,                        \
 		.intr_cfg_reg = 0x8 + REG_SIZE * id,                  \
 		.intr_status_reg = 0xc + REG_SIZE * id,               \
-		.intr_target_reg = 0x8 + REG_SIZE * id,               \
 		.mux_bit = 2,                                         \
 		.pull_bit = 0,                                        \
 		.drv_bit = 6,                                         \
@@ -65,7 +64,6 @@
 		.io_reg = 0,                                         \
 		.intr_cfg_reg = 0,                                   \
 		.intr_status_reg = 0,                                \
-		.intr_target_reg = 0,                                \
 		.mux_bit = -1,                                       \
 		.pull_bit = pull,                                    \
 		.drv_bit = drv,                                      \
@@ -90,7 +88,6 @@
 		.io_reg = io,				\
 		.intr_cfg_reg = 0,			\
 		.intr_status_reg = 0,			\
-		.intr_target_reg = 0,			\
 		.mux_bit = -1,				\
 		.pull_bit = 3,				\
 		.drv_bit = 0,				\
@@ -1290,7 +1287,7 @@ static const char *const wcn_sw_ctrl_groups[] = {
 };
 
 static const struct pinfunction sm8750_functions[] = {
-	MSM_PIN_FUNCTION(gpio),
+	MSM_GPIO_PIN_FUNCTION(gpio),
 	MSM_PIN_FUNCTION(aoss_cti),
 	MSM_PIN_FUNCTION(atest_char),
 	MSM_PIN_FUNCTION(atest_usb),
@@ -1319,7 +1316,7 @@ static const struct pinfunction sm8750_functions[] = {
 	MSM_PIN_FUNCTION(ddr_pxi2),
 	MSM_PIN_FUNCTION(ddr_pxi3),
 	MSM_PIN_FUNCTION(dp_hot),
-	MSM_PIN_FUNCTION(egpio),
+	MSM_GPIO_PIN_FUNCTION(egpio),
 	MSM_PIN_FUNCTION(gcc_gp1),
 	MSM_PIN_FUNCTION(gcc_gp2),
 	MSM_PIN_FUNCTION(gcc_gp3),

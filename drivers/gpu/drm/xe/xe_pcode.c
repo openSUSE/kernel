@@ -32,27 +32,39 @@
 
 static int pcode_mailbox_status(struct xe_tile *tile)
 {
+	const char *err_str;
+	int err_decode;
 	u32 err;
-	static const struct pcode_err_decode err_decode[] = {
-		[PCODE_ILLEGAL_CMD] = {-ENXIO, "Illegal Command"},
-		[PCODE_TIMEOUT] = {-ETIMEDOUT, "Timed out"},
-		[PCODE_ILLEGAL_DATA] = {-EINVAL, "Illegal Data"},
-		[PCODE_ILLEGAL_SUBCOMMAND] = {-ENXIO, "Illegal Subcommand"},
-		[PCODE_LOCKED] = {-EBUSY, "PCODE Locked"},
-		[PCODE_GT_RATIO_OUT_OF_RANGE] = {-EOVERFLOW,
-			"GT ratio out of range"},
-		[PCODE_REJECTED] = {-EACCES, "PCODE Rejected"},
-		[PCODE_ERROR_MASK] = {-EPROTO, "Unknown"},
-	};
+
+#define CASE_ERR(_err, _err_decode, _err_str)	\
+	case _err:				\
+		err_decode = _err_decode;	\
+		err_str = _err_str;		\
+		break
 
 	err = xe_mmio_read32(&tile->mmio, PCODE_MAILBOX) & PCODE_ERROR_MASK;
+	switch (err) {
+	CASE_ERR(PCODE_ILLEGAL_CMD,           -ENXIO,     "Illegal Command");
+	CASE_ERR(PCODE_TIMEOUT,               -ETIMEDOUT, "Timed out");
+	CASE_ERR(PCODE_ILLEGAL_DATA,          -EINVAL,    "Illegal Data");
+	CASE_ERR(PCODE_ILLEGAL_SUBCOMMAND,    -ENXIO,     "Illegal Subcommand");
+	CASE_ERR(PCODE_LOCKED,                -EBUSY,     "PCODE Locked");
+	CASE_ERR(PCODE_GT_RATIO_OUT_OF_RANGE, -EOVERFLOW, "GT ratio out of range");
+	CASE_ERR(PCODE_REJECTED,              -EACCES,    "PCODE Rejected");
+	default:
+		err_decode = -EPROTO;
+		err_str = "Unknown";
+	}
+
 	if (err) {
-		drm_err(&tile_to_xe(tile)->drm, "PCODE Mailbox failed: %d %s", err,
-			err_decode[err].str ?: "Unknown");
-		return err_decode[err].errno ?: -EPROTO;
+		drm_err(&tile_to_xe(tile)->drm, "PCODE Mailbox failed: %d %s",
+			err_decode, err_str);
+
+		return err_decode;
 	}
 
 	return 0;
+#undef CASE_ERR
 }
 
 static int __pcode_mailbox_rw(struct xe_tile *tile, u32 mbox, u32 *data0, u32 *data1,
@@ -336,33 +348,3 @@ int xe_pcode_probe_early(struct xe_device *xe)
 	return xe_pcode_ready(xe, false);
 }
 ALLOW_ERROR_INJECTION(xe_pcode_probe_early, ERRNO); /* See xe_pci_probe */
-
-/* Helpers with drm device. These should only be called by the display side */
-#if IS_ENABLED(CONFIG_DRM_XE_DISPLAY)
-
-int intel_pcode_read(struct drm_device *drm, u32 mbox, u32 *val, u32 *val1)
-{
-	struct xe_device *xe = to_xe_device(drm);
-	struct xe_tile *tile = xe_device_get_root_tile(xe);
-
-	return xe_pcode_read(tile, mbox, val, val1);
-}
-
-int intel_pcode_write_timeout(struct drm_device *drm, u32 mbox, u32 val, int timeout_ms)
-{
-	struct xe_device *xe = to_xe_device(drm);
-	struct xe_tile *tile = xe_device_get_root_tile(xe);
-
-	return xe_pcode_write_timeout(tile, mbox, val, timeout_ms);
-}
-
-int intel_pcode_request(struct drm_device *drm, u32 mbox, u32 request,
-			u32 reply_mask, u32 reply, int timeout_base_ms)
-{
-	struct xe_device *xe = to_xe_device(drm);
-	struct xe_tile *tile = xe_device_get_root_tile(xe);
-
-	return xe_pcode_request(tile, mbox, request, reply_mask, reply, timeout_base_ms);
-}
-
-#endif

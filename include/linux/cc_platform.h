@@ -74,7 +74,7 @@ enum cc_attr {
 	CC_ATTR_GUEST_UNROLL_STRING_IO,
 
 	/**
-	 * @CC_ATTR_SEV_SNP: Guest SNP is active.
+	 * @CC_ATTR_GUEST_SEV_SNP: Guest SNP is active.
 	 *
 	 * The platform/OS is running as a guest/virtual machine and actively
 	 * using AMD SEV-SNP features.
@@ -96,6 +96,14 @@ enum cc_attr {
 	 * enabled to run SEV-SNP guests.
 	 */
 	CC_ATTR_HOST_SEV_SNP,
+
+	/**
+	 * @CC_ATTR_SNP_SECURE_AVIC: Secure AVIC mode is active.
+	 *
+	 * The host kernel is running with the necessary features enabled
+	 * to run SEV-SNP guests with full Secure AVIC capabilities.
+	 */
+	CC_ATTR_SNP_SECURE_AVIC,
 };
 
 #ifdef CONFIG_ARCH_HAS_CC_PLATFORM

@@ -25,12 +25,6 @@
 #include "helper.h"
 #include "mixer_s1810c.h"
 
-#define SC1810C_CMD_REQ	160
-#define SC1810C_CMD_REQTYPE \
-	(USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_DIR_OUT)
-#define SC1810C_CMD_F1		0x50617269
-#define SC1810C_CMD_F2		0x14
-
 /*
  * DISCLAIMER: These are just guesses based on the
  * dumps I got.
@@ -42,9 +36,8 @@
  *  * b selects an input channel (see below).
  *  * c selects an output channel pair (see below).
  *  * d selects left (0) or right (1) of that pair.
- *  * e 0-> disconnect, 0x01000000-> connect,
- *	0x0109-> used for stereo-linking channels,
- *	e is also used for setting volume levels
+ *  * e level : see MIXER_LEVEL_* defines below.
+ *	Also used for setting volume levels
  *	in which case b is also set so I guess
  *	this way it is possible to set the volume
  *	level from the specified input to the
@@ -75,54 +68,102 @@
  * For output (0x65):
  *   * b is the output channel (see above).
  *   * c is zero.
- *   * e I guess the same as with mixer except 0x0109
- *	 which I didn't see in my dumps.
+ *   * e I guess the same as with mixer
  *
- * The two fixed fields have the same values for
- * mixer and output but a different set for device.
+ */
+/* struct s1810c_ctl_packet - basic vendor request
+ * @selector: device/mixer/output
+ * @b: request-dependant field b
+ * @tag: fixed value identifying type of request
+ * @len: sizeof this struct - 8 (excludes first 2 fields)
+ *	i.e. for basic struct s1810c_ctl_packet: len is 5*4=0x14
+ * @c: request-dependant field c
+ * @d: request-dependant field d
+ * @e: request-dependant field e
+ *
+ * See longer description above. This could be combined
+ * (as a union?) with the longer struct s1810c_state_packet
  */
 struct s1810c_ctl_packet {
-	u32 a;
-	u32 b;
-	u32 fixed1;
-	u32 fixed2;
-	u32 c;
-	u32 d;
-	u32 e;
+	__le32 selector;
+	__le32 b;
+	__le32 tag;
+	__le32 len;
+	__le32 c;
+	__le32 d;
+	__le32 e;
 };
 
+/* selectors for CMD request
+ */
+#define SC1810C_SEL_DEVICE 0
+#define SC1810C_SEL_MIXER 0x64
+#define SC1810C_SEL_OUTPUT 0x65
+
+
+/* control ids */
 #define SC1810C_CTL_LINE_SW	0
 #define SC1810C_CTL_MUTE_SW	1
+#define SC1824C_CTL_MONO_SW	2
 #define SC1810C_CTL_AB_SW	3
 #define SC1810C_CTL_48V_SW	4
 
+/* USB Control (vendor) requests
+ */
+#define SC1810C_CMD_REQ	160
+#define SC1810C_CMD_REQTYPE \
+	(USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_DIR_OUT)
+#define SC1810C_CMD_TAG		0x50617269
+#define SC1810C_CMD_LEN		0x14
+
 #define SC1810C_SET_STATE_REQ	161
 #define SC1810C_SET_STATE_REQTYPE SC1810C_CMD_REQTYPE
-#define SC1810C_SET_STATE_F1	0x64656D73
-#define SC1810C_SET_STATE_F2	0xF4
+#define SC1810C_SET_STATE_TAG	0x64656D73
+#define SC1810C_SET_STATE_LEN	0xF4
 
 #define SC1810C_GET_STATE_REQ	162
 #define SC1810C_GET_STATE_REQTYPE \
 	(USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_DIR_IN)
-#define SC1810C_GET_STATE_F1	SC1810C_SET_STATE_F1
-#define SC1810C_GET_STATE_F2	SC1810C_SET_STATE_F2
+#define SC1810C_GET_STATE_TAG	SC1810C_SET_STATE_TAG
+#define SC1810C_GET_STATE_LEN	SC1810C_SET_STATE_LEN
 
-#define SC1810C_STATE_F1_IDX	2
-#define SC1810C_STATE_F2_IDX	3
+/* Mixer levels normally range from 0 (off) to 0x0100 0000 (0 dB).
+ * raw_level = 2^24 * 10^(db_level / 20), thus
+ * -3dB = 0xb53bf0 (technically, half-power -3.01...dB would be 0xb504f3)
+ * -96dB = 0x109
+ * -99dB = 0xBC
+ * PC software sliders cover -96 to +10dB (0x0329 8b08),
+ * but the value 0 (-inf dB) can be used when e.g. Mixer Bypass is enabled.
+ * Unclear what the hardware's maximum value is.
+ *
+ * Note, when a channel is panned to two channels (stereo),
+ * the mixer level is set to slider value (by default -96dB) minus 3dB,
+ * which explains the -99dB value seen in USB captures.
+ */
+#define MIXER_LEVEL_MUTE 0
+#define MIXER_LEVEL_N99DB 0xbc
+#define MIXER_LEVEL_N3DB 0xb53bf0
+#define MIXER_LEVEL_0DB 0x1000000
 
 /*
  * This packet includes mixer volumes and
  * various other fields, it's an extended
  * version of ctl_packet, with a and b
- * being zero and different f1/f2.
+ * being zero and different tag/length.
  */
 struct s1810c_state_packet {
-	u32 fields[63];
+	__le32 fields[63];
 };
+
+/* indices into s1810c_state_packet.fields[]
+ */
+#define SC1810C_STATE_TAG_IDX	2
+#define SC1810C_STATE_LEN_IDX	3
 
 #define SC1810C_STATE_48V_SW	58
 #define SC1810C_STATE_LINE_SW	59
 #define SC1810C_STATE_MUTE_SW	60
+#define SC1824C_STATE_MONO_SW	61
 #define SC1810C_STATE_AB_SW	62
 
 struct s1810_mixer_state {
@@ -132,25 +173,20 @@ struct s1810_mixer_state {
 };
 
 static int
-snd_s1810c_send_ctl_packet(struct usb_device *dev, u32 a,
+snd_s1810c_send_ctl_packet(struct usb_device *dev, u32 sel,
 			   u32 b, u32 c, u32 d, u32 e)
 {
 	struct s1810c_ctl_packet pkt = { 0 };
 	int ret = 0;
 
-	pkt.fixed1 = SC1810C_CMD_F1;
-	pkt.fixed2 = SC1810C_CMD_F2;
+	pkt.tag = __cpu_to_le32(SC1810C_CMD_TAG);
+	pkt.len = __cpu_to_le32(SC1810C_CMD_LEN);
 
-	pkt.a = a;
-	pkt.b = b;
-	pkt.c = c;
-	pkt.d = d;
-	/*
-	 * Value for settings 0/1 for this
-	 * output channel is always 0 (probably because
-	 * there is no ADAT output on 1810c)
-	 */
-	pkt.e = (c == 4) ? 0 : e;
+	pkt.selector = __cpu_to_le32(sel);
+	pkt.b = __cpu_to_le32(b);
+	pkt.c = __cpu_to_le32(c);
+	pkt.d = __cpu_to_le32(d);
+	pkt.e = __cpu_to_le32(e);
 
 	ret = snd_usb_ctl_msg(dev, usb_sndctrlpipe(dev, 0),
 			      SC1810C_CMD_REQ,
@@ -179,9 +215,9 @@ snd_sc1810c_get_status_field(struct usb_device *dev,
 	struct s1810c_state_packet pkt_in = { { 0 } };
 	int ret = 0;
 
-	pkt_out.fields[SC1810C_STATE_F1_IDX] = SC1810C_SET_STATE_F1;
-	pkt_out.fields[SC1810C_STATE_F2_IDX] = SC1810C_SET_STATE_F2;
-	ret = snd_usb_ctl_msg(dev, usb_rcvctrlpipe(dev, 0),
+	pkt_out.fields[SC1810C_STATE_TAG_IDX] = __cpu_to_le32(SC1810C_SET_STATE_TAG);
+	pkt_out.fields[SC1810C_STATE_LEN_IDX] = __cpu_to_le32(SC1810C_SET_STATE_LEN);
+	ret = snd_usb_ctl_msg(dev, usb_sndctrlpipe(dev, 0),
 			      SC1810C_SET_STATE_REQ,
 			      SC1810C_SET_STATE_REQTYPE,
 			      (*seqnum), 0, &pkt_out, sizeof(pkt_out));
@@ -200,7 +236,7 @@ snd_sc1810c_get_status_field(struct usb_device *dev,
 		return ret;
 	}
 
-	(*field) = pkt_in.fields[field_idx];
+	(*field) = __le32_to_cpu(pkt_in.fields[field_idx]);
 	(*seqnum)++;
 	return 0;
 }
@@ -213,115 +249,170 @@ snd_sc1810c_get_status_field(struct usb_device *dev,
  */
 static int snd_s1810c_init_mixer_maps(struct snd_usb_audio *chip)
 {
-	u32 a, b, c, e, n, off;
+	u32 a, b, c, e, n, off, left, right;
 	struct usb_device *dev = chip->dev;
 
-	/* Set initial volume levels ? */
-	a = 0x64;
-	e = 0xbc;
-	for (n = 0; n < 2; n++) {
-		off = n * 18;
-		for (b = off; b < 18 + off; b++) {
-			/* This channel to all outputs ? */
-			for (c = 0; c <= 8; c++) {
+	switch (chip->usb_id) {
+	case USB_ID(0x194f, 0x010c): /* 1810c */
+		/* Set initial volume levels ? */
+		a = SC1810C_SEL_MIXER;
+		e = MIXER_LEVEL_N99DB;
+		for (n = 0; n < 2; n++) {
+			off = n * 18;
+			for (b = off; b < 18 + off; b++) {
+				/* This channel to all outputs ? */
+				for (c = 0; c <= 8; c++) {
+					snd_s1810c_send_ctl_packet(dev, a, b, c, 0, e);
+					snd_s1810c_send_ctl_packet(dev, a, b, c, 1, e);
+				}
+				/* This channel to main output (again) */
+				snd_s1810c_send_ctl_packet(dev, a, b, 0, 0, e);
+				snd_s1810c_send_ctl_packet(dev, a, b, 0, 1, e);
+			}
+			/*
+			 * I noticed on UC that DAW channels have different
+			 * initial volumes, so this makes sense.
+			 */
+			e = MIXER_LEVEL_N3DB;
+		}
+
+		/* Connect analog outputs ? */
+		a = SC1810C_SEL_OUTPUT;
+		for (b = 1; b < 3; b++) {
+			snd_s1810c_send_ctl_packet(dev, a, b, 0, 0, MIXER_LEVEL_0DB);
+			snd_s1810c_send_ctl_packet(dev, a, b, 0, 1, MIXER_LEVEL_0DB);
+		}
+		snd_s1810c_send_ctl_packet(dev, a, 0, 0, 0, MIXER_LEVEL_0DB);
+		snd_s1810c_send_ctl_packet(dev, a, 0, 0, 1, MIXER_LEVEL_0DB);
+
+		/* Set initial volume levels for S/PDIF mappings ? */
+		a = SC1810C_SEL_MIXER;
+		e = MIXER_LEVEL_N99DB;
+		c = 3;
+		for (n = 0; n < 2; n++) {
+			off = n * 18;
+			for (b = off; b < 18 + off; b++) {
 				snd_s1810c_send_ctl_packet(dev, a, b, c, 0, e);
 				snd_s1810c_send_ctl_packet(dev, a, b, c, 1, e);
 			}
-			/* This channel to main output (again) */
-			snd_s1810c_send_ctl_packet(dev, a, b, 0, 0, e);
-			snd_s1810c_send_ctl_packet(dev, a, b, 0, 1, e);
+			e = MIXER_LEVEL_N3DB;
 		}
-		/*
-		 * I noticed on UC that DAW channels have different
-		 * initial volumes, so this makes sense.
+
+		/* Connect S/PDIF output ? */
+		a = SC1810C_SEL_OUTPUT;
+		snd_s1810c_send_ctl_packet(dev, a, 3, 0, 0, MIXER_LEVEL_0DB);
+		snd_s1810c_send_ctl_packet(dev, a, 3, 0, 1, MIXER_LEVEL_0DB);
+
+		/* Connect all outputs (again) ? */
+		a = SC1810C_SEL_OUTPUT;
+		for (b = 0; b < 4; b++) {
+			snd_s1810c_send_ctl_packet(dev, a, b, 0, 0, MIXER_LEVEL_0DB);
+			snd_s1810c_send_ctl_packet(dev, a, b, 0, 1, MIXER_LEVEL_0DB);
+		}
+
+		/* Basic routing to get sound out of the device */
+		a = SC1810C_SEL_MIXER;
+		for (c = 0; c < 4; c++) {
+			for (b = 0; b < 36; b++) {
+				if ((c == 0 && b == 18) ||	/* DAW1/2 -> Main */
+					(c == 1 && b == 20) ||	/* DAW3/4 -> Line3/4 */
+					(c == 2 && b == 22) ||	/* DAW4/5 -> Line5/6 */
+					(c == 3 && b == 24)) {	/* DAW5/6 -> S/PDIF */
+					/* Left */
+					snd_s1810c_send_ctl_packet(dev,
+							a, b, c, 0, MIXER_LEVEL_0DB);
+					snd_s1810c_send_ctl_packet(dev,
+							a, b, c, 1, MIXER_LEVEL_MUTE);
+					b++;
+					/* Right */
+					snd_s1810c_send_ctl_packet(dev,
+							a, b, c, 0, MIXER_LEVEL_MUTE);
+					snd_s1810c_send_ctl_packet(dev,
+							a, b, c, 1, MIXER_LEVEL_0DB);
+				} else {
+					/* Leave the rest disconnected */
+					snd_s1810c_send_ctl_packet(dev,
+							a, b, c, 0, MIXER_LEVEL_MUTE);
+					snd_s1810c_send_ctl_packet(dev,
+							a, b, c, 1, MIXER_LEVEL_MUTE);
+				}
+			}
+		}
+
+		/* Set initial volume levels for S/PDIF (again) ? */
+		a = SC1810C_SEL_MIXER;
+		e = MIXER_LEVEL_N99DB;
+		c = 3;
+		for (n = 0; n < 2; n++) {
+			off = n * 18;
+			for (b = off; b < 18 + off; b++) {
+				snd_s1810c_send_ctl_packet(dev, a, b, c, 0, e);
+				snd_s1810c_send_ctl_packet(dev, a, b, c, 1, e);
+			}
+			e = MIXER_LEVEL_N3DB;
+		}
+
+		/* Connect S/PDIF outputs (again) ? */
+		a = SC1810C_SEL_OUTPUT;
+		snd_s1810c_send_ctl_packet(dev, a, 3, 0, 0, MIXER_LEVEL_0DB);
+		snd_s1810c_send_ctl_packet(dev, a, 3, 0, 1, MIXER_LEVEL_0DB);
+
+		/* Again ? */
+		snd_s1810c_send_ctl_packet(dev, a, 3, 0, 0, MIXER_LEVEL_0DB);
+		snd_s1810c_send_ctl_packet(dev, a, 3, 0, 1, MIXER_LEVEL_0DB);
+		break;
+
+	case USB_ID(0x194f, 0x0107): /* 1824 */
+	case USB_ID(0x194f, 0x010d): /* 1824c */
+		/* Set all output faders to unity gain */
+		a = SC1810C_SEL_OUTPUT;
+		c = 0x00;
+		for (b = 0; b < 9; b++) {
+			snd_s1810c_send_ctl_packet(dev, a, b, c, 0, MIXER_LEVEL_0DB);
+			snd_s1810c_send_ctl_packet(dev, a, b, c, 1, MIXER_LEVEL_0DB);
+		}
+
+		/* Set
+		 * Daw 1 -> Line out 1 (left), Daw 2 -> Line out 2 (right)
+		 * Daw 3 -> Line out 3, (left) Daw 4 -> Line out 4 (right)
+		 * Daw 5 -> Line out 5, (left) Daw 6 -> Line out 6 (right)
+		 * Daw 7 -> Line out 7, (left) Daw 8 -> Line out 8 (right)
+		 * Daw 9 -> SPDIF out 1, (left) Daw 10 -> SPDIF out 2 (right)
+		 * Daw 11 -> ADAT out 1, (left) Daw 12 -> ADAT out 2 (right)
+		 * Daw 13 -> ADAT out 3, (left) Daw 14 -> ADAT out 4 (right)
+		 * Daw 15 -> ADAT out 5, (left) Daw 16 -> ADAT out 6 (right)
+		 * Daw 17 -> ADAT out 7, (left) Daw 18 -> ADAT out 8 (right)
+		 * Everything else muted
 		 */
-		e = 0xb53bf0;
-	}
+		a = SC1810C_SEL_MIXER;
+		/* The first Daw channel is channel 18 */
+		left = 18;
 
-	/* Connect analog outputs ? */
-	a = 0x65;
-	e = 0x01000000;
-	for (b = 1; b < 3; b++) {
-		snd_s1810c_send_ctl_packet(dev, a, b, 0, 0, e);
-		snd_s1810c_send_ctl_packet(dev, a, b, 0, 1, e);
-	}
-	snd_s1810c_send_ctl_packet(dev, a, 0, 0, 0, e);
-	snd_s1810c_send_ctl_packet(dev, a, 0, 0, 1, e);
+		for (c = 0; c < 9; c++) {
+			right = left + 1;
 
-	/* Set initial volume levels for S/PDIF mappings ? */
-	a = 0x64;
-	e = 0xbc;
-	c = 3;
-	for (n = 0; n < 2; n++) {
-		off = n * 18;
-		for (b = off; b < 18 + off; b++) {
-			snd_s1810c_send_ctl_packet(dev, a, b, c, 0, e);
-			snd_s1810c_send_ctl_packet(dev, a, b, c, 1, e);
-		}
-		e = 0xb53bf0;
-	}
-
-	/* Connect S/PDIF output ? */
-	a = 0x65;
-	e = 0x01000000;
-	snd_s1810c_send_ctl_packet(dev, a, 3, 0, 0, e);
-	snd_s1810c_send_ctl_packet(dev, a, 3, 0, 1, e);
-
-	/* Connect all outputs (again) ? */
-	a = 0x65;
-	e = 0x01000000;
-	for (b = 0; b < 4; b++) {
-		snd_s1810c_send_ctl_packet(dev, a, b, 0, 0, e);
-		snd_s1810c_send_ctl_packet(dev, a, b, 0, 1, e);
-	}
-
-	/* Basic routing to get sound out of the device */
-	a = 0x64;
-	e = 0x01000000;
-	for (c = 0; c < 4; c++) {
-		for (b = 0; b < 36; b++) {
-			if ((c == 0 && b == 18) ||	/* DAW1/2 -> Main */
-			    (c == 1 && b == 20) ||	/* DAW3/4 -> Line3/4 */
-			    (c == 2 && b == 22) ||	/* DAW4/5 -> Line5/6 */
-			    (c == 3 && b == 24)) {	/* DAW5/6 -> S/PDIF */
-				/* Left */
-				snd_s1810c_send_ctl_packet(dev, a, b, c, 0, e);
-				snd_s1810c_send_ctl_packet(dev, a, b, c, 1, 0);
-				b++;
-				/* Right */
-				snd_s1810c_send_ctl_packet(dev, a, b, c, 0, 0);
-				snd_s1810c_send_ctl_packet(dev, a, b, c, 1, e);
-			} else {
-				/* Leave the rest disconnected */
-				snd_s1810c_send_ctl_packet(dev, a, b, c, 0, 0);
-				snd_s1810c_send_ctl_packet(dev, a, b, c, 1, 0);
+			for (b = 0; b < 36; b++) {
+				if (b == left) {
+					snd_s1810c_send_ctl_packet(dev,
+							a, b, c, 0, MIXER_LEVEL_0DB);
+					snd_s1810c_send_ctl_packet(dev,
+							a, b, c, 1, MIXER_LEVEL_MUTE);
+				} else if (b == right) {
+					snd_s1810c_send_ctl_packet(dev,
+							a, b, c, 0, MIXER_LEVEL_MUTE);
+					snd_s1810c_send_ctl_packet(dev,
+							a, b, c, 1, MIXER_LEVEL_0DB);
+				} else {
+					snd_s1810c_send_ctl_packet(dev,
+							a, b, c, 0, MIXER_LEVEL_MUTE);
+					snd_s1810c_send_ctl_packet(dev,
+							a, b, c, 1, MIXER_LEVEL_MUTE);
+				}
 			}
+			left += 2;
 		}
+		break;
 	}
-
-	/* Set initial volume levels for S/PDIF (again) ? */
-	a = 0x64;
-	e = 0xbc;
-	c = 3;
-	for (n = 0; n < 2; n++) {
-		off = n * 18;
-		for (b = off; b < 18 + off; b++) {
-			snd_s1810c_send_ctl_packet(dev, a, b, c, 0, e);
-			snd_s1810c_send_ctl_packet(dev, a, b, c, 1, e);
-		}
-		e = 0xb53bf0;
-	}
-
-	/* Connect S/PDIF outputs (again) ? */
-	a = 0x65;
-	e = 0x01000000;
-	snd_s1810c_send_ctl_packet(dev, a, 3, 0, 0, e);
-	snd_s1810c_send_ctl_packet(dev, a, 3, 0, 1, e);
-
-	/* Again ? */
-	snd_s1810c_send_ctl_packet(dev, a, 3, 0, 0, e);
-	snd_s1810c_send_ctl_packet(dev, a, 3, 0, 1, e);
-
 	return 0;
 }
 
@@ -338,18 +429,16 @@ snd_s1810c_get_switch_state(struct usb_mixer_interface *mixer,
 	struct s1810_mixer_state *private = mixer->private_data;
 	u32 field = 0;
 	u32 ctl_idx = (u32) (kctl->private_value & 0xFF);
-	int ret = 0;
+	int ret;
 
-	mutex_lock(&private->usb_mutex);
+	guard(mutex)(&private->usb_mutex);
 	ret = snd_sc1810c_get_status_field(chip->dev, &field,
 					   ctl_idx, &private->seqnum);
 	if (ret < 0)
-		goto unlock;
+		return ret;
 
 	*state = field;
- unlock:
-	mutex_unlock(&private->usb_mutex);
-	return ret ? ret : 0;
+	return ret;
 }
 
 /*
@@ -366,12 +455,9 @@ snd_s1810c_set_switch_state(struct usb_mixer_interface *mixer,
 	u32 pval = (u32) kctl->private_value;
 	u32 ctl_id = (pval >> 8) & 0xFF;
 	u32 ctl_val = (pval >> 16) & 0x1;
-	int ret = 0;
 
-	mutex_lock(&private->usb_mutex);
-	ret = snd_s1810c_send_ctl_packet(chip->dev, 0, 0, 0, ctl_id, ctl_val);
-	mutex_unlock(&private->usb_mutex);
-	return ret;
+	guard(mutex)(&private->usb_mutex);
+	return snd_s1810c_send_ctl_packet(chip->dev, 0, 0, 0, ctl_id, ctl_val);
 }
 
 /* Generic get/set/init functions for switch controls */
@@ -386,12 +472,12 @@ snd_s1810c_switch_get(struct snd_kcontrol *kctl,
 	u32 pval = (u32) kctl->private_value;
 	u32 ctl_idx = pval & 0xFF;
 	u32 state = 0;
-	int ret = 0;
+	int ret;
 
-	mutex_lock(&private->data_mutex);
+	guard(mutex)(&private->data_mutex);
 	ret = snd_s1810c_get_switch_state(mixer, kctl, &state);
 	if (ret < 0)
-		goto unlock;
+		return ret;
 
 	switch (ctl_idx) {
 	case SC1810C_STATE_LINE_SW:
@@ -402,9 +488,7 @@ snd_s1810c_switch_get(struct snd_kcontrol *kctl,
 		ctl_elem->value.integer.value[0] = (long)state;
 	}
 
- unlock:
-	mutex_unlock(&private->data_mutex);
-	return (ret < 0) ? ret : 0;
+	return 0;
 }
 
 static int
@@ -420,10 +504,10 @@ snd_s1810c_switch_set(struct snd_kcontrol *kctl,
 	u32 newval = 0;
 	int ret = 0;
 
-	mutex_lock(&private->data_mutex);
+	guard(mutex)(&private->data_mutex);
 	ret = snd_s1810c_get_switch_state(mixer, kctl, &curval);
 	if (ret < 0)
-		goto unlock;
+		return ret;
 
 	switch (ctl_idx) {
 	case SC1810C_STATE_LINE_SW:
@@ -435,14 +519,12 @@ snd_s1810c_switch_set(struct snd_kcontrol *kctl,
 	}
 
 	if (curval == newval)
-		goto unlock;
+		return 0;
 
 	kctl->private_value &= ~(0x1 << 16);
 	kctl->private_value |= (unsigned int)(newval & 0x1) << 16;
 	ret = snd_s1810c_set_switch_state(mixer, kctl);
 
- unlock:
-	mutex_unlock(&private->data_mutex);
 	return (ret < 0) ? 0 : 1;
 }
 
@@ -453,7 +535,7 @@ snd_s1810c_switch_init(struct usb_mixer_interface *mixer,
 	struct snd_kcontrol *kctl;
 	struct usb_mixer_elem_info *elem;
 
-	elem = kzalloc(sizeof(struct usb_mixer_elem_info), GFP_KERNEL);
+	elem = kzalloc_obj(struct usb_mixer_elem_info);
 	if (!elem)
 		return -ENOMEM;
 
@@ -500,6 +582,15 @@ static const struct snd_kcontrol_new snd_s1810c_mute_sw = {
 	.get = snd_s1810c_switch_get,
 	.put = snd_s1810c_switch_set,
 	.private_value = (SC1810C_STATE_MUTE_SW | SC1810C_CTL_MUTE_SW << 8)
+};
+
+static const struct snd_kcontrol_new snd_s1824c_mono_sw = {
+	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
+	.name = "Mono Main Out Switch",
+	.info = snd_ctl_boolean_mono_info,
+	.get = snd_s1810c_switch_get,
+	.put = snd_s1810c_switch_set,
+	.private_value = (SC1824C_STATE_MONO_SW | SC1824C_CTL_MONO_SW << 8)
 };
 
 static const struct snd_kcontrol_new snd_s1810c_48v_sw = {
@@ -551,20 +642,11 @@ int snd_sc1810_init_mixer(struct usb_mixer_interface *mixer)
 	if (!list_empty(&chip->mixer_list))
 		return 0;
 
-	dev_info(&dev->dev,
-		 "Presonus Studio 1810c, device_setup: %u\n", chip->setup);
-	if (chip->setup == 1)
-		dev_info(&dev->dev, "(8out/18in @ 48kHz)\n");
-	else if (chip->setup == 2)
-		dev_info(&dev->dev, "(6out/8in @ 192kHz)\n");
-	else
-		dev_info(&dev->dev, "(8out/14in @ 96kHz)\n");
-
 	ret = snd_s1810c_init_mixer_maps(chip);
 	if (ret < 0)
 		return ret;
 
-	private = kzalloc(sizeof(struct s1810_mixer_state), GFP_KERNEL);
+	private = kzalloc_obj(struct s1810_mixer_state);
 	if (!private)
 		return -ENOMEM;
 
@@ -588,8 +670,30 @@ int snd_sc1810_init_mixer(struct usb_mixer_interface *mixer)
 	if (ret < 0)
 		return ret;
 
-	ret = snd_s1810c_switch_init(mixer, &snd_s1810c_ab_sw);
-	if (ret < 0)
-		return ret;
+	switch (chip->usb_id) {
+	case USB_ID(0x194f, 0x010c): /* Presonus Studio 1810c */
+		dev_info(&dev->dev,
+			 "Presonus Studio 1810c, device_setup: %u\n", chip->setup);
+		if (chip->setup == 1)
+			dev_info(&dev->dev, "(8out/18in @ 48kHz)\n");
+		else if (chip->setup == 2)
+			dev_info(&dev->dev, "(6out/8in @ 192kHz)\n");
+		else
+			dev_info(&dev->dev, "(8out/14in @ 96kHz)\n");
+
+		ret = snd_s1810c_switch_init(mixer, &snd_s1810c_ab_sw);
+		if (ret < 0)
+			return ret;
+
+		break;
+	case USB_ID(0x194f, 0x0107): /* Presonus Studio 1824 */
+	case USB_ID(0x194f, 0x010d): /* Presonus Studio 1824c */
+		ret = snd_s1810c_switch_init(mixer, &snd_s1824c_mono_sw);
+		if (ret < 0)
+			return ret;
+
+		break;
+	}
+
 	return ret;
 }

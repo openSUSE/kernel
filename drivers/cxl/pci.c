@@ -136,7 +136,7 @@ static irqreturn_t cxl_pci_mbox_irq(int irq, void *id)
 	if (opcode == CXL_MBOX_OP_SANITIZE) {
 		mutex_lock(&cxl_mbox->mbox_mutex);
 		if (mds->security.sanitize_node)
-			mod_delayed_work(system_wq, &mds->security.poll_dwork, 0);
+			mod_delayed_work(system_percpu_wq, &mds->security.poll_dwork, 0);
 		mutex_unlock(&cxl_mbox->mbox_mutex);
 	} else {
 		/* short-circuit the wait in __cxl_pci_mbox_send_cmd() */
@@ -461,122 +461,6 @@ static int cxl_pci_setup_mailbox(struct cxl_memdev_state *mds, bool irq_avail)
 	ctrl = readl(cxlds->regs.mbox + CXLDEV_MBOX_CTRL_OFFSET);
 	ctrl |= CXLDEV_MBOX_CTRL_BG_CMD_IRQ;
 	writel(ctrl, cxlds->regs.mbox + CXLDEV_MBOX_CTRL_OFFSET);
-
-	return 0;
-}
-
-/*
- * Assume that any RCIEP that emits the CXL memory expander class code
- * is an RCD
- */
-static bool is_cxl_restricted(struct pci_dev *pdev)
-{
-	return pci_pcie_type(pdev) == PCI_EXP_TYPE_RC_END;
-}
-
-static int cxl_rcrb_get_comp_regs(struct pci_dev *pdev,
-				  struct cxl_register_map *map,
-				  struct cxl_dport *dport)
-{
-	resource_size_t component_reg_phys;
-
-	*map = (struct cxl_register_map) {
-		.host = &pdev->dev,
-		.resource = CXL_RESOURCE_NONE,
-	};
-
-	struct cxl_port *port __free(put_cxl_port) =
-		cxl_pci_find_port(pdev, &dport);
-	if (!port)
-		return -EPROBE_DEFER;
-
-	component_reg_phys = cxl_rcd_component_reg_phys(&pdev->dev, dport);
-	if (component_reg_phys == CXL_RESOURCE_NONE)
-		return -ENXIO;
-
-	map->resource = component_reg_phys;
-	map->reg_type = CXL_REGLOC_RBI_COMPONENT;
-	map->max_size = CXL_COMPONENT_REG_BLOCK_SIZE;
-
-	return 0;
-}
-
-static int cxl_pci_setup_regs(struct pci_dev *pdev, enum cxl_regloc_type type,
-			      struct cxl_register_map *map)
-{
-	int rc;
-
-	rc = cxl_find_regblock(pdev, type, map);
-
-	/*
-	 * If the Register Locator DVSEC does not exist, check if it
-	 * is an RCH and try to extract the Component Registers from
-	 * an RCRB.
-	 */
-	if (rc && type == CXL_REGLOC_RBI_COMPONENT && is_cxl_restricted(pdev)) {
-		struct cxl_dport *dport;
-		struct cxl_port *port __free(put_cxl_port) =
-			cxl_pci_find_port(pdev, &dport);
-		if (!port)
-			return -EPROBE_DEFER;
-
-		rc = cxl_rcrb_get_comp_regs(pdev, map, dport);
-		if (rc)
-			return rc;
-
-		rc = cxl_dport_map_rcd_linkcap(pdev, dport);
-		if (rc)
-			return rc;
-
-	} else if (rc) {
-		return rc;
-	}
-
-	return cxl_setup_regs(map);
-}
-
-static int cxl_pci_ras_unmask(struct pci_dev *pdev)
-{
-	struct cxl_dev_state *cxlds = pci_get_drvdata(pdev);
-	void __iomem *addr;
-	u32 orig_val, val, mask;
-	u16 cap;
-	int rc;
-
-	if (!cxlds->regs.ras) {
-		dev_dbg(&pdev->dev, "No RAS registers.\n");
-		return 0;
-	}
-
-	/* BIOS has PCIe AER error control */
-	if (!pcie_aer_is_native(pdev))
-		return 0;
-
-	rc = pcie_capability_read_word(pdev, PCI_EXP_DEVCTL, &cap);
-	if (rc)
-		return rc;
-
-	if (cap & PCI_EXP_DEVCTL_URRE) {
-		addr = cxlds->regs.ras + CXL_RAS_UNCORRECTABLE_MASK_OFFSET;
-		orig_val = readl(addr);
-
-		mask = CXL_RAS_UNCORRECTABLE_MASK_MASK |
-		       CXL_RAS_UNCORRECTABLE_MASK_F256B_MASK;
-		val = orig_val & ~mask;
-		writel(val, addr);
-		dev_dbg(&pdev->dev,
-			"Uncorrectable RAS Errors Mask: %#x -> %#x\n",
-			orig_val, val);
-	}
-
-	if (cap & PCI_EXP_DEVCTL_CERE) {
-		addr = cxlds->regs.ras + CXL_RAS_CORRECTABLE_MASK_OFFSET;
-		orig_val = readl(addr);
-		val = orig_val & ~CXL_RAS_CORRECTABLE_MASK_MASK;
-		writel(val, addr);
-		dev_dbg(&pdev->dev, "Correctable RAS Errors Mask: %#x -> %#x\n",
-			orig_val, val);
-	}
 
 	return 0;
 }
@@ -911,38 +795,31 @@ static int cxl_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	int rc, pmu_count;
 	unsigned int i;
 	bool irq_avail;
-
-	/*
-	 * Double check the anonymous union trickery in struct cxl_regs
-	 * FIXME switch to struct_group()
-	 */
-	BUILD_BUG_ON(offsetof(struct cxl_regs, memdev) !=
-		     offsetof(struct cxl_regs, device_regs.memdev));
+	u16 dvsec;
 
 	rc = pcim_enable_device(pdev);
 	if (rc)
 		return rc;
 	pci_set_master(pdev);
 
-	mds = cxl_memdev_state_create(&pdev->dev);
+	dvsec = pci_find_dvsec_capability(pdev, PCI_VENDOR_ID_CXL,
+					  PCI_DVSEC_CXL_DEVICE);
+	if (!dvsec)
+		pci_warn(pdev, "Device DVSEC not present, skip CXL.mem init\n");
+
+	mds = cxl_memdev_state_create(&pdev->dev, pci_get_dsn(pdev), dvsec);
 	if (IS_ERR(mds))
 		return PTR_ERR(mds);
 	cxlds = &mds->cxlds;
 	pci_set_drvdata(pdev, cxlds);
 
 	cxlds->rcd = is_cxl_restricted(pdev);
-	cxlds->serial = pci_get_dsn(pdev);
-	cxlds->cxl_dvsec = pci_find_dvsec_capability(
-		pdev, PCI_VENDOR_ID_CXL, CXL_DVSEC_PCIE_DEVICE);
-	if (!cxlds->cxl_dvsec)
-		dev_warn(&pdev->dev,
-			 "Device DVSEC not present, skip CXL.mem init\n");
 
 	rc = cxl_pci_setup_regs(pdev, CXL_REGLOC_RBI_MEMDEV, &map);
 	if (rc)
 		return rc;
 
-	rc = cxl_map_device_regs(&map, &cxlds->regs.device_regs);
+	rc = cxl_map_device_regs(&map, &cxlds->regs);
 	if (rc)
 		return rc;
 
@@ -956,11 +833,6 @@ static int cxl_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		dev_warn(&pdev->dev, "No component registers (%d)\n", rc);
 	else if (!cxlds->reg_map.component_map.ras.valid)
 		dev_dbg(&pdev->dev, "RAS registers not found\n");
-
-	rc = cxl_map_component_regs(&cxlds->reg_map, &cxlds->regs.component,
-				    BIT(CXL_CM_CAP_CAP_ID_RAS));
-	if (rc)
-		dev_dbg(&pdev->dev, "Failed to map RAS capability.\n");
 
 	rc = cxl_pci_type3_init_mailbox(cxlds);
 	if (rc)
@@ -1006,7 +878,7 @@ static int cxl_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (rc)
 		dev_dbg(&pdev->dev, "No CXL Features discovered\n");
 
-	cxlmd = devm_cxl_add_memdev(&pdev->dev, cxlds);
+	cxlmd = devm_cxl_add_memdev(cxlds, NULL);
 	if (IS_ERR(cxlmd))
 		return PTR_ERR(cxlmd);
 
@@ -1052,9 +924,6 @@ static int cxl_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (rc)
 		return rc;
 
-	if (cxl_pci_ras_unmask(pdev))
-		dev_dbg(&pdev->dev, "No RAS reporting unmasked\n");
-
 	pci_save_state(pdev);
 
 	return rc;
@@ -1091,6 +960,19 @@ static void cxl_error_resume(struct pci_dev *pdev)
 		 dev->driver ? "successful" : "failed");
 }
 
+static int cxl_endpoint_decoder_clear_reset_flags(struct device *dev, void *data)
+{
+	struct cxl_endpoint_decoder *cxled;
+
+	if (!is_endpoint_decoder(dev))
+		return 0;
+
+	cxled = to_cxl_endpoint_decoder(dev);
+	cxled->cxld.flags &= ~CXL_DECODER_F_RESET_MASK;
+
+	return 0;
+}
+
 static void cxl_reset_done(struct pci_dev *pdev)
 {
 	struct cxl_dev_state *cxlds = pci_get_drvdata(pdev);
@@ -1104,8 +986,14 @@ static void cxl_reset_done(struct pci_dev *pdev)
 	 * that no longer exists.
 	 */
 	guard(device)(&cxlmd->dev);
+	if (!cxlmd->dev.driver)
+		return;
+
 	if (cxlmd->endpoint &&
 	    cxl_endpoint_decoder_reset_detected(cxlmd->endpoint)) {
+		device_for_each_child(&cxlmd->endpoint->dev, NULL,
+				      cxl_endpoint_decoder_clear_reset_flags);
+
 		dev_crit(dev, "SBR happened without memory regions removal.\n");
 		dev_crit(dev, "System may be unstable if regions hosted system memory.\n");
 		add_taint(TAINT_USER, LOCKDEP_STILL_OK);

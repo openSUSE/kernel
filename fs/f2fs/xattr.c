@@ -23,11 +23,12 @@
 #include "xattr.h"
 #include "segment.h"
 
+static struct kmem_cache *inline_xattr_slab;
 static void *xattr_alloc(struct f2fs_sb_info *sbi, int size, bool *is_inline)
 {
-	if (likely(size == sbi->inline_xattr_slab_size)) {
+	if (likely(size == DEFAULT_XATTR_SLAB_SIZE)) {
 		*is_inline = true;
-		return f2fs_kmem_cache_alloc(sbi->inline_xattr_slab,
+		return f2fs_kmem_cache_alloc(inline_xattr_slab,
 					GFP_F2FS_ZERO, false, sbi);
 	}
 	*is_inline = false;
@@ -38,7 +39,7 @@ static void xattr_free(struct f2fs_sb_info *sbi, void *xattr_addr,
 							bool is_inline)
 {
 	if (is_inline)
-		kmem_cache_free(sbi->inline_xattr_slab, xattr_addr);
+		kmem_cache_free(inline_xattr_slab, xattr_addr);
 	else
 		kfree(xattr_addr);
 }
@@ -364,7 +365,7 @@ static int lookup_all_xattrs(struct inode *inode, struct folio *ifolio,
 
 	*xe = __find_xattr(cur_addr, last_txattr_addr, NULL, index, len, name);
 	if (!*xe) {
-		f2fs_err(F2FS_I_SB(inode), "lookup inode (%lu) has corrupted xattr",
+		f2fs_err(F2FS_I_SB(inode), "lookup inode (%llu) has corrupted xattr",
 								inode->i_ino);
 		set_sbi_flag(F2FS_I_SB(inode), SBI_NEED_FSCK);
 		err = -ENODATA;
@@ -584,7 +585,7 @@ ssize_t f2fs_listxattr(struct dentry *dentry, char *buffer, size_t buffer_size)
 
 		if ((void *)(entry) + sizeof(__u32) > last_base_addr ||
 			(void *)XATTR_NEXT_ENTRY(entry) > last_base_addr) {
-			f2fs_err(F2FS_I_SB(inode), "list inode (%lu) has corrupted xattr",
+			f2fs_err(F2FS_I_SB(inode), "list inode (%llu) has corrupted xattr",
 						inode->i_ino);
 			set_sbi_flag(F2FS_I_SB(inode), SBI_NEED_FSCK);
 			f2fs_handle_error(F2FS_I_SB(inode),
@@ -663,14 +664,14 @@ retry:
 		if (!F2FS_I(inode)->i_xattr_nid) {
 			error = f2fs_recover_xattr_data(inode, NULL);
 			f2fs_notice(F2FS_I_SB(inode),
-				"recover xattr in inode (%lu), error(%d)",
+				"recover xattr in inode (%llu), error(%d)",
 					inode->i_ino, error);
 			if (!error) {
 				kfree(base_addr);
 				goto retry;
 			}
 		}
-		f2fs_err(F2FS_I_SB(inode), "set inode (%lu) has corrupted xattr",
+		f2fs_err(F2FS_I_SB(inode), "set inode (%llu) has corrupted xattr",
 								inode->i_ino);
 		set_sbi_flag(F2FS_I_SB(inode), SBI_NEED_FSCK);
 		error = -EFSCORRUPTED;
@@ -698,7 +699,7 @@ retry:
 	while (!IS_XATTR_LAST_ENTRY(last)) {
 		if ((void *)(last) + sizeof(__u32) > last_base_addr ||
 			(void *)XATTR_NEXT_ENTRY(last) > last_base_addr) {
-			f2fs_err(F2FS_I_SB(inode), "inode (%lu) has invalid last xattr entry, entry_size: %zu",
+			f2fs_err(F2FS_I_SB(inode), "inode (%llu) has invalid last xattr entry, entry_size: %zu",
 					inode->i_ino, ENTRY_SIZE(last));
 			set_sbi_flag(F2FS_I_SB(inode), SBI_NEED_FSCK);
 			error = -EFSCORRUPTED;
@@ -803,6 +804,7 @@ int f2fs_setxattr(struct inode *inode, int index, const char *name,
 				struct folio *ifolio, int flags)
 {
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
+	struct f2fs_lock_context lc;
 	int err;
 
 	if (unlikely(f2fs_cp_error(sbi)))
@@ -820,35 +822,24 @@ int f2fs_setxattr(struct inode *inode, int index, const char *name,
 						size, ifolio, flags);
 	f2fs_balance_fs(sbi, true);
 
-	f2fs_lock_op(sbi);
+	f2fs_lock_op(sbi, &lc);
 	f2fs_down_write(&F2FS_I(inode)->i_xattr_sem);
 	err = __f2fs_setxattr(inode, index, name, value, size, NULL, flags);
 	f2fs_up_write(&F2FS_I(inode)->i_xattr_sem);
-	f2fs_unlock_op(sbi);
+	f2fs_unlock_op(sbi, &lc);
 
 	f2fs_update_time(sbi, REQ_TIME);
 	return err;
 }
 
-int f2fs_init_xattr_caches(struct f2fs_sb_info *sbi)
+int __init f2fs_init_xattr_cache(void)
 {
-	dev_t dev = sbi->sb->s_bdev->bd_dev;
-	char slab_name[32];
-
-	sprintf(slab_name, "f2fs_xattr_entry-%u:%u", MAJOR(dev), MINOR(dev));
-
-	sbi->inline_xattr_slab_size = F2FS_OPTION(sbi).inline_xattr_size *
-					sizeof(__le32) + XATTR_PADDING_SIZE;
-
-	sbi->inline_xattr_slab = f2fs_kmem_cache_create(slab_name,
-					sbi->inline_xattr_slab_size);
-	if (!sbi->inline_xattr_slab)
-		return -ENOMEM;
-
-	return 0;
+	inline_xattr_slab = f2fs_kmem_cache_create("f2fs_xattr_entry",
+					DEFAULT_XATTR_SLAB_SIZE);
+	return inline_xattr_slab ? 0 : -ENOMEM;
 }
 
-void f2fs_destroy_xattr_caches(struct f2fs_sb_info *sbi)
+void f2fs_destroy_xattr_cache(void)
 {
-	kmem_cache_destroy(sbi->inline_xattr_slab);
+	kmem_cache_destroy(inline_xattr_slab);
 }

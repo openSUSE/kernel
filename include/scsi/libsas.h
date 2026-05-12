@@ -62,10 +62,6 @@ enum discover_event {
 
 /* ---------- Expander Devices ---------- */
 
-#define to_dom_device(_obj) container_of(_obj, struct domain_device, dev_obj)
-#define to_dev_attr(_attr)  container_of(_attr, struct domain_dev_attribute,\
-					 attr)
-
 enum routing_attribute {
 	DIRECT_ROUTING,
 	SUBTRACTIVE_ROUTING,
@@ -201,6 +197,14 @@ static inline bool dev_is_expander(enum sas_device_type type)
 {
 	return type == SAS_EDGE_EXPANDER_DEVICE ||
 	       type == SAS_FANOUT_EXPANDER_DEVICE;
+}
+
+static inline bool dev_parent_is_expander(struct domain_device *dev)
+{
+	if (!dev->parent)
+		return false;
+
+	return dev_is_expander(dev->parent->dev_type);
 }
 
 static inline void INIT_SAS_WORK(struct sas_work *sw, void (*fn)(struct work_struct *))
@@ -681,11 +685,12 @@ extern void sas_suspend_ha(struct sas_ha_struct *sas_ha);
 
 int sas_phy_reset(struct sas_phy *phy, int hard_reset);
 int sas_phy_enable(struct sas_phy *phy, int enable);
-extern int sas_queuecommand(struct Scsi_Host *, struct scsi_cmnd *);
+extern enum scsi_qc_status sas_queuecommand(struct Scsi_Host *host,
+					    struct scsi_cmnd *cmd);
 extern int sas_target_alloc(struct scsi_target *);
 int sas_sdev_configure(struct scsi_device *dev, struct queue_limits *lim);
 extern int sas_change_queue_depth(struct scsi_device *, int new_depth);
-extern int sas_bios_param(struct scsi_device *, struct block_device *,
+extern int sas_bios_param(struct scsi_device *, struct gendisk *,
 			  sector_t capacity, int *hsc);
 int sas_execute_internal_abort_single(struct domain_device *device,
 				      u16 tag, unsigned int qid,

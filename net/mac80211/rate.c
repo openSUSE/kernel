@@ -4,7 +4,7 @@
  * Copyright 2005-2006, Devicescape Software, Inc.
  * Copyright (c) 2006 Jiri Benc <jbenc@suse.cz>
  * Copyright 2017	Intel Deutschland GmbH
- * Copyright (C) 2019, 2022-2024 Intel Corporation
+ * Copyright (C) 2019, 2022-2025 Intel Corporation
  */
 
 #include <linux/kernel.h>
@@ -98,6 +98,9 @@ void rate_control_tx_status(struct ieee80211_local *local,
 	if (!ref || !test_sta_flag(sta, WLAN_STA_RATE_CONTROL))
 		return;
 
+	if (st->info->band >= NUM_NL80211_BANDS)
+		return;
+
 	sband = local->hw.wiphy->bands[st->info->band];
 
 	spin_lock_bh(&sta->rate_ctrl_lock);
@@ -160,7 +163,7 @@ int ieee80211_rate_control_register(const struct rate_control_ops *ops)
 		}
 	}
 
-	alg = kzalloc(sizeof(*alg), GFP_KERNEL);
+	alg = kzalloc_obj(*alg);
 	if (alg == NULL) {
 		mutex_unlock(&rate_ctrl_mutex);
 		return -ENOMEM;
@@ -260,7 +263,7 @@ rate_control_alloc(const char *name, struct ieee80211_local *local)
 {
 	struct rate_control_ref *ref;
 
-	ref = kmalloc(sizeof(struct rate_control_ref), GFP_KERNEL);
+	ref = kmalloc_obj(struct rate_control_ref);
 	if (!ref)
 		return NULL;
 	ref->ops = ieee80211_rate_control_ops_get(name);
@@ -418,6 +421,9 @@ static bool rate_control_send_low(struct ieee80211_sta *pubsta,
 	struct sta_info *sta;
 	int mcast_rate;
 	bool use_basicrate = false;
+
+	if (!sband)
+		return false;
 
 	if (!pubsta || rc_no_data_or_no_ack_use_min(txrc)) {
 		__rate_control_send_low(txrc->hw, sband, pubsta, info,
@@ -898,6 +904,9 @@ void ieee80211_get_tx_rates(struct ieee80211_vif *vif,
 		return;
 
 	sdata = vif_to_sdata(vif);
+	if (info->band >= NUM_NL80211_BANDS)
+		return;
+
 	sband = sdata->local->hw.wiphy->bands[info->band];
 
 	if (ieee80211_is_tx_data(skb))

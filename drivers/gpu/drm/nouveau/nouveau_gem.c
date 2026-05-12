@@ -87,7 +87,7 @@ nouveau_gem_object_del(struct drm_gem_object *gem)
 		return;
 	}
 
-	ttm_bo_put(&nvbo->bo);
+	ttm_bo_fini(&nvbo->bo);
 
 	pm_runtime_mark_last_busy(dev);
 	pm_runtime_put_autosuspend(dev);
@@ -168,7 +168,7 @@ nouveau_gem_object_unmap(struct nouveau_bo *nvbo, struct nouveau_vma *vma)
 		return;
 	}
 
-	if (!(work = kmalloc(sizeof(*work), GFP_KERNEL))) {
+	if (!(work = kmalloc_obj(*work))) {
 		WARN_ON(dma_fence_wait_timeout(fence, false, 2 * HZ) <= 0);
 		nouveau_gem_object_delete(vma);
 		return;
@@ -686,7 +686,7 @@ nouveau_gem_pushbuf_reloc_apply(struct nouveau_cli *cli,
 		}
 		nvbo = (void *)(unsigned long)bo[r->reloc_bo_index].user_priv;
 
-		if (unlikely(r->reloc_bo_offset + 4 >
+		if (unlikely((u64)r->reloc_bo_offset + 4 >
 			     nvbo->bo.base.size)) {
 			NV_PRINTK(err, cli, "reloc outside of bo\n");
 			ret = -EINVAL;

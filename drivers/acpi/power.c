@@ -23,6 +23,7 @@
 
 #define pr_fmt(fmt) "ACPI: PM: " fmt
 
+#include <linux/delay.h>
 #include <linux/dmi.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -36,8 +37,6 @@
 #include "sleep.h"
 #include "internal.h"
 
-#define ACPI_POWER_CLASS		"power_resource"
-#define ACPI_POWER_DEVICE_NAME		"Power Resource"
 #define ACPI_POWER_RESOURCE_STATE_OFF	0x00
 #define ACPI_POWER_RESOURCE_STATE_ON	0x01
 #define ACPI_POWER_RESOURCE_STATE_UNKNOWN 0xFF
@@ -62,6 +61,9 @@ struct acpi_power_resource_entry {
 	struct list_head node;
 	struct acpi_power_resource *resource;
 };
+
+static bool hp_eb_gp12pxp_quirk;
+static bool unused_power_resources_quirk;
 
 static LIST_HEAD(acpi_power_resource_list);
 static DEFINE_MUTEX(power_resource_list_lock);
@@ -100,7 +102,7 @@ static int acpi_power_resources_list_add(acpi_handle handle,
 	if (!resource || !list)
 		return -EINVAL;
 
-	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+	entry = kzalloc_obj(*entry);
 	if (!entry)
 		return -ENOMEM;
 
@@ -261,7 +263,7 @@ acpi_power_resource_add_dependent(struct acpi_power_resource *resource,
 			goto unlock;
 	}
 
-	dep = kzalloc(sizeof(*dep), GFP_KERNEL);
+	dep = kzalloc_obj(*dep);
 	if (!dep) {
 		ret = -ENOMEM;
 		goto unlock;
@@ -941,7 +943,7 @@ struct acpi_device *acpi_add_power_resource(acpi_handle handle)
 	if (device)
 		return device;
 
-	resource = kzalloc(sizeof(*resource), GFP_KERNEL);
+	resource = kzalloc_obj(*resource);
 	if (!resource)
 		return NULL;
 
@@ -951,8 +953,6 @@ struct acpi_device *acpi_add_power_resource(acpi_handle handle)
 	mutex_init(&resource->resource_lock);
 	INIT_LIST_HEAD(&resource->list_node);
 	INIT_LIST_HEAD(&resource->dependents);
-	strscpy(acpi_device_name(device), ACPI_POWER_DEVICE_NAME);
-	strscpy(acpi_device_class(device), ACPI_POWER_CLASS);
 	device->power.state = ACPI_STATE_UNKNOWN;
 	device->flags.match_driver = true;
 
@@ -987,11 +987,43 @@ struct acpi_device *acpi_add_power_resource(acpi_handle handle)
 	return device;
 
  err:
-	acpi_release_power_resource(&device->dev);
+	acpi_dev_put(device);
 	return NULL;
 }
 
 #ifdef CONFIG_ACPI_SLEEP
+static bool resource_is_gp12pxp(acpi_handle handle)
+{
+	const char *path;
+	bool ret;
+
+	path = acpi_handle_path(handle);
+	ret = path && strcmp(path, "\\_SB_.PCI0.GP12.PXP_") == 0;
+	kfree(path);
+
+	return ret;
+}
+
+static void acpi_resume_on_eb_gp12pxp(struct acpi_power_resource *resource)
+{
+	acpi_handle_notice(resource->device.handle,
+			   "HP EB quirk - turning OFF then ON\n");
+
+	__acpi_power_off(resource);
+	__acpi_power_on(resource);
+
+	/*
+	 * Use the same delay as DSDT uses in modem _RST method.
+	 *
+	 * Otherwise we get "Unable to change power state from unknown to D0,
+	 * device inaccessible" error for the modem PCI device after thaw.
+	 *
+	 * This power resource is normally being enabled only during thaw (once)
+	 * so this wait is not a performance issue.
+	 */
+	msleep(200);
+}
+
 void acpi_resume_power_resources(void)
 {
 	struct acpi_power_resource *resource;
@@ -1013,8 +1045,14 @@ void acpi_resume_power_resources(void)
 
 		if (state == ACPI_POWER_RESOURCE_STATE_OFF
 		    && resource->ref_count) {
-			acpi_handle_debug(resource->device.handle, "Turning ON\n");
-			__acpi_power_on(resource);
+			if (hp_eb_gp12pxp_quirk &&
+			    resource_is_gp12pxp(resource->device.handle)) {
+				acpi_resume_on_eb_gp12pxp(resource);
+			} else {
+				acpi_handle_debug(resource->device.handle,
+						  "Turning ON\n");
+				__acpi_power_on(resource);
+			}
 		}
 
 		mutex_unlock(&resource->resource_lock);
@@ -1023,6 +1061,41 @@ void acpi_resume_power_resources(void)
 	mutex_unlock(&power_resource_list_lock);
 }
 #endif
+
+static const struct dmi_system_id dmi_hp_elitebook_gp12pxp_quirk[] = {
+/*
+ * This laptop (and possibly similar models too) has power resource called
+ * "GP12.PXP_" for its WWAN modem.
+ *
+ * For this power resource to turn ON power for the modem it needs certain
+ * internal flag called "ONEN" to be set.
+ * This flag only gets set from this power resource "_OFF" method, while the
+ * actual modem power gets turned off during suspend by "GP12.PTS" method
+ * called from the global "_PTS" (Prepare To Sleep) method.
+ * On the other hand, this power resource "_OFF" method implementation just
+ * sets the aforementioned flag without actually doing anything else (it
+ * doesn't contain any code to actually turn off power).
+ *
+ * The above means that when upon hibernation finish we try to set this
+ * power resource back ON since its "_STA" method returns 0 (while the resource
+ * is still considered in use) its "_ON" method won't do anything since
+ * that "ONEN" flag is not set.
+ * Overall, this means the modem is dead until laptop is rebooted since its
+ * power has been cut by "_PTS" and its PCI configuration was lost and not able
+ * to be restored.
+ *
+ * The easiest way to workaround the issue is to call this power resource
+ * "_OFF" method before calling the "_ON" method to make sure the "ONEN"
+ * flag gets properly set.
+ */
+	{
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "HP"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "HP EliteBook 855 G7 Notebook PC"),
+		},
+	},
+	{}
+};
 
 static const struct dmi_system_id dmi_leave_unused_power_resources_on[] = {
 	{
@@ -1036,6 +1109,19 @@ static const struct dmi_system_id dmi_leave_unused_power_resources_on[] = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "SATELLITE Click Mini L9W-B"),
 		},
 	},
+	{
+		/*
+		 * THUNDEROBOT ZERO laptop: Due to its SSDT table bug, power
+		 * resource 'PXP' will be shut down on initialization, making
+		 * the NVMe #2 and the NVIDIA dGPU both unavailable (they're
+		 * both controlled by 'PXP').
+		 */
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "THUNDEROBOT"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "ZERO"),
+		}
+
+	},
 	{}
 };
 
@@ -1046,7 +1132,7 @@ void acpi_turn_off_unused_power_resources(void)
 {
 	struct acpi_power_resource *resource;
 
-	if (dmi_check_system(dmi_leave_unused_power_resources_on))
+	if (unused_power_resources_quirk)
 		return;
 
 	mutex_lock(&power_resource_list_lock);
@@ -1064,4 +1150,11 @@ void acpi_turn_off_unused_power_resources(void)
 	}
 
 	mutex_unlock(&power_resource_list_lock);
+}
+
+void __init acpi_power_resources_init(void)
+{
+	hp_eb_gp12pxp_quirk = dmi_check_system(dmi_hp_elitebook_gp12pxp_quirk);
+	unused_power_resources_quirk =
+		dmi_check_system(dmi_leave_unused_power_resources_on);
 }

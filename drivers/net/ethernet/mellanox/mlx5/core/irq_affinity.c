@@ -52,7 +52,7 @@ irq_pool_request_irq(struct mlx5_irq_pool *pool, struct irq_affinity_desc *af_de
 	u32 irq_index;
 	int err;
 
-	auto_desc = kvzalloc(sizeof(*auto_desc), GFP_KERNEL);
+	auto_desc = kvzalloc_obj(*auto_desc);
 	if (!auto_desc)
 		return ERR_PTR(-ENOMEM);
 
@@ -150,8 +150,8 @@ mlx5_irq_affinity_request(struct mlx5_core_dev *dev, struct mlx5_irq_pool *pool,
 	if (IS_ERR(new_irq)) {
 		if (!least_loaded_irq) {
 			/* We failed to create an IRQ and we didn't find an IRQ */
-			mlx5_core_err(pool->dev, "Didn't find a matching IRQ. err = %ld\n",
-				      PTR_ERR(new_irq));
+			mlx5_core_err(pool->dev, "Didn't find a matching IRQ. err = %pe\n",
+				      new_irq);
 			mutex_unlock(&pool->lock);
 			return new_irq;
 		}

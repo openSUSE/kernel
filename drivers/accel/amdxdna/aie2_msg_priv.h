@@ -9,7 +9,8 @@
 enum aie2_msg_opcode {
 	MSG_OP_CREATE_CONTEXT              = 0x2,
 	MSG_OP_DESTROY_CONTEXT             = 0x3,
-	MSG_OP_SYNC_BO			   = 0x7,
+	MSG_OP_GET_TELEMETRY               = 0x4,
+	MSG_OP_SYNC_BO                     = 0x7,
 	MSG_OP_EXECUTE_BUFFER_CF           = 0xC,
 	MSG_OP_QUERY_COL_STATUS            = 0xD,
 	MSG_OP_QUERY_AIE_TILE_INFO         = 0xE,
@@ -18,6 +19,8 @@ enum aie2_msg_opcode {
 	MSG_OP_CONFIG_CU                   = 0x11,
 	MSG_OP_CHAIN_EXEC_BUFFER_CF        = 0x12,
 	MSG_OP_CHAIN_EXEC_DPU              = 0x13,
+	MSG_OP_CONFIG_DEBUG_BO             = 0x14,
+	MSG_OP_CHAIN_EXEC_NPU              = 0x18,
 	MSG_OP_MAX_XRT_OPCODE,
 	MSG_OP_SUSPEND                     = 0x101,
 	MSG_OP_RESUME                      = 0x102,
@@ -28,6 +31,9 @@ enum aie2_msg_opcode {
 	MSG_OP_SET_RUNTIME_CONFIG          = 0x10A,
 	MSG_OP_GET_RUNTIME_CONFIG          = 0x10B,
 	MSG_OP_REGISTER_ASYNC_EVENT_MSG    = 0x10C,
+	MSG_OP_UPDATE_PROPERTY             = 0x113,
+	MSG_OP_GET_APP_HEALTH              = 0x114,
+	MSG_OP_GET_DEV_REVISION            = 0x117,
 	MSG_OP_MAX_DRV_OPCODE,
 	MSG_OP_GET_PROTOCOL_VERSION        = 0x301,
 	MSG_OP_MAX_OPCODE
@@ -105,11 +111,17 @@ struct cq_pair {
 	struct cq_info i2x_q;
 };
 
+#define PRIORITY_REALTIME	1
+#define PRIORITY_HIGH		2
+#define PRIORITY_NORMAL		3
+#define PRIORITY_LOW		4
+
 struct create_ctx_req {
 	__u32	aie_type;
 	__u8	start_col;
 	__u8	num_col;
-	__u16	reserved;
+	__u8    num_unused_col;
+	__u8	reserved;
 	__u8	num_cq_pairs_requested;
 	__u8	reserved1;
 	__u16	pasid;
@@ -135,6 +147,28 @@ struct destroy_ctx_resp {
 	enum aie2_msg_status	status;
 } __packed;
 
+enum telemetry_type {
+	TELEMETRY_TYPE_DISABLED,
+	TELEMETRY_TYPE_HEALTH,
+	TELEMETRY_TYPE_ERROR_INFO,
+	TELEMETRY_TYPE_PROFILING,
+	TELEMETRY_TYPE_DEBUG,
+	MAX_TELEMETRY_TYPE
+};
+
+struct get_telemetry_req {
+	enum telemetry_type	type;
+	__u64	buf_addr;
+	__u32	buf_size;
+} __packed;
+
+struct get_telemetry_resp {
+	__u32	major;
+	__u32	minor;
+	__u32	size;
+	enum aie2_msg_status	status;
+} __packed;
+
 struct execute_buffer_req {
 	__u32	cu_idx;
 	__u32	payload[19];
@@ -147,6 +181,18 @@ struct exec_dpu_req {
 	__u32	cu_idx;
 	__u32	payload[35];
 } __packed;
+
+enum exec_npu_type {
+	EXEC_NPU_TYPE_NON_ELF		= 0x1,
+	EXEC_NPU_TYPE_PARTIAL_ELF	= 0x2,
+	EXEC_NPU_TYPE_PREEMPT		= 0x3,
+	EXEC_NPU_TYPE_ELF		= 0x4,
+};
+
+union exec_req {
+	struct execute_buffer_req ebuf;
+	struct exec_dpu_req dpu_req;
+};
 
 struct execute_buffer_resp {
 	enum aie2_msg_status	status;
@@ -319,9 +365,6 @@ struct async_event_msg_resp {
 } __packed;
 
 #define MAX_CHAIN_CMDBUF_SIZE SZ_4K
-#define slot_has_space(slot, offset, payload_size)		\
-	(MAX_CHAIN_CMDBUF_SIZE >= (offset) + (payload_size) +	\
-	 sizeof(typeof(slot)))
 
 struct cmd_chain_slot_execbuf_cf {
 	__u32 cu_idx;
@@ -339,11 +382,40 @@ struct cmd_chain_slot_dpu {
 	__u32 args[] __counted_by(arg_cnt);
 };
 
+#define MAX_NPU_ARGS_SIZE (26 * sizeof(__u32))
+#define AIE2_EXEC_BUFFER_KERNEL_OP_TXN	3
+struct cmd_chain_slot_npu {
+	enum exec_npu_type type;
+	u64 inst_buf_addr;
+	u64 save_buf_addr;
+	u64 restore_buf_addr;
+	u32 inst_size;
+	u32 save_size;
+	u32 restore_size;
+	u32 inst_prop_cnt;
+	u32 cu_idx;
+	u32 arg_cnt;
+	u32 args[] __counted_by(arg_cnt);
+} __packed;
+
 struct cmd_chain_req {
 	__u64 buf_addr;
 	__u32 buf_size;
 	__u32 count;
 } __packed;
+
+struct cmd_chain_npu_req {
+	u32 flags;
+	u32 reserved;
+	u64 buf_addr;
+	u32 buf_size;
+	u32 count;
+} __packed;
+
+union exec_chain_req {
+	struct cmd_chain_npu_req npu_req;
+	struct cmd_chain_req req;
+};
 
 struct cmd_chain_resp {
 	enum aie2_msg_status	status;
@@ -365,4 +437,109 @@ struct sync_bo_req {
 struct sync_bo_resp {
 	enum aie2_msg_status	status;
 } __packed;
+
+#define DEBUG_BO_UNREGISTER 0
+#define DEBUG_BO_REGISTER   1
+struct config_debug_bo_req {
+	__u64	offset;
+	__u64	size;
+	/*
+	 * config operations.
+	 *   DEBUG_BO_REGISTER: Register debug buffer
+	 *   DEBUG_BO_UNREGISTER: Unregister debug buffer
+	 */
+	__u32	config;
+} __packed;
+
+struct config_debug_bo_resp {
+	enum aie2_msg_status	status;
+} __packed;
+
+struct fatal_error_info {
+	__u32 fatal_type;         /* Fatal error type */
+	__u32 exception_type;     /* Only valid if fatal_type is a specific value */
+	__u32 exception_argument; /* Argument based on exception type */
+	__u32 exception_pc;       /* Program Counter at the time of the exception */
+	__u32 app_module;         /* Error module name */
+	__u32 task_index;         /* Index of the task in which the error occurred */
+	__u32 reserved[127];
+};
+
+struct app_health_report {
+	__u16 major;
+	__u16 minor;
+	__u32 size;
+	__u32 context_id;
+	/*
+	 * Program Counter (PC) of the last initiated DPU opcode, as reported by the ERT
+	 * application. Before execution begins or after successful completion, the value is set
+	 * to UINT_MAX. If execution halts prematurely due to an error, this field retains the
+	 * opcode's PC value.
+	 * Note: To optimize performance, the ERT may simplify certain aspects of reporting.
+	 * Proper interpretation requires familiarity with the implementation details.
+	 */
+	__u32 dpu_pc;
+	/*
+	 * Index of the last initiated TXN opcode.
+	 * Before execution starts or after successful completion, the value is set to UINT_MAX.
+	 * If execution halts prematurely due to an error, this field retains the opcode's ID.
+	 * Note: To optimize performance, the ERT may simplify certain aspects of reporting.
+	 * Proper interpretation requires familiarity with the implementation details.
+	 */
+	__u32 txn_op_id;
+	/* The PC of the context at the time of the report */
+	__u32 ctx_pc;
+	struct fatal_error_info		fatal_info;
+	/* Index of the most recently executed run list entry. */
+	__u32 run_list_id;
+};
+
+struct get_app_health_req {
+	__u32 context_id;
+	__u32 buf_size;
+	__u64 buf_addr;
+} __packed;
+
+struct get_app_health_resp {
+	enum aie2_msg_status status;
+	__u32 required_buffer_size;
+	__u32 reserved[7];
+} __packed;
+
+struct update_property_req {
+#define UPDATE_PROPERTY_TIME_QUOTA 0
+	__u32 type;
+#define AIE2_UPDATE_PROPERTY_ALL_CTX	0xFF
+	__u8 context_id;
+	__u8 reserved[7];
+	__u32 time_quota_us;
+	__u32 reserved1;
+} __packed;
+
+struct update_property_resp {
+	enum aie2_msg_status status;
+} __packed;
+
+enum aie2_dev_revision {
+	AIE2_DEV_REVISION_STXA = 1,
+	AIE2_DEV_REVISION_STXB,
+	AIE2_DEV_REVISION_KRK1,
+	AIE2_DEV_REVISION_KRK2,
+	AIE2_DEV_REVISION_HALO,
+	AIE2_DEV_REVISION_GPT1,
+	AIE2_DEV_REVISION_GPT2,
+	AIE2_DEV_REVISION_GPT3,
+	AIE2_DEV_REVISION_UNKN,
+};
+
+struct get_dev_revision_req {
+	__u32			place_holder;
+} __packed;
+
+struct get_dev_revision_resp {
+	enum aie2_msg_status	status;
+	enum aie2_dev_revision	rev;
+	__u32			raw_fuse_data;
+} __packed;
+
 #endif /* _AIE2_MSG_PRIV_H_ */

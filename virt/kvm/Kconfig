@@ -5,6 +5,7 @@ config KVM_COMMON
        bool
        select EVENTFD
        select INTERVAL_TREE
+       select MMU_NOTIFIER
        select PREEMPT_NOTIFIERS
 
 config HAVE_KVM_PFNCACHE
@@ -78,16 +79,13 @@ config HAVE_KVM_IRQ_BYPASS
        tristate
        select IRQ_BYPASS_MANAGER
 
-config HAVE_KVM_VCPU_ASYNC_IOCTL
-       bool
-
 config HAVE_KVM_VCPU_RUN_PID_CHANGE
        bool
 
 config HAVE_KVM_NO_POLL
        bool
 
-config KVM_XFER_TO_GUEST_WORK
+config VIRT_XFER_TO_GUEST_WORK
        bool
 
 config HAVE_KVM_PM_NOTIFIER
@@ -96,35 +94,27 @@ config HAVE_KVM_PM_NOTIFIER
 config KVM_GENERIC_HARDWARE_ENABLING
        bool
 
-config KVM_GENERIC_MMU_NOTIFIER
-       select MMU_NOTIFIER
-       bool
-
 config KVM_ELIDE_TLB_FLUSH_IF_YOUNG
-       depends on KVM_GENERIC_MMU_NOTIFIER
        bool
 
 config KVM_MMU_LOCKLESS_AGING
-       depends on KVM_GENERIC_MMU_NOTIFIER
        bool
 
 config KVM_GENERIC_MEMORY_ATTRIBUTES
-       depends on KVM_GENERIC_MMU_NOTIFIER
        bool
 
-config KVM_PRIVATE_MEM
+config KVM_GUEST_MEMFD
        select XARRAY_MULTI
-       bool
-
-config KVM_GENERIC_PRIVATE_MEM
-       select KVM_GENERIC_MEMORY_ATTRIBUTES
-       select KVM_PRIVATE_MEM
        bool
 
 config HAVE_KVM_ARCH_GMEM_PREPARE
        bool
-       depends on KVM_PRIVATE_MEM
+       depends on KVM_GUEST_MEMFD
 
 config HAVE_KVM_ARCH_GMEM_INVALIDATE
        bool
-       depends on KVM_PRIVATE_MEM
+       depends on KVM_GUEST_MEMFD
+
+config HAVE_KVM_ARCH_GMEM_POPULATE
+       bool
+       depends on KVM_GUEST_MEMFD

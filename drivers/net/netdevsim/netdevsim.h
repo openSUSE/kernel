@@ -18,6 +18,7 @@
 #include <linux/ethtool.h>
 #include <linux/ethtool_netlink.h>
 #include <linux/kernel.h>
+#include <linux/if_vlan.h>
 #include <linux/list.h>
 #include <linux/netdevice.h>
 #include <linux/ptp_mock.h>
@@ -75,6 +76,11 @@ struct nsim_macsec {
 	u8 nsim_secy_count;
 };
 
+struct nsim_vlan {
+	DECLARE_BITMAP(ctag, VLAN_N_VID);
+	DECLARE_BITMAP(stag, VLAN_N_VID);
+};
+
 struct nsim_ethtool_pauseparam {
 	bool rx;
 	bool tx;
@@ -108,6 +114,17 @@ struct netdevsim {
 
 	int rq_reset_mode;
 
+	struct {
+		u64_stats_t rx_packets;
+		u64_stats_t rx_bytes;
+		u64_stats_t tx_packets;
+		u64_stats_t tx_bytes;
+		struct u64_stats_sync syncp;
+		struct psp_dev *dev;
+		u32 spi;
+		u32 assoc_cnt;
+	} psp;
+
 	struct nsim_bus_dev *nsim_bus_dev;
 
 	struct bpf_prog	*bpf_offloaded;
@@ -124,6 +141,7 @@ struct netdevsim {
 	bool bpf_map_accept;
 	struct nsim_ipsec ipsec;
 	struct nsim_macsec macsec;
+	struct nsim_vlan vlan;
 	struct {
 		u32 inject_error;
 		u32 __ports[2][NSIM_UDP_TUNNEL_N_PORTS];
@@ -135,6 +153,7 @@ struct netdevsim {
 	struct page *page;
 	struct dentry *pp_dfs;
 	struct dentry *qr_dfs;
+	struct dentry *vlan_dfs;
 
 	struct nsim_ethtool ethtool;
 	struct netdevsim __rcu *peer;
@@ -211,6 +230,10 @@ enum nsim_resource_id {
 	NSIM_RESOURCE_IPV6_FIB,
 	NSIM_RESOURCE_IPV6_FIB_RULES,
 	NSIM_RESOURCE_NEXTHOPS,
+};
+
+enum nsim_port_resource_id {
+	NSIM_PORT_RESOURCE_TEST = 1,
 };
 
 struct nsim_dev_health {
@@ -313,6 +336,7 @@ struct nsim_dev {
 	u32 prog_id_gen;
 	struct list_head bpf_bound_progs;
 	struct list_head bpf_bound_maps;
+	struct mutex progs_list_lock;
 	struct netdev_phys_item_id switch_id;
 	struct list_head port_list;
 	bool fw_update_status;
@@ -320,6 +344,7 @@ struct nsim_dev {
 	u32 fw_update_flash_chunk_time_ms;
 	u32 max_macs;
 	bool test1;
+	u32 test2;
 	bool dont_allow_reload;
 	bool fail_reload;
 	struct devlink_region *dummy_region;
@@ -420,6 +445,30 @@ static inline void nsim_macsec_teardown(struct netdevsim *ns)
 {
 }
 #endif
+
+#if IS_ENABLED(CONFIG_INET_PSP)
+int nsim_psp_init(struct netdevsim *ns);
+void nsim_psp_uninit(struct netdevsim *ns);
+void nsim_psp_handle_ext(struct sk_buff *skb, struct skb_ext *psp_ext);
+enum skb_drop_reason
+nsim_do_psp(struct sk_buff *skb, struct netdevsim *ns,
+	    struct netdevsim *peer_ns, struct skb_ext **psp_ext);
+#else
+static inline int nsim_psp_init(struct netdevsim *ns) { return 0; }
+static inline void nsim_psp_uninit(struct netdevsim *ns) {}
+static inline enum skb_drop_reason
+nsim_do_psp(struct sk_buff *skb, struct netdevsim *ns,
+	    struct netdevsim *peer_ns, struct skb_ext **psp_ext)
+{
+	return 0;
+}
+
+static inline void
+nsim_psp_handle_ext(struct sk_buff *skb, struct skb_ext *psp_ext) {}
+#endif
+
+int nsim_setup_tc(struct net_device *dev, enum tc_setup_type type,
+		  void *type_data);
 
 struct nsim_bus_dev {
 	struct device dev;

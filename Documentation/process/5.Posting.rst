@@ -40,7 +40,12 @@ sending patches to the development community.  These include:
  - Test the code to the extent that you can.  Make use of the kernel's
    debugging tools, ensure that the kernel will build with all reasonable
    combinations of configuration options, use cross-compilers to build for
-   different architectures, etc.
+   different architectures, etc. Add tests, likely using an existing
+   testing framework like KUnit, and include them as a separate member
+   of your series (see the next section for more about patch series).
+   Note that this may be mandatory when affecting some subsystems. For
+   example, library functions (resides under lib/) are extensively used
+   almost everywhere and expected to be tested appropriately.
 
  - Make sure your code is compliant with the kernel coding style
    guidelines.
@@ -207,10 +212,9 @@ document with a specification implemented by the patch::
 
 	Link: https://example.com/somewhere.html  optional-other-stuff
 
-Many maintainers when applying a patch also add this tag to link to the
-latest public review posting of the patch; often this is automatically done
-by tools like b4 or a git hook like the one described in
-'Documentation/maintainer/configure-git.rst'.
+As per guidance from the Chief Penguin, a Link: tag should only be added to
+a commit if it leads to useful information that is not found in the commit
+itself.
 
 If the URL points to a public bug report being fixed by the patch, use the
 "Closes:" tag instead::

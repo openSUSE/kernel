@@ -9,6 +9,7 @@
 #include "tests/xe_kunit_helpers.h"
 #include "tests/xe_pci_test.h"
 
+#include "xe_pat.h"
 #include "xe_pci.h"
 #include "xe_pm.h"
 
@@ -70,7 +71,7 @@ static int run_sanity_job(struct xe_migrate *m, struct xe_device *xe,
 		} } while (0)
 
 static void test_copy(struct xe_migrate *m, struct xe_bo *bo,
-		      struct kunit *test, u32 region)
+		      struct kunit *test, u32 region, struct drm_exec *exec)
 {
 	struct xe_device *xe = tile_to_xe(m->tile);
 	u64 retval, expected = 0;
@@ -84,14 +85,15 @@ static void test_copy(struct xe_migrate *m, struct xe_bo *bo,
 						   ttm_bo_type_kernel,
 						   region |
 						   XE_BO_FLAG_NEEDS_CPU_ACCESS |
-						   XE_BO_FLAG_PINNED);
+						   XE_BO_FLAG_PINNED,
+						   exec);
 	if (IS_ERR(remote)) {
 		KUNIT_FAIL(test, "Failed to allocate remote bo for %s: %pe\n",
 			   str, remote);
 		return;
 	}
 
-	err = xe_bo_validate(remote, NULL, false);
+	err = xe_bo_validate(remote, NULL, false, exec);
 	if (err) {
 		KUNIT_FAIL(test, "Failed to validate system bo for %s: %i\n",
 			   str, err);
@@ -161,13 +163,13 @@ out_unlock:
 }
 
 static void test_copy_sysmem(struct xe_migrate *m, struct xe_bo *bo,
-			     struct kunit *test)
+			     struct drm_exec *exec, struct kunit *test)
 {
-	test_copy(m, bo, test, XE_BO_FLAG_SYSTEM);
+	test_copy(m, bo, test, XE_BO_FLAG_SYSTEM, exec);
 }
 
 static void test_copy_vram(struct xe_migrate *m, struct xe_bo *bo,
-			   struct kunit *test)
+			   struct drm_exec *exec, struct kunit *test)
 {
 	u32 region;
 
@@ -178,10 +180,11 @@ static void test_copy_vram(struct xe_migrate *m, struct xe_bo *bo,
 		region = XE_BO_FLAG_VRAM1;
 	else
 		region = XE_BO_FLAG_VRAM0;
-	test_copy(m, bo, test, region);
+	test_copy(m, bo, test, region, exec);
 }
 
-static void xe_migrate_sanity_test(struct xe_migrate *m, struct kunit *test)
+static void xe_migrate_sanity_test(struct xe_migrate *m, struct kunit *test,
+				   struct drm_exec *exec)
 {
 	struct xe_tile *tile = m->tile;
 	struct xe_device *xe = tile_to_xe(tile);
@@ -202,7 +205,8 @@ static void xe_migrate_sanity_test(struct xe_migrate *m, struct kunit *test)
 
 	big = xe_bo_create_pin_map(xe, tile, m->q->vm, SZ_4M,
 				   ttm_bo_type_kernel,
-				   XE_BO_FLAG_VRAM_IF_DGFX(tile));
+				   XE_BO_FLAG_VRAM_IF_DGFX(tile),
+				   exec);
 	if (IS_ERR(big)) {
 		KUNIT_FAIL(test, "Failed to allocate bo: %li\n", PTR_ERR(big));
 		goto vunmap;
@@ -210,7 +214,8 @@ static void xe_migrate_sanity_test(struct xe_migrate *m, struct kunit *test)
 
 	pt = xe_bo_create_pin_map(xe, tile, m->q->vm, XE_PAGE_SIZE,
 				  ttm_bo_type_kernel,
-				  XE_BO_FLAG_VRAM_IF_DGFX(tile));
+				  XE_BO_FLAG_VRAM_IF_DGFX(tile),
+				  exec);
 	if (IS_ERR(pt)) {
 		KUNIT_FAIL(test, "Failed to allocate fake pt: %li\n",
 			   PTR_ERR(pt));
@@ -220,7 +225,8 @@ static void xe_migrate_sanity_test(struct xe_migrate *m, struct kunit *test)
 	tiny = xe_bo_create_pin_map(xe, tile, m->q->vm,
 				    2 * SZ_4K,
 				    ttm_bo_type_kernel,
-				    XE_BO_FLAG_VRAM_IF_DGFX(tile));
+				    XE_BO_FLAG_VRAM_IF_DGFX(tile),
+				    exec);
 	if (IS_ERR(tiny)) {
 		KUNIT_FAIL(test, "Failed to allocate tiny fake pt: %li\n",
 			   PTR_ERR(tiny));
@@ -241,7 +247,7 @@ static void xe_migrate_sanity_test(struct xe_migrate *m, struct kunit *test)
 	/* First part of the test, are we updating our pagetable bo with a new entry? */
 	xe_map_wr(xe, &bo->vmap, XE_PAGE_SIZE * (NUM_KERNEL_PDE - 1), u64,
 		  0xdeaddeadbeefbeef);
-	expected = m->q->vm->pt_ops->pte_encode_bo(pt, 0, xe->pat.idx[XE_CACHE_WB], 0);
+	expected = m->q->vm->pt_ops->pte_encode_bo(pt, 0, xe_cache_pat_idx(xe, XE_CACHE_WB), 0);
 	if (m->q->vm->flags & XE_VM_FLAG_64K)
 		expected |= XE_PTE_PS64;
 	if (xe_bo_is_vram(pt))
@@ -290,10 +296,10 @@ static void xe_migrate_sanity_test(struct xe_migrate *m, struct kunit *test)
 	check(retval, expected, "Command clear small last value", test);
 
 	kunit_info(test, "Copying small buffer object to system\n");
-	test_copy_sysmem(m, tiny, test);
+	test_copy_sysmem(m, tiny, exec, test);
 	if (xe->info.tile_count > 1) {
 		kunit_info(test, "Copying small buffer object to other vram\n");
-		test_copy_vram(m, tiny, test);
+		test_copy_vram(m, tiny, exec, test);
 	}
 
 	/* Clear a big bo */
@@ -312,10 +318,10 @@ static void xe_migrate_sanity_test(struct xe_migrate *m, struct kunit *test)
 	check(retval, expected, "Command clear big last value", test);
 
 	kunit_info(test, "Copying big buffer object to system\n");
-	test_copy_sysmem(m, big, test);
+	test_copy_sysmem(m, big, exec, test);
 	if (xe->info.tile_count > 1) {
 		kunit_info(test, "Copying big buffer object to other vram\n");
-		test_copy_vram(m, big, test);
+		test_copy_vram(m, big, exec, test);
 	}
 
 out:
@@ -339,18 +345,16 @@ static int migrate_test_run_device(struct xe_device *xe)
 	struct xe_tile *tile;
 	int id;
 
-	xe_pm_runtime_get(xe);
-
+	guard(xe_pm_runtime)(xe);
 	for_each_tile(tile, xe, id) {
 		struct xe_migrate *m = tile->migrate;
+		struct drm_exec *exec = XE_VALIDATION_OPT_OUT;
 
 		kunit_info(test, "Testing tile id %d.\n", id);
 		xe_vm_lock(m->q->vm, false);
-		xe_migrate_sanity_test(m, test);
+		xe_migrate_sanity_test(m, test, exec);
 		xe_vm_unlock(m->q->vm);
 	}
-
-	xe_pm_runtime_put(xe);
 
 	return 0;
 }
@@ -490,7 +494,7 @@ err_sync:
 
 static void test_migrate(struct xe_device *xe, struct xe_tile *tile,
 			 struct xe_bo *sys_bo, struct xe_bo *vram_bo, struct xe_bo *ccs_bo,
-			 struct kunit *test)
+			 struct drm_exec *exec, struct kunit *test)
 {
 	struct dma_fence *fence;
 	u64 expected, retval;
@@ -509,7 +513,7 @@ static void test_migrate(struct xe_device *xe, struct xe_tile *tile,
 	dma_fence_put(fence);
 
 	kunit_info(test, "Evict vram buffer object\n");
-	ret = xe_bo_evict(vram_bo);
+	ret = xe_bo_evict(vram_bo, exec);
 	if (ret) {
 		KUNIT_FAIL(test, "Failed to evict bo.\n");
 		return;
@@ -538,7 +542,7 @@ static void test_migrate(struct xe_device *xe, struct xe_tile *tile,
 	dma_fence_put(fence);
 
 	kunit_info(test, "Restore vram buffer object\n");
-	ret = xe_bo_validate(vram_bo, NULL, false);
+	ret = xe_bo_validate(vram_bo, NULL, false, exec);
 	if (ret) {
 		KUNIT_FAIL(test, "Failed to validate vram bo for: %li\n", ret);
 		return;
@@ -636,13 +640,14 @@ static void validate_ccs_test_run_tile(struct xe_device *xe, struct xe_tile *til
 {
 	struct xe_bo *sys_bo, *vram_bo = NULL, *ccs_bo = NULL;
 	unsigned int bo_flags = XE_BO_FLAG_VRAM_IF_DGFX(tile);
+	struct drm_exec *exec;
 	long ret;
 
-	sys_bo = xe_bo_create_user(xe, NULL, NULL, SZ_4M,
+	sys_bo = xe_bo_create_user(xe, NULL, SZ_4M,
 				   DRM_XE_GEM_CPU_CACHING_WC,
 				   XE_BO_FLAG_SYSTEM |
 				   XE_BO_FLAG_NEEDS_CPU_ACCESS |
-				   XE_BO_FLAG_PINNED);
+				   XE_BO_FLAG_PINNED, NULL);
 
 	if (IS_ERR(sys_bo)) {
 		KUNIT_FAIL(test, "xe_bo_create() failed with err=%ld\n",
@@ -650,8 +655,9 @@ static void validate_ccs_test_run_tile(struct xe_device *xe, struct xe_tile *til
 		return;
 	}
 
+	exec = XE_VALIDATION_OPT_OUT;
 	xe_bo_lock(sys_bo, false);
-	ret = xe_bo_validate(sys_bo, NULL, false);
+	ret = xe_bo_validate(sys_bo, NULL, false, exec);
 	if (ret) {
 		KUNIT_FAIL(test, "Failed to validate system bo for: %li\n", ret);
 		goto free_sysbo;
@@ -664,10 +670,10 @@ static void validate_ccs_test_run_tile(struct xe_device *xe, struct xe_tile *til
 	}
 	xe_bo_unlock(sys_bo);
 
-	ccs_bo = xe_bo_create_user(xe, NULL, NULL, SZ_4M,
+	ccs_bo = xe_bo_create_user(xe, NULL, SZ_4M,
 				   DRM_XE_GEM_CPU_CACHING_WC,
 				   bo_flags | XE_BO_FLAG_NEEDS_CPU_ACCESS |
-				   XE_BO_FLAG_PINNED);
+				   XE_BO_FLAG_PINNED, NULL);
 
 	if (IS_ERR(ccs_bo)) {
 		KUNIT_FAIL(test, "xe_bo_create() failed with err=%ld\n",
@@ -676,7 +682,7 @@ static void validate_ccs_test_run_tile(struct xe_device *xe, struct xe_tile *til
 	}
 
 	xe_bo_lock(ccs_bo, false);
-	ret = xe_bo_validate(ccs_bo, NULL, false);
+	ret = xe_bo_validate(ccs_bo, NULL, false, exec);
 	if (ret) {
 		KUNIT_FAIL(test, "Failed to validate system bo for: %li\n", ret);
 		goto free_ccsbo;
@@ -689,10 +695,10 @@ static void validate_ccs_test_run_tile(struct xe_device *xe, struct xe_tile *til
 	}
 	xe_bo_unlock(ccs_bo);
 
-	vram_bo = xe_bo_create_user(xe, NULL, NULL, SZ_4M,
+	vram_bo = xe_bo_create_user(xe, NULL, SZ_4M,
 				    DRM_XE_GEM_CPU_CACHING_WC,
 				    bo_flags | XE_BO_FLAG_NEEDS_CPU_ACCESS |
-				    XE_BO_FLAG_PINNED);
+				    XE_BO_FLAG_PINNED, NULL);
 	if (IS_ERR(vram_bo)) {
 		KUNIT_FAIL(test, "xe_bo_create() failed with err=%ld\n",
 			   PTR_ERR(vram_bo));
@@ -700,7 +706,7 @@ static void validate_ccs_test_run_tile(struct xe_device *xe, struct xe_tile *til
 	}
 
 	xe_bo_lock(vram_bo, false);
-	ret = xe_bo_validate(vram_bo, NULL, false);
+	ret = xe_bo_validate(vram_bo, NULL, false, exec);
 	if (ret) {
 		KUNIT_FAIL(test, "Failed to validate vram bo for: %li\n", ret);
 		goto free_vrambo;
@@ -713,7 +719,7 @@ static void validate_ccs_test_run_tile(struct xe_device *xe, struct xe_tile *til
 	}
 
 	test_clear(xe, tile, sys_bo, vram_bo, test);
-	test_migrate(xe, tile, sys_bo, vram_bo, ccs_bo, test);
+	test_migrate(xe, tile, sys_bo, vram_bo, ccs_bo, exec, test);
 	xe_bo_unlock(vram_bo);
 
 	xe_bo_lock(vram_bo, false);
@@ -751,12 +757,9 @@ static int validate_ccs_test_run_device(struct xe_device *xe)
 		return 0;
 	}
 
-	xe_pm_runtime_get(xe);
-
+	guard(xe_pm_runtime)(xe);
 	for_each_tile(tile, xe, id)
 		validate_ccs_test_run_tile(xe, tile, test);
-
-	xe_pm_runtime_put(xe);
 
 	return 0;
 }

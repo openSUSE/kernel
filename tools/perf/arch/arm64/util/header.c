@@ -1,4 +1,3 @@
-#include <linux/kernel.h>
 #include <linux/bits.h>
 #include <linux/bitfield.h>
 #include <stdio.h>
@@ -44,7 +43,7 @@ static int _get_cpuid(char *buf, size_t sz, struct perf_cpu cpu)
 int get_cpuid(char *buf, size_t sz, struct perf_cpu cpu)
 {
 	struct perf_cpu_map *cpus;
-	int idx;
+	unsigned int idx;
 
 	if (cpu.cpu != -1)
 		return _get_cpuid(buf, sz, cpu);

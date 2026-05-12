@@ -42,6 +42,7 @@
 #define PCF2127_BIT_CTRL2_AF			BIT(4)
 #define PCF2127_BIT_CTRL2_TSF2			BIT(5)
 #define PCF2127_BIT_CTRL2_WDTF			BIT(6)
+#define PCF2127_BIT_CTRL2_MSF			BIT(7)
 /* Control register 3 */
 #define PCF2127_REG_CTRL3		0x02
 #define PCF2127_BIT_CTRL3_BLIE			BIT(0)
@@ -96,7 +97,8 @@
 #define PCF2127_CTRL2_IRQ_MASK ( \
 		PCF2127_BIT_CTRL2_AF | \
 		PCF2127_BIT_CTRL2_WDTF | \
-		PCF2127_BIT_CTRL2_TSF2)
+		PCF2127_BIT_CTRL2_TSF2 | \
+		PCF2127_BIT_CTRL2_MSF)
 
 #define PCF2127_MAX_TS_SUPPORTED	4
 
@@ -604,6 +606,21 @@ static int pcf2127_watchdog_init(struct device *dev, struct pcf2127 *pcf2127)
 
 		if (wdd_timeout)
 			set_bit(WDOG_HW_RUNNING, &pcf2127->wdd.status);
+	}
+
+	/*
+	 * When using interrupt pin (INT A) as watchdog output, only allow
+	 * watchdog interrupt (PCF2131_BIT_INT_WD_CD) and disable (mask) all
+	 * other interrupts.
+	 */
+	if (pcf2127->cfg->type == PCF2131) {
+		ret = regmap_write(pcf2127->regmap,
+				   PCF2131_REG_INT_A_MASK1,
+				   PCF2131_BIT_INT_BLIE |
+				   PCF2131_BIT_INT_BIE |
+				   PCF2131_BIT_INT_AIE |
+				   PCF2131_BIT_INT_SI |
+				   PCF2131_BIT_INT_MI);
 	}
 
 	return devm_watchdog_register_device(dev, &pcf2127->wdd);
@@ -1432,10 +1449,10 @@ static const struct regmap_bus pcf2127_i2c_regmap = {
 static struct i2c_driver pcf2127_i2c_driver;
 
 static const struct i2c_device_id pcf2127_i2c_id[] = {
-	{ "pcf2127", PCF2127 },
-	{ "pcf2129", PCF2129 },
-	{ "pca2129", PCF2129 },
-	{ "pcf2131", PCF2131 },
+	{ "pcf2127", (kernel_ulong_t)&pcf21xx_cfg[PCF2127] },
+	{ "pcf2129", (kernel_ulong_t)&pcf21xx_cfg[PCF2129] },
+	{ "pca2129", (kernel_ulong_t)&pcf21xx_cfg[PCF2129] },
+	{ "pcf2131", (kernel_ulong_t)&pcf21xx_cfg[PCF2131] },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, pcf2127_i2c_id);
@@ -1452,18 +1469,9 @@ static int pcf2127_i2c_probe(struct i2c_client *client)
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C))
 		return -ENODEV;
 
-	if (client->dev.of_node) {
-		variant = of_device_get_match_data(&client->dev);
-		if (!variant)
-			return -ENODEV;
-	} else {
-		enum pcf21xx_type type =
-			i2c_match_id(pcf2127_i2c_id, client)->driver_data;
-
-		if (type >= PCF21XX_LAST_ID)
-			return -ENODEV;
-		variant = &pcf21xx_cfg[type];
-	}
+	variant = i2c_get_match_data(client);
+	if (!variant)
+		return -ENODEV;
 
 	config.max_register = variant->max_register,
 

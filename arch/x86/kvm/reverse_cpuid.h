@@ -25,6 +25,9 @@
 #define KVM_X86_FEATURE_SGX2		KVM_X86_FEATURE(CPUID_12_EAX, 1)
 #define KVM_X86_FEATURE_SGX_EDECCSSA	KVM_X86_FEATURE(CPUID_12_EAX, 11)
 
+/* Intel-defined sub-features, CPUID level 0x00000007:1 (ECX) */
+#define KVM_X86_FEATURE_MSR_IMM		KVM_X86_FEATURE(CPUID_7_1_ECX, 5)
+
 /* Intel-defined sub-features, CPUID level 0x00000007:1 (EDX) */
 #define X86_FEATURE_AVX_VNNI_INT8       KVM_X86_FEATURE(CPUID_7_1_EDX, 4)
 #define X86_FEATURE_AVX_NE_CONVERT      KVM_X86_FEATURE(CPUID_7_1_EDX, 5)
@@ -41,10 +44,27 @@
 #define KVM_X86_FEATURE_BHI_CTRL	KVM_X86_FEATURE(CPUID_7_2_EDX, 4)
 #define X86_FEATURE_MCDT_NO		KVM_X86_FEATURE(CPUID_7_2_EDX, 5)
 
+/*
+ * Intel-defined sub-features, CPUID level 0x0000001E:1 (EAX).  Note, several
+ * of the bits are aliases to features of the same name that are enumerated via
+ * various CPUID.0x7 sub-leafs.
+ */
+#define X86_FEATURE_AMX_INT8_ALIAS	KVM_X86_FEATURE(CPUID_1E_1_EAX, 0)
+#define X86_FEATURE_AMX_BF16_ALIAS	KVM_X86_FEATURE(CPUID_1E_1_EAX, 1)
+#define X86_FEATURE_AMX_COMPLEX_ALIAS	KVM_X86_FEATURE(CPUID_1E_1_EAX, 2)
+#define X86_FEATURE_AMX_FP16_ALIAS	KVM_X86_FEATURE(CPUID_1E_1_EAX, 3)
+#define X86_FEATURE_AMX_FP8		KVM_X86_FEATURE(CPUID_1E_1_EAX, 4)
+#define X86_FEATURE_AMX_TF32		KVM_X86_FEATURE(CPUID_1E_1_EAX, 6)
+#define X86_FEATURE_AMX_AVX512		KVM_X86_FEATURE(CPUID_1E_1_EAX, 7)
+#define X86_FEATURE_AMX_MOVRS		KVM_X86_FEATURE(CPUID_1E_1_EAX, 8)
+
 /* Intel-defined sub-features, CPUID level 0x00000024:0 (EBX) */
 #define X86_FEATURE_AVX10_128		KVM_X86_FEATURE(CPUID_24_0_EBX, 16)
 #define X86_FEATURE_AVX10_256		KVM_X86_FEATURE(CPUID_24_0_EBX, 17)
 #define X86_FEATURE_AVX10_512		KVM_X86_FEATURE(CPUID_24_0_EBX, 18)
+
+/* Intel-defined sub-features, CPUID level 0x00000024:1 (ECX) */
+#define X86_FEATURE_AVX10_VNNI_INT	KVM_X86_FEATURE(CPUID_24_1_ECX, 2)
 
 /* CPUID level 0x80000007 (EDX). */
 #define KVM_X86_FEATURE_CONSTANT_TSC	KVM_X86_FEATURE(CPUID_8000_0007_EDX, 8)
@@ -75,7 +95,6 @@ static const struct cpuid_reg reverse_cpuid[] = {
 	[CPUID_6_EAX]         = {         6, 0, CPUID_EAX},
 	[CPUID_8000_000A_EDX] = {0x8000000a, 0, CPUID_EDX},
 	[CPUID_7_ECX]         = {         7, 0, CPUID_ECX},
-	[CPUID_8000_0007_EBX] = {0x80000007, 0, CPUID_EBX},
 	[CPUID_7_EDX]         = {         7, 0, CPUID_EDX},
 	[CPUID_7_1_EAX]       = {         7, 1, CPUID_EAX},
 	[CPUID_12_EAX]        = {0x00000012, 0, CPUID_EAX},
@@ -87,6 +106,9 @@ static const struct cpuid_reg reverse_cpuid[] = {
 	[CPUID_7_2_EDX]       = {         7, 2, CPUID_EDX},
 	[CPUID_24_0_EBX]      = {      0x24, 0, CPUID_EBX},
 	[CPUID_8000_0021_ECX] = {0x80000021, 0, CPUID_ECX},
+	[CPUID_7_1_ECX]       = {         7, 1, CPUID_ECX},
+	[CPUID_1E_1_EAX]      = {      0x1e, 1, CPUID_EAX},
+	[CPUID_24_1_ECX]      = {      0x24, 1, CPUID_ECX},
 };
 
 /*
@@ -128,6 +150,7 @@ static __always_inline u32 __feature_translate(int x86_feature)
 	KVM_X86_TRANSLATE_FEATURE(BHI_CTRL);
 	KVM_X86_TRANSLATE_FEATURE(TSA_SQ_NO);
 	KVM_X86_TRANSLATE_FEATURE(TSA_L1_NO);
+	KVM_X86_TRANSLATE_FEATURE(MSR_IMM);
 	default:
 		return x86_feature;
 	}

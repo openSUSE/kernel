@@ -18,6 +18,7 @@ struct mptcp_pm_add_entry {
 	u8			retrans_times;
 	struct timer_list	add_timer;
 	struct mptcp_sock	*sock;
+	struct rcu_head		rcu;
 };
 
 static DEFINE_SPINLOCK(mptcp_pm_list_lock);
@@ -155,7 +156,7 @@ bool mptcp_remove_anno_list_by_saddr(struct mptcp_sock *msk,
 
 	entry = mptcp_pm_del_add_timer(msk, addr, false);
 	ret = entry;
-	kfree(entry);
+	kfree_rcu(entry, rcu);
 
 	return ret;
 }
@@ -211,9 +212,24 @@ void mptcp_pm_send_ack(struct mptcp_sock *msk,
 	spin_lock_bh(&msk->pm.lock);
 }
 
-void mptcp_pm_addr_send_ack(struct mptcp_sock *msk)
+static bool subflow_in_rm_list(const struct mptcp_subflow_context *subflow,
+			       const struct mptcp_rm_list *rm_list)
 {
-	struct mptcp_subflow_context *subflow, *alt = NULL;
+	u8 i, id = subflow_get_local_id(subflow);
+
+	for (i = 0; i < rm_list->nr; i++) {
+		if (rm_list->ids[i] == id)
+			return true;
+	}
+
+	return false;
+}
+
+static void
+mptcp_pm_addr_send_ack_avoid_list(struct mptcp_sock *msk,
+				  const struct mptcp_rm_list *rm_list)
+{
+	struct mptcp_subflow_context *subflow, *stale = NULL, *same_id = NULL;
 
 	msk_owned_by_me(msk);
 	lockdep_assert_held(&msk->pm.lock);
@@ -223,19 +239,35 @@ void mptcp_pm_addr_send_ack(struct mptcp_sock *msk)
 		return;
 
 	mptcp_for_each_subflow(msk, subflow) {
-		if (__mptcp_subflow_active(subflow)) {
-			if (!subflow->stale) {
-				mptcp_pm_send_ack(msk, subflow, false, false);
-				return;
-			}
+		if (!__mptcp_subflow_active(subflow))
+			continue;
 
-			if (!alt)
-				alt = subflow;
+		if (unlikely(subflow->stale)) {
+			if (!stale)
+				stale = subflow;
+		} else if (unlikely(rm_list &&
+				    subflow_in_rm_list(subflow, rm_list))) {
+			if (!same_id)
+				same_id = subflow;
+		} else {
+			goto send_ack;
 		}
 	}
 
-	if (alt)
-		mptcp_pm_send_ack(msk, alt, false, false);
+	if (same_id)
+		subflow = same_id;
+	else if (stale)
+		subflow = stale;
+	else
+		return;
+
+send_ack:
+	mptcp_pm_send_ack(msk, subflow, false, false);
+}
+
+void mptcp_pm_addr_send_ack(struct mptcp_sock *msk)
+{
+	mptcp_pm_addr_send_ack_avoid_list(msk, NULL);
 }
 
 int mptcp_pm_mp_prio_send_ack(struct mptcp_sock *msk,
@@ -268,6 +300,27 @@ int mptcp_pm_mp_prio_send_ack(struct mptcp_sock *msk,
 	return -EINVAL;
 }
 
+static unsigned int mptcp_adjust_add_addr_timeout(struct mptcp_sock *msk)
+{
+	const struct net *net = sock_net((struct sock *)msk);
+	unsigned int rto = mptcp_get_add_addr_timeout(net);
+	struct mptcp_subflow_context *subflow;
+	unsigned int max = 0;
+
+	mptcp_for_each_subflow(msk, subflow) {
+		struct sock *ssk = mptcp_subflow_tcp_sock(subflow);
+		struct inet_connection_sock *icsk = inet_csk(ssk);
+
+		if (icsk->icsk_rto > max)
+			max = icsk->icsk_rto;
+	}
+
+	if (max && max < rto)
+		rto = max;
+
+	return rto;
+}
+
 static void mptcp_pm_add_timer(struct timer_list *timer)
 {
 	struct mptcp_pm_add_entry *entry = timer_container_of(entry, timer,
@@ -292,7 +345,7 @@ static void mptcp_pm_add_timer(struct timer_list *timer)
 		goto out;
 	}
 
-	timeout = mptcp_get_add_addr_timeout(sock_net(sk));
+	timeout = mptcp_adjust_add_addr_timeout(msk);
 	if (!timeout)
 		goto out;
 
@@ -307,7 +360,7 @@ static void mptcp_pm_add_timer(struct timer_list *timer)
 
 	if (entry->retrans_times < ADD_ADDR_RETRANS_MAX)
 		sk_reset_timer(sk, timer,
-			       jiffies + timeout);
+			       jiffies + (timeout << entry->retrans_times));
 
 	spin_unlock_bh(&msk->pm.lock);
 
@@ -324,22 +377,27 @@ mptcp_pm_del_add_timer(struct mptcp_sock *msk,
 {
 	struct mptcp_pm_add_entry *entry;
 	struct sock *sk = (struct sock *)msk;
-	struct timer_list *add_timer = NULL;
+	bool stop_timer = false;
+
+	rcu_read_lock();
 
 	spin_lock_bh(&msk->pm.lock);
 	entry = mptcp_lookup_anno_list_by_saddr(msk, addr);
 	if (entry && (!check_id || entry->addr.id == addr->id)) {
 		entry->retrans_times = ADD_ADDR_RETRANS_MAX;
-		add_timer = &entry->add_timer;
+		stop_timer = true;
 	}
 	if (!check_id && entry)
 		list_del(&entry->list);
 	spin_unlock_bh(&msk->pm.lock);
 
-	/* no lock, because sk_stop_timer_sync() is calling timer_delete_sync() */
-	if (add_timer)
-		sk_stop_timer_sync(sk, add_timer);
+	/* Note: entry might have been removed by another thread.
+	 * We hold rcu_read_lock() to ensure it is not freed under us.
+	 */
+	if (stop_timer)
+		sk_stop_timer_sync(sk, &entry->add_timer);
 
+	rcu_read_unlock();
 	return entry;
 }
 
@@ -348,7 +406,6 @@ bool mptcp_pm_alloc_anno_list(struct mptcp_sock *msk,
 {
 	struct mptcp_pm_add_entry *add_entry = NULL;
 	struct sock *sk = (struct sock *)msk;
-	struct net *net = sock_net(sk);
 	unsigned int timeout;
 
 	lockdep_assert_held(&msk->pm.lock);
@@ -362,7 +419,7 @@ bool mptcp_pm_alloc_anno_list(struct mptcp_sock *msk,
 		goto reset_timer;
 	}
 
-	add_entry = kmalloc(sizeof(*add_entry), GFP_ATOMIC);
+	add_entry = kmalloc_obj(*add_entry, GFP_ATOMIC);
 	if (!add_entry)
 		return false;
 
@@ -374,7 +431,7 @@ bool mptcp_pm_alloc_anno_list(struct mptcp_sock *msk,
 
 	timer_setup(&add_entry->add_timer, mptcp_pm_add_timer, 0);
 reset_timer:
-	timeout = mptcp_get_add_addr_timeout(net);
+	timeout = mptcp_adjust_add_addr_timeout(msk);
 	if (timeout)
 		sk_reset_timer(sk, &add_entry->add_timer, jiffies + timeout);
 
@@ -395,7 +452,7 @@ static void mptcp_pm_free_anno_list(struct mptcp_sock *msk)
 
 	list_for_each_entry_safe(entry, tmp, &free_list, list) {
 		sk_stop_timer_sync(sk, &entry->add_timer);
-		kfree(entry);
+		kfree_rcu(entry, rcu);
 	}
 }
 
@@ -444,7 +501,7 @@ int mptcp_pm_remove_addr(struct mptcp_sock *msk, const struct mptcp_rm_list *rm_
 	msk->pm.rm_list_tx = *rm_list;
 	rm_addr |= BIT(MPTCP_RM_ADDR_SIGNAL);
 	WRITE_ONCE(msk->pm.addr_signal, rm_addr);
-	mptcp_pm_addr_send_ack(msk);
+	mptcp_pm_addr_send_ack_avoid_list(msk, rm_list);
 	return 0;
 }
 
@@ -463,23 +520,24 @@ void mptcp_pm_new_connection(struct mptcp_sock *msk, const struct sock *ssk, int
 bool mptcp_pm_allow_new_subflow(struct mptcp_sock *msk)
 {
 	struct mptcp_pm_data *pm = &msk->pm;
-	unsigned int subflows_max;
+	unsigned int limit_extra_subflows;
 	int ret = 0;
 
 	if (mptcp_pm_is_userspace(msk)) {
 		if (mptcp_userspace_pm_active(msk)) {
 			spin_lock_bh(&pm->lock);
-			pm->subflows++;
+			pm->extra_subflows++;
 			spin_unlock_bh(&pm->lock);
 			return true;
 		}
 		return false;
 	}
 
-	subflows_max = mptcp_pm_get_subflows_max(msk);
+	limit_extra_subflows = mptcp_pm_get_limit_extra_subflows(msk);
 
-	pr_debug("msk=%p subflows=%d max=%d allow=%d\n", msk, pm->subflows,
-		 subflows_max, READ_ONCE(pm->accept_subflow));
+	pr_debug("msk=%p subflows=%d max=%d allow=%d\n", msk,
+		 pm->extra_subflows, limit_extra_subflows,
+		 READ_ONCE(pm->accept_subflow));
 
 	/* try to avoid acquiring the lock below */
 	if (!READ_ONCE(pm->accept_subflow))
@@ -487,8 +545,8 @@ bool mptcp_pm_allow_new_subflow(struct mptcp_sock *msk)
 
 	spin_lock_bh(&pm->lock);
 	if (READ_ONCE(pm->accept_subflow)) {
-		ret = pm->subflows < subflows_max;
-		if (ret && ++pm->subflows == subflows_max)
+		ret = pm->extra_subflows < limit_extra_subflows;
+		if (ret && ++pm->extra_subflows == limit_extra_subflows)
 			WRITE_ONCE(pm->accept_subflow, false);
 	}
 	spin_unlock_bh(&pm->lock);
@@ -567,6 +625,7 @@ void mptcp_pm_subflow_established(struct mptcp_sock *msk)
 void mptcp_pm_subflow_check_next(struct mptcp_sock *msk,
 				 const struct mptcp_subflow_context *subflow)
 {
+	struct sock *sk = (struct sock *)msk;
 	struct mptcp_pm_data *pm = &msk->pm;
 	bool update_subflows;
 
@@ -574,7 +633,7 @@ void mptcp_pm_subflow_check_next(struct mptcp_sock *msk,
 	if (mptcp_pm_is_userspace(msk)) {
 		if (update_subflows) {
 			spin_lock_bh(&pm->lock);
-			pm->subflows--;
+			pm->extra_subflows--;
 			spin_unlock_bh(&pm->lock);
 		}
 		return;
@@ -590,7 +649,8 @@ void mptcp_pm_subflow_check_next(struct mptcp_sock *msk,
 	/* Even if this subflow is not really established, tell the PM to try
 	 * to pick the next ones, if possible.
 	 */
-	if (mptcp_pm_nl_check_work_pending(msk))
+	if (mptcp_is_fully_established(sk) &&
+	    mptcp_pm_nl_check_work_pending(msk))
 		mptcp_pm_schedule_work(msk, MPTCP_PM_SUBFLOW_ESTABLISHED);
 
 	spin_unlock_bh(&pm->lock);
@@ -617,9 +677,12 @@ void mptcp_pm_add_addr_received(const struct sock *ssk,
 		} else {
 			__MPTCP_INC_STATS(sock_net((struct sock *)msk), MPTCP_MIB_ADDADDRDROP);
 		}
-	/* id0 should not have a different address */
+	/* - id0 should not have a different address
+	 * - special case for C-flag: linked to fill_local_addresses_vec()
+	 */
 	} else if ((addr->id == 0 && !mptcp_pm_is_init_remote_addr(msk, addr)) ||
-		   (addr->id > 0 && !READ_ONCE(pm->accept_addr))) {
+		   (addr->id > 0 && !READ_ONCE(pm->accept_addr) &&
+		    !mptcp_pm_add_addr_c_flag_case(msk))) {
 		mptcp_pm_announce_addr(msk, addr, true);
 		mptcp_pm_add_addr_send_ack(msk);
 	} else if (mptcp_pm_schedule_work(msk, MPTCP_PM_ADD_ADDR_RECEIVED)) {
@@ -1005,17 +1068,17 @@ void mptcp_pm_data_reset(struct mptcp_sock *msk)
 	WRITE_ONCE(pm->pm_type, pm_type);
 
 	if (pm_type == MPTCP_PM_TYPE_KERNEL) {
-		bool subflows_allowed = !!mptcp_pm_get_subflows_max(msk);
+		bool subflows_allowed = !!mptcp_pm_get_limit_extra_subflows(msk);
 
 		/* pm->work_pending must be only be set to 'true' when
 		 * pm->pm_type is set to MPTCP_PM_TYPE_KERNEL
 		 */
 		WRITE_ONCE(pm->work_pending,
-			   (!!mptcp_pm_get_local_addr_max(msk) &&
+			   (!!mptcp_pm_get_endp_subflow_max(msk) &&
 			    subflows_allowed) ||
-			   !!mptcp_pm_get_add_addr_signal_max(msk));
+			   !!mptcp_pm_get_endp_signal_max(msk));
 		WRITE_ONCE(pm->accept_addr,
-			   !!mptcp_pm_get_add_addr_accept_max(msk) &&
+			   !!mptcp_pm_get_limit_add_addr_accepted(msk) &&
 			   subflows_allowed);
 		WRITE_ONCE(pm->accept_subflow, subflows_allowed);
 

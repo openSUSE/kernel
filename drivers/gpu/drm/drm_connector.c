@@ -552,7 +552,7 @@ EXPORT_SYMBOL(drmm_connector_init);
  * @hdmi_funcs: HDMI-related callbacks for this connector
  * @connector_type: user visible type of the connector
  * @ddc: optional pointer to the associated ddc adapter
- * @supported_formats: Bitmask of @hdmi_colorspace listing supported output formats
+ * @supported_formats: Bitmask of @drm_output_color_format listing supported output formats
  * @max_bpc: Maximum bits per char the HDMI connector supports
  *
  * Initialises a preallocated HDMI connector. Connectors can be
@@ -591,13 +591,19 @@ int drmm_connector_hdmi_init(struct drm_device *dev,
 	      connector_type == DRM_MODE_CONNECTOR_HDMIB))
 		return -EINVAL;
 
-	if (!supported_formats || !(supported_formats & BIT(HDMI_COLORSPACE_RGB)))
+	if (!supported_formats || !(supported_formats & BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444)))
 		return -EINVAL;
 
-	if (connector->ycbcr_420_allowed != !!(supported_formats & BIT(HDMI_COLORSPACE_YUV420)))
+	if (connector->ycbcr_420_allowed != !!(supported_formats & BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR420)))
 		return -EINVAL;
 
 	if (!(max_bpc == 8 || max_bpc == 10 || max_bpc == 12))
+		return -EINVAL;
+
+	if (!hdmi_funcs->avi.clear_infoframe ||
+	    !hdmi_funcs->avi.write_infoframe ||
+	    !hdmi_funcs->hdmi.clear_infoframe ||
+	    !hdmi_funcs->hdmi.write_infoframe)
 		return -EINVAL;
 
 	ret = drmm_connector_init(dev, connector, funcs, connector_type, ddc);
@@ -1167,6 +1173,11 @@ static const struct drm_prop_enum_list drm_link_status_enum_list[] = {
 	{ DRM_MODE_LINK_STATUS_BAD, "Bad" },
 };
 
+static const struct drm_prop_enum_list drm_panel_type_enum_list[] = {
+	{ DRM_MODE_PANEL_TYPE_UNKNOWN, "unknown" },
+	{ DRM_MODE_PANEL_TYPE_OLED, "OLED" },
+};
+
 /**
  * drm_display_info_set_bus_formats - set the supported bus formats
  * @info: display info to store bus formats in
@@ -1420,10 +1431,10 @@ drm_hdmi_connector_get_broadcast_rgb_name(enum drm_hdmi_broadcast_rgb broadcast_
 EXPORT_SYMBOL(drm_hdmi_connector_get_broadcast_rgb_name);
 
 static const char * const output_format_str[] = {
-	[HDMI_COLORSPACE_RGB]		= "RGB",
-	[HDMI_COLORSPACE_YUV420]	= "YUV 4:2:0",
-	[HDMI_COLORSPACE_YUV422]	= "YUV 4:2:2",
-	[HDMI_COLORSPACE_YUV444]	= "YUV 4:4:4",
+	[DRM_OUTPUT_COLOR_FORMAT_RGB444]	= "RGB",
+	[DRM_OUTPUT_COLOR_FORMAT_YCBCR420]	= "YUV 4:2:0",
+	[DRM_OUTPUT_COLOR_FORMAT_YCBCR422]	= "YUV 4:2:2",
+	[DRM_OUTPUT_COLOR_FORMAT_YCBCR444]	= "YUV 4:4:4",
 };
 
 /*
@@ -1434,7 +1445,7 @@ static const char * const output_format_str[] = {
  * valid.
  */
 const char *
-drm_hdmi_connector_get_output_format_name(enum hdmi_colorspace fmt)
+drm_hdmi_connector_get_output_format_name(enum drm_output_color_format fmt)
 {
 	if (fmt >= ARRAY_SIZE(output_format_str))
 		return NULL;
@@ -1495,6 +1506,9 @@ EXPORT_SYMBOL(drm_hdmi_connector_get_output_format_name);
  * 	Summarizing: Only set "DPMS" when the connector is known to be enabled,
  * 	assume that a successful SETCONFIG call also sets "DPMS" to on, and
  * 	never read back the value of "DPMS" because it can be incorrect.
+ * panel_type:
+ * 	Immutable enum property to indicate the type of connected panel.
+ * 	Possible values are "unknown" (default) and "OLED".
  * PATH:
  * 	Connector path property to identify how this sink is physically
  * 	connected. Used by DP MST. This should be set by calling
@@ -1844,6 +1858,13 @@ int drm_connector_create_standard_properties(struct drm_device *dev)
 	if (!prop)
 		return -ENOMEM;
 	dev->mode_config.link_status_property = prop;
+
+	prop = drm_property_create_enum(dev, DRM_MODE_PROP_IMMUTABLE, "panel_type",
+					drm_panel_type_enum_list,
+					ARRAY_SIZE(drm_panel_type_enum_list));
+	if (!prop)
+		return -ENOMEM;
+	dev->mode_config.panel_type_property = prop;
 
 	prop = drm_property_create_bool(dev, DRM_MODE_PROP_IMMUTABLE, "non-desktop");
 	if (!prop)
@@ -2846,23 +2867,18 @@ int drm_connector_attach_max_bpc_property(struct drm_connector *connector,
 EXPORT_SYMBOL(drm_connector_attach_max_bpc_property);
 
 /**
- * drm_connector_attach_hdr_output_metadata_property - attach "HDR_OUTPUT_METADA" property
+ * drm_connector_attach_hdr_output_metadata_property - attach "HDR_OUTPUT_METADATA" property
  * @connector: connector to attach the property on.
  *
  * This is used to allow the userspace to send HDR Metadata to the
  * driver.
- *
- * Returns:
- * Zero on success, negative errno on failure.
  */
-int drm_connector_attach_hdr_output_metadata_property(struct drm_connector *connector)
+void drm_connector_attach_hdr_output_metadata_property(struct drm_connector *connector)
 {
 	struct drm_device *dev = connector->dev;
 	struct drm_property *prop = dev->mode_config.hdr_output_metadata_property;
 
 	drm_object_attach_property(&connector->base, prop, 0);
-
-	return 0;
 }
 EXPORT_SYMBOL(drm_connector_attach_hdr_output_metadata_property);
 
@@ -3439,6 +3455,7 @@ int drm_mode_getconnector(struct drm_device *dev, void *data,
 	 * properties reflect the latest status.
 	 */
 	ret = drm_mode_object_get_properties(&connector->base, file_priv->atomic,
+			file_priv->plane_color_pipeline,
 			(uint32_t __user *)(unsigned long)(out_resp->props_ptr),
 			(uint64_t __user *)(unsigned long)(out_resp->prop_values_ptr),
 			&out_resp->count_props);
@@ -3598,7 +3615,7 @@ struct drm_tile_group *drm_mode_create_tile_group(struct drm_device *dev,
 	struct drm_tile_group *tg;
 	int ret;
 
-	tg = kzalloc(sizeof(*tg), GFP_KERNEL);
+	tg = kzalloc_obj(*tg);
 	if (!tg)
 		return NULL;
 
@@ -3619,3 +3636,21 @@ struct drm_tile_group *drm_mode_create_tile_group(struct drm_device *dev,
 	return tg;
 }
 EXPORT_SYMBOL(drm_mode_create_tile_group);
+
+/**
+ * drm_connector_attach_panel_type_property - attaches panel type property
+ * @connector: connector to attach the property on.
+ *
+ * This is used to add support for panel type detection.
+ */
+void drm_connector_attach_panel_type_property(struct drm_connector *connector)
+{
+	struct drm_device *dev = connector->dev;
+	struct drm_property *prop = dev->mode_config.panel_type_property;
+
+	if (!prop)
+		return;
+
+	drm_object_attach_property(&connector->base, prop, DRM_MODE_PANEL_TYPE_UNKNOWN);
+}
+EXPORT_SYMBOL(drm_connector_attach_panel_type_property);

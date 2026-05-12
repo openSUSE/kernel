@@ -3,13 +3,19 @@
 //! Implementation of [`Vec`].
 
 use super::{
-    allocator::{KVmalloc, Kmalloc, Vmalloc},
+    allocator::{KVmalloc, Kmalloc, Vmalloc, VmallocPageIter},
     layout::ArrayLayout,
-    AllocError, Allocator, Box, Flags,
+    AllocError, Allocator, Box, Flags, NumaNode,
+};
+use crate::{
+    fmt,
+    page::{
+        AsPageIter,
+        PAGE_SIZE, //
+    },
 };
 use core::{
     borrow::{Borrow, BorrowMut},
-    fmt,
     marker::PhantomData,
     mem::{ManuallyDrop, MaybeUninit},
     ops::Deref,
@@ -175,7 +181,7 @@ where
 
     /// Returns the number of elements that can be stored within the vector without allocating
     /// additional memory.
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         if const { Self::is_zst() } {
             usize::MAX
         } else {
@@ -185,7 +191,7 @@ where
 
     /// Returns the number of elements stored within the vector.
     #[inline]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.len
     }
 
@@ -196,7 +202,7 @@ where
     /// - `additional` must be less than or equal to `self.capacity - self.len`.
     /// - All elements within the interval [`self.len`,`self.len + additional`) must be initialized.
     #[inline]
-    pub unsafe fn inc_len(&mut self, additional: usize) {
+    pub const unsafe fn inc_len(&mut self, additional: usize) {
         // Guaranteed by the type invariant to never underflow.
         debug_assert!(additional <= self.capacity() - self.len());
         // INVARIANT: By the safety requirements of this method this represents the exact number of
@@ -224,6 +230,16 @@ where
     }
 
     /// Returns a slice of the entire vector.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut v = KVec::new();
+    /// v.push(1, GFP_KERNEL)?;
+    /// v.push(2, GFP_KERNEL)?;
+    /// assert_eq!(v.as_slice(), &[1, 2]);
+    /// # Ok::<(), Error>(())
+    /// ```
     #[inline]
     pub fn as_slice(&self) -> &[T] {
         self
@@ -245,7 +261,7 @@ where
     /// Returns a raw pointer to the vector's backing buffer, or, if `T` is a ZST, a dangling raw
     /// pointer.
     #[inline]
-    pub fn as_ptr(&self) -> *const T {
+    pub const fn as_ptr(&self) -> *const T {
         self.ptr.as_ptr()
     }
 
@@ -261,7 +277,7 @@ where
     /// assert!(!v.is_empty());
     /// ```
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
@@ -634,6 +650,7 @@ where
                 layout.into(),
                 self.layout.into(),
                 flags,
+                NumaNode::NO_NODE,
             )?
         };
 
@@ -718,6 +735,115 @@ where
             next_to_check += 1;
         }
         self.truncate(num_kept);
+    }
+}
+// TODO: This is a temporary KVVec-specific implementation. It should be replaced with a generic
+// `shrink_to()` for `impl<T, A: Allocator> Vec<T, A>` that uses `A::realloc()` once the
+// underlying allocators properly support shrinking via realloc.
+impl<T> Vec<T, KVmalloc> {
+    /// Shrinks the capacity of the vector with a lower bound.
+    ///
+    /// The capacity will remain at least as large as both the length and the supplied value.
+    /// If the current capacity is less than the lower limit, this is a no-op.
+    ///
+    /// For `kmalloc` allocations, this delegates to `realloc()`, which decides whether
+    /// shrinking is worthwhile. For `vmalloc` allocations, shrinking only occurs if the
+    /// operation would free at least one page of memory, and performs a deep copy since
+    /// `vrealloc` does not yet support in-place shrinking.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // Allocate enough capacity to span multiple pages.
+    /// let elements_per_page = kernel::page::PAGE_SIZE / core::mem::size_of::<u32>();
+    /// let mut v = KVVec::with_capacity(elements_per_page * 4, GFP_KERNEL)?;
+    /// v.push(1, GFP_KERNEL)?;
+    /// v.push(2, GFP_KERNEL)?;
+    ///
+    /// v.shrink_to(0, GFP_KERNEL)?;
+    /// # Ok::<(), Error>(())
+    /// ```
+    pub fn shrink_to(&mut self, min_capacity: usize, flags: Flags) -> Result<(), AllocError> {
+        let target_cap = core::cmp::max(self.len(), min_capacity);
+
+        if self.capacity() <= target_cap {
+            return Ok(());
+        }
+
+        if Self::is_zst() {
+            return Ok(());
+        }
+
+        // For kmalloc allocations, delegate to realloc() and let the allocator decide
+        // whether shrinking is worthwhile.
+        //
+        // SAFETY: `self.ptr` points to a valid `KVmalloc` allocation.
+        if !unsafe { bindings::is_vmalloc_addr(self.ptr.as_ptr().cast()) } {
+            let new_layout = ArrayLayout::<T>::new(target_cap).map_err(|_| AllocError)?;
+
+            // SAFETY:
+            // - `self.ptr` is valid and was previously allocated with `KVmalloc`.
+            // - `self.layout` matches the `ArrayLayout` of the preceding allocation.
+            let ptr = unsafe {
+                KVmalloc::realloc(
+                    Some(self.ptr.cast()),
+                    new_layout.into(),
+                    self.layout.into(),
+                    flags,
+                    NumaNode::NO_NODE,
+                )?
+            };
+
+            self.ptr = ptr.cast();
+            self.layout = new_layout;
+            return Ok(());
+        }
+
+        // Only shrink if we would free at least one page.
+        let current_size = self.capacity() * core::mem::size_of::<T>();
+        let target_size = target_cap * core::mem::size_of::<T>();
+        let current_pages = current_size.div_ceil(PAGE_SIZE);
+        let target_pages = target_size.div_ceil(PAGE_SIZE);
+
+        if current_pages <= target_pages {
+            return Ok(());
+        }
+
+        if target_cap == 0 {
+            if !self.layout.is_empty() {
+                // SAFETY:
+                // - `self.ptr` was previously allocated with `KVmalloc`.
+                // - `self.layout` matches the `ArrayLayout` of the preceding allocation.
+                unsafe { KVmalloc::free(self.ptr.cast(), self.layout.into()) };
+            }
+            self.ptr = NonNull::dangling();
+            self.layout = ArrayLayout::empty();
+            return Ok(());
+        }
+
+        // SAFETY: `target_cap <= self.capacity()` and original capacity was valid.
+        let new_layout = unsafe { ArrayLayout::<T>::new_unchecked(target_cap) };
+
+        let new_ptr = KVmalloc::alloc(new_layout.into(), flags, NumaNode::NO_NODE)?;
+
+        // SAFETY:
+        // - `self.as_ptr()` is valid for reads of `self.len()` elements of `T`.
+        // - `new_ptr` is valid for writes of at least `target_cap >= self.len()` elements.
+        // - The two allocations do not overlap since `new_ptr` is freshly allocated.
+        // - Both pointers are properly aligned for `T`.
+        unsafe {
+            ptr::copy_nonoverlapping(self.as_ptr(), new_ptr.as_ptr().cast::<T>(), self.len())
+        };
+
+        // SAFETY:
+        // - `self.ptr` was previously allocated with `KVmalloc`.
+        // - `self.layout` matches the `ArrayLayout` of the preceding allocation.
+        unsafe { KVmalloc::free(self.ptr.cast(), self.layout.into()) };
+
+        self.ptr = new_ptr.cast::<T>();
+        self.layout = new_layout;
+
+        Ok(())
     }
 }
 
@@ -1017,6 +1143,43 @@ where
     }
 }
 
+/// # Examples
+///
+/// ```
+/// # use kernel::prelude::*;
+/// use kernel::alloc::allocator::VmallocPageIter;
+/// use kernel::page::{AsPageIter, PAGE_SIZE};
+///
+/// let mut vec = VVec::<u8>::new();
+///
+/// assert!(vec.page_iter().next().is_none());
+///
+/// vec.reserve(PAGE_SIZE, GFP_KERNEL)?;
+///
+/// let page = vec.page_iter().next().expect("At least one page should be available.\n");
+///
+/// // SAFETY: There is no concurrent read or write to the same page.
+/// unsafe { page.fill_zero_raw(0, PAGE_SIZE)? };
+/// # Ok::<(), Error>(())
+/// ```
+impl<T> AsPageIter for VVec<T> {
+    type Iter<'a>
+        = VmallocPageIter<'a>
+    where
+        T: 'a;
+
+    fn page_iter(&mut self) -> Self::Iter<'_> {
+        let ptr = self.ptr.cast();
+        let size = self.layout.size();
+
+        // SAFETY:
+        // - `ptr` is a valid pointer to the beginning of a `Vmalloc` allocation.
+        // - `ptr` is guaranteed to be valid for the lifetime of `'a`.
+        // - `size` is the size of the `Vmalloc` allocation `ptr` points to.
+        unsafe { VmallocPageIter::new(ptr, size) }
+    }
+}
+
 /// An [`Iterator`] implementation for [`Vec`] that moves elements out of a vector.
 ///
 /// This structure is created by the [`Vec::into_iter`] method on [`Vec`] (provided by the
@@ -1111,7 +1274,13 @@ where
             // the type invariant to be smaller than `cap`. Depending on `realloc` this operation
             // may shrink the buffer or leave it as it is.
             ptr = match unsafe {
-                A::realloc(Some(buf.cast()), layout.into(), old_layout.into(), flags)
+                A::realloc(
+                    Some(buf.cast()),
+                    layout.into(),
+                    old_layout.into(),
+                    flags,
+                    NumaNode::NO_NODE,
+                )
             } {
                 // If we fail to shrink, which likely can't even happen, continue with the existing
                 // buffer.
@@ -1294,7 +1463,7 @@ impl<'vec, T> Drop for DrainAll<'vec, T> {
     }
 }
 
-#[macros::kunit_tests(rust_kvec_kunit)]
+#[macros::kunit_tests(rust_kvec)]
 mod tests {
     use super::*;
     use crate::prelude::*;
@@ -1339,6 +1508,108 @@ mod tests {
                 add(&mut func);
             }
             func.push_within_capacity(false).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_kvvec_shrink_to() {
+        use crate::page::PAGE_SIZE;
+
+        // Create a vector with capacity spanning multiple pages.
+        let mut v = KVVec::<u8>::with_capacity(PAGE_SIZE * 4, GFP_KERNEL).unwrap();
+
+        // Add a few elements.
+        v.push(1, GFP_KERNEL).unwrap();
+        v.push(2, GFP_KERNEL).unwrap();
+        v.push(3, GFP_KERNEL).unwrap();
+
+        let initial_capacity = v.capacity();
+        assert!(initial_capacity >= PAGE_SIZE * 4);
+
+        // Shrink to a capacity that would free at least one page.
+        v.shrink_to(PAGE_SIZE, GFP_KERNEL).unwrap();
+
+        // Capacity should have been reduced.
+        assert!(v.capacity() < initial_capacity);
+        assert!(v.capacity() >= PAGE_SIZE);
+
+        // Elements should be preserved.
+        assert_eq!(v.len(), 3);
+        assert_eq!(v[0], 1);
+        assert_eq!(v[1], 2);
+        assert_eq!(v[2], 3);
+
+        // Shrink to zero (should shrink to len).
+        v.shrink_to(0, GFP_KERNEL).unwrap();
+
+        // Capacity should be at least the length.
+        assert!(v.capacity() >= v.len());
+
+        // Elements should still be preserved.
+        assert_eq!(v.len(), 3);
+        assert_eq!(v[0], 1);
+        assert_eq!(v[1], 2);
+        assert_eq!(v[2], 3);
+    }
+
+    #[test]
+    fn test_kvvec_shrink_to_empty() {
+        use crate::page::PAGE_SIZE;
+
+        // Create a vector with large capacity but no elements.
+        let mut v = KVVec::<u8>::with_capacity(PAGE_SIZE * 4, GFP_KERNEL).unwrap();
+
+        assert!(v.is_empty());
+
+        // Shrink empty vector to zero.
+        v.shrink_to(0, GFP_KERNEL).unwrap();
+
+        // Should have freed the allocation.
+        assert_eq!(v.capacity(), 0);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn test_kvvec_shrink_to_no_op() {
+        use crate::page::PAGE_SIZE;
+
+        // Create a small vector.
+        let mut v = KVVec::<u8>::with_capacity(PAGE_SIZE, GFP_KERNEL).unwrap();
+        v.push(1, GFP_KERNEL).unwrap();
+
+        let capacity_before = v.capacity();
+
+        // Try to shrink to a capacity larger than current - should be no-op.
+        v.shrink_to(capacity_before + 100, GFP_KERNEL).unwrap();
+
+        assert_eq!(v.capacity(), capacity_before);
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0], 1);
+    }
+
+    #[test]
+    fn test_kvvec_shrink_to_respects_min_capacity() {
+        use crate::page::PAGE_SIZE;
+
+        // Create a vector with large capacity.
+        let mut v = KVVec::<u8>::with_capacity(PAGE_SIZE * 4, GFP_KERNEL).unwrap();
+
+        // Add some elements.
+        for i in 0..10u8 {
+            v.push(i, GFP_KERNEL).unwrap();
+        }
+
+        // Shrink to a min_capacity larger than length.
+        let min_cap = PAGE_SIZE * 2;
+        v.shrink_to(min_cap, GFP_KERNEL).unwrap();
+
+        // Capacity should be at least min_capacity.
+        assert!(v.capacity() >= min_cap);
+
+        // All elements preserved.
+        assert_eq!(v.len(), 10);
+        for i in 0..10u8 {
+            assert_eq!(v[i as usize], i);
         }
     }
 }

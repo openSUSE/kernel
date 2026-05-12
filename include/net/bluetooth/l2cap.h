@@ -38,8 +38,8 @@
 #define L2CAP_DEFAULT_TX_WINDOW		63
 #define L2CAP_DEFAULT_EXT_WINDOW	0x3FFF
 #define L2CAP_DEFAULT_MAX_TX		3
-#define L2CAP_DEFAULT_RETRANS_TO	2    /* seconds */
-#define L2CAP_DEFAULT_MONITOR_TO	12   /* seconds */
+#define L2CAP_DEFAULT_RETRANS_TO	2000    /* 2 seconds */
+#define L2CAP_DEFAULT_MONITOR_TO	12000   /* 12 seconds */
 #define L2CAP_DEFAULT_MAX_PDU_SIZE	1492    /* Sized for AMP packet */
 #define L2CAP_DEFAULT_ACK_TO		200
 #define L2CAP_DEFAULT_MAX_SDU_SIZE	0xFFFF
@@ -284,9 +284,9 @@ struct l2cap_conn_rsp {
 #define L2CAP_CR_LE_BAD_KEY_SIZE	0x0007
 #define L2CAP_CR_LE_ENCRYPTION		0x0008
 #define L2CAP_CR_LE_INVALID_SCID	0x0009
-#define L2CAP_CR_LE_SCID_IN_USE		0X000A
-#define L2CAP_CR_LE_UNACCEPT_PARAMS	0X000B
-#define L2CAP_CR_LE_INVALID_PARAMS	0X000C
+#define L2CAP_CR_LE_SCID_IN_USE		0x000A
+#define L2CAP_CR_LE_UNACCEPT_PARAMS	0x000B
+#define L2CAP_CR_LE_INVALID_PARAMS	0x000C
 
 /* connect/create channel status */
 #define L2CAP_CS_NO_INFO	0x0000
@@ -493,6 +493,8 @@ struct l2cap_ecred_reconf_req {
 #define L2CAP_RECONF_SUCCESS		0x0000
 #define L2CAP_RECONF_INVALID_MTU	0x0001
 #define L2CAP_RECONF_INVALID_MPS	0x0002
+#define L2CAP_RECONF_INVALID_CID	0x0003
+#define L2CAP_RECONF_INVALID_PARAMS	0x0004
 
 struct l2cap_ecred_reconf_rsp {
 	__le16 result;
@@ -655,8 +657,8 @@ struct l2cap_conn {
 
 	struct sk_buff		*rx_skb;
 	__u32			rx_len;
+	struct ida		tx_ida;
 	__u8			tx_ident;
-	struct mutex		ident_lock;
 
 	struct sk_buff_head	pending_rx;
 	struct work_struct	pending_rx_work;

@@ -238,7 +238,6 @@ static int ljca_spi_probe(struct auxiliary_device *auxdev,
 	controller->auto_runtime_pm = false;
 	controller->max_speed_hz = LJCA_SPI_BUS_MAX_HZ;
 
-	device_set_node(&ljca_spi->controller->dev, dev_fwnode(&auxdev->dev));
 	auxiliary_set_drvdata(auxdev, controller);
 
 	ret = spi_register_controller(controller);
@@ -289,7 +288,7 @@ static struct auxiliary_driver ljca_spi_driver = {
 };
 module_auxiliary_driver(ljca_spi_driver);
 
-MODULE_AUTHOR("Wentong Wu <wentong.wu@intel.com>");
+MODULE_AUTHOR("Wentong Wu");
 MODULE_AUTHOR("Zhifeng Wang <zhifeng.wang@intel.com>");
 MODULE_AUTHOR("Lixu Zhang <lixu.zhang@intel.com>");
 MODULE_DESCRIPTION("Intel La Jolla Cove Adapter USB-SPI driver");

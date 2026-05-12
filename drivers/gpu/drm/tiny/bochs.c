@@ -21,7 +21,10 @@
 #include <drm/drm_module.h>
 #include <drm/drm_panic.h>
 #include <drm/drm_plane_helper.h>
+#include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
+#include <drm/drm_vblank.h>
+#include <drm/drm_vblank_helper.h>
 
 #include <video/vga.h>
 
@@ -416,7 +419,7 @@ static const uint32_t bochs_primary_plane_formats[] = {
 };
 
 static int bochs_primary_plane_helper_atomic_check(struct drm_plane *plane,
-						   struct drm_atomic_state *state)
+						   struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *new_plane_state = drm_atomic_get_new_plane_state(state, plane);
 	struct drm_crtc *new_crtc = new_plane_state->crtc;
@@ -439,7 +442,7 @@ static int bochs_primary_plane_helper_atomic_check(struct drm_plane *plane,
 }
 
 static void bochs_primary_plane_helper_atomic_update(struct drm_plane *plane,
-						     struct drm_atomic_state *state)
+						     struct drm_atomic_commit *state)
 {
 	struct drm_device *dev = plane->dev;
 	struct bochs_device *bochs = to_bochs_device(dev);
@@ -510,7 +513,7 @@ static void bochs_crtc_helper_mode_set_nofb(struct drm_crtc *crtc)
 }
 
 static int bochs_crtc_helper_atomic_check(struct drm_crtc *crtc,
-					  struct drm_atomic_state *state)
+					  struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *crtc_state = drm_atomic_get_new_crtc_state(state, crtc);
 
@@ -521,24 +524,27 @@ static int bochs_crtc_helper_atomic_check(struct drm_crtc *crtc,
 }
 
 static void bochs_crtc_helper_atomic_enable(struct drm_crtc *crtc,
-					    struct drm_atomic_state *state)
+					    struct drm_atomic_commit *state)
 {
 	struct bochs_device *bochs = to_bochs_device(crtc->dev);
 
 	bochs_hw_blank(bochs, false);
+	drm_crtc_vblank_on(crtc);
 }
 
 static void bochs_crtc_helper_atomic_disable(struct drm_crtc *crtc,
-					     struct drm_atomic_state *crtc_state)
+					     struct drm_atomic_commit *crtc_state)
 {
 	struct bochs_device *bochs = to_bochs_device(crtc->dev);
 
+	drm_crtc_vblank_off(crtc);
 	bochs_hw_blank(bochs, true);
 }
 
 static const struct drm_crtc_helper_funcs bochs_crtc_helper_funcs = {
 	.mode_set_nofb = bochs_crtc_helper_mode_set_nofb,
 	.atomic_check = bochs_crtc_helper_atomic_check,
+	.atomic_flush = drm_crtc_vblank_atomic_flush,
 	.atomic_enable = bochs_crtc_helper_atomic_enable,
 	.atomic_disable = bochs_crtc_helper_atomic_disable,
 };
@@ -550,6 +556,7 @@ static const struct drm_crtc_funcs bochs_crtc_funcs = {
 	.page_flip = drm_atomic_helper_page_flip,
 	.atomic_duplicate_state = drm_atomic_helper_crtc_duplicate_state,
 	.atomic_destroy_state = drm_atomic_helper_crtc_destroy_state,
+	DRM_CRTC_VBLANK_TIMER_FUNCS,
 };
 
 static const struct drm_encoder_funcs bochs_encoder_funcs = {
@@ -669,6 +676,10 @@ static int bochs_kms_init(struct bochs_device *bochs)
 	drm_connector_helper_add(connector, &bochs_connector_helper_funcs);
 	drm_connector_attach_edid_property(connector);
 	drm_connector_attach_encoder(connector, encoder);
+
+	ret = drm_vblank_init(dev, 1);
+	if (ret)
+		return ret;
 
 	drm_mode_config_reset(dev);
 

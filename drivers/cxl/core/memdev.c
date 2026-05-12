@@ -27,7 +27,6 @@ static void cxl_memdev_release(struct device *dev)
 	struct cxl_memdev *cxlmd = to_cxl_memdev(dev);
 
 	ida_free(&cxl_memdev_ida, cxlmd->id);
-	devm_cxl_memdev_edac_release(cxlmd);
 	kfree(cxlmd);
 }
 
@@ -200,6 +199,17 @@ static ssize_t security_erase_store(struct device *dev,
 static struct device_attribute dev_attr_security_erase =
 	__ATTR(erase, 0200, NULL, security_erase_store);
 
+bool cxl_memdev_has_poison_cmd(struct cxl_memdev *cxlmd,
+			       enum poison_cmd_enabled_bits cmd)
+{
+	struct cxl_memdev_state *mds = to_cxl_memdev_state(cxlmd->cxlds);
+
+	if (!mds)
+		return 0;
+
+	return test_bit(cmd, mds->poison.enabled_cmds);
+}
+
 static int cxl_get_poison_by_memdev(struct cxl_memdev *cxlmd)
 {
 	struct cxl_dev_state *cxlds = cxlmd->cxlds;
@@ -276,7 +286,7 @@ static int cxl_validate_poison_dpa(struct cxl_memdev *cxlmd, u64 dpa)
 	return 0;
 }
 
-int cxl_inject_poison(struct cxl_memdev *cxlmd, u64 dpa)
+int cxl_inject_poison_locked(struct cxl_memdev *cxlmd, u64 dpa)
 {
 	struct cxl_mailbox *cxl_mbox = &cxlmd->cxlds->cxl_mbox;
 	struct cxl_mbox_inject_poison inject;
@@ -288,13 +298,8 @@ int cxl_inject_poison(struct cxl_memdev *cxlmd, u64 dpa)
 	if (!IS_ENABLED(CONFIG_DEBUG_FS))
 		return 0;
 
-	ACQUIRE(rwsem_read_intr, region_rwsem)(&cxl_rwsem.region);
-	if ((rc = ACQUIRE_ERR(rwsem_read_intr, &region_rwsem)))
-		return rc;
-
-	ACQUIRE(rwsem_read_intr, dpa_rwsem)(&cxl_rwsem.dpa);
-	if ((rc = ACQUIRE_ERR(rwsem_read_intr, &dpa_rwsem)))
-		return rc;
+	lockdep_assert_held(&cxl_rwsem.dpa);
+	lockdep_assert_held(&cxl_rwsem.region);
 
 	rc = cxl_validate_poison_dpa(cxlmd, dpa);
 	if (rc)
@@ -324,9 +329,24 @@ int cxl_inject_poison(struct cxl_memdev *cxlmd, u64 dpa)
 
 	return 0;
 }
+
+int cxl_inject_poison(struct cxl_memdev *cxlmd, u64 dpa)
+{
+	int rc;
+
+	ACQUIRE(rwsem_read_intr, region_rwsem)(&cxl_rwsem.region);
+	if ((rc = ACQUIRE_ERR(rwsem_read_intr, &region_rwsem)))
+		return rc;
+
+	ACQUIRE(rwsem_read_intr, dpa_rwsem)(&cxl_rwsem.dpa);
+	if ((rc = ACQUIRE_ERR(rwsem_read_intr, &dpa_rwsem)))
+		return rc;
+
+	return cxl_inject_poison_locked(cxlmd, dpa);
+}
 EXPORT_SYMBOL_NS_GPL(cxl_inject_poison, "CXL");
 
-int cxl_clear_poison(struct cxl_memdev *cxlmd, u64 dpa)
+int cxl_clear_poison_locked(struct cxl_memdev *cxlmd, u64 dpa)
 {
 	struct cxl_mailbox *cxl_mbox = &cxlmd->cxlds->cxl_mbox;
 	struct cxl_mbox_clear_poison clear;
@@ -338,13 +358,8 @@ int cxl_clear_poison(struct cxl_memdev *cxlmd, u64 dpa)
 	if (!IS_ENABLED(CONFIG_DEBUG_FS))
 		return 0;
 
-	ACQUIRE(rwsem_read_intr, region_rwsem)(&cxl_rwsem.region);
-	if ((rc = ACQUIRE_ERR(rwsem_read_intr, &region_rwsem)))
-		return rc;
-
-	ACQUIRE(rwsem_read_intr, dpa_rwsem)(&cxl_rwsem.dpa);
-	if ((rc = ACQUIRE_ERR(rwsem_read_intr, &dpa_rwsem)))
-		return rc;
+	lockdep_assert_held(&cxl_rwsem.dpa);
+	lockdep_assert_held(&cxl_rwsem.region);
 
 	rc = cxl_validate_poison_dpa(cxlmd, dpa);
 	if (rc)
@@ -382,6 +397,21 @@ int cxl_clear_poison(struct cxl_memdev *cxlmd, u64 dpa)
 	trace_cxl_poison(cxlmd, cxlr, &record, 0, 0, CXL_POISON_TRACE_CLEAR);
 
 	return 0;
+}
+
+int cxl_clear_poison(struct cxl_memdev *cxlmd, u64 dpa)
+{
+	int rc;
+
+	ACQUIRE(rwsem_read_intr, region_rwsem)(&cxl_rwsem.region);
+	if ((rc = ACQUIRE_ERR(rwsem_read_intr, &region_rwsem)))
+		return rc;
+
+	ACQUIRE(rwsem_read_intr, dpa_rwsem)(&cxl_rwsem.dpa);
+	if ((rc = ACQUIRE_ERR(rwsem_read_intr, &dpa_rwsem)))
+		return rc;
+
+	return cxl_clear_poison_locked(cxlmd, dpa);
 }
 EXPORT_SYMBOL_NS_GPL(cxl_clear_poison, "CXL");
 
@@ -614,21 +644,55 @@ static void detach_memdev(struct work_struct *work)
 	struct cxl_memdev *cxlmd;
 
 	cxlmd = container_of(work, typeof(*cxlmd), detach_work);
-	device_release_driver(&cxlmd->dev);
+
+	/*
+	 * When the creator of @cxlmd sets ->attach it indicates CXL operation
+	 * is required. In that case, @cxlmd detach escalates to parent device
+	 * detach.
+	 */
+	if (cxlmd->attach)
+		device_release_driver(cxlmd->dev.parent);
+	else
+		device_release_driver(&cxlmd->dev);
 	put_device(&cxlmd->dev);
 }
 
 static struct lock_class_key cxl_memdev_key;
 
+struct cxl_dev_state *_devm_cxl_dev_state_create(struct device *dev,
+						 enum cxl_devtype type,
+						 u64 serial, u16 dvsec,
+						 size_t size, bool has_mbox)
+{
+	struct cxl_dev_state *cxlds = devm_kzalloc(dev, size, GFP_KERNEL);
+
+	if (!cxlds)
+		return NULL;
+
+	cxlds->dev = dev;
+	cxlds->type = type;
+	cxlds->serial = serial;
+	cxlds->cxl_dvsec = dvsec;
+	cxlds->reg_map.host = dev;
+	cxlds->reg_map.resource = CXL_RESOURCE_NONE;
+
+	if (has_mbox)
+		cxlds->cxl_mbox.host = dev;
+
+	return cxlds;
+}
+EXPORT_SYMBOL_NS_GPL(_devm_cxl_dev_state_create, "CXL");
+
 static struct cxl_memdev *cxl_memdev_alloc(struct cxl_dev_state *cxlds,
-					   const struct file_operations *fops)
+					   const struct file_operations *fops,
+					   const struct cxl_memdev_attach *attach)
 {
 	struct cxl_memdev *cxlmd;
 	struct device *dev;
 	struct cdev *cdev;
 	int rc;
 
-	cxlmd = kzalloc(sizeof(*cxlmd), GFP_KERNEL);
+	cxlmd = kzalloc_obj(*cxlmd);
 	if (!cxlmd)
 		return ERR_PTR(-ENOMEM);
 
@@ -637,6 +701,8 @@ static struct cxl_memdev *cxl_memdev_alloc(struct cxl_dev_state *cxlds,
 		goto err;
 	cxlmd->id = rc;
 	cxlmd->depth = -1;
+	cxlmd->attach = attach;
+	cxlmd->endpoint = ERR_PTR(-ENXIO);
 
 	dev = &cxlmd->dev;
 	device_initialize(dev);
@@ -792,7 +858,7 @@ static int cxl_mem_abort_fw_xfer(struct cxl_memdev_state *mds)
 	struct cxl_mbox_cmd mbox_cmd;
 	int rc;
 
-	transfer = kzalloc(struct_size(transfer, data, 0), GFP_KERNEL);
+	transfer = kzalloc_flex(*transfer, data, 0);
 	if (!transfer)
 		return -ENOMEM;
 
@@ -1023,50 +1089,89 @@ static const struct file_operations cxl_memdev_fops = {
 	.llseek = noop_llseek,
 };
 
-struct cxl_memdev *devm_cxl_add_memdev(struct device *host,
-				       struct cxl_dev_state *cxlds)
+/*
+ * Activate ioctl operations, no cxl_memdev_rwsem manipulation needed as this is
+ * ordered with cdev_add() publishing the device.
+ */
+static int cxlmd_add(struct cxl_memdev *cxlmd, struct cxl_dev_state *cxlds)
 {
-	struct cxl_memdev *cxlmd;
-	struct device *dev;
-	struct cdev *cdev;
 	int rc;
 
-	cxlmd = cxl_memdev_alloc(cxlds, &cxl_memdev_fops);
+	cxlmd->cxlds = cxlds;
+	cxlds->cxlmd = cxlmd;
+
+	rc = cdev_device_add(&cxlmd->cdev, &cxlmd->dev);
+	if (rc) {
+		/*
+		 * The cdev was briefly live, shutdown any ioctl operations that
+		 * saw that state.
+		 */
+		cxl_memdev_shutdown(&cxlmd->dev);
+		return rc;
+	}
+
+	return 0;
+}
+
+DEFINE_FREE(put_cxlmd, struct cxl_memdev *,
+	    if (!IS_ERR_OR_NULL(_T)) put_device(&_T->dev))
+
+static bool cxl_memdev_attach_failed(struct cxl_memdev *cxlmd)
+{
+	/*
+	 * If @attach is provided fail if the driver is not attached upon
+	 * return. Note that failure here could be the result of a race to
+	 * teardown the CXL port topology. I.e. cxl_mem_probe() could have
+	 * succeeded and then cxl_mem unbound before the lock is acquired.
+	 */
+	guard(device)(&cxlmd->dev);
+	return (cxlmd->attach && !cxlmd->dev.driver);
+}
+
+static struct cxl_memdev *cxl_memdev_autoremove(struct cxl_memdev *cxlmd)
+{
+	int rc;
+
+	if (cxl_memdev_attach_failed(cxlmd)) {
+		cxl_memdev_unregister(cxlmd);
+		return ERR_PTR(-ENXIO);
+	}
+
+	rc = devm_add_action_or_reset(cxlmd->cxlds->dev, cxl_memdev_unregister,
+				      cxlmd);
+	if (rc)
+		return ERR_PTR(rc);
+
+	return cxlmd;
+}
+
+/*
+ * Core helper for devm_cxl_add_memdev() that wants to both create a device and
+ * assert to the caller that upon return cxl_mem::probe() has been invoked.
+ */
+struct cxl_memdev *__devm_cxl_add_memdev(struct cxl_dev_state *cxlds,
+					 const struct cxl_memdev_attach *attach)
+{
+	struct device *dev;
+	int rc;
+
+	struct cxl_memdev *cxlmd __free(put_cxlmd) =
+		cxl_memdev_alloc(cxlds, &cxl_memdev_fops, attach);
 	if (IS_ERR(cxlmd))
 		return cxlmd;
 
 	dev = &cxlmd->dev;
 	rc = dev_set_name(dev, "mem%d", cxlmd->id);
 	if (rc)
-		goto err;
+		return ERR_PTR(rc);
 
-	/*
-	 * Activate ioctl operations, no cxl_memdev_rwsem manipulation
-	 * needed as this is ordered with cdev_add() publishing the device.
-	 */
-	cxlmd->cxlds = cxlds;
-	cxlds->cxlmd = cxlmd;
-
-	cdev = &cxlmd->cdev;
-	rc = cdev_device_add(cdev, dev);
-	if (rc)
-		goto err;
-
-	rc = devm_add_action_or_reset(host, cxl_memdev_unregister, cxlmd);
+	rc = cxlmd_add(cxlmd, cxlds);
 	if (rc)
 		return ERR_PTR(rc);
-	return cxlmd;
 
-err:
-	/*
-	 * The cdev was briefly live, shutdown any ioctl operations that
-	 * saw that state.
-	 */
-	cxl_memdev_shutdown(dev);
-	put_device(dev);
-	return ERR_PTR(rc);
+	return cxl_memdev_autoremove(no_free_ptr(cxlmd));
 }
-EXPORT_SYMBOL_NS_GPL(devm_cxl_add_memdev, "CXL");
+EXPORT_SYMBOL_FOR_MODULES(__devm_cxl_add_memdev, "cxl_mem");
 
 static void sanitize_teardown_notifier(void *data)
 {

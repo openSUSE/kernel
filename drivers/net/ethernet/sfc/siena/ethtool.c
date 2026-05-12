@@ -217,7 +217,8 @@ static int efx_ethtool_set_wol(struct net_device *net_dev,
 }
 
 static void efx_ethtool_get_fec_stats(struct net_device *net_dev,
-				      struct ethtool_fec_stats *fec_stats)
+				      struct ethtool_fec_stats *fec_stats,
+				      struct ethtool_fec_hist *hist)
 {
 	struct efx_nic *efx = netdev_priv(net_dev);
 
@@ -260,6 +261,7 @@ const struct ethtool_ops efx_siena_ethtool_ops = {
 	.reset			= efx_siena_ethtool_reset,
 	.get_rxnfc		= efx_siena_ethtool_get_rxnfc,
 	.set_rxnfc		= efx_siena_ethtool_set_rxnfc,
+	.get_rx_ring_count	= efx_siena_ethtool_get_rx_ring_count,
 	.get_rxfh_indir_size	= efx_siena_ethtool_get_rxfh_indir_size,
 	.get_rxfh_key_size	= efx_siena_ethtool_get_rxfh_key_size,
 	.get_rxfh		= efx_siena_ethtool_get_rxfh,

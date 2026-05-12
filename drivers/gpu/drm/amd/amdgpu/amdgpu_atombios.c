@@ -706,7 +706,6 @@ int amdgpu_atombios_get_clock_info(struct amdgpu_device *adev)
 		}
 		adev->clock.dp_extclk =
 			le16_to_cpu(firmware_info->info_21.usUniphyDPModeExtClkFreq);
-		adev->clock.current_dispclk = adev->clock.default_dispclk;
 
 		adev->clock.max_pixel_clock = le16_to_cpu(firmware_info->info.usMaxPixelClock);
 		if (adev->clock.max_pixel_clock == 0)
@@ -1686,9 +1685,9 @@ static int amdgpu_atombios_allocate_fb_scratch(struct amdgpu_device *adev)
 			(uint32_t)(ATOM_VRAM_BLOCK_SRIOV_MSG_SHARE_RESERVATION <<
 			ATOM_VRAM_OPERATION_FLAGS_SHIFT)) {
 			/* Firmware request VRAM reservation for SR-IOV */
-			adev->mman.fw_vram_usage_start_offset = (start_addr &
-				(~ATOM_VRAM_OPERATION_FLAGS_MASK)) << 10;
-			adev->mman.fw_vram_usage_size = size << 10;
+			amdgpu_ttm_init_vram_resv(adev, AMDGPU_RESV_FW_VRAM_USAGE,
+					  (start_addr & (~ATOM_VRAM_OPERATION_FLAGS_MASK)) << 10,
+					  size << 10, true);
 			/* Use the default scratch size */
 			usage_bytes = 0;
 		} else {
@@ -1898,7 +1897,7 @@ void amdgpu_atombios_fini(struct amdgpu_device *adev)
 int amdgpu_atombios_init(struct amdgpu_device *adev)
 {
 	struct card_info *atom_card_info =
-	    kzalloc(sizeof(struct card_info), GFP_KERNEL);
+	    kzalloc_obj(struct card_info);
 
 	if (!atom_card_info)
 		return -ENOMEM;

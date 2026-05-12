@@ -108,11 +108,11 @@ static u64 idpf_ptp_read_src_clk_reg_direct(struct idpf_adapter *adapter,
 	ptp_read_system_prets(sts);
 
 	idpf_ptp_enable_shtime(adapter);
+	lo = readl(ptp->dev_clk_regs.dev_clk_ns_l);
 
 	/* Read the system timestamp post PHC read */
 	ptp_read_system_postts(sts);
 
-	lo = readl(ptp->dev_clk_regs.dev_clk_ns_l);
 	hi = readl(ptp->dev_clk_regs.dev_clk_ns_h);
 
 	spin_unlock(&ptp->read_dev_clk_lock);
@@ -384,15 +384,17 @@ static int idpf_ptp_update_cached_phctime(struct idpf_adapter *adapter)
 	WRITE_ONCE(adapter->ptp->cached_phc_jiffies, jiffies);
 
 	idpf_for_each_vport(adapter, vport) {
+		struct idpf_q_vec_rsrc *rsrc;
 		bool split;
 
-		if (!vport || !vport->rxq_grps)
+		if (!vport || !vport->dflt_qv_rsrc.rxq_grps)
 			continue;
 
-		split = idpf_is_queue_model_split(vport->rxq_model);
+		rsrc = &vport->dflt_qv_rsrc;
+		split = idpf_is_queue_model_split(rsrc->rxq_model);
 
-		for (u16 i = 0; i < vport->num_rxq_grp; i++) {
-			struct idpf_rxq_group *grp = &vport->rxq_grps[i];
+		for (u16 i = 0; i < rsrc->num_rxq_grp; i++) {
+			struct idpf_rxq_group *grp = &rsrc->rxq_grps[i];
 
 			idpf_ptp_update_phctime_rxq_grp(grp, split, systime);
 		}
@@ -618,8 +620,13 @@ u64 idpf_ptp_extend_ts(struct idpf_vport *vport, u64 in_tstamp)
 
 	discard_time = ptp->cached_phc_jiffies + 2 * HZ;
 
-	if (time_is_before_jiffies(discard_time))
+	if (time_is_before_jiffies(discard_time)) {
+		u64_stats_update_begin(&vport->tstamp_stats.stats_sync);
+		u64_stats_inc(&vport->tstamp_stats.discarded);
+		u64_stats_update_end(&vport->tstamp_stats.stats_sync);
+
 		return 0;
+	}
 
 	return idpf_ptp_tstamp_extend_32b_to_64b(ptp->cached_phc_time,
 						 lower_32_bits(in_tstamp));
@@ -676,9 +683,10 @@ int idpf_ptp_request_ts(struct idpf_tx_queue *tx_q, struct sk_buff *skb,
  */
 static void idpf_ptp_set_rx_tstamp(struct idpf_vport *vport, int rx_filter)
 {
+	struct idpf_q_vec_rsrc *rsrc = &vport->dflt_qv_rsrc;
 	bool enable = true, splitq;
 
-	splitq = idpf_is_queue_model_split(vport->rxq_model);
+	splitq = idpf_is_queue_model_split(rsrc->rxq_model);
 
 	if (rx_filter == HWTSTAMP_FILTER_NONE) {
 		enable = false;
@@ -687,8 +695,8 @@ static void idpf_ptp_set_rx_tstamp(struct idpf_vport *vport, int rx_filter)
 		vport->tstamp_config.rx_filter = HWTSTAMP_FILTER_ALL;
 	}
 
-	for (u16 i = 0; i < vport->num_rxq_grp; i++) {
-		struct idpf_rxq_group *grp = &vport->rxq_grps[i];
+	for (u16 i = 0; i < rsrc->num_rxq_grp; i++) {
+		struct idpf_rxq_group *grp = &rsrc->rxq_grps[i];
 		struct idpf_rx_queue *rx_queue;
 		u16 j, num_rxq;
 
@@ -853,10 +861,17 @@ static void idpf_ptp_release_vport_tstamp(struct idpf_vport *vport)
 
 	/* Remove list with latches in use */
 	head = &vport->tx_tstamp_caps->latches_in_use;
+	u64_stats_update_begin(&vport->tstamp_stats.stats_sync);
 	list_for_each_entry_safe(ptp_tx_tstamp, tmp, head, list_member) {
+		u64_stats_inc(&vport->tstamp_stats.flushed);
+
 		list_del(&ptp_tx_tstamp->list_member);
+		if (ptp_tx_tstamp->skb)
+			consume_skb(ptp_tx_tstamp->skb);
+
 		kfree(ptp_tx_tstamp);
 	}
+	u64_stats_update_end(&vport->tstamp_stats.stats_sync);
 
 	spin_unlock_bh(&vport->tx_tstamp_caps->latches_lock);
 
@@ -921,7 +936,7 @@ int idpf_ptp_init(struct idpf_adapter *adapter)
 		return -EOPNOTSUPP;
 	}
 
-	adapter->ptp = kzalloc(sizeof(*adapter->ptp), GFP_KERNEL);
+	adapter->ptp = kzalloc_obj(*adapter->ptp);
 	if (!adapter->ptp)
 		return -ENOMEM;
 

@@ -4,16 +4,23 @@
 
 use core::ops::Deref;
 
-use crate::c_str;
-use crate::device::Bound;
-use crate::device::Device;
-use crate::devres::Devres;
-use crate::io;
-use crate::io::resource::Region;
-use crate::io::resource::Resource;
-use crate::io::Io;
-use crate::io::IoRaw;
-use crate::prelude::*;
+use crate::{
+    device::{
+        Bound,
+        Device, //
+    },
+    devres::Devres,
+    io::{
+        self,
+        resource::{
+            Region,
+            Resource, //
+        },
+        Mmio,
+        MmioRaw, //
+    },
+    prelude::*,
+};
 
 /// An IO request for a specific device and resource.
 pub struct IoRequest<'a> {
@@ -44,7 +51,13 @@ impl<'a> IoRequest<'a> {
     /// illustration purposes.
     ///
     /// ```no_run
-    /// use kernel::{bindings, c_str, platform, of, device::Core};
+    /// use kernel::{
+    ///     bindings,
+    ///     device::Core,
+    ///     io::Io,
+    ///     of,
+    ///     platform,
+    /// };
     /// struct SampleDriver;
     ///
     /// impl platform::Driver for SampleDriver {
@@ -53,7 +66,7 @@ impl<'a> IoRequest<'a> {
     ///    fn probe(
     ///       pdev: &platform::Device<Core>,
     ///       info: Option<&Self::IdInfo>,
-    ///    ) -> Result<Pin<KBox<Self>>> {
+    ///    ) -> impl PinInit<Self, Error> {
     ///       let offset = 0; // Some offset.
     ///
     ///       // If the size is known at compile time, use [`Self::iomap_sized`].
@@ -66,11 +79,11 @@ impl<'a> IoRequest<'a> {
     ///       let io = iomem.access(pdev.as_ref())?;
     ///
     ///       // Read and write a 32-bit value at `offset`.
-    ///       let data = io.read32_relaxed(offset);
+    ///       let data = io.read32(offset);
     ///
-    ///       io.write32_relaxed(data, offset);
+    ///       io.write32(data, offset);
     ///
-    ///       # Ok(KBox::new(SampleDriver, GFP_KERNEL)?.into())
+    ///       # Ok(SampleDriver)
     ///     }
     /// }
     /// ```
@@ -102,7 +115,13 @@ impl<'a> IoRequest<'a> {
     /// illustration purposes.
     ///
     /// ```no_run
-    /// use kernel::{bindings, c_str, platform, of, device::Core};
+    /// use kernel::{
+    ///     bindings,
+    ///     device::Core,
+    ///     io::Io,
+    ///     of,
+    ///     platform,
+    /// };
     /// struct SampleDriver;
     ///
     /// impl platform::Driver for SampleDriver {
@@ -111,7 +130,7 @@ impl<'a> IoRequest<'a> {
     ///    fn probe(
     ///       pdev: &platform::Device<Core>,
     ///       info: Option<&Self::IdInfo>,
-    ///    ) -> Result<Pin<KBox<Self>>> {
+    ///    ) -> impl PinInit<Self, Error> {
     ///       let offset = 0; // Some offset.
     ///
     ///       // Unlike [`Self::iomap_sized`], here the size of the memory region
@@ -124,11 +143,11 @@ impl<'a> IoRequest<'a> {
     ///
     ///       let io = iomem.access(pdev.as_ref())?;
     ///
-    ///       let data = io.try_read32_relaxed(offset)?;
+    ///       let data = io.try_read32(offset)?;
     ///
-    ///       io.try_write32_relaxed(data, offset)?;
+    ///       io.try_write32(data, offset)?;
     ///
-    ///       # Ok(KBox::new(SampleDriver, GFP_KERNEL)?.into())
+    ///       # Ok(SampleDriver)
     ///     }
     /// }
     /// ```
@@ -164,7 +183,7 @@ impl<const SIZE: usize> ExclusiveIoMem<SIZE> {
     fn ioremap(resource: &Resource) -> Result<Self> {
         let start = resource.start();
         let size = resource.size();
-        let name = resource.name().unwrap_or(c_str!(""));
+        let name = resource.name().unwrap_or_default();
 
         let region = resource
             .request_region(
@@ -195,7 +214,7 @@ impl<const SIZE: usize> ExclusiveIoMem<SIZE> {
 }
 
 impl<const SIZE: usize> Deref for ExclusiveIoMem<SIZE> {
-    type Target = Io<SIZE>;
+    type Target = Mmio<SIZE>;
 
     fn deref(&self) -> &Self::Target {
         &self.iomem
@@ -209,10 +228,10 @@ impl<const SIZE: usize> Deref for ExclusiveIoMem<SIZE> {
 ///
 /// # Invariants
 ///
-/// [`IoMem`] always holds an [`IoRaw`] instance that holds a valid pointer to the
+/// [`IoMem`] always holds an [`MmioRaw`] instance that holds a valid pointer to the
 /// start of the I/O memory mapped region.
 pub struct IoMem<const SIZE: usize = 0> {
-    io: IoRaw<SIZE>,
+    io: MmioRaw<SIZE>,
 }
 
 impl<const SIZE: usize> IoMem<SIZE> {
@@ -247,7 +266,7 @@ impl<const SIZE: usize> IoMem<SIZE> {
             return Err(ENOMEM);
         }
 
-        let io = IoRaw::new(addr as usize, size)?;
+        let io = MmioRaw::new(addr as usize, size)?;
         let io = IoMem { io };
 
         Ok(io)
@@ -270,10 +289,10 @@ impl<const SIZE: usize> Drop for IoMem<SIZE> {
 }
 
 impl<const SIZE: usize> Deref for IoMem<SIZE> {
-    type Target = Io<SIZE>;
+    type Target = Mmio<SIZE>;
 
     fn deref(&self) -> &Self::Target {
         // SAFETY: Safe as by the invariant of `IoMem`.
-        unsafe { Io::from_raw(&self.io) }
+        unsafe { Mmio::from_raw(&self.io) }
     }
 }

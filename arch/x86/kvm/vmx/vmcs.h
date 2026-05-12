@@ -11,18 +11,16 @@
 
 #include "capabilities.h"
 
+/*
+ * Indexing into the vmcs12 uses the VMCS encoding rotated left by 6 as a very
+ * rudimentary compression of the range of indices.  The compression ratio is
+ * good enough to allow KVM to use a (very sparsely populated) array without
+ * wasting too much memory, while the "algorithm" is fast enough to be used to
+ * lookup vmcs12 fields on-demand, e.g. for emulation.
+ */
 #define ROL16(val, n) ((u16)(((u16)(val) << (n)) | ((u16)(val) >> (16 - (n)))))
-
-struct vmcs_hdr {
-	u32 revision_id:31;
-	u32 shadow_vmcs:1;
-};
-
-struct vmcs {
-	struct vmcs_hdr hdr;
-	u32 abort;
-	char data[];
-};
+#define VMCS12_IDX_TO_ENC(idx) ROL16(idx, 10)
+#define ENC_TO_VMCS12_IDX(enc) ROL16(enc, 6)
 
 DECLARE_PER_CPU(struct vmcs *, current_vmcs);
 

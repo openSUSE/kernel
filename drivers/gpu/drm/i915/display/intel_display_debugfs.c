@@ -12,9 +12,10 @@
 #include <drm/drm_edid.h>
 #include <drm/drm_file.h>
 #include <drm/drm_fourcc.h>
+#include <drm/drm_print.h>
+#include <drm/intel/intel_gmd_misc_regs.h>
 
 #include "hsw_ips.h"
-#include "i915_reg.h"
 #include "i9xx_wm_regs.h"
 #include "intel_alpm.h"
 #include "intel_bo.h"
@@ -26,6 +27,7 @@
 #include "intel_display_power.h"
 #include "intel_display_power_well.h"
 #include "intel_display_regs.h"
+#include "intel_display_reset.h"
 #include "intel_display_rpm.h"
 #include "intel_display_types.h"
 #include "intel_dmc.h"
@@ -47,6 +49,7 @@
 #include "intel_psr_regs.h"
 #include "intel_vdsc.h"
 #include "intel_wm.h"
+#include "intel_tc.h"
 
 static struct intel_display *node_to_intel_display(struct drm_info_node *node)
 {
@@ -76,9 +79,6 @@ static int i915_frontbuffer_tracking(struct seq_file *m, void *unused)
 	seq_printf(m, "FB tracking busy bits: 0x%08x\n",
 		   display->fb_tracking.busy_bits);
 
-	seq_printf(m, "FB tracking flip bits: 0x%08x\n",
-		   display->fb_tracking.flip_bits);
-
 	spin_unlock(&display->fb_tracking.lock);
 
 	return 0;
@@ -87,7 +87,7 @@ static int i915_frontbuffer_tracking(struct seq_file *m, void *unused)
 static int i915_sr_status(struct seq_file *m, void *unused)
 {
 	struct intel_display *display = node_to_intel_display(m->private);
-	intel_wakeref_t wakeref;
+	struct ref_tracker *wakeref;
 	bool sr_enabled = false;
 
 	wakeref = intel_display_power_get(display, POWER_DOMAIN_INIT);
@@ -246,6 +246,8 @@ static void intel_connector_info(struct seq_file *m,
 {
 	struct intel_connector *intel_connector = to_intel_connector(connector);
 	const struct drm_display_mode *mode;
+	struct drm_printer p = drm_seq_file_printer(m);
+	struct intel_digital_port *dig_port = NULL;
 
 	seq_printf(m, "[CONNECTOR:%d:%s]: status: %s\n",
 		   connector->base.id, connector->name,
@@ -268,13 +270,18 @@ static void intel_connector_info(struct seq_file *m,
 			intel_dp_mst_info(m, intel_connector);
 		else
 			intel_dp_info(m, intel_connector);
+		dig_port = dp_to_dig_port(intel_attached_dp(intel_connector));
 		break;
 	case DRM_MODE_CONNECTOR_HDMIA:
 		intel_hdmi_info(m, intel_connector);
+		dig_port = hdmi_to_dig_port(intel_attached_hdmi(intel_connector));
 		break;
 	default:
 		break;
 	}
+
+	if (dig_port != NULL && intel_encoder_is_tc(&dig_port->base))
+		intel_tc_info(&p, dig_port);
 
 	intel_hdcp_info(m, intel_connector);
 
@@ -410,11 +417,12 @@ static void intel_scaler_info(struct seq_file *m, struct intel_crtc *crtc)
 
 	/* Not all platforms have a scaler */
 	if (num_scalers) {
-		seq_printf(m, "\tnum_scalers=%d, scaler_users=%x scaler_id=%d scaling_filter=%d",
+		seq_printf(m, "\tnum_scalers=%d, scaler_users=%x scaler_id=%d scaling_filter=%d sharpness_strength=%d",
 			   num_scalers,
 			   crtc_state->scaler_state.scaler_users,
 			   crtc_state->scaler_state.scaler_id,
-			   crtc_state->hw.scaling_filter);
+			   crtc_state->hw.scaling_filter,
+			   crtc_state->hw.sharpness_strength);
 
 		for (i = 0; i < num_scalers; i++) {
 			const struct intel_scaler *sc =
@@ -831,6 +839,7 @@ void intel_display_debugfs_register(struct intel_display *display)
 
 	intel_bios_debugfs_register(display);
 	intel_cdclk_debugfs_register(display);
+	intel_display_reset_debugfs_register(display);
 	intel_dmc_debugfs_register(display);
 	intel_dp_test_debugfs_register(display);
 	intel_fbc_debugfs_register(display);
