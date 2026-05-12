@@ -203,7 +203,6 @@ nlm3svc_lookup_file(struct svc_rqst *rqstp, struct nlm_host *host,
 	return nlm_granted;
 }
 
-#ifdef CONFIG_LOCKD_V4
 static inline __be32 cast_status(__be32 status)
 {
 	switch (status) {
@@ -218,31 +217,13 @@ static inline __be32 cast_status(__be32 status)
 		status = nlm_lck_denied;
 		break;
 	default:
+		pr_warn_once("lockd: unhandled internal status %u\n",
+			     be32_to_cpu(status));
 		status = nlm_lck_denied_nolocks;
-	}
-
-	return status;
-}
-#else
-static inline __be32 cast_status(__be32 status)
-{
-	switch (status) {
-	case nlm__int__deadlock:
-		status = nlm_lck_denied;
-		break;
-	case nlm__int__stale_fh:
-	case nlm__int__failed:
-		status = nlm_lck_denied_nolocks;
-		break;
-	default:
-		if (be32_to_cpu(status) > be32_to_cpu(nlm__int__drop_reply))
-			pr_warn_once("lockd: unhandled internal status %u\n",
-				     be32_to_cpu(status));
 		break;
 	}
 	return status;
 }
-#endif
 
 /**
  * nlmsvc_proc_null - NULL: Test for presence of service
