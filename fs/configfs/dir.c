@@ -754,17 +754,13 @@ static int populate_groups(struct config_group *group,
 			   struct configfs_fragment *frag)
 {
 	struct config_group *new_group;
-	int ret = 0;
 
 	list_for_each_entry(new_group, &group->default_groups, group_entry) {
-		ret = create_default_group(group, new_group, frag);
-		if (ret) {
-			detach_groups(group);
-			break;
-		}
+		int ret = create_default_group(group, new_group, frag);
+		if (ret)
+			return ret;
 	}
-
-	return ret;
+	return 0;
 }
 
 void configfs_remove_default_groups(struct config_group *group)
@@ -904,6 +900,13 @@ static void configfs_detach_item(struct config_item *item)
 	configfs_remove_dir(item);
 }
 
+/* Caller holds the mutex of the group's inode */
+static void configfs_detach_group(struct config_item *item)
+{
+	detach_groups(to_config_group(item));
+	configfs_detach_item(item);
+}
+
 static int configfs_attach_group(struct config_item *parent_item,
 				 struct config_item *item,
 				 struct dentry *dentry,
@@ -930,7 +933,7 @@ static int configfs_attach_group(struct config_item *parent_item,
 		configfs_adjust_dir_dirent_depth_before_populate(sd);
 		ret = populate_groups(to_config_group(item), frag);
 		if (ret) {
-			configfs_detach_item(item);
+			configfs_detach_group(item);
 			d_inode(dentry)->i_flags |= S_DEAD;
 			dont_mount(dentry);
 		}
@@ -941,13 +944,6 @@ static int configfs_attach_group(struct config_item *parent_item,
 	}
 
 	return ret;
-}
-
-/* Caller holds the mutex of the group's inode */
-static void configfs_detach_group(struct config_item *item)
-{
-	detach_groups(to_config_group(item));
-	configfs_detach_item(item);
 }
 
 /*
