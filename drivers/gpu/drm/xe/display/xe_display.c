@@ -85,10 +85,6 @@ void xe_display_driver_set_hooks(struct drm_driver *driver)
 	if (!xe_modparam.probe_display)
 		return;
 
-#ifdef CONFIG_DRM_FBDEV_EMULATION
-	driver->fbdev_probe = intel_fbdev_driver_fbdev_probe;
-#endif
-
 	driver->driver_features |= DRIVER_MODESET | DRIVER_ATOMIC;
 }
 
@@ -603,3 +599,11 @@ no_display:
 	unset_display_features(xe);
 	return 0;
 }
+
+#ifdef CONFIG_DRM_FBDEV_EMULATION
+int xe_display_driver_fbdev_probe(struct drm_fb_helper *fbh,
+				  struct drm_fb_helper_surface_size *sizes)
+{
+	return intel_fbdev_driver_fbdev_probe(fbh, sizes);
+}
+#endif
