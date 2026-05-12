@@ -18,6 +18,7 @@
 #include <linux/io.h>
 #include <linux/kthread.h>
 #include <linux/mbus.h>
+#include <linux/minmax.h>
 #include <linux/platform_device.h>
 #include <linux/scatterlist.h>
 #include <linux/slab.h>
@@ -442,10 +443,8 @@ static int mv_cesa_probe(struct platform_device *pdev)
 	sram_size = CESA_SA_DEFAULT_SRAM_SIZE;
 	of_property_read_u32(cesa->dev->of_node, "marvell,crypto-sram-size",
 			     &sram_size);
-	if (sram_size < CESA_SA_MIN_SRAM_SIZE)
-		sram_size = CESA_SA_MIN_SRAM_SIZE;
 
-	cesa->sram_size = sram_size;
+	cesa->sram_size = max(sram_size, CESA_SA_MIN_SRAM_SIZE);
 
 	spin_lock_init(&cesa->lock);
 
