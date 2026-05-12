@@ -363,9 +363,7 @@ struct ksz_dev_ops {
 	void (*teardown)(struct dsa_switch *ds);
 	u32 (*get_port_addr)(int port, int offset);
 	void (*cfg_port_member)(struct ksz_device *dev, int port, u8 member);
-	void (*flush_dyn_mac_table)(struct ksz_device *dev, int port);
 	void (*port_setup)(struct ksz_device *dev, int port, bool cpu_port);
-	int (*set_ageing_time)(struct ksz_device *dev, unsigned int msecs);
 
 	/**
 	 * @mdio_bus_preinit: Function pointer to pre-initialize the MDIO bus
@@ -515,8 +513,6 @@ int ksz_port_vlan_add(struct dsa_switch *ds, int port,
 		      struct netlink_ext_ack *extack);
 int ksz_port_vlan_del(struct dsa_switch *ds, int port,
 		      const struct switchdev_obj_port_vlan *vlan);
-void ksz_port_fast_age(struct dsa_switch *ds, int port);
-int ksz_set_ageing_time(struct dsa_switch *ds, unsigned int msecs);
 int ksz_port_fdb_add(struct dsa_switch *ds, int port,
 		     const unsigned char *addr, u16 vid,
 		     struct dsa_db db);

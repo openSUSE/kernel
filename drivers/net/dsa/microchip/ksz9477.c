@@ -604,8 +604,9 @@ void ksz9477_cfg_port_member(struct ksz_device *dev, int port, u8 member)
 	ksz_pwrite32(dev, port, REG_PORT_VLAN_MEMBERSHIP__4, member);
 }
 
-void ksz9477_flush_dyn_mac_table(struct ksz_device *dev, int port)
+void ksz9477_flush_dyn_mac_table(struct dsa_switch *ds, int port)
 {
+	struct ksz_device *dev = ds->priv;
 	const u16 *regs = dev->info->regs;
 	u8 data;
 
@@ -1170,8 +1171,9 @@ static void ksz9477_get_caps(struct ksz_device *dev, int port,
 	}
 }
 
-static int ksz9477_set_ageing_time(struct ksz_device *dev, unsigned int msecs)
+static int ksz9477_set_ageing_time(struct dsa_switch *ds, unsigned int msecs)
 {
+	struct ksz_device *dev = ds->priv;
 	u32 secs = msecs / 1000;
 	u8 data, mult, value;
 	u32 max_val;
@@ -1769,9 +1771,7 @@ const struct ksz_dev_ops ksz9477_dev_ops = {
 	.setup = ksz9477_setup,
 	.get_port_addr = ksz9477_get_port_addr,
 	.cfg_port_member = ksz9477_cfg_port_member,
-	.flush_dyn_mac_table = ksz9477_flush_dyn_mac_table,
 	.port_setup = ksz9477_port_setup,
-	.set_ageing_time = ksz9477_set_ageing_time,
 	.r_phy = ksz9477_r_phy,
 	.w_phy = ksz9477_w_phy,
 	.r_mib_cnt = ksz9477_r_mib_cnt,
@@ -1813,7 +1813,7 @@ const struct dsa_switch_ops ksz9477_switch_ops = {
 	.phy_write		= ksz_phy_write16,
 	.phylink_get_caps	= ksz_phylink_get_caps,
 	.port_setup		= ksz_port_setup,
-	.set_ageing_time	= ksz_set_ageing_time,
+	.set_ageing_time	= ksz9477_set_ageing_time,
 	.get_strings		= ksz_get_strings,
 	.get_ethtool_stats	= ksz_get_ethtool_stats,
 	.get_sset_count		= ksz_sset_count,
@@ -1826,7 +1826,7 @@ const struct dsa_switch_ops ksz9477_switch_ops = {
 	.port_teardown		= ksz_port_teardown,
 	.port_pre_bridge_flags	= ksz_port_pre_bridge_flags,
 	.port_bridge_flags	= ksz_port_bridge_flags,
-	.port_fast_age		= ksz_port_fast_age,
+	.port_fast_age		= ksz9477_flush_dyn_mac_table,
 	.port_vlan_filtering	= ksz_port_vlan_filtering,
 	.port_vlan_add		= ksz_port_vlan_add,
 	.port_vlan_del		= ksz_port_vlan_del,

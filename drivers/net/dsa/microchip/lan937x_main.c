@@ -461,8 +461,9 @@ static int lan937x_change_mtu(struct ksz_device *dev, int port, int new_mtu)
 	return 0;
 }
 
-static int lan937x_set_ageing_time(struct ksz_device *dev, unsigned int msecs)
+static int lan937x_set_ageing_time(struct dsa_switch *ds, unsigned int msecs)
 {
+	struct ksz_device *dev = ds->priv;
 	u8 data, mult, value8;
 	bool in_msec = false;
 	u32 max_val, value;
@@ -702,9 +703,7 @@ const struct ksz_dev_ops lan937x_dev_ops = {
 	.teardown = lan937x_teardown,
 	.get_port_addr = ksz9477_get_port_addr,
 	.cfg_port_member = ksz9477_cfg_port_member,
-	.flush_dyn_mac_table = ksz9477_flush_dyn_mac_table,
 	.port_setup = lan937x_port_setup,
-	.set_ageing_time = lan937x_set_ageing_time,
 	.mdio_bus_preinit = lan937x_mdio_bus_preinit,
 	.create_phy_addr_map = lan937x_create_phy_addr_map,
 	.r_phy = lan937x_r_phy,
@@ -745,7 +744,7 @@ const struct dsa_switch_ops lan937x_switch_ops = {
 	.phy_write		= ksz_phy_write16,
 	.phylink_get_caps	= ksz_phylink_get_caps,
 	.port_setup		= ksz_port_setup,
-	.set_ageing_time	= ksz_set_ageing_time,
+	.set_ageing_time	= lan937x_set_ageing_time,
 	.get_strings		= ksz_get_strings,
 	.get_ethtool_stats	= ksz_get_ethtool_stats,
 	.get_sset_count		= ksz_sset_count,
@@ -758,7 +757,7 @@ const struct dsa_switch_ops lan937x_switch_ops = {
 	.port_teardown		= ksz_port_teardown,
 	.port_pre_bridge_flags	= ksz_port_pre_bridge_flags,
 	.port_bridge_flags	= ksz_port_bridge_flags,
-	.port_fast_age		= ksz_port_fast_age,
+	.port_fast_age		= ksz9477_flush_dyn_mac_table,
 	.port_vlan_filtering	= ksz_port_vlan_filtering,
 	.port_vlan_add		= ksz_port_vlan_add,
 	.port_vlan_del		= ksz_port_vlan_del,

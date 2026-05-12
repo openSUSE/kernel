@@ -3085,23 +3085,6 @@ void ksz_port_bridge_leave(struct dsa_switch *ds, int port,
 	 */
 }
 
-void ksz_port_fast_age(struct dsa_switch *ds, int port)
-{
-	struct ksz_device *dev = ds->priv;
-
-	dev->dev_ops->flush_dyn_mac_table(dev, port);
-}
-
-int ksz_set_ageing_time(struct dsa_switch *ds, unsigned int msecs)
-{
-	struct ksz_device *dev = ds->priv;
-
-	if (!dev->dev_ops->set_ageing_time)
-		return -EOPNOTSUPP;
-
-	return dev->dev_ops->set_ageing_time(dev, msecs);
-}
-
 int ksz_port_fdb_add(struct dsa_switch *ds, int port,
 		     const unsigned char *addr, u16 vid,
 		     struct dsa_db db)
