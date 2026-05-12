@@ -341,8 +341,8 @@ struct uniwill_data {
 	struct acpi_battery_hook hook;
 	unsigned int last_charge_ctrl;
 	struct mutex battery_lock;	/* Protects the list of currently registered batteries */
-	unsigned int last_status;
-	unsigned int last_switch_status;
+	bool last_fn_lock_state;
+	bool last_super_key_enable_state;
 	struct mutex super_key_lock;	/* Protects the toggling of the super key lock state */
 	struct list_head batteries;
 	struct mutex led_lock;		/* Protects writes to the lightbar registers */
@@ -619,11 +619,22 @@ static const struct regmap_config uniwill_ec_config = {
 	.use_single_write = true,
 };
 
+static int uniwill_write_fn_lock(struct uniwill_data *data, bool status)
+{
+	unsigned int value;
+
+	if (status)
+		value = FN_LOCK_STATUS;
+	else
+		value = 0;
+
+	return regmap_update_bits(data->regmap, EC_ADDR_BIOS_OEM, FN_LOCK_STATUS, value);
+}
+
 static ssize_t fn_lock_store(struct device *dev, struct device_attribute *attr, const char *buf,
 			     size_t count)
 {
 	struct uniwill_data *data = dev_get_drvdata(dev);
-	unsigned int value;
 	bool enable;
 	int ret;
 
@@ -631,21 +642,15 @@ static ssize_t fn_lock_store(struct device *dev, struct device_attribute *attr, 
 	if (ret < 0)
 		return ret;
 
-	if (enable)
-		value = FN_LOCK_STATUS;
-	else
-		value = 0;
-
-	ret = regmap_update_bits(data->regmap, EC_ADDR_BIOS_OEM, FN_LOCK_STATUS, value);
+	ret = uniwill_write_fn_lock(data, enable);
 	if (ret < 0)
 		return ret;
 
 	return count;
 }
 
-static ssize_t fn_lock_show(struct device *dev, struct device_attribute *attr, char *buf)
+static int uniwill_read_fn_lock(struct uniwill_data *data, bool *status)
 {
-	struct uniwill_data *data = dev_get_drvdata(dev);
 	unsigned int value;
 	int ret;
 
@@ -653,22 +658,30 @@ static ssize_t fn_lock_show(struct device *dev, struct device_attribute *attr, c
 	if (ret < 0)
 		return ret;
 
-	return sysfs_emit(buf, "%d\n", !!(value & FN_LOCK_STATUS));
+	*status = !!(value & FN_LOCK_STATUS);
+
+	return 0;
+}
+
+static ssize_t fn_lock_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct uniwill_data *data = dev_get_drvdata(dev);
+	bool status;
+	int ret;
+
+	ret = uniwill_read_fn_lock(data, &status);
+	if (ret < 0)
+		return ret;
+
+	return sysfs_emit(buf, "%d\n", status);
 }
 
 static DEVICE_ATTR_RW(fn_lock);
 
-static ssize_t super_key_enable_store(struct device *dev, struct device_attribute *attr,
-				      const char *buf, size_t count)
+static int uniwill_write_super_key_enable(struct uniwill_data *data, bool status)
 {
-	struct uniwill_data *data = dev_get_drvdata(dev);
 	unsigned int value;
-	bool enable;
 	int ret;
-
-	ret = kstrtobool(buf, &enable);
-	if (ret < 0)
-		return ret;
 
 	guard(mutex)(&data->super_key_lock);
 
@@ -680,20 +693,33 @@ static ssize_t super_key_enable_store(struct device *dev, struct device_attribut
 	 * We can only toggle the super key lock, so we return early if the setting
 	 * is already in the correct state.
 	 */
-	if (enable == !(value & SUPER_KEY_LOCK_STATUS))
-		return count;
+	if (status == !(value & SUPER_KEY_LOCK_STATUS))
+		return 0;
 
-	ret = regmap_write_bits(data->regmap, EC_ADDR_TRIGGER, TRIGGER_SUPER_KEY_LOCK,
-				TRIGGER_SUPER_KEY_LOCK);
+	return regmap_write_bits(data->regmap, EC_ADDR_TRIGGER, TRIGGER_SUPER_KEY_LOCK,
+				 TRIGGER_SUPER_KEY_LOCK);
+}
+
+static ssize_t super_key_enable_store(struct device *dev, struct device_attribute *attr,
+				      const char *buf, size_t count)
+{
+	struct uniwill_data *data = dev_get_drvdata(dev);
+	bool enable;
+	int ret;
+
+	ret = kstrtobool(buf, &enable);
+	if (ret < 0)
+		return ret;
+
+	ret = uniwill_write_super_key_enable(data, enable);
 	if (ret < 0)
 		return ret;
 
 	return count;
 }
 
-static ssize_t super_key_enable_show(struct device *dev, struct device_attribute *attr, char *buf)
+static int uniwill_read_super_key_enable(struct uniwill_data *data, bool *status)
 {
-	struct uniwill_data *data = dev_get_drvdata(dev);
 	unsigned int value;
 	int ret;
 
@@ -701,7 +727,22 @@ static ssize_t super_key_enable_show(struct device *dev, struct device_attribute
 	if (ret < 0)
 		return ret;
 
-	return sysfs_emit(buf, "%d\n", !(value & SUPER_KEY_LOCK_STATUS));
+	*status = !(value & SUPER_KEY_LOCK_STATUS);
+
+	return 0;
+}
+
+static ssize_t super_key_enable_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct uniwill_data *data = dev_get_drvdata(dev);
+	bool status;
+	int ret;
+
+	ret = uniwill_read_super_key_enable(data, &status);
+	if (ret < 0)
+		return ret;
+
+	return sysfs_emit(buf, "%d\n", status);
 }
 
 static DEVICE_ATTR_RW(super_key_enable);
@@ -1723,10 +1764,10 @@ static int uniwill_suspend_fn_lock(struct uniwill_data *data)
 		return 0;
 
 	/*
-	 * The EC_ADDR_BIOS_OEM is marked as volatile, so we have to restore it
+	 * EC_ADDR_BIOS_OEM is marked as volatile, so we have to restore it
 	 * ourselves.
 	 */
-	return regmap_read(data->regmap, EC_ADDR_BIOS_OEM, &data->last_status);
+	return uniwill_read_fn_lock(data, &data->last_fn_lock_state);
 }
 
 static int uniwill_suspend_super_key(struct uniwill_data *data)
@@ -1735,10 +1776,10 @@ static int uniwill_suspend_super_key(struct uniwill_data *data)
 		return 0;
 
 	/*
-	 * The EC_ADDR_SWITCH_STATUS is marked as volatile, so we have to restore it
+	 * EC_ADDR_SWITCH_STATUS is marked as volatile, so we have to restore it
 	 * ourselves.
 	 */
-	return regmap_read(data->regmap, EC_ADDR_SWITCH_STATUS, &data->last_switch_status);
+	return uniwill_read_super_key_enable(data, &data->last_super_key_enable_state);
 }
 
 static int uniwill_suspend_battery(struct uniwill_data *data)
@@ -1795,27 +1836,15 @@ static int uniwill_resume_fn_lock(struct uniwill_data *data)
 	if (!uniwill_device_supports(data, UNIWILL_FEATURE_FN_LOCK))
 		return 0;
 
-	return regmap_update_bits(data->regmap, EC_ADDR_BIOS_OEM, FN_LOCK_STATUS,
-				  data->last_status);
+	return uniwill_write_fn_lock(data, data->last_fn_lock_state);
 }
 
 static int uniwill_resume_super_key(struct uniwill_data *data)
 {
-	unsigned int value;
-	int ret;
-
 	if (!uniwill_device_supports(data, UNIWILL_FEATURE_SUPER_KEY))
 		return 0;
 
-	ret = regmap_read(data->regmap, EC_ADDR_SWITCH_STATUS, &value);
-	if (ret < 0)
-		return ret;
-
-	if ((data->last_switch_status & SUPER_KEY_LOCK_STATUS) == (value & SUPER_KEY_LOCK_STATUS))
-		return 0;
-
-	return regmap_write_bits(data->regmap, EC_ADDR_TRIGGER, TRIGGER_SUPER_KEY_LOCK,
-				 TRIGGER_SUPER_KEY_LOCK);
+	return uniwill_write_super_key_enable(data, data->last_super_key_enable_state);
 }
 
 static int uniwill_resume_battery(struct uniwill_data *data)
