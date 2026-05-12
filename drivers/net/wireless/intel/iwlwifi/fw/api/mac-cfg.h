@@ -1254,7 +1254,7 @@ struct iwl_nan_config_cmd {
 } __packed; /*  NAN_CONFIG_CMD_API_S_VER_1 */
 
 /**
- * struct iwl_nan_schedule_cmd - NAN schedule command
+ * struct iwl_nan_schedule_cmd_v1 - NAN schedule command
  * @channels: per channel information
  * @channels.availability_map: bitmap of slots this channel is advertising
  *	availability on, will be ULW'ed out if no link/inactive link is
@@ -1263,7 +1263,7 @@ struct iwl_nan_config_cmd {
  * @channels.link_id: FW link ID, or %0xFF for unset
  * @channels.reserved: (reserved)
  */
-struct iwl_nan_schedule_cmd {
+struct iwl_nan_schedule_cmd_v1 {
 	struct {
 		__le32 availability_map;
 		u8 channel_entry[6];
@@ -1271,6 +1271,44 @@ struct iwl_nan_schedule_cmd {
 		u8 reserved;
 	} __packed channels[NUM_PHY_CTX];
 } __packed; /* NAN_SCHEDULE_CMD_API_S_VER_1 */
+
+#define IWL_MAX_AVAILABILITY_ATTR_LEN 54
+
+/**
+ * struct iwl_nan_schedule_cmd - NAN schedule command
+ * @channels: per channel information
+ * @channels.availability_map: bitmap of slots this channel is advertising
+ *	availability on, will be ULW'ed out if no link/inactive link is
+ *	referenced by the link ID below
+ * @channels.channel_entry: NAN channel entry descriptor
+ * @channels.link_id: FW link ID, or %0xFF for unset
+ * @channels.reserved: (reserved)
+ * @avail_attr: NAN availability attribute information
+ * @avail_attr.attr_len: length of the availability attribute
+ * @avail_attr.reserved: reserved
+ * @avail_attr.attr: the availability attribute including the attribute header
+ * @deferred: true if the firmware should defer applying the schedule until
+ *	notifying all peers. For a deferred schedule update, the firmware should
+ *	send a notification to the driver after the new schedule is applied.
+ * @reserved: reserved
+ */
+struct iwl_nan_schedule_cmd {
+	struct {
+		__le32 availability_map;
+		u8 channel_entry[6];
+		u8 link_id;
+		u8 reserved;
+	} __packed channels[NUM_PHY_CTX];
+
+	struct {
+		u8 attr_len;
+		u8 reserved;
+		u8 attr[IWL_MAX_AVAILABILITY_ATTR_LEN];
+	} __packed avail_attr;
+
+	u8 deferred;
+	u8 reserved[3];
+} __packed; /* NAN_SCHEDULE_CMD_API_S_VER_2 */
 
 /**
  * struct iwl_nan_peer_cmd - NAN peer command
