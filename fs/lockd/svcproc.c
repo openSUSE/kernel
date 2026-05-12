@@ -87,6 +87,19 @@ struct nlm_notifyargs_wrapper {
 
 static_assert(offsetof(struct nlm_notifyargs_wrapper, xdrgen) == 0);
 
+struct nlm_shareargs_wrapper {
+	struct nlm_shareargs		xdrgen;
+	struct lockd_lock		lock;
+};
+
+static_assert(offsetof(struct nlm_shareargs_wrapper, xdrgen) == 0);
+
+struct nlm_shareres_wrapper {
+	struct nlm_shareres		xdrgen;
+};
+
+static_assert(offsetof(struct nlm_shareres_wrapper, xdrgen) == 0);
+
 static __be32
 nlm_netobj_to_cookie(struct lockd_cookie *cookie, netobj *object)
 {
@@ -1079,42 +1092,69 @@ static __be32 nlmsvc_proc_unused(struct svc_rqst *rqstp)
 	return rpc_proc_unavail;
 }
 
-/*
- * SHARE: create a DOS share or alter existing share.
+/**
+ * nlmsvc_proc_share - SHARE: Open a file using DOS file-sharing modes
+ * @rqstp: RPC transaction context
+ *
+ * Returns:
+ *   %rpc_success:		RPC executed successfully.
+ *   %rpc_drop_reply:		Do not send an RPC reply.
+ *
+ * RPC synopsis:
+ *   nlm_shareres NLM_SHARE(nlm_shareargs) = 20;
+ *
+ * Permissible procedure status codes:
+ *   %LCK_GRANTED:		The requested share lock was granted.
+ *   %LCK_DENIED:		The requested lock conflicted with existing
+ *				lock reservations for the file.
+ *   %LCK_DENIED_GRACE_PERIOD:	The server has recently restarted and is
+ *				re-establishing existing locks, and is not
+ *				yet ready to accept normal service requests.
+ *
+ * The Linux NLM server implementation also returns:
+ *   %LCK_DENIED_NOLOCKS:	A needed resource could not be allocated.
  */
-static __be32
-nlmsvc_proc_share(struct svc_rqst *rqstp)
+static __be32 nlmsvc_proc_share(struct svc_rqst *rqstp)
 {
-	struct lockd_args *argp = rqstp->rq_argp;
-	struct lockd_res *resp = rqstp->rq_resp;
-	struct nlm_host	*host;
-	struct nlm_file	*file;
+	struct nlm_shareargs_wrapper *argp = rqstp->rq_argp;
+	struct nlm_shareres_wrapper *resp = rqstp->rq_resp;
+	struct lockd_lock *lock = &argp->lock;
+	struct nlm_host	*host = NULL;
+	struct nlm_file	*file = NULL;
+	struct nlm_lock xdr_lock = {
+		.fh		= argp->xdrgen.share.fh,
+		.oh		= argp->xdrgen.share.oh,
+		.uppid		= LOCKD_SHARE_SVID,
+	};
 
-	dprintk("lockd: SHARE         called\n");
+	resp->xdrgen.cookie = argp->xdrgen.cookie;
 
-	resp->cookie = argp->cookie;
+	resp->xdrgen.stat = nlm_lck_denied_grace_period;
+	if (locks_in_grace(SVC_NET(rqstp)) && !argp->xdrgen.reclaim)
+		goto out;
 
-	/* Don't accept new lock requests during grace period */
-	if (locks_in_grace(SVC_NET(rqstp)) && !argp->reclaim) {
-		resp->status = nlm_lck_denied_grace_period;
-		return rpc_success;
-	}
+	resp->xdrgen.stat = nlm_lck_denied_nolocks;
+	host = nlm3svc_lookup_host(rqstp, argp->xdrgen.share.caller_name, false);
+	if (!host)
+		goto out;
 
-	/* Obtain client and file */
-	if ((resp->status = nlmsvc_retrieve_args(rqstp, argp, &host, &file)))
-		return resp->status == nlm__int__drop_reply ?
-			rpc_drop_reply : rpc_success;
+	resp->xdrgen.stat = nlm3svc_lookup_file(rqstp, host, lock, &file,
+						&xdr_lock, F_RDLCK);
+	if (resp->xdrgen.stat)
+		goto out;
 
-	/* Now try to create the share */
-	resp->status = cast_status(nlmsvc_share_file(host, file, &argp->lock.oh,
-						     argp->fsm_access,
-						     argp->fsm_mode));
+	resp->xdrgen.stat = nlmsvc_share_file(host, file, &lock->oh,
+					      argp->xdrgen.share.access,
+					      argp->xdrgen.share.mode);
 
-	dprintk("lockd: SHARE         status %d\n", ntohl(resp->status));
-	nlmsvc_release_lockowner(&argp->lock);
+	nlmsvc_release_lockowner(lock);
+
+out:
+	if (file)
+		nlm_release_file(file);
 	nlmsvc_release_host(host);
-	nlm_release_file(file);
-	return rpc_success;
+	return resp->xdrgen.stat == nlm__int__drop_reply ?
+		rpc_drop_reply : rpc_success;
 }
 
 /*
@@ -1398,15 +1438,15 @@ static const struct svc_procedure nlmsvc_procedures[24] = {
 		.pc_xdrressize	= XDR_void,
 		.pc_name	= "UNUSED",
 	},
-	[NLMPROC_SHARE] = {
-		.pc_func = nlmsvc_proc_share,
-		.pc_decode = nlmsvc_decode_shareargs,
-		.pc_encode = nlmsvc_encode_shareres,
-		.pc_argsize = sizeof(struct lockd_args),
-		.pc_argzero = sizeof(struct lockd_args),
-		.pc_ressize = sizeof(struct lockd_res),
-		.pc_xdrressize = Ck+St+1,
-		.pc_name = "SHARE",
+	[NLM_SHARE] = {
+		.pc_func	= nlmsvc_proc_share,
+		.pc_decode	= nlm_svc_decode_nlm_shareargs,
+		.pc_encode	= nlm_svc_encode_nlm_shareres,
+		.pc_argsize	= sizeof(struct nlm_shareargs_wrapper),
+		.pc_argzero	= 0,
+		.pc_ressize	= sizeof(struct nlm_shareres_wrapper),
+		.pc_xdrressize	= NLM3_nlm_shareres_sz,
+		.pc_name	= "SHARE",
 	},
 	[NLMPROC_UNSHARE] = {
 		.pc_func = nlmsvc_proc_unshare,
@@ -1449,8 +1489,10 @@ union nlmsvc_xdrstore {
 	struct nlm_cancargs_wrapper	cancargs;
 	struct nlm_unlockargs_wrapper	unlockargs;
 	struct nlm_notifyargs_wrapper	notifyargs;
+	struct nlm_shareargs_wrapper	shareargs;
 	struct nlm_testres_wrapper	testres;
 	struct nlm_res_wrapper		res;
+	struct nlm_shareres_wrapper	shareres;
 	struct lockd_args		args;
 };
 
