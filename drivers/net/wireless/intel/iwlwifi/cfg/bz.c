@@ -12,8 +12,8 @@
 /* Highest firmware core release supported */
 #define IWL_BZ_UCODE_CORE_MAX	103
 
-/* Lowest firmware API version supported */
-#define IWL_BZ_UCODE_API_MIN	100
+/* Lowest firmware core release supported */
+#define IWL_BZ_UCODE_CORE_MIN	101
 
 /* Memory offsets and lengths */
 #define IWL_BZ_SMEM_OFFSET		0x400000
@@ -69,7 +69,7 @@ static const struct iwl_family_base_params iwl_bz_base = {
 	},
 	.features = IWL_TX_CSUM_NETIF_FLAGS | NETIF_F_RXCSUM,
 	.ucode_api_max = ENCODE_CORE_AS_API(IWL_BZ_UCODE_CORE_MAX),
-	.ucode_api_min = IWL_BZ_UCODE_API_MIN,
+	.ucode_api_min = ENCODE_CORE_AS_API(IWL_BZ_UCODE_CORE_MIN),
 };
 
 const struct iwl_mac_cfg iwl_bz_mac_cfg = {
