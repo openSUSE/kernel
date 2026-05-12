@@ -389,7 +389,6 @@ struct hal_com_data {
 
 	/*  Interrupt related register information. */
 	u32 		SysIntrStatus;
-	u32 		SysIntrMask;
 
 	/* Chip version information */
 	bool chip_normal;	/* true - normal chip, false - test chip */

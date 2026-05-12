@@ -592,8 +592,6 @@ void InitSysInterrupt8723BSdio(struct adapter *adapter)
 	struct hal_com_data *haldata;
 
 	haldata = GET_HAL_DATA(adapter);
-
-	haldata->SysIntrMask = (0);
 }
 
 /*
@@ -616,7 +614,7 @@ void rtw_sdio_enable_interrupt(struct adapter *adapter)
 
 	/*  Update current system IMR settings */
 	tmp = rtw_read32(adapter, REG_HSIMR);
-	rtw_write32(adapter, REG_HSIMR, tmp | haldata->SysIntrMask);
+	rtw_write32(adapter, REG_HSIMR, tmp);
 
 	/*  */
 	/*  <Roger_Notes> There are some C2H CMDs have been sent before system interrupt is enabled, e.g., C2H, CPWM. */
