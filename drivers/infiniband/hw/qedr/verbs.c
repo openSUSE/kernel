@@ -690,9 +690,7 @@ static void qedr_db_recovery_del(struct qedr_dev *dev,
 static int qedr_copy_cq_uresp(struct qedr_cq *cq, struct ib_udata *udata,
 			      u32 db_offset)
 {
-	struct qedr_create_cq_uresp uresp;
-
-	memset(&uresp, 0, sizeof(uresp));
+	struct qedr_create_cq_uresp uresp = {};
 
 	uresp.db_offset = db_offset;
 	uresp.icid = cq->icid;
@@ -1283,8 +1281,6 @@ static int qedr_copy_qp_uresp(struct qedr_dev *dev,
 			      struct qedr_qp *qp, struct ib_udata *udata,
 			      struct qedr_create_qp_uresp *uresp)
 {
-	memset(uresp, 0, sizeof(*uresp));
-
 	if (qedr_qp_has_sq(qp))
 		qedr_copy_sq_uresp(dev, uresp, qp);
 

@@ -996,7 +996,7 @@ int erdma_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attrs,
 	struct erdma_ucontext *uctx = rdma_udata_to_drv_context(
 		udata, struct erdma_ucontext, ibucontext);
 	struct erdma_ureq_create_qp ureq;
-	struct erdma_uresp_create_qp uresp;
+	struct erdma_uresp_create_qp uresp = {};
 	void *old_entry;
 	int ret = 0;
 
@@ -1047,8 +1047,6 @@ int erdma_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attrs,
 				   ureq.db_record_va);
 		if (ret)
 			goto err_out_xa;
-
-		memset(&uresp, 0, sizeof(uresp));
 
 		uresp.num_sqe = qp->attrs.sq_size;
 		uresp.num_rqe = qp->attrs.rq_size;

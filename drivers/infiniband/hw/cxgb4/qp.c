@@ -2120,7 +2120,7 @@ int c4iw_create_qp(struct ib_qp *qp, struct ib_qp_init_attr *attrs,
 	struct c4iw_pd *php;
 	struct c4iw_cq *schp;
 	struct c4iw_cq *rchp;
-	struct c4iw_create_qp_resp uresp;
+	struct c4iw_create_qp_resp uresp = {};
 	unsigned int sqsize, rqsize = 0;
 	struct c4iw_ucontext *ucontext = rdma_udata_to_drv_context(
 		udata, struct c4iw_ucontext, ibucontext);
@@ -2242,7 +2242,6 @@ int c4iw_create_qp(struct ib_qp *qp, struct ib_qp_init_attr *attrs,
 				goto err_free_sq_db_key;
 			}
 		}
-		memset(&uresp, 0, sizeof(uresp));
 		if (t4_sq_onchip(&qhp->wq.sq)) {
 			ma_sync_key_mm = kmalloc_obj(*ma_sync_key_mm);
 			if (!ma_sync_key_mm) {
@@ -2686,7 +2685,7 @@ int c4iw_create_srq(struct ib_srq *ib_srq, struct ib_srq_init_attr *attrs,
 	struct c4iw_dev *rhp;
 	struct c4iw_srq *srq = to_c4iw_srq(ib_srq);
 	struct c4iw_pd *php;
-	struct c4iw_create_srq_resp uresp;
+	struct c4iw_create_srq_resp uresp = {};
 	struct c4iw_ucontext *ucontext;
 	struct c4iw_mm_entry *srq_key_mm, *srq_db_key_mm;
 	int rqsize;
@@ -2764,7 +2763,6 @@ int c4iw_create_srq(struct ib_srq *ib_srq, struct ib_srq_init_attr *attrs,
 			ret = -ENOMEM;
 			goto err_free_srq_key_mm;
 		}
-		memset(&uresp, 0, sizeof(uresp));
 		uresp.flags = srq->flags;
 		uresp.qid_mask = rhp->rdev.qpmask;
 		uresp.srqid = srq->wq.qid;

@@ -82,14 +82,12 @@ static void usnic_ib_fw_string_to_u64(char *fw_ver_str, u64 *fw_ver)
 static int usnic_ib_fill_create_qp_resp(struct usnic_ib_qp_grp *qp_grp,
 					struct ib_udata *udata)
 {
-	struct usnic_ib_create_qp_resp resp;
+	struct usnic_ib_create_qp_resp resp = {};
 	struct pci_dev *pdev;
 	struct vnic_dev_bar *bar;
 	struct usnic_vnic_res_chunk *chunk;
 	struct usnic_ib_qp_grp_flow *default_flow;
 	int i, err;
-
-	memset(&resp, 0, sizeof(resp));
 
 	pdev = usnic_vnic_get_pdev(qp_grp->vf->vnic);
 	if (!pdev) {

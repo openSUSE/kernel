@@ -586,11 +586,10 @@ static int ocrdma_copy_pd_uresp(struct ocrdma_dev *dev, struct ocrdma_pd *pd,
 	u64 db_page_addr;
 	u64 dpp_page_addr = 0;
 	u32 db_page_size;
-	struct ocrdma_alloc_pd_uresp rsp;
+	struct ocrdma_alloc_pd_uresp rsp = {};
 	struct ocrdma_ucontext *uctx = rdma_udata_to_drv_context(
 		udata, struct ocrdma_ucontext, ibucontext);
 
-	memset(&rsp, 0, sizeof(rsp));
 	rsp.id = pd->id;
 	rsp.dpp_enabled = pd->dpp_enabled;
 	db_page_addr = ocrdma_get_db_addr(dev, pd->id);
@@ -930,13 +929,12 @@ static int ocrdma_copy_cq_uresp(struct ocrdma_dev *dev, struct ocrdma_cq *cq,
 	int status;
 	struct ocrdma_ucontext *uctx = rdma_udata_to_drv_context(
 		udata, struct ocrdma_ucontext, ibucontext);
-	struct ocrdma_create_cq_uresp uresp;
+	struct ocrdma_create_cq_uresp uresp = {};
 
 	/* this must be user flow! */
 	if (!udata)
 		return -EINVAL;
 
-	memset(&uresp, 0, sizeof(uresp));
 	uresp.cq_id = cq->id;
 	uresp.page_size = PAGE_ALIGN(cq->len);
 	uresp.num_pages = 1;
@@ -1173,11 +1171,10 @@ static int ocrdma_copy_qp_uresp(struct ocrdma_qp *qp,
 {
 	int status;
 	u64 usr_db;
-	struct ocrdma_create_qp_uresp uresp;
+	struct ocrdma_create_qp_uresp uresp = {};
 	struct ocrdma_pd *pd = qp->pd;
 	struct ocrdma_dev *dev = get_ocrdma_dev(pd->ibpd.device);
 
-	memset(&uresp, 0, sizeof(uresp));
 	usr_db = dev->nic_info.unmapped_db +
 			(pd->id * dev->nic_info.db_page_size);
 	uresp.qp_id = qp->id;
@@ -1730,9 +1727,8 @@ static int ocrdma_copy_srq_uresp(struct ocrdma_dev *dev, struct ocrdma_srq *srq,
 				struct ib_udata *udata)
 {
 	int status;
-	struct ocrdma_create_srq_uresp uresp;
+	struct ocrdma_create_srq_uresp uresp = {};
 
-	memset(&uresp, 0, sizeof(uresp));
 	uresp.rq_dbid = srq->rq.dbid;
 	uresp.num_rq_pages = 1;
 	uresp.rq_page_addr[0] = virt_to_phys(srq->rq.va);
