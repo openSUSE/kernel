@@ -66,10 +66,10 @@ static int nfs_update_inode(struct inode *, struct nfs_fattr *);
 
 static struct kmem_cache * nfs_inode_cachep;
 
-static inline unsigned long
+static inline u64
 nfs_fattr_to_ino_t(struct nfs_fattr *fattr)
 {
-	return nfs_fileid_to_ino_t(fattr->fileid);
+	return fattr->fileid;
 }
 
 int nfs_wait_bit_killable(struct wait_bit_key *key, int mode)
@@ -313,8 +313,7 @@ struct nfs_find_desc {
 };
 
 /*
- * In NFSv3 we can have 64bit inode numbers. In order to support
- * this, and re-exported directories (also seen in NFSv2)
+ * For re-exported directories (also seen in NFSv2)
  * we are forced to allow 2 different inodes to have the same
  * i_ino.
  */
@@ -413,7 +412,7 @@ nfs_ilookup(struct super_block *sb, struct nfs_fattr *fattr, struct nfs_fh *fh)
 		.fattr	= fattr,
 	};
 	struct inode *inode;
-	unsigned long hash;
+	u64 hash;
 
 	if (!(fattr->valid & NFS_ATTR_FATTR_FILEID) ||
 	    !(fattr->valid & NFS_ATTR_FATTR_TYPE))
@@ -456,7 +455,7 @@ nfs_fhget(struct super_block *sb, struct nfs_fh *fh, struct nfs_fattr *fattr)
 	};
 	struct inode *inode = ERR_PTR(-ENOENT);
 	u64 fattr_supported = NFS_SB(sb)->fattr_valid;
-	unsigned long hash;
+	u64 hash;
 
 	nfs_attr_check_mountpoint(sb, fattr);
 
@@ -478,10 +477,6 @@ nfs_fhget(struct super_block *sb, struct nfs_fh *fh, struct nfs_fattr *fattr)
 	if (inode_state_read_once(inode) & I_NEW) {
 		struct nfs_inode *nfsi = NFS_I(inode);
 		unsigned long now = jiffies;
-
-		/* We set i_ino for the few things that still rely on it,
-		 * such as stat(2) */
-		inode->i_ino = hash;
 
 		/* We can't support update_atime(), since the server will reset it */
 		inode->i_flags |= S_NOATIME|S_NOCMTIME;
@@ -1672,10 +1667,10 @@ static int nfs_check_inode_attributes(struct inode *inode, struct nfs_fattr *fat
 		if (fattr->valid & NFS_ATTR_FATTR_MOUNTED_ON_FILEID)
 			return 0;
 	/* Has the inode gone and changed behind our back? */
-	} else if (nfsi->fileid != fattr->fileid) {
+	} else if (inode->i_ino != fattr->fileid) {
 		/* Is this perhaps the mounted-on fileid? */
 		if ((fattr->valid & NFS_ATTR_FATTR_MOUNTED_ON_FILEID) &&
-		    nfsi->fileid == fattr->mounted_on_fileid)
+		    inode->i_ino == fattr->mounted_on_fileid)
 			return 0;
 		return -ESTALE;
 	}
@@ -2262,15 +2257,15 @@ static int nfs_update_inode(struct inode *inode, struct nfs_fattr *fattr)
 		if (fattr->valid & NFS_ATTR_FATTR_MOUNTED_ON_FILEID)
 			return 0;
 	/* Has the inode gone and changed behind our back? */
-	} else if (nfsi->fileid != fattr->fileid) {
+	} else if (inode->i_ino != fattr->fileid) {
 		/* Is this perhaps the mounted-on fileid? */
 		if ((fattr->valid & NFS_ATTR_FATTR_MOUNTED_ON_FILEID) &&
-		    nfsi->fileid == fattr->mounted_on_fileid)
+		    inode->i_ino == fattr->mounted_on_fileid)
 			return 0;
 		printk(KERN_ERR "NFS: server %s error: fileid changed\n"
 			"fsid %s: expected fileid 0x%Lx, got 0x%Lx\n",
 			NFS_SERVER(inode)->nfs_client->cl_hostname,
-			inode->i_sb->s_id, (long long)nfsi->fileid,
+			inode->i_sb->s_id, (long long)inode->i_ino,
 			(long long)fattr->fileid);
 		goto out_err;
 	}

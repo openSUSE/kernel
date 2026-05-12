@@ -650,7 +650,7 @@ int nfs_same_file(struct dentry *dentry, struct nfs_entry *entry)
 		return 0;
 
 	nfsi = NFS_I(inode);
-	if (entry->fattr->fileid != nfsi->fileid)
+	if (entry->fattr->fileid != inode->i_ino)
 		return 0;
 	if (entry->fh->size && nfs_compare_fh(entry->fh, &nfsi->fh) != 0)
 		return 0;

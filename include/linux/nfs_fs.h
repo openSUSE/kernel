@@ -396,12 +396,12 @@ static inline int NFS_STALE(const struct inode *inode)
 
 static inline __u64 NFS_FILEID(const struct inode *inode)
 {
-	return NFS_I(inode)->fileid;
+	return inode->i_ino;
 }
 
 static inline void set_nfs_fileid(struct inode *inode, __u64 fileid)
 {
-	NFS_I(inode)->fileid = fileid;
+	inode->i_ino = fileid;
 }
 
 static inline void nfs_mark_for_revalidate(struct inode *inode)
