@@ -257,7 +257,7 @@ __be32		  nlmclnt_grant(const struct sockaddr *addr,
 void		  nlmclnt_recovery(struct nlm_host *);
 int		  nlmclnt_reclaim(struct nlm_host *, struct file_lock *,
 				  struct nlm_rqst *);
-void		  nlmclnt_next_cookie(struct nlm_cookie *);
+void		  nlmclnt_next_cookie(struct lockd_cookie *);
 
 #ifdef CONFIG_LOCKD_V4
 extern const struct rpc_version nlm_version4;
@@ -314,7 +314,7 @@ typedef int	  (*nlm_host_match_fn_t)(void *cur, struct nlm_host *ref);
 int		  lock_to_openmode(struct file_lock *);
 __be32		  nlmsvc_lock(struct svc_rqst *, struct nlm_file *,
 			      struct nlm_host *, struct nlm_lock *, int,
-			      struct nlm_cookie *, int);
+			      struct lockd_cookie *, int);
 __be32		  nlmsvc_unlock(struct net *net, struct nlm_file *, struct nlm_lock *);
 __be32		  nlmsvc_testlock(struct svc_rqst *rqstp, struct nlm_file *file,
 			struct nlm_host *host, struct nlm_lock *lock,
@@ -323,7 +323,7 @@ __be32		  nlmsvc_cancel_blocked(struct net *net, struct nlm_file *, struct nlm_l
 void		  nlmsvc_retry_blocked(struct svc_rqst *rqstp);
 void		  nlmsvc_traverse_blocks(struct nlm_host *, struct nlm_file *,
 					nlm_host_match_fn_t match);
-void		  nlmsvc_grant_reply(struct nlm_cookie *, __be32);
+void		  nlmsvc_grant_reply(struct lockd_cookie *, __be32);
 void		  nlmsvc_release_call(struct nlm_rqst *);
 void		  nlmsvc_locks_init_private(struct file_lock *, struct nlm_host *, pid_t);
 int		  nlmsvc_dispatch(struct svc_rqst *rqstp);

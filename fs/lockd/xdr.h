@@ -49,8 +49,7 @@ struct nlm_lock {
  *	32 bytes.
  */
 
-struct nlm_cookie
-{
+struct lockd_cookie {
 	unsigned char data[NLM_MAXCOOKIELEN];
 	unsigned int len;
 };
@@ -59,7 +58,7 @@ struct nlm_cookie
  * Generic lockd arguments for all but sm_notify
  */
 struct nlm_args {
-	struct nlm_cookie	cookie;
+	struct lockd_cookie	cookie;
 	struct nlm_lock		lock;
 	u32			block;
 	u32			reclaim;
@@ -73,7 +72,7 @@ struct nlm_args {
  * Generic lockd result
  */
 struct nlm_res {
-	struct nlm_cookie	cookie;
+	struct lockd_cookie	cookie;
 	__be32			status;
 	struct nlm_lock		lock;
 };

@@ -42,7 +42,7 @@ static const struct rpc_call_ops nlmclnt_cancel_ops;
  */
 static atomic_t	nlm_cookie = ATOMIC_INIT(0x1234);
 
-void nlmclnt_next_cookie(struct nlm_cookie *c)
+void nlmclnt_next_cookie(struct lockd_cookie *c)
 {
 	u32	cookie = atomic_inc_return(&nlm_cookie);
 

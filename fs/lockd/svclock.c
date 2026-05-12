@@ -48,7 +48,7 @@ static LIST_HEAD(nlm_blocked);
 static DEFINE_SPINLOCK(nlm_blocked_lock);
 
 #if IS_ENABLED(CONFIG_SUNRPC_DEBUG)
-static const char *nlmdbg_cookie2a(const struct nlm_cookie *cookie)
+static const char *nlmdbg_cookie2a(const struct lockd_cookie *cookie)
 {
 	/*
 	 * We can get away with a static buffer because this is only called
@@ -75,7 +75,7 @@ static const char *nlmdbg_cookie2a(const struct nlm_cookie *cookie)
 	return buf;
 }
 #else
-static inline const char *nlmdbg_cookie2a(const struct nlm_cookie *cookie)
+static inline const char *nlmdbg_cookie2a(const struct lockd_cookie *cookie)
 {
 	return "???";
 }
@@ -171,7 +171,7 @@ nlmsvc_lookup_block(struct nlm_file *file, struct nlm_lock *lock)
 	return NULL;
 }
 
-static inline int nlm_cookie_match(struct nlm_cookie *a, struct nlm_cookie *b)
+static int lockd_cookie_match(struct lockd_cookie *a, struct lockd_cookie *b)
 {
 	if (a->len != b->len)
 		return 0;
@@ -184,13 +184,13 @@ static inline int nlm_cookie_match(struct nlm_cookie *a, struct nlm_cookie *b)
  * Find a block with a given NLM cookie.
  */
 static inline struct nlm_block *
-nlmsvc_find_block(struct nlm_cookie *cookie)
+nlmsvc_find_block(struct lockd_cookie *cookie)
 {
 	struct nlm_block *block;
 
 	spin_lock(&nlm_blocked_lock);
 	list_for_each_entry(block, &nlm_blocked, b_list) {
-		if (nlm_cookie_match(&block->b_call->a_args.cookie,cookie))
+		if (lockd_cookie_match(&block->b_call->a_args.cookie, cookie))
 			goto found;
 	}
 	spin_unlock(&nlm_blocked_lock);
@@ -222,7 +222,7 @@ found:
 static struct nlm_block *
 nlmsvc_create_block(struct svc_rqst *rqstp, struct nlm_host *host,
 		    struct nlm_file *file, struct nlm_lock *lock,
-		    struct nlm_cookie *cookie)
+		    struct lockd_cookie *cookie)
 {
 	struct nlm_block	*block;
 	struct nlm_rqst		*call = NULL;
@@ -477,7 +477,7 @@ nlmsvc_defer_lock_rqst(struct svc_rqst *rqstp, struct nlm_block *block)
 __be32
 nlmsvc_lock(struct svc_rqst *rqstp, struct nlm_file *file,
 	    struct nlm_host *host, struct nlm_lock *lock, int wait,
-	    struct nlm_cookie *cookie, int reclaim)
+	    struct lockd_cookie *cookie, int reclaim)
 {
 	struct inode		*inode __maybe_unused = nlmsvc_file_inode(file);
 	struct nlm_block	*block = NULL;
@@ -982,7 +982,7 @@ static const struct rpc_call_ops nlmsvc_grant_ops = {
  * block.
  */
 void
-nlmsvc_grant_reply(struct nlm_cookie *cookie, __be32 status)
+nlmsvc_grant_reply(struct lockd_cookie *cookie, __be32 status)
 {
 	struct nlm_block	*block;
 	struct file_lock	*fl;

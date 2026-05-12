@@ -39,7 +39,7 @@ static_assert(offsetof(struct nlm4_testargs_wrapper, xdrgen) == 0);
 
 struct nlm4_lockargs_wrapper {
 	struct nlm4_lockargs		xdrgen;
-	struct nlm_cookie		cookie;
+	struct lockd_cookie		cookie;
 	struct nlm_lock			lock;
 };
 
@@ -88,7 +88,7 @@ static_assert(offsetof(struct nlm4_testres_wrapper, xdrgen) == 0);
 
 struct nlm4_res_wrapper {
 	struct nlm4_res			xdrgen;
-	struct nlm_cookie		cookie;
+	struct lockd_cookie		cookie;
 };
 
 static_assert(offsetof(struct nlm4_res_wrapper, xdrgen) == 0);
@@ -100,7 +100,7 @@ struct nlm4_shareres_wrapper {
 static_assert(offsetof(struct nlm4_shareres_wrapper, xdrgen) == 0);
 
 static __be32
-nlm4_netobj_to_cookie(struct nlm_cookie *cookie, netobj *object)
+nlm4_netobj_to_cookie(struct lockd_cookie *cookie, netobj *object)
 {
 	if (object->len > NLM_MAXCOOKIELEN)
 		return nlm_lck_denied_nolocks;

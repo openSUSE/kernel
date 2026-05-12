@@ -70,7 +70,7 @@ svcxdr_decode_string(struct xdr_stream *xdr, char **data, unsigned int *data_len
  * specially.
  */
 static inline bool
-svcxdr_decode_cookie(struct xdr_stream *xdr, struct nlm_cookie *cookie)
+svcxdr_decode_cookie(struct xdr_stream *xdr, struct lockd_cookie *cookie)
 {
 	__be32 *p;
 	u32 len;
@@ -98,7 +98,7 @@ out_hpux:
 }
 
 static inline bool
-svcxdr_encode_cookie(struct xdr_stream *xdr, const struct nlm_cookie *cookie)
+svcxdr_encode_cookie(struct xdr_stream *xdr, const struct lockd_cookie *cookie)
 {
 	__be32 *p;
 

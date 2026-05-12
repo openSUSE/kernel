@@ -130,13 +130,13 @@ static int decode_netobj(struct xdr_stream *xdr,
  *	netobj cookie;
  */
 static void encode_cookie(struct xdr_stream *xdr,
-			  const struct nlm_cookie *cookie)
+			  const struct lockd_cookie *cookie)
 {
 	encode_netobj(xdr, (u8 *)&cookie->data, cookie->len);
 }
 
 static int decode_cookie(struct xdr_stream *xdr,
-			 struct nlm_cookie *cookie)
+			 struct lockd_cookie *cookie)
 {
 	u32 length;
 	__be32 *p;
