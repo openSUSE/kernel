@@ -32,8 +32,7 @@ static AUXILIARY_ID_COUNTER: Atomic<u32> = Atomic::new(0);
 pub(crate) struct NovaCore {
     #[pin]
     pub(crate) gpu: Gpu,
-    #[pin]
-    _reg: Devres<auxiliary::Registration>,
+    _reg: Devres<auxiliary::Registration<()>>,
 }
 
 const BAR0_SIZE: usize = SZ_16M;
@@ -96,14 +95,15 @@ impl pci::Driver for NovaCore {
 
             Ok(try_pin_init!(Self {
                 gpu <- Gpu::new(pdev, bar.clone(), bar.access(pdev.as_ref())?),
-                _reg <- auxiliary::Registration::new(
+                _reg: auxiliary::Registration::new(
                     pdev.as_ref(),
                     c"nova-drm",
                     // TODO[XARR]: Use XArray or perhaps IDA for proper ID allocation/recycling. For
                     // now, use a simple atomic counter that never recycles IDs.
                     AUXILIARY_ID_COUNTER.fetch_add(1, Relaxed),
-                    crate::MODULE_NAME
-                ),
+                    crate::MODULE_NAME,
+                    (),
+                )?,
             }))
         })
     }

@@ -15,15 +15,11 @@ use crate::{
     }, //
 };
 use core::{
-    any::TypeId,
     marker::PhantomData,
     ptr, //
 };
 
 pub mod property;
-
-// Assert that we can `read()` / `write()` a `TypeId` instance from / into `struct driver_type`.
-static_assert!(core::mem::size_of::<bindings::driver_type>() >= core::mem::size_of::<TypeId>());
 
 /// The core representation of a device in the kernel's driver model.
 ///
@@ -206,29 +202,12 @@ impl Device {
 }
 
 impl Device<CoreInternal> {
-    fn set_type_id<T: 'static>(&self) {
-        // SAFETY: By the type invariants, `self.as_raw()` is a valid pointer to a `struct device`.
-        let private = unsafe { (*self.as_raw()).p };
-
-        // SAFETY: For a bound device (implied by the `CoreInternal` device context), `private` is
-        // guaranteed to be a valid pointer to a `struct device_private`.
-        let driver_type = unsafe { &raw mut (*private).driver_type };
-
-        // SAFETY: `driver_type` is valid for (unaligned) writes of a `TypeId`.
-        unsafe {
-            driver_type
-                .cast::<TypeId>()
-                .write_unaligned(TypeId::of::<T>())
-        };
-    }
-
     /// Store a pointer to the bound driver's private data.
     pub fn set_drvdata<T: 'static>(&self, data: impl PinInit<T, Error>) -> Result {
         let data = KBox::pin_init(data, GFP_KERNEL)?;
 
         // SAFETY: By the type invariants, `self.as_raw()` is a valid pointer to a `struct device`.
         unsafe { bindings::dev_set_drvdata(self.as_raw(), data.into_foreign().cast()) };
-        self.set_type_id::<T>();
 
         Ok(())
     }
@@ -291,45 +270,6 @@ impl Device<Bound> {
         // - `dev_get_drvdata()` guarantees to return the same pointer given to `dev_set_drvdata()`
         //   in `into_foreign()`.
         unsafe { Pin::<KBox<T>>::borrow(ptr.cast()) }
-    }
-
-    fn match_type_id<T: 'static>(&self) -> Result {
-        // SAFETY: By the type invariants, `self.as_raw()` is a valid pointer to a `struct device`.
-        let private = unsafe { (*self.as_raw()).p };
-
-        // SAFETY: For a bound device, `private` is guaranteed to be a valid pointer to a
-        // `struct device_private`.
-        let driver_type = unsafe { &raw mut (*private).driver_type };
-
-        // SAFETY:
-        // - `driver_type` is valid for (unaligned) reads of a `TypeId`.
-        // - A bound device guarantees that `driver_type` contains a valid `TypeId` value.
-        let type_id = unsafe { driver_type.cast::<TypeId>().read_unaligned() };
-
-        if type_id != TypeId::of::<T>() {
-            return Err(EINVAL);
-        }
-
-        Ok(())
-    }
-
-    /// Access a driver's private data.
-    ///
-    /// Returns a pinned reference to the driver's private data or [`EINVAL`] if it doesn't match
-    /// the asserted type `T`.
-    pub fn drvdata<T: 'static>(&self) -> Result<Pin<&T>> {
-        // SAFETY: By the type invariants, `self.as_raw()` is a valid pointer to a `struct device`.
-        if unsafe { bindings::dev_get_drvdata(self.as_raw()) }.is_null() {
-            return Err(ENOENT);
-        }
-
-        self.match_type_id::<T>()?;
-
-        // SAFETY:
-        // - The above check of `dev_get_drvdata()` guarantees that we are called after
-        //   `set_drvdata()`.
-        // - We've just checked that the type of the driver's private data is in fact `T`.
-        Ok(unsafe { self.drvdata_unchecked() })
     }
 }
 
