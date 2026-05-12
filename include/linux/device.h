@@ -103,10 +103,18 @@ struct device_type {
  */
 struct device_attribute {
 	struct attribute	attr;
-	ssize_t (*show)(struct device *dev, struct device_attribute *attr,
-			char *buf);
-	ssize_t (*store)(struct device *dev, struct device_attribute *attr,
-			 const char *buf, size_t count);
+	__SYSFS_FUNCTION_ALTERNATIVE(
+		ssize_t (*show)(struct device *dev, struct device_attribute *attr,
+				char *buf);
+		ssize_t (*show_const)(struct device *dev, const struct device_attribute *attr,
+				      char *buf);
+	);
+	__SYSFS_FUNCTION_ALTERNATIVE(
+		ssize_t (*store)(struct device *dev, struct device_attribute *attr,
+				 const char *buf, size_t count);
+		ssize_t (*store_const)(struct device *dev, const struct device_attribute *attr,
+				       const char *buf, size_t count);
+	);
 };
 
 /**
@@ -134,11 +142,50 @@ ssize_t device_store_bool(struct device *dev, struct device_attribute *attr,
 ssize_t device_show_string(struct device *dev, struct device_attribute *attr,
 			   char *buf);
 
+typedef ssize_t __device_show_handler_const(struct device *dev, const struct device_attribute *attr,
+					    char *buf);
+typedef ssize_t __device_store_handler_const(struct device *dev, const struct device_attribute *attr,
+					     const char *buf, size_t count);
+
+#ifdef CONFIG_CFI
+
+#define __DEVICE_ATTR_SHOW_STORE(_show, _store)						\
+	.show		= _Generic(_show,						\
+			  __device_show_handler_const * : NULL,				\
+			  default : _show						\
+	),										\
+	.show_const	= _Generic(_show,						\
+			  __device_show_handler_const * : _show,			\
+			  default : NULL						\
+	),										\
+	.store		= _Generic(_store,						\
+			  __device_store_handler_const * : NULL,			\
+			  default : _store						\
+	),										\
+	.store_const	= _Generic(_store,						\
+			  __device_store_handler_const * : _store,			\
+			  default : NULL \
+	),
+
+#else
+
+#define __DEVICE_ATTR_SHOW_STORE(_show, _store)						\
+	.show		= _Generic(_show,						\
+			  __device_show_handler_const * : (void *)_show,		\
+			  default : _show						\
+	),										\
+	.store		= _Generic(_store,						\
+			  __device_store_handler_const * : (void *)_store,		\
+			  default : _store						\
+	),										\
+
+#endif
+
+
 #define __DEVICE_ATTR(_name, _mode, _show, _store) {			\
 	.attr = {.name = __stringify(_name),				\
 		 .mode = VERIFY_OCTAL_PERMISSIONS(_mode) },		\
-	.show	= _show,						\
-	.store	= _store,						\
+	__DEVICE_ATTR_SHOW_STORE(_show, _store)				\
 }
 
 #define __DEVICE_ATTR_RO_MODE(_name, _mode) \
@@ -160,8 +207,7 @@ ssize_t device_show_string(struct device *dev, struct device_attribute *attr,
 #define __DEVICE_ATTR_IGNORE_LOCKDEP(_name, _mode, _show, _store) {	\
 	.attr = {.name = __stringify(_name), .mode = _mode,		\
 			.ignore_lockdep = true },			\
-	.show		= _show,					\
-	.store		= _store,					\
+	__DEVICE_ATTR_SHOW_STORE(_show, _store)				\
 }
 #else
 #define __DEVICE_ATTR_IGNORE_LOCKDEP	__DEVICE_ATTR
@@ -220,8 +266,7 @@ ssize_t device_show_string(struct device *dev, struct device_attribute *attr,
 #define DEVICE_ATTR_RW_NAMED(_name, _attrname)                            \
 	struct device_attribute dev_attr_##_name = {                      \
 		.attr = { .name = _attrname, .mode = 0644 }, \
-		.show = _name##_show,                                     \
-		.store = _name##_store,                                   \
+		__DEVICE_ATTR_SHOW_STORE(_name##_show, _name##_store)     \
 	}
 
 /**
@@ -254,7 +299,7 @@ ssize_t device_show_string(struct device *dev, struct device_attribute *attr,
 #define DEVICE_ATTR_RO_NAMED(_name, _attrname)                            \
 	struct device_attribute dev_attr_##_name = {                      \
 		.attr = { .name = _attrname, .mode = 0444 }, \
-		.show = _name##_show,                                     \
+		__DEVICE_ATTR_SHOW_STORE(_name##_show, NULL)              \
 	}
 
 /**
@@ -278,7 +323,7 @@ ssize_t device_show_string(struct device *dev, struct device_attribute *attr,
 #define DEVICE_ATTR_WO_NAMED(_name, _attrname)                            \
 	struct device_attribute dev_attr_##_name = {                      \
 		.attr = { .name = _attrname, .mode = 0200 }, \
-		.store = _name##_store,                                   \
+		__DEVICE_ATTR_SHOW_STORE(NULL, _name##_store)             \
 	}
 
 /**
