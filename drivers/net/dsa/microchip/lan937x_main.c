@@ -430,9 +430,9 @@ static void lan937x_config_cpu_port(struct dsa_switch *ds)
 	}
 }
 
-static int lan937x_change_mtu(struct ksz_device *dev, int port, int new_mtu)
+static int lan937x_change_mtu(struct dsa_switch *ds, int port, int new_mtu)
 {
-	struct dsa_switch *ds = dev->ds;
+	struct ksz_device *dev = ds->priv;
 	int ret;
 
 	new_mtu += VLAN_ETH_HLEN + ETH_FCS_LEN;
@@ -725,7 +725,6 @@ const struct ksz_dev_ops lan937x_dev_ops = {
 	.fdb_del = ksz9477_fdb_del,
 	.mdb_add = ksz9477_mdb_add,
 	.mdb_del = ksz9477_mdb_del,
-	.change_mtu = lan937x_change_mtu,
 	.config_cpu_port = lan937x_config_cpu_port,
 	.tc_cbs_set_cinc = lan937x_tc_cbs_set_cinc,
 	.enable_stp_addr = ksz9477_enable_stp_addr,
@@ -770,7 +769,7 @@ const struct dsa_switch_ops lan937x_switch_ops = {
 	.port_mirror_del	= ksz_port_mirror_del,
 	.get_stats64		= ksz_get_stats64,
 	.get_pause_stats	= ksz_get_pause_stats,
-	.port_change_mtu	= ksz_change_mtu,
+	.port_change_mtu	= lan937x_change_mtu,
 	.port_max_mtu		= ksz_max_mtu,
 	.get_wol		= ksz_get_wol,
 	.set_wol		= ksz_set_wol,

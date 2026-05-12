@@ -434,7 +434,6 @@ struct ksz_dev_ops {
 		       struct dsa_db db);
 	void (*get_caps)(struct ksz_device *dev, int port,
 			 struct phylink_config *config);
-	int (*change_mtu)(struct ksz_device *dev, int port, int mtu);
 	int (*pme_write8)(struct ksz_device *dev, u32 reg, u8 value);
 	int (*pme_pread8)(struct ksz_device *dev, int port, int offset,
 			  u8 *data);
@@ -545,7 +544,6 @@ int ksz_port_mirror_add(struct dsa_switch *ds, int port,
 			bool ingress, struct netlink_ext_ack *extack);
 void ksz_port_mirror_del(struct dsa_switch *ds, int port,
 			 struct dsa_mall_mirror_tc_entry *mirror);
-int ksz_change_mtu(struct dsa_switch *ds, int port, int mtu);
 int ksz_max_mtu(struct dsa_switch *ds, int port);
 
 bool ksz_support_eee(struct dsa_switch *ds, int port);

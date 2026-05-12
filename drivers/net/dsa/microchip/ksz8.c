@@ -188,8 +188,9 @@ static int ksz8795_change_mtu(struct ksz_device *dev, int frame_size)
 	return ksz_rmw8(dev, REG_SW_CTRL_2, SW_LEGAL_PACKET_DISABLE, ctrl2);
 }
 
-static int ksz8_change_mtu(struct ksz_device *dev, int port, int mtu)
+static int ksz8_change_mtu(struct dsa_switch *ds, int port, int mtu)
 {
+	struct ksz_device *dev = ds->priv;
 	u16 frame_size;
 
 	if (!dsa_is_cpu_port(dev->ds, port))
@@ -2226,7 +2227,6 @@ const struct ksz_dev_ops ksz8463_dev_ops = {
 	.reset = ksz8_reset_switch,
 	.init = ksz8_switch_init,
 	.exit = ksz8_switch_exit,
-	.change_mtu = ksz8_change_mtu,
 };
 
 const struct ksz_dev_ops ksz87xx_dev_ops = {
@@ -2257,7 +2257,6 @@ const struct ksz_dev_ops ksz87xx_dev_ops = {
 	.reset = ksz8_reset_switch,
 	.init = ksz8_switch_init,
 	.exit = ksz8_switch_exit,
-	.change_mtu = ksz8_change_mtu,
 	.pme_write8 = ksz8_pme_write8,
 	.pme_pread8 = ksz8_pme_pread8,
 	.pme_pwrite8 = ksz8_pme_pwrite8,
@@ -2291,7 +2290,6 @@ const struct ksz_dev_ops ksz88xx_dev_ops = {
 	.reset = ksz8_reset_switch,
 	.init = ksz8_switch_init,
 	.exit = ksz8_switch_exit,
-	.change_mtu = ksz8_change_mtu,
 	.pme_write8 = ksz8_pme_write8,
 	.pme_pread8 = ksz8_pme_pread8,
 	.pme_pwrite8 = ksz8_pme_pwrite8,
@@ -2332,7 +2330,7 @@ const struct dsa_switch_ops ksz8463_switch_ops = {
 	.port_mirror_del	= ksz_port_mirror_del,
 	.get_stats64		= ksz_get_stats64,
 	.get_pause_stats	= ksz_get_pause_stats,
-	.port_change_mtu	= ksz_change_mtu,
+	.port_change_mtu	= ksz8_change_mtu,
 	.port_max_mtu		= ksz_max_mtu,
 	.get_wol		= ksz_get_wol,
 	.set_wol		= ksz_set_wol,
@@ -2392,7 +2390,7 @@ const struct dsa_switch_ops ksz87xx_switch_ops = {
 	.port_mirror_del	= ksz_port_mirror_del,
 	.get_stats64		= ksz_get_stats64,
 	.get_pause_stats	= ksz_get_pause_stats,
-	.port_change_mtu	= ksz_change_mtu,
+	.port_change_mtu	= ksz8_change_mtu,
 	.port_max_mtu		= ksz_max_mtu,
 	.get_wol		= ksz_get_wol,
 	.set_wol		= ksz_set_wol,
@@ -2452,7 +2450,7 @@ const struct dsa_switch_ops ksz88xx_switch_ops = {
 	.port_mirror_del	= ksz_port_mirror_del,
 	.get_stats64		= ksz_get_stats64,
 	.get_pause_stats	= ksz_get_pause_stats,
-	.port_change_mtu	= ksz_change_mtu,
+	.port_change_mtu	= ksz8_change_mtu,
 	.port_max_mtu		= ksz_max_mtu,
 	.get_wol		= ksz_get_wol,
 	.set_wol		= ksz_set_wol,
