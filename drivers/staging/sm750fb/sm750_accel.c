@@ -26,7 +26,7 @@ void sm750_hw_de_init(struct lynx_accel *accel)
 	write_dpr(accel, DE_MASKS, 0xFFFFFFFF);
 
 	/* dpr1c */
-	reg =  0x3;
+	reg = 0x3;
 
 	clr = DE_STRETCH_FORMAT_PATTERN_XY |
 	      DE_STRETCH_FORMAT_PATTERN_Y_MASK |
