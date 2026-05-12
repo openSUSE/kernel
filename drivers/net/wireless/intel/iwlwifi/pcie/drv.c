@@ -1239,8 +1239,12 @@ static int _iwl_pci_resume(struct device *device, bool restore)
 		u32 scratch = iwl_read32(trans, CSR_FUNC_SCRATCH);
 
 		if (!(scratch & CSR_FUNC_SCRATCH_POWER_OFF_MASK) ||
-		    scratch == ~0U)
+		    scratch == ~0U) {
 			device_was_powered_off = true;
+			IWL_DEBUG_WOWLAN(trans,
+					 "Scratch 0x%08x indicates device was powered off\n",
+					 scratch);
+		}
 	} else {
 		/*
 		 * bh are re-enabled by iwl_trans_pcie_release_nic_access,
