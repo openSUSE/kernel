@@ -100,6 +100,12 @@ struct nlm_shareres_wrapper {
 
 static_assert(offsetof(struct nlm_shareres_wrapper, xdrgen) == 0);
 
+struct nlm_notify_wrapper {
+	struct nlm_notify		xdrgen;
+};
+
+static_assert(offsetof(struct nlm_notify_wrapper, xdrgen) == 0);
+
 static __be32
 nlm_netobj_to_cookie(struct lockd_cookie *cookie, netobj *object)
 {
@@ -239,68 +245,6 @@ static inline __be32 cast_status(__be32 status)
 	return status;
 }
 #endif
-
-/*
- * Obtain client and file from arguments
- */
-static __be32
-nlmsvc_retrieve_args(struct svc_rqst *rqstp, struct lockd_args *argp,
-			struct nlm_host **hostp, struct nlm_file **filp)
-{
-	struct nlm_host		*host = NULL;
-	struct nlm_file		*file = NULL;
-	struct lockd_lock	*lock = &argp->lock;
-	bool			is_test = (rqstp->rq_proc == NLMPROC_TEST ||
-					   rqstp->rq_proc == NLMPROC_TEST_MSG);
-	int			mode;
-	__be32			error = 0;
-
-	/* nfsd callbacks must have been installed for this procedure */
-	if (!nlmsvc_ops)
-		return nlm_lck_denied_nolocks;
-
-	/* Obtain host handle */
-	if (!(host = nlmsvc_lookup_host(rqstp, lock->caller, lock->len))
-	 || (argp->monitor && nsm_monitor(host) < 0))
-		goto no_locks;
-	*hostp = host;
-
-	/* Obtain file pointer. Not used by FREE_ALL call. */
-	if (filp != NULL) {
-		mode = lock_to_openmode(&lock->fl);
-
-		if (is_test)
-			mode = O_RDWR;
-
-		error = cast_status(nlm_lookup_file(rqstp, &file, lock, mode));
-		if (error != 0)
-			goto no_locks;
-		*filp = file;
-
-		/* Set up the missing parts of the file_lock structure */
-		lock->fl.c.flc_flags = FL_POSIX;
-		if (is_test)
-			lock->fl.c.flc_file = nlmsvc_file_file(file);
-		else
-			lock->fl.c.flc_file = file->f_file[mode];
-		lock->fl.c.flc_pid = current->tgid;
-		lock->fl.fl_lmops = &nlmsvc_lock_operations;
-		nlmsvc_locks_init_private(&lock->fl, host, (pid_t)lock->svid);
-		if (!lock->fl.c.flc_owner) {
-			/* lockowner allocation has failed */
-			nlmsvc_release_host(host);
-			return nlm_lck_denied_nolocks;
-		}
-	}
-
-	return 0;
-
-no_locks:
-	nlmsvc_release_host(host);
-	if (error)
-		return error;
-	return nlm_lck_denied_nolocks;
-}
 
 /**
  * nlmsvc_proc_null - NULL: Test for presence of service
@@ -1216,21 +1160,30 @@ static __be32 nlmsvc_proc_nm_lock(struct svc_rqst *rqstp)
 	return nlmsvc_do_lock(rqstp, false);
 }
 
-/*
- * FREE_ALL: Release all locks and shares held by client
+/**
+ * nlmsvc_proc_free_all - FREE_ALL: Discard client's lock and share state
+ * @rqstp: RPC transaction context
+ *
+ * Returns:
+ *   %rpc_success:		RPC executed successfully.
+ *
+ * RPC synopsis:
+ *   void NLMPROC_FREE_ALL(nlm_notify) = 23;
  */
-static __be32
-nlmsvc_proc_free_all(struct svc_rqst *rqstp)
+static __be32 nlmsvc_proc_free_all(struct svc_rqst *rqstp)
 {
-	struct lockd_args *argp = rqstp->rq_argp;
+	struct nlm_notify_wrapper *argp = rqstp->rq_argp;
 	struct nlm_host	*host;
 
-	/* Obtain client */
-	if (nlmsvc_retrieve_args(rqstp, argp, &host, NULL))
-		return rpc_success;
+	host = nlm3svc_lookup_host(rqstp, argp->xdrgen.name, false);
+	if (!host)
+		goto out;
 
 	nlmsvc_free_host_resources(host);
+
 	nlmsvc_release_host(host);
+
+out:
 	return rpc_success;
 }
 
@@ -1476,15 +1429,15 @@ static const struct svc_procedure nlmsvc_procedures[24] = {
 		.pc_xdrressize	= NLM3_nlm_res_sz,
 		.pc_name	= "NM_LOCK",
 	},
-	[NLMPROC_FREE_ALL] = {
-		.pc_func = nlmsvc_proc_free_all,
-		.pc_decode = nlmsvc_decode_notify,
-		.pc_encode = nlmsvc_encode_void,
-		.pc_argsize = sizeof(struct lockd_args),
-		.pc_argzero = sizeof(struct lockd_args),
-		.pc_ressize = sizeof(struct nlm_void),
-		.pc_xdrressize = 0,
-		.pc_name = "FREE_ALL",
+	[NLM_FREE_ALL] = {
+		.pc_func	= nlmsvc_proc_free_all,
+		.pc_decode	= nlm_svc_decode_nlm_notify,
+		.pc_encode	= nlm_svc_encode_void,
+		.pc_argsize	= sizeof(struct nlm_notify_wrapper),
+		.pc_argzero	= 0,
+		.pc_ressize	= 0,
+		.pc_xdrressize	= XDR_void,
+		.pc_name	= "FREE_ALL",
 	},
 };
 
@@ -1498,10 +1451,10 @@ union nlmsvc_xdrstore {
 	struct nlm_unlockargs_wrapper	unlockargs;
 	struct nlm_notifyargs_wrapper	notifyargs;
 	struct nlm_shareargs_wrapper	shareargs;
+	struct nlm_notify_wrapper	notify;
 	struct nlm_testres_wrapper	testres;
 	struct nlm_res_wrapper		res;
 	struct nlm_shareres_wrapper	shareres;
-	struct lockd_args		args;
 };
 
 /*
