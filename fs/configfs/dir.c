@@ -315,9 +315,7 @@ static int configfs_create_dir(struct config_item *item, struct dentry *dentry,
 	inode->i_fop = &configfs_dir_operations;
 	/* directory inodes start off with i_nlink == 2 (for "." entry) */
 	inc_nlink(inode);
-	d_instantiate(dentry, inode);
-	/* already hashed */
-	dget(dentry);  /* pin directory dentries in core */
+	d_make_persistent(dentry, inode);
 	inc_nlink(d_inode(p));
 	item->ci_dentry = dentry;
 	return 0;
@@ -385,8 +383,7 @@ int configfs_create_link(struct configfs_dirent *target, struct dentry *parent,
 
 	inode->i_link = body;
 	inode->i_op = &configfs_symlink_inode_operations;
-	d_instantiate(dentry, inode);
-	dget(dentry);  /* pin link dentries in core */
+	d_make_persistent(dentry, inode);
 	return 0;
 
 out_remove:
@@ -413,12 +410,8 @@ static void configfs_remove_dir(struct dentry *d)
 	configfs_remove_dirent(d);
 
 	if (d_really_is_positive(d)) {
-		if (likely(simple_empty(d))) {
-			__simple_rmdir(d_inode(parent),d);
-			dput(d);
-		} else {
+		if (unlikely(simple_rmdir(d_inode(parent), d)))
 			pr_warn("remove_dir (%pd): attributes remain", d);
-		}
 	}
 
 	pr_debug(" o %pd removing done (%d)\n", d, d_count(d));
