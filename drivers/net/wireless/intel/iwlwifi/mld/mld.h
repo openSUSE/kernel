@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /*
- * Copyright (C) 2024-2025 Intel Corporation
+ * Copyright (C) 2024-2026 Intel Corporation
  */
 #ifndef __iwl_mld_h__
 #define __iwl_mld_h__
@@ -189,7 +189,6 @@
  *	TX rate_n_flags for non-STA mgmt frames (toggles on every TX failure).
  * @set_tx_ant: stores the last TX antenna bitmask set by user space (if any)
  * @set_rx_ant: stores the last RX antenna bitmask set by user space (if any)
- * @fw_rates_ver_3: FW rates are in version 3
  * @low_latency: low-latency manager.
  * @tzone: thermal zone device's data
  * @cooling_dev: cooling device's related data
@@ -298,8 +297,6 @@ struct iwl_mld {
 
 	u8 set_tx_ant;
 	u8 set_rx_ant;
-
-	bool fw_rates_ver_3;
 
 	struct iwl_mld_low_latency low_latency;
 

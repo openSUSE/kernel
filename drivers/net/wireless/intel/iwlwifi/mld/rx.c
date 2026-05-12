@@ -39,8 +39,7 @@ iwl_mld_fill_phy_data_from_mpdu(struct iwl_mld *mld,
 	}
 
 	phy_data->phy_info = le16_to_cpu(desc->phy_info);
-	phy_data->rate_n_flags = iwl_v3_rate_from_v2_v3(desc->v3.rate_n_flags,
-							mld->fw_rates_ver_3);
+	phy_data->rate_n_flags = le32_to_cpu(desc->v3.rate_n_flags);
 	phy_data->gp2_on_air_rise = le32_to_cpu(desc->v3.gp2_on_air_rise);
 	phy_data->energy_a = desc->v3.energy_a;
 	phy_data->energy_b = desc->v3.energy_b;

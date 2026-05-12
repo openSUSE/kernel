@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
- * Copyright (C) 2024-2025 Intel Corporation
+ * Copyright (C) 2024-2026 Intel Corporation
  */
 
 #include "mld.h"
@@ -1035,7 +1035,6 @@ static ssize_t _iwl_dbgfs_fixed_rate_write(struct iwl_mld *mld, char *buf,
 
 	/* input is in FW format (v2 or v3) so convert to v3 */
 	rate = iwl_v3_rate_from_v2_v3(cpu_to_le32(rate), v3);
-	rate = le32_to_cpu(iwl_v3_rate_to_v2_v3(rate, mld->fw_rates_ver_3));
 
 	ret = iwl_mld_send_tlc_dhc(mld, fw_sta_id,
 				   partial ? IWL_TLC_DEBUG_PARTIAL_FIXED_RATE :

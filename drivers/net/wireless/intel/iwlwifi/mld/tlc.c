@@ -956,9 +956,7 @@ void iwl_mld_handle_tlc_notif(struct iwl_mld *mld,
 		if (WARN_ON(!mld_link_sta))
 			return;
 
-		mld_link_sta->last_rate_n_flags =
-			iwl_v3_rate_from_v2_v3(notif->rate,
-					       mld->fw_rates_ver_3);
+		mld_link_sta->last_rate_n_flags = le32_to_cpu(notif->rate);
 
 		rs_pretty_print_rate(pretty_rate, sizeof(pretty_rate),
 				     mld_link_sta->last_rate_n_flags);
