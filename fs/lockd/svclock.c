@@ -37,7 +37,7 @@ static void nlmsvc_release_block(struct nlm_block *block);
 static void	nlmsvc_insert_block(struct nlm_block *block, unsigned long);
 static void	nlmsvc_remove_block(struct nlm_block *block);
 
-static int nlmsvc_setgrantargs(struct nlm_rqst *call, struct nlm_lock *lock);
+static int nlmsvc_setgrantargs(struct nlm_rqst *call, struct lockd_lock *lock);
 static void nlmsvc_freegrantargs(struct nlm_rqst *call);
 static const struct rpc_call_ops nlmsvc_grant_ops;
 
@@ -142,7 +142,7 @@ nlmsvc_remove_block(struct nlm_block *block)
  * Find a block for a given lock
  */
 static struct nlm_block *
-nlmsvc_lookup_block(struct nlm_file *file, struct nlm_lock *lock)
+nlmsvc_lookup_block(struct nlm_file *file, struct lockd_lock *lock)
 {
 	struct nlm_block	*block;
 	struct file_lock	*fl;
@@ -221,7 +221,7 @@ found:
  */
 static struct nlm_block *
 nlmsvc_create_block(struct svc_rqst *rqstp, struct nlm_host *host,
-		    struct nlm_file *file, struct nlm_lock *lock,
+		    struct nlm_file *file, struct lockd_lock *lock,
 		    struct lockd_cookie *cookie)
 {
 	struct nlm_block	*block;
@@ -399,7 +399,7 @@ static struct nlm_lockowner *nlmsvc_find_lockowner(struct nlm_host *host, pid_t 
 }
 
 void
-nlmsvc_release_lockowner(struct nlm_lock *lock)
+nlmsvc_release_lockowner(struct lockd_lock *lock)
 {
 	if (lock->fl.c.flc_owner)
 		nlmsvc_put_lockowner(lock->fl.c.flc_owner);
@@ -415,7 +415,7 @@ void nlmsvc_locks_init_private(struct file_lock *fl, struct nlm_host *host,
  * Initialize arguments for GRANTED call. The nlm_rqst structure
  * has been cleared already.
  */
-static int nlmsvc_setgrantargs(struct nlm_rqst *call, struct nlm_lock *lock)
+static int nlmsvc_setgrantargs(struct nlm_rqst *call, struct lockd_lock *lock)
 {
 	locks_copy_lock(&call->a_args.lock.fl, &lock->fl);
 	memcpy(&call->a_args.lock.fh, &lock->fh, sizeof(call->a_args.lock.fh));
@@ -476,7 +476,7 @@ nlmsvc_defer_lock_rqst(struct svc_rqst *rqstp, struct nlm_block *block)
  */
 __be32
 nlmsvc_lock(struct svc_rqst *rqstp, struct nlm_file *file,
-	    struct nlm_host *host, struct nlm_lock *lock, int wait,
+	    struct nlm_host *host, struct lockd_lock *lock, int wait,
 	    struct lockd_cookie *cookie, int reclaim)
 {
 	struct inode		*inode __maybe_unused = nlmsvc_file_inode(file);
@@ -609,8 +609,8 @@ out:
  */
 __be32
 nlmsvc_testlock(struct svc_rqst *rqstp, struct nlm_file *file,
-		struct nlm_host *host, struct nlm_lock *lock,
-		struct nlm_lock *conflock)
+		struct nlm_host *host, struct lockd_lock *lock,
+		struct lockd_lock *conflock)
 {
 	int			error;
 	__be32			ret;
@@ -669,7 +669,7 @@ out:
  * must be removed.
  */
 __be32
-nlmsvc_unlock(struct net *net, struct nlm_file *file, struct nlm_lock *lock)
+nlmsvc_unlock(struct net *net, struct nlm_file *file, struct lockd_lock *lock)
 {
 	int	error = 0;
 
@@ -707,7 +707,7 @@ nlmsvc_unlock(struct net *net, struct nlm_file *file, struct nlm_lock *lock)
  * The calling procedure must check whether the file can be closed.
  */
 __be32
-nlmsvc_cancel_blocked(struct net *net, struct nlm_file *file, struct nlm_lock *lock)
+nlmsvc_cancel_blocked(struct net *net, struct nlm_file *file, struct lockd_lock *lock)
 {
 	struct nlm_block	*block;
 	int status = 0;
@@ -848,7 +848,7 @@ static void
 nlmsvc_grant_blocked(struct nlm_block *block)
 {
 	struct nlm_file		*file = block->b_file;
-	struct nlm_lock		*lock = &block->b_call->a_args.lock;
+	struct lockd_lock	*lock = &block->b_call->a_args.lock;
 	int			mode;
 	int			error;
 	loff_t			fl_start, fl_end;

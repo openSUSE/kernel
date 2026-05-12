@@ -253,7 +253,7 @@ void		  nlmclnt_queue_block(struct nlm_wait *block);
 __be32		  nlmclnt_dequeue_block(struct nlm_wait *block);
 int		  nlmclnt_wait(struct nlm_wait *block, struct nlm_rqst *req, long timeout);
 __be32		  nlmclnt_grant(const struct sockaddr *addr,
-				const struct nlm_lock *lock);
+				const struct lockd_lock *lock);
 void		  nlmclnt_recovery(struct nlm_host *);
 int		  nlmclnt_reclaim(struct nlm_host *, struct file_lock *,
 				  struct nlm_rqst *);
@@ -313,13 +313,13 @@ typedef int	  (*nlm_host_match_fn_t)(void *cur, struct nlm_host *ref);
  */
 int		  lock_to_openmode(struct file_lock *);
 __be32		  nlmsvc_lock(struct svc_rqst *, struct nlm_file *,
-			      struct nlm_host *, struct nlm_lock *, int,
+			      struct nlm_host *, struct lockd_lock *, int,
 			      struct lockd_cookie *, int);
-__be32		  nlmsvc_unlock(struct net *net, struct nlm_file *, struct nlm_lock *);
+__be32		  nlmsvc_unlock(struct net *net, struct nlm_file *, struct lockd_lock *);
 __be32		  nlmsvc_testlock(struct svc_rqst *rqstp, struct nlm_file *file,
-			struct nlm_host *host, struct nlm_lock *lock,
-			struct nlm_lock *conflock);
-__be32		  nlmsvc_cancel_blocked(struct net *net, struct nlm_file *, struct nlm_lock *);
+			struct nlm_host *host, struct lockd_lock *lock,
+			struct lockd_lock *conflock);
+__be32		  nlmsvc_cancel_blocked(struct net *net, struct nlm_file *, struct lockd_lock *);
 void		  nlmsvc_retry_blocked(struct svc_rqst *rqstp);
 void		  nlmsvc_traverse_blocks(struct nlm_host *, struct nlm_file *,
 					nlm_host_match_fn_t match);
@@ -332,10 +332,10 @@ int		  nlmsvc_dispatch(struct svc_rqst *rqstp);
  * File handling for the server personality
  */
 __be32		  nlm_lookup_file(struct svc_rqst *, struct nlm_file **,
-				  struct nlm_lock *, int);
+				  struct lockd_lock *, int);
 void		  nlm_release_file(struct nlm_file *);
 void		  nlmsvc_put_lockowner(struct nlm_lockowner *);
-void		  nlmsvc_release_lockowner(struct nlm_lock *);
+void		  nlmsvc_release_lockowner(struct lockd_lock *);
 void		  nlmsvc_mark_resources(struct net *);
 void		  nlmsvc_free_host_resources(struct nlm_host *);
 void		  nlmsvc_invalidate_all(void);

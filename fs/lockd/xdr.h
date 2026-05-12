@@ -32,7 +32,7 @@ struct svc_rqst;
 #define	nlm_lck_denied_grace_period	cpu_to_be32(NLM_LCK_DENIED_GRACE_PERIOD)
 
 /* Lock info passed via NLM */
-struct nlm_lock {
+struct lockd_lock {
 	char *			caller;
 	unsigned int		len; 	/* length of "caller" */
 	struct nfs_fh		fh;
@@ -59,7 +59,7 @@ struct lockd_cookie {
  */
 struct nlm_args {
 	struct lockd_cookie	cookie;
-	struct nlm_lock		lock;
+	struct lockd_lock	lock;
 	u32			block;
 	u32			reclaim;
 	u32			state;
@@ -74,7 +74,7 @@ struct nlm_args {
 struct nlm_res {
 	struct lockd_cookie	cookie;
 	__be32			status;
-	struct nlm_lock		lock;
+	struct lockd_lock	lock;
 };
 
 /*

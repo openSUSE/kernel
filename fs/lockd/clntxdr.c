@@ -60,7 +60,7 @@ static s32 loff_t_to_s32(loff_t offset)
 	return res;
 }
 
-static void nlm_compute_offsets(const struct nlm_lock *lock,
+static void nlm_compute_offsets(const struct lockd_lock *lock,
 				u32 *l_offset, u32 *l_len)
 {
 	const struct file_lock *fl = &lock->fl;
@@ -236,7 +236,7 @@ out_overflow:
 static void encode_nlm_holder(struct xdr_stream *xdr,
 			      const struct nlm_res *result)
 {
-	const struct nlm_lock *lock = &result->lock;
+	const struct lockd_lock *lock = &result->lock;
 	u32 l_offset, l_len;
 	__be32 *p;
 
@@ -252,7 +252,7 @@ static void encode_nlm_holder(struct xdr_stream *xdr,
 
 static int decode_nlm_holder(struct xdr_stream *xdr, struct nlm_res *result)
 {
-	struct nlm_lock *lock = &result->lock;
+	struct lockd_lock *lock = &result->lock;
 	struct file_lock *fl = &lock->fl;
 	u32 exclusive, l_offset, l_len;
 	int error;
@@ -319,7 +319,7 @@ static void encode_caller_name(struct xdr_stream *xdr, const char *name)
  *	};
  */
 static void encode_nlm_lock(struct xdr_stream *xdr,
-			    const struct nlm_lock *lock)
+			    const struct lockd_lock *lock)
 {
 	u32 l_offset, l_len;
 	__be32 *p;
@@ -356,7 +356,7 @@ static void nlm_xdr_enc_testargs(struct rpc_rqst *req,
 				 const void *data)
 {
 	const struct nlm_args *args = data;
-	const struct nlm_lock *lock = &args->lock;
+	const struct lockd_lock *lock = &args->lock;
 
 	encode_cookie(xdr, &args->cookie);
 	encode_bool(xdr, lock->fl.c.flc_type == F_WRLCK);
@@ -378,7 +378,7 @@ static void nlm_xdr_enc_lockargs(struct rpc_rqst *req,
 				 const void *data)
 {
 	const struct nlm_args *args = data;
-	const struct nlm_lock *lock = &args->lock;
+	const struct lockd_lock *lock = &args->lock;
 
 	encode_cookie(xdr, &args->cookie);
 	encode_bool(xdr, args->block);
@@ -401,7 +401,7 @@ static void nlm_xdr_enc_cancargs(struct rpc_rqst *req,
 				 const void *data)
 {
 	const struct nlm_args *args = data;
-	const struct nlm_lock *lock = &args->lock;
+	const struct lockd_lock *lock = &args->lock;
 
 	encode_cookie(xdr, &args->cookie);
 	encode_bool(xdr, args->block);
@@ -420,7 +420,7 @@ static void nlm_xdr_enc_unlockargs(struct rpc_rqst *req,
 				   const void *data)
 {
 	const struct nlm_args *args = data;
-	const struct nlm_lock *lock = &args->lock;
+	const struct lockd_lock *lock = &args->lock;
 
 	encode_cookie(xdr, &args->cookie);
 	encode_nlm_lock(xdr, lock);

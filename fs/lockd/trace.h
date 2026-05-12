@@ -48,7 +48,7 @@ NLM_STATUS_LIST
 
 DECLARE_EVENT_CLASS(nlmclnt_lock_event,
 		TP_PROTO(
-			const struct nlm_lock *lock,
+			const struct lockd_lock *lock,
 			const struct sockaddr *addr,
 			unsigned int addrlen,
 			__be32 status
@@ -87,7 +87,7 @@ DECLARE_EVENT_CLASS(nlmclnt_lock_event,
 #define DEFINE_NLMCLNT_EVENT(name)				\
 	DEFINE_EVENT(nlmclnt_lock_event, name,			\
 			TP_PROTO(				\
-				const struct nlm_lock *lock,	\
+				const struct lockd_lock *lock,	\
 				const struct sockaddr *addr,	\
 				unsigned int addrlen,		\
 				__be32	status			\

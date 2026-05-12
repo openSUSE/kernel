@@ -69,7 +69,7 @@ svcxdr_decode_fhandle(struct xdr_stream *xdr, struct nfs_fh *fh)
 }
 
 static bool
-svcxdr_decode_lock(struct xdr_stream *xdr, struct nlm_lock *lock)
+svcxdr_decode_lock(struct xdr_stream *xdr, struct lockd_lock *lock)
 {
 	struct file_lock *fl = &lock->fl;
 	s32 start, len, end;
@@ -101,7 +101,7 @@ svcxdr_decode_lock(struct xdr_stream *xdr, struct nlm_lock *lock)
 }
 
 static bool
-svcxdr_encode_holder(struct xdr_stream *xdr, const struct nlm_lock *lock)
+svcxdr_encode_holder(struct xdr_stream *xdr, const struct lockd_lock *lock)
 {
 	const struct file_lock *fl = &lock->fl;
 	s32 start, len;
@@ -271,7 +271,7 @@ bool
 nlmsvc_decode_shareargs(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 {
 	struct nlm_args *argp = rqstp->rq_argp;
-	struct nlm_lock	*lock = &argp->lock;
+	struct lockd_lock *lock = &argp->lock;
 
 	memset(lock, 0, sizeof(*lock));
 	locks_init_lock(&lock->fl);
@@ -298,7 +298,7 @@ bool
 nlmsvc_decode_notify(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 {
 	struct nlm_args *argp = rqstp->rq_argp;
-	struct nlm_lock	*lock = &argp->lock;
+	struct lockd_lock *lock = &argp->lock;
 
 	if (!svcxdr_decode_string(xdr, &lock->caller, &lock->len))
 		return false;

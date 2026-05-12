@@ -67,7 +67,7 @@ nlmsvc_retrieve_args(struct svc_rqst *rqstp, struct nlm_args *argp,
 {
 	struct nlm_host		*host = NULL;
 	struct nlm_file		*file = NULL;
-	struct nlm_lock		*lock = &argp->lock;
+	struct lockd_lock	*lock = &argp->lock;
 	bool			is_test = (rqstp->rq_proc == NLMPROC_TEST ||
 					   rqstp->rq_proc == NLMPROC_TEST_MSG);
 	int			mode;
