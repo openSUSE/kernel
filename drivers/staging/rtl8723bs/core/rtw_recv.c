@@ -115,9 +115,9 @@ union recv_frame *_rtw_alloc_recvframe(struct __queue *pfree_recv_queue)
 	struct adapter *padapter;
 	struct recv_priv *precvpriv;
 
-	if (list_empty(&pfree_recv_queue->queue))
+	if (list_empty(&pfree_recv_queue->queue)) {
 		precvframe = NULL;
-	else {
+	} else {
 		phead = get_list_head(pfree_recv_queue);
 
 		plist = get_next(phead);
@@ -276,9 +276,9 @@ struct recv_buf *rtw_dequeue_recvbuf(struct __queue *queue)
 
 	spin_lock_bh(&queue->lock);
 
-	if (list_empty(&queue->queue))
+	if (list_empty(&queue->queue)) {
 		precvbuf = NULL;
-	else {
+	} else {
 		phead = get_list_head(queue);
 
 		plist = get_next(phead);
@@ -471,8 +471,9 @@ static union recv_frame *decryptor(struct adapter *padapter, union recv_frame *p
 	if (res == _FAIL) {
 		rtw_free_recvframe(return_packet, &padapter->recvpriv.free_recv_queue);
 		return_packet = NULL;
-	} else
+	} else {
 		prxattrib->bdecrypted = true;
+	}
 
 	return return_packet;
 }
@@ -518,9 +519,9 @@ static union recv_frame *portctrl(struct adapter *adapter, union recv_frame *pre
 			memcpy(&be_tmp, ptr, 2);
 			ether_type = ntohs(be_tmp);
 
-			if (ether_type == eapol_type)
+			if (ether_type == eapol_type) {
 				prtnframe = precv_frame;
-			else {
+			} else {
 				/* free this frame */
 				rtw_free_recvframe(precv_frame, &adapter->recvpriv.free_recv_queue);
 				prtnframe = NULL;
@@ -539,8 +540,9 @@ static union recv_frame *portctrl(struct adapter *adapter, union recv_frame *pre
 			/* else { */
 			/*  */
 		}
-	} else
+	} else {
 		prtnframe = precv_frame;
+	}
 
 	return prtnframe;
 }
@@ -746,8 +748,9 @@ static signed int sta2sta_data_frame(struct adapter *adapter, union recv_frame *
 		memcpy(pattrib->ta, pattrib->src, ETH_ALEN);
 
 		sta_addr = mybssid;
-	} else
+	} else {
 		ret  = _FAIL;
+	}
 
 	if (bmcast)
 		*psta = rtw_get_bcmc_stainfo(adapter);
@@ -1144,10 +1147,12 @@ static union recv_frame *recvframe_chk_defrag(struct adapter *padapter, union re
 		if (type != WIFI_DATA_TYPE) {
 			psta = rtw_get_bcmc_stainfo(padapter);
 			pdefrag_q = &psta->sta_recvpriv.defrag_q;
-		} else
+		} else {
 			pdefrag_q = NULL;
-	} else
+		}
+	} else {
 		pdefrag_q = &psta->sta_recvpriv.defrag_q;
+	}
 
 	if ((ismfrag == 0) && (fragnum == 0))
 		prtnframe = precv_frame;/* isn't a fragment frame */
@@ -1530,9 +1535,10 @@ static signed int wlanhdr_to_ethhdr(union recv_frame *precvframe)
 		 !memcmp(psnap, bridge_tunnel_header, SNAP_SIZE)) {
 		/* remove RFC1042 or Bridge-Tunnel encapsulation and replace EtherType */
 		bsnaphdr = true;
-	} else
+	} else {
 		/* Leave Ethernet header part of hdr and full payload */
 		bsnaphdr = false;
+	}
 
 	rmv_len = pattrib->hdrlen + pattrib->iv_len + (bsnaphdr ? SNAP_SIZE : 0);
 	len = precvframe->u.hdr.len - rmv_len;
