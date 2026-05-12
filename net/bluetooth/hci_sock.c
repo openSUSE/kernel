@@ -2088,7 +2088,7 @@ static int hci_sock_getsockopt_old(struct socket *sock, int level, int optname,
 		else
 			opt = 0;
 
-		if (put_user(opt, optval))
+		if (put_user(opt, (int __user *)optval))
 			err = -EFAULT;
 		break;
 
@@ -2098,7 +2098,7 @@ static int hci_sock_getsockopt_old(struct socket *sock, int level, int optname,
 		else
 			opt = 0;
 
-		if (put_user(opt, optval))
+		if (put_user(opt, (int __user *)optval))
 			err = -EFAULT;
 		break;
 
