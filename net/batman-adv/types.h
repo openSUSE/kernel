@@ -1570,7 +1570,7 @@ struct batadv_priv {
 	 *  multiple fragmented skbs or a single frame if fragmentation is
 	 *  disabled
 	 */
-	atomic_t packet_size_max;
+	int packet_size_max;
 
 	/**
 	 * @frag_seqno: incremental counter to identify chains of egress
