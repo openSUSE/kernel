@@ -305,6 +305,9 @@ void iwl_mld_handle_nan_dw_end_notif(struct iwl_mld *mld,
 		return;
 	}
 
+	if (WARN_ON_ONCE(!chan))
+		return;
+
 	wdev = ieee80211_vif_to_wdev(mld->nan_device_vif);
 	cfg80211_next_nan_dw_notif(wdev, chan, GFP_KERNEL);
 }
