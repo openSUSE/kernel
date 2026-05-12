@@ -1157,41 +1157,65 @@ out:
 		rpc_drop_reply : rpc_success;
 }
 
-/*
- * UNSHARE: Release a DOS share.
+/**
+ * nlmsvc_proc_unshare - UNSHARE: Release a share reservation
+ * @rqstp: RPC transaction context
+ *
+ * Returns:
+ *   %rpc_success:		RPC executed successfully.
+ *   %rpc_drop_reply:		Do not send an RPC reply.
+ *
+ * RPC synopsis:
+ *   nlm_shareres NLM_UNSHARE(nlm_shareargs) = 21;
+ *
+ * Permissible procedure status codes:
+ *   %LCK_GRANTED:		The share reservation was released.
+ *   %LCK_DENIED_GRACE_PERIOD:	The server has recently restarted and is
+ *				re-establishing existing locks, and is not
+ *				yet ready to accept normal service requests.
+ *
+ * The Linux NLM server implementation also returns:
+ *   %LCK_DENIED_NOLOCKS:	A needed resource could not be allocated.
  */
-static __be32
-nlmsvc_proc_unshare(struct svc_rqst *rqstp)
+static __be32 nlmsvc_proc_unshare(struct svc_rqst *rqstp)
 {
-	struct lockd_args *argp = rqstp->rq_argp;
-	struct lockd_res *resp = rqstp->rq_resp;
-	struct nlm_host	*host;
-	struct nlm_file	*file;
+	struct nlm_shareargs_wrapper *argp = rqstp->rq_argp;
+	struct nlm_shareres_wrapper *resp = rqstp->rq_resp;
+	struct lockd_lock *lock = &argp->lock;
+	struct nlm_lock xdr_lock = {
+		.fh		= argp->xdrgen.share.fh,
+		.oh		= argp->xdrgen.share.oh,
+		.uppid		= LOCKD_SHARE_SVID,
+	};
+	struct nlm_host	*host = NULL;
+	struct nlm_file	*file = NULL;
 
-	dprintk("lockd: UNSHARE       called\n");
+	resp->xdrgen.cookie = argp->xdrgen.cookie;
 
-	resp->cookie = argp->cookie;
+	resp->xdrgen.stat = nlm_lck_denied_grace_period;
+	if (locks_in_grace(SVC_NET(rqstp)))
+		goto out;
 
-	/* Don't accept requests during grace period */
-	if (locks_in_grace(SVC_NET(rqstp))) {
-		resp->status = nlm_lck_denied_grace_period;
-		return rpc_success;
-	}
+	resp->xdrgen.stat = nlm_lck_denied_nolocks;
+	host = nlm3svc_lookup_host(rqstp, argp->xdrgen.share.caller_name, false);
+	if (!host)
+		goto out;
 
-	/* Obtain client and file */
-	if ((resp->status = nlmsvc_retrieve_args(rqstp, argp, &host, &file)))
-		return resp->status == nlm__int__drop_reply ?
-			rpc_drop_reply : rpc_success;
+	resp->xdrgen.stat = nlm3svc_lookup_file(rqstp, host, lock, &file,
+						&xdr_lock, F_RDLCK);
+	if (resp->xdrgen.stat)
+		goto out;
 
-	/* Now try to unshare the file */
-	resp->status = cast_status(nlmsvc_unshare_file(host, file,
-						       &argp->lock.oh));
+	resp->xdrgen.stat = nlmsvc_unshare_file(host, file, &lock->oh);
 
-	dprintk("lockd: UNSHARE       status %d\n", ntohl(resp->status));
-	nlmsvc_release_lockowner(&argp->lock);
+	nlmsvc_release_lockowner(lock);
+
+out:
+	if (file)
+		nlm_release_file(file);
 	nlmsvc_release_host(host);
-	nlm_release_file(file);
-	return rpc_success;
+	return resp->xdrgen.stat == nlm__int__drop_reply ?
+		rpc_drop_reply : rpc_success;
 }
 
 /*
@@ -1448,15 +1472,15 @@ static const struct svc_procedure nlmsvc_procedures[24] = {
 		.pc_xdrressize	= NLM3_nlm_shareres_sz,
 		.pc_name	= "SHARE",
 	},
-	[NLMPROC_UNSHARE] = {
-		.pc_func = nlmsvc_proc_unshare,
-		.pc_decode = nlmsvc_decode_shareargs,
-		.pc_encode = nlmsvc_encode_shareres,
-		.pc_argsize = sizeof(struct lockd_args),
-		.pc_argzero = sizeof(struct lockd_args),
-		.pc_ressize = sizeof(struct lockd_res),
-		.pc_xdrressize = Ck+St+1,
-		.pc_name = "UNSHARE",
+	[NLM_UNSHARE] = {
+		.pc_func	= nlmsvc_proc_unshare,
+		.pc_decode	= nlm_svc_decode_nlm_shareargs,
+		.pc_encode	= nlm_svc_encode_nlm_shareres,
+		.pc_argsize	= sizeof(struct nlm_shareargs_wrapper),
+		.pc_argzero	= 0,
+		.pc_ressize	= sizeof(struct nlm_shareres_wrapper),
+		.pc_xdrressize	= NLM3_nlm_shareres_sz,
+		.pc_name	= "UNSHARE",
 	},
 	[NLMPROC_NM_LOCK] = {
 		.pc_func = nlmsvc_proc_nm_lock,
