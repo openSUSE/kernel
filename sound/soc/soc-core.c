@@ -194,9 +194,6 @@ static void soc_init_card_debugfs(struct snd_soc_card *card)
 	card->debugfs_card_root = debugfs_create_dir(card->name,
 						     snd_soc_debugfs_root);
 
-	debugfs_create_u32("dapm_pop_time", 0644, card->debugfs_card_root,
-			   &card->pop_time);
-
 	snd_soc_dapm_debugfs_init(snd_soc_card_to_dapm(card), card->debugfs_card_root);
 }
 
@@ -215,6 +212,8 @@ static void snd_soc_debugfs_init(void)
 
 	debugfs_create_file("components", 0444, snd_soc_debugfs_root, NULL,
 			    &component_list_fops);
+
+	snd_soc_dapm_debugfs_pop_time(snd_soc_debugfs_root);
 }
 
 static void snd_soc_debugfs_exit(void)
