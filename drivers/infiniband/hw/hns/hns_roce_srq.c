@@ -473,11 +473,9 @@ int hns_roce_create_srq(struct ib_srq *ib_srq,
 	if (udata) {
 		resp.cap_flags = srq->cap_flags;
 		resp.srqn = srq->srqn;
-		if (ib_copy_to_udata(udata, &resp,
-				     min(udata->outlen, sizeof(resp)))) {
-			ret = -EFAULT;
+		ret = ib_respond_udata(udata, resp);
+		if (ret)
 			goto err_srqc;
-		}
 	}
 
 	srq->event = hns_roce_ib_srq_event;

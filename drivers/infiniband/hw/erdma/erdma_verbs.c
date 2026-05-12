@@ -1990,8 +1990,7 @@ int erdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 		uresp.cq_id = cq->cqn;
 		uresp.num_cqe = depth;
 
-		ret = ib_copy_to_udata(udata, &uresp,
-				       min(sizeof(uresp), udata->outlen));
+		ret = ib_respond_udata(udata, uresp);
 		if (ret)
 			goto err_free_res;
 	} else {

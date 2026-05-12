@@ -406,12 +406,10 @@ int pvrdma_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *init_attr,
 		qp_resp.qpn = qp->ibqp.qp_num;
 		qp_resp.qp_handle = qp->qp_handle;
 
-		if (ib_copy_to_udata(udata, &qp_resp,
-				     min(udata->outlen, sizeof(qp_resp)))) {
-			dev_warn(&dev->pdev->dev,
-				 "failed to copy back udata\n");
+		ret = ib_respond_udata(udata, qp_resp);
+		if (ret) {
 			__pvrdma_destroy_qp(dev, qp);
-			return -EINVAL;
+			return ret;
 		}
 	}
 

@@ -270,13 +270,9 @@ int efa_query_device(struct ib_device *ibdev,
 		if (dev->neqs)
 			resp.device_caps |= EFA_QUERY_DEVICE_CAPS_CQ_NOTIFICATIONS;
 
-		err = ib_copy_to_udata(udata, &resp,
-				       min(sizeof(resp), udata->outlen));
-		if (err) {
-			ibdev_dbg(ibdev,
-				  "Failed to copy udata for query_device\n");
+		err = ib_respond_udata(udata, resp);
+		if (err)
 			return err;
-		}
 	}
 
 	return 0;
@@ -442,13 +438,9 @@ int efa_alloc_pd(struct ib_pd *ibpd, struct ib_udata *udata)
 	resp.pdn = result.pdn;
 
 	if (udata->outlen) {
-		err = ib_copy_to_udata(udata, &resp,
-				       min(sizeof(resp), udata->outlen));
-		if (err) {
-			ibdev_dbg(&dev->ibdev,
-				  "Failed to copy udata for alloc_pd\n");
+		err = ib_respond_udata(udata, resp);
+		if (err)
 			goto err_dealloc_pd;
-		}
 	}
 
 	ibdev_dbg(&dev->ibdev, "Allocated pd[%d]\n", pd->pdn);
@@ -782,14 +774,9 @@ int efa_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *init_attr,
 	qp->max_inline_data = init_attr->cap.max_inline_data;
 
 	if (udata->outlen) {
-		err = ib_copy_to_udata(udata, &resp,
-				       min(sizeof(resp), udata->outlen));
-		if (err) {
-			ibdev_dbg(&dev->ibdev,
-				  "Failed to copy udata for qp[%u]\n",
-				  create_qp_resp.qp_num);
+		err = ib_respond_udata(udata, resp);
+		if (err)
 			goto err_remove_mmap_entries;
-		}
 	}
 
 	ibdev_dbg(&dev->ibdev, "Created qp[%d]\n", qp->ibqp.qp_num);
@@ -1226,13 +1213,9 @@ int efa_create_user_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	}
 
 	if (udata->outlen) {
-		err = ib_copy_to_udata(udata, &resp,
-				       min(sizeof(resp), udata->outlen));
-		if (err) {
-			ibdev_dbg(ibdev,
-				  "Failed to copy udata for create_cq\n");
+		err = ib_respond_udata(udata, resp);
+		if (err)
 			goto err_xa_erase;
-		}
 	}
 
 	ibdev_dbg(ibdev, "Created cq[%d], cq depth[%u]. dma[%pad] virt[0x%p]\n",
@@ -1935,8 +1918,7 @@ int efa_alloc_ucontext(struct ib_ucontext *ibucontext, struct ib_udata *udata)
 	resp.max_tx_batch = dev->dev_attr.max_tx_batch;
 	resp.min_sq_wr = dev->dev_attr.min_sq_depth;
 
-	err = ib_copy_to_udata(udata, &resp,
-			       min(sizeof(resp), udata->outlen));
+	err = ib_respond_udata(udata, resp);
 	if (err)
 		goto err_dealloc_uar;
 
@@ -2087,13 +2069,9 @@ int efa_create_ah(struct ib_ah *ibah,
 	resp.efa_address_handle = result.ah;
 
 	if (udata->outlen) {
-		err = ib_copy_to_udata(udata, &resp,
-				       min(sizeof(resp), udata->outlen));
-		if (err) {
-			ibdev_dbg(&dev->ibdev,
-				  "Failed to copy udata for create_ah response\n");
+		err = ib_respond_udata(udata, resp);
+		if (err)
 			goto err_destroy_ah;
-		}
 	}
 	ibdev_dbg(&dev->ibdev, "Created ah[%d]\n", ah->ah);
 
