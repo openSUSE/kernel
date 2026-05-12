@@ -146,11 +146,6 @@ struct nfs4_xattr_cache;
  */
 struct nfs_inode {
 	/*
-	 * The 64bit 'inode number'
-	 */
-	__u64 fileid;
-
-	/*
 	 * NFS file handle
 	 */
 	struct nfs_fh		fh;
