@@ -1119,7 +1119,7 @@ out:
 	return ret;
 }
 
-static int configfs_do_depend_item(struct dentry *subsys_dentry,
+static int configfs_do_depend_item(struct configfs_dirent *subsys_sd,
 				   struct config_item *target)
 {
 	struct configfs_dirent *p;
@@ -1127,7 +1127,7 @@ static int configfs_do_depend_item(struct dentry *subsys_dentry,
 
 	spin_lock(&configfs_dirent_lock);
 	/* Scan the tree, return 0 if found */
-	ret = configfs_depend_prep(subsys_dentry->d_fsdata, target);
+	ret = configfs_depend_prep(subsys_sd, target);
 	if (ret)
 		goto out_unlock_dirent_lock;
 
@@ -1195,7 +1195,7 @@ int configfs_depend_item(struct configfs_subsystem *subsys,
 	}
 
 	/* Ok, now we can trust subsys/s_item */
-	ret = configfs_do_depend_item(subsys_sd->s_dentry, target);
+	ret = configfs_do_depend_item(subsys_sd, target);
 
 out_unlock_fs:
 	inode_unlock(d_inode(root));
@@ -1297,7 +1297,7 @@ int configfs_depend_item_unlocked(struct configfs_subsystem *caller_subsys,
 	}
 
 	/* Now we can execute core of depend item */
-	ret = configfs_do_depend_item(subsys_sd->s_dentry, target);
+	ret = configfs_do_depend_item(subsys_sd, target);
 
 	if (target_subsys != caller_subsys)
 out_root_unlock:
