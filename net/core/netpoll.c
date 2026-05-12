@@ -499,43 +499,6 @@ void push_eth(struct netpoll *np, struct sk_buff *skb)
 }
 EXPORT_SYMBOL_GPL(push_eth);
 
-int netpoll_send_udp(struct netpoll *np, const char *msg, int len)
-{
-	int total_len, ip_len, udp_len;
-	struct sk_buff *skb;
-
-	if (!IS_ENABLED(CONFIG_PREEMPT_RT))
-		WARN_ON_ONCE(!irqs_disabled());
-
-	udp_len = len + sizeof(struct udphdr);
-	if (np->ipv6)
-		ip_len = udp_len + sizeof(struct ipv6hdr);
-	else
-		ip_len = udp_len + sizeof(struct iphdr);
-
-	total_len = ip_len + LL_RESERVED_SPACE(np->dev);
-
-	skb = find_skb(np, total_len + np->dev->needed_tailroom,
-		       total_len - len);
-	if (!skb)
-		return -ENOMEM;
-
-	skb_copy_to_linear_data(skb, msg, len);
-	skb_put(skb, len);
-
-	push_udp(np, skb, len);
-	if (np->ipv6)
-		push_ipv6(np, skb, len);
-	else
-		push_ipv4(np, skb, len);
-	push_eth(np, skb);
-	skb->dev = np->dev;
-
-	return (int)netpoll_send_skb(np, skb);
-}
-EXPORT_SYMBOL(netpoll_send_udp);
-
-
 static void skb_pool_flush(struct netpoll *np)
 {
 	struct sk_buff_head *skb_pool;

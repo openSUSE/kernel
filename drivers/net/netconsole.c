@@ -32,6 +32,9 @@
 #include <linux/moduleparam.h>
 #include <linux/kernel.h>
 #include <linux/string.h>
+#include <linux/ip.h>
+#include <linux/ipv6.h>
+#include <linux/udp.h>
 #include <linux/netpoll.h>
 #include <linux/inet.h>
 #include <linux/configfs.h>
@@ -1647,6 +1650,41 @@ done:
 static struct notifier_block netconsole_netdev_notifier = {
 	.notifier_call  = netconsole_netdev_event,
 };
+
+static int netpoll_send_udp(struct netpoll *np, const char *msg, int len)
+{
+	int total_len, ip_len, udp_len;
+	struct sk_buff *skb;
+
+	if (!IS_ENABLED(CONFIG_PREEMPT_RT))
+		WARN_ON_ONCE(!irqs_disabled());
+
+	udp_len = len + sizeof(struct udphdr);
+	if (np->ipv6)
+		ip_len = udp_len + sizeof(struct ipv6hdr);
+	else
+		ip_len = udp_len + sizeof(struct iphdr);
+
+	total_len = ip_len + LL_RESERVED_SPACE(np->dev);
+
+	skb = find_skb(np, total_len + np->dev->needed_tailroom,
+		       total_len - len);
+	if (!skb)
+		return -ENOMEM;
+
+	skb_copy_to_linear_data(skb, msg, len);
+	skb_put(skb, len);
+
+	push_udp(np, skb, len);
+	if (np->ipv6)
+		push_ipv6(np, skb, len);
+	else
+		push_ipv4(np, skb, len);
+	push_eth(np, skb);
+	skb->dev = np->dev;
+
+	return (int)netpoll_send_skb(np, skb);
+}
 
 /**
  * send_udp - Wrapper for netpoll_send_udp that counts errors
