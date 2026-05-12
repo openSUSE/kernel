@@ -245,12 +245,11 @@ fn init_fields(
         let slot = if pinned {
             quote! {
                 // SAFETY:
-                // - `&raw mut (*slot).#ident` points to the `#ident` field of `slot`.
-                // - `&raw mut (*slot).#ident` is valid.
+                // - `slot` is valid and properly aligned.
                 // - `make_field_check` checks that `&raw mut (*slot).#ident` is properly aligned.
                 // - `make_field_check` prevents `#ident` from being used twice, therefore
                 //   `(*slot).#ident` is exclusively accessed and has not been initialized.
-                (unsafe { #data.#ident(&raw mut (*#slot).#ident) })
+                (unsafe { #data.#ident(#slot) })
             }
         } else {
             quote! {

@@ -377,21 +377,21 @@ fn generate_the_pin_data(
             quote! {
                 /// # Safety
                 ///
-                /// - `slot` points to a `#field_name` field of a pinned struct that this
-                ///   `__ThePinData` describes.
-                /// - `slot` is a valid, properly aligned and points to uninitialized and
-                ///   exclusively accessed memory.
+                /// - `slot` is valid and properly aligned.
+                /// - `(*slot).#field_name` is properly aligned.
+                /// - `(*slot).#field_name` points to uninitialized and exclusively accessed
+                ///   memory.
                 #(#attrs)*
                 #[inline(always)]
                 #vis unsafe fn #field_name(
                     self,
-                    slot: *mut #ty,
+                    slot: *mut #struct_name #ty_generics,
                 ) -> ::pin_init::__internal::Slot<::pin_init::__internal::#pin_marker, #ty> {
                     // SAFETY:
                     // - If `#pin_marker` is `Pinned`, the corresponding field is structurally
                     //   pinned.
                     // - Other safety requirements follows the safety requirement.
-                    unsafe { ::pin_init::__internal::Slot::new(slot) }
+                    unsafe { ::pin_init::__internal::Slot::new(&raw mut (*slot).#field_name) }
                 }
             }
         })
