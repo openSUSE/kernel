@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
- * Copyright (C) 2025 Intel Corporation
+ * Copyright (C) 2025-2026 Intel Corporation
  */
 #include "iwl-config.h"
-
-/* NVM versions */
-#define IWL_WH_NVM_VERSION		0x0a1d
 
 #define IWL_DEVICE_WH							\
 	.ht_params = {							\
@@ -19,7 +16,6 @@
 	.vht_mu_mimo_supported = true,					\
 	.uhb_supported = true,						\
 	.num_rbds = IWL_NUM_RBDS_EHT,					\
-	.nvm_ver = IWL_WH_NVM_VERSION,					\
 	.nvm_type = IWL_NVM_EXT
 
 /* currently iwl_rf_wh/iwl_rf_wh_160mhz are just defines for the FM ones */

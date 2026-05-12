@@ -15,9 +15,6 @@
 /* Lowest firmware API version supported */
 #define IWL_SC_UCODE_API_MIN	100
 
-/* NVM versions */
-#define IWL_SC_NVM_VERSION		0x0a1d
-
 /* Memory offsets and lengths */
 #define IWL_SC_SMEM_OFFSET		0x400000
 #define IWL_SC_SMEM_LEN			0xD0000

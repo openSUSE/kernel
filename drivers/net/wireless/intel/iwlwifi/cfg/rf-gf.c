@@ -35,9 +35,6 @@
 #define IWL_SC_A_GF4_A_MODULE_FIRMWARE(api) \
 	IWL_SC_A_GF4_A_FW_PRE "-" __stringify(api) ".ucode"
 
-/* NVM versions */
-#define IWL_GF_NVM_VERSION		0x0a1d
-
 const struct iwl_rf_cfg iwl_rf_gf = {
 	.uhb_supported = true,
 	.led_mode = IWL_LED_RF_STATE,
@@ -49,7 +46,6 @@ const struct iwl_rf_cfg iwl_rf_gf = {
 		.ht40_bands = BIT(NL80211_BAND_2GHZ) |
 			      BIT(NL80211_BAND_5GHZ),
 	},
-	.nvm_ver = IWL_GF_NVM_VERSION,
 	.nvm_type = IWL_NVM_EXT,
 	.num_rbds = IWL_NUM_RBDS_HE,
 	.ucode_api_min = IWL_GF_UCODE_API_MIN,

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
  * Copyright (C) 2015-2017 Intel Deutschland GmbH
- * Copyright (C) 2018-2025 Intel Corporation
+ * Copyright (C) 2018-2026 Intel Corporation
  */
 #include "iwl-config.h"
 
@@ -10,9 +10,6 @@
 #define IWL_BZ_A_FM4_B_FW_PRE		"iwlwifi-bz-a0-fm4-b0"
 #define IWL_GL_B_FM_B_FW_PRE		"iwlwifi-gl-b0-fm-b0"
 #define IWL_GL_C_FM_C_FW_PRE		"iwlwifi-gl-c0-fm-c0"
-
-/* NVM versions */
-#define IWL_FM_NVM_VERSION		0x0a1d
 
 #define IWL_DEVICE_FM							\
 	.ht_params = {							\
@@ -27,7 +24,6 @@
 	.uhb_supported = true,						\
 	.eht_supported = true,						\
 	.num_rbds = IWL_NUM_RBDS_EHT,					\
-	.nvm_ver = IWL_FM_NVM_VERSION,					\
 	.nvm_type = IWL_NVM_EXT
 
 const struct iwl_rf_cfg iwl_rf_fm = {

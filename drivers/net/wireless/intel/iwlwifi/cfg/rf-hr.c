@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
  * Copyright (C) 2015-2017 Intel Deutschland GmbH
- * Copyright (C) 2018-2025 Intel Corporation
+ * Copyright (C) 2018-2026 Intel Corporation
  */
 #include "iwl-config.h"
 
@@ -40,9 +40,6 @@
 #define IWL_SC_A_HR_B_FW_MODULE_FIRMWARE(api)	\
 	IWL_SC_A_HR_B_FW_PRE "-" __stringify(api) ".ucode"
 
-/* NVM versions */
-#define IWL_HR_NVM_VERSION		0x0a1d
-
 #define IWL_DEVICE_HR							\
 	.led_mode = IWL_LED_RF_STATE,					\
 	.non_shared_ant = ANT_B,					\
@@ -54,7 +51,6 @@
 			      BIT(NL80211_BAND_5GHZ),			\
 	},								\
 	.num_rbds = IWL_NUM_RBDS_HE,					\
-	.nvm_ver = IWL_HR_NVM_VERSION,					\
 	.nvm_type = IWL_NVM_EXT,					\
 	.ucode_api_min = IWL_HR_UCODE_API_MIN,				\
 	.ucode_api_max = IWL_HR_UCODE_API_MAX
