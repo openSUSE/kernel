@@ -2168,6 +2168,7 @@ static struct uniwill_device_descriptor lapkc71f_descriptor __initdata = {
 static struct uniwill_device_descriptor tux_featureset_1_descriptor __initdata = {
 	.features = UNIWILL_FEATURE_FN_LOCK |
 		    UNIWILL_FEATURE_SUPER_KEY |
+		    UNIWILL_FEATURE_BATTERY_CHARGE_MODES |
 		    UNIWILL_FEATURE_CPU_TEMP |
 		    UNIWILL_FEATURE_PRIMARY_FAN |
 		    UNIWILL_FEATURE_SECONDARY_FAN |
@@ -2177,6 +2178,7 @@ static struct uniwill_device_descriptor tux_featureset_1_descriptor __initdata =
 static struct uniwill_device_descriptor tux_featureset_1_nvidia_descriptor __initdata = {
 	.features = UNIWILL_FEATURE_FN_LOCK |
 		    UNIWILL_FEATURE_SUPER_KEY |
+		    UNIWILL_FEATURE_BATTERY_CHARGE_MODES |
 		    UNIWILL_FEATURE_CPU_TEMP |
 		    UNIWILL_FEATURE_GPU_TEMP |
 		    UNIWILL_FEATURE_PRIMARY_FAN |
@@ -2187,6 +2189,7 @@ static struct uniwill_device_descriptor tux_featureset_1_nvidia_descriptor __ini
 static struct uniwill_device_descriptor tux_featureset_2_nvidia_descriptor __initdata = {
 	.features = UNIWILL_FEATURE_FN_LOCK |
 		    UNIWILL_FEATURE_SUPER_KEY |
+		    UNIWILL_FEATURE_BATTERY_CHARGE_MODES |
 		    UNIWILL_FEATURE_CPU_TEMP |
 		    UNIWILL_FEATURE_GPU_TEMP |
 		    UNIWILL_FEATURE_PRIMARY_FAN |
@@ -2198,6 +2201,7 @@ static struct uniwill_device_descriptor tux_featureset_2_nvidia_descriptor __ini
 static struct uniwill_device_descriptor tux_featureset_3_descriptor __initdata = {
 	.features = UNIWILL_FEATURE_FN_LOCK |
 		    UNIWILL_FEATURE_SUPER_KEY |
+		    UNIWILL_FEATURE_BATTERY_CHARGE_MODES |
 		    UNIWILL_FEATURE_CPU_TEMP |
 		    UNIWILL_FEATURE_PRIMARY_FAN |
 		    UNIWILL_FEATURE_SECONDARY_FAN,
@@ -2206,6 +2210,7 @@ static struct uniwill_device_descriptor tux_featureset_3_descriptor __initdata =
 static struct uniwill_device_descriptor tux_featureset_3_nvidia_descriptor __initdata = {
 	.features = UNIWILL_FEATURE_FN_LOCK |
 		    UNIWILL_FEATURE_SUPER_KEY |
+		    UNIWILL_FEATURE_BATTERY_CHARGE_MODES |
 		    UNIWILL_FEATURE_CPU_TEMP |
 		    UNIWILL_FEATURE_GPU_TEMP |
 		    UNIWILL_FEATURE_PRIMARY_FAN |
@@ -2231,6 +2236,7 @@ static int phxtxx1_probe(struct uniwill_data *data)
 static struct uniwill_device_descriptor phxtxx1_descriptor __initdata = {
 	.features = UNIWILL_FEATURE_FN_LOCK |
 		    UNIWILL_FEATURE_SUPER_KEY |
+		    UNIWILL_FEATURE_BATTERY_CHARGE_MODES |
 		    UNIWILL_FEATURE_CPU_TEMP |
 		    UNIWILL_FEATURE_PRIMARY_FAN |
 		    UNIWILL_FEATURE_USB_C_POWER_PRIORITY,
@@ -2256,6 +2262,7 @@ static int phxarx1_phxaqf1_probe(struct uniwill_data *data)
 static struct uniwill_device_descriptor phxarx1_phxaqf1_descriptor __initdata = {
 	.features = UNIWILL_FEATURE_FN_LOCK |
 		    UNIWILL_FEATURE_SUPER_KEY |
+		    UNIWILL_FEATURE_BATTERY_CHARGE_MODES |
 		    UNIWILL_FEATURE_CPU_TEMP |
 		    UNIWILL_FEATURE_PRIMARY_FAN |
 		    UNIWILL_FEATURE_SECONDARY_FAN |
