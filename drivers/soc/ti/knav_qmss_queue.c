@@ -769,10 +769,8 @@ void *knav_pool_create(const char *name,
 		return ERR_PTR(-ENODEV);
 
 	pool = devm_kzalloc(kdev->dev, sizeof(*pool), GFP_KERNEL);
-	if (!pool) {
-		dev_err(kdev->dev, "out of memory allocating pool\n");
+	if (!pool)
 		return ERR_PTR(-ENOMEM);
-	}
 
 	for_each_region(kdev, reg_itr) {
 		if (reg_itr->id != region_id)
@@ -1025,10 +1023,8 @@ static void knav_queue_setup_region(struct knav_device *kdev,
 	region->dma_end = region->dma_start + size;
 
 	pool = devm_kzalloc(kdev->dev, sizeof(*pool), GFP_KERNEL);
-	if (!pool) {
-		dev_err(kdev->dev, "out of memory allocating dummy pool\n");
+	if (!pool)
 		goto fail;
-	}
 	pool->num_desc = 0;
 	pool->region_offset = region->num_desc;
 	list_add(&pool->region_inst, &region->pools);
@@ -1211,10 +1207,8 @@ static int knav_setup_queue_range(struct knav_device *kdev,
 	int ret, i;
 
 	range = devm_kzalloc(dev, sizeof(*range), GFP_KERNEL);
-	if (!range) {
-		dev_err(dev, "out of memory allocating range\n");
+	if (!range)
 		return -ENOMEM;
-	}
 
 	range->kdev = kdev;
 	range->name = knav_queue_find_name(node);
