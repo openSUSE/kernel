@@ -642,17 +642,13 @@ static int configfs_attach_group(struct config_item *parent_item,
 				 struct config_item *item,
 				 struct dentry *dentry,
 				 struct configfs_fragment *frag);
-static void configfs_detach_group(struct config_item *item);
+static void configfs_detach_group(struct dentry *dentry);
 
-static void detach_groups(struct config_group *group)
+static void detach_groups(struct dentry *dentry)
 {
-	struct dentry * dentry = dget(group->cg_item.ci_dentry);
 	struct dentry *child;
 	struct configfs_dirent *parent_sd;
 	struct configfs_dirent *sd, *next;
-
-	if (!dentry)
-		return;
 
 	parent_sd = dentry->d_fsdata;
 	spin_lock(&configfs_dirent_lock);
@@ -666,7 +662,7 @@ static void detach_groups(struct config_group *group)
 
 		inode_lock(d_inode(child));
 
-		configfs_detach_group(sd->s_element);
+		configfs_detach_group(child);
 		d_inode(child)->i_flags |= S_DEAD;
 		dont_mount(child);
 
@@ -677,11 +673,6 @@ static void detach_groups(struct config_group *group)
 		spin_lock(&configfs_dirent_lock);
 	}
 	spin_unlock(&configfs_dirent_lock);
-
-	/**
-	 * Drop reference from dget() on entrance.
-	 */
-	dput(dentry);
 }
 
 /*
@@ -825,14 +816,10 @@ static void link_group(struct config_group *parent_group, struct config_group *g
 }
 
 /* Caller holds the mutex of the item's inode */
-static void configfs_detach_item(struct config_item *item)
+static void configfs_detach_item(struct dentry *dentry)
 {
-	struct dentry *dentry = dget(item->ci_dentry);
-	if (dentry) {
-		detach_attrs(dentry);
-		configfs_remove_dir(dentry);
-		dput(dentry);
-	}
+	detach_attrs(dentry);
+	configfs_remove_dir(dentry);
 }
 
 /*
@@ -867,7 +854,7 @@ static int configfs_attach_item(struct config_item *parent_item,
 			 * we must lock them as rmdir() would.
 			 */
 			inode_lock(d_inode(dentry));
-			configfs_detach_item(item);
+			configfs_detach_item(dentry);
 			d_inode(dentry)->i_flags |= S_DEAD;
 			dont_mount(dentry);
 			inode_unlock(d_inode(dentry));
@@ -879,10 +866,10 @@ static int configfs_attach_item(struct config_item *parent_item,
 }
 
 /* Caller holds the mutex of the group's inode */
-static void configfs_detach_group(struct config_item *item)
+static void configfs_detach_group(struct dentry *dentry)
 {
-	detach_groups(to_config_group(item));
-	configfs_detach_item(item);
+	detach_groups(dentry);
+	configfs_detach_item(dentry);
 }
 
 static int configfs_attach_group(struct config_item *parent_item,
@@ -911,7 +898,7 @@ static int configfs_attach_group(struct config_item *parent_item,
 		configfs_adjust_dir_dirent_depth_before_populate(sd);
 		ret = populate_groups(to_config_group(item), frag);
 		if (ret) {
-			configfs_detach_group(item);
+			configfs_detach_group(dentry);
 			d_inode(dentry)->i_flags |= S_DEAD;
 			dont_mount(dentry);
 		}
@@ -1549,13 +1536,13 @@ static int configfs_rmdir(struct inode *dir, struct dentry *dentry)
 		dead_item_owner = item->ci_type->ct_owner;
 
 	if (sd->s_type & CONFIGFS_USET_DIR) {
-		configfs_detach_group(item);
+		configfs_detach_group(dentry);
 
 		mutex_lock(&subsys->su_mutex);
 		client_disconnect_notify(parent_item, item);
 		unlink_group(to_config_group(item));
 	} else {
-		configfs_detach_item(item);
+		configfs_detach_item(dentry);
 
 		mutex_lock(&subsys->su_mutex);
 		client_disconnect_notify(parent_item, item);
@@ -1808,7 +1795,7 @@ void configfs_unregister_group(struct config_group *group)
 	configfs_detach_prep(sd, NULL);
 	spin_unlock(&configfs_dirent_lock);
 
-	configfs_detach_group(&group->cg_item);
+	configfs_detach_group(dentry);
 	d_inode(dentry)->i_flags |= S_DEAD;
 	dont_mount(dentry);
 	d_drop(dentry);
@@ -1957,7 +1944,7 @@ void configfs_unregister_subsystem(struct configfs_subsystem *subsys)
 	}
 	spin_unlock(&configfs_dirent_lock);
 	mutex_unlock(&configfs_symlink_mutex);
-	configfs_detach_group(&group->cg_item);
+	configfs_detach_group(dentry);
 	d_inode(dentry)->i_flags |= S_DEAD;
 	dont_mount(dentry);
 	inode_unlock(d_inode(dentry));
