@@ -626,7 +626,7 @@ static int mlx4_ib_query_device(struct ib_device *ibdev,
 	}
 
 	if (uhw->outlen) {
-		err = ib_copy_to_udata(uhw, &resp, resp.response_length);
+		err = ib_respond_udata(uhw, resp);
 		if (err)
 			goto out;
 	}

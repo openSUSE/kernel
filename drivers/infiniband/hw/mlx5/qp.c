@@ -3323,7 +3323,7 @@ int mlx5_ib_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attr,
 		 * including MLX5_IB_QPT_DCT, which doesn't need it.
 		 * In that case, resp will be filled with zeros.
 		 */
-		err = ib_copy_to_udata(udata, &params.resp, params.outlen);
+		err = ib_respond_udata(udata, params.resp);
 	if (err)
 		goto destroy_qp;
 
@@ -4622,7 +4622,7 @@ static int mlx5_ib_modify_dct(struct ib_qp *ibqp, struct ib_qp_attr *attr,
 		resp.dctn = qp->dct.mdct.mqp.qpn;
 		if (MLX5_CAP_GEN(dev->mdev, ece_support))
 			resp.ece_options = MLX5_GET(create_dct_out, out, ece);
-		err = ib_copy_to_udata(udata, &resp, resp.response_length);
+		err = ib_respond_udata(udata, resp);
 		if (err) {
 			mlx5_core_destroy_dct(dev, &qp->dct.mdct);
 			return err;
@@ -4781,7 +4781,7 @@ int mlx5_ib_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
 	if (!err && resp.response_length &&
 	    udata->outlen >= resp.response_length)
 		/* Return -EFAULT to the user and expect him to destroy QP. */
-		err = ib_copy_to_udata(udata, &resp, resp.response_length);
+		err = ib_respond_udata(udata, resp);
 
 out:
 	mutex_unlock(&qp->mutex);
@@ -5481,7 +5481,7 @@ struct ib_wq *mlx5_ib_create_wq(struct ib_pd *pd,
 	if (udata->outlen) {
 		resp.response_length = offsetofend(
 			struct mlx5_ib_create_wq_resp, response_length);
-		err = ib_copy_to_udata(udata, &resp, resp.response_length);
+		err = ib_respond_udata(udata, resp);
 		if (err)
 			goto err_copy;
 	}
@@ -5572,7 +5572,7 @@ int mlx5_ib_create_rwq_ind_table(struct ib_rwq_ind_table *ib_rwq_ind_table,
 		resp.response_length =
 			offsetofend(struct mlx5_ib_create_rwq_ind_tbl_resp,
 				    response_length);
-		err = ib_copy_to_udata(udata, &resp, resp.response_length);
+		err = ib_respond_udata(udata, resp);
 		if (err)
 			goto err_copy;
 	}
