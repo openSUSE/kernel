@@ -4051,6 +4051,15 @@ static bool ath11k_dp_rx_h_tkip_mic_err(struct ath11k *ar, struct sk_buff *msdu,
 
 	l3pad_bytes = ath11k_dp_rx_h_msdu_end_l3pad(ar->ab, desc);
 	msdu_len = ath11k_dp_rx_h_msdu_start_msdu_len(ar->ab, desc);
+
+	if (unlikely(hal_rx_desc_sz + l3pad_bytes + msdu_len > DP_RX_BUFFER_SIZE)) {
+		ath11k_dbg(ab, ATH11K_DBG_DATA,
+			   "invalid msdu len in tkip mic err %u\n", msdu_len);
+		ath11k_dbg_dump(ab, ATH11K_DBG_DATA, NULL, "", desc,
+				sizeof(*desc));
+		return true;
+	}
+
 	skb_put(msdu, hal_rx_desc_sz + l3pad_bytes + msdu_len);
 	skb_pull(msdu, hal_rx_desc_sz + l3pad_bytes);
 
