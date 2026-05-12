@@ -1121,16 +1121,16 @@ static int mlx4_ib_alloc_ucontext(struct ib_ucontext *uctx,
 	mutex_init(&context->wqn_ranges_mutex);
 
 	if (ibdev->ops.uverbs_abi_ver == MLX4_IB_UVERBS_NO_DEV_CAPS_ABI_VERSION)
-		err = ib_copy_to_udata(udata, &resp_v3, sizeof(resp_v3));
+		err = ib_respond_udata(udata, resp_v3);
 	else
-		err = ib_copy_to_udata(udata, &resp, sizeof(resp));
+		err = ib_respond_udata(udata, resp);
 
 	if (err) {
 		mlx4_uar_free(to_mdev(ibdev)->dev, &context->uar);
-		return -EFAULT;
+		return err;
 	}
 
-	return err;
+	return 0;
 }
 
 static void mlx4_ib_dealloc_ucontext(struct ib_ucontext *ibcontext)

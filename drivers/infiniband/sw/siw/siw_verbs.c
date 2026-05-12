@@ -102,7 +102,7 @@ int siw_alloc_ucontext(struct ib_ucontext *base_ctx, struct ib_udata *udata)
 		rv = -EINVAL;
 		goto err_out;
 	}
-	rv = ib_copy_to_udata(udata, &uresp, sizeof(uresp));
+	rv = ib_respond_udata(udata, uresp);
 	if (rv)
 		goto err_out;
 
@@ -472,7 +472,7 @@ int siw_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attrs,
 			rv = -EINVAL;
 			goto err_out_xa;
 		}
-		rv = ib_copy_to_udata(udata, &uresp, sizeof(uresp));
+		rv = ib_respond_udata(udata, uresp);
 		if (rv)
 			goto err_out_xa;
 	}
@@ -1205,7 +1205,7 @@ int siw_create_cq(struct ib_cq *base_cq, const struct ib_cq_init_attr *attr,
 			rv = -EINVAL;
 			goto err_out;
 		}
-		rv = ib_copy_to_udata(udata, &uresp, sizeof(uresp));
+		rv = ib_respond_udata(udata, uresp);
 		if (rv)
 			goto err_out;
 	}
@@ -1386,7 +1386,7 @@ struct ib_mr *siw_reg_user_mr(struct ib_pd *pd, u64 start, u64 len,
 			rv = -EINVAL;
 			goto err_out;
 		}
-		rv = ib_copy_to_udata(udata, &uresp, sizeof(uresp));
+		rv = ib_respond_udata(udata, uresp);
 		if (rv)
 			goto err_out;
 	}
@@ -1646,7 +1646,7 @@ int siw_create_srq(struct ib_srq *base_srq,
 			rv = -EINVAL;
 			goto err_out;
 		}
-		rv = ib_copy_to_udata(udata, &uresp, sizeof(uresp));
+		rv = ib_respond_udata(udata, uresp);
 		if (rv)
 			goto err_out;
 	}

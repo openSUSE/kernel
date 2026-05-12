@@ -320,11 +320,11 @@ int pvrdma_alloc_ucontext(struct ib_ucontext *uctx, struct ib_udata *udata)
 
 	/* copy back to user */
 	uresp.qp_tab_size = vdev->dsr->caps.max_qp;
-	ret = ib_copy_to_udata(udata, &uresp, sizeof(uresp));
+	ret = ib_respond_udata(udata, uresp);
 	if (ret) {
 		pvrdma_uar_free(vdev, &context->uar);
 		pvrdma_dealloc_ucontext(&context->ibucontext);
-		return -EFAULT;
+		return ret;
 	}
 
 	return 0;
@@ -430,11 +430,10 @@ int pvrdma_alloc_pd(struct ib_pd *ibpd, struct ib_udata *udata)
 	pd_resp.pdn = resp->pd_handle;
 
 	if (udata) {
-		if (ib_copy_to_udata(udata, &pd_resp, sizeof(pd_resp))) {
-			dev_warn(&dev->pdev->dev,
-				 "failed to copy back protection domain\n");
+		ret = ib_respond_udata(udata, pd_resp);
+		if (ret) {
 			pvrdma_dealloc_pd(&pd->ibpd, udata);
-			return -EFAULT;
+			return ret;
 		}
 	}
 

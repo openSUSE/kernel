@@ -1251,15 +1251,10 @@ static int qedr_copy_srq_uresp(struct qedr_dev *dev,
 			       struct qedr_srq *srq, struct ib_udata *udata)
 {
 	struct qedr_create_srq_uresp uresp = {};
-	int rc;
 
 	uresp.srq_id = srq->srq_id;
 
-	rc = ib_copy_to_udata(udata, &uresp, sizeof(uresp));
-	if (rc)
-		DP_ERR(dev, "create srq: problem copying data to user space\n");
-
-	return rc;
+	return ib_respond_udata(udata, uresp);
 }
 
 static void qedr_copy_rq_uresp(struct qedr_dev *dev,

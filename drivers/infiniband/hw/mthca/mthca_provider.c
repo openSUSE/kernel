@@ -311,10 +311,11 @@ static int mthca_alloc_ucontext(struct ib_ucontext *uctx,
 		return err;
 	}
 
-	if (ib_copy_to_udata(udata, &uresp, sizeof(uresp))) {
+	err = ib_respond_udata(udata, uresp);
+	if (err) {
 		mthca_cleanup_user_db_tab(to_mdev(ibdev), &context->uar, context->db_tab);
 		mthca_uar_free(to_mdev(ibdev), &context->uar);
-		return -EFAULT;
+		return err;
 	}
 
 	context->reg_mr_warned = 0;

@@ -203,11 +203,10 @@ int pvrdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 		cq->uar = &context->uar;
 
 		/* Copy udata back. */
-		if (ib_copy_to_udata(udata, &cq_resp, sizeof(cq_resp))) {
-			dev_warn(&dev->pdev->dev,
-				 "failed to copy back udata\n");
+		ret = ib_respond_udata(udata, cq_resp);
+		if (ret) {
 			pvrdma_destroy_cq(&cq->ibcq, udata);
-			return -EINVAL;
+			return ret;
 		}
 	}
 
