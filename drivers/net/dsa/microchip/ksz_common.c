@@ -3085,65 +3085,6 @@ void ksz_port_bridge_leave(struct dsa_switch *ds, int port,
 	 */
 }
 
-int ksz_port_fdb_add(struct dsa_switch *ds, int port,
-		     const unsigned char *addr, u16 vid,
-		     struct dsa_db db)
-{
-	struct ksz_device *dev = ds->priv;
-
-	if (!dev->dev_ops->fdb_add)
-		return -EOPNOTSUPP;
-
-	return dev->dev_ops->fdb_add(dev, port, addr, vid, db);
-}
-
-int ksz_port_fdb_del(struct dsa_switch *ds, int port,
-		     const unsigned char *addr,
-		     u16 vid, struct dsa_db db)
-{
-	struct ksz_device *dev = ds->priv;
-
-	if (!dev->dev_ops->fdb_del)
-		return -EOPNOTSUPP;
-
-	return dev->dev_ops->fdb_del(dev, port, addr, vid, db);
-}
-
-int ksz_port_fdb_dump(struct dsa_switch *ds, int port,
-		      dsa_fdb_dump_cb_t *cb, void *data)
-{
-	struct ksz_device *dev = ds->priv;
-
-	if (!dev->dev_ops->fdb_dump)
-		return -EOPNOTSUPP;
-
-	return dev->dev_ops->fdb_dump(dev, port, cb, data);
-}
-
-int ksz_port_mdb_add(struct dsa_switch *ds, int port,
-		     const struct switchdev_obj_port_mdb *mdb,
-		     struct dsa_db db)
-{
-	struct ksz_device *dev = ds->priv;
-
-	if (!dev->dev_ops->mdb_add)
-		return -EOPNOTSUPP;
-
-	return dev->dev_ops->mdb_add(dev, port, mdb, db);
-}
-
-int ksz_port_mdb_del(struct dsa_switch *ds, int port,
-		     const struct switchdev_obj_port_mdb *mdb,
-		     struct dsa_db db)
-{
-	struct ksz_device *dev = ds->priv;
-
-	if (!dev->dev_ops->mdb_del)
-		return -EOPNOTSUPP;
-
-	return dev->dev_ops->mdb_del(dev, port, mdb, db);
-}
-
 static int ksz9477_set_default_prio_queue_mapping(struct ksz_device *dev,
 						  int port)
 {

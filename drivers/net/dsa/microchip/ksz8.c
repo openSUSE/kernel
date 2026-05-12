@@ -1315,9 +1315,10 @@ static void ksz8_flush_dyn_mac_table(struct dsa_switch *ds, int port)
 	}
 }
 
-static int ksz8_fdb_dump(struct ksz_device *dev, int port,
+static int ksz8_fdb_dump(struct dsa_switch *ds, int port,
 			 dsa_fdb_dump_cb_t *cb, void *data)
 {
+	struct ksz_device *dev = ds->priv;
 	u8 mac[ETH_ALEN];
 	u8 src_port, fid;
 	u16 entries = 0;
@@ -1420,30 +1421,30 @@ static int ksz8_del_sta_mac(struct ksz_device *dev, int port,
 	return ksz8_w_sta_mac_table(dev, index, &alu);
 }
 
-static int ksz8_mdb_add(struct ksz_device *dev, int port,
+static int ksz8_mdb_add(struct dsa_switch *ds, int port,
 			const struct switchdev_obj_port_mdb *mdb,
 			struct dsa_db db)
 {
-	return ksz8_add_sta_mac(dev, port, mdb->addr, mdb->vid);
+	return ksz8_add_sta_mac(ds->priv, port, mdb->addr, mdb->vid);
 }
 
-static int ksz8_mdb_del(struct ksz_device *dev, int port,
+static int ksz8_mdb_del(struct dsa_switch *ds, int port,
 			const struct switchdev_obj_port_mdb *mdb,
 			struct dsa_db db)
 {
-	return ksz8_del_sta_mac(dev, port, mdb->addr, mdb->vid);
+	return ksz8_del_sta_mac(ds->priv, port, mdb->addr, mdb->vid);
 }
 
-static int ksz8_fdb_add(struct ksz_device *dev, int port,
+static int ksz8_fdb_add(struct dsa_switch *ds, int port,
 			const unsigned char *addr, u16 vid, struct dsa_db db)
 {
-	return ksz8_add_sta_mac(dev, port, addr, vid);
+	return ksz8_add_sta_mac(ds->priv, port, addr, vid);
 }
 
-static int ksz8_fdb_del(struct ksz_device *dev, int port,
+static int ksz8_fdb_del(struct dsa_switch *ds, int port,
 			const unsigned char *addr, u16 vid, struct dsa_db db)
 {
-	return ksz8_del_sta_mac(dev, port, addr, vid);
+	return ksz8_del_sta_mac(ds->priv, port, addr, vid);
 }
 
 static int ksz8_port_vlan_filtering(struct dsa_switch *ds, int port, bool flag,
@@ -2215,11 +2216,6 @@ const struct ksz_dev_ops ksz8463_dev_ops = {
 	.r_mib_stat64 = ksz88xx_r_mib_stats64,
 	.freeze_mib = ksz8_freeze_mib,
 	.port_init_cnt = ksz8_port_init_cnt,
-	.fdb_dump = ksz8_fdb_dump,
-	.fdb_add = ksz8_fdb_add,
-	.fdb_del = ksz8_fdb_del,
-	.mdb_add = ksz8_mdb_add,
-	.mdb_del = ksz8_mdb_del,
 	.mirror_add = ksz8_port_mirror_add,
 	.mirror_del = ksz8_port_mirror_del,
 	.get_caps = ksz8_get_caps,
@@ -2242,11 +2238,6 @@ const struct ksz_dev_ops ksz87xx_dev_ops = {
 	.r_mib_stat64 = ksz_r_mib_stats64,
 	.freeze_mib = ksz8_freeze_mib,
 	.port_init_cnt = ksz8_port_init_cnt,
-	.fdb_dump = ksz8_fdb_dump,
-	.fdb_add = ksz8_fdb_add,
-	.fdb_del = ksz8_fdb_del,
-	.mdb_add = ksz8_mdb_add,
-	.mdb_del = ksz8_mdb_del,
 	.mirror_add = ksz8_port_mirror_add,
 	.mirror_del = ksz8_port_mirror_del,
 	.get_caps = ksz8_get_caps,
@@ -2272,11 +2263,6 @@ const struct ksz_dev_ops ksz88xx_dev_ops = {
 	.r_mib_stat64 = ksz88xx_r_mib_stats64,
 	.freeze_mib = ksz8_freeze_mib,
 	.port_init_cnt = ksz8_port_init_cnt,
-	.fdb_dump = ksz8_fdb_dump,
-	.fdb_add = ksz8_fdb_add,
-	.fdb_del = ksz8_fdb_del,
-	.mdb_add = ksz8_mdb_add,
-	.mdb_del = ksz8_mdb_del,
 	.mirror_add = ksz8_port_mirror_add,
 	.mirror_del = ksz8_port_mirror_del,
 	.get_caps = ksz8_get_caps,
@@ -2316,11 +2302,11 @@ const struct dsa_switch_ops ksz8463_switch_ops = {
 	.port_vlan_filtering	= ksz8_port_vlan_filtering,
 	.port_vlan_add		= ksz8_port_vlan_add,
 	.port_vlan_del		= ksz8_port_vlan_del,
-	.port_fdb_dump		= ksz_port_fdb_dump,
-	.port_fdb_add		= ksz_port_fdb_add,
-	.port_fdb_del		= ksz_port_fdb_del,
-	.port_mdb_add           = ksz_port_mdb_add,
-	.port_mdb_del           = ksz_port_mdb_del,
+	.port_fdb_dump		= ksz8_fdb_dump,
+	.port_fdb_add		= ksz8_fdb_add,
+	.port_fdb_del		= ksz8_fdb_del,
+	.port_mdb_add           = ksz8_mdb_add,
+	.port_mdb_del           = ksz8_mdb_del,
 	.port_mirror_add	= ksz_port_mirror_add,
 	.port_mirror_del	= ksz_port_mirror_del,
 	.get_stats64		= ksz_get_stats64,
@@ -2376,11 +2362,11 @@ const struct dsa_switch_ops ksz87xx_switch_ops = {
 	.port_vlan_filtering	= ksz8_port_vlan_filtering,
 	.port_vlan_add		= ksz8_port_vlan_add,
 	.port_vlan_del		= ksz8_port_vlan_del,
-	.port_fdb_dump		= ksz_port_fdb_dump,
-	.port_fdb_add		= ksz_port_fdb_add,
-	.port_fdb_del		= ksz_port_fdb_del,
-	.port_mdb_add           = ksz_port_mdb_add,
-	.port_mdb_del           = ksz_port_mdb_del,
+	.port_fdb_dump		= ksz8_fdb_dump,
+	.port_fdb_add		= ksz8_fdb_add,
+	.port_fdb_del		= ksz8_fdb_del,
+	.port_mdb_add           = ksz8_mdb_add,
+	.port_mdb_del           = ksz8_mdb_del,
 	.port_mirror_add	= ksz_port_mirror_add,
 	.port_mirror_del	= ksz_port_mirror_del,
 	.get_stats64		= ksz_get_stats64,
@@ -2436,11 +2422,11 @@ const struct dsa_switch_ops ksz88xx_switch_ops = {
 	.port_vlan_filtering	= ksz8_port_vlan_filtering,
 	.port_vlan_add		= ksz8_port_vlan_add,
 	.port_vlan_del		= ksz8_port_vlan_del,
-	.port_fdb_dump		= ksz_port_fdb_dump,
-	.port_fdb_add		= ksz_port_fdb_add,
-	.port_fdb_del		= ksz_port_fdb_del,
-	.port_mdb_add           = ksz_port_mdb_add,
-	.port_mdb_del           = ksz_port_mdb_del,
+	.port_fdb_dump		= ksz8_fdb_dump,
+	.port_fdb_add		= ksz8_fdb_add,
+	.port_fdb_del		= ksz8_fdb_del,
+	.port_mdb_add           = ksz8_mdb_add,
+	.port_mdb_del           = ksz8_mdb_del,
 	.port_mirror_add	= ksz_port_mirror_add,
 	.port_mirror_del	= ksz_port_mirror_del,
 	.get_stats64		= ksz_get_stats64,

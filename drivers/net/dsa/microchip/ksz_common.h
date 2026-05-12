@@ -413,18 +413,6 @@ struct ksz_dev_ops {
 			  bool ingress, struct netlink_ext_ack *extack);
 	void (*mirror_del)(struct ksz_device *dev, int port,
 			   struct dsa_mall_mirror_tc_entry *mirror);
-	int (*fdb_add)(struct ksz_device *dev, int port,
-		       const unsigned char *addr, u16 vid, struct dsa_db db);
-	int (*fdb_del)(struct ksz_device *dev, int port,
-		       const unsigned char *addr, u16 vid, struct dsa_db db);
-	int (*fdb_dump)(struct ksz_device *dev, int port,
-			dsa_fdb_dump_cb_t *cb, void *data);
-	int (*mdb_add)(struct ksz_device *dev, int port,
-		       const struct switchdev_obj_port_mdb *mdb,
-		       struct dsa_db db);
-	int (*mdb_del)(struct ksz_device *dev, int port,
-		       const struct switchdev_obj_port_mdb *mdb,
-		       struct dsa_db db);
 	void (*get_caps)(struct ksz_device *dev, int port,
 			 struct phylink_config *config);
 	int (*pme_write8)(struct ksz_device *dev, u32 reg, u8 value);
@@ -498,20 +486,6 @@ int ksz_port_pre_bridge_flags(struct dsa_switch *ds, int port,
 int ksz_port_bridge_flags(struct dsa_switch *ds, int port,
 			  struct switchdev_brport_flags flags,
 			  struct netlink_ext_ack *extack);
-int ksz_port_fdb_add(struct dsa_switch *ds, int port,
-		     const unsigned char *addr, u16 vid,
-		     struct dsa_db db);
-int ksz_port_fdb_del(struct dsa_switch *ds, int port,
-		     const unsigned char *addr,
-		     u16 vid, struct dsa_db db);
-int ksz_port_fdb_dump(struct dsa_switch *ds, int port,
-		      dsa_fdb_dump_cb_t *cb, void *data);
-int ksz_port_mdb_add(struct dsa_switch *ds, int port,
-		     const struct switchdev_obj_port_mdb *mdb,
-		     struct dsa_db db);
-int ksz_port_mdb_del(struct dsa_switch *ds, int port,
-		     const struct switchdev_obj_port_mdb *mdb,
-		     struct dsa_db db);
 
 void ksz_phylink_get_caps(struct dsa_switch *ds, int port,
 			  struct phylink_config *config);
