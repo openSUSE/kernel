@@ -532,11 +532,6 @@ static void _InitInterrupt(struct adapter *padapter)
 	/*  Initialize and enable SDIO Host Interrupt. */
 	/*  */
 	InitInterrupt8723BSdio(padapter);
-
-	/*  */
-	/*  Initialize system Host Interrupt. */
-	/*  */
-	InitSysInterrupt8723BSdio(padapter);
 }
 
 static void _InitRFType(struct adapter *padapter)

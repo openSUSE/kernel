@@ -581,19 +581,6 @@ void InitInterrupt8723BSdio(struct adapter *adapter)
 				   0);
 }
 
-/*  */
-/*	Description: */
-/*		Initialize System Host Interrupt Mask configuration variables for future use. */
-/*  */
-/*	Created by Roger, 2011.08.03. */
-/*  */
-void InitSysInterrupt8723BSdio(struct adapter *adapter)
-{
-	struct hal_com_data *haldata;
-
-	haldata = GET_HAL_DATA(adapter);
-}
-
 /*
  * Enable SDIO Host Interrupt Mask configuration on SDIO local domain.
  *
