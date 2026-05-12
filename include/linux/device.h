@@ -134,26 +134,38 @@ ssize_t device_store_bool(struct device *dev, struct device_attribute *attr,
 ssize_t device_show_string(struct device *dev, struct device_attribute *attr,
 			   char *buf);
 
-#define __DEVICE_ATTR(_name, _mode, _show, _store) \
-	__ATTR(_name, _mode, _show, _store)
+#define __DEVICE_ATTR(_name, _mode, _show, _store) {			\
+	.attr = {.name = __stringify(_name),				\
+		 .mode = VERIFY_OCTAL_PERMISSIONS(_mode) },		\
+	.show	= _show,						\
+	.store	= _store,						\
+}
 
 #define __DEVICE_ATTR_RO_MODE(_name, _mode) \
-	__ATTR_RO_MODE(_name, _mode)
+	__DEVICE_ATTR(_name, _mode, _name##_show, NULL)
 
 #define __DEVICE_ATTR_RO(_name) \
-	__ATTR_RO(_name)
+	__DEVICE_ATTR_RO_MODE(_name, 0444)
 
 #define __DEVICE_ATTR_WO(_name) \
-	__ATTR_WO(_name)
+	__DEVICE_ATTR(_name, 0200, NULL, _name##_store)
 
 #define __DEVICE_ATTR_RW_MODE(_name, _mode) \
-	__ATTR_RW_MODE(_name, _mode)
+	__DEVICE_ATTR(_name, _mode, _name##_show, _name##_store)
 
 #define __DEVICE_ATTR_RW(_name) \
-	__ATTR_RW(_name)
+	__DEVICE_ATTR_RW_MODE(_name, 0644)
 
-#define __DEVICE_ATTR_IGNORE_LOCKDEP(_name, _mode, _show, _store) \
-	__ATTR_IGNORE_LOCKDEP(_name, _mode, _show, _store)
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+#define __DEVICE_ATTR_IGNORE_LOCKDEP(_name, _mode, _show, _store) {	\
+	.attr = {.name = __stringify(_name), .mode = _mode,		\
+			.ignore_lockdep = true },			\
+	.show		= _show,					\
+	.store		= _store,					\
+}
+#else
+#define __DEVICE_ATTR_IGNORE_LOCKDEP	__DEVICE_ATTR
+#endif
 
 /**
  * DEVICE_ATTR - Define a device attribute.
