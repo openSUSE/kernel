@@ -1199,9 +1199,14 @@ static int mlx4_ib_alloc_pd(struct ib_pd *ibpd, struct ib_udata *udata)
 	if (err)
 		return err;
 
-	if (udata && ib_copy_to_udata(udata, &pd->pdn, sizeof(__u32))) {
-		mlx4_pd_free(to_mdev(ibdev)->dev, pd->pdn);
-		return -EFAULT;
+	if (udata) {
+		struct mlx4_ib_alloc_pd_resp uresp = { .pdn = pd->pdn };
+
+		err = ib_respond_udata(udata, uresp);
+		if (err) {
+			mlx4_pd_free(to_mdev(ibdev)->dev, pd->pdn);
+			return err;
+		}
 	}
 	return 0;
 }

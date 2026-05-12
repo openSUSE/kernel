@@ -142,6 +142,7 @@ int mlx4_ib_create_user_cq(struct ib_cq *ibcq,
 {
 	struct ib_udata *udata = &attrs->driver_udata;
 	struct ib_device *ibdev = ibcq->device;
+	struct mlx4_ib_create_cq_resp uresp = {};
 	int entries = attr->cqe;
 	int vector = attr->comp_vector;
 	struct mlx4_ib_dev *dev = to_mdev(ibdev);
@@ -219,10 +220,10 @@ int mlx4_ib_create_user_cq(struct ib_cq *ibcq,
 	cq->mcq.event = mlx4_ib_cq_event;
 	cq->mcq.usage = MLX4_RES_USAGE_USER_VERBS;
 
-	if (ib_copy_to_udata(udata, &cq->mcq.cqn, sizeof(__u32))) {
-		err = -EFAULT;
+	uresp.cqn = cq->mcq.cqn;
+	err = ib_respond_udata(udata, uresp);
+	if (err)
 		goto err_cq_free;
-	}
 
 	return 0;
 
