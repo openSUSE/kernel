@@ -119,7 +119,6 @@ nlm4_lock_to_nlm_lock(struct nlm_lock *lock, struct nlm4_lock *alock)
 	lock->oh.len = alock->oh.len;
 	lock->oh.data = alock->oh.data;
 	lock->svid = alock->svid;
-	locks_init_lock(&lock->fl);
 	lockd_set_file_lock_range4(&lock->fl, alock->l_offset, alock->l_len);
 	return nlm_granted;
 }
