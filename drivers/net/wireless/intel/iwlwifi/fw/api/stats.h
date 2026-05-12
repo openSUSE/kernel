@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /*
- * Copyright (C) 2012-2014, 2018, 2020-2021, 2023-2025 Intel Corporation
+ * Copyright (C) 2012-2014, 2018, 2020-2021, 2023-2026 Intel Corporation
  * Copyright (C) 2013-2015 Intel Mobile Communications GmbH
  * Copyright (C) 2016-2017 Intel Deutschland GmbH
  */
@@ -557,7 +557,7 @@ struct iwl_stats_ntfy_per_mac {
 
 #define IWL_STATS_MAX_BW_INDEX 5
 /**
- * struct iwl_stats_ntfy_per_phy - per PHY statistics
+ * struct iwl_stats_ntfy_per_phy_v1 - per PHY statistics
  * @channel_load: channel load
  * @channel_load_by_us: device contribution to MCLM
  * @channel_load_not_by_us: other devices' contribution to MCLM
@@ -572,7 +572,7 @@ struct iwl_stats_ntfy_per_mac {
  *	per channel BW. note BACK counted as 1
  * @last_tx_ch_width_indx: last txed frame channel width index
  */
-struct iwl_stats_ntfy_per_phy {
+struct iwl_stats_ntfy_per_phy_v1 {
 	__le32 channel_load;
 	__le32 channel_load_by_us;
 	__le32 channel_load_not_by_us;
@@ -600,17 +600,17 @@ struct iwl_stats_ntfy_per_sta {
 #define IWL_STATS_MAX_PHY_OPERATIONAL 3
 
 /**
- * struct iwl_system_statistics_notif_oper - statistics notification
+ * struct iwl_system_statistics_notif_oper_v3 - statistics notification
  *
  * @time_stamp: time when the notification is sent from firmware
  * @per_link: per link statistics, &struct iwl_stats_ntfy_per_link
- * @per_phy: per phy statistics, &struct iwl_stats_ntfy_per_phy
+ * @per_phy: per phy statistics, &struct iwl_stats_ntfy_per_phy_v1
  * @per_sta: per sta statistics, &struct iwl_stats_ntfy_per_sta
  */
-struct iwl_system_statistics_notif_oper {
+struct iwl_system_statistics_notif_oper_v3 {
 	__le32 time_stamp;
 	struct iwl_stats_ntfy_per_link per_link[IWL_FW_MAX_LINKS];
-	struct iwl_stats_ntfy_per_phy per_phy[IWL_STATS_MAX_PHY_OPERATIONAL];
+	struct iwl_stats_ntfy_per_phy_v1 per_phy[IWL_STATS_MAX_PHY_OPERATIONAL];
 	struct iwl_stats_ntfy_per_sta per_sta[IWL_STATION_COUNT_MAX];
 } __packed; /* STATISTICS_FW_NTFY_OPERATIONAL_API_S_VER_3 */
 
@@ -642,7 +642,7 @@ struct iwl_system_statistics_end_notif {
  * @hdr: general statistics header
  * @flags: bitmap of possible notification structures
  * @per_mac: per mac statistics, &struct iwl_stats_ntfy_per_mac
- * @per_phy: per phy statistics, &struct iwl_stats_ntfy_per_phy
+ * @per_phy: per phy statistics, &struct iwl_stats_ntfy_per_phy_v1
  * @per_sta: per sta statistics, &struct iwl_stats_ntfy_per_sta
  * @rx_time: rx time
  * @tx_time: usec the radio is transmitting.
@@ -653,7 +653,7 @@ struct iwl_statistics_operational_ntfy {
 	struct iwl_statistics_ntfy_hdr hdr;
 	__le32 flags;
 	struct iwl_stats_ntfy_per_mac per_mac[MAC_INDEX_AUX];
-	struct iwl_stats_ntfy_per_phy per_phy[IWL_STATS_MAX_PHY_OPERATIONAL];
+	struct iwl_stats_ntfy_per_phy_v1 per_phy[IWL_STATS_MAX_PHY_OPERATIONAL];
 	struct iwl_stats_ntfy_per_sta per_sta[IWL_STATION_COUNT_MAX];
 	__le64 rx_time;
 	__le64 tx_time;

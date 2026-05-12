@@ -2,7 +2,7 @@
 /*
  * Copyright (C) 2013-2015 Intel Mobile Communications GmbH
  * Copyright (C) 2016-2017 Intel Deutschland GmbH
- * Copyright (C) 2018-2022, 2024-2025 Intel Corporation
+ * Copyright (C) 2018-2022, 2024-2026 Intel Corporation
  */
 #ifndef __iwl_fw_api_commands_h__
 #define __iwl_fw_api_commands_h__
@@ -653,7 +653,7 @@ enum iwl_system_subcmd_ids {
 enum iwl_statistics_subcmd_ids {
 	/**
 	 * @STATISTICS_OPER_NOTIF: Notification about operational
-	 *	statistics &struct iwl_system_statistics_notif_oper
+	 *	statistics &struct iwl_system_statistics_notif_oper_v3
 	 */
 	STATISTICS_OPER_NOTIF = 0x0,
 
