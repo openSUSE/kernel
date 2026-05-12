@@ -1064,8 +1064,13 @@ struct iwl_fw_dump_exclude {
 	__le32 addr, size;
 };
 
-struct iwl_fw_fseq_bin_version {
+struct iwl_fw_fseq_bin_version_v1 {
 	__le32 major, minor;
+}; /* FW_TLV_FSEQ_BIN_VERSION_S */
+
+struct iwl_fw_fseq_bin_version {
+	/* rf_id is currently unused and always zero */
+	__le32 mac_id, rf_id, major, minor;
 }; /* FW_TLV_FSEQ_BIN_VERSION_S */
 
 static inline size_t _iwl_tlv_array_len(const struct iwl_ucode_tlv *tlv,
