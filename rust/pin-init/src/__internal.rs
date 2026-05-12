@@ -113,28 +113,10 @@ impl InitOk {
 ///
 /// Only the `init` module is allowed to use this trait.
 pub unsafe trait HasPinData {
-    type PinData: PinData;
+    type PinData;
 
     #[expect(clippy::missing_safety_doc)]
     unsafe fn __pin_data() -> Self::PinData;
-}
-
-/// Marker trait for pinning data of structs.
-///
-/// # Safety
-///
-/// Only the `init` module is allowed to use this trait.
-pub unsafe trait PinData: Copy {
-    type Datee: ?Sized + HasPinData;
-
-    /// Type inference helper function.
-    #[inline(always)]
-    fn make_closure<F, E>(self, f: F) -> F
-    where
-        F: FnOnce(*mut Self::Datee) -> Result<InitOk, E>,
-    {
-        f
-    }
 }
 
 /// This trait is automatically implemented for every type. It aims to provide the same type
@@ -144,28 +126,10 @@ pub unsafe trait PinData: Copy {
 ///
 /// Only the `init` module is allowed to use this trait.
 pub unsafe trait HasInitData {
-    type InitData: InitData;
+    type InitData;
 
     #[expect(clippy::missing_safety_doc)]
     unsafe fn __init_data() -> Self::InitData;
-}
-
-/// Same function as `PinData`, but for arbitrary data.
-///
-/// # Safety
-///
-/// Only the `init` module is allowed to use this trait.
-pub unsafe trait InitData: Copy {
-    type Datee: ?Sized + HasInitData;
-
-    /// Type inference helper function.
-    #[inline(always)]
-    fn make_closure<F, E>(self, f: F) -> F
-    where
-        F: FnOnce(*mut Self::Datee) -> Result<InitOk, E>,
-    {
-        f
-    }
 }
 
 pub struct AllData<T: ?Sized>(PhantomInvariant<T>);
@@ -178,9 +142,15 @@ impl<T: ?Sized> Clone for AllData<T> {
 
 impl<T: ?Sized> Copy for AllData<T> {}
 
-// SAFETY: TODO.
-unsafe impl<T: ?Sized> InitData for AllData<T> {
-    type Datee = T;
+impl<T: ?Sized> AllData<T> {
+    /// Type inference helper function.
+    #[inline(always)]
+    pub fn __make_closure<F, E>(self, f: F) -> F
+    where
+        F: FnOnce(*mut T) -> Result<InitOk, E>,
+    {
+        f
+    }
 }
 
 // SAFETY: TODO.

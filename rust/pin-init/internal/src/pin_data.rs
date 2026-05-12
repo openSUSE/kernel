@@ -447,6 +447,16 @@ fn generate_the_pin_data(
         impl #impl_generics __ThePinData #ty_generics
             #whr
         {
+            /// Type inference helper function.
+            #[inline(always)]
+            #vis fn __make_closure<__F, __E>(self, f: __F) -> __F
+            where
+                __F: FnOnce(*mut #struct_name #ty_generics) ->
+                    ::core::result::Result<::pin_init::__internal::InitOk, __E>,
+            {
+                f
+            }
+
             #field_accessors
         }
 
@@ -460,13 +470,6 @@ fn generate_the_pin_data(
             unsafe fn __pin_data() -> Self::PinData {
                 __ThePinData { __phantom: ::pin_init::__internal::PhantomInvariant::new() }
             }
-        }
-
-        // SAFETY: TODO
-        unsafe impl #impl_generics ::pin_init::__internal::PinData for __ThePinData #ty_generics
-            #whr
-        {
-            type Datee = #struct_name #ty_generics;
         }
     }
 }

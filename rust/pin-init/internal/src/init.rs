@@ -103,17 +103,15 @@ pub(crate) fn expand(
         |(_, err)| Box::new(err),
     );
     let slot = format_ident!("slot");
-    let (has_data_trait, data_trait, get_data, init_from_closure) = if pinned {
+    let (has_data_trait, get_data, init_from_closure) = if pinned {
         (
             format_ident!("HasPinData"),
-            format_ident!("PinData"),
             format_ident!("__pin_data"),
             format_ident!("pin_init_from_closure"),
         )
     } else {
         (
             format_ident!("HasInitData"),
-            format_ident!("InitData"),
             format_ident!("__init_data"),
             format_ident!("init_from_closure"),
         )
@@ -157,8 +155,7 @@ pub(crate) fn expand(
             #path::#get_data()
         };
         // Ensure that `#data` really is of type `#data` and help with type inference:
-        let init = ::pin_init::__internal::#data_trait::make_closure::<_, #error>(
-            #data,
+        let init = #data.__make_closure::<_, #error>(
             move |slot| {
                 #zeroable_check
                 #this
