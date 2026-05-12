@@ -84,7 +84,6 @@ void sm750_hw_cursor_set_data(struct lynx_cursor *cursor, u16 rop,
 	/* in byte */
 	offset = cursor->max_w * 2 / 8;
 
-	data = 0;
 	pstart = cursor->vstart;
 	pbuffer = pstart;
 
