@@ -1165,9 +1165,11 @@ static phy_interface_t ksz9477_get_interface(struct ksz_device *dev, int port)
 	return interface;
 }
 
-static void ksz9477_get_caps(struct ksz_device *dev, int port,
-			     struct phylink_config *config)
+static void ksz9477_phylink_get_caps(struct dsa_switch *ds, int port,
+				     struct phylink_config *config)
 {
+	struct ksz_device *dev = ds->priv;
+
 	config->mac_capabilities = MAC_10 | MAC_100 | MAC_ASYM_PAUSE |
 				   MAC_SYM_PAUSE;
 
@@ -1181,6 +1183,8 @@ static void ksz9477_get_caps(struct ksz_device *dev, int port,
 				 config->supported_interfaces,
 				 p->pcs->supported_interfaces);
 	}
+
+	ksz_phylink_get_caps(ds, port, config);
 }
 
 static int ksz9477_set_ageing_time(struct dsa_switch *ds, unsigned int msecs)
@@ -1791,7 +1795,6 @@ const struct ksz_dev_ops ksz9477_dev_ops = {
 	.r_mib_stat64 = ksz_r_mib_stats64,
 	.freeze_mib = ksz9477_freeze_mib,
 	.port_init_cnt = ksz9477_port_init_cnt,
-	.get_caps = ksz9477_get_caps,
 	.pme_write8 = ksz_write8,
 	.pme_pread8 = ksz_pread8,
 	.pme_pwrite8 = ksz_pwrite8,
@@ -1812,7 +1815,7 @@ const struct dsa_switch_ops ksz9477_switch_ops = {
 	.teardown		= ksz_teardown,
 	.phy_read		= ksz_phy_read16,
 	.phy_write		= ksz_phy_write16,
-	.phylink_get_caps	= ksz_phylink_get_caps,
+	.phylink_get_caps	= ksz9477_phylink_get_caps,
 	.port_setup		= ksz_port_setup,
 	.set_ageing_time	= ksz9477_set_ageing_time,
 	.get_strings		= ksz_get_strings,

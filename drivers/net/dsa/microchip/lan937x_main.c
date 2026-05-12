@@ -575,9 +575,11 @@ static void lan937x_set_rgmii_rx_delay(struct ksz_device *dev, int port)
 	lan937x_set_tune_adj(dev, port, REG_PORT_XMII_CTRL_4, val);
 }
 
-static void lan937x_phylink_get_caps(struct ksz_device *dev, int port,
+static void lan937x_phylink_get_caps(struct dsa_switch *ds, int port,
 				     struct phylink_config *config)
 {
+	struct ksz_device *dev = ds->priv;
+
 	config->mac_capabilities = MAC_100FD;
 
 	if (dev->info->supports_rgmii[port]) {
@@ -588,6 +590,8 @@ static void lan937x_phylink_get_caps(struct ksz_device *dev, int port,
 		config->mac_capabilities |= MAC_ASYM_PAUSE | MAC_SYM_PAUSE |
 					    MAC_100HD | MAC_10;
 	}
+
+	ksz_phylink_get_caps(ds, port, config);
 }
 
 static void lan937x_setup_rgmii_delay(struct ksz_device *dev, int port)
@@ -713,7 +717,6 @@ const struct ksz_dev_ops lan937x_dev_ops = {
 	.r_mib_stat64 = ksz_r_mib_stats64,
 	.freeze_mib = ksz9477_freeze_mib,
 	.port_init_cnt = ksz9477_port_init_cnt,
-	.get_caps = lan937x_phylink_get_caps,
 	.setup_rgmii_delay = lan937x_setup_rgmii_delay,
 	.config_cpu_port = lan937x_config_cpu_port,
 	.tc_cbs_set_cinc = lan937x_tc_cbs_set_cinc,
@@ -731,7 +734,7 @@ const struct dsa_switch_ops lan937x_switch_ops = {
 	.teardown		= ksz_teardown,
 	.phy_read		= ksz_phy_read16,
 	.phy_write		= ksz_phy_write16,
-	.phylink_get_caps	= ksz_phylink_get_caps,
+	.phylink_get_caps	= lan937x_phylink_get_caps,
 	.port_setup		= ksz_port_setup,
 	.set_ageing_time	= lan937x_set_ageing_time,
 	.get_strings		= ksz_get_strings,

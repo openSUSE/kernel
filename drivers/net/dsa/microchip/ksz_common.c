@@ -1995,9 +1995,6 @@ void ksz_phylink_get_caps(struct dsa_switch *ds, int port,
 			  config->supported_interfaces);
 	}
 
-	if (dev->dev_ops->get_caps)
-		dev->dev_ops->get_caps(dev, port, config);
-
 	if (ds->ops->support_eee && ds->ops->support_eee(ds, port)) {
 		memcpy(config->lpi_interfaces, config->supported_interfaces,
 		       sizeof(config->lpi_interfaces));
