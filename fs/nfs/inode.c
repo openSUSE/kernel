@@ -57,20 +57,22 @@
 
 #define NFSDBG_FACILITY		NFSDBG_VFS
 
-#define NFS_64_BIT_INODE_NUMBERS_ENABLED	1
+static bool enable_ino64;
 
-/* Default is to see 64-bit inode numbers */
-static bool enable_ino64 = NFS_64_BIT_INODE_NUMBERS_ENABLED;
+static int param_set_enable_ino64(const char *val, const struct kernel_param *kp)
+{
+	pr_notice("enable_ino64 is deprecated and has no effect\n");
+	return 0;
+}
+
+static const struct kernel_param_ops param_ops_enable_ino64 = {
+	.set = param_set_enable_ino64,
+	.get = param_get_bool,
+};
 
 static int nfs_update_inode(struct inode *, struct nfs_fattr *);
 
 static struct kmem_cache * nfs_inode_cachep;
-
-static inline u64
-nfs_fattr_to_ino_t(struct nfs_fattr *fattr)
-{
-	return fattr->fileid;
-}
 
 int nfs_wait_bit_killable(struct wait_bit_key *key, int mode)
 {
@@ -82,29 +84,6 @@ int nfs_wait_bit_killable(struct wait_bit_key *key, int mode)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(nfs_wait_bit_killable);
-
-/**
- * nfs_compat_user_ino64 - returns the user-visible inode number
- * @fileid: 64-bit fileid
- *
- * This function returns a 32-bit inode number if the boot parameter
- * nfs.enable_ino64 is zero.
- */
-u64 nfs_compat_user_ino64(u64 fileid)
-{
-#ifdef CONFIG_COMPAT
-	compat_ulong_t ino;
-#else	
-	unsigned long ino;
-#endif
-
-	if (enable_ino64)
-		return fileid;
-	ino = fileid;
-	if (sizeof(ino) < sizeof(fileid))
-		ino ^= fileid >> (sizeof(fileid)-sizeof(ino)) * 8;
-	return ino;
-}
 
 int nfs_drop_inode(struct inode *inode)
 {
@@ -418,7 +397,7 @@ nfs_ilookup(struct super_block *sb, struct nfs_fattr *fattr, struct nfs_fh *fh)
 	    !(fattr->valid & NFS_ATTR_FATTR_TYPE))
 		return NULL;
 
-	hash = nfs_fattr_to_ino_t(fattr);
+	hash = fattr->fileid;
 	inode = ilookup5(sb, hash, nfs_find_actor, &desc);
 
 	dprintk("%s: returning %p\n", __func__, inode);
@@ -466,7 +445,7 @@ nfs_fhget(struct super_block *sb, struct nfs_fh *fh, struct nfs_fattr *fattr)
 	if ((fattr->valid & NFS_ATTR_FATTR_TYPE) == 0)
 		goto out_no_inode;
 
-	hash = nfs_fattr_to_ino_t(fattr);
+	hash = fattr->fileid;
 
 	inode = iget5_locked(sb, hash, nfs_find_actor, nfs_init_locked, &desc);
 	if (inode == NULL) {
@@ -1061,7 +1040,6 @@ out_no_revalidate:
 	stat->result_mask = nfs_get_valid_attrmask(inode) | request_mask;
 
 	generic_fillattr(&nop_mnt_idmap, request_mask, inode, stat);
-	stat->ino = nfs_compat_user_ino64(NFS_FILEID(inode));
 	stat->change_cookie = inode_peek_iversion_raw(inode);
 	stat->attributes_mask |= STATX_ATTR_CHANGE_MONOTONIC;
 	if (server->change_attr_type != NFS4_CHANGE_TYPE_IS_UNDEFINED)
@@ -2793,7 +2771,7 @@ static void __exit exit_nfs_fs(void)
 MODULE_AUTHOR("Olaf Kirch <okir@monad.swb.de>");
 MODULE_DESCRIPTION("NFS client support");
 MODULE_LICENSE("GPL");
-module_param(enable_ino64, bool, 0644);
+module_param_cb(enable_ino64, &param_ops_enable_ino64, &enable_ino64, 0644);
 
 module_init(init_nfs_fs)
 module_exit(exit_nfs_fs)
