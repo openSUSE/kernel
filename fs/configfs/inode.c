@@ -195,25 +195,3 @@ const unsigned char * configfs_get_name(struct configfs_dirent *sd)
 	}
 	return NULL;
 }
-
-
-/*
- * Unhashes the dentry corresponding to given configfs_dirent
- * Called with parent inode's i_mutex held.
- */
-void configfs_drop_dentry(struct configfs_dirent * sd, struct dentry * parent)
-{
-	struct dentry * dentry = sd->s_dentry;
-
-	if (dentry) {
-		spin_lock(&dentry->d_lock);
-		if (simple_positive(dentry)) {
-			dget_dlock(dentry);
-			__d_drop(dentry);
-			spin_unlock(&dentry->d_lock);
-			__simple_unlink(d_inode(parent), dentry);
-			dput(dentry);
-		} else
-			spin_unlock(&dentry->d_lock);
-	}
-}

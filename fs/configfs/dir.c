@@ -581,12 +581,34 @@ static void detach_attrs(struct dentry *dentry)
 
 	spin_lock(&configfs_dirent_lock);
 	for (sd = next_dirent(parent_sd, NULL); sd; sd = next) {
+		struct dentry *child;
+
 		next = next_dirent(parent_sd, sd);
 		if (!(sd->s_type & CONFIGFS_NOT_PINNED))
 			continue;
 		list_del_init(&sd->s_sibling);
+		child = sd->s_dentry;
+		if (child) {
+			spin_lock(&child->d_lock);
+			if (simple_positive(child)) {
+				dget_dlock(child);
+				__d_drop(child);
+				spin_unlock(&child->d_lock);
+			} else {
+				spin_unlock(&child->d_lock);
+				child = NULL;
+			}
+		}
 		spin_unlock(&configfs_dirent_lock);
-		configfs_drop_dentry(sd, dentry);
+		if (child) {
+			struct inode *inode = child->d_inode;
+
+			inode_lock_nested(inode, I_MUTEX_NONDIR2);
+			inode_set_ctime_current(inode);
+			drop_nlink(inode);
+			inode_unlock(inode);
+			dput(child);
+		}
 		configfs_put(sd);
 		spin_lock(&configfs_dirent_lock);
 	}
