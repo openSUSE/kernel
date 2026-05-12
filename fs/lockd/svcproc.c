@@ -89,6 +89,20 @@ nlm_netobj_to_cookie(struct lockd_cookie *cookie, netobj *object)
 	return nlm_granted;
 }
 
+static __be32
+nlm_lock_to_lockd_lock(struct lockd_lock *lock, struct nlm_lock *alock)
+{
+	if (alock->fh.len != NLM3_FHSIZE)
+		return nlm_lck_denied;
+	lock->fh.size = alock->fh.len;
+	memcpy(lock->fh.data, alock->fh.data, alock->fh.len);
+	lock->oh.len = alock->oh.len;
+	lock->oh.data = alock->oh.data;
+	lock->svid = alock->uppid;
+	lockd_set_file_lock_range3(&lock->fl, alock->l_offset, alock->l_len);
+	return nlm_granted;
+}
+
 static struct nlm_host *
 nlm3svc_lookup_host(struct svc_rqst *rqstp, string caller, bool monitored)
 {
@@ -700,10 +714,41 @@ __nlmsvc_proc_granted(struct svc_rqst *rqstp, struct lockd_res *resp)
 	return rpc_success;
 }
 
+/**
+ * nlmsvc_proc_granted - GRANTED: Blocked lock has been granted
+ * @rqstp: RPC transaction context
+ *
+ * Returns:
+ *   %rpc_success:		RPC executed successfully.
+ *
+ * RPC synopsis:
+ *   nlm_res NLM_GRANTED(nlm_testargs) = 5;
+ *
+ * Permissible procedure status codes:
+ *   %LCK_GRANTED:		The granted lock was accepted.
+ *   %LCK_DENIED:		The procedure failed, possibly due to
+ *				internal resource constraints.
+ *   %LCK_DENIED_GRACE_PERIOD:	The client host recently restarted and
+ *				its NLM is re-establishing existing locks,
+ *				so it is not yet ready to accept callbacks.
+ */
 static __be32
 nlmsvc_proc_granted(struct svc_rqst *rqstp)
 {
-	return __nlmsvc_proc_granted(rqstp, rqstp->rq_resp);
+	struct nlm_testargs_wrapper *argp = rqstp->rq_argp;
+	struct nlm_res_wrapper *resp = rqstp->rq_resp;
+
+	resp->xdrgen.cookie = argp->xdrgen.cookie;
+
+	resp->xdrgen.stat.stat = nlm_lock_to_lockd_lock(&argp->lock,
+							&argp->xdrgen.alock);
+	if (resp->xdrgen.stat.stat)
+		goto out;
+
+	resp->xdrgen.stat.stat = nlmclnt_grant(svc_addr(rqstp), &argp->lock);
+
+out:
+	return rpc_success;
 }
 
 /*
@@ -1012,15 +1057,15 @@ static const struct svc_procedure nlmsvc_procedures[24] = {
 		.pc_xdrressize	= NLM3_nlm_res_sz,
 		.pc_name	= "UNLOCK",
 	},
-	[NLMPROC_GRANTED] = {
-		.pc_func = nlmsvc_proc_granted,
-		.pc_decode = nlmsvc_decode_testargs,
-		.pc_encode = nlmsvc_encode_res,
-		.pc_argsize = sizeof(struct lockd_args),
-		.pc_argzero = sizeof(struct lockd_args),
-		.pc_ressize = sizeof(struct lockd_res),
-		.pc_xdrressize = Ck+St,
-		.pc_name = "GRANTED",
+	[NLM_GRANTED] = {
+		.pc_func	= nlmsvc_proc_granted,
+		.pc_decode	= nlm_svc_decode_nlm_testargs,
+		.pc_encode	= nlm_svc_encode_nlm_res,
+		.pc_argsize	= sizeof(struct nlm_testargs_wrapper),
+		.pc_argzero	= 0,
+		.pc_ressize	= sizeof(struct nlm_res_wrapper),
+		.pc_xdrressize	= NLM3_nlm_res_sz,
+		.pc_name	= "GRANTED",
 	},
 	[NLMPROC_TEST_MSG] = {
 		.pc_func = nlmsvc_proc_test_msg,
