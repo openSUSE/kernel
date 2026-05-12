@@ -80,7 +80,7 @@ struct lockd_res {
 /*
  * statd callback when client has rebooted
  */
-struct nlm_reboot {
+struct lockd_reboot {
 	char			*mon;
 	unsigned int		len;
 	u32			state;

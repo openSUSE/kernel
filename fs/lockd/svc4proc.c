@@ -61,7 +61,7 @@ static_assert(offsetof(struct nlm4_unlockargs_wrapper, xdrgen) == 0);
 
 struct nlm4_notifyargs_wrapper {
 	struct nlm4_notifyargs		xdrgen;
-	struct nlm_reboot		reboot;
+	struct lockd_reboot		reboot;
 };
 
 static_assert(offsetof(struct nlm4_notifyargs_wrapper, xdrgen) == 0);
@@ -918,7 +918,7 @@ static __be32 nlm4svc_proc_granted_res(struct svc_rqst *rqstp)
 static __be32 nlm4svc_proc_sm_notify(struct svc_rqst *rqstp)
 {
 	struct nlm4_notifyargs_wrapper *argp = rqstp->rq_argp;
-	struct nlm_reboot *reboot = &argp->reboot;
+	struct lockd_reboot *reboot = &argp->reboot;
 
 	if (!nlm_privileged_requester(rqstp)) {
 		char buf[RPC_MAX_ADDRBUFLEN];

@@ -285,7 +285,7 @@ struct nlm_host * nlm_get_host(struct nlm_host *);
 void		  nlm_shutdown_hosts(void);
 void		  nlm_shutdown_hosts_net(struct net *net);
 void		  nlm_host_rebooted(const struct net *net,
-					const struct nlm_reboot *);
+					const struct lockd_reboot *);
 
 /*
  * Host monitoring
@@ -299,7 +299,7 @@ struct nsm_handle *nsm_get_handle(const struct net *net,
 					const char *hostname,
 					const size_t hostname_len);
 struct nsm_handle *nsm_reboot_lookup(const struct net *net,
-					const struct nlm_reboot *info);
+					const struct lockd_reboot *info);
 void		  nsm_release(struct nsm_handle *nsm);
 
 /*

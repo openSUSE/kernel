@@ -518,7 +518,7 @@ nlmsvc_proc_free_all(struct svc_rqst *rqstp)
 static __be32
 nlmsvc_proc_sm_notify(struct svc_rqst *rqstp)
 {
-	struct nlm_reboot *argp = rqstp->rq_argp;
+	struct lockd_reboot *argp = rqstp->rq_argp;
 
 	dprintk("lockd: SM_NOTIFY     called\n");
 
@@ -732,8 +732,8 @@ static const struct svc_procedure nlmsvc_procedures[24] = {
 		.pc_func = nlmsvc_proc_sm_notify,
 		.pc_decode = nlmsvc_decode_reboot,
 		.pc_encode = nlmsvc_encode_void,
-		.pc_argsize = sizeof(struct nlm_reboot),
-		.pc_argzero = sizeof(struct nlm_reboot),
+		.pc_argsize = sizeof(struct lockd_reboot),
+		.pc_argzero = sizeof(struct lockd_reboot),
 		.pc_ressize = sizeof(struct nlm_void),
 		.pc_xdrressize = St,
 		.pc_name = "SM_NOTIFY",
@@ -816,7 +816,7 @@ static const struct svc_procedure nlmsvc_procedures[24] = {
 union nlmsvc_xdrstore {
 	struct lockd_args		args;
 	struct lockd_res		res;
-	struct nlm_reboot		reboot;
+	struct lockd_reboot		reboot;
 };
 
 /*
