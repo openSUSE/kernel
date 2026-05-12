@@ -6827,7 +6827,17 @@ static void proxy_migrate_task(struct rq *rq, struct rq_flags *rf,
  * Find runnable lock owner to proxy for mutex blocked donor
  *
  * Follow the blocked-on relation:
- *   task->blocked_on -> mutex->owner -> task...
+ *
+ *                ,-> task
+ *                |     | blocked-on
+ *                |     v
+ *  blocked_donor |   mutex
+ *                |     | owner
+ *                |     v
+ *                `-- task
+ *
+ * and set the blocked_donor relation, this latter is used by the mutex
+ * code to find which (blocked) task to hand-off to.
  *
  * Lock order:
  *
@@ -6969,6 +6979,7 @@ find_proxy_task(struct rq *rq, struct task_struct *donor, struct rq_flags *rf)
 		 * rq, therefore holding @rq->lock is sufficient to
 		 * guarantee its existence, as per ttwu_remote().
 		 */
+		owner->blocked_donor = p;
 	}
 	WARN_ON_ONCE(owner && !owner->on_rq);
 	return owner;
@@ -7125,6 +7136,7 @@ pick_again:
 			clear_task_blocked_on(prev, NULL);
 
 		rq_set_donor(rq, next);
+		next->blocked_donor = NULL;
 		if (unlikely(next->is_blocked && next->blocked_on)) {
 			next = find_proxy_task(rq, next, &rf);
 			if (!next) {

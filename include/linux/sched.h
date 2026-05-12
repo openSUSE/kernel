@@ -1250,6 +1250,13 @@ struct task_struct {
 	struct mutex			*blocked_on;	/* lock we're blocked on */
 	raw_spinlock_t			blocked_lock;
 
+	/*
+	 * The task that is boosting this task; a back link for the current
+	 * donor stack. Set in schedule() -> find_proxy_task() and only stable
+	 * under preempt_disable().
+	 */
+	struct task_struct		*blocked_donor;
+
 #ifdef CONFIG_DETECT_HUNG_TASK_BLOCKER
 	/*
 	 * Encoded lock address causing task block (lower 2 bits = type from
