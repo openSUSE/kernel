@@ -408,11 +408,6 @@ struct ksz_dev_ops {
 	void (*r_mib_pkt)(struct ksz_device *dev, int port, u16 addr,
 			  u64 *dropped, u64 *cnt);
 	void (*r_mib_stat64)(struct ksz_device *dev, int port);
-	int (*mirror_add)(struct ksz_device *dev, int port,
-			  struct dsa_mall_mirror_tc_entry *mirror,
-			  bool ingress, struct netlink_ext_ack *extack);
-	void (*mirror_del)(struct ksz_device *dev, int port,
-			   struct dsa_mall_mirror_tc_entry *mirror);
 	void (*get_caps)(struct ksz_device *dev, int port,
 			 struct phylink_config *config);
 	int (*pme_write8)(struct ksz_device *dev, u32 reg, u8 value);
@@ -499,11 +494,6 @@ void ksz_phylink_mac_link_down(struct phylink_config *config,
 			       unsigned int mode,
 			       phy_interface_t interface);
 
-int ksz_port_mirror_add(struct dsa_switch *ds, int port,
-			struct dsa_mall_mirror_tc_entry *mirror,
-			bool ingress, struct netlink_ext_ack *extack);
-void ksz_port_mirror_del(struct dsa_switch *ds, int port,
-			 struct dsa_mall_mirror_tc_entry *mirror);
 int ksz_max_mtu(struct dsa_switch *ds, int port);
 
 bool ksz_support_eee(struct dsa_switch *ds, int port);

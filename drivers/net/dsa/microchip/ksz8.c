@@ -1585,10 +1585,11 @@ static int ksz8_port_vlan_del(struct dsa_switch *ds, int port,
 	return 0;
 }
 
-static int ksz8_port_mirror_add(struct ksz_device *dev, int port,
+static int ksz8_port_mirror_add(struct dsa_switch *ds, int port,
 				struct dsa_mall_mirror_tc_entry *mirror,
 				bool ingress, struct netlink_ext_ack *extack)
 {
+	struct ksz_device *dev = ds->priv;
 	int offset = P_MIRROR_CTRL;
 
 	if (ksz_is_ksz8463(dev))
@@ -1611,9 +1612,10 @@ static int ksz8_port_mirror_add(struct ksz_device *dev, int port,
 	return 0;
 }
 
-static void ksz8_port_mirror_del(struct ksz_device *dev, int port,
+static void ksz8_port_mirror_del(struct dsa_switch *ds, int port,
 				 struct dsa_mall_mirror_tc_entry *mirror)
 {
+	struct ksz_device *dev = ds->priv;
 	int offset = P_MIRROR_CTRL;
 	u8 data;
 
@@ -2216,8 +2218,6 @@ const struct ksz_dev_ops ksz8463_dev_ops = {
 	.r_mib_stat64 = ksz88xx_r_mib_stats64,
 	.freeze_mib = ksz8_freeze_mib,
 	.port_init_cnt = ksz8_port_init_cnt,
-	.mirror_add = ksz8_port_mirror_add,
-	.mirror_del = ksz8_port_mirror_del,
 	.get_caps = ksz8_get_caps,
 	.config_cpu_port = ksz8_config_cpu_port,
 	.enable_stp_addr = ksz8_enable_stp_addr,
@@ -2238,8 +2238,6 @@ const struct ksz_dev_ops ksz87xx_dev_ops = {
 	.r_mib_stat64 = ksz_r_mib_stats64,
 	.freeze_mib = ksz8_freeze_mib,
 	.port_init_cnt = ksz8_port_init_cnt,
-	.mirror_add = ksz8_port_mirror_add,
-	.mirror_del = ksz8_port_mirror_del,
 	.get_caps = ksz8_get_caps,
 	.config_cpu_port = ksz8_config_cpu_port,
 	.enable_stp_addr = ksz8_enable_stp_addr,
@@ -2263,8 +2261,6 @@ const struct ksz_dev_ops ksz88xx_dev_ops = {
 	.r_mib_stat64 = ksz88xx_r_mib_stats64,
 	.freeze_mib = ksz8_freeze_mib,
 	.port_init_cnt = ksz8_port_init_cnt,
-	.mirror_add = ksz8_port_mirror_add,
-	.mirror_del = ksz8_port_mirror_del,
 	.get_caps = ksz8_get_caps,
 	.config_cpu_port = ksz8_config_cpu_port,
 	.enable_stp_addr = ksz8_enable_stp_addr,
@@ -2307,8 +2303,8 @@ const struct dsa_switch_ops ksz8463_switch_ops = {
 	.port_fdb_del		= ksz8_fdb_del,
 	.port_mdb_add           = ksz8_mdb_add,
 	.port_mdb_del           = ksz8_mdb_del,
-	.port_mirror_add	= ksz_port_mirror_add,
-	.port_mirror_del	= ksz_port_mirror_del,
+	.port_mirror_add	= ksz8_port_mirror_add,
+	.port_mirror_del	= ksz8_port_mirror_del,
 	.get_stats64		= ksz_get_stats64,
 	.get_pause_stats	= ksz_get_pause_stats,
 	.port_change_mtu	= ksz8_change_mtu,
@@ -2367,8 +2363,8 @@ const struct dsa_switch_ops ksz87xx_switch_ops = {
 	.port_fdb_del		= ksz8_fdb_del,
 	.port_mdb_add           = ksz8_mdb_add,
 	.port_mdb_del           = ksz8_mdb_del,
-	.port_mirror_add	= ksz_port_mirror_add,
-	.port_mirror_del	= ksz_port_mirror_del,
+	.port_mirror_add	= ksz8_port_mirror_add,
+	.port_mirror_del	= ksz8_port_mirror_del,
 	.get_stats64		= ksz_get_stats64,
 	.get_pause_stats	= ksz_get_pause_stats,
 	.port_change_mtu	= ksz8_change_mtu,
@@ -2427,8 +2423,8 @@ const struct dsa_switch_ops ksz88xx_switch_ops = {
 	.port_fdb_del		= ksz8_fdb_del,
 	.port_mdb_add           = ksz8_mdb_add,
 	.port_mdb_del           = ksz8_mdb_del,
-	.port_mirror_add	= ksz_port_mirror_add,
-	.port_mirror_del	= ksz_port_mirror_del,
+	.port_mirror_add	= ksz8_port_mirror_add,
+	.port_mirror_del	= ksz8_port_mirror_del,
 	.get_stats64		= ksz_get_stats64,
 	.get_pause_stats	= ksz_get_pause_stats,
 	.port_change_mtu	= ksz8_change_mtu,

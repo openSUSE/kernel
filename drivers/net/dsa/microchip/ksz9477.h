@@ -26,10 +26,10 @@ int ksz9477_port_vlan_add(struct dsa_switch *ds, int port,
 			  struct netlink_ext_ack *extack);
 int ksz9477_port_vlan_del(struct dsa_switch *ds, int port,
 			  const struct switchdev_obj_port_vlan *vlan);
-int ksz9477_port_mirror_add(struct ksz_device *dev, int port,
+int ksz9477_port_mirror_add(struct dsa_switch *ds, int port,
 			    struct dsa_mall_mirror_tc_entry *mirror,
 			    bool ingress, struct netlink_ext_ack *extack);
-void ksz9477_port_mirror_del(struct ksz_device *dev, int port,
+void ksz9477_port_mirror_del(struct dsa_switch *ds, int port,
 			     struct dsa_mall_mirror_tc_entry *mirror);
 int ksz9477_errata_monitor(struct ksz_device *dev, int port,
 			   u64 tx_late_col);

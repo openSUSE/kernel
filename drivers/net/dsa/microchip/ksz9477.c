@@ -1080,10 +1080,11 @@ exit:
 	return ret;
 }
 
-int ksz9477_port_mirror_add(struct ksz_device *dev, int port,
+int ksz9477_port_mirror_add(struct dsa_switch *ds, int port,
 			    struct dsa_mall_mirror_tc_entry *mirror,
 			    bool ingress, struct netlink_ext_ack *extack)
 {
+	struct ksz_device *dev = ds->priv;
 	u8 data;
 	int p;
 
@@ -1119,9 +1120,10 @@ int ksz9477_port_mirror_add(struct ksz_device *dev, int port,
 	return 0;
 }
 
-void ksz9477_port_mirror_del(struct ksz_device *dev, int port,
+void ksz9477_port_mirror_del(struct dsa_switch *ds, int port,
 			     struct dsa_mall_mirror_tc_entry *mirror)
 {
+	struct ksz_device *dev = ds->priv;
 	bool in_use = false;
 	u8 data;
 	int p;
@@ -1789,8 +1791,6 @@ const struct ksz_dev_ops ksz9477_dev_ops = {
 	.r_mib_stat64 = ksz_r_mib_stats64,
 	.freeze_mib = ksz9477_freeze_mib,
 	.port_init_cnt = ksz9477_port_init_cnt,
-	.mirror_add = ksz9477_port_mirror_add,
-	.mirror_del = ksz9477_port_mirror_del,
 	.get_caps = ksz9477_get_caps,
 	.pme_write8 = ksz_write8,
 	.pme_pread8 = ksz_pread8,
@@ -1836,8 +1836,8 @@ const struct dsa_switch_ops ksz9477_switch_ops = {
 	.port_fdb_del		= ksz9477_fdb_del,
 	.port_mdb_add           = ksz9477_mdb_add,
 	.port_mdb_del           = ksz9477_mdb_del,
-	.port_mirror_add	= ksz_port_mirror_add,
-	.port_mirror_del	= ksz_port_mirror_del,
+	.port_mirror_add	= ksz9477_port_mirror_add,
+	.port_mirror_del	= ksz9477_port_mirror_del,
 	.get_stats64		= ksz_get_stats64,
 	.get_pause_stats	= ksz_get_pause_stats,
 	.port_change_mtu	= ksz9477_change_mtu,
