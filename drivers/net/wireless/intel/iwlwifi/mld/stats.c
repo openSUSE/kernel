@@ -40,12 +40,20 @@ iwl_mld_fill_stats_from_oper_notif(struct iwl_mld *mld,
 				   struct iwl_rx_packet *pkt,
 				   u8 fw_sta_id, struct station_info *sinfo)
 {
-	const struct iwl_system_statistics_notif_oper_v3 *notif =
-		(void *)&pkt->data;
-	const struct iwl_stats_ntfy_per_sta *per_sta =
-		&notif->per_sta[fw_sta_id];
+	const struct iwl_stats_ntfy_per_sta *per_sta;
 	struct ieee80211_link_sta *link_sta;
 	struct iwl_mld_link_sta *mld_link_sta;
+
+	if (iwl_fw_lookup_notif_ver(mld->fw, STATISTICS_GROUP,
+				    STATISTICS_OPER_NOTIF, 3) >= 4) {
+		const struct iwl_system_statistics_notif_oper *notif =
+			(void *)&pkt->data;
+		per_sta = &notif->per_sta[fw_sta_id];
+	} else {
+		const struct iwl_system_statistics_notif_oper_v3 *notif =
+			(void *)&pkt->data;
+		per_sta = &notif->per_sta[fw_sta_id];
+	}
 
 	/* 0 isn't a valid value, but FW might send 0.
 	 * In that case, set the latest non-zero value we stored
@@ -483,7 +491,7 @@ static void iwl_mld_fill_chanctx_stats(struct ieee80211_hw *hw,
 				       void *data)
 {
 	struct iwl_mld_phy *phy = iwl_mld_phy_from_mac80211(ctx);
-	const struct iwl_stats_ntfy_per_phy_v1 *per_phy = data;
+	const struct iwl_stats_ntfy_per_phy *per_phy = data;
 	u32 new_load, old_load;
 
 	if (WARN_ON(phy->fw_id >= IWL_STATS_MAX_PHY_OPERATIONAL))
@@ -512,7 +520,7 @@ static void iwl_mld_fill_chanctx_stats(struct ieee80211_hw *hw,
 
 static void
 iwl_mld_process_per_phy_stats(struct iwl_mld *mld,
-			      const struct iwl_stats_ntfy_per_phy_v1 *per_phy)
+			      const struct iwl_stats_ntfy_per_phy *per_phy)
 {
 	ieee80211_iter_chan_contexts_mtx(mld->hw,
 					 iwl_mld_fill_chanctx_stats,
@@ -523,17 +531,42 @@ iwl_mld_process_per_phy_stats(struct iwl_mld *mld,
 void iwl_mld_handle_stats_oper_notif(struct iwl_mld *mld,
 				     struct iwl_rx_packet *pkt)
 {
-	const struct iwl_system_statistics_notif_oper_v3 *stats =
+	struct iwl_system_statistics_notif_oper *_notif __free(kfree) = NULL;
+	const struct iwl_system_statistics_notif_oper *notif =
 		(void *)&pkt->data;
-	u32 curr_ts_usec = le32_to_cpu(stats->time_stamp);
 
-	BUILD_BUG_ON(ARRAY_SIZE(stats->per_sta) != IWL_STATION_COUNT_MAX);
-	BUILD_BUG_ON(ARRAY_SIZE(stats->per_link) <
+	BUILD_BUG_ON(ARRAY_SIZE(notif->per_sta) != IWL_STATION_COUNT_MAX);
+	BUILD_BUG_ON(ARRAY_SIZE(notif->per_link) <
 		     ARRAY_SIZE(mld->fw_id_to_bss_conf));
 
-	iwl_mld_process_per_link_stats(mld, stats->per_link, curr_ts_usec);
-	iwl_mld_process_per_sta_stats(mld, stats->per_sta);
-	iwl_mld_process_per_phy_stats(mld, stats->per_phy);
+	if (iwl_fw_lookup_notif_ver(mld->fw, STATISTICS_GROUP,
+				    STATISTICS_OPER_NOTIF, 3) == 3) {
+		const struct iwl_system_statistics_notif_oper_v3 *stats =
+			(void *)&pkt->data;
+		_notif = kzalloc_obj(*_notif);
+
+		if (!_notif)
+			return;
+
+		_notif->time_stamp = stats->time_stamp;
+		for (int i = 0; i < ARRAY_SIZE(_notif->per_link); i++)
+			_notif->per_link[i] = stats->per_link[i];
+
+		BUILD_BUG_ON(sizeof(_notif->per_phy[0]) <
+			     sizeof(stats->per_phy[0]));
+		for (int i = 0; i < ARRAY_SIZE(_notif->per_phy); i++)
+			memcpy(&_notif->per_phy[i], &stats->per_phy[i],
+			       sizeof(stats->per_phy[i]));
+		for (int i = 0; i < ARRAY_SIZE(_notif->per_sta); i++)
+			_notif->per_sta[i] = stats->per_sta[i];
+
+		notif = _notif;
+	}
+
+	iwl_mld_process_per_link_stats(mld, notif->per_link,
+				       le32_to_cpu(notif->time_stamp));
+	iwl_mld_process_per_sta_stats(mld, notif->per_sta);
+	iwl_mld_process_per_phy_stats(mld, notif->per_phy);
 }
 
 void iwl_mld_handle_stats_oper_part1_notif(struct iwl_mld *mld,

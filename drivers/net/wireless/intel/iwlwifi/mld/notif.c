@@ -330,7 +330,8 @@ CMD_VERSIONS(probe_resp_data_notif,
 CMD_VERSIONS(datapath_monitor_notif,
 	     CMD_VER_ENTRY(1, iwl_datapath_monitor_notif))
 CMD_VERSIONS(stats_oper_notif,
-	     CMD_VER_ENTRY(3, iwl_system_statistics_notif_oper_v3))
+	     CMD_VER_ENTRY(3, iwl_system_statistics_notif_oper_v3)
+	     CMD_VER_ENTRY(4, iwl_system_statistics_notif_oper))
 CMD_VERSIONS(stats_oper_part1_notif,
 	     CMD_VER_ENTRY(4, iwl_system_statistics_part1_notif_oper))
 CMD_VERSIONS(bt_coex_notif,
