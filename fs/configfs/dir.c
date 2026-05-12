@@ -643,25 +643,23 @@ static int populate_attrs(struct config_item *item)
 			if (ops && ops->is_visible && !ops->is_visible(item, attr, i))
 				continue;
 
-			if ((error = configfs_create_file(item, attr)))
-				break;
+			error = configfs_create_file(item, attr);
+			if (error)
+				return error;
 		}
 	}
-	if (!error && t->ct_bin_attrs) {
+	if (t->ct_bin_attrs) {
 		for (i = 0; (bin_attr = t->ct_bin_attrs[i]) != NULL; i++) {
 			if (ops && ops->is_bin_visible && !ops->is_bin_visible(item, bin_attr, i))
 				continue;
 
 			error = configfs_create_bin_file(item, bin_attr);
 			if (error)
-				break;
+				return error;
 		}
 	}
 
-	if (error)
-		detach_attrs(item);
-
-	return error;
+	return 0;
 }
 
 static int configfs_attach_group(struct config_item *parent_item,
@@ -850,6 +848,13 @@ static void link_group(struct config_group *parent_group, struct config_group *g
 		link_group(group, new_group);
 }
 
+/* Caller holds the mutex of the item's inode */
+static void configfs_detach_item(struct config_item *item)
+{
+	detach_attrs(item);
+	configfs_remove_dir(item);
+}
+
 /*
  * The goal is that configfs_attach_item() (and
  * configfs_attach_group()) can be called from either the VFS or this
@@ -882,7 +887,7 @@ static int configfs_attach_item(struct config_item *parent_item,
 			 * we must lock them as rmdir() would.
 			 */
 			inode_lock(d_inode(dentry));
-			configfs_remove_dir(item);
+			configfs_detach_item(item);
 			d_inode(dentry)->i_flags |= S_DEAD;
 			dont_mount(dentry);
 			inode_unlock(d_inode(dentry));
@@ -891,13 +896,6 @@ static int configfs_attach_item(struct config_item *parent_item,
 	}
 
 	return ret;
-}
-
-/* Caller holds the mutex of the item's inode */
-static void configfs_detach_item(struct config_item *item)
-{
-	detach_attrs(item);
-	configfs_remove_dir(item);
 }
 
 /* Caller holds the mutex of the group's inode */
