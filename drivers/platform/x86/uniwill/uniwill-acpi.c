@@ -343,6 +343,7 @@ struct uniwill_data {
 	struct mutex battery_lock;	/* Protects the list of currently registered batteries */
 	bool last_fn_lock_state;
 	bool last_super_key_enable_state;
+	bool last_touchpad_toggle_enable_state;
 	struct mutex super_key_lock;	/* Protects the toggling of the super key lock state */
 	struct list_head batteries;
 	struct mutex led_lock;		/* Protects writes to the lightbar registers */
@@ -598,6 +599,7 @@ static bool uniwill_volatile_reg(struct device *dev, unsigned int reg)
 	case EC_ADDR_PWM_2:
 	case EC_ADDR_TRIGGER:
 	case EC_ADDR_SWITCH_STATUS:
+	case EC_ADDR_OEM_4:
 	case EC_ADDR_CHARGE_CTRL:
 	case EC_ADDR_USB_C_POWER_PRIORITY:
 		return true;
@@ -747,11 +749,22 @@ static ssize_t super_key_enable_show(struct device *dev, struct device_attribute
 
 static DEVICE_ATTR_RW(super_key_enable);
 
+static int uniwill_write_touchpad_toggle_enable(struct uniwill_data *data, bool status)
+{
+	unsigned int value;
+
+	if (status)
+		value = 0;
+	else
+		value = TOUCHPAD_TOGGLE_OFF;
+
+	return regmap_update_bits(data->regmap, EC_ADDR_OEM_4, TOUCHPAD_TOGGLE_OFF, value);
+}
+
 static ssize_t touchpad_toggle_enable_store(struct device *dev, struct device_attribute *attr,
 					    const char *buf, size_t count)
 {
 	struct uniwill_data *data = dev_get_drvdata(dev);
-	unsigned int value;
 	bool enable;
 	int ret;
 
@@ -759,22 +772,15 @@ static ssize_t touchpad_toggle_enable_store(struct device *dev, struct device_at
 	if (ret < 0)
 		return ret;
 
-	if (enable)
-		value = 0;
-	else
-		value = TOUCHPAD_TOGGLE_OFF;
-
-	ret = regmap_update_bits(data->regmap, EC_ADDR_OEM_4, TOUCHPAD_TOGGLE_OFF, value);
+	ret = uniwill_write_touchpad_toggle_enable(data, enable);
 	if (ret < 0)
 		return ret;
 
 	return count;
 }
 
-static ssize_t touchpad_toggle_enable_show(struct device *dev, struct device_attribute *attr,
-					   char *buf)
+static int uniwill_read_touchpad_toggle_enable(struct uniwill_data *data, bool *status)
 {
-	struct uniwill_data *data = dev_get_drvdata(dev);
 	unsigned int value;
 	int ret;
 
@@ -782,7 +788,23 @@ static ssize_t touchpad_toggle_enable_show(struct device *dev, struct device_att
 	if (ret < 0)
 		return ret;
 
-	return sysfs_emit(buf, "%d\n", !(value & TOUCHPAD_TOGGLE_OFF));
+	*status = !(value & TOUCHPAD_TOGGLE_OFF);
+
+	return 0;
+}
+
+static ssize_t touchpad_toggle_enable_show(struct device *dev, struct device_attribute *attr,
+					   char *buf)
+{
+	struct uniwill_data *data = dev_get_drvdata(dev);
+	bool status;
+	int ret;
+
+	ret = uniwill_read_touchpad_toggle_enable(data, &status);
+	if (ret < 0)
+		return ret;
+
+	return sysfs_emit(buf, "%d\n", status);
 }
 
 static DEVICE_ATTR_RW(touchpad_toggle_enable);
@@ -1782,6 +1804,18 @@ static int uniwill_suspend_super_key(struct uniwill_data *data)
 	return uniwill_read_super_key_enable(data, &data->last_super_key_enable_state);
 }
 
+static int uniwill_suspend_touchpad_toggle(struct uniwill_data *data)
+{
+	if (!uniwill_device_supports(data, UNIWILL_FEATURE_TOUCHPAD_TOGGLE))
+		return 0;
+
+	/*
+	 * EC_ADDR_OEM_4 is marked as volatile, so we have to restore it
+	 * ourselves.
+	 */
+	return uniwill_read_touchpad_toggle_enable(data, &data->last_touchpad_toggle_enable_state);
+}
+
 static int uniwill_suspend_battery(struct uniwill_data *data)
 {
 	if (!uniwill_device_supports(data, UNIWILL_FEATURE_BATTERY))
@@ -1817,6 +1851,10 @@ static int uniwill_suspend(struct device *dev)
 	if (ret < 0)
 		return ret;
 
+	ret = uniwill_suspend_touchpad_toggle(data);
+	if (ret < 0)
+		return ret;
+
 	ret = uniwill_suspend_battery(data);
 	if (ret < 0)
 		return ret;
@@ -1845,6 +1883,14 @@ static int uniwill_resume_super_key(struct uniwill_data *data)
 		return 0;
 
 	return uniwill_write_super_key_enable(data, data->last_super_key_enable_state);
+}
+
+static int uniwill_resume_touchpad_toggle(struct uniwill_data *data)
+{
+	if (!uniwill_device_supports(data, UNIWILL_FEATURE_TOUCHPAD_TOGGLE))
+		return 0;
+
+	return uniwill_write_touchpad_toggle_enable(data, data->last_touchpad_toggle_enable_state);
 }
 
 static int uniwill_resume_battery(struct uniwill_data *data)
@@ -1889,6 +1935,10 @@ static int uniwill_resume(struct device *dev)
 		return ret;
 
 	ret = uniwill_resume_super_key(data);
+	if (ret < 0)
+		return ret;
+
+	ret = uniwill_resume_touchpad_toggle(data);
 	if (ret < 0)
 		return ret;
 
