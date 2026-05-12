@@ -157,19 +157,6 @@ ssize_t device_show_string(struct device *dev, struct device_attribute *attr,
 	struct device_attribute dev_attr_##_name = __ATTR(_name, _mode, _show, _store)
 
 /**
- * DEVICE_ATTR_PREALLOC - Define a preallocated device attribute.
- * @_name: Attribute name.
- * @_mode: File mode.
- * @_show: Show handler. Optional, but mandatory if attribute is readable.
- * @_store: Store handler. Optional, but mandatory if attribute is writable.
- *
- * Like DEVICE_ATTR(), but ``SYSFS_PREALLOC`` is set on @_mode.
- */
-#define DEVICE_ATTR_PREALLOC(_name, _mode, _show, _store) \
-	struct device_attribute dev_attr_##_name = \
-		__ATTR_PREALLOC(_name, _mode, _show, _store)
-
-/**
  * DEVICE_ATTR_RW - Define a read-write device attribute.
  * @_name: Attribute name.
  *
