@@ -14,6 +14,7 @@
 #include "util/parse-events.h"
 #include "util/config.h"
 
+#include "util/arm64-frame-pointer-unwind-support.h"
 #include "util/callchain.h"
 #include "util/cgroup.h"
 #include "util/header.h"
@@ -3230,10 +3231,6 @@ static int record__parse_off_cpu_thresh(const struct option *opt,
 	return 0;
 }
 
-void __weak arch__add_leaf_frame_record_opts(struct record_opts *opts __maybe_unused)
-{
-}
-
 static int parse_control_option(const struct option *opt,
 				const char *str,
 				int unset __maybe_unused)
@@ -4319,8 +4316,10 @@ int cmd_record(int argc, const char **argv)
 
 	evlist__warn_user_requested_cpus(rec->evlist, rec->opts.target.cpu_list);
 
-	if (callchain_param.enabled && callchain_param.record_mode == CALLCHAIN_FP)
-		arch__add_leaf_frame_record_opts(&rec->opts);
+	if (callchain_param.enabled && callchain_param.record_mode == CALLCHAIN_FP) {
+		if (EM_HOST == EM_AARCH64)
+			add_leaf_frame_caller_opts_aarch64(&rec->opts);
+	}
 
 	err = -ENOMEM;
 	if (evlist__create_maps(rec->evlist, &rec->opts.target) < 0) {
