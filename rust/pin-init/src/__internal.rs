@@ -277,6 +277,10 @@ fn stack_init_reuse() {
     println!("{value:?}");
 }
 
+// Marker types that determines type of `DropGuard`'s let bindings.
+pub struct Pinned;
+pub struct Unpinned;
+
 /// When a value of this type is dropped, it drops a `T`.
 ///
 /// Can be forgotten to prevent the drop.
@@ -285,11 +289,13 @@ fn stack_init_reuse() {
 ///
 /// - `ptr` is valid and properly aligned.
 /// - `*ptr` is initialized and owned by this guard.
-pub struct DropGuard<T: ?Sized> {
+/// - if `P` is `Pinned`, `ptr` is pinned.
+pub struct DropGuard<P, T: ?Sized> {
     ptr: *mut T,
+    phantom: PhantomData<P>,
 }
 
-impl<T: ?Sized> DropGuard<T> {
+impl<P, T: ?Sized> DropGuard<P, T> {
     /// Creates a drop guard and transfer the ownership of the pointer content.
     ///
     /// The ownership is only relinguished if the guard is forgotten via [`core::mem::forget`].
@@ -298,12 +304,18 @@ impl<T: ?Sized> DropGuard<T> {
     ///
     /// - `ptr` is valid and properly aligned.
     /// - `*ptr` is initialized, and the ownership is transferred to this guard.
+    /// - if `P` is `Pinned`, `ptr` is pinned.
     #[inline]
     pub unsafe fn new(ptr: *mut T) -> Self {
         // INVARIANT: By safety requirement.
-        Self { ptr }
+        Self {
+            ptr,
+            phantom: PhantomData,
+        }
     }
+}
 
+impl<T: ?Sized> DropGuard<Unpinned, T> {
     /// Create a let binding for accessor use.
     #[inline]
     pub fn let_binding(&mut self) -> &mut T {
@@ -312,7 +324,17 @@ impl<T: ?Sized> DropGuard<T> {
     }
 }
 
-impl<T: ?Sized> Drop for DropGuard<T> {
+impl<T: ?Sized> DropGuard<Pinned, T> {
+    /// Create a let binding for accessor use.
+    #[inline]
+    pub fn let_binding(&mut self) -> Pin<&mut T> {
+        // SAFETY: `self.ptr` is valid, properly aligned, initialized, exclusively accessible and
+        // pinned per type invariant.
+        unsafe { Pin::new_unchecked(&mut *self.ptr) }
+    }
+}
+
+impl<P, T: ?Sized> Drop for DropGuard<P, T> {
     #[inline]
     fn drop(&mut self) {
         // SAFETY: `self.ptr` is valid, properly aligned and `*self.ptr` is owned by this guard.

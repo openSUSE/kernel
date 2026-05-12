@@ -303,18 +303,31 @@ fn init_fields(
         // `mixed_site` ensures that the guard is not accessible to the user-controlled code.
         let guard = format_ident!("__{ident}_guard", span = Span::mixed_site());
 
-        // NOTE: The reference is derived from the guard so that it only lives as long as the
-        // guard does and cannot escape the scope. If it's created via `&mut (*#slot).#ident`
-        // like the unaligned field guard, it will become effectively `'static`.
-        let accessor = if pinned {
+        let guard_creation = if pinned {
             let project_ident = format_ident!("__project_{ident}");
             quote! {
-                // SAFETY: the initialization is pinned.
-                unsafe { #data.#project_ident(#guard.let_binding()) }
+                // SAFETY:
+                // - `&raw mut (*slot).#ident` points to the `#ident` field of `slot`.
+                // - `&raw mut (*slot).#ident` is valid.
+                // - `make_field_check` checks that `&raw mut (*slot).#ident` is properly aligned.
+                // - `(*slot).#ident` has been initialized above.
+                // - We only need the ownership to the pointee back when initialization has
+                //   succeeded, where we `forget` the guard.
+                unsafe { #data.#project_ident(&raw mut (*slot).#ident) }
             }
         } else {
             quote! {
-                #guard.let_binding()
+                // SAFETY:
+                // - `&raw mut (*slot).#ident` is valid.
+                // - `make_field_check` checks that `&raw mut (*slot).#ident` is properly aligned.
+                // - `(*slot).#ident` has been initialized above.
+                // - We only need the ownership to the pointee back when initialization has
+                //   succeeded, where we `forget` the guard.
+                unsafe {
+                    ::pin_init::__internal::DropGuard::<::pin_init::__internal::Unpinned, _>::new(
+                        &raw mut (*slot).#ident
+                    )
+                }
             }
         };
 
@@ -322,24 +335,16 @@ fn init_fields(
             #init
 
             #(#cfgs)*
-            // Create the drop guard.
-            //
-            // SAFETY:
-            // - `&raw mut (*slot).#ident` is valid.
-            // - `make_field_check` checks that `&raw mut (*slot).#ident` is properly aligned.
-            // - `(*slot).#ident` has been initialized above.
-            // - We only need the ownership to the pointee back when initialization has
-            //   succeeded, where we `forget` the guard.
-            let mut #guard = unsafe {
-                ::pin_init::__internal::DropGuard::new(
-                    &raw mut (*slot).#ident
-                )
-            };
+            let mut #guard = #guard_creation;
 
             #(#cfgs)*
+            // NOTE: The reference is derived from the guard so that it only lives as long as the
+            // guard does and cannot escape the scope. If it's created via `&mut (*#slot).#ident`
+            // like the unaligned field guard, it will become effectively `'static`.
             #[allow(unused_variables)]
-            let #ident = #accessor;
+            let #ident = #guard.let_binding();
         });
+
         guards.push(guard);
         guard_attrs.push(cfgs);
     }

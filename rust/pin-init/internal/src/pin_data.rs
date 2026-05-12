@@ -371,29 +371,18 @@ fn generate_the_pin_data(
                 .as_ref()
                 .expect("only structs with named fields are supported");
             let project_ident = format_ident!("__project_{field_name}");
-            let (init_ty, init_fn, project_ty, project_body, pin_safety) = if f.pinned {
+            let (init_ty, init_fn, pin_marker, pin_safety) = if f.pinned {
                 (
                     quote!(PinInit),
                     quote!(__pinned_init),
-                    quote!(::core::pin::Pin<&'__slot mut #ty>),
-                    // SAFETY: this field is structurally pinned.
-                    quote!(unsafe { ::core::pin::Pin::new_unchecked(slot) }),
+                    quote!(Pinned),
                     quote!(
                         /// - `slot` will not move until it is dropped, i.e. it will be pinned.
                     ),
                 )
             } else {
-                (
-                    quote!(Init),
-                    quote!(__init),
-                    quote!(&'__slot mut #ty),
-                    quote!(slot),
-                    quote!(),
-                )
+                (quote!(Init), quote!(__init), quote!(Unpinned), quote!())
             };
-            let slot_safety = format!(
-                " `slot` points at the field `{field_name}` inside of `{struct_name}`, which is pinned.",
-            );
             quote! {
                 /// # Safety
                 ///
@@ -414,13 +403,21 @@ fn generate_the_pin_data(
 
                 /// # Safety
                 ///
-                #[doc = #slot_safety]
+                /// - `slot` points to a `#ident` field of a pinned struct that this `__ThePinData`
+                ///    describes.
+                /// - `slot` is valid and properly aligned.
+                /// - `*slot` is initialized, and the ownership is transferred to the returned
+                ///    guard.
                 #(#attrs)*
-                #vis unsafe fn #project_ident<'__slot>(
+                #vis unsafe fn #project_ident(
                     self,
-                    slot: &'__slot mut #ty,
-                ) -> #project_ty {
-                    #project_body
+                    slot: *mut #ty,
+                ) -> ::pin_init::__internal::DropGuard<::pin_init::__internal::#pin_marker, #ty> {
+                    // SAFETY:
+                    // - If `#pin_marker` is `Pinned`, the corresponding field is structurally
+                    //   pinned.
+                    // - Other safety requirements follows the safety requirement.
+                    unsafe { ::pin_init::__internal::DropGuard::new(slot) }
                 }
             }
         })
