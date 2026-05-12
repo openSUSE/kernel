@@ -269,7 +269,7 @@ void iwl_mld_handle_nan_dw_end_notif(struct iwl_mld *mld,
 	struct wireless_dev *wdev;
 	struct ieee80211_channel *chan;
 
-	IWL_INFO(mld, "NAN: DW end: band=%u\n", notif->band);
+	IWL_DEBUG_INFO(mld, "NAN: DW end: band=%u\n", notif->band);
 
 	if (IWL_FW_CHECK(mld, !mld_vif, "NAN: DW end without mld_vif\n"))
 		return;
