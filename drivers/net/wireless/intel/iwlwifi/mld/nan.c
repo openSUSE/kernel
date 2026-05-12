@@ -203,7 +203,8 @@ int iwl_mld_stop_nan(struct ieee80211_hw *hw,
 	/* assume that higher layer guarantees that no additional frames are
 	 * added before calling this callback
 	 */
-	iwl_mld_flush_link_sta_txqs(mld, mld_vif->aux_sta.sta_id);
+	if (!WARN_ON(mld_vif->aux_sta.sta_id == IWL_INVALID_STA))
+		iwl_mld_flush_link_sta_txqs(mld, mld_vif->aux_sta.sta_id);
 	iwl_mld_remove_aux_sta(mld, vif);
 
 	/* cancel based on object type being NAN, as the NAN objects do
