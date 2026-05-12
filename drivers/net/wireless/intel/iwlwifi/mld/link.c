@@ -852,6 +852,7 @@ bool iwl_mld_chan_load_requires_scan(struct iwl_mld *mld,
 
 	return scan_trig;
 }
+EXPORT_SYMBOL_IF_IWLWIFI_KUNIT(iwl_mld_chan_load_requires_scan);
 
 static unsigned int
 iwl_mld_get_default_chan_load(struct ieee80211_bss_conf *link_conf)
