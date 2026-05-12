@@ -180,10 +180,8 @@ fn generate_unpin_impl(
         #where_token
             #predicates
         {
-            __phantom_pin: ::core::marker::PhantomData<fn(&'__pin ()) -> &'__pin ()>,
-            __phantom: ::core::marker::PhantomData<
-                fn(#ident #ty_generics) -> #ident #ty_generics
-            >,
+            __phantom_pin: ::pin_init::__internal::PhantomInvariantLifetime<'__pin>,
+            __phantom: ::pin_init::__internal::PhantomInvariant<#ident #ty_generics>,
             #(#pinned_fields),*
         }
 
@@ -434,9 +432,7 @@ fn generate_the_pin_data(
         #vis struct __ThePinData #generics
             #whr
         {
-            __phantom: ::core::marker::PhantomData<
-                fn(#struct_name #ty_generics) -> #struct_name #ty_generics
-            >,
+            __phantom: ::pin_init::__internal::PhantomInvariant<#struct_name #ty_generics>,
         }
 
         impl #impl_generics ::core::clone::Clone for __ThePinData #ty_generics
@@ -465,7 +461,7 @@ fn generate_the_pin_data(
             type PinData = __ThePinData #ty_generics;
 
             unsafe fn __pin_data() -> Self::PinData {
-                __ThePinData { __phantom: ::core::marker::PhantomData }
+                __ThePinData { __phantom: ::pin_init::__internal::PhantomInvariant::new() }
             }
         }
 

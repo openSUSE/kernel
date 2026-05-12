@@ -7,20 +7,62 @@
 
 use super::*;
 
+/// Zero-sized type used to mark a type as invariant.
+///
+/// This is a polyfill for the [unstable type] in the standard library of the same name.
+///
 /// See the [nomicon] for what subtyping is. See also [this table].
 ///
-/// The reason for not using `PhantomData<*mut T>` is that that type never implements [`Send`] and
-/// [`Sync`]. Hence `fn(*mut T) -> *mut T` is used, as that type always implements them.
-///
+/// [unstable type]: https://doc.rust-lang.org/nightly/std/marker/struct.PhantomInvariant.html
 /// [nomicon]: https://doc.rust-lang.org/nomicon/subtyping.html
 /// [this table]: https://doc.rust-lang.org/nomicon/phantom-data.html#table-of-phantomdata-patterns
-pub(crate) type Invariant<T> = PhantomData<fn(*mut T) -> *mut T>;
+#[repr(transparent)]
+pub struct PhantomInvariant<T: ?Sized>(PhantomData<fn(T) -> T>);
+
+impl<T: ?Sized> Clone for PhantomInvariant<T> {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T: ?Sized> Copy for PhantomInvariant<T> {}
+
+impl<T: ?Sized> Default for PhantomInvariant<T> {
+    #[inline(always)]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: ?Sized> PhantomInvariant<T> {
+    #[inline(always)]
+    pub const fn new() -> Self {
+        Self(PhantomData)
+    }
+}
+
+/// Zero-sized type used to mark a lifetime as invariant.
+///
+/// This is a polyfill for the [unstable type] in the standard library of the same name.
+///
+/// [unstable type]: https://doc.rust-lang.org/nightly/std/marker/struct.PhantomInvariantLifetime.html
+#[repr(transparent)]
+#[derive(Clone, Copy, Default)]
+pub struct PhantomInvariantLifetime<'a>(PhantomInvariant<&'a ()>);
+
+impl PhantomInvariantLifetime<'_> {
+    #[inline(always)]
+    pub const fn new() -> Self {
+        Self(PhantomInvariant::new())
+    }
+}
 
 /// Module-internal type implementing `PinInit` and `Init`.
 ///
 /// It is unsafe to create this type, since the closure needs to fulfill the same safety
 /// requirement as the `__pinned_init`/`__init` functions.
-pub(crate) struct InitClosure<F, T: ?Sized, E>(pub(crate) F, pub(crate) Invariant<(E, T)>);
+pub(crate) struct InitClosure<F, T: ?Sized, E>(pub(crate) F, pub(crate) PhantomInvariant<(E, T)>);
 
 // SAFETY: While constructing the `InitClosure`, the user promised that it upholds the
 // `__init` invariants.
@@ -126,7 +168,7 @@ pub unsafe trait InitData: Copy {
     }
 }
 
-pub struct AllData<T: ?Sized>(Invariant<T>);
+pub struct AllData<T: ?Sized>(PhantomInvariant<T>);
 
 impl<T: ?Sized> Clone for AllData<T> {
     fn clone(&self) -> Self {
@@ -146,7 +188,7 @@ unsafe impl<T: ?Sized> HasInitData for T {
     type InitData = AllData<T>;
 
     unsafe fn __init_data() -> Self::InitData {
-        AllData(PhantomData)
+        AllData(PhantomInvariant::new())
     }
 }
 

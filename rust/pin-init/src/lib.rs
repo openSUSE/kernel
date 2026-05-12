@@ -947,12 +947,12 @@ pub unsafe trait PinInit<T: ?Sized, E = Infallible>: Sized {
     where
         F: FnOnce(Pin<&mut T>) -> Result<(), E>,
     {
-        ChainPinInit(self, f, PhantomData)
+        ChainPinInit(self, f, __internal::PhantomInvariant::new())
     }
 }
 
 /// An initializer returned by [`PinInit::pin_chain`].
-pub struct ChainPinInit<I, F, T: ?Sized, E>(I, F, __internal::Invariant<(E, T)>);
+pub struct ChainPinInit<I, F, T: ?Sized, E>(I, F, __internal::PhantomInvariant<(E, T)>);
 
 // SAFETY: The `__pinned_init` function is implemented such that it
 // - returns `Ok(())` on successful initialization,
@@ -1055,12 +1055,12 @@ pub unsafe trait Init<T: ?Sized, E = Infallible>: PinInit<T, E> {
     where
         F: FnOnce(&mut T) -> Result<(), E>,
     {
-        ChainInit(self, f, PhantomData)
+        ChainInit(self, f, __internal::PhantomInvariant::new())
     }
 }
 
 /// An initializer returned by [`Init::chain`].
-pub struct ChainInit<I, F, T: ?Sized, E>(I, F, __internal::Invariant<(E, T)>);
+pub struct ChainInit<I, F, T: ?Sized, E>(I, F, __internal::PhantomInvariant<(E, T)>);
 
 // SAFETY: The `__init` function is implemented such that it
 // - returns `Ok(())` on successful initialization,
@@ -1108,7 +1108,7 @@ where
 pub const unsafe fn pin_init_from_closure<T: ?Sized, E>(
     f: impl FnOnce(*mut T) -> Result<(), E>,
 ) -> impl PinInit<T, E> {
-    __internal::InitClosure(f, PhantomData)
+    __internal::InitClosure(f, __internal::PhantomInvariant::new())
 }
 
 /// Creates a new [`Init<T, E>`] from the given closure.
@@ -1127,7 +1127,7 @@ pub const unsafe fn pin_init_from_closure<T: ?Sized, E>(
 pub const unsafe fn init_from_closure<T: ?Sized, E>(
     f: impl FnOnce(*mut T) -> Result<(), E>,
 ) -> impl Init<T, E> {
-    __internal::InitClosure(f, PhantomData)
+    __internal::InitClosure(f, __internal::PhantomInvariant::new())
 }
 
 /// Changes the to be initialized type.
