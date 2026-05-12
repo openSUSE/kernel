@@ -3735,6 +3735,53 @@ void update_rq_avg_idle(struct rq *rq)
 	rq->idle_stamp = 0;
 }
 
+#ifdef CONFIG_SCHED_PROXY_EXEC
+static void zap_balance_callbacks(struct rq *rq);
+
+static inline void proxy_reset_donor(struct rq *rq)
+{
+	WARN_ON_ONCE(rq->donor == rq->curr);
+
+	put_prev_set_next_task(rq, rq->donor, rq->curr);
+	rq_set_donor(rq, rq->curr);
+	zap_balance_callbacks(rq);
+	resched_curr(rq);
+}
+
+/*
+ * Checks to see if task p has been proxy-migrated to another rq
+ * and needs to be returned. If so, we deactivate the task here
+ * so that it can be properly woken up on the p->wake_cpu
+ * (or whichever cpu select_task_rq() picks at the bottom of
+ * try_to_wake_up()
+ */
+static inline bool proxy_needs_return(struct rq *rq, struct task_struct *p)
+{
+	if (!task_is_blocked(p))
+		return false;
+
+	scoped_guard(raw_spinlock, &p->blocked_lock) {
+		/* Task is waking up; clear any blocked_on relationship */
+		__clear_task_blocked_on(p, NULL);
+
+		/* If already current, don't need to return migrate */
+		if (task_current(rq, p))
+			return false;
+
+		/* If we're return migrating the rq->donor, switch it out for idle */
+		if (task_current_donor(rq, p))
+			proxy_reset_donor(rq);
+	}
+	block_task(rq, p, TASK_WAKING);
+	return true;
+}
+#else /* !CONFIG_SCHED_PROXY_EXEC */
+static inline bool proxy_needs_return(struct rq *rq, struct task_struct *p)
+{
+	return false;
+}
+#endif /* CONFIG_SCHED_PROXY_EXEC */
+
 static void
 ttwu_do_activate(struct rq *rq, struct task_struct *p, int wake_flags,
 		 struct rq_flags *rf)
@@ -3799,28 +3846,26 @@ ttwu_do_activate(struct rq *rq, struct task_struct *p, int wake_flags,
  */
 static int ttwu_runnable(struct task_struct *p, int wake_flags)
 {
-	struct rq_flags rf;
-	struct rq *rq;
-	int ret = 0;
+	ACQUIRE(__task_rq_lock, guard)(p);
+	struct rq *rq = guard.rq;
 
-	rq = __task_rq_lock(p, &rf);
-	if (task_on_rq_queued(p)) {
-		update_rq_clock(rq);
-		if (p->se.sched_delayed)
-			enqueue_task(rq, p, ENQUEUE_NOCLOCK | ENQUEUE_DELAYED);
-		if (!task_on_cpu(rq, p)) {
-			/*
-			 * When on_rq && !on_cpu the task is preempted, see if
-			 * it should preempt the task that is current now.
-			 */
-			wakeup_preempt(rq, p, wake_flags);
-		}
-		ttwu_do_wakeup(p);
-		ret = 1;
+	if (!task_on_rq_queued(p))
+		return 0;
+
+	update_rq_clock(rq);
+	if (p->se.sched_delayed)
+		enqueue_task(rq, p, ENQUEUE_NOCLOCK | ENQUEUE_DELAYED);
+	if (proxy_needs_return(rq, p))
+		return 0;
+	if (!task_on_cpu(rq, p)) {
+		/*
+		 * When on_rq && !on_cpu the task is preempted, see if
+		 * it should preempt the task that is current now.
+		 */
+		wakeup_preempt(rq, p, wake_flags);
 	}
-	__task_rq_unlock(rq, p, &rf);
-
-	return ret;
+	ttwu_do_wakeup(p);
+	return 1;
 }
 
 void sched_ttwu_pending(void *arg)
@@ -4207,6 +4252,8 @@ int try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 		 *    it disabling IRQs (this allows not taking ->pi_lock).
 		 */
 		WARN_ON_ONCE(p->se.sched_delayed);
+		/* If p is current, we know we can run here, so clear blocked_on */
+		clear_task_blocked_on(p, NULL);
 		if (!ttwu_state_match(p, state, &success))
 			goto out;
 
@@ -4223,6 +4270,7 @@ int try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 	 */
 	scoped_guard (raw_spinlock_irqsave, &p->pi_lock) {
 		smp_mb__after_spinlock();
+
 		if (!ttwu_state_match(p, state, &success))
 			break;
 
@@ -4288,6 +4336,14 @@ int try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 		WRITE_ONCE(p->__state, TASK_WAKING);
 
 		/*
+		 * We never clear the blocked_on relation on proxy_deactivate.
+		 * If we don't clear it here, we have TASK_RUNNING + p->blocked_on
+		 * when waking up. Since this is a fully blocked, off CPU task
+		 * waking up, it should be safe to clear the blocked_on relation.
+		 */
+		if (task_is_blocked(p))
+			clear_task_blocked_on(p, NULL);
+		/*
 		 * If the owning (remote) CPU is still in the middle of schedule() with
 		 * this task as prev, considering queueing p on the remote CPUs wake_list
 		 * which potentially sends an IPI instead of spinning on p->on_cpu to
@@ -4331,6 +4387,16 @@ int try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 			wake_flags |= WF_MIGRATED;
 			psi_ttwu_dequeue(p);
 			set_task_cpu(p, cpu);
+		} else if (cpu != p->wake_cpu) {
+			/*
+			 * If we were proxy-migrated to cpu, then
+			 * select_task_rq() picks cpu instead of wake_cpu
+			 * to return to, we won't call set_task_cpu(),
+			 * leaving a stale wake_cpu pointing to where we
+			 * proxy-migrated from. So just fixup wake_cpu here
+			 * if its not correct
+			 */
+			p->wake_cpu = cpu;
 		}
 
 		ttwu_queue(p, cpu, wake_flags);
@@ -6612,7 +6678,7 @@ static bool try_to_block_task(struct rq *rq, struct task_struct *p,
 	if (signal_pending_state(task_state, p)) {
 		WRITE_ONCE(p->__state, TASK_RUNNING);
 		*task_state_p = TASK_RUNNING;
-		set_task_blocked_on_waking(p, NULL);
+		clear_task_blocked_on(p, NULL);
 
 		return false;
 	}
@@ -6656,13 +6722,11 @@ static inline struct task_struct *proxy_resched_idle(struct rq *rq)
 	return rq->idle;
 }
 
-static bool proxy_deactivate(struct rq *rq, struct task_struct *donor)
+static void proxy_deactivate(struct rq *rq, struct task_struct *donor)
 {
 	unsigned long state = READ_ONCE(donor->__state);
 
-	/* Don't deactivate if the state has been changed to TASK_RUNNING */
-	if (state == TASK_RUNNING)
-		return false;
+	WARN_ON_ONCE(state == TASK_RUNNING);
 	/*
 	 * Because we got donor from pick_next_task(), it is *crucial*
 	 * that we call proxy_resched_idle() before we deactivate it.
@@ -6673,7 +6737,7 @@ static bool proxy_deactivate(struct rq *rq, struct task_struct *donor)
 	 * need to be changed from next *before* we deactivate.
 	 */
 	proxy_resched_idle(rq);
-	return try_to_block_task(rq, donor, &state, true);
+	block_task(rq, donor, state);
 }
 
 static inline void proxy_release_rq_lock(struct rq *rq, struct rq_flags *rf)
@@ -6747,71 +6811,6 @@ static void proxy_migrate_task(struct rq *rq, struct rq_flags *rf,
 	proxy_reacquire_rq_lock(rq, rf);
 }
 
-static void proxy_force_return(struct rq *rq, struct rq_flags *rf,
-			       struct task_struct *p)
-	__must_hold(__rq_lockp(rq))
-{
-	struct rq *task_rq, *target_rq = NULL;
-	int cpu, wake_flag = WF_TTWU;
-
-	lockdep_assert_rq_held(rq);
-	WARN_ON(p == rq->curr);
-
-	if (p == rq->donor)
-		proxy_resched_idle(rq);
-
-	proxy_release_rq_lock(rq, rf);
-	/*
-	 * We drop the rq lock, and re-grab task_rq_lock to get
-	 * the pi_lock (needed for select_task_rq) as well.
-	 */
-	scoped_guard (task_rq_lock, p) {
-		task_rq = scope.rq;
-
-		/*
-		 * Since we let go of the rq lock, the task may have been
-		 * woken or migrated to another rq before we  got the
-		 * task_rq_lock. So re-check we're on the same RQ. If
-		 * not, the task has already been migrated and that CPU
-		 * will handle any futher migrations.
-		 */
-		if (task_rq != rq)
-			break;
-
-		/*
-		 * Similarly, if we've been dequeued, someone else will
-		 * wake us
-		 */
-		if (!task_on_rq_queued(p))
-			break;
-
-		/*
-		 * Since we should only be calling here from __schedule()
-		 * -> find_proxy_task(), no one else should have
-		 * assigned current out from under us. But check and warn
-		 * if we see this, then bail.
-		 */
-		if (task_current(task_rq, p) || task_on_cpu(task_rq, p)) {
-			WARN_ONCE(1, "%s rq: %i current/on_cpu task %s %d  on_cpu: %i\n",
-				  __func__, cpu_of(task_rq),
-				  p->comm, p->pid, p->on_cpu);
-			break;
-		}
-
-		update_rq_clock(task_rq);
-		deactivate_task(task_rq, p, DEQUEUE_NOCLOCK);
-		cpu = select_task_rq(p, p->wake_cpu, &wake_flag);
-		set_task_cpu(p, cpu);
-		target_rq = cpu_rq(cpu);
-		clear_task_blocked_on(p, NULL);
-	}
-
-	if (target_rq)
-		attach_one_task(target_rq, p);
-
-	proxy_reacquire_rq_lock(rq, rf);
-}
-
 /*
  * Find runnable lock owner to proxy for mutex blocked donor
  *
@@ -6847,7 +6846,7 @@ find_proxy_task(struct rq *rq, struct task_struct *donor, struct rq_flags *rf)
 				clear_task_blocked_on(p, PROXY_WAKING);
 				return p;
 			}
-			goto force_return;
+			goto deactivate;
 		}
 
 		/*
@@ -6882,7 +6881,7 @@ find_proxy_task(struct rq *rq, struct task_struct *donor, struct rq_flags *rf)
 				__clear_task_blocked_on(p, NULL);
 				return p;
 			}
-			goto force_return;
+			goto deactivate;
 		}
 
 		if (!READ_ONCE(owner->on_rq) || owner->se.sched_delayed) {
@@ -6961,12 +6960,7 @@ find_proxy_task(struct rq *rq, struct task_struct *donor, struct rq_flags *rf)
 	return owner;
 
 deactivate:
-	if (proxy_deactivate(rq, donor))
-		return NULL;
-	/* If deactivate fails, force return */
-	p = donor;
-force_return:
-	proxy_force_return(rq, rf, p);
+	proxy_deactivate(rq, p);
 	return NULL;
 migrate_task:
 	proxy_migrate_task(rq, rf, p, owner_cpu);
@@ -7112,6 +7106,9 @@ pick_again:
 	rq->next_class = next->sched_class;
 	if (sched_proxy_exec()) {
 		struct task_struct *prev_donor = rq->donor;
+
+		if (!prev_state && prev->blocked_on)
+			clear_task_blocked_on(prev, NULL);
 
 		rq_set_donor(rq, next);
 		if (unlikely(next->blocked_on)) {
