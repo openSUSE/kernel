@@ -32,6 +32,7 @@ struct iwl_nvm_data {
 	bool sku_cap_ipan_enable;
 	bool sku_cap_mimo_disabled;
 	bool sku_cap_11be_enable;
+	bool sku_cap_11bn_enable;
 
 	u16 radio_cfg_type;
 	u8 radio_cfg_step;
