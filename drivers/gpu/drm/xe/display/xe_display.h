@@ -42,7 +42,6 @@ void xe_display_pm_runtime_resume(struct xe_device *xe);
 
 static inline int xe_display_driver_probe_defer(struct pci_dev *pdev) { return 0; }
 static inline void xe_display_driver_set_hooks(struct drm_driver *driver) { }
-static inline void xe_display_driver_remove(struct xe_device *xe) {}
 
 static inline int xe_display_probe(struct xe_device *xe) { return 0; }
 
