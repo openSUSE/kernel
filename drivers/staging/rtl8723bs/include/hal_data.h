@@ -387,9 +387,6 @@ struct hal_com_data {
 	/*  For bluetooth co-existence */
 	struct bt_coexist		bt_coexist;
 
-	/*  Interrupt related register information. */
-	u32 		SysIntrStatus;
-
 	/* Chip version information */
 	bool chip_normal;	/* true - normal chip, false - test chip */
 };
