@@ -395,7 +395,18 @@ out_remove:
 	return PTR_ERR(inode);
 }
 
-static void remove_dir(struct dentry * d)
+/**
+ * configfs_remove_dir - remove an config_item's directory.
+ * @d:	dentry we're removing.
+ *
+ * The only thing special about this is that we remove any files in
+ * the directory before we remove the directory, and we've inlined
+ * what used to be configfs_rmdir() below, instead of calling separately.
+ *
+ * Caller holds the mutex of the item's inode
+ */
+
+static void configfs_remove_dir(struct dentry *d)
 {
 	struct dentry * parent = dget(d->d_parent);
 
@@ -413,31 +424,6 @@ static void remove_dir(struct dentry * d)
 	pr_debug(" o %pd removing done (%d)\n", d, d_count(d));
 
 	dput(parent);
-}
-
-/**
- * configfs_remove_dir - remove an config_item's directory.
- * @item:	config_item we're removing.
- *
- * The only thing special about this is that we remove any files in
- * the directory before we remove the directory, and we've inlined
- * what used to be configfs_rmdir() below, instead of calling separately.
- *
- * Caller holds the mutex of the item's inode
- */
-
-static void configfs_remove_dir(struct config_item * item)
-{
-	struct dentry * dentry = dget(item->ci_dentry);
-
-	if (!dentry)
-		return;
-
-	remove_dir(dentry);
-	/**
-	 * Drop reference from dget() on entrance.
-	 */
-	dput(dentry);
 }
 
 static struct dentry * configfs_lookup(struct inode *dir,
@@ -591,17 +577,12 @@ static struct configfs_dirent *next_dirent(struct configfs_dirent *parent,
 	return NULL;
 }
 
-static void detach_attrs(struct config_item * item)
+static void detach_attrs(struct dentry *dentry)
 {
-	struct dentry * dentry = dget(item->ci_dentry);
 	struct configfs_dirent *parent_sd;
 	struct configfs_dirent *sd, *next;
 
-	if (!dentry)
-		return;
-
-	pr_debug("configfs %s: dropping attrs for  dir\n",
-		 dentry->d_name.name);
+	pr_debug("configfs %pd: dropping attrs for  dir\n", dentry);
 
 	parent_sd = dentry->d_fsdata;
 
@@ -617,11 +598,6 @@ static void detach_attrs(struct config_item * item)
 		spin_lock(&configfs_dirent_lock);
 	}
 	spin_unlock(&configfs_dirent_lock);
-
-	/**
-	 * Drop reference from dget() on entrance.
-	 */
-	dput(dentry);
 }
 
 static int populate_attrs(struct config_item *item)
@@ -851,8 +827,12 @@ static void link_group(struct config_group *parent_group, struct config_group *g
 /* Caller holds the mutex of the item's inode */
 static void configfs_detach_item(struct config_item *item)
 {
-	detach_attrs(item);
-	configfs_remove_dir(item);
+	struct dentry *dentry = dget(item->ci_dentry);
+	if (dentry) {
+		detach_attrs(dentry);
+		configfs_remove_dir(dentry);
+		dput(dentry);
+	}
 }
 
 /*
