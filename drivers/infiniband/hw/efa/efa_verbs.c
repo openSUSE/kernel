@@ -218,12 +218,9 @@ int efa_query_device(struct ib_device *ibdev,
 	struct efa_dev *dev = to_edev(ibdev);
 	int err;
 
-	if (udata && udata->inlen &&
-	    !ib_is_udata_cleared(udata, 0, udata->inlen)) {
-		ibdev_dbg(ibdev,
-			  "Incompatible ABI params, udata not cleared\n");
-		return -EINVAL;
-	}
+	err = ib_is_udata_in_empty(udata);
+	if (err)
+		return err;
 
 	dev_attr = &dev->dev_attr;
 
@@ -433,13 +430,9 @@ int efa_alloc_pd(struct ib_pd *ibpd, struct ib_udata *udata)
 	struct efa_pd *pd = to_epd(ibpd);
 	int err;
 
-	if (udata->inlen &&
-	    !ib_is_udata_cleared(udata, 0, udata->inlen)) {
-		ibdev_dbg(&dev->ibdev,
-			  "Incompatible ABI params, udata not cleared\n");
-		err = -EINVAL;
+	err = ib_is_udata_in_empty(udata);
+	if (err)
 		goto err_out;
-	}
 
 	err = efa_com_alloc_pd(&dev->edev, &result);
 	if (err)
@@ -982,12 +975,9 @@ int efa_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr,
 	if (qp_attr_mask & ~IB_QP_ATTR_STANDARD_BITS)
 		return -EOPNOTSUPP;
 
-	if (udata->inlen &&
-	    !ib_is_udata_cleared(udata, 0, udata->inlen)) {
-		ibdev_dbg(&dev->ibdev,
-			  "Incompatible ABI params, udata not cleared\n");
-		return -EINVAL;
-	}
+	err = ib_is_udata_in_empty(udata);
+	if (err)
+		return err;
 
 	cur_state = qp_attr_mask & IB_QP_CUR_STATE ? qp_attr->cur_qp_state :
 						     qp->state;
@@ -1612,13 +1602,11 @@ static struct efa_mr *efa_alloc_mr(struct ib_pd *ibpd, int access_flags,
 	struct efa_dev *dev = to_edev(ibpd->device);
 	int supp_access_flags;
 	struct efa_mr *mr;
+	int ret;
 
-	if (udata && udata->inlen &&
-	    !ib_is_udata_cleared(udata, 0, udata->inlen)) {
-		ibdev_dbg(&dev->ibdev,
-			  "Incompatible ABI params, udata not cleared\n");
-		return ERR_PTR(-EINVAL);
-	}
+	ret = ib_is_udata_in_empty(udata);
+	if (ret)
+		return ERR_PTR(ret);
 
 	supp_access_flags =
 		IB_ACCESS_LOCAL_WRITE |
@@ -2082,12 +2070,9 @@ int efa_create_ah(struct ib_ah *ibah,
 		goto err_out;
 	}
 
-	if (udata->inlen &&
-	    !ib_is_udata_cleared(udata, 0, udata->inlen)) {
-		ibdev_dbg(&dev->ibdev, "Incompatible ABI params\n");
-		err = -EINVAL;
+	err = ib_is_udata_in_empty(udata);
+	if (err)
 		goto err_out;
-	}
 
 	memcpy(params.dest_addr, ah_attr->grh.dgid.raw,
 	       sizeof(params.dest_addr));
