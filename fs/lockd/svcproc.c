@@ -781,19 +781,12 @@ static const struct rpc_call_ops nlmsvc_callback_ops = {
  * because we send the callback before the reply proper. I hope this
  * doesn't break any clients.
  */
-static __be32 nlmsvc_callback(struct svc_rqst *rqstp, u32 proc,
+static __be32
+nlmsvc_callback(struct svc_rqst *rqstp, struct nlm_host *host, u32 proc,
 		__be32 (*func)(struct svc_rqst *, struct lockd_res *))
 {
-	struct lockd_args *argp = rqstp->rq_argp;
-	struct nlm_host	*host;
 	struct nlm_rqst	*call;
 	__be32 stat;
-
-	host = nlmsvc_lookup_host(rqstp,
-				  argp->lock.caller,
-				  argp->lock.len);
-	if (host == NULL)
-		return rpc_system_err;
 
 	call = nlm_alloc_call(host);
 	nlmsvc_release_host(host);
@@ -814,34 +807,77 @@ static __be32 nlmsvc_callback(struct svc_rqst *rqstp, u32 proc,
 
 static __be32 nlmsvc_proc_test_msg(struct svc_rqst *rqstp)
 {
+	struct lockd_args *argp = rqstp->rq_argp;
+	struct nlm_host	*host;
+
 	dprintk("lockd: TEST_MSG      called\n");
-	return nlmsvc_callback(rqstp, NLMPROC_TEST_RES, __nlmsvc_proc_test);
+
+	host = nlmsvc_lookup_host(rqstp, argp->lock.caller, argp->lock.len);
+	if (!host)
+		return rpc_system_err;
+
+	return nlmsvc_callback(rqstp, host, NLMPROC_TEST_RES,
+			       __nlmsvc_proc_test);
 }
 
 static __be32 nlmsvc_proc_lock_msg(struct svc_rqst *rqstp)
 {
+	struct lockd_args *argp = rqstp->rq_argp;
+	struct nlm_host	*host;
+
 	dprintk("lockd: LOCK_MSG      called\n");
-	return nlmsvc_callback(rqstp, NLMPROC_LOCK_RES, __nlmsvc_proc_lock);
+
+	host = nlmsvc_lookup_host(rqstp, argp->lock.caller, argp->lock.len);
+	if (!host)
+		return rpc_system_err;
+
+	return nlmsvc_callback(rqstp, host, NLMPROC_LOCK_RES,
+			       __nlmsvc_proc_lock);
 }
 
 static __be32 nlmsvc_proc_cancel_msg(struct svc_rqst *rqstp)
 {
+	struct lockd_args *argp = rqstp->rq_argp;
+	struct nlm_host	*host;
+
 	dprintk("lockd: CANCEL_MSG    called\n");
-	return nlmsvc_callback(rqstp, NLMPROC_CANCEL_RES, __nlmsvc_proc_cancel);
+
+	host = nlmsvc_lookup_host(rqstp, argp->lock.caller, argp->lock.len);
+	if (!host)
+		return rpc_system_err;
+
+	return nlmsvc_callback(rqstp, host, NLMPROC_CANCEL_RES,
+			       __nlmsvc_proc_cancel);
 }
 
-static __be32
-nlmsvc_proc_unlock_msg(struct svc_rqst *rqstp)
+static __be32 nlmsvc_proc_unlock_msg(struct svc_rqst *rqstp)
 {
+	struct lockd_args *argp = rqstp->rq_argp;
+	struct nlm_host	*host;
+
 	dprintk("lockd: UNLOCK_MSG    called\n");
-	return nlmsvc_callback(rqstp, NLMPROC_UNLOCK_RES, __nlmsvc_proc_unlock);
+
+	host = nlmsvc_lookup_host(rqstp, argp->lock.caller, argp->lock.len);
+	if (!host)
+		return rpc_system_err;
+
+	return nlmsvc_callback(rqstp, host, NLMPROC_UNLOCK_RES,
+			       __nlmsvc_proc_unlock);
 }
 
-static __be32
-nlmsvc_proc_granted_msg(struct svc_rqst *rqstp)
+static __be32 nlmsvc_proc_granted_msg(struct svc_rqst *rqstp)
 {
+	struct lockd_args *argp = rqstp->rq_argp;
+	struct nlm_host	*host;
+
 	dprintk("lockd: GRANTED_MSG   called\n");
-	return nlmsvc_callback(rqstp, NLMPROC_GRANTED_RES, __nlmsvc_proc_granted);
+
+	host = nlmsvc_lookup_host(rqstp, argp->lock.caller, argp->lock.len);
+	if (!host)
+		return rpc_system_err;
+
+	return nlmsvc_callback(rqstp, host, NLMPROC_GRANTED_RES,
+			       __nlmsvc_proc_granted);
 }
 
 /*
