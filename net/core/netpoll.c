@@ -268,7 +268,7 @@ static void zap_completion_queue(void)
 	put_cpu_var(softnet_data);
 }
 
-static struct sk_buff *find_skb(struct netpoll *np, int len, int reserve)
+struct sk_buff *find_skb(struct netpoll *np, int len, int reserve)
 {
 	int count = 0;
 	struct sk_buff *skb;
@@ -294,6 +294,7 @@ repeat:
 	skb_reserve(skb, reserve);
 	return skb;
 }
+EXPORT_SYMBOL_GPL(find_skb);
 
 static int netpoll_owner_active(struct net_device *dev)
 {
@@ -369,8 +370,8 @@ out:
 	return ret;
 }
 
-static void netpoll_udp_checksum(struct netpoll *np, struct sk_buff *skb,
-				 int len)
+void netpoll_udp_checksum(struct netpoll *np, struct sk_buff *skb,
+			  int len)
 {
 	struct udphdr *udph;
 	int udp_len;
@@ -393,6 +394,7 @@ static void netpoll_udp_checksum(struct netpoll *np, struct sk_buff *skb,
 	if (udph->check == 0)
 		udph->check = CSUM_MANGLED_0;
 }
+EXPORT_SYMBOL_GPL(netpoll_udp_checksum);
 
 netdev_tx_t netpoll_send_skb(struct netpoll *np, struct sk_buff *skb)
 {
@@ -411,7 +413,7 @@ netdev_tx_t netpoll_send_skb(struct netpoll *np, struct sk_buff *skb)
 }
 EXPORT_SYMBOL(netpoll_send_skb);
 
-static void push_ipv6(struct netpoll *np, struct sk_buff *skb, int len)
+void push_ipv6(struct netpoll *np, struct sk_buff *skb, int len)
 {
 	struct ipv6hdr *ip6h;
 
@@ -433,8 +435,9 @@ static void push_ipv6(struct netpoll *np, struct sk_buff *skb, int len)
 
 	skb->protocol = htons(ETH_P_IPV6);
 }
+EXPORT_SYMBOL_GPL(push_ipv6);
 
-static void push_ipv4(struct netpoll *np, struct sk_buff *skb, int len)
+void push_ipv4(struct netpoll *np, struct sk_buff *skb, int len)
 {
 	static atomic_t ip_ident;
 	struct iphdr *iph;
@@ -460,8 +463,9 @@ static void push_ipv4(struct netpoll *np, struct sk_buff *skb, int len)
 	iph->check = ip_fast_csum((unsigned char *)iph, iph->ihl);
 	skb->protocol = htons(ETH_P_IP);
 }
+EXPORT_SYMBOL_GPL(push_ipv4);
 
-static void push_udp(struct netpoll *np, struct sk_buff *skb, int len)
+void push_udp(struct netpoll *np, struct sk_buff *skb, int len)
 {
 	struct udphdr *udph;
 	int udp_len;
@@ -478,8 +482,9 @@ static void push_udp(struct netpoll *np, struct sk_buff *skb, int len)
 
 	netpoll_udp_checksum(np, skb, len);
 }
+EXPORT_SYMBOL_GPL(push_udp);
 
-static void push_eth(struct netpoll *np, struct sk_buff *skb)
+void push_eth(struct netpoll *np, struct sk_buff *skb)
 {
 	struct ethhdr *eth;
 
@@ -492,6 +497,7 @@ static void push_eth(struct netpoll *np, struct sk_buff *skb)
 	else
 		eth->h_proto = htons(ETH_P_IP);
 }
+EXPORT_SYMBOL_GPL(push_eth);
 
 int netpoll_send_udp(struct netpoll *np, const char *msg, int len)
 {

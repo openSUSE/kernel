@@ -74,6 +74,12 @@ void __netpoll_free(struct netpoll *np);
 void netpoll_cleanup(struct netpoll *np);
 void do_netpoll_cleanup(struct netpoll *np);
 netdev_tx_t netpoll_send_skb(struct netpoll *np, struct sk_buff *skb);
+struct sk_buff *find_skb(struct netpoll *np, int len, int reserve);
+void netpoll_udp_checksum(struct netpoll *np, struct sk_buff *skb, int len);
+void push_ipv6(struct netpoll *np, struct sk_buff *skb, int len);
+void push_ipv4(struct netpoll *np, struct sk_buff *skb, int len);
+void push_udp(struct netpoll *np, struct sk_buff *skb, int len);
+void push_eth(struct netpoll *np, struct sk_buff *skb);
 
 #ifdef CONFIG_NETPOLL
 static inline void *netpoll_poll_lock(struct napi_struct *napi)
