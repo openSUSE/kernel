@@ -238,7 +238,7 @@ out_overflow:
  *	};
  */
 static void encode_nlm4_holder(struct xdr_stream *xdr,
-			       const struct nlm_res *result)
+			       const struct lockd_res *result)
 {
 	const struct lockd_lock *lock = &result->lock;
 	u64 l_offset, l_len;
@@ -254,7 +254,7 @@ static void encode_nlm4_holder(struct xdr_stream *xdr,
 	xdr_encode_hyper(p, l_len);
 }
 
-static int decode_nlm4_holder(struct xdr_stream *xdr, struct nlm_res *result)
+static int decode_nlm4_holder(struct xdr_stream *xdr, struct lockd_res *result)
 {
 	struct lockd_lock *lock = &result->lock;
 	struct file_lock *fl = &lock->fl;
@@ -435,7 +435,7 @@ static void nlm4_xdr_enc_res(struct rpc_rqst *req,
 			     struct xdr_stream *xdr,
 			     const void *data)
 {
-	const struct nlm_res *result = data;
+	const struct lockd_res *result = data;
 
 	encode_cookie(xdr, &result->cookie);
 	encode_nlm4_stat(xdr, result->status);
@@ -458,7 +458,7 @@ static void nlm4_xdr_enc_testres(struct rpc_rqst *req,
 				 struct xdr_stream *xdr,
 				 const void *data)
 {
-	const struct nlm_res *result = data;
+	const struct lockd_res *result = data;
 
 	encode_cookie(xdr, &result->cookie);
 	encode_nlm4_stat(xdr, result->status);
@@ -489,7 +489,7 @@ static void nlm4_xdr_enc_testres(struct rpc_rqst *req,
  *	};
  */
 static int decode_nlm4_testrply(struct xdr_stream *xdr,
-				struct nlm_res *result)
+				struct lockd_res *result)
 {
 	int error;
 
@@ -506,7 +506,7 @@ static int nlm4_xdr_dec_testres(struct rpc_rqst *req,
 				struct xdr_stream *xdr,
 				void *data)
 {
-	struct nlm_res *result = data;
+	struct lockd_res *result = data;
 	int error;
 
 	error = decode_cookie(xdr, &result->cookie);
@@ -527,7 +527,7 @@ static int nlm4_xdr_dec_res(struct rpc_rqst *req,
 			    struct xdr_stream *xdr,
 			    void *data)
 {
-	struct nlm_res *result = data;
+	struct lockd_res *result = data;
 	int error;
 
 	error = decode_cookie(xdr, &result->cookie);

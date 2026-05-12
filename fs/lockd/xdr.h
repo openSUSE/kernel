@@ -71,7 +71,7 @@ struct lockd_args {
 /*
  * Generic lockd result
  */
-struct nlm_res {
+struct lockd_res {
 	struct lockd_cookie	cookie;
 	__be32			status;
 	struct lockd_lock	lock;

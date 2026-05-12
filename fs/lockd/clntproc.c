@@ -267,7 +267,7 @@ nlmclnt_call(const struct cred *cred, struct nlm_rqst *req, u32 proc)
 	struct nlm_host	*host = req->a_host;
 	struct rpc_clnt	*clnt;
 	struct lockd_args *argp = &req->a_args;
-	struct nlm_res	*resp = &req->a_res;
+	struct lockd_res *resp = &req->a_res;
 	struct rpc_message msg = {
 		.rpc_argp	= argp,
 		.rpc_resp	= resp,
@@ -523,7 +523,7 @@ nlmclnt_lock(struct nlm_rqst *req, struct file_lock *fl)
 {
 	const struct cred *cred = nfs_file_cred(fl->c.flc_file);
 	struct nlm_host	*host = req->a_host;
-	struct nlm_res	*resp = &req->a_res;
+	struct lockd_res *resp = &req->a_res;
 	struct nlm_wait block;
 	unsigned char flags = fl->c.flc_flags;
 	unsigned char type;
@@ -686,7 +686,7 @@ static int
 nlmclnt_unlock(struct nlm_rqst *req, struct file_lock *fl)
 {
 	struct nlm_host	*host = req->a_host;
-	struct nlm_res	*resp = &req->a_res;
+	struct lockd_res *resp = &req->a_res;
 	int status;
 	unsigned char flags = fl->c.flc_flags;
 

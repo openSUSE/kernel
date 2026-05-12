@@ -172,7 +172,7 @@ struct nlm_rqst {
 	unsigned int		a_flags;	/* initial RPC task flags */
 	struct nlm_host *	a_host;		/* host handle */
 	struct lockd_args	a_args;		/* arguments */
-	struct nlm_res		a_res;		/* result */
+	struct lockd_res	a_res;		/* result */
 	struct nlm_block *	a_block;
 	unsigned int		a_retries;	/* Retry count */
 	u8			a_owner[NLMCLNT_OHSIZE];

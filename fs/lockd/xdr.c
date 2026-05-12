@@ -127,7 +127,7 @@ svcxdr_encode_holder(struct xdr_stream *xdr, const struct lockd_lock *lock)
 }
 
 static bool
-svcxdr_encode_testrply(struct xdr_stream *xdr, const struct nlm_res *resp)
+svcxdr_encode_testrply(struct xdr_stream *xdr, const struct lockd_res *resp)
 {
 	if (!svcxdr_encode_stats(xdr, resp->status))
 		return false;
@@ -231,7 +231,7 @@ nlmsvc_decode_unlockargs(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 bool
 nlmsvc_decode_res(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 {
-	struct nlm_res *resp = rqstp->rq_argp;
+	struct lockd_res *resp = rqstp->rq_argp;
 
 	if (!svcxdr_decode_cookie(xdr, &resp->cookie))
 		return false;
@@ -322,7 +322,7 @@ nlmsvc_encode_void(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 bool
 nlmsvc_encode_testres(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 {
-	struct nlm_res *resp = rqstp->rq_resp;
+	struct lockd_res *resp = rqstp->rq_resp;
 
 	return svcxdr_encode_cookie(xdr, &resp->cookie) &&
 		svcxdr_encode_testrply(xdr, resp);
@@ -331,7 +331,7 @@ nlmsvc_encode_testres(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 bool
 nlmsvc_encode_res(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 {
-	struct nlm_res *resp = rqstp->rq_resp;
+	struct lockd_res *resp = rqstp->rq_resp;
 
 	return svcxdr_encode_cookie(xdr, &resp->cookie) &&
 		svcxdr_encode_stats(xdr, resp->status);
@@ -340,7 +340,7 @@ nlmsvc_encode_res(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 bool
 nlmsvc_encode_shareres(struct svc_rqst *rqstp, struct xdr_stream *xdr)
 {
-	struct nlm_res *resp = rqstp->rq_resp;
+	struct lockd_res *resp = rqstp->rq_resp;
 
 	if (!svcxdr_encode_cookie(xdr, &resp->cookie))
 		return false;
