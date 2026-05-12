@@ -394,16 +394,6 @@ static inline int NFS_STALE(const struct inode *inode)
 	return test_bit(NFS_INO_STALE, &NFS_I(inode)->flags);
 }
 
-static inline __u64 NFS_FILEID(const struct inode *inode)
-{
-	return inode->i_ino;
-}
-
-static inline void set_nfs_fileid(struct inode *inode, __u64 fileid)
-{
-	inode->i_ino = fileid;
-}
-
 static inline void nfs_mark_for_revalidate(struct inode *inode)
 {
 	struct nfs_inode *nfsi = NFS_I(inode);

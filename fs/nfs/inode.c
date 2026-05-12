@@ -303,7 +303,7 @@ nfs_find_actor(struct inode *inode, void *opaque)
 	struct nfs_fh		*fh = desc->fh;
 	struct nfs_fattr	*fattr = desc->fattr;
 
-	if (NFS_FILEID(inode) != fattr->fileid)
+	if (inode->i_ino != fattr->fileid)
 		return 0;
 	if (inode_wrong_type(inode, fattr->mode))
 		return 0;
@@ -320,7 +320,7 @@ nfs_init_locked(struct inode *inode, void *opaque)
 	struct nfs_find_desc	*desc = opaque;
 	struct nfs_fattr	*fattr = desc->fattr;
 
-	set_nfs_fileid(inode, fattr->fileid);
+	inode->i_ino = fattr->fileid;
 	inode->i_mode = fattr->mode;
 	nfs_copy_fh(NFS_FH(inode), desc->fh);
 	return 0;
@@ -580,7 +580,7 @@ nfs_fhget(struct super_block *sb, struct nfs_fh *fh, struct nfs_fattr *fattr)
 	}
 	dprintk("NFS: nfs_fhget(%s/%Lu fh_crc=0x%08x ct=%d)\n",
 		inode->i_sb->s_id,
-		(unsigned long long)NFS_FILEID(inode),
+		(unsigned long long)inode->i_ino,
 		nfs_display_fhandle_hash(fh),
 		icount_read(inode));
 
@@ -1343,7 +1343,7 @@ __nfs_revalidate_inode(struct nfs_server *server, struct inode *inode)
 	struct nfs_inode *nfsi = NFS_I(inode);
 
 	dfprintk(PAGECACHE, "NFS: revalidating (%s/%Lu)\n",
-		inode->i_sb->s_id, (unsigned long long)NFS_FILEID(inode));
+		inode->i_sb->s_id, (unsigned long long)inode->i_ino);
 
 	trace_nfs_revalidate_inode_enter(inode);
 
@@ -1373,7 +1373,7 @@ __nfs_revalidate_inode(struct nfs_server *server, struct inode *inode)
 	if (status != 0) {
 		dfprintk(PAGECACHE, "nfs_revalidate_inode: (%s/%Lu) getattr failed, error=%d\n",
 			 inode->i_sb->s_id,
-			 (unsigned long long)NFS_FILEID(inode), status);
+			 (unsigned long long)inode->i_ino, status);
 		switch (status) {
 		case -ETIMEDOUT:
 			/* A soft timeout occurred. Use cached information? */
@@ -1393,7 +1393,7 @@ __nfs_revalidate_inode(struct nfs_server *server, struct inode *inode)
 	if (status) {
 		dfprintk(PAGECACHE, "nfs_revalidate_inode: (%s/%Lu) refresh failed, error=%d\n",
 			 inode->i_sb->s_id,
-			 (unsigned long long)NFS_FILEID(inode), status);
+			 (unsigned long long)inode->i_ino, status);
 		goto out;
 	}
 
@@ -1404,7 +1404,7 @@ __nfs_revalidate_inode(struct nfs_server *server, struct inode *inode)
 
 	dfprintk(PAGECACHE, "NFS: (%s/%Lu) revalidation complete\n",
 		inode->i_sb->s_id,
-		(unsigned long long)NFS_FILEID(inode));
+		(unsigned long long)inode->i_ino);
 
 out:
 	nfs_free_fattr(fattr);
@@ -1453,7 +1453,7 @@ static int nfs_invalidate_mapping(struct inode *inode, struct address_space *map
 
 	dfprintk(PAGECACHE, "NFS: (%s/%Lu) data cache invalidated\n",
 			inode->i_sb->s_id,
-			(unsigned long long)NFS_FILEID(inode));
+			(unsigned long long)inode->i_ino);
 	return 0;
 }
 
