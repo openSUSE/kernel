@@ -24,8 +24,6 @@
 #include "share.h"
 #include "nlm3xdr_gen.h"
 
-#define NLMDBG_FACILITY		NLMDBG_CLIENT
-
 /*
  * Size of an NFSv2 file handle, in bytes, which is 32.
  * Defined locally to avoid including uapi/linux/nfs2.h.
@@ -1188,15 +1186,8 @@ out:
 }
 
 /*
- * NLM Server procedures.
+ * NLMv3 Server procedures.
  */
-
-struct nlm_void			{ int dummy; };
-
-#define	Ck	(1+XDR_QUADLEN(NLM_MAXCOOKIELEN))	/* cookie */
-#define	St	1				/* status */
-#define	No	(1+1024/4)			/* Net Obj */
-#define	Rg	2				/* range - offset + size */
 
 static const struct svc_procedure nlmsvc_procedures[24] = {
 	[NLM_NULL] = {
