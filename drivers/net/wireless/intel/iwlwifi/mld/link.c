@@ -894,6 +894,60 @@ iwl_mld_get_avail_chan_load(struct iwl_mld *mld,
 	return MAX_CHAN_LOAD - iwl_mld_get_chan_load(mld, link_conf);
 }
 
+static s8
+iwl_mld_get_dup_beacon_rssi_adjust(struct iwl_mld *mld,
+				   struct ieee80211_bss_conf *link_conf)
+{
+	const struct ieee80211_he_6ghz_oper *he_6ghz_oper;
+	const struct cfg80211_bss_ies *beacon_ies;
+	const struct element *elem;
+
+	/* Duplicated beacon feature is only specific to 6 GHz */
+	if (WARN_ONCE(link_conf->chanreq.oper.chan->band != NL80211_BAND_6GHZ,
+		      "Unexpected band %d\n",
+		      link_conf->chanreq.oper.chan->band))
+		return 0;
+
+	lockdep_assert_wiphy(mld->wiphy);
+
+	beacon_ies = wiphy_dereference(mld->wiphy, link_conf->bss->beacon_ies);
+	if (!beacon_ies)
+		return 0;
+
+	elem = cfg80211_find_ext_elem(WLAN_EID_EXT_HE_OPERATION,
+				      beacon_ies->data, beacon_ies->len);
+	if (!elem ||
+	    elem->datalen < sizeof(struct ieee80211_he_operation) + 1 ||
+	    elem->datalen < ieee80211_he_oper_size(&elem->data[1]))
+		return 0;
+
+	he_6ghz_oper = ieee80211_he_6ghz_oper((const void *)&elem->data[1]);
+	if (!he_6ghz_oper)
+		return 0;
+
+	if (!(he_6ghz_oper->control & IEEE80211_HE_6GHZ_OPER_CTRL_DUP_BEACON))
+		return 0;
+
+	/* Apply adjustment based on operational bandwidth */
+	switch (link_conf->chanreq.oper.width) {
+	case NL80211_CHAN_WIDTH_20:
+	case NL80211_CHAN_WIDTH_20_NOHT:
+		return 0;
+	case NL80211_CHAN_WIDTH_40:
+		return 3;
+	case NL80211_CHAN_WIDTH_80:
+		return 6;
+	case NL80211_CHAN_WIDTH_160:
+		return 9;
+	case NL80211_CHAN_WIDTH_320:
+		return 12;
+	default:
+		WARN_ONCE(1, "Unexpected channel width: %d\n",
+			  link_conf->chanreq.oper.width);
+		return 0;
+	}
+}
+
 /* This function calculates the grade of a link. Returns 0 in error case */
 unsigned int iwl_mld_get_link_grade(struct iwl_mld *mld,
 				    struct ieee80211_bss_conf *link_conf)
@@ -903,7 +957,7 @@ unsigned int iwl_mld_get_link_grade(struct iwl_mld *mld,
 	s32 link_rssi;
 	unsigned int grade = MAX_GRADE;
 
-	if (WARN_ON_ONCE(!link_conf))
+	if (WARN_ON_ONCE(!link_conf || !link_conf->bss))
 		return 0;
 
 	band = link_conf->chanreq.oper.chan->band;
@@ -918,8 +972,15 @@ unsigned int iwl_mld_get_link_grade(struct iwl_mld *mld,
 	 * For 6 GHz the RSSI of the beacons is lower than
 	 * the RSSI of the data.
 	 */
-	if (band == NL80211_BAND_6GHZ && link_rssi)
-		link_rssi += 4;
+	if (band == NL80211_BAND_6GHZ && link_rssi) {
+		s8 rssi_adj_6g =
+			iwl_mld_get_dup_beacon_rssi_adjust(mld, link_conf);
+
+		if (!rssi_adj_6g)
+			rssi_adj_6g = 4;
+
+		link_rssi += rssi_adj_6g;
+	}
 
 	rssi_idx = band == NL80211_BAND_2GHZ ? 0 : 1;
 
