@@ -393,6 +393,7 @@ bool xe_is_xe_file(const struct file *file)
 
 static struct drm_driver regular_driver = {
 	.driver_features =
+	    XE_DISPLAY_DRIVER_FEATURES |
 	    DRIVER_GEM |
 	    DRIVER_RENDER | DRIVER_SYNCOBJ |
 	    DRIVER_SYNCOBJ_TIMELINE | DRIVER_GEM_GPUVA,
@@ -425,6 +426,7 @@ static const struct drm_ioctl_desc xe_ioctls_admin_only[] = {
 
 static struct drm_driver admin_only_driver = {
 	.driver_features =
+	    XE_DISPLAY_DRIVER_FEATURES |
 	    DRIVER_GEM | DRIVER_RENDER | DRIVER_GEM_GPUVA,
 	.open = xe_file_open,
 	.postclose = xe_file_close,

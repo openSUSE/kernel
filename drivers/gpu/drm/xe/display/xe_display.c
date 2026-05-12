@@ -84,13 +84,11 @@ void xe_display_driver_set_hooks(struct drm_driver *driver)
 {
 	if (!xe_modparam.probe_display)
 		return;
-
-	driver->driver_features |= DRIVER_MODESET | DRIVER_ATOMIC;
 }
 
 static void unset_display_features(struct xe_device *xe)
 {
-	xe->drm.driver_features &= ~(DRIVER_MODESET | DRIVER_ATOMIC);
+	xe->drm.driver_features &= ~XE_DISPLAY_DRIVER_FEATURES;
 }
 
 static void xe_display_fini_early(void *arg)

@@ -44,12 +44,14 @@ void xe_display_pm_runtime_suspend(struct xe_device *xe);
 void xe_display_pm_runtime_suspend_late(struct xe_device *xe);
 void xe_display_pm_runtime_resume(struct xe_device *xe);
 
+#define XE_DISPLAY_DRIVER_FEATURES	(DRIVER_MODESET | DRIVER_ATOMIC)
 #define XE_DISPLAY_DRIVER_OPS						\
 	.fbdev_probe = PTR_IF(IS_ENABLED(CONFIG_DRM_FBDEV_EMULATION),	\
 			      xe_display_driver_fbdev_probe)
 
 #else
 
+#define XE_DISPLAY_DRIVER_FEATURES	0
 #define XE_DISPLAY_DRIVER_OPS \
 	.fbdev_probe = NULL
 
