@@ -657,7 +657,7 @@ static void detach_groups(struct dentry *dentry)
 		if (!(sd->s_type & CONFIGFS_USET_DEFAULT))
 			continue;
 
-		child = sd->s_dentry;
+		child = dget(sd->s_dentry);
 		spin_unlock(&configfs_dirent_lock);
 
 		inode_lock(d_inode(child));
@@ -708,8 +708,8 @@ static int create_default_group(struct config_group *parent_group,
 		} else {
 			BUG_ON(d_inode(child));
 			d_drop(child);
-			dput(child);
 		}
+		dput(child);
 	}
 
 	return ret;
@@ -1781,7 +1781,7 @@ EXPORT_SYMBOL(configfs_register_group);
 void configfs_unregister_group(struct config_group *group)
 {
 	struct configfs_subsystem *subsys = group->cg_subsys;
-	struct dentry *dentry = group->cg_item.ci_dentry;
+	struct dentry *dentry = dget(group->cg_item.ci_dentry);
 	struct dentry *parent = group->cg_item.ci_parent->ci_dentry;
 	struct configfs_dirent *sd = dentry->d_fsdata;
 	struct configfs_fragment *frag = sd->s_frag;
@@ -1896,12 +1896,12 @@ int configfs_register_subsystem(struct configfs_subsystem *subsys)
 		if (err) {
 			BUG_ON(d_inode(dentry));
 			d_drop(dentry);
-			dput(dentry);
 		} else {
 			spin_lock(&configfs_dirent_lock);
 			configfs_dir_set_ready(dentry->d_fsdata);
 			spin_unlock(&configfs_dirent_lock);
 		}
+		dput(dentry);
 	}
 
 	inode_unlock(d_inode(root));
@@ -1920,7 +1920,7 @@ int configfs_register_subsystem(struct configfs_subsystem *subsys)
 void configfs_unregister_subsystem(struct configfs_subsystem *subsys)
 {
 	struct config_group *group = &subsys->su_group;
-	struct dentry *dentry = group->cg_item.ci_dentry;
+	struct dentry *dentry = dget(group->cg_item.ci_dentry);
 	struct dentry *root = dentry->d_sb->s_root;
 	struct configfs_dirent *sd = dentry->d_fsdata;
 	struct configfs_fragment *frag = sd->s_frag;
