@@ -1202,8 +1202,7 @@ ath12k_dp_rx_h_find_link_peer(struct ath12k_pdev_dp *dp_pdev, struct sk_buff *ms
 
 	lockdep_assert_held(&dp->dp_lock);
 
-	if (rxcb->peer_id)
-		peer = ath12k_dp_link_peer_find_by_peerid(dp_pdev, rxcb->peer_id);
+	peer = ath12k_dp_link_peer_find_by_peerid(dp_pdev, rxcb->peer_id);
 
 	if (peer)
 		return peer;
