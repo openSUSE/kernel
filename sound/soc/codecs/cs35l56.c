@@ -426,6 +426,8 @@ static unsigned int cs35l56_make_tdm_config_word(unsigned int reg_val, unsigned 
 		reg_val &= ~(0x3f << channel_shift);
 		reg_val |= bit_num << channel_shift;
 		channel_shift += 8;
+		if (channel_shift > 24)
+			break;
 	}
 
 	return reg_val;
