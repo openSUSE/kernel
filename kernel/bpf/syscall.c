@@ -6271,7 +6271,8 @@ static int __sys_bpf(enum bpf_cmd cmd, bpfptr_t uattr, unsigned int size,
 		if (size >= offsetofend(union bpf_attr, log_true_size))
 			offsetof_log_true_size = offsetof(union bpf_attr, log_true_size);
 		err = bpf_log_attr_init(&attr_log, attr.log_buf, attr.log_size, attr.log_level,
-					offsetof_log_true_size, uattr);
+					offsetof_log_true_size, uattr, &attr_common, uattr_common,
+					size_common);
 		err = err ?: bpf_prog_load(&attr, uattr, &attr_log);
 		break;
 	case BPF_OBJ_PIN:
