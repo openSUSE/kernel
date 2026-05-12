@@ -259,7 +259,7 @@ int iwl_mld_add_key(struct iwl_mld *mld,
 
 	igtk_ptr = iwl_mld_get_igtk_ptr(vif, sta, key);
 	if (igtk_ptr) {
-		if (mld->num_igtks == IWL_MAX_NUM_IGTKS)
+		if (mld->num_igtks == mld->fw->ucode_capa.num_mcast_key_entries)
 			return -EOPNOTSUPP;
 
 		if (*igtk_ptr) {
