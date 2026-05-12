@@ -1977,7 +1977,7 @@ int erdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 
 	if (!rdma_is_kernel_res(&ibcq->res)) {
 		struct erdma_ureq_create_cq ureq;
-		struct erdma_uresp_create_cq uresp;
+		struct erdma_uresp_create_cq uresp = {};
 
 		ret = ib_copy_validate_udata_in(udata, ureq, rsvd0);
 		if (ret)

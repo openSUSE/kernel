@@ -1090,8 +1090,8 @@ static int mlx4_ib_alloc_ucontext(struct ib_ucontext *uctx,
 	struct ib_device *ibdev = uctx->device;
 	struct mlx4_ib_dev *dev = to_mdev(ibdev);
 	struct mlx4_ib_ucontext *context = to_mucontext(uctx);
-	struct mlx4_ib_alloc_ucontext_resp_v3 resp_v3;
-	struct mlx4_ib_alloc_ucontext_resp resp;
+	struct mlx4_ib_alloc_ucontext_resp_v3 resp_v3 = {};
+	struct mlx4_ib_alloc_ucontext_resp resp = {};
 	int err;
 
 	if (!dev->ib_active)

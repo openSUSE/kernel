@@ -1884,7 +1884,7 @@ int bnxt_re_create_qp(struct ib_qp *ib_qp, struct ib_qp_init_attr *qp_init_attr,
 		}
 
 		if (udata) {
-			struct bnxt_re_qp_resp resp;
+			struct bnxt_re_qp_resp resp = {};
 
 			resp.qpid = qp->qplib_qp.id;
 			resp.rsvd = 0;
