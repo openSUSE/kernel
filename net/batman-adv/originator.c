@@ -7,7 +7,6 @@
 #include "originator.h"
 #include "main.h"
 
-#include <linux/atomic.h>
 #include <linux/container_of.h>
 #include <linux/err.h>
 #include <linux/errno.h>

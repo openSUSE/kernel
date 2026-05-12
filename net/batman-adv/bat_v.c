@@ -9,6 +9,7 @@
 
 #include <linux/atomic.h>
 #include <linux/cache.h>
+#include <linux/compiler.h>
 #include <linux/errno.h>
 #include <linux/if_ether.h>
 #include <linux/init.h>
@@ -505,7 +506,7 @@ err_ifinfo1:
 static void batadv_v_init_sel_class(struct batadv_priv *bat_priv)
 {
 	/* set default throughput difference threshold to 5Mbps */
-	atomic_set(&bat_priv->gw.sel_class, 50);
+	WRITE_ONCE(bat_priv->gw.sel_class, 50);
 }
 
 /**
@@ -602,7 +603,7 @@ static bool batadv_v_gw_is_eligible(struct batadv_priv *bat_priv,
 	u32 gw_throughput, orig_throughput, threshold;
 	bool ret = false;
 
-	threshold = atomic_read(&bat_priv->gw.sel_class);
+	threshold = READ_ONCE(bat_priv->gw.sel_class);
 
 	curr_gw = batadv_gw_node_get(bat_priv, curr_gw_orig);
 	if (!curr_gw) {

@@ -13,6 +13,7 @@
 #include <linux/bug.h>
 #include <linux/byteorder/generic.h>
 #include <linux/cache.h>
+#include <linux/compiler.h>
 #include <linux/container_of.h>
 #include <linux/errno.h>
 #include <linux/etherdevice.h>
@@ -274,7 +275,7 @@ batadv_iv_ogm_emit_send_time(const struct batadv_priv *bat_priv)
 {
 	unsigned int msecs;
 
-	msecs = atomic_read(&bat_priv->orig_interval) - BATADV_JITTER;
+	msecs = READ_ONCE(bat_priv->orig_interval) - BATADV_JITTER;
 	msecs += get_random_u32_below(2 * BATADV_JITTER);
 
 	return jiffies + msecs_to_jiffies(msecs);
@@ -289,7 +290,7 @@ static unsigned long batadv_iv_ogm_fwd_send_time(void)
 /* apply hop penalty for a normal link */
 static u8 batadv_hop_penalty(u8 tq, const struct batadv_priv *bat_priv)
 {
-	int hop_penalty = atomic_read(&bat_priv->hop_penalty);
+	int hop_penalty = READ_ONCE(bat_priv->hop_penalty);
 	int new_tq;
 
 	new_tq = tq * (BATADV_TQ_MAX_VALUE - hop_penalty);
@@ -555,7 +556,7 @@ static bool batadv_iv_ogm_aggregate_new(const unsigned char *packet_buff,
 	unsigned int skb_size;
 	atomic_t *queue_left = own_packet ? NULL : &bat_priv->batman_queue_left;
 
-	if (atomic_read(&bat_priv->aggregated_ogms))
+	if (READ_ONCE(bat_priv->aggregated_ogms))
 		skb_size = max_t(unsigned int, BATADV_MAX_AGGREGATION_BYTES,
 				 packet_len);
 	else
@@ -641,6 +642,7 @@ static bool batadv_iv_ogm_queue_add(struct batadv_priv *bat_priv,
 	struct batadv_ogm_packet *batadv_ogm_packet;
 	bool direct_link;
 	unsigned long max_aggregation_jiffies;
+	bool aggregated_ogms;
 
 	batadv_ogm_packet = (struct batadv_ogm_packet *)packet_buff;
 	direct_link = !!(batadv_ogm_packet->flags & BATADV_DIRECTLINK);
@@ -648,8 +650,10 @@ static bool batadv_iv_ogm_queue_add(struct batadv_priv *bat_priv,
 
 	/* find position for the packet in the forward queue */
 	spin_lock_bh(&bat_priv->forw_bat_list_lock);
+	aggregated_ogms = READ_ONCE(bat_priv->aggregated_ogms);
+
 	/* own packets are not to be aggregated */
-	if (atomic_read(&bat_priv->aggregated_ogms) && !own_packet) {
+	if (aggregated_ogms && !own_packet) {
 		hlist_for_each_entry(forw_packet_pos,
 				     &bat_priv->forw_bat_list, list) {
 			if (batadv_iv_ogm_can_aggregate(batadv_ogm_packet,
@@ -675,7 +679,7 @@ static bool batadv_iv_ogm_queue_add(struct batadv_priv *bat_priv,
 		 * we hold it back for a while, so that it might be aggregated
 		 * later on
 		 */
-		if (!own_packet && atomic_read(&bat_priv->aggregated_ogms))
+		if (!own_packet && aggregated_ogms)
 			send_time += max_aggregation_jiffies;
 
 		return batadv_iv_ogm_aggregate_new(packet_buff, packet_len,
@@ -888,7 +892,7 @@ out:
 		 */
 		queue_delayed_work(batadv_event_workqueue,
 				   &hard_iface->bat_iv.reschedule_work,
-				   msecs_to_jiffies(atomic_read(&bat_priv->orig_interval)));
+				   msecs_to_jiffies(READ_ONCE(bat_priv->orig_interval)));
 	}
 
 	batadv_hardif_put(primary_if);
@@ -2321,7 +2325,7 @@ static void batadv_iv_iface_enabled(struct batadv_hard_iface *hard_iface)
 static void batadv_iv_init_sel_class(struct batadv_priv *bat_priv)
 {
 	/* set default TQ difference threshold to 20 */
-	atomic_set(&bat_priv->gw.sel_class, 20);
+	WRITE_ONCE(bat_priv->gw.sel_class, 20);
 }
 
 static struct batadv_gw_node *
@@ -2353,7 +2357,7 @@ batadv_iv_gw_get_best_gw_node(struct batadv_priv *bat_priv)
 
 		tq_avg = router_ifinfo->bat_iv.tq_avg;
 
-		switch (atomic_read(&bat_priv->gw.sel_class)) {
+		switch (READ_ONCE(bat_priv->gw.sel_class)) {
 		case 1: /* fast connection */
 			tmp_gw_factor = tq_avg * tq_avg;
 			tmp_gw_factor *= gw_node->bandwidth_down;
@@ -2407,13 +2411,14 @@ static bool batadv_iv_gw_is_eligible(struct batadv_priv *bat_priv,
 {
 	struct batadv_neigh_ifinfo *router_orig_ifinfo = NULL;
 	struct batadv_neigh_ifinfo *router_gw_ifinfo = NULL;
+	u32 sel_class = READ_ONCE(bat_priv->gw.sel_class);
 	struct batadv_neigh_node *router_gw = NULL;
 	struct batadv_neigh_node *router_orig = NULL;
 	u8 gw_tq_avg, orig_tq_avg;
 	bool ret = false;
 
 	/* dynamic re-election is performed only on fast or late switch */
-	if (atomic_read(&bat_priv->gw.sel_class) <= 2)
+	if (sel_class <= 2)
 		return false;
 
 	router_gw = batadv_orig_router_get(curr_gw_orig, BATADV_IF_DEFAULT);
@@ -2448,8 +2453,7 @@ static bool batadv_iv_gw_is_eligible(struct batadv_priv *bat_priv,
 	/* if the routing class is greater than 3 the value tells us how much
 	 * greater the TQ value of the new gateway must be
 	 */
-	if ((atomic_read(&bat_priv->gw.sel_class) > 3) &&
-	    (orig_tq_avg - gw_tq_avg < atomic_read(&bat_priv->gw.sel_class)))
+	if (sel_class > 3 && orig_tq_avg - gw_tq_avg < sel_class)
 		goto out;
 
 	batadv_dbg(BATADV_DBG_BATMAN, bat_priv,

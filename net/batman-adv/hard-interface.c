@@ -612,7 +612,7 @@ int batadv_hardif_min_mtu(struct net_device *mesh_iface)
 	}
 	rcu_read_unlock();
 
-	if (atomic_read(&bat_priv->fragmentation) == 0)
+	if (READ_ONCE(bat_priv->fragmentation) == 0)
 		goto out;
 
 	/* with fragmentation enabled the maximum size of internally generated
@@ -727,6 +727,7 @@ int batadv_hardif_enable_interface(struct batadv_hard_iface *hard_iface,
 	int max_header_len = batadv_max_header_len();
 	unsigned int required_mtu;
 	unsigned int hardif_mtu;
+	bool fragmentation;
 	int ret;
 
 	hardif_mtu = READ_ONCE(hard_iface->net_dev->mtu);
@@ -764,15 +765,14 @@ int batadv_hardif_enable_interface(struct batadv_hard_iface *hard_iface,
 	batadv_info(hard_iface->mesh_iface, "Adding interface: %s\n",
 		    hard_iface->net_dev->name);
 
-	if (atomic_read(&bat_priv->fragmentation) &&
-	    hardif_mtu < required_mtu)
+	fragmentation = READ_ONCE(bat_priv->fragmentation);
+	if (fragmentation && hardif_mtu < required_mtu)
 		batadv_info(hard_iface->mesh_iface,
 			    "The MTU of interface %s is too small (%i) to handle the transport of batman-adv packets. Packets going over this interface will be fragmented on layer2 which could impact the performance. Setting the MTU to %i would solve the problem.\n",
 			    hard_iface->net_dev->name, hardif_mtu,
 			    required_mtu);
 
-	if (!atomic_read(&bat_priv->fragmentation) &&
-	    hardif_mtu < required_mtu)
+	if (!fragmentation && hardif_mtu < required_mtu)
 		batadv_info(hard_iface->mesh_iface,
 			    "The MTU of interface %s is too small (%i) to handle the transport of batman-adv packets. If you experience problems getting traffic through try increasing the MTU to %i.\n",
 			    hard_iface->net_dev->name, hardif_mtu,

@@ -10,6 +10,7 @@
 #include <linux/atomic.h>
 #include <linux/bug.h>
 #include <linux/byteorder/generic.h>
+#include <linux/compiler.h>
 #include <linux/container_of.h>
 #include <linux/errno.h>
 #include <linux/etherdevice.h>
@@ -106,7 +107,7 @@ static void batadv_v_ogm_start_timer(struct batadv_priv *bat_priv)
 	if (delayed_work_pending(&bat_priv->bat_v.ogm_wq))
 		return;
 
-	msecs = atomic_read(&bat_priv->orig_interval) - BATADV_JITTER;
+	msecs = READ_ONCE(bat_priv->orig_interval) - BATADV_JITTER;
 	msecs += get_random_u32_below(2 * BATADV_JITTER);
 	queue_delayed_work(batadv_event_workqueue, &bat_priv->bat_v.ogm_wq,
 			   msecs_to_jiffies(msecs));
@@ -247,7 +248,7 @@ static void batadv_v_ogm_queue_on_if(struct batadv_priv *bat_priv,
 		return;
 	}
 
-	if (!atomic_read(&bat_priv->aggregated_ogms)) {
+	if (!READ_ONCE(bat_priv->aggregated_ogms)) {
 		batadv_v_ogm_send_to_if(bat_priv, skb, hard_iface);
 		return;
 	}
@@ -486,7 +487,7 @@ static u32 batadv_v_forward_penalty(struct batadv_priv *bat_priv,
 				    u32 throughput)
 {
 	int if_hop_penalty = atomic_read(&if_incoming->hop_penalty);
-	int hop_penalty = atomic_read(&bat_priv->hop_penalty);
+	int hop_penalty = READ_ONCE(bat_priv->hop_penalty);
 	int hop_penalty_max = BATADV_TQ_MAX_VALUE;
 
 	/* Apply per hardif hop penalty */

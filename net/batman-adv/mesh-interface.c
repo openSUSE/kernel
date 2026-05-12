@@ -257,7 +257,7 @@ static netdev_tx_t batadv_interface_tx(struct sk_buff *skb,
 	if (batadv_compare_eth(ethhdr->h_dest, ectp_addr))
 		goto dropped;
 
-	gw_mode = atomic_read(&bat_priv->gw.mode);
+	gw_mode = READ_ONCE(bat_priv->gw.mode);
 	if (is_multicast_ether_addr(ethhdr->h_dest)) {
 		/* if gw mode is off, broadcast every packet */
 		if (gw_mode == BATADV_GW_MODE_OFF) {
@@ -754,31 +754,31 @@ static int batadv_meshif_init_late(struct net_device *dev)
 	if (!bat_priv->bat_counters)
 		return -ENOMEM;
 
-	atomic_set(&bat_priv->aggregated_ogms, 1);
-	atomic_set(&bat_priv->bonding, 0);
+	WRITE_ONCE(bat_priv->aggregated_ogms, 1);
+	WRITE_ONCE(bat_priv->bonding, 0);
 #ifdef CONFIG_BATMAN_ADV_BLA
-	atomic_set(&bat_priv->bridge_loop_avoidance, 1);
+	WRITE_ONCE(bat_priv->bridge_loop_avoidance, 1);
 #endif
 #ifdef CONFIG_BATMAN_ADV_DAT
-	atomic_set(&bat_priv->distributed_arp_table, 1);
+	WRITE_ONCE(bat_priv->distributed_arp_table, 1);
 #endif
 #ifdef CONFIG_BATMAN_ADV_MCAST
-	atomic_set(&bat_priv->multicast_mode, 1);
-	atomic_set(&bat_priv->multicast_fanout, 16);
+	WRITE_ONCE(bat_priv->multicast_mode, 1);
+	WRITE_ONCE(bat_priv->multicast_fanout, 16);
 	atomic_set(&bat_priv->mcast.num_want_all_unsnoopables, 0);
 	atomic_set(&bat_priv->mcast.num_want_all_ipv4, 0);
 	atomic_set(&bat_priv->mcast.num_want_all_ipv6, 0);
 	atomic_set(&bat_priv->mcast.num_no_mc_ptype_capa, 0);
 #endif
-	atomic_set(&bat_priv->gw.mode, BATADV_GW_MODE_OFF);
-	atomic_set(&bat_priv->gw.bandwidth_down, 100);
-	atomic_set(&bat_priv->gw.bandwidth_up, 20);
-	atomic_set(&bat_priv->orig_interval, 1000);
-	atomic_set(&bat_priv->hop_penalty, 30);
+	WRITE_ONCE(bat_priv->gw.mode, BATADV_GW_MODE_OFF);
+	WRITE_ONCE(bat_priv->gw.bandwidth_down, 100);
+	WRITE_ONCE(bat_priv->gw.bandwidth_up, 20);
+	WRITE_ONCE(bat_priv->orig_interval, 1000);
+	WRITE_ONCE(bat_priv->hop_penalty, 30);
 #ifdef CONFIG_BATMAN_ADV_DEBUG
-	atomic_set(&bat_priv->log_level, 0);
+	WRITE_ONCE(bat_priv->log_level, 0);
 #endif
-	atomic_set(&bat_priv->fragmentation, 1);
+	WRITE_ONCE(bat_priv->fragmentation, 1);
 	atomic_set(&bat_priv->packet_size_max, BATADV_MAX_MTU);
 	atomic_set(&bat_priv->bcast_queue_left, BATADV_BCAST_QUEUE_LEN);
 	atomic_set(&bat_priv->batman_queue_left, BATADV_BATMAN_QUEUE_LEN);

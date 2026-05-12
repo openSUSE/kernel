@@ -13,6 +13,7 @@
 #include <linux/bug.h>
 #include <linux/byteorder/generic.h>
 #include <linux/cache.h>
+#include <linux/compiler.h>
 #include <linux/err.h>
 #include <linux/errno.h>
 #include <linux/gfp.h>
@@ -268,7 +269,7 @@ static int batadv_netlink_mesh_fill(struct sk_buff *msg,
 	}
 
 	if (nla_put_u8(msg, BATADV_ATTR_AGGREGATED_OGMS_ENABLED,
-		       !!atomic_read(&bat_priv->aggregated_ogms)))
+		       !!READ_ONCE(bat_priv->aggregated_ogms)))
 		goto nla_put_failure;
 
 	if (batadv_netlink_mesh_fill_ap_isolation(msg, bat_priv))
@@ -283,35 +284,35 @@ static int batadv_netlink_mesh_fill(struct sk_buff *msg,
 		goto nla_put_failure;
 
 	if (nla_put_u8(msg, BATADV_ATTR_BONDING_ENABLED,
-		       !!atomic_read(&bat_priv->bonding)))
+		       !!READ_ONCE(bat_priv->bonding)))
 		goto nla_put_failure;
 
 #ifdef CONFIG_BATMAN_ADV_BLA
 	if (nla_put_u8(msg, BATADV_ATTR_BRIDGE_LOOP_AVOIDANCE_ENABLED,
-		       !!atomic_read(&bat_priv->bridge_loop_avoidance)))
+		       !!READ_ONCE(bat_priv->bridge_loop_avoidance)))
 		goto nla_put_failure;
 #endif /* CONFIG_BATMAN_ADV_BLA */
 
 #ifdef CONFIG_BATMAN_ADV_DAT
 	if (nla_put_u8(msg, BATADV_ATTR_DISTRIBUTED_ARP_TABLE_ENABLED,
-		       !!atomic_read(&bat_priv->distributed_arp_table)))
+		       !!READ_ONCE(bat_priv->distributed_arp_table)))
 		goto nla_put_failure;
 #endif /* CONFIG_BATMAN_ADV_DAT */
 
 	if (nla_put_u8(msg, BATADV_ATTR_FRAGMENTATION_ENABLED,
-		       !!atomic_read(&bat_priv->fragmentation)))
+		       !!READ_ONCE(bat_priv->fragmentation)))
 		goto nla_put_failure;
 
 	if (nla_put_u32(msg, BATADV_ATTR_GW_BANDWIDTH_DOWN,
-			atomic_read(&bat_priv->gw.bandwidth_down)))
+			READ_ONCE(bat_priv->gw.bandwidth_down)))
 		goto nla_put_failure;
 
 	if (nla_put_u32(msg, BATADV_ATTR_GW_BANDWIDTH_UP,
-			atomic_read(&bat_priv->gw.bandwidth_up)))
+			READ_ONCE(bat_priv->gw.bandwidth_up)))
 		goto nla_put_failure;
 
 	if (nla_put_u8(msg, BATADV_ATTR_GW_MODE,
-		       atomic_read(&bat_priv->gw.mode)))
+		       READ_ONCE(bat_priv->gw.mode)))
 		goto nla_put_failure;
 
 	if (bat_priv->algo_ops->gw.get_best_gw_node &&
@@ -320,32 +321,32 @@ static int batadv_netlink_mesh_fill(struct sk_buff *msg,
 		 * in use does not implement the GW API
 		 */
 		if (nla_put_u32(msg, BATADV_ATTR_GW_SEL_CLASS,
-				atomic_read(&bat_priv->gw.sel_class)))
+				READ_ONCE(bat_priv->gw.sel_class)))
 			goto nla_put_failure;
 	}
 
 	if (nla_put_u8(msg, BATADV_ATTR_HOP_PENALTY,
-		       atomic_read(&bat_priv->hop_penalty)))
+		       READ_ONCE(bat_priv->hop_penalty)))
 		goto nla_put_failure;
 
 #ifdef CONFIG_BATMAN_ADV_DEBUG
 	if (nla_put_u32(msg, BATADV_ATTR_LOG_LEVEL,
-			atomic_read(&bat_priv->log_level)))
+			READ_ONCE(bat_priv->log_level)))
 		goto nla_put_failure;
 #endif /* CONFIG_BATMAN_ADV_DEBUG */
 
 #ifdef CONFIG_BATMAN_ADV_MCAST
 	if (nla_put_u8(msg, BATADV_ATTR_MULTICAST_FORCEFLOOD_ENABLED,
-		       !atomic_read(&bat_priv->multicast_mode)))
+		       !READ_ONCE(bat_priv->multicast_mode)))
 		goto nla_put_failure;
 
 	if (nla_put_u32(msg, BATADV_ATTR_MULTICAST_FANOUT,
-			atomic_read(&bat_priv->multicast_fanout)))
+			READ_ONCE(bat_priv->multicast_fanout)))
 		goto nla_put_failure;
 #endif /* CONFIG_BATMAN_ADV_MCAST */
 
 	if (nla_put_u32(msg, BATADV_ATTR_ORIG_INTERVAL,
-			atomic_read(&bat_priv->orig_interval)))
+			READ_ONCE(bat_priv->orig_interval)))
 		goto nla_put_failure;
 
 	batadv_hardif_put(primary_if);
@@ -433,7 +434,7 @@ static int batadv_netlink_set_mesh(struct sk_buff *skb, struct genl_info *info)
 	if (info->attrs[BATADV_ATTR_AGGREGATED_OGMS_ENABLED]) {
 		attr = info->attrs[BATADV_ATTR_AGGREGATED_OGMS_ENABLED];
 
-		atomic_set(&bat_priv->aggregated_ogms, !!nla_get_u8(attr));
+		WRITE_ONCE(bat_priv->aggregated_ogms, !!nla_get_u8(attr));
 	}
 
 	if (info->attrs[BATADV_ATTR_AP_ISOLATION_ENABLED]) {
@@ -457,14 +458,14 @@ static int batadv_netlink_set_mesh(struct sk_buff *skb, struct genl_info *info)
 	if (info->attrs[BATADV_ATTR_BONDING_ENABLED]) {
 		attr = info->attrs[BATADV_ATTR_BONDING_ENABLED];
 
-		atomic_set(&bat_priv->bonding, !!nla_get_u8(attr));
+		WRITE_ONCE(bat_priv->bonding, !!nla_get_u8(attr));
 	}
 
 #ifdef CONFIG_BATMAN_ADV_BLA
 	if (info->attrs[BATADV_ATTR_BRIDGE_LOOP_AVOIDANCE_ENABLED]) {
 		attr = info->attrs[BATADV_ATTR_BRIDGE_LOOP_AVOIDANCE_ENABLED];
 
-		atomic_set(&bat_priv->bridge_loop_avoidance,
+		WRITE_ONCE(bat_priv->bridge_loop_avoidance,
 			   !!nla_get_u8(attr));
 		batadv_bla_status_update(bat_priv->mesh_iface);
 	}
@@ -474,7 +475,7 @@ static int batadv_netlink_set_mesh(struct sk_buff *skb, struct genl_info *info)
 	if (info->attrs[BATADV_ATTR_DISTRIBUTED_ARP_TABLE_ENABLED]) {
 		attr = info->attrs[BATADV_ATTR_DISTRIBUTED_ARP_TABLE_ENABLED];
 
-		atomic_set(&bat_priv->distributed_arp_table,
+		WRITE_ONCE(bat_priv->distributed_arp_table,
 			   !!nla_get_u8(attr));
 		batadv_dat_status_update(bat_priv->mesh_iface);
 	}
@@ -483,7 +484,7 @@ static int batadv_netlink_set_mesh(struct sk_buff *skb, struct genl_info *info)
 	if (info->attrs[BATADV_ATTR_FRAGMENTATION_ENABLED]) {
 		attr = info->attrs[BATADV_ATTR_FRAGMENTATION_ENABLED];
 
-		atomic_set(&bat_priv->fragmentation, !!nla_get_u8(attr));
+		WRITE_ONCE(bat_priv->fragmentation, !!nla_get_u8(attr));
 
 		rtnl_lock();
 		batadv_update_min_mtu(bat_priv->mesh_iface);
@@ -493,14 +494,14 @@ static int batadv_netlink_set_mesh(struct sk_buff *skb, struct genl_info *info)
 	if (info->attrs[BATADV_ATTR_GW_BANDWIDTH_DOWN]) {
 		attr = info->attrs[BATADV_ATTR_GW_BANDWIDTH_DOWN];
 
-		atomic_set(&bat_priv->gw.bandwidth_down, nla_get_u32(attr));
+		WRITE_ONCE(bat_priv->gw.bandwidth_down, nla_get_u32(attr));
 		batadv_gw_tvlv_container_update(bat_priv);
 	}
 
 	if (info->attrs[BATADV_ATTR_GW_BANDWIDTH_UP]) {
 		attr = info->attrs[BATADV_ATTR_GW_BANDWIDTH_UP];
 
-		atomic_set(&bat_priv->gw.bandwidth_up, nla_get_u32(attr));
+		WRITE_ONCE(bat_priv->gw.bandwidth_up, nla_get_u32(attr));
 		batadv_gw_tvlv_container_update(bat_priv);
 	}
 
@@ -528,7 +529,7 @@ static int batadv_netlink_set_mesh(struct sk_buff *skb, struct genl_info *info)
 			 * changing the gateway state
 			 */
 			batadv_gw_check_client_stop(bat_priv);
-			atomic_set(&bat_priv->gw.mode, gw_mode);
+			WRITE_ONCE(bat_priv->gw.mode, gw_mode);
 			batadv_gw_tvlv_container_update(bat_priv);
 		}
 	}
@@ -547,7 +548,7 @@ static int batadv_netlink_set_mesh(struct sk_buff *skb, struct genl_info *info)
 		sel_class = nla_get_u32(attr);
 
 		if (sel_class >= 1 && sel_class <= sel_class_max) {
-			atomic_set(&bat_priv->gw.sel_class, sel_class);
+			WRITE_ONCE(bat_priv->gw.sel_class, sel_class);
 			batadv_gw_reselect(bat_priv);
 		}
 	}
@@ -555,14 +556,14 @@ static int batadv_netlink_set_mesh(struct sk_buff *skb, struct genl_info *info)
 	if (info->attrs[BATADV_ATTR_HOP_PENALTY]) {
 		attr = info->attrs[BATADV_ATTR_HOP_PENALTY];
 
-		atomic_set(&bat_priv->hop_penalty, nla_get_u8(attr));
+		WRITE_ONCE(bat_priv->hop_penalty, nla_get_u8(attr));
 	}
 
 #ifdef CONFIG_BATMAN_ADV_DEBUG
 	if (info->attrs[BATADV_ATTR_LOG_LEVEL]) {
 		attr = info->attrs[BATADV_ATTR_LOG_LEVEL];
 
-		atomic_set(&bat_priv->log_level,
+		WRITE_ONCE(bat_priv->log_level,
 			   nla_get_u32(attr) & BATADV_DBG_ALL);
 	}
 #endif /* CONFIG_BATMAN_ADV_DEBUG */
@@ -571,13 +572,13 @@ static int batadv_netlink_set_mesh(struct sk_buff *skb, struct genl_info *info)
 	if (info->attrs[BATADV_ATTR_MULTICAST_FORCEFLOOD_ENABLED]) {
 		attr = info->attrs[BATADV_ATTR_MULTICAST_FORCEFLOOD_ENABLED];
 
-		atomic_set(&bat_priv->multicast_mode, !nla_get_u8(attr));
+		WRITE_ONCE(bat_priv->multicast_mode, !nla_get_u8(attr));
 	}
 
 	if (info->attrs[BATADV_ATTR_MULTICAST_FANOUT]) {
 		attr = info->attrs[BATADV_ATTR_MULTICAST_FANOUT];
 
-		atomic_set(&bat_priv->multicast_fanout, nla_get_u32(attr));
+		WRITE_ONCE(bat_priv->multicast_fanout, nla_get_u32(attr));
 	}
 #endif /* CONFIG_BATMAN_ADV_MCAST */
 
@@ -590,7 +591,7 @@ static int batadv_netlink_set_mesh(struct sk_buff *skb, struct genl_info *info)
 		orig_interval = min_t(u32, orig_interval, INT_MAX);
 		orig_interval = max_t(u32, orig_interval, 2 * BATADV_JITTER);
 
-		atomic_set(&bat_priv->orig_interval, orig_interval);
+		WRITE_ONCE(bat_priv->orig_interval, orig_interval);
 	}
 
 	batadv_netlink_notify_mesh(bat_priv);

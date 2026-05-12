@@ -171,7 +171,7 @@ void batadv_gw_check_client_stop(struct batadv_priv *bat_priv)
 {
 	struct batadv_gw_node *curr_gw;
 
-	if (atomic_read(&bat_priv->gw.mode) != BATADV_GW_MODE_CLIENT)
+	if (READ_ONCE(bat_priv->gw.mode) != BATADV_GW_MODE_CLIENT)
 		return;
 
 	curr_gw = batadv_gw_get_selected_gw_node(bat_priv);
@@ -203,7 +203,7 @@ void batadv_gw_election(struct batadv_priv *bat_priv)
 	struct batadv_neigh_ifinfo *router_ifinfo = NULL;
 	char gw_addr[18] = { '\0' };
 
-	if (atomic_read(&bat_priv->gw.mode) != BATADV_GW_MODE_CLIENT)
+	if (READ_ONCE(bat_priv->gw.mode) != BATADV_GW_MODE_CLIENT)
 		goto out;
 
 	if (!bat_priv->algo_ops->gw.get_best_gw_node)
@@ -703,7 +703,7 @@ bool batadv_gw_out_of_range(struct batadv_priv *bat_priv,
 	if (!gw_node)
 		goto out;
 
-	switch (atomic_read(&bat_priv->gw.mode)) {
+	switch (READ_ONCE(bat_priv->gw.mode)) {
 	case BATADV_GW_MODE_SERVER:
 		/* If we are a GW then we are our best GW. We can artificially
 		 * set the tq towards ourself as the maximum value

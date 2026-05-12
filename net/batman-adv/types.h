@@ -1119,21 +1119,21 @@ struct batadv_priv_gw {
 	/**
 	 * @mode: gateway operation: off, client or server (see batadv_gw_modes)
 	 */
-	atomic_t mode;
+	enum batadv_gw_modes mode;
 
 	/** @sel_class: gateway selection class (applies if gw_mode client) */
-	atomic_t sel_class;
+	u32 sel_class;
 
 	/**
 	 * @bandwidth_down: advertised uplink download bandwidth (if gw_mode
 	 *  server)
 	 */
-	atomic_t bandwidth_down;
+	u32 bandwidth_down;
 
 	/**
 	 * @bandwidth_up: advertised uplink upload bandwidth (if gw_mode server)
 	 */
-	atomic_t bandwidth_up;
+	u32 bandwidth_up;
 
 	/** @reselect: bool indicating a gateway re-selection is in progress */
 	atomic_t reselect;
@@ -1524,16 +1524,46 @@ struct batadv_priv {
 	/**
 	 * @aggregated_ogms: bool indicating whether OGM aggregation is enabled
 	 */
-	atomic_t aggregated_ogms;
+	u8 aggregated_ogms;
 
 	/** @bonding: bool indicating whether traffic bonding is enabled */
-	atomic_t bonding;
+	u8 bonding;
 
 	/**
 	 * @fragmentation: bool indicating whether traffic fragmentation is
 	 *  enabled
 	 */
-	atomic_t fragmentation;
+	u8 fragmentation;
+
+#ifdef CONFIG_BATMAN_ADV_BLA
+	/**
+	 * @bridge_loop_avoidance: bool indicating whether bridge loop
+	 *  avoidance is enabled
+	 */
+	u8 bridge_loop_avoidance;
+#endif
+
+#ifdef CONFIG_BATMAN_ADV_DAT
+	/**
+	 * @distributed_arp_table: bool indicating whether distributed ARP table
+	 *  is enabled
+	 */
+	u8 distributed_arp_table;
+#endif
+
+#ifdef CONFIG_BATMAN_ADV_MCAST
+	/**
+	 * @multicast_mode: Enable or disable multicast optimizations on this
+	 *  node's sender/originating side
+	 */
+	u8 multicast_mode;
+
+	/**
+	 * @multicast_fanout: Maximum number of packet copies to generate for a
+	 *  multicast-to-unicast conversion
+	 */
+	u32 multicast_fanout;
+#endif
 
 	/**
 	 * @packet_size_max: max packet size that can be transmitted via
@@ -1548,48 +1578,18 @@ struct batadv_priv {
 	 */
 	atomic_t frag_seqno;
 
-#ifdef CONFIG_BATMAN_ADV_BLA
-	/**
-	 * @bridge_loop_avoidance: bool indicating whether bridge loop
-	 *  avoidance is enabled
-	 */
-	atomic_t bridge_loop_avoidance;
-#endif
-
-#ifdef CONFIG_BATMAN_ADV_DAT
-	/**
-	 * @distributed_arp_table: bool indicating whether distributed ARP table
-	 *  is enabled
-	 */
-	atomic_t distributed_arp_table;
-#endif
-
-#ifdef CONFIG_BATMAN_ADV_MCAST
-	/**
-	 * @multicast_mode: Enable or disable multicast optimizations on this
-	 *  node's sender/originating side
-	 */
-	atomic_t multicast_mode;
-
-	/**
-	 * @multicast_fanout: Maximum number of packet copies to generate for a
-	 *  multicast-to-unicast conversion
-	 */
-	atomic_t multicast_fanout;
-#endif
-
 	/** @orig_interval: OGM broadcast interval in milliseconds */
-	atomic_t orig_interval;
+	u32 orig_interval;
 
 	/**
 	 * @hop_penalty: penalty which will be applied to an OGM's tq-field on
 	 *  every hop
 	 */
-	atomic_t hop_penalty;
+	u8 hop_penalty;
 
 #ifdef CONFIG_BATMAN_ADV_DEBUG
 	/** @log_level: configured log level (see batadv_dbg_level) */
-	atomic_t log_level;
+	u32 log_level;
 #endif
 
 	/**

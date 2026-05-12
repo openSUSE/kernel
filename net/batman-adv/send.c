@@ -185,7 +185,7 @@ int batadv_send_skb_to_orig(struct sk_buff *skb,
 	/* Check if the skb is too large to send in one piece and fragment
 	 * it if needed.
 	 */
-	if (atomic_read(&bat_priv->fragmentation) &&
+	if (READ_ONCE(bat_priv->fragmentation) &&
 	    skb->len > neigh_node->if_incoming->net_dev->mtu) {
 		/* Fragment and send packet. */
 		ret = batadv_frag_send_packet(skb, orig_node, neigh_node);
