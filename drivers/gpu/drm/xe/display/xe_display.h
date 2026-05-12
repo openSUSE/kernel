@@ -6,9 +6,11 @@
 #ifndef _XE_DISPLAY_H_
 #define _XE_DISPLAY_H_
 
-#include "xe_device.h"
+#include <linux/types.h>
 
 struct drm_driver;
+struct pci_dev;
+struct xe_device;
 
 #if IS_ENABLED(CONFIG_DRM_XE_DISPLAY)
 
