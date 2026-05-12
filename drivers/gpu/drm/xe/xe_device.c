@@ -491,8 +491,6 @@ struct xe_device *xe_device_create(struct pci_dev *pdev,
 		driver = &admin_only_driver;
 #endif
 
-	xe_display_driver_set_hooks(driver);
-
 	err = aperture_remove_conflicting_pci_devices(pdev, driver->name);
 	if (err)
 		return ERR_PTR(err);
