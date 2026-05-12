@@ -459,12 +459,6 @@ put_ele_ref:
 		ele = NULL;
 
 free_ele:
-	/*
-	 * The response handler or the timeout/error path must dequeue the
-	 * command element before we own the final reference.
-	 */
-	if (ele)
-		INIT_LIST_HEAD(&ele->list);
 	kfree(ele);
 	return ret;
 }
