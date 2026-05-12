@@ -13,17 +13,17 @@
 
 #define verbose(env, fmt, args...) bpf_verifier_log_write(env, fmt, ##args)
 
-static bool bpf_verifier_log_attr_valid(const struct bpf_verifier_log *log)
+static bool bpf_verifier_log_attr_valid(u32 log_level, char __user *log_buf, u32 log_size)
 {
 	/* ubuf and len_total should both be specified (or not) together */
-	if (!!log->ubuf != !!log->len_total)
+	if (!!log_buf != !!log_size)
 		return false;
 	/* log buf without log_level is meaningless */
-	if (log->ubuf && log->level == 0)
+	if (log_buf && log_level == 0)
 		return false;
-	if (log->level & ~BPF_LOG_MASK)
+	if (log_level & ~BPF_LOG_MASK)
 		return false;
-	if (log->len_total > UINT_MAX >> 2)
+	if (log_size > UINT_MAX >> 2)
 		return false;
 	return true;
 }
@@ -36,7 +36,7 @@ int bpf_vlog_init(struct bpf_verifier_log *log, u32 log_level,
 	log->len_total = log_size;
 
 	/* log attributes have to be sane */
-	if (!bpf_verifier_log_attr_valid(log))
+	if (!bpf_verifier_log_attr_valid(log_level, log_buf, log_size))
 		return -EINVAL;
 
 	return 0;
@@ -824,4 +824,82 @@ void print_insn_state(struct bpf_verifier_env *env, const struct bpf_verifier_st
 		verbose(env, "%d:", env->insn_idx);
 	}
 	print_verifier_state(env, vstate, frameno, false);
+}
+
+int bpf_log_attr_init(struct bpf_log_attr *log, u64 log_buf, u32 log_size, u32 log_level,
+		      u32 offsetof_log_true_size, bpfptr_t uattr, struct bpf_common_attr *common,
+		      bpfptr_t uattr_common, u32 size_common)
+{
+	char __user *ubuf_common = u64_to_user_ptr(common->log_buf);
+	char __user *ubuf = u64_to_user_ptr(log_buf);
+
+	if (!bpf_verifier_log_attr_valid(common->log_level, ubuf_common, common->log_size) ||
+	    !bpf_verifier_log_attr_valid(log_level, ubuf, log_size))
+		return -EINVAL;
+
+	if (ubuf && ubuf_common && (ubuf != ubuf_common || log_size != common->log_size ||
+				    log_level != common->log_level))
+		return -EINVAL;
+
+	memset(log, 0, sizeof(*log));
+	log->ubuf = ubuf;
+	log->size = log_size;
+	log->level = log_level;
+	log->offsetof_true_size = offsetof_log_true_size;
+	log->uattr = uattr;
+
+	if (!ubuf && ubuf_common) {
+		log->ubuf = ubuf_common;
+		log->size = common->log_size;
+		log->level = common->log_level;
+		log->uattr = uattr_common;
+		log->offsetof_true_size = 0;
+		if (size_common >= offsetofend(struct bpf_common_attr, log_true_size))
+			log->offsetof_true_size = offsetof(struct bpf_common_attr, log_true_size);
+	}
+	return 0;
+}
+
+struct bpf_verifier_log *bpf_log_attr_create_vlog(struct bpf_log_attr *attr_log,
+						  struct bpf_common_attr *common, bpfptr_t uattr,
+						  u32 size)
+{
+	struct bpf_verifier_log *log;
+	int err;
+
+	memset(attr_log, 0, sizeof(*attr_log));
+	attr_log->uattr = uattr;
+	if (size >= offsetofend(struct bpf_common_attr, log_true_size))
+		attr_log->offsetof_true_size = offsetof(struct bpf_common_attr, log_true_size);
+
+	if (!size)
+		return NULL;
+
+	log = kzalloc_obj(*log, GFP_KERNEL);
+	if (!log)
+		return ERR_PTR(-ENOMEM);
+
+	err = bpf_vlog_init(log, common->log_level, u64_to_user_ptr(common->log_buf),
+			    common->log_size);
+	if (err) {
+		kfree(log);
+		return ERR_PTR(err);
+	}
+
+	return log;
+}
+
+int bpf_log_attr_finalize(struct bpf_log_attr *attr, struct bpf_verifier_log *log)
+{
+	u32 log_true_size;
+	int err;
+
+	err = bpf_vlog_finalize(log, &log_true_size);
+
+	if (attr->offsetof_true_size &&
+	    copy_to_bpfptr_offset(attr->uattr, attr->offsetof_true_size, &log_true_size,
+				  sizeof(log_true_size)))
+		return -EFAULT;
+
+	return err;
 }
