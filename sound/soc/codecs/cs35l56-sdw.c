@@ -436,6 +436,7 @@ static const struct sdw_slave_ops cs35l56_sdw_ops = {
 static int __maybe_unused cs35l56_sdw_handle_unattach(struct cs35l56_private *cs35l56)
 {
 	struct sdw_slave *peripheral = cs35l56->sdw_peripheral;
+	int ret;
 
 	dev_dbg(cs35l56->base.dev, "attached:%u unattach_request:%u in_clock_stop_1:%u\n",
 		cs35l56->sdw_attached, peripheral->unattach_request, cs35l56->sdw_in_clock_stop_1);
@@ -443,13 +444,10 @@ static int __maybe_unused cs35l56_sdw_handle_unattach(struct cs35l56_private *cs
 	if (cs35l56->sdw_in_clock_stop_1 || peripheral->unattach_request) {
 		/* Cannot access registers until bus is re-initialized. */
 		dev_dbg(cs35l56->base.dev, "Wait for initialization_complete\n");
-		if (!wait_for_completion_timeout(&peripheral->initialization_complete,
-						 msecs_to_jiffies(5000))) {
-			dev_err(cs35l56->base.dev, "initialization_complete timed out\n");
-			return -ETIMEDOUT;
-		}
+		ret = sdw_slave_wait_for_init(peripheral, 5000);
+		if (ret)
+			return ret;
 
-		peripheral->unattach_request = 0;
 		cs35l56->sdw_in_clock_stop_1 = false;
 
 		/*
