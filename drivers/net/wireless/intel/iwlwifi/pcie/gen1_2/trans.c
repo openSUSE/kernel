@@ -3201,8 +3201,7 @@ static ssize_t iwl_dbgfs_reset_write(struct file *file,
 				return -EINVAL;
 			trans->request_top_reset = 1;
 		}
-		iwl_op_mode_nic_error(trans->op_mode, IWL_ERR_TYPE_DEBUGFS);
-		iwl_trans_schedule_reset(trans, IWL_ERR_TYPE_DEBUGFS);
+		iwl_trans_fw_error(trans, IWL_ERR_TYPE_DEBUGFS);
 		return count;
 	}
 
