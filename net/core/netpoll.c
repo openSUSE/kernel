@@ -51,8 +51,6 @@
 	 sizeof(struct udphdr) +					\
 	 MAX_UDP_CHUNK)
 
-static void zap_completion_queue(void);
-
 static unsigned int carrier_timeout = 4;
 module_param(carrier_timeout, uint, 0644);
 
@@ -199,7 +197,7 @@ void netpoll_poll_dev(struct net_device *dev)
 
 	up(&ni->dev_lock);
 
-	zap_completion_queue();
+	netpoll_zap_completion_queue();
 }
 EXPORT_SYMBOL(netpoll_poll_dev);
 
@@ -238,7 +236,7 @@ static void refill_skbs(struct netpoll *np)
 	}
 }
 
-static void zap_completion_queue(void)
+void netpoll_zap_completion_queue(void)
 {
 	unsigned long flags;
 	struct softnet_data *sd = &get_cpu_var(softnet_data);
@@ -265,13 +263,14 @@ static void zap_completion_queue(void)
 
 	put_cpu_var(softnet_data);
 }
+EXPORT_SYMBOL_NS_GPL(netpoll_zap_completion_queue, "NETDEV_INTERNAL");
 
 struct sk_buff *find_skb(struct netpoll *np, int len, int reserve)
 {
 	int count = 0;
 	struct sk_buff *skb;
 
-	zap_completion_queue();
+	netpoll_zap_completion_queue();
 repeat:
 
 	skb = alloc_skb(len, GFP_ATOMIC);
