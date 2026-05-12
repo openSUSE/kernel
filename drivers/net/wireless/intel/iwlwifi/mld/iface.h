@@ -138,7 +138,6 @@ struct iwl_mld_emlsr {
  * @beacon_inject_active: indicates an active debugfs beacon ie injection
  * @low_latency_causes: bit flags, indicating the causes for low-latency,
  *	see @iwl_mld_low_latency_cause.
- * @ps_disabled: indicates that PS is disabled for this interface
  * @last_link_activation_time: last time a link was activated, for
  *	deferring MLO scans (to make them more reliable)
  * @mld: pointer to the mld structure.
@@ -171,7 +170,6 @@ struct iwl_mld_vif {
 		bool beacon_inject_active;
 #endif
 		u8 low_latency_causes;
-		bool ps_disabled;
 		time64_t last_link_activation_time;
 	);
 	/* And here fields that survive a fw restart */

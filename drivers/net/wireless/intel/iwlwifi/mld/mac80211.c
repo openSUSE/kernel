@@ -1368,28 +1368,6 @@ iwl_mld_mac80211_link_info_changed(struct ieee80211_hw *hw,
 		iwl_mld_set_tx_power(mld, link_conf, link_conf->txpower);
 }
 
-static void
-iwl_mld_smps_workaround(struct iwl_mld *mld, struct ieee80211_vif *vif, bool enable)
-{
-	struct iwl_mld_vif *mld_vif = iwl_mld_vif_from_mac80211(vif);
-	bool workaround_required =
-		iwl_fw_lookup_cmd_ver(mld->fw, MAC_PM_POWER_TABLE, 0) < 2;
-
-	if (!workaround_required)
-		return;
-
-	/* Send the device-level power commands since the
-	 * firmware checks the POWER_TABLE_CMD's POWER_SAVE_EN bit to
-	 * determine SMPS mode.
-	 */
-	if (mld_vif->ps_disabled == !enable)
-		return;
-
-	mld_vif->ps_disabled = !enable;
-
-	iwl_mld_update_device_power(mld, false);
-}
-
 static
 void iwl_mld_mac80211_vif_cfg_changed(struct ieee80211_hw *hw,
 				      struct ieee80211_vif *vif,
@@ -1427,10 +1405,8 @@ void iwl_mld_mac80211_vif_cfg_changed(struct ieee80211_hw *hw,
 		}
 	}
 
-	if (changes & BSS_CHANGED_PS) {
-		iwl_mld_smps_workaround(mld, vif, vif->cfg.ps);
+	if (changes & BSS_CHANGED_PS)
 		iwl_mld_update_mac_power(mld, vif, false);
-	}
 
 	/* TODO: task=MLO BSS_CHANGED_MLD_VALID_LINKS/CHANGED_MLD_TTLM */
 }
@@ -1837,7 +1813,6 @@ static int iwl_mld_move_sta_state_up(struct iwl_mld *mld,
 						    FW_CTXT_ACTION_MODIFY);
 			if (ret)
 				return ret;
-			iwl_mld_smps_workaround(mld, vif, vif->cfg.ps);
 		}
 
 		/* MFP is set by default before the station is authorized.
@@ -1882,7 +1857,6 @@ static int iwl_mld_move_sta_state_down(struct iwl_mld *mld,
 						  &mld_vif->mlo_scan_start_wk);
 
 			iwl_mld_reset_cca_40mhz_workaround(mld, vif);
-			iwl_mld_smps_workaround(mld, vif, true);
 		}
 
 		/* once we move into assoc state, need to update the FW to

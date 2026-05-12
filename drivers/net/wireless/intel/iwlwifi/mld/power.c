@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
- * Copyright (C) 2024-2025 Intel Corporation
+ * Copyright (C) 2024-2026 Intel Corporation
  */
 #include <net/mac80211.h>
 
@@ -11,36 +11,11 @@
 #include "link.h"
 #include "constants.h"
 
-static void iwl_mld_vif_ps_iterator(void *data, u8 *mac,
-				    struct ieee80211_vif *vif)
-{
-	bool *ps_enable = (bool *)data;
-	struct iwl_mld_vif *mld_vif = iwl_mld_vif_from_mac80211(vif);
-
-	if (vif->type != NL80211_IFTYPE_STATION)
-		return;
-
-	*ps_enable &= !mld_vif->ps_disabled;
-}
-
 int iwl_mld_update_device_power(struct iwl_mld *mld, bool d3)
 {
 	struct iwl_device_power_cmd cmd = {};
-	bool enable_ps = false;
 
-	if (iwlmld_mod_params.power_scheme != IWL_POWER_SCHEME_CAM) {
-		enable_ps = true;
-
-		/* Disable power save if any STA interface has
-		 * power save turned off
-		 */
-		ieee80211_iterate_active_interfaces_mtx(mld->hw,
-							IEEE80211_IFACE_ITER_NORMAL,
-							iwl_mld_vif_ps_iterator,
-							&enable_ps);
-	}
-
-	if (enable_ps)
+	if (iwlmld_mod_params.power_scheme != IWL_POWER_SCHEME_CAM)
 		cmd.flags |=
 			cpu_to_le16(DEVICE_POWER_FLAGS_POWER_SAVE_ENA_MSK);
 
@@ -252,9 +227,7 @@ static void iwl_mld_power_build_cmd(struct iwl_mld *mld,
 		return;
 
 	cmd->flags |= cpu_to_le16(POWER_FLAGS_POWER_MANAGEMENT_ENA_MSK);
-
-	if (iwl_fw_lookup_cmd_ver(mld->fw, MAC_PM_POWER_TABLE, 0) >= 2)
-		cmd->flags |= cpu_to_le16(POWER_FLAGS_ENABLE_SMPS_MSK);
+	cmd->flags |= cpu_to_le16(POWER_FLAGS_ENABLE_SMPS_MSK);
 
 	/* firmware supports LPRX for beacons at rate 1 Mbps or 6 Mbps only */
 	if (link_conf->beacon_rate &&
