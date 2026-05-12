@@ -336,7 +336,7 @@ fn generate_projections(
 
 fn generate_the_pin_data(
     vis: &Visibility,
-    ident: &Ident,
+    struct_name: &Ident,
     generics: &Generics,
     fields: &[(bool, &Field)],
 ) -> TokenStream {
@@ -347,78 +347,74 @@ fn generate_the_pin_data(
     // not structurally pinned, then it can be initialized via `Init`.
     //
     // The functions are `unsafe` to prevent accidentally calling them.
-    fn handle_field(
-        Field {
-            vis,
-            ident,
-            ty,
-            attrs,
-            ..
-        }: &Field,
-        struct_ident: &Ident,
-        pinned: bool,
-    ) -> TokenStream {
-        let ident = ident
-            .as_ref()
-            .expect("only structs with named fields are supported");
-        let project_ident = format_ident!("__project_{ident}");
-        let (init_ty, init_fn, project_ty, project_body, pin_safety) = if pinned {
-            (
-                quote!(PinInit),
-                quote!(__pinned_init),
-                quote!(::core::pin::Pin<&'__slot mut #ty>),
-                // SAFETY: this field is structurally pinned.
-                quote!(unsafe { ::core::pin::Pin::new_unchecked(slot) }),
-                quote!(
-                    /// - `slot` will not move until it is dropped, i.e. it will be pinned.
-                ),
-            )
-        } else {
-            (
-                quote!(Init),
-                quote!(__init),
-                quote!(&'__slot mut #ty),
-                quote!(slot),
-                quote!(),
-            )
-        };
-        let slot_safety = format!(
-            " `slot` points at the field `{ident}` inside of `{struct_ident}`, which is pinned.",
-        );
-        quote! {
-            /// # Safety
-            ///
-            /// - `slot` is a valid pointer to uninitialized memory.
-            /// - the caller does not touch `slot` when `Err` is returned, they are only permitted
-            ///   to deallocate.
-            #pin_safety
-            #(#attrs)*
-            #vis unsafe fn #ident<E>(
-                self,
-                slot: *mut #ty,
-                init: impl ::pin_init::#init_ty<#ty, E>,
-            ) -> ::core::result::Result<(), E> {
-                // SAFETY: this function has the same safety requirements as the __init function
-                // called below.
-                unsafe { ::pin_init::#init_ty::#init_fn(init, slot) }
-            }
-
-            /// # Safety
-            ///
-            #[doc = #slot_safety]
-            #(#attrs)*
-            #vis unsafe fn #project_ident<'__slot>(
-                self,
-                slot: &'__slot mut #ty,
-            ) -> #project_ty {
-                #project_body
-            }
-        }
-    }
-
     let field_accessors = fields
         .iter()
-        .map(|(pinned, field)| handle_field(field, ident, *pinned))
+        .map(|(pinned, field)| {
+            let Field {
+                vis,
+                ident,
+                ty,
+                attrs,
+                ..
+            } = field;
+
+            let field_name = ident
+                .as_ref()
+                .expect("only structs with named fields are supported");
+            let project_ident = format_ident!("__project_{field_name}");
+            let (init_ty, init_fn, project_ty, project_body, pin_safety) = if *pinned {
+                (
+                    quote!(PinInit),
+                    quote!(__pinned_init),
+                    quote!(::core::pin::Pin<&'__slot mut #ty>),
+                    // SAFETY: this field is structurally pinned.
+                    quote!(unsafe { ::core::pin::Pin::new_unchecked(slot) }),
+                    quote!(
+                        /// - `slot` will not move until it is dropped, i.e. it will be pinned.
+                    ),
+                )
+            } else {
+                (
+                    quote!(Init),
+                    quote!(__init),
+                    quote!(&'__slot mut #ty),
+                    quote!(slot),
+                    quote!(),
+                )
+            };
+            let slot_safety = format!(
+                " `slot` points at the field `{field_name}` inside of `{struct_name}`, which is pinned.",
+            );
+            quote! {
+                /// # Safety
+                ///
+                /// - `slot` is a valid pointer to uninitialized memory.
+                /// - the caller does not touch `slot` when `Err` is returned, they are only
+                ///   permitted to deallocate.
+                #pin_safety
+                #(#attrs)*
+                #vis unsafe fn #field_name<E>(
+                    self,
+                    slot: *mut #ty,
+                    init: impl ::pin_init::#init_ty<#ty, E>,
+                ) -> ::core::result::Result<(), E> {
+                    // SAFETY: this function has the same safety requirements as the __init function
+                    // called below.
+                    unsafe { ::pin_init::#init_ty::#init_fn(init, slot) }
+                }
+
+                /// # Safety
+                ///
+                #[doc = #slot_safety]
+                #(#attrs)*
+                #vis unsafe fn #project_ident<'__slot>(
+                    self,
+                    slot: &'__slot mut #ty,
+                ) -> #project_ty {
+                    #project_body
+                }
+            }
+        })
         .collect::<TokenStream>();
     quote! {
         // We declare this struct which will host all of the projection function for our type. It
@@ -428,7 +424,7 @@ fn generate_the_pin_data(
             #whr
         {
             __phantom: ::core::marker::PhantomData<
-                fn(#ident #ty_generics) -> #ident #ty_generics
+                fn(#struct_name #ty_generics) -> #struct_name #ty_generics
             >,
         }
 
@@ -452,7 +448,7 @@ fn generate_the_pin_data(
 
         // SAFETY: We have added the correct projection functions above to `__ThePinData` and
         // we also use the least restrictive generics possible.
-        unsafe impl #impl_generics ::pin_init::__internal::HasPinData for #ident #ty_generics
+        unsafe impl #impl_generics ::pin_init::__internal::HasPinData for #struct_name #ty_generics
             #whr
         {
             type PinData = __ThePinData #ty_generics;
@@ -466,7 +462,7 @@ fn generate_the_pin_data(
         unsafe impl #impl_generics ::pin_init::__internal::PinData for __ThePinData #ty_generics
             #whr
         {
-            type Datee = #ident #ty_generics;
+            type Datee = #struct_name #ty_generics;
         }
     }
 }
