@@ -1387,7 +1387,7 @@ struct batadv_tp_sender {
 	u32 last_sent;
 
 	/** @fast_recovery: true if in Fast Recovery mode */
-	unsigned char fast_recovery:1;
+	bool fast_recovery:1;
 
 	/** @recover: last sent seqno when entering Fast Recovery */
 	u32 recover;
@@ -1410,7 +1410,7 @@ struct batadv_tp_sender {
 	/** @cwnd: current size of the congestion window */
 	u32 cwnd;
 
-	/** @cwnd_lock: lock do protect @cwnd & @dec_cwnd */
+	/** @cwnd_lock: lock do protect congestion control variables */
 	spinlock_t cwnd_lock;
 
 	/**
@@ -1420,13 +1420,13 @@ struct batadv_tp_sender {
 	u32 ss_threshold;
 
 	/** @last_acked: last acked byte */
-	atomic_t last_acked;
+	u32 last_acked;
 
 	/** @tot_sent: amount of data sent/ACKed so far */
 	atomic64_t tot_sent;
 
 	/** @dup_acks: duplicate ACKs counter */
-	atomic_t dup_acks;
+	u8 dup_acks;
 
 	/** @rto: sender timeout */
 	u32 rto;
