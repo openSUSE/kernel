@@ -2587,7 +2587,7 @@ struct sched_class {
 	/*
 	 * schedule/pick_next_task/prev_balance: rq->lock
 	 */
-	int (*balance)(struct rq *rq, struct task_struct *prev, struct rq_flags *rf);
+	int (*balance)(struct rq *rq, struct rq_flags *rf);
 
 	/*
 	 * schedule/pick_next_task: rq->lock
