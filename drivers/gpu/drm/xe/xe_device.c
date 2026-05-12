@@ -391,7 +391,7 @@ bool xe_is_xe_file(const struct file *file)
 	return file->f_op == &xe_driver_fops;
 }
 
-static struct drm_driver regular_driver = {
+static const struct drm_driver regular_driver = {
 	.driver_features =
 	    XE_DISPLAY_DRIVER_FEATURES |
 	    DRIVER_GEM |
@@ -424,7 +424,7 @@ static const struct drm_ioctl_desc xe_ioctls_admin_only[] = {
 	DRM_IOCTL_DEF_DRV(XE_OBSERVATION, xe_observation_ioctl, DRM_RENDER_ALLOW),
 };
 
-static struct drm_driver admin_only_driver = {
+static const struct drm_driver admin_only_driver = {
 	.driver_features =
 	    XE_DISPLAY_DRIVER_FEATURES |
 	    DRIVER_GEM | DRIVER_RENDER | DRIVER_GEM_GPUVA,
@@ -478,7 +478,7 @@ static void xe_device_destroy(struct drm_device *dev, void *dummy)
 struct xe_device *xe_device_create(struct pci_dev *pdev,
 				   const struct pci_device_id *ent)
 {
-	struct drm_driver *driver = &regular_driver;
+	const struct drm_driver *driver = &regular_driver;
 	struct xe_device *xe;
 	int err;
 
