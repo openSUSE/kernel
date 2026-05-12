@@ -155,6 +155,10 @@ struct iwl_mld_emlsr {
  * @nan: NAN parameters
  * @nan.links: NAN links for FW (indexed by FW link ID)
  * @nan.mac_added: track whether or not the MAC was added to FW
+ * @nan.bcast_sta: internal station used for NAN synchronization and discovery
+ *	activities. No queue is associated with it.
+ * @nan.mgmt_sta: internal station used for NAN management frames, e.g., SDFs
+ *	and NAFs.
  */
 struct iwl_mld_vif {
 	/* Add here fields that need clean up on restart */
@@ -181,6 +185,8 @@ struct iwl_mld_vif {
 		/* use only with wiphy protection */
 		struct iwl_mld_nan_link links[IWL_FW_MAX_LINKS];
 		bool mac_added;
+		struct iwl_mld_int_sta bcast_sta;
+		struct iwl_mld_int_sta mgmt_sta;
 	} nan;
 
 	struct iwl_mld_emlsr emlsr;

@@ -276,4 +276,17 @@ int iwl_mld_update_link_stas(struct iwl_mld *mld,
 			     struct ieee80211_vif *vif,
 			     struct ieee80211_sta *sta,
 			     u16 old_links, u16 new_links);
+
+int iwl_mld_add_nan_bcast_sta(struct iwl_mld *mld,
+			      struct iwl_mld_int_sta *sta);
+
+int iwl_mld_add_nan_mgmt_sta(struct iwl_mld *mld,
+			     struct iwl_mld_int_sta *sta);
+
+void iwl_mld_remove_nan_bcast_sta(struct iwl_mld *mld,
+				  struct iwl_mld_int_sta *sta);
+
+void iwl_mld_remove_nan_mgmt_sta(struct iwl_mld *mld,
+				 struct iwl_mld_int_sta *sta);
+
 #endif /* __iwl_mld_sta_h__ */

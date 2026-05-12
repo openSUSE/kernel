@@ -735,6 +735,10 @@ struct iwl_link_config_cmd {
  * @STATION_TYPE_NAN_PEER_NDI: NAN data peer station type. A station
  *	of this type can have any number of links (even none) set in the
  *	link_mask. (Supported since version 3.)
+ * @STATION_TYPE_NAN_BCAST: NAN station used for synchronization and
+ *	discovery. No queue is associated with this station.
+ * @STATION_TYPE_NAN_MGMT: NAN station used for NAN management frames, e.g.,
+ *	SDFs and NAFs.
  * @STATION_TYPE_MAX: maximum number of FW station types
  * @STATION_TYPE_AUX: aux sta. In the FW there is no need for a special type
  *	for the aux sta, so this type is only for driver - internal use.
@@ -745,6 +749,8 @@ enum iwl_fw_sta_type {
 	STATION_TYPE_MCAST,
 	STATION_TYPE_NAN_PEER_NMI,
 	STATION_TYPE_NAN_PEER_NDI,
+	STATION_TYPE_NAN_BCAST,
+	STATION_TYPE_NAN_MGMT,
 	STATION_TYPE_MAX,
 	STATION_TYPE_AUX = STATION_TYPE_MAX /* this doesn't exist in FW */
 }; /* STATION_TYPE_E_VER_1, _VER_2 */
@@ -882,7 +888,9 @@ struct iwl_sta_cfg_cmd_v2 {
  * ( STA_CONFIG_CMD = 0xA )
  *
  * @sta_id: index of station in uCode's station table
- * @link_mask: bitmap of link FW IDs used with this STA
+ * @link_mask: bitmap of link FW IDs used with this STA. Should be set to 0
+ *	for STATION_TYPE_NAN_BCAST and STATION_TYPE_NAN_MGMT as they are not
+ *	associated with any link added by the driver.
  * @peer_mld_address: the peers mld address
  * @reserved_for_peer_mld_address: reserved
  * @peer_link_address: the address of the link that is used to communicate
@@ -1213,7 +1221,8 @@ enum iwl_nan_flags {
  * @discovery_beacon_interval: discovery beacon interval in TUs
  * @cluster_id: lower last two bytes of the cluster ID, in case the local
  *	device starts a cluster
- * @sta_id: station ID of the NAN station
+ * @sta_id: station ID of the NAN station. Used only in version 1, in version 2
+ *	it is reserved.
  * @hb_channel: channel for 5 GHz if the device supports operation on 5 GHz.
  *	Valid values are 44 and 149, which correspond to the 5 GHz channel, and
  *	0 which means that NAN operation on the 5 GHz band is disabled.
@@ -1251,7 +1260,7 @@ struct iwl_nan_config_cmd {
 	__le32 nan_attr_len;
 	__le32 nan_vendor_elems_len;
 	u8 beacon_data[];
-} __packed; /*  NAN_CONFIG_CMD_API_S_VER_1 */
+} __packed; /*  NAN_CONFIG_CMD_API_S_VER_1, NAN_CONFIG_CMD_API_S_VER_2 */
 
 /**
  * struct iwl_nan_schedule_cmd_v1 - NAN schedule command

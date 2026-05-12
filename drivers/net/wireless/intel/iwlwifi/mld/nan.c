@@ -50,6 +50,98 @@ static int iwl_mld_nan_send_config_cmd(struct iwl_mld *mld,
 	return iwl_mld_send_cmd(mld, &hcmd);
 }
 
+static bool iwl_mld_nan_use_nan_stations(struct iwl_mld *mld)
+{
+	/*
+	 * If the FW supports version 1 of the NAN config command, it means that
+	 * it needs to receive the station ID of the auxiliary station in the
+	 * NAN configuration command. Otherwise, use the NAN dedicated station
+	 * types.
+	 */
+	return iwl_fw_lookup_cmd_ver(mld->fw,
+				     WIDE_ID(MAC_CONF_GROUP,
+					     NAN_CFG_CMD), 1) != 1;
+}
+
+static const struct iwl_mld_int_sta *
+iwl_mld_nan_get_mgmt_sta(struct iwl_mld *mld, struct ieee80211_vif *vif)
+{
+	struct iwl_mld_vif *mld_vif = iwl_mld_vif_from_mac80211(vif);
+	const struct iwl_mld_int_sta *sta;
+
+	if (iwl_mld_nan_use_nan_stations(mld))
+		sta = &mld_vif->nan.mgmt_sta;
+	else
+		sta = &mld_vif->aux_sta;
+
+	if (WARN_ON(sta->sta_id == IWL_INVALID_STA))
+		return NULL;
+
+	return sta;
+}
+
+int iwl_mld_nan_get_mgmt_queue(struct iwl_mld *mld, struct ieee80211_vif *vif)
+{
+	const struct iwl_mld_int_sta *sta = iwl_mld_nan_get_mgmt_sta(mld, vif);
+
+	if (!sta)
+		return IWL_MLD_INVALID_QUEUE;
+
+	return sta->queue_id;
+}
+
+static void iwl_mld_nan_flush(struct iwl_mld *mld, struct ieee80211_vif *vif)
+{
+	const struct iwl_mld_int_sta *sta = iwl_mld_nan_get_mgmt_sta(mld, vif);
+
+	if (!sta)
+		return;
+
+	if (WARN_ON(sta->queue_id == IWL_MLD_INVALID_QUEUE))
+		return;
+
+	IWL_DEBUG_INFO(mld, "NAN: flush queues for sta=%u\n",
+		       sta->sta_id);
+
+	iwl_mld_flush_link_sta_txqs(mld, sta->sta_id);
+}
+
+static void iwl_mld_nan_remove_stations(struct iwl_mld *mld,
+					struct ieee80211_vif *vif)
+{
+	struct iwl_mld_vif *mld_vif = iwl_mld_vif_from_mac80211(vif);
+
+	iwl_mld_nan_flush(mld, vif);
+
+	if (!iwl_mld_nan_use_nan_stations(mld)) {
+		iwl_mld_remove_aux_sta(mld, vif);
+		return;
+	}
+
+	iwl_mld_remove_nan_bcast_sta(mld, &mld_vif->nan.bcast_sta);
+	iwl_mld_remove_nan_mgmt_sta(mld, &mld_vif->nan.mgmt_sta);
+}
+
+static int iwl_mld_nan_add_stations(struct iwl_mld *mld,
+				    struct ieee80211_vif *vif)
+{
+	struct iwl_mld_vif *mld_vif = iwl_mld_vif_from_mac80211(vif);
+	int ret;
+
+	if (!iwl_mld_nan_use_nan_stations(mld))
+		return iwl_mld_add_aux_sta(mld, &mld_vif->aux_sta);
+
+	ret = iwl_mld_add_nan_bcast_sta(mld, &mld_vif->nan.bcast_sta);
+	if (ret)
+		return ret;
+
+	ret = iwl_mld_add_nan_mgmt_sta(mld, &mld_vif->nan.mgmt_sta);
+	if (ret)
+		iwl_mld_remove_nan_bcast_sta(mld, &mld_vif->nan.bcast_sta);
+
+	return ret;
+}
+
 static int iwl_mld_nan_config(struct iwl_mld *mld,
 			      struct ieee80211_vif *vif,
 			      struct cfg80211_nan_conf *conf,
@@ -126,7 +218,12 @@ static int iwl_mld_nan_config(struct iwl_mld *mld,
 			       conf->vendor_elems_len);
 	}
 
-	cmd.sta_id = mld_vif->aux_sta.sta_id;
+	/* FW needs to know about the station ID only with version 1 of the
+	 * NAN configuration command
+	 */
+	if (!iwl_mld_nan_use_nan_stations(mld))
+		cmd.sta_id = mld_vif->aux_sta.sta_id;
+
 	return iwl_mld_nan_send_config_cmd(mld, &cmd, data,
 					   conf->extra_nan_attrs_len +
 					   conf->vendor_elems_len);
@@ -136,8 +233,6 @@ int iwl_mld_start_nan(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 		      struct cfg80211_nan_conf *conf)
 {
 	struct iwl_mld *mld = IWL_MAC80211_GET_MLD(hw);
-	struct iwl_mld_vif *mld_vif = iwl_mld_vif_from_mac80211(vif);
-	struct iwl_mld_int_sta *aux_sta = &mld_vif->aux_sta;
 	int ret;
 
 	IWL_DEBUG_MAC80211(mld, "NAN: start: bands=0x%x\n", conf->bands);
@@ -146,19 +241,20 @@ int iwl_mld_start_nan(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	if (ret)
 		return ret;
 
-	ret = iwl_mld_add_aux_sta(mld, aux_sta);
+	ret = iwl_mld_nan_add_stations(mld, vif);
 	if (ret)
 		goto unblock_emlsr;
 
 	ret = iwl_mld_nan_config(mld, vif, conf, FW_CTXT_ACTION_ADD);
 	if (ret) {
 		IWL_ERR(mld, "Failed to start NAN. ret=%d\n", ret);
-		goto remove_aux;
+		goto remove_stas;
 	}
+
 	return 0;
 
-remove_aux:
-	iwl_mld_remove_aux_sta(mld, vif);
+remove_stas:
+	iwl_mld_nan_remove_stations(mld, vif);
 unblock_emlsr:
 	iwl_mld_update_emlsr_block(mld, false, IWL_MLD_EMLSR_BLOCKED_NAN);
 
@@ -186,7 +282,6 @@ int iwl_mld_stop_nan(struct ieee80211_hw *hw,
 		     struct ieee80211_vif *vif)
 {
 	struct iwl_mld *mld = IWL_MAC80211_GET_MLD(hw);
-	struct iwl_mld_vif *mld_vif = iwl_mld_vif_from_mac80211(vif);
 	struct iwl_nan_config_cmd cmd = {
 		.action = cpu_to_le32(FW_CTXT_ACTION_REMOVE),
 	};
@@ -203,9 +298,7 @@ int iwl_mld_stop_nan(struct ieee80211_hw *hw,
 	/* assume that higher layer guarantees that no additional frames are
 	 * added before calling this callback
 	 */
-	if (!WARN_ON(mld_vif->aux_sta.sta_id == IWL_INVALID_STA))
-		iwl_mld_flush_link_sta_txqs(mld, mld_vif->aux_sta.sta_id);
-	iwl_mld_remove_aux_sta(mld, vif);
+	iwl_mld_nan_remove_stations(mld, vif);
 
 	/* cancel based on object type being NAN, as the NAN objects do
 	 * not have a unique identifier associated with them
@@ -279,13 +372,7 @@ void iwl_mld_handle_nan_dw_end_notif(struct iwl_mld *mld,
 			 "NAN: DW end without NAN started\n"))
 		return;
 
-	if (WARN_ON(mld_vif->aux_sta.sta_id == IWL_INVALID_STA))
-		return;
-
-	IWL_DEBUG_INFO(mld, "NAN: flush queues for aux sta=%u\n",
-		       mld_vif->aux_sta.sta_id);
-
-	iwl_mld_flush_link_sta_txqs(mld, mld_vif->aux_sta.sta_id);
+	iwl_mld_nan_flush(mld, mld->nan_device_vif);
 
 	/* TODO: currently the notification specified the band on which the DW
 	 * ended. Need to change that to the actual channel on which the next DW

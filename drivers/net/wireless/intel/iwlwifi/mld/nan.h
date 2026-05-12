@@ -53,4 +53,6 @@ void iwl_mld_nan_vif_cfg_changed(struct iwl_mld *mld,
 int iwl_mld_mac802111_nan_peer_sched_changed(struct ieee80211_hw *hw,
 					     struct ieee80211_sta *sta);
 
+int iwl_mld_nan_get_mgmt_queue(struct iwl_mld *mld, struct ieee80211_vif *vif);
+
 #endif /* __iwl_mld_nan_h__ */
