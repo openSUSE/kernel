@@ -640,7 +640,7 @@ static const struct i2c_device_id mp2869_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, mp2869_id);
 
-static const struct of_device_id __maybe_unused mp2869_of_match[] = {
+static const struct of_device_id mp2869_of_match[] = {
 	{ .compatible = "mps,mp2869" },
 	{ .compatible = "mps,mp29608" },
 	{ .compatible = "mps,mp29612" },
