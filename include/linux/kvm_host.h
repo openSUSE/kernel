@@ -294,6 +294,9 @@ struct kvm_mmio_fragment {
 	gpa_t gpa;
 	void *data;
 	unsigned len;
+#ifndef __GENKSYMS__
+	bool data_copied;
+#endif
 };
 
 struct kvm_vcpu {
@@ -358,6 +361,9 @@ struct kvm_vcpu {
 	struct kvm_vcpu_stat stat;
 	char stats_id[KVM_STATS_NAME_SIZE];
 	struct kvm_dirty_ring dirty_ring;
+#ifndef __GENKSYMS__
+	u64 mmio_frag_val[KVM_MAX_MMIO_FRAGMENTS];
+#endif
 };
 
 /*
