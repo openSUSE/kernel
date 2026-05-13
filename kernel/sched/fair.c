@@ -1814,7 +1814,7 @@ static void task_cache_work(struct callback_head *work)
 
 		for_each_cpu(cpu, cpus) {
 			/* XXX sched_cluster_active */
-			struct sched_domain *sd = per_cpu(sd_llc, cpu);
+			struct sched_domain *sd = rcu_dereference_all(per_cpu(sd_llc, cpu));
 			unsigned long occ, m_occ = 0, a_occ = 0;
 			int m_cpu = -1, i;
 
