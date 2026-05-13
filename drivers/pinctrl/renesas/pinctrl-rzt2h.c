@@ -1140,7 +1140,7 @@ static int rzt2h_pinctrl_register(struct rzt2h_pinctrl *pctrl)
 	struct pinctrl_desc *desc = &pctrl->desc;
 	struct device *dev = pctrl->dev;
 	struct pinctrl_pin_desc *pins;
-	unsigned int i, j;
+	unsigned int i;
 	int ret;
 
 	desc->name = DRV_NAME;
@@ -1157,11 +1157,9 @@ static int rzt2h_pinctrl_register(struct rzt2h_pinctrl *pctrl)
 	pctrl->pins = pins;
 	desc->pins = pins;
 
-	for (i = 0, j = 0; i < pctrl->data->n_port_pins; i++) {
+	for (i = 0; i < pctrl->data->n_port_pins; i++) {
 		pins[i].number = i;
 		pins[i].name = rzt2h_gpio_names[i];
-		if (i && !(i % RZT2H_PINS_PER_PORT))
-			j++;
 	}
 
 	ret = devm_pinctrl_register_and_init(dev, desc, pctrl, &pctrl->pctl);
