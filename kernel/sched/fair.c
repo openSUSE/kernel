@@ -1472,15 +1472,32 @@ static bool invalid_llc_nr(struct mm_struct *mm, struct task_struct *p,
 
 static void account_llc_enqueue(struct rq *rq, struct task_struct *p)
 {
+	int pref_llc, pref_llc_queued;
 	struct sched_domain *sd;
-	int pref_llc;
 
 	pref_llc = p->preferred_llc;
 	if (pref_llc < 0)
 		return;
 
+	pref_llc_queued = (pref_llc == task_llc(p));
 	rq->nr_llc_running++;
-	rq->nr_pref_llc_running += (pref_llc == task_llc(p));
+	rq->nr_pref_llc_running += pref_llc_queued;
+
+	/*
+	 * Record whether p is enqueued on its preferred
+	 * LLC, in order to pair with account_llc_dequeue()
+	 * to maintain a consistent nr_pref_llc_running per
+	 * runqueue.
+	 * This is necessary because a race condition exists:
+	 * after a task is enqueued on a runqueue, task_llc(p)
+	 * may change due to CPU hotplug. Therefore, checking
+	 * task_llc(p) to determine whether the task is being
+	 * dequeued from its preferred LLC is unreliable and
+	 * can cause inconsistent values - checking the
+	 * p->pref_llc_queued in account_llc_dequeue() would
+	 * be reliable.
+	 */
+	p->pref_llc_queued = pref_llc_queued;
 
 	sd = rcu_dereference_all(rq->sd);
 	if (sd && (unsigned int)pref_llc < sd->llc_max)
@@ -1497,7 +1514,15 @@ static void account_llc_dequeue(struct rq *rq, struct task_struct *p)
 		return;
 
 	rq->nr_llc_running--;
-	rq->nr_pref_llc_running -= (pref_llc == task_llc(p));
+	if (p->pref_llc_queued) {
+		rq->nr_pref_llc_running--;
+		/*
+		 * Update the status in case
+		 * other logic might query
+		 * this.
+		 */
+		p->pref_llc_queued = 0;
+	}
 
 	sd = rcu_dereference_all(rq->sd);
 	if (sd && (unsigned int)pref_llc < sd->llc_max) {
