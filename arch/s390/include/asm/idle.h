@@ -14,12 +14,15 @@
 #include <asm/tod_types.h>
 
 struct s390_idle_data {
-	bool	      idle_dyntick;
+#ifdef CONFIG_NO_HZ_COMMON
+	bool	      in_idle;
+#endif
 	unsigned long idle_count;
 	unsigned long idle_time;
 	unsigned long timer_idle_enter;
 	unsigned long mt_cycles_enter[8];
 	union tod_clock clock_idle_enter;
+	union tod_clock clock_idle_exit;
 };
 
 DECLARE_PER_CPU(struct s390_idle_data, s390_idle);
