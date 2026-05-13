@@ -485,7 +485,7 @@ static const struct file_operations papr_hvpipe_handle_ops = {
 
 static int papr_hvpipe_dev_create_handle(u32 srcID)
 {
-	struct hvpipe_source_info *src_info;
+	struct hvpipe_source_info *src_info __free(kfree) = NULL;
 	struct file *file;
 	long err;
 	int fd;
@@ -527,6 +527,7 @@ static int papr_hvpipe_dev_create_handle(u32 srcID)
 		goto free_fd;
 	}
 
+	retain_and_null_ptr(src_info);
 	spin_lock_irqsave(&hvpipe_src_list_lock, flags);
 	/*
 	 * If two processes are executing ioctl() for the same
@@ -548,9 +549,6 @@ free_file:
 	fput(file);
 free_fd:
 	put_unused_fd(fd);
-free_buf:
-	kfree(src_info);
-	return err;
 }
 
 /*
