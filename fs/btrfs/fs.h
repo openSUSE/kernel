@@ -54,6 +54,22 @@ struct btrfs_space_info;
 #define BTRFS_MIN_BLOCKSIZE	(SZ_4K)
 #define BTRFS_MAX_BLOCKSIZE	(SZ_64K)
 
+/* The maximum folio size btrfs supports. */
+#define BTRFS_MAX_FOLIO_SIZE	(SZ_2M)
+static_assert(BTRFS_MAX_FOLIO_SIZE > PAGE_SIZE);
+
+/*
+ * The maximum number of blocks a huge folio can support.
+ *
+ * Depending on the filesystem block size, the real maximum blocks per folio
+ * may also be limited by the above BTRFS_MAX_FOLIO_SIZE.
+ */
+#ifdef CONFIG_BTRFS_EXPERIMENTAL
+#define BTRFS_MAX_BLOCKS_PER_FOLIO		(512)
+#else
+#define BTRFS_MAX_BLOCKS_PER_FOLIO		(BITS_PER_LONG)
+#endif
+
 #define BTRFS_MAX_EXTENT_SIZE SZ_128M
 
 /*

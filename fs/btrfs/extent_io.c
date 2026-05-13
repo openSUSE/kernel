@@ -130,12 +130,7 @@ struct btrfs_bio_ctrl {
 	 * extent_writepage_io().
 	 * This is to avoid touching ranges covered by compression/inline.
 	 */
-	unsigned long *submit_bitmap;
-	/*
-	 * When blocks_per_folio <= BITS_PER_LONG, we can use the inline
-	 * one without allocating memory.
-	 */
-	unsigned long submit_bitmap_value;
+	unsigned long submit_bitmap[BITS_TO_LONGS(BTRFS_MAX_BLOCKS_PER_FOLIO)];
 
 	struct readahead_control *ractl;
 
@@ -1473,7 +1468,7 @@ static noinline_for_stack int writepage_delalloc(struct btrfs_inode *inode,
 	const u64 page_start = folio_pos(folio);
 	const u64 page_end = page_start + folio_size(folio) - 1;
 	const unsigned int blocks_per_folio = btrfs_blocks_per_folio(fs_info, folio);
-	unsigned long delalloc_bitmap = 0;
+	unsigned long delalloc_bitmap[BITS_TO_LONGS(BTRFS_MAX_BLOCKS_PER_FOLIO)] = { 0 };
 	/*
 	 * Save the last found delalloc end. As the delalloc end can go beyond
 	 * page boundary, thus we cannot rely on subpage bitmap to locate the
@@ -1516,7 +1511,7 @@ static noinline_for_stack int writepage_delalloc(struct btrfs_inode *inode,
 			delalloc_start = delalloc_end + 1;
 			continue;
 		}
-		set_delalloc_bitmap(folio, &delalloc_bitmap, delalloc_start,
+		set_delalloc_bitmap(folio, delalloc_bitmap, delalloc_start,
 				    min(delalloc_end, page_end) + 1 - delalloc_start);
 		last_delalloc_end = delalloc_end;
 		delalloc_start = delalloc_end + 1;
@@ -1542,7 +1537,7 @@ static noinline_for_stack int writepage_delalloc(struct btrfs_inode *inode,
 			found_len = last_delalloc_end + 1 - found_start;
 			found = true;
 		} else {
-			found = find_next_delalloc_bitmap(folio, &delalloc_bitmap,
+			found = find_next_delalloc_bitmap(folio, delalloc_bitmap,
 					delalloc_start, &found_start, &found_len);
 		}
 		if (!found)
@@ -1864,13 +1859,15 @@ static void bio_ctrl_init_submit_bitmap(struct btrfs_fs_info *fs_info,
 {
 	const unsigned int blocks_per_folio = btrfs_blocks_per_folio(fs_info, folio);
 
-	/* Only supported for blocks per folio <= BITS_PER_LONG for now. */
-	ASSERT(blocks_per_folio <= BITS_PER_LONG);
-	bio_ctrl->submit_bitmap_value = 0;
-	bio_ctrl->submit_bitmap = &bio_ctrl->submit_bitmap_value;
+	ASSERT(blocks_per_folio <= BTRFS_MAX_BLOCKS_PER_FOLIO);
+
 	/*
 	 * Default to unlock the whole folio.
 	 * The proper bitmap is not initialized until writepage_delalloc().
+	 *
+	 * We're safe just to set the bitmap range [0, blocks_per_folio), as
+	 * all later usage of the bitmap will follow the same range limit.
+	 * Any bits beyond blocks_per_folio will be ignored.
 	 */
 	bitmap_set(bio_ctrl->submit_bitmap, 0, blocks_per_folio);
 }

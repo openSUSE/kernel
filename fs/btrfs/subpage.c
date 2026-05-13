@@ -13,9 +13,10 @@
  * - Metadata must be fully aligned to node size
  *   So when nodesize <= page size, the metadata can never cross folio boundaries.
  *
- * - Only support blocks per folio <= BITS_PER_LONG
- *   This is to make bitmap copying much easier, a single unsigned long can handle
- *   one bitmap.
+ * - Only support blocks per folio <= min(BTRFS_MAX_FOLIO_SIZE / fs block size,
+ *					  BTRFS_MAX_BLOCKS_PER_FOLIO)
+ *   This is to ensure we can afford an on-stack bitmap, without the need to allocate
+ *   bitmap memory at runtime.
  *
  * Implementation:
  *
