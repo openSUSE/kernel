@@ -253,7 +253,6 @@ static void *__arm_lpae_alloc_pages(size_t size, gfp_t gfp,
 				    void *cookie)
 {
 	struct device *dev = cfg->iommu_dev;
-	size_t alloc_size;
 	dma_addr_t dma;
 	void *pages;
 
@@ -261,12 +260,11 @@ static void *__arm_lpae_alloc_pages(size_t size, gfp_t gfp,
 	 * For very small starting-level translation tables the HW requires a
 	 * minimum alignment of at least 64 to cover all cases.
 	 */
-	alloc_size = max(size, 64);
+	size = max(size, 64);
 	if (cfg->alloc)
-		pages = cfg->alloc(cookie, alloc_size, gfp);
+		pages = cfg->alloc(cookie, size, gfp);
 	else
-		pages = iommu_alloc_pages_node_sz(dev_to_node(dev), gfp,
-						  alloc_size);
+		pages = iommu_alloc_pages_node_sz(dev_to_node(dev), gfp, size);
 
 	if (!pages)
 		return NULL;
@@ -303,6 +301,9 @@ static void __arm_lpae_free_pages(void *pages, size_t size,
 				  struct io_pgtable_cfg *cfg,
 				  void *cookie)
 {
+	/* See __arm_lpae_alloc_pages(). */
+	size = max(size, 64);
+
 	if (!cfg->coherent_walk)
 		dma_unmap_single(cfg->iommu_dev, __arm_lpae_dma_addr(pages),
 				 size, DMA_TO_DEVICE);
