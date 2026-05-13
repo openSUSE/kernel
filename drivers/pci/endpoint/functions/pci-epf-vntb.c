@@ -67,7 +67,6 @@ static struct workqueue_struct *kpcintb_workqueue;
 #define NTB_MW_OFFSET			2
 #define DB_COUNT_MASK			GENMASK(15, 0)
 #define MSIX_ENABLE			BIT(16)
-#define MAX_DB_COUNT			32
 #define MAX_MW				4
 
 /* Limit per-work execution to avoid monopolizing kworker on doorbell storms. */
@@ -88,6 +87,9 @@ enum epf_irq_slot {
 	EPF_IRQ_RESERVED_DB, /* Historically skipped slot */
 	EPF_IRQ_DB_START,
 };
+
+#define MIN_DB_COUNT			(EPF_IRQ_DB_START + 1)
+#define MAX_DB_COUNT			32
 
 /*
  * +--------------------------------------------------+ Base
@@ -512,9 +514,9 @@ static int epf_ntb_configure_interrupt(struct epf_ntb *ntb)
 		return -EINVAL;
 	}
 
-	if (!ntb->db_count || ntb->db_count > MAX_DB_COUNT) {
-		dev_err(dev, "DB count %d out of range (1 - %d)\n",
-			ntb->db_count, MAX_DB_COUNT);
+	if (ntb->db_count < MIN_DB_COUNT || ntb->db_count > MAX_DB_COUNT) {
+		dev_err(dev, "DB count %d out of range (%d - %d)\n",
+			ntb->db_count, MIN_DB_COUNT, MAX_DB_COUNT);
 		return -EINVAL;
 	}
 
