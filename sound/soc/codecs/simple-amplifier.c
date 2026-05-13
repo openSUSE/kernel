@@ -24,6 +24,7 @@ struct simple_amp_data {
 #define SIMPLE_AUDIO_SUPPORT_PGA		BIT(0)
 #define SIMPLE_AUDIO_SUPPORT_POWER_SUPPLIES	BIT(1)
 #define SIMPLE_AUDIO_SUPPORT_MUTE		BIT(2)
+#define SIMPLE_AUDIO_SUPPORT_BYPASS		BIT(3)
 
 	const struct snd_soc_dapm_widget *dapm_widgets;
 	unsigned int num_dapm_widgets;
@@ -35,6 +36,7 @@ struct simple_amp {
 	const struct simple_amp_data *data;
 	struct gpio_desc *gpiod_enable;
 	struct simple_amp_single mute;
+	struct simple_amp_single bypass;
 };
 
 static int simple_amp_power_event(struct snd_soc_dapm_widget *w,
@@ -303,6 +305,12 @@ static int simple_amp_component_probe(struct snd_soc_component *component)
 			return ret;
 	}
 
+	if (simple_amp->bypass.gpio) {
+		ret = simple_amp_single_add_kcontrol(component, &simple_amp->bypass);
+		if (ret)
+			return ret;
+	}
+
 	return 0;
 }
 
@@ -352,8 +360,15 @@ static int simple_amp_probe(struct platform_device *pdev)
 			return ret;
 	}
 
+	if (simple_amp->data->supports & SIMPLE_AUDIO_SUPPORT_BYPASS) {
+		ret = simple_amp_parse_single_gpio(dev, &simple_amp->bypass, "bypass");
+		if (ret)
+			return ret;
+	}
+
 	/* Set controls name */
 	simple_amp->mute.control_name = "Switch";
+	simple_amp->bypass.control_name = "Bypass Switch";
 
 	return devm_snd_soc_register_component(dev,
 					       &simple_amp_component_driver,
@@ -370,7 +385,8 @@ static const struct simple_amp_data simple_audio_amplifier_data = {
 static const struct simple_amp_data simple_audio_mono_pga_data = {
 	.supports		= SIMPLE_AUDIO_SUPPORT_PGA |
 				  SIMPLE_AUDIO_SUPPORT_POWER_SUPPLIES |
-				  SIMPLE_AUDIO_SUPPORT_MUTE,
+				  SIMPLE_AUDIO_SUPPORT_MUTE |
+				  SIMPLE_AUDIO_SUPPORT_BYPASS,
 	.dapm_widgets		= simple_amp_mono_pga_dapm_widgets,
 	.num_dapm_widgets	= ARRAY_SIZE(simple_amp_mono_pga_dapm_widgets),
 	.dapm_routes		= simple_amp_mono_pga_dapm_routes,
@@ -380,7 +396,8 @@ static const struct simple_amp_data simple_audio_mono_pga_data = {
 static const struct simple_amp_data simple_audio_stereo_pga_data = {
 	.supports		= SIMPLE_AUDIO_SUPPORT_PGA |
 				  SIMPLE_AUDIO_SUPPORT_POWER_SUPPLIES |
-				  SIMPLE_AUDIO_SUPPORT_MUTE,
+				  SIMPLE_AUDIO_SUPPORT_MUTE |
+				  SIMPLE_AUDIO_SUPPORT_BYPASS,
 	.dapm_widgets		= simple_amp_stereo_pga_dapm_widgets,
 	.num_dapm_widgets	= ARRAY_SIZE(simple_amp_stereo_pga_dapm_widgets),
 	.dapm_routes		= simple_amp_stereo_pga_dapm_routes,
