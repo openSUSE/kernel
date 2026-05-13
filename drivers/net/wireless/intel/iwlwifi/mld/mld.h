@@ -552,6 +552,9 @@ iwl_mld_allocate_##_type##_fw_id(struct iwl_mld *mld,					\
 	return -ENOSPC;									\
 }
 
+#define IWL_MLD_ALLOC_FN_STATIC(_type, _mac80211_type) \
+static IWL_MLD_ALLOC_FN(_type, _mac80211_type)
+
 static inline struct ieee80211_bss_conf *
 iwl_mld_fw_id_to_link_conf(struct iwl_mld *mld, u8 fw_link_id)
 {
