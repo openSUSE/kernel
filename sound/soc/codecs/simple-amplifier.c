@@ -19,7 +19,7 @@ static int simple_amp_power_event(struct snd_soc_dapm_widget *w,
 				  struct snd_kcontrol *control, int event)
 {
 	struct snd_soc_component *c = snd_soc_dapm_to_component(w->dapm);
-	struct simple_amp *priv = snd_soc_component_get_drvdata(c);
+	struct simple_amp *simple_amp = snd_soc_component_get_drvdata(c);
 	int val;
 
 	switch (event) {
@@ -34,7 +34,7 @@ static int simple_amp_power_event(struct snd_soc_dapm_widget *w,
 		return -EINVAL;
 	}
 
-	gpiod_set_value_cansleep(priv->gpiod_enable, val);
+	gpiod_set_value_cansleep(simple_amp->gpiod_enable, val);
 
 	return 0;
 }
@@ -68,17 +68,17 @@ static const struct snd_soc_component_driver simple_amp_component_driver = {
 static int simple_amp_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
-	struct simple_amp *priv;
+	struct simple_amp *simple_amp;
 
-	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
-	if (priv == NULL)
+	simple_amp = devm_kzalloc(dev, sizeof(*simple_amp), GFP_KERNEL);
+	if (!simple_amp)
 		return -ENOMEM;
-	platform_set_drvdata(pdev, priv);
+	platform_set_drvdata(pdev, simple_amp);
 
-	priv->gpiod_enable = devm_gpiod_get_optional(dev, "enable",
-						     GPIOD_OUT_LOW);
-	if (IS_ERR(priv->gpiod_enable))
-		return dev_err_probe(dev, PTR_ERR(priv->gpiod_enable),
+	simple_amp->gpiod_enable = devm_gpiod_get_optional(dev, "enable",
+							   GPIOD_OUT_LOW);
+	if (IS_ERR(simple_amp->gpiod_enable))
+		return dev_err_probe(dev, PTR_ERR(simple_amp->gpiod_enable),
 				     "Failed to get 'enable' gpio");
 
 	return devm_snd_soc_register_component(dev,
