@@ -53,6 +53,16 @@
 		regulator-always-on;
 	};
 
+	pwm-leds {
+		compatible = "pwm-leds";
+
+		status {
+			linux,default-trigger="heartbeat";
+			max-brightness = <255>;
+			pwms = <&pwm_ao_cd 0 30040 0>;
+		};
+	};
+
 	sd_3v3: regulator-sdcard-3v3 {
 		compatible = "regulator-fixed";
 		regulator-name = "SD_3V3";
@@ -160,6 +170,12 @@
 &pwm_ab {
 	status = "okay";
 	pinctrl-0 = <&pwm_a_pins>;
+	pinctrl-names = "default";
+};
+
+&pwm_ao_cd {
+	status = "okay";
+	pinctrl-0 = <&pwm_ao_c_d_pins>;
 	pinctrl-names = "default";
 };
 
