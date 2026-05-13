@@ -19,13 +19,6 @@ struct unwind_entry {
 
 typedef int (*unwind_entry_cb_t)(struct unwind_entry *entry, void *arg);
 
-struct unwind_libunwind_ops {
-	int (*prepare_access)(struct maps *maps);
-	int (*get_entries)(unwind_entry_cb_t cb, void *arg,
-			   struct thread *thread,
-			   struct perf_sample *data, int max_stack, bool best_effort);
-};
-
 int unwind__configure(const char *var, const char *value, void *cb);
 int unwind__option(const struct option *opt, const char *arg, int unset);
 

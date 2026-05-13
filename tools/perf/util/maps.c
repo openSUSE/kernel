@@ -198,16 +198,6 @@ void maps__set_addr_space(struct maps *maps, void *addr_space)
 	RC_CHK_ACCESS(maps)->addr_space = addr_space;
 }
 
-const struct unwind_libunwind_ops *maps__unwind_libunwind_ops(const struct maps *maps)
-{
-	return RC_CHK_ACCESS(maps)->unwind_libunwind_ops;
-}
-
-void maps__set_unwind_libunwind_ops(struct maps *maps, const struct unwind_libunwind_ops *ops)
-{
-	RC_CHK_ACCESS(maps)->unwind_libunwind_ops = ops;
-}
-
 uint16_t maps__e_machine(const struct maps *maps)
 {
 	return RC_CHK_ACCESS(maps)->e_machine;
