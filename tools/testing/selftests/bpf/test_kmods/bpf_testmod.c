@@ -825,6 +825,63 @@ __bpf_kfunc int bpf_kfunc_call_test5(u8 a, u16 b, u32 c)
 	return 0;
 }
 
+__bpf_kfunc u64 bpf_kfunc_call_stack_arg(u64 a, u64 b, u64 c, u64 d,
+					 u64 e, u64 f, u64 g, u64 h)
+{
+	return a + b + c + d + e + f + g + h;
+}
+
+__bpf_kfunc u64 bpf_kfunc_call_stack_arg_ptr(u64 a, u64 b, u64 c, u64 d, u64 e,
+					     struct prog_test_pass1 *p)
+{
+	return a + b + c + d + e + p->x0 + p->x1;
+}
+
+__bpf_kfunc u64 bpf_kfunc_call_stack_arg_mix(u64 a, u64 b, u64 c, u64 d, u64 e,
+					     struct prog_test_pass1 *p, u64 f,
+					     struct prog_test_pass1 *q)
+{
+	return a + b + c + d + e + p->x0 + f + q->x1;
+}
+
+__bpf_kfunc u64 bpf_kfunc_call_stack_arg_dynptr(u64 a, u64 b, u64 c, u64 d, u64 e,
+					       struct bpf_dynptr *ptr)
+{
+	const struct bpf_dynptr_kern *kern_ptr = (void *)ptr;
+
+	return a + b + c + d + e + (kern_ptr->size & 0xFFFFFF);
+}
+
+__bpf_kfunc u64 bpf_kfunc_call_stack_arg_mem(u64 a, u64 b, u64 c, u64 d, u64 e,
+					     void *mem, int mem__sz)
+{
+	const unsigned char *p = mem;
+	u64 sum = a + b + c + d + e;
+	int i;
+
+	for (i = 0; i < mem__sz; i++)
+		sum += p[i];
+	return sum;
+}
+
+__bpf_kfunc u64 bpf_kfunc_call_stack_arg_iter(u64 a, u64 b, u64 c, u64 d, u64 e,
+					      struct bpf_iter_testmod_seq *it__iter)
+{
+	return a + b + c + d + e + it__iter->value;
+}
+
+__bpf_kfunc u64 bpf_kfunc_call_stack_arg_const_str(u64 a, u64 b, u64 c, u64 d, u64 e,
+						   const char *str__str)
+{
+	return a + b + c + d + e;
+}
+
+__bpf_kfunc u64 bpf_kfunc_call_stack_arg_timer(u64 a, u64 b, u64 c, u64 d, u64 e,
+					       struct bpf_timer *timer)
+{
+	return a + b + c + d + e;
+}
+
 static struct prog_test_ref_kfunc prog_test_struct = {
 	.a = 42,
 	.b = 108,
@@ -1288,6 +1345,14 @@ BTF_ID_FLAGS(func, bpf_kfunc_call_test2)
 BTF_ID_FLAGS(func, bpf_kfunc_call_test3)
 BTF_ID_FLAGS(func, bpf_kfunc_call_test4)
 BTF_ID_FLAGS(func, bpf_kfunc_call_test5)
+BTF_ID_FLAGS(func, bpf_kfunc_call_stack_arg)
+BTF_ID_FLAGS(func, bpf_kfunc_call_stack_arg_ptr)
+BTF_ID_FLAGS(func, bpf_kfunc_call_stack_arg_mix)
+BTF_ID_FLAGS(func, bpf_kfunc_call_stack_arg_dynptr)
+BTF_ID_FLAGS(func, bpf_kfunc_call_stack_arg_mem)
+BTF_ID_FLAGS(func, bpf_kfunc_call_stack_arg_iter)
+BTF_ID_FLAGS(func, bpf_kfunc_call_stack_arg_const_str)
+BTF_ID_FLAGS(func, bpf_kfunc_call_stack_arg_timer)
 BTF_ID_FLAGS(func, bpf_kfunc_call_test_mem_len_fail1)
 BTF_ID_FLAGS(func, bpf_kfunc_call_test_mem_len_fail2)
 BTF_ID_FLAGS(func, bpf_kfunc_call_test_acquire, KF_ACQUIRE | KF_RET_NULL)
