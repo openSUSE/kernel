@@ -917,30 +917,20 @@ err:
 	return false;
 }
 
-static void _sched_cache_active_set(bool enable, bool locked)
-{
-	if (enable) {
-		if (locked)
-			static_branch_enable_cpuslocked(&sched_cache_active);
-		else
-			static_branch_enable(&sched_cache_active);
-	} else {
-		if (locked)
-			static_branch_disable_cpuslocked(&sched_cache_active);
-		else
-			static_branch_disable(&sched_cache_active);
-	}
-}
-
 /*
  * Enable/disable cache aware scheduling according to
  * user input and the presence of hardware support.
  */
-static void sched_cache_active_set(bool locked)
+static void _sched_cache_active_set(void)
 {
+	lockdep_assert_cpus_held();
+	lockdep_assert_held(&sched_domains_mutex);
+
 	/* hardware does not support */
 	if (!static_branch_likely(&sched_cache_present)) {
-		_sched_cache_active_set(false, locked);
+		static_branch_disable_cpuslocked(&sched_cache_active);
+		if (sched_debug())
+			pr_info("%s: cache aware scheduling not supported on this platform\n", __func__);
 		return;
 	}
 
@@ -951,24 +941,23 @@ static void sched_cache_active_set(bool locked)
 	 * for now.
 	 */
 	if (sysctl_sched_cache_user) {
-		_sched_cache_active_set(true, locked);
+		static_branch_enable_cpuslocked(&sched_cache_active);
 		if (sched_debug())
 			pr_info("%s: enabling cache aware scheduling\n", __func__);
 	} else {
-		_sched_cache_active_set(false, locked);
+		static_branch_disable_cpuslocked(&sched_cache_active);
 		if (sched_debug())
 			pr_info("%s: disabling cache aware scheduling\n", __func__);
 	}
 }
 
-static void sched_cache_active_set_locked(void)
+void sched_cache_active_set(void)
 {
-	return sched_cache_active_set(true);
-}
-
-void sched_cache_active_set_unlocked(void)
-{
-	return sched_cache_active_set(false);
+	cpus_read_lock();
+	sched_domains_mutex_lock();
+	_sched_cache_active_set();
+	sched_domains_mutex_unlock();
+	cpus_read_unlock();
 }
 
 /*
@@ -3082,7 +3071,7 @@ error:
 	else
 		static_branch_disable_cpuslocked(&sched_cache_present);
 
-	sched_cache_active_set_locked();
+	_sched_cache_active_set();
 #endif
 	__free_domain_allocs(&d, alloc_state, cpu_map);
 

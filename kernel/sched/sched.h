@@ -4083,7 +4083,7 @@ static inline bool sched_cache_enabled(void)
 	return static_branch_unlikely(&sched_cache_active);
 }
 
-extern void sched_cache_active_set_unlocked(void);
+extern void sched_cache_active_set(void);
 
 #endif
 

@@ -224,7 +224,9 @@ sched_cache_enable_write(struct file *filp, const char __user *ubuf,
 
 	sysctl_sched_cache_user = val;
 
-	sched_cache_active_set_unlocked();
+	sched_cache_active_set();
+
+	*ppos += cnt;
 
 	return cnt;
 }
