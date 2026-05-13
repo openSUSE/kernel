@@ -799,8 +799,7 @@ __naked int bpf_loop_interaction2(void)
 
 SEC("raw_tp")
 __arch_x86_64
-__log_level(4)
-__msg("stack depth 512+0")
+__log_level(4) __msg("stack depth 512+0 max 512")
 /* just to print xlated version when debugging */
 __xlated("r0 = &(void __percpu *)(r0)")
 __success
