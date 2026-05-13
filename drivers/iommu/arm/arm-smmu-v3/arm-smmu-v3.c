@@ -268,9 +268,12 @@ static int queue_remove_raw(struct arm_smmu_queue *q, u64 *ent)
 }
 
 /* High-level queue accessors */
-static int arm_smmu_cmdq_build_cmd(u64 *cmd, struct arm_smmu_cmdq_ent *ent)
+static int arm_smmu_cmdq_build_cmd(struct arm_smmu_cmd *cmd_out,
+				   struct arm_smmu_cmdq_ent *ent)
 {
-	memset(cmd, 0, 1 << CMDQ_ENT_SZ_SHIFT);
+	u64 *cmd = cmd_out->data;
+
+	memset(cmd_out, 0, sizeof(*cmd_out));
 	cmd[0] |= FIELD_PREP(CMDQ_0_OP, ent->opcode);
 
 	switch (ent->opcode) {
@@ -390,7 +393,8 @@ static bool arm_smmu_cmdq_needs_busy_polling(struct arm_smmu_device *smmu,
 	return smmu->options & ARM_SMMU_OPT_TEGRA241_CMDQV;
 }
 
-static void arm_smmu_cmdq_build_sync_cmd(u64 *cmd, struct arm_smmu_device *smmu,
+static void arm_smmu_cmdq_build_sync_cmd(struct arm_smmu_cmd *cmd,
+					 struct arm_smmu_device *smmu,
 					 struct arm_smmu_cmdq *cmdq, u32 prod)
 {
 	struct arm_smmu_queue *q = &cmdq->q;
@@ -409,7 +413,8 @@ static void arm_smmu_cmdq_build_sync_cmd(u64 *cmd, struct arm_smmu_device *smmu,
 
 	arm_smmu_cmdq_build_cmd(cmd, &ent);
 	if (arm_smmu_cmdq_needs_busy_polling(smmu, cmdq))
-		u64p_replace_bits(cmd, CMDQ_SYNC_0_CS_NONE, CMDQ_SYNC_0_CS);
+		u64p_replace_bits(&cmd->data[0], CMDQ_SYNC_0_CS_NONE,
+				  CMDQ_SYNC_0_CS);
 }
 
 void __arm_smmu_cmdq_skip_err(struct arm_smmu_device *smmu,
@@ -422,9 +427,8 @@ void __arm_smmu_cmdq_skip_err(struct arm_smmu_device *smmu,
 		[CMDQ_ERR_CERROR_ATC_INV_IDX]	= "ATC invalidate timeout",
 	};
 	struct arm_smmu_queue *q = &cmdq->q;
-
 	int i;
-	u64 cmd[CMDQ_ENT_DWORDS];
+	struct arm_smmu_cmd cmd;
 	u32 cons = readl_relaxed(q->cons_reg);
 	u32 idx = FIELD_GET(CMDQ_CONS_ERR, cons);
 	struct arm_smmu_cmdq_ent cmd_sync = {
@@ -457,17 +461,18 @@ void __arm_smmu_cmdq_skip_err(struct arm_smmu_device *smmu,
 	 * We may have concurrent producers, so we need to be careful
 	 * not to touch any of the shadow cmdq state.
 	 */
-	queue_read(cmd, Q_ENT(q, cons), q->ent_dwords);
+	queue_read(cmd.data, Q_ENT(q, cons), q->ent_dwords);
 	dev_err(smmu->dev, "skipping command in error state:\n");
-	for (i = 0; i < ARRAY_SIZE(cmd); ++i)
-		dev_err(smmu->dev, "\t0x%016llx\n", (unsigned long long)cmd[i]);
+	for (i = 0; i < ARRAY_SIZE(cmd.data); ++i)
+		dev_err(smmu->dev, "\t0x%016llx\n", (unsigned long long)cmd.data[i]);
 
 	/* Convert the erroneous command into a CMD_SYNC */
-	arm_smmu_cmdq_build_cmd(cmd, &cmd_sync);
+	arm_smmu_cmdq_build_cmd(&cmd, &cmd_sync);
 	if (arm_smmu_cmdq_needs_busy_polling(smmu, cmdq))
-		u64p_replace_bits(cmd, CMDQ_SYNC_0_CS_NONE, CMDQ_SYNC_0_CS);
+		u64p_replace_bits(&cmd.data[0], CMDQ_SYNC_0_CS_NONE,
+				  CMDQ_SYNC_0_CS);
 
-	queue_write(Q_ENT(q, cons), cmd, q->ent_dwords);
+	queue_write(Q_ENT(q, cons), cmd.data, q->ent_dwords);
 }
 
 static void arm_smmu_cmdq_skip_err(struct arm_smmu_device *smmu)
@@ -767,7 +772,8 @@ static int arm_smmu_cmdq_poll_until_sync(struct arm_smmu_device *smmu,
 	return __arm_smmu_cmdq_poll_until_consumed(smmu, cmdq, llq);
 }
 
-static void arm_smmu_cmdq_write_entries(struct arm_smmu_cmdq *cmdq, u64 *cmds,
+static void arm_smmu_cmdq_write_entries(struct arm_smmu_cmdq *cmdq,
+					struct arm_smmu_cmd *cmds,
 					u32 prod, int n)
 {
 	int i;
@@ -777,10 +783,9 @@ static void arm_smmu_cmdq_write_entries(struct arm_smmu_cmdq *cmdq, u64 *cmds,
 	};
 
 	for (i = 0; i < n; ++i) {
-		u64 *cmd = &cmds[i * CMDQ_ENT_DWORDS];
-
 		prod = queue_inc_prod_n(&llq, i);
-		queue_write(Q_ENT(&cmdq->q, prod), cmd, CMDQ_ENT_DWORDS);
+		queue_write(Q_ENT(&cmdq->q, prod), cmds[i].data,
+			    ARRAY_SIZE(cmds[i].data));
 	}
 }
 
@@ -801,10 +806,11 @@ static void arm_smmu_cmdq_write_entries(struct arm_smmu_cmdq *cmdq, u64 *cmds,
  *   CPU will appear before any of the commands from the other CPU.
  */
 int arm_smmu_cmdq_issue_cmdlist(struct arm_smmu_device *smmu,
-				struct arm_smmu_cmdq *cmdq, u64 *cmds, int n,
+				struct arm_smmu_cmdq *cmdq,
+				struct arm_smmu_cmd *cmds, int n,
 				bool sync)
 {
-	u64 cmd_sync[CMDQ_ENT_DWORDS];
+	struct arm_smmu_cmd cmd_sync;
 	u32 prod;
 	unsigned long flags;
 	bool owner;
@@ -847,8 +853,9 @@ int arm_smmu_cmdq_issue_cmdlist(struct arm_smmu_device *smmu,
 	arm_smmu_cmdq_write_entries(cmdq, cmds, llq.prod, n);
 	if (sync) {
 		prod = queue_inc_prod_n(&llq, n);
-		arm_smmu_cmdq_build_sync_cmd(cmd_sync, smmu, cmdq, prod);
-		queue_write(Q_ENT(&cmdq->q, prod), cmd_sync, CMDQ_ENT_DWORDS);
+		arm_smmu_cmdq_build_sync_cmd(&cmd_sync, smmu, cmdq, prod);
+		queue_write(Q_ENT(&cmdq->q, prod), cmd_sync.data,
+			    ARRAY_SIZE(cmd_sync.data));
 
 		/*
 		 * In order to determine completion of our CMD_SYNC, we must
@@ -925,7 +932,7 @@ static int __arm_smmu_cmdq_issue_cmd(struct arm_smmu_device *smmu,
 				     bool sync)
 {
 	return arm_smmu_cmdq_issue_cmdlist(
-		smmu, arm_smmu_get_cmdq(smmu, cmd), cmd->data, 1, sync);
+		smmu, arm_smmu_get_cmdq(smmu, cmd), cmd, 1, sync);
 }
 
 static int arm_smmu_cmdq_issue_cmd(struct arm_smmu_device *smmu,
@@ -954,7 +961,7 @@ static void arm_smmu_cmdq_batch_init(struct arm_smmu_device *smmu,
 {
 	struct arm_smmu_cmd cmd;
 
-	arm_smmu_cmdq_build_cmd(cmd.data, ent);
+	arm_smmu_cmdq_build_cmd(&cmd, ent);
 	arm_smmu_cmdq_batch_init_cmd(smmu, cmds, &cmd);
 }
 
@@ -966,9 +973,8 @@ static void arm_smmu_cmdq_batch_add(struct arm_smmu_device *smmu,
 			  (smmu->options & ARM_SMMU_OPT_CMDQ_FORCE_SYNC);
 	struct arm_smmu_cmd cmd;
 	bool unsupported_cmd;
-	int index;
 
-	if (unlikely(arm_smmu_cmdq_build_cmd(cmd.data, ent))) {
+	if (unlikely(arm_smmu_cmdq_build_cmd(&cmd, ent))) {
 		dev_warn(smmu->dev, "ignoring unknown CMDQ opcode 0x%x\n",
 			 ent->opcode);
 		return;
@@ -987,9 +993,7 @@ static void arm_smmu_cmdq_batch_add(struct arm_smmu_device *smmu,
 		arm_smmu_cmdq_batch_init_cmd(smmu, cmds, &cmd);
 	}
 
-	index = cmds->num * CMDQ_ENT_DWORDS;
-	memcpy(&cmds->cmds[index], cmd.data, sizeof(cmd.data));
-	cmds->num++;
+	cmds->cmds[cmds->num++] = cmd;
 }
 
 static int arm_smmu_cmdq_batch_submit(struct arm_smmu_device *smmu,
@@ -1025,7 +1029,7 @@ static void arm_smmu_page_response(struct device *dev, struct iopf_fault *unused
 		break;
 	}
 
-	arm_smmu_cmdq_build_cmd(hw_cmd.data, &cmd);
+	arm_smmu_cmdq_build_cmd(&hw_cmd, &cmd);
 	arm_smmu_cmdq_issue_cmd(master->smmu, &hw_cmd);
 
 	/*
@@ -1865,7 +1869,7 @@ static void arm_smmu_ste_writer_sync_entry(struct arm_smmu_entry_writer *writer)
 	};
 	struct arm_smmu_cmd cmd;
 
-	arm_smmu_cmdq_build_cmd(cmd.data, &ent);
+	arm_smmu_cmdq_build_cmd(&cmd, &ent);
 	arm_smmu_cmdq_issue_cmd_with_sync(writer->master->smmu, &cmd);
 }
 
@@ -1899,7 +1903,7 @@ static void arm_smmu_write_ste(struct arm_smmu_master *master, u32 sid,
 					 } };
 		struct arm_smmu_cmd prefetch_cmd;
 
-		arm_smmu_cmdq_build_cmd(prefetch_cmd.data, &prefetch_ent);
+		arm_smmu_cmdq_build_cmd(&prefetch_cmd, &prefetch_ent);
 		arm_smmu_cmdq_issue_cmd(smmu, &prefetch_cmd);
 	}
 }
@@ -2339,7 +2343,7 @@ static void arm_smmu_handle_ppr(struct arm_smmu_device *smmu, u64 *evt)
 		};
 		struct arm_smmu_cmd cmd;
 
-		arm_smmu_cmdq_build_cmd(cmd.data, &ent);
+		arm_smmu_cmdq_build_cmd(&cmd, &ent);
 		arm_smmu_cmdq_issue_cmd(smmu, &cmd);
 	}
 }
@@ -3462,7 +3466,7 @@ static void arm_smmu_inv_flush_iotlb_tag(struct arm_smmu_inv *inv)
 	}
 
 	cmd.opcode = inv->nsize_opcode;
-	arm_smmu_cmdq_build_cmd(hw_cmd.data, &cmd);
+	arm_smmu_cmdq_build_cmd(&hw_cmd, &cmd);
 	arm_smmu_cmdq_issue_cmd_with_sync(inv->smmu, &hw_cmd);
 }
 
@@ -4875,18 +4879,18 @@ static int arm_smmu_device_reset(struct arm_smmu_device *smmu)
 
 	/* Invalidate any cached configuration */
 	ent.opcode = CMDQ_OP_CFGI_ALL;
-	arm_smmu_cmdq_build_cmd(cmd.data, &ent);
+	arm_smmu_cmdq_build_cmd(&cmd, &ent);
 	arm_smmu_cmdq_issue_cmd_with_sync(smmu, &cmd);
 
 	/* Invalidate any stale TLB entries */
 	if (smmu->features & ARM_SMMU_FEAT_HYP) {
 		ent.opcode = CMDQ_OP_TLBI_EL2_ALL;
-		arm_smmu_cmdq_build_cmd(cmd.data, &ent);
+		arm_smmu_cmdq_build_cmd(&cmd, &ent);
 		arm_smmu_cmdq_issue_cmd_with_sync(smmu, &cmd);
 	}
 
 	ent.opcode = CMDQ_OP_TLBI_NSNH_ALL;
-	arm_smmu_cmdq_build_cmd(cmd.data, &ent);
+	arm_smmu_cmdq_build_cmd(&cmd, &ent);
 	arm_smmu_cmdq_issue_cmd_with_sync(smmu, &cmd);
 
 	/* Event queue */
