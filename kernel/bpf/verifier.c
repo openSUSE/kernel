@@ -3410,12 +3410,6 @@ static void assign_scalar_id_before_mov(struct bpf_verifier_env *env,
 		src_reg->id = ++env->id_gen;
 }
 
-/* Copy src state preserving dst->parent and dst->live fields */
-static void copy_register_state(struct bpf_reg_state *dst, const struct bpf_reg_state *src)
-{
-	*dst = *src;
-}
-
 static void save_register_state(struct bpf_verifier_env *env,
 				struct bpf_func_state *state,
 				int spi, struct bpf_reg_state *reg,
@@ -3423,7 +3417,7 @@ static void save_register_state(struct bpf_verifier_env *env,
 {
 	int i;
 
-	copy_register_state(&state->stack[spi].spilled_ptr, reg);
+	state->stack[spi].spilled_ptr = *reg;
 
 	for (i = BPF_REG_SIZE; i > BPF_REG_SIZE - size; i--)
 		state->stack[spi].slot_type[i - 1] = STACK_SPILL;
@@ -3822,7 +3816,7 @@ static int check_stack_read_fixed_off(struct bpf_verifier_env *env,
 					 * with the destination register on fill.
 					 */
 					assign_scalar_id_before_mov(env, reg);
-				copy_register_state(&state->regs[dst_regno], reg);
+				state->regs[dst_regno] = *reg;
 				state->regs[dst_regno].subreg_def = subreg_def;
 
 				/* Break the relation on a narrowing fill.
@@ -3877,7 +3871,7 @@ static int check_stack_read_fixed_off(struct bpf_verifier_env *env,
 				 * with the destination register on fill.
 				 */
 				assign_scalar_id_before_mov(env, reg);
-			copy_register_state(&state->regs[dst_regno], reg);
+			state->regs[dst_regno] = *reg;
 			/* mark reg as written since spilled pointer state likely
 			 * has its liveness marks cleared by is_state_visited()
 			 * which resets stack/reg liveness for state transitions
@@ -6031,7 +6025,7 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, struct b
 						     size);
 					return -EACCES;
 				}
-				copy_register_state(&regs[value_regno], reg);
+				regs[value_regno] = *reg;
 				add_scalar_to_reg(&regs[value_regno], off);
 				regs[value_regno].type = PTR_TO_INSN;
 			} else {
@@ -13248,7 +13242,7 @@ do_sim:
 	 */
 	if (!ptr_is_dst_reg) {
 		tmp = *dst_reg;
-		copy_register_state(dst_reg, ptr_reg);
+		*dst_reg = *ptr_reg;
 	}
 	err = sanitize_speculative_path(env, NULL, env->insn_idx + 1, env->insn_idx);
 	if (err < 0)
@@ -14698,7 +14692,7 @@ static int check_alu_op(struct bpf_verifier_env *env, struct bpf_insn *insn)
 					 * copy register state to dest reg
 					 */
 					assign_scalar_id_before_mov(env, src_reg);
-					copy_register_state(dst_reg, src_reg);
+					*dst_reg = *src_reg;
 					dst_reg->subreg_def = DEF_NOT_SUBREG;
 				} else {
 					/* case: R1 = (s8, s16 s32)R2 */
@@ -14713,7 +14707,7 @@ static int check_alu_op(struct bpf_verifier_env *env, struct bpf_insn *insn)
 						no_sext = reg_umax(src_reg) < (1ULL << (insn->off - 1));
 						if (no_sext)
 							assign_scalar_id_before_mov(env, src_reg);
-						copy_register_state(dst_reg, src_reg);
+						*dst_reg = *src_reg;
 						if (!no_sext)
 							clear_scalar_id(dst_reg);
 						coerce_reg_to_size_sx(dst_reg, insn->off >> 3);
@@ -14735,7 +14729,7 @@ static int check_alu_op(struct bpf_verifier_env *env, struct bpf_insn *insn)
 
 						if (is_src_reg_u32)
 							assign_scalar_id_before_mov(env, src_reg);
-						copy_register_state(dst_reg, src_reg);
+						*dst_reg = *src_reg;
 						/* Make sure ID is cleared if src_reg is not in u32
 						 * range otherwise dst_reg min/max could be incorrectly
 						 * propagated into src_reg by sync_linked_regs()
@@ -14749,7 +14743,7 @@ static int check_alu_op(struct bpf_verifier_env *env, struct bpf_insn *insn)
 
 						if (no_sext)
 							assign_scalar_id_before_mov(env, src_reg);
-						copy_register_state(dst_reg, src_reg);
+						*dst_reg = *src_reg;
 						if (!no_sext)
 							clear_scalar_id(dst_reg);
 						dst_reg->subreg_def = env->insn_idx + 1;
@@ -15629,7 +15623,7 @@ static void sync_linked_regs(struct bpf_verifier_env *env, struct bpf_verifier_s
 		    reg->delta == known_reg->delta) {
 			s32 saved_subreg_def = reg->subreg_def;
 
-			copy_register_state(reg, known_reg);
+			*reg = *known_reg;
 			reg->subreg_def = saved_subreg_def;
 		} else {
 			s32 saved_subreg_def = reg->subreg_def;
@@ -15640,7 +15634,7 @@ static void sync_linked_regs(struct bpf_verifier_env *env, struct bpf_verifier_s
 			__mark_reg_known(&fake_reg, (s64)reg->delta - (s64)known_reg->delta);
 
 			/* reg = known_reg; reg += delta */
-			copy_register_state(reg, known_reg);
+			*reg = *known_reg;
 			/*
 			 * Must preserve off, id and subreg_def flag,
 			 * otherwise another sync_linked_regs() will be incorrect.
@@ -15743,10 +15737,10 @@ static int check_cond_jmp_op(struct bpf_verifier_env *env,
 	}
 
 	is_jmp32 = BPF_CLASS(insn->code) == BPF_JMP32;
-	copy_register_state(&env->false_reg1, dst_reg);
-	copy_register_state(&env->false_reg2, src_reg);
-	copy_register_state(&env->true_reg1, dst_reg);
-	copy_register_state(&env->true_reg2, src_reg);
+	env->false_reg1 = *dst_reg;
+	env->false_reg2 = *src_reg;
+	env->true_reg1 = *dst_reg;
+	env->true_reg2 = *src_reg;
 	pred = is_branch_taken(env, dst_reg, src_reg, opcode, is_jmp32);
 	if (pred >= 0) {
 		/* If we get here with a dst_reg pointer type it is because
@@ -15815,11 +15809,11 @@ static int check_cond_jmp_op(struct bpf_verifier_env *env,
 	if (err)
 		return err;
 
-	copy_register_state(dst_reg, &env->false_reg1);
-	copy_register_state(src_reg, &env->false_reg2);
-	copy_register_state(&other_branch_regs[insn->dst_reg], &env->true_reg1);
+	*dst_reg = env->false_reg1;
+	*src_reg = env->false_reg2;
+	other_branch_regs[insn->dst_reg] = env->true_reg1;
 	if (BPF_SRC(insn->code) == BPF_X)
-		copy_register_state(&other_branch_regs[insn->src_reg], &env->true_reg2);
+		other_branch_regs[insn->src_reg] = env->true_reg2;
 
 	if (BPF_SRC(insn->code) == BPF_X &&
 	    src_reg->type == SCALAR_VALUE && src_reg->id &&
