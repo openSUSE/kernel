@@ -59,14 +59,9 @@ u32 gen11_gu_misc_irq_ack(struct intel_display *display, const u32 master_ctl);
 void gen11_gu_misc_irq_handler(struct intel_display *display, const u32 iir);
 
 void intel_display_irq_reset(struct intel_display *display);
+void intel_display_irq_postinstall(struct intel_display *display);
 
 u32 i9xx_display_irq_enable_mask(struct intel_display *display);
-void i915_display_irq_postinstall(struct intel_display *display);
-void i965_display_irq_postinstall(struct intel_display *display);
-void vlv_display_irq_postinstall(struct intel_display *display);
-void ilk_de_irq_postinstall(struct intel_display *display);
-void gen8_de_irq_postinstall(struct intel_display *display);
-void gen11_de_irq_postinstall(struct intel_display *display);
 
 u32 i915_pipestat_enable_mask(struct intel_display *display, enum pipe pipe);
 void i915_enable_pipestat(struct intel_display *display, enum pipe pipe, u32 status_mask);

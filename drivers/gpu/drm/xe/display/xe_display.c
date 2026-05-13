@@ -253,7 +253,7 @@ void xe_display_irq_postinstall(struct xe_device *xe)
 	if (!xe->info.probe_display)
 		return;
 
-	gen11_de_irq_postinstall(display);
+	intel_display_irq_postinstall(display);
 }
 
 static bool suspend_to_idle(void)

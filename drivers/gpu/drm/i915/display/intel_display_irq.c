@@ -1981,7 +1981,7 @@ u32 i9xx_display_irq_enable_mask(struct intel_display *display)
 	return enable_mask;
 }
 
-void i915_display_irq_postinstall(struct intel_display *display)
+static void i915_display_irq_postinstall(struct intel_display *display)
 {
 	/*
 	 * Interrupt setup is already guaranteed to be single-threaded, this is
@@ -1995,7 +1995,7 @@ void i915_display_irq_postinstall(struct intel_display *display)
 	i915_enable_asle_pipestat(display);
 }
 
-void i965_display_irq_postinstall(struct intel_display *display)
+static void i965_display_irq_postinstall(struct intel_display *display)
 {
 	/*
 	 * Interrupt setup is already guaranteed to be single-threaded, this is
@@ -2057,7 +2057,7 @@ static void _vlv_display_irq_postinstall(struct intel_display *display)
 	irq_init(display, VLV_IRQ_REGS, display->irq.vlv_imr_mask, enable_mask);
 }
 
-void vlv_display_irq_postinstall(struct intel_display *display)
+static void vlv_display_irq_postinstall(struct intel_display *display)
 {
 	spin_lock_irq(&display->irq.lock);
 	if (display->irq.vlv_display_irqs_enabled)
@@ -2262,7 +2262,7 @@ out:
 	spin_unlock_irq(&display->irq.lock);
 }
 
-void ilk_de_irq_postinstall(struct intel_display *display)
+static void ilk_de_irq_postinstall(struct intel_display *display)
 {
 	u32 display_mask, extra_mask;
 
@@ -2306,7 +2306,7 @@ void ilk_de_irq_postinstall(struct intel_display *display)
 static void mtp_irq_postinstall(struct intel_display *display);
 static void icp_irq_postinstall(struct intel_display *display);
 
-void gen8_de_irq_postinstall(struct intel_display *display)
+static void gen8_de_irq_postinstall(struct intel_display *display)
 {
 	u32 de_pipe_masked = gen8_de_pipe_fault_mask(display) |
 		GEN8_PIPE_CDCLK_CRC_DONE;
@@ -2433,11 +2433,8 @@ static void icp_irq_postinstall(struct intel_display *display)
 	irq_init(display, SDE_IRQ_REGS, ~mask, 0xffffffff);
 }
 
-void gen11_de_irq_postinstall(struct intel_display *display)
+static void gen11_de_irq_postinstall(struct intel_display *display)
 {
-	if (!HAS_DISPLAY(display))
-		return;
-
 	gen8_de_irq_postinstall(display);
 
 	intel_de_write(display, GEN11_DISPLAY_INT_CTL, GEN11_DISPLAY_IRQ_ENABLE);
@@ -2445,30 +2442,37 @@ void gen11_de_irq_postinstall(struct intel_display *display)
 
 struct intel_display_irq_funcs {
 	void (*reset)(struct intel_display *display);
+	void (*postinstall)(struct intel_display *display);
 };
 
 static const struct intel_display_irq_funcs gen11_display_irq_funcs = {
 	.reset = gen11_display_irq_reset,
+	.postinstall = gen11_de_irq_postinstall,
 };
 
 static const struct intel_display_irq_funcs gen8_display_irq_funcs = {
 	.reset = gen8_display_irq_reset,
+	.postinstall = gen8_de_irq_postinstall,
 };
 
 static const struct intel_display_irq_funcs vlv_display_irq_funcs = {
 	.reset = vlv_display_irq_reset,
+	.postinstall = vlv_display_irq_postinstall,
 };
 
 static const struct intel_display_irq_funcs ilk_display_irq_funcs = {
 	.reset = ilk_display_irq_reset,
+	.postinstall = ilk_de_irq_postinstall,
 };
 
 static const struct intel_display_irq_funcs i965_display_irq_funcs = {
 	.reset = i9xx_display_irq_reset,
+	.postinstall = i965_display_irq_postinstall,
 };
 
 static const struct intel_display_irq_funcs i915_display_irq_funcs = {
 	.reset = i9xx_display_irq_reset,
+	.postinstall = i915_display_irq_postinstall,
 };
 
 void intel_display_irq_reset(struct intel_display *display)
@@ -2477,6 +2481,14 @@ void intel_display_irq_reset(struct intel_display *display)
 		return;
 
 	display->irq.funcs->reset(display);
+}
+
+void intel_display_irq_postinstall(struct intel_display *display)
+{
+	if (!HAS_DISPLAY(display))
+		return;
+
+	display->irq.funcs->postinstall(display);
 }
 
 void intel_display_irq_init(struct intel_display *display)
