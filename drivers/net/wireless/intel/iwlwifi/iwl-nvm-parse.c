@@ -696,7 +696,8 @@ static const struct ieee80211_sband_iftype_data iwl_iftype_cap[] = {
 			.phy.cap = IEEE80211_UHR_PHY_CAP_ELR_RX |
 				   IEEE80211_UHR_PHY_CAP_ELR_TX,
 			.mac.mac_cap = {
-				[0] = IEEE80211_UHR_MAC_CAP0_NPCA_SUPP,
+				[0] = IEEE80211_UHR_MAC_CAP0_NPCA_SUPP |
+				      IEEE80211_UHR_MAC_CAP0_DPS_SUPP,
 			},
 		},
 	},

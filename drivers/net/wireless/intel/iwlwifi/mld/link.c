@@ -335,10 +335,18 @@ iwl_mld_change_link_in_fw(struct iwl_mld *mld, struct ieee80211_bss_conf *link,
 			link_sta_dereference_check(mld_vif->ap_sta,
 						   link->link_id);
 
-		if (!WARN_ON(!link_sta) && link_sta->he_cap.has_he &&
+		if (WARN_ON(!link_sta))
+			return -EINVAL;
+
+		if (link_sta->he_cap.has_he &&
 		    link_sta->he_cap.he_cap_elem.mac_cap_info[5] &
 		    IEEE80211_HE_MAC_CAP5_OM_CTRL_UL_MU_DATA_DIS_RX)
 			cmd.ul_mu_data_disable = 1;
+
+		if (link_sta->uhr_cap.has_uhr &&
+		    link_sta->uhr_cap.mac.mac_cap[0] &
+				IEEE80211_UHR_MAC_CAP0_DPS_ASSIST_SUPP)
+			flags |= LINK_FLG_DPS;
 	}
 
 	cmd.htc_trig_based_pkt_ext = link->htc_trig_based_pkt_ext;
