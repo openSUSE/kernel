@@ -39,6 +39,7 @@
 #include "debug.h"
 #include "asm/bug.h"
 #include "dso.h"
+#include "libunwind-arch/libunwind-arch.h"
 
 extern int
 UNW_OBJ(dwarf_search_unwind_table) (unw_addr_space_t as,
@@ -95,6 +96,7 @@ struct unwind_info {
 	struct perf_sample	*sample;
 	struct machine		*machine;
 	struct thread		*thread;
+	uint16_t		 e_machine;
 	bool			 best_effort;
 };
 
@@ -583,9 +585,7 @@ static int access_mem(unw_addr_space_t __maybe_unused as,
 	}
 
 	ret = perf_reg_value(&start, perf_sample__user_regs(ui->sample),
-			     perf_arch_reg_sp(thread__e_machine(ui->thread,
-								ui->machine,
-								/*e_flags=*/NULL)));
+			     perf_arch_reg_sp(ui->e_machine));
 	if (ret)
 		return ret;
 
@@ -633,7 +633,7 @@ static int access_reg(unw_addr_space_t __maybe_unused as,
 		return 0;
 	}
 
-	id = LIBUNWIND__ARCH_REG_ID(regnum);
+	id = get_perf_regnum_for_unw_regnum(ui->e_machine, regnum);
 	if (id < 0)
 		return -EINVAL;
 
@@ -734,7 +734,6 @@ static void _unwind__finish_access(struct maps *maps)
 static int get_entries(struct unwind_info *ui, unwind_entry_cb_t cb,
 		       void *arg, int max_stack)
 {
-	uint16_t e_machine = thread__e_machine(ui->thread, ui->machine, /*e_flags=*/NULL);
 	u64 val;
 	unw_word_t ips[max_stack];
 	unw_addr_space_t addr_space;
@@ -742,7 +741,7 @@ static int get_entries(struct unwind_info *ui, unwind_entry_cb_t cb,
 	int ret, i = 0;
 
 	ret = perf_reg_value(&val, perf_sample__user_regs(ui->sample),
-			     perf_arch_reg_ip(e_machine));
+			     perf_arch_reg_ip(ui->e_machine));
 	if (ret)
 		return 0;
 
@@ -820,6 +819,7 @@ static int _unwind__get_entries(unwind_entry_cb_t cb, void *arg,
 		.sample       = data,
 		.thread       = thread,
 		.machine      = maps__machine(thread__maps(thread)),
+		.e_machine    = thread__e_machine(thread, /*machine=*/NULL, /*e_flags=*/NULL),
 		.best_effort  = best_effort
 	};
 
