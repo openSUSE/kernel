@@ -12,10 +12,18 @@
 #include <linux/regulator/consumer.h>
 #include <sound/soc.h>
 
+struct simple_amp_single {
+	struct gpio_desc *gpio;
+	bool is_inverted;
+	int kctrl_val;
+	const char *control_name;
+};
+
 struct simple_amp_data {
 	unsigned int supports;
 #define SIMPLE_AUDIO_SUPPORT_PGA		BIT(0)
 #define SIMPLE_AUDIO_SUPPORT_POWER_SUPPLIES	BIT(1)
+#define SIMPLE_AUDIO_SUPPORT_MUTE		BIT(2)
 
 	const struct snd_soc_dapm_widget *dapm_widgets;
 	unsigned int num_dapm_widgets;
@@ -26,6 +34,7 @@ struct simple_amp_data {
 struct simple_amp {
 	const struct simple_amp_data *data;
 	struct gpio_desc *gpiod_enable;
+	struct simple_amp_single mute;
 };
 
 static int simple_amp_power_event(struct snd_soc_dapm_widget *w,
@@ -102,6 +111,78 @@ static const struct snd_soc_dapm_route simple_amp_stereo_pga_dapm_routes[] = {
 	{ "OUTL", NULL, "PGA" },
 	{ "OUTR", NULL, "PGA" },
 };
+
+static int simple_amp_single_kctrl_write_gpio(struct simple_amp_single *single,
+					      int kctrl_val)
+{
+	int gpio_val;
+
+	gpio_val = single->is_inverted ? !kctrl_val : kctrl_val;
+
+	return gpiod_set_value_cansleep(single->gpio, gpio_val);
+}
+
+static int simple_amp_single_kctrl_info(struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->count = 1;
+	uinfo->value.integer.min = 0;
+	uinfo->value.integer.max = 1;
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
+	return 0;
+}
+
+static int simple_amp_single_kctrl_get(struct snd_kcontrol *kcontrol,
+				       struct snd_ctl_elem_value *ucontrol)
+{
+	struct simple_amp_single *single = (struct simple_amp_single *)kcontrol->private_value;
+
+	ucontrol->value.integer.value[0] = single->kctrl_val;
+
+	return 0;
+}
+
+static int simple_amp_single_kctrl_put(struct snd_kcontrol *kcontrol,
+				       struct snd_ctl_elem_value *ucontrol)
+{
+	struct simple_amp_single *single = (struct simple_amp_single *)kcontrol->private_value;
+	int kctrl_val;
+	int err;
+
+	kctrl_val = ucontrol->value.integer.value[0] ? 1 : 0;
+
+	if (kctrl_val == single->kctrl_val)
+		return 0;
+
+	err = simple_amp_single_kctrl_write_gpio(single, kctrl_val);
+	if (err)
+		return err;
+
+	single->kctrl_val = kctrl_val;
+
+	return 1; /* The value changed */
+}
+
+static int simple_amp_single_add_kcontrol(struct snd_soc_component *component,
+					  struct simple_amp_single *single)
+{
+	struct snd_kcontrol_new control = {
+		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
+		.name = single->control_name,
+		.info = simple_amp_single_kctrl_info,
+		.get = simple_amp_single_kctrl_get,
+		.put = simple_amp_single_kctrl_put,
+		.private_value = (unsigned long)single,
+	};
+	int ret;
+
+	/* Be consistent between single->kctrl_val value and the GPIO value */
+	ret = simple_amp_single_kctrl_write_gpio(single, single->kctrl_val);
+	if (ret)
+		return ret;
+
+	return snd_soc_add_component_controls(component, &control, 1);
+}
 
 static int simple_amp_add_basic_dapm(struct snd_soc_component *component)
 {
@@ -207,6 +288,21 @@ static int simple_amp_component_probe(struct snd_soc_component *component)
 			return ret;
 	}
 
+	if (simple_amp->mute.gpio) {
+		/*
+		 * The name of the GPIO used is mute. According to this name, 1
+		 * means muted and 0 means un-muted.
+		 *
+		 * An inversion is expected by ALSA. Indeed from ALSA point of
+		 * view, 1 means 'on' (un-muted) and 0 means 'off' (muted).
+		 */
+		simple_amp->mute.is_inverted = true;
+		simple_amp->mute.kctrl_val = 1; /* Un-muted */
+		ret = simple_amp_single_add_kcontrol(component, &simple_amp->mute);
+		if (ret)
+			return ret;
+	}
+
 	return 0;
 }
 
@@ -214,10 +310,26 @@ static const struct snd_soc_component_driver simple_amp_component_driver = {
 	.probe = simple_amp_component_probe,
 };
 
+static int simple_amp_parse_single_gpio(struct device *dev,
+					struct simple_amp_single *single,
+					const char *gpio_property)
+{
+	/* Start with the inactive value */
+	single->is_inverted = false;
+	single->kctrl_val = 0;
+	single->gpio = devm_gpiod_get_optional(dev, gpio_property, GPIOD_OUT_LOW);
+	if (IS_ERR(single->gpio))
+		return dev_err_probe(dev, PTR_ERR(single->gpio),
+				     "Failed to get '%s' gpio\n",
+				     gpio_property);
+	return 0;
+}
+
 static int simple_amp_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct simple_amp *simple_amp;
+	int ret;
 
 	simple_amp = devm_kzalloc(dev, sizeof(*simple_amp), GFP_KERNEL);
 	if (!simple_amp)
@@ -234,6 +346,15 @@ static int simple_amp_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(simple_amp->gpiod_enable),
 				     "Failed to get 'enable' gpio");
 
+	if (simple_amp->data->supports & SIMPLE_AUDIO_SUPPORT_MUTE) {
+		ret = simple_amp_parse_single_gpio(dev, &simple_amp->mute, "mute");
+		if (ret)
+			return ret;
+	}
+
+	/* Set controls name */
+	simple_amp->mute.control_name = "Switch";
+
 	return devm_snd_soc_register_component(dev,
 					       &simple_amp_component_driver,
 					       NULL, 0);
@@ -248,7 +369,8 @@ static const struct simple_amp_data simple_audio_amplifier_data = {
 
 static const struct simple_amp_data simple_audio_mono_pga_data = {
 	.supports		= SIMPLE_AUDIO_SUPPORT_PGA |
-				  SIMPLE_AUDIO_SUPPORT_POWER_SUPPLIES,
+				  SIMPLE_AUDIO_SUPPORT_POWER_SUPPLIES |
+				  SIMPLE_AUDIO_SUPPORT_MUTE,
 	.dapm_widgets		= simple_amp_mono_pga_dapm_widgets,
 	.num_dapm_widgets	= ARRAY_SIZE(simple_amp_mono_pga_dapm_widgets),
 	.dapm_routes		= simple_amp_mono_pga_dapm_routes,
@@ -257,7 +379,8 @@ static const struct simple_amp_data simple_audio_mono_pga_data = {
 
 static const struct simple_amp_data simple_audio_stereo_pga_data = {
 	.supports		= SIMPLE_AUDIO_SUPPORT_PGA |
-				  SIMPLE_AUDIO_SUPPORT_POWER_SUPPLIES,
+				  SIMPLE_AUDIO_SUPPORT_POWER_SUPPLIES |
+				  SIMPLE_AUDIO_SUPPORT_MUTE,
 	.dapm_widgets		= simple_amp_stereo_pga_dapm_widgets,
 	.num_dapm_widgets	= ARRAY_SIZE(simple_amp_stereo_pga_dapm_widgets),
 	.dapm_routes		= simple_amp_stereo_pga_dapm_routes,
