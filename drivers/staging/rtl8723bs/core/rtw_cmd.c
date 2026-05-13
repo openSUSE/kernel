@@ -253,7 +253,7 @@ static int _rtw_enqueue_cmd(struct __queue *queue, struct cmd_obj *obj)
 	unsigned long irqL;
 
 	if (!obj)
-		return _SUCCESS;
+		return 0;
 
 	/* spin_lock_bh(&queue->lock); */
 	spin_lock_irqsave(&queue->lock, irqL);
@@ -263,7 +263,7 @@ static int _rtw_enqueue_cmd(struct __queue *queue, struct cmd_obj *obj)
 	/* spin_unlock_bh(&queue->lock); */
 	spin_unlock_irqrestore(&queue->lock, irqL);
 
-	return _SUCCESS;
+	return 0;
 }
 
 struct	cmd_obj	*_rtw_dequeue_cmd(struct __queue *queue)
@@ -329,10 +329,12 @@ int rtw_enqueue_cmd(struct cmd_priv *pcmdpriv, struct cmd_obj *cmd_obj)
 
 	res = _rtw_enqueue_cmd(&pcmdpriv->cmd_queue, cmd_obj);
 
-	if (res == _SUCCESS)
+	if (res == 0) {
 		complete(&pcmdpriv->cmd_queue_comp);
+		return _SUCCESS;
+	}
 
-	return res;
+	return _FAIL;
 }
 
 struct	cmd_obj	*rtw_dequeue_cmd(struct cmd_priv *pcmdpriv)
