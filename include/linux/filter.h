@@ -749,6 +749,27 @@ static inline u32 bpf_prog_run_pin_on_cpu(const struct bpf_prog *prog,
 	return ret;
 }
 
+static inline bool is_stack_arg_ldx(const struct bpf_insn *insn)
+{
+	return insn->code == (BPF_LDX | BPF_MEM | BPF_DW) &&
+	       insn->src_reg == BPF_REG_PARAMS &&
+	       insn->off > 0 && insn->off % 8 == 0;
+}
+
+static inline bool is_stack_arg_st(const struct bpf_insn *insn)
+{
+	return insn->code == (BPF_ST | BPF_MEM | BPF_DW) &&
+	       insn->dst_reg == BPF_REG_PARAMS &&
+	       insn->off < 0 && insn->off % 8 == 0;
+}
+
+static inline bool is_stack_arg_stx(const struct bpf_insn *insn)
+{
+	return insn->code == (BPF_STX | BPF_MEM | BPF_DW) &&
+	       insn->dst_reg == BPF_REG_PARAMS &&
+	       insn->off < 0 && insn->off % 8 == 0;
+}
+
 #define BPF_SKB_CB_LEN QDISC_CB_PRIV_LEN
 
 struct bpf_skb_data_end {
