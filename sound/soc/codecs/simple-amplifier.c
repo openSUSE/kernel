@@ -15,6 +15,7 @@
 struct simple_amp_data {
 	unsigned int supports;
 #define SIMPLE_AUDIO_SUPPORT_PGA		BIT(0)
+#define SIMPLE_AUDIO_SUPPORT_POWER_SUPPLIES	BIT(1)
 
 	const struct snd_soc_dapm_widget *dapm_widgets;
 	unsigned int num_dapm_widgets;
@@ -127,10 +128,86 @@ static int simple_amp_add_basic_dapm(struct snd_soc_component *component)
 	return 0;
 }
 
+struct simple_amp_supply {
+	const char *prop_name;
+	const struct snd_soc_dapm_widget dapm_widget;
+	const struct snd_soc_dapm_route dapm_route;
+};
+
+static const struct simple_amp_supply simple_amp_supplies[] = {
+	{
+		.prop_name = "vddio-supply",
+		.dapm_widget = SND_SOC_DAPM_REGULATOR_SUPPLY("vddio", 0, 0),
+		.dapm_route = { "PGA", NULL, "vddio" },
+	}, {
+		.prop_name = "vdda1-supply",
+		.dapm_widget = SND_SOC_DAPM_REGULATOR_SUPPLY("vdda1", 0, 0),
+		.dapm_route = { "PGA", NULL, "vdda1" },
+	}, {
+		.prop_name = "vdda2-supply",
+		.dapm_widget = SND_SOC_DAPM_REGULATOR_SUPPLY("vdda2", 0, 0),
+		.dapm_route = { "PGA", NULL, "vdda2" },
+	},
+	{ /* End of list */}
+};
+
+static int simple_amp_add_power_supplies(struct snd_soc_component *component)
+{
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
+	struct simple_amp *simple_amp = snd_soc_component_get_drvdata(component);
+	const struct simple_amp_supply *supply;
+	struct device *dev = component->dev;
+	int ret;
+
+	/*
+	 * Those additional power supplies are attached to the PGA.
+	 * If PGA is not supported, simply skipped them.
+	 */
+	if (!(simple_amp->data->supports & SIMPLE_AUDIO_SUPPORT_PGA)) {
+		dev_err(dev, "Extra power supplied need PGA\n");
+		return -EINVAL;
+	}
+
+	supply = simple_amp_supplies;
+	do {
+		if (!of_property_present(dev->of_node, supply->prop_name))
+			continue;
+
+		ret = snd_soc_dapm_new_controls(dapm, &supply->dapm_widget, 1);
+		if (ret) {
+			dev_err(dev, "Failed to add control for '%s' (%d)\n",
+				supply->prop_name, ret);
+			return ret;
+		}
+		ret = snd_soc_dapm_add_routes(dapm, &supply->dapm_route, 1);
+		if (ret) {
+			dev_err(dev, "Failed to add route for '%s' (%d)\n",
+				supply->prop_name, ret);
+			return ret;
+		}
+	} while ((++supply)->prop_name);
+
+	return 0;
+}
+
 static int simple_amp_component_probe(struct snd_soc_component *component)
 {
+	struct simple_amp *simple_amp = snd_soc_component_get_drvdata(component);
+	int ret;
+
 	/* Add basic dapm widgets and routes */
-	return simple_amp_add_basic_dapm(component);
+	ret = simple_amp_add_basic_dapm(component);
+	if (ret)
+		return ret;
+
+	/* Add additional power supplies */
+	if (simple_amp->data->supports & SIMPLE_AUDIO_SUPPORT_POWER_SUPPLIES) {
+		ret = simple_amp_add_power_supplies(component);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
 }
 
 static const struct snd_soc_component_driver simple_amp_component_driver = {
@@ -170,7 +247,8 @@ static const struct simple_amp_data simple_audio_amplifier_data = {
 };
 
 static const struct simple_amp_data simple_audio_mono_pga_data = {
-	.supports		= SIMPLE_AUDIO_SUPPORT_PGA,
+	.supports		= SIMPLE_AUDIO_SUPPORT_PGA |
+				  SIMPLE_AUDIO_SUPPORT_POWER_SUPPLIES,
 	.dapm_widgets		= simple_amp_mono_pga_dapm_widgets,
 	.num_dapm_widgets	= ARRAY_SIZE(simple_amp_mono_pga_dapm_widgets),
 	.dapm_routes		= simple_amp_mono_pga_dapm_routes,
@@ -178,7 +256,8 @@ static const struct simple_amp_data simple_audio_mono_pga_data = {
 };
 
 static const struct simple_amp_data simple_audio_stereo_pga_data = {
-	.supports		= SIMPLE_AUDIO_SUPPORT_PGA,
+	.supports		= SIMPLE_AUDIO_SUPPORT_PGA |
+				  SIMPLE_AUDIO_SUPPORT_POWER_SUPPLIES,
 	.dapm_widgets		= simple_amp_stereo_pga_dapm_widgets,
 	.num_dapm_widgets	= ARRAY_SIZE(simple_amp_stereo_pga_dapm_widgets),
 	.dapm_routes		= simple_amp_stereo_pga_dapm_routes,
