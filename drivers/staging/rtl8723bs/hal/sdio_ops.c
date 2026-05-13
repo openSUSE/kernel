@@ -857,5 +857,3 @@ void HalQueryTxOQTBufferStatus8723BSdio(struct adapter *adapter)
 
 	haldata->SdioTxOQTFreeSpace = SdioLocalCmd52Read1Byte(adapter, SDIO_REG_OQT_FREE_PG);
 }
-
-

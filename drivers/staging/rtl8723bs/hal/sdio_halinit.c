@@ -21,7 +21,6 @@ static u8 CardEnable(struct adapter *padapter)
 	u8 bMacPwrCtrlOn;
 	u8 ret = _FAIL;
 
-
 	rtw_hal_get_hwreg(padapter, HW_VAR_APFM_ON_MAC, &bMacPwrCtrlOn);
 	if (!bMacPwrCtrlOn) {
 		/*  RSV_CTRL 0x1C[7:0] = 0x00 */
@@ -235,7 +234,6 @@ static void _InitNormalChipTwoOutEpPriority(struct adapter *Adapter)
 	struct registry_priv *pregistrypriv = &Adapter->registrypriv;
 	u16 beQ, bkQ, viQ, voQ, mgtQ, hiQ;
 
-
 	u16 valueHi = 0;
 	u16 valueLow = 0;
 
@@ -319,8 +317,6 @@ static void _InitQueuePriority(struct adapter *Adapter)
 	default:
 		break;
 	}
-
-
 }
 
 static void _InitPageBoundary(struct adapter *padapter)
@@ -362,7 +358,6 @@ static void _InitWMACSetting(struct adapter *padapter)
 {
 	struct hal_com_data *pHalData;
 	u16 value16;
-
 
 	pHalData = GET_HAL_DATA(padapter);
 
@@ -555,7 +550,6 @@ static bool HalDetectPwrDownMode(struct adapter *Adapter)
 	struct hal_com_data *pHalData = GET_HAL_DATA(Adapter);
 	struct pwrctrl_priv *pwrctrlpriv = adapter_to_pwrctl(Adapter);
 
-
 	rtw_efuse_shadow_read(Adapter, 1, 0x7B/*EEPROM_RF_OPT3_92C*/, (u32 *)&tmpvalue);
 
 	/*  2010/08/25 MH INF priority > PDN Efuse value. */
@@ -730,7 +724,6 @@ u32 rtl8723bs_hal_init(struct adapter *padapter)
 	/*  set 0x0 to 0xFF by tynli. Default enable HW SEQ NUM. */
 	rtw_write8(padapter, REG_HWSEQ_CTRL, 0xFF);
 
-
 	/*  */
 	/*  Configure SDIO TxRx Control to enable Rx DMA timer masking. */
 	/*  2010.02.24. */
@@ -738,7 +731,6 @@ u32 rtl8723bs_hal_init(struct adapter *padapter)
 	rtw_write32(padapter, SDIO_LOCAL_BASE | SDIO_REG_TX_CTRL, 0);
 
 	_RfPowerSave(padapter);
-
 
 	rtl8723b_InitHalDm(padapter);
 
@@ -903,7 +895,6 @@ void rtl8723bs_init_default_value(struct adapter *padapter)
 {
 	struct hal_com_data *pHalData;
 
-
 	pHalData = GET_HAL_DATA(padapter);
 
 	rtl8723b_init_default_value(padapter);
@@ -918,7 +909,6 @@ void rtl8723bs_interface_configure(struct adapter *padapter)
 	struct dvobj_priv *pdvobjpriv = adapter_to_dvobj(padapter);
 	struct registry_priv *pregistrypriv = &padapter->registrypriv;
 	bool bWiFiConfig = pregistrypriv->wifi_spec;
-
 
 	pdvobjpriv->RtOutPipe[0] = WLAN_TX_HIQ_DEVICE_ID;
 	pdvobjpriv->RtOutPipe[1] = WLAN_TX_MIQ_DEVICE_ID;
@@ -970,7 +960,6 @@ static void _ReadRFType(struct adapter *Adapter)
 
 	pHalData->rf_chip = RF_6052;
 }
-
 
 static void Hal_EfuseParseMACAddr_8723BS(
 	struct adapter *padapter, u8 *hwinfo, bool AutoLoadFail
@@ -1064,7 +1053,6 @@ static s32 _ReadAdapterInfo8723BS(struct adapter *padapter)
 	/*  before access eFuse, make sure card enable has been called */
 	if (!padapter->hw_init_completed)
 		_InitPowerOn_8723BS(padapter);
-
 
 	val8 = rtw_read8(padapter, 0x4e);
 	val8 |= BIT(6);

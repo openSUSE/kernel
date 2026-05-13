@@ -734,7 +734,6 @@ s8 phy_get_tx_pwr_lmt(struct adapter *adapter, u32 reg_pwr_tbl_sel,
 	    idx_rate_sctn == -1 || idx_channel == -1)
 		return MAX_POWER_INDEX;
 
-
 	for (i = 0; i < MAX_REGULATION_NUM; i++)
 		limits[i] = hal_data->TxPwrLimit_2_4G[i]
 						     [idx_bandwidth]
