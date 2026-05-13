@@ -63,6 +63,40 @@ static u32 iwl_mld_get_key_sta_mask(struct iwl_mld *mld,
 
 	lockdep_assert_wiphy(mld->wiphy);
 
+	if (vif->type == NL80211_IFTYPE_NAN_DATA && !sta) {
+		/* Older firmware versions do not support transmission of
+		 * multicast data frames.
+		 */
+		if (!iwl_mld_nan_use_nan_stations(mld))
+			return 0;
+
+		if (WARN_ON(mld_vif->nan.mcast_data_sta.sta_id ==
+			    IWL_INVALID_STA))
+			return 0;
+
+		return BIT(mld_vif->nan.mcast_data_sta.sta_id);
+	}
+
+	if (vif->type == NL80211_IFTYPE_NAN && !sta) {
+		/* Older firmware versions do not support installation of
+		 * IGTK/BIGTK keys.
+		 */
+		if (!iwl_mld_nan_use_nan_stations(mld))
+			return 0;
+
+		if (WARN_ON(mld_vif->nan.bcast_sta.sta_id == IWL_INVALID_STA ||
+			    mld_vif->nan.mgmt_sta.sta_id == IWL_INVALID_STA))
+			return 0;
+
+		if (key->keyidx >= 4 && key->keyidx <= 5)
+			return BIT(mld_vif->nan.mgmt_sta.sta_id);
+
+		if (key->keyidx >= 6 && key->keyidx <= 7)
+			return BIT(mld_vif->nan.bcast_sta.sta_id);
+
+		return 0;
+	}
+
 	/* AP group keys are per link and should be on the mcast/bcast STA */
 	if (vif->type == NL80211_IFTYPE_AP &&
 	    !(key->flags & IEEE80211_KEY_FLAG_PAIRWISE)) {
@@ -204,7 +238,7 @@ iwl_mld_get_igtk_ptr(struct ieee80211_vif *vif,
 			return &mld_sta->deflink.rx_igtk;
 		}
 
-		return &mld_vif->deflink.tx_igtk;
+		return &mld_vif->nan.tx_igtk;
 	case NL80211_IFTYPE_AP:
 		mld_link = iwl_mld_link_dereference_check(mld_vif, link_id);
 		if (WARN_ON(!mld_link))
@@ -254,8 +288,16 @@ int iwl_mld_add_key(struct iwl_mld *mld,
 
 	lockdep_assert_wiphy(mld->wiphy);
 
-	if (!sta_mask)
+	if (!sta_mask) {
+		/* for NAN (GTK) indicate SW-only, it's not used at all */
+		if (vif->type == NL80211_IFTYPE_NAN_DATA && !sta &&
+		    !iwl_mld_nan_use_nan_stations(mld))
+			return 1;
+
+		/* otherwise that's not valid */
+		IWL_WARN(mld, "empty STA mask for key %d\n", key->keyidx);
 		return -EINVAL;
+	}
 
 	igtk_ptr = iwl_mld_get_igtk_ptr(vif, sta, key);
 	if (igtk_ptr) {
@@ -270,8 +312,10 @@ int iwl_mld_add_key(struct iwl_mld *mld,
 	}
 
 	ret = iwl_mld_add_key_to_fw(mld, sta_mask, key_flags, key);
-	if (ret)
+	if (ret) {
+		IWL_WARN(mld, "failed to add key to FW (%d)\n", ret);
 		return ret;
+	}
 
 	if (igtk_ptr) {
 		WARN_ON(*igtk_ptr);

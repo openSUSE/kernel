@@ -1089,8 +1089,14 @@ iwl_mld_set_internal_sta_to_fw(struct iwl_mld *mld,
 	 * On the other hand, FW will never check this flag during RX since
 	 * an AP/GO doesn't receive protected broadcast management frames.
 	 * So, we can set it unconditionally.
+	 *
+	 * For NAN stations associated with a NAN Device, the MFP bit must be
+	 * set to 1, as otherwise the FW will assert when a key associated with
+	 * these stations would be added.
 	 */
-	if (internal_sta->sta_type == STATION_TYPE_BCAST_MGMT)
+	if (internal_sta->sta_type == STATION_TYPE_BCAST_MGMT ||
+	    internal_sta->sta_type == STATION_TYPE_NAN_BCAST ||
+	    internal_sta->sta_type == STATION_TYPE_NAN_MGMT)
 		cmd.mfp = cpu_to_le32(1);
 
 	if (addr) {

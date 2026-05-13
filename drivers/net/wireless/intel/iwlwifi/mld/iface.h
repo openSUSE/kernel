@@ -160,6 +160,8 @@ struct iwl_mld_emlsr {
  * @nan.mgmt_sta: internal station used for NAN management frames, e.g., SDFs
  *	and NAFs.
  * @nan.mcast_data_sta: internal station used for multicast NAN Data frames.
+ * @nan.tx_igtk: TX IGTK key for NAN, tracked separately since NAN does not
+ *	use the vif links.
  */
 struct iwl_mld_vif {
 	/* Add here fields that need clean up on restart */
@@ -189,6 +191,7 @@ struct iwl_mld_vif {
 		struct iwl_mld_int_sta bcast_sta;
 		struct iwl_mld_int_sta mgmt_sta;
 		struct iwl_mld_int_sta mcast_data_sta;
+		struct ieee80211_key_conf *tx_igtk;
 	} nan;
 
 	struct iwl_mld_emlsr emlsr;

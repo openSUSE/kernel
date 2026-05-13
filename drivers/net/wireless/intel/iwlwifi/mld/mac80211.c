@@ -2248,7 +2248,6 @@ static int iwl_mld_set_key_add(struct iwl_mld *mld,
 
 	ret = iwl_mld_add_key(mld, vif, sta, key);
 	if (ret) {
-		IWL_WARN(mld, "set key failed (%d)\n", ret);
 		if (ptk_pn) {
 			RCU_INIT_POINTER(mld_sta->ptk_pn[keyidx], NULL);
 			kfree(ptk_pn);
