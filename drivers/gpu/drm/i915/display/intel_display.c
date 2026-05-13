@@ -714,22 +714,22 @@ static void icl_set_pipe_chicken(const struct intel_crtc_state *crtc_state)
 
 bool intel_has_pending_fb_unpin(struct intel_display *display)
 {
-	struct drm_crtc *crtc;
+	struct intel_crtc *crtc;
 	bool cleanup_done;
 
-	drm_for_each_crtc(crtc, display->drm) {
+	for_each_intel_crtc(display->drm, crtc) {
 		struct drm_crtc_commit *commit;
-		spin_lock(&crtc->commit_lock);
-		commit = list_first_entry_or_null(&crtc->commit_list,
+		spin_lock(&crtc->base.commit_lock);
+		commit = list_first_entry_or_null(&crtc->base.commit_list,
 						  struct drm_crtc_commit, commit_entry);
 		cleanup_done = commit ?
 			try_wait_for_completion(&commit->cleanup_done) : true;
-		spin_unlock(&crtc->commit_lock);
+		spin_unlock(&crtc->base.commit_lock);
 
 		if (cleanup_done)
 			continue;
 
-		intel_crtc_wait_for_next_vblank(to_intel_crtc(crtc));
+		intel_crtc_wait_for_next_vblank(crtc);
 
 		return true;
 	}
