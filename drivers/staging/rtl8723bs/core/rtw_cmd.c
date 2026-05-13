@@ -253,7 +253,7 @@ int _rtw_enqueue_cmd(struct __queue *queue, struct cmd_obj *obj)
 	unsigned long irqL;
 
 	if (!obj)
-		goto exit;
+		return _SUCCESS;
 
 	/* spin_lock_bh(&queue->lock); */
 	spin_lock_irqsave(&queue->lock, irqL);
@@ -263,7 +263,6 @@ int _rtw_enqueue_cmd(struct __queue *queue, struct cmd_obj *obj)
 	/* spin_unlock_bh(&queue->lock); */
 	spin_unlock_irqrestore(&queue->lock, irqL);
 
-exit:
 	return _SUCCESS;
 }
 
