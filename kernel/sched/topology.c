@@ -776,9 +776,11 @@ cpu_attach_domain(struct sched_domain *sd, struct root_domain *rd, int cpu)
 			/* move buffer to parent as child is being destroyed */
 			sd->llc_counts = tmp->llc_counts;
 			sd->llc_max = tmp->llc_max;
+			sd->llc_bytes = tmp->llc_bytes;
 			/* make sure destroy_sched_domain() does not free it */
 			tmp->llc_counts = NULL;
 			tmp->llc_max = 0;
+			tmp->llc_bytes = 0;
 #endif
 			/*
 			 * sched groups hold the flags of the child sched
@@ -831,10 +833,42 @@ DEFINE_STATIC_KEY_FALSE(sched_cache_active);
 /* user wants cache aware scheduling [0 or 1] */
 int sysctl_sched_cache_user = 1;
 
+/*
+ * Get the effective LLC size in bytes that @cpu's bottom sched_domain
+ * can use. A CPU within a cpuset partition can only use a proportion
+ * of the physical LLC, scaled by the ratio of the partition's span
+ * weight to the hardware LLC sharing weight. @sd should be the
+ * topmost domain with SD_SHARE_LLC.
+ *
+ * Returns 0 if cacheinfo is not yet populated. This happens during
+ * early boot when build_sched_domains() runs before the generic
+ * cacheinfo framework has been initialized (cacheinfo_cpu_online()
+ * is a device_initcall cpuhp callback). In that case,
+ * cacheinfo_cpu_online() will later call sched_update_llc_bytes()
+ * to fill in the bottom domain's llc_bytes once the cache attributes
+ * are available.
+ */
+static unsigned long get_effective_llc_bytes(int cpu,
+					     struct sched_domain *sd)
+{
+	struct cacheinfo *ci;
+	unsigned int hw_weight;
+
+	ci = get_cpu_cacheinfo_llc(cpu);
+	if (!ci)
+		return 0;
+
+	hw_weight = cpumask_weight(&ci->shared_cpu_map);
+	if (!hw_weight)
+		return 0;
+
+	return div_u64((u64)ci->size * sd->span_weight, hw_weight);
+}
+
 static bool alloc_sd_llc(const struct cpumask *cpu_map,
 			 struct s_data *d)
 {
-	struct sched_domain *sd;
+	struct sched_domain *sd, *top_llc, *parent;
 	unsigned int *p;
 	int i;
 
@@ -848,8 +882,24 @@ static bool alloc_sd_llc(const struct cpumask *cpu_map,
 		if (!p)
 			goto err;
 
-		sd->llc_max = max_lid + 1;
-		sd->llc_counts = p;
+		top_llc = sd;
+		/*
+		 * Find the topmost SD_SHARE_LLC domain.
+		 * Not yet attached to the CPU, so per_cpu(sd_llc, i)
+		 * can not be used.
+		 */
+		while ((parent = rcu_dereference_protected(top_llc->parent, true)) &&
+		       (parent->flags & SD_SHARE_LLC))
+			top_llc = parent;
+
+		if (top_llc->flags & SD_SHARE_LLC) {
+			sd->llc_max = max_lid + 1;
+			sd->llc_counts = p;
+			sd->llc_bytes = get_effective_llc_bytes(i, top_llc);
+		} else {
+			/* avoid memory leak */
+			kfree(p);
+		}
 	}
 
 	return true;
@@ -860,6 +910,7 @@ err:
 			kfree(sd->llc_counts);
 			sd->llc_counts = NULL;
 			sd->llc_max = 0;
+			sd->llc_bytes = 0;
 		}
 	}
 
@@ -918,6 +969,47 @@ static void sched_cache_active_set_locked(void)
 void sched_cache_active_set_unlocked(void)
 {
 	return sched_cache_active_set(false);
+}
+
+/*
+ * Update the bottom sched_domain's llc_bytes for @cpu and all its
+ * LLC siblings. Called from cacheinfo_cpu_online() or
+ * cacheinfo_cpu_pre_down() with cpu hotplug lock held.
+ *
+ * Note: get_effective_llc_bytes() returns 0 on PowerPC.
+ * thus cache aware scheduling is disabled on PowerPC for
+ * now. PowerPC does not use the generic cacheinfo framework --
+ * it has its own cacheinfo with a separate struct cache hierarchy
+ * and does not populates the per-CPU struct cpu_cacheinfo array
+ * that get_cpu_cacheinfo_llc() reads.
+ */
+void sched_update_llc_bytes(unsigned int cpu)
+{
+	struct sched_domain *sd, *sdp;
+	unsigned int i;
+
+	sched_domains_mutex_lock();
+
+	sdp = rcu_dereference_sched_domain(per_cpu(sd_llc, cpu));
+	if (!sdp)
+		goto unlock;
+
+	/*
+	 * ci->shared_cpu_map is built incrementally as CPUs come
+	 * online, so the first CPU in an LLC initially sees
+	 * hw_weight == 1 and computes an inflated llc_bytes in
+	 * get_effective_llc_bytes().  Re-evaluating every LLC
+	 * sibling on each online event corrects this once the full
+	 * shared_cpu_map is known.
+	 */
+	for_each_cpu(i, sched_domain_span(sdp)) {
+		sd = rcu_dereference_sched_domain(cpu_rq(i)->sd);
+		if (sd)
+			sd->llc_bytes = get_effective_llc_bytes(i, sdp);
+	}
+
+unlock:
+	sched_domains_mutex_unlock();
 }
 #else
 static bool alloc_sd_llc(const struct cpumask *cpu_map,
