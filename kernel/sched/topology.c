@@ -1009,6 +1009,37 @@ static bool alloc_sd_llc(const struct cpumask *cpu_map,
 #endif
 
 /*
+ * Return true if @sd belongs to an LLC group whose enclosing
+ * partition spans more than one LLC. @sd must be the topmost
+ * SD_SHARE_LLC domain.
+ *
+ * Any duplicated parent domains with the same span as @sd are
+ * skipped: before cpu_attach_domain() degeneration these still
+ * exist, after degeneration the loop is a no-op. This makes the
+ * helper usable both during sched domain build and against an
+ * already-attached domain tree.
+ *
+ * Note: For systems with a single LLC per node, cache-aware
+ * scheduling is still enabled when multiple nodes exist.
+ * However, NUMA balancing decisions take precedence over
+ * cache-aware scheduling. Conversely, if there is only one
+ * LLC per partition, cache-aware scheduling should be disabled.
+ */
+static bool sd_in_multi_llcs(struct sched_domain *sd)
+{
+	struct sched_domain *sdp = sd->parent;
+
+	/* it does not make sense to aggregate to 1 CPU */
+	if (sd->span_weight == 1)
+		return false;
+
+	while (sdp && sdp->span_weight == sd->span_weight)
+		sdp = sdp->parent;
+
+	return !!sdp;
+}
+
+/*
  * Return the canonical balance CPU for this group, this is the first CPU
  * of this group that's also in the balance mask.
  *
@@ -3017,9 +3048,11 @@ build_sched_domains(const struct cpumask *cpu_map, struct sched_domain_attr *att
 			 * NUMA imbalance stats for the hierarchy.
 			 */
 			if (sd->parent) {
-			    if (IS_ENABLED(CONFIG_NUMA))
-				    adjust_numa_imbalance(sd);
-			    has_multi_llcs = true;
+				if (IS_ENABLED(CONFIG_NUMA))
+					adjust_numa_imbalance(sd);
+
+				if (sd_in_multi_llcs(sd))
+					has_multi_llcs = true;
 			}
 		}
 	}
