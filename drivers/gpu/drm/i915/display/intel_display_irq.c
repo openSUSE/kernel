@@ -597,8 +597,8 @@ static void i9xx_pipestat_irq_ack(struct intel_display *display,
 	spin_unlock(&display->irq.lock);
 }
 
-void i915_pipestat_irq_handler(struct intel_display *display,
-			       u32 iir, const u32 pipe_stats[I915_MAX_PIPES])
+static void i915_pipestat_irq_handler(struct intel_display *display,
+				      u32 iir, const u32 pipe_stats[I915_MAX_PIPES])
 {
 	bool blc_event = false;
 	enum pipe pipe;
@@ -621,8 +621,8 @@ void i915_pipestat_irq_handler(struct intel_display *display,
 		intel_opregion_asle_intr(display);
 }
 
-void i965_pipestat_irq_handler(struct intel_display *display,
-			       u32 iir, const u32 pipe_stats[I915_MAX_PIPES])
+static void i965_pipestat_irq_handler(struct intel_display *display,
+				      u32 iir, const u32 pipe_stats[I915_MAX_PIPES])
 {
 	bool blc_event = false;
 	enum pipe pipe;
@@ -648,8 +648,8 @@ void i965_pipestat_irq_handler(struct intel_display *display,
 		intel_gmbus_irq_handler(display);
 }
 
-void valleyview_pipestat_irq_handler(struct intel_display *display,
-				     const u32 pipe_stats[I915_MAX_PIPES])
+static void valleyview_pipestat_irq_handler(struct intel_display *display,
+					    const u32 pipe_stats[I915_MAX_PIPES])
 {
 	enum pipe pipe;
 
@@ -1021,7 +1021,8 @@ void ilk_display_irq_master_enable(struct intel_display *display, u32 de_ier, u3
 		intel_de_write_fw(display, SDEIER, sde_ier);
 }
 
-bool ilk_display_irq_handler(struct intel_display *display)
+bool ilk_display_irq_handler(struct intel_display *display,
+			     const struct intel_display_irq_state *state)
 {
 	u32 de_iir;
 	bool handled = false;
@@ -1405,7 +1406,7 @@ static void gen8_read_and_ack_pch_irqs(struct intel_display *display, u32 *pch_i
 		intel_de_write(display, PICAINTERRUPT_IER, pica_ier);
 }
 
-void gen8_de_irq_handler(struct intel_display *display, u32 master_ctl)
+static void gen8_de_irq_handler(struct intel_display *display, u32 master_ctl)
 {
 	u32 iir;
 	enum pipe pipe;
@@ -1566,6 +1567,14 @@ void gen8_de_irq_handler(struct intel_display *display, u32 master_ctl)
 	}
 }
 
+bool gen8_display_irq_handler(struct intel_display *display,
+			      const struct intel_display_irq_state *state)
+{
+	gen8_de_irq_handler(display, state->master_ctl);
+
+	return true;
+}
+
 u32 gen11_gu_misc_irq_ack(struct intel_display *display, const u32 master_ctl)
 {
 	u32 iir;
@@ -1590,7 +1599,8 @@ void gen11_gu_misc_irq_handler(struct intel_display *display, const u32 iir)
 		intel_opregion_asle_intr(display);
 }
 
-void gen11_display_irq_handler(struct intel_display *display)
+bool gen11_display_irq_handler(struct intel_display *display,
+			       const struct intel_display_irq_state *state)
 {
 	u32 disp_ctl;
 
@@ -1606,6 +1616,8 @@ void gen11_display_irq_handler(struct intel_display *display)
 	intel_de_write(display, GEN11_DISPLAY_INT_CTL, GEN11_DISPLAY_IRQ_ENABLE);
 
 	intel_display_rpm_assert_unblock(display);
+
+	return true;
 }
 
 static void i915gm_irq_cstate_wa_enable(struct intel_display *display)
@@ -1921,8 +1933,8 @@ static void vlv_display_error_irq_ack(struct intel_display *display,
 	intel_de_write(display, VLV_EMR, emr);
 }
 
-void vlv_display_error_irq_handler(struct intel_display *display,
-				   u32 eir, u32 dpinvgtt)
+static void vlv_display_error_irq_handler(struct intel_display *display,
+					  u32 eir, u32 dpinvgtt)
 {
 	drm_dbg(display->drm, "Master Error, EIR 0x%08x\n", eir);
 
@@ -2021,6 +2033,28 @@ void i9xx_display_irq_ack(struct intel_display *display,
 	i9xx_pipestat_irq_ack(display, state->iir, state->pipe_stats);
 }
 
+bool i965_display_irq_handler(struct intel_display *display,
+			      const struct intel_display_irq_state *state)
+{
+	if (state->hotplug_status)
+		i9xx_hpd_irq_handler(display, state->hotplug_status);
+
+	i965_pipestat_irq_handler(display, state->iir, state->pipe_stats);
+
+	return true;
+}
+
+bool i915_display_irq_handler(struct intel_display *display,
+			      const struct intel_display_irq_state *state)
+{
+	if (state->hotplug_status)
+		i9xx_hpd_irq_handler(display, state->hotplug_status);
+
+	i915_pipestat_irq_handler(display, state->iir, state->pipe_stats);
+
+	return true;
+}
+
 static u32 vlv_error_mask(void)
 {
 	/* TODO enable other errors too? */
@@ -2100,6 +2134,20 @@ void vlv_display_irq_ack(struct intel_display *display,
 	/* The handler acks the irq, so need to call the handler here */
 	if (state->iir & vlv_lpe_irq_mask(display))
 		intel_lpe_audio_irq_handler(display);
+}
+
+bool vlv_display_irq_handler(struct intel_display *display,
+			     const struct intel_display_irq_state *state)
+{
+	if (state->hotplug_status)
+		i9xx_hpd_irq_handler(display, state->hotplug_status);
+
+	if (state->iir & I915_MASTER_ERROR_INTERRUPT)
+		vlv_display_error_irq_handler(display, state->eir, state->dpinvgtt);
+
+	valleyview_pipestat_irq_handler(display, state->pipe_stats);
+
+	return true;
 }
 
 static void ibx_display_irq_reset(struct intel_display *display)

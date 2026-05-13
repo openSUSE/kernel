@@ -222,7 +222,7 @@ void xe_display_irq_handler(struct xe_device *xe, u32 master_ctl)
 		return;
 
 	if (master_ctl & DISPLAY_IRQ)
-		gen11_display_irq_handler(display);
+		gen11_display_irq_handler(display, NULL);
 }
 
 void xe_display_irq_enable(struct xe_device *xe, u32 gu_misc_iir)

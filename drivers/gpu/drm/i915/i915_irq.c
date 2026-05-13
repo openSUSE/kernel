@@ -38,7 +38,6 @@
 
 #include "display/intel_display_irq.h"
 #include "display/intel_hotplug.h"
-#include "display/intel_hotplug_irq.h"
 
 #include "gt/intel_breadcrumbs.h"
 #include "gt/intel_gt.h"
@@ -286,13 +285,7 @@ static irqreturn_t valleyview_irq_handler(int irq, void *arg)
 		if (pm_iir)
 			gen6_rps_irq_handler(&to_gt(dev_priv)->rps, pm_iir);
 
-		if (state.hotplug_status)
-			i9xx_hpd_irq_handler(display, state.hotplug_status);
-
-		if (state.iir & I915_MASTER_ERROR_INTERRUPT)
-			vlv_display_error_irq_handler(display, state.eir, state.dpinvgtt);
-
-		valleyview_pipestat_irq_handler(display, state.pipe_stats);
+		vlv_display_irq_handler(display, &state);
 	} while (0);
 
 	pmu_irq_stats(dev_priv, ret);
@@ -357,13 +350,7 @@ static irqreturn_t cherryview_irq_handler(int irq, void *arg)
 		intel_uncore_write(&dev_priv->uncore, VLV_IER, ier);
 		intel_uncore_write(&dev_priv->uncore, GEN8_MASTER_IRQ, GEN8_MASTER_IRQ_CONTROL);
 
-		if (state.hotplug_status)
-			i9xx_hpd_irq_handler(display, state.hotplug_status);
-
-		if (state.iir & I915_MASTER_ERROR_INTERRUPT)
-			vlv_display_error_irq_handler(display, state.eir, state.dpinvgtt);
-
-		valleyview_pipestat_irq_handler(display, state.pipe_stats);
+		vlv_display_irq_handler(display, &state);
 	} while (0);
 
 	pmu_irq_stats(dev_priv, ret);
@@ -410,7 +397,7 @@ static irqreturn_t ilk_irq_handler(int irq, void *arg)
 		ret = IRQ_HANDLED;
 	}
 
-	if (ilk_display_irq_handler(display))
+	if (ilk_display_irq_handler(display, NULL))
 		ret = IRQ_HANDLED;
 
 	if (GRAPHICS_VER(i915) >= 6) {
@@ -472,8 +459,11 @@ static irqreturn_t gen8_irq_handler(int irq, void *arg)
 
 	/* IRQs are synced during runtime_suspend, we don't require a wakeref */
 	if (master_ctl & ~GEN8_GT_IRQS) {
+		const struct intel_display_irq_state state = {
+			.master_ctl = master_ctl,
+		};
 		disable_rpm_wakeref_asserts(&dev_priv->runtime_pm);
-		gen8_de_irq_handler(display, master_ctl);
+		gen8_display_irq_handler(display, &state);
 		enable_rpm_wakeref_asserts(&dev_priv->runtime_pm);
 	}
 
@@ -525,7 +515,7 @@ static irqreturn_t gen11_irq_handler(int irq, void *arg)
 
 	/* IRQs are synced during runtime_suspend, we don't require a wakeref */
 	if (master_ctl & GEN11_DISPLAY_IRQ)
-		gen11_display_irq_handler(display);
+		gen11_display_irq_handler(display, NULL);
 
 	gu_misc_iir = gen11_gu_misc_irq_ack(display, master_ctl);
 
@@ -592,7 +582,7 @@ static irqreturn_t dg1_irq_handler(int irq, void *arg)
 	gen11_gt_irq_handler(gt, master_ctl);
 
 	if (master_ctl & GEN11_DISPLAY_IRQ)
-		gen11_display_irq_handler(display);
+		gen11_display_irq_handler(display, NULL);
 
 	gu_misc_iir = gen11_gu_misc_irq_ack(display, master_ctl);
 
@@ -896,10 +886,7 @@ static irqreturn_t i915_irq_handler(int irq, void *arg)
 		if (state.iir & I915_MASTER_ERROR_INTERRUPT)
 			i9xx_error_irq_handler(dev_priv, eir, eir_stuck);
 
-		if (state.hotplug_status)
-			i9xx_hpd_irq_handler(display, state.hotplug_status);
-
-		i915_pipestat_irq_handler(display, state.iir, state.pipe_stats);
+		i915_display_irq_handler(display, &state);
 	} while (0);
 
 	pmu_irq_stats(dev_priv, ret);
@@ -1003,10 +990,7 @@ static irqreturn_t i965_irq_handler(int irq, void *arg)
 		if (state.iir & I915_MASTER_ERROR_INTERRUPT)
 			i9xx_error_irq_handler(dev_priv, eir, eir_stuck);
 
-		if (state.hotplug_status)
-			i9xx_hpd_irq_handler(display, state.hotplug_status);
-
-		i965_pipestat_irq_handler(display, state.iir, state.pipe_stats);
+		i965_display_irq_handler(display, &state);
 	} while (0);
 
 	pmu_irq_stats(dev_priv, IRQ_HANDLED);
