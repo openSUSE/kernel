@@ -81,6 +81,10 @@ enum iwl_mac_conf_subcmd_ids {
 	 */
 	NAN_PEER_CMD = 0x14,
 	/**
+	 * @NAN_ULW_ATTR_NOTIF: &struct iwl_nan_ulw_attr_notif
+	 */
+	NAN_ULW_ATTR_NOTIF = 0xf2,
+	/**
 	 * @NAN_DW_END_NOTIF: &struct iwl_nan_dw_end_notif
 	 */
 	NAN_DW_END_NOTIF = 0xf4,
@@ -1392,5 +1396,21 @@ struct iwl_nan_dw_end_notif {
 	u8 band;
 	u8 reserved[3];
 } __packed; /* NAN_DW_END_NTF_API_S_VER_1 */
+
+#define IWL_NAN_MAX_ENDLESS_ULW_ATTR_LEN	48
+
+/**
+ * struct iwl_nan_ulw_attr_notif - sent to notify the host of a change in the
+ *	ULW attribute
+ *
+ * @attr_len: length of the ULW attribute in bytes
+ * @reserved: reserved
+ * @attr: the ULW attribute including the attribute header
+ */
+struct iwl_nan_ulw_attr_notif {
+	u8 attr_len;
+	u8 reserved[3];
+	u8 attr[IWL_NAN_MAX_ENDLESS_ULW_ATTR_LEN];
+} __packed; /* NAN_ULW_ATTR_NOTIF_API_S_VER_1 */
 
 #endif /* __iwl_fw_api_mac_cfg_h__ */

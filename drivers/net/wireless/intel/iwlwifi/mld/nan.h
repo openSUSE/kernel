@@ -38,11 +38,16 @@ int iwl_mld_stop_nan(struct ieee80211_hw *hw,
 		     struct ieee80211_vif *vif);
 void iwl_mld_handle_nan_cluster_notif(struct iwl_mld *mld,
 				      struct iwl_rx_packet *pkt);
+void iwl_mld_handle_nan_ulw_attr_notif(struct iwl_mld *mld,
+				       struct iwl_rx_packet *pkt);
 void iwl_mld_handle_nan_dw_end_notif(struct iwl_mld *mld,
 				     struct iwl_rx_packet *pkt);
 bool iwl_mld_cancel_nan_cluster_notif(struct iwl_mld *mld,
 				      struct iwl_rx_packet *pkt,
 				      u32 obj_id);
+bool iwl_mld_cancel_nan_ulw_attr_notif(struct iwl_mld *mld,
+				       struct iwl_rx_packet *pkt,
+				       u32 obj_id);
 bool iwl_mld_cancel_nan_dw_end_notif(struct iwl_mld *mld,
 				     struct iwl_rx_packet *pkt,
 				     u32 obj_id);
