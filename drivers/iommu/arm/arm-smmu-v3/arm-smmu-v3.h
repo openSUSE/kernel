@@ -390,6 +390,10 @@ static inline unsigned int arm_smmu_cdtab_l2_idx(unsigned int ssid)
 
 #define CMDQ_PROD_OWNED_FLAG		Q_OVERFLOW_FLAG
 
+struct arm_smmu_cmd {
+	u64 data[CMDQ_ENT_DWORDS];
+};
+
 /*
  * This is used to size the command queue and therefore must be at least
  * BITS_PER_LONG so that the valid_map works correctly (it relies on the
@@ -426,6 +430,8 @@ static inline unsigned int arm_smmu_cdtab_l2_idx(unsigned int ssid)
 #define CMDQ_ATC_1_SIZE			GENMASK_ULL(5, 0)
 #define CMDQ_ATC_1_ADDR_MASK		GENMASK_ULL(63, 12)
 
+#define ATC_INV_SIZE_ALL 52
+
 #define CMDQ_PRI_0_SSID			GENMASK_ULL(31, 12)
 #define CMDQ_PRI_0_SID			GENMASK_ULL(63, 32)
 #define CMDQ_PRI_1_GRPID		GENMASK_ULL(8, 0)
@@ -446,6 +452,28 @@ static inline unsigned int arm_smmu_cdtab_l2_idx(unsigned int ssid)
 #define CMDQ_SYNC_0_MSIATTR		GENMASK_ULL(27, 24)
 #define CMDQ_SYNC_0_MSIDATA		GENMASK_ULL(63, 32)
 #define CMDQ_SYNC_1_MSIADDR_MASK	GENMASK_ULL(51, 2)
+
+enum arm_smmu_cmdq_opcode {
+	CMDQ_OP_PREFETCH_CFG = 0x1,
+	CMDQ_OP_CFGI_STE = 0x3,
+	CMDQ_OP_CFGI_ALL = 0x4,
+	CMDQ_OP_CFGI_CD = 0x5,
+	CMDQ_OP_CFGI_CD_ALL = 0x6,
+	CMDQ_OP_TLBI_NH_ALL = 0x10,
+	CMDQ_OP_TLBI_NH_ASID = 0x11,
+	CMDQ_OP_TLBI_NH_VA = 0x12,
+	CMDQ_OP_TLBI_NH_VAA = 0x13,
+	CMDQ_OP_TLBI_EL2_ALL = 0x20,
+	CMDQ_OP_TLBI_EL2_ASID = 0x21,
+	CMDQ_OP_TLBI_EL2_VA = 0x22,
+	CMDQ_OP_TLBI_S12_VMALL = 0x28,
+	CMDQ_OP_TLBI_S2_IPA = 0x2a,
+	CMDQ_OP_TLBI_NSNH_ALL = 0x30,
+	CMDQ_OP_ATC_INV = 0x40,
+	CMDQ_OP_PRI_RESP = 0x41,
+	CMDQ_OP_RESUME = 0x44,
+	CMDQ_OP_CMD_SYNC = 0x46,
+};
 
 /* Event queue */
 #define EVTQ_ENT_SZ_SHIFT		5
@@ -520,15 +548,10 @@ struct arm_smmu_cmdq_ent {
 
 	/* Command-specific fields */
 	union {
-		#define CMDQ_OP_PREFETCH_CFG	0x1
 		struct {
 			u32			sid;
 		} prefetch;
 
-		#define CMDQ_OP_CFGI_STE	0x3
-		#define CMDQ_OP_CFGI_ALL	0x4
-		#define CMDQ_OP_CFGI_CD		0x5
-		#define CMDQ_OP_CFGI_CD_ALL	0x6
 		struct {
 			u32			sid;
 			u32			ssid;
@@ -538,16 +561,6 @@ struct arm_smmu_cmdq_ent {
 			};
 		} cfgi;
 
-		#define CMDQ_OP_TLBI_NH_ALL     0x10
-		#define CMDQ_OP_TLBI_NH_ASID	0x11
-		#define CMDQ_OP_TLBI_NH_VA	0x12
-		#define CMDQ_OP_TLBI_NH_VAA	0x13
-		#define CMDQ_OP_TLBI_EL2_ALL	0x20
-		#define CMDQ_OP_TLBI_EL2_ASID	0x21
-		#define CMDQ_OP_TLBI_EL2_VA	0x22
-		#define CMDQ_OP_TLBI_S12_VMALL	0x28
-		#define CMDQ_OP_TLBI_S2_IPA	0x2a
-		#define CMDQ_OP_TLBI_NSNH_ALL	0x30
 		struct {
 			u8			num;
 			u8			scale;
@@ -559,8 +572,6 @@ struct arm_smmu_cmdq_ent {
 			u64			addr;
 		} tlbi;
 
-		#define CMDQ_OP_ATC_INV		0x40
-		#define ATC_INV_SIZE_ALL	52
 		struct {
 			u32			sid;
 			u32			ssid;
@@ -569,7 +580,6 @@ struct arm_smmu_cmdq_ent {
 			bool			global;
 		} atc;
 
-		#define CMDQ_OP_PRI_RESP	0x41
 		struct {
 			u32			sid;
 			u32			ssid;
@@ -577,14 +587,12 @@ struct arm_smmu_cmdq_ent {
 			enum pri_resp		resp;
 		} pri;
 
-		#define CMDQ_OP_RESUME		0x44
 		struct {
 			u32			sid;
 			u16			stag;
 			u8			resp;
 		} resume;
 
-		#define CMDQ_OP_CMD_SYNC	0x46
 		struct {
 			u64			msiaddr;
 		} sync;
