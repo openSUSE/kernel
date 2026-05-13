@@ -335,14 +335,7 @@ static bool multipath_sysfs_group_visible(struct kobject *kobj)
 
 	return nvme_disk_is_ns_head(dev_to_disk(dev));
 }
-
-static bool multipath_sysfs_attr_visible(struct kobject *kobj,
-		struct attribute *attr, int n)
-{
-	return false;
-}
-
-DEFINE_SYSFS_GROUP_VISIBLE(multipath_sysfs)
+DEFINE_SIMPLE_SYSFS_GROUP_VISIBLE(multipath_sysfs)
 
 const struct attribute_group nvme_ns_mpath_attr_group = {
 	.name           = "multipath",
