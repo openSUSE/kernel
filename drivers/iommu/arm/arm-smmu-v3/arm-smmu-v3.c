@@ -371,12 +371,12 @@ static int arm_smmu_cmdq_build_cmd(u64 *cmd, struct arm_smmu_cmdq_ent *ent)
 }
 
 static struct arm_smmu_cmdq *arm_smmu_get_cmdq(struct arm_smmu_device *smmu,
-					       struct arm_smmu_cmdq_ent *ent)
+					       struct arm_smmu_cmd *cmd)
 {
 	struct arm_smmu_cmdq *cmdq = NULL;
 
 	if (smmu->impl_ops && smmu->impl_ops->get_secondary_cmdq)
-		cmdq = smmu->impl_ops->get_secondary_cmdq(smmu, ent);
+		cmdq = smmu->impl_ops->get_secondary_cmdq(smmu, cmd);
 
 	return cmdq ?: &smmu->cmdq;
 }
@@ -924,16 +924,16 @@ static int __arm_smmu_cmdq_issue_cmd(struct arm_smmu_device *smmu,
 				     struct arm_smmu_cmdq_ent *ent,
 				     bool sync)
 {
-	u64 cmd[CMDQ_ENT_DWORDS];
+	struct arm_smmu_cmd cmd;
 
-	if (unlikely(arm_smmu_cmdq_build_cmd(cmd, ent))) {
+	if (unlikely(arm_smmu_cmdq_build_cmd(cmd.data, ent))) {
 		dev_warn(smmu->dev, "ignoring unknown CMDQ opcode 0x%x\n",
 			 ent->opcode);
 		return -EINVAL;
 	}
 
 	return arm_smmu_cmdq_issue_cmdlist(
-		smmu, arm_smmu_get_cmdq(smmu, ent), cmd, 1, sync);
+		smmu, arm_smmu_get_cmdq(smmu, &cmd), cmd.data, 1, sync);
 }
 
 static int arm_smmu_cmdq_issue_cmd(struct arm_smmu_device *smmu,
@@ -948,42 +948,55 @@ static int arm_smmu_cmdq_issue_cmd_with_sync(struct arm_smmu_device *smmu,
 	return __arm_smmu_cmdq_issue_cmd(smmu, ent, true);
 }
 
+static void arm_smmu_cmdq_batch_init_cmd(struct arm_smmu_device *smmu,
+					 struct arm_smmu_cmdq_batch *cmds,
+					 struct arm_smmu_cmd *cmd)
+{
+	cmds->num = 0;
+	cmds->cmdq = arm_smmu_get_cmdq(smmu, cmd);
+}
+
 static void arm_smmu_cmdq_batch_init(struct arm_smmu_device *smmu,
 				     struct arm_smmu_cmdq_batch *cmds,
 				     struct arm_smmu_cmdq_ent *ent)
 {
-	cmds->num = 0;
-	cmds->cmdq = arm_smmu_get_cmdq(smmu, ent);
+	struct arm_smmu_cmd cmd;
+
+	arm_smmu_cmdq_build_cmd(cmd.data, ent);
+	arm_smmu_cmdq_batch_init_cmd(smmu, cmds, &cmd);
 }
 
 static void arm_smmu_cmdq_batch_add(struct arm_smmu_device *smmu,
 				    struct arm_smmu_cmdq_batch *cmds,
-				    struct arm_smmu_cmdq_ent *cmd)
+				    struct arm_smmu_cmdq_ent *ent)
 {
-	bool unsupported_cmd = !arm_smmu_cmdq_supports_cmd(cmds->cmdq, cmd);
 	bool force_sync = (cmds->num == CMDQ_BATCH_ENTRIES - 1) &&
 			  (smmu->options & ARM_SMMU_OPT_CMDQ_FORCE_SYNC);
+	struct arm_smmu_cmd cmd;
+	bool unsupported_cmd;
 	int index;
 
+	if (unlikely(arm_smmu_cmdq_build_cmd(cmd.data, ent))) {
+		dev_warn(smmu->dev, "ignoring unknown CMDQ opcode 0x%x\n",
+			 ent->opcode);
+		return;
+	}
+
+	unsupported_cmd = !arm_smmu_cmdq_supports_cmd(cmds->cmdq, &cmd);
 	if (force_sync || unsupported_cmd) {
 		arm_smmu_cmdq_issue_cmdlist(smmu, cmds->cmdq, cmds->cmds,
 					    cmds->num, true);
-		arm_smmu_cmdq_batch_init(smmu, cmds, cmd);
+		arm_smmu_cmdq_batch_init_cmd(smmu, cmds, &cmd);
 	}
 
 	if (cmds->num == CMDQ_BATCH_ENTRIES) {
 		arm_smmu_cmdq_issue_cmdlist(smmu, cmds->cmdq, cmds->cmds,
 					    cmds->num, false);
-		arm_smmu_cmdq_batch_init(smmu, cmds, cmd);
+		arm_smmu_cmdq_batch_init_cmd(smmu, cmds, &cmd);
 	}
 
 	index = cmds->num * CMDQ_ENT_DWORDS;
-	if (unlikely(arm_smmu_cmdq_build_cmd(&cmds->cmds[index], cmd))) {
-		dev_warn(smmu->dev, "ignoring unknown CMDQ opcode 0x%x\n",
-			 cmd->opcode);
-		return;
-	}
-
+	memcpy(&cmds->cmds[index], cmd.data, sizeof(cmd.data));
 	cmds->num++;
 }
 
