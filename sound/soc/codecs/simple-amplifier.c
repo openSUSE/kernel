@@ -4,6 +4,7 @@
  * Author: Jerome Brunet <jbrunet@baylibre.com>
  */
 
+#include <linux/bits.h>
 #include <linux/gpio/consumer.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
@@ -12,6 +13,9 @@
 #include <sound/soc.h>
 
 struct simple_amp_data {
+	unsigned int supports;
+#define SIMPLE_AUDIO_SUPPORT_PGA		BIT(0)
+
 	const struct snd_soc_dapm_widget *dapm_widgets;
 	unsigned int num_dapm_widgets;
 	const struct snd_soc_dapm_route *dapm_routes;
@@ -64,6 +68,38 @@ static const struct snd_soc_dapm_route simple_amp_dapm_routes[] = {
 	{ "OUTR", NULL, "VCC" },
 	{ "OUTL", NULL, "DRV" },
 	{ "OUTR", NULL, "DRV" },
+};
+
+static const struct snd_soc_dapm_widget simple_amp_mono_pga_dapm_widgets[] = {
+	SND_SOC_DAPM_INPUT("IN"),
+	SND_SOC_DAPM_OUTPUT("OUT"),
+	SND_SOC_DAPM_PGA_E("PGA", SND_SOC_NOPM, 0, 0, NULL, 0, simple_amp_power_event,
+			   (SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_PRE_PMD)),
+	SND_SOC_DAPM_REGULATOR_SUPPLY("vdd", 0, 0),
+};
+
+static const struct snd_soc_dapm_route simple_amp_mono_pga_dapm_routes[] = {
+	{ "PGA", NULL, "IN" },
+	{ "PGA", NULL, "vdd" },
+	{ "OUT", NULL, "PGA" },
+};
+
+static const struct snd_soc_dapm_widget simple_amp_stereo_pga_dapm_widgets[] = {
+	SND_SOC_DAPM_INPUT("INL"),
+	SND_SOC_DAPM_INPUT("INR"),
+	SND_SOC_DAPM_OUTPUT("OUTL"),
+	SND_SOC_DAPM_OUTPUT("OUTR"),
+	SND_SOC_DAPM_PGA_E("PGA", SND_SOC_NOPM, 0, 0, NULL, 0, simple_amp_power_event,
+			   (SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_PRE_PMD)),
+	SND_SOC_DAPM_REGULATOR_SUPPLY("vdd", 0, 0),
+};
+
+static const struct snd_soc_dapm_route simple_amp_stereo_pga_dapm_routes[] = {
+	{ "PGA", NULL, "INL" },
+	{ "PGA", NULL, "INR" },
+	{ "PGA", NULL, "vdd" },
+	{ "OUTL", NULL, "PGA" },
+	{ "OUTR", NULL, "PGA" },
 };
 
 static int simple_amp_add_basic_dapm(struct snd_soc_component *component)
@@ -133,9 +169,27 @@ static const struct simple_amp_data simple_audio_amplifier_data = {
 	.num_dapm_routes	= ARRAY_SIZE(simple_amp_dapm_routes),
 };
 
+static const struct simple_amp_data simple_audio_mono_pga_data = {
+	.supports		= SIMPLE_AUDIO_SUPPORT_PGA,
+	.dapm_widgets		= simple_amp_mono_pga_dapm_widgets,
+	.num_dapm_widgets	= ARRAY_SIZE(simple_amp_mono_pga_dapm_widgets),
+	.dapm_routes		= simple_amp_mono_pga_dapm_routes,
+	.num_dapm_routes	= ARRAY_SIZE(simple_amp_mono_pga_dapm_routes),
+};
+
+static const struct simple_amp_data simple_audio_stereo_pga_data = {
+	.supports		= SIMPLE_AUDIO_SUPPORT_PGA,
+	.dapm_widgets		= simple_amp_stereo_pga_dapm_widgets,
+	.num_dapm_widgets	= ARRAY_SIZE(simple_amp_stereo_pga_dapm_widgets),
+	.dapm_routes		= simple_amp_stereo_pga_dapm_routes,
+	.num_dapm_routes	= ARRAY_SIZE(simple_amp_stereo_pga_dapm_routes),
+};
+
 static const struct of_device_id simple_amp_ids[] = {
 	{ .compatible = "dioo,dio2125",		  .data = &simple_audio_amplifier_data},
 	{ .compatible = "simple-audio-amplifier", .data = &simple_audio_amplifier_data},
+	{ .compatible = "gpio-audio-amp-mono",	  .data = &simple_audio_mono_pga_data},
+	{ .compatible = "gpio-audio-amp-stereo",  .data = &simple_audio_stereo_pga_data},
 	{ }
 };
 MODULE_DEVICE_TABLE(of, simple_amp_ids);
