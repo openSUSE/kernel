@@ -552,10 +552,14 @@ struct bpf_verifier_state {
 	u32 may_goto_depth;
 };
 
-#define bpf_get_spilled_reg(slot, frame, mask)				\
-	(((slot < frame->allocated_stack / BPF_REG_SIZE) &&		\
-	  ((1 << frame->stack[slot].slot_type[BPF_REG_SIZE - 1]) & (mask))) \
-	 ? &frame->stack[slot].spilled_ptr : NULL)
+static inline struct bpf_reg_state *
+bpf_get_spilled_reg(int slot, struct bpf_func_state *frame, u32 mask)
+{
+	if (slot < frame->allocated_stack / BPF_REG_SIZE &&
+	    (1 << frame->stack[slot].slot_type[BPF_REG_SIZE - 1]) & mask)
+		return &frame->stack[slot].spilled_ptr;
+	return NULL;
+}
 
 /* Iterate over 'frame', setting 'reg' to either NULL or a spilled register. */
 #define bpf_for_each_spilled_reg(iter, frame, reg, mask)			\
