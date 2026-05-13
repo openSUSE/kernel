@@ -670,6 +670,16 @@ static __init int sched_init_debug(void)
 	llc = debugfs_create_dir("llc_balancing", debugfs_sched);
 	debugfs_create_file("enabled", 0644, llc, NULL,
 			    &sched_cache_enable_fops);
+	debugfs_create_u32("aggr_tolerance", 0644, llc,
+			   &llc_aggr_tolerance);
+	debugfs_create_u32("epoch_period", 0644, llc,
+			   &llc_epoch_period);
+	debugfs_create_u32("epoch_affinity_timeout", 0644, llc,
+			   &llc_epoch_affinity_timeout);
+	debugfs_create_u32("overaggr_pct", 0644, llc,
+			   &llc_overaggr_pct);
+	debugfs_create_u32("imb_pct", 0644, llc,
+			   &llc_imb_pct);
 #endif
 
 	debugfs_create_file("debug", 0444, debugfs_sched, NULL, &sched_debug_fops);
