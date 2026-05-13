@@ -89,7 +89,7 @@ struct {
 #endif
 } arena SEC(".maps");
 
-struct qmap_arena __arena qa;
+struct qmap_arena __arena_global qa;
 
 /*
  * Global idle-cid tracking, maintained via update_idle / cpu_offline and
