@@ -105,18 +105,12 @@ static int asoc_sdw_ti_add_tac5xx2_routes(struct snd_soc_dapm_context *dapm,
 	struct snd_soc_dapm_route routes[2];
 	char left_widget[TAC5XX2_WIDGET_NAME_MAX];
 	char right_widget[TAC5XX2_WIDGET_NAME_MAX];
-	int ret;
 
 	if (strlen(name_prefix) > (TAC5XX2_WIDGET_NAME_MAX - 7))
 		return -ENAMETOOLONG;
 
-	ret = scnprintf(left_widget, sizeof(left_widget), "%s SPK_L", name_prefix);
-	if (ret <= 0)
-		return -EINVAL;
-
-	ret = scnprintf(right_widget, sizeof(right_widget), "%s SPK_R", name_prefix);
-	if (ret <= 0)
-		return -EINVAL;
+	scnprintf(left_widget, sizeof(left_widget), "%s SPK_L", name_prefix);
+	scnprintf(right_widget, sizeof(right_widget), "%s SPK_R", name_prefix);
 
 	routes[0] = (struct snd_soc_dapm_route){"Left Spk", NULL, left_widget};
 	routes[1] = (struct snd_soc_dapm_route){"Right Spk", NULL, right_widget};
