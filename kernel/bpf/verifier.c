@@ -292,6 +292,11 @@ static int arg_from_argno(argno_t a)
 	return -1;
 }
 
+static int arg_idx_from_argno(argno_t a)
+{
+	return arg_from_argno(a) - 1;
+}
+
 static const char *btf_type_name(const struct btf *btf, u32 id)
 {
 	return btf_name_by_offset(btf, btf_type_by_id(btf, id)->name_off);
@@ -4115,7 +4120,8 @@ static int check_stack_arg_write(struct bpf_verifier_env *env, struct bpf_func_s
 		__mark_reg_known(arg, env->prog->insnsi[env->insn_idx].imm);
 	}
 	state->no_stack_arg_load = true;
-	return 0;
+	return bpf_push_jmp_history(env, env->cur_state,
+				    INSN_F_STACK_ARG_ACCESS, spi, 0, 0);
 }
 
 /*
@@ -4146,7 +4152,17 @@ static int check_stack_arg_read(struct bpf_verifier_env *env, struct bpf_func_st
 	arg = &caller->stack_arg_regs[spi];
 	cur = vstate->frame[vstate->curframe];
 	cur->regs[dst_regno] = *arg;
-	return 0;
+	return bpf_push_jmp_history(env, env->cur_state,
+				    INSN_F_STACK_ARG_ACCESS, spi, 0, 0);
+}
+
+static int mark_stack_arg_precision(struct bpf_verifier_env *env, int arg_idx)
+{
+	struct bpf_func_state *caller = cur_func(env);
+	int spi = arg_idx - MAX_BPF_FUNC_REG_ARGS;
+
+	bt_set_frame_stack_arg_slot(&env->bt, caller->frameno, spi);
+	return mark_chain_precision_batch(env, env->cur_state);
 }
 
 static int check_outgoing_stack_args(struct bpf_verifier_env *env, struct bpf_func_state *caller,
@@ -6875,8 +6891,14 @@ static int check_mem_size_reg(struct bpf_verifier_env *env,
 	}
 	err = check_helper_mem_access(env, mem_reg, mem_argno, reg_umax(size_reg),
 				      access_type, zero_size_allowed, meta);
-	if (!err)
-		err = mark_chain_precision(env, reg_from_argno(size_argno));
+	if (!err) {
+		int regno = reg_from_argno(size_argno);
+
+		if (regno >= 0)
+			err = mark_chain_precision(env, regno);
+		else
+			err = mark_stack_arg_precision(env, arg_idx_from_argno(size_argno));
+	}
 	return err;
 }
 
@@ -7325,7 +7347,7 @@ static int process_iter_arg(struct bpf_verifier_env *env, struct bpf_reg_state *
 			    struct bpf_kfunc_call_arg_meta *meta)
 {
 	const struct btf_type *t;
-	u32 arg_idx = arg_from_argno(argno) - 1;
+	u32 arg_idx = arg_idx_from_argno(argno);
 	int spi, err, i, nr_slots, btf_id;
 
 	if (reg->type != PTR_TO_STACK) {

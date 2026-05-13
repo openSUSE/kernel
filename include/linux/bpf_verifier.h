@@ -443,6 +443,8 @@ enum {
 
 	INSN_F_DST_REG_STACK = BIT(1), /* dst_reg is PTR_TO_STACK */
 	INSN_F_SRC_REG_STACK = BIT(2), /* src_reg is PTR_TO_STACK */
+
+	INSN_F_STACK_ARG_ACCESS = BIT(3),
 };
 
 struct bpf_jmp_history_entry {
@@ -858,6 +860,7 @@ struct backtrack_state {
 	u32 frame;
 	u32 reg_masks[MAX_CALL_FRAMES];
 	u64 stack_masks[MAX_CALL_FRAMES];
+	u8 stack_arg_masks[MAX_CALL_FRAMES];
 };
 
 struct bpf_id_pair {
@@ -1254,6 +1257,11 @@ static inline void bpf_bt_set_frame_reg(struct backtrack_state *bt, u32 frame, u
 static inline void bpf_bt_set_frame_slot(struct backtrack_state *bt, u32 frame, u32 slot)
 {
 	bt->stack_masks[frame] |= 1ull << slot;
+}
+
+static inline void bt_set_frame_stack_arg_slot(struct backtrack_state *bt, u32 frame, u32 slot)
+{
+	bt->stack_arg_masks[frame] |= 1 << slot;
 }
 
 static inline bool bt_is_frame_reg_set(struct backtrack_state *bt, u32 frame, u32 reg)

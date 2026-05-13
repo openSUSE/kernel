@@ -129,9 +129,19 @@ static inline u32 bt_empty(struct backtrack_state *bt)
 	int i;
 
 	for (i = 0; i <= bt->frame; i++)
-		mask |= bt->reg_masks[i] | bt->stack_masks[i];
+		mask |= bt->reg_masks[i] | bt->stack_masks[i] | bt->stack_arg_masks[i];
 
 	return mask == 0;
+}
+
+static inline void bt_clear_frame_stack_arg_slot(struct backtrack_state *bt, u32 frame, u32 slot)
+{
+	bt->stack_arg_masks[frame] &= ~(1 << slot);
+}
+
+static inline bool bt_is_frame_stack_arg_slot_set(struct backtrack_state *bt, u32 frame, u32 slot)
+{
+	return bt->stack_arg_masks[frame] & (1 << slot);
 }
 
 static inline int bt_subprog_enter(struct backtrack_state *bt)
@@ -192,6 +202,11 @@ static inline u64 bt_frame_stack_mask(struct backtrack_state *bt, u32 frame)
 static inline u64 bt_stack_mask(struct backtrack_state *bt)
 {
 	return bt->stack_masks[bt->frame];
+}
+
+static inline u8 bt_stack_arg_mask(struct backtrack_state *bt)
+{
+	return bt->stack_arg_masks[bt->frame];
 }
 
 static inline bool bt_is_reg_set(struct backtrack_state *bt, u32 reg)
@@ -335,6 +350,19 @@ static int backtrack_insn(struct bpf_verifier_env *env, int idx, int subseq_idx,
 			return 0;
 		bt_clear_reg(bt, load_reg);
 
+		if (hist && hist->flags & INSN_F_STACK_ARG_ACCESS) {
+			spi = hist->spi;
+			/*
+			 * Stack arg read: callee reads from r11+off, but
+			 * the data lives in the caller's stack_arg_regs.
+			 * Set the mask in the caller frame so precision
+			 * is marked in the caller's slot at the callee
+			 * entry checkpoint.
+			 */
+			bt_set_frame_stack_arg_slot(bt, bt->frame - 1, spi);
+			return 0;
+		}
+
 		/* scalars can only be spilled into stack w/o losing precision.
 		 * Load from any other memory can be zero extended.
 		 * The desire to keep that precision is already indicated
@@ -357,6 +385,17 @@ static int backtrack_insn(struct bpf_verifier_env *env, int idx, int subseq_idx,
 			 * encountered a case of pointer subtraction.
 			 */
 			return -ENOTSUPP;
+
+		if (hist && hist->flags & INSN_F_STACK_ARG_ACCESS) {
+			spi = hist->spi;
+			if (!bt_is_frame_stack_arg_slot_set(bt, bt->frame, spi))
+				return 0;
+			bt_clear_frame_stack_arg_slot(bt, bt->frame, spi);
+			if (class == BPF_STX)
+				bt_set_reg(bt, sreg);
+			return 0;
+		}
+
 		/* scalars can only be spilled into stack */
 		if (!hist || !(hist->flags & INSN_F_STACK_ACCESS))
 			return 0;
@@ -424,6 +463,12 @@ static int backtrack_insn(struct bpf_verifier_env *env, int idx, int subseq_idx,
 						bt_clear_reg(bt, i);
 						bpf_bt_set_frame_reg(bt, bt->frame - 1, i);
 					}
+				}
+				if (bt_stack_arg_mask(bt)) {
+					verifier_bug(env,
+						     "static subprog leftover stack arg slots %x",
+						     bt_stack_arg_mask(bt));
+					return -EFAULT;
 				}
 				if (bt_subprog_exit(bt))
 					return -EFAULT;
@@ -890,6 +935,17 @@ int bpf_mark_chain_precision(struct bpf_verifier_env *env,
 				reg = &func->stack[i].spilled_ptr;
 				if (reg->precise) {
 					bt_clear_frame_slot(bt, fr, i);
+				} else {
+					reg->precise = true;
+					*changed = true;
+				}
+			}
+			for (i = 0; i < func->out_stack_arg_cnt; i++) {
+				if (!bt_is_frame_stack_arg_slot_set(bt, fr, i))
+					continue;
+				reg = &func->stack_arg_regs[i];
+				if (reg->type != SCALAR_VALUE || reg->precise) {
+					bt_clear_frame_stack_arg_slot(bt, fr, i);
 				} else {
 					reg->precise = true;
 					*changed = true;
