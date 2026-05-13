@@ -1492,12 +1492,7 @@ static noinline_for_stack int writepage_delalloc(struct btrfs_inode *inode,
 	int ret = 0;
 
 	/* Save the dirty bitmap as our submission bitmap will be a subset of it. */
-	if (btrfs_is_subpage(fs_info, folio)) {
-		ASSERT(blocks_per_folio > 1);
-		btrfs_get_subpage_dirty_bitmap(fs_info, folio, &bio_ctrl->submit_bitmap);
-	} else {
-		bio_ctrl->submit_bitmap = 1;
-	}
+	bio_ctrl->submit_bitmap = btrfs_get_subpage_dirty_bitmap_value(fs_info, folio);
 
 	for_each_set_bitrange(start_bit, end_bit, &bio_ctrl->submit_bitmap,
 			      blocks_per_folio) {

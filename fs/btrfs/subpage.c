@@ -555,25 +555,54 @@ IMPLEMENT_BTRFS_PAGE_OPS(dirty, folio_mark_dirty, folio_clear_dirty_for_io,
 IMPLEMENT_BTRFS_PAGE_OPS(writeback, folio_start_writeback, folio_end_writeback,
 			 folio_test_writeback);
 
-#define GET_SUBPAGE_BITMAP(fs_info, folio, name, dst)			\
-{									\
-	const unsigned int __bpf = btrfs_blocks_per_folio(fs_info, folio); \
-	const struct btrfs_folio_state *__bfs = folio_get_private(folio); \
-									\
-	ASSERT(__bpf <= BITS_PER_LONG);					\
-	*dst = bitmap_read(__bfs->bitmaps,				\
-			   __bpf * btrfs_bitmap_nr_##name, __bpf);	\
+#define DEFINE_GET_SUBPAGE_BITMAP(name)						\
+static inline unsigned long get_bitmap_value_##name(				\
+					const struct btrfs_fs_info *fs_info,	\
+					struct folio *folio)			\
+{										\
+	const unsigned int __bpf = btrfs_blocks_per_folio(fs_info, folio);	\
+	const struct btrfs_folio_state *__bfs = folio_get_private(folio);	\
+	unsigned long value;							\
+										\
+	ASSERT(__bpf <= BITS_PER_LONG);						\
+	value = bitmap_read(__bfs->bitmaps, __bpf * btrfs_bitmap_nr_##name,	\
+			     __bpf);						\
+	return value;								\
+}										\
+static inline const unsigned long *get_bitmap_pointer_##name(			\
+					const struct btrfs_fs_info *fs_info,	\
+					struct folio *folio)			\
+{										\
+	const unsigned int __bpf = btrfs_blocks_per_folio(fs_info, folio);	\
+	struct btrfs_folio_state *__bfs = folio_get_private(folio);		\
+	unsigned long *pointer;							\
+										\
+	ASSERT(__bpf >= BITS_PER_LONG);						\
+	ASSERT(IS_ALIGNED(__bpf, BITS_PER_LONG));				\
+	pointer = __bfs->bitmaps + (BIT_WORD(__bpf) * btrfs_bitmap_nr_##name);	\
+	return pointer;								\
 }
 
-#define SUBPAGE_DUMP_BITMAP(fs_info, folio, name, start, len)		\
-{									\
-	unsigned long bitmap;						\
-	const unsigned int __bpf = btrfs_blocks_per_folio(fs_info, folio); \
-									\
-	GET_SUBPAGE_BITMAP(fs_info, folio, name, &bitmap);		\
-	btrfs_warn(fs_info,						\
-	"dumping bitmap start=%llu len=%u folio=%llu " #name "_bitmap=%*pbl", \
-		   start, len, folio_pos(folio), __bpf, &bitmap);	\
+DEFINE_GET_SUBPAGE_BITMAP(uptodate);
+DEFINE_GET_SUBPAGE_BITMAP(dirty);
+DEFINE_GET_SUBPAGE_BITMAP(writeback);
+
+#define SUBPAGE_DUMP_BITMAP(fs_info, folio, name, start, len)			\
+{										\
+	const unsigned int __bpf = btrfs_blocks_per_folio(fs_info, folio);	\
+										\
+	if (__bpf <= BITS_PER_LONG) {						\
+		unsigned long bitmap = get_bitmap_value_##name(fs_info, folio);	\
+										\
+		btrfs_warn(fs_info,						\
+	"dumping bitmap start=%llu len=%u folio=%llu " #name "_bitmap=%*pbl",	\
+		   start, len, folio_pos(folio), __bpf, &bitmap);		\
+	} else {								\
+		btrfs_warn(fs_info,						\
+	"dumping bitmap start=%llu len=%u folio=%llu " #name "_bitmap=%*pbl",	\
+		   start, len, folio_pos(folio), __bpf,				\
+		   get_bitmap_pointer_##name(fs_info, folio));			\
+	}									\
 }
 
 /*
@@ -663,42 +692,63 @@ void __cold btrfs_subpage_dump_bitmap(const struct btrfs_fs_info *fs_info,
 {
 	struct btrfs_folio_state *bfs;
 	const unsigned int blocks_per_folio = btrfs_blocks_per_folio(fs_info, folio);
-	unsigned long uptodate_bitmap;
-	unsigned long dirty_bitmap;
-	unsigned long writeback_bitmap;
 	unsigned long flags;
 
 	ASSERT(folio_test_private(folio) && folio_get_private(folio));
 	ASSERT(blocks_per_folio > 1);
 	bfs = folio_get_private(folio);
 
-	spin_lock_irqsave(&bfs->lock, flags);
-	GET_SUBPAGE_BITMAP(fs_info, folio, uptodate, &uptodate_bitmap);
-	GET_SUBPAGE_BITMAP(fs_info, folio, dirty, &dirty_bitmap);
-	GET_SUBPAGE_BITMAP(fs_info, folio, writeback, &writeback_bitmap);
-	spin_unlock_irqrestore(&bfs->lock, flags);
-
 	dump_page(folio_page(folio, 0), "btrfs folio state dump");
+
+	if (blocks_per_folio <= BITS_PER_LONG) {
+		unsigned long uptodate;
+		unsigned long dirty;
+		unsigned long writeback;
+
+		spin_lock_irqsave(&bfs->lock, flags);
+		uptodate = get_bitmap_value_uptodate(fs_info, folio);
+		dirty = get_bitmap_value_dirty(fs_info, folio);
+		writeback = get_bitmap_value_writeback(fs_info, folio);
+
+		spin_unlock_irqrestore(&bfs->lock, flags);
+
+		btrfs_warn(fs_info,
+"start=%llu len=%u page=%llu, bitmaps uptodate=%*pbl dirty=%*pbl writeback=%*pbl",
+			    start, len, folio_pos(folio),
+			    blocks_per_folio, &uptodate,
+			    blocks_per_folio, &dirty,
+			    blocks_per_folio, &writeback);
+		return;
+	}
+
+	spin_lock_irqsave(&bfs->lock, flags);
 	btrfs_warn(fs_info,
 "start=%llu len=%u page=%llu, bitmaps uptodate=%*pbl dirty=%*pbl writeback=%*pbl",
 		    start, len, folio_pos(folio),
-		    blocks_per_folio, &uptodate_bitmap,
-		    blocks_per_folio, &dirty_bitmap,
-		    blocks_per_folio, &writeback_bitmap);
+		    blocks_per_folio, get_bitmap_pointer_uptodate(fs_info, folio),
+		    blocks_per_folio, get_bitmap_pointer_dirty(fs_info, folio),
+		    blocks_per_folio, get_bitmap_pointer_writeback(fs_info, folio));
+	spin_unlock_irqrestore(&bfs->lock, flags);
 }
 
-void btrfs_get_subpage_dirty_bitmap(struct btrfs_fs_info *fs_info,
-				    struct folio *folio,
-				    unsigned long *ret_bitmap)
+unsigned long btrfs_get_subpage_dirty_bitmap_value(struct btrfs_fs_info *fs_info,
+						   struct folio *folio)
 {
 	struct btrfs_folio_state *bfs;
+	const unsigned int blocks_per_folio = btrfs_blocks_per_folio(fs_info, folio);
 	unsigned long flags;
+	unsigned long value;
+
+	if (blocks_per_folio == 1)
+		return 1;
 
 	ASSERT(folio_test_private(folio) && folio_get_private(folio));
-	ASSERT(btrfs_blocks_per_folio(fs_info, folio) > 1);
+	ASSERT(blocks_per_folio > 1);
+	ASSERT(blocks_per_folio <= BITS_PER_LONG);
 	bfs = folio_get_private(folio);
 
 	spin_lock_irqsave(&bfs->lock, flags);
-	GET_SUBPAGE_BITMAP(fs_info, folio, dirty, ret_bitmap);
+	value = get_bitmap_value_dirty(fs_info, folio);
 	spin_unlock_irqrestore(&bfs->lock, flags);
+	return value;
 }
