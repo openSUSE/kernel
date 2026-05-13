@@ -1065,14 +1065,13 @@ static void mst_stream_post_disable(struct intel_atomic_state *state,
 		drm_atomic_get_mst_payload_state(new_mst_state, connector->mst.port);
 	struct intel_crtc *pipe_crtc;
 	bool last_mst_stream;
-	int i;
 
 	last_mst_stream = intel_dp_mst_dec_active_streams(intel_dp);
 
 	drm_WARN_ON(display->drm, DISPLAY_VER(display) >= 12 && last_mst_stream &&
 		    !intel_dp_mst_is_master_trans(old_crtc_state));
 
-	for_each_pipe_crtc_modeset_disable(display, pipe_crtc, old_crtc_state, i) {
+	for_each_pipe_crtc_modeset_disable(display, pipe_crtc, old_crtc_state) {
 		const struct intel_crtc_state *old_pipe_crtc_state =
 			intel_atomic_get_old_crtc_state(state, pipe_crtc);
 
@@ -1099,7 +1098,7 @@ static void mst_stream_post_disable(struct intel_atomic_state *state,
 
 	intel_ddi_disable_transcoder_func(old_crtc_state);
 
-	for_each_pipe_crtc_modeset_disable(display, pipe_crtc, old_crtc_state, i) {
+	for_each_pipe_crtc_modeset_disable(display, pipe_crtc, old_crtc_state) {
 		const struct intel_crtc_state *old_pipe_crtc_state =
 			intel_atomic_get_old_crtc_state(state, pipe_crtc);
 
@@ -1310,7 +1309,7 @@ static void mst_stream_enable(struct intel_atomic_state *state,
 	enum transcoder trans = pipe_config->cpu_transcoder;
 	bool first_mst_stream = intel_dp_mst_active_streams(intel_dp) == 1;
 	struct intel_crtc *pipe_crtc;
-	int ret, i;
+	int ret;
 
 	drm_WARN_ON(display->drm, pipe_config->has_pch_encoder);
 
@@ -1355,7 +1354,7 @@ static void mst_stream_enable(struct intel_atomic_state *state,
 
 	intel_enable_transcoder(pipe_config);
 
-	for_each_pipe_crtc_modeset_enable(display, pipe_crtc, pipe_config, i) {
+	for_each_pipe_crtc_modeset_enable(display, pipe_crtc, pipe_config) {
 		const struct intel_crtc_state *pipe_crtc_state =
 			intel_atomic_get_new_crtc_state(state, pipe_crtc);
 
