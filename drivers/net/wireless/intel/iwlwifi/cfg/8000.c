@@ -40,7 +40,6 @@ static const struct iwl_family_base_params iwl8000_base = {
 	.num_of_queues = 31,
 	.max_tfd_queue_size = 256,
 	.wd_timeout = IWL_LONG_WD_TIMEOUT,
-	.max_event_log_size = 512,
 	.shadow_reg_enable = true,
 	.pcie_l1_allowed = true,
 	.nvm_hw_section_num = 10,
