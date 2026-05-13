@@ -53,7 +53,6 @@ static const struct iwl_family_base_params iwl7000_base = {
 	.eeprom_size = OTP_LOW_IMAGE_SIZE_16K,
 	.num_of_queues = 31,
 	.max_tfd_queue_size = 256,
-	.shadow_ram_support = true,
 	.wd_timeout = IWL_LONG_WD_TIMEOUT,
 	.max_event_log_size = 512,
 	.shadow_reg_enable = true,
