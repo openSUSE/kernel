@@ -1689,7 +1689,7 @@ err_free:
 static bool has_fp_args(struct arg_track *args)
 {
 	for (int r = BPF_REG_1; r <= BPF_REG_5; r++)
-		if (args[r].frame != ARG_NONE)
+		if (arg_is_fp(&args[r]))
 			return true;
 	return false;
 }
