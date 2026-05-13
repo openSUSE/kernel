@@ -402,6 +402,7 @@ struct bpf_func_state {
 	bool in_callback_fn;
 	bool in_async_callback_fn;
 	bool in_exception_callback_fn;
+	bool no_stack_arg_load;
 	/* For callback calling functions that limit number of possible
 	 * callback executions (e.g. bpf_loop) keeps track of current
 	 * simulated iteration number.
@@ -427,46 +428,48 @@ struct bpf_func_state {
 	 * `stack`. allocated_stack is always a multiple of BPF_REG_SIZE.
 	 */
 	int allocated_stack;
+
+	u16 out_stack_arg_cnt; /* Number of outgoing on-stack argument slots */
+	struct bpf_reg_state *stack_arg_regs; /* Outgoing on-stack arguments */
 };
 
 #define MAX_CALL_FRAMES 8
 
-/* instruction history flags, used in bpf_jmp_history_entry.flags field */
+/* instruction history flags, used in bpf_jmp_history_entry.flags field.
+ * Frame number and SPI are stored in dedicated fields of bpf_jmp_history_entry.
+ */
 enum {
-	/* instruction references stack slot through PTR_TO_STACK register;
-	 * we also store stack's frame number in lower 3 bits (MAX_CALL_FRAMES is 8)
-	 * and accessed stack slot's index in next 6 bits (MAX_BPF_STACK is 512,
-	 * 8 bytes per slot, so slot index (spi) is [0, 63])
-	 */
-	INSN_F_FRAMENO_MASK = 0x7, /* 3 bits */
+	INSN_F_STACK_ACCESS = BIT(0),
 
-	INSN_F_SPI_MASK = 0x3f, /* 6 bits */
-	INSN_F_SPI_SHIFT = 3, /* shifted 3 bits to the left */
+	INSN_F_DST_REG_STACK = BIT(1), /* dst_reg is PTR_TO_STACK */
+	INSN_F_SRC_REG_STACK = BIT(2), /* src_reg is PTR_TO_STACK */
 
-	INSN_F_STACK_ACCESS = BIT(9),
-
-	INSN_F_DST_REG_STACK = BIT(10), /* dst_reg is PTR_TO_STACK */
-	INSN_F_SRC_REG_STACK = BIT(11), /* src_reg is PTR_TO_STACK */
-	/* total 12 bits are used now. */
+	INSN_F_STACK_ARG_ACCESS = BIT(3),
 };
 
-static_assert(INSN_F_FRAMENO_MASK + 1 >= MAX_CALL_FRAMES);
-static_assert(INSN_F_SPI_MASK + 1 >= MAX_BPF_STACK / 8);
-
 struct bpf_jmp_history_entry {
-	u32 idx;
 	/* insn idx can't be bigger than 1 million */
+	u32 idx : 20;
+	u32 frame : 3;	/* stack access frame number */
+	u32 spi : 6;	/* stack slot index (0..63) */
+	u32 : 3;
 	u32 prev_idx : 20;
 	/* special INSN_F_xxx flags */
-	u32 flags : 12;
+	u32 flags : 4;
+	u32 : 8;
 	/* additional registers that need precision tracking when this
 	 * jump is backtracked, vector of six 10-bit records
 	 */
 	u64 linked_regs;
 };
 
-/* Maximum number of register states that can exist at once */
-#define BPF_ID_MAP_SIZE ((MAX_BPF_REG + MAX_BPF_STACK / BPF_REG_SIZE) * MAX_CALL_FRAMES)
+static_assert(MAX_CALL_FRAMES <= (1 << 3));
+static_assert(MAX_BPF_STACK / 8 <= (1 << 6));
+
+/* Maximum number of bpf_reg_state objects that can exist at once */
+#define MAX_STACK_ARG_SLOTS (MAX_BPF_FUNC_ARGS - MAX_BPF_FUNC_REG_ARGS)
+#define BPF_ID_MAP_SIZE ((MAX_BPF_REG + MAX_BPF_STACK / BPF_REG_SIZE + \
+			  MAX_STACK_ARG_SLOTS) * MAX_CALL_FRAMES)
 struct bpf_verifier_state {
 	/* call stack tracking */
 	struct bpf_func_state *frame[MAX_CALL_FRAMES];
@@ -552,16 +555,35 @@ struct bpf_verifier_state {
 	u32 may_goto_depth;
 };
 
-#define bpf_get_spilled_reg(slot, frame, mask)				\
-	(((slot < frame->allocated_stack / BPF_REG_SIZE) &&		\
-	  ((1 << frame->stack[slot].slot_type[BPF_REG_SIZE - 1]) & (mask))) \
-	 ? &frame->stack[slot].spilled_ptr : NULL)
+static inline struct bpf_reg_state *
+bpf_get_spilled_reg(int slot, struct bpf_func_state *frame, u32 mask)
+{
+	if (slot < frame->allocated_stack / BPF_REG_SIZE &&
+	    (1 << frame->stack[slot].slot_type[BPF_REG_SIZE - 1]) & mask)
+		return &frame->stack[slot].spilled_ptr;
+	return NULL;
+}
+
+static inline struct bpf_reg_state *
+bpf_get_spilled_stack_arg(int slot, struct bpf_func_state *frame)
+{
+	if (slot < frame->out_stack_arg_cnt &&
+	    frame->stack_arg_regs[slot].type != NOT_INIT)
+		return &frame->stack_arg_regs[slot];
+	return NULL;
+}
 
 /* Iterate over 'frame', setting 'reg' to either NULL or a spilled register. */
 #define bpf_for_each_spilled_reg(iter, frame, reg, mask)			\
 	for (iter = 0, reg = bpf_get_spilled_reg(iter, frame, mask);		\
 	     iter < frame->allocated_stack / BPF_REG_SIZE;		\
 	     iter++, reg = bpf_get_spilled_reg(iter, frame, mask))
+
+/* Iterate over 'frame', setting 'reg' to either NULL or a spilled stack arg. */
+#define bpf_for_each_spilled_stack_arg(iter, frame, reg)               \
+	for (iter = 0, reg = bpf_get_spilled_stack_arg(iter, frame);   \
+	     iter < frame->out_stack_arg_cnt;                          \
+	     iter++, reg = bpf_get_spilled_stack_arg(iter, frame))
 
 #define bpf_for_each_reg_in_vstate_mask(__vst, __state, __reg, __mask, __expr)   \
 	({                                                               \
@@ -580,6 +602,11 @@ struct bpf_verifier_state {
 					continue;                        \
 				(void)(__expr);                          \
 			}                                                \
+			bpf_for_each_spilled_stack_arg(___j, __state, __reg) { \
+				if (!__reg)                              \
+					continue;                        \
+				(void)(__expr);                          \
+			}						 \
 		}                                                        \
 	})
 
@@ -811,11 +838,20 @@ struct bpf_subprog_info {
 	bool keep_fastcall_stack: 1;
 	bool changes_pkt_data: 1;
 	bool might_sleep: 1;
-	u8 arg_cnt:3;
+	u8 arg_cnt:4;
 
 	enum priv_stack_mode priv_stack_mode;
-	struct bpf_subprog_arg_info args[MAX_BPF_FUNC_REG_ARGS];
+	struct bpf_subprog_arg_info args[MAX_BPF_FUNC_ARGS];
+	u16 stack_arg_cnt; /* incoming + max outgoing */
+	u16 max_out_stack_arg_cnt;
 };
+
+static inline u16 bpf_in_stack_arg_cnt(const struct bpf_subprog_info *sub)
+{
+	if (sub->arg_cnt > MAX_BPF_FUNC_REG_ARGS)
+		return sub->arg_cnt - MAX_BPF_FUNC_REG_ARGS;
+	return 0;
+}
 
 struct bpf_verifier_env;
 
@@ -824,6 +860,7 @@ struct backtrack_state {
 	u32 frame;
 	u32 reg_masks[MAX_CALL_FRAMES];
 	u64 stack_masks[MAX_CALL_FRAMES];
+	u8 stack_arg_masks[MAX_CALL_FRAMES];
 };
 
 struct bpf_id_pair {
@@ -1159,7 +1196,7 @@ struct list_head *bpf_explored_state(struct bpf_verifier_env *env, int idx);
 void bpf_free_verifier_state(struct bpf_verifier_state *state, bool free_self);
 void bpf_free_backedges(struct bpf_scc_visit *visit);
 int bpf_push_jmp_history(struct bpf_verifier_env *env, struct bpf_verifier_state *cur,
-			 int insn_flags, u64 linked_regs);
+			 int insn_flags, int spi, int frame, u64 linked_regs);
 void bpf_bt_sync_linked_regs(struct backtrack_state *bt, struct bpf_jmp_history_entry *hist);
 void bpf_mark_reg_not_init(const struct bpf_verifier_env *env,
 			   struct bpf_reg_state *reg);
@@ -1220,6 +1257,11 @@ static inline void bpf_bt_set_frame_reg(struct backtrack_state *bt, u32 frame, u
 static inline void bpf_bt_set_frame_slot(struct backtrack_state *bt, u32 frame, u32 slot)
 {
 	bt->stack_masks[frame] |= 1ull << slot;
+}
+
+static inline void bt_set_frame_stack_arg_slot(struct backtrack_state *bt, u32 frame, u32 slot)
+{
+	bt->stack_arg_masks[frame] |= 1 << slot;
 }
 
 static inline bool bt_is_frame_reg_set(struct backtrack_state *bt, u32 frame, u32 reg)
