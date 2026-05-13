@@ -1649,7 +1649,7 @@ void account_mm_sched(struct rq *rq, struct task_struct *p, s64 delta_exec)
 	if (!mm || !mm->sc_stat.pcpu_sched)
 		return;
 
-	pcpu_sched = per_cpu_ptr(p->mm->sc_stat.pcpu_sched, cpu_of(rq));
+	pcpu_sched = per_cpu_ptr(mm->sc_stat.pcpu_sched, cpu_of(rq));
 
 	scoped_guard (raw_spinlock, &rq->cpu_epoch_lock) {
 		__update_mm_sched(rq, pcpu_sched);
@@ -1689,7 +1689,8 @@ static void task_tick_cache(struct rq *rq, struct task_struct *p)
 	if (!sched_cache_enabled())
 		return;
 
-	if (!mm || !mm->sc_stat.pcpu_sched)
+	if (!mm || p->flags & PF_KTHREAD ||
+	    !mm->sc_stat.pcpu_sched)
 		return;
 
 	epoch = rq->cpu_epoch;
