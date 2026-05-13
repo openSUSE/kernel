@@ -39,7 +39,6 @@
 #include "display/intel_display_irq.h"
 #include "display/intel_hotplug.h"
 #include "display/intel_hotplug_irq.h"
-#include "display/intel_lpe_audio.h"
 
 #include "gt/intel_breadcrumbs.h"
 #include "gt/intel_gt.h"
@@ -236,17 +235,15 @@ static irqreturn_t valleyview_irq_handler(int irq, void *arg)
 	disable_rpm_wakeref_asserts(&dev_priv->runtime_pm);
 
 	do {
-		u32 iir, gt_iir, pm_iir;
-		u32 eir = 0, dpinvgtt = 0;
-		u32 pipe_stats[I915_MAX_PIPES] = {};
-		u32 hotplug_status = 0;
+		struct intel_display_irq_state state = {};
+		u32 gt_iir, pm_iir;
 		u32 ier = 0;
 
 		gt_iir = intel_uncore_read(&dev_priv->uncore, GTIIR);
 		pm_iir = intel_uncore_read(&dev_priv->uncore, GEN6_PMIIR);
-		iir = intel_uncore_read(&dev_priv->uncore, VLV_IIR);
+		state.iir = intel_uncore_read(&dev_priv->uncore, VLV_IIR);
 
-		if (gt_iir == 0 && pm_iir == 0 && iir == 0)
+		if (gt_iir == 0 && pm_iir == 0 && state.iir == 0)
 			break;
 
 		ret = IRQ_HANDLED;
@@ -272,26 +269,14 @@ static irqreturn_t valleyview_irq_handler(int irq, void *arg)
 		if (pm_iir)
 			intel_uncore_write(&dev_priv->uncore, GEN6_PMIIR, pm_iir);
 
-		if (iir & I915_DISPLAY_PORT_INTERRUPT)
-			hotplug_status = i9xx_hpd_irq_ack(display);
-
-		if (iir & I915_MASTER_ERROR_INTERRUPT)
-			vlv_display_error_irq_ack(display, &eir, &dpinvgtt);
-
-		/* Call regardless, as some status bits might not be
-		 * signalled in IIR */
-		i9xx_pipestat_irq_ack(display, iir, pipe_stats);
-
-		if (iir & (I915_LPE_PIPE_A_INTERRUPT |
-			   I915_LPE_PIPE_B_INTERRUPT))
-			intel_lpe_audio_irq_handler(display);
+		vlv_display_irq_ack(display, &state);
 
 		/*
 		 * VLV_IIR is single buffered, and reflects the level
 		 * from PIPESTAT/PORT_HOTPLUG_STAT, hence clear it last.
 		 */
-		if (iir)
-			intel_uncore_write(&dev_priv->uncore, VLV_IIR, iir);
+		if (state.iir)
+			intel_uncore_write(&dev_priv->uncore, VLV_IIR, state.iir);
 
 		intel_uncore_write(&dev_priv->uncore, VLV_IER, ier);
 		intel_uncore_write(&dev_priv->uncore, VLV_MASTER_IER, MASTER_INTERRUPT_ENABLE);
@@ -301,13 +286,13 @@ static irqreturn_t valleyview_irq_handler(int irq, void *arg)
 		if (pm_iir)
 			gen6_rps_irq_handler(&to_gt(dev_priv)->rps, pm_iir);
 
-		if (hotplug_status)
-			i9xx_hpd_irq_handler(display, hotplug_status);
+		if (state.hotplug_status)
+			i9xx_hpd_irq_handler(display, state.hotplug_status);
 
-		if (iir & I915_MASTER_ERROR_INTERRUPT)
-			vlv_display_error_irq_handler(display, eir, dpinvgtt);
+		if (state.iir & I915_MASTER_ERROR_INTERRUPT)
+			vlv_display_error_irq_handler(display, state.eir, state.dpinvgtt);
 
-		valleyview_pipestat_irq_handler(display, pipe_stats);
+		valleyview_pipestat_irq_handler(display, state.pipe_stats);
 	} while (0);
 
 	pmu_irq_stats(dev_priv, ret);
@@ -330,16 +315,14 @@ static irqreturn_t cherryview_irq_handler(int irq, void *arg)
 	disable_rpm_wakeref_asserts(&dev_priv->runtime_pm);
 
 	do {
-		u32 master_ctl, iir;
-		u32 eir = 0, dpinvgtt = 0;
-		u32 pipe_stats[I915_MAX_PIPES] = {};
-		u32 hotplug_status = 0;
+		struct intel_display_irq_state state = {};
+		u32 master_ctl;
 		u32 ier = 0;
 
 		master_ctl = intel_uncore_read(&dev_priv->uncore, GEN8_MASTER_IRQ) & ~GEN8_MASTER_IRQ_CONTROL;
-		iir = intel_uncore_read(&dev_priv->uncore, VLV_IIR);
+		state.iir = intel_uncore_read(&dev_priv->uncore, VLV_IIR);
 
-		if (master_ctl == 0 && iir == 0)
+		if (master_ctl == 0 && state.iir == 0)
 			break;
 
 		ret = IRQ_HANDLED;
@@ -362,38 +345,25 @@ static irqreturn_t cherryview_irq_handler(int irq, void *arg)
 
 		gen8_gt_irq_handler(to_gt(dev_priv), master_ctl);
 
-		if (iir & I915_DISPLAY_PORT_INTERRUPT)
-			hotplug_status = i9xx_hpd_irq_ack(display);
-
-		if (iir & I915_MASTER_ERROR_INTERRUPT)
-			vlv_display_error_irq_ack(display, &eir, &dpinvgtt);
-
-		/* Call regardless, as some status bits might not be
-		 * signalled in IIR */
-		i9xx_pipestat_irq_ack(display, iir, pipe_stats);
-
-		if (iir & (I915_LPE_PIPE_A_INTERRUPT |
-			   I915_LPE_PIPE_B_INTERRUPT |
-			   I915_LPE_PIPE_C_INTERRUPT))
-			intel_lpe_audio_irq_handler(display);
+		vlv_display_irq_ack(display, &state);
 
 		/*
 		 * VLV_IIR is single buffered, and reflects the level
 		 * from PIPESTAT/PORT_HOTPLUG_STAT, hence clear it last.
 		 */
-		if (iir)
-			intel_uncore_write(&dev_priv->uncore, VLV_IIR, iir);
+		if (state.iir)
+			intel_uncore_write(&dev_priv->uncore, VLV_IIR, state.iir);
 
 		intel_uncore_write(&dev_priv->uncore, VLV_IER, ier);
 		intel_uncore_write(&dev_priv->uncore, GEN8_MASTER_IRQ, GEN8_MASTER_IRQ_CONTROL);
 
-		if (hotplug_status)
-			i9xx_hpd_irq_handler(display, hotplug_status);
+		if (state.hotplug_status)
+			i9xx_hpd_irq_handler(display, state.hotplug_status);
 
-		if (iir & I915_MASTER_ERROR_INTERRUPT)
-			vlv_display_error_irq_handler(display, eir, dpinvgtt);
+		if (state.iir & I915_MASTER_ERROR_INTERRUPT)
+			vlv_display_error_irq_handler(display, state.eir, state.dpinvgtt);
 
-		valleyview_pipestat_irq_handler(display, pipe_stats);
+		valleyview_pipestat_irq_handler(display, state.pipe_stats);
 	} while (0);
 
 	pmu_irq_stats(dev_priv, ret);
@@ -904,39 +874,32 @@ static irqreturn_t i915_irq_handler(int irq, void *arg)
 	disable_rpm_wakeref_asserts(&dev_priv->runtime_pm);
 
 	do {
-		u32 pipe_stats[I915_MAX_PIPES] = {};
+		struct intel_display_irq_state state = {};
 		u32 eir = 0, eir_stuck = 0;
-		u32 hotplug_status = 0;
-		u32 iir;
 
-		iir = intel_uncore_read(&dev_priv->uncore, GEN2_IIR);
-		if (iir == 0)
+		state.iir = intel_uncore_read(&dev_priv->uncore, GEN2_IIR);
+		if (state.iir == 0)
 			break;
 
 		ret = IRQ_HANDLED;
 
-		if (iir & I915_DISPLAY_PORT_INTERRUPT)
-			hotplug_status = i9xx_hpd_irq_ack(display);
+		i9xx_display_irq_ack(display, &state);
 
-		/* Call regardless, as some status bits might not be
-		 * signalled in IIR */
-		i9xx_pipestat_irq_ack(display, iir, pipe_stats);
-
-		if (iir & I915_MASTER_ERROR_INTERRUPT)
+		if (state.iir & I915_MASTER_ERROR_INTERRUPT)
 			i9xx_error_irq_ack(dev_priv, &eir, &eir_stuck);
 
-		intel_uncore_write(&dev_priv->uncore, GEN2_IIR, iir);
+		intel_uncore_write(&dev_priv->uncore, GEN2_IIR, state.iir);
 
-		if (iir & I915_USER_INTERRUPT)
-			intel_engine_cs_irq(to_gt(dev_priv)->engine[RCS0], iir);
+		if (state.iir & I915_USER_INTERRUPT)
+			intel_engine_cs_irq(to_gt(dev_priv)->engine[RCS0], state.iir);
 
-		if (iir & I915_MASTER_ERROR_INTERRUPT)
+		if (state.iir & I915_MASTER_ERROR_INTERRUPT)
 			i9xx_error_irq_handler(dev_priv, eir, eir_stuck);
 
-		if (hotplug_status)
-			i9xx_hpd_irq_handler(display, hotplug_status);
+		if (state.hotplug_status)
+			i9xx_hpd_irq_handler(display, state.hotplug_status);
 
-		i915_pipestat_irq_handler(display, iir, pipe_stats);
+		i915_pipestat_irq_handler(display, state.iir, state.pipe_stats);
 	} while (0);
 
 	pmu_irq_stats(dev_priv, ret);
@@ -1013,44 +976,37 @@ static irqreturn_t i965_irq_handler(int irq, void *arg)
 	disable_rpm_wakeref_asserts(&dev_priv->runtime_pm);
 
 	do {
-		u32 pipe_stats[I915_MAX_PIPES] = {};
+		struct intel_display_irq_state state = {};
 		u32 eir = 0, eir_stuck = 0;
-		u32 hotplug_status = 0;
-		u32 iir;
 
-		iir = intel_uncore_read(&dev_priv->uncore, GEN2_IIR);
-		if (iir == 0)
+		state.iir = intel_uncore_read(&dev_priv->uncore, GEN2_IIR);
+		if (state.iir == 0)
 			break;
 
 		ret = IRQ_HANDLED;
 
-		if (iir & I915_DISPLAY_PORT_INTERRUPT)
-			hotplug_status = i9xx_hpd_irq_ack(display);
+		i9xx_display_irq_ack(display, &state);
 
-		/* Call regardless, as some status bits might not be
-		 * signalled in IIR */
-		i9xx_pipestat_irq_ack(display, iir, pipe_stats);
-
-		if (iir & I915_MASTER_ERROR_INTERRUPT)
+		if (state.iir & I915_MASTER_ERROR_INTERRUPT)
 			i9xx_error_irq_ack(dev_priv, &eir, &eir_stuck);
 
-		intel_uncore_write(&dev_priv->uncore, GEN2_IIR, iir);
+		intel_uncore_write(&dev_priv->uncore, GEN2_IIR, state.iir);
 
-		if (iir & I915_USER_INTERRUPT)
+		if (state.iir & I915_USER_INTERRUPT)
 			intel_engine_cs_irq(to_gt(dev_priv)->engine[RCS0],
-					    iir);
+					    state.iir);
 
-		if (iir & I915_BSD_USER_INTERRUPT)
+		if (state.iir & I915_BSD_USER_INTERRUPT)
 			intel_engine_cs_irq(to_gt(dev_priv)->engine[VCS0],
-					    iir >> 25);
+					    state.iir >> 25);
 
-		if (iir & I915_MASTER_ERROR_INTERRUPT)
+		if (state.iir & I915_MASTER_ERROR_INTERRUPT)
 			i9xx_error_irq_handler(dev_priv, eir, eir_stuck);
 
-		if (hotplug_status)
-			i9xx_hpd_irq_handler(display, hotplug_status);
+		if (state.hotplug_status)
+			i9xx_hpd_irq_handler(display, state.hotplug_status);
 
-		i965_pipestat_irq_handler(display, iir, pipe_stats);
+		i965_pipestat_irq_handler(display, state.iir, state.pipe_stats);
 	} while (0);
 
 	pmu_irq_stats(dev_priv, IRQ_HANDLED);

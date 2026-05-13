@@ -23,6 +23,7 @@
 #include "intel_fifo_underrun.h"
 #include "intel_gmbus.h"
 #include "intel_hotplug_irq.h"
+#include "intel_lpe_audio.h"
 #include "intel_parent.h"
 #include "intel_pipe_crc_regs.h"
 #include "intel_plane.h"
@@ -529,8 +530,8 @@ static void i9xx_pipestat_irq_reset(struct intel_display *display)
 	}
 }
 
-void i9xx_pipestat_irq_ack(struct intel_display *display,
-			   u32 iir, u32 pipe_stats[I915_MAX_PIPES])
+static void i9xx_pipestat_irq_ack(struct intel_display *display,
+				  u32 iir, u32 pipe_stats[I915_MAX_PIPES])
 {
 	enum pipe pipe;
 
@@ -1898,8 +1899,8 @@ static void vlv_page_table_error_irq_handler(struct intel_display *display, u32 
 	}
 }
 
-void vlv_display_error_irq_ack(struct intel_display *display,
-			       u32 *eir, u32 *dpinvgtt)
+static void vlv_display_error_irq_ack(struct intel_display *display,
+				      u32 *eir, u32 *dpinvgtt)
 {
 	u32 emr;
 
@@ -2010,6 +2011,16 @@ static void i965_display_irq_postinstall(struct intel_display *display)
 	i915_enable_asle_pipestat(display);
 }
 
+void i9xx_display_irq_ack(struct intel_display *display,
+			  struct intel_display_irq_state *state)
+{
+	if (state->iir & I915_DISPLAY_PORT_INTERRUPT)
+		state->hotplug_status = i9xx_hpd_irq_ack(display);
+
+	/* Call regardless, as some status bits might not be signalled in IIR */
+	i9xx_pipestat_irq_ack(display, state->iir, state->pipe_stats);
+}
+
 static u32 vlv_error_mask(void)
 {
 	/* TODO enable other errors too? */
@@ -2063,6 +2074,32 @@ static void vlv_display_irq_postinstall(struct intel_display *display)
 	if (display->irq.vlv_display_irqs_enabled)
 		_vlv_display_irq_postinstall(display);
 	spin_unlock_irq(&display->irq.lock);
+}
+
+static u32 vlv_lpe_irq_mask(struct intel_display *display)
+{
+	if (display->platform.cherryview)
+		return I915_LPE_PIPE_A_INTERRUPT | I915_LPE_PIPE_B_INTERRUPT |
+			I915_LPE_PIPE_C_INTERRUPT;
+	else
+		return I915_LPE_PIPE_A_INTERRUPT | I915_LPE_PIPE_B_INTERRUPT;
+}
+
+void vlv_display_irq_ack(struct intel_display *display,
+			 struct intel_display_irq_state *state)
+{
+	if (state->iir & I915_DISPLAY_PORT_INTERRUPT)
+		state->hotplug_status = i9xx_hpd_irq_ack(display);
+
+	if (state->iir & I915_MASTER_ERROR_INTERRUPT)
+		vlv_display_error_irq_ack(display, &state->eir, &state->dpinvgtt);
+
+	/* Call regardless, as some status bits might not be signalled in IIR */
+	i9xx_pipestat_irq_ack(display, state->iir, state->pipe_stats);
+
+	/* The handler acks the irq, so need to call the handler here */
+	if (state->iir & vlv_lpe_irq_mask(display))
+		intel_lpe_audio_irq_handler(display);
 }
 
 static void ibx_display_irq_reset(struct intel_display *display)
