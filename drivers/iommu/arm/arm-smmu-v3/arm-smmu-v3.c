@@ -268,53 +268,6 @@ static int queue_remove_raw(struct arm_smmu_queue *q, u64 *ent)
 }
 
 /* High-level queue accessors */
-static int arm_smmu_cmdq_build_cmd(struct arm_smmu_cmd *cmd_out,
-				   struct arm_smmu_cmdq_ent *ent)
-{
-	u64 *cmd = cmd_out->data;
-
-	memset(cmd_out, 0, sizeof(*cmd_out));
-	cmd[0] |= FIELD_PREP(CMDQ_0_OP, ent->opcode);
-
-	switch (ent->opcode) {
-	case CMDQ_OP_TLBI_NH_VA:
-		cmd[0] |= FIELD_PREP(CMDQ_TLBI_0_VMID, ent->tlbi.vmid);
-		fallthrough;
-	case CMDQ_OP_TLBI_EL2_VA:
-		cmd[0] |= FIELD_PREP(CMDQ_TLBI_0_NUM, ent->tlbi.num);
-		cmd[0] |= FIELD_PREP(CMDQ_TLBI_0_SCALE, ent->tlbi.scale);
-		cmd[0] |= FIELD_PREP(CMDQ_TLBI_0_ASID, ent->tlbi.asid);
-		cmd[1] |= FIELD_PREP(CMDQ_TLBI_1_LEAF, ent->tlbi.leaf);
-		cmd[1] |= FIELD_PREP(CMDQ_TLBI_1_TTL, ent->tlbi.ttl);
-		cmd[1] |= FIELD_PREP(CMDQ_TLBI_1_TG, ent->tlbi.tg);
-		cmd[1] |= ent->tlbi.addr & CMDQ_TLBI_1_VA_MASK;
-		break;
-	case CMDQ_OP_TLBI_S2_IPA:
-		cmd[0] |= FIELD_PREP(CMDQ_TLBI_0_NUM, ent->tlbi.num);
-		cmd[0] |= FIELD_PREP(CMDQ_TLBI_0_SCALE, ent->tlbi.scale);
-		cmd[0] |= FIELD_PREP(CMDQ_TLBI_0_VMID, ent->tlbi.vmid);
-		cmd[1] |= FIELD_PREP(CMDQ_TLBI_1_LEAF, ent->tlbi.leaf);
-		cmd[1] |= FIELD_PREP(CMDQ_TLBI_1_TTL, ent->tlbi.ttl);
-		cmd[1] |= FIELD_PREP(CMDQ_TLBI_1_TG, ent->tlbi.tg);
-		cmd[1] |= ent->tlbi.addr & CMDQ_TLBI_1_IPA_MASK;
-		break;
-	case CMDQ_OP_TLBI_NH_ASID:
-		cmd[0] |= FIELD_PREP(CMDQ_TLBI_0_ASID, ent->tlbi.asid);
-		fallthrough;
-	case CMDQ_OP_TLBI_NH_ALL:
-	case CMDQ_OP_TLBI_S12_VMALL:
-		cmd[0] |= FIELD_PREP(CMDQ_TLBI_0_VMID, ent->tlbi.vmid);
-		break;
-	case CMDQ_OP_TLBI_EL2_ASID:
-		cmd[0] |= FIELD_PREP(CMDQ_TLBI_0_ASID, ent->tlbi.asid);
-		break;
-	default:
-		return -ENOENT;
-	}
-
-	return 0;
-}
-
 static struct arm_smmu_cmdq *arm_smmu_get_cmdq(struct arm_smmu_device *smmu,
 					       struct arm_smmu_cmd *cmd)
 {
@@ -894,16 +847,6 @@ static void arm_smmu_cmdq_batch_init_cmd(struct arm_smmu_device *smmu,
 	cmds->cmdq = arm_smmu_get_cmdq(smmu, cmd);
 }
 
-static void arm_smmu_cmdq_batch_init(struct arm_smmu_device *smmu,
-				     struct arm_smmu_cmdq_batch *cmds,
-				     struct arm_smmu_cmdq_ent *ent)
-{
-	struct arm_smmu_cmd cmd;
-
-	arm_smmu_cmdq_build_cmd(&cmd, ent);
-	arm_smmu_cmdq_batch_init_cmd(smmu, cmds, &cmd);
-}
-
 static void arm_smmu_cmdq_batch_add_cmd_p(struct arm_smmu_device *smmu,
 					  struct arm_smmu_cmdq_batch *cmds,
 					  struct arm_smmu_cmd *cmd)
@@ -933,21 +876,6 @@ static void arm_smmu_cmdq_batch_add_cmd_p(struct arm_smmu_device *smmu,
 		struct arm_smmu_cmd __cmd = cmd;                   \
 		arm_smmu_cmdq_batch_add_cmd_p(smmu, cmds, &__cmd); \
 	})
-
-static void arm_smmu_cmdq_batch_add(struct arm_smmu_device *smmu,
-				    struct arm_smmu_cmdq_batch *cmds,
-				    struct arm_smmu_cmdq_ent *ent)
-{
-	struct arm_smmu_cmd cmd;
-
-	if (unlikely(arm_smmu_cmdq_build_cmd(&cmd, ent))) {
-		dev_warn(smmu->dev, "ignoring unknown CMDQ opcode 0x%x\n",
-			 ent->opcode);
-		return;
-	}
-
-	arm_smmu_cmdq_batch_add_cmd_p(smmu, cmds, &cmd);
-}
 
 static int arm_smmu_cmdq_batch_submit(struct arm_smmu_device *smmu,
 				      struct arm_smmu_cmdq_batch *cmds)
@@ -2450,12 +2378,14 @@ static void arm_smmu_tlb_inv_context(void *cookie)
 
 static void arm_smmu_cmdq_batch_add_range(struct arm_smmu_device *smmu,
 					  struct arm_smmu_cmdq_batch *cmds,
-					  struct arm_smmu_cmdq_ent *cmd,
+					  struct arm_smmu_cmd *cmd, bool leaf,
 					  unsigned long iova, size_t size,
 					  size_t granule, size_t pgsize)
 {
 	unsigned long end = iova + size, num_pages = 0, tg = pgsize;
+	u64 orig_data0 = cmd->data[0];
 	size_t inv_range = granule;
+	u8 ttl = 0, tg_enc = 0;
 
 	if (WARN_ON_ONCE(!size))
 		return;
@@ -2464,7 +2394,7 @@ static void arm_smmu_cmdq_batch_add_range(struct arm_smmu_device *smmu,
 		num_pages = size >> tg;
 
 		/* Convert page size of 12,14,16 (log2) to 1,2,3 */
-		cmd->tlbi.tg = (tg - 10) / 2;
+		tg_enc = (tg - 10) / 2;
 
 		/*
 		 * Determine what level the granule is at. For non-leaf, both
@@ -2474,8 +2404,8 @@ static void arm_smmu_cmdq_batch_add_range(struct arm_smmu_device *smmu,
 		 * want to use a range command, so avoid the SVA corner case
 		 * where both scale and num could be 0 as well.
 		 */
-		if (cmd->tlbi.leaf)
-			cmd->tlbi.ttl = 4 - ((ilog2(granule) - 3) / (tg - 3));
+		if (leaf)
+			ttl = 4 - ((ilog2(granule) - 3) / (tg - 3));
 		else if ((num_pages & CMDQ_TLBI_RANGE_NUM_MAX) == 1)
 			num_pages++;
 	}
@@ -2493,11 +2423,13 @@ static void arm_smmu_cmdq_batch_add_range(struct arm_smmu_device *smmu,
 
 			/* Determine the power of 2 multiple number of pages */
 			scale = __ffs(num_pages);
-			cmd->tlbi.scale = scale;
 
 			/* Determine how many chunks of 2^scale size we have */
 			num = (num_pages >> scale) & CMDQ_TLBI_RANGE_NUM_MAX;
-			cmd->tlbi.num = num - 1;
+
+			cmd->data[0] = orig_data0 |
+				FIELD_PREP(CMDQ_TLBI_0_NUM, num - 1) |
+				FIELD_PREP(CMDQ_TLBI_0_SCALE, scale);
 
 			/* range is num * 2^scale * pgsize */
 			inv_range = num << (scale + tg);
@@ -2506,8 +2438,17 @@ static void arm_smmu_cmdq_batch_add_range(struct arm_smmu_device *smmu,
 			num_pages -= num << scale;
 		}
 
-		cmd->tlbi.addr = iova;
-		arm_smmu_cmdq_batch_add(smmu, cmds, cmd);
+		/*
+		 * IPA has fewer bits than VA, but they are reserved in the
+		 * command and something would be very broken if iova had them
+		 * set.
+		 */
+		cmd->data[1] = FIELD_PREP(CMDQ_TLBI_1_LEAF, leaf) |
+			       FIELD_PREP(CMDQ_TLBI_1_TTL, ttl) |
+			       FIELD_PREP(CMDQ_TLBI_1_TG, tg_enc) |
+			       (iova & ~GENMASK_U64(11, 0));
+
+		arm_smmu_cmdq_batch_add_cmd_p(smmu, cmds, cmd);
 		iova += inv_range;
 	}
 }
@@ -2538,19 +2479,22 @@ static bool arm_smmu_inv_size_too_big(struct arm_smmu_device *smmu, size_t size,
 /* Used by non INV_TYPE_ATS* invalidations */
 static void arm_smmu_inv_to_cmdq_batch(struct arm_smmu_inv *inv,
 				       struct arm_smmu_cmdq_batch *cmds,
-				       struct arm_smmu_cmdq_ent *cmd,
+				       struct arm_smmu_cmd *cmd,
+				       bool leaf,
 				       unsigned long iova, size_t size,
 				       unsigned int granule)
 {
 	if (arm_smmu_inv_size_too_big(inv->smmu, size, granule)) {
-		cmd->opcode = inv->nsize_opcode;
-		arm_smmu_cmdq_batch_add(inv->smmu, cmds, cmd);
+		struct arm_smmu_cmd nsize_cmd = *cmd;
+
+		u64p_replace_bits(&nsize_cmd.data[0], inv->nsize_opcode,
+				  CMDQ_0_OP);
+		arm_smmu_cmdq_batch_add_cmd_p(inv->smmu, cmds, &nsize_cmd);
 		return;
 	}
 
-	cmd->opcode = inv->size_opcode;
-	arm_smmu_cmdq_batch_add_range(inv->smmu, cmds, cmd, iova, size, granule,
-				      inv->pgsize);
+	arm_smmu_cmdq_batch_add_range(inv->smmu, cmds, cmd, leaf,
+				      iova, size, granule, inv->pgsize);
 }
 
 static inline bool arm_smmu_invs_end_batch(struct arm_smmu_inv *cur,
@@ -2585,38 +2529,39 @@ static void __arm_smmu_domain_inv_range(struct arm_smmu_invs *invs,
 			break;
 	while (cur != end) {
 		struct arm_smmu_device *smmu = cur->smmu;
-		struct arm_smmu_cmdq_ent cmd = {
-			/*
-			 * Pick size_opcode to run arm_smmu_get_cmdq(). This can
-			 * be changed to nsize_opcode, which would result in the
-			 * same CMDQ pointer.
-			 */
-			.opcode = cur->size_opcode,
-		};
+		/*
+		 * Pick size_opcode to run arm_smmu_get_cmdq(). This can
+		 * be changed to nsize_opcode, which would result in the
+		 * same CMDQ pointer.
+		 */
+		struct arm_smmu_cmd cmd =
+			arm_smmu_make_cmd_op(cur->size_opcode);
 		struct arm_smmu_inv *next;
 
 		if (!cmds.num)
-			arm_smmu_cmdq_batch_init(smmu, &cmds, &cmd);
+			arm_smmu_cmdq_batch_init_cmd(smmu, &cmds, &cmd);
 
 		switch (cur->type) {
 		case INV_TYPE_S1_ASID:
-			cmd.tlbi.asid = cur->id;
-			cmd.tlbi.leaf = leaf;
-			arm_smmu_inv_to_cmdq_batch(cur, &cmds, &cmd, iova, size,
-						   granule);
+			cmd = arm_smmu_make_cmd_tlbi(cur->size_opcode,
+						     cur->id, 0);
+			arm_smmu_inv_to_cmdq_batch(cur, &cmds, &cmd, leaf,
+						   iova, size, granule);
 			break;
 		case INV_TYPE_S2_VMID:
-			cmd.tlbi.vmid = cur->id;
-			cmd.tlbi.leaf = leaf;
-			arm_smmu_inv_to_cmdq_batch(cur, &cmds, &cmd, iova, size,
-						   granule);
+			cmd = arm_smmu_make_cmd_tlbi(cur->size_opcode,
+						     0, cur->id);
+			arm_smmu_inv_to_cmdq_batch(cur, &cmds, &cmd, leaf,
+						   iova, size, granule);
 			break;
 		case INV_TYPE_S2_VMID_S1_CLEAR:
 			/* CMDQ_OP_TLBI_S12_VMALL already flushed S1 entries */
 			if (arm_smmu_inv_size_too_big(cur->smmu, size, granule))
 				break;
-			cmd.tlbi.vmid = cur->id;
-			arm_smmu_cmdq_batch_add(smmu, &cmds, &cmd);
+			arm_smmu_cmdq_batch_add_cmd(
+				smmu, &cmds,
+				arm_smmu_make_cmd_tlbi(cur->size_opcode, 0,
+						       cur->id));
 			break;
 		case INV_TYPE_ATS:
 			arm_smmu_cmdq_batch_add_cmd(
@@ -3359,24 +3304,21 @@ arm_smmu_install_new_domain_invs(struct arm_smmu_attach_state *state)
 
 static void arm_smmu_inv_flush_iotlb_tag(struct arm_smmu_inv *inv)
 {
-	struct arm_smmu_cmdq_ent cmd = {};
-	struct arm_smmu_cmd hw_cmd;
-
 	switch (inv->type) {
 	case INV_TYPE_S1_ASID:
-		cmd.tlbi.asid = inv->id;
+		arm_smmu_cmdq_issue_cmd_with_sync(
+			inv->smmu,
+			arm_smmu_make_cmd_tlbi(inv->nsize_opcode, inv->id, 0));
 		break;
 	case INV_TYPE_S2_VMID:
 		/* S2_VMID using nsize_opcode covers S2_VMID_S1_CLEAR */
-		cmd.tlbi.vmid = inv->id;
+		arm_smmu_cmdq_issue_cmd_with_sync(
+			inv->smmu,
+			arm_smmu_make_cmd_tlbi(inv->nsize_opcode, 0, inv->id));
 		break;
 	default:
 		return;
 	}
-
-	cmd.opcode = inv->nsize_opcode;
-	arm_smmu_cmdq_build_cmd(&hw_cmd, &cmd);
-	arm_smmu_cmdq_issue_cmd_with_sync(inv->smmu, hw_cmd);
 }
 
 /* Should be installed after arm_smmu_install_ste_for_dev() */
