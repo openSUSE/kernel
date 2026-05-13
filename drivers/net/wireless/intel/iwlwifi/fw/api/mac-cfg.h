@@ -549,12 +549,14 @@ enum iwl_link_ctx_protection_flags {
  *      radar pulses).
  * @LINK_FLG_NDP_FEEDBACK_ENABLED: mark support for NDP feedback and change
  *	of threshold
+ * @LINK_FLG_NPCA: NPCA enabled
  */
 enum iwl_link_ctx_flags {
 	LINK_FLG_BSS_COLOR_DIS		= BIT(0),
 	LINK_FLG_MU_EDCA_CW		= BIT(1),
 	LINK_FLG_RU_2MHZ_BLOCK		= BIT(2),
 	LINK_FLG_NDP_FEEDBACK_ENABLED	= BIT(3),
+	LINK_FLG_NPCA			= BIT(4),
 }; /* LINK_CONTEXT_FLAG_E_VER_1 */
 
 /**
@@ -591,7 +593,7 @@ enum iwl_npca_flags {
  * @initial_qsrc: Indicates the value that is used to initialize the
  *	EDCAF QSRC[AC] variables
  * @min_dur_threshold: minimum PPDU time to switch to the non-primary
- *	NPCA channel (usec)
+ *	NPCA channel (spec representation)
  * @flags: NPCA flags, see &enum iwl_npca_flags
  * @reserved: reserved for alignment purposes
  */

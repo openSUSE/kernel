@@ -374,6 +374,21 @@ iwl_mld_change_link_in_fw(struct iwl_mld *mld, struct ieee80211_bss_conf *link,
 	if (WARN_ON(changes & LINK_CONTEXT_MODIFY_EHT_PARAMS))
 		changes &= ~LINK_CONTEXT_MODIFY_EHT_PARAMS;
 
+	if (link->uhr_support && link->npca.enabled) {
+		flags |= LINK_FLG_NPCA;
+		if (link->npca.moplen)
+			cmd.npca_params.flags |= IWL_NPCA_FLAG_MAC_HDR_BASED;
+		cmd.npca_params.dis_subch_bmap =
+			cpu_to_le16(link->chanreq.oper.npca_punctured);
+		cmd.npca_params.initial_qsrc = link->npca.init_qsrc;
+		cmd.npca_params.min_dur_threshold = link->npca.min_dur_thresh;
+		/* spec/mac80211 have these in units of 4 usec */
+		cmd.npca_params.switch_delay =
+			4 * link->npca.switch_delay;
+		cmd.npca_params.switch_back_delay =
+			4 * link->npca.switch_back_delay;
+	}
+
 send_cmd:
 	cmd.modify_mask = cpu_to_le32(changes);
 	cmd.flags = cpu_to_le32(flags);

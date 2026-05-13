@@ -981,6 +981,30 @@ void iwl_mld_remove_chanctx(struct ieee80211_hw *hw,
 	mld->used_phy_ids &= ~BIT(phy->fw_id);
 }
 
+static void
+iwl_mld_update_link_npca_puncturing(struct ieee80211_hw *hw,
+				    struct ieee80211_chanctx_conf *ctx)
+{
+	struct iwl_mld *mld = IWL_MAC80211_GET_MLD(hw);
+	struct ieee80211_vif *vif;
+
+	for_each_active_interface(vif, hw) {
+		struct ieee80211_bss_conf *link;
+		int link_id;
+
+		for_each_vif_active_link(vif, link, link_id) {
+			if (rcu_access_pointer(link->chanctx_conf) != ctx)
+				continue;
+
+			if (!link->npca.enabled)
+				continue;
+
+			iwl_mld_change_link_in_fw(mld, link,
+						  LINK_CONTEXT_MODIFY_UHR_PARAMS);
+		}
+	}
+}
+
 static
 void iwl_mld_change_chanctx(struct ieee80211_hw *hw,
 			    struct ieee80211_chanctx_conf *ctx, u32 changed)
@@ -996,9 +1020,19 @@ void iwl_mld_change_chanctx(struct ieee80211_hw *hw,
 			  IEEE80211_CHANCTX_CHANGE_CHANNEL)))
 		return;
 
+	/* NPCA puncturing is in link API for FW */
+	if (changed & IEEE80211_CHANCTX_CHANGE_NPCA_PUNCT) {
+		iwl_mld_update_link_npca_puncturing(hw, ctx);
+		changed &= ~IEEE80211_CHANCTX_CHANGE_NPCA_PUNCT;
+	}
+
 	/* Check if a FW update is required */
 
-	if (changed & IEEE80211_CHANCTX_CHANGE_AP)
+	if (!changed)
+		return;
+
+	if (changed & IEEE80211_CHANCTX_CHANGE_AP ||
+	    changed & IEEE80211_CHANCTX_CHANGE_NPCA)
 		goto update;
 
 	if (chandef->chan == phy->chandef.chan &&
@@ -1254,6 +1288,9 @@ u32 iwl_mld_link_changed_mapping(struct iwl_mld *mld,
 		IWL_DEBUG_MAC80211(mld, "Associated in HE mode\n");
 		link_changes |= LINK_CONTEXT_MODIFY_HE_PARAMS;
 	}
+
+	if (changes & BSS_CHANGED_NPCA)
+		link_changes |= LINK_CONTEXT_MODIFY_UHR_PARAMS;
 
 	return link_changes;
 }
