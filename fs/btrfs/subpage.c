@@ -268,11 +268,11 @@ void btrfs_folio_end_lock(const struct btrfs_fs_info *fs_info,
 }
 
 void btrfs_folio_end_lock_bitmap(const struct btrfs_fs_info *fs_info,
-				 struct folio *folio, unsigned long bitmap)
+				 struct folio *folio, unsigned long *bitmap)
 {
 	struct btrfs_folio_state *bfs = folio_get_private(folio);
 	const unsigned int blocks_per_folio = btrfs_blocks_per_folio(fs_info, folio);
-	const unsigned int nbits = bitmap_weight(&bitmap, blocks_per_folio);
+	const unsigned int nbits = bitmap_weight(bitmap, blocks_per_folio);
 	unsigned long flags;
 	bool last = false;
 
@@ -731,24 +731,35 @@ void __cold btrfs_subpage_dump_bitmap(const struct btrfs_fs_info *fs_info,
 	spin_unlock_irqrestore(&bfs->lock, flags);
 }
 
-unsigned long btrfs_get_subpage_dirty_bitmap_value(struct btrfs_fs_info *fs_info,
-						   struct folio *folio)
+void btrfs_copy_subpage_dirty_bitmap(struct btrfs_fs_info *fs_info,
+				     struct folio *folio,
+				     unsigned long *dst)
 {
 	struct btrfs_folio_state *bfs;
 	const unsigned int blocks_per_folio = btrfs_blocks_per_folio(fs_info, folio);
 	unsigned long flags;
 	unsigned long value;
 
-	if (blocks_per_folio == 1)
-		return 1;
+	if (blocks_per_folio == 1) {
+		value = 1;
+		bitmap_copy(dst, &value, 1);
+		return;
+	}
 
 	ASSERT(folio_test_private(folio) && folio_get_private(folio));
 	ASSERT(blocks_per_folio > 1);
-	ASSERT(blocks_per_folio <= BITS_PER_LONG);
 	bfs = folio_get_private(folio);
 
+	if (blocks_per_folio <= BITS_PER_LONG) {
+		spin_lock_irqsave(&bfs->lock, flags);
+		value = bitmap_read(bfs->bitmaps, btrfs_bitmap_nr_dirty * blocks_per_folio,
+				    blocks_per_folio);
+		spin_unlock_irqrestore(&bfs->lock, flags);
+		bitmap_copy(dst, &value, blocks_per_folio);
+		return;
+	}
 	spin_lock_irqsave(&bfs->lock, flags);
-	value = get_bitmap_value_dirty(fs_info, folio);
+	bitmap_copy(dst, get_bitmap_pointer_dirty(fs_info, folio),
+		    blocks_per_folio);
 	spin_unlock_irqrestore(&bfs->lock, flags);
-	return value;
 }
