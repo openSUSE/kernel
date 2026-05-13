@@ -1020,6 +1020,11 @@ static void epf_ntb_epc_cleanup(struct epf_ntb *ntb)
 	epf_ntb_config_sspad_bar_clear(ntb);
 }
 
+static bool epf_ntb_epc_attached(struct epf_ntb *ntb)
+{
+	return ntb->epf->epc || ntb->epf->sec_epc;
+}
+
 #define EPF_NTB_R(_name)						\
 static ssize_t epf_ntb_##_name##_show(struct config_item *item,		\
 				      char *page)			\
@@ -1038,6 +1043,9 @@ static ssize_t epf_ntb_##_name##_store(struct config_item *item,	\
 	struct epf_ntb *ntb = to_epf_ntb(group);			\
 	u32 val;							\
 	int ret;							\
+									\
+	if (epf_ntb_epc_attached(ntb))					\
+		return -EOPNOTSUPP;					\
 									\
 	ret = kstrtou32(page, 0, &val);					\
 	if (ret)							\
@@ -1081,6 +1089,9 @@ static ssize_t epf_ntb_##_name##_store(struct config_item *item,	\
 	u64 val;							\
 	int ret;							\
 									\
+	if (epf_ntb_epc_attached(ntb))					\
+		return -EOPNOTSUPP;					\
+									\
 	ret = kstrtou64(page, 0, &val);					\
 	if (ret)							\
 		return ret;						\
@@ -1119,6 +1130,9 @@ static ssize_t epf_ntb_##_name##_store(struct config_item *item,	\
 		int val;						\
 		int ret;						\
 									\
+		if (epf_ntb_epc_attached(ntb))				\
+			return -EOPNOTSUPP;				\
+									\
 		ret = kstrtoint(page, 0, &val);				\
 		if (ret)						\
 			return ret;					\
@@ -1139,6 +1153,9 @@ static ssize_t epf_ntb_num_mws_store(struct config_item *item,
 	u32 val;
 	int ret;
 
+	if (epf_ntb_epc_attached(ntb))
+		return -EOPNOTSUPP;
+
 	ret = kstrtou32(page, 0, &val);
 	if (ret)
 		return ret;
@@ -1151,10 +1168,32 @@ static ssize_t epf_ntb_num_mws_store(struct config_item *item,
 	return len;
 }
 
+static ssize_t epf_ntb_db_count_store(struct config_item *item,
+				      const char *page, size_t len)
+{
+	struct config_group *group = to_config_group(item);
+	struct epf_ntb *ntb = to_epf_ntb(group);
+	u32 val;
+	int ret;
+
+	if (epf_ntb_epc_attached(ntb))
+		return -EOPNOTSUPP;
+
+	ret = kstrtou32(page, 0, &val);
+	if (ret)
+		return ret;
+
+	if (val < MIN_DB_COUNT || val > MAX_DB_COUNT)
+		return -EINVAL;
+
+	WRITE_ONCE(ntb->db_count, val);
+
+	return len;
+}
+
 EPF_NTB_R(spad_count)
 EPF_NTB_W(spad_count)
 EPF_NTB_R(db_count)
-EPF_NTB_W(db_count)
 EPF_NTB_R(num_mws)
 EPF_NTB_R(vbus_number)
 EPF_NTB_W(vbus_number)
