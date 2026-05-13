@@ -5163,7 +5163,10 @@ process_func:
 	}
 
 	subprog_depth = round_up_stack_depth(env, subprog[idx].stack_depth);
-	if (priv_stack_supported) {
+	if (IS_ENABLED(CONFIG_X86_64) && subprog[idx].stack_arg_cnt) {
+		/* x86-64 uses R9 for both private stack frame pointer and arg6. */
+		subprog[idx].priv_stack_mode = NO_PRIV_STACK;
+	} else if (priv_stack_supported) {
 		/* Request private stack support only if the subprog stack
 		 * depth is no less than BPF_PRIV_STACK_MIN_SIZE. This is to
 		 * avoid jit penalty if the stack usage is small.
