@@ -1362,12 +1362,48 @@ static int vntb_epf_peer_mw_count(struct ntb_dev *ntb)
 	return ntb_ndev(ntb)->num_mws;
 }
 
-static u64 vntb_epf_db_valid_mask(struct ntb_dev *ntb)
+static int vntb_epf_db_vector_count(struct ntb_dev *ntb)
 {
-	if (ntb_ndev(ntb)->db_count < EPF_IRQ_DB_START)
+	struct epf_ntb *ndev = ntb_ndev(ntb);
+	u32 db_count = READ_ONCE(ndev->db_count);
+
+	/*
+	 * db_count is the total number of doorbell slots exposed to
+	 * the peer, including:
+	 *   - slot #0 reserved for link events
+	 *   - slot #1 historically unused (kept for protocol compatibility)
+	 *
+	 * Report only usable per-vector doorbell interrupts.
+	 */
+	if (db_count < MIN_DB_COUNT || db_count > MAX_DB_COUNT)
 		return 0;
 
-	return BIT_ULL(ntb_ndev(ntb)->db_count - EPF_IRQ_DB_START) - 1;
+	return db_count - EPF_IRQ_DB_START;
+}
+
+static u64 vntb_epf_db_valid_mask(struct ntb_dev *ntb)
+{
+	int nr_vec = vntb_epf_db_vector_count(ntb);
+
+	if (!nr_vec)
+		return 0;
+
+	return GENMASK_ULL(nr_vec - 1, 0);
+}
+
+static u64 vntb_epf_db_vector_mask(struct ntb_dev *ntb, int db_vector)
+{
+	int nr_vec;
+
+	/*
+	 * Doorbell vectors are numbered [0 .. nr_vec - 1], where nr_vec
+	 * excludes the two reserved slots described above.
+	 */
+	nr_vec = vntb_epf_db_vector_count(ntb);
+	if (db_vector < 0 || db_vector >= nr_vec)
+		return 0;
+
+	return BIT_ULL(db_vector);
 }
 
 static int vntb_epf_db_set_mask(struct ntb_dev *ntb, u64 db_bits)
@@ -1617,6 +1653,8 @@ static const struct ntb_dev_ops vntb_epf_ops = {
 	.spad_count		= vntb_epf_spad_count,
 	.peer_mw_count		= vntb_epf_peer_mw_count,
 	.db_valid_mask		= vntb_epf_db_valid_mask,
+	.db_vector_count	= vntb_epf_db_vector_count,
+	.db_vector_mask		= vntb_epf_db_vector_mask,
 	.db_set_mask		= vntb_epf_db_set_mask,
 	.mw_set_trans		= vntb_epf_mw_set_trans,
 	.mw_clear_trans		= vntb_epf_mw_clear_trans,
