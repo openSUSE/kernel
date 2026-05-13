@@ -1049,20 +1049,22 @@ static ssize_t _iwl_dbgfs_fixed_rate_write(struct iwl_mld *mld, char *buf,
 	return ret ? : count;
 }
 
-static ssize_t iwl_dbgfs_fixed_rate_write(struct iwl_mld *mld, char *buf,
-					  size_t count, void *data)
+static ssize_t
+iwl_dbgfs_link_sta_fixed_rate_write(struct iwl_mld *mld, char *buf,
+				    size_t count, void *data)
 {
 	return _iwl_dbgfs_fixed_rate_write(mld, buf, count, data, false);
 }
 
-static ssize_t iwl_dbgfs_fixed_rate_v3_write(struct iwl_mld *mld, char *buf,
-					     size_t count, void *data)
+static ssize_t
+iwl_dbgfs_link_sta_fixed_rate_v3_write(struct iwl_mld *mld, char *buf,
+				       size_t count, void *data)
 {
 	return _iwl_dbgfs_fixed_rate_write(mld, buf, count, data, true);
 }
 
-static ssize_t iwl_dbgfs_tlc_dhc_write(struct iwl_mld *mld, char *buf,
-				       size_t count, void *data)
+static ssize_t iwl_dbgfs_link_sta_tlc_dhc_write(struct iwl_mld *mld, char *buf,
+						size_t count, void *data)
 {
 	struct ieee80211_link_sta *link_sta = data;
 	struct iwl_mld_link_sta *mld_link_sta;
@@ -1091,12 +1093,12 @@ static ssize_t iwl_dbgfs_tlc_dhc_write(struct iwl_mld *mld, char *buf,
 
 #define LINK_STA_DEBUGFS_ADD_FILE_ALIAS(alias, name, parent, mode)	\
 	debugfs_create_file(alias, mode, parent, link_sta,		\
-			    &iwl_dbgfs_##name##_ops)
+			    &iwl_dbgfs_link_sta_##name##_ops)
 #define LINK_STA_DEBUGFS_ADD_FILE(name, parent, mode)			\
 	LINK_STA_DEBUGFS_ADD_FILE_ALIAS(#name, name, parent, mode)
 
 #define LINK_STA_WIPHY_DEBUGFS_WRITE_OPS(name, bufsz)			\
-	WIPHY_DEBUGFS_WRITE_FILE_OPS(name, bufsz, link_sta)
+	WIPHY_DEBUGFS_WRITE_FILE_OPS(link_sta_##name, bufsz, link_sta)
 
 LINK_STA_WIPHY_DEBUGFS_WRITE_OPS(tlc_dhc, 64);
 LINK_STA_WIPHY_DEBUGFS_WRITE_OPS(fixed_rate, 64);
