@@ -15,10 +15,6 @@
 /* Lowest firmware core release supported */
 #define IWL_SC_UCODE_CORE_MIN	101
 
-/* Memory offsets and lengths */
-#define IWL_SC_SMEM_OFFSET		0x400000
-#define IWL_SC_SMEM_LEN			0xD0000
-
 #define IWL_SC_A_FM_B_FW_PRE		"iwlwifi-sc-a0-fm-b0"
 #define IWL_SC_A_FM_C_FW_PRE		"iwlwifi-sc-a0-fm-c0"
 #define IWL_SC_A_WH_A_FW_PRE		"iwlwifi-sc-a0-wh-a0"
@@ -31,8 +27,6 @@ static const struct iwl_family_base_params iwl_sc_base = {
 	.wd_timeout = IWL_LONG_WD_TIMEOUT,
 	.shadow_reg_enable = true,
 	.pcie_l1_allowed = true,
-	.smem_offset = IWL_SC_SMEM_OFFSET,
-	.smem_len = IWL_SC_SMEM_LEN,
 	.apmg_not_supported = true,
 	.mac_addr_from_csr = 0x30,
 	.d3_debug_data_base_addr = 0x401000,

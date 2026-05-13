@@ -15,18 +15,12 @@
 /* Lowest firmware API version supported */
 #define IWL_AX210_UCODE_API_MIN	89
 
-/* Memory offsets and lengths */
-#define IWL_AX210_SMEM_OFFSET		0x400000
-#define IWL_AX210_SMEM_LEN		0xD0000
-
 static const struct iwl_family_base_params iwl_ax210_base = {
 	.num_of_queues = 512,
 	.max_tfd_queue_size = 65536,
 	.wd_timeout = IWL_LONG_WD_TIMEOUT,
 	.shadow_reg_enable = true,
 	.pcie_l1_allowed = true,
-	.smem_offset = IWL_AX210_SMEM_OFFSET,
-	.smem_len = IWL_AX210_SMEM_LEN,
 	.features = IWL_TX_CSUM_NETIF_FLAGS | NETIF_F_RXCSUM,
 	.apmg_not_supported = true,
 	.mac_addr_from_csr = 0x380,

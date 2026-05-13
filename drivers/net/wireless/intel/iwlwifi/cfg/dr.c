@@ -14,10 +14,6 @@
 /* Lowest firmware core release supported */
 #define IWL_DR_UCODE_CORE_MIN	101
 
-/* Memory offsets and lengths */
-#define IWL_DR_SMEM_OFFSET		0x400000
-#define IWL_DR_SMEM_LEN			0xD0000
-
 #define IWL_DR_A_PE_A_FW_PRE		"iwlwifi-dr-a0-pe-a0"
 
 static const struct iwl_family_base_params iwl_dr_base = {
@@ -26,8 +22,6 @@ static const struct iwl_family_base_params iwl_dr_base = {
 	.wd_timeout = IWL_LONG_WD_TIMEOUT,
 	.shadow_reg_enable = true,
 	.pcie_l1_allowed = true,
-	.smem_offset = IWL_DR_SMEM_OFFSET,
-	.smem_len = IWL_DR_SMEM_LEN,
 	.apmg_not_supported = true,
 	.mac_addr_from_csr = 0x30,
 	.d3_debug_data_base_addr = 0x401000,
