@@ -10,41 +10,12 @@
  *
  * Limitations:
  *
- * - Only support 64K page size for now
- *   This is to make metadata handling easier, as 64K page would ensure
- *   all nodesize would fit inside one page, thus we don't need to handle
- *   cases where a tree block crosses several pages.
+ * - Metadata must be fully aligned to node size
+ *   So when nodesize <= page size, the metadata can never cross folio boundaries.
  *
- * - Only metadata read-write for now
- *   The data read-write part is in development.
- *
- * - Metadata can't cross 64K page boundary
- *   btrfs-progs and kernel have done that for a while, thus only ancient
- *   filesystems could have such problem.  For such case, do a graceful
- *   rejection.
- *
- * Special behavior:
- *
- * - Metadata
- *   Metadata read is fully supported.
- *   Meaning when reading one tree block will only trigger the read for the
- *   needed range, other unrelated range in the same page will not be touched.
- *
- *   Metadata write support is partial.
- *   The writeback is still for the full page, but we will only submit
- *   the dirty extent buffers in the page.
- *
- *   This means, if we have a metadata page like this:
- *
- *   Page offset
- *   0         16K         32K         48K        64K
- *   |/////////|           |///////////|
- *        \- Tree block A        \- Tree block B
- *
- *   Even if we just want to writeback tree block A, we will also writeback
- *   tree block B if it's also dirty.
- *
- *   This may cause extra metadata writeback which results more COW.
+ * - Only support blocks per folio <= BITS_PER_LONG
+ *   This is to make bitmap copying much easier, a single unsigned long can handle
+ *   one bitmap.
  *
  * Implementation:
  *
