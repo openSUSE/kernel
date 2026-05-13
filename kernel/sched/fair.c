@@ -1598,13 +1598,14 @@ static unsigned long fraction_mm_sched(struct rq *rq,
 
 static int get_pref_llc(struct task_struct *p, struct mm_struct *mm)
 {
-	int mm_sched_llc = -1;
+	int mm_sched_llc = -1, mm_sched_cpu;
 
 	if (!mm)
 		return -1;
 
-	if (mm->sc_stat.cpu != -1) {
-		mm_sched_llc = llc_id(mm->sc_stat.cpu);
+	mm_sched_cpu = READ_ONCE(mm->sc_stat.cpu);
+	if (mm_sched_cpu != -1) {
+		mm_sched_llc = llc_id(mm_sched_cpu);
 
 #ifdef CONFIG_NUMA_BALANCING
 		/*
@@ -1619,7 +1620,7 @@ static int get_pref_llc(struct task_struct *p, struct mm_struct *mm)
 		 */
 		if (static_branch_likely(&sched_numa_balancing) &&
 		    p->numa_preferred_nid >= 0 &&
-		    cpu_to_node(mm->sc_stat.cpu) != p->numa_preferred_nid)
+		    cpu_to_node(mm_sched_cpu) != p->numa_preferred_nid)
 			mm_sched_llc = -1;
 #endif
 	}
@@ -1665,8 +1666,8 @@ void account_mm_sched(struct rq *rq, struct task_struct *p, s64 delta_exec)
 	if ((long)(epoch - READ_ONCE(mm->sc_stat.epoch)) > llc_epoch_affinity_timeout ||
 	    invalid_llc_nr(mm, p, cpu_of(rq)) ||
 	    exceed_llc_capacity(mm, cpu_of(rq))) {
-		if (mm->sc_stat.cpu != -1)
-			mm->sc_stat.cpu = -1;
+		if (READ_ONCE(mm->sc_stat.cpu) != -1)
+			WRITE_ONCE(mm->sc_stat.cpu, -1);
 	}
 
 	mm_sched_llc = get_pref_llc(p, mm);
@@ -1714,7 +1715,7 @@ static void get_scan_cpumasks(cpumask_var_t cpus, struct task_struct *p)
 	if (!static_branch_likely(&sched_numa_balancing))
 		goto out;
 
-	cpu = p->mm->sc_stat.cpu;
+	cpu = READ_ONCE(p->mm->sc_stat.cpu);
 	if (cpu != -1)
 		nid = cpu_to_node(cpu);
 	curr_cpu = task_cpu(p);
@@ -1799,8 +1800,8 @@ static void task_cache_work(struct callback_head *work)
 	curr_cpu = task_cpu(p);
 	if (invalid_llc_nr(mm, p, curr_cpu) ||
 	    exceed_llc_capacity(mm, curr_cpu)) {
-		if (mm->sc_stat.cpu != -1)
-			mm->sc_stat.cpu = -1;
+		if (READ_ONCE(mm->sc_stat.cpu) != -1)
+			WRITE_ONCE(mm->sc_stat.cpu, -1);
 
 		return;
 	}
@@ -1857,7 +1858,7 @@ static void task_cache_work(struct callback_head *work)
 				m_a_cpu = m_cpu;
 			}
 
-			if (llc_id(cpu) == llc_id(mm->sc_stat.cpu))
+			if (llc_id(cpu) == llc_id(READ_ONCE(mm->sc_stat.cpu)))
 				curr_m_a_occ = a_occ;
 
 			cpumask_andnot(cpus, cpus, sched_domain_span(sd));
@@ -1875,7 +1876,7 @@ static void task_cache_work(struct callback_head *work)
 		 * 3. 2X is chosen based on test results, as it delivers
 		 *    the optimal performance gain so far.
 		 */
-		mm->sc_stat.cpu = m_a_cpu;
+		WRITE_ONCE(mm->sc_stat.cpu, m_a_cpu);
 	}
 
 	update_avg_scale(&mm->sc_stat.nr_running_avg, nr_running);
@@ -10441,15 +10442,15 @@ static enum llc_mig can_migrate_llc_task(int src_cpu, int dst_cpu,
 	if (!mm)
 		return mig_unrestricted;
 
-	cpu = mm->sc_stat.cpu;
+	cpu = READ_ONCE(mm->sc_stat.cpu);
 	if (cpu < 0 || cpus_share_cache(src_cpu, dst_cpu))
 		return mig_unrestricted;
 
 	/* skip cache aware load balance for too many threads */
 	if (invalid_llc_nr(mm, p, dst_cpu) ||
 	    exceed_llc_capacity(mm, dst_cpu)) {
-		if (mm->sc_stat.cpu != -1)
-			mm->sc_stat.cpu = -1;
+		if (READ_ONCE(mm->sc_stat.cpu) != -1)
+			WRITE_ONCE(mm->sc_stat.cpu, -1);
 		return mig_unrestricted;
 	}
 
