@@ -972,6 +972,145 @@ iwl_mld_get_dup_beacon_rssi_adjust(struct iwl_mld *mld,
 	}
 }
 
+static s8 iwl_mld_get_primary_psd(const struct ieee80211_parsed_tpe_psd *psd,
+				  const struct cfg80211_chan_def *chandef,
+				  int bw_mhz)
+{
+	int start_freq, primary_idx;
+
+	if (!psd->valid)
+		return S8_MAX;
+
+	start_freq = chandef->center_freq1 - (bw_mhz / 2);
+	primary_idx = (chandef->chan->center_freq - start_freq - 10) / 20;
+
+	if (primary_idx < 0 || primary_idx >= psd->count)
+		return S8_MAX;
+
+	/* TPE element stores PSD limit as value * 2 */
+	return psd->power[primary_idx] / 2;
+}
+
+static s8 iwl_mld_get_psd_eirp_rssi_adjust(struct ieee80211_bss_conf *link_conf)
+{
+	const struct ieee80211_parsed_tpe *tpe = &link_conf->tpe;
+	s8 psd_20mhz, psd_oper, psd_local, psd_reg, psd_boost;
+	s8 min_20mhz, min_oper, adjustment, ap_power_limit;
+	s8 psd_avg_local = S8_MAX, psd_avg_reg = S8_MAX;
+	s8 eirp_20mhz, eirp_oper, eirp_local, eirp_reg;
+	int bw_mhz, num_subchans;
+	u8 bw_index;
+
+	/* PSD/EIRP adjustment is only specific to 6 GHz */
+	if (WARN_ONCE(link_conf->chanreq.oper.chan->band != NL80211_BAND_6GHZ,
+		      "PSD/EIRP adjustment called for non-6 GHz band %d\n",
+		      link_conf->chanreq.oper.chan->band))
+		return 0;
+
+	bw_mhz = nl80211_chan_width_to_mhz(link_conf->chanreq.oper.width);
+
+	switch (bw_mhz) {
+	case 20:
+		bw_index = 0;
+		break;
+	case 40:
+		bw_index = 1;
+		break;
+	case 80:
+		bw_index = 2;
+		break;
+	case 160:
+		bw_index = 3;
+		break;
+	case 320:
+		bw_index = 4;
+		break;
+	default:
+		WARN_ONCE(1, "Unexpected bandwidth: %d MHz\n", bw_mhz);
+		return 0;
+	}
+
+	if (link_conf->power_type == IEEE80211_REG_VLP_AP)
+		ap_power_limit = 14;
+	else
+		ap_power_limit = 23;
+
+	/* Primary 20 MHz PSD */
+	psd_local = iwl_mld_get_primary_psd(&tpe->psd_local[0],
+					    &link_conf->chanreq.oper,
+					    bw_mhz);
+	psd_reg = iwl_mld_get_primary_psd(&tpe->psd_reg_client[0],
+					  &link_conf->chanreq.oper,
+					  bw_mhz);
+	psd_20mhz = min(psd_local, psd_reg);
+
+	/* TPE element stores EIRP limit as value * 2 */
+	eirp_local = (tpe->max_local[0].valid && tpe->max_local[0].count > 0) ?
+			tpe->max_local[0].power[0] / 2 : S8_MAX;
+	eirp_reg = (tpe->max_reg_client[0].valid &&
+		    tpe->max_reg_client[0].count > 0) ?
+		      tpe->max_reg_client[0].power[0] / 2 : S8_MAX;
+	eirp_20mhz = min(eirp_local, eirp_reg);
+
+	num_subchans = bw_mhz / 20;
+
+	if (tpe->psd_local[0].valid) {
+		int sum_local = 0, valid_local = 0;
+		int count_local = min(num_subchans, tpe->psd_local[0].count);
+
+		for (int i = 0; i < count_local; i++) {
+			if (tpe->psd_local[0].power[i] != S8_MIN) {
+				sum_local += tpe->psd_local[0].power[i];
+				valid_local++;
+			}
+		}
+		/* TPE element stores PSD limit as value * 2 */
+		if (valid_local > 0)
+			psd_avg_local = sum_local / valid_local / 2;
+	}
+
+	if (tpe->psd_reg_client[0].valid) {
+		int sum_reg = 0, valid_reg = 0;
+		int count_reg = min(num_subchans, tpe->psd_reg_client[0].count);
+
+		for (int i = 0; i < count_reg; i++) {
+			if (tpe->psd_reg_client[0].power[i] != S8_MIN) {
+				sum_reg +=
+					tpe->psd_reg_client[0].power[i];
+				valid_reg++;
+			}
+		}
+		/* TPE element stores PSD limit as value * 2 */
+		if (valid_reg > 0)
+			psd_avg_reg = sum_reg / valid_reg / 2;
+	}
+
+	psd_oper = min(psd_avg_local, psd_avg_reg);
+
+	/* TPE element stores EIRP limit as value * 2 */
+	eirp_local = (tpe->max_local[0].valid &&
+		      tpe->max_local[0].count > bw_index) ?
+			tpe->max_local[0].power[bw_index] / 2 : S8_MAX;
+	eirp_reg = (tpe->max_reg_client[0].valid &&
+		    tpe->max_reg_client[0].count > bw_index) ?
+		      tpe->max_reg_client[0].power[bw_index] / 2 : S8_MAX;
+	eirp_oper = min(eirp_local, eirp_reg);
+
+	min_20mhz = min(ap_power_limit, min(eirp_20mhz, psd_20mhz));
+
+	/* PSD boost: 10*log10(BW/20) approximated as 3*ilog2(BW/20) */
+	psd_boost = 3 * ilog2(bw_mhz / 20);
+
+	/* Use int for psd_oper + psd_boost to prevent s8 overflow */
+	min_oper = min(ap_power_limit,
+		       min(eirp_oper,
+			   (s8)min_t(int, psd_oper + psd_boost, S8_MAX)));
+
+	adjustment = max(min_oper - min_20mhz, 0);
+
+	return adjustment;
+}
+
 /* This function calculates the grade of a link. Returns 0 in error case */
 unsigned int iwl_mld_get_link_grade(struct iwl_mld *mld,
 				    struct ieee80211_bss_conf *link_conf)
@@ -999,6 +1138,10 @@ unsigned int iwl_mld_get_link_grade(struct iwl_mld *mld,
 	if (band == NL80211_BAND_6GHZ && link_rssi) {
 		s8 rssi_adj_6g =
 			iwl_mld_get_dup_beacon_rssi_adjust(mld, link_conf);
+
+		if (!rssi_adj_6g)
+			rssi_adj_6g =
+				iwl_mld_get_psd_eirp_rssi_adjust(link_conf);
 
 		if (!rssi_adj_6g)
 			rssi_adj_6g = 4;
