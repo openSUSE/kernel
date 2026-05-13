@@ -7870,8 +7870,14 @@ int btf_prepare_func_args(struct bpf_verifier_env *env, int subprog)
 			MAX_BPF_FUNC_ARGS, tname, nargs);
 		return -EFAULT;
 	}
-	if (nargs > MAX_BPF_FUNC_REG_ARGS)
+	if (nargs > MAX_BPF_FUNC_REG_ARGS) {
+		if (!bpf_jit_supports_stack_args()) {
+			bpf_log(log, "JIT does not support function %s() with %d args\n",
+				tname, nargs);
+			return -EFAULT;
+		}
 		sub->stack_arg_cnt = nargs - MAX_BPF_FUNC_REG_ARGS;
+	}
 
 	if (is_global && nargs > MAX_BPF_FUNC_REG_ARGS) {
 		bpf_log(log, "global function %s has %d > %d args, stack args not supported\n",
