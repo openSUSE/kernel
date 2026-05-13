@@ -1451,6 +1451,7 @@ void mm_init_sched(struct mm_struct *mm,
 	raw_spin_lock_init(&mm->sc_stat.lock);
 	mm->sc_stat.epoch = epoch;
 	mm->sc_stat.cpu = -1;
+	mm->sc_stat.next_scan = jiffies;
 
 	/*
 	 * The update to mm->sc_stat should not be reordered
@@ -1661,6 +1662,7 @@ out:
 
 static void task_cache_work(struct callback_head *work)
 {
+	unsigned long next_scan, now = jiffies;
 	struct task_struct *p = current;
 	struct mm_struct *mm = p->mm;
 	unsigned long m_a_occ = 0;
@@ -1673,6 +1675,15 @@ static void task_cache_work(struct callback_head *work)
 	work->next = work;
 
 	if (p->flags & PF_EXITING)
+		return;
+
+	next_scan = READ_ONCE(mm->sc_stat.next_scan);
+	if (time_before(now, next_scan))
+		return;
+
+	/* only 1 thread is allowed to scan */
+	if (!try_cmpxchg(&mm->sc_stat.next_scan, &next_scan,
+			 now + EPOCH_PERIOD))
 		return;
 
 	if (!zalloc_cpumask_var(&cpus, GFP_KERNEL))
