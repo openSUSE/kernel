@@ -268,6 +268,171 @@ enum llcc_reg_offset {
 	LLCC_TRP_WRS_CACHEABLE_EN,
 };
 
+static const struct llcc_slice_config eliza_data[] = {
+	{
+		.usecase_id = LLCC_CPUSS,
+		.slice_id = 1,
+		.max_cap = 896,
+		.bonus_ways = 0xfff,
+		.activate_on_init = true,
+		.write_scid_en = true,
+		.stale_en = true,
+	},
+	{
+		.usecase_id = LLCC_MDMHPFX,
+		.slice_id = 24,
+		.max_cap = 1024,
+		.priority = 5,
+		.fixed_size = true,
+		.bonus_ways = 0xfff,
+	},
+	{
+		.usecase_id = LLCC_VIDSC0,
+		.slice_id = 2,
+		.max_cap = 128,
+		.priority = 5,
+		.fixed_size = true,
+		.bonus_ways = 0xfff,
+	},
+	{
+		.usecase_id = LLCC_MDMHPGRW,
+		.slice_id = 25,
+		.max_cap = 1024,
+		.priority = 5,
+		.bonus_ways = 0xfff,
+	},
+	{
+		.usecase_id = LLCC_GPUHTW,
+		.slice_id = 11,
+		.max_cap = 256,
+		.priority = 1,
+		.fixed_size = true,
+		.bonus_ways = 0xfff,
+	},
+	{
+		.usecase_id = LLCC_GPU,
+		.slice_id = 9,
+		.max_cap = 896,
+		.priority = 1,
+		.bonus_ways = 0xfff,
+		.write_scid_cacheable_en = true,
+	},
+	{
+		.usecase_id = LLCC_MMUHWT,
+		.slice_id = 18,
+		.max_cap = 256,
+		.priority = 1,
+		.fixed_size = true,
+		.bonus_ways = 0xfff,
+		.activate_on_init = true,
+	},
+	{
+		.usecase_id = LLCC_MDMPNG,
+		.slice_id = 27,
+		.max_cap = 256,
+		.priority = 5,
+		.fixed_size = true,
+		.bonus_ways = 0xfff,
+	},
+	{
+		.usecase_id = LLCC_MODPE,
+		.slice_id = 29,
+		.max_cap = 256,
+		.priority = 1,
+		.fixed_size = true,
+		.bonus_ways = 0xf00,
+		.alloc_oneway_en = true,
+	},
+	{
+		.usecase_id = LLCC_WRCACHE,
+		.slice_id = 31,
+		.max_cap = 256,
+		.priority = 1,
+		.fixed_size = true,
+		.bonus_ways = 0xfff,
+		.activate_on_init = true,
+	},
+	{
+		.usecase_id = LLCC_LCPDARE,
+		.slice_id = 30,
+		.max_cap = 128,
+		.priority = 5,
+		.fixed_size = true,
+		.bonus_ways = 0xfff,
+		.activate_on_init = true,
+		.alloc_oneway_en = true,
+	},
+	{
+		.usecase_id = LLCC_ISLAND1,
+		.slice_id = 12,
+		.max_cap = 1280,
+		.priority = 7,
+		.fixed_size = true,
+		.res_ways = 0x3ff,
+	},
+	{
+		.usecase_id = LLCC_CAMOFE,
+		.slice_id = 33,
+		.max_cap = 1024,
+		.priority = 1,
+		.fixed_size = true,
+		.bonus_ways = 0xfff,
+		.stale_en = true,
+		.parent_slice_id = 13,
+	},
+	{
+		.usecase_id = LLCC_CAMRTIP,
+		.slice_id = 13,
+		.max_cap = 1024,
+		.priority = 1,
+		.fixed_size = true,
+		.bonus_ways = 0xfff,
+		.stale_en = true,
+		.parent_slice_id = 13,
+	},
+	{
+		.usecase_id = LLCC_CAMSRTIP,
+		.slice_id = 14,
+		.max_cap = 512,
+		.priority = 1,
+		.fixed_size = true,
+		.bonus_ways = 0xfff,
+		.stale_en = true,
+		.parent_slice_id = 13,
+	},
+	{
+		.usecase_id = LLCC_CAMRTRF,
+		.slice_id = 7,
+		.max_cap = 1024,
+		.priority = 1,
+		.fixed_size = true,
+		.bonus_ways = 0xfff,
+		.stale_en = true,
+		.parent_slice_id = 13,
+	},
+	{
+		.usecase_id = LLCC_CAMSRTRF,
+		.slice_id = 21,
+		.max_cap = 1024,
+		.priority = 1,
+		.fixed_size = true,
+		.bonus_ways = 0xfff,
+		.stale_en = true,
+		.parent_slice_id = 13,
+	},
+	{
+		.usecase_id = LLCC_CPUSSMPAM,
+		.slice_id = 6,
+		.max_cap = 512,
+		.priority = 0,
+		.fixed_size = true,
+		.bonus_ways = 0xfff,
+		.activate_on_init = true,
+		.write_scid_en = true,
+		.stale_en = true,
+	},
+};
+
 static const struct llcc_slice_config glymur_data[] = {
 	{
 		.usecase_id = LLCC_CPUSS,
@@ -4237,6 +4402,15 @@ static const struct qcom_llcc_config hawi_sct_cfg[] = {
 	},
 };
 
+static const struct qcom_llcc_config eliza_cfg[] = {
+	{
+		.sct_data	= eliza_data,
+		.size		= ARRAY_SIZE(eliza_data),
+		.reg_offset	= llcc_v6_reg_offset,
+		.edac_reg_offset = &llcc_v6_edac_reg_offset,
+	},
+};
+
 static const struct qcom_llcc_config kaanapali_cfg[] = {
 	{
 		.sct_data	= kaanapali_data,
@@ -4496,6 +4670,11 @@ static const struct qcom_llcc_config x1e80100_cfg[] = {
 static const struct qcom_sct_config hawi_sct_cfgs = {
 	.llcc_config	= hawi_sct_cfg,
 	.num_config	= ARRAY_SIZE(hawi_sct_cfg),
+};
+
+static const struct qcom_sct_config eliza_cfgs = {
+	.llcc_config	= eliza_cfg,
+	.num_config	= ARRAY_SIZE(eliza_cfg),
 };
 
 static const struct qcom_sct_config kaanapali_cfgs = {
@@ -5436,6 +5615,7 @@ err:
 }
 
 static const struct of_device_id qcom_llcc_of_match[] = {
+	{ .compatible = "qcom,eliza-llcc", .data = &eliza_cfgs },
 	{ .compatible = "qcom,glymur-llcc", .data = &glymur_cfgs },
 	{ .compatible = "qcom,hawi-llcc", .data = &hawi_sct_cfgs },
 	{ .compatible = "qcom,ipq5424-llcc", .data = &ipq5424_cfgs},
