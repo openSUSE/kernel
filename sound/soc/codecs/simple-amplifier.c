@@ -4,6 +4,7 @@
  * Author: Jerome Brunet <jbrunet@baylibre.com>
  */
 
+#include <linux/bitmap.h>
 #include <linux/bits.h>
 #include <linux/gpio/consumer.h>
 #include <linux/mod_devicetable.h>
@@ -16,6 +17,13 @@ struct simple_amp_single {
 	struct gpio_desc *gpio;
 	bool is_inverted;
 	int kctrl_val;
+	const char *control_name;
+};
+
+struct simple_amp_multi {
+	struct gpio_descs *gpios;
+	u32 kctrl_val;
+	u32 kctrl_max;
 	const char *control_name;
 };
 
@@ -37,6 +45,7 @@ struct simple_amp {
 	struct gpio_desc *gpiod_enable;
 	struct simple_amp_single mute;
 	struct simple_amp_single bypass;
+	struct simple_amp_multi gain;
 };
 
 static int simple_amp_power_event(struct snd_soc_dapm_widget *w,
@@ -186,6 +195,84 @@ static int simple_amp_single_add_kcontrol(struct snd_soc_component *component,
 	return snd_soc_add_component_controls(component, &control, 1);
 }
 
+static int simple_amp_multi_kctrl_write_gpios(struct simple_amp_multi *multi,
+					      u32 kctrl_val)
+{
+	DECLARE_BITMAP(bm, 32);
+	u32 gpio_val;
+
+	if (kctrl_val > multi->kctrl_max)
+		return -EINVAL;
+
+	gpio_val = kctrl_val;
+	bitmap_from_arr32(bm, &gpio_val, multi->gpios->ndescs);
+
+	return gpiod_multi_set_value_cansleep(multi->gpios, bm);
+}
+
+static int simple_amp_multi_kctrl_int_info(struct snd_kcontrol *kcontrol,
+					   struct snd_ctl_elem_info *uinfo)
+{
+	struct simple_amp_multi *multi = (struct simple_amp_multi *)kcontrol->private_value;
+
+	uinfo->count = 1;
+	uinfo->value.integer.min = 0;
+	uinfo->value.integer.max = multi->kctrl_max;
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
+	return 0;
+}
+
+static int simple_amp_multi_kctrl_int_get(struct snd_kcontrol *kcontrol,
+					  struct snd_ctl_elem_value *ucontrol)
+{
+	struct simple_amp_multi *multi = (struct simple_amp_multi *)kcontrol->private_value;
+
+	ucontrol->value.integer.value[0] = multi->kctrl_val;
+	return 0;
+}
+
+static int simple_amp_multi_kctrl_int_put(struct snd_kcontrol *kcontrol,
+					  struct snd_ctl_elem_value *ucontrol)
+{
+	struct simple_amp_multi *multi = (struct simple_amp_multi *)kcontrol->private_value;
+	u32 kctrl_val;
+	int ret;
+
+	kctrl_val = ucontrol->value.integer.value[0];
+
+	if (kctrl_val == multi->kctrl_val)
+		return 0;
+
+	ret = simple_amp_multi_kctrl_write_gpios(multi, kctrl_val);
+	if (ret)
+		return ret;
+
+	multi->kctrl_val = kctrl_val;
+
+	return 1; /* The value changed */
+}
+
+static int simple_amp_multi_add_kcontrol(struct snd_soc_component *component,
+					 struct simple_amp_multi *multi)
+{
+	struct snd_kcontrol_new control = {
+		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
+		.name = multi->control_name,
+		.info = simple_amp_multi_kctrl_int_info,
+		.get = simple_amp_multi_kctrl_int_get,
+		.put = simple_amp_multi_kctrl_int_put,
+		.private_value = (unsigned long)multi,
+	};
+	int ret;
+
+	/* Be consistent between multi->kctrl_val value and the GPIOs value */
+	ret = simple_amp_multi_kctrl_write_gpios(multi, multi->kctrl_val);
+	if (ret)
+		return ret;
+
+	return snd_soc_add_component_controls(component, &control, 1);
+}
+
 static int simple_amp_add_basic_dapm(struct snd_soc_component *component)
 {
 	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
@@ -311,6 +398,12 @@ static int simple_amp_component_probe(struct snd_soc_component *component)
 			return ret;
 	}
 
+	if (simple_amp->gain.gpios) {
+		ret = simple_amp_multi_add_kcontrol(component, &simple_amp->gain);
+		if (ret)
+			return ret;
+	}
+
 	return 0;
 }
 
@@ -330,6 +423,31 @@ static int simple_amp_parse_single_gpio(struct device *dev,
 		return dev_err_probe(dev, PTR_ERR(single->gpio),
 				     "Failed to get '%s' gpio\n",
 				     gpio_property);
+	return 0;
+}
+
+static int simple_amp_parse_multi_gpio(struct device *dev,
+				       struct simple_amp_multi *multi,
+				       const char *gpios_property)
+{
+	/* Start with the value 0 (GPIO inactive). Can be changed later */
+	multi->kctrl_val = 0;
+	multi->gpios = devm_gpiod_get_array_optional(dev, gpios_property, GPIOD_OUT_LOW);
+	if (IS_ERR(multi->gpios))
+		return dev_err_probe(dev, PTR_ERR(multi->gpios),
+				     "Failed to get '%s' gpios\n",
+				     gpios_property);
+	if (!multi->gpios)
+		return 0;
+
+	if (multi->gpios->ndescs > 16)
+		return dev_err_probe(dev, -EINVAL,
+				     "Number of '%s' gpios limited to 16\n",
+				     gpios_property);
+
+	/* Set default value for the kctrl_max. Can be changed later */
+	multi->kctrl_max = (1 << multi->gpios->ndescs) - 1;
+
 	return 0;
 }
 
@@ -366,7 +484,14 @@ static int simple_amp_probe(struct platform_device *pdev)
 			return ret;
 	}
 
+	if (simple_amp->data->supports & SIMPLE_AUDIO_SUPPORT_PGA) {
+		ret = simple_amp_parse_multi_gpio(dev, &simple_amp->gain, "gain");
+		if (ret)
+			return ret;
+	}
+
 	/* Set controls name */
+	simple_amp->gain.control_name = "Volume";
 	simple_amp->mute.control_name = "Switch";
 	simple_amp->bypass.control_name = "Bypass Switch";
 
