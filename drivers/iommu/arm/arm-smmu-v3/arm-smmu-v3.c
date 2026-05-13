@@ -277,23 +277,6 @@ static int arm_smmu_cmdq_build_cmd(struct arm_smmu_cmd *cmd_out,
 	cmd[0] |= FIELD_PREP(CMDQ_0_OP, ent->opcode);
 
 	switch (ent->opcode) {
-	case CMDQ_OP_TLBI_EL2_ALL:
-	case CMDQ_OP_TLBI_NSNH_ALL:
-		break;
-	case CMDQ_OP_PREFETCH_CFG:
-		cmd[0] |= FIELD_PREP(CMDQ_PREFETCH_0_SID, ent->prefetch.sid);
-		break;
-	case CMDQ_OP_CFGI_CD:
-		cmd[0] |= FIELD_PREP(CMDQ_CFGI_0_SSID, ent->cfgi.ssid);
-		fallthrough;
-	case CMDQ_OP_CFGI_STE:
-		cmd[0] |= FIELD_PREP(CMDQ_CFGI_0_SID, ent->cfgi.sid);
-		cmd[1] |= FIELD_PREP(CMDQ_CFGI_1_LEAF, ent->cfgi.leaf);
-		break;
-	case CMDQ_OP_CFGI_ALL:
-		/* Cover the entire SID range */
-		cmd[1] |= FIELD_PREP(CMDQ_CFGI_1_RANGE, 31);
-		break;
 	case CMDQ_OP_TLBI_NH_VA:
 		cmd[0] |= FIELD_PREP(CMDQ_TLBI_0_VMID, ent->tlbi.vmid);
 		fallthrough;
@@ -332,26 +315,6 @@ static int arm_smmu_cmdq_build_cmd(struct arm_smmu_cmd *cmd_out,
 		cmd[0] |= FIELD_PREP(CMDQ_ATC_0_SID, ent->atc.sid);
 		cmd[1] |= FIELD_PREP(CMDQ_ATC_1_SIZE, ent->atc.size);
 		cmd[1] |= ent->atc.addr & CMDQ_ATC_1_ADDR_MASK;
-		break;
-	case CMDQ_OP_PRI_RESP:
-		cmd[0] |= FIELD_PREP(CMDQ_0_SSV, ent->substream_valid);
-		cmd[0] |= FIELD_PREP(CMDQ_PRI_0_SSID, ent->pri.ssid);
-		cmd[0] |= FIELD_PREP(CMDQ_PRI_0_SID, ent->pri.sid);
-		cmd[1] |= FIELD_PREP(CMDQ_PRI_1_GRPID, ent->pri.grpid);
-		switch (ent->pri.resp) {
-		case PRI_RESP_DENY:
-		case PRI_RESP_FAIL:
-		case PRI_RESP_SUCC:
-			break;
-		default:
-			return -EINVAL;
-		}
-		cmd[1] |= FIELD_PREP(CMDQ_PRI_1_RESP, ent->pri.resp);
-		break;
-	case CMDQ_OP_RESUME:
-		cmd[0] |= FIELD_PREP(CMDQ_RESUME_0_SID, ent->resume.sid);
-		cmd[0] |= FIELD_PREP(CMDQ_RESUME_0_RESP, ent->resume.resp);
-		cmd[1] |= FIELD_PREP(CMDQ_RESUME_1_STAG, ent->resume.stag);
 		break;
 	case CMDQ_OP_CMD_SYNC:
 		if (ent->sync.msiaddr) {
@@ -924,25 +887,24 @@ int arm_smmu_cmdq_issue_cmdlist(struct arm_smmu_device *smmu,
 	return ret;
 }
 
-static int __arm_smmu_cmdq_issue_cmd(struct arm_smmu_device *smmu,
-				     struct arm_smmu_cmd *cmd,
-				     bool sync)
+static int arm_smmu_cmdq_issue_cmd_p(struct arm_smmu_device *smmu,
+				     struct arm_smmu_cmd *cmd, bool sync)
 {
 	return arm_smmu_cmdq_issue_cmdlist(
 		smmu, arm_smmu_get_cmdq(smmu, cmd), cmd, 1, sync);
 }
 
-static int arm_smmu_cmdq_issue_cmd(struct arm_smmu_device *smmu,
-				   struct arm_smmu_cmd *cmd)
-{
-	return __arm_smmu_cmdq_issue_cmd(smmu, cmd, false);
-}
+#define arm_smmu_cmdq_issue_cmd(smmu, cmd)                      \
+	({                                                      \
+		struct arm_smmu_cmd __cmd = cmd;                \
+		arm_smmu_cmdq_issue_cmd_p(smmu, &__cmd, false); \
+	})
 
-static int arm_smmu_cmdq_issue_cmd_with_sync(struct arm_smmu_device *smmu,
-					     struct arm_smmu_cmd *cmd)
-{
-	return __arm_smmu_cmdq_issue_cmd(smmu, cmd, true);
-}
+#define arm_smmu_cmdq_issue_cmd_with_sync(smmu, cmd)           \
+	({                                                     \
+		struct arm_smmu_cmd __cmd = cmd;               \
+		arm_smmu_cmdq_issue_cmd_p(smmu, &__cmd, true); \
+	})
 
 static void arm_smmu_cmdq_batch_init_cmd(struct arm_smmu_device *smmu,
 					 struct arm_smmu_cmdq_batch *cmds,
@@ -962,14 +924,41 @@ static void arm_smmu_cmdq_batch_init(struct arm_smmu_device *smmu,
 	arm_smmu_cmdq_batch_init_cmd(smmu, cmds, &cmd);
 }
 
+static void arm_smmu_cmdq_batch_add_cmd_p(struct arm_smmu_device *smmu,
+					  struct arm_smmu_cmdq_batch *cmds,
+					  struct arm_smmu_cmd *cmd)
+{
+	bool force_sync = (cmds->num == CMDQ_BATCH_ENTRIES - 1) &&
+			  (smmu->options & ARM_SMMU_OPT_CMDQ_FORCE_SYNC);
+	bool unsupported_cmd;
+
+	unsupported_cmd = !arm_smmu_cmdq_supports_cmd(cmds->cmdq, cmd);
+	if (force_sync || unsupported_cmd) {
+		arm_smmu_cmdq_issue_cmdlist(smmu, cmds->cmdq, cmds->cmds,
+					    cmds->num, true);
+		arm_smmu_cmdq_batch_init_cmd(smmu, cmds, cmd);
+	}
+
+	if (cmds->num == CMDQ_BATCH_ENTRIES) {
+		arm_smmu_cmdq_issue_cmdlist(smmu, cmds->cmdq, cmds->cmds,
+					    cmds->num, false);
+		arm_smmu_cmdq_batch_init_cmd(smmu, cmds, cmd);
+	}
+
+	cmds->cmds[cmds->num++] = *cmd;
+}
+
+#define arm_smmu_cmdq_batch_add_cmd(smmu, cmds, cmd)               \
+	({                                                         \
+		struct arm_smmu_cmd __cmd = cmd;                   \
+		arm_smmu_cmdq_batch_add_cmd_p(smmu, cmds, &__cmd); \
+	})
+
 static void arm_smmu_cmdq_batch_add(struct arm_smmu_device *smmu,
 				    struct arm_smmu_cmdq_batch *cmds,
 				    struct arm_smmu_cmdq_ent *ent)
 {
-	bool force_sync = (cmds->num == CMDQ_BATCH_ENTRIES - 1) &&
-			  (smmu->options & ARM_SMMU_OPT_CMDQ_FORCE_SYNC);
 	struct arm_smmu_cmd cmd;
-	bool unsupported_cmd;
 
 	if (unlikely(arm_smmu_cmdq_build_cmd(&cmd, ent))) {
 		dev_warn(smmu->dev, "ignoring unknown CMDQ opcode 0x%x\n",
@@ -977,20 +966,7 @@ static void arm_smmu_cmdq_batch_add(struct arm_smmu_device *smmu,
 		return;
 	}
 
-	unsupported_cmd = !arm_smmu_cmdq_supports_cmd(cmds->cmdq, &cmd);
-	if (force_sync || unsupported_cmd) {
-		arm_smmu_cmdq_issue_cmdlist(smmu, cmds->cmdq, cmds->cmds,
-					    cmds->num, true);
-		arm_smmu_cmdq_batch_init_cmd(smmu, cmds, &cmd);
-	}
-
-	if (cmds->num == CMDQ_BATCH_ENTRIES) {
-		arm_smmu_cmdq_issue_cmdlist(smmu, cmds->cmdq, cmds->cmds,
-					    cmds->num, false);
-		arm_smmu_cmdq_batch_init_cmd(smmu, cmds, &cmd);
-	}
-
-	cmds->cmds[cmds->num++] = cmd;
+	arm_smmu_cmdq_batch_add_cmd_p(smmu, cmds, &cmd);
 }
 
 static int arm_smmu_cmdq_batch_submit(struct arm_smmu_device *smmu,
@@ -1003,32 +979,29 @@ static int arm_smmu_cmdq_batch_submit(struct arm_smmu_device *smmu,
 static void arm_smmu_page_response(struct device *dev, struct iopf_fault *unused,
 				   struct iommu_page_response *resp)
 {
-	struct arm_smmu_cmdq_ent cmd = {0};
 	struct arm_smmu_master *master = dev_iommu_priv_get(dev);
-	int sid = master->streams[0].id;
-	struct arm_smmu_cmd hw_cmd;
+	u8 resume_resp;
 
 	if (WARN_ON(!master->stall_enabled))
 		return;
 
-	cmd.opcode		= CMDQ_OP_RESUME;
-	cmd.resume.sid		= sid;
-	cmd.resume.stag		= resp->grpid;
 	switch (resp->code) {
 	case IOMMU_PAGE_RESP_INVALID:
 	case IOMMU_PAGE_RESP_FAILURE:
-		cmd.resume.resp = CMDQ_RESUME_0_RESP_ABORT;
+		resume_resp = CMDQ_RESUME_0_RESP_ABORT;
 		break;
 	case IOMMU_PAGE_RESP_SUCCESS:
-		cmd.resume.resp = CMDQ_RESUME_0_RESP_RETRY;
+		resume_resp = CMDQ_RESUME_0_RESP_RETRY;
 		break;
 	default:
+		resume_resp = CMDQ_RESUME_0_RESP_TERM;
 		break;
 	}
 
-	arm_smmu_cmdq_build_cmd(&hw_cmd, &cmd);
-	arm_smmu_cmdq_issue_cmd(master->smmu, &hw_cmd);
-
+	arm_smmu_cmdq_issue_cmd(master->smmu,
+				arm_smmu_make_cmd_resume(master->streams[0].id,
+							 resp->grpid,
+							 resume_resp));
 	/*
 	 * Don't send a SYNC, it doesn't do anything for RESUME or PRI_RESP.
 	 * RESUME consumption guarantees that the stalled transaction will be
@@ -1552,19 +1525,14 @@ static void arm_smmu_sync_cd(struct arm_smmu_master *master,
 	size_t i;
 	struct arm_smmu_cmdq_batch cmds;
 	struct arm_smmu_device *smmu = master->smmu;
-	struct arm_smmu_cmdq_ent cmd = {
-		.opcode	= CMDQ_OP_CFGI_CD,
-		.cfgi	= {
-			.ssid	= ssid,
-			.leaf	= leaf,
-		},
-	};
+	struct arm_smmu_cmd cmd = arm_smmu_make_cmd_cfgi_cd(0, ssid, leaf);
 
-	arm_smmu_cmdq_batch_init(smmu, &cmds, &cmd);
-	for (i = 0; i < master->num_streams; i++) {
-		cmd.cfgi.sid = master->streams[i].id;
-		arm_smmu_cmdq_batch_add(smmu, &cmds, &cmd);
-	}
+	arm_smmu_cmdq_batch_init_cmd(smmu, &cmds, &cmd);
+	for (i = 0; i < master->num_streams; i++)
+		arm_smmu_cmdq_batch_add_cmd(
+			smmu, &cmds,
+			arm_smmu_make_cmd_cfgi_cd(master->streams[i].id, ssid,
+						  leaf));
 
 	arm_smmu_cmdq_batch_submit(smmu, &cmds);
 }
@@ -1857,17 +1825,10 @@ static void arm_smmu_ste_writer_sync_entry(struct arm_smmu_entry_writer *writer)
 {
 	struct arm_smmu_ste_writer *ste_writer =
 		container_of(writer, struct arm_smmu_ste_writer, writer);
-	struct arm_smmu_cmdq_ent ent = {
-		.opcode	= CMDQ_OP_CFGI_STE,
-		.cfgi	= {
-			.sid	= ste_writer->sid,
-			.leaf	= true,
-		},
-	};
-	struct arm_smmu_cmd cmd;
 
-	arm_smmu_cmdq_build_cmd(&cmd, &ent);
-	arm_smmu_cmdq_issue_cmd_with_sync(writer->master->smmu, &cmd);
+	arm_smmu_cmdq_issue_cmd_with_sync(
+		writer->master->smmu,
+		arm_smmu_make_cmd_cfgi_ste(ste_writer->sid, true));
 }
 
 static const struct arm_smmu_entry_writer_ops arm_smmu_ste_writer_ops = {
@@ -1892,17 +1853,9 @@ static void arm_smmu_write_ste(struct arm_smmu_master *master, u32 sid,
 	arm_smmu_write_entry(&ste_writer.writer, ste->data, target->data);
 
 	/* It's likely that we'll want to use the new STE soon */
-	if (!(smmu->options & ARM_SMMU_OPT_SKIP_PREFETCH)) {
-		struct arm_smmu_cmdq_ent
-			prefetch_ent = { .opcode = CMDQ_OP_PREFETCH_CFG,
-					 .prefetch = {
-						 .sid = sid,
-					 } };
-		struct arm_smmu_cmd prefetch_cmd;
-
-		arm_smmu_cmdq_build_cmd(&prefetch_cmd, &prefetch_ent);
-		arm_smmu_cmdq_issue_cmd(smmu, &prefetch_cmd);
-	}
+	if (!(smmu->options & ARM_SMMU_OPT_SKIP_PREFETCH))
+		arm_smmu_cmdq_issue_cmd(smmu,
+					arm_smmu_make_cmd_prefetch_cfg(sid));
 }
 
 void arm_smmu_make_abort_ste(struct arm_smmu_ste *target)
@@ -2327,22 +2280,10 @@ static void arm_smmu_handle_ppr(struct arm_smmu_device *smmu, u64 *evt)
 		 evt[0] & PRIQ_0_PERM_EXEC ? "X" : "",
 		 evt[1] & PRIQ_1_ADDR_MASK);
 
-	if (last) {
-		struct arm_smmu_cmdq_ent ent = {
-			.opcode			= CMDQ_OP_PRI_RESP,
-			.substream_valid	= ssv,
-			.pri			= {
-				.sid	= sid,
-				.ssid	= ssid,
-				.grpid	= grpid,
-				.resp	= PRI_RESP_DENY,
-			},
-		};
-		struct arm_smmu_cmd cmd;
-
-		arm_smmu_cmdq_build_cmd(&cmd, &ent);
-		arm_smmu_cmdq_issue_cmd(smmu, &cmd);
-	}
+	if (last)
+		arm_smmu_cmdq_issue_cmd(
+			smmu, arm_smmu_make_cmd_pri_resp(sid, ssid, ssv, grpid,
+							 PRI_RESP_DENY));
 }
 
 static irqreturn_t arm_smmu_priq_thread(int irq, void *dev)
@@ -3464,7 +3405,7 @@ static void arm_smmu_inv_flush_iotlb_tag(struct arm_smmu_inv *inv)
 
 	cmd.opcode = inv->nsize_opcode;
 	arm_smmu_cmdq_build_cmd(&hw_cmd, &cmd);
-	arm_smmu_cmdq_issue_cmd_with_sync(inv->smmu, &hw_cmd);
+	arm_smmu_cmdq_issue_cmd_with_sync(inv->smmu, hw_cmd);
 }
 
 /* Should be installed after arm_smmu_install_ste_for_dev() */
@@ -4827,8 +4768,6 @@ static int arm_smmu_device_reset(struct arm_smmu_device *smmu)
 {
 	int ret;
 	u32 reg, enables;
-	struct arm_smmu_cmdq_ent ent;
-	struct arm_smmu_cmd cmd;
 
 	/* Clear CR0 and sync (disables SMMU and queue processing) */
 	reg = readl_relaxed(smmu->base + ARM_SMMU_CR0);
@@ -4875,20 +4814,16 @@ static int arm_smmu_device_reset(struct arm_smmu_device *smmu)
 	}
 
 	/* Invalidate any cached configuration */
-	ent.opcode = CMDQ_OP_CFGI_ALL;
-	arm_smmu_cmdq_build_cmd(&cmd, &ent);
-	arm_smmu_cmdq_issue_cmd_with_sync(smmu, &cmd);
+	arm_smmu_cmdq_issue_cmd_with_sync(smmu, arm_smmu_make_cmd_cfgi_all());
 
 	/* Invalidate any stale TLB entries */
 	if (smmu->features & ARM_SMMU_FEAT_HYP) {
-		ent.opcode = CMDQ_OP_TLBI_EL2_ALL;
-		arm_smmu_cmdq_build_cmd(&cmd, &ent);
-		arm_smmu_cmdq_issue_cmd_with_sync(smmu, &cmd);
+		arm_smmu_cmdq_issue_cmd_with_sync(
+			smmu, arm_smmu_make_cmd_op(CMDQ_OP_TLBI_EL2_ALL));
 	}
 
-	ent.opcode = CMDQ_OP_TLBI_NSNH_ALL;
-	arm_smmu_cmdq_build_cmd(&cmd, &ent);
-	arm_smmu_cmdq_issue_cmd_with_sync(smmu, &cmd);
+	arm_smmu_cmdq_issue_cmd_with_sync(
+		smmu, arm_smmu_make_cmd_op(CMDQ_OP_TLBI_NSNH_ALL));
 
 	/* Event queue */
 	writeq_relaxed(smmu->evtq.q.q_base, smmu->base + ARM_SMMU_EVTQ_BASE);

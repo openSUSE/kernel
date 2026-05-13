@@ -437,6 +437,12 @@ struct arm_smmu_cmd {
 #define CMDQ_PRI_1_GRPID		GENMASK_ULL(8, 0)
 #define CMDQ_PRI_1_RESP			GENMASK_ULL(13, 12)
 
+enum pri_resp {
+	PRI_RESP_DENY = 0,
+	PRI_RESP_FAIL = 1,
+	PRI_RESP_SUCC = 2,
+};
+
 #define CMDQ_RESUME_0_RESP_TERM		0UL
 #define CMDQ_RESUME_0_RESP_RETRY	1UL
 #define CMDQ_RESUME_0_RESP_ABORT	2UL
@@ -474,6 +480,77 @@ enum arm_smmu_cmdq_opcode {
 	CMDQ_OP_RESUME = 0x44,
 	CMDQ_OP_CMD_SYNC = 0x46,
 };
+
+static inline struct arm_smmu_cmd
+arm_smmu_make_cmd_op(enum arm_smmu_cmdq_opcode op)
+{
+	struct arm_smmu_cmd cmd = {};
+
+	cmd.data[0] = FIELD_PREP(CMDQ_0_OP, op);
+	return cmd;
+}
+
+static inline struct arm_smmu_cmd arm_smmu_make_cmd_cfgi_all(void)
+{
+	struct arm_smmu_cmd cmd = arm_smmu_make_cmd_op(CMDQ_OP_CFGI_ALL);
+
+	cmd.data[1] |= FIELD_PREP(CMDQ_CFGI_1_RANGE, 31);
+	return cmd;
+}
+
+static inline struct arm_smmu_cmd arm_smmu_make_cmd_prefetch_cfg(u32 sid)
+{
+	struct arm_smmu_cmd cmd = arm_smmu_make_cmd_op(CMDQ_OP_PREFETCH_CFG);
+
+	cmd.data[0] |= FIELD_PREP(CMDQ_PREFETCH_0_SID, sid);
+	return cmd;
+}
+
+static inline struct arm_smmu_cmd arm_smmu_make_cmd_cfgi_ste(u32 sid, bool leaf)
+{
+	struct arm_smmu_cmd cmd = arm_smmu_make_cmd_op(CMDQ_OP_CFGI_STE);
+
+	cmd.data[0] |= FIELD_PREP(CMDQ_CFGI_0_SID, sid);
+	cmd.data[1] |= FIELD_PREP(CMDQ_CFGI_1_LEAF, leaf);
+	return cmd;
+}
+
+static inline struct arm_smmu_cmd arm_smmu_make_cmd_cfgi_cd(u32 sid, u32 ssid,
+							    bool leaf)
+{
+	struct arm_smmu_cmd cmd = arm_smmu_make_cmd_op(CMDQ_OP_CFGI_CD);
+
+	cmd.data[0] |= FIELD_PREP(CMDQ_CFGI_0_SID, sid) |
+		       FIELD_PREP(CMDQ_CFGI_0_SSID, ssid);
+	cmd.data[1] |= FIELD_PREP(CMDQ_CFGI_1_LEAF, leaf);
+	return cmd;
+}
+
+static inline struct arm_smmu_cmd arm_smmu_make_cmd_resume(u32 sid, u16 stag,
+							   u8 resp)
+{
+	struct arm_smmu_cmd cmd = arm_smmu_make_cmd_op(CMDQ_OP_RESUME);
+
+	cmd.data[0] |= FIELD_PREP(CMDQ_RESUME_0_SID, sid) |
+		       FIELD_PREP(CMDQ_RESUME_0_RESP, resp);
+	cmd.data[1] |= FIELD_PREP(CMDQ_RESUME_1_STAG, stag);
+	return cmd;
+}
+
+static inline struct arm_smmu_cmd arm_smmu_make_cmd_pri_resp(u32 sid, u32 ssid,
+							     bool ssv,
+							     u16 grpid,
+							     enum pri_resp resp)
+{
+	struct arm_smmu_cmd cmd = arm_smmu_make_cmd_op(CMDQ_OP_PRI_RESP);
+
+	cmd.data[0] |= FIELD_PREP(CMDQ_0_SSV, ssv) |
+		       FIELD_PREP(CMDQ_PRI_0_SID, sid) |
+		       FIELD_PREP(CMDQ_PRI_0_SSID, ssid);
+	cmd.data[1] |= FIELD_PREP(CMDQ_PRI_1_GRPID, grpid) |
+		       FIELD_PREP(CMDQ_PRI_1_RESP, resp);
+	return cmd;
+}
 
 /* Event queue */
 #define EVTQ_ENT_SZ_SHIFT		5
@@ -535,12 +612,6 @@ enum arm_smmu_cmdq_opcode {
 #define MSI_IOVA_BASE			0x8000000
 #define MSI_IOVA_LENGTH			0x100000
 
-enum pri_resp {
-	PRI_RESP_DENY = 0,
-	PRI_RESP_FAIL = 1,
-	PRI_RESP_SUCC = 2,
-};
-
 struct arm_smmu_cmdq_ent {
 	/* Common fields */
 	u8				opcode;
@@ -548,19 +619,6 @@ struct arm_smmu_cmdq_ent {
 
 	/* Command-specific fields */
 	union {
-		struct {
-			u32			sid;
-		} prefetch;
-
-		struct {
-			u32			sid;
-			u32			ssid;
-			union {
-				bool		leaf;
-				u8		span;
-			};
-		} cfgi;
-
 		struct {
 			u8			num;
 			u8			scale;
@@ -579,19 +637,6 @@ struct arm_smmu_cmdq_ent {
 			u8			size;
 			bool			global;
 		} atc;
-
-		struct {
-			u32			sid;
-			u32			ssid;
-			u16			grpid;
-			enum pri_resp		resp;
-		} pri;
-
-		struct {
-			u32			sid;
-			u16			stag;
-			u8			resp;
-		} resume;
 
 		struct {
 			u64			msiaddr;
