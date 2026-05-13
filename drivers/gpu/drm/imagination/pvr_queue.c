@@ -10,6 +10,7 @@
 #include "pvr_drv.h"
 #include "pvr_job.h"
 #include "pvr_queue.h"
+#include "pvr_trace.h"
 #include "pvr_vm.h"
 
 #include "pvr_rogue_fwif_client.h"
@@ -725,6 +726,8 @@ static void pvr_queue_submit_job_to_cccb(struct pvr_job *job)
 		cmd->partial_render_geom_frag_fence.value = job->done_fence->seqno - 1;
 	}
 
+	trace_pvr_job_submit_fw(job);
+
 	/* Submit job to FW */
 	pvr_cccb_write_command_with_header(cccb, job->fw_ccb_cmd_type, job->cmd_len, job->cmd,
 					   job->id, job->id);
@@ -1198,6 +1201,8 @@ void pvr_queue_job_cleanup(struct pvr_job *job)
 
 	if (job->base.s_fence)
 		drm_sched_job_cleanup(&job->base);
+
+	trace_pvr_job_done(job);
 }
 
 /**
