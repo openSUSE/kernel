@@ -136,6 +136,11 @@ int skb_gro_receive(struct sk_buff *p, struct sk_buff *skb)
 	unsigned int new_truesize;
 	struct sk_buff *lp;
 
+	/* Don't get into the games below if any frags are shared.
+	 */
+	if (skbinfo->flags & SKBFL_SHARED_FRAG)
+		return -ETOOMANYREFS;
+
 	/* pairs with WRITE_ONCE() in netif_set_gro_max_size() */
 	gro_max_size = READ_ONCE(p->dev->gro_max_size);
 
