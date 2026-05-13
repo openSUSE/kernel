@@ -665,6 +665,11 @@
 		/* clock-frequency must be set on board */
 	};
 
+	psci {
+		compatible = "arm,psci-1.0";
+		method = "smc";
+	};
+
 	/* External SCIF clock - to be overridden by boards that provide it */
 	scif_clk: scif-clk {
 		compatible = "fixed-clock";
