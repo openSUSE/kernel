@@ -20,6 +20,7 @@ description: |
 properties:
   compatible:
     enum:
+      - qcom,eliza-llcc
       - qcom,glymur-llcc
       - qcom,hawi-llcc
       - qcom,ipq5424-llcc
@@ -361,6 +362,27 @@ allOf:
     else:
       properties:
         memory-region: false
+
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - qcom,eliza-llcc
+    then:
+      properties:
+        reg:
+          items:
+            - description: LLCC0 base register region
+            - description: LLCC2 base register region
+            - description: LLCC broadcast OR register region
+            - description: LLCC broadcast AND register region
+        reg-names:
+          items:
+            - const: llcc0_base
+            - const: llcc2_base
+            - const: llcc_broadcast_base
+            - const: llcc_broadcast_and_base
 
 additionalProperties: false
 
