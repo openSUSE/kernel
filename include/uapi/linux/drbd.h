@@ -11,32 +11,10 @@
 
 
 */
-#ifndef DRBD_H
-#define DRBD_H
-#include <asm/types.h>
-
-#ifdef __KERNEL__
+#ifndef _UAPI_LINUX_DRBD_H
+#define _UAPI_LINUX_DRBD_H
 #include <linux/types.h>
 #include <asm/byteorder.h>
-#else
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <limits.h>
-
-/* Although the Linux source code makes a difference between
-   generic endianness and the bitfields' endianness, there is no
-   architecture as of Linux-2.6.24-rc4 where the bitfields' endianness
-   does not match the generic endianness. */
-
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-#define __LITTLE_ENDIAN_BITFIELD
-#elif __BYTE_ORDER == __BIG_ENDIAN
-#define __BIG_ENDIAN_BITFIELD
-#else
-# error "sorry, weird endianness on this box"
-#endif
-
-#endif
 
 enum drbd_io_error_p {
 	EP_PASS_ON, /* FIXME should the better be named "Ignore"? */
@@ -432,4 +410,4 @@ enum drbd_state_info_bcast_reason {
 	SIB_SYNC_PROGRESS = 5,
 };
 
-#endif
+#endif /* _UAPI_LINUX_DRBD_H */
