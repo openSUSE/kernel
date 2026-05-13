@@ -379,7 +379,7 @@ SYM_CODE_END(pgm_check_handler)
 SYM_CODE_START(\name)
 	STMG_LC	%r8,%r15,__LC_SAVE_AREA
 	GET_LC	%r13
-	stckf	__LC_INT_CLOCK(%r13)
+	stcke	__LC_INT_CLOCK(%r13)
 	stpt	__LC_SYS_ENTER_TIMER(%r13)
 	STBEAR	__LC_LAST_BREAK(%r13)
 	BPOFF
