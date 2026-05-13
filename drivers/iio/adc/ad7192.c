@@ -39,7 +39,7 @@
 #define AD7192_REG_CONF		2 /* Configuration Register  (RW, 24-bit) */
 #define AD7192_REG_DATA		3 /* Data Register	     (RO, 24/32-bit) */
 #define AD7192_REG_ID		4 /* ID Register	     (RO, 8-bit) */
-#define AD7192_REG_GPOCON	5 /* GPOCON Register	     (RO, 8-bit) */
+#define AD7192_REG_GPOCON	5 /* GPOCON Register	     (RW, 8-bit) */
 #define AD7192_REG_OFFSET	6 /* Offset Register	     (RW, 16-bit */
 				  /* (AD7792)/24-bit (AD7192)) */
 #define AD7192_REG_FULLSALE	7 /* Full-Scale Register */
