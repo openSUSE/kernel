@@ -596,6 +596,7 @@ static bool rtw_is_desired_network(struct adapter *adapter, struct wlan_network 
 		else
 			return false;
 	}
+
 	if (adapter->registrypriv.wifi_spec == 1) { /* for  correct flow of 8021X  to do.... */
 		u8 *p = NULL;
 		uint ie_len = 0;
