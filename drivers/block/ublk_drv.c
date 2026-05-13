@@ -1172,11 +1172,6 @@ static inline struct ublk_queue *ublk_get_queue(struct ublk_device *dev,
 	return dev->queues[qid];
 }
 
-static inline bool ublk_rq_has_data(const struct request *rq)
-{
-	return bio_has_data(rq->bio);
-}
-
 static inline struct ublksrv_io_desc *
 ublk_queue_cmd_buf(struct ublk_device *ub, int q_id)
 {
@@ -1389,12 +1384,12 @@ static size_t ublk_copy_user_integrity(const struct request *req,
 
 static inline bool ublk_need_map_req(const struct request *req)
 {
-	return ublk_rq_has_data(req) && req_op(req) == REQ_OP_WRITE;
+	return blk_rq_has_data(req) && req_op(req) == REQ_OP_WRITE;
 }
 
 static inline bool ublk_need_unmap_req(const struct request *req)
 {
-	return ublk_rq_has_data(req) &&
+	return blk_rq_has_data(req) &&
 	       (req_op(req) == REQ_OP_READ || req_op(req) == REQ_OP_DRV_IN);
 }
 
@@ -1508,7 +1503,7 @@ static blk_status_t ublk_setup_iod(struct ublk_queue *ubq, struct request *req)
 	iod->start_sector = blk_rq_pos(req);
 
 	/* Try shmem zero-copy match before setting addr */
-	if (ublk_support_shmem_zc(ubq) && ublk_rq_has_data(req)) {
+	if (ublk_support_shmem_zc(ubq) && blk_rq_has_data(req)) {
 		u32 buf_idx, buf_off;
 
 		if (ublk_try_buf_match(ubq->dev, req,
@@ -1798,7 +1793,7 @@ static void ublk_dispatch_req(struct ublk_queue *ubq, struct request *req)
 	if (!ublk_start_io(ubq, req, io))
 		return;
 
-	if (ublk_support_auto_buf_reg(ubq) && ublk_rq_has_data(req)) {
+	if (ublk_support_auto_buf_reg(ubq) && blk_rq_has_data(req)) {
 		ublk_auto_buf_dispatch(ubq, req, io, io->cmd, issue_flags);
 	} else {
 		ublk_init_req_ref(ubq, io);
@@ -1819,7 +1814,7 @@ static bool __ublk_batch_prep_dispatch(struct ublk_queue *ubq,
 	if (!ublk_start_io(ubq, req, io))
 		return false;
 
-	if (ublk_support_auto_buf_reg(ubq) && ublk_rq_has_data(req)) {
+	if (ublk_support_auto_buf_reg(ubq) && blk_rq_has_data(req)) {
 		res = ublk_auto_buf_register(ubq, req, io, cmd,
 				data->issue_flags);
 
@@ -3200,7 +3195,7 @@ ublk_daemon_register_io_buf(struct io_uring_cmd *cmd,
 		return ublk_register_io_buf(cmd, ub, q_id, tag, io, index,
 					    issue_flags);
 
-	if (!ublk_dev_support_zero_copy(ub) || !ublk_rq_has_data(req))
+	if (!ublk_dev_support_zero_copy(ub) || !blk_rq_has_data(req))
 		return -EINVAL;
 
 	ret = io_buffer_register_bvec(cmd, req, ublk_io_release, index,
@@ -3483,7 +3478,7 @@ static inline struct request *__ublk_check_and_get_req(struct ublk_device *ub,
 	if (unlikely(!blk_mq_request_started(req) || req->tag != tag))
 		goto fail_put;
 
-	if (!ublk_rq_has_data(req))
+	if (!blk_rq_has_data(req))
 		goto fail_put;
 
 	return req;
@@ -4056,7 +4051,7 @@ ublk_user_copy(struct kiocb *iocb, struct iov_iter *iter, int dir)
 			return -EINVAL;
 
 		req = io->req;
-		if (!ublk_rq_has_data(req))
+		if (!blk_rq_has_data(req))
 			return -EINVAL;
 	} else {
 		req = __ublk_check_and_get_req(ub, q_id, tag, io);
