@@ -921,31 +921,23 @@ int arm_smmu_cmdq_issue_cmdlist(struct arm_smmu_device *smmu,
 }
 
 static int __arm_smmu_cmdq_issue_cmd(struct arm_smmu_device *smmu,
-				     struct arm_smmu_cmdq_ent *ent,
+				     struct arm_smmu_cmd *cmd,
 				     bool sync)
 {
-	struct arm_smmu_cmd cmd;
-
-	if (unlikely(arm_smmu_cmdq_build_cmd(cmd.data, ent))) {
-		dev_warn(smmu->dev, "ignoring unknown CMDQ opcode 0x%x\n",
-			 ent->opcode);
-		return -EINVAL;
-	}
-
 	return arm_smmu_cmdq_issue_cmdlist(
-		smmu, arm_smmu_get_cmdq(smmu, &cmd), cmd.data, 1, sync);
+		smmu, arm_smmu_get_cmdq(smmu, cmd), cmd->data, 1, sync);
 }
 
 static int arm_smmu_cmdq_issue_cmd(struct arm_smmu_device *smmu,
-				   struct arm_smmu_cmdq_ent *ent)
+				   struct arm_smmu_cmd *cmd)
 {
-	return __arm_smmu_cmdq_issue_cmd(smmu, ent, false);
+	return __arm_smmu_cmdq_issue_cmd(smmu, cmd, false);
 }
 
 static int arm_smmu_cmdq_issue_cmd_with_sync(struct arm_smmu_device *smmu,
-					     struct arm_smmu_cmdq_ent *ent)
+					     struct arm_smmu_cmd *cmd)
 {
-	return __arm_smmu_cmdq_issue_cmd(smmu, ent, true);
+	return __arm_smmu_cmdq_issue_cmd(smmu, cmd, true);
 }
 
 static void arm_smmu_cmdq_batch_init_cmd(struct arm_smmu_device *smmu,
@@ -1013,6 +1005,7 @@ static void arm_smmu_page_response(struct device *dev, struct iopf_fault *unused
 	struct arm_smmu_cmdq_ent cmd = {0};
 	struct arm_smmu_master *master = dev_iommu_priv_get(dev);
 	int sid = master->streams[0].id;
+	struct arm_smmu_cmd hw_cmd;
 
 	if (WARN_ON(!master->stall_enabled))
 		return;
@@ -1032,7 +1025,9 @@ static void arm_smmu_page_response(struct device *dev, struct iopf_fault *unused
 		break;
 	}
 
-	arm_smmu_cmdq_issue_cmd(master->smmu, &cmd);
+	arm_smmu_cmdq_build_cmd(hw_cmd.data, &cmd);
+	arm_smmu_cmdq_issue_cmd(master->smmu, &hw_cmd);
+
 	/*
 	 * Don't send a SYNC, it doesn't do anything for RESUME or PRI_RESP.
 	 * RESUME consumption guarantees that the stalled transaction will be
@@ -1861,14 +1856,16 @@ static void arm_smmu_ste_writer_sync_entry(struct arm_smmu_entry_writer *writer)
 {
 	struct arm_smmu_ste_writer *ste_writer =
 		container_of(writer, struct arm_smmu_ste_writer, writer);
-	struct arm_smmu_cmdq_ent cmd = {
+	struct arm_smmu_cmdq_ent ent = {
 		.opcode	= CMDQ_OP_CFGI_STE,
 		.cfgi	= {
 			.sid	= ste_writer->sid,
 			.leaf	= true,
 		},
 	};
+	struct arm_smmu_cmd cmd;
 
+	arm_smmu_cmdq_build_cmd(cmd.data, &ent);
 	arm_smmu_cmdq_issue_cmd_with_sync(writer->master->smmu, &cmd);
 }
 
@@ -1896,11 +1893,13 @@ static void arm_smmu_write_ste(struct arm_smmu_master *master, u32 sid,
 	/* It's likely that we'll want to use the new STE soon */
 	if (!(smmu->options & ARM_SMMU_OPT_SKIP_PREFETCH)) {
 		struct arm_smmu_cmdq_ent
-			prefetch_cmd = { .opcode = CMDQ_OP_PREFETCH_CFG,
+			prefetch_ent = { .opcode = CMDQ_OP_PREFETCH_CFG,
 					 .prefetch = {
 						 .sid = sid,
 					 } };
+		struct arm_smmu_cmd prefetch_cmd;
 
+		arm_smmu_cmdq_build_cmd(prefetch_cmd.data, &prefetch_ent);
 		arm_smmu_cmdq_issue_cmd(smmu, &prefetch_cmd);
 	}
 }
@@ -2328,7 +2327,7 @@ static void arm_smmu_handle_ppr(struct arm_smmu_device *smmu, u64 *evt)
 		 evt[1] & PRIQ_1_ADDR_MASK);
 
 	if (last) {
-		struct arm_smmu_cmdq_ent cmd = {
+		struct arm_smmu_cmdq_ent ent = {
 			.opcode			= CMDQ_OP_PRI_RESP,
 			.substream_valid	= ssv,
 			.pri			= {
@@ -2338,7 +2337,9 @@ static void arm_smmu_handle_ppr(struct arm_smmu_device *smmu, u64 *evt)
 				.resp	= PRI_RESP_DENY,
 			},
 		};
+		struct arm_smmu_cmd cmd;
 
+		arm_smmu_cmdq_build_cmd(cmd.data, &ent);
 		arm_smmu_cmdq_issue_cmd(smmu, &cmd);
 	}
 }
@@ -3446,6 +3447,7 @@ arm_smmu_install_new_domain_invs(struct arm_smmu_attach_state *state)
 static void arm_smmu_inv_flush_iotlb_tag(struct arm_smmu_inv *inv)
 {
 	struct arm_smmu_cmdq_ent cmd = {};
+	struct arm_smmu_cmd hw_cmd;
 
 	switch (inv->type) {
 	case INV_TYPE_S1_ASID:
@@ -3460,7 +3462,8 @@ static void arm_smmu_inv_flush_iotlb_tag(struct arm_smmu_inv *inv)
 	}
 
 	cmd.opcode = inv->nsize_opcode;
-	arm_smmu_cmdq_issue_cmd_with_sync(inv->smmu, &cmd);
+	arm_smmu_cmdq_build_cmd(hw_cmd.data, &cmd);
+	arm_smmu_cmdq_issue_cmd_with_sync(inv->smmu, &hw_cmd);
 }
 
 /* Should be installed after arm_smmu_install_ste_for_dev() */
@@ -4823,7 +4826,8 @@ static int arm_smmu_device_reset(struct arm_smmu_device *smmu)
 {
 	int ret;
 	u32 reg, enables;
-	struct arm_smmu_cmdq_ent cmd;
+	struct arm_smmu_cmdq_ent ent;
+	struct arm_smmu_cmd cmd;
 
 	/* Clear CR0 and sync (disables SMMU and queue processing) */
 	reg = readl_relaxed(smmu->base + ARM_SMMU_CR0);
@@ -4870,16 +4874,19 @@ static int arm_smmu_device_reset(struct arm_smmu_device *smmu)
 	}
 
 	/* Invalidate any cached configuration */
-	cmd.opcode = CMDQ_OP_CFGI_ALL;
+	ent.opcode = CMDQ_OP_CFGI_ALL;
+	arm_smmu_cmdq_build_cmd(cmd.data, &ent);
 	arm_smmu_cmdq_issue_cmd_with_sync(smmu, &cmd);
 
 	/* Invalidate any stale TLB entries */
 	if (smmu->features & ARM_SMMU_FEAT_HYP) {
-		cmd.opcode = CMDQ_OP_TLBI_EL2_ALL;
+		ent.opcode = CMDQ_OP_TLBI_EL2_ALL;
+		arm_smmu_cmdq_build_cmd(cmd.data, &ent);
 		arm_smmu_cmdq_issue_cmd_with_sync(smmu, &cmd);
 	}
 
-	cmd.opcode = CMDQ_OP_TLBI_NSNH_ALL;
+	ent.opcode = CMDQ_OP_TLBI_NSNH_ALL;
+	arm_smmu_cmdq_build_cmd(cmd.data, &ent);
 	arm_smmu_cmdq_issue_cmd_with_sync(smmu, &cmd);
 
 	/* Event queue */
