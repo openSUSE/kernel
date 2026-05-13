@@ -380,7 +380,7 @@ static bool intel_fbdev_init_bios(struct intel_display *display,
 	unsigned int max_size = 0;
 
 	/* Find the largest fb */
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		struct intel_crtc_state *crtc_state =
 			to_intel_crtc_state(crtc->base.state);
 		struct intel_plane *plane =
@@ -419,7 +419,7 @@ static bool intel_fbdev_init_bios(struct intel_display *display,
 	}
 
 	/* Now make sure all the pipes will fit into it */
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		struct intel_crtc_state *crtc_state =
 			to_intel_crtc_state(crtc->base.state);
 		struct intel_plane *plane =
@@ -489,7 +489,7 @@ static bool intel_fbdev_init_bios(struct intel_display *display,
 	drm_framebuffer_get(&ifbdev->fb->base);
 
 	/* Final pass to check if any active pipes don't have fbs */
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		struct intel_crtc_state *crtc_state =
 			to_intel_crtc_state(crtc->base.state);
 		struct intel_plane *plane =

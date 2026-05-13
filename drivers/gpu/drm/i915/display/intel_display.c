@@ -717,7 +717,7 @@ bool intel_has_pending_fb_unpin(struct intel_display *display)
 	struct intel_crtc *crtc;
 	bool cleanup_done;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		struct drm_crtc_commit *commit;
 		spin_lock(&crtc->base.commit_lock);
 		commit = list_first_entry_or_null(&crtc->base.commit_list,
@@ -742,7 +742,7 @@ void intel_display_flush_cleanup_work(struct intel_display *display)
 {
 	struct intel_crtc *crtc;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		struct drm_crtc_commit *commit;
 
 		spin_lock(&crtc->base.commit_lock);
@@ -3527,7 +3527,7 @@ static void enabled_uncompressed_joiner_pipes(struct intel_display *display,
 	if (!HAS_UNCOMPRESSED_JOINER(display))
 		return;
 
-	for_each_intel_crtc_in_pipe_mask(display->drm, crtc,
+	for_each_intel_crtc_in_pipe_mask(display, crtc,
 					 joiner_pipes(display)) {
 		enum intel_display_power_domain power_domain;
 		enum pipe pipe = crtc->pipe;
@@ -3555,7 +3555,7 @@ static void enabled_bigjoiner_pipes(struct intel_display *display,
 	if (!HAS_BIGJOINER(display))
 		return;
 
-	for_each_intel_crtc_in_pipe_mask(display->drm, crtc,
+	for_each_intel_crtc_in_pipe_mask(display, crtc,
 					 joiner_pipes(display)) {
 		enum intel_display_power_domain power_domain;
 		enum pipe pipe = crtc->pipe;
@@ -3624,7 +3624,7 @@ static void enabled_ultrajoiner_pipes(struct intel_display *display,
 	if (!HAS_ULTRAJOINER(display))
 		return;
 
-	for_each_intel_crtc_in_pipe_mask(display->drm, crtc,
+	for_each_intel_crtc_in_pipe_mask(display, crtc,
 					 joiner_pipes(display)) {
 		enum intel_display_power_domain power_domain;
 		enum pipe pipe = crtc->pipe;
@@ -5587,7 +5587,7 @@ int intel_modeset_pipes_in_mask_early(struct intel_atomic_state *state,
 	struct intel_display *display = to_intel_display(state);
 	struct intel_crtc *crtc;
 
-	for_each_intel_crtc_in_pipe_mask(display->drm, crtc, mask) {
+	for_each_intel_crtc_in_pipe_mask(display, crtc, mask) {
 		struct intel_crtc_state *crtc_state;
 		int ret;
 
@@ -5634,7 +5634,7 @@ int intel_modeset_all_pipes_late(struct intel_atomic_state *state,
 	struct intel_display *display = to_intel_display(state);
 	struct intel_crtc *crtc;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		struct intel_crtc_state *crtc_state;
 		int ret;
 
@@ -5675,7 +5675,7 @@ int intel_modeset_commit_pipes(struct intel_display *display,
 	state->acquire_ctx = ctx;
 	to_intel_atomic_state(state)->internal = true;
 
-	for_each_intel_crtc_in_pipe_mask(display->drm, crtc, pipe_mask) {
+	for_each_intel_crtc_in_pipe_mask(display, crtc, pipe_mask) {
 		struct intel_crtc_state *crtc_state =
 			intel_atomic_get_crtc_state(state, crtc);
 
@@ -5730,7 +5730,7 @@ static int hsw_mode_set_planes_workaround(struct intel_atomic_state *state)
 		return 0;
 
 	/* w/a possibly needed, check how many crtc's are already enabled. */
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		crtc_state = intel_atomic_get_crtc_state(&state->base, crtc);
 		if (IS_ERR(crtc_state))
 			return PTR_ERR(crtc_state);
@@ -5927,7 +5927,7 @@ static int intel_atomic_check_joiner(struct intel_atomic_state *state,
 		return -EINVAL;
 	}
 
-	for_each_intel_crtc_in_pipe_mask(display->drm, secondary_crtc,
+	for_each_intel_crtc_in_pipe_mask(display, secondary_crtc,
 					 intel_crtc_joiner_secondary_pipes(primary_crtc_state)) {
 		struct intel_crtc_state *secondary_crtc_state;
 		int ret;
@@ -5970,7 +5970,7 @@ static void kill_joiner_secondaries(struct intel_atomic_state *state,
 		intel_atomic_get_new_crtc_state(state, primary_crtc);
 	struct intel_crtc *secondary_crtc;
 
-	for_each_intel_crtc_in_pipe_mask(display->drm, secondary_crtc,
+	for_each_intel_crtc_in_pipe_mask(display, secondary_crtc,
 					 intel_crtc_joiner_secondary_pipes(primary_crtc_state)) {
 		struct intel_crtc_state *secondary_crtc_state =
 			intel_atomic_get_new_crtc_state(state, secondary_crtc);
@@ -6269,13 +6269,13 @@ static int intel_joiner_add_affected_crtcs(struct intel_atomic_state *state)
 			modeset_pipes |= crtc_state->joiner_pipes;
 	}
 
-	for_each_intel_crtc_in_pipe_mask(display->drm, crtc, affected_pipes) {
+	for_each_intel_crtc_in_pipe_mask(display, crtc, affected_pipes) {
 		crtc_state = intel_atomic_get_crtc_state(&state->base, crtc);
 		if (IS_ERR(crtc_state))
 			return PTR_ERR(crtc_state);
 	}
 
-	for_each_intel_crtc_in_pipe_mask(display->drm, crtc, modeset_pipes) {
+	for_each_intel_crtc_in_pipe_mask(display, crtc, modeset_pipes) {
 		int ret;
 
 		crtc_state = intel_atomic_get_new_crtc_state(state, crtc);
@@ -6760,7 +6760,7 @@ static void intel_enable_crtc(struct intel_atomic_state *state,
 	if (!intel_crtc_needs_modeset(new_crtc_state))
 		return;
 
-	for_each_intel_crtc_in_pipe_mask_reverse(display->drm, pipe_crtc,
+	for_each_intel_crtc_in_pipe_mask_reverse(display, pipe_crtc,
 						 intel_crtc_joined_pipe_mask(new_crtc_state)) {
 		const struct intel_crtc_state *pipe_crtc_state =
 			intel_atomic_get_new_crtc_state(state, pipe_crtc);
@@ -6898,7 +6898,7 @@ static void intel_old_crtc_state_disables(struct intel_atomic_state *state,
 	 * We need to disable pipe CRC before disabling the pipe,
 	 * or we race against vblank off.
 	 */
-	for_each_intel_crtc_in_pipe_mask(display->drm, pipe_crtc,
+	for_each_intel_crtc_in_pipe_mask(display, pipe_crtc,
 					 intel_crtc_joined_pipe_mask(old_crtc_state))
 		intel_crtc_disable_pipe_crc(pipe_crtc);
 
@@ -6906,7 +6906,7 @@ static void intel_old_crtc_state_disables(struct intel_atomic_state *state,
 
 	display->modeset.funcs->crtc_disable(state, crtc);
 
-	for_each_intel_crtc_in_pipe_mask(display->drm, pipe_crtc,
+	for_each_intel_crtc_in_pipe_mask(display, pipe_crtc,
 					 intel_crtc_joined_pipe_mask(old_crtc_state)) {
 		const struct intel_crtc_state *new_pipe_crtc_state =
 			intel_atomic_get_new_crtc_state(state, pipe_crtc);
@@ -7818,7 +7818,7 @@ static u32 intel_encoder_possible_crtcs(struct intel_encoder *encoder)
 	struct intel_crtc *crtc;
 	u32 possible_crtcs = 0;
 
-	for_each_intel_crtc_in_pipe_mask(display->drm, crtc, encoder->pipe_mask)
+	for_each_intel_crtc_in_pipe_mask(display, crtc, encoder->pipe_mask)
 		possible_crtcs |= drm_crtc_mask(&crtc->base);
 
 	return possible_crtcs;
@@ -8311,7 +8311,7 @@ int intel_initial_commit(struct intel_display *display)
 	to_intel_atomic_state(state)->internal = true;
 
 retry:
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		struct intel_crtc_state *crtc_state =
 			intel_atomic_get_crtc_state(state, crtc);
 

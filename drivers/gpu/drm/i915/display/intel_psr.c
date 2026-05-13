@@ -1908,7 +1908,7 @@ void intel_psr_set_non_psr_pipes(struct intel_dp *intel_dp,
 		return;
 
 	/* We ignore possible secondary PSR/Panel Replay capable eDP */
-	for_each_intel_crtc(display->drm, crtc)
+	for_each_intel_crtc(display, crtc)
 		active_pipes |= crtc->active ? BIT(crtc->pipe) : 0;
 
 	active_pipes = intel_calc_active_pipes(state, active_pipes);

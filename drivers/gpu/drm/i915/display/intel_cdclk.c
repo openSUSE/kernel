@@ -3647,7 +3647,7 @@ void intel_cdclk_update_hw_state(struct intel_display *display)
 	cdclk_state->enabled_pipes = 0;
 	cdclk_state->active_pipes = 0;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		const struct intel_crtc_state *crtc_state =
 			to_intel_crtc_state(crtc->base.state);
 		enum pipe pipe = crtc->pipe;

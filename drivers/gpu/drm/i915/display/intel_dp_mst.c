@@ -837,7 +837,7 @@ static int intel_dp_mst_check_dsc_change(struct intel_atomic_state *state,
 
 	mst_pipe_mask = get_pipes_downstream_of_mst_port(state, mst_mgr, NULL);
 
-	for_each_intel_crtc_in_pipe_mask(display->drm, crtc, mst_pipe_mask) {
+	for_each_intel_crtc_in_pipe_mask(display, crtc, mst_pipe_mask) {
 		struct intel_crtc_state *crtc_state =
 			intel_atomic_get_new_crtc_state(state, crtc);
 

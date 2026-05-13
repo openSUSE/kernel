@@ -2529,7 +2529,7 @@ skl_compute_ddb(struct intel_atomic_state *state)
 		}
 	}
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		enum pipe pipe = crtc->pipe;
 
 		new_dbuf_state->slices[pipe] =
@@ -2574,7 +2574,7 @@ skl_compute_ddb(struct intel_atomic_state *state)
 			return ret;
 	}
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		ret = skl_crtc_allocate_ddb(state, crtc);
 		if (ret)
 			return ret;
@@ -2845,7 +2845,7 @@ static int pkgc_max_linetime(struct intel_atomic_state *state)
 	}
 
 	max_linetime = 0;
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		if (display->pkgc.disable[crtc->pipe])
 			return 0;
 
@@ -3033,7 +3033,7 @@ static void skl_wm_get_hw_state(struct intel_display *display)
 	dbuf_state->mdclk_cdclk_ratio = intel_mdclk_cdclk_ratio(display, &display->cdclk.hw);
 	dbuf_state->active_pipes = 0;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		struct intel_crtc_state *crtc_state =
 			to_intel_crtc_state(crtc->base.state);
 		enum pipe pipe = crtc->pipe;
@@ -3446,7 +3446,7 @@ static void pipe_mbus_dbox_ctl_update(struct intel_display *display,
 {
 	struct intel_crtc *crtc;
 
-	for_each_intel_crtc_in_pipe_mask(display->drm, crtc, dbuf_state->active_pipes)
+	for_each_intel_crtc_in_pipe_mask(display, crtc, dbuf_state->active_pipes)
 		intel_de_write(display, PIPE_MBUS_DBOX_CTL(crtc->pipe),
 			       pipe_mbus_dbox_ctl(crtc, dbuf_state));
 }
@@ -3758,14 +3758,14 @@ static bool skl_dbuf_is_misconfigured(struct intel_display *display)
 	struct skl_ddb_entry entries[I915_MAX_PIPES] = {};
 	struct intel_crtc *crtc;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		const struct intel_crtc_state *crtc_state =
 			to_intel_crtc_state(crtc->base.state);
 
 		entries[crtc->pipe] = crtc_state->wm.skl.ddb;
 	}
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		const struct intel_crtc_state *crtc_state =
 			to_intel_crtc_state(crtc->base.state);
 		u8 slices;
@@ -3803,7 +3803,7 @@ static void skl_dbuf_sanitize(struct intel_display *display)
 
 	drm_dbg_kms(display->drm, "BIOS has misprogrammed the DBUF, disabling all planes\n");
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		struct intel_plane *plane = to_intel_plane(crtc->base.primary);
 		const struct intel_plane_state *plane_state =
 			to_intel_plane_state(plane->base.state);

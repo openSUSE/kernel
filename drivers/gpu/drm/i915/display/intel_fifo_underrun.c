@@ -527,7 +527,7 @@ void intel_check_cpu_fifo_underruns(struct intel_display *display)
 
 	spin_lock_irq(&display->irq.lock);
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		if (crtc->cpu_fifo_underrun_disabled)
 			continue;
 
@@ -554,7 +554,7 @@ void intel_check_pch_fifo_underruns(struct intel_display *display)
 
 	spin_lock_irq(&display->irq.lock);
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		if (crtc->pch_fifo_underrun_disabled)
 			continue;
 

@@ -1429,7 +1429,7 @@ void intel_bw_update_hw_state(struct intel_display *display)
 
 	bw_state->pipe_sagv_reject = 0;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		const struct intel_crtc_state *crtc_state =
 			to_intel_crtc_state(crtc->base.state);
 		enum pipe pipe = crtc->pipe;

@@ -1203,7 +1203,7 @@ static void assert_can_disable_lcpll(struct intel_display *display)
 {
 	struct intel_crtc *crtc;
 
-	for_each_intel_crtc(display->drm, crtc)
+	for_each_intel_crtc(display, crtc)
 		INTEL_DISPLAY_STATE_WARN(display, crtc->active,
 					 "CRTC for pipe %c enabled\n",
 					 pipe_name(crtc->pipe));

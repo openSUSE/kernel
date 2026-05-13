@@ -4965,7 +4965,7 @@ static void readout_dpll_hw_state(struct intel_display *display,
 		pll->wakeref = intel_display_power_get(display, pll->info->power_domain);
 
 	pll->state.pipe_mask = 0;
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		struct intel_crtc_state *crtc_state =
 			to_intel_crtc_state(crtc->base.state);
 

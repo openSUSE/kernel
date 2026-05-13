@@ -3672,7 +3672,7 @@ void intel_ddi_update_active_dpll(struct intel_atomic_state *state,
 	if (!intel_encoder_is_tc(encoder) || !display->dpll.mgr)
 		return;
 
-	for_each_intel_crtc_in_pipe_mask(display->drm, pipe_crtc,
+	for_each_intel_crtc_in_pipe_mask(display, pipe_crtc,
 					 intel_crtc_joined_pipe_mask(crtc_state))
 		intel_dpll_update_active(state, pipe_crtc, encoder);
 }

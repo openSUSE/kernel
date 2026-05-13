@@ -56,7 +56,7 @@ struct intel_crtc *intel_crtc_for_pipe(struct intel_display *display,
 {
 	struct intel_crtc *crtc;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		if (crtc->pipe == pipe)
 			return crtc;
 	}

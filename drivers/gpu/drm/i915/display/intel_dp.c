@@ -6803,7 +6803,7 @@ static int intel_modeset_affected_transcoders(struct intel_atomic_state *state, 
 	if (transcoders == 0)
 		return 0;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		struct intel_crtc_state *crtc_state;
 		int ret;
 

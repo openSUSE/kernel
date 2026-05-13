@@ -212,22 +212,22 @@ enum phy_fia {
 			    base.head)					\
 		for_each_if((intel_plane)->pipe == (intel_crtc)->pipe)
 
-#define for_each_intel_crtc(dev, crtc) \
+#define for_each_intel_crtc(display, crtc) \
 	list_for_each_entry((crtc), \
-			    &to_intel_display(dev)->pipe_list, \
+			    &(display)->pipe_list, \
 			    pipe_head)
 
-#define for_each_intel_crtc_reverse(dev, crtc) \
+#define for_each_intel_crtc_reverse(display, crtc) \
 	list_for_each_entry_reverse((crtc), \
-				    &to_intel_display(dev)->pipe_list, \
+				    &(display)->pipe_list, \
 				    pipe_head)
 
-#define for_each_intel_crtc_in_pipe_mask(dev, crtc, pipe_mask) \
-	for_each_intel_crtc((dev), (crtc)) \
+#define for_each_intel_crtc_in_pipe_mask(display, crtc, pipe_mask) \
+	for_each_intel_crtc((display), (crtc)) \
 		for_each_if((pipe_mask) & BIT((crtc)->pipe))
 
-#define for_each_intel_crtc_in_pipe_mask_reverse(dev, crtc, pipe_mask) \
-	for_each_intel_crtc_reverse((dev), (crtc)) \
+#define for_each_intel_crtc_in_pipe_mask_reverse(display, crtc, pipe_mask) \
+	for_each_intel_crtc_reverse((display), (crtc)) \
 		for_each_if((pipe_mask) & BIT((crtc)->pipe))
 
 #define for_each_intel_encoder(dev, intel_encoder)		\
@@ -288,28 +288,28 @@ enum phy_fia {
 		for_each_if(plane)
 
 #define for_each_old_intel_crtc_in_state(__state, crtc, old_crtc_state, __i) \
-	for_each_intel_crtc((__state)->base.dev, (crtc)) \
+	for_each_intel_crtc(to_intel_display(__state), (crtc)) \
 		for_each_if(((__i) = drm_crtc_index(&(crtc)->base), (void)(__i), \
 			     (old_crtc_state) = intel_atomic_get_old_crtc_state((__state), (crtc))))
 
 #define for_each_new_intel_crtc_in_state(__state, crtc, new_crtc_state, __i) \
-	for_each_intel_crtc((__state)->base.dev, (crtc)) \
+	for_each_intel_crtc(to_intel_display(__state), (crtc)) \
 		for_each_if(((__i) = drm_crtc_index(&(crtc)->base), (void)(__i), \
 			     (new_crtc_state) = intel_atomic_get_new_crtc_state((__state), (crtc))))
 
 #define for_each_new_intel_crtc_in_state_reverse(__state, crtc, new_crtc_state, __i) \
-	for_each_intel_crtc_reverse((__state)->base.dev, (crtc)) \
+	for_each_intel_crtc_reverse(to_intel_display(__state), (crtc)) \
 		for_each_if(((__i) = drm_crtc_index(&(crtc)->base), (void)(__i), \
 			     (new_crtc_state) = intel_atomic_get_new_crtc_state((__state), (crtc))))
 
 #define for_each_oldnew_intel_crtc_in_state(__state, crtc, old_crtc_state, new_crtc_state, __i) \
-	for_each_intel_crtc((__state)->base.dev, (crtc)) \
+	for_each_intel_crtc(to_intel_display(__state), (crtc)) \
 		for_each_if(((__i) = drm_crtc_index(&(crtc)->base), (void)(__i), \
 			     (old_crtc_state) = intel_atomic_get_old_crtc_state((__state), (crtc)), \
 			     (new_crtc_state) = intel_atomic_get_new_crtc_state((__state), (crtc))))
 
 #define for_each_oldnew_intel_crtc_in_state_reverse(__state, crtc, old_crtc_state, new_crtc_state, __i) \
-	for_each_intel_crtc_reverse((__state)->base.dev, (crtc)) \
+	for_each_intel_crtc_reverse(to_intel_display(__state), (crtc)) \
 		for_each_if(((__i) = drm_crtc_index(&(crtc)->base), (void)(__i), \
 			     (old_crtc_state) = intel_atomic_get_old_crtc_state((__state), (crtc)), \
 			     (new_crtc_state) = intel_atomic_get_new_crtc_state((__state), (crtc))))
