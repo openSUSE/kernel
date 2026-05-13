@@ -216,29 +216,26 @@ static DEFINE_IDR(shrinker_idr);
 
 static int shrinker_memcg_alloc(struct shrinker *shrinker)
 {
-	int id, ret = -ENOMEM;
+	int id;
 
 	if (mem_cgroup_disabled())
 		return -ENOSYS;
 	if (mem_cgroup_kmem_disabled() && !(shrinker->flags & SHRINKER_NONSLAB))
 		return -ENOSYS;
 
-	mutex_lock(&shrinker_mutex);
+	guard(mutex)(&shrinker_mutex);
 	id = idr_alloc(&shrinker_idr, shrinker, 0, 0, GFP_KERNEL);
 	if (id < 0)
-		goto unlock;
+		return id;
 
 	if (id >= shrinker_nr_max) {
 		if (expand_shrinker_info(id)) {
 			idr_remove(&shrinker_idr, id);
-			goto unlock;
+			return -ENOMEM;
 		}
 	}
 	shrinker->id = id;
-	ret = 0;
-unlock:
-	mutex_unlock(&shrinker_mutex);
-	return ret;
+	return 0;
 }
 
 static void shrinker_memcg_remove(struct shrinker *shrinker)
