@@ -486,8 +486,6 @@ static const struct file_operations papr_hvpipe_handle_ops = {
 static int papr_hvpipe_dev_create_handle(u32 srcID)
 {
 	struct hvpipe_source_info *src_info;
-	struct file *file;
-	long err;
 	int fd;
 	unsigned long flags;
 
@@ -514,41 +512,27 @@ static int papr_hvpipe_dev_create_handle(u32 srcID)
 	list_add(&src_info->list, &hvpipe_src_list);
 	spin_unlock_irqrestore(&hvpipe_src_list_lock, flags);
 
-	fd = get_unused_fd_flags(O_RDONLY | O_CLOEXEC);
+	fd = FD_ADD(O_RDONLY | O_CLOEXEC,
+		   anon_inode_getfile("[papr-hvpipe]", &papr_hvpipe_handle_ops,
+				      (void *)src_info, O_RDWR));
 	if (fd < 0) {
-		err = fd;
-		goto free_buf;
+		spin_lock_irqsave(&hvpipe_src_list_lock, flags);
+		list_del(&src_info->list);
+		spin_unlock_irqrestore(&hvpipe_src_list_lock, flags);
+		/*
+		 * if we fail to add FD, that means no userspace program is
+		 * polling. In that case if there is a msg pending because the
+		 * interrupt was fired after the src_info was added to the
+		 * global list, then let's consume it here, to unblock the
+		 * hvpipe
+		 */
+		if (src_info->hvpipe_status & HVPIPE_MSG_AVAILABLE)
+			hvpipe_rtas_recv_msg(NULL, 0);
+		kfree(src_info);
+		return fd;
 	}
 
-	file = anon_inode_getfile("[papr-hvpipe]",
-			&papr_hvpipe_handle_ops, (void *)src_info,
-			O_RDWR);
-	if (IS_ERR(file)) {
-		err = PTR_ERR(file);
-		goto free_fd;
-	}
-	fd_install(fd, file);
 	return fd;
-
-free_file:
-	fput(file);
-free_fd:
-	put_unused_fd(fd);
-free_buf:
-	spin_lock_irqsave(&hvpipe_src_list_lock, flags);
-	list_del(&src_info->list);
-	spin_unlock_irqrestore(&hvpipe_src_list_lock, flags);
-	/*
-	 * if we fail to add FD, that means no userspace program is
-	 * polling. In that case if there is a msg pending because the
-	 * interrupt was fired after the src_info was added to the
-	 * global list, then let's consume it here, to unblock the
-	 * hvpipe
-	 */
-	if (src_info->hvpipe_status & HVPIPE_MSG_AVAILABLE)
-		hvpipe_rtas_recv_msg(NULL, 0);
-	kfree(src_info);
-	return err;
 }
 
 /*
