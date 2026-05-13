@@ -1947,7 +1947,7 @@ static void _vlv_display_irq_reset(struct intel_display *display)
 	display->irq.vlv_imr_mask = ~0u;
 }
 
-void vlv_display_irq_reset(struct intel_display *display)
+static void vlv_display_irq_reset(struct intel_display *display)
 {
 	spin_lock_irq(&display->irq.lock);
 	if (display->irq.vlv_display_irqs_enabled)
@@ -1955,7 +1955,7 @@ void vlv_display_irq_reset(struct intel_display *display)
 	spin_unlock_irq(&display->irq.lock);
 }
 
-void i9xx_display_irq_reset(struct intel_display *display)
+static void i9xx_display_irq_reset(struct intel_display *display)
 {
 	if (HAS_HOTPLUG(display)) {
 		i915_hotplug_interrupt_update(display, 0xffffffff, 0);
@@ -2076,7 +2076,7 @@ static void ibx_display_irq_reset(struct intel_display *display)
 		intel_de_write(display, SERR_INT, 0xffffffff);
 }
 
-void ilk_display_irq_reset(struct intel_display *display)
+static void ilk_display_irq_reset(struct intel_display *display)
 {
 	irq_reset(display, DE_IRQ_REGS);
 	display->irq.ilk_de_imr_mask = ~0u;
@@ -2092,12 +2092,9 @@ void ilk_display_irq_reset(struct intel_display *display)
 	ibx_display_irq_reset(display);
 }
 
-void gen8_display_irq_reset(struct intel_display *display)
+static void gen8_display_irq_reset(struct intel_display *display)
 {
 	enum pipe pipe;
-
-	if (!HAS_DISPLAY(display))
-		return;
 
 	intel_de_write(display, EDP_PSR_IMR, 0xffffffff);
 	intel_de_write(display, EDP_PSR_IIR, 0xffffffff);
@@ -2114,14 +2111,11 @@ void gen8_display_irq_reset(struct intel_display *display)
 		ibx_display_irq_reset(display);
 }
 
-void gen11_display_irq_reset(struct intel_display *display)
+static void gen11_display_irq_reset(struct intel_display *display)
 {
 	enum pipe pipe;
 	u32 trans_mask = BIT(TRANSCODER_A) | BIT(TRANSCODER_B) |
 		BIT(TRANSCODER_C) | BIT(TRANSCODER_D);
-
-	if (!HAS_DISPLAY(display))
-		return;
 
 	intel_de_write(display, GEN11_DISPLAY_INT_CTL, 0);
 
@@ -2453,6 +2447,38 @@ struct intel_display_irq_funcs {
 	void (*reset)(struct intel_display *display);
 };
 
+static const struct intel_display_irq_funcs gen11_display_irq_funcs = {
+	.reset = gen11_display_irq_reset,
+};
+
+static const struct intel_display_irq_funcs gen8_display_irq_funcs = {
+	.reset = gen8_display_irq_reset,
+};
+
+static const struct intel_display_irq_funcs vlv_display_irq_funcs = {
+	.reset = vlv_display_irq_reset,
+};
+
+static const struct intel_display_irq_funcs ilk_display_irq_funcs = {
+	.reset = ilk_display_irq_reset,
+};
+
+static const struct intel_display_irq_funcs i965_display_irq_funcs = {
+	.reset = i9xx_display_irq_reset,
+};
+
+static const struct intel_display_irq_funcs i915_display_irq_funcs = {
+	.reset = i9xx_display_irq_reset,
+};
+
+void intel_display_irq_reset(struct intel_display *display)
+{
+	if (!HAS_DISPLAY(display))
+		return;
+
+	display->irq.funcs->reset(display);
+}
+
 void intel_display_irq_init(struct intel_display *display)
 {
 	spin_lock_init(&display->irq.lock);
@@ -2463,6 +2489,19 @@ void intel_display_irq_init(struct intel_display *display)
 
 	INIT_WORK(&display->irq.vblank_notify_work,
 		  intel_display_vblank_notify_work);
+
+	if (DISPLAY_VER(display) >= 11)
+		display->irq.funcs = &gen11_display_irq_funcs;
+	else if (display->platform.cherryview || display->platform.valleyview)
+		display->irq.funcs = &vlv_display_irq_funcs;
+	else if (DISPLAY_VER(display) >= 8)
+		display->irq.funcs = &gen8_display_irq_funcs;
+	else if (DISPLAY_VER(display) >= 5)
+		display->irq.funcs = &ilk_display_irq_funcs;
+	else if (DISPLAY_VER(display) == 4)
+		display->irq.funcs = &i965_display_irq_funcs;
+	else
+		display->irq.funcs = &i915_display_irq_funcs;
 }
 
 struct intel_display_irq_snapshot {
