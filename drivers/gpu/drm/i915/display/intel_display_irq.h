@@ -67,13 +67,7 @@ struct intel_display_irq_state {
 void intel_display_irq_reset(struct intel_display *display);
 void intel_display_irq_postinstall(struct intel_display *display);
 void intel_display_irq_ack(struct intel_display *display, struct intel_display_irq_state *state);
-
-bool ilk_display_irq_handler(struct intel_display *display, const struct intel_display_irq_state *state);
-bool gen8_display_irq_handler(struct intel_display *display, const struct intel_display_irq_state *state);
-bool gen11_display_irq_handler(struct intel_display *display, const struct intel_display_irq_state *state);
-bool i965_display_irq_handler(struct intel_display *display, const struct intel_display_irq_state *state);
-bool i915_display_irq_handler(struct intel_display *display, const struct intel_display_irq_state *state);
-bool vlv_display_irq_handler(struct intel_display *display, const struct intel_display_irq_state *state);
+bool intel_display_irq_handler(struct intel_display *display, const struct intel_display_irq_state *state);
 
 u32 i9xx_display_irq_enable_mask(struct intel_display *display);
 
