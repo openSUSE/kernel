@@ -11160,14 +11160,12 @@ bool bpf_is_kfunc_pkt_changing(struct bpf_kfunc_call_arg_meta *meta)
 }
 
 static enum kfunc_ptr_arg_type
-get_kfunc_ptr_arg_type(struct bpf_verifier_env *env,
-		       struct bpf_kfunc_call_arg_meta *meta,
+get_kfunc_ptr_arg_type(struct bpf_verifier_env *env, struct bpf_func_state *caller,
+		       struct bpf_reg_state *regs, struct bpf_kfunc_call_arg_meta *meta,
 		       const struct btf_type *t, const struct btf_type *ref_t,
 		       const char *ref_tname, const struct btf_param *args,
 		       int arg, int nargs, argno_t argno, struct bpf_reg_state *reg)
 {
-	u32 regno = arg + 1;
-	struct bpf_reg_state *regs = cur_regs(env);
 	bool arg_mem_size = false;
 
 	if (meta->func_id == special_kfunc_list[KF_bpf_cast_to_kern_ctx] ||
@@ -11176,8 +11174,8 @@ get_kfunc_ptr_arg_type(struct bpf_verifier_env *env,
 		return KF_ARG_PTR_TO_CTX;
 
 	if (arg + 1 < nargs &&
-	    (is_kfunc_arg_mem_size(meta->btf, &args[arg + 1], &regs[regno + 1]) ||
-	     is_kfunc_arg_const_mem_size(meta->btf, &args[arg + 1], &regs[regno + 1])))
+	    (is_kfunc_arg_mem_size(meta->btf, &args[arg + 1], get_func_arg_reg(caller, regs, arg + 1)) ||
+	     is_kfunc_arg_const_mem_size(meta->btf, &args[arg + 1], get_func_arg_reg(caller, regs, arg + 1))))
 		arg_mem_size = true;
 
 	/* In this function, we verify the kfunc's BTF as per the argument type,
@@ -11842,6 +11840,8 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 			    int insn_idx)
 {
 	const char *func_name = meta->func_name, *ref_tname;
+	struct bpf_func_state *caller = cur_func(env);
+	struct bpf_reg_state *regs = cur_regs(env);
 	const struct btf *btf = meta->btf;
 	const struct btf_param *args;
 	struct btf_record *rec;
@@ -11850,21 +11850,31 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 
 	args = (const struct btf_param *)(meta->func_proto + 1);
 	nargs = btf_type_vlen(meta->func_proto);
-	if (nargs > MAX_BPF_FUNC_REG_ARGS) {
+	if (nargs > MAX_BPF_FUNC_ARGS) {
 		verbose(env, "Function %s has %d > %d args\n", func_name, nargs,
-			MAX_BPF_FUNC_REG_ARGS);
+			MAX_BPF_FUNC_ARGS);
 		return -EINVAL;
 	}
+	if (nargs > MAX_BPF_FUNC_REG_ARGS && !bpf_jit_supports_stack_args()) {
+		verbose(env, "JIT does not support kfunc %s() with %d args\n",
+			func_name, nargs);
+		return -ENOTSUPP;
+	}
+
+	ret = check_outgoing_stack_args(env, caller, nargs);
+	if (ret)
+		return ret;
 
 	/* Check that BTF function arguments match actual types that the
 	 * verifier sees.
 	 */
 	for (i = 0; i < nargs; i++) {
-		struct bpf_reg_state *regs = cur_regs(env), *reg = &regs[i + 1];
+		struct bpf_reg_state *reg = get_func_arg_reg(caller, regs, i);
 		const struct btf_type *t, *ref_t, *resolve_ret;
 		enum bpf_arg_type arg_type = ARG_DONTCARE;
 		argno_t argno = argno_from_arg(i + 1);
-		u32 regno = i + 1, ref_id, type_size;
+		int regno = reg_from_argno(argno);
+		u32 ref_id, type_size;
 		bool is_ret_buf_sz = false;
 		int kf_arg_type;
 
@@ -11873,6 +11883,11 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 			if (meta->arg_prog) {
 				verifier_bug(env, "Only 1 prog->aux argument supported per-kfunc");
 				return -EFAULT;
+			}
+			if (regno < 0) {
+				verbose(env, "%s prog->aux cannot be a stack argument\n",
+					reg_arg_name(env, argno));
+				return -EINVAL;
 			}
 			meta->arg_prog = true;
 			cur_aux(env)->arg_prog = regno;
@@ -11900,7 +11915,10 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 						reg_arg_name(env, argno));
 					return -EINVAL;
 				}
-				ret = mark_chain_precision(env, regno);
+				if (regno >= 0)
+					ret = mark_chain_precision(env, regno);
+				else
+					ret = mark_stack_arg_precision(env, i);
 				if (ret < 0)
 					return ret;
 				meta->arg_constant.found = true;
@@ -11925,7 +11943,10 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 				}
 
 				meta->r0_size = reg->var_off.value;
-				ret = mark_chain_precision(env, regno);
+				if (regno >= 0)
+					ret = mark_chain_precision(env, regno);
+				else
+					ret = mark_stack_arg_precision(env, i);
 				if (ret)
 					return ret;
 			}
@@ -11953,14 +11974,21 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 				return -EFAULT;
 			}
 			meta->ref_obj_id = reg->ref_obj_id;
-			if (is_kfunc_release(meta))
+			if (is_kfunc_release(meta)) {
+				if (regno < 0) {
+					verbose(env, "%s release arg cannot be a stack argument\n",
+						reg_arg_name(env, argno));
+					return -EINVAL;
+				}
 				meta->release_regno = regno;
+			}
 		}
 
 		ref_t = btf_type_skip_modifiers(btf, t->type, &ref_id);
 		ref_tname = btf_name_by_offset(btf, ref_t->name_off);
 
-		kf_arg_type = get_kfunc_ptr_arg_type(env, meta, t, ref_t, ref_tname, args, i, nargs, argno, reg);
+		kf_arg_type = get_kfunc_ptr_arg_type(env, caller, regs, meta, t, ref_t, ref_tname,
+						     args, i, nargs, argno, reg);
 		if (kf_arg_type < 0)
 			return kf_arg_type;
 
@@ -12110,6 +12138,11 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 				dynptr_arg_type |= DYNPTR_TYPE_FILE;
 			} else if (meta->func_id == special_kfunc_list[KF_bpf_dynptr_file_discard]) {
 				dynptr_arg_type |= DYNPTR_TYPE_FILE | OBJ_RELEASE;
+				if (regno < 0) {
+					verbose(env, "%s release arg cannot be a stack argument\n",
+						reg_arg_name(env, argno));
+					return -EINVAL;
+				}
 				meta->release_regno = regno;
 			} else if (meta->func_id == special_kfunc_list[KF_bpf_dynptr_clone] &&
 				   (dynptr_arg_type & MEM_UNINIT)) {
@@ -12264,9 +12297,9 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 			break;
 		case KF_ARG_PTR_TO_MEM_SIZE:
 		{
-			struct bpf_reg_state *buff_reg = &regs[regno];
+			struct bpf_reg_state *buff_reg = reg;
 			const struct btf_param *buff_arg = &args[i];
-			struct bpf_reg_state *size_reg = &regs[regno + 1];
+			struct bpf_reg_state *size_reg = get_func_arg_reg(caller, regs, i + 1);
 			const struct btf_param *size_arg = &args[i + 1];
 			argno_t next_argno = argno_from_arg(i + 2);
 
@@ -13171,8 +13204,18 @@ static int check_kfunc_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
 		clear_all_pkt_pointers(env);
 
 	nargs = btf_type_vlen(meta.func_proto);
+	if (nargs > MAX_BPF_FUNC_REG_ARGS) {
+		struct bpf_func_state *caller = cur_func(env);
+		struct bpf_subprog_info *caller_info = &env->subprog_info[caller->subprogno];
+		u16 out_stack_arg_cnt = nargs - MAX_BPF_FUNC_REG_ARGS;
+		u16 stack_arg_cnt = bpf_in_stack_arg_cnt(caller_info) + out_stack_arg_cnt;
+
+		if (stack_arg_cnt > caller_info->stack_arg_cnt)
+			caller_info->stack_arg_cnt = stack_arg_cnt;
+	}
+
 	args = (const struct btf_param *)(meta.func_proto + 1);
-	for (i = 0; i < nargs; i++) {
+	for (i = 0; i < min_t(int, nargs, MAX_BPF_FUNC_REG_ARGS); i++) {
 		u32 regno = i + 1;
 
 		t = btf_type_skip_modifiers(desc_btf, args[i].type, NULL);
