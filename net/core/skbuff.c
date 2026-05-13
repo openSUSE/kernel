@@ -1159,6 +1159,7 @@ struct sk_buff *__pskb_copy_fclone(struct sk_buff *skb, int headroom,
 			skb_frag_ref(skb, i);
 		}
 		skb_shinfo(n)->nr_frags = i;
+		skb_shinfo(n)->tx_flags |= skb_shinfo(skb)->tx_flags & SKBTX_SHARED_FRAG;
 	}
 
 	if (skb_has_frag_list(skb)) {
@@ -2952,6 +2953,9 @@ int skb_shift(struct sk_buff *tgt, struct sk_buff *skb, int shiftlen)
 	BUG_ON(todo > 0 && !skb_shinfo(skb)->nr_frags);
 
 onlymerged:
+	/* Inherit shared frag state from the source skb */
+	skb_shinfo(tgt)->tx_flags |= skb_shinfo(skb)->tx_flags & SKBTX_SHARED_FRAG;
+
 	/* Most likely the tgt won't ever need its checksum anymore, skb on
 	 * the other hand might need it if it needs to be resent
 	 */
@@ -3582,6 +3586,11 @@ int skb_gro_receive(struct sk_buff *p, struct sk_buff *skb)
 	unsigned int len = skb_gro_len(skb);
 	unsigned int delta_truesize;
 	struct sk_buff *lp;
+
+	/* Don't get into the games below if any frags are shared.
+	 */
+	if (skbinfo->tx_flags & SKBTX_SHARED_FRAG)
+		return -ETOOMANYREFS;
 
 	if (unlikely(p->len + len >= 65536 || NAPI_GRO_CB(skb)->flush))
 		return -E2BIG;
@@ -4599,6 +4608,8 @@ bool skb_try_coalesce(struct sk_buff *to, struct sk_buff *from,
 	       skb_shinfo(from)->frags,
 	       skb_shinfo(from)->nr_frags * sizeof(skb_frag_t));
 	skb_shinfo(to)->nr_frags += skb_shinfo(from)->nr_frags;
+	if (skb_shinfo(from)->nr_frags)
+		skb_shinfo(to)->tx_flags |= skb_shinfo(from)->tx_flags & SKBTX_SHARED_FRAG;
 
 	if (!skb_cloned(from))
 		skb_shinfo(from)->nr_frags = 0;
