@@ -128,8 +128,8 @@ static int can_transceiver_phy_probe(struct platform_device *pdev)
 	struct gpio_desc *standby_gpio;
 	struct gpio_desc *enable_gpio;
 	struct mux_state *mux_state;
-	int err, i, num_ch = 1;
 	const char *propname;
+	int err, i, num_ch;
 	u32 max_bitrate;
 
 	drvdata = device_get_match_data(dev);
@@ -138,6 +138,8 @@ static int can_transceiver_phy_probe(struct platform_device *pdev)
 
 	if (drvdata->flags & CAN_TRANSCEIVER_DUAL_CH)
 		num_ch = 2;
+	else
+		num_ch = 1;
 
 	priv = devm_kzalloc(dev, struct_size(priv, can_transceiver_phy, num_ch), GFP_KERNEL);
 	if (!priv)
