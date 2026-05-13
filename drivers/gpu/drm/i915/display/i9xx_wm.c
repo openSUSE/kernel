@@ -3582,7 +3582,6 @@ void ilk_wm_sanitize(struct intel_display *display)
 	struct intel_crtc_state *crtc_state;
 	struct drm_modeset_acquire_ctx ctx;
 	int ret;
-	int i;
 
 	/* Only supported on platforms that use atomic watermark design */
 	if (!display->wm.funcs->optimize_watermarks)
@@ -3620,7 +3619,7 @@ retry:
 		goto fail;
 
 	/* Write calculated watermark values back */
-	for_each_new_intel_crtc_in_state(intel_state, crtc, crtc_state, i) {
+	for_each_new_intel_crtc_in_state(intel_state, crtc, crtc_state) {
 		crtc_state->wm.need_postvbl_update = true;
 		intel_optimize_watermarks(intel_state, crtc);
 

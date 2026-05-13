@@ -200,9 +200,8 @@ bool intel_any_crtc_needs_modeset(struct intel_atomic_state *state)
 {
 	struct intel_crtc *crtc;
 	struct intel_crtc_state *crtc_state;
-	int i;
 
-	for_each_new_intel_crtc_in_state(state, crtc, crtc_state, i) {
+	for_each_new_intel_crtc_in_state(state, crtc, crtc_state) {
 		if (intel_crtc_needs_modeset(crtc_state))
 			return true;
 	}

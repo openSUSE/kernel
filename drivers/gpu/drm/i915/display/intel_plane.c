@@ -1831,9 +1831,8 @@ static int intel_add_affected_planes(struct intel_atomic_state *state)
 {
 	const struct intel_crtc_state *crtc_state;
 	struct intel_crtc *crtc;
-	int i;
 
-	for_each_new_intel_crtc_in_state(state, crtc, crtc_state, i) {
+	for_each_new_intel_crtc_in_state(state, crtc, crtc_state) {
 		int ret;
 
 		ret = intel_joiner_add_affected_planes(state, intel_crtc_joined_pipe_mask(crtc_state));
@@ -1867,8 +1866,7 @@ int intel_plane_atomic_check(struct intel_atomic_state *state)
 		}
 	}
 
-	for_each_oldnew_intel_crtc_in_state(state, crtc, old_crtc_state,
-					    new_crtc_state, i) {
+	for_each_oldnew_intel_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state) {
 		u8 old_active_planes, new_active_planes;
 
 		ret = icl_check_nv12_planes(state, crtc);

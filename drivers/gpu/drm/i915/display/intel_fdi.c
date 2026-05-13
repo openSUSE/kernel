@@ -368,9 +368,8 @@ int intel_fdi_atomic_check_link(struct intel_atomic_state *state,
 {
 	struct intel_crtc *crtc;
 	struct intel_crtc_state *crtc_state;
-	int i;
 
-	for_each_new_intel_crtc_in_state(state, crtc, crtc_state, i) {
+	for_each_new_intel_crtc_in_state(state, crtc, crtc_state) {
 		int ret;
 
 		if (!crtc_state->has_pch_encoder ||
