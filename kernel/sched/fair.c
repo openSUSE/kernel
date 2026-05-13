@@ -1384,8 +1384,12 @@ static int llc_id(int cpu)
 	return per_cpu(sd_llc_id, cpu);
 }
 
-static bool invalid_llc_nr(struct mm_struct *mm, int cpu)
+static bool invalid_llc_nr(struct mm_struct *mm, struct task_struct *p,
+			   int cpu)
 {
+	if (get_nr_threads(p) <= 1)
+		return true;
+
 	return !fits_capacity((mm->sc_stat.nr_running_avg * cpu_smt_num_threads),
 			per_cpu(sd_llc_size, cpu));
 }
@@ -1581,7 +1585,7 @@ void account_mm_sched(struct rq *rq, struct task_struct *p, s64 delta_exec)
 	 * its preferred state.
 	 */
 	if (epoch - READ_ONCE(mm->sc_stat.epoch) > EPOCH_LLC_AFFINITY_TIMEOUT ||
-	    invalid_llc_nr(mm, cpu_of(rq))) {
+	    invalid_llc_nr(mm, p, cpu_of(rq))) {
 		if (mm->sc_stat.cpu != -1)
 			mm->sc_stat.cpu = -1;
 	}
@@ -1687,9 +1691,9 @@ static inline void update_avg_scale(u64 *avg, u64 sample)
 
 static void task_cache_work(struct callback_head *work)
 {
+	int cpu, m_a_cpu = -1, nr_running = 0, curr_cpu;
 	unsigned long next_scan, now = jiffies;
 	struct task_struct *p = current, *cur;
-	int cpu, m_a_cpu = -1, nr_running = 0;
 	unsigned long curr_m_a_occ = 0;
 	struct mm_struct *mm = p->mm;
 	unsigned long m_a_occ = 0;
@@ -1710,6 +1714,14 @@ static void task_cache_work(struct callback_head *work)
 	if (!try_cmpxchg(&mm->sc_stat.next_scan, &next_scan,
 			 now + EPOCH_PERIOD))
 		return;
+
+	curr_cpu = task_cpu(p);
+	if (invalid_llc_nr(mm, p, curr_cpu)) {
+		if (mm->sc_stat.cpu != -1)
+			mm->sc_stat.cpu = -1;
+
+		return;
+	}
 
 	if (!zalloc_cpumask_var(&cpus, GFP_KERNEL))
 		return;
@@ -10326,7 +10338,7 @@ static enum llc_mig can_migrate_llc_task(int src_cpu, int dst_cpu,
 		return mig_unrestricted;
 
 	/* skip cache aware load balance for too many threads */
-	if (invalid_llc_nr(mm, dst_cpu)) {
+	if (invalid_llc_nr(mm, p, dst_cpu)) {
 		if (mm->sc_stat.cpu != -1)
 			mm->sc_stat.cpu = -1;
 		return mig_unrestricted;
