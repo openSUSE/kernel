@@ -663,8 +663,27 @@ int iwl_mld_mac80211_add_interface(struct ieee80211_hw *hw,
 	if (ret)
 		return ret;
 
-	if (vif->type == NL80211_IFTYPE_NAN_DATA)
+	if (vif->type == NL80211_IFTYPE_NAN_DATA) {
+		if (WARN_ON(!mld->nan_device_vif)) {
+			ret = -EINVAL;
+			goto err;
+		}
+
+		if (iwl_mld_nan_use_nan_stations(mld)) {
+			struct iwl_mld_vif *mld_vif =
+				iwl_mld_vif_from_mac80211(vif);
+			struct iwl_mld_int_sta *sta =
+				&mld_vif->nan.mcast_data_sta;
+
+			ret = iwl_mld_add_nan_mcast_data_sta(mld,
+							     vif->addr,
+							     sta);
+			if (ret)
+				goto err;
+		}
+
 		return 0;
+	}
 
 	/*
 	 * Add the default link, but not if this is an MLD vif as that implies
@@ -732,10 +751,17 @@ void iwl_mld_mac80211_remove_interface(struct ieee80211_hw *hw,
 	if (vif->type == NL80211_IFTYPE_P2P_DEVICE)
 		mld->p2p_device_vif = NULL;
 
-	if (vif->type == NL80211_IFTYPE_NAN)
+	if (vif->type == NL80211_IFTYPE_NAN) {
 		mld->nan_device_vif = NULL;
-	else if (vif->type != NL80211_IFTYPE_NAN_DATA)
+	} else if (vif->type != NL80211_IFTYPE_NAN_DATA) {
 		iwl_mld_remove_link(mld, &vif->bss_conf);
+	} else if (iwl_mld_nan_use_nan_stations(mld)) {
+		struct iwl_mld_vif *mld_vif = iwl_mld_vif_from_mac80211(vif);
+		struct iwl_mld_int_sta *sta = &mld_vif->nan.mcast_data_sta;
+
+		if (sta->sta_id != IWL_INVALID_STA)
+			iwl_mld_remove_nan_mcast_data_sta(mld, sta);
+	}
 
 #ifdef CONFIG_IWLWIFI_DEBUGFS
 	debugfs_remove(iwl_mld_vif_from_mac80211(vif)->dbgfs_slink);

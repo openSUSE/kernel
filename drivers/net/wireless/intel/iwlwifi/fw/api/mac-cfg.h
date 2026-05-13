@@ -747,6 +747,8 @@ struct iwl_link_config_cmd {
  *	discovery. No queue is associated with this station.
  * @STATION_TYPE_NAN_MGMT: NAN station used for NAN management frames, e.g.,
  *	SDFs and NAFs.
+ * @STATION_TYPE_NAN_MCAST_DATA: NAN station used for multicast NAN data
+ *	frames.
  * @STATION_TYPE_MAX: maximum number of FW station types
  * @STATION_TYPE_AUX: aux sta. In the FW there is no need for a special type
  *	for the aux sta, so this type is only for driver - internal use.
@@ -759,6 +761,7 @@ enum iwl_fw_sta_type {
 	STATION_TYPE_NAN_PEER_NDI,
 	STATION_TYPE_NAN_BCAST,
 	STATION_TYPE_NAN_MGMT,
+	STATION_TYPE_NAN_MCAST_DATA,
 	STATION_TYPE_MAX,
 	STATION_TYPE_AUX = STATION_TYPE_MAX /* this doesn't exist in FW */
 }; /* STATION_TYPE_E_VER_1, _VER_2 */
@@ -933,7 +936,8 @@ struct iwl_sta_cfg_cmd_v2 {
  * @mic_prep_pad_delay: MIC prep time padding
  * @mic_compute_pad_delay: MIC compute time padding
  * @nmi_sta_id: for an NDI peer STA, the NMI peer STA ID it relates to
- * @ndi_local_addr: for an NDI peer STA, the local NDI interface MAC address
+ * @ndi_local_addr: for an NDI peer STA or NAN multicast data station,
+ *	the local NDI interface MAC address
  * @reserved: Reserved for alignment
  */
 struct iwl_sta_cfg_cmd {

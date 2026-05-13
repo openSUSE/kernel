@@ -60,4 +60,6 @@ int iwl_mld_mac802111_nan_peer_sched_changed(struct ieee80211_hw *hw,
 
 int iwl_mld_nan_get_mgmt_queue(struct iwl_mld *mld, struct ieee80211_vif *vif);
 
+bool iwl_mld_nan_use_nan_stations(struct iwl_mld *mld);
+
 #endif /* __iwl_mld_nan_h__ */

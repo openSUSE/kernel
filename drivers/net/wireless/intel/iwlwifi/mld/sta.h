@@ -283,10 +283,21 @@ int iwl_mld_add_nan_bcast_sta(struct iwl_mld *mld,
 int iwl_mld_add_nan_mgmt_sta(struct iwl_mld *mld,
 			     struct iwl_mld_int_sta *sta);
 
+int iwl_mld_add_nan_mcast_data_sta(struct iwl_mld *mld,
+				   const u8 *ndi_addr,
+				   struct iwl_mld_int_sta *sta);
+
+int iwl_mld_update_nan_mcast_data_sta(struct iwl_mld *mld,
+				      const u8 *ndi_addr,
+				      struct iwl_mld_int_sta *sta);
+
 void iwl_mld_remove_nan_bcast_sta(struct iwl_mld *mld,
 				  struct iwl_mld_int_sta *sta);
 
 void iwl_mld_remove_nan_mgmt_sta(struct iwl_mld *mld,
 				 struct iwl_mld_int_sta *sta);
+
+void iwl_mld_remove_nan_mcast_data_sta(struct iwl_mld *mld,
+				       struct iwl_mld_int_sta *sta);
 
 #endif /* __iwl_mld_sta_h__ */

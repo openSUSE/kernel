@@ -159,6 +159,7 @@ struct iwl_mld_emlsr {
  *	activities. No queue is associated with it.
  * @nan.mgmt_sta: internal station used for NAN management frames, e.g., SDFs
  *	and NAFs.
+ * @nan.mcast_data_sta: internal station used for multicast NAN Data frames.
  */
 struct iwl_mld_vif {
 	/* Add here fields that need clean up on restart */
@@ -187,6 +188,7 @@ struct iwl_mld_vif {
 		bool mac_added;
 		struct iwl_mld_int_sta bcast_sta;
 		struct iwl_mld_int_sta mgmt_sta;
+		struct iwl_mld_int_sta mcast_data_sta;
 	} nan;
 
 	struct iwl_mld_emlsr emlsr;

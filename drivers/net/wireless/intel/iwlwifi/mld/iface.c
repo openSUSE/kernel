@@ -68,6 +68,10 @@ void iwl_mld_cleanup_vif(void *data, u8 *mac, struct ieee80211_vif *vif)
 			iwl_mld_free_internal_sta(mld, &mld_vif->nan.mgmt_sta);
 	}
 
+	if (vif->type == NL80211_IFTYPE_NAN_DATA &&
+	    mld_vif->nan.mcast_data_sta.sta_id != IWL_INVALID_STA)
+		iwl_mld_free_internal_sta(mld, &mld_vif->nan.mcast_data_sta);
+
 	CLEANUP_STRUCT(mld_vif);
 }
 
@@ -534,6 +538,8 @@ iwl_mld_init_vif(struct iwl_mld *mld, struct ieee80211_vif *vif)
 
 		iwl_mld_init_internal_sta(&mld_vif->nan.bcast_sta);
 		iwl_mld_init_internal_sta(&mld_vif->nan.mgmt_sta);
+	} else if (vif->type == NL80211_IFTYPE_NAN_DATA) {
+		iwl_mld_init_internal_sta(&mld_vif->nan.mcast_data_sta);
 	}
 
 	iwl_mld_init_internal_sta(&mld_vif->aux_sta);

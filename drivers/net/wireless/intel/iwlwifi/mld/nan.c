@@ -50,7 +50,7 @@ static int iwl_mld_nan_send_config_cmd(struct iwl_mld *mld,
 	return iwl_mld_send_cmd(mld, &hcmd);
 }
 
-static bool iwl_mld_nan_use_nan_stations(struct iwl_mld *mld)
+bool iwl_mld_nan_use_nan_stations(struct iwl_mld *mld)
 {
 	/*
 	 * If the FW supports version 1 of the NAN config command, it means that
@@ -650,6 +650,20 @@ iwl_mld_nan_find_link(struct iwl_mld_vif *mld_vif,
 	return NULL;
 }
 
+static void iwl_mld_nan_set_mcast_data_links(struct ieee80211_vif *vif)
+{
+	struct iwl_mld_vif *mld_vif = iwl_mld_vif_from_mac80211(vif);
+
+	if (vif->type != NL80211_IFTYPE_NAN_DATA)
+		return;
+
+	/* Note that all errors are handled internally so nothing to do
+	 * with the return value (used only to silence compilation warnings)
+	 */
+	iwl_mld_update_nan_mcast_data_sta(mld_vif->mld, vif->addr,
+					  &mld_vif->nan.mcast_data_sta);
+}
+
 void iwl_mld_nan_vif_cfg_changed(struct iwl_mld *mld,
 				 struct ieee80211_vif *vif,
 				 u64 changes)
@@ -806,6 +820,19 @@ void iwl_mld_nan_vif_cfg_changed(struct iwl_mld *mld,
 			if (mld_sta->sta_type == STATION_TYPE_NAN_PEER_NMI ||
 			    mld_sta->sta_type == STATION_TYPE_NAN_PEER_NDI)
 				iwl_mld_add_modify_sta_cmd(mld, &sta->deflink);
+		}
+
+		/*
+		 * Iterate over all the NAN Data interfaces and update the links
+		 * for the internal multicast data station.
+		 * In recovery - the station will be added later in
+		 * drv_add_interface
+		 */
+		if (iwl_mld_nan_use_nan_stations(mld) && !mld->fw_status.in_hw_restart) {
+			struct ieee80211_vif *iter;
+
+			for_each_active_interface(iter, mld->hw)
+				iwl_mld_nan_set_mcast_data_links(iter);
 		}
 	}
 

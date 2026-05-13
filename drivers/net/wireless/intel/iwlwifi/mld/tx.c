@@ -351,7 +351,8 @@ u8 iwl_mld_get_lowest_rate(struct iwl_mld *mld,
 	iwl_mld_get_basic_rates_and_band(mld, vif, info, &basic_rates, &band);
 
 	if (band >= NUM_NL80211_BANDS) {
-		WARN_ON(vif->type != NL80211_IFTYPE_NAN);
+		WARN_ON(vif->type != NL80211_IFTYPE_NAN &&
+			vif->type != NL80211_IFTYPE_NAN_DATA);
 		return IWL_FIRST_OFDM_RATE;
 	}
 
@@ -682,6 +683,14 @@ iwl_mld_get_tx_queue_id(struct iwl_mld *mld, struct ieee80211_txq *txq,
 	case NL80211_IFTYPE_NAN:
 		WARN_ON(!ieee80211_is_mgmt(fc));
 		return iwl_mld_nan_get_mgmt_queue(mld, info->control.vif);
+	case NL80211_IFTYPE_NAN_DATA:
+		WARN_ON(!ieee80211_is_data(fc));
+
+		if (!iwl_mld_nan_use_nan_stations(mld))
+			break;
+
+		mld_vif = iwl_mld_vif_from_mac80211(info->control.vif);
+		return mld_vif->nan.mcast_data_sta.queue_id;
 	default:
 		WARN_ONCE(1, "Unsupported vif type\n");
 		break;
