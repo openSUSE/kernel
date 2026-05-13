@@ -1237,7 +1237,7 @@ static int sta350_i2c_probe(struct i2c_client *i2c)
 }
 
 static const struct i2c_device_id sta350_i2c_id[] = {
-	{ "sta350" },
+	{ .name = "sta350" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, sta350_i2c_id);

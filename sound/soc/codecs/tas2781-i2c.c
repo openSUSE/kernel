@@ -100,27 +100,27 @@ static const struct bulk_reg_val tas2781_cali_start_reg[] = {
 };
 
 static const struct i2c_device_id tasdevice_id[] = {
-	{ "tas2020", TAS2020 },
-	{ "tas2118", TAS2118 },
-	{ "tas2120", TAS2120 },
-	{ "tas2320", TAS2320 },
-	{ "tas2563", TAS2563 },
-	{ "tas2568", TAS2568 },
-	{ "tas2570", TAS2570 },
-	{ "tas2572", TAS2572 },
-	{ "tas2574", TAS2574 },
-	{ "tas2781", TAS2781 },
-	{ "tas5802", TAS5802 },
-	{ "tas5806m", TAS5806M },
-	{ "tas5806md", TAS5806MD },
-	{ "tas5815", TAS5815 },
-	{ "tas5822", TAS5822 },
-	{ "tas5825", TAS5825 },
-	{ "tas5827", TAS5827 },
-	{ "tas5828", TAS5828 },
-	{ "tas5830", TAS5830 },
-	{ "tas5832", TAS5832 },
-	{}
+	{ .name = "tas2020", .driver_data = TAS2020 },
+	{ .name = "tas2118", .driver_data = TAS2118 },
+	{ .name = "tas2120", .driver_data = TAS2120 },
+	{ .name = "tas2320", .driver_data = TAS2320 },
+	{ .name = "tas2563", .driver_data = TAS2563 },
+	{ .name = "tas2568", .driver_data = TAS2568 },
+	{ .name = "tas2570", .driver_data = TAS2570 },
+	{ .name = "tas2572", .driver_data = TAS2572 },
+	{ .name = "tas2574", .driver_data = TAS2574 },
+	{ .name = "tas2781", .driver_data = TAS2781 },
+	{ .name = "tas5802", .driver_data = TAS5802 },
+	{ .name = "tas5806m", .driver_data = TAS5806M },
+	{ .name = "tas5806md", .driver_data = TAS5806MD },
+	{ .name = "tas5815", .driver_data = TAS5815 },
+	{ .name = "tas5822", .driver_data = TAS5822 },
+	{ .name = "tas5825", .driver_data = TAS5825 },
+	{ .name = "tas5827", .driver_data = TAS5827 },
+	{ .name = "tas5828", .driver_data = TAS5828 },
+	{ .name = "tas5830", .driver_data = TAS5830 },
+	{ .name = "tas5832", .driver_data = TAS5832 },
+	{ }
 };
 
 static const struct of_device_id tasdevice_of_match[] = {

@@ -2931,7 +2931,7 @@ static int nau8825_i2c_probe(struct i2c_client *i2c)
 }
 
 static const struct i2c_device_id nau8825_i2c_ids[] = {
-	{ "nau8825" },
+	{ .name = "nau8825" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, nau8825_i2c_ids);
