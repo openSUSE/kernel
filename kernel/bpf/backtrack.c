@@ -9,7 +9,7 @@
 
 /* for any branch, call, exit record the history of jmps in the given state */
 int bpf_push_jmp_history(struct bpf_verifier_env *env, struct bpf_verifier_state *cur,
-			 int insn_flags, u64 linked_regs)
+			 int insn_flags, int spi, int frame, u64 linked_regs)
 {
 	u32 cnt = cur->jmp_history_cnt;
 	struct bpf_jmp_history_entry *p;
@@ -25,6 +25,8 @@ int bpf_push_jmp_history(struct bpf_verifier_env *env, struct bpf_verifier_state
 				env, "insn history: insn_idx %d cur flags %x new flags %x",
 				env->insn_idx, env->cur_hist_ent->flags, insn_flags);
 		env->cur_hist_ent->flags |= insn_flags;
+		env->cur_hist_ent->spi = spi;
+		env->cur_hist_ent->frame = frame;
 		verifier_bug_if(env->cur_hist_ent->linked_regs != 0, env,
 				"insn history: insn_idx %d linked_regs: %#llx",
 				env->insn_idx, env->cur_hist_ent->linked_regs);
@@ -43,6 +45,8 @@ int bpf_push_jmp_history(struct bpf_verifier_env *env, struct bpf_verifier_state
 	p->idx = env->insn_idx;
 	p->prev_idx = env->prev_insn_idx;
 	p->flags = insn_flags;
+	p->spi = spi;
+	p->frame = frame;
 	p->linked_regs = linked_regs;
 	cur->jmp_history_cnt = cnt;
 	env->cur_hist_ent = p;
@@ -62,16 +66,6 @@ static bool is_atomic_fetch_insn(const struct bpf_insn *insn)
 	return BPF_CLASS(insn->code) == BPF_STX &&
 	       BPF_MODE(insn->code) == BPF_ATOMIC &&
 	       (insn->imm & BPF_FETCH);
-}
-
-static int insn_stack_access_spi(int insn_flags)
-{
-	return (insn_flags >> INSN_F_SPI_SHIFT) & INSN_F_SPI_MASK;
-}
-
-static int insn_stack_access_frameno(int insn_flags)
-{
-	return insn_flags & INSN_F_FRAMENO_MASK;
 }
 
 /* Backtrack one insn at a time. If idx is not at the top of recorded
@@ -353,8 +347,8 @@ static int backtrack_insn(struct bpf_verifier_env *env, int idx, int subseq_idx,
 		 * that [fp - off] slot contains scalar that needs to be
 		 * tracked with precision
 		 */
-		spi = insn_stack_access_spi(hist->flags);
-		fr = insn_stack_access_frameno(hist->flags);
+		spi = hist->spi;
+		fr = hist->frame;
 		bpf_bt_set_frame_slot(bt, fr, spi);
 	} else if (class == BPF_STX || class == BPF_ST) {
 		if (bt_is_reg_set(bt, dreg))
@@ -366,8 +360,8 @@ static int backtrack_insn(struct bpf_verifier_env *env, int idx, int subseq_idx,
 		/* scalars can only be spilled into stack */
 		if (!hist || !(hist->flags & INSN_F_STACK_ACCESS))
 			return 0;
-		spi = insn_stack_access_spi(hist->flags);
-		fr = insn_stack_access_frameno(hist->flags);
+		spi = hist->spi;
+		fr = hist->frame;
 		if (!bt_is_frame_slot_set(bt, fr, spi))
 			return 0;
 		bt_clear_frame_slot(bt, fr, spi);
