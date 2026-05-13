@@ -3,29 +3,52 @@
 //! Implementation of [`Vec`].
 
 use super::{
-    allocator::{KVmalloc, Kmalloc, Vmalloc, VmallocPageIter},
+    allocator::{
+        KVmalloc,
+        Kmalloc,
+        Vmalloc,
+        VmallocPageIter, //
+    },
     layout::ArrayLayout,
-    AllocError, Allocator, Box, Flags, NumaNode,
+    AllocError,
+    Allocator,
+    Box,
+    Flags,
+    NumaNode, //
 };
+
 use crate::{
     fmt,
     page::{
         AsPageIter,
         PAGE_SIZE, //
-    },
+    }, //
 };
+
 use core::{
-    borrow::{Borrow, BorrowMut},
+    borrow::{
+        Borrow,
+        BorrowMut, //
+    },
     marker::PhantomData,
-    mem::{ManuallyDrop, MaybeUninit},
-    ops::Deref,
-    ops::DerefMut,
-    ops::Index,
-    ops::IndexMut,
-    ptr,
-    ptr::NonNull,
-    slice,
-    slice::SliceIndex,
+    mem::{
+        ManuallyDrop,
+        MaybeUninit, //
+    },
+    ops::{
+        Deref,
+        DerefMut,
+        Index,
+        IndexMut, //
+    },
+    ptr::{
+        self,
+        NonNull, //
+    },
+    slice::{
+        self,
+        SliceIndex, //
+    }, //
 };
 
 mod errors;

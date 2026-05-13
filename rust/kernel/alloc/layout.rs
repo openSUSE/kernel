@@ -4,7 +4,10 @@
 //!
 //! Custom layout types extending or improving [`Layout`].
 
-use core::{alloc::Layout, marker::PhantomData};
+use core::{
+    alloc::Layout,
+    marker::PhantomData, //
+};
 
 /// Error when constructing an [`ArrayLayout`].
 pub struct LayoutError;
