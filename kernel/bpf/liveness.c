@@ -1343,6 +1343,42 @@ static int record_load_store_access(struct bpf_verifier_env *env,
 	return 0;
 }
 
+static int record_arg_access(struct bpf_verifier_env *env,
+			     struct func_instance *instance,
+			     struct bpf_insn *insn,
+			     struct arg_track *at, int arg_idx,
+			     int insn_idx)
+{
+	int depth = instance->depth;
+	int frame = at->frame;
+	int err = 0;
+	s64 bytes;
+
+	if (!arg_is_fp(at))
+		return 0;
+
+	if (bpf_helper_call(insn)) {
+		bytes = bpf_helper_stack_access_bytes(env, insn, arg_idx, insn_idx);
+	} else if (bpf_pseudo_kfunc_call(insn)) {
+		bytes = bpf_kfunc_stack_access_bytes(env, insn, arg_idx, insn_idx);
+	} else {
+		for (int f = 0; f <= depth; f++) {
+			err = mark_stack_read(instance, f, insn_idx, SPIS_ALL);
+			if (err)
+				return err;
+		}
+		return 0;
+	}
+	if (bytes == 0)
+		return 0;
+
+	if (frame >= 0 && frame <= depth)
+		err = record_stack_access(instance, at, bytes, frame, insn_idx);
+	else if (frame == ARG_IMPRECISE)
+		err = record_imprecise(instance, at->mask, insn_idx);
+	return err;
+}
+
 /* Record stack access for a given 'at' state of helper/kfunc 'insn' */
 static int record_call_access(struct bpf_verifier_env *env,
 			      struct func_instance *instance,
@@ -1350,9 +1386,8 @@ static int record_call_access(struct bpf_verifier_env *env,
 			      int insn_idx)
 {
 	struct bpf_insn *insn = &env->prog->insnsi[insn_idx];
-	int depth = instance->depth;
 	struct bpf_call_summary cs;
-	int r, err = 0, num_params = 5;
+	int r, err, num_params = 5;
 
 	if (bpf_pseudo_call(insn))
 		return 0;
@@ -1361,31 +1396,7 @@ static int record_call_access(struct bpf_verifier_env *env,
 		num_params = cs.num_params;
 
 	for (r = BPF_REG_1; r < BPF_REG_1 + num_params; r++) {
-		int frame = at[r].frame;
-		s64 bytes;
-
-		if (!arg_is_fp(&at[r]))
-			continue;
-
-		if (bpf_helper_call(insn)) {
-			bytes = bpf_helper_stack_access_bytes(env, insn, r - 1, insn_idx);
-		} else if (bpf_pseudo_kfunc_call(insn)) {
-			bytes = bpf_kfunc_stack_access_bytes(env, insn, r - 1, insn_idx);
-		} else {
-			for (int f = 0; f <= depth; f++) {
-				err = mark_stack_read(instance, f, insn_idx, SPIS_ALL);
-				if (err)
-					return err;
-			}
-			return 0;
-		}
-		if (bytes == 0)
-			continue;
-
-		if (frame >= 0 && frame <= depth)
-			err = record_stack_access(instance, &at[r], bytes, frame, insn_idx);
-		else if (frame == ARG_IMPRECISE)
-			err = record_imprecise(instance, at[r].mask, insn_idx);
+		err = record_arg_access(env, instance, insn, &at[r], r - 1, insn_idx);
 		if (err)
 			return err;
 	}
