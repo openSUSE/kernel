@@ -1187,9 +1187,13 @@ where
 /// # Examples
 ///
 /// ```
-/// # use kernel::prelude::*;
-/// use kernel::alloc::allocator::VmallocPageIter;
-/// use kernel::page::{AsPageIter, PAGE_SIZE};
+/// use kernel::{
+///     alloc::allocator::VmallocPageIter,
+///     page::{
+///         AsPageIter,
+///         PAGE_SIZE, //
+///     }, //
+/// };
 ///
 /// let mut vec = VVec::<u8>::new();
 ///

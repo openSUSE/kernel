@@ -174,8 +174,11 @@ impl Vmalloc {
     /// # Examples
     ///
     /// ```
-    /// # use core::ptr::{NonNull, from_mut};
-    /// # use kernel::{page, prelude::*};
+    /// # use core::ptr::{
+    /// #     from_mut,
+    /// #     NonNull, //
+    /// # };
+    /// # use kernel::page;
     /// use kernel::alloc::allocator::Vmalloc;
     ///
     /// let mut vbox = VBox::<[u8; page::PAGE_SIZE]>::new_uninit(GFP_KERNEL)?;

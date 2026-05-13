@@ -50,7 +50,10 @@ impl<T> ArrayLayout<T> {
     /// # Examples
     ///
     /// ```
-    /// # use kernel::alloc::layout::{ArrayLayout, LayoutError};
+    /// # use kernel::alloc::layout::{
+    /// #     ArrayLayout,
+    /// #     LayoutError, //
+    /// # };
     /// let layout = ArrayLayout::<i32>::new(15)?;
     /// assert_eq!(layout.len(), 15);
     ///
