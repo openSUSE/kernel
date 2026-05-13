@@ -1358,8 +1358,8 @@ enum {
 	HRTIMER_REPROGRAM_FORCE,
 };
 
-static bool __hrtimer_start_range_ns(struct hrtimer *timer, ktime_t tim, u64 delta_ns,
-				     const enum hrtimer_mode mode, struct hrtimer_clock_base *base)
+static int __hrtimer_start_range_ns(struct hrtimer *timer, ktime_t tim, u64 delta_ns,
+				    const enum hrtimer_mode mode, struct hrtimer_clock_base *base)
 {
 	struct hrtimer_cpu_base *this_cpu_base = this_cpu_ptr(&hrtimer_bases);
 	bool is_pinned, first, was_first, keep_base = false;
