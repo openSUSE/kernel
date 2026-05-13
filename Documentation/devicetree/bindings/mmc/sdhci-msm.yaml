@@ -37,6 +37,7 @@ properties:
           - const: qcom,sdhci-msm-v4 # for sdcc versions less than 5.0
       - items:
           - enum:
+              - qcom,eliza-sdhci
               - qcom,ipq5018-sdhci
               - qcom,ipq5210-sdhci
               - qcom,ipq5332-sdhci
