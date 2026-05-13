@@ -28,8 +28,6 @@ static __always_inline void __account_idle_time_irq(void)
 	unsigned long idle_time;
 
 	idle_time = idle->clock_idle_exit.tod - idle->clock_idle_enter.tod;
-	__atomic64_add(idle_time, &idle->idle_time);
-	__atomic64_add_const(1, &idle->idle_count);
 	account_idle_time(cputime_to_nsecs(idle_time));
 }
 
@@ -143,24 +141,6 @@ void noinstr arch_cpu_idle(void)
 	bpon();
 	__load_psw_mask(psw_mask);
 }
-
-static ssize_t show_idle_count(struct device *dev,
-			       struct device_attribute *attr, char *buf)
-{
-	struct s390_idle_data *idle = &per_cpu(s390_idle, dev->id);
-
-	return sysfs_emit(buf, "%lu\n", READ_ONCE(idle->idle_count));
-}
-DEVICE_ATTR(idle_count, 0444, show_idle_count, NULL);
-
-static ssize_t show_idle_time(struct device *dev,
-			      struct device_attribute *attr, char *buf)
-{
-	struct s390_idle_data *idle = &per_cpu(s390_idle, dev->id);
-
-	return sysfs_emit(buf, "%lu\n", READ_ONCE(idle->idle_time) >> 12);
-}
-DEVICE_ATTR(idle_time_us, 0444, show_idle_time, NULL);
 
 void arch_cpu_idle_enter(void)
 {
