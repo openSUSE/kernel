@@ -66,9 +66,7 @@ struct intel_display_irq_state {
 
 void intel_display_irq_reset(struct intel_display *display);
 void intel_display_irq_postinstall(struct intel_display *display);
-
-void vlv_display_irq_ack(struct intel_display *display, struct intel_display_irq_state *state);
-void i9xx_display_irq_ack(struct intel_display *display, struct intel_display_irq_state *state);
+void intel_display_irq_ack(struct intel_display *display, struct intel_display_irq_state *state);
 
 bool ilk_display_irq_handler(struct intel_display *display, const struct intel_display_irq_state *state);
 bool gen8_display_irq_handler(struct intel_display *display, const struct intel_display_irq_state *state);

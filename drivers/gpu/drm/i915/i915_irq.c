@@ -268,7 +268,7 @@ static irqreturn_t valleyview_irq_handler(int irq, void *arg)
 		if (pm_iir)
 			intel_uncore_write(&dev_priv->uncore, GEN6_PMIIR, pm_iir);
 
-		vlv_display_irq_ack(display, &state);
+		intel_display_irq_ack(display, &state);
 
 		/*
 		 * VLV_IIR is single buffered, and reflects the level
@@ -338,7 +338,7 @@ static irqreturn_t cherryview_irq_handler(int irq, void *arg)
 
 		gen8_gt_irq_handler(to_gt(dev_priv), master_ctl);
 
-		vlv_display_irq_ack(display, &state);
+		intel_display_irq_ack(display, &state);
 
 		/*
 		 * VLV_IIR is single buffered, and reflects the level
@@ -873,7 +873,7 @@ static irqreturn_t i915_irq_handler(int irq, void *arg)
 
 		ret = IRQ_HANDLED;
 
-		i9xx_display_irq_ack(display, &state);
+		intel_display_irq_ack(display, &state);
 
 		if (state.iir & I915_MASTER_ERROR_INTERRUPT)
 			i9xx_error_irq_ack(dev_priv, &eir, &eir_stuck);
@@ -972,7 +972,7 @@ static irqreturn_t i965_irq_handler(int irq, void *arg)
 
 		ret = IRQ_HANDLED;
 
-		i9xx_display_irq_ack(display, &state);
+		intel_display_irq_ack(display, &state);
 
 		if (state.iir & I915_MASTER_ERROR_INTERRUPT)
 			i9xx_error_irq_ack(dev_priv, &eir, &eir_stuck);
