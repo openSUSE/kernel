@@ -10509,7 +10509,8 @@ alb_break_llc(struct lb_env *env)
 	/*
 	 * All tasks prefer to stay on their current CPU.
 	 * Do not pull a task from its preferred CPU if:
-	 * 1. It is the only task running there(not too imbalance); OR
+	 * 1. It is the only task running and does not exceed
+	 *    imbalance allowance; OR
 	 * 2. Migrating it away from its preferred LLC would violate
 	 *    the cache-aware scheduling policy.
 	 */
@@ -10522,7 +10523,7 @@ alb_break_llc(struct lb_env *env)
 			return true;
 
 		cur = rcu_dereference_all(env->src_rq->curr);
-		if (cur)
+		if (cur && cur->sched_class == &fair_sched_class)
 			util = task_util(cur);
 
 		if (can_migrate_llc(env->src_cpu, env->dst_cpu,
