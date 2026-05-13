@@ -41,9 +41,15 @@ struct simple_amp_ranges {
 	struct simple_amp_range *tab_ranges;
 };
 
+struct simple_amp_labels {
+	unsigned int nb_labels;
+	const char **tab_labels;
+};
+
 enum simple_amp_mode {
 	SIMPLE_AMP_MODE_NONE,
 	SIMPLE_AMP_MODE_RANGES,
+	SIMPLE_AMP_MODE_LABELS,
 };
 
 struct simple_amp_multi {
@@ -53,7 +59,10 @@ struct simple_amp_multi {
 	const char *control_name;
 	unsigned int *tlv_array;
 	enum simple_amp_mode mode;
-	struct simple_amp_ranges ranges;
+	union {
+		struct simple_amp_ranges ranges;
+		struct simple_amp_labels labels;
+	};
 };
 
 struct simple_amp_data {
@@ -312,6 +321,45 @@ static int simple_amp_multi_kctrl_int_put(struct snd_kcontrol *kcontrol,
 	return 1; /* The value changed */
 }
 
+static int simple_amp_multi_kctrl_enum_info(struct snd_kcontrol *kcontrol,
+					    struct snd_ctl_elem_info *uinfo)
+{
+	struct simple_amp_multi *multi = (struct simple_amp_multi *)kcontrol->private_value;
+
+	return snd_ctl_enum_info(uinfo, 1, multi->labels.nb_labels,
+				 multi->labels.tab_labels);
+}
+
+static int simple_amp_multi_kctrl_enum_get(struct snd_kcontrol *kcontrol,
+					   struct snd_ctl_elem_value *ucontrol)
+{
+	struct simple_amp_multi *multi = (struct simple_amp_multi *)kcontrol->private_value;
+
+	ucontrol->value.enumerated.item[0] = multi->kctrl_val;
+	return 0;
+}
+
+static int simple_amp_multi_kctrl_enum_put(struct snd_kcontrol *kcontrol,
+					   struct snd_ctl_elem_value *ucontrol)
+{
+	struct simple_amp_multi *multi = (struct simple_amp_multi *)kcontrol->private_value;
+	u32 kctrl_val;
+	int ret;
+
+	kctrl_val = ucontrol->value.enumerated.item[0];
+
+	if (kctrl_val == multi->kctrl_val)
+		return 0;
+
+	ret = simple_amp_multi_kctrl_write_gpios(multi, kctrl_val);
+	if (ret)
+		return ret;
+
+	multi->kctrl_val = kctrl_val;
+
+	return 1; /* The value changed */
+}
+
 static unsigned int *simple_amp_alloc_tlv_ranges(const struct simple_amp_ranges *ranges)
 {
 	unsigned int index;
@@ -366,6 +414,13 @@ static int simple_amp_multi_add_kcontrol(struct snd_soc_component *component,
 		control.access = SNDRV_CTL_ELEM_ACCESS_TLV_READ |
 				 SNDRV_CTL_ELEM_ACCESS_READWRITE;
 		control.tlv.p = multi->tlv_array;
+		break;
+
+	case SIMPLE_AMP_MODE_LABELS:
+		/* Use enumerated values */
+		control.info = simple_amp_multi_kctrl_enum_info;
+		control.get = simple_amp_multi_kctrl_enum_get;
+		control.put = simple_amp_multi_kctrl_enum_put;
 		break;
 
 	case SIMPLE_AMP_MODE_NONE:
@@ -719,10 +774,44 @@ static int simple_amp_parse_ranges(struct device *dev,
 	return 0;
 }
 
+static int simple_amp_parse_labels(struct device *dev,
+				   struct simple_amp_multi *multi,
+				   const char *labels_property)
+{
+	struct simple_amp_labels *labels = &multi->labels;
+	struct device_node *np = dev->of_node;
+	int ret;
+
+	ret = of_property_count_strings(np, labels_property);
+	if (ret < 0)
+		return ret;
+
+	/* The labels array cannot be empty */
+	if (ret == 0)
+		return -EINVAL;
+
+	labels->nb_labels = ret;
+	if (labels->nb_labels > (1 << multi->gpios->ndescs))
+		return -EINVAL;
+
+	labels->tab_labels = devm_kcalloc(dev, labels->nb_labels,
+					  sizeof(*labels->tab_labels),
+					  GFP_KERNEL);
+	if (!labels->tab_labels)
+		return -ENOMEM;
+
+	multi->kctrl_max = labels->nb_labels - 1;
+	multi->kctrl_val = 0;
+
+	return of_property_read_string_array(np, labels_property, labels->tab_labels,
+					     labels->nb_labels);
+}
+
 static int simple_amp_parse_multi_gpio(struct device *dev,
 				       struct simple_amp_multi *multi,
 				       const char *gpios_property,
-				       const char *ranges_property)
+				       const char *ranges_property,
+				       const char *labels_property)
 {
 	struct device_node *np = dev->of_node;
 	int ret;
@@ -752,6 +841,13 @@ static int simple_amp_parse_multi_gpio(struct device *dev,
 			return dev_err_probe(dev, ret, "Failed to parse '%s'\n",
 					     ranges_property);
 		multi->mode = SIMPLE_AMP_MODE_RANGES;
+	} else if (of_property_present(np, labels_property)) {
+		ret = simple_amp_parse_labels(dev, multi, labels_property);
+		if (ret < 0)
+			return dev_err_probe(dev, ret, "Failed to parse '%s'\n",
+					     labels_property);
+
+		multi->mode = SIMPLE_AMP_MODE_LABELS;
 	}
 
 	return 0;
@@ -792,7 +888,7 @@ static int simple_amp_probe(struct platform_device *pdev)
 
 	if (simple_amp->data->supports & SIMPLE_AUDIO_SUPPORT_PGA) {
 		ret = simple_amp_parse_multi_gpio(dev, &simple_amp->gain, "gain",
-						  "gain-ranges");
+						  "gain-ranges", "gain-labels");
 		if (ret)
 			return ret;
 	}
@@ -801,6 +897,20 @@ static int simple_amp_probe(struct platform_device *pdev)
 	simple_amp->gain.control_name = "Volume";
 	simple_amp->mute.control_name = "Switch";
 	simple_amp->bypass.control_name = "Bypass Switch";
+
+	if (simple_amp->gain.mode == SIMPLE_AMP_MODE_LABELS) {
+		/*
+		 * The gain widget control will use enumerated values.
+		 *
+		 * Having just "Voltage" and "Switch" widget names with
+		 * enumerated values and boolean value can confuse ALSA in terms
+		 * of possible values (strings).
+		 *
+		 * Make things clear and avoid the just "Switch" name in that
+		 * case.
+		 */
+		simple_amp->mute.control_name = "Out Switch";
+	}
 
 	return devm_snd_soc_register_component(dev,
 					       &simple_amp_component_driver,
