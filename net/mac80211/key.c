@@ -6,7 +6,7 @@
  * Copyright 2007-2008	Johannes Berg <johannes@sipsolutions.net>
  * Copyright 2013-2014  Intel Mobile Communications GmbH
  * Copyright 2015-2017	Intel Deutschland GmbH
- * Copyright 2018-2020, 2022-2025  Intel Corporation
+ * Copyright 2018-2020, 2022-2026  Intel Corporation
  */
 
 #include <crypto/utils.h>
@@ -150,11 +150,14 @@ static int ieee80211_key_enable_hw_accel(struct ieee80211_key *key)
 	sta = key->sta;
 
 	/*
-	 * If this is a per-STA GTK, check if it
-	 * is supported; if not, return.
+	 * Allow installation of a per-STA GTK if per-STA GTK is supported
+	 * by the driver or the interface is a NAN Data interface (as
+	 * per-station GTKs are required to be supported if secure NAN is
+	 * supported).
 	 */
 	if (sta && !(key->conf.flags & IEEE80211_KEY_FLAG_PAIRWISE) &&
-	    !ieee80211_hw_check(&key->local->hw, SUPPORTS_PER_STA_GTK))
+	    !(ieee80211_hw_check(&key->local->hw, SUPPORTS_PER_STA_GTK) ||
+	      sdata->vif.type == NL80211_IFTYPE_NAN_DATA))
 		goto out_unsupported;
 
 	if (sta && !sta->uploaded)
