@@ -512,7 +512,7 @@ s32	rtl8723bs_hal_xmitframe_enqueue(
 		complete(&pxmitpriv->SdioXmitStart);
 	}
 
-	return err ? _FAIL : _SUCCESS;
+	return err;
 
 }
 
