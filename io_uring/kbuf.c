@@ -21,7 +21,7 @@
 #define MAX_BIDS_PER_BGID (1 << 16)
 
 /* Mapped buffer ring, return io_uring_buf from head */
-#define io_ring_head_to_buf(br, head, mask)	&(br)->bufs[(head) & (mask)]
+#define io_ring_head_to_buf(br, head, mask)	(&(br)->bufs[(head) & (mask)])
 
 struct io_provide_buf {
 	struct file			*file;
