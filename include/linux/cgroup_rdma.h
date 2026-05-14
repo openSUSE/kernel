@@ -24,6 +24,9 @@ struct rdma_cgroup {
 	 * that belongs to this cgroup.
 	 */
 	struct list_head		rpools;
+
+	/* Handle for rdma.events */
+	struct cgroup_file		events_file;
 };
 
 struct rdmacg_device {
