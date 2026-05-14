@@ -141,7 +141,7 @@ struct epitem {
 	struct epitem *next;
 
 	/* The file descriptor information this item refers to */
-	struct epoll_filefd ffd;
+	struct epoll_key ffd;
 
 	/* List containing poll wait queues */
 	struct eppoll_entry *pwqlist;
@@ -335,8 +335,7 @@ int is_file_epoll(struct file *f)
 }
 
 /* Compare RB tree keys */
-static inline int ep_cmp_ffd(struct epoll_filefd *p1,
-			     struct epoll_filefd *p2)
+static inline int ep_cmp_ffd(struct epoll_key *p1, struct epoll_key *p2)
 {
 	return (p1->file > p2->file ? +1:
 	        (p1->file < p2->file ? -1 : p1->fd - p2->fd));
@@ -1160,7 +1159,7 @@ static int ep_alloc(struct eventpoll **pep)
  * are protected by the "mtx" mutex, and ep_find() must be called with
  * "mtx" held.
  */
-static struct epitem *ep_find(struct eventpoll *ep, struct epoll_filefd *tf)
+static struct epitem *ep_find(struct eventpoll *ep, struct epoll_key *tf)
 {
 	int kcmp;
 	struct rb_node *rbp;
@@ -1549,7 +1548,7 @@ allocate:
  * Must be called with "mtx" held.
  */
 static int ep_insert(struct eventpoll *ep, const struct epoll_event *event,
-		     struct epoll_filefd *tf, int full_check)
+		     struct epoll_key *tf, int full_check)
 {
 	int error, pwake = 0;
 	__poll_t revents;
@@ -2220,7 +2219,7 @@ static inline int epoll_mutex_lock(struct mutex *mutex, int depth,
 	return -EAGAIN;
 }
 
-int do_epoll_ctl_file(struct file *f, int op, struct epoll_filefd *tf,
+int do_epoll_ctl_file(struct file *f, int op, struct epoll_key *tf,
 		      struct epoll_event *epds, bool nonblock)
 {
 	int error;
@@ -2357,7 +2356,7 @@ error_tgt_fput:
 int do_epoll_ctl(int epfd, int op, int fd, struct epoll_event *epds,
 		 bool nonblock)
 {
-	struct epoll_filefd efd;
+	struct epoll_key efd;
 
 	CLASS(fd, f)(epfd);
 	if (fd_empty(f))

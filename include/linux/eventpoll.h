@@ -61,12 +61,12 @@ static inline void eventpoll_release(struct file *file)
 	eventpoll_release_file(file);
 }
 
-struct epoll_filefd {
+struct epoll_key {
 	struct file *file;
 	int fd;
 } __packed;
 
-int do_epoll_ctl_file(struct file *f, int op, struct epoll_filefd *tf,
+int do_epoll_ctl_file(struct file *f, int op, struct epoll_key *tf,
 		      struct epoll_event *epds, bool nonblock);
 int do_epoll_ctl(int epfd, int op, int fd, struct epoll_event *epds,
 		 bool nonblock);
