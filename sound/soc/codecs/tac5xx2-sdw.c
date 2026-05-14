@@ -1437,7 +1437,6 @@ static s32 tac5xx2_sdca_dev_resume(struct device *dev)
 {
 	struct tac5xx2_prv *tac_dev = dev_get_drvdata(dev);
 	struct sdw_slave *slave = dev_to_sdw_dev(dev);
-	unsigned long t;
 	int ret;
 
 	if (!tac_dev->first_hw_init_done) {
@@ -1445,19 +1444,10 @@ static s32 tac5xx2_sdca_dev_resume(struct device *dev)
 		return 0;
 	}
 
-	if (!slave->unattach_request)
-		goto regmap_sync;
+	ret = sdw_slave_wait_for_init(slave, TAC5XX2_PROBE_TIMEOUT_MS);
+	if (ret)
+		return ret;
 
-	t = wait_for_completion_timeout(&slave->initialization_complete,
-					msecs_to_jiffies(TAC5XX2_PROBE_TIMEOUT_MS));
-	if (!t) {
-		dev_err(&slave->dev, "resume: initialization timed out\n");
-		sdw_show_ping_status(slave->bus, true);
-		return -ETIMEDOUT;
-	}
-	slave->unattach_request = 0;
-
-regmap_sync:
 	regcache_cache_only(tac_dev->regmap, false);
 	regcache_mark_dirty(tac_dev->regmap);
 	ret = regcache_sync(tac_dev->regmap);
