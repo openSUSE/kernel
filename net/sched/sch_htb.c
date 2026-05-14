@@ -568,7 +568,7 @@ htb_change_class_mode(struct htb_sched *q, struct htb_class *cl, s64 *diff)
 		return;
 
 	if (new_mode == HTB_CANT_SEND) {
-		cl->overlimits++;
+		WRITE_ONCE(cl->overlimits, cl->overlimits + 1);
 		WRITE_ONCE(q->overlimits, q->overlimits + 1);
 	}
 
@@ -644,7 +644,7 @@ static int htb_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 					to_free)) != NET_XMIT_SUCCESS) {
 		if (net_xmit_drop_count(ret)) {
 			qdisc_qstats_drop(sch);
-			cl->drops++;
+			WRITE_ONCE(cl->drops, cl->drops + 1);
 		}
 		return ret;
 	} else {
@@ -666,7 +666,7 @@ static inline void htb_accnt_tokens(struct htb_class *cl, int bytes, s64 diff)
 	if (toks <= -cl->mbuffer)
 		toks = 1 - cl->mbuffer;
 
-	cl->tokens = toks;
+	WRITE_ONCE(cl->tokens, toks);
 }
 
 static inline void htb_accnt_ctokens(struct htb_class *cl, int bytes, s64 diff)
@@ -679,7 +679,7 @@ static inline void htb_accnt_ctokens(struct htb_class *cl, int bytes, s64 diff)
 	if (toks <= -cl->mbuffer)
 		toks = 1 - cl->mbuffer;
 
-	cl->ctokens = toks;
+	WRITE_ONCE(cl->ctokens, toks);
 }
 
 /**
@@ -712,7 +712,8 @@ static void htb_charge_class(struct htb_sched *q, struct htb_class *cl,
 			htb_accnt_tokens(cl, bytes, diff);
 		} else {
 			WRITE_ONCE(cl->xstats_borrows, cl->xstats_borrows + 1);
-			cl->tokens += diff;	/* we moved t_c; update tokens */
+			/* we moved t_c; update tokens */
+			WRITE_ONCE(cl->tokens, cl->tokens + diff);
 		}
 		htb_accnt_ctokens(cl, bytes, diff);
 		cl->t_c = q->now;
@@ -1325,17 +1326,17 @@ htb_dump_class_stats(struct Qdisc *sch, unsigned long arg, struct gnet_dump *d)
 		.borrows = READ_ONCE(cl->xstats_borrows),
 	};
 	struct gnet_stats_queue qs = {
-		.drops = cl->drops,
-		.overlimits = cl->overlimits,
+		.drops = READ_ONCE(cl->drops),
+		.overlimits = READ_ONCE(cl->overlimits),
 	};
 	__u32 qlen = 0;
 
 	if (!cl->level && cl->leaf.q)
 		qdisc_qstats_qlen_backlog(cl->leaf.q, &qlen, &qs.backlog);
 
-	xstats.tokens = clamp_t(s64, PSCHED_NS2TICKS(cl->tokens),
+	xstats.tokens = clamp_t(s64, PSCHED_NS2TICKS(READ_ONCE(cl->tokens)),
 				INT_MIN, INT_MAX);
-	xstats.ctokens = clamp_t(s64, PSCHED_NS2TICKS(cl->ctokens),
+	xstats.ctokens = clamp_t(s64, PSCHED_NS2TICKS(READ_ONCE(cl->ctokens)),
 				 INT_MIN, INT_MAX);
 
 	if (q->offload) {
@@ -1517,8 +1518,8 @@ static void htb_parent_to_leaf(struct Qdisc *sch, struct htb_class *cl,
 	parent->level = 0;
 	memset(&parent->inner, 0, sizeof(parent->inner));
 	parent->leaf.q = new_q ? new_q : &noop_qdisc;
-	parent->tokens = parent->buffer;
-	parent->ctokens = parent->cbuffer;
+	WRITE_ONCE(parent->tokens, parent->buffer);
+	WRITE_ONCE(parent->ctokens, parent->cbuffer);
 	parent->t_c = ktime_get_ns();
 	parent->cmode = HTB_CAN_SEND;
 	if (q->offload)
