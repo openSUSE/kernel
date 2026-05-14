@@ -305,7 +305,7 @@ int mlx5_frag_buf_alloc_node(struct mlx5_core_dev *dev, int size,
 	struct mlx5_dma_pool *pool;
 	int pool_idx;
 
-	node = node == NUMA_NO_NODE ? first_online_node : node;
+	node = node == NUMA_NO_NODE ? numa_mem_id() : node;
 
 	buf->size = size;
 	buf->npages = DIV_ROUND_UP(size, PAGE_SIZE);
