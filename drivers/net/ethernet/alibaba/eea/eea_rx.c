@@ -29,6 +29,8 @@ struct eea_rx_ctx {
 	bool more;
 
 	struct eea_rx_meta *meta;
+
+	struct eea_rx_ctx_stats stats;
 };
 
 static struct eea_rx_meta *eea_rx_meta_get(struct eea_net_rx *rx)
@@ -232,6 +234,7 @@ static int eea_harden_check_overflow(struct eea_rx_ctx *ctx,
 	if (unlikely(ctx->len > max_len)) {
 		pr_debug("%s: rx error: len %u exceeds truesize %u\n",
 			 enet->netdev->name, ctx->len, max_len);
+		++ctx->stats.length_errors;
 		return -EINVAL;
 	}
 
@@ -250,6 +253,7 @@ static int eea_harden_check_size(struct eea_rx_ctx *ctx, struct eea_net *enet)
 		if (unlikely(ctx->hdr_len < ETH_HLEN)) {
 			pr_debug("%s: short hdr %u\n", enet->netdev->name,
 				 ctx->hdr_len);
+			++ctx->stats.length_errors;
 			return -EINVAL;
 		}
 
@@ -257,6 +261,7 @@ static int eea_harden_check_size(struct eea_rx_ctx *ctx, struct eea_net *enet)
 			pr_debug("%s: rx error: hdr len %u exceeds hdr buffer size %u\n",
 				 enet->netdev->name, ctx->hdr_len,
 				 enet->cfg.split_hdr);
+			++ctx->stats.length_errors;
 			return -EINVAL;
 		}
 
@@ -265,6 +270,7 @@ static int eea_harden_check_size(struct eea_rx_ctx *ctx, struct eea_net *enet)
 
 	if (unlikely(ctx->len < ETH_HLEN)) {
 		pr_debug("%s: short packet %u\n", enet->netdev->name, ctx->len);
+		++ctx->stats.length_errors;
 		return -EINVAL;
 	}
 
@@ -373,6 +379,7 @@ static void process_remain_buf(struct eea_net_rx *rx, struct eea_rx_ctx *ctx)
 
 err:
 	dev_kfree_skb(rx->pkt.head_skb);
+	++ctx->stats.drops;
 	rx->pkt.do_drop = true;
 	rx->pkt.head_skb = NULL;
 }
@@ -400,6 +407,7 @@ static void process_first_buf(struct eea_net_rx *rx, struct eea_rx_ctx *ctx)
 	return;
 
 err:
+	++ctx->stats.drops;
 	rx->pkt.do_drop = true;
 }
 
@@ -460,6 +468,8 @@ static int eea_rx_desc_to_ctx(struct eea_net_rx *rx,
 	if (ctx->flags & EEA_DESC_F_SPLIT_HDR) {
 		ctx->hdr_len = le16_to_cpu(desc->len_ex) &
 			EEA_RX_CDESC_HDR_LEN_MASK;
+		ctx->stats.split_hdr_bytes += ctx->hdr_len;
+		++ctx->stats.split_hdr_packets;
 	}
 
 	ctx->more = ctx->flags & EEA_RING_DESC_F_MORE;
@@ -484,8 +494,10 @@ static int eea_cleanrx(struct eea_net_rx *rx, int budget,
 			if (ctx->meta)
 				eea_rx_meta_put(rx, ctx->meta);
 
-			if (rx->pkt.head_skb)
+			if (rx->pkt.head_skb) {
 				dev_kfree_skb(rx->pkt.head_skb);
+				++ctx->stats.drops;
+			}
 
 			/* A hardware error occurred; we are attempting to
 			 * mitigate the impact. Subsequent packets may be
@@ -512,13 +524,17 @@ static int eea_cleanrx(struct eea_net_rx *rx, int budget,
 
 		++rx->pkt.idx;
 
-		if (!ctx->more && rx->pkt.head_skb)
+		if (!ctx->more && rx->pkt.head_skb) {
 			eea_submit_skb(rx, rx->pkt.head_skb, desc);
+			ctx->stats.bytes += rx->pkt.recv_len;
+			++ctx->stats.packets;
+		}
 
 skip:
 		eea_rx_meta_put(rx, meta);
 ack:
 		eea_ering_cq_ack_desc(rx->ering, 1);
+		++ctx->stats.descs;
 
 		if (!ctx->more) {
 			memset(&rx->pkt, 0, sizeof(rx->pkt));
@@ -537,7 +553,7 @@ static void eea_rx_dma_sync_hdr(struct eea_net_rx *rx, dma_addr_t addr)
 }
 
 /* Only be called from napi. */
-static void eea_rx_post(struct eea_net_rx *rx)
+static void eea_rx_post(struct eea_net_rx *rx, struct eea_rx_ctx *ctx)
 {
 	u32 tailroom, headroom, room, len;
 	struct eea_rx_meta *meta;
@@ -586,8 +602,10 @@ static void eea_rx_post(struct eea_net_rx *rx)
 		++num;
 	}
 
-	if (num)
+	if (num) {
 		eea_ering_kick(rx->ering);
+		++ctx->stats.kicks;
+	}
 }
 
 static int eea_poll(struct napi_struct *napi, int budget)
@@ -608,11 +626,13 @@ static int eea_poll(struct napi_struct *napi, int budget)
 		 * buffers are exhausted. Therefore, we should proactively
 		 * pre-fill the buffers to avoid starvation.
 		 */
-		eea_rx_post(rx);
+		eea_rx_post(rx, &ctx);
 
 		if (rx->ering->num - rx->ering->num_free < budget)
 			busy = true;
 	}
+
+	eea_update_rx_stats(&rx->stats, &ctx.stats);
 
 	busy |= received >= budget;
 
@@ -750,6 +770,8 @@ struct eea_net_rx *eea_alloc_rx(struct eea_net_init_ctx *ctx, u32 idx)
 
 	rx->index = idx;
 	snprintf(rx->name, sizeof(rx->name), "rx.%u", idx);
+
+	u64_stats_init(&rx->stats.syncp);
 
 	/* ering */
 	ering = eea_ering_alloc(idx * 2, ctx->cfg.rx_ring_depth, ctx->edev,

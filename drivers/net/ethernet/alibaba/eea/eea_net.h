@@ -12,6 +12,7 @@
 #include <linux/netdevice.h>
 
 #include "eea_adminq.h"
+#include "eea_ethtool.h"
 #include "eea_ring.h"
 
 #define EEA_VER_MAJOR		1
@@ -33,6 +34,8 @@ struct eea_net_tx {
 	u32 index;
 
 	char name[16];
+
+	struct eea_tx_stats stats;
 };
 
 struct eea_rx_meta {
@@ -86,6 +89,8 @@ struct eea_net_rx {
 	u32 headroom;
 
 	struct napi_struct *napi;
+
+	struct eea_rx_stats stats;
 
 	char name[16];
 

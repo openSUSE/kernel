@@ -93,6 +93,7 @@ static void eea_meta_free_xmit(struct eea_net_tx *tx,
 	}
 
 	++stats->packets;
+	stats->bytes += meta->skb->len;
 	napi_consume_skb(meta->skb, budget);
 
 	meta->data = NULL;
@@ -135,6 +136,13 @@ static int eea_clean_tx(struct eea_net_tx *tx, int budget)
 		}
 
 		eea_ering_cq_ack_desc(tx->ering, desc_n);
+	}
+
+	if (stats.packets) {
+		u64_stats_update_begin(&tx->stats.syncp);
+		u64_stats_add(&tx->stats.bytes, stats.bytes);
+		u64_stats_add(&tx->stats.packets, stats.packets);
+		u64_stats_update_end(&tx->stats.syncp);
 	}
 
 	return stats.packets;
@@ -341,6 +349,10 @@ static int eea_tx_post_skb(struct eea_net_tx *tx, struct sk_buff *skb)
 
 	eea_ering_sq_commit_desc(tx->ering);
 
+	u64_stats_update_begin(&tx->stats.syncp);
+	u64_stats_add(&tx->stats.descs, meta->num);
+	u64_stats_update_end(&tx->stats.syncp);
+
 	return 0;
 
 err_cancel:
@@ -353,6 +365,10 @@ err_cancel:
 static void eea_tx_kick(struct eea_net_tx *tx)
 {
 	eea_ering_kick(tx->ering);
+
+	u64_stats_update_begin(&tx->stats.syncp);
+	u64_stats_inc(&tx->stats.kicks);
+	u64_stats_update_end(&tx->stats.syncp);
 }
 
 static int eea_tx_check_free_num(struct eea_net_tx *tx,
@@ -383,6 +399,10 @@ netdev_tx_t eea_tx_xmit(struct sk_buff *skb, struct net_device *netdev)
 
 	err = eea_tx_post_skb(tx, skb);
 	if (unlikely(err)) {
+		u64_stats_update_begin(&tx->stats.syncp);
+		u64_stats_inc(&tx->stats.drops);
+		u64_stats_update_end(&tx->stats.syncp);
+
 		dev_kfree_skb_any(skb);
 	} else {
 		if (unlikely(skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP))
@@ -443,6 +463,8 @@ int eea_alloc_tx(struct eea_net_init_ctx *ctx, struct eea_net_tx *tx, u32 idx)
 	struct eea_tx_meta *meta;
 	struct eea_ring *ering;
 	u32 i;
+
+	u64_stats_init(&tx->stats.syncp);
 
 	snprintf(tx->name, sizeof(tx->name), "tx.%u", idx);
 
