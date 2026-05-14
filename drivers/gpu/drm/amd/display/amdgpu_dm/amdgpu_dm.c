@@ -1870,7 +1870,7 @@ static enum dmub_ips_disable_type dm_get_default_ips_mode(
 		ret =  DMUB_IPS_RCG_IN_ACTIVE_IPS2_IN_OFF;
 		break;
 	case IP_VERSION(4, 2, 0):
-		ret =  DMUB_IPS_DISABLE_ALL;
+		ret =  DMUB_IPS_ENABLE;
 		break;
 	default:
 		/* ASICs older than DCN35 do not have IPSs */
@@ -9941,6 +9941,7 @@ static void amdgpu_dm_handle_vrr_transition(struct amdgpu_display_manager *dm,
 				 __func__, new_state->base.crtc->base.id);
 
 		scoped_guard(mutex, &dm->dc_lock) {
+			dc_exit_ips_for_hw_access(dm->dc);
 			amdgpu_dm_psr_set_event(dm, new_state->stream, true,
 				psr_event_vrr_transition, true);
 			amdgpu_dm_replay_set_event(dm, new_state->stream, true,
@@ -9956,6 +9957,7 @@ static void amdgpu_dm_handle_vrr_transition(struct amdgpu_display_manager *dm,
 				 __func__, new_state->base.crtc->base.id);
 
 		scoped_guard(mutex, &dm->dc_lock) {
+			dc_exit_ips_for_hw_access(dm->dc);
 			amdgpu_dm_psr_set_event(dm, new_state->stream, false,
 				psr_event_vrr_transition, false);
 			amdgpu_dm_replay_set_event(dm, new_state->stream, false,
@@ -10090,8 +10092,6 @@ static void amdgpu_dm_enable_self_refresh(struct amdgpu_display_manager *dm,
 			amdgpu_dm_psr_set_event(dm, acrtc_state->stream, false,
 				psr_event_hw_programming, false);
 
-			amdgpu_dm_replay_set_event(dm, acrtc_state->stream, true,
-				replay_event_general_ui, true);
 			amdgpu_dm_replay_set_event(dm, acrtc_state->stream, false,
 				replay_event_hw_programming, false);
 		}
@@ -10259,6 +10259,7 @@ static void amdgpu_dm_commit_planes(struct drm_atomic_commit *state,
 				mutex_lock(&dm->dc_lock);
 				acrtc_state->stream->link->psr_settings.psr_dirty_rects_change_timestamp_ns =
 				timestamp_ns;
+				dc_exit_ips_for_hw_access(dm->dc);
 				amdgpu_dm_psr_set_event(dm, acrtc_state->stream, true,
 					psr_event_hw_programming, true);
 				mutex_unlock(&dm->dc_lock);
@@ -10616,10 +10617,13 @@ static void amdgpu_dm_mod_power_update_streams(struct drm_atomic_commit *state,
 		 */
 		if (old_crtc_state->active) {
 			scoped_guard(mutex, &dm->dc_lock) {
+				dc_exit_ips_for_hw_access(dm->dc);
 				amdgpu_dm_psr_set_event(dm, dm_old_crtc_state->stream, true,
 					psr_event_hw_programming, true);
 				amdgpu_dm_replay_set_event(dm, dm_old_crtc_state->stream, true,
 					replay_event_hw_programming, true);
+				amdgpu_dm_replay_set_event(dm, dm_old_crtc_state->stream, false,
+					replay_event_general_ui, false);
 			}
 		}
 
@@ -10673,6 +10677,18 @@ static void amdgpu_dm_mod_power_setup_streams(struct drm_atomic_commit *state,
 			mod_power_notify_mode_change(dm->power_module,
 						dm_new_crtc_state->stream,
 						false);
+
+			/*
+			 * Block PSR / Replay on the new stream until display settles post-modeset.
+			 * These events will be cleared by amdgpu_dm_enable_self_refresh() once
+			 * allow_sr_entry becomes true.
+			 */
+			amdgpu_dm_psr_set_event(dm, dm_new_crtc_state->stream, true,
+				psr_event_hw_programming, true);
+
+			amdgpu_dm_replay_set_event(dm, dm_new_crtc_state->stream, true,
+				replay_event_hw_programming | replay_event_general_ui,
+				true);
 		}
 	}
 

@@ -936,6 +936,9 @@ bool kgd2kfd_device_init(struct kfd_dev *kfd,
 
 	svm_range_set_max_pages(kfd->adev);
 
+	kfd->profiler_process = NULL;
+	mutex_init(&kfd->profiler_lock);
+
 	kfd->init_complete = true;
 	dev_info(kfd_device, "added device %x:%x\n", kfd->adev->pdev->vendor,
 		 kfd->adev->pdev->device);
@@ -971,6 +974,7 @@ void kgd2kfd_device_exit(struct kfd_dev *kfd)
 		ida_destroy(&kfd->doorbell_ida);
 		kfd_gtt_sa_fini(kfd);
 		amdgpu_amdkfd_free_kernel_mem(kfd->adev, &kfd->gtt_mem);
+		mutex_destroy(&kfd->profiler_lock);
 	}
 
 	kfree(kfd);
@@ -1645,6 +1649,22 @@ int kgd2kfd_stop_sched_all_nodes(struct kfd_dev *kfd)
 			return r;
 	}
 	return 0;
+}
+
+int amdgpu_amdkfd_stop_sched_all(struct amdgpu_device *adev)
+{
+	if (!adev->kfd.init_complete)
+		return 0;
+
+	return kgd2kfd_stop_sched_all_nodes(adev->kfd.dev);
+}
+
+int amdgpu_amdkfd_start_sched_all(struct amdgpu_device *adev)
+{
+	if (!adev->kfd.init_complete)
+		return 0;
+
+	return kgd2kfd_start_sched_all_nodes(adev->kfd.dev);
 }
 
 bool kgd2kfd_compute_active(struct kfd_dev *kfd, uint32_t node_id)
