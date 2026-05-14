@@ -14,6 +14,8 @@
 #include "types.h"
 #include "sys.h"
 
+#define __nolibc_open_flags(_flags) ((_flags) | O_LARGEFILE)
+
 /*
  * int openat(int dirfd, const char *path, int flags[, mode_t mode]);
  */
@@ -29,8 +31,6 @@ int openat(int dirfd, const char *path, int flags, ...)
 {
 	mode_t mode = 0;
 
-	flags |= O_LARGEFILE;
-
 	if (flags & O_CREAT) {
 		va_list args;
 
@@ -39,7 +39,7 @@ int openat(int dirfd, const char *path, int flags, ...)
 		va_end(args);
 	}
 
-	return __sysret(_sys_openat(dirfd, path, flags, mode));
+	return __sysret(_sys_openat(dirfd, path, __nolibc_open_flags(flags), mode));
 }
 
 /*
@@ -57,8 +57,6 @@ int open(const char *path, int flags, ...)
 {
 	mode_t mode = 0;
 
-	flags |= O_LARGEFILE;
-
 	if (flags & O_CREAT) {
 		va_list args;
 
@@ -67,7 +65,7 @@ int open(const char *path, int flags, ...)
 		va_end(args);
 	}
 
-	return __sysret(_sys_open(path, flags, mode));
+	return __sysret(_sys_open(path, __nolibc_open_flags(flags), mode));
 }
 
 /*
