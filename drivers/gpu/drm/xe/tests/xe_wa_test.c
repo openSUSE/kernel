@@ -55,7 +55,7 @@ static void xe_wa_gt(struct kunit *test)
 		xe_wa_process_gt(gt);
 		xe_tuning_process_gt(gt);
 
-		KUNIT_ASSERT_EQ(test, gt->reg_sr.errors, 0);
+		KUNIT_EXPECT_EQ(test, gt->reg_sr.errors, 0);
 	}
 }
 
