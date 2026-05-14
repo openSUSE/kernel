@@ -189,8 +189,9 @@ int mlx5e_napi_poll(struct napi_struct *napi, int budget)
 				  &aicosq->state);
 
 		/* Keep after async ICOSQ CQ poll */
-		if (unlikely(mlx5e_ktls_rx_pending_resync_list(c, budget)))
-			busy |= mlx5e_ktls_rx_handle_resync_list(c, budget);
+		if (unlikely(mlx5e_ktls_rx_pending_resync_list(aicosq, budget)))
+			busy |= mlx5e_ktls_rx_handle_resync_list(aicosq,
+								 budget);
 
 		if (xsk_open) {
 			busy |= mlx5e_poll_xdpsq_cq(&xsksq->cq);
