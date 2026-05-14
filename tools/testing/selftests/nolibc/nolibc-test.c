@@ -1305,6 +1305,28 @@ int test_openat(void)
 	return 0;
 }
 
+int test_open_mode(void)
+{
+	const mode_t mode = 0444;
+	struct stat stat_buf;
+	int fd, ret;
+
+	fd = open("/tmp", O_TMPFILE | O_RDWR, mode);
+	if (fd == -1)
+		return -1;
+
+	ret = fstat(fd, &stat_buf);
+	close(fd);
+
+	if (ret == -1)
+		return -1;
+
+	if ((stat_buf.st_mode & 0777) != mode)
+		return -1;
+
+	return 0;
+}
+
 int test_nolibc_enosys(void)
 {
 	if (true)
@@ -1540,6 +1562,7 @@ int run_syscall(int min, int max)
 		CASE_TEST(open_tty);          EXPECT_SYSNE(1, tmp = open("/dev/null", O_RDONLY), -1); if (tmp != -1) close(tmp); break;
 		CASE_TEST(open_blah);         EXPECT_SYSER(1, tmp = open("/proc/self/blah", O_RDONLY), -1, ENOENT); if (tmp != -1) close(tmp); break;
 		CASE_TEST(openat_dir);        EXPECT_SYSZR(1, test_openat()); break;
+		CASE_TEST(open_mode);         EXPECT_SYSZR(1, test_open_mode()); break;
 		CASE_TEST(pipe);              EXPECT_SYSZR(1, test_pipe()); break;
 		CASE_TEST(poll_null);         EXPECT_SYSZR(1, poll(NULL, 0, 0)); break;
 		CASE_TEST(poll_stdout);       EXPECT_SYSNE(1, ({ struct pollfd fds = { 1, POLLOUT, 0}; poll(&fds, 1, 0); }), -1); break;
