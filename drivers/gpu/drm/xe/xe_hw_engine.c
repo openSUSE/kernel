@@ -337,8 +337,8 @@ static bool xe_rtp_cfeg_wmtp_disabled(const struct xe_device *xe,
 	return xe_mmio_read32(&hwe->gt->mmio, XEHP_FUSE4) & CFEG_WMTP_DISABLE;
 }
 
-void
-xe_hw_engine_setup_default_lrc_state(struct xe_hw_engine *hwe)
+static void
+hw_engine_setup_default_lrc_state(struct xe_hw_engine *hwe)
 {
 	struct xe_gt *gt = hwe->gt;
 	const u8 mocs_write_idx = gt->mocs.uc_index;
@@ -373,6 +373,17 @@ xe_hw_engine_setup_default_lrc_state(struct xe_hw_engine *hwe)
 
 	xe_rtp_process_to_sr(&ctx, lrc_setup, ARRAY_SIZE(lrc_setup),
 			     &hwe->reg_lrc, true);
+}
+
+void xe_hw_engine_setup_reg_lrc(struct xe_hw_engine *hwe)
+{
+	struct xe_gt *gt = hwe->gt;
+	struct xe_device *xe = gt_to_xe(gt);
+
+	xe_reg_sr_init(&hwe->reg_lrc, hwe->name, xe);
+	xe_wa_process_lrc(hwe);
+	hw_engine_setup_default_lrc_state(hwe);
+	xe_tuning_process_lrc(hwe);
 }
 
 static void
