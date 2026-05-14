@@ -18,15 +18,12 @@
 
 #define __nolibc_open_mode(_flags)							\
 ({											\
-	mode_t _mode = 0;								\
+	mode_t _mode;									\
+	va_list args;									\
 											\
-	if ((_flags) & O_CREAT) {							\
-		va_list args;								\
-											\
-		va_start(args, (_flags));						\
-		_mode = va_arg(args, mode_t);						\
-		va_end(args);								\
-	}										\
+	va_start(args, (_flags));							\
+	_mode = va_arg(args, mode_t);							\
+	va_end(args);									\
 											\
 	_mode;										\
 })
