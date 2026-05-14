@@ -112,6 +112,11 @@ static void eea_bind_q_and_cfg(struct eea_net *enet,
 	struct eea_net_tx *tx;
 	int i;
 
+	/* Since 'ndo_get_stats64' is not called in softirq context, there is no
+	 * need to use 'spin_lock_bh'.
+	 */
+	spin_lock(&enet->stats_lock);
+
 	enet->cfg = ctx->cfg;
 	enet->rx = ctx->rx;
 	enet->tx = ctx->tx;
@@ -131,6 +136,8 @@ static void eea_bind_q_and_cfg(struct eea_net *enet,
 
 		blk->rx = rx;
 	}
+
+	spin_unlock(&enet->stats_lock);
 }
 
 static void eea_unbind_q_and_cfg(struct eea_net *enet,
@@ -139,6 +146,8 @@ static void eea_unbind_q_and_cfg(struct eea_net *enet,
 	struct eea_irq_blk *blk;
 	struct eea_net_rx *rx;
 	int i;
+
+	spin_lock(&enet->stats_lock);
 
 	ctx->cfg = enet->cfg;
 	ctx->rx = enet->rx;
@@ -156,6 +165,8 @@ static void eea_unbind_q_and_cfg(struct eea_net *enet,
 
 		blk->rx = NULL;
 	}
+
+	spin_unlock(&enet->stats_lock);
 }
 
 static void eea_free_rxtx_q_mem(struct eea_net_init_ctx *ctx)
@@ -342,6 +353,60 @@ err_done:
 	return err;
 }
 
+/* Statistics may be reset to zero upon device reset. This is expected behavior
+ * for now and will be addressed in the future.
+ */
+static void eea_stats(struct net_device *netdev, struct rtnl_link_stats64 *tot)
+{
+	struct eea_net *enet = netdev_priv(netdev);
+	u64 packets, bytes, drop, lerr;
+	u32 start;
+	int i;
+
+	spin_lock(&enet->stats_lock);
+
+	if (enet->rx) {
+		for (i = 0; i < enet->cfg.rx_ring_num; i++) {
+			struct eea_net_rx *rx = enet->rx[i];
+
+			do {
+				start = u64_stats_fetch_begin(&rx->stats.syncp);
+				packets = u64_stats_read(&rx->stats.packets);
+				bytes = u64_stats_read(&rx->stats.bytes);
+				drop = u64_stats_read(&rx->stats.drops);
+				lerr = u64_stats_read(&rx->stats.length_errors);
+			} while (u64_stats_fetch_retry(&rx->stats.syncp,
+						       start));
+
+			tot->rx_packets       += packets;
+			tot->rx_bytes         += bytes;
+			tot->rx_dropped       += drop;
+			tot->rx_length_errors += lerr;
+			tot->rx_errors        += lerr;
+		}
+	}
+
+	if (enet->tx) {
+		for (i = 0; i < enet->cfg.tx_ring_num; i++) {
+			struct eea_net_tx *tx = &enet->tx[i];
+
+			do {
+				start = u64_stats_fetch_begin(&tx->stats.syncp);
+				packets = u64_stats_read(&tx->stats.packets);
+				bytes = u64_stats_read(&tx->stats.bytes);
+				drop = u64_stats_read(&tx->stats.drops);
+			} while (u64_stats_fetch_retry(&tx->stats.syncp,
+						       start));
+
+			tot->tx_packets += packets;
+			tot->tx_bytes   += bytes;
+			tot->tx_dropped += drop;
+		}
+	}
+
+	spin_unlock(&enet->stats_lock);
+}
+
 /* resources: ring, buffers, irq */
 int eea_reset_hw_resources(struct eea_net *enet, struct eea_net_init_ctx *ctx)
 {
@@ -349,7 +414,9 @@ int eea_reset_hw_resources(struct eea_net *enet, struct eea_net_init_ctx *ctx)
 	int err, error;
 
 	if (!netif_running(enet->netdev) || !enet->started) {
+		spin_lock(&enet->stats_lock);
 		enet->cfg = ctx->cfg;
+		spin_unlock(&enet->stats_lock);
 		return 0;
 	}
 
@@ -607,6 +674,7 @@ static const struct net_device_ops eea_netdev = {
 	.ndo_stop           = eea_netdev_stop,
 	.ndo_start_xmit     = eea_tx_xmit,
 	.ndo_validate_addr  = eth_validate_addr,
+	.ndo_get_stats64    = eea_stats,
 	.ndo_features_check = passthru_features_check,
 };
 
@@ -639,6 +707,8 @@ static struct eea_net *eea_netdev_alloc(struct eea_device *edev, u32 pairs)
 		free_netdev(netdev);
 		return NULL;
 	}
+
+	spin_lock_init(&enet->stats_lock);
 
 	return enet;
 }
@@ -725,11 +795,13 @@ int eea_net_probe(struct eea_device *edev)
 
 	eea_update_ts_off(edev, enet);
 
-	netdev_dbg(enet->netdev, "eea probe success.\n");
+	netif_carrier_off(enet->netdev);
 
-	/* Queue TX/RX implementation is still in progress. register_netdev is
-	 * deferred until these are completed in subsequent commits.
-	 */
+	err = register_netdev(enet->netdev);
+	if (err)
+		goto err_reset_dev;
+
+	netdev_dbg(enet->netdev, "eea probe success.\n");
 
 	return 0;
 
@@ -781,6 +853,8 @@ void eea_net_remove(struct eea_device *edev, bool ha)
 		return;
 	}
 
+	unregister_netdev(netdev);
+
 	if (!enet->wait_pci_ready) {
 		eea_device_reset(edev);
 		eea_destroy_adminq(enet);
@@ -801,6 +875,7 @@ void eea_net_shutdown(struct eea_device *edev)
 	rtnl_lock();
 
 	netif_device_detach(netdev);
+	dev_close(netdev);
 
 	if (!enet->wait_pci_ready) {
 		eea_device_reset(edev);
