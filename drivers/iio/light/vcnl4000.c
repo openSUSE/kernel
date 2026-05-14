@@ -18,6 +18,7 @@
  */
 
 #include <linux/bitfield.h>
+#include <linux/cleanup.h>
 #include <linux/delay.h>
 #include <linux/err.h>
 #include <linux/i2c.h>
@@ -268,46 +269,36 @@ static ssize_t vcnl4000_write_als_enable(struct vcnl4000_data *data, bool en)
 {
 	int ret;
 
-	mutex_lock(&data->vcnl4000_lock);
+	guard(mutex)(&data->vcnl4000_lock);
 
 	ret = i2c_smbus_read_word_data(data->client, VCNL4200_AL_CONF);
 	if (ret < 0)
-		goto out;
+		return ret;
 
 	if (en)
 		ret &= ~VCNL4040_ALS_CONF_ALS_SHUTDOWN;
 	else
 		ret |= VCNL4040_ALS_CONF_ALS_SHUTDOWN;
 
-	ret = i2c_smbus_write_word_data(data->client, VCNL4200_AL_CONF, ret);
-
-out:
-	mutex_unlock(&data->vcnl4000_lock);
-
-	return ret;
+	return i2c_smbus_write_word_data(data->client, VCNL4200_AL_CONF, ret);
 }
 
 static ssize_t vcnl4000_write_ps_enable(struct vcnl4000_data *data, bool en)
 {
 	int ret;
 
-	mutex_lock(&data->vcnl4000_lock);
+	guard(mutex)(&data->vcnl4000_lock);
 
 	ret = i2c_smbus_read_word_data(data->client, VCNL4200_PS_CONF1);
 	if (ret < 0)
-		goto out;
+		return ret;
 
 	if (en)
 		ret &= ~VCNL4040_PS_CONF1_PS_SHUTDOWN;
 	else
 		ret |= VCNL4040_PS_CONF1_PS_SHUTDOWN;
 
-	ret = i2c_smbus_write_word_data(data->client, VCNL4200_PS_CONF1, ret);
-
-out:
-	mutex_unlock(&data->vcnl4000_lock);
-
-	return ret;
+	return i2c_smbus_write_word_data(data->client, VCNL4200_PS_CONF1, ret);
 }
 
 static int vcnl4200_set_power_state(struct vcnl4000_data *data, bool on)
@@ -442,18 +433,18 @@ static int vcnl4000_measure(struct vcnl4000_data *data, u8 req_mask,
 	int tries = 20;
 	int ret;
 
-	mutex_lock(&data->vcnl4000_lock);
+	guard(mutex)(&data->vcnl4000_lock);
 
 	ret = i2c_smbus_write_byte_data(data->client, VCNL4000_COMMAND,
 					req_mask);
 	if (ret < 0)
-		goto fail;
+		return ret;
 
 	/* wait for data to become ready */
 	while (tries--) {
 		ret = i2c_smbus_read_byte_data(data->client, VCNL4000_COMMAND);
 		if (ret < 0)
-			goto fail;
+			return ret;
 		if (ret & rdy_mask)
 			break;
 		msleep(20); /* measurement takes up to 100 ms */
@@ -462,21 +453,10 @@ static int vcnl4000_measure(struct vcnl4000_data *data, u8 req_mask,
 	if (tries < 0) {
 		dev_err(&data->client->dev,
 			"vcnl4000_measure() failed, data not ready\n");
-		ret = -EIO;
-		goto fail;
+		return -EIO;
 	}
 
-	ret = vcnl4000_read_data(data, data_reg, val);
-	if (ret < 0)
-		goto fail;
-
-	mutex_unlock(&data->vcnl4000_lock);
-
-	return 0;
-
-fail:
-	mutex_unlock(&data->vcnl4000_lock);
-	return ret;
+	return vcnl4000_read_data(data, data_reg, val);
 }
 
 static int vcnl4200_measure(struct vcnl4000_data *data,
@@ -486,16 +466,14 @@ static int vcnl4200_measure(struct vcnl4000_data *data,
 	s64 delta;
 	ktime_t next_measurement;
 
-	mutex_lock(&chan->lock);
-
-	next_measurement = ktime_add(chan->last_measurement,
-			chan->sampling_rate);
-	delta = ktime_us_delta(next_measurement, ktime_get());
-	if (delta > 0)
-		usleep_range(delta, delta + 500);
-	chan->last_measurement = ktime_get();
-
-	mutex_unlock(&chan->lock);
+	scoped_guard(mutex, &chan->lock) {
+		next_measurement = ktime_add(chan->last_measurement,
+				chan->sampling_rate);
+		delta = ktime_us_delta(next_measurement, ktime_get());
+		if (delta > 0)
+			usleep_range(delta, delta + 500);
+		chan->last_measurement = ktime_get();
+	}
 
 	ret = i2c_smbus_read_word_data(data->client, chan->reg);
 	if (ret < 0)
@@ -606,21 +584,15 @@ static ssize_t vcnl4040_write_als_it(struct vcnl4000_data *data, int val)
 			 (*data->chip_spec->als_it_times)[0][1]),
 			 val);
 
-	mutex_lock(&data->vcnl4000_lock);
+	guard(mutex)(&data->vcnl4000_lock);
 
 	ret = i2c_smbus_read_word_data(data->client, VCNL4200_AL_CONF);
 	if (ret < 0)
-		goto out_unlock;
+		return ret;
 
 	regval = FIELD_PREP(VCNL4040_ALS_CONF_IT, i);
 	regval |= (ret & ~VCNL4040_ALS_CONF_IT);
-	ret = i2c_smbus_write_word_data(data->client,
-					VCNL4200_AL_CONF,
-					regval);
-
-out_unlock:
-	mutex_unlock(&data->vcnl4000_lock);
-	return ret;
+	return i2c_smbus_write_word_data(data->client, VCNL4200_AL_CONF, regval);
 }
 
 static int vcnl4040_read_ps_it(struct vcnl4000_data *data, int *val, int *val2)
@@ -660,20 +632,15 @@ static ssize_t vcnl4040_write_ps_it(struct vcnl4000_data *data, int val)
 
 	data->vcnl4200_ps.sampling_rate = ktime_set(0, val * 60 * NSEC_PER_USEC);
 
-	mutex_lock(&data->vcnl4000_lock);
+	guard(mutex)(&data->vcnl4000_lock);
 
 	ret = i2c_smbus_read_word_data(data->client, VCNL4200_PS_CONF1);
 	if (ret < 0)
-		goto out;
+		return ret;
 
 	regval = (ret & ~VCNL4040_PS_CONF2_PS_IT) |
 	    FIELD_PREP(VCNL4040_PS_CONF2_PS_IT, index);
-	ret = i2c_smbus_write_word_data(data->client, VCNL4200_PS_CONF1,
-					regval);
-
-out:
-	mutex_unlock(&data->vcnl4000_lock);
-	return ret;
+	return i2c_smbus_write_word_data(data->client, VCNL4200_PS_CONF1, regval);
 }
 
 static ssize_t vcnl4040_read_als_period(struct vcnl4000_data *data, int *val, int *val2)
@@ -721,20 +688,15 @@ static ssize_t vcnl4040_write_als_period(struct vcnl4000_data *data, int val, in
 			break;
 	}
 
-	mutex_lock(&data->vcnl4000_lock);
+	guard(mutex)(&data->vcnl4000_lock);
 
 	ret = i2c_smbus_read_word_data(data->client, VCNL4200_AL_CONF);
 	if (ret < 0)
-		goto out_unlock;
+		return ret;
 
 	regval = FIELD_PREP(VCNL4040_ALS_CONF_PERS, i);
 	regval |= (ret & ~VCNL4040_ALS_CONF_PERS);
-	ret = i2c_smbus_write_word_data(data->client, VCNL4200_AL_CONF,
-					regval);
-
-out_unlock:
-	mutex_unlock(&data->vcnl4000_lock);
-	return ret;
+	return i2c_smbus_write_word_data(data->client, VCNL4200_AL_CONF, regval);
 }
 
 static ssize_t vcnl4040_read_ps_period(struct vcnl4000_data *data, int *val, int *val2)
@@ -783,20 +745,15 @@ static ssize_t vcnl4040_write_ps_period(struct vcnl4000_data *data, int val, int
 		}
 	}
 
-	mutex_lock(&data->vcnl4000_lock);
+	guard(mutex)(&data->vcnl4000_lock);
 
 	ret = i2c_smbus_read_word_data(data->client, VCNL4200_PS_CONF1);
 	if (ret < 0)
-		goto out_unlock;
+		return ret;
 
 	regval = FIELD_PREP(VCNL4040_CONF1_PS_PERS, i);
 	regval |= (ret & ~VCNL4040_CONF1_PS_PERS);
-	ret = i2c_smbus_write_word_data(data->client, VCNL4200_PS_CONF1,
-					regval);
-
-out_unlock:
-	mutex_unlock(&data->vcnl4000_lock);
-	return ret;
+	return i2c_smbus_write_word_data(data->client, VCNL4200_PS_CONF1, regval);
 }
 
 static ssize_t vcnl4040_read_ps_oversampling_ratio(struct vcnl4000_data *data, int *val)
@@ -830,20 +787,15 @@ static ssize_t vcnl4040_write_ps_oversampling_ratio(struct vcnl4000_data *data, 
 	if (i >= ARRAY_SIZE(vcnl4040_ps_oversampling_ratio))
 		return -EINVAL;
 
-	mutex_lock(&data->vcnl4000_lock);
+	guard(mutex)(&data->vcnl4000_lock);
 
 	ret = i2c_smbus_read_word_data(data->client, VCNL4200_PS_CONF3);
 	if (ret < 0)
-		goto out_unlock;
+		return ret;
 
 	regval = FIELD_PREP(VCNL4040_PS_CONF3_MPS, i);
 	regval |= (ret & ~VCNL4040_PS_CONF3_MPS);
-	ret = i2c_smbus_write_word_data(data->client, VCNL4200_PS_CONF3,
-					regval);
-
-out_unlock:
-	mutex_unlock(&data->vcnl4000_lock);
-	return ret;
+	return i2c_smbus_write_word_data(data->client, VCNL4200_PS_CONF3, regval);
 }
 
 static ssize_t vcnl4040_read_ps_calibbias(struct vcnl4000_data *data, int *val, int *val2)
@@ -878,20 +830,15 @@ static ssize_t vcnl4040_write_ps_calibbias(struct vcnl4000_data *data, int val)
 	if (i >= ARRAY_SIZE(vcnl4040_ps_calibbias_ua))
 		return -EINVAL;
 
-	mutex_lock(&data->vcnl4000_lock);
+	guard(mutex)(&data->vcnl4000_lock);
 
 	ret = i2c_smbus_read_word_data(data->client, VCNL4200_PS_CONF3);
 	if (ret < 0)
-		goto out_unlock;
+		return ret;
 
 	regval = (ret & ~VCNL4040_PS_MS_LED_I);
 	regval |= FIELD_PREP(VCNL4040_PS_MS_LED_I, i);
-	ret = i2c_smbus_write_word_data(data->client, VCNL4200_PS_CONF3,
-					regval);
-
-out_unlock:
-	mutex_unlock(&data->vcnl4000_lock);
-	return ret;
+	return i2c_smbus_write_word_data(data->client, VCNL4200_PS_CONF3, regval);
 }
 
 static int vcnl4000_read_raw(struct iio_dev *indio_dev,
@@ -1476,17 +1423,17 @@ static int vcnl4040_write_event_config(struct iio_dev *indio_dev,
 				       enum iio_event_direction dir,
 				       bool state)
 {
-	int ret = -EINVAL;
+	int ret;
 	u16 val, mask;
 	struct vcnl4000_data *data = iio_priv(indio_dev);
 
-	mutex_lock(&data->vcnl4000_lock);
+	guard(mutex)(&data->vcnl4000_lock);
 
 	switch (chan->type) {
 	case IIO_LIGHT:
 		ret = i2c_smbus_read_word_data(data->client, VCNL4200_AL_CONF);
 		if (ret < 0)
-			goto out;
+			return ret;
 
 		mask = VCNL4040_ALS_CONF_INT_EN;
 		if (state)
@@ -1495,13 +1442,11 @@ static int vcnl4040_write_event_config(struct iio_dev *indio_dev,
 			val = (ret & ~mask);
 
 		data->als_int = FIELD_GET(VCNL4040_ALS_CONF_INT_EN, val);
-		ret = i2c_smbus_write_word_data(data->client, VCNL4200_AL_CONF,
-						val);
-		break;
+		return i2c_smbus_write_word_data(data->client, VCNL4200_AL_CONF, val);
 	case IIO_PROXIMITY:
 		ret = i2c_smbus_read_word_data(data->client, VCNL4200_PS_CONF1);
 		if (ret < 0)
-			goto out;
+			return ret;
 
 		if (dir == IIO_EV_DIR_RISING)
 			mask = VCNL4040_PS_IF_AWAY;
@@ -1511,17 +1456,10 @@ static int vcnl4040_write_event_config(struct iio_dev *indio_dev,
 		val = state ? (ret | mask) : (ret & ~mask);
 
 		data->ps_int = FIELD_GET(VCNL4040_PS_CONF2_PS_INT, val);
-		ret = i2c_smbus_write_word_data(data->client, VCNL4200_PS_CONF1,
-						val);
-		break;
+		return i2c_smbus_write_word_data(data->client, VCNL4200_PS_CONF1, val);
 	default:
-		break;
+		return -EINVAL;
 	}
-
-out:
-	mutex_unlock(&data->vcnl4000_lock);
-
-	return ret;
 }
 
 static irqreturn_t vcnl4040_irq_thread(int irq, void *p)
