@@ -19,13 +19,11 @@
 #include <linux/lockdep.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
-#include <linux/notifier.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/property.h>
 #include <linux/reset.h>
 #include <linux/slab.h>
-#include <linux/workqueue.h>
 
 #include <asm/byteorder.h>
 
@@ -75,8 +73,6 @@ struct dw8250_data {
 	u32			msr_mask_off;
 	struct clk		*clk;
 	struct clk		*pclk;
-	struct notifier_block	clk_notifier;
-	struct work_struct	clk_work;
 	struct reset_control	*rst;
 
 	unsigned int		skip_autocfg:1;
@@ -89,16 +85,6 @@ struct dw8250_data {
 static inline struct dw8250_data *to_dw8250_data(struct dw8250_port_data *data)
 {
 	return container_of(data, struct dw8250_data, data);
-}
-
-static inline struct dw8250_data *clk_to_dw8250_data(struct notifier_block *nb)
-{
-	return container_of(nb, struct dw8250_data, clk_notifier);
-}
-
-static inline struct dw8250_data *work_to_dw8250_data(struct work_struct *work)
-{
-	return container_of(work, struct dw8250_data, clk_work);
 }
 
 static inline u32 dw8250_modify_msr(struct uart_port *p, unsigned int offset, u32 value)
@@ -473,46 +459,6 @@ static int dw8250_handle_irq(struct uart_port *p)
 	return 1;
 }
 
-static void dw8250_clk_work_cb(struct work_struct *work)
-{
-	struct dw8250_data *d = work_to_dw8250_data(work);
-	struct uart_8250_port *up;
-	unsigned long rate;
-
-	rate = clk_get_rate(d->clk);
-	if (rate <= 0)
-		return;
-
-	up = serial8250_get_port(d->data.line);
-
-	serial8250_update_uartclk(&up->port, rate);
-}
-
-static int dw8250_clk_notifier_cb(struct notifier_block *nb,
-				  unsigned long event, void *data)
-{
-	struct dw8250_data *d = clk_to_dw8250_data(nb);
-
-	/*
-	 * We have no choice but to defer the uartclk update due to two
-	 * deadlocks. First one is caused by a recursive mutex lock which
-	 * happens when clk_set_rate() is called from dw8250_set_termios().
-	 * Second deadlock is more tricky and is caused by an inverted order of
-	 * the clk and tty-port mutexes lock. It happens if clock rate change
-	 * is requested asynchronously while set_termios() is executed between
-	 * tty-port mutex lock and clk_set_rate() function invocation and
-	 * vise-versa. Anyway if we didn't have the reference clock alteration
-	 * in the dw8250_set_termios() method we wouldn't have needed this
-	 * deferred event handling complication.
-	 */
-	if (event == POST_RATE_CHANGE) {
-		queue_work(system_dfl_wq, &d->clk_work);
-		return NOTIFY_OK;
-	}
-
-	return NOTIFY_DONE;
-}
-
 static void
 dw8250_do_pm(struct uart_port *port, unsigned int state, unsigned int old)
 {
@@ -536,10 +482,6 @@ static void dw8250_set_termios(struct uart_port *p, struct ktermios *termios,
 	clk_disable_unprepare(d->clk);
 	rate = clk_round_rate(d->clk, newrate);
 	if (rate > 0) {
-		/*
-		 * Note that any clock-notifier worker will block in
-		 * serial8250_update_uartclk() until we are done.
-		 */
 		ret = clk_set_rate(d->clk, newrate);
 		if (!ret)
 			p->uartclk = rate;
@@ -772,9 +714,6 @@ static int dw8250_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(data->clk),
 				     "failed to get baudclk\n");
 
-	INIT_WORK(&data->clk_work, dw8250_clk_work_cb);
-	data->clk_notifier.notifier_call = dw8250_clk_notifier_cb;
-
 	if (data->clk)
 		p->uartclk = clk_get_rate(data->clk);
 
@@ -832,20 +771,6 @@ static int dw8250_probe(struct platform_device *pdev)
 	if (data->data.line < 0)
 		return data->data.line;
 
-	/*
-	 * Some platforms may provide a reference clock shared between several
-	 * devices. In this case any clock state change must be known to the
-	 * UART port at least post factum.
-	 */
-	if (data->clk) {
-		err = clk_notifier_register(data->clk, &data->clk_notifier);
-		if (err) {
-			serial8250_unregister_port(data->data.line);
-			return dev_err_probe(dev, err, "Failed to set the clock notifier\n");
-		}
-		queue_work(system_dfl_wq, &data->clk_work);
-	}
-
 	platform_set_drvdata(pdev, data);
 
 	pm_runtime_enable(dev);
@@ -859,12 +784,6 @@ static void dw8250_remove(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 
 	pm_runtime_get_sync(dev);
-
-	if (data->clk) {
-		clk_notifier_unregister(data->clk, &data->clk_notifier);
-
-		flush_work(&data->clk_work);
-	}
 
 	serial8250_unregister_port(data->data.line);
 
