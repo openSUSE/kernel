@@ -149,6 +149,53 @@
 		regulator-boot-on;
 	};
 
+	usb_vbus: regulator-5v0-usb-vbus {
+		compatible = "regulator-fixed";
+		regulator-name = "usb-vbus";
+		enable-active-high;
+		regulator-always-on;
+		vin-supply = <&pp5000_s5>;
+	};
+
+	reserved_memory: reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		scp_mem: memory@50000000 {
+			compatible = "shared-dma-pool";
+			reg = <0 0x50000000 0 0x2900000>;
+			no-map;
+		};
+
+		adsp_mem: memory@60000000 {
+			compatible = "shared-dma-pool";
+			reg = <0 0x60000000 0 0xd80000>;
+			no-map;
+		};
+
+		afe_mem: memory@60d80000 {
+			compatible = "shared-dma-pool";
+			reg = <0 0x60d80000 0 0x100000>;
+			no-map;
+		};
+
+		adsp_device_mem: memory@60e80000 {
+			compatible = "shared-dma-pool";
+			reg = <0 0x60e80000 0 0x280000>;
+			no-map;
+		};
+	};
+
+	spk_amplifier: rt1019p {
+		compatible = "realtek,rt1019p";
+		label = "rt1019p";
+		#sound-dai-cells = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&rt1019p_pins_default>;
+		sdb-gpios = <&pio 100 GPIO_ACTIVE_HIGH>;
+	};
+
 	/* Murata NCP03WF104F05RL */
 	tboard_thermistor1: thermal-sensor-t1 {
 		compatible = "generic-adc-thermal";
@@ -218,53 +265,6 @@
 						115000 59
 						120000 51
 						125000 44>;
-	};
-
-	usb_vbus: regulator-5v0-usb-vbus {
-		compatible = "regulator-fixed";
-		regulator-name = "usb-vbus";
-		enable-active-high;
-		regulator-always-on;
-		vin-supply = <&pp5000_s5>;
-	};
-
-	reserved_memory: reserved-memory {
-		#address-cells = <2>;
-		#size-cells = <2>;
-		ranges;
-
-		scp_mem: memory@50000000 {
-			compatible = "shared-dma-pool";
-			reg = <0 0x50000000 0 0x2900000>;
-			no-map;
-		};
-
-		adsp_mem: memory@60000000 {
-			compatible = "shared-dma-pool";
-			reg = <0 0x60000000 0 0xd80000>;
-			no-map;
-		};
-
-		afe_mem: memory@60d80000 {
-			compatible = "shared-dma-pool";
-			reg = <0 0x60d80000 0 0x100000>;
-			no-map;
-		};
-
-		adsp_device_mem: memory@60e80000 {
-			compatible = "shared-dma-pool";
-			reg = <0 0x60e80000 0 0x280000>;
-			no-map;
-		};
-	};
-
-	spk_amplifier: rt1019p {
-		compatible = "realtek,rt1019p";
-		label = "rt1019p";
-		#sound-dai-cells = <0>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&rt1019p_pins_default>;
-		sdb-gpios = <&pio 100 GPIO_ACTIVE_HIGH>;
 	};
 };
 
