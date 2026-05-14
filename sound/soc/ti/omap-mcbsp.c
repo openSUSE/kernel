@@ -307,7 +307,7 @@ static int omap_mcbsp_request(struct omap_mcbsp *mcbsp)
 		reg_cache = NULL;
 	}
 
-	if(mcbsp->pdata->ops && mcbsp->pdata->ops->request)
+	if (mcbsp->pdata->ops && mcbsp->pdata->ops->request)
 		mcbsp->pdata->ops->request(mcbsp->id - 1);
 
 	/*
@@ -322,42 +322,40 @@ static int omap_mcbsp_request(struct omap_mcbsp *mcbsp)
 				  "McBSP", (void *)mcbsp);
 		if (err != 0) {
 			dev_err(mcbsp->dev, "Unable to request IRQ\n");
-			goto err_clk_disable;
 		}
 	} else {
 		err = request_irq(mcbsp->tx_irq, omap_mcbsp_tx_irq_handler, 0,
 				  "McBSP TX", (void *)mcbsp);
 		if (err != 0) {
 			dev_err(mcbsp->dev, "Unable to request TX IRQ\n");
-			goto err_clk_disable;
+		} else {
+			err = request_irq(mcbsp->rx_irq, omap_mcbsp_rx_irq_handler, 0,
+					  "McBSP RX", (void *)mcbsp);
+			if (err != 0) {
+				dev_err(mcbsp->dev, "Unable to request RX IRQ\n");
+				free_irq(mcbsp->tx_irq, (void *)mcbsp);
+			}
+		}
+	}
+
+	if (err != 0) {
+		if (mcbsp->pdata->ops && mcbsp->pdata->ops->free)
+			mcbsp->pdata->ops->free(mcbsp->id - 1);
+
+		/* Disable wakeup behavior */
+		if (mcbsp->pdata->has_wakeup)
+			MCBSP_WRITE(mcbsp, WAKEUPEN, 0);
+
+		scoped_guard(spinlock, &mcbsp->lock) {
+			reg_cache = mcbsp->reg_cache;
+			mcbsp->free = true;
+			mcbsp->reg_cache = NULL;
 		}
 
-		err = request_irq(mcbsp->rx_irq, omap_mcbsp_rx_irq_handler, 0,
-				  "McBSP RX", (void *)mcbsp);
-		if (err != 0) {
-			dev_err(mcbsp->dev, "Unable to request RX IRQ\n");
-			goto err_free_irq;
-		}
+		return err;
 	}
 
 	return 0;
-err_free_irq:
-	free_irq(mcbsp->tx_irq, (void *)mcbsp);
-err_clk_disable:
-	if(mcbsp->pdata->ops && mcbsp->pdata->ops->free)
-		mcbsp->pdata->ops->free(mcbsp->id - 1);
-
-	/* Disable wakeup behavior */
-	if (mcbsp->pdata->has_wakeup)
-		MCBSP_WRITE(mcbsp, WAKEUPEN, 0);
-
-	scoped_guard(spinlock, &mcbsp->lock) {
-		reg_cache = mcbsp->reg_cache;
-		mcbsp->free = true;
-		mcbsp->reg_cache = NULL;
-	}
-
-	return err;
 }
 
 static void omap_mcbsp_free(struct omap_mcbsp *mcbsp)
