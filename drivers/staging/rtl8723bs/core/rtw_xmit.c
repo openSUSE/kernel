@@ -1848,15 +1848,15 @@ static int rtw_xmit_classifier(struct adapter *padapter, struct xmit_frame *pxmi
 	return 0;
 }
 
-s32 rtw_xmitframe_enqueue(struct adapter *padapter, struct xmit_frame *pxmitframe)
+int rtw_xmitframe_enqueue(struct adapter *padapter, struct xmit_frame *pxmitframe)
 {
 	int res;
 
 	res = rtw_xmit_classifier(padapter, pxmitframe);
 	if (res)
-		return _FAIL;
+		return res;
 
-	return _SUCCESS;
+	return 0;
 }
 
 struct tx_servq *rtw_get_sta_pending(struct adapter *padapter, struct sta_info *psta, signed int up, u8 *ac)
