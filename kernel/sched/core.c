@@ -6653,6 +6653,7 @@ static inline void proxy_set_task_cpu(struct task_struct *p, int cpu)
 static inline struct task_struct *proxy_resched_idle(struct rq *rq)
 {
 	put_prev_set_next_task(rq, rq->donor, rq->idle);
+	rq->next_class = &idle_sched_class;
 	rq_set_donor(rq, rq->idle);
 	set_tsk_need_resched(rq->idle);
 	return rq->idle;
