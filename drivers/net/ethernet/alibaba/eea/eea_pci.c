@@ -16,6 +16,9 @@
 #define EEA_PCI_DB_MAX_SIZE 512
 #define EEA_PCI_Q_MAX_NUM 1000
 
+#define EEA_PCI_CAP_RESET_DEVICE 0xFA
+#define EEA_PCI_CAP_RESET_FLAG BIT(1)
+
 struct eea_pci_cfg {
 	__le32 reserve0;
 	__le32 reserve1;
@@ -58,6 +61,13 @@ struct eea_pci_device {
 	void __iomem *db_base;
 	void __iomem *db_end;
 
+	int ha_irq;
+
+	struct work_struct ha_handle_work;
+	char ha_irq_name[32];
+	int reset_pos;
+	bool ha_ready;
+
 	bool shutdown;
 };
 
@@ -72,6 +82,11 @@ struct eea_pci_device {
 #define cfg_read8(reg, item) ioread8(cfg_pointer(reg, item))
 #define cfg_read32(reg, item) ioread32(cfg_pointer(reg, item))
 #define cfg_read64(reg, item) ioread64(cfg_pointer(reg, item))
+
+/* Due to circular references, we have to add function definitions here. */
+static int __eea_pci_probe(struct pci_dev *pci_dev,
+			   struct eea_pci_device *ep_dev, bool pci_probe);
+static void __eea_pci_remove(struct pci_dev *pci_dev, bool pci_remove);
 
 const char *eea_pci_name(struct eea_device *edev)
 {
@@ -199,6 +214,12 @@ static int eea_negotiate(struct eea_device *edev)
 static void eea_pci_release_resource(struct eea_pci_device *ep_dev)
 {
 	struct pci_dev *pci_dev = ep_dev->pci_dev;
+	struct eea_device *edev;
+
+	edev = &ep_dev->edev;
+
+	if (edev->status < EEA_PCI_STATUS_READY)
+		return;
 
 	if (ep_dev->reg) {
 		pci_iounmap(pci_dev, ep_dev->reg);
@@ -213,11 +234,15 @@ static void eea_pci_release_resource(struct eea_pci_device *ep_dev)
 	pci_clear_master(pci_dev);
 	pci_release_regions(pci_dev);
 	pci_disable_device(pci_dev);
+
+	edev->status = EEA_PCI_STATUS_NONE;
 }
 
 static int eea_pci_setup(struct pci_dev *pci_dev, struct eea_pci_device *ep_dev)
 {
 	int err, n, ret, len;
+
+	ep_dev->edev.status = EEA_PCI_STATUS_ERR;
 
 	ep_dev->pci_dev = pci_dev;
 
@@ -307,6 +332,8 @@ static int eea_pci_setup(struct pci_dev *pci_dev, struct eea_pci_device *ep_dev)
 
 	ep_dev->msix_vec_n = ret;
 
+	ep_dev->edev.status = EEA_PCI_STATUS_READY;
+
 	return 0;
 
 err_clear_master:
@@ -359,6 +386,178 @@ int eea_pci_active_aq(struct eea_ring *ering, int msix_vec)
 	return 0;
 }
 
+void eea_pci_free_irq(struct eea_irq_blk *blk)
+{
+	irq_update_affinity_hint(blk->irq, NULL);
+	free_irq(blk->irq, blk);
+}
+
+int eea_pci_request_irq(struct eea_device *edev, struct eea_irq_blk *blk,
+			irqreturn_t (*callback)(int irq, void *data))
+{
+	struct eea_pci_device *ep_dev = edev->ep_dev;
+	int irq;
+
+	snprintf(blk->irq_name, sizeof(blk->irq_name), "eea-q%d@%s", blk->idx,
+		 pci_name(ep_dev->pci_dev));
+
+	irq = pci_irq_vector(ep_dev->pci_dev, blk->msix_vec);
+
+	blk->irq = irq;
+
+	return request_irq(irq, callback, IRQF_NO_AUTOEN, blk->irq_name, blk);
+}
+
+static void eea_ha_handle_reset(struct eea_pci_device *ep_dev)
+{
+	struct eea_device *edev;
+	struct pci_dev *pci_dev;
+	u16 reset;
+	int err;
+
+	if (!ep_dev->reset_pos) {
+		eea_queues_check_and_reset(&ep_dev->edev);
+		return;
+	}
+
+	edev = &ep_dev->edev;
+
+	pci_read_config_word(ep_dev->pci_dev, ep_dev->reset_pos, &reset);
+
+	/* Clear bits using 0xFFFF and ignore all previous messages. */
+	pci_write_config_word(ep_dev->pci_dev, ep_dev->reset_pos, 0xFFFF);
+
+	if (reset & EEA_PCI_CAP_RESET_FLAG) {
+		dev_warn(&ep_dev->pci_dev->dev, "recv device reset request.\n");
+
+		pci_dev = ep_dev->pci_dev;
+
+		/* The pci remove callback may hold this lock. If the
+		 * pci remove callback is called, then we can ignore the
+		 * ha interrupt.
+		 */
+		if (mutex_trylock(&edev->ha_lock)) {
+			if (edev->status != EEA_PCI_STATUS_DONE) {
+				dev_err(&ep_dev->pci_dev->dev, "ha: reset device: pci status is %d. skip it.\n",
+					edev->status);
+
+				mutex_unlock(&edev->ha_lock);
+				return;
+			}
+
+			__eea_pci_remove(pci_dev, false);
+			err = __eea_pci_probe(pci_dev, ep_dev, false);
+			if (err)
+				/* Currently, for some reason, PCI
+				 * initialization or network device re-probing
+				 * has failed. Waiting for the PCI subsystem to
+				 * call the remove callback to release the
+				 * remaining resources.
+				 */
+				dev_err(&ep_dev->pci_dev->dev,
+					"ha: re-setup failed.\n");
+
+			mutex_unlock(&edev->ha_lock);
+		} else {
+			/* Device removal is in progress, so return directly. */
+			dev_warn(&ep_dev->pci_dev->dev,
+				 "ha device reset: trylock failed.\n");
+		}
+		return;
+	}
+
+	eea_queues_check_and_reset(&ep_dev->edev);
+}
+
+/* ha handle code */
+static void eea_ha_handle_work(struct work_struct *work)
+{
+	struct eea_pci_device *ep_dev;
+
+	ep_dev = container_of(work, struct eea_pci_device, ha_handle_work);
+
+	/* Ha interrupt is triggered, so there maybe some error, we may need to
+	 * reset the device or reset some queues.
+	 */
+	dev_warn(&ep_dev->pci_dev->dev, "recv ha interrupt.\n");
+
+	eea_ha_handle_reset(ep_dev);
+}
+
+static irqreturn_t eea_pci_ha_handle(int irq, void *data)
+{
+	struct eea_device *edev = data;
+
+	schedule_work(&edev->ep_dev->ha_handle_work);
+
+	return IRQ_HANDLED;
+}
+
+static void eea_pci_free_ha_irq(struct eea_device *edev)
+{
+	struct eea_pci_device *ep_dev = edev->ep_dev;
+	int irq;
+
+	if (ep_dev->ha_ready) {
+		irq = pci_irq_vector(ep_dev->pci_dev, 0);
+		free_irq(irq, edev);
+		ep_dev->ha_ready = false;
+	}
+}
+
+static int eea_pci_ha_init(struct eea_device *edev, struct pci_dev *pci_dev,
+			   bool pci_probe)
+{
+	int pos, cfg_type_off, cfg_drv_off, cfg_dev_off;
+	struct eea_pci_device *ep_dev = edev->ep_dev;
+	int irq, err;
+	u8 type;
+
+	snprintf(ep_dev->ha_irq_name, sizeof(ep_dev->ha_irq_name), "eea-ha@%s",
+		 pci_name(ep_dev->pci_dev));
+
+	irq = pci_irq_vector(ep_dev->pci_dev, 0);
+
+	if (pci_probe)
+		INIT_WORK(&ep_dev->ha_handle_work, eea_ha_handle_work);
+
+	/* This irq is not only work for ha, so request it always. */
+	err = request_irq(irq, eea_pci_ha_handle, IRQF_NO_AUTOEN,
+			  ep_dev->ha_irq_name, edev);
+	if (err)
+		return err;
+
+	ep_dev->ha_irq = irq;
+
+	ep_dev->ha_ready = true;
+	ep_dev->reset_pos = 0;
+
+	cfg_type_off = offsetof(struct eea_pci_cap, cfg_type);
+	cfg_drv_off = offsetof(struct eea_pci_reset_reg, driver);
+	cfg_dev_off = offsetof(struct eea_pci_reset_reg, device);
+
+	for (pos = pci_find_capability(pci_dev, PCI_CAP_ID_VNDR);
+	     pos > 0;
+	     pos = pci_find_next_capability(pci_dev, pos, PCI_CAP_ID_VNDR)) {
+		pci_read_config_byte(pci_dev, pos + cfg_type_off, &type);
+
+		if (type == EEA_PCI_CAP_RESET_DEVICE) {
+			/* notify device, driver support this feature. */
+			pci_write_config_word(pci_dev, pos + cfg_drv_off,
+					      EEA_PCI_CAP_RESET_FLAG);
+			pci_write_config_word(pci_dev, pos + cfg_dev_off,
+					      0xFFFF);
+
+			edev->ep_dev->reset_pos = pos + cfg_dev_off;
+			return 0;
+		}
+	}
+
+	/* irq just for event notify */
+	dev_warn(&edev->ep_dev->pci_dev->dev, "Not Found reset cap.\n");
+	return 0;
+}
+
 u64 eea_pci_device_ts(struct eea_device *edev)
 {
 	struct eea_pci_device *ep_dev = edev->ep_dev;
@@ -391,11 +590,15 @@ err:
 }
 
 static int __eea_pci_probe(struct pci_dev *pci_dev,
-			   struct eea_pci_device *ep_dev)
+			   struct eea_pci_device *ep_dev,
+			   bool pci_probe)
 {
+	struct eea_device *edev;
 	int err;
 
 	pci_set_drvdata(pci_dev, ep_dev);
+
+	edev = &ep_dev->edev;
 
 	err = eea_pci_setup(pci_dev, ep_dev);
 	if (err)
@@ -405,20 +608,36 @@ static int __eea_pci_probe(struct pci_dev *pci_dev,
 	if (err)
 		goto err_pci_rel;
 
+	err = eea_pci_ha_init(edev, pci_dev, pci_probe);
+	if (err)
+		goto err_net_rm;
+
+	edev->status = EEA_PCI_STATUS_DONE;
+
+	enable_irq(ep_dev->ha_irq);
+
 	return 0;
+
+err_net_rm:
+	eea_net_remove(edev, !pci_probe);
 
 err_pci_rel:
 	eea_pci_release_resource(ep_dev);
 	return err;
 }
 
-static void __eea_pci_remove(struct pci_dev *pci_dev)
+static void __eea_pci_remove(struct pci_dev *pci_dev, bool pci_remove)
 {
 	struct eea_pci_device *ep_dev = pci_get_drvdata(pci_dev);
 	struct device *dev = get_device(&ep_dev->pci_dev->dev);
 	struct eea_device *edev = &ep_dev->edev;
 
-	eea_net_remove(edev);
+	eea_pci_free_ha_irq(edev);
+
+	if (pci_remove)
+		flush_work(&ep_dev->ha_handle_work);
+
+	eea_net_remove(edev, !pci_remove);
 
 	eea_pci_release_resource(ep_dev);
 
@@ -443,8 +662,11 @@ static int eea_pci_probe(struct pci_dev *pci_dev,
 
 	ep_dev->pci_dev = pci_dev;
 
-	err = __eea_pci_probe(pci_dev, ep_dev);
+	mutex_init(&edev->ha_lock);
+
+	err = __eea_pci_probe(pci_dev, ep_dev, true);
 	if (err) {
+		mutex_destroy(&edev->ha_lock);
 		pci_set_drvdata(pci_dev, NULL);
 		kfree(ep_dev);
 	}
@@ -455,10 +677,17 @@ static int eea_pci_probe(struct pci_dev *pci_dev,
 static void eea_pci_remove(struct pci_dev *pci_dev)
 {
 	struct eea_pci_device *ep_dev = pci_get_drvdata(pci_dev);
+	struct eea_device *edev;
 
-	__eea_pci_remove(pci_dev);
+	edev = &ep_dev->edev;
+
+	mutex_lock(&edev->ha_lock);
+	__eea_pci_remove(pci_dev, true);
+	mutex_unlock(&edev->ha_lock);
 
 	pci_set_drvdata(pci_dev, NULL);
+
+	mutex_destroy(&edev->ha_lock);
 	kfree(ep_dev);
 }
 
@@ -470,6 +699,11 @@ static void eea_pci_shutdown(struct pci_dev *pci_dev)
 	edev = &ep_dev->edev;
 
 	ep_dev->shutdown = true;
+
+	mutex_lock(&edev->ha_lock);
+	eea_pci_free_ha_irq(edev);
+	flush_work(&ep_dev->ha_handle_work);
+	mutex_unlock(&edev->ha_lock);
 
 	eea_net_shutdown(edev);
 

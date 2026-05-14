@@ -10,7 +10,17 @@
 
 #include <linux/pci.h>
 
+#include "eea_net.h"
 #include "eea_ring.h"
+
+enum eea_pci_status {
+	EEA_PCI_STATUS_NONE,
+	EEA_PCI_STATUS_ERR,
+	EEA_PCI_STATUS_READY,
+	EEA_PCI_STATUS_DONE,
+};
+
+struct eea_irq_blk;
 
 struct eea_pci_cap {
 	__u8 cap_vndr;
@@ -34,6 +44,12 @@ struct eea_device {
 
 	u64 features;
 
+	enum eea_pci_status status;
+	bool ha_reset_netdev_running;
+
+	/* ha lock for the race between ha work and pci remove */
+	struct mutex ha_lock;
+
 	u32 rx_num;
 	u32 tx_num;
 	u32 db_blk_size;
@@ -46,6 +62,10 @@ u16 eea_pci_bdf(struct eea_device *edev);
 int eea_device_reset(struct eea_device *dev);
 int eea_pci_set_aq_up(struct eea_device *dev);
 int eea_pci_active_aq(struct eea_ring *ering, int msix_vec);
+
+int eea_pci_request_irq(struct eea_device *edev, struct eea_irq_blk *blk,
+			irqreturn_t (*callback)(int irq, void *data));
+void eea_pci_free_irq(struct eea_irq_blk *blk);
 
 u64 eea_pci_device_ts(struct eea_device *edev);
 
