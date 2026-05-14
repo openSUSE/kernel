@@ -235,8 +235,6 @@ static void halbtc8723b1ant_LimitedRx(
 	pBtCoexist->fBtcSet(pBtCoexist, BTC_SET_U1_AGG_BUF_SIZE, &rxAggSize);
 	/*  real update aggregation setting */
 	pBtCoexist->fBtcSet(pBtCoexist, BTC_SET_ACT_AGGREGATE_CTRL, NULL);
-
-
 }
 
 static void halbtc8723b1ant_QueryBtInfo(struct btc_coexist *pBtCoexist)
@@ -298,7 +296,6 @@ static void halbtc8723b1ant_MonitorBtCtr(struct btc_coexist *pBtCoexist)
 	}
 }
 
-
 static void halbtc8723b1ant_MonitorWiFiCtr(struct btc_coexist *pBtCoexist)
 {
 	s32	wifiRssi = 0;
@@ -332,7 +329,6 @@ static void halbtc8723b1ant_MonitorWiFiCtr(struct btc_coexist *pBtCoexist)
 		pCoexSta->nCRCErr_11n	 = pBtCoexist->fBtcRead2Byte(pBtCoexist, 0xf92);
 		pCoexSta->nCRCErr_11nAgg = pBtCoexist->fBtcRead2Byte(pBtCoexist, 0xfba);
 	}
-
 
 	/* reset counter */
 	pBtCoexist->fBtcWrite1ByteBitMask(pBtCoexist, 0xf16, 0x1, 0x1);
@@ -381,8 +377,6 @@ static void halbtc8723b1ant_MonitorWiFiCtr(struct btc_coexist *pBtCoexist)
 	}
 
 	pCoexSta->bPreCCKLock =  pCoexSta->bCCKLock;
-
-
 }
 
 static bool halbtc8723b1ant_IsWifiStatusChanged(struct btc_coexist *pBtCoexist)
@@ -880,7 +874,6 @@ static void halbtc8723b1ant_SetAntPath(
 			}
 		}
 
-
 		/*  ext switch setting */
 		switch (antPosType) {
 		case BTC_ANT_PATH_WIFI:
@@ -929,7 +922,6 @@ static void halbtc8723b1ant_SetAntPath(
 				pBtCoexist->fBtcFillH2c(pBtCoexist, 0x65, 2, H2C_Parameter);
 			}
 		}
-
 
 		/*  internal switch setting */
 		switch (antPosType) {
@@ -991,7 +983,6 @@ static void halbtc8723b1ant_SetFwPstdma(
 	pBtCoexist->fBtcFillH2c(pBtCoexist, 0x60, 5, H2C_Parameter);
 }
 
-
 static void halbtc8723b1ant_PsTdma(
 	struct btc_coexist *pBtCoexist, bool bForceExec, bool bTurnOn, u8 type
 )
@@ -1029,11 +1020,9 @@ static void halbtc8723b1ant_PsTdma(
 		psTdmaByte4Val = 0x10; /*  0x778 = d/1 toggle */
 	}
 
-
 	if (bTurnOn) {
 		if (pBtLinkInfo->bSlaveRole)
 			psTdmaByte4Val = psTdmaByte4Val | 0x1;  /* 0x778 = 0x1 at wifi slot (no blocking BT Low-Pri pkts) */
-
 
 		switch (type) {
 		default:
@@ -1319,7 +1308,6 @@ static bool halbtc8723b1ant_IsCommonAction(struct btc_coexist *pBtCoexist)
 
 	return bCommon;
 }
-
 
 static void halbtc8723b1ant_TdmaDurationAdjustForAcl(
 	struct btc_coexist *pBtCoexist, u8 wifiStatus
@@ -2040,7 +2028,6 @@ static void halbtc8723b1ant_RunCoexistMechanism(struct btc_coexist *pBtCoexist)
 		halbtc8723b1ant_ActionHs(pBtCoexist);
 		return;
 	}
-
 
 	if (!bWifiConnected) {
 		bool bScan = false, bLink = false, bRoam = false;

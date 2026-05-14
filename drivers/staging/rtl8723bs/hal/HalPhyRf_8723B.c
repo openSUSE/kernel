@@ -39,7 +39,6 @@ static u8 DeltaSwingTableIdx_2GA_P_8188E[] = {
 /* 3 Tx Power Tracking */
 /* 3 ============================================================ */
 
-
 static void setIqkMatrix_8723B(
 	struct dm_odm_t *pDM_Odm,
 	u8 OFDM_index,
@@ -117,7 +116,6 @@ static void setIqkMatrix_8723B(
 		}
 	}
 }
-
 
 static void setCCKFilterCoefficient(struct dm_odm_t *pDM_Odm, u8 CCKSwingIndex)
 {
@@ -322,7 +320,6 @@ static void GetDeltaSwingTable_8723B(
 	}
 }
 
-
 void ConfigureTxpowerTrack_8723B(struct txpwrtrack_cfg *pConfig)
 {
 	pConfig->SwingTableSize_CCK = CCK_TABLE_SIZE;
@@ -414,12 +411,10 @@ static u8 phy_PathA_IQK_8723B(
 	/* leave IQK mode */
 	PHY_SetBBReg(pDM_Odm->Adapter, rFPGA0_IQK, bMaskH3Bytes, 0x000000);
 
-
 	/*  Check failed */
 	regEAC = PHY_QueryBBReg(pDM_Odm->Adapter, rRx_Power_After_IQK_A_2, bMaskDWord);
 	regE94 = PHY_QueryBBReg(pDM_Odm->Adapter, rTx_Power_Before_IQK_A, bMaskDWord);
 	regE9C = PHY_QueryBBReg(pDM_Odm->Adapter, rTx_Power_After_IQK_A, bMaskDWord);
-
 
 	/* Allen 20131125 */
 	tmp = (regE9C & 0x03FF0000)>>16;
@@ -553,7 +548,6 @@ static u8 phy_PathA_RxIQK8723B(
 	PHY_SetRFReg(pDM_Odm->Adapter, RF_PATH_A, 0xdf, bRFRegOffsetMask, 0xf80);
 	PHY_SetRFReg(pDM_Odm->Adapter, RF_PATH_A, 0x55, bRFRegOffsetMask, 0x4021f);
 
-
 	/* IQK setting */
 	PHY_SetBBReg(pDM_Odm->Adapter, rRx_IQK, bMaskDWord, 0x01004800);
 
@@ -652,8 +646,6 @@ static u8 phy_PathB_IQK_8723B(struct adapter *padapter)
 	PHY_SetRFReg(pDM_Odm->Adapter, RF_PATH_A, 0xed, 0x20, 0x1);
 	PHY_SetRFReg(pDM_Odm->Adapter, RF_PATH_A, 0x43, bRFRegOffsetMask, 0x30fc1);
 
-
-
 	/* 1 Tx IQK */
 	/* IQK setting */
 	PHY_SetBBReg(pDM_Odm->Adapter, rTx_IQK, bMaskDWord, 0x01007c00);
@@ -746,11 +738,9 @@ static u8 phy_PathB_RxIQK8723B(struct adapter *padapter, bool configPathB)
 	PHY_SetRFReg(pDM_Odm->Adapter, RF_PATH_A, 0xed, 0x20, 0x1);
 	PHY_SetRFReg(pDM_Odm->Adapter, RF_PATH_A, 0x43, bRFRegOffsetMask, 0x30fcd);
 
-
 	/* IQK setting */
 	PHY_SetBBReg(pDM_Odm->Adapter, rTx_IQK, bMaskDWord, 0x01007c00);
 	PHY_SetBBReg(pDM_Odm->Adapter, rRx_IQK, bMaskDWord, 0x01004800);
-
 
 	/* path-B IQK setting */
 	PHY_SetBBReg(pDM_Odm->Adapter, rTx_IQK_Tone_A, bMaskDWord, 0x18008c1c);
@@ -780,7 +770,6 @@ static u8 phy_PathB_RxIQK8723B(struct adapter *padapter, bool configPathB)
 	/* One shot, path B TXIQK @ RXIQK */
 	PHY_SetBBReg(pDM_Odm->Adapter, rIQK_AGC_Pts, bMaskDWord, 0xf9000000);
 	PHY_SetBBReg(pDM_Odm->Adapter, rIQK_AGC_Pts, bMaskDWord, 0xf8000000);
-
 
 	/*  delay x ms */
 	/* PlatformStallExecution(IQK_DELAY_TIME_88E*1000); */
@@ -888,8 +877,6 @@ static u8 phy_PathB_RxIQK8723B(struct adapter *padapter, bool configPathB)
 	/* leave IQK mode */
 /* 	PHY_SetBBReg(pDM_Odm->Adapter, rFPGA0_IQK, 0xffffff00, 0x00000000); */
 /* 	PHY_SetRFReg(pDM_Odm->Adapter, RF_PATH_B, 0xdf, bRFRegOffsetMask, 0x180); */
-
-
 
 	/* Allen 20131125 */
 	tmp = (regEAC & 0x03FF0000)>>16;
@@ -1114,7 +1101,6 @@ static void _PHY_SaveADDARegisters8723B(
 	}
 }
 
-
 static void _PHY_SaveMACRegisters8723B(
 	struct adapter *padapter, u32 *MACReg, u32 *MACBackup
 )
@@ -1129,7 +1115,6 @@ static void _PHY_SaveMACRegisters8723B(
 	MACBackup[i] = rtw_read32(pDM_Odm->Adapter, MACReg[i]);
 
 }
-
 
 static void _PHY_ReloadADDARegisters8723B(
 	struct adapter *padapter,
@@ -1158,7 +1143,6 @@ static void _PHY_ReloadMACRegisters8723B(
 	}
 	rtw_write32(padapter, MACReg[i], MACBackup[i]);
 }
-
 
 static void _PHY_PathADDAOn8723B(
 	struct adapter *padapter,
@@ -1283,8 +1267,6 @@ static bool phy_SimularityCompare_8723B(
 	}
 }
 
-
-
 static void phy_IQCalibrate_8723B(
 	struct adapter *padapter,
 	s32 result[][8],
@@ -1370,12 +1352,10 @@ static void phy_IQCalibrate_8723B(
 	PHY_SetBBReg(pDM_Odm->Adapter, rOFDM0_TRMuxPar, bMaskDWord, 0x000800e4);
 	PHY_SetBBReg(pDM_Odm->Adapter, rFPGA0_XCD_RFInterfaceSW, bMaskDWord, 0x22204000);
 
-
 /* 	PHY_SetBBReg(pDM_Odm->Adapter, rFPGA0_XAB_RFInterfaceSW, BIT10, 0x01); */
 /* 	PHY_SetBBReg(pDM_Odm->Adapter, rFPGA0_XAB_RFInterfaceSW, BIT26, 0x01); */
 /* 	PHY_SetBBReg(pDM_Odm->Adapter, rFPGA0_XA_RFInterfaceOE, BIT10, 0x00); */
 /* 	PHY_SetBBReg(pDM_Odm->Adapter, rFPGA0_XB_RFInterfaceOE, BIT10, 0x00); */
-
 
 /* RX IQ calibration setting for 8723B D cut large current issue when leaving IPS */
 
@@ -1480,7 +1460,6 @@ static void phy_IQCalibrate_8723B(
 	}
 
 }
-
 
 static void phy_LCCalibrate_8723B(struct dm_odm_t *pDM_Odm, bool is2T)
 {
@@ -1590,7 +1569,6 @@ void PHY_IQCalibrate_8723B(
 	if (pDM_Odm->RFCalibrateInfo.bIQKInProgress)
 		return;
 
-
 	pDM_Odm->RFCalibrateInfo.bIQKInProgress = true;
 
 	if (bRestore) {
@@ -1648,7 +1626,6 @@ void PHY_IQCalibrate_8723B(
 /* 	PHY_SetBBReg(pDM_Odm->Adapter, 0x764, BIT12, 0x0); */
 /* 	PHY_SetBBReg(pDM_Odm->Adapter, 0x764, BIT11, 0x1); */
 
-
 	for (i = 0; i < 8; i++) {
 		result[0][i] = 0;
 		result[1][i] = 0;
@@ -1662,7 +1639,6 @@ void PHY_IQCalibrate_8723B(
 	is12simular = false;
 	is23simular = false;
 	is13simular = false;
-
 
 	for (i = 0; i < 3; i++) {
 		phy_IQCalibrate_8723B(padapter, result, i, Is2ant, RF_Path);
@@ -1766,7 +1742,6 @@ void PHY_IQCalibrate_8723B(
 	pDM_Odm->RFCalibrateInfo.bIQKInProgress = false;
 }
 
-
 void PHY_LCCalibrate_8723B(struct dm_odm_t *pDM_Odm)
 {
 	bool		bSingleTone = false, bCarrierSuppression = false;
@@ -1786,9 +1761,7 @@ void PHY_LCCalibrate_8723B(struct dm_odm_t *pDM_Odm)
 
 	pDM_Odm->RFCalibrateInfo.bLCKInProgress = true;
 
-
 	phy_LCCalibrate_8723B(pDM_Odm, false);
-
 
 	pDM_Odm->RFCalibrateInfo.bLCKInProgress = false;
 }

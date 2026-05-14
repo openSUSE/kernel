@@ -552,7 +552,6 @@ static void halbtc8723b2ant_SetSwFullTimeDacSwing(
 		halbtc8723b2ant_SetDacSwingReg(pBtCoexist, 0x18);
 }
 
-
 static void halbtc8723b2ant_DacSwing(
 	struct btc_coexist *pBtCoexist,
 	bool bForceExec,
@@ -599,7 +598,6 @@ static void halbtc8723b2ant_SetAgcTable(
 		pBtCoexist->fBtcWrite4Byte(pBtCoexist, 0xc78, 0xa51F0001);
 		pBtCoexist->fBtcWrite4Byte(pBtCoexist, 0xc78, 0xa4200001);
 	}
-
 
 	/* RF Gain */
 	pBtCoexist->fBtcSetRfReg(pBtCoexist, BTC_RF_A, 0xef, 0xfffff, 0x02000);
@@ -1637,7 +1635,6 @@ static void halbtc8723b2ant_ActionSco(struct btc_coexist *pBtCoexist)
 	}
 }
 
-
 static void halbtc8723b2ant_ActionHid(struct btc_coexist *pBtCoexist)
 {
 	u8 wifiRssiState, btRssiState;
@@ -1884,7 +1881,6 @@ static void halbtc8723b2ant_ActionPanEdr(struct btc_coexist *pBtCoexist)
 		}
 	}
 }
-
 
 /* PAN(HS) only */
 static void halbtc8723b2ant_ActionPanHs(struct btc_coexist *pBtCoexist)
@@ -2228,7 +2224,6 @@ static void halbtc8723b2ant_RunCoexistMechanism(struct btc_coexist *pBtCoexist)
 		if (pCoexDm->curAlgorithm != pCoexDm->preAlgorithm) {
 			pCoexDm->bAutoTdmaAdjust = false;
 		}
-
 
 		switch (pCoexDm->curAlgorithm) {
 		case BT_8723B_2ANT_COEX_ALGO_SCO:

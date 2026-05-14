@@ -310,7 +310,6 @@ void ODM_ReadAndConfig_MP_8723B_TxPowerTrack_SDIO(struct dm_odm_t *pDM_Odm)
 {
 	struct odm_rf_cal_t *pRFCalibrateInfo = &pDM_Odm->RFCalibrateInfo;
 
-
 	memcpy(
 		pRFCalibrateInfo->DeltaSwingTableIdx_2GA_P,
 		gDeltaSwingTableIdx_MP_2GA_P_TxPowerTrack_SDIO_8723B,
