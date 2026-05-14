@@ -72,6 +72,7 @@ static struct wake_capable_part wake_capable_list[] = {
 	{0x025d, 0x717},
 	{0x025d, 0x721},
 	{0x025d, 0x722},
+	{0x04b3, 0x9356},
 };
 
 static bool is_wake_capable(struct sdw_slave *slave)
