@@ -52,6 +52,7 @@ TEST_PROGS = \
 	#
 
 TEST_FILES := \
+	devmem_lib.py \
 	ethtool_lib.sh \
 	#
 
