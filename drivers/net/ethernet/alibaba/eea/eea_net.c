@@ -642,6 +642,15 @@ static struct eea_net *eea_netdev_alloc(struct eea_device *edev, u32 pairs)
 	return enet;
 }
 
+static void eea_update_ts_off(struct eea_device *edev, struct eea_net *enet)
+{
+	u64 ts;
+
+	ts = eea_pci_device_ts(edev);
+
+	enet->hw_ts_offset = ktime_get_real() - ts;
+}
+
 static int eea_net_reprobe(struct eea_device *edev)
 {
 	struct eea_net *enet = edev->enet;
@@ -658,6 +667,8 @@ static int eea_net_reprobe(struct eea_device *edev)
 	err = eea_alloc_irq_blks(enet);
 	if (err)
 		goto err_destroy_aq;
+
+	eea_update_ts_off(edev, enet);
 
 	rtnl_lock();
 
@@ -710,6 +721,8 @@ int eea_net_probe(struct eea_device *edev)
 	err = eea_netdev_init_features(enet->netdev, enet, edev);
 	if (err)
 		goto err_reset_dev;
+
+	eea_update_ts_off(edev, enet);
 
 	netdev_dbg(enet->netdev, "eea probe success.\n");
 

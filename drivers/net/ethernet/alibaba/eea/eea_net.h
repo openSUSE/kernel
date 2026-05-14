@@ -41,6 +41,7 @@ struct eea_rx_meta {
 	struct page *page;
 	dma_addr_t dma;
 	u32 offset;
+	u32 sync_for_cpu;
 	u32 frags;
 
 	struct page *hdr_page;
@@ -54,6 +55,8 @@ struct eea_rx_meta {
 	u32 tailroom;
 
 	u32 len;
+
+	bool in_use;
 };
 
 struct eea_net_rx_pkt_ctx {
@@ -62,6 +65,7 @@ struct eea_net_rx_pkt_ctx {
 	bool data_valid;
 	bool do_drop;
 
+	u32 recv_len;
 	struct sk_buff *head_skb;
 };
 
@@ -154,6 +158,8 @@ struct eea_net {
 
 	u8 duplex;
 	u32 speed;
+
+	u64 hw_ts_offset;
 };
 
 int eea_net_probe(struct eea_device *edev);
@@ -165,6 +171,7 @@ void eea_init_ctx(struct eea_net *enet, struct eea_net_init_ctx *ctx);
 int eea_queues_check_and_reset(struct eea_device *edev);
 
 /* rx apis */
+
 void enet_rx_stop(struct eea_net_rx *rx);
 void enet_rx_start(struct eea_net_rx *rx);
 
