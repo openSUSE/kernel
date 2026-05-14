@@ -3322,8 +3322,10 @@ int btrfs_sync_log(struct btrfs_trans_handle *trans,
 	u64 log_root_level;
 
 	mutex_lock(&root->log_mutex);
+	trace_btrfs_sync_log_enter(trans, root, ctx);
 	log_transid = ctx->log_transid;
 	if (root->log_transid_committed >= log_transid) {
+		trace_btrfs_sync_log_exit(trans, root, ctx, ctx->log_ret);
 		mutex_unlock(&root->log_mutex);
 		return ctx->log_ret;
 	}
@@ -3331,6 +3333,7 @@ int btrfs_sync_log(struct btrfs_trans_handle *trans,
 	index1 = log_transid % 2;
 	if (atomic_read(&root->log_commit[index1])) {
 		wait_log_commit(root, log_transid);
+		trace_btrfs_sync_log_exit(trans, root, ctx, ctx->log_ret);
 		mutex_unlock(&root->log_mutex);
 		return ctx->log_ret;
 	}
@@ -3359,6 +3362,7 @@ int btrfs_sync_log(struct btrfs_trans_handle *trans,
 	/* bail out if we need to do a full commit */
 	if (btrfs_need_log_full_commit(trans)) {
 		ret = BTRFS_LOG_FORCE_COMMIT;
+		trace_btrfs_sync_log_exit(trans, root, ctx, ret);
 		mutex_unlock(&root->log_mutex);
 		goto out;
 	}
@@ -3385,6 +3389,7 @@ int btrfs_sync_log(struct btrfs_trans_handle *trans,
 	if (ret == -EAGAIN && btrfs_is_zoned(fs_info))
 		ret = 0;
 	if (ret) {
+		trace_btrfs_sync_log_exit(trans, root, ctx, ret);
 		blk_finish_plug(&plug);
 		btrfs_set_log_full_commit(trans);
 		mutex_unlock(&root->log_mutex);
@@ -3422,6 +3427,7 @@ int btrfs_sync_log(struct btrfs_trans_handle *trans,
 		if (!log_root_tree->node) {
 			ret = btrfs_alloc_log_tree_node(trans, log_root_tree);
 			if (ret) {
+				trace_btrfs_sync_log_exit(trans, root, ctx, ret);
 				mutex_unlock(&fs_info->tree_root->log_mutex);
 				blk_finish_plug(&plug);
 				goto out;
@@ -3445,6 +3451,7 @@ int btrfs_sync_log(struct btrfs_trans_handle *trans,
 	 */
 	ret = update_log_root(trans, log, &new_root_item);
 	if (ret) {
+		trace_btrfs_sync_log_exit(trans, root, ctx, ret);
 		list_del_init(&root_log_ctx.list);
 		blk_finish_plug(&plug);
 		btrfs_set_log_full_commit(trans);
@@ -3462,6 +3469,7 @@ int btrfs_sync_log(struct btrfs_trans_handle *trans,
 		list_del_init(&root_log_ctx.list);
 		mutex_unlock(&log_root_tree->log_mutex);
 		ret = root_log_ctx.log_ret;
+		trace_btrfs_sync_log_exit(trans, root, ctx, ret);
 		goto out;
 	}
 
@@ -3473,6 +3481,7 @@ int btrfs_sync_log(struct btrfs_trans_handle *trans,
 		mutex_unlock(&log_root_tree->log_mutex);
 		if (!ret)
 			ret = root_log_ctx.log_ret;
+		trace_btrfs_sync_log_exit(trans, root, ctx, ret);
 		goto out;
 	}
 	ASSERT(root_log_ctx.log_transid == log_root_tree->log_transid,
@@ -3494,6 +3503,7 @@ int btrfs_sync_log(struct btrfs_trans_handle *trans,
 		btrfs_wait_tree_log_extents(log, mark);
 		mutex_unlock(&log_root_tree->log_mutex);
 		ret = BTRFS_LOG_FORCE_COMMIT;
+		trace_btrfs_sync_log_exit(trans, root, ctx, ret);
 		goto out_wake_log_root;
 	}
 
@@ -3507,11 +3517,13 @@ int btrfs_sync_log(struct btrfs_trans_handle *trans,
 	 * deadlock. Bail out to the full commit instead.
 	 */
 	if (ret == -EAGAIN && btrfs_is_zoned(fs_info)) {
+		trace_btrfs_sync_log_exit(trans, root, ctx, ret);
 		btrfs_set_log_full_commit(trans);
 		btrfs_wait_tree_log_extents(log, mark);
 		mutex_unlock(&log_root_tree->log_mutex);
 		goto out_wake_log_root;
 	} else if (ret) {
+		trace_btrfs_sync_log_exit(trans, root, ctx, ret);
 		btrfs_set_log_full_commit(trans);
 		mutex_unlock(&log_root_tree->log_mutex);
 		goto out_wake_log_root;
@@ -3521,6 +3533,7 @@ int btrfs_sync_log(struct btrfs_trans_handle *trans,
 		ret = btrfs_wait_tree_log_extents(log_root_tree,
 						  EXTENT_DIRTY_LOG1 | EXTENT_DIRTY_LOG2);
 	if (ret) {
+		trace_btrfs_sync_log_exit(trans, root, ctx, ret);
 		btrfs_set_log_full_commit(trans);
 		mutex_unlock(&log_root_tree->log_mutex);
 		goto out_wake_log_root;
@@ -3557,6 +3570,7 @@ int btrfs_sync_log(struct btrfs_trans_handle *trans,
 	 */
 	if (unlikely(BTRFS_FS_ERROR(fs_info))) {
 		ret = -EIO;
+		trace_btrfs_sync_log_exit(trans, root, ctx, ret);
 		btrfs_set_log_full_commit(trans);
 		btrfs_abort_transaction(trans, ret);
 		mutex_unlock(&fs_info->tree_log_mutex);
@@ -3568,6 +3582,7 @@ int btrfs_sync_log(struct btrfs_trans_handle *trans,
 	ret = write_all_supers(trans);
 	mutex_unlock(&fs_info->tree_log_mutex);
 	if (unlikely(ret)) {
+		trace_btrfs_sync_log_exit(trans, root, ctx, ret);
 		btrfs_set_log_full_commit(trans);
 		btrfs_abort_transaction(trans, ret);
 		goto out_wake_log_root;

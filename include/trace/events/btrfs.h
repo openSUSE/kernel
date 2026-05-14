@@ -1547,6 +1547,91 @@ TRACE_EVENT(btrfs_log_new_name_exit,
 			__entry->ino, __entry->old_dir_ino, __entry->ret)
 );
 
+/* Ideally call this while under root->log_mutex (but not always possible). */
+TRACE_EVENT(btrfs_sync_log_enter,
+
+	TP_PROTO(const struct btrfs_trans_handle *trans,
+		 const struct btrfs_root *root,
+		 const struct btrfs_log_ctx *ctx),
+
+	TP_ARGS(trans, root, ctx),
+
+	TP_STRUCT__entry_btrfs(
+		__field(	u64,     	root_objectid		)
+		__field(	u64,		transid			)
+		__field(	int,	 	ctx_log_transid		)
+		__field(	int,		root_log_transid	)
+		__field(	int,	 	log_transid_committed	)
+		__field(	bool,	 	log_committing		)
+		__field(	bool,	 	log_committing_prev	)
+		__field(	int,		log_writers		)
+	),
+
+	TP_fast_assign(
+		TP_fast_assign_fsid(trans->fs_info);
+		__entry->root_objectid		= btrfs_root_id(root);
+		__entry->transid		= trans->transid;
+		__entry->ctx_log_transid	= ctx->log_transid;
+		__entry->root_log_transid	= btrfs_get_root_log_transid(root);
+		__entry->log_transid_committed	=
+			data_race(root->log_transid_committed);
+		__entry->log_committing		=
+			atomic_read(&root->log_commit[ctx->log_transid % 2]);
+		__entry->log_committing_prev	=
+			atomic_read(&root->log_commit[(ctx->log_transid + 1) % 2]);
+		__entry->log_writers		= atomic_read(&root->log_writers);
+	),
+
+	TP_printk_btrfs("root=%llu(%s) transid=%llu ctx_log_transid=%d"
+			" root_log_transid=%d log_transid_committed=%d"
+			" log_committing=%d log_committing_prev=%d log_writers=%d",
+			show_root_type(__entry->root_objectid), __entry->transid,
+			__entry->ctx_log_transid, __entry->root_log_transid,
+			__entry->log_transid_committed, __entry->log_committing,
+			__entry->log_committing_prev, __entry->log_writers)
+);
+
+/*
+ * Ideally call this while under root->log_mutex and in the same critical
+ * section that calls the btrfs_sync_log_enter() trace event (though it's not
+ * always possible).
+ */
+TRACE_EVENT(btrfs_sync_log_exit,
+
+	TP_PROTO(const struct btrfs_trans_handle *trans,
+		 const struct btrfs_root *root,
+		 const struct btrfs_log_ctx *ctx,
+		 int ret),
+
+	TP_ARGS(trans, root, ctx, ret),
+
+	TP_STRUCT__entry_btrfs(
+		__field(	u64,     	root_objectid		)
+		__field(	u64,		transid			)
+		__field(	int,	 	ctx_log_transid		)
+		__field(	int,		root_log_transid	)
+		__field(	int,	 	log_transid_committed	)
+		__field(	int,		ret			)
+	),
+
+	TP_fast_assign(
+		TP_fast_assign_fsid(trans->fs_info);
+		__entry->root_objectid		= btrfs_root_id(root);
+		__entry->transid		= trans->transid;
+		__entry->ctx_log_transid	= ctx->log_transid;
+		__entry->root_log_transid	= btrfs_get_root_log_transid(root);
+		__entry->log_transid_committed	=
+			data_race(root->log_transid_committed);
+		__entry->ret			= ret;
+	),
+
+	TP_printk_btrfs("root=%llu(%s) transid=%llu ctx_log_transid=%d"
+			" root_log_transid=%d log_transid_committed=%d ret=%d",
+			show_root_type(__entry->root_objectid), __entry->transid,
+			__entry->ctx_log_transid, __entry->root_log_transid,
+			__entry->log_transid_committed, __entry->ret)
+);
+
 TRACE_EVENT(btrfs_sync_fs,
 
 	TP_PROTO(const struct btrfs_fs_info *fs_info, int wait),
