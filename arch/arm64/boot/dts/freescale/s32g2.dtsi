@@ -563,6 +563,16 @@
 			status = "disabled";
 		};
 
+		adc0: adc@401f8000 {
+			compatible = "nxp,s32g2-sar-adc";
+			reg = <0x401f8000 0x1000>;
+			interrupts = <GIC_SPI 70 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clks 0x41>;
+			dmas = <&edma0 0 32>;
+			dma-names = "rx";
+			status = "disabled";
+		};
+
 		swt4: watchdog@40200000 {
 			compatible = "nxp,s32g2-swt";
 			reg = <0x40200000 0x1000>;
@@ -732,6 +742,16 @@
 			interrupts = <GIC_SPI 96 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&clks 40>;
 			clock-names = "ipg";
+			status = "disabled";
+		};
+
+		adc1: adc@402e8000 {
+			compatible = "nxp,s32g2-sar-adc";
+			reg = <0x402e8000 0x1000>;
+			interrupts = <GIC_SPI 71 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clks 0x41>;
+			dmas = <&edma1 1 32>;
+			dma-names = "rx";
 			status = "disabled";
 		};
 
