@@ -167,7 +167,7 @@ static int cdns3_plat_probe(struct platform_device *pdev)
 	cdns->host_init = cdns3_plat_host_init;
 	ret = cdns_core_init_role(cdns);
 	if (ret)
-		goto err_cdns_init;
+		goto err_cdns_init_role;
 
 	device_set_wakeup_capable(dev, true);
 	pm_runtime_set_active(dev);
@@ -186,6 +186,9 @@ static int cdns3_plat_probe(struct platform_device *pdev)
 
 	return 0;
 
+err_cdns_init_role:
+	if (cdns->role_sw)
+		usb_role_switch_unregister(cdns->role_sw);
 err_cdns_init:
 	set_phy_power_off(cdns);
 err_phy_power_on:
