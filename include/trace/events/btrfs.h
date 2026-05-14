@@ -830,10 +830,11 @@ TRACE_EVENT(btrfs_sync_file_enter,
 	TP_ARGS(file, datasync),
 
 	TP_STRUCT__entry_btrfs(
-		__field(	u64,	ino		)
-		__field(	u64,	parent		)
-		__field(	int,    datasync	)
-		__field(	u64,    root_objectid	)
+		__field(	u64,		ino		)
+		__field(        umode_t,        mode            )
+		__field(	u64,		parent		)
+		__field(	int,    	datasync	)
+		__field(	u64,    	root_objectid	)
 	),
 
 	TP_fast_assign(
@@ -846,13 +847,13 @@ TRACE_EVENT(btrfs_sync_file_enter,
 		__entry->parent		= btrfs_ino(BTRFS_I(parent_inode));
 		__entry->datasync	= datasync;
 		__entry->root_objectid	= btrfs_root_id(BTRFS_I(inode)->root);
+		__entry->mode           = inode->i_mode;
 	),
 
-	TP_printk_btrfs("root=%llu(%s) ino=%llu parent=%llu datasync=%d",
-		  show_root_type(__entry->root_objectid),
-		  __entry->ino,
-		  __entry->parent,
-		  __entry->datasync)
+	TP_printk_btrfs("root=%llu(%s) ino=%llu type=%s parent=%llu datasync=%d",
+			show_root_type(__entry->root_objectid), __entry->ino,
+			show_inode_type(__entry->mode), __entry->parent,
+			__entry->datasync)
 );
 
 TRACE_EVENT(btrfs_sync_file_exit,
