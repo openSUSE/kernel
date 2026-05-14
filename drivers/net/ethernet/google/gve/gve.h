@@ -880,6 +880,14 @@ struct gve_priv {
 	u32 stats_report_trigger_cnt; /* count of device-requested stats-reports since last reset */
 	u32 suspend_cnt; /* count of times suspended */
 	u32 resume_cnt; /* count of times resumed */
+	/* count of cross-timestamps attempted using system timestamps
+	 * from the AQ command
+	 */
+	u32 ptp_precise_xtstamps;
+	/* count of cross-timestamps attempted using system timestamps sampled
+	 * by the driver
+	 */
+	u32 ptp_fallback_xtstamps;
 	struct workqueue_struct *gve_wq;
 	struct work_struct service_task;
 	struct work_struct stats_report_task;
