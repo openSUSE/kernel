@@ -3,6 +3,9 @@
  * Copyright © 2022 Intel Corporation
  */
 
+#include <kunit/static_stub.h>
+#include <kunit/visibility.h>
+
 #include "xe_gt_mcr.h"
 
 #include "regs/xe_gt_regs.h"
@@ -553,6 +556,7 @@ void xe_gt_mcr_init_early(struct xe_gt *gt)
 	/* Mark instance 0 as initialized, we need this early for VRAM and CCS probe. */
 	gt->steering[INSTANCE0].initialized = true;
 }
+EXPORT_SYMBOL_IF_KUNIT(xe_gt_mcr_init_early);
 
 /**
  * xe_gt_mcr_init - Normal initialization of the MCR support
@@ -613,6 +617,26 @@ static bool reg_in_steering_type_ranges(struct xe_gt *gt,
 
 	return false;
 }
+
+/*
+ * xe_gt_mcr_check_reg - check if a register is recognized by this GT as MCR
+ * @gt: GT structure
+ * @reg: The register to check
+ *
+ * Returns true if the register offset falls within one of the MMIO ranges
+ * classified as MCR for the GT.
+ */
+bool xe_gt_mcr_check_reg(struct xe_gt *gt, struct xe_reg reg)
+{
+	KUNIT_STATIC_STUB_REDIRECT(xe_gt_mcr_check_reg, gt, reg);
+
+	for (int type = 0; type <= IMPLICIT_STEERING; type++)
+		if (reg_in_steering_type_ranges(gt, reg, type))
+			return true;
+
+	return false;
+}
+EXPORT_SYMBOL_IF_KUNIT(xe_gt_mcr_check_reg);
 
 /*
  * xe_gt_mcr_get_nonterminated_steering - find group/instance values that
