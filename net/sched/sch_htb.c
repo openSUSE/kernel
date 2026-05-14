@@ -114,7 +114,8 @@ struct htb_class {
 	 */
 	struct gnet_stats_basic_sync bstats;
 	struct gnet_stats_basic_sync bstats_bias;
-	struct tc_htb_xstats	xstats;	/* our special stats */
+	u32			xstats_lends;
+	u32			xstats_borrows;
 
 	/* token bucket parameters */
 	s64			tokens, ctokens;/* current number of tokens */
@@ -707,10 +708,10 @@ static void htb_charge_class(struct htb_sched *q, struct htb_class *cl,
 		diff = min_t(s64, q->now - cl->t_c, cl->mbuffer);
 		if (cl->level >= level) {
 			if (cl->level == level)
-				cl->xstats.lends++;
+				WRITE_ONCE(cl->xstats_lends, cl->xstats_lends + 1);
 			htb_accnt_tokens(cl, bytes, diff);
 		} else {
-			cl->xstats.borrows++;
+			WRITE_ONCE(cl->xstats_borrows, cl->xstats_borrows + 1);
 			cl->tokens += diff;	/* we moved t_c; update tokens */
 		}
 		htb_accnt_ctokens(cl, bytes, diff);
@@ -1319,6 +1320,10 @@ htb_dump_class_stats(struct Qdisc *sch, unsigned long arg, struct gnet_dump *d)
 {
 	struct htb_class *cl = (struct htb_class *)arg;
 	struct htb_sched *q = qdisc_priv(sch);
+	struct tc_htb_xstats xstats = {
+		.lends = READ_ONCE(cl->xstats_lends),
+		.borrows = READ_ONCE(cl->xstats_borrows),
+	};
 	struct gnet_stats_queue qs = {
 		.drops = cl->drops,
 		.overlimits = cl->overlimits,
@@ -1328,10 +1333,10 @@ htb_dump_class_stats(struct Qdisc *sch, unsigned long arg, struct gnet_dump *d)
 	if (!cl->level && cl->leaf.q)
 		qdisc_qstats_qlen_backlog(cl->leaf.q, &qlen, &qs.backlog);
 
-	cl->xstats.tokens = clamp_t(s64, PSCHED_NS2TICKS(cl->tokens),
-				    INT_MIN, INT_MAX);
-	cl->xstats.ctokens = clamp_t(s64, PSCHED_NS2TICKS(cl->ctokens),
-				     INT_MIN, INT_MAX);
+	xstats.tokens = clamp_t(s64, PSCHED_NS2TICKS(cl->tokens),
+				INT_MIN, INT_MAX);
+	xstats.ctokens = clamp_t(s64, PSCHED_NS2TICKS(cl->ctokens),
+				 INT_MIN, INT_MAX);
 
 	if (q->offload) {
 		if (!cl->level) {
@@ -1352,7 +1357,7 @@ htb_dump_class_stats(struct Qdisc *sch, unsigned long arg, struct gnet_dump *d)
 	    gnet_stats_copy_queue(d, NULL, &qs, qlen) < 0)
 		return -1;
 
-	return gnet_stats_copy_app(d, &cl->xstats, sizeof(cl->xstats));
+	return gnet_stats_copy_app(d, &xstats, sizeof(xstats));
 }
 
 static struct netdev_queue *
