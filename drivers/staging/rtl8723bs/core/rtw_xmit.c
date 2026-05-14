@@ -1818,7 +1818,7 @@ void rtw_free_xmitframe_queue(struct xmit_priv *pxmitpriv, struct __queue *pfram
  * Will enqueue pxmitframe to the proper queue,
  * and indicate it to xx_pending list.....
  */
-static s32 rtw_xmit_classifier(struct adapter *padapter, struct xmit_frame *pxmitframe)
+static int rtw_xmit_classifier(struct adapter *padapter, struct xmit_frame *pxmitframe)
 {
 	u8 ac_index;
 	struct sta_info *psta;
@@ -1828,13 +1828,13 @@ static s32 rtw_xmit_classifier(struct adapter *padapter, struct xmit_frame *pxmi
 
 	psta = rtw_get_stainfo(&padapter->stapriv, pattrib->ra);
 	if (pattrib->psta != psta)
-		return _FAIL;
+		return -ENODEV;
 
 	if (!psta)
-		return _FAIL;
+		return -EINVAL;
 
 	if (!(psta->state & _FW_LINKED))
-		return _FAIL;
+		return -ENETDOWN;
 
 	ptxservq = rtw_get_sta_pending(padapter, psta, pattrib->priority, (u8 *)(&ac_index));
 
@@ -1845,12 +1845,15 @@ static s32 rtw_xmit_classifier(struct adapter *padapter, struct xmit_frame *pxmi
 	ptxservq->qcnt++;
 	phwxmits[ac_index].accnt++;
 
-	return _SUCCESS;
+	return 0;
 }
 
 s32 rtw_xmitframe_enqueue(struct adapter *padapter, struct xmit_frame *pxmitframe)
 {
-	if (rtw_xmit_classifier(padapter, pxmitframe) == _FAIL)
+	int res;
+
+	res = rtw_xmit_classifier(padapter, pxmitframe);
+	if (res)
 		return _FAIL;
 
 	return _SUCCESS;
