@@ -10,6 +10,8 @@
 
 #include <linux/pci.h>
 
+#include "eea_ring.h"
+
 struct eea_pci_cap {
 	__u8 cap_vndr;
 	__u8 cap_next;
@@ -43,6 +45,7 @@ u16 eea_pci_bdf(struct eea_device *edev);
 
 int eea_device_reset(struct eea_device *dev);
 int eea_pci_set_aq_up(struct eea_device *dev);
+int eea_pci_active_aq(struct eea_ring *ering, int msix_vec);
 
 u64 eea_pci_device_ts(struct eea_device *edev);
 

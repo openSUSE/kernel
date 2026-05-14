@@ -8,6 +8,7 @@
 #include <linux/io-64-nonatomic-lo-hi.h>
 #include <linux/iopoll.h>
 
+#include "eea_net.h"
 #include "eea_pci.h"
 
 #define EEA_PCI_DB_OFFSET 4096
@@ -64,7 +65,9 @@ struct eea_pci_device {
 	((void __iomem *)((reg) + offsetof(struct eea_pci_cfg, item)))
 
 #define cfg_write8(reg, item, val) iowrite8(val, cfg_pointer(reg, item))
+#define cfg_write16(reg, item, val) iowrite16(val, cfg_pointer(reg, item))
 #define cfg_write32(reg, item, val) iowrite32(val, cfg_pointer(reg, item))
+#define cfg_write64(reg, item, val) iowrite64_lo_hi(val, cfg_pointer(reg, item))
 
 #define cfg_read8(reg, item) ioread8(cfg_pointer(reg, item))
 #define cfg_read32(reg, item) ioread32(cfg_pointer(reg, item))
@@ -337,6 +340,25 @@ void __iomem *eea_pci_db_addr(struct eea_device *edev, u32 off)
 	return edev->ep_dev->db_base + off;
 }
 
+int eea_pci_active_aq(struct eea_ring *ering, int msix_vec)
+{
+	struct eea_pci_device *ep_dev = ering->edev->ep_dev;
+
+	cfg_write16(ep_dev->reg, aq_size, ering->num);
+	cfg_write16(ep_dev->reg, aq_msix_vector, msix_vec);
+
+	cfg_write64(ep_dev->reg, aq_sq_addr, ering->sq.dma_addr);
+	cfg_write64(ep_dev->reg, aq_cq_addr, ering->cq.dma_addr);
+
+	ering->db = eea_pci_db_addr(ering->edev,
+				    cfg_read32(ep_dev->reg, aq_db_off));
+
+	if (!ering->db)
+		return -EIO;
+
+	return 0;
+}
+
 u64 eea_pci_device_ts(struct eea_device *edev)
 {
 	struct eea_pci_device *ep_dev = edev->ep_dev;
@@ -358,7 +380,9 @@ static int eea_init_device(struct eea_device *edev)
 	if (err)
 		goto err;
 
-	/* do net device probe ... */
+	err = eea_net_probe(edev);
+	if (err)
+		goto err;
 
 	return 0;
 err:
@@ -392,6 +416,9 @@ static void __eea_pci_remove(struct pci_dev *pci_dev)
 {
 	struct eea_pci_device *ep_dev = pci_get_drvdata(pci_dev);
 	struct device *dev = get_device(&ep_dev->pci_dev->dev);
+	struct eea_device *edev = &ep_dev->edev;
+
+	eea_net_remove(edev);
 
 	eea_pci_release_resource(ep_dev);
 
@@ -429,8 +456,6 @@ static void eea_pci_remove(struct pci_dev *pci_dev)
 {
 	struct eea_pci_device *ep_dev = pci_get_drvdata(pci_dev);
 
-	eea_device_reset(&ep_dev->edev);
-
 	__eea_pci_remove(pci_dev);
 
 	pci_set_drvdata(pci_dev, NULL);
@@ -446,9 +471,7 @@ static void eea_pci_shutdown(struct pci_dev *pci_dev)
 
 	ep_dev->shutdown = true;
 
-	/* do net device stop and clear. */
-
-	eea_device_reset(edev);
+	eea_net_shutdown(edev);
 
 	pci_clear_master(pci_dev);
 }
