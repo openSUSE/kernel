@@ -370,6 +370,7 @@ struct nvme_ctrl {
 	u16 mtfa;
 	u32 ctrl_config;
 	u32 queue_count;
+	u32 admin_timeout;
 
 	u64 cap;
 	u32 max_hw_sectors;

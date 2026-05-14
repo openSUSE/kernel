@@ -623,6 +623,46 @@ static ssize_t quirks_show(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_RO(quirks);
 
+static ssize_t nvme_admin_timeout_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct nvme_ctrl *ctrl = dev_get_drvdata(dev);
+
+	return sysfs_emit(buf, "%u\n",
+				jiffies_to_msecs(ctrl->admin_timeout));
+}
+
+static ssize_t nvme_admin_timeout_store(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	struct nvme_ctrl *ctrl = dev_get_drvdata(dev);
+	u32 timeout;
+	int err;
+
+	/*
+	 * Wait until the controller reaches the LIVE state to be sure that
+	 * admin_q and fabrics_q are properly initialized.
+	 */
+	if (!test_bit(NVME_CTRL_STARTED_ONCE, &ctrl->flags))
+		return -EBUSY;
+
+	err = kstrtou32(buf, 10, &timeout);
+	if (err || !timeout)
+		return -EINVAL;
+
+	ctrl->admin_timeout = msecs_to_jiffies(timeout);
+
+	blk_queue_rq_timeout(ctrl->admin_q, ctrl->admin_timeout);
+	if (ctrl->fabrics_q)
+		blk_queue_rq_timeout(ctrl->fabrics_q, ctrl->admin_timeout);
+
+	return count;
+}
+
+static DEVICE_ATTR(admin_timeout, S_IRUGO | S_IWUSR,
+	nvme_admin_timeout_show, nvme_admin_timeout_store);
+
 #ifdef CONFIG_NVME_HOST_AUTH
 static ssize_t nvme_ctrl_dhchap_secret_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -765,6 +805,7 @@ static struct attribute *nvme_dev_attrs[] = {
 	&dev_attr_cntrltype.attr,
 	&dev_attr_dctype.attr,
 	&dev_attr_quirks.attr,
+	&dev_attr_admin_timeout.attr,
 #ifdef CONFIG_NVME_HOST_AUTH
 	&dev_attr_dhchap_secret.attr,
 	&dev_attr_dhchap_ctrl_secret.attr,
