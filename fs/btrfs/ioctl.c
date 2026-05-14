@@ -649,6 +649,14 @@ static noinline int create_subvol(struct inode *dir,
 		goto fail;
 	}
 
+        /*
+         * Subvolumes have orphans cleaned on first dentry lookup. A new
+         * subvolume cannot have any orphans, so set ORPHAN_CLEANUP_START
+         * add the subvolume dentry to the dentry cache, so that it is in the
+         * same state as a subvolume after first lookup.
+         */
+	new_root->orphan_cleanup_state = ORPHAN_CLEANUP_STARTED;
+
 	ret = btrfs_uuid_tree_add(trans, fs_info, root_item->uuid,
 				  BTRFS_UUID_KEY_SUBVOL, objectid);
 	if (ret)
