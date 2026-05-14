@@ -44,6 +44,7 @@ static LIST_HEAD(rdmacg_devices);
 enum rdmacg_file_type {
 	RDMACG_RESOURCE_TYPE_MAX,
 	RDMACG_RESOURCE_TYPE_STAT,
+	RDMACG_RESOURCE_TYPE_PEAK,
 };
 
 /*
@@ -60,6 +61,7 @@ static char const *rdmacg_resource_names[] = {
 struct rdmacg_resource {
 	int max;
 	int usage;
+	int peak;
 };
 
 /*
@@ -204,6 +206,17 @@ uncharge_cg_locked(struct rdma_cgroup *cg,
 	rpool->usage_sum--;
 	if (rpool->usage_sum == 0 &&
 	    rpool->num_max_cnt == RDMACG_RESOURCE_MAX) {
+		int i;
+
+		/*
+		 * Keep the rpool alive if any peak value is non-zero,
+		 * so that rdma.peak persists as a historical high-
+		 * watermark even after all resources are freed.
+		 */
+		for (i = 0; i < RDMACG_RESOURCE_MAX; i++) {
+			if (rpool->resources[i].peak)
+				return;
+		}
 		/*
 		 * No user of the rpool and all entries are set to max, so
 		 * safe to delete this rpool.
@@ -309,6 +322,12 @@ int rdmacg_try_charge(struct rdma_cgroup **rdmacg,
 				rpool->usage_sum++;
 			}
 		}
+	}
+	/* Update peak only after all charges succeed */
+	for (p = cg; p; p = parent_rdmacg(p)) {
+		rpool = find_cg_rpool_locked(p, device);
+		if (rpool && rpool->resources[index].usage > rpool->resources[index].peak)
+			rpool->resources[index].peak = rpool->resources[index].usage;
 	}
 	mutex_unlock(&rdmacg_mutex);
 
@@ -472,6 +491,12 @@ static ssize_t rdmacg_resource_set_max(struct kernfs_open_file *of,
 
 	if (rpool->usage_sum == 0 &&
 	    rpool->num_max_cnt == RDMACG_RESOURCE_MAX) {
+		int i;
+
+		for (i = 0; i < RDMACG_RESOURCE_MAX; i++) {
+			if (rpool->resources[i].peak)
+				goto dev_err;
+		}
 		/*
 		 * No user of the rpool and all entries are set to max, so
 		 * safe to delete this rpool.
@@ -506,6 +531,8 @@ static void print_rpool_values(struct seq_file *sf,
 				value = rpool->resources[i].max;
 			else
 				value = S32_MAX;
+		} else if (sf_type == RDMACG_RESOURCE_TYPE_PEAK) {
+			value = rpool ? rpool->resources[i].peak : 0;
 		} else {
 			if (rpool)
 				value = rpool->resources[i].usage;
@@ -556,6 +583,12 @@ static struct cftype rdmacg_files[] = {
 		.private = RDMACG_RESOURCE_TYPE_STAT,
 		.flags = CFTYPE_NOT_ON_ROOT,
 	},
+	{
+		.name = "peak",
+		.seq_show = rdmacg_resource_read,
+		.private = RDMACG_RESOURCE_TYPE_PEAK,
+		.flags = CFTYPE_NOT_ON_ROOT,
+	},
 	{ }	/* terminate */
 };
 
@@ -575,6 +608,13 @@ rdmacg_css_alloc(struct cgroup_subsys_state *parent)
 static void rdmacg_css_free(struct cgroup_subsys_state *css)
 {
 	struct rdma_cgroup *cg = css_rdmacg(css);
+	struct rdmacg_resource_pool *rpool, *tmp;
+
+	/* Clean up rpools kept alive by non-zero peak values */
+	mutex_lock(&rdmacg_mutex);
+	list_for_each_entry_safe(rpool, tmp, &cg->rpools, cg_node)
+		free_cg_rpool_locked(rpool);
+	mutex_unlock(&rdmacg_mutex);
 
 	kfree(cg);
 }
