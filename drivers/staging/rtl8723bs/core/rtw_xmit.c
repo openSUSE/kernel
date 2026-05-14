@@ -1814,6 +1814,40 @@ void rtw_free_xmitframe_queue(struct xmit_priv *pxmitpriv, struct __queue *pfram
 	spin_unlock_bh(&pframequeue->lock);
 }
 
+/*
+ * Will enqueue pxmitframe to the proper queue,
+ * and indicate it to xx_pending list.....
+ */
+static s32 rtw_xmit_classifier(struct adapter *padapter, struct xmit_frame *pxmitframe)
+{
+	u8 ac_index;
+	struct sta_info *psta;
+	struct tx_servq	*ptxservq;
+	struct pkt_attrib	*pattrib = &pxmitframe->attrib;
+	struct hw_xmit	*phwxmits =  padapter->xmitpriv.hwxmits;
+
+	psta = rtw_get_stainfo(&padapter->stapriv, pattrib->ra);
+	if (pattrib->psta != psta)
+		return _FAIL;
+
+	if (!psta)
+		return _FAIL;
+
+	if (!(psta->state & _FW_LINKED))
+		return _FAIL;
+
+	ptxservq = rtw_get_sta_pending(padapter, psta, pattrib->priority, (u8 *)(&ac_index));
+
+	if (list_empty(&ptxservq->tx_pending))
+		list_add_tail(&ptxservq->tx_pending, get_list_head(phwxmits[ac_index].sta_queue));
+
+	list_add_tail(&pxmitframe->list, get_list_head(&ptxservq->sta_pending));
+	ptxservq->qcnt++;
+	phwxmits[ac_index].accnt++;
+
+	return _SUCCESS;
+}
+
 s32 rtw_xmitframe_enqueue(struct adapter *padapter, struct xmit_frame *pxmitframe)
 {
 	if (rtw_xmit_classifier(padapter, pxmitframe) == _FAIL)
@@ -1854,40 +1888,6 @@ struct tx_servq *rtw_get_sta_pending(struct adapter *padapter, struct sta_info *
 	}
 
 	return ptxservq;
-}
-
-/*
- * Will enqueue pxmitframe to the proper queue,
- * and indicate it to xx_pending list.....
- */
-s32 rtw_xmit_classifier(struct adapter *padapter, struct xmit_frame *pxmitframe)
-{
-	u8 ac_index;
-	struct sta_info *psta;
-	struct tx_servq	*ptxservq;
-	struct pkt_attrib	*pattrib = &pxmitframe->attrib;
-	struct hw_xmit	*phwxmits =  padapter->xmitpriv.hwxmits;
-
-	psta = rtw_get_stainfo(&padapter->stapriv, pattrib->ra);
-	if (pattrib->psta != psta)
-		return _FAIL;
-
-	if (!psta)
-		return _FAIL;
-
-	if (!(psta->state & _FW_LINKED))
-		return _FAIL;
-
-	ptxservq = rtw_get_sta_pending(padapter, psta, pattrib->priority, (u8 *)(&ac_index));
-
-	if (list_empty(&ptxservq->tx_pending))
-		list_add_tail(&ptxservq->tx_pending, get_list_head(phwxmits[ac_index].sta_queue));
-
-	list_add_tail(&pxmitframe->list, get_list_head(&ptxservq->sta_pending));
-	ptxservq->qcnt++;
-	phwxmits[ac_index].accnt++;
-
-	return _SUCCESS;
 }
 
 void rtw_free_hwxmits(struct adapter *padapter)
