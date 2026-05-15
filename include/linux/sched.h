@@ -997,9 +997,6 @@ struct task_struct {
 	unsigned			sched_rt_mutex:1;
 #endif
 
-	/* Save user-dumpable when mm goes away */
-	unsigned			user_dumpable:1;
-
 	/* Bit to tell TOMOYO we're in execve(): */
 	unsigned			in_execve:1;
 	unsigned			in_iowait:1;
@@ -1046,6 +1043,10 @@ struct task_struct {
 #ifdef CONFIG_TASK_DELAY_ACCT
 	/* delay due to memory thrashing */
 	unsigned                        in_thrashing:1;
+#endif
+#ifndef __GENKSYMS__
+	/* Save user-dumpable when mm goes away */
+	unsigned			user_dumpable:1;
 #endif
 #ifdef CONFIG_PREEMPT_RT
 	struct netdev_xmit		net_xmit;
