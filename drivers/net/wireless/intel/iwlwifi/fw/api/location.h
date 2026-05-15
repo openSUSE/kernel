@@ -2,7 +2,7 @@
 /*
  * Copyright (C) 2015-2017 Intel Deutschland GmbH
  * Copyright (C) 2018-2022 Intel Corporation
- * Copyright (C) 2024-2025 Intel Corporation
+ * Copyright (C) 2024-2026 Intel Corporation
  */
 #ifndef __iwl_fw_api_location_h__
 #define __iwl_fw_api_location_h__
@@ -81,8 +81,9 @@ enum iwl_location_subcmd_ids {
 	 * @TOF_RANGE_RESPONSE_NOTIF: ranging response, using one of
 	 *	&struct iwl_tof_range_rsp_ntfy_v5,
 	 *	&struct iwl_tof_range_rsp_ntfy_v6,
-	 *	&struct iwl_tof_range_rsp_ntfy_v7 or
-	 *	&struct iwl_tof_range_rsp_ntfy_v8
+	 *	&struct iwl_tof_range_rsp_ntfy_v7,
+	 *	&struct iwl_tof_range_rsp_ntfy_v9 or
+	 *	&struct iwl_tof_range_rsp_ntfy
 	 */
 	TOF_RANGE_RESPONSE_NOTIF = 0xFF,
 };
