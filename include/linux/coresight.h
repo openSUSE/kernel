@@ -344,9 +344,9 @@ struct coresight_path {
 };
 
 enum cs_mode {
-	CS_MODE_DISABLED,
-	CS_MODE_SYSFS,
-	CS_MODE_PERF,
+	CS_MODE_DISABLED = 0,
+	CS_MODE_SYSFS	 = BIT(0),
+	CS_MODE_PERF	 = BIT(1),
 };
 
 #define coresight_ops(csdev)	csdev->ops

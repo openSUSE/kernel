@@ -1847,7 +1847,7 @@ static void coresight_release_device_list(void)
 	}
 }
 
-static struct coresight_path *coresight_cpu_get_active_path(void)
+static struct coresight_path *coresight_cpu_get_active_path(enum cs_mode mode)
 {
 	struct coresight_device *source;
 	bool is_active = false;
@@ -1856,17 +1856,17 @@ static struct coresight_path *coresight_cpu_get_active_path(void)
 	if (!source)
 		return NULL;
 
-	if (coresight_get_mode(source) != CS_MODE_DISABLED)
+	if (coresight_get_mode(source) & mode)
 		is_active = true;
 
 	coresight_put_percpu_source_ref(source);
 
 	/*
-	 * It is expected to run in atomic context, so it cannot be preempted
-	 * to disable the path. Here returns the active path pointer without
-	 * concern that its state may change. Since the build path has taken
-	 * a reference on the component, the path can be safely used by the
-	 * caller.
+	 * It is expected to run in atomic context or with the CPU lock held for
+	 * sysfs mode, so it cannot be preempted to disable the path. Here
+	 * returns the active path pointer without concern that its state may
+	 * change. Since the build path has taken a reference on the component,
+	 * the path can be safely used by the caller.
 	 */
 	return is_active ? source->path : NULL;
 }
@@ -1985,7 +1985,8 @@ path_failed:
 static int coresight_cpu_pm_notify(struct notifier_block *nb, unsigned long cmd,
 				   void *v)
 {
-	struct coresight_path *path = coresight_cpu_get_active_path();
+	struct coresight_path *path =
+		coresight_cpu_get_active_path(CS_MODE_SYSFS | CS_MODE_PERF);
 	int ret;
 
 	ret = coresight_pm_is_needed(path);
@@ -2012,13 +2013,42 @@ static struct notifier_block coresight_cpu_pm_nb = {
 	.notifier_call = coresight_cpu_pm_notify,
 };
 
+static int coresight_dying_cpu(unsigned int cpu)
+{
+	struct coresight_path *path;
+
+	/*
+	 * The perf event layer will disable PMU events in the CPU
+	 * hotplug. Here only handles SYSFS case.
+	 */
+	path = coresight_cpu_get_active_path(CS_MODE_SYSFS);
+	if (!path)
+		return 0;
+
+	coresight_disable_sysfs(coresight_get_source(path));
+	return 0;
+}
+
 static int __init coresight_pm_setup(void)
 {
-	return cpu_pm_register_notifier(&coresight_cpu_pm_nb);
+	int ret;
+
+	ret = cpu_pm_register_notifier(&coresight_cpu_pm_nb);
+	if (ret)
+		return ret;
+
+	ret = cpuhp_setup_state_nocalls(CPUHP_AP_ARM_CORESIGHT_ONLINE,
+					"arm/coresight-core:dying",
+					NULL, coresight_dying_cpu);
+	if (ret)
+		cpu_pm_unregister_notifier(&coresight_cpu_pm_nb);
+
+	return ret;
 }
 
 static void coresight_pm_cleanup(void)
 {
+	cpuhp_remove_state_nocalls(CPUHP_AP_ARM_CORESIGHT_ONLINE);
 	cpu_pm_unregister_notifier(&coresight_cpu_pm_nb);
 }
 
