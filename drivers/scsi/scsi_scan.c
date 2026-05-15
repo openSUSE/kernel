@@ -728,9 +728,13 @@ static int scsi_probe_lun(struct scsi_device *sdev, unsigned char *inq_result,
 	}
 
 	if (result == 0) {
-		scsi_sanitize_inquiry_string(&inq_result[8], 8);
-		scsi_sanitize_inquiry_string(&inq_result[16], 16);
-		scsi_sanitize_inquiry_string(&inq_result[32], 4);
+		scsi_sanitize_inquiry_string(&inq_result[INQUIRY_VENDOR_OFFSET],
+					     INQUIRY_VENDOR_LEN);
+		scsi_sanitize_inquiry_string(&inq_result[INQUIRY_MODEL_OFFSET],
+					     INQUIRY_MODEL_LEN);
+		scsi_sanitize_inquiry_string(
+			&inq_result[INQUIRY_REVISION_OFFSET],
+			INQUIRY_REVISION_LEN);
 
 		response_len = inq_result[4] + 5;
 		if (response_len > 255)
@@ -743,8 +747,9 @@ static int scsi_probe_lun(struct scsi_device *sdev, unsigned char *inq_result,
 		 * corresponding bit fields in scsi_device, so bflags
 		 * need not be passed as an argument.
 		 */
-		*bflags = scsi_get_device_flags(sdev, &inq_result[8],
-				&inq_result[16]);
+		*bflags = scsi_get_device_flags(sdev,
+				&inq_result[INQUIRY_VENDOR_OFFSET],
+				&inq_result[INQUIRY_MODEL_OFFSET]);
 
 		/* When the first pass succeeds we gain information about
 		 * what larger transfer lengths might work. */
