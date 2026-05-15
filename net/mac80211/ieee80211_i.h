@@ -2926,6 +2926,10 @@ ieee80211_determine_chan_mode(struct ieee80211_sub_if_data *sdata,
 			      struct ieee80211_chan_req *chanreq,
 			      struct cfg80211_chan_def *ap_chandef,
 			      unsigned long *userspace_selectors);
+int ieee80211_parse_neg_ttlm(struct ieee80211_sub_if_data *sdata,
+			     const struct ieee80211_ttlm_elem *ttlm,
+			     struct ieee80211_neg_ttlm *neg_ttlm,
+			     u8 *direction);
 #else
 #define EXPORT_SYMBOL_IF_MAC80211_KUNIT(sym)
 #define VISIBLE_IF_MAC80211_KUNIT static
