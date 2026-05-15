@@ -8136,8 +8136,7 @@ __init int intel_pmu_init(void)
 
 	case INTEL_ATOM_CRESTMONT:
 	case INTEL_ATOM_CRESTMONT_X:
-		intel_pmu_init_grt(NULL);
-		x86_pmu.extra_regs = intel_cmt_extra_regs;
+		intel_pmu_init_cmt(NULL);
 		intel_pmu_pebs_data_source_cmt();
 		x86_pmu.pebs_latency_data = cmt_latency_data;
 		x86_pmu.get_event_constraints = cmt_get_event_constraints;
