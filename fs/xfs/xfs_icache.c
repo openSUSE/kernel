@@ -397,7 +397,7 @@ xfs_iget_recycle(
 	 */
 	ip->i_flags &= ~XFS_IRECLAIM_RESET_FLAGS;
 	ip->i_flags |= XFS_INEW;
-	xfs_perag_clear_inode_tag(pag, XFS_INO_TO_AGINO(mp, ip->i_ino),
+	xfs_perag_clear_inode_tag(pag, XFS_INODE_TO_AGINO(ip),
 			XFS_ICI_RECLAIM_TAG);
 	inode_state_assign_raw(inode, I_NEW);
 	spin_unlock(&ip->i_flags_lock);
@@ -1288,7 +1288,7 @@ xfs_blockgc_set_iflag(
 	pag = xfs_perag_get(mp, XFS_INODE_TO_AGNO(ip));
 	spin_lock(&pag->pag_ici_lock);
 
-	xfs_perag_set_inode_tag(pag, XFS_INO_TO_AGINO(mp, ip->i_ino),
+	xfs_perag_set_inode_tag(pag, XFS_INODE_TO_AGINO(ip),
 			XFS_ICI_BLOCKGC_TAG);
 
 	spin_unlock(&pag->pag_ici_lock);
@@ -1325,7 +1325,7 @@ xfs_blockgc_clear_iflag(
 	pag = xfs_perag_get(mp, XFS_INODE_TO_AGNO(ip));
 	spin_lock(&pag->pag_ici_lock);
 
-	xfs_perag_clear_inode_tag(pag, XFS_INO_TO_AGINO(mp, ip->i_ino),
+	xfs_perag_clear_inode_tag(pag, XFS_INODE_TO_AGINO(ip),
 			XFS_ICI_BLOCKGC_TAG);
 
 	spin_unlock(&pag->pag_ici_lock);
@@ -1803,7 +1803,7 @@ restart:
 			if (XFS_INODE_TO_AGNO(ip) != pag_agno(pag))
 				continue;
 			first_index = XFS_INO_TO_AGINO(mp, ip->i_ino + 1);
-			if (first_index < XFS_INO_TO_AGINO(mp, ip->i_ino))
+			if (first_index < XFS_INODE_TO_AGINO(ip))
 				done = true;
 		}
 
@@ -1921,7 +1921,7 @@ xfs_inodegc_set_reclaimable(
 	trace_xfs_inode_set_reclaimable(ip);
 	ip->i_flags &= ~(XFS_NEED_INACTIVE | XFS_INACTIVATING);
 	ip->i_flags |= XFS_IRECLAIMABLE;
-	xfs_perag_set_inode_tag(pag, XFS_INO_TO_AGINO(mp, ip->i_ino),
+	xfs_perag_set_inode_tag(pag, XFS_INODE_TO_AGINO(ip),
 			XFS_ICI_RECLAIM_TAG);
 
 	spin_unlock(&ip->i_flags_lock);

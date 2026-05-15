@@ -1134,17 +1134,13 @@ xrep_iunlink_visit(
 	struct xrep_agi		*ragi,
 	unsigned int		batch_idx)
 {
-	struct xfs_mount	*mp = ragi->sc->mp;
 	struct xfs_inode	*ip = ragi->lookup_batch[batch_idx];
-	xfs_agino_t		agino;
-	unsigned int		bucket;
+	xfs_agino_t		agino = XFS_INODE_TO_AGINO(ip);
+	unsigned int		bucket = agino % XFS_AGI_UNLINKED_BUCKETS;
 	int			error;
 
 	ASSERT(XFS_INODE_TO_AGNO(ip) == pag_agno(ragi->sc->sa.pag));
 	ASSERT(xfs_inode_on_unlinked_list(ip));
-
-	agino = XFS_INO_TO_AGINO(mp, ip->i_ino);
-	bucket = agino % XFS_AGI_UNLINKED_BUCKETS;
 
 	trace_xrep_iunlink_visit(ragi->sc->sa.pag, bucket,
 			ragi->iunlink_heads[bucket], ip);
@@ -1214,7 +1210,7 @@ xrep_iunlink_mark_incore(
 			if (XFS_INODE_TO_AGNO(ip) != pag_agno(pag))
 				continue;
 			first_index = XFS_INO_TO_AGINO(mp, ip->i_ino + 1);
-			if (first_index < XFS_INO_TO_AGINO(mp, ip->i_ino))
+			if (first_index < XFS_INODE_TO_AGINO(ip))
 				done = true;
 		}
 

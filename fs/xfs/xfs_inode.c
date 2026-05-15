@@ -2853,7 +2853,7 @@ xfs_inode_reload_unlinked_bucket(
 	struct xfs_agi		*agi;
 	struct xfs_perag	*pag;
 	xfs_agnumber_t		agno = XFS_INODE_TO_AGNO(ip);
-	xfs_agino_t		agino = XFS_INO_TO_AGINO(mp, ip->i_ino);
+	xfs_agino_t		agino = XFS_INODE_TO_AGINO(ip);
 	xfs_agino_t		prev_agino, next_agino;
 	unsigned int		bucket;
 	bool			foundit = false;
