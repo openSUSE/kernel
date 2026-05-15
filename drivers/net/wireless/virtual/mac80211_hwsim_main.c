@@ -5735,8 +5735,6 @@ static int mac80211_hwsim_new_radio(struct genl_info *info,
 
 		hw->wiphy->nan_capa.n_antennas = 0x22;
 		hw->wiphy->nan_capa.max_channel_switch_time = 0;
-		hw->wiphy->nan_capa.dev_capabilities =
-			NAN_DEV_CAPA_EXT_KEY_ID_SUPPORTED;
 
 		wiphy_ext_feature_set(hw->wiphy,
 				      NL80211_EXT_FEATURE_SECURE_NAN);
