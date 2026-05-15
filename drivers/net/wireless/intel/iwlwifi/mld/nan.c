@@ -689,10 +689,19 @@ void iwl_mld_nan_vif_cfg_changed(struct iwl_mld *mld,
 
 	switch (version) {
 	case 1:
+		if (sched_cfg->deferred) {
+			IWL_ERR(mld,
+				"NAN: deferred schedule not supported by FW\n");
+			return;
+		}
+
 		cmd_size = sizeof(struct iwl_nan_schedule_cmd_v1);
 		break;
 	case 2:
 		cmd_size = sizeof(struct iwl_nan_schedule_cmd);
+
+		if (sched_cfg->deferred)
+			cmd.deferred = 1;
 
 		if (sched_cfg->avail_blob_len &&
 		    !WARN_ON(sched_cfg->avail_blob_len >
@@ -867,6 +876,40 @@ void iwl_mld_nan_vif_cfg_changed(struct iwl_mld *mld,
 				  !iwl_mld_error_before_recovery(mld)))
 			iwl_mld_rm_vif(mld, vif);
 	}
+}
+
+bool iwl_mld_cancel_nan_sched_update_completed_notif(struct iwl_mld *mld,
+						     struct iwl_rx_packet *pkt,
+						     u32 obj_id)
+{
+	return true;
+}
+
+void iwl_mld_handle_nan_sched_update_completed_notif(struct iwl_mld *mld,
+						     struct iwl_rx_packet *pkt)
+{
+	struct iwl_nan_sched_update_completed_notif *notif = (void *)pkt->data;
+	struct ieee80211_vif *vif = mld->nan_device_vif;
+
+	if (IWL_FW_CHECK(mld, !vif,
+			 "NAN: schedule update completed without NAN vif\n"))
+		return;
+
+	if (IWL_FW_CHECK(mld, !ieee80211_vif_nan_started(vif),
+			 "NAN: schedule update completed without NAN started\n"))
+		return;
+
+	/*
+	 * Deferred schedule update should not fail in firmware since all
+	 * channels and links were added.
+	 */
+	IWL_FW_CHECK(mld, notif->status != IWL_NAN_SCHED_UPDATE_SUCCESS,
+		     "NAN: deferred schedule update failed\n");
+
+	if (WARN_ON(!vif->cfg.nan_sched.deferred))
+		return;
+
+	ieee80211_nan_sched_update_done(vif);
 }
 
 int iwl_mld_mac802111_nan_peer_sched_changed(struct ieee80211_hw *hw,

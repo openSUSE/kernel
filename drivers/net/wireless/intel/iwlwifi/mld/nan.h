@@ -42,6 +42,8 @@ void iwl_mld_handle_nan_ulw_attr_notif(struct iwl_mld *mld,
 				       struct iwl_rx_packet *pkt);
 void iwl_mld_handle_nan_dw_end_notif(struct iwl_mld *mld,
 				     struct iwl_rx_packet *pkt);
+void iwl_mld_handle_nan_sched_update_completed_notif(struct iwl_mld *mld,
+						     struct iwl_rx_packet *pkt);
 bool iwl_mld_cancel_nan_cluster_notif(struct iwl_mld *mld,
 				      struct iwl_rx_packet *pkt,
 				      u32 obj_id);
@@ -51,6 +53,9 @@ bool iwl_mld_cancel_nan_ulw_attr_notif(struct iwl_mld *mld,
 bool iwl_mld_cancel_nan_dw_end_notif(struct iwl_mld *mld,
 				     struct iwl_rx_packet *pkt,
 				     u32 obj_id);
+bool iwl_mld_cancel_nan_sched_update_completed_notif(struct iwl_mld *mld,
+						     struct iwl_rx_packet *pkt,
+						     u32 obj_id);
 void iwl_mld_nan_vif_cfg_changed(struct iwl_mld *mld,
 				 struct ieee80211_vif *vif,
 				 u64 changes);

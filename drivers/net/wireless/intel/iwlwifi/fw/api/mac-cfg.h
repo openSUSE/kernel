@@ -85,6 +85,11 @@ enum iwl_mac_conf_subcmd_ids {
 	 */
 	NAN_ULW_ATTR_NOTIF = 0xf2,
 	/**
+	 * @NAN_SCHED_UPDATE_COMPLETED_NOTIF:
+	 *	&struct iwl_nan_sched_update_completed_notif
+	 */
+	NAN_SCHED_UPDATE_COMPLETED_NOTIF = 0xf3,
+	/**
 	 * @NAN_DW_END_NOTIF: &struct iwl_nan_dw_end_notif
 	 */
 	NAN_DW_END_NOTIF = 0xf4,
@@ -1420,5 +1425,29 @@ struct iwl_nan_ulw_attr_notif {
 	u8 reserved[3];
 	u8 attr[IWL_NAN_MAX_ENDLESS_ULW_ATTR_LEN];
 } __packed; /* NAN_ULW_ATTR_NOTIF_API_S_VER_1 */
+
+/**
+ * enum iwl_nan_sched_update_status - NAN schedule update status
+ *
+ * @IWL_NAN_SCHED_UPDATE_SUCCESS: schedule update completed successfully
+ * @IWL_NAN_SCHED_UPDATE_FAILURE: schedule update failed. Currently not expected
+ *	to happen, but reserved for future use.
+ */
+enum iwl_nan_sched_update_status {
+	IWL_NAN_SCHED_UPDATE_SUCCESS = 0,
+	IWL_NAN_SCHED_UPDATE_FAILURE = 1,
+};
+
+/**
+ * struct iwl_nan_sched_update_completed_notif - NAN schedule update completed
+ *
+ * @status: status of the schedule update operation. See
+ *	&enum iwl_nan_sched_update_status
+ * @reserved: reserved
+ */
+struct iwl_nan_sched_update_completed_notif {
+	u8 status;
+	u8 reserved[3];
+} __packed; /* NAN_SCHED_UPDATE_COMPLETED_NTF_API_S_VER_1 */
 
 #endif /* __iwl_fw_api_mac_cfg_h__ */

@@ -348,6 +348,8 @@ CMD_VERSIONS(beacon_filter_notif, CMD_VER_ENTRY(2, iwl_beacon_filter_notif))
 CMD_VERSIONS(nan_cluster_notif, CMD_VER_ENTRY(1, iwl_nan_cluster_notif))
 CMD_VERSIONS(nan_ulw_attr_notif, CMD_VER_ENTRY(1, iwl_nan_ulw_attr_notif))
 CMD_VERSIONS(nan_dw_end_notif, CMD_VER_ENTRY(1, iwl_nan_dw_end_notif))
+CMD_VERSIONS(nan_sched_update_completed_notif,
+	     CMD_VER_ENTRY(1, iwl_nan_sched_update_completed_notif))
 
 DEFINE_SIMPLE_CANCELLATION(session_prot, iwl_session_prot_notif, mac_link_id)
 DEFINE_SIMPLE_CANCELLATION(tlc, iwl_tlc_update_notif, sta_id)
@@ -468,6 +470,8 @@ const struct iwl_rx_handler iwl_mld_rx_handlers[] = {
 			  nan_ulw_attr_notif)
 	RX_HANDLER_OF_NAN(MAC_CONF_GROUP, NAN_DW_END_NOTIF,
 			  nan_dw_end_notif)
+	RX_HANDLER_OF_NAN(MAC_CONF_GROUP, NAN_SCHED_UPDATE_COMPLETED_NOTIF,
+			  nan_sched_update_completed_notif)
 };
 EXPORT_SYMBOL_IF_IWLWIFI_KUNIT(iwl_mld_rx_handlers);
 
