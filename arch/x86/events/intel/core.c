@@ -2494,6 +2494,21 @@ static __initconst const u64 grt_hw_cache_extra_regs
 	},
 };
 
+static __initconst const u64 cmt_hw_cache_extra_regs
+				[PERF_COUNT_HW_CACHE_MAX]
+				[PERF_COUNT_HW_CACHE_OP_MAX]
+				[PERF_COUNT_HW_CACHE_RESULT_MAX] = {
+	[C(LL)] = {
+		[C(OP_READ)] = {
+			[C(RESULT_ACCESS)]	= 0x10001,	/* OCR.DEMAND_DATA_RD.ANY_RESPONSE */
+			[C(RESULT_MISS)]	= 0x3fbfc00001,	/* OCR.DEMAND_DATA_RD.L3_MISS */
+		},
+		[C(OP_WRITE)] = {
+			[C(RESULT_ACCESS)]	= 0x10002,	/* OCR.DEMAND_RFO.ANY_RESPONSE */
+			[C(RESULT_MISS)]	= 0x3fbfc00002,	/* OCR.DEMAND_RFO.L3_MISS */
+		},
+	},
+};
 
 static __initconst const u64 arw_hw_cache_extra_regs
 				[PERF_COUNT_HW_CACHE_MAX]
@@ -7677,6 +7692,15 @@ static __always_inline void intel_pmu_init_grt(struct pmu *pmu)
 	intel_pmu_ref_cycles_ext();
 }
 
+static __always_inline void intel_pmu_init_cmt(struct pmu *pmu)
+{
+	intel_pmu_init_grt(pmu);
+	memcpy(hybrid_var(pmu, hw_cache_extra_regs),
+	       cmt_hw_cache_extra_regs, sizeof(hw_cache_extra_regs));
+	hybrid(pmu, pebs_constraints) = intel_cmt_pebs_event_constraints;
+	hybrid(pmu, extra_regs) = intel_cmt_extra_regs;
+}
+
 static __always_inline void intel_pmu_init_lnc(struct pmu *pmu)
 {
 	intel_pmu_init_glc(pmu);
@@ -8489,8 +8513,7 @@ __init int intel_pmu_init(void)
 
 		/* Initialize Atom core specific PerfMon capabilities.*/
 		pmu = &x86_pmu.hybrid_pmu[X86_HYBRID_PMU_ATOM_IDX];
-		intel_pmu_init_grt(&pmu->pmu);
-		pmu->extra_regs = intel_cmt_extra_regs;
+		intel_pmu_init_cmt(&pmu->pmu);
 
 		intel_pmu_pebs_data_source_mtl();
 		pr_cont("Meteorlake Hybrid events, ");
