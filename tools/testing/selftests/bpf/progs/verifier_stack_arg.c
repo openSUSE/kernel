@@ -114,8 +114,10 @@ __naked void stack_arg_gap_at_minus8(void)
 
 SEC("tc")
 __description("stack_arg: pruning with different stack arg types")
-__failure
+__failure __log_level(2)
 __flag(BPF_F_TEST_STATE_FREQ)
+__msg("arg JOIN insn 9 -> 10 r1: fp0-8 + _ => fp0-8|fp0+0")
+__msg("arg JOIN insn 9 -> 10 r11: fp0-8 + _ => fp0-8|fp0+0")
 __msg("R{{[0-9]}} invalid mem access 'scalar'")
 __naked void stack_arg_pruning_type_mismatch(void)
 {
