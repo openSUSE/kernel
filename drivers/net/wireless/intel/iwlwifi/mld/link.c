@@ -347,6 +347,11 @@ iwl_mld_change_link_in_fw(struct iwl_mld *mld, struct ieee80211_bss_conf *link,
 		    link_sta->uhr_cap.mac.mac_cap[0] &
 				IEEE80211_UHR_MAC_CAP0_DPS_ASSIST_SUPP)
 			flags |= LINK_FLG_DPS;
+
+		if (link_sta->uhr_cap.has_uhr &&
+		    link_sta->uhr_cap.mac.mac_cap[1] &
+				IEEE80211_UHR_MAC_CAP1_DUO_SUPP)
+			flags |= LINK_FLG_DUO;
 	}
 
 	cmd.htc_trig_based_pkt_ext = link->htc_trig_based_pkt_ext;
