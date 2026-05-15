@@ -983,11 +983,34 @@ void iwl_mld_add_vif_debugfs(struct ieee80211_hw *hw,
 #define LINK_DEBUGFS_WIPHY_WRITE_FILE_OPS(name, bufsz)			\
 	WIPHY_DEBUGFS_WRITE_FILE_OPS(link_##name, bufsz, bss_conf)
 
+/*
+ * Note: no locking is provided, so the function must have its own,
+ * but it cannot acquire the wiphy mutex.
+ */
+#define LINK_DEBUGFS_READ_FILE_OPS(name, bufsz)			\
+	_MLD_DEBUGFS_READ_FILE_OPS(link_##name, bufsz, struct ieee80211_bss_conf)
+
 #define LINK_DEBUGFS_ADD_FILE_ALIAS(alias, name, parent, mode)		\
 	debugfs_create_file(alias, mode, parent, link_conf,		\
 			    &iwl_dbgfs_link_##name##_ops)
 #define LINK_DEBUGFS_ADD_FILE(name, parent, mode)			\
 	LINK_DEBUGFS_ADD_FILE_ALIAS(#name, name, parent, mode)
+
+static ssize_t iwl_dbgfs_link_fw_id_read(struct ieee80211_bss_conf *link_conf,
+					 size_t buflen, void *buf)
+{
+	struct iwl_mld_link *mld_link;
+
+	guard(rcu)();
+
+	mld_link = iwl_mld_link_from_mac80211(link_conf);
+	if (!mld_link)
+		return -EINVAL;
+
+	return scnprintf(buf, buflen, "%d\n", mld_link->fw_id);
+}
+
+LINK_DEBUGFS_READ_FILE_OPS(fw_id, 64);
 
 void iwl_mld_add_link_debugfs(struct ieee80211_hw *hw,
 			      struct ieee80211_vif *vif,
@@ -1009,6 +1032,8 @@ void iwl_mld_add_link_debugfs(struct ieee80211_hw *hw,
 		/* Release the reference from debugfs_lookup */
 		dput(mld_link_dir);
 	}
+
+	LINK_DEBUGFS_ADD_FILE(fw_id, mld_link_dir, 0400);
 }
 
 static ssize_t _iwl_dbgfs_fixed_rate_write(struct iwl_mld *mld, char *buf,
@@ -1092,6 +1117,21 @@ static ssize_t iwl_dbgfs_link_sta_tlc_dhc_write(struct iwl_mld *mld, char *buf,
 	return ret ? : count;
 }
 
+static ssize_t
+iwl_dbgfs_link_sta_fw_id_read(struct ieee80211_link_sta *link_sta,
+			      size_t buflen, void *buf)
+{
+	struct iwl_mld_link_sta *mld_link_sta;
+
+	guard(rcu)();
+
+	mld_link_sta = iwl_mld_link_sta_from_mac80211(link_sta);
+	if (!mld_link_sta)
+		return -EINVAL;
+
+	return scnprintf(buf, buflen, "%u\n", mld_link_sta->fw_id);
+}
+
 #define LINK_STA_DEBUGFS_ADD_FILE_ALIAS(alias, name, parent, mode)	\
 	debugfs_create_file(alias, mode, parent, link_sta,		\
 			    &iwl_dbgfs_link_sta_##name##_ops)
@@ -1101,9 +1141,18 @@ static ssize_t iwl_dbgfs_link_sta_tlc_dhc_write(struct iwl_mld *mld, char *buf,
 #define LINK_STA_WIPHY_DEBUGFS_WRITE_OPS(name, bufsz)			\
 	WIPHY_DEBUGFS_WRITE_FILE_OPS(link_sta_##name, bufsz, link_sta)
 
+/*
+ * Note: no locking is provided, so the function must have its own,
+ * but it cannot acquire the wiphy mutex.
+ */
+#define LINK_STA_DEBUGFS_READ_OPS(name, bufsz)				\
+	_MLD_DEBUGFS_READ_FILE_OPS(link_sta_##name, bufsz,		\
+				   struct ieee80211_link_sta)
+
 LINK_STA_WIPHY_DEBUGFS_WRITE_OPS(tlc_dhc, 64);
 LINK_STA_WIPHY_DEBUGFS_WRITE_OPS(fixed_rate, 64);
 LINK_STA_WIPHY_DEBUGFS_WRITE_OPS(fixed_rate_v3, 64);
+LINK_STA_DEBUGFS_READ_OPS(fw_id, 64);
 
 void iwl_mld_add_link_sta_debugfs(struct ieee80211_hw *hw,
 				  struct ieee80211_vif *vif,
@@ -1113,4 +1162,5 @@ void iwl_mld_add_link_sta_debugfs(struct ieee80211_hw *hw,
 	LINK_STA_DEBUGFS_ADD_FILE(fixed_rate, dir, 0200);
 	LINK_STA_DEBUGFS_ADD_FILE(fixed_rate_v3, dir, 0200);
 	LINK_STA_DEBUGFS_ADD_FILE(tlc_dhc, dir, 0200);
+	LINK_STA_DEBUGFS_ADD_FILE(fw_id, dir, 0400);
 }
