@@ -4380,10 +4380,20 @@ static void rtw89_pci_l1ss_cfg(struct rtw89_dev *rtwdev)
 static void rtw89_pci_cpl_timeout_cfg(struct rtw89_dev *rtwdev)
 {
 	struct rtw89_pci *rtwpci = (struct rtw89_pci *)rtwdev->priv;
+	enum rtw89_core_chip_id chip_id = rtwdev->chip->chip_id;
+	struct rtw89_hal *hal = &rtwdev->hal;
 	struct pci_dev *pdev = rtwpci->pdev;
+	bool dis = true;
 
-	pcie_capability_set_word(pdev, PCI_EXP_DEVCTL2,
-				 PCI_EXP_DEVCTL2_COMP_TMOUT_DIS);
+	if (chip_id == RTL8922D && hal->cid == RTL8922D_CID7090)
+		dis = false;
+
+	if (dis)
+		pcie_capability_set_word(pdev, PCI_EXP_DEVCTL2,
+					 PCI_EXP_DEVCTL2_COMP_TMOUT_DIS);
+	else
+		pcie_capability_clear_word(pdev, PCI_EXP_DEVCTL2,
+					   PCI_EXP_DEVCTL2_COMP_TMOUT_DIS);
 }
 
 static int rtw89_pci_poll_io_idle_ax(struct rtw89_dev *rtwdev)
