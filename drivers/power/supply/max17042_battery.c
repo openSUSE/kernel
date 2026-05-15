@@ -1371,12 +1371,12 @@ MODULE_DEVICE_TABLE(of, max17042_dt_match);
 #endif
 
 static const struct i2c_device_id max17042_id[] = {
-	{ "max17042", MAXIM_DEVICE_TYPE_MAX17042 },
-	{ "max17047", MAXIM_DEVICE_TYPE_MAX17047 },
-	{ "max17050", MAXIM_DEVICE_TYPE_MAX17050 },
-	{ "max17055", MAXIM_DEVICE_TYPE_MAX17055 },
-	{ "max77759-fg", MAXIM_DEVICE_TYPE_MAX77759 },
-	{ "max77849-battery", MAXIM_DEVICE_TYPE_MAX17047 },
+	{ .name = "max17042", .driver_data = MAXIM_DEVICE_TYPE_MAX17042 },
+	{ .name = "max17047", .driver_data = MAXIM_DEVICE_TYPE_MAX17047 },
+	{ .name = "max17050", .driver_data = MAXIM_DEVICE_TYPE_MAX17050 },
+	{ .name = "max17055", .driver_data = MAXIM_DEVICE_TYPE_MAX17055 },
+	{ .name = "max77759-fg", .driver_data = MAXIM_DEVICE_TYPE_MAX77759 },
+	{ .name = "max77849-battery", .driver_data = MAXIM_DEVICE_TYPE_MAX17047 },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, max17042_id);

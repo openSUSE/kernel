@@ -1609,10 +1609,10 @@ static void smb347_shutdown(struct i2c_client *client)
 }
 
 static const struct i2c_device_id smb347_id[] = {
-	{ "smb345", SMB345 },
-	{ "smb347", SMB347 },
-	{ "smb358", SMB358 },
-	{ },
+	{ .name = "smb345", .driver_data = SMB345 },
+	{ .name = "smb347", .driver_data = SMB347 },
+	{ .name = "smb358", .driver_data = SMB358 },
+	{ }
 };
 MODULE_DEVICE_TABLE(i2c, smb347_id);
 
