@@ -1205,7 +1205,7 @@ xrep_reap_metadir_fsblocks(
 	ASSERT(xfs_is_metadir_inode(sc->ip));
 
 	xreap_configure_agextent_limits(&rs);
-	xfs_rmap_ino_bmbt_owner(&oinfo, sc->ip->i_ino, XFS_DATA_FORK);
+	xfs_rmap_inode_bmbt_owner(&oinfo, sc->ip, XFS_DATA_FORK);
 	error = xfsb_bitmap_walk(bitmap, xreap_fsmeta_extent, &rs);
 	if (error)
 		return error;

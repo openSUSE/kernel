@@ -760,7 +760,7 @@ xrep_bmap_build_new_fork(
 	 * Prepare to construct the new fork by initializing the new btree
 	 * structure and creating a fake ifork in the ifakeroot structure.
 	 */
-	xfs_rmap_ino_bmbt_owner(&oinfo, sc->ip->i_ino, rb->whichfork);
+	xfs_rmap_inode_bmbt_owner(&oinfo, sc->ip, rb->whichfork);
 	error = xrep_newbt_init_inode(&rb->new_bmapbt, sc, rb->whichfork,
 			&oinfo);
 	if (error)
@@ -833,7 +833,7 @@ xrep_bmap_remove_old_tree(
 	struct xfs_owner_info	oinfo;
 
 	/* Free the old bmbt blocks if they're not in use. */
-	xfs_rmap_ino_bmbt_owner(&oinfo, sc->ip->i_ino, rb->whichfork);
+	xfs_rmap_inode_bmbt_owner(&oinfo, sc->ip, rb->whichfork);
 	return xrep_reap_fsblocks(sc, &rb->old_bmbt_blocks, &oinfo);
 }
 

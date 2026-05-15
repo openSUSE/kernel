@@ -145,7 +145,7 @@ xrep_newbt_init_metadir_inode(
 
 	ASSERT(xfs_is_metadir_inode(sc->ip));
 
-	xfs_rmap_ino_bmbt_owner(&oinfo, sc->ip->i_ino, XFS_DATA_FORK);
+	xfs_rmap_inode_bmbt_owner(&oinfo, sc->ip, XFS_DATA_FORK);
 
 	ifp = kmem_cache_zalloc(xfs_ifork_cache, XCHK_GFP_FLAGS);
 	if (!ifp)
