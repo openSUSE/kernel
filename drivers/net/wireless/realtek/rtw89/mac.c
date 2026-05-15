@@ -1889,8 +1889,8 @@ const struct rtw89_mac_size_set rtw89_mac_size = {
 	.rsvd0_size6 = {40960, 0,},
 	.rsvd1_size0 = {587776, 2048,},
 	.rsvd1_size2 = {391168, 2048,},
-	.dle_input3 = {0, 0, 0, 16384, 0, 2048, 0, 0,},
-	.dle_input20 = {128, 128, 11454, 2048, 0, 2048, 24, 24,},
+	.dle_input3 = {0, 0, 0, 16384, 0, 2048, 0, 0, 0,},
+	.dle_input20 = {128, 128, 11454, 2048, 0, 2048, 1024, 24, 24,},
 };
 EXPORT_SYMBOL(rtw89_mac_size);
 

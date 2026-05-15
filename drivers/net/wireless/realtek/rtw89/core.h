@@ -4167,6 +4167,7 @@ struct rtw89_dle_input {
 	u32 h2c_max_size;
 	u32 rx_amsdu_size; /* unit: KB */
 	u32 c2h_max_size;
+	u32 rls_rpt_max_size;
 	u32 mpdu_info_tbl_b0;
 	u32 mpdu_info_tbl_b1;
 };
