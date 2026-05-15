@@ -850,6 +850,24 @@ static __initconst const u64 lnc_hw_cache_extra_regs
  },
 };
 
+/* ARL specific lioncove hw_cache_extra_regs[] variant. */
+static __initconst const u64 arl_lnc_hw_cache_extra_regs
+				[PERF_COUNT_HW_CACHE_MAX]
+				[PERF_COUNT_HW_CACHE_OP_MAX]
+				[PERF_COUNT_HW_CACHE_RESULT_MAX] =
+{
+ [ C(LL  ) ] = {
+	[ C(OP_READ) ] = {
+		[ C(RESULT_ACCESS) ] = 0x10001,		/* OCR.DEMAND_DATA_RD.ANY_RESPONSE */
+		[ C(RESULT_MISS)   ] = 0xFE7F8000001,	/* OCR.DEMAND_DATA_RD.L3_MISS */
+	},
+	[ C(OP_WRITE) ] = {
+		[ C(RESULT_ACCESS) ] = 0x10002,		/* OCR.DEMAND_RFO.ANY_RESPONSE */
+		[ C(RESULT_MISS)   ] = 0xFE7F8000002,	/* OCR.DEMAND_RFO.L3_MISS */
+	},
+ },
+};
+
 static __initconst const u64 pnc_hw_cache_event_ids
 				[PERF_COUNT_HW_CACHE_MAX]
 				[PERF_COUNT_HW_CACHE_OP_MAX]
@@ -8564,15 +8582,40 @@ __init int intel_pmu_init(void)
 	case INTEL_WILDCATLAKE_L:
 		pr_cont("Pantherlake Hybrid events, ");
 		name = "pantherlake_hybrid";
+
+		intel_pmu_init_hybrid(hybrid_big_small);
+
+		/* Initialize big core specific PerfMon capabilities.*/
+		pmu = &x86_pmu.hybrid_pmu[X86_HYBRID_PMU_CORE_IDX];
+		intel_pmu_init_lnc(&pmu->pmu);
+
+		goto lnl_common;
+
+	case INTEL_ARROWLAKE:
+		pr_cont("Arrowlake Hybrid events, ");
+		name = "arrowlake_hybrid";
+
+		intel_pmu_init_hybrid(hybrid_big_small);
+
+		/* Initialize big core specific PerfMon capabilities.*/
+		pmu = &x86_pmu.hybrid_pmu[X86_HYBRID_PMU_CORE_IDX];
+		intel_pmu_init_lnc(&pmu->pmu);
+		memcpy(hybrid_var(&pmu->pmu, hw_cache_extra_regs),
+		       arl_lnc_hw_cache_extra_regs, sizeof(hw_cache_extra_regs));
+
 		goto lnl_common;
 
 	case INTEL_LUNARLAKE_M:
-	case INTEL_ARROWLAKE:
 		pr_cont("Lunarlake Hybrid events, ");
 		name = "lunarlake_hybrid";
 
-	lnl_common:
 		intel_pmu_init_hybrid(hybrid_big_small);
+
+		/* Initialize big core specific PerfMon capabilities.*/
+		pmu = &x86_pmu.hybrid_pmu[X86_HYBRID_PMU_CORE_IDX];
+		intel_pmu_init_lnc(&pmu->pmu);
+
+	lnl_common:
 
 		x86_pmu.pebs_latency_data = lnl_latency_data;
 		x86_pmu.get_event_constraints = mtl_get_event_constraints;
@@ -8583,10 +8626,6 @@ __init int intel_pmu_init(void)
 		tsx_attr = adl_hybrid_tsx_attrs;
 		extra_attr = boot_cpu_has(X86_FEATURE_RTM) ?
 			mtl_hybrid_extra_attr_rtm : mtl_hybrid_extra_attr;
-
-		/* Initialize big core specific PerfMon capabilities.*/
-		pmu = &x86_pmu.hybrid_pmu[X86_HYBRID_PMU_CORE_IDX];
-		intel_pmu_init_lnc(&pmu->pmu);
 
 		/* Initialize Atom core specific PerfMon capabilities.*/
 		pmu = &x86_pmu.hybrid_pmu[X86_HYBRID_PMU_ATOM_IDX];
@@ -8611,6 +8650,8 @@ __init int intel_pmu_init(void)
 		/* Initialize big core specific PerfMon capabilities. */
 		pmu = &x86_pmu.hybrid_pmu[X86_HYBRID_PMU_CORE_IDX];
 		intel_pmu_init_lnc(&pmu->pmu);
+		memcpy(hybrid_var(&pmu->pmu, hw_cache_extra_regs),
+		       arl_lnc_hw_cache_extra_regs, sizeof(hw_cache_extra_regs));
 
 		/* Initialize Atom core specific PerfMon capabilities. */
 		pmu = &x86_pmu.hybrid_pmu[X86_HYBRID_PMU_ATOM_IDX];
@@ -8618,8 +8659,7 @@ __init int intel_pmu_init(void)
 
 		/* Initialize Lower Power Atom specific PerfMon capabilities. */
 		pmu = &x86_pmu.hybrid_pmu[X86_HYBRID_PMU_TINY_IDX];
-		intel_pmu_init_grt(&pmu->pmu);
-		pmu->extra_regs = intel_cmt_extra_regs;
+		intel_pmu_init_cmt(&pmu->pmu);
 
 		intel_pmu_pebs_data_source_arl_h();
 		pr_cont("ArrowLake-H Hybrid events, ");
