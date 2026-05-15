@@ -195,14 +195,17 @@ static int batadv_iv_ogm_iface_enable(struct batadv_hard_iface *hard_iface)
 	get_random_bytes(&random_seqno, sizeof(random_seqno));
 	atomic_set(&hard_iface->bat_iv.ogm_seqno, random_seqno);
 
-	hard_iface->bat_iv.ogm_buff_len = BATADV_OGM_HLEN;
-	ogm_buff = kmalloc(hard_iface->bat_iv.ogm_buff_len, GFP_ATOMIC);
+	hard_iface->bat_iv.ogm_buff.len = BATADV_OGM_HLEN;
+	hard_iface->bat_iv.ogm_buff.capacity = BATADV_OGM_HLEN;
+	hard_iface->bat_iv.ogm_buff.header_length = BATADV_OGM_HLEN;
+
+	ogm_buff = kmalloc(hard_iface->bat_iv.ogm_buff.capacity, GFP_ATOMIC);
 	if (!ogm_buff) {
 		mutex_unlock(&hard_iface->bat_iv.ogm_buff_mutex);
 		return -ENOMEM;
 	}
 
-	hard_iface->bat_iv.ogm_buff = ogm_buff;
+	hard_iface->bat_iv.ogm_buff.buf = ogm_buff;
 
 	batadv_ogm_packet = (struct batadv_ogm_packet *)ogm_buff;
 	batadv_ogm_packet->packet_type = BATADV_IV_OGM;
@@ -221,8 +224,9 @@ static void batadv_iv_ogm_iface_disable(struct batadv_hard_iface *hard_iface)
 {
 	mutex_lock(&hard_iface->bat_iv.ogm_buff_mutex);
 
-	kfree(hard_iface->bat_iv.ogm_buff);
-	hard_iface->bat_iv.ogm_buff = NULL;
+	kfree(hard_iface->bat_iv.ogm_buff.buf);
+	memset(&hard_iface->bat_iv.ogm_buff, 0,
+	       sizeof(hard_iface->bat_iv.ogm_buff));
 
 	mutex_unlock(&hard_iface->bat_iv.ogm_buff_mutex);
 
@@ -236,7 +240,7 @@ static void batadv_iv_ogm_iface_update_mac(struct batadv_hard_iface *hard_iface)
 
 	mutex_lock(&hard_iface->bat_iv.ogm_buff_mutex);
 
-	ogm_buff = hard_iface->bat_iv.ogm_buff;
+	ogm_buff = hard_iface->bat_iv.ogm_buff.buf;
 	if (!ogm_buff)
 		goto unlock;
 
@@ -258,7 +262,7 @@ batadv_iv_ogm_primary_iface_set(struct batadv_hard_iface *hard_iface)
 
 	mutex_lock(&hard_iface->bat_iv.ogm_buff_mutex);
 
-	ogm_buff = hard_iface->bat_iv.ogm_buff;
+	ogm_buff = hard_iface->bat_iv.ogm_buff.buf;
 	if (!ogm_buff)
 		goto unlock;
 
@@ -796,10 +800,9 @@ batadv_iv_ogm_slide_own_bcast_window(struct batadv_hard_iface *hard_iface)
 static void batadv_iv_ogm_schedule_buff(struct batadv_hard_iface *hard_iface)
 {
 	struct batadv_priv *bat_priv = netdev_priv(hard_iface->mesh_iface);
-	unsigned char **ogm_buff = &hard_iface->bat_iv.ogm_buff;
+	struct batadv_ogm_buf *ogm_buff = &hard_iface->bat_iv.ogm_buff;
 	struct batadv_ogm_packet *batadv_ogm_packet;
 	struct batadv_hard_iface *primary_if, *tmp_hard_iface;
-	int *ogm_buff_len = &hard_iface->bat_iv.ogm_buff_len;
 	struct list_head *iter;
 	u32 seqno;
 	u16 tvlv_len = 0;
@@ -811,7 +814,7 @@ static void batadv_iv_ogm_schedule_buff(struct batadv_hard_iface *hard_iface)
 	lockdep_assert_held(&hard_iface->bat_iv.ogm_buff_mutex);
 
 	/* interface already disabled by batadv_iv_ogm_iface_disable */
-	if (!*ogm_buff)
+	if (!ogm_buff->buf)
 		return;
 
 	/* the interface gets activated here to avoid race conditions between
@@ -830,9 +833,7 @@ static void batadv_iv_ogm_schedule_buff(struct batadv_hard_iface *hard_iface)
 		 * appended as it may alter the tt tvlv container
 		 */
 		batadv_tt_local_commit_changes(bat_priv);
-		ret = batadv_tvlv_container_ogm_append(bat_priv, ogm_buff,
-						       ogm_buff_len,
-						       BATADV_OGM_HLEN);
+		ret = batadv_tvlv_container_ogm_append(bat_priv, ogm_buff);
 		if (ret < 0) {
 			reschedule = true;
 			goto out;
@@ -841,7 +842,7 @@ static void batadv_iv_ogm_schedule_buff(struct batadv_hard_iface *hard_iface)
 		tvlv_len = ret;
 	}
 
-	batadv_ogm_packet = (struct batadv_ogm_packet *)(*ogm_buff);
+	batadv_ogm_packet = ogm_buff->buf;
 	batadv_ogm_packet->tvlv_len = htons(tvlv_len);
 
 	/* change sequence number to network order */
@@ -857,7 +858,7 @@ static void batadv_iv_ogm_schedule_buff(struct batadv_hard_iface *hard_iface)
 		/* OGMs from secondary interfaces are only scheduled on their
 		 * respective interfaces.
 		 */
-		scheduled = batadv_iv_ogm_queue_add(bat_priv, *ogm_buff, *ogm_buff_len,
+		scheduled = batadv_iv_ogm_queue_add(bat_priv, ogm_buff->buf, ogm_buff->len,
 						    hard_iface, hard_iface, 1, send_time);
 		if (!scheduled)
 			reschedule = true;
@@ -873,8 +874,8 @@ static void batadv_iv_ogm_schedule_buff(struct batadv_hard_iface *hard_iface)
 		if (!kref_get_unless_zero(&tmp_hard_iface->refcount))
 			continue;
 
-		scheduled = batadv_iv_ogm_queue_add(bat_priv, *ogm_buff,
-						    *ogm_buff_len, hard_iface,
+		scheduled = batadv_iv_ogm_queue_add(bat_priv, ogm_buff->buf,
+						    ogm_buff->len, hard_iface,
 						    tmp_hard_iface, 1, send_time);
 		batadv_hardif_put(tmp_hard_iface);
 

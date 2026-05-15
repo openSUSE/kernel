@@ -72,14 +72,28 @@ enum batadv_dhcp_recipient {
 #define BATADV_TT_SYNC_MASK	0x00F0
 
 /**
+ * struct batadv_ogm_buf - Buffer to construct an OGM with TVLV
+ */
+struct batadv_ogm_buf {
+	/** @buf: buffer holding the OGM packet */
+	void *buf;
+
+	/** @len: length of the OGM packet buffer data */
+	size_t len;
+
+	/** @capacity: size of allocated buf */
+	size_t capacity;
+
+	/** @header_length: fixed size header length (must be <= len) */
+	size_t header_length;
+};
+
+/**
  * struct batadv_hard_iface_bat_iv - per hard-interface B.A.T.M.A.N. IV data
  */
 struct batadv_hard_iface_bat_iv {
 	/** @ogm_buff: buffer holding the OGM packet */
-	unsigned char *ogm_buff;
-
-	/** @ogm_buff_len: length of the OGM packet buffer */
-	int ogm_buff_len;
+	struct batadv_ogm_buf ogm_buff;
 
 	/** @ogm_seqno: OGM sequence number - used to identify each OGM */
 	atomic_t ogm_seqno;
@@ -87,7 +101,7 @@ struct batadv_hard_iface_bat_iv {
 	/** @reschedule_work: recover OGM schedule after schedule error */
 	struct delayed_work reschedule_work;
 
-	/** @ogm_buff_mutex: lock protecting ogm_buff and ogm_buff_len */
+	/** @ogm_buff_mutex: lock protecting ogm_buff */
 	struct mutex ogm_buff_mutex;
 };
 
@@ -1481,15 +1495,12 @@ struct batadv_meshif_vlan {
  */
 struct batadv_priv_bat_v {
 	/** @ogm_buff: buffer holding the OGM packet */
-	unsigned char *ogm_buff;
-
-	/** @ogm_buff_len: length of the OGM packet buffer */
-	int ogm_buff_len;
+	struct batadv_ogm_buf ogm_buff;
 
 	/** @ogm_seqno: OGM sequence number - used to identify each OGM */
 	atomic_t ogm_seqno;
 
-	/** @ogm_buff_mutex: lock protecting ogm_buff and ogm_buff_len */
+	/** @ogm_buff_mutex: lock protecting ogm_buff */
 	struct mutex ogm_buff_mutex;
 
 	/** @ogm_wq: workqueue used to schedule OGM transmissions */
