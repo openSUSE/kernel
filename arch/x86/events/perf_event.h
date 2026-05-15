@@ -1712,6 +1712,8 @@ extern struct event_constraint intel_grt_pebs_event_constraints[];
 
 extern struct event_constraint intel_cmt_pebs_event_constraints[];
 
+extern struct event_constraint intel_dkt_pebs_event_constraints[];
+
 extern struct event_constraint intel_arw_pebs_event_constraints[];
 
 extern struct event_constraint intel_nehalem_pebs_event_constraints[];
