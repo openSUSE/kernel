@@ -82,30 +82,28 @@ static SIMPLE_DEV_PM_OPS(ebook_switch_pm, NULL, ebook_switch_resume);
 
 static int ebook_switch_probe(struct platform_device *pdev)
 {
-	struct acpi_device *device = ACPI_COMPANION(&pdev->dev);
+	struct device *dev = &pdev->dev;
+	struct acpi_device *device = ACPI_COMPANION(dev);
 	const struct acpi_device_id *id;
 	struct ebook_switch *button;
 	struct input_dev *input;
 	int error;
 
-	button = kzalloc_obj(struct ebook_switch);
+	button = devm_kzalloc(dev, sizeof(*button), GFP_KERNEL);
 	if (!button)
 		return -ENOMEM;
 
 	platform_set_drvdata(pdev, button);
 
-	button->input = input = input_allocate_device();
-	if (!input) {
-		error = -ENOMEM;
-		goto err_free_button;
-	}
+	input = devm_input_allocate_device(dev);
+	if (!input)
+		return -ENOMEM;
+
+	button->input = input;
 
 	id = acpi_match_acpi_device(ebook_device_ids, device);
-	if (!id) {
-		dev_err(&pdev->dev, "Unsupported hid\n");
-		error = -ENODEV;
-		goto err_free_input;
-	}
+	if (!id)
+		return dev_err_probe(dev, -ENODEV, "Unsupported hid\n");
 
 	strscpy(acpi_device_name(device), XO15_EBOOK_DEVICE_NAME);
 	strscpy(acpi_device_class(device), XO15_EBOOK_CLASS "/" XO15_EBOOK_SUBCLASS);
@@ -115,21 +113,20 @@ static int ebook_switch_probe(struct platform_device *pdev)
 	input->name = acpi_device_name(device);
 	input->phys = button->phys;
 	input->id.bustype = BUS_HOST;
-	input->dev.parent = &pdev->dev;
 
 	input->evbit[0] = BIT_MASK(EV_SW);
 	set_bit(SW_TABLET_MODE, input->swbit);
 
 	error = input_register_device(input);
 	if (error)
-		goto err_free_input;
+		return error;
 
 	error = acpi_dev_install_notify_handler(device, ACPI_DEVICE_NOTIFY,
-						ebook_switch_notify, &pdev->dev);
+						ebook_switch_notify, dev);
 	if (error)
-		goto err_unregister_input;
+		return error;
 
-	ebook_send_state(&pdev->dev);
+	ebook_send_state(dev);
 
 	if (device->wakeup.flags.valid) {
 		/* Button's GPE is run-wake GPE */
@@ -139,16 +136,6 @@ static int ebook_switch_probe(struct platform_device *pdev)
 	}
 
 	return 0;
-
-err_free_input:
-	input_free_device(input);
-err_free_button:
-	kfree(button);
-	return error;
-
-err_unregister_input:
-	input_unregister_device(input);
-	goto err_free_button;
 }
 
 static void ebook_switch_remove(struct platform_device *pdev)
@@ -162,8 +149,6 @@ static void ebook_switch_remove(struct platform_device *pdev)
 
 	acpi_dev_remove_notify_handler(device, ACPI_DEVICE_NOTIFY,
 				       ebook_switch_notify);
-	input_unregister_device(button->input);
-	kfree(button);
 }
 
 static struct platform_driver xo15_ebook_driver = {
