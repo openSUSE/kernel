@@ -38,6 +38,7 @@ static DEFINE_PER_CPU(struct coresight_device *, csdev_sink);
 
 static DEFINE_RAW_SPINLOCK(coresight_dev_lock);
 static DEFINE_PER_CPU(struct coresight_device *, csdev_source);
+static DEFINE_PER_CPU(bool, percpu_pm_failed);
 
 /**
  * struct coresight_node - elements of a path, from source to sink
@@ -120,6 +121,9 @@ static void coresight_clear_percpu_source(struct coresight_device *csdev)
 {
 	if (!csdev || !coresight_is_percpu_source(csdev))
 		return;
+
+	/* Clear percpu_pm_failed */
+	per_cpu(percpu_pm_failed, csdev->cpu) = false;
 
 	guard(raw_spinlock_irqsave)(&coresight_dev_lock);
 
@@ -1843,7 +1847,7 @@ static void coresight_release_device_list(void)
 	}
 }
 
-static struct coresight_device *coresight_cpu_get_active_source(void)
+static struct coresight_path *coresight_cpu_get_active_path(void)
 {
 	struct coresight_device *source;
 	bool is_active = false;
@@ -1859,22 +1863,32 @@ static struct coresight_device *coresight_cpu_get_active_source(void)
 
 	/*
 	 * It is expected to run in atomic context, so it cannot be preempted
-	 * to disable the source. Here returns the active source pointer
-	 * without concern that its state may change. Since the build path has
-	 * taken a reference on the component, the source can be safely used
-	 * by the caller.
+	 * to disable the path. Here returns the active path pointer without
+	 * concern that its state may change. Since the build path has taken
+	 * a reference on the component, the path can be safely used by the
+	 * caller.
 	 */
-	return is_active ? source : NULL;
+	return is_active ? source->path : NULL;
 }
 
-static int coresight_pm_is_needed(struct coresight_device *csdev)
+/* Return: 1 if PM is required, 0 if skip, or a negative error */
+static int coresight_pm_is_needed(struct coresight_path *path)
 {
-	if (!csdev)
+	struct coresight_device *source;
+
+	if (this_cpu_read(percpu_pm_failed))
+		return -EIO;
+
+	if (!path)
+		return 0;
+
+	source = coresight_get_source(path);
+	if (!source)
 		return 0;
 
 	/* pm_save_disable() and pm_restore_enable() must be paired */
-	if (coresight_ops(csdev)->pm_save_disable &&
-	    coresight_ops(csdev)->pm_restore_enable)
+	if (coresight_ops(source)->pm_save_disable &&
+	    coresight_ops(source)->pm_restore_enable)
 		return 1;
 
 	return 0;
@@ -1890,22 +1904,71 @@ static void coresight_pm_device_restore(struct coresight_device *csdev)
 	coresight_ops(csdev)->pm_restore_enable(csdev);
 }
 
+static int coresight_pm_save(struct coresight_path *path)
+{
+	struct coresight_device *source = coresight_get_source(path);
+	struct coresight_node *from, *to;
+	int ret;
+
+	ret = coresight_pm_device_save(source);
+	if (ret)
+		return ret;
+
+	from = coresight_path_first_node(path);
+	/* Disable up to the node before sink */
+	to = list_prev_entry(coresight_path_last_node(path), link);
+	coresight_disable_path_from_to(path, from, to);
+
+	return 0;
+}
+
+static void coresight_pm_restore(struct coresight_path *path)
+{
+	struct coresight_device *source = coresight_get_source(path);
+	struct coresight_node *from, *to;
+	int ret;
+
+	from = coresight_path_first_node(path);
+	/* Enable up to the node before sink */
+	to = list_prev_entry(coresight_path_last_node(path), link);
+	ret = coresight_enable_path_from_to(path, coresight_get_mode(source),
+					    from, to);
+	if (ret)
+		goto path_failed;
+
+	coresight_pm_device_restore(source);
+	return;
+
+path_failed:
+	pr_err("Failed in coresight PM restore on CPU%d: %d\n",
+	       smp_processor_id(), ret);
+
+	/*
+	 * Once PM fails on a CPU, set percpu_pm_failed and leave it set until
+	 * reboot. This prevents repeated partial transitions during idle
+	 * entry and exit.
+	 */
+	this_cpu_write(percpu_pm_failed, true);
+}
+
 static int coresight_cpu_pm_notify(struct notifier_block *nb, unsigned long cmd,
 				   void *v)
 {
-	struct coresight_device *csdev = coresight_cpu_get_active_source();
+	struct coresight_path *path = coresight_cpu_get_active_path();
+	int ret;
 
-	if (!coresight_pm_is_needed(csdev))
-		return NOTIFY_DONE;
+	ret = coresight_pm_is_needed(path);
+	if (ret <= 0)
+		return ret ? NOTIFY_BAD : NOTIFY_DONE;
 
 	switch (cmd) {
 	case CPU_PM_ENTER:
-		if (coresight_pm_device_save(csdev))
+		if (coresight_pm_save(path))
 			return NOTIFY_BAD;
 		break;
 	case CPU_PM_EXIT:
 	case CPU_PM_ENTER_FAILED:
-		coresight_pm_device_restore(csdev);
+		coresight_pm_restore(path);
 		break;
 	default:
 		return NOTIFY_DONE;
