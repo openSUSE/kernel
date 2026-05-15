@@ -611,6 +611,12 @@ static inline bool coresight_is_percpu_source(struct coresight_device *csdev)
 	       (csdev->subtype.source_subtype == CORESIGHT_DEV_SUBTYPE_SOURCE_PROC);
 }
 
+static inline bool coresight_is_software_source(struct coresight_device *csdev)
+{
+	return csdev && coresight_is_device_source(csdev) &&
+	       (csdev->subtype.source_subtype == CORESIGHT_DEV_SUBTYPE_SOURCE_SOFTWARE);
+}
+
 static inline bool coresight_is_percpu_sink(struct coresight_device *csdev)
 {
 	return csdev && (csdev->type == CORESIGHT_DEV_TYPE_SINK) &&
