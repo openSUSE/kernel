@@ -1748,6 +1748,7 @@ const struct rtw89_mac_size_set rtw89_mac_size = {
 	.wde_size18_v1 = {RTW89_WDE_PG_64, 0, 640, 0,},
 	/* 8852C PCIE SCC */
 	.wde_size19 = {RTW89_WDE_PG_64, 3328, 0,},
+	.wde_size22_v1 = {RTW89_WDE_PG_128, 384, 0, 0,},
 	.wde_size23 = {RTW89_WDE_PG_64, 1022, 2,},
 	/* 8852B USB2.0/USB3.0 SCC turbo */
 	.wde_size30 = {RTW89_WDE_PG_64, 220, 36,},
@@ -1781,6 +1782,7 @@ const struct rtw89_mac_size_set rtw89_mac_size = {
 	.ple_size22_v1 = {RTW89_PLE_PG_128, 2736, 0, 40960,},
 	/* 8851B USB2.0 SCC turbo */
 	.ple_size27 = {RTW89_PLE_PG_128, 1396, 12,},
+	.ple_size29_v1 = {RTW89_PLE_PG_128, 1895, 182, 49152,},
 	/* 8852B USB3.0 SCC turbo */
 	.ple_size31 = {RTW89_PLE_PG_128, 1392, 16,},
 	/* 8852C USB2.0 */
@@ -1811,6 +1813,7 @@ const struct rtw89_mac_size_set rtw89_mac_size = {
 	.wde_qt18 = {3228, 60, 0, 40,},
 	.wde_qt19_v1 = {613, 6, 0, 20,},
 	.wde_qt23 = {958, 48, 0, 16,},
+	.wde_qt23_v1 = {371, 3, 0, 10,},
 	/* 8852B USB2.0/USB3.0 SCC turbo */
 	.wde_qt30 = {210, 2, 0, 8,},
 	/* 8852C USB2.0 */
@@ -1868,6 +1871,8 @@ const struct rtw89_mac_size_set rtw89_mac_size = {
 	/* 8851B USB2.0 SCC turbo */
 	.ple_qt61 = {858, 0, 16, 48, 4, 13, 370, 0, 32, 14, 8, 0, 0,},
 	.ple_qt62 = {858, 0, 32, 48, 37, 13, 403, 0, 65, 14, 24, 0, 0,},
+	.ple_qt64_v2 = {91, 91, 32, 16, 19, 13, 93, 93, 44, 34, 1, 4, 0, 0,},
+	.ple_qt65_v2 = {645, 645, 32, 1380, 1383, 1377, 1457, 1457, 1408, 1398, 1, 1368,},
 	/* USB2.0 52C */
 	.ple_qt78 = {1560, 0, 16, 48, 13, 13, 390, 0, 32, 38, 8, 16, 0,},
 	/* USB2.0 52C */
@@ -1888,10 +1893,13 @@ const struct rtw89_mac_size_set rtw89_mac_size = {
 	.rsvd0_size3 = {57344, 0,},
 	.rsvd0_size5 = {32768, 0,},
 	.rsvd0_size6 = {40960, 0,},
+	.rsvd0_size17 = {49152, 0,},
 	.rsvd1_size0 = {587776, 2048,},
 	.rsvd1_size2 = {391168, 2048,},
+	.rsvd1_size3 = {315008, 78208,},
 	.dle_input3 = {0, 0, 0, 16384, 0, 2048, 0, 0, 0,},
 	.dle_input20 = {128, 128, 11454, 2048, 0, 2048, 1024, 24, 24,},
+	.dle_input28 = {128, 128, 11454, 2048, 0, 2048, 2048, 24, 24,},
 };
 EXPORT_SYMBOL(rtw89_mac_size);
 

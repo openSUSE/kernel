@@ -25,6 +25,62 @@
 	RTW89_GEN_MODULE_FWNAME(RTW8922DS_FW_BASENAME, RTW8922DS_FW_FORMAT_MAX)
 
 static const struct rtw89_hfc_ch_cfg rtw8922d_hfc_chcfg_pcie[] = {
+	{2, 732, 0}, /* ACH 0 */
+	{0, 730, 0}, /* ACH 1 */
+	{2, 732, 0}, /* ACH 2 */
+	{0, 730, 0}, /* ACH 3 */
+	{2, 732, 0}, /* ACH 4 */
+	{0, 730, 0}, /* ACH 5 */
+	{2, 732, 0}, /* ACH 6 */
+	{0, 730, 0}, /* ACH 7 */
+	{2, 732, 0}, /* B0MGQ */
+	{0, 730, 0}, /* B0HIQ */
+	{2, 732, 0}, /* B1MGQ */
+	{0, 730, 0}, /* B1HIQ */
+	{0, 0, 0}, /* GCQ */
+};
+
+static const struct rtw89_hfc_pub_cfg rtw8922d_hfc_pubcfg_pcie = {
+	742, /* Group 0 */
+	0, /* Group 1 */
+	742, /* Public Max */
+	0, /* WP threshold */
+};
+
+static const struct rtw89_hfc_param_ini rtw8922d_hfc_param_ini_pcie[] = {
+	[RTW89_QTA_SCC] = {rtw8922d_hfc_chcfg_pcie, &rtw8922d_hfc_pubcfg_pcie,
+			   &rtw89_mac_size.hfc_prec_cfg_c0, RTW89_HCIFC_POH},
+	[RTW89_QTA_DBCC] = {rtw8922d_hfc_chcfg_pcie, &rtw8922d_hfc_pubcfg_pcie,
+			    &rtw89_mac_size.hfc_prec_cfg_c0, RTW89_HCIFC_POH},
+	[RTW89_QTA_DLFW] = {NULL, NULL, &rtw89_mac_size.hfc_prec_cfg_c2,
+			    RTW89_HCIFC_POH},
+	[RTW89_QTA_INVALID] = {NULL},
+};
+
+static const struct rtw89_dle_mem rtw8922d_dle_mem_pcie[] = {
+	[RTW89_QTA_SCC] = {RTW89_QTA_SCC, &rtw89_mac_size.wde_size22_v1,
+			   &rtw89_mac_size.ple_size29_v1, &rtw89_mac_size.wde_qt23_v1,
+			   &rtw89_mac_size.wde_qt23_v1, &rtw89_mac_size.ple_qt64_v2,
+			   &rtw89_mac_size.ple_qt65_v2, &rtw89_mac_size.ple_rsvd_qt9,
+			   &rtw89_mac_size.rsvd0_size17, &rtw89_mac_size.rsvd1_size3,
+			   &rtw89_mac_size.dle_input28},
+	[RTW89_QTA_DBCC] = {RTW89_QTA_DBCC, &rtw89_mac_size.wde_size22_v1,
+			    &rtw89_mac_size.ple_size29_v1, &rtw89_mac_size.wde_qt23_v1,
+			    &rtw89_mac_size.wde_qt23_v1, &rtw89_mac_size.ple_qt64_v2,
+			    &rtw89_mac_size.ple_qt65_v2, &rtw89_mac_size.ple_rsvd_qt9,
+			    &rtw89_mac_size.rsvd0_size17, &rtw89_mac_size.rsvd1_size3,
+			    &rtw89_mac_size.dle_input28},
+	[RTW89_QTA_DLFW] = {RTW89_QTA_DLFW, &rtw89_mac_size.wde_size18_v1,
+			    &rtw89_mac_size.ple_size22_v1, &rtw89_mac_size.wde_qt3,
+			    &rtw89_mac_size.wde_qt3, &rtw89_mac_size.ple_qt5_v2,
+			    &rtw89_mac_size.ple_qt47_v2, &rtw89_mac_size.ple_rsvd_qt1,
+			    &rtw89_mac_size.rsvd0_size6, &rtw89_mac_size.rsvd1_size2,
+			    &rtw89_mac_size.dle_input3},
+	[RTW89_QTA_INVALID] = {RTW89_QTA_INVALID, NULL, NULL, NULL, NULL, NULL,
+			       NULL},
+};
+
+static const struct rtw89_hfc_ch_cfg rtw8922ds_hfc_chcfg_pcie[] = {
 	{2, 603, 0}, /* ACH 0 */
 	{0, 601, 0}, /* ACH 1 */
 	{2, 603, 0}, /* ACH 2 */
@@ -40,24 +96,24 @@ static const struct rtw89_hfc_ch_cfg rtw8922d_hfc_chcfg_pcie[] = {
 	{0, 0, 0}, /* GCQ */
 };
 
-static const struct rtw89_hfc_pub_cfg rtw8922d_hfc_pubcfg_pcie = {
+static const struct rtw89_hfc_pub_cfg rtw8922ds_hfc_pubcfg_pcie = {
 	613, /* Group 0 */
 	0, /* Group 1 */
 	613, /* Public Max */
 	0, /* WP threshold */
 };
 
-static const struct rtw89_hfc_param_ini rtw8922d_hfc_param_ini_pcie[] = {
-	[RTW89_QTA_SCC] = {rtw8922d_hfc_chcfg_pcie, &rtw8922d_hfc_pubcfg_pcie,
+static const struct rtw89_hfc_param_ini rtw8922ds_hfc_param_ini_pcie[] = {
+	[RTW89_QTA_SCC] = {rtw8922ds_hfc_chcfg_pcie, &rtw8922ds_hfc_pubcfg_pcie,
 			   &rtw89_mac_size.hfc_prec_cfg_c0, RTW89_HCIFC_POH},
-	[RTW89_QTA_DBCC] = {rtw8922d_hfc_chcfg_pcie, &rtw8922d_hfc_pubcfg_pcie,
+	[RTW89_QTA_DBCC] = {rtw8922ds_hfc_chcfg_pcie, &rtw8922ds_hfc_pubcfg_pcie,
 			   &rtw89_mac_size.hfc_prec_cfg_c0, RTW89_HCIFC_POH},
 	[RTW89_QTA_DLFW] = {NULL, NULL, &rtw89_mac_size.hfc_prec_cfg_c2,
 			    RTW89_HCIFC_POH},
 	[RTW89_QTA_INVALID] = {NULL},
 };
 
-static const struct rtw89_dle_mem rtw8922d_dle_mem_pcie[] = {
+static const struct rtw89_dle_mem rtw8922ds_dle_mem_pcie[] = {
 	[RTW89_QTA_SCC] = {RTW89_QTA_SCC, &rtw89_mac_size.wde_size16_v1,
 			   &rtw89_mac_size.ple_size20_v1, &rtw89_mac_size.wde_qt19_v1,
 			   &rtw89_mac_size.wde_qt19_v1, &rtw89_mac_size.ple_qt44_v2,
@@ -3306,11 +3362,16 @@ static const struct rtw89_fw_def rtw8922de_vs_fw_def = {
 	.fw_b_aid		= RTL8922D_AID7060,
 };
 
+static const struct rtw89_qta_def rtw8922ds_qta_def = {
+	.hfc_param_ini		= {rtw8922ds_hfc_param_ini_pcie, NULL, NULL},
+	.dle_mem		= {rtw8922ds_dle_mem_pcie, NULL, NULL, NULL},
+};
+
 const struct rtw89_chip_variant rtw8922de_vs_variant = {
 	.no_mcs_12_13 = true,
 	.fw_min_ver_code = RTW89_FW_VER_CODE(0, 0, 0, 0),
 	.fw_def_override = &rtw8922de_vs_fw_def,
-	.qta_def_override = NULL,
+	.qta_def_override = &rtw8922ds_qta_def,
 };
 EXPORT_SYMBOL(rtw8922de_vs_variant);
 
