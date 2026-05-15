@@ -296,14 +296,14 @@ static int otto_wdt_probe(struct platform_device *pdev)
 	if (IS_ERR(ctrl->base))
 		return PTR_ERR(ctrl->base);
 
+	ret = otto_wdt_probe_clk(ctrl);
+	if (ret)
+		return ret;
+
 	/* Clear any old interrupts and reset initial state */
 	iowrite32(OTTO_WDT_INTR_PHASE_1 | OTTO_WDT_INTR_PHASE_2,
 			ctrl->base + OTTO_WDT_REG_INTR);
 	iowrite32(OTTO_WDT_CTRL_DEFAULT, ctrl->base + OTTO_WDT_REG_CTRL);
-
-	ret = otto_wdt_probe_clk(ctrl);
-	if (ret)
-		return ret;
 
 	ctrl->irq_phase1 = platform_get_irq_byname(pdev, "phase1");
 	if (ctrl->irq_phase1 < 0)
