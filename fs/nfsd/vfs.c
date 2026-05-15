@@ -2943,13 +2943,11 @@ nfsd_get_case_info(struct dentry *dentry, bool *case_insensitive,
 		put = true;
 	}
 
-	probe = prepare_creds();
+	probe = prepare_kernel_cred(&init_task);
 	if (!probe) {
 		err = -ENOMEM;
 		goto out;
 	}
-	probe->fsuid = GLOBAL_ROOT_UID;
-	probe->fsgid = GLOBAL_ROOT_GID;
 	saved = override_creds(probe);
 
 	err = vfs_fileattr_get(cd, &fa);
