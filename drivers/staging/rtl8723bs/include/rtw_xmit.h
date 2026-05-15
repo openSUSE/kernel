@@ -94,23 +94,9 @@ struct tx_desc {
 	__le32 txdw6;
 	__le32 txdw7;
 
-#if defined(TXDESC_40_BYTES) || defined(TXDESC_64_BYTES)
+#ifdef TXDESC_40_BYTES
 	__le32 txdw8;
 	__le32 txdw9;
-#endif /*  TXDESC_40_BYTES */
-
-#ifdef TXDESC_64_BYTES
-	__le32 txdw10;
-	__le32 txdw11;
-
-	/*  2008/05/15 MH Because PCIE HW memory R/W 4K limit. And now,  our descriptor */
-	/*  size is 40 bytes. If you use more than 102 descriptor(103*40>4096), HW will execute */
-	/*  memoryR/W CRC error. And then all DMA fetch will fail. We must decrease descriptor */
-	/*  number or enlarge descriptor size as 64 bytes. */
-	__le32 txdw12;
-	__le32 txdw13;
-	__le32 txdw14;
-	__le32 txdw15;
 #endif
 };
 
