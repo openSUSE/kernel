@@ -109,13 +109,47 @@ static void coresight_clear_percpu_source(struct coresight_device *csdev)
 	per_cpu(csdev_source, csdev->cpu) = NULL;
 }
 
-struct coresight_device *coresight_get_percpu_source(int cpu)
+struct coresight_device *coresight_get_percpu_source_ref(int cpu)
 {
+	struct coresight_device *csdev;
+
 	if (WARN_ON(cpu < 0))
 		return NULL;
 
 	guard(raw_spinlock_irqsave)(&coresight_dev_lock);
-	return per_cpu(csdev_source, cpu);
+
+	csdev = per_cpu(csdev_source, cpu);
+	if (!csdev)
+		return NULL;
+
+	/*
+	 * Holding a reference to the csdev->dev ensures that the
+	 * coresight_device is live for the caller. The path building
+	 * logic can safely either build a path to the sink or fail
+	 * if the device is being unregistered (if there was a race).
+	 * The caller can skip the "source" device, if no path could
+	 * be built.
+	 */
+	get_device(&csdev->dev);
+
+	return csdev;
+}
+
+void coresight_put_percpu_source_ref(struct coresight_device *csdev)
+{
+	if (!csdev || !coresight_is_percpu_source(csdev))
+		return;
+
+	guard(raw_spinlock_irqsave)(&coresight_dev_lock);
+
+	/*
+	 * TODO: coresight_device_release() is invoked to release resources when
+	 * the device's refcount reaches zero. It then calls free_percpu(),
+	 * which acquires pcpu_lock — a sleepable lock when PREEMPT_RT is
+	 * enabled. Since the raw spinlock coresight_dev_lock is held, this can
+	 * lead to a potential "scheduling while atomic" issue.
+	 */
+	put_device(&csdev->dev);
 }
 
 struct coresight_device *coresight_get_source(struct coresight_path *path)
