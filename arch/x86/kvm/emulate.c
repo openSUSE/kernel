@@ -3848,7 +3848,7 @@ static int check_dr_read(struct x86_emulate_ctxt *ctxt)
 	if ((cr4 & X86_CR4_DE) && (dr == 4 || dr == 5))
 		return emulate_ud(ctxt);
 
-	if (ctxt->ops->get_dr(ctxt, 7) & DR7_GD)
+	if (ctxt->ops->get_effective_dr7(ctxt) & DR7_GD)
 		return emulate_db(ctxt, DR6_BD);
 
 	return X86EMUL_CONTINUE;
