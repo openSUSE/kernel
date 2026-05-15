@@ -1874,7 +1874,7 @@ static struct coresight_path *coresight_cpu_get_active_path(void)
 /* Return: 1 if PM is required, 0 if skip, or a negative error */
 static int coresight_pm_is_needed(struct coresight_path *path)
 {
-	struct coresight_device *source;
+	struct coresight_device *source, *sink;
 
 	if (this_cpu_read(percpu_pm_failed))
 		return -EIO;
@@ -1883,7 +1883,8 @@ static int coresight_pm_is_needed(struct coresight_path *path)
 		return 0;
 
 	source = coresight_get_source(path);
-	if (!source)
+	sink = coresight_get_sink(path);
+	if (!source || !sink)
 		return 0;
 
 	/* pm_save_disable() and pm_restore_enable() must be paired */
@@ -1891,16 +1892,35 @@ static int coresight_pm_is_needed(struct coresight_path *path)
 	    coresight_ops(source)->pm_restore_enable)
 		return 1;
 
+	/*
+	 * It is not permitted that the source has no callbacks while the sink
+	 * does, as the sink cannot be disabled without disabling the source,
+	 * which may lead to lockups. Fix this by enabling self-hosted PM
+	 * mode for ETM (see etm4_probe()).
+	 */
+	if (coresight_ops(sink)->pm_save_disable &&
+	    coresight_ops(sink)->pm_restore_enable) {
+		pr_warn_once("coresight PM failed: source has no PM callbacks; "
+			     "cannot safely control sink\n");
+		return -EINVAL;
+	}
+
 	return 0;
 }
 
 static int coresight_pm_device_save(struct coresight_device *csdev)
 {
+	if (!csdev || !coresight_ops(csdev)->pm_save_disable)
+		return 0;
+
 	return coresight_ops(csdev)->pm_save_disable(csdev);
 }
 
 static void coresight_pm_device_restore(struct coresight_device *csdev)
 {
+	if (!csdev || !coresight_ops(csdev)->pm_restore_enable)
+		return;
+
 	coresight_ops(csdev)->pm_restore_enable(csdev);
 }
 
@@ -1919,14 +1939,23 @@ static int coresight_pm_save(struct coresight_path *path)
 	to = list_prev_entry(coresight_path_last_node(path), link);
 	coresight_disable_path_from_to(path, from, to);
 
+	/*
+	 * Save the sink. Most sinks do not implement a save callback to avoid
+	 * latency from memory copying. We assume the sink's save and restore
+	 * always succeed.
+	 */
+	coresight_pm_device_save(coresight_get_sink(path));
 	return 0;
 }
 
 static void coresight_pm_restore(struct coresight_path *path)
 {
 	struct coresight_device *source = coresight_get_source(path);
+	struct coresight_device *sink = coresight_get_sink(path);
 	struct coresight_node *from, *to;
 	int ret;
+
+	coresight_pm_device_restore(sink);
 
 	from = coresight_path_first_node(path);
 	/* Enable up to the node before sink */
@@ -1940,6 +1969,8 @@ static void coresight_pm_restore(struct coresight_path *path)
 	return;
 
 path_failed:
+	coresight_pm_device_save(sink);
+
 	pr_err("Failed in coresight PM restore on CPU%d: %d\n",
 	       smp_processor_id(), ret);
 
