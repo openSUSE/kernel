@@ -619,9 +619,6 @@ struct task_struct {
 
 	/* Unserialized, strictly 'current' */
 
-	/* Save user-dumpable when mm goes away */
-	unsigned			user_dumpable:1;
-
 	/* Bit to tell LSMs we're in execve(): */
 	unsigned			in_execve:1;
 	unsigned			in_iowait:1;
@@ -640,6 +637,10 @@ struct task_struct {
 #ifdef CONFIG_CGROUPS
 	/* disallow userland-initiated cgroup migration */
 	unsigned			no_cgroup_migration:1;
+#endif
+#ifndef __GENKSYMS__
+	/* Save user-dumpable when mm goes away */
+	unsigned			user_dumpable:1;
 #endif
 
 	unsigned long			atomic_flags; /* Flags requiring atomic access. */
