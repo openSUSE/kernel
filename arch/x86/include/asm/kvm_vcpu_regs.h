@@ -11,17 +11,6 @@
 #define __VCPU_REGS_RSI  6
 #define __VCPU_REGS_RDI  7
 
-#ifdef CONFIG_X86_64
-#define __VCPU_REGS_R8   8
-#define __VCPU_REGS_R9   9
-#define __VCPU_REGS_R10 10
-#define __VCPU_REGS_R11 11
-#define __VCPU_REGS_R12 12
-#define __VCPU_REGS_R13 13
-#define __VCPU_REGS_R14 14
-#define __VCPU_REGS_R15 15
-#endif
-
 #ifdef __ASSEMBLER__
 
 #define REG_NUM_INVALID		100
