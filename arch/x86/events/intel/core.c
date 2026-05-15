@@ -2582,6 +2582,22 @@ static __initconst const u64 skt_hw_cache_extra_regs
 	},
 };
 
+static __initconst const u64 dkt_hw_cache_extra_regs
+				[PERF_COUNT_HW_CACHE_MAX]
+				[PERF_COUNT_HW_CACHE_OP_MAX]
+				[PERF_COUNT_HW_CACHE_RESULT_MAX] = {
+	[C(LL)] = {
+		[C(OP_READ)] = {
+			[C(RESULT_ACCESS)]	= 0x10001,		/* OCR.DEMAND_DATA_RD.ANY_RESPONSE */
+			[C(RESULT_MISS)]	= 0x33FBFC00001,	/* OCR.DEMAND_DATA_RD.L3_MISS */
+		},
+		[C(OP_WRITE)] = {
+			[C(RESULT_ACCESS)]	= 0x10002,		/* OCR.DEMAND_RFO.ANY_RESPONSE */
+			[C(RESULT_MISS)]	= 0x33FBFC00002,	/* OCR.DEMAND_RFO.L3_MISS */
+		},
+	},
+};
+
 static __initconst const u64 arw_hw_cache_extra_regs
 				[PERF_COUNT_HW_CACHE_MAX]
 				[PERF_COUNT_HW_CACHE_OP_MAX]
@@ -7814,6 +7830,18 @@ static __always_inline void intel_pmu_init_dkt_hybrid(struct pmu *pmu)
 	hybrid(pmu, pebs_constraints) = intel_dkt_pebs_event_constraints;
 }
 
+/*
+ * Darkmont is used by the CWF and PTL E-cores, but their L3 OCR
+ * events require different extra MSR values. Keep a separate init
+ * function for the non-hybrid server variant.
+ */
+static __always_inline void intel_pmu_init_dkt(struct pmu *pmu)
+{
+	intel_pmu_init_dkt_hybrid(pmu);
+	memcpy(hybrid_var(pmu, hw_cache_extra_regs),
+	       dkt_hw_cache_extra_regs, sizeof(hw_cache_extra_regs));
+}
+
 static __always_inline void intel_pmu_init_arw(struct pmu *pmu)
 {
 	intel_pmu_init_grt(pmu);
@@ -8148,7 +8176,7 @@ __init int intel_pmu_init(void)
 		break;
 
 	case INTEL_ATOM_DARKMONT_X:
-		intel_pmu_init_skt(NULL);
+		intel_pmu_init_dkt(NULL);
 		intel_pmu_pebs_data_source_cmt();
 		x86_pmu.pebs_latency_data = cmt_latency_data;
 		x86_pmu.get_event_constraints = cmt_get_event_constraints;
