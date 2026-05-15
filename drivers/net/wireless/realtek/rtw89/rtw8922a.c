@@ -3169,14 +3169,16 @@ const struct rtw89_chip_info rtw8922a_chip_info = {
 	.max_rx_agg_num		= 64,
 	.dis_2g_40m_ul_ofdma	= false,
 	.rsvd_ple_ofst		= 0x8f800,
-	.hfc_param_ini		= {rtw8922a_hfc_param_ini_pcie,
+	.qta_def = {
+		.hfc_param_ini	= {rtw8922a_hfc_param_ini_pcie,
 				   rtw8922a_hfc_param_ini_usb2,
 				   rtw8922a_hfc_param_ini_usb3,
 				   NULL},
-	.dle_mem		= {rtw8922a_dle_mem_pcie,
+		.dle_mem	= {rtw8922a_dle_mem_pcie,
 				   rtw8922a_dle_mem_usb2,
 				   rtw8922a_dle_mem_usb3,
 				   NULL},
+	},
 	.wde_qempty_acq_grpnum	= 4,
 	.wde_qempty_mgq_grpsel	= 4,
 	.rf_base_addr		= {0xe000, 0xf000},
@@ -3307,6 +3309,7 @@ const struct rtw89_chip_variant rtw8922ae_vs_variant = {
 	.no_mcs_12_13 = true,
 	.fw_min_ver_code = RTW89_FW_VER_CODE(0, 35, 54, 0),
 	.fw_def_override = NULL,
+	.qta_def_override = NULL,
 };
 EXPORT_SYMBOL(rtw8922ae_vs_variant);
 

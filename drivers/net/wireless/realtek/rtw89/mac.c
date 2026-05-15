@@ -894,11 +894,12 @@ EXPORT_SYMBOL(rtw89_mac_set_err_status);
 
 static int hfc_reset_param(struct rtw89_dev *rtwdev)
 {
+	const struct rtw89_qta_def *qta_def = rtw89_chip_get_qta_def(rtwdev);
 	const struct rtw89_hfc_param_ini *param_ini, *param_inis;
 	struct rtw89_hfc_param *param = &rtwdev->mac.hfc_param;
 	u8 qta_mode = rtwdev->mac.dle_info.qta_mode;
 
-	param_inis = rtwdev->chip->hfc_param_ini[rtwdev->hci.dle_type];
+	param_inis = qta_def->hfc_param_ini[rtwdev->hci.dle_type];
 	if (!param_inis)
 		return -EINVAL;
 
@@ -1897,10 +1898,11 @@ EXPORT_SYMBOL(rtw89_mac_size);
 static const struct rtw89_dle_mem *get_dle_mem_cfg(struct rtw89_dev *rtwdev,
 						   enum rtw89_qta_mode mode)
 {
+	const struct rtw89_qta_def *qta_def = rtw89_chip_get_qta_def(rtwdev);
 	struct rtw89_mac_info *mac = &rtwdev->mac;
 	const struct rtw89_dle_mem *cfg, *cfgs;
 
-	cfgs = rtwdev->chip->dle_mem[rtwdev->hci.dle_type];
+	cfgs = qta_def->dle_mem[rtwdev->hci.dle_type];
 	if (!cfgs)
 		return NULL;
 

@@ -4239,6 +4239,11 @@ struct rtw89_fw_def {
 	u16 fw_b_aid;
 };
 
+struct rtw89_qta_def {
+	const struct rtw89_hfc_param_ini *hfc_param_ini[RTW89_HCI_DLE_TYPE_NUM];
+	const struct rtw89_dle_mem *dle_mem[RTW89_HCI_DLE_TYPE_NUM];
+};
+
 struct rtw89_phy_table {
 	const struct rtw89_reg2_def *regs;
 	u32 n_regs;
@@ -4654,8 +4659,7 @@ struct rtw89_chip_info {
 	u16 max_rx_agg_num;
 	bool dis_2g_40m_ul_ofdma;
 	u32 rsvd_ple_ofst;
-	const struct rtw89_hfc_param_ini *hfc_param_ini[RTW89_HCI_DLE_TYPE_NUM];
-	const struct rtw89_dle_mem *dle_mem[RTW89_HCI_DLE_TYPE_NUM];
+	struct rtw89_qta_def qta_def;
 	u8 wde_qempty_acq_grpnum;
 	u8 wde_qempty_mgq_grpsel;
 	u32 rf_base_addr[2];
@@ -4784,6 +4788,7 @@ struct rtw89_chip_variant {
 	bool no_mcs_12_13: 1;
 	u32 fw_min_ver_code;
 	const struct rtw89_fw_def *fw_def_override;
+	const struct rtw89_qta_def *qta_def_override;
 };
 
 union rtw89_bus_info {
@@ -7741,6 +7746,17 @@ static inline
 const struct rtw89_fw_def *rtw89_chip_get_fw_def(struct rtw89_dev *rtwdev)
 {
 	return __rtw89_chip_get_fw_def(rtwdev->chip, rtwdev->variant);
+}
+
+static inline
+const struct rtw89_qta_def *rtw89_chip_get_qta_def(struct rtw89_dev *rtwdev)
+{
+	const struct rtw89_chip_variant *variant = rtwdev->variant;
+
+	if (variant && variant->qta_def_override)
+		return variant->qta_def_override;
+
+	return &rtwdev->chip->qta_def;
 }
 
 static inline void rtw89_load_txpwr_table(struct rtw89_dev *rtwdev,

@@ -825,8 +825,10 @@ const struct rtw89_chip_info rtw8852bt_chip_info = {
 	.max_rx_agg_num		= 64,
 	.dis_2g_40m_ul_ofdma	= true,
 	.rsvd_ple_ofst		= 0x6f800,
-	.hfc_param_ini		= {rtw8852bt_hfc_param_ini_pcie, NULL, NULL, NULL},
-	.dle_mem		= {rtw8852bt_dle_mem_pcie, NULL, NULL, NULL},
+	.qta_def = {
+		.hfc_param_ini	= {rtw8852bt_hfc_param_ini_pcie, NULL, NULL, NULL},
+		.dle_mem	= {rtw8852bt_dle_mem_pcie, NULL, NULL, NULL},
+	},
 	.wde_qempty_acq_grpnum	= 4,
 	.wde_qempty_mgq_grpsel	= 4,
 	.rf_base_addr		= {0xe000, 0xf000},
