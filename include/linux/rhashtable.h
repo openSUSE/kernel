@@ -20,6 +20,7 @@
 
 #include <linux/err.h>
 #include <linux/errno.h>
+#include <linux/irq_work.h>
 #include <linux/jhash.h>
 #include <linux/list_nulls.h>
 #include <linux/workqueue.h>
@@ -129,10 +130,10 @@ static __always_inline unsigned int rht_key_get_hash(struct rhashtable *ht,
 	unsigned int hash;
 
 	/* params must be equal to ht->p if it isn't constant. */
-	if (!__builtin_constant_p(params.key_len))
+	if (!__builtin_constant_p(params.key_len)) {
 		hash = ht->p.hashfn(key, ht->key_len, hash_rnd);
-	else if (params.key_len) {
-		unsigned int key_len = params.key_len;
+	} else {
+		unsigned int key_len = params.key_len ? : ht->p.key_len;
 
 		if (params.hashfn)
 			hash = params.hashfn(key, key_len, hash_rnd);
@@ -140,13 +141,6 @@ static __always_inline unsigned int rht_key_get_hash(struct rhashtable *ht,
 			hash = jhash(key, key_len, hash_rnd);
 		else
 			hash = jhash2(key, key_len / sizeof(u32), hash_rnd);
-	} else {
-		unsigned int key_len = ht->p.key_len;
-
-		if (params.hashfn)
-			hash = params.hashfn(key, key_len, hash_rnd);
-		else
-			hash = jhash(key, key_len, hash_rnd);
 	}
 
 	return hash;
@@ -828,14 +822,15 @@ slow_path:
 		goto out;
 	}
 
-	if (elasticity <= 0)
+	if (elasticity <= 0 && !params.insecure_elasticity)
 		goto slow_path;
 
 	data = ERR_PTR(-E2BIG);
 	if (unlikely(rht_grow_above_max(ht, tbl)))
 		goto out_unlock;
 
-	if (unlikely(rht_grow_above_100(ht, tbl)))
+	if (unlikely(rht_grow_above_100(ht, tbl)) &&
+	    !params.insecure_elasticity)
 		goto slow_path;
 
 	/* Inserting at head of list makes unlocking free. */
@@ -853,7 +848,7 @@ slow_path:
 	rht_assign_unlock(tbl, bkt, obj, flags);
 
 	if (rht_grow_above_75(ht, tbl))
-		schedule_work(&ht->run_work);
+		irq_work_queue(&ht->run_irq_work);
 
 	data = NULL;
 out:

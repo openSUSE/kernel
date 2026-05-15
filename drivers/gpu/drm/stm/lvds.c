@@ -887,7 +887,7 @@ static int lvds_connector_get_modes(struct drm_connector *connector)
 }
 
 static int lvds_connector_atomic_check(struct drm_connector *connector,
-				       struct drm_atomic_state *state)
+				       struct drm_atomic_commit *state)
 {
 	const struct drm_display_mode *panel_mode;
 	struct drm_connector_state *conn_state;
@@ -897,13 +897,13 @@ static int lvds_connector_atomic_check(struct drm_connector *connector,
 	if (!conn_state)
 		return -EINVAL;
 
+	if (!conn_state->crtc)
+		return 0;
+
 	if (list_empty(&connector->modes)) {
 		drm_dbg(connector->dev, "connector: empty modes list\n");
 		return -EINVAL;
 	}
-
-	if (!conn_state->crtc)
-		return -EINVAL;
 
 	panel_mode = list_first_entry(&connector->modes,
 				      struct drm_display_mode, head);
@@ -981,7 +981,7 @@ static int lvds_attach(struct drm_bridge *bridge, struct drm_encoder *encoder,
 }
 
 static void lvds_atomic_enable(struct drm_bridge *bridge,
-			       struct drm_atomic_state *state)
+			       struct drm_atomic_commit *state)
 {
 	struct stm_lvds *lvds = bridge_to_stm_lvds(bridge);
 	struct drm_connector_state *conn_state;
@@ -1017,7 +1017,7 @@ static void lvds_atomic_enable(struct drm_bridge *bridge,
 }
 
 static void lvds_atomic_disable(struct drm_bridge *bridge,
-				struct drm_atomic_state *state)
+				struct drm_atomic_commit *state)
 {
 	struct stm_lvds *lvds = bridge_to_stm_lvds(bridge);
 

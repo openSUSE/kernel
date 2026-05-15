@@ -145,7 +145,7 @@ void net_devmem_unbind_dmabuf(struct net_devmem_dmabuf_binding *binding)
 
 		rxq_idx = get_netdev_rx_queue_index(rxq);
 
-		__net_mp_close_rxq(binding->dev, rxq_idx, &mp_params);
+		netif_mp_close_rxq(binding->dev, rxq_idx, &mp_params);
 	}
 
 	percpu_ref_kill(&binding->ref);
@@ -163,7 +163,7 @@ int net_devmem_bind_dmabuf_to_queue(struct net_device *dev, u32 rxq_idx,
 	u32 xa_idx;
 	int err;
 
-	err = __net_mp_open_rxq(dev, rxq_idx, &mp_params, extack);
+	err = netif_mp_open_rxq(dev, rxq_idx, &mp_params, extack);
 	if (err)
 		return err;
 
@@ -176,7 +176,7 @@ int net_devmem_bind_dmabuf_to_queue(struct net_device *dev, u32 rxq_idx,
 	return 0;
 
 err_close_rxq:
-	__net_mp_close_rxq(dev, rxq_idx, &mp_params);
+	netif_mp_close_rxq(dev, rxq_idx, &mp_params);
 	return err;
 }
 
@@ -297,8 +297,7 @@ net_devmem_bind_dmabuf(struct net_device *dev,
 
 		for (i = 0; i < owner->area.num_niovs; i++) {
 			niov = &owner->area.niovs[i];
-			niov->type = NET_IOV_DMABUF;
-			niov->owner = &owner->area;
+			net_iov_init(niov, &owner->area, NET_IOV_DMABUF);
 			page_pool_set_dma_addr_netmem(net_iov_to_netmem(niov),
 						      net_devmem_get_dma_addr(niov));
 			if (direction == DMA_TO_DEVICE)

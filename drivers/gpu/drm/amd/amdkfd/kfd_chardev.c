@@ -21,10 +21,12 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include <linux/capability.h>
 #include <linux/device.h>
 #include <linux/err.h>
 #include <linux/fs.h>
 #include <linux/file.h>
+#include <linux/overflow.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
@@ -43,6 +45,7 @@
 #include "kfd_smi_events.h"
 #include "amdgpu_dma_buf.h"
 #include "kfd_debug.h"
+#include "amdgpu_ptl.h"
 
 static long kfd_ioctl(struct file *, unsigned int, unsigned long);
 static int kfd_open(struct inode *, struct file *);
@@ -145,11 +148,6 @@ static int kfd_open(struct inode *inode, struct file *filep)
 	process = kfd_create_process(current);
 	if (IS_ERR(process))
 		return PTR_ERR(process);
-
-	if (kfd_process_init_cwsr_apu(process, filep)) {
-		kfd_unref_process(process);
-		return -EFAULT;
-	}
 
 	/* filep now owns the reference returned by kfd_create_process */
 	filep->private_data = process;
@@ -776,6 +774,9 @@ static int kfd_ioctl_get_process_apertures_new(struct file *filp,
 		goto out_unlock;
 	}
 
+	if (args->num_of_nodes > kfd_topology_get_num_devices())
+		return -EINVAL;
+
 	/* Fill in process-aperture information for all available
 	 * nodes, but not more than args->num_of_nodes as that is
 	 * the amount of memory allocated by user
@@ -1356,7 +1357,7 @@ static int kfd_ioctl_map_memory_to_gpu(struct file *filep,
 		peer_pdd = kfd_process_device_data_by_id(p, devices_arr[i]);
 		if (WARN_ON_ONCE(!peer_pdd))
 			continue;
-		kfd_flush_tlb(peer_pdd, TLB_FLUSH_LEGACY);
+		kfd_flush_tlb(peer_pdd);
 	}
 	kfree(devices_arr);
 
@@ -1451,7 +1452,7 @@ static int kfd_ioctl_unmap_memory_from_gpu(struct file *filep,
 		if (WARN_ON_ONCE(!peer_pdd))
 			continue;
 		if (flush_tlb)
-			kfd_flush_tlb(peer_pdd, TLB_FLUSH_HEAVYWEIGHT);
+			kfd_flush_tlb(peer_pdd);
 
 		/* Remove dma mapping after tlb flush to avoid IO_PAGE_FAULT */
 		err = amdgpu_amdkfd_gpuvm_dmaunmap_mem(mem, peer_pdd->drm_priv);
@@ -1692,6 +1693,16 @@ static int kfd_ioctl_smi_events(struct file *filep,
 	return kfd_smi_event_open(pdd->dev, &args->anon_fd);
 }
 
+static int kfd_ioctl_svm_validate(void *kdata, unsigned int usize)
+{
+	struct kfd_ioctl_svm_args *args = kdata;
+	size_t expected = struct_size(args, attrs, args->nattr);
+
+	if (expected == SIZE_MAX || usize < expected)
+		return -EINVAL;
+	return 0;
+}
+
 #if IS_ENABLED(CONFIG_HSA_AMD_SVM)
 
 static int kfd_ioctl_set_xnack_mode(struct file *filep,
@@ -1762,6 +1773,108 @@ static int kfd_ioctl_svm(struct file *filep, struct kfd_process *p, void *data)
 	return -EPERM;
 }
 #endif
+
+static int kfd_ptl_control(struct kfd_process_device *pdd, bool enable)
+{
+	struct amdgpu_device *adev = pdd->dev->adev;
+	struct amdgpu_ptl *ptl = &adev->psp.ptl;
+	enum amdgpu_ptl_fmt pref_format1 = ptl->fmt1;
+	enum amdgpu_ptl_fmt pref_format2 = ptl->fmt2;
+	uint32_t ptl_state = enable ? 1 : 0;
+	int ret;
+
+	if (!ptl->hw_supported)
+		return -EOPNOTSUPP;
+
+	if (!pdd->dev->kfd2kgd || !pdd->dev->kfd2kgd->ptl_ctrl)
+		return -EOPNOTSUPP;
+
+	ret = pdd->dev->kfd2kgd->ptl_ctrl(adev, PSP_PTL_PERF_MON_SET,
+					  &ptl_state,
+					  &pref_format1,
+					  &pref_format2);
+
+	return ret;
+}
+
+int kfd_ptl_disable_request(struct kfd_process_device *pdd,
+		struct kfd_process *p)
+{
+	struct amdgpu_device *adev = pdd->dev->adev;
+	struct amdgpu_ptl *ptl = &adev->psp.ptl;
+	int ret = 0;
+
+	mutex_lock(&ptl->mutex);
+
+	if (pdd->ptl_disable_req)
+		goto out;
+
+	if (atomic_inc_return(&ptl->disable_ref) == 1) {
+		ret = kfd_ptl_control(pdd, false);
+		if (ret) {
+			atomic_dec(&ptl->disable_ref);
+			dev_warn(pdd->dev->adev->dev,
+					"failed to disable PTL\n");
+			goto out;
+		}
+	}
+	set_bit(AMDGPU_PTL_DISABLE_PROFILER, ptl->disable_bitmap);
+	pdd->ptl_disable_req = true;
+
+out:
+	mutex_unlock(&ptl->mutex);
+	return ret;
+}
+
+int kfd_ptl_disable_release(struct kfd_process_device *pdd,
+		struct kfd_process *p)
+{
+	struct amdgpu_device *adev = pdd->dev->adev;
+	struct amdgpu_ptl *ptl = &adev->psp.ptl;
+	int ret = 0;
+
+	mutex_lock(&ptl->mutex);
+
+	if (!pdd->ptl_disable_req)
+		goto out;
+
+	if (atomic_dec_return(&ptl->disable_ref) == 0) {
+		clear_bit(AMDGPU_PTL_DISABLE_PROFILER, ptl->disable_bitmap);
+		ret = kfd_ptl_control(pdd, true);
+		if (ret) {
+			atomic_inc(&ptl->disable_ref);
+			set_bit(AMDGPU_PTL_DISABLE_PROFILER, ptl->disable_bitmap);
+			dev_warn(adev->dev, "Failed to enable PTL on release: %d\n", ret);
+			goto out;
+		}
+	}
+	pdd->ptl_disable_req = false;
+
+out:
+	mutex_unlock(&ptl->mutex);
+	return ret;
+}
+
+static int kfd_profiler_ptl_control(struct kfd_process *p,
+		struct kfd_ioctl_ptl_control *args)
+{
+	struct kfd_process_device *pdd;
+	int ret;
+
+	mutex_lock(&p->mutex);
+	pdd = kfd_process_device_data_by_id(p, args->gpu_id);
+	mutex_unlock(&p->mutex);
+
+	if (!pdd || !pdd->dev || !pdd->dev->kfd)
+		return -EINVAL;
+
+	if (args->enable == 0)
+		ret = kfd_ptl_disable_request(pdd, p);
+	else
+		ret = kfd_ptl_disable_release(pdd, p);
+
+	return ret;
+}
 
 static int criu_checkpoint_process(struct kfd_process *p,
 			     uint8_t __user *user_priv_data,
@@ -2325,6 +2438,9 @@ static int criu_restore_memory_of_gpu(struct kfd_process_device *pdd,
 	int ret;
 	const bool criu_resume = true;
 	u64 offset;
+
+	if (bo_priv->idr_handle > INT_MAX)
+		return -EINVAL;
 
 	if (bo_bucket->alloc_flags & KFD_IOC_ALLOC_MEM_FLAGS_DOORBELL) {
 		if (bo_bucket->size !=
@@ -3204,9 +3320,114 @@ static int kfd_ioctl_create_process(struct file *filep, struct kfd_process *p, v
 	return 0;
 }
 
+static inline uint32_t profile_lock_device(struct kfd_process *p,
+					   uint32_t gpu_id, uint32_t op)
+{
+	struct kfd_process_device *pdd;
+	struct kfd_dev *kfd;
+	int status = -EINVAL;
+	struct amdgpu_ptl *ptl;
+
+	if (!p)
+		return -EINVAL;
+
+	mutex_lock(&p->mutex);
+	pdd = kfd_process_device_data_by_id(p, gpu_id);
+	mutex_unlock(&p->mutex);
+
+	if (!pdd || !pdd->dev || !pdd->dev->kfd)
+		return -EINVAL;
+
+	kfd = pdd->dev->kfd;
+	ptl = &pdd->dev->adev->psp.ptl;
+
+	mutex_lock(&kfd->profiler_lock);
+	if (op == 1) {
+		if (!kfd->profiler_process) {
+			kfd->profiler_process = p;
+			status = 0;
+			mutex_unlock(&kfd->profiler_lock);
+			if (ptl->hw_supported) {
+				status = kfd_ptl_disable_request(pdd, p);
+				if (status != 0)
+					dev_err(kfd_device,
+						"Failed to lock device %d for profiling, error %d\n",
+						gpu_id, status);
+			}
+			return status;
+		} else if (kfd->profiler_process == p) {
+			status = -EALREADY;
+		} else {
+			status = -EBUSY;
+		}
+	} else if (op == 0 && kfd->profiler_process == p) {
+		kfd->profiler_process = NULL;
+		status = 0;
+		mutex_unlock(&kfd->profiler_lock);
+
+		if (ptl->hw_supported) {
+			status = kfd_ptl_disable_release(pdd, p);
+			if (status)
+				dev_err(kfd_device,
+						"Failed to unlock device %d for profiling, error %d\n",
+						gpu_id, status);
+		}
+		return status;
+	}
+	mutex_unlock(&kfd->profiler_lock);
+
+	return status;
+}
+
+static inline int kfd_profiler_pmc(struct kfd_process *p,
+				   struct kfd_ioctl_pmc_settings *args)
+{
+	struct kfd_process_device *pdd;
+	struct device_queue_manager *dqm;
+	int status;
+
+	/* Check if we have the correct permissions. */
+	if (!perfmon_capable())
+		return -EPERM;
+
+	/* Lock/Unlock the device based on the parameter given in OP */
+	status = profile_lock_device(p, args->gpu_id, args->lock);
+	if (status != 0)
+		return status;
+
+	/* Enable/disable perfcount if requested */
+	mutex_lock(&p->mutex);
+	pdd = kfd_process_device_data_by_id(p, args->gpu_id);
+	dqm = pdd->dev->dqm;
+	mutex_unlock(&p->mutex);
+
+	dqm->ops.set_perfcount(dqm, args->perfcount_enable);
+	return status;
+}
+
+static int kfd_ioctl_profiler(struct file *filep, struct kfd_process *p, void *data)
+{
+	struct kfd_ioctl_profiler_args *args = data;
+
+	switch (args->op) {
+	case KFD_IOC_PROFILER_VERSION:
+		args->version = KFD_IOC_PROFILER_VERSION_NUM;
+		return 0;
+	case KFD_IOC_PROFILER_PMC:
+		return kfd_profiler_pmc(p, &args->pmc);
+	case KFD_IOC_PROFILER_PTL_CONTROL:
+		return kfd_profiler_ptl_control(p, &args->ptl);
+	}
+	return -EINVAL;
+}
+
 #define AMDKFD_IOCTL_DEF(ioctl, _func, _flags) \
 	[_IOC_NR(ioctl)] = {.cmd = ioctl, .func = _func, .flags = _flags, \
-			    .cmd_drv = 0, .name = #ioctl}
+			    .validate = NULL, .cmd_drv = 0, .name = #ioctl}
+
+#define AMDKFD_IOCTL_DEF_V(ioctl, _func, _validate, _flags) \
+	[_IOC_NR(ioctl)] = {.cmd = ioctl, .func = _func, .flags = _flags, \
+			    .validate = _validate, .cmd_drv = 0, .name = #ioctl}
 
 /** Ioctl table */
 static const struct amdkfd_ioctl_desc amdkfd_ioctls[] = {
@@ -3303,7 +3524,8 @@ static const struct amdkfd_ioctl_desc amdkfd_ioctls[] = {
 	AMDKFD_IOCTL_DEF(AMDKFD_IOC_SMI_EVENTS,
 			kfd_ioctl_smi_events, 0),
 
-	AMDKFD_IOCTL_DEF(AMDKFD_IOC_SVM, kfd_ioctl_svm, 0),
+	AMDKFD_IOCTL_DEF_V(AMDKFD_IOC_SVM, kfd_ioctl_svm,
+			   kfd_ioctl_svm_validate, 0),
 
 	AMDKFD_IOCTL_DEF(AMDKFD_IOC_SET_XNACK_MODE,
 			kfd_ioctl_set_xnack_mode, 0),
@@ -3325,6 +3547,9 @@ static const struct amdkfd_ioctl_desc amdkfd_ioctls[] = {
 
 	AMDKFD_IOCTL_DEF(AMDKFD_IOC_CREATE_PROCESS,
 			kfd_ioctl_create_process, 0),
+
+	AMDKFD_IOCTL_DEF(AMDKFD_IOC_PROFILER,
+			kfd_ioctl_profiler, 0),
 };
 
 #define AMDKFD_CORE_IOCTL_COUNT	ARRAY_SIZE(amdkfd_ioctls)
@@ -3428,6 +3653,12 @@ static long kfd_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 		memset(kdata, 0, usize);
 	}
 
+	if (ioctl->validate) {
+		retcode = ioctl->validate(kdata, usize);
+		if (retcode)
+			goto err_i1;
+	}
+
 	retcode = func(filep, process, kdata);
 
 	if (cmd & IOC_OUT)
@@ -3512,9 +3743,8 @@ static int kfd_mmap(struct file *filep, struct vm_area_struct *vma)
 		return kfd_event_mmap(process, vma);
 
 	case KFD_MMAP_TYPE_RESERVED_MEM:
-		if (!dev)
-			return -ENODEV;
-		return kfd_reserved_mem_mmap(dev, process, vma);
+		pr_warn("KFD_MMAP_TYPE_RESERVED_MEM is no longer supported\n");
+		return -EINVAL;
 	case KFD_MMAP_TYPE_MMIO:
 		if (!dev)
 			return -ENODEV;

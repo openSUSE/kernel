@@ -40,10 +40,6 @@
 #define FN(reg_name, field_name) \
 	mpc30->mpc_shift->field_name, mpc30->mpc_mask->field_name
 
-
-#define NUM_ELEMENTS(a) (sizeof(a) / sizeof((a)[0]))
-
-
 void mpc3_mpc_init(struct mpc *mpc)
 {
 	struct dcn30_mpc *mpc30 = TO_DCN30_MPC(mpc);
@@ -1071,7 +1067,7 @@ static void program_gamut_remap(
 		struct dcn30_mpc *mpc30,
 		int mpcc_id,
 		const uint16_t *regval,
-		int select)
+		uint32_t select)
 {
 	uint16_t selection = 0;
 	struct color_matrices_reg gam_regs;
@@ -1133,7 +1129,7 @@ void mpc3_set_gamut_remap(
 {
 	struct dcn30_mpc *mpc30 = TO_DCN30_MPC(mpc);
 	int i = 0;
-	int gamut_mode;
+	uint32_t gamut_mode;
 
 	if (adjust->gamut_adjust_type != GRAPHICS_GAMUT_ADJUST_TYPE_SW)
 		program_gamut_remap(mpc30, mpcc_id, NULL, GAMUT_REMAP_BYPASS);
@@ -1205,7 +1201,7 @@ void mpc3_get_gamut_remap(struct mpc *mpc,
 {
 	struct dcn30_mpc *mpc30 = TO_DCN30_MPC(mpc);
 	uint16_t arr_reg_val[12] = {0};
-	int select;
+	uint32_t select;
 
 	read_gamut_remap(mpc30, mpcc_id, arr_reg_val, &select);
 

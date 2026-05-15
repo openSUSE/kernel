@@ -49,9 +49,6 @@
 #define FN(reg_name, field_name) \
 	dpp->tf_shift->field_name, dpp->tf_mask->field_name
 
-#define NUM_ELEMENTS(a) (sizeof(a) / sizeof((a)[0]))
-
-
 enum dcn10_coef_filter_type_sel {
 	SCL_COEF_LUMA_VERT_FILTER = 0,
 	SCL_COEF_LUMA_HORZ_FILTER = 1,
@@ -310,7 +307,7 @@ void dpp1_cm_set_output_csc_default(
 {
 	struct dcn10_dpp *dpp = TO_DCN10_DPP(dpp_base);
 	const uint16_t *regval = NULL;
-	int arr_size;
+	uint32_t arr_size;
 
 	regval = find_color_matrix(colorspace, &arr_size);
 	if (regval == NULL) {
@@ -827,7 +824,7 @@ void dpp1_program_input_lut(
 		struct dpp *dpp_base,
 		const struct dc_gamma *gamma)
 {
-	int i;
+	unsigned int i;
 	struct dcn10_dpp *dpp = TO_DCN10_DPP(dpp_base);
 	bool rama_occupied = false;
 	uint32_t ram_num;

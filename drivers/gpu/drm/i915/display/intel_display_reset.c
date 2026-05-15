@@ -32,7 +32,7 @@ bool intel_display_reset_test(struct intel_display *display)
 void intel_display_reset_prepare(struct intel_display *display)
 {
 	struct drm_modeset_acquire_ctx *ctx = &display->restore.reset_ctx;
-	struct drm_atomic_state *state;
+	struct drm_atomic_commit *state;
 	int ret;
 
 	/*
@@ -64,7 +64,7 @@ void intel_display_reset_prepare(struct intel_display *display)
 	if (ret) {
 		drm_err(display->drm, "Suspending crtc's failed with %i\n",
 			ret);
-		drm_atomic_state_put(state);
+		drm_atomic_commit_put(state);
 		return;
 	}
 
@@ -76,7 +76,7 @@ void intel_display_reset_prepare(struct intel_display *display)
 void intel_display_reset_finish(struct intel_display *display, bool test_only)
 {
 	struct drm_modeset_acquire_ctx *ctx = &display->restore.reset_ctx;
-	struct drm_atomic_state *state;
+	struct drm_atomic_commit *state;
 	int ret;
 
 	state = fetch_and_zero(&display->restore.modeset_state);
@@ -111,7 +111,7 @@ void intel_display_reset_finish(struct intel_display *display, bool test_only)
 		intel_hpd_poll_disable(display);
 	}
 
-	drm_atomic_state_put(state);
+	drm_atomic_commit_put(state);
 unlock:
 	drm_modeset_drop_locks(ctx);
 	drm_modeset_acquire_fini(ctx);

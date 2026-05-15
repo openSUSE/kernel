@@ -564,7 +564,7 @@ struct intel_display {
 
 	struct {
 		/* restore state for suspend/resume and display reset */
-		struct drm_atomic_state *modeset_state;
+		struct drm_atomic_commit *modeset_state;
 		struct drm_modeset_acquire_ctx reset_ctx;
 		/* modeset stuck tracking for reset */
 		u32 saveDSPARB;

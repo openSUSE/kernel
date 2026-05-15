@@ -296,10 +296,10 @@ struct amdgpu_vm_update_params {
 	bool needs_flush;
 
 	/**
-	 * @allow_override: true for memory that is not uncached: allows MTYPE
-	 * to be overridden for NUMA local memory.
+	 * @override_pte: true for memory that is not uncached and gmc override function is
+	 * implemented to allow MTYPE to be overridden for NUMA local memory.
 	 */
-	bool allow_override;
+	bool override_pte;
 
 	/**
 	 * @tlb_flush_waitlist: temporary storage for BOs until tlb_flush
@@ -591,6 +591,9 @@ void amdgpu_vm_put_task_info(struct amdgpu_task_info *task_info);
 bool amdgpu_vm_handle_fault(struct amdgpu_device *adev, u32 pasid,
 			    u32 vmid, u32 node_id, uint64_t addr, uint64_t ts,
 			    bool write_fault);
+
+struct amdgpu_vm *amdgpu_vm_lock_by_pasid(struct amdgpu_device *adev,
+					  struct amdgpu_bo **root, u32 pasid);
 
 void amdgpu_vm_set_task_info(struct amdgpu_vm *vm);
 

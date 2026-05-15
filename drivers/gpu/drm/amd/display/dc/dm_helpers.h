@@ -30,6 +30,7 @@
 #ifndef __DM_HELPERS__
 #define __DM_HELPERS__
 
+#include "modules/inc/mod_info_packet_types.h"
 #include "dc_types.h"
 #include "dc.h"
 
@@ -177,6 +178,16 @@ bool dm_helpers_is_dp_sink_present(
 void dm_helpers_mst_enable_stream_features(const struct dc_stream_state *stream);
 
 enum dc_edid_status dm_helpers_read_local_edid(
+		struct dc_context *ctx,
+		struct dc_link *link,
+		struct dc_sink *sink);
+
+void dm_helpers_read_mccs_caps(
+		struct dc_context *ctx,
+		struct dc_link *link,
+		struct dc_sink *sink);
+
+void dm_helpers_mccs_vcp_set(
 		struct dc_context *ctx,
 		struct dc_link *link,
 		struct dc_sink *sink);

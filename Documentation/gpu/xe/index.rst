@@ -34,3 +34,4 @@ The display, or :ref:`drm-kms`, support for drm/xe is provided by
    xe_device
    xe-drm-usage-stats.rst
    xe_configfs
+   xe_gt_stats

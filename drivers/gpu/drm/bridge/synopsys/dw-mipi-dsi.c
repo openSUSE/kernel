@@ -345,10 +345,14 @@ static int dw_mipi_dsi_host_attach(struct mipi_dsi_host *host,
 	if (pdata->host_ops && pdata->host_ops->attach) {
 		ret = pdata->host_ops->attach(pdata->priv_data, device);
 		if (ret < 0)
-			return ret;
+			goto err_remove_bridge;
 	}
 
 	return 0;
+
+err_remove_bridge:
+	drm_bridge_remove(&dsi->bridge);
+	return ret;
 }
 
 static int dw_mipi_dsi_host_detach(struct mipi_dsi_host *host,
@@ -935,7 +939,7 @@ static void dw_mipi_dsi_clear_err(struct dw_mipi_dsi *dsi)
 }
 
 static void dw_mipi_dsi_bridge_post_atomic_disable(struct drm_bridge *bridge,
-						   struct drm_atomic_state *state)
+						   struct drm_atomic_commit *state)
 {
 	struct dw_mipi_dsi *dsi = bridge_to_dsi(bridge);
 	const struct dw_mipi_dsi_phy_ops *phy_ops = dsi->plat_data->phy_ops;
@@ -1023,7 +1027,7 @@ static void dw_mipi_dsi_mode_set(struct dw_mipi_dsi *dsi,
 }
 
 static void dw_mipi_dsi_bridge_atomic_pre_enable(struct drm_bridge *bridge,
-						 struct drm_atomic_state *state)
+						 struct drm_atomic_commit *state)
 {
 	struct dw_mipi_dsi *dsi = bridge_to_dsi(bridge);
 
@@ -1044,7 +1048,7 @@ static void dw_mipi_dsi_bridge_mode_set(struct drm_bridge *bridge,
 }
 
 static void dw_mipi_dsi_bridge_atomic_enable(struct drm_bridge *bridge,
-					     struct drm_atomic_state *state)
+					     struct drm_atomic_commit *state)
 {
 	struct dw_mipi_dsi *dsi = bridge_to_dsi(bridge);
 

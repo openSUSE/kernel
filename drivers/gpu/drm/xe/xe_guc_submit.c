@@ -261,22 +261,10 @@ static void guc_submit_sw_fini(struct drm_device *drm, void *arg)
 static void guc_submit_fini(void *arg)
 {
 	struct xe_guc *guc = arg;
-
-	/* Forcefully kill any remaining exec queues */
-	xe_guc_ct_stop(&guc->ct);
-	guc_submit_reset_prepare(guc);
-	xe_guc_softreset(guc);
-	xe_guc_submit_stop(guc);
-	xe_uc_fw_sanitize(&guc->fw);
-	xe_guc_submit_pause_abort(guc);
-}
-
-static void guc_submit_wedged_fini(void *arg)
-{
-	struct xe_guc *guc = arg;
 	struct xe_exec_queue *q;
 	unsigned long index;
 
+	/* Drop any wedged queue refs */
 	mutex_lock(&guc->submission_state.lock);
 	xa_for_each(&guc->submission_state.exec_queue_lookup, index, q) {
 		if (exec_queue_wedged(q)) {
@@ -286,6 +274,14 @@ static void guc_submit_wedged_fini(void *arg)
 		}
 	}
 	mutex_unlock(&guc->submission_state.lock);
+
+	/* Forcefully kill any remaining exec queues */
+	xe_guc_ct_stop(&guc->ct);
+	guc_submit_reset_prepare(guc);
+	xe_guc_softreset(guc);
+	xe_guc_submit_stop(guc);
+	xe_uc_fw_sanitize(&guc->fw);
+	xe_guc_submit_pause_abort(guc);
 }
 
 static const struct xe_exec_queue_ops guc_exec_queue_ops;
@@ -856,10 +852,27 @@ static void xe_guc_exec_queue_group_cgp_sync(struct xe_guc *guc,
 	xe_guc_ct_send(&guc->ct, action, len, G2H_LEN_DW_MULTI_QUEUE_CONTEXT, 1);
 }
 
-static void __register_exec_queue_group(struct xe_guc *guc,
-					struct xe_exec_queue *q,
+static void guc_exec_queue_send_cgp_sync(struct xe_exec_queue *q)
+{
+#define MAX_MULTI_QUEUE_CGP_SYNC_SIZE	(2)
+	struct xe_guc *guc = exec_queue_to_guc(q);
+	struct xe_exec_queue_group *group = q->multi_queue.group;
+	u32 action[MAX_MULTI_QUEUE_CGP_SYNC_SIZE];
+	int len = 0;
+
+	action[len++] = XE_GUC_ACTION_MULTI_QUEUE_CONTEXT_CGP_SYNC;
+	action[len++] = group->primary->guc->id;
+
+	xe_gt_assert(guc_to_gt(guc), len <= MAX_MULTI_QUEUE_CGP_SYNC_SIZE);
+#undef MAX_MULTI_QUEUE_CGP_SYNC_SIZE
+
+	xe_guc_exec_queue_group_cgp_sync(guc, q, action, len);
+}
+
+static void __register_exec_queue_group(struct xe_exec_queue *q,
 					struct guc_ctxt_registration_info *info)
 {
+	struct xe_guc *guc = exec_queue_to_guc(q);
 #define MAX_MULTI_QUEUE_REG_SIZE	(8)
 	u32 action[MAX_MULTI_QUEUE_REG_SIZE];
 	int len = 0;
@@ -878,29 +891,6 @@ static void __register_exec_queue_group(struct xe_guc *guc,
 
 	/*
 	 * The above XE_GUC_ACTION_REGISTER_CONTEXT_MULTI_QUEUE do expect a
-	 * XE_GUC_ACTION_NOTIFY_MULTI_QUEUE_CONTEXT_CGP_SYNC_DONE response
-	 * from guc.
-	 */
-	xe_guc_exec_queue_group_cgp_sync(guc, q, action, len);
-}
-
-static void xe_guc_exec_queue_group_add(struct xe_guc *guc,
-					struct xe_exec_queue *q)
-{
-#define MAX_MULTI_QUEUE_CGP_SYNC_SIZE  (2)
-	u32 action[MAX_MULTI_QUEUE_CGP_SYNC_SIZE];
-	int len = 0;
-
-	xe_gt_assert(guc_to_gt(guc), xe_exec_queue_is_multi_queue_secondary(q));
-
-	action[len++] = XE_GUC_ACTION_MULTI_QUEUE_CONTEXT_CGP_SYNC;
-	action[len++] = q->multi_queue.group->primary->guc->id;
-
-	xe_gt_assert(guc_to_gt(guc), len <= MAX_MULTI_QUEUE_CGP_SYNC_SIZE);
-#undef MAX_MULTI_QUEUE_CGP_SYNC_SIZE
-
-	/*
-	 * The above XE_GUC_ACTION_MULTI_QUEUE_CONTEXT_CGP_SYNC do expect a
 	 * XE_GUC_ACTION_NOTIFY_MULTI_QUEUE_CONTEXT_CGP_SYNC_DONE response
 	 * from guc.
 	 */
@@ -1032,7 +1022,7 @@ static void register_exec_queue(struct xe_exec_queue *q, int ctx_type)
 	set_exec_queue_registered(q);
 	trace_xe_exec_queue_register(q);
 	if (xe_exec_queue_is_multi_queue_primary(q))
-		__register_exec_queue_group(guc, q, &info);
+		__register_exec_queue_group(q, &info);
 	else if (xe_exec_queue_is_parallel(q))
 		__register_mlrc_exec_queue(guc, q, &info);
 	else if (!xe_exec_queue_is_multi_queue_secondary(q))
@@ -1042,7 +1032,7 @@ static void register_exec_queue(struct xe_exec_queue *q, int ctx_type)
 		init_policies(guc, q);
 
 	if (xe_exec_queue_is_multi_queue_secondary(q))
-		xe_guc_exec_queue_group_add(guc, q);
+		guc_exec_queue_send_cgp_sync(q);
 }
 
 static u32 wq_space_until_wrap(struct xe_exec_queue *q)
@@ -1220,10 +1210,8 @@ guc_exec_queue_run_job(struct drm_sched_job *drm_job)
 		if (xe_exec_queue_is_multi_queue_secondary(q)) {
 			struct xe_exec_queue *primary = xe_exec_queue_multi_queue_primary(q);
 
-			if (exec_queue_killed_or_banned_or_wedged(primary)) {
-				killed_or_banned_or_wedged = true;
+			if (exec_queue_killed_or_banned_or_wedged(primary))
 				goto run_job_out;
-			}
 
 			if (!exec_queue_registered(primary))
 				register_exec_queue(primary, GUC_CONTEXT_NORMAL);
@@ -1320,10 +1308,8 @@ static void disable_scheduling_deregister(struct xe_guc *guc,
 void xe_guc_submit_wedge(struct xe_guc *guc)
 {
 	struct xe_device *xe = guc_to_xe(guc);
-	struct xe_gt *gt = guc_to_gt(guc);
 	struct xe_exec_queue *q;
 	unsigned long index;
-	int err;
 
 	xe_gt_assert(guc_to_gt(guc), guc_to_xe(guc)->wedged.mode);
 
@@ -1335,15 +1321,6 @@ void xe_guc_submit_wedge(struct xe_guc *guc)
 		return;
 
 	if (xe->wedged.mode == XE_WEDGED_MODE_UPON_ANY_HANG_NO_RESET) {
-		err = devm_add_action_or_reset(guc_to_xe(guc)->drm.dev,
-					       guc_submit_wedged_fini, guc);
-		if (err) {
-			xe_gt_err(gt, "Failed to register clean-up on wedged.mode=%s; "
-				  "Although device is wedged.\n",
-				  xe_wedged_mode_to_string(XE_WEDGED_MODE_UPON_ANY_HANG_NO_RESET));
-			return;
-		}
-
 		mutex_lock(&guc->submission_state.lock);
 		xa_for_each(&guc->submission_state.exec_queue_lookup, index, q)
 			if (xe_exec_queue_get_unless_zero(q))
@@ -1904,21 +1881,8 @@ static void __guc_exec_queue_process_msg_set_multi_queue_priority(struct xe_sche
 {
 	struct xe_exec_queue *q = msg->private_data;
 
-	if (guc_exec_queue_allowed_to_change_state(q)) {
-#define MAX_MULTI_QUEUE_CGP_SYNC_SIZE        (2)
-		struct xe_guc *guc = exec_queue_to_guc(q);
-		struct xe_exec_queue_group *group = q->multi_queue.group;
-		u32 action[MAX_MULTI_QUEUE_CGP_SYNC_SIZE];
-		int len = 0;
-
-		action[len++] = XE_GUC_ACTION_MULTI_QUEUE_CONTEXT_CGP_SYNC;
-		action[len++] = group->primary->guc->id;
-
-		xe_gt_assert(guc_to_gt(guc), len <= MAX_MULTI_QUEUE_CGP_SYNC_SIZE);
-#undef MAX_MULTI_QUEUE_CGP_SYNC_SIZE
-
-		xe_guc_exec_queue_group_cgp_sync(guc, q, action, len);
-	}
+	if (guc_exec_queue_allowed_to_change_state(q))
+		guc_exec_queue_send_cgp_sync(q);
 
 	kfree(msg);
 }
@@ -2983,9 +2947,10 @@ int xe_guc_exec_queue_reset_handler(struct xe_guc *guc, u32 *msg, u32 len)
 	if (unlikely(!q))
 		return -EPROTO;
 
-	xe_gt_info(gt, "Engine reset: engine_class=%s, logical_mask: 0x%x, guc_id=%d, state=0x%0x",
-		   xe_hw_engine_class_to_str(q->class), q->logical_mask, guc_id,
-		   atomic_read(&q->guc->state));
+	if (!exec_queue_killed(q))
+		xe_gt_info(gt, "Engine reset: engine_class=%s, logical_mask: 0x%x, guc_id=%d, state=0x%0x",
+			   xe_hw_engine_class_to_str(q->class), q->logical_mask, guc_id,
+			   atomic_read(&q->guc->state));
 
 	trace_xe_exec_queue_reset(q);
 

@@ -321,7 +321,7 @@ static int read_channel_reply(struct dce_aux *engine, uint32_t size,
 			uint32_t aux_sw_data_val;
 
 			REG_GET(AUX_SW_DATA, AUX_SW_DATA, &aux_sw_data_val);
-			buffer[i] = aux_sw_data_val;
+			buffer[i] = (uint8_t)aux_sw_data_val;
 			++i;
 		}
 
@@ -375,7 +375,7 @@ static enum aux_return_code_type get_channel_status(
 			(value & AUX_SW_STATUS__AUX_SW_RX_RECV_INVALID_L_MASK))
 			return AUX_RET_ERROR_INVALID_REPLY;
 
-		*returned_bytes = get_reg_field_value(value,
+		*returned_bytes = (uint8_t)get_reg_field_value(value,
 				AUX_SW_STATUS,
 				AUX_SW_REPLY_BYTE_COUNT);
 
@@ -560,6 +560,18 @@ int dce_aux_transfer_raw(struct ddc_service *ddc,
 		struct aux_payload *payload,
 		enum aux_return_code_type *operation_result)
 {
+	if (ddc->ctx->dc->debug.enable_dmub_aux_for_legacy_ddc ||
+	    !ddc->ddc_pin) {
+		return dce_aux_transfer_dmub_raw(ddc, payload, operation_result);
+	} else {
+		return dce_aux_transfer_raw_with_ddc_pin(ddc, payload, operation_result);
+	}
+}
+
+int dce_aux_transfer_raw_with_ddc_pin(struct ddc_service *ddc,
+		struct aux_payload *payload,
+		enum aux_return_code_type *operation_result)
+{
 	struct ddc *ddc_pin = ddc->ddc_pin;
 	struct dce_aux *aux_engine;
 	struct aux_request_transaction_data aux_req;
@@ -740,13 +752,7 @@ bool dce_aux_transfer_with_retries(struct ddc_service *ddc,
 		if (payload->write)
 			dce_aux_log_payload("  write", payload->data, payload->length, 16);
 
-		/* Check whether aux to be processed via dmub or dcn directly */
-		if (ddc->ctx->dc->debug.enable_dmub_aux_for_legacy_ddc
-			|| ddc->ddc_pin == NULL) {
-			ret = dce_aux_transfer_dmub_raw(ddc, payload, &operation_result);
-		} else {
-			ret = dce_aux_transfer_raw(ddc, payload, &operation_result);
-		}
+		ret = dce_aux_transfer_raw(ddc, payload, &operation_result);
 
 		DC_TRACE_LEVEL_MESSAGE(DAL_TRACE_LEVEL_INFORMATION,
 					LOG_FLAG_I2cAux_DceAux,

@@ -246,6 +246,7 @@ int amdgpu_umsch_mm_fwlog;
 int amdgpu_rebar = -1; /* auto */
 int amdgpu_user_queue = -1;
 uint amdgpu_hdmi_hpd_debounce_delay_ms;
+int amdgpu_ptl = -1; /* auto */
 
 DECLARE_DYNDBG_CLASSMAP(drm_debug_classes, DD_CLASS_TYPE_DISJOINT_BITS, 0,
 			"DRM_UT_CORE",
@@ -641,9 +642,7 @@ module_param_named(si_support, amdgpu_si_support, int, 0444);
  * CIK (Sea Islands) are second generation GCN GPUs, supported by both
  * drivers: radeon (old) and amdgpu (new). This parameter controls whether
  * amdgpu should support CIK.
- * By default:
- * - CIK dedicated GPUs are supported by amdgpu.
- * - CIK APUs are supported by radeon (except when radeon is not built).
+ * By default, CIK dedicated GPUs and APUs are supported by amdgpu.
  * Only relevant when CONFIG_DRM_AMDGPU_CIK is enabled to build CIK support in amdgpu.
  * See also radeon.cik_support which should be disabled when amdgpu.cik_support is
  * enabled, and vice versa.
@@ -1113,6 +1112,18 @@ module_param_named(user_queue, amdgpu_user_queue, int, 0444);
  */
 MODULE_PARM_DESC(hdmi_hpd_debounce_delay_ms, "HDMI HPD disconnect debounce delay in milliseconds (0 to disable (by default), 1500 is common)");
 module_param_named(hdmi_hpd_debounce_delay_ms, amdgpu_hdmi_hpd_debounce_delay_ms, uint, 0644);
+
+/**
+ * DOC: ptl (int)
+ * Enable PTL feature at boot time. Possible values:
+ *
+ * - -1 = auto (ASIC specific default)
+ * -  0 = disable PTL (default)
+ * -  1 = enable PTL
+ * -  2 = permanently disable PTL (cannot be re-enabled at runtime)
+ */
+MODULE_PARM_DESC(ptl, "Enable PTL (-1 = auto, 0 = disable (default), 1 = enable, 2 = permanently disable)");
+module_param_named(ptl, amdgpu_ptl, int, 0444);
 
 /* These devices are not supported by amdgpu.
  * They are supported by the mach64, r128, radeon drivers
@@ -2323,8 +2334,6 @@ static bool amdgpu_support_enabled(struct device *dev,
 
 	case CHIP_BONAIRE:
 	case CHIP_HAWAII:
-		support_by_default = true;
-		fallthrough;
 	case CHIP_KAVERI:
 	case CHIP_KABINI:
 	case CHIP_MULLINS:
@@ -2332,6 +2341,7 @@ static bool amdgpu_support_enabled(struct device *dev,
 		param = "cik_support";
 		module_param = amdgpu_cik_support;
 		amdgpu_support_built = IS_ENABLED(CONFIG_DRM_AMDGPU_CIK);
+		support_by_default = true;
 		break;
 
 	default:
@@ -3152,17 +3162,15 @@ static int __init amdgpu_init(void)
 
 	r = amdgpu_sync_init();
 	if (r)
-		goto error_sync;
-
-	r = amdgpu_userq_fence_slab_init();
-	if (r)
-		goto error_fence;
+		return r;
 
 	amdgpu_register_atpx_handler();
 	amdgpu_acpi_detect();
 
-	/* Ignore KFD init failures. Normal when CONFIG_HSA_AMD is not set. */
-	amdgpu_amdkfd_init();
+	/* Ignore KFD init failures when CONFIG_HSA_AMD is not set. */
+	r = amdgpu_amdkfd_init();
+	if (r && r != -ENOENT)
+		goto error_fini_sync;
 
 	if (amdgpu_pp_feature_mask & PP_OVERDRIVE_MASK) {
 		add_taint(TAINT_CPU_OUT_OF_SPEC, LOCKDEP_STILL_OK);
@@ -3173,10 +3181,8 @@ static int __init amdgpu_init(void)
 	/* let modprobe override vga console setting */
 	return pci_register_driver(&amdgpu_kms_pci_driver);
 
-error_fence:
+error_fini_sync:
 	amdgpu_sync_fini();
-
-error_sync:
 	return r;
 }
 
@@ -3187,7 +3193,6 @@ static void __exit amdgpu_exit(void)
 	amdgpu_unregister_atpx_handler();
 	amdgpu_acpi_release();
 	amdgpu_sync_fini();
-	amdgpu_userq_fence_slab_fini();
 	mmu_notifier_synchronize();
 	amdgpu_xcp_drv_release();
 }

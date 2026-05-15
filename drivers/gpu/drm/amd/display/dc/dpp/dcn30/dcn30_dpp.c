@@ -517,11 +517,16 @@ bool dpp3_get_optimal_number_of_taps(
 	else if (max_taps_c < min_taps_c)
 		return false;
 
-	if (scl_data->taps.v_taps > max_taps_y)
-		scl_data->taps.v_taps = max_taps_y;
+	{
+		uint32_t max_supported_taps_y = (uint32_t)max_taps_y;
+		uint32_t max_supported_taps_c = (uint32_t)max_taps_c;
 
-	if (scl_data->taps.v_taps_c > max_taps_c)
-		scl_data->taps.v_taps_c = max_taps_c;
+		if (scl_data->taps.v_taps > max_supported_taps_y)
+			scl_data->taps.v_taps = max_supported_taps_y;
+
+		if (scl_data->taps.v_taps_c > max_supported_taps_c)
+			scl_data->taps.v_taps_c = max_supported_taps_c;
+	}
 
 	if (!dpp->ctx->dc->debug.always_scale) {
 		if (IDENTITY_RATIO(scl_data->ratios.horz)) {
@@ -543,7 +548,7 @@ bool dpp3_get_optimal_number_of_taps(
 
 static void dpp3_deferred_update(struct dpp *dpp_base)
 {
-	int bypass_state;
+	uint32_t bypass_state;
 	struct dcn3_dpp *dpp = TO_DCN30_DPP(dpp_base);
 
 	if (dpp_base->deferred_reg_writes.bits.disable_dscl) {

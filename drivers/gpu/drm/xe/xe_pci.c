@@ -118,6 +118,7 @@ static const struct xe_graphics_desc graphics_xe2 = {
 
 static const struct xe_graphics_desc graphics_xe3p_lpg = {
 	XE2_GFX_FEATURES,
+	.has_indirect_ring_state = 1,
 	.multi_queue_engine_class_mask = BIT(XE_ENGINE_CLASS_COPY) | BIT(XE_ENGINE_CLASS_COMPUTE),
 	.num_geometry_xecore_fuse_regs = 3,
 	.num_compute_xecore_fuse_regs = 3,
@@ -465,6 +466,7 @@ static const struct xe_device_desc cri_desc = {
 	.has_soc_remapper_sysctrl = true,
 	.has_soc_remapper_telem = true,
 	.has_sriov = true,
+	.has_sysctrl = true,
 	.max_gt_per_tile = 2,
 	MULTI_LRC_MASK,
 	.require_force_probe = true,
@@ -763,8 +765,8 @@ static int xe_info_init_early(struct xe_device *xe,
 	xe->info.has_soc_remapper_telem = desc->has_soc_remapper_telem;
 	xe->info.has_sriov = xe_configfs_primary_gt_allowed(to_pci_dev(xe->drm.dev)) &&
 		desc->has_sriov;
+	xe->info.has_sysctrl = desc->has_sysctrl;
 	xe->info.skip_guc_pc = desc->skip_guc_pc;
-	xe->info.skip_mtcfg = desc->skip_mtcfg;
 	xe->info.skip_pcode = desc->skip_pcode;
 	xe->info.needs_scratch = desc->needs_scratch;
 	xe->info.needs_shared_vf_gt_wq = desc->needs_shared_vf_gt_wq;
@@ -804,9 +806,6 @@ static void xe_info_probe_tile_count(struct xe_device *xe)
 	 * tiles.
 	 */
 	if (xe->info.tile_count == 1)
-		return;
-
-	if (xe->info.skip_mtcfg)
 		return;
 
 	mmio = xe_root_tile_mmio(xe);
@@ -849,6 +848,15 @@ static struct xe_gt *alloc_primary_gt(struct xe_tile *tile,
 	gt->info.engine_mask = graphics_desc->hw_engine_mask;
 	gt->info.num_geometry_xecore_fuse_regs = graphics_desc->num_geometry_xecore_fuse_regs;
 	gt->info.num_compute_xecore_fuse_regs = graphics_desc->num_compute_xecore_fuse_regs;
+
+	/*
+	 * Even if the service copy engines wind up being fused off, their
+	 * presence in the IP descriptor indicates that the platform supports
+	 * Xe2-style MEM_SET and MEM_COPY functionality.
+	 */
+	if (graphics_desc->hw_engine_mask & GENMASK(XE_HW_ENGINE_BCS8,
+						    XE_HW_ENGINE_BCS1))
+		gt->info.has_xe2_blt_instructions = true;
 
 	/*
 	 * Before media version 13, the media IP was part of the primary GT
@@ -958,6 +966,12 @@ static int xe_info_init(struct xe_device *xe,
 	xe->info.has_usm = graphics_desc->has_usm;
 	xe->info.has_64bit_timestamp = graphics_desc->has_64bit_timestamp;
 	xe->info.has_mem_copy_instr = GRAPHICS_VER(xe) >= 20;
+
+	if (IS_SRIOV_VF(xe)) {
+		xe->info.has_sysctrl = 0;
+		xe->info.has_soc_remapper_sysctrl = 0;
+		xe->info.has_soc_remapper_telem = 0;
+	}
 
 	xe_info_probe_tile_count(xe);
 

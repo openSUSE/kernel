@@ -24,7 +24,7 @@ union sbi_pmu_ctr_info ctrinfo_arr[RISCV_MAX_PMU_COUNTERS];
 /* Snapshot shared memory data */
 #define PMU_SNAPSHOT_GPA_BASE		BIT(30)
 static void *snapshot_gva;
-static vm_paddr_t snapshot_gpa;
+static gpa_t snapshot_gpa;
 
 static int vcpu_shared_irq_count;
 static int counter_in_use;
@@ -86,7 +86,7 @@ unsigned long pmu_csr_read_num(int csr_num)
 #undef switchcase_csr_read
 }
 
-static inline void dummy_func_loop(uint64_t iter)
+static inline void dummy_func_loop(u64 iter)
 {
 	int i = 0;
 
@@ -259,7 +259,7 @@ static inline void verify_sbi_requirement_assert(void)
 		__GUEST_ASSERT(0, "SBI implementation version doesn't support PMU Snapshot");
 }
 
-static void snapshot_set_shmem(vm_paddr_t gpa, unsigned long flags)
+static void snapshot_set_shmem(gpa_t gpa, unsigned long flags)
 {
 	unsigned long lo = (unsigned long)gpa;
 #if __riscv_xlen == 32
@@ -436,6 +436,7 @@ static void test_pmu_basic_sanity(void)
 	struct sbiret ret;
 	int num_counters = 0, i;
 	union sbi_pmu_ctr_info ctrinfo;
+	unsigned long fw_eidx;
 
 	probe = guest_sbi_probe_extension(SBI_EXT_PMU, &out_val);
 	GUEST_ASSERT(probe && out_val == 1);
@@ -461,7 +462,24 @@ static void test_pmu_basic_sanity(void)
 			pmu_csr_read_num(ctrinfo.csr);
 			GUEST_ASSERT(illegal_handler_invoked);
 		} else if (ctrinfo.type == SBI_PMU_CTR_TYPE_FW) {
-			read_fw_counter(i, ctrinfo);
+			/* Read without configure should fail */
+			ret = sbi_ecall(SBI_EXT_PMU, SBI_EXT_PMU_COUNTER_FW_READ,
+					i, 0, 0, 0, 0, 0);
+			GUEST_ASSERT(ret.error == SBI_ERR_INVALID_PARAM);
+
+			/*
+			 * Try to configure with a common firmware event.
+			 * If configuration succeeds, verify we can read it.
+			 */
+			fw_eidx = ((unsigned long)SBI_PMU_EVENT_TYPE_FW << 16) |
+				  SBI_PMU_FW_ACCESS_LOAD;
+
+			ret = sbi_ecall(SBI_EXT_PMU, SBI_EXT_PMU_COUNTER_CFG_MATCH,
+					i, 1, 0, fw_eidx, 0, 0);
+			if (ret.error == 0) {
+				GUEST_ASSERT(ret.value == i);
+				read_fw_counter(i, ctrinfo);
+			}
 		}
 	}
 
@@ -592,7 +610,7 @@ static void test_vm_setup_snapshot_mem(struct kvm_vm *vm, struct kvm_vcpu *vcpu)
 	virt_map(vm, PMU_SNAPSHOT_GPA_BASE, PMU_SNAPSHOT_GPA_BASE, 1);
 
 	snapshot_gva = (void *)(PMU_SNAPSHOT_GPA_BASE);
-	snapshot_gpa = addr_gva2gpa(vcpu->vm, (vm_vaddr_t)snapshot_gva);
+	snapshot_gpa = addr_gva2gpa(vcpu->vm, (gva_t)snapshot_gva);
 	sync_global_to_guest(vcpu->vm, snapshot_gva);
 	sync_global_to_guest(vcpu->vm, snapshot_gpa);
 }

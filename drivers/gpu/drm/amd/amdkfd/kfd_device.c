@@ -936,6 +936,9 @@ bool kgd2kfd_device_init(struct kfd_dev *kfd,
 
 	svm_range_set_max_pages(kfd->adev);
 
+	kfd->profiler_process = NULL;
+	mutex_init(&kfd->profiler_lock);
+
 	kfd->init_complete = true;
 	dev_info(kfd_device, "added device %x:%x\n", kfd->adev->pdev->vendor,
 		 kfd->adev->pdev->device);
@@ -971,6 +974,7 @@ void kgd2kfd_device_exit(struct kfd_dev *kfd)
 		ida_destroy(&kfd->doorbell_ida);
 		kfd_gtt_sa_fini(kfd);
 		amdgpu_amdkfd_free_kernel_mem(kfd->adev, &kfd->gtt_mem);
+		mutex_destroy(&kfd->profiler_lock);
 	}
 
 	kfree(kfd);
@@ -1647,6 +1651,22 @@ int kgd2kfd_stop_sched_all_nodes(struct kfd_dev *kfd)
 	return 0;
 }
 
+int amdgpu_amdkfd_stop_sched_all(struct amdgpu_device *adev)
+{
+	if (!adev->kfd.init_complete)
+		return 0;
+
+	return kgd2kfd_stop_sched_all_nodes(adev->kfd.dev);
+}
+
+int amdgpu_amdkfd_start_sched_all(struct amdgpu_device *adev)
+{
+	if (!adev->kfd.init_complete)
+		return 0;
+
+	return kgd2kfd_start_sched_all_nodes(adev->kfd.dev);
+}
+
 bool kgd2kfd_compute_active(struct kfd_dev *kfd, uint32_t node_id)
 {
 	struct kfd_node *node;
@@ -1737,37 +1757,6 @@ bool kgd2kfd_vmfault_fast_path(struct amdgpu_device *adev, struct amdgpu_iv_entr
 	return false;
 }
 
-/* check if there is kfd process still uses adev */
-static bool kgd2kfd_check_device_idle(struct amdgpu_device *adev)
-{
-	struct kfd_process *p;
-	struct hlist_node *p_temp;
-	unsigned int temp;
-	struct kfd_node *dev;
-
-	mutex_lock(&kfd_processes_mutex);
-
-	if (hash_empty(kfd_processes_table)) {
-		mutex_unlock(&kfd_processes_mutex);
-		return true;
-	}
-
-	/* check if there is device still use adev */
-	hash_for_each_safe(kfd_processes_table, temp, p_temp, p, kfd_processes) {
-		for (int i = 0; i < p->n_pdds; i++) {
-			dev = p->pdds[i]->dev;
-			if (dev->adev == adev) {
-				mutex_unlock(&kfd_processes_mutex);
-				return false;
-			}
-		}
-	}
-
-	mutex_unlock(&kfd_processes_mutex);
-
-	return true;
-}
-
 /** kgd2kfd_teardown_processes - gracefully tear down existing
  *  kfd processes that use adev
  *
@@ -1800,7 +1789,7 @@ void kgd2kfd_teardown_processes(struct amdgpu_device *adev)
 	mutex_unlock(&kfd_processes_mutex);
 
 	/* wait all kfd processes use adev terminate */
-	while (!kgd2kfd_check_device_idle(adev))
+	while (!!atomic_read(&adev->kfd.dev->kfd_processes_count))
 		cond_resched();
 }
 
