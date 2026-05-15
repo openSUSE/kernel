@@ -1355,6 +1355,9 @@ err:
 	gpiod_set_value_cansleep(cs35l56->base.reset_gpio, 0);
 	regulator_bulk_disable(ARRAY_SIZE(cs35l56->supplies), cs35l56->supplies);
 
+	if (cs35l56->dsp_wq)
+		destroy_workqueue(cs35l56->dsp_wq);
+
 	return ret;
 }
 EXPORT_SYMBOL_NS_GPL(cs35l56_common_probe, SND_SOC_CS35L56_CORE);
