@@ -1449,11 +1449,16 @@ static int pch_spi_pd_remove(struct platform_device *plat_dev)
 		free_irq(board_dat->pdev->irq, data);
 	}
 
+	spi_controller_get(data->master);
+
+	spi_unregister_controller(data->master);
+
 	if (use_dma)
 		pch_free_dma_buf(board_dat, data);
 
 	pci_iounmap(board_dat->pdev, data->io_remap_addr);
-	spi_unregister_master(data->master);
+
+	spi_controller_put(data->master);
 
 	return 0;
 }
