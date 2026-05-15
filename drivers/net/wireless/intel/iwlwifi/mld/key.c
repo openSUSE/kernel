@@ -49,6 +49,12 @@ static u32 iwl_mld_get_key_flags(struct iwl_mld *mld,
 	if (key->flags & IEEE80211_KEY_FLAG_SPP_AMSDU)
 		flags |= IWL_SEC_KEY_FLAG_SPP_AMSDU;
 
+	/* When a GTK is configured for a station, it can only be
+	 * used for Rx and never for Tx. Thus, set the NO TX flag.
+	 */
+	if (!pairwise && sta)
+		flags |= IWL_SEC_KEY_FLAG_NO_TX;
+
 	return flags;
 }
 
