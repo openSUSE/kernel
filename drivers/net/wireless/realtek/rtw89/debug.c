@@ -3760,6 +3760,7 @@ rtw89_debug_priv_fw_crash_set(struct rtw89_dev *rtwdev,
 }
 
 struct rtw89_dbg_ser_counters {
+	unsigned int l0_sim;
 	unsigned int l0;
 	unsigned int l1;
 	unsigned int l0_to_l1;
@@ -3780,6 +3781,7 @@ static void rtw89_dbg_get_ser_counters_be(struct rtw89_dev *rtwdev,
 {
 	const u32 val = rtw89_read32(rtwdev, R_BE_SER_DBG_INFO);
 
+	cnt->l0_sim = rtw89_read8(rtwdev, R_BE_SER_L0_DBG_CNT1 + 3);
 	cnt->l0 = u32_get_bits(val, B_BE_SER_L0_COUNTER_MASK);
 	cnt->l1 = u32_get_bits(val, B_BE_SER_L1_COUNTER_MASK);
 	cnt->l0_to_l1 = u32_get_bits(val, B_BE_SER_L0_PROMOTE_L1_EVENT_MASK);
@@ -3809,6 +3811,10 @@ static ssize_t rtw89_debug_priv_ser_counters_get(struct rtw89_dev *rtwdev,
 
 	p += scnprintf(p, end - p, "SER L1 SW Count: %u\n", sw_cnt->l1);
 	p += scnprintf(p, end - p, "SER L2 SW Count: %u\n", sw_cnt->l2);
+
+	/* Some chipsets don't have dedicated cnt for SER simulation. */
+	p += scnprintf(p, end - p, "---\n");
+	p += scnprintf(p, end - p, "SER L0 Simulation Count: %d\n", cnt.l0_sim);
 
 	/* Some chipsets won't record SER simulation in HW cnt. */
 	p += scnprintf(p, end - p, "---\n");
