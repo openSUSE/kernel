@@ -49,10 +49,10 @@ static enum skl_power_gate pw_idx_to_pg(struct intel_display *display, int pw_id
 }
 
 struct i915_power_well_regs {
-	i915_reg_t bios;
-	i915_reg_t driver;
-	i915_reg_t kvmr;
-	i915_reg_t debug;
+	intel_reg_t bios;
+	intel_reg_t driver;
+	intel_reg_t kvmr;
+	intel_reg_t debug;
 };
 
 struct i915_power_well_ops {

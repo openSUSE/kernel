@@ -1069,7 +1069,7 @@ static void intel_power_domains_sync_hw(struct intel_display *display)
 static void gen9_dbuf_slice_set(struct intel_display *display,
 				enum dbuf_slice slice, bool enable)
 {
-	i915_reg_t reg = DBUF_CTL_S(slice);
+	intel_reg_t reg = DBUF_CTL_S(slice);
 	bool state;
 
 	intel_de_rmw(display, reg, DBUF_POWER_REQUEST,
@@ -1426,7 +1426,7 @@ static void hsw_disable_pc8(struct intel_display *display)
 static void intel_pch_reset_handshake(struct intel_display *display,
 				      bool enable)
 {
-	i915_reg_t reg;
+	intel_reg_t reg;
 	u32 reset_bits;
 
 	if (DISPLAY_VER(display) >= 35)

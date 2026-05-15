@@ -2980,7 +2980,7 @@ void intel_cx0_powerdown_change_sequence(struct intel_encoder *encoder,
 	struct intel_display *display = to_intel_display(encoder);
 	enum port port = encoder->port;
 	enum phy phy = intel_encoder_to_phy(encoder);
-	i915_reg_t buf_ctl2_reg = XELPDP_PORT_BUF_CTL2(display, port);
+	intel_reg_t buf_ctl2_reg = XELPDP_PORT_BUF_CTL2(display, port);
 	int lane;
 
 	intel_de_rmw(display, buf_ctl2_reg,

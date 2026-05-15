@@ -3,16 +3,19 @@
  * Copyright © 2021 Intel Corporation
  */
 
+#include <drm/intel/display_parent_interface.h>
 #include <drm/ttm/ttm_bo.h>
 
-#include "intel_display_core.h"
-#include "intel_display_types.h"
+/* FIXME move the types to parent interface? */
+#include "i915_gtt_view_types.h"
+
+/* FIXME move intel_remapped_info_size() & co. to parent interface? */
 #include "intel_fb.h"
-#include "intel_fb_pin.h"
-#include "intel_fbdev.h"
+
 #include "xe_bo.h"
 #include "xe_device.h"
 #include "xe_display_vma.h"
+#include "xe_fb_pin.h"
 #include "xe_ggtt.h"
 #include "xe_pat.h"
 #include "xe_pm.h"
@@ -286,7 +289,7 @@ static int __xe_pin_fb_vma_ggtt(struct drm_gem_object *obj,
 	 */
 	guard(xe_pm_runtime_noresume)(xe);
 
-	align = XE_PAGE_SIZE;
+	align = max(XE_PAGE_SIZE, pin_params->alignment);
 	if (xe_bo_is_vram(bo) && xe->info.vram_flags & XE_VRAM_FLAGS_NEED64K)
 		align = max(align, SZ_64K);
 
@@ -326,6 +329,9 @@ static struct i915_vma *__xe_pin_fb_vma(struct drm_gem_object *obj, bool is_dpt,
 	struct xe_validation_ctx ctx;
 	struct drm_exec exec;
 	int ret = 0;
+
+	/* We reject creating !SCANOUT fb's, so this is weird.. */
+	drm_WARN_ON(bo->ttm.base.dev, !(bo->flags & XE_BO_FLAG_FORCE_WC));
 
 	if (!vma)
 		return ERR_PTR(-ENODEV);
@@ -408,97 +414,94 @@ static void __xe_unpin_fb_vma(struct i915_vma *vma)
 	kfree(vma);
 }
 
-struct i915_vma *
-intel_fb_pin_to_ggtt(struct drm_gem_object *obj,
-		     const struct intel_fb_pin_params *pin_params,
-		     int *out_fence_id)
+int xe_fb_pin_ggtt_pin(struct drm_gem_object *obj,
+		       const struct intel_fb_pin_params *pin_params,
+		       struct i915_vma **out_ggtt_vma,
+		       u32 *out_offset,
+		       int *out_fence_id)
 {
+	struct i915_vma *ggtt_vma;
+
+	ggtt_vma = __xe_pin_fb_vma(obj, false, pin_params);
+	if (IS_ERR(ggtt_vma))
+		return PTR_ERR(ggtt_vma);
+
+	*out_ggtt_vma = ggtt_vma;
+	*out_offset = xe_ggtt_node_addr(ggtt_vma->node);
 	if (out_fence_id)
 		*out_fence_id = -1;
-
-	return __xe_pin_fb_vma(obj, false, pin_params);
-}
-
-void intel_fb_unpin_vma(struct i915_vma *vma, int fence_id)
-{
-	__xe_unpin_fb_vma(vma);
-}
-
-static bool reuse_vma(struct intel_plane_state *new_plane_state,
-		      const struct intel_plane_state *old_plane_state)
-{
-	struct intel_framebuffer *fb = to_intel_framebuffer(new_plane_state->hw.fb);
-	struct intel_plane *plane = to_intel_plane(new_plane_state->uapi.plane);
-	struct xe_device *xe = to_xe_device(fb->base.dev);
-	struct intel_display *display = xe->display;
-	struct i915_vma *vma;
-
-	if (old_plane_state->hw.fb == new_plane_state->hw.fb &&
-	    !memcmp(&old_plane_state->view.gtt,
-		    &new_plane_state->view.gtt,
-		    sizeof(new_plane_state->view.gtt))) {
-		vma = old_plane_state->ggtt_vma;
-		goto found;
-	}
-
-	if (fb == intel_fbdev_framebuffer(display->fbdev.fbdev)) {
-		vma = intel_fbdev_vma_pointer(display->fbdev.fbdev);
-		if (vma)
-			goto found;
-	}
-
-	return false;
-
-found:
-	refcount_inc(&vma->ref);
-	new_plane_state->ggtt_vma = vma;
-
-	new_plane_state->surf = xe_ggtt_node_addr(new_plane_state->ggtt_vma->node) +
-		plane->surf_offset(new_plane_state);
-
-	return true;
-}
-
-int intel_plane_pin_fb(struct intel_plane_state *new_plane_state,
-		       const struct intel_plane_state *old_plane_state)
-{
-	struct drm_framebuffer *fb = new_plane_state->hw.fb;
-	struct drm_gem_object *obj = intel_fb_bo(fb);
-	struct xe_bo *bo = gem_to_xe_bo(obj);
-	struct i915_vma *vma;
-	struct intel_plane *plane = to_intel_plane(new_plane_state->uapi.plane);
-	struct intel_fb_pin_params pin_params = {
-		.view = &new_plane_state->view.gtt,
-		.alignment = plane->min_alignment(plane, fb, 0),
-		.needs_cpu_lmem_access = intel_fb_needs_cpu_access(fb),
-	};
-
-	if (reuse_vma(new_plane_state, old_plane_state))
-		return 0;
-
-	/* We reject creating !SCANOUT fb's, so this is weird.. */
-	drm_WARN_ON(bo->ttm.base.dev, !(bo->flags & XE_BO_FLAG_FORCE_WC));
-
-	vma = __xe_pin_fb_vma(obj, intel_fb_uses_dpt(fb), &pin_params);
-
-	if (IS_ERR(vma))
-		return PTR_ERR(vma);
-
-	new_plane_state->ggtt_vma = vma;
-
-	new_plane_state->surf = xe_ggtt_node_addr(new_plane_state->ggtt_vma->node) +
-		plane->surf_offset(new_plane_state);
 
 	return 0;
 }
 
-void intel_plane_unpin_fb(struct intel_plane_state *old_plane_state)
+static void xe_fb_pin_ggtt_unpin(struct i915_vma *ggtt_vma,
+				 int fence_id)
 {
-	__xe_unpin_fb_vma(old_plane_state->ggtt_vma);
-	old_plane_state->ggtt_vma = NULL;
+	WARN_ON(fence_id >= 0);
+
+	__xe_unpin_fb_vma(ggtt_vma);
 }
 
-void intel_fb_get_map(struct i915_vma *vma, struct iosys_map *map)
+static int xe_fb_pin_dpt_pin(struct drm_gem_object *obj, struct intel_dpt *dpt,
+			     const struct intel_fb_pin_params *pin_params,
+			     struct i915_vma **out_dpt_vma,
+			     struct i915_vma **out_ggtt_vma,
+			     u32 *out_offset)
+{
+	struct i915_vma *ggtt_vma;
+
+	WARN_ON(dpt);
+
+	ggtt_vma = __xe_pin_fb_vma(obj, true, pin_params);
+	if (IS_ERR(ggtt_vma))
+		return PTR_ERR(ggtt_vma);
+
+	*out_dpt_vma = NULL; /* not used on xe */
+	*out_ggtt_vma = ggtt_vma;
+	*out_offset = xe_ggtt_node_addr(ggtt_vma->node);
+
+	return 0;
+}
+
+static void xe_fb_pin_dpt_unpin(struct intel_dpt *dpt,
+				struct i915_vma *dpt_vma,
+				struct i915_vma *ggtt_vma)
+{
+	WARN_ON(dpt || dpt_vma);
+
+	__xe_unpin_fb_vma(ggtt_vma);
+}
+
+static struct i915_vma *
+xe_fb_pin_reuse_vma(struct i915_vma *old_ggtt_vma,
+		    struct drm_gem_object *old_obj,
+		    const struct i915_gtt_view *old_view,
+		    struct drm_gem_object *new_obj,
+		    const struct i915_gtt_view *new_view,
+		    u32 *out_offset)
+{
+	if (old_ggtt_vma && old_obj == new_obj &&
+	    !memcmp(old_view, new_view, sizeof(*new_view))) {
+		refcount_inc(&old_ggtt_vma->ref);
+
+		*out_offset = xe_ggtt_node_addr(old_ggtt_vma->node);
+
+		return old_ggtt_vma;
+	}
+
+	return NULL;
+}
+
+static void xe_fb_pin_get_map(struct i915_vma *vma, struct iosys_map *map)
 {
 	*map = vma->bo->vmap;
 }
+
+const struct intel_display_fb_pin_interface xe_display_fb_pin_interface = {
+	.ggtt_pin = xe_fb_pin_ggtt_pin,
+	.ggtt_unpin = xe_fb_pin_ggtt_unpin,
+	.dpt_pin = xe_fb_pin_dpt_pin,
+	.dpt_unpin = xe_fb_pin_dpt_unpin,
+	.reuse_vma = xe_fb_pin_reuse_vma,
+	.get_map = xe_fb_pin_get_map,
+};

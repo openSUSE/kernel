@@ -279,8 +279,8 @@ void bxt_port_to_phy_channel(struct intel_display *display, enum port port,
  * writes to the group register to write the same value to all the lanes.
  */
 static u32 bxt_dpio_phy_rmw_grp(struct intel_display *display,
-				i915_reg_t reg_single,
-				i915_reg_t reg_group,
+				intel_reg_t reg_single,
+				intel_reg_t reg_group,
 				u32 clear, u32 set)
 {
 	u32 old, val;
@@ -512,7 +512,7 @@ void bxt_dpio_phy_init(struct intel_display *display, enum dpio_phy phy)
 
 static bool __printf(6, 7)
 __phy_reg_verify_state(struct intel_display *display, enum dpio_phy phy,
-		       i915_reg_t reg, u32 mask, u32 expected,
+		       intel_reg_t reg, u32 mask, u32 expected,
 		       const char *reg_fmt, ...)
 {
 	struct va_format vaf;
@@ -1172,7 +1172,7 @@ void vlv_wait_port_ready(struct intel_encoder *encoder,
 {
 	struct intel_display *display = to_intel_display(encoder);
 	u32 port_mask;
-	i915_reg_t dpll_reg;
+	intel_reg_t dpll_reg;
 	u32 val;
 
 	switch (encoder->port) {
