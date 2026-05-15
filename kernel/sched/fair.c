@@ -2247,7 +2247,7 @@ numa_type numa_classify(unsigned int imbalance_pct,
 static inline bool test_idle_cores(int cpu);
 static inline int numa_idle_core(int idle_core, int cpu)
 {
-	if (!static_branch_likely(&sched_smt_present) ||
+	if (!sched_smt_active() ||
 	    idle_core >= 0 || !test_idle_cores(cpu))
 		return idle_core;
 
