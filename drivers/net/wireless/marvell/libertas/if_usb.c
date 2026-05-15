@@ -422,7 +422,12 @@ static int usb_tx_block(struct if_usb_card *cardp, uint8_t *payload, uint16_t nb
 		goto tx_ret;
 	}
 
-	usb_kill_urb(cardp->tx_urb);
+	/* check if there are pending URBs */
+	if (cardp->tx_urb->hcpriv) {
+		lbs_deb_usbd(&cardp->udev->dev, "%s failed: pending URB\n", __func__);
+		ret = -EBUSY;
+		goto tx_ret;
+	}
 
 	usb_fill_bulk_urb(cardp->tx_urb, cardp->udev,
 			  usb_sndbulkpipe(cardp->udev,
