@@ -434,6 +434,11 @@ static const struct ath12k_hw_params ath12k_wifi7_hw_params[] = {
 		.current_cc_support = false,
 
 		.dp_primary_link_only = true,
+		.client = {
+			.max_client_single = 512,
+			.max_client_dbs = 128,
+			.max_client_dbs_sbs = 128,
+		},
 	},
 	{
 		.name = "wcn7850 hw2.0",
@@ -520,6 +525,11 @@ static const struct ath12k_hw_params ath12k_wifi7_hw_params[] = {
 		.current_cc_support = true,
 
 		.dp_primary_link_only = false,
+		.client = {
+			.max_client_single = 512,
+			.max_client_dbs = 128,
+			.max_client_dbs_sbs = 128,
+		},
 	},
 	{
 		.name = "qcn9274 hw2.0",
@@ -602,6 +612,11 @@ static const struct ath12k_hw_params ath12k_wifi7_hw_params[] = {
 		.current_cc_support = false,
 
 		.dp_primary_link_only = true,
+		.client = {
+			.max_client_single = 512,
+			.max_client_dbs = 128,
+			.max_client_dbs_sbs = 128,
+		},
 	},
 	{
 		.name = "ipq5332 hw1.0",
@@ -677,6 +692,11 @@ static const struct ath12k_hw_params ath12k_wifi7_hw_params[] = {
 		.bdf_addr_offset = 0xC00000,
 
 		.dp_primary_link_only = true,
+		.client = {
+			.max_client_single = 256,
+			.max_client_dbs = 128,
+			.max_client_dbs_sbs = 128,
+		},
 	},
 	{
 		.name = "qcc2072 hw1.0",
@@ -764,6 +784,11 @@ static const struct ath12k_hw_params ath12k_wifi7_hw_params[] = {
 		.current_cc_support = true,
 
 		.dp_primary_link_only = false,
+		.client = {
+			.max_client_single = 512,
+			.max_client_dbs = 128,
+			.max_client_dbs_sbs = 128,
+		},
 	},
 	{
 		.name = "ipq5424 hw1.0",
@@ -843,6 +868,11 @@ static const struct ath12k_hw_params ath12k_wifi7_hw_params[] = {
 		.current_cc_support = false,
 
 		.dp_primary_link_only = true,
+		.client = {
+			.max_client_single = 512,
+			.max_client_dbs = 128,
+			.max_client_dbs_sbs = 128,
+		},
 	},
 };
 
