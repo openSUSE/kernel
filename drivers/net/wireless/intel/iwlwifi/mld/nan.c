@@ -693,6 +693,14 @@ void iwl_mld_nan_vif_cfg_changed(struct iwl_mld *mld,
 		break;
 	case 2:
 		cmd_size = sizeof(struct iwl_nan_schedule_cmd);
+
+		if (sched_cfg->avail_blob_len &&
+		    !WARN_ON(sched_cfg->avail_blob_len >
+			     sizeof(cmd.avail_attr.attr))) {
+			cmd.avail_attr.attr_len = sched_cfg->avail_blob_len;
+			memcpy(cmd.avail_attr.attr, sched_cfg->avail_blob,
+			       sched_cfg->avail_blob_len);
+		}
 		break;
 	default:
 		IWL_ERR(mld, "NAN: unsupported NAN schedule cmd version %d\n",
@@ -726,6 +734,15 @@ void iwl_mld_nan_vif_cfg_changed(struct iwl_mld *mld,
 	/* this currently just uses the same index */
 	BUILD_BUG_ON(ARRAY_SIZE(sched_cfg->channels) !=
 		     ARRAY_SIZE(cmd.channels));
+
+	/*
+	 * mac80211 removes unused channels before adding new ones, so it may
+	 * update an empty schedule with an availability attribute because it
+	 * is going to add channels later. Since the firmware does not expect
+	 * an availability attribute without channels, ignore it in that case.
+	 */
+	if (empty_schedule)
+		cmd.avail_attr.attr_len = 0;
 
 	/* find links we can keep (same chanctx/PHY) */
 	for (i = 0; i < ARRAY_SIZE(sched_cfg->channels); i++) {
