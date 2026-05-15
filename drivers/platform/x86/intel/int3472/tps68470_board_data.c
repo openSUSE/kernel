@@ -323,13 +323,13 @@ static struct gpiod_lookup_table msi_prestige_ai_evo_ovti5675_gpios = {
 	}
 };
 
-static const struct property_entry msi_prestige_ai_evo_gpio_props[] = {
+static const struct property_entry int3472_tps68470_daisy_chain_gpio_props[] = {
 	PROPERTY_ENTRY_BOOL("daisy-chain-enable"),
 	{ }
 };
 
-static const struct software_node msi_prestige_ai_evo_tps68470_gpio_swnode = {
-	.properties = msi_prestige_ai_evo_gpio_props,
+static const struct software_node int3472_tps68470_daisy_chain_gpio_swnode = {
+	.properties = int3472_tps68470_daisy_chain_gpio_props,
 };
 
 static const struct int3472_tps68470_board_data surface_go_tps68470_board_data = {
@@ -364,7 +364,7 @@ static const struct int3472_tps68470_board_data dell_7212_tps68470_board_data = 
 static const struct int3472_tps68470_board_data msi_prestige_ai_evo_tps68470_board_data = {
 	.dev_name = "i2c-INT3472:06",
 	.tps68470_regulator_pdata = &msi_prestige_ai_evo_tps68470_pdata,
-	.tps68470_gpio_swnode = &msi_prestige_ai_evo_tps68470_gpio_swnode,
+	.tps68470_gpio_swnode = &int3472_tps68470_daisy_chain_gpio_swnode,
 	.n_gpiod_lookups = 1,
 	.tps68470_gpio_lookup_tables = {
 		&msi_prestige_ai_evo_ovti5675_gpios,
