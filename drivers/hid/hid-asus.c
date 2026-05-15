@@ -595,18 +595,24 @@ static __u8 *asus_report_fixup(struct hid_device *hdev, __u8 *rdesc,
 	/* For the T100CHI keyboard dock */
 	if (drvdata->quirks & QUIRK_T100CHI &&
 		 *rsize == 403 && rdesc[388] == 0x09 && rdesc[389] == 0x76) {
+		__u8 *new_rdesc;
+
 		/*
 		 * Change Usage (76h) to Usage Minimum (00h), Usage Maximum
 		 * (FFh) and clear the flags in the Input() byte.
 		 * Note the descriptor has a bogus 0 byte at the end so we
 		 * only need 1 extra byte.
 		 */
-		*rsize = 404;
-		rdesc = kmemdup(rdesc, *rsize, GFP_KERNEL);
-		if (!rdesc)
-			return NULL;
+		new_rdesc = devm_kzalloc(&hdev->dev, *rsize + 1, GFP_KERNEL);
+		if (!new_rdesc)
+			return rdesc;
 
 		hid_info(hdev, "Fixing up T100CHI keyb report descriptor\n");
+
+		memcpy(new_rdesc, rdesc, *rsize);
+		*rsize = *rsize + 1;
+		rdesc = new_rdesc;
+
 		memmove(rdesc + 392, rdesc + 390, 12);
 		rdesc[388] = 0x19;
 		rdesc[389] = 0x00;
