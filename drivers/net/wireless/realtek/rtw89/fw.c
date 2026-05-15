@@ -8293,6 +8293,12 @@ void rtw89_fw_st_dbg_dump(struct rtw89_dev *rtwdev)
 	rtw89_info(rtwdev, "FW MISC = 0x%x\n", rtw89_read32(rtwdev, R_AX_UDM3));
 	rtw89_info(rtwdev, "R_AX_HALT_C2H = 0x%x\n",
 		   rtw89_read32(rtwdev, R_AX_HALT_C2H));
+	rtw89_info(rtwdev, "R_AX_HALT_C2H_CTRL = 0x%x\n",
+		   rtw89_read32(rtwdev, R_AX_HALT_C2H_CTRL));
+	rtw89_info(rtwdev, "R_AX_HALT_H2C = 0x%x\n",
+		   rtw89_read32(rtwdev, R_AX_HALT_H2C));
+	rtw89_info(rtwdev, "R_AX_HALT_H2C_CTRL = 0x%x\n",
+		   rtw89_read32(rtwdev, R_AX_HALT_H2C_CTRL));
 	rtw89_info(rtwdev, "R_AX_SER_DBG_INFO = 0x%x\n",
 		   rtw89_read32(rtwdev, R_AX_SER_DBG_INFO));
 
