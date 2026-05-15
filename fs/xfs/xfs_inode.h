@@ -630,13 +630,6 @@ static inline void xfs_finish_inode_setup(struct xfs_inode *ip)
 	unlock_new_inode(VFS_I(ip));
 }
 
-static inline void xfs_setup_existing_inode(struct xfs_inode *ip)
-{
-	xfs_setup_inode(ip);
-	xfs_setup_iops(ip);
-	xfs_finish_inode_setup(ip);
-}
-
 void xfs_irele(struct xfs_inode *ip);
 
 extern struct kmem_cache	*xfs_inode_cache;
