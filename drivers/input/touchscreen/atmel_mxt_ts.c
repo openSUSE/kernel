@@ -3410,11 +3410,11 @@ MODULE_DEVICE_TABLE(acpi, mxt_acpi_id);
 #endif
 
 static const struct i2c_device_id mxt_id[] = {
-	{ "qt602240_ts" },
-	{ "atmel_mxt_ts" },
-	{ "atmel_mxt_tp" },
-	{ "maxtouch" },
-	{ "mXT224" },
+	{ .name = "qt602240_ts" },
+	{ .name = "atmel_mxt_ts" },
+	{ .name = "atmel_mxt_tp" },
+	{ .name = "maxtouch" },
+	{ .name = "mXT224" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, mxt_id);
