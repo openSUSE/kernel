@@ -9118,11 +9118,17 @@ static int btf_check_func_arg_match(struct bpf_verifier_env *env, int subprog,
 	struct bpf_func_state *caller = cur_func(env);
 	struct bpf_verifier_log *log = &env->log;
 	u32 i;
-	int ret;
+	int ret, err;
 
 	ret = btf_prepare_func_args(env, subprog);
-	if (ret)
+	if (ret) {
+		if (bpf_in_stack_arg_cnt(sub) > 0) {
+			err = check_outgoing_stack_args(env, caller, sub->arg_cnt);
+			if (err)
+				return err;
+		}
 		return ret;
+	}
 
 	ret = check_outgoing_stack_args(env, caller, sub->arg_cnt);
 	if (ret)
