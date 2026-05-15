@@ -2027,13 +2027,14 @@ out_unlock:
  * So some of prechecks for hwpoison (pinning, and testing/setting
  * PageHWPoison) should be done in single hugetlb_lock range.
  * Returns:
- *	0		- not hugetlb, or recovered
+ *	0		- recovered
+ *	-ENOENT		- no hugetlb page
  *	-EBUSY		- not recovered
  *	-EOPNOTSUPP	- hwpoison_filter'ed
  *	-EHWPOISON	- folio or exact page already poisoned
  *	-EFAULT		- kill_accessing_process finds current->mm null
  */
-static int try_memory_failure_hugetlb(unsigned long pfn, int flags, int *hugetlb)
+static int try_memory_failure_hugetlb(unsigned long pfn, int flags)
 {
 	int res, rv;
 	struct page *p = pfn_to_page(pfn);
@@ -2041,13 +2042,11 @@ static int try_memory_failure_hugetlb(unsigned long pfn, int flags, int *hugetlb
 	unsigned long page_flags;
 	bool migratable_cleared = false;
 
-	*hugetlb = 1;
 retry:
 	res = get_huge_page_for_hwpoison(pfn, flags, &migratable_cleared);
 	switch (res) {
 	case MF_HUGETLB_NON_HUGEPAGE:	/* fallback to normal page handling */
-		*hugetlb = 0;
-		return 0;
+		return -ENOENT;
 	case MF_HUGETLB_RETRY:
 		if (!(flags & MF_NO_RETRY)) {
 			flags |= MF_NO_RETRY;
@@ -2108,9 +2107,9 @@ retry:
 }
 
 #else
-static inline int try_memory_failure_hugetlb(unsigned long pfn, int flags, int *hugetlb)
+static inline int try_memory_failure_hugetlb(unsigned long pfn, int flags)
 {
-	return 0;
+	return -ENOENT;
 }
 
 static inline unsigned long folio_free_raw_hwp(struct folio *folio, bool flag)
@@ -2348,7 +2347,6 @@ int memory_failure(unsigned long pfn, int flags)
 	int res = 0;
 	unsigned long page_flags;
 	bool retry = true;
-	int hugetlb = 0;
 
 	if (!sysctl_memory_failure_recovery)
 		panic("Memory failure on page %lx", pfn);
@@ -2387,8 +2385,11 @@ int memory_failure(unsigned long pfn, int flags)
 	}
 
 try_again:
-	res = try_memory_failure_hugetlb(pfn, flags, &hugetlb);
-	if (hugetlb)
+	res = try_memory_failure_hugetlb(pfn, flags);
+	/*
+	 * -ENOENT means the page we found is not hugetlb, so proceed with normal page handling
+	 */
+	if (res != -ENOENT)
 		goto unlock_mutex;
 
 	if (TestSetPageHWPoison(p)) {
