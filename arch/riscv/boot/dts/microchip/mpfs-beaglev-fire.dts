@@ -328,7 +328,6 @@
 
 &syscontroller {
 	microchip,bitstream-flash = <&sys_ctrl_flash>;
-	status = "okay";
 };
 
 &syscontroller_qspi {
