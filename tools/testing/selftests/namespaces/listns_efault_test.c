@@ -39,7 +39,7 @@ TEST(listns_partial_fault_with_ns_cleanup)
 	__u64 *ns_ids;
 	ssize_t ret;
 	long page_size;
-	pid_t pid, iter_pid;
+	pid_t pid, iter_pid, ns_pids[5];
 	int pidfds[5];
 	int sv[5][2];
 	int iter_pidfd;
@@ -115,6 +115,7 @@ TEST(listns_partial_fault_with_ns_cleanup)
 
 		pid = create_child(&pidfds[i], CLONE_NEWNS);
 		ASSERT_NE(pid, -1);
+		ns_pids[i] = pid;
 
 		if (pid == 0) {
 			close(sv[i][0]); /* Close parent end */
@@ -165,7 +166,7 @@ TEST(listns_partial_fault_with_ns_cleanup)
 
 	/* Wait for all mount namespace children to exit and cleanup */
 	for (i = 0; i < 5; i++) {
-		waitpid(-1, NULL, 0);
+		waitpid(ns_pids[i], NULL, 0);
 		close(sv[i][0]);
 		close(pidfds[i]);
 	}
@@ -175,6 +176,12 @@ TEST(listns_partial_fault_with_ns_cleanup)
 	ret = waitpid(iter_pid, &status, 0);
 	ASSERT_EQ(ret, iter_pid);
 	close(iter_pidfd);
+
+	/* If listns() is not supported the iterator exits cleanly via ENOSYS */
+	if (WIFEXITED(status) && WEXITSTATUS(status) == PIDFD_SKIP) {
+		munmap(map, page_size);
+		SKIP(return, "listns() not supported");
+	}
 
 	/* Should have been killed */
 	ASSERT_TRUE(WIFSIGNALED(status));
@@ -251,7 +258,7 @@ TEST(listns_late_fault_with_ns_cleanup)
 	__u64 *ns_ids;
 	ssize_t ret;
 	long page_size;
-	pid_t pid, iter_pid;
+	pid_t pid, iter_pid, ns_pids[10];
 	int pidfds[10];
 	int sv[10][2];
 	int iter_pidfd;
@@ -321,6 +328,7 @@ TEST(listns_late_fault_with_ns_cleanup)
 
 		pid = create_child(&pidfds[i], CLONE_NEWNS);
 		ASSERT_NE(pid, -1);
+		ns_pids[i] = pid;
 
 		if (pid == 0) {
 			close(sv[i][0]); /* Close parent end */
@@ -374,7 +382,7 @@ TEST(listns_late_fault_with_ns_cleanup)
 
 	/* Wait for all children and cleanup */
 	for (i = 0; i < 10; i++) {
-		waitpid(-1, NULL, 0);
+		waitpid(ns_pids[i], NULL, 0);
 		close(sv[i][0]);
 		close(pidfds[i]);
 	}
@@ -384,6 +392,12 @@ TEST(listns_late_fault_with_ns_cleanup)
 	ret = waitpid(iter_pid, &status, 0);
 	ASSERT_EQ(ret, iter_pid);
 	close(iter_pidfd);
+
+	/* If listns() is not supported the iterator exits cleanly via ENOSYS */
+	if (WIFEXITED(status) && WEXITSTATUS(status) == PIDFD_SKIP) {
+		munmap(map, page_size);
+		SKIP(return, "listns() not supported");
+	}
 
 	/* Should have been killed */
 	ASSERT_TRUE(WIFSIGNALED(status));
@@ -403,7 +417,7 @@ TEST(listns_mnt_ns_cleanup_on_fault)
 	__u64 *ns_ids;
 	ssize_t ret;
 	long page_size;
-	pid_t pid, iter_pid;
+	pid_t pid, iter_pid, ns_pids[8];
 	int pidfds[8];
 	int sv[8][2];
 	int iter_pidfd;
@@ -463,6 +477,7 @@ TEST(listns_mnt_ns_cleanup_on_fault)
 
 		pid = create_child(&pidfds[i], CLONE_NEWNS);
 		ASSERT_NE(pid, -1);
+		ns_pids[i] = pid;
 
 		if (pid == 0) {
 			close(sv[i][0]); /* Close parent end */
@@ -509,7 +524,7 @@ TEST(listns_mnt_ns_cleanup_on_fault)
 
 	/* Wait for children and cleanup */
 	for (i = 0; i < 8; i++) {
-		waitpid(-1, NULL, 0);
+		waitpid(ns_pids[i], NULL, 0);
 		close(sv[i][0]);
 		close(pidfds[i]);
 	}
@@ -519,6 +534,12 @@ TEST(listns_mnt_ns_cleanup_on_fault)
 	ret = waitpid(iter_pid, &status, 0);
 	ASSERT_EQ(ret, iter_pid);
 	close(iter_pidfd);
+
+	/* If listns() is not supported the iterator exits cleanly via ENOSYS */
+	if (WIFEXITED(status) && WEXITSTATUS(status) == PIDFD_SKIP) {
+		munmap(map, page_size);
+		SKIP(return, "listns() not supported");
+	}
 
 	/* Should have been killed */
 	ASSERT_TRUE(WIFSIGNALED(status));
