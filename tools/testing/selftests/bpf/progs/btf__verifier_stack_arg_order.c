@@ -21,6 +21,10 @@ int subprog_pruning_call_before_load_6args(int a, int b, int c, int d, int e, in
 	return a + b + c + d + e + f;
 }
 
+void subprog_bad_ptr_7args(long *a, int b, int c, int d, int e, int f, int g)
+{
+}
+
 #else
 
 int subprog_bad_order_6args(void)
@@ -36,6 +40,10 @@ int subprog_call_before_load_6args(void)
 int subprog_pruning_call_before_load_6args(void)
 {
 	return 0;
+}
+
+void subprog_bad_ptr_7args(void)
+{
 }
 
 #endif

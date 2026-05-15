@@ -112,6 +112,64 @@ __naked void stack_arg_pruning_load_after_call(void)
 	);
 }
 
+/*
+ * "bad_ptr": the first arg is 'long *', which is not a recognized pointer
+ * type for static subprogs (not ctx, dynptr, or tagged).  btf_prepare_func_args()
+ * sets arg_cnt = 7 / stack_arg_cnt = 2, then fails with -EINVAL.  The subprog
+ * is marked unreliable but the call still proceeds for static subprogs.
+ */
+__noinline __used __naked
+static void subprog_bad_ptr_7args(long *a, int b, int c, int d, int e, int f, int g)
+{
+	asm volatile (
+		"r0 = *(u64 *)(r11 + 8);"
+		"r1 = *(u64 *)(r11 + 16);"
+		"exit;"
+		::: __clobber_all
+	);
+}
+
+SEC("tc")
+__description("stack_arg: read without caller write")
+__failure
+__msg("callee expects 7 args, stack arg1 is not initialized")
+__btf_func_path("btf__verifier_stack_arg_order.bpf.o")
+__naked void stack_arg_read_without_write_1(void)
+{
+	asm volatile (
+		"r1 = 0;"
+		"r2 = 0;"
+		"r3 = 0;"
+		"r4 = 0;"
+		"r5 = 0;"
+		"call subprog_bad_ptr_7args;"
+		"exit;"
+		::: __clobber_all
+	);
+}
+
+SEC("tc")
+__description("stack_arg: read with not-initialized caller write")
+__failure
+__msg("R0 !read_ok")
+__btf_func_path("btf__verifier_stack_arg_order.bpf.o")
+__naked void stack_arg_read_without_write_2(void)
+{
+	asm volatile (
+		"r1 = 0;"
+		"r2 = 0;"
+		"r3 = 0;"
+		"r4 = 0;"
+		"r5 = 0;"
+		"*(u64 *)(r11 - 8) = 0;"
+		"*(u64 *)(r11 - 16) = 0;"
+		"call subprog_bad_ptr_7args;"
+		"call subprog_bad_ptr_7args;"
+		"exit;"
+		::: __clobber_all
+	);
+}
+
 #else
 
 SEC("socket")

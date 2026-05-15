@@ -152,7 +152,7 @@ __naked void stack_arg_pruning_type_mismatch(void)
 SEC("tc")
 __description("stack_arg: release_reference invalidates stack arg slot")
 __failure
-__msg("R{{[0-9]}} !read_ok")
+__msg("callee expects 6 args, stack arg1 is not initialized")
 __naked void stack_arg_release_ref(void)
 {
 	asm volatile (
@@ -201,7 +201,7 @@ __naked void stack_arg_release_ref(void)
 SEC("tc")
 __description("stack_arg: pkt pointer in stack arg slot invalidated after pull_data")
 __failure
-__msg("R{{[0-9]}} !read_ok")
+__msg("callee expects 6 args, stack arg1 is not initialized")
 __naked void stack_arg_stale_pkt_ptr(void)
 {
 	asm volatile (
