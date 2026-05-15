@@ -1549,10 +1549,7 @@ update_stats_curr_start(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	se->exec_start = rq_clock_task(rq_of(cfs_rq));
 }
 
-/**************************************************
- * Scheduling class queueing methods:
- */
-
+/* Check sched_smt_active before calling this to avoid overheads in fastpaths */
 static inline bool is_core_idle(int cpu)
 {
 	int sibling;
@@ -11961,7 +11958,9 @@ static int should_we_balance(struct lb_env *env)
 		 * balancing cores, but remember the first idle SMT CPU for
 		 * later consideration.  Find CPU on an idle core first.
 		 */
-		if (!(env->sd->flags & SD_SHARE_CPUCAPACITY) && !is_core_idle(cpu)) {
+		if (sched_smt_active() &&
+		    !(env->sd->flags & SD_SHARE_CPUCAPACITY) &&
+		    !is_core_idle(cpu)) {
 			if (idle_smt == -1)
 				idle_smt = cpu;
 			/*
