@@ -1023,6 +1023,7 @@ enum {
 	I_DATA_SEM_EA
 };
 
+struct ext4_fc_inode_snap;
 
 /*
  * fourth extended file system inode data in memory
@@ -1078,6 +1079,22 @@ struct ext4_inode_info {
 
 	/* End of lblk range that needs to be committed in this fast commit */
 	ext4_lblk_t i_fc_lblk_len;
+
+	/*
+	 * Commit-time fast commit snapshots.
+	 *
+	 * i_fc_snap is installed and freed under sbi->s_fc_lock. The fast
+	 * commit log writing path reads the snapshot under sbi->s_fc_lock while
+	 * serializing fast commit TLVs.
+	 *
+	 * The snapshot lifetime is bounded by EXT4_STATE_FC_COMMITTING and the
+	 * corresponding cleanup / eviction paths.
+	 *
+	 * i_fc_snap points to per-inode snapshot data for fast commit:
+	 * - a raw inode snapshot for EXT4_FC_TAG_INODE
+	 * - data range records for EXT4_FC_TAG_{ADD,DEL}_RANGE
+	 */
+	struct ext4_fc_inode_snap *i_fc_snap;
 
 	spinlock_t i_raw_lock;	/* protects updates to the raw inode */
 
@@ -3100,8 +3117,9 @@ extern int  ext4_file_getattr(struct mnt_idmap *, const struct path *,
 			      struct kstat *, u32, unsigned int);
 extern void ext4_dirty_inode(struct inode *, int);
 extern int ext4_change_inode_journal_flag(struct inode *, int);
-extern int ext4_get_inode_loc(struct inode *, struct ext4_iloc *);
-extern int ext4_get_fc_inode_loc(struct super_block *sb, unsigned long ino,
+int ext4_get_inode_loc(struct inode *inode, struct ext4_iloc *iloc);
+int ext4_get_inode_loc_noio(struct inode *inode, struct ext4_iloc *iloc);
+int ext4_get_fc_inode_loc(struct super_block *sb, unsigned long ino,
 			  struct ext4_iloc *iloc);
 extern int ext4_inode_attach_jinode(struct inode *inode);
 extern int ext4_can_truncate(struct inode *inode);
