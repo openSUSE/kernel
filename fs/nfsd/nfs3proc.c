@@ -745,6 +745,9 @@ nfsd3_proc_pathconf(struct svc_rqst *rqstp)
 			 */
 			resp->status = nfserr_stale;
 			break;
+		case -ESTALE:
+			resp->status = nfserr_stale;
+			break;
 		default:
 			resp->status = nfserr_serverfault;
 			break;
