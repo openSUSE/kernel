@@ -141,10 +141,10 @@ static void iwl_pcie_alloc_fw_monitor_block(struct iwl_trans *trans,
 		return;
 
 	if (power != max_power)
-		IWL_ERR(trans,
-			"Sorry - debug buffer is only %luK while you requested %luK\n",
-			(unsigned long)BIT(power - 10),
-			(unsigned long)BIT(max_power - 10));
+		IWL_INFO(trans,
+			 "Sorry - debug buffer is only %luK while you requested %luK\n",
+			 (unsigned long)BIT(power - 10),
+			 (unsigned long)BIT(max_power - 10));
 
 	fw_mon->block = block;
 	fw_mon->physical = physical;
