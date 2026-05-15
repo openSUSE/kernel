@@ -979,7 +979,8 @@ void iwl_mld_add_vif_debugfs(struct ieee80211_hw *hw,
 	VIF_DEBUGFS_ADD_FILE(twt_operation, mld_vif_dbgfs, 0200);
 	VIF_DEBUGFS_ADD_FILE(int_mlo_scan, mld_vif_dbgfs, 0200);
 }
-#define LINK_DEBUGFS_WRITE_FILE_OPS(name, bufsz)			\
+
+#define LINK_DEBUGFS_WIPHY_WRITE_FILE_OPS(name, bufsz)			\
 	WIPHY_DEBUGFS_WRITE_FILE_OPS(link_##name, bufsz, bss_conf)
 
 #define LINK_DEBUGFS_ADD_FILE_ALIAS(alias, name, parent, mode)		\
