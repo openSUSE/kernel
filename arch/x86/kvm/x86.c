@@ -8977,11 +8977,18 @@ static void toggle_interruptibility(struct kvm_vcpu *vcpu, u32 mask)
 	}
 }
 
+static void kvm_inject_emulated_db(struct kvm_vcpu *vcpu, unsigned long dr6)
+{
+	kvm_queue_exception_p(vcpu, DB_VECTOR, dr6);
+}
+
 static void inject_emulated_exception(struct kvm_vcpu *vcpu)
 {
 	struct x86_exception *ex = &vcpu->arch.emulate_ctxt->exception;
 
-	if (ex->vector == PF_VECTOR)
+	if (ex->vector == DB_VECTOR)
+		kvm_inject_emulated_db(vcpu, ex->dr6);
+	else if (ex->vector == PF_VECTOR)
 		kvm_inject_emulated_page_fault(vcpu, ex);
 	else if (ex->error_code_valid)
 		kvm_queue_exception_e(vcpu, ex->vector, ex->error_code);
@@ -9026,6 +9033,7 @@ static void init_emulate_ctxt(struct kvm_vcpu *vcpu)
 	ctxt->interruptibility = 0;
 	ctxt->have_exception = false;
 	ctxt->exception.vector = -1;
+	ctxt->exception.payload = 0;
 	ctxt->perm_ok = false;
 
 	init_decode_cache(ctxt);
