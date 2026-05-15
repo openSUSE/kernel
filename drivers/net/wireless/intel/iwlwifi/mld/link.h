@@ -36,6 +36,8 @@ struct iwl_probe_resp_data {
  * @rcu_head: RCU head for freeing this data.
  * @fw_id: the fw id of the link.
  * @active: if the link is active or not.
+ * @avg_signal: The current average signal of beacons [dBm] retrieved from
+ *	firmware per-link periodic stats (STATISTICS_OPER_NOTIF).
  * @queue_params: QoS data from mac80211. This is updated with a call to
  *	drv_conf_tx per each AC, and then notified once with BSS_CHANGED_QOS.
  *	So we store it here and then send one link cmd for all the ACs.
@@ -68,6 +70,7 @@ struct iwl_mld_link {
 	struct_group(zeroed_on_hw_restart,
 		u8 fw_id;
 		bool active;
+		s8 avg_signal;
 		struct ieee80211_tx_queue_params queue_params[IEEE80211_NUM_ACS];
 		struct ieee80211_chanctx_conf __rcu *chan_ctx;
 		bool he_ru_2mhz_block;

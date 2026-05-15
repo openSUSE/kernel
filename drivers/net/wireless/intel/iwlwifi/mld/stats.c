@@ -311,6 +311,40 @@ static void iwl_mld_sta_stats_fill_txrate(struct iwl_mld_sta *mld_sta,
 	}
 }
 
+static void iwl_mld_sta_stats_fill_beacon_signal_avg(struct ieee80211_vif *vif,
+						     struct station_info *sinfo)
+{
+	struct ieee80211_bss_conf *link_conf;
+	struct iwl_mld_link *link;
+	u8 link_id;
+
+	if (iwl_mld_emlsr_active(vif))
+		return;
+
+	/* TODO: support statistics for NAN */
+	if (vif->type == NL80211_IFTYPE_NAN ||
+	    vif->type == NL80211_IFTYPE_NAN_DATA)
+		return;
+
+	link_id = iwl_mld_get_primary_link(vif);
+	link_conf = link_conf_dereference_protected(vif, link_id);
+
+	if (WARN_ONCE(!link_conf,
+		      "link_conf is NULL for link_id=%u\n", link_id))
+		return;
+
+	link = iwl_mld_link_from_mac80211(link_conf);
+	if (WARN_ONCE(!link,
+		      "iwl_mld_link is NULL for link_id=%u\n", link_id))
+		return;
+
+	if (!link->avg_signal)
+		return;
+
+	sinfo->rx_beacon_signal_avg = link->avg_signal;
+	sinfo->filled |= BIT_ULL(NL80211_STA_INFO_BEACON_SIGNAL_AVG);
+}
+
 void iwl_mld_mac80211_sta_statistics(struct ieee80211_hw *hw,
 				     struct ieee80211_vif *vif,
 				     struct ieee80211_sta *sta,
@@ -329,9 +363,9 @@ void iwl_mld_mac80211_sta_statistics(struct ieee80211_hw *hw,
 
 	iwl_mld_sta_stats_fill_txrate(mld_sta, sinfo);
 
-	/* TODO: NL80211_STA_INFO_BEACON_RX */
+	iwl_mld_sta_stats_fill_beacon_signal_avg(vif, sinfo);
 
-	/* TODO: NL80211_STA_INFO_BEACON_SIGNAL_AVG */
+	/* TODO: NL80211_STA_INFO_BEACON_RX */
 }
 
 #define IWL_MLD_TRAFFIC_LOAD_MEDIUM_THRESH	10 /* percentage */
@@ -443,6 +477,8 @@ iwl_mld_process_per_link_stats(struct iwl_mld *mld,
 	     fw_id++) {
 		const struct iwl_stats_ntfy_per_link *link_stats;
 		struct ieee80211_bss_conf *bss_conf;
+		struct iwl_mld_link *link;
+		u32 avg_raw;
 		int sig;
 
 		bss_conf = iwl_mld_fw_id_to_link_conf(mld, fw_id);
@@ -455,6 +491,13 @@ iwl_mld_process_per_link_stats(struct iwl_mld *mld,
 
 		sig = -le32_to_cpu(link_stats->beacon_filter_average_energy);
 		iwl_mld_update_link_sig(bss_conf->vif, sig, bss_conf);
+
+		link = iwl_mld_link_from_mac80211(bss_conf);
+		if (WARN_ON_ONCE(!link))
+			continue;
+
+		avg_raw = le32_to_cpu(link_stats->beacon_average_energy);
+		link->avg_signal = clamp_t(int, -(int)avg_raw, S8_MIN, 0);
 
 		/* TODO: parse more fields here (task=statistics)*/
 	}
