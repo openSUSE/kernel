@@ -56,8 +56,9 @@ static LIST_HEAD(panel_list);
  * Initialize the panel structure for subsequent registration with
  * drm_panel_add().
  */
-void drm_panel_init(struct drm_panel *panel, struct device *dev,
-		    const struct drm_panel_funcs *funcs, int connector_type)
+static void drm_panel_init(struct drm_panel *panel, struct device *dev,
+			   const struct drm_panel_funcs *funcs,
+			   int connector_type)
 {
 	if (connector_type == DRM_MODE_CONNECTOR_Unknown)
 		DRM_WARN("%s: %s: a valid connector type is required!\n", __func__, dev_name(dev));
@@ -69,7 +70,6 @@ void drm_panel_init(struct drm_panel *panel, struct device *dev,
 	panel->funcs = funcs;
 	panel->connector_type = connector_type;
 }
-EXPORT_SYMBOL(drm_panel_init);
 
 /**
  * drm_panel_add - add a panel to the global registry
@@ -731,7 +731,6 @@ EXPORT_SYMBOL(devm_drm_panel_add_follower);
  * A typical implementation for a panel driver supporting device tree
  * will call this function at probe time. Backlight will then be handled
  * transparently without requiring any intervention from the driver.
- * drm_panel_of_backlight() must be called after the call to drm_panel_init().
  *
  * Return: 0 on success or a negative error code on failure.
  */

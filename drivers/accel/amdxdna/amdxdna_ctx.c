@@ -207,6 +207,9 @@ int amdxdna_drm_create_hwctx_ioctl(struct drm_device *dev, void *data, struct dr
 	if (args->ext || args->ext_flags)
 		return -EINVAL;
 
+	if (!xdna->dev_info->ops->hwctx_init)
+		return -EOPNOTSUPP;
+
 	hwctx = kzalloc_obj(*hwctx);
 	if (!hwctx)
 		return -ENOMEM;
@@ -220,6 +223,8 @@ int amdxdna_drm_create_hwctx_ioctl(struct drm_device *dev, void *data, struct dr
 	hwctx->client = client;
 	hwctx->fw_ctx_id = -1;
 	hwctx->num_tiles = args->num_tiles;
+	hwctx->umq_bo_hdl = args->umq_bo;
+	hwctx->doorbell_offset = AMDXDNA_INVALID_DOORBELL_OFFSET;
 	hwctx->mem_size = args->mem_size;
 	hwctx->max_opc = args->max_opc;
 
@@ -252,6 +257,7 @@ int amdxdna_drm_create_hwctx_ioctl(struct drm_device *dev, void *data, struct dr
 
 	args->handle = hwctx->id;
 	args->syncobj_handle = hwctx->syncobj_hdl;
+	args->umq_doorbell = hwctx->doorbell_offset;
 
 	atomic64_set(&hwctx->job_submit_cnt, 0);
 	atomic64_set(&hwctx->job_free_cnt, 0);
@@ -620,4 +626,38 @@ int amdxdna_drm_submit_cmd_ioctl(struct drm_device *dev, void *data, struct drm_
 
 	XDNA_ERR(client->xdna, "Invalid command type %d", args->type);
 	return -EINVAL;
+}
+
+int amdxdna_drm_wait_cmd_ioctl(struct drm_device *dev, void *data, struct drm_file *filp)
+{
+	struct amdxdna_client *client = filp->driver_priv;
+	struct amdxdna_dev *xdna = to_xdna_dev(dev);
+	struct amdxdna_drm_wait_cmd *args = data;
+	struct amdxdna_hwctx *hwctx;
+	int ret, idx;
+
+	XDNA_DBG(xdna, "PID %d ctx %d timeout set %d ms for cmd %llu",
+		 client->pid, args->hwctx, args->timeout, args->seq);
+
+	if (!xdna->dev_info->ops->cmd_wait)
+		return -EOPNOTSUPP;
+
+	idx = srcu_read_lock(&client->hwctx_srcu);
+	hwctx = xa_load(&client->hwctx_xa, args->hwctx);
+	if (!hwctx) {
+		XDNA_DBG(xdna, "PID %d failed to get ctx %d", client->pid, args->hwctx);
+		ret = -EINVAL;
+		goto unlock_ctx_srcu;
+	}
+
+	ret = xdna->dev_info->ops->cmd_wait(hwctx, args->seq, args->timeout);
+
+	XDNA_DBG(xdna, "PID %d ctx %d cmd %lld wait finished, ret %d",
+		 client->pid, args->hwctx, args->seq, ret);
+
+	trace_amdxdna_debug_point(current->comm, args->seq, "job returned to user");
+
+unlock_ctx_srcu:
+	srcu_read_unlock(&client->hwctx_srcu, idx);
+	return ret;
 }

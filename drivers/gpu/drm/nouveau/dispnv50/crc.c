@@ -16,7 +16,6 @@
 #include "nouveau_drv.h"
 #include "core.h"
 #include "head.h"
-#include "wndw.h"
 #include "handles.h"
 #include "crc.h"
 

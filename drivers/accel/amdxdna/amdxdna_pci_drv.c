@@ -40,9 +40,10 @@ MODULE_FIRMWARE("amdnpu/17f0_11/npu_7.sbin");
  * 0.7: Support getting power and utilization data
  * 0.8: Support BO usage query
  * 0.9: Add new device type AMDXDNA_DEV_TYPE_PF
+ * 0.10: Support AIE4 UMQ
  */
 #define AMDXDNA_DRIVER_MAJOR		0
-#define AMDXDNA_DRIVER_MINOR		9
+#define AMDXDNA_DRIVER_MINOR		10
 
 /*
  * Bind the driver base on (vendor_id, device_id) pair and later use the
@@ -53,7 +54,9 @@ static const struct pci_device_id pci_ids[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_AMD, 0x1502) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_AMD, 0x17f0) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_AMD, 0x17f2) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_AMD, 0x17f3) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_AMD, 0x1B0B) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_AMD, 0x1B0C) },
 	{0}
 };
 
@@ -65,7 +68,9 @@ static const struct amdxdna_device_id amdxdna_ids[] = {
 	{ 0x17f0, 0x11, &dev_npu5_info },
 	{ 0x17f0, 0x20, &dev_npu6_info },
 	{ 0x17f2, 0x10, &dev_npu3_pf_info },
+	{ 0x17f3, 0x10, &dev_npu3_vf_info },
 	{ 0x1B0B, 0x10, &dev_npu3_pf_info },
+	{ 0x1B0C, 0x10, &dev_npu3_vf_info },
 	{0}
 };
 
@@ -220,6 +225,21 @@ static int amdxdna_drm_set_state_ioctl(struct drm_device *dev, void *data, struc
 	return ret;
 }
 
+static int amdxdna_drm_gem_mmap(struct file *filp, struct vm_area_struct *vma)
+{
+	struct drm_file *drm_filp = filp->private_data;
+	struct amdxdna_client *client = drm_filp->driver_priv;
+	struct amdxdna_dev *xdna = client->xdna;
+
+	if (likely(vma->vm_pgoff >= DRM_FILE_PAGE_OFFSET_START))
+		return drm_gem_mmap(filp, vma);
+
+	if (!xdna->dev_info->ops->mmap)
+		return -EOPNOTSUPP;
+
+	return xdna->dev_info->ops->mmap(client, vma);
+}
+
 static const struct drm_ioctl_desc amdxdna_drm_ioctls[] = {
 	/* Context */
 	DRM_IOCTL_DEF_DRV(AMDXDNA_CREATE_HWCTX, amdxdna_drm_create_hwctx_ioctl, 0),
@@ -231,6 +251,7 @@ static const struct drm_ioctl_desc amdxdna_drm_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(AMDXDNA_SYNC_BO, amdxdna_drm_sync_bo_ioctl, 0),
 	/* Execution */
 	DRM_IOCTL_DEF_DRV(AMDXDNA_EXEC_CMD, amdxdna_drm_submit_cmd_ioctl, 0),
+	DRM_IOCTL_DEF_DRV(AMDXDNA_WAIT_CMD, amdxdna_drm_wait_cmd_ioctl, 0),
 	/* AIE hardware */
 	DRM_IOCTL_DEF_DRV(AMDXDNA_GET_INFO, amdxdna_drm_get_info_ioctl, 0),
 	DRM_IOCTL_DEF_DRV(AMDXDNA_GET_ARRAY, amdxdna_drm_get_array_ioctl, 0),
@@ -277,7 +298,7 @@ static const struct file_operations amdxdna_fops = {
 	.poll		= drm_poll,
 	.read		= drm_read,
 	.llseek		= noop_llseek,
-	.mmap		= drm_gem_mmap,
+	.mmap		= amdxdna_drm_gem_mmap,
 	.show_fdinfo	= drm_show_fdinfo,
 	.fop_flags	= FOP_UNSIGNED_OFFSET,
 };

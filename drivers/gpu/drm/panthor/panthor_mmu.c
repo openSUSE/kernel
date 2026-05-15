@@ -2377,14 +2377,20 @@ int panthor_vm_evict_bo_mappings_locked(struct panthor_gem_object *bo)
 		struct panthor_vm *vm = container_of(vm_bo->vm, struct panthor_vm, base);
 		struct drm_gpuva *va;
 
-		/* Skip already evicted GPU mappings. */
-		if (vm_bo->evicted)
-			continue;
-
 		if (!mutex_trylock(&vm->op_lock))
 			return -EDEADLK;
 
-		drm_gpuvm_bo_evict(vm_bo, true);
+		/* It can be that the vm_bo was already evicted but a new
+		 * mapping pointing to this BO got created in the meantime,
+		 * thus turning the vm_bo in partially evicted state. In that case
+		 * we don't call drm_gpuvm_bo_evict() again because this would
+		 * mess up with the internal gpuvm lists, but we do walk the
+		 * VAs on this vm_bo to make sure the non-evicted ones are
+		 * torn down.
+		 */
+		if (!vm_bo->evicted)
+			drm_gpuvm_bo_evict(vm_bo, true);
+
 		drm_gpuvm_bo_for_each_va(va, vm_bo) {
 			struct panthor_vma *vma = container_of(va, struct panthor_vma, base);
 

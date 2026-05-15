@@ -16,6 +16,8 @@ management, and output management.
 Cover generic ioctls and sysfs layout here. We only need high-level
 info, since man pages should cover the rest.
 
+.. contents::
+
 libdrm Device Lookup
 ====================
 

@@ -5,6 +5,7 @@
 #ifndef _AIE_H_
 #define _AIE_H_
 
+#include <drm/amdxdna_accel.h>
 #include "amdxdna_pci_drv.h"
 #include "amdxdna_mailbox.h"
 
@@ -26,6 +27,8 @@ struct aie_device {
 
 	struct psp_device *psp_hdl;
 	struct smu_device *smu_hdl;
+
+	struct amdxdna_drm_query_aie_metadata metadata;
 };
 
 #define DECLARE_AIE_MSG(name, op) \
@@ -94,6 +97,12 @@ void aie_destroy_chann(struct aie_device *aie, struct mailbox_channel **chann);
 int aie_send_mgmt_msg_wait(struct aie_device *aie, struct xdna_mailbox_msg *msg);
 int aie_check_protocol(struct aie_device *aie, u32 fw_major, u32 fw_minor);
 void amdxdna_vbnv_init(struct amdxdna_dev *xdna);
+int amdxdna_get_metadata(struct aie_device *aie, struct amdxdna_client *client,
+			 struct amdxdna_drm_get_info *args);
+void *amdxdna_alloc_msg_buffer(struct amdxdna_dev *xdna, u32 *size,
+			       dma_addr_t *dma_addr);
+void amdxdna_free_msg_buffer(struct amdxdna_dev *xdna, size_t size,
+			     void *cpu_addr, dma_addr_t dma_addr);
 
 /* aie_psp.c */
 struct psp_device *aiem_psp_create(struct drm_device *ddev, struct psp_config *conf);

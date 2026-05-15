@@ -1556,10 +1556,7 @@ map_pages:
 
 			if (!i)
 				dma_iova_try_alloc(gpusvm->drm->dev, state,
-						   npages * PAGE_SIZE >=
-						   HPAGE_PMD_SIZE ?
-						   HPAGE_PMD_SIZE : 0,
-						   npages * PAGE_SIZE);
+						   0, npages * PAGE_SIZE);
 
 			if (dma_use_iova(state)) {
 				err = dma_iova_link(gpusvm->drm->dev, state,

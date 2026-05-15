@@ -24,6 +24,8 @@ Key Goals:
   nodes for different IP blocks, sub-blocks, or other logical subdivisions
   as applicable.
 
+.. contents::
+
 Nodes
 =====
 

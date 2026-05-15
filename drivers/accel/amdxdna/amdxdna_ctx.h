@@ -14,6 +14,7 @@ struct amdxdna_hwctx_priv;
 
 enum ert_cmd_opcode {
 	ERT_START_CU = 0,
+	ERT_START_DPU = 18,
 	ERT_CMD_CHAIN = 19,
 	ERT_START_NPU = 20,
 	ERT_START_NPU_PREEMPT = 21,
@@ -105,6 +106,8 @@ struct amdxdna_hwctx {
 	u32				*col_list;
 	u32				start_col;
 	u32				num_col;
+	u32				umq_bo_hdl;
+	u32				doorbell_offset;
 	u32				num_unused_col;
 
 	struct amdxdna_qos_info		     qos;
@@ -208,12 +211,10 @@ int amdxdna_cmd_submit(struct amdxdna_client *client,
 		       u32 *arg_bo_hdls, u32 arg_bo_cnt,
 		       u32 hwctx_hdl, u64 *seq);
 
-int amdxdna_cmd_wait(struct amdxdna_client *client, u32 hwctx_hdl,
-		     u64 seq, u32 timeout);
-
 int amdxdna_drm_create_hwctx_ioctl(struct drm_device *dev, void *data, struct drm_file *filp);
 int amdxdna_drm_config_hwctx_ioctl(struct drm_device *dev, void *data, struct drm_file *filp);
 int amdxdna_drm_destroy_hwctx_ioctl(struct drm_device *dev, void *data, struct drm_file *filp);
 int amdxdna_drm_submit_cmd_ioctl(struct drm_device *dev, void *data, struct drm_file *filp);
+int amdxdna_drm_wait_cmd_ioctl(struct drm_device *dev, void *data, struct drm_file *filp);
 
 #endif /* _AMDXDNA_CTX_H_ */
