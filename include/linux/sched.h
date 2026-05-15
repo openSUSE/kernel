@@ -906,9 +906,6 @@ struct task_struct {
 	 */
 	unsigned			sched_remote_wakeup:1;
 
-	/* Save user-dumpable when mm goes away */
-	unsigned			user_dumpable:1;
-
 	/* Bit to tell LSMs we're in execve(): */
 	unsigned			in_execve:1;
 	unsigned			in_iowait:1;
@@ -946,6 +943,11 @@ struct task_struct {
 #ifndef __GENKSYMS__
 	unsigned			pasid_activated:1;
 #endif
+#endif
+
+#ifndef __GENKSYMS__
+	/* Save user-dumpable when mm goes away */
+	unsigned			user_dumpable:1;
 #endif
 
 	unsigned long			atomic_flags; /* Flags requiring atomic access. */
