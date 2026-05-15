@@ -421,7 +421,7 @@ static struct dma_fence *blt_copy(struct xe_tile *tile,
 					      avail_pts, avail_pts);
 
 		/* Add copy commands size here */
-		batch_size += ((copy_only_ccs) ? 0 : EMIT_COPY_DW) +
+		batch_size += ((copy_only_ccs) ? 0 : emit_copy_cmd_len(xe)) +
 			((xe_device_has_flat_ccs(xe) && copy_only_ccs) ? EMIT_COPY_CCS_DW : 0);
 
 		bb = xe_bb_new(gt, batch_size, xe->info.has_usm);

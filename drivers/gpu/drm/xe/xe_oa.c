@@ -1934,16 +1934,21 @@ static u64 oa_exponent_to_ns(struct xe_gt *gt, int exponent)
 	return div_u64(nom + den - 1, den);
 }
 
-static bool oa_unit_supports_oa_format(struct xe_oa_open_param *param, int type)
+static bool oa_unit_supports_oa_format(struct xe_oa *oa, struct xe_oa_open_param *param)
 {
+	const struct xe_oa_format *f = &oa->oa_formats[param->oa_format];
+
 	switch (param->oa_unit->type) {
 	case DRM_XE_OA_UNIT_TYPE_OAG:
-		return type == DRM_XE_OA_FMT_TYPE_OAG || type == DRM_XE_OA_FMT_TYPE_OAR ||
-			type == DRM_XE_OA_FMT_TYPE_OAC || type == DRM_XE_OA_FMT_TYPE_PEC;
+		return f->type == DRM_XE_OA_FMT_TYPE_OAG || f->type == DRM_XE_OA_FMT_TYPE_OAR ||
+			f->type == DRM_XE_OA_FMT_TYPE_OAC || f->type == DRM_XE_OA_FMT_TYPE_PEC;
+	case DRM_XE_OA_UNIT_TYPE_MERT:
+		if (XE_DEVICE_WA(oa->xe, 14026746987))
+			return param->oa_format == XE_OAM_FORMAT_MPEC8u32_B8_C8;
+		fallthrough;
 	case DRM_XE_OA_UNIT_TYPE_OAM:
 	case DRM_XE_OA_UNIT_TYPE_OAM_SAG:
-	case DRM_XE_OA_UNIT_TYPE_MERT:
-		return type == DRM_XE_OA_FMT_TYPE_OAM || type == DRM_XE_OA_FMT_TYPE_OAM_MPEC;
+		return f->type == DRM_XE_OA_FMT_TYPE_OAM || f->type == DRM_XE_OA_FMT_TYPE_OAM_MPEC;
 	default:
 		return false;
 	}
@@ -2083,8 +2088,7 @@ int xe_oa_stream_open_ioctl(struct drm_device *dev, u64 data, struct drm_file *f
 		goto err_exec_q;
 
 	f = &oa->oa_formats[param.oa_format];
-	if (!param.oa_format || !f->size ||
-	    !oa_unit_supports_oa_format(&param, f->type)) {
+	if (!param.oa_format || !f->size || !oa_unit_supports_oa_format(oa, &param)) {
 		drm_dbg(&oa->xe->drm, "Invalid OA format %d type %d size %d for class %d\n",
 			param.oa_format, f->type, f->size, param.hwe->class);
 		ret = -EINVAL;
@@ -2245,15 +2249,19 @@ static bool xe_oa_is_valid_mux_addr(struct xe_oa *oa, u32 addr)
 		return xe_oa_reg_in_range_table(addr, gen12_oa_mux_regs);
 }
 
-static bool xe_oa_is_valid_config_reg_addr(struct xe_oa *oa, u32 addr)
+static bool xe_oa_is_valid_config_reg(struct xe_oa *oa, u32 addr, u32 val)
 {
+	if (XE_DEVICE_WA(oa->xe, 14026779378) &&
+	    addr == SYS_MEM_LAT_MEASURE.addr && val & SYS_MEM_LAT_MEASURE_EN)
+		return false;
+
 	return xe_oa_is_valid_flex_addr(oa, addr) ||
 		xe_oa_is_valid_b_counter_addr(oa, addr) ||
 		xe_oa_is_valid_mux_addr(oa, addr);
 }
 
 static struct xe_oa_reg *
-xe_oa_alloc_regs(struct xe_oa *oa, bool (*is_valid)(struct xe_oa *oa, u32 addr),
+xe_oa_alloc_regs(struct xe_oa *oa, bool (*is_valid)(struct xe_oa *oa, u32 addr, u32 val),
 		 u32 __user *regs, u32 n_regs)
 {
 	struct xe_oa_reg *oa_regs;
@@ -2271,15 +2279,15 @@ xe_oa_alloc_regs(struct xe_oa *oa, bool (*is_valid)(struct xe_oa *oa, u32 addr),
 		if (err)
 			goto addr_err;
 
-		if (!is_valid(oa, addr)) {
-			drm_dbg(&oa->xe->drm, "Invalid oa_reg address: %X\n", addr);
-			err = -EINVAL;
-			goto addr_err;
-		}
-
 		err = get_user(value, regs + 1);
 		if (err)
 			goto addr_err;
+
+		if (!is_valid(oa, addr, value)) {
+			drm_dbg(&oa->xe->drm, "Invalid oa_reg addr/value: %#x %#x\n", addr, value);
+			err = -EINVAL;
+			goto addr_err;
+		}
 
 		oa_regs[i].addr = XE_REG(addr);
 		oa_regs[i].value = value;
@@ -2379,7 +2387,7 @@ int xe_oa_add_config_ioctl(struct drm_device *dev, u64 data, struct drm_file *fi
 	memcpy(oa_config->uuid, arg->uuid, sizeof(arg->uuid));
 
 	oa_config->regs_len = arg->n_regs;
-	regs = xe_oa_alloc_regs(oa, xe_oa_is_valid_config_reg_addr,
+	regs = xe_oa_alloc_regs(oa, xe_oa_is_valid_config_reg,
 				u64_to_user_ptr(arg->regs_ptr),
 				arg->n_regs);
 	if (IS_ERR(regs)) {
