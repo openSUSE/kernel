@@ -225,12 +225,17 @@ static struct event_constraint intel_grt_event_constraints[] __read_mostly = {
 
 static struct event_constraint intel_skt_event_constraints[] __read_mostly = {
 	FIXED_EVENT_CONSTRAINT(0x00c0, 0), /* INST_RETIRED.ANY */
+	FIXED_EVENT_CONSTRAINT(0x0100, 0), /* pseudo INST_RETIRED.ANY */
 	FIXED_EVENT_CONSTRAINT(0x003c, 1), /* CPU_CLK_UNHALTED.CORE */
-	FIXED_EVENT_CONSTRAINT(0x0300, 2), /* pseudo CPU_CLK_UNHALTED.REF */
+	FIXED_EVENT_CONSTRAINT(0x0200, 1), /* pseudo CPU_CLK_UNHALTED.THREAD */
+	FIXED_EVENT_CONSTRAINT(0x0300, 2), /* pseudo CPU_CLK_UNHALTED.REF_TSC */
 	FIXED_EVENT_CONSTRAINT(0x013c, 2), /* CPU_CLK_UNHALTED.REF_TSC_P */
 	FIXED_EVENT_CONSTRAINT(0x0073, 4), /* TOPDOWN_BAD_SPECULATION.ALL */
+	FIXED_EVENT_CONSTRAINT(0x0500, 4), /* pseudo TOPDOWN_BAD_SPECULATION.ALL */
 	FIXED_EVENT_CONSTRAINT(0x019c, 5), /* TOPDOWN_FE_BOUND.ALL */
+	FIXED_EVENT_CONSTRAINT(0x0600, 5), /* pseudo TOPDOWN_FE_BOUND.ALL */
 	FIXED_EVENT_CONSTRAINT(0x02c2, 6), /* TOPDOWN_RETIRING.ALL */
+	FIXED_EVENT_CONSTRAINT(0x0700, 6), /* pseudo TOPDOWN_RETIRING.ALL */
 	EVENT_CONSTRAINT_END
 };
 
@@ -415,11 +420,12 @@ static struct extra_reg intel_rwc_extra_regs[] __read_mostly = {
 
 static struct event_constraint intel_lnc_event_constraints[] = {
 	FIXED_EVENT_CONSTRAINT(0x00c0, 0),	/* INST_RETIRED.ANY */
-	FIXED_EVENT_CONSTRAINT(0x0100, 0),	/* INST_RETIRED.PREC_DIST */
+	FIXED_EVENT_CONSTRAINT(0x0100, 0),	/* pseudo INST_RETIRED.ANY */
 	FIXED_EVENT_CONSTRAINT(0x003c, 1),	/* CPU_CLK_UNHALTED.CORE */
-	FIXED_EVENT_CONSTRAINT(0x0300, 2),	/* CPU_CLK_UNHALTED.REF */
+	FIXED_EVENT_CONSTRAINT(0x0200, 1),	/* pseudo CPU_CLK_UNHALTED.THREAD */
+	FIXED_EVENT_CONSTRAINT(0x0300, 2),	/* pseudo CPU_CLK_UNHALTED.REF_TSC */
 	FIXED_EVENT_CONSTRAINT(0x013c, 2),	/* CPU_CLK_UNHALTED.REF_TSC_P */
-	FIXED_EVENT_CONSTRAINT(0x0400, 3),	/* SLOTS */
+	FIXED_EVENT_CONSTRAINT(0x0400, 3),	/* pseudo TOPDOWN.SLOTS */
 	METRIC_EVENT_CONSTRAINT(INTEL_TD_METRIC_RETIRING, 0),
 	METRIC_EVENT_CONSTRAINT(INTEL_TD_METRIC_BAD_SPEC, 1),
 	METRIC_EVENT_CONSTRAINT(INTEL_TD_METRIC_FE_BOUND, 2),
@@ -431,8 +437,6 @@ static struct event_constraint intel_lnc_event_constraints[] = {
 
 	INTEL_EVENT_CONSTRAINT(0x20, 0xf),
 
-	INTEL_UEVENT_CONSTRAINT(0x012a, 0xf),
-	INTEL_UEVENT_CONSTRAINT(0x012b, 0xf),
 	INTEL_UEVENT_CONSTRAINT(0x0148, 0x4),
 	INTEL_UEVENT_CONSTRAINT(0x0175, 0x4),
 
@@ -443,14 +447,13 @@ static struct event_constraint intel_lnc_event_constraints[] = {
 	INTEL_UEVENT_CONSTRAINT(0x0ca3, 0x4),
 	INTEL_UEVENT_CONSTRAINT(0x04a4, 0x1),
 	INTEL_UEVENT_CONSTRAINT(0x08a4, 0x1),
-	INTEL_UEVENT_CONSTRAINT(0x10a4, 0x1),
+	INTEL_UEVENT_CONSTRAINT(0x10a4, 0x8),
 	INTEL_UEVENT_CONSTRAINT(0x01b1, 0x8),
 	INTEL_UEVENT_CONSTRAINT(0x01cd, 0x3fc),
 	INTEL_UEVENT_CONSTRAINT(0x02cd, 0x3),
 
+	INTEL_UEVENT_CONSTRAINT(0x87d0, 0x3ff),
 	INTEL_EVENT_CONSTRAINT_RANGE(0xd0, 0xdf, 0xf),
-
-	INTEL_UEVENT_CONSTRAINT(0x00e0, 0xf),
 
 	EVENT_CONSTRAINT_END
 };
@@ -826,6 +829,23 @@ static __initconst const u64 adl_glc_hw_cache_extra_regs
 	[ C(OP_WRITE) ] = {
 		[ C(RESULT_ACCESS) ] = 0x10002,		/* OCR.DEMAND_RFO.ANY_RESPONSE */
 		[ C(RESULT_MISS)   ] = 0x3fbfc00002,	/* OCR.DEMAND_RFO.L3_MISS */
+	},
+ },
+};
+
+static __initconst const u64 lnc_hw_cache_extra_regs
+				[PERF_COUNT_HW_CACHE_MAX]
+				[PERF_COUNT_HW_CACHE_OP_MAX]
+				[PERF_COUNT_HW_CACHE_RESULT_MAX] =
+{
+ [ C(LL  ) ] = {
+	[ C(OP_READ) ] = {
+		[ C(RESULT_ACCESS) ] = 0x10001,		/* OCR.DEMAND_DATA_RD.ANY_RESPONSE */
+		[ C(RESULT_MISS)   ] = 0x9E7FA000001,	/* OCR.DEMAND_DATA_RD.L3_MISS */
+	},
+	[ C(OP_WRITE) ] = {
+		[ C(RESULT_ACCESS) ] = 0x10002,		/* OCR.DEMAND_RFO.ANY_RESPONSE */
+		[ C(RESULT_MISS)   ] = 0x9E7FA000002,	/* OCR.DEMAND_RFO.L3_MISS */
 	},
  },
 };
@@ -2506,6 +2526,22 @@ static __initconst const u64 cmt_hw_cache_extra_regs
 		[C(OP_WRITE)] = {
 			[C(RESULT_ACCESS)]	= 0x10002,	/* OCR.DEMAND_RFO.ANY_RESPONSE */
 			[C(RESULT_MISS)]	= 0x3fbfc00002,	/* OCR.DEMAND_RFO.L3_MISS */
+		},
+	},
+};
+
+static __initconst const u64 skt_hw_cache_extra_regs
+				[PERF_COUNT_HW_CACHE_MAX]
+				[PERF_COUNT_HW_CACHE_OP_MAX]
+				[PERF_COUNT_HW_CACHE_RESULT_MAX] = {
+	[C(LL)] = {
+		[C(OP_READ)] = {
+			[C(RESULT_ACCESS)]	= 0x10001,		/* OCR.DEMAND_DATA_RD.ANY_RESPONSE */
+			[C(RESULT_MISS)]	= 0x13FBFC00001,	/* OCR.DEMAND_DATA_RD.L3_MISS */
+		},
+		[C(OP_WRITE)] = {
+			[C(RESULT_ACCESS)]	= 0x10002,		/* OCR.DEMAND_RFO.ANY_RESPONSE */
+			[C(RESULT_MISS)]	= 0x13FBFC00002,	/* OCR.DEMAND_RFO.L3_MISS */
 		},
 	},
 };
@@ -7707,6 +7743,9 @@ static __always_inline void intel_pmu_init_lnc(struct pmu *pmu)
 	hybrid(pmu, event_constraints) = intel_lnc_event_constraints;
 	hybrid(pmu, pebs_constraints) = intel_lnc_pebs_event_constraints;
 	hybrid(pmu, extra_regs) = intel_lnc_extra_regs;
+
+	memcpy(hybrid_var(pmu, hw_cache_event_ids), adl_glc_hw_cache_event_ids, sizeof(hw_cache_event_ids));
+	memcpy(hybrid_var(pmu, hw_cache_extra_regs), lnc_hw_cache_extra_regs, sizeof(hw_cache_extra_regs));
 }
 
 static __always_inline void intel_pmu_init_pnc(struct pmu *pmu)
@@ -7726,9 +7765,10 @@ static __always_inline void intel_pmu_init_pnc(struct pmu *pmu)
 
 static __always_inline void intel_pmu_init_skt(struct pmu *pmu)
 {
-	intel_pmu_init_grt(pmu);
+	intel_pmu_init_cmt(pmu);
 	hybrid(pmu, event_constraints) = intel_skt_event_constraints;
-	hybrid(pmu, extra_regs) = intel_cmt_extra_regs;
+	memcpy(hybrid_var(pmu, hw_cache_extra_regs),
+	       skt_hw_cache_extra_regs, sizeof(hw_cache_extra_regs));
 	static_call_update(intel_pmu_enable_acr_event, intel_pmu_enable_acr);
 }
 
