@@ -75,7 +75,7 @@ xrep_nlinks_iunlink_remove(
 	struct xfs_perag	*pag;
 	int			error;
 
-	pag = xfs_perag_get(sc->mp, XFS_INO_TO_AGNO(sc->mp, sc->ip->i_ino));
+	pag = xfs_perag_get(sc->mp, XFS_INODE_TO_AGNO(sc->ip));
 	error = xfs_iunlink_remove(sc->tp, pag, sc->ip);
 	xfs_perag_put(pag);
 	return error;

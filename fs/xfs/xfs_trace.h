@@ -4529,7 +4529,7 @@ TRACE_EVENT(xfs_iunlink_reload_next,
 	),
 	TP_fast_assign(
 		__entry->dev = ip->i_mount->m_super->s_dev;
-		__entry->agno = XFS_INO_TO_AGNO(ip->i_mount, ip->i_ino);
+		__entry->agno = XFS_INODE_TO_AGNO(ip);
 		__entry->agino = XFS_INO_TO_AGINO(ip->i_mount, ip->i_ino);
 		__entry->prev_agino = ip->i_prev_unlinked;
 		__entry->next_agino = ip->i_next_unlinked;
@@ -4552,7 +4552,7 @@ TRACE_EVENT(xfs_inode_reload_unlinked_bucket,
 	),
 	TP_fast_assign(
 		__entry->dev = ip->i_mount->m_super->s_dev;
-		__entry->agno = XFS_INO_TO_AGNO(ip->i_mount, ip->i_ino);
+		__entry->agno = XFS_INODE_TO_AGNO(ip);
 		__entry->agino = XFS_INO_TO_AGINO(ip->i_mount, ip->i_ino);
 	),
 	TP_printk("dev %d:%d agno 0x%x agino 0x%x bucket %u",
@@ -4572,7 +4572,7 @@ DECLARE_EVENT_CLASS(xfs_ag_inode_class,
 	),
 	TP_fast_assign(
 		__entry->dev = VFS_I(ip)->i_sb->s_dev;
-		__entry->agno = XFS_INO_TO_AGNO(ip->i_mount, ip->i_ino);
+		__entry->agno = XFS_INODE_TO_AGNO(ip);
 		__entry->agino = XFS_INO_TO_AGINO(ip->i_mount, ip->i_ino);
 	),
 	TP_printk("dev %d:%d agno 0x%x agino 0x%x",
@@ -4769,8 +4769,7 @@ TRACE_EVENT(xfs_btree_commit_ifakeroot,
 	TP_fast_assign(
 		__entry->dev = cur->bc_mp->m_super->s_dev;
 		__assign_str(name);
-		__entry->agno = XFS_INO_TO_AGNO(cur->bc_mp,
-					cur->bc_ino.ip->i_ino);
+		__entry->agno = XFS_INODE_TO_AGNO(cur->bc_ino.ip);
 		__entry->agino = XFS_INO_TO_AGINO(cur->bc_mp,
 					cur->bc_ino.ip->i_ino);
 		__entry->levels = cur->bc_ino.ifake->if_levels;

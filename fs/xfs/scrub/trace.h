@@ -3473,7 +3473,7 @@ TRACE_EVENT(xrep_iunlink_reload_next,
 	),
 	TP_fast_assign(
 		__entry->dev = ip->i_mount->m_super->s_dev;
-		__entry->agno = XFS_INO_TO_AGNO(ip->i_mount, ip->i_ino);
+		__entry->agno = XFS_INODE_TO_AGNO(ip);
 		__entry->agino = XFS_INO_TO_AGINO(ip->i_mount, ip->i_ino);
 		__entry->old_prev_agino = ip->i_prev_unlinked;
 		__entry->prev_agino = prev_agino;
@@ -3503,7 +3503,7 @@ TRACE_EVENT(xrep_iunlink_reload_ondisk,
 	),
 	TP_fast_assign(
 		__entry->dev = ip->i_mount->m_super->s_dev;
-		__entry->agno = XFS_INO_TO_AGNO(ip->i_mount, ip->i_ino);
+		__entry->agno = XFS_INODE_TO_AGNO(ip);
 		__entry->agino = XFS_INO_TO_AGINO(ip->i_mount, ip->i_ino);
 		__entry->nlink = VFS_I(ip)->i_nlink;
 		__entry->next_agino = ip->i_next_unlinked;
@@ -3590,7 +3590,7 @@ TRACE_EVENT(xrep_iunlink_relink_next,
 	),
 	TP_fast_assign(
 		__entry->dev = ip->i_mount->m_super->s_dev;
-		__entry->agno = XFS_INO_TO_AGNO(ip->i_mount, ip->i_ino);
+		__entry->agno = XFS_INODE_TO_AGNO(ip);
 		__entry->agino = XFS_INO_TO_AGINO(ip->i_mount, ip->i_ino);
 		__entry->next_agino = ip->i_next_unlinked;
 		__entry->new_next_agino = next_agino;
@@ -3616,7 +3616,7 @@ TRACE_EVENT(xrep_iunlink_relink_prev,
 	),
 	TP_fast_assign(
 		__entry->dev = ip->i_mount->m_super->s_dev;
-		__entry->agno = XFS_INO_TO_AGNO(ip->i_mount, ip->i_ino);
+		__entry->agno = XFS_INODE_TO_AGNO(ip);
 		__entry->agino = XFS_INO_TO_AGINO(ip->i_mount, ip->i_ino);
 		__entry->prev_agino = ip->i_prev_unlinked;
 		__entry->new_prev_agino = prev_agino;

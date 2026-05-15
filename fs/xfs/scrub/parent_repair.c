@@ -1451,7 +1451,7 @@ xrep_parent_set_nondir_nlink(
 		 * The file is on the unlinked list but we found parents.
 		 * Remove the file from the unlinked list.
 		 */
-		pag = xfs_perag_get(sc->mp, XFS_INO_TO_AGNO(sc->mp, ip->i_ino));
+		pag = xfs_perag_get(sc->mp, XFS_INODE_TO_AGNO(ip));
 		if (!pag) {
 			ASSERT(0);
 			return -EFSCORRUPTED;

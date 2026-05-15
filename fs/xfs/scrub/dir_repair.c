@@ -1576,7 +1576,7 @@ xrep_dir_set_nlink(
 	 * count.  If the directory has no parent, it will be moved to the
 	 * orphanage.
 	 */
-	pag = xfs_perag_get(sc->mp, XFS_INO_TO_AGNO(sc->mp, dp->i_ino));
+	pag = xfs_perag_get(sc->mp, XFS_INODE_TO_AGNO(dp));
 	if (!pag) {
 		ASSERT(0);
 		return -EFSCORRUPTED;

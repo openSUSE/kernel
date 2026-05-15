@@ -1357,7 +1357,7 @@ xfs_inactive_health(
 	if (sick & XFS_SICK_INO_FORGET)
 		return;
 
-	pag = xfs_perag_get(mp, XFS_INO_TO_AGNO(mp, ip->i_ino));
+	pag = xfs_perag_get(mp, XFS_INODE_TO_AGNO(ip));
 	if (!pag) {
 		/* There had better still be a perag structure! */
 		ASSERT(0);
@@ -1796,7 +1796,7 @@ xfs_ifree(
 	ASSERT(ip->i_disk_size == 0 || !S_ISREG(VFS_I(ip)->i_mode));
 	ASSERT(ip->i_nblocks == 0);
 
-	pag = xfs_perag_get(mp, XFS_INO_TO_AGNO(mp, ip->i_ino));
+	pag = xfs_perag_get(mp, XFS_INODE_TO_AGNO(ip));
 
 	error = xfs_inode_uninit(tp, pag, ip, &xic);
 	if (error)
@@ -2305,8 +2305,7 @@ retry:
 			struct xfs_perag	*pag;
 			struct xfs_buf		*bp;
 
-			pag = xfs_perag_get(mp,
-					XFS_INO_TO_AGNO(mp, inodes[i]->i_ino));
+			pag = xfs_perag_get(mp, XFS_INODE_TO_AGNO(inodes[i]));
 			error = xfs_read_agi(pag, tp, 0, &bp);
 			xfs_perag_put(pag);
 			if (error)
@@ -2853,7 +2852,7 @@ xfs_inode_reload_unlinked_bucket(
 	struct xfs_buf		*agibp;
 	struct xfs_agi		*agi;
 	struct xfs_perag	*pag;
-	xfs_agnumber_t		agno = XFS_INO_TO_AGNO(mp, ip->i_ino);
+	xfs_agnumber_t		agno = XFS_INODE_TO_AGNO(ip);
 	xfs_agino_t		agino = XFS_INO_TO_AGINO(mp, ip->i_ino);
 	xfs_agino_t		prev_agino, next_agino;
 	unsigned int		bucket;

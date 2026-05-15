@@ -427,8 +427,7 @@ xfs_iget_check_free_state(
 			xfs_warn(ip->i_mount,
 "Corruption detected! Free inode 0x%llx not marked free! (mode 0x%x)",
 				ip->i_ino, VFS_I(ip)->i_mode);
-			xfs_agno_mark_sick(ip->i_mount,
-					XFS_INO_TO_AGNO(ip->i_mount, ip->i_ino),
+			xfs_agno_mark_sick(ip->i_mount, XFS_INODE_TO_AGNO(ip),
 					XFS_SICK_AG_INOBT);
 			return -EFSCORRUPTED;
 		}
@@ -437,8 +436,7 @@ xfs_iget_check_free_state(
 			xfs_warn(ip->i_mount,
 "Corruption detected! Free inode 0x%llx has blocks allocated!",
 				ip->i_ino);
-			xfs_agno_mark_sick(ip->i_mount,
-					XFS_INO_TO_AGNO(ip->i_mount, ip->i_ino),
+			xfs_agno_mark_sick(ip->i_mount, XFS_INODE_TO_AGNO(ip),
 					XFS_SICK_AG_INOBT);
 			return -EFSCORRUPTED;
 		}
@@ -1287,7 +1285,7 @@ xfs_blockgc_set_iflag(
 	ip->i_flags |= iflag;
 	spin_unlock(&ip->i_flags_lock);
 
-	pag = xfs_perag_get(mp, XFS_INO_TO_AGNO(mp, ip->i_ino));
+	pag = xfs_perag_get(mp, XFS_INODE_TO_AGNO(ip));
 	spin_lock(&pag->pag_ici_lock);
 
 	xfs_perag_set_inode_tag(pag, XFS_INO_TO_AGINO(mp, ip->i_ino),
@@ -1324,7 +1322,7 @@ xfs_blockgc_clear_iflag(
 	if (!clear_tag)
 		return;
 
-	pag = xfs_perag_get(mp, XFS_INO_TO_AGNO(mp, ip->i_ino));
+	pag = xfs_perag_get(mp, XFS_INODE_TO_AGNO(ip));
 	spin_lock(&pag->pag_ici_lock);
 
 	xfs_perag_clear_inode_tag(pag, XFS_INO_TO_AGINO(mp, ip->i_ino),
@@ -1802,7 +1800,7 @@ restart:
 			 * us to see this inode, so another lookup from the
 			 * same index will not find it again.
 			 */
-			if (XFS_INO_TO_AGNO(mp, ip->i_ino) != pag_agno(pag))
+			if (XFS_INODE_TO_AGNO(ip) != pag_agno(pag))
 				continue;
 			first_index = XFS_INO_TO_AGINO(mp, ip->i_ino + 1);
 			if (first_index < XFS_INO_TO_AGINO(mp, ip->i_ino))
@@ -1916,7 +1914,7 @@ xfs_inodegc_set_reclaimable(
 		ASSERT(0);
 	}
 
-	pag = xfs_perag_get(mp, XFS_INO_TO_AGNO(mp, ip->i_ino));
+	pag = xfs_perag_get(mp, XFS_INODE_TO_AGNO(ip));
 	spin_lock(&pag->pag_ici_lock);
 	spin_lock(&ip->i_flags_lock);
 
