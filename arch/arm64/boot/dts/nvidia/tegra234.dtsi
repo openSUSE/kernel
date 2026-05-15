@@ -4532,7 +4532,7 @@
 			nvidia,aspm-cmrt-us = <60>;
 			nvidia,aspm-pwr-on-t-us = <20>;
 			nvidia,aspm-l0s-entrance-latency-us = <3>;
-			aspm-l1-entry-delay-ns = <8000>;
+			aspm-l1-entry-delay-ns = <16000>;
 
 			bus-range = <0x0 0xff>;
 
@@ -4587,7 +4587,7 @@
 			nvidia,aspm-cmrt-us = <60>;
 			nvidia,aspm-pwr-on-t-us = <20>;
 			nvidia,aspm-l0s-entrance-latency-us = <3>;
-			aspm-l1-entry-delay-ns = <8000>;
+			aspm-l1-entry-delay-ns = <16000>;
 
 			bus-range = <0x0 0xff>;
 
@@ -4642,7 +4642,7 @@
 			nvidia,aspm-cmrt-us = <60>;
 			nvidia,aspm-pwr-on-t-us = <20>;
 			nvidia,aspm-l0s-entrance-latency-us = <3>;
-			aspm-l1-entry-delay-ns = <8000>;
+			aspm-l1-entry-delay-ns = <16000>;
 
 			bus-range = <0x0 0xff>;
 
@@ -4689,7 +4689,7 @@
 			nvidia,aspm-cmrt-us = <60>;
 			nvidia,aspm-pwr-on-t-us = <20>;
 			nvidia,aspm-l0s-entrance-latency-us = <3>;
-			aspm-l1-entry-delay-ns = <16000>;
+			aspm-l1-entry-delay-ns = <32000>;
 
 			interconnects = <&mc TEGRA234_MEMORY_CLIENT_PCIE10AR &emc>,
 					<&mc TEGRA234_MEMORY_CLIENT_PCIE10AW &emc>;
@@ -4738,7 +4738,7 @@
 			nvidia,aspm-cmrt-us = <60>;
 			nvidia,aspm-pwr-on-t-us = <20>;
 			nvidia,aspm-l0s-entrance-latency-us = <3>;
-			aspm-l1-entry-delay-ns = <8000>;
+			aspm-l1-entry-delay-ns = <16000>;
 
 			bus-range = <0x0 0xff>;
 
@@ -4793,7 +4793,7 @@
 			nvidia,aspm-cmrt-us = <60>;
 			nvidia,aspm-pwr-on-t-us = <20>;
 			nvidia,aspm-l0s-entrance-latency-us = <3>;
-			aspm-l1-entry-delay-ns = <8000>;
+			aspm-l1-entry-delay-ns = <16000>;
 
 			bus-range = <0x0 0xff>;
 
@@ -4848,7 +4848,7 @@
 			nvidia,aspm-cmrt-us = <60>;
 			nvidia,aspm-pwr-on-t-us = <20>;
 			nvidia,aspm-l0s-entrance-latency-us = <3>;
-			aspm-l1-entry-delay-ns = <8000>;
+			aspm-l1-entry-delay-ns = <16000>;
 
 			bus-range = <0x0 0xff>;
 
@@ -4903,7 +4903,7 @@
 			nvidia,aspm-cmrt-us = <60>;
 			nvidia,aspm-pwr-on-t-us = <20>;
 			nvidia,aspm-l0s-entrance-latency-us = <3>;
-			aspm-l1-entry-delay-ns = <8000>;
+			aspm-l1-entry-delay-ns = <16000>;
 
 			bus-range = <0x0 0xff>;
 
@@ -4945,7 +4945,7 @@
 			nvidia,aspm-cmrt-us = <60>;
 			nvidia,aspm-pwr-on-t-us = <20>;
 			nvidia,aspm-l0s-entrance-latency-us = <3>;
-			aspm-l1-entry-delay-ns = <16000>;
+			aspm-l1-entry-delay-ns = <32000>;
 
 			interconnects = <&mc TEGRA234_MEMORY_CLIENT_PCIE4R &emc>,
 				      <&mc TEGRA234_MEMORY_CLIENT_PCIE4W &emc>;
@@ -4992,7 +4992,7 @@
 			nvidia,aspm-cmrt-us = <60>;
 			nvidia,aspm-pwr-on-t-us = <20>;
 			nvidia,aspm-l0s-entrance-latency-us = <3>;
-			aspm-l1-entry-delay-ns = <8000>;
+			aspm-l1-entry-delay-ns = <16000>;
 
 			bus-range = <0x0 0xff>;
 
@@ -5047,7 +5047,7 @@
 			nvidia,aspm-cmrt-us = <60>;
 			nvidia,aspm-pwr-on-t-us = <20>;
 			nvidia,aspm-l0s-entrance-latency-us = <3>;
-			aspm-l1-entry-delay-ns = <8000>;
+			aspm-l1-entry-delay-ns = <16000>;
 
 			bus-range = <0x0 0xff>;
 
@@ -5094,7 +5094,7 @@
 			nvidia,aspm-cmrt-us = <60>;
 			nvidia,aspm-pwr-on-t-us = <20>;
 			nvidia,aspm-l0s-entrance-latency-us = <3>;
-			aspm-l1-entry-delay-ns = <16000>;
+			aspm-l1-entry-delay-ns = <32000>;
 
 			interconnects = <&mc TEGRA234_MEMORY_CLIENT_PCIE5R &emc>,
 					<&mc TEGRA234_MEMORY_CLIENT_PCIE5W &emc>;
@@ -5143,7 +5143,7 @@
 			nvidia,aspm-cmrt-us = <60>;
 			nvidia,aspm-pwr-on-t-us = <20>;
 			nvidia,aspm-l0s-entrance-latency-us = <3>;
-			aspm-l1-entry-delay-ns = <8000>;
+			aspm-l1-entry-delay-ns = <16000>;
 
 			bus-range = <0x0 0xff>;
 
@@ -5190,7 +5190,7 @@
 			nvidia,aspm-cmrt-us = <60>;
 			nvidia,aspm-pwr-on-t-us = <20>;
 			nvidia,aspm-l0s-entrance-latency-us = <3>;
-			aspm-l1-entry-delay-ns = <16000>;
+			aspm-l1-entry-delay-ns = <32000>;
 
 			interconnects = <&mc TEGRA234_MEMORY_CLIENT_PCIE6AR &emc>,
 					<&mc TEGRA234_MEMORY_CLIENT_PCIE6AW &emc>;
@@ -5239,7 +5239,7 @@
 			nvidia,aspm-cmrt-us = <60>;
 			nvidia,aspm-pwr-on-t-us = <20>;
 			nvidia,aspm-l0s-entrance-latency-us = <3>;
-			aspm-l1-entry-delay-ns = <8000>;
+			aspm-l1-entry-delay-ns = <16000>;
 
 			bus-range = <0x0 0xff>;
 
@@ -5286,7 +5286,7 @@
 			nvidia,aspm-cmrt-us = <60>;
 			nvidia,aspm-pwr-on-t-us = <20>;
 			nvidia,aspm-l0s-entrance-latency-us = <3>;
-			aspm-l1-entry-delay-ns = <16000>;
+			aspm-l1-entry-delay-ns = <32000>;
 
 			interconnects = <&mc TEGRA234_MEMORY_CLIENT_PCIE7AR &emc>,
 					<&mc TEGRA234_MEMORY_CLIENT_PCIE7AW &emc>;
