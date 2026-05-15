@@ -916,8 +916,6 @@ struct task_struct {
 #ifdef CONFIG_RT_MUTEXES
 	unsigned			sched_rt_mutex:1;
 #endif
-	/* Save user-dumpable when mm goes away */
-	unsigned			user_dumpable:1;
 	/* Bit to tell LSMs we're in execve(): */
 	unsigned			in_execve:1;
 	unsigned			in_iowait:1;
@@ -964,6 +962,10 @@ struct task_struct {
 #ifdef CONFIG_TASK_DELAY_ACCT
 	/* delay due to memory thrashing */
 	unsigned                        in_thrashing:1;
+#endif
+#ifndef __GENKSYMS__
+	/* Save user-dumpable when mm goes away */
+	unsigned			user_dumpable:1;
 #endif
 
 	unsigned long			atomic_flags; /* Flags requiring atomic access. */
