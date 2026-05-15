@@ -123,8 +123,7 @@ xrep_newbt_init_inode(
 	if (!ifp)
 		return -ENOMEM;
 
-	xrep_newbt_init_ag(xnr, sc, oinfo,
-			XFS_INO_TO_FSB(sc->mp, sc->ip->i_ino),
+	xrep_newbt_init_ag(xnr, sc, oinfo, XFS_INODE_TO_FSB(sc->ip),
 			XFS_AG_RESV_NONE);
 	xnr->ifake.if_fork = ifp;
 	xnr->ifake.if_fork_size = xfs_inode_fork_size(sc->ip, whichfork);
@@ -160,8 +159,7 @@ xrep_newbt_init_metadir_inode(
 	 * as if they were regular file blocks.  This exposes us to a higher
 	 * risk of the repair being cancelled due to ENOSPC.
 	 */
-	xrep_newbt_init_ag(xnr, sc, &oinfo,
-			XFS_INO_TO_FSB(sc->mp, sc->ip->i_ino),
+	xrep_newbt_init_ag(xnr, sc, &oinfo, XFS_INODE_TO_FSB(sc->ip),
 			XFS_AG_RESV_NONE);
 	xnr->ifake.if_fork = ifp;
 	xnr->ifake.if_fork_size = xfs_inode_fork_size(sc->ip, XFS_DATA_FORK);
