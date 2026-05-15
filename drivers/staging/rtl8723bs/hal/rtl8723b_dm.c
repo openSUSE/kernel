@@ -99,7 +99,6 @@ static void Update_ODM_ComInfo_8723b(struct adapter *Adapter)
 	ODM_CmnInfoHook(pDM_Odm, ODM_CMNINFO_SCAN, &(pmlmepriv->bScanInProcess));
 	ODM_CmnInfoHook(pDM_Odm, ODM_CMNINFO_POWER_SAVING, &(pwrctrlpriv->bpower_saving));
 
-
 	for (i = 0; i < NUM_STA; i++)
 		ODM_CmnInfoPtrArrayHook(pDM_Odm, ODM_CMNINFO_STA_STATUS, i, NULL);
 }
@@ -183,7 +182,6 @@ void rtl8723b_hal_dm_in_lps(struct adapter *padapter)
 	/* update IGI */
 	ODM_Write_DIG(pDM_Odm, pDM_Odm->RSSI_Min);
 
-
 	/* set rssi to fw */
 	psta = rtw_get_stainfo(pstapriv, get_bssid(pmlmepriv));
 	if (psta && (psta->rssi_stat.UndecoratedSmoothedPWDB > 0)) {
@@ -208,7 +206,6 @@ void rtl8723b_HalDmWatchDog_in_LPS(struct adapter *Adapter)
 	if (!Adapter->hw_init_completed)
 		goto skip_lps_dm;
 
-
 	if (rtw_linked_check(Adapter))
 		bLinked = true;
 
@@ -219,7 +216,6 @@ void rtl8723b_HalDmWatchDog_in_LPS(struct adapter *Adapter)
 
 	if (!(pDM_Odm->SupportAbility & ODM_BB_RSSI_MONITOR))
 		goto skip_lps_dm;
-
 
 	/* ODM_DMWatchdog(&pHalData->odmpriv); */
 	/* Do DIG by RSSI In LPS-32K */
@@ -244,7 +240,6 @@ void rtl8723b_HalDmWatchDog_in_LPS(struct adapter *Adapter)
 		(pDM_DigTable->CurIGValue < pDM_Odm->RSSI_Min - 5)
 	)
 		rtw_dm_in_lps_wk_cmd(Adapter);
-
 
 skip_lps_dm:
 

@@ -80,7 +80,6 @@ void odm_NHMBB(void *pDM_VOID)
 	pDM_Odm->NHMLastRxOkcnt =
 		*(pDM_Odm->pNumRxBytesUnicast);
 
-
 	if ((pDM_Odm->NHMCurTxOkcnt) + 1 > (u64)(pDM_Odm->NHMCurRxOkcnt<<2) + 1) { /* Tx > 4*Rx possible for adaptivity test */
 		if (pDM_Odm->NHM_cnt_0 >= 190 || pDM_Odm->adaptivity_flag) {
 			/* Enable EDCCA since it is possible running Adaptivity testing */
@@ -127,7 +126,6 @@ void odm_SearchPwdBLowerBound(void *pDM_VOID, u8 IGI_target)
 
 	IGI = 0x50; /*  find H2L, L2H lower bound */
 	ODM_Write_DIG(pDM_Odm, IGI);
-
 
 	Diff = IGI_target-(s8)IGI;
 	TH_L2H_dmc = pDM_Odm->TH_L2H_ini + Diff;
@@ -211,7 +209,6 @@ void odm_AdaptivityInit(void *pDM_VOID)
 
 	PHY_SetBBReg(pDM_Odm->Adapter, REG_RD_CTRL, BIT(11), 1); /*  stop counting if EDCCA is asserted */
 }
-
 
 void odm_Adaptivity(void *pDM_VOID, u8 IGI)
 {
@@ -363,7 +360,6 @@ void odm_DIGInit(void *pDM_VOID)
 	pDM_DigTable->rx_gain_range_min = DM_DIG_MIN_NIC;
 }
 
-
 void odm_DIG(void *pDM_VOID)
 {
 	struct dm_odm_t *pDM_Odm = (struct dm_odm_t *)pDM_VOID;
@@ -387,7 +383,6 @@ void odm_DIG(void *pDM_VOID)
 
 	if (pDM_Odm->adaptivity_flag)
 		Adap_IGI_Upper = pDM_Odm->Adaptivity_IGI_upper;
-
 
 	/* 1 Update status */
 	DIG_Dynamic_MIN = pDM_DigTable->DIG_Dynamic_MIN_0;
@@ -469,7 +464,6 @@ void odm_DIG(void *pDM_VOID)
 	if (pDM_DigTable->rx_gain_range_min > pDM_DigTable->rx_gain_range_max)
 		pDM_DigTable->rx_gain_range_min = pDM_DigTable->rx_gain_range_max;
 
-
 	/* 1 False alarm threshold decision */
 	odm_FAThresholdCheck(pDM_Odm, bDFSBand, bPerformance, RxTp, TxTp, dm_FA_thres);
 
@@ -536,7 +530,6 @@ void odm_DIG(void *pDM_VOID)
 		}
 	}
 
-
 	/* 1 Update status */
 	if (pDM_Odm->bBtHsOperation) {
 		if (pDM_Odm->bLinked) {
@@ -580,7 +573,6 @@ void odm_DIGbyRSSI_LPS(void *pDM_VOID)
 		CurrentIGI = CurrentIGI+2;
 	else if (pFalseAlmCnt->Cnt_all < DM_DIG_FA_TH0_LPS)
 		CurrentIGI = CurrentIGI-2;
-
 
 	/* Lower bound checking */
 
@@ -683,7 +675,6 @@ void odm_FalseAlarmCounterStatistics(void *pDM_VOID)
 		FalseAlmCnt->Cnt_OFDM_CCA + FalseAlmCnt->Cnt_CCK_CCA;
 }
 
-
 void odm_FAThresholdCheck(
 	void *pDM_VOID,
 	bool bDFSBand,
@@ -762,7 +753,6 @@ void odm_CCKPacketDetectionThresh(void *pDM_VOID)
 	struct dm_odm_t *pDM_Odm = (struct dm_odm_t *)pDM_VOID;
 	struct false_ALARM_STATISTICS *FalseAlmCnt = &pDM_Odm->FalseAlmCnt;
 	u8 CurCCK_CCAThres;
-
 
 	if (
 		!(pDM_Odm->SupportAbility & ODM_BB_CCK_PD) ||

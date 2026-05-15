@@ -110,7 +110,6 @@ static void update_recvframe_phyinfo(union recv_frame *precvframe,
 	pkt_info.to_self = pkt_info.bssid_match &&
 		ether_addr_equal(rx_ra, my_hwaddr);
 
-
 	pkt_info.is_beacon = pkt_info.bssid_match &&
 		(GetFrameSubType(wlanhdr) == WIFI_BEACON);
 

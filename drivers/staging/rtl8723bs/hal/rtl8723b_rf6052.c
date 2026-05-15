@@ -31,10 +31,8 @@
 /*---------------------------Define Local Constant---------------------------*/
 /*---------------------------Define Local Constant---------------------------*/
 
-
 /*------------------------Define global variable-----------------------------*/
 /*------------------------Define global variable-----------------------------*/
-
 
 /*------------------------Define local variable------------------------------*/
 /*  2008/11/20 MH For Debug only, RF */
@@ -148,7 +146,6 @@ static int phy_RF6052_Config_ParaFile(struct adapter *Adapter)
 
 	return _SUCCESS;
 }
-
 
 int PHY_RF6052_Config8723B(struct adapter *Adapter)
 {

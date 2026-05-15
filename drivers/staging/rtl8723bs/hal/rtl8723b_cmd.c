@@ -30,7 +30,6 @@ static u8 _is_fw_read_cmd_down(struct adapter *padapter, u8 msgbox_num)
 	return !ret;
 }
 
-
 /*****************************************
  * H2C Msg format :
  *| 31 - 8		|7-5	| 4 - 0	|
@@ -167,14 +166,11 @@ static void ConstructBeacon(struct adapter *padapter, u8 *pframe, u32 *pLength)
 		pframe = rtw_set_ie(pframe, WLAN_EID_IBSS_PARAMS, 2, (unsigned char *)(&ATIMWindow), &pktlen);
 	}
 
-
 	/* todo: ERP IE */
-
 
 	/*  EXTERNDED SUPPORTED RATE */
 	if (rate_len > 8)
 		pframe = rtw_set_ie(pframe, WLAN_EID_EXT_SUPP_RATES, (rate_len - 8), (cur_network->supported_rates + 8), &pktlen);
-
 
 	/* todo:HT for adhoc */
 

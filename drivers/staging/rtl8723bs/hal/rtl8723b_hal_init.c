@@ -152,7 +152,6 @@ void _8051Reset8723(struct adapter *padapter)
 	u8 cpu_rst;
 	u8 io_rst;
 
-
 	/*  Reset 8051(WLMCU) IO wrapper */
 	/*  0x1c[8] = 0 */
 	/*  Suggested by Isaac@SD1 and Gimmy@SD1, coding by Lucas@20130624 */
@@ -571,14 +570,12 @@ void Hal_EfusePowerSwitch(
 	u8 tempval;
 	u16 tmpV16;
 
-
 	if (PwrState) {
 		/*  To avoid cannot access efuse registers after disable/enable several times during DTM test. */
 		/*  Suggested by SD1 IsaacHsu. 2013.07.08, added by tynli. */
 		tempval = rtw_read8(padapter, SDIO_LOCAL_BASE|SDIO_REG_HSUS_CTRL);
 		if (tempval & BIT(0)) { /*  SDIO local register is suspend */
 			u8 count = 0;
-
 
 			tempval &= ~BIT(0);
 			rtw_write8(padapter, SDIO_LOCAL_BASE|SDIO_REG_HSUS_CTRL, tempval);
@@ -721,7 +718,6 @@ static void hal_ReadEFuse_BT(
 	u16 i, total, used;
 	u8 efuse_usage;
 
-
 	/*  */
 	/*  Do NOT excess total size of EFuse table. Added by Roger, 2008.11.10. */
 	/*  */
@@ -755,7 +751,6 @@ static void hal_ReadEFuse_BT(
 				rtw_efuse_one_byte_read(padapter, eFuse_Addr++, &efuseExtHdr);
 				if (ALL_WORDS_DISABLED(efuseExtHdr))
 					continue;
-
 
 				offset |= ((efuseExtHdr & 0xF0) >> 1);
 				wden = (efuseExtHdr & 0x0F);
@@ -859,7 +854,6 @@ void rtl8723b_InitBeaconParameters(struct adapter *padapter)
 	u16 val16;
 	u8 val8 = DIS_TSF_UDT;
 
-
 	val16 = val8 | (val8 << 8); /*  port0 and port1 */
 
 	/*  Enable prot0 beacon function for PSTDMA */
@@ -958,7 +952,6 @@ void rtl8723b_SetBeaconRelatedRegisters(struct adapter *padapter)
 	/* REG_BCNTCFG (0x510) */
 	/* REG_DUAL_TSF_RST */
 	/* REG_BCN_CTRL (0x550) */
-
 
 	bcn_ctrl_reg = REG_BCN_CTRL;
 
@@ -1061,7 +1054,6 @@ void rtl8723b_init_default_value(struct adapter *padapter)
 	struct hal_com_data *pHalData;
 	struct dm_priv *pdmpriv;
 	u8 i;
-
 
 	pHalData = GET_HAL_DATA(padapter);
 	pdmpriv = &pHalData->dmpriv;
@@ -1190,7 +1182,6 @@ void Hal_EfuseParseIDCode(struct adapter *padapter, u8 *hwinfo)
 /* 	struct hal_com_data	*pHalData = GET_HAL_DATA(padapter); */
 	u16 EEPROMId;
 
-
 	/*  Check 0x8129 again for making sure autoload status!! */
 	EEPROMId = le16_to_cpu(*((__le16 *)hwinfo));
 	if (EEPROMId != RTL_EEPROM_ID) {
@@ -1313,7 +1304,6 @@ static void Hal_ReadPowerValueFromPROM_8723B(
 	}
 }
 
-
 void Hal_EfuseParseTxPowerInfo_8723B(
 	struct adapter *padapter, u8 *PROMContent, bool AutoLoadFail
 )
@@ -1426,8 +1416,6 @@ void Hal_EfuseParseEEPROMVer_8723B(
 		pHalData->EEPROMVersion = 1;
 }
 
-
-
 void Hal_EfuseParsePackageType_8723B(
 	struct adapter *padapter, u8 *hwinfo, bool AutoLoadFail
 )
@@ -1460,7 +1448,6 @@ void Hal_EfuseParsePackageType_8723B(
 		break;
 	}
 }
-
 
 void Hal_EfuseParseVoltage_8723B(
 	struct adapter *padapter, u8 *hwinfo, bool AutoLoadFail
@@ -1513,7 +1500,6 @@ void Hal_EfuseParseXtal_8723B(
 		pHalData->CrystalCap = EEPROM_Default_CrystalCap_8723B;
 }
 
-
 void Hal_EfuseParseThermalMeter_8723B(
 	struct adapter *padapter, u8 *PROMContent, u8 AutoLoadFail
 )
@@ -1533,7 +1519,6 @@ void Hal_EfuseParseThermalMeter_8723B(
 		pHalData->EEPROMThermalMeter = EEPROM_Default_ThermalMeter_8723B;
 	}
 }
-
 
 void Hal_ReadRFGainOffset(
 	struct adapter *Adapter, u8 *PROMContent, bool AutoloadFail
@@ -1602,7 +1587,6 @@ static void rtl8723b_cal_txdesc_chksum(struct tx_desc *ptxdesc)
 	u32 count;
 	u32 index;
 	u16 checksum = 0;
-
 
 	/*  Clear first */
 	ptxdesc->txdw7 &= cpu_to_le32(0xffff0000);
@@ -2098,7 +2082,6 @@ static void hw_var_set_mlme_sitesurvey(struct adapter *padapter, u8 variable, u8
 	struct hal_com_data *pHalData;
 	struct mlme_priv *pmlmepriv;
 
-
 	pHalData = GET_HAL_DATA(padapter);
 	pmlmepriv = &padapter->mlmepriv;
 
@@ -2160,7 +2143,6 @@ static void hw_var_set_mlme_join(struct adapter *padapter, u8 variable, u8 *val)
 	u8 type = *(u8 *)val;
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
 	struct eeprom_priv *pEEPROM;
-
 
 	pEEPROM = GET_EEPROM_EFUSE_PRIV(padapter);
 
@@ -2224,7 +2206,6 @@ s32 c2h_id_filter_ccx_8723b(u8 *buf)
 
 	return ret;
 }
-
 
 s32 c2h_handler_8723b(struct adapter *padapter, u8 *buf)
 {

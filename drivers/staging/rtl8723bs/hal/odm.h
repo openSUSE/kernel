@@ -5,7 +5,6 @@
  *
  ******************************************************************************/
 
-
 #ifndef	__HALDMOUTSRC_H__
 #define __HALDMOUTSRC_H__
 
@@ -173,7 +172,6 @@ struct swat_t { /* _SW_Antenna_Switch_ */
 };
 
 /* Remove Edca by YuChen */
-
 
 struct odm_rate_adaptive {
 	u8 Type;				/*  DM_Type_ByFW/DM_Type_ByDriver */

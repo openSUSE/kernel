@@ -113,7 +113,6 @@ static void odm_rx_phy_status_parsing(struct dm_odm_t *dm_odm,
 	phy_info->rx_mimo_signal_quality[RF_PATH_A] = -1;
 	phy_info->rx_mimo_signal_quality[RF_PATH_B] = -1;
 
-
 	if (is_cck_rate) {
 		u8 cck_agc_rpt;
 
@@ -255,7 +254,6 @@ static void odm_Process_RSSIForDM(
 	u32 Weighting = 0;
 	PSTA_INFO_T pEntry;
 
-
 	if (pPktinfo->station_id == 0xFF)
 		return;
 
@@ -385,7 +383,6 @@ static void odm_Process_RSSIForDM(
 
 	}
 }
-
 
 /*  */
 /*  Endianness before calling this API */

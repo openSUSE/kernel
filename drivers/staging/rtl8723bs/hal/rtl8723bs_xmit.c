@@ -393,7 +393,6 @@ next:
 	if (ret == 1)
 		goto next;
 
-
 	return _SUCCESS;
 }
 
@@ -469,7 +468,6 @@ s32 rtl8723bs_hal_xmit(
 	struct xmit_priv *pxmitpriv;
 	s32 err;
 
-
 	pxmitframe->attrib.qsel = pxmitframe->attrib.priority;
 	pxmitpriv = &padapter->xmitpriv;
 
@@ -529,7 +527,6 @@ s32 rtl8723bs_init_xmit_priv(struct adapter *padapter)
 	struct xmit_priv *xmitpriv = &padapter->xmitpriv;
 	struct hal_com_data *phal;
 
-
 	phal = GET_HAL_DATA(padapter);
 
 	spin_lock_init(&phal->SdioTxFIFOFreePageLock);
@@ -546,7 +543,6 @@ void rtl8723bs_free_xmit_priv(struct adapter *padapter)
 	struct __queue *pqueue = &pxmitpriv->pending_xmitbuf_queue;
 	struct list_head *plist, *phead;
 	struct list_head tmplist;
-
 
 	phead = get_list_head(pqueue);
 	INIT_LIST_HEAD(&tmplist);

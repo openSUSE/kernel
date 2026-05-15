@@ -20,7 +20,6 @@ enum hal_status {
 	HAL_STATUS_FAILURE,
 };
 
-
 	#if defined(__LITTLE_ENDIAN)
 		#define	ODM_ENDIAN_TYPE			ODM_ENDIAN_LITTLE
 	#else

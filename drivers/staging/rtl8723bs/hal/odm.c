@@ -434,8 +434,6 @@ static void odm_RSSIMonitorCheckCE(struct dm_odm_t *pDM_Odm)
 		}
 	}
 
-
-
 	if (tmpEntryMaxPWDB != 0)	/*  If associated entry is found */
 		pdmpriv->EntryMaxUndecoratedSmoothedPWDB = tmpEntryMaxPWDB;
 	else
@@ -508,7 +506,6 @@ void odm_TXPowerTrackingInit(struct dm_odm_t *pDM_Odm)
 	u8 p = 0;
 	struct adapter *Adapter = pDM_Odm->Adapter;
 	struct hal_com_data *pHalData = GET_HAL_DATA(Adapter);
-
 
 	struct dm_priv *pdmpriv = &pHalData->dmpriv;
 
@@ -623,7 +620,6 @@ void ODM_DMWatchdog(struct dm_odm_t *pDM_Odm)
 	if (*pDM_Odm->pbPowerSaving)
 		return;
 
-
 	odm_RefreshRateAdaptiveMask(pDM_Odm);
 	odm_EdcaTurboCheck(pDM_Odm);
 	ODM_CfoTracking(pDM_Odm);
@@ -636,7 +632,6 @@ void ODM_DMWatchdog(struct dm_odm_t *pDM_Odm)
 	/*  so compile flags must be left here to prevent from compile errors */
 	pDM_Odm->PhyDbgInfo.NumQryBeaconPkt = 0;
 }
-
 
 /*  */
 /*  Init /.. Fixed HW value. Only init time. */
@@ -731,7 +726,6 @@ void ODM_CmnInfoInit(struct dm_odm_t *pDM_Odm, enum odm_cmninfo_e CmnInfo, u32 V
 	}
 
 }
-
 
 void ODM_CmnInfoHook(struct dm_odm_t *pDM_Odm, enum odm_cmninfo_e CmnInfo, void *pValue)
 {
@@ -856,7 +850,6 @@ void ODM_CmnInfoHook(struct dm_odm_t *pDM_Odm, enum odm_cmninfo_e CmnInfo, void 
 
 }
 
-
 void ODM_CmnInfoPtrArrayHook(
 	struct dm_odm_t *pDM_Odm,
 	enum odm_cmninfo_e CmnInfo,
@@ -881,7 +874,6 @@ void ODM_CmnInfoPtrArrayHook(
 	}
 
 }
-
 
 /*  */
 /*  Update Band/CHannel/.. The values are dynamic but non-per-packet. */
@@ -956,8 +948,6 @@ void ODM_CmnInfoUpdate(struct dm_odm_t *pDM_Odm, u32 CmnInfo, u64 Value)
 		/* do nothing */
 		break;
 	}
-
-
 }
 
 /* 3 ============================================================ */
