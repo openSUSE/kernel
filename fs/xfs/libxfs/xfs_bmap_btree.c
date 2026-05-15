@@ -36,10 +36,10 @@ xfs_bmbt_init_block(
 {
 	if (bp)
 		xfs_btree_init_buf(ip->i_mount, bp, &xfs_bmbt_ops, level,
-				numrecs, ip->i_ino);
+				numrecs, I_INO(ip));
 	else
 		xfs_btree_init_block(ip->i_mount, buf, &xfs_bmbt_ops, level,
-				numrecs, ip->i_ino);
+				numrecs, I_INO(ip));
 }
 
 /*

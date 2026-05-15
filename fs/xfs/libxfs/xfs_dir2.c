@@ -244,7 +244,7 @@ xfs_dir_init(
 	int		error;
 
 	ASSERT(S_ISDIR(VFS_I(dp)->i_mode));
-	error = xfs_dir_ino_validate(tp->t_mountp, pdp->i_ino);
+	error = xfs_dir_ino_validate(tp->t_mountp, I_INO(pdp));
 	if (error)
 		return error;
 
@@ -255,8 +255,8 @@ xfs_dir_init(
 	args->geo = dp->i_mount->m_dir_geo;
 	args->dp = dp;
 	args->trans = tp;
-	args->owner = dp->i_ino;
-	error = xfs_dir2_sf_create(args, pdp->i_ino);
+	args->owner = I_INO(dp);
+	error = xfs_dir2_sf_create(args, I_INO(pdp));
 	kfree(args);
 	return error;
 }
@@ -356,7 +356,7 @@ xfs_dir_createname(
 	args->whichfork = XFS_DATA_FORK;
 	args->trans = tp;
 	args->op_flags = XFS_DA_OP_ADDNAME | XFS_DA_OP_OKNOENT;
-	args->owner = dp->i_ino;
+	args->owner = I_INO(dp);
 
 	rval = xfs_dir_createname_args(args);
 	kfree(args);
@@ -447,7 +447,7 @@ xfs_dir_lookup(
 	args->whichfork = XFS_DATA_FORK;
 	args->trans = tp;
 	args->op_flags = XFS_DA_OP_OKNOENT;
-	args->owner = dp->i_ino;
+	args->owner = I_INO(dp);
 	if (ci_name)
 		args->op_flags |= XFS_DA_OP_CILOOKUP;
 
@@ -516,7 +516,7 @@ xfs_dir_removename(
 	args->total = total;
 	args->whichfork = XFS_DATA_FORK;
 	args->trans = tp;
-	args->owner = dp->i_ino;
+	args->owner = I_INO(dp);
 	rval = xfs_dir_removename_args(args);
 	kfree(args);
 	return rval;
@@ -576,7 +576,7 @@ xfs_dir_replace(
 	args->total = total;
 	args->whichfork = XFS_DATA_FORK;
 	args->trans = tp;
-	args->owner = dp->i_ino;
+	args->owner = I_INO(dp);
 	rval = xfs_dir_replace_args(args);
 	kfree(args);
 	return rval;
@@ -855,7 +855,7 @@ xfs_dir_create_child(
 	xfs_assert_ilocked(ip, XFS_ILOCK_EXCL);
 	xfs_assert_ilocked(dp, XFS_ILOCK_EXCL);
 
-	error = xfs_dir_createname(tp, dp, name, ip->i_ino, resblks);
+	error = xfs_dir_createname(tp, dp, name, I_INO(ip), resblks);
 	if (error) {
 		ASSERT(error != -ENOSPC);
 		return error;
@@ -926,7 +926,7 @@ xfs_dir_add_child(
 			return error;
 	}
 
-	error = xfs_dir_createname(tp, dp, name, ip->i_ino, resblks);
+	error = xfs_dir_createname(tp, dp, name, I_INO(ip), resblks);
 	if (error)
 		return error;
 
@@ -995,7 +995,7 @@ xfs_dir_remove_child(
 		 * get freed before the child directory is closed.  If the fs
 		 * gets shrunk, this can lead to dirent inode validation errors.
 		 */
-		if (dp->i_ino != tp->t_mountp->m_sb.sb_rootino) {
+		if (I_INO(dp) != tp->t_mountp->m_sb.sb_rootino) {
 			error = xfs_dir_replace(tp, ip, &xfs_name_dotdot,
 					tp->t_mountp->m_sb.sb_rootino, 0);
 			if (error)
@@ -1016,7 +1016,7 @@ xfs_dir_remove_child(
 	if (error)
 		return error;
 
-	error = xfs_dir_removename(tp, dp, name, ip->i_ino, resblks);
+	error = xfs_dir_removename(tp, dp, name, I_INO(ip), resblks);
 	if (error) {
 		ASSERT(error != -ENOENT);
 		return error;
@@ -1059,12 +1059,12 @@ xfs_dir_exchange_children(
 	int			error;
 
 	/* Swap inode number for dirent in first parent */
-	error = xfs_dir_replace(tp, dp1, name1, ip2->i_ino, spaceres);
+	error = xfs_dir_replace(tp, dp1, name1, I_INO(ip2), spaceres);
 	if (error)
 		return error;
 
 	/* Swap inode number for dirent in second parent */
-	error = xfs_dir_replace(tp, dp2, name2, ip1->i_ino, spaceres);
+	error = xfs_dir_replace(tp, dp2, name2, I_INO(ip1), spaceres);
 	if (error)
 		return error;
 
@@ -1078,7 +1078,7 @@ xfs_dir_exchange_children(
 
 		if (S_ISDIR(VFS_I(ip2)->i_mode)) {
 			error = xfs_dir_replace(tp, ip2, &xfs_name_dotdot,
-						dp1->i_ino, spaceres);
+						I_INO(dp1), spaceres);
 			if (error)
 				return error;
 
@@ -1102,7 +1102,7 @@ xfs_dir_exchange_children(
 
 		if (S_ISDIR(VFS_I(ip1)->i_mode)) {
 			error = xfs_dir_replace(tp, ip1, &xfs_name_dotdot,
-						dp2->i_ino, spaceres);
+						I_INO(dp2), spaceres);
 			if (error)
 				return error;
 
@@ -1265,7 +1265,7 @@ xfs_dir_rename_children(
 		 * to account for the ".." reference from the new entry.
 		 */
 		error = xfs_dir_createname(tp, target_dp, target_name,
-					   src_ip->i_ino, spaceres);
+					   I_INO(src_ip), spaceres);
 		if (error)
 			return error;
 
@@ -1286,7 +1286,7 @@ xfs_dir_rename_children(
 		 * name at the destination directory, remove it first.
 		 */
 		error = xfs_dir_replace(tp, target_dp, target_name,
-					src_ip->i_ino, spaceres);
+					I_INO(src_ip), spaceres);
 		if (error)
 			return error;
 
@@ -1320,7 +1320,7 @@ xfs_dir_rename_children(
 		 * directory.
 		 */
 		error = xfs_dir_replace(tp, src_ip, &xfs_name_dotdot,
-					target_dp->i_ino, spaceres);
+					I_INO(target_dp), spaceres);
 		ASSERT(error != -EEXIST);
 		if (error)
 			return error;
@@ -1358,10 +1358,10 @@ xfs_dir_rename_children(
 	 * altogether.
 	 */
 	if (du_wip->ip)
-		error = xfs_dir_replace(tp, src_dp, src_name, du_wip->ip->i_ino,
+		error = xfs_dir_replace(tp, src_dp, src_name, I_INO(du_wip->ip),
 					spaceres);
 	else
-		error = xfs_dir_removename(tp, src_dp, src_name, src_ip->i_ino,
+		error = xfs_dir_removename(tp, src_dp, src_name, I_INO(src_ip),
 					   spaceres);
 	if (error)
 		return error;

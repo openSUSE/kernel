@@ -1209,7 +1209,7 @@ xrep_iunlink_mark_incore(
 			 */
 			if (XFS_INODE_TO_AGNO(ip) != pag_agno(pag))
 				continue;
-			first_index = XFS_INO_TO_AGINO(mp, ip->i_ino + 1);
+			first_index = XFS_INO_TO_AGINO(mp, I_INO(ip) + 1);
 			if (first_index < XFS_INODE_TO_AGINO(ip))
 				done = true;
 		}

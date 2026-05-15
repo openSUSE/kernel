@@ -1080,7 +1080,7 @@ xfs_mountfs(
 
 	if (XFS_IS_CORRUPT(mp, !S_ISDIR(VFS_I(rip)->i_mode))) {
 		xfs_warn(mp, "corrupted root inode %llu: not a directory",
-			(unsigned long long)rip->i_ino);
+			(unsigned long long)I_INO(rip));
 		xfs_iunlock(rip, XFS_ILOCK_EXCL);
 		error = -EFSCORRUPTED;
 		goto out_rele_rip;

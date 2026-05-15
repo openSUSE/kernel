@@ -1796,7 +1796,7 @@ xrep_inode_flags(
 		sc->ip->i_diflags &= ~XFS_DIFLAG_ANY;
 
 	/* NEWRTBM only applies to realtime bitmaps */
-	if (sc->ip->i_ino == sc->mp->m_sb.sb_rbmino)
+	if (I_INO(sc->ip) == sc->mp->m_sb.sb_rbmino)
 		sc->ip->i_diflags |= XFS_DIFLAG_NEWRTBM;
 	else
 		sc->ip->i_diflags &= ~XFS_DIFLAG_NEWRTBM;

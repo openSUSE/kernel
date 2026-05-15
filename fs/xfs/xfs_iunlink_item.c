@@ -40,7 +40,7 @@ static uint64_t
 xfs_iunlink_item_sort(
 	struct xfs_log_item	*lip)
 {
-	return IUL_ITEM(lip)->ip->i_ino;
+	return I_INO(IUL_ITEM(lip)->ip);
 }
 
 /*

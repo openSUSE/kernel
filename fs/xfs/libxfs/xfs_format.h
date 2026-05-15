@@ -1277,11 +1277,11 @@ static inline bool xfs_dinode_is_metadir(const struct xfs_dinode *dip)
 #define	XFS_INO_TO_AGNO(mp,i)		\
 	((xfs_agnumber_t)((i) >> XFS_INO_AGINO_BITS(mp)))
 #define	XFS_INODE_TO_AGNO(ip)		\
-	XFS_INO_TO_AGNO((ip)->i_mount, (ip)->i_ino)
+	XFS_INO_TO_AGNO((ip)->i_mount, I_INO(ip))
 #define	XFS_INO_TO_AGINO(mp,i)		\
 	((xfs_agino_t)(i) & XFS_INO_MASK(XFS_INO_AGINO_BITS(mp)))
 #define	XFS_INODE_TO_AGINO(ip)		\
-	XFS_INO_TO_AGINO((ip)->i_mount, (ip)->i_ino)
+	XFS_INO_TO_AGINO((ip)->i_mount, I_INO(ip))
 #define	XFS_INO_TO_AGBNO(mp,i)		\
 	(((xfs_agblock_t)(i) >> XFS_INO_OFFSET_BITS(mp)) & \
 		XFS_INO_MASK(XFS_INO_AGBNO_BITS(mp)))
@@ -1290,7 +1290,7 @@ static inline bool xfs_dinode_is_metadir(const struct xfs_dinode *dip)
 #define	XFS_INO_TO_FSB(mp,i)		\
 	XFS_AGB_TO_FSB(mp, XFS_INO_TO_AGNO(mp,i), XFS_INO_TO_AGBNO(mp,i))
 #define	XFS_INODE_TO_FSB(ip)		\
-	XFS_INO_TO_FSB((ip)->i_mount, (ip)->i_ino)
+	XFS_INO_TO_FSB((ip)->i_mount, I_INO(ip))
 #define	XFS_AGINO_TO_INO(mp,a,i)	\
 	(((xfs_ino_t)(a) << XFS_INO_AGINO_BITS(mp)) | (i))
 #define	XFS_AGINO_TO_AGBNO(mp,i)	((i) >> XFS_INO_OFFSET_BITS(mp))

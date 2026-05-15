@@ -152,7 +152,7 @@ xrep_nlinks_repair_inode(
 		goto out_scanlock;
 	}
 
-	error = xfarray_load_sparse(xnc->nlinks, ip->i_ino, &obs);
+	error = xfarray_load_sparse(xnc->nlinks, I_INO(ip), &obs);
 	if (error)
 		goto out_scanlock;
 
@@ -206,7 +206,7 @@ xrep_nlinks_repair_inode(
 		 * updated our scan info.
 		 */
 		mutex_lock(&xnc->lock);
-		error = xfarray_load_sparse(xnc->nlinks, ip->i_ino, &obs);
+		error = xfarray_load_sparse(xnc->nlinks, I_INO(ip), &obs);
 		mutex_unlock(&xnc->lock);
 		if (error)
 			goto out_trans;

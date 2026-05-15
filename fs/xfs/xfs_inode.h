@@ -30,7 +30,6 @@ typedef struct xfs_inode {
 	struct xfs_dquot	*i_pdquot;	/* project dquot */
 
 	/* Inode location stuff */
-	xfs_ino_t		i_ino;		/* inode number (agno/agino)*/
 	struct xfs_imap		i_imap;		/* location for xfs_imap() */
 
 	/* Extent information. */
@@ -184,6 +183,11 @@ static inline const struct inode *VFS_IC(const struct xfs_inode *ip)
 	return &ip->i_vnode;
 }
 
+static inline xfs_ino_t I_INO(const struct xfs_inode *ip)
+{
+	return VFS_IC(ip)->i_ino;
+}
+
 /*
  * For regular files we only update the on-disk filesize when actually
  * writing data back to disk.  Until then only the copy in the VFS inode
@@ -299,9 +303,9 @@ static inline bool xfs_is_internal_inode(const struct xfs_inode *ip)
 	 * Before metadata directories, the only metadata inodes were the
 	 * three quota files, the realtime bitmap, and the realtime summary.
 	 */
-	return ip->i_ino == mp->m_sb.sb_rbmino ||
-	       ip->i_ino == mp->m_sb.sb_rsumino ||
-	       xfs_is_quota_inode(&mp->m_sb, ip->i_ino);
+	return I_INO(ip) == mp->m_sb.sb_rbmino ||
+	       I_INO(ip) == mp->m_sb.sb_rsumino ||
+	       xfs_is_quota_inode(&mp->m_sb, I_INO(ip));
 }
 
 static inline bool xfs_is_zoned_inode(const struct xfs_inode *ip)

@@ -34,7 +34,7 @@ static uint64_t
 xfs_inode_item_sort(
 	struct xfs_log_item	*lip)
 {
-	return INODE_ITEM(lip)->ili_inode->i_ino;
+	return I_INO(INODE_ITEM(lip)->ili_inode);
 }
 
 #ifdef DEBUG_EXPENSIVE
@@ -54,7 +54,7 @@ xfs_inode_item_precommit_check(
 
 	xfs_inode_to_disk(ip, dip, 0);
 	xfs_dinode_calc_crc(mp, dip);
-	fa = xfs_dinode_verify(mp, ip->i_ino, dip);
+	fa = xfs_dinode_verify(mp, I_INO(ip), dip);
 	if (fa) {
 		xfs_inode_verifier_error(ip, -EFSCORRUPTED, __func__, dip,
 				sizeof(*dip), fa);
@@ -588,7 +588,7 @@ xfs_inode_to_log_dinode(
 		to->di_flags2 = ip->i_diflags2;
 		/* also covers the di_used_blocks union arm: */
 		to->di_cowextsize = ip->i_cowextsize;
-		to->di_ino = ip->i_ino;
+		to->di_ino = I_INO(ip);
 		to->di_lsn = lsn;
 		memset(to->di_pad2, 0, sizeof(to->di_pad2));
 		uuid_copy(&to->di_uuid, &ip->i_mount->m_sb.sb_meta_uuid);
@@ -651,7 +651,7 @@ xfs_inode_item_format(
 
 	ilf = xlog_format_start(lfb, XLOG_REG_TYPE_IFORMAT);
 	ilf->ilf_type = XFS_LI_INODE;
-	ilf->ilf_ino = ip->i_ino;
+	ilf->ilf_ino = I_INO(ip);
 	ilf->ilf_blkno = ip->i_imap.im_blkno;
 	ilf->ilf_len = ip->i_imap.im_len;
 	ilf->ilf_boffset = ip->i_imap.im_boffset;

@@ -1895,7 +1895,7 @@ xfs_dialloc(
 	struct xfs_perag	*pag;
 	struct xfs_ino_geometry	*igeo = M_IGEO(mp);
 	xfs_ino_t		ino = NULLFSINO;
-	xfs_ino_t		parent = args->pip ? args->pip->i_ino : 0;
+	xfs_ino_t		parent = args->pip ? I_INO(args->pip) : 0;
 	xfs_agnumber_t		agno;
 	xfs_agnumber_t		start_agno;
 	umode_t			mode = args->mode & S_IFMT;

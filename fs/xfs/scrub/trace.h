@@ -162,7 +162,7 @@ DECLARE_EVENT_CLASS(xchk_class,
 	),
 	TP_fast_assign(
 		__entry->dev = ip->i_mount->m_super->s_dev;
-		__entry->ino = ip->i_ino;
+		__entry->ino = I_INO(ip);
 		__entry->type = sm->sm_type;
 		__entry->agno = sm->sm_agno;
 		__entry->inum = sm->sm_ino;
@@ -236,7 +236,7 @@ DECLARE_EVENT_CLASS(xchk_vector_head_class,
 	),
 	TP_fast_assign(
 		__entry->dev = ip->i_mount->m_super->s_dev;
-		__entry->ino = ip->i_ino;
+		__entry->ino = I_INO(ip);
 		__entry->agno = vhead->svh_agno;
 		__entry->inum = vhead->svh_ino;
 		__entry->gen = vhead->svh_gen;
@@ -340,7 +340,7 @@ TRACE_EVENT(xchk_file_op_error,
 	),
 	TP_fast_assign(
 		__entry->dev = sc->ip->i_mount->m_super->s_dev;
-		__entry->ino = sc->ip->i_ino;
+		__entry->ino = I_INO(sc->ip);
 		__entry->whichfork = whichfork;
 		__entry->type = sc->sm->sm_type;
 		__entry->offset = offset;
@@ -438,7 +438,7 @@ DECLARE_EVENT_CLASS(xchk_fblock_error_class,
 	),
 	TP_fast_assign(
 		__entry->dev = sc->ip->i_mount->m_super->s_dev;
-		__entry->ino = sc->ip->i_ino;
+		__entry->ino = I_INO(sc->ip);
 		__entry->whichfork = whichfork;
 		__entry->type = sc->sm->sm_type;
 		__entry->offset = offset;
@@ -481,7 +481,7 @@ DECLARE_EVENT_CLASS(xchk_dqiter_class,
 	TP_fast_assign(
 		__entry->dev = cursor->sc->mp->m_super->s_dev;
 		__entry->dqtype = cursor->dqtype;
-		__entry->ino = cursor->quota_ip->i_ino;
+		__entry->ino = I_INO(cursor->quota_ip);
 		__entry->cur_id = cursor->id;
 		__entry->startoff = cursor->bmap.br_startoff;
 		__entry->startblock = cursor->bmap.br_startblock;
@@ -613,7 +613,7 @@ TRACE_EVENT(xchk_ifork_btree_op_error,
 	TP_fast_assign(
 		xfs_fsblock_t fsbno = xchk_btree_cur_fsbno(cur, level);
 		__entry->dev = sc->mp->m_super->s_dev;
-		__entry->ino = cur->bc_ino.ip->i_ino;
+		__entry->ino = I_INO(cur->bc_ino.ip);
 		__entry->whichfork = cur->bc_ino.whichfork;
 		__entry->type = sc->sm->sm_type;
 		__assign_str(name);
@@ -693,7 +693,7 @@ TRACE_EVENT(xchk_ifork_btree_error,
 	TP_fast_assign(
 		xfs_fsblock_t fsbno = xchk_btree_cur_fsbno(cur, level);
 		__entry->dev = sc->mp->m_super->s_dev;
-		__entry->ino = sc->ip->i_ino;
+		__entry->ino = I_INO(sc->ip);
 		__entry->whichfork = cur->bc_ino.whichfork;
 		__entry->type = sc->sm->sm_type;
 		__assign_str(name);
@@ -839,7 +839,7 @@ TRACE_EVENT(xchk_inode_is_allocated,
 	),
 	TP_fast_assign(
 		__entry->dev = VFS_I(ip)->i_sb->s_dev;
-		__entry->ino = ip->i_ino;
+		__entry->ino = I_INO(ip);
 		__entry->iflags = ip->i_flags;
 		__entry->mode = VFS_I(ip)->i_mode;
 	),
@@ -1437,7 +1437,7 @@ TRACE_EVENT(xchk_nlinks_collect_dirent,
 	),
 	TP_fast_assign(
 		__entry->dev = mp->m_super->s_dev;
-		__entry->dir = dp->i_ino;
+		__entry->dir = I_INO(dp);
 		__entry->ino = ino;
 		__entry->namelen = name->len;
 		memcpy(__get_str(name), name->name, name->len);
@@ -1464,7 +1464,7 @@ TRACE_EVENT(xchk_nlinks_collect_pptr,
 	),
 	TP_fast_assign(
 		__entry->dev = mp->m_super->s_dev;
-		__entry->dir = dp->i_ino;
+		__entry->dir = I_INO(dp);
 		__entry->ino = be64_to_cpu(pptr->p_ino);
 		__entry->namelen = name->len;
 		memcpy(__get_str(name), name->name, name->len);
@@ -1509,7 +1509,7 @@ TRACE_EVENT(xchk_nlinks_live_update,
 	),
 	TP_fast_assign(
 		__entry->dev = mp->m_super->s_dev;
-		__entry->dir = dp ? dp->i_ino : NULLFSINO;
+		__entry->dir = dp ? I_INO(dp) : NULLFSINO;
 		__entry->action = action;
 		__entry->ino = ino;
 		__entry->delta = delta;
@@ -1602,7 +1602,7 @@ DECLARE_EVENT_CLASS(xchk_nlinks_diff_class,
 	),
 	TP_fast_assign(
 		__entry->dev = mp->m_super->s_dev;
-		__entry->ino = ip->i_ino;
+		__entry->ino = I_INO(ip);
 		__entry->ftype = xfs_mode_to_ftype(VFS_I(ip)->i_mode);
 		__entry->nlink = VFS_I(ip)->i_nlink;
 		__entry->parents = live->parents;
@@ -1638,7 +1638,7 @@ DECLARE_EVENT_CLASS(xchk_pptr_class,
 	),
 	TP_fast_assign(
 		__entry->dev = ip->i_mount->m_super->s_dev;
-		__entry->ino = ip->i_ino;
+		__entry->ino = I_INO(ip);
 		__entry->namelen = name->len;
 		memcpy(__get_str(name), name, name->len);
 		__entry->far_ino = far_ino;
@@ -1680,7 +1680,7 @@ DECLARE_EVENT_CLASS(xchk_dirtree_class,
 	TP_fast_assign(
 		__entry->dev = sc->mp->m_super->s_dev;
 		__entry->path_nr = path_nr;
-		__entry->child_ino = ip->i_ino;
+		__entry->child_ino = I_INO(ip);
 		__entry->child_gen = VFS_I(ip)->i_generation;
 		__entry->parent_ino = be64_to_cpu(pptr->p_ino);
 		__entry->parent_gen = be32_to_cpu(pptr->p_gen);
@@ -1727,7 +1727,7 @@ DECLARE_EVENT_CLASS(xchk_dirpath_class,
 		__entry->dev = sc->mp->m_super->s_dev;
 		__entry->path_nr = path_nr;
 		__entry->step_nr = step_nr;
-		__entry->child_ino = ip->i_ino;
+		__entry->child_ino = I_INO(ip);
 		__entry->child_gen = VFS_I(ip)->i_generation;
 		__entry->parent_ino = be64_to_cpu(pptr->p_ino);
 		__entry->parent_gen = be32_to_cpu(pptr->p_gen);
@@ -1830,7 +1830,7 @@ DECLARE_EVENT_CLASS(xchk_dirtree_evaluate_class,
 	),
 	TP_fast_assign(
 		__entry->dev = dl->sc->mp->m_super->s_dev;
-		__entry->ino = dl->sc->ip->i_ino;
+		__entry->ino = I_INO(dl->sc->ip);
 		__entry->rootino = dl->root_ino;
 		__entry->nr_paths = dl->nr_paths;
 		__entry->bad = oc->bad;
@@ -1873,8 +1873,8 @@ TRACE_EVENT(xchk_dirpath_changed,
 		__entry->dev = sc->mp->m_super->s_dev;
 		__entry->path_nr = path_nr;
 		__entry->step_nr = step_nr;
-		__entry->child_ino = ip->i_ino;
-		__entry->parent_ino = dp->i_ino;
+		__entry->child_ino = I_INO(ip);
+		__entry->parent_ino = I_INO(dp);
 		__entry->namelen = xname->len;
 		memcpy(__get_str(name), xname->name, xname->len);
 	),
@@ -1904,9 +1904,9 @@ TRACE_EVENT(xchk_dirtree_live_update,
 	),
 	TP_fast_assign(
 		__entry->dev = sc->mp->m_super->s_dev;
-		__entry->parent_ino = dp->i_ino;
+		__entry->parent_ino = I_INO(dp);
 		__entry->action = action;
-		__entry->child_ino = ip->i_ino;
+		__entry->child_ino = I_INO(ip);
 		__entry->delta = delta;
 		__entry->namelen = xname->len;
 		memcpy(__get_str(name), xname->name, xname->len);
@@ -1933,8 +1933,8 @@ DECLARE_EVENT_CLASS(xchk_metapath_class,
 	),
 	TP_fast_assign(
 		__entry->dev = sc->mp->m_super->s_dev;
-		__entry->scrub_ino = sc->ip ? sc->ip->i_ino : NULLFSINO;
-		__entry->parent_ino = dp ? dp->i_ino : NULLFSINO;
+		__entry->scrub_ino = sc->ip ? I_INO(sc->ip) : NULLFSINO;
+		__entry->parent_ino = dp ? I_INO(dp) : NULLFSINO;
 		__entry->ino = ino;
 		__assign_str(name);
 	),
@@ -2208,7 +2208,7 @@ TRACE_EVENT(xrep_bmap_found,
 	),
 	TP_fast_assign(
 		__entry->dev = VFS_I(ip)->i_sb->s_dev;
-		__entry->ino = ip->i_ino;
+		__entry->ino = I_INO(ip);
 		__entry->whichfork = whichfork;
 		__entry->lblk = irec->br_startoff;
 		__entry->len = irec->br_blockcount;
@@ -2609,7 +2609,7 @@ TRACE_EVENT(xrep_dinode_findmode_dirent,
 	TP_fast_assign(
 		__entry->dev = sc->mp->m_super->s_dev;
 		__entry->ino = sc->sm->sm_ino;
-		__entry->parent_ino = dp->i_ino;
+		__entry->parent_ino = I_INO(dp);
 		__entry->ftype = ftype;
 	),
 	TP_printk("dev %d:%d ino 0x%llx parent_ino 0x%llx ftype '%s'",
@@ -2633,7 +2633,7 @@ TRACE_EVENT(xrep_dinode_findmode_dirent_inval,
 	TP_fast_assign(
 		__entry->dev = sc->mp->m_super->s_dev;
 		__entry->ino = sc->sm->sm_ino;
-		__entry->parent_ino = dp->i_ino;
+		__entry->parent_ino = I_INO(dp);
 		__entry->ftype = ftype;
 		__entry->found_ftype = found_ftype;
 	),
@@ -2658,7 +2658,7 @@ TRACE_EVENT(xrep_cow_mark_file_range,
 	),
 	TP_fast_assign(
 		__entry->dev = ip->i_mount->m_super->s_dev;
-		__entry->ino = ip->i_ino;
+		__entry->ino = I_INO(ip);
 		__entry->startoff = startoff;
 		__entry->startblock = startblock;
 		__entry->blockcount = blockcount;
@@ -2687,7 +2687,7 @@ TRACE_EVENT(xrep_cow_replace_mapping,
 	),
 	TP_fast_assign(
 		__entry->dev = ip->i_mount->m_super->s_dev;
-		__entry->ino = ip->i_ino;
+		__entry->ino = I_INO(ip);
 		__entry->startoff = irec->br_startoff;
 		__entry->startblock = irec->br_startblock;
 		__entry->blockcount = irec->br_blockcount;
@@ -2817,13 +2817,13 @@ TRACE_EVENT(xrep_tempfile_create,
 	),
 	TP_fast_assign(
 		__entry->dev = sc->mp->m_super->s_dev;
-		__entry->ino = sc->file ? XFS_I(file_inode(sc->file))->i_ino : 0;
+		__entry->ino = sc->file ? file_inode(sc->file)->i_ino : 0;
 		__entry->type = sc->sm->sm_type;
 		__entry->agno = sc->sm->sm_agno;
 		__entry->inum = sc->sm->sm_ino;
 		__entry->gen = sc->sm->sm_gen;
 		__entry->flags = sc->sm->sm_flags;
-		__entry->temp_inum = sc->tempip->i_ino;
+		__entry->temp_inum = I_INO(sc->tempip);
 	),
 	TP_printk("dev %d:%d ino 0x%llx type %s inum 0x%llx gen 0x%x flags 0x%x temp_inum 0x%llx",
 		  MAJOR(__entry->dev), MINOR(__entry->dev),
@@ -2850,7 +2850,7 @@ DECLARE_EVENT_CLASS(xrep_tempfile_class,
 	),
 	TP_fast_assign(
 		__entry->dev = sc->mp->m_super->s_dev;
-		__entry->ino = sc->tempip->i_ino;
+		__entry->ino = I_INO(sc->tempip);
 		__entry->whichfork = whichfork;
 		__entry->lblk = irec->br_startoff;
 		__entry->len = irec->br_blockcount;
@@ -2890,7 +2890,7 @@ TRACE_EVENT(xreap_ifork_extent,
 	),
 	TP_fast_assign(
 		__entry->dev = sc->mp->m_super->s_dev;
-		__entry->ino = ip->i_ino;
+		__entry->ino = I_INO(ip);
 		__entry->whichfork = whichfork;
 		__entry->fileoff = irec->br_startoff;
 		__entry->len = irec->br_blockcount;
@@ -2946,7 +2946,7 @@ TRACE_EVENT(xrep_xattr_recover_leafblock,
 	),
 	TP_fast_assign(
 		__entry->dev = ip->i_mount->m_super->s_dev;
-		__entry->ino = ip->i_ino;
+		__entry->ino = I_INO(ip);
 		__entry->dabno = dabno;
 		__entry->magic = magic;
 	),
@@ -2971,7 +2971,7 @@ DECLARE_EVENT_CLASS(xrep_xattr_salvage_class,
 	),
 	TP_fast_assign(
 		__entry->dev = ip->i_mount->m_super->s_dev;
-		__entry->ino = ip->i_ino;
+		__entry->ino = I_INO(ip);
 		__entry->flags = flags;
 		__entry->namelen = namelen;
 		memcpy(__get_str(name), name, namelen);
@@ -3011,7 +3011,7 @@ DECLARE_EVENT_CLASS(xrep_pptr_salvage_class,
 		const struct xfs_parent_rec	*rec = value;
 
 		__entry->dev = ip->i_mount->m_super->s_dev;
-		__entry->ino = ip->i_ino;
+		__entry->ino = I_INO(ip);
 		__entry->parent_ino = be64_to_cpu(rec->p_ino);
 		__entry->parent_gen = be32_to_cpu(rec->p_gen);
 		__entry->namelen = namelen;
@@ -3043,8 +3043,8 @@ DECLARE_EVENT_CLASS(xrep_xattr_class,
 	),
 	TP_fast_assign(
 		__entry->dev = ip->i_mount->m_super->s_dev;
-		__entry->ino = ip->i_ino;
-		__entry->src_ino = arg_ip->i_ino;
+		__entry->ino = I_INO(ip);
+		__entry->src_ino = I_INO(arg_ip);
 	),
 	TP_printk("dev %d:%d ino 0x%llx src 0x%llx",
 		  MAJOR(__entry->dev), MINOR(__entry->dev),
@@ -3073,8 +3073,8 @@ DECLARE_EVENT_CLASS(xrep_xattr_pptr_scan_class,
 	),
 	TP_fast_assign(
 		__entry->dev = ip->i_mount->m_super->s_dev;
-		__entry->ino = ip->i_ino;
-		__entry->parent_ino = dp->i_ino;
+		__entry->ino = I_INO(ip);
+		__entry->parent_ino = I_INO(dp);
 		__entry->parent_gen = VFS_IC(dp)->i_generation;
 		__entry->namelen = name->len;
 		memcpy(__get_str(name), name->name, name->len);
@@ -3108,7 +3108,7 @@ TRACE_EVENT(xrep_dir_recover_dirblock,
 	),
 	TP_fast_assign(
 		__entry->dev = dp->i_mount->m_super->s_dev;
-		__entry->dir_ino = dp->i_ino;
+		__entry->dir_ino = I_INO(dp);
 		__entry->dabno = dabno;
 		__entry->magic = magic;
 		__entry->magic_guess = magic_guess;
@@ -3131,7 +3131,7 @@ DECLARE_EVENT_CLASS(xrep_dir_class,
 	),
 	TP_fast_assign(
 		__entry->dev = dp->i_mount->m_super->s_dev;
-		__entry->dir_ino = dp->i_ino;
+		__entry->dir_ino = I_INO(dp);
 		__entry->parent_ino = parent_ino;
 	),
 	TP_printk("dev %d:%d dir 0x%llx parent 0x%llx",
@@ -3161,7 +3161,7 @@ DECLARE_EVENT_CLASS(xrep_dirent_class,
 	),
 	TP_fast_assign(
 		__entry->dev = dp->i_mount->m_super->s_dev;
-		__entry->dir_ino = dp->i_ino;
+		__entry->dir_ino = I_INO(dp);
 		__entry->namelen = name->len;
 		memcpy(__get_str(name), name->name, name->len);
 		__entry->ino = ino;
@@ -3198,8 +3198,8 @@ DECLARE_EVENT_CLASS(xrep_adoption_class,
 	),
 	TP_fast_assign(
 		__entry->dev = dp->i_mount->m_super->s_dev;
-		__entry->dir_ino = dp->i_ino;
-		__entry->child_ino = ip->i_ino;
+		__entry->dir_ino = I_INO(dp);
+		__entry->child_ino = I_INO(ip);
 		__entry->moved = moved;
 	),
 	TP_printk("dev %d:%d dir 0x%llx child 0x%llx moved? %d",
@@ -3224,7 +3224,7 @@ DECLARE_EVENT_CLASS(xrep_parent_salvage_class,
 	),
 	TP_fast_assign(
 		__entry->dev = dp->i_mount->m_super->s_dev;
-		__entry->dir_ino = dp->i_ino;
+		__entry->dir_ino = I_INO(dp);
 		__entry->ino = ino;
 	),
 	TP_printk("dev %d:%d dir 0x%llx parent 0x%llx",
@@ -3254,7 +3254,7 @@ DECLARE_EVENT_CLASS(xrep_pptr_class,
 	),
 	TP_fast_assign(
 		__entry->dev = ip->i_mount->m_super->s_dev;
-		__entry->ino = ip->i_ino;
+		__entry->ino = I_INO(ip);
 		__entry->parent_ino = be64_to_cpu(pptr->p_ino);
 		__entry->parent_gen = be32_to_cpu(pptr->p_gen);
 		__entry->namelen = name->len;
@@ -3292,8 +3292,8 @@ DECLARE_EVENT_CLASS(xrep_pptr_scan_class,
 	),
 	TP_fast_assign(
 		__entry->dev = ip->i_mount->m_super->s_dev;
-		__entry->ino = ip->i_ino;
-		__entry->parent_ino = dp->i_ino;
+		__entry->ino = I_INO(ip);
+		__entry->parent_ino = I_INO(dp);
 		__entry->parent_gen = VFS_IC(dp)->i_generation;
 		__entry->namelen = name->len;
 		memcpy(__get_str(name), name->name, name->len);
@@ -3392,7 +3392,7 @@ TRACE_EVENT(xrep_symlink_salvage_target,
 	),
 	TP_fast_assign(
 		__entry->dev = ip->i_mount->m_super->s_dev;
-		__entry->ino = ip->i_ino;
+		__entry->ino = I_INO(ip);
 		__entry->targetlen = targetlen;
 		memcpy(__get_str(target), target, targetlen);
 		__get_str(target)[targetlen] = 0;
@@ -3413,7 +3413,7 @@ DECLARE_EVENT_CLASS(xrep_symlink_class,
 	),
 	TP_fast_assign(
 		__entry->dev = ip->i_mount->m_super->s_dev;
-		__entry->ino = ip->i_ino;
+		__entry->ino = I_INO(ip);
 	),
 	TP_printk("dev %d:%d ip 0x%llx",
 		  MAJOR(__entry->dev), MINOR(__entry->dev),

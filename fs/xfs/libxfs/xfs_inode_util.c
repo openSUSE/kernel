@@ -652,7 +652,7 @@ xfs_droplink(
 	if (inode->i_nlink == 0) {
 		xfs_info_ratelimited(tp->t_mountp,
  "Inode 0x%llx link count dropped below zero.  Pinning link count.",
-				ip->i_ino);
+				I_INO(ip));
 		set_nlink(inode, XFS_NLINK_PINNED);
 	}
 	if (inode->i_nlink != XFS_NLINK_PINNED)
@@ -681,7 +681,7 @@ xfs_bumplink(
 	if (inode->i_nlink == XFS_NLINK_PINNED - 1)
 		xfs_info_ratelimited(tp->t_mountp,
  "Inode 0x%llx link count exceeded maximum.  Pinning link count.",
-				ip->i_ino);
+				I_INO(ip));
 	if (inode->i_nlink != XFS_NLINK_PINNED)
 		inc_nlink(inode);
 
@@ -705,7 +705,7 @@ xfs_inode_uninit(
 	 * makes the AGI lock -> unlinked list modification order the same as
 	 * used in O_TMPFILE creation.
 	 */
-	error = xfs_difree(tp, pag, ip->i_ino, xic);
+	error = xfs_difree(tp, pag, I_INO(ip), xic);
 	if (error)
 		return error;
 

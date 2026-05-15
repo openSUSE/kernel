@@ -22,7 +22,7 @@ xfs_rmap_ino_bmbt_owner(
 		oi->oi_flags |= XFS_OWNER_INFO_ATTR_FORK;
 }
 #define xfs_rmap_inode_bmbt_owner(oi, ip, whichfork) \
-	xfs_rmap_ino_bmbt_owner(oi, (ip)->i_ino, whichfork)
+	xfs_rmap_ino_bmbt_owner(oi, I_INO(ip), whichfork)
 
 static inline void
 xfs_rmap_ino_owner(
@@ -38,7 +38,7 @@ xfs_rmap_ino_owner(
 		oi->oi_flags |= XFS_OWNER_INFO_ATTR_FORK;
 }
 #define xfs_rmap_inode_owner(oi, ip, whichfork, offset) \
-	xfs_rmap_ino_owner(oi, (ip)->i_ino, whichfork, offset)
+	xfs_rmap_ino_owner(oi, I_INO(ip), whichfork, offset)
 
 static inline bool
 xfs_rmap_should_skip_owner_update(

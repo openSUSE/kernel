@@ -268,7 +268,7 @@ xfs_discard_folio(
 
 	xfs_alert_ratelimited(mp,
 		"page discard on page "PTR_FMT", inode 0x%llx, pos %llu.",
-			folio, ip->i_ino, pos);
+			folio, I_INO(ip), pos);
 
 	/*
 	 * The end of the punch range is always the offset of the first

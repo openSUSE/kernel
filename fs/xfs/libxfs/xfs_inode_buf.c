@@ -185,7 +185,7 @@ xfs_inode_from_disk(
 
 	ASSERT(ip->i_cowfp == NULL);
 
-	fa = xfs_dinode_verify(ip->i_mount, ip->i_ino, from);
+	fa = xfs_dinode_verify(ip->i_mount, I_INO(ip), from);
 	if (fa) {
 		xfs_inode_verifier_error(ip, -EFSCORRUPTED, "dinode", from,
 				sizeof(*from), fa);
@@ -358,7 +358,7 @@ xfs_inode_to_disk(
 		to->di_flags2 = cpu_to_be64(ip->i_diflags2);
 		/* also covers the di_used_blocks union arm: */
 		to->di_cowextsize = cpu_to_be32(ip->i_cowextsize);
-		to->di_ino = cpu_to_be64(ip->i_ino);
+		to->di_ino = cpu_to_be64(I_INO(ip));
 		to->di_lsn = cpu_to_be64(lsn);
 		memset(to->di_pad2, 0, sizeof(to->di_pad2));
 		uuid_copy(&to->di_uuid, &ip->i_mount->m_sb.sb_meta_uuid);
