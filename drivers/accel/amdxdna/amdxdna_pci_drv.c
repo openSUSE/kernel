@@ -126,6 +126,9 @@ static int amdxdna_drm_open(struct drm_device *ddev, struct drm_file *filp)
 	mmgrab(client->mm);
 	init_srcu_struct(&client->hwctx_srcu);
 	xa_init_flags(&client->hwctx_xa, XA_FLAGS_ALLOC);
+	xa_init_flags(&client->dev_heap_xa, XA_FLAGS_ALLOC);
+	drm_mm_init(&client->dev_heap_mm, xdna->dev_info->dev_mem_base,
+		    xdna->dev_info->dev_heap_max_size);
 	mutex_init(&client->mm_lock);
 
 	mutex_lock(&xdna->dev_lock);
@@ -141,13 +144,18 @@ static int amdxdna_drm_open(struct drm_device *ddev, struct drm_file *filp)
 
 static void amdxdna_client_cleanup(struct amdxdna_client *client)
 {
+	struct amdxdna_gem_obj *heap;
+	unsigned long heap_id;
+
 	list_del(&client->node);
 	amdxdna_hwctx_remove_all(client);
 	xa_destroy(&client->hwctx_xa);
 	cleanup_srcu_struct(&client->hwctx_srcu);
 
-	if (client->dev_heap)
-		drm_gem_object_put(to_gobj(client->dev_heap));
+	xa_for_each(&client->dev_heap_xa, heap_id, heap)
+		drm_gem_object_put(to_gobj(heap));
+	xa_destroy(&client->dev_heap_xa);
+	drm_mm_takedown(&client->dev_heap_mm);
 
 	mutex_destroy(&client->mm_lock);
 	mmdrop(client->mm);

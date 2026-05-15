@@ -91,6 +91,7 @@ static void aie2_hwctx_stop(struct amdxdna_dev *xdna, struct amdxdna_hwctx *hwct
 static int aie2_hwctx_restart(struct amdxdna_dev *xdna, struct amdxdna_hwctx *hwctx)
 {
 	struct amdxdna_gem_obj *heap = hwctx->priv->heap;
+	unsigned long heap_id;
 	int ret;
 
 	ret = aie2_create_context(xdna->dev_handle, hwctx);
@@ -105,6 +106,17 @@ static int aie2_hwctx_restart(struct amdxdna_dev *xdna, struct amdxdna_hwctx *hw
 	if (ret) {
 		XDNA_ERR(xdna, "Map host buf failed, ret %d", ret);
 		goto out;
+	}
+
+	xa_for_each_range(&hwctx->client->dev_heap_xa, heap_id, heap, 1,
+			  hwctx->last_attached_heap) {
+		ret = aie2_add_host_buf(xdna->dev_handle, hwctx->fw_ctx_id,
+					amdxdna_obj_dma_addr(heap),
+					heap->mem.size);
+		if (ret) {
+			XDNA_ERR(xdna, "Add heap %ld failed ret %d", heap_id, ret);
+			goto out;
+		}
 	}
 
 	ret = aie2_config_cu(hwctx, NULL);
@@ -650,7 +662,7 @@ int aie2_hwctx_init(struct amdxdna_hwctx *hwctx)
 	hwctx->priv = priv;
 
 	mutex_lock(&client->mm_lock);
-	heap = client->dev_heap;
+	heap = xa_load(&client->dev_heap_xa, 0);
 	if (!heap) {
 		XDNA_ERR(xdna, "The client dev heap object not exist");
 		mutex_unlock(&client->mm_lock);
@@ -729,6 +741,12 @@ int aie2_hwctx_init(struct amdxdna_hwctx *hwctx)
 				heap->mem.size);
 	if (ret) {
 		XDNA_ERR(xdna, "Map host buffer failed, ret %d", ret);
+		goto release_resource;
+	}
+
+	ret = amdxdna_update_heap(client, hwctx);
+	if (ret) {
+		XDNA_ERR(xdna, "Update heap failed, ret %d", ret);
 		goto release_resource;
 	}
 
@@ -1160,4 +1178,29 @@ void aie2_hmm_invalidate(struct amdxdna_gem_obj *abo,
 		XDNA_ERR(xdna, "Failed to wait for bo, ret %ld", ret);
 	else if (ret == -ERESTARTSYS)
 		XDNA_DBG(xdna, "Wait for bo interrupted by signal");
+}
+
+int aie2_hwctx_heap_expand(struct amdxdna_hwctx *hwctx,
+			   struct amdxdna_gem_obj *heap)
+{
+	struct amdxdna_client *client = hwctx->client;
+	struct amdxdna_dev *xdna = client->xdna;
+	u64 addr;
+	int ret;
+
+	ret = amdxdna_pm_resume_get_locked(xdna);
+	if (ret)
+		return ret;
+
+	addr = amdxdna_obj_dma_addr(heap);
+	ret = aie2_add_host_buf(xdna->dev_handle, hwctx->fw_ctx_id,
+				addr, heap->mem.size);
+	if (ret) {
+		XDNA_ERR(xdna, "Add heap failed hwctx %s 0x%lx ret %d",
+			 hwctx->name, heap->mem.size, ret);
+	}
+
+	amdxdna_pm_suspend_put(xdna);
+
+	return ret;
 }
