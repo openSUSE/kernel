@@ -4318,6 +4318,8 @@ int rtw89_mac_partial_init(struct rtw89_dev *rtwdev, bool include_bb)
 			return ret;
 	}
 
+	rtw89_mac_fwdl_preconfig(rtwdev);
+
 	ret = rtw89_fw_download(rtwdev, RTW89_FW_NORMAL, include_bb);
 	if (ret)
 		return ret;
@@ -7477,6 +7479,7 @@ const struct rtw89_mac_gen_def rtw89_mac_gen_ax = {
 
 	.reset_pwr_state = rtw89_mac_reset_pwr_state_ax,
 	.disable_cpu = rtw89_mac_disable_cpu_ax,
+	.fwdl_preconfig = NULL,
 	.fwdl_enable_wcpu = rtw89_mac_enable_cpu_ax,
 	.fwdl_get_status = rtw89_fw_get_rdy_ax,
 	.fwdl_check_path_ready = rtw89_fwdl_check_path_ready_ax,

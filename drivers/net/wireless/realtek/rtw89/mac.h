@@ -1112,6 +1112,7 @@ struct rtw89_mac_gen_def {
 
 	int (*reset_pwr_state)(struct rtw89_dev *rtwdev);
 	void (*disable_cpu)(struct rtw89_dev *rtwdev);
+	void (*fwdl_preconfig)(struct rtw89_dev *rtwdev);
 	int (*fwdl_enable_wcpu)(struct rtw89_dev *rtwdev, u8 boot_reason,
 				bool dlfw, bool include_bb);
 	u8 (*fwdl_get_status)(struct rtw89_dev *rtwdev, enum rtw89_fwdl_check_type type);
@@ -1723,6 +1724,17 @@ static inline int rtw89_mac_efuse_read_ecv(struct rtw89_dev *rtwdev)
 		return -ENOENT;
 
 	return mac->efuse_read_ecv(rtwdev);
+}
+
+static inline
+void rtw89_mac_fwdl_preconfig(struct rtw89_dev *rtwdev)
+{
+	const struct rtw89_mac_gen_def *mac = rtwdev->chip->mac_def;
+
+	if (!mac->fwdl_preconfig)
+		return;
+
+	mac->fwdl_preconfig(rtwdev);
 }
 
 static inline

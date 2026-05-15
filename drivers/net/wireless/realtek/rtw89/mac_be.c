@@ -622,6 +622,12 @@ static void rtw89_mac_disable_cpu_be(struct rtw89_dev *rtwdev)
 	rtw89_write32(rtwdev, R_BE_UDM2, 0);
 }
 
+static void rtw89_mac_fwdl_preconfig_be(struct rtw89_dev *rtwdev)
+{
+	rtw89_write32_clr(rtwdev, R_BE_FW_AUTO_CAL_DELAY, B_BE_WCPU_FW_DELAY_COUNT_VALID);
+	rtw89_write32_mask(rtwdev, R_BE_FW_AUTO_CAL_DELAY, B_BE_WCPU_FW_DELAY_COUNT_MASK, 0);
+}
+
 static void set_cpu_en(struct rtw89_dev *rtwdev, bool include_bb)
 {
 	u32 set = B_BE_WLANCPU_FWDL_EN;
@@ -3288,6 +3294,7 @@ const struct rtw89_mac_gen_def rtw89_mac_gen_be = {
 
 	.reset_pwr_state = rtw89_mac_reset_pwr_state_be,
 	.disable_cpu = rtw89_mac_disable_cpu_be,
+	.fwdl_preconfig = rtw89_mac_fwdl_preconfig_be,
 	.fwdl_enable_wcpu = rtw89_mac_fwdl_enable_wcpu_be,
 	.fwdl_get_status = fwdl_get_status_be,
 	.fwdl_check_path_ready = rtw89_fwdl_check_path_ready_be,
