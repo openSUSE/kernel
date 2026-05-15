@@ -556,6 +556,7 @@ enum iwl_link_ctx_protection_flags {
  *	of threshold
  * @LINK_FLG_NPCA: NPCA enabled
  * @LINK_FLG_DPS: AP is a DPS assisting AP
+ * @LINK_FLG_MLPM: AP supports UHR multi-link PM
  * @LINK_FLG_DUO: AP supports UHR DUO
  */
 enum iwl_link_ctx_flags {
@@ -565,6 +566,7 @@ enum iwl_link_ctx_flags {
 	LINK_FLG_NDP_FEEDBACK_ENABLED	= BIT(3),
 	LINK_FLG_NPCA			= BIT(4),
 	LINK_FLG_DPS			= BIT(6),
+	LINK_FLG_MLPM			= BIT(7),
 	LINK_FLG_DUO			= BIT(8),
 }; /* LINK_CONTEXT_FLAG_E_VER_1 */
 

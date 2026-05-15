@@ -420,6 +420,8 @@ static void iwl_mac_hw_set_wiphy(struct iwl_mld *mld)
 
 	mld->ext_capab[0].eml_capabilities = IWL_MLD_EMLSR_CAPA;
 	mld->ext_capab[0].mld_capa_and_ops = IWL_MLD_CAPA_OPS;
+	mld->ext_capab[0].ext_mld_capa_and_ops =
+		IEEE80211_UHR_ML_EXT_MLD_CAPA_ML_PM;
 
 }
 
