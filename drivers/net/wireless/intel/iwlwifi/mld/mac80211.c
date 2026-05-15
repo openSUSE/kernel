@@ -2585,15 +2585,108 @@ iwl_mld_mac80211_mgd_protect_tdls_discover(struct ieee80211_hw *hw,
 			ret);
 }
 
+static int iwl_mld_count_free_link_ids(struct iwl_mld *mld)
+{
+	int free_count = 0;
+
+	for (int i = 0; i < mld->fw->ucode_capa.num_links; i++) {
+		if (!rcu_access_pointer(mld->fw_id_to_bss_conf[i]))
+			free_count++;
+	}
+
+	return free_count;
+}
+
+static bool
+iwl_mld_chanctx_used_by_other_vif(struct ieee80211_hw *hw,
+				  struct ieee80211_vif *vif,
+				  struct ieee80211_chanctx_conf *chanctx_conf)
+{
+	struct ieee80211_bss_conf *iter_link;
+	struct ieee80211_vif *iter_vif;
+	int link_id;
+
+	for_each_active_interface(iter_vif, hw) {
+		if (vif == iter_vif)
+			continue;
+
+		/* NAN doesn't have active links, so we don't count NAN users */
+		for_each_vif_active_link(iter_vif, iter_link, link_id) {
+			if (rcu_access_pointer(iter_link->chanctx_conf) ==
+			    chanctx_conf)
+				return true;
+		}
+	}
+
+	return false;
+}
+
 static bool iwl_mld_can_activate_links(struct ieee80211_hw *hw,
 				       struct ieee80211_vif *vif,
 				       u16 desired_links)
 {
 	struct iwl_mld *mld = IWL_MAC80211_GET_MLD(hw);
 	int n_links = hweight16(desired_links);
+	int n_add = hweight16(desired_links & ~vif->active_links);
+	unsigned long to_deactivate = vif->active_links & ~desired_links;
+	int free_link_ids;
+	int i;
 
 	/* Check if HW supports the wanted number of links */
-	return n_links <= iwl_mld_max_active_links(mld, vif);
+	if (n_links > iwl_mld_max_active_links(mld, vif))
+		return false;
+
+	/*
+	 * During link switch, mac80211 first adds the new links, then removes
+	 * the old ones. This means we temporarily need extra link objects
+	 * during the transition. Check if we have enough free link IDs.
+	 */
+
+	free_link_ids = iwl_mld_count_free_link_ids(mld);
+
+	if (free_link_ids >= n_add)
+		return true;
+
+	if (!mld->nan_device_vif)
+		return false;
+
+	/*
+	 * Not enough free link IDs. First try to evacuate NAN from the
+	 * channel context of a link that is going to be deactivated.
+	 */
+	for_each_set_bit(i, &to_deactivate, IEEE80211_MLD_MAX_NUM_LINKS) {
+		struct ieee80211_bss_conf *link_conf;
+		struct ieee80211_chanctx_conf *chanctx_conf;
+
+		link_conf = link_conf_dereference_protected(vif, i);
+		if (!link_conf)
+			continue;
+
+		chanctx_conf = wiphy_dereference(mld->wiphy, link_conf->chanctx_conf);
+		if (!chanctx_conf)
+			continue;
+
+		if (iwl_mld_chanctx_used_by_other_vif(hw, vif, chanctx_conf))
+			continue;
+
+		if (ieee80211_nan_try_evacuate(hw, chanctx_conf)) {
+			free_link_ids = iwl_mld_count_free_link_ids(mld);
+			/*
+			 * Evacuation of one channel should do the job. If not,
+			 * something bad is happening. Don't try to evacuate more
+			 */
+			return free_link_ids >= n_add;
+		}
+	}
+
+	/* Couldn't find/evacuate any channel going to go unused, try any */
+	if (ieee80211_nan_try_evacuate(hw, NULL)) {
+		free_link_ids = iwl_mld_count_free_link_ids(mld);
+		if (free_link_ids >= n_add)
+			return true;
+	}
+
+	return false;
 }
 
 static int
