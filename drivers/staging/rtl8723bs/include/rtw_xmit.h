@@ -254,11 +254,6 @@ struct xmit_buf {
 	u32 ff_hwaddr;
 	u8 pg_num;
 	u8 agg_num;
-
-#if defined(DBG_XMIT_BUF) || defined(DBG_XMIT_BUF_EXT)
-	u8 no;
-#endif
-
 };
 
 

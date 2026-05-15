@@ -256,11 +256,6 @@ static s32 xmit_xmitframes(struct adapter *padapter, struct xmit_priv *pxmitpriv
 
 					pxmitbuf = rtw_alloc_xmitbuf(pxmitpriv);
 					if (!pxmitbuf) {
-#ifdef DBG_XMIT_BUF
-						netdev_err(padapter->pnetdev,
-							   "%s: xmit_buf is not enough!\n",
-							   __func__);
-#endif
 						err = -2;
 						complete(&(pxmitpriv->xmit_comp));
 						break;

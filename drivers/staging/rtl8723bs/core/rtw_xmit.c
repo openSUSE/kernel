@@ -191,10 +191,6 @@ s32 _rtw_init_xmit_priv(struct xmit_priv *pxmitpriv, struct adapter *padapter)
 
 		list_add_tail(&pxmitbuf->list,
 			      &pxmitpriv->free_xmitbuf_queue.queue);
-		#ifdef DBG_XMIT_BUF
-		pxmitbuf->no = i;
-		#endif
-
 		pxmitbuf++;
 	}
 
@@ -264,9 +260,6 @@ s32 _rtw_init_xmit_priv(struct xmit_priv *pxmitpriv, struct adapter *padapter)
 
 		list_add_tail(&pxmitbuf->list,
 			      &pxmitpriv->free_xmit_extbuf_queue.queue);
-		#ifdef DBG_XMIT_BUF_EXT
-		pxmitbuf->no = i;
-		#endif
 		pxmitbuf++;
 	}
 
