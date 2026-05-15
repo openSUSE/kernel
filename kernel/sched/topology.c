@@ -1310,9 +1310,7 @@ static void init_sched_groups_capacity(int cpu, struct sched_domain *sd)
 		cpumask_copy(mask, sched_group_span(sg));
 		for_each_cpu(cpu, mask) {
 			cores++;
-#ifdef CONFIG_SCHED_SMT
 			cpumask_andnot(mask, mask, cpu_smt_mask(cpu));
-#endif
 		}
 		sg->cores = cores;
 

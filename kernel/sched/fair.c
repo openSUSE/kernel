@@ -1555,7 +1555,6 @@ update_stats_curr_start(struct cfs_rq *cfs_rq, struct sched_entity *se)
 
 static inline bool is_core_idle(int cpu)
 {
-#ifdef CONFIG_SCHED_SMT
 	int sibling;
 
 	for_each_cpu(sibling, cpu_smt_mask(cpu)) {
@@ -1565,7 +1564,6 @@ static inline bool is_core_idle(int cpu)
 		if (!idle_cpu(sibling))
 			return false;
 	}
-#endif
 
 	return true;
 }
@@ -2248,7 +2246,6 @@ numa_type numa_classify(unsigned int imbalance_pct,
 	return node_fully_busy;
 }
 
-#ifdef CONFIG_SCHED_SMT
 /* Forward declarations of select_idle_sibling helpers */
 static inline bool test_idle_cores(int cpu);
 static inline int numa_idle_core(int idle_core, int cpu)
@@ -2266,12 +2263,6 @@ static inline int numa_idle_core(int idle_core, int cpu)
 
 	return idle_core;
 }
-#else /* !CONFIG_SCHED_SMT: */
-static inline int numa_idle_core(int idle_core, int cpu)
-{
-	return idle_core;
-}
-#endif /* !CONFIG_SCHED_SMT */
 
 /*
  * Gather all necessary information to make NUMA balancing placement
@@ -7778,7 +7769,6 @@ static inline int __select_idle_cpu(int cpu, struct task_struct *p)
 	return -1;
 }
 
-#ifdef CONFIG_SCHED_SMT
 DEFINE_STATIC_KEY_FALSE(sched_smt_present);
 EXPORT_SYMBOL_GPL(sched_smt_present);
 
@@ -7887,29 +7877,6 @@ static int select_idle_smt(struct task_struct *p, struct sched_domain *sd, int t
 
 	return -1;
 }
-
-#else /* !CONFIG_SCHED_SMT: */
-
-static inline void set_idle_cores(int cpu, int val)
-{
-}
-
-static inline bool test_idle_cores(int cpu)
-{
-	return false;
-}
-
-static inline int select_idle_core(struct task_struct *p, int core, struct cpumask *cpus, int *idle_cpu)
-{
-	return __select_idle_cpu(core, p);
-}
-
-static inline int select_idle_smt(struct task_struct *p, struct sched_domain *sd, int target)
-{
-	return -1;
-}
-
-#endif /* !CONFIG_SCHED_SMT */
 
 /*
  * Scan the LLC domain for idle CPUs; this is dynamically regulated by
@@ -12002,9 +11969,7 @@ static int should_we_balance(struct lb_env *env)
 			 * idle has been found, then its not needed to check other
 			 * SMT siblings for idleness:
 			 */
-#ifdef CONFIG_SCHED_SMT
 			cpumask_andnot(swb_cpus, swb_cpus, cpu_smt_mask(cpu));
-#endif
 			continue;
 		}
 
