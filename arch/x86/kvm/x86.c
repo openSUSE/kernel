@@ -133,7 +133,6 @@ static void process_nmi(struct kvm_vcpu *vcpu);
 static void __kvm_set_rflags(struct kvm_vcpu *vcpu, unsigned long rflags);
 static void store_regs(struct kvm_vcpu *vcpu);
 static int sync_regs(struct kvm_vcpu *vcpu);
-static int kvm_vcpu_do_singlestep(struct kvm_vcpu *vcpu);
 
 static int __set_sregs2(struct kvm_vcpu *vcpu, struct kvm_sregs2 *sregs2);
 static void __get_sregs2(struct kvm_vcpu *vcpu, struct kvm_sregs2 *sregs2);
@@ -9278,11 +9277,6 @@ static int kvm_vcpu_check_hw_bp(unsigned long addr, u32 type, u32 dr7,
 	return dr6;
 }
 
-static int kvm_vcpu_do_singlestep(struct kvm_vcpu *vcpu)
-{
-	return kvm_inject_emulated_db(vcpu, DR6_BS);
-}
-
 int kvm_skip_emulated_instruction(struct kvm_vcpu *vcpu)
 {
 	unsigned long rflags = kvm_x86_call(get_rflags)(vcpu);
@@ -9303,7 +9297,7 @@ int kvm_skip_emulated_instruction(struct kvm_vcpu *vcpu)
 	 * that sets the TF flag".
 	 */
 	if (unlikely(rflags & X86_EFLAGS_TF))
-		r = kvm_vcpu_do_singlestep(vcpu);
+		r = kvm_inject_emulated_db(vcpu, DR6_BS);
 	return r;
 }
 EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_skip_emulated_instruction);
@@ -9642,7 +9636,7 @@ writeback:
 				kvm_pmu_branch_retired(vcpu);
 			kvm_rip_write(vcpu, ctxt->eip);
 			if (r && (ctxt->tf || (vcpu->guest_debug & KVM_GUESTDBG_SINGLESTEP)))
-				r = kvm_vcpu_do_singlestep(vcpu);
+				r = kvm_inject_emulated_db(vcpu, DR6_BS);
 			kvm_x86_call(update_emulated_instruction)(vcpu);
 			__kvm_set_rflags(vcpu, ctxt->eflags);
 		}
