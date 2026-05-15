@@ -1129,10 +1129,10 @@ static const struct tvp514x_reg tvp514xm_init_reg_seq[] = {
  * driver_data - Driver data
  */
 static const struct i2c_device_id tvp514x_id[] = {
-	{"tvp5146", (kernel_ulong_t)tvp5146_init_reg_seq },
-	{"tvp5146m2", (kernel_ulong_t)tvp514xm_init_reg_seq },
-	{"tvp5147", (kernel_ulong_t)tvp5147_init_reg_seq },
-	{"tvp5147m1", (kernel_ulong_t)tvp514xm_init_reg_seq },
+	{ .name = "tvp5146", .driver_data = (kernel_ulong_t)tvp5146_init_reg_seq },
+	{ .name = "tvp5146m2", .driver_data = (kernel_ulong_t)tvp514xm_init_reg_seq },
+	{ .name = "tvp5147", .driver_data = (kernel_ulong_t)tvp5147_init_reg_seq },
+	{ .name = "tvp5147m1", .driver_data = (kernel_ulong_t)tvp514xm_init_reg_seq },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(i2c, tvp514x_id);

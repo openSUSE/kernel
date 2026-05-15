@@ -704,8 +704,8 @@ static const struct of_device_id lm3560_of_match[] = {
 MODULE_DEVICE_TABLE(of, lm3560_of_match);
 
 static const struct i2c_device_id lm3560_id_table[] = {
-	{ "lm3559", (kernel_ulong_t)&lm3559_config },
-	{ "lm3560", (kernel_ulong_t)&lm3560_config },
+	{ .name = "lm3559", .driver_data = (kernel_ulong_t)&lm3559_config },
+	{ .name = "lm3560", .driver_data = (kernel_ulong_t)&lm3560_config },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, lm3560_id_table);

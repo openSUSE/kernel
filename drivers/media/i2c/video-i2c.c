@@ -922,9 +922,9 @@ static const struct dev_pm_ops video_i2c_pm_ops = {
 };
 
 static const struct i2c_device_id video_i2c_id_table[] = {
-	{ "amg88xx", (kernel_ulong_t)&video_i2c_chip[AMG88XX] },
-	{ "mlx90640", (kernel_ulong_t)&video_i2c_chip[MLX90640] },
-	{}
+	{ .name = "amg88xx", .driver_data = (kernel_ulong_t)&video_i2c_chip[AMG88XX] },
+	{ .name = "mlx90640", .driver_data = (kernel_ulong_t)&video_i2c_chip[MLX90640] },
+	{ }
 };
 MODULE_DEVICE_TABLE(i2c, video_i2c_id_table);
 
