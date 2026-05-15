@@ -100,6 +100,16 @@ config LEDS_QCOM_LPG
 
 	  If compiled as a module, the module will be named leds-qcom-lpg.
 
+config LEDS_S2M_RGB
+	tristate "Samsung S2M series PMICs RGB LED support"
+	depends on LEDS_CLASS
+	depends on MFD_SEC_CORE
+	help
+	  This option enables support for the S2MU005 RGB LEDs. These devices
+	  have three LED channels, with 8-bit brightness control for each
+	  channel. The S2MU005 is usually found in mobile phones as status
+	  indicators.
+
 config LEDS_MT6370_RGB
 	tristate "LED Support for MediaTek MT6370 PMIC"
 	depends on MFD_MT6370
