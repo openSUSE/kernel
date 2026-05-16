@@ -543,6 +543,7 @@ static void nvme_ns_head_submit_bio(struct bio *bio)
 		dev_warn_ratelimited(dev, "no available path - failing I/O\n");
 
 		bio_io_error(bio);
+		atomic_long_inc(&head->io_fail_no_available_path_count);
 	}
 
 	srcu_read_unlock(&head->srcu, srcu_idx);
@@ -1221,6 +1222,35 @@ static ssize_t io_requeue_no_usable_path_count_store(struct device *dev,
 }
 
 DEVICE_ATTR_RW(io_requeue_no_usable_path_count);
+
+static ssize_t io_fail_no_available_path_count_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct gendisk *disk = dev_to_disk(dev);
+	struct nvme_ns_head *head = disk->private_data;
+
+	return sysfs_emit(buf, "%lu\n",
+		    atomic_long_read(&head->io_fail_no_available_path_count));
+}
+
+static ssize_t io_fail_no_available_path_count_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	int err;
+	unsigned long fail_cnt;
+	struct gendisk *disk = dev_to_disk(dev);
+	struct nvme_ns_head *head = disk->private_data;
+
+	err = kstrtoul(buf, 0, &fail_cnt);
+	if (err)
+		return -EINVAL;
+
+	atomic_long_set(&head->io_fail_no_available_path_count, fail_cnt);
+
+	return count;
+}
+
+DEVICE_ATTR_RW(io_fail_no_available_path_count);
 
 static int nvme_lookup_ana_group_desc(struct nvme_ctrl *ctrl,
 		struct nvme_ana_group_desc *desc, void *data)
