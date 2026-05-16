@@ -39,7 +39,6 @@ static int force_tjmax;
 module_param_named(tjmax, force_tjmax, int, 0444);
 MODULE_PARM_DESC(tjmax, "TjMax value in degrees Celsius");
 
-#define NUM_REAL_CORES		512	/* Number of Real cores per cpu */
 #define CORETEMP_NAME_LENGTH	28	/* String Length of attrs */
 
 enum coretemp_attr_index {
@@ -485,13 +484,7 @@ init_temp_data(struct platform_data *pdata, unsigned int cpu, int pkg_flag)
 	struct temp_data *tdata;
 
 	if (!pdata->core_data) {
-		/*
-		 * TODO:
-		 * The information of actual possible cores in a package is broken for now.
-		 * Will replace hardcoded NUM_REAL_CORES with actual per package core count
-		 * when this information becomes available.
-		 */
-		pdata->nr_cores = NUM_REAL_CORES;
+		pdata->nr_cores = topology_num_cores_per_package();
 		pdata->core_data = kzalloc_objs(struct temp_data *,
 						pdata->nr_cores);
 		if (!pdata->core_data)
