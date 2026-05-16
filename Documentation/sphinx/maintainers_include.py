@@ -143,7 +143,7 @@ class MaintainersParser:
             if not m:
                 return None
 
-            doc_list = glob(m.group(1), root_dir=self.base_dir)
+            doc_list = glob(os.path.join(self.base_dir, m.group(1)))
         else:
             doc_list = [text]
 
