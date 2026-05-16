@@ -145,10 +145,10 @@ static bool rpool_has_persistent_state(struct rdmacg_resource_pool *rpool)
 	 */
 	for (i = 0; i < RDMACG_RESOURCE_MAX; i++) {
 		if (rpool->resources[i].peak ||
-		    READ_ONCE(rpool->events_max[i]) ||
-		    READ_ONCE(rpool->events_local_max[i]) ||
-		    READ_ONCE(rpool->events_alloc_fail[i]) ||
-		    READ_ONCE(rpool->events_local_alloc_fail[i]))
+		    rpool->events_max[i] ||
+		    rpool->events_local_max[i] ||
+		    rpool->events_alloc_fail[i] ||
+		    rpool->events_local_alloc_fail[i])
 			return true;
 	}
 	return false;
@@ -654,9 +654,9 @@ static int rdmacg_events_show(struct seq_file *sf, void *v)
 		for (i = 0; i < RDMACG_RESOURCE_MAX; i++) {
 			seq_printf(sf, "%s.max=%llu %s.alloc_fail=%llu",
 				   rdmacg_resource_names[i],
-				   rpool ? READ_ONCE(rpool->events_max[i]) : 0ULL,
+				   rpool ? rpool->events_max[i] : 0ULL,
 				   rdmacg_resource_names[i],
-				   rpool ? READ_ONCE(rpool->events_alloc_fail[i]) : 0ULL);
+				   rpool ? rpool->events_alloc_fail[i] : 0ULL);
 			if (i < RDMACG_RESOURCE_MAX - 1)
 				seq_putc(sf, ' ');
 		}
@@ -683,9 +683,9 @@ static int rdmacg_events_local_show(struct seq_file *sf, void *v)
 		for (i = 0; i < RDMACG_RESOURCE_MAX; i++) {
 			seq_printf(sf, "%s.max=%llu %s.alloc_fail=%llu",
 				   rdmacg_resource_names[i],
-				   rpool ? READ_ONCE(rpool->events_local_max[i]) : 0ULL,
+				   rpool ? rpool->events_local_max[i] : 0ULL,
 				   rdmacg_resource_names[i],
-				   rpool ? READ_ONCE(rpool->events_local_alloc_fail[i]) : 0ULL);
+				   rpool ? rpool->events_local_alloc_fail[i] : 0ULL);
 			if (i < RDMACG_RESOURCE_MAX - 1)
 				seq_putc(sf, ' ');
 		}
