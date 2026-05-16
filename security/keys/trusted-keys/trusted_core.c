@@ -65,7 +65,7 @@ DEFINE_STATIC_CALL_NULL(trusted_key_unseal,
 DEFINE_STATIC_CALL_NULL(trusted_key_get_random,
 			*trusted_key_sources[0].ops->get_random);
 static void (*trusted_key_exit)(void);
-static unsigned char migratable;
+static unsigned char migratable __ro_after_init;
 
 enum {
 	Opt_err,
