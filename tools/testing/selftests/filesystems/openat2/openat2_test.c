@@ -310,4 +310,53 @@ TEST_F(openat2, flag_validation)
 	}
 }
 
+#ifndef OPENAT2_REGULAR
+#define OPENAT2_REGULAR ((__u64)1 << 32)
+#endif
+
+#ifndef EFTYPE
+#define EFTYPE 134
+#endif
+
+/* Kernel-internal carrier for OPENAT2_REGULAR (see __O_REGULAR in fcntl.h). */
+#ifndef __O_REGULAR
+#define __O_REGULAR (1 << 30)
+#endif
+
+/* Verify that OPENAT2_REGULAR rejects non-regular files with EFTYPE. */
+TEST_F(openat2, regular_flag)
+{
+	struct open_how how = {
+		.flags = OPENAT2_REGULAR | O_RDONLY,
+	};
+	int fd;
+
+	fd = sys_openat2(AT_FDCWD, "/dev/null", &how);
+	if (fd == -ENOENT)
+		SKIP(return, "/dev/null does not exist");
+
+	EXPECT_EQ(-EFTYPE, fd) {
+		TH_LOG("openat2 with OPENAT2_REGULAR should fail with %d (%s), got %d (%s)",
+		       -EFTYPE, strerror(EFTYPE), fd, strerror(-fd));
+	}
+	if (fd >= 0)
+		close(fd);
+}
+
+/* open()/openat() must keep ignoring the internal __O_REGULAR bit. */
+TEST(legacy_openat_ignores_o_regular)
+{
+	int fd;
+
+	fd = openat(AT_FDCWD, "/dev/null", O_RDONLY | __O_REGULAR);
+	if (fd < 0 && errno == ENOENT)
+		SKIP(return, "/dev/null does not exist");
+
+	ASSERT_GE(fd, 0) {
+		TH_LOG("legacy openat() must ignore the __O_REGULAR carrier bit, got errno %d (%s)",
+		       errno, strerror(errno));
+	}
+	close(fd);
+}
+
 TEST_HARNESS_MAIN
