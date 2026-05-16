@@ -284,7 +284,12 @@ class MaintainersInclude(Include):
 
         self.state.document['maintainers_included'] = True
 
-        for name, fields in sorted(maint_parser.maint_entries.items()):
+        # Keep the last entry ("THE REST") in the end
+        entries = list(maint_parser.maint_entries.keys())
+        entries = sorted(entries[:-1], key=str.casefold) + [entries[-1]]
+
+        for name in entries:
+            fields = maint_parser.maint_entries[name]
             output += f"  * - {name}\n"
             tag = "-"
             for field, lines in fields.items():
