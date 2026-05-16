@@ -55,7 +55,7 @@
 
 /* Device and char device-related information */
 static DEFINE_IDA(gpio_ida);
-static dev_t gpio_devt;
+static dev_t gpio_devt __ro_after_init;
 #define GPIO_DEV_MAX 256 /* 256 GPIO chip devices supported */
 
 static int gpio_bus_match(struct device *dev, const struct device_driver *drv)
@@ -114,7 +114,7 @@ static int gpiochip_irqchip_init_hw(struct gpio_chip *gc);
 static int gpiochip_irqchip_init_valid_mask(struct gpio_chip *gc);
 static void gpiochip_irqchip_free_valid_mask(struct gpio_chip *gc);
 
-static bool gpiolib_initialized;
+static bool gpiolib_initialized __ro_after_init;
 
 const char *gpiod_get_label(struct gpio_desc *desc)
 {
@@ -5362,7 +5362,7 @@ EXPORT_SYMBOL_GPL(gpiod_put_array);
  * gpio_device of the GPIO chip with the firmware node and then simply
  * bind it to this stub driver.
  */
-static struct device_driver gpio_stub_drv = {
+static struct device_driver gpio_stub_drv __ro_after_init = {
 	.name = "gpio_stub_drv",
 	.bus = &gpio_bus_type,
 };
