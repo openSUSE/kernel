@@ -323,6 +323,7 @@ static void nvme_retry_req(struct request *req)
 {
 	unsigned long delay = 0;
 	u16 crd;
+	struct nvme_ns *ns = req->q->queuedata;
 
 	/* The mask and shift result must be <= 3 */
 	crd = (nvme_req(req)->status & NVME_STATUS_CRD) >> 11;
@@ -330,6 +331,9 @@ static void nvme_retry_req(struct request *req)
 		delay = nvme_req(req)->ctrl->crdt[crd - 1] * 100;
 
 	nvme_req(req)->retries++;
+	if (ns)
+		atomic_long_inc(&ns->retries);
+
 	blk_mq_requeue_request(req, false);
 	blk_mq_delay_kick_requeue_list(req->q, delay);
 }

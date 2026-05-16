@@ -592,6 +592,7 @@ struct nvme_ns {
 	enum nvme_ana_state ana_state;
 	u32 ana_grpid;
 #endif
+	atomic_long_t retries;
 	struct list_head siblings;
 	struct kref kref;
 	struct nvme_ns_head *head;

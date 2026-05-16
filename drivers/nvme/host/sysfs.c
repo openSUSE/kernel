@@ -344,13 +344,46 @@ const struct attribute_group nvme_ns_mpath_attr_group = {
 };
 #endif
 
+static ssize_t command_retries_count_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct nvme_ns *ns = nvme_get_ns_from_dev(dev);
+
+	return sysfs_emit(buf, "%lu\n", atomic_long_read(&ns->retries));
+}
+
+static ssize_t command_retries_count_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	unsigned long retries;
+	int err;
+	struct nvme_ns *ns = nvme_get_ns_from_dev(dev);
+
+	err = kstrtoul(buf, 0, &retries);
+	if (err)
+		return -EINVAL;
+
+	atomic_long_set(&ns->retries, retries);
+
+	return count;
+}
+static DEVICE_ATTR_RW(command_retries_count);
+
 static struct attribute *nvme_ns_diag_attrs[] = {
+	&dev_attr_command_retries_count.attr,
 	NULL,
 };
 
 static umode_t nvme_ns_diag_attrs_are_visible(struct kobject *kobj,
 		struct attribute *a, int n)
 {
+	struct device *dev = container_of(kobj, struct device, kobj);
+
+	if (a == &dev_attr_command_retries_count.attr) {
+		if (nvme_disk_is_ns_head(dev_to_disk(dev)))
+			return 0;
+	}
+
 	return a->mode;
 }
 
