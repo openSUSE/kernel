@@ -415,6 +415,7 @@ struct nvme_ctrl {
 	unsigned long ka_last_check_time;
 	struct work_struct fw_act_work;
 	unsigned long events;
+	atomic_long_t errors;
 
 #ifdef CONFIG_NVME_MULTIPATH
 	/* asymmetric namespace access: */
@@ -594,6 +595,7 @@ struct nvme_ns {
 	atomic_long_t failover;
 #endif
 	atomic_long_t retries;
+	atomic_long_t errors;
 	struct list_head siblings;
 	struct kref kref;
 	struct nvme_ns_head *head;

@@ -438,11 +438,19 @@ static inline void nvme_end_req_zoned(struct request *req)
 
 static inline void __nvme_end_req(struct request *req)
 {
-	if (unlikely(nvme_req(req)->status && !(req->rq_flags & RQF_QUIET))) {
+	struct nvme_ns *ns = req->q->queuedata;
+	struct nvme_request *nr = nvme_req(req);
+
+	if (unlikely(nr->status && !(req->rq_flags & RQF_QUIET))) {
 		if (blk_rq_is_passthrough(req))
 			nvme_log_err_passthru(req);
 		else
 			nvme_log_error(req);
+
+		if (ns)
+			atomic_long_inc(&ns->errors);
+		else
+			atomic_long_inc(&nr->ctrl->errors);
 	}
 	nvme_end_req_zoned(req);
 	nvme_trace_bio_complete(req);
