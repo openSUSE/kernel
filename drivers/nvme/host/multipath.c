@@ -538,6 +538,7 @@ static void nvme_ns_head_submit_bio(struct bio *bio)
 		spin_lock_irq(&head->requeue_lock);
 		bio_list_add(&head->requeue_list, bio);
 		spin_unlock_irq(&head->requeue_lock);
+		atomic_long_inc(&head->io_requeue_no_usable_path_count);
 	} else {
 		dev_warn_ratelimited(dev, "no available path - failing I/O\n");
 
@@ -1191,6 +1192,35 @@ static ssize_t multipath_failover_count_store(struct device *dev,
 }
 
 DEVICE_ATTR_RW(multipath_failover_count);
+
+static ssize_t io_requeue_no_usable_path_count_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct gendisk *disk = dev_to_disk(dev);
+	struct nvme_ns_head *head = disk->private_data;
+
+	return sysfs_emit(buf, "%lu\n",
+		    atomic_long_read(&head->io_requeue_no_usable_path_count));
+}
+
+static ssize_t io_requeue_no_usable_path_count_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	int err;
+	unsigned long requeue_cnt;
+	struct gendisk *disk = dev_to_disk(dev);
+	struct nvme_ns_head *head = disk->private_data;
+
+	err = kstrtoul(buf, 0, &requeue_cnt);
+	if (err)
+		return -EINVAL;
+
+	atomic_long_set(&head->io_requeue_no_usable_path_count, requeue_cnt);
+
+	return count;
+}
+
+DEVICE_ATTR_RW(io_requeue_no_usable_path_count);
 
 static int nvme_lookup_ana_group_desc(struct nvme_ctrl *ctrl,
 		struct nvme_ana_group_desc *desc, void *data)

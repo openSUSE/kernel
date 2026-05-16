@@ -403,6 +403,7 @@ static struct attribute *nvme_ns_diag_attrs[] = {
 	&dev_attr_io_errors.attr,
 #ifdef CONFIG_NVME_MULTIPATH
 	&dev_attr_multipath_failover_count.attr,
+	&dev_attr_io_requeue_no_usable_path_count.attr,
 #endif
 	NULL,
 };
@@ -425,6 +426,10 @@ static umode_t nvme_ns_diag_attrs_are_visible(struct kobject *kobj,
 #ifdef CONFIG_NVME_MULTIPATH
 	if (a == &dev_attr_multipath_failover_count.attr) {
 		if (nvme_disk_is_ns_head(dev_to_disk(dev)))
+			return 0;
+	}
+	if (a == &dev_attr_io_requeue_no_usable_path_count.attr) {
+		if (!nvme_disk_is_ns_head(dev_to_disk(dev)))
 			return 0;
 	}
 #endif
