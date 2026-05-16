@@ -29,6 +29,15 @@
  */
 #define FILE_LOCK_DEFERRED 1
 
+#define LEASE_BREAK_LEASE		BIT(0)	// break leases and delegations
+#define LEASE_BREAK_DELEG		BIT(1)	// break delegations only
+#define LEASE_BREAK_LAYOUT		BIT(2)	// break layouts only
+#define LEASE_BREAK_NONBLOCK		BIT(3)	// non-blocking break
+#define LEASE_BREAK_OPEN_RDONLY		BIT(4)	// readonly open event
+#define LEASE_BREAK_DIR_CREATE		BIT(5)  // dir deleg create event
+#define LEASE_BREAK_DIR_DELETE		BIT(6)  // dir deleg delete event
+#define LEASE_BREAK_DIR_RENAME		BIT(7)  // dir deleg rename event
+
 struct file_lock;
 struct file_lease;
 
@@ -219,17 +228,6 @@ int locks_lock_inode_wait(struct inode *inode, struct file_lock *fl);
 void locks_init_lease(struct file_lease *);
 void locks_free_lease(struct file_lease *fl);
 struct file_lease *locks_alloc_lease(void);
-
-#define LEASE_BREAK_LEASE		BIT(0)	// break leases and delegations
-#define LEASE_BREAK_DELEG		BIT(1)	// break delegations only
-#define LEASE_BREAK_LAYOUT		BIT(2)	// break layouts only
-#define LEASE_BREAK_NONBLOCK		BIT(3)	// non-blocking break
-#define LEASE_BREAK_OPEN_RDONLY		BIT(4)	// readonly open event
-#define LEASE_BREAK_DIR_CREATE		BIT(5)  // dir deleg create event
-#define LEASE_BREAK_DIR_DELETE		BIT(6)  // dir deleg delete event
-#define LEASE_BREAK_DIR_RENAME		BIT(7)  // dir deleg rename event
-
-
 int __break_lease(struct inode *inode, unsigned int flags);
 void lease_get_mtime(struct inode *, struct timespec64 *time);
 int generic_setlease(struct file *, int, struct file_lease **, void **priv);
