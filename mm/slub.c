@@ -5024,7 +5024,7 @@ kmem_cache_prefill_sheaf(struct kmem_cache *s, gfp_t gfp, unsigned int size)
 
 		/*
 		 * we do not need to care about pfmemalloc here because oversize
-		 * sheaves area always flushed and freed when returned
+		 * sheaves are always flushed and freed when returned
 		 */
 		if (!__kmem_cache_alloc_bulk(s, gfp, size,
 					     &sheaf->objects[0])) {
