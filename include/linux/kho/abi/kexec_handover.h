@@ -64,7 +64,7 @@
  *   Root KHO Node (/):
  *     - compatible: "kho-v3"
  *
- *       Indentifies the overall KHO ABI version.
+ *       Identifies the overall KHO ABI version.
  *
  *     - preserved-memory-map: u64
  *
