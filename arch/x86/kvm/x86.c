@@ -10361,9 +10361,11 @@ static void __get_sregs2(struct kvm_vcpu *vcpu, struct kvm_sregs2 *sregs2)
 		return;
 
 	if (is_pae_paging(vcpu)) {
+		vcpu->srcu_idx = srcu_read_lock(&vcpu->kvm->srcu);
 		for (i = 0 ; i < 4 ; i++)
 			sregs2->pdptrs[i] = kvm_pdptr_read(vcpu, i);
 		sregs2->flags |= KVM_SREGS2_FLAGS_PDPTRS_VALID;
+		srcu_read_unlock(&vcpu->kvm->srcu, vcpu->srcu_idx);
 	}
 }
 
