@@ -971,6 +971,7 @@ void i915_driver_remove(struct drm_i915_private *i915)
 	intel_display_driver_remove(display);
 
 	intel_irq_uninstall(i915);
+	intel_hpd_cancel_work(display);
 
 	intel_display_driver_remove_noirq(display);
 

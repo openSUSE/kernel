@@ -37,7 +37,6 @@
 #include <drm/intel/intel_gmd_interrupt_regs.h>
 
 #include "display/intel_display_irq.h"
-#include "display/intel_hotplug.h"
 
 #include "gt/intel_breadcrumbs.h"
 #include "gt/intel_gt.h"
@@ -1140,7 +1139,6 @@ int intel_irq_install(struct drm_i915_private *dev_priv)
  */
 void intel_irq_uninstall(struct drm_i915_private *dev_priv)
 {
-	struct intel_display *display = dev_priv->display;
 	int irq = to_pci_dev(dev_priv->drm.dev)->irq;
 
 	if (drm_WARN_ON(&dev_priv->drm, !dev_priv->irqs_enabled))
@@ -1150,7 +1148,6 @@ void intel_irq_uninstall(struct drm_i915_private *dev_priv)
 
 	free_irq(irq, dev_priv);
 
-	intel_hpd_cancel_work(display);
 	dev_priv->irqs_enabled = false;
 }
 
