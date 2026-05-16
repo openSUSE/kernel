@@ -152,6 +152,7 @@ void nvme_failover_req(struct request *req)
 	struct bio *bio;
 
 	nvme_mpath_clear_current_path(ns);
+	atomic_long_inc(&ns->failover);
 
 	/*
 	 * If we got back an ANA error, we know the controller is alive but not
@@ -1164,6 +1165,32 @@ static ssize_t delayed_removal_secs_store(struct device *dev,
 }
 
 DEVICE_ATTR_RW(delayed_removal_secs);
+
+static ssize_t multipath_failover_count_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct nvme_ns *ns = nvme_get_ns_from_dev(dev);
+
+	return sysfs_emit(buf, "%lu\n", atomic_long_read(&ns->failover));
+}
+
+static ssize_t multipath_failover_count_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	unsigned long failover;
+	int ret;
+	struct nvme_ns *ns = nvme_get_ns_from_dev(dev);
+
+	ret = kstrtoul(buf, 0, &failover);
+	if (ret)
+		return -EINVAL;
+
+	atomic_long_set(&ns->failover, failover);
+
+	return count;
+}
+
+DEVICE_ATTR_RW(multipath_failover_count);
 
 static int nvme_lookup_ana_group_desc(struct nvme_ctrl *ctrl,
 		struct nvme_ana_group_desc *desc, void *data)

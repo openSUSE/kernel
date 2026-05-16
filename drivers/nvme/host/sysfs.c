@@ -371,6 +371,9 @@ static DEVICE_ATTR_RW(command_retries_count);
 
 static struct attribute *nvme_ns_diag_attrs[] = {
 	&dev_attr_command_retries_count.attr,
+#ifdef CONFIG_NVME_MULTIPATH
+	&dev_attr_multipath_failover_count.attr,
+#endif
 	NULL,
 };
 
@@ -383,7 +386,12 @@ static umode_t nvme_ns_diag_attrs_are_visible(struct kobject *kobj,
 		if (nvme_disk_is_ns_head(dev_to_disk(dev)))
 			return 0;
 	}
-
+#ifdef CONFIG_NVME_MULTIPATH
+	if (a == &dev_attr_multipath_failover_count.attr) {
+		if (nvme_disk_is_ns_head(dev_to_disk(dev)))
+			return 0;
+	}
+#endif
 	return a->mode;
 }
 
