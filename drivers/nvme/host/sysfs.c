@@ -344,11 +344,28 @@ const struct attribute_group nvme_ns_mpath_attr_group = {
 };
 #endif
 
+static struct attribute *nvme_ns_diag_attrs[] = {
+	NULL,
+};
+
+static umode_t nvme_ns_diag_attrs_are_visible(struct kobject *kobj,
+		struct attribute *a, int n)
+{
+	return a->mode;
+}
+
+const struct attribute_group nvme_ns_diag_attr_group = {
+	.name		= "diag",
+	.attrs		= nvme_ns_diag_attrs,
+	.is_visible	= nvme_ns_diag_attrs_are_visible,
+};
+
 const struct attribute_group *nvme_ns_attr_groups[] = {
 	&nvme_ns_attr_group,
 #ifdef CONFIG_NVME_MULTIPATH
 	&nvme_ns_mpath_attr_group,
 #endif
+	&nvme_ns_diag_attr_group,
 	NULL,
 };
 
@@ -1018,11 +1035,29 @@ static const struct attribute_group nvme_tls_attrs_group = {
 };
 #endif
 
+static struct attribute *nvme_dev_diag_attrs[] = {
+	NULL,
+};
+
+static umode_t nvme_dev_diag_attrs_are_visible(struct kobject *kobj,
+		struct attribute *a, int n)
+{
+	return a->mode;
+}
+
+const struct attribute_group nvme_dev_diag_attrs_group = {
+	.name		= "diag",
+	.attrs		= nvme_dev_diag_attrs,
+	.is_visible	= nvme_dev_diag_attrs_are_visible,
+};
+EXPORT_SYMBOL_GPL(nvme_dev_diag_attrs_group);
+
 const struct attribute_group *nvme_dev_attr_groups[] = {
 	&nvme_dev_attrs_group,
 #ifdef CONFIG_NVME_TCP_TLS
 	&nvme_tls_attrs_group,
 #endif
+	&nvme_dev_diag_attrs_group,
 	NULL,
 };
 
