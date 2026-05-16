@@ -1724,8 +1724,7 @@ static int atmel_sha_hmac_setup(struct atmel_sha_dev *dd,
 		return atmel_sha_hmac_prehash_key(dd, key, keylen);
 
 	/* Prepare ipad. */
-	memcpy((u8 *)hmac->ipad, key, keylen);
-	memset((u8 *)hmac->ipad + keylen, 0, bs - keylen);
+	memcpy_and_pad(hmac->ipad, bs, key, keylen, 0);
 	return atmel_sha_hmac_compute_ipad_hash(dd);
 }
 
