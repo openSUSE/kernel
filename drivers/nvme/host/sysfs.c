@@ -1175,17 +1175,52 @@ static ssize_t reset_count_store(struct device *dev,
 	return count;
 }
 
+static ssize_t reconnect_count_show(struct device *dev,
+		   struct device_attribute *attr, char *buf)
+{
+	struct nvme_ctrl *ctrl = dev_get_drvdata(dev);
+
+	return sysfs_emit(buf, "%lu\n",
+			  atomic_long_read(&ctrl->acc_reconnects) +
+			  ctrl->nr_reconnects);
+}
+
+static ssize_t reconnect_count_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	int err;
+	unsigned long reconnect_cnt;
+	struct nvme_ctrl *ctrl = dev_get_drvdata(dev);
+
+	err = kstrtoul(buf, 0, &reconnect_cnt);
+	if (err)
+		return -EINVAL;
+
+	atomic_long_set(&ctrl->acc_reconnects, reconnect_cnt);
+
+	return count;
+}
+
+static DEVICE_ATTR_RW(reconnect_count);
+
 static DEVICE_ATTR_RW(reset_count);
 
 static struct attribute *nvme_dev_diag_attrs[] = {
 	&dev_attr_adm_errors.attr,
 	&dev_attr_reset_count.attr,
+	&dev_attr_reconnect_count.attr,
 	NULL,
 };
 
 static umode_t nvme_dev_diag_attrs_are_visible(struct kobject *kobj,
 		struct attribute *a, int n)
 {
+	struct device *dev = container_of(kobj, struct device, kobj);
+	struct nvme_ctrl *ctrl = dev_get_drvdata(dev);
+
+	if (a == &dev_attr_reconnect_count.attr && !ctrl->opts)
+		return 0;
+
 	return a->mode;
 }
 

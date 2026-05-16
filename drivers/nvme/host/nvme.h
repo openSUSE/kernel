@@ -458,6 +458,8 @@ struct nvme_ctrl {
 	u16 icdoff;
 	u16 maxcmd;
 	int nr_reconnects;
+	/* accumulate reconenct attempts, as nr_reconnects can reset to zero */
+	atomic_long_t acc_reconnects;
 	unsigned long flags;
 	struct nvmf_ctrl_options *opts;
 
