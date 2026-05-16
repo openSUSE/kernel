@@ -290,6 +290,51 @@
 	status = "okay";
 };
 
+&qspi {
+	pinctrl-names = "default";
+	pinctrl-0 = <&qspi_cfg>;
+	status = "okay";
+
+	flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <26500000>;
+		spi-rx-bus-width = <4>;
+		spi-tx-bus-width = <4>;
+		vcc-supply = <&buck3_1v8>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			bootinfo@0 {
+				reg = <0x00000 0x010000>;
+			};
+
+			private@10000 {
+				reg = <0x10000 0x010000>;
+			};
+
+			fsbl@20000 {
+				reg = <0x20000 0x040000>;
+			};
+
+			env@60000 {
+				reg = <0x60000 0x010000>;
+			};
+
+			opensbi@70000 {
+				reg = <0x70000 0x030000>;
+			};
+
+			uboot@a0000 {
+				reg = <0xa0000 0x760000>;
+			};
+		};
+	};
+};
+
 &uart0 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart0_2_cfg>;
