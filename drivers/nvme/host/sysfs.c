@@ -1151,8 +1151,35 @@ struct device_attribute dev_attr_adm_errors =
 	__ATTR(command_error_count, 0644,
 		nvme_adm_errors_show, nvme_adm_errors_store);
 
+static ssize_t reset_count_show(struct device *dev,
+		   struct device_attribute *attr, char *buf)
+{
+	struct nvme_ctrl *ctrl = dev_get_drvdata(dev);
+
+	return sysfs_emit(buf, "%lu\n", atomic_long_read(&ctrl->nr_reset));
+}
+
+static ssize_t reset_count_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	int err;
+	unsigned long reset_cnt;
+	struct nvme_ctrl *ctrl = dev_get_drvdata(dev);
+
+	err = kstrtoul(buf, 0, &reset_cnt);
+	if (err)
+		return -EINVAL;
+
+	atomic_long_set(&ctrl->nr_reset, reset_cnt);
+
+	return count;
+}
+
+static DEVICE_ATTR_RW(reset_count);
+
 static struct attribute *nvme_dev_diag_attrs[] = {
 	&dev_attr_adm_errors.attr,
+	&dev_attr_reset_count.attr,
 	NULL,
 };
 

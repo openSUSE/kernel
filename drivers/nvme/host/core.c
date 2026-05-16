@@ -596,6 +596,7 @@ bool nvme_change_ctrl_state(struct nvme_ctrl *ctrl,
 		case NVME_CTRL_NEW:
 		case NVME_CTRL_LIVE:
 			changed = true;
+			atomic_long_inc(&ctrl->nr_reset);
 			fallthrough;
 		default:
 			break;

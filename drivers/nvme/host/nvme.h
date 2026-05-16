@@ -416,6 +416,7 @@ struct nvme_ctrl {
 	struct work_struct fw_act_work;
 	unsigned long events;
 	atomic_long_t errors;
+	atomic_long_t nr_reset;
 
 #ifdef CONFIG_NVME_MULTIPATH
 	/* asymmetric namespace access: */
