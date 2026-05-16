@@ -854,6 +854,9 @@ u8 rtw89_core_get_ch_dma_v2(struct rtw89_dev *rtwdev, u8 qsel)
 	case RTW89_TX_QSEL_B0_MGMT:
 	case RTW89_TX_QSEL_B0_HI:
 		return RTW89_TXCH_CH8;
+	case RTW89_TX_QSEL_B1_MGMT:
+	case RTW89_TX_QSEL_B1_HI:
+		return RTW89_TXCH_CH10;
 	}
 }
 EXPORT_SYMBOL(rtw89_core_get_ch_dma_v2);
