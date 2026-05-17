@@ -1906,40 +1906,6 @@ static void halbtc8723b1ant_RunSwCoexistMechanism(struct btc_coexist *pBtCoexist
 	if (halbtc8723b1ant_IsCommonAction(pBtCoexist)) {
 
 	} else {
-		switch (pCoexDm->curAlgorithm) {
-		case BT_8723B_1ANT_COEX_ALGO_SCO:
-			/* halbtc8723b1ant_ActionSco(pBtCoexist); */
-			break;
-		case BT_8723B_1ANT_COEX_ALGO_HID:
-			/* halbtc8723b1ant_ActionHid(pBtCoexist); */
-			break;
-		case BT_8723B_1ANT_COEX_ALGO_A2DP:
-			/* halbtc8723b1ant_ActionA2dp(pBtCoexist); */
-			break;
-		case BT_8723B_1ANT_COEX_ALGO_A2DP_PANHS:
-			/* halbtc8723b1ant_ActionA2dpPanHs(pBtCoexist); */
-			break;
-		case BT_8723B_1ANT_COEX_ALGO_PANEDR:
-			/* halbtc8723b1ant_ActionPanEdr(pBtCoexist); */
-			break;
-		case BT_8723B_1ANT_COEX_ALGO_PANHS:
-			/* halbtc8723b1ant_ActionPanHs(pBtCoexist); */
-			break;
-		case BT_8723B_1ANT_COEX_ALGO_PANEDR_A2DP:
-			/* halbtc8723b1ant_ActionPanEdrA2dp(pBtCoexist); */
-			break;
-		case BT_8723B_1ANT_COEX_ALGO_PANEDR_HID:
-			/* halbtc8723b1ant_ActionPanEdrHid(pBtCoexist); */
-			break;
-		case BT_8723B_1ANT_COEX_ALGO_HID_A2DP_PANEDR:
-			/* halbtc8723b1ant_ActionHidA2dpPanEdr(pBtCoexist); */
-			break;
-		case BT_8723B_1ANT_COEX_ALGO_HID_A2DP:
-			/* halbtc8723b1ant_ActionHidA2dp(pBtCoexist); */
-			break;
-		default:
-			break;
-		}
 		pCoexDm->preAlgorithm = pCoexDm->curAlgorithm;
 	}
 }
