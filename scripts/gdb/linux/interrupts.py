@@ -131,23 +131,19 @@ def arm_common_show_interrupts(prec):
     if nr_ipi is None or ipi_desc is None or ipi_types is None:
         return text
 
-    if prec >= 4:
-        sep = " "
-    else:
-        sep = ""
-
     for ipi in range(nr_ipi):
-        text += "%*s%u:%s" % (prec - 1, "IPI", ipi, sep)
+        text += "%*s%u: " % (prec - 1, "IPI", ipi)
         desc = ipi_desc[ipi].cast(irq_desc_type.get_type().pointer())
         if desc == 0:
             continue
         for cpu in cpus.each_online_cpu():
-            text += "%10u" % (cpus.per_cpu(desc['kstat_irqs'], cpu)['cnt'])
-        text += "      %s" % (ipi_types[ipi].string())
+            text += "%10u " % (cpus.per_cpu(desc['kstat_irqs'], cpu)['cnt'])
+        text += "%s" % (ipi_types[ipi].string())
         text += "\n"
     return text
 
 def aarch64_show_interrupts(prec):
+    # Does not work for ARM64 as "ipi_desc" is not available there
     text = arm_common_show_interrupts(prec)
     text += "%*s: %10lu\n" % (prec, "ERR", gdb.parse_and_eval("irq_err_count"))
     return text
@@ -175,8 +171,8 @@ class LxInterruptList(gdb.Command):
 
     def invoke(self, arg, from_tty):
         nr_irqs = gdb.parse_and_eval("total_nr_irqs")
-        prec = 3
-        j = 1000
+        prec = 4
+        j = 10000
         while prec < 10 and j <= nr_irqs:
             prec += 1
             j *= 10

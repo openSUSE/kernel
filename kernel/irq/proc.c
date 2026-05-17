@@ -460,7 +460,7 @@ int __weak arch_show_interrupts(struct seq_file *p, int prec)
 static struct irq_proc_constraints {
 	unsigned int	num_prec;
 } irq_proc_constraints __read_mostly = {
-	.num_prec	= 3,
+	.num_prec	= 4,
 };
 
 #ifndef ACTUAL_NR_IRQS
@@ -471,7 +471,7 @@ void irq_proc_calc_prec(void)
 {
 	unsigned int prec, n;
 
-	for (prec = 3, n = 1000; prec < 10 && n <= total_nr_irqs; ++prec)
+	for (prec = 4, n = 10000; prec < 10 && n <= total_nr_irqs; ++prec)
 		n *= 10;
 	WRITE_ONCE(irq_proc_constraints.num_prec, prec);
 }
