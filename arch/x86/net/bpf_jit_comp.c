@@ -1789,6 +1789,8 @@ static int do_jit(struct bpf_verifier_env *env, struct bpf_prog *bpf_prog, int *
 	 * Arg 6 goes into r9 register, not on stack.
 	 */
 	outgoing_rsp = out_stack_arg_cnt > 1 ? (out_stack_arg_cnt - 1) * 8 : 0;
+	if (bpf_prog->aux->exception_boundary)
+		bpf_prog->aux->stack_arg_sp_adjust = outgoing_rsp;
 	emit_sub_rsp(&prog, outgoing_rsp);
 
 	if (arena_vm_start)
