@@ -316,7 +316,7 @@ config HW_RANDOM_PPC4XX
 
 config CRYPTO_DEV_OMAP
 	tristate "Support for OMAP crypto HW accelerators"
-	depends on ARCH_OMAP2PLUS
+	depends on ARCH_OMAP2PLUS || COMPILE_TEST
 	help
 	  OMAP processors have various crypto HW accelerators. Select this if
 	  you want to use the OMAP modules for any of the crypto algorithms.
@@ -352,7 +352,7 @@ config CRYPTO_DEV_OMAP_AES
 
 config CRYPTO_DEV_OMAP_DES
 	tristate "Support for OMAP DES/3DES hw engine"
-	depends on ARCH_OMAP2PLUS
+	depends on ARCH_OMAP2PLUS || COMPILE_TEST
 	select CRYPTO_LIB_DES
 	select CRYPTO_SKCIPHER
 	select CRYPTO_ENGINE
