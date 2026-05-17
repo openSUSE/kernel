@@ -245,22 +245,17 @@ out:
 bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range)
 {
 	struct kvm_gstage gstage;
-	bool mmu_locked;
 	bool flush;
 
 	if (!kvm->arch.pgd)
 		return false;
 
-	kvm_riscv_gstage_init(&gstage, kvm);
-	mmu_locked = spin_trylock(&kvm->mmu_lock);
+	lockdep_assert_held_write(&kvm->mmu_lock);
 
+	kvm_riscv_gstage_init(&gstage, kvm);
 	flush = kvm_riscv_gstage_unmap_range(&gstage, range->start << PAGE_SHIFT,
 					     (range->end - range->start) << PAGE_SHIFT,
 					     range->may_block);
-
-	if (mmu_locked)
-		spin_unlock(&kvm->mmu_lock);
-
 	if (flush)
 		kvm_flush_remote_tlbs_range(kvm, range->start,
 					    range->end - range->start);
