@@ -373,7 +373,7 @@ again:
 	else
 		zhaoxin_pmu_ack_status(status);
 
-	inc_irq_stat(apic_perf_irqs);
+	inc_perf_irq_stat();
 
 	/*
 	 * CondChgd bit 63 doesn't mean any overflow status. Ignore

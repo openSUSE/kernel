@@ -1045,7 +1045,7 @@ static void local_apic_timer_interrupt(void)
 	/*
 	 * the NMI deadlock-detector uses this.
 	 */
-	inc_irq_stat(apic_timer_irqs);
+	inc_irq_stat(APIC_TIMER);
 
 	evt->event_handler(evt);
 }
@@ -2114,7 +2114,7 @@ static noinline void handle_spurious_interrupt(u8 vector)
 
 	trace_spurious_apic_entry(vector);
 
-	inc_irq_stat(irq_spurious_count);
+	inc_irq_stat(SPURIOUS);
 
 	/*
 	 * If this is a spurious interrupt then do not acknowledge

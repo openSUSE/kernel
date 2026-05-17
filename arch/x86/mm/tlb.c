@@ -1123,7 +1123,7 @@ static void flush_tlb_func(void *info)
 	VM_WARN_ON(!irqs_disabled());
 
 	if (!local) {
-		inc_irq_stat(irq_tlb_count);
+		inc_irq_stat(TLB);
 		count_vm_tlb_event(NR_TLB_REMOTE_FLUSH_RECEIVED);
 	}
 

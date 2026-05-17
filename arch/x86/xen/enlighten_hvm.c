@@ -125,7 +125,7 @@ DEFINE_IDTENTRY_SYSVEC(sysvec_xen_hvm_callback)
 	if (xen_percpu_upcall)
 		apic_eoi();
 
-	inc_irq_stat(irq_hv_callback_count);
+	inc_irq_stat(HYPERVISOR_CALLBACK);
 
 	xen_evtchn_do_upcall();
 
