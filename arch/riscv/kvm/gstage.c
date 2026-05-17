@@ -123,6 +123,20 @@ static void gstage_tlb_flush(struct kvm_gstage *gstage, u32 level, gpa_t addr)
 					       gstage->vmid);
 }
 
+bool kvm_riscv_gstage_try_update_pte(struct kvm_gstage *gstage, u32 level,
+				     gpa_t addr, pte_t *ptep,
+				     pte_t old_pte, pte_t new_pte)
+{
+	if (cmpxchg(&ptep->pte, pte_val(old_pte), pte_val(new_pte)) !=
+	    pte_val(old_pte))
+		return false;
+
+	if (pte_val(old_pte) != pte_val(new_pte))
+		gstage_tlb_flush(gstage, level, addr);
+
+	return true;
+}
+
 int kvm_riscv_gstage_set_pte(struct kvm_gstage *gstage,
 			     struct kvm_mmu_memory_cache *pcache,
 			     const struct kvm_gstage_mapping *map)
