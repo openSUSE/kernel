@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
- * Copyright (C) 2005-2014, 2018-2025 Intel Corporation
+ * Copyright (C) 2005-2014, 2018-2026 Intel Corporation
  * Copyright (C) 2013-2015 Intel Mobile Communications GmbH
  * Copyright (C) 2015-2017 Intel Deutschland GmbH
  */
@@ -2238,6 +2238,18 @@ struct iwl_dump_ini_mem_ops {
 			  struct iwl_dump_ini_region_data *reg_data,
 			  void *range, u32 range_len, int idx);
 };
+
+/**
+ * struct iwl_fw_ini_dump_entry - dump entry descriptor
+ * @list: list of dump entries
+ * @size: size of the data
+ * @data: entry data
+ */
+struct iwl_fw_ini_dump_entry {
+	struct list_head list;
+	u32 size;
+	u8 data[];
+} __packed;
 
 /**
  * iwl_dump_ini_mem - dump memory region
