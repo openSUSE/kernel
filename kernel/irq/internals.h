@@ -134,6 +134,12 @@ static inline void unregister_handler_proc(unsigned int irq,
 static inline void irq_proc_update_valid(struct irq_desc *desc) { }
 #endif
 
+#if defined(CONFIG_PROC_FS) && defined(CONFIG_GENERIC_IRQ_SHOW)
+void irq_proc_calc_prec(void);
+#else
+static inline void irq_proc_calc_prec(void) { }
+#endif
+
 extern bool irq_can_set_affinity_usr(unsigned int irq);
 
 extern int irq_do_set_affinity(struct irq_data *data,

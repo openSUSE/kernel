@@ -157,13 +157,12 @@ EXPORT_SYMBOL_GPL(irq_get_nr_irqs);
  *
  * Return: @nr.
  */
-unsigned int irq_set_nr_irqs(unsigned int nr)
+unsigned int __init irq_set_nr_irqs(unsigned int nr)
 {
 	total_nr_irqs = nr;
-
+	irq_proc_calc_prec();
 	return nr;
 }
-EXPORT_SYMBOL_GPL(irq_set_nr_irqs);
 
 static DEFINE_MUTEX(sparse_irq_lock);
 static struct maple_tree sparse_irqs = MTREE_INIT_EXT(sparse_irqs,
@@ -544,6 +543,7 @@ static bool irq_expand_nr_irqs(unsigned int nr)
 	if (nr > MAX_SPARSE_IRQS)
 		return false;
 	total_nr_irqs = nr;
+	irq_proc_calc_prec();
 	return true;
 }
 
@@ -572,6 +572,7 @@ int __init early_irq_init(void)
 		desc = alloc_desc(i, node, 0, NULL, NULL);
 		irq_insert_desc(i, desc);
 	}
+	irq_proc_calc_prec();
 	return arch_early_irq_init();
 }
 
@@ -592,7 +593,7 @@ int __init early_irq_init(void)
 
 	init_irq_default_affinity();
 
-	printk(KERN_INFO "NR_IRQS: %d\n", NR_IRQS);
+	pr_info("NR_IRQS: %d\n", NR_IRQS);
 
 	count = ARRAY_SIZE(irq_desc);
 
@@ -602,6 +603,7 @@ int __init early_irq_init(void)
 			goto __free_desc_res;
 	}
 
+	irq_proc_calc_prec();
 	return arch_early_irq_init();
 
 __free_desc_res:

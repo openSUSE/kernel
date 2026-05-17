@@ -457,9 +457,24 @@ int __weak arch_show_interrupts(struct seq_file *p, int prec)
 	return 0;
 }
 
+static struct irq_proc_constraints {
+	unsigned int	num_prec;
+} irq_proc_constraints __read_mostly = {
+	.num_prec	= 3,
+};
+
 #ifndef ACTUAL_NR_IRQS
 # define ACTUAL_NR_IRQS total_nr_irqs
 #endif
+
+void irq_proc_calc_prec(void)
+{
+	unsigned int prec, n;
+
+	for (prec = 3, n = 1000; prec < 10 && n <= total_nr_irqs; ++prec)
+		n *= 10;
+	WRITE_ONCE(irq_proc_constraints.num_prec, prec);
+}
 
 /* Same as seq_put_decimal_ull_width(p, " ", cnt, 10) */
 #define ZSTR1 "          0"
@@ -500,9 +515,7 @@ void irq_proc_emit_counts(struct seq_file *p, unsigned int __percpu *cnts)
 
 int show_interrupts(struct seq_file *p, void *v)
 {
-	const unsigned int nr_irqs = total_nr_irqs;
-	static int prec;
-
+	unsigned int prec = READ_ONCE(irq_proc_constraints.num_prec);
 	int i = *(loff_t *) v, j;
 	struct irqaction *action;
 	struct irq_desc *desc;
@@ -515,9 +528,6 @@ int show_interrupts(struct seq_file *p, void *v)
 
 	/* print header and calculate the width of the first column */
 	if (i == 0) {
-		for (prec = 3, j = 1000; prec < 10 && j <= nr_irqs; ++prec)
-			j *= 10;
-
 		seq_printf(p, "%*s", prec + 8, "");
 		for_each_online_cpu(j)
 			seq_printf(p, "CPU%-8d", j);
@@ -553,13 +563,16 @@ int show_interrupts(struct seq_file *p, void *v)
 	} else {
 		seq_printf(p, "%8s", "None");
 	}
+
+	seq_putc(p, ' ');
 	if (desc->irq_data.domain)
-		seq_printf(p, " %*lu", prec, desc->irq_data.hwirq);
+		seq_put_decimal_ull_width(p, "", desc->irq_data.hwirq, prec);
 	else
 		seq_printf(p, " %*s", prec, "");
-#ifdef CONFIG_GENERIC_IRQ_SHOW_LEVEL
-	seq_printf(p, " %-8s", irqd_is_level_type(&desc->irq_data) ? "Level" : "Edge");
-#endif
+
+	if (IS_ENABLED(CONFIG_GENERIC_IRQ_SHOW_LEVEL))
+		seq_printf(p, " %-8s", irqd_is_level_type(&desc->irq_data) ? "Level" : "Edge");
+
 	if (desc->name)
 		seq_printf(p, "-%-8s", desc->name);
 
