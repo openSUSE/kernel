@@ -451,6 +451,43 @@ int __weak arch_show_interrupts(struct seq_file *p, int prec)
 # define ACTUAL_NR_IRQS irq_get_nr_irqs()
 #endif
 
+/* Same as seq_put_decimal_ull_width(p, " ", cnt, 10) */
+#define ZSTR1 "          0"
+#define ZSTR1_LEN	(sizeof(ZSTR1) - 1)
+#define ZSTR16		ZSTR1 ZSTR1 ZSTR1 ZSTR1 ZSTR1 ZSTR1 ZSTR1 ZSTR1 \
+			ZSTR1 ZSTR1 ZSTR1 ZSTR1 ZSTR1 ZSTR1 ZSTR1 ZSTR1
+#define ZSTR256		ZSTR16 ZSTR16 ZSTR16 ZSTR16 ZSTR16 ZSTR16 ZSTR16 ZSTR16 \
+			ZSTR16 ZSTR16 ZSTR16 ZSTR16 ZSTR16 ZSTR16 ZSTR16 ZSTR16
+
+static inline void irq_proc_emit_zero_counts(struct seq_file *p, unsigned int zeros)
+{
+	if (!zeros)
+		return;
+
+	for (unsigned int n = min(zeros, 256); n; zeros -= n, n = min(zeros, 256))
+		seq_write(p, ZSTR256, n * ZSTR1_LEN);
+}
+
+static inline unsigned int irq_proc_emit_count(struct seq_file *p, unsigned int cnt,
+					       unsigned int zeros)
+{
+	if (!cnt)
+		return zeros + 1;
+
+	irq_proc_emit_zero_counts(p, zeros);
+	seq_put_decimal_ull_width(p, " ", cnt, 10);
+	return 0;
+}
+
+void irq_proc_emit_counts(struct seq_file *p, unsigned int __percpu *cnts)
+{
+	unsigned int cpu, zeros = 0;
+
+	for_each_online_cpu(cpu)
+		zeros = irq_proc_emit_count(p, per_cpu(*cnts, cpu), zeros);
+	irq_proc_emit_zero_counts(p, zeros);
+}
+
 int show_interrupts(struct seq_file *p, void *v)
 {
 	const unsigned int nr_irqs = irq_get_nr_irqs();
@@ -486,11 +523,7 @@ int show_interrupts(struct seq_file *p, void *v)
 		return 0;
 
 	seq_printf(p, "%*d:", prec, i);
-	for_each_online_cpu(j) {
-		unsigned int cnt = desc->kstat_irqs ? per_cpu(desc->kstat_irqs->cnt, j) : 0;
-
-		seq_put_decimal_ull_width(p, " ", cnt, 10);
-	}
+	irq_proc_emit_counts(p, &desc->kstat_irqs->cnt);
 	seq_putc(p, ' ');
 
 	guard(raw_spinlock_irq)(&desc->lock);
