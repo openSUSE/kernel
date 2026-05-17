@@ -137,6 +137,7 @@ static void desc_set_defaults(unsigned int irq, struct irq_desc *desc, int node,
 	desc->tot_count = 0;
 	desc->name = NULL;
 	desc->owner = owner;
+	rcuref_init(&desc->refcnt, 1);
 	desc_smp_init(desc, node, affinity);
 }
 
@@ -465,6 +466,17 @@ static void delayed_free_desc(struct rcu_head *rhp)
 	kobject_put(&desc->kobj);
 }
 
+void irq_desc_free_rcu(struct irq_desc *desc)
+{
+	/*
+	 * We free the descriptor, masks and stat fields via RCU. That
+	 * allows demultiplex interrupts to do rcu based management of
+	 * the child interrupts.
+	 * This also allows us to use rcu in kstat_irqs_usr().
+	 */
+	call_rcu(&desc->rcu, delayed_free_desc);
+}
+
 static void free_desc(unsigned int irq)
 {
 	struct irq_desc *desc = irq_to_desc(irq);
@@ -483,14 +495,7 @@ static void free_desc(unsigned int irq)
 	 */
 	irq_sysfs_del(desc);
 	delete_irq_desc(irq);
-
-	/*
-	 * We free the descriptor, masks and stat fields via RCU. That
-	 * allows demultiplex interrupts to do rcu based management of
-	 * the child interrupts.
-	 * This also allows us to use rcu in kstat_irqs_usr().
-	 */
-	call_rcu(&desc->rcu, delayed_free_desc);
+	irq_desc_put_ref(desc);
 }
 
 static int alloc_descs(unsigned int start, unsigned int cnt, int node,

@@ -70,6 +70,7 @@ struct irq_redirect {
  *			IRQF_NO_SUSPEND set
  * @force_resume_depth:	number of irqactions on a irq descriptor with
  *			IRQF_FORCE_RESUME set
+ * @refcnt:		Reference count mainly for /proc/interrupts
  * @rcu:		rcu head for delayed free
  * @kobj:		kobject used to represent this struct in sysfs
  * @request_mutex:	mutex to protect request/free before locking desc->lock
@@ -119,6 +120,7 @@ struct irq_desc {
 	struct dentry		*debugfs_file;
 	const char		*dev_name;
 #endif
+	rcuref_t		refcnt;
 #ifdef CONFIG_SPARSE_IRQ
 	struct rcu_head		rcu;
 	struct kobject		kobj;

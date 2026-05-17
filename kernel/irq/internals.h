@@ -9,6 +9,7 @@
 #include <linux/irqdesc.h>
 #include <linux/kernel_stat.h>
 #include <linux/pm_runtime.h>
+#include <linux/rcuref.h>
 #include <linux/sched/clock.h>
 
 #ifdef CONFIG_SPARSE_IRQ
@@ -101,9 +102,23 @@ extern void unmask_irq(struct irq_desc *desc);
 extern void unmask_threaded_irq(struct irq_desc *desc);
 
 #ifdef CONFIG_SPARSE_IRQ
-static inline void irq_mark_irq(unsigned int irq) { }
+static __always_inline void irq_mark_irq(unsigned int irq) { }
+void irq_desc_free_rcu(struct irq_desc *desc);
+
+static __always_inline bool irq_desc_get_ref(struct irq_desc *desc)
+{
+	return rcuref_get(&desc->refcnt);
+}
+
+static __always_inline void irq_desc_put_ref(struct irq_desc *desc)
+{
+	if (rcuref_put(&desc->refcnt))
+		irq_desc_free_rcu(desc);
+}
 #else
 extern void irq_mark_irq(unsigned int irq);
+static __always_inline bool irq_desc_get_ref(struct irq_desc *desc) { return true; }
+static __always_inline void irq_desc_put_ref(struct irq_desc *desc) { }
 #endif
 
 irqreturn_t __handle_irq_event_percpu(struct irq_desc *desc);
