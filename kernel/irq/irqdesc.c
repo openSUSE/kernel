@@ -181,15 +181,12 @@ static int irq_find_free_area(unsigned int from, unsigned int cnt)
 	return mas.index;
 }
 
-static unsigned int irq_find_at_or_after(unsigned int offset)
+struct irq_desc *irq_find_desc_at_or_after(unsigned int offset)
 {
 	unsigned long index = offset;
-	struct irq_desc *desc;
 
-	guard(rcu)();
-	desc = mt_find(&sparse_irqs, &index, total_nr_irqs);
-
-	return desc ? irq_desc_get_irq(desc) : total_nr_irqs;
+	lockdep_assert_in_rcu_read_lock();
+	return mt_find(&sparse_irqs, &index, total_nr_irqs);
 }
 
 static void irq_insert_desc(unsigned int irq, struct irq_desc *desc)
@@ -934,7 +931,11 @@ EXPORT_SYMBOL_GPL(__irq_alloc_descs);
  */
 unsigned int irq_get_next_irq(unsigned int offset)
 {
-	return irq_find_at_or_after(offset);
+	struct irq_desc *desc;
+
+	guard(rcu)();
+	desc = irq_find_desc_at_or_after(offset);
+	return desc ? irq_desc_get_irq(desc) : total_nr_irqs;
 }
 
 struct irq_desc *__irq_get_desc_lock(unsigned int irq, unsigned long *flags, bool bus,

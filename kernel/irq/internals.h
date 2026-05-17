@@ -155,6 +155,8 @@ void irq_proc_calc_prec(void);
 static inline void irq_proc_calc_prec(void) { }
 #endif
 
+struct irq_desc *irq_find_desc_at_or_after(unsigned int offset);
+
 extern bool irq_can_set_affinity_usr(unsigned int irq);
 
 extern int irq_do_set_affinity(struct irq_data *data,
