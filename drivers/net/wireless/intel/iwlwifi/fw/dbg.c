@@ -2239,33 +2239,19 @@ struct iwl_dump_ini_mem_ops {
 			  void *range, u32 range_len, int idx);
 };
 
-/**
- * struct iwl_fw_ini_dump_entry - dump entry descriptor
- * @list: list of dump entries
- * @size: size of the data
- * @data: entry data
- */
 struct iwl_fw_ini_dump_entry {
+	const struct iwl_dump_ini_mem_ops *ops;
+	struct iwl_dump_ini_region_data reg_data;
 	struct list_head list;
+	u32 region_dump_policy;
 	u32 size;
 	u8 data[];
 } __packed;
 
-/**
- * iwl_dump_ini_mem - dump memory region
- *
- * @fwrt: fw runtime struct
- * @list: list to add the dump tlv to
- * @reg_data: memory region
- * @ops: memory dump operations
- *
- * Creates a dump tlv and copy a memory region into it.
- *
- * Returns: the size of the current dump tlv or 0 if failed
- */
-static u32 iwl_dump_ini_mem(struct iwl_fw_runtime *fwrt, struct list_head *list,
-			    struct iwl_dump_ini_region_data *reg_data,
-			    const struct iwl_dump_ini_mem_ops *ops)
+static void iwl_dump_ini_mem_prep(struct iwl_fw_runtime *fwrt,
+				  struct list_head *list,
+				  struct iwl_dump_ini_region_data *reg_data,
+				  const struct iwl_dump_ini_mem_ops *ops)
 {
 	struct iwl_fw_ini_region_tlv *reg = (void *)reg_data->reg_tlv->data;
 	struct iwl_fw_ini_dump_entry *entry;
@@ -2273,58 +2259,59 @@ static u32 iwl_dump_ini_mem(struct iwl_fw_runtime *fwrt, struct list_head *list,
 	struct iwl_fw_ini_error_dump_header *header;
 	u32 type = reg->type;
 	u32 id = le32_get_bits(reg->id, IWL_FW_INI_REGION_ID_MASK);
-	u32 num_of_ranges, i, size;
-	u8 *range;
-	u32 free_size;
-	u64 header_size;
+	u32 num_of_ranges, size;
 	u32 dump_policy = IWL_FW_INI_DUMP_VERBOSE;
+	u32 dp;
 
 	IWL_DEBUG_FW(fwrt, "WRT: Collecting region: dump type=%d, id=%d, type=%d\n",
 		     dump_policy, id, type);
 
 	if (le32_to_cpu(reg->hdr.version) >= 2) {
-		u32 dp = le32_get_bits(reg->id,
-				       IWL_FW_INI_REGION_DUMP_POLICY_MASK);
+		dp = le32_get_bits(reg->id, IWL_FW_INI_REGION_DUMP_POLICY_MASK);
 
 		if (dump_policy == IWL_FW_INI_DUMP_VERBOSE &&
 		    !(dp & IWL_FW_INI_DEBUG_DUMP_POLICY_NO_LIMIT)) {
 			IWL_DEBUG_FW(fwrt,
 				     "WRT: no dump - type %d and policy mismatch=%d\n",
 				     dump_policy, dp);
-			return 0;
+			return;
 		} else if (dump_policy == IWL_FW_INI_DUMP_MEDIUM &&
 			   !(dp & IWL_FW_IWL_DEBUG_DUMP_POLICY_MAX_LIMIT_5MB)) {
 			IWL_DEBUG_FW(fwrt,
 				     "WRT: no dump - type %d and policy mismatch=%d\n",
 				     dump_policy, dp);
-			return 0;
+			return;
 		} else if (dump_policy == IWL_FW_INI_DUMP_BRIEF &&
 			   !(dp & IWL_FW_INI_DEBUG_DUMP_POLICY_MAX_LIMIT_600KB)) {
 			IWL_DEBUG_FW(fwrt,
 				     "WRT: no dump - type %d and policy mismatch=%d\n",
 				     dump_policy, dp);
-			return 0;
+			return;
 		}
+	} else {
+		dp = 0;
 	}
 
 	if (!ops->get_num_of_ranges || !ops->get_size || !ops->fill_mem_hdr ||
 	    !ops->fill_range) {
 		IWL_DEBUG_FW(fwrt, "WRT: no ops for collecting data\n");
-		return 0;
+		return;
 	}
 
 	size = ops->get_size(fwrt, reg_data);
 
 	if (size < sizeof(*header)) {
 		IWL_DEBUG_FW(fwrt, "WRT: size didn't include space for header\n");
-		return 0;
+		return;
 	}
 
 	entry = vzalloc(sizeof(*entry) + sizeof(*tlv) + size);
 	if (!entry)
-		return 0;
+		return;
 
 	entry->size = sizeof(*tlv) + size;
+	entry->reg_data = *reg_data;
+	entry->region_dump_policy = dp;
 
 	tlv = (void *)entry->data;
 	tlv->type = reg->type;
@@ -2341,7 +2328,29 @@ static u32 iwl_dump_ini_mem(struct iwl_fw_runtime *fwrt, struct list_head *list,
 	header->name_len = cpu_to_le32(IWL_FW_INI_MAX_NAME);
 	memcpy(header->name, reg->name, IWL_FW_INI_MAX_NAME);
 
-	free_size = size;
+	entry->ops = ops;
+	list_add_tail(&entry->list, list);
+}
+
+static u32 iwl_dump_ini_mem(struct iwl_fw_runtime *fwrt,
+			    struct iwl_fw_ini_dump_entry *entry)
+{
+	struct iwl_dump_ini_region_data *reg_data = &entry->reg_data;
+	struct iwl_fw_ini_region_tlv *reg = (void *)reg_data->reg_tlv->data;
+	const struct iwl_dump_ini_mem_ops *ops = entry->ops;
+	struct iwl_fw_ini_error_dump_data *tlv;
+	struct iwl_fw_ini_error_dump_header *header;
+	u32 type = reg->type;
+	u32 id = le32_get_bits(reg->id, IWL_FW_INI_REGION_ID_MASK);
+	u32 i;
+	u8 *range;
+	u32 free_size;
+	u64 header_size;
+
+	tlv = (void *)entry->data;
+	header = (void *)tlv->data;
+
+	free_size = entry->size - sizeof(*tlv);
 	range = ops->fill_mem_hdr(fwrt, reg_data, header, free_size);
 	if (!range) {
 		IWL_ERR(fwrt,
@@ -2362,7 +2371,7 @@ static u32 iwl_dump_ini_mem(struct iwl_fw_runtime *fwrt, struct list_head *list,
 
 	free_size -= header_size;
 
-	for (i = 0; i < num_of_ranges; i++) {
+	for (i = 0; i < le32_to_cpu(header->num_of_ranges); i++) {
 		int range_size = ops->fill_range(fwrt, reg_data, range,
 						 free_size, i);
 
@@ -2384,11 +2393,10 @@ static u32 iwl_dump_ini_mem(struct iwl_fw_runtime *fwrt, struct list_head *list,
 		range = range + range_size;
 	}
 
-	list_add_tail(&entry->list, list);
-
 	return entry->size;
 
 out_err:
+	list_del(&entry->list);
 	vfree(entry);
 
 	return 0;
@@ -2617,22 +2625,19 @@ static bool iwl_dump_due_to_error(enum iwl_fw_ini_time_point tp_id)
 	       tp_id == IWL_FW_INI_TIME_POINT_FW_HW_ERROR;
 }
 
-static u32
-iwl_dump_ini_dump_regions(struct iwl_fw_runtime *fwrt,
-			  struct iwl_fwrt_dump_data *dump_data,
-			  struct list_head *list,
-			  enum iwl_fw_ini_time_point tp_id,
-			  u64 regions_mask,
-			  struct iwl_dump_ini_region_data *imr_reg_data,
-			  enum iwl_dump_ini_region_selector which)
+static void
+iwl_dump_ini_dump_regions_prep(struct iwl_fw_runtime *fwrt,
+			       struct iwl_fwrt_dump_data *dump_data,
+			       struct list_head *list,
+			       enum iwl_fw_ini_time_point tp_id,
+			       u64 regions_mask,
+			       struct iwl_ucode_tlv **imr_tlv)
 {
-	u32 size = 0;
-
 	for (int i = 0; i < ARRAY_SIZE(fwrt->trans->dbg.active_regions); i++) {
 		struct iwl_dump_ini_region_data reg_data = {
 			.dump_data = dump_data,
 		};
-		u32 reg_type, dp;
+		u32 reg_type;
 		struct iwl_fw_ini_region_tlv *reg;
 
 		if (!(BIT_ULL(i) & regions_mask))
@@ -2650,8 +2655,6 @@ iwl_dump_ini_dump_regions(struct iwl_fw_runtime *fwrt,
 		if (reg_type >= ARRAY_SIZE(iwl_dump_ini_region_ops))
 			continue;
 
-		dp = le32_get_bits(reg->id, IWL_FW_INI_REGION_DUMP_POLICY_MASK);
-
 		if ((reg_type == IWL_FW_INI_REGION_PERIPHERY_PHY ||
 		     reg_type == IWL_FW_INI_REGION_PERIPHERY_PHY_RANGE ||
 		     reg_type == IWL_FW_INI_REGION_PERIPHERY_SNPS_DPHYIP) &&
@@ -2661,6 +2664,39 @@ iwl_dump_ini_dump_regions(struct iwl_fw_runtime *fwrt,
 				 tp_id);
 			continue;
 		}
+
+		/*
+		 * DRAM_IMR can be collected only for FW/HW error timepoint
+		 * when fw is not alive. In addition, it must be collected
+		 * lastly as it overwrites SRAM that can possibly contain
+		 * debug data which also need to be collected.
+		 */
+		if (reg_type == IWL_FW_INI_REGION_DRAM_IMR) {
+			if (iwl_dump_due_to_error(tp_id))
+				*imr_tlv = fwrt->trans->dbg.active_regions[i];
+			else
+				IWL_INFO(fwrt,
+					 "WRT: trying to collect DRAM_IMR at time point: %d, skipping\n",
+					 tp_id);
+			/* continue to next region */
+			continue;
+		}
+
+		iwl_dump_ini_mem_prep(fwrt, list, &reg_data,
+				      &iwl_dump_ini_region_ops[reg_type]);
+	}
+}
+
+static u32
+iwl_dump_ini_dump_entries(struct iwl_fw_runtime *fwrt,
+			  struct list_head *list,
+			  enum iwl_dump_ini_region_selector which)
+{
+	struct iwl_fw_ini_dump_entry *entry, *tmp;
+	u32 size = 0;
+
+	list_for_each_entry_safe(entry, tmp, list, list) {
+		u32 dp = entry->region_dump_policy;
 
 		switch (which) {
 		case IWL_INI_DUMP_ALL_REGIONS:
@@ -2675,27 +2711,7 @@ iwl_dump_ini_dump_regions(struct iwl_fw_runtime *fwrt,
 			break;
 		}
 
-		/*
-		 * DRAM_IMR can be collected only for FW/HW error timepoint
-		 * when fw is not alive. In addition, it must be collected
-		 * lastly as it overwrites SRAM that can possibly contain
-		 * debug data which also need to be collected.
-		 */
-		if (reg_type == IWL_FW_INI_REGION_DRAM_IMR) {
-			if (iwl_dump_due_to_error(tp_id))
-				imr_reg_data->reg_tlv =
-					fwrt->trans->dbg.active_regions[i];
-			else
-				IWL_INFO(fwrt,
-					 "WRT: trying to collect DRAM_IMR at time point: %d, skipping\n",
-					 tp_id);
-		/* continue to next region */
-			continue;
-		}
-
-
-		size += iwl_dump_ini_mem(fwrt, list, &reg_data,
-					 &iwl_dump_ini_region_ops[reg_type]);
+		size += iwl_dump_ini_mem(fwrt, entry);
 	}
 
 	return size;
@@ -2718,32 +2734,32 @@ static u32 iwl_dump_ini_trigger(struct iwl_fw_runtime *fwrt,
 	BUILD_BUG_ON((sizeof(trigger->regions_mask) * BITS_PER_BYTE) <
 		     ARRAY_SIZE(fwrt->trans->dbg.active_regions));
 
+	iwl_dump_ini_dump_regions_prep(fwrt, dump_data, list, tp_id,
+				       regions_mask, &imr_reg_data.reg_tlv);
+
+	/* append DRAM_IMR region to be collected last */
+	if (imr_reg_data.reg_tlv)
+		iwl_dump_ini_mem_prep(fwrt, list, &imr_reg_data,
+				      &iwl_dump_ini_region_ops[IWL_FW_INI_REGION_DRAM_IMR]);
+
 	if (trigger->apply_policy &
 			cpu_to_le32(IWL_FW_INI_APPLY_POLICY_SPLIT_DUMP_RESET)) {
-		size += iwl_dump_ini_dump_regions(fwrt, dump_data, list, tp_id,
-						  regions_mask, &imr_reg_data,
+		size += iwl_dump_ini_dump_entries(fwrt, list,
 						  IWL_INI_DUMP_EARLY_REGIONS);
 		iwl_trans_pcie_fw_reset_handshake(fwrt->trans);
-		size += iwl_dump_ini_dump_regions(fwrt, dump_data, list, tp_id,
-						  regions_mask, &imr_reg_data,
+		size += iwl_dump_ini_dump_entries(fwrt, list,
 						  IWL_INI_DUMP_LATE_REGIONS);
 	} else {
 		if (fw_has_capa(&fwrt->fw->ucode_capa,
 				IWL_UCODE_TLV_CAPA_RESET_DURING_ASSERT) &&
 		    iwl_dump_due_to_error(tp_id))
 			iwl_trans_pcie_fw_reset_handshake(fwrt->trans);
-		size += iwl_dump_ini_dump_regions(fwrt, dump_data, list, tp_id,
-						  regions_mask, &imr_reg_data,
+		size += iwl_dump_ini_dump_entries(fwrt, list,
 						  IWL_INI_DUMP_ALL_REGIONS);
 	}
-	/* collect DRAM_IMR region in the last */
-	if (imr_reg_data.reg_tlv)
-		size += iwl_dump_ini_mem(fwrt, list, &imr_reg_data,
-					 &iwl_dump_ini_region_ops[IWL_FW_INI_REGION_DRAM_IMR]);
 
-	if (size) {
+	if (size)
 		size += iwl_dump_ini_info(fwrt, trigger, list);
-	}
 
 	return size;
 }
