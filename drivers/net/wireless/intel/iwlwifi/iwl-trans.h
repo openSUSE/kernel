@@ -1053,6 +1053,8 @@ static inline bool iwl_trans_dbg_ini_valid(struct iwl_trans *trans)
 
 void iwl_trans_interrupts(struct iwl_trans *trans, bool enable);
 
+int iwl_trans_activate_nic(struct iwl_trans *trans);
+
 static inline void iwl_trans_finish_sw_reset(struct iwl_trans *trans)
 {
 	clear_bit(STATUS_IN_SW_RESET, &trans->status);

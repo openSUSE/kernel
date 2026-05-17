@@ -2,7 +2,7 @@
 /*
  * Copyright (C) 2015 Intel Mobile Communications GmbH
  * Copyright (C) 2016-2017 Intel Deutschland GmbH
- * Copyright (C) 2019-2021, 2023-2025 Intel Corporation
+ * Copyright (C) 2019-2021, 2023-2026 Intel Corporation
  */
 #include <linux/kernel.h>
 #include <linux/bsearch.h>
@@ -820,3 +820,10 @@ bool iwl_trans_is_ltr_enabled(struct iwl_trans *trans)
 	return iwl_pcie_gen1_2_is_ltr_enabled(trans);
 }
 IWL_EXPORT_SYMBOL(iwl_trans_is_ltr_enabled);
+
+int iwl_trans_activate_nic(struct iwl_trans *trans)
+{
+	return iwl_pcie_gen1_2_activate_nic(trans);
+}
+IWL_EXPORT_SYMBOL(iwl_trans_activate_nic);
+
