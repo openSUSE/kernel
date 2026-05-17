@@ -440,6 +440,16 @@ void init_irq_proc(void)
 		register_irq_proc(irq, desc);
 }
 
+void irq_proc_update_valid(struct irq_desc *desc)
+{
+	u32 set = _IRQ_PROC_VALID;
+
+	if (irq_settings_is_hidden(desc) || irq_desc_is_chained(desc) || !desc->action)
+		set = 0;
+
+	irq_settings_update_proc_valid(desc, set);
+}
+
 #ifdef CONFIG_GENERIC_IRQ_SHOW
 
 int __weak arch_show_interrupts(struct seq_file *p, int prec)
@@ -516,10 +526,7 @@ int show_interrupts(struct seq_file *p, void *v)
 
 	guard(rcu)();
 	desc = irq_to_desc(i);
-	if (!desc || irq_settings_is_hidden(desc))
-		return 0;
-
-	if (!desc->action || irq_desc_is_chained(desc) || !desc->kstat_irqs)
+	if (!desc || !irq_settings_proc_valid(desc))
 		return 0;
 
 	seq_printf(p, "%*d:", prec, i);

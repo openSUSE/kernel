@@ -123,6 +123,7 @@ extern void register_irq_proc(unsigned int irq, struct irq_desc *desc);
 extern void unregister_irq_proc(unsigned int irq, struct irq_desc *desc);
 extern void register_handler_proc(unsigned int irq, struct irqaction *action);
 extern void unregister_handler_proc(unsigned int irq, struct irqaction *action);
+void irq_proc_update_valid(struct irq_desc *desc);
 #else
 static inline void register_irq_proc(unsigned int irq, struct irq_desc *desc) { }
 static inline void unregister_irq_proc(unsigned int irq, struct irq_desc *desc) { }
@@ -130,6 +131,7 @@ static inline void register_handler_proc(unsigned int irq,
 					 struct irqaction *action) { }
 static inline void unregister_handler_proc(unsigned int irq,
 					   struct irqaction *action) { }
+static inline void irq_proc_update_valid(struct irq_desc *desc) { }
 #endif
 
 extern bool irq_can_set_affinity_usr(unsigned int irq);

@@ -1007,6 +1007,7 @@ __irq_do_set_handler(struct irq_desc *desc, irq_flow_handler_t handle,
 		WARN_ON(irq_chip_pm_get(irq_desc_get_irq_data(desc)));
 		irq_activate_and_startup(desc, IRQ_RESEND);
 	}
+	irq_proc_update_valid(desc);
 }
 
 void __irq_set_handler(unsigned int irq, irq_flow_handler_t handle, int is_chained,
@@ -1067,6 +1068,7 @@ void irq_modify_status(unsigned int irq, unsigned long clr, unsigned long set)
 			trigger = tmp;
 
 		irqd_set(&desc->irq_data, trigger);
+		irq_proc_update_valid(desc);
 	}
 }
 EXPORT_SYMBOL_GPL(irq_modify_status);
