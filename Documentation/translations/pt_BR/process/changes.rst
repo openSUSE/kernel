@@ -31,7 +31,7 @@ PC Card por exemplo, provavelmente não precisará se preocupar com o pcmciautil
         Programa        Versão mínima       Comando para verificar a versão
 ====================== ===============  ========================================
 GNU C                  8.1              gcc --version
-Clang/LLVM (optional)  15.0.0           clang --version
+Clang/LLVM (optional)  17.0.1           clang --version
 Rust (optional)        1.78.0           rustc --version
 bindgen (optional)     0.65.1           bindgen --version
 GNU make               4.0              make --version
