@@ -38,7 +38,6 @@ struct device_private;
 struct device_driver;
 struct driver_private;
 struct module;
-struct class;
 struct subsys_private;
 struct device_node;
 struct fwnode_handle;
