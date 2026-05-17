@@ -76,8 +76,6 @@
  * @root_ino: The VFS inode of the root directory.
  * @secure_ino: The VFS inode of $Secure (NTFS3.0+ only, otherwise NULL).
  * @extend_ino: The VFS inode of $Extend (NTFS3.0+ only, otherwise NULL).
- * @quota_ino: The VFS inode of $Quota.
- * @quota_q_ino: Attribute inode for $Quota/$Q.
  * @nls_map: NLS (National Language Support) table.
  * @nls_utf8: NLS table for UTF-8.
  * @free_waitq: Wait queue for threads waiting for free clusters or MFT records.
@@ -141,8 +139,6 @@ struct ntfs_volume {
 	struct inode *root_ino;
 	struct inode *secure_ino;
 	struct inode *extend_ino;
-	struct inode *quota_ino;
-	struct inode *quota_q_ino;
 	struct nls_table *nls_map;
 	bool nls_utf8;
 	wait_queue_head_t free_waitq;
@@ -165,7 +161,6 @@ struct ntfs_volume {
  *				Otherwise be case insensitive but still
  *				create file names in POSIX namespace.
  * NV_LogFileEmpty		LogFile journal is empty.
- * NV_QuotaOutOfDate		Quota is out of date.
  * NV_UsnJrnlStamped		UsnJrnl has been stamped.
  * NV_ReadOnly			Volume is mounted read-only.
  * NV_Compression		Volume supports compression.
@@ -186,7 +181,6 @@ enum {
 	NV_ShowSystemFiles,
 	NV_CaseSensitive,
 	NV_LogFileEmpty,
-	NV_QuotaOutOfDate,
 	NV_UsnJrnlStamped,
 	NV_ReadOnly,
 	NV_Compression,
@@ -223,7 +217,6 @@ DEFINE_NVOL_BIT_OPS(Errors)
 DEFINE_NVOL_BIT_OPS(ShowSystemFiles)
 DEFINE_NVOL_BIT_OPS(CaseSensitive)
 DEFINE_NVOL_BIT_OPS(LogFileEmpty)
-DEFINE_NVOL_BIT_OPS(QuotaOutOfDate)
 DEFINE_NVOL_BIT_OPS(UsnJrnlStamped)
 DEFINE_NVOL_BIT_OPS(ReadOnly)
 DEFINE_NVOL_BIT_OPS(Compression)
