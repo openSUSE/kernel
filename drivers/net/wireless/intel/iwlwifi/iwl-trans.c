@@ -459,6 +459,12 @@ int iwl_trans_read_mem(struct iwl_trans *trans, u32 addr,
 }
 IWL_EXPORT_SYMBOL(iwl_trans_read_mem);
 
+int iwl_trans_read_mem_no_grab(struct iwl_trans *trans, u32 addr,
+			       void *buf, u32 dwords)
+{
+	return iwl_trans_pcie_read_mem_no_grab(trans, addr, buf, dwords);
+}
+
 int iwl_trans_write_mem(struct iwl_trans *trans, u32 addr,
 			const void *buf, int dwords)
 {

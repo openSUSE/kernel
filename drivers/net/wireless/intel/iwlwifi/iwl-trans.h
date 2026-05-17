@@ -919,6 +919,14 @@ void iwl_trans_write_prph(struct iwl_trans *trans, u32 ofs, u32 val);
 int iwl_trans_read_mem(struct iwl_trans *trans, u32 addr,
 		       void *buf, int dwords);
 
+/*
+ * Note the special calling convention - it's allowed to drop the
+ * internal transport lock and re-enable BHs temporarily, but will
+ * not release NIC access.
+ */
+int iwl_trans_read_mem_no_grab(struct iwl_trans *trans, u32 addr,
+			       void *buf, u32 dwords);
+
 int iwl_trans_read_config32(struct iwl_trans *trans, u32 ofs,
 			    u32 *val);
 
@@ -933,6 +941,14 @@ void iwl_trans_debugfs_cleanup(struct iwl_trans *trans);
 		iwl_trans_read_mem(trans, addr, buf,		\
 				   (bufsize) / sizeof(u32));	\
 	})
+
+static inline int
+iwl_trans_read_mem_bytes_no_grab(struct iwl_trans *trans,
+				 u32 addr, void *buf, u32 bufsize)
+{
+	return iwl_trans_read_mem_no_grab(trans, addr, buf,
+					  bufsize / sizeof(u32));
+}
 
 int iwl_trans_write_imr_mem(struct iwl_trans *trans, u32 dst_addr,
 			    u64 src_addr, u32 byte_cnt);
