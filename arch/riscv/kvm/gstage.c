@@ -414,7 +414,7 @@ next:
 		 * to prevent starvation and lockup detector warnings.
 		 */
 		if (!(gstage->flags & KVM_GSTAGE_FLAGS_LOCAL) && may_block && addr < end)
-			cond_resched_lock(&gstage->kvm->mmu_lock);
+			cond_resched_rwlock_write(&gstage->kvm->mmu_lock);
 	}
 
 	return flush;
