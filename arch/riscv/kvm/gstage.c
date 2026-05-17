@@ -182,17 +182,22 @@ int kvm_riscv_gstage_set_pte(struct kvm_gstage *gstage,
 static void kvm_riscv_gstage_update_pte_prot(struct kvm_gstage *gstage, u32 level,
 					     gpa_t addr, pte_t *ptep, pgprot_t prot)
 {
-	pte_t new_pte;
+	pte_t old_pte, new_pte;
 
-	if (pgprot_val(pte_pgprot(ptep_get(ptep))) == pgprot_val(prot))
-		return;
+	for (;;) {
+		old_pte = ptep_get(ptep);
+		if (pgprot_val(pte_pgprot(old_pte)) == pgprot_val(prot))
+			return;
 
-	new_pte = pfn_pte(pte_pfn(ptep_get(ptep)), prot);
-	new_pte = pte_mkdirty(new_pte);
+		new_pte = pfn_pte(pte_pfn(old_pte), prot);
+		new_pte = pte_mkdirty(new_pte);
 
-	set_pte(ptep, new_pte);
+		if (kvm_riscv_gstage_try_update_pte(gstage, level, addr, ptep,
+						    old_pte, new_pte))
+			return;
 
-	gstage_tlb_flush(gstage, level, addr);
+		cpu_relax();
+	}
 }
 
 int kvm_riscv_gstage_map_page(struct kvm_gstage *gstage,
