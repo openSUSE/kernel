@@ -89,6 +89,46 @@ enum iwl_location_subcmd_ids {
 };
 
 /**
+ * enum iwl_location_frame_format - location frame formats
+ * @IWL_LOCATION_FRAME_FORMAT_LEGACY: legacy
+ * @IWL_LOCATION_FRAME_FORMAT_HT: HT
+ * @IWL_LOCATION_FRAME_FORMAT_VHT: VHT
+ * @IWL_LOCATION_FRAME_FORMAT_HE: HE
+ */
+enum iwl_location_frame_format {
+	IWL_LOCATION_FRAME_FORMAT_LEGACY,
+	IWL_LOCATION_FRAME_FORMAT_HT,
+	IWL_LOCATION_FRAME_FORMAT_VHT,
+	IWL_LOCATION_FRAME_FORMAT_HE,
+};
+
+/**
+ * enum iwl_location_bw - location bandwidth selection
+ * @IWL_LOCATION_BW_20MHZ: 20 MHz
+ * @IWL_LOCATION_BW_40MHZ: 40 MHz
+ * @IWL_LOCATION_BW_80MHZ: 80 MHz
+ * @IWL_LOCATION_BW_160MHZ: 160 MHz
+ * @IWL_LOCATION_BW_320MHZ: 320 MHz
+ */
+enum iwl_location_bw {
+	IWL_LOCATION_BW_20MHZ,
+	IWL_LOCATION_BW_40MHZ,
+	IWL_LOCATION_BW_80MHZ,
+	IWL_LOCATION_BW_160MHZ,
+	IWL_LOCATION_BW_320MHZ,
+};
+
+/**
+ * enum iwl_location_format_bw - format/BW encoding
+ * @IWL_LOCATION_FMT_BW_FORMAT: &enum iwl_location_frame_format
+ * @IWL_LOCATION_FMT_BW_BANDWIDTH: &enum iwl_location_bw
+ */
+enum iwl_location_format_bw {
+	IWL_LOCATION_FMT_BW_FORMAT	= 0x0f,
+	IWL_LOCATION_FMT_BW_BANDWIDTH	= 0xf0,
+};
+
+/**
  * struct iwl_tof_config_cmd - ToF configuration
  * @tof_disabled: indicates if ToF is disabled (or not)
  * @one_sided_disabled: indicates if one-sided is disabled (or not)
@@ -264,8 +304,7 @@ struct iwl_tof_responder_config_cmd_v6 {
  * struct iwl_tof_responder_config_cmd_v7 - ToF AP mode (for debug)
  * @cmd_valid_fields: &iwl_tof_responder_cmd_valid_field
  * @responder_cfg_flags: &iwl_tof_responder_cfg_flags
- * @format_bw: bits 0 - 3: &enum iwl_location_frame_format.
- *             bits 4 - 7: &enum iwl_location_bw.
+ * @format_bw: &enum iwl_location_format_bw
  * @rate: current AP rate
  * @channel_num: current AP Channel
  * @ctrl_ch_position: coding of the control channel position relative to
@@ -303,8 +342,7 @@ struct iwl_tof_responder_config_cmd_v7 {
  * struct iwl_tof_responder_config_cmd_v8 - ToF AP mode (for debug)
  * @cmd_valid_fields: &iwl_tof_responder_cmd_valid_field
  * @responder_cfg_flags: &iwl_tof_responder_cfg_flags
- * @format_bw: bits 0 - 3: &enum iwl_location_frame_format.
- *             bits 4 - 7: &enum iwl_location_bw.
+ * @format_bw: &enum iwl_location_format_bw
  * @rate: current AP rate
  * @channel_num: current AP Channel
  * @ctrl_ch_position: coding of the control channel position relative to
@@ -349,8 +387,7 @@ struct iwl_tof_responder_config_cmd_v8 {
  * struct iwl_tof_responder_config_cmd_v9 - ToF AP mode (for debug)
  * @cmd_valid_fields: &iwl_tof_responder_cmd_valid_field
  * @responder_cfg_flags: &iwl_tof_responder_cfg_flags
- * @format_bw: bits 0 - 3: &enum iwl_location_frame_format.
- *             bits 4 - 7: &enum iwl_location_bw.
+ * @format_bw: &enum iwl_location_format_bw
  * @bss_color: current AP bss_color
  * @channel_num: current AP Channel
  * @ctrl_ch_position: coding of the control channel position relative to
@@ -401,8 +438,7 @@ struct iwl_tof_responder_config_cmd_v9 {
  * struct iwl_tof_responder_config_cmd - ToF AP mode
  * @cmd_valid_fields: &iwl_tof_responder_cmd_valid_field
  * @responder_cfg_flags: &iwl_tof_responder_cfg_flags
- * @format_bw: bits 0 - 3: &enum iwl_location_frame_format.
- *             bits 4 - 7: &enum iwl_location_bw.
+ * @format_bw: &enum iwl_location_format_bw
  * @bss_color: current AP bss_color
  * @channel_num: current AP Channel
  * @ctrl_ch_position: coding of the control channel position relative to
@@ -677,44 +713,13 @@ struct iwl_tof_range_req_ap_entry_v3 {
 	__le32 tsf_delta;
 } __packed; /* LOCATION_RANGE_REQ_AP_ENTRY_CMD_API_S_VER_3 */
 
-/**
- * enum iwl_location_frame_format - location frame formats
- * @IWL_LOCATION_FRAME_FORMAT_LEGACY: legacy
- * @IWL_LOCATION_FRAME_FORMAT_HT: HT
- * @IWL_LOCATION_FRAME_FORMAT_VHT: VHT
- * @IWL_LOCATION_FRAME_FORMAT_HE: HE
- */
-enum iwl_location_frame_format {
-	IWL_LOCATION_FRAME_FORMAT_LEGACY,
-	IWL_LOCATION_FRAME_FORMAT_HT,
-	IWL_LOCATION_FRAME_FORMAT_VHT,
-	IWL_LOCATION_FRAME_FORMAT_HE,
-};
-
-/**
- * enum iwl_location_bw - location bandwidth selection
- * @IWL_LOCATION_BW_20MHZ: 20MHz
- * @IWL_LOCATION_BW_40MHZ: 40MHz
- * @IWL_LOCATION_BW_80MHZ: 80MHz
- * @IWL_LOCATION_BW_160MHZ: 160MHz
- */
-enum iwl_location_bw {
-	IWL_LOCATION_BW_20MHZ,
-	IWL_LOCATION_BW_40MHZ,
-	IWL_LOCATION_BW_80MHZ,
-	IWL_LOCATION_BW_160MHZ,
-};
-
 #define TK_11AZ_LEN	32
-
-#define LOCATION_BW_POS	4
 
 /**
  * struct iwl_tof_range_req_ap_entry_v4 - AP configuration parameters
  * @initiator_ap_flags: see &enum iwl_initiator_ap_flags.
  * @channel_num: AP Channel number
- * @format_bw: bits 0 - 3: &enum iwl_location_frame_format.
- *             bits 4 - 7: &enum iwl_location_bw.
+ * @format_bw: &enum iwl_location_format_bw
  * @ctrl_ch_position: Coding of the control channel position relative to the
  *	center frequency, see iwl_mvm_get_ctrl_pos().
  * @ftmr_max_retries: Max number of retries to send the FTMR in case of no
@@ -764,8 +769,7 @@ enum iwl_location_cipher {
  * struct iwl_tof_range_req_ap_entry_v6 - AP configuration parameters
  * @initiator_ap_flags: see &enum iwl_initiator_ap_flags.
  * @channel_num: AP Channel number
- * @format_bw: bits 0 - 3: &enum iwl_location_frame_format.
- *             bits 4 - 7: &enum iwl_location_bw.
+ * @format_bw: &enum iwl_location_format_bw
  * @ctrl_ch_position: Coding of the control channel position relative to the
  *	center frequency, see iwl_mvm_get_ctrl_pos().
  * @ftmr_max_retries: Max number of retries to send the FTMR in case of no
@@ -811,8 +815,7 @@ struct iwl_tof_range_req_ap_entry_v6 {
  * struct iwl_tof_range_req_ap_entry_v7 - AP configuration parameters
  * @initiator_ap_flags: see &enum iwl_initiator_ap_flags.
  * @channel_num: AP Channel number
- * @format_bw: bits 0 - 3: &enum iwl_location_frame_format.
- *             bits 4 - 7: &enum iwl_location_bw.
+ * @format_bw: &enum iwl_location_format_bw
  * @ctrl_ch_position: Coding of the control channel position relative to the
  *	center frequency, see iwl_mvm_get_ctrl_pos().
  * @ftmr_max_retries: Max number of retries to send the FTMR in case of no
@@ -869,8 +872,7 @@ struct iwl_tof_range_req_ap_entry_v7 {
  * struct iwl_tof_range_req_ap_entry_v8 - AP configuration parameters
  * @initiator_ap_flags: see &enum iwl_initiator_ap_flags.
  * @channel_num: AP Channel number
- * @format_bw: bits 0 - 3: &enum iwl_location_frame_format.
- *             bits 4 - 7: &enum iwl_location_bw.
+ * @format_bw: &enum iwl_location_format_bw
  * @ctrl_ch_position: Coding of the control channel position relative to the
  *	center frequency, see iwl_mvm_get_ctrl_pos().
  * @ftmr_max_retries: Max number of retries to send the FTMR in case of no
@@ -940,8 +942,7 @@ struct iwl_tof_range_req_ap_entry_v8 {
  * struct iwl_tof_range_req_ap_entry_v9 - AP configuration parameters
  * @initiator_ap_flags: see &enum iwl_initiator_ap_flags.
  * @channel_num: AP Channel number
- * @format_bw: bits 0 - 3: &enum iwl_location_frame_format.
- *             bits 4 - 7: &enum iwl_location_bw.
+ * @format_bw: &enum iwl_location_format_bw
  * @ctrl_ch_position: Coding of the control channel position relative to the
  *	center frequency, see iwl_mvm_get_ctrl_pos().
  * @ftmr_max_retries: Max number of retries to send the FTMR in case of no
@@ -1025,8 +1026,7 @@ struct iwl_tof_range_req_ap_entry_v9 {
  * @initiator_ap_flags: see &enum iwl_initiator_ap_flags.
  * @band: 0 for 5.2 GHz, 1 for 2.4 GHz, 2 for 6GHz
  * @channel_num: AP Channel number
- * @format_bw: bits 0 - 3: &enum iwl_location_frame_format.
- *             bits 4 - 7: &enum iwl_location_bw.
+ * @format_bw: &enum iwl_location_format_bw
  * @ctrl_ch_position: Coding of the control channel position relative to the
  *	center frequency, see iwl_mvm_get_ctrl_pos().
  * @bssid: AP's BSSID
