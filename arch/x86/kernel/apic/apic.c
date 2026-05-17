@@ -2114,7 +2114,7 @@ static noinline void handle_spurious_interrupt(u8 vector)
 
 	trace_spurious_apic_entry(vector);
 
-	inc_irq_stat(SPURIOUS);
+	irq_stat_inc_and_enable(IRQ_COUNT_SPURIOUS);
 
 	/*
 	 * If this is a spurious interrupt then do not acknowledge

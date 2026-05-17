@@ -68,19 +68,24 @@ struct irq_stat_info {
 	const char	*text;
 };
 
+#define DEFAULT_SUPPRESSED_VECTOR	UINT_MAX
+
 #define ISS(idx, sym, txt) [IRQ_COUNT_##idx] = { .symbol = sym, .text = txt }
 
 #define ITS(idx, sym, txt) [IRQ_COUNT_##idx] =				\
 	{ .skip_vector = idx## _VECTOR, .symbol = sym, .text = txt }
 
-static struct irq_stat_info irq_stat_info[IRQ_COUNT_MAX] __ro_after_init = {
+#define IDS(idx, sym, txt) [IRQ_COUNT_##idx] =				\
+	{ .skip_vector = DEFAULT_SUPPRESSED_VECTOR, .symbol = sym, .text = txt }
+
+static const struct irq_stat_info irq_stat_info[IRQ_COUNT_MAX] = {
 	ISS(NMI,			"NMI",	"  Non-maskable interrupts\n"),
 #ifdef CONFIG_X86_LOCAL_APIC
 	ISS(APIC_TIMER,			"LOC",	"  Local timer interrupts\n"),
-	ISS(SPURIOUS,			"SPU",	"  Spurious interrupts\n"),
+	IDS(SPURIOUS,			"SPU",	"  Spurious interrupts\n"),
 	ISS(APIC_PERF,			"PMI",	"  Performance monitoring interrupts\n"),
 	ISS(IRQ_WORK,			"IWI",	"  IRQ work interrupts\n"),
-	ISS(ICR_READ_RETRY,		"RTR",	"  APIC ICR read retries\n"),
+	IDS(ICR_READ_RETRY,		"RTR",	"  APIC ICR read retries\n"),
 	ISS(X86_PLATFORM_IPI,		"PLT",	"  Platform interrupts\n"),
 #endif
 #ifdef CONFIG_SMP
@@ -121,33 +126,46 @@ static struct irq_stat_info irq_stat_info[IRQ_COUNT_MAX] __ro_after_init = {
 #endif
 };
 
+static DECLARE_BITMAP(irq_stat_count_show, IRQ_COUNT_MAX) __read_mostly;
+
 static int __init irq_init_stats(void)
 {
-	struct irq_stat_info *info = irq_stat_info;
+	const struct irq_stat_info *info = irq_stat_info;
 
 	for (unsigned int i = 0; i < ARRAY_SIZE(irq_stat_info); i++, info++) {
-		if (info->skip_vector && test_bit(info->skip_vector, system_vectors))
-			info->skip_vector = 0;
+		if (!info->skip_vector || (info->skip_vector != DEFAULT_SUPPRESSED_VECTOR &&
+					   test_bit(info->skip_vector, system_vectors)))
+			set_bit(i, irq_stat_count_show);
 	}
 
 #ifdef CONFIG_X86_LOCAL_APIC
 	if (!x86_platform_ipi_callback)
-		irq_stat_info[IRQ_COUNT_X86_PLATFORM_IPI].skip_vector = 1;
+		clear_bit(IRQ_COUNT_X86_PLATFORM_IPI, irq_stat_count_show);
 #endif
 
 #ifdef CONFIG_X86_POSTED_MSI
 	if (!posted_msi_enabled())
-		irq_stat_info[IRQ_COUNT_POSTED_MSI_NOTIFICATION].skip_vector = 1;
+		clear_bit(IRQ_COUNT_POSTED_MSI_NOTIFICATION, irq_stat_count_show);
 #endif
 
 #ifdef CONFIG_X86_MCE_AMD
 	if (boot_cpu_data.x86_vendor != X86_VENDOR_AMD &&
 	    boot_cpu_data.x86_vendor != X86_VENDOR_HYGON)
-		irq_stat_info[IRQ_COUNT_DEFERRED_ERROR].skip_vector = 1;
+		clear_bit(IRQ_COUNT_DEFERRED_ERROR, irq_stat_count_show);
 #endif
 	return 0;
 }
 late_initcall(irq_init_stats);
+
+/*
+ * Used for default disabled counters to increment the stats and to enable the
+ * entry for /proc/interrupts output.
+ */
+void irq_stat_inc_and_enable(enum irq_stat_counts which)
+{
+	this_cpu_inc(irq_stat.counts[which]);
+	set_bit(which, irq_stat_count_show);
+}
 
 #ifdef CONFIG_PROC_FS
 /*
@@ -158,7 +176,7 @@ int arch_show_interrupts(struct seq_file *p, int prec)
 	const struct irq_stat_info *info = irq_stat_info;
 
 	for (unsigned int i = 0; i < ARRAY_SIZE(irq_stat_info); i++, info++) {
-		if (info->skip_vector)
+		if (!test_bit(i, irq_stat_count_show))
 			continue;
 
 		seq_printf(p, "%*s:", prec, info->symbol);

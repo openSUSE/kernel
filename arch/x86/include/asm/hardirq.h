@@ -68,6 +68,7 @@ DECLARE_PER_CPU_ALIGNED(struct pi_desc, posted_msi_pi_desc);
 #define __ARCH_IRQ_STAT
 
 #define inc_irq_stat(index)	this_cpu_inc(irq_stat.counts[IRQ_COUNT_##index])
+void irq_stat_inc_and_enable(enum irq_stat_counts which);
 
 #ifdef CONFIG_X86_LOCAL_APIC
 #define inc_perf_irq_stat()	inc_irq_stat(APIC_PERF)
