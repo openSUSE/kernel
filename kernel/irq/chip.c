@@ -47,9 +47,11 @@ int irq_set_chip(unsigned int irq, const struct irq_chip *chip)
 		scoped_irqdesc->irq_data.chip = (struct irq_chip *)(chip ?: &no_irq_chip);
 		ret = 0;
 	}
-	/* For !CONFIG_SPARSE_IRQ make the irq show up in allocated_irqs. */
-	if (!ret)
+	if (!ret) {
+		/* For !CONFIG_SPARSE_IRQ make the irq show up in allocated_irqs. */
 		irq_mark_irq(irq);
+		irq_proc_update_chip(chip);
+	}
 	return ret;
 }
 EXPORT_SYMBOL(irq_set_chip);

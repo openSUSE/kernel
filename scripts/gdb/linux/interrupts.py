@@ -20,7 +20,7 @@ def irq_desc_is_chained(desc):
 def irqd_is_level(desc):
     return desc['irq_data']['common']['state_use_accessors'] & constants.LX_IRQD_LEVEL
 
-def show_irq_desc(prec, irq):
+def show_irq_desc(prec, chip_width, irq):
     text = ""
 
     desc = mapletree.mtree_load(gdb.parse_and_eval("&sparse_irqs"), irq)
@@ -58,7 +58,7 @@ def show_irq_desc(prec, irq):
         else:
             name = "-"
 
-    text += "  %-8s" % (name)
+    text += "  %-*s" % (chip_width, name)
 
     if desc['irq_data']['domain']:
         text += "  %*lu" % (prec, desc['irq_data']['hwirq'])
@@ -171,11 +171,18 @@ class LxInterruptList(gdb.Command):
 
     def invoke(self, arg, from_tty):
         nr_irqs = gdb.parse_and_eval("total_nr_irqs")
-        prec = 4
-        j = 10000
-        while prec < 10 and j <= nr_irqs:
-            prec += 1
-            j *= 10
+        constr = utils.gdb_eval_or_none('irq_proc_constraints')
+
+        if constr:
+            prec = int(constr['num_prec'])
+            chip_width = int(constr['chip_width'])
+        else:
+            prec = 4
+            j = 10000
+            while prec < 10 and j <= nr_irqs:
+                prec += 1
+                j *= 10
+            chip_width = 8
 
         gdb.write("%*s" % (prec + 8, ""))
         for cpu in cpus.each_online_cpu():
@@ -186,7 +193,7 @@ class LxInterruptList(gdb.Command):
             raise gdb.GdbError("Unable to find the sparse IRQ tree, is CONFIG_SPARSE_IRQ enabled?")
 
         for irq in range(nr_irqs):
-            gdb.write(show_irq_desc(prec, irq))
+            gdb.write(show_irq_desc(prec, chip_width, irq))
         gdb.write(arch_show_interrupts(prec))
 
 

@@ -457,10 +457,14 @@ int __weak arch_show_interrupts(struct seq_file *p, int prec)
 	return 0;
 }
 
+static DEFINE_RAW_SPINLOCK(irq_proc_constraints_lock);
+
 static struct irq_proc_constraints {
 	unsigned int	num_prec;
+	unsigned int	chip_width;
 } irq_proc_constraints __read_mostly = {
 	.num_prec	= 4,
+	.chip_width	= 8,
 };
 
 #ifndef ACTUAL_NR_IRQS
@@ -473,7 +477,23 @@ void irq_proc_calc_prec(void)
 
 	for (prec = 4, n = 10000; prec < 10 && n <= total_nr_irqs; ++prec)
 		n *= 10;
-	WRITE_ONCE(irq_proc_constraints.num_prec, prec);
+
+	guard(raw_spinlock_irqsave)(&irq_proc_constraints_lock);
+	if (prec > irq_proc_constraints.num_prec)
+		WRITE_ONCE(irq_proc_constraints.num_prec, prec);
+}
+
+void irq_proc_update_chip(const struct irq_chip *chip)
+{
+	unsigned int len = chip && chip->name ? strlen(chip->name) : 0;
+
+	if (!len || len <= READ_ONCE(irq_proc_constraints.chip_width))
+		return;
+
+	/* Can be invoked from interrupt disabled contexts */
+	guard(raw_spinlock_irqsave)(&irq_proc_constraints_lock);
+	if (len > irq_proc_constraints.chip_width)
+		WRITE_ONCE(irq_proc_constraints.chip_width, len);
 }
 
 /* Same as seq_put_decimal_ull_width(p, " ", cnt, 10) */
@@ -515,6 +535,7 @@ void irq_proc_emit_counts(struct seq_file *p, unsigned int __percpu *cnts)
 
 int show_interrupts(struct seq_file *p, void *v)
 {
+	unsigned int chip_width = READ_ONCE(irq_proc_constraints.chip_width);
 	unsigned int prec = READ_ONCE(irq_proc_constraints.num_prec);
 	int i = *(loff_t *) v, j;
 	struct irqaction *action;
@@ -550,18 +571,20 @@ int show_interrupts(struct seq_file *p, void *v)
 		irq_proc_emit_counts(p, &desc->kstat_irqs->cnt);
 	else
 		irq_proc_emit_zero_counts(p, num_online_cpus());
-	seq_putc(p, ' ');
+
+	/* Enforce a visual gap */
+	seq_write(p, "  ", 2);
 
 	guard(raw_spinlock_irq)(&desc->lock);
 	if (desc->irq_data.chip) {
 		if (desc->irq_data.chip->irq_print_chip)
 			desc->irq_data.chip->irq_print_chip(&desc->irq_data, p);
 		else if (desc->irq_data.chip->name)
-			seq_printf(p, "%8s", desc->irq_data.chip->name);
+			seq_printf(p, "%-*s", chip_width, desc->irq_data.chip->name);
 		else
-			seq_printf(p, "%8s", "-");
+			seq_printf(p, "%-*s", chip_width, "-");
 	} else {
-		seq_printf(p, "%8s", "None");
+		seq_printf(p, "%-*s", chip_width, "None");
 	}
 
 	seq_putc(p, ' ');
