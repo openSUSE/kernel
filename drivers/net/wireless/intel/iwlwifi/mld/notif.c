@@ -694,10 +694,6 @@ void iwl_mld_cancel_async_notifications(struct iwl_mld *mld)
 {
 	struct iwl_async_handler_entry *entry, *tmp;
 
-	lockdep_assert_wiphy(mld->wiphy);
-
-	wiphy_work_cancel(mld->wiphy, &mld->async_handlers_wk);
-
 	spin_lock_bh(&mld->async_handlers_lock);
 	list_for_each_entry_safe(entry, tmp, &mld->async_handlers_list, list) {
 		iwl_mld_log_async_handler_op(mld, "Purged", &entry->rxb);
