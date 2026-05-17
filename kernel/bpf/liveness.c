@@ -806,7 +806,9 @@ static bool arg_track_join(struct bpf_verifier_env *env, int idx, int target, in
 		return true;
 
 	verbose(env, "arg JOIN insn %d -> %d ", idx, target);
-	if (r >= 0)
+	if (r >= MAX_BPF_REG)
+		verbose(env, "sa%d: ", r - MAX_BPF_REG);
+	else if (r >= 0)
 		verbose(env, "r%d: ", r);
 	else
 		verbose(env, "fp%+d: ", r * 8);

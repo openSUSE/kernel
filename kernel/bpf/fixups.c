@@ -1407,7 +1407,7 @@ int bpf_fixup_call_args(struct bpf_verifier_env *env)
 		verbose(env, "calling kernel functions are not allowed in non-JITed programs\n");
 		return -EINVAL;
 	}
-	for (i = 1; i < env->subprog_cnt; i++) {
+	for (i = 0; i < env->subprog_cnt; i++) {
 		if (bpf_in_stack_arg_cnt(&env->subprog_info[i])) {
 			verbose(env, "stack args are not supported in non-JITed programs\n");
 			return -EINVAL;

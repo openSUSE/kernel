@@ -114,8 +114,10 @@ __naked void stack_arg_gap_at_minus8(void)
 
 SEC("tc")
 __description("stack_arg: pruning with different stack arg types")
-__failure
+__failure __log_level(2)
 __flag(BPF_F_TEST_STATE_FREQ)
+__msg("arg JOIN insn 9 -> 10 r1: fp0-8 + _ => fp0-8|fp0+0")
+__msg("arg JOIN insn 9 -> 10 sa0: fp0-8 + _ => fp0-8|fp0+0")
 __msg("R{{[0-9]}} invalid mem access 'scalar'")
 __naked void stack_arg_pruning_type_mismatch(void)
 {
@@ -152,7 +154,7 @@ __naked void stack_arg_pruning_type_mismatch(void)
 SEC("tc")
 __description("stack_arg: release_reference invalidates stack arg slot")
 __failure
-__msg("R{{[0-9]}} !read_ok")
+__msg("callee expects 6 args, stack arg1 is not initialized")
 __naked void stack_arg_release_ref(void)
 {
 	asm volatile (
@@ -201,7 +203,7 @@ __naked void stack_arg_release_ref(void)
 SEC("tc")
 __description("stack_arg: pkt pointer in stack arg slot invalidated after pull_data")
 __failure
-__msg("R{{[0-9]}} !read_ok")
+__msg("callee expects 6 args, stack arg1 is not initialized")
 __naked void stack_arg_stale_pkt_ptr(void)
 {
 	asm volatile (
