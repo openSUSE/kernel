@@ -434,7 +434,7 @@ bool get_pfnblock_bit(const struct page *page, unsigned long pfn,
  * Use get_pfnblock_migratetype() if caller already has both @page and @pfn
  * to save a call to page_to_pfn().
  */
-__always_inline enum migratetype
+enum migratetype
 get_pfnblock_migratetype(const struct page *page, unsigned long pfn)
 {
 	unsigned long mask = PAGEBLOCK_MIGRATETYPE_MASK | PAGEBLOCK_ISO_MASK;
