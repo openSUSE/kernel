@@ -89,15 +89,15 @@ static inline bool file_thp_enabled(struct vm_area_struct *vma)
 {
 	struct inode *inode;
 
-	if (!IS_ENABLED(CONFIG_READ_ONLY_THP_FOR_FS))
-		return false;
-
 	if (!vma->vm_file)
 		return false;
 
 	inode = file_inode(vma->vm_file);
 
 	if (IS_ANON_FILE(inode))
+		return false;
+
+	if (!mapping_pmd_folio_support(vma->vm_file->f_mapping))
 		return false;
 
 	return !inode_is_open_for_write(inode) && S_ISREG(inode->i_mode);
