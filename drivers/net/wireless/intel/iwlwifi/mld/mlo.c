@@ -1100,6 +1100,13 @@ static void iwl_mld_chan_load_update_iter(void *_data, u8 *mac,
 		if (rcu_access_pointer(link_conf->chanctx_conf) != chanctx)
 			continue;
 
+		/* No QBSS IE - links will be selected based on default channel
+		 * load values, so the same link will be selected again.
+		 * No point in scan.
+		 */
+		if (iwl_mld_get_chan_load_from_element(mld, link_conf) < 0)
+			continue;
+
 		if (iwl_mld_chan_load_requires_scan(mld,
 						    link_conf,
 						    new_chan_load)) {

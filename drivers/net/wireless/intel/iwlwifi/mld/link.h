@@ -145,6 +145,9 @@ unsigned int iwl_mld_get_link_grade(struct iwl_mld *mld,
 unsigned int iwl_mld_get_chan_load(struct iwl_mld *mld,
 				   struct ieee80211_bss_conf *link_conf);
 
+int iwl_mld_get_chan_load_from_element(struct iwl_mld *mld,
+				       struct ieee80211_bss_conf *link_conf);
+
 int iwl_mld_get_chan_load_by_others(struct iwl_mld *mld,
 				    struct ieee80211_bss_conf *link_conf,
 				    bool expect_active_link);

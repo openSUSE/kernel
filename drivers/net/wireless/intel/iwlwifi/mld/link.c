@@ -859,9 +859,8 @@ iwl_mld_apply_puncturing_penalty(const struct ieee80211_bss_conf *link_conf,
 	*grade = *grade * (n_subchannels - n_punctured) / n_subchannels;
 }
 
-static int
-iwl_mld_get_chan_load_from_element(struct iwl_mld *mld,
-				   struct ieee80211_bss_conf *link_conf)
+int iwl_mld_get_chan_load_from_element(struct iwl_mld *mld,
+				       struct ieee80211_bss_conf *link_conf)
 {
 	const struct cfg80211_bss_ies *ies;
 	const struct element *bss_load_elem = NULL;
