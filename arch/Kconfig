@@ -866,7 +866,7 @@ config ARCH_SUPPORTS_AUTOFDO_CLANG
 config AUTOFDO_CLANG
 	bool "Enable Clang's AutoFDO build (EXPERIMENTAL)"
 	depends on ARCH_SUPPORTS_AUTOFDO_CLANG
-	depends on CC_IS_CLANG && CLANG_VERSION >= 170000
+	depends on CC_IS_CLANG
 	help
 	  This option enables Clang’s AutoFDO build. When
 	  an AutoFDO profile is specified in variable
