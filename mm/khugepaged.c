@@ -503,18 +503,8 @@ static inline int collapse_test_exit_or_disable(struct mm_struct *mm)
 		mm_flags_test(MMF_DISABLE_THP_COMPLETELY, mm);
 }
 
-static bool hugepage_enabled(void)
+static inline bool anon_hpage_enabled(void)
 {
-	/*
-	 * We cover the anon, shmem and the file-backed case here; file-backed
-	 * hugepages, when configured in, are determined by the global control.
-	 * Anon hugepages are determined by its per-size mTHP control.
-	 * Shmem pmd-sized hugepages are also determined by its pmd-size control,
-	 * except when the global shmem_huge is set to SHMEM_HUGE_DENY.
-	 */
-	if (IS_ENABLED(CONFIG_READ_ONLY_THP_FOR_FS) &&
-	    hugepage_global_enabled())
-		return true;
 	if (READ_ONCE(huge_anon_orders_always))
 		return true;
 	if (READ_ONCE(huge_anon_orders_madvise))
@@ -522,7 +512,23 @@ static bool hugepage_enabled(void)
 	if (READ_ONCE(huge_anon_orders_inherit) &&
 	    hugepage_global_enabled())
 		return true;
-	if (IS_ENABLED(CONFIG_SHMEM) && shmem_hpage_pmd_enabled())
+	return false;
+}
+
+static bool hugepage_enabled(void)
+{
+	/*
+	 * We cover the anon, shmem and the file-backed case here; file-backed
+	 * hugepages are determined by the global control.
+	 * Anon hugepages are determined by its per-size mTHP control.
+	 * Shmem pmd-sized hugepages are also determined by its pmd-size control,
+	 * except when the global shmem_huge is set to SHMEM_HUGE_DENY.
+	 */
+	if (hugepage_global_enabled())
+		return true;
+	if (anon_hpage_enabled())
+		return true;
+	if (shmem_hpage_pmd_enabled())
 		return true;
 	return false;
 }
