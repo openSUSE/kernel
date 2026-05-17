@@ -174,7 +174,7 @@ class LxInterruptList(gdb.Command):
         super(LxInterruptList, self).__init__("lx-interruptlist", gdb.COMMAND_DATA)
 
     def invoke(self, arg, from_tty):
-        nr_irqs = gdb.parse_and_eval("nr_irqs")
+        nr_irqs = gdb.parse_and_eval("total_nr_irqs")
         prec = 3
         j = 1000
         while prec < 10 and j <= nr_irqs:

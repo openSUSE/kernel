@@ -140,14 +140,14 @@ static void desc_set_defaults(unsigned int irq, struct irq_desc *desc, int node,
 	desc_smp_init(desc, node, affinity);
 }
 
-static unsigned int nr_irqs = NR_IRQS;
+unsigned int total_nr_irqs __read_mostly = NR_IRQS;
 
 /**
  * irq_get_nr_irqs() - Number of interrupts supported by the system.
  */
 unsigned int irq_get_nr_irqs(void)
 {
-	return nr_irqs;
+	return total_nr_irqs;
 }
 EXPORT_SYMBOL_GPL(irq_get_nr_irqs);
 
@@ -159,7 +159,7 @@ EXPORT_SYMBOL_GPL(irq_get_nr_irqs);
  */
 unsigned int irq_set_nr_irqs(unsigned int nr)
 {
-	nr_irqs = nr;
+	total_nr_irqs = nr;
 
 	return nr;
 }
@@ -187,9 +187,9 @@ static unsigned int irq_find_at_or_after(unsigned int offset)
 	struct irq_desc *desc;
 
 	guard(rcu)();
-	desc = mt_find(&sparse_irqs, &index, nr_irqs);
+	desc = mt_find(&sparse_irqs, &index, total_nr_irqs);
 
-	return desc ? irq_desc_get_irq(desc) : nr_irqs;
+	return desc ? irq_desc_get_irq(desc) : total_nr_irqs;
 }
 
 static void irq_insert_desc(unsigned int irq, struct irq_desc *desc)
@@ -543,7 +543,7 @@ static bool irq_expand_nr_irqs(unsigned int nr)
 {
 	if (nr > MAX_SPARSE_IRQS)
 		return false;
-	nr_irqs = nr;
+	total_nr_irqs = nr;
 	return true;
 }
 
@@ -557,16 +557,16 @@ int __init early_irq_init(void)
 	/* Let arch update nr_irqs and return the nr of preallocated irqs */
 	initcnt = arch_probe_nr_irqs();
 	printk(KERN_INFO "NR_IRQS: %d, nr_irqs: %d, preallocated irqs: %d\n",
-	       NR_IRQS, nr_irqs, initcnt);
+	       NR_IRQS, total_nr_irqs, initcnt);
 
-	if (WARN_ON(nr_irqs > MAX_SPARSE_IRQS))
-		nr_irqs = MAX_SPARSE_IRQS;
+	if (WARN_ON(total_nr_irqs > MAX_SPARSE_IRQS))
+		total_nr_irqs = MAX_SPARSE_IRQS;
 
 	if (WARN_ON(initcnt > MAX_SPARSE_IRQS))
 		initcnt = MAX_SPARSE_IRQS;
 
-	if (initcnt > nr_irqs)
-		nr_irqs = initcnt;
+	if (initcnt > total_nr_irqs)
+		total_nr_irqs = initcnt;
 
 	for (i = 0; i < initcnt; i++) {
 		desc = alloc_desc(i, node, 0, NULL, NULL);
@@ -862,7 +862,7 @@ void irq_free_descs(unsigned int from, unsigned int cnt)
 {
 	int i;
 
-	if (from >= nr_irqs || (from + cnt) > nr_irqs)
+	if (from >= total_nr_irqs || (from + cnt) > total_nr_irqs)
 		return;
 
 	guard(mutex)(&sparse_irq_lock);
@@ -911,7 +911,7 @@ int __ref __irq_alloc_descs(int irq, unsigned int from, unsigned int cnt, int no
 	if (irq >=0 && start != irq)
 		return -EEXIST;
 
-	if (start + cnt > nr_irqs) {
+	if (start + cnt > total_nr_irqs) {
 		if (!irq_expand_nr_irqs(start + cnt))
 			return -ENOMEM;
 	}
@@ -923,7 +923,7 @@ EXPORT_SYMBOL_GPL(__irq_alloc_descs);
  * irq_get_next_irq - get next allocated irq number
  * @offset:	where to start the search
  *
- * Returns next irq number after offset or nr_irqs if none is found.
+ * Returns next irq number after offset or total_nr_irqs if none is found.
  */
 unsigned int irq_get_next_irq(unsigned int offset)
 {

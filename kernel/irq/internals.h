@@ -21,6 +21,7 @@
 
 extern bool noirqdebug;
 extern int irq_poll_cpu;
+extern unsigned int total_nr_irqs;
 
 extern struct irqaction chained_action;
 

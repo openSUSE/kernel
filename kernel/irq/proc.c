@@ -448,7 +448,7 @@ int __weak arch_show_interrupts(struct seq_file *p, int prec)
 }
 
 #ifndef ACTUAL_NR_IRQS
-# define ACTUAL_NR_IRQS irq_get_nr_irqs()
+# define ACTUAL_NR_IRQS total_nr_irqs
 #endif
 
 /* Same as seq_put_decimal_ull_width(p, " ", cnt, 10) */
@@ -490,7 +490,7 @@ void irq_proc_emit_counts(struct seq_file *p, unsigned int __percpu *cnts)
 
 int show_interrupts(struct seq_file *p, void *v)
 {
-	const unsigned int nr_irqs = irq_get_nr_irqs();
+	const unsigned int nr_irqs = total_nr_irqs;
 	static int prec;
 
 	int i = *(loff_t *) v, j;
