@@ -50,6 +50,10 @@ enum irq_stat_counts {
 #ifdef CONFIG_X86_POSTED_MSI
 	IRQ_COUNT_POSTED_MSI_NOTIFICATION,
 #endif
+	IRQ_COUNT_PIC_APIC_ERROR,
+#ifdef CONFIG_X86_IO_APIC
+	IRQ_COUNT_IOAPIC_MISROUTED,
+#endif
 	IRQ_COUNT_MAX,
 };
 
@@ -81,9 +85,6 @@ extern void ack_bad_irq(unsigned int irq);
 #ifdef CONFIG_PROC_FS
 extern u64 arch_irq_stat_cpu(unsigned int cpu);
 #define arch_irq_stat_cpu	arch_irq_stat_cpu
-
-extern u64 arch_irq_stat(void);
-#define arch_irq_stat		arch_irq_stat
 #endif
 
 DECLARE_PER_CPU_CACHE_HOT(u16, __softirq_pending);

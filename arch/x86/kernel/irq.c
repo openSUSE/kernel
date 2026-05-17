@@ -39,8 +39,6 @@ EXPORT_PER_CPU_SYMBOL(__softirq_pending);
 
 DEFINE_PER_CPU_CACHE_HOT(struct irq_stack *, hardirq_stack_ptr);
 
-atomic_t irq_err_count;
-
 /*
  * 'what should we do if we get a hw irq event on an illegal vector'.
  * each architecture has to answer this themselves.
@@ -124,6 +122,10 @@ static const struct irq_stat_info irq_stat_info[IRQ_COUNT_MAX] = {
 #ifdef CONFIG_X86_POSTED_MSI
 	ISS(POSTED_MSI_NOTIFICATION,	"PMN",	"  Posted MSI notification event\n"),
 #endif
+	IDS(PIC_APIC_ERROR,		"ERR",	"  PIC/APIC error interrupts\n"),
+#ifdef CONFIG_X86_IO_APIC
+	IDS(IOAPIC_MISROUTED,		"MIS",	"  Misrouted IO/APIC interrupts\n"),
+#endif
 };
 
 static DECLARE_BITMAP(irq_stat_count_show, IRQ_COUNT_MAX) __read_mostly;
@@ -183,10 +185,6 @@ int arch_show_interrupts(struct seq_file *p, int prec)
 		irq_proc_emit_counts(p, &irq_stat.counts[i]);
 		seq_puts(p, info->text);
 	}
-
-	seq_printf(p, "%*s: %10u\n", prec, "ERR", atomic_read(&irq_err_count));
-	if (IS_ENABLED(CONFIG_X86_IO_APIC))
-		seq_printf(p, "%*s: %10u\n", prec, "MIS", atomic_read(&irq_mis_count));
 	return 0;
 }
 
@@ -200,12 +198,6 @@ u64 arch_irq_stat_cpu(unsigned int cpu)
 
 	for (unsigned int i = 0; i < ARRAY_SIZE(irq_stat_info); i++)
 		sum += p->counts[i];
-	return sum;
-}
-
-u64 arch_irq_stat(void)
-{
-	u64 sum = atomic_read(&irq_err_count);
 	return sum;
 }
 #endif /* CONFIG_PROC_FS */
