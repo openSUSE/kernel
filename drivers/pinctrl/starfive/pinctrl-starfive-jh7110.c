@@ -865,6 +865,7 @@ int jh7110_pinctrl_probe(struct platform_device *pdev)
 #endif
 	if (!sfp)
 		return -ENOMEM;
+	sfp->num_saved_regs = info->nsaved_regs;
 
 	sfp->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(sfp->base))
