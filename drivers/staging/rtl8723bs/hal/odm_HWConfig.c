@@ -7,9 +7,6 @@
 
 #include "odm_precomp.h"
 
-#define READ_AND_CONFIG_MP(ic, txt) (ODM_ReadAndConfig_MP_##ic##txt(pDM_Odm))
-#define READ_AND_CONFIG     READ_AND_CONFIG_MP
-
 static u8 odm_query_rx_pwr_percentage(s8 ant_power)
 {
 	if ((ant_power <= -100) || (ant_power >= 20))
@@ -415,9 +412,9 @@ enum hal_status ODM_ConfigRFWithHeaderFile(
 )
 {
 	if (ConfigType == CONFIG_RF_RADIO)
-		READ_AND_CONFIG(8723B, _RadioA);
+		ODM_ReadAndConfig_MP_8723B_RadioA(pDM_Odm);
 	else if (ConfigType == CONFIG_RF_TXPWR_LMT)
-		READ_AND_CONFIG(8723B, _TXPWR_LMT);
+		ODM_ReadAndConfig_MP_8723B_TXPWR_LMT(pDM_Odm);
 
 	return HAL_STATUS_SUCCESS;
 }
@@ -425,7 +422,7 @@ enum hal_status ODM_ConfigRFWithHeaderFile(
 enum hal_status ODM_ConfigRFWithTxPwrTrackHeaderFile(struct dm_odm_t *pDM_Odm)
 {
 	if (pDM_Odm->SupportInterface == ODM_ITRF_SDIO)
-		READ_AND_CONFIG(8723B, _TxPowerTrack_SDIO);
+		ODM_ReadAndConfig_MP_8723B_TxPowerTrack_SDIO(pDM_Odm);
 
 	return HAL_STATUS_SUCCESS;
 }
@@ -435,11 +432,11 @@ enum hal_status ODM_ConfigBBWithHeaderFile(
 )
 {
 	if (ConfigType == CONFIG_BB_PHY_REG)
-		READ_AND_CONFIG(8723B, _PHY_REG);
+		ODM_ReadAndConfig_MP_8723B_PHY_REG(pDM_Odm);
 	else if (ConfigType == CONFIG_BB_AGC_TAB)
-		READ_AND_CONFIG(8723B, _AGC_TAB);
+		ODM_ReadAndConfig_MP_8723B_AGC_TAB(pDM_Odm);
 	else if (ConfigType == CONFIG_BB_PHY_REG_PG)
-		READ_AND_CONFIG(8723B, _PHY_REG_PG);
+		ODM_ReadAndConfig_MP_8723B_PHY_REG_PG(pDM_Odm);
 
 	return HAL_STATUS_SUCCESS;
 }
