@@ -523,7 +523,16 @@ int show_interrupts(struct seq_file *p, void *v)
 		return 0;
 
 	seq_printf(p, "%*d:", prec, i);
-	irq_proc_emit_counts(p, &desc->kstat_irqs->cnt);
+
+	/*
+	 * Always output per CPU interrupts. Output device interrupts only when
+	 * desc::tot_count is not zero.
+	 */
+	if (irq_settings_is_per_cpu(desc) || irq_settings_is_per_cpu_devid(desc) ||
+	    data_race(desc->tot_count))
+		irq_proc_emit_counts(p, &desc->kstat_irqs->cnt);
+	else
+		irq_proc_emit_zero_counts(p, num_online_cpus());
 	seq_putc(p, ' ');
 
 	guard(raw_spinlock_irq)(&desc->lock);
