@@ -48,7 +48,7 @@ def show_irq_desc(prec, irq):
             count = cpus.per_cpu(desc['kstat_irqs'], cpu)['cnt']
         else:
             count = 0
-        text += "%10u" % (count)
+        text += "%10u " % (count)
 
     name = "None"
     if desc['irq_data']['chip']:
@@ -58,7 +58,7 @@ def show_irq_desc(prec, irq):
         else:
             name = "-"
 
-    text += "  %8s" % (name)
+    text += "  %-8s" % (name)
 
     if desc['irq_data']['domain']:
         text += "  %*lu" % (prec, desc['irq_data']['hwirq'])
@@ -97,64 +97,29 @@ def show_irq_err_count(prec):
         text += "%*s: %10u\n" % (prec, "ERR", cnt['counter'])
     return text
 
-def x86_show_irqstat(prec, pfx, field, desc):
-    irq_stat = gdb.parse_and_eval("&irq_stat")
+def x86_show_irqstat(prec, pfx, idx, desc):
+    irq_stat = gdb.parse_and_eval("&irq_stat.counts[%d]" %idx)
     text = "%*s: " % (prec, pfx)
     for cpu in cpus.each_online_cpu():
         stat = cpus.per_cpu(irq_stat, cpu)
-        text += "%10u " % (stat[field])
-    text += "  %s\n" % (desc)
-    return text
-
-def x86_show_mce(prec, var, pfx, desc):
-    pvar = gdb.parse_and_eval(var)
-    text = "%*s: " % (prec, pfx)
-    for cpu in cpus.each_online_cpu():
-        text += "%10u " % (cpus.per_cpu(pvar, cpu).dereference())
-    text += "  %s\n" % (desc)
+        text += "%10u " % (stat.dereference())
+    text += desc
     return text
 
 def x86_show_interupts(prec):
-    text = x86_show_irqstat(prec, "NMI", '__nmi_count', 'Non-maskable interrupts')
+    info_type = gdb.lookup_type('struct irq_stat_info')
+    info = gdb.parse_and_eval('irq_stat_info')
+    bitmap = gdb.parse_and_eval('irq_stat_count_show')
+    bitsperlong = 8 * int(bitmap.type.target().sizeof)
 
-    if constants.LX_CONFIG_X86_LOCAL_APIC:
-        text += x86_show_irqstat(prec, "LOC", 'apic_timer_irqs', "Local timer interrupts")
-        text += x86_show_irqstat(prec, "SPU", 'irq_spurious_count', "Spurious interrupts")
-        text += x86_show_irqstat(prec, "PMI", 'apic_perf_irqs', "Performance monitoring interrupts")
-        text += x86_show_irqstat(prec, "IWI", 'apic_irq_work_irqs', "IRQ work interrupts")
-        text += x86_show_irqstat(prec, "RTR", 'icr_read_retry_count', "APIC ICR read retries")
-        if utils.gdb_eval_or_none("x86_platform_ipi_callback") is not None:
-            text += x86_show_irqstat(prec, "PLT", 'x86_platform_ipis', "Platform interrupts")
-
-    if constants.LX_CONFIG_SMP:
-        text += x86_show_irqstat(prec, "RES", 'irq_resched_count', "Rescheduling interrupts")
-        text += x86_show_irqstat(prec, "CAL", 'irq_call_count', "Function call interrupts")
-        text += x86_show_irqstat(prec, "TLB", 'irq_tlb_count', "TLB shootdowns")
-
-    if constants.LX_CONFIG_X86_THERMAL_VECTOR:
-        text += x86_show_irqstat(prec, "TRM", 'irq_thermal_count', "Thermal events interrupts")
-
-    if constants.LX_CONFIG_X86_MCE_THRESHOLD:
-        text += x86_show_irqstat(prec, "THR", 'irq_threshold_count', "Threshold APIC interrupts")
-
-    if constants.LX_CONFIG_X86_MCE_AMD:
-        text += x86_show_irqstat(prec, "DFR", 'irq_deferred_error_count', "Deferred Error APIC interrupts")
-
-    if constants.LX_CONFIG_X86_MCE:
-        text += x86_show_mce(prec, "&mce_exception_count", "MCE", "Machine check exceptions")
-        text += x86_show_mce(prec, "&mce_poll_count", "MCP", "Machine check polls")
-
-    text += show_irq_err_count(prec)
-
-    if constants.LX_CONFIG_X86_IO_APIC:
-        cnt = utils.gdb_eval_or_none("irq_mis_count")
-        if cnt is not None:
-            text += "%*s: %10u\n" % (prec, "MIS", cnt['counter'])
-
-    if constants.LX_CONFIG_KVM:
-        text += x86_show_irqstat(prec, "PIN", 'kvm_posted_intr_ipis', 'Posted-interrupt notification event')
-        text += x86_show_irqstat(prec, "NPI", 'kvm_posted_intr_nested_ipis', 'Nested posted-interrupt event')
-        text += x86_show_irqstat(prec, "PIW", 'kvm_posted_intr_wakeup_ipis', 'Posted-interrupt wakeup event')
+    text = ""
+    for idx in range(int(info.type.sizeof / info_type.sizeof)):
+        show = bitmap[int(idx / bitsperlong)]
+        if not show & 1 << int(idx % bitsperlong):
+            continue
+        pfx = info[idx]['symbol'].string()
+        desc = info[idx]['text'].string()
+        text += x86_show_irqstat(prec, pfx, idx, desc)
 
     return text
 
