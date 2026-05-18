@@ -59,6 +59,21 @@ class KernelSbomConfig:
     spdxId_prefix: str
     """Prefix to use for all SPDX element IDs."""
 
+    build_type: str
+    """SPDX buildType property to use for all Build elements."""
+
+    build_id: str | None
+    """SPDX buildId property to use for all Build elements."""
+
+    package_license: str
+    """License expression applied to all SPDX Packages."""
+
+    package_version: str | None
+    """Version string applied to all SPDX Packages."""
+
+    package_copyright_text: str | None
+    """Copyright text applied to all SPDX Packages."""
+
     prettify_json: bool
     """Whether to pretty-print generated SPDX JSON documents."""
 
@@ -155,6 +170,40 @@ def _parse_cli_arguments(parser: argparse.ArgumentParser) -> dict[str, Any]:
         help="The prefix to use for all spdxId properties. (default: urn:spdx.dev:)",
     )
     spdx_group.add_argument(
+        "--build-type",
+        default="urn:spdx.dev:Kbuild",
+        help="The SPDX buildType property to use for all Build elements. (default: urn:spdx.dev:Kbuild)",
+    )
+    spdx_group.add_argument(
+        "--build-id",
+        default=None,
+        help="The SPDX buildId property to use for all Build elements.\n"
+        "If not provided the spdxId of the high level Build element is used as the buildId. (default: None)",
+    )
+    spdx_group.add_argument(
+        "--package-license",
+        default="NOASSERTION",
+        help=(
+            "The SPDX licenseExpression property to use for the LicenseExpression "
+            "linked to all SPDX Package elements. (default: NOASSERTION)"
+        ),
+    )
+    spdx_group.add_argument(
+        "--package-version",
+        default=None,
+        help="The SPDX packageVersion property to use for all SPDX Package elements. (default: None)",
+    )
+    spdx_group.add_argument(
+        "--package-copyright-text",
+        default=None,
+        help=(
+            "The SPDX copyrightText property to use for all SPDX Package elements.\n"
+            "If not specified, and if a COPYING file exists in the source tree,\n"
+            "the package-copyright-text is set to the content of this file. "
+            "(default: None)"
+        ),
+    )
+    spdx_group.add_argument(
         "--prettify-json",
         action="store_true",
         default=False,
@@ -204,6 +253,16 @@ def get_config() -> KernelSbomConfig:
         tz=timezone.utc,
     )
     spdxId_prefix = args["spdxId_prefix"]
+    build_type = args["build_type"]
+    build_id = args["build_id"]
+    package_license = args["package_license"]
+    package_version = args["package_version"] if args["package_version"] is not None else None
+    package_copyright_text: str | None = None
+    if args["package_copyright_text"] is not None:
+        package_copyright_text = args["package_copyright_text"]
+    elif os.path.isfile(copying_path := os.path.join(src_tree, "COPYING")):
+        with open(copying_path, "r", encoding="utf-8") as f:
+            package_copyright_text = f.read()
     prettify_json = args["prettify_json"]
 
     # Hardcoded config
@@ -228,6 +287,11 @@ def get_config() -> KernelSbomConfig:
         write_output_on_error=write_output_on_error,
         created=created,
         spdxId_prefix=spdxId_prefix,
+        build_type=build_type,
+        build_id=build_id,
+        package_license=package_license,
+        package_version=package_version,
+        package_copyright_text=package_copyright_text,
         prettify_json=prettify_json,
     )
 

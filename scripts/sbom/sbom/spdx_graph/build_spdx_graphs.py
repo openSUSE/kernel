@@ -10,12 +10,18 @@ from sbom.path_utils import PathStr
 from sbom.spdx_graph.kernel_file import KernelFileCollection
 from sbom.spdx_graph.spdx_graph_model import SpdxGraph, SpdxIdGeneratorCollection
 from sbom.spdx_graph.shared_spdx_elements import SharedSpdxElements
+from sbom.spdx_graph.spdx_output_graph import SpdxOutputGraph
 
 
 class SpdxGraphConfig(Protocol):
     obj_tree: PathStr
     src_tree: PathStr
     created: datetime
+    build_type: str
+    build_id: str | None
+    package_license: str
+    package_version: str | None
+    package_copyright_text: str | None
 
 
 def build_spdx_graphs(
@@ -38,4 +44,14 @@ def build_spdx_graphs(
     """
     shared_elements = SharedSpdxElements.create(spdx_id_generators.base, config.created)
     kernel_files = KernelFileCollection.create(cmd_graph, config.obj_tree, config.src_tree, spdx_id_generators)
-    return {}
+    output_graph = SpdxOutputGraph.create(
+        root_files=list(kernel_files.output.values()),
+        shared_elements=shared_elements,
+        spdx_id_generators=spdx_id_generators,
+        config=config,
+    )
+    spdx_graphs: dict[KernelSpdxDocumentKind, SpdxGraph] = {
+        KernelSpdxDocumentKind.OUTPUT: output_graph,
+    }
+
+    return spdx_graphs

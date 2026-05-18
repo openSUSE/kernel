@@ -2213,7 +2213,10 @@ quiet_cmd_sbom = GEN     $(sbom_targets)
                      --obj-tree $(abspath $(objtree)) \
                      --roots-file "$(tmp-target)" \
                      --output-directory $(abspath $(objtree)) \
-                     --generate-spdx;
+                     --generate-spdx \
+                     --package-license "GPL-2.0 WITH Linux-syscall-note" \
+                     --package-version "$(KERNELVERSION)" \
+                     --write-output-on-error;
 PHONY += sbom
 sbom: $(notdir $(KBUILD_IMAGE)) include/generated/autoconf.h $(if $(CONFIG_MODULES),modules modules.order)
 	$(call cmd,sbom)
