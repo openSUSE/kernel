@@ -7,6 +7,7 @@ from typing import Protocol
 from sbom.config import KernelSpdxDocumentKind
 from sbom.cmd_graph import CmdGraph
 from sbom.path_utils import PathStr
+from sbom.spdx_graph.kernel_file import KernelFileCollection
 from sbom.spdx_graph.spdx_graph_model import SpdxGraph, SpdxIdGeneratorCollection
 from sbom.spdx_graph.shared_spdx_elements import SharedSpdxElements
 
@@ -36,4 +37,5 @@ def build_spdx_graphs(
         Dictionary of SPDX graphs
     """
     shared_elements = SharedSpdxElements.create(spdx_id_generators.base, config.created)
+    kernel_files = KernelFileCollection.create(cmd_graph, config.obj_tree, config.src_tree, spdx_id_generators)
     return {}
