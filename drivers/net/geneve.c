@@ -2206,7 +2206,6 @@ static void geneve_unquiesce(struct geneve_dev *geneve, struct geneve_sock *gs4,
 	if (gs6)
 		rcu_assign_sk_user_data(gs6->sk, gs6);
 #endif
-	synchronize_net();
 }
 
 static int geneve_changelink(struct net_device *dev, struct nlattr *tb[],
