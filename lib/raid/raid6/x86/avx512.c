@@ -17,8 +17,9 @@
  *
  */
 
-#include <linux/raid/pq.h>
+#include <asm/cpufeature.h>
 #include <asm/fpu/api.h>
+#include "algos.h"
 
 static const struct raid6_avx512_constants {
 	u64 x1d[8];

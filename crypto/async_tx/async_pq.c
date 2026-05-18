@@ -8,6 +8,7 @@
 #include <linux/module.h>
 #include <linux/dma-mapping.h>
 #include <linux/raid/pq.h>
+#include <linux/raid/pq_tables.h>
 #include <linux/async_tx.h>
 #include <linux/gfp.h>
 

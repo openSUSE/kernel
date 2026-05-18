@@ -4,8 +4,10 @@
  * Author: Jim Kukunas <james.t.kukunas@linux.intel.com>
  */
 
+#include <linux/mm.h>
 #include <linux/raid/pq.h>
 #include <asm/fpu/api.h>
+#include "algos.h"
 
 static int raid6_has_avx2(void)
 {

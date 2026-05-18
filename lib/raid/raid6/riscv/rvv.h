@@ -7,8 +7,8 @@
  * Definitions for RISC-V RAID-6 code
  */
 
-#include <linux/raid/pq.h>
 #include <asm/vector.h>
+#include "algos.h"
 
 static int rvv_has_vector(void)
 {

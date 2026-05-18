@@ -10,9 +10,11 @@
  * Author: Jim Kukunas <james.t.kukunas@linux.intel.com>
  */
 
+#include <linux/mm.h>
 #include <linux/raid/pq.h>
 #include <asm/cpu-features.h>
 #include <asm/fpu.h>
+#include "algos.h"
 
 /*
  * Unlike with the syndrome calculation algorithms, there's no boot-time

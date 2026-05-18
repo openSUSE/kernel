@@ -7,7 +7,7 @@
 
 #include <kunit/test.h>
 #include <linux/prandom.h>
-#include <linux/raid/pq.h>
+#include "../algos.h"
 
 MODULE_IMPORT_NS("EXPORTED_FOR_KUNIT_TESTING");
 

@@ -5,8 +5,8 @@
  * Copyright (C) 2013 Linaro Ltd <ard.biesheuvel@linaro.org>
  */
 
-#include <linux/raid/pq.h>
 #include <asm/simd.h>
+#include "algos.h"
 
 /*
  * There are 2 reasons these wrappers are kept in a separate compilation unit

@@ -6,8 +6,10 @@
  * Author: Megha Dey <megha.dey@linux.intel.com>
  */
 
+#include <linux/mm.h>
 #include <linux/raid/pq.h>
 #include <asm/fpu/api.h>
+#include "algos.h"
 
 static int raid6_has_avx512(void)
 {

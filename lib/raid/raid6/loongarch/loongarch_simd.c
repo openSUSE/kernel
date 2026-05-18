@@ -9,9 +9,9 @@
  * Copyright 2002-2004 H. Peter Anvin
  */
 
-#include <linux/raid/pq.h>
 #include <asm/cpu-features.h>
 #include <asm/fpu.h>
+#include "algos.h"
 
 /*
  * The vector algorithms are currently priority 0, which means the generic

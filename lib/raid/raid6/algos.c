@@ -11,10 +11,11 @@
  * Algorithm list and algorithm selection for RAID-6
  */
 
-#include <linux/raid/pq.h>
 #include <linux/module.h>
 #include <linux/gfp.h>
+#include <linux/raid/pq.h>
 #include <kunit/visibility.h>
+#include "algos.h"
 
 static const struct raid6_recov_calls *raid6_recov_algo;
 

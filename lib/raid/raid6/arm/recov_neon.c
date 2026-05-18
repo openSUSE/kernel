@@ -4,8 +4,10 @@
  * Copyright (C) 2017 Linaro Ltd. <ard.biesheuvel@linaro.org>
  */
 
+#include <linux/mm.h>
 #include <linux/raid/pq.h>
 #include <asm/simd.h>
+#include "algos.h"
 #include "arm/neon.h"
 
 static int raid6_has_neon(void)

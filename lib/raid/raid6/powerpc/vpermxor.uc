@@ -20,11 +20,11 @@
  * This instruction was introduced in POWER8 - ISA v2.07.
  */
 
-#include <linux/raid/pq.h>
 #include <altivec.h>
 #include <asm/ppc-opcode.h>
 #include <asm/cputable.h>
 #include <asm/switch_to.h>
+#include "algos.h"
 
 typedef vector unsigned char unative_t;
 #define NSIZE sizeof(unative_t)

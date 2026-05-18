@@ -11,8 +11,9 @@
  * MMX implementation of RAID-6 syndrome functions
  */
 
-#include <linux/raid/pq.h>
+#include <asm/cpufeature.h>
 #include <asm/fpu/api.h>
+#include "algos.h"
 
 /* Shared with raid6/sse1.c */
 const struct raid6_mmx_constants {

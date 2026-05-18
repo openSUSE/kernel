@@ -12,8 +12,8 @@
  */
 
 #include <linux/cpufeature.h>
-#include <linux/raid/pq.h>
 #include <asm/fpu.h>
+#include "algos.h"
 
 #define NSIZE 16
 

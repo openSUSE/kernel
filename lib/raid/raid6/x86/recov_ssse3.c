@@ -3,8 +3,10 @@
  * Copyright (C) 2012 Intel Corporation
  */
 
+#include <linux/mm.h>
 #include <linux/raid/pq.h>
 #include <asm/fpu/api.h>
+#include "algos.h"
 
 static int raid6_has_ssse3(void)
 {

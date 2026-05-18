@@ -16,8 +16,9 @@
  * worthwhile as a separate implementation.
  */
 
-#include <linux/raid/pq.h>
+#include <asm/cpufeature.h>
 #include <asm/fpu/api.h>
+#include "algos.h"
 
 /* Defined in raid6/mmx.c */
 extern const struct raid6_mmx_constants {

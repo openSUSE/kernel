@@ -22,7 +22,7 @@
  * bracked this with preempt_disable/enable or in a lock)
  */
 
-#include <linux/raid/pq.h>
+#include "algos.h"
 
 #include <altivec.h>
 #include <asm/cputable.h>

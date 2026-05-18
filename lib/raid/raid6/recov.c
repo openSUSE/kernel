@@ -13,7 +13,9 @@
  * the syndrome.)
  */
 
+#include <linux/mm.h>
 #include <linux/raid/pq.h>
+#include "algos.h"
 
 /* Recover two failed data blocks. */
 static void raid6_2data_recov_intx1(int disks, size_t bytes, int faila,
