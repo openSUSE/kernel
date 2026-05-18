@@ -514,9 +514,14 @@ static void hw_engine_init_early(struct xe_gt *gt, struct xe_hw_engine *hwe,
 	hwe->class = info->class;
 	hwe->instance = info->instance;
 	hwe->mmio_base = info->mmio_base;
-	hwe->irq_offset = xe_device_has_msix(gt_to_xe(gt)) ?
-		get_msix_irq_offset(gt, info->class) :
-		info->irq_offset;
+	if (xe_device_has_msix(gt_to_xe(gt))) {
+		hwe->irq_offset = get_msix_irq_offset(gt, info->class);
+		hwe->irq_page = info->instance;
+
+	} else {
+		hwe->irq_offset = info->irq_offset;
+		hwe->irq_page = 0;
+	}
 	hwe->domain = info->domain;
 	hwe->name = info->name;
 	hwe->fence_irq = &gt->fence_irq[info->class];
