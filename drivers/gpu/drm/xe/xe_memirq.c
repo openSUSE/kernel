@@ -159,6 +159,9 @@ static const char *guc_name(struct xe_guc *guc)
 /* IMR */
 #define XE_MEMIRQ_ENABLE_OFFSET		0x440
 
+/* engine ISR vector offset */
+#define XE_MEMIRQ_VECTOR_OFFSET(page, source)	(XE_MEMIRQ_STATUS_OFFSET(page) + (source) * SZ_16)
+
 static inline bool hw_reports_to_instance_zero(struct xe_memirq *memirq)
 {
 	/*
@@ -346,13 +349,14 @@ int xe_memirq_init_guc(struct xe_memirq *memirq, struct xe_guc *guc)
 {
 	bool is_media = xe_gt_is_media_type(guc_to_gt(guc));
 	u32 offset = is_media ? ilog2(INTR_MGUC) : ilog2(INTR_GUC);
-	u32 source, status;
+	u64 source, status;
 	int err;
 
 	memirq_assert(memirq, xe_device_uses_memirq(memirq_to_xe(memirq)));
 
-	source = __memirq_source_page(memirq, 0) + offset;
-	status = __memirq_status_page(memirq, 0) + offset * SZ_16;
+	/* GuC expects exact locations, it doesn't add anything on its own */
+	source = xe_bo_ggtt_addr(memirq->bo) + XE_MEMIRQ_SOURCE_OFFSET(0) + offset;
+	status = xe_bo_ggtt_addr(memirq->bo) + XE_MEMIRQ_VECTOR_OFFSET(0, offset);
 
 	err = xe_guc_self_cfg64(guc, GUC_KLV_SELF_CFG_MEMIRQ_SOURCE_ADDR_KEY,
 				source);
@@ -520,7 +524,8 @@ bool xe_memirq_guc_sw_int_0_irq_pending(struct xe_memirq *memirq, struct xe_guc 
 {
 	struct xe_gt *gt = guc_to_gt(guc);
 	u32 offset = xe_gt_is_media_type(gt) ? ilog2(INTR_MGUC) : ilog2(INTR_GUC);
-	struct iosys_map map = IOSYS_MAP_INIT_OFFSET(&memirq->status, offset * SZ_16);
+	struct iosys_map map = IOSYS_MAP_INIT_OFFSET(&memirq->bo->vmap,
+						     XE_MEMIRQ_VECTOR_OFFSET(0, offset));
 
 	return memirq_received_noclear(memirq, &map, ilog2(GUC_INTR_SW_INT_0),
 				       guc_name(guc));
@@ -560,7 +565,8 @@ void xe_memirq_handler(struct xe_memirq *memirq)
 	/* GuC and media GuC (if present) must be checked separately */
 
 	if (memirq_received(memirq, &memirq->source, ilog2(INTR_GUC), "SRC")) {
-		map = IOSYS_MAP_INIT_OFFSET(&memirq->status, ilog2(INTR_GUC) * SZ_16);
+		map = IOSYS_MAP_INIT_OFFSET(&memirq->bo->vmap,
+					    XE_MEMIRQ_VECTOR_OFFSET(0, ilog2(INTR_GUC)));
 		memirq_dispatch_guc(memirq, &map, &tile->primary_gt->uc.guc);
 	}
 
@@ -568,7 +574,8 @@ void xe_memirq_handler(struct xe_memirq *memirq)
 		return;
 
 	if (memirq_received(memirq, &memirq->source, ilog2(INTR_MGUC), "SRC")) {
-		map = IOSYS_MAP_INIT_OFFSET(&memirq->status, ilog2(INTR_MGUC) * SZ_16);
+		map = IOSYS_MAP_INIT_OFFSET(&memirq->bo->vmap,
+					    XE_MEMIRQ_VECTOR_OFFSET(0, ilog2(INTR_MGUC)));
 		memirq_dispatch_guc(memirq, &map, &tile->media_gt->uc.guc);
 	}
 }
