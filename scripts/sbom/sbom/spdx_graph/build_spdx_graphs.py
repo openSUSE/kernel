@@ -4,6 +4,7 @@
 from datetime import datetime
 from typing import Protocol
 
+import logging
 from sbom.config import KernelSpdxDocumentKind
 from sbom.cmd_graph import CmdGraph
 from sbom.path_utils import PathStr
@@ -11,6 +12,7 @@ from sbom.spdx_graph.kernel_file import KernelFileCollection
 from sbom.spdx_graph.spdx_graph_model import SpdxGraph, SpdxIdGeneratorCollection
 from sbom.spdx_graph.shared_spdx_elements import SharedSpdxElements
 from sbom.spdx_graph.spdx_source_graph import SpdxSourceGraph
+from sbom.spdx_graph.spdx_build_graph import SpdxBuildGraph
 from sbom.spdx_graph.spdx_output_graph import SpdxOutputGraph
 
 
@@ -62,5 +64,20 @@ def build_spdx_graphs(
             shared_elements=shared_elements,
             spdx_id_generators=spdx_id_generators,
         )
+    else:
+        logging.info(
+            "Skipped creating a dedicated source SBOM because source files cannot be "
+            "reliably classified when the source and object trees are identical. "
+            "Added source files to the build SBOM instead."
+        )
+
+    build_graph = SpdxBuildGraph.create(
+        cmd_graph,
+        kernel_files,
+        shared_elements,
+        output_graph.high_level_build_element,
+        spdx_id_generators,
+    )
+    spdx_graphs[KernelSpdxDocumentKind.BUILD] = build_graph
 
     return spdx_graphs
