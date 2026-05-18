@@ -172,17 +172,34 @@ static inline bool hw_reports_to_instance_zero(struct xe_memirq *memirq)
 	return xe_device_has_msix(memirq_to_xe(memirq));
 }
 
+static unsigned int hwe_max_count(struct xe_tile *tile)
+{
+	unsigned int max_instance = 0;
+	unsigned int gtid, hweid;
+	struct xe_hw_engine *hwe;
+	struct xe_gt *gt;
+
+	for_each_gt_on_tile(gt, tile, gtid)
+		for_each_hw_engine(hwe, gt, hweid)
+			max_instance = max(max_instance, hwe->instance);
+
+	return max_instance + 1;
+}
+
 static int memirq_alloc_pages(struct xe_memirq *memirq)
 {
 	struct xe_device *xe = memirq_to_xe(memirq);
 	struct xe_tile *tile = memirq_to_tile(memirq);
-	size_t bo_size = hw_reports_to_instance_zero(memirq) ?
-		XE_HW_ENGINE_MAX_INSTANCE * SZ_4K : SZ_4K;
+	unsigned int num_pages;
 	struct xe_bo *bo;
+	size_t bo_size;
 	int err;
 
 	BUILD_BUG_ON(!IS_ALIGNED(XE_MEMIRQ_SOURCE_OFFSET(0), SZ_64));
 	BUILD_BUG_ON(!IS_ALIGNED(XE_MEMIRQ_STATUS_OFFSET(0), SZ_4K));
+
+	num_pages = hw_reports_to_instance_zero(memirq) ? hwe_max_count(tile) : 1;
+	bo_size = num_pages * SZ_4K;
 
 	bo = xe_managed_bo_create_pin_map(xe, tile, bo_size,
 					  XE_BO_FLAG_SYSTEM |
