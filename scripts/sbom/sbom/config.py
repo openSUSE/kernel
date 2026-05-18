@@ -3,9 +3,16 @@
 
 import argparse
 from dataclasses import dataclass
+from enum import Enum
 import os
 from typing import Any
 from sbom.path_utils import PathStr
+
+
+class KernelSpdxDocumentKind(Enum):
+    SOURCE = "source"
+    BUILD = "build"
+    OUTPUT = "output"
 
 
 @dataclass
@@ -18,6 +25,13 @@ class KernelSbomConfig:
 
     root_paths: list[PathStr]
     """List of paths to root outputs (relative to obj_tree) to base the SBOM on."""
+
+    generate_spdx: bool
+    """Whether to generate SPDX SBOM documents. If False, no SPDX files are created."""
+
+    spdx_file_names: dict[KernelSpdxDocumentKind, str]
+    """If `generate_spdx` is True, defines the file names for each SPDX SBOM kind
+    (source, build, output) to store on disk."""
 
     generate_used_files: bool
     """Whether to generate a flat list of all source files used in the build.
@@ -37,6 +51,12 @@ class KernelSbomConfig:
 
     write_output_on_error: bool
     """Whether to write output documents even if errors occur."""
+
+    spdxId_prefix: str
+    """Prefix to use for all SPDX element IDs."""
+
+    prettify_json: bool
+    """Whether to pretty-print generated SPDX JSON documents."""
 
 
 def _parse_cli_arguments(parser: argparse.ArgumentParser) -> dict[str, Any]:
@@ -66,6 +86,15 @@ def _parse_cli_arguments(parser: argparse.ArgumentParser) -> dict[str, Any]:
     group.add_argument(
         "--roots-file",
         help="Path to a file containing the root paths (one per line). Cannot be used together with --roots.",
+    )
+    parser.add_argument(
+        "--generate-spdx",
+        action="store_true",
+        default=False,
+        help=(
+            "Whether to create sbom-source.spdx.json, sbom-build.spdx.json and "
+            "sbom-output.spdx.json documents (default: False)"
+        ),
     )
     parser.add_argument(
         "--generate-used-files",
@@ -114,6 +143,20 @@ def _parse_cli_arguments(parser: argparse.ArgumentParser) -> dict[str, Any]:
         ),
     )
 
+    # SPDX specific options
+    spdx_group = parser.add_argument_group("SPDX options", "Options for customizing SPDX document generation")
+    spdx_group.add_argument(
+        "--spdxId-prefix",
+        default="urn:spdx.dev:",
+        help="The prefix to use for all spdxId properties. (default: urn:spdx.dev:)",
+    )
+    spdx_group.add_argument(
+        "--prettify-json",
+        action="store_true",
+        default=False,
+        help="Whether to pretty print the generated spdx.json documents (default: False)",
+    )
+
     args = vars(parser.parse_args())
     return args
 
@@ -144,6 +187,7 @@ def get_config() -> KernelSbomConfig:
         root_paths = args["roots"]
     _validate_path_arguments(parser, src_tree, obj_tree, root_paths)
 
+    generate_spdx = args["generate_spdx"]
     generate_used_files = args["generate_used_files"]
     output_directory = os.path.realpath(args["output_directory"])
     debug = args["debug"]
@@ -151,19 +195,31 @@ def get_config() -> KernelSbomConfig:
     fail_on_unknown_build_command = not args["do_not_fail_on_unknown_build_command"]
     write_output_on_error = args["write_output_on_error"]
 
+    spdxId_prefix = args["spdxId_prefix"]
+    prettify_json = args["prettify_json"]
+
     # Hardcoded config
+    spdx_file_names = {
+        KernelSpdxDocumentKind.SOURCE: "sbom-source.spdx.json",
+        KernelSpdxDocumentKind.BUILD: "sbom-build.spdx.json",
+        KernelSpdxDocumentKind.OUTPUT: "sbom-output.spdx.json",
+    }
     used_files_file_name = "sbom.used-files.txt"
 
     return KernelSbomConfig(
         src_tree=src_tree,
         obj_tree=obj_tree,
         root_paths=root_paths,
+        generate_spdx=generate_spdx,
+        spdx_file_names=spdx_file_names,
         generate_used_files=generate_used_files,
         used_files_file_name=used_files_file_name,
         output_directory=output_directory,
         debug=debug,
         fail_on_unknown_build_command=fail_on_unknown_build_command,
         write_output_on_error=write_output_on_error,
+        spdxId_prefix=spdxId_prefix,
+        prettify_json=prettify_json,
     )
 
 

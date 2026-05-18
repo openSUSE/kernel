@@ -6,13 +6,18 @@
 Compute software bill of materials in SPDX format describing a kernel build.
 """
 
+import json
 import logging
 import os
 import sys
 import time
+import uuid
 import sbom.sbom_logging as sbom_logging
 from sbom.config import get_config
 from sbom.path_utils import is_relative_to
+from sbom.spdx import JsonLdSpdxDocument, SpdxIdGenerator
+from sbom.spdx.core import CreationInfo, SpdxDocument
+from sbom.spdx_graph import SpdxIdGeneratorCollection, build_spdx_graphs
 from sbom.cmd_graph import CmdGraph
 
 
@@ -70,6 +75,57 @@ def main():
             with open(used_files_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(str(file_path) for file_path in used_files))
             logging.debug(f"Successfully saved {used_files_path}")
+
+    if config.generate_spdx is False:
+        _exit_with_summary(config.write_output_on_error)
+        return
+
+    # Build SPDX Documents
+    logging.debug("Start generating SPDX graph based on cmd graph")
+    start_time = time.time()
+
+    # The real uuid will be generated based on the content of the SPDX graphs
+    # to ensure that the same SPDX document is always assigned the same uuid.
+    PLACEHOLDER_UUID = "00000000-0000-0000-0000-000000000000"
+    spdx_id_base_namespace = f"{config.spdxId_prefix}{PLACEHOLDER_UUID}/"
+    spdx_id_generators = SpdxIdGeneratorCollection(
+        base=SpdxIdGenerator(prefix="p", namespace=spdx_id_base_namespace),
+        source=SpdxIdGenerator(prefix="s", namespace=f"{spdx_id_base_namespace}source/"),
+        build=SpdxIdGenerator(prefix="b", namespace=f"{spdx_id_base_namespace}build/"),
+        output=SpdxIdGenerator(prefix="o", namespace=f"{spdx_id_base_namespace}output/"),
+    )
+
+    spdx_graphs = build_spdx_graphs(
+        cmd_graph,
+        spdx_id_generators,
+        config,
+    )
+    spdx_id_uuid = uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        "".join(
+            json.dumps(element.to_dict()) for spdx_graph in spdx_graphs.values() for element in spdx_graph.to_list()
+        ),
+    )
+    logging.debug(f"Generated SPDX graph in {time.time() - start_time} seconds")
+
+    if not sbom_logging.has_errors() or config.write_output_on_error:
+        for kernel_sbom_kind, spdx_graph in spdx_graphs.items():
+            spdx_graph_objects = spdx_graph.to_list()
+            # Add warning and error summary to creation info comment
+            creation_info = next(element for element in spdx_graph_objects if isinstance(element, CreationInfo))
+            creation_info.comment = "\n".join([
+                sbom_logging.summarize_warnings(),
+                sbom_logging.summarize_errors(),
+            ]).strip()
+            # Replace Placeholder uuid with real uuid for spdxIds
+            spdx_document = next(element for element in spdx_graph_objects if isinstance(element, SpdxDocument))
+            for namespaceMap in spdx_document.namespaceMap:
+                namespaceMap.namespace = namespaceMap.namespace.replace(PLACEHOLDER_UUID, str(spdx_id_uuid))
+            # Serialize SPDX graph to JSON-LD
+            spdx_doc = JsonLdSpdxDocument(graph=spdx_graph_objects)
+            save_path = os.path.join(config.output_directory, config.spdx_file_names[kernel_sbom_kind])
+            spdx_doc.save(save_path, config.prettify_json)
+            logging.debug(f"Successfully saved {save_path}")
 
     _exit_with_summary(config.write_output_on_error)
 
