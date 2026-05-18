@@ -1032,7 +1032,6 @@ static void geneve_sock_release(struct geneve_dev *geneve)
 #endif
 
 	rcu_assign_pointer(geneve->sock4, NULL);
-	synchronize_net();
 
 	__geneve_sock_release(gs4);
 #if IS_ENABLED(CONFIG_IPV6)
