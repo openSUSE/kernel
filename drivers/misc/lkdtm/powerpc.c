@@ -17,11 +17,14 @@ static void insert_slb_entry(unsigned long p, int ssize, int page_size)
 		     : "r" (mk_vsid_data(p, ssize, flags)),
 		       "r" (mk_esid_data(p, ssize, SLB_NUM_BOLTED))
 		     : "memory");
+	isync();
 
 	asm volatile("slbmte %0,%1" :
 			: "r" (mk_vsid_data(p, ssize, flags)),
 			  "r" (mk_esid_data(p, ssize, SLB_NUM_BOLTED + 1))
 			: "memory");
+	isync();
+
 	preempt_enable();
 }
 
@@ -84,6 +87,7 @@ static void insert_dup_slb_entry_0(void)
 			: "r" (vsid),
 			  "r" (esid | SLB_NUM_BOLTED)
 			: "memory");
+	isync();
 
 	asm volatile("slbmfee  %0,%1" : "=r" (esid) : "r" (i));
 	asm volatile("slbmfev  %0,%1" : "=r" (vsid) : "r" (i));
@@ -93,6 +97,7 @@ static void insert_dup_slb_entry_0(void)
 			: "r" (vsid),
 			  "r" (esid | (SLB_NUM_BOLTED + 1))
 			: "memory");
+	isync();
 
 	pr_info("%s accessing test address 0x%lx: 0x%lx\n",
 		__func__, test_address, *test_ptr);
