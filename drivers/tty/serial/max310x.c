@@ -1699,10 +1699,10 @@ static void max310x_i2c_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id max310x_i2c_id_table[] = {
-	{ "max3107",	(kernel_ulong_t)&max3107_devtype, },
-	{ "max3108",	(kernel_ulong_t)&max3108_devtype, },
-	{ "max3109",	(kernel_ulong_t)&max3109_devtype, },
-	{ "max14830",	(kernel_ulong_t)&max14830_devtype, },
+	{ .name = "max3107", .driver_data = (kernel_ulong_t)&max3107_devtype },
+	{ .name = "max3108", .driver_data = (kernel_ulong_t)&max3108_devtype },
+	{ .name = "max3109", .driver_data = (kernel_ulong_t)&max3109_devtype },
+	{ .name = "max14830", .driver_data = (kernel_ulong_t)&max14830_devtype },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, max310x_i2c_id_table);
