@@ -30,6 +30,20 @@
 #define  DOSL3CR_SAMEADDR		BIT(0)
 #define  DOSL3CR_IPSAMCC		BIT(1)
 
+/* Hash table memory capability register, the memory is shared by
+ * the following tables:
+ *
+ * - Ingress Stream Identification table
+ * - Ingress Stream Filter table
+ * - VLAN Filter table
+ * - FDB table
+ * - L2 IPv4 Multicast Filter table
+ *
+ *  Each hash table entry is one word in size.
+ */
+#define NETC_HTMCAPR			0x1900
+#define  HTMCAPR_NUM_WORDS		GENMASK(15, 0)
+
 #define NETC_VFHTDECR1			0x2014
 #define NETC_VFHTDECR2			0x2018
 #define  VFHTDECR2_ET_PORT(a)		BIT((a))
@@ -66,6 +80,9 @@
 #define  PQOSMR_DIPV			GENMASK(6, 4)
 #define  PQOSMR_VQMP			GENMASK(19, 16)
 #define  PQOSMR_QVMP			GENMASK(23, 20)
+
+#define NETC_PIPFCR			0x0084
+#define  PIPFCR_EN			BIT(0)
 
 #define NETC_POR			0x100
 #define  POR_TXDIS			BIT(0)
@@ -121,6 +138,14 @@ enum netc_mfo {
 #define  BPDVR_RXTAGA			GENMASK(23, 20)
 #define  BPDVR_RXVAM			BIT(24)
 #define  BPDVR_TXTAGA			GENMASK(26, 25)
+
+#define NETC_BPSTGSR			0x520
+
+enum netc_stg_stage {
+	NETC_STG_STATE_DISABLED = 0,
+	NETC_STG_STATE_LEARNING,
+	NETC_STG_STATE_FORWARDING,
+};
 
 /* Definition of Switch ethernet MAC port registers */
 #define NETC_PMAC_OFFSET		0x400
