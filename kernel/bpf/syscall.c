@@ -6278,7 +6278,9 @@ static int __sys_bpf(enum bpf_cmd cmd, bpfptr_t uattr, unsigned int size,
 
 	memset(&attr_common, 0, sizeof(attr_common));
 	if (cmd & BPF_COMMON_ATTRS) {
-		err = bpf_check_uarg_tail_zero(uattr_common, sizeof(attr_common), size_common);
+		err = bpf_check_uarg_tail_zero(uattr_common,
+					       offsetofend(struct bpf_common_attr, log_true_size),
+					       size_common);
 		if (err)
 			return err;
 
