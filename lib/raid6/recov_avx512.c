@@ -7,7 +7,7 @@
  */
 
 #include <linux/raid/pq.h>
-#include "x86.h"
+#include <asm/fpu/api.h>
 
 static int raid6_has_avx512(void)
 {

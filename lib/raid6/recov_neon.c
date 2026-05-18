@@ -5,14 +5,8 @@
  */
 
 #include <linux/raid/pq.h>
-
-#ifdef __KERNEL__
 #include <asm/simd.h>
 #include "neon.h"
-#else
-#define scoped_ksimd()
-#define cpu_has_neon()		(1)
-#endif
 
 static int raid6_has_neon(void)
 {

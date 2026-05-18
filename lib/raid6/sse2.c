@@ -13,7 +13,7 @@
  */
 
 #include <linux/raid/pq.h>
-#include "x86.h"
+#include <asm/fpu/api.h>
 
 static const struct raid6_sse_constants {
 	u64 x1d[2];

@@ -19,7 +19,7 @@
 #ifdef CONFIG_X86_32
 
 #include <linux/raid/pq.h>
-#include "x86.h"
+#include <asm/fpu/api.h>
 
 /* Defined in raid6/mmx.c */
 extern const struct raid6_mmx_constants {

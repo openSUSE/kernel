@@ -10,7 +10,8 @@
  */
 
 #include <linux/raid/pq.h>
-#include "loongarch.h"
+#include <asm/cpu-features.h>
+#include <asm/fpu.h>
 
 /*
  * The vector algorithms are currently priority 0, which means the generic

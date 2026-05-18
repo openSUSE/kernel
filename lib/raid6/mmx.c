@@ -14,7 +14,7 @@
 #ifdef CONFIG_X86_32
 
 #include <linux/raid/pq.h>
-#include "x86.h"
+#include <asm/fpu/api.h>
 
 /* Shared with raid6/sse1.c */
 const struct raid6_mmx_constants {

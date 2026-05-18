@@ -27,10 +27,8 @@
 #ifdef CONFIG_ALTIVEC
 
 #include <altivec.h>
-#ifdef __KERNEL__
-# include <asm/cputable.h>
-# include <asm/switch_to.h>
-#endif /* __KERNEL__ */
+#include <asm/cputable.h>
+#include <asm/switch_to.h>
 
 /*
  * This is the C data type to use.  We use a vector of
@@ -113,11 +111,7 @@ int raid6_have_altivec(void);
 int raid6_have_altivec(void)
 {
 	/* This assumes either all CPUs have Altivec or none does */
-# ifdef __KERNEL__
 	return cpu_has_feature(CPU_FTR_ALTIVEC);
-# else
-	return 1;
-# endif
 }
 #endif
 

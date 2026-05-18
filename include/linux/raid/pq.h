@@ -8,8 +8,6 @@
 #ifndef LINUX_RAID_RAID6_H
 #define LINUX_RAID_RAID6_H
 
-#ifdef __KERNEL__
-
 #include <linux/blkdev.h>
 #include <linux/mm.h>
 
@@ -18,59 +16,6 @@ static inline void *raid6_get_zero_page(void)
 {
 	return page_address(ZERO_PAGE(0));
 }
-
-#else /* ! __KERNEL__ */
-/* Used for testing in user space */
-
-#include <errno.h>
-#include <inttypes.h>
-#include <stddef.h>
-#include <string.h>
-#include <sys/mman.h>
-#include <sys/time.h>
-#include <sys/types.h>
-
-/* Not standard, but glibc defines it */
-#define BITS_PER_LONG __WORDSIZE
-
-typedef uint8_t  u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
-typedef uint64_t u64;
-
-#ifndef PAGE_SIZE
-# define PAGE_SIZE 4096
-#endif
-#ifndef PAGE_SHIFT
-# define PAGE_SHIFT 12
-#endif
-extern const char raid6_empty_zero_page[PAGE_SIZE];
-
-#define __init
-#define __exit
-#ifndef __attribute_const__
-# define __attribute_const__ __attribute__((const))
-#endif
-#define noinline __attribute__((noinline))
-
-#define preempt_enable()
-#define preempt_disable()
-#define cpu_has_feature(x) 1
-#define enable_kernel_altivec()
-#define disable_kernel_altivec()
-
-#undef	EXPORT_SYMBOL
-#define EXPORT_SYMBOL(sym)
-#undef	EXPORT_SYMBOL_GPL
-#define EXPORT_SYMBOL_GPL(sym)
-#define MODULE_LICENSE(licence)
-#define MODULE_DESCRIPTION(desc)
-#define subsys_initcall(x)
-#define module_exit(x)
-
-#define IS_ENABLED(x) (x)
-#define CONFIG_RAID6_PQ_BENCHMARK 1
-#endif /* __KERNEL__ */
 
 /* Routine choices */
 struct raid6_calls {
@@ -164,40 +109,5 @@ extern void (*raid6_2data_recov)(int disks, size_t bytes, int faila, int failb,
 		       void **ptrs);
 extern void (*raid6_datap_recov)(int disks, size_t bytes, int faila,
 			void **ptrs);
-
-/* Some definitions to allow code to be compiled for testing in userspace */
-#ifndef __KERNEL__
-
-# define jiffies	raid6_jiffies()
-# define printk 	printf
-# define pr_err(format, ...) fprintf(stderr, format, ## __VA_ARGS__)
-# define pr_info(format, ...) fprintf(stdout, format, ## __VA_ARGS__)
-# define GFP_KERNEL	0
-# define __get_free_pages(x, y)	((unsigned long)mmap(NULL, PAGE_SIZE << (y), \
-						     PROT_READ|PROT_WRITE,   \
-						     MAP_PRIVATE|MAP_ANONYMOUS,\
-						     0, 0))
-# define free_pages(x, y)	munmap((void *)(x), PAGE_SIZE << (y))
-
-static inline void cpu_relax(void)
-{
-	/* Nothing */
-}
-
-#undef  HZ
-#define HZ 1000
-static inline uint32_t raid6_jiffies(void)
-{
-	struct timeval tv;
-	gettimeofday(&tv, NULL);
-	return tv.tv_sec*1000 + tv.tv_usec/1000;
-}
-
-static inline void *raid6_get_zero_page(void)
-{
-	return raid6_empty_zero_page;
-}
-
-#endif /* ! __KERNEL__ */
 
 #endif /* LINUX_RAID_RAID6_H */

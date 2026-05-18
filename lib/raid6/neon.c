@@ -6,13 +6,7 @@
  */
 
 #include <linux/raid/pq.h>
-
-#ifdef __KERNEL__
 #include <asm/simd.h>
-#else
-#define scoped_ksimd()
-#define cpu_has_neon()		(1)
-#endif
 
 /*
  * There are 2 reasons these wrappers are kept in a separate compilation unit

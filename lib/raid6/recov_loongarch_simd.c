@@ -11,7 +11,8 @@
  */
 
 #include <linux/raid/pq.h>
-#include "loongarch.h"
+#include <asm/cpu-features.h>
+#include <asm/fpu.h>
 
 /*
  * Unlike with the syndrome calculation algorithms, there's no boot-time

@@ -56,9 +56,7 @@ int main(int argc, char *argv[])
 	uint8_t v;
 	uint8_t exptbl[256], invtbl[256];
 
-	printf("#ifdef __KERNEL__\n");
 	printf("#include <linux/export.h>\n");
-	printf("#endif\n");
 	printf("#include <linux/raid/pq.h>\n");
 
 	/* Compute multiplication table */
@@ -76,9 +74,7 @@ int main(int argc, char *argv[])
 		printf("\t},\n");
 	}
 	printf("};\n");
-	printf("#ifdef __KERNEL__\n");
 	printf("EXPORT_SYMBOL(raid6_gfmul);\n");
-	printf("#endif\n");
 
 	/* Compute vector multiplication table */
 	printf("\nconst u8  __attribute__((aligned(256)))\n"
@@ -101,9 +97,7 @@ int main(int argc, char *argv[])
 		printf("\t},\n");
 	}
 	printf("};\n");
-	printf("#ifdef __KERNEL__\n");
 	printf("EXPORT_SYMBOL(raid6_vgfmul);\n");
-	printf("#endif\n");
 
 	/* Compute power-of-2 table (exponent) */
 	v = 1;
@@ -120,9 +114,7 @@ int main(int argc, char *argv[])
 		}
 	}
 	printf("};\n");
-	printf("#ifdef __KERNEL__\n");
 	printf("EXPORT_SYMBOL(raid6_gfexp);\n");
-	printf("#endif\n");
 
 	/* Compute log-of-2 table */
 	printf("\nconst u8 __attribute__((aligned(256)))\n"
@@ -140,9 +132,7 @@ int main(int argc, char *argv[])
 		}
 	}
 	printf("};\n");
-	printf("#ifdef __KERNEL__\n");
 	printf("EXPORT_SYMBOL(raid6_gflog);\n");
-	printf("#endif\n");
 
 	/* Compute inverse table x^-1 == x^254 */
 	printf("\nconst u8 __attribute__((aligned(256)))\n"
@@ -155,9 +145,7 @@ int main(int argc, char *argv[])
 		}
 	}
 	printf("};\n");
-	printf("#ifdef __KERNEL__\n");
 	printf("EXPORT_SYMBOL(raid6_gfinv);\n");
-	printf("#endif\n");
 
 	/* Compute inv(2^x + 1) (exponent-xor-inverse) table */
 	printf("\nconst u8 __attribute__((aligned(256)))\n"
@@ -169,9 +157,7 @@ int main(int argc, char *argv[])
 			       (j == 7) ? '\n' : ' ');
 	}
 	printf("};\n");
-	printf("#ifdef __KERNEL__\n");
 	printf("EXPORT_SYMBOL(raid6_gfexi);\n");
-	printf("#endif\n");
 
 	return 0;
 }

@@ -25,10 +25,8 @@
 
 #include <altivec.h>
 #include <asm/ppc-opcode.h>
-#ifdef __KERNEL__
 #include <asm/cputable.h>
 #include <asm/switch_to.h>
-#endif
 
 typedef vector unsigned char unative_t;
 #define NSIZE sizeof(unative_t)
@@ -85,13 +83,8 @@ int raid6_have_altivec_vpermxor(void);
 int raid6_have_altivec_vpermxor(void)
 {
 	/* Check if arch has both altivec and the vpermxor instructions */
-# ifdef __KERNEL__
 	return (cpu_has_feature(CPU_FTR_ALTIVEC_COMP) &&
 		cpu_has_feature(CPU_FTR_ARCH_207S));
-# else
-	return 1;
-#endif
-
 }
 #endif
 

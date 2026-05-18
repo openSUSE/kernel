@@ -12,13 +12,8 @@
  */
 
 #include <linux/raid/pq.h>
-#ifndef __KERNEL__
-#include <sys/mman.h>
-#include <stdio.h>
-#else
 #include <linux/module.h>
 #include <linux/gfp.h>
-#endif
 #include <kunit/visibility.h>
 
 struct raid6_calls raid6_call;
@@ -123,14 +118,7 @@ const struct raid6_recov_calls *const raid6_recov_algos[] = {
 };
 EXPORT_SYMBOL_IF_KUNIT(raid6_recov_algos);
 
-#ifdef __KERNEL__
 #define RAID6_TIME_JIFFIES_LG2	4
-#else
-/* Need more time to be stable in userspace */
-#define RAID6_TIME_JIFFIES_LG2	9
-#define time_before(x, y) ((x) < (y))
-#endif
-
 #define RAID6_TEST_DISKS	8
 #define RAID6_TEST_DISKS_ORDER	3
 
