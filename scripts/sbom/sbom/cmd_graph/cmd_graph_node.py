@@ -2,13 +2,22 @@
 # Copyright (C) 2025 TNG Technology Consulting GmbH
 
 from dataclasses import dataclass, field
+from itertools import chain
 import logging
 import os
 from typing import Iterator, Protocol
 
 from sbom import sbom_logging
 from sbom.cmd_graph.cmd_file import CmdFile
+from sbom.cmd_graph.hardcoded_dependencies import get_hardcoded_dependencies
+from sbom.cmd_graph.incbin_parser import parse_incbin_statements
 from sbom.path_utils import PathStr, has_link, is_relative_to
+
+
+@dataclass
+class IncbinDependency:
+    node: "CmdGraphNode"
+    full_statement: str
 
 
 class CmdGraphNodeConfig(Protocol):
@@ -28,11 +37,17 @@ class CmdGraphNode:
     """Parsed .cmd file describing how the file at absolute_path was built, or None if not available."""
 
     cmd_file_dependencies: list["CmdGraphNode"] = field(default_factory=list)
+    incbin_dependencies: list[IncbinDependency] = field(default_factory=list)
+    hardcoded_dependencies: list["CmdGraphNode"] = field(default_factory=list)
 
     @property
     def children(self) -> Iterator["CmdGraphNode"]:
         seen: set[PathStr] = set()
-        for node in self.cmd_file_dependencies:
+        for node in chain(
+            self.cmd_file_dependencies,
+            (dep.node for dep in self.incbin_dependencies),
+            self.hardcoded_dependencies,
+        ):
             if node.absolute_path not in seen:
                 seen.add(node.absolute_path)
                 yield node
@@ -95,12 +110,28 @@ class CmdGraphNode:
         def _build_child_node(child_path: PathStr) -> "CmdGraphNode":
             return CmdGraphNode.create(child_path, config, cache, depth + 1)
 
+        node.hardcoded_dependencies = [
+            _build_child_node(hardcoded_dependency_path)
+            for hardcoded_dependency_path in get_hardcoded_dependencies(
+                target_path_absolute, config.obj_tree, config.src_tree
+            )
+        ]
+
         if cmd_file is not None:
             node.cmd_file_dependencies = [
                 _build_child_node(cmd_file_dependency_path)
                 for cmd_file_dependency_path in cmd_file.get_dependencies(
                     target_path, config.obj_tree, config.fail_on_unknown_build_command
                 )
+            ]
+
+        if node.absolute_path.endswith(".S"):
+            node.incbin_dependencies = [
+                IncbinDependency(
+                    node=_build_child_node(incbin_statement.path),
+                    full_statement=incbin_statement.full_statement,
+                )
+                for incbin_statement in parse_incbin_statements(node.absolute_path)
             ]
 
         return node
