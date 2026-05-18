@@ -791,10 +791,12 @@ static unsigned int icl_qgv_bw(struct intel_display *display,
 
 void intel_bw_init_hw(struct intel_display *display)
 {
-	const struct dram_info *dram_info = intel_dram_info(display);
+	const struct dram_info *dram_info;
 
 	if (!HAS_DISPLAY(display))
 		return;
+
+	dram_info = intel_dram_info(display);
 
 	/*
 	 * Starting with Xe3p_LPD, the hardware tells us whether memory has ECC
