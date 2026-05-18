@@ -712,7 +712,7 @@ static int tegra_i2c_init_dma(struct tegra_i2c_dev *i2c_dev)
 		goto err_out;
 	}
 
-	i2c_dev->dma_dev = i2c_dev->dma_chan->device->dev;
+	i2c_dev->dma_dev = dmaengine_get_dma_device(i2c_dev->dma_chan);
 	i2c_dev->dma_buf_size = i2c_dev->hw->quirks->max_write_len +
 				I2C_PACKET_HEADER_SIZE;
 
