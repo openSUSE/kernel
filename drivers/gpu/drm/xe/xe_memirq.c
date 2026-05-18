@@ -152,6 +152,13 @@ static const char *guc_name(struct xe_guc *guc)
  *
  */
 
+/* ISR */
+#define XE_MEMIRQ_STATUS_OFFSET(inst)	((inst) * SZ_4K + 0x0)
+/* IIR */
+#define XE_MEMIRQ_SOURCE_OFFSET(inst)	((inst) * SZ_4K + 0x400)
+/* IMR */
+#define XE_MEMIRQ_ENABLE_OFFSET		0x440
+
 static inline bool hw_reports_to_instance_zero(struct xe_memirq *memirq)
 {
 	/*
