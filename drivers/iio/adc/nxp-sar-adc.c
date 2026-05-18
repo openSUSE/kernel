@@ -346,6 +346,7 @@ static void nxp_sar_adc_isr_buffer(struct iio_dev *indio_dev)
 		ret = nxp_sar_adc_read_data(info, info->buffered_chan[i]);
 		if (ret < 0) {
 			nxp_sar_adc_read_notify(info);
+			iio_trigger_notify_done(indio_dev->trig);
 			return;
 		}
 
