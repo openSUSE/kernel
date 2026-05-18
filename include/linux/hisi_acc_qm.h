@@ -552,6 +552,7 @@ static inline void hisi_qm_del_list(struct hisi_qm *qm, struct hisi_qm_list *qm_
 	mutex_unlock(&qm_list->lock);
 }
 
+int hisi_qm_register_uacce(struct hisi_qm *qm);
 int hisi_qm_q_num_set(const char *val, const struct kernel_param *kp,
 		      unsigned int device);
 int hisi_qm_init(struct hisi_qm *qm);

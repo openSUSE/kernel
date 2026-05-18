@@ -246,6 +246,10 @@
 #define QM_QOS_MAX_CIR_U		6
 #define QM_AUTOSUSPEND_DELAY		3000
 
+/* qm isolation state mask */
+#define QM_ISOLATED_STATE		BIT(31)
+#define QM_ISOLATED_THRESHOLD_MASK	GENMASK(15, 0)
+
  /* abnormal status value for stopping queue */
 #define QM_STOP_QUEUE_FAIL		1
 #define	QM_DUMP_SQC_FAIL		3
@@ -286,6 +290,20 @@ enum qm_alg_type {
 	ALG_TYPE_1,
 };
 
+/*
+ * Message format for QM_VF_GET_ISOLATE and QM_PF_SET_ISOLATE commands
+ *
+ * These commands use a 32-bit command field (cmd) and 32-bit data field (data)
+ *
+ * Command behavior:
+ * - QM_VF_GET_ISOLATE: VF requests isolation status and threshold
+ * - QM_PF_SET_ISOLATE: PF sets isolation status and threshold
+ *
+ * Data field bit layout:
+ * - bit31 (MSB): Isolation status flag (1 = isolated, 0 = non-isolated)
+ * - bit15-0 (16 LSB): Isolation threshold value
+ * - bit30-16 (15 bits): Reserved
+ */
 enum qm_ifc_cmd {
 	QM_PF_FLR_PREPARE = 0x01,
 	QM_PF_SRST_PREPARE,
@@ -296,6 +314,8 @@ enum qm_ifc_cmd {
 	QM_VF_START_FAIL,
 	QM_PF_SET_QOS,
 	QM_VF_GET_QOS,
+	QM_VF_GET_ISOLATE,
+	QM_PF_SET_ISOLATE,
 };
 
 enum qm_basic_type {
@@ -1734,7 +1754,7 @@ err_unlock:
 	return ret;
 }
 
-static int qm_ping_all_vfs(struct hisi_qm *qm, enum qm_ifc_cmd cmd)
+static int qm_ping_all_vfs(struct hisi_qm *qm, enum qm_ifc_cmd cmd, u32 data)
 {
 	struct device *dev = &qm->pdev->dev;
 	u32 vfs_num = qm->vfs_num;
@@ -1743,7 +1763,7 @@ static int qm_ping_all_vfs(struct hisi_qm *qm, enum qm_ifc_cmd cmd)
 	int ret;
 	u32 i;
 
-	ret = qm->ops->set_ifc_begin(qm, cmd, 0, QM_MB_PING_ALL_VFS);
+	ret = qm->ops->set_ifc_begin(qm, cmd, data, QM_MB_PING_ALL_VFS);
 	if (ret) {
 		dev_err(dev, "failed to send command(0x%x) to all vfs!\n", cmd);
 		qm->ops->set_ifc_end(qm);
@@ -2779,6 +2799,7 @@ static enum uacce_dev_state hisi_qm_get_isolate_state(struct uacce_device *uacce
 static int hisi_qm_isolate_threshold_write(struct uacce_device *uacce, u32 num)
 {
 	struct hisi_qm *qm = uacce->priv;
+	int ret;
 
 	/* Must be set by PF */
 	if (uacce->is_vf)
@@ -2792,6 +2813,18 @@ static int hisi_qm_isolate_threshold_write(struct uacce_device *uacce, u32 num)
 
 	/* After the policy is updated, need to reset the hardware err list */
 	qm_hw_err_destroy(qm);
+
+	if (!qm->vfs_num) {
+		mutex_unlock(&qm->isolate_data.isolate_lock);
+		return 0;
+	}
+
+	/* Notify all VFs to update the isolation threshold. */
+	if (test_bit(QM_SUPPORT_MB_COMMAND, &qm->caps)) {
+		ret = qm_ping_all_vfs(qm, QM_PF_SET_ISOLATE, qm->isolate_data.err_threshold);
+		if (ret)
+			dev_err(&qm->pdev->dev, "failed to send command to all VFs set isolate!\n");
+	}
 	mutex_unlock(&qm->isolate_data.isolate_lock);
 
 	return 0;
@@ -2802,7 +2835,7 @@ static u32 hisi_qm_isolate_threshold_read(struct uacce_device *uacce)
 	struct hisi_qm *qm = uacce->priv;
 	struct hisi_qm *pf_qm;
 
-	if (uacce->is_vf) {
+	if (uacce->is_vf && !test_bit(QM_SUPPORT_MB_COMMAND, &qm->caps)) {
 		pf_qm = pci_get_drvdata(pci_physfn(qm->pdev));
 		return pf_qm->isolate_data.err_threshold;
 	}
@@ -2889,7 +2922,10 @@ static int qm_alloc_uacce(struct hisi_qm *qm)
 		return -EINVAL;
 	}
 
-	uacce->is_vf = pdev->is_virtfn;
+	if (qm->fun_type == QM_HW_PF)
+		uacce->is_vf = false;
+	else
+		uacce->is_vf = true;
 	uacce->priv = qm;
 
 	if (qm->ver == QM_HW_V1)
@@ -2917,6 +2953,25 @@ static int qm_alloc_uacce(struct hisi_qm *qm)
 
 	return 0;
 }
+
+int hisi_qm_register_uacce(struct hisi_qm *qm)
+{
+	int ret;
+
+	if (!qm->uacce)
+		return 0;
+
+	dev_info(&qm->pdev->dev, "qm register to uacce\n");
+
+	if (qm->fun_type == QM_HW_VF && test_bit(QM_SUPPORT_MB_COMMAND, &qm->caps)) {
+		ret = qm_ping_pf(qm, QM_VF_GET_ISOLATE);
+		if (ret)
+			dev_err(&qm->pdev->dev, "failed to send cmd to PF to get isolate!\n");
+	}
+
+	return uacce_register(qm->uacce);
+}
+EXPORT_SYMBOL_GPL(hisi_qm_register_uacce);
 
 /**
  * qm_frozen() - Try to froze QM to cut continuous queue request. If
@@ -4484,7 +4539,7 @@ static int qm_try_stop_vfs(struct hisi_qm *qm, enum qm_ifc_cmd cmd,
 
 	/* Kunpeng930 supports to notify VFs to stop before PF reset */
 	if (test_bit(QM_SUPPORT_MB_COMMAND, &qm->caps)) {
-		ret = qm_ping_all_vfs(qm, cmd);
+		ret = qm_ping_all_vfs(qm, cmd, 0);
 		if (ret)
 			pci_err(pdev, "failed to send command to all VFs before PF reset!\n");
 	} else {
@@ -4671,6 +4726,7 @@ restart_fail:
 static int qm_try_start_vfs(struct hisi_qm *qm, enum qm_ifc_cmd cmd)
 {
 	struct pci_dev *pdev = qm->pdev;
+	u32 data;
 	int ret;
 
 	if (!qm->vfs_num)
@@ -4684,7 +4740,11 @@ static int qm_try_start_vfs(struct hisi_qm *qm, enum qm_ifc_cmd cmd)
 
 	/* Kunpeng930 supports to notify VFs to start after PF reset. */
 	if (test_bit(QM_SUPPORT_MB_COMMAND, &qm->caps)) {
-		ret = qm_ping_all_vfs(qm, cmd);
+		data = qm->isolate_data.err_threshold;
+		if (qm->isolate_data.is_isolate)
+			data |= QM_ISOLATED_STATE;
+		/* Broadcasting isolate info via RAS to all VFs. */
+		ret = qm_ping_all_vfs(qm, cmd, data);
 		if (ret)
 			pci_warn(pdev, "failed to send cmd to all VFs after PF reset!\n");
 	} else {
@@ -5131,10 +5191,22 @@ static void qm_pf_reset_vf_done(struct hisi_qm *qm)
 	qm_reset_bit_clear(qm);
 }
 
-static int qm_wait_pf_reset_finish(struct hisi_qm *qm)
+static void qm_vf_update_isolate_info(struct hisi_qm *qm, u32 data)
+{
+	/* Updating the local isolation status. */
+	mutex_lock(&qm->isolate_data.isolate_lock);
+	if (data & QM_ISOLATED_STATE)
+		qm->isolate_data.is_isolate = true;
+	else
+		qm->isolate_data.is_isolate = false;
+	qm->isolate_data.err_threshold = data & QM_ISOLATED_THRESHOLD_MASK;
+	mutex_unlock(&qm->isolate_data.isolate_lock);
+}
+
+static int qm_wait_pf_reset_finish(struct hisi_qm *qm, enum qm_stop_reason stop_reason)
 {
 	struct device *dev = &qm->pdev->dev;
-	u32 val, cmd;
+	u32 val, cmd, data;
 	int ret;
 
 	/* Wait for reset to finish */
@@ -5151,7 +5223,7 @@ static int qm_wait_pf_reset_finish(struct hisi_qm *qm)
 	 * Whether message is got successfully,
 	 * VF needs to ack PF by clearing the interrupt.
 	 */
-	ret = qm->ops->get_ifc(qm, &cmd, NULL, 0);
+	ret = qm->ops->get_ifc(qm, &cmd, &data, 0);
 	qm_clear_cmd_interrupt(qm, 0);
 	if (ret) {
 		dev_err(dev, "failed to get command from PF in reset done!\n");
@@ -5160,10 +5232,14 @@ static int qm_wait_pf_reset_finish(struct hisi_qm *qm)
 
 	if (cmd != QM_PF_RESET_DONE) {
 		dev_err(dev, "the command(0x%x) is not reset done!\n", cmd);
-		ret = -EINVAL;
+		return -EINVAL;
 	}
 
-	return ret;
+	/* The VF processes the device isolation information received from the RAS reset. */
+	if (stop_reason == QM_SOFT_RESET)
+		qm_vf_update_isolate_info(qm, data);
+
+	return 0;
 }
 
 static void qm_pf_reset_vf_process(struct hisi_qm *qm,
@@ -5178,7 +5254,7 @@ static void qm_pf_reset_vf_process(struct hisi_qm *qm,
 	qm_cmd_uninit(qm);
 	qm_pf_reset_vf_prepare(qm, stop_reason);
 
-	ret = qm_wait_pf_reset_finish(qm);
+	ret = qm_wait_pf_reset_finish(qm, stop_reason);
 	if (ret)
 		goto err_get_status;
 
@@ -5189,8 +5265,29 @@ static void qm_pf_reset_vf_process(struct hisi_qm *qm,
 	return;
 
 err_get_status:
+	if (stop_reason == QM_SOFT_RESET) {
+		/* Update local isolation status on PF-VF reset failure. */
+		mutex_lock(&qm->isolate_data.isolate_lock);
+		qm->isolate_data.is_isolate = true;
+		mutex_unlock(&qm->isolate_data.isolate_lock);
+	}
 	qm_cmd_init(qm);
 	qm_reset_bit_clear(qm);
+}
+
+static void qm_vf_get_isolate_data(struct hisi_qm *qm, u32 fun_num)
+{
+	u32 data = qm->isolate_data.err_threshold;
+	struct device *dev = &qm->pdev->dev;
+	int ret;
+
+	if (qm->isolate_data.is_isolate)
+		data |= QM_ISOLATED_STATE;
+
+	ret = qm_ping_single_vf(qm, QM_PF_SET_ISOLATE, data, fun_num);
+	if (ret)
+		dev_err(dev, "failed to send command(0x%x) to VF(%u)!\n",
+			(unsigned int)QM_PF_SET_ISOLATE, fun_num);
 }
 
 static void qm_handle_cmd_msg(struct hisi_qm *qm, u32 fun_num)
@@ -5223,6 +5320,13 @@ static void qm_handle_cmd_msg(struct hisi_qm *qm, u32 fun_num)
 		break;
 	case QM_PF_SET_QOS:
 		qm->mb_qos = data;
+		break;
+	case QM_VF_GET_ISOLATE:
+		/* Read the isolation policy of the PF during VF initialization. */
+		qm_vf_get_isolate_data(qm, fun_num);
+		break;
+	case QM_PF_SET_ISOLATE:
+		qm_vf_update_isolate_info(qm, data);
 		break;
 	default:
 		dev_err(dev, "unsupported command(0x%x) sent by function(%u)!\n", cmd, fun_num);
