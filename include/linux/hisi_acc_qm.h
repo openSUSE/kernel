@@ -248,6 +248,7 @@ enum acc_err_result {
 	ACC_ERR_NONE,
 	ACC_ERR_NEED_RESET,
 	ACC_ERR_RECOVERED,
+	ACC_ERR_NEED_FUNC_RESET,
 };
 
 struct hisi_qm_err_mask {
