@@ -221,10 +221,6 @@ ct_mixer_recording_select(struct ct_mixer *mixer, enum CT_AMIXER_CTL type);
 static void
 ct_mixer_recording_unselect(struct ct_mixer *mixer, enum CT_AMIXER_CTL type);
 
-/* FIXME: this static looks like it would fail if more than one card was */
-/* installed. */
-static struct snd_kcontrol *kctls[2] = {NULL};
-
 static enum CT_AMIXER_CTL get_amixer_index(enum CTALSA_MIXER_CTL alsa_index)
 {
 	switch (alsa_index) {
@@ -481,17 +477,18 @@ static struct snd_kcontrol_new mic_source_ctl = {
 static void
 do_line_mic_switch(struct ct_atc *atc, enum CTALSA_MIXER_CTL type)
 {
+	struct ct_mixer *mixer = atc->mixer;
 
 	if (MIXER_LINEIN_C_S == type) {
 		atc->select_line_in(atc);
-		set_switch_state(atc->mixer, MIXER_MIC_C_S, 0);
+		set_switch_state(mixer, MIXER_MIC_C_S, 0);
 		snd_ctl_notify(atc->card, SNDRV_CTL_EVENT_MASK_VALUE,
-							&kctls[1]->id);
+			       &mixer->line_mic_kctls[1]->id);
 	} else if (MIXER_MIC_C_S == type) {
 		atc->select_mic_in(atc);
-		set_switch_state(atc->mixer, MIXER_LINEIN_C_S, 0);
+		set_switch_state(mixer, MIXER_LINEIN_C_S, 0);
 		snd_ctl_notify(atc->card, SNDRV_CTL_EVENT_MASK_VALUE,
-							&kctls[0]->id);
+			       &mixer->line_mic_kctls[0]->id);
 	}
 }
 
@@ -778,9 +775,9 @@ ct_mixer_kcontrol_new(struct ct_mixer *mixer, struct snd_kcontrol_new *new)
 
 	switch (new->private_value) {
 	case MIXER_LINEIN_C_S:
-		kctls[0] = kctl; break;
+		mixer->line_mic_kctls[0] = kctl; break;
 	case MIXER_MIC_C_S:
-		kctls[1] = kctl; break;
+		mixer->line_mic_kctls[1] = kctl; break;
 	default:
 		break;
 	}
