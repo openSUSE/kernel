@@ -56,27 +56,28 @@ def netns_socket(netns, *sock_args):
 
     child = os.fork()
     if child == 0:
-        # change network namespace
-        with open(f'/var/run/netns/{netns}', encoding='utf-8') as f:
-            try:
+        try:
+            # change network namespace
+            with open(f'/var/run/netns/{netns}', encoding='utf-8') as f:
                 setns(f.fileno(), 0)
-            except IOError as e:
-                print(e.errno)
-                print(e)
+            # create socket in target namespace
+            sock = socket.socket(*sock_args)
 
-        # create socket in target namespace
-        sock = socket.socket(*sock_args)
+            # send resulting socket to parent
+            socket.send_fds(u0, [], [sock.fileno()])
 
-        # send resulting socket to parent
-        socket.send_fds(u0, [], [sock.fileno()])
-
-        os._exit(0)
+            os._exit(0)
+        except BaseException:
+            os._exit(1)
 
     # receive socket from child
     _, fds, _, _ = socket.recv_fds(u1, 0, 1)
-    os.waitpid(child, 0)
+    _, status = os.waitpid(child, 0)
     u0.close()
     u1.close()
+    if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
+        raise RuntimeError(
+            f"netns_socket child failed in netns {netns} (status={status})")
     return socket.fromfd(fds[0], *sock_args)
 
 def send_burst(socks, ip_addrs, snd_hashes, nr_sent, nr_total):
