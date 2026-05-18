@@ -221,6 +221,7 @@ static int memirq_alloc_pages(struct xe_memirq *memirq)
 	memirq->source = IOSYS_MAP_INIT_OFFSET(&bo->vmap, XE_MEMIRQ_SOURCE_OFFSET(0));
 	memirq->status = IOSYS_MAP_INIT_OFFSET(&bo->vmap, XE_MEMIRQ_STATUS_OFFSET(0));
 	memirq->mask = IOSYS_MAP_INIT_OFFSET(&bo->vmap, XE_MEMIRQ_ENABLE_OFFSET);
+	memirq->num_pages = num_pages;
 
 	memirq_assert(memirq, !memirq->source.is_iomem);
 	memirq_assert(memirq, !memirq->status.is_iomem);
@@ -532,6 +533,18 @@ bool xe_memirq_guc_sw_int_0_irq_pending(struct xe_memirq *memirq, struct xe_guc 
 				       guc_name(guc));
 }
 
+static void memirq_dump_source_pages(struct xe_memirq *memirq)
+{
+	memirq_assert(memirq, !memirq->bo->vmap.is_iomem);
+
+	for (int n = 0; n < memirq->num_pages; n++) {
+		memirq_debug(memirq, "SOURCE %*ph\n", 32,
+			     memirq->bo->vmap.vaddr + XE_MEMIRQ_SOURCE_OFFSET(n));
+		memirq_debug(memirq, "SOURCE %*ph\n", 32,
+			     memirq->bo->vmap.vaddr + XE_MEMIRQ_SOURCE_OFFSET(n) + 32);
+	}
+}
+
 /**
  * xe_memirq_handler - The `Memory Based Interrupts`_ Handler.
  * @memirq: the &xe_memirq
@@ -551,9 +564,8 @@ void xe_memirq_handler(struct xe_memirq *memirq)
 	if (!memirq->bo)
 		return;
 
-	memirq_assert(memirq, !memirq->source.is_iomem);
-	memirq_debug(memirq, "SOURCE %*ph\n", 32, memirq->source.vaddr);
-	memirq_debug(memirq, "SOURCE %*ph\n", 32, memirq->source.vaddr + 32);
+	if (IS_ENABLED(CONFIG_DRM_XE_DEBUG_MEMIRQ))
+		memirq_dump_source_pages(memirq);
 
 	for_each_gt(gt, xe, gtid) {
 		if (gt->tile != tile)

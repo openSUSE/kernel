@@ -14,6 +14,7 @@ struct xe_bo;
  * struct xe_memirq - Data used by the `Memory Based Interrupts`_.
  *
  * @bo: buffer object with `Memory Based Interrupts Page Layout`_.
+ * @num_pages: number of per-instance source/status pages.
  * @source: iosys pointer to `Interrupt Source Report Page`_.
  * @status: iosys pointer to `Interrupt Status Report Page`_.
  * @mask: iosys pointer to Interrupt Enable Mask.
@@ -21,6 +22,7 @@ struct xe_bo;
  */
 struct xe_memirq {
 	struct xe_bo *bo;
+	unsigned int num_pages;
 	struct iosys_map source;
 	struct iosys_map status;
 	struct iosys_map mask;
