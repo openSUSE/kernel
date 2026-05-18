@@ -2208,7 +2208,11 @@ sbom_targets += sbom-build.spdx.json sbom-output.spdx.json
 quiet_cmd_sbom = GEN     $(sbom_targets)
       cmd_sbom = printf "%s\n" "$(KBUILD_IMAGE)" >"$(tmp-target)"; \
                  $(if $(CONFIG_MODULES),sed 's/\.o$$/.ko/' $(objtree)/modules.order >> "$(tmp-target)";) \
-                 $(PYTHON3) $(srctree)/scripts/sbom/sbom.py;
+                 $(PYTHON3) $(srctree)/scripts/sbom/sbom.py \
+                     --src-tree $(abspath $(srctree)) \
+                     --obj-tree $(abspath $(objtree)) \
+                     --roots-file "$(tmp-target)" \
+                     --output-directory $(abspath $(objtree));
 PHONY += sbom
 sbom: $(notdir $(KBUILD_IMAGE)) include/generated/autoconf.h $(if $(CONFIG_MODULES),modules modules.order)
 	$(call cmd,sbom)
