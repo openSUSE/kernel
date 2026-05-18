@@ -30,6 +30,7 @@
 #include <linux/regmap.h>
 #include <linux/reset.h>
 
+#include "pci-host-common.h"
 #include "../pci.h"
 
 #define PCIE_BASE_CFG_REG		0x14
@@ -569,6 +570,8 @@ static int mtk_pcie_startup_port(struct mtk_gen3_pcie *pcie)
 			ltssm_state, val);
 		goto err_power_down_device;
 	}
+
+	pci_host_common_link_train_delay(pcie->max_link_speed);
 
 	return 0;
 
