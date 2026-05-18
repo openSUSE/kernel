@@ -10,6 +10,7 @@ from sbom.path_utils import PathStr
 from sbom.spdx_graph.kernel_file import KernelFileCollection
 from sbom.spdx_graph.spdx_graph_model import SpdxGraph, SpdxIdGeneratorCollection
 from sbom.spdx_graph.shared_spdx_elements import SharedSpdxElements
+from sbom.spdx_graph.spdx_source_graph import SpdxSourceGraph
 from sbom.spdx_graph.spdx_output_graph import SpdxOutputGraph
 
 
@@ -53,5 +54,13 @@ def build_spdx_graphs(
     spdx_graphs: dict[KernelSpdxDocumentKind, SpdxGraph] = {
         KernelSpdxDocumentKind.OUTPUT: output_graph,
     }
+
+    if len(kernel_files.source) > 0:
+        spdx_graphs[KernelSpdxDocumentKind.SOURCE] = SpdxSourceGraph.create(
+            source_files=list(kernel_files.source.values()),
+            external_files=list(kernel_files.external.values()),
+            shared_elements=shared_elements,
+            spdx_id_generators=spdx_id_generators,
+        )
 
     return spdx_graphs
