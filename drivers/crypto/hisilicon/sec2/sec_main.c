@@ -48,6 +48,7 @@
 #define SEC_OOO_SHUTDOWN_SEL		0x301014
 #define SEC_RAS_DISABLE		0x0
 #define SEC_AXI_ERROR_MASK		(BIT(0) | BIT(1))
+#define SEC_RAS_CLEAR_ALL		GENMASK(31, 0)
 
 #define SEC_MEM_START_INIT_REG	0x301100
 #define SEC_MEM_INIT_DONE_REG		0x301104
@@ -752,7 +753,7 @@ static void sec_hw_error_enable(struct hisi_qm *qm)
 	}
 
 	/* clear SEC hw error source if having */
-	writel(err_mask, qm->io_base + SEC_CORE_INT_SOURCE);
+	writel(SEC_RAS_CLEAR_ALL, qm->io_base + SEC_CORE_INT_SOURCE);
 
 	/* enable RAS int */
 	writel(dev_err->ce, qm->io_base + SEC_RAS_CE_REG);

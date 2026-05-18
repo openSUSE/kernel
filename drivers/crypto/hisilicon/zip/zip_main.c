@@ -64,7 +64,8 @@
 #define HZIP_OOO_SHUTDOWN_SEL		0x30120C
 #define HZIP_SRAM_ECC_ERR_NUM_SHIFT	16
 #define HZIP_SRAM_ECC_ERR_ADDR_SHIFT	24
-#define HZIP_CORE_INT_MASK_ALL		GENMASK(12, 0)
+#define HZIP_CORE_INT_MASK_ALL		GENMASK(31, 0)
+#define HZIP_CORE_RAS_CLEAR_ALL		GENMASK(31, 0)
 #define HZIP_AXI_ERROR_MASK		(BIT(2) | BIT(3))
 #define HZIP_SQE_SIZE			128
 #define HZIP_PF_DEF_Q_NUM		64
@@ -696,7 +697,7 @@ static void hisi_zip_hw_error_enable(struct hisi_qm *qm)
 	}
 
 	/* clear ZIP hw error source if having */
-	writel(err_mask, qm->io_base + HZIP_CORE_INT_SOURCE);
+	writel(HZIP_CORE_RAS_CLEAR_ALL, qm->io_base + HZIP_CORE_INT_SOURCE);
 
 	/* configure error type */
 	writel(dev_err->ce, qm->io_base + HZIP_CORE_INT_RAS_CE_ENB);
@@ -713,11 +714,8 @@ static void hisi_zip_hw_error_enable(struct hisi_qm *qm)
 
 static void hisi_zip_hw_error_disable(struct hisi_qm *qm)
 {
-	struct hisi_qm_err_mask *dev_err = &qm->err_info.dev_err;
-	u32 err_mask = dev_err->ce | dev_err->nfe | dev_err->fe;
-
 	/* disable ZIP hw error interrupts */
-	writel(err_mask, qm->io_base + HZIP_CORE_INT_MASK_REG);
+	writel(HZIP_CORE_INT_MASK_ALL, qm->io_base + HZIP_CORE_INT_MASK_REG);
 
 	hisi_zip_master_ooo_ctrl(qm, false);
 

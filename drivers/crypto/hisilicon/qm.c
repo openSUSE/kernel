@@ -128,7 +128,6 @@
 
 #define QM_ABNORMAL_INT_SOURCE		0x100000
 #define QM_ABNORMAL_INT_MASK		0x100004
-#define QM_ABNORMAL_INT_MASK_VALUE	0x7fff
 #define QM_ABNORMAL_INT_STATUS		0x100008
 #define QM_ABNORMAL_INT_SET		0x10000c
 #define QM_ABNORMAL_INF00		0x100010
@@ -153,6 +152,8 @@
 #define QM_DB_TIMEOUT			BIT(10)
 #define QM_OF_FIFO_OF			BIT(11)
 #define QM_RAS_AXI_ERROR		(BIT(0) | BIT(1) | BIT(12))
+#define QM_RAS_MASK_ALL			GENMASK(31, 0)
+#define QM_RAS_CLEAR_ALL		GENMASK(31, 0)
 
 #define QM_RESET_WAIT_TIMEOUT		400
 #define QM_PEH_VENDOR_ID		0x1000d8
@@ -1504,7 +1505,7 @@ static int qm_get_vft_v2(struct hisi_qm *qm, u32 *base, u32 *number)
 
 static void qm_hw_error_init_v1(struct hisi_qm *qm)
 {
-	writel(QM_ABNORMAL_INT_MASK_VALUE, qm->io_base + QM_ABNORMAL_INT_MASK);
+	writel(QM_RAS_MASK_ALL, qm->io_base + QM_ABNORMAL_INT_MASK);
 }
 
 static void qm_hw_error_cfg(struct hisi_qm *qm)
@@ -1513,7 +1514,7 @@ static void qm_hw_error_cfg(struct hisi_qm *qm)
 
 	qm->error_mask = qm_err->nfe | qm_err->ce | qm_err->fe;
 	/* clear QM hw residual error source */
-	writel(qm->error_mask, qm->io_base + QM_ABNORMAL_INT_SOURCE);
+	writel(QM_RAS_CLEAR_ALL, qm->io_base + QM_ABNORMAL_INT_SOURCE);
 	if (qm->ver >= QM_HW_V5)
 		writeq(QM_FUNC_RAS_CLEAR_ALL, qm->io_base + QM_FUNC_AXI_ERR_ST0);
 
@@ -1526,43 +1527,28 @@ static void qm_hw_error_cfg(struct hisi_qm *qm)
 
 static void qm_hw_error_init_v2(struct hisi_qm *qm)
 {
-	u32 irq_unmask;
-
 	qm_hw_error_cfg(qm);
 
-	irq_unmask = ~qm->error_mask;
-	irq_unmask &= readl(qm->io_base + QM_ABNORMAL_INT_MASK);
-	writel(irq_unmask, qm->io_base + QM_ABNORMAL_INT_MASK);
+	writel(~qm->error_mask, qm->io_base + QM_ABNORMAL_INT_MASK);
 }
 
 static void qm_hw_error_uninit_v2(struct hisi_qm *qm)
 {
-	u32 irq_mask = qm->error_mask;
-
-	irq_mask |= readl(qm->io_base + QM_ABNORMAL_INT_MASK);
-	writel(irq_mask, qm->io_base + QM_ABNORMAL_INT_MASK);
+	writel(QM_RAS_MASK_ALL, qm->io_base + QM_ABNORMAL_INT_MASK);
 }
 
 static void qm_hw_error_init_v3(struct hisi_qm *qm)
 {
-	u32 irq_unmask;
-
 	qm_hw_error_cfg(qm);
 
 	/* enable close master ooo when hardware error happened */
 	writel(qm->err_info.qm_err.shutdown_mask, qm->io_base + QM_OOO_SHUTDOWN_SEL);
-
-	irq_unmask = ~qm->error_mask;
-	irq_unmask &= readl(qm->io_base + QM_ABNORMAL_INT_MASK);
-	writel(irq_unmask, qm->io_base + QM_ABNORMAL_INT_MASK);
+	writel(~qm->error_mask, qm->io_base + QM_ABNORMAL_INT_MASK);
 }
 
 static void qm_hw_error_uninit_v3(struct hisi_qm *qm)
 {
-	u32 irq_mask = qm->error_mask;
-
-	irq_mask |= readl(qm->io_base + QM_ABNORMAL_INT_MASK);
-	writel(irq_mask, qm->io_base + QM_ABNORMAL_INT_MASK);
+	writel(QM_RAS_MASK_ALL, qm->io_base + QM_ABNORMAL_INT_MASK);
 
 	/* disable close master ooo when hardware error happened */
 	writel(0x0, qm->io_base + QM_OOO_SHUTDOWN_SEL);
