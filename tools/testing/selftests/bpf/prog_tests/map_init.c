@@ -306,7 +306,7 @@ static void test_invalid_token_fd(void)
 	const char *msg = "Invalid map_token_fd.\n";
 	LIBBPF_OPTS(bpf_map_create_opts, opts,
 		    .map_flags = BPF_F_TOKEN_FD,
-		    .token_fd = 0xFF,
+		    .token_fd = -1,
 	);
 
 	test_map_create_array(&opts, msg);
