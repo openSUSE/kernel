@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause)
 /*
- * Copyright 2021-2025 NXP
+ * Copyright 2021-2026 NXP
  *
  * Authors: Ghennadi Procopciuc <ghennadi.procopciuc@nxp.com>
  *          Ciprian Costea <ciprianmarian.costea@nxp.com>
@@ -475,6 +475,15 @@
 			clock-names = "dmamux0", "dmamux1";
 		};
 
+		pit0: pit@40188000 {
+			compatible = "nxp,s32g3-pit", "nxp,s32g2-pit";
+			reg = <0x40188000 0x3000>;
+			interrupts = <GIC_SPI 53 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clks 61>;
+			clock-names = "pit";
+			status = "disabled";
+		};
+
 		can0: can@401b4000 {
 			compatible = "nxp,s32g3-flexcan",
 					   "nxp,s32g2-flexcan";
@@ -691,6 +700,15 @@
 					  "err";
 			clocks = <&clks 63>, <&clks 64>;
 			clock-names = "dmamux0", "dmamux1";
+		};
+
+		pit1: pit@40288000 {
+			compatible = "nxp,s32g3-pit", "nxp,s32g2-pit";
+			reg = <0x40288000 0x3000>;
+			interrupts = <GIC_SPI 54 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clks 61>;
+			clock-names = "pit";
+			status = "disabled";
 		};
 
 		can2: can@402a8000 {
