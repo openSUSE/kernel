@@ -98,12 +98,23 @@
 #define  PSR_TX_BUSY			BIT(0)
 #define  PSR_RX_BUSY			BIT(1)
 
+#define NETC_PTGSLACR			0x130
+
+#define NETC_PRXDCR			0x1c0
+#define NETC_PRXDCRRR			0x1c4
+#define NETC_PRXDCRR0			0x1c8
+#define NETC_PRXDCRR1			0x1cc
+#define NETC_PTXDCR			0x1e0
+
 #define NETC_PTCTMSDUR(a)		(0x208 + (a) * 0x20)
 #define  PTCTMSDUR_MAXSDU		GENMASK(15, 0)
 #define  PTCTMSDUR_SDU_TYPE		GENMASK(17, 16)
 #define   SDU_TYPE_PPDU			0
 #define   SDU_TYPE_MPDU			1
 #define   SDU_TYPE_MSDU			2
+
+#define NETC_PSDFTCR			0x4c4
+#define NETC_PSDFDDCR			0x4c8
 
 #define NETC_BPCR			0x500
 #define  BPCR_DYN_LIMIT			GENMASK(15, 0)
@@ -153,6 +164,8 @@ enum netc_stg_stage {
 	NETC_STG_STATE_FORWARDING,
 };
 
+#define NETC_BPDCR			0x580
+
 /* Definition of Switch ethernet MAC port registers */
 #define NETC_PMAC_OFFSET		0x400
 #define NETC_PM_CMD_CFG(a)		(0x1008 + (a) * 0x400)
@@ -187,6 +200,9 @@ enum netc_stg_stage {
 /* Port MAC 0/1 Receive Ethernet Octets Counter */
 #define NETC_PM_REOCT(a)		(0x1100 + (a) * 0x400)
 
+/* Port MAC 0/1 Receive Octets Counter */
+#define NETC_PM_ROCT(a)			(0x1108 + (a) * 0x400)
+
 /* Port MAC 0/1 Receive Alignment Error Counter Register */
 #define NETC_PM_RALN(a)			(0x1110 + (a) * 0x400)
 
@@ -199,11 +215,26 @@ enum netc_stg_stage {
 /* Port MAC 0/1 Receive Frame Check Sequence Error Counter */
 #define NETC_PM_RFCS(a)			(0x1128 + (a) * 0x400)
 
+/* Port MAC 0/1 Receive VLAN Frame Counter */
+#define NETC_PM_RVLAN(a)		(0x1130 + (a) * 0x400)
+
+/* Port MAC 0/1 Receive Frame Error Counter */
+#define NETC_PM_RERR(a)			(0x1138 + (a) * 0x400)
+
+/* Port MAC 0/1 Receive Unicast Frame Counter */
+#define NETC_PM_RUCA(a)			(0x1140 + (a) * 0x400)
+
 /* Port MAC 0/1 Receive Multicast Frame Counter */
 #define NETC_PM_RMCA(a)			(0x1148 + (a) * 0x400)
 
 /* Port MAC 0/1 Receive Broadcast Frame Counter */
 #define NETC_PM_RBCA(a)			(0x1150 + (a) * 0x400)
+
+/* Port MAC 0/1 Receive Dropped Packets Counter */
+#define NETC_PM_RDRP(a)			(0x1158 + (a) * 0x400)
+
+/* Port MAC 0/1 Receive Packets Counter */
+#define NETC_PM_RPKT(a)			(0x1160 + (a) * 0x400)
 
 /* Port MAC 0/1 Receive Undersized Packet Counter */
 #define NETC_PM_RUND(a)			(0x1168 + (a) * 0x400)
@@ -247,6 +278,9 @@ enum netc_stg_stage {
 /* Port MAC 0/1 Transmit Ethernet Octets Counter */
 #define NETC_PM_TEOCT(a)		(0x1200 + (a) * 0x400)
 
+/* Port MAC 0/1 Transmit Octets Counter */
+#define NETC_PM_TOCT(a)			(0x1208 + (a) * 0x400)
+
 /* Port MAC 0/1 Transmit Excessive Deferral Packet Counter */
 #define NETC_PM_TEDFR(a)		(0x1210 + (a) * 0x400)
 
@@ -256,14 +290,29 @@ enum netc_stg_stage {
 /* Port MAC 0/1 Transmit Frame Counter */
 #define NETC_PM_TFRM(a)			(0x1220 + (a) * 0x400)
 
+/* Port MAC 0/1 Transmit Frame Check Sequence Error Counter */
+#define NETC_PM_TFCS(a)			(0x1228 + (a) * 0x400)
+
+/* Port MAC 0/1 Transmit VLAN Frame Counter */
+#define NETC_PM_TVLAN(a)		(0x1230 + (a) * 0x400)
+
 /* Port MAC 0/1 Transmit Frame Error Counter */
 #define NETC_PM_TERR(a)			(0x1238 + (a) * 0x400)
+
+/* Port MAC 0/1 Transmit Unicast Frame Counter */
+#define NETC_PM_TUCA(a)			(0x1240 + (a) * 0x400)
 
 /* Port MAC 0/1 Transmit Multicast Frame Counter */
 #define NETC_PM_TMCA(a)			(0x1248 + (a) * 0x400)
 
 /* Port MAC 0/1 Transmit Broadcast Frame Counter */
 #define NETC_PM_TBCA(a)			(0x1250 + (a) * 0x400)
+
+/* Port MAC 0/1 Transmit Packets Counter */
+#define NETC_PM_TPKT(a)			(0x1260 + (a) * 0x400)
+
+/* Port MAC 0/1 Transmit Undersized Packet Counter */
+#define NETC_PM_TUND(a)			(0x1268 + (a) * 0x400)
 
 /* Port MAC 0/1 Transmit 64-Octet Packet Counter */
 #define NETC_PM_T64(a)			(0x1270 + (a) * 0x400)
@@ -303,6 +352,9 @@ enum netc_stg_stage {
 
 /* Port MAC 0/1 Transmit Excessive Collisions Counter */
 #define NETC_PM_TECOL(a)		(0x12f0 + (a) * 0x400)
+
+/* Port MAC 0/1 Transmit Invalid Octets Counter */
+#define NETC_PM_TIOCT(a)		(0x12f8 + (a) * 0x400)
 
 #define NETC_PEMDIOCR			0x1c00
 #define NETC_EMDIO_BASE			NETC_PEMDIOCR

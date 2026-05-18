@@ -1491,6 +1491,9 @@ static const struct dsa_switch_ops netc_switch_ops = {
 	.get_rmon_stats			= netc_port_get_rmon_stats,
 	.get_eth_ctrl_stats		= netc_port_get_eth_ctrl_stats,
 	.get_eth_mac_stats		= netc_port_get_eth_mac_stats,
+	.get_sset_count			= netc_port_get_sset_count,
+	.get_strings			= netc_port_get_strings,
+	.get_ethtool_stats		= netc_port_get_ethtool_stats,
 };
 
 static int netc_switch_probe(struct pci_dev *pdev,

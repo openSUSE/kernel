@@ -94,6 +94,11 @@ struct netc_fdb_entry {
 	struct hlist_node node;
 };
 
+struct netc_port_stat {
+	int reg;
+	char name[ETH_GSTRING_LEN] __nonstring;
+};
+
 struct netc_switch {
 	struct pci_dev *pdev;
 	struct device *dev;
@@ -160,5 +165,9 @@ void netc_port_get_eth_ctrl_stats(struct dsa_switch *ds, int port,
 				  struct ethtool_eth_ctrl_stats *ctrl_stats);
 void netc_port_get_eth_mac_stats(struct dsa_switch *ds, int port,
 				 struct ethtool_eth_mac_stats *mac_stats);
+int netc_port_get_sset_count(struct dsa_switch *ds, int port, int sset);
+void netc_port_get_strings(struct dsa_switch *ds, int port,
+			   u32 sset, u8 *data);
+void netc_port_get_ethtool_stats(struct dsa_switch *ds, int port, u64 *data);
 
 #endif

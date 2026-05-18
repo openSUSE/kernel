@@ -19,6 +19,50 @@ static const struct ethtool_rmon_hist_range netc_rmon_ranges[] = {
 	{ }
 };
 
+static const struct netc_port_stat netc_port_counters[] = {
+	{ NETC_PTGSLACR,	"port gate late arrival frames" },
+	{ NETC_PSDFTCR,	"port SDF transmit frames" },
+	{ NETC_PSDFDDCR,	"port SDF drop duplicate frames" },
+	{ NETC_PRXDCR,		"port rx discard frames" },
+	{ NETC_PRXDCRRR,	"port rx discard read-reset" },
+	{ NETC_PRXDCRR0,	"port rx discard reason 0" },
+	{ NETC_PRXDCRR1,	"port rx discard reason 1" },
+	{ NETC_PTXDCR,		"port tx discard frames" },
+	{ NETC_BPDCR,		"bridge port discard frames" },
+};
+
+static const struct netc_port_stat netc_emac_counters[] = {
+	{ NETC_PM_ROCT(0),	"eMAC rx octets" },
+	{ NETC_PM_RVLAN(0),	"eMAC rx VLAN frames" },
+	{ NETC_PM_RERR(0),	"eMAC rx frame errors" },
+	{ NETC_PM_RUCA(0),	"eMAC rx unicast frames" },
+	{ NETC_PM_RDRP(0),	"eMAC rx dropped packets" },
+	{ NETC_PM_RPKT(0),	"eMAC rx packets" },
+	{ NETC_PM_TOCT(0),	"eMAC tx octets" },
+	{ NETC_PM_TVLAN(0),	"eMAC tx VLAN frames" },
+	{ NETC_PM_TFCS(0),	"eMAC tx FCS errors" },
+	{ NETC_PM_TUCA(0),	"eMAC tx unicast frames" },
+	{ NETC_PM_TPKT(0),	"eMAC tx packets" },
+	{ NETC_PM_TUND(0),	"eMAC tx undersized packets" },
+	{ NETC_PM_TIOCT(0),	"eMAC tx invalid octets" },
+};
+
+static const struct netc_port_stat netc_pmac_counters[] = {
+	{ NETC_PM_ROCT(1),	"pMAC rx octets" },
+	{ NETC_PM_RVLAN(1),	"pMAC rx VLAN frames" },
+	{ NETC_PM_RERR(1),	"pMAC rx frame errors" },
+	{ NETC_PM_RUCA(1),	"pMAC rx unicast frames" },
+	{ NETC_PM_RDRP(1),	"pMAC rx dropped packets" },
+	{ NETC_PM_RPKT(1),	"pMAC rx packets" },
+	{ NETC_PM_TOCT(1),	"pMAC tx octets" },
+	{ NETC_PM_TVLAN(1),	"pMAC tx VLAN frames" },
+	{ NETC_PM_TFCS(1),	"pMAC tx FCS errors" },
+	{ NETC_PM_TUCA(1),	"pMAC tx unicast frames" },
+	{ NETC_PM_TPKT(1),	"pMAC tx packets" },
+	{ NETC_PM_TUND(1),	"pMAC tx undersized packets" },
+	{ NETC_PM_TIOCT(1),	"pMAC tx invalid octets" },
+};
+
 static void netc_port_pause_stats(struct netc_port *np, int mac,
 				  struct ethtool_pause_stats *stats)
 {
@@ -187,4 +231,61 @@ void netc_port_get_eth_mac_stats(struct dsa_switch *ds, int port,
 		ethtool_aggregate_mac_stats(ndev, mac_stats);
 		break;
 	}
+}
+
+int netc_port_get_sset_count(struct dsa_switch *ds, int port, int sset)
+{
+	struct netc_port *np = NETC_PORT(ds, port);
+	int size;
+
+	if (sset != ETH_SS_STATS)
+		return -EOPNOTSUPP;
+
+	size = ARRAY_SIZE(netc_port_counters) +
+	       ARRAY_SIZE(netc_emac_counters);
+
+	if (np->caps.pmac)
+		size += ARRAY_SIZE(netc_pmac_counters);
+
+	return size;
+}
+
+void netc_port_get_strings(struct dsa_switch *ds, int port,
+			   u32 sset, u8 *data)
+{
+	struct netc_port *np = NETC_PORT(ds, port);
+	int i;
+
+	if (sset != ETH_SS_STATS)
+		return;
+
+	for (i = 0; i < ARRAY_SIZE(netc_port_counters); i++)
+		ethtool_cpy(&data, netc_port_counters[i].name);
+
+	for (i = 0; i < ARRAY_SIZE(netc_emac_counters); i++)
+		ethtool_cpy(&data, netc_emac_counters[i].name);
+
+	if (!np->caps.pmac)
+		return;
+
+	for (i = 0; i < ARRAY_SIZE(netc_pmac_counters); i++)
+		ethtool_cpy(&data, netc_pmac_counters[i].name);
+}
+
+void netc_port_get_ethtool_stats(struct dsa_switch *ds, int port, u64 *data)
+{
+	struct netc_port *np = NETC_PORT(ds, port);
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(netc_port_counters); i++)
+		*data++ = netc_port_rd(np, netc_port_counters[i].reg);
+
+	for (i = 0; i < ARRAY_SIZE(netc_emac_counters); i++)
+		*data++ = netc_port_rd64(np, netc_emac_counters[i].reg);
+
+	if (!np->caps.pmac)
+		return;
+
+	for (i = 0; i < ARRAY_SIZE(netc_pmac_counters); i++)
+		*data++ = netc_port_rd64(np, netc_pmac_counters[i].reg);
 }
