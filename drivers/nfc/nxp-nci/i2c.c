@@ -349,8 +349,8 @@ static void nxp_nci_i2c_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id nxp_nci_i2c_id_table[] = {
-	{ "nxp-nci_i2c" },
-	{}
+	{ .name = "nxp-nci_i2c" },
+	{ }
 };
 MODULE_DEVICE_TABLE(i2c, nxp_nci_i2c_id_table);
 
