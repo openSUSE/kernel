@@ -49,7 +49,7 @@ static void raid6_2data_recov_lsx(int disks, size_t bytes, int faila,
 	ptrs[failb] = page_address(ZERO_PAGE(0));
 	ptrs[disks - 1] = dq;
 
-	raid6_call.gen_syndrome(disks, bytes, ptrs);
+	raid6_gen_syndrome(disks, bytes, ptrs);
 
 	/* Restore pointer table */
 	ptrs[faila] = dp;
@@ -201,7 +201,7 @@ static void raid6_datap_recov_lsx(int disks, size_t bytes, int faila,
 	ptrs[faila] = page_address(ZERO_PAGE(0));
 	ptrs[disks - 1] = dq;
 
-	raid6_call.gen_syndrome(disks, bytes, ptrs);
+	raid6_gen_syndrome(disks, bytes, ptrs);
 
 	/* Restore pointer table */
 	ptrs[faila] = dq;
@@ -323,7 +323,7 @@ static void raid6_2data_recov_lasx(int disks, size_t bytes, int faila,
 	ptrs[failb] = page_address(ZERO_PAGE(0));
 	ptrs[disks - 1] = dq;
 
-	raid6_call.gen_syndrome(disks, bytes, ptrs);
+	raid6_gen_syndrome(disks, bytes, ptrs);
 
 	/* Restore pointer table */
 	ptrs[faila] = dp;
@@ -440,7 +440,7 @@ static void raid6_datap_recov_lasx(int disks, size_t bytes, int faila,
 	ptrs[faila] = page_address(ZERO_PAGE(0));
 	ptrs[disks - 1] = dq;
 
-	raid6_call.gen_syndrome(disks, bytes, ptrs);
+	raid6_gen_syndrome(disks, bytes, ptrs);
 
 	/* Restore pointer table */
 	ptrs[faila] = dq;

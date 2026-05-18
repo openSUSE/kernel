@@ -16,8 +16,83 @@
 #include <linux/gfp.h>
 #include <kunit/visibility.h>
 
-struct raid6_calls raid6_call;
-EXPORT_SYMBOL_GPL(raid6_call);
+static const struct raid6_recov_calls *raid6_recov_algo;
+
+/* Selected algorithm */
+static struct raid6_calls raid6_call;
+
+/**
+ * raid6_gen_syndrome - generate RAID6 P/Q parity
+ * @disks:	number of "disks" to operate on including parity
+ * @bytes:	length in bytes of each vector
+ * @ptrs:	@disks size array of memory pointers
+ *
+ * Generate @bytes worth of RAID6 P and Q parity in @ptrs[@disks - 2] and
+ * @ptrs[@disks - 1] respectively from the memory pointed to by @ptrs[0] to
+ * @ptrs[@disks - 3].
+ *
+ * @disks must be at least 4, and the memory pointed to by each member of @ptrs
+ * must be at least 64-byte aligned.  @bytes must be non-zero and a multiple of
+ * 512.
+ *
+ * See https://kernel.org/pub/linux/kernel/people/hpa/raid6.pdf for underlying
+ * algorithm.
+ */
+void raid6_gen_syndrome(int disks, size_t bytes, void **ptrs)
+{
+	WARN_ON_ONCE(!in_task() || irqs_disabled() || softirq_count());
+	WARN_ON_ONCE(bytes & 511);
+
+	raid6_call.gen_syndrome(disks, bytes, ptrs);
+}
+EXPORT_SYMBOL_GPL(raid6_gen_syndrome);
+
+/**
+ * raid6_xor_syndrome - update RAID6 P/Q parity
+ * @disks:	number of "disks" to operate on including parity
+ * @start:	first index into @disk to update
+ * @stop:	last index into @disk to update
+ * @bytes:	length in bytes of each vector
+ * @ptrs:	@disks size array of memory pointers
+ *
+ * Update @bytes worth of RAID6 P and Q parity in @ptrs[@disks - 2] and
+ * @ptrs[@disks - 1] respectively for the memory pointed to by
+ * @ptrs[@start..@stop].
+ *
+ * This is used to update parity in place using the following sequence:
+ *
+ * 1) call raid6_xor_syndrome(disk, start, stop, ...) for the existing data.
+ * 2) update the the data in @ptrs[@start..@stop].
+ * 3) call raid6_xor_syndrome(disk, start, stop, ...) for the new data.
+ *
+ * Data between @start and @stop that is not changed should be filled
+ * with a pointer to the kernel zero page.
+ *
+ * @disks must be at least 4, and the memory pointed to by each member of @ptrs
+ * must be at least 64-byte aligned.  @bytes must be non-zero and a multiple of
+ * 512.  @stop must be larger or equal to @start.
+ */
+void raid6_xor_syndrome(int disks, int start, int stop, size_t bytes,
+		void **ptrs)
+{
+	WARN_ON_ONCE(!in_task() || irqs_disabled() || softirq_count());
+	WARN_ON_ONCE(bytes & 511);
+	WARN_ON_ONCE(stop < start);
+
+	raid6_call.xor_syndrome(disks, start, stop, bytes, ptrs);
+}
+EXPORT_SYMBOL_GPL(raid6_xor_syndrome);
+
+/*
+ * raid6_can_xor_syndrome - check if raid6_xor_syndrome() can be used
+ *
+ * Returns %true if raid6_can_xor_syndrome() can be used, else %false.
+ */
+bool raid6_can_xor_syndrome(void)
+{
+	return !!raid6_call.xor_syndrome;
+}
+EXPORT_SYMBOL_GPL(raid6_can_xor_syndrome);
 
 const struct raid6_calls * const raid6_algos[] = {
 #if defined(__i386__) && !defined(__arch_um__)
@@ -84,11 +159,58 @@ const struct raid6_calls * const raid6_algos[] = {
 };
 EXPORT_SYMBOL_IF_KUNIT(raid6_algos);
 
-void (*raid6_2data_recov)(int, size_t, int, int, void **);
-EXPORT_SYMBOL_GPL(raid6_2data_recov);
+/**
+ * raid6_recov_2data - recover two missing data disks
+ * @disks:	number of "disks" to operate on including parity
+ * @bytes:	length in bytes of each vector
+ * @faila:	first failed data disk index
+ * @failb:	second failed data disk index
+ * @ptrs:	@disks size array of memory pointers
+ *
+ * Rebuild @bytes of missing data in @ptrs[@faila] and @ptrs[@failb] from the
+ * data in the remaining disks and the two parities pointed to by the other
+ * indices between 0 and @disks - 1 in @ptrs.  @disks includes the data disks
+ * and the two parities.  @faila must be smaller than @failb.
+ *
+ * Memory pointed to by each pointer in @ptrs must be page aligned and is
+ * limited to %PAGE_SIZE.
+ */
+void raid6_recov_2data(int disks, size_t bytes, int faila, int failb,
+		void **ptrs)
+{
+	WARN_ON_ONCE(!in_task() || irqs_disabled() || softirq_count());
+	WARN_ON_ONCE(bytes & 511);
+	WARN_ON_ONCE(bytes > PAGE_SIZE);
+	WARN_ON_ONCE(failb <= faila);
 
-void (*raid6_datap_recov)(int, size_t, int, void **);
-EXPORT_SYMBOL_GPL(raid6_datap_recov);
+	raid6_recov_algo->data2(disks, bytes, faila, failb, ptrs);
+}
+EXPORT_SYMBOL_GPL(raid6_recov_2data);
+
+/**
+ * raid6_recov_datap - recover a missing data disk and missing P-parity
+ * @disks:	number of "disks" to operate on including parity
+ * @bytes:	length in bytes of each vector
+ * @faila:	failed data disk index
+ * @ptrs:	@disks size array of memory pointers
+ *
+ * Rebuild @bytes of missing data in @ptrs[@faila] and the missing P-parity in
+ * @ptrs[@disks - 2] from the data in the remaining disks and the Q-parity
+ * pointed to by the other indices between 0 and @disks - 1 in @ptrs.  @disks
+ * includes the data disks and the two parities.
+ *
+ * Memory pointed to by each pointer in @ptrs must be page aligned and is
+ * limited to %PAGE_SIZE.
+ */
+void raid6_recov_datap(int disks, size_t bytes, int faila, void **ptrs)
+{
+	WARN_ON_ONCE(!in_task() || irqs_disabled() || softirq_count());
+	WARN_ON_ONCE(bytes & 511);
+	WARN_ON_ONCE(bytes > PAGE_SIZE);
+
+	raid6_recov_algo->datap(disks, bytes, faila, ptrs);
+}
+EXPORT_SYMBOL_GPL(raid6_recov_datap);
 
 const struct raid6_recov_calls *const raid6_recov_algos[] = {
 #ifdef CONFIG_X86
@@ -133,8 +255,7 @@ static inline const struct raid6_recov_calls *raid6_choose_recov(void)
 				best = *algo;
 
 	if (best) {
-		raid6_2data_recov = best->data2;
-		raid6_datap_recov = best->datap;
+		raid6_recov_algo = best;
 
 		pr_info("raid6: using %s recovery algorithm\n", best->name);
 	} else

@@ -418,7 +418,7 @@ async_raid6_2data_recov(int disks, size_t bytes, int faila, int failb,
 			else
 				ptrs[i] = page_address(blocks[i]) + offs[i];
 
-		raid6_2data_recov(disks, bytes, faila, failb, ptrs);
+		raid6_recov_2data(disks, bytes, faila, failb, ptrs);
 
 		async_tx_sync_epilog(submit);
 
@@ -501,7 +501,7 @@ async_raid6_datap_recov(int disks, size_t bytes, int faila,
 			else
 				ptrs[i] = page_address(blocks[i]) + offs[i];
 
-		raid6_datap_recov(disks, bytes, faila, ptrs);
+		raid6_recov_datap(disks, bytes, faila, ptrs);
 
 		async_tx_sync_epilog(submit);
 
