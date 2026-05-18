@@ -24,8 +24,6 @@
 
 #include <linux/raid/pq.h>
 
-#ifdef CONFIG_ALTIVEC
-
 #include <altivec.h>
 #include <asm/cputable.h>
 #include <asm/switch_to.h>
@@ -122,5 +120,3 @@ const struct raid6_calls raid6_altivec$# = {
 	"altivecx$#",
 	0
 };
-
-#endif /* CONFIG_ALTIVEC */

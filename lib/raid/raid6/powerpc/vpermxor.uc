@@ -21,8 +21,6 @@
  */
 
 #include <linux/raid/pq.h>
-#ifdef CONFIG_ALTIVEC
-
 #include <altivec.h>
 #include <asm/ppc-opcode.h>
 #include <asm/cputable.h>
@@ -95,4 +93,3 @@ const struct raid6_calls raid6_vpermxor$# = {
 	"vpermxor$#",
 	0
 };
-#endif

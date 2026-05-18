@@ -5,7 +5,7 @@
  */
 
 #include <arm_neon.h>
-#include "neon.h"
+#include "arm/neon.h"
 
 #ifdef CONFIG_ARM
 /*

@@ -16,8 +16,6 @@
  * worthwhile as a separate implementation.
  */
 
-#ifdef CONFIG_X86_32
-
 #include <linux/raid/pq.h>
 #include <asm/fpu/api.h>
 
@@ -155,5 +153,3 @@ const struct raid6_calls raid6_sse1x2 = {
 	"sse1x2",
 	1			/* Has cache hints */
 };
-
-#endif

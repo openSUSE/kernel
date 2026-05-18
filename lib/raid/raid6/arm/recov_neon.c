@@ -6,7 +6,7 @@
 
 #include <linux/raid/pq.h>
 #include <asm/simd.h>
-#include "neon.h"
+#include "arm/neon.h"
 
 static int raid6_has_neon(void)
 {

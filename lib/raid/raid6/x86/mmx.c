@@ -11,8 +11,6 @@
  * MMX implementation of RAID-6 syndrome functions
  */
 
-#ifdef CONFIG_X86_32
-
 #include <linux/raid/pq.h>
 #include <asm/fpu/api.h>
 
@@ -135,5 +133,3 @@ const struct raid6_calls raid6_mmxx2 = {
 	"mmxx2",
 	0
 };
-
-#endif
