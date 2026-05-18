@@ -5,6 +5,7 @@ This module provides functional testing for the net/rds component.
 """
 
 import argparse
+import atexit
 import ctypes
 import errno
 import hashlib
@@ -19,7 +20,7 @@ import sys
 this_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(os.path.join(this_dir, "../"))
 # pylint: disable-next=wrong-import-position,import-error,no-name-in-module
-from lib.py.utils import ip # noqa: E402
+from lib.py.utils import ip, cmd # noqa: E402
 # pylint: disable-next=wrong-import-position,import-error,no-name-in-module
 from lib.py.ksft import ksft_pr # noqa: E402
 
@@ -247,7 +248,6 @@ def signal_handler(_sig, _frame):
     Test timed out signal handler
     """
     ksft_pr("Test timed out")
-    stop_pcaps()
     print("not ok 1 rds selftest")
     sys.exit(1)
 
@@ -255,6 +255,9 @@ def setup_tcp():
     """
     Configure tcp network
     """
+
+    # clean up any leftovers from a previously interrupted run
+    teardown_tcp()
 
     ip(f"netns add {NET0}")
     ip(f"netns add {NET1}")
@@ -300,6 +303,17 @@ def setup_tcp():
              corrupt {PACKET_CORRUPTION} loss {PACKET_LOSS} duplicate  \
              {PACKET_DUPLICATE}")
 
+def teardown_tcp():
+    """
+    Tear down the tcp network configured by setup_tcp().
+
+    Removing the namespaces also removes the veth pair, addresses,
+    routes, and netem qdisc that live inside them.  fail=False so
+    this is safe to call in error paths after a partial or complete setup.
+    """
+    cmd(f"ip netns del {NET0}", fail=False)
+    cmd(f"ip netns del {NET1}", fail=False)
+
 #Parse out command line arguments.  We take an optional
 # timeout parameter and an optional log output folder
 parser = argparse.ArgumentParser(description="init script args",
@@ -320,6 +334,11 @@ PACKET_LOSS=str(args.loss)+'%'
 PACKET_CORRUPTION=str(args.corruption)+'%'
 PACKET_DUPLICATE=str(args.duplicate)+'%'
 
+# Register cleanup before setup so a partial-setup crash still tears down
+# whatever state did get created.
+atexit.register(teardown_tcp)
+atexit.register(stop_pcaps)
+
 setup_tcp()
 
 print("TAP version 13")
@@ -334,8 +353,6 @@ ret = snd_rcv_packets(tcp_addrs, [NET0, NET1])
 
 # cancel timeout
 signal.alarm(0)
-
-stop_pcaps()
 
 if ret == 0:
     ksft_pr("Success")
