@@ -158,7 +158,6 @@ enum qm_vf_state {
 
 enum qm_misc_ctl_bits {
 	QM_DRIVER_REMOVING = 0x0,
-	QM_RST_SCHED,
 	QM_RESETTING,
 	QM_MODULE_PARAM,
 };
