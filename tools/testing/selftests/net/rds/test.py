@@ -152,6 +152,21 @@ def check_info(socks):
 
     ksft_pr(f"getsockopt(): {nr_success}/{nr_error}")
 
+def verify_hashes(snd_hashes, rcv_hashes):
+    """Compare send/recv hashes per (sender, receiver) pair."""
+    for key, snd_hash in snd_hashes.items():
+        rcv_hash = rcv_hashes.get(key)
+        if rcv_hash is None:
+            ksft_pr("FAIL: No data received")
+            return 1
+        if snd_hash.hexdigest() != rcv_hash.hexdigest():
+            ksft_pr("FAIL: Send/recv mismatch")
+            ksft_pr("hash expected:", snd_hash.hexdigest())
+            ksft_pr("hash received:", rcv_hash.hexdigest())
+            return 1
+        ksft_pr(f"{key[0]}/{key[1]}: ok")
+    return 0
+
 def stop_pcaps():
     """Stop tcpdump processes.
 
@@ -310,23 +325,7 @@ stop_pcaps()
 
 # We're done sending and receiving stuff, now let's check if what
 # we received is what we sent.
-ret = 0
-for (sender, receiver), send_hash in send_hashes.items():
-    recv_hash = recv_hashes.get((sender, receiver))
-
-    if recv_hash is None:
-        ksft_pr("FAIL: No data received")
-        ret = 1
-        break
-
-    if send_hash.hexdigest() != recv_hash.hexdigest():
-        ksft_pr("FAIL: Send/recv mismatch")
-        ksft_pr("hash expected:", send_hash.hexdigest())
-        ksft_pr("hash received:", recv_hash.hexdigest())
-        ret = 1
-        break
-
-    ksft_pr(f"{sender}/{receiver}: ok")
+ret = verify_hashes(send_hashes, recv_hashes)
 
 if ret == 0:
     ksft_pr("Success")
