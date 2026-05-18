@@ -104,6 +104,24 @@ def send_burst(socks, ip_addrs, snd_hashes, nr_sent, nr_total):
         nr_sent += 1
     return nr_sent
 
+def recv_burst(epoll, socks, ip_addrs, rcv_hashes, nr_rcv):
+    """Drain whatever's readable from epoll. Return updated nr_recv."""
+    for filen, evntmask in epoll.poll():
+        if not evntmask & select.EPOLLRDNORM:
+            continue
+        rcv = next(s for s in socks if s.fileno() == filen)
+        while True:
+            try:
+                data, adr = rcv.recvfrom(1024)
+            except BlockingIOError:
+                break
+            snd_idx = ip_addrs.index(adr)
+            snd = socks[snd_idx]
+            rcv_hashes.setdefault((snd.fileno(), rcv.fileno()),
+                    hashlib.sha256()).update(f'<{data}>'.encode('utf-8'))
+            nr_rcv += 1
+    return nr_rcv
+
 def check_info(socks):
     """
     Check all rds info pages for errors
@@ -253,12 +271,6 @@ for s, addr in zip(sockets, addrs):
     s.bind(addr)
     s.setblocking(0)
 
-fileno_to_socket = {
-    s.fileno(): s for s in sockets
-}
-
-addr_to_socket = dict(zip(addrs, sockets))
-
 send_hashes = {}
 recv_hashes = {}
 
@@ -280,20 +292,7 @@ while nr_send < NUM_PACKETS:
     # Receive as much as we can without blocking
     ksft_pr("receiving...", nr_send, nr_recv)
     while nr_recv < nr_send:
-        for fileno, eventmask in ep.poll():
-            receiver = fileno_to_socket[fileno]
-
-            if eventmask & select.EPOLLRDNORM:
-                while True:
-                    try:
-                        recv_data, address = receiver.recvfrom(1024)
-                        sender = addr_to_socket[address]
-                        recv_hashes.setdefault((sender.fileno(),
-                            receiver.fileno()), hashlib.sha256()).update(
-                                    f'<{recv_data}>'.encode('utf-8'))
-                        nr_recv = nr_recv + 1
-                    except BlockingIOError:
-                        break
+        nr_recv = recv_burst(ep, sockets, addrs, recv_hashes, nr_recv)
 
     # exercise net/rds/tcp.c:rds_tcp_sysctl_reset()
     for net in [NET0, NET1]:
