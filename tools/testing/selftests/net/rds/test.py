@@ -79,6 +79,31 @@ def netns_socket(netns, *sock_args):
     u1.close()
     return socket.fromfd(fds[0], *sock_args)
 
+def send_burst(socks, ip_addrs, snd_hashes, nr_sent, nr_total):
+    """Send until blocked or nr_total reached. Return updated nr_sent."""
+
+    while nr_sent < nr_total:
+        data = hashlib.sha256(
+            f'packet {nr_sent}'.encode('utf-8')).hexdigest().encode('utf-8')
+        # pseudo-random send/receive pattern
+        snd_idx = nr_sent % 2
+        rcv_idx = 1 - (nr_sent % 3) % 2
+
+        snd = socks[snd_idx]
+        rcv = socks[rcv_idx]
+        try:
+            snd.sendto(data, ip_addrs[rcv_idx])
+        except BlockingIOError:
+            return nr_sent
+        except OSError as e:
+            if e.errno in (errno.ENOBUFS, errno.ECONNRESET, errno.EPIPE):
+                return nr_sent
+            raise
+        snd_hashes.setdefault((snd.fileno(), rcv.fileno()),
+                hashlib.sha256()).update(f'<{data}>'.encode('utf-8'))
+        nr_sent += 1
+    return nr_sent
+
 def check_info(socks):
     """
     Check all rds info pages for errors
@@ -234,10 +259,6 @@ fileno_to_socket = {
 
 addr_to_socket = dict(zip(addrs, sockets))
 
-socket_to_addr = {
-    s: addr for addr, s in zip(addrs, sockets)
-}
-
 send_hashes = {}
 recv_hashes = {}
 
@@ -251,27 +272,10 @@ nr_send = 0
 nr_recv = 0
 
 while nr_send < NUM_PACKETS:
+
     # Send as much as we can without blocking
     ksft_pr("sending...", nr_send, nr_recv)
-    while nr_send < NUM_PACKETS:
-        send_data = hashlib.sha256(
-            f'packet {nr_send}'.encode('utf-8')).hexdigest().encode('utf-8')
-
-        # pseudo-random send/receive pattern
-        sender = sockets[nr_send % 2]
-        receiver = sockets[1 - (nr_send % 3) % 2]
-
-        try:
-            sender.sendto(send_data, socket_to_addr[receiver])
-            send_hashes.setdefault((sender.fileno(), receiver.fileno()),
-                    hashlib.sha256()).update(f'<{send_data}>'.encode('utf-8'))
-            nr_send = nr_send + 1
-        except BlockingIOError:
-            break
-        except OSError as e:
-            if e.errno in [errno.ENOBUFS, errno.ECONNRESET, errno.EPIPE]:
-                break
-            raise
+    nr_send = send_burst(sockets, addrs, send_hashes, nr_send, NUM_PACKETS)
 
     # Receive as much as we can without blocking
     ksft_pr("receiving...", nr_send, nr_recv)
