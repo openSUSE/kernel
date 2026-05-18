@@ -226,9 +226,11 @@ static int memirq_alloc_pages(struct xe_memirq *memirq)
 	memirq_assert(memirq, !memirq->status.is_iomem);
 	memirq_assert(memirq, !memirq->mask.is_iomem);
 
-	memirq_debug(memirq, "page offsets: bo %#x bo_size %zu source %#x status %#x\n",
-		     xe_bo_ggtt_addr(bo), bo_size, XE_MEMIRQ_SOURCE_OFFSET(0),
-		     XE_MEMIRQ_STATUS_OFFSET(0));
+	memirq_debug(memirq, "pages: count %u size %zu\n", num_pages, bo_size);
+	memirq_debug(memirq, "page0: source %#x status %#x mask %#x\n",
+		     xe_bo_ggtt_addr(bo) + XE_MEMIRQ_SOURCE_OFFSET(0),
+		     xe_bo_ggtt_addr(bo) + XE_MEMIRQ_STATUS_OFFSET(0),
+		     xe_bo_ggtt_addr(bo) + XE_MEMIRQ_ENABLE_OFFSET);
 
 	return 0;
 
