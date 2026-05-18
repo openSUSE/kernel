@@ -635,10 +635,6 @@ const char *perf_env__arch(struct perf_env *env)
 	return normalize_arch(arch_name);
 }
 
-#if defined(HAVE_LIBTRACEEVENT)
-#include "trace/beauty/arch_errno_names.c"
-#endif
-
 const char *perf_env__arch_strerrno(struct perf_env *env __maybe_unused, int err __maybe_unused)
 {
 #if defined(HAVE_LIBTRACEEVENT)

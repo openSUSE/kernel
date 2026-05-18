@@ -60,12 +60,13 @@
 #include "callchain.h"
 #include "print_binary.h"
 #include "string2.h"
-#include "syscalltbl.h"
+#include "trace/beauty/syscalltbl.h"
 #include "../perf.h"
 #include "trace_augment.h"
 #include "dwarf-regs.h"
 
 #include <errno.h>
+#include <sys/stat.h>
 #include <inttypes.h>
 #include <poll.h>
 #include <signal.h>
@@ -234,6 +235,16 @@ struct trace {
 	} oe;
 	const char		*uid_str;
 };
+
+bool trace__show_zeros(const struct trace *trace)
+{
+	return trace->show_zeros;
+}
+
+struct machine *trace__host(const struct trace *trace)
+{
+	return trace->host;
+}
 
 static void trace__load_vmlinux_btf(struct trace *trace __maybe_unused)
 {
@@ -777,10 +788,6 @@ static const char *fsmount_flags[] = {
 };
 static DEFINE_STRARRAY(fsmount_flags, "FSMOUNT_");
 
-#include "trace/beauty/generated/fsconfig_arrays.c"
-
-static DEFINE_STRARRAY(fsconfig_cmds, "FSCONFIG_");
-
 static const char *epoll_ctl_ops[] = { "ADD", "DEL", "MOD", };
 static DEFINE_STRARRAY_OFFSET(epoll_ctl_ops, "EPOLL_CTL_", 1);
 
@@ -1128,21 +1135,6 @@ static bool syscall_arg__strtoul_btf_type(char *bf __maybe_unused, size_t size _
 	    .strtoul	= STUL_STRARRAY_FLAGS, \
 	    .parm	= &strarray__##array, \
 	    .show_zero	= true, }
-
-#include "trace/beauty/eventfd.c"
-#include "trace/beauty/futex_op.c"
-#include "trace/beauty/futex_val3.c"
-#include "trace/beauty/mmap.c"
-#include "trace/beauty/mode_t.c"
-#include "trace/beauty/msg_flags.c"
-#include "trace/beauty/open_flags.c"
-#include "trace/beauty/perf_event_open.c"
-#include "trace/beauty/pid.c"
-#include "trace/beauty/sched_policy.c"
-#include "trace/beauty/seccomp.c"
-#include "trace/beauty/signum.c"
-#include "trace/beauty/socket_type.c"
-#include "trace/beauty/waitid_options.c"
 
 static const struct syscall_fmt syscall_fmts[] = {
 	{ .name	    = "access",
