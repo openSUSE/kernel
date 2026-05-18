@@ -220,12 +220,10 @@ static int memirq_alloc_pages(struct xe_memirq *memirq)
 	memirq->bo = bo;
 	memirq->source = IOSYS_MAP_INIT_OFFSET(&bo->vmap, XE_MEMIRQ_SOURCE_OFFSET(0));
 	memirq->status = IOSYS_MAP_INIT_OFFSET(&bo->vmap, XE_MEMIRQ_STATUS_OFFSET(0));
-	memirq->mask = IOSYS_MAP_INIT_OFFSET(&bo->vmap, XE_MEMIRQ_ENABLE_OFFSET);
 	memirq->num_pages = num_pages;
 
 	memirq_assert(memirq, !memirq->source.is_iomem);
 	memirq_assert(memirq, !memirq->status.is_iomem);
-	memirq_assert(memirq, !memirq->mask.is_iomem);
 
 	memirq_debug(memirq, "pages: count %u size %zu\n", num_pages, bo_size);
 	memirq_debug(memirq, "page0: source %#x status %#x mask %#x\n",
@@ -246,7 +244,8 @@ static void memirq_set_enable(struct xe_memirq *memirq, bool enable)
 	 * We only care about the GT_MI_USER_INTERRUPT from the engines and
 	 * the GuC does not look at the ENABLE mask at all.
 	 */
-	iosys_map_wr(&memirq->mask, 0, u32, enable ? GT_MI_USER_INTERRUPT : 0);
+	iosys_map_wr(&memirq->bo->vmap, XE_MEMIRQ_ENABLE_OFFSET, u32,
+		     enable ? GT_MI_USER_INTERRUPT : 0);
 
 	memirq->enabled = enable;
 }
