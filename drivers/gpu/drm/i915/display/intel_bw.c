@@ -372,81 +372,136 @@ static int icl_sagv_max_dclk(const struct intel_qgv_info *qi)
 	return dclk;
 }
 
+struct intel_soc_bw_params {
+	u8 deprogbwlimit;
+	u8 derating;
+};
+
+static const struct intel_soc_bw_params icl_bw_params = {
+	.deprogbwlimit = 25,
+	.derating = 10,
+};
+
+static const struct intel_soc_bw_params tgl_bw_params = {
+	.deprogbwlimit = 34,
+	.derating = 10,
+};
+
+static const struct intel_soc_bw_params rkl_bw_params = {
+	.deprogbwlimit = 20,
+	.derating = 10,
+};
+
+static const struct intel_soc_bw_params adl_s_bw_params = {
+	.deprogbwlimit = 38,
+	.derating = 10,
+};
+
+static const struct intel_soc_bw_params adl_p_bw_params = {
+	.deprogbwlimit = 38,
+	.derating = 20,
+};
+
+static const struct intel_soc_bw_params bmg_bw_params = {
+	.deprogbwlimit = 53,
+	.derating = 30,
+};
+
+static const struct intel_soc_bw_params bmg_ecc_bw_params = {
+	.deprogbwlimit = 53,
+	.derating = 45,
+};
+
+static const struct intel_soc_bw_params ptl_bw_params = {
+	.deprogbwlimit = 65,
+	.derating = 10,
+};
+
+static const struct intel_soc_bw_params wcl_bw_params = {
+	.deprogbwlimit = 22,
+	.derating = 10,
+};
+
+static const struct intel_soc_bw_params *get_soc_bw_params(struct intel_display *display,
+							   const struct dram_info *dram_info)
+{
+	if (display->platform.icelake ||
+	    display->platform.jasperlake ||
+	    display->platform.elkhartlake)
+		return &icl_bw_params;
+	else if (display->platform.tigerlake ||
+		 display->platform.dg1)
+		return &tgl_bw_params;
+	else if (display->platform.rocketlake)
+		return &rkl_bw_params;
+	else if (display->platform.alderlake_s ||
+		 display->platform.meteorlake ||
+		 display->platform.lunarlake)
+		return &adl_s_bw_params;
+	else if (display->platform.alderlake_p)
+		return &adl_p_bw_params;
+	else if (display->platform.battlemage &&
+		 dram_info->type == INTEL_DRAM_GDDR_ECC)
+		return &bmg_ecc_bw_params;
+	else if (display->platform.battlemage)
+		return &bmg_bw_params;
+	else if (display->platform.pantherlake_wildcatlake)
+		return &wcl_bw_params;
+	else if (display->platform.pantherlake ||
+		 display->platform.novalake)
+		return &ptl_bw_params;
+
+	return NULL;
+}
+
 struct intel_sa_info {
 	u16 displayrtids;
-	u8 deburst, deprogbwlimit, derating;
+	u8 deburst;
 };
 
 static const struct intel_sa_info icl_sa_info = {
 	.deburst = 8,
-	.deprogbwlimit = 25, /* GB/s */
 	.displayrtids = 128,
-	.derating = 10,
 };
 
 static const struct intel_sa_info tgl_sa_info = {
 	.deburst = 16,
-	.deprogbwlimit = 34, /* GB/s */
 	.displayrtids = 256,
-	.derating = 10,
 };
 
 static const struct intel_sa_info rkl_sa_info = {
 	.deburst = 8,
-	.deprogbwlimit = 20, /* GB/s */
 	.displayrtids = 128,
-	.derating = 10,
 };
 
 static const struct intel_sa_info adls_sa_info = {
 	.deburst = 16,
-	.deprogbwlimit = 38, /* GB/s */
 	.displayrtids = 256,
-	.derating = 10,
 };
 
 static const struct intel_sa_info adlp_sa_info = {
 	.deburst = 16,
-	.deprogbwlimit = 38, /* GB/s */
 	.displayrtids = 256,
-	.derating = 20,
 };
 
 static const struct intel_sa_info mtl_sa_info = {
 	.deburst = 32,
-	.deprogbwlimit = 38, /* GB/s */
 	.displayrtids = 256,
-	.derating = 10,
-};
-
-static const struct intel_sa_info xe2_hpd_sa_info = {
-	.derating = 30,
-	.deprogbwlimit = 53,
-	/* Other values not used by simplified algorithm */
-};
-
-static const struct intel_sa_info xe2_hpd_ecc_sa_info = {
-	.derating = 45,
-	.deprogbwlimit = 53,
-	/* Other values not used by simplified algorithm */
 };
 
 static const struct intel_sa_info xe3lpd_sa_info = {
 	.deburst = 32,
-	.deprogbwlimit = 65, /* GB/s */
 	.displayrtids = 256,
-	.derating = 10,
 };
 
 static const struct intel_sa_info xe3lpd_3002_sa_info = {
 	.deburst = 32,
-	.deprogbwlimit = 22, /* GB/s */
 	.displayrtids = 256,
-	.derating = 10,
 };
 
 static int icl_get_bw_info(struct intel_display *display,
 			   const struct dram_info *dram_info,
+			   const struct intel_soc_bw_params *soc_bw_params,
 			   const struct intel_sa_info *sa)
 {
 	struct intel_qgv_info qi = {};
@@ -466,7 +521,7 @@ static int icl_get_bw_info(struct intel_display *display,
 	}
 
 	dclk_max = icl_sagv_max_dclk(&qi);
-	maxdebw = min(sa->deprogbwlimit * 1000, dclk_max * 16 * 6 / 10);
+	maxdebw = min(soc_bw_params->deprogbwlimit * 1000, dclk_max * 16 * 6 / 10);
 	ipqdepth = min(ipqdepthpch, sa->displayrtids / num_channels);
 	qi.deinterleave = DIV_ROUND_UP(num_channels, is_y_tile ? 4 : 2);
 
@@ -496,7 +551,7 @@ static int icl_get_bw_info(struct intel_display *display,
 			bw = DIV_ROUND_UP(sp->dclk * clpchgroup * 32 * num_channels, ct);
 
 			bi->deratedbw[j] = min(maxdebw,
-					       bw * (100 - sa->derating) / 100);
+					       bw * (100 - soc_bw_params->derating) / 100);
 
 			drm_dbg_kms(display->drm,
 				    "BW%d / QGV %d: num_planes=%d deratedbw=%u\n",
@@ -518,6 +573,7 @@ static int icl_get_bw_info(struct intel_display *display,
 
 static int tgl_get_bw_info(struct intel_display *display,
 			   const struct dram_info *dram_info,
+			   const struct intel_soc_bw_params *soc_bw_params,
 			   const struct intel_sa_info *sa)
 {
 	struct intel_qgv_info qi = {};
@@ -554,7 +610,7 @@ static int tgl_get_bw_info(struct intel_display *display,
 	dclk_max = icl_sagv_max_dclk(&qi);
 
 	peakbw = num_channels * DIV_ROUND_UP(qi.channel_width, 8) * dclk_max;
-	maxdebw = min(sa->deprogbwlimit * 1000, peakbw * DEPROGBWPCLIMIT / 100);
+	maxdebw = min(soc_bw_params->deprogbwlimit * 1000, peakbw * DEPROGBWPCLIMIT / 100);
 
 	ipqdepth = min(ipqdepthpch, sa->displayrtids / num_channels);
 	/*
@@ -599,7 +655,7 @@ static int tgl_get_bw_info(struct intel_display *display,
 			bw = DIV_ROUND_UP(sp->dclk * clpchgroup * 32 * num_channels, ct);
 
 			bi->deratedbw[j] = min(maxdebw,
-					       bw * (100 - sa->derating) / 100);
+					       bw * (100 - soc_bw_params->derating) / 100);
 			bi->peakbw[j] = DIV_ROUND_CLOSEST(sp->dclk *
 							  num_channels *
 							  qi.channel_width, 8);
@@ -661,7 +717,7 @@ static void dg2_get_bw_info(struct intel_display *display)
 
 static int xe2_hpd_get_bw_info(struct intel_display *display,
 			       const struct dram_info *dram_info,
-			       const struct intel_sa_info *sa)
+			       const struct intel_soc_bw_params *soc_bw_params)
 {
 	struct intel_qgv_info qi = {};
 	int num_channels = dram_info->num_channels;
@@ -676,14 +732,14 @@ static int xe2_hpd_get_bw_info(struct intel_display *display,
 	}
 
 	peakbw = num_channels * qi.channel_width / 8 * icl_sagv_max_dclk(&qi);
-	maxdebw = min(sa->deprogbwlimit * 1000, peakbw * DEPROGBWPCLIMIT / 10);
+	maxdebw = min(soc_bw_params->deprogbwlimit * 1000, peakbw * DEPROGBWPCLIMIT / 10);
 
 	for (i = 0; i < qi.num_points; i++) {
 		const struct intel_qgv_point *point = &qi.points[i];
 		int bw = num_channels * (qi.channel_width / 8) * point->dclk;
 
 		display->bw.max[0].deratedbw[i] =
-			min(maxdebw, (100 - sa->derating) * bw / 100);
+			min(maxdebw, (100 - soc_bw_params->derating) * bw / 100);
 		display->bw.max[0].peakbw[i] = bw;
 
 		drm_dbg_kms(display->drm, "QGV %d: deratedbw=%u peakbw: %u\n",
@@ -792,11 +848,13 @@ static unsigned int icl_qgv_bw(struct intel_display *display,
 void intel_bw_init_hw(struct intel_display *display)
 {
 	const struct dram_info *dram_info;
+	const struct intel_soc_bw_params *soc_bw_params;
 
 	if (!HAS_DISPLAY(display))
 		return;
 
 	dram_info = intel_dram_info(display);
+	soc_bw_params = get_soc_bw_params(display, dram_info);
 
 	/*
 	 * Starting with Xe3p_LPD, the hardware tells us whether memory has ECC
@@ -809,28 +867,25 @@ void intel_bw_init_hw(struct intel_display *display)
 
 	if (DISPLAY_VER(display) >= 30) {
 		if (DISPLAY_VERx100(display) == 3002)
-			tgl_get_bw_info(display, dram_info, &xe3lpd_3002_sa_info);
+			tgl_get_bw_info(display, dram_info, soc_bw_params, &xe3lpd_3002_sa_info);
 		else
-			tgl_get_bw_info(display, dram_info, &xe3lpd_sa_info);
+			tgl_get_bw_info(display, dram_info, soc_bw_params, &xe3lpd_sa_info);
 	} else if (DISPLAY_VERx100(display) >= 1401 && display->platform.dgfx) {
-		if (dram_info->type == INTEL_DRAM_GDDR_ECC)
-			xe2_hpd_get_bw_info(display, dram_info, &xe2_hpd_ecc_sa_info);
-		else
-			xe2_hpd_get_bw_info(display, dram_info, &xe2_hpd_sa_info);
+		xe2_hpd_get_bw_info(display, dram_info, soc_bw_params);
 	} else if (DISPLAY_VER(display) >= 14) {
-		tgl_get_bw_info(display, dram_info, &mtl_sa_info);
+		tgl_get_bw_info(display, dram_info, soc_bw_params, &mtl_sa_info);
 	} else if (display->platform.dg2) {
 		dg2_get_bw_info(display);
 	} else if (display->platform.alderlake_p) {
-		tgl_get_bw_info(display, dram_info, &adlp_sa_info);
+		tgl_get_bw_info(display, dram_info, soc_bw_params, &adlp_sa_info);
 	} else if (display->platform.alderlake_s) {
-		tgl_get_bw_info(display, dram_info, &adls_sa_info);
+		tgl_get_bw_info(display, dram_info, soc_bw_params, &adls_sa_info);
 	} else if (display->platform.rocketlake) {
-		tgl_get_bw_info(display, dram_info, &rkl_sa_info);
+		tgl_get_bw_info(display, dram_info, soc_bw_params, &rkl_sa_info);
 	} else if (DISPLAY_VER(display) == 12) {
-		tgl_get_bw_info(display, dram_info, &tgl_sa_info);
+		tgl_get_bw_info(display, dram_info, soc_bw_params, &tgl_sa_info);
 	} else if (DISPLAY_VER(display) == 11) {
-		icl_get_bw_info(display, dram_info, &icl_sa_info);
+		icl_get_bw_info(display, dram_info, soc_bw_params, &icl_sa_info);
 	}
 }
 
