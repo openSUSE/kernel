@@ -67,6 +67,9 @@ struct vm_fault;
  * bio, i.e. set REQ_ATOMIC.
  *
  * IOMAP_F_INTEGRITY indicates that the filesystems handles integrity metadata.
+ *
+ * IOMAP_F_ZERO_TAIL indicates the remainder of the block after the data
+ * written should be zeroed.
  */
 #define IOMAP_F_NEW		(1U << 0)
 #define IOMAP_F_DIRTY		(1U << 1)
@@ -86,6 +89,7 @@ struct vm_fault;
 #else
 #define IOMAP_F_INTEGRITY	0
 #endif /* CONFIG_BLK_DEV_INTEGRITY */
+#define IOMAP_F_ZERO_TAIL	(1U << 10)
 
 /*
  * Flag reserved for file system specific usage
