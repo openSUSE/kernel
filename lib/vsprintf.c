@@ -1209,7 +1209,7 @@ char *hex_string(char *buf, char *end, u8 *addr, struct printf_spec spec,
 	}
 
 	if (spec.field_width > 0)
-		len = min_t(int, spec.field_width, 64);
+		len = min(spec.field_width, 64);
 
 	for (i = 0; i < len; ++i) {
 		if (buf < end)
@@ -1234,7 +1234,7 @@ char *bitmap_string(char *buf, char *end, const unsigned long *bitmap,
 		    struct printf_spec spec, const char *fmt)
 {
 	const int CHUNKSZ = 32;
-	int nr_bits = max_t(int, spec.field_width, 0);
+	int nr_bits = max(spec.field_width, 0);
 	int i, chunksz;
 	bool first = true;
 
@@ -1277,7 +1277,7 @@ static noinline_for_stack
 char *bitmap_list_string(char *buf, char *end, const unsigned long *bitmap,
 			 struct printf_spec spec, const char *fmt)
 {
-	int nr_bits = max_t(int, spec.field_width, 0);
+	int nr_bits = max(spec.field_width, 0);
 	bool first = true;
 	int rbot, rtop;
 
