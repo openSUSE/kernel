@@ -4471,6 +4471,164 @@ static const struct tegra_pmc_soc tegra234_pmc_soc = {
 	.has_single_mmio_aperture = false,
 };
 
+static const struct tegra_io_pad_soc tegra238_io_pads[] = {
+	TEGRA_IO_PAD(TEGRA_IO_PAD_HDMI_DP0, 0, 0xe028, 0xe02c, "hdmi-dp0"),
+	TEGRA_IO_PAD(TEGRA_IO_PAD_UFS, 0, 0xe06c, 0xe070, "ufs"),
+	TEGRA_IO_PAD(TEGRA_IO_PAD_EDP, 2, 0xe040, 0xe044, "edp"),
+	TEGRA_IO_PAD(TEGRA_IO_PAD_SDMMC1_HV, 0, 0xe058, 0xe05c, "sdmmc1-hv"),
+	TEGRA_IO_PAD(TEGRA_IO_PAD_SDMMC3_HV, UINT_MAX, UINT_MAX, UINT_MAX, "sdmmc3-hv"),
+	TEGRA_IO_PAD(TEGRA_IO_PAD_AUDIO_HV, UINT_MAX, UINT_MAX, UINT_MAX, "audio-hv"),
+	TEGRA_IO_PAD(TEGRA_IO_PAD_AO_HV, UINT_MAX, UINT_MAX, UINT_MAX, "ao-hv"),
+};
+
+static const struct tegra_io_pad_vctrl tegra238_io_pad_vctrls[] = {
+	TEGRA_IO_PAD_VCTRL(TEGRA_IO_PAD_SDMMC1_HV, PMC_IMPL_E_33V_PWR, 4),
+	TEGRA_IO_PAD_VCTRL(TEGRA_IO_PAD_SDMMC3_HV, PMC_IMPL_E_33V_PWR, 6),
+	TEGRA_IO_PAD_VCTRL(TEGRA_IO_PAD_AUDIO_HV, PMC_IMPL_E_33V_PWR, 1),
+	TEGRA_IO_PAD_VCTRL(TEGRA_IO_PAD_AO_HV, PMC_IMPL_E_33V_PWR, 0),
+};
+
+static const struct pinctrl_pin_desc tegra238_pin_descs[] = {
+	TEGRA_IO_PIN_DESC(TEGRA_IO_PAD_HDMI_DP0, "hdmi-dp0"),
+	TEGRA_IO_PIN_DESC(TEGRA_IO_PAD_UFS, "ufs"),
+	TEGRA_IO_PIN_DESC(TEGRA_IO_PAD_EDP, "edp"),
+	TEGRA_IO_PIN_DESC(TEGRA_IO_PAD_SDMMC1_HV, "sdmmc1-hv"),
+	TEGRA_IO_PIN_DESC(TEGRA_IO_PAD_SDMMC3_HV, "sdmmc3-hv"),
+	TEGRA_IO_PIN_DESC(TEGRA_IO_PAD_AUDIO_HV, "audio-hv"),
+	TEGRA_IO_PIN_DESC(TEGRA_IO_PAD_AO_HV, "ao-hv"),
+};
+
+static const struct tegra_pmc_regs tegra238_pmc_regs = {
+	.scratch0 = 0x2000,
+	.rst_status = 0x70,
+	.rst_source_shift = 0x2,
+	.rst_source_mask = 0xfc,
+	.rst_level_shift = 0x0,
+	.rst_level_mask = 0x3,
+	.aowake_mask_w = 0x180,
+	.aowake_status_w = 0x30c,
+	.aowake_status_r = 0x48c,
+	.aowake_tier2_routing = 0x4cc,
+	.aowake_sw_status_w = 0x49c,
+	.aowake_sw_status = 0x4a0,
+	.aowake_latch_sw = 0x498,
+	.aowake_ctrl = 0x4f4,
+};
+
+static const char * const tegra238_reset_sources[] = {
+	"SYS_RESET_N",		/* 0 */
+	"AOWDT",
+	NULL,
+	"BPMPWDT",
+	NULL,
+	"SPEWDT",		/* 5 */
+	NULL,
+	NULL,
+	"SENSOR",
+	NULL,
+	NULL,			/* 10 */
+	"MAINSWRST",
+	"SC7",
+	NULL,
+	NULL,
+	NULL,			/* 15 */
+	NULL,
+	NULL,
+	"RTC_XTAL_CSDC",
+	"BPMPBOOT",
+	"FUSECRC",		/* 20 */
+	NULL,
+	"PSCWDT",
+	"PSC_SW",
+	"CSITE_SW",
+	NULL,			/* 25 */
+	NULL,
+	"VREFRO_POWERBAD",
+	NULL,
+	NULL,
+	NULL,			/* 30 */
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,			/* 35 */
+	NULL,
+	NULL,
+	"TOP0WDT",
+	"TOP1WDT",
+	"TOP2WDT",		/* 40 */
+	"APE_C0WDT",
+	"APE_C1WDT",
+	"APE_C2WDT",
+	"APE_C3WDT",
+	"SCPM_SOC_XTAL",	/* 45 */
+	"SCPM_RTC_XTAL",
+	"SCPM_BPMP_CORE_CLK",
+	"SCPM_PSC_SE_CLK",
+	"FMON_32K",
+	"FMON_OSC",		/* 50 */
+	"VMON_SOC",
+	"VMON_CPU0",
+	NULL,
+	"POD_CPU",
+	"POD_GPU",		/* 55 */
+	"POD_RTC",
+	NULL,
+	"POD_IO",
+	"POD_PLUS_SOC",
+	"POD_PLUS_IO_VMON",	/* 60 */
+	"POD_PLUS_IO_PSCPLL",
+	"VMON_PLUS_0",
+	"VMON_PLUS_1",		/* 63 */
+};
+
+static const struct tegra_wake_event tegra238_wake_events[] = {
+	TEGRA_WAKE_IRQ("rtc", 73, 10),
+	TEGRA_WAKE_IRQ("pmu", 24, 209),
+	TEGRA_WAKE_IRQ("usb3-port-0", 76, 167),
+	TEGRA_WAKE_IRQ("usb3-port-1", 77, 167),
+	TEGRA_WAKE_IRQ("usb3-port-2", 78, 167),
+	TEGRA_WAKE_IRQ("usb2-port-0", 79, 167),
+	TEGRA_WAKE_IRQ("usb2-port-1", 80, 167),
+	TEGRA_WAKE_IRQ("usb2-port-2", 81, 167),
+};
+
+static const struct tegra_pmc_soc tegra238_pmc_soc = {
+	.num_powergates = 0,
+	.powergates = NULL,
+	.num_cpu_powergates = 0,
+	.cpu_powergates = NULL,
+	.has_tsense_reset = false,
+	.has_gpu_clamps = false,
+	.needs_mbist_war = false,
+	.has_io_pad_wren = false,
+	.maybe_tz_only = false,
+	.num_io_pads = ARRAY_SIZE(tegra238_io_pads),
+	.io_pads = tegra238_io_pads,
+	.num_io_pad_vctrls = ARRAY_SIZE(tegra238_io_pad_vctrls),
+	.io_pad_vctrls = tegra238_io_pad_vctrls,
+	.num_pin_descs = ARRAY_SIZE(tegra238_pin_descs),
+	.pin_descs = tegra238_pin_descs,
+	.regs = &tegra238_pmc_regs,
+	.init = tegra186_pmc_init,
+	.setup_irq_polarity = tegra186_pmc_setup_irq_polarity,
+	.set_wake_filters = tegra186_pmc_set_wake_filters,
+	.irq_set_wake = tegra186_pmc_irq_set_wake,
+	.irq_set_type = tegra186_pmc_irq_set_type,
+	.reset_sources = tegra238_reset_sources,
+	.num_reset_sources = ARRAY_SIZE(tegra238_reset_sources),
+	.reset_levels = tegra186_reset_levels,
+	.num_reset_levels = ARRAY_SIZE(tegra186_reset_levels),
+	.num_wake_events = ARRAY_SIZE(tegra238_wake_events),
+	.wake_events = tegra238_wake_events,
+	.max_wake_events = 96,
+	.max_wake_vectors = 3,
+	.pmc_clks_data = NULL,
+	.num_pmc_clks = 0,
+	.has_blink_output = false,
+	.has_single_mmio_aperture = false,
+};
+
 #define TEGRA264_IO_PAD_VCTRL(_id, _offset, _ena_3v3, _ena_1v8)		\
 	((struct tegra_io_pad_vctrl) {					\
 		.id		= (_id),				\
@@ -4661,6 +4819,7 @@ static const struct tegra_pmc_soc tegra264_pmc_soc = {
 
 static const struct of_device_id tegra_pmc_match[] = {
 	{ .compatible = "nvidia,tegra264-pmc", .data = &tegra264_pmc_soc },
+	{ .compatible = "nvidia,tegra238-pmc", .data = &tegra238_pmc_soc },
 	{ .compatible = "nvidia,tegra234-pmc", .data = &tegra234_pmc_soc },
 	{ .compatible = "nvidia,tegra194-pmc", .data = &tegra194_pmc_soc },
 	{ .compatible = "nvidia,tegra186-pmc", .data = &tegra186_pmc_soc },
