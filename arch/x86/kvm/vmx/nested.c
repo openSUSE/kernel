@@ -2946,6 +2946,10 @@ static int nested_check_vm_execution_controls(struct kvm_vcpu *vcpu,
 		}
 	}
 
+	if (nested_cpu_has2(vmcs12, SECONDARY_EXEC_TSC_SCALING) &&
+	    CC(!vmcs12->tsc_multiplier))
+		return -EINVAL;
+
 	return 0;
 }
 

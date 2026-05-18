@@ -1480,6 +1480,9 @@ static struct l2cap_chan *l2cap_sock_new_connection_cb(struct l2cap_chan *chan)
 {
 	struct sock *sk, *parent = chan->data;
 
+	if (!parent)
+		return NULL;
+
 	lock_sock(parent);
 
 	/* Check for backlog size */
@@ -1639,6 +1642,9 @@ static void l2cap_sock_state_change_cb(struct l2cap_chan *chan, int state,
 				       int err)
 {
 	struct sock *sk = chan->data;
+
+	if (!sk)
+		return;
 
 	sk->sk_state = state;
 
