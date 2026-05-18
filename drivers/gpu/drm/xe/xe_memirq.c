@@ -263,15 +263,6 @@ int xe_memirq_init(struct xe_memirq *memirq)
 	return 0;
 }
 
-static u32 __memirq_source_page(struct xe_memirq *memirq, u16 instance)
-{
-	memirq_assert(memirq, instance <= XE_HW_ENGINE_MAX_INSTANCE);
-	memirq_assert(memirq, memirq->bo);
-
-	instance = hw_reports_to_instance_zero(memirq) ? instance : 0;
-	return xe_bo_ggtt_addr(memirq->bo) + XE_MEMIRQ_SOURCE_OFFSET(instance);
-}
-
 /**
  * xe_memirq_source_ptr - Get GGTT's offset of the `Interrupt Source Report Page`_.
  * @memirq: the &xe_memirq to query
@@ -286,16 +277,7 @@ u32 xe_memirq_source_ptr(struct xe_memirq *memirq, struct xe_hw_engine *hwe)
 {
 	memirq_assert(memirq, xe_device_uses_memirq(memirq_to_xe(memirq)));
 
-	return __memirq_source_page(memirq, hwe->instance);
-}
-
-static u32 __memirq_status_page(struct xe_memirq *memirq, u16 instance)
-{
-	memirq_assert(memirq, instance <= XE_HW_ENGINE_MAX_INSTANCE);
-	memirq_assert(memirq, memirq->bo);
-
-	instance = hw_reports_to_instance_zero(memirq) ? instance : 0;
-	return xe_bo_ggtt_addr(memirq->bo) + XE_MEMIRQ_STATUS_OFFSET(instance);
+	return xe_bo_ggtt_addr(memirq->bo) + XE_MEMIRQ_SOURCE_OFFSET(hwe->irq_page);
 }
 
 /**
@@ -312,7 +294,7 @@ u32 xe_memirq_status_ptr(struct xe_memirq *memirq, struct xe_hw_engine *hwe)
 {
 	memirq_assert(memirq, xe_device_uses_memirq(memirq_to_xe(memirq)));
 
-	return __memirq_status_page(memirq, hwe->instance);
+	return xe_bo_ggtt_addr(memirq->bo) + XE_MEMIRQ_STATUS_OFFSET(hwe->irq_page);
 }
 
 /**
@@ -500,16 +482,16 @@ static void memirq_dispatch_guc(struct xe_memirq *memirq, struct iosys_map *stat
  */
 void xe_memirq_hwe_handler(struct xe_memirq *memirq, struct xe_hw_engine *hwe)
 {
-	u16 offset = hwe->irq_offset;
-	u16 instance = hw_reports_to_instance_zero(memirq) ? hwe->instance : 0;
-	struct iosys_map src_offset = IOSYS_MAP_INIT_OFFSET(&memirq->bo->vmap,
-							    XE_MEMIRQ_SOURCE_OFFSET(instance));
+	struct iosys_map source =
+		IOSYS_MAP_INIT_OFFSET(&memirq->bo->vmap,
+				      XE_MEMIRQ_SOURCE_OFFSET(hwe->irq_page));
 
-	if (memirq_received(memirq, &src_offset, offset, "SRC")) {
-		struct iosys_map status_offset =
+	if (memirq_received(memirq, &source, hwe->irq_offset, "SRC")) {
+		struct iosys_map status =
 			IOSYS_MAP_INIT_OFFSET(&memirq->bo->vmap,
-					      XE_MEMIRQ_STATUS_OFFSET(instance) + offset * SZ_16);
-		memirq_dispatch_engine(memirq, &status_offset, hwe);
+					      XE_MEMIRQ_VECTOR_OFFSET(hwe->irq_page,
+								      hwe->irq_offset));
+		memirq_dispatch_engine(memirq, &status, hwe);
 	}
 }
 
