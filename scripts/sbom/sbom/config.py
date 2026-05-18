@@ -3,6 +3,7 @@
 
 import argparse
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 import os
 from typing import Any
@@ -51,6 +52,9 @@ class KernelSbomConfig:
 
     write_output_on_error: bool
     """Whether to write output documents even if errors occur."""
+
+    created: datetime
+    """Datetime to use for the SPDX created property of the CreationInfo element."""
 
     spdxId_prefix: str
     """Prefix to use for all SPDX element IDs."""
@@ -195,6 +199,10 @@ def get_config() -> KernelSbomConfig:
     fail_on_unknown_build_command = not args["do_not_fail_on_unknown_build_command"]
     write_output_on_error = args["write_output_on_error"]
 
+    created = datetime.fromtimestamp(
+        max([os.path.getmtime(os.path.join(obj_tree, root_path)) for root_path in root_paths]),
+        tz=timezone.utc,
+    )
     spdxId_prefix = args["spdxId_prefix"]
     prettify_json = args["prettify_json"]
 
@@ -218,6 +226,7 @@ def get_config() -> KernelSbomConfig:
         debug=debug,
         fail_on_unknown_build_command=fail_on_unknown_build_command,
         write_output_on_error=write_output_on_error,
+        created=created,
         spdxId_prefix=spdxId_prefix,
         prettify_json=prettify_json,
     )
