@@ -602,6 +602,7 @@ get_cg_pool_unlocked(struct dmemcg_state *cg, struct dmem_cgroup_region *region)
 				pool = NULL;
 				continue;
 			}
+			pool = ERR_PTR(-ENOMEM);
 		}
 	}
 
@@ -707,8 +708,7 @@ static int dmem_cgroup_region_capacity_show(struct seq_file *sf, void *v)
 	return 0;
 }
 
-static int dmemcg_parse_limit(char *options, struct dmem_cgroup_region *region,
-			      u64 *new_limit)
+static int dmemcg_parse_limit(char *options, u64 *new_limit)
 {
 	char *end;
 
@@ -762,7 +762,7 @@ static ssize_t dmemcg_limit_write(struct kernfs_open_file *of,
 		if (!region)
 			return -EINVAL;
 
-		err = dmemcg_parse_limit(options, region, &new_limit);
+		err = dmemcg_parse_limit(options, &new_limit);
 		if (err < 0)
 			goto out_put;
 

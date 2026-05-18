@@ -220,7 +220,7 @@ cgroup v2 currently supports the following mount options.
   memory_hugetlb_accounting
         Count HugeTLB memory usage towards the cgroup's overall
         memory usage for the memory controller (for the purpose of
-        statistics reporting and memory protetion). This is a new
+        statistics reporting and memory protection). This is a new
         behavior that could regress existing setups, so it must be
         explicitly opted in with this mount option.
 
@@ -1733,6 +1733,11 @@ The following nested keys are defined.
 
 	  zswpwb
 		Number of pages written from zswap to swap.
+
+	  zswap_incomp
+		Number of incompressible pages currently stored in zswap
+		without compression. These pages could not be compressed to
+		a size smaller than PAGE_SIZE, so they are stored as-is.
 
 	  thp_fault_alloc (npn)
 		Number of transparent hugepages which were allocated to satisfy

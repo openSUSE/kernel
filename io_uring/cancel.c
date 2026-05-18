@@ -156,9 +156,16 @@ int io_async_cancel_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 		cancel->fd = READ_ONCE(sqe->fd);
 	}
 	if (cancel->flags & IORING_ASYNC_CANCEL_OP) {
+		u32 op;
+
 		if (cancel->flags & IORING_ASYNC_CANCEL_ANY)
 			return -EINVAL;
-		cancel->opcode = READ_ONCE(sqe->len);
+
+		op = READ_ONCE(sqe->len);
+		if (op >= IORING_OP_LAST)
+			return -EINVAL;
+
+		cancel->opcode = op;
 	}
 
 	return 0;
@@ -554,8 +561,8 @@ __cold bool io_uring_try_cancel_requests(struct io_ring_ctx *ctx,
 	ret |= io_waitid_remove_all(ctx, tctx, cancel_all);
 	ret |= io_futex_remove_all(ctx, tctx, cancel_all);
 	ret |= io_uring_try_cancel_uring_cmd(ctx, tctx, cancel_all);
-	mutex_unlock(&ctx->uring_lock);
 	ret |= io_kill_timeouts(ctx, tctx, cancel_all);
+	mutex_unlock(&ctx->uring_lock);
 	if (tctx)
 		ret |= io_run_task_work() > 0;
 	else

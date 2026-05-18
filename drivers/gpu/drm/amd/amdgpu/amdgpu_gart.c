@@ -262,12 +262,19 @@ void amdgpu_gart_table_ram_free(struct amdgpu_device *adev)
  */
 int amdgpu_gart_table_vram_alloc(struct amdgpu_device *adev)
 {
+	int r;
+
 	if (adev->gart.bo != NULL)
 		return 0;
 
-	return amdgpu_bo_create_kernel(adev,  adev->gart.table_size, PAGE_SIZE,
-				       AMDGPU_GEM_DOMAIN_VRAM, &adev->gart.bo,
-				       NULL, (void *)&adev->gart.ptr);
+	r = amdgpu_bo_create_kernel(adev,  adev->gart.table_size, PAGE_SIZE,
+				    AMDGPU_GEM_DOMAIN_VRAM, &adev->gart.bo,
+				    NULL, (void *)&adev->gart.ptr);
+	if (r)
+		return r;
+
+	memset_io(adev->gart.ptr, adev->gart.gart_pte_flags, adev->gart.table_size);
+	return 0;
 }
 
 /**
@@ -400,6 +407,50 @@ void amdgpu_gart_map_vram_range(struct amdgpu_device *adev, uint64_t pa,
 			start_page + i, pa + AMDGPU_GPU_PAGE_SIZE * i, flags);
 	}
 
+	drm_dev_exit(idx);
+}
+
+/**
+ * amdgpu_gart_map_gfx9_mqd - map mqd and ctrl_stack dma_addresses into GART entries
+ *
+ * @adev: amdgpu_device pointer
+ * @offset: offset into the GPU's gart aperture
+ * @pages: number of pages to bind
+ * @dma_addr: DMA addresses of pages
+ * @flags: page table entry flags
+ *
+ * Map the MQD and control stack addresses into GART entries with the correct
+ * memory types on gfxv9. The MQD occupies the first 4KB and is followed by
+ * the control stack. The MQD uses UC (uncached) memory, while the control stack
+ * uses NC (non-coherent) memory.
+ */
+void amdgpu_gart_map_gfx9_mqd(struct amdgpu_device *adev, uint64_t offset,
+			int pages, dma_addr_t *dma_addr, uint64_t flags)
+{
+	uint64_t page_base;
+	unsigned int i, j, t;
+	int idx;
+	uint64_t ctrl_flags = AMDGPU_PTE_MTYPE_VG10(flags, AMDGPU_MTYPE_NC);
+	void *dst;
+
+	if (!adev->gart.ptr)
+		return;
+
+	if (!drm_dev_enter(adev_to_drm(adev), &idx))
+		return;
+
+	t = offset / AMDGPU_GPU_PAGE_SIZE;
+	dst = adev->gart.ptr;
+	for (i = 0; i < pages; i++) {
+		page_base = dma_addr[i];
+		for (j = 0; j < AMDGPU_GPU_PAGES_IN_CPU_PAGE; j++, t++) {
+			if ((i == 0) && (j == 0))
+				amdgpu_gmc_set_pte_pde(adev, dst, t, page_base, flags);
+			else
+				amdgpu_gmc_set_pte_pde(adev, dst, t, page_base, ctrl_flags);
+			page_base += AMDGPU_GPU_PAGE_SIZE;
+		}
+	}
 	drm_dev_exit(idx);
 }
 

@@ -26,7 +26,7 @@
 
 #include "cs35l56.h"
 
-static const struct reg_sequence cs35l56_patch[] = {
+static const struct reg_sequence cs35l56_asp_patch[] = {
 	/*
 	 * Firmware can change these to non-defaults to satisfy SDCA.
 	 * Ensure that they are at known defaults.
@@ -43,6 +43,20 @@ static const struct reg_sequence cs35l56_patch[] = {
 	{ CS35L56_ASP1TX2_INPUT,		0x00000000 },
 	{ CS35L56_ASP1TX3_INPUT,		0x00000000 },
 	{ CS35L56_ASP1TX4_INPUT,		0x00000000 },
+};
+
+int cs35l56_set_asp_patch(struct cs35l56_base *cs35l56_base)
+{
+	return regmap_register_patch(cs35l56_base->regmap, cs35l56_asp_patch,
+				     ARRAY_SIZE(cs35l56_asp_patch));
+}
+EXPORT_SYMBOL_NS_GPL(cs35l56_set_asp_patch, "SND_SOC_CS35L56_SHARED");
+
+static const struct reg_sequence cs35l56_patch[] = {
+	/*
+	 * Firmware can change these to non-defaults to satisfy SDCA.
+	 * Ensure that they are at known defaults.
+	 */
 	{ CS35L56_SWIRE_DP3_CH1_INPUT,		0x00000018 },
 	{ CS35L56_SWIRE_DP3_CH2_INPUT,		0x00000019 },
 	{ CS35L56_SWIRE_DP3_CH3_INPUT,		0x00000029 },
@@ -94,8 +108,6 @@ int cs35l56_set_patch(struct cs35l56_base *cs35l56_base)
 EXPORT_SYMBOL_NS_GPL(cs35l56_set_patch, "SND_SOC_CS35L56_SHARED");
 
 static const struct reg_default cs35l56_reg_defaults[] = {
-	/* no defaults for OTP_MEM - first read populates cache */
-
 	{ CS35L56_ASP1_ENABLES1,		0x00000000 },
 	{ CS35L56_ASP1_CONTROL1,		0x00000028 },
 	{ CS35L56_ASP1_CONTROL2,		0x18180200 },
@@ -124,8 +136,6 @@ static const struct reg_default cs35l56_reg_defaults[] = {
 };
 
 static const struct reg_default cs35l63_reg_defaults[] = {
-	/* no defaults for OTP_MEM - first read populates cache */
-
 	{ CS35L56_ASP1_ENABLES1,		0x00000000 },
 	{ CS35L56_ASP1_CONTROL1,		0x00000028 },
 	{ CS35L56_ASP1_CONTROL2,		0x18180200 },
@@ -268,6 +278,9 @@ static bool cs35l56_common_volatile_reg(unsigned int reg)
 	case CS35L56_GLOBAL_ENABLES:		   /* owned by firmware */
 	case CS35L56_BLOCK_ENABLES:		   /* owned by firmware */
 	case CS35L56_BLOCK_ENABLES2:		   /* owned by firmware */
+	case CS35L56_OTP_MEM_53:
+	case CS35L56_OTP_MEM_54:
+	case CS35L56_OTP_MEM_55:
 	case CS35L56_SYNC_GPIO1_CFG ... CS35L56_ASP2_DIO_GPIO13_CFG:
 	case CS35L56_UPDATE_REGS:
 	case CS35L56_REFCLK_INPUT:		   /* owned by firmware */
@@ -838,9 +851,11 @@ out_sync:
 err:
 	regcache_cache_only(cs35l56_base->regmap, true);
 
-	regmap_multi_reg_write_bypassed(cs35l56_base->regmap,
-					cs35l56_hibernate_seq,
-					ARRAY_SIZE(cs35l56_hibernate_seq));
+	if (cs35l56_base->can_hibernate) {
+		regmap_multi_reg_write_bypassed(cs35l56_base->regmap,
+						cs35l56_hibernate_seq,
+						ARRAY_SIZE(cs35l56_hibernate_seq));
+	}
 
 	return ret;
 }
@@ -1170,6 +1185,15 @@ ssize_t cs35l56_calibrate_debugfs_write(struct cs35l56_base *cs35l56_base,
 	return count;
 }
 EXPORT_SYMBOL_NS_GPL(cs35l56_calibrate_debugfs_write, "SND_SOC_CS35L56_SHARED");
+
+int cs35l56_factory_calibrate(struct cs35l56_base *cs35l56_base)
+{
+	if (!IS_ENABLED(CONFIG_SND_SOC_CS35L56_CAL_PERFORM_CTRL))
+		return -ENXIO;
+
+	return cs35l56_perform_calibration(cs35l56_base);
+}
+EXPORT_SYMBOL_NS_GPL(cs35l56_factory_calibrate, "SND_SOC_CS35L56_SHARED");
 
 ssize_t cs35l56_cal_ambient_debugfs_write(struct cs35l56_base *cs35l56_base,
 					  const char __user *from, size_t count,
@@ -1706,8 +1730,7 @@ int cs35l56_read_onchip_spkid(struct cs35l56_base *cs35l56_base)
 
 	ret = regmap_read(regmap, CS35L56_GPIO_STATUS1, &val);
 	if (ret) {
-		dev_err(cs35l56_base->dev, "GPIO%d status read failed: %d\n",
-			cs35l56_base->onchip_spkid_gpios[i] + 1, ret);
+		dev_err(cs35l56_base->dev, "GPIO status read failed: %d\n", ret);
 		return ret;
 	}
 

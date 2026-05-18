@@ -43,6 +43,7 @@ static void io_eventfd_do_signal(struct rcu_head *rcu)
 {
 	struct io_ev_fd *ev_fd = container_of(rcu, struct io_ev_fd, rcu);
 
+	atomic_andnot(BIT(IO_EVENTFD_OP_SIGNAL_BIT), &ev_fd->ops);
 	eventfd_signal_mask(ev_fd->cq_ev_fd, EPOLL_URING_WAKE);
 	io_eventfd_put(ev_fd);
 }
@@ -76,11 +77,15 @@ void io_eventfd_signal(struct io_ring_ctx *ctx, bool cqe_event)
 {
 	bool skip = false;
 	struct io_ev_fd *ev_fd;
-
-	if (READ_ONCE(ctx->rings->cq_flags) & IORING_CQ_EVENTFD_DISABLED)
-		return;
+	struct io_rings *rings;
 
 	guard(rcu)();
+
+	rings = rcu_dereference(ctx->rings_rcu);
+	if (!rings)
+		return;
+	if (READ_ONCE(rings->cq_flags) & IORING_CQ_EVENTFD_DISABLED)
+		return;
 	ev_fd = rcu_dereference(ctx->io_ev_fd);
 	/*
 	 * Check again if ev_fd exists in case an io_eventfd_unregister call
@@ -144,7 +149,7 @@ int io_eventfd_register(struct io_ring_ctx *ctx, void __user *arg,
 	spin_unlock(&ctx->completion_lock);
 
 	ev_fd->eventfd_async = eventfd_async;
-	ctx->has_evfd = true;
+	ctx->int_flags |= IO_RING_F_HAS_EVFD;
 	refcount_set(&ev_fd->refs, 1);
 	atomic_set(&ev_fd->ops, 0);
 	rcu_assign_pointer(ctx->io_ev_fd, ev_fd);
@@ -158,7 +163,7 @@ int io_eventfd_unregister(struct io_ring_ctx *ctx)
 	ev_fd = rcu_dereference_protected(ctx->io_ev_fd,
 					lockdep_is_held(&ctx->uring_lock));
 	if (ev_fd) {
-		ctx->has_evfd = false;
+		ctx->int_flags &= ~IO_RING_F_HAS_EVFD;
 		rcu_assign_pointer(ctx->io_ev_fd, NULL);
 		io_eventfd_put(ev_fd);
 		return 0;

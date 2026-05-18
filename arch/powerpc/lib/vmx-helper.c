@@ -27,6 +27,7 @@ int enter_vmx_usercopy(void)
 
 	return 1;
 }
+EXPORT_SYMBOL(enter_vmx_usercopy);
 
 /*
  * This function must return 0 because we tail call optimise when calling
@@ -49,8 +50,16 @@ int exit_vmx_usercopy(void)
 		set_dec(1);
 	return 0;
 }
+EXPORT_SYMBOL(exit_vmx_usercopy);
 
-int enter_vmx_ops(void)
+/*
+ * Can be called from kexec copy_page() path with MMU off. The kexec
+ * code sets preempt_count to HARDIRQ_OFFSET so we return early here.
+ * Since in_interrupt() is always inline, __no_sanitize_address on this
+ * function is sufficient to avoid KASAN shadow memory accesses in real
+ * mode.
+ */
+int __no_sanitize_address enter_vmx_ops(void)
 {
 	if (in_interrupt())
 		return 0;

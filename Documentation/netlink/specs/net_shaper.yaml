@@ -34,6 +34,11 @@ doc: |
 
 definitions:
   -
+    type: const
+    name: max-handle-id
+    value: 0x3fffffe
+    scope: kernel
+  -
     type: enum
     name: scope
     doc: Defines the shaper @id interpretation.
@@ -140,6 +145,8 @@ attribute-sets:
       -
         name: id
         type: u32
+        checks:
+          max: max-handle-id
         doc: |
           Numeric identifier of a shaper. The id semantic depends on
           the scope. For @queue scope it's the queue id and for @node
@@ -247,8 +254,8 @@ operations:
       flags: [admin-perm]
 
       do:
-        pre: net-shaper-nl-pre-doit
-        post: net-shaper-nl-post-doit
+        pre: net-shaper-nl-pre-doit-write
+        post: net-shaper-nl-post-doit-write
         request:
           attributes:
             - ifindex
@@ -278,8 +285,8 @@ operations:
       flags: [admin-perm]
 
       do:
-        pre: net-shaper-nl-pre-doit
-        post: net-shaper-nl-post-doit
+        pre: net-shaper-nl-pre-doit-write
+        post: net-shaper-nl-post-doit-write
         request:
           attributes: *ns-binding
 
@@ -309,8 +316,8 @@ operations:
       flags: [admin-perm]
 
       do:
-        pre: net-shaper-nl-pre-doit
-        post: net-shaper-nl-post-doit
+        pre: net-shaper-nl-pre-doit-write
+        post: net-shaper-nl-post-doit-write
         request:
           attributes:
             - ifindex

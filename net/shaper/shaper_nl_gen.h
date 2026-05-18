@@ -12,17 +12,24 @@
 
 #include <uapi/linux/net_shaper.h>
 
+#define NET_SHAPER_MAX_HANDLE_ID	67108862
+
 /* Common nested types */
 extern const struct nla_policy net_shaper_handle_nl_policy[NET_SHAPER_A_HANDLE_ID + 1];
 extern const struct nla_policy net_shaper_leaf_info_nl_policy[NET_SHAPER_A_WEIGHT + 1];
 
 int net_shaper_nl_pre_doit(const struct genl_split_ops *ops,
 			   struct sk_buff *skb, struct genl_info *info);
+int net_shaper_nl_pre_doit_write(const struct genl_split_ops *ops,
+				 struct sk_buff *skb, struct genl_info *info);
 int net_shaper_nl_cap_pre_doit(const struct genl_split_ops *ops,
 			       struct sk_buff *skb, struct genl_info *info);
 void
 net_shaper_nl_post_doit(const struct genl_split_ops *ops, struct sk_buff *skb,
 			struct genl_info *info);
+void
+net_shaper_nl_post_doit_write(const struct genl_split_ops *ops,
+			      struct sk_buff *skb, struct genl_info *info);
 void
 net_shaper_nl_cap_post_doit(const struct genl_split_ops *ops,
 			    struct sk_buff *skb, struct genl_info *info);

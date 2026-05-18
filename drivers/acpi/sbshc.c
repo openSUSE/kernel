@@ -18,9 +18,6 @@
 #include "sbshc.h"
 #include "internal.h"
 
-#define ACPI_SMB_HC_CLASS	"smbus_host_ctl"
-#define ACPI_SMB_HC_DEVICE_NAME	"ACPI SMBus HC"
-
 struct acpi_smb_hc {
 	struct acpi_ec *ec;
 	struct mutex lock;
@@ -240,19 +237,20 @@ static int smbus_alarm(void *context)
 
 static int acpi_smbus_hc_probe(struct platform_device *pdev)
 {
-	struct acpi_device *device = ACPI_COMPANION(&pdev->dev);
+	struct acpi_device *device;
 	int status;
 	unsigned long long val;
 	struct acpi_smb_hc *hc;
+
+	device = ACPI_COMPANION(&pdev->dev);
+	if (!device)
+		return -ENODEV;
 
 	status = acpi_evaluate_integer(device->handle, "_EC", NULL, &val);
 	if (ACPI_FAILURE(status)) {
 		pr_err("error obtaining _EC.\n");
 		return -EIO;
 	}
-
-	strscpy(acpi_device_name(device), ACPI_SMB_HC_DEVICE_NAME);
-	strscpy(acpi_device_class(device), ACPI_SMB_HC_CLASS);
 
 	hc = kzalloc_obj(struct acpi_smb_hc);
 	if (!hc)

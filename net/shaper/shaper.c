@@ -21,6 +21,8 @@
 
 #define NET_SHAPER_ID_UNSPEC NET_SHAPER_ID_MASK
 
+static_assert(NET_SHAPER_ID_UNSPEC == NET_SHAPER_MAX_HANDLE_ID + 1);
+
 struct net_shaper_hierarchy {
 	struct xarray shapers;
 };
@@ -36,29 +38,26 @@ static struct net_shaper_binding *net_shaper_binding_from_ctx(void *ctx)
 	return &((struct net_shaper_nl_ctx *)ctx)->binding;
 }
 
-static void net_shaper_lock(struct net_shaper_binding *binding)
-{
-	switch (binding->type) {
-	case NET_SHAPER_BINDING_TYPE_NETDEV:
-		netdev_lock(binding->netdev);
-		break;
-	}
-}
-
-static void net_shaper_unlock(struct net_shaper_binding *binding)
-{
-	switch (binding->type) {
-	case NET_SHAPER_BINDING_TYPE_NETDEV:
-		netdev_unlock(binding->netdev);
-		break;
-	}
-}
-
 static struct net_shaper_hierarchy *
 net_shaper_hierarchy(struct net_shaper_binding *binding)
 {
 	/* Pairs with WRITE_ONCE() in net_shaper_hierarchy_setup. */
 	if (binding->type == NET_SHAPER_BINDING_TYPE_NETDEV)
+		return READ_ONCE(binding->netdev->net_shaper_hierarchy);
+
+	/* No other type supported yet. */
+	return NULL;
+}
+
+static struct net_shaper_hierarchy *
+net_shaper_hierarchy_rcu(struct net_shaper_binding *binding)
+{
+	/* Readers look up the device and take a ref, then take RCU lock
+	 * later at which point netdev may have been unregistered and flushed.
+	 * READ_ONCE() pairs with WRITE_ONCE() in net_shaper_hierarchy_setup.
+	 */
+	if (binding->type == NET_SHAPER_BINDING_TYPE_NETDEV &&
+	    READ_ONCE(binding->netdev->reg_state) <= NETREG_REGISTERED)
 		return READ_ONCE(binding->netdev->net_shaper_hierarchy);
 
 	/* No other type supported yet. */
@@ -91,6 +90,12 @@ static int net_shaper_handle_size(void)
 {
 	return nla_total_size(nla_total_size(sizeof(u32)) +
 			      nla_total_size(sizeof(u32)));
+}
+
+static int net_shaper_group_reply_size(void)
+{
+	return nla_total_size(sizeof(u32)) +	/* NET_SHAPER_A_IFINDEX */
+	       net_shaper_handle_size();	/* NET_SHAPER_A_HANDLE */
 }
 
 static int net_shaper_fill_binding(struct sk_buff *msg,
@@ -204,10 +209,47 @@ static int net_shaper_ctx_setup(const struct genl_info *info, int type,
 	return 0;
 }
 
+/* Like net_shaper_ctx_setup(), but for "write" handlers (never for dumps!)
+ * Acquires the lock protecting the hierarchy (instance lock for netdev).
+ */
+static int net_shaper_ctx_setup_lock(const struct genl_info *info, int type,
+				     struct net_shaper_nl_ctx *ctx)
+{
+	struct net *ns = genl_info_net(info);
+	struct net_device *dev;
+	int ifindex;
+
+	if (GENL_REQ_ATTR_CHECK(info, type))
+		return -EINVAL;
+
+	ifindex = nla_get_u32(info->attrs[type]);
+	dev = netdev_get_by_index_lock(ns, ifindex);
+	if (!dev) {
+		NL_SET_BAD_ATTR(info->extack, info->attrs[type]);
+		return -ENOENT;
+	}
+
+	if (!dev->netdev_ops->net_shaper_ops) {
+		NL_SET_BAD_ATTR(info->extack, info->attrs[type]);
+		netdev_unlock(dev);
+		return -EOPNOTSUPP;
+	}
+
+	ctx->binding.type = NET_SHAPER_BINDING_TYPE_NETDEV;
+	ctx->binding.netdev = dev;
+	return 0;
+}
+
 static void net_shaper_ctx_cleanup(struct net_shaper_nl_ctx *ctx)
 {
 	if (ctx->binding.type == NET_SHAPER_BINDING_TYPE_NETDEV)
 		netdev_put(ctx->binding.netdev, &ctx->dev_tracker);
+}
+
+static void net_shaper_ctx_cleanup_unlock(struct net_shaper_nl_ctx *ctx)
+{
+	if (ctx->binding.type == NET_SHAPER_BINDING_TYPE_NETDEV)
+		netdev_unlock(ctx->binding.netdev);
 }
 
 static u32 net_shaper_handle_to_index(const struct net_shaper_handle *handle)
@@ -241,28 +283,35 @@ static void net_shaper_default_parent(const struct net_shaper_handle *handle,
 	parent->id = 0;
 }
 
-/*
- * MARK_0 is already in use due to XA_FLAGS_ALLOC, can't reuse such flag as
- * it's cleared by xa_store().
+/* MARK_0 is already in use due to XA_FLAGS_ALLOC. The VALID mark is set on
+ * an entry only after the device-side configuration has completed
+ * successfully (see net_shaper_commit()). Lookups and dumps must filter on
+ * this mark to avoid exposing tentative entries inserted by
+ * net_shaper_pre_insert() while the driver call is still in flight.
  */
-#define NET_SHAPER_NOT_VALID XA_MARK_1
+#define NET_SHAPER_VALID	XA_MARK_1
 
 static struct net_shaper *
 net_shaper_lookup(struct net_shaper_binding *binding,
 		  const struct net_shaper_handle *handle)
 {
-	struct net_shaper_hierarchy *hierarchy = net_shaper_hierarchy(binding);
 	u32 index = net_shaper_handle_to_index(handle);
+	struct net_shaper_hierarchy *hierarchy;
 
-	if (!hierarchy || xa_get_mark(&hierarchy->shapers, index,
-				      NET_SHAPER_NOT_VALID))
+	hierarchy = net_shaper_hierarchy_rcu(binding);
+	if (!hierarchy || !xa_get_mark(&hierarchy->shapers, index,
+				       NET_SHAPER_VALID))
 		return NULL;
 
+	/* Pairs with smp_wmb() in net_shaper_commit(): if the entry is
+	 * valid, its contents must be visible too.
+	 */
+	smp_rmb();
 	return xa_load(&hierarchy->shapers, index);
 }
 
 /* Allocate on demand the per device shaper's hierarchy container.
- * Called under the net shaper lock
+ * Called under the lock protecting the hierarchy (instance lock for netdev)
  */
 static struct net_shaper_hierarchy *
 net_shaper_hierarchy_setup(struct net_shaper_binding *binding)
@@ -313,7 +362,7 @@ static int net_shaper_pre_insert(struct net_shaper_binding *binding,
 	    handle->id == NET_SHAPER_ID_UNSPEC) {
 		u32 min, max;
 
-		handle->id = NET_SHAPER_ID_MASK - 1;
+		handle->id = NET_SHAPER_MAX_HANDLE_ID;
 		max = net_shaper_handle_to_index(handle);
 		handle->id = 0;
 		min = net_shaper_handle_to_index(handle);
@@ -335,13 +384,10 @@ static int net_shaper_pre_insert(struct net_shaper_binding *binding,
 		goto free_id;
 	}
 
-	/* Mark 'tentative' shaper inside the hierarchy container.
-	 * xa_set_mark is a no-op if the previous store fails.
+	/* Insert as 'tentative' (no VALID mark). The mark will be set by
+	 * net_shaper_commit() once the driver-side configuration succeeds.
 	 */
-	xa_lock(&hierarchy->shapers);
-	prev = __xa_store(&hierarchy->shapers, index, cur, GFP_KERNEL);
-	__xa_set_mark(&hierarchy->shapers, index, NET_SHAPER_NOT_VALID);
-	xa_unlock(&hierarchy->shapers);
+	prev = xa_store(&hierarchy->shapers, index, cur, GFP_KERNEL);
 	if (xa_err(prev)) {
 		NL_SET_ERR_MSG(extack, "Can't insert shaper into device store");
 		kfree_rcu(cur, rcu);
@@ -378,9 +424,9 @@ static void net_shaper_commit(struct net_shaper_binding *binding,
 		/* Successful update: drop the tentative mark
 		 * and update the hierarchy container.
 		 */
-		__xa_clear_mark(&hierarchy->shapers, index,
-				NET_SHAPER_NOT_VALID);
 		*cur = shapers[i];
+		smp_wmb();
+		__xa_set_mark(&hierarchy->shapers, index, NET_SHAPER_VALID);
 	}
 	xa_unlock(&hierarchy->shapers);
 }
@@ -396,8 +442,9 @@ static void net_shaper_rollback(struct net_shaper_binding *binding)
 		return;
 
 	xa_lock(&hierarchy->shapers);
-	xa_for_each_marked(&hierarchy->shapers, index, cur,
-			   NET_SHAPER_NOT_VALID) {
+	xa_for_each(&hierarchy->shapers, index, cur) {
+		if (xa_get_mark(&hierarchy->shapers, index, NET_SHAPER_VALID))
+			continue;
 		__xa_erase(&hierarchy->shapers, index);
 		kfree(cur);
 	}
@@ -430,10 +477,21 @@ static int net_shaper_parse_handle(const struct nlattr *attr,
 	 * shaper (any other value).
 	 */
 	id_attr = tb[NET_SHAPER_A_HANDLE_ID];
-	if (id_attr)
+	if (id_attr) {
 		id = nla_get_u32(id_attr);
-	else if (handle->scope == NET_SHAPER_SCOPE_NODE)
+	} else if (handle->scope == NET_SHAPER_SCOPE_NODE) {
 		id = NET_SHAPER_ID_UNSPEC;
+	} else if (handle->scope == NET_SHAPER_SCOPE_QUEUE) {
+		NL_SET_ERR_ATTR_MISS(info->extack, attr,
+				     NET_SHAPER_A_HANDLE_ID);
+		return -EINVAL;
+	}
+
+	if (id && handle->scope == NET_SHAPER_SCOPE_NETDEV) {
+		NL_SET_ERR_MSG_ATTR(info->extack, id_attr,
+				    "Netdev scope is a singleton, must use ID 0");
+		return -EINVAL;
+	}
 
 	handle->id = id;
 	return 0;
@@ -681,6 +739,22 @@ void net_shaper_nl_post_doit(const struct genl_split_ops *ops,
 	net_shaper_generic_post(info);
 }
 
+int net_shaper_nl_pre_doit_write(const struct genl_split_ops *ops,
+				struct sk_buff *skb, struct genl_info *info)
+{
+	struct net_shaper_nl_ctx *ctx = (struct net_shaper_nl_ctx *)info->ctx;
+
+	BUILD_BUG_ON(sizeof(*ctx) > sizeof(info->ctx));
+
+	return net_shaper_ctx_setup_lock(info, NET_SHAPER_A_IFINDEX, ctx);
+}
+
+void net_shaper_nl_post_doit_write(const struct genl_split_ops *ops,
+				   struct sk_buff *skb, struct genl_info *info)
+{
+	net_shaper_ctx_cleanup_unlock((struct net_shaper_nl_ctx *)info->ctx);
+}
+
 int net_shaper_nl_pre_dumpit(struct netlink_callback *cb)
 {
 	struct net_shaper_nl_ctx *ctx = (struct net_shaper_nl_ctx *)cb->ctx;
@@ -759,11 +833,7 @@ int net_shaper_nl_get_doit(struct sk_buff *skb, struct genl_info *info)
 	if (ret)
 		goto free_msg;
 
-	ret = genlmsg_reply(msg, info);
-	if (ret)
-		goto free_msg;
-
-	return 0;
+	return genlmsg_reply(msg, info);
 
 free_msg:
 	nlmsg_free(msg);
@@ -782,17 +852,24 @@ int net_shaper_nl_get_dumpit(struct sk_buff *skb,
 
 	/* Don't error out dumps performed before any set operation. */
 	binding = net_shaper_binding_from_ctx(ctx);
-	hierarchy = net_shaper_hierarchy(binding);
-	if (!hierarchy)
-		return 0;
 
 	rcu_read_lock();
+	hierarchy = net_shaper_hierarchy_rcu(binding);
+	if (!hierarchy)
+		goto out_unlock;
+
 	for (; (shaper = xa_find(&hierarchy->shapers, &ctx->start_index,
-				 U32_MAX, XA_PRESENT)); ctx->start_index++) {
+				 U32_MAX, NET_SHAPER_VALID));
+	     ctx->start_index++) {
+		/* Pairs with smp_wmb() in net_shaper_commit(): the entry
+		 * is marked VALID, so its contents must be visible too.
+		 */
+		smp_rmb();
 		ret = net_shaper_fill_one(skb, binding, shaper, info);
 		if (ret)
 			break;
 	}
+out_unlock:
 	rcu_read_unlock();
 
 	return ret;
@@ -810,45 +887,38 @@ int net_shaper_nl_set_doit(struct sk_buff *skb, struct genl_info *info)
 
 	binding = net_shaper_binding_from_ctx(info->ctx);
 
-	net_shaper_lock(binding);
 	ret = net_shaper_parse_info(binding, info->attrs, info, &shaper,
 				    &exists);
 	if (ret)
-		goto unlock;
+		return ret;
 
 	if (!exists)
 		net_shaper_default_parent(&shaper.handle, &shaper.parent);
 
 	hierarchy = net_shaper_hierarchy_setup(binding);
-	if (!hierarchy) {
-		ret = -ENOMEM;
-		goto unlock;
-	}
+	if (!hierarchy)
+		return -ENOMEM;
 
 	/* The 'set' operation can't create node-scope shapers. */
 	handle = shaper.handle;
 	if (handle.scope == NET_SHAPER_SCOPE_NODE &&
-	    !net_shaper_lookup(binding, &handle)) {
-		ret = -ENOENT;
-		goto unlock;
-	}
+	    !net_shaper_lookup(binding, &handle))
+		return -ENOENT;
 
 	ret = net_shaper_pre_insert(binding, &handle, info->extack);
 	if (ret)
-		goto unlock;
+		return ret;
 
 	ops = net_shaper_ops(binding);
 	ret = ops->set(binding, &shaper, info->extack);
 	if (ret) {
 		net_shaper_rollback(binding);
-		goto unlock;
+		return ret;
 	}
 
 	net_shaper_commit(binding, 1, &shaper);
 
-unlock:
-	net_shaper_unlock(binding);
-	return ret;
+	return 0;
 }
 
 static int __net_shaper_delete(struct net_shaper_binding *binding,
@@ -890,6 +960,46 @@ static int net_shaper_handle_cmp(const struct net_shaper_handle *a,
 	return memcmp(a, b, sizeof(*a));
 }
 
+static int net_shaper_parse_leaves(struct net_shaper_binding *binding,
+				   struct genl_info *info,
+				   const struct net_shaper *node,
+				   struct net_shaper *leaves,
+				   int leaves_count)
+{
+	struct nlattr *attr;
+	int i, j, ret, rem;
+
+	i = 0;
+	nla_for_each_attr_type(attr, NET_SHAPER_A_LEAVES,
+			       genlmsg_data(info->genlhdr),
+			       genlmsg_len(info->genlhdr), rem) {
+		if (WARN_ON_ONCE(i >= leaves_count))
+			return -EINVAL;
+
+		ret = net_shaper_parse_leaf(binding, attr, info,
+					    node, &leaves[i]);
+		if (ret)
+			return ret;
+
+		/* Reject duplicates */
+		for (j = 0; j < i; j++) {
+			if (net_shaper_handle_cmp(&leaves[i].handle,
+						  &leaves[j].handle))
+				continue;
+
+			NL_SET_ERR_MSG_ATTR_FMT(info->extack, attr,
+						"Duplicate leaf shaper %d:%d",
+						leaves[i].handle.scope,
+						leaves[i].handle.id);
+			return -EINVAL;
+		}
+
+		i++;
+	}
+
+	return 0;
+}
+
 static int net_shaper_parent_from_leaves(int leaves_count,
 					 const struct net_shaper *leaves,
 					 struct net_shaper *node,
@@ -922,15 +1032,22 @@ static int __net_shaper_group(struct net_shaper_binding *binding,
 	int i, ret;
 
 	if (node->handle.scope == NET_SHAPER_SCOPE_NODE) {
+		struct net_shaper *cur = NULL;
+
 		new_node = node->handle.id == NET_SHAPER_ID_UNSPEC;
 
-		if (!new_node && !net_shaper_lookup(binding, &node->handle)) {
-			/* The related attribute is not available when
-			 * reaching here from the delete() op.
-			 */
-			NL_SET_ERR_MSG_FMT(extack, "Node shaper %d:%d does not exists",
-					   node->handle.scope, node->handle.id);
-			return -ENOENT;
+		if (!new_node) {
+			cur = net_shaper_lookup(binding, &node->handle);
+			if (!cur) {
+				/* The related attribute is not available
+				 * when reaching here from the delete() op.
+				 */
+				NL_SET_ERR_MSG_FMT(extack,
+						   "Node shaper %d:%d does not exist",
+						   node->handle.scope,
+						   node->handle.id);
+				return -ENOENT;
+			}
 		}
 
 		/* When unspecified, the node parent scope is inherited from
@@ -942,6 +1059,15 @@ static int __net_shaper_group(struct net_shaper_binding *binding,
 							    extack);
 			if (ret)
 				return ret;
+		}
+
+		if (cur && net_shaper_handle_cmp(&cur->parent,
+						 &node->parent)) {
+			NL_SET_ERR_MSG_FMT(extack,
+					   "Cannot reparent node shaper %d:%d",
+					   node->handle.scope,
+					   node->handle.id);
+			return -EOPNOTSUPP;
 		}
 
 	} else {
@@ -1076,35 +1202,26 @@ int net_shaper_nl_delete_doit(struct sk_buff *skb, struct genl_info *info)
 
 	binding = net_shaper_binding_from_ctx(info->ctx);
 
-	net_shaper_lock(binding);
 	ret = net_shaper_parse_handle(info->attrs[NET_SHAPER_A_HANDLE], info,
 				      &handle);
 	if (ret)
-		goto unlock;
+		return ret;
 
 	hierarchy = net_shaper_hierarchy(binding);
-	if (!hierarchy) {
-		ret = -ENOENT;
-		goto unlock;
-	}
+	if (!hierarchy)
+		return -ENOENT;
 
 	shaper = net_shaper_lookup(binding, &handle);
-	if (!shaper) {
-		ret = -ENOENT;
-		goto unlock;
-	}
+	if (!shaper)
+		return -ENOENT;
 
 	if (handle.scope == NET_SHAPER_SCOPE_NODE) {
 		ret = net_shaper_pre_del_node(binding, shaper, info->extack);
 		if (ret)
-			goto unlock;
+			return ret;
 	}
 
-	ret = __net_shaper_delete(binding, shaper, info->extack);
-
-unlock:
-	net_shaper_unlock(binding);
-	return ret;
+	return __net_shaper_delete(binding, shaper, info->extack);
 }
 
 static int net_shaper_group_send_reply(struct net_shaper_binding *binding,
@@ -1129,7 +1246,7 @@ static int net_shaper_group_send_reply(struct net_shaper_binding *binding,
 free_msg:
 	/* Should never happen as msg is pre-allocated with enough space. */
 	WARN_ONCE(true, "calculated message payload length (%d)",
-		  net_shaper_handle_size());
+		  net_shaper_group_reply_size());
 	nlmsg_free(msg);
 	return -EMSGSIZE;
 }
@@ -1139,10 +1256,9 @@ int net_shaper_nl_group_doit(struct sk_buff *skb, struct genl_info *info)
 	struct net_shaper **old_nodes, *leaves, node = {};
 	struct net_shaper_hierarchy *hierarchy;
 	struct net_shaper_binding *binding;
-	int i, ret, rem, leaves_count;
+	int i, ret, leaves_count;
 	int old_nodes_count = 0;
 	struct sk_buff *msg;
-	struct nlattr *attr;
 
 	if (GENL_REQ_ATTR_CHECK(info, NET_SHAPER_A_LEAVES))
 		return -EINVAL;
@@ -1153,47 +1269,36 @@ int net_shaper_nl_group_doit(struct sk_buff *skb, struct genl_info *info)
 	if (!net_shaper_ops(binding)->group)
 		return -EOPNOTSUPP;
 
-	net_shaper_lock(binding);
 	leaves_count = net_shaper_list_len(info, NET_SHAPER_A_LEAVES);
 	if (!leaves_count) {
 		NL_SET_BAD_ATTR(info->extack,
 				info->attrs[NET_SHAPER_A_LEAVES]);
-		ret = -EINVAL;
-		goto unlock;
+		return -EINVAL;
 	}
 
 	leaves = kcalloc(leaves_count, sizeof(struct net_shaper) +
 			 sizeof(struct net_shaper *), GFP_KERNEL);
-	if (!leaves) {
-		ret = -ENOMEM;
-		goto unlock;
-	}
+	if (!leaves)
+		return -ENOMEM;
 	old_nodes = (void *)&leaves[leaves_count];
 
 	ret = net_shaper_parse_node(binding, info->attrs, info, &node);
 	if (ret)
 		goto free_leaves;
 
-	i = 0;
-	nla_for_each_attr_type(attr, NET_SHAPER_A_LEAVES,
-			       genlmsg_data(info->genlhdr),
-			       genlmsg_len(info->genlhdr), rem) {
-		if (WARN_ON_ONCE(i >= leaves_count))
-			goto free_leaves;
-
-		ret = net_shaper_parse_leaf(binding, attr, info,
-					    &node, &leaves[i]);
-		if (ret)
-			goto free_leaves;
-		i++;
-	}
+	ret = net_shaper_parse_leaves(binding, info, &node,
+				      leaves, leaves_count);
+	if (ret)
+		goto free_leaves;
 
 	/* Prepare the msg reply in advance, to avoid device operation
 	 * rollback on allocation failure.
 	 */
-	msg = genlmsg_new(net_shaper_handle_size(), GFP_KERNEL);
-	if (!msg)
+	msg = genlmsg_new(net_shaper_group_reply_size(), GFP_KERNEL);
+	if (!msg) {
+		ret = -ENOMEM;
 		goto free_leaves;
+	}
 
 	hierarchy = net_shaper_hierarchy_setup(binding);
 	if (!hierarchy) {
@@ -1244,9 +1349,6 @@ int net_shaper_nl_group_doit(struct sk_buff *skb, struct genl_info *info)
 
 free_leaves:
 	kfree(leaves);
-
-unlock:
-	net_shaper_unlock(binding);
 	return ret;
 
 free_msg:
@@ -1313,10 +1415,7 @@ int net_shaper_nl_cap_get_doit(struct sk_buff *skb, struct genl_info *info)
 	if (ret)
 		goto free_msg;
 
-	ret =  genlmsg_reply(msg, info);
-	if (ret)
-		goto free_msg;
-	return 0;
+	return genlmsg_reply(msg, info);
 
 free_msg:
 	nlmsg_free(msg);
@@ -1359,14 +1458,12 @@ static void net_shaper_flush(struct net_shaper_binding *binding)
 	if (!hierarchy)
 		return;
 
-	net_shaper_lock(binding);
 	xa_lock(&hierarchy->shapers);
 	xa_for_each(&hierarchy->shapers, index, cur) {
 		__xa_erase(&hierarchy->shapers, index);
 		kfree(cur);
 	}
 	xa_unlock(&hierarchy->shapers);
-	net_shaper_unlock(binding);
 
 	kfree(hierarchy);
 }

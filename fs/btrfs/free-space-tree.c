@@ -259,7 +259,11 @@ int btrfs_convert_free_space_to_bitmaps(struct btrfs_trans_handle *trans,
 				nr++;
 				path->slots[0]--;
 			} else {
-				ASSERT(0);
+				btrfs_err(fs_info, "unexpected free space tree key type %u",
+					  found_key.type);
+				ret = -EUCLEAN;
+				btrfs_abort_transaction(trans, ret);
+				goto out;
 			}
 		}
 
@@ -405,7 +409,11 @@ int btrfs_convert_free_space_to_extents(struct btrfs_trans_handle *trans,
 
 				nr++;
 			} else {
-				ASSERT(0);
+				btrfs_err(fs_info, "unexpected free space tree key type %u",
+					  found_key.type);
+				ret = -EUCLEAN;
+				btrfs_abort_transaction(trans, ret);
+				goto out;
 			}
 		}
 
@@ -1073,6 +1081,14 @@ static int populate_free_space_tree(struct btrfs_trans_handle *trans,
 	if (ret)
 		return ret;
 
+	extent_root = btrfs_extent_root(trans->fs_info, block_group->start);
+	if (unlikely(!extent_root)) {
+		btrfs_err(trans->fs_info,
+			  "missing extent root for block group at offset %llu",
+			  block_group->start);
+		return -EUCLEAN;
+	}
+
 	mutex_lock(&block_group->free_space_lock);
 
 	/*
@@ -1086,7 +1102,6 @@ static int populate_free_space_tree(struct btrfs_trans_handle *trans,
 	key.type = BTRFS_EXTENT_ITEM_KEY;
 	key.offset = 0;
 
-	extent_root = btrfs_extent_root(trans->fs_info, key.objectid);
 	ret = btrfs_search_slot_for_read(extent_root, &key, path, 1, 0);
 	if (ret < 0)
 		goto out_locked;
@@ -1511,7 +1526,11 @@ int btrfs_remove_block_group_free_space(struct btrfs_trans_handle *trans,
 				nr++;
 				path->slots[0]--;
 			} else {
-				ASSERT(0);
+				btrfs_err(trans->fs_info, "unexpected free space tree key type %u",
+					  found_key.type);
+				ret = -EUCLEAN;
+				btrfs_abort_transaction(trans, ret);
+				return ret;
 			}
 		}
 

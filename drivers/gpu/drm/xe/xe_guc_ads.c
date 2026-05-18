@@ -512,12 +512,9 @@ static void guc_golden_lrc_init(struct xe_guc_ads *ads)
 		 * that starts after the execlists LRC registers. This is
 		 * required to allow the GuC to restore just the engine state
 		 * when a watchdog reset occurs.
-		 * We calculate the engine state size by removing the size of
-		 * what comes before it in the context image (which is identical
-		 * on all engines).
 		 */
 		ads_blob_write(ads, ads.eng_state_size[guc_class],
-			       real_size - xe_lrc_skip_size(xe));
+			       xe_lrc_engine_state_size(gt, class));
 		ads_blob_write(ads, ads.golden_context_lrca[guc_class],
 			       addr_ggtt);
 
@@ -819,6 +816,7 @@ static void guc_um_init_params(struct xe_guc_ads *ads)
 {
 	u32 um_queue_offset = guc_ads_um_queues_offset(ads);
 	struct xe_guc *guc = ads_to_guc(ads);
+	struct xe_device *xe = ads_to_xe(ads);
 	u64 base_dpa;
 	u32 base_ggtt;
 	bool with_dpa;
@@ -830,6 +828,16 @@ static void guc_um_init_params(struct xe_guc_ads *ads)
 	base_dpa = xe_bo_main_addr(ads->bo, PAGE_SIZE) + um_queue_offset;
 
 	for (i = 0; i < GUC_UM_HW_QUEUE_MAX; ++i) {
+		/*
+		 * Some platforms support USM but not access counters.
+		 * Skip ACCESS_COUNTER queue initialization for such
+		 * platforms, leaving queue_params[2] zero-initialized
+		 * to signal unavailability to the GuC.
+		 */
+		if (i == GUC_UM_HW_QUEUE_ACCESS_COUNTER &&
+		    !xe->info.has_access_counter)
+			continue;
+
 		ads_blob_write(ads, um_init_params.queue_params[i].base_dpa,
 			       with_dpa ? (base_dpa + (i * GUC_UM_QUEUE_SIZE)) : 0);
 		ads_blob_write(ads, um_init_params.queue_params[i].base_ggtt_address,

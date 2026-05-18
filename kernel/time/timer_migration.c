@@ -1559,8 +1559,6 @@ int tmigr_isolated_exclude_cpumask(struct cpumask *exclude_cpumask)
 	cpumask_var_t cpumask __free(free_cpumask_var) = CPUMASK_VAR_NULL;
 	int cpu;
 
-	lockdep_assert_cpus_held();
-
 	if (!works)
 		return -ENOMEM;
 	if (!alloc_cpumask_var(&cpumask, GFP_KERNEL))
@@ -1570,6 +1568,7 @@ int tmigr_isolated_exclude_cpumask(struct cpumask *exclude_cpumask)
 	 * First set previously isolated CPUs as available (unisolate).
 	 * This cpumask contains only CPUs that switched to available now.
 	 */
+	guard(cpus_read_lock)();
 	cpumask_andnot(cpumask, cpu_online_mask, exclude_cpumask);
 	cpumask_andnot(cpumask, cpumask, tmigr_available_cpumask);
 
@@ -1626,7 +1625,6 @@ static int __init tmigr_init_isolation(void)
 	cpumask_andnot(cpumask, cpu_possible_mask, housekeeping_cpumask(HK_TYPE_DOMAIN));
 
 	/* Protect against RCU torture hotplug testing */
-	guard(cpus_read_lock)();
 	return tmigr_isolated_exclude_cpumask(cpumask);
 }
 late_initcall(tmigr_init_isolation);
@@ -1862,19 +1860,37 @@ static int tmigr_setup_groups(unsigned int cpu, unsigned int node,
 		 *   child to the new parents. So tmigr_active_up() activates the
 		 *   new parents while walking up from the old root to the new.
 		 *
-		 * * It is ensured that @start is active, as this setup path is
-		 *   executed in hotplug prepare callback. This is executed by an
-		 *   already connected and !idle CPU. Even if all other CPUs go idle,
-		 *   the CPU executing the setup will be responsible up to current top
-		 *   level group. And the next time it goes inactive, it will release
-		 *   the new childmask and parent to subsequent walkers through this
-		 *   @child. Therefore propagate active state unconditionally.
+		 * * It is ensured that @start is active, (or on the way to be activated
+		 *   by another CPU that woke up before the current one) as this setup path
+		 *   is executed in hotplug prepare callback. This is executed by an already
+		 *   connected and !idle CPU in the hierarchy.
+		 *
+		 * * The below RmW atomic operation ensures that:
+		 *
+		 *   1) If the old root has been completely activated, the latest state is
+		 *      acquired (the below implicit acquire pairs with the implicit release
+		 *      from cmpxchg() in tmigr_active_up()).
+		 *
+		 *   2) If the old root is still on the way to be activated, the lagging behind
+		 *      CPU performing the activation will acquire the links up to the new root.
+		 *      (The below implicit release pairs with the implicit acquire from cmpxchg()
+		 *      in tmigr_active_up()).
+		 *
+		 *   3) Every subsequent CPU below the old root will acquire the new links while
+		 *      walking through the old root (The below implicit release pairs with the
+		 *      implicit acquire from cmpxchg() in either tmigr_active_up()) or
+		 *      tmigr_inactive_up().
 		 */
-		state.state = atomic_read(&start->migr_state);
-		WARN_ON_ONCE(!state.active);
+		state.state = atomic_fetch_or(0, &start->migr_state);
 		WARN_ON_ONCE(!start->parent);
-		data.childmask = start->groupmask;
-		__walk_groups_from(tmigr_active_up, &data, start, start->parent);
+		/*
+		 * If the state of the old root is inactive, another CPU is on its way to activate
+		 * it and propagate to the new root.
+		 */
+		if (state.active) {
+			data.childmask = start->groupmask;
+			__walk_groups_from(tmigr_active_up, &data, start, start->parent);
+		}
 	}
 
 	/* Root update */

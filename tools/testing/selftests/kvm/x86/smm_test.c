@@ -14,13 +14,11 @@
 #include "test_util.h"
 
 #include "kvm_util.h"
+#include "smm.h"
 
 #include "vmx.h"
 #include "svm_util.h"
 
-#define SMRAM_SIZE 65536
-#define SMRAM_MEMSLOT ((1 << 16) | 1)
-#define SMRAM_PAGES (SMRAM_SIZE / PAGE_SIZE)
 #define SMRAM_GPA 0x1000000
 #define SMRAM_STAGE 0xfe
 
@@ -36,13 +34,13 @@
  * independent subset of asm here.
  * SMI handler always report back fixed stage SMRAM_STAGE.
  */
-uint8_t smi_handler[] = {
+u8 smi_handler[] = {
 	0xb0, SMRAM_STAGE,    /* mov $SMRAM_STAGE, %al */
 	0xe4, SYNC_PORT,      /* in $SYNC_PORT, %al */
 	0x0f, 0xaa,           /* rsm */
 };
 
-static inline void sync_with_host(uint64_t phase)
+static inline void sync_with_host(u64 phase)
 {
 	asm volatile("in $" XSTR(SYNC_PORT)", %%al \n"
 		     : "+a" (phase));
@@ -67,7 +65,7 @@ static void guest_code(void *arg)
 {
 	#define L2_GUEST_STACK_SIZE 64
 	unsigned long l2_guest_stack[L2_GUEST_STACK_SIZE];
-	uint64_t apicbase = rdmsr(MSR_IA32_APICBASE);
+	u64 apicbase = rdmsr(MSR_IA32_APICBASE);
 	struct svm_test_data *svm = arg;
 	struct vmx_pages *vmx_pages = arg;
 
@@ -113,21 +111,9 @@ static void guest_code(void *arg)
 	sync_with_host(DONE);
 }
 
-void inject_smi(struct kvm_vcpu *vcpu)
-{
-	struct kvm_vcpu_events events;
-
-	vcpu_events_get(vcpu, &events);
-
-	events.smi.pending = 1;
-	events.flags |= KVM_VCPUEVENT_VALID_SMM;
-
-	vcpu_events_set(vcpu, &events);
-}
-
 int main(int argc, char *argv[])
 {
-	vm_vaddr_t nested_gva = 0;
+	gva_t nested_gva = 0;
 
 	struct kvm_vcpu *vcpu;
 	struct kvm_regs regs;
@@ -140,16 +126,7 @@ int main(int argc, char *argv[])
 	/* Create VM */
 	vm = vm_create_with_one_vcpu(&vcpu, guest_code);
 
-	vm_userspace_mem_region_add(vm, VM_MEM_SRC_ANONYMOUS, SMRAM_GPA,
-				    SMRAM_MEMSLOT, SMRAM_PAGES, 0);
-	TEST_ASSERT(vm_phy_pages_alloc(vm, SMRAM_PAGES, SMRAM_GPA, SMRAM_MEMSLOT)
-		    == SMRAM_GPA, "could not allocate guest physical addresses?");
-
-	memset(addr_gpa2hva(vm, SMRAM_GPA), 0x0, SMRAM_SIZE);
-	memcpy(addr_gpa2hva(vm, SMRAM_GPA) + 0x8000, smi_handler,
-	       sizeof(smi_handler));
-
-	vcpu_set_msr(vcpu, MSR_IA32_SMBASE, SMRAM_GPA);
+	setup_smram(vm, vcpu, SMRAM_GPA, smi_handler, sizeof(smi_handler));
 
 	if (kvm_has_cap(KVM_CAP_NESTED_STATE)) {
 		if (kvm_cpu_has(X86_FEATURE_SVM))

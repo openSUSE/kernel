@@ -572,7 +572,7 @@ static int allocate_vmid(struct device_queue_manager *dqm,
 			qpd->vmid,
 			qpd->page_table_base);
 	/* invalidate the VM context after pasid and vmid mapping is set up */
-	kfd_flush_tlb(qpd_to_pdd(qpd), TLB_FLUSH_LEGACY);
+	kfd_flush_tlb(qpd_to_pdd(qpd));
 
 	if (dqm->dev->kfd2kgd->set_scratch_backing_va)
 		dqm->dev->kfd2kgd->set_scratch_backing_va(dqm->dev->adev,
@@ -610,7 +610,7 @@ static void deallocate_vmid(struct device_queue_manager *dqm,
 		if (flush_texture_cache_nocpsch(q->device, qpd))
 			dev_err(dev, "Failed to flush TC\n");
 
-	kfd_flush_tlb(qpd_to_pdd(qpd), TLB_FLUSH_LEGACY);
+	kfd_flush_tlb(qpd_to_pdd(qpd));
 
 	/* Release the vmid mapping */
 	set_pasid_vmid_mapping(dqm, 0, qpd->vmid);
@@ -1284,7 +1284,7 @@ static int restore_process_queues_nocpsch(struct device_queue_manager *dqm,
 				dqm->dev->adev,
 				qpd->vmid,
 				qpd->page_table_base);
-		kfd_flush_tlb(pdd, TLB_FLUSH_LEGACY);
+		kfd_flush_tlb(pdd);
 	}
 
 	/* Take a safe reference to the mm_struct, which may otherwise
@@ -2720,7 +2720,7 @@ static int get_wave_state(struct device_queue_manager *dqm,
 			ctl_stack, ctl_stack_used_size, save_area_used_size);
 }
 
-static void get_queue_checkpoint_info(struct device_queue_manager *dqm,
+static int get_queue_checkpoint_info(struct device_queue_manager *dqm,
 			const struct queue *q,
 			u32 *mqd_size,
 			u32 *ctl_stack_size)
@@ -2728,6 +2728,7 @@ static void get_queue_checkpoint_info(struct device_queue_manager *dqm,
 	struct mqd_manager *mqd_mgr;
 	enum KFD_MQD_TYPE mqd_type =
 			get_mqd_type_from_queue_type(q->properties.type);
+	int ret = 0;
 
 	dqm_lock(dqm);
 	mqd_mgr = dqm->mqd_mgrs[mqd_type];
@@ -2735,9 +2736,11 @@ static void get_queue_checkpoint_info(struct device_queue_manager *dqm,
 	*ctl_stack_size = 0;
 
 	if (q->properties.type == KFD_QUEUE_TYPE_COMPUTE && mqd_mgr->get_checkpoint_info)
-		mqd_mgr->get_checkpoint_info(mqd_mgr, q->mqd, ctl_stack_size);
+		ret = mqd_mgr->get_checkpoint_info(mqd_mgr, q->mqd, ctl_stack_size);
 
 	dqm_unlock(dqm);
+
+	return ret;
 }
 
 static int checkpoint_mqd(struct device_queue_manager *dqm,

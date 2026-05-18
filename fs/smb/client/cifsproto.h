@@ -89,7 +89,6 @@ int cifs_handle_standard(struct TCP_Server_Info *server,
 			 struct mid_q_entry *mid);
 char *smb3_fs_context_fullpath(const struct smb3_fs_context *ctx, char dirsep);
 int smb3_parse_devname(const char *devname, struct smb3_fs_context *ctx);
-int smb3_parse_opt(const char *options, const char *key, char **val);
 int cifs_ipaddr_cmp(struct sockaddr *srcaddr, struct sockaddr *rhs);
 bool cifs_match_ipaddr(struct sockaddr *srcaddr, struct sockaddr *rhs);
 int cifs_discard_remaining_data(struct TCP_Server_Info *server);
@@ -138,12 +137,15 @@ void cifs_write_subrequest_terminated(struct cifs_io_subrequest *wdata,
 				      ssize_t result);
 struct cifsFileInfo *find_writable_file(struct cifsInodeInfo *cifs_inode,
 					int flags);
-int cifs_get_writable_file(struct cifsInodeInfo *cifs_inode, int flags,
+int __cifs_get_writable_file(struct cifsInodeInfo *cifs_inode,
+			     unsigned int find_flags, unsigned int open_flags,
+			     struct cifsFileInfo **ret_file);
+int cifs_get_writable_path(struct cifs_tcon *tcon, const char *name,
+			   struct inode *inode, int flags,
 			   struct cifsFileInfo **ret_file);
-int cifs_get_writable_path(struct cifs_tcon *tcon, const char *name, int flags,
-			   struct cifsFileInfo **ret_file);
-struct cifsFileInfo *find_readable_file(struct cifsInodeInfo *cifs_inode,
-					bool fsuid_only);
+struct cifsFileInfo *__find_readable_file(struct cifsInodeInfo *cifs_inode,
+					  unsigned int find_flags,
+					  unsigned int open_flags);
 int cifs_get_readable_path(struct cifs_tcon *tcon, const char *name,
 			   struct cifsFileInfo **ret_file);
 int cifs_get_hardlink_path(struct cifs_tcon *tcon, struct inode *inode,
@@ -261,6 +263,7 @@ void cifs_close_deferred_file(struct cifsInodeInfo *cifs_inode);
 
 void cifs_close_all_deferred_files(struct cifs_tcon *tcon);
 
+void cifs_close_all_deferred_files_sb(struct cifs_sb_info *cifs_sb);
 void cifs_close_deferred_file_under_dentry(struct cifs_tcon *tcon,
 					   struct dentry *dentry);
 
@@ -346,9 +349,6 @@ int __cifs_calc_signature(struct smb_rqst *rqst,
 			  struct cifs_calc_sig_ctx *ctx);
 enum securityEnum cifs_select_sectype(struct TCP_Server_Info *server,
 				      enum securityEnum requested);
-
-int cifs_alloc_hash(const char *name, struct shash_desc **sdesc);
-void cifs_free_hash(struct shash_desc **sdesc);
 
 int cifs_try_adding_channels(struct cifs_ses *ses);
 int smb3_update_ses_channels(struct cifs_ses *ses,
@@ -593,6 +593,22 @@ static inline void cifs_sg_set_buf(struct sg_table *sgtable,
 		sg_set_page(&sgtable->sgl[sgtable->nents++],
 			    virt_to_page((void *)addr), buflen, off);
 	}
+}
+
+static inline int cifs_get_writable_file(struct cifsInodeInfo *cifs_inode,
+					 unsigned int find_flags,
+					 struct cifsFileInfo **ret_file)
+{
+	find_flags &= ~FIND_OPEN_FLAGS;
+	return __cifs_get_writable_file(cifs_inode, find_flags, 0, ret_file);
+}
+
+static inline struct cifsFileInfo *
+find_readable_file(struct cifsInodeInfo *cinode, unsigned int find_flags)
+{
+	find_flags &= ~FIND_OPEN_FLAGS;
+	find_flags |= FIND_NO_PENDING_DELETE;
+	return __find_readable_file(cinode, find_flags, 0);
 }
 
 #endif			/* _CIFSPROTO_H */

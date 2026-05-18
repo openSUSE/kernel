@@ -571,6 +571,7 @@ static void exit_mm(void)
 	 */
 	smp_mb__after_spinlock();
 	local_irq_disable();
+	current->user_dumpable = (get_dumpable(mm) == SUID_DUMP_USER);
 	current->mm = NULL;
 	membarrier_update_current_mm(NULL);
 	enter_lazy_tlb(mm, current);
@@ -608,7 +609,8 @@ static struct task_struct *find_child_reaper(struct task_struct *father,
 
 	reaper = find_alive_thread(father);
 	if (reaper) {
-		pid_ns->child_reaper = reaper;
+		ASSERT_EXCLUSIVE_WRITER(pid_ns->child_reaper);
+		WRITE_ONCE(pid_ns->child_reaper, reaper);
 		return reaper;
 	}
 
@@ -748,14 +750,12 @@ static void exit_notify(struct task_struct *tsk, int group_dead)
 	tsk->exit_state = EXIT_ZOMBIE;
 
 	if (unlikely(tsk->ptrace)) {
-		int sig = thread_group_leader(tsk) &&
-				thread_group_empty(tsk) &&
-				!ptrace_reparented(tsk) ?
-			tsk->exit_signal : SIGCHLD;
+		int sig = thread_group_empty(tsk) && !ptrace_reparented(tsk)
+			  ? tsk->exit_signal : SIGCHLD;
 		autoreap = do_notify_parent(tsk, sig);
 	} else if (thread_group_leader(tsk)) {
 		autoreap = thread_group_empty(tsk) &&
-			do_notify_parent(tsk, tsk->exit_signal);
+			   do_notify_parent(tsk, tsk->exit_signal);
 	} else {
 		autoreap = true;
 		/* untraced sub-thread */
@@ -896,10 +896,15 @@ static void synchronize_group_exit(struct task_struct *tsk, long code)
 void __noreturn do_exit(long code)
 {
 	struct task_struct *tsk = current;
+	struct kthread *kthread;
 	int group_dead;
 
 	WARN_ON(irqs_disabled());
 	WARN_ON(tsk->plug);
+
+	kthread = tsk_is_kthread(tsk);
+	if (unlikely(kthread))
+		kthread_do_exit(kthread, code);
 
 	kcov_task_exit(tsk);
 	kmsan_task_exit(tsk);
@@ -1013,6 +1018,7 @@ void __noreturn do_exit(long code)
 	lockdep_free_task(tsk);
 	do_task_dead();
 }
+EXPORT_SYMBOL(do_exit);
 
 void __noreturn make_task_dead(int signr)
 {
@@ -1068,6 +1074,7 @@ void __noreturn make_task_dead(int signr)
 		futex_exit_recursive(tsk);
 		tsk->exit_state = EXIT_DEAD;
 		refcount_inc(&tsk->rcu_users);
+		preempt_disable();
 		do_task_dead();
 	}
 

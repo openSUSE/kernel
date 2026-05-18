@@ -66,6 +66,18 @@ struct amdgpu_usermode_queue {
 	struct amdgpu_userq_obj	db_obj;
 	struct amdgpu_userq_obj fw_obj;
 	struct amdgpu_userq_obj wptr_obj;
+
+	/**
+	 * @fence_drv_lock: Protecting @fence_drv_xa.
+	 */
+	struct mutex		fence_drv_lock;
+
+	/**
+	 * @fence_drv_xa:
+	 *
+	 * References to the external fence drivers returned by wait_ioctl.
+	 * Dropped on the next signaled dma_fence or queue destruction.
+	 */
 	struct xarray		fence_drv_xa;
 	struct amdgpu_userq_fence_driver *fence_drv;
 	struct dma_fence	*last_fence;
@@ -73,13 +85,15 @@ struct amdgpu_usermode_queue {
 	int			priority;
 	struct dentry		*debugfs_queue;
 	struct delayed_work hang_detect_work;
-	struct dma_fence *hang_detect_fence;
+	struct kref		refcount;
 
 	struct list_head	userq_va_list;
 };
 
 struct amdgpu_userq_funcs {
 	int (*mqd_create)(struct amdgpu_usermode_queue *queue,
+			  struct drm_amdgpu_userq_in *args);
+	int (*mqd_update)(struct amdgpu_usermode_queue *queue,
 			  struct drm_amdgpu_userq_in *args);
 	void (*mqd_destroy)(struct amdgpu_usermode_queue *uq);
 	int (*unmap)(struct amdgpu_usermode_queue *queue);
@@ -112,11 +126,15 @@ struct amdgpu_db_info {
 	struct amdgpu_userq_obj	*db_obj;
 };
 
+struct amdgpu_usermode_queue *amdgpu_userq_get(struct amdgpu_userq_mgr *uq_mgr, u32 qid);
+void amdgpu_userq_put(struct amdgpu_usermode_queue *queue);
+
 int amdgpu_userq_ioctl(struct drm_device *dev, void *data, struct drm_file *filp);
 
 int amdgpu_userq_mgr_init(struct amdgpu_userq_mgr *userq_mgr, struct drm_file *file_priv,
 			  struct amdgpu_device *adev);
 
+void amdgpu_userq_mgr_cancel_resume(struct amdgpu_userq_mgr *userq_mgr);
 void amdgpu_userq_mgr_fini(struct amdgpu_userq_mgr *userq_mgr);
 
 int amdgpu_userq_create_object(struct amdgpu_userq_mgr *uq_mgr,
@@ -126,8 +144,7 @@ int amdgpu_userq_create_object(struct amdgpu_userq_mgr *uq_mgr,
 void amdgpu_userq_destroy_object(struct amdgpu_userq_mgr *uq_mgr,
 				 struct amdgpu_userq_obj *userq_obj);
 
-void amdgpu_userq_evict(struct amdgpu_userq_mgr *uq_mgr,
-			struct amdgpu_eviction_fence *ev_fence);
+void amdgpu_userq_evict(struct amdgpu_userq_mgr *uq_mgr);
 
 void amdgpu_userq_ensure_ev_fence(struct amdgpu_userq_mgr *userq_mgr,
 				  struct amdgpu_eviction_fence_mgr *evf_mgr);
@@ -150,11 +167,12 @@ void amdgpu_userq_reset_work(struct work_struct *work);
 void amdgpu_userq_pre_reset(struct amdgpu_device *adev);
 int amdgpu_userq_post_reset(struct amdgpu_device *adev, bool vram_lost);
 void amdgpu_userq_start_hang_detect_work(struct amdgpu_usermode_queue *queue);
+void amdgpu_userq_process_fence_irq(struct amdgpu_device *adev, u32 doorbell);
 
 int amdgpu_userq_input_va_validate(struct amdgpu_device *adev,
 				   struct amdgpu_usermode_queue *queue,
 				   u64 addr, u64 expected_size);
-int amdgpu_userq_gem_va_unmap_validate(struct amdgpu_device *adev,
-				       struct amdgpu_bo_va_mapping *mapping,
-				       uint64_t saddr);
+void amdgpu_userq_gem_va_unmap_validate(struct amdgpu_device *adev,
+					struct amdgpu_bo_va_mapping *mapping,
+					uint64_t saddr);
 #endif
