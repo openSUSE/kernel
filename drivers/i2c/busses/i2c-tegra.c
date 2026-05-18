@@ -164,6 +164,7 @@ struct tegra_i2c_regs {
 	unsigned int master_reset_cntrl;
 	unsigned int mst_fifo_control;
 	unsigned int mst_fifo_status;
+	unsigned int fairness_arb;
 	unsigned int sw_mutex;
 };
 
@@ -272,6 +273,7 @@ static const struct tegra_i2c_regs tegra264_i2c_regs = {
 	.master_reset_cntrl = 0x0a8,
 	.mst_fifo_control = 0x0b4,
 	.mst_fifo_status = 0x0b8,
+	.fairness_arb = 0x0e8,
 	.sw_mutex = 0x0ec,
 };
 
@@ -300,6 +302,7 @@ static const struct tegra_i2c_regs tegra410_i2c_regs = {
 	.master_reset_cntrl = 0x0ac,
 	.mst_fifo_control = 0x0b8,
 	.mst_fifo_status = 0x0bc,
+	.fairness_arb = 0x0ec,
 	.sw_mutex = 0x0f0,
 };
 
@@ -379,6 +382,7 @@ enum tegra_i2c_variant {
  *		timing settings.
  * @enable_hs_mode_support: Enable support for high speed (HS) mode transfers.
  * @has_mutex: Has mutex register for mutual exclusion with other firmwares or VMs.
+ * @has_fairarb_reg: Has fairness arbitration register for SMBUS/MCTP support.
  * @variant: This represents the I2C controller variant.
  * @regs: Register offsets for the specific SoC variant.
  */
@@ -412,6 +416,7 @@ struct tegra_i2c_hw_feature {
 	bool has_interface_timing_reg;
 	bool enable_hs_mode_support;
 	bool has_mutex;
+	bool has_fairarb_reg;
 	enum tegra_i2c_variant variant;
 	const struct tegra_i2c_regs *regs;
 };
@@ -436,6 +441,7 @@ struct tegra_i2c_hw_feature {
  * @msg_read: indicates that the transfer is a read access
  * @timings: i2c timings information like bus frequency
  * @multimaster_mode: indicates that I2C controller is in multi-master mode
+ * @is_mctp: indicates that the I2C controller is used as an MCTP controller
  * @dma_chan: DMA channel
  * @dma_phys: handle to DMA resources
  * @dma_buf: pointer to allocated DMA buffer
@@ -476,6 +482,7 @@ struct tegra_i2c_dev {
 	void *dma_buf;
 
 	bool multimaster_mode;
+	bool is_mctp;
 	bool atomic_mode;
 	bool dma_mode;
 	bool msg_read;
@@ -912,6 +919,10 @@ static int tegra_i2c_init(struct tegra_i2c_dev *i2c_dev)
 
 	if (IS_VI(i2c_dev))
 		tegra_i2c_vi_init(i2c_dev);
+
+	/* Disable fairness arbitration if not an MCTP controller */
+	if (i2c_dev->hw->has_fairarb_reg && !i2c_dev->is_mctp)
+		i2c_writel(i2c_dev, 0, i2c_dev->hw->regs->fairness_arb);
 
 	if (i2c_dev->hw->enable_hs_mode_support)
 		max_bus_freq_hz = I2C_MAX_HIGH_SPEED_MODE_FREQ;
@@ -1778,6 +1789,7 @@ static const struct tegra_i2c_hw_feature tegra20_i2c_hw = {
 	.has_interface_timing_reg = false,
 	.enable_hs_mode_support = false,
 	.has_mutex = false,
+	.has_fairarb_reg = false,
 	.variant = TEGRA_I2C_VARIANT_DEFAULT,
 	.regs = &tegra20_i2c_regs,
 };
@@ -1811,6 +1823,7 @@ static const struct tegra_i2c_hw_feature tegra20_dvc_i2c_hw = {
 	.has_interface_timing_reg = false,
 	.enable_hs_mode_support = false,
 	.has_mutex = false,
+	.has_fairarb_reg = false,
 	.variant = TEGRA_I2C_VARIANT_DVC,
 	.regs = &tegra20_dvc_i2c_regs,
 };
@@ -1844,6 +1857,7 @@ static const struct tegra_i2c_hw_feature tegra30_i2c_hw = {
 	.has_interface_timing_reg = false,
 	.enable_hs_mode_support = false,
 	.has_mutex = false,
+	.has_fairarb_reg = false,
 	.variant = TEGRA_I2C_VARIANT_DEFAULT,
 	.regs = &tegra20_i2c_regs,
 };
@@ -1876,6 +1890,7 @@ static const struct tegra_i2c_hw_feature tegra114_i2c_hw = {
 	.has_interface_timing_reg = false,
 	.enable_hs_mode_support = false,
 	.has_mutex = false,
+	.has_fairarb_reg = false,
 	.variant = TEGRA_I2C_VARIANT_DEFAULT,
 	.regs = &tegra20_i2c_regs,
 };
@@ -1908,6 +1923,7 @@ static const struct tegra_i2c_hw_feature tegra124_i2c_hw = {
 	.has_interface_timing_reg = true,
 	.enable_hs_mode_support = false,
 	.has_mutex = false,
+	.has_fairarb_reg = false,
 	.variant = TEGRA_I2C_VARIANT_DEFAULT,
 	.regs = &tegra20_i2c_regs,
 };
@@ -1940,6 +1956,7 @@ static const struct tegra_i2c_hw_feature tegra210_i2c_hw = {
 	.has_interface_timing_reg = true,
 	.enable_hs_mode_support = false,
 	.has_mutex = false,
+	.has_fairarb_reg = false,
 	.variant = TEGRA_I2C_VARIANT_DEFAULT,
 	.regs = &tegra20_i2c_regs,
 };
@@ -1973,6 +1990,7 @@ static const struct tegra_i2c_hw_feature tegra210_vi_i2c_hw = {
 	.has_interface_timing_reg = true,
 	.enable_hs_mode_support = false,
 	.has_mutex = false,
+	.has_fairarb_reg = false,
 	.variant = TEGRA_I2C_VARIANT_VI,
 	.regs = &tegra210_vi_i2c_regs,
 };
@@ -2006,6 +2024,7 @@ static const struct tegra_i2c_hw_feature tegra186_i2c_hw = {
 	.has_interface_timing_reg = true,
 	.enable_hs_mode_support = false,
 	.has_mutex = false,
+	.has_fairarb_reg = false,
 	.variant = TEGRA_I2C_VARIANT_DEFAULT,
 	.regs = &tegra20_i2c_regs,
 };
@@ -2040,6 +2059,7 @@ static const struct tegra_i2c_hw_feature tegra194_i2c_hw = {
 	.has_interface_timing_reg = true,
 	.enable_hs_mode_support = true,
 	.has_mutex = false,
+	.has_fairarb_reg = false,
 	.variant = TEGRA_I2C_VARIANT_DEFAULT,
 	.regs = &tegra20_i2c_regs,
 };
@@ -2074,6 +2094,7 @@ static const struct tegra_i2c_hw_feature tegra256_i2c_hw = {
 	.has_interface_timing_reg = true,
 	.enable_hs_mode_support = true,
 	.has_mutex = true,
+	.has_fairarb_reg = true,
 	.variant = TEGRA_I2C_VARIANT_DEFAULT,
 	.regs = &tegra264_i2c_regs,
 };
@@ -2108,6 +2129,7 @@ static const struct tegra_i2c_hw_feature tegra264_i2c_hw = {
 	.has_interface_timing_reg = true,
 	.enable_hs_mode_support = true,
 	.has_mutex = true,
+	.has_fairarb_reg = true,
 	.variant = TEGRA_I2C_VARIANT_DEFAULT,
 	.regs = &tegra264_i2c_regs,
 };
@@ -2142,6 +2164,7 @@ static const struct tegra_i2c_hw_feature tegra410_i2c_hw = {
 	.has_interface_timing_reg = true,
 	.enable_hs_mode_support = true,
 	.has_mutex = true,
+	.has_fairarb_reg = true,
 	.variant = TEGRA_I2C_VARIANT_DEFAULT,
 	.regs = &tegra410_i2c_regs,
 };
@@ -2174,6 +2197,7 @@ static void tegra_i2c_parse_dt(struct tegra_i2c_dev *i2c_dev)
 
 	multi_mode = device_property_read_bool(i2c_dev->dev, "multi-master");
 	i2c_dev->multimaster_mode = multi_mode;
+	i2c_dev->is_mctp = device_property_present(i2c_dev->dev, "mctp-controller");
 }
 
 static int tegra_i2c_init_clocks(struct tegra_i2c_dev *i2c_dev)
