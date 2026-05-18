@@ -1,16 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/* -*- linux-c -*- ------------------------------------------------------- *
- *
- *   Copyright (C) 2012 Intel Corporation
- *   Author: Yuanhan Liu <yuanhan.liu@linux.intel.com>
- *
- *   Based on sse2.c: Copyright 2002 H. Peter Anvin - All Rights Reserved
- *
- * ----------------------------------------------------------------------- */
-
 /*
- * AVX2 implementation of RAID-6 syndrome functions
+ * Copyright (C) 2012 Intel Corporation
+ * Author: Yuanhan Liu <yuanhan.liu@linux.intel.com>
  *
+ * Based on sse2.c: Copyright 2002 H. Peter Anvin - All Rights Reserved
+ *
+ * AVX2 implementation of RAID-6 syndrome functions
  */
 
 #include <asm/cpufeature.h>
