@@ -10,11 +10,6 @@
 #include <asm/vector.h>
 #include "algos.h"
 
-static int rvv_has_vector(void)
-{
-	return has_vector();
-}
-
 #define RAID6_RVV_WRAPPER(_n)						\
 	static void raid6_rvv ## _n ## _gen_syndrome(int disks,		\
 					size_t bytes, void **ptrs)	\
@@ -41,6 +36,5 @@ static int rvv_has_vector(void)
 	struct raid6_calls const raid6_rvvx ## _n = {			\
 		.gen_syndrome	= raid6_rvv ## _n ## _gen_syndrome,	\
 		.xor_syndrome	= raid6_rvv ## _n ## _xor_syndrome,	\
-		.valid		= rvv_has_vector,			\
 		.name		= "rvvx" #_n,				\
 	}

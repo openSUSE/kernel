@@ -22,15 +22,6 @@ static const struct raid6_sse_constants {
 	{ 0x1d1d1d1d1d1d1d1dULL, 0x1d1d1d1d1d1d1d1dULL },
 };
 
-static int raid6_have_sse2(void)
-{
-	/* Not really boot_cpu but "all_cpus" */
-	return boot_cpu_has(X86_FEATURE_MMX) &&
-		boot_cpu_has(X86_FEATURE_FXSR) &&
-		boot_cpu_has(X86_FEATURE_XMM) &&
-		boot_cpu_has(X86_FEATURE_XMM2);
-}
-
 /*
  * Plain SSE2 implementation
  */
@@ -136,9 +127,7 @@ static void raid6_sse21_xor_syndrome(int disks, int start, int stop,
 const struct raid6_calls raid6_sse2x1 = {
 	.gen_syndrome	= raid6_sse21_gen_syndrome,
 	.xor_syndrome	= raid6_sse21_xor_syndrome,
-	.valid		= raid6_have_sse2,
 	.name		= "sse2x1",
-	.priority	= 1,	/* Has cache hints */
 };
 
 /*
@@ -266,9 +255,7 @@ static void raid6_sse22_xor_syndrome(int disks, int start, int stop,
 const struct raid6_calls raid6_sse2x2 = {
 	.gen_syndrome	= raid6_sse22_gen_syndrome,
 	.xor_syndrome	= raid6_sse22_xor_syndrome,
-	.valid		= raid6_have_sse2,
 	.name		= "sse2x2",
-	.priority	= 1,	/* Has cache hints */
 };
 
 #ifdef CONFIG_X86_64
@@ -473,9 +460,7 @@ static void raid6_sse24_xor_syndrome(int disks, int start, int stop,
 const struct raid6_calls raid6_sse2x4 = {
 	.gen_syndrome	= raid6_sse24_gen_syndrome,
 	.xor_syndrome	= raid6_sse24_xor_syndrome,
-	.valid		= raid6_have_sse2,
 	.name		= "sse2x4",
-	.priority	= 1,	/* Has cache hints */
 };
 
 #endif /* CONFIG_X86_64 */

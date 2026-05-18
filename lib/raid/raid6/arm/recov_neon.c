@@ -10,11 +10,6 @@
 #include "algos.h"
 #include "arm/neon.h"
 
-static int raid6_has_neon(void)
-{
-	return cpu_has_neon();
-}
-
 static void raid6_2data_recov_neon(int disks, size_t bytes, int faila,
 		int failb, void **ptrs)
 {
@@ -87,7 +82,5 @@ static void raid6_datap_recov_neon(int disks, size_t bytes, int faila,
 const struct raid6_recov_calls raid6_recov_neon = {
 	.data2		= raid6_2data_recov_neon,
 	.datap		= raid6_datap_recov_neon,
-	.valid		= raid6_has_neon,
 	.name		= "neon",
-	.priority	= 10,
 };

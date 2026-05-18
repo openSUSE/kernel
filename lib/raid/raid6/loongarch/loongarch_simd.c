@@ -26,11 +26,6 @@
 #ifdef CONFIG_CPU_HAS_LSX
 #define NSIZE 16
 
-static int raid6_has_lsx(void)
-{
-	return cpu_has_lsx;
-}
-
 static void raid6_lsx_gen_syndrome(int disks, size_t bytes, void **ptrs)
 {
 	u8 **dptr = (u8 **)ptrs;
@@ -246,7 +241,6 @@ static void raid6_lsx_xor_syndrome(int disks, int start, int stop,
 const struct raid6_calls raid6_lsx = {
 	.gen_syndrome	= raid6_lsx_gen_syndrome,
 	.xor_syndrome	= raid6_lsx_xor_syndrome,
-	.valid		= raid6_has_lsx,
 	.name		= "lsx",
 };
 
@@ -255,11 +249,6 @@ const struct raid6_calls raid6_lsx = {
 
 #ifdef CONFIG_CPU_HAS_LASX
 #define NSIZE 32
-
-static int raid6_has_lasx(void)
-{
-	return cpu_has_lasx;
-}
 
 static void raid6_lasx_gen_syndrome(int disks, size_t bytes, void **ptrs)
 {
@@ -414,7 +403,6 @@ static void raid6_lasx_xor_syndrome(int disks, int start, int stop,
 const struct raid6_calls raid6_lasx = {
 	.gen_syndrome	= raid6_lasx_gen_syndrome,
 	.xor_syndrome	= raid6_lasx_xor_syndrome,
-	.valid		= raid6_has_lasx,
 	.name		= "lasx",
 };
 #undef NSIZE

@@ -218,7 +218,5 @@ static void raid6_datap_recov_rvv(int disks, size_t bytes, int faila,
 const struct raid6_recov_calls raid6_recov_rvv = {
 	.data2		= raid6_2data_recov_rvv,
 	.datap		= raid6_datap_recov_rvv,
-	.valid		= rvv_has_vector,
 	.name		= "rvv",
-	.priority	= 1,
 };

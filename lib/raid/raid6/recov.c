@@ -97,7 +97,5 @@ static void raid6_datap_recov_intx1(int disks, size_t bytes, int faila,
 const struct raid6_recov_calls raid6_recov_intx1 = {
 	.data2 = raid6_2data_recov_intx1,
 	.datap = raid6_datap_recov_intx1,
-	.valid = NULL,
 	.name = "intx1",
-	.priority = 0,
 };

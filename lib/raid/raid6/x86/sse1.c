@@ -25,14 +25,6 @@ extern const struct raid6_mmx_constants {
 	u64 x1d;
 } raid6_mmx_constants;
 
-static int raid6_have_sse1_or_mmxext(void)
-{
-	/* Not really boot_cpu but "all_cpus" */
-	return boot_cpu_has(X86_FEATURE_MMX) &&
-		(boot_cpu_has(X86_FEATURE_XMM) ||
-		 boot_cpu_has(X86_FEATURE_MMXEXT));
-}
-
 /*
  * Plain SSE1 implementation
  */
@@ -86,9 +78,7 @@ static void raid6_sse11_gen_syndrome(int disks, size_t bytes, void **ptrs)
 
 const struct raid6_calls raid6_sse1x1 = {
 	.gen_syndrome	= raid6_sse11_gen_syndrome,
-	.valid		= raid6_have_sse1_or_mmxext,
 	.name		= "sse1x1",
-	.priority	= 1,	/* Has cache hints */
 };
 
 /*
@@ -148,7 +138,5 @@ static void raid6_sse12_gen_syndrome(int disks, size_t bytes, void **ptrs)
 
 const struct raid6_calls raid6_sse1x2 = {
 	.gen_syndrome	= raid6_sse12_gen_syndrome,
-	.valid		= raid6_have_sse1_or_mmxext,
 	.name		= "sse1x2",
-	.priority	= 1,	/* Has cache hints */
 };

@@ -104,17 +104,7 @@ static void raid6_altivec$#_gen_syndrome(int disks, size_t bytes, void **ptrs)
 	preempt_enable();
 }
 
-int raid6_have_altivec(void);
-#if $# == 1
-int raid6_have_altivec(void)
-{
-	/* This assumes either all CPUs have Altivec or none does */
-	return cpu_has_feature(CPU_FTR_ALTIVEC);
-}
-#endif
-
 const struct raid6_calls raid6_altivec$# = {
 	.gen_syndrome	= raid6_altivec$#_gen_syndrome,
-	.valid		= raid6_have_altivec,
 	.name		= "altivecx$#",
 };

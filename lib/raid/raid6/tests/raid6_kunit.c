@@ -88,19 +88,20 @@ skip:
 
 static void raid6_test(struct kunit *test)
 {
-	const struct raid6_calls *const *algo;
-	const struct raid6_recov_calls *const *ra;
 	int i, j, p1, p2;
+	unsigned int r, g;
 
-	for (ra = raid6_recov_algos; *ra; ra++) {
-		if ((*ra)->valid  && !(*ra)->valid())
-			continue;
+	for (r = 0; ; r++) {
+		const struct raid6_recov_calls *ra = raid6_recov_algo_find(r);
 
-		for (algo = raid6_algos; *algo; algo++) {
-			const struct raid6_calls *calls = *algo;
+		if (!ra)
+			break;
 
-			if (calls->valid && !calls->valid())
-				continue;
+		for (g = 0; ; g++) {
+			const struct raid6_calls *calls = raid6_algo_find(g);
+
+			if (!calls)
+				break;
 
 			/* Nuke syndromes */
 			memset(data[NDISKS - 2], 0xee, PAGE_SIZE);
@@ -112,7 +113,7 @@ static void raid6_test(struct kunit *test)
 
 			for (i = 0; i < NDISKS-1; i++)
 				for (j = i+1; j < NDISKS; j++)
-					test_disks(test, calls, *ra, i, j);
+					test_disks(test, calls, ra, i, j);
 
 			if (!calls->xor_syndrome)
 				continue;
@@ -130,7 +131,7 @@ static void raid6_test(struct kunit *test)
 					for (i = 0; i < NDISKS-1; i++)
 						for (j = i+1; j < NDISKS; j++)
 							test_disks(test, calls,
-									*ra, i, j);
+									ra, i, j);
 				}
 
 		}

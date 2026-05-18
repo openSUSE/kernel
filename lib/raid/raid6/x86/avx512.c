@@ -30,16 +30,6 @@ static const struct raid6_avx512_constants {
 	  0x1d1d1d1d1d1d1d1dULL, 0x1d1d1d1d1d1d1d1dULL,},
 };
 
-static int raid6_have_avx512(void)
-{
-	return boot_cpu_has(X86_FEATURE_AVX2) &&
-		boot_cpu_has(X86_FEATURE_AVX) &&
-		boot_cpu_has(X86_FEATURE_AVX512F) &&
-		boot_cpu_has(X86_FEATURE_AVX512BW) &&
-		boot_cpu_has(X86_FEATURE_AVX512VL) &&
-		boot_cpu_has(X86_FEATURE_AVX512DQ);
-}
-
 static void raid6_avx5121_gen_syndrome(int disks, size_t bytes, void **ptrs)
 {
 	u8 **dptr = (u8 **)ptrs;
@@ -159,10 +149,7 @@ static void raid6_avx5121_xor_syndrome(int disks, int start, int stop,
 const struct raid6_calls raid6_avx512x1 = {
 	.gen_syndrome	= raid6_avx5121_gen_syndrome,
 	.xor_syndrome	= raid6_avx5121_xor_syndrome,
-	.valid		= raid6_have_avx512,
 	.name		= "avx512x1",
-	/* Prefer AVX512 over priority 1 (SSE2 and others) */
-	.priority	= 2,
 };
 
 /*
@@ -317,10 +304,7 @@ static void raid6_avx5122_xor_syndrome(int disks, int start, int stop,
 const struct raid6_calls raid6_avx512x2 = {
 	.gen_syndrome	= raid6_avx5122_gen_syndrome,
 	.xor_syndrome	= raid6_avx5122_xor_syndrome,
-	.valid		= raid6_have_avx512,
 	.name		= "avx512x2",
-	/* Prefer AVX512 over priority 1 (SSE2 and others) */
-	.priority	= 2,
 };
 
 #ifdef CONFIG_X86_64
@@ -556,9 +540,6 @@ static void raid6_avx5124_xor_syndrome(int disks, int start, int stop,
 const struct raid6_calls raid6_avx512x4 = {
 	.gen_syndrome	= raid6_avx5124_gen_syndrome,
 	.xor_syndrome	= raid6_avx5124_xor_syndrome,
-	.valid		= raid6_have_avx512,
 	.name		= "avx512x4",
-	/* Prefer AVX512 over priority 1 (SSE2 and others) */
-	.priority	= 2,
 };
 #endif

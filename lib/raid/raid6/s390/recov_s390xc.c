@@ -112,7 +112,5 @@ static void raid6_datap_recov_s390xc(int disks, size_t bytes, int faila,
 const struct raid6_recov_calls raid6_recov_s390xc = {
 	.data2 = raid6_2data_recov_s390xc,
 	.datap = raid6_datap_recov_s390xc,
-	.valid = NULL,
 	.name = "s390xc",
-	.priority = 1,
 };

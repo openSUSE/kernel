@@ -9,12 +9,6 @@
 #include <asm/fpu/api.h>
 #include "algos.h"
 
-static int raid6_has_avx2(void)
-{
-	return boot_cpu_has(X86_FEATURE_AVX2) &&
-		boot_cpu_has(X86_FEATURE_AVX);
-}
-
 static void raid6_2data_recov_avx2(int disks, size_t bytes, int faila,
 		int failb, void **ptrs)
 {
@@ -305,11 +299,9 @@ static void raid6_datap_recov_avx2(int disks, size_t bytes, int faila,
 const struct raid6_recov_calls raid6_recov_avx2 = {
 	.data2 = raid6_2data_recov_avx2,
 	.datap = raid6_datap_recov_avx2,
-	.valid = raid6_has_avx2,
 #ifdef CONFIG_X86_64
 	.name = "avx2x2",
 #else
 	.name = "avx2x1",
 #endif
-	.priority = 2,
 };

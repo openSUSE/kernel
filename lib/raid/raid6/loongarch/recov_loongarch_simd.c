@@ -24,11 +24,6 @@
  */
 
 #ifdef CONFIG_CPU_HAS_LSX
-static int raid6_has_lsx(void)
-{
-	return cpu_has_lsx;
-}
-
 static void raid6_2data_recov_lsx(int disks, size_t bytes, int faila,
 				  int failb, void **ptrs)
 {
@@ -291,18 +286,11 @@ static void raid6_datap_recov_lsx(int disks, size_t bytes, int faila,
 const struct raid6_recov_calls raid6_recov_lsx = {
 	.data2 = raid6_2data_recov_lsx,
 	.datap = raid6_datap_recov_lsx,
-	.valid = raid6_has_lsx,
 	.name = "lsx",
-	.priority = 1,
 };
 #endif /* CONFIG_CPU_HAS_LSX */
 
 #ifdef CONFIG_CPU_HAS_LASX
-static int raid6_has_lasx(void)
-{
-	return cpu_has_lasx;
-}
-
 static void raid6_2data_recov_lasx(int disks, size_t bytes, int faila,
 				   int failb, void **ptrs)
 {
@@ -509,8 +497,6 @@ static void raid6_datap_recov_lasx(int disks, size_t bytes, int faila,
 const struct raid6_recov_calls raid6_recov_lasx = {
 	.data2 = raid6_2data_recov_lasx,
 	.datap = raid6_datap_recov_lasx,
-	.valid = raid6_has_lasx,
 	.name = "lasx",
-	.priority = 2,
 };
 #endif /* CONFIG_CPU_HAS_LASX */

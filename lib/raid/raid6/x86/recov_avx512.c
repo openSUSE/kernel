@@ -11,16 +11,6 @@
 #include <asm/fpu/api.h>
 #include "algos.h"
 
-static int raid6_has_avx512(void)
-{
-	return boot_cpu_has(X86_FEATURE_AVX2) &&
-		boot_cpu_has(X86_FEATURE_AVX) &&
-		boot_cpu_has(X86_FEATURE_AVX512F) &&
-		boot_cpu_has(X86_FEATURE_AVX512BW) &&
-		boot_cpu_has(X86_FEATURE_AVX512VL) &&
-		boot_cpu_has(X86_FEATURE_AVX512DQ);
-}
-
 static void raid6_2data_recov_avx512(int disks, size_t bytes, int faila,
 				     int failb, void **ptrs)
 {
@@ -369,11 +359,9 @@ static void raid6_datap_recov_avx512(int disks, size_t bytes, int faila,
 const struct raid6_recov_calls raid6_recov_avx512 = {
 	.data2 = raid6_2data_recov_avx512,
 	.datap = raid6_datap_recov_avx512,
-	.valid = raid6_has_avx512,
 #ifdef CONFIG_X86_64
 	.name = "avx512x2",
 #else
 	.name = "avx512x1",
 #endif
-	.priority = 3,
 };

@@ -24,11 +24,6 @@ static const struct raid6_avx2_constants {
 	  0x1d1d1d1d1d1d1d1dULL, 0x1d1d1d1d1d1d1d1dULL,},
 };
 
-static int raid6_have_avx2(void)
-{
-	return boot_cpu_has(X86_FEATURE_AVX2) && boot_cpu_has(X86_FEATURE_AVX);
-}
-
 /*
  * Plain AVX2 implementation
  */
@@ -131,10 +126,7 @@ static void raid6_avx21_xor_syndrome(int disks, int start, int stop,
 const struct raid6_calls raid6_avx2x1 = {
 	.gen_syndrome	= raid6_avx21_gen_syndrome,
 	.xor_syndrome	= raid6_avx21_xor_syndrome,
-	.valid		= raid6_have_avx2,
 	.name		= "avx2x1",
-	/* Prefer AVX2 over priority 1 (SSE2 and others) */
-	.priority	= 2,
 };
 
 /*
@@ -262,10 +254,7 @@ static void raid6_avx22_xor_syndrome(int disks, int start, int stop,
 const struct raid6_calls raid6_avx2x2 = {
 	.gen_syndrome	= raid6_avx22_gen_syndrome,
 	.xor_syndrome	= raid6_avx22_xor_syndrome,
-	.valid		= raid6_have_avx2,
 	.name		= "avx2x2",
-	/* Prefer AVX2 over priority 1 (SSE2 and others) */
-	.priority	= 2,
 };
 
 #ifdef CONFIG_X86_64
@@ -466,9 +455,6 @@ static void raid6_avx24_xor_syndrome(int disks, int start, int stop,
 const struct raid6_calls raid6_avx2x4 = {
 	.gen_syndrome	= raid6_avx24_gen_syndrome,
 	.xor_syndrome	= raid6_avx24_xor_syndrome,
-	.valid		= raid6_have_avx2,
 	.name		= "avx2x4",
-	/* Prefer AVX2 over priority 1 (SSE2 and others) */
-	.priority	= 2,
 };
 #endif /* CONFIG_X86_64 */

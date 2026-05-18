@@ -8,13 +8,6 @@
 #include <asm/fpu/api.h>
 #include "algos.h"
 
-static int raid6_has_ssse3(void)
-{
-	return boot_cpu_has(X86_FEATURE_XMM) &&
-		boot_cpu_has(X86_FEATURE_XMM2) &&
-		boot_cpu_has(X86_FEATURE_SSSE3);
-}
-
 static void raid6_2data_recov_ssse3(int disks, size_t bytes, int faila,
 		int failb, void **ptrs)
 {
@@ -320,11 +313,9 @@ static void raid6_datap_recov_ssse3(int disks, size_t bytes, int faila,
 const struct raid6_recov_calls raid6_recov_ssse3 = {
 	.data2 = raid6_2data_recov_ssse3,
 	.datap = raid6_datap_recov_ssse3,
-	.valid = raid6_has_ssse3,
 #ifdef CONFIG_X86_64
 	.name = "ssse3x2",
 #else
 	.name = "ssse3x1",
 #endif
-	.priority = 1,
 };

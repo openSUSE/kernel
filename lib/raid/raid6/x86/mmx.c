@@ -22,12 +22,6 @@ const struct raid6_mmx_constants {
 	0x1d1d1d1d1d1d1d1dULL,
 };
 
-static int raid6_have_mmx(void)
-{
-	/* Not really "boot_cpu" but "all_cpus" */
-	return boot_cpu_has(X86_FEATURE_MMX);
-}
-
 /*
  * Plain MMX implementation
  */
@@ -70,7 +64,6 @@ static void raid6_mmx1_gen_syndrome(int disks, size_t bytes, void **ptrs)
 
 const struct raid6_calls raid6_mmxx1 = {
 	.gen_syndrome	= raid6_mmx1_gen_syndrome,
-	.valid		= raid6_have_mmx,
 	.name		= "mmxx1",
 };
 
@@ -127,6 +120,5 @@ static void raid6_mmx2_gen_syndrome(int disks, size_t bytes, void **ptrs)
 
 const struct raid6_calls raid6_mmxx2 = {
 	.gen_syndrome	= raid6_mmx2_gen_syndrome,
-	.valid		= raid6_have_mmx,
 	.name		= "mmxx2",
 };

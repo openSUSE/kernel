@@ -76,18 +76,7 @@ static void raid6_vpermxor$#_gen_syndrome(int disks, size_t bytes, void **ptrs)
 	preempt_enable();
 }
 
-int raid6_have_altivec_vpermxor(void);
-#if $# == 1
-int raid6_have_altivec_vpermxor(void)
-{
-	/* Check if arch has both altivec and the vpermxor instructions */
-	return (cpu_has_feature(CPU_FTR_ALTIVEC_COMP) &&
-		cpu_has_feature(CPU_FTR_ARCH_207S));
-}
-#endif
-
 const struct raid6_calls raid6_vpermxor$# = {
 	.gen_syndrome	= raid6_vpermxor$#_gen_syndrome,
-	.valid		= raid6_have_altivec_vpermxor,
 	.name		= "vpermxor$#",
 };

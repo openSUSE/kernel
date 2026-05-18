@@ -17,6 +17,9 @@
 #include <kunit/visibility.h>
 #include "algos.h"
 
+#define RAID6_MAX_ALGOS		16
+static const struct raid6_calls *raid6_algos[RAID6_MAX_ALGOS];
+static unsigned int raid6_nr_algos;
 static const struct raid6_recov_calls *raid6_recov_algo;
 
 /* Selected algorithm */
@@ -97,71 +100,6 @@ bool raid6_can_xor_syndrome(void)
 }
 EXPORT_SYMBOL_GPL(raid6_can_xor_syndrome);
 
-const struct raid6_calls * const raid6_algos[] = {
-#if defined(__i386__) && !defined(__arch_um__)
-	&raid6_avx512x2,
-	&raid6_avx512x1,
-	&raid6_avx2x2,
-	&raid6_avx2x1,
-	&raid6_sse2x2,
-	&raid6_sse2x1,
-	&raid6_sse1x2,
-	&raid6_sse1x1,
-	&raid6_mmxx2,
-	&raid6_mmxx1,
-#endif
-#if defined(__x86_64__) && !defined(__arch_um__)
-	&raid6_avx512x4,
-	&raid6_avx512x2,
-	&raid6_avx512x1,
-	&raid6_avx2x4,
-	&raid6_avx2x2,
-	&raid6_avx2x1,
-	&raid6_sse2x4,
-	&raid6_sse2x2,
-	&raid6_sse2x1,
-#endif
-#ifdef CONFIG_ALTIVEC
-	&raid6_vpermxor8,
-	&raid6_vpermxor4,
-	&raid6_vpermxor2,
-	&raid6_vpermxor1,
-	&raid6_altivec8,
-	&raid6_altivec4,
-	&raid6_altivec2,
-	&raid6_altivec1,
-#endif
-#if defined(CONFIG_S390)
-	&raid6_s390vx8,
-#endif
-#ifdef CONFIG_KERNEL_MODE_NEON
-	&raid6_neonx8,
-	&raid6_neonx4,
-	&raid6_neonx2,
-	&raid6_neonx1,
-#endif
-#ifdef CONFIG_LOONGARCH
-#ifdef CONFIG_CPU_HAS_LASX
-	&raid6_lasx,
-#endif
-#ifdef CONFIG_CPU_HAS_LSX
-	&raid6_lsx,
-#endif
-#endif
-#ifdef CONFIG_RISCV_ISA_V
-	&raid6_rvvx1,
-	&raid6_rvvx2,
-	&raid6_rvvx4,
-	&raid6_rvvx8,
-#endif
-	&raid6_intx8,
-	&raid6_intx4,
-	&raid6_intx2,
-	&raid6_intx1,
-	NULL
-};
-EXPORT_SYMBOL_IF_KUNIT(raid6_algos);
-
 /**
  * raid6_recov_2data - recover two missing data disks
  * @disks:	number of "disks" to operate on including parity
@@ -215,111 +153,49 @@ void raid6_recov_datap(int disks, size_t bytes, int faila, void **ptrs)
 }
 EXPORT_SYMBOL_GPL(raid6_recov_datap);
 
-const struct raid6_recov_calls *const raid6_recov_algos[] = {
-#ifdef CONFIG_X86
-	&raid6_recov_avx512,
-	&raid6_recov_avx2,
-	&raid6_recov_ssse3,
-#endif
-#ifdef CONFIG_S390
-	&raid6_recov_s390xc,
-#endif
-#if defined(CONFIG_KERNEL_MODE_NEON)
-	&raid6_recov_neon,
-#endif
-#ifdef CONFIG_LOONGARCH
-#ifdef CONFIG_CPU_HAS_LASX
-	&raid6_recov_lasx,
-#endif
-#ifdef CONFIG_CPU_HAS_LSX
-	&raid6_recov_lsx,
-#endif
-#endif
-#ifdef CONFIG_RISCV_ISA_V
-	&raid6_recov_rvv,
-#endif
-	&raid6_recov_intx1,
-	NULL
-};
-EXPORT_SYMBOL_IF_KUNIT(raid6_recov_algos);
-
 #define RAID6_TIME_JIFFIES_LG2	4
 #define RAID6_TEST_DISKS	8
 #define RAID6_TEST_DISKS_ORDER	3
 
-static inline const struct raid6_recov_calls *raid6_choose_recov(void)
+static int raid6_choose_gen(void *(*const dptrs)[RAID6_TEST_DISKS],
+		const int disks)
 {
-	const struct raid6_recov_calls *const *algo;
-	const struct raid6_recov_calls *best;
+	/* work on the second half of the disks */
+	int start = (disks >> 1) - 1, stop = disks - 3;
+	const struct raid6_calls *best = NULL;
+	unsigned long bestgenperf = 0;
+	unsigned int i;
 
-	for (best = NULL, algo = raid6_recov_algos; *algo; algo++)
-		if (!best || (*algo)->priority > best->priority)
-			if (!(*algo)->valid || (*algo)->valid())
-				best = *algo;
+	for (i = 0; i < raid6_nr_algos; i++) {
+		const struct raid6_calls *algo = raid6_algos[i];
+		unsigned long perf = 0, j0, j1;
 
-	if (best) {
-		raid6_recov_algo = best;
-
-		pr_info("raid6: using %s recovery algorithm\n", best->name);
-	} else
-		pr_err("raid6: Yikes! No recovery algorithm found!\n");
-
-	return best;
-}
-
-static inline const struct raid6_calls *raid6_choose_gen(
-	void *(*const dptrs)[RAID6_TEST_DISKS], const int disks)
-{
-	unsigned long perf, bestgenperf, j0, j1;
-	int start = (disks>>1)-1, stop = disks-3;	/* work on the second half of the disks */
-	const struct raid6_calls *const *algo;
-	const struct raid6_calls *best;
-
-	for (bestgenperf = 0, best = NULL, algo = raid6_algos; *algo; algo++) {
-		if (!best || (*algo)->priority >= best->priority) {
-			if ((*algo)->valid && !(*algo)->valid())
-				continue;
-
-			if (!IS_ENABLED(CONFIG_RAID6_PQ_BENCHMARK)) {
-				best = *algo;
-				break;
-			}
-
-			perf = 0;
-
-			preempt_disable();
-			j0 = jiffies;
-			while ((j1 = jiffies) == j0)
-				cpu_relax();
-			while (time_before(jiffies,
-					    j1 + (1<<RAID6_TIME_JIFFIES_LG2))) {
-				(*algo)->gen_syndrome(disks, PAGE_SIZE, *dptrs);
-				perf++;
-			}
-			preempt_enable();
-
-			if (perf > bestgenperf) {
-				bestgenperf = perf;
-				best = *algo;
-			}
-			pr_info("raid6: %-8s gen() %5ld MB/s\n", (*algo)->name,
-				(perf * HZ * (disks-2)) >>
-				(20 - PAGE_SHIFT + RAID6_TIME_JIFFIES_LG2));
+		preempt_disable();
+		j0 = jiffies;
+		while ((j1 = jiffies) == j0)
+			cpu_relax();
+		while (time_before(jiffies,
+				    j1 + (1<<RAID6_TIME_JIFFIES_LG2))) {
+			algo->gen_syndrome(disks, PAGE_SIZE, *dptrs);
+			perf++;
 		}
+		preempt_enable();
+
+		if (perf > bestgenperf) {
+			bestgenperf = perf;
+			best = algo;
+		}
+		pr_info("raid6: %-8s gen() %5ld MB/s\n", algo->name,
+			(perf * HZ * (disks-2)) >>
+			(20 - PAGE_SHIFT + RAID6_TIME_JIFFIES_LG2));
 	}
 
 	if (!best) {
 		pr_err("raid6: Yikes! No algorithm found!\n");
-		goto out;
+		return -EINVAL;
 	}
 
 	raid6_call = *best;
-
-	if (!IS_ENABLED(CONFIG_RAID6_PQ_BENCHMARK)) {
-		pr_info("raid6: skipped pq benchmark and selected %s\n",
-			best->name);
-		goto out;
-	}
 
 	pr_info("raid6: using algorithm %s gen() %ld MB/s\n",
 		best->name,
@@ -327,7 +203,7 @@ static inline const struct raid6_calls *raid6_choose_gen(
 		(20 - PAGE_SHIFT + RAID6_TIME_JIFFIES_LG2));
 
 	if (best->xor_syndrome) {
-		perf = 0;
+		unsigned long perf = 0, j0, j1;
 
 		preempt_disable();
 		j0 = jiffies;
@@ -346,8 +222,7 @@ static inline const struct raid6_calls *raid6_choose_gen(
 			(20 - PAGE_SHIFT + RAID6_TIME_JIFFIES_LG2 + 1));
 	}
 
-out:
-	return best;
+	return 0;
 }
 
 
@@ -357,12 +232,17 @@ out:
 static int __init raid6_select_algo(void)
 {
 	const int disks = RAID6_TEST_DISKS;
-
-	const struct raid6_calls *gen_best;
-	const struct raid6_recov_calls *rec_best;
 	char *disk_ptr, *p;
 	void *dptrs[RAID6_TEST_DISKS];
 	int i, cycle;
+	int error;
+
+	if (!IS_ENABLED(CONFIG_RAID6_PQ_BENCHMARK) || raid6_nr_algos == 1) {
+		pr_info("raid6: skipped pq benchmark and selected %s\n",
+			raid6_algos[raid6_nr_algos - 1]->name);
+		raid6_call = *raid6_algos[raid6_nr_algos - 1];
+		return 0;
+	}
 
 	/* prepare the buffer and fill it circularly with gfmul table */
 	disk_ptr = (char *)__get_free_pages(GFP_KERNEL, RAID6_TEST_DISKS_ORDER);
@@ -385,22 +265,109 @@ static int __init raid6_select_algo(void)
 		memcpy(p, raid6_gfmul, (disks - 2) * PAGE_SIZE % 65536);
 
 	/* select raid gen_syndrome function */
-	gen_best = raid6_choose_gen(&dptrs, disks);
-
-	/* select raid recover functions */
-	rec_best = raid6_choose_recov();
+	error = raid6_choose_gen(&dptrs, disks);
 
 	free_pages((unsigned long)disk_ptr, RAID6_TEST_DISKS_ORDER);
 
-	return gen_best && rec_best ? 0 : -EINVAL;
+	return error;
 }
 
-static void raid6_exit(void)
+/*
+ * Register a RAID6 P/Q generation algorithm.  The most optimized/unrolled
+ * implementation should be registered last so it will be selected when the
+ * boot-time benchmark is disabled.
+ */
+void __init raid6_algo_add(const struct raid6_calls *algo)
 {
-	do { } while (0);
+	if (WARN_ON_ONCE(raid6_nr_algos == RAID6_MAX_ALGOS))
+		return;
+	raid6_algos[raid6_nr_algos++] = algo;
 }
 
-subsys_initcall(raid6_select_algo);
+void __init raid6_algo_add_default(void)
+{
+	raid6_algo_add(&raid6_intx1);
+	raid6_algo_add(&raid6_intx2);
+	raid6_algo_add(&raid6_intx4);
+	raid6_algo_add(&raid6_intx8);
+}
+
+void __init raid6_recov_algo_add(const struct raid6_recov_calls *algo)
+{
+	if (WARN_ON_ONCE(raid6_recov_algo))
+		return;
+	raid6_recov_algo = algo;
+}
+
+#ifdef CONFIG_RAID6_PQ_ARCH
+#include "pq_arch.h"
+#else
+static inline void arch_raid6_init(void)
+{
+	raid6_algo_add_default();
+}
+#endif /* CONFIG_RAID6_PQ_ARCH */
+
+static int __init raid6_init(void)
+{
+	/*
+	 * Architectures providing arch_raid6_init must add all PQ generation
+	 * algorithms they want to consider in arch_raid6_init(), including
+	 * the generic ones using raid6_algo_add_default() if wanted.
+	 */
+	arch_raid6_init();
+
+	/*
+	 * Architectures don't have to set a recovery algorithm, we'll just pick
+	 * the generic integer one if none was set.
+	 */
+	if (!raid6_recov_algo)
+		raid6_recov_algo = &raid6_recov_intx1;
+	pr_info("raid6: using %s recovery algorithm\n", raid6_recov_algo->name);
+
+	return raid6_select_algo();
+}
+
+static void __exit raid6_exit(void)
+{
+}
+
+subsys_initcall(raid6_init);
 module_exit(raid6_exit);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("RAID6 Q-syndrome calculations");
+
+#if IS_ENABLED(CONFIG_RAID6_PQ_KUNIT_TEST)
+const struct raid6_calls *raid6_algo_find(unsigned int idx)
+{
+	if (idx >= raid6_nr_algos) {
+		/*
+		 * Always include the simplest generic integer implementation in
+		 * the unit tests as a baseline.
+		 */
+		if (idx == raid6_nr_algos &&
+		    raid6_algos[0] != &raid6_intx1)
+			return &raid6_intx1;
+		return NULL;
+	}
+	return raid6_algos[idx];
+}
+EXPORT_SYMBOL_IF_KUNIT(raid6_algo_find);
+
+const struct raid6_recov_calls *raid6_recov_algo_find(unsigned int idx)
+{
+	switch (idx) {
+	case 0:
+		/* always test the generic integer implementation */
+		return &raid6_recov_intx1;
+	case 1:
+		/* test the optimized implementation if there is one */
+		if (raid6_recov_algo != &raid6_recov_intx1)
+			return raid6_recov_algo;
+		return NULL;
+	default:
+		return NULL;
+	}
+}
+EXPORT_SYMBOL_IF_KUNIT(raid6_recov_algo_find);
+#endif /* CONFIG_RAID6_PQ_KUNIT_TEST */

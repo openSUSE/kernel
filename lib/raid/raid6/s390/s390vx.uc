@@ -121,15 +121,8 @@ static void raid6_s390vx$#_xor_syndrome(int disks, int start, int stop,
 	kernel_fpu_end(&vxstate, KERNEL_VXR);
 }
 
-static int raid6_s390vx$#_valid(void)
-{
-	return cpu_has_vx();
-}
-
 const struct raid6_calls raid6_s390vx$# = {
 	.gen_syndrome	= raid6_s390vx$#_gen_syndrome,
 	.xor_syndrome	= raid6_s390vx$#_xor_syndrome,
-	.valid		= raid6_s390vx$#_valid,
 	.name		= "vx128x$#",
-	.priority	= 1,
 };
