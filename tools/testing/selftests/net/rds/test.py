@@ -167,6 +167,59 @@ def verify_hashes(snd_hashes, rcv_hashes):
         ksft_pr(f"{key[0]}/{key[1]}: ok")
     return 0
 
+def snd_rcv_packets(addrs, netns_list):
+    """
+    Send packets on the given network interfaces
+
+    :param addrs: list of (ip, port) tuples matching the sockets
+    :param netns_list: list of network namespaces
+    """
+
+    sockets = [
+        netns_socket(netns_list[0], socket.AF_RDS, socket.SOCK_SEQPACKET),
+        netns_socket(netns_list[1], socket.AF_RDS, socket.SOCK_SEQPACKET),
+    ]
+
+    for s, addr in zip(sockets, addrs):
+        s.bind(addr)
+        s.setblocking(0)
+
+    send_hashes = {}
+    recv_hashes = {}
+
+    ep = select.epoll()
+
+    for s in sockets:
+        ep.register(s, select.EPOLLRDNORM)
+
+    num_packets = 50000
+    nr_send = 0
+    nr_recv = 0
+
+    while nr_send < num_packets:
+
+        # Send as much as we can without blocking
+        ksft_pr("sending...", nr_send, nr_recv)
+        nr_send = send_burst(sockets, addrs, send_hashes, nr_send, num_packets)
+
+        # Receive as much as we can without blocking
+        ksft_pr("receiving...", nr_send, nr_recv)
+        while nr_recv < nr_send:
+            nr_recv = recv_burst(ep, sockets, addrs, recv_hashes, nr_recv)
+
+        # exercise net/rds/tcp.c:rds_tcp_sysctl_reset()
+        for net in netns_list:
+            ip(f"netns exec {net} /usr/sbin/sysctl net.rds.tcp.rds_tcp_rcvbuf=10000")
+            ip(f"netns exec {net} /usr/sbin/sysctl net.rds.tcp.rds_tcp_sndbuf=10000")
+
+    ksft_pr("done", nr_send, nr_recv)
+
+    check_info(sockets)
+
+    # We're done sending and receiving stuff, now let's check if what
+    # we received is what we sent.
+    return verify_hashes(send_hashes, recv_hashes)
+
 def stop_pcaps():
     """Stop tcpdump processes.
 
@@ -267,7 +320,6 @@ PACKET_CORRUPTION=str(args.corruption)+'%'
 PACKET_DUPLICATE=str(args.duplicate)+'%'
 
 setup_tcp()
-addrs = tcp_addrs
 
 print("TAP version 13")
 print("1..1")
@@ -277,55 +329,12 @@ if args.timeout > 0:
     signal.alarm(args.timeout)
     signal.signal(signal.SIGALRM, signal_handler)
 
-sockets = [
-    netns_socket(NET0, socket.AF_RDS, socket.SOCK_SEQPACKET),
-    netns_socket(NET1, socket.AF_RDS, socket.SOCK_SEQPACKET),
-]
-
-for s, addr in zip(sockets, addrs):
-    s.bind(addr)
-    s.setblocking(0)
-
-send_hashes = {}
-recv_hashes = {}
-
-ep = select.epoll()
-
-for s in sockets:
-    ep.register(s, select.EPOLLRDNORM)
-
-NUM_PACKETS = 50000
-nr_send = 0
-nr_recv = 0
-
-while nr_send < NUM_PACKETS:
-
-    # Send as much as we can without blocking
-    ksft_pr("sending...", nr_send, nr_recv)
-    nr_send = send_burst(sockets, addrs, send_hashes, nr_send, NUM_PACKETS)
-
-    # Receive as much as we can without blocking
-    ksft_pr("receiving...", nr_send, nr_recv)
-    while nr_recv < nr_send:
-        nr_recv = recv_burst(ep, sockets, addrs, recv_hashes, nr_recv)
-
-    # exercise net/rds/tcp.c:rds_tcp_sysctl_reset()
-    for net in [NET0, NET1]:
-        ip(f"netns exec {net} /usr/sbin/sysctl net.rds.tcp.rds_tcp_rcvbuf=10000")
-        ip(f"netns exec {net} /usr/sbin/sysctl net.rds.tcp.rds_tcp_sndbuf=10000")
-
-ksft_pr("done", nr_send, nr_recv)
-
-check_info(sockets)
+ret = snd_rcv_packets(tcp_addrs, [NET0, NET1])
 
 # cancel timeout
 signal.alarm(0)
 
 stop_pcaps()
-
-# We're done sending and receiving stuff, now let's check if what
-# we received is what we sent.
-ret = verify_hashes(send_hashes, recv_hashes)
 
 if ret == 0:
     ksft_pr("Success")
