@@ -262,6 +262,10 @@ static int tegra264_mc_icc_set(struct icc_node *src, struct icc_node *dst)
 		return -ENOENT;
 	}
 
+	/* Skip forwarding bw requests to BPMP from clients without bpmp_id/type. */
+	if (pclient->type == TEGRA_ICC_NONE || !pclient->bpmp_id)
+		return 0;
+
 	if (pclient->type == TEGRA_ICC_NISO)
 		bwmgr_req.bwmgr_calc_set_req.niso_bw = src->avg_bw;
 	else
