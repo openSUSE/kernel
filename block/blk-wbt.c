@@ -571,8 +571,8 @@ static int wbt_wake_function(struct wait_queue_entry *curr, unsigned int mode,
 		return -1;
 
 	data->got_token = true;
-	list_del_init(&curr->entry);
 	wake_up_process(data->task);
+	list_del_init_careful(&curr->entry);
 	return 1;
 }
 
