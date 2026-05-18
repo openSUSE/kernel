@@ -1,43 +1,37 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/* -*- linux-c -*- ------------------------------------------------------- *
- *
- *   Copyright 2002-2007 H. Peter Anvin - All Rights Reserved
- *
- * ----------------------------------------------------------------------- */
-
 /*
- * raid6test.c
+ * Copyright 2002-2007 H. Peter Anvin - All Rights Reserved
  *
- * Test RAID-6 recovery with various algorithms
+ * Test RAID-6 recovery algorithms.
  */
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
+#include <kunit/test.h>
+#include <linux/prandom.h>
 #include <linux/raid/pq.h>
+
+MODULE_IMPORT_NS("EXPORTED_FOR_KUNIT_TESTING");
+
+#define RAID6_KUNIT_SEED		42
 
 #define NDISKS		16	/* Including P and Q */
 
-const char raid6_empty_zero_page[PAGE_SIZE] __attribute__((aligned(PAGE_SIZE)));
-
-char *dataptrs[NDISKS];
-char data[NDISKS][PAGE_SIZE] __attribute__((aligned(PAGE_SIZE)));
-char recovi[PAGE_SIZE] __attribute__((aligned(PAGE_SIZE)));
-char recovj[PAGE_SIZE] __attribute__((aligned(PAGE_SIZE)));
+static struct rnd_state rng;
+static void *dataptrs[NDISKS];
+static char data[NDISKS][PAGE_SIZE] __attribute__((aligned(PAGE_SIZE)));
+static char recovi[PAGE_SIZE] __attribute__((aligned(PAGE_SIZE)));
+static char recovj[PAGE_SIZE] __attribute__((aligned(PAGE_SIZE)));
 
 static void makedata(int start, int stop)
 {
-	int i, j;
+	int i;
 
 	for (i = start; i <= stop; i++) {
-		for (j = 0; j < PAGE_SIZE; j++)
-			data[i][j] = rand();
-
+		prandom_bytes_state(&rng, data[i], PAGE_SIZE);
 		dataptrs[i] = data[i];
 	}
 }
 
-static char disk_type(int d)
+static char member_type(int d)
 {
 	switch (d) {
 	case NDISKS-2:
@@ -49,104 +43,118 @@ static char disk_type(int d)
 	}
 }
 
-static int test_disks(int i, int j)
+static void test_disks(struct kunit *test, const struct raid6_calls *calls,
+		const struct raid6_recov_calls *ra, int faila, int failb)
 {
-	int erra, errb;
-
 	memset(recovi, 0xf0, PAGE_SIZE);
 	memset(recovj, 0xba, PAGE_SIZE);
 
-	dataptrs[i] = recovi;
-	dataptrs[j] = recovj;
+	dataptrs[faila] = recovi;
+	dataptrs[failb] = recovj;
 
-	raid6_dual_recov(NDISKS, PAGE_SIZE, i, j, (void **)&dataptrs);
+	if (failb == NDISKS - 1) {
+		/*
+		 * We don't implement the data+Q failure scenario, since it
+		 * is equivalent to a RAID-5 failure (XOR, then recompute Q).
+		 */
+		if (faila != NDISKS - 2)
+			goto skip;
 
-	erra = memcmp(data[i], recovi, PAGE_SIZE);
-	errb = memcmp(data[j], recovj, PAGE_SIZE);
-
-	if (i < NDISKS-2 && j == NDISKS-1) {
-		/* We don't implement the DQ failure scenario, since it's
-		   equivalent to a RAID-5 failure (XOR, then recompute Q) */
-		erra = errb = 0;
+		/* P+Q failure.  Just rebuild the syndrome. */
+		calls->gen_syndrome(NDISKS, PAGE_SIZE, dataptrs);
+	} else if (failb == NDISKS - 2) {
+		/* data+P failure. */
+		ra->datap(NDISKS, PAGE_SIZE, faila, dataptrs);
 	} else {
-		printf("algo=%-8s  faila=%3d(%c)  failb=%3d(%c)  %s\n",
-		       raid6_call.name,
-		       i, disk_type(i),
-		       j, disk_type(j),
-		       (!erra && !errb) ? "OK" :
-		       !erra ? "ERRB" :
-		       !errb ? "ERRA" : "ERRAB");
+		/* data+data failure. */
+		ra->data2(NDISKS, PAGE_SIZE, faila, failb, dataptrs);
 	}
 
-	dataptrs[i] = data[i];
-	dataptrs[j] = data[j];
+	KUNIT_EXPECT_MEMEQ_MSG(test, data[faila], recovi, PAGE_SIZE,
+		"algo=%-8s/%-8s faila miscompared: %3d[%c] (failb=%3d[%c])\n",
+	       calls->name, ra->name,
+	       faila, member_type(faila),
+	       failb, member_type(failb));
+	KUNIT_EXPECT_MEMEQ_MSG(test, data[failb], recovj, PAGE_SIZE,
+		"algo=%-8s/%-8s failb miscompared: %3d[%c] (faila=%3d[%c])\n",
+	       calls->name, ra->name,
+	       failb, member_type(failb),
+	       faila, member_type(faila));
 
-	return erra || errb;
+skip:
+	dataptrs[faila] = data[faila];
+	dataptrs[failb] = data[failb];
 }
 
-int main(int argc, char *argv[])
+static void raid6_test(struct kunit *test)
 {
 	const struct raid6_calls *const *algo;
 	const struct raid6_recov_calls *const *ra;
 	int i, j, p1, p2;
-	int err = 0;
-
-	makedata(0, NDISKS-1);
 
 	for (ra = raid6_recov_algos; *ra; ra++) {
 		if ((*ra)->valid  && !(*ra)->valid())
 			continue;
 
-		raid6_2data_recov = (*ra)->data2;
-		raid6_datap_recov = (*ra)->datap;
-
-		printf("using recovery %s\n", (*ra)->name);
-
 		for (algo = raid6_algos; *algo; algo++) {
-			if ((*algo)->valid && !(*algo)->valid())
+			const struct raid6_calls *calls = *algo;
+
+			if (calls->valid && !calls->valid())
 				continue;
 
-			raid6_call = **algo;
-
 			/* Nuke syndromes */
-			memset(data[NDISKS-2], 0xee, 2*PAGE_SIZE);
+			memset(data[NDISKS - 2], 0xee, PAGE_SIZE);
+			memset(data[NDISKS - 1], 0xee, PAGE_SIZE);
 
 			/* Generate assumed good syndrome */
-			raid6_call.gen_syndrome(NDISKS, PAGE_SIZE,
+			calls->gen_syndrome(NDISKS, PAGE_SIZE,
 						(void **)&dataptrs);
 
 			for (i = 0; i < NDISKS-1; i++)
 				for (j = i+1; j < NDISKS; j++)
-					err += test_disks(i, j);
+					test_disks(test, calls, *ra, i, j);
 
-			if (!raid6_call.xor_syndrome)
+			if (!calls->xor_syndrome)
 				continue;
 
 			for (p1 = 0; p1 < NDISKS-2; p1++)
 				for (p2 = p1; p2 < NDISKS-2; p2++) {
 
 					/* Simulate rmw run */
-					raid6_call.xor_syndrome(NDISKS, p1, p2, PAGE_SIZE,
+					calls->xor_syndrome(NDISKS, p1, p2, PAGE_SIZE,
 								(void **)&dataptrs);
 					makedata(p1, p2);
-					raid6_call.xor_syndrome(NDISKS, p1, p2, PAGE_SIZE,
+					calls->xor_syndrome(NDISKS, p1, p2, PAGE_SIZE,
                                                                 (void **)&dataptrs);
 
 					for (i = 0; i < NDISKS-1; i++)
 						for (j = i+1; j < NDISKS; j++)
-							err += test_disks(i, j);
+							test_disks(test, calls,
+									*ra, i, j);
 				}
 
 		}
-		printf("\n");
 	}
-
-	printf("\n");
-	/* Pick the best algorithm test */
-	raid6_select_algo();
-
-	if (err)
-		printf("\n*** ERRORS FOUND ***\n");
-
-	return err;
 }
+
+static struct kunit_case raid6_test_cases[] = {
+	KUNIT_CASE(raid6_test),
+	{},
+};
+
+static int raid6_suite_init(struct kunit_suite *suite)
+{
+	prandom_seed_state(&rng, RAID6_KUNIT_SEED);
+	makedata(0, NDISKS - 1);
+	return 0;
+}
+
+static struct kunit_suite raid6_test_suite = {
+	.name		= "raid6",
+	.test_cases	= raid6_test_cases,
+	.suite_init	= raid6_suite_init,
+};
+kunit_test_suite(raid6_test_suite);
+
+MODULE_DESCRIPTION("Unit test for the RAID P/Q library functions");
+MODULE_LICENSE("GPL");

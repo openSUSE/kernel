@@ -99,37 +99,3 @@ const struct raid6_recov_calls raid6_recov_intx1 = {
 	.name = "intx1",
 	.priority = 0,
 };
-
-#ifndef __KERNEL__
-/* Testing only */
-
-/* Recover two failed blocks. */
-void raid6_dual_recov(int disks, size_t bytes, int faila, int failb, void **ptrs)
-{
-	if ( faila > failb ) {
-		int tmp = faila;
-		faila = failb;
-		failb = tmp;
-	}
-
-	if ( failb == disks-1 ) {
-		if ( faila == disks-2 ) {
-			/* P+Q failure.  Just rebuild the syndrome. */
-			raid6_call.gen_syndrome(disks, bytes, ptrs);
-		} else {
-			/* data+Q failure.  Reconstruct data from P,
-			   then rebuild syndrome. */
-			/* NOT IMPLEMENTED - equivalent to RAID-5 */
-		}
-	} else {
-		if ( failb == disks-2 ) {
-			/* data+P failure. */
-			raid6_datap_recov(disks, bytes, faila, ptrs);
-		} else {
-			/* data+data failure. */
-			raid6_2data_recov(disks, bytes, faila, failb, ptrs);
-		}
-	}
-}
-
-#endif

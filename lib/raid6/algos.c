@@ -19,6 +19,7 @@
 #include <linux/module.h>
 #include <linux/gfp.h>
 #endif
+#include <kunit/visibility.h>
 
 struct raid6_calls raid6_call;
 EXPORT_SYMBOL_GPL(raid6_call);
@@ -86,6 +87,7 @@ const struct raid6_calls * const raid6_algos[] = {
 	&raid6_intx1,
 	NULL
 };
+EXPORT_SYMBOL_IF_KUNIT(raid6_algos);
 
 void (*raid6_2data_recov)(int, size_t, int, int, void **);
 EXPORT_SYMBOL_GPL(raid6_2data_recov);
@@ -119,6 +121,7 @@ const struct raid6_recov_calls *const raid6_recov_algos[] = {
 	&raid6_recov_intx1,
 	NULL
 };
+EXPORT_SYMBOL_IF_KUNIT(raid6_recov_algos);
 
 #ifdef __KERNEL__
 #define RAID6_TIME_JIFFIES_LG2	4
@@ -239,7 +242,7 @@ out:
 /* Try to pick the best algorithm */
 /* This code uses the gfmul table as convenient data set to abuse */
 
-int __init raid6_select_algo(void)
+static int __init raid6_select_algo(void)
 {
 	const int disks = RAID6_TEST_DISKS;
 

@@ -144,7 +144,6 @@ extern const struct raid6_calls raid6_neonx8;
 /* Algorithm list */
 extern const struct raid6_calls * const raid6_algos[];
 extern const struct raid6_recov_calls *const raid6_recov_algos[];
-int raid6_select_algo(void);
 
 /* Return values from chk_syndrome */
 #define RAID6_OK	0
@@ -165,8 +164,6 @@ extern void (*raid6_2data_recov)(int disks, size_t bytes, int faila, int failb,
 		       void **ptrs);
 extern void (*raid6_datap_recov)(int disks, size_t bytes, int faila,
 			void **ptrs);
-void raid6_dual_recov(int disks, size_t bytes, int faila, int failb,
-		      void **ptrs);
 
 /* Some definitions to allow code to be compiled for testing in userspace */
 #ifndef __KERNEL__
