@@ -32,6 +32,15 @@ NET1 = 'net1'
 VETH0 = 'veth0'
 VETH1 = 'veth1'
 
+tcpdump_procs = []
+tcp_addrs = [
+    # we technically don't need different port numbers, but this will
+    # help identify traffic in the network analyzer
+    ('10.0.0.1', 10000),
+    ('10.0.0.2', 20000),
+]
+
+
 # Helper function for creating a socket inside a network namespace.
 # We need this because otherwise RDS will detect that the two TCP
 # sockets are on the same interface and use the loop transport instead
@@ -100,6 +109,55 @@ def signal_handler(_sig, _frame):
     print("not ok 1 rds selftest")
     sys.exit(1)
 
+def setup_tcp():
+    """
+    Configure tcp network
+    """
+
+    ip(f"netns add {NET0}")
+    ip(f"netns add {NET1}")
+    ip("link add type veth")
+
+    # Move TCP interfaces into separate namespaces so they can no longer be
+    # bound directly; this prevents rds from switching over from the tcp
+    # transport to the loop transport.
+    ip(f"link set {VETH0} netns {NET0} up")
+    ip(f"link set {VETH1} netns {NET1} up")
+
+    # add addresses
+    ip(f"-n {NET0} addr add {tcp_addrs[0][0]}/32 dev {VETH0}")
+    ip(f"-n {NET1} addr add {tcp_addrs[1][0]}/32 dev {VETH1}")
+
+    # add routes
+    ip(f"-n {NET0} route add {tcp_addrs[1][0]}/32 dev {VETH0}")
+    ip(f"-n {NET1} route add {tcp_addrs[0][0]}/32 dev {VETH1}")
+
+    # sanity check that our two interfaces/addresses are correctly set up
+    # and communicating by doing a single ping
+    ip(f"netns exec {NET0} ping -c 1 {tcp_addrs[1][0]}")
+
+    # Start a packet capture on each network
+    if logdir is not None:
+        for netn in [NET0, NET1]:
+            pcap = logdir+'/rds-'+netn+'.pcap'
+
+            tcpdump_cmd = ['ip', 'netns', 'exec', netn, '/usr/sbin/tcpdump']
+            sudo_user = os.environ.get('SUDO_USER')
+            if sudo_user:
+                tcpdump_cmd.extend(['-Z', sudo_user])
+            tcpdump_cmd.extend(['-i', 'any', '-w', pcap])
+
+            # pylint: disable-next=consider-using-with
+            p = subprocess.Popen(tcpdump_cmd,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            tcpdump_procs.append(p)
+
+    # simulate packet loss, duplication and corruption
+    for netn, iface in [(NET0, VETH0), (NET1, VETH1)]:
+        ip(f"netns exec {netn} /usr/sbin/tc qdisc add dev {iface} root netem  \
+             corrupt {PACKET_CORRUPTION} loss {PACKET_LOSS} duplicate  \
+             {PACKET_DUPLICATE}")
+
 #Parse out command line arguments.  We take an optional
 # timeout parameter and an optional log output folder
 parser = argparse.ArgumentParser(description="init script args",
@@ -120,59 +178,8 @@ PACKET_LOSS=str(args.loss)+'%'
 PACKET_CORRUPTION=str(args.corruption)+'%'
 PACKET_DUPLICATE=str(args.duplicate)+'%'
 
-ip(f"netns add {NET0}")
-ip(f"netns add {NET1}")
-ip("link add type veth")
-
-addrs = [
-    # we technically don't need different port numbers, but this will
-    # help identify traffic in the network analyzer
-    ('10.0.0.1', 10000),
-    ('10.0.0.2', 20000),
-]
-
-# move interfaces to separate namespaces so they can no longer be
-# bound directly; this prevents rds from switching over from the tcp
-# transport to the loop transport.
-ip(f"link set {VETH0} netns {NET0} up")
-ip(f"link set {VETH1} netns {NET1} up")
-
-
-
-# add addresses
-ip(f"-n {NET0} addr add {addrs[0][0]}/32 dev {VETH0}")
-ip(f"-n {NET1} addr add {addrs[1][0]}/32 dev {VETH1}")
-
-# add routes
-ip(f"-n {NET0} route add {addrs[1][0]}/32 dev {VETH0}")
-ip(f"-n {NET1} route add {addrs[0][0]}/32 dev {VETH1}")
-
-# sanity check that our two interfaces/addresses are correctly set up
-# and communicating by doing a single ping
-ip(f"netns exec {NET0} ping -c 1 {addrs[1][0]}")
-
-tcpdump_procs = []
-# Start a packet capture on each network
-if logdir is not None:
-    for net in [NET0, NET1]:
-        pcap = logdir+'/rds-'+net+'.pcap'
-
-        tcpdump_cmd = ['ip', 'netns', 'exec', net, '/usr/sbin/tcpdump']
-        sudo_user = os.environ.get('SUDO_USER')
-        if sudo_user:
-            tcpdump_cmd.extend(['-Z', sudo_user])
-        tcpdump_cmd.extend(['-i', 'any', '-w', pcap])
-
-        # pylint: disable-next=consider-using-with
-        p = subprocess.Popen(tcpdump_cmd,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        tcpdump_procs.append(p)
-
-# simulate packet loss, duplication and corruption
-for net, iface in [(NET0, VETH0), (NET1, VETH1)]:
-    ip(f"netns exec {net} /usr/sbin/tc qdisc add dev {iface} root netem  \
-         corrupt {PACKET_CORRUPTION} loss {PACKET_LOSS} duplicate  \
-         {PACKET_DUPLICATE}")
+setup_tcp()
+addrs = tcp_addrs
 
 print("TAP version 13")
 print("1..1")
