@@ -115,10 +115,22 @@
 
 #define QM_ECC_MBIT			BIT(2)
 
+/**
+ * enum qm_stop_reason - Queue manager stop reasons
+ * @QM_NORMAL:      Graceful stop. Used for device unbind, driver removal,
+ *                  or runtime power management (runtime_suspend).
+ * @QM_SOFT_RESET:  Error recovery reset. Triggered by unrecoverable hardware
+ *                  errors (e.g., PCIe AER, timeout) to recover device state.
+ * @QM_DOWN:        Function Level Reset. Used when the device needs to
+ *                  be reset at the function level without resetting the link.
+ * @QM_SHUTDOWN:    System shutdown. Used during system poweroff, reboot, or
+ *                  kexec to ensure hardware is in a safe state.
+ */
 enum qm_stop_reason {
 	QM_NORMAL,
 	QM_SOFT_RESET,
 	QM_DOWN,
+	QM_SHUTDOWN,
 };
 
 enum qm_state {

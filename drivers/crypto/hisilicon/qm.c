@@ -247,6 +247,11 @@
 #define QM_QOS_MAX_CIR_U		6
 #define QM_AUTOSUSPEND_DELAY		3000
 
+#define QM_DB_DROP_ALL_FUNC_ENABLE	GENMASK(63, 0)
+#define QM_DB_DROP_ALL_FUNC_DISABLE	0
+#define QM_DEV_DB_DROP			0x0100250
+#define QM_FUN_DB_DROP			0x0038
+
 /* qm function err mask */
 #define QM_FUNC_AXI_ERR_ST0		0x100280
 #define QM_RAS_FUNC_ERROR		(BIT(0) | BIT(1))
@@ -575,6 +580,29 @@ static int qm_wait_reset_finish(struct hisi_qm *qm)
 	}
 
 	return 0;
+}
+
+static void qm_fun_db_ctrl(struct hisi_qm *qm, bool enable)
+{
+	u32 val;
+
+	if (qm->ver >= QM_HW_V5) {
+		val = readl(qm->io_base + QM_FUN_DB_DROP);
+		val = enable ? (val | BIT(0)) : (val & ~BIT(0));
+
+		writel(val, qm->io_base + QM_FUN_DB_DROP);
+	}
+}
+
+static void qm_dev_db_ctrl(struct hisi_qm *qm, bool enable)
+{
+	u64 val;
+
+	if (qm->ver >= QM_HW_V5 && qm->fun_type == QM_HW_PF) {
+		val = enable ? QM_DB_DROP_ALL_FUNC_ENABLE : QM_DB_DROP_ALL_FUNC_DISABLE;
+
+		writeq(val, qm->io_base + QM_DEV_DB_DROP);
+	}
 }
 
 static int qm_reset_prepare_ready(struct hisi_qm *qm)
@@ -3434,6 +3462,9 @@ static int __hisi_qm_start(struct hisi_qm *qm)
 	if (ret)
 		return ret;
 
+	/* Enables the doorbell function when the device is enabled. */
+	qm_dev_db_ctrl(qm, false);
+	qm_fun_db_ctrl(qm, false);
 	qm_init_prefetch(qm);
 	qm_enable_eq_aeq_interrupts(qm);
 
@@ -3541,7 +3572,7 @@ static void qm_invalid_queues(struct hisi_qm *qm)
 	if (qm->status.stop_reason == QM_NORMAL)
 		return;
 
-	if (qm->status.stop_reason == QM_DOWN)
+	if (qm->status.stop_reason == QM_DOWN || qm->status.stop_reason == QM_SHUTDOWN)
 		hisi_qm_cache_wb(qm);
 
 	for (i = 0; i < qm->qp_num; i++) {
@@ -3585,6 +3616,8 @@ int hisi_qm_stop(struct hisi_qm *qm, enum qm_stop_reason r)
 
 	if (qm->status.stop_reason != QM_NORMAL) {
 		hisi_qm_set_hw_reset(qm, QM_RESET_STOP_TX_OFFSET);
+		if (qm->status.stop_reason != QM_SHUTDOWN)
+			qm_fun_db_ctrl(qm, true);
 		/*
 		 * When performing soft reset, the hardware will no longer
 		 * do tasks, and the tasks in the device will be flushed
@@ -4611,6 +4644,8 @@ static int qm_controller_reset_prepare(struct hisi_qm *qm)
 	if (ret)
 		pci_err(pdev, "failed to stop by vfs in soft reset!\n");
 
+	qm_dev_db_ctrl(qm, true);
+
 	return 0;
 }
 
@@ -5019,16 +5054,25 @@ void hisi_qm_reset_prepare(struct pci_dev *pdev)
 	ret = hisi_qm_stop(qm, QM_DOWN);
 	if (ret) {
 		pci_err(pdev, "Failed to stop QM, ret = %d.\n", ret);
-		hisi_qm_set_hw_reset(qm, QM_RESET_STOP_TX_OFFSET);
-		hisi_qm_set_hw_reset(qm, QM_RESET_STOP_RX_OFFSET);
-		return;
+		goto err_prepare;
 	}
 
 	ret = qm_wait_vf_prepare_finish(qm);
 	if (ret)
 		pci_err(pdev, "failed to stop by vfs in FLR!\n");
 
+	qm_dev_db_ctrl(qm, true);
+
 	pci_info(pdev, "FLR resetting...\n");
+
+	return;
+
+err_prepare:
+	pci_info(pdev, "FLR resetting prepare failed!\n");
+	atomic_set(&qm->status.flags, QM_STOP);
+	hisi_qm_set_hw_reset(qm, QM_RESET_STOP_TX_OFFSET);
+	hisi_qm_set_hw_reset(qm, QM_RESET_STOP_RX_OFFSET);
+	qm_dev_db_ctrl(qm, true);
 }
 EXPORT_SYMBOL_GPL(hisi_qm_reset_prepare);
 
@@ -5122,7 +5166,7 @@ void hisi_qm_dev_shutdown(struct pci_dev *pdev)
 	struct hisi_qm *qm = pci_get_drvdata(pdev);
 	int ret;
 
-	ret = hisi_qm_stop(qm, QM_DOWN);
+	ret = hisi_qm_stop(qm, QM_SHUTDOWN);
 	if (ret)
 		dev_err(&pdev->dev, "Fail to stop qm in shutdown!\n");
 }
