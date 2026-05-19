@@ -41,6 +41,7 @@ struct mfis_info {
 	unsigned int mb_reg_comes_from_dt:1;
 	unsigned int mb_tx_uses_eicr:1;
 	unsigned int mb_channels_are_unidir:1;
+	u32 (*mb_calc_reg)(u32 chan_num, bool tx_uses_eicr, bool is_only_rx);
 };
 
 struct mfis_chan_priv {
@@ -155,6 +156,35 @@ static const struct mbox_chan_ops mfis_iicr_ops = {
 	.last_tx_done = mfis_mb_iicr_last_tx_done,
 };
 
+static u32 mfis_mb_r8a779g0_calc_reg(u32 chan_num, bool tx_uses_eicr, bool is_only_rx)
+{
+	unsigned int i, k;
+	u32 reg;
+
+	i = chan_num & 3;
+	k = chan_num >> 2;
+
+	if (is_only_rx) {
+		if (k < 2)
+			reg = 0x9404 + 0x1020 * k + 0x08 * i;
+		else
+			reg = 0xb504 + 0x08 * i;
+	} else {
+		if (k < 2)
+			reg = 0x1400 + 0x1008 * i + 0x20 * k;
+		else
+			reg = 0x1500 + 0x1008 * i;
+	}
+
+	return reg;
+}
+
+static u32 mfis_mb_r8a78000_calc_reg(u32 chan_num, bool tx_uses_eicr, bool is_only_rx)
+{
+	return (tx_uses_eicr ^ is_only_rx) ? MFIS_X5H_EICR(chan_num) :
+					     MFIS_X5H_IICR(chan_num);
+}
+
 static struct mbox_chan *mfis_mb_of_xlate(struct mbox_controller *mbox,
 					  const struct of_phandle_args *sp)
 {
@@ -191,8 +221,7 @@ static struct mbox_chan *mfis_mb_of_xlate(struct mbox_controller *mbox,
 	}
 
 	chan_priv = chan->con_priv;
-	chan_priv->reg = (tx_uses_eicr ^ is_only_rx) ? MFIS_X5H_EICR(chan_num) :
-						       MFIS_X5H_IICR(chan_num);
+	chan_priv->reg = priv->info->mb_calc_reg(chan_num, tx_uses_eicr, is_only_rx);
 
 	if (!priv->info->mb_channels_are_unidir || is_only_rx) {
 		char irqname[8];
@@ -307,11 +336,19 @@ static int mfis_probe(struct platform_device *pdev)
 	return mfis_mb_probe(priv);
 }
 
+static const struct mfis_info mfis_info_r8a779g0 = {
+	.unprotect_mask	= 0x0000ffff,
+	.mb_num_channels = 12,
+	.mb_channels_are_unidir = true,
+	.mb_calc_reg = mfis_mb_r8a779g0_calc_reg,
+};
+
 static const struct mfis_info mfis_info_r8a78000 = {
 	.unprotect_mask	= 0x000fffff,
 	.mb_num_channels = 64,
 	.mb_reg_comes_from_dt = true,
 	.mb_channels_are_unidir = true,
+	.mb_calc_reg = mfis_mb_r8a78000_calc_reg,
 };
 
 static const struct mfis_info mfis_info_r8a78000_scp = {
@@ -319,9 +356,12 @@ static const struct mfis_info mfis_info_r8a78000_scp = {
 	.mb_num_channels = 32,
 	.mb_tx_uses_eicr = true,
 	.mb_channels_are_unidir = true,
+	.mb_calc_reg = mfis_mb_r8a78000_calc_reg,
 };
 
 static const struct of_device_id mfis_mfd_of_match[] = {
+	{ .compatible = "renesas,r8a779g0-mfis", .data = &mfis_info_r8a779g0, },
+	{ .compatible = "renesas,r8a779h0-mfis", .data = &mfis_info_r8a779g0, },
 	{ .compatible = "renesas,r8a78000-mfis", .data = &mfis_info_r8a78000, },
 	{ .compatible = "renesas,r8a78000-mfis-scp", .data = &mfis_info_r8a78000_scp, },
 	{}
