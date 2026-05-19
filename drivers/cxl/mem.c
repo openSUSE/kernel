@@ -183,27 +183,59 @@ static int cxl_mem_probe(struct device *dev)
 }
 
 /**
- * devm_cxl_add_memdev - Add a CXL memory device
+ * devm_cxl_add_classdev - Add a CXL memory class-code device
  * @cxlds: CXL device state to associate with the memdev
- * @attach: Caller depends on CXL topology attachment
  *
  * Upon return the device will have had a chance to attach to the
  * cxl_mem driver, but may fail to attach if the CXL topology is not ready
  * (hardware CXL link down, or software platform CXL root not attached).
  *
- * When @attach is NULL it indicates the caller wants the memdev to remain
- * registered even if it does not immediately attach to the CXL hierarchy. When
- * @attach is provided a cxl_mem_probe() failure leads to failure of this routine.
+ * The parent of the resulting device and the devm context for allocations is
+ * @cxlds->dev.
+ */
+struct cxl_memdev *devm_cxl_add_classdev(struct cxl_dev_state *cxlds)
+{
+	return __devm_cxl_add_memdev(cxlds, NULL);
+}
+EXPORT_SYMBOL_NS_GPL(devm_cxl_add_classdev, "CXL");
+
+/**
+ * devm_cxl_probe_mem - Add a CXL memory device and probe its region
+ * @cxlds: CXL device state to associate with the memdev
+ * @hpa_range: CXL.mem physical address range result
+ *
+ * Upon return the device will have had a chance to attach to the
+ * cxl_mem driver, but may fail to attach if the CXL topology is not ready
+ * (hardware CXL link down, or software platform CXL root not attached).
+ *
+ * Failure to probe the memdev and/or setup a region for the memdev
+ * results in this function failing.
  *
  * The parent of the resulting device and the devm context for allocations is
  * @cxlds->dev.
  */
-struct cxl_memdev *devm_cxl_add_memdev(struct cxl_dev_state *cxlds,
-				       const struct cxl_memdev_attach *attach)
+struct cxl_memdev *devm_cxl_probe_mem(struct cxl_dev_state *cxlds,
+				      struct range *hpa_range)
 {
-	return __devm_cxl_add_memdev(cxlds, attach);
+	struct cxl_attach_region *attach =
+		devm_kmalloc(cxlds->dev, sizeof(*attach), GFP_KERNEL);
+	struct cxl_memdev *cxlmd;
+
+	if (!attach)
+		return ERR_PTR(-ENOMEM);
+
+	*attach = (struct cxl_attach_region) {
+		.attach = {
+			   .probe = cxl_memdev_attach_region,
+		},
+		.hpa_range = { 0, -1 },
+	};
+
+	cxlmd = __devm_cxl_add_memdev(cxlds, &attach->attach);
+	*hpa_range = attach->hpa_range;
+	return cxlmd;
 }
-EXPORT_SYMBOL_NS_GPL(devm_cxl_add_memdev, "CXL");
+EXPORT_SYMBOL_NS_GPL(devm_cxl_probe_mem, "CXL");
 
 static ssize_t trigger_poison_list_store(struct device *dev,
 					 struct device_attribute *attr,
