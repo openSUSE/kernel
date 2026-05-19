@@ -21,8 +21,7 @@ int pinctrl_generic_to_map(struct pinctrl_dev *pctldev, struct device_node *pare
 			   struct device_node *np, struct pinctrl_map **maps,
 			   unsigned int *num_maps, unsigned int *num_reserved_maps,
 			   const char **group_names, unsigned int ngroups,
-			   const char **functions, unsigned int *pins,
-			   unsigned int npins)
+			   void *data, unsigned int *pins, unsigned int npins)
 {
 	struct device *dev = pctldev->dev;
 	unsigned int num_configs;
@@ -45,7 +44,7 @@ int pinctrl_generic_to_map(struct pinctrl_dev *pctldev, struct device_node *pare
 	if (ret < 0)
 		return ret;
 
-	ret = pinctrl_generic_add_group(pctldev, group_name, pins, npins, functions);
+	ret = pinctrl_generic_add_group(pctldev, group_name, pins, npins, data);
 	if (ret < 0)
 		return dev_err_probe(dev, ret, "failed to add group %s: %d\n",
 				     group_name, ret);
