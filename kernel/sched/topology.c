@@ -19,8 +19,10 @@ void sched_domains_mutex_unlock(void)
 }
 
 /* Protected by sched_domains_mutex: */
+static cpumask_var_t sched_domains_llc_id_allocmask;
 static cpumask_var_t sched_domains_tmpmask;
 static cpumask_var_t sched_domains_tmpmask2;
+int max_lid;
 
 static int __init sched_debug_setup(char *str)
 {
@@ -632,6 +634,11 @@ static void destroy_sched_domain(struct sched_domain *sd)
 
 	if (sd->shared && atomic_dec_and_test(&sd->shared->ref))
 		kfree(sd->shared);
+
+#ifdef CONFIG_SCHED_CACHE
+	/* only the bottom sd has llc_counts array */
+	kfree(sd->llc_counts);
+#endif
 	kfree(sd);
 }
 
@@ -663,8 +670,9 @@ static void destroy_sched_domains(struct sched_domain *sd)
  */
 DEFINE_PER_CPU(struct sched_domain __rcu *, sd_llc);
 DEFINE_PER_CPU(int, sd_llc_size);
-DEFINE_PER_CPU(int, sd_llc_id);
+DEFINE_PER_CPU(int, sd_llc_id) = -1;
 DEFINE_PER_CPU(int, sd_share_id);
+DEFINE_PER_CPU(struct sched_domain_shared __rcu *, sd_llc_shared);
 DEFINE_PER_CPU(struct sched_domain_shared __rcu *, sd_balance_shared);
 DEFINE_PER_CPU(struct sched_domain __rcu *, sd_numa);
 DEFINE_PER_CPU(struct sched_domain __rcu *, sd_asym_packing);
@@ -680,38 +688,19 @@ static void update_top_cache_domain(int cpu)
 	int id = cpu;
 	int size = 1;
 
-	sd = lowest_flag_domain(cpu, SD_ASYM_CPUCAPACITY_FULL);
-	/*
-	 * The shared object is attached to sd_asym_cpucapacity only when the
-	 * asym domain is non-overlapping (i.e., not built from SD_NUMA).
-	 * On overlapping (NUMA) asym domains we fall back to letting the
-	 * SD_SHARE_LLC path own the shared object, so sd->shared may be NULL
-	 * here.
-	 */
-	if (sd && sd->shared)
-		sds = sd->shared;
-
-	rcu_assign_pointer(per_cpu(sd_asym_cpucapacity, cpu), sd);
-
 	sd = highest_flag_domain(cpu, SD_SHARE_LLC);
 	if (sd) {
 		id = cpumask_first(sched_domain_span(sd));
 		size = cpumask_weight(sched_domain_span(sd));
 
-		/*
-		 * If sd_asym_cpucapacity didn't claim the shared object,
-		 * sd_llc must have one linked.
-		 */
-		if (!sds) {
-			WARN_ON_ONCE(!sd->shared);
-			sds = sd->shared;
-		}
+		/* If sd_llc exists, sd_llc_shared should exist too. */
+		WARN_ON_ONCE(!sd->shared);
+		sds = sd->shared;
 	}
 
 	rcu_assign_pointer(per_cpu(sd_llc, cpu), sd);
 	per_cpu(sd_llc_size, cpu) = size;
-	per_cpu(sd_llc_id, cpu) = id;
-	rcu_assign_pointer(per_cpu(sd_balance_shared, cpu), sds);
+	rcu_assign_pointer(per_cpu(sd_llc_shared, cpu), sds);
 
 	sd = lowest_flag_domain(cpu, SD_CLUSTER);
 	if (sd)
@@ -729,6 +718,20 @@ static void update_top_cache_domain(int cpu)
 
 	sd = highest_flag_domain(cpu, SD_ASYM_PACKING);
 	rcu_assign_pointer(per_cpu(sd_asym_packing, cpu), sd);
+
+	sd = lowest_flag_domain(cpu, SD_ASYM_CPUCAPACITY_FULL);
+	/*
+	 * The shared object is attached to sd_asym_cpucapacity only when the
+	 * asym domain is non-overlapping (i.e., not built from SD_NUMA).
+	 * On overlapping (NUMA) asym domains we fall back to letting the
+	 * SD_SHARE_LLC path own the shared object, so sd->shared may be NULL
+	 * here.
+	 */
+	if (sd && sd->shared)
+		sds = sd->shared;
+
+	rcu_assign_pointer(per_cpu(sd_asym_cpucapacity, cpu), sd);
+	rcu_assign_pointer(per_cpu(sd_balance_shared, cpu), sds);
 }
 
 /*
@@ -777,10 +780,20 @@ cpu_attach_domain(struct sched_domain *sd, struct root_domain *rd, int cpu)
 	if (sd && sd_degenerate(sd)) {
 		tmp = sd;
 		sd = sd->parent;
-		destroy_sched_domain(tmp);
+
 		if (sd) {
 			struct sched_group *sg = sd->groups;
 
+#ifdef CONFIG_SCHED_CACHE
+			/* move buffer to parent as child is being destroyed */
+			sd->llc_counts = tmp->llc_counts;
+			sd->llc_max = tmp->llc_max;
+			sd->llc_bytes = tmp->llc_bytes;
+			/* make sure destroy_sched_domain() does not free it */
+			tmp->llc_counts = NULL;
+			tmp->llc_max = 0;
+			tmp->llc_bytes = 0;
+#endif
 			/*
 			 * sched groups hold the flags of the child sched
 			 * domain for convenience. Clear such flags since
@@ -792,6 +805,8 @@ cpu_attach_domain(struct sched_domain *sd, struct root_domain *rd, int cpu)
 
 			sd->child = NULL;
 		}
+
+		destroy_sched_domain(tmp);
 	}
 
 	sched_domain_debug(sd, cpu);
@@ -818,6 +833,239 @@ enum s_alloc {
 	sa_sd_storage,
 	sa_none,
 };
+
+#ifdef CONFIG_SCHED_CACHE
+/* hardware support for cache aware scheduling */
+DEFINE_STATIC_KEY_FALSE(sched_cache_present);
+/*
+ * Indicator of whether cache aware scheduling
+ * is active, used by the scheduler.
+ */
+DEFINE_STATIC_KEY_FALSE(sched_cache_active);
+/* user wants cache aware scheduling [0 or 1] */
+int sysctl_sched_cache_user = 1;
+
+/*
+ * Get the effective LLC size in bytes that @cpu's bottom sched_domain
+ * can use. A CPU within a cpuset partition can only use a proportion
+ * of the physical LLC, scaled by the ratio of the partition's span
+ * weight to the hardware LLC sharing weight. @sd should be the
+ * topmost domain with SD_SHARE_LLC.
+ *
+ * Returns 0 if cacheinfo is not yet populated. This happens during
+ * early boot when build_sched_domains() runs before the generic
+ * cacheinfo framework has been initialized (cacheinfo_cpu_online()
+ * is a device_initcall cpuhp callback). In that case,
+ * cacheinfo_cpu_online() will later call sched_update_llc_bytes()
+ * to fill in the bottom domain's llc_bytes once the cache attributes
+ * are available.
+ */
+static unsigned long get_effective_llc_bytes(int cpu,
+					     struct sched_domain *sd)
+{
+	struct cacheinfo *ci;
+	unsigned int hw_weight;
+
+	ci = get_cpu_cacheinfo_llc(cpu);
+	if (!ci)
+		return 0;
+
+	hw_weight = cpumask_weight(&ci->shared_cpu_map);
+	if (!hw_weight)
+		return 0;
+
+	return div_u64((u64)ci->size * sd->span_weight, hw_weight);
+}
+
+static bool alloc_sd_llc(const struct cpumask *cpu_map,
+			 struct s_data *d)
+{
+	struct sched_domain *sd, *top_llc, *parent;
+	unsigned int *p;
+	int i;
+
+	for_each_cpu(i, cpu_map) {
+		sd = *per_cpu_ptr(d->sd, i);
+		if (!sd)
+			goto err;
+
+		p = kcalloc_node(max_lid + 1, sizeof(unsigned int),
+				 GFP_KERNEL, cpu_to_node(i));
+		if (!p)
+			goto err;
+
+		top_llc = sd;
+		/*
+		 * Find the topmost SD_SHARE_LLC domain.
+		 * Not yet attached to the CPU, so per_cpu(sd_llc, i)
+		 * can not be used.
+		 */
+		while ((parent = rcu_dereference_protected(top_llc->parent, true)) &&
+		       (parent->flags & SD_SHARE_LLC))
+			top_llc = parent;
+
+		if (top_llc->flags & SD_SHARE_LLC) {
+			sd->llc_max = max_lid + 1;
+			sd->llc_counts = p;
+			sd->llc_bytes = get_effective_llc_bytes(i, top_llc);
+		} else {
+			/* avoid memory leak */
+			kfree(p);
+		}
+	}
+
+	return true;
+err:
+	for_each_cpu(i, cpu_map) {
+		sd = *per_cpu_ptr(d->sd, i);
+		if (sd) {
+			kfree(sd->llc_counts);
+			sd->llc_counts = NULL;
+			sd->llc_max = 0;
+			sd->llc_bytes = 0;
+		}
+	}
+
+	return false;
+}
+
+/*
+ * Enable/disable cache aware scheduling according to
+ * user input and the presence of hardware support.
+ */
+static void _sched_cache_active_set(void)
+{
+	lockdep_assert_cpus_held();
+	lockdep_assert_held(&sched_domains_mutex);
+
+	/* hardware does not support */
+	if (!static_branch_likely(&sched_cache_present)) {
+		static_branch_disable_cpuslocked(&sched_cache_active);
+		if (sched_debug())
+			pr_info("%s: cache aware scheduling not supported on this platform\n", __func__);
+		return;
+	}
+
+	/*
+	 * user wants it or not ?
+	 * TBD: read before writing the static key.
+	 * It is not in the critical path, leave as-is
+	 * for now.
+	 */
+	if (sysctl_sched_cache_user) {
+		static_branch_enable_cpuslocked(&sched_cache_active);
+		if (sched_debug())
+			pr_info("%s: enabling cache aware scheduling\n", __func__);
+	} else {
+		static_branch_disable_cpuslocked(&sched_cache_active);
+		if (sched_debug())
+			pr_info("%s: disabling cache aware scheduling\n", __func__);
+	}
+}
+
+/* used by debugfs */
+void sched_cache_active_set(void)
+{
+	cpus_read_lock();
+	sched_domains_mutex_lock();
+	_sched_cache_active_set();
+	sched_domains_mutex_unlock();
+	cpus_read_unlock();
+}
+
+/*
+ * Update the bottom sched_domain's llc_bytes for @cpu and all its
+ * LLC siblings. Called from cacheinfo_cpu_online() or
+ * cacheinfo_cpu_pre_down() with cpu hotplug lock held.
+ *
+ * Note: get_effective_llc_bytes() returns 0 on PowerPC.
+ * thus cache aware scheduling is disabled on PowerPC for
+ * now. PowerPC does not use the generic cacheinfo framework --
+ * it has its own cacheinfo with a separate struct cache hierarchy
+ * and does not populates the per-CPU struct cpu_cacheinfo array
+ * that get_cpu_cacheinfo_llc() reads.
+ */
+void sched_update_llc_bytes(unsigned int cpu)
+{
+	struct sched_domain *sd, *sdp;
+	unsigned int i;
+
+	sched_domains_mutex_lock();
+
+	sdp = rcu_dereference_sched_domain(per_cpu(sd_llc, cpu));
+	if (!sdp)
+		goto unlock;
+
+	/*
+	 * ci->shared_cpu_map is built incrementally as CPUs come
+	 * online, so the first CPU in an LLC initially sees
+	 * hw_weight == 1 and computes an inflated llc_bytes in
+	 * get_effective_llc_bytes().  Re-evaluating every LLC
+	 * sibling on each online event corrects this once the full
+	 * shared_cpu_map is known.
+	 */
+	for_each_cpu(i, sched_domain_span(sdp)) {
+		sd = rcu_dereference_sched_domain(cpu_rq(i)->sd);
+		if (sd)
+			sd->llc_bytes = get_effective_llc_bytes(i, sdp);
+	}
+
+unlock:
+	sched_domains_mutex_unlock();
+}
+
+static void sched_cache_set(bool has_multi_llcs)
+{
+	/*
+	 * TBD: check before writing to it. sched domain rebuild
+	 * is not in the critical path, leave as-is for now.
+	 */
+	if (has_multi_llcs)
+		static_branch_enable_cpuslocked(&sched_cache_present);
+	else
+		static_branch_disable_cpuslocked(&sched_cache_present);
+
+	_sched_cache_active_set();
+}
+#else
+static bool alloc_sd_llc(const struct cpumask *cpu_map,
+			 struct s_data *d)
+{
+	return false;
+}
+static inline void sched_cache_set(bool has_multi_llcs) { }
+#endif
+
+/*
+ * Return true if @sd belongs to an LLC group whose enclosing
+ * partition spans more than one LLC. @sd must be the topmost
+ * SD_SHARE_LLC domain.
+ *
+ * Any duplicated parent domains with the same span as @sd are
+ * skipped: before cpu_attach_domain() degeneration these still
+ * exist, after degeneration the loop is a no-op. This makes the
+ * helper usable both during sched domain build and against an
+ * already-attached domain tree.
+ *
+ * Note: For systems with a single LLC per node, cache-aware
+ * scheduling is still enabled when multiple nodes exist.
+ * However, NUMA balancing decisions take precedence over
+ * cache-aware scheduling. Conversely, if there is only one
+ * LLC per partition, cache-aware scheduling should be disabled.
+ */
+static bool sd_in_multi_llcs(struct sched_domain *sd)
+{
+	struct sched_domain *sdp = sd->parent;
+
+	/* it does not make sense to aggregate to 1 CPU */
+	if (sd->span_weight == 1)
+		return false;
+
+	while (sdp && sdp->span_weight == sd->span_weight)
+		sdp = sdp->parent;
+
+	return !!sdp;
+}
 
 /*
  * Return the canonical balance CPU for this group, this is the first CPU
@@ -1803,6 +2051,11 @@ const struct cpumask *tl_mc_mask(struct sched_domain_topology_level *tl, int cpu
 {
 	return cpu_coregroup_mask(cpu);
 }
+
+#define llc_mask(cpu) cpu_coregroup_mask(cpu)
+
+#else
+#define llc_mask(cpu) cpumask_of(cpu)
 #endif
 
 const struct cpumask *tl_pkg_mask(struct sched_domain_topology_level *tl, int cpu)
@@ -2711,14 +2964,71 @@ static bool claim_asym_sched_domain_shared(struct s_data *d, int cpu)
 	return true;
 }
 
+static int __sched_domains_alloc_llc_id(void)
+{
+	int lid, max;
+
+	lockdep_assert_held(&sched_domains_mutex);
+
+	lid = cpumask_first_zero(sched_domains_llc_id_allocmask);
+	/*
+	 * llc_id space should never grow larger than the
+	 * possible number of CPUs in the system.
+	 */
+	if (lid >= nr_cpu_ids)
+		return -1;
+
+	__cpumask_set_cpu(lid, sched_domains_llc_id_allocmask);
+	max = cpumask_last(sched_domains_llc_id_allocmask);
+	if (max > max_lid)
+		max_lid = max;
+
+	return lid;
+}
+
+static void __sched_domains_free_llc_id(int cpu)
+{
+	int i, lid, max;
+
+	lockdep_assert_held(&sched_domains_mutex);
+
+	lid = per_cpu(sd_llc_id, cpu);
+	if (lid == -1 || lid >= nr_cpu_ids)
+		return;
+
+	per_cpu(sd_llc_id, cpu) = -1;
+
+	for_each_cpu(i, llc_mask(cpu)) {
+		/* An online CPU owns the llc_id. */
+		if (per_cpu(sd_llc_id, i) == lid)
+			return;
+	}
+
+	__cpumask_clear_cpu(lid, sched_domains_llc_id_allocmask);
+
+	max = cpumask_last(sched_domains_llc_id_allocmask);
+	/* shrink max lid to save memory */
+	if (max < max_lid)
+		max_lid = max;
+}
+
+void sched_domains_free_llc_id(int cpu)
+{
+	sched_domains_mutex_lock();
+	__sched_domains_free_llc_id(cpu);
+	sched_domains_mutex_unlock();
+}
+
 /*
  * Build sched domains for a given set of CPUs and attach the sched domains
  * to the individual CPUs
  */
 static int
-build_sched_domains(const struct cpumask *cpu_map, struct sched_domain_attr *attr)
+build_sched_domains(const struct cpumask *cpu_map, struct sched_domain_attr *attr,
+		    bool *multi_llcs)
 {
 	enum s_alloc alloc_state = sa_none;
+	bool has_multi_llcs = false;
 	struct sched_domain *sd;
 	struct s_data d;
 	struct rq *rq = NULL;
@@ -2736,6 +3046,7 @@ build_sched_domains(const struct cpumask *cpu_map, struct sched_domain_attr *att
 	/* Set up domains for CPUs specified by the cpu_map: */
 	for_each_cpu(i, cpu_map) {
 		struct sched_domain_topology_level *tl;
+		int lid;
 
 		sd = NULL;
 		for_each_sd_topology(tl) {
@@ -2748,6 +3059,29 @@ build_sched_domains(const struct cpumask *cpu_map, struct sched_domain_attr *att
 				*per_cpu_ptr(d.sd, i) = sd;
 			if (cpumask_equal(cpu_map, sched_domain_span(sd)))
 				break;
+		}
+
+		lid = per_cpu(sd_llc_id, i);
+		if (lid == -1) {
+			/* try to reuse the llc_id of its siblings */
+			for (int j = cpumask_first(llc_mask(i));
+			     j < nr_cpu_ids;
+			     j = cpumask_next(j, llc_mask(i))) {
+				if (i == j)
+					continue;
+
+				lid = per_cpu(sd_llc_id, j);
+
+				if (lid != -1) {
+					per_cpu(sd_llc_id, i) = lid;
+
+					break;
+				}
+			}
+
+			/* a new LLC is detected */
+			if (lid == -1)
+				per_cpu(sd_llc_id, i) = __sched_domains_alloc_llc_id();
 		}
 	}
 
@@ -2769,33 +3103,31 @@ build_sched_domains(const struct cpumask *cpu_map, struct sched_domain_attr *att
 	}
 
 	for_each_cpu(i, cpu_map) {
-		bool asym_claimed = false;
-
 		sd = *per_cpu_ptr(d.sd, i);
 		if (!sd)
 			continue;
 
 		if (has_asym)
-			asym_claimed = claim_asym_sched_domain_shared(&d, i);
+			claim_asym_sched_domain_shared(&d, i);
 
 		/* First, find the topmost SD_SHARE_LLC domain */
 		while (sd->parent && (sd->parent->flags & SD_SHARE_LLC))
 			sd = sd->parent;
 
 		if (sd->flags & SD_SHARE_LLC) {
-			/*
-			 * Initialize the sd->shared for SD_SHARE_LLC unless
-			 * the asym path above already claimed it.
-			 */
-			if (!asym_claimed)
-				init_sched_domain_shared(&d, sd);
+			init_sched_domain_shared(&d, sd);
 
 			/*
 			 * In presence of higher domains, adjust the
 			 * NUMA imbalance stats for the hierarchy.
 			 */
-			if (IS_ENABLED(CONFIG_NUMA) && sd->parent)
-				adjust_numa_imbalance(sd);
+			if (sd->parent) {
+				if (IS_ENABLED(CONFIG_NUMA))
+					adjust_numa_imbalance(sd);
+
+				if (sd_in_multi_llcs(sd))
+					has_multi_llcs = true;
+			}
 		}
 	}
 
@@ -2809,6 +3141,8 @@ build_sched_domains(const struct cpumask *cpu_map, struct sched_domain_attr *att
 		for (sd = *per_cpu_ptr(d.sd, i); sd; sd = sd->parent)
 			init_sched_groups_capacity(i, sd);
 	}
+
+	alloc_sd_llc(cpu_map, &d);
 
 	/* Attach the domains */
 	rcu_read_lock();
@@ -2834,6 +3168,7 @@ build_sched_domains(const struct cpumask *cpu_map, struct sched_domain_attr *att
 
 	ret = 0;
 error:
+	*multi_llcs = has_multi_llcs;
 	__free_domain_allocs(&d, alloc_state, cpu_map);
 
 	return ret;
@@ -2896,8 +3231,10 @@ void free_sched_domains(cpumask_var_t doms[], unsigned int ndoms)
  */
 int __init sched_init_domains(const struct cpumask *cpu_map)
 {
+	bool multi_llcs;
 	int err;
 
+	zalloc_cpumask_var(&sched_domains_llc_id_allocmask, GFP_KERNEL);
 	zalloc_cpumask_var(&sched_domains_tmpmask, GFP_KERNEL);
 	zalloc_cpumask_var(&sched_domains_tmpmask2, GFP_KERNEL);
 	zalloc_cpumask_var(&fallback_doms, GFP_KERNEL);
@@ -2909,7 +3246,9 @@ int __init sched_init_domains(const struct cpumask *cpu_map)
 	if (!doms_cur)
 		doms_cur = &fallback_doms;
 	cpumask_and(doms_cur[0], cpu_map, housekeeping_cpumask(HK_TYPE_DOMAIN));
-	err = build_sched_domains(doms_cur[0], NULL);
+	err = build_sched_domains(doms_cur[0], NULL, &multi_llcs);
+	if (!err)
+		sched_cache_set(multi_llcs);
 
 	return err;
 }
@@ -2982,6 +3321,7 @@ static void partition_sched_domains_locked(int ndoms_new, cpumask_var_t doms_new
 				    struct sched_domain_attr *dattr_new)
 {
 	bool __maybe_unused has_eas = false;
+	bool has_multi_llcs = false, multi_llcs;
 	int i, j, n;
 	int new_topology;
 
@@ -3031,14 +3371,41 @@ match1:
 	for (i = 0; i < ndoms_new; i++) {
 		for (j = 0; j < n && !new_topology; j++) {
 			if (cpumask_equal(doms_new[i], doms_cur[j]) &&
-			    dattrs_equal(dattr_new, i, dattr_cur, j))
+			    dattrs_equal(dattr_new, i, dattr_cur, j)) {
+				/*
+				 * Reused partition has to be taken care
+				 * of here, because there could be a corner
+				 * case that if the reused partition is skipped
+				 * and only new partition is considered, an
+				 * incorrect has_multi_llcs would be set. For
+				 * example:
+				 * If the only multi-LLC partition is reused
+				 * and a new single-LLC partition is built,
+				 * sched_cache_set(false) disables cache-aware
+				 * scheduling globally despite the reused
+				 * multi-LLC partition still being active.
+				 */
+				struct sched_domain *sd;
+				int cpu = cpumask_first(doms_cur[j]);
+
+				guard(rcu)();
+				sd = rcu_dereference(cpu_rq(cpu)->sd);
+				while (sd && sd->parent && (sd->parent->flags & SD_SHARE_LLC))
+					sd = sd->parent;
+				if (sd && (sd->flags & SD_SHARE_LLC) && sd->parent &&
+				    sd_in_multi_llcs(sd))
+					has_multi_llcs = true;
 				goto match2;
+			}
 		}
 		/* No match - add a new doms_new */
-		build_sched_domains(doms_new[i], dattr_new ? dattr_new + i : NULL);
+		build_sched_domains(doms_new[i], dattr_new ? dattr_new + i : NULL,
+				    &multi_llcs);
+		has_multi_llcs |= multi_llcs;
 match2:
 		;
 	}
+	sched_cache_set(has_multi_llcs);
 
 #if defined(CONFIG_ENERGY_MODEL) && defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 	/* Build perf domains: */

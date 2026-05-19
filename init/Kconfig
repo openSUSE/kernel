@@ -1019,6 +1019,17 @@ config NUMA_BALANCING
 
 	  This system will be inactive on UMA systems.
 
+config SCHED_CACHE
+	bool "Cache aware load balance"
+	default y
+	depends on SMP
+	help
+	  When enabled, the scheduler will attempt to aggregate tasks from
+	  the same process onto a single Last Level Cache (LLC) domain when
+	  possible. This improves cache locality by keeping tasks that share
+	  resources within the same cache domain, reducing cache misses and
+	  lowering data access latency.
+
 config NUMA_BALANCING_DEFAULT_ENABLED
 	bool "Automatically enable NUMA aware memory/task placement"
 	default y

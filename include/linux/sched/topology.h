@@ -68,6 +68,10 @@ struct sched_domain_shared {
 	atomic_t	nr_busy_cpus;
 	int		has_idle_cores;
 	int		nr_idle_scan;
+#ifdef CONFIG_SCHED_CACHE
+	unsigned long	util_avg;
+	unsigned long	capacity;
+#endif
 };
 
 struct sched_domain {
@@ -98,6 +102,12 @@ struct sched_domain {
 	u64 newidle_stamp;
 	u64 max_newidle_lb_cost;
 	unsigned long last_decay_max_lb_cost;
+
+#ifdef CONFIG_SCHED_CACHE
+	unsigned int llc_max;
+	unsigned int *llc_counts __counted_by_ptr(llc_max);
+	unsigned long llc_bytes;
+#endif
 
 #ifdef CONFIG_SCHEDSTATS
 	/* sched_balance_rq() stats */
@@ -255,5 +265,11 @@ static inline int task_node(const struct task_struct *p)
 {
 	return cpu_to_node(task_cpu(p));
 }
+
+#ifdef CONFIG_SCHED_CACHE
+extern void sched_update_llc_bytes(unsigned int cpu);
+#else
+static inline void sched_update_llc_bytes(unsigned int cpu) { }
+#endif
 
 #endif /* _LINUX_SCHED_TOPOLOGY_H */
