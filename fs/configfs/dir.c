@@ -296,6 +296,7 @@ static int configfs_create_dir(struct config_item *item, struct dentry *dentry,
 	int error;
 	umode_t mode = S_IFDIR| S_IRWXU | S_IRUGO | S_IXUGO;
 	struct dentry *p = dentry->d_parent;
+	struct inode *p_inode = d_inode(p);
 	struct inode *inode;
 
 	BUG_ON(!item);
@@ -316,7 +317,8 @@ static int configfs_create_dir(struct config_item *item, struct dentry *dentry,
 	/* directory inodes start off with i_nlink == 2 (for "." entry) */
 	inc_nlink(inode);
 	d_make_persistent(dentry, inode);
-	inc_nlink(d_inode(p));
+	inc_nlink(p_inode);
+	inode_set_mtime_to_ts(p_inode, inode_set_ctime_current(p_inode));
 	item->ci_dentry = dentry;
 	return 0;
 
@@ -370,6 +372,7 @@ int configfs_create_link(struct configfs_dirent *target, struct dentry *parent,
 	int err = 0;
 	umode_t mode = S_IFLNK | S_IRWXUGO;
 	struct configfs_dirent *p = parent->d_fsdata;
+	struct inode *p_inode = d_inode(parent);
 	struct inode *inode;
 
 	err = configfs_make_dirent(p, dentry, target, mode, CONFIGFS_ITEM_LINK,
@@ -384,6 +387,7 @@ int configfs_create_link(struct configfs_dirent *target, struct dentry *parent,
 	inode->i_link = body;
 	inode->i_op = &configfs_symlink_inode_operations;
 	d_make_persistent(dentry, inode);
+	inode_set_mtime_to_ts(p_inode, inode_set_ctime_current(p_inode));
 	return 0;
 
 out_remove:
