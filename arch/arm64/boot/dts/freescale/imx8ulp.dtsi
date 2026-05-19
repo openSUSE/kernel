@@ -302,6 +302,7 @@
 				assigned-clocks = <&pcc3 IMX8ULP_CLK_WDOG3>;
 				assigned-clock-parents = <&cgc1 IMX8ULP_CLK_SOSC_DIV2>;
 				timeout-sec = <40>;
+				bootph-all;
 			};
 
 			cgc1: clock-controller@292c0000 {
