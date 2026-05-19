@@ -66,22 +66,22 @@ static int ad5686_i2c_probe(struct i2c_client *i2c)
 }
 
 static const struct i2c_device_id ad5686_i2c_id[] = {
-	{"ad5311r", ID_AD5311R},
-	{"ad5337r", ID_AD5337R},
-	{"ad5338r", ID_AD5338R},
-	{"ad5671r", ID_AD5671R},
-	{"ad5673r", ID_AD5673R},
-	{"ad5675r", ID_AD5675R},
-	{"ad5677r", ID_AD5677R},
-	{"ad5691r", ID_AD5691R},
-	{"ad5692r", ID_AD5692R},
-	{"ad5693", ID_AD5693},
-	{"ad5693r", ID_AD5693R},
-	{"ad5694", ID_AD5694},
-	{"ad5694r", ID_AD5694R},
-	{"ad5695r", ID_AD5695R},
-	{"ad5696", ID_AD5696},
-	{"ad5696r", ID_AD5696R},
+	{ .name = "ad5311r", .driver_data = ID_AD5311R },
+	{ .name = "ad5337r", .driver_data = ID_AD5337R },
+	{ .name = "ad5338r", .driver_data = ID_AD5338R },
+	{ .name = "ad5671r", .driver_data = ID_AD5671R },
+	{ .name = "ad5673r", .driver_data = ID_AD5673R },
+	{ .name = "ad5675r", .driver_data = ID_AD5675R },
+	{ .name = "ad5677r", .driver_data = ID_AD5677R },
+	{ .name = "ad5691r", .driver_data = ID_AD5691R },
+	{ .name = "ad5692r", .driver_data = ID_AD5692R },
+	{ .name = "ad5693", .driver_data = ID_AD5693 },
+	{ .name = "ad5693r", .driver_data = ID_AD5693R },
+	{ .name = "ad5694", .driver_data = ID_AD5694 },
+	{ .name = "ad5694r", .driver_data = ID_AD5694R },
+	{ .name = "ad5695r", .driver_data = ID_AD5695R },
+	{ .name = "ad5696", .driver_data = ID_AD5696 },
+	{ .name = "ad5696r", .driver_data = ID_AD5696R },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, ad5686_i2c_id);

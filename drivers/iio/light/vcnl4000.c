@@ -2040,13 +2040,13 @@ static DEFINE_RUNTIME_DEV_PM_OPS(vcnl4000_pm_ops, vcnl4000_runtime_suspend,
 				 vcnl4000_runtime_resume, NULL);
 
 static const struct i2c_device_id vcnl4000_id[] = {
-	{ "cm36672p", (kernel_ulong_t)&cm36672p_spec },
-	{ "cm36686", (kernel_ulong_t)&vcnl4040_spec },
-	{ "vcnl4000", (kernel_ulong_t)&vcnl4000_spec },
-	{ "vcnl4010", (kernel_ulong_t)&vcnl4010_spec },
-	{ "vcnl4020", (kernel_ulong_t)&vcnl4010_spec },
-	{ "vcnl4040", (kernel_ulong_t)&vcnl4040_spec },
-	{ "vcnl4200", (kernel_ulong_t)&vcnl4200_spec },
+	{ .name = "cm36672p", .driver_data = (kernel_ulong_t)&cm36672p_spec },
+	{ .name = "cm36686", .driver_data = (kernel_ulong_t)&vcnl4040_spec },
+	{ .name = "vcnl4000", .driver_data = (kernel_ulong_t)&vcnl4000_spec },
+	{ .name = "vcnl4010", .driver_data = (kernel_ulong_t)&vcnl4010_spec },
+	{ .name = "vcnl4020", .driver_data = (kernel_ulong_t)&vcnl4010_spec },
+	{ .name = "vcnl4040", .driver_data = (kernel_ulong_t)&vcnl4040_spec },
+	{ .name = "vcnl4200", .driver_data = (kernel_ulong_t)&vcnl4200_spec },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, vcnl4000_id);

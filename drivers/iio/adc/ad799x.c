@@ -940,14 +940,14 @@ static int ad799x_resume(struct device *dev)
 static DEFINE_SIMPLE_DEV_PM_OPS(ad799x_pm_ops, ad799x_suspend, ad799x_resume);
 
 static const struct i2c_device_id ad799x_id[] = {
-	{ "ad7991", ad7991 },
-	{ "ad7995", ad7995 },
-	{ "ad7999", ad7999 },
-	{ "ad7992", ad7992 },
-	{ "ad7993", ad7993 },
-	{ "ad7994", ad7994 },
-	{ "ad7997", ad7997 },
-	{ "ad7998", ad7998 },
+	{ .name = "ad7991", .driver_data = ad7991 },
+	{ .name = "ad7995", .driver_data = ad7995 },
+	{ .name = "ad7999", .driver_data = ad7999 },
+	{ .name = "ad7992", .driver_data = ad7992 },
+	{ .name = "ad7993", .driver_data = ad7993 },
+	{ .name = "ad7994", .driver_data = ad7994 },
+	{ .name = "ad7997", .driver_data = ad7997 },
+	{ .name = "ad7998", .driver_data = ad7998 },
 	{ }
 };
 

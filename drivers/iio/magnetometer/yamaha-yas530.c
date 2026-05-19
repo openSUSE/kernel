@@ -1587,10 +1587,10 @@ static DEFINE_RUNTIME_DEV_PM_OPS(yas5xx_dev_pm_ops, yas5xx_runtime_suspend,
 				 yas5xx_runtime_resume, NULL);
 
 static const struct i2c_device_id yas5xx_id[] = {
-	{"yas530", (kernel_ulong_t)&yas5xx_chip_info_tbl[yas530] },
-	{"yas532", (kernel_ulong_t)&yas5xx_chip_info_tbl[yas532] },
-	{"yas533", (kernel_ulong_t)&yas5xx_chip_info_tbl[yas533] },
-	{"yas537", (kernel_ulong_t)&yas5xx_chip_info_tbl[yas537] },
+	{ .name = "yas530", .driver_data = (kernel_ulong_t)&yas5xx_chip_info_tbl[yas530] },
+	{ .name = "yas532", .driver_data = (kernel_ulong_t)&yas5xx_chip_info_tbl[yas532] },
+	{ .name = "yas533", .driver_data = (kernel_ulong_t)&yas5xx_chip_info_tbl[yas533] },
+	{ .name = "yas537", .driver_data = (kernel_ulong_t)&yas5xx_chip_info_tbl[yas537] },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, yas5xx_id);

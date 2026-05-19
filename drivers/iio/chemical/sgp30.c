@@ -563,8 +563,8 @@ static void sgp_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id sgp_id[] = {
-	{ "sgp30", (kernel_ulong_t)&sgp_devices[SGP30] },
-	{ "sgpc3", (kernel_ulong_t)&sgp_devices[SGPC3] },
+	{ .name = "sgp30", .driver_data = (kernel_ulong_t)&sgp_devices[SGP30] },
+	{ .name = "sgpc3", .driver_data = (kernel_ulong_t)&sgp_devices[SGPC3] },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, sgp_id);

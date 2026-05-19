@@ -1132,13 +1132,13 @@ static const struct acpi_device_id ak_acpi_match[] = {
 MODULE_DEVICE_TABLE(acpi, ak_acpi_match);
 
 static const struct i2c_device_id ak8975_id[] = {
-	{"AK8963", (kernel_ulong_t)&ak_def_array[AK8963] },
-	{"ak8963", (kernel_ulong_t)&ak_def_array[AK8963] },
-	{"ak8975", (kernel_ulong_t)&ak_def_array[AK8975] },
-	{"ak09911", (kernel_ulong_t)&ak_def_array[AK09911] },
-	{"ak09912", (kernel_ulong_t)&ak_def_array[AK09912] },
-	{"ak09916", (kernel_ulong_t)&ak_def_array[AK09916] },
-	{"ak09918", (kernel_ulong_t)&ak_def_array[AK09918] },
+	{ .name = "AK8963", .driver_data = (kernel_ulong_t)&ak_def_array[AK8963] },
+	{ .name = "ak8963", .driver_data = (kernel_ulong_t)&ak_def_array[AK8963] },
+	{ .name = "ak8975", .driver_data = (kernel_ulong_t)&ak_def_array[AK8975] },
+	{ .name = "ak09911", .driver_data = (kernel_ulong_t)&ak_def_array[AK09911] },
+	{ .name = "ak09912", .driver_data = (kernel_ulong_t)&ak_def_array[AK09912] },
+	{ .name = "ak09916", .driver_data = (kernel_ulong_t)&ak_def_array[AK09916] },
+	{ .name = "ak09918", .driver_data = (kernel_ulong_t)&ak_def_array[AK09918] },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, ak8975_id);

@@ -383,14 +383,14 @@ static int mcp3422_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id mcp3422_id[] = {
-	{ "mcp3421", 1 },
-	{ "mcp3422", 2 },
-	{ "mcp3423", 3 },
-	{ "mcp3424", 4 },
-	{ "mcp3425", 5 },
-	{ "mcp3426", 6 },
-	{ "mcp3427", 7 },
-	{ "mcp3428", 8 },
+	{ .name = "mcp3421", .driver_data = 1 },
+	{ .name = "mcp3422", .driver_data = 2 },
+	{ .name = "mcp3423", .driver_data = 3 },
+	{ .name = "mcp3424", .driver_data = 4 },
+	{ .name = "mcp3425", .driver_data = 5 },
+	{ .name = "mcp3426", .driver_data = 6 },
+	{ .name = "mcp3427", .driver_data = 7 },
+	{ .name = "mcp3428", .driver_data = 8 },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, mcp3422_id);

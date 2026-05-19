@@ -218,7 +218,7 @@ static int al3010_resume(struct device *dev)
 static DEFINE_SIMPLE_DEV_PM_OPS(al3010_pm_ops, al3010_suspend, al3010_resume);
 
 static const struct i2c_device_id al3010_id[] = {
-	{"al3010", },
+	{ .name = "al3010" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, al3010_id);

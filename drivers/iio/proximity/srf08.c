@@ -530,9 +530,9 @@ static const struct of_device_id of_srf08_match[] = {
 MODULE_DEVICE_TABLE(of, of_srf08_match);
 
 static const struct i2c_device_id srf08_id[] = {
-	{ "srf02", SRF02 },
-	{ "srf08", SRF08 },
-	{ "srf10", SRF10 },
+	{ .name = "srf02", .driver_data = SRF02 },
+	{ .name = "srf08", .driver_data = SRF08 },
+	{ .name = "srf10", .driver_data = SRF10 },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, srf08_id);

@@ -1900,19 +1900,19 @@ static int tsl2772_resume(struct device *dev)
 }
 
 static const struct i2c_device_id tsl2772_idtable[] = {
-	{ "tsl2571", tsl2571 },
-	{ "tsl2671", tsl2671 },
-	{ "tmd2671", tmd2671 },
-	{ "tsl2771", tsl2771 },
-	{ "tmd2771", tmd2771 },
-	{ "tsl2572", tsl2572 },
-	{ "tsl2672", tsl2672 },
-	{ "tmd2672", tmd2672 },
-	{ "tsl2772", tsl2772 },
-	{ "tmd2772", tmd2772 },
-	{ "apds9900", apds9900 },
-	{ "apds9901", apds9900 },
-	{ "apds9930", apds9930 },
+	{ .name = "tsl2571", .driver_data = tsl2571 },
+	{ .name = "tsl2671", .driver_data = tsl2671 },
+	{ .name = "tmd2671", .driver_data = tmd2671 },
+	{ .name = "tsl2771", .driver_data = tsl2771 },
+	{ .name = "tmd2771", .driver_data = tmd2771 },
+	{ .name = "tsl2572", .driver_data = tsl2572 },
+	{ .name = "tsl2672", .driver_data = tsl2672 },
+	{ .name = "tmd2672", .driver_data = tmd2672 },
+	{ .name = "tsl2772", .driver_data = tsl2772 },
+	{ .name = "tmd2772", .driver_data = tmd2772 },
+	{ .name = "apds9900", .driver_data = apds9900 },
+	{ .name = "apds9901", .driver_data = apds9900 },
+	{ .name = "apds9930", .driver_data = apds9930 },
 	{ }
 };
 

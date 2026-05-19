@@ -948,8 +948,8 @@ static const struct opt3001_chip_info opt3002_chip_information = {
 };
 
 static const struct i2c_device_id opt3001_id[] = {
-	{ "opt3001", (kernel_ulong_t)&opt3001_chip_information },
-	{ "opt3002", (kernel_ulong_t)&opt3002_chip_information },
+	{ .name = "opt3001", .driver_data = (kernel_ulong_t)&opt3001_chip_information },
+	{ .name = "opt3002", .driver_data = (kernel_ulong_t)&opt3002_chip_information },
 	{ } /* Terminating Entry */
 };
 MODULE_DEVICE_TABLE(i2c, opt3001_id);

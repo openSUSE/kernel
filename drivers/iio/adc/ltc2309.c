@@ -243,8 +243,8 @@ static const struct of_device_id ltc2309_of_match[] = {
 MODULE_DEVICE_TABLE(of, ltc2309_of_match);
 
 static const struct i2c_device_id ltc2309_id[] = {
-	{ "ltc2305", (kernel_ulong_t)&ltc2305_chip_info },
-	{ "ltc2309", (kernel_ulong_t)&ltc2309_chip_info },
+	{ .name = "ltc2305", .driver_data = (kernel_ulong_t)&ltc2305_chip_info },
+	{ .name = "ltc2309", .driver_data = (kernel_ulong_t)&ltc2309_chip_info },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, ltc2309_id);

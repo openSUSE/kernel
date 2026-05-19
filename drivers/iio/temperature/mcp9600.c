@@ -551,8 +551,8 @@ static const struct mcp_chip_info mcp9601_chip_info = {
 };
 
 static const struct i2c_device_id mcp9600_id[] = {
-	{ "mcp9600", .driver_data = (kernel_ulong_t)&mcp9600_chip_info },
-	{ "mcp9601", .driver_data = (kernel_ulong_t)&mcp9601_chip_info },
+	{ .name = "mcp9600", .driver_data = (kernel_ulong_t)&mcp9600_chip_info },
+	{ .name = "mcp9601", .driver_data = (kernel_ulong_t)&mcp9601_chip_info },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, mcp9600_id);

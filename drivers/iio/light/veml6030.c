@@ -1214,9 +1214,9 @@ static const struct of_device_id veml6030_of_match[] = {
 MODULE_DEVICE_TABLE(of, veml6030_of_match);
 
 static const struct i2c_device_id veml6030_id[] = {
-	{ "veml6030", (kernel_ulong_t)&veml6030_chip},
-	{ "veml6035", (kernel_ulong_t)&veml6035_chip},
-	{ "veml7700", (kernel_ulong_t)&veml7700_chip},
+	{ .name = "veml6030", .driver_data = (kernel_ulong_t)&veml6030_chip },
+	{ .name = "veml6035", .driver_data = (kernel_ulong_t)&veml6035_chip },
+	{ .name = "veml7700", .driver_data = (kernel_ulong_t)&veml7700_chip },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, veml6030_id);

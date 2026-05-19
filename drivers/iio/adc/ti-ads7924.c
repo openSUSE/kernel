@@ -442,7 +442,7 @@ static int ads7924_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id ads7924_id[] = {
-	{ "ads7924" },
+	{ .name = "ads7924" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, ads7924_id);
