@@ -150,7 +150,7 @@ static int tegra210_mixer_configure_gain(struct snd_soc_component *cmpnt,
 
 	/* Write duration parameters */
 	for (i = 0; i < NUM_DURATION_PARMS; i++) {
-		int val;
+		u32 val;
 
 		if (instant_gain) {
 			val = 1;
@@ -181,6 +181,17 @@ rpm_put:
 	return err;
 }
 
+static int tegra210_mixer_fade_duration_info(struct snd_kcontrol *kcontrol,
+					     struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
+	uinfo->count = 1;
+	uinfo->value.integer.min = TEGRA210_MIXER_FADE_DURATION_MIN;
+	uinfo->value.integer.max = TEGRA210_MIXER_FADE_DURATION_MAX;
+
+	return 0;
+}
+
 static int tegra210_mixer_get_fade_duration(struct snd_kcontrol *kcontrol,
 					    struct snd_ctl_elem_value *ucontrol)
 {
@@ -202,9 +213,10 @@ static int tegra210_mixer_put_fade_duration(struct snd_kcontrol *kcontrol,
 	struct snd_soc_component *cmpnt = snd_kcontrol_chip(kcontrol);
 	struct tegra210_mixer *mixer = snd_soc_component_get_drvdata(cmpnt);
 	unsigned int id = mc->reg;
-	u32 duration = ucontrol->value.integer.value[0];
+	long duration = ucontrol->value.integer.value[0];
 
-	if (duration == 0 || duration > TEGRA210_MIXER_FADE_DURATION_MAX)
+	if (duration < (long)TEGRA210_MIXER_FADE_DURATION_MIN ||
+	    duration > TEGRA210_MIXER_FADE_DURATION_MAX)
 		return -EINVAL;
 
 	if (mixer->duration[id] == duration)
@@ -614,10 +626,17 @@ static int tegra210_mixer_fade_status_info(struct snd_kcontrol *kcontrol,
 }
 
 #define FADE_CTRL(id)							\
-	SOC_SINGLE_EXT("RX" #id " Fade Duration", (id) - 1, 0,		\
-		       TEGRA210_MIXER_FADE_DURATION_MAX, 0,		\
-		       tegra210_mixer_get_fade_duration,			\
-		       tegra210_mixer_put_fade_duration),		\
+	{								\
+		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,			\
+		.name = "RX" #id " Fade Duration",			\
+		.info = tegra210_mixer_fade_duration_info,		\
+		.get = tegra210_mixer_get_fade_duration,			\
+		.put = tegra210_mixer_put_fade_duration,			\
+		.private_value = SOC_SINGLE_VALUE((id) - 1, 0,		\
+				TEGRA210_MIXER_FADE_DURATION_MIN,	\
+				TEGRA210_MIXER_FADE_DURATION_MAX,	\
+				0, 0),					\
+	},								\
 	SOC_SINGLE_EXT("RX" #id " Fade Gain", (id) - 1, 0,		\
 		       TEGRA210_MIXER_GAIN_MAX, 0,			\
 		       tegra210_mixer_get_fade_gain,			\
