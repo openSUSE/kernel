@@ -460,20 +460,24 @@ static void ufshcd_add_uic_command_trace(struct ufs_hba *hba,
 					 const struct uic_command *ucmd,
 					 enum ufs_trace_str_t str_t)
 {
-	u32 cmd;
+	u32 cmd, arg1, arg2, arg3;
 
 	if (!trace_ufshcd_uic_command_enabled())
 		return;
 
-	if (str_t == UFS_CMD_SEND)
+	if (str_t == UFS_CMD_SEND) {
 		cmd = ucmd->command;
-	else
+		arg1 = ucmd->argument1;
+		arg2 = ucmd->argument2;
+		arg3 = ucmd->argument3;
+	} else {
 		cmd = ufshcd_readl(hba, REG_UIC_COMMAND);
+		arg1 = ufshcd_readl(hba, REG_UIC_COMMAND_ARG_1);
+		arg2 = ufshcd_readl(hba, REG_UIC_COMMAND_ARG_2);
+		arg3 = ufshcd_readl(hba, REG_UIC_COMMAND_ARG_3);
+	}
 
-	trace_ufshcd_uic_command(hba, str_t, cmd,
-				 ufshcd_readl(hba, REG_UIC_COMMAND_ARG_1),
-				 ufshcd_readl(hba, REG_UIC_COMMAND_ARG_2),
-				 ufshcd_readl(hba, REG_UIC_COMMAND_ARG_3));
+	trace_ufshcd_uic_command(hba, str_t, cmd, arg1, arg2, arg3);
 }
 
 static void ufshcd_add_command_trace(struct ufs_hba *hba, struct scsi_cmnd *cmd,
