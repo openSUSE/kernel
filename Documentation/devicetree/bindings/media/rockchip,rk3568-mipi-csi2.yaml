@@ -19,6 +19,7 @@ properties:
     oneOf:
       - enum:
           - fsl,imx93-mipi-csi2
+          - fsl,imx95-mipi-csi2
           - rockchip,rk3568-mipi-csi2
       - items:
           - enum:
@@ -139,6 +140,21 @@ allOf:
           minItems: 2
         clock-names:
           minItems: 2
+
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: fsl,imx95-mipi-csi2
+    then:
+      properties:
+        interrupts:
+          maxItems: 1
+        interrupt-names: false
+        clocks:
+          maxItems: 1
+        clock-names:
+          maxItems: 1
 
 examples:
   - |
