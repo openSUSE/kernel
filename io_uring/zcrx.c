@@ -985,6 +985,12 @@ void io_unregister_zcrx(struct io_ring_ctx *ctx)
 		}
 		if (!ifq)
 			break;
+		/*
+		 * io_uring can run requests and return buffers to the user
+		 * after termination, scrub it again.
+		 */
+		if (refcount_read(&ifq->user_refs) == 0)
+			io_zcrx_scrub(ifq);
 		io_put_zcrx_ifq(ifq);
 	}
 
