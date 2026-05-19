@@ -10101,12 +10101,6 @@ F:	Documentation/fpga/
 F:	drivers/fpga/
 F:	include/linux/fpga/
 
-FPU EMULATOR
-M:	Bill Metzenthen <billm@melbpc.org.au>
-S:	Maintained
-W:	https://floatingpoint.billm.au/
-F:	arch/x86/math-emu/
-
 FRAMEBUFFER CONSOLE
 M:	Helge Deller <deller@gmx.de>
 M:	Thomas Zimmermann <tzimmermann@suse.de>
