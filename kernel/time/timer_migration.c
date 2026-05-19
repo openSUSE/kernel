@@ -1464,6 +1464,18 @@ static long tmigr_trigger_active(void *unused)
 	return 0;
 }
 
+static struct tmigr_hierarchy *__tmigr_get_hierarchy(unsigned int capacity)
+{
+	struct tmigr_hierarchy *iter;
+
+	list_for_each_entry(iter, &tmigr_hierarchy_list, node) {
+		if (iter->capacity == capacity)
+			return iter;
+	}
+
+	return NULL;
+}
+
 static int tmigr_clear_cpu_available(unsigned int cpu)
 {
 	struct tmigr_cpu *tmc = this_cpu_ptr(&tmigr_cpu);
@@ -1488,8 +1500,21 @@ static int tmigr_clear_cpu_available(unsigned int cpu)
 	}
 
 	if (firstexp != KTIME_MAX) {
-		migrator = cpumask_any(tmigr_available_cpumask);
-		work_on_cpu(migrator, tmigr_trigger_active, NULL);
+		struct tmigr_hierarchy *hier = __tmigr_get_hierarchy(arch_scale_cpu_capacity(cpu));
+
+		if (WARN_ON_ONCE(!hier))
+			return -EINVAL;
+
+		migrator = cpumask_any_and(tmigr_available_cpumask, hier->cpumask);
+		if (migrator < nr_cpu_ids) {
+			work_on_cpu(migrator, tmigr_trigger_active, NULL);
+		} else {
+			/*
+			 * If deactivation returned an expiration, it belongs to an available
+			 * nohz CPU in the hierarchy.
+			 */
+			WARN_ONCE(1, "Expected available CPU in the hierarchy\n");
+		}
 	}
 
 	return 0;
@@ -1915,12 +1940,9 @@ out:
 
 static struct tmigr_hierarchy *tmigr_get_hierarchy(unsigned int capacity)
 {
-	struct tmigr_hierarchy *hier = NULL, *iter;
+	struct tmigr_hierarchy *hier;
 
-	list_for_each_entry(iter, &tmigr_hierarchy_list, node) {
-		if (iter->capacity == capacity)
-			hier = iter;
-	}
+	hier = __tmigr_get_hierarchy(capacity);
 
 	if (hier)
 		return hier;
@@ -1978,9 +2000,9 @@ static long connect_old_root_work(void *arg)
 	struct tmigr_hierarchy *hier;
 	int cpu = smp_processor_id();
 
-	hier = tmigr_get_hierarchy(arch_scale_cpu_capacity(cpu));
-	if (IS_ERR(hier))
-		return PTR_ERR(hier);
+	hier = __tmigr_get_hierarchy(arch_scale_cpu_capacity(cpu));
+	if (WARN_ON_ONCE(!hier))
+		return -EINVAL;
 
 	return tmigr_connect_old_root(hier, cpu, old_root, true);
 }
