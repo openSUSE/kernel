@@ -22,7 +22,6 @@
 #include <linux/slab.h>
 #include <linux/pm_runtime.h>
 #include <linux/of.h>
-#include <linux/of_device.h>
 #include <linux/gcd.h>
 
 #include <linux/spi/spi.h>
@@ -1481,7 +1480,6 @@ static int omap2_mcspi_probe(struct platform_device *pdev)
 	int			status = 0, i;
 	u32			regs_offset = 0;
 	struct device_node	*node = pdev->dev.of_node;
-	const struct of_device_id *match;
 
 	if (of_property_read_bool(node, "spi-slave"))
 		ctlr = devm_spi_alloc_target(&pdev->dev, sizeof(*mcspi));
@@ -1509,10 +1507,9 @@ static int omap2_mcspi_probe(struct platform_device *pdev)
 	mcspi = spi_controller_get_devdata(ctlr);
 	mcspi->ctlr = ctlr;
 
-	match = of_match_device(omap_mcspi_of_match, &pdev->dev);
-	if (match) {
+	pdata = of_device_get_match_data(&pdev->dev);
+	if (pdata) {
 		u32 num_cs = 1; /* default number of chipselect */
-		pdata = match->data;
 
 		of_property_read_u32(node, "ti,spi-num-cs", &num_cs);
 		ctlr->num_chipselect = num_cs;
