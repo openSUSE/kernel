@@ -623,6 +623,12 @@ static void free_sched_groups(struct sched_group *sg, int free_sgc)
 	} while (sg != first);
 }
 
+static void free_sched_domain_shared(struct sched_domain_shared *sds)
+{
+	if (sds && atomic_dec_and_test(&sds->ref))
+		kfree(sds);
+}
+
 static void destroy_sched_domain(struct sched_domain *sd)
 {
 	/*
@@ -631,9 +637,7 @@ static void destroy_sched_domain(struct sched_domain *sd)
 	 * dropping group/capacity references, freeing where none remain.
 	 */
 	free_sched_groups(sd->groups, 1);
-
-	if (sd->shared && atomic_dec_and_test(&sd->shared->ref))
-		kfree(sd->shared);
+	free_sched_domain_shared(sd->shared);
 
 #ifdef CONFIG_SCHED_CACHE
 	/* only the bottom sd has llc_counts array */
@@ -755,7 +759,14 @@ cpu_attach_domain(struct sched_domain *sd, struct root_domain *rd, int cpu)
 
 			/* Pick reference to parent->shared. */
 			if (parent->shared) {
-				WARN_ON_ONCE(tmp->shared);
+				/*
+				 * It is safe to free a sd->shared that
+				 * has not been published yet. If a
+				 * sd->shared was published, the refcount
+				 * will end up being non-zero and it will
+				 * not be freed here.
+				 */
+				free_sched_domain_shared(tmp->shared);
 				tmp->shared = parent->shared;
 				parent->shared = NULL;
 			}
@@ -2916,11 +2927,45 @@ static void adjust_numa_imbalance(struct sched_domain *sd_llc)
 	}
 }
 
-static void init_sched_domain_shared(struct s_data *d, struct sched_domain *sd)
+static void
+init_sched_domain_shared(struct s_data *d, struct sched_domain *sd, int flags)
 {
-	int sd_id = cpumask_first(sched_domain_span(sd));
+	struct sched_domain_shared *sds = NULL;
+	int cpu;
 
-	sd->shared = *per_cpu_ptr(d->sds, sd_id);
+	/*
+	 * Multiple domains can try to claim a shared object like
+	 * SD_ASYM_CPUCAPACITY and SD_SHARE_LLC which can alias to
+	 * same cpumask_first(sched_domain_span(sd)) CPU and can
+	 * cause "nr_idle_scan" to be populated incorrectly during
+	 * load balancing.
+	 *
+	 * Find the first CPU in sched_domain_span(sd) with an
+	 * unclaimed domain (!alloc_flags) or where the alloc_flag
+	 * matches the requested flag (SD_* flag)
+	 *
+	 * If the domain only has single CPU, allow temporary overlap
+	 * in allocation since the domains will be degenerated later.
+	 */
+	for_each_cpu(cpu, sched_domain_span(sd)) {
+		sds = *per_cpu_ptr(d->sds, cpu);
+
+		if (!sds->alloc_flags ||
+		    sd->span_weight == 1 ||
+		    sds->alloc_flags == flags) {
+			sds->alloc_flags = flags;
+			sd->shared = sds;
+			break;
+		}
+	}
+
+	/*
+	 * Use the sd_shared corresponding to the last
+	 * CPU in the span if none are avaialable.
+	 */
+	if (WARN_ON_ONCE(!sd->shared))
+		sd->shared = sds;
+
 	/*
 	 * nr_busy_cpus is consumed only by the NOHZ kick path via
 	 * sd_balance_shared; on the asym-capacity path it is initialized but
@@ -2960,7 +3005,7 @@ static bool claim_asym_sched_domain_shared(struct s_data *d, int cpu)
 	if (!sd_asym || (sd_asym->flags & SD_NUMA))
 		return false;
 
-	init_sched_domain_shared(d, sd_asym);
+	init_sched_domain_shared(d, sd_asym, SD_ASYM_CPUCAPACITY);
 	return true;
 }
 
@@ -3115,7 +3160,7 @@ build_sched_domains(const struct cpumask *cpu_map, struct sched_domain_attr *att
 			sd = sd->parent;
 
 		if (sd->flags & SD_SHARE_LLC) {
-			init_sched_domain_shared(&d, sd);
+			init_sched_domain_shared(&d, sd, SD_SHARE_LLC);
 
 			/*
 			 * In presence of higher domains, adjust the
