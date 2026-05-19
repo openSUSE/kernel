@@ -245,14 +245,13 @@ static void io_release_area_mem(struct io_zcrx_mem *mem)
 {
 	if (mem->is_dmabuf) {
 		io_release_dmabuf(mem);
-		return;
-	}
-	if (mem->pages) {
+	} else if (mem->pages) {
 		unpin_user_pages(mem->pages, mem->nr_folios);
 		sg_free_table(mem->sgt);
-		mem->sgt = NULL;
 		kvfree(mem->pages);
 	}
+	mem->pages = IO_URING_PTR_POISON;
+	mem->sgt = IO_URING_PTR_POISON;
 }
 
 static int io_import_area(struct io_zcrx_ifq *ifq,
@@ -403,8 +402,8 @@ static int io_allocate_rbuf_ring(struct io_ring_ctx *ctx,
 static void io_free_rbuf_ring(struct io_zcrx_ifq *ifq)
 {
 	io_free_region(ifq->user, &ifq->rq_region);
-	ifq->rq.ring = NULL;
-	ifq->rq.rqes = NULL;
+	ifq->rq.ring = IO_URING_PTR_POISON;
+	ifq->rq.rqes = IO_URING_PTR_POISON;
 }
 
 static void io_zcrx_free_area(struct io_zcrx_ifq *ifq,
