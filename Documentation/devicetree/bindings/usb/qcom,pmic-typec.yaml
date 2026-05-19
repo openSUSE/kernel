@@ -79,7 +79,8 @@ properties:
       - const: fr-swap
 
   vdd-vbus-supply:
-    description: VBUS power supply.
+    deprecated: true
+    description: use connector/vbus-supply instead.
 
   vdd-pdphy-supply:
     description: VDD regulator supply to the PDPHY.
@@ -89,7 +90,6 @@ required:
   - reg
   - interrupts
   - interrupt-names
-  - vdd-vbus-supply
 
 allOf:
   - if:
