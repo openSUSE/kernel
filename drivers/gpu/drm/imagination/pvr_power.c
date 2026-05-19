@@ -379,7 +379,7 @@ pvr_power_device_suspend(struct device *dev)
 		return -EIO;
 
 	if (READ_ONCE(pvr_dev->fw_dev.initialised)) {
-		err = pvr_power_fw_disable(pvr_dev, false);
+		err = pvr_power_fw_disable(pvr_dev, false, true);
 		if (err)
 			goto err_drm_dev_exit;
 	}
@@ -409,7 +409,7 @@ pvr_power_device_resume(struct device *dev)
 		goto err_drm_dev_exit;
 
 	if (READ_ONCE(pvr_dev->fw_dev.initialised)) {
-		err = pvr_power_fw_enable(pvr_dev);
+		err = pvr_power_fw_enable(pvr_dev, true);
 		if (err)
 			goto err_power_off;
 	}
