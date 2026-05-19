@@ -451,7 +451,7 @@ iwl_mld_fill_supp_rates(struct iwl_mld *mld,
 		iwl_mld_fill_he_rates(capa, cmd);
 	} else if (capa->vht_cap && capa->vht_cap->vht_supported) {
 		cmd->mode = IWL_TLC_MNG_MODE_VHT;
-			iwl_mld_fill_vht_rates(capa, cmd);
+		iwl_mld_fill_vht_rates(capa, cmd);
 	} else if (capa->ht_cap && capa->ht_cap->ht_supported) {
 		cmd->mode = IWL_TLC_MNG_MODE_HT;
 		cmd->ht_rates[IWL_TLC_NSS_1][IWL_TLC_MCS_PER_BW_80] =
