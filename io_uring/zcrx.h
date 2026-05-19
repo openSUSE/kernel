@@ -72,6 +72,9 @@ struct io_zcrx_ifq {
 	 */
 	struct mutex			pp_lock;
 	struct io_mapped_region		rq_region;
+
+	spinlock_t			ctx_lock;
+	struct io_ring_ctx		*master_ctx;
 };
 
 #if defined(CONFIG_IO_URING_ZCRX)
