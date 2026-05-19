@@ -59,8 +59,6 @@ static int cs35l56_sdw_slow_read(struct sdw_slave *peripheral, unsigned int reg,
 {
 	int ret, i;
 
-	reg += CS35L56_SDW_ADDR_OFFSET;
-
 	for (i = 0; i < val_size; i += sizeof(u32)) {
 		/* Poll for bus bridge idle */
 		ret = cs35l56_sdw_poll_mem_status(peripheral,
@@ -123,10 +121,8 @@ static int cs35l56_sdw_read(void *context, const void *reg_buf,
 
 	reg = le32_to_cpu(*(const __le32 *)reg_buf);
 
-	if (cs35l56_is_otp_register(reg))
+	if (cs35l56_is_otp_register(reg - CS35L56_SDW_ADDR_OFFSET))
 		return cs35l56_sdw_slow_read(peripheral, reg, buf8, val_size);
-
-	reg += CS35L56_SDW_ADDR_OFFSET;
 
 	if (val_size == 4)
 		return cs35l56_sdw_read_one(peripheral, reg, val_buf);
@@ -186,7 +182,6 @@ static int cs35l56_sdw_gather_write(void *context,
 	int ret;
 
 	reg = le32_to_cpu(*(const __le32 *)reg_buf);
-	reg += CS35L56_SDW_ADDR_OFFSET;
 
 	if (val_size == 4)
 		return cs35l56_sdw_write_one(peripheral, reg, src_be);
