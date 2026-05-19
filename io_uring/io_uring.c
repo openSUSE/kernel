@@ -160,7 +160,7 @@ static void io_poison_cached_req(struct io_kiocb *req)
 	req->apoll = IO_URING_PTR_POISON;
 }
 
-static void io_poison_req(struct io_kiocb *req)
+void io_poison_req(struct io_kiocb *req)
 {
 	io_poison_cached_req(req);
 	req->async_data = IO_URING_PTR_POISON;
