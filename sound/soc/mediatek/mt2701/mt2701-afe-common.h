@@ -89,7 +89,6 @@ struct mt2701_soc_variants {
 };
 
 struct mt2701_afe_private {
-	struct mt2701_i2s_path *i2s_path;
 	struct clk *base_ck[MT2701_BASE_CLK_NUM];
 	struct clk *mrgif_ck;
 	struct clk *hadds2pll_ck;
@@ -99,6 +98,7 @@ struct mt2701_afe_private {
 	bool mrg_enable[MTK_STREAM_NUM];
 
 	const struct mt2701_soc_variants *soc;
+	struct mt2701_i2s_path i2s_path[];
 };
 
 #endif

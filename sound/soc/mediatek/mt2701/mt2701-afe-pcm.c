@@ -1593,6 +1593,7 @@ static int mt2701_afe_runtime_resume(struct device *dev)
 
 static int mt2701_afe_pcm_dev_probe(struct platform_device *pdev)
 {
+	const struct mt2701_soc_variants *soc;
 	struct mtk_base_afe *afe;
 	struct mt2701_afe_private *afe_priv;
 	struct device *dev;
@@ -1602,22 +1603,18 @@ static int mt2701_afe_pcm_dev_probe(struct platform_device *pdev)
 	if (!afe)
 		return -ENOMEM;
 
-	afe->platform_priv = devm_kzalloc(&pdev->dev, sizeof(*afe_priv),
-					  GFP_KERNEL);
-	if (!afe->platform_priv)
+	soc = of_device_get_match_data(&pdev->dev);
+	afe_priv = devm_kzalloc(&pdev->dev,
+			struct_size(afe_priv, i2s_path, soc->i2s_num),
+			GFP_KERNEL);
+	if (!afe_priv)
 		return -ENOMEM;
 
-	afe_priv = afe->platform_priv;
-	afe_priv->soc = of_device_get_match_data(&pdev->dev);
+	afe_priv->soc = soc;
+
+	afe->platform_priv = afe_priv;
 	afe->dev = &pdev->dev;
 	dev = afe->dev;
-
-	afe_priv->i2s_path = devm_kcalloc(dev,
-					  afe_priv->soc->i2s_num,
-					  sizeof(struct mt2701_i2s_path),
-					  GFP_KERNEL);
-	if (!afe_priv->i2s_path)
-		return -ENOMEM;
 
 	irq_id = platform_get_irq_byname(pdev, "asys");
 	if (irq_id < 0)
