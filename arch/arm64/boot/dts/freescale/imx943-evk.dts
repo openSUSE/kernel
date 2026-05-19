@@ -1153,7 +1153,7 @@
 	keep-power-in-suspend;
 	non-removable;
 	wakeup-source;
-	status = "okay";
+	status = "disabled";
 };
 
 &wdog3 {
