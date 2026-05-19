@@ -75,11 +75,22 @@ enum zcrx_notification_type {
 	__ZCRX_NOTIF_TYPE_LAST,
 };
 
+enum zcrx_notification_desc_flags {
+	/* If set, stats_offset holds a valid offset to a notif_stats struct */
+	ZCRX_NOTIF_DESC_FLAG_STATS = 1 << 0,
+};
+
+struct zcrx_notif_stats {
+	__u64	copy_count;	/* cumulative copy-fallback CQEs */
+	__u64	copy_bytes;	/* cumulative bytes copied */
+};
+
 struct zcrx_notification_desc {
 	__u64	user_data;
 	__u32	type_mask;
-	__u32	__resv1;
-	__u64	__resv2[10];
+	__u32	flags; /* see enum zcrx_notification_desc_flags */
+	__u64	stats_offset; /* offset from the beginning of refill ring region for stats */
+	__u64	__resv2[9];
 };
 
 /*
