@@ -306,7 +306,7 @@ static void test_invalid_token_fd(void)
 	const char *msg = "Invalid map_token_fd.\n";
 	LIBBPF_OPTS(bpf_map_create_opts, opts,
 		    .map_flags = BPF_F_TOKEN_FD,
-		    .token_fd = 0xFF,
+		    .token_fd = -1,
 	);
 
 	test_map_create_array(&opts, msg);
@@ -353,6 +353,30 @@ static void test_excl_prog_hash_size_2(void)
 	test_map_create_array(&opts, msg);
 }
 
+static void test_common_attr_padding(void)
+{
+	struct bpf_common_attr_fake {
+		__u8 attrs[offsetofend(struct bpf_common_attr, log_true_size)];
+		__u32 pad;
+	} attr_common = {
+		.pad = 1,
+	};
+	union bpf_attr attr = {
+		.map_type    = BPF_MAP_TYPE_ARRAY,
+		.key_size    = 4,
+		.value_size  = 4,
+		.max_entries = 1,
+	};
+	int fd;
+
+	fd = syscall(__NR_bpf, BPF_MAP_CREATE | BPF_COMMON_ATTRS, &attr, sizeof(attr), &attr_common,
+		     sizeof(attr_common));
+	if (!ASSERT_LT(fd, 0, "syscall"))
+		close(fd);
+	else
+		ASSERT_EQ(errno, E2BIG, "errno");
+}
+
 void test_map_create_failure(void)
 {
 	if (test__start_subtest("invalid_vmlinux_value_type_id_struct_ops"))
@@ -377,4 +401,6 @@ void test_map_create_failure(void)
 		test_excl_prog_hash_size_1();
 	if (test__start_subtest("invalid_excl_prog_hash_size_2"))
 		test_excl_prog_hash_size_2();
+	if (test__start_subtest("common_attr_padding"))
+		test_common_attr_padding();
 }
