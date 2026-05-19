@@ -161,6 +161,8 @@ struct bnxt_re_user_mmap_entry {
 	struct bnxt_re_ucontext *uctx;
 	u64 mem_offset;
 	u8 mmap_flag;
+	bool dpi_valid;
+	struct bnxt_qplib_dpi dpi;
 };
 
 struct bnxt_re_dbr_obj {
