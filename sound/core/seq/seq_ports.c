@@ -108,14 +108,13 @@ static void port_subs_info_init(struct snd_seq_port_subs_info *grp)
 }
 
 
-/* create a port, port number or a negative error code is returned
+/* create a port, 0 on success or a negative error code is returned
  * the caller needs to unref the port via snd_seq_port_unlock() appropriately
  */
-int snd_seq_create_port(struct snd_seq_client *client, int port,
+int snd_seq_create_port(struct snd_seq_client *client,
 			struct snd_seq_client_port **port_ret)
 {
-	struct snd_seq_client_port *new_port, *p;
-	int num;
+	struct snd_seq_client_port *new_port;
 	
 	*port_ret = NULL;
 
@@ -141,15 +140,25 @@ int snd_seq_create_port(struct snd_seq_client *client, int port,
 	port_subs_info_init(&new_port->c_dest);
 	snd_use_lock_use(&new_port->use_lock);
 
+	*port_ret = new_port;
+
+	return 0;
+}
+
+/* insert the port; return the port address or a negative error code */
+int snd_seq_insert_port(struct snd_seq_client *client, int port,
+			struct snd_seq_client_port *new_port)
+{
+	struct snd_seq_client_port *p;
+	int num;
+
 	num = max(port, 0);
 	guard(mutex)(&client->ports_mutex);
 	guard(write_lock_irq)(&client->ports_lock);
 	struct list_head *insert_before = &client->ports_list_head;
 	list_for_each_entry(p, &client->ports_list_head, list) {
-		if (p->addr.port == port) {
-			kfree(new_port);
+		if (p->addr.port == port)
 			return -EBUSY;
-		}
 		if (p->addr.port > num) {
 			insert_before = &p->list;
 			break;
@@ -162,7 +171,6 @@ int snd_seq_create_port(struct snd_seq_client *client, int port,
 	client->num_ports++;
 	new_port->addr.port = num;	/* store the port number in the port */
 	sprintf(new_port->name, "port-%d", num);
-	*port_ret = new_port;
 
 	return num;
 }
