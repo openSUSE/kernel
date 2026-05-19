@@ -182,7 +182,7 @@ struct imx274_mode {
 };
 
 /*
- * imx274 test pattern related structure
+ * imx274 test pattern related enum
  */
 enum {
 	TEST_PATTERN_DISABLED = 0,
@@ -533,7 +533,7 @@ static const struct imx274_mode imx274_modes[] = {
 /*
  * struct imx274_ctrls - imx274 ctrl structure
  * @handler: V4L2 ctrl handler structure
- * @exposure: Pointer to expsure ctrl structure
+ * @exposure: Pointer to exposure ctrl structure
  * @gain: Pointer to gain ctrl structure
  * @vflip: Pointer to vflip ctrl structure
  * @test_pattern: Pointer to test pattern ctrl structure
@@ -547,7 +547,7 @@ struct imx274_ctrls {
 };
 
 /*
- * struct stim274 - imx274 device structure
+ * struct stimx274 - imx274 device structure
  * @sd: V4L2 subdevice structure
  * @pad: Media pad structure
  * @client: Pointer to I2C client
@@ -587,9 +587,6 @@ struct stimx274 {
 	    ? rounddown((dim), (step))			\
 	    : rounddown((dim) + (step) / 2, (step))))
 
-/*
- * Function declaration
- */
 static int imx274_set_gain(struct stimx274 *priv, struct v4l2_ctrl *ctrl);
 static int imx274_set_exposure(struct stimx274 *priv, int val);
 static int imx274_set_vflip(struct stimx274 *priv, int val);
@@ -640,9 +637,9 @@ static int imx274_write_table(struct stimx274 *priv, const struct reg_8 table[])
 
 	for (next = table;; next++) {
 		if ((next->addr != range_start + range_count) ||
-		    (next->addr == IMX274_TABLE_END) ||
-		    (next->addr == IMX274_TABLE_WAIT_MS) ||
-		    (range_count == max_range_vals)) {
+		    next->addr == IMX274_TABLE_END ||
+		    next->addr == IMX274_TABLE_WAIT_MS ||
+		    range_count == max_range_vals) {
 			if (range_count == 1)
 				err = regmap_write(regmap,
 						   range_start, range_vals[0]);
@@ -650,8 +647,6 @@ static int imx274_write_table(struct stimx274 *priv, const struct reg_8 table[])
 				err = regmap_bulk_write(regmap, range_start,
 							&range_vals[0],
 							range_count);
-			else
-				err = 0;
 
 			if (err)
 				return err;
@@ -1960,7 +1955,6 @@ static int imx274_probe(struct i2c_client *client)
 	struct device *dev = &client->dev;
 	int ret;
 
-	/* initialize imx274 */
 	imx274 = devm_kzalloc(dev, sizeof(*imx274), GFP_KERNEL);
 	if (!imx274)
 		return -ENOMEM;
@@ -2125,7 +2119,7 @@ static const struct dev_pm_ops imx274_pm_ops = {
 
 static struct i2c_driver imx274_i2c_driver = {
 	.driver = {
-		.name	= DRIVER_NAME,
+		.name = DRIVER_NAME,
 		.pm = &imx274_pm_ops,
 		.of_match_table	= imx274_of_id_table,
 	},
