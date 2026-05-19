@@ -3238,7 +3238,7 @@ int mlx5_ib_dev_res_cq_init(struct mlx5_ib_dev *dev)
 	 * devr->c0 is set once, never changed until device unload.
 	 * Avoid taking the mutex if initialization is already done.
 	 */
-	if (devr->c0)
+	if (smp_load_acquire(&devr->c0))
 		return 0;
 
 	mutex_lock(&devr->cq_lock);
@@ -3264,7 +3264,7 @@ int mlx5_ib_dev_res_cq_init(struct mlx5_ib_dev *dev)
 	}
 
 	devr->p0 = pd;
-	devr->c0 = cq;
+	smp_store_release(&devr->c0, cq);
 
 unlock:
 	mutex_unlock(&devr->cq_lock);
@@ -3282,7 +3282,7 @@ int mlx5_ib_dev_res_srq_init(struct mlx5_ib_dev *dev)
 	 * devr->s1 is set once, never changed until device unload.
 	 * Avoid taking the mutex if initialization is already done.
 	 */
-	if (devr->s1)
+	if (smp_load_acquire(&devr->s1))
 		return 0;
 
 	mutex_lock(&devr->srq_lock);
@@ -3324,7 +3324,7 @@ int mlx5_ib_dev_res_srq_init(struct mlx5_ib_dev *dev)
 	}
 
 	devr->s0 = s0;
-	devr->s1 = s1;
+	smp_store_release(&devr->s1, s1);
 
 unlock:
 	mutex_unlock(&devr->srq_lock);
