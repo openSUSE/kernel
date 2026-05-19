@@ -2362,13 +2362,13 @@ static int __init hash_pointers_mode_parse(char *str)
 	if (!str) {
 		pr_warn("Hash pointers mode empty; falling back to auto.\n");
 		hash_pointers_mode = HASH_PTR_AUTO;
-	} else if (strncmp(str, "auto", 4) == 0)   {
+	} else if (strcmp(str, "auto") == 0) {
 		pr_info("Hash pointers mode set to auto.\n");
 		hash_pointers_mode = HASH_PTR_AUTO;
-	} else if (strncmp(str, "never", 5) == 0) {
+	} else if (strcmp(str, "never") == 0) {
 		pr_info("Hash pointers mode set to never.\n");
 		hash_pointers_mode = HASH_PTR_NEVER;
-	} else if (strncmp(str, "always", 6) == 0) {
+	} else if (strcmp(str, "always") == 0) {
 		pr_info("Hash pointers mode set to always.\n");
 		hash_pointers_mode = HASH_PTR_ALWAYS;
 	} else {
