@@ -1234,8 +1234,6 @@ static const struct ctl_table s390dbf_table[] = {
 	},
 };
 
-static struct ctl_table_header *s390dbf_sysctl_header;
-
 /**
  * debug_stop_all() - stops the debug feature if stopping is allowed.
  *
@@ -1825,7 +1823,7 @@ EXPORT_SYMBOL(debug_sprintf_format_fn);
  */
 static int __init debug_init(void)
 {
-	s390dbf_sysctl_header = register_sysctl("s390dbf", s390dbf_table);
+	register_sysctl("s390dbf", s390dbf_table);
 	mutex_lock(&debug_mutex);
 	debug_debugfs_root_entry = debugfs_create_dir(DEBUG_DIR_ROOT, NULL);
 	initialized = 1;
