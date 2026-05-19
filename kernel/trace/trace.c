@@ -7928,8 +7928,8 @@ create_trace_option_files(struct trace_array *tr, struct tracer *tracer,
 	if (!topts)
 		return 0;
 
-	tr_topts = krealloc(tr->topts, sizeof(*tr->topts) * (tr->nr_topts + 1),
-			    GFP_KERNEL);
+	tr_topts = krealloc_array(tr->topts, tr->nr_topts + 1, sizeof(*tr->topts),
+				  GFP_KERNEL);
 	if (!tr_topts) {
 		kfree(topts);
 		return -ENOMEM;
