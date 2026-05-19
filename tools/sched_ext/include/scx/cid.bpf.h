@@ -32,7 +32,13 @@
 #define CMASK_MAX_WORDS 129
 #endif
 
-#define CMASK_NR_WORDS(nr_cids)		(((nr_cids) + 63) / 64 + 1)
+/*
+ * Mirrors SCX_CMASK_NR_WORDS in kernel/sched/ext_types.h. The u64 cast keeps
+ * the +63 from wrapping when @nr_cids is near U32_MAX, so cmask_reframe()
+ * bounds-checking the result against alloc_words catches the overflow instead
+ * of seeing a small value.
+ */
+#define CMASK_NR_WORDS(nr_cids)		((u32)(((u64)(nr_cids) + 63) / 64 + 1))
 
 static __always_inline bool __cmask_contains(const struct scx_cmask __arena *m, u32 cid)
 {
@@ -44,18 +50,76 @@ static __always_inline u64 __arena *__cmask_word(const struct scx_cmask __arena 
 	return (u64 __arena *)&m->bits[cid / 64 - m->base / 64];
 }
 
-static __always_inline void cmask_init(struct scx_cmask __arena *m, u32 base, u32 nr_cids)
+/**
+ * __cmask_init - Initialize @m with explicit storage capacity
+ * @m: cmask to initialize
+ * @base: first cid of the active range
+ * @nr_cids: number of cids in the active range
+ * @alloc_cids: storage capacity in cids, at least @nr_cids
+ *
+ * Use when storage is sized larger than the initial active range. All of
+ * bits[] is zeroed.
+ */
+static __always_inline void __cmask_init(struct scx_cmask __arena *m, u32 base,
+					 u32 nr_cids, u32 alloc_cids)
 {
-	u32 nr_words = CMASK_NR_WORDS(nr_cids), i;
+	u32 alloc_words, i;
+
+	if (unlikely(nr_cids > alloc_cids)) {
+		scx_bpf_error("__cmask_init: nr_cids=%u exceeds alloc_cids=%u",
+			      nr_cids, alloc_cids);
+		return;
+	}
+	alloc_words = CMASK_NR_WORDS(alloc_cids);
 
 	m->base = base;
 	m->nr_cids = nr_cids;
+	m->alloc_words = alloc_words;
 
 	bpf_for(i, 0, CMASK_MAX_WORDS) {
-		if (i >= nr_words)
+		if (i >= alloc_words)
 			break;
 		m->bits[i] = 0;
 	}
+}
+
+/**
+ * cmask_init - Initialize @m on tight storage
+ * @m: cmask to initialize
+ * @base: first cid of the active range
+ * @nr_cids: number of cids in the active range
+ *
+ * All of bits[] is zeroed.
+ */
+static __always_inline void cmask_init(struct scx_cmask __arena *m, u32 base, u32 nr_cids)
+{
+	__cmask_init(m, base, nr_cids, nr_cids);
+}
+
+/**
+ * cmask_reframe - Reshape @m's active range without resizing storage
+ * @m: cmask to reframe
+ * @base: new active range base
+ * @nr_cids: new active range length, must fit within @m->alloc_words
+ *
+ * Body bits within the new range become garbage - only the head and tail
+ * words are zeroed to keep the padding invariant.
+ */
+static __always_inline void cmask_reframe(struct scx_cmask __arena *m, u32 base, u32 nr_cids)
+{
+	if (CMASK_NR_WORDS(nr_cids) > m->alloc_words) {
+		scx_bpf_error("cmask_reframe: nr_cids=%u exceeds alloc_words=%u",
+			      nr_cids, m->alloc_words);
+		return;
+	}
+	if (nr_cids) {
+		u32 last_word = ((base & 63) + nr_cids - 1) / 64;
+
+		m->bits[0] = 0;
+		m->bits[last_word] = 0;
+	}
+	m->base = base;
+	m->nr_cids = nr_cids;
 }
 
 static __always_inline bool cmask_test(const struct scx_cmask __arena *m, u32 cid)

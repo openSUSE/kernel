@@ -51,6 +51,8 @@ extern s16 *scx_cpu_to_cid_tbl;
 extern struct scx_cid_topo *scx_cid_topo;
 extern struct btf_id_set8 scx_kfunc_ids_init;
 
+void scx_cmask_clear(struct scx_cmask *m);
+void scx_cmask_fill(struct scx_cmask *m);
 s32 scx_cid_init(struct scx_sched *sch);
 int scx_cid_kfunc_init(void);
 void scx_cpumask_to_cmask(const struct cpumask *src, struct scx_cmask *dst);
@@ -147,11 +149,64 @@ static inline u64 *__scx_cmask_word(const struct scx_cmask *m, u32 cid)
 	return (u64 *)&m->bits[cid / 64 - m->base / 64];
 }
 
-static inline void scx_cmask_init(struct scx_cmask *m, u32 base, u32 nr_cids)
+/**
+ * __scx_cmask_init - Initialize @m with explicit storage capacity
+ * @m: cmask to initialize
+ * @base: first cid of the active range
+ * @nr_cids: number of cids in the active range
+ * @alloc_cids: storage capacity in cids, at least @nr_cids
+ *
+ * Use when storage is sized larger than the initial active range. All of
+ * bits[] is zeroed.
+ */
+static inline void __scx_cmask_init(struct scx_cmask *m, u32 base, u32 nr_cids,
+				    u32 alloc_cids)
 {
+	if (WARN_ON_ONCE(alloc_cids < nr_cids))
+		nr_cids = alloc_cids;
+
 	m->base = base;
 	m->nr_cids = nr_cids;
-	memset(m->bits, 0, SCX_CMASK_NR_WORDS(nr_cids) * sizeof(u64));
+	m->alloc_words = SCX_CMASK_NR_WORDS(alloc_cids);
+	memset(m->bits, 0, m->alloc_words * sizeof(u64));
+}
+
+/**
+ * scx_cmask_init - Initialize @m on tight storage
+ * @m: cmask to initialize
+ * @base: first cid of the active range
+ * @nr_cids: number of cids in the active range
+ *
+ * All of bits[] is zeroed.
+ */
+static inline void scx_cmask_init(struct scx_cmask *m, u32 base, u32 nr_cids)
+{
+	__scx_cmask_init(m, base, nr_cids, nr_cids);
+}
+
+/**
+ * scx_cmask_reframe - Reshape @m's active range without resizing storage
+ * @m: cmask to reframe
+ * @base: new active range base
+ * @nr_cids: new active range length, must fit within @m->alloc_words
+ *
+ * Body bits within the new range become garbage - only the head and tail
+ * words are zeroed to keep the padding invariant.
+ */
+static inline void scx_cmask_reframe(struct scx_cmask *m, u32 base, u32 nr_cids)
+{
+	if (WARN_ON_ONCE(SCX_CMASK_NR_WORDS(nr_cids) > m->alloc_words))
+		return;
+
+	if (nr_cids) {
+		u32 last_word = ((base & 63) + nr_cids - 1) / 64;
+
+		m->bits[0] = 0;
+		m->bits[last_word] = 0;
+	}
+
+	m->base = base;
+	m->nr_cids = nr_cids;
 }
 
 static inline void __scx_cmask_set(struct scx_cmask *m, u32 cid)

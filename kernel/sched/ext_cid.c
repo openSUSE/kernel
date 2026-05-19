@@ -55,6 +55,7 @@ static s32 scx_cid_arrays_alloc(void)
 	s16 *cid_to_cpu, *cpu_to_cid;
 	struct scx_cid_topo *cid_topo;
 	struct scx_cmask __percpu *set_cmask_scratch;
+	s32 cpu;
 
 	if (scx_cid_to_cpu_tbl)
 		return 0;
@@ -77,6 +78,9 @@ static s32 scx_cid_arrays_alloc(void)
 	WRITE_ONCE(scx_cid_to_cpu_tbl, cid_to_cpu);
 	WRITE_ONCE(scx_cpu_to_cid_tbl, cpu_to_cid);
 	WRITE_ONCE(scx_cid_topo, cid_topo);
+	for_each_possible_cpu(cpu)
+		scx_cmask_init(per_cpu_ptr(set_cmask_scratch, cpu),
+			       0, npossible);
 	WRITE_ONCE(scx_set_cmask_scratch, set_cmask_scratch);
 	return 0;
 }
@@ -223,18 +227,60 @@ s32 scx_cid_init(struct scx_sched *sch)
 }
 
 /**
+ * scx_cmask_clear - Zero every bit in @m's active range
+ * @m: cmask to clear
+ *
+ * Storage past the active range is left as is.
+ */
+void scx_cmask_clear(struct scx_cmask *m)
+{
+	u32 nr_words;
+
+	if (!m->nr_cids)
+		return;
+	nr_words = (m->base + m->nr_cids - 1) / 64 - m->base / 64 + 1;
+	memset(m->bits, 0, nr_words * sizeof(u64));
+}
+
+/**
+ * scx_cmask_fill - Set every bit in @m's active range
+ * @m: cmask to fill
+ *
+ * Counterpart to scx_cmask_clear(). Storage past the active range is left as is.
+ */
+void scx_cmask_fill(struct scx_cmask *m)
+{
+	u32 nr_words, head_bits, tail_bits;
+
+	if (!m->nr_cids)
+		return;
+	nr_words = (m->base + m->nr_cids - 1) / 64 - m->base / 64 + 1;
+	memset(m->bits, 0xff, nr_words * sizeof(u64));
+
+	/* clear word-0 bits below base */
+	head_bits = m->base & 63;
+	if (head_bits)
+		m->bits[0] &= ~((1ULL << head_bits) - 1);
+
+	/* clear last-word bits at or past base + nr_cids */
+	tail_bits = (m->base + m->nr_cids) & 63;
+	if (tail_bits)
+		m->bits[nr_words - 1] &= (1ULL << tail_bits) - 1;
+}
+
+/**
  * scx_cpumask_to_cmask - Translate a kernel cpumask into a cmask
  * @src: source cpumask
  * @dst: cmask to write
  *
- * Initialize @dst to cover the full cid space [0, num_possible_cpus()) and
- * set the bit for each cid whose cpu is in @src.
+ * Clear @dst's active range and set the bit for each cid whose cpu is in
+ * @src and lies within that range. Out-of-range cids are silently ignored.
  */
 void scx_cpumask_to_cmask(const struct cpumask *src, struct scx_cmask *dst)
 {
 	s32 cpu;
 
-	scx_cmask_init(dst, 0, num_possible_cpus());
+	scx_cmask_clear(dst);
 	for_each_cpu(cpu, src) {
 		s32 cid = __scx_cpu_to_cid(cpu);
 

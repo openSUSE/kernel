@@ -69,9 +69,10 @@ struct scx_cid_topo {
  *
  * A cmask covers the cid range [base, base + nr_cids). bits[] is aligned to the
  * global 64-cid grid: bits[0] spans [base & ~63, (base & ~63) + 64), so the
- * first (base & 63) bits of bits[0] are head padding and any tail past base +
- * nr_cids is tail padding. Both must stay zero for the lifetime of the mask;
- * all mutating helpers preserve that invariant.
+ * first (base & 63) bits of bits[0] are head padding and the trailing bits of
+ * the last active word past base + nr_cids are tail padding. Both stay zero;
+ * all mutating helpers preserve that. Words past the last active word are not
+ * read by any helper and have no constraint.
  *
  * Grid alignment means two cmasks always address bits[] against the same global
  * 64-cid windows, so cross-cmask word ops (AND, OR, ...) reduce to
@@ -83,22 +84,61 @@ struct scx_cid_topo {
 struct scx_cmask {
 	u32 base;
 	u32 nr_cids;
-	DECLARE_FLEX_ARRAY(u64, bits);
+	u32 alloc_words;
+	u64 bits[] __counted_by(alloc_words);
 };
 
 /*
  * Number of u64 words of bits[] storage that covers @nr_cids regardless of base
  * alignment. The +1 absorbs up to 63 bits of head padding when base is not
  * 64-aligned - always allocating one extra word beats branching on base or
- * splitting the compute.
+ * splitting the compute. The u64 cast keeps the +63 from wrapping when @nr_cids
+ * is near U32_MAX, so callers bounds-checking the result against @alloc_words
+ * catch the overflow instead of seeing a small value.
  */
-#define SCX_CMASK_NR_WORDS(nr_cids)	(((nr_cids) + 63) / 64 + 1)
+#define SCX_CMASK_NR_WORDS(nr_cids)	((u32)(((u64)(nr_cids) + 63) / 64 + 1))
 
-/*
- * Define an on-stack cmask for up to @cap_bits. @name is a struct scx_cmask *
- * aliasing zero-initialized storage; call scx_cmask_init() to set base/nr_cids.
+/**
+ * __SCX_CMASK_DEFINE - Define an on-stack cmask with explicit storage capacity
+ * @NAME: variable name to define
+ * @BASE: first cid of the active range
+ * @NR_CIDS: active range length
+ * @ALLOC_CIDS: storage capacity in cids, at least @NR_CIDS
+ *
+ * @NAME aliases zero-initialized storage with the active range set to
+ * [BASE, BASE + NR_CIDS). Use scx_cmask_reframe() to reshape later, up to
+ * @ALLOC_CIDS.
  */
-#define SCX_CMASK_DEFINE(name, cap_bits)	\
-	DEFINE_RAW_FLEX(struct scx_cmask, name, bits, SCX_CMASK_NR_WORDS(cap_bits))
+#define __SCX_CMASK_DEFINE(NAME, BASE, NR_CIDS, ALLOC_CIDS)			\
+	_DEFINE_FLEX(struct scx_cmask, NAME, bits, SCX_CMASK_NR_WORDS(ALLOC_CIDS), \
+		     = { .base = (BASE),					\
+			 .nr_cids = (NR_CIDS),					\
+			 .alloc_words = SCX_CMASK_NR_WORDS(ALLOC_CIDS) })
+
+/**
+ * SCX_CMASK_DEFINE - Define an on-stack cmask on tight storage
+ * @NAME: variable name to define
+ * @BASE: first cid of the active range
+ * @NR_CIDS: active range length, also storage capacity
+ *
+ * @NAME aliases zero-initialized storage with the active range and storage
+ * both [BASE, BASE + NR_CIDS).
+ */
+#define SCX_CMASK_DEFINE(NAME, BASE, NR_CIDS)					\
+	__SCX_CMASK_DEFINE(NAME, BASE, NR_CIDS, NR_CIDS)
+
+/**
+ * SCX_CMASK_DEFINE_SHARD - Define an on-stack cmask sized to one shard
+ * @NAME: variable name to define
+ * @BASE: first cid of the active range
+ * @NR_CIDS: active range length, must be <= SCX_CID_SHARD_MAX_CPUS
+ *
+ * Storage is fixed at SCX_CID_SHARD_MAX_CPUS, active range framed by
+ * (BASE, NR_CIDS). Passing NR_CIDS > SCX_CID_SHARD_MAX_CPUS leaves the
+ * cmask claiming more bits than storage holds and subsequent cmask
+ * operations will overrun.
+ */
+#define SCX_CMASK_DEFINE_SHARD(NAME, BASE, NR_CIDS)				\
+	__SCX_CMASK_DEFINE(NAME, BASE, NR_CIDS, SCX_CID_SHARD_MAX_CPUS)
 
 #endif /* _KERNEL_SCHED_EXT_TYPES_H */
