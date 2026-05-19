@@ -113,6 +113,7 @@ struct dw_mipi_csi2rx_device {
 
 	enum v4l2_mbus_type bus_type;
 	u32 lanes_num;
+	u64 enabled_streams;
 
 	const struct dw_mipi_csi2rx_drvdata *drvdata;
 };
@@ -539,26 +540,33 @@ static int dw_mipi_csi2rx_enable_streams(struct v4l2_subdev *sd,
 					       DW_MIPI_CSI2RX_PAD_SRC,
 					       &streams_mask);
 
-	ret = pm_runtime_resume_and_get(dev);
-	if (ret)
-		goto err;
+	if (!csi2->enabled_streams) {
+		ret = pm_runtime_resume_and_get(dev);
+		if (ret)
+			goto err;
 
-	ret = dw_mipi_csi2rx_start(csi2);
-	if (ret) {
-		dev_err(dev, "failed to enable CSI hardware\n");
-		goto err_pm_runtime_put;
+		ret = dw_mipi_csi2rx_start(csi2);
+		if (ret) {
+			dev_err(dev, "failed to enable CSI hardware\n");
+			goto err_pm_runtime_put;
+		}
 	}
 
 	ret = v4l2_subdev_enable_streams(remote_sd, remote_pad->index, mask);
 	if (ret)
 		goto err_csi_stop;
 
+	csi2->enabled_streams |= streams_mask;
+
 	return 0;
 
 err_csi_stop:
-	dw_mipi_csi2rx_stop(csi2);
+	/* Stop CSI hardware if no streams are enabled */
+	if (!csi2->enabled_streams)
+		dw_mipi_csi2rx_stop(csi2);
 err_pm_runtime_put:
-	pm_runtime_put(dev);
+	if (!csi2->enabled_streams)
+		pm_runtime_put(dev);
 err:
 	return ret;
 }
@@ -583,10 +591,15 @@ static int dw_mipi_csi2rx_disable_streams(struct v4l2_subdev *sd,
 					       &streams_mask);
 
 	ret = v4l2_subdev_disable_streams(remote_sd, remote_pad->index, mask);
+	if (ret)
+		dev_err(dev, "failed to disable streams on remote subdev: %d\n", ret);
 
-	dw_mipi_csi2rx_stop(csi2);
+	csi2->enabled_streams &= ~streams_mask;
 
-	pm_runtime_put(dev);
+	if (!csi2->enabled_streams) {
+		dw_mipi_csi2rx_stop(csi2);
+		pm_runtime_put(dev);
+	}
 
 	return ret;
 }
