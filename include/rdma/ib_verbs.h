@@ -2783,6 +2783,8 @@ struct ib_device_ops {
 	DECLARE_RDMA_OBJ_SIZE(ib_ucontext);
 	DECLARE_RDMA_OBJ_SIZE(ib_xrcd);
 	DECLARE_RDMA_OBJ_SIZE(rdma_counter);
+
+	void *suse_kabi_padding[4];
 };
 
 struct ib_core_device {
