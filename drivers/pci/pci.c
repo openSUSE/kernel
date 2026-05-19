@@ -2910,11 +2910,23 @@ void pci_config_pm_runtime_put(struct pci_dev *pdev)
  */
 bool pci_suspend_retains_context(struct pci_dev *pdev)
 {
+	struct pci_host_bridge *bridge = pci_find_host_bridge(pdev->bus);
+
 	/*
 	 * If the platform firmware (like ACPI) is involved at the end of
 	 * system suspend, device context may not be retained.
 	 */
 	if (pm_suspend_via_firmware())
+		return false;
+
+	/*
+	 * Some host bridges power off the PHY to enter deep low-power
+	 * modes during system suspend. Exiting L1SS from this condition
+	 * may violate timing requirements and result in Link Down (LDn),
+	 * which causes a reset of the device.  On such platforms, the
+	 * endpoint must be prepared for context loss.
+	 */
+	if (bridge && bridge->broken_l1ss_resume)
 		return false;
 
 	/* Assume that the context is retained by default */
