@@ -67,10 +67,10 @@ struct scx_cid_topo {
  * cmask: variable-length, base-windowed bitmap over cid space
  * -----------------------------------------------------------
  *
- * A cmask covers the cid range [base, base + nr_bits). bits[] is aligned to the
+ * A cmask covers the cid range [base, base + nr_cids). bits[] is aligned to the
  * global 64-cid grid: bits[0] spans [base & ~63, (base & ~63) + 64), so the
  * first (base & 63) bits of bits[0] are head padding and any tail past base +
- * nr_bits is tail padding. Both must stay zero for the lifetime of the mask;
+ * nr_cids is tail padding. Both must stay zero for the lifetime of the mask;
  * all mutating helpers preserve that invariant.
  *
  * Grid alignment means two cmasks always address bits[] against the same global
@@ -82,21 +82,21 @@ struct scx_cid_topo {
  */
 struct scx_cmask {
 	u32 base;
-	u32 nr_bits;
+	u32 nr_cids;
 	DECLARE_FLEX_ARRAY(u64, bits);
 };
 
 /*
- * Number of u64 words of bits[] storage that covers @nr_bits regardless of base
+ * Number of u64 words of bits[] storage that covers @nr_cids regardless of base
  * alignment. The +1 absorbs up to 63 bits of head padding when base is not
  * 64-aligned - always allocating one extra word beats branching on base or
  * splitting the compute.
  */
-#define SCX_CMASK_NR_WORDS(nr_bits)	(((nr_bits) + 63) / 64 + 1)
+#define SCX_CMASK_NR_WORDS(nr_cids)	(((nr_cids) + 63) / 64 + 1)
 
 /*
  * Define an on-stack cmask for up to @cap_bits. @name is a struct scx_cmask *
- * aliasing zero-initialized storage; call scx_cmask_init() to set base/nr_bits.
+ * aliasing zero-initialized storage; call scx_cmask_init() to set base/nr_cids.
  */
 #define SCX_CMASK_DEFINE(name, cap_bits)	\
 	DEFINE_RAW_FLEX(struct scx_cmask, name, bits, SCX_CMASK_NR_WORDS(cap_bits))

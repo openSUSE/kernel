@@ -138,7 +138,7 @@ static inline bool scx_is_cid_type(void)
 
 static inline bool __scx_cmask_contains(const struct scx_cmask *m, u32 cid)
 {
-	return likely(cid >= m->base && cid < m->base + m->nr_bits);
+	return likely(cid >= m->base && cid < m->base + m->nr_cids);
 }
 
 /* Word in bits[] covering @cid. @cid must satisfy __scx_cmask_contains(). */
@@ -147,11 +147,11 @@ static inline u64 *__scx_cmask_word(const struct scx_cmask *m, u32 cid)
 	return (u64 *)&m->bits[cid / 64 - m->base / 64];
 }
 
-static inline void scx_cmask_init(struct scx_cmask *m, u32 base, u32 nr_bits)
+static inline void scx_cmask_init(struct scx_cmask *m, u32 base, u32 nr_cids)
 {
 	m->base = base;
-	m->nr_bits = nr_bits;
-	memset(m->bits, 0, SCX_CMASK_NR_WORDS(nr_bits) * sizeof(u64));
+	m->nr_cids = nr_cids;
+	memset(m->bits, 0, SCX_CMASK_NR_WORDS(nr_cids) * sizeof(u64));
 }
 
 static inline void __scx_cmask_set(struct scx_cmask *m, u32 cid)
