@@ -1464,8 +1464,24 @@ static long tmigr_trigger_active(void *unused)
 	return 0;
 }
 
-static struct tmigr_hierarchy *__tmigr_get_hierarchy(unsigned int capacity)
+static unsigned int tmigr_get_capacity(int cpu)
 {
+	/*
+	 * nohz_full CPUs need to make sure there is always an available (online)
+	 * and never idle migrator to handle all their global timers. That duty
+	 * is served by the timekeeper which then never stops its tick. But the
+	 * timekeeper must then belong to the same hierarchy as all the nohz_full
+	 * CPUs. Simply turn off capacity awareness when nohz_full is running.
+	 */
+	if (tick_nohz_full_enabled())
+		return SCHED_CAPACITY_SCALE;
+	else
+		return arch_scale_cpu_capacity(cpu);
+}
+
+static struct tmigr_hierarchy *__tmigr_get_hierarchy(int cpu)
+{
+	unsigned int capacity = tmigr_get_capacity(cpu);
 	struct tmigr_hierarchy *iter;
 
 	list_for_each_entry(iter, &tmigr_hierarchy_list, node) {
@@ -1500,7 +1516,7 @@ static int tmigr_clear_cpu_available(unsigned int cpu)
 	}
 
 	if (firstexp != KTIME_MAX) {
-		struct tmigr_hierarchy *hier = __tmigr_get_hierarchy(arch_scale_cpu_capacity(cpu));
+		struct tmigr_hierarchy *hier = __tmigr_get_hierarchy(cpu);
 
 		if (WARN_ON_ONCE(!hier))
 			return -EINVAL;
@@ -1938,11 +1954,11 @@ out:
 	return err;
 }
 
-static struct tmigr_hierarchy *tmigr_get_hierarchy(unsigned int capacity)
+static struct tmigr_hierarchy *tmigr_get_hierarchy(int cpu)
 {
 	struct tmigr_hierarchy *hier;
 
-	hier = __tmigr_get_hierarchy(capacity);
+	hier = __tmigr_get_hierarchy(cpu);
 
 	if (hier)
 		return hier;
@@ -1962,7 +1978,7 @@ static struct tmigr_hierarchy *tmigr_get_hierarchy(unsigned int capacity)
 	for (int i = 0; i < tmigr_hierarchy_levels; i++)
 		INIT_LIST_HEAD(&hier->level_list[i]);
 
-	hier->capacity = capacity;
+	hier->capacity = tmigr_get_capacity(cpu);
 	list_add_tail(&hier->node, &tmigr_hierarchy_list);
 
 	return hier;
@@ -2000,7 +2016,7 @@ static long connect_old_root_work(void *arg)
 	struct tmigr_hierarchy *hier;
 	int cpu = smp_processor_id();
 
-	hier = __tmigr_get_hierarchy(arch_scale_cpu_capacity(cpu));
+	hier = __tmigr_get_hierarchy(cpu);
 	if (WARN_ON_ONCE(!hier))
 		return -EINVAL;
 
@@ -2016,7 +2032,7 @@ static int tmigr_add_cpu(unsigned int cpu)
 
 	guard(mutex)(&tmigr_mutex);
 
-	hier = tmigr_get_hierarchy(arch_scale_cpu_capacity(cpu));
+	hier = tmigr_get_hierarchy(cpu);
 	if (IS_ERR(hier))
 		return PTR_ERR(hier);
 
