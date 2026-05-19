@@ -36,6 +36,10 @@
  *
  * LUO uses Kexec Handover to transfer memory state from the current kernel to
  * the next kernel. For more details see Documentation/core-api/kho/index.rst.
+ *
+ * .. note::
+ *     To enable LUO, boot the kernel with the ``liveupdate=on`` command line
+ *     parameter.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
