@@ -714,7 +714,8 @@ static int vsi_iommu_probe(struct platform_device *pdev)
 	pm_runtime_use_autosuspend(dev);
 	pm_runtime_enable(dev);
 
-	err = iommu_device_sysfs_add(&iommu->iommu, dev, NULL, dev_name(dev));
+	err = iommu_device_sysfs_add(&iommu->iommu, dev, NULL, "%s",
+				     dev_name(dev));
 	if (err)
 		goto err_runtime_disable;
 
