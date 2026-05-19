@@ -67,6 +67,7 @@ kernel e sobre como ver seu trabalho integrado.
    :maxdepth: 1
 
    Introdução <process/1.Intro>
+   Index de documentos do Kernel <process/kernel-docs>
    Regras de licenciamento <process/license-rules>
    Como começar <process/howto>
    Requisitos mínimos <process/changes>
