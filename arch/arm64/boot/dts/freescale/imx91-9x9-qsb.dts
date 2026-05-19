@@ -230,6 +230,12 @@
 			MX91_PAD_SD2_VSELECT__USDHC2_VSELECT                    0x51e
 		>;
 	};
+
+	pinctrl_wdog: wdoggrp {
+		fsl,pins = <
+			MX91_PAD_WDOG_ANY__WDOG1_WDOG_ANY	0x31e
+		>;
+	};
 };
 
 &lpi2c1 {
@@ -419,6 +425,8 @@
 };
 
 &wdog3 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_wdog>;
 	fsl,ext-reset-output;
 	status = "okay";
 };
