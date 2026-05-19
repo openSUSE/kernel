@@ -1677,6 +1677,7 @@ static int reverse_path_check_proc(struct ep_ctl_ctx *ctx,
  *                      anchoring files with newly proposed links; make
  *                      sure those links don't push any path-length bucket
  *                      over its limit in path_limits[].
+ * @ctx: Per-do_epoll_ctl() scratch for the loop / path checks.
  *
  * Return: %zero if the proposed links don't create too many paths,
  *	    %-1 otherwise.
@@ -2339,6 +2340,7 @@ static int ep_poll(struct eventpoll *ep, struct epoll_event __user *events,
  *                      epoll file does not create closed loops, and
  *                      determine the depth of the subtree starting at @ep
  *
+ * @ctx: Per-do_epoll_ctl() scratch for the loop / path checks.
  * @ep: the &struct eventpoll to be currently checked.
  * @depth: Current depth of the path being checked.
  *
