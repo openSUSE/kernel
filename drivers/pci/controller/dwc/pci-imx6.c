@@ -20,6 +20,7 @@
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/pci.h>
+#include <linux/pci-pwrctrl.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
@@ -1363,6 +1364,7 @@ static int imx_pcie_host_init(struct dw_pcie_rp *pp)
 			return ret;
 	}
 
+	/* Legacy regulator handling for DT backward compatibility. */
 	if (imx_pcie->vpcie) {
 		ret = regulator_enable(imx_pcie->vpcie);
 		if (ret) {
@@ -1372,10 +1374,22 @@ static int imx_pcie_host_init(struct dw_pcie_rp *pp)
 		}
 	}
 
+	ret = pci_pwrctrl_create_devices(dev);
+	if (ret) {
+		dev_err(dev, "failed to create pwrctrl devices\n");
+		goto err_reg_disable;
+	}
+
+	ret = pci_pwrctrl_power_on_devices(dev);
+	if (ret) {
+		dev_err(dev, "failed to power on pwrctrl devices\n");
+		goto err_pwrctrl_destroy;
+	}
+
 	ret = imx_pcie_clk_enable(imx_pcie);
 	if (ret) {
 		dev_err(dev, "unable to enable pcie clocks: %d\n", ret);
-		goto err_reg_disable;
+		goto err_pwrctrl_power_off;
 	}
 
 	if (pp->bridge && imx_check_flag(imx_pcie, IMX_PCIE_FLAG_HAS_LUT)) {
@@ -1437,6 +1451,11 @@ err_phy_exit:
 	phy_exit(imx_pcie->phy);
 err_clk_disable:
 	imx_pcie_clk_disable(imx_pcie);
+err_pwrctrl_power_off:
+	pci_pwrctrl_power_off_devices(dev);
+err_pwrctrl_destroy:
+	if (ret != -EPROBE_DEFER)
+		pci_pwrctrl_destroy_devices(dev);
 err_reg_disable:
 	if (imx_pcie->vpcie)
 		regulator_disable(imx_pcie->vpcie);
@@ -1455,6 +1474,7 @@ static void imx_pcie_host_exit(struct dw_pcie_rp *pp)
 	}
 	imx_pcie_clk_disable(imx_pcie);
 
+	pci_pwrctrl_power_off_devices(pci->dev);
 	if (imx_pcie->vpcie)
 		regulator_disable(imx_pcie->vpcie);
 }
@@ -1966,6 +1986,8 @@ static void imx_pcie_shutdown(struct platform_device *pdev)
 	/* bring down link, so bootloader gets clean state in case of reboot */
 	imx_pcie_assert_core_reset(imx_pcie);
 	imx_pcie_assert_perst(imx_pcie, true);
+	pci_pwrctrl_power_off_devices(&pdev->dev);
+	pci_pwrctrl_destroy_devices(&pdev->dev);
 }
 
 static const struct imx_pcie_drvdata drvdata[] = {
