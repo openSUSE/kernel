@@ -177,6 +177,11 @@ struct vgic_global {
 	bool			has_gcie_v3_compat;
 
 	u32			ich_vtr_el2;
+
+	/* GICv5 PPI capabilities */
+	struct {
+		DECLARE_BITMAP(impl_ppi_mask, VGIC_V5_NR_PRIVATE_IRQS);
+	} vgic_v5_ppi_caps;
 };
 
 extern struct vgic_global kvm_vgic_global_state;
@@ -490,11 +495,6 @@ struct vgic_v5_cpu_if {
 	u64	vgic_icsr;
 
 	struct gicv5_vpe gicv5_vpe;
-};
-
-/* What PPI capabilities does a GICv5 host have */
-struct vgic_v5_ppi_caps {
-	DECLARE_BITMAP(impl_ppi_mask, VGIC_V5_NR_PRIVATE_IRQS);
 };
 
 struct vgic_cpu {
