@@ -20,11 +20,12 @@
 #include "lnl.h"
 #include <sound/hda-mlink.h>
 
-/* Configure DSP offload for DMIC/SSP */
+/* Configure DSP offload for DMIC/SSP/UAOL */
 static void hdac_bus_set_dsp_offload(struct hdac_bus *bus, bool enable)
 {
 	hdac_bus_eml_enable_offload(bus, true, AZX_REG_ML_LEPTR_ID_INTEL_SSP, enable);
 	hdac_bus_eml_enable_offload(bus, true, AZX_REG_ML_LEPTR_ID_INTEL_DMIC, enable);
+	hdac_bus_eml_enable_offload(bus, true, AZX_REG_ML_LEPTR_ID_INTEL_UAOL, enable);
 }
 
 static int lnl_hda_dsp_probe(struct snd_sof_dev *sdev)
