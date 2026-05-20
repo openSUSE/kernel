@@ -4743,6 +4743,7 @@ static int perf_sched__schedstat_live(struct perf_sched *sched,
 	int reset = 0;
 	int err = 0;
 
+	done = 0;
 	signal(SIGINT, sighandler);
 	signal(SIGCHLD, sighandler);
 	signal(SIGTERM, sighandler);
@@ -4788,8 +4789,11 @@ static int perf_sched__schedstat_live(struct perf_sched *sched,
 	if (argc)
 		evlist__start_workload(evlist);
 
-	/* wait for signal */
-	pause();
+	while (!done) {
+		if (argc && waitpid(evlist->workload.pid, NULL, WNOHANG) > 0)
+			break;
+		sleep(1);
+	}
 
 	if (reset) {
 		err = disable_sched_schedstat();
