@@ -170,7 +170,8 @@ struct rockchip_usb2phy_port_cfg {
  * @reg: the address offset of grf for usb-phy config.
  * @num_ports: specify how many ports that the phy has.
  * @phy_tuning: phy default parameters tuning.
- * @clkout_ctl: keep on/turn off output clk of phy.
+ * @clkout_ctl: register to enable output clk of phy, when set in GRF
+ * @clkout_ctl_phy: register to enable output clk of phy, when set inside phy
  * @port_cfgs: usb-phy port configurations.
  * @chg_det: charger detection registers.
  */
