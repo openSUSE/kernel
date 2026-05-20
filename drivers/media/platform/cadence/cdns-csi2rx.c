@@ -617,6 +617,7 @@ static const struct v4l2_subdev_pad_ops csi2rx_pad_ops = {
 	.set_fmt	= csi2rx_set_fmt,
 	.enable_streams         = csi2rx_enable_streams,
 	.disable_streams        = csi2rx_disable_streams,
+	.get_frame_desc	= v4l2_subdev_get_frame_desc_passthrough,
 };
 
 static const struct v4l2_subdev_core_ops csi2rx_core_ops = {
