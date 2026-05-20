@@ -161,6 +161,17 @@ static inline bool drm_exec_is_contended(struct drm_exec *exec)
 		goto *__drm_exec_retry_ptr;			\
 	} while (0)
 
+/**
+ * drm_exec_ticket - return the ww_acquire_ctx for this exec context
+ * @exec: drm_exec object
+ *
+ * Return: Pointer to the ww_acquire_ctx embedded in @exec.
+ */
+static inline struct ww_acquire_ctx *drm_exec_ticket(struct drm_exec *exec)
+{
+	return &exec->ticket;
+}
+
 void drm_exec_init(struct drm_exec *exec, u32 flags, unsigned nr);
 void drm_exec_fini(struct drm_exec *exec);
 bool drm_exec_cleanup(struct drm_exec *exec);
