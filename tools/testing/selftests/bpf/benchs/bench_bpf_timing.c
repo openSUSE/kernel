@@ -65,6 +65,31 @@ static int collect_samples(struct bpf_bench_timing *t,
 	return total;
 }
 
+static int filter_outliers_iqr(double *sorted, int n)
+{
+	double q1, q3, iqr, lo, hi;
+	int start = 0, end = n;
+
+	if (n < 8)
+		return n;
+
+	q1 = sorted[n / 4];
+	q3 = sorted[3 * n / 4];
+	iqr = q3 - q1;
+	lo = q1 - 1.5 * iqr;
+	hi = q3 + 1.5 * iqr;
+
+	while (start < end && sorted[start] < lo)
+		start++;
+	while (end > start && sorted[end - 1] > hi)
+		end--;
+
+	if (start > 0)
+		memmove(sorted, sorted + start, (end - start) * sizeof(double));
+
+	return end - start;
+}
+
 static void compute_stats(const double *sorted, int n,
 			  struct timing_stats *s)
 {
@@ -150,6 +175,7 @@ void bpf_bench_timing_report(struct bpf_bench_timing *t, const char *name, const
 		return;
 	}
 
+	total = filter_outliers_iqr(all, total);
 	compute_stats(all, total, &s);
 
 	if (t->machine_readable) {

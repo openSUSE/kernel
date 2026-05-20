@@ -563,11 +563,22 @@ static void create_per_cpu_lru_maps(struct xdp_lb_bench *skel)
 	nr_inner_maps = nr_cpus;
 }
 
+static __u64 ktime_get_ns(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (__u64)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+}
+
 static void populate_lru(const struct test_scenario *sc, __u32 real_idx)
 {
 	struct real_pos_lru lru = { .pos = real_idx };
 	struct flow_key fk;
 	int i, err;
+
+	if (sc->ip_proto == IPPROTO_UDP)
+		lru.atime = ktime_get_ns();
 
 	build_flow_key(&fk, sc);
 
