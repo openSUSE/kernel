@@ -1791,6 +1791,11 @@ static int process_sched_switch_event(const struct perf_tool *tool,
 	u32 prev_pid = perf_sample__intval(sample, "prev_pid"),
 	    next_pid = perf_sample__intval(sample, "next_pid");
 
+	if (this_cpu < 0 || this_cpu >= MAX_CPUS) {
+		pr_warning("Out-of-bound sample CPU %d. Skipping sample\n", this_cpu);
+		return 0;
+	}
+
 	if (sched->curr_pid[this_cpu] != (u32)-1) {
 		/*
 		 * Are we trying to switch away a PID that is
@@ -1812,6 +1817,11 @@ static int process_sched_runtime_event(const struct perf_tool *tool,
 				       struct machine *machine)
 {
 	struct perf_sched *sched = container_of(tool, struct perf_sched, tool);
+
+	if (sample->cpu >= MAX_CPUS) {
+		pr_warning("Out-of-bound sample CPU %u. Skipping sample\n", sample->cpu);
+		return 0;
+	}
 
 	if (sched->tp_handler->runtime_event)
 		return sched->tp_handler->runtime_event(sched, sample, machine);
@@ -2774,6 +2784,11 @@ static int timehist_sched_change_event(const struct perf_tool *tool,
 	u64 tprev, t = sample->time;
 	int rc = 0;
 	const char state = perf_sample__taskstate(sample, "prev_state");
+
+	if (sample->cpu >= MAX_CPUS) {
+		pr_warning("Out-of-bound sample CPU %d. Skipping sample\n", sample->cpu);
+		return 0;
+	}
 
 	addr_location__init(&al);
 	if (machine__resolve(machine, &al, sample) < 0) {
