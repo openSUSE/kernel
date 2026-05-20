@@ -789,9 +789,11 @@ static int count_lost_samples_event(const struct perf_tool *tool,
 				    struct machine *machine __maybe_unused)
 {
 	struct report *rep = container_of(tool, struct report, tool);
-	struct evsel *evsel;
+	struct evsel *evsel = sample->evsel;
 
-	evsel = evlist__id2evsel(rep->session->evlist, sample->id);
+	if (!evsel)
+		evsel = evlist__id2evsel(rep->session->evlist, sample->id);
+
 	if (evsel) {
 		struct hists *hists = evsel__hists(evsel);
 		u32 count = event->lost_samples.lost;
