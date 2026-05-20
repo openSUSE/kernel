@@ -9,6 +9,12 @@
 #define DRM_EXEC_INTERRUPTIBLE_WAIT	BIT(0)
 #define DRM_EXEC_IGNORE_DUPLICATES	BIT(1)
 
+/*
+ * Dummy value used to initially enter the retry loop.
+ * internal use only.
+ */
+#define DRM_EXEC_DUMMY ((void *)~0)
+
 struct drm_gem_object;
 
 /**
@@ -141,6 +147,19 @@ static inline bool drm_exec_is_contended(struct drm_exec *exec)
 {
 	return !!exec->contended;
 }
+
+/**
+ * drm_exec_retry() - Unconditionally restart the loop to grab all locks.
+ * @exec: drm_exec object
+ *
+ * Unconditionally retry the loop to lock all objects. For consistency,
+ * the exec object needs to be newly initialized.
+ */
+#define drm_exec_retry(_exec)					\
+	do {							\
+		WARN_ON((_exec)->contended != DRM_EXEC_DUMMY);	\
+		goto *__drm_exec_retry_ptr;			\
+	} while (0)
 
 void drm_exec_init(struct drm_exec *exec, u32 flags, unsigned nr);
 void drm_exec_fini(struct drm_exec *exec);
