@@ -1,0 +1,5 @@
+What:		/sys/devices/faux/tdx_host/version
+Contact:	linux-coco@lists.linux.dev
+Description:	(RO) Report the version of the loaded TDX module.
+		Formatted as "major.minor.update". Used by TDX module
+		update tooling. Example: "1.2.03".

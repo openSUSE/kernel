@@ -42,6 +42,12 @@
 #include <linux/pgtable.h>
 
 /*
+ * TDX module and P-SEAMLDR version convention: "major.minor.update"
+ * (e.g., "1.5.08") with zero-padded two-digit update field.
+ */
+#define TDX_VERSION_FMT "%u.%u.%02u"
+
+/*
  * Used by the #VE exception handler to gather the #VE exception
  * info from the TDX module. This is a software only structure
  * and not part of the TDX module/VMM ABI.
