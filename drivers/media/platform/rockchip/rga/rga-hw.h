@@ -15,9 +15,6 @@
 #define MIN_WIDTH 34
 #define MIN_HEIGHT 34
 
-#define DEFAULT_WIDTH 100
-#define DEFAULT_HEIGHT 100
-
 #define RGA_TIMEOUT 500
 
 /* Registers address */
@@ -177,6 +174,8 @@
 
 #define RGA_ALPHA_COLOR_NORMAL 0
 #define RGA_ALPHA_COLOR_MULTIPLY_CAL 1
+
+#define RGA_INT_COMMAND_FINISHED 4
 
 /* Registers union */
 union rga_mode_ctrl {

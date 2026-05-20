@@ -14,6 +14,9 @@
 
 #define RGA_NAME "rockchip-rga"
 
+#define DEFAULT_WIDTH 100
+#define DEFAULT_HEIGHT 100
+
 struct rga_fmt {
 	u32 fourcc;
 	int depth;
@@ -68,6 +71,8 @@ static inline struct rga_ctx *file_to_rga_ctx(struct file *filp)
 	return container_of(file_to_v4l2_fh(filp), struct rga_ctx, fh);
 }
 
+struct rga_hw;
+
 struct rockchip_rga {
 	struct v4l2_device v4l2_dev;
 	struct v4l2_m2m_dev *m2m_dev;
@@ -88,6 +93,8 @@ struct rockchip_rga {
 	struct rga_ctx *curr;
 	dma_addr_t cmdbuf_phy;
 	void *cmdbuf_virt;
+
+	const struct rga_hw *hw;
 };
 
 struct rga_addr_offset {
@@ -138,7 +145,19 @@ static inline void rga_mod(struct rockchip_rga *rga, u32 reg, u32 val, u32 mask)
 	rga_write(rga, reg, temp);
 };
 
-void rga_hw_start(struct rockchip_rga *rga,
-		  struct rga_vb_buffer *src, struct rga_vb_buffer *dst);
+struct rga_hw {
+	struct rga_fmt *formats;
+	u32 num_formats;
+	size_t cmdbuf_size;
+	u32 min_width, min_height;
+	u32 max_width, max_height;
+
+	void (*start)(struct rockchip_rga *rga,
+		      struct rga_vb_buffer *src, struct rga_vb_buffer *dst);
+	bool (*handle_irq)(struct rockchip_rga *rga);
+	void (*get_version)(struct rockchip_rga *rga);
+};
+
+extern const struct rga_hw rga2_hw;
 
 #endif
