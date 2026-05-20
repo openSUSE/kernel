@@ -205,7 +205,7 @@ struct vgic_irq;
  */
 struct irq_ops {
 	/* Per interrupt flags for special-cased interrupts */
-	unsigned long flags;
+	unsigned long (*get_flags)(void);
 
 #define VGIC_IRQ_SW_RESAMPLE	BIT(0)	/* Clear the active state for resampling */
 
@@ -271,7 +271,7 @@ struct vgic_irq {
 	u8 priority;
 	u8 group;			/* 0 == group 0, 1 == group 1 */
 
-	struct irq_ops *ops;
+	const struct irq_ops *ops;
 
 	void *owner;			/* Opaque pointer to reserve an interrupt
 					   for in-kernel devices. */
@@ -279,7 +279,8 @@ struct vgic_irq {
 
 static inline bool vgic_irq_needs_resampling(struct vgic_irq *irq)
 {
-	return irq->ops && (irq->ops->flags & VGIC_IRQ_SW_RESAMPLE);
+	return irq->ops && irq->ops->get_flags &&
+	       (irq->ops->get_flags() & VGIC_IRQ_SW_RESAMPLE);
 }
 
 struct vgic_register_region;
@@ -557,7 +558,7 @@ void kvm_vgic_init_cpu_hardware(void);
 int kvm_vgic_inject_irq(struct kvm *kvm, struct kvm_vcpu *vcpu,
 			unsigned int intid, bool level, void *owner);
 void kvm_vgic_set_irq_ops(struct kvm_vcpu *vcpu, u32 vintid,
-			  struct irq_ops *ops);
+			  const struct irq_ops *ops);
 void kvm_vgic_clear_irq_ops(struct kvm_vcpu *vcpu, u32 vintid);
 int kvm_vgic_map_phys_irq(struct kvm_vcpu *vcpu, unsigned int host_irq,
 			  u32 vintid);

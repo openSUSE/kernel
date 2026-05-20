@@ -285,7 +285,7 @@ void vgic_v5_set_ppi_dvi(struct kvm_vcpu *vcpu, struct vgic_irq *irq, bool dvi)
 	__assign_bit(ppi, cpu_if->vgic_ppi_dvir, dvi);
 }
 
-static struct irq_ops vgic_v5_ppi_irq_ops = {
+static const struct irq_ops vgic_v5_ppi_irq_ops = {
 	.queue_irq_unlock = vgic_v5_ppi_queue_irq_unlock,
 	.set_direct_injection = vgic_v5_set_ppi_dvi,
 };

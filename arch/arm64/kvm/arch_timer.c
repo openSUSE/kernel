@@ -52,11 +52,17 @@ static u64 kvm_arm_timer_read(struct kvm_vcpu *vcpu,
 			      enum kvm_arch_timer_regs treg);
 static bool kvm_arch_timer_get_input_level(int vintid);
 
-static struct irq_ops arch_timer_irq_ops = {
+static unsigned long kvm_arch_timer_get_irq_flags(void)
+{
+	return kvm_vgic_global_state.no_hw_deactivation ? VGIC_IRQ_SW_RESAMPLE : 0;
+}
+
+static const struct irq_ops arch_timer_irq_ops = {
+	.get_flags	 = kvm_arch_timer_get_irq_flags,
 	.get_input_level = kvm_arch_timer_get_input_level,
 };
 
-static struct irq_ops arch_timer_irq_ops_vgic_v5 = {
+static const struct irq_ops arch_timer_irq_ops_vgic_v5 = {
 	.get_input_level = kvm_arch_timer_get_input_level,
 	.queue_irq_unlock = vgic_v5_ppi_queue_irq_unlock,
 	.set_direct_injection = vgic_v5_set_ppi_dvi,
@@ -1392,8 +1398,6 @@ static int kvm_irq_init(struct arch_timer_kvm_info *info)
 			return -ENOMEM;
 		}
 
-		if (kvm_vgic_global_state.no_hw_deactivation)
-			arch_timer_irq_ops.flags |= VGIC_IRQ_SW_RESAMPLE;
 		WARN_ON(irq_domain_push_irq(domain, host_vtimer_irq,
 					    (void *)TIMER_VTIMER));
 	}
@@ -1591,8 +1595,8 @@ static bool kvm_arch_timer_get_input_level(int vintid)
 int kvm_timer_enable(struct kvm_vcpu *vcpu)
 {
 	struct arch_timer_cpu *timer = vcpu_timer(vcpu);
+	const struct irq_ops *ops;
 	struct timer_map map;
-	struct irq_ops *ops;
 	int ret;
 
 	if (timer->enabled)
