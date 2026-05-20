@@ -38,8 +38,6 @@
 #define DDC_CI_ADDR		0x37
 #define DDC_SEGMENT_ADDR	0x30
 
-#define HDMI14_MAX_TMDSCLK	340000000
-
 #define SCRAMB_POLL_DELAY_MS	3000
 
 /*
@@ -835,9 +833,9 @@ dw_hdmi_qp_bridge_tmds_char_rate_valid(const struct drm_bridge *bridge,
 	/*
 	 * TODO: when hdmi->no_hpd is 1 we must not support modes that
 	 * require scrambling, including every mode with a clock above
-	 * HDMI14_MAX_TMDSCLK.
+	 * HDMI_1_3_TMDS_CHAR_RATE_MAX_HZ.
 	 */
-	if (rate > HDMI14_MAX_TMDSCLK) {
+	if (rate > HDMI_1_3_TMDS_CHAR_RATE_MAX_HZ) {
 		dev_dbg(hdmi->dev, "Unsupported TMDS char rate: %lld\n", rate);
 		return MODE_CLOCK_HIGH;
 	}
