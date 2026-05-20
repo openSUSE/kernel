@@ -45,6 +45,39 @@
 		};
 	};
 
+	gmac1_rgmii_0_cfg: gmac1-rgmii-0-cfg {
+		gmac1-rgmii-0-pins {
+			pinmux = <K3_PADCONF(21, 1)>,	/* gmac1_rxdv  */
+				 <K3_PADCONF(22, 1)>,	/* gmac1 rx d0 */
+				 <K3_PADCONF(23, 1)>,	/* gmac1 rx d1 */
+				 <K3_PADCONF(24, 1)>,	/* gmac1 rx_clk */
+				 <K3_PADCONF(25, 1)>,	/* gmac1 rx d2 */
+				 <K3_PADCONF(26, 1)>,	/* gmac1 rx d3 */
+				 <K3_PADCONF(27, 1)>,	/* gmac1 tx d0 */
+				 <K3_PADCONF(28, 1)>,	/* gmac1 tx d1 */
+				 <K3_PADCONF(29, 1)>,	/* gmac1 tx clk */
+				 <K3_PADCONF(30, 1)>,	/* gmac1 tx d2 */
+				 <K3_PADCONF(31, 1)>,	/* gmac1 tx d3 */
+				 <K3_PADCONF(32, 1)>,	/* gmac1 tx_en */
+				 <K3_PADCONF(33, 1)>,	/* gmac1 mdc */
+				 <K3_PADCONF(34, 1)>;	/* gmac1 mdio */
+
+			bias-disable;
+			drive-strength = <25>;
+			power-source = <1800>;
+		};
+	};
+
+	gmac1_phy_0_cfg: gmac1-phy-0-cfg {
+		gmac1-phy-0-pins {
+			pinmux = <K3_PADCONF(35, 1)>;	/* gmac1 int */
+
+			bias-disable;
+			drive-strength = <25>;
+			power-source = <1800>;
+		};
+	};
+
 	/omit-if-no-ref/
 	i2c8_cfg: i2c8-cfg {
 		i2c8-pins {
