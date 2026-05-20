@@ -185,6 +185,16 @@ MODULE_PARM_DESC(relax_fan_constraint,
 	"Enabling this may results in HWMON attributes being out-of-sync, "
 	"and setting a too low RPM stops the fan. Use with caution.");
 
+/* Visibility of power supply extensions */
+static bool force_load_psy_ext;
+module_param(force_load_psy_ext, bool, 0444);
+MODULE_PARM_DESC(force_load_psy_ext,
+	"This option will skip checking if the ideapad_laptop driver will conflict "
+	"with adding an extension to set the battery charge behavior and battery charge "
+	"control end threshold. It will also skip checking if the BIOS reports that "
+	"those features are fully supported. It is recommended to blacklist the ideapad "
+	"driver before using this option.");
+
 /* ======== HWMON (component: lenovo-wmi-capdata 00 & fan) ======== */
 
 /**
@@ -755,6 +765,9 @@ static bool lwmi_psy_prop_is_supported(struct lwmi_om_priv *priv, enum power_sup
 {
 	int ret;
 
+	if (force_load_psy_ext)
+		return true;
+
 	ret = lwmi_psy_prop_get_supported(priv, prop);
 	if (ret < 0)
 		return false;
@@ -780,6 +793,9 @@ static int lwmi_psy_prop_is_writeable(struct power_supply *ps,
 {
 	struct lwmi_om_priv *priv = ext_data;
 	int ret;
+
+	if (force_load_psy_ext)
+		return true;
 
 	ret = lwmi_psy_prop_get_supported(priv, prop);
 	if (ret < 0)
@@ -909,6 +925,8 @@ static void lwmi_om_psy_ext_init(struct lwmi_om_priv *priv)
 		props |= LWMI_PSY_PROP_TYPES;
 	if (!props)
 		return;
+	if (force_load_psy_ext)
+		goto load_psy_ext;
 
 	/* Deconflict ideapad_laptop driver */
 	ret = acpi_get_devices(ideapad_hid, lwmi_acpi_match, &handle, NULL);
@@ -920,6 +938,7 @@ static void lwmi_om_psy_ext_init(struct lwmi_om_priv *priv)
 		return;
 	}
 
+load_psy_ext:
 	/* Add battery hooks */
 	priv->battery_ext = lwmi_psy_exts[props];
 	priv->battery_hook.add_battery = lwmi_add_battery;
