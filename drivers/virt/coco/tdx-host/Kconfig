@@ -1,0 +1,4 @@
+config TDX_HOST_SERVICES
+	tristate
+	depends on INTEL_TDX_HOST
+	default m
