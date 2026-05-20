@@ -38,6 +38,11 @@ static void device_run(void *prv)
 	unsigned long flags;
 
 	spin_lock_irqsave(&rga->ctrl_lock, flags);
+	if (ctx->cmdbuf_dirty) {
+		ctx->cmdbuf_dirty = false;
+		rga->hw->setup_cmdbuf(ctx);
+	}
+	spin_unlock_irqrestore(&rga->ctrl_lock, flags);
 
 	rga->curr = ctx;
 
@@ -47,8 +52,6 @@ static void device_run(void *prv)
 	dst = v4l2_m2m_next_dst_buf(ctx->fh.m2m_ctx);
 
 	rga->hw->start(rga, vb_to_rga(src), vb_to_rga(dst));
-
-	spin_unlock_irqrestore(&rga->ctrl_lock, flags);
 }
 
 static irqreturn_t rga_isr(int irq, void *prv)
@@ -141,6 +144,7 @@ static int rga_s_ctrl(struct v4l2_ctrl *ctrl)
 		ctx->fill_color = ctrl->val;
 		break;
 	}
+	ctx->cmdbuf_dirty = true;
 	spin_unlock_irqrestore(&ctx->rga->ctrl_lock, flags);
 	return 0;
 }
@@ -228,6 +232,7 @@ static int rga_open(struct file *file)
 		ret = -ENOMEM;
 		goto rel_ctx;
 	}
+	ctx->cmdbuf_dirty = true;
 
 	ctx->rga = rga;
 	/* Set default formats */
@@ -448,6 +453,7 @@ static int vidioc_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
 	frm->crop.height = pix_fmt->height;
 
 	frm->pix = *pix_fmt;
+	ctx->cmdbuf_dirty = true;
 
 	v4l2_dbg(debug, 1, &rga->v4l2_dev,
 		 "[%s] fmt - %p4cc %dx%d (stride %d, sizeimage %d)\n",
@@ -564,6 +570,7 @@ static int vidioc_s_selection(struct file *file, void *priv,
 	}
 
 	f->crop = s->r;
+	ctx->cmdbuf_dirty = true;
 
 	return ret;
 }

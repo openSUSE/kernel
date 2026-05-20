@@ -55,6 +55,7 @@ struct rga_ctx {
 
 	void *cmdbuf_virt;
 	dma_addr_t cmdbuf_phy;
+	bool cmdbuf_dirty;
 
 	int osequence;
 	int csequence;
@@ -152,6 +153,7 @@ struct rga_hw {
 	u32 max_width, max_height;
 	u8 stride_alignment;
 
+	void (*setup_cmdbuf)(struct rga_ctx *ctx);
 	void (*start)(struct rockchip_rga *rga,
 		      struct rga_vb_buffer *src, struct rga_vb_buffer *dst);
 	bool (*handle_irq)(struct rockchip_rga *rga);
