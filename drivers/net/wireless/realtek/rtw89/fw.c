@@ -1209,11 +1209,16 @@ int rtw89_build_txpwr_trk_tbl_from_elm(struct rtw89_dev *rtwdev,
 {
 	struct rtw89_fw_elm_info *elm_info = &rtwdev->fw.elm_info;
 	const struct rtw89_chip_info *chip = rtwdev->chip;
+	struct rtw89_hal *hal = &rtwdev->hal;
+	u16 aid = le16_to_cpu(elm->aid);
 	u32 needed_bitmap = 0;
 	u32 offset = 0;
 	int subband;
 	u32 bitmap;
 	int type;
+
+	if (aid && aid != hal->aid)
+		return 1;
 
 	if (chip->support_bands & BIT(NL80211_BAND_6GHZ))
 		needed_bitmap |= RTW89_DEFAULT_NEEDED_FW_TXPWR_TRK_6GHZ;
