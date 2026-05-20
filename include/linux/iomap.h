@@ -92,6 +92,14 @@ struct vm_fault;
 #define IOMAP_F_ZERO_TAIL	(1U << 10)
 
 /*
+ * Indicates reads and writes of fsverity metadata.
+ *
+ * Fsverity metadata is stored after the regular file data and thus beyond
+ * i_size.
+ */
+#define IOMAP_F_FSVERITY	(1U << 11)
+
+/*
  * Flag reserved for file system specific usage
  */
 #define IOMAP_F_PRIVATE		(1U << 12)
