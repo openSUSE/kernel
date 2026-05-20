@@ -165,6 +165,15 @@
 			reg = <0x0 0xd0600000 0x0 0x100000>;
 			no-map;
 		};
+
+		rmtfs_mem: memory@f8500000 {
+			compatible = "qcom,rmtfs-mem";
+			reg = <0x0 0xf8500000 0x0 0x600000>;
+			no-map;
+
+			qcom,client-id = <1>;
+			qcom,vmid = <QCOM_SCM_VMID_MSS_MSA>, <QCOM_SCM_VMID_NAV>;
+		};
 	};
 
 	gpio-keys {
