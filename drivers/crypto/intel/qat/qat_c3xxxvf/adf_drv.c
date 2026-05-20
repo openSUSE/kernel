@@ -158,7 +158,7 @@ static int adf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		bar->size = pci_resource_len(pdev, bar_nr);
 		bar->virt_addr = pci_iomap(accel_pci_dev->pci_dev, bar_nr, 0);
 		if (!bar->virt_addr) {
-			dev_err(&pdev->dev, "Failed to map BAR %d\n", bar_nr);
+			pci_err(pdev, "Failed to map BAR %d\n", bar_nr);
 			ret = -EFAULT;
 			goto out_err_free_reg;
 		}
