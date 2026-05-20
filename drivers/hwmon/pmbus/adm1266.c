@@ -432,6 +432,69 @@ static const struct file_operations adm1266_clear_blackbox_fops = {
 	.llseek = noop_llseek,
 };
 
+/*
+ * SET_RTC (0xDF) is a 6-byte block (datasheet Rev. D, Table 84):
+ *   bytes [1:0] - fractional seconds (1/65536 s, written as zero)
+ *   bytes [5:2] - seconds since 1970-01-01 UTC, little-endian
+ *
+ * The driver seeds it once at probe via adm1266_rtc_set().  Over a
+ * long uptime the chip's counter drifts away from host wall-clock,
+ * so expose it via debugfs:
+ *
+ *   read  -- returns the chip's current seconds counter, which lets
+ *            userspace observe host-vs-chip drift.
+ *   write -- the kernel re-reads ktime_get_real_seconds() and writes
+ *            it to SET_RTC.  The write payload is ignored; userspace
+ *            does not get to supply its own timestamp value, so
+ *            there is no way to push a wrong time into the chip.
+ *
+ * A small userspace agent (chrony hook, systemd-timesyncd script,
+ * or a periodic cron job) can write to this file to keep the
+ * timestamp embedded in each blackbox record aligned with
+ * wall-clock across long uptimes.
+ */
+static int adm1266_rtc_get(void *data, u64 *val)
+{
+	struct i2c_client *client = data;
+	u8 buf[I2C_SMBUS_BLOCK_MAX];
+	u32 seconds = 0;
+	int ret, i;
+
+	guard(pmbus_lock)(client);
+	ret = i2c_smbus_read_block_data(client, ADM1266_SET_RTC, buf);
+	if (ret < 0)
+		return ret;
+	if (ret < 6)
+		return -EIO;
+
+	for (i = 0; i < 4; i++)
+		seconds |= (u32)buf[2 + i] << (i * 8);
+
+	*val = seconds;
+
+	return 0;
+}
+
+static int adm1266_rtc_set(void *data, u64 val)
+{
+	struct i2c_client *client = data;
+	time64_t kt = ktime_get_real_seconds();
+	u8 write_buf[6] = { 0 };
+	int i;
+
+	/* User-supplied @val is ignored on purpose; the kernel owns the
+	 * time source so userspace cannot push a wrong value into the chip.
+	 */
+	for (i = 0; i < 4; i++)
+		write_buf[2 + i] = (kt >> (i * 8)) & 0xFF;
+
+	guard(pmbus_lock)(client);
+	return i2c_smbus_write_block_data(client, ADM1266_SET_RTC,
+					  sizeof(write_buf), write_buf);
+}
+DEFINE_DEBUGFS_ATTRIBUTE(adm1266_rtc_fops,
+			 adm1266_rtc_get, adm1266_rtc_set, "%llu\n");
+
 static void adm1266_init_debugfs(struct adm1266_data *data)
 {
 	struct dentry *root;
@@ -450,6 +513,8 @@ static void adm1266_init_debugfs(struct adm1266_data *data)
 				    adm1266_powerup_counter_read);
 	debugfs_create_file("clear_blackbox", 0200, data->debugfs_dir, data->client,
 			    &adm1266_clear_blackbox_fops);
+	debugfs_create_file("rtc", 0600, data->debugfs_dir, data->client,
+			    &adm1266_rtc_fops);
 }
 
 static int adm1266_nvmem_read_blackbox(struct adm1266_data *data, u8 *read_buff)
@@ -539,23 +604,6 @@ static int adm1266_config_nvmem(struct adm1266_data *data)
 	return 0;
 }
 
-static int adm1266_set_rtc(struct adm1266_data *data)
-{
-	time64_t kt;
-	char write_buf[6];
-	int i;
-
-	kt = ktime_get_real_seconds();
-
-	memset(write_buf, 0, sizeof(write_buf));
-
-	for (i = 0; i < 4; i++)
-		write_buf[2 + i] = (kt >> (i * 8)) & 0xFF;
-
-	return i2c_smbus_write_block_data(data->client, ADM1266_SET_RTC, sizeof(write_buf),
-					  write_buf);
-}
-
 static int adm1266_probe(struct i2c_client *client)
 {
 	struct adm1266_data *data;
@@ -575,12 +623,12 @@ static int adm1266_probe(struct i2c_client *client)
 	crc8_populate_msb(pmbus_crc_table, 0x7);
 	mutex_init(&data->buf_mutex);
 
-	ret = adm1266_set_rtc(data);
-	if (ret < 0)
-		return ret;
-
 	ret = pmbus_do_probe(client, &data->info);
 	if (ret)
+		return ret;
+
+	ret = adm1266_rtc_set(client, 0);
+	if (ret < 0)
 		return ret;
 
 	ret = adm1266_config_nvmem(data);
