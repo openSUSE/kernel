@@ -1212,7 +1212,7 @@ int begin_new_exec(struct linux_binprm * bprm)
 	      gid_eq(current_egid(), current_gid())))
 		set_dumpable(current->mm, suid_dumpable);
 	else
-		set_dumpable(current->mm, SUID_DUMP_USER);
+		set_dumpable(current->mm, TASK_DUMPABLE_OWNER);
 
 	perf_event_exec();
 
@@ -1261,7 +1261,7 @@ int begin_new_exec(struct linux_binprm * bprm)
 	 * wait until new credentials are committed
 	 * by commit_creds() above
 	 */
-	if (get_dumpable(me->mm) != SUID_DUMP_USER)
+	if (get_dumpable(me->mm) != TASK_DUMPABLE_OWNER)
 		perf_event_exit_task(me);
 	/*
 	 * cred_guard_mutex must be held at least to this point to prevent
@@ -1906,11 +1906,11 @@ void set_binfmt(struct linux_binfmt *new)
 EXPORT_SYMBOL(set_binfmt);
 
 /*
- * set_dumpable stores three-value SUID_DUMP_* into mm->flags.
+ * set_dumpable stores three-value TASK_DUMPABLE_* into mm->flags.
  */
 void set_dumpable(struct mm_struct *mm, int value)
 {
-	if (WARN_ON((unsigned)value > SUID_DUMP_ROOT))
+	if (WARN_ON((unsigned)value > TASK_DUMPABLE_ROOT))
 		return;
 
 	__mm_flags_set_mask_dumpable(mm, value);

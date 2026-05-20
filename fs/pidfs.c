@@ -341,11 +341,11 @@ static inline bool pid_in_current_pidns(const struct pid *pid)
 static __u32 pidfs_coredump_mask(unsigned long mm_flags)
 {
 	switch (__get_dumpable(mm_flags)) {
-	case SUID_DUMP_USER:
+	case TASK_DUMPABLE_OWNER:
 		return PIDFD_COREDUMP_USER;
-	case SUID_DUMP_ROOT:
+	case TASK_DUMPABLE_ROOT:
 		return PIDFD_COREDUMP_ROOT;
-	case SUID_DUMP_DISABLE:
+	case TASK_DUMPABLE_OFF:
 		return PIDFD_COREDUMP_SKIP;
 	default:
 		WARN_ON_ONCE(true);

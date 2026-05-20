@@ -1909,7 +1909,7 @@ void task_dump_owner(struct task_struct *task, umode_t mode,
 		mm = task->mm;
 		/* Make non-dumpable tasks owned by some root */
 		if (mm) {
-			if (get_dumpable(mm) != SUID_DUMP_USER) {
+			if (get_dumpable(mm) != TASK_DUMPABLE_OWNER) {
 				struct user_namespace *user_ns = mm->user_ns;
 
 				uid = make_kuid(user_ns, 0);

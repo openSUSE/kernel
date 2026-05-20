@@ -1908,7 +1908,7 @@ enum {
 
 /*
  * The first two bits represent core dump modes for set-user-ID,
- * the modes are SUID_DUMP_* defined in linux/sched/coredump.h
+ * the modes are TASK_DUMPABLE_* defined in linux/sched/coredump.h
  */
 #define MMF_DUMPABLE_BITS 2
 #define MMF_DUMPABLE_MASK (BIT(MMF_DUMPABLE_BITS) - 1)

@@ -53,7 +53,7 @@ int ptrace_access_vm(struct task_struct *tsk, unsigned long addr,
 
 	if (!tsk->ptrace ||
 	    (current != tsk->parent) ||
-	    ((get_dumpable(mm) != SUID_DUMP_USER) &&
+	    ((get_dumpable(mm) != TASK_DUMPABLE_OWNER) &&
 	     !ptracer_capable(tsk, mm->user_ns))) {
 		mmput(mm);
 		return 0;
@@ -276,7 +276,7 @@ static bool task_still_dumpable(struct task_struct *task, unsigned int mode)
 {
 	struct mm_struct *mm = task->mm;
 	if (mm) {
-		if (get_dumpable(mm) == SUID_DUMP_USER)
+		if (get_dumpable(mm) == TASK_DUMPABLE_OWNER)
 			return true;
 		return ptrace_has_cap(mm->user_ns, mode);
 	}

@@ -873,7 +873,7 @@ static inline bool coredump_socket(struct core_name *cn, struct coredump_params 
 static inline bool coredump_force_suid_safe(const struct coredump_params *cprm)
 {
 	/* Require nonrelative corefile path and be extra careful. */
-	return __get_dumpable(cprm->mm_flags) == SUID_DUMP_ROOT;
+	return __get_dumpable(cprm->mm_flags) == TASK_DUMPABLE_ROOT;
 }
 
 static bool coredump_file(struct core_name *cn, struct coredump_params *cprm,
@@ -1419,7 +1419,7 @@ EXPORT_SYMBOL(dump_align);
 
 void validate_coredump_safety(void)
 {
-	if (suid_dumpable == SUID_DUMP_ROOT &&
+	if (suid_dumpable == TASK_DUMPABLE_ROOT &&
 	    core_pattern[0] != '/' && core_pattern[0] != '|' && core_pattern[0] != '@') {
 
 		coredump_report_failure("Unsafe core_pattern used with fs.suid_dumpable=2: "
