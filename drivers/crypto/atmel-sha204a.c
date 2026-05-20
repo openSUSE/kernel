@@ -216,8 +216,8 @@ static const struct of_device_id atmel_sha204a_dt_ids[] = {
 MODULE_DEVICE_TABLE(of, atmel_sha204a_dt_ids);
 
 static const struct i2c_device_id atmel_sha204a_id[] = {
-	{ "atsha204", (kernel_ulong_t)&atsha204_quality },
-	{ "atsha204a" },
+	{ .name = "atsha204", .driver_data = (kernel_ulong_t)&atsha204_quality },
+	{ .name = "atsha204a", .driver_data = (kernel_ulong_t)NULL },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, atmel_sha204a_id);
