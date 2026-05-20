@@ -129,7 +129,7 @@ struct descriptor_resource {
 };
 
 struct iso_resource_params {
-	u64 channels;
+	u64 channels_mask;
 	s32 bandwidth;
 };
 
@@ -1316,7 +1316,7 @@ static int fill_iso_resource_params(struct iso_resource_params *params,
 	    request->bandwidth > BANDWIDTH_AVAILABLE_INITIAL)
 		return -EINVAL;
 
-	params->channels = request->channels;
+	params->channels_mask = request->channels;
 	params->bandwidth = request->bandwidth;
 
 	return 0;
@@ -1360,7 +1360,7 @@ static void iso_resource_auto_work(struct work_struct *work)
 
 	bandwidth = r->params.bandwidth;
 
-	fw_iso_resource_manage(client->device->card, current_generation, r->params.channels,
+	fw_iso_resource_manage(client->device->card, current_generation, r->params.channels_mask,
 			       &channel, &bandwidth, todo != ISO_RES_AUTO_DEALLOC);
 
 	if (todo == ISO_RES_AUTO_DEALLOC) {
@@ -1402,7 +1402,7 @@ static void iso_resource_auto_work(struct work_struct *work)
 				r->todo = ISO_RES_AUTO_REALLOC;
 
 			if (channel >= 0)
-				r->params.channels = 1ULL << channel;
+				r->params.channels_mask = BIT_ULL(channel);
 
 			e = r->e_alloc;
 			r->e_alloc = NULL;
@@ -1496,7 +1496,7 @@ static void iso_resource_once_work(struct work_struct *work)
 
 	bandwidth = r->params.bandwidth;
 
-	fw_iso_resource_manage(client->device->card, generation, r->params.channels, &channel,
+	fw_iso_resource_manage(client->device->card, generation, r->params.channels_mask, &channel,
 			       &bandwidth, r->todo == ISO_RES_ONCE_ALLOC);
 
 	e->iso_resource.handle = UNAVAILABLE_HANDLE;
