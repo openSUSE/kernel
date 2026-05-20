@@ -202,6 +202,7 @@ enum module_update_state {
 static struct update_ctrl {
 	enum module_update_state state;
 	int num_ack;
+	int num_failed;
 	/*
 	 * Protect update_ctrl. Raw spinlock as it will be acquired from
 	 * interrupt-disabled contexts.
@@ -219,12 +220,13 @@ static void __set_target_state(struct update_ctrl *ctrl,
 }
 
 /* Last one to ack a state moves to the next state. */
-static void ack_state(struct update_ctrl *ctrl)
+static void ack_state(struct update_ctrl *ctrl, int result)
 {
 	raw_spin_lock(&ctrl->lock);
 
+	ctrl->num_failed += !!result;
 	ctrl->num_ack++;
-	if (ctrl->num_ack == num_online_cpus())
+	if (ctrl->num_ack == num_online_cpus() && !ctrl->num_failed)
 		__set_target_state(ctrl, ctrl->state + 1);
 
 	raw_spin_unlock(&ctrl->lock);
@@ -234,6 +236,7 @@ static void init_state(struct update_ctrl *ctrl)
 {
 	raw_spin_lock_init(&ctrl->lock);
 	__set_target_state(ctrl, MODULE_UPDATE_START + 1);
+	ctrl->num_failed = 0;
 }
 
 /*
@@ -261,8 +264,9 @@ static int do_seamldr_install_module(void *seamldr_params)
 			break;
 		}
 
-		ack_state(&update_ctrl);
-	} while (curstate != MODULE_UPDATE_DONE);
+		ack_state(&update_ctrl, ret);
+	} while (curstate != MODULE_UPDATE_DONE &&
+		 !READ_ONCE(update_ctrl.num_failed));
 
 	return ret;
 }
