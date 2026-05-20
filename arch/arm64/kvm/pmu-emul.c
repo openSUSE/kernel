@@ -396,19 +396,12 @@ static bool kvm_pmu_overflow_status(struct kvm_vcpu *vcpu)
 static void kvm_pmu_update_state(struct kvm_vcpu *vcpu)
 {
 	struct kvm_pmu *pmu = &vcpu->arch.pmu;
-	bool overflow;
 
-	overflow = kvm_pmu_overflow_status(vcpu);
-	if (pmu->irq_level == overflow)
+	if (unlikely(!irqchip_in_kernel(vcpu->kvm)))
 		return;
 
-	pmu->irq_level = overflow;
-
-	if (likely(irqchip_in_kernel(vcpu->kvm))) {
-		int ret = kvm_vgic_inject_irq(vcpu->kvm, vcpu,
-					      pmu->irq_num, overflow, pmu);
-		WARN_ON(ret);
-	}
+	WARN_ON(kvm_vgic_inject_irq(vcpu->kvm, vcpu, pmu->irq_num,
+				    kvm_pmu_overflow_status(vcpu), pmu));
 }
 
 bool kvm_pmu_should_notify_user(struct kvm_vcpu *vcpu)

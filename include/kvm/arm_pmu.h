@@ -32,7 +32,6 @@ struct kvm_pmu {
 	struct kvm_pmc pmc[KVM_ARMV8_PMU_MAX_COUNTERS];
 	int irq_num;
 	bool created;
-	bool irq_level;
 };
 
 struct arm_pmu_entry {
