@@ -359,7 +359,6 @@ static void ublk_buf_cleanup(struct ublk_device *ub);
 static void ublk_abort_queue(struct ublk_device *ub, struct ublk_queue *ubq);
 static inline struct request *__ublk_check_and_get_req(struct ublk_device *ub,
 		u16 q_id, u16 tag, struct ublk_io *io);
-static inline unsigned int ublk_req_build_flags(struct request *req);
 static void ublk_batch_dispatch(struct ublk_queue *ubq,
 				const struct ublk_batch_io_data *data,
 				struct ublk_batch_fetch_cmd *fcmd);
@@ -469,6 +468,37 @@ static inline bool ublk_queue_is_zoned(const struct ublk_queue *ubq)
 static inline bool ublk_dev_support_integrity(const struct ublk_device *ub)
 {
 	return ub->dev_info.flags & UBLK_F_INTEGRITY;
+}
+
+static inline unsigned int ublk_req_build_flags(struct request *req)
+{
+	unsigned flags = 0;
+
+	if (req->cmd_flags & REQ_FAILFAST_DEV)
+		flags |= UBLK_IO_F_FAILFAST_DEV;
+
+	if (req->cmd_flags & REQ_FAILFAST_TRANSPORT)
+		flags |= UBLK_IO_F_FAILFAST_TRANSPORT;
+
+	if (req->cmd_flags & REQ_FAILFAST_DRIVER)
+		flags |= UBLK_IO_F_FAILFAST_DRIVER;
+
+	if (req->cmd_flags & REQ_META)
+		flags |= UBLK_IO_F_META;
+
+	if (req->cmd_flags & REQ_FUA)
+		flags |= UBLK_IO_F_FUA;
+
+	if (req->cmd_flags & REQ_NOUNMAP)
+		flags |= UBLK_IO_F_NOUNMAP;
+
+	if (req->cmd_flags & REQ_SWAP)
+		flags |= UBLK_IO_F_SWAP;
+
+	if (blk_integrity_rq(req))
+		flags |= UBLK_IO_F_INTEGRITY;
+
+	return flags;
 }
 
 #ifdef CONFIG_BLK_DEV_ZONED
@@ -1436,37 +1466,6 @@ static unsigned int ublk_unmap_io(bool need_map,
 		return ublk_copy_user_pages(req, 0, &iter, dir);
 	}
 	return rq_bytes;
-}
-
-static inline unsigned int ublk_req_build_flags(struct request *req)
-{
-	unsigned flags = 0;
-
-	if (req->cmd_flags & REQ_FAILFAST_DEV)
-		flags |= UBLK_IO_F_FAILFAST_DEV;
-
-	if (req->cmd_flags & REQ_FAILFAST_TRANSPORT)
-		flags |= UBLK_IO_F_FAILFAST_TRANSPORT;
-
-	if (req->cmd_flags & REQ_FAILFAST_DRIVER)
-		flags |= UBLK_IO_F_FAILFAST_DRIVER;
-
-	if (req->cmd_flags & REQ_META)
-		flags |= UBLK_IO_F_META;
-
-	if (req->cmd_flags & REQ_FUA)
-		flags |= UBLK_IO_F_FUA;
-
-	if (req->cmd_flags & REQ_NOUNMAP)
-		flags |= UBLK_IO_F_NOUNMAP;
-
-	if (req->cmd_flags & REQ_SWAP)
-		flags |= UBLK_IO_F_SWAP;
-
-	if (blk_integrity_rq(req))
-		flags |= UBLK_IO_F_INTEGRITY;
-
-	return flags;
 }
 
 static blk_status_t ublk_setup_iod(struct ublk_queue *ubq, struct request *req)
