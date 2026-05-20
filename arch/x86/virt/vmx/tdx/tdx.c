@@ -44,6 +44,13 @@
 #include <asm/virt.h>
 #include "tdx.h"
 
+struct tdx_module_state {
+	bool initialized;
+	bool sysinit_done;
+	int sysinit_ret;
+};
+
+static struct tdx_module_state tdx_module_state;
 static u32 tdx_global_keyid __ro_after_init;
 static u32 tdx_guest_keyid_start __ro_after_init;
 static u32 tdx_nr_guest_keyids __ro_after_init;
@@ -58,7 +65,6 @@ static struct tdmr_info_list tdx_tdmr_list;
 static LIST_HEAD(tdx_memlist);
 
 static struct tdx_sys_info tdx_sysinfo __ro_after_init;
-static bool tdx_module_initialized __ro_after_init;
 
 typedef void (*sc_err_func_t)(u64 fn, u64 err, struct tdx_module_args *args);
 
@@ -106,8 +112,6 @@ static __always_inline int sc_retry_prerr(sc_func_t func,
 	sc_retry_prerr(__seamcall_ret, seamcall_err_ret, (__fn), (__args))
 
 static DEFINE_RAW_SPINLOCK(sysinit_lock);
-static bool sysinit_done;
-static int sysinit_ret;
 
 /*
  * Do the module global initialization once and return its result.
@@ -121,8 +125,8 @@ static int try_init_module_global(void)
 	raw_spin_lock(&sysinit_lock);
 
 	/* Return the "cached" return code. */
-	if (sysinit_done) {
-		ret = sysinit_ret;
+	if (tdx_module_state.sysinit_done) {
+		ret = tdx_module_state.sysinit_ret;
 		goto out;
 	}
 
@@ -139,8 +143,8 @@ static int try_init_module_global(void)
 		pr_err("module not loaded\n");
 
 	/* Save the return code for later callers. */
-	sysinit_done = true;
-	sysinit_ret = ret;
+	tdx_module_state.sysinit_done = true;
+	tdx_module_state.sysinit_ret = ret;
 out:
 	raw_spin_unlock(&sysinit_lock);
 	return ret;
@@ -1306,7 +1310,7 @@ static __init int tdx_enable(void)
 
 	register_syscore(&tdx_syscore);
 
-	tdx_module_initialized = true;
+	tdx_module_state.initialized = true;
 	pr_info("TDX-Module initialized\n");
 	return 0;
 }
@@ -1561,7 +1565,7 @@ void __init tdx_init(void)
 
 const struct tdx_sys_info *tdx_get_sysinfo(void)
 {
-	if (!tdx_module_initialized)
+	if (!tdx_module_state.initialized)
 		return NULL;
 
 	return (const struct tdx_sys_info *)&tdx_sysinfo;
