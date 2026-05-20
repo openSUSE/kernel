@@ -2734,6 +2734,66 @@ static void rtw8922d_set_txpwr_ref(struct rtw89_dev *rtwdev,
 				     B_BE_PWR_REF_CTRL_CCK, ref_cck);
 }
 
+static void rtw8922d_set_tx_shape(struct rtw89_dev *rtwdev,
+				  const struct rtw89_chan *chan,
+				  enum rtw89_phy_idx phy_idx)
+{
+	const struct rtw89_bb_wrap_data *d = rtwdev->phy_info.bb_wrap_data;
+	const struct rtw89_rfe_parms *rfe_parms = rtwdev->rfe_parms;
+	const struct rtw89_tx_shape *tx_shape = &rfe_parms->tx_shape;
+	u8 tx_shape_idx;
+	u8 band, regd;
+	const u16 *th;
+
+	band = chan->band_type;
+	regd = rtw89_regd_get(rtwdev, band);
+	tx_shape_idx = (*tx_shape->lmt)[band][RTW89_RS_OFDM][regd];
+
+	if (tx_shape_idx == 0)
+		goto disable;
+
+	th = d->bands[chan->rfsi_band].qam_comp_th0;
+	rtw89_write32_idx(rtwdev, R_QAM_COMP_TH0_BE4, MASKLWORD, th[0], phy_idx);
+	rtw89_write32_idx(rtwdev, R_QAM_COMP_TH0_BE4, MASKHWORD, th[1], phy_idx);
+	rtw89_write32_idx(rtwdev, R_QAM_COMP_TH1_BE4, MASKLWORD, th[2], phy_idx);
+	rtw89_write32_idx(rtwdev, R_QAM_COMP_TH1_BE4, MASKHWORD, th[3], phy_idx);
+	rtw89_write32_idx(rtwdev, R_QAM_COMP_TH2_BE4, MASKLWORD, th[4], phy_idx);
+	rtw89_write32_idx(rtwdev, R_QAM_COMP_TH2_BE4, MASKHWORD, th[5], phy_idx);
+	rtw89_write32_idx(rtwdev, R_QAM_COMP_TH3_BE4, MASKLWORD, th[6], phy_idx);
+	rtw89_write32_idx(rtwdev, R_QAM_COMP_TH3_BE4, MASKHWORD, th[7], phy_idx);
+
+	th = d->bands[chan->rfsi_band].qam_comp_ow;
+	rtw89_write32_idx(rtwdev, R_OW_VAL_0_BE4, MASKLWORD, th[0], phy_idx);
+	rtw89_write32_idx(rtwdev, R_OW_VAL_0_BE4, MASKHWORD, th[1], phy_idx);
+	rtw89_write32_idx(rtwdev, R_OW_VAL_1_BE4, MASKLWORD, th[2], phy_idx);
+	rtw89_write32_idx(rtwdev, R_OW_VAL_1_BE4, MASKHWORD, th[3], phy_idx);
+	rtw89_write32_idx(rtwdev, R_OW_VAL_2_BE4, MASKLWORD, th[4], phy_idx);
+	rtw89_write32_idx(rtwdev, R_OW_VAL_2_BE4, MASKHWORD, th[5], phy_idx);
+	rtw89_write32_idx(rtwdev, R_OW_VAL_3_BE4, MASKLWORD, th[6], phy_idx);
+	rtw89_write32_idx(rtwdev, R_OW_VAL_3_BE4, MASKHWORD, th[7], phy_idx);
+
+	return;
+
+disable:
+	rtw89_write32_idx(rtwdev, R_QAM_COMP_TH0_BE4, B_QAM_COMP_TH_TRIANGULAR_L, 0, phy_idx);
+	rtw89_write32_idx(rtwdev, R_QAM_COMP_TH0_BE4, B_QAM_COMP_TH_TRIANGULAR_H, 0, phy_idx);
+	rtw89_write32_idx(rtwdev, R_QAM_COMP_TH1_BE4, B_QAM_COMP_TH_TRIANGULAR_L, 0, phy_idx);
+	rtw89_write32_idx(rtwdev, R_QAM_COMP_TH1_BE4, B_QAM_COMP_TH_TRIANGULAR_H, 0, phy_idx);
+	rtw89_write32_idx(rtwdev, R_QAM_COMP_TH2_BE4, B_QAM_COMP_TH_TRIANGULAR_L, 0, phy_idx);
+	rtw89_write32_idx(rtwdev, R_QAM_COMP_TH2_BE4, B_QAM_COMP_TH_TRIANGULAR_H, 0, phy_idx);
+	rtw89_write32_idx(rtwdev, R_QAM_COMP_TH3_BE4, B_QAM_COMP_TH_TRIANGULAR_L, 0, phy_idx);
+	rtw89_write32_idx(rtwdev, R_QAM_COMP_TH3_BE4, B_QAM_COMP_TH_TRIANGULAR_H, 0, phy_idx);
+
+	rtw89_write32_idx(rtwdev, R_OW_VAL_0_BE4, B_OW_VAL_TRIANGULAR_L, 0, phy_idx);
+	rtw89_write32_idx(rtwdev, R_OW_VAL_0_BE4, B_OW_VAL_TRIANGULAR_H, 0, phy_idx);
+	rtw89_write32_idx(rtwdev, R_OW_VAL_1_BE4, B_OW_VAL_TRIANGULAR_L, 0, phy_idx);
+	rtw89_write32_idx(rtwdev, R_OW_VAL_1_BE4, B_OW_VAL_TRIANGULAR_H, 0, phy_idx);
+	rtw89_write32_idx(rtwdev, R_OW_VAL_2_BE4, B_OW_VAL_TRIANGULAR_L, 0, phy_idx);
+	rtw89_write32_idx(rtwdev, R_OW_VAL_2_BE4, B_OW_VAL_TRIANGULAR_H, 0, phy_idx);
+	rtw89_write32_idx(rtwdev, R_OW_VAL_3_BE4, B_OW_VAL_TRIANGULAR_L, 0, phy_idx);
+	rtw89_write32_idx(rtwdev, R_OW_VAL_3_BE4, B_OW_VAL_TRIANGULAR_H, 0, phy_idx);
+}
+
 static void rtw8922d_set_txpwr_sar_diff(struct rtw89_dev *rtwdev,
 					const struct rtw89_chan *chan,
 					enum rtw89_phy_idx phy_idx)
@@ -2765,6 +2825,7 @@ static void rtw8922d_set_txpwr(struct rtw89_dev *rtwdev,
 {
 	rtw89_phy_set_txpwr_byrate(rtwdev, chan, phy_idx);
 	rtw89_phy_set_txpwr_offset(rtwdev, chan, phy_idx);
+	rtw8922d_set_tx_shape(rtwdev, chan, phy_idx);
 	rtw89_phy_set_txpwr_limit(rtwdev, chan, phy_idx);
 	rtw89_phy_set_txpwr_limit_ru(rtwdev, chan, phy_idx);
 	rtw8922d_set_txpwr_ref(rtwdev, chan, phy_idx);
