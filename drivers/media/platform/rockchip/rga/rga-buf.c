@@ -197,6 +197,33 @@ static void rga_buf_return_buffers(struct vb2_queue *q,
 	}
 }
 
+static int rga_buf_prepare_streaming(struct vb2_queue *q)
+{
+	struct rga_ctx *ctx = vb2_get_drv_priv(q);
+	const struct rga_hw *hw = ctx->rga->hw;
+	int ret;
+
+	/* It's safe to check the streaming state of the other queue,
+	 * as the streamon ioctl's can't race due to the lock set in
+	 * the queue_init function.
+	 */
+	if ((V4L2_TYPE_IS_OUTPUT(q->type) &&
+	     vb2_is_streaming(v4l2_m2m_get_dst_vq(ctx->fh.m2m_ctx))) ||
+	    (V4L2_TYPE_IS_CAPTURE(q->type) &&
+	     vb2_is_streaming(v4l2_m2m_get_src_vq(ctx->fh.m2m_ctx)))) {
+		/*
+		 * As the other side is already streaming,
+		 * check that the max scaling factor isn't exceeded.
+		 */
+		ret = rga_check_scaling(hw, &ctx->in.crop, &ctx->out.crop,
+					ctx->rotate);
+		if (ret < 0)
+			return ret;
+	}
+
+	return 0;
+}
+
 static int rga_buf_start_streaming(struct vb2_queue *q, unsigned int count)
 {
 	struct rga_ctx *ctx = vb2_get_drv_priv(q);
@@ -232,6 +259,7 @@ const struct vb2_ops rga_qops = {
 	.buf_prepare = rga_buf_prepare,
 	.buf_queue = rga_buf_queue,
 	.buf_cleanup = rga_buf_cleanup,
+	.prepare_streaming = rga_buf_prepare_streaming,
 	.start_streaming = rga_buf_start_streaming,
 	.stop_streaming = rga_buf_stop_streaming,
 };

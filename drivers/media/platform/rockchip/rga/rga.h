@@ -123,6 +123,9 @@ static inline struct rga_vb_buffer *vb_to_rga(struct vb2_v4l2_buffer *vb)
 
 struct rga_frame *rga_get_frame(struct rga_ctx *ctx, enum v4l2_buf_type type);
 
+int rga_check_scaling(const struct rga_hw *hw, const struct v4l2_rect *crop_in,
+		      const struct v4l2_rect *crop_out, u32 rotate);
+
 /* RGA Buffers Manage */
 extern const struct vb2_ops rga_qops;
 
@@ -151,6 +154,7 @@ struct rga_hw {
 	size_t cmdbuf_size;
 	u32 min_width, min_height;
 	u32 max_width, max_height;
+	u8 max_scaling_factor;
 	u8 stride_alignment;
 
 	void (*setup_cmdbuf)(struct rga_ctx *ctx);

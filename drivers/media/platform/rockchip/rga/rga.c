@@ -127,7 +127,9 @@ static int rga_s_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct rga_ctx *ctx = container_of(ctrl->handler, struct rga_ctx,
 					   ctrl_handler);
+	const struct rga_hw *hw = ctx->rga->hw;
 	unsigned long flags;
+	int ret = 0;
 
 	spin_lock_irqsave(&ctx->rga->ctrl_lock, flags);
 	switch (ctrl->id) {
@@ -138,6 +140,13 @@ static int rga_s_ctrl(struct v4l2_ctrl *ctrl)
 		ctx->vflip = ctrl->val;
 		break;
 	case V4L2_CID_ROTATE:
+		if (vb2_is_streaming(v4l2_m2m_get_dst_vq(ctx->fh.m2m_ctx)) &&
+		    vb2_is_streaming(v4l2_m2m_get_src_vq(ctx->fh.m2m_ctx))) {
+			ret = rga_check_scaling(hw, &ctx->in.crop,
+						&ctx->out.crop, ctrl->val);
+			if (ret < 0)
+				goto s_ctrl_done;
+		}
 		ctx->rotate = ctrl->val;
 		break;
 	case V4L2_CID_BG_COLOR:
@@ -145,8 +154,10 @@ static int rga_s_ctrl(struct v4l2_ctrl *ctrl)
 		break;
 	}
 	ctx->cmdbuf_dirty = true;
+
+s_ctrl_done:
 	spin_unlock_irqrestore(&ctx->rga->ctrl_lock, flags);
-	return 0;
+	return ret;
 }
 
 static const struct v4l2_ctrl_ops rga_ctrl_ops = {
@@ -178,6 +189,38 @@ static int rga_setup_ctrls(struct rga_ctx *ctx)
 		v4l2_ctrl_handler_free(&ctx->ctrl_handler);
 		return err;
 	}
+
+	return 0;
+}
+
+static bool check_scaling_factor(const struct rga_hw *hw, u32 src_size,
+				 u32 dst_size)
+{
+	if (src_size < dst_size)
+		return src_size * hw->max_scaling_factor >= dst_size;
+	else
+		return dst_size * hw->max_scaling_factor >= src_size;
+}
+
+int rga_check_scaling(const struct rga_hw *hw, const struct v4l2_rect *crop_in,
+		      const struct v4l2_rect *crop_out, u32 rotate)
+{
+	u32 scaled_width;
+	u32 scaled_height;
+
+	if (rotate == 90 || rotate == 270) {
+		scaled_width = crop_out->height;
+		scaled_height = crop_out->width;
+	} else {
+		scaled_width = crop_out->width;
+		scaled_height = crop_out->height;
+	}
+
+	if (!check_scaling_factor(hw, crop_in->width, scaled_width))
+		return -EINVAL;
+
+	if (!check_scaling_factor(hw, crop_in->height, scaled_height))
+		return -EINVAL;
 
 	return 0;
 }
@@ -525,7 +568,6 @@ static int vidioc_s_selection(struct file *file, void *priv,
 	struct rga_ctx *ctx = file_to_rga_ctx(file);
 	struct rockchip_rga *rga = ctx->rga;
 	struct rga_frame *f;
-	int ret = 0;
 
 	f = rga_get_frame(ctx, s->type);
 	if (IS_ERR(f))
@@ -569,10 +611,25 @@ static int vidioc_s_selection(struct file *file, void *priv,
 		return -EINVAL;
 	}
 
+	if (vb2_is_streaming(v4l2_m2m_get_dst_vq(ctx->fh.m2m_ctx)) &&
+	    vb2_is_streaming(v4l2_m2m_get_src_vq(ctx->fh.m2m_ctx))) {
+		int ret = 0;
+
+		if (V4L2_TYPE_IS_OUTPUT(s->type))
+			ret = rga_check_scaling(rga->hw, &s->r, &ctx->out.crop,
+						ctx->rotate);
+		else
+			ret = rga_check_scaling(rga->hw, &ctx->in.crop, &s->r,
+						ctx->rotate);
+
+		if (ret < 0)
+			return ret;
+	}
+
 	f->crop = s->r;
 	ctx->cmdbuf_dirty = true;
 
-	return ret;
+	return 0;
 }
 
 static const struct v4l2_ioctl_ops rga_ioctl_ops = {
