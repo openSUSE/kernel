@@ -121,7 +121,7 @@ static int rga_buf_prepare(struct vb2_buffer *vb)
 	size_t curr_desc = 0;
 	int i;
 	const struct v4l2_format_info *info;
-	unsigned int offsets[VIDEO_MAX_PLANES];
+	dma_addr_t dma_addrs[VIDEO_MAX_PLANES];
 
 	if (IS_ERR(f))
 		return PTR_ERR(f);
@@ -145,18 +145,18 @@ static int rga_buf_prepare(struct vb2_buffer *vb)
 				 "Failed to map video buffer to RGA\n");
 			return n_desc;
 		}
-		offsets[i] = curr_desc << PAGE_SHIFT;
+		dma_addrs[i] = curr_desc << PAGE_SHIFT;
 		curr_desc += n_desc;
 	}
 
 	/* Fill the remaining planes */
 	info = v4l2_format_info(f->fmt->fourcc);
 	for (i = info->mem_planes; i < info->comp_planes; i++)
-		offsets[i] = get_plane_offset(f, info, i);
+		dma_addrs[i] = dma_addrs[0] + get_plane_offset(f, info, i);
 
-	rbuf->offset.y_off = offsets[0];
-	rbuf->offset.u_off = offsets[1];
-	rbuf->offset.v_off = offsets[2];
+	rbuf->dma_addrs.y_addr = dma_addrs[0];
+	rbuf->dma_addrs.u_addr = dma_addrs[1];
+	rbuf->dma_addrs.v_addr = dma_addrs[2];
 
 	return 0;
 }

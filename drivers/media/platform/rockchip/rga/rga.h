@@ -97,10 +97,10 @@ struct rockchip_rga {
 	const struct rga_hw *hw;
 };
 
-struct rga_addr_offset {
-	unsigned int y_off;
-	unsigned int u_off;
-	unsigned int v_off;
+struct rga_addrs {
+	dma_addr_t y_addr;
+	dma_addr_t u_addr;
+	dma_addr_t v_addr;
 };
 
 struct rga_vb_buffer {
@@ -112,8 +112,8 @@ struct rga_vb_buffer {
 	dma_addr_t dma_desc_pa;
 	size_t n_desc;
 
-	/* Plane offsets of this buffer into the mapping */
-	struct rga_addr_offset offset;
+	/* Plane DMA addresses after the MMU mapping of the buffer */
+	struct rga_addrs dma_addrs;
 };
 
 static inline struct rga_vb_buffer *vb_to_rga(struct vb2_v4l2_buffer *vb)
