@@ -98,6 +98,14 @@ static umode_t seamldr_group_visible(struct kobject *kobj, struct attribute *att
 	if (!tdx_supports_runtime_update(sysinfo))
 		return 0;
 
+	/*
+	 * This bug makes P-SEAMLDR calls clobber the current VMCS
+	 * which breaks KVM. Avoid P-SEAMLDR calls by hiding all
+	 * attributes if the CPU has this bug.
+	 */
+	if (boot_cpu_has_bug(X86_BUG_SEAMRET_INVD_VMCS))
+		return 0;
+
 	return attr->mode;
 }
 

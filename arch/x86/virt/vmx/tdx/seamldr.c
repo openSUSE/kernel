@@ -6,8 +6,11 @@
  */
 #define pr_fmt(fmt)	"seamldr: " fmt
 
+#include <linux/bug.h>
 #include <linux/spinlock.h>
 
+#include <asm/cpufeature.h>
+#include <asm/cpufeatures.h>
 #include <asm/seamldr.h>
 
 #include "seamcall_internal.h"
@@ -25,6 +28,16 @@ static DEFINE_RAW_SPINLOCK(seamldr_lock);
 
 static int seamldr_call(u64 fn, struct tdx_module_args *args)
 {
+	/*
+	 * With this bug, P-SEAMLDR calls corrupt the VMCS
+	 * pointer and must be avoided. This path should be
+	 * unreachable since sysfs hides the ABIs.
+	 */
+	if (boot_cpu_has_bug(X86_BUG_SEAMRET_INVD_VMCS)) {
+		WARN_ON(1);
+		return -EINVAL;
+	}
+
 	guard(raw_spinlock)(&seamldr_lock);
 	return seamcall_prerr(fn, args);
 }
