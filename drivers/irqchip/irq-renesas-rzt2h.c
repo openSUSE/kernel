@@ -2,6 +2,7 @@
 
 #include <linux/bitfield.h>
 #include <linux/err.h>
+#include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/irqchip.h>
 #include <linux/irqchip/irq-renesas-rzt2h.h>
@@ -39,6 +40,9 @@
 #define RZT2H_ICU_IRQ_IN_RANGE(n, type)						\
 	((n) >= RZT2H_ICU_##type##_START &&					\
 	 (n) <  RZT2H_ICU_##type##_START + RZT2H_ICU_##type##_COUNT)
+
+#define RZT2H_ICU_SWINT				0x0
+#define RZT2H_ICU_SWINT_IC_MASK(i)		BIT(i)
 
 #define RZT2H_ICU_PORTNF_MD			0xc
 #define RZT2H_ICU_PORTNF_MDi_MASK(i)		(GENMASK(1, 0) << ((i) * 2))
@@ -98,6 +102,12 @@ static inline int rzt2h_icu_irq_to_offset(struct irq_data *d, void __iomem **bas
 		*base = priv->base_ns;
 	} else if (RZT2H_ICU_IRQ_IN_RANGE(hwirq, IRQ_S) || RZT2H_ICU_IRQ_IN_RANGE(hwirq, SEI)) {
 		*offset = hwirq - RZT2H_ICU_IRQ_S_START;
+		*base = priv->base_s;
+	} else if (RZT2H_ICU_IRQ_IN_RANGE(hwirq, INTCPU_NS)) {
+		*offset = hwirq - RZT2H_ICU_INTCPU_NS_START;
+		*base = priv->base_ns;
+	} else if (RZT2H_ICU_IRQ_IN_RANGE(hwirq, INTCPU_S)) {
+		*offset = hwirq - RZT2H_ICU_INTCPU_S_START;
 		*base = priv->base_s;
 	} else {
 		return -EINVAL;
@@ -164,6 +174,28 @@ static int rzt2h_icu_set_type(struct irq_data *d, unsigned int type)
 	return irq_chip_set_type_parent(d, IRQ_TYPE_EDGE_RISING);
 }
 
+static int rzt2h_icu_intcpu_set_irqchip_state(struct irq_data *d, enum irqchip_irq_state which,
+					      bool state)
+{
+	unsigned int offset;
+	void __iomem *base;
+	int ret;
+
+	if (which != IRQCHIP_STATE_PENDING)
+		return irq_chip_set_parent_state(d, which, state);
+
+	if (!state)
+		return 0;
+
+	ret = rzt2h_icu_irq_to_offset(d, &base, &offset);
+	if (ret)
+		return ret;
+
+	writel_relaxed(RZT2H_ICU_SWINT_IC_MASK(offset), base + RZT2H_ICU_SWINT);
+
+	return 0;
+}
+
 static const struct irq_chip rzt2h_icu_chip = {
 	.name			= "rzt2h-icu",
 	.irq_mask		= irq_chip_mask_parent,
@@ -180,10 +212,27 @@ static const struct irq_chip rzt2h_icu_chip = {
 				  IRQCHIP_SKIP_SET_WAKE,
 };
 
+static const struct irq_chip rzt2h_icu_intcpu_chip = {
+	.name			= "rzt2h-icu",
+	.irq_mask		= irq_chip_mask_parent,
+	.irq_unmask		= irq_chip_unmask_parent,
+	.irq_eoi		= irq_chip_eoi_parent,
+	.irq_set_type		= irq_chip_set_type_parent,
+	.irq_set_wake		= irq_chip_set_wake_parent,
+	.irq_set_affinity	= irq_chip_set_affinity_parent,
+	.irq_retrigger		= irq_chip_retrigger_hierarchy,
+	.irq_get_irqchip_state	= irq_chip_get_parent_state,
+	.irq_set_irqchip_state	= rzt2h_icu_intcpu_set_irqchip_state,
+	.flags			= IRQCHIP_MASK_ON_SUSPEND |
+				  IRQCHIP_SET_TYPE_MASKED |
+				  IRQCHIP_SKIP_SET_WAKE,
+};
+
 static int rzt2h_icu_alloc(struct irq_domain *domain, unsigned int virq, unsigned int nr_irqs,
 			   void *arg)
 {
 	struct rzt2h_icu_priv *priv = domain->host_data;
+	const struct irq_chip *chip;
 	irq_hw_number_t hwirq;
 	unsigned int type;
 	int ret;
@@ -192,7 +241,12 @@ static int rzt2h_icu_alloc(struct irq_domain *domain, unsigned int virq, unsigne
 	if (ret)
 		return ret;
 
-	ret = irq_domain_set_hwirq_and_chip(domain, virq, hwirq, &rzt2h_icu_chip, NULL);
+	if (RZT2H_ICU_IRQ_IN_RANGE(hwirq, INTCPU_NS) || RZT2H_ICU_IRQ_IN_RANGE(hwirq, INTCPU_S))
+		chip = &rzt2h_icu_intcpu_chip;
+	else
+		chip = &rzt2h_icu_chip;
+
+	ret = irq_domain_set_hwirq_and_chip(domain, virq, hwirq, chip, NULL);
 	if (ret)
 		return ret;
 
@@ -217,6 +271,60 @@ static int rzt2h_icu_parse_interrupts(struct rzt2h_icu_priv *priv, struct device
 			return ret;
 
 		of_phandle_args_to_fwspec(np, map.args, map.args_count, &priv->fwspec[i]);
+	}
+
+	return 0;
+}
+
+static irqreturn_t rzt2h_icu_intcpu_irq(int irq, void *data)
+{
+	unsigned int intcpu = (uintptr_t)data;
+
+	pr_info("INTCPU%u software interrupt\n", intcpu);
+	return IRQ_HANDLED;
+}
+
+static int rzt2h_icu_request_irqs(struct platform_device *pdev, struct irq_domain *irq_domain,
+				  unsigned int start, unsigned int count, irq_handler_t handler,
+				  void *data)
+{
+	struct device *dev = &pdev->dev;
+	unsigned int offset, virq;
+	struct irq_fwspec fwspec;
+	int ret;
+
+	for (offset = start; offset < start + count; offset++) {
+		fwspec.fwnode = irq_domain->fwnode;
+		fwspec.param_count = 2;
+		fwspec.param[0] = offset;
+		fwspec.param[1] = IRQ_TYPE_EDGE_RISING;
+
+		virq = irq_create_fwspec_mapping(&fwspec);
+		if (!virq)
+			return dev_err_probe(dev, -EINVAL, "Failed to create IRQ %u mapping\n", offset);
+
+		ret = devm_request_irq(dev, virq, handler, 0, dev_name(dev),
+				       data ?: (void *)(uintptr_t)offset);
+		if (ret)
+			return dev_err_probe(dev, ret, "Failed to request IRQ %u\n", offset);
+	}
+
+	return 0;
+}
+
+static int rzt2h_icu_setup_irqs(struct platform_device *pdev, struct irq_domain *irq_domain)
+{
+	if (IS_ENABLED(CONFIG_GENERIC_IRQ_INJECTION)) {
+		int ret = rzt2h_icu_request_irqs(pdev, irq_domain, RZT2H_ICU_INTCPU_NS_START,
+						 RZT2H_ICU_INTCPU_NS_COUNT, rzt2h_icu_intcpu_irq,
+						 NULL);
+		if (ret)
+			return ret;
+
+		ret = rzt2h_icu_request_irqs(pdev, irq_domain, RZT2H_ICU_INTCPU_S_START,
+					     RZT2H_ICU_INTCPU_S_COUNT, rzt2h_icu_intcpu_irq, NULL);
+		if (ret)
+			return ret;
 	}
 
 	return 0;
@@ -265,11 +373,20 @@ static int rzt2h_icu_init(struct platform_device *pdev, struct device_node *pare
 	irq_domain = irq_domain_create_hierarchy(parent_domain, 0, RZT2H_ICU_NUM_IRQ,
 						 dev_fwnode(dev), &rzt2h_icu_domain_ops, priv);
 	if (!irq_domain) {
-		pm_runtime_put_sync(dev);
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto err_pm_put;
 	}
 
+	ret = rzt2h_icu_setup_irqs(pdev, irq_domain);
+	if (ret)
+		goto err_irq_domain_free;
 	return 0;
+
+err_irq_domain_free:
+	irq_domain_remove(irq_domain);
+err_pm_put:
+	pm_runtime_put_sync(dev);
+	return ret;
 }
 
 IRQCHIP_PLATFORM_DRIVER_BEGIN(rzt2h_icu)
