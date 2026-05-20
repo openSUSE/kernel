@@ -783,17 +783,21 @@ static int parse_gfp_flags(struct perf_sample *sample, unsigned int gfp_flags)
 
 			new = realloc(gfps, (nr_gfps + 1) * sizeof(*gfps));
 			if (new == NULL)
-				return -ENOMEM;
+				goto err_out;
 
 			gfps = new;
-			new += nr_gfps++;
+			new += nr_gfps;
 
 			new->flags = gfp_flags;
 			new->human_readable = strdup(str + 10);
+			if (!new->human_readable)
+				goto err_out;
 			new->compact_str = compact_gfp_flags(str + 10);
-			if (!new->human_readable || !new->compact_str)
-				return -ENOMEM;
-
+			if (!new->compact_str) {
+				free(new->human_readable);
+				goto err_out;
+			}
+			nr_gfps++;
 			qsort(gfps, nr_gfps, sizeof(*gfps), gfpcmp);
 		}
 
@@ -802,6 +806,9 @@ static int parse_gfp_flags(struct perf_sample *sample, unsigned int gfp_flags)
 
 	trace_seq_destroy(&seq);
 	return 0;
+err_out:
+	trace_seq_destroy(&seq);
+	return -ENOMEM;
 }
 
 static int evsel__process_page_alloc_event(struct perf_sample *sample)
@@ -971,6 +978,7 @@ static int process_sample_event(const struct perf_tool *tool __maybe_unused,
 	}
 
 	if (perf_kmem__skip_sample(sample)) {
+		thread__put(thread);
 		return 0;
 	}
 
