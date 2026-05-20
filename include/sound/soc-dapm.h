@@ -673,6 +673,7 @@ int snd_soc_dapm_mux_update_power(struct snd_soc_dapm_context *dapm,
 /* dapm sys fs - used by the core */
 extern struct attribute *snd_soc_dapm_dev_attrs[];
 void snd_soc_dapm_debugfs_init(struct snd_soc_dapm_context *dapm, struct dentry *parent);
+void snd_soc_dapm_debugfs_pop_time(struct dentry *parent);
 
 /* dapm audio pin control and status */
 int snd_soc_dapm_enable_pin(struct snd_soc_dapm_context *dapm, const char *pin);
