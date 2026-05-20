@@ -129,7 +129,6 @@ struct descriptor_resource {
 };
 
 struct iso_resource_params {
-	int generation;
 	u64 channels;
 	s32 bandwidth;
 };
@@ -144,6 +143,7 @@ struct iso_resource_auto {
 		ISO_RES_AUTO_REALLOC,
 		ISO_RES_AUTO_DEALLOC,
 	} todo;
+	int generation;
 	struct iso_resource_params params;
 	struct iso_resource_event *e_alloc, *e_dealloc;
 };
@@ -1316,7 +1316,6 @@ static int fill_iso_resource_params(struct iso_resource_params *params,
 	    request->bandwidth > BANDWIDTH_AVAILABLE_INITIAL)
 		return -EINVAL;
 
-	params->generation = -1;
 	params->channels = request->channels;
 	params->bandwidth = request->bandwidth;
 
@@ -1336,8 +1335,8 @@ static void iso_resource_auto_work(struct work_struct *work)
 	scoped_guard(spinlock_irq, &client->lock) {
 		reset_jiffies = client->device->card->reset_jiffies;
 		current_generation = client->device->generation;
-		resource_generation = r->params.generation;
-		r->params.generation = current_generation;
+		resource_generation = r->generation;
+		r->generation = current_generation;
 		todo = r->todo;
 	}
 
@@ -1495,7 +1494,6 @@ static void iso_resource_once_work(struct work_struct *work)
 	scoped_guard(spinlock_irq, &client->lock)
 		generation = client->device->generation;
 
-	r->params.generation = generation;
 	bandwidth = r->params.bandwidth;
 
 	fw_iso_resource_manage(client->device->card, generation, r->params.channels, &channel,
