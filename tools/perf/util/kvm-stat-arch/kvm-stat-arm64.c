@@ -20,10 +20,8 @@ static const char * const __kvm_events_tp[] = {
 static void event_get_key(struct perf_sample *sample,
 			  struct event_key *key)
 {
-	struct evsel *evsel = sample->evsel;
-
 	key->info = 0;
-	key->key = evsel__intval(evsel, sample, kvm_exit_reason(EM_AARCH64));
+	key->key = perf_sample__intval(sample, kvm_exit_reason(EM_AARCH64));
 	key->exit_reasons = arm64_exit_reasons;
 
 	/*
@@ -32,7 +30,7 @@ static void event_get_key(struct perf_sample *sample,
 	 * properly decode event's est_ec.
 	 */
 	if (key->key == ARM_EXCEPTION_TRAP) {
-		key->key = evsel__intval(evsel, sample, kvm_trap_exit_reason);
+		key->key = perf_sample__intval(sample, kvm_trap_exit_reason);
 		key->exit_reasons = arm64_trap_exit_reasons;
 	}
 }

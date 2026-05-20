@@ -118,7 +118,7 @@ static int test__syscall_openat_tp_fields(struct test_suite *test __maybe_unused
 					goto out_delete_evlist;
 				}
 
-				tp_flags = evsel__intval(evsel, &sample, "flags");
+				tp_flags = perf_sample__intval(&sample, "flags");
 				perf_sample__exit(&sample);
 				/* C library wrapper may set additional flags,
 				   access mode must be unchanged */

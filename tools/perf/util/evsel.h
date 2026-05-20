@@ -371,14 +371,14 @@ bool evsel__precise_ip_fallback(struct evsel *evsel);
 struct perf_sample;
 
 #ifdef HAVE_LIBTRACEEVENT
-void *evsel__rawptr(struct evsel *evsel, struct perf_sample *sample, const char *name);
-u64 evsel__intval(struct evsel *evsel, struct perf_sample *sample, const char *name);
-u64 evsel__intval_common(struct evsel *evsel, struct perf_sample *sample, const char *name);
-char evsel__taskstate(struct evsel *evsel, struct perf_sample *sample, const char *name);
+void *perf_sample__rawptr(struct perf_sample *sample, const char *name);
+u64 perf_sample__intval(struct perf_sample *sample, const char *name);
+u64 perf_sample__intval_common(struct perf_sample *sample, const char *name);
+char perf_sample__taskstate(struct perf_sample *sample, const char *name);
 
-static inline char *evsel__strval(struct evsel *evsel, struct perf_sample *sample, const char *name)
+static inline char *perf_sample__strval(struct perf_sample *sample, const char *name)
 {
-	return evsel__rawptr(evsel, sample, name);
+	return perf_sample__rawptr(sample, name);
 }
 #endif
 

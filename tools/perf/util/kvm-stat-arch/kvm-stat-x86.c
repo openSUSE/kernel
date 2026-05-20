@@ -27,8 +27,8 @@ static const struct kvm_events_ops exit_events = {
 static void mmio_event_get_key(struct perf_sample *sample,
 			       struct event_key *key)
 {
-	key->key  = evsel__intval(sample->evsel, sample, "gpa");
-	key->info = evsel__intval(sample->evsel, sample, "type");
+	key->key  = perf_sample__intval(sample, "gpa");
+	key->info = perf_sample__intval(sample, "type");
 }
 
 #define KVM_TRACE_MMIO_READ_UNSATISFIED 0
@@ -43,7 +43,7 @@ static bool mmio_event_begin(struct perf_sample *sample, struct event_key *key)
 
 	/* MMIO write begin event in kernel. */
 	if (evsel__name_is(sample->evsel, "kvm:kvm_mmio") &&
-	    evsel__intval(sample->evsel, sample, "type") == KVM_TRACE_MMIO_WRITE) {
+	    perf_sample__intval(sample, "type") == KVM_TRACE_MMIO_WRITE) {
 		mmio_event_get_key(sample, key);
 		return true;
 	}
@@ -59,7 +59,7 @@ static bool mmio_event_end(struct perf_sample *sample, struct event_key *key)
 
 	/* MMIO read end event in kernel.*/
 	if (evsel__name_is(sample->evsel, "kvm:kvm_mmio") &&
-	    evsel__intval(sample->evsel, sample, "type") == KVM_TRACE_MMIO_READ) {
+	    perf_sample__intval(sample, "type") == KVM_TRACE_MMIO_READ) {
 		mmio_event_get_key(sample, key);
 		return true;
 	}
@@ -87,8 +87,8 @@ static const struct kvm_events_ops mmio_events = {
 static void ioport_event_get_key(struct perf_sample *sample,
 				 struct event_key *key)
 {
-	key->key  = evsel__intval(sample->evsel, sample, "port");
-	key->info = evsel__intval(sample->evsel, sample, "rw");
+	key->key  = perf_sample__intval(sample, "port");
+	key->info = perf_sample__intval(sample, "rw");
 }
 
 static bool ioport_event_begin(struct perf_sample *sample,
@@ -126,8 +126,8 @@ static const struct kvm_events_ops ioport_events = {
  /* The time of emulation msr is from kvm_msr to kvm_entry. */
 static void msr_event_get_key(struct perf_sample *sample, struct event_key *key)
 {
-	key->key  = evsel__intval(sample->evsel, sample, "ecx");
-	key->info = evsel__intval(sample->evsel, sample, "write");
+	key->key  = perf_sample__intval(sample, "ecx");
+	key->info = perf_sample__intval(sample, "write");
 }
 
 static bool msr_event_begin(struct perf_sample *sample, struct event_key *key)

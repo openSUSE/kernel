@@ -17,7 +17,7 @@ void exit_event_get_key(struct perf_sample *sample,
 	uint16_t e_machine = evsel__e_machine(sample->evsel, /*e_flags=*/NULL);
 
 	key->info = 0;
-	key->key  = evsel__intval(sample->evsel, sample, kvm_exit_reason(e_machine));
+	key->key  = perf_sample__intval(sample, kvm_exit_reason(e_machine));
 }
 
 

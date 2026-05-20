@@ -563,15 +563,15 @@ static int get_key_by_aggr_mode(u64 *key, u64 addr, struct evsel *evsel,
 	return get_key_by_aggr_mode_simple(key, addr, sample->tid);
 }
 
-static int report_lock_acquire_event(struct evsel *evsel,
+static int report_lock_acquire_event(struct evsel *evsel __maybe_unused,
 				     struct perf_sample *sample)
 {
 	struct lock_stat *ls;
 	struct thread_stat *ts;
 	struct lock_seq_stat *seq;
-	const char *name = evsel__strval(evsel, sample, "name");
-	u64 addr = evsel__intval(evsel, sample, "lockdep_addr");
-	int flag = evsel__intval(evsel, sample, "flags");
+	const char *name = perf_sample__strval(sample, "name");
+	u64 addr = perf_sample__intval(sample, "lockdep_addr");
+	int flag = perf_sample__intval(sample, "flags");
 	u64 key;
 	int ret;
 
@@ -638,15 +638,15 @@ end:
 	return 0;
 }
 
-static int report_lock_acquired_event(struct evsel *evsel,
+static int report_lock_acquired_event(struct evsel *evsel __maybe_unused,
 				      struct perf_sample *sample)
 {
 	struct lock_stat *ls;
 	struct thread_stat *ts;
 	struct lock_seq_stat *seq;
 	u64 contended_term;
-	const char *name = evsel__strval(evsel, sample, "name");
-	u64 addr = evsel__intval(evsel, sample, "lockdep_addr");
+	const char *name = perf_sample__strval(sample, "name");
+	u64 addr = perf_sample__intval(sample, "lockdep_addr");
 	u64 key;
 	int ret;
 
@@ -704,14 +704,14 @@ end:
 	return 0;
 }
 
-static int report_lock_contended_event(struct evsel *evsel,
+static int report_lock_contended_event(struct evsel *evsel  __maybe_unused,
 				       struct perf_sample *sample)
 {
 	struct lock_stat *ls;
 	struct thread_stat *ts;
 	struct lock_seq_stat *seq;
-	const char *name = evsel__strval(evsel, sample, "name");
-	u64 addr = evsel__intval(evsel, sample, "lockdep_addr");
+	const char *name = perf_sample__strval(sample, "name");
+	u64 addr = perf_sample__intval(sample, "lockdep_addr");
 	u64 key;
 	int ret;
 
@@ -762,14 +762,14 @@ end:
 	return 0;
 }
 
-static int report_lock_release_event(struct evsel *evsel,
+static int report_lock_release_event(struct evsel *evsel  __maybe_unused,
 				     struct perf_sample *sample)
 {
 	struct lock_stat *ls;
 	struct thread_stat *ts;
 	struct lock_seq_stat *seq;
-	const char *name = evsel__strval(evsel, sample, "name");
-	u64 addr = evsel__intval(evsel, sample, "lockdep_addr");
+	const char *name = perf_sample__strval(sample, "name");
+	u64 addr = perf_sample__intval(sample, "lockdep_addr");
 	u64 key;
 	int ret;
 
@@ -969,8 +969,8 @@ static int report_lock_contention_begin_event(struct evsel *evsel,
 	struct lock_stat *ls;
 	struct thread_stat *ts;
 	struct lock_seq_stat *seq;
-	u64 addr = evsel__intval(evsel, sample, "lock_addr");
-	unsigned int flags = evsel__intval(evsel, sample, "flags");
+	u64 addr = perf_sample__intval(sample, "lock_addr");
+	unsigned int flags = perf_sample__intval(sample, "flags");
 	u64 key;
 	int i, ret;
 	static bool kmap_loaded;
@@ -1134,7 +1134,7 @@ static int report_lock_contention_end_event(struct evsel *evsel,
 	struct thread_stat *ts;
 	struct lock_seq_stat *seq;
 	u64 contended_term;
-	u64 addr = evsel__intval(evsel, sample, "lock_addr");
+	u64 addr = perf_sample__intval(sample, "lock_addr");
 	u64 key;
 	int ret;
 

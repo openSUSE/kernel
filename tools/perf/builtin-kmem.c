@@ -173,10 +173,10 @@ static int insert_caller_stat(unsigned long call_site,
 
 static int evsel__process_alloc_event(struct evsel *evsel, struct perf_sample *sample)
 {
-	unsigned long ptr = evsel__intval(evsel, sample, "ptr"),
-		      call_site = evsel__intval(evsel, sample, "call_site");
-	int bytes_req = evsel__intval(evsel, sample, "bytes_req"),
-	    bytes_alloc = evsel__intval(evsel, sample, "bytes_alloc");
+	unsigned long ptr = perf_sample__intval(sample, "ptr"),
+		      call_site = perf_sample__intval(sample, "call_site");
+	int bytes_req = perf_sample__intval(sample, "bytes_req"),
+	    bytes_alloc = perf_sample__intval(sample, "bytes_alloc");
 
 	if (insert_alloc_stat(call_site, ptr, bytes_req, bytes_alloc, sample->cpu) ||
 	    insert_caller_stat(call_site, bytes_req, bytes_alloc))
@@ -202,7 +202,7 @@ static int evsel__process_alloc_event(struct evsel *evsel, struct perf_sample *s
 		int node1, node2;
 
 		node1 = cpu__get_node((struct perf_cpu){.cpu = sample->cpu});
-		node2 = evsel__intval(evsel, sample, "node");
+		node2 = perf_sample__intval(sample, "node");
 
 		/*
 		 * If the field "node" is NUMA_NO_NODE (-1), we don't take it
@@ -243,9 +243,9 @@ static struct alloc_stat *search_alloc_stat(unsigned long ptr,
 	return NULL;
 }
 
-static int evsel__process_free_event(struct evsel *evsel, struct perf_sample *sample)
+static int evsel__process_free_event(struct evsel *evsel __maybe_unused, struct perf_sample *sample)
 {
-	unsigned long ptr = evsel__intval(evsel, sample, "ptr");
+	unsigned long ptr = perf_sample__intval(sample, "ptr");
 	struct alloc_stat *s_alloc, *s_caller;
 
 	s_alloc = search_alloc_stat(ptr, 0, &root_alloc_stat, ptr_cmp);
@@ -808,10 +808,9 @@ static int parse_gfp_flags(struct evsel *evsel, struct perf_sample *sample,
 static int evsel__process_page_alloc_event(struct evsel *evsel, struct perf_sample *sample)
 {
 	u64 page;
-	unsigned int order = evsel__intval(evsel, sample, "order");
-	unsigned int gfp_flags = evsel__intval(evsel, sample, "gfp_flags");
-	unsigned int migrate_type = evsel__intval(evsel, sample,
-						       "migratetype");
+	unsigned int order = perf_sample__intval(sample, "order");
+	unsigned int gfp_flags = perf_sample__intval(sample, "gfp_flags");
+	unsigned int migrate_type = perf_sample__intval(sample, "migratetype");
 	u64 bytes = kmem_page_size << order;
 	u64 callsite;
 	struct page_stat *pstat;
@@ -822,9 +821,9 @@ static int evsel__process_page_alloc_event(struct evsel *evsel, struct perf_samp
 	};
 
 	if (use_pfn)
-		page = evsel__intval(evsel, sample, "pfn");
+		page = perf_sample__intval(sample, "pfn");
 	else
-		page = evsel__intval(evsel, sample, "page");
+		page = perf_sample__intval(sample, "page");
 
 	nr_page_allocs++;
 	total_page_alloc_bytes += bytes;
@@ -877,10 +876,11 @@ static int evsel__process_page_alloc_event(struct evsel *evsel, struct perf_samp
 	return 0;
 }
 
-static int evsel__process_page_free_event(struct evsel *evsel, struct perf_sample *sample)
+static int evsel__process_page_free_event(struct evsel *evsel __maybe_unused,
+					  struct perf_sample *sample)
 {
 	u64 page;
-	unsigned int order = evsel__intval(evsel, sample, "order");
+	unsigned int order = perf_sample__intval(sample, "order");
 	u64 bytes = kmem_page_size << order;
 	struct page_stat *pstat;
 	struct page_stat this = {
@@ -888,9 +888,9 @@ static int evsel__process_page_free_event(struct evsel *evsel, struct perf_sampl
 	};
 
 	if (use_pfn)
-		page = evsel__intval(evsel, sample, "pfn");
+		page = perf_sample__intval(sample, "pfn");
 	else
-		page = evsel__intval(evsel, sample, "page");
+		page = perf_sample__intval(sample, "page");
 
 	nr_page_frees++;
 	total_page_free_bytes += bytes;

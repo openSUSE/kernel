@@ -3094,7 +3094,7 @@ out_put:
 	return err;
 }
 
-static int trace__vfs_getname(struct trace *trace, struct evsel *evsel,
+static int trace__vfs_getname(struct trace *trace, struct evsel *evsel __maybe_unused,
 			      union perf_event *event __maybe_unused,
 			      struct perf_sample *sample)
 {
@@ -3103,7 +3103,7 @@ static int trace__vfs_getname(struct trace *trace, struct evsel *evsel,
 	size_t filename_len, entry_str_len, to_move;
 	ssize_t remaining_space;
 	char *pos;
-	const char *filename = evsel__rawptr(evsel, sample, "pathname");
+	const char *filename = perf_sample__strval(sample, "pathname");
 
 	if (!thread)
 		goto out;
@@ -3159,7 +3159,7 @@ static int trace__sched_stat_runtime(struct trace *trace, struct evsel *evsel,
 				     union perf_event *event __maybe_unused,
 				     struct perf_sample *sample)
 {
-        u64 runtime = evsel__intval(evsel, sample, "runtime");
+	u64 runtime = perf_sample__intval(sample, "runtime");
 	double runtime_ms = (double)runtime / NSEC_PER_MSEC;
 	struct thread *thread = machine__findnew_thread(trace->host,
 							sample->pid,
@@ -3178,10 +3178,10 @@ out_put:
 out_dump:
 	fprintf(trace->output, "%s: comm=%s,pid=%u,runtime=%" PRIu64 ",vruntime=%" PRIu64 ")\n",
 	       evsel->name,
-	       evsel__strval(evsel, sample, "comm"),
-	       (pid_t)evsel__intval(evsel, sample, "pid"),
+	       perf_sample__strval(sample, "comm"),
+	       (pid_t)perf_sample__intval(sample, "pid"),
 	       runtime,
-	       evsel__intval(evsel, sample, "vruntime"));
+	       perf_sample__intval(sample, "vruntime"));
 	goto out_put;
 }
 

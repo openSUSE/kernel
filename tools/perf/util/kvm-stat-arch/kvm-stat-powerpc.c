@@ -32,7 +32,7 @@ static void hcall_event_get_key(struct perf_sample *sample,
 				struct event_key *key)
 {
 	key->info = 0;
-	key->key = evsel__intval(sample->evsel, sample, "req");
+	key->key = perf_sample__intval(sample, "req");
 }
 
 static const char *get_hcall_exit_reason(u64 exit_code)

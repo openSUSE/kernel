@@ -1006,7 +1006,7 @@ static void irq_work_init(struct perf_kwork *kwork,
 			  struct kwork_class *class,
 			  struct kwork_work *work,
 			  enum kwork_trace_type src_type __maybe_unused,
-			  struct evsel *evsel,
+			  struct evsel *evsel __maybe_unused,
 			  struct perf_sample *sample,
 			  struct machine *machine __maybe_unused)
 {
@@ -1014,11 +1014,11 @@ static void irq_work_init(struct perf_kwork *kwork,
 	work->cpu = sample->cpu;
 
 	if (kwork->report == KWORK_REPORT_TOP) {
-		work->id = evsel__intval_common(evsel, sample, "common_pid");
+		work->id = perf_sample__intval_common(sample, "common_pid");
 		work->name = NULL;
 	} else {
-		work->id = evsel__intval(evsel, sample, "irq");
-		work->name = evsel__strval(evsel, sample, "name");
+		work->id = perf_sample__intval(sample, "irq");
+		work->name = perf_sample__strval(sample, "name");
 	}
 }
 
@@ -1144,10 +1144,10 @@ static void softirq_work_init(struct perf_kwork *kwork,
 	work->cpu = sample->cpu;
 
 	if (kwork->report == KWORK_REPORT_TOP) {
-		work->id = evsel__intval_common(evsel, sample, "common_pid");
+		work->id = perf_sample__intval_common(sample, "common_pid");
 		work->name = NULL;
 	} else {
-		num = evsel__intval(evsel, sample, "vec");
+		num = perf_sample__intval(sample, "vec");
 		work->id = num;
 		work->name = evsel__softirq_name(evsel, num);
 	}
@@ -1234,17 +1234,16 @@ static void workqueue_work_init(struct perf_kwork *kwork __maybe_unused,
 				struct kwork_class *class,
 				struct kwork_work *work,
 				enum kwork_trace_type src_type __maybe_unused,
-				struct evsel *evsel,
+				struct evsel *evsel __maybe_unused,
 				struct perf_sample *sample,
 				struct machine *machine)
 {
 	char *modp = NULL;
-	unsigned long long function_addr = evsel__intval(evsel,
-							 sample, "function");
+	unsigned long long function_addr = perf_sample__intval(sample, "function");
 
 	work->class = class;
 	work->cpu = sample->cpu;
-	work->id = evsel__intval(evsel, sample, "work");
+	work->id = perf_sample__intval(sample, "work");
 	work->name = function_addr == 0 ? NULL :
 		machine__resolve_kernel_addr(machine, &function_addr, &modp);
 }
@@ -1302,7 +1301,7 @@ static void sched_work_init(struct perf_kwork *kwork __maybe_unused,
 			    struct kwork_class *class,
 			    struct kwork_work *work,
 			    enum kwork_trace_type src_type,
-			    struct evsel *evsel,
+			    struct evsel *evsel __maybe_unused,
 			    struct perf_sample *sample,
 			    struct machine *machine __maybe_unused)
 {
@@ -1310,11 +1309,11 @@ static void sched_work_init(struct perf_kwork *kwork __maybe_unused,
 	work->cpu = sample->cpu;
 
 	if (src_type == KWORK_TRACE_EXIT) {
-		work->id = evsel__intval(evsel, sample, "prev_pid");
-		work->name = strdup(evsel__strval(evsel, sample, "prev_comm"));
+		work->id = perf_sample__intval(sample, "prev_pid");
+		work->name = strdup(perf_sample__strval(sample, "prev_comm"));
 	} else if (src_type == KWORK_TRACE_ENTRY) {
-		work->id = evsel__intval(evsel, sample, "next_pid");
-		work->name = strdup(evsel__strval(evsel, sample, "next_comm"));
+		work->id = perf_sample__intval(sample, "next_pid");
+		work->name = strdup(perf_sample__strval(sample, "next_comm"));
 	}
 }
 

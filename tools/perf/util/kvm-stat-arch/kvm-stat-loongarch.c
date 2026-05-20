@@ -78,7 +78,7 @@ static void event_gspr_get_key(struct perf_sample *sample, struct event_key *key
 	unsigned int insn;
 
 	key->key = LOONGARCH_EXCEPTION_OTHERS;
-	insn = evsel__intval(sample->evsel, sample, "inst_word");
+	insn = perf_sample__intval(sample, "inst_word");
 
 	switch (insn >> 24) {
 	case 0:
