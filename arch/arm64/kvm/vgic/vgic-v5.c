@@ -272,7 +272,7 @@ void vgic_v5_set_ppi_dvi(struct kvm_vcpu *vcpu, struct vgic_irq *irq, bool dvi)
 	lockdep_assert_held(&irq->irq_lock);
 
 	ppi = vgic_v5_get_hwirq_id(irq->intid);
-	__assign_bit(ppi, cpu_if->vgic_ppi_dvir, dvi);
+	assign_bit(ppi, cpu_if->vgic_ppi_dvir, dvi);
 }
 
 static const struct irq_ops vgic_v5_ppi_irq_ops = {
