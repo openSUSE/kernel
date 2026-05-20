@@ -13,15 +13,7 @@ use crate::{
     device::Device,
     error::{
         to_result,
-        Error,
-        Result,
         VTABLE_DEFAULT_ERROR, //
-    },
-    ffi::{
-        c_int,
-        c_long,
-        c_uint,
-        c_ulong, //
     },
     fs::{
         File,
@@ -39,10 +31,7 @@ use crate::{
         Opaque, //
     },
 };
-use core::{
-    marker::PhantomData,
-    pin::Pin, //
-};
+use core::marker::PhantomData;
 
 /// Options for creating a misc device.
 #[derive(Copy, Clone)]
