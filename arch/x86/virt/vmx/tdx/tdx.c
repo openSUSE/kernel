@@ -105,6 +105,10 @@ static __always_inline int sc_retry_prerr(sc_func_t func,
 #define seamcall_prerr_ret(__fn, __args)					\
 	sc_retry_prerr(__seamcall_ret, seamcall_err_ret, (__fn), (__args))
 
+static DEFINE_RAW_SPINLOCK(sysinit_lock);
+static bool sysinit_done;
+static int sysinit_ret;
+
 /*
  * Do the module global initialization once and return its result.
  * It can be done on any cpu, and from task or IRQ context.
@@ -112,9 +116,6 @@ static __always_inline int sc_retry_prerr(sc_func_t func,
 static int try_init_module_global(void)
 {
 	struct tdx_module_args args = {};
-	static DEFINE_RAW_SPINLOCK(sysinit_lock);
-	static bool sysinit_done;
-	static int sysinit_ret;
 	int ret;
 
 	raw_spin_lock(&sysinit_lock);
