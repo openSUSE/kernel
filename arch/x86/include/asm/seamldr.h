@@ -31,5 +31,6 @@ struct seamldr_info {
 static_assert(sizeof(struct seamldr_info) == 256);
 
 int seamldr_get_info(struct seamldr_info *seamldr_info);
+int seamldr_install_module(const u8 *data, u32 data_len);
 
 #endif /* _ASM_X86_SEAMLDR_H */
