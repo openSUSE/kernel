@@ -1015,8 +1015,6 @@ static int thermal_cooling_device_add(struct thermal_cooling_device *cdev, void 
 	device_initialize(&cdev->device);
 	cdev->devdata = devdata;
 
-	thermal_cooling_device_setup_sysfs(cdev);
-
 	ret = dev_set_name(&cdev->device, "cooling_device%d", cdev->id);
 	if (ret)
 		goto out_put_device;
@@ -1036,6 +1034,8 @@ static int thermal_cooling_device_add(struct thermal_cooling_device *cdev, void 
 	ret = cdev->ops->get_cur_state(cdev, &current_state);
 	if (ret)
 		current_state = ULONG_MAX;
+
+	thermal_cooling_device_setup_sysfs(cdev);
 
 	ret = device_add(&cdev->device);
 	if (ret)
