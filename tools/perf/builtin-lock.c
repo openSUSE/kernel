@@ -938,9 +938,16 @@ static u64 *get_callstack(struct perf_sample *sample, int max_stack)
 	u64 i;
 	int c;
 
-	callstack = calloc(max_stack, sizeof(*callstack));
-	if (callstack == NULL)
+	if (!sample->callchain) {
+		pr_debug("Sample unexpectedly missing callchain\n");
 		return NULL;
+	}
+
+	callstack = calloc(max_stack, sizeof(*callstack));
+	if (callstack == NULL) {
+		pr_debug("Failed to allocate callstack\n");
+		return NULL;
+	}
 
 	for (i = 0, c = 0; i < sample->callchain->nr && c < max_stack; i++) {
 		u64 ip = sample->callchain->ips[i];
@@ -1059,7 +1066,7 @@ static int report_lock_contention_begin_event(struct perf_sample *sample)
 	if (needs_callstack()) {
 		u64 *callstack = get_callstack(sample, max_stack_depth);
 		if (callstack == NULL)
-			return -ENOMEM;
+			return 0;
 
 		if (!match_callstack_filter(machine, callstack, max_stack_depth)) {
 			free(callstack);
