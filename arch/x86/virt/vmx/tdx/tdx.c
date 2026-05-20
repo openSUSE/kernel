@@ -115,28 +115,34 @@ static int try_init_module_global(void)
 	static DEFINE_RAW_SPINLOCK(sysinit_lock);
 	static bool sysinit_done;
 	static int sysinit_ret;
+	int ret;
 
 	raw_spin_lock(&sysinit_lock);
 
-	if (sysinit_done)
+	/* Return the "cached" return code. */
+	if (sysinit_done) {
+		ret = sysinit_ret;
 		goto out;
+	}
 
 	/* RCX is module attributes and all bits are reserved */
 	args.rcx = 0;
-	sysinit_ret = seamcall_prerr(TDH_SYS_INIT, &args);
+	ret = seamcall_prerr(TDH_SYS_INIT, &args);
 
 	/*
 	 * The first SEAMCALL also detects the TDX module, thus
 	 * it can fail due to the TDX module is not loaded.
 	 * Dump message to let the user know.
 	 */
-	if (sysinit_ret == -ENODEV)
+	if (ret == -ENODEV)
 		pr_err("module not loaded\n");
 
+	/* Save the return code for later callers. */
 	sysinit_done = true;
+	sysinit_ret = ret;
 out:
 	raw_spin_unlock(&sysinit_lock);
-	return sysinit_ret;
+	return ret;
 }
 
 /**
