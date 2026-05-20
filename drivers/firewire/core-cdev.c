@@ -150,8 +150,7 @@ struct iso_resource_auto {
 
 struct iso_resource_once {
 	struct client *client;
-	// Schedule work and access todo only with client->lock held.
-	struct delayed_work work;
+	struct work_struct work;
 	enum {
 		ISO_RES_ONCE_ALLOC,
 		ISO_RES_ONCE_DEALLOC,
@@ -1486,7 +1485,7 @@ static int ioctl_deallocate_iso_resource(struct client *client,
 
 static void iso_resource_once_work(struct work_struct *work)
 {
-	struct iso_resource_once *r = from_work(r, work, work.work);
+	struct iso_resource_once *r = from_work(r, work, work);
 	struct client *client = r->client;
 	struct iso_resource_event *e = r->event;
 	int generation, channel, bandwidth;
@@ -1505,7 +1504,7 @@ static void iso_resource_once_work(struct work_struct *work)
 
 	queue_event(client, &e->event, &e->iso_resource, sizeof(e->iso_resource), NULL, 0);
 
-	cancel_delayed_work(&r->work);
+	cancel_work(&r->work);
 	kfree(r);
 
 	client_put(client);
@@ -1525,7 +1524,7 @@ static int init_iso_resource_once(struct client *client,
 	if (err < 0)
 		return err;
 
-	INIT_DELAYED_WORK(&r->work, iso_resource_once_work);
+	INIT_WORK(&r->work, iso_resource_once_work);
 	r->client = client;
 	r->todo	= todo;
 
@@ -1539,7 +1538,7 @@ static int init_iso_resource_once(struct client *client,
 	// Keep the client until work item finishing.
 	client_get(r->client);
 
-	queue_delayed_work(fw_workqueue, &no_free_ptr(r)->work, 0);
+	queue_work(fw_workqueue, &no_free_ptr(r)->work);
 
 	request->handle = UNAVAILABLE_HANDLE;
 
