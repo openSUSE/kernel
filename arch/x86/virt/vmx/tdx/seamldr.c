@@ -18,6 +18,7 @@
 #include <asm/seamldr.h>
 
 #include "seamcall_internal.h"
+#include "tdx.h"
 
 /* P-SEAMLDR SEAMCALL leaf function */
 #define P_SEAMLDR_INFO			0x8000000000000000
@@ -196,6 +197,7 @@ static int init_seamldr_params(struct seamldr_params *params,
  */
 enum module_update_state {
 	MODULE_UPDATE_START,
+	MODULE_UPDATE_SHUTDOWN,
 	MODULE_UPDATE_DONE,
 };
 
@@ -247,7 +249,15 @@ static int do_seamldr_install_module(void *seamldr_params)
 {
 	enum module_update_state curstate = MODULE_UPDATE_START;
 	enum module_update_state newstate;
+	bool is_lead_cpu = false;
 	int ret = 0;
+
+	/*
+	 * Some steps must be run on exactly one CPU. Pick a "lead" CPU to
+	 * execute those steps. Use CPU 0 because it is always online.
+	 */
+	if (smp_processor_id() == 0)
+		is_lead_cpu = true;
 
 	do {
 		newstate = READ_ONCE(update_ctrl.state);
@@ -259,7 +269,10 @@ static int do_seamldr_install_module(void *seamldr_params)
 
 		curstate = newstate;
 		switch (curstate) {
-		/* TODO: add the update steps. */
+		case MODULE_UPDATE_SHUTDOWN:
+			if (is_lead_cpu)
+				ret = tdx_module_shutdown();
+			break;
 		default:
 			break;
 		}

@@ -46,6 +46,7 @@
 #define TDH_PHYMEM_PAGE_WBINVD		41
 #define TDH_VP_WR			43
 #define TDH_SYS_CONFIG			45
+#define TDH_SYS_SHUTDOWN		52
 #define TDH_SYS_DISABLE			69
 
 /*
@@ -107,5 +108,7 @@ struct tdmr_info_list {
 	int tdmr_sz;	/* Size of one 'tdmr_info' */
 	int max_tdmrs;	/* How many 'tdmr_info's are allocated */
 };
+
+int tdx_module_shutdown(void);
 
 #endif
