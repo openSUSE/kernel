@@ -36,6 +36,7 @@
 #include <linux/zalloc.h>
 #include <sys/prctl.h>
 #include <sys/resource.h>
+#include <sys/wait.h>
 #include <inttypes.h>
 
 #include <errno.h>
@@ -3746,8 +3747,11 @@ static int process_synthesized_schedstat_event(const struct perf_tool *tool,
 	return 0;
 }
 
+static volatile sig_atomic_t done;
+
 static void sighandler(int sig __maybe_unused)
 {
+	done = 1;
 }
 
 static int enable_sched_schedstats(int *reset)
@@ -3807,6 +3811,7 @@ static int perf_sched__schedstat_record(struct perf_sched *sched,
 		.mode  = PERF_DATA_MODE_WRITE,
 	};
 
+	done = 0;
 	signal(SIGINT, sighandler);
 	signal(SIGCHLD, sighandler);
 	signal(SIGTERM, sighandler);
@@ -3891,8 +3896,11 @@ static int perf_sched__schedstat_record(struct perf_sched *sched,
 	if (argc)
 		evlist__start_workload(evlist);
 
-	/* wait for signal */
-	pause();
+	while (!done) {
+		if (argc && waitpid(evlist->workload.pid, NULL, WNOHANG) > 0)
+			break;
+		sleep(1);
+	}
 
 	if (reset) {
 		err = disable_sched_schedstat();
