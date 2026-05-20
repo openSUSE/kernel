@@ -942,6 +942,9 @@ static int sof_ipc4_widget_setup_comp_pipeline(struct snd_sof_widget *swidget)
 		goto err;
 	}
 
+	if (sof_debug_check_flag(SOF_DBG_DISABLE_MULTICORE))
+		pipeline->core_id = SOF_DSP_PRIMARY_CORE;
+
 	swidget->core = pipeline->core_id;
 	spipe->core_mask |= BIT(pipeline->core_id);
 	if (pipeline->direction_valid) {
