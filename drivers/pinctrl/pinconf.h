@@ -167,7 +167,7 @@ pinconf_generic_parse_dt_pinmux(struct device_node *np, struct device *dev,
 }
 #endif
 
-#if defined(CONFIG_GENERIC_PINCTRL) && defined (CONFIG_OF)
+#if defined(CONFIG_GENERIC_PINCTRL)
 int pinctrl_generic_pins_function_dt_node_to_map(struct pinctrl_dev *pctldev,
 						 struct device_node *np,
 						 struct pinctrl_map **maps,
