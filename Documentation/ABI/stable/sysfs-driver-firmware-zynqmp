@@ -254,3 +254,36 @@ Description:
 		The expected result is 500.
 
 Users:		Xilinx
+
+What:		/sys/devices/platform/firmware\:zynqmp-firmware/csu_registers/*
+Date:		May 2026
+KernelVersion:	7.2
+Contact:	"Ronak Jain" <ronak.jain@amd.com>
+Description:
+		Read/Write CSU (Configuration Security Unit) registers.
+
+		This interface provides dynamic access to CSU registers that are
+		discovered from the firmware at boot time using PM_QUERY_DATA API.
+
+		The supported registers are:
+
+		- multiboot: CSU_MULTI_BOOT register
+		- idcode: CSU_IDCODE register (read-only)
+		- pcap-status: CSU_PCAP_STATUS register (read-only)
+
+		Read operations use the existing IOCTL_READ_REG API.
+		Write operations use the existing IOCTL_MASK_WRITE_REG API.
+
+		The firmware enforces access control - read-only registers will reject
+		write attempts even though the sysfs permissions show write access.
+
+		Usage for reading::
+
+		    # cat /sys/devices/platform/firmware\:zynqmp-firmware/csu_registers/multiboot
+		    # cat /sys/devices/platform/firmware\:zynqmp-firmware/csu_registers/idcode
+
+		Usage for writing (mask and value are in hexadecimal)::
+
+		    # echo 0xFFFFFFF 0x0 > /sys/devices/platform/firmware\:zynqmp-firmware/csu_registers/multiboot
+
+Users:		Xilinx/AMD
