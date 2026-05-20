@@ -19,7 +19,6 @@
 
 struct rga_fmt {
 	u32 fourcc;
-	int depth;
 	u8 color_swap;
 	u8 hw_format;
 };
@@ -31,9 +30,6 @@ struct rga_frame {
 	/* Image format */
 	struct rga_fmt *fmt;
 	struct v4l2_pix_format_mplane pix;
-
-	/* Variables that can calculated once and reused */
-	u32 stride;
 };
 
 struct rga_dma_desc {
