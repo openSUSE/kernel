@@ -5410,9 +5410,9 @@ static int qcom_llcc_get_fw_config(struct platform_device *pdev)
 	}
 
 	slc_mem = devm_memremap(dev, res.start, resource_size(&res), MEMREMAP_WB);
-	if (!slc_mem) {
+	if (IS_ERR(slc_mem)) {
 		dev_err(dev, "Failed to memremap SLC shared memory\n");
-		return -ENOMEM;
+		return PTR_ERR(slc_mem);
 	}
 
 	ret = qcom_llcc_verify_fw_config(dev, slc_mem);
