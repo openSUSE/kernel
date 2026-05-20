@@ -501,6 +501,31 @@ static inline unsigned int ublk_req_build_flags(struct request *req)
 	return flags;
 }
 
+static void ublk_init_iod(struct ublk_queue *ubq, struct request *req,
+			  uint8_t ublk_op, uint32_t nr_sectors,
+			  uint64_t start_sector)
+{
+	struct ublksrv_io_desc *iod = ublk_get_iod(ubq, req->tag);
+	struct ublk_io *io = &ubq->ios[req->tag];
+
+	iod->op_flags = ublk_op | ublk_req_build_flags(req);
+	iod->nr_sectors = nr_sectors;
+	iod->start_sector = start_sector;
+
+	/* Try shmem zero-copy match before setting addr */
+	if (ublk_support_shmem_zc(ubq) && blk_rq_has_data(req)) {
+		u32 buf_idx, buf_off;
+
+		if (ublk_try_buf_match(ubq->dev, req, &buf_idx, &buf_off)) {
+			iod->op_flags |= UBLK_IO_F_SHMEM_ZC;
+			iod->addr = ublk_shmem_zc_addr(buf_idx, buf_off);
+			return;
+		}
+	}
+
+	iod->addr = io->buf.addr;
+}
+
 #ifdef CONFIG_BLK_DEV_ZONED
 
 struct ublk_zoned_report_desc {
@@ -682,8 +707,6 @@ out:
 static blk_status_t ublk_setup_iod_zoned(struct ublk_queue *ubq,
 					 struct request *req)
 {
-	struct ublksrv_io_desc *iod = ublk_get_iod(ubq, req->tag);
-	struct ublk_io *io = &ubq->ios[req->tag];
 	struct ublk_zoned_report_desc *desc;
 	u32 ublk_op;
 
@@ -713,9 +736,8 @@ static blk_status_t ublk_setup_iod_zoned(struct ublk_queue *ubq,
 		ublk_op = desc->operation;
 		switch (ublk_op) {
 		case UBLK_IO_OP_REPORT_ZONES:
-			iod->op_flags = ublk_op | ublk_req_build_flags(req);
-			iod->nr_zones = desc->nr_zones;
-			iod->start_sector = desc->sector;
+			ublk_init_iod(ubq, req, ublk_op, desc->nr_zones,
+				      desc->sector);
 			return BLK_STS_OK;
 		default:
 			return BLK_STS_IOERR;
@@ -727,11 +749,7 @@ static blk_status_t ublk_setup_iod_zoned(struct ublk_queue *ubq,
 		return BLK_STS_IOERR;
 	}
 
-	iod->op_flags = ublk_op | ublk_req_build_flags(req);
-	iod->nr_sectors = blk_rq_sectors(req);
-	iod->start_sector = blk_rq_pos(req);
-	iod->addr = io->buf.addr;
-
+	ublk_init_iod(ubq, req, ublk_op, blk_rq_sectors(req), blk_rq_pos(req));
 	return BLK_STS_OK;
 }
 
@@ -1470,8 +1488,6 @@ static unsigned int ublk_unmap_io(bool need_map,
 
 static blk_status_t ublk_setup_iod(struct ublk_queue *ubq, struct request *req)
 {
-	struct ublksrv_io_desc *iod = ublk_get_iod(ubq, req->tag);
-	struct ublk_io *io = &ubq->ios[req->tag];
 	u32 ublk_op;
 
 	switch (req_op(req)) {
@@ -1496,25 +1512,7 @@ static blk_status_t ublk_setup_iod(struct ublk_queue *ubq, struct request *req)
 		return BLK_STS_IOERR;
 	}
 
-	/* need to translate since kernel may change */
-	iod->op_flags = ublk_op | ublk_req_build_flags(req);
-	iod->nr_sectors = blk_rq_sectors(req);
-	iod->start_sector = blk_rq_pos(req);
-
-	/* Try shmem zero-copy match before setting addr */
-	if (ublk_support_shmem_zc(ubq) && blk_rq_has_data(req)) {
-		u32 buf_idx, buf_off;
-
-		if (ublk_try_buf_match(ubq->dev, req,
-					  &buf_idx, &buf_off)) {
-			iod->op_flags |= UBLK_IO_F_SHMEM_ZC;
-			iod->addr = ublk_shmem_zc_addr(buf_idx, buf_off);
-			return BLK_STS_OK;
-		}
-	}
-
-	iod->addr = io->buf.addr;
-
+	ublk_init_iod(ubq, req, ublk_op, blk_rq_sectors(req), blk_rq_pos(req));
 	return BLK_STS_OK;
 }
 
