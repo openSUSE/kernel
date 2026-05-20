@@ -79,6 +79,8 @@ static int rga_buf_init(struct vb2_buffer *vb)
 	struct rockchip_rga *rga = ctx->rga;
 	struct rga_frame *f = rga_get_frame(ctx, vb->vb2_queue->type);
 	size_t n_desc = 0;
+	u32 size = 0;
+	u8 i;
 
 	if (IS_ERR(f))
 		return PTR_ERR(f);
@@ -86,7 +88,9 @@ static int rga_buf_init(struct vb2_buffer *vb)
 	if (!rga_has_internal_iommu(rga))
 		return 0;
 
-	n_desc = DIV_ROUND_UP(f->size, PAGE_SIZE);
+	for (i = 0; i < f->pix.num_planes; i++)
+		size += f->pix.plane_fmt[i].sizeimage;
+	n_desc = DIV_ROUND_UP(size, PAGE_SIZE);
 
 	rbuf->n_desc = n_desc;
 	rbuf->dma_desc = dma_alloc_coherent(rga->dev,
