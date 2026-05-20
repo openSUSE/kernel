@@ -618,7 +618,7 @@ int xdp_lb_bench(struct xdp_md *xdp)
 		__u32 *saddr = data + saddr_off;
 
 		batch_gen++;
-		batch_hash = (batch_gen ^ bpf_get_smp_processor_id()) * KNUTH_HASH_MULT;
+		batch_hash = (batch_gen + bpf_get_smp_processor_id()) * KNUTH_HASH_MULT;
 		if ((void *)(saddr + 1) <= data_end)
 			*saddr ^= batch_hash;
 	}
