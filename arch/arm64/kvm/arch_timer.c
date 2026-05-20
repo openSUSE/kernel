@@ -404,22 +404,30 @@ int kvm_cpu_has_pending_timer(struct kvm_vcpu *vcpu)
 	return vcpu_has_wfit_active(vcpu) && wfit_delay_ns(vcpu) == 0;
 }
 
+static u64 kvm_timer_needs_notify(struct kvm_vcpu *vcpu)
+{
+	u64 v = vcpu->run->s.regs.device_irq_level;
+
+	v ^= kvm_timer_pending(vcpu_vtimer(vcpu)) ? KVM_ARM_DEV_EL1_VTIMER : 0;
+	v ^= kvm_timer_pending(vcpu_ptimer(vcpu)) ? KVM_ARM_DEV_EL1_PTIMER : 0;
+
+	return v & (KVM_ARM_DEV_EL1_VTIMER | KVM_ARM_DEV_EL1_PTIMER);
+}
+
+bool kvm_timer_should_notify_user(struct kvm_vcpu *vcpu)
+{
+	return !!kvm_timer_needs_notify(vcpu);
+}
+
 /*
  * Reflect the timer output level into the kvm_run structure
  */
-void kvm_timer_update_run(struct kvm_vcpu *vcpu)
+bool kvm_timer_update_run(struct kvm_vcpu *vcpu)
 {
-	struct arch_timer_context *vtimer = vcpu_vtimer(vcpu);
-	struct arch_timer_context *ptimer = vcpu_ptimer(vcpu);
-	struct kvm_sync_regs *regs = &vcpu->run->s.regs;
-
-	/* Populate the device bitmap with the timer states */
-	regs->device_irq_level &= ~(KVM_ARM_DEV_EL1_VTIMER |
-				    KVM_ARM_DEV_EL1_PTIMER);
-	if (kvm_timer_pending(vtimer))
-		regs->device_irq_level |= KVM_ARM_DEV_EL1_VTIMER;
-	if (kvm_timer_pending(ptimer))
-		regs->device_irq_level |= KVM_ARM_DEV_EL1_PTIMER;
+	u64 mask = kvm_timer_needs_notify(vcpu);
+	if (mask)
+		vcpu->run->s.regs.device_irq_level ^= mask;
+	return !!mask;
 }
 
 static void kvm_timer_update_status(struct arch_timer_context *ctx, bool level)
@@ -901,23 +909,6 @@ void kvm_timer_vcpu_load(struct kvm_vcpu *vcpu)
 		timer_emulate(map.emul_ptimer);
 
 	timer_set_traps(vcpu, &map);
-}
-
-bool kvm_timer_should_notify_user(struct kvm_vcpu *vcpu)
-{
-	struct arch_timer_context *vtimer = vcpu_vtimer(vcpu);
-	struct arch_timer_context *ptimer = vcpu_ptimer(vcpu);
-	struct kvm_sync_regs *sregs = &vcpu->run->s.regs;
-	bool vlevel, plevel;
-
-	if (likely(irqchip_in_kernel(vcpu->kvm)))
-		return false;
-
-	vlevel = sregs->device_irq_level & KVM_ARM_DEV_EL1_VTIMER;
-	plevel = sregs->device_irq_level & KVM_ARM_DEV_EL1_PTIMER;
-
-	return kvm_timer_pending(vtimer) != vlevel ||
-	       kvm_timer_pending(ptimer) != plevel;
 }
 
 void kvm_timer_vcpu_put(struct kvm_vcpu *vcpu)
