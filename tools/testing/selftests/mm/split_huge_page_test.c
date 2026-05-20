@@ -625,7 +625,7 @@ static int create_pagecache_thp_and_fd(const char *testfile, size_t fd_size,
 	}
 	if (write(*fd, "3", 1) != 1) {
 		ksft_perror("write to drop_caches");
-		goto err_out_unlink;
+		goto err_out_close;
 	}
 	close(*fd);
 
