@@ -5200,6 +5200,16 @@ static int ufshcd_validate_link_params(struct ufs_hba *hba)
 {
 	int ret, val;
 
+	/*
+	 * lanes_per_direction is only populated by the platform glue (it
+	 * defaults to 2 or is read from the "lanes-per-direction" devicetree
+	 * property). Controllers probed via ufshcd-pci leave it unset (0), in
+	 * which case there is no expected lane count to validate the connected
+	 * lanes against. Skip the check instead of failing link startup.
+	 */
+	if (!hba->lanes_per_direction)
+		return 0;
+
 	ret = ufshcd_dme_get(hba, UIC_ARG_MIB(PA_CONNECTEDTXDATALANES),
 			     &val);
 	if (ret)
