@@ -288,6 +288,8 @@ static void a8xx_set_ubwc_config(struct msm_gpu *gpu)
 	switch (ubwc_version) {
 	case UBWC_6_0:
 		yuvnotcomptofc = true;
+		amsbc = true;
+		rgb565_predicator = true;
 		break;
 	case UBWC_5_0:
 		amsbc = true;
