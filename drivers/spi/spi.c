@@ -732,8 +732,6 @@ static int __spi_add_device(struct spi_device *spi, struct spi_device *parent)
 	}
 
 	if (ctlr->cs_gpiods) {
-		u8 cs;
-
 		for (idx = 0; idx < spi->num_chipselect; idx++) {
 			cs = spi_get_chipselect(spi, idx);
 			spi_set_csgpiod(spi, idx, ctlr->cs_gpiods[cs]);
