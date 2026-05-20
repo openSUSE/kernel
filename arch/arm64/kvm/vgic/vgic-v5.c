@@ -316,7 +316,7 @@ static void vgic_v5_sync_ppi_priorities(struct kvm_vcpu *vcpu)
 	 * those actually exposed to the guest by first iterating over the mask
 	 * of exposed PPIs.
 	 */
-	for_each_set_bit(i, vcpu->kvm->arch.vgic.gicv5_vm.vgic_ppi_mask, VGIC_V5_NR_PRIVATE_IRQS) {
+	for_each_visible_v5_ppi(i, vcpu->kvm) {
 		u32 intid = vgic_v5_make_ppi(i);
 		struct vgic_irq *irq;
 		int pri_idx, pri_reg, pri_bit;
@@ -358,7 +358,7 @@ bool vgic_v5_has_pending_ppi(struct kvm_vcpu *vcpu)
 	if (!priority_mask)
 		return false;
 
-	for_each_set_bit(i, vcpu->kvm->arch.vgic.gicv5_vm.vgic_ppi_mask, VGIC_V5_NR_PRIVATE_IRQS) {
+	for_each_visible_v5_ppi(i, vcpu->kvm) {
 		u32 intid = vgic_v5_make_ppi(i);
 		bool has_pending = false;
 		struct vgic_irq *irq;
@@ -391,8 +391,7 @@ void vgic_v5_fold_ppi_state(struct kvm_vcpu *vcpu)
 	activer = host_data_ptr(vgic_v5_ppi_state)->activer_exit;
 	pendr = host_data_ptr(vgic_v5_ppi_state)->pendr;
 
-	for_each_set_bit(i, vcpu->kvm->arch.vgic.gicv5_vm.vgic_ppi_mask,
-			 VGIC_V5_NR_PRIVATE_IRQS) {
+	for_each_visible_v5_ppi(i, vcpu->kvm) {
 		u32 intid = vgic_v5_make_ppi(i);
 		struct vgic_irq *irq;
 
@@ -429,8 +428,7 @@ void vgic_v5_flush_ppi_state(struct kvm_vcpu *vcpu)
 	 * ICC_PPI_PENDRx_EL1, however.
 	 */
 	bitmap_zero(pendr, VGIC_V5_NR_PRIVATE_IRQS);
-	for_each_set_bit(i, vcpu->kvm->arch.vgic.gicv5_vm.vgic_ppi_mask,
-			 VGIC_V5_NR_PRIVATE_IRQS) {
+	for_each_visible_v5_ppi(i, vcpu->kvm) {
 		u32 intid = vgic_v5_make_ppi(i);
 		struct vgic_irq *irq;
 

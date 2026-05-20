@@ -751,7 +751,7 @@ static bool access_gicv5_ppi_enabler(struct kvm_vcpu *vcpu,
 	 * Sync the change in enable states to the vgic_irqs. We consider all
 	 * PPIs as we don't expose many to the guest.
 	 */
-	for_each_set_bit(i, mask, VGIC_V5_NR_PRIVATE_IRQS) {
+	for_each_visible_v5_ppi(i, vcpu->kvm) {
 		u32 intid = vgic_v5_make_ppi(i);
 		struct vgic_irq *irq;
 
