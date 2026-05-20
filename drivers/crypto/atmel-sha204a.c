@@ -209,8 +209,8 @@ static void atmel_sha204a_remove(struct i2c_client *client)
 }
 
 static const struct of_device_id atmel_sha204a_dt_ids[] = {
-	{ .compatible = "atmel,atsha204", .data = &atsha204_quality },
-	{ .compatible = "atmel,atsha204a", },
+	{ .compatible = "atmel,atsha204" },
+	{ .compatible = "atmel,atsha204a" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, atmel_sha204a_dt_ids);
