@@ -525,13 +525,6 @@ enum x86_intercept {
 	nr_x86_intercepts
 };
 
-/* Host execution mode. */
-#if defined(CONFIG_X86_32)
-#define X86EMUL_MODE_HOST X86EMUL_MODE_PROT32
-#elif defined(CONFIG_X86_64)
-#define X86EMUL_MODE_HOST X86EMUL_MODE_PROT64
-#endif
-
 int x86_decode_insn(struct x86_emulate_ctxt *ctxt, void *insn, int insn_len, int emulation_type);
 bool x86_page_table_writing_insn(struct x86_emulate_ctxt *ctxt);
 #define EMULATION_FAILED -1
