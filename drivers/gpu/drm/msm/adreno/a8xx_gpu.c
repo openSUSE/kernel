@@ -286,26 +286,24 @@ static void a8xx_set_ubwc_config(struct msm_gpu *gpu)
 	u32 hbb, hbb_hi, hbb_lo, mode;
 	u8 uavflagprd_inv = 2;
 
-	switch (ubwc_version) {
-	case UBWC_6_0:
-		yuvnotcomptofc = true;
-		rgb565_predicator = true;
-		break;
-	case UBWC_5_0:
-		rgb565_predicator = true;
-		break;
-	case UBWC_4_0:
-		rgb565_predicator = true;
-		fp16compoptdis = true;
-		rgba8888_lossless = true;
-		break;
-	case UBWC_3_0:
-		fp16compoptdis = true;
-		break;
-	default:
+	if (ubwc_version > UBWC_6_0)
 		dev_err(&gpu->pdev->dev, "Unknown UBWC version: 0x%x\n", ubwc_version);
-		break;
-	}
+
+	if (ubwc_version == UBWC_6_0)
+		yuvnotcomptofc = true;
+
+	if (ubwc_version < UBWC_5_0 &&
+	    ubwc_version >= UBWC_4_0)
+		rgba8888_lossless = true;
+
+	if (ubwc_version < UBWC_4_3)
+		fp16compoptdis = true;
+
+	if (cfg->ubwc_enc_version >= UBWC_4_0)
+		rgb565_predicator = true;
+
+	if (ubwc_version < UBWC_3_0)
+		dev_err(&gpu->pdev->dev, "Unsupported UBWC version: 0x%x\n", ubwc_version);
 
 	mode = qcom_ubwc_version_tag(cfg);
 
