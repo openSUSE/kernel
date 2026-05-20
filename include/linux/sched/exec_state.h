@@ -16,13 +16,13 @@ struct task_exec_state {
 	struct rcu_head		rcu;
 };
 
+extern struct task_exec_state init_task_exec_state;
+
 struct task_exec_state *alloc_task_exec_state(struct user_namespace *user_ns);
 void put_task_exec_state(struct task_exec_state *exec_state);
 struct task_exec_state *task_exec_state_rcu(const struct task_struct *tsk);
 struct task_exec_state *task_exec_state_replace(struct task_struct *tsk,
 						struct task_exec_state *exec_state);
-void task_exec_state_set_dumpable(enum task_dumpable value);
-enum task_dumpable task_exec_state_get_dumpable(struct task_struct *task);
 int task_exec_state_copy(struct task_struct *tsk);
 void __init exec_state_init(void);
 

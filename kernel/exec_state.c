@@ -95,6 +95,9 @@ void task_exec_state_set_dumpable(enum task_dumpable value)
 		value = TASK_DUMPABLE_OFF;
 
 	exec_state = rcu_dereference_protected(current->exec_state, true);
+	/* mm-less tasks share init_task's exec_state; never mutate it */
+	if (WARN_ON_ONCE(exec_state == &init_task_exec_state))
+		return;
 	WRITE_ONCE(exec_state->dumpable, value);
 }
 
