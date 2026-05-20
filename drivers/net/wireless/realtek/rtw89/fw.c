@@ -1423,12 +1423,18 @@ int rtw89_build_tx_comp_from_elm(struct rtw89_dev *rtwdev,
 				 const union rtw89_fw_element_arg arg)
 {
 	struct rtw89_fw_elm_info *elm_info = &rtwdev->fw.elm_info;
+	struct rtw89_efuse *efuse = &rtwdev->efuse;
 	struct rtw89_hal *hal = &rtwdev->hal;
+	u8 rfe_type;
 	u16 aid;
 
 	aid = le16_to_cpu(elm->aid);
+	rfe_type = elm->u.tx_comp.rfe_type;
+
 	if (aid && aid != hal->aid)
 		return 1; /* ignore if aid not matched */
+	else if (rfe_type && rfe_type != efuse->rfe_type)
+		return 1; /* ignore if rfe_type not matched */
 	else if (elm_info->tx_comp)
 		return 1; /* ignore if an element is existing */
 

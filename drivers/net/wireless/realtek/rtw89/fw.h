@@ -4548,6 +4548,11 @@ struct rtw89_fw_element_hdr {
 			u8 rsvd[4];
 			u8 rules_and_msgs[];
 		} __packed diag_mac;
+		struct {
+			u8 rfe_type;
+			u8 priv[7];
+			u8 contents[];
+		} __packed tx_comp;
 		struct __rtw89_fw_txpwr_element txpwr;
 		struct __rtw89_fw_regd_element regd;
 	} __packed u;
