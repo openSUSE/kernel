@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/prctl.h>
+#include <sys/wait.h>
 #include <semaphore.h>
 #include <math.h>
 #include <limits.h>
@@ -1915,8 +1916,11 @@ out_delete:
 	return err;
 }
 
+static volatile sig_atomic_t done;
+
 static void sighandler(int sig __maybe_unused)
 {
+	done = 1;
 }
 
 static int check_lock_contention_options(const struct option *options,
@@ -2054,6 +2058,7 @@ static int __cmd_contention(int argc, const char **argv)
 			goto out_delete;
 		}
 
+		done = 0;
 		signal(SIGINT, sighandler);
 		signal(SIGCHLD, sighandler);
 		signal(SIGTERM, sighandler);
@@ -2121,8 +2126,11 @@ static int __cmd_contention(int argc, const char **argv)
 		if (argc)
 			evlist__start_workload(con.evlist);
 
-		/* wait for signal */
-		pause();
+		while (!done) {
+			if (argc && waitpid(con.evlist->workload.pid, NULL, WNOHANG) > 0)
+				break;
+			sleep(1);
+		}
 
 		lock_contention_stop();
 		lock_contention_read(&con);
