@@ -31,11 +31,36 @@
 						 RZT2H_ICU_IRQ_S_COUNT)
 #define RZT2H_ICU_SEI_COUNT			1
 
+#define RZT2H_ICU_CA55_ERR_START		(RZT2H_ICU_SEI_START +		\
+						 RZT2H_ICU_SEI_COUNT)
+#define RZT2H_ICU_CA55_ERR_COUNT		2
+
+#define RZT2H_ICU_CR52_ERR_START		(RZT2H_ICU_CA55_ERR_START +	\
+						 RZT2H_ICU_CA55_ERR_COUNT)
+#define RZT2H_ICU_CR52_ERR_COUNT		4
+
+#define RZT2H_ICU_PERI_ERR_START		(RZT2H_ICU_CR52_ERR_START +	\
+						 RZT2H_ICU_CR52_ERR_COUNT)
+#define RZT2H_ICU_PERI_ERR_COUNT		2
+
+#define RZT2H_ICU_DSMIF_ERR_START		(RZT2H_ICU_PERI_ERR_START +	\
+						 RZT2H_ICU_PERI_ERR_COUNT)
+#define RZT2H_ICU_DSMIF_ERR_COUNT		2
+
+#define RZT2H_ICU_ENCIF_ERR_START		(RZT2H_ICU_DSMIF_ERR_START +	\
+						 RZT2H_ICU_DSMIF_ERR_COUNT)
+#define RZT2H_ICU_ENCIF_ERR_COUNT		2
+
 #define RZT2H_ICU_NUM_IRQ			(RZT2H_ICU_INTCPU_NS_COUNT +	\
 						 RZT2H_ICU_INTCPU_S_COUNT +	\
 						 RZT2H_ICU_IRQ_NS_COUNT +	\
 						 RZT2H_ICU_IRQ_S_COUNT +	\
-						 RZT2H_ICU_SEI_COUNT)
+						 RZT2H_ICU_SEI_COUNT +		\
+						 RZT2H_ICU_CA55_ERR_COUNT +	\
+						 RZT2H_ICU_CR52_ERR_COUNT +	\
+						 RZT2H_ICU_PERI_ERR_COUNT +	\
+						 RZT2H_ICU_DSMIF_ERR_COUNT +	\
+						 RZT2H_ICU_ENCIF_ERR_COUNT)
 
 #define RZT2H_ICU_IRQ_IN_RANGE(n, type)						\
 	((n) >= RZT2H_ICU_##type##_START &&					\
@@ -52,6 +77,29 @@
 #define RZT2H_ICU_MD_FALLING_EDGE		0b01
 #define RZT2H_ICU_MD_RISING_EDGE		0b10
 #define RZT2H_ICU_MD_BOTH_EDGES			0b11
+
+#define RZT2H_ICU_CA55ERR_E0MSK			0x50
+#define RZT2H_ICU_CA55ERR_CLR			0x60
+#define RZT2H_ICU_CA55ERR_STAT			0x64
+#define RZT2H_ICU_CA55ERR_MASK			GENMASK(12, 0)
+
+#define RZT2H_ICU_PERIERR_E0MSKn(n)		(0x98 + 0x4 * (n))
+#define RZT2H_ICU_PERIERR_CLRn(n)		(0xc8 + 0x4 * (n))
+#define RZT2H_ICU_PERIERR_STAT			0xd4
+#define RZT2H_ICU_PERIERR_NUM			3
+#define RZT2H_ICU_PERIERR_MASK			GENMASK(31, 0)
+
+#define RZT2H_ICU_DSMIFERR_E0MSKn(n)		(0xe0 + 0x4 * (n))
+#define RZT2H_ICU_DSMIFERR_CLRn(n)		(0x1a0 + 0x4 * (n))
+#define RZT2H_ICU_DSMIFERR_STAT			0x1d0
+#define RZT2H_ICU_DSMIFERR_NUM			12
+#define RZT2H_ICU_DSMIFERR_MASK			GENMASK(31, 0)
+
+#define RZT2H_ICU_ENCIFERR_E0MSKn(n)		(0x200 + 0x4 * (n))
+#define RZT2H_ICU_ENCIFERR_CLRn(n)		(0x250 + 0x4 * (n))
+#define RZT2H_ICU_ENCIFERR_STAT			0x264
+#define RZT2H_ICU_ENCIFERR_NUM			5
+#define RZT2H_ICU_ENCIFERR_MASK			GENMASK(31, 0)
 
 #define RZT2H_ICU_DMACn_RSSELi(n, i)		(0x7d0 + 0x18 * (n) + 0x4 * (i))
 #define RZT2H_ICU_DMAC_REQ_SELx_MASK(x)		(GENMASK(9, 0) << ((x) * 10))
@@ -284,6 +332,50 @@ static irqreturn_t rzt2h_icu_intcpu_irq(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+static irqreturn_t rzt2h_icu_err_irq(struct rzt2h_icu_priv *priv, const char *name,
+				     unsigned int num, u32 stat_base, u32 clr_base)
+{
+	bool handled = false;
+
+	for (unsigned int n = 0; n < num; n++) {
+		u32 stat = readl(priv->base_ns + stat_base + n * 0x4);
+
+		if (!stat)
+			continue;
+
+		handled = true;
+
+		pr_err("rzt2h-icu: %s error n=%u status=0x%08x\n", name, n, stat);
+
+		writel_relaxed(stat, priv->base_ns + clr_base + n * 0x4);
+	}
+
+	return handled ? IRQ_HANDLED : IRQ_NONE;
+}
+
+static irqreturn_t rzt2h_icu_ca55_err_irq(int irq, void *data)
+{
+	return rzt2h_icu_err_irq(data, "CA55", 1, RZT2H_ICU_CA55ERR_STAT, RZT2H_ICU_CA55ERR_CLR);
+}
+
+static irqreturn_t rzt2h_icu_peri_err_irq(int irq, void *data)
+{
+	return rzt2h_icu_err_irq(data, "peripheral", RZT2H_ICU_PERIERR_NUM, RZT2H_ICU_PERIERR_STAT,
+				 RZT2H_ICU_PERIERR_CLRn(0));
+}
+
+static irqreturn_t rzt2h_icu_dsmif_err_irq(int irq, void *data)
+{
+	return rzt2h_icu_err_irq(data, "DSMIF", RZT2H_ICU_DSMIFERR_NUM, RZT2H_ICU_DSMIFERR_STAT,
+				 RZT2H_ICU_DSMIFERR_CLRn(0));
+}
+
+static irqreturn_t rzt2h_icu_encif_err_irq(int irq, void *data)
+{
+	return rzt2h_icu_err_irq(data, "ENCIF", RZT2H_ICU_ENCIFERR_NUM, RZT2H_ICU_ENCIFERR_STAT,
+				 RZT2H_ICU_ENCIFERR_CLRn(0));
+}
+
 static int rzt2h_icu_request_irqs(struct platform_device *pdev, struct irq_domain *irq_domain,
 				  unsigned int start, unsigned int count, irq_handler_t handler,
 				  void *data)
@@ -314,10 +406,13 @@ static int rzt2h_icu_request_irqs(struct platform_device *pdev, struct irq_domai
 
 static int rzt2h_icu_setup_irqs(struct platform_device *pdev, struct irq_domain *irq_domain)
 {
+	struct rzt2h_icu_priv *priv = platform_get_drvdata(pdev);
+	unsigned int n;
+	int ret;
+
 	if (IS_ENABLED(CONFIG_GENERIC_IRQ_INJECTION)) {
-		int ret = rzt2h_icu_request_irqs(pdev, irq_domain, RZT2H_ICU_INTCPU_NS_START,
-						 RZT2H_ICU_INTCPU_NS_COUNT, rzt2h_icu_intcpu_irq,
-						 NULL);
+		ret = rzt2h_icu_request_irqs(pdev, irq_domain, RZT2H_ICU_INTCPU_NS_START,
+					     RZT2H_ICU_INTCPU_NS_COUNT, rzt2h_icu_intcpu_irq, NULL);
 		if (ret)
 			return ret;
 
@@ -325,6 +420,54 @@ static int rzt2h_icu_setup_irqs(struct platform_device *pdev, struct irq_domain 
 					     RZT2H_ICU_INTCPU_S_COUNT, rzt2h_icu_intcpu_irq, NULL);
 		if (ret)
 			return ret;
+	}
+
+	/*
+	 * There are two error interrupts and two error masks that can be used
+	 * separately for each error type. It would not be very useful to
+	 * receive two interrupts for the same error, so use only the first one.
+	 */
+
+	ret = rzt2h_icu_request_irqs(pdev, irq_domain, RZT2H_ICU_CA55_ERR_START, 1,
+				     rzt2h_icu_ca55_err_irq, priv);
+	if (ret)
+		return ret;
+
+	ret = rzt2h_icu_request_irqs(pdev, irq_domain, RZT2H_ICU_PERI_ERR_START, 1,
+				     rzt2h_icu_peri_err_irq, priv);
+	if (ret)
+		return ret;
+
+	ret = rzt2h_icu_request_irqs(pdev, irq_domain, RZT2H_ICU_DSMIF_ERR_START, 1,
+				     rzt2h_icu_dsmif_err_irq, priv);
+	if (ret)
+		return ret;
+
+	ret = rzt2h_icu_request_irqs(pdev, irq_domain, RZT2H_ICU_ENCIF_ERR_START, 1,
+				     rzt2h_icu_encif_err_irq, priv);
+	if (ret)
+		return ret;
+
+	/* Clear and unmask CA55 error events */
+	writel_relaxed(RZT2H_ICU_CA55ERR_MASK, priv->base_ns + RZT2H_ICU_CA55ERR_CLR);
+	writel_relaxed(0, priv->base_ns + RZT2H_ICU_CA55ERR_E0MSK);
+
+	/* Clear and unmask peripheral error events */
+	for (n = 0; n < RZT2H_ICU_PERIERR_NUM; n++) {
+		writel_relaxed(RZT2H_ICU_PERIERR_MASK, priv->base_ns + RZT2H_ICU_PERIERR_CLRn(n));
+		writel_relaxed(0, priv->base_ns + RZT2H_ICU_PERIERR_E0MSKn(n));
+	}
+
+	/* Clear and unmask DSMIF error events */
+	for (n = 0; n < RZT2H_ICU_DSMIFERR_NUM; n++) {
+		writel_relaxed(RZT2H_ICU_DSMIFERR_MASK, priv->base_ns + RZT2H_ICU_DSMIFERR_CLRn(n));
+		writel_relaxed(0, priv->base_ns + RZT2H_ICU_DSMIFERR_E0MSKn(n));
+	}
+
+	/* Clear and unmask ENCIF error events */
+	for (n = 0; n < RZT2H_ICU_ENCIFERR_NUM; n++) {
+		writel_relaxed(RZT2H_ICU_ENCIFERR_MASK, priv->base_ns + RZT2H_ICU_ENCIFERR_CLRn(n));
+		writel_relaxed(0, priv->base_ns + RZT2H_ICU_ENCIFERR_E0MSKn(n));
 	}
 
 	return 0;
