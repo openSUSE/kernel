@@ -376,8 +376,8 @@ static const struct of_device_id atmel_ecc_dt_ids[] = {
 MODULE_DEVICE_TABLE(of, atmel_ecc_dt_ids);
 
 static const struct i2c_device_id atmel_ecc_id[] = {
-	{ "atecc508a" },
-	{ "atecc608b" },
+	{ .name = "atecc508a" },
+	{ .name = "atecc608b" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, atmel_ecc_id);
