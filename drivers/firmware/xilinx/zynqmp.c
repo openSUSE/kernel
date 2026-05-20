@@ -27,6 +27,7 @@
 
 #include <linux/firmware/xlnx-zynqmp.h>
 #include <linux/firmware/xlnx-event-manager.h>
+#include "zynqmp-csu-reg.h"
 #include "zynqmp-debug.h"
 
 /* Max HashMap Order for PM API feature check (1<<7 = 128) */
@@ -2119,6 +2120,11 @@ static int zynqmp_firmware_probe(struct platform_device *pdev)
 		if (IS_ERR(em_dev))
 			dev_err_probe(&pdev->dev, PTR_ERR(em_dev), "EM register fail with error\n");
 	}
+
+	/* Discover CSU registers dynamically */
+	ret = zynqmp_csu_discover_registers(pdev);
+	if (ret)
+		dev_warn(&pdev->dev, "CSU register discovery failed: %d\n", ret);
 
 	return of_platform_populate(dev->of_node, NULL, NULL, dev);
 }
