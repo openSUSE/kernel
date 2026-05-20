@@ -20,8 +20,6 @@
 struct rga_fmt {
 	u32 fourcc;
 	int depth;
-	u8 y_div;
-	u8 x_div;
 	u8 color_swap;
 	u8 hw_format;
 };
