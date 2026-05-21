@@ -17,6 +17,7 @@
 #include <linux/string_choices.h>
 #include <linux/swab.h>
 #include <linux/types.h>
+#include <linux/unaligned.h>
 #include <linux/workqueue.h>
 
 #include "cs35l56.h"
@@ -95,55 +96,23 @@ static int cs35l56_sdw_slow_read(struct sdw_slave *peripheral, unsigned int reg,
 	return 0;
 }
 
-static int cs35l56_sdw_read_one(struct sdw_slave *peripheral, unsigned int reg, void *buf)
-{
-	int ret;
-
-	ret = sdw_nread_no_pm(peripheral, reg, 4, (u8 *)buf);
-	if (ret != 0) {
-		dev_err(&peripheral->dev, "Read failed @%#x:%d\n", reg, ret);
-		return ret;
-	}
-
-	swab32s((u32 *)buf);
-
-	return 0;
-}
-
 static int cs35l56_sdw_read(void *context, const void *reg_buf,
 			    const size_t reg_size, void *val_buf,
 			    size_t val_size)
 {
 	struct sdw_slave *peripheral = context;
-	u8 *buf8 = val_buf;
-	unsigned int reg, bytes;
+	struct cs35l56_private *cs35l56 = dev_get_drvdata(&peripheral->dev);
+	unsigned int reg_addr = get_unaligned_le32(reg_buf);
 	int ret;
 
-	reg = le32_to_cpu(*(const __le32 *)reg_buf);
+	if (cs35l56_is_otp_register(reg_addr - CS35L56_SDW_ADDR_OFFSET))
+		return cs35l56_sdw_slow_read(peripheral, reg_addr, (u8 *)val_buf, val_size);
 
-	if (cs35l56_is_otp_register(reg - CS35L56_SDW_ADDR_OFFSET))
-		return cs35l56_sdw_slow_read(peripheral, reg, buf8, val_size);
+	ret = regmap_raw_read(cs35l56->sdw_bus_regmap, reg_addr, val_buf, val_size);
+	if (ret)
+		return ret;
 
-	if (val_size == 4)
-		return cs35l56_sdw_read_one(peripheral, reg, val_buf);
-
-	while (val_size) {
-		bytes = SDW_REG_NO_PAGE - (reg & SDW_REGADDR); /* to end of page */
-		if (bytes > val_size)
-			bytes = val_size;
-
-		ret = sdw_nread_no_pm(peripheral, reg, bytes, buf8);
-		if (ret != 0) {
-			dev_err(&peripheral->dev, "Read failed @%#x..%#x:%d\n",
-				reg, reg + bytes - 1, ret);
-			return ret;
-		}
-
-		swab32_array((u32 *)buf8, bytes / 4);
-		val_size -= bytes;
-		reg += bytes;
-		buf8 += bytes;
-	}
+	swab32_array((u32 *)val_buf, val_size / sizeof(u32));
 
 	return 0;
 }
@@ -157,57 +126,34 @@ static inline void cs35l56_swab_copy(void *dest, const void *src, size_t nbytes)
 		*dest32++ = swab32(*src32++);
 }
 
-static int cs35l56_sdw_write_one(struct sdw_slave *peripheral, unsigned int reg, const void *buf)
-{
-	u32 val_le = swab32(*(u32 *)buf);
-	int ret;
-
-	ret = sdw_nwrite_no_pm(peripheral, reg, 4, (u8 *)&val_le);
-	if (ret != 0) {
-		dev_err(&peripheral->dev, "Write failed @%#x:%d\n", reg, ret);
-		return ret;
-	}
-
-	return 0;
-}
-
 static int cs35l56_sdw_gather_write(void *context,
 				    const void *reg_buf, size_t reg_size,
 				    const void *val_buf, size_t val_size)
 {
 	struct sdw_slave *peripheral = context;
-	const u8 *src_be = val_buf;
-	u32 val_le_buf[64];	/* Define u32 so it is 32-bit aligned */
-	unsigned int reg, bytes;
+	struct cs35l56_private *cs35l56 = dev_get_drvdata(&peripheral->dev);
+	unsigned int reg_addr = get_unaligned_le32(reg_buf);
+	u32 swab_buf[64];	/* Define u32 so it is 32-bit aligned */
 	int ret;
 
-	reg = le32_to_cpu(*(const __le32 *)reg_buf);
-
-	if (val_size == 4)
-		return cs35l56_sdw_write_one(peripheral, reg, src_be);
-
-	while (val_size) {
-		bytes = SDW_REG_NO_PAGE - (reg & SDW_REGADDR); /* to end of page */
-		if (bytes > val_size)
-			bytes = val_size;
-		if (bytes > sizeof(val_le_buf))
-			bytes = sizeof(val_le_buf);
-
-		cs35l56_swab_copy(val_le_buf, src_be, bytes);
-
-		ret = sdw_nwrite_no_pm(peripheral, reg, bytes, (u8 *)val_le_buf);
-		if (ret != 0) {
-			dev_err(&peripheral->dev, "Write failed @%#x..%#x:%d\n",
-				reg, reg + bytes - 1, ret);
+	while (val_size > sizeof(swab_buf)) {
+		cs35l56_swab_copy(swab_buf, val_buf, sizeof(swab_buf));
+		ret = regmap_raw_write(cs35l56->sdw_bus_regmap, reg_addr,
+				       swab_buf, sizeof(swab_buf));
+		if (ret)
 			return ret;
-		}
 
-		val_size -= bytes;
-		reg += bytes;
-		src_be += bytes;
+		val_size -= sizeof(swab_buf);
+		reg_addr += sizeof(swab_buf);
+		val_buf += sizeof(swab_buf);
 	}
 
-	return 0;
+	if (val_size == 0)
+		return 0;
+
+	cs35l56_swab_copy(swab_buf, val_buf, val_size);
+
+	return regmap_raw_write(cs35l56->sdw_bus_regmap, reg_addr, swab_buf, val_size);
 }
 
 static int cs35l56_sdw_write(void *context, const void *val_buf, size_t val_size)
@@ -226,12 +172,24 @@ static int cs35l56_sdw_write(void *context, const void *val_buf, size_t val_size
  * byte controls always have the same byte order, and firmware file blobs
  * can be written verbatim.
  */
-static const struct regmap_bus cs35l56_regmap_bus_sdw = {
+static const struct regmap_bus cs35l56_regmap_swab_bus_sdw = {
 	.read = cs35l56_sdw_read,
 	.write = cs35l56_sdw_write,
 	.gather_write = cs35l56_sdw_gather_write,
 	.reg_format_endian_default = REGMAP_ENDIAN_LITTLE,
 	.val_format_endian_default = REGMAP_ENDIAN_BIG,
+};
+
+/* Low-level SoundWire regmap to transfer the data over the bus */
+static const struct regmap_config cs35l56_sdw_bus_regmap = {
+	.name = "sdw-le32",
+	.reg_bits = 32,
+	.val_bits = 32,
+	.reg_stride = 4,
+	.reg_format_endian = REGMAP_ENDIAN_LITTLE,
+	.val_format_endian = REGMAP_ENDIAN_LITTLE,
+	.max_register = CS35L56_DSP1_PMEM_5114 + 0x8000,
+	.cache_type = REGCACHE_NONE,
 };
 
 static int cs35l56_sdw_get_unique_id(struct cs35l56_private *cs35l56)
@@ -556,8 +514,16 @@ static int cs35l56_sdw_probe(struct sdw_slave *peripheral, const struct sdw_devi
 
 	cs35l56->base.type = ((unsigned int)id->driver_data) & 0xff;
 
-	cs35l56->base.regmap = devm_regmap_init(dev, &cs35l56_regmap_bus_sdw,
-					   peripheral, regmap_config);
+	/* Low-level regmap to transfer read/writes over SoundWire bus */
+	cs35l56->sdw_bus_regmap = devm_regmap_init_sdw(peripheral, &cs35l56_sdw_bus_regmap);
+	if (IS_ERR(cs35l56->sdw_bus_regmap)) {
+		ret = PTR_ERR(cs35l56->sdw_bus_regmap);
+		return dev_err_probe(dev, ret, "Failed to allocate bus register map\n");
+	}
+
+	/* Wrapper regmap to simulate big-endian ordering */
+	cs35l56->base.regmap = devm_regmap_init(dev, &cs35l56_regmap_swab_bus_sdw,
+						peripheral, regmap_config);
 	if (IS_ERR(cs35l56->base.regmap)) {
 		ret = PTR_ERR(cs35l56->base.regmap);
 		return dev_err_probe(dev, ret, "Failed to allocate register map\n");
