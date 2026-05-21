@@ -52,6 +52,7 @@
 #include <linux/regmap.h>
 
 #define RTL9300_NUM_BUSES		4
+#define RTL9300_NUM_PORTS		28
 #define SMI_GLB_CTRL			0xca00
 #define   GLB_CTRL_INTF_SEL(intf)	BIT(16 + (intf))
 #define SMI_PORT0_15_POLLING_SEL	0xca08
@@ -80,6 +81,7 @@
 
 struct otto_emdio_info {
 	u8 num_buses;
+	u8 num_ports;
 };
 
 struct otto_emdio_priv {
@@ -106,7 +108,7 @@ static int otto_emdio_phy_to_port(struct mii_bus *bus, int phy_id)
 
 	priv = chan->priv;
 
-	for_each_set_bit(i, priv->valid_ports, MAX_PORTS)
+	for_each_set_bit(i, priv->valid_ports, priv->info->num_ports)
 		if (priv->smi_bus[i] == chan->mdio_bus &&
 		    priv->smi_addr[i] == phy_id)
 			return i;
@@ -351,7 +353,7 @@ static int otto_emdio_9300_mdiobus_init(struct otto_emdio_priv *priv)
 	int i, err;
 
 	/* Associate the port with the SMI interface and PHY */
-	for_each_set_bit(i, priv->valid_ports, MAX_PORTS) {
+	for_each_set_bit(i, priv->valid_ports, priv->info->num_ports) {
 		int pos;
 
 		pos = (i % 6) * 5;
@@ -472,7 +474,7 @@ static int otto_emdio_map_ports(struct device *dev)
 		if (err)
 			return err;
 
-		if (pn >= MAX_PORTS)
+		if (pn >= priv->info->num_ports)
 			return dev_err_probe(dev, -EINVAL, "illegal port number %d\n", pn);
 
 		if (test_bit(pn, priv->valid_ports))
@@ -537,6 +539,7 @@ static int otto_emdio_probe(struct platform_device *pdev)
 
 static const struct otto_emdio_info otto_emdio_9300_info = {
 	.num_buses = RTL9300_NUM_BUSES,
+	.num_ports = RTL9300_NUM_PORTS,
 };
 
 static const struct of_device_id otto_emdio_ids[] = {
