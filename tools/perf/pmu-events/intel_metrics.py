@@ -7,7 +7,7 @@ import os
 import re
 from typing import Optional
 from common_metrics import Cycles
-from metric import (d_ratio, has_event, max, source_count, CheckPmu, Event,
+from metric import (d_ratio, has_event, max, aggr_nr, CheckPmu, Event,
                     JsonEncodeMetric, JsonEncodeMetricGroupDescriptions,
                     Literal, LoadEvents, Metric, MetricConstraint, MetricGroup,
                     MetricRef, Select)
@@ -735,10 +735,10 @@ def IntelMissLat() -> Optional[MetricGroup]:
     else:
         assert data_rd_loc_occ.name == "UNC_CHA_TOR_OCCUPANCY.IA_MISS_DRD_LOCAL", data_rd_loc_occ
 
-    ticks_per_cha = ticks / source_count(data_rd_loc_ins)
+    ticks_per_cha = ticks / aggr_nr(data_rd_loc_ins)
     loc_lat = interval_sec * 1e9 * data_rd_loc_occ / \
         (ticks_per_cha * data_rd_loc_ins)
-    ticks_per_cha = ticks / source_count(data_rd_rem_ins)
+    ticks_per_cha = ticks / aggr_nr(data_rd_rem_ins)
     rem_lat = interval_sec * 1e9 * data_rd_rem_occ / \
         (ticks_per_cha * data_rd_rem_ins)
     return MetricGroup("lpm_miss_lat", [
