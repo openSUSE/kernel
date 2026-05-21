@@ -1494,10 +1494,31 @@ int acpi_video_get_edid(struct acpi_device *device, int type, int device_id,
 }
 EXPORT_SYMBOL(acpi_video_get_edid);
 
-static int
-acpi_video_bus_get_devices(struct acpi_video_bus *video,
-			   struct acpi_device *device)
+static void acpi_video_bus_put_devices(void *data)
 {
+	struct acpi_video_bus *video = data;
+	struct acpi_video_device *dev, *next;
+
+	mutex_lock(&video->device_list_lock);
+	list_for_each_entry_safe(dev, next, &video->video_device_list, entry) {
+		list_del(&dev->entry);
+		kfree(dev);
+	}
+	mutex_unlock(&video->device_list_lock);
+
+	kfree(video->attached_array);
+	video->attached_array = NULL;
+}
+
+static int devm_acpi_video_bus_get_devices(struct device *dev,
+					   struct acpi_video_bus *video)
+{
+	int ret;
+
+	ret = devm_add_action(dev, acpi_video_bus_put_devices, video);
+	if (ret)
+		return ret;
+
 	/*
 	 * There are systems where video module known to work fine regardless
 	 * of broken _DOD and ignoring returned value here doesn't cause
@@ -1505,7 +1526,8 @@ acpi_video_bus_get_devices(struct acpi_video_bus *video,
 	 */
 	acpi_video_device_enumerate(video);
 
-	return acpi_dev_for_each_child(device, acpi_video_bus_get_one_device, video);
+	return acpi_dev_for_each_child(video->device,
+				       acpi_video_bus_get_one_device, video);
 }
 
 /* acpi_video interface */
@@ -1939,20 +1961,6 @@ static void acpi_video_bus_remove_notify_handler(struct acpi_video_bus *video)
 	video->input = NULL;
 }
 
-static int acpi_video_bus_put_devices(struct acpi_video_bus *video)
-{
-	struct acpi_video_device *dev, *next;
-
-	mutex_lock(&video->device_list_lock);
-	list_for_each_entry_safe(dev, next, &video->video_device_list, entry) {
-		list_del(&dev->entry);
-		kfree(dev);
-	}
-	mutex_unlock(&video->device_list_lock);
-
-	return 0;
-}
-
 static void acpi_video_bus_free(void *data)
 {
 	struct acpi_video_bus *video = data;
@@ -2039,9 +2047,9 @@ static int acpi_video_bus_probe(struct auxiliary_device *aux_dev,
 	mutex_init(&video->device_list_lock);
 	INIT_LIST_HEAD(&video->video_device_list);
 
-	error = acpi_video_bus_get_devices(video, device);
+	error = devm_acpi_video_bus_get_devices(dev, video);
 	if (error)
-		goto err_put_video;
+		return error;
 
 	/*
 	 * HP ZBook Fury 16 G10 requires ACPI video's child devices have _PS0
@@ -2090,9 +2098,6 @@ err_del:
 	list_del(&video->entry);
 	mutex_unlock(&video_list_lock);
 	acpi_video_bus_unregister_backlight(video);
-err_put_video:
-	acpi_video_bus_put_devices(video);
-	kfree(video->attached_array);
 
 	return error;
 }
@@ -2111,8 +2116,6 @@ static void acpi_video_bus_remove(struct auxiliary_device *aux_dev)
 	list_del(&video->entry);
 	mutex_unlock(&video_list_lock);
 	acpi_video_bus_unregister_backlight(video);
-	acpi_video_bus_put_devices(video);
-	kfree(video->attached_array);
 }
 
 static int __init is_i740(struct pci_dev *dev)
