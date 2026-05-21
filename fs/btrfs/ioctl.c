@@ -83,6 +83,30 @@ struct btrfs_ioctl_received_subvol_args_32 {
 
 #define BTRFS_IOC_SET_RECEIVED_SUBVOL_32 _IOWR(BTRFS_IOCTL_MAGIC, 37, \
 				struct btrfs_ioctl_received_subvol_args_32)
+
+struct btrfs_ioctl_get_subvol_info_args_32 {
+	__u64 treeid;
+	char name[BTRFS_VOL_NAME_MAX + 1];
+	__u64 parent_id;
+	__u64 dirid;
+	__u64 generation;
+	__u64 flags;
+	__u8 uuid[BTRFS_UUID_SIZE];
+	__u8 parent_uuid[BTRFS_UUID_SIZE];
+	__u8 received_uuid[BTRFS_UUID_SIZE];
+	__u64 ctransid;
+	__u64 otransid;
+	__u64 stransid;
+	__u64 rtransid;
+	struct btrfs_ioctl_timespec_32 ctime;
+	struct btrfs_ioctl_timespec_32 otime;
+	struct btrfs_ioctl_timespec_32 stime;
+	struct btrfs_ioctl_timespec_32 rtime;
+	__u64 reserved[8];
+} __attribute__ ((__packed__));
+
+#define BTRFS_IOC_GET_SUBVOL_INFO_32 _IOR(BTRFS_IOCTL_MAGIC, 60, \
+				struct btrfs_ioctl_get_subvol_info_args_32)
 #endif
 
 #if defined(CONFIG_64BIT) && defined(CONFIG_COMPAT)
@@ -1924,9 +1948,9 @@ static int btrfs_ioctl_ino_lookup_user(struct file *file, void __user *argp)
 }
 
 /* Get the subvolume information in BTRFS_ROOT_ITEM and BTRFS_ROOT_BACKREF */
-static int btrfs_ioctl_get_subvol_info(struct inode *inode, void __user *argp)
+static int _btrfs_ioctl_get_subvol_info(struct inode *inode,
+					struct btrfs_ioctl_get_subvol_info_args *subvol_info)
 {
-	struct btrfs_ioctl_get_subvol_info_args AUTO_KFREE(subvol_info);
 	struct btrfs_fs_info *fs_info;
 	struct btrfs_root *root;
 	struct btrfs_path *path;
@@ -1941,12 +1965,6 @@ static int btrfs_ioctl_get_subvol_info(struct inode *inode, void __user *argp)
 	path = btrfs_alloc_path();
 	if (!path)
 		return -ENOMEM;
-
-	subvol_info = kzalloc_obj(*subvol_info);
-	if (!subvol_info) {
-		btrfs_free_path(path);
-		return -ENOMEM;
-	}
 
 	fs_info = BTRFS_I(inode)->root->fs_info;
 
@@ -2026,15 +2044,74 @@ static int btrfs_ioctl_get_subvol_info(struct inode *inode, void __user *argp)
 		}
 	}
 
-	btrfs_free_path(path);
-	path = NULL;
-	if (copy_to_user(argp, subvol_info, sizeof(*subvol_info)))
-		ret = -EFAULT;
-
 out:
 	btrfs_put_root(root);
 out_free:
 	btrfs_free_path(path);
+	return ret;
+}
+
+#ifdef CONFIG_64BIT
+static int btrfs_ioctl_get_subvol_info_32(struct inode *inode, void __user *argp)
+{
+	struct btrfs_ioctl_get_subvol_info_args AUTO_KFREE(subvol_info);
+	struct btrfs_ioctl_get_subvol_info_args_32 AUTO_KFREE(subvol_info_32);
+	int ret;
+
+	subvol_info = kzalloc_obj(*subvol_info);
+	if (!subvol_info)
+		return -ENOMEM;
+
+	subvol_info_32 = kzalloc_obj(*subvol_info_32);
+	if (!subvol_info_32)
+		return -ENOMEM;
+
+	ret = _btrfs_ioctl_get_subvol_info(inode, subvol_info);
+	if (ret)
+		return ret;
+
+	subvol_info_32->treeid = subvol_info->treeid;
+	memcpy(subvol_info_32->name, subvol_info->name, sizeof(subvol_info_32->name));
+	subvol_info_32->parent_id = subvol_info->parent_id;
+	subvol_info_32->dirid = subvol_info->dirid;
+	subvol_info_32->generation = subvol_info->generation;
+	subvol_info_32->flags = subvol_info->flags;
+	memcpy(subvol_info_32->uuid, subvol_info->uuid, BTRFS_UUID_SIZE);
+	memcpy(subvol_info_32->parent_uuid, subvol_info->parent_uuid, BTRFS_UUID_SIZE);
+	memcpy(subvol_info_32->received_uuid, subvol_info->received_uuid, BTRFS_UUID_SIZE);
+	subvol_info_32->ctransid = subvol_info->ctransid;
+	subvol_info_32->otransid = subvol_info->otransid;
+	subvol_info_32->stransid = subvol_info->stransid;
+	subvol_info_32->rtransid = subvol_info->rtransid;
+	subvol_info_32->ctime.sec = subvol_info->ctime.sec;
+	subvol_info_32->ctime.nsec = subvol_info->ctime.nsec;
+	subvol_info_32->otime.sec = subvol_info->otime.sec;
+	subvol_info_32->otime.nsec = subvol_info->otime.nsec;
+	subvol_info_32->stime.sec = subvol_info->stime.sec;
+	subvol_info_32->stime.nsec = subvol_info->stime.nsec;
+	subvol_info_32->rtime.sec = subvol_info->rtime.sec;
+	subvol_info_32->rtime.nsec = subvol_info->rtime.nsec;
+
+	if (copy_to_user(argp, subvol_info_32, sizeof(*subvol_info_32)))
+		ret = -EFAULT;
+
+	return ret;
+}
+#endif
+
+static int btrfs_ioctl_get_subvol_info(struct inode *inode, void __user *argp)
+{
+	struct btrfs_ioctl_get_subvol_info_args AUTO_KFREE(subvol_info);
+	int ret;
+
+	subvol_info = kzalloc_obj(*subvol_info);
+	if (!subvol_info)
+		return -ENOMEM;
+
+	ret = _btrfs_ioctl_get_subvol_info(inode, subvol_info);
+	if (!ret && copy_to_user(argp, subvol_info, sizeof(*subvol_info)))
+		ret = -EFAULT;
+
 	return ret;
 }
 
@@ -5529,6 +5606,10 @@ long btrfs_ioctl(struct file *file, unsigned int
 		return btrfs_ioctl_set_features(file, argp);
 	case BTRFS_IOC_GET_SUBVOL_INFO:
 		return btrfs_ioctl_get_subvol_info(inode, argp);
+#ifdef CONFIG_64BIT
+	case BTRFS_IOC_GET_SUBVOL_INFO_32:
+		return btrfs_ioctl_get_subvol_info_32(inode, argp);
+#endif
 	case BTRFS_IOC_GET_SUBVOL_ROOTREF:
 		return btrfs_ioctl_get_subvol_rootref(root, argp);
 	case BTRFS_IOC_INO_LOOKUP_USER:
