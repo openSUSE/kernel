@@ -1395,6 +1395,7 @@ static const struct tegra_gpio_soc tegra264_aon_soc = {
 	.name = "tegra264-gpio-aon",
 	.instance = 1,
 	.num_irqs_per_bank = 8,
+	.has_gte = true,
 	.has_vm_support = true,
 };
 
