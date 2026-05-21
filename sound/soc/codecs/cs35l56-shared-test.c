@@ -679,6 +679,7 @@ static int cs35l56_shared_test_case_base_init(struct kunit *test, u8 type, u8 re
 	priv->cs35l56_base->rev = rev;
 
 	if (regmap_config) {
+		priv->reg_offset = regmap_config->reg_base;
 		ret = cs35l56_shared_test_case_regmap_init(test, regmap_config);
 		if (ret)
 			return ret;
