@@ -1208,12 +1208,12 @@ static int __init i10nm_init(void)
 	skx_setup_debug("i10nm_test");
 
 	if (retry_rd_err_log && res_cfg->reg_rrl_ddr) {
-		skx_set_decode(i10nm_mc_decode, show_retry_rd_err_log);
+		skx_set_show_rrl(show_retry_rd_err_log);
 		if (retry_rd_err_log == 2)
 			enable_retry_rd_err_log(true);
-	} else {
-		skx_set_decode(i10nm_mc_decode, NULL);
 	}
+
+	skx_set_decode(i10nm_mc_decode);
 
 	i10nm_printk(KERN_INFO, "%s\n", I10NM_REVISION);
 
@@ -1227,10 +1227,12 @@ static void __exit i10nm_exit(void)
 {
 	edac_dbg(2, "\n");
 
+	skx_set_decode(NULL);
+
 	if (retry_rd_err_log && res_cfg->reg_rrl_ddr) {
-		skx_set_decode(NULL, NULL);
 		if (retry_rd_err_log == 2)
 			enable_retry_rd_err_log(false);
+		skx_set_show_rrl(NULL);
 	}
 
 	skx_teardown_debug();

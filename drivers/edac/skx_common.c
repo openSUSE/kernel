@@ -46,7 +46,7 @@ static unsigned long adxl_nm_bitmap;
 
 static char skx_msg[MSG_SIZE];
 static skx_decode_f driver_decode;
-static skx_show_retry_log_f skx_show_retry_rd_err_log;
+static skx_show_rrl_f show_rrl;
 static u64 skx_tolm, skx_tohm;
 static LIST_HEAD(dev_edac_list);
 static bool skx_mem_cfg_2lm;
@@ -312,12 +312,17 @@ void skx_set_res_cfg(struct res_config *cfg)
 }
 EXPORT_SYMBOL_GPL(skx_set_res_cfg);
 
-void skx_set_decode(skx_decode_f decode, skx_show_retry_log_f show_retry_log)
+void skx_set_decode(skx_decode_f decode)
 {
 	driver_decode = decode;
-	skx_show_retry_rd_err_log = show_retry_log;
 }
 EXPORT_SYMBOL_GPL(skx_set_decode);
+
+void skx_set_show_rrl(skx_show_rrl_f rrl)
+{
+	show_rrl = rrl;
+}
+EXPORT_SYMBOL_GPL(skx_set_show_rrl);
 
 static int skx_get_pkg_id(struct skx_dev *d, u8 *id)
 {
@@ -767,8 +772,8 @@ static void skx_mce_output_error(struct mem_ctl_info *mci,
 			 res->row, res->column, res->bank_address, res->bank_group);
 	}
 
-	if (skx_show_retry_rd_err_log)
-		skx_show_retry_rd_err_log(res, skx_msg + len, MSG_SIZE - len, scrub_err);
+	if (show_rrl)
+		show_rrl(res, skx_msg + len, MSG_SIZE - len, scrub_err);
 
 	edac_dbg(0, "%s\n", skx_msg);
 

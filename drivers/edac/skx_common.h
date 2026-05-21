@@ -324,14 +324,15 @@ struct res_config {
 typedef int (*get_dimm_config_f)(struct mem_ctl_info *mci,
 				 struct res_config *cfg);
 typedef bool (*skx_decode_f)(struct decoded_addr *res);
-typedef void (*skx_show_retry_log_f)(struct decoded_addr *res, char *msg, int len, bool scrub_err);
+typedef void (*skx_show_rrl_f)(struct decoded_addr *res, char *msg, int len, bool scrub_err);
 
 u64 skx_readx(void __iomem *addr, u8 width);
 u64 skx_read_imc_reg(struct skx_imc *imc, int chan, u32 offset, u8 width);
 void skx_write_imc_reg(struct skx_imc *imc, int chan, u32 offset, u8 width, u64 val);
 int skx_adxl_get(void);
 void skx_adxl_put(void);
-void skx_set_decode(skx_decode_f decode, skx_show_retry_log_f show_retry_log);
+void skx_set_decode(skx_decode_f decode);
+void skx_set_show_rrl(skx_show_rrl_f rrl);
 void skx_set_mem_cfg(bool mem_cfg_2lm);
 void skx_set_res_cfg(struct res_config *cfg);
 void skx_init_mc_mapping(struct skx_dev *d);
