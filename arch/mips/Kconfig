@@ -38,7 +38,6 @@ config MIPS
 	select GENERIC_BUILTIN_DTB if BUILTIN_DTB
 	select GENERIC_CMOS_UPDATE
 	select GENERIC_CPU_AUTOPROBE
-	select GENERIC_GETTIMEOFDAY
 	select GENERIC_IRQ_PROBE
 	select GENERIC_IRQ_SHOW
 	select GENERIC_ISA_DMA if EISA
@@ -3168,6 +3167,10 @@ endmenu
 
 config MIPS_EXTERNAL_TIMER
 	bool
+
+config MIPS_GENERIC_GETTIMEOFDAY
+	def_bool y
+	select GENERIC_GETTIMEOFDAY
 
 menu "CPU Power Management"
 
