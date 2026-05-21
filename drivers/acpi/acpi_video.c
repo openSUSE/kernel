@@ -1969,6 +1969,17 @@ static void acpi_video_bus_free(void *data)
 	kfree(video);
 }
 
+static void acpi_video_bus_del(void *data)
+{
+	struct acpi_video_bus *video = data;
+
+	mutex_lock(&video_list_lock);
+	list_del(&video->entry);
+	mutex_unlock(&video_list_lock);
+
+	acpi_video_bus_unregister_backlight(video);
+}
+
 static int duplicate_dev_check(struct device *sibling, void *data)
 {
 	struct acpi_video_bus *video;
@@ -2080,9 +2091,13 @@ static int acpi_video_bus_probe(struct auxiliary_device *aux_dev,
 	list_add_tail(&video->entry, &video_bus_head);
 	mutex_unlock(&video_list_lock);
 
+	error = devm_add_action_or_reset(dev, acpi_video_bus_del, video);
+	if (error)
+		return error;
+
 	error = acpi_video_bus_add_notify_handler(video, dev);
 	if (error)
-		goto err_del;
+		return error;
 
 	error = acpi_dev_install_notify_handler(device, ACPI_DEVICE_NOTIFY,
 						acpi_video_bus_notify, video);
@@ -2093,11 +2108,6 @@ static int acpi_video_bus_probe(struct auxiliary_device *aux_dev,
 
 err_remove:
 	acpi_video_bus_remove_notify_handler(video);
-err_del:
-	mutex_lock(&video_list_lock);
-	list_del(&video->entry);
-	mutex_unlock(&video_list_lock);
-	acpi_video_bus_unregister_backlight(video);
 
 	return error;
 }
@@ -2111,11 +2121,6 @@ static void acpi_video_bus_remove(struct auxiliary_device *aux_dev)
 				       acpi_video_bus_notify);
 
 	acpi_video_bus_remove_notify_handler(video);
-
-	mutex_lock(&video_list_lock);
-	list_del(&video->entry);
-	mutex_unlock(&video_list_lock);
-	acpi_video_bus_unregister_backlight(video);
 }
 
 static int __init is_i740(struct pci_dev *dev)
