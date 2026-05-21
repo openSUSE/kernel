@@ -17,10 +17,10 @@ USB 支持
 .. toctree::
     :maxdepth: 1
 
+    acm
 
 Todolist:
 
-* acm
 * authorization
 * chipidea
 * dwc3
