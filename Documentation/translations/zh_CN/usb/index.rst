@@ -21,10 +21,10 @@ USB 支持
     authorization
     chipidea
     dwc3
+    ehci
 
 Todolist:
 
-* ehci
 * usbmon
 * functionfs
 * functionfs-desc
