@@ -750,12 +750,11 @@ static size_t rtnl_link_get_size(const struct net_device *dev)
 }
 
 static LIST_HEAD(rtnl_af_ops);
+static DEFINE_SPINLOCK(rtnl_af_ops_lock);
 
 static struct rtnl_af_ops *rtnl_af_lookup(const int family, int *srcu_index)
 {
 	struct rtnl_af_ops *ops;
-
-	ASSERT_RTNL();
 
 	rcu_read_lock();
 
@@ -791,9 +790,9 @@ int rtnl_af_register(struct rtnl_af_ops *ops)
 	if (err)
 		return err;
 
-	rtnl_lock();
+	spin_lock(&rtnl_af_ops_lock);
 	list_add_tail_rcu(&ops->list, &rtnl_af_ops);
-	rtnl_unlock();
+	spin_unlock(&rtnl_af_ops_lock);
 
 	return 0;
 }
@@ -805,9 +804,9 @@ EXPORT_SYMBOL_GPL(rtnl_af_register);
  */
 void rtnl_af_unregister(struct rtnl_af_ops *ops)
 {
-	rtnl_lock();
+	spin_lock(&rtnl_af_ops_lock);
 	list_del_rcu(&ops->list);
-	rtnl_unlock();
+	spin_unlock(&rtnl_af_ops_lock);
 
 	synchronize_rcu();
 	synchronize_srcu(&ops->srcu);
