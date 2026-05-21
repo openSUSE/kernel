@@ -18,10 +18,10 @@ USB 支持
     :maxdepth: 1
 
     acm
+    authorization
 
 Todolist:
 
-* authorization
 * chipidea
 * dwc3
 * ehci
