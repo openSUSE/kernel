@@ -3171,6 +3171,10 @@ config MIPS_GENERIC_GETTIMEOFDAY
 	def_bool y
 	select GENERIC_GETTIMEOFDAY
 	select HAVE_GENERIC_VDSO
+	# GCC (at least up to version 9.2) appears to emit function calls that make use
+	# of the GOT when targeting microMIPS, which we can't use in the VDSO due to
+	# the lack of relocations. As such, we disable the VDSO for microMIPS builds.
+	depends on !CPU_MICROMIPS
 
 menu "CPU Power Management"
 
@@ -3183,5 +3187,3 @@ source "drivers/cpuidle/Kconfig"
 endmenu
 
 source "arch/mips/kvm/Kconfig"
-
-source "arch/mips/vdso/Kconfig"
