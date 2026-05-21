@@ -1263,11 +1263,11 @@ static size_t rtnl_devlink_port_size(const struct net_device *dev)
 	return size;
 }
 
-static size_t rtnl_dpll_pin_size(const struct net_device *dev)
+static size_t rtnl_dpll_pin_size(void)
 {
 	size_t size = nla_total_size(0); /* nest IFLA_DPLL_PIN */
 
-	size += dpll_netdev_pin_handle_size(dev);
+	size += dpll_netdev_pin_handle_size();
 
 	return size;
 }
@@ -1348,7 +1348,7 @@ static noinline size_t if_nlmsg_size(const struct net_device *dev,
 	       + nla_total_size(4)  /* IFLA_MAX_MTU */
 	       + nla_total_size(MAX_ADDR_LEN) /* IFLA_PERM_ADDRESS */
 	       + rtnl_devlink_port_size(dev)
-	       + rtnl_dpll_pin_size(dev)
+	       + rtnl_dpll_pin_size()
 	       + nla_total_size(8)  /* IFLA_MAX_PACING_OFFLOAD_HORIZON */
 	       + nla_total_size(2)  /* IFLA_HEADROOM */
 	       + nla_total_size(2)  /* IFLA_TAILROOM */
