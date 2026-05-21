@@ -426,6 +426,7 @@ static void v9fs_apply_options(struct v9fs_session_info *v9ses,
 	v9ses->cache = ctx->session_opts.cache;
 	v9ses->uid = ctx->session_opts.uid;
 	v9ses->session_lock_timeout = ctx->session_opts.session_lock_timeout;
+	v9ses->ndentry_timeout_ms = ctx->session_opts.ndentry_timeout_ms;
 }
 
 /**

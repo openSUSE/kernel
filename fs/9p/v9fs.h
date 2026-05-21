@@ -91,6 +91,7 @@ enum p9_cache_bits {
  * @debug: debug level
  * @afid: authentication handle
  * @cache: cache mode of type &p9_cache_bits
+ * @ndentry_timeout: Negative dentry lookup cache retention time in ms
  * @cachetag: the tag of the cache associated with this session
  * @fscache: session cookie associated with FS-Cache
  * @uname: string user name to mount hierarchy as
@@ -101,6 +102,7 @@ enum p9_cache_bits {
  * @uid: if %V9FS_ACCESS_SINGLE, the numeric uid which mounted the hierarchy
  * @clnt: reference to 9P network client instantiated for this session
  * @slist: reference to list of registered 9p sessions
+ * @ndentry_timeout_ms: Negative dentry caching retention time
  *
  * This structure holds state for each session instance established during
  * a sys_mount() .
@@ -116,6 +118,7 @@ struct v9fs_session_info {
 	unsigned short debug;
 	unsigned int afid;
 	unsigned int cache;
+	unsigned int ndentry_timeout_ms;
 #ifdef CONFIG_9P_FSCACHE
 	char *cachetag;
 	struct fscache_volume *fscache;
@@ -132,6 +135,8 @@ struct v9fs_session_info {
 	struct rw_semaphore rename_sem;
 	long session_lock_timeout; /* retry interval for blocking locks */
 };
+
+#define NDENTRY_TIMEOUT_NEVER (-1U)
 
 /* cache_validity flags */
 #define V9FS_INO_INVALID_ATTR 0x01
