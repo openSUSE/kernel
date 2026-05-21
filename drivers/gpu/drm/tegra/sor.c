@@ -13,6 +13,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/regulator/consumer.h>
 #include <linux/reset.h>
+#include <linux/string_choices.h>
 
 #include <soc/tegra/pmc.h>
 
@@ -940,7 +941,7 @@ static int tegra_sor_dp_link_configure(struct drm_dp_link *link)
 	err = tegra_sor_power_up_lanes(sor, lanes);
 	if (err < 0) {
 		dev_err(sor->dev, "failed to power up %u lane%s: %d\n",
-			lanes, (lanes != 1) ? "s" : "", err);
+			lanes, str_plural(lanes), err);
 		return err;
 	}
 
