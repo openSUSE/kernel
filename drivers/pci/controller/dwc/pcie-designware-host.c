@@ -703,8 +703,10 @@ void dw_pcie_host_deinit(struct dw_pcie_rp *pp)
 
 	dwc_pcie_debugfs_deinit(pci);
 
+	pci_lock_rescan_remove();
 	pci_stop_root_bus(pp->bridge->bus);
 	pci_remove_root_bus(pp->bridge->bus);
+	pci_unlock_rescan_remove();
 
 	dw_pcie_stop_link(pci);
 
