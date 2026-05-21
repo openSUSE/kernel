@@ -283,7 +283,7 @@ struct res_config {
 	int hbm_chan_mmio_sz;
 	bool support_ddr5;
 	/* RRL register sets per DDR channel */
-	struct reg_rrl *reg_rrl_ddr;
+	struct reg_rrl *reg_rrl_ddr[2];
 	/* RRL register sets per HBM channel */
 	struct reg_rrl *reg_rrl_hbm[2];
 	/* RRL control mode */

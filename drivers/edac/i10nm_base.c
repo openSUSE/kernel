@@ -767,7 +767,7 @@ static struct res_config i10nm_cfg0 = {
 	.ddr_mdev_bdf		= {0, 12, 0},
 	.hbm_mdev_bdf		= {0, 12, 1},
 	.sad_all_offset		= 0x108,
-	.reg_rrl_ddr		= &icx_reg_rrl_ddr,
+	.reg_rrl_ddr[0]		= &icx_reg_rrl_ddr,
 };
 
 static struct res_config i10nm_cfg1 = {
@@ -785,7 +785,7 @@ static struct res_config i10nm_cfg1 = {
 	.ddr_mdev_bdf		= {0, 12, 0},
 	.hbm_mdev_bdf		= {0, 12, 1},
 	.sad_all_offset		= 0x108,
-	.reg_rrl_ddr		= &icx_reg_rrl_ddr,
+	.reg_rrl_ddr[0]		= &icx_reg_rrl_ddr,
 };
 
 static struct res_config spr_cfg = {
@@ -808,7 +808,7 @@ static struct res_config spr_cfg = {
 	.ddr_mdev_bdf		= {0, 12, 0},
 	.hbm_mdev_bdf		= {0, 12, 1},
 	.sad_all_offset		= 0x300,
-	.reg_rrl_ddr		= &spr_reg_rrl_ddr,
+	.reg_rrl_ddr[0]		= &spr_reg_rrl_ddr,
 	.reg_rrl_hbm[0]		= &spr_reg_rrl_hbm_pch0,
 	.reg_rrl_hbm[1]		= &spr_reg_rrl_hbm_pch1,
 };
@@ -828,7 +828,7 @@ static struct res_config gnr_cfg = {
 	.uracu_bdf		= {0, 0, 1},
 	.ddr_mdev_bdf		= {0, 5, 1},
 	.sad_all_offset		= 0x300,
-	.reg_rrl_ddr		= &gnr_reg_rrl_ddr,
+	.reg_rrl_ddr[0]		= &gnr_reg_rrl_ddr,
 };
 
 static const struct x86_cpu_id i10nm_cpuids[] = {
@@ -1023,7 +1023,7 @@ static int __init i10nm_init(void)
 	skx_setup_debug("i10nm_test");
 
 	res_cfg->rrl_ctrl_mode = retry_rd_err_log;
-	if (retry_rd_err_log && res_cfg->reg_rrl_ddr) {
+	if (retry_rd_err_log && res_cfg->reg_rrl_ddr[0]) {
 		skx_set_show_rrl(skx_show_rrl);
 		if (retry_rd_err_log == RRL_CTRL_LINUX)
 			skx_enable_rrl(true);
@@ -1045,7 +1045,7 @@ static void __exit i10nm_exit(void)
 
 	skx_set_decode(NULL);
 
-	if (retry_rd_err_log && res_cfg->reg_rrl_ddr) {
+	if (retry_rd_err_log && res_cfg->reg_rrl_ddr[0]) {
 		if (retry_rd_err_log == RRL_CTRL_LINUX)
 			skx_enable_rrl(false);
 		skx_set_show_rrl(NULL);

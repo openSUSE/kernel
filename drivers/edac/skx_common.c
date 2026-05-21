@@ -173,15 +173,18 @@ static void enable_rrls(struct skx_imc *imc, int chan, struct reg_rrl *rrl,
 
 static void enable_rrls_ddr(struct skx_imc *imc, bool enable)
 {
-	struct reg_rrl *rrl_ddr = skx_res_cfg->reg_rrl_ddr;
+	struct reg_rrl **rrl_ddr = skx_res_cfg->reg_rrl_ddr;
 	int i, chan_num = skx_res_cfg->ddr_chan_num;
 	struct skx_channel *chan = imc->chan;
 
 	if (!imc->mbase)
 		return;
 
-	for (i = 0; i < chan_num; i++)
-		enable_rrls(imc, i, rrl_ddr, enable, chan[i].rrl_ctl[0]);
+	for (i = 0; i < chan_num; i++) {
+		enable_rrls(imc, i, rrl_ddr[0], enable, chan[i].rrl_ctl[0]);
+		if (rrl_ddr[1])
+			enable_rrls(imc, i, rrl_ddr[1], enable, chan[i].rrl_ctl[1]);
+	}
 }
 
 static void enable_rrls_hbm(struct skx_imc *imc, bool enable)
@@ -218,10 +221,31 @@ void skx_enable_rrl(bool enable)
 }
 EXPORT_SYMBOL_GPL(skx_enable_rrl);
 
+static struct reg_rrl *get_rrl_reg(struct decoded_addr *res, struct res_config *cfg)
+{
+	struct skx_imc *imc = &res->dev->imc[res->imc];
+
+	/* HBM has two groups of RRL sets, one per pseudo-channel. */
+	if (imc->hbm_mc)
+		return cfg->reg_rrl_hbm[res->cs & 1];
+
+	/* One group of RRL sets per DDR channel. */
+	if (!cfg->reg_rrl_ddr[1])
+		return cfg->reg_rrl_ddr[0];
+
+	if (res->subch == -1) {
+		skx_printk(KERN_ERR, "Invalid sub-channel id (-1), possibly missing %s ADXL component.\n", component_names[INDEX_SUBCH]);
+		return NULL;
+	}
+
+	/* Two groups of RRL sets per DDR channel (e.g., DMR: one group per sub-channel). */
+	return cfg->reg_rrl_ddr[res->subch & 1];
+}
+
 void skx_show_rrl(struct decoded_addr *res, char *msg, int len, bool scrub_err)
 {
-	int i, j, n, ch = res->channel, pch = res->cs & 1;
 	struct skx_imc *imc = &res->dev->imc[res->imc];
+	int i, j, n, ch = res->channel;
 	u64 log, corr, status_mask;
 	struct reg_rrl *rrl;
 	bool scrub;
@@ -231,8 +255,7 @@ void skx_show_rrl(struct decoded_addr *res, char *msg, int len, bool scrub_err)
 	if (!imc->mbase)
 		return;
 
-	rrl = imc->hbm_mc ? skx_res_cfg->reg_rrl_hbm[pch] : skx_res_cfg->reg_rrl_ddr;
-
+	rrl = get_rrl_reg(res, skx_res_cfg);
 	if (!rrl)
 		return;
 
