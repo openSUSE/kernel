@@ -56,7 +56,7 @@ static void com20020_copy_to_card(struct net_device *dev, int bufnum,
 				  int offset, void *buf, int count);
 static void com20020_copy_from_card(struct net_device *dev, int bufnum,
 				    int offset, void *buf, int count);
-static void com20020_set_mc_list(struct net_device *dev);
+static void com20020_set_rx_mode(struct net_device *dev);
 static void com20020_close(struct net_device *);
 
 static void com20020_copy_from_card(struct net_device *dev, int bufnum,
@@ -194,7 +194,7 @@ const struct net_device_ops com20020_netdev_ops = {
 	.ndo_start_xmit = arcnet_send_packet,
 	.ndo_tx_timeout = arcnet_timeout,
 	.ndo_set_mac_address = com20020_set_hwaddr,
-	.ndo_set_rx_mode = com20020_set_mc_list,
+	.ndo_set_rx_mode = com20020_set_rx_mode,
 };
 
 /* Set up the struct net_device associated with this card.  Called after
@@ -362,14 +362,8 @@ static void com20020_close(struct net_device *dev)
 	arcnet_outb(lp->config, ioaddr, COM20020_REG_W_CONFIG);
 }
 
-/* Set or clear the multicast filter for this adaptor.
- * num_addrs == -1    Promiscuous mode, receive all packets
- * num_addrs == 0       Normal mode, clear multicast list
- * num_addrs > 0        Multicast mode, receive normal and MC packets, and do
- *                      best-effort filtering.
- *      FIXME - do multicast stuff, not just promiscuous.
- */
-static void com20020_set_mc_list(struct net_device *dev)
+/* ARCnet does not support multicast, only unicast and broadcast */
+static void com20020_set_rx_mode(struct net_device *dev)
 {
 	struct arcnet_local *lp = netdev_priv(dev);
 	int ioaddr = dev->base_addr;
