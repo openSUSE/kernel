@@ -19,10 +19,10 @@ USB 支持
 
     acm
     authorization
+    chipidea
 
 Todolist:
 
-* chipidea
 * dwc3
 * ehci
 * usbmon
