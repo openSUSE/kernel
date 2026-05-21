@@ -2002,6 +2002,9 @@ static int acpi_video_bus_probe(struct auxiliary_device *aux_dev,
 	if (!video)
 		return -ENOMEM;
 
+	video->device = device;
+	device->driver_data = video;
+
 	/*
 	 * A hack to fix the duplicate name "VID" problem on T61 and the
 	 * duplicate name "VGA" problem on Pa 3553.
@@ -2015,9 +2018,6 @@ static int acpi_video_bus_probe(struct auxiliary_device *aux_dev,
 	}
 
 	auxiliary_set_drvdata(aux_dev, video);
-
-	video->device = device;
-	device->driver_data = video;
 
 	acpi_video_bus_find_cap(video);
 	error = acpi_video_bus_check(video);
@@ -2041,10 +2041,6 @@ static int acpi_video_bus_probe(struct auxiliary_device *aux_dev,
 		acpi_device_bid(device), str_yes_no(video->flags.multihead),
 		str_yes_no(video->flags.rom), str_yes_no(video->flags.post));
 
-	mutex_lock(&video_list_lock);
-	list_add_tail(&video->entry, &video_bus_head);
-	mutex_unlock(&video_list_lock);
-
 	/*
 	 * If backlight-type auto-detection is used then a native backlight may
 	 * show up later and this may change the result from video to native.
@@ -2059,6 +2055,10 @@ static int acpi_video_bus_probe(struct auxiliary_device *aux_dev,
 	if (__acpi_video_get_backlight_type(false, &auto_detect) == acpi_backlight_video &&
 	    !auto_detect)
 		acpi_video_bus_register_backlight(video);
+
+	mutex_lock(&video_list_lock);
+	list_add_tail(&video->entry, &video_bus_head);
+	mutex_unlock(&video_list_lock);
 
 	error = acpi_video_bus_add_notify_handler(video, dev);
 	if (error)
@@ -2096,15 +2096,15 @@ static void acpi_video_bus_remove(struct auxiliary_device *aux_dev)
 	acpi_dev_remove_notify_handler(device, ACPI_DEVICE_NOTIFY,
 				       acpi_video_bus_notify);
 
+	acpi_video_bus_remove_notify_handler(video);
+
 	mutex_lock(&video_list_lock);
 	list_del(&video->entry);
 	mutex_unlock(&video_list_lock);
-
-	acpi_video_bus_remove_notify_handler(video);
 	acpi_video_bus_unregister_backlight(video);
 	acpi_video_bus_put_devices(video);
-
 	kfree(video->attached_array);
+
 	kfree(video);
 	device->driver_data = NULL;
 }
