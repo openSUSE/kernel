@@ -421,7 +421,6 @@ struct ksz_dev_ops {
 	int (*enable_stp_addr)(struct ksz_device *dev);
 	int (*reset)(struct ksz_device *dev);
 	int (*init)(struct ksz_device *dev);
-	void (*exit)(struct ksz_device *dev);
 
 	int (*pcs_create)(struct ksz_device *dev);
 };

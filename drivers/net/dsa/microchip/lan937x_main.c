@@ -668,11 +668,6 @@ static void lan937x_teardown(struct dsa_switch *ds)
 
 }
 
-static void lan937x_switch_exit(struct ksz_device *dev)
-{
-	lan937x_reset_switch(dev);
-}
-
 static enum dsa_tag_protocol lan937x_get_tag_protocol(struct dsa_switch *ds,
 						      int port,
 						      enum dsa_tag_protocol mp)
@@ -723,7 +718,6 @@ const struct ksz_dev_ops lan937x_dev_ops = {
 	.enable_stp_addr = ksz9477_enable_stp_addr,
 	.reset = lan937x_reset_switch,
 	.init = lan937x_switch_init,
-	.exit = lan937x_switch_exit,
 };
 
 const struct dsa_switch_ops lan937x_switch_ops = {

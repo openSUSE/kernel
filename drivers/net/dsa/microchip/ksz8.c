@@ -2109,11 +2109,6 @@ static int ksz8_switch_init(struct ksz_device *dev)
 	return 0;
 }
 
-static void ksz8_switch_exit(struct ksz_device *dev)
-{
-	ksz8_reset_switch(dev);
-}
-
 static enum dsa_tag_protocol ksz8463_get_tag_protocol(struct dsa_switch *ds,
 						      int port,
 						      enum dsa_tag_protocol mp)
@@ -2226,7 +2221,6 @@ const struct ksz_dev_ops ksz8463_dev_ops = {
 	.enable_stp_addr = ksz8_enable_stp_addr,
 	.reset = ksz8_reset_switch,
 	.init = ksz8_switch_init,
-	.exit = ksz8_switch_exit,
 };
 
 const struct ksz_dev_ops ksz87xx_dev_ops = {
@@ -2245,7 +2239,6 @@ const struct ksz_dev_ops ksz87xx_dev_ops = {
 	.enable_stp_addr = ksz8_enable_stp_addr,
 	.reset = ksz8_reset_switch,
 	.init = ksz8_switch_init,
-	.exit = ksz8_switch_exit,
 	.pme_write8 = ksz8_pme_write8,
 	.pme_pread8 = ksz8_pme_pread8,
 	.pme_pwrite8 = ksz8_pme_pwrite8,
@@ -2267,7 +2260,6 @@ const struct ksz_dev_ops ksz88xx_dev_ops = {
 	.enable_stp_addr = ksz8_enable_stp_addr,
 	.reset = ksz8_reset_switch,
 	.init = ksz8_switch_init,
-	.exit = ksz8_switch_exit,
 	.pme_write8 = ksz8_pme_write8,
 	.pme_pread8 = ksz8_pme_pread8,
 	.pme_pwrite8 = ksz8_pme_pwrite8,

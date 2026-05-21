@@ -4162,23 +4162,18 @@ int ksz_set_wol(struct dsa_switch *ds, int port,
  * ksz_wol_pre_shutdown - Prepares the switch device for shutdown while
  *                        considering Wake-on-LAN (WoL) settings.
  * @dev: The switch device structure.
- * @wol_enabled: Pointer to a boolean which will be set to true if WoL is
- *               enabled on any port.
  *
  * This function prepares the switch device for a safe shutdown while taking
- * into account the Wake-on-LAN (WoL) settings on the user ports. It updates
- * the wol_enabled flag accordingly to reflect whether WoL is active on any
- * port.
+ * into account the Wake-on-LAN (WoL) settings on the user ports.
  */
-static void ksz_wol_pre_shutdown(struct ksz_device *dev, bool *wol_enabled)
+static void ksz_wol_pre_shutdown(struct ksz_device *dev)
 {
 	const struct ksz_dev_ops *ops = dev->dev_ops;
 	const u16 *regs = dev->info->regs;
 	u8 pme_pin_en = PME_ENABLE;
+	bool wol_enabled = false;
 	struct dsa_port *dp;
 	int ret;
-
-	*wol_enabled = false;
 
 	if (!is_ksz9477(dev) && !ksz_is_ksz87xx(dev))
 		return;
@@ -4192,7 +4187,7 @@ static void ksz_wol_pre_shutdown(struct ksz_device *dev, bool *wol_enabled)
 		ret = ops->pme_pread8(dev, dp->index,
 				      regs[REG_PORT_PME_CTRL], &pme_ctrl);
 		if (!ret && pme_ctrl)
-			*wol_enabled = true;
+			wol_enabled = true;
 
 		/* make sure there are no pending wake events which would
 		 * prevent the device from going to sleep/shutdown.
@@ -4201,7 +4196,7 @@ static void ksz_wol_pre_shutdown(struct ksz_device *dev, bool *wol_enabled)
 	}
 
 	/* Now we are save to enable PME pin. */
-	if (*wol_enabled) {
+	if (wol_enabled) {
 		if (dev->pme_active_high)
 			pme_pin_en |= PME_POLARITY;
 		ops->pme_write8(dev, regs[REG_SW_PME_CTRL], pme_pin_en);
@@ -4480,20 +4475,12 @@ EXPORT_SYMBOL(ksz_switch_alloc);
  * @dev: The switch device structure.
  *
  * This function is responsible for initiating a shutdown sequence for the
- * switch device. It invokes the reset operation defined in the device
- * operations, if available, to reset the switch. Subsequently, it calls the
- * DSA framework's shutdown function to ensure a proper shutdown of the DSA
- * switch.
+ * switch device. Subsequently, it calls the DSA framework's shutdown function
+ * to ensure a proper shutdown of the DSA switch.
  */
 void ksz_switch_shutdown(struct ksz_device *dev)
 {
-	bool wol_enabled = false;
-
-	ksz_wol_pre_shutdown(dev, &wol_enabled);
-
-	if (dev->dev_ops->reset && !wol_enabled)
-		dev->dev_ops->reset(dev);
-
+	ksz_wol_pre_shutdown(dev);
 	dsa_switch_shutdown(dev->ds);
 }
 EXPORT_SYMBOL(ksz_switch_shutdown);
@@ -4943,10 +4930,8 @@ int ksz_switch_register(struct ksz_device *dev)
 	}
 
 	ret = dsa_register_switch(dev->ds);
-	if (ret) {
-		dev->dev_ops->exit(dev);
+	if (ret)
 		return ret;
-	}
 
 	/* Read MIB counters every 30 seconds to avoid overflow. */
 	dev->mib_read_interval = msecs_to_jiffies(5000);
@@ -4966,12 +4951,7 @@ void ksz_switch_remove(struct ksz_device *dev)
 		cancel_delayed_work_sync(&dev->mib_read);
 	}
 
-	dev->dev_ops->exit(dev);
 	dsa_unregister_switch(dev->ds);
-
-	if (dev->reset_gpio)
-		gpiod_set_value_cansleep(dev->reset_gpio, 1);
-
 }
 EXPORT_SYMBOL(ksz_switch_remove);
 
