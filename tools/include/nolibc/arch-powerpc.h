@@ -7,8 +7,11 @@
 #ifndef _NOLIBC_ARCH_POWERPC_H
 #define _NOLIBC_ARCH_POWERPC_H
 
+#include <linux/unistd.h>
+
 #include "compiler.h"
 #include "crt.h"
+#include "std.h"
 
 /* Syscalls for PowerPC :
  *   - stack is 16-byte aligned
@@ -217,5 +220,14 @@ void __attribute__((weak, noreturn)) __nolibc_entrypoint __nolibc_no_stack_prote
 	__nolibc_entrypoint_epilogue();
 }
 #endif /* NOLIBC_NO_RUNTIME */
+
+#if !defined(__powerpc64__)
+static __attribute__((unused))
+int _sys_ftruncate64(int fd, uint32_t length0, uint32_t length1)
+{
+	return __nolibc_syscall4(__NR_ftruncate64, fd, 0, length0, length1);
+}
+#define _sys_ftruncate64 _sys_ftruncate64
+#endif
 
 #endif /* _NOLIBC_ARCH_POWERPC_H */
