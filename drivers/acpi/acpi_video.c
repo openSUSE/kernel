@@ -1953,6 +1953,14 @@ static int acpi_video_bus_put_devices(struct acpi_video_bus *video)
 	return 0;
 }
 
+static void acpi_video_bus_free(void *data)
+{
+	struct acpi_video_bus *video = data;
+
+	video->device->driver_data = NULL;
+	kfree(video);
+}
+
 static int duplicate_dev_check(struct device *sibling, void *data)
 {
 	struct acpi_video_bus *video;
@@ -2005,6 +2013,10 @@ static int acpi_video_bus_probe(struct auxiliary_device *aux_dev,
 	video->device = device;
 	device->driver_data = video;
 
+	error = devm_add_action_or_reset(dev, acpi_video_bus_free, video);
+	if (error)
+		return error;
+
 	/*
 	 * A hack to fix the duplicate name "VID" problem on T61 and the
 	 * duplicate name "VGA" problem on Pa 3553.
@@ -2022,7 +2034,7 @@ static int acpi_video_bus_probe(struct auxiliary_device *aux_dev,
 	acpi_video_bus_find_cap(video);
 	error = acpi_video_bus_check(video);
 	if (error)
-		goto err_free_video;
+		return error;
 
 	mutex_init(&video->device_list_lock);
 	INIT_LIST_HEAD(&video->video_device_list);
@@ -2081,9 +2093,6 @@ err_del:
 err_put_video:
 	acpi_video_bus_put_devices(video);
 	kfree(video->attached_array);
-err_free_video:
-	kfree(video);
-	device->driver_data = NULL;
 
 	return error;
 }
@@ -2104,9 +2113,6 @@ static void acpi_video_bus_remove(struct auxiliary_device *aux_dev)
 	acpi_video_bus_unregister_backlight(video);
 	acpi_video_bus_put_devices(video);
 	kfree(video->attached_array);
-
-	kfree(video);
-	device->driver_data = NULL;
 }
 
 static int __init is_i740(struct pci_dev *dev)
