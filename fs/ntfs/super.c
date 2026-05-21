@@ -1634,7 +1634,7 @@ static void ntfs_volume_free(struct ntfs_volume *vol)
 		vol->upcase = NULL;
 	}
 
-	if (!ntfs_nr_upcase_users && default_upcase) {
+	if (!ntfs_nr_upcase_users) {
 		kvfree(default_upcase);
 		default_upcase = NULL;
 	}
@@ -1649,8 +1649,7 @@ static void ntfs_volume_free(struct ntfs_volume *vol)
 
 	unload_nls(vol->nls_map);
 
-	if (vol->lcn_empty_bits_per_page)
-		kvfree(vol->lcn_empty_bits_per_page);
+	kvfree(vol->lcn_empty_bits_per_page);
 	kfree(vol->volume_label);
 	kfree(vol);
 }
