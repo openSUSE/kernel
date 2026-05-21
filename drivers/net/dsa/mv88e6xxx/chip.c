@@ -3736,13 +3736,18 @@ static int mv88e6390_setup_errata(struct mv88e6xxx_chip *chip)
 	return mv88e6xxx_software_reset(chip);
 }
 
+/* For MV88E6XXX_FAMILY_6352, perform reset on G1 control.
+ * Also, read and cache G2 scratch register.
+ */
 static int mv88e6352_reset(struct mv88e6xxx_chip *chip)
 {
 	int err;
 
 	err = mv88e6352_g1_reset(chip);
+	if (err)
+		return err;
 
-	return err;
+	return mv88e6352_g2_cache_global_scratch_config3(chip);
 }
 
 /* prod_id for switch families which do not have a PHY model number */
