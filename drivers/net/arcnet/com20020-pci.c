@@ -127,7 +127,8 @@ static int com20020pci_probe(struct pci_dev *pdev,
 	struct net_device *dev;
 	struct arcnet_local *lp;
 	struct com20020_priv *priv;
-	int i, ioaddr, ret;
+	int ioaddr, ret;
+	u8 i;
 	struct resource *r;
 
 	ret = 0;

@@ -50,7 +50,7 @@ struct com20020_pci_channel_map {
 
 struct com20020_pci_card_info {
 	const char *name;
-	int devcount;
+	u8 devcount;
 
 	struct com20020_pci_channel_map chan_map_tbl[PLX_PCI_MAX_CARDS];
 	struct com20020_pci_channel_map misc_map;
