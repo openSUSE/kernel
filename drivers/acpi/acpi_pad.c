@@ -409,16 +409,13 @@ static void acpi_pad_notify(acpi_handle handle, u32 event, void *data)
 {
 	struct acpi_device *adev = data;
 
-	switch (event) {
-	case ACPI_PROCESSOR_AGGREGATOR_NOTIFY:
-		acpi_pad_handle_notify(handle);
-		acpi_bus_generate_netlink_event("acpi_pad",
-						dev_name(&adev->dev), event, 0);
-		break;
-	default:
+	if (event != ACPI_PROCESSOR_AGGREGATOR_NOTIFY) {
 		pr_warn("Unsupported event [0x%x]\n", event);
-		break;
+		return;
 	}
+
+	acpi_pad_handle_notify(handle);
+	acpi_bus_generate_netlink_event("acpi_pad", dev_name(&adev->dev), event, 0);
 }
 
 static int acpi_pad_probe(struct platform_device *pdev)
