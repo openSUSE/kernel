@@ -123,9 +123,9 @@ static inline void com20020_set_subaddress(struct arcnet_local *lp,
 {
 	if (val < 4) {
 		lp->config = (lp->config & ~0x03) | val;
-		arcnet_outb(lp->config, ioaddr, COM20020_REG_W_CONFIG);
+		outb(lp->config, ioaddr + COM20020_REG_W_CONFIG);
 	} else {
-		arcnet_outb(val, ioaddr, COM20020_REG_W_SUBADR);
+		outb(val, ioaddr + COM20020_REG_W_SUBADR);
 	}
 }
 
