@@ -10959,6 +10959,7 @@ enum special_kfunc_type {
 	KF_bpf_list_push_front,
 	KF_bpf_list_push_back_impl,
 	KF_bpf_list_push_back,
+	KF_bpf_list_add,
 	KF_bpf_list_pop_front,
 	KF_bpf_list_pop_back,
 	KF_bpf_list_del,
@@ -11028,6 +11029,7 @@ BTF_ID(func, bpf_list_push_front_impl)
 BTF_ID(func, bpf_list_push_front)
 BTF_ID(func, bpf_list_push_back_impl)
 BTF_ID(func, bpf_list_push_back)
+BTF_ID(func, bpf_list_add)
 BTF_ID(func, bpf_list_pop_front)
 BTF_ID(func, bpf_list_pop_back)
 BTF_ID(func, bpf_list_del)
@@ -11140,7 +11142,8 @@ static bool is_bpf_list_push_kfunc(u32 func_id)
 	return func_id == special_kfunc_list[KF_bpf_list_push_front] ||
 	       func_id == special_kfunc_list[KF_bpf_list_push_front_impl] ||
 	       func_id == special_kfunc_list[KF_bpf_list_push_back] ||
-	       func_id == special_kfunc_list[KF_bpf_list_push_back_impl];
+	       func_id == special_kfunc_list[KF_bpf_list_push_back_impl] ||
+	       func_id == special_kfunc_list[KF_bpf_list_add];
 }
 
 static bool is_bpf_rbtree_add_kfunc(u32 func_id)
@@ -19524,8 +19527,11 @@ int bpf_fixup_kfunc_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
 		int struct_meta_reg = BPF_REG_3;
 		int node_offset_reg = BPF_REG_4;
 
-		/* rbtree_add has extra 'less' arg, so args-to-fixup are in diff regs */
-		if (is_bpf_rbtree_add_kfunc(desc->func_id)) {
+		/* list_add/rbtree_add have an extra arg (prev/less),
+		 * so args-to-fixup are in diff regs.
+		 */
+		if (desc->func_id == special_kfunc_list[KF_bpf_list_add] ||
+		    is_bpf_rbtree_add_kfunc(desc->func_id)) {
 			struct_meta_reg = BPF_REG_4;
 			node_offset_reg = BPF_REG_5;
 		}
