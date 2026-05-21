@@ -2247,10 +2247,11 @@ EXPORT_SYMBOL_GPL(bpf_base_func_proto);
 void bpf_list_head_free(const struct btf_field *field, void *list_head,
 			struct bpf_spin_lock *spin_lock)
 {
-	struct list_head *head = list_head, *orig_head = list_head;
+	struct list_head *head = list_head, drain, *pos, *n;
 
 	BUILD_BUG_ON(sizeof(struct list_head) > sizeof(struct bpf_list_head));
 	BUILD_BUG_ON(__alignof__(struct list_head) > __alignof__(struct bpf_list_head));
+	INIT_LIST_HEAD(&drain);
 
 	/* Do the actual list draining outside the lock to not hold the lock for
 	 * too long, and also prevent deadlocks if tracing programs end up
@@ -2261,20 +2262,30 @@ void bpf_list_head_free(const struct btf_field *field, void *list_head,
 	__bpf_spin_lock_irqsave(spin_lock);
 	if (!head->next || list_empty(head))
 		goto unlock;
-	head = head->next;
+	list_for_each_safe(pos, n, head) {
+		struct bpf_list_node_kern *node;
+
+		node = container_of(pos, struct bpf_list_node_kern, list_head);
+		WRITE_ONCE(node->owner, BPF_PTR_POISON);
+		list_move_tail(pos, &drain);
+	}
 unlock:
-	INIT_LIST_HEAD(orig_head);
+	INIT_LIST_HEAD(head);
 	__bpf_spin_unlock_irqrestore(spin_lock);
 
-	while (head != orig_head) {
-		void *obj = head;
+	while (!list_empty(&drain)) {
+		struct bpf_list_node_kern *node;
 
-		obj -= field->graph_root.node_offset;
-		head = head->next;
+		pos = drain.next;
+		node = container_of(pos, struct bpf_list_node_kern, list_head);
+		list_del_init(pos);
+		/* Ensure __bpf_list_add() sees the node as unlinked. */
+		smp_store_release(&node->owner, NULL);
 		/* The contained type can also have resources, including a
 		 * bpf_list_head which needs to be freed.
 		 */
-		__bpf_obj_drop_impl(obj, field->graph_root.value_rec, false);
+		__bpf_obj_drop_impl((char *)pos - field->graph_root.node_offset,
+				    field->graph_root.value_rec, false);
 	}
 }
 
