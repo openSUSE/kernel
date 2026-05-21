@@ -18,6 +18,7 @@ properties:
       - items:
           - enum:
               - qcom,glymur-trng
+              - qcom,hawi-trng
               - qcom,ipq5332-trng
               - qcom,ipq5424-trng
               - qcom,ipq9574-trng
