@@ -77,7 +77,7 @@
 /* Max RRL register sets per {,sub-,pseudo-}channel. */
 #define NUM_RRL_SET		4
 /* Max RRL registers per set. */
-#define NUM_RRL_REG		6
+#define NUM_RRL_REG		7
 /* Max correctable error count registers. */
 #define NUM_CECNT_REG		8
 
