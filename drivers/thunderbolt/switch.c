@@ -209,32 +209,6 @@ static int nvm_authenticate_device_dma_port(struct tb_switch *sw)
 	return -ETIMEDOUT;
 }
 
-static void nvm_authenticate_start_dma_port(struct tb_switch *sw)
-{
-	struct pci_dev *pdev = to_pci_dev(sw->tb->nhi->dev);
-	struct pci_dev *root_port;
-
-	/*
-	 * During host router NVM upgrade we should not allow root port to
-	 * go into D3cold because some root ports cannot trigger PME
-	 * itself. To be on the safe side keep the root port in D0 during
-	 * the whole upgrade process.
-	 */
-	root_port = pcie_find_root_port(pdev);
-	if (root_port)
-		pm_runtime_get_noresume(&root_port->dev);
-}
-
-static void nvm_authenticate_complete_dma_port(struct tb_switch *sw)
-{
-	struct pci_dev *pdev = to_pci_dev(sw->tb->nhi->dev);
-	struct pci_dev *root_port;
-
-	root_port = pcie_find_root_port(pdev);
-	if (root_port)
-		pm_runtime_put(&root_port->dev);
-}
-
 static inline bool nvm_readable(struct tb_switch *sw)
 {
 	if (tb_switch_is_usb4(sw)) {
@@ -260,6 +234,7 @@ static inline bool nvm_upgradeable(struct tb_switch *sw)
 
 static int nvm_authenticate(struct tb_switch *sw, bool auth_only)
 {
+	struct tb_nhi *nhi = sw->tb->nhi;
 	int ret;
 
 	if (tb_switch_is_usb4(sw)) {
@@ -276,7 +251,8 @@ static int nvm_authenticate(struct tb_switch *sw, bool auth_only)
 
 	sw->nvm->authenticating = true;
 	if (!tb_route(sw)) {
-		nvm_authenticate_start_dma_port(sw);
+		if (nhi->ops && nhi->ops->pre_nvm_auth)
+			nhi->ops->pre_nvm_auth(nhi);
 		ret = nvm_authenticate_host_dma_port(sw);
 	} else {
 		ret = nvm_authenticate_device_dma_port(sw);
@@ -2745,6 +2721,7 @@ static int tb_switch_set_uuid(struct tb_switch *sw)
 
 static int tb_switch_add_dma_port(struct tb_switch *sw)
 {
+	struct tb_nhi *nhi = sw->tb->nhi;
 	u32 status;
 	int ret;
 
@@ -2804,8 +2781,10 @@ static int tb_switch_add_dma_port(struct tb_switch *sw)
 	 */
 	nvm_get_auth_status(sw, &status);
 	if (status) {
-		if (!tb_route(sw))
-			nvm_authenticate_complete_dma_port(sw);
+		if (!tb_route(sw)) {
+			if (nhi->ops && nhi->ops->post_nvm_auth)
+				nhi->ops->post_nvm_auth(nhi);
+		}
 		return 0;
 	}
 
@@ -2819,8 +2798,10 @@ static int tb_switch_add_dma_port(struct tb_switch *sw)
 		return ret;
 
 	/* Now we can allow root port to suspend again */
-	if (!tb_route(sw))
-		nvm_authenticate_complete_dma_port(sw);
+	if (!tb_route(sw)) {
+		if (nhi->ops && nhi->ops->post_nvm_auth)
+			nhi->ops->post_nvm_auth(nhi);
+	}
 
 	if (status) {
 		tb_sw_info(sw, "switch flash authentication failed\n");
