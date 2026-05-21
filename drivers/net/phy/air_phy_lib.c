@@ -14,8 +14,6 @@
 
 #include "air_phy_lib.h"
 
-#define AIR_EXT_PAGE_ACCESS		0x1f
-
 static int __air_buckpbus_reg_read(struct phy_device *phydev,
 				   u32 pbus_address, u32 *pbus_data)
 {

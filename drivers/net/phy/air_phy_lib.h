@@ -10,6 +10,8 @@
 
 #include <linux/phy.h>
 
+#define AIR_EXT_PAGE_ACCESS		0x1f
+
 #define AIR_PHY_PAGE_STANDARD		0x0000
 #define AIR_PHY_PAGE_EXTENDED_1		0x0001
 #define AIR_PHY_PAGE_EXTENDED_4		0x0004
