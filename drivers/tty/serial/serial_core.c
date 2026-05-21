@@ -3511,7 +3511,7 @@ EXPORT_SYMBOL_GPL(uart_try_toggle_sysrq);
  * @port: uart device's target port
  *
  * This function implements the device tree binding described in
- * Documentation/devicetree/bindings/serial/rs485.txt.
+ * Documentation/devicetree/bindings/serial/rs485.yaml.
  */
 int uart_get_rs485_mode(struct uart_port *port)
 {
