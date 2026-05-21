@@ -333,7 +333,7 @@ static void show_retry_rd_err_log(struct decoded_addr *res, char *msg,
 				n += scnprintf(msg + n, len - n, "%.16llx ", log);
 
 			/* Clear RRL status if RRL in Linux control mode. */
-			if (retry_rd_err_log == 2 && !j && (log & status_mask))
+			if (res_cfg->rrl_ctrl_mode == RRL_CTRL_LINUX && !j && (log & status_mask))
 				skx_write_imc_reg(imc, ch, offset, width, log & ~status_mask);
 		}
 	}
@@ -1207,9 +1207,10 @@ static int __init i10nm_init(void)
 	mce_register_decode_chain(&i10nm_mce_dec);
 	skx_setup_debug("i10nm_test");
 
+	res_cfg->rrl_ctrl_mode = retry_rd_err_log;
 	if (retry_rd_err_log && res_cfg->reg_rrl_ddr) {
 		skx_set_show_rrl(show_retry_rd_err_log);
-		if (retry_rd_err_log == 2)
+		if (retry_rd_err_log == RRL_CTRL_LINUX)
 			enable_retry_rd_err_log(true);
 	}
 
@@ -1230,7 +1231,7 @@ static void __exit i10nm_exit(void)
 	skx_set_decode(NULL);
 
 	if (retry_rd_err_log && res_cfg->reg_rrl_ddr) {
-		if (retry_rd_err_log == 2)
+		if (retry_rd_err_log == RRL_CTRL_LINUX)
 			enable_retry_rd_err_log(false);
 		skx_set_show_rrl(NULL);
 	}

@@ -93,6 +93,15 @@ enum rrl_source_type {
 	RRL_SRC_FRE_DEMAND,
 };
 
+enum rrl_ctrl_mode {
+	/* Linux does not control RRL or reports values. */
+	RRL_CTRL_NONE,
+	/* Firmware retains control. Linux only reports values. */
+	RRL_CTRL_BIOS,
+	/* Linux takes control, resets mode bits, and clears valid/UC bits; reports values. */
+	RRL_CTRL_LINUX,
+};
+
 /* RRL registers per {,sub-,pseudo-}channel. */
 struct reg_rrl {
 	/* RRL register parts. */
@@ -272,6 +281,8 @@ struct res_config {
 	struct reg_rrl *reg_rrl_ddr;
 	/* RRL register sets per HBM channel */
 	struct reg_rrl *reg_rrl_hbm[2];
+	/* RRL control mode */
+	enum rrl_ctrl_mode rrl_ctrl_mode;
 	union {
 		/* {skx,i10nm}_edac */
 		struct {
