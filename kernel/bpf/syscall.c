@@ -1359,7 +1359,8 @@ free_map_tab:
 
 #define BPF_MAP_CREATE_LAST_FIELD excl_prog_hash_size
 /* called via syscall */
-static int __map_create(union bpf_attr *attr, bpfptr_t uattr, struct bpf_verifier_log *log)
+static int map_create_alloc(union bpf_attr *attr, bpfptr_t uattr, struct bpf_verifier_log *log,
+			    struct bpf_map **mapp, struct bpf_token **tokenp)
 {
 	const struct bpf_map_ops *ops;
 	struct bpf_token *token = NULL;
@@ -1367,7 +1368,6 @@ static int __map_create(union bpf_attr *attr, bpfptr_t uattr, struct bpf_verifie
 	u32 map_type = attr->map_type;
 	struct bpf_map *map;
 	bool token_flag;
-	int f_flags;
 	int err;
 
 	err = CHECK_ATTR(BPF_MAP_CREATE);
@@ -1402,10 +1402,6 @@ static int __map_create(union bpf_attr *attr, bpfptr_t uattr, struct bpf_verifie
 		bpf_log(log, "Invalid map_extra.\n");
 		return -EINVAL;
 	}
-
-	f_flags = bpf_get_file_flag(attr->map_flags);
-	if (f_flags < 0)
-		return f_flags;
 
 	if (numa_node != NUMA_NO_NODE &&
 	    ((unsigned int)numa_node >= nr_node_ids ||
@@ -1598,6 +1594,49 @@ static int __map_create(union bpf_attr *attr, bpfptr_t uattr, struct bpf_verifie
 		goto free_map;
 	}
 
+	*mapp = map;
+	*tokenp = token;
+	return 0;
+
+free_map:
+	bpf_map_free(map);
+put_token:
+	bpf_token_put(token);
+	return err;
+}
+
+static int map_create(union bpf_attr *attr, bpfptr_t uattr, struct bpf_common_attr *attr_common,
+		      bpfptr_t uattr_common, u32 size_common)
+{
+	struct bpf_token *token = NULL;
+	struct bpf_verifier_log *log;
+	struct bpf_log_attr attr_log;
+	struct bpf_map *map = NULL;
+	int err, ret;
+	int f_flags;
+
+	log = bpf_log_attr_create_vlog(&attr_log, attr_common, uattr_common, size_common);
+	if (IS_ERR(log))
+		return PTR_ERR(log);
+
+	err = map_create_alloc(attr, uattr, log, &map, &token);
+
+	/* preserve original error even if log finalization is successful */
+	ret = bpf_log_attr_finalize(&attr_log, log);
+	if (ret)
+		err = ret;
+
+	kfree(log);
+
+	if (err)
+		goto free_map;
+
+	f_flags = bpf_get_file_flag(attr->map_flags);
+	if (f_flags < 0) {
+		err = f_flags;
+		goto free_map;
+	}
+
 	err = security_bpf_map_create(map, attr, token, uattr.is_kernel);
 	if (err)
 		goto free_map_sec;
@@ -1626,34 +1665,9 @@ static int __map_create(union bpf_attr *attr, bpfptr_t uattr, struct bpf_verifie
 free_map_sec:
 	security_bpf_map_free(map);
 free_map:
-	bpf_map_free(map);
-put_token:
+	if (map)
+		bpf_map_free(map);
 	bpf_token_put(token);
-	return err;
-}
-
-static int map_create(union bpf_attr *attr, bpfptr_t uattr, struct bpf_common_attr *attr_common,
-		      bpfptr_t uattr_common, u32 size_common)
-{
-	struct bpf_verifier_log *log;
-	struct bpf_log_attr attr_log;
-	int err, ret;
-
-	log = bpf_log_attr_create_vlog(&attr_log, attr_common, uattr_common, size_common);
-	if (IS_ERR(log))
-		return PTR_ERR(log);
-
-	err = __map_create(attr, uattr, log);
-
-	/* preserve original error even if log finalization is successful */
-	ret = bpf_log_attr_finalize(&attr_log, log);
-	if (ret) {
-		if (err >= 0)
-			close_fd(err);
-		err = ret;
-	}
-
-	kfree(log);
 	return err;
 }
 
