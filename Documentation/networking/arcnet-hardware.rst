@@ -8,10 +8,8 @@ ARCnet Hardware
 
 .. note::
 
-   1) This file is a supplement to arcnet.rst.  Please read that for general
-      driver configuration help.
-   2) This file is no longer Linux-specific.  It should probably be moved out
-      of the kernel sources.  Ideas?
+   This file is a supplement to arcnet.rst.  Please read that for general
+   driver configuration help.
 
 Because so many people (myself included) seem to have obtained ARCnet cards
 without manuals, this file contains a quick introduction to ARCnet hardware
@@ -134,13 +132,11 @@ And now to the cabling.  What you can connect together:
    network.
 
 2. A card to a passive hub.  Remember that all unused connectors on the hub
-   must be properly terminated with 93 Ohm (or something else if you don't
-   have the right ones) terminators.
+   must be properly terminated with 93 Ohm terminators (or something else if you
+   don't have the right ones), although the network may work without
+   terminators.
 
-	(Avery's note: oops, I didn't know that.  Mine (TV cable) works
-	anyway, though.)
-
-3. A card to an active hub.  Here is no need to terminate the unused
+3. A card to an active hub.  Here there is no need to terminate the unused
    connectors except some kind of aesthetic feeling.  But, there may not be
    more than eleven active hubs between any two computers.  That of course
    doesn't limit the number of active hubs on the network.
@@ -150,7 +146,7 @@ And now to the cabling.  What you can connect together:
 5. An active hub to passive hub.
 
 Remember that you cannot connect two passive hubs together.  The power loss
-implied by such a connection is too high for the net to operate reliably.
+implied by such a connection is too high for the network to operate reliably.
 
 An example of a typical ARCnet network::
 
@@ -163,8 +159,8 @@ An example of a typical ARCnet network::
 		    |
 		    S
 
-The BUS topology is very similar to the one used by Ethernet.  The only
-difference is in cable and terminators: they should be 93 Ohm.  Ethernet
+The BUS topology is very similar to the one used by 10BASE2 Ethernet.  The only
+difference is in cable and terminators: they should be 93 Ohm. 10BASE2 Ethernet
 uses 50 Ohm impedance. You use T connectors to put the computers on a single
 line of cable, the bus. You have to put terminators at both ends of the
 cable. A typical BUS ARCnet network looks like::
@@ -177,7 +173,7 @@ cable. A typical BUS ARCnet network looks like::
   T - T connector
 
 But that is not all! The two types can be connected together.  According to
-the official documentation the only way of connecting them is using an active
+the official documentation, the only way of connecting them is using an active
 hub::
 
 	 A------T------T------TR
@@ -186,7 +182,7 @@ hub::
 	 |
 	 S
 
-The official docs also state that you can use STAR cards at the ends of
+The official docs also state that you can use STAR cards at the ends of a
 BUS network in place of a BUS card and a terminator::
 
      S------T------T------S
@@ -211,7 +207,7 @@ example::
 	   |   |      S------T----H---S   |
 	   S   S             B    R       S
 
-A basically different cabling scheme is used with Twisted Pair cabling. Each
+A completely different cabling scheme is used with Twisted Pair cabling. Each
 of the TP cards has two RJ (phone-cord style) connectors.  The cards are
 then daisy-chained together using a cable connecting every two neighboring
 cards.  The ends are terminated with RJ 93 Ohm terminators which plug into
@@ -292,11 +288,13 @@ Setting the Jumpers
     Make sure you set ETS1 and ETS2 to the SAME VALUE for all cards on your
     network.
 
-Also, on many cards (not mine, though) there are red and green LED's.
-Vojtech Pavlik <vojtech@suse.cz> tells me this is what they mean:
+LED Indicators
+==============
+
+Many cards have red and green LEDs, which have the following meanings:
 
 	=============== =============== =====================================
-	GREEN           RED             Status
+	Green           Red             Status
 	=============== =============== =====================================
 	OFF             OFF             Power off
 	OFF             Short flashes   Cabling problems (broken cable or not
