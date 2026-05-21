@@ -520,7 +520,7 @@ static int mpc52xx_spi_probe(struct platform_device *op)
 
 static void mpc52xx_spi_remove(struct platform_device *op)
 {
-	struct spi_controller *host = spi_controller_get(platform_get_drvdata(op));
+	struct spi_controller *host = platform_get_drvdata(op);
 	struct mpc52xx_spi *ms = spi_controller_get_devdata(host);
 	int i;
 

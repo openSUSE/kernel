@@ -515,8 +515,6 @@ static void xilinx_spi_remove(struct platform_device *pdev)
 	xspi->write_fn(0, regs_base + XIPIF_V123B_IIER_OFFSET);
 	/* Disable the global IPIF interrupt */
 	xspi->write_fn(0, regs_base + XIPIF_V123B_DGIER_OFFSET);
-
-	spi_controller_put(xspi->bitbang.ctlr);
 }
 
 /* work with hotplug and coldplug */

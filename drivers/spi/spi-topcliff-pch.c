@@ -1406,8 +1406,6 @@ static void pch_spi_pd_remove(struct platform_device *plat_dev)
 	dev_dbg(&plat_dev->dev, "%s:[ch%d] irq=%d\n",
 		__func__, plat_dev->id, board_dat->pdev->irq);
 
-	spi_controller_get(data->host);
-
 	spi_unregister_controller(data->host);
 
 	/* check for any pending messages; no action is taken if the queue
