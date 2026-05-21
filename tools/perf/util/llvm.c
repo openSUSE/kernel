@@ -118,7 +118,7 @@ int symbol__disassemble_llvm(const char *filename, struct symbol *sym,
 {
 #ifdef HAVE_LIBLLVM_SUPPORT
 	struct annotation *notes = symbol__annotation(sym);
-	struct map *map = args->ms.map;
+	struct map *map = args->ms->map;
 	struct dso *dso = map__dso(map);
 	u64 start = map__rip_2objdump(map, sym->start);
 	/* Malloc-ed buffer containing instructions read from disk. */
@@ -146,18 +146,24 @@ int symbol__disassemble_llvm(const char *filename, struct symbol *sym,
 		return errno;
 
 	init_llvm();
-	if (arch__is(args->arch, "x86")) {
+	if (arch__is_x86(args->arch)) {
 		const char *triplet = is_64bit ? "x86_64-pc-linux" : "i686-pc-linux";
 
 		disasm = LLVMCreateDisasm(triplet, &storage, /*tag_type=*/0,
 					  /*get_op_info=*/NULL, symbol_lookup_callback);
 	} else {
 		char triplet[64];
+		const char *features = NULL;
 
 		scnprintf(triplet, sizeof(triplet), "%s-linux-gnu",
 			  args->arch->name);
-		disasm = LLVMCreateDisasm(triplet, &storage, /*tag_type=*/0,
-					  /*get_op_info=*/NULL, symbol_lookup_callback);
+		if (args->arch->id.e_machine == EM_AARCH64)
+			features = "+all";
+		disasm = LLVMCreateDisasmCPUFeatures(triplet, /*cpu=*/"",
+						     features, &storage,
+						     /*tag_type=*/0,
+						     /*get_op_info=*/NULL,
+						     symbol_lookup_callback);
 	}
 
 	if (disasm == NULL)
@@ -184,7 +190,7 @@ int symbol__disassemble_llvm(const char *filename, struct symbol *sym,
 	args->line = disasm_buf;
 	args->line_nr = 0;
 	args->fileloc = NULL;
-	args->ms.sym = sym;
+	args->ms->sym = sym;
 
 	dl = disasm_line__new(args);
 	if (dl == NULL)
@@ -242,7 +248,7 @@ int symbol__disassemble_llvm(const char *filename, struct symbol *sym,
 					 &line_storage_len);
 		args->line_nr = 0;
 		args->fileloc = NULL;
-		args->ms.sym = sym;
+		args->ms->sym = sym;
 
 		llvm_addr2line(filename, pc, &args->fileloc,
 			       (unsigned int *)&args->line_nr, false, NULL);

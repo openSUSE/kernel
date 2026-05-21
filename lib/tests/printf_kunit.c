@@ -17,6 +17,7 @@
 #include <linux/dcache.h>
 #include <linux/socket.h>
 #include <linux/in.h>
+#include <linux/in6.h>
 
 #include <linux/gfp.h>
 #include <linux/mm.h>
@@ -266,15 +267,17 @@ hash_pointer(struct kunit *kunittest)
 	KUNIT_EXPECT_MEMNEQ(kunittest, buf, PTR_STR, PTR_WIDTH);
 }
 
-static void
-test_hashed(struct kunit *kunittest, const char *fmt, const void *p)
-{
-	char buf[PLAIN_BUF_SIZE];
-
-	plain_hash_to_buffer(kunittest, p, buf, PLAIN_BUF_SIZE);
-
-	test(buf, fmt, p);
-}
+/*
+ * This is a macro so that the compiler can compare its arguments to the
+ * __printf() attribute on __test(). This cannot be a function with a __printf()
+ * attribute because GCC requires __printf() functions to be variadic.
+ */
+#define test_hashed(kunittest, fmt, p)						\
+	do {									\
+		char buf[PLAIN_BUF_SIZE];					\
+		plain_hash_to_buffer(kunittest, p, buf, PLAIN_BUF_SIZE);	\
+		test(buf, fmt, p);						\
+	} while (0)
 
 /*
  * NULL pointers aren't hashed.
@@ -435,6 +438,27 @@ ip4(struct kunit *kunittest)
 static void
 ip6(struct kunit *kunittest)
 {
+	const struct in6_addr addr = {
+		.s6_addr = { 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04,
+			     0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00, 0x08 }
+	};
+	const struct in6_addr single_zero = {
+		.s6_addr = { 0x00, 0x01, 0x00, 0x00, 0x00, 0x03, 0x00, 0x04,
+			     0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00, 0x08 }
+	};
+	struct sockaddr_in6 sa = {
+		.sin6_family = AF_INET6,
+		.sin6_port = cpu_to_be16(12345),
+		.sin6_addr = addr,
+	};
+
+	test("00010002000300040005000600070008|0001:0002:0003:0004:0005:0006:0007:0008",
+	     "%pi6|%pI6", &addr, &addr);
+	test("00010002000300040005000600070008|0001:0002:0003:0004:0005:0006:0007:0008",
+	     "%piS|%pIS", &sa, &sa);
+	test("1:2:3:4:5:6:7:8", "%pI6c", &addr);
+	test("1:0:3:4:5:6:7:8", "%pI6c", &single_zero);
+	test("[1:2:3:4:5:6:7:8]:12345", "%pISpc", &sa);
 }
 
 static void

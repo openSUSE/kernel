@@ -26,7 +26,6 @@
 #include "demangle-rust-v0.h"
 #include "dso.h"
 #include "util.h" // lsdir()
-#include "debug.h"
 #include "event.h"
 #include "machine.h"
 #include "map.h"
@@ -66,9 +65,11 @@ struct symbol_conf symbol_conf = {
 	.time_quantum		= 100 * NSEC_PER_MSEC, /* 100ms */
 	.show_hist_headers	= true,
 	.symfs			= "",
+	.symfs_layout_flat	= false,
 	.event_group		= true,
 	.inline_name		= true,
 	.res_sample		= 0,
+	.addr2line_timeout_ms	= 5 * 1000,
 };
 
 struct map_list_node {
@@ -104,21 +105,10 @@ static enum dso_binary_type binary_type_symtab[] = {
 
 #define DSO_BINARY_TYPE__SYMTAB_CNT ARRAY_SIZE(binary_type_symtab)
 
-static bool symbol_type__filter(char __symbol_type)
+static bool symbol_type__filter(char symbol_type)
 {
-	// Since 'U' == undefined and 'u' == unique global symbol, we can't use toupper there
-	// 'N' is for debugging symbols, 'n' is a non-data, non-code, non-debug read-only section.
-	// According to 'man nm'.
-	// 'N' first seen in:
-	// ffffffff9b35d130 N __pfx__RNCINvNtNtNtCsbDUBuN8AbD4_4core4iter8adapters3map12map_try_foldjNtCs6vVzKs5jPr6_12drm_panic_qr7VersionuINtNtNtBa_3ops12control_flow11ControlFlowB10_ENcB10_0NCINvNvNtNtNtB8_6traits8iterator8Iterator4find5checkB10_NCNvMB12_B10_13from_segments0E0E0B12_
-	// a seemingly Rust mangled name
-	// Ditto for '1':
-	// root@x1:~# grep ' 1 ' /proc/kallsyms
-	// ffffffffb098bc00 1 __pfx__RNCINvNtNtNtCsfwaGRd4cjqE_4core4iter8adapters3map12map_try_foldjNtCskFudTml27HW_12drm_panic_qr7VersionuINtNtNtBa_3ops12control_flow11ControlFlowB10_ENcB10_0NCINvNvNtNtNtB8_6traits8iterator8Iterator4find5checkB10_NCNvMB12_B10_13from_segments0E0E0B12_
-	// ffffffffb098bc10 1 _RNCINvNtNtNtCsfwaGRd4cjqE_4core4iter8adapters3map12map_try_foldjNtCskFudTml27HW_12drm_panic_qr7VersionuINtNtNtBa_3ops12control_flow11ControlFlowB10_ENcB10_0NCINvNvNtNtNtB8_6traits8iterator8Iterator4find5checkB10_NCNvMB12_B10_13from_segments0E0E0B12_
-	char symbol_type = toupper(__symbol_type);
-	return symbol_type == 'T' || symbol_type == 'W' || symbol_type == 'D' || symbol_type == 'B' ||
-	       __symbol_type == 'u' || __symbol_type == 'l' || __symbol_type == 'N' || __symbol_type == '1';
+	symbol_type = toupper(symbol_type);
+	return symbol_type == 'T' || symbol_type == 'W' || symbol_type == 'D' || symbol_type == 'B';
 }
 
 static int prefix_underscores_count(const char *str)
@@ -2374,7 +2364,8 @@ static int setup_parallelism_bitmap(void)
 {
 	struct perf_cpu_map *map;
 	struct perf_cpu cpu;
-	int i, err = -1;
+	unsigned int i;
+	int err = -1;
 
 	if (symbol_conf.parallelism_list_str == NULL)
 		return 0;
@@ -2502,16 +2493,42 @@ int symbol__config_symfs(const struct option *opt __maybe_unused,
 			 const char *dir, int unset __maybe_unused)
 {
 	char *bf = NULL;
+	const char *layout_str;
+	char *dir_copy;
 	int ret;
 
-	symbol_conf.symfs = strdup(dir);
-	if (symbol_conf.symfs == NULL)
-		return -ENOMEM;
+	layout_str = strrchr(dir, ',');
+	if (layout_str) {
+		size_t dir_len = layout_str - dir;
+
+		dir_copy = strndup(dir, dir_len);
+		if (dir_copy == NULL)
+			return -ENOMEM;
+
+		symbol_conf.symfs = dir_copy;
+
+		layout_str++;
+		if (!strcmp(layout_str, "flat"))
+			symbol_conf.symfs_layout_flat = true;
+		else if (!strcmp(layout_str, "hierarchy"))
+			symbol_conf.symfs_layout_flat = false;
+		else {
+			pr_err("Invalid layout: '%s', use 'hierarchy' or 'flat'\n",
+			       layout_str);
+			free(dir_copy);
+			return -EINVAL;
+		}
+	} else {
+		symbol_conf.symfs = strdup(dir);
+		if (symbol_conf.symfs == NULL)
+			return -ENOMEM;
+		symbol_conf.symfs_layout_flat = false;
+	}
 
 	/* skip the locally configured cache if a symfs is given, and
 	 * config buildid dir to symfs/.debug
 	 */
-	ret = asprintf(&bf, "%s/%s", dir, ".debug");
+	ret = asprintf(&bf, "%s/%s", symbol_conf.symfs, ".debug");
 	if (ret < 0)
 		return -ENOMEM;
 

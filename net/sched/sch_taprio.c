@@ -972,11 +972,12 @@ static enum hrtimer_restart advance_sched(struct hrtimer *timer)
 	}
 
 	if (should_change_schedules(admin, oper, end_time)) {
-		/* Set things so the next time this runs, the new
-		 * schedule runs.
-		 */
-		end_time = sched_base_time(admin);
 		switch_schedules(q, &admin, &oper);
+		/* After changing schedules, the next entry is the first one
+		 * in the new schedule, with a pre-calculated end_time.
+		 */
+		next = list_first_entry(&oper->entries, struct sched_entry, list);
+		end_time = next->end_time;
 	}
 
 	next->end_time = end_time;
@@ -1103,7 +1104,7 @@ static int parse_sched_list(struct taprio_sched *q, struct nlattr *list,
 			continue;
 		}
 
-		entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+		entry = kzalloc_obj(*entry);
 		if (!entry) {
 			NL_SET_ERR_MSG(extack, "Not enough memory for entry");
 			return -ENOMEM;
@@ -1376,8 +1377,7 @@ static struct tc_taprio_qopt_offload *taprio_offload_alloc(int num_entries)
 {
 	struct __tc_taprio_qopt_offload *__offload;
 
-	__offload = kzalloc(struct_size(__offload, offload.entries, num_entries),
-			    GFP_KERNEL);
+	__offload = kzalloc_flex(*__offload, offload.entries, num_entries);
 	if (!__offload)
 		return NULL;
 
@@ -1870,7 +1870,7 @@ static int taprio_change(struct Qdisc *sch, struct nlattr *opt,
 	if (err)
 		return err;
 
-	new_admin = kzalloc(sizeof(*new_admin), GFP_KERNEL);
+	new_admin = kzalloc_obj(*new_admin);
 	if (!new_admin) {
 		NL_SET_ERR_MSG(extack, "Not enough memory for a new schedule");
 		return -ENOMEM;
@@ -2091,8 +2091,7 @@ static int taprio_init(struct Qdisc *sch, struct nlattr *opt,
 		return -EOPNOTSUPP;
 	}
 
-	q->qdiscs = kcalloc(dev->num_tx_queues, sizeof(q->qdiscs[0]),
-			    GFP_KERNEL);
+	q->qdiscs = kzalloc_objs(q->qdiscs[0], dev->num_tx_queues);
 	if (!q->qdiscs)
 		return -ENOMEM;
 
@@ -2186,7 +2185,7 @@ static int taprio_graft(struct Qdisc *sch, unsigned long cl,
 		return -EINVAL;
 
 	if (dev->flags & IFF_UP)
-		dev_deactivate(dev);
+		dev_deactivate(dev, false);
 
 	/* In offload mode, the child Qdisc is directly attached to the netdev
 	 * TX queue, and thus, we need to keep its refcount elevated in order

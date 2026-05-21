@@ -107,7 +107,7 @@ static inline char *offstr(struct section *sec, unsigned long offset)
 #define ERROR_ELF(format, ...) __WARN_ELF(ERROR_STR, format, ##__VA_ARGS__)
 #define ERROR_GLIBC(format, ...) __WARN_GLIBC(ERROR_STR, format, ##__VA_ARGS__)
 #define ERROR_FUNC(sec, offset, format, ...) __WARN_FUNC(ERROR_STR, sec, offset, format, ##__VA_ARGS__)
-#define ERROR_INSN(insn, format, ...) WARN_FUNC(insn->sec, insn->offset, format, ##__VA_ARGS__)
+#define ERROR_INSN(insn, format, ...) ERROR_FUNC(insn->sec, insn->offset, format, ##__VA_ARGS__)
 
 extern bool debug;
 extern int indent;
@@ -152,8 +152,8 @@ static inline void unindent(int *unused) { indent--; }
 	if (unlikely(insn->sym && insn->sym->pfunc &&			\
 		     insn->sym->pfunc->debug_checksum)) {		\
 		char *insn_off = offstr(insn->sec, insn->offset);	\
-		__dbg("checksum: %s %s %016lx",				\
-		      func->name, insn_off, checksum);			\
+		__dbg("checksum: %s %s %016llx",			\
+		      func->name, insn_off, (unsigned long long)checksum);\
 		free(insn_off);						\
 	}								\
 })

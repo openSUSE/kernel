@@ -384,7 +384,7 @@ static void sii8620_mt_msc_cmd_send(struct sii8620 *ctx,
 
 static struct sii8620_mt_msg *sii8620_mt_msg_new(struct sii8620 *ctx)
 {
-	struct sii8620_mt_msg *msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+	struct sii8620_mt_msg *msg = kzalloc_obj(*msg);
 
 	if (!msg)
 		ctx->error = -ENOMEM;
@@ -2221,6 +2221,7 @@ static void sii8620_detach(struct drm_bridge *bridge)
 		return;
 
 	rc_unregister_device(ctx->rc_dev);
+	rc_free_device(ctx->rc_dev);
 }
 
 static int sii8620_is_packing_required(struct sii8620 *ctx,

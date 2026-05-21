@@ -69,6 +69,7 @@
 #include <linux/can/skb.h>
 #include <linux/can/isotp.h>
 #include <linux/slab.h>
+#include <net/can.h>
 #include <net/sock.h>
 #include <net/net_namespace.h>
 
@@ -214,13 +215,20 @@ static int isotp_send_fc(struct sock *sk, int ae, u8 flowstatus)
 {
 	struct net_device *dev;
 	struct sk_buff *nskb;
+	struct can_skb_ext *csx;
 	struct canfd_frame *ncf;
 	struct isotp_sock *so = isotp_sk(sk);
 	int can_send_ret;
 
-	nskb = alloc_skb(so->ll.mtu + sizeof(struct can_skb_priv), gfp_any());
+	nskb = alloc_skb(so->ll.mtu, gfp_any());
 	if (!nskb)
 		return 1;
+
+	csx = can_skb_ext_add(nskb);
+	if (!csx) {
+		kfree_skb(nskb);
+		return 1;
+	}
 
 	dev = dev_get_by_index(sock_net(sk), so->ifindex);
 	if (!dev) {
@@ -228,10 +236,7 @@ static int isotp_send_fc(struct sock *sk, int ae, u8 flowstatus)
 		return 1;
 	}
 
-	can_skb_reserve(nskb);
-	can_skb_prv(nskb)->ifindex = dev->ifindex;
-	can_skb_prv(nskb)->skbcnt = 0;
-
+	csx->can_iif = dev->ifindex;
 	nskb->dev = dev;
 	can_skb_set_owner(nskb, sk);
 	ncf = (struct canfd_frame *)nskb->data;
@@ -286,7 +291,8 @@ static void isotp_rcv_skb(struct sk_buff *skb, struct sock *sk)
 	addr->can_family = AF_CAN;
 	addr->can_ifindex = skb->dev->ifindex;
 
-	if (sock_queue_rcv_skb_reason(sk, skb, &reason) < 0)
+	reason = sock_queue_rcv_skb_reason(sk, skb);
+	if (reason)
 		sk_skb_reason_drop(sk, skb, reason);
 }
 
@@ -763,6 +769,7 @@ static void isotp_send_cframe(struct isotp_sock *so)
 {
 	struct sock *sk = &so->sk;
 	struct sk_buff *skb;
+	struct can_skb_ext *csx;
 	struct net_device *dev;
 	struct canfd_frame *cf;
 	int can_send_ret;
@@ -772,15 +779,20 @@ static void isotp_send_cframe(struct isotp_sock *so)
 	if (!dev)
 		return;
 
-	skb = alloc_skb(so->ll.mtu + sizeof(struct can_skb_priv), GFP_ATOMIC);
+	skb = alloc_skb(so->ll.mtu, GFP_ATOMIC);
 	if (!skb) {
 		dev_put(dev);
 		return;
 	}
 
-	can_skb_reserve(skb);
-	can_skb_prv(skb)->ifindex = dev->ifindex;
-	can_skb_prv(skb)->skbcnt = 0;
+	csx = can_skb_ext_add(skb);
+	if (!csx) {
+		kfree_skb(skb);
+		netdev_put(dev, NULL);
+		return;
+	}
+
+	csx->can_iif = dev->ifindex;
 
 	cf = (struct canfd_frame *)skb->data;
 	skb_put_zero(skb, so->ll.mtu);
@@ -940,6 +952,7 @@ static int isotp_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
 	struct sock *sk = sock->sk;
 	struct isotp_sock *so = isotp_sk(sk);
 	struct sk_buff *skb;
+	struct can_skb_ext *csx;
 	struct net_device *dev;
 	struct canfd_frame *cf;
 	int ae = (so->opt.flags & CAN_ISOTP_EXTEND_ADDR) ? 1 : 0;
@@ -1000,16 +1013,22 @@ static int isotp_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
 		goto err_out_drop;
 	}
 
-	skb = sock_alloc_send_skb(sk, so->ll.mtu + sizeof(struct can_skb_priv),
-				  msg->msg_flags & MSG_DONTWAIT, &err);
+	skb = sock_alloc_send_skb(sk, so->ll.mtu, msg->msg_flags & MSG_DONTWAIT,
+				  &err);
 	if (!skb) {
 		dev_put(dev);
 		goto err_out_drop;
 	}
 
-	can_skb_reserve(skb);
-	can_skb_prv(skb)->ifindex = dev->ifindex;
-	can_skb_prv(skb)->skbcnt = 0;
+	csx = can_skb_ext_add(skb);
+	if (!csx) {
+		kfree_skb(skb);
+		netdev_put(dev, NULL);
+		err = -ENOMEM;
+		goto err_out_drop;
+	}
+
+	csx->can_iif = dev->ifindex;
 
 	so->tx.len = size;
 	so->tx.idx = 0;
@@ -1229,12 +1248,6 @@ static int isotp_release(struct socket *sock)
 
 	so->ifindex = 0;
 	so->bound = 0;
-
-	if (so->rx.buf != so->rx.sbuf)
-		kfree(so->rx.buf);
-
-	if (so->tx.buf != so->tx.sbuf)
-		kfree(so->tx.buf);
 
 	sock_orphan(sk);
 	sock->sk = NULL;
@@ -1604,6 +1617,21 @@ static int isotp_notifier(struct notifier_block *nb, unsigned long msg,
 	return NOTIFY_DONE;
 }
 
+static void isotp_sock_destruct(struct sock *sk)
+{
+	struct isotp_sock *so = isotp_sk(sk);
+
+	/* do the standard CAN sock destruct work */
+	can_sock_destruct(sk);
+
+	/* free potential extended PDU buffers */
+	if (so->rx.buf != so->rx.sbuf)
+		kfree(so->rx.buf);
+
+	if (so->tx.buf != so->tx.sbuf)
+		kfree(so->tx.buf);
+}
+
 static int isotp_init(struct sock *sk)
 {
 	struct isotp_sock *so = isotp_sk(sk);
@@ -1647,6 +1675,9 @@ static int isotp_init(struct sock *sk)
 	spin_lock(&isotp_notifier_lock);
 	list_add_tail(&so->notifier, &isotp_notifier_list);
 	spin_unlock(&isotp_notifier_lock);
+
+	/* re-assign default can_sock_destruct() reference */
+	sk->sk_destruct = isotp_sock_destruct;
 
 	return 0;
 }

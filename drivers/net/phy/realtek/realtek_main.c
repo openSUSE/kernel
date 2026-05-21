@@ -17,10 +17,19 @@
 #include <linux/delay.h>
 #include <linux/clk.h>
 #include <linux/string_choices.h>
+#include <net/phy/realtek_phy.h>
 
+#include "../phylib.h"
 #include "realtek.h"
 
+#define RTL8201F_IER_PAGE			0x07
 #define RTL8201F_IER				0x13
+#define RTL8201F_IER_LINK			BIT(13)
+#define RTL8201F_IER_DUPLEX			BIT(12)
+#define RTL8201F_IER_ANERR			BIT(11)
+#define RTL8201F_IER_MASK			(RTL8201F_IER_ANERR | \
+						 RTL8201F_IER_DUPLEX | \
+						 RTL8201F_IER_LINK)
 
 #define RTL8201F_ISR				0x1e
 #define RTL8201F_ISR_ANERR			BIT(15)
@@ -66,7 +75,6 @@
 #define RTL8211E_DELAY_MASK			GENMASK(13, 11)
 
 /* RTL8211F PHY configuration */
-#define RTL8211F_PHYCR_PAGE			0xa43
 #define RTL8211F_PHYCR1				0x18
 #define RTL8211F_ALDPS_PLL_OFF			BIT(1)
 #define RTL8211F_ALDPS_ENABLE			BIT(2)
@@ -74,10 +82,17 @@
 
 #define RTL8211F_PHYCR2				0x19
 #define RTL8211F_CLKOUT_EN			BIT(0)
+#define RTL8211F_SYSCLK_SSC_EN			BIT(3)
 #define RTL8211F_PHYCR2_PHY_EEE_ENABLE		BIT(5)
+#define RTL8211F_CLKOUT_SSC_EN			BIT(7)
+#define RTL8211F_CLKOUT_SSC_CAP			GENMASK(13, 12)
 
-#define RTL8211F_INSR_PAGE			0xa43
 #define RTL8211F_INSR				0x1d
+
+/* RTL8211F SSC settings */
+#define RTL8211F_SSC_PAGE			0xc44
+#define RTL8211F_SSC_RXC			0x13
+#define RTL8211F_SSC_SYSCLK			0x17
 
 /* RTL8211F LED configuration */
 #define RTL8211F_LEDCR_PAGE			0xd04
@@ -131,9 +146,18 @@
 #define RTL822X_VND1_SERDES_CTRL3_MODE_SGMII			0x02
 #define RTL822X_VND1_SERDES_CTRL3_MODE_2500BASEX		0x16
 
-/* RTL822X_VND2_XXXXX registers are only accessible when phydev->is_c45
- * is set, they cannot be accessed by C45-over-C22.
- */
+#define RTL822X_VND1_SERDES_CMD			0x7587
+#define  RTL822X_VND1_SERDES_CMD_WRITE		BIT(1)
+#define  RTL822X_VND1_SERDES_CMD_BUSY		BIT(0)
+#define RTL822X_VND1_SERDES_ADDR		0x7588
+#define  RTL822X_VND1_SERDES_ADDR_AUTONEG	0x2
+#define   RTL822X_VND1_SERDES_INBAND_DISABLE	0x71d0
+#define   RTL822X_VND1_SERDES_INBAND_ENABLE	0x70d0
+#define RTL822X_VND1_SERDES_DATA		0x7589
+
+#define RTL822X_VND2_TO_PAGE(reg)		((reg) >> 4)
+#define RTL822X_VND2_TO_PAGE_REG(reg)		(16 + (((reg) & GENMASK(3, 0)) >> 1))
+#define RTL822X_VND2_TO_C22_REG(reg)		(((reg) - 0xa400) / 2)
 #define RTL822X_VND2_C22_REG(reg)		(0xa400 + 2 * (reg))
 
 #define RTL8221B_VND2_INER			0xa4d2
@@ -162,18 +186,21 @@
 
 #define RTL8224_SRAM_RTCT_LEN(pair)		(0x8028 + (pair) * 4)
 
+#define RTL8224_VND1_MDI_PAIR_SWAP		0xa90
+#define RTL8224_VND1_MDI_POLARITY_SWAP		0xa94
+
 #define RTL8366RB_POWER_SAVE			0x15
 #define RTL8366RB_POWER_SAVE_ON			BIT(12)
 
 #define RTL9000A_GINMR				0x14
 #define RTL9000A_GINMR_LINK_STATUS		BIT(4)
 
-#define RTL_VND2_PHYSR				0xa434
-#define RTL_VND2_PHYSR_DUPLEX			BIT(3)
-#define RTL_VND2_PHYSR_SPEEDL			GENMASK(5, 4)
-#define RTL_VND2_PHYSR_SPEEDH			GENMASK(10, 9)
-#define RTL_VND2_PHYSR_MASTER			BIT(11)
-#define RTL_VND2_PHYSR_SPEED_MASK		(RTL_VND2_PHYSR_SPEEDL | RTL_VND2_PHYSR_SPEEDH)
+#define RTL_PHYSR				MII_RESV2
+#define RTL_PHYSR_DUPLEX			BIT(3)
+#define RTL_PHYSR_SPEEDL			GENMASK(5, 4)
+#define RTL_PHYSR_SPEEDH			GENMASK(10, 9)
+#define RTL_PHYSR_MASTER			BIT(11)
+#define RTL_PHYSR_SPEED_MASK			(RTL_PHYSR_SPEEDL | RTL_PHYSR_SPEEDH)
 
 #define	RTL_MDIO_PCS_EEE_ABLE			0xa5c4
 #define	RTL_MDIO_AN_EEE_ADV			0xa5d0
@@ -203,6 +230,9 @@ MODULE_LICENSE("GPL");
 struct rtl821x_priv {
 	bool enable_aldps;
 	bool disable_clk_out;
+	bool enable_clkout_ssc;
+	bool enable_rxc_ssc;
+	bool enable_sysclk_ssc;
 	struct clk *clk;
 	/* rtl8211f */
 	u16 iner;
@@ -266,6 +296,12 @@ static int rtl821x_probe(struct phy_device *phydev)
 						   "realtek,aldps-enable");
 	priv->disable_clk_out = of_property_read_bool(dev->of_node,
 						      "realtek,clkout-disable");
+	priv->enable_clkout_ssc = of_property_read_bool(dev->of_node,
+							"realtek,clkout-ssc-enable");
+	priv->enable_rxc_ssc = of_property_read_bool(dev->of_node,
+						     "realtek,rxc-ssc-enable");
+	priv->enable_sysclk_ssc = of_property_read_bool(dev->of_node,
+							"realtek,sysclk-ssc-enable");
 
 	phydev->priv = priv;
 
@@ -322,7 +358,7 @@ static int rtl8211f_ack_interrupt(struct phy_device *phydev)
 {
 	int err;
 
-	err = phy_read_paged(phydev, RTL8211F_INSR_PAGE, RTL8211F_INSR);
+	err = phy_read(phydev, RTL8211F_INSR);
 
 	return (err < 0) ? err : 0;
 }
@@ -337,11 +373,13 @@ static int rtl8201_config_intr(struct phy_device *phydev)
 		if (err)
 			return err;
 
-		val = BIT(13) | BIT(12) | BIT(11);
-		err = phy_write_paged(phydev, 0x7, RTL8201F_IER, val);
+		val = RTL8201F_IER_MASK;
+		err = phy_write_paged(phydev, RTL8201F_IER_PAGE,
+				      RTL8201F_IER, val);
 	} else {
 		val = 0;
-		err = phy_write_paged(phydev, 0x7, RTL8201F_IER, val);
+		err = phy_write_paged(phydev, RTL8201F_IER_PAGE,
+				      RTL8201F_IER, val);
 		if (err)
 			return err;
 
@@ -468,7 +506,7 @@ static irqreturn_t rtl8211f_handle_interrupt(struct phy_device *phydev)
 {
 	int irq_status;
 
-	irq_status = phy_read_paged(phydev, RTL8211F_INSR_PAGE, RTL8211F_INSR);
+	irq_status = phy_read(phydev, RTL8211F_INSR);
 	if (irq_status < 0) {
 		phy_error(phydev);
 		return IRQ_NONE;
@@ -659,8 +697,8 @@ static int rtl8211f_config_clk_out(struct phy_device *phydev)
 				       RTL8211FVD_CLKOUT_REG,
 				       RTL8211FVD_CLKOUT_EN, 0);
 	else
-		ret = phy_modify_paged(phydev, RTL8211F_PHYCR_PAGE,
-				       RTL8211F_PHYCR2, RTL8211F_CLKOUT_EN, 0);
+		ret = phy_modify(phydev, RTL8211F_PHYCR2, RTL8211F_CLKOUT_EN,
+				 0);
 	if (ret)
 		return ret;
 
@@ -685,19 +723,111 @@ static int rtl8211f_config_aldps(struct phy_device *phydev)
 	if (!priv->enable_aldps)
 		return 0;
 
-	return phy_modify_paged(phydev, RTL8211F_PHYCR_PAGE, RTL8211F_PHYCR1,
-				mask, mask);
+	return phy_modify(phydev, RTL8211F_PHYCR1, mask, mask);
 }
 
-static int rtl8211f_config_phy_eee(struct phy_device *phydev)
+static int rtl8211f_disable_autonomous_eee(struct phy_device *phydev)
 {
-	/* RTL8211FVD has no PHYCR2 register */
+	return phy_modify(phydev, RTL8211F_PHYCR2,
+			  RTL8211F_PHYCR2_PHY_EEE_ENABLE, 0);
+}
+
+static int rtl8211f_config_clkout_ssc(struct phy_device *phydev)
+{
+	struct rtl821x_priv *priv = phydev->priv;
+	struct device *dev = &phydev->mdio.dev;
+	int ret;
+
+	/* The value is preserved if the device tree property is absent */
+	if (!priv->enable_clkout_ssc)
+		return 0;
+
+	/* RTL8211FVD has PHYCR2 register, but configuration of CLKOUT SSC
+	 * is not currently supported by this driver due to different bit
+	 * layout.
+	 */
 	if (phydev->drv->phy_id == RTL_8211FVD_PHYID)
 		return 0;
 
-	/* Disable PHY-mode EEE so LPI is passed to the MAC */
-	return phy_modify_paged(phydev, RTL8211F_PHYCR_PAGE, RTL8211F_PHYCR2,
-				RTL8211F_PHYCR2_PHY_EEE_ENABLE, 0);
+	/* Unnamed registers from EMI improvement parameters application note 1.2 */
+	ret = phy_write_paged(phydev, 0xd09, 0x10, 0xcf00);
+	if (ret < 0) {
+		dev_err(dev, "CLKOUT SSC initialization failed: %pe\n", ERR_PTR(ret));
+		return ret;
+	}
+
+	/* Enable CLKOUT SSC and CLKOUT SSC Capability using PHYCR2
+	 * bits 7, 12, 13. This matches the register 25 write 0x38C3
+	 * from the EMI improvement parameters application note 1.2
+	 * section 2.3, without affecting unrelated bits.
+	 */
+	ret = phy_set_bits(phydev, RTL8211F_PHYCR2,
+			   RTL8211F_CLKOUT_SSC_CAP | RTL8211F_CLKOUT_SSC_EN);
+	if (ret < 0) {
+		dev_err(dev, "CLKOUT SSC enable failed: %pe\n", ERR_PTR(ret));
+		return ret;
+	}
+
+	return 0;
+}
+
+static int rtl8211f_config_rxc_ssc(struct phy_device *phydev)
+{
+	struct rtl821x_priv *priv = phydev->priv;
+	struct device *dev = &phydev->mdio.dev;
+	int ret;
+
+	/* The value is preserved if the device tree property is absent */
+	if (!priv->enable_rxc_ssc)
+		return 0;
+
+	/* RTL8211FVD has PHYCR2 register, but configuration of RXC SSC
+	 * is not currently supported by this driver due to different bit
+	 * layout.
+	 */
+	if (phydev->drv->phy_id == RTL_8211FVD_PHYID)
+		return 0;
+
+	ret = phy_write_paged(phydev, RTL8211F_SSC_PAGE, RTL8211F_SSC_RXC, 0x5f00);
+	if (ret < 0) {
+		dev_err(dev, "RXC SSC configuration failed: %pe\n", ERR_PTR(ret));
+		return ret;
+	}
+
+	return 0;
+}
+
+static int rtl8211f_config_sysclk_ssc(struct phy_device *phydev)
+{
+	struct rtl821x_priv *priv = phydev->priv;
+	struct device *dev = &phydev->mdio.dev;
+	int ret;
+
+	/* The value is preserved if the device tree property is absent */
+	if (!priv->enable_sysclk_ssc)
+		return 0;
+
+	/* RTL8211FVD has PHYCR2 register, but configuration of SYSCLK SSC
+	 * is not currently supported by this driver due to different bit
+	 * layout.
+	 */
+	if (phydev->drv->phy_id == RTL_8211FVD_PHYID)
+		return 0;
+
+	ret = phy_write_paged(phydev, RTL8211F_SSC_PAGE, RTL8211F_SSC_SYSCLK, 0x4f00);
+	if (ret < 0) {
+		dev_err(dev, "SYSCLK SSC configuration failed: %pe\n", ERR_PTR(ret));
+		return ret;
+	}
+
+	/* Enable SSC */
+	ret = phy_set_bits(phydev, RTL8211F_PHYCR2, RTL8211F_SYSCLK_SSC_EN);
+	if (ret < 0) {
+		dev_err(dev, "SYSCLK SSC enable failed: %pe\n", ERR_PTR(ret));
+		return ret;
+	}
+
+	return 0;
 }
 
 static int rtl8211f_config_init(struct phy_device *phydev)
@@ -716,6 +846,18 @@ static int rtl8211f_config_init(struct phy_device *phydev)
 	if (ret)
 		return ret;
 
+	ret = rtl8211f_config_rxc_ssc(phydev);
+	if (ret)
+		return ret;
+
+	ret = rtl8211f_config_sysclk_ssc(phydev);
+	if (ret)
+		return ret;
+
+	ret = rtl8211f_config_clkout_ssc(phydev);
+	if (ret)
+		return ret;
+
 	ret = rtl8211f_config_clk_out(phydev);
 	if (ret) {
 		dev_err(dev, "clkout configuration failed: %pe\n",
@@ -723,7 +865,7 @@ static int rtl8211f_config_init(struct phy_device *phydev)
 		return ret;
 	}
 
-	return rtl8211f_config_phy_eee(phydev);
+	return 0;
 }
 
 static int rtl821x_suspend(struct phy_device *phydev)
@@ -763,7 +905,7 @@ static int rtl8211f_suspend(struct phy_device *phydev)
 			goto err;
 
 		/* Read the INSR to clear any pending interrupt */
-		phy_read_paged(phydev, RTL8211F_INSR_PAGE, RTL8211F_INSR);
+		phy_read(phydev, RTL8211F_INSR);
 
 		/* Reset the WoL to ensure that an event is picked up.
 		 * Unless we do this, even if we receive another packet,
@@ -870,7 +1012,7 @@ static int rtl8211f_led_hw_control_get(struct phy_device *phydev, u8 index,
 	if (index >= RTL8211x_LED_COUNT)
 		return -EINVAL;
 
-	val = phy_read_paged(phydev, 0xd04, RTL8211F_LEDCR);
+	val = phy_read_paged(phydev, RTL8211F_LEDCR_PAGE, RTL8211F_LEDCR);
 	if (val < 0)
 		return val;
 
@@ -932,7 +1074,8 @@ static int rtl8211f_led_hw_control_set(struct phy_device *phydev, u8 index,
 	reg <<= RTL8211F_LEDCR_SHIFT * index;
 	reg |= RTL8211F_LEDCR_MODE;	 /* Mode B */
 
-	return phy_modify_paged(phydev, 0xd04, RTL8211F_LEDCR, mask, reg);
+	return phy_modify_paged(phydev, RTL8211F_LEDCR_PAGE, RTL8211F_LEDCR,
+				mask, reg);
 }
 
 static int rtl8211e_led_hw_control_get(struct phy_device *phydev, u8 index,
@@ -1096,12 +1239,12 @@ static void rtlgen_decode_physr(struct phy_device *phydev, int val)
 	 * 0: Half Duplex
 	 * 1: Full Duplex
 	 */
-	if (val & RTL_VND2_PHYSR_DUPLEX)
+	if (val & RTL_PHYSR_DUPLEX)
 		phydev->duplex = DUPLEX_FULL;
 	else
 		phydev->duplex = DUPLEX_HALF;
 
-	switch (val & RTL_VND2_PHYSR_SPEED_MASK) {
+	switch (val & RTL_PHYSR_SPEED_MASK) {
 	case 0x0000:
 		phydev->speed = SPEED_10;
 		break;
@@ -1129,7 +1272,7 @@ static void rtlgen_decode_physr(struct phy_device *phydev, int val)
 	 * 1: Master Mode
 	 */
 	if (phydev->speed >= 1000) {
-		if (val & RTL_VND2_PHYSR_MASTER)
+		if (val & RTL_PHYSR_MASTER)
 			phydev->master_slave_state = MASTER_SLAVE_STATE_MASTER;
 		else
 			phydev->master_slave_state = MASTER_SLAVE_STATE_SLAVE;
@@ -1149,7 +1292,7 @@ static int rtlgen_read_status(struct phy_device *phydev)
 	if (!phydev->link)
 		return 0;
 
-	val = phy_read_paged(phydev, 0xa43, 0x12);
+	val = phy_read(phydev, RTL_PHYSR);
 	if (val < 0)
 		return val;
 
@@ -1242,6 +1385,89 @@ static int rtl822x_probe(struct phy_device *phydev)
 	return 0;
 }
 
+/* RTL822x cannot access MDIO_MMD_VEND2 via MII_MMD_CTRL/MII_MMD_DATA.
+ * A mapping to use paged access needs to be used instead.
+ * All other MMD devices can be accessed as usual.
+ */
+static int rtl822xb_read_mmd(struct phy_device *phydev, int devnum, u16 reg)
+{
+	int oldpage, ret, read_ret;
+	u16 page;
+
+	/* Use default method for all MMDs except MDIO_MMD_VEND2 or in case
+	 * Clause-45 access is available
+	 */
+	if (devnum != MDIO_MMD_VEND2 || phydev->is_c45)
+		return mmd_phy_read(phydev->mdio.bus, phydev->mdio.addr,
+				    phydev->is_c45, devnum, reg);
+
+	/* Simplify access to C22-registers addressed inside MDIO_MMD_VEND2 */
+	if (reg >= RTL822X_VND2_C22_REG(0) &&
+	    reg <= RTL822X_VND2_C22_REG(30))
+		return __phy_read(phydev, RTL822X_VND2_TO_C22_REG(reg));
+
+	/* Use paged access for MDIO_MMD_VEND2 over Clause-22 */
+	page = RTL822X_VND2_TO_PAGE(reg);
+	oldpage = __phy_read(phydev, RTL821x_PAGE_SELECT);
+	if (oldpage < 0)
+		return oldpage;
+
+	if (oldpage != page) {
+		ret = __phy_write(phydev, RTL821x_PAGE_SELECT, page);
+		if (ret < 0)
+			return ret;
+	}
+
+	read_ret = __phy_read(phydev, RTL822X_VND2_TO_PAGE_REG(reg));
+	if (oldpage != page) {
+		ret = __phy_write(phydev, RTL821x_PAGE_SELECT, oldpage);
+		if (ret < 0)
+			return ret;
+	}
+
+	return read_ret;
+}
+
+static int rtl822xb_write_mmd(struct phy_device *phydev, int devnum, u16 reg,
+			      u16 val)
+{
+	int oldpage, ret, write_ret;
+	u16 page;
+
+	/* Use default method for all MMDs except MDIO_MMD_VEND2 or in case
+	 * Clause-45 access is available
+	 */
+	if (devnum != MDIO_MMD_VEND2 || phydev->is_c45)
+		return mmd_phy_write(phydev->mdio.bus, phydev->mdio.addr,
+				     phydev->is_c45, devnum, reg, val);
+
+	/* Simplify access to C22-registers addressed inside MDIO_MMD_VEND2 */
+	if (reg >= RTL822X_VND2_C22_REG(0) &&
+	    reg <= RTL822X_VND2_C22_REG(30))
+		return __phy_write(phydev, RTL822X_VND2_TO_C22_REG(reg), val);
+
+	/* Use paged access for MDIO_MMD_VEND2 over Clause-22 */
+	page = RTL822X_VND2_TO_PAGE(reg);
+	oldpage = __phy_read(phydev, RTL821x_PAGE_SELECT);
+	if (oldpage < 0)
+		return oldpage;
+
+	if (oldpage != page) {
+		ret = __phy_write(phydev, RTL821x_PAGE_SELECT, page);
+		if (ret < 0)
+			return ret;
+	}
+
+	write_ret = __phy_write(phydev,  RTL822X_VND2_TO_PAGE_REG(reg), val);
+	if (oldpage != page) {
+		ret = __phy_write(phydev, RTL821x_PAGE_SELECT, oldpage);
+		if (ret < 0)
+			return ret;
+	}
+
+	return write_ret;
+}
+
 static int rtl822x_set_serdes_option_mode(struct phy_device *phydev, bool gen1)
 {
 	bool has_2500, has_sgmii;
@@ -1310,6 +1536,51 @@ static int rtl822x_config_init(struct phy_device *phydev)
 static int rtl822xb_config_init(struct phy_device *phydev)
 {
 	return rtl822x_set_serdes_option_mode(phydev, false);
+}
+
+static int rtl822x_serdes_write(struct phy_device *phydev, u16 reg, u16 val)
+{
+	int ret, poll;
+
+	ret = phy_write_mmd(phydev, MDIO_MMD_VEND1, RTL822X_VND1_SERDES_ADDR, reg);
+	if (ret < 0)
+		return ret;
+
+	ret = phy_write_mmd(phydev, MDIO_MMD_VEND1, RTL822X_VND1_SERDES_DATA, val);
+	if (ret < 0)
+		return ret;
+
+	ret = phy_write_mmd(phydev, MDIO_MMD_VEND1, RTL822X_VND1_SERDES_CMD,
+			    RTL822X_VND1_SERDES_CMD_WRITE |
+			    RTL822X_VND1_SERDES_CMD_BUSY);
+	if (ret < 0)
+		return ret;
+
+	return phy_read_mmd_poll_timeout(phydev, MDIO_MMD_VEND1,
+					 RTL822X_VND1_SERDES_CMD, poll,
+					 !(poll & RTL822X_VND1_SERDES_CMD_BUSY),
+					 500, 100000, false);
+}
+
+static int rtl822x_config_inband(struct phy_device *phydev, unsigned int modes)
+{
+	return rtl822x_serdes_write(phydev, RTL822X_VND1_SERDES_ADDR_AUTONEG,
+				    (modes != LINK_INBAND_DISABLE) ?
+				    RTL822X_VND1_SERDES_INBAND_ENABLE :
+				    RTL822X_VND1_SERDES_INBAND_DISABLE);
+}
+
+static unsigned int rtl822x_inband_caps(struct phy_device *phydev,
+					phy_interface_t interface)
+{
+	switch (interface) {
+	case PHY_INTERFACE_MODE_2500BASEX:
+		return LINK_INBAND_DISABLE;
+	case PHY_INTERFACE_MODE_SGMII:
+		return LINK_INBAND_DISABLE | LINK_INBAND_ENABLE;
+	default:
+		return 0;
+	}
 }
 
 static int rtl822xb_get_rate_matching(struct phy_device *phydev,
@@ -1488,7 +1759,8 @@ static int rtl822x_c45_read_status(struct phy_device *phydev)
 	}
 
 	/* Read actual speed from vendor register. */
-	val = phy_read_mmd(phydev, MDIO_MMD_VEND2, RTL_VND2_PHYSR);
+	val = phy_read_mmd(phydev, MDIO_MMD_VEND2,
+			   RTL822X_VND2_C22_REG(RTL_PHYSR));
 	if (val < 0)
 		return val;
 
@@ -1687,6 +1959,97 @@ static int rtl8224_cable_test_get_status(struct phy_device *phydev, bool *finish
 	return rtl8224_cable_test_report(phydev, finished);
 }
 
+static int rtl8224_package_modify_mmd(struct phy_device *phydev, int devad,
+				      u32 regnum, u16 mask, u16 set)
+{
+	int val, ret;
+
+	phy_lock_mdio_bus(phydev);
+
+	val = __phy_package_read_mmd(phydev, 0, devad, regnum);
+	if (val < 0) {
+		ret = val;
+		goto exit;
+	}
+
+	val &= ~mask;
+	val |= set;
+
+	ret = __phy_package_write_mmd(phydev, 0, devad, regnum, val);
+
+exit:
+	phy_unlock_mdio_bus(phydev);
+	return ret;
+}
+
+static int rtl8224_mdi_config_order(struct phy_device *phydev)
+{
+	struct device_node *np = phydev->mdio.dev.of_node;
+	u8 port_offset = phydev->mdio.addr & 3;
+	u32 order = 0;
+	int ret;
+
+	ret = of_property_read_u32(np, "enet-phy-pair-order", &order);
+
+	/* Do nothing in case the property is not present */
+	if (ret == -EINVAL || ret == -ENOSYS)
+		return 0;
+
+	if (ret)
+		return ret;
+
+	if (order & ~1)
+		return -EINVAL;
+
+	return rtl8224_package_modify_mmd(phydev, MDIO_MMD_VEND1,
+					  RTL8224_VND1_MDI_PAIR_SWAP,
+					  BIT(port_offset),
+					  order ? BIT(port_offset) : 0);
+}
+
+static int rtl8224_mdi_config_polarity(struct phy_device *phydev)
+{
+	struct device_node *np = phydev->mdio.dev.of_node;
+	u8 offset = (phydev->mdio.addr & 3) * 4;
+	u32 polarity = 0;
+	int ret;
+
+	ret = of_property_read_u32(np, "enet-phy-pair-polarity", &polarity);
+
+	/* Do nothing if the property is not present */
+	if (ret == -EINVAL || ret == -ENOSYS)
+		return 0;
+
+	if (ret)
+		return ret;
+
+	if (polarity & ~0xf)
+		return -EINVAL;
+
+	return rtl8224_package_modify_mmd(phydev, MDIO_MMD_VEND1,
+					  RTL8224_VND1_MDI_POLARITY_SWAP,
+					  0xf << offset,
+					  polarity << offset);
+}
+
+static int rtl8224_config_init(struct phy_device *phydev)
+{
+	int ret;
+
+	ret = rtl8224_mdi_config_order(phydev);
+	if (ret)
+		return ret;
+
+	return rtl8224_mdi_config_polarity(phydev);
+}
+
+static int rtl8224_probe(struct phy_device *phydev)
+{
+	/* Chip exposes 4 ports, join all of them in the same package */
+	return devm_phy_package_join(&phydev->mdio.dev, phydev,
+				     phydev->mdio.addr & ~3, 0);
+}
+
 static bool rtlgen_supports_2_5gbps(struct phy_device *phydev)
 {
 	int val;
@@ -1745,28 +2108,18 @@ static int rtl8221b_match_phy_device(struct phy_device *phydev,
 	return phydev->phy_id == RTL_8221B && rtlgen_supports_mmd(phydev);
 }
 
-static int rtl8221b_vb_cg_c22_match_phy_device(struct phy_device *phydev,
-					       const struct phy_driver *phydrv)
+static int rtl8221b_vb_cg_match_phy_device(struct phy_device *phydev,
+					   const struct phy_driver *phydrv)
 {
-	return rtlgen_is_c45_match(phydev, RTL_8221B_VB_CG, false);
+	return rtlgen_is_c45_match(phydev, RTL_8221B_VB_CG, true) ||
+	       rtlgen_is_c45_match(phydev, RTL_8221B_VB_CG, false);
 }
 
-static int rtl8221b_vb_cg_c45_match_phy_device(struct phy_device *phydev,
-					       const struct phy_driver *phydrv)
+static int rtl8221b_vm_cg_match_phy_device(struct phy_device *phydev,
+					   const struct phy_driver *phydrv)
 {
-	return rtlgen_is_c45_match(phydev, RTL_8221B_VB_CG, true);
-}
-
-static int rtl8221b_vm_cg_c22_match_phy_device(struct phy_device *phydev,
-					       const struct phy_driver *phydrv)
-{
-	return rtlgen_is_c45_match(phydev, RTL_8221B_VM_CG, false);
-}
-
-static int rtl8221b_vm_cg_c45_match_phy_device(struct phy_device *phydev,
-					       const struct phy_driver *phydrv)
-{
-	return rtlgen_is_c45_match(phydev, RTL_8221B_VM_CG, true);
+	return rtlgen_is_c45_match(phydev, RTL_8221B_VM_CG, true) ||
+	       rtlgen_is_c45_match(phydev, RTL_8221B_VM_CG, false);
 }
 
 static int rtl_internal_nbaset_match_phy_device(struct phy_device *phydev,
@@ -1977,10 +2330,49 @@ static irqreturn_t rtl8221b_handle_interrupt(struct phy_device *phydev)
 	return IRQ_HANDLED;
 }
 
+static int rtlgen_sfp_get_features(struct phy_device *phydev)
+{
+	linkmode_set_bit(ETHTOOL_LINK_MODE_10000baseT_Full_BIT,
+			 phydev->supported);
+
+	/* set default mode */
+	phydev->speed = SPEED_10000;
+	phydev->duplex = DUPLEX_FULL;
+
+	phydev->port = PORT_FIBRE;
+
+	return 0;
+}
+
+static int rtlgen_sfp_read_status(struct phy_device *phydev)
+{
+	int val, err;
+
+	err = genphy_update_link(phydev);
+	if (err)
+		return err;
+
+	if (!phydev->link)
+		return 0;
+
+	val = phy_read(phydev, RTL_PHYSR);
+	if (val < 0)
+		return val;
+
+	rtlgen_decode_physr(phydev, val);
+
+	return 0;
+}
+
+static int rtlgen_sfp_config_aneg(struct phy_device *phydev)
+{
+	return 0;
+}
+
 static struct phy_driver realtek_drvs[] = {
 	{
 		PHY_ID_MATCH_EXACT(0x00008201),
-		.name           = "RTL8201CP Ethernet",
+		.name		= "RTL8201CP Ethernet",
 		.read_page	= rtl821x_read_page,
 		.write_page	= rtl821x_write_page,
 	}, {
@@ -2068,6 +2460,7 @@ static struct phy_driver realtek_drvs[] = {
 		.led_hw_is_supported = rtl8211x_led_hw_is_supported,
 		.led_hw_control_get = rtl8211f_led_hw_control_get,
 		.led_hw_control_set = rtl8211f_led_hw_control_set,
+		.disable_autonomous_eee = rtl8211f_disable_autonomous_eee,
 	}, {
 		PHY_ID_MATCH_EXACT(RTL_8211FVD_PHYID),
 		.name		= "RTL8211F-VD Gigabit Ethernet",
@@ -2081,6 +2474,10 @@ static struct phy_driver realtek_drvs[] = {
 		.read_page	= rtl821x_read_page,
 		.write_page	= rtl821x_write_page,
 		.flags		= PHY_ALWAYS_CALL_SUSPEND,
+		.led_hw_is_supported = rtl8211x_led_hw_is_supported,
+		.led_hw_control_get = rtl8211f_led_hw_control_get,
+		.led_hw_control_set = rtl8211f_led_hw_control_set,
+		.disable_autonomous_eee = rtl8211f_disable_autonomous_eee,
 	}, {
 		.name		= "Generic FE-GE Realtek PHY",
 		.match_phy_device = rtlgen_match_phy_device,
@@ -2101,126 +2498,142 @@ static struct phy_driver realtek_drvs[] = {
 		.resume		= rtlgen_resume,
 		.read_page	= rtl821x_read_page,
 		.write_page	= rtl821x_write_page,
+		.read_mmd	= rtl822xb_read_mmd,
+		.write_mmd	= rtl822xb_write_mmd,
 	}, {
 		.match_phy_device = rtl8221b_match_phy_device,
 		.name		= "RTL8226B_RTL8221B 2.5Gbps PHY",
 		.get_features	= rtl822x_get_features,
 		.config_aneg	= rtl822x_config_aneg,
-		.config_init    = rtl822xb_config_init,
+		.config_init	= rtl822xb_config_init,
+		.inband_caps	= rtl822x_inband_caps,
+		.config_inband	= rtl822x_config_inband,
 		.get_rate_matching = rtl822xb_get_rate_matching,
 		.read_status	= rtl822xb_read_status,
 		.suspend	= genphy_suspend,
 		.resume		= rtlgen_resume,
 		.read_page	= rtl821x_read_page,
 		.write_page	= rtl821x_write_page,
+		.read_mmd	= rtl822xb_read_mmd,
+		.write_mmd	= rtl822xb_write_mmd,
 	}, {
 		PHY_ID_MATCH_EXACT(0x001cc838),
-		.name           = "RTL8226-CG 2.5Gbps PHY",
-		.soft_reset     = rtl822x_c45_soft_reset,
-		.get_features   = rtl822x_c45_get_features,
-		.config_aneg    = rtl822x_c45_config_aneg,
-		.config_init    = rtl822x_config_init,
-		.read_status    = rtl822xb_c45_read_status,
-		.suspend        = genphy_c45_pma_suspend,
-		.resume         = rtlgen_c45_resume,
+		.name		= "RTL8226-CG 2.5Gbps PHY",
+		.soft_reset	= rtl822x_c45_soft_reset,
+		.get_features	= rtl822x_c45_get_features,
+		.config_aneg	= rtl822x_c45_config_aneg,
+		.config_init	= rtl822x_config_init,
+		.inband_caps	= rtl822x_inband_caps,
+		.config_inband	= rtl822x_config_inband,
+		.read_status	= rtl822xb_c45_read_status,
+		.suspend	= genphy_c45_pma_suspend,
+		.resume		= rtlgen_c45_resume,
+		.read_mmd	= rtl822xb_read_mmd,
+		.write_mmd	= rtl822xb_write_mmd,
 	}, {
 		PHY_ID_MATCH_EXACT(0x001cc848),
-		.name           = "RTL8226B-CG_RTL8221B-CG 2.5Gbps PHY",
-		.get_features   = rtl822x_get_features,
-		.config_aneg    = rtl822x_config_aneg,
-		.config_init    = rtl822xb_config_init,
+		.name		= "RTL8226B-CG_RTL8221B-CG 2.5Gbps PHY",
+		.get_features	= rtl822x_get_features,
+		.config_aneg	= rtl822x_config_aneg,
+		.config_init	= rtl822xb_config_init,
+		.inband_caps	= rtl822x_inband_caps,
+		.config_inband	= rtl822x_config_inband,
 		.get_rate_matching = rtl822xb_get_rate_matching,
-		.read_status    = rtl822xb_read_status,
-		.suspend        = genphy_suspend,
-		.resume         = rtlgen_resume,
-		.read_page      = rtl821x_read_page,
-		.write_page     = rtl821x_write_page,
+		.read_status	= rtl822xb_read_status,
+		.suspend	= genphy_suspend,
+		.resume		= rtlgen_resume,
+		.read_page	= rtl821x_read_page,
+		.write_page	= rtl821x_write_page,
+		.read_mmd	= rtl822xb_read_mmd,
+		.write_mmd	= rtl822xb_write_mmd,
 	}, {
-		.match_phy_device = rtl8221b_vb_cg_c22_match_phy_device,
-		.name           = "RTL8221B-VB-CG 2.5Gbps PHY (C22)",
-		.probe		= rtl822x_probe,
-		.get_features   = rtl822x_get_features,
-		.config_aneg    = rtl822x_config_aneg,
-		.config_init    = rtl822xb_config_init,
-		.get_rate_matching = rtl822xb_get_rate_matching,
-		.read_status    = rtl822xb_read_status,
-		.suspend        = genphy_suspend,
-		.resume         = rtlgen_resume,
-		.read_page      = rtl821x_read_page,
-		.write_page     = rtl821x_write_page,
-	}, {
-		.match_phy_device = rtl8221b_vb_cg_c45_match_phy_device,
-		.name           = "RTL8221B-VB-CG 2.5Gbps PHY (C45)",
+		.match_phy_device = rtl8221b_vb_cg_match_phy_device,
+		.name		= "RTL8221B-VB-CG 2.5Gbps PHY",
 		.config_intr	= rtl8221b_config_intr,
 		.handle_interrupt = rtl8221b_handle_interrupt,
 		.probe		= rtl822x_probe,
-		.config_init    = rtl822xb_config_init,
+		.config_init	= rtl822xb_config_init,
+		.inband_caps	= rtl822x_inband_caps,
+		.config_inband	= rtl822x_config_inband,
 		.get_rate_matching = rtl822xb_get_rate_matching,
-		.get_features   = rtl822x_c45_get_features,
-		.config_aneg    = rtl822x_c45_config_aneg,
-		.read_status    = rtl822xb_c45_read_status,
-		.suspend        = genphy_c45_pma_suspend,
-		.resume         = rtlgen_c45_resume,
+		.get_features	= rtl822x_c45_get_features,
+		.config_aneg	= rtl822x_c45_config_aneg,
+		.read_status	= rtl822xb_c45_read_status,
+		.suspend	= genphy_c45_pma_suspend,
+		.resume		= rtlgen_c45_resume,
+		.read_page	= rtl821x_read_page,
+		.write_page	= rtl821x_write_page,
+		.read_mmd	= rtl822xb_read_mmd,
+		.write_mmd	= rtl822xb_write_mmd,
 	}, {
-		.match_phy_device = rtl8221b_vm_cg_c22_match_phy_device,
-		.name           = "RTL8221B-VM-CG 2.5Gbps PHY (C22)",
-		.probe		= rtl822x_probe,
-		.get_features   = rtl822x_get_features,
-		.config_aneg    = rtl822x_config_aneg,
-		.config_init    = rtl822xb_config_init,
-		.get_rate_matching = rtl822xb_get_rate_matching,
-		.read_status    = rtl822xb_read_status,
-		.suspend        = genphy_suspend,
-		.resume         = rtlgen_resume,
-		.read_page      = rtl821x_read_page,
-		.write_page     = rtl821x_write_page,
-	}, {
-		.match_phy_device = rtl8221b_vm_cg_c45_match_phy_device,
-		.name           = "RTL8221B-VM-CG 2.5Gbps PHY (C45)",
+		.match_phy_device = rtl8221b_vm_cg_match_phy_device,
+		.name		= "RTL8221B-VM-CG 2.5Gbps PHY",
 		.config_intr	= rtl8221b_config_intr,
 		.handle_interrupt = rtl8221b_handle_interrupt,
 		.probe		= rtl822x_probe,
-		.config_init    = rtl822xb_config_init,
+		.config_init	= rtl822xb_config_init,
+		.inband_caps	= rtl822x_inband_caps,
+		.config_inband	= rtl822x_config_inband,
 		.get_rate_matching = rtl822xb_get_rate_matching,
-		.get_features   = rtl822x_c45_get_features,
-		.config_aneg    = rtl822x_c45_config_aneg,
-		.read_status    = rtl822xb_c45_read_status,
-		.suspend        = genphy_c45_pma_suspend,
-		.resume         = rtlgen_c45_resume,
+		.get_features	= rtl822x_c45_get_features,
+		.config_aneg	= rtl822x_c45_config_aneg,
+		.read_status	= rtl822xb_c45_read_status,
+		.suspend	= genphy_c45_pma_suspend,
+		.resume		= rtlgen_c45_resume,
+		.read_page	= rtl821x_read_page,
+		.write_page	= rtl821x_write_page,
+		.read_mmd	= rtl822xb_read_mmd,
+		.write_mmd	= rtl822xb_write_mmd,
 	}, {
 		.match_phy_device = rtl8251b_c45_match_phy_device,
-		.name           = "RTL8251B 5Gbps PHY",
+		.name		= "RTL8251B 5Gbps PHY",
 		.probe		= rtl822x_probe,
-		.get_features   = rtl822x_get_features,
-		.config_aneg    = rtl822x_config_aneg,
-		.read_status    = rtl822x_read_status,
-		.suspend        = genphy_suspend,
-		.resume         = rtlgen_resume,
-		.read_page      = rtl821x_read_page,
-		.write_page     = rtl821x_write_page,
+		.get_features	= rtl822x_get_features,
+		.config_aneg	= rtl822x_config_aneg,
+		.read_status	= rtl822x_read_status,
+		.suspend	= genphy_suspend,
+		.resume		= rtlgen_resume,
+		.read_page	= rtl821x_read_page,
+		.write_page	= rtl821x_write_page,
 	}, {
 		.match_phy_device = rtl_internal_nbaset_match_phy_device,
-		.name           = "Realtek Internal NBASE-T PHY",
+		.name		= "Realtek Internal NBASE-T PHY",
 		.flags		= PHY_IS_INTERNAL,
 		.probe		= rtl822x_probe,
-		.get_features   = rtl822x_get_features,
-		.config_aneg    = rtl822x_config_aneg,
-		.read_status    = rtl822x_read_status,
-		.suspend        = genphy_suspend,
-		.resume         = rtlgen_resume,
-		.read_page      = rtl821x_read_page,
-		.write_page     = rtl821x_write_page,
+		.get_features	= rtl822x_get_features,
+		.config_aneg	= rtl822x_config_aneg,
+		.read_status	= rtl822x_read_status,
+		.suspend	= genphy_suspend,
+		.resume		= rtlgen_resume,
+		.read_page	= rtl821x_read_page,
+		.write_page	= rtl821x_write_page,
+		.read_mmd	= rtl822x_read_mmd,
+		.write_mmd	= rtl822x_write_mmd,
+	}, {
+		PHY_ID_MATCH_EXACT(PHY_ID_RTL_DUMMY_SFP),
+		.name		= "Realtek SFP PHY Mode",
+		.flags		= PHY_IS_INTERNAL,
+		.probe		= rtl822x_probe,
+		.get_features	= rtlgen_sfp_get_features,
+		.config_aneg	= rtlgen_sfp_config_aneg,
+		.read_status	= rtlgen_sfp_read_status,
+		.suspend	= genphy_suspend,
+		.resume		= rtlgen_resume,
+		.read_page	= rtl821x_read_page,
+		.write_page	= rtl821x_write_page,
 		.read_mmd	= rtl822x_read_mmd,
 		.write_mmd	= rtl822x_write_mmd,
 	}, {
 		PHY_ID_MATCH_EXACT(0x001ccad0),
 		.name		= "RTL8224 2.5Gbps PHY",
 		.flags		= PHY_POLL_CABLE_TEST,
-		.get_features   = rtl822x_c45_get_features,
-		.config_aneg    = rtl822x_c45_config_aneg,
-		.read_status    = rtl822x_c45_read_status,
-		.suspend        = genphy_c45_pma_suspend,
-		.resume         = rtlgen_c45_resume,
+		.probe		= rtl8224_probe,
+		.config_init	= rtl8224_config_init,
+		.get_features	= rtl822x_c45_get_features,
+		.config_aneg	= rtl822x_c45_config_aneg,
+		.read_status	= rtl822x_c45_read_status,
+		.suspend	= genphy_c45_pma_suspend,
+		.resume		= rtlgen_c45_resume,
 		.cable_test_start = rtl8224_cable_test_start,
 		.cable_test_get_status = rtl8224_cable_test_get_status,
 	}, {
@@ -2239,7 +2652,7 @@ static struct phy_driver realtek_drvs[] = {
 	}, {
 		PHY_ID_MATCH_EXACT(0x001ccb00),
 		.name		= "RTL9000AA_RTL9000AN Ethernet",
-		.features       = PHY_BASIC_T1_FEATURES,
+		.features	= PHY_BASIC_T1_FEATURES,
 		.config_init	= rtl9000a_config_init,
 		.config_aneg	= rtl9000a_config_aneg,
 		.read_status	= rtl9000a_read_status,

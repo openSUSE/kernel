@@ -50,7 +50,7 @@ static struct vidtv_mux_pid_ctx
 	if (ctx)
 		return ctx;
 
-	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	ctx = kzalloc_obj(*ctx);
 	if (!ctx)
 		return NULL;
 
@@ -233,7 +233,7 @@ static u32 vidtv_mux_push_pcr(struct vidtv_mux *m)
 	/* the 27Mhz clock will feed both parts of the PCR bitfield */
 	args.pcr = m->timing.clk;
 
-	nbytes += vidtv_ts_pcr_write_into(args);
+	nbytes += vidtv_ts_pcr_write_into(&args);
 	m->mux_buf_offset += nbytes;
 
 	m->num_streamed_pcr++;
@@ -363,7 +363,7 @@ static u32 vidtv_mux_pad_with_nulls(struct vidtv_mux *m, u32 npkts)
 	args.continuity_counter = &ctx->cc;
 
 	for (i = 0; i < npkts; ++i) {
-		m->mux_buf_offset += vidtv_ts_null_write_into(args);
+		m->mux_buf_offset += vidtv_ts_null_write_into(&args);
 		args.dest_offset  = m->mux_buf_offset;
 	}
 
@@ -480,7 +480,7 @@ struct vidtv_mux *vidtv_mux_init(struct dvb_frontend *fe,
 {
 	struct vidtv_mux *m;
 
-	m = kzalloc(sizeof(*m), GFP_KERNEL);
+	m = kzalloc_obj(*m);
 	if (!m)
 		return NULL;
 

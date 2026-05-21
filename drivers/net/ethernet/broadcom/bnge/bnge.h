@@ -5,10 +5,10 @@
 #define _BNGE_H_
 
 #define DRV_NAME	"bng_en"
-#define DRV_SUMMARY	"Broadcom 800G Ethernet Linux Driver"
+#define DRV_SUMMARY	"Broadcom ThorUltra NIC Ethernet Driver"
 
 #include <linux/etherdevice.h>
-#include <linux/bnxt/hsi.h>
+#include <linux/bnge/hsi.h>
 #include "bnge_rmem.h"
 #include "bnge_resc.h"
 #include "bnge_auxr.h"
@@ -93,6 +93,11 @@ struct bnge_queue_info {
 	u8      queue_id;
 	u8      queue_profile;
 };
+
+#define BNGE_PHY_FLAGS2_SHIFT		8
+#define BNGE_PHY_FL_NO_FCS		PORT_PHY_QCAPS_RESP_FLAGS_NO_FCS
+#define BNGE_PHY_FL_NO_PAUSE		\
+	(PORT_PHY_QCAPS_RESP_FLAGS2_PAUSE_UNSUPPORTED << 8)
 
 struct bnge_dev {
 	struct device	*dev;
@@ -207,6 +212,11 @@ struct bnge_dev {
 
 	struct bnge_auxr_priv	*aux_priv;
 	struct bnge_auxr_dev	*auxr_dev;
+
+	struct bnge_link_info	link_info;
+
+	/* Copied from flags and flags2 in hwrm_port_phy_qcaps_output */
+	u32			phy_flags;
 };
 
 static inline bool bnge_is_roce_en(struct bnge_dev *bd)

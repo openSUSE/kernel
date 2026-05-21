@@ -18,6 +18,7 @@
 #include <linux/vmalloc.h>
 #include <linux/fs.h>
 #include <linux/fs_context.h>
+#include <linux/hex.h>
 #include <linux/mount.h>
 #include <linux/mutex.h>
 #include <linux/namei.h>
@@ -84,7 +85,7 @@ static int selinux_fs_info_create(struct super_block *sb)
 {
 	struct selinux_fs_info *fsi;
 
-	fsi = kzalloc(sizeof(*fsi), GFP_KERNEL);
+	fsi = kzalloc_obj(*fsi);
 	if (!fsi)
 		return -ENOMEM;
 
@@ -379,7 +380,7 @@ static int sel_open_policy(struct inode *inode, struct file *filp)
 		goto err;
 
 	rc = -ENOMEM;
-	plm = kzalloc(sizeof(*plm), GFP_KERNEL);
+	plm = kzalloc_obj(*plm);
 	if (!plm)
 		goto err;
 
@@ -1930,27 +1931,26 @@ static const struct inode_operations swapover_dir_inode_operations = {
 static struct dentry *sel_make_swapover_dir(struct super_block *sb,
 						unsigned long *ino)
 {
-	struct dentry *dentry = d_alloc_name(sb->s_root, ".swapover");
+	struct dentry *dentry;
 	struct inode *inode;
 
-	if (!dentry)
+	inode = sel_make_inode(sb, S_IFDIR);
+	if (!inode)
 		return ERR_PTR(-ENOMEM);
 
-	inode = sel_make_inode(sb, S_IFDIR);
-	if (!inode) {
-		dput(dentry);
-		return ERR_PTR(-ENOMEM);
+	dentry = simple_start_creating(sb->s_root, ".swapover");
+	if (IS_ERR(dentry)) {
+		iput(inode);
+		return dentry;
 	}
 
 	inode->i_op = &swapover_dir_inode_operations;
 	inode->i_ino = ++(*ino);
 	/* directory inodes start off with i_nlink == 2 (for "." entry) */
 	inc_nlink(inode);
-	inode_lock(sb->s_root->d_inode);
 	d_make_persistent(dentry, inode);
 	inc_nlink(sb->s_root->d_inode);
-	inode_unlock(sb->s_root->d_inode);
-	dput(dentry);
+	simple_done_creating(dentry);
 	return dentry;	// borrowed
 }
 

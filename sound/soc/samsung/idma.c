@@ -290,7 +290,7 @@ static int idma_open(struct snd_soc_component *component,
 
 	snd_soc_set_runtime_hwparams(substream, &idma_hardware);
 
-	prtd = kzalloc(sizeof(struct idma_ctrl), GFP_KERNEL);
+	prtd = kzalloc_obj(struct idma_ctrl);
 	if (prtd == NULL)
 		return -ENOMEM;
 
@@ -399,8 +399,8 @@ static const struct snd_soc_component_driver asoc_idma_platform = {
 	.hw_params	= idma_hw_params,
 	.hw_free	= idma_hw_free,
 	.prepare	= idma_prepare,
-	.pcm_construct	= idma_new,
-	.pcm_destruct	= idma_free,
+	.pcm_new	= idma_new,
+	.pcm_free	= idma_free,
 };
 
 static int asoc_idma_platform_probe(struct platform_device *pdev)

@@ -52,7 +52,7 @@ struct cgroup_fs_context {
 	bool		cpuset_clone_children;
 	bool		none;			/* User explicitly requested empty subsystem */
 	bool		all_ss;			/* Seen 'all' option */
-	u16		subsys_mask;		/* Selected subsystems */
+	u32		subsys_mask;		/* Selected subsystems */
 	char		*name;			/* Hierarchy name */
 	char		*release_agent;		/* Path for release notifications */
 };
@@ -146,7 +146,7 @@ struct cgroup_mgctx {
 	struct cgroup_taskset	tset;
 
 	/* subsystems affected by migration */
-	u16			ss_mask;
+	u32			ss_mask;
 };
 
 #define CGROUP_TASKSET_INIT(tset)						\
@@ -184,11 +184,6 @@ extern bool cgrp_dfl_visible;
 	for ((ssid) = 0; (ssid) < CGROUP_SUBSYS_COUNT &&		\
 	     (((ss) = cgroup_subsys[ssid]) || true); (ssid)++)
 
-static inline bool cgroup_is_dead(const struct cgroup *cgrp)
-{
-	return !(cgrp->self.flags & CSS_ONLINE);
-}
-
 static inline bool notify_on_release(const struct cgroup *cgrp)
 {
 	return test_bit(CGRP_NOTIFY_ON_RELEASE, &cgrp->flags);
@@ -222,7 +217,6 @@ static inline void get_css_set(struct css_set *cset)
 }
 
 bool cgroup_ssid_enabled(int ssid);
-bool cgroup_on_dfl(const struct cgroup *cgrp);
 
 struct cgroup_root *cgroup_root_from_kf(struct kernfs_root *kf_root);
 struct cgroup *task_cgroup_from_root(struct task_struct *task,
@@ -235,8 +229,8 @@ int cgroup_path_ns_locked(struct cgroup *cgrp, char *buf, size_t buflen,
 void cgroup_favor_dynmods(struct cgroup_root *root, bool favor);
 void cgroup_free_root(struct cgroup_root *root);
 void init_cgroup_root(struct cgroup_fs_context *ctx);
-int cgroup_setup_root(struct cgroup_root *root, u16 ss_mask);
-int rebind_subsystems(struct cgroup_root *dst_root, u16 ss_mask);
+int cgroup_setup_root(struct cgroup_root *root, u32 ss_mask);
+int rebind_subsystems(struct cgroup_root *dst_root, u32 ss_mask);
 int cgroup_do_get_tree(struct fs_context *fc);
 
 int cgroup_migrate_vet_dst(struct cgroup *dst_cgrp);

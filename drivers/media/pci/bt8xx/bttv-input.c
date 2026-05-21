@@ -416,7 +416,7 @@ int bttv_input_init(struct bttv *btv)
 	if (!btv->has_remote)
 		return -ENODEV;
 
-	ir = kzalloc(sizeof(*ir),GFP_KERNEL);
+	ir = kzalloc_obj(*ir);
 	rc = rc_allocate_device(RC_DRIVER_SCANCODE);
 	if (!ir || !rc)
 		goto err_out_free;
@@ -572,8 +572,9 @@ void bttv_input_fini(struct bttv *btv)
 	if (btv->remote == NULL)
 		return;
 
-	bttv_ir_stop(btv);
 	rc_unregister_device(btv->remote->dev);
+	bttv_ir_stop(btv);
+	rc_free_device(btv->remote->dev);
 	kfree(btv->remote);
 	btv->remote = NULL;
 }

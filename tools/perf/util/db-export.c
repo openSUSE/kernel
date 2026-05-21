@@ -19,7 +19,6 @@
 #include "callchain.h"
 #include "call-path.h"
 #include "db-export.h"
-#include <linux/zalloc.h>
 
 int db_export__init(struct db_export *dbe)
 {
@@ -254,7 +253,6 @@ static struct call_path *call_path_from_sample(struct db_export *dbe,
 		addr_location__init(&al);
 		al.sym = node->ms.sym;
 		al.map = map__get(node->ms.map);
-		al.maps = maps__get(thread__maps(thread));
 		al.addr = node->ip;
 		al.thread = thread__get(thread);
 

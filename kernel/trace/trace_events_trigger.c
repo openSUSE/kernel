@@ -22,6 +22,39 @@ static struct task_struct *trigger_kthread;
 static struct llist_head trigger_data_free_list;
 static DEFINE_MUTEX(trigger_data_kthread_mutex);
 
+static int trigger_kthread_fn(void *ignore);
+
+static void trigger_create_kthread_locked(void)
+{
+	lockdep_assert_held(&trigger_data_kthread_mutex);
+
+	if (!trigger_kthread) {
+		struct task_struct *kthread;
+
+		kthread = kthread_create(trigger_kthread_fn, NULL,
+					 "trigger_data_free");
+		if (!IS_ERR(kthread))
+			WRITE_ONCE(trigger_kthread, kthread);
+	}
+}
+
+static void trigger_data_free_queued_locked(void)
+{
+	struct event_trigger_data *data, *tmp;
+	struct llist_node *llnodes;
+
+	lockdep_assert_held(&trigger_data_kthread_mutex);
+
+	llnodes = llist_del_all(&trigger_data_free_list);
+	if (!llnodes)
+		return;
+
+	tracepoint_synchronize_unregister();
+
+	llist_for_each_entry_safe(data, tmp, llnodes, llist)
+		kfree(data);
+}
+
 /* Bulk garbage collection of event_trigger_data elements */
 static int trigger_kthread_fn(void *ignore)
 {
@@ -50,32 +83,55 @@ static int trigger_kthread_fn(void *ignore)
 
 void trigger_data_free(struct event_trigger_data *data)
 {
+	if (!data)
+		return;
+
 	if (data->cmd_ops->set_filter)
 		data->cmd_ops->set_filter(NULL, data, NULL);
 
-	if (unlikely(!trigger_kthread)) {
-		guard(mutex)(&trigger_data_kthread_mutex);
-		/* Check again after taking mutex */
-		if (!trigger_kthread) {
-			struct task_struct *kthread;
-
-			kthread = kthread_create(trigger_kthread_fn, NULL,
-						 "trigger_data_free");
-			if (!IS_ERR(kthread))
-				WRITE_ONCE(trigger_kthread, kthread);
-		}
+	/*
+	 * Boot-time trigger registration can fail before kthread creation
+	 * works. Keep the deferred-free semantics during boot and let late
+	 * init start the kthread to drain the list.
+	 */
+	if (system_state == SYSTEM_BOOTING && !trigger_kthread) {
+		llist_add(&data->llist, &trigger_data_free_list);
+		return;
 	}
 
-	if (!trigger_kthread) {
-		/* Do it the slow way */
-		tracepoint_synchronize_unregister();
-		kfree(data);
-		return;
+	if (unlikely(!trigger_kthread)) {
+		guard(mutex)(&trigger_data_kthread_mutex);
+
+		trigger_create_kthread_locked();
+		/* Check again after taking mutex */
+		if (!trigger_kthread) {
+			llist_add(&data->llist, &trigger_data_free_list);
+			/* Drain the queued frees synchronously if creation failed. */
+			trigger_data_free_queued_locked();
+			return;
+		}
 	}
 
 	llist_add(&data->llist, &trigger_data_free_list);
 	wake_up_process(trigger_kthread);
 }
+
+static int __init trigger_data_free_init(void)
+{
+	guard(mutex)(&trigger_data_kthread_mutex);
+
+	if (llist_empty(&trigger_data_free_list))
+		return 0;
+
+	trigger_create_kthread_locked();
+	if (trigger_kthread)
+		wake_up_process(trigger_kthread);
+	else
+		trigger_data_free_queued_locked();
+
+	return 0;
+}
+late_initcall(trigger_data_free_init);
 
 static inline void data_ops_trigger(struct event_trigger_data *data,
 				    struct trace_buffer *buffer,  void *rec,
@@ -914,7 +970,7 @@ struct event_trigger_data *trigger_data_alloc(struct event_command *cmd_ops,
 {
 	struct event_trigger_data *trigger_data;
 
-	trigger_data = kzalloc(sizeof(*trigger_data), GFP_KERNEL);
+	trigger_data = kzalloc_obj(*trigger_data);
 	if (!trigger_data)
 		return NULL;
 
@@ -1347,18 +1403,13 @@ traceon_trigger(struct event_trigger_data *data,
 {
 	struct trace_event_file *file = data->private_data;
 
-	if (file) {
-		if (tracer_tracing_is_on(file->tr))
-			return;
-
-		tracer_tracing_on(file->tr);
-		return;
-	}
-
-	if (tracing_is_on())
+	if (WARN_ON_ONCE(!file))
 		return;
 
-	tracing_on();
+	if (tracer_tracing_is_on(file->tr))
+		return;
+
+	tracer_tracing_on(file->tr);
 }
 
 static bool
@@ -1368,13 +1419,11 @@ traceon_count_func(struct event_trigger_data *data,
 {
 	struct trace_event_file *file = data->private_data;
 
-	if (file) {
-		if (tracer_tracing_is_on(file->tr))
-			return false;
-	} else {
-		if (tracing_is_on())
-			return false;
-	}
+	if (WARN_ON_ONCE(!file))
+		return false;
+
+	if (tracer_tracing_is_on(file->tr))
+		return false;
 
 	if (!data->count)
 		return false;
@@ -1392,18 +1441,13 @@ traceoff_trigger(struct event_trigger_data *data,
 {
 	struct trace_event_file *file = data->private_data;
 
-	if (file) {
-		if (!tracer_tracing_is_on(file->tr))
-			return;
-
-		tracer_tracing_off(file->tr);
-		return;
-	}
-
-	if (!tracing_is_on())
+	if (WARN_ON_ONCE(!file))
 		return;
 
-	tracing_off();
+	if (!tracer_tracing_is_on(file->tr))
+		return;
+
+	tracer_tracing_off(file->tr);
 }
 
 static bool
@@ -1413,13 +1457,11 @@ traceoff_count_func(struct event_trigger_data *data,
 {
 	struct trace_event_file *file = data->private_data;
 
-	if (file) {
-		if (!tracer_tracing_is_on(file->tr))
-			return false;
-	} else {
-		if (!tracing_is_on())
-			return false;
-	}
+	if (WARN_ON_ONCE(!file))
+		return false;
+
+	if (!tracer_tracing_is_on(file->tr))
+		return false;
 
 	if (!data->count)
 		return false;
@@ -1481,10 +1523,10 @@ snapshot_trigger(struct event_trigger_data *data,
 {
 	struct trace_event_file *file = data->private_data;
 
-	if (file)
-		tracing_snapshot_instance(file->tr);
-	else
-		tracing_snapshot();
+	if (WARN_ON_ONCE(!file))
+		return;
+
+	tracing_snapshot_instance(file->tr);
 }
 
 static int
@@ -1570,10 +1612,10 @@ stacktrace_trigger(struct event_trigger_data *data,
 {
 	struct trace_event_file *file = data->private_data;
 
-	if (file)
-		__trace_stack(file->tr, tracing_gen_ctx_dec(), STACK_SKIP);
-	else
-		trace_dump_stack(STACK_SKIP);
+	if (WARN_ON_ONCE(!file))
+		return;
+
+	__trace_stack(file->tr, tracing_gen_ctx_dec(), STACK_SKIP);
 }
 
 static int
@@ -1738,7 +1780,7 @@ int event_enable_trigger_parse(struct event_command *cmd_ops,
 #endif
 	ret = -ENOMEM;
 
-	enable_data = kzalloc(sizeof(*enable_data), GFP_KERNEL);
+	enable_data = kzalloc_obj(*enable_data);
 	if (!enable_data)
 		return ret;
 

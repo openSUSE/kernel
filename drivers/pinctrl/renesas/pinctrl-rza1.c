@@ -589,7 +589,7 @@ static inline unsigned int rza1_get_bit(struct rza1_port *port,
 {
 	void __iomem *mem = RZA1_ADDR(port->base, reg, port->id);
 
-	return ioread16(mem) & BIT(bit);
+	return !!(ioread16(mem) & BIT(bit));
 }
 
 /**
@@ -1062,7 +1062,7 @@ static int rza1_dt_node_to_map(struct pinctrl_dev *pctldev,
 
 	/* Create map where to retrieve function and mux settings from */
 	*num_maps = 0;
-	*map = kzalloc(sizeof(**map), GFP_KERNEL);
+	*map = kzalloc_obj(**map);
 	if (!*map) {
 		ret = -ENOMEM;
 		goto remove_function;

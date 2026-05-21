@@ -240,8 +240,8 @@ static inline const void *pfn_to_kaddr(unsigned long pfn)
  * and needs to be executable.  This means the whole heap ends
  * up being executable.
  */
-#define VM_DATA_DEFAULT_FLAGS32	VM_DATA_FLAGS_TSK_EXEC
-#define VM_DATA_DEFAULT_FLAGS64	VM_DATA_FLAGS_NON_EXEC
+#define VMA_DATA_DEFAULT_FLAGS32	VMA_DATA_FLAGS_TSK_EXEC
+#define VMA_DATA_DEFAULT_FLAGS64	VMA_DATA_FLAGS_NON_EXEC
 
 #ifdef __powerpc64__
 #include <asm/page_64.h>
@@ -271,6 +271,7 @@ static inline const void *pfn_to_kaddr(unsigned long pfn)
 
 struct page;
 extern void clear_user_page(void *page, unsigned long vaddr, struct page *pg);
+#define clear_user_page clear_user_page
 extern void copy_user_page(void *to, void *from, unsigned long vaddr,
 		struct page *p);
 extern int devmem_is_allowed(unsigned long pfn);

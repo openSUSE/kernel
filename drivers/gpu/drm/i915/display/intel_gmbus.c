@@ -35,15 +35,13 @@
 #include <drm/drm_print.h>
 #include <drm/display/drm_hdcp_helper.h>
 
-#include "i915_drv.h"
-#include "i915_irq.h"
-#include "i915_reg.h"
 #include "intel_de.h"
 #include "intel_display_regs.h"
 #include "intel_display_types.h"
 #include "intel_display_wa.h"
 #include "intel_gmbus.h"
 #include "intel_gmbus_regs.h"
+#include "intel_parent.h"
 
 struct intel_gmbus {
 	struct i2c_adapter adapter;
@@ -252,7 +250,7 @@ static u32 get_reserved(struct intel_gmbus *bus)
 	preserve_bits |= GPIO_DATA_PULLUP_DISABLE | GPIO_CLOCK_PULLUP_DISABLE;
 
 	/* Wa_16025573575: the masks bits need to be preserved through out */
-	if (intel_display_wa(display, 16025573575))
+	if (intel_display_wa(display, INTEL_DISPLAY_WA_16025573575))
 		preserve_bits |= GPIO_CLOCK_DIR_MASK | GPIO_CLOCK_VAL_MASK |
 				 GPIO_DATA_DIR_MASK | GPIO_DATA_VAL_MASK;
 
@@ -344,7 +342,7 @@ intel_gpio_pre_xfer(struct i2c_adapter *adapter)
 	if (display->platform.pineview)
 		pnv_gmbus_clock_gating(display, false);
 
-	if (intel_display_wa(display, 16025573575))
+	if (intel_display_wa(display, INTEL_DISPLAY_WA_16025573575))
 		ptl_handle_mask_bits(bus, true);
 
 	set_data(bus, 1);
@@ -365,7 +363,7 @@ intel_gpio_post_xfer(struct i2c_adapter *adapter)
 	if (display->platform.pineview)
 		pnv_gmbus_clock_gating(display, true);
 
-	if (intel_display_wa(display, 16025573575))
+	if (intel_display_wa(display, INTEL_DISPLAY_WA_16025573575))
 		ptl_handle_mask_bits(bus, false);
 }
 
@@ -391,12 +389,11 @@ intel_gpio_setup(struct intel_gmbus *bus, i915_reg_t gpio_reg)
 
 static bool has_gmbus_irq(struct intel_display *display)
 {
-	struct drm_i915_private *i915 = to_i915(display->drm);
 	/*
 	 * encoder->shutdown() may want to use GMBUS
 	 * after irqs have already been disabled.
 	 */
-	return HAS_GMBUS_IRQ(display) && intel_irqs_enabled(i915);
+	return HAS_GMBUS_IRQ(display) && intel_parent_irq_enabled(display);
 }
 
 static int gmbus_wait(struct intel_display *display, u32 status, u32 irq_en)
@@ -498,8 +495,10 @@ gmbus_xfer_read_chunk(struct intel_display *display,
 
 		val = intel_de_read_fw(display, GMBUS3(display));
 		do {
-			if (extra_byte_added && len == 1)
+			if (extra_byte_added && len == 1) {
+				len--;
 				break;
+			}
 
 			*buf++ = val & 0xff;
 			val >>= 8;
@@ -695,7 +694,7 @@ retry:
 			goto clear_err;
 	}
 
-	/* Generate a STOP condition on the bus. Note that gmbus can't generata
+	/* Generate a STOP condition on the bus. Note that gmbus can't generate
 	 * a STOP on the very first cycle. To simplify the code we
 	 * unconditionally generate the STOP condition with an additional gmbus
 	 * cycle. */
@@ -791,7 +790,7 @@ gmbus_xfer(struct i2c_adapter *adapter, struct i2c_msg *msgs, int num)
 {
 	struct intel_gmbus *bus = to_intel_gmbus(adapter);
 	struct intel_display *display = bus->display;
-	intel_wakeref_t wakeref;
+	struct ref_tracker *wakeref;
 	int ret;
 
 	wakeref = intel_display_power_get(display, POWER_DOMAIN_GMBUS);
@@ -831,7 +830,7 @@ int intel_gmbus_output_aksv(struct i2c_adapter *adapter)
 			.buf = buf,
 		}
 	};
-	intel_wakeref_t wakeref;
+	struct ref_tracker *wakeref;
 	int ret;
 
 	wakeref = intel_display_power_get(display, POWER_DOMAIN_GMBUS);
@@ -927,7 +926,7 @@ int intel_gmbus_setup(struct intel_display *display)
 		if (!gmbus_pin)
 			continue;
 
-		bus = kzalloc(sizeof(*bus), GFP_KERNEL);
+		bus = kzalloc_obj(*bus);
 		if (!bus) {
 			ret = -ENOMEM;
 			goto err;

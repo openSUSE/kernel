@@ -21,33 +21,31 @@
  */
 
 static __attribute__((unused))
-int sys_poll(struct pollfd *fds, int nfds, int timeout)
+int _sys_poll(struct pollfd *fds, int nfds, int timeout)
 {
-#if defined(__NR_ppoll)
-	struct timespec t;
-
-	if (timeout >= 0) {
-		t.tv_sec  = timeout / 1000;
-		t.tv_nsec = (timeout % 1000) * 1000000;
-	}
-	return my_syscall5(__NR_ppoll, fds, nfds, (timeout >= 0) ? &t : NULL, NULL, 0);
-#elif defined(__NR_ppoll_time64)
+#if defined(__NR_ppoll_time64)
 	struct __kernel_timespec t;
 
 	if (timeout >= 0) {
 		t.tv_sec  = timeout / 1000;
 		t.tv_nsec = (timeout % 1000) * 1000000;
 	}
-	return my_syscall5(__NR_ppoll_time64, fds, nfds, (timeout >= 0) ? &t : NULL, NULL, 0);
+	return __nolibc_syscall5(__NR_ppoll_time64, fds, nfds, (timeout >= 0) ? &t : NULL, NULL, 0);
 #else
-	return my_syscall3(__NR_poll, fds, nfds, timeout);
+	struct __kernel_old_timespec t;
+
+	if (timeout >= 0) {
+		t.tv_sec  = timeout / 1000;
+		t.tv_nsec = (timeout % 1000) * 1000000;
+	}
+	return __nolibc_syscall5(__NR_ppoll, fds, nfds, (timeout >= 0) ? &t : NULL, NULL, 0);
 #endif
 }
 
 static __attribute__((unused))
 int poll(struct pollfd *fds, int nfds, int timeout)
 {
-	return __sysret(sys_poll(fds, nfds, timeout));
+	return __sysret(_sys_poll(fds, nfds, timeout));
 }
 
 #endif /* _NOLIBC_POLL_H */

@@ -20,6 +20,7 @@
 #include <linux/ctype.h>
 #include <linux/slab.h>
 #include <linux/namei.h>
+#include <linux/hex.h>
 #include <linux/kernel.h>
 #include <linux/iversion.h>
 #include "fat.h"
@@ -662,7 +663,7 @@ static int vfat_add_entry(struct inode *dir, const struct qstr *qname,
 	if (len == 0)
 		return -ENOENT;
 
-	slots = kmalloc_array(MSDOS_SLOTS, sizeof(*slots), GFP_NOFS);
+	slots = kmalloc_objs(*slots, MSDOS_SLOTS, GFP_NOFS);
 	if (slots == NULL)
 		return -ENOMEM;
 
@@ -676,7 +677,7 @@ static int vfat_add_entry(struct inode *dir, const struct qstr *qname,
 		goto cleanup;
 
 	/* update timestamp */
-	fat_truncate_time(dir, ts, S_CTIME|S_MTIME);
+	fat_truncate_time(dir, ts, FAT_UPDATE_CMTIME);
 	if (IS_DIRSYNC(dir))
 		(void)fat_sync_inode(dir);
 	else
@@ -803,10 +804,15 @@ static int vfat_rmdir(struct inode *dir, struct dentry *dentry)
 	err = fat_remove_entries(dir, &sinfo);	/* and releases bh */
 	if (err)
 		goto out;
-	drop_nlink(dir);
+	if (dir->i_nlink >= 3)
+		drop_nlink(dir);
+	else {
+		fat_fs_error(sb, "parent dir link count too low (%u)",
+			dir->i_nlink);
+	}
 
 	clear_nlink(inode);
-	fat_truncate_time(inode, NULL, S_ATIME|S_MTIME);
+	fat_truncate_time(inode, NULL, FAT_UPDATE_ATIME | FAT_UPDATE_CMTIME);
 	fat_detach(inode);
 	vfat_d_version_set(dentry, inode_query_iversion(dir));
 out:
@@ -832,7 +838,7 @@ static int vfat_unlink(struct inode *dir, struct dentry *dentry)
 	if (err)
 		goto out;
 	clear_nlink(inode);
-	fat_truncate_time(inode, NULL, S_ATIME|S_MTIME);
+	fat_truncate_time(inode, NULL, FAT_UPDATE_ATIME | FAT_UPDATE_CMTIME);
 	fat_detach(inode);
 	vfat_d_version_set(dentry, inode_query_iversion(dir));
 out:
@@ -909,7 +915,7 @@ static int vfat_update_dotdot_de(struct inode *dir, struct inode *inode,
 				 struct msdos_dir_entry *dotdot_de)
 {
 	fat_set_start(dotdot_de, MSDOS_I(dir)->i_logstart);
-	mark_buffer_dirty_inode(dotdot_bh, inode);
+	mmb_mark_buffer_dirty(dotdot_bh, &MSDOS_I(inode)->i_metadata_bhs);
 	if (IS_DIRSYNC(dir))
 		return sync_dirty_buffer(dotdot_bh);
 	return 0;
@@ -918,7 +924,7 @@ static int vfat_update_dotdot_de(struct inode *dir, struct inode *inode,
 static void vfat_update_dir_metadata(struct inode *dir, struct timespec64 *ts)
 {
 	inode_inc_iversion(dir);
-	fat_truncate_time(dir, ts, S_CTIME | S_MTIME);
+	fat_truncate_time(dir, ts, FAT_UPDATE_CMTIME);
 	if (IS_DIRSYNC(dir))
 		(void)fat_sync_inode(dir);
 	else
@@ -996,7 +1002,6 @@ static int vfat_rename(struct inode *old_dir, struct dentry *old_dentry,
 		drop_nlink(new_inode);
 		if (is_dir)
 			drop_nlink(new_inode);
-		fat_truncate_time(new_inode, &ts, S_CTIME);
 	}
 out:
 	brelse(sinfo.bh);

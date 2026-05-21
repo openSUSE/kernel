@@ -1063,7 +1063,7 @@ do_work:
 	/*
 	 * We need to schedule work to process this error; schedule it.
 	 */
-	wrk = kmalloc(sizeof(struct storvsc_scan_work), GFP_ATOMIC);
+	wrk = kmalloc_obj(struct storvsc_scan_work, GFP_ATOMIC);
 	if (!wrk) {
 		set_host_byte(scmnd, DID_BAD_TARGET);
 		return;
@@ -1131,6 +1131,26 @@ static void storvsc_command_completion(struct storvsc_cmd_request *cmd_request,
 		kfree(payload);
 }
 
+/*
+ * The current SCSI handling on the host side does not correctly handle:
+ * INQUIRY with page code 0x80, MODE_SENSE / MODE_SENSE_10 with cmd[2] == 0x1c,
+ * and (for FC) MAINTENANCE_IN / PERSISTENT_RESERVE_IN passthrough.
+ */
+static bool storvsc_host_mishandles_cmd(u8 opcode, struct hv_device *device)
+{
+	switch (opcode) {
+	case INQUIRY:
+	case MODE_SENSE:
+	case MODE_SENSE_10:
+		return true;
+	case MAINTENANCE_IN:
+	case PERSISTENT_RESERVE_IN:
+		return hv_dev_is_fc(device);
+	default:
+		return false;
+	}
+}
+
 static void storvsc_on_io_completion(struct storvsc_device *stor_device,
 				  struct vstor_packet *vstor_packet,
 				  struct storvsc_cmd_request *request)
@@ -1141,21 +1161,12 @@ static void storvsc_on_io_completion(struct storvsc_device *stor_device,
 	stor_pkt = &request->vstor_packet;
 
 	/*
-	 * The current SCSI handling on the host side does
-	 * not correctly handle:
-	 * INQUIRY command with page code parameter set to 0x80
-	 * MODE_SENSE command with cmd[2] == 0x1c
-	 * MAINTENANCE_IN is not supported by HyperV FC passthrough
-	 *
 	 * Setup srb and scsi status so this won't be fatal.
 	 * We do this so we can distinguish truly fatal failues
 	 * (srb status == 0x4) and off-line the device in that case.
 	 */
 
-	if ((stor_pkt->vm_srb.cdb[0] == INQUIRY) ||
-	   (stor_pkt->vm_srb.cdb[0] == MODE_SENSE) ||
-	   (stor_pkt->vm_srb.cdb[0] == MAINTENANCE_IN &&
-	   hv_dev_is_fc(device))) {
+	if (storvsc_host_mishandles_cmd(stor_pkt->vm_srb.cdb[0], device)) {
 		vstor_packet->vm_srb.scsi_status = 0;
 		vstor_packet->vm_srb.srb_status = SRB_STATUS_SUCCESS;
 	}
@@ -1714,7 +1725,8 @@ static bool storvsc_scsi_cmd_ok(struct scsi_cmnd *scmnd)
 	return allowed;
 }
 
-static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
+static enum scsi_qc_status storvsc_queuecommand(struct Scsi_Host *host,
+						struct scsi_cmnd *scmnd)
 {
 	int ret;
 	struct hv_host_device *host_dev = shost_priv(host);
@@ -1854,8 +1866,9 @@ static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 	cmd_request->payload_sz = payload_sz;
 
 	/* Invokes the vsc to start an IO */
-	ret = storvsc_do_io(dev, cmd_request, get_cpu());
-	put_cpu();
+	migrate_disable();
+	ret = storvsc_do_io(dev, cmd_request, smp_processor_id());
+	migrate_enable();
 
 	if (ret)
 		scsi_dma_unmap(scmnd);
@@ -1968,7 +1981,7 @@ static int storvsc_probe(struct hv_device *device,
 	host_dev->host = host;
 
 
-	stor_device = kzalloc(sizeof(struct storvsc_device), GFP_KERNEL);
+	stor_device = kzalloc_obj(struct storvsc_device);
 	if (!stor_device) {
 		ret = -ENOMEM;
 		goto err_out0;

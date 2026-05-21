@@ -9,9 +9,17 @@ import subprocess
 import time
 
 
-class CmdExitFailure(Exception):
+class CmdInitFailure(Exception):
+    """ Command failed to start. Only raised by bkg(). """
     def __init__(self, msg, cmd_obj):
-        super().__init__(msg)
+        super().__init__(msg + "\n" + repr(cmd_obj))
+        self.cmd = cmd_obj
+
+
+class CmdExitFailure(Exception):
+    """ Command failed (returned non-zero exit code). """
+    def __init__(self, msg, cmd_obj):
+        super().__init__(msg + "\n" + repr(cmd_obj))
         self.cmd = cmd_obj
 
 
@@ -41,7 +49,9 @@ class cmd:
         self.ret = None
         self.ksft_term_fd = None
 
+        self.host = host
         self.comm = comm
+
         if host:
             self.proc = host.cmd(comm)
         else:
@@ -74,9 +84,23 @@ class cmd:
                 msg = fd_read_timeout(rfd, ksft_wait)
                 os.close(rfd)
                 if not msg:
-                    raise Exception("Did not receive ready message")
+                    terminate = self.proc.poll() is None
+                    self._process_terminate(terminate=terminate, timeout=1)
+                    raise CmdInitFailure("Did not receive ready message", self)
         if not background:
             self.process(terminate=False, fail=fail, timeout=timeout)
+
+    def _process_terminate(self, terminate, timeout):
+        if terminate:
+            self.proc.terminate()
+        stdout, stderr = self.proc.communicate(timeout=timeout)
+        self.stdout = stdout.decode("utf-8")
+        self.stderr = stderr.decode("utf-8")
+        self.proc.stdout.close()
+        self.proc.stderr.close()
+        self.ret = self.proc.returncode
+
+        return stdout, stderr
 
     def process(self, terminate=True, fail=None, timeout=5):
         if fail is None:
@@ -84,20 +108,34 @@ class cmd:
 
         if self.ksft_term_fd:
             os.write(self.ksft_term_fd, b"1")
-        if terminate:
-            self.proc.terminate()
-        stdout, stderr = self.proc.communicate(timeout)
-        self.stdout = stdout.decode("utf-8")
-        self.stderr = stderr.decode("utf-8")
-        self.proc.stdout.close()
-        self.proc.stderr.close()
-        self.ret = self.proc.returncode
 
+        stdout, stderr = self._process_terminate(terminate=terminate,
+                                                 timeout=timeout)
         if self.proc.returncode != 0 and fail:
             if len(stderr) > 0 and stderr[-1] == "\n":
                 stderr = stderr[:-1]
-            raise CmdExitFailure("Command failed: %s\nSTDOUT: %s\nSTDERR: %s" %
-                                 (self.proc.args, stdout, stderr), self)
+            raise CmdExitFailure("Command failed", self)
+
+    def __repr__(self):
+        def str_fmt(name, s):
+            name += ': '
+            return (name + s.strip().replace('\n', '\n' + ' ' * len(name)))
+
+        ret = "CMD"
+        if self.host:
+            ret += "[remote]"
+        if self.ret is None:
+            ret += f" (unterminated): {self.comm}\n"
+        elif self.ret == 0:
+            ret += f" (success): {self.comm}\n"
+        else:
+            ret += f": {self.comm}\n"
+            ret += f"  EXIT: {self.ret}\n"
+        if self.stdout:
+            ret += str_fmt("  STDOUT", self.stdout) + "\n"
+        if self.stderr:
+            ret += str_fmt("  STDERR", self.stderr) + "\n"
+        return ret.strip()
 
 
 class bkg(cmd):
@@ -136,12 +174,16 @@ class bkg(cmd):
         return self
 
     def __exit__(self, ex_type, ex_value, ex_tb):
-        # Force termination on exception
-        terminate = self.terminate or (self._exit_wait and ex_type)
+        terminate = self.terminate
+        # Force termination on exception, but only if bkg() didn't already exit
+        # since forcing termination silences failures with fail=None
+        if self.proc.poll() is None:
+            terminate = terminate or (self._exit_wait and ex_type is not None)
         return self.process(terminate=terminate, fail=self.check_fail)
 
 
-global_defer_queue = []
+GLOBAL_DEFER_QUEUE = []
+GLOBAL_DEFER_ARMED = False
 
 
 class defer:
@@ -153,7 +195,9 @@ class defer:
         self.args = args
         self.kwargs = kwargs
 
-        self._queue =  global_defer_queue
+        if not GLOBAL_DEFER_ARMED:
+            raise Exception("defer queue not armed, did you use defer() outside of a test case?")
+        self._queue = GLOBAL_DEFER_QUEUE
         self._queue.append(self)
 
     def __enter__(self):
@@ -214,8 +258,9 @@ def bpftrace(expr, json=None, ns=None, host=None, timeout=None):
         cmd_arr += ['-f', 'json', '-q']
     if timeout:
         expr += ' interval:s:' + str(timeout) + ' { exit(); }'
+        timeout += 20
     cmd_arr += ['-e', expr]
-    cmd_obj = cmd(cmd_arr, ns=ns, host=host, shell=False)
+    cmd_obj = cmd(cmd_arr, ns=ns, host=host, shell=False, timeout=timeout)
     if json:
         # bpftrace prints objects as lines
         ret = {}
@@ -237,9 +282,27 @@ def rand_port(stype=socket.SOCK_STREAM):
     """
     Get a random unprivileged port.
     """
-    with socket.socket(socket.AF_INET6, stype) as s:
-        s.bind(("", 0))
-        return s.getsockname()[1]
+    return rand_ports(1, stype)[0]
+
+
+def rand_ports(count, stype=socket.SOCK_STREAM):
+    """
+    Get a unique set of random unprivileged ports.
+    """
+    sockets = []
+    ports = []
+
+    try:
+        for _ in range(count):
+            s = socket.socket(socket.AF_INET6, stype)
+            sockets.append(s)
+            s.bind(("", 0))
+            ports.append(s.getsockname()[1])
+    finally:
+        for s in sockets:
+            s.close()
+
+    return ports
 
 
 def wait_port_listen(port, proto="tcp", ns=None, host=None, sleep=0.005, deadline=5):

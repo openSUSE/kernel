@@ -121,6 +121,8 @@
 #define HPRE_DFX_COMMON2_LEN		0xE
 #define HPRE_DFX_CORE_LEN		0x43
 
+#define HPRE_MAX_CHANNEL_NUM		2
+
 static const char hpre_name[] = "hisi_hpre";
 static struct dentry *hpre_debugfs_root;
 static const struct pci_device_id hpre_dev_ids[] = {
@@ -370,6 +372,11 @@ static struct dfx_diff_registers hpre_diff_regs[] = {
 	},
 };
 
+static const char *hpre_channel_name[HPRE_MAX_CHANNEL_NUM] = {
+	"RSA",
+	"ECC",
+};
+
 static const struct hisi_qm_err_ini hpre_err_ini;
 
 bool hpre_check_alg_support(struct hisi_qm *qm, u32 alg)
@@ -465,7 +472,7 @@ struct hisi_qp *hpre_create_qp(u8 type)
 	 * type: 0 - RSA/DH. algorithm supported in V2,
 	 *       1 - ECC algorithm in V3.
 	 */
-	ret = hisi_qm_alloc_qps_node(&hpre_devices, 1, type, node, &qp);
+	ret = hisi_qm_alloc_qps_node(&hpre_devices, 1, &type, node, &qp);
 	if (!ret)
 		return qp;
 
@@ -1234,6 +1241,16 @@ static int hpre_pre_store_cap_reg(struct hisi_qm *qm)
 	return 0;
 }
 
+static void hpre_set_channels(struct hisi_qm *qm)
+{
+	struct qm_channel *channel_data = &qm->channel_data;
+	int i;
+
+	channel_data->channel_num = HPRE_MAX_CHANNEL_NUM;
+	for (i = 0; i < HPRE_MAX_CHANNEL_NUM; i++)
+		channel_data->channel_name[i] = hpre_channel_name[i];
+}
+
 static int hpre_qm_init(struct hisi_qm *qm, struct pci_dev *pdev)
 {
 	u64 alg_msk;
@@ -1267,6 +1284,7 @@ static int hpre_qm_init(struct hisi_qm *qm, struct pci_dev *pdev)
 		return ret;
 	}
 
+	hpre_set_channels(qm);
 	/* Fetch and save the value of capability registers */
 	ret = hpre_pre_store_cap_reg(qm);
 	if (ret) {

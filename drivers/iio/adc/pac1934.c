@@ -665,9 +665,9 @@ static int pac1934_reg_snapshot(struct pac1934_chip_info *info,
 			/* add the power_acc field */
 			curr_energy += inc;
 
-			clamp(curr_energy, PAC_193X_MIN_POWER_ACC, PAC_193X_MAX_POWER_ACC);
-
-			reg_data->energy_sec_acc[cnt] = curr_energy;
+			reg_data->energy_sec_acc[cnt] = clamp(curr_energy,
+							      PAC_193X_MIN_POWER_ACC,
+							      PAC_193X_MAX_POWER_ACC);
 		}
 
 		offset_reg_data_p += PAC1934_VPOWER_ACC_REG_LEN;
@@ -1351,7 +1351,7 @@ static int pac1934_prep_iio_channels(struct pac1934_chip_info *info, struct iio_
 
 	dyn_ch_struct = devm_kzalloc(dev, channel_size, GFP_KERNEL);
 	if (!dyn_ch_struct)
-		return -EINVAL;
+		return -ENOMEM;
 
 	tmp_data = dyn_ch_struct;
 

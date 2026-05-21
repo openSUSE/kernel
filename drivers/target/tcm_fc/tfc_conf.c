@@ -17,6 +17,7 @@
 #include <linux/moduleparam.h>
 #include <generated/utsrelease.h>
 #include <linux/utsname.h>
+#include <linux/hex.h>
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/kthread.h>
@@ -243,7 +244,7 @@ static struct se_portal_group *ft_add_tpg(struct se_wwn *wwn, const char *name)
 	}
 
 	ft_wwn = container_of(wwn, struct ft_lport_wwn, se_wwn);
-	tpg = kzalloc(sizeof(*tpg), GFP_KERNEL);
+	tpg = kzalloc_obj(*tpg);
 	if (!tpg)
 		return NULL;
 	tpg->index = index;
@@ -333,7 +334,7 @@ static struct se_wwn *ft_add_wwn(
 	pr_debug("add wwn %s\n", name);
 	if (ft_parse_wwn(name, &wwpn, 1) < 0)
 		return NULL;
-	ft_wwn = kzalloc(sizeof(*ft_wwn), GFP_KERNEL);
+	ft_wwn = kzalloc_obj(*ft_wwn);
 	if (!ft_wwn)
 		return NULL;
 	ft_wwn->wwpn = wwpn;
@@ -433,6 +434,7 @@ static const struct target_core_fabric_ops ft_fabric_ops = {
 	.tfc_wwn_attrs			= ft_wwn_attrs,
 	.tfc_tpg_nacl_base_attrs	= ft_nacl_base_attrs,
 
+	.default_compl_type		= TARGET_QUEUE_COMPL,
 	.default_submit_type		= TARGET_DIRECT_SUBMIT,
 	.direct_submit_supp		= 1,
 };

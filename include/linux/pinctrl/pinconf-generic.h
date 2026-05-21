@@ -83,6 +83,8 @@ struct pinctrl_map;
  *      schmitt-trigger mode is disabled.
  * @PIN_CONFIG_INPUT_SCHMITT_UV: this will configure an input pin to run in
  *	schmitt-trigger mode. The argument is in uV.
+ * @PIN_CONFIG_INPUT_VOLTAGE_UV: this will configure the input voltage level of
+ * the pin. The argument is specified in microvolts.
  * @PIN_CONFIG_MODE_LOW_POWER: this will configure the pin for low power
  *	operation, if several modes of operation are supported these can be
  *	passed in the argument on a custom form, else just use argument 1
@@ -115,7 +117,7 @@ struct pinctrl_map;
  * @PIN_CONFIG_SKEW_DELAY_INPUT_PS: if the pin has independent values for the
  *	programmable skew rate (on inputs) and latch delay (on outputs), then
  *	this parameter specifies the clock skew only. The argument is in ps.
- * @PIN_CONFIG_SKEW_DELAY_OUPUT_PS: if the pin has independent values for the
+ * @PIN_CONFIG_SKEW_DELAY_OUTPUT_PS: if the pin has independent values for the
  *	programmable skew rate (on inputs) and latch delay (on outputs), then
  *	this parameter specifies the latch delay only. The argument is in ps.
  * @PIN_CONFIG_SLEEP_HARDWARE_STATE: indicate this is sleep related state.
@@ -145,6 +147,7 @@ enum pin_config_param {
 	PIN_CONFIG_INPUT_SCHMITT,
 	PIN_CONFIG_INPUT_SCHMITT_ENABLE,
 	PIN_CONFIG_INPUT_SCHMITT_UV,
+	PIN_CONFIG_INPUT_VOLTAGE_UV,
 	PIN_CONFIG_MODE_LOW_POWER,
 	PIN_CONFIG_MODE_PWM,
 	PIN_CONFIG_LEVEL,
@@ -250,9 +253,4 @@ static inline int pinconf_generic_dt_node_to_map_all(struct pinctrl_dev *pctldev
 	return pinconf_generic_dt_node_to_map(pctldev, np_config, map, num_maps,
 			PIN_MAP_TYPE_INVALID);
 }
-
-int pinconf_generic_dt_node_to_map_pinmux(struct pinctrl_dev *pctldev,
-					  struct device_node *np,
-					  struct pinctrl_map **map,
-					  unsigned int *num_maps);
 #endif /* __LINUX_PINCTRL_PINCONF_GENERIC_H */

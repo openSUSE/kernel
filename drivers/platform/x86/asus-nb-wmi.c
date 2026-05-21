@@ -548,7 +548,7 @@ static const struct dmi_system_id asus_quirks[] = {
 		.callback = dmi_matched,
 		.ident = "ASUS ROG Z13",
 		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "ASUSTeK COMPUTER INC."),
+			DMI_MATCH(DMI_SYS_VENDOR, "ASUS"),
 			DMI_MATCH(DMI_PRODUCT_NAME, "ROG Flow Z13"),
 		},
 		.driver_data = &quirk_asus_z13,
@@ -580,6 +580,7 @@ static const struct key_entry asus_nb_wmi_keymap[] = {
 	{ KE_KEY, 0x2a, { KEY_SELECTIVE_SCREENSHOT } },
 	{ KE_IGNORE, 0x2b, }, /* PrintScreen (also send via PS/2) on newer models */
 	{ KE_IGNORE, 0x2c, }, /* CapsLock (also send via PS/2) on newer models */
+	{ KE_KEY, 0x2d, { KEY_DISPLAYTOGGLE } },
 	{ KE_KEY, 0x30, { KEY_VOLUMEUP } },
 	{ KE_KEY, 0x31, { KEY_VOLUMEDOWN } },
 	{ KE_KEY, 0x32, { KEY_MUTE } },

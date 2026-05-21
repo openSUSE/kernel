@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: ISC
 /*
  * Copyright 2002-2005, Instant802 Networks, Inc.
  * Copyright 2005-2006, Devicescape Software, Inc.
@@ -5,19 +6,7 @@
  * Copyright 2008-2011	Luis R. Rodriguez <mcgrof@qca.qualcomm.com>
  * Copyright 2013-2014  Intel Mobile Communications GmbH
  * Copyright      2017  Intel Deutschland GmbH
- * Copyright (C) 2018 - 2025 Intel Corporation
- *
- * Permission to use, copy, modify, and/or distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ * Copyright (C) 2018 - 2026 Intel Corporation
  */
 
 
@@ -452,8 +441,7 @@ reg_copy_regd(const struct ieee80211_regdomain *src_regd)
 	struct ieee80211_regdomain *regd;
 	unsigned int i;
 
-	regd = kzalloc(struct_size(regd, reg_rules, src_regd->n_reg_rules),
-		       GFP_KERNEL);
+	regd = kzalloc_flex(*regd, reg_rules, src_regd->n_reg_rules);
 	if (!regd)
 		return ERR_PTR(-ENOMEM);
 
@@ -510,7 +498,7 @@ static int reg_schedule_apply(const struct ieee80211_regdomain *regdom)
 {
 	struct reg_regdb_apply_request *request;
 
-	request = kzalloc(sizeof(struct reg_regdb_apply_request), GFP_KERNEL);
+	request = kzalloc_obj(struct reg_regdb_apply_request);
 	if (!request) {
 		kfree(regdom);
 		return -ENOMEM;
@@ -933,8 +921,7 @@ static int regdb_query_country(const struct fwdb_header *db,
 	struct ieee80211_regdomain *regdom;
 	unsigned int i;
 
-	regdom = kzalloc(struct_size(regdom, reg_rules, coll->n_rules),
-			 GFP_KERNEL);
+	regdom = kzalloc_flex(*regdom, reg_rules, coll->n_rules);
 	if (!regdom)
 		return -ENOMEM;
 
@@ -1100,7 +1087,7 @@ int reg_reload_regdb(void)
 	/* reset regulatory domain */
 	current_regdomain = get_cfg80211_regdom();
 
-	request = kzalloc(sizeof(*request), GFP_KERNEL);
+	request = kzalloc_obj(*request);
 	if (!request) {
 		err = -ENOMEM;
 		goto out_unlock;
@@ -1532,7 +1519,7 @@ regdom_intersect(const struct ieee80211_regdomain *rd1,
 	if (!num_rules)
 		return NULL;
 
-	rd = kzalloc(struct_size(rd, reg_rules, num_rules), GFP_KERNEL);
+	rd = kzalloc_flex(*rd, reg_rules, num_rules);
 	if (!rd)
 		return NULL;
 
@@ -1605,6 +1592,8 @@ static u32 map_regdom_flags(u32 rd_flags)
 		channel_flags |= IEEE80211_CHAN_ALLOW_6GHZ_VLP_AP;
 	if (rd_flags & NL80211_RRF_ALLOW_20MHZ_ACTIVITY)
 		channel_flags |= IEEE80211_CHAN_ALLOW_20MHZ_ACTIVITY;
+	if (rd_flags & NL80211_RRF_NO_UHR)
+		channel_flags |= IEEE80211_CHAN_NO_UHR;
 	return channel_flags;
 }
 
@@ -2332,8 +2321,17 @@ static void reg_process_ht_flags(struct wiphy *wiphy)
 	if (!wiphy)
 		return;
 
-	for (band = 0; band < NUM_NL80211_BANDS; band++)
+	for (band = 0; band < NUM_NL80211_BANDS; band++) {
+		/*
+		 * Don't apply HT flags to channels within the S1G band.
+		 * Each bonded channel will instead be validated individually
+		 * within cfg80211_s1g_usable().
+		 */
+		if (band == NL80211_BAND_S1GHZ)
+			continue;
+
 		reg_process_ht_flags_band(wiphy, wiphy->bands[band]);
+	}
 }
 
 static bool reg_wdev_chan_valid(struct wiphy *wiphy, struct wireless_dev *wdev)
@@ -2349,6 +2347,18 @@ static bool reg_wdev_chan_valid(struct wiphy *wiphy, struct wireless_dev *wdev)
 	/* make sure the interface is active */
 	if (!wdev->netdev || !netif_running(wdev->netdev))
 		return true;
+
+	/* NAN doesn't have links, handle it separately */
+	if (iftype == NL80211_IFTYPE_NAN) {
+		for (int i = 0; i < wdev->u.nan.n_channels; i++) {
+			ret = cfg80211_reg_can_beacon(wiphy,
+						      &wdev->u.nan.chandefs[i],
+						      NL80211_IFTYPE_NAN);
+			if (!ret)
+				return false;
+		}
+		return true;
+	}
 
 	for (link = 0; link < ARRAY_SIZE(wdev->links); link++) {
 		struct ieee80211_channel *chan;
@@ -2399,9 +2409,9 @@ static bool reg_wdev_chan_valid(struct wiphy *wiphy, struct wireless_dev *wdev)
 				continue;
 			chandef = wdev->u.ocb.chandef;
 			break;
-		case NL80211_IFTYPE_NAN:
-			/* we have no info, but NAN is also pretty universal */
-			continue;
+		case NL80211_IFTYPE_NAN_DATA:
+			/* NAN channels are checked in NL80211_IFTYPE_NAN interface */
+			break;
 		default:
 			/* others not implemented for now */
 			WARN_ON_ONCE(1);
@@ -2438,11 +2448,14 @@ static void reg_leave_invalid_chans(struct wiphy *wiphy)
 	struct wireless_dev *wdev;
 	struct cfg80211_registered_device *rdev = wiphy_to_rdev(wiphy);
 
-	guard(wiphy)(wiphy);
+	list_for_each_entry(wdev, &rdev->wiphy.wdev_list, list) {
+		bool valid;
 
-	list_for_each_entry(wdev, &rdev->wiphy.wdev_list, list)
-		if (!reg_wdev_chan_valid(wiphy, wdev))
-			cfg80211_leave(rdev, wdev);
+		scoped_guard(wiphy, wiphy)
+			valid = reg_wdev_chan_valid(wiphy, wdev);
+		if (!valid)
+			cfg80211_leave(rdev, wdev, -1);
+	}
 }
 
 static void reg_check_chans_work(struct work_struct *work)
@@ -3213,7 +3226,7 @@ static int regulatory_hint_core(const char *alpha2)
 {
 	struct regulatory_request *request;
 
-	request = kzalloc(sizeof(struct regulatory_request), GFP_KERNEL);
+	request = kzalloc_obj(struct regulatory_request);
 	if (!request)
 		return -ENOMEM;
 
@@ -3239,7 +3252,7 @@ int regulatory_hint_user(const char *alpha2,
 	if (!is_world_regdom(alpha2) && !is_an_alpha2(alpha2))
 		return -EINVAL;
 
-	request = kzalloc(sizeof(struct regulatory_request), GFP_KERNEL);
+	request = kzalloc_obj(struct regulatory_request);
 	if (!request)
 		return -ENOMEM;
 
@@ -3309,7 +3322,7 @@ int regulatory_hint(struct wiphy *wiphy, const char *alpha2)
 
 	wiphy->regulatory_flags &= ~REGULATORY_CUSTOM_REG;
 
-	request = kzalloc(sizeof(struct regulatory_request), GFP_KERNEL);
+	request = kzalloc_obj(struct regulatory_request);
 	if (!request)
 		return -ENOMEM;
 
@@ -3342,7 +3355,7 @@ void regulatory_hint_country_ie(struct wiphy *wiphy, enum nl80211_band band,
 	if (country_ie_len < IEEE80211_COUNTRY_IE_MIN_LEN)
 		return;
 
-	request = kzalloc(sizeof(*request), GFP_KERNEL);
+	request = kzalloc_obj(*request);
 	if (!request)
 		return;
 
@@ -3655,7 +3668,7 @@ void regulatory_hint_found_beacon(struct wiphy *wiphy,
 	if (processing)
 		return;
 
-	reg_beacon = kzalloc(sizeof(struct reg_beacon), gfp);
+	reg_beacon = kzalloc_obj(struct reg_beacon, gfp);
 	if (!reg_beacon)
 		return;
 

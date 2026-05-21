@@ -2,7 +2,7 @@
 /*
  * Core pinctrl/GPIO driver for Intel GPIO controllers
  *
- * Copyright (C) 2015, Intel Corporation
+ * Copyright (C) 2015 Intel Corporation
  * Authors: Mathias Nyman <mathias.nyman@linux.intel.com>
  *          Mika Westerberg <mika.westerberg@linux.intel.com>
  */
@@ -150,6 +150,7 @@ struct intel_community {
 #define PINCTRL_FEATURE_PWM		BIT(3)
 #define PINCTRL_FEATURE_BLINK		BIT(4)
 #define PINCTRL_FEATURE_EXP		BIT(5)
+#define PINCTRL_FEATURE_3BIT_PAD_OWN	BIT(6)
 
 #define __INTEL_COMMUNITY(b, s, e, g, n, gs, gn, soc)		\
 	{							\

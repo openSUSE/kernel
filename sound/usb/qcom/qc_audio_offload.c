@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/auxiliary_bus.h>
@@ -438,7 +438,7 @@ static unsigned long uaudio_get_iova(unsigned long *curr_iova,
 		}
 	}
 
-	info = kzalloc(sizeof(*info), GFP_KERNEL);
+	info = kzalloc_obj(*info);
 	if (!info) {
 		iova = 0;
 		goto done;
@@ -699,6 +699,7 @@ static void uaudio_event_ring_cleanup_free(struct uaudio_dev *dev)
 		uaudio_iommu_unmap(MEM_EVENT_RING, IOVA_BASE, PAGE_SIZE,
 				   PAGE_SIZE);
 		xhci_sideband_remove_interrupter(uadev[dev->chip->card->number].sb);
+		usb_offload_put(dev->udev);
 	}
 }
 
@@ -947,7 +948,7 @@ static int enable_audio_stream(struct snd_usb_substream *subs,
 	_snd_pcm_hw_params_any(&params);
 
 	m = hw_param_mask(&params, SNDRV_PCM_HW_PARAM_FORMAT);
-	snd_mask_leave(m, pcm_format);
+	snd_mask_leave(m, (__force unsigned int)pcm_format);
 
 	i = hw_param_interval(&params, SNDRV_PCM_HW_PARAM_CHANNELS);
 	snd_interval_setinteger(i);
@@ -1007,7 +1008,7 @@ put_suspend:
 /**
  * uaudio_transfer_buffer_setup() - fetch and populate xfer buffer params
  * @subs: usb substream
- * @xfer_buf: xfer buf to be allocated
+ * @xfer_buf_cpu: xfer buf to be allocated
  * @xfer_buf_len: size of allocation
  * @mem_info: QMI response info
  *
@@ -1182,12 +1183,16 @@ static int uaudio_event_ring_setup(struct snd_usb_substream *subs,
 	dma_coherent = dev_is_dma_coherent(subs->dev->bus->sysdev);
 	er_pa = 0;
 
+	ret = usb_offload_get(subs->dev);
+	if (ret < 0)
+		goto exit;
+
 	/* event ring */
 	ret = xhci_sideband_create_interrupter(uadev[card_num].sb, 1, false,
 					       0, uaudio_qdev->data->intr_num);
 	if (ret < 0) {
 		dev_err(&subs->dev->dev, "failed to fetch interrupter\n");
-		goto exit;
+		goto put_offload;
 	}
 
 	sgt = xhci_sideband_get_event_buffer(uadev[card_num].sb);
@@ -1219,6 +1224,8 @@ clear_pa:
 	mem_info->dma = 0;
 remove_interrupter:
 	xhci_sideband_remove_interrupter(uadev[card_num].sb);
+put_offload:
+	usb_offload_put(subs->dev);
 exit:
 	return ret;
 }
@@ -1432,9 +1439,8 @@ static int prepare_qmi_response(struct snd_usb_substream *subs,
 		init_waitqueue_head(&uadev[card_num].disconnect_wq);
 		uadev[card_num].num_intf =
 			subs->dev->config->desc.bNumInterfaces;
-		uadev[card_num].info = kcalloc(uadev[card_num].num_intf,
-					       sizeof(struct intf_info),
-					       GFP_KERNEL);
+		uadev[card_num].info = kzalloc_objs(struct intf_info,
+						    uadev[card_num].num_intf);
 		if (!uadev[card_num].info) {
 			ret = -ENOMEM;
 			goto unmap_er;
@@ -1483,6 +1489,7 @@ unmap_er:
 	uaudio_iommu_unmap(MEM_EVENT_RING, IOVA_BASE, PAGE_SIZE, PAGE_SIZE);
 free_sec_ring:
 	xhci_sideband_remove_interrupter(uadev[card_num].sb);
+	usb_offload_put(subs->dev);
 drop_sync_ep:
 	if (subs->sync_endpoint) {
 		uaudio_iommu_unmap(MEM_XFER_RING,
@@ -1687,7 +1694,7 @@ static struct qmi_msg_handler uaudio_stream_req_handlers = {
  */
 static int qc_usb_audio_offload_init_qmi_dev(void)
 {
-	uaudio_qdev = kzalloc(sizeof(*uaudio_qdev), GFP_KERNEL);
+	uaudio_qdev = kzalloc_obj(*uaudio_qdev);
 	if (!uaudio_qdev)
 		return -ENOMEM;
 
@@ -1759,7 +1766,7 @@ static void qc_usb_audio_offload_probe(struct snd_usb_audio *chip)
 	guard(mutex)(&qdev_mutex);
 	guard(mutex)(&chip->mutex);
 	if (!uadev[chip->card->number].chip) {
-		sdev = kzalloc(sizeof(*sdev), GFP_KERNEL);
+		sdev = kzalloc_obj(*sdev);
 		if (!sdev)
 			return;
 
@@ -1914,11 +1921,11 @@ static int qc_usb_audio_probe(struct auxiliary_device *auxdev,
 	struct uaudio_qmi_svc *svc;
 	int ret;
 
-	svc = kzalloc(sizeof(*svc), GFP_KERNEL);
+	svc = kzalloc_obj(*svc);
 	if (!svc)
 		return -ENOMEM;
 
-	svc->uaudio_svc_hdl = kzalloc(sizeof(*svc->uaudio_svc_hdl), GFP_KERNEL);
+	svc->uaudio_svc_hdl = kzalloc_obj(*svc->uaudio_svc_hdl);
 	if (!svc->uaudio_svc_hdl) {
 		ret = -ENOMEM;
 		goto free_svc;

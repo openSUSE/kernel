@@ -123,6 +123,21 @@ int cg_read_strcmp(const char *cgroup, const char *control,
 	return ret;
 }
 
+int cg_read_strcmp_wait(const char *cgroup, const char *control,
+			    const char *expected)
+{
+	int i, ret;
+
+	for (i = 0; i < 100; i++) {
+		ret = cg_read_strcmp(cgroup, control, expected);
+		if (!ret)
+			return ret;
+		usleep(10000);
+	}
+
+	return ret;
+}
+
 int cg_read_strstr(const char *cgroup, const char *control, const char *needle)
 {
 	char buf[PAGE_SIZE];
@@ -166,6 +181,27 @@ long cg_read_key_long(const char *cgroup, const char *control, const char *key)
 		return -1;
 
 	return atol(ptr + strlen(key));
+}
+
+long cg_read_key_long_poll(const char *cgroup, const char *control,
+			   const char *key, long expected, int retries,
+			   useconds_t wait_interval_us)
+{
+	long val = -1;
+	int i;
+
+	for (i = 0; i < retries; i++) {
+		val = cg_read_key_long(cgroup, control, key);
+		if (val < 0)
+			return val;
+
+		if (val == expected)
+			break;
+
+		usleep(wait_interval_us);
+	}
+
+	return val;
 }
 
 long cg_read_lc(const char *cgroup, const char *control)

@@ -44,7 +44,7 @@ static int h4_open(struct hci_uart *hu)
 
 	BT_DBG("hu %p", hu);
 
-	h4 = kzalloc(sizeof(*h4), GFP_KERNEL);
+	h4 = kzalloc_obj(*h4);
 	if (!h4)
 		return -ENOMEM;
 
@@ -108,9 +108,6 @@ static const struct h4_recv_pkt h4_recv_pkts[] = {
 static int h4_recv(struct hci_uart *hu, const void *data, int count)
 {
 	struct h4_struct *h4 = hu->priv;
-
-	if (!test_bit(HCI_UART_REGISTERED, &hu->flags))
-		return -EUNATCH;
 
 	h4->rx_skb = h4_recv_buf(hu, h4->rx_skb, data, count,
 				 h4_recv_pkts, ARRAY_SIZE(h4_recv_pkts));

@@ -214,8 +214,7 @@ void flexcop_reset_block_300(struct flexcop_device *fc)
 struct flexcop_device *flexcop_device_kmalloc(size_t bus_specific_len)
 {
 	void *bus;
-	struct flexcop_device *fc = kzalloc(sizeof(struct flexcop_device),
-				GFP_KERNEL);
+	struct flexcop_device *fc = kzalloc_obj(struct flexcop_device);
 	if (!fc) {
 		err("no memory");
 		return NULL;
@@ -291,20 +290,6 @@ void flexcop_device_exit(struct flexcop_device *fc)
 	flexcop_dvb_exit(fc);
 }
 EXPORT_SYMBOL(flexcop_device_exit);
-
-static int flexcop_module_init(void)
-{
-	info(DRIVER_NAME " loaded successfully");
-	return 0;
-}
-
-static void flexcop_module_cleanup(void)
-{
-	info(DRIVER_NAME " unloaded successfully");
-}
-
-module_init(flexcop_module_init);
-module_exit(flexcop_module_cleanup);
 
 MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_DESCRIPTION(DRIVER_NAME);

@@ -76,7 +76,7 @@ static bool soc_component_is_pcm(struct snd_soc_dai_link_component *dlc)
 {
 	struct snd_soc_dai *dai = snd_soc_find_dai_with_mutex(dlc);
 
-	if (dai && (dai->component->driver->pcm_construct ||
+	if (dai && (dai->component->driver->pcm_new ||
 		    (dai->driver->ops && dai->driver->ops->pcm_new)))
 		return true;
 
@@ -553,7 +553,7 @@ int audio_graph_parse_of(struct simple_util_priv *priv, struct device *dev)
 	struct snd_soc_card *card = simple_priv_to_card(priv);
 	int ret = -ENOMEM;
 
-	struct link_info *li __free(kfree) = kzalloc(sizeof(*li), GFP_KERNEL);
+	struct link_info *li __free(kfree) = kzalloc_obj(*li);
 	if (!li)
 		goto end;
 

@@ -127,6 +127,7 @@ static int __rtw89_ops_add_iface_link(struct rtw89_dev *rtwdev,
 	rtwvif_link->reg_6ghz_power = RTW89_REG_6GHZ_POWER_DFLT;
 	rtwvif_link->rand_tsf_done = false;
 	rtwvif_link->detect_bcn_count = 0;
+	rtwvif_link->last_sync_bcn_tsf = 0;
 
 	rcu_read_lock();
 
@@ -527,6 +528,8 @@ static int __rtw89_ops_sta_add(struct rtw89_dev *rtwdev,
 	if (vif->type == NL80211_IFTYPE_AP || sta->tdls)
 		rtw89_queue_chanctx_change(rtwdev, RTW89_CHANCTX_REMOTE_STA_CHANGE);
 
+	rtw89_fw_h2c_init_trx_protect(rtwdev);
+
 	return 0;
 
 unset_link:
@@ -719,7 +722,8 @@ static void rtw89_ops_vif_cfg_changed(struct ieee80211_hw *hw,
 	if (changed & BSS_CHANGED_MLD_VALID_LINKS) {
 		struct rtw89_vif_link *cur = rtw89_get_designated_link(rtwvif);
 
-		rtw89_chip_rfk_channel(rtwdev, cur);
+		if (RTW89_CHK_FW_FEATURE_GROUP(WITH_RFK_PRE_NOTIFY, &rtwdev->fw))
+			rtw89_chip_rfk_channel(rtwdev, cur);
 
 		if (hweight16(vif->active_links) == 1)
 			rtwvif->mlo_mode = RTW89_MLO_MODE_MLSR;
@@ -960,6 +964,7 @@ static int rtw89_ops_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 			rtw89_err(rtwdev, "failed to add key to sec cam\n");
 			return ret;
 		}
+		rtw89_core_tid_rx_stats_reset(rtwdev);
 		break;
 	case DISABLE_KEY:
 		flush_work(&rtwdev->txq_work);
@@ -1001,6 +1006,8 @@ static int rtw89_ops_ampdu_action(struct ieee80211_hw *hw,
 		clear_bit(tid, rtwsta->ampdu_map);
 		rtw89_chip_h2c_ampdu_cmac_tbl(rtwdev, rtwvif, rtwsta);
 		ieee80211_stop_tx_ba_cb_irqsafe(vif, sta->addr, tid);
+		rtw89_leave_ps_mode(rtwdev);
+		rtw89_phy_ra_recalc_agg_limit(rtwdev);
 		break;
 	case IEEE80211_AMPDU_TX_OPERATIONAL:
 		set_bit(RTW89_TXQ_F_AMPDU, &rtwtxq->flags);
@@ -1009,11 +1016,14 @@ static int rtw89_ops_ampdu_action(struct ieee80211_hw *hw,
 		set_bit(tid, rtwsta->ampdu_map);
 		rtw89_leave_ps_mode(rtwdev);
 		rtw89_chip_h2c_ampdu_cmac_tbl(rtwdev, rtwvif, rtwsta);
+		rtw89_phy_ra_recalc_agg_limit(rtwdev);
 		break;
 	case IEEE80211_AMPDU_RX_START:
+		rtw89_core_tid_rx_stats_ctrl(rtwdev, rtwsta, params, true);
 		rtw89_chip_h2c_ba_cam(rtwdev, rtwsta, true, params);
 		break;
 	case IEEE80211_AMPDU_RX_STOP:
+		rtw89_core_tid_rx_stats_ctrl(rtwdev, rtwsta, params, false);
 		rtw89_chip_h2c_ba_cam(rtwdev, rtwsta, false, params);
 		break;
 	default:
@@ -1436,9 +1446,9 @@ static void rtw89_ops_channel_switch_beacon(struct ieee80211_hw *hw,
 
 	BUILD_BUG_ON(RTW89_MLD_NON_STA_LINK_NUM != 1);
 
-	rtwvif_link = rtw89_vif_get_link_inst(rtwvif, 0);
+	rtwvif_link = rtw89_get_designated_link(rtwvif);
 	if (unlikely(!rtwvif_link)) {
-		rtw89_err(rtwdev, "chsw bcn: find no link on HW-0\n");
+		rtw89_err(rtwdev, "chsw bcn: find no designated link\n");
 		return;
 	}
 
@@ -1582,6 +1592,8 @@ static void __rtw89_ops_clr_vif_links(struct rtw89_dev *rtwdev,
 		if (unlikely(!rtwvif_link))
 			continue;
 
+		rtw89_fw_h2c_trx_protect(rtwdev, rtwvif_link->phy_idx, false);
+
 		__rtw89_ops_remove_iface_link(rtwdev, rtwvif_link);
 
 		rtw89_vif_unset_link(rtwvif, link_id);
@@ -1607,17 +1619,29 @@ static int __rtw89_ops_set_vif_links(struct rtw89_dev *rtwdev,
 				  __func__, link_id);
 			return ret;
 		}
+		rtw89_fw_h2c_trx_protect(rtwdev, rtwvif_link->phy_idx, true);
 	}
 
 	return 0;
 }
 
-static void rtw89_vif_cfg_fw_links(struct rtw89_dev *rtwdev,
-				   struct rtw89_vif *rtwvif,
-				   unsigned long links, bool en)
+static void rtw89_vif_update_fw_links(struct rtw89_dev *rtwdev,
+				      struct rtw89_vif *rtwvif,
+				      u16 current_links, bool en)
 {
+	struct rtw89_vif_ml_trans *trans = &rtwvif->ml_trans;
 	struct rtw89_vif_link *rtwvif_link;
 	unsigned int link_id;
+	unsigned long links;
+
+	/* Do follow-up when all updating links exist. */
+	if (current_links != trans->mediate_links)
+		return;
+
+	if (en)
+		links = trans->links_to_add;
+	else
+		links = trans->links_to_del;
 
 	for_each_set_bit(link_id, &links, IEEE80211_MLD_MAX_NUM_LINKS) {
 		rtwvif_link = rtwvif->links[link_id];
@@ -1626,20 +1650,6 @@ static void rtw89_vif_cfg_fw_links(struct rtw89_dev *rtwdev,
 
 		rtw89_fw_h2c_mlo_link_cfg(rtwdev, rtwvif_link, en);
 	}
-}
-
-static void rtw89_vif_update_fw_links(struct rtw89_dev *rtwdev,
-				      struct rtw89_vif *rtwvif,
-				      u16 current_links)
-{
-	struct rtw89_vif_ml_trans *trans = &rtwvif->ml_trans;
-
-	/* Do follow-up when all updating links exist. */
-	if (current_links != trans->mediate_links)
-		return;
-
-	rtw89_vif_cfg_fw_links(rtwdev, rtwvif, trans->links_to_del, false);
-	rtw89_vif_cfg_fw_links(rtwdev, rtwvif, trans->links_to_add, true);
 }
 
 static
@@ -1667,7 +1677,7 @@ int rtw89_ops_change_vif_links(struct ieee80211_hw *hw,
 		return -EOPNOTSUPP;
 
 	if (removing_links) {
-		snap = kzalloc(sizeof(*snap), GFP_KERNEL);
+		snap = kzalloc_obj(*snap);
 		if (!snap)
 			return -ENOMEM;
 
@@ -1683,7 +1693,7 @@ int rtw89_ops_change_vif_links(struct ieee80211_hw *hw,
 	if (rtwdev->scanning)
 		rtw89_hw_scan_abort(rtwdev, rtwdev->scan_info.scanning_vif);
 
-	rtw89_vif_update_fw_links(rtwdev, rtwvif, old_links);
+	rtw89_vif_update_fw_links(rtwdev, rtwvif, old_links, true);
 
 	if (!old_links)
 		__rtw89_ops_clr_vif_links(rtwdev, rtwvif,
@@ -1715,6 +1725,9 @@ int rtw89_ops_change_vif_links(struct ieee80211_hw *hw,
 			__rtw89_ops_clr_vif_links(rtwdev, rtwvif,
 						  BIT(RTW89_VIF_IDLE_LINK_ID));
 	}
+
+	if (!ret)
+		rtw89_vif_update_fw_links(rtwdev, rtwvif, new_links, false);
 
 	rtw89_enter_ips_by_hwflags(rtwdev);
 	return ret;

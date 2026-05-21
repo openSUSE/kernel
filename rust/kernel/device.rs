@@ -5,16 +5,20 @@
 //! C header: [`include/linux/device.h`](srctree/include/linux/device.h)
 
 use crate::{
-    bindings, fmt,
+    bindings,
+    fmt,
     prelude::*,
     sync::aref::ARef,
-    types::{ForeignOwnable, Opaque},
+    types::{
+        ForeignOwnable,
+        Opaque, //
+    }, //
 };
-use core::{any::TypeId, marker::PhantomData, ptr};
-
-#[cfg(CONFIG_PRINTK)]
-use crate::c_str;
-use crate::str::CStrExt as _;
+use core::{
+    any::TypeId,
+    marker::PhantomData,
+    ptr, //
+};
 
 pub mod property;
 
@@ -67,8 +71,9 @@ static_assert!(core::mem::size_of::<bindings::driver_type>() >= core::mem::size_
 ///
 /// # Implementing Bus Devices
 ///
-/// This section provides a guideline to implement bus specific devices, such as [`pci::Device`] or
-/// [`platform::Device`].
+/// This section provides a guideline to implement bus specific devices, such as:
+#[cfg_attr(CONFIG_PCI, doc = "* [`pci::Device`](kernel::pci::Device)")]
+/// * [`platform::Device`]
 ///
 /// A bus specific device should be defined as follows.
 ///
@@ -158,9 +163,8 @@ static_assert!(core::mem::size_of::<bindings::driver_type>() >= core::mem::size_
 /// `bindings::device::release` is valid to be called from any thread, hence `ARef<Device>` can be
 /// dropped from any thread.
 ///
-/// [`AlwaysRefCounted`]: kernel::types::AlwaysRefCounted
+/// [`AlwaysRefCounted`]: kernel::sync::aref::AlwaysRefCounted
 /// [`impl_device_context_deref`]: kernel::impl_device_context_deref
-/// [`pci::Device`]: kernel::pci::Device
 /// [`platform::Device`]: kernel::platform::Device
 #[repr(transparent)]
 pub struct Device<Ctx: DeviceContext = Normal>(Opaque<bindings::device>, PhantomData<Ctx>);
@@ -233,30 +237,32 @@ impl Device<CoreInternal> {
     ///
     /// # Safety
     ///
-    /// - Must only be called once after a preceding call to [`Device::set_drvdata`].
     /// - The type `T` must match the type of the `ForeignOwnable` previously stored by
     ///   [`Device::set_drvdata`].
-    pub unsafe fn drvdata_obtain<T: 'static>(&self) -> Pin<KBox<T>> {
+    pub(crate) unsafe fn drvdata_obtain<T: 'static>(&self) -> Option<Pin<KBox<T>>> {
         // SAFETY: By the type invariants, `self.as_raw()` is a valid pointer to a `struct device`.
         let ptr = unsafe { bindings::dev_get_drvdata(self.as_raw()) };
 
         // SAFETY: By the type invariants, `self.as_raw()` is a valid pointer to a `struct device`.
         unsafe { bindings::dev_set_drvdata(self.as_raw(), core::ptr::null_mut()) };
 
+        if ptr.is_null() {
+            return None;
+        }
+
         // SAFETY:
-        // - By the safety requirements of this function, `ptr` comes from a previous call to
-        //   `into_foreign()`.
+        // - If `ptr` is not NULL, it comes from a previous call to `into_foreign()`.
         // - `dev_get_drvdata()` guarantees to return the same pointer given to `dev_set_drvdata()`
         //   in `into_foreign()`.
-        unsafe { Pin::<KBox<T>>::from_foreign(ptr.cast()) }
+        Some(unsafe { Pin::<KBox<T>>::from_foreign(ptr.cast()) })
     }
 
     /// Borrow the driver's private data bound to this [`Device`].
     ///
     /// # Safety
     ///
-    /// - Must only be called after a preceding call to [`Device::set_drvdata`] and before
-    ///   [`Device::drvdata_obtain`].
+    /// - Must only be called after a preceding call to [`Device::set_drvdata`] and before the
+    ///   device is fully unbound.
     /// - The type `T` must match the type of the `ForeignOwnable` previously stored by
     ///   [`Device::set_drvdata`].
     pub unsafe fn drvdata_borrow<T: 'static>(&self) -> Pin<&T> {
@@ -272,7 +278,7 @@ impl Device<Bound> {
     /// # Safety
     ///
     /// - Must only be called after a preceding call to [`Device::set_drvdata`] and before
-    ///   [`Device::drvdata_obtain`].
+    ///   the device is fully unbound.
     /// - The type `T` must match the type of the `ForeignOwnable` previously stored by
     ///   [`Device::set_drvdata`].
     unsafe fn drvdata_unchecked<T: 'static>(&self) -> Pin<&T> {
@@ -321,7 +327,7 @@ impl Device<Bound> {
 
         // SAFETY:
         // - The above check of `dev_get_drvdata()` guarantees that we are called after
-        //   `set_drvdata()` and before `drvdata_obtain()`.
+        //   `set_drvdata()`.
         // - We've just checked that the type of the driver's private data is in fact `T`.
         Ok(unsafe { self.drvdata_unchecked() })
     }
@@ -463,7 +469,7 @@ impl<Ctx: DeviceContext> Device<Ctx> {
             bindings::_dev_printk(
                 klevel.as_ptr().cast::<crate::ffi::c_char>(),
                 self.as_raw(),
-                c_str!("%pA").as_char_ptr(),
+                c"%pA".as_char_ptr(),
                 core::ptr::from_ref(&msg).cast::<crate::ffi::c_void>(),
             )
         };
@@ -482,6 +488,17 @@ impl<Ctx: DeviceContext> Device<Ctx> {
         // `struct fwnode_handle*` to a `*const FwNode` because `FwNode` is
         // defined as a `#[repr(transparent)]` wrapper around `fwnode_handle`.
         Some(unsafe { &*fwnode_handle.cast() })
+    }
+
+    /// Returns the name of the device.
+    ///
+    /// This is the kobject name of the device, or its initial name if the kobject is not yet
+    /// available.
+    #[inline]
+    pub fn name(&self) -> &CStr {
+        // SAFETY: By its type invariant `self.as_raw()` is a valid pointer to a `struct device`.
+        // The returned string is valid for the lifetime of the device.
+        unsafe { CStr::from_char_ptr(bindings::dev_name(self.as_raw())) }
     }
 }
 
@@ -540,7 +557,7 @@ pub trait DeviceContext: private::Sealed {}
 /// [`Device<Normal>`]. It is the only [`DeviceContext`] for which it is valid to implement
 /// [`AlwaysRefCounted`] for.
 ///
-/// [`AlwaysRefCounted`]: kernel::types::AlwaysRefCounted
+/// [`AlwaysRefCounted`]: kernel::sync::aref::AlwaysRefCounted
 pub struct Normal;
 
 /// The [`Core`] context is the context of a bus specific device when it appears as argument of
@@ -569,7 +586,7 @@ pub struct CoreInternal;
 /// The bound context indicates that for the entire duration of the lifetime of a [`Device<Bound>`]
 /// reference, the [`Device`] is guaranteed to be bound to a driver.
 ///
-/// Some APIs, such as [`dma::CoherentAllocation`] or [`Devres`] rely on the [`Device`] to be bound,
+/// Some APIs, such as [`dma::Coherent`] or [`Devres`] rely on the [`Device`] to be bound,
 /// which can be proven with the [`Bound`] device context.
 ///
 /// Any abstraction that can guarantee a scope where the corresponding bus device is bound, should
@@ -578,7 +595,7 @@ pub struct CoreInternal;
 ///
 /// [`Devres`]: kernel::devres::Devres
 /// [`Devres::access`]: kernel::devres::Devres::access
-/// [`dma::CoherentAllocation`]: kernel::dma::CoherentAllocation
+/// [`dma::Coherent`]: kernel::dma::Coherent
 pub struct Bound;
 
 mod private {
@@ -594,6 +611,13 @@ impl DeviceContext for Bound {}
 impl DeviceContext for Core {}
 impl DeviceContext for CoreInternal {}
 impl DeviceContext for Normal {}
+
+impl<Ctx: DeviceContext> AsRef<Device<Ctx>> for Device<Ctx> {
+    #[inline]
+    fn as_ref(&self) -> &Device<Ctx> {
+        self
+    }
+}
 
 /// Convert device references to bus device references.
 ///
@@ -714,7 +738,7 @@ macro_rules! impl_device_context_into_aref {
 macro_rules! dev_printk {
     ($method:ident, $dev:expr, $($f:tt)*) => {
         {
-            ($dev).$method($crate::prelude::fmt!($($f)*));
+            $crate::device::Device::$method($dev.as_ref(), $crate::prelude::fmt!($($f)*))
         }
     }
 }

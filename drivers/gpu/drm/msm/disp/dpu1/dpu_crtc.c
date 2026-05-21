@@ -883,7 +883,7 @@ static void _dpu_crtc_setup_cp_blocks(struct drm_crtc *crtc)
 			if (!state->gamma_lut) {
 				dspp->ops.setup_gc(dspp, NULL);
 			} else {
-				gc_lut = kzalloc(sizeof(*gc_lut), GFP_KERNEL);
+				gc_lut = kzalloc_obj(*gc_lut);
 				if (!gc_lut)
 					continue;
 				_dpu_crtc_get_gc_lut(state, gc_lut);
@@ -1142,7 +1142,7 @@ end:
 
 static void dpu_crtc_reset(struct drm_crtc *crtc)
 {
-	struct dpu_crtc_state *cstate = kzalloc(sizeof(*cstate), GFP_KERNEL);
+	struct dpu_crtc_state *cstate = kzalloc_obj(*cstate);
 
 	if (crtc->state)
 		dpu_crtc_destroy_state(crtc, crtc->state);
@@ -1337,7 +1337,7 @@ static int dpu_crtc_assign_planes(struct drm_crtc *crtc, struct drm_crtc_state *
 	if (!crtc_state->enable)
 		return 0;
 
-	states = kcalloc(total_planes, sizeof(*states), GFP_KERNEL);
+	states = kzalloc_objs(*states, total_planes);
 	if (!states)
 		return -ENOMEM;
 

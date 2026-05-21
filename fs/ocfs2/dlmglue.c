@@ -3030,7 +3030,7 @@ struct ocfs2_dlm_debug *ocfs2_new_dlm_debug(void)
 {
 	struct ocfs2_dlm_debug *dlm_debug;
 
-	dlm_debug = kmalloc(sizeof(struct ocfs2_dlm_debug), GFP_KERNEL);
+	dlm_debug = kmalloc_obj(struct ocfs2_dlm_debug);
 	if (!dlm_debug) {
 		mlog_errno(-ENOMEM);
 		goto out;
@@ -3971,7 +3971,6 @@ static int ocfs2_data_convert_worker(struct ocfs2_lock_res *lockres,
 		mlog(ML_ERROR, "Could not sync inode %llu for downconvert!",
 		     (unsigned long long)OCFS2_I(inode)->ip_blkno);
 	}
-	sync_mapping_buffers(mapping);
 	if (blocking == DLM_LOCK_EX) {
 		truncate_inode_pages(mapping, 0);
 	} else {

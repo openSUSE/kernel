@@ -58,8 +58,8 @@ static u8 *emit_code(u8 *ptr, u32 bytes, unsigned int len)
 #define EMIT_ENDBR()		EMIT(gen_endbr(), 4)
 #define EMIT_ENDBR_POISON()	EMIT(gen_endbr_poison(), 4)
 #else
-#define EMIT_ENDBR()
-#define EMIT_ENDBR_POISON()
+#define EMIT_ENDBR()		do { } while (0)
+#define EMIT_ENDBR_POISON()	do { } while (0)
 #endif
 
 static bool is_imm8(int value)
@@ -438,17 +438,8 @@ static void emit_kcfi(u8 **pprog, u32 hash)
 
 	EMIT1_off32(0xb8, hash);			/* movl $hash, %eax	*/
 #ifdef CONFIG_CALL_PADDING
-	EMIT1(0x90);
-	EMIT1(0x90);
-	EMIT1(0x90);
-	EMIT1(0x90);
-	EMIT1(0x90);
-	EMIT1(0x90);
-	EMIT1(0x90);
-	EMIT1(0x90);
-	EMIT1(0x90);
-	EMIT1(0x90);
-	EMIT1(0x90);
+	for (int i = 0; i < CONFIG_FUNCTION_PADDING_CFI; i++)
+		EMIT1(0x90);
 #endif
 	EMIT_ENDBR();
 
@@ -1300,12 +1291,23 @@ static void emit_st_r12(u8 **pprog, u32 size, u32 dst_reg, int off, int imm)
 	emit_st_index(pprog, size, dst_reg, X86_REG_R12, off, imm);
 }
 
+static void emit_store_stack_imm64(u8 **pprog, int reg, int stack_off, u64 imm64)
+{
+	/*
+	 * mov reg, imm64
+	 * mov QWORD PTR [rbp + stack_off], reg
+	 */
+	emit_mov_imm64(pprog, reg, imm64 >> 32, (u32) imm64);
+	emit_stx(pprog, BPF_DW, BPF_REG_FP, reg, stack_off);
+}
+
 static int emit_atomic_rmw(u8 **pprog, u32 atomic_op,
 			   u32 dst_reg, u32 src_reg, s16 off, u8 bpf_size)
 {
 	u8 *prog = *pprog;
 
-	EMIT1(0xF0); /* lock prefix */
+	if (atomic_op != BPF_XCHG)
+		EMIT1(0xF0); /* lock prefix */
 
 	maybe_emit_mod(&prog, dst_reg, src_reg, bpf_size == BPF_DW);
 
@@ -1347,7 +1349,9 @@ static int emit_atomic_rmw_index(u8 **pprog, u32 atomic_op, u32 size,
 {
 	u8 *prog = *pprog;
 
-	EMIT1(0xF0); /* lock prefix */
+	if (atomic_op != BPF_XCHG)
+		EMIT1(0xF0); /* lock prefix */
+
 	switch (size) {
 	case BPF_W:
 		EMIT1(add_3mod(0x40, dst_reg, src_reg, index_reg));
@@ -1645,8 +1649,8 @@ static int emit_spectre_bhb_barrier(u8 **pprog, u8 *ip,
 	return 0;
 }
 
-static int do_jit(struct bpf_prog *bpf_prog, int *addrs, u8 *image, u8 *rw_image,
-		  int oldproglen, struct jit_context *ctx, bool jmp_padding)
+static int do_jit(struct bpf_verifier_env *env, struct bpf_prog *bpf_prog, int *addrs, u8 *image,
+		  u8 *rw_image, int oldproglen, struct jit_context *ctx, bool jmp_padding)
 {
 	bool tail_call_reachable = bpf_prog->aux->tail_call_reachable;
 	struct bpf_insn *insn = bpf_prog->insnsi;
@@ -1659,7 +1663,7 @@ static int do_jit(struct bpf_prog *bpf_prog, int *addrs, u8 *image, u8 *rw_image
 	void __percpu *priv_stack_ptr;
 	int i, excnt = 0;
 	int ilen, proglen = 0;
-	u8 *prog = temp;
+	u8 *ip, *prog = temp;
 	u32 stack_depth;
 	int err;
 
@@ -1678,6 +1682,9 @@ static int do_jit(struct bpf_prog *bpf_prog, int *addrs, u8 *image, u8 *rw_image
 	emit_prologue(&prog, image, stack_depth,
 		      bpf_prog_was_classic(bpf_prog), tail_call_reachable,
 		      bpf_is_subprog(bpf_prog), bpf_prog->aux->exception_cb);
+
+	bpf_prog->aux->ksym.fp_start = prog - temp;
+
 	/* Exception callback will clobber callee regs for its own use, and
 	 * restore the original callee regs from main prog's stack frame.
 	 */
@@ -1726,6 +1733,11 @@ static int do_jit(struct bpf_prog *bpf_prog, int *addrs, u8 *image, u8 *rw_image
 			if (dst_reg == BPF_REG_FP)
 				dst_reg = X86_REG_R9;
 		}
+
+		if (bpf_insn_is_indirect_target(env, bpf_prog, i - 1))
+			EMIT_ENDBR();
+
+		ip = image + addrs[i - 1] + (prog - temp);
 
 		switch (insn->code) {
 			/* ALU */
@@ -2433,8 +2445,6 @@ populate_extable:
 
 			/* call */
 		case BPF_JMP | BPF_CALL: {
-			u8 *ip = image + addrs[i - 1];
-
 			func = (u8 *) __bpf_call_base + imm32;
 			if (src_reg == BPF_PSEUDO_CALL && tail_call_reachable) {
 				LOAD_TAIL_CALL_CNT_PTR(stack_depth);
@@ -2458,7 +2468,8 @@ populate_extable:
 			if (imm32)
 				emit_bpf_tail_call_direct(bpf_prog,
 							  &bpf_prog->aux->poke_tab[imm32 - 1],
-							  &prog, image + addrs[i - 1],
+							  &prog,
+							  ip,
 							  callee_regs_used,
 							  stack_depth,
 							  ctx);
@@ -2467,7 +2478,7 @@ populate_extable:
 							    &prog,
 							    callee_regs_used,
 							    stack_depth,
-							    image + addrs[i - 1],
+							    ip,
 							    ctx);
 			break;
 
@@ -2632,7 +2643,7 @@ emit_cond_jmp:		/* Convert BPF opcode to x86 */
 			break;
 
 		case BPF_JMP | BPF_JA | BPF_X:
-			emit_indirect_jump(&prog, insn->dst_reg, image + addrs[i - 1]);
+			emit_indirect_jump(&prog, insn->dst_reg, ip);
 			break;
 		case BPF_JMP | BPF_JA:
 		case BPF_JMP32 | BPF_JA:
@@ -2722,8 +2733,6 @@ emit_jmp:
 			ctx->cleanup_addr = proglen;
 			if (bpf_prog_was_classic(bpf_prog) &&
 			    !ns_capable_noaudit(&init_user_ns, CAP_SYS_ADMIN)) {
-				u8 *ip = image + addrs[i - 1];
-
 				if (emit_spectre_bhb_barrier(&prog, ip, bpf_prog))
 					return -EINVAL;
 			}
@@ -2736,6 +2745,8 @@ emit_jmp:
 					pop_r12(&prog);
 			}
 			EMIT1(0xC9);         /* leave */
+			bpf_prog->aux->ksym.fp_end = prog - temp;
+
 			emit_return(&prog, image + addrs[i - 1] + (prog - temp));
 			break;
 
@@ -3076,13 +3087,19 @@ static int emit_cond_near_jump(u8 **pprog, void *func, void *ip, u8 jmp_cond)
 
 static int invoke_bpf(const struct btf_func_model *m, u8 **pprog,
 		      struct bpf_tramp_links *tl, int stack_size,
-		      int run_ctx_off, bool save_ret,
-		      void *image, void *rw_image)
+		      int run_ctx_off, int func_meta_off, bool save_ret,
+		      void *image, void *rw_image, u64 func_meta,
+		      int cookie_off)
 {
-	int i;
+	int i, cur_cookie = (cookie_off - stack_size) / 8;
 	u8 *prog = *pprog;
 
 	for (i = 0; i < tl->nr_links; i++) {
+		if (tl->links[i]->link.prog->call_session_cookie) {
+			emit_store_stack_imm64(&prog, BPF_REG_0, -func_meta_off,
+				func_meta | (cur_cookie << BPF_TRAMP_COOKIE_INDEX_SHIFT));
+			cur_cookie--;
+		}
 		if (invoke_bpf_prog(m, &prog, tl->links[i], stack_size,
 				    run_ctx_off, save_ret, image, rw_image))
 			return -EINVAL;
@@ -3200,12 +3217,14 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *rw_im
 					 void *func_addr)
 {
 	int i, ret, nr_regs = m->nr_args, stack_size = 0;
-	int regs_off, nregs_off, ip_off, run_ctx_off, arg_stack_off, rbx_off;
+	int regs_off, func_meta_off, ip_off, run_ctx_off, arg_stack_off, rbx_off;
 	struct bpf_tramp_links *fentry = &tlinks[BPF_TRAMP_FENTRY];
 	struct bpf_tramp_links *fexit = &tlinks[BPF_TRAMP_FEXIT];
 	struct bpf_tramp_links *fmod_ret = &tlinks[BPF_TRAMP_MODIFY_RETURN];
 	void *orig_call = func_addr;
+	int cookie_off, cookie_cnt;
 	u8 **branches = NULL;
+	u64 func_meta;
 	u8 *prog;
 	bool save_ret;
 
@@ -3241,7 +3260,7 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *rw_im
 	 *                 [ ...             ]
 	 * RBP - regs_off  [ reg_arg1        ]  program's ctx pointer
 	 *
-	 * RBP - nregs_off [ regs count	     ]  always
+	 * RBP - func_meta_off [ regs count, etc ]  always
 	 *
 	 * RBP - ip_off    [ traced function ]  BPF_TRAMP_F_IP_ARG flag
 	 *
@@ -3264,14 +3283,19 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *rw_im
 	stack_size += nr_regs * 8;
 	regs_off = stack_size;
 
-	/* regs count  */
+	/* function matedata, such as regs count  */
 	stack_size += 8;
-	nregs_off = stack_size;
+	func_meta_off = stack_size;
 
 	if (flags & BPF_TRAMP_F_IP_ARG)
 		stack_size += 8; /* room for IP address argument */
 
 	ip_off = stack_size;
+
+	cookie_cnt = bpf_fsession_cookie_cnt(tlinks);
+	/* room for session cookies */
+	stack_size += cookie_cnt * 8;
+	cookie_off = stack_size;
 
 	stack_size += 8;
 	rbx_off = stack_size;
@@ -3325,6 +3349,9 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *rw_im
 	}
 	EMIT1(0x55);		 /* push rbp */
 	EMIT3(0x48, 0x89, 0xE5); /* mov rbp, rsp */
+	if (im)
+		im->ksym.fp_start = prog - (u8 *)rw_image;
+
 	if (!is_imm8(stack_size)) {
 		/* sub rsp, stack_size */
 		EMIT3_off32(0x48, 0x81, 0xEC, stack_size);
@@ -3337,20 +3364,13 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *rw_im
 	/* mov QWORD PTR [rbp - rbx_off], rbx */
 	emit_stx(&prog, BPF_DW, BPF_REG_FP, BPF_REG_6, -rbx_off);
 
-	/* Store number of argument registers of the traced function:
-	 *   mov rax, nr_regs
-	 *   mov QWORD PTR [rbp - nregs_off], rax
-	 */
-	emit_mov_imm64(&prog, BPF_REG_0, 0, (u32) nr_regs);
-	emit_stx(&prog, BPF_DW, BPF_REG_FP, BPF_REG_0, -nregs_off);
+	func_meta = nr_regs;
+	/* Store number of argument registers of the traced function */
+	emit_store_stack_imm64(&prog, BPF_REG_0, -func_meta_off, func_meta);
 
 	if (flags & BPF_TRAMP_F_IP_ARG) {
-		/* Store IP address of the traced function:
-		 * movabsq rax, func_addr
-		 * mov QWORD PTR [rbp - ip_off], rax
-		 */
-		emit_mov_imm64(&prog, BPF_REG_0, (long) func_addr >> 32, (u32) (long) func_addr);
-		emit_stx(&prog, BPF_DW, BPF_REG_FP, BPF_REG_0, -ip_off);
+		/* Store IP address of the traced function */
+		emit_store_stack_imm64(&prog, BPF_REG_0, -ip_off, (long)func_addr);
 	}
 
 	save_args(m, &prog, regs_off, false, flags);
@@ -3365,9 +3385,18 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *rw_im
 		}
 	}
 
+	if (bpf_fsession_cnt(tlinks)) {
+		/* clear all the session cookies' value */
+		for (int i = 0; i < cookie_cnt; i++)
+			emit_store_stack_imm64(&prog, BPF_REG_0, -cookie_off + 8 * i, 0);
+		/* clear the return value to make sure fentry always get 0 */
+		emit_store_stack_imm64(&prog, BPF_REG_0, -8, 0);
+	}
+
 	if (fentry->nr_links) {
-		if (invoke_bpf(m, &prog, fentry, regs_off, run_ctx_off,
-			       flags & BPF_TRAMP_F_RET_FENTRY_RET, image, rw_image))
+		if (invoke_bpf(m, &prog, fentry, regs_off, run_ctx_off, func_meta_off,
+			       flags & BPF_TRAMP_F_RET_FENTRY_RET, image, rw_image,
+			       func_meta, cookie_off))
 			return -EINVAL;
 	}
 
@@ -3427,9 +3456,14 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *rw_im
 		}
 	}
 
+	/* set the "is_return" flag for fsession */
+	func_meta |= (1ULL << BPF_TRAMP_IS_RETURN_SHIFT);
+	if (bpf_fsession_cnt(tlinks))
+		emit_store_stack_imm64(&prog, BPF_REG_0, -func_meta_off, func_meta);
+
 	if (fexit->nr_links) {
-		if (invoke_bpf(m, &prog, fexit, regs_off, run_ctx_off,
-			       false, image, rw_image)) {
+		if (invoke_bpf(m, &prog, fexit, regs_off, run_ctx_off, func_meta_off,
+			       false, image, rw_image, func_meta, cookie_off)) {
 			ret = -EINVAL;
 			goto cleanup;
 		}
@@ -3462,7 +3496,11 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *rw_im
 		emit_ldx(&prog, BPF_DW, BPF_REG_0, BPF_REG_FP, -8);
 
 	emit_ldx(&prog, BPF_DW, BPF_REG_6, BPF_REG_FP, -rbx_off);
+
 	EMIT1(0xC9); /* leave */
+	if (im)
+		im->ksym.fp_end = prog - (u8 *)rw_image;
+
 	if (flags & BPF_TRAMP_F_SKIP_FRAME) {
 		/* skip our return address and return to parent */
 		EMIT4(0x48, 0x83, 0xC4, 8); /* add rsp, 8 */
@@ -3677,17 +3715,15 @@ struct x64_jit_data {
 #define MAX_PASSES 20
 #define PADDING_PASSES (MAX_PASSES - 5)
 
-struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
+struct bpf_prog *bpf_int_jit_compile(struct bpf_verifier_env *env, struct bpf_prog *prog)
 {
 	struct bpf_binary_header *rw_header = NULL;
 	struct bpf_binary_header *header = NULL;
-	struct bpf_prog *tmp, *orig_prog = prog;
 	void __percpu *priv_stack_ptr = NULL;
 	struct x64_jit_data *jit_data;
 	int priv_stack_alloc_sz;
 	int proglen, oldproglen = 0;
 	struct jit_context ctx = {};
-	bool tmp_blinded = false;
 	bool extra_pass = false;
 	bool padding = false;
 	u8 *rw_image = NULL;
@@ -3697,27 +3733,13 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	int i;
 
 	if (!prog->jit_requested)
-		return orig_prog;
-
-	tmp = bpf_jit_blind_constants(prog);
-	/*
-	 * If blinding was requested and we failed during blinding,
-	 * we must fall back to the interpreter.
-	 */
-	if (IS_ERR(tmp))
-		return orig_prog;
-	if (tmp != prog) {
-		tmp_blinded = true;
-		prog = tmp;
-	}
+		return prog;
 
 	jit_data = prog->aux->jit_data;
 	if (!jit_data) {
-		jit_data = kzalloc(sizeof(*jit_data), GFP_KERNEL);
-		if (!jit_data) {
-			prog = orig_prog;
-			goto out;
-		}
+		jit_data = kzalloc_obj(*jit_data);
+		if (!jit_data)
+			return prog;
 		prog->aux->jit_data = jit_data;
 	}
 	priv_stack_ptr = prog->aux->priv_stack_ptr;
@@ -3729,10 +3751,8 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 		priv_stack_alloc_sz = round_up(prog->aux->stack_depth, 8) +
 				      2 * PRIV_STACK_GUARD_SZ;
 		priv_stack_ptr = __alloc_percpu_gfp(priv_stack_alloc_sz, 8, GFP_KERNEL);
-		if (!priv_stack_ptr) {
-			prog = orig_prog;
+		if (!priv_stack_ptr)
 			goto out_priv_stack;
-		}
 
 		priv_stack_init_guard(priv_stack_ptr, priv_stack_alloc_sz);
 		prog->aux->priv_stack_ptr = priv_stack_ptr;
@@ -3749,11 +3769,9 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 		padding = true;
 		goto skip_init_addrs;
 	}
-	addrs = kvmalloc_array(prog->len + 1, sizeof(*addrs), GFP_KERNEL);
-	if (!addrs) {
-		prog = orig_prog;
+	addrs = kvmalloc_objs(*addrs, prog->len + 1);
+	if (!addrs)
 		goto out_addrs;
-	}
 
 	/*
 	 * Before first pass, make a rough estimation of addrs[]
@@ -3775,7 +3793,7 @@ skip_init_addrs:
 	for (pass = 0; pass < MAX_PASSES || image; pass++) {
 		if (!padding && pass >= PADDING_PASSES)
 			padding = true;
-		proglen = do_jit(prog, addrs, image, rw_image, oldproglen, &ctx, padding);
+		proglen = do_jit(env, prog, addrs, image, rw_image, oldproglen, &ctx, padding);
 		if (proglen <= 0) {
 out_image:
 			image = NULL;
@@ -3784,8 +3802,6 @@ out_image:
 						   sizeof(rw_header->size));
 				bpf_jit_binary_pack_free(header, rw_header);
 			}
-			/* Fall back to interpreter mode */
-			prog = orig_prog;
 			if (extra_pass) {
 				prog->bpf_func = NULL;
 				prog->jited = 0;
@@ -3816,10 +3832,8 @@ out_image:
 			header = bpf_jit_binary_pack_alloc(roundup(proglen, align) + extable_size,
 							   &image, align, &rw_header, &rw_image,
 							   jit_fill_hole);
-			if (!header) {
-				prog = orig_prog;
+			if (!header)
 				goto out_addrs;
-			}
 			prog->aux->extable = (void *) image + roundup(proglen, align);
 		}
 		oldproglen = proglen;
@@ -3872,8 +3886,6 @@ out_image:
 		prog->bpf_func = (void *)image + cfi_get_offset();
 		prog->jited = 1;
 		prog->jited_len = proglen - cfi_get_offset();
-	} else {
-		prog = orig_prog;
 	}
 
 	if (!image || !prog->is_func || extra_pass) {
@@ -3889,10 +3901,7 @@ out_priv_stack:
 		kfree(jit_data);
 		prog->aux->jit_data = NULL;
 	}
-out:
-	if (tmp_blinded)
-		bpf_jit_prog_release_other(prog, prog == orig_prog ?
-					   tmp : orig_prog);
+
 	return prog;
 }
 
@@ -4064,6 +4073,11 @@ u64 bpf_arch_uaddress_limit(void)
 }
 
 bool bpf_jit_supports_timed_may_goto(void)
+{
+	return true;
+}
+
+bool bpf_jit_supports_fsession(void)
 {
 	return true;
 }

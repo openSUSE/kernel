@@ -202,7 +202,7 @@ static int lpass_platform_pcmops_open(struct snd_soc_component *component,
 	struct regmap *map;
 	unsigned int dai_id = cpu_dai->driver->id;
 
-	data = kzalloc(sizeof(*data), GFP_KERNEL);
+	data = kzalloc_obj(*data);
 	if (!data)
 		return -ENOMEM;
 
@@ -1268,7 +1268,7 @@ static const struct snd_soc_component_driver lpass_component_driver = {
 	.trigger	= lpass_platform_pcmops_trigger,
 	.pointer	= lpass_platform_pcmops_pointer,
 	.mmap		= lpass_platform_pcmops_mmap,
-	.pcm_construct	= lpass_platform_pcm_new,
+	.pcm_new	= lpass_platform_pcm_new,
 	.suspend		= lpass_platform_pcmops_suspend,
 	.resume			= lpass_platform_pcmops_resume,
 	.copy		= lpass_platform_copy,

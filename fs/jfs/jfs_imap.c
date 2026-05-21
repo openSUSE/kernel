@@ -102,7 +102,7 @@ int diMount(struct inode *ipimap)
 	 * allocate/initialize the in-memory inode map control structure
 	 */
 	/* allocate the in-memory inode map control structure. */
-	imap = kzalloc(sizeof(struct inomap), GFP_KERNEL);
+	imap = kzalloc_obj(struct inomap);
 	if (imap == NULL)
 		return -ENOMEM;
 
@@ -302,7 +302,7 @@ int diRead(struct inode *ip)
 	unsigned long pageno;
 	int rel_inode;
 
-	jfs_info("diRead: ino = %ld", ip->i_ino);
+	jfs_info("diRead: ino = %llu", ip->i_ino);
 
 	ipimap = sbi->ipimap;
 	JFS_IP(ip)->ipimap = ipimap;
@@ -3102,6 +3102,10 @@ static int copy_from_dinode(struct dinode * dip, struct inode *ip)
 
 	if (S_ISDIR(ip->i_mode)) {
 		memcpy(&jfs_ip->u.dir, &dip->u._dir, 384);
+		if (!check_dtroot(&jfs_ip->i_dtroot)) {
+			jfs_error(ip->i_sb, "Corrupt dtroot\n");
+			return -EIO;
+		}
 	} else if (S_ISREG(ip->i_mode) || S_ISLNK(ip->i_mode)) {
 		memcpy(&jfs_ip->i_xtroot, &dip->di_xtroot, 288);
 	} else

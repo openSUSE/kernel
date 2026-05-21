@@ -332,7 +332,7 @@ property_entries_dup(const struct property_entry *properties)
 	while (properties[n].name)
 		n++;
 
-	p = kcalloc(n + 1, sizeof(*p), GFP_KERNEL);
+	p = kzalloc_objs(*p, n + 1);
 	if (!p)
 		return ERR_PTR(-ENOMEM);
 
@@ -554,7 +554,7 @@ software_node_get_reference_args(const struct fwnode_handle *fwnode,
 		return -EINVAL;
 
 	if (!refnode)
-		return -ENOENT;
+		return -ENOTCONN;
 
 	if (nargs_prop) {
 		error = fwnode_property_read_u32(refnode, nargs_prop, &nargs_prop_val);
@@ -758,7 +758,7 @@ static struct software_node *software_node_alloc(const struct property_entry *pr
 	if (IS_ERR(props))
 		return ERR_CAST(props);
 
-	node = kzalloc(sizeof(*node), GFP_KERNEL);
+	node = kzalloc_obj(*node);
 	if (!node) {
 		property_entries_free(props);
 		return ERR_PTR(-ENOMEM);
@@ -805,7 +805,7 @@ swnode_register(const struct software_node *node, struct swnode *parent,
 	struct swnode *swnode;
 	int ret;
 
-	swnode = kzalloc(sizeof(*swnode), GFP_KERNEL);
+	swnode = kzalloc_obj(*swnode);
 	if (!swnode)
 		return ERR_PTR(-ENOMEM);
 
@@ -1127,18 +1127,9 @@ void software_node_notify_remove(struct device *dev)
 	}
 }
 
-static int __init software_node_init(void)
+void __init software_node_init(void)
 {
 	swnode_kset = kset_create_and_add("software_nodes", NULL, kernel_kobj);
 	if (!swnode_kset)
-		return -ENOMEM;
-	return 0;
+		pr_err("failed to register software nodes\n");
 }
-postcore_initcall(software_node_init);
-
-static void __exit software_node_exit(void)
-{
-	ida_destroy(&swnode_root_ids);
-	kset_unregister(swnode_kset);
-}
-__exitcall(software_node_exit);

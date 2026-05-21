@@ -9,7 +9,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/vmalloc.h>
 #include <linux/crash_dump.h>
-#include <linux/bnxt/hsi.h>
+#include <linux/bnge/hsi.h>
 
 #include "bnge.h"
 #include "bnge_hwrm_lib.h"
@@ -158,8 +158,7 @@ static int bnge_alloc_ctx_pg_tbls(struct bnge_dev *bd,
 		int nr_tbls, i;
 
 		rmem->depth = 2;
-		ctx_pg->ctx_pg_tbl = kcalloc(MAX_CTX_PAGES, sizeof(ctx_pg),
-					     GFP_KERNEL);
+		ctx_pg->ctx_pg_tbl = kzalloc_objs(ctx_pg, MAX_CTX_PAGES);
 		if (!ctx_pg->ctx_pg_tbl)
 			return -ENOMEM;
 		nr_tbls = DIV_ROUND_UP(ctx_pg->nr_pages, MAX_CTX_PAGES);
@@ -170,7 +169,7 @@ static int bnge_alloc_ctx_pg_tbls(struct bnge_dev *bd,
 		for (i = 0; i < nr_tbls; i++) {
 			struct bnge_ctx_pg_info *pg_tbl;
 
-			pg_tbl = kzalloc(sizeof(*pg_tbl), GFP_KERNEL);
+			pg_tbl = kzalloc_obj(*pg_tbl);
 			if (!pg_tbl)
 				return -ENOMEM;
 			ctx_pg->ctx_pg_tbl[i] = pg_tbl;
@@ -325,7 +324,6 @@ int bnge_alloc_ctx_mem(struct bnge_dev *bd)
 	u32 l2_qps, qp1_qps, max_qps;
 	u32 ena, entries_sp, entries;
 	u32 srqs, max_srqs, min;
-	u32 num_mr, num_ah;
 	u32 extra_srqs = 0;
 	u32 extra_qps = 0;
 	u32 fast_qpmd_qps;
@@ -390,21 +388,6 @@ int bnge_alloc_ctx_mem(struct bnge_dev *bd)
 
 	if (!bnge_is_roce_en(bd))
 		goto skip_rdma;
-
-	ctxm = &ctx->ctx_arr[BNGE_CTX_MRAV];
-	/* 128K extra is needed to accommodate static AH context
-	 * allocation by f/w.
-	 */
-	num_mr = min_t(u32, ctxm->max_entries / 2, 1024 * 256);
-	num_ah = min_t(u32, num_mr, 1024 * 128);
-	ctxm->split_entry_cnt = BNGE_CTX_MRAV_AV_SPLIT_ENTRY + 1;
-	if (!ctxm->mrav_av_entries || ctxm->mrav_av_entries > num_ah)
-		ctxm->mrav_av_entries = num_ah;
-
-	rc = bnge_setup_ctxm_pg_tbls(bd, ctxm, num_mr + num_ah, 2);
-	if (rc)
-		return rc;
-	ena |= FUNC_BACKING_STORE_CFG_REQ_ENABLES_MRAV;
 
 	ctxm = &ctx->ctx_arr[BNGE_CTX_TIM];
 	rc = bnge_setup_ctxm_pg_tbls(bd, ctxm, l2_qps + qp1_qps + extra_qps, 1);

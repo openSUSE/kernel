@@ -28,7 +28,6 @@
 #include <linux/types.h>
 
 #include "intel_display_power.h"
-#include "intel_wakeref.h"
 
 #define for_each_dpll(__display, __pll, __i) \
 	for ((__i) = 0; (__i) < (__display)->dpll.num_dpll && \
@@ -42,6 +41,7 @@ struct intel_crtc_state;
 struct intel_dpll_funcs;
 struct intel_encoder;
 struct intel_shared_dpll;
+struct ref_tracker;
 
 /**
  * enum intel_dpll_id - possible DPLL ids
@@ -241,20 +241,23 @@ struct intel_mpllb_state {
 };
 
 struct intel_c10pll_state {
-	u32 clock; /* in KHz */
 	u8 tx;
 	u8 cmn;
 	u8 pll[20];
 };
 
 struct intel_c20pll_state {
-	u32 clock; /* in kHz */
 	u16 tx[3];
 	u16 cmn[4];
 	union {
 		u16 mplla[10];
 		u16 mpllb[11];
 	};
+	struct intel_c20pll_vdr_state {
+		u8 custom_width;
+		u8 serdes_rate;
+		u8 hdmi_rate;
+	} vdr;
 };
 
 struct intel_cx0pll_state {
@@ -262,19 +265,20 @@ struct intel_cx0pll_state {
 		struct intel_c10pll_state c10;
 		struct intel_c20pll_state c20;
 	};
+	int lane_count;
 	bool ssc_enabled;
 	bool use_c10;
 	bool tbt_mode;
 };
 
 struct intel_lt_phy_pll_state {
-	u32 clock; /* in kHz */
 	u8 addr_msb[13];
 	u8 addr_lsb[13];
 	u8 data[13][4];
 	u8 config[3];
 	bool ssc_enabled;
 	bool tbt_mode;
+	int lane_count;
 };
 
 struct intel_dpll_hw_state {
@@ -390,7 +394,7 @@ struct intel_dpll {
 	 * @wakeref: In some platforms a device-level runtime pm reference may
 	 * need to be grabbed to disable DC states while this DPLL is enabled
 	 */
-	intel_wakeref_t wakeref;
+	struct ref_tracker *wakeref;
 };
 
 #define SKL_DPLL0 0
@@ -444,6 +448,7 @@ bool intel_dpll_compare_hw_state(struct intel_display *display,
 				 const struct intel_dpll_hw_state *a,
 				 const struct intel_dpll_hw_state *b);
 enum intel_dpll_id icl_tc_port_to_pll_id(enum tc_port tc_port);
+enum intel_dpll_id mtl_port_to_pll_id(struct intel_display *display, enum port port);
 bool intel_dpll_is_combophy(enum intel_dpll_id id);
 
 void intel_dpll_state_verify(struct intel_atomic_state *state,

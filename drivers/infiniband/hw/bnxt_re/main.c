@@ -55,8 +55,8 @@
 #include <rdma/ib_umem.h>
 #include <rdma/ib_addr.h>
 #include <linux/hashtable.h>
+#include <linux/bnxt/ulp.h>
 
-#include "bnxt_ulp.h"
 #include "roce_hsi.h"
 #include "qplib_res.h"
 #include "qplib_sp.h"
@@ -171,7 +171,7 @@ static int bnxt_re_setup_chip_ctx(struct bnxt_re_dev *rdev)
 	en_dev = rdev->en_dev;
 
 	rdev->qplib_res.pdev = en_dev->pdev;
-	chip_ctx = kzalloc(sizeof(*chip_ctx), GFP_KERNEL);
+	chip_ctx = kzalloc_obj(*chip_ctx);
 	if (!chip_ctx)
 		return -ENOMEM;
 	chip_ctx->chip_num = en_dev->chip_num;
@@ -182,7 +182,7 @@ static int bnxt_re_setup_chip_ctx(struct bnxt_re_dev *rdev)
 
 	rdev->qplib_res.cctx = rdev->chip_ctx;
 	rdev->rcfw.res = &rdev->qplib_res;
-	rdev->dev_attr = kzalloc(sizeof(*rdev->dev_attr), GFP_KERNEL);
+	rdev->dev_attr = kzalloc_obj(*rdev->dev_attr);
 	if (!rdev->dev_attr)
 		goto free_chip_ctx;
 	rdev->qplib_res.dattr = rdev->dev_attr;
@@ -420,7 +420,7 @@ static void bnxt_re_async_notifier(void *handle, struct hwrm_async_event_cmpl *c
 
 	switch (event_id) {
 	case ASYNC_EVENT_CMPL_EVENT_ID_DCB_CONFIG_CHANGE:
-		dcb_work = kzalloc(sizeof(*dcb_work), GFP_ATOMIC);
+		dcb_work = kzalloc_obj(*dcb_work, GFP_ATOMIC);
 		if (!dcb_work)
 			break;
 
@@ -595,10 +595,10 @@ int bnxt_re_hwrm_cfg_vnic(struct bnxt_re_dev *rdev, u32 qp_id)
 	bnxt_re_init_hwrm_hdr((void *)&req, HWRM_VNIC_CFG);
 
 	req.flags = cpu_to_le32(VNIC_CFG_REQ_FLAGS_ROCE_ONLY_VNIC_MODE);
-	req.enables = cpu_to_le32(VNIC_CFG_REQ_ENABLES_RAW_QP_ID |
+	req.enables = cpu_to_le32(VNIC_CFG_REQ_ENABLES_QP_ID |
 				  VNIC_CFG_REQ_ENABLES_MRU);
 	req.vnic_id = cpu_to_le16(rdev->mirror_vnic_id);
-	req.raw_qp_id = cpu_to_le32(qp_id);
+	req.qp_id = cpu_to_le32(qp_id);
 	req.mru = cpu_to_le16(rdev->netdev->mtu + VLAN_ETH_HLEN);
 
 	bnxt_re_fill_fw_msg(&fw_msg, (void *)&req, sizeof(req), NULL,
@@ -1326,6 +1326,7 @@ static const struct ib_device_ops bnxt_re_dev_ops = {
 	.owner = THIS_MODULE,
 	.driver_id = RDMA_DRIVER_BNXT_RE,
 	.uverbs_abi_ver = BNXT_RE_ABI_VERSION,
+	.uverbs_robust_udata = true,
 
 	.add_gid = bnxt_re_add_gid,
 	.alloc_hw_port_stats = bnxt_re_ib_alloc_hw_port_stats,
@@ -1334,6 +1335,7 @@ static const struct ib_device_ops bnxt_re_dev_ops = {
 	.alloc_ucontext = bnxt_re_alloc_ucontext,
 	.create_ah = bnxt_re_create_ah,
 	.create_cq = bnxt_re_create_cq,
+	.create_user_cq = bnxt_re_create_user_cq,
 	.create_qp = bnxt_re_create_qp,
 	.create_srq = bnxt_re_create_srq,
 	.create_user_ah = bnxt_re_create_ah,
@@ -1372,7 +1374,7 @@ static const struct ib_device_ops bnxt_re_dev_ops = {
 	.reg_user_mr = bnxt_re_reg_user_mr,
 	.reg_user_mr_dmabuf = bnxt_re_reg_user_mr_dmabuf,
 	.req_notify_cq = bnxt_re_req_notify_cq,
-	.resize_cq = bnxt_re_resize_cq,
+	.resize_user_cq = bnxt_re_resize_cq,
 	.create_flow = bnxt_re_create_flow,
 	.destroy_flow = bnxt_re_destroy_flow,
 	INIT_RDMA_OBJ_SIZE(ib_ah, bnxt_re_ah, ib_ah),
@@ -2033,7 +2035,7 @@ static int bnxt_re_ib_init(struct bnxt_re_dev *rdev)
 
 static int bnxt_re_alloc_nqr_mem(struct bnxt_re_dev *rdev)
 {
-	rdev->nqr = kzalloc(sizeof(*rdev->nqr), GFP_KERNEL);
+	rdev->nqr = kzalloc_obj(*rdev->nqr);
 	if (!rdev->nqr)
 		return -ENOMEM;
 
@@ -2491,7 +2493,7 @@ static int bnxt_re_probe(struct auxiliary_device *adev,
 	en_dev = aux_priv->edev;
 
 	mutex_lock(&bnxt_re_mutex);
-	en_info = kzalloc(sizeof(*en_info), GFP_KERNEL);
+	en_info = kzalloc_obj(*en_info);
 	if (!en_info) {
 		mutex_unlock(&bnxt_re_mutex);
 		return -ENOMEM;

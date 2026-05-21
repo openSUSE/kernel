@@ -35,6 +35,58 @@ bool intel_dsc_source_support(const struct intel_crtc_state *crtc_state)
 	return true;
 }
 
+int intel_dsc_line_slice_count(const struct intel_dsc_slice_config *config)
+{
+	return config->pipes_per_line * config->streams_per_pipe * config->slices_per_stream;
+}
+
+bool intel_dsc_get_slice_config(struct intel_display *display,
+				int pipes_per_line, int slices_per_pipe,
+				struct intel_dsc_slice_config *config)
+{
+	int streams_per_pipe;
+
+	/* TODO: Add support for 8 slices per pipe on TGL+. */
+	switch (slices_per_pipe) {
+	case 3:
+		/*
+		 * 3 DSC Slices per pipe need 3 DSC engines, which is supported only
+		 * with Ultrajoiner only for some platforms.
+		 */
+		if (!HAS_DSC_3ENGINES(display) || pipes_per_line != 4)
+			return false;
+
+		streams_per_pipe = 3;
+		break;
+	case 4:
+		/* TODO: Consider using 1 DSC engine stream x 4 slices instead. */
+	case 2:
+		/* TODO: Consider using 1 DSC engine stream x 2 slices instead. */
+		streams_per_pipe = 2;
+		break;
+	case 1:
+		 /*
+		  * Bigjoiner needs small joiner to be enabled.
+		  * So there should be at least 2 dsc slices per pipe,
+		  * whenever bigjoiner is enabled.
+		  */
+		if (pipes_per_line > 1)
+			return false;
+
+		streams_per_pipe = 1;
+		break;
+	default:
+		MISSING_CASE(slices_per_pipe);
+		return false;
+	}
+
+	config->pipes_per_line = pipes_per_line;
+	config->streams_per_pipe = streams_per_pipe;
+	config->slices_per_stream = slices_per_pipe / streams_per_pipe;
+
+	return true;
+}
+
 static bool is_pipe_dsc(struct intel_crtc *crtc, enum transcoder cpu_transcoder)
 {
 	struct intel_display *display = to_intel_display(crtc);
@@ -278,8 +330,9 @@ int intel_dsc_compute_params(struct intel_crtc_state *pipe_config)
 	int ret;
 
 	vdsc_cfg->pic_width = pipe_config->hw.adjusted_mode.crtc_hdisplay;
-	vdsc_cfg->slice_width = DIV_ROUND_UP(vdsc_cfg->pic_width,
-					     pipe_config->dsc.slice_count);
+	vdsc_cfg->slice_width =
+		DIV_ROUND_UP(vdsc_cfg->pic_width,
+			     intel_dsc_line_slice_count(&pipe_config->dsc.slice_config));
 
 	err = intel_dsc_slice_dimensions_valid(pipe_config, vdsc_cfg);
 
@@ -416,7 +469,7 @@ intel_dsc_power_domain(struct intel_crtc *crtc, enum transcoder cpu_transcoder)
 
 static int intel_dsc_get_vdsc_per_pipe(const struct intel_crtc_state *crtc_state)
 {
-	return crtc_state->dsc.num_streams;
+	return crtc_state->dsc.slice_config.streams_per_pipe;
 }
 
 int intel_dsc_get_num_vdsc_instances(const struct intel_crtc_state *crtc_state)
@@ -767,6 +820,29 @@ void intel_dsc_dp_pps_write(struct intel_encoder *encoder,
 				  sizeof(dp_dsc_pps_sdp));
 }
 
+void intel_dsc_su_et_parameters_configure(struct intel_dsb *dsb, struct intel_encoder *encoder,
+					  const struct intel_crtc_state *crtc_state, int su_lines)
+{
+	struct intel_display *display = to_intel_display(crtc_state);
+	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
+	const struct drm_dsc_config *vdsc_cfg = &crtc_state->dsc.config;
+	enum pipe pipe = crtc->pipe;
+	int vdsc_instances_per_pipe = intel_dsc_get_vdsc_per_pipe(crtc_state);
+	int slice_row_per_frame = su_lines / vdsc_cfg->slice_height;
+	u32 val;
+
+	drm_WARN_ON_ONCE(display->drm, su_lines % vdsc_cfg->slice_height);
+	drm_WARN_ON_ONCE(display->drm, vdsc_instances_per_pipe > 2);
+
+	val = DSC_SUPS0_SU_SLICE_ROW_PER_FRAME(slice_row_per_frame);
+	val |= DSC_SUPS0_SU_PIC_HEIGHT(su_lines);
+
+	intel_de_write_dsb(display, dsb, LNL_DSC0_SU_PARAMETER_SET_0(pipe), val);
+
+	if (vdsc_instances_per_pipe == 2)
+		intel_de_write_dsb(display, dsb, LNL_DSC1_SU_PARAMETER_SET_0(pipe), val);
+}
+
 static i915_reg_t dss_ctl1_reg(struct intel_crtc *crtc, enum transcoder cpu_transcoder)
 {
 	return is_pipe_dsc(crtc, cpu_transcoder) ?
@@ -999,7 +1075,7 @@ void intel_dsc_get_config(struct intel_crtc_state *crtc_state)
 	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
 	enum transcoder cpu_transcoder = crtc_state->cpu_transcoder;
 	enum intel_display_power_domain power_domain;
-	intel_wakeref_t wakeref;
+	struct ref_tracker *wakeref;
 	u32 dss_ctl1, dss_ctl2;
 
 	if (!intel_dsc_source_support(crtc_state))
@@ -1018,12 +1094,13 @@ void intel_dsc_get_config(struct intel_crtc_state *crtc_state)
 	if (!crtc_state->dsc.compression_enable)
 		goto out;
 
+	/* TODO: Read out slice_config.pipes_per_line/slices_per_stream as well */
 	if (dss_ctl1 & JOINER_ENABLE && dss_ctl2 & (VDSC2_ENABLE | SMALL_JOINER_CONFIG_3_ENGINES))
-		crtc_state->dsc.num_streams = 3;
+		crtc_state->dsc.slice_config.streams_per_pipe = 3;
 	else if (dss_ctl1 & JOINER_ENABLE && dss_ctl2 & VDSC1_ENABLE)
-		crtc_state->dsc.num_streams = 2;
+		crtc_state->dsc.slice_config.streams_per_pipe = 2;
 	else
-		crtc_state->dsc.num_streams = 1;
+		crtc_state->dsc.slice_config.streams_per_pipe = 1;
 
 	intel_dsc_get_pps_config(crtc_state);
 out:
@@ -1036,8 +1113,8 @@ static void intel_vdsc_dump_state(struct drm_printer *p, int indent,
 	drm_printf_indent(p, indent,
 			  "dsc-dss: compressed-bpp:" FXP_Q4_FMT ", slice-count: %d, num_streams: %d\n",
 			  FXP_Q4_ARGS(crtc_state->dsc.compressed_bpp_x16),
-			  crtc_state->dsc.slice_count,
-			  crtc_state->dsc.num_streams);
+			  intel_dsc_line_slice_count(&crtc_state->dsc.slice_config),
+			  crtc_state->dsc.slice_config.streams_per_pipe);
 }
 
 void intel_vdsc_state_dump(struct drm_printer *p, int indent,
@@ -1050,14 +1127,38 @@ void intel_vdsc_state_dump(struct drm_printer *p, int indent,
 	drm_dsc_dump_config(p, indent, &crtc_state->dsc.config);
 }
 
+int intel_dsc_get_pixel_rate_with_dsc_bubbles(struct intel_display *display,
+					      int pixel_rate, int htotal,
+					      int dsc_horizontal_slices)
+{
+	int dsc_slice_bubbles;
+	u64 num;
+
+	if (drm_WARN_ON(display->drm, !htotal))
+		return pixel_rate;
+
+	dsc_slice_bubbles = 14 * dsc_horizontal_slices;
+	num = mul_u32_u32(pixel_rate, (htotal + dsc_slice_bubbles));
+
+	return DIV_ROUND_UP_ULL(num, htotal);
+}
+
 int intel_vdsc_min_cdclk(const struct intel_crtc_state *crtc_state)
 {
 	struct intel_display *display = to_intel_display(crtc_state);
 	int num_vdsc_instances = intel_dsc_get_num_vdsc_instances(crtc_state);
+	int htotal = crtc_state->hw.adjusted_mode.crtc_htotal;
+	int dsc_slices = intel_dsc_line_slice_count(&crtc_state->dsc.slice_config);
+	int pixel_rate;
 	int min_cdclk;
 
 	if (!crtc_state->dsc.compression_enable)
 		return 0;
+
+	pixel_rate = intel_dsc_get_pixel_rate_with_dsc_bubbles(display,
+							       crtc_state->pixel_rate,
+							       htotal,
+							       dsc_slices);
 
 	/*
 	 * When we decide to use only one VDSC engine, since
@@ -1066,7 +1167,7 @@ int intel_vdsc_min_cdclk(const struct intel_crtc_state *crtc_state)
 	 * If there 2 VDSC engines, then pixel clock can't be higher than
 	 * VDSC clock(cdclk) * 2 and so on.
 	 */
-	min_cdclk = DIV_ROUND_UP(crtc_state->pixel_rate, num_vdsc_instances);
+	min_cdclk = DIV_ROUND_UP(pixel_rate, num_vdsc_instances);
 
 	if (crtc_state->joiner_pipes) {
 		int pixel_clock = intel_dp_mode_to_fec_clock(crtc_state->hw.adjusted_mode.clock);
@@ -1084,9 +1185,11 @@ int intel_vdsc_min_cdclk(const struct intel_crtc_state *crtc_state)
 		 * => CDCLK >= compressed_bpp * Pixel clock  / 2 * Bigjoiner Interface bits
 		 */
 		int bigjoiner_interface_bits = DISPLAY_VER(display) >= 14 ? 36 : 24;
-		int min_cdclk_bj =
-			(fxp_q4_to_int_roundup(crtc_state->dsc.compressed_bpp_x16) *
-			 pixel_clock) / (2 * bigjoiner_interface_bits);
+		int adjusted_pixel_rate =
+			intel_dsc_get_pixel_rate_with_dsc_bubbles(display, pixel_clock,
+								  htotal, dsc_slices);
+		int min_cdclk_bj = (fxp_q4_to_int_roundup(crtc_state->dsc.compressed_bpp_x16) *
+				   adjusted_pixel_rate) / (2 * bigjoiner_interface_bits);
 
 		min_cdclk = max(min_cdclk, min_cdclk_bj);
 	}

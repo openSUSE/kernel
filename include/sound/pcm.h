@@ -729,6 +729,10 @@ static inline void __snd_pcm_set_state(struct snd_pcm_runtime *runtime,
 	runtime->status->state = state; /* copy for mmap */
 }
 
+void snd_pcm_set_state(struct snd_pcm_substream *substream,
+		       snd_pcm_state_t state);
+snd_pcm_state_t snd_pcm_get_state(struct snd_pcm_substream *substream);
+
 /**
  * bytes_to_samples - Unit conversion of the size from bytes to samples
  * @runtime: PCM runtime instance
@@ -1402,7 +1406,7 @@ int snd_pcm_lib_mmap_iomem(struct snd_pcm_substream *substream, struct vm_area_s
 #define snd_pcm_lib_mmap_iomem	NULL
 #endif
 
-void snd_pcm_runtime_buffer_set_silence(struct snd_pcm_runtime *runtime);
+int snd_pcm_runtime_buffer_set_silence(struct snd_pcm_runtime *runtime);
 
 /**
  * snd_pcm_limit_isa_dma_size - Get the max size fitting with ISA DMA transfer

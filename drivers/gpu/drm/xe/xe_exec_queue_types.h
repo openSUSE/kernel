@@ -33,6 +33,44 @@ enum xe_exec_queue_priority {
 };
 
 /**
+ * enum xe_multi_queue_priority - Multi Queue priority values
+ *
+ * The priority values of the queues within the multi queue group.
+ */
+enum xe_multi_queue_priority {
+	/** @XE_MULTI_QUEUE_PRIORITY_LOW: Priority low */
+	XE_MULTI_QUEUE_PRIORITY_LOW = 0,
+	/** @XE_MULTI_QUEUE_PRIORITY_NORMAL: Priority normal */
+	XE_MULTI_QUEUE_PRIORITY_NORMAL,
+	/** @XE_MULTI_QUEUE_PRIORITY_HIGH: Priority high */
+	XE_MULTI_QUEUE_PRIORITY_HIGH,
+};
+
+/**
+ * struct xe_exec_queue_group - Execution multi queue group
+ *
+ * Contains multi queue group information.
+ */
+struct xe_exec_queue_group {
+	/** @primary: Primary queue of this group */
+	struct xe_exec_queue *primary;
+	/** @cgp_bo: BO for the Context Group Page */
+	struct xe_bo *cgp_bo;
+	/** @xa: xarray to store LRCs */
+	struct xarray xa;
+	/** @list: List of all secondary queues in the group */
+	struct list_head list;
+	/** @list_lock: Secondary queue list lock */
+	struct mutex list_lock;
+	/** @sync_pending: CGP_SYNC_DONE g2h response pending */
+	bool sync_pending;
+	/** @banned: Group banned */
+	bool banned;
+	/** @stopped: Group is stopped, protected by list_lock */
+	bool stopped;
+};
+
+/**
  * struct xe_exec_queue - Execution queue
  *
  * Contains all state necessary for submissions. Can either be a user object or
@@ -54,6 +92,12 @@ struct xe_exec_queue {
 	struct kref refcount;
 	/** @vm: VM (address space) for this exec queue */
 	struct xe_vm *vm;
+	/**
+	 * @user_vm: User VM (address space) for this exec queue (bind queues
+	 * only)
+	 */
+	struct xe_vm *user_vm;
+
 	/** @class: class of this exec queue */
 	enum xe_engine_class class;
 	/**
@@ -90,6 +134,8 @@ struct xe_exec_queue {
 #define EXEC_QUEUE_FLAG_LOW_LATENCY		BIT(5)
 /* for migration (kernel copy, clear, bind) jobs */
 #define EXEC_QUEUE_FLAG_MIGRATE			BIT(6)
+/* for programming COMMON_SLICE_CHICKEN3 on first submission */
+#define EXEC_QUEUE_FLAG_DISABLE_STATE_CACHE_PERF_FIX	BIT(7)
 
 	/**
 	 * @flags: flags for this exec queue, should statically setup aside from ban
@@ -110,6 +156,27 @@ struct xe_exec_queue {
 		/** @guc: GuC backend specific state for exec queue */
 		struct xe_guc_exec_queue *guc;
 	};
+
+	/** @multi_queue: Multi queue information */
+	struct {
+		/** @multi_queue.group: Queue group information */
+		struct xe_exec_queue_group *group;
+		/** @multi_queue.link: Link into group's secondary queues list */
+		struct list_head link;
+		/**
+		 * @multi_queue.priority: Queue priority within the multi-queue group.
+		 * It is protected by @multi_queue.lock.
+		 */
+		enum xe_multi_queue_priority priority;
+		/** @multi_queue.lock: Lock for protecting certain members */
+		spinlock_t lock;
+		/** @multi_queue.pos: Position of queue within the multi-queue group */
+		u8 pos;
+		/** @multi_queue.valid: Queue belongs to a multi queue group */
+		u8 valid:1;
+		/** @multi_queue.is_primary: Is primary queue (Q0) of the group */
+		u8 is_primary:1;
+	} multi_queue;
 
 	/** @sched_props: scheduling properties */
 	struct {
@@ -153,6 +220,9 @@ struct xe_exec_queue {
 		struct dma_fence *last_fence;
 	} tlb_inval[XE_EXEC_QUEUE_TLB_INVAL_COUNT];
 
+	/** @vm_exec_queue_link: Link to track exec queue within a VM's list of exec queues. */
+	struct list_head vm_exec_queue_link;
+
 	/** @pxp: PXP info tracking */
 	struct {
 		/** @pxp.type: PXP session type used by this queue */
@@ -166,6 +236,9 @@ struct xe_exec_queue {
 
 	/** @ufence_timeline_value: User fence timeline value */
 	u64 ufence_timeline_value;
+
+	/** @replay_state: GPU hang replay state */
+	void *replay_state;
 
 	/** @ops: submission backend exec queue operations */
 	const struct xe_exec_queue_ops *ops;
@@ -186,6 +259,11 @@ struct xe_exec_queue {
 	u64 tlb_flush_seqno;
 	/** @hw_engine_group_link: link into exec queues in the same hw engine group */
 	struct list_head hw_engine_group_link;
+	/**
+	 * @lrc_lookup_lock: Lock for protecting lrc array access. Only used when
+	 * running in parallel to queue creation is possible.
+	 */
+	spinlock_t lrc_lookup_lock;
 	/** @lrc: logical ring context for this exec queue */
 	struct xe_lrc *lrc[] __counted_by(width);
 };
@@ -213,6 +291,9 @@ struct xe_exec_queue_ops {
 	int (*set_timeslice)(struct xe_exec_queue *q, u32 timeslice_us);
 	/** @set_preempt_timeout: Set preemption timeout for exec queue */
 	int (*set_preempt_timeout)(struct xe_exec_queue *q, u32 preempt_timeout_us);
+	/** @set_multi_queue_priority: Set multi queue priority */
+	int (*set_multi_queue_priority)(struct xe_exec_queue *q,
+					enum xe_multi_queue_priority priority);
 	/**
 	 * @suspend: Suspend exec queue from executing, allowed to be called
 	 * multiple times in a row before resume with the caveat that
@@ -237,6 +318,8 @@ struct xe_exec_queue_ops {
 	void (*resume)(struct xe_exec_queue *q);
 	/** @reset_status: check exec queue reset status */
 	bool (*reset_status)(struct xe_exec_queue *q);
+	/** @active: check exec queue is active */
+	bool (*active)(struct xe_exec_queue *q);
 };
 
 #endif

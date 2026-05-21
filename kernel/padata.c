@@ -535,12 +535,13 @@ static void padata_init_reorder_list(struct parallel_data *pd)
 }
 
 /* Allocate and initialize the internal cpumask dependend resources. */
-static struct parallel_data *padata_alloc_pd(struct padata_shell *ps)
+static struct parallel_data *padata_alloc_pd(struct padata_shell *ps,
+					     int offlining_cpu)
 {
 	struct padata_instance *pinst = ps->pinst;
 	struct parallel_data *pd;
 
-	pd = kzalloc(sizeof(struct parallel_data), GFP_KERNEL);
+	pd = kzalloc_obj(struct parallel_data);
 	if (!pd)
 		goto err;
 
@@ -561,6 +562,10 @@ static struct parallel_data *padata_alloc_pd(struct padata_shell *ps)
 
 	cpumask_and(pd->cpumask.pcpu, pinst->cpumask.pcpu, cpu_online_mask);
 	cpumask_and(pd->cpumask.cbcpu, pinst->cpumask.cbcpu, cpu_online_mask);
+	if (offlining_cpu >= 0) {
+		__cpumask_clear_cpu(offlining_cpu, pd->cpumask.pcpu);
+		__cpumask_clear_cpu(offlining_cpu, pd->cpumask.cbcpu);
+	}
 
 	padata_init_reorder_list(pd);
 	padata_init_squeues(pd);
@@ -607,11 +612,11 @@ static void __padata_stop(struct padata_instance *pinst)
 }
 
 /* Replace the internal control structure with a new one. */
-static int padata_replace_one(struct padata_shell *ps)
+static int padata_replace_one(struct padata_shell *ps, int offlining_cpu)
 {
 	struct parallel_data *pd_new;
 
-	pd_new = padata_alloc_pd(ps);
+	pd_new = padata_alloc_pd(ps, offlining_cpu);
 	if (!pd_new)
 		return -ENOMEM;
 
@@ -621,7 +626,7 @@ static int padata_replace_one(struct padata_shell *ps)
 	return 0;
 }
 
-static int padata_replace(struct padata_instance *pinst)
+static int padata_replace(struct padata_instance *pinst, int offlining_cpu)
 {
 	struct padata_shell *ps;
 	int err = 0;
@@ -629,7 +634,7 @@ static int padata_replace(struct padata_instance *pinst)
 	pinst->flags |= PADATA_RESET;
 
 	list_for_each_entry(ps, &pinst->pslist, list) {
-		err = padata_replace_one(ps);
+		err = padata_replace_one(ps, offlining_cpu);
 		if (err)
 			break;
 	}
@@ -646,9 +651,21 @@ static int padata_replace(struct padata_instance *pinst)
 
 /* If cpumask contains no active cpu, we mark the instance as invalid. */
 static bool padata_validate_cpumask(struct padata_instance *pinst,
-				    const struct cpumask *cpumask)
+				    const struct cpumask *cpumask,
+				    int offlining_cpu)
 {
-	if (!cpumask_intersects(cpumask, cpu_online_mask)) {
+	cpumask_copy(pinst->validate_cpumask, cpu_online_mask);
+
+	/*
+	 * @offlining_cpu is still in cpu_online_mask, so remove it here for
+	 * validation.  Using a sub-CPUHP_TEARDOWN_CPU hotplug state where
+	 * @offlining_cpu wouldn't be in the online mask doesn't work because
+	 * padata_cpu_offline() can fail but such a state doesn't allow failure.
+	 */
+	if (offlining_cpu >= 0)
+		__cpumask_clear_cpu(offlining_cpu, pinst->validate_cpumask);
+
+	if (!cpumask_intersects(cpumask, pinst->validate_cpumask)) {
 		pinst->flags |= PADATA_INVALID;
 		return false;
 	}
@@ -664,13 +681,13 @@ static int __padata_set_cpumasks(struct padata_instance *pinst,
 	int valid;
 	int err;
 
-	valid = padata_validate_cpumask(pinst, pcpumask);
+	valid = padata_validate_cpumask(pinst, pcpumask, -1);
 	if (!valid) {
 		__padata_stop(pinst);
 		goto out_replace;
 	}
 
-	valid = padata_validate_cpumask(pinst, cbcpumask);
+	valid = padata_validate_cpumask(pinst, cbcpumask, -1);
 	if (!valid)
 		__padata_stop(pinst);
 
@@ -678,7 +695,7 @@ out_replace:
 	cpumask_copy(pinst->cpumask.pcpu, pcpumask);
 	cpumask_copy(pinst->cpumask.cbcpu, cbcpumask);
 
-	err = padata_setup_cpumasks(pinst) ?: padata_replace(pinst);
+	err = padata_setup_cpumasks(pinst) ?: padata_replace(pinst, -1);
 
 	if (valid)
 		__padata_start(pinst);
@@ -730,36 +747,6 @@ EXPORT_SYMBOL(padata_set_cpumask);
 
 #ifdef CONFIG_HOTPLUG_CPU
 
-static int __padata_add_cpu(struct padata_instance *pinst, int cpu)
-{
-	int err = 0;
-
-	if (cpumask_test_cpu(cpu, cpu_online_mask)) {
-		err = padata_replace(pinst);
-
-		if (padata_validate_cpumask(pinst, pinst->cpumask.pcpu) &&
-		    padata_validate_cpumask(pinst, pinst->cpumask.cbcpu))
-			__padata_start(pinst);
-	}
-
-	return err;
-}
-
-static int __padata_remove_cpu(struct padata_instance *pinst, int cpu)
-{
-	int err = 0;
-
-	if (!cpumask_test_cpu(cpu, cpu_online_mask)) {
-		if (!padata_validate_cpumask(pinst, pinst->cpumask.pcpu) ||
-		    !padata_validate_cpumask(pinst, pinst->cpumask.cbcpu))
-			__padata_stop(pinst);
-
-		err = padata_replace(pinst);
-	}
-
-	return err;
-}
-
 static inline int pinst_has_cpu(struct padata_instance *pinst, int cpu)
 {
 	return cpumask_test_cpu(cpu, pinst->cpumask.pcpu) ||
@@ -771,27 +758,39 @@ static int padata_cpu_online(unsigned int cpu, struct hlist_node *node)
 	struct padata_instance *pinst;
 	int ret;
 
-	pinst = hlist_entry_safe(node, struct padata_instance, cpu_online_node);
+	pinst = hlist_entry_safe(node, struct padata_instance, cpuhp_node);
 	if (!pinst_has_cpu(pinst, cpu))
 		return 0;
 
 	mutex_lock(&pinst->lock);
-	ret = __padata_add_cpu(pinst, cpu);
+
+	ret = padata_replace(pinst, -1);
+
+	if (padata_validate_cpumask(pinst, pinst->cpumask.pcpu, -1) &&
+	    padata_validate_cpumask(pinst, pinst->cpumask.cbcpu, -1))
+		__padata_start(pinst);
+
 	mutex_unlock(&pinst->lock);
 	return ret;
 }
 
-static int padata_cpu_dead(unsigned int cpu, struct hlist_node *node)
+static int padata_cpu_offline(unsigned int cpu, struct hlist_node *node)
 {
 	struct padata_instance *pinst;
 	int ret;
 
-	pinst = hlist_entry_safe(node, struct padata_instance, cpu_dead_node);
+	pinst = hlist_entry_safe(node, struct padata_instance, cpuhp_node);
 	if (!pinst_has_cpu(pinst, cpu))
 		return 0;
 
 	mutex_lock(&pinst->lock);
-	ret = __padata_remove_cpu(pinst, cpu);
+
+	if (!padata_validate_cpumask(pinst, pinst->cpumask.pcpu, cpu) ||
+	    !padata_validate_cpumask(pinst, pinst->cpumask.cbcpu, cpu))
+		__padata_stop(pinst);
+
+	ret = padata_replace(pinst, cpu);
+
 	mutex_unlock(&pinst->lock);
 	return ret;
 }
@@ -802,15 +801,14 @@ static enum cpuhp_state hp_online;
 static void __padata_free(struct padata_instance *pinst)
 {
 #ifdef CONFIG_HOTPLUG_CPU
-	cpuhp_state_remove_instance_nocalls(CPUHP_PADATA_DEAD,
-					    &pinst->cpu_dead_node);
-	cpuhp_state_remove_instance_nocalls(hp_online, &pinst->cpu_online_node);
+	cpuhp_state_remove_instance_nocalls(hp_online, &pinst->cpuhp_node);
 #endif
 
 	WARN_ON(!list_empty(&pinst->pslist));
 
 	free_cpumask_var(pinst->cpumask.pcpu);
 	free_cpumask_var(pinst->cpumask.cbcpu);
+	free_cpumask_var(pinst->validate_cpumask);
 	destroy_workqueue(pinst->serial_wq);
 	destroy_workqueue(pinst->parallel_wq);
 	kfree(pinst);
@@ -819,7 +817,7 @@ static void __padata_free(struct padata_instance *pinst)
 #define kobj2pinst(_kobj)					\
 	container_of(_kobj, struct padata_instance, kobj)
 #define attr2pentry(_attr)					\
-	container_of(_attr, struct padata_sysfs_entry, attr)
+	container_of_const(_attr, struct padata_sysfs_entry, attr)
 
 static void padata_sysfs_release(struct kobject *kobj)
 {
@@ -829,13 +827,13 @@ static void padata_sysfs_release(struct kobject *kobj)
 
 struct padata_sysfs_entry {
 	struct attribute attr;
-	ssize_t (*show)(struct padata_instance *, struct attribute *, char *);
-	ssize_t (*store)(struct padata_instance *, struct attribute *,
+	ssize_t (*show)(struct padata_instance *, const struct attribute *, char *);
+	ssize_t (*store)(struct padata_instance *, const struct attribute *,
 			 const char *, size_t);
 };
 
 static ssize_t show_cpumask(struct padata_instance *pinst,
-			    struct attribute *attr,  char *buf)
+			    const struct attribute *attr,  char *buf)
 {
 	struct cpumask *cpumask;
 	ssize_t len;
@@ -853,7 +851,7 @@ static ssize_t show_cpumask(struct padata_instance *pinst,
 }
 
 static ssize_t store_cpumask(struct padata_instance *pinst,
-			     struct attribute *attr,
+			     const struct attribute *attr,
 			     const char *buf, size_t count)
 {
 	cpumask_var_t new_cpumask;
@@ -880,10 +878,10 @@ out:
 }
 
 #define PADATA_ATTR_RW(_name, _show_name, _store_name)		\
-	static struct padata_sysfs_entry _name##_attr =		\
+	static const struct padata_sysfs_entry _name##_attr =	\
 		__ATTR(_name, 0644, _show_name, _store_name)
-#define PADATA_ATTR_RO(_name, _show_name)		\
-	static struct padata_sysfs_entry _name##_attr = \
+#define PADATA_ATTR_RO(_name, _show_name)			\
+	static const struct padata_sysfs_entry _name##_attr =	\
 		__ATTR(_name, 0400, _show_name, NULL)
 
 PADATA_ATTR_RW(serial_cpumask, show_cpumask, store_cpumask);
@@ -894,7 +892,7 @@ PADATA_ATTR_RW(parallel_cpumask, show_cpumask, store_cpumask);
  * serial_cpumask   [RW] - cpumask for serial workers
  * parallel_cpumask [RW] - cpumask for parallel workers
  */
-static struct attribute *padata_default_attrs[] = {
+static const struct attribute *const padata_default_attrs[] = {
 	&serial_cpumask_attr.attr,
 	&parallel_cpumask_attr.attr,
 	NULL,
@@ -904,8 +902,8 @@ ATTRIBUTE_GROUPS(padata_default);
 static ssize_t padata_sysfs_show(struct kobject *kobj,
 				 struct attribute *attr, char *buf)
 {
+	const struct padata_sysfs_entry *pentry;
 	struct padata_instance *pinst;
-	struct padata_sysfs_entry *pentry;
 	ssize_t ret = -EIO;
 
 	pinst = kobj2pinst(kobj);
@@ -919,8 +917,8 @@ static ssize_t padata_sysfs_show(struct kobject *kobj,
 static ssize_t padata_sysfs_store(struct kobject *kobj, struct attribute *attr,
 				  const char *buf, size_t count)
 {
+	const struct padata_sysfs_entry *pentry;
 	struct padata_instance *pinst;
-	struct padata_sysfs_entry *pentry;
 	ssize_t ret = -EIO;
 
 	pinst = kobj2pinst(kobj);
@@ -952,7 +950,7 @@ struct padata_instance *padata_alloc(const char *name)
 {
 	struct padata_instance *pinst;
 
-	pinst = kzalloc(sizeof(struct padata_instance), GFP_KERNEL);
+	pinst = kzalloc_obj(struct padata_instance);
 	if (!pinst)
 		goto err;
 
@@ -971,10 +969,10 @@ struct padata_instance *padata_alloc(const char *name)
 
 	if (!alloc_cpumask_var(&pinst->cpumask.pcpu, GFP_KERNEL))
 		goto err_free_serial_wq;
-	if (!alloc_cpumask_var(&pinst->cpumask.cbcpu, GFP_KERNEL)) {
-		free_cpumask_var(pinst->cpumask.pcpu);
-		goto err_free_serial_wq;
-	}
+	if (!alloc_cpumask_var(&pinst->cpumask.cbcpu, GFP_KERNEL))
+		goto err_free_p_mask;
+	if (!alloc_cpumask_var(&pinst->validate_cpumask, GFP_KERNEL))
+		goto err_free_cb_mask;
 
 	INIT_LIST_HEAD(&pinst->pslist);
 
@@ -982,7 +980,7 @@ struct padata_instance *padata_alloc(const char *name)
 	cpumask_copy(pinst->cpumask.cbcpu, cpu_possible_mask);
 
 	if (padata_setup_cpumasks(pinst))
-		goto err_free_masks;
+		goto err_free_v_mask;
 
 	__padata_start(pinst);
 
@@ -991,18 +989,19 @@ struct padata_instance *padata_alloc(const char *name)
 
 #ifdef CONFIG_HOTPLUG_CPU
 	cpuhp_state_add_instance_nocalls_cpuslocked(hp_online,
-						    &pinst->cpu_online_node);
-	cpuhp_state_add_instance_nocalls_cpuslocked(CPUHP_PADATA_DEAD,
-						    &pinst->cpu_dead_node);
+						    &pinst->cpuhp_node);
 #endif
 
 	cpus_read_unlock();
 
 	return pinst;
 
-err_free_masks:
-	free_cpumask_var(pinst->cpumask.pcpu);
+err_free_v_mask:
+	free_cpumask_var(pinst->validate_cpumask);
+err_free_cb_mask:
 	free_cpumask_var(pinst->cpumask.cbcpu);
+err_free_p_mask:
+	free_cpumask_var(pinst->cpumask.pcpu);
 err_free_serial_wq:
 	destroy_workqueue(pinst->serial_wq);
 err_put_cpus:
@@ -1038,14 +1037,14 @@ struct padata_shell *padata_alloc_shell(struct padata_instance *pinst)
 	struct parallel_data *pd;
 	struct padata_shell *ps;
 
-	ps = kzalloc(sizeof(*ps), GFP_KERNEL);
+	ps = kzalloc_obj(*ps);
 	if (!ps)
 		goto out;
 
 	ps->pinst = pinst;
 
 	cpus_read_lock();
-	pd = padata_alloc_pd(ps);
+	pd = padata_alloc_pd(ps, -1);
 	cpus_read_unlock();
 
 	if (!pd)
@@ -1094,32 +1093,24 @@ void __init padata_init(void)
 	int ret;
 
 	ret = cpuhp_setup_state_multi(CPUHP_AP_ONLINE_DYN, "padata:online",
-				      padata_cpu_online, NULL);
+				      padata_cpu_online, padata_cpu_offline);
 	if (ret < 0)
 		goto err;
 	hp_online = ret;
-
-	ret = cpuhp_setup_state_multi(CPUHP_PADATA_DEAD, "padata:dead",
-				      NULL, padata_cpu_dead);
-	if (ret < 0)
-		goto remove_online_state;
 #endif
 
 	possible_cpus = num_possible_cpus();
-	padata_works = kmalloc_array(possible_cpus, sizeof(struct padata_work),
-				     GFP_KERNEL);
+	padata_works = kmalloc_objs(struct padata_work, possible_cpus);
 	if (!padata_works)
-		goto remove_dead_state;
+		goto remove_online_state;
 
 	for (i = 0; i < possible_cpus; ++i)
 		list_add(&padata_works[i].pw_list, &padata_free_works);
 
 	return;
 
-remove_dead_state:
-#ifdef CONFIG_HOTPLUG_CPU
-	cpuhp_remove_multi_state(CPUHP_PADATA_DEAD);
 remove_online_state:
+#ifdef CONFIG_HOTPLUG_CPU
 	cpuhp_remove_multi_state(hp_online);
 err:
 #endif

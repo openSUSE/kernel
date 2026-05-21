@@ -319,8 +319,15 @@ static void dump_extent_map(struct btrfs_fs_info *fs_info, const char *prefix,
 /* Internal sanity checks for btrfs debug builds. */
 static void validate_extent_map(struct btrfs_fs_info *fs_info, struct extent_map *em)
 {
+	const u32 blocksize = fs_info->sectorsize;
+
 	if (!IS_ENABLED(CONFIG_BTRFS_DEBUG))
 		return;
+
+	if (!IS_ALIGNED(em->start, blocksize) ||
+	    !IS_ALIGNED(em->len, blocksize))
+		dump_extent_map(fs_info, "unaligned start offset or length members", em);
+
 	if (em->disk_bytenr < EXTENT_MAP_LAST_BYTE) {
 		if (em->disk_num_bytes == 0)
 			dump_extent_map(fs_info, "zero disk_num_bytes", em);
@@ -334,6 +341,11 @@ static void validate_extent_map(struct btrfs_fs_info *fs_info, struct extent_map
 			dump_extent_map(fs_info,
 		"ram_bytes mismatch with disk_num_bytes for non-compressed em",
 					em);
+		if (!IS_ALIGNED(em->disk_bytenr, blocksize) ||
+		    !IS_ALIGNED(em->disk_num_bytes, blocksize) ||
+		    !IS_ALIGNED(em->offset, blocksize) ||
+		    !IS_ALIGNED(em->ram_bytes, blocksize))
+			dump_extent_map(fs_info, "unaligned members", em);
 	} else if (em->offset) {
 		dump_extent_map(fs_info, "non-zero offset for hole/inline", em);
 	}
@@ -1306,7 +1318,7 @@ static void btrfs_extent_map_shrinker_worker(struct work_struct *work)
 	if (trace_btrfs_extent_map_shrinker_scan_enter_enabled()) {
 		s64 nr = percpu_counter_sum_positive(&fs_info->evictable_extent_maps);
 
-		trace_btrfs_extent_map_shrinker_scan_enter(fs_info, nr);
+		trace_call__btrfs_extent_map_shrinker_scan_enter(fs_info, nr);
 	}
 
 	while (ctx.scanned < ctx.nr_to_scan && !btrfs_fs_closing(fs_info)) {
@@ -1346,7 +1358,7 @@ static void btrfs_extent_map_shrinker_worker(struct work_struct *work)
 	if (trace_btrfs_extent_map_shrinker_scan_exit_enabled()) {
 		s64 nr = percpu_counter_sum_positive(&fs_info->evictable_extent_maps);
 
-		trace_btrfs_extent_map_shrinker_scan_exit(fs_info, nr_dropped, nr);
+		trace_call__btrfs_extent_map_shrinker_scan_exit(fs_info, nr_dropped, nr);
 	}
 
 	atomic64_set(&fs_info->em_shrinker_nr_to_scan, 0);

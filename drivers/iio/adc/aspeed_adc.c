@@ -75,6 +75,8 @@
 
 #define ASPEED_ADC_INIT_POLLING_TIME	500
 #define ASPEED_ADC_INIT_TIMEOUT		500000
+/* Battery sensing is typically on the last channel */
+#define ASPEED_ADC_BATTERY_CHANNEL		7
 /*
  * When the sampling rate is too high, the ADC may not have enough charging
  * time, resulting in a low voltage value. Thus, the default uses a slow
@@ -120,6 +122,31 @@ struct aspeed_adc_data {
 	bool			battery_sensing;
 	struct adc_gain		battery_mode_gain;
 };
+
+/*
+ * Enable multiple consecutive channels starting from channel 0.
+ * This creates a bitmask for channels 0 to (num_channels - 1).
+ * For example: num_channels=3 creates mask 0x0007 (channels 0,1,2)
+ */
+static inline u32 aspeed_adc_channels_mask(unsigned int num_channels)
+{
+	if (num_channels > 16)
+		return GENMASK(15, 0);
+
+	return BIT(num_channels) - 1;
+}
+
+static inline unsigned int aspeed_adc_get_active_channels(const struct aspeed_adc_data *data)
+{
+	/*
+	 * For controllers with battery sensing capability, the last channel
+	 * is reserved for battery sensing and should not be included in
+	 * normal channel operations.
+	 */
+	if (data->model_data->bat_sense_sup)
+		return data->model_data->num_channels - 1;
+	return data->model_data->num_channels;
+}
 
 #define ASPEED_CHAN(_idx, _data_reg_addr) {			\
 	.type = IIO_VOLTAGE,					\
@@ -236,10 +263,10 @@ static int aspeed_adc_compensation(struct iio_dev *indio_dev)
 		       ASPEED_ADC_CTRL_CHANNEL_ENABLE(0),
 	       data->base + ASPEED_REG_ENGINE_CONTROL);
 	/*
-	 * After enable compensating sensing mode need to wait some time for ADC stable
-	 * Experiment result is 1ms.
+	 * After enable compensating sensing mode need to wait some time for the
+	 * ADC stablize. Experiment result is 1ms.
 	 */
-	mdelay(1);
+	fsleep(1000);
 
 	for (index = 0; index < 16; index++) {
 		/*
@@ -285,31 +312,48 @@ static int aspeed_adc_read_raw(struct iio_dev *indio_dev,
 
 	switch (mask) {
 	case IIO_CHAN_INFO_RAW:
-		if (data->battery_sensing && chan->channel == 7) {
-			adc_engine_control_reg_val =
-				readl(data->base + ASPEED_REG_ENGINE_CONTROL);
+		adc_engine_control_reg_val = readl(data->base + ASPEED_REG_ENGINE_CONTROL);
+		/*
+		 * For battery sensing capable controllers, we need to enable
+		 * the specific channel before reading. This is required because
+		 * the battery channel may not be enabled by default.
+		 */
+		if (data->model_data->bat_sense_sup &&
+		    chan->channel == ASPEED_ADC_BATTERY_CHANNEL) {
+			u32 ctrl_reg = adc_engine_control_reg_val & ~ASPEED_ADC_CTRL_CHANNEL;
+
+			ctrl_reg |= ASPEED_ADC_CTRL_CHANNEL_ENABLE(chan->channel);
+			writel(ctrl_reg, data->base + ASPEED_REG_ENGINE_CONTROL);
+			/*
+			 * After enable a new channel need to wait some time for ADC stable
+			 * Experiment result is 1ms.
+			 */
+			fsleep(1000);
+		}
+
+		if (data->battery_sensing && chan->channel == ASPEED_ADC_BATTERY_CHANNEL) {
 			writel(adc_engine_control_reg_val |
 				       FIELD_PREP(ASPEED_ADC_CH7_MODE,
 						  ASPEED_ADC_CH7_BAT) |
 				       ASPEED_ADC_BAT_SENSING_ENABLE,
 			       data->base + ASPEED_REG_ENGINE_CONTROL);
 			/*
-			 * After enable battery sensing mode need to wait some time for adc stable
+			 * After enable battery sensing mode need to wait some time for ADC stable
 			 * Experiment result is 1ms.
 			 */
-			mdelay(1);
+			fsleep(1000);
 			*val = readw(data->base + chan->address);
 			*val = (*val * data->battery_mode_gain.mult) /
 			       data->battery_mode_gain.div;
-			/* Restore control register value */
-			writel(adc_engine_control_reg_val,
-			       data->base + ASPEED_REG_ENGINE_CONTROL);
 		} else
 			*val = readw(data->base + chan->address);
+		/* Restore control register value */
+		writel(adc_engine_control_reg_val,
+				data->base + ASPEED_REG_ENGINE_CONTROL);
 		return IIO_VAL_INT;
 
 	case IIO_CHAN_INFO_OFFSET:
-		if (data->battery_sensing && chan->channel == 7)
+		if (data->battery_sensing && chan->channel == ASPEED_ADC_BATTERY_CHANNEL)
 			*val = (data->cv * data->battery_mode_gain.mult) /
 			       data->battery_mode_gain.div;
 		else
@@ -415,6 +459,7 @@ static int aspeed_adc_vref_config(struct iio_dev *indio_dev)
 	}
 	adc_engine_control_reg_val =
 		readl(data->base + ASPEED_REG_ENGINE_CONTROL);
+	adc_engine_control_reg_val &= ~ASPEED_ADC_REF_VOLTAGE;
 
 	ret = devm_regulator_get_enable_read_voltage(data->dev, "vref");
 	if (ret < 0 && ret != -ENODEV)
@@ -472,16 +517,18 @@ static int aspeed_adc_probe(struct platform_device *pdev)
 	struct aspeed_adc_data *data;
 	int ret;
 	u32 adc_engine_control_reg_val;
+	struct device *dev = &pdev->dev;
+	struct device_node *np = dev_of_node(dev);
 	unsigned long scaler_flags = 0;
 	char clk_name[32], clk_parent_name[32];
 
-	indio_dev = devm_iio_device_alloc(&pdev->dev, sizeof(*data));
+	indio_dev = devm_iio_device_alloc(dev, sizeof(*data));
 	if (!indio_dev)
 		return -ENOMEM;
 
 	data = iio_priv(indio_dev);
-	data->dev = &pdev->dev;
-	data->model_data = of_device_get_match_data(&pdev->dev);
+	data->dev = dev;
+	data->model_data = of_device_get_match_data(dev);
 	platform_set_drvdata(pdev, indio_dev);
 
 	data->base = devm_platform_ioremap_resource(pdev, 0);
@@ -491,16 +538,15 @@ static int aspeed_adc_probe(struct platform_device *pdev)
 	/* Register ADC clock prescaler with source specified by device tree. */
 	spin_lock_init(&data->clk_lock);
 	snprintf(clk_parent_name, ARRAY_SIZE(clk_parent_name), "%s",
-		 of_clk_get_parent_name(pdev->dev.of_node, 0));
+		 of_clk_get_parent_name(np, 0));
 	snprintf(clk_name, ARRAY_SIZE(clk_name), "%s-fixed-div",
 		 data->model_data->model_name);
-	data->fixed_div_clk = clk_hw_register_fixed_factor(
-		&pdev->dev, clk_name, clk_parent_name, 0, 1, 2);
+	data->fixed_div_clk = clk_hw_register_fixed_factor(dev, clk_name,
+							   clk_parent_name, 0, 1, 2);
 	if (IS_ERR(data->fixed_div_clk))
 		return PTR_ERR(data->fixed_div_clk);
 
-	ret = devm_add_action_or_reset(data->dev,
-				       aspeed_adc_unregister_fixed_divider,
+	ret = devm_add_action_or_reset(dev, aspeed_adc_unregister_fixed_divider,
 				       data->fixed_div_clk);
 	if (ret)
 		return ret;
@@ -510,7 +556,7 @@ static int aspeed_adc_probe(struct platform_device *pdev)
 		snprintf(clk_name, ARRAY_SIZE(clk_name), "%s-prescaler",
 			 data->model_data->model_name);
 		data->clk_prescaler = devm_clk_hw_register_divider(
-			&pdev->dev, clk_name, clk_parent_name, 0,
+			dev, clk_name, clk_parent_name, 0,
 			data->base + ASPEED_REG_CLOCK_CONTROL, 17, 15, 0,
 			&data->clk_lock);
 		if (IS_ERR(data->clk_prescaler))
@@ -526,7 +572,7 @@ static int aspeed_adc_probe(struct platform_device *pdev)
 	snprintf(clk_name, ARRAY_SIZE(clk_name), "%s-scaler",
 		 data->model_data->model_name);
 	data->clk_scaler = devm_clk_hw_register_divider(
-		&pdev->dev, clk_name, clk_parent_name, scaler_flags,
+		dev, clk_name, clk_parent_name, scaler_flags,
 		data->base + ASPEED_REG_CLOCK_CONTROL, 0,
 		data->model_data->scaler_bit_width,
 		data->model_data->need_prescaler ? CLK_DIVIDER_ONE_BASED : 0,
@@ -534,16 +580,14 @@ static int aspeed_adc_probe(struct platform_device *pdev)
 	if (IS_ERR(data->clk_scaler))
 		return PTR_ERR(data->clk_scaler);
 
-	data->rst = devm_reset_control_get_shared(&pdev->dev, NULL);
-	if (IS_ERR(data->rst)) {
-		dev_err(&pdev->dev,
-			"invalid or missing reset controller device tree entry");
-		return PTR_ERR(data->rst);
-	}
+	data->rst = devm_reset_control_get_shared(dev, NULL);
+	if (IS_ERR(data->rst))
+		return dev_err_probe(dev, PTR_ERR(data->rst),
+				     "invalid or missing reset controller device tree entry");
+
 	reset_control_deassert(data->rst);
 
-	ret = devm_add_action_or_reset(data->dev, aspeed_adc_reset_assert,
-				       data->rst);
+	ret = devm_add_action_or_reset(dev, aspeed_adc_reset_assert, data->rst);
 	if (ret)
 		return ret;
 
@@ -555,7 +599,7 @@ static int aspeed_adc_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	if (of_property_present(data->dev->of_node, "aspeed,battery-sensing")) {
+	if (of_property_present(np, "aspeed,battery-sensing")) {
 		if (data->model_data->bat_sense_sup) {
 			data->battery_sensing = 1;
 			if (readl(data->base + ASPEED_REG_ENGINE_CONTROL) &
@@ -567,15 +611,13 @@ static int aspeed_adc_probe(struct platform_device *pdev)
 				data->battery_mode_gain.div = 2;
 			}
 		} else
-			dev_warn(&pdev->dev,
-				 "Failed to enable battery-sensing mode\n");
+			dev_warn(dev, "Failed to enable battery-sensing mode\n");
 	}
 
 	ret = clk_prepare_enable(data->clk_scaler->clk);
 	if (ret)
 		return ret;
-	ret = devm_add_action_or_reset(data->dev,
-				       aspeed_adc_clk_disable_unprepare,
+	ret = devm_add_action_or_reset(dev, aspeed_adc_clk_disable_unprepare,
 				       data->clk_scaler->clk);
 	if (ret)
 		return ret;
@@ -593,8 +635,7 @@ static int aspeed_adc_probe(struct platform_device *pdev)
 	writel(adc_engine_control_reg_val,
 	       data->base + ASPEED_REG_ENGINE_CONTROL);
 
-	ret = devm_add_action_or_reset(data->dev, aspeed_adc_power_down,
-					data);
+	ret = devm_add_action_or_reset(dev, aspeed_adc_power_down, data);
 	if (ret)
 		return ret;
 
@@ -614,7 +655,9 @@ static int aspeed_adc_probe(struct platform_device *pdev)
 	/* Start all channels in normal mode. */
 	adc_engine_control_reg_val =
 		readl(data->base + ASPEED_REG_ENGINE_CONTROL);
-	adc_engine_control_reg_val |= ASPEED_ADC_CTRL_CHANNEL;
+	FIELD_MODIFY(ASPEED_ADC_CTRL_CHANNEL, &adc_engine_control_reg_val,
+		     aspeed_adc_channels_mask(aspeed_adc_get_active_channels(data)));
+
 	writel(adc_engine_control_reg_val,
 	       data->base + ASPEED_REG_ENGINE_CONTROL);
 
@@ -626,8 +669,7 @@ static int aspeed_adc_probe(struct platform_device *pdev)
 					    aspeed_adc_iio_channels;
 	indio_dev->num_channels = data->model_data->num_channels;
 
-	ret = devm_iio_device_register(data->dev, indio_dev);
-	return ret;
+	return devm_iio_device_register(dev, indio_dev);
 }
 
 static const struct aspeed_adc_trim_locate ast2500_adc_trim = {

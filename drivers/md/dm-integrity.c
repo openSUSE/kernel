@@ -17,6 +17,7 @@
 #include <linux/sort.h>
 #include <linux/rbtree.h>
 #include <linux/delay.h>
+#include <linux/hex.h>
 #include <linux/random.h>
 #include <linux/reboot.h>
 #include <crypto/hash.h>
@@ -2411,7 +2412,7 @@ offload_to_thread:
 
 		new_pos = find_journal_node(ic, dio->range.logical_sector, &next_sector);
 		if (unlikely(new_pos != NOT_FOUND) ||
-		    unlikely(next_sector < dio->range.logical_sector - dio->range.n_sectors)) {
+		    unlikely(next_sector < dio->range.logical_sector + dio->range.n_sectors)) {
 			remove_range_unlocked(ic, &dio->range);
 			spin_unlock_irq(&ic->endio_wait.lock);
 			queue_work(ic->commit_wq, &ic->commit_work);
@@ -3788,14 +3789,27 @@ static void dm_integrity_resume(struct dm_target *ti)
 	struct dm_integrity_c *ic = ti->private;
 	__u64 old_provided_data_sectors = le64_to_cpu(ic->sb->provided_data_sectors);
 	int r;
+	__le32 flags;
 
 	DEBUG_print("resume\n");
 
 	ic->wrote_to_journal = false;
 
+	flags = ic->sb->flags & cpu_to_le32(SB_FLAG_RECALCULATING);
+	r = sync_rw_sb(ic, REQ_OP_READ);
+	if (r)
+		dm_integrity_io_error(ic, "reading superblock", r);
+	if ((ic->sb->flags & flags) != flags) {
+		ic->sb->flags |= flags;
+		r = sync_rw_sb(ic, REQ_OP_WRITE | REQ_FUA);
+		if (unlikely(r))
+			dm_integrity_io_error(ic, "writing superblock", r);
+	}
+
 	if (ic->provided_data_sectors != old_provided_data_sectors) {
 		if (ic->provided_data_sectors > old_provided_data_sectors &&
 		    ic->mode == 'B' &&
+		    ic->sb->flags & cpu_to_le32(SB_FLAG_DIRTY_BITMAP) &&
 		    ic->sb->log2_blocks_per_bitmap_bit == ic->log2_blocks_per_bitmap_bit) {
 			rw_journal_sectors(ic, REQ_OP_READ, 0,
 					   ic->n_bitmap_blocks * (BITMAP_BLOCK_SIZE >> SECTOR_SHIFT), NULL);
@@ -4032,13 +4046,9 @@ static void dm_integrity_io_hints(struct dm_target *ti, struct queue_limits *lim
 {
 	struct dm_integrity_c *ic = ti->private;
 
-	if (ic->sectors_per_block > 1) {
-		limits->logical_block_size = ic->sectors_per_block << SECTOR_SHIFT;
-		limits->physical_block_size = ic->sectors_per_block << SECTOR_SHIFT;
-		limits->io_min = ic->sectors_per_block << SECTOR_SHIFT;
-		limits->dma_alignment = limits->logical_block_size - 1;
-		limits->discard_granularity = ic->sectors_per_block << SECTOR_SHIFT;
-	}
+	dm_stack_bs_limits(limits, ic->sectors_per_block << SECTOR_SHIFT);
+	limits->dma_alignment = limits->logical_block_size - 1;
+	limits->discard_granularity = ic->sectors_per_block << SECTOR_SHIFT;
 
 	if (!ic->internal_hash) {
 		struct blk_integrity *bi = &limits->integrity;
@@ -4229,7 +4239,8 @@ static struct page_list *dm_integrity_alloc_page_list(unsigned int n_pages)
 	struct page_list *pl;
 	unsigned int i;
 
-	pl = kvmalloc_array(n_pages + 1, sizeof(struct page_list), GFP_KERNEL | __GFP_ZERO);
+	pl = kvmalloc_objs(struct page_list, n_pages + 1,
+			   GFP_KERNEL | __GFP_ZERO);
 	if (!pl)
 		return NULL;
 
@@ -4263,9 +4274,8 @@ static struct scatterlist **dm_integrity_alloc_journal_scatterlist(struct dm_int
 	struct scatterlist **sl;
 	unsigned int i;
 
-	sl = kvmalloc_array(ic->journal_sections,
-			    sizeof(struct scatterlist *),
-			    GFP_KERNEL | __GFP_ZERO);
+	sl = kvmalloc_objs(struct scatterlist *, ic->journal_sections,
+			   GFP_KERNEL | __GFP_ZERO);
 	if (!sl)
 		return NULL;
 
@@ -4282,8 +4292,7 @@ static struct scatterlist **dm_integrity_alloc_journal_scatterlist(struct dm_int
 
 		n_pages = (end_index - start_index + 1);
 
-		s = kvmalloc_array(n_pages, sizeof(struct scatterlist),
-				   GFP_KERNEL);
+		s = kvmalloc_objs(struct scatterlist, n_pages);
 		if (!s) {
 			dm_integrity_free_journal_scatterlist(ic, sl);
 			return NULL;
@@ -4486,9 +4495,8 @@ static int create_journal(struct dm_integrity_c *ic, char **error)
 				goto bad;
 			}
 
-			sg = kvmalloc_array(ic->journal_pages + 1,
-					    sizeof(struct scatterlist),
-					    GFP_KERNEL);
+			sg = kvmalloc_objs(struct scatterlist,
+					   ic->journal_pages + 1);
 			if (!sg) {
 				*error = "Unable to allocate sg list";
 				r = -ENOMEM;
@@ -4555,9 +4563,9 @@ static int create_journal(struct dm_integrity_c *ic, char **error)
 				r = -ENOMEM;
 				goto bad;
 			}
-			ic->sk_requests = kvmalloc_array(ic->journal_sections,
-							 sizeof(struct skcipher_request *),
-							 GFP_KERNEL | __GFP_ZERO);
+			ic->sk_requests = kvmalloc_objs(struct skcipher_request *,
+							ic->journal_sections,
+							GFP_KERNEL | __GFP_ZERO);
 			if (!ic->sk_requests) {
 				*error = "Unable to allocate sk requests";
 				r = -ENOMEM;
@@ -4689,7 +4697,7 @@ static int dm_integrity_ctr(struct dm_target *ti, unsigned int argc, char **argv
 		return -EINVAL;
 	}
 
-	ic = kzalloc(sizeof(struct dm_integrity_c), GFP_KERNEL);
+	ic = kzalloc_obj(struct dm_integrity_c);
 	if (!ic) {
 		ti->error = "Cannot allocate integrity context";
 		return -ENOMEM;
@@ -4990,7 +4998,8 @@ static int dm_integrity_ctr(struct dm_target *ti, unsigned int argc, char **argv
 	}
 
 	ic->metadata_wq = alloc_workqueue("dm-integrity-metadata",
-					  WQ_MEM_RECLAIM, METADATA_WORKQUEUE_MAX_ACTIVE);
+					  WQ_MEM_RECLAIM | WQ_PERCPU,
+					  METADATA_WORKQUEUE_MAX_ACTIVE);
 	if (!ic->metadata_wq) {
 		ti->error = "Cannot allocate workqueue";
 		r = -ENOMEM;
@@ -5008,7 +5017,8 @@ static int dm_integrity_ctr(struct dm_target *ti, unsigned int argc, char **argv
 		goto bad;
 	}
 
-	ic->offload_wq = alloc_workqueue("dm-integrity-offload", WQ_MEM_RECLAIM,
+	ic->offload_wq = alloc_workqueue("dm-integrity-offload",
+					  WQ_MEM_RECLAIM | WQ_PERCPU,
 					  METADATA_WORKQUEUE_MAX_ACTIVE);
 	if (!ic->offload_wq) {
 		ti->error = "Cannot allocate workqueue";
@@ -5016,7 +5026,8 @@ static int dm_integrity_ctr(struct dm_target *ti, unsigned int argc, char **argv
 		goto bad;
 	}
 
-	ic->commit_wq = alloc_workqueue("dm-integrity-commit", WQ_MEM_RECLAIM, 1);
+	ic->commit_wq = alloc_workqueue("dm-integrity-commit",
+					WQ_MEM_RECLAIM | WQ_PERCPU, 1);
 	if (!ic->commit_wq) {
 		ti->error = "Cannot allocate workqueue";
 		r = -ENOMEM;
@@ -5025,7 +5036,8 @@ static int dm_integrity_ctr(struct dm_target *ti, unsigned int argc, char **argv
 	INIT_WORK(&ic->commit_work, integrity_commit);
 
 	if (ic->mode == 'J' || ic->mode == 'B') {
-		ic->writer_wq = alloc_workqueue("dm-integrity-writer", WQ_MEM_RECLAIM, 1);
+		ic->writer_wq = alloc_workqueue("dm-integrity-writer",
+						WQ_MEM_RECLAIM | WQ_PERCPU, 1);
 		if (!ic->writer_wq) {
 			ti->error = "Cannot allocate workqueue";
 			r = -ENOMEM;
@@ -5197,7 +5209,8 @@ try_smaller_buffer:
 	}
 
 	if (ic->internal_hash) {
-		ic->recalc_wq = alloc_workqueue("dm-integrity-recalc", WQ_MEM_RECLAIM, 1);
+		ic->recalc_wq = alloc_workqueue("dm-integrity-recalc",
+						WQ_MEM_RECLAIM | WQ_PERCPU, 1);
 		if (!ic->recalc_wq) {
 			ti->error = "Cannot allocate workqueue";
 			r = -ENOMEM;
@@ -5253,7 +5266,8 @@ try_smaller_buffer:
 			r = -ENOMEM;
 			goto bad;
 		}
-		ic->bbs = kvmalloc_array(ic->n_bitmap_blocks, sizeof(struct bitmap_block_status), GFP_KERNEL);
+		ic->bbs = kvmalloc_objs(struct bitmap_block_status,
+					ic->n_bitmap_blocks);
 		if (!ic->bbs) {
 			ti->error = "Could not allocate memory for bitmap";
 			r = -ENOMEM;

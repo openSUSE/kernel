@@ -39,6 +39,7 @@
 #include <linux/namei.h>
 #include <linux/sched.h>
 #include <linux/fs.h>
+#include <linux/hex.h>
 #include <linux/module.h>
 #include <net/net_namespace.h>
 #include <linux/sunrpc/rpc_pipe_fs.h>
@@ -202,7 +203,7 @@ nfsd4_build_namelist(struct dir_context *__ctx, const char *name, int namlen,
 
 	if (namlen != HEXDIR_LEN - 1)
 		return true;
-	entry = kmalloc(sizeof(struct name_list), GFP_KERNEL);
+	entry = kmalloc_obj(struct name_list);
 	if (entry == NULL)
 		return false;
 	memcpy(entry->name, name, HEXDIR_LEN - 1);
@@ -351,16 +352,14 @@ purge_old(struct dentry *parent, char *cname, struct nfsd_net *nn)
 	if (nfs4_has_reclaimed_state(name, nn))
 		goto out_free;
 
-	inode_lock_nested(d_inode(parent), I_MUTEX_PARENT);
-	child = lookup_one(&nop_mnt_idmap, &QSTR(cname), parent);
+	child = start_removing_noperm(parent, &QSTR(cname));
 	if (!IS_ERR(child)) {
 		status = vfs_rmdir(&nop_mnt_idmap, d_inode(parent), child, NULL);
 		if (status)
 			printk("failed to remove client recovery directory %pd\n",
 			       child);
-		dput(child);
 	}
-	inode_unlock(d_inode(parent));
+	end_removing(child);
 
 out_free:
 	kfree(name.data);
@@ -477,9 +476,8 @@ nfs4_legacy_state_init(struct net *net)
 	struct nfsd_net *nn = net_generic(net, nfsd_net_id);
 	int i;
 
-	nn->reclaim_str_hashtbl = kmalloc_array(CLIENT_HASH_SIZE,
-						sizeof(struct list_head),
-						GFP_KERNEL);
+	nn->reclaim_str_hashtbl = kmalloc_objs(struct list_head,
+					       CLIENT_HASH_SIZE);
 	if (!nn->reclaim_str_hashtbl)
 		return -ENOMEM;
 
@@ -897,7 +895,7 @@ __nfsd4_init_cld_pipe(struct net *net)
 	if (nn->cld_net)
 		return 0;
 
-	cn = kzalloc(sizeof(*cn), GFP_KERNEL);
+	cn = kzalloc_obj(*cn);
 	if (!cn) {
 		ret = -ENOMEM;
 		goto err;
@@ -959,7 +957,7 @@ alloc_cld_upcall(struct nfsd_net *nn)
 	struct cld_upcall *new, *tmp;
 	struct cld_net *cn = nn->cld_net;
 
-	new = kzalloc(sizeof(*new), GFP_KERNEL);
+	new = kzalloc_obj(*new);
 	if (!new)
 		return new;
 
@@ -1355,9 +1353,8 @@ nfs4_cld_state_init(struct net *net)
 	struct nfsd_net *nn = net_generic(net, nfsd_net_id);
 	int i;
 
-	nn->reclaim_str_hashtbl = kmalloc_array(CLIENT_HASH_SIZE,
-						sizeof(struct list_head),
-						GFP_KERNEL);
+	nn->reclaim_str_hashtbl = kmalloc_objs(struct list_head,
+					       CLIENT_HASH_SIZE);
 	if (!nn->reclaim_str_hashtbl)
 		return -ENOMEM;
 

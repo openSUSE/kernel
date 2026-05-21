@@ -1127,11 +1127,11 @@ static inline void pl022_dma_remove(struct pl022 *pl022)
  *
  * This function handles interrupts generated for an interrupt based transfer.
  * If a receive overrun (ROR) interrupt is there then we disable SSP, flag the
- * current message's state as STATE_ERROR and schedule the tasklet
- * pump_transfers which will do the postprocessing of the current message by
- * calling giveback(). Otherwise it reads data from RX FIFO till there is no
- * more data, and writes data in TX FIFO till it is not full. If we complete
- * the transfer we move to the next transfer and schedule the tasklet.
+ * current transfer with SPI_TRANS_FAIL_IO and call
+ * spi_finalize_current_transfer() to let the core finish the message.
+ * Otherwise it reads data from RX FIFO till there is no more data, and writes
+ * data in TX FIFO till it is not full. When the transfer is complete we call
+ * spi_finalize_current_transfer() so the core can schedule the next one.
  */
 static irqreturn_t pl022_interrupt_handler(int irq, void *dev_id)
 {
@@ -1606,7 +1606,7 @@ static int pl022_setup(struct spi_device *spi)
 	chip = spi_get_ctldata(spi);
 
 	if (chip == NULL) {
-		chip = kzalloc(sizeof(struct chip_data), GFP_KERNEL);
+		chip = kzalloc_obj(struct chip_data);
 		if (!chip)
 			return -ENOMEM;
 		dev_dbg(&spi->dev,
@@ -1893,7 +1893,6 @@ static int pl022_probe(struct amba_device *adev, const struct amba_id *id)
 	host->handle_err = pl022_handle_err;
 	host->unprepare_transfer_hardware = pl022_unprepare_transfer_hardware;
 	host->rt = platform_info->rt;
-	host->dev.of_node = dev->of_node;
 	host->use_gpio_descriptors = true;
 
 	/*
@@ -1957,7 +1956,7 @@ static int pl022_probe(struct amba_device *adev, const struct amba_id *id)
 
 	/* Register with the SPI framework */
 	amba_set_drvdata(adev, pl022);
-	status = devm_spi_register_controller(&adev->dev, host);
+	status = spi_register_controller(host);
 	if (status != 0) {
 		dev_err_probe(&adev->dev, status,
 			      "problem registering spi host\n");
@@ -1998,6 +1997,10 @@ pl022_remove(struct amba_device *adev)
 	if (!pl022)
 		return;
 
+	spi_controller_get(pl022->host);
+
+	spi_unregister_controller(pl022->host);
+
 	/*
 	 * undo pm_runtime_put() in probe.  I assume that we're not
 	 * accessing the primecell here.
@@ -2009,6 +2012,8 @@ pl022_remove(struct amba_device *adev)
 		pl022_dma_remove(pl022);
 
 	amba_release_regions(adev);
+
+	spi_controller_put(pl022->host);
 }
 
 #ifdef CONFIG_PM_SLEEP

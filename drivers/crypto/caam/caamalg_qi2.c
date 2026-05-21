@@ -19,6 +19,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/fsl/mc.h>
 #include <linux/kernel.h>
+#include <linux/string.h>
 #include <linux/string_choices.h>
 #include <soc/fsl/dpaa2-io.h>
 #include <soc/fsl/dpaa2-fd.h>
@@ -3224,14 +3225,14 @@ static int hash_digest_key(struct caam_hash_ctx *ctx, u32 *keylen, u8 *key,
 	int ret = -ENOMEM;
 	struct dpaa2_fl_entry *in_fle, *out_fle;
 
-	req_ctx = kzalloc(sizeof(*req_ctx), GFP_KERNEL);
+	req_ctx = kzalloc_obj(*req_ctx);
 	if (!req_ctx)
 		return -ENOMEM;
 
 	in_fle = &req_ctx->fd_flt[1];
 	out_fle = &req_ctx->fd_flt[0];
 
-	flc = kzalloc(sizeof(*flc), GFP_KERNEL);
+	flc = kzalloc_obj(*flc);
 	if (!flc)
 		goto err_flc;
 
@@ -3269,7 +3270,7 @@ static int hash_digest_key(struct caam_hash_ctx *ctx, u32 *keylen, u8 *key,
 	dpaa2_fl_set_addr(out_fle, key_dma);
 	dpaa2_fl_set_len(out_fle, digestsize);
 
-	print_hex_dump_debug("key_in@" __stringify(__LINE__)": ",
+	print_hex_dump_devel("key_in@" __stringify(__LINE__)": ",
 			     DUMP_PREFIX_ADDRESS, 16, 4, key, *keylen, 1);
 	print_hex_dump_debug("shdesc@" __stringify(__LINE__)": ",
 			     DUMP_PREFIX_ADDRESS, 16, 4, desc, desc_bytes(desc),
@@ -3289,7 +3290,7 @@ static int hash_digest_key(struct caam_hash_ctx *ctx, u32 *keylen, u8 *key,
 		/* in progress */
 		wait_for_completion(&result.completion);
 		ret = result.err;
-		print_hex_dump_debug("digested key@" __stringify(__LINE__)": ",
+		print_hex_dump_devel("digested key@" __stringify(__LINE__)": ",
 				     DUMP_PREFIX_ADDRESS, 16, 4, key,
 				     digestsize, 1);
 	}
@@ -3326,9 +3327,10 @@ static int ahash_setkey(struct crypto_ahash *ahash, const u8 *key,
 		if (aligned_len < keylen)
 			return -EOVERFLOW;
 
-		hashed_key = kmemdup(key, aligned_len, GFP_KERNEL);
+		hashed_key = kmalloc(aligned_len, GFP_KERNEL);
 		if (!hashed_key)
 			return -ENOMEM;
+		memcpy(hashed_key, key, keylen);
 		ret = hash_digest_key(ctx, &keylen, hashed_key, digestsize);
 		if (ret)
 			goto bad_free_key;
@@ -4635,7 +4637,7 @@ static struct caam_hash_alg *caam_hash_alloc(struct device *dev,
 	struct ahash_alg *halg;
 	struct crypto_alg *alg;
 
-	t_alg = kzalloc(sizeof(*t_alg), GFP_KERNEL);
+	t_alg = kzalloc_obj(*t_alg);
 	if (!t_alg)
 		return ERR_PTR(-ENOMEM);
 
@@ -4644,16 +4646,12 @@ static struct caam_hash_alg *caam_hash_alloc(struct device *dev,
 	alg = &halg->halg.base;
 
 	if (keyed) {
-		snprintf(alg->cra_name, CRYPTO_MAX_ALG_NAME, "%s",
-			 template->hmac_name);
-		snprintf(alg->cra_driver_name, CRYPTO_MAX_ALG_NAME, "%s",
-			 template->hmac_driver_name);
+		strscpy(alg->cra_name, template->hmac_name);
+		strscpy(alg->cra_driver_name, template->hmac_driver_name);
 		t_alg->is_hmac = true;
 	} else {
-		snprintf(alg->cra_name, CRYPTO_MAX_ALG_NAME, "%s",
-			 template->name);
-		snprintf(alg->cra_driver_name, CRYPTO_MAX_ALG_NAME, "%s",
-			 template->driver_name);
+		strscpy(alg->cra_name, template->name);
+		strscpy(alg->cra_driver_name, template->driver_name);
 		t_alg->ahash_alg.setkey = NULL;
 		t_alg->is_hmac = false;
 	}
@@ -4814,13 +4812,20 @@ static void dpaa2_dpseci_free(struct dpaa2_caam_priv *priv)
 {
 	struct device *dev = priv->dev;
 	struct fsl_mc_device *ls_dev = to_fsl_mc_device(dev);
-	int err;
+	struct dpaa2_caam_priv_per_cpu *ppriv;
+	int i, err;
 
 	if (DPSECI_VER(priv->major_ver, priv->minor_ver) > DPSECI_VER(5, 3)) {
 		err = dpseci_reset(priv->mc_io, 0, ls_dev->mc_handle);
 		if (err)
 			dev_err(dev, "dpseci_reset() failed\n");
 	}
+
+	for_each_cpu(i, priv->clean_mask) {
+		ppriv = per_cpu_ptr(priv->ppriv, i);
+		free_netdev(ppriv->net_dev);
+	}
+	free_cpumask_var(priv->clean_mask);
 
 	dpaa2_dpseci_congestion_free(priv);
 	dpseci_close(priv->mc_io, 0, ls_dev->mc_handle);
@@ -5007,15 +5012,14 @@ static int __cold dpaa2_dpseci_setup(struct fsl_mc_device *ls_dev)
 	struct device *dev = &ls_dev->dev;
 	struct dpaa2_caam_priv *priv;
 	struct dpaa2_caam_priv_per_cpu *ppriv;
-	cpumask_var_t clean_mask;
 	int err, cpu;
 	u8 i;
 
 	err = -ENOMEM;
-	if (!zalloc_cpumask_var(&clean_mask, GFP_KERNEL))
-		goto err_cpumask;
-
 	priv = dev_get_drvdata(dev);
+
+	if (!zalloc_cpumask_var(&priv->clean_mask, GFP_KERNEL))
+		goto err_cpumask;
 
 	priv->dev = dev;
 	priv->dpsec_id = ls_dev->obj_desc.id;
@@ -5118,7 +5122,7 @@ static int __cold dpaa2_dpseci_setup(struct fsl_mc_device *ls_dev)
 			err = -ENOMEM;
 			goto err_alloc_netdev;
 		}
-		cpumask_set_cpu(cpu, clean_mask);
+		cpumask_set_cpu(cpu, priv->clean_mask);
 		ppriv->net_dev->dev = *dev;
 
 		netif_napi_add_tx_weight(ppriv->net_dev, &ppriv->napi,
@@ -5126,18 +5130,16 @@ static int __cold dpaa2_dpseci_setup(struct fsl_mc_device *ls_dev)
 					 DPAA2_CAAM_NAPI_WEIGHT);
 	}
 
-	err = 0;
-	goto free_cpumask;
+	return 0;
 
 err_alloc_netdev:
-	free_dpaa2_pcpu_netdev(priv, clean_mask);
+	free_dpaa2_pcpu_netdev(priv, priv->clean_mask);
 err_get_rx_queue:
 	dpaa2_dpseci_congestion_free(priv);
 err_get_vers:
 	dpseci_close(priv->mc_io, 0, ls_dev->mc_handle);
 err_open:
-free_cpumask:
-	free_cpumask_var(clean_mask);
+	free_cpumask_var(priv->clean_mask);
 err_cpumask:
 	return err;
 }
@@ -5182,7 +5184,6 @@ static int __cold dpaa2_dpseci_disable(struct dpaa2_caam_priv *priv)
 		ppriv = per_cpu_ptr(priv->ppriv, i);
 		napi_disable(&ppriv->napi);
 		netif_napi_del(&ppriv->napi);
-		free_netdev(ppriv->net_dev);
 	}
 
 	return 0;

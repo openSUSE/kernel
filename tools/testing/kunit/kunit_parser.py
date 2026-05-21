@@ -689,6 +689,9 @@ def bubble_up_test_results(test: Test) -> None:
 	elif test.counts.get_status() == TestStatus.TEST_CRASHED:
 		test.status = TestStatus.TEST_CRASHED
 
+	if status == TestStatus.FAILURE and test.counts.get_status() == TestStatus.SUCCESS:
+		counts.add_status(status)
+
 def parse_test(lines: LineStream, expected_num: int, log: List[str], is_subtest: bool, printer: Printer) -> Test:
 	"""
 	Finds next test to parse in LineStream, creates new Test object,
@@ -854,7 +857,8 @@ def parse_run_tests(kernel_output: Iterable[str], printer: Printer) -> Test:
 	test = Test()
 	if not lines:
 		test.name = '<missing>'
-		test.add_error(printer, 'Could not find any KTAP output. Did any KUnit tests run?')
+		test.add_error(printer, 'Could not find any KTAP output. Did any KUnit tests run?\n' +
+			'Try running with the --raw_output=all option to see any log messages.')
 		test.status = TestStatus.FAILURE_TO_PARSE_TESTS
 	else:
 		test = parse_test(lines, 0, [], False, printer)

@@ -367,9 +367,17 @@ static int cs42l43_spi_probe(struct platform_device *pdev)
 		ret = devm_add_action_or_reset(priv->dev, cs42l43_release_of_node, fwnode);
 		if (ret)
 			return ret;
+	} else {
+		fwnode_property_read_u32(xu_fwnode, "01fa-sidecar-instances", &nsidecars);
 	}
 
-	fwnode_property_read_u32(xu_fwnode, "01fa-sidecar-instances", &nsidecars);
+	/*
+	 * Depending on the value of nsidecars we either create a software node
+	 * or assign an fwnode. We don't want software node to be attached to
+	 * the default one. That's why we need to clear the SPI controller fwnode
+	 * first.
+	 */
+	device_set_node(&priv->ctlr->dev, NULL);
 
 	if (nsidecars) {
 		struct software_node_ref_args args[] = {

@@ -18,7 +18,7 @@ struct ivpu_pm_info {
 	struct rw_semaphore reset_lock;
 	atomic_t reset_counter;
 	atomic_t reset_pending;
-	bool is_warmboot;
+	atomic_t engine_reset_counter;
 	u8 dct_active_percent;
 };
 

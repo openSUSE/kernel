@@ -99,7 +99,7 @@ static int insert_old_idx(struct ubifs_info *c, int lnum, int offs)
 {
 	struct ubifs_old_idx *old_idx;
 
-	old_idx = kmalloc(sizeof(struct ubifs_old_idx), GFP_NOFS);
+	old_idx = kmalloc_obj(struct ubifs_old_idx, GFP_NOFS);
 	if (unlikely(!old_idx))
 		return -ENOMEM;
 	old_idx->lnum = lnum;
@@ -294,7 +294,7 @@ static struct ubifs_znode *dirty_cow_znode(struct ubifs_info *c,
 	if (zbr->len) {
 		struct ubifs_old_idx *old_idx;
 
-		old_idx = kmalloc(sizeof(struct ubifs_old_idx), GFP_NOFS);
+		old_idx = kmalloc_obj(struct ubifs_old_idx, GFP_NOFS);
 		if (unlikely(!old_idx)) {
 			err = -ENOMEM;
 			goto out;
@@ -1134,9 +1134,8 @@ static struct ubifs_znode *dirty_cow_bottom_up(struct ubifs_info *c,
 	ubifs_assert(c, znode);
 	if (c->zroot.znode->level > BOTTOM_UP_HEIGHT) {
 		kfree(c->bottom_up_buf);
-		c->bottom_up_buf = kmalloc_array(c->zroot.znode->level,
-						 sizeof(int),
-						 GFP_NOFS);
+		c->bottom_up_buf = kmalloc_objs(int, c->zroot.znode->level,
+						GFP_NOFS);
 		if (!c->bottom_up_buf)
 			return ERR_PTR(-ENOMEM);
 		path = c->bottom_up_buf;
@@ -3562,8 +3561,8 @@ int dbg_check_inode_size(struct ubifs_info *c, const struct inode *inode,
 
 out_dump:
 	block = key_block(c, key);
-	ubifs_err(c, "inode %lu has size %lld, but there are data at offset %lld",
-		  (unsigned long)inode->i_ino, size,
+	ubifs_err(c, "inode %llu has size %lld, but there are data at offset %lld",
+		  inode->i_ino, size,
 		  ((loff_t)block) << UBIFS_BLOCK_SHIFT);
 	mutex_unlock(&c->tnc_mutex);
 	ubifs_dump_inode(c, inode);

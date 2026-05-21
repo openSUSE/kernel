@@ -27,12 +27,9 @@
 
 #include <drm/drm_fixed.h>
 #include <drm/drm_print.h>
-
-#include "soc/intel_dram.h"
+#include <drm/intel/intel_pcode_regs.h>
 
 #include "hsw_ips.h"
-#include "i915_drv.h"
-#include "i915_reg.h"
 #include "intel_atomic.h"
 #include "intel_audio.h"
 #include "intel_cdclk.h"
@@ -42,11 +39,14 @@
 #include "intel_display_regs.h"
 #include "intel_display_types.h"
 #include "intel_display_utils.h"
+#include "intel_display_wa.h"
+#include "intel_dram.h"
 #include "intel_mchbar_regs.h"
+#include "intel_parent.h"
 #include "intel_pci_config.h"
-#include "intel_pcode.h"
 #include "intel_plane.h"
 #include "intel_psr.h"
+#include "intel_step.h"
 #include "intel_vdsc.h"
 #include "skl_watermark.h"
 #include "skl_watermark_regs.h"
@@ -668,7 +668,7 @@ static void vlv_set_cdclk(struct intel_display *display,
 {
 	int cdclk = cdclk_config->cdclk;
 	u32 val, cmd = cdclk_config->voltage_level;
-	intel_wakeref_t wakeref;
+	struct ref_tracker *wakeref;
 	int ret;
 
 	switch (cdclk) {
@@ -758,7 +758,7 @@ static void chv_set_cdclk(struct intel_display *display,
 {
 	int cdclk = cdclk_config->cdclk;
 	u32 val, cmd = cdclk_config->voltage_level;
-	intel_wakeref_t wakeref;
+	struct ref_tracker *wakeref;
 	int ret;
 
 	switch (cdclk) {
@@ -888,7 +888,7 @@ static void bdw_set_cdclk(struct intel_display *display,
 		     "trying to change cdclk frequency with cdclk not enabled\n"))
 		return;
 
-	ret = intel_pcode_write(display->drm, BDW_PCODE_DISPLAY_FREQ_CHANGE_REQ, 0x0);
+	ret = intel_parent_pcode_write(display, BDW_PCODE_DISPLAY_FREQ_CHANGE_REQ, 0x0);
 	if (ret) {
 		drm_err(display->drm,
 			"failed to inform pcode about cdclk change\n");
@@ -918,8 +918,8 @@ static void bdw_set_cdclk(struct intel_display *display,
 	if (ret)
 		drm_err(display->drm, "Switching back to LCPLL failed\n");
 
-	intel_pcode_write(display->drm, HSW_PCODE_DE_WRITE_FREQ_REQ,
-			  cdclk_config->voltage_level);
+	intel_parent_pcode_write(display, HSW_PCODE_DE_WRITE_FREQ_REQ,
+				 cdclk_config->voltage_level);
 
 	intel_de_write(display, CDCLK_FREQ,
 		       DIV_ROUND_CLOSEST(cdclk, 1000) - 1);
@@ -1175,10 +1175,10 @@ static void skl_set_cdclk(struct intel_display *display,
 	drm_WARN_ON_ONCE(display->drm,
 			 display->platform.skylake && vco == 8640000);
 
-	ret = intel_pcode_request(display->drm, SKL_PCODE_CDCLK_CONTROL,
-				  SKL_CDCLK_PREPARE_FOR_CHANGE,
-				  SKL_CDCLK_READY_FOR_CHANGE,
-				  SKL_CDCLK_READY_FOR_CHANGE, 3);
+	ret = intel_parent_pcode_request(display, SKL_PCODE_CDCLK_CONTROL,
+					 SKL_CDCLK_PREPARE_FOR_CHANGE,
+					 SKL_CDCLK_READY_FOR_CHANGE,
+					 SKL_CDCLK_READY_FOR_CHANGE, 3);
 	if (ret) {
 		drm_err(display->drm,
 			"Failed to inform PCU about cdclk change (%d)\n", ret);
@@ -1221,8 +1221,8 @@ static void skl_set_cdclk(struct intel_display *display,
 	intel_de_posting_read(display, CDCLK_CTL);
 
 	/* inform PCU of the change */
-	intel_pcode_write(display->drm, SKL_PCODE_CDCLK_CONTROL,
-			  cdclk_config->voltage_level);
+	intel_parent_pcode_write(display, SKL_PCODE_CDCLK_CONTROL,
+				 cdclk_config->voltage_level);
 
 	intel_update_cdclk(display);
 }
@@ -1859,6 +1859,20 @@ static void bxt_de_pll_enable(struct intel_display *display, int vco)
 
 static void icl_cdclk_pll_disable(struct intel_display *display)
 {
+	/*
+	 * Wa_13012396614:
+	 * Fixes: A sporadic race condition between MDCLK selection and PLL
+	 *        enabling.
+	 * Workaround:
+	 *   Change programming of MDCLK source selection in CDCLK_CTL:
+	 *    - When disabling the CDCLK PLL, first set MDCLK source to be CD2XCLK.
+	 *    - When enabling the CDCLK PLL, update MDCLK source selection only
+	 *      after the PLL is enabled (which is already done as part of the
+	 *      normal flow of _bxt_set_cdclk()).
+	 */
+	if (intel_display_wa(display, INTEL_DISPLAY_WA_13012396614))
+		intel_de_rmw(display, CDCLK_CTL, MDCLK_SOURCE_SEL_MASK, MDCLK_SOURCE_SEL_CD2XCLK);
+
 	intel_de_rmw(display, BXT_DE_PLL_ENABLE,
 		     BXT_DE_PLL_PLL_ENABLE, 0);
 
@@ -1934,6 +1948,8 @@ static u32 bxt_cdclk_cd2x_pipe(struct intel_display *display, enum pipe pipe)
 static u32 bxt_cdclk_cd2x_div_sel(struct intel_display *display,
 				  int cdclk, int vco, u16 waveform)
 {
+	u32 ret;
+
 	/* cdclk = vco / 2 / div{1,1.5,2,4} */
 	switch (cdclk_divider(cdclk, vco, waveform)) {
 	default:
@@ -1942,14 +1958,27 @@ static u32 bxt_cdclk_cd2x_div_sel(struct intel_display *display,
 		drm_WARN_ON(display->drm, vco != 0);
 		fallthrough;
 	case 2:
-		return BXT_CDCLK_CD2X_DIV_SEL_1;
+		ret = BXT_CDCLK_CD2X_DIV_SEL_1;
+		break;
 	case 3:
-		return BXT_CDCLK_CD2X_DIV_SEL_1_5;
+		ret = BXT_CDCLK_CD2X_DIV_SEL_1_5;
+		break;
 	case 4:
-		return BXT_CDCLK_CD2X_DIV_SEL_2;
+		ret = BXT_CDCLK_CD2X_DIV_SEL_2;
+		break;
 	case 8:
-		return BXT_CDCLK_CD2X_DIV_SEL_4;
+		ret = BXT_CDCLK_CD2X_DIV_SEL_4;
+		break;
 	}
+
+	/*
+	 * On Xe3_LPD onward, the expectation is to always have
+	 * BXT_CDCLK_CD2X_DIV_SEL_1 as the default.
+	 */
+	if (DISPLAY_VER(display) >= 30)
+		drm_WARN_ON(display->drm, ret != BXT_CDCLK_CD2X_DIV_SEL_1);
+
+	return ret;
 }
 
 static u16 cdclk_squash_waveform(struct intel_display *display,
@@ -2137,8 +2166,10 @@ static u32 bxt_cdclk_ctl(struct intel_display *display,
 
 	waveform = cdclk_squash_waveform(display, cdclk);
 
-	val = bxt_cdclk_cd2x_div_sel(display, cdclk, vco, waveform) |
-		bxt_cdclk_cd2x_pipe(display, pipe);
+	val = bxt_cdclk_cd2x_div_sel(display, cdclk, vco, waveform);
+
+	if (DISPLAY_VER(display) < 30)
+		val |= bxt_cdclk_cd2x_pipe(display, pipe);
 
 	/*
 	 * Disable SSA Precharge when CD clock frequency < 500 MHz,
@@ -2148,10 +2179,21 @@ static u32 bxt_cdclk_ctl(struct intel_display *display,
 	    cdclk >= 500000)
 		val |= BXT_CDCLK_SSA_PRECHARGE_ENABLE;
 
-	if (DISPLAY_VER(display) >= 20)
-		val |= xe2lpd_mdclk_source_sel(display);
-	else
+	if (DISPLAY_VER(display) >= 20) {
+		/*
+		 * Wa_13012396614 requires selecting CD2XCLK as MDCLK source
+		 * prior to disabling the PLL, which is already handled by
+		 * icl_cdclk_pll_disable().  Here we are just making sure
+		 * we keep the expected value.
+		 */
+		if (intel_display_wa(display, INTEL_DISPLAY_WA_13012396614) &&
+		    vco == 0)
+			val |= MDCLK_SOURCE_SEL_CD2XCLK;
+		else
+			val |= xe2lpd_mdclk_source_sel(display);
+	} else {
 		val |= skl_cdclk_decimal(cdclk);
+	}
 
 	return val;
 }
@@ -2206,18 +2248,18 @@ static void bxt_set_cdclk(struct intel_display *display,
 	if (DISPLAY_VER(display) >= 14 || display->platform.dg2)
 		; /* NOOP */
 	else if (DISPLAY_VER(display) >= 11)
-		ret = intel_pcode_request(display->drm, SKL_PCODE_CDCLK_CONTROL,
-					  SKL_CDCLK_PREPARE_FOR_CHANGE,
-					  SKL_CDCLK_READY_FOR_CHANGE,
-					  SKL_CDCLK_READY_FOR_CHANGE, 3);
+		ret = intel_parent_pcode_request(display, SKL_PCODE_CDCLK_CONTROL,
+						 SKL_CDCLK_PREPARE_FOR_CHANGE,
+						 SKL_CDCLK_READY_FOR_CHANGE,
+						 SKL_CDCLK_READY_FOR_CHANGE, 3);
 	else
 		/*
 		 * BSpec requires us to wait up to 150usec, but that leads to
 		 * timeouts; the 2ms used here is based on experiment.
 		 */
-		ret = intel_pcode_write_timeout(display->drm,
-						HSW_PCODE_DE_WRITE_FREQ_REQ,
-						0x80000000, 2);
+		ret = intel_parent_pcode_write_timeout(display,
+						       HSW_PCODE_DE_WRITE_FREQ_REQ,
+						       0x80000000, 2);
 
 	if (ret) {
 		drm_err(display->drm,
@@ -2246,8 +2288,8 @@ static void bxt_set_cdclk(struct intel_display *display,
 		 * Display versions 14 and beyond
 		 */;
 	else if (DISPLAY_VER(display) >= 11 && !display->platform.dg2)
-		ret = intel_pcode_write(display->drm, SKL_PCODE_CDCLK_CONTROL,
-					cdclk_config->voltage_level);
+		ret = intel_parent_pcode_write(display, SKL_PCODE_CDCLK_CONTROL,
+					       cdclk_config->voltage_level);
 	if (DISPLAY_VER(display) < 11) {
 		/*
 		 * The timeout isn't specified, the 2ms used here is based on
@@ -2255,9 +2297,9 @@ static void bxt_set_cdclk(struct intel_display *display,
 		 * FIXME: Waiting for the request completion could be delayed
 		 * until the next PCODE request based on BSpec.
 		 */
-		ret = intel_pcode_write_timeout(display->drm,
-						HSW_PCODE_DE_WRITE_FREQ_REQ,
-						cdclk_config->voltage_level, 2);
+		ret = intel_parent_pcode_write_timeout(display,
+						       HSW_PCODE_DE_WRITE_FREQ_REQ,
+						       cdclk_config->voltage_level, 2);
 	}
 	if (ret) {
 		drm_err(display->drm,
@@ -2557,11 +2599,11 @@ static void intel_pcode_notify(struct intel_display *display,
 	if (pipe_count_update_valid)
 		update_mask |= DISPLAY_TO_PCODE_PIPE_COUNT_VALID;
 
-	ret = intel_pcode_request(display->drm, SKL_PCODE_CDCLK_CONTROL,
-				  SKL_CDCLK_PREPARE_FOR_CHANGE |
-				  update_mask,
-				  SKL_CDCLK_READY_FOR_CHANGE,
-				  SKL_CDCLK_READY_FOR_CHANGE, 3);
+	ret = intel_parent_pcode_request(display, SKL_PCODE_CDCLK_CONTROL,
+					 SKL_CDCLK_PREPARE_FOR_CHANGE |
+					 update_mask,
+					 SKL_CDCLK_READY_FOR_CHANGE,
+					 SKL_CDCLK_READY_FOR_CHANGE, 3);
 	if (ret)
 		drm_err(display->drm,
 			"Failed to inform PCU about display config (err %d)\n",
@@ -2926,6 +2968,53 @@ static int intel_cdclk_update_crtc_min_cdclk(struct intel_atomic_state *state,
 		    "[CRTC:%d:%s] min cdclk: %d kHz -> %d kHz\n",
 		    crtc->base.base.id, crtc->base.name,
 		    old_min_cdclk, new_min_cdclk);
+
+	return 0;
+}
+
+static int intel_cdclk_update_crtc_min_voltage_level(struct intel_atomic_state *state,
+						     struct intel_crtc *crtc,
+						     u8 old_min_voltage_level,
+						     u8 new_min_voltage_level,
+						     bool *need_cdclk_calc)
+{
+	struct intel_display *display = to_intel_display(state);
+	struct intel_cdclk_state *cdclk_state;
+	bool allow_voltage_level_decrease = intel_any_crtc_needs_modeset(state);
+	int ret;
+
+	if (new_min_voltage_level == old_min_voltage_level)
+		return 0;
+
+	if (!allow_voltage_level_decrease &&
+	    new_min_voltage_level < old_min_voltage_level)
+		return 0;
+
+	cdclk_state = intel_atomic_get_cdclk_state(state);
+	if (IS_ERR(cdclk_state))
+		return PTR_ERR(cdclk_state);
+
+	old_min_voltage_level = cdclk_state->min_voltage_level[crtc->pipe];
+
+	if (new_min_voltage_level == old_min_voltage_level)
+		return 0;
+
+	if (!allow_voltage_level_decrease &&
+	    new_min_voltage_level < old_min_voltage_level)
+		return 0;
+
+	cdclk_state->min_voltage_level[crtc->pipe] = new_min_voltage_level;
+
+	ret = intel_atomic_lock_global_state(&cdclk_state->base);
+	if (ret)
+		return ret;
+
+	*need_cdclk_calc = true;
+
+	drm_dbg_kms(display->drm,
+		    "[CRTC:%d:%s] min voltage level: %d -> %d\n",
+		    crtc->base.base.id, crtc->base.name,
+		    old_min_voltage_level, new_min_voltage_level);
 
 	return 0;
 }
@@ -3345,6 +3434,13 @@ static int intel_crtcs_calc_min_cdclk(struct intel_atomic_state *state,
 							need_cdclk_calc);
 		if (ret)
 			return ret;
+
+		ret = intel_cdclk_update_crtc_min_voltage_level(state, crtc,
+								old_crtc_state->min_voltage_level,
+								new_crtc_state->min_voltage_level,
+								need_cdclk_calc);
+		if (ret)
+			return ret;
 	}
 
 	return 0;
@@ -3368,7 +3464,7 @@ int intel_cdclk_init(struct intel_display *display)
 {
 	struct intel_cdclk_state *cdclk_state;
 
-	cdclk_state = kzalloc(sizeof(*cdclk_state), GFP_KERNEL);
+	cdclk_state = kzalloc_obj(*cdclk_state);
 	if (!cdclk_state)
 		return -ENOMEM;
 
@@ -3738,10 +3834,8 @@ static int pch_rawclk(struct intel_display *display)
 
 static int i9xx_hrawclk(struct intel_display *display)
 {
-	struct drm_i915_private *i915 = to_i915(display->drm);
-
 	/* hrawclock is 1/4 the FSB frequency */
-	return DIV_ROUND_CLOSEST(intel_fsb_freq(i915), 4);
+	return DIV_ROUND_CLOSEST(intel_fsb_freq(display), 4);
 }
 
 /**
@@ -3967,7 +4061,7 @@ void intel_init_cdclk_hooks(struct intel_display *display)
 		display->cdclk.table = dg2_cdclk_table;
 	} else if (display->platform.alderlake_p) {
 		/* Wa_22011320316:adl-p[a0] */
-		if (display->platform.alderlake_p && IS_DISPLAY_STEP(display, STEP_A0, STEP_B0)) {
+		if (intel_display_wa(display, INTEL_DISPLAY_WA_22011320316)) {
 			display->cdclk.table = adlp_a_step_cdclk_table;
 			display->funcs.cdclk = &tgl_cdclk_funcs;
 		} else if (display->platform.alderlake_p_raptorlake_u) {

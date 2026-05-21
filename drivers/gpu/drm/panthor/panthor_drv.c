@@ -13,7 +13,9 @@
 #include <linux/pagemap.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
+#include <linux/sched/clock.h>
 #include <linux/time64.h>
+#include <linux/time_namespace.h>
 
 #include <drm/drm_auth.h>
 #include <drm/drm_debugfs.h>
@@ -177,7 +179,8 @@ panthor_get_uobj_array(const struct drm_panthor_obj_array *in, u32 min_stride,
 		 PANTHOR_UOBJ_DECL(struct drm_panthor_sync_op, timeline_value), \
 		 PANTHOR_UOBJ_DECL(struct drm_panthor_queue_submit, syncs), \
 		 PANTHOR_UOBJ_DECL(struct drm_panthor_queue_create, ringbuf_size), \
-		 PANTHOR_UOBJ_DECL(struct drm_panthor_vm_bind_op, syncs))
+		 PANTHOR_UOBJ_DECL(struct drm_panthor_vm_bind_op, syncs), \
+		 PANTHOR_UOBJ_DECL(struct drm_panthor_bo_sync_op, size))
 
 /**
  * PANTHOR_UOBJ_SET() - Copy a kernel object to a user object.
@@ -381,7 +384,7 @@ panthor_submit_ctx_add_sync_signal(struct panthor_submit_ctx *ctx, u32 handle, u
 	struct dma_fence *cur_fence;
 	int ret;
 
-	sig_sync = kzalloc(sizeof(*sig_sync), GFP_KERNEL);
+	sig_sync = kzalloc_obj(*sig_sync);
 	if (!sig_sync)
 		return -ENOMEM;
 
@@ -722,8 +725,8 @@ panthor_submit_ctx_push_jobs(struct panthor_submit_ctx *ctx,
 static int panthor_submit_ctx_init(struct panthor_submit_ctx *ctx,
 				   struct drm_file *file, u32 job_count)
 {
-	ctx->jobs = kvmalloc_array(job_count, sizeof(*ctx->jobs),
-				   GFP_KERNEL | __GFP_ZERO);
+	ctx->jobs = kvmalloc_objs(*ctx->jobs, job_count,
+				  GFP_KERNEL | __GFP_ZERO);
 	if (!ctx->jobs)
 		return -ENOMEM;
 
@@ -760,22 +763,135 @@ static void panthor_submit_ctx_cleanup(struct panthor_submit_ctx *ctx,
 	kvfree(ctx->jobs);
 }
 
+#define VALID_TIMESTAMP_QUERY_FLAGS \
+		(DRM_PANTHOR_TIMESTAMP_GPU | \
+		 DRM_PANTHOR_TIMESTAMP_CPU_TYPE_MASK | \
+		 DRM_PANTHOR_TIMESTAMP_GPU_OFFSET | \
+		 DRM_PANTHOR_TIMESTAMP_GPU_CYCLE_COUNT | \
+		 DRM_PANTHOR_TIMESTAMP_FREQ | \
+		 DRM_PANTHOR_TIMESTAMP_DURATION)
+
 static int panthor_query_timestamp_info(struct panthor_device *ptdev,
 					struct drm_panthor_timestamp_info *arg)
 {
 	int ret;
+	u32 flags;
+	unsigned long irq_flags;
+	struct timespec64 cpu_ts;
+	u64 query_start_time;
+	bool minimize_interruption;
+	u32 timestamp_types = 0;
+
+	if (arg->flags != 0) {
+		flags = arg->flags;
+	} else {
+		/*
+		 * If flags are 0, then ask for the same things that we asked
+		 * for before flags were added.
+		 */
+		flags = DRM_PANTHOR_TIMESTAMP_GPU |
+			DRM_PANTHOR_TIMESTAMP_GPU_OFFSET |
+			DRM_PANTHOR_TIMESTAMP_FREQ;
+	}
+
+	switch (flags & DRM_PANTHOR_TIMESTAMP_CPU_TYPE_MASK) {
+	case DRM_PANTHOR_TIMESTAMP_CPU_NONE:
+		break;
+	case DRM_PANTHOR_TIMESTAMP_CPU_MONOTONIC:
+	case DRM_PANTHOR_TIMESTAMP_CPU_MONOTONIC_RAW:
+		timestamp_types++;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	if (flags & ~VALID_TIMESTAMP_QUERY_FLAGS)
+		return -EINVAL;
+
+	if (flags & DRM_PANTHOR_TIMESTAMP_GPU)
+		timestamp_types++;
+	if (flags & DRM_PANTHOR_TIMESTAMP_GPU_CYCLE_COUNT)
+		timestamp_types++;
+
+	/* If user asked to obtain timestamps from more than one source,
+	 * then it very likely means they want them to be as close as possible.
+	 * If they asked for duration, then that likely means that they
+	 * want to know how long obtaining timestamp takes, without random
+	 * events, like process scheduling or interrupts.
+	 */
+	minimize_interruption =
+		(flags & DRM_PANTHOR_TIMESTAMP_DURATION) ||
+		(timestamp_types >= 2);
 
 	ret = panthor_device_resume_and_get(ptdev);
 	if (ret)
 		return ret;
 
+	if (flags & DRM_PANTHOR_TIMESTAMP_FREQ) {
 #ifdef CONFIG_ARM_ARCH_TIMER
-	arg->timestamp_frequency = arch_timer_get_cntfrq();
+		arg->timestamp_frequency = arch_timer_get_cntfrq();
 #else
-	arg->timestamp_frequency = 0;
+		arg->timestamp_frequency = 0;
 #endif
-	arg->current_timestamp = gpu_read64_counter(ptdev, GPU_TIMESTAMP);
-	arg->timestamp_offset = gpu_read64(ptdev, GPU_TIMESTAMP_OFFSET);
+	} else {
+		arg->timestamp_frequency = 0;
+	}
+
+	if (flags & DRM_PANTHOR_TIMESTAMP_GPU_OFFSET)
+		arg->timestamp_offset = gpu_read64(ptdev, GPU_TIMESTAMP_OFFSET);
+	else
+		arg->timestamp_offset = 0;
+
+	if (minimize_interruption) {
+		preempt_disable();
+		local_irq_save(irq_flags);
+	}
+
+	if (flags & DRM_PANTHOR_TIMESTAMP_DURATION)
+		query_start_time = local_clock();
+	else
+		query_start_time = 0;
+
+	if (flags & DRM_PANTHOR_TIMESTAMP_GPU)
+		arg->current_timestamp = gpu_read64_counter(ptdev, GPU_TIMESTAMP);
+	else
+		arg->current_timestamp = 0;
+
+	switch (flags & DRM_PANTHOR_TIMESTAMP_CPU_TYPE_MASK) {
+	case DRM_PANTHOR_TIMESTAMP_CPU_MONOTONIC:
+		ktime_get_ts64(&cpu_ts);
+		break;
+	case DRM_PANTHOR_TIMESTAMP_CPU_MONOTONIC_RAW:
+		ktime_get_raw_ts64(&cpu_ts);
+		break;
+	default:
+		break;
+	}
+
+	if (flags & DRM_PANTHOR_TIMESTAMP_GPU_CYCLE_COUNT)
+		arg->cycle_count = gpu_read64_counter(ptdev, GPU_CYCLE_COUNT);
+	else
+		arg->cycle_count = 0;
+
+	if (flags & DRM_PANTHOR_TIMESTAMP_DURATION)
+		arg->duration_nsec = local_clock() - query_start_time;
+	else
+		arg->duration_nsec = 0;
+
+	if (minimize_interruption) {
+		local_irq_restore(irq_flags);
+		preempt_enable();
+	}
+
+	if (flags & DRM_PANTHOR_TIMESTAMP_CPU_TYPE_MASK) {
+		timens_add_monotonic(&cpu_ts);
+
+		arg->cpu_timestamp_sec = cpu_ts.tv_sec;
+		arg->cpu_timestamp_nsec = cpu_ts.tv_nsec;
+	} else {
+		arg->cpu_timestamp_sec = 0;
+		arg->cpu_timestamp_nsec = 0;
+	}
 
 	pm_runtime_put(ptdev->base.dev);
 	return 0;
@@ -850,8 +966,14 @@ static int panthor_ioctl_dev_query(struct drm_device *ddev, void *data, struct d
 		return PANTHOR_UOBJ_SET(args->pointer, args->size, ptdev->csif_info);
 
 	case DRM_PANTHOR_DEV_QUERY_TIMESTAMP_INFO:
-		ret = panthor_query_timestamp_info(ptdev, &timestamp_info);
+		ret = copy_struct_from_user(&timestamp_info,
+					    sizeof(timestamp_info),
+					    u64_to_user_ptr(args->pointer),
+					    args->size);
+		if (ret)
+			return ret;
 
+		ret = panthor_query_timestamp_info(ptdev, &timestamp_info);
 		if (ret)
 			return ret;
 
@@ -901,7 +1023,8 @@ static int panthor_ioctl_vm_destroy(struct drm_device *ddev, void *data,
 	return panthor_vm_pool_destroy_vm(pfile->vms, args->id);
 }
 
-#define PANTHOR_BO_FLAGS		DRM_PANTHOR_BO_NO_MMAP
+#define PANTHOR_BO_FLAGS		(DRM_PANTHOR_BO_NO_MMAP | \
+					 DRM_PANTHOR_BO_WB_MMAP)
 
 static int panthor_ioctl_bo_create(struct drm_device *ddev, void *data,
 				   struct drm_file *file)
@@ -916,6 +1039,12 @@ static int panthor_ioctl_bo_create(struct drm_device *ddev, void *data,
 
 	if (!args->size || args->pad ||
 	    (args->flags & ~PANTHOR_BO_FLAGS)) {
+		ret = -EINVAL;
+		goto out_dev_exit;
+	}
+
+	if ((args->flags & DRM_PANTHOR_BO_NO_MMAP) &&
+	    (args->flags & DRM_PANTHOR_BO_WB_MMAP)) {
 		ret = -EINVAL;
 		goto out_dev_exit;
 	}
@@ -1396,6 +1525,66 @@ static int panthor_ioctl_set_user_mmio_offset(struct drm_device *ddev,
 	return 0;
 }
 
+static int panthor_ioctl_bo_sync(struct drm_device *ddev, void *data,
+				 struct drm_file *file)
+{
+	struct drm_panthor_bo_sync *args = data;
+	struct drm_panthor_bo_sync_op *ops;
+	struct drm_gem_object *obj;
+	int ret;
+
+	if (!args->ops.count)
+		return 0;
+
+	ret = PANTHOR_UOBJ_GET_ARRAY(ops, &args->ops);
+	if (ret)
+		return ret;
+
+	for (u32 i = 0; i < args->ops.count; i++) {
+		obj = drm_gem_object_lookup(file, ops[i].handle);
+		if (!obj) {
+			ret = -ENOENT;
+			goto err_ops;
+		}
+
+		ret = panthor_gem_sync(obj, ops[i].type, ops[i].offset,
+				       ops[i].size);
+
+		drm_gem_object_put(obj);
+
+		if (ret)
+			goto err_ops;
+	}
+
+err_ops:
+	kvfree(ops);
+
+	return ret;
+}
+
+static int panthor_ioctl_bo_query_info(struct drm_device *ddev, void *data,
+				       struct drm_file *file)
+{
+	struct drm_panthor_bo_query_info *args = data;
+	struct panthor_gem_object *bo;
+	struct drm_gem_object *obj;
+
+	obj = drm_gem_object_lookup(file, args->handle);
+	if (!obj)
+		return -ENOENT;
+
+	bo = to_panthor_bo(obj);
+	args->pad = 0;
+	args->create_flags = bo->flags;
+
+	args->extra_flags = 0;
+	if (drm_gem_is_imported(&bo->base.base))
+		args->extra_flags |= DRM_PANTHOR_BO_IS_IMPORTED;
+
+	drm_gem_object_put(obj);
+	return 0;
+}
+
 static int
 panthor_open(struct drm_device *ddev, struct drm_file *file)
 {
@@ -1403,7 +1592,7 @@ panthor_open(struct drm_device *ddev, struct drm_file *file)
 	struct panthor_file *pfile;
 	int ret;
 
-	pfile = kzalloc(sizeof(*pfile), GFP_KERNEL);
+	pfile = kzalloc_obj(*pfile);
 	if (!pfile)
 		return -ENOMEM;
 
@@ -1470,6 +1659,8 @@ static const struct drm_ioctl_desc panthor_drm_driver_ioctls[] = {
 	PANTHOR_IOCTL(GROUP_SUBMIT, group_submit, DRM_RENDER_ALLOW),
 	PANTHOR_IOCTL(BO_SET_LABEL, bo_set_label, DRM_RENDER_ALLOW),
 	PANTHOR_IOCTL(SET_USER_MMIO_OFFSET, set_user_mmio_offset, DRM_RENDER_ALLOW),
+	PANTHOR_IOCTL(BO_SYNC, bo_sync, DRM_RENDER_ALLOW),
+	PANTHOR_IOCTL(BO_QUERY_INFO, bo_query_info, DRM_RENDER_ALLOW),
 };
 
 static int panthor_mmap(struct file *filp, struct vm_area_struct *vma)
@@ -1559,6 +1750,7 @@ static const struct file_operations panthor_drm_driver_fops = {
 	.read = drm_read,
 	.llseek = noop_llseek,
 	.mmap = panthor_mmap,
+	.get_unmapped_area = drm_gem_get_unmapped_area,
 	.show_fdinfo = drm_show_fdinfo,
 	.fop_flags = FOP_UNSIGNED_OFFSET,
 };
@@ -1604,6 +1796,12 @@ static void panthor_debugfs_init(struct drm_minor *minor)
  * - 1.3 - adds DRM_PANTHOR_GROUP_STATE_INNOCENT flag
  * - 1.4 - adds DRM_IOCTL_PANTHOR_BO_SET_LABEL ioctl
  * - 1.5 - adds DRM_PANTHOR_SET_USER_MMIO_OFFSET ioctl
+ * - 1.6 - enables GLB_COUNTER_EN
+ * - 1.7 - adds DRM_PANTHOR_BO_WB_MMAP flag
+ *       - adds DRM_IOCTL_PANTHOR_BO_SYNC ioctl
+ *       - adds DRM_IOCTL_PANTHOR_BO_QUERY_INFO ioctl
+ *       - adds drm_panthor_gpu_info::selected_coherency
+ * - 1.8 - extends DEV_QUERY_TIMESTAMP_INFO with flags
  */
 static const struct drm_driver panthor_drm_driver = {
 	.driver_features = DRIVER_RENDER | DRIVER_GEM | DRIVER_SYNCOBJ |
@@ -1617,14 +1815,21 @@ static const struct drm_driver panthor_drm_driver = {
 	.name = "panthor",
 	.desc = "Panthor DRM driver",
 	.major = 1,
-	.minor = 5,
+	.minor = 8,
 
 	.gem_create_object = panthor_gem_create_object,
 	.gem_prime_import_sg_table = drm_gem_shmem_prime_import_sg_table,
+	.gem_prime_import = panthor_gem_prime_import,
 #ifdef CONFIG_DEBUG_FS
 	.debugfs_init = panthor_debugfs_init,
 #endif
 };
+
+#ifdef CONFIG_TRANSPARENT_HUGEPAGE
+bool panthor_transparent_hugepage = true;
+module_param_named(transparent_hugepage, panthor_transparent_hugepage, bool, 0400);
+MODULE_PARM_DESC(transparent_hugepage, "Use a dedicated tmpfs mount point with Transparent Hugepage enabled (true = default)");
+#endif
 
 static int panthor_probe(struct platform_device *pdev)
 {

@@ -56,6 +56,7 @@
 #include "intel_display_types.h"
 #include "intel_display_utils.h"
 #include "intel_dp.h"
+#include "intel_dpll.h"
 #include "intel_gmbus.h"
 #include "intel_hdcp.h"
 #include "intel_hdcp_regs.h"
@@ -70,16 +71,14 @@
 
 bool intel_hdmi_is_frl(u32 clock)
 {
-	switch (clock) {
-	case 300000: /* 3 Gbps */
-	case 600000: /* 6 Gbps */
-	case 800000: /* 8 Gbps */
-	case 1000000: /* 10 Gbps */
-	case 1200000: /* 12 Gbps */
-		return true;
-	default:
-		return false;
-	}
+	u32 rates[] = { 300000, 600000, 800000, 1000000, 1200000 };
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(rates); i++)
+		if (intel_dpll_clock_matches(clock, rates[i]))
+			return true;
+
+	return false;
 }
 
 static void
@@ -2518,7 +2517,7 @@ intel_hdmi_set_edid(struct drm_connector *_connector)
 	struct intel_display *display = to_intel_display(connector);
 	struct intel_hdmi *intel_hdmi = intel_attached_hdmi(connector);
 	struct i2c_adapter *ddc = connector->base.ddc;
-	intel_wakeref_t wakeref;
+	struct ref_tracker *wakeref;
 	const struct drm_edid *drm_edid;
 	bool connected = false;
 
@@ -2561,7 +2560,7 @@ intel_hdmi_detect(struct drm_connector *_connector, bool force)
 	enum drm_connector_status status = connector_status_disconnected;
 	struct intel_hdmi *intel_hdmi = intel_attached_hdmi(connector);
 	struct intel_encoder *encoder = &hdmi_to_dig_port(intel_hdmi)->base;
-	intel_wakeref_t wakeref;
+	struct ref_tracker *wakeref;
 
 	drm_dbg_kms(display->drm, "[CONNECTOR:%d:%s]\n",
 		    connector->base.base.id, connector->base.name);

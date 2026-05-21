@@ -91,10 +91,10 @@ static void loongson_default_data(struct pci_dev *pdev,
 	/* Get bus_id, this can be overwritten later */
 	plat->bus_id = pci_dev_id(pdev);
 
-	/* clk_csr_i = 20-35MHz & MDC = clk_csr_i/16 */
-	plat->clk_csr = STMMAC_CSR_20_35M;
+	/* clk_csr_i = 100-150MHz & MDC = clk_csr_i/62 */
+	plat->clk_csr = STMMAC_CSR_100_150M;
 	plat->core_type = DWMAC_CORE_GMAC;
-	plat->force_sf_dma_mode = 1;
+	plat->force_sf_dma_mode = true;
 
 	/* Increase the default value for multicast hash bins */
 	plat->multicast_filter_bins = 256;
@@ -143,7 +143,8 @@ static struct stmmac_pci_info loongson_gmac_pci_info = {
 	.setup = loongson_gmac_data,
 };
 
-static void loongson_gnet_fix_speed(void *priv, int speed, unsigned int mode)
+static void loongson_gnet_fix_speed(void *priv, phy_interface_t interface,
+				    int speed, unsigned int mode)
 {
 	struct loongson_data *ld = (struct loongson_data *)priv;
 	struct net_device *ndev = dev_get_drvdata(ld->dev);
@@ -167,7 +168,7 @@ static int loongson_gnet_data(struct pci_dev *pdev,
 	loongson_default_data(pdev, plat);
 
 	plat->phy_interface = PHY_INTERFACE_MODE_GMII;
-	plat->mdio_bus_data->phy_mask = ~(u32)BIT(2);
+	plat->mdio_bus_data->phy_mask = ~BIT_U32(2);
 	plat->fix_mac_speed = loongson_gnet_fix_speed;
 
 	return 0;
@@ -192,9 +193,8 @@ static void loongson_dwmac_dma_init_channel(struct stmmac_priv *priv,
 		value |= DMA_BUS_MODE_MAXPBL;
 
 	value |= DMA_BUS_MODE_USP;
-	value &= ~(DMA_BUS_MODE_PBL_MASK | DMA_BUS_MODE_RPBL_MASK);
-	value |= (txpbl << DMA_BUS_MODE_PBL_SHIFT);
-	value |= (rxpbl << DMA_BUS_MODE_RPBL_SHIFT);
+	value = u32_replace_bits(value, txpbl, DMA_BUS_MODE_PBL_MASK);
+	value = u32_replace_bits(value, rxpbl, DMA_BUS_MODE_RPBL_MASK);
 
 	/* Set the Fixed burst mode */
 	if (dma_cfg->fixed_burst)
@@ -367,12 +367,9 @@ static int loongson_dwmac_setup(void *apriv, struct mac_device_info *mac)
 	mac->link.speed_mask = GMAC_CONTROL_PS | GMAC_CONTROL_FES;
 	mac->mii.addr = GMAC_MII_ADDR;
 	mac->mii.data = GMAC_MII_DATA;
-	mac->mii.addr_shift = 11;
-	mac->mii.addr_mask = 0x0000F800;
-	mac->mii.reg_shift = 6;
-	mac->mii.reg_mask = 0x000007C0;
-	mac->mii.clk_csr_shift = 2;
-	mac->mii.clk_csr_mask = GENMASK(5, 2);
+	mac->mii.addr_mask = GENMASK_U32(15, 11);
+	mac->mii.reg_mask = GENMASK_U32(10, 6);
+	mac->mii.clk_csr_mask = GENMASK_U32(5, 2);
 
 	return 0;
 }
@@ -443,13 +440,6 @@ static int loongson_dwmac_dt_config(struct pci_dev *pdev,
 		res->wol_irq = res->irq;
 	}
 
-	res->lpi_irq = of_irq_get_byname(np, "eth_lpi");
-	if (res->lpi_irq < 0) {
-		dev_err(&pdev->dev, "IRQ eth_lpi not found\n");
-		ret = -ENODEV;
-		goto err_put_node;
-	}
-
 	ret = device_get_phy_mode(&pdev->dev);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "phy_mode not found\n");
@@ -486,10 +476,12 @@ static int loongson_dwmac_acpi_config(struct pci_dev *pdev,
 }
 
 /* Loongson's DWMAC device may take nearly two seconds to complete DMA reset */
-static int loongson_dwmac_fix_reset(struct stmmac_priv *priv, void __iomem *ioaddr)
+static int loongson_dwmac_fix_reset(struct stmmac_priv *priv)
 {
-	u32 value = readl(ioaddr + DMA_BUS_MODE);
+	void __iomem *ioaddr = priv->ioaddr;
+	u32 value;
 
+	value = readl(ioaddr + DMA_BUS_MODE);
 	if (value & DMA_BUS_MODE_SFT_RESET) {
 		netdev_err(priv->dev, "the PHY clock is missing\n");
 		return -EINVAL;
@@ -519,10 +511,6 @@ static int loongson_dwmac_probe(struct pci_dev *pdev, const struct pci_device_id
 					   sizeof(*plat->mdio_bus_data),
 					   GFP_KERNEL);
 	if (!plat->mdio_bus_data)
-		return -ENOMEM;
-
-	plat->dma_cfg = devm_kzalloc(&pdev->dev, sizeof(*plat->dma_cfg), GFP_KERNEL);
-	if (!plat->dma_cfg)
 		return -ENOMEM;
 
 	ld = devm_kzalloc(&pdev->dev, sizeof(*ld), GFP_KERNEL);

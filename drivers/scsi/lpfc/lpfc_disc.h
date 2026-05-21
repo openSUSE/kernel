@@ -1,7 +1,7 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017-2025 Broadcom. All Rights Reserved. The term *
+ * Copyright (C) 2017-2026 Broadcom. All Rights Reserved. The term *
  * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.     *
  * Copyright (C) 2004-2013 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
@@ -77,6 +77,11 @@ struct lpfc_node_rrqs {
 	unsigned long xri_bitmap[XRI_BITMAP_ULONGS];
 };
 
+struct lpfc_enc_info {
+	u8 status; /* encryption status for session */
+	u8 level; /* CNSA encryption level */
+};
+
 enum lpfc_fc4_xpt_flags {
 	NLP_XPT_REGD		= 0x1,
 	SCSI_XPT_REGD		= 0x2,
@@ -132,11 +137,14 @@ struct lpfc_nodelist {
 	uint16_t	nlp_maxframe;		/* Max RCV frame size */
 	uint8_t		nlp_class_sup;		/* Supported Classes */
 	uint8_t         nlp_retry;		/* used for ELS retries */
-	uint8_t         nlp_fcp_info;	        /* class info, bits 0-3 */
+	uint8_t         nlp_fcp_info;	        /* class info, bits 0-2 */
+#define NLP_FCP_CLASS_MASK 0x07			/* class info bitmask */
 #define NLP_FCP_2_DEVICE   0x10			/* FCP-2 device */
 	u8		nlp_nvme_info;	        /* NVME NSLER Support */
 	uint8_t		vmid_support;		/* destination VMID support */
 #define NLP_NVME_NSLER     0x1			/* NVME NSLER device */
+
+	struct lpfc_enc_info nlp_enc_info; /* Encryption information struct */
 
 	struct timer_list   nlp_delayfunc;	/* Used for delayed ELS cmds */
 	struct lpfc_hba *phba;

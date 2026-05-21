@@ -2,6 +2,8 @@
 #ifndef IOU_OP_DEF_H
 #define IOU_OP_DEF_H
 
+struct io_uring_bpf_ctx;
+
 struct io_issue_def {
 	/* needs req->file assigned */
 	unsigned		needs_file : 1;
@@ -23,8 +25,6 @@ struct io_issue_def {
 	unsigned		poll_exclusive : 1;
 	/* skip auditing */
 	unsigned		audit_skip : 1;
-	/* have to be put into the iopoll list */
-	unsigned		iopoll_queue : 1;
 	/* vectored opcode, set if 1) vectored, and 2) handler needs to know */
 	unsigned		vectored : 1;
 	/* set to 1 if this opcode uses 128b sqes in a mixed sq */
@@ -33,8 +33,12 @@ struct io_issue_def {
 	/* size of async data needed, if any */
 	unsigned short		async_size;
 
+	/* bpf filter pdu size, if any */
+	unsigned short		filter_pdu_size;
+
 	int (*issue)(struct io_kiocb *, unsigned int);
 	int (*prep)(struct io_kiocb *, const struct io_uring_sqe *);
+	void (*filter_populate)(struct io_uring_bpf_ctx *, struct io_kiocb *);
 };
 
 struct io_cold_def {

@@ -529,7 +529,7 @@ static int ljca_new_client_device(struct ljca_adapter *adap, u8 type, u8 id,
 	struct ljca_client *client;
 	int ret;
 
-	client = kzalloc(sizeof *client, GFP_KERNEL);
+	client = kzalloc_obj(*client);
 	if (!client) {
 		kfree(data);
 		return -ENOMEM;
@@ -597,7 +597,7 @@ static int ljca_enumerate_gpio(struct ljca_adapter *adap)
 		return -EINVAL;
 
 	/* construct platform data */
-	gpio_info = kzalloc(sizeof *gpio_info, GFP_KERNEL);
+	gpio_info = kzalloc_obj(*gpio_info);
 	if (!gpio_info)
 		return -ENOMEM;
 	gpio_info->num = gpio_num;
@@ -630,7 +630,7 @@ static int ljca_enumerate_i2c(struct ljca_adapter *adap)
 
 	for (i = 0; i < desc->num; i++) {
 		/* construct platform data */
-		i2c_info = kzalloc(sizeof *i2c_info, GFP_KERNEL);
+		i2c_info = kzalloc_obj(*i2c_info);
 		if (!i2c_info)
 			return -ENOMEM;
 
@@ -669,7 +669,7 @@ static int ljca_enumerate_spi(struct ljca_adapter *adap)
 
 	for (i = 0; i < desc->num; i++) {
 		/* construct platform data */
-		spi_info = kzalloc(sizeof *spi_info, GFP_KERNEL);
+		spi_info = kzalloc_obj(*spi_info);
 		if (!spi_info)
 			return -ENOMEM;
 
@@ -776,7 +776,7 @@ static int ljca_probe(struct usb_interface *interface,
 	init_completion(&adap->cmd_completion);
 	INIT_LIST_HEAD(&adap->client_list);
 
-	adap->intf = usb_get_intf(interface);
+	adap->intf = interface;
 	adap->usb_dev = usb_dev;
 	adap->dev = dev;
 
@@ -787,7 +787,7 @@ static int ljca_probe(struct usb_interface *interface,
 	ret = usb_find_common_endpoints(alt, &ep_in, &ep_out, NULL, NULL);
 	if (ret) {
 		dev_err(dev, "bulk endpoints not found\n");
-		goto err_put;
+		goto err_destroy_mutex;
 	}
 	adap->rx_pipe = usb_rcvbulkpipe(usb_dev, usb_endpoint_num(ep_in));
 	adap->tx_pipe = usb_sndbulkpipe(usb_dev, usb_endpoint_num(ep_out));
@@ -797,14 +797,14 @@ static int ljca_probe(struct usb_interface *interface,
 	adap->rx_buf = devm_kzalloc(dev, adap->rx_len, GFP_KERNEL);
 	if (!adap->rx_buf) {
 		ret = -ENOMEM;
-		goto err_put;
+		goto err_destroy_mutex;
 	}
 
 	/* alloc rx urb */
 	adap->rx_urb = usb_alloc_urb(0, GFP_KERNEL);
 	if (!adap->rx_urb) {
 		ret = -ENOMEM;
-		goto err_put;
+		goto err_destroy_mutex;
 	}
 	usb_fill_bulk_urb(adap->rx_urb, usb_dev, adap->rx_pipe,
 			  adap->rx_buf, adap->rx_len, ljca_recv, adap);
@@ -836,10 +836,7 @@ static int ljca_probe(struct usb_interface *interface,
 
 err_free:
 	usb_free_urb(adap->rx_urb);
-
-err_put:
-	usb_put_intf(adap->intf);
-
+err_destroy_mutex:
 	mutex_destroy(&adap->mutex);
 
 	return ret;
@@ -863,8 +860,6 @@ static void ljca_disconnect(struct usb_interface *interface)
 	}
 
 	usb_free_urb(adap->rx_urb);
-
-	usb_put_intf(adap->intf);
 
 	mutex_destroy(&adap->mutex);
 }

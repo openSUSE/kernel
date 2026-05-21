@@ -4,6 +4,7 @@
 
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
+#include <drm/drm_blend.h>
 #include <drm/drm_managed.h>
 #include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
@@ -62,7 +63,7 @@ vkms_atomic_crtc_duplicate_state(struct drm_crtc *crtc)
 	if (WARN_ON(!crtc->state))
 		return NULL;
 
-	vkms_state = kzalloc(sizeof(*vkms_state), GFP_KERNEL);
+	vkms_state = kzalloc_obj(*vkms_state);
 	if (!vkms_state)
 		return NULL;
 
@@ -87,8 +88,7 @@ static void vkms_atomic_crtc_destroy_state(struct drm_crtc *crtc,
 
 static void vkms_atomic_crtc_reset(struct drm_crtc *crtc)
 {
-	struct vkms_crtc_state *vkms_state =
-		kzalloc(sizeof(*vkms_state), GFP_KERNEL);
+	struct vkms_crtc_state *vkms_state = kzalloc_obj(*vkms_state);
 
 	if (crtc->state)
 		vkms_atomic_crtc_destroy_state(crtc, crtc->state);
@@ -137,7 +137,7 @@ static int vkms_crtc_atomic_check(struct drm_crtc *crtc,
 		i++;
 	}
 
-	vkms_state->active_planes = kcalloc(i, sizeof(*vkms_state->active_planes), GFP_KERNEL);
+	vkms_state->active_planes = kzalloc_objs(*vkms_state->active_planes, i);
 	if (!vkms_state->active_planes)
 		return -ENOMEM;
 	vkms_state->num_active_planes = i;
@@ -227,6 +227,8 @@ struct vkms_output *vkms_crtc_init(struct drm_device *dev, struct drm_plane *pri
 	}
 
 	drm_crtc_enable_color_mgmt(crtc, 0, false, VKMS_LUT_SIZE);
+
+	drm_crtc_attach_background_color_property(crtc);
 
 	spin_lock_init(&vkms_out->lock);
 	spin_lock_init(&vkms_out->composer_lock);

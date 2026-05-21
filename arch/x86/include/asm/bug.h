@@ -7,7 +7,7 @@
 #include <linux/objtool.h>
 #include <asm/asm.h>
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 struct bug_entry;
 extern void __WARN_trap(struct bug_entry *bug, ...);
 #endif
@@ -15,7 +15,7 @@ extern void __WARN_trap(struct bug_entry *bug, ...);
 /*
  * Despite that some emulators terminate on UD2, we use it for WARN().
  */
-#define ASM_UD2		_ASM_BYTES(0x0f, 0x0b)
+#define ASM_UD2		__ASM_FORM(ud2)
 #define INSN_UD2	0x0b0f
 #define LEN_UD2		2
 
@@ -137,7 +137,7 @@ do {									\
 
 #ifdef HAVE_ARCH_BUG_FORMAT_ARGS
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 #include <linux/static_call_types.h>
 DECLARE_STATIC_CALL(WARN_trap, __WARN_trap);
 
@@ -153,7 +153,7 @@ struct arch_va_list {
 	struct sysv_va_list args;
 };
 extern void *__warn_args(struct arch_va_list *args, struct pt_regs *regs);
-#endif /* __ASSEMBLY__ */
+#endif /* __ASSEMBLER__ */
 
 #define __WARN_bug_entry(flags, format) ({				\
 	struct bug_entry *bug;						\

@@ -192,7 +192,7 @@ struct device_queue_manager_ops {
 
 	int (*reset_queues)(struct device_queue_manager *dqm,
 					uint16_t pasid);
-	void	(*get_queue_checkpoint_info)(struct device_queue_manager *dqm,
+	int	(*get_queue_checkpoint_info)(struct device_queue_manager *dqm,
 				  const struct queue *q, u32 *mqd_size,
 				  u32 *ctl_stack_size);
 
@@ -298,6 +298,8 @@ void device_queue_manager_init_v10(
 void device_queue_manager_init_v11(
 		struct device_queue_manager_asic_ops *asic_ops);
 void device_queue_manager_init_v12(
+		struct device_queue_manager_asic_ops *asic_ops);
+void device_queue_manager_init_v12_1(
 		struct device_queue_manager_asic_ops *asic_ops);
 void program_sh_mem_settings(struct device_queue_manager *dqm,
 					struct qcm_process_device *qpd);

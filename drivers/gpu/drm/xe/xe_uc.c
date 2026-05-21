@@ -8,16 +8,15 @@
 #include "xe_assert.h"
 #include "xe_device.h"
 #include "xe_gsc.h"
-#include "xe_gsc_proxy.h"
 #include "xe_gt.h"
 #include "xe_gt_printk.h"
 #include "xe_gt_sriov_vf.h"
 #include "xe_guc.h"
 #include "xe_guc_pc.h"
+#include "xe_guc_rc.h"
 #include "xe_guc_engine_activity.h"
 #include "xe_huc.h"
 #include "xe_sriov.h"
-#include "xe_uc_fw.h"
 #include "xe_wopcm.h"
 
 static struct xe_gt *
@@ -158,23 +157,19 @@ static int vf_uc_load_hw(struct xe_uc *uc)
 
 	err = xe_gt_sriov_vf_connect(uc_to_gt(uc));
 	if (err)
-		goto err_out;
+		return err;
 
 	uc->guc.submission_state.enabled = true;
 
 	err = xe_guc_opt_in_features_enable(&uc->guc);
 	if (err)
-		goto err_out;
+		return err;
 
 	err = xe_gt_record_default_lrcs(uc_to_gt(uc));
 	if (err)
-		goto err_out;
+		return err;
 
 	return 0;
-
-err_out:
-	xe_guc_sanitize(&uc->guc);
-	return err;
 }
 
 /*
@@ -206,30 +201,33 @@ int xe_uc_load_hw(struct xe_uc *uc)
 
 	ret = xe_gt_record_default_lrcs(uc_to_gt(uc));
 	if (ret)
-		goto err_out;
+		return ret;
 
 	ret = xe_guc_post_load_init(&uc->guc);
 	if (ret)
-		goto err_out;
+		return ret;
 
 	ret = xe_guc_pc_start(&uc->guc.pc);
 	if (ret)
-		goto err_out;
+		return ret;
+
+	ret = xe_guc_rc_enable(&uc->guc);
+	if (ret)
+		return ret;
 
 	xe_guc_engine_activity_enable_stats(&uc->guc);
 
-	/* We don't fail the driver load if HuC fails to auth, but let's warn */
+	/* We don't fail the driver load if HuC fails to auth */
 	ret = xe_huc_auth(&uc->huc, XE_HUC_AUTH_VIA_GUC);
-	xe_gt_assert(uc_to_gt(uc), !ret);
+	if (ret)
+		xe_gt_err(uc_to_gt(uc),
+			  "HuC authentication failed (%pe), continuing with no HuC\n",
+			  ERR_PTR(ret));
 
 	/* GSC load is async */
 	xe_gsc_load_start(&uc->gsc);
 
 	return 0;
-
-err_out:
-	xe_guc_sanitize(&uc->guc);
-	return ret;
 }
 
 int xe_uc_reset_prepare(struct xe_uc *uc)
@@ -239,11 +237,6 @@ int xe_uc_reset_prepare(struct xe_uc *uc)
 		return 0;
 
 	return xe_guc_reset_prepare(&uc->guc);
-}
-
-void xe_uc_gucrc_disable(struct xe_uc *uc)
-{
-	XE_WARN_ON(xe_guc_pc_gucrc_disable(&uc->guc.pc));
 }
 
 void xe_uc_stop_prepare(struct xe_uc *uc)
@@ -299,6 +292,34 @@ int xe_uc_suspend(struct xe_uc *uc)
 	xe_uc_stop(uc);
 
 	return xe_guc_suspend(&uc->guc);
+}
+
+/**
+ * xe_uc_runtime_suspend() - UC runtime suspend
+ * @uc: the UC object
+ *
+ * Runtime suspend all UCs.
+ */
+void xe_uc_runtime_suspend(struct xe_uc *uc)
+{
+	if (!xe_device_uc_enabled(uc_to_xe(uc)))
+		return;
+
+	xe_guc_runtime_suspend(&uc->guc);
+}
+
+/**
+ * xe_uc_runtime_resume() - UC runtime resume
+ * @uc: the UC object
+ *
+ * Runtime resume all UCs.
+ */
+void xe_uc_runtime_resume(struct xe_uc *uc)
+{
+	if (!xe_device_uc_enabled(uc_to_xe(uc)))
+		return;
+
+	xe_guc_runtime_resume(&uc->guc);
 }
 
 /**

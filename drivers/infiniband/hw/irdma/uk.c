@@ -114,7 +114,6 @@ void irdma_clr_wqes(struct irdma_qp_uk *qp, u32 qp_wqe_idx)
  */
 void irdma_uk_qp_post_wr(struct irdma_qp_uk *qp)
 {
-	dma_wmb();
 	writel(qp->qp_id, qp->wqe_alloc_db);
 }
 
@@ -1107,8 +1106,6 @@ void irdma_uk_cq_request_notification(struct irdma_cq_uk *cq,
 
 	set_64bit_val(cq->shadow_area, 32, temp_val);
 
-	dma_wmb(); /* make sure WQE is populated before valid bit is set */
-
 	writel(cq->cq_id, cq->cqe_alloc_db);
 }
 
@@ -1408,8 +1405,7 @@ exit:
 		 * from SW for all unprocessed WQEs. For GEN3 and beyond
 		 * FW will generate/flush these CQEs so move to the next CQE
 		 */
-			move_cq_head = qp->uk_attrs->hw_rev <= IRDMA_GEN_2 ?
-						false : true;
+			move_cq_head = qp->uk_attrs->hw_rev > IRDMA_GEN_2;
 	}
 
 	if (move_cq_head) {
@@ -1442,7 +1438,7 @@ exit:
  * irdma_round_up_wq - return round up qp wq depth
  * @wqdepth: wq depth in quanta to round up
  */
-static int irdma_round_up_wq(u32 wqdepth)
+static u64 irdma_round_up_wq(u64 wqdepth)
 {
 	int scount = 1;
 
@@ -1495,15 +1491,16 @@ void irdma_get_wqe_shift(struct irdma_uk_attrs *uk_attrs, u32 sge,
 int irdma_get_sqdepth(struct irdma_uk_attrs *uk_attrs, u32 sq_size, u8 shift,
 		      u32 *sqdepth)
 {
-	u32 min_size = (u32)uk_attrs->min_hw_wq_size << shift;
+	u32 min_hw_quanta = (u32)uk_attrs->min_hw_wq_size << shift;
+	u64 hw_quanta =
+		irdma_round_up_wq(((u64)sq_size << shift) + IRDMA_SQ_RSVD);
 
-	*sqdepth = irdma_round_up_wq((sq_size << shift) + IRDMA_SQ_RSVD);
-
-	if (*sqdepth < min_size)
-		*sqdepth = min_size;
-	else if (*sqdepth > uk_attrs->max_hw_wq_quanta)
+	if (hw_quanta < min_hw_quanta)
+		hw_quanta = min_hw_quanta;
+	else if (hw_quanta > uk_attrs->max_hw_wq_quanta)
 		return -EINVAL;
 
+	*sqdepth = hw_quanta;
 	return 0;
 }
 
@@ -1517,15 +1514,16 @@ int irdma_get_sqdepth(struct irdma_uk_attrs *uk_attrs, u32 sq_size, u8 shift,
 int irdma_get_rqdepth(struct irdma_uk_attrs *uk_attrs, u32 rq_size, u8 shift,
 		      u32 *rqdepth)
 {
-	u32 min_size = (u32)uk_attrs->min_hw_wq_size << shift;
+	u32 min_hw_quanta = (u32)uk_attrs->min_hw_wq_size << shift;
+	u64 hw_quanta =
+		irdma_round_up_wq(((u64)rq_size << shift) + IRDMA_RQ_RSVD);
 
-	*rqdepth = irdma_round_up_wq((rq_size << shift) + IRDMA_RQ_RSVD);
-
-	if (*rqdepth < min_size)
-		*rqdepth = min_size;
-	else if (*rqdepth > uk_attrs->max_hw_rq_quanta)
+	if (hw_quanta < min_hw_quanta)
+		hw_quanta = min_hw_quanta;
+	else if (hw_quanta > uk_attrs->max_hw_rq_quanta)
 		return -EINVAL;
 
+	*rqdepth = hw_quanta;
 	return 0;
 }
 
@@ -1539,13 +1537,16 @@ int irdma_get_rqdepth(struct irdma_uk_attrs *uk_attrs, u32 rq_size, u8 shift,
 int irdma_get_srqdepth(struct irdma_uk_attrs *uk_attrs, u32 srq_size, u8 shift,
 		       u32 *srqdepth)
 {
-	*srqdepth = irdma_round_up_wq((srq_size << shift) + IRDMA_RQ_RSVD);
+	u32 min_hw_quanta = (u32)uk_attrs->min_hw_wq_size << shift;
+	u64 hw_quanta =
+		irdma_round_up_wq(((u64)srq_size << shift) + IRDMA_RQ_RSVD);
 
-	if (*srqdepth < ((u32)uk_attrs->min_hw_wq_size << shift))
-		*srqdepth = uk_attrs->min_hw_wq_size << shift;
-	else if (*srqdepth > uk_attrs->max_hw_srq_quanta)
+	if (hw_quanta < min_hw_quanta)
+		hw_quanta = min_hw_quanta;
+	else if (hw_quanta > uk_attrs->max_hw_srq_quanta)
 		return -EINVAL;
 
+	*srqdepth = hw_quanta;
 	return 0;
 }
 

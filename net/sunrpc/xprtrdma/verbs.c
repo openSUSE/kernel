@@ -383,7 +383,7 @@ static int rpcrdma_ep_create(struct rpcrdma_xprt *r_xprt)
 	struct rpcrdma_ep *ep;
 	int rc;
 
-	ep = kzalloc(sizeof(*ep), XPRTRDMA_GFP_FLAGS);
+	ep = kzalloc_obj(*ep, XPRTRDMA_GFP_FLAGS);
 	if (!ep)
 		return -ENOTCONN;
 	ep->re_xprt = &r_xprt->rx_xprt;
@@ -615,8 +615,8 @@ static struct rpcrdma_sendctx *rpcrdma_sendctx_create(struct rpcrdma_ep *ep)
 {
 	struct rpcrdma_sendctx *sc;
 
-	sc = kzalloc(struct_size(sc, sc_sges, ep->re_attr.cap.max_send_sge),
-		     XPRTRDMA_GFP_FLAGS);
+	sc = kzalloc_flex(*sc, sc_sges, ep->re_attr.cap.max_send_sge,
+			  XPRTRDMA_GFP_FLAGS);
 	if (!sc)
 		return NULL;
 
@@ -639,7 +639,7 @@ static int rpcrdma_sendctxs_create(struct rpcrdma_xprt *r_xprt)
 	 * Sends are posted.
 	 */
 	i = r_xprt->rx_ep->re_max_requests + RPCRDMA_MAX_BC_REQUESTS;
-	buf->rb_sc_ctxs = kcalloc(i, sizeof(sc), XPRTRDMA_GFP_FLAGS);
+	buf->rb_sc_ctxs = kzalloc_objs(sc, i, XPRTRDMA_GFP_FLAGS);
 	if (!buf->rb_sc_ctxs)
 		return -ENOMEM;
 
@@ -708,6 +708,18 @@ out_emptyq:
 	 */
 	xprt_wait_for_buffer_space(&r_xprt->rx_xprt);
 	r_xprt->rx_stats.empty_sendctx_q++;
+
+	/* Recheck: a Send completion between the ring-empty test
+	 * and the set_bit could cause its xprt_write_space() to
+	 * miss, leaving XPRT_WRITE_SPACE set with a non-full ring.
+	 * The smp_mb__after_atomic() pairs with smp_store_release()
+	 * in rpcrdma_sendctx_put_locked().
+	 */
+	smp_mb__after_atomic();
+	next_head = rpcrdma_sendctx_next(buf, buf->rb_sc_head);
+	if (next_head != READ_ONCE(buf->rb_sc_tail))
+		xprt_write_space(&r_xprt->rx_xprt);
+
 	return NULL;
 }
 
@@ -739,7 +751,10 @@ static void rpcrdma_sendctx_put_locked(struct rpcrdma_xprt *r_xprt,
 
 	} while (buf->rb_sc_ctxs[next_tail] != sc);
 
-	/* Paired with READ_ONCE */
+	/* Paired with READ_ONCE in rpcrdma_sendctx_get_locked():
+	 * both the fast-path ring-full test and the post-set_bit
+	 * recheck in the slow path depend on this store-release.
+	 */
 	smp_store_release(&buf->rb_sc_tail, next_tail);
 
 	xprt_write_space(&r_xprt->rx_xprt);
@@ -822,7 +837,7 @@ struct rpcrdma_req *rpcrdma_req_create(struct rpcrdma_xprt *r_xprt,
 	struct rpcrdma_buffer *buffer = &r_xprt->rx_buf;
 	struct rpcrdma_req *req;
 
-	req = kzalloc(sizeof(*req), XPRTRDMA_GFP_FLAGS);
+	req = kzalloc_obj(*req, XPRTRDMA_GFP_FLAGS);
 	if (req == NULL)
 		goto out1;
 
@@ -952,7 +967,7 @@ struct rpcrdma_rep *rpcrdma_rep_create(struct rpcrdma_xprt *r_xprt)
 	struct ib_device *device = ep->re_id->device;
 	struct rpcrdma_rep *rep;
 
-	rep = kzalloc(sizeof(*rep), XPRTRDMA_GFP_FLAGS);
+	rep = kzalloc_obj(*rep, XPRTRDMA_GFP_FLAGS);
 	if (rep == NULL)
 		goto out;
 
@@ -1359,10 +1374,10 @@ void rpcrdma_post_recvs(struct rpcrdma_xprt *r_xprt, int needed)
 	if (likely(ep->re_receive_count > needed))
 		goto out;
 	needed -= ep->re_receive_count;
-	needed += RPCRDMA_MAX_RECV_BATCH;
+	needed += ep->re_recv_batch;
 
 	if (atomic_inc_return(&ep->re_receiving) > 1)
-		goto out;
+		goto out_dec;
 
 	/* fast path: all needed reps can be found on the free list */
 	wr = NULL;
@@ -1385,7 +1400,7 @@ void rpcrdma_post_recvs(struct rpcrdma_xprt *r_xprt, int needed)
 		++count;
 	}
 	if (!wr)
-		goto out;
+		goto out_dec;
 
 	rc = ib_post_recv(ep->re_id->qp, wr,
 			  (const struct ib_recv_wr **)&bad_wr);
@@ -1400,9 +1415,10 @@ void rpcrdma_post_recvs(struct rpcrdma_xprt *r_xprt, int needed)
 			--count;
 		}
 	}
+
+out_dec:
 	if (atomic_dec_return(&ep->re_receiving) > 0)
 		complete(&ep->re_done);
-
 out:
 	trace_xprtrdma_post_recvs(r_xprt, count);
 	ep->re_receive_count += count;

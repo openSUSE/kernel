@@ -69,14 +69,15 @@ enum print_line_t trace_print_printk_msg_only(struct trace_iterator *iter)
 const char *
 trace_print_flags_seq(struct trace_seq *p, const char *delim,
 		      unsigned long flags,
-		      const struct trace_print_flags *flag_array)
+		      const struct trace_print_flags *flag_array,
+		      size_t flag_array_size)
 {
 	unsigned long mask;
 	const char *str;
 	const char *ret = trace_seq_buffer_ptr(p);
 	int i, first = 1;
 
-	for (i = 0;  flag_array[i].name && flags; i++) {
+	for (i = 0; i < flag_array_size && flags; i++) {
 
 		mask = flag_array[i].mask;
 		if ((flags & mask) != mask)
@@ -106,12 +107,13 @@ EXPORT_SYMBOL(trace_print_flags_seq);
 
 const char *
 trace_print_symbols_seq(struct trace_seq *p, unsigned long val,
-			const struct trace_print_flags *symbol_array)
+			const struct trace_print_flags *symbol_array,
+			size_t symbol_array_size)
 {
 	int i;
 	const char *ret = trace_seq_buffer_ptr(p);
 
-	for (i = 0;  symbol_array[i].name; i++) {
+	for (i = 0; i < symbol_array_size; i++) {
 
 		if (val != symbol_array[i].mask)
 			continue;
@@ -133,14 +135,15 @@ EXPORT_SYMBOL(trace_print_symbols_seq);
 const char *
 trace_print_flags_seq_u64(struct trace_seq *p, const char *delim,
 		      unsigned long long flags,
-		      const struct trace_print_flags_u64 *flag_array)
+		      const struct trace_print_flags_u64 *flag_array,
+		      size_t flag_array_size)
 {
 	unsigned long long mask;
 	const char *str;
 	const char *ret = trace_seq_buffer_ptr(p);
 	int i, first = 1;
 
-	for (i = 0;  flag_array[i].name && flags; i++) {
+	for (i = 0; i < flag_array_size && flags; i++) {
 
 		mask = flag_array[i].mask;
 		if ((flags & mask) != mask)
@@ -170,12 +173,13 @@ EXPORT_SYMBOL(trace_print_flags_seq_u64);
 
 const char *
 trace_print_symbols_seq_u64(struct trace_seq *p, unsigned long long val,
-			 const struct trace_print_flags_u64 *symbol_array)
+			    const struct trace_print_flags_u64 *symbol_array,
+			    size_t symbol_array_size)
 {
 	int i;
 	const char *ret = trace_seq_buffer_ptr(p);
 
-	for (i = 0;  symbol_array[i].name; i++) {
+	for (i = 0; i < symbol_array_size; i++) {
 
 		if (val != symbol_array[i].mask)
 			continue;
@@ -194,13 +198,37 @@ trace_print_symbols_seq_u64(struct trace_seq *p, unsigned long long val,
 EXPORT_SYMBOL(trace_print_symbols_seq_u64);
 #endif
 
+/**
+ * trace_print_bitmask_seq - print a bitmask to a sequence buffer
+ * @iter: The trace iterator for the current event instance
+ * @bitmask_ptr: The pointer to the bitmask data
+ * @bitmask_size: The size of the bitmask in bytes
+ *
+ * Prints a bitmask into a sequence buffer as either a hex string or a
+ * human-readable range list, depending on the instance's "bitmask-list"
+ * trace option. The bitmask is formatted into the iterator's temporary
+ * scratchpad rather than the primary sequence buffer. This avoids
+ * duplication and pointer-collision issues when the returned string is
+ * processed by a "%s" specifier in a TP_printk() macro.
+ *
+ * Returns a pointer to the formatted string within the temporary buffer.
+ */
 const char *
-trace_print_bitmask_seq(struct trace_seq *p, void *bitmask_ptr,
+trace_print_bitmask_seq(struct trace_iterator *iter, void *bitmask_ptr,
 			unsigned int bitmask_size)
 {
-	const char *ret = trace_seq_buffer_ptr(p);
+	struct trace_seq *p = &iter->tmp_seq;
+	const struct trace_array *tr = iter->tr;
+	const char *ret;
 
-	trace_seq_bitmask(p, bitmask_ptr, bitmask_size * 8);
+	trace_seq_init(p);
+	ret = trace_seq_buffer_ptr(p);
+
+	if (tr->trace_flags & TRACE_ITER(BITMASK_LIST))
+		trace_seq_bitmask_list(p, bitmask_ptr, bitmask_size * 8);
+	else
+		trace_seq_bitmask(p, bitmask_ptr, bitmask_size * 8);
+
 	trace_seq_putc(p, 0);
 
 	return ret;
@@ -695,12 +723,13 @@ void print_function_args(struct trace_seq *s, unsigned long *args,
 {
 	const struct btf_param *param;
 	const struct btf_type *t;
+	const struct btf_enum *enums;
 	const char *param_name;
 	char name[KSYM_NAME_LEN];
 	unsigned long arg;
 	struct btf *btf;
 	s32 tid, nr = 0;
-	int a, p, x;
+	int a, p, x, i;
 	u16 encode;
 
 	trace_seq_printf(s, "(");
@@ -754,6 +783,15 @@ void print_function_args(struct trace_seq *s, unsigned long *args,
 			break;
 		case BTF_KIND_ENUM:
 			trace_seq_printf(s, "%ld", arg);
+			enums = btf_enum(t);
+			for (i = 0; i < btf_vlen(t); i++) {
+				if (arg == enums[i].val) {
+					trace_seq_printf(s, " [%s]",
+							 btf_name_by_offset(btf,
+							 enums[i].name_off));
+					break;
+				}
+			}
 			break;
 		default:
 			/* This does not handle complex arguments */

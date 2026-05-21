@@ -31,7 +31,7 @@ static int timer_cb(void *map, int *key, struct bpf_timer *timer)
 }
 
 SEC("fentry/bpf_fentry_test1")
-__failure __msg("helper call might sleep in a non-sleepable prog")
+__failure __msg("sleepable helper bpf_copy_from_user#{{[0-9]+}} in non-sleepable prog")
 int timer_non_sleepable_prog(void *ctx)
 {
 	struct timer_elem *val;
@@ -47,7 +47,7 @@ int timer_non_sleepable_prog(void *ctx)
 }
 
 SEC("lsm.s/file_open")
-__failure __msg("helper call might sleep in a non-sleepable prog")
+__failure __msg("sleepable helper bpf_copy_from_user#{{[0-9]+}} in non-sleepable prog")
 int timer_sleepable_prog(void *ctx)
 {
 	struct timer_elem *val;
@@ -96,7 +96,7 @@ int wq_non_sleepable_prog(void *ctx)
 
 	if (bpf_wq_init(&val->w, &wq_map, 0) != 0)
 		return 0;
-	if (bpf_wq_set_callback_impl(&val->w, wq_cb, 0, NULL) != 0)
+	if (bpf_wq_set_callback(&val->w, wq_cb, 0) != 0)
 		return 0;
 	return 0;
 }
@@ -114,7 +114,7 @@ int wq_sleepable_prog(void *ctx)
 
 	if (bpf_wq_init(&val->w, &wq_map, 0) != 0)
 		return 0;
-	if (bpf_wq_set_callback_impl(&val->w, wq_cb, 0, NULL) != 0)
+	if (bpf_wq_set_callback(&val->w, wq_cb, 0) != 0)
 		return 0;
 	return 0;
 }
@@ -156,7 +156,7 @@ int task_work_non_sleepable_prog(void *ctx)
 	if (!task)
 		return 0;
 
-	bpf_task_work_schedule_resume_impl(task, &val->tw, &task_work_map, task_work_cb, NULL);
+	bpf_task_work_schedule_resume(task, &val->tw, &task_work_map, task_work_cb);
 	return 0;
 }
 
@@ -176,6 +176,6 @@ int task_work_sleepable_prog(void *ctx)
 	if (!task)
 		return 0;
 
-	bpf_task_work_schedule_resume_impl(task, &val->tw, &task_work_map, task_work_cb, NULL);
+	bpf_task_work_schedule_resume(task, &val->tw, &task_work_map, task_work_cb);
 	return 0;
 }

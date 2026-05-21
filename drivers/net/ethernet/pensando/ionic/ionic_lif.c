@@ -203,7 +203,7 @@ void ionic_link_status_check_request(struct ionic_lif *lif, bool can_sleep)
 		return;
 
 	if (!can_sleep) {
-		work = kzalloc(sizeof(*work), GFP_ATOMIC);
+		work = kzalloc_obj(*work, GFP_ATOMIC);
 		if (!work) {
 			clear_bit(IONIC_LIF_F_LINK_CHECK_REQUESTED, lif->state);
 			return;
@@ -1427,7 +1427,7 @@ static void ionic_ndo_set_rx_mode(struct net_device *netdev)
 	/* Shove off the rest of the rxmode work to the work task
 	 * which will include syncing the filters to the firmware.
 	 */
-	work = kzalloc(sizeof(*work), GFP_ATOMIC);
+	work = kzalloc_obj(*work, GFP_ATOMIC);
 	if (!work) {
 		netdev_err(lif->netdev, "rxmode change dropped\n");
 		return;
@@ -1719,13 +1719,18 @@ static int ionic_set_mac_address(struct net_device *netdev, void *sa)
 	if (ether_addr_equal(netdev->dev_addr, mac))
 		return 0;
 
-	err = ionic_program_mac(lif, mac);
-	if (err < 0)
-		return err;
+	/* Only program macs for virtual functions to avoid losing the permanent
+	 * Mac across warm reset/reboot.
+	 */
+	if (lif->ionic->pdev->is_virtfn) {
+		err = ionic_program_mac(lif, mac);
+		if (err < 0)
+			return err;
 
-	if (err > 0)
-		netdev_dbg(netdev, "%s: SET and GET ATTR Mac are not equal-due to old FW running\n",
-			   __func__);
+		if (err > 0)
+			netdev_dbg(netdev, "%s: SET and GET ATTR Mac are not equal-due to old FW running\n",
+				   __func__);
+	}
 
 	err = eth_prepare_mac_addr_change(netdev, addr);
 	if (err)
@@ -2694,7 +2699,7 @@ static int ionic_register_rxq_info(struct ionic_queue *q, unsigned int napi_id)
 	struct xdp_rxq_info *rxq_info;
 	int err;
 
-	rxq_info = kzalloc(sizeof(*rxq_info), GFP_KERNEL);
+	rxq_info = kzalloc_obj(*rxq_info);
 	if (!rxq_info)
 		return -ENOMEM;
 
@@ -3177,7 +3182,7 @@ static int ionic_affinity_masks_alloc(struct ionic *ionic)
 	int nintrs = ionic->nintrs;
 	int i;
 
-	affinity_masks = kcalloc(nintrs, sizeof(cpumask_var_t), GFP_KERNEL);
+	affinity_masks = kzalloc_objs(cpumask_var_t, nintrs);
 	if (!affinity_masks)
 		return -ENOMEM;
 
@@ -3218,7 +3223,7 @@ int ionic_lif_alloc(struct ionic *ionic)
 	int tbl_sz;
 	int err;
 
-	lid = kzalloc(sizeof(*lid), GFP_KERNEL);
+	lid = kzalloc_obj(*lid);
 	if (!lid)
 		return -ENOMEM;
 

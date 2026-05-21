@@ -113,7 +113,7 @@ static void nfs_writehdr_free(struct nfs_pgio_header *hdr)
 
 static struct nfs_io_completion *nfs_io_completion_alloc(gfp_t gfp_flags)
 {
-	return kmalloc(sizeof(struct nfs_io_completion), gfp_flags);
+	return kmalloc_obj(struct nfs_io_completion, gfp_flags);
 }
 
 static void nfs_io_completion_init(struct nfs_io_completion *ioc,
@@ -872,8 +872,7 @@ static void nfs_folio_clear_commit(struct folio *folio)
 		long nr = folio_nr_pages(folio);
 
 		node_stat_mod_folio(folio, NR_WRITEBACK, -nr);
-		wb_stat_mod(&inode_to_bdi(folio->mapping->host)->wb,
-			    WB_WRITEBACK, -nr);
+		bdi_wb_stat_mod(folio->mapping->host, WB_WRITEBACK, -nr);
 	}
 }
 
@@ -927,9 +926,13 @@ static void nfs_write_completion(struct nfs_pgio_header *hdr)
 			goto remove_req;
 		}
 		if (nfs_write_need_commit(hdr)) {
+			struct nfs_open_context *ctx =
+				hdr->req->wb_lock_context->open_context;
+
 			/* Reset wb_nio, since the write was successful. */
 			req->wb_nio = 0;
 			memcpy(&req->wb_verf, &hdr->verf.verifier, sizeof(req->wb_verf));
+			clear_bit(NFS_CONTEXT_WRITE_SYNC, &ctx->flags);
 			nfs_mark_request_commit(req, hdr->lseg, &cinfo,
 				hdr->ds_commit_idx);
 			goto next;
@@ -1402,7 +1405,7 @@ void nfs_pageio_init_write(struct nfs_pageio_descriptor *pgio,
 	struct nfs_server *server = NFS_SERVER(inode);
 	const struct nfs_pageio_ops *pg_ops = &nfs_pgio_rw_ops;
 
-#ifdef CONFIG_NFS_V4_1
+#if IS_ENABLED(CONFIG_NFS_V4)
 	if (server->pnfs_curr_ld && !force_mds)
 		pg_ops = server->pnfs_curr_ld->pg_write_ops;
 #endif
@@ -1551,9 +1554,12 @@ static void nfs_writeback_result(struct rpc_task *task,
 	struct nfs_pgio_args	*argp = &hdr->args;
 	struct nfs_pgio_res	*resp = &hdr->res;
 
-	if (resp->count < argp->count) {
+	if (resp->count < argp->count && !list_empty(&hdr->pages)) {
 		static unsigned long    complain;
+		struct nfs_open_context *ctx =
+			hdr->req->wb_lock_context->open_context;
 
+		set_bit(NFS_CONTEXT_WRITE_SYNC, &ctx->flags);
 		/* This a short write! */
 		nfs_inc_stats(hdr->inode, NFSIOS_SHORTWRITE);
 
@@ -1837,6 +1843,8 @@ static void nfs_commit_release_pages(struct nfs_commit_data *data)
 		/* We have a mismatch. Write the page again */
 		dprintk(" mismatch\n");
 		nfs_mark_request_dirty(req);
+		set_bit(NFS_CONTEXT_WRITE_SYNC,
+			&req->wb_lock_context->open_context->flags);
 		atomic_long_inc(&NFS_I(data->inode)->redirtied_pages);
 	next:
 		nfs_unlock_and_release_request(req);
@@ -2022,6 +2030,39 @@ int nfs_wb_folio_cancel(struct inode *inode, struct folio *folio)
 	}
 
 	return ret;
+}
+
+/**
+ * nfs_wb_folio_reclaim - Write back all requests on one page
+ * @inode: pointer to page
+ * @folio: pointer to folio
+ *
+ * Assumes that the folio has been locked by the caller
+ */
+int nfs_wb_folio_reclaim(struct inode *inode, struct folio *folio)
+{
+	loff_t range_start = folio_pos(folio);
+	size_t len = folio_size(folio);
+	struct writeback_control wbc = {
+		.sync_mode = WB_SYNC_ALL,
+		.nr_to_write = 0,
+		.range_start = range_start,
+		.range_end = range_start + len - 1,
+		.for_sync = 1,
+	};
+	int ret;
+
+	if (folio_test_writeback(folio))
+		return -EBUSY;
+	if (folio_clear_dirty_for_io(folio)) {
+		trace_nfs_writeback_folio_reclaim(inode, range_start, len);
+		ret = nfs_writepage_locked(folio, &wbc);
+		trace_nfs_writeback_folio_reclaim_done(inode, range_start, len,
+						       ret);
+		return ret;
+	}
+	nfs_commit_inode(inode, 0);
+	return 0;
 }
 
 /**

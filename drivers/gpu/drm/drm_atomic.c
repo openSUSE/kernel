@@ -132,16 +132,15 @@ drm_atomic_state_init(struct drm_device *dev, struct drm_atomic_state *state)
 	 */
 	state->allow_modeset = true;
 
-	state->crtcs = kcalloc(dev->mode_config.num_crtc,
-			       sizeof(*state->crtcs), GFP_KERNEL);
+	state->crtcs = kzalloc_objs(*state->crtcs, dev->mode_config.num_crtc);
 	if (!state->crtcs)
 		goto fail;
-	state->planes = kcalloc(dev->mode_config.num_total_plane,
-				sizeof(*state->planes), GFP_KERNEL);
+	state->planes = kzalloc_objs(*state->planes,
+				     dev->mode_config.num_total_plane);
 	if (!state->planes)
 		goto fail;
-	state->colorops = kcalloc(dev->mode_config.num_colorop,
-				  sizeof(*state->colorops), GFP_KERNEL);
+	state->colorops = kzalloc_objs(*state->colorops,
+				       dev->mode_config.num_colorop);
 	if (!state->colorops)
 		goto fail;
 
@@ -176,7 +175,7 @@ drm_atomic_state_alloc(struct drm_device *dev)
 	if (!config->funcs->atomic_state_alloc) {
 		struct drm_atomic_state *state;
 
-		state = kzalloc(sizeof(*state), GFP_KERNEL);
+		state = kzalloc_obj(*state);
 		if (!state)
 			return NULL;
 		if (drm_atomic_state_init(dev, state) < 0) {
@@ -476,6 +475,7 @@ static void drm_atomic_crtc_print_state(struct drm_printer *p,
 	drm_printf(p, "\tconnector_mask=%x\n", state->connector_mask);
 	drm_printf(p, "\tencoder_mask=%x\n", state->encoder_mask);
 	drm_printf(p, "\tmode: " DRM_MODE_FMT "\n", DRM_MODE_ARG(&state->mode));
+	drm_printf(p, "\tbackground_color=%llx\n", state->background_color);
 
 	if (crtc->funcs->atomic_print_state)
 		crtc->funcs->atomic_print_state(p, state);
@@ -640,6 +640,38 @@ drm_atomic_get_colorop_state(struct drm_atomic_state *state,
 	return colorop_state;
 }
 EXPORT_SYMBOL(drm_atomic_get_colorop_state);
+
+/**
+ * drm_atomic_get_old_colorop_state - get colorop state, if it exists
+ * @state: global atomic state object
+ * @colorop: colorop to grab
+ *
+ * This function returns the old colorop state for the given colorop, or
+ * NULL if the colorop is not part of the global atomic state.
+ */
+struct drm_colorop_state *
+drm_atomic_get_old_colorop_state(struct drm_atomic_state *state,
+				 struct drm_colorop *colorop)
+{
+	return state->colorops[drm_colorop_index(colorop)].old_state;
+}
+EXPORT_SYMBOL(drm_atomic_get_old_colorop_state);
+
+/**
+ * drm_atomic_get_new_colorop_state - get colorop state, if it exists
+ * @state: global atomic state object
+ * @colorop: colorop to grab
+ *
+ * This function returns the new colorop state for the given colorop, or
+ * NULL if the colorop is not part of the global atomic state.
+ */
+struct drm_colorop_state *
+drm_atomic_get_new_colorop_state(struct drm_atomic_state *state,
+				 struct drm_colorop *colorop)
+{
+	return state->colorops[drm_colorop_index(colorop)].new_state;
+}
+EXPORT_SYMBOL(drm_atomic_get_new_colorop_state);
 
 static bool
 plane_switching_crtc(const struct drm_plane_state *old_plane_state,
@@ -889,28 +921,35 @@ static void drm_atomic_plane_print_state(struct drm_printer *p,
  * drm_atomic_private_obj_init - initialize private object
  * @dev: DRM device this object will be attached to
  * @obj: private object
- * @state: initial private object state
  * @funcs: pointer to the struct of function pointers that identify the object
  * type
  *
  * Initialize the private object, which can be embedded into any
  * driver private object that needs its own atomic state.
+ *
+ * RETURNS:
+ * Zero on success, error code on failure
  */
-void
-drm_atomic_private_obj_init(struct drm_device *dev,
-			    struct drm_private_obj *obj,
-			    struct drm_private_state *state,
-			    const struct drm_private_state_funcs *funcs)
+int drm_atomic_private_obj_init(struct drm_device *dev,
+				struct drm_private_obj *obj,
+				const struct drm_private_state_funcs *funcs)
 {
+	struct drm_private_state *state;
 	memset(obj, 0, sizeof(*obj));
 
 	drm_modeset_lock_init(&obj->lock);
 
-	obj->state = state;
+	obj->dev = dev;
 	obj->funcs = funcs;
 	list_add_tail(&obj->head, &dev->mode_config.privobj_list);
 
-	state->obj = obj;
+	state = obj->funcs->atomic_create_state(obj);
+	if (IS_ERR(state))
+		return PTR_ERR(state);
+
+	obj->state = state;
+
+	return 0;
 }
 EXPORT_SYMBOL(drm_atomic_private_obj_init);
 
@@ -1537,6 +1576,7 @@ drm_atomic_add_affected_planes(struct drm_atomic_state *state,
 	const struct drm_crtc_state *old_crtc_state =
 		drm_atomic_get_old_crtc_state(state, crtc);
 	struct drm_plane *plane;
+	int ret;
 
 	WARN_ON(!drm_atomic_get_new_crtc_state(state, crtc));
 
@@ -1550,6 +1590,12 @@ drm_atomic_add_affected_planes(struct drm_atomic_state *state,
 
 		if (IS_ERR(plane_state))
 			return PTR_ERR(plane_state);
+
+		if (plane_state->color_pipeline) {
+			ret = drm_atomic_add_affected_colorops(state, plane);
+			if (ret)
+				return ret;
+		}
 	}
 	return 0;
 }

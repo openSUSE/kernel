@@ -229,7 +229,7 @@ static bool is_compressible(const struct iov_iter *data)
 	if (has_repeated_data(sample, len))
 		goto out;
 
-	bkt = kcalloc(bkt_size, sizeof(*bkt), GFP_KERNEL);
+	bkt = kzalloc_objs(*bkt, bkt_size);
 	if (!bkt) {
 		WARN_ON_ONCE(1);
 		ret = false;
@@ -329,11 +329,7 @@ int smb_compress(struct TCP_Server_Info *server, struct smb_rqst *rq, compress_s
 		goto err_free;
 	}
 
-	/*
-	 * This is just overprovisioning, as the algorithm will error out if @dst reaches 7/8
-	 * of @slen.
-	 */
-	dlen = slen;
+	dlen = lz77_compressed_alloc_size(slen);
 	dst = kvzalloc(dlen, GFP_KERNEL);
 	if (!dst) {
 		ret = -ENOMEM;

@@ -29,7 +29,7 @@ SCHED_FEAT(PREEMPT_SHORT, true)
  * wakeup-preemption), since its likely going to consume data we
  * touched, increases cache locality.
  */
-SCHED_FEAT(NEXT_BUDDY, true)
+SCHED_FEAT(NEXT_BUDDY, false)
 
 /*
  * Allow completely ignoring cfs_rq->next; which can be set from various
@@ -58,13 +58,20 @@ SCHED_FEAT(CACHE_HOT_BUDDY, true)
 SCHED_FEAT(DELAY_DEQUEUE, true)
 SCHED_FEAT(DELAY_ZERO, true)
 
+SCHED_FEAT(PARANOID_AVG, false)
+
 /*
  * Allow wakeup-time preemption of the current task:
  */
 SCHED_FEAT(WAKEUP_PREEMPTION, true)
 
+#ifdef CONFIG_HRTIMER_REARM_DEFERRED
+SCHED_FEAT(HRTICK, true)
+SCHED_FEAT(HRTICK_DL, true)
+#else
 SCHED_FEAT(HRTICK, false)
 SCHED_FEAT(HRTICK_DL, false)
+#endif
 
 /*
  * Decrement CPU capacity based on time not spent running tasks
@@ -126,3 +133,4 @@ SCHED_FEAT(LATENCY_WARN, false)
  * Do newidle balancing proportional to its success rate using randomization.
  */
 SCHED_FEAT(NI_RANDOM, true)
+SCHED_FEAT(NI_RATE, true)

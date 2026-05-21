@@ -368,8 +368,8 @@ static void ceph_sock_write_space(struct sock *sk)
 	/* only queue to workqueue if there is data we want to write,
 	 * and there is sufficient space in the socket buffer to accept
 	 * more data.  clear SOCK_NOSPACE so that ceph_sock_write_space()
-	 * doesn't get called again until try_write() fills the socket
-	 * buffer. See net/ipv4/tcp_input.c:tcp_check_space()
+	 * doesn't get called again until ceph_con_v[12]_try_write() fills
+	 * the socket buffer. See net/ipv4/tcp_input.c:tcp_check_space()
 	 * and net/core/stream.c:sk_stream_write_space().
 	 */
 	if (ceph_con_flag_test(con, CEPH_CON_F_WRITE_PENDING)) {
@@ -1993,8 +1993,7 @@ struct ceph_msg *ceph_msg_new2(int type, int front_len, int max_data_items,
 	m->front_alloc_len = m->front.iov_len = front_len;
 
 	if (max_data_items) {
-		m->data = kmalloc_array(max_data_items, sizeof(*m->data),
-					flags);
+		m->data = kmalloc_objs(*m->data, max_data_items, flags);
 		if (!m->data)
 			goto out2;
 

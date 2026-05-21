@@ -133,6 +133,7 @@ static void iwl_dealloc_ucode(struct iwl_drv *drv)
 	kfree(drv->fw.dbg.mem_tlv);
 	kfree(drv->fw.iml);
 	kfree(drv->fw.ucode_capa.cmd_versions);
+	kfree(drv->fw.ucode_capa.cmd_bios_tables);
 	kfree(drv->fw.phy_integration_ver);
 	kfree(drv->trans->dbg.pc_data);
 	drv->trans->dbg.pc_data = NULL;
@@ -1314,7 +1315,7 @@ static int iwl_parse_tlv_firmware(struct iwl_drv *drv,
 			if (tlv_len != sizeof(u32))
 				goto invalid_tlv_len;
 			if (le32_to_cpup((const __le32 *)tlv_data) >
-			    IWL_FW_MAX_LINK_ID + 1) {
+			    IWL_FW_MAX_LINKS) {
 				IWL_ERR(drv,
 					"%d is an invalid number of links\n",
 					le32_to_cpup((const __le32 *)tlv_data));
@@ -1426,6 +1427,26 @@ static int iwl_parse_tlv_firmware(struct iwl_drv *drv,
 				return -ENOMEM;
 			drv->fw.pnvm_size = tlv_len;
 			break;
+		case IWL_UCODE_TLV_CMD_BIOS_TABLE:
+			if (tlv_len % sizeof(struct iwl_fw_cmd_bios_table)) {
+				IWL_ERR(drv,
+					"Invalid length for command bios table: %u\n",
+					tlv_len);
+				return -EINVAL;
+			}
+
+			if (capa->cmd_bios_tables) {
+				IWL_ERR(drv, "Duplicate TLV type 0x%02X detected\n",
+					tlv_type);
+				return -EINVAL;
+			}
+			capa->cmd_bios_tables = kmemdup(tlv_data, tlv_len,
+							GFP_KERNEL);
+			if (!capa->cmd_bios_tables)
+				return -ENOMEM;
+			capa->n_cmd_bios_tables =
+				tlv_len / sizeof(struct iwl_fw_cmd_bios_table);
+			break;
 		default:
 			IWL_DEBUG_INFO(drv, "unknown TLV: %d\n", tlv_type);
 			break;
@@ -1459,7 +1480,7 @@ static int iwl_alloc_ucode_mem(struct fw_img *out, struct fw_img_parsing *img)
 {
 	struct fw_desc *sec;
 
-	sec = kcalloc(img->sec_counter, sizeof(*sec), GFP_KERNEL);
+	sec = kzalloc_objs(*sec, img->sec_counter);
 	if (!sec)
 		return -ENOMEM;
 
@@ -1597,7 +1618,7 @@ static void _iwl_op_mode_stop(struct iwl_drv *drv)
  */
 static void iwl_req_fw_callback(const struct firmware *ucode_raw, void *context)
 {
-	unsigned int min_core, max_core, loaded_core;
+	int min_core, max_core, loaded_core;
 	struct iwl_drv *drv = context;
 	struct iwl_fw *fw = &drv->fw;
 	const struct iwl_ucode_header *ucode;
@@ -1622,7 +1643,7 @@ static void iwl_req_fw_callback(const struct firmware *ucode_raw, void *context)
 	/* dump all fw memory areas by default */
 	fw->dbg.dump_mask = 0xffffffff;
 
-	pieces = kzalloc(sizeof(*pieces), GFP_KERNEL);
+	pieces = kzalloc_obj(*pieces);
 	if (!pieces)
 		goto out_free_fw;
 
@@ -1676,7 +1697,7 @@ static void iwl_req_fw_callback(const struct firmware *ucode_raw, void *context)
 	if (loaded_core < min_core || loaded_core > max_core) {
 		IWL_ERR(drv,
 			"Driver unable to support your firmware API. "
-			"Driver supports FW core %u..%u, firmware is %u.\n",
+			"Driver supports FW core %d..%d, firmware is %d.\n",
 			min_core, max_core, loaded_core);
 		goto try_again;
 	}
@@ -1915,7 +1936,7 @@ struct iwl_drv *iwl_drv_start(struct iwl_trans *trans)
 	struct iwl_drv *drv;
 	int ret;
 
-	drv = kzalloc(sizeof(*drv), GFP_KERNEL);
+	drv = kzalloc_obj(*drv);
 	if (!drv) {
 		ret = -ENOMEM;
 		goto err;

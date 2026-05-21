@@ -113,10 +113,6 @@ static enum fw_upload_err mpfs_auto_update_prepare(struct fw_upload *fw_uploader
 	 * be added here.
 	 */
 
-	priv->flash = mpfs_sys_controller_get_flash(priv->sys_controller);
-	if (!priv->flash)
-		return FW_UPLOAD_ERR_HW_ERROR;
-
 	erase_size = round_up(erase_size, (u64)priv->flash->erasesize);
 
 	/*
@@ -162,9 +158,9 @@ static int mpfs_auto_update_verify_image(struct fw_upload *fw_uploader)
 	u32 *response_msg __free(kfree) =
 		kzalloc(AUTO_UPDATE_FEATURE_RESP_SIZE * sizeof(*response_msg), GFP_KERNEL);
 	struct mpfs_mss_response *response __free(kfree) =
-		kzalloc(sizeof(struct mpfs_mss_response), GFP_KERNEL);
+		kzalloc_obj(struct mpfs_mss_response);
 	struct mpfs_mss_msg *message __free(kfree) =
-		kzalloc(sizeof(struct mpfs_mss_msg), GFP_KERNEL);
+		kzalloc_obj(struct mpfs_mss_msg);
 	int ret;
 
 	if (!response_msg || !response || !message)
@@ -364,9 +360,9 @@ static int mpfs_auto_update_available(struct mpfs_auto_update_priv *priv)
 	u32 *response_msg __free(kfree) =
 		kzalloc(AUTO_UPDATE_FEATURE_RESP_SIZE * sizeof(*response_msg), GFP_KERNEL);
 	struct mpfs_mss_response *response __free(kfree) =
-		kzalloc(sizeof(struct mpfs_mss_response), GFP_KERNEL);
+		kzalloc_obj(struct mpfs_mss_response);
 	struct mpfs_mss_msg *message __free(kfree) =
-		kzalloc(sizeof(struct mpfs_mss_msg), GFP_KERNEL);
+		kzalloc_obj(struct mpfs_mss_msg);
 	int ret;
 
 	if (!response_msg || !response || !message)
@@ -426,6 +422,12 @@ static int mpfs_auto_update_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->sys_controller))
 		return dev_err_probe(dev, PTR_ERR(priv->sys_controller),
 				     "Could not register as a sub device of the system controller\n");
+
+	priv->flash = mpfs_sys_controller_get_flash(priv->sys_controller);
+	if (IS_ERR_OR_NULL(priv->flash)) {
+		dev_dbg(dev, "No flash connected to the system controller, auto-update not supported\n");
+		return -ENODEV;
+	}
 
 	priv->dev = dev;
 	platform_set_drvdata(pdev, priv);

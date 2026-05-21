@@ -18,6 +18,7 @@
 #include <linux/debugfs.h>
 #include <linux/device.h>
 #include <linux/etherdevice.h>
+#include <linux/hex.h>
 #include <linux/inet.h>
 #include <linux/jiffies.h>
 #include <linux/kernel.h>
@@ -266,8 +267,8 @@ static ssize_t nsim_bus_dev_max_vfs_write(struct file *file,
 	if (val > NSIM_DEV_VF_PORT_INDEX_MAX - NSIM_DEV_VF_PORT_INDEX_BASE)
 		return -ERANGE;
 
-	vfconfigs = kcalloc(val, sizeof(struct nsim_vf_config),
-			    GFP_KERNEL | __GFP_NOWARN);
+	vfconfigs = kzalloc_objs(struct nsim_vf_config, val,
+				 GFP_KERNEL | __GFP_NOWARN);
 	if (!vfconfigs)
 		return -ENOMEM;
 
@@ -934,13 +935,12 @@ static int nsim_dev_traps_init(struct devlink *devlink)
 	struct nsim_trap_data *nsim_trap_data;
 	int err;
 
-	nsim_trap_data = kzalloc(sizeof(*nsim_trap_data), GFP_KERNEL);
+	nsim_trap_data = kzalloc_obj(*nsim_trap_data);
 	if (!nsim_trap_data)
 		return -ENOMEM;
 
-	nsim_trap_data->trap_items_arr = kcalloc(ARRAY_SIZE(nsim_traps_arr),
-						 sizeof(struct nsim_trap_item),
-						 GFP_KERNEL);
+	nsim_trap_data->trap_items_arr = kzalloc_objs(struct nsim_trap_item,
+						      ARRAY_SIZE(nsim_traps_arr));
 	if (!nsim_trap_data->trap_items_arr) {
 		err = -ENOMEM;
 		goto err_trap_data_free;
@@ -1347,7 +1347,7 @@ static int nsim_rate_node_new(struct devlink_rate *node, void **priv,
 		return -EOPNOTSUPP;
 	}
 
-	nsim_node = kzalloc(sizeof(*nsim_node), GFP_KERNEL);
+	nsim_node = kzalloc_obj(*nsim_node);
 	if (!nsim_node)
 		return -ENOMEM;
 
@@ -1463,7 +1463,7 @@ static int __nsim_dev_port_add(struct nsim_dev *nsim_dev, enum nsim_dev_port_typ
 	if (type == NSIM_DEV_PORT_TYPE_VF && !nsim_dev_get_vfs(nsim_dev))
 		return -EINVAL;
 
-	nsim_dev_port = kzalloc(sizeof(*nsim_dev_port), GFP_KERNEL);
+	nsim_dev_port = kzalloc_obj(*nsim_dev_port);
 	if (!nsim_dev_port)
 		return -ENOMEM;
 	nsim_dev_port->port_index = nsim_dev_port_index(type, port_index);
@@ -1486,9 +1486,25 @@ static int __nsim_dev_port_add(struct nsim_dev *nsim_dev, enum nsim_dev_port_typ
 	if (err)
 		goto err_port_free;
 
+	if (nsim_dev_port_is_pf(nsim_dev_port)) {
+		u64 parent_id = DEVLINK_RESOURCE_ID_PARENT_TOP;
+		struct devlink_resource_size_params params = {
+			.size_max = 100,
+			.size_granularity = 1,
+			.unit = DEVLINK_RESOURCE_UNIT_ENTRY
+		};
+
+		err = devl_port_resource_register(devlink_port,
+						  "test_resource", 20,
+						  NSIM_PORT_RESOURCE_TEST,
+						  parent_id, &params);
+		if (err)
+			goto err_dl_port_unregister;
+	}
+
 	err = nsim_dev_port_debugfs_init(nsim_dev, nsim_dev_port);
 	if (err)
-		goto err_dl_port_unregister;
+		goto err_port_resource_unregister;
 
 	nsim_dev_port->ns = nsim_create(nsim_dev, nsim_dev_port, perm_addr);
 	if (IS_ERR(nsim_dev_port->ns)) {
@@ -1511,6 +1527,9 @@ err_nsim_destroy:
 	nsim_destroy(nsim_dev_port->ns);
 err_port_debugfs_exit:
 	nsim_dev_port_debugfs_exit(nsim_dev_port);
+err_port_resource_unregister:
+	if (nsim_dev_port_is_pf(nsim_dev_port))
+		devl_port_resources_unregister(devlink_port);
 err_dl_port_unregister:
 	devl_port_unregister(devlink_port);
 err_port_free:
@@ -1527,6 +1546,8 @@ static void __nsim_dev_port_del(struct nsim_dev_port *nsim_dev_port)
 		devl_rate_leaf_destroy(&nsim_dev_port->devlink_port);
 	nsim_destroy(nsim_dev_port->ns);
 	nsim_dev_port_debugfs_exit(nsim_dev_port);
+	if (nsim_dev_port_is_pf(nsim_dev_port))
+		devl_port_resources_unregister(devlink_port);
 	devl_port_unregister(devlink_port);
 	kfree(nsim_dev_port);
 }
@@ -1647,12 +1668,13 @@ int nsim_drv_probe(struct nsim_bus_dev *nsim_bus_dev)
 	nsim_dev->test1 = NSIM_DEV_TEST1_DEFAULT;
 	nsim_dev->test2 = NSIM_DEV_TEST2_DEFAULT;
 	spin_lock_init(&nsim_dev->fa_cookie_lock);
+	mutex_init(&nsim_dev->progs_list_lock);
 
 	dev_set_drvdata(&nsim_bus_dev->dev, nsim_dev);
 
-	nsim_dev->vfconfigs = kcalloc(nsim_bus_dev->max_vfs,
-				      sizeof(struct nsim_vf_config),
-				      GFP_KERNEL | __GFP_NOWARN);
+	nsim_dev->vfconfigs = kzalloc_objs(struct nsim_vf_config,
+					   nsim_bus_dev->max_vfs,
+					   GFP_KERNEL | __GFP_NOWARN);
 	if (!nsim_dev->vfconfigs) {
 		err = -ENOMEM;
 		goto err_devlink_unlock;
@@ -1785,6 +1807,7 @@ void nsim_drv_remove(struct nsim_bus_dev *nsim_bus_dev)
 	devl_unregister(devlink);
 	kfree(nsim_dev->vfconfigs);
 	kfree(nsim_dev->fa_cookie);
+	mutex_destroy(&nsim_dev->progs_list_lock);
 	devl_unlock(devlink);
 	devlink_free(devlink);
 	dev_set_drvdata(&nsim_bus_dev->dev, NULL);

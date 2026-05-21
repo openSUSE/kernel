@@ -179,6 +179,7 @@ static struct svcxprt_rdma *svc_rdma_create_xprt(struct svc_serv *serv,
 	init_llist_head(&cma_xprt->sc_recv_ctxts);
 	init_llist_head(&cma_xprt->sc_rw_ctxts);
 	init_waitqueue_head(&cma_xprt->sc_send_wait);
+	init_waitqueue_head(&cma_xprt->sc_sq_ticket_wait);
 
 	spin_lock_init(&cma_xprt->sc_lock);
 	spin_lock_init(&cma_xprt->sc_rq_dto_lock);
@@ -414,7 +415,6 @@ static struct svc_xprt *svc_rdma_accept(struct svc_xprt *xprt)
 	struct ib_qp_init_attr qp_attr;
 	struct ib_device *dev;
 	int ret = 0;
-	RPC_IFDEBUG(struct sockaddr *sap);
 
 	listen_rdma = container_of(xprt, struct svcxprt_rdma, sc_xprt);
 	clear_bit(XPT_CONN, &xprt->xpt_flags);
@@ -462,7 +462,10 @@ static struct svc_xprt *svc_rdma_accept(struct svc_xprt *xprt)
 		newxprt->sc_max_bc_requests = 2;
 	}
 
-	/* Arbitrary estimate of the needed number of rdma_rw contexts.
+	/* Estimate the needed number of rdma_rw contexts. The maximum
+	 * Read and Write chunks have one segment each. Each request
+	 * can involve one Read chunk and either a Write chunk or Reply
+	 * chunk; thus a factor of three.
 	 */
 	maxpayload = min(xprt->xpt_server->sv_max_payload,
 			 RPCSVC_MAXPAYLOAD_RDMA);
@@ -470,10 +473,13 @@ static struct svc_xprt *svc_rdma_accept(struct svc_xprt *xprt)
 		rdma_rw_mr_factor(dev, newxprt->sc_port_num,
 				  maxpayload >> PAGE_SHIFT);
 
-	newxprt->sc_sq_depth = rq_depth + ctxts;
+	newxprt->sc_sq_depth = rq_depth +
+		rdma_rw_max_send_wr(dev, newxprt->sc_port_num, ctxts, 0);
 	if (newxprt->sc_sq_depth > dev->attrs.max_qp_wr)
 		newxprt->sc_sq_depth = dev->attrs.max_qp_wr;
 	atomic_set(&newxprt->sc_sq_avail, newxprt->sc_sq_depth);
+	atomic_set(&newxprt->sc_sq_ticket_head, 0);
+	atomic_set(&newxprt->sc_sq_ticket_tail, 0);
 
 	newxprt->sc_pd = ib_alloc_pd(dev, 0);
 	if (IS_ERR(newxprt->sc_pd)) {
@@ -556,18 +562,20 @@ static struct svc_xprt *svc_rdma_accept(struct svc_xprt *xprt)
 		goto errout;
 	}
 
-#if IS_ENABLED(CONFIG_SUNRPC_DEBUG)
-	dprintk("svcrdma: new connection accepted on device %s:\n", dev->name);
-	sap = (struct sockaddr *)&newxprt->sc_cm_id->route.addr.src_addr;
-	dprintk("    local address   : %pIS:%u\n", sap, rpc_get_port(sap));
-	sap = (struct sockaddr *)&newxprt->sc_cm_id->route.addr.dst_addr;
-	dprintk("    remote address  : %pIS:%u\n", sap, rpc_get_port(sap));
-	dprintk("    max_sge         : %d\n", newxprt->sc_max_send_sges);
-	dprintk("    sq_depth        : %d\n", newxprt->sc_sq_depth);
-	dprintk("    rdma_rw_ctxs    : %d\n", ctxts);
-	dprintk("    max_requests    : %d\n", newxprt->sc_max_requests);
-	dprintk("    ord             : %d\n", conn_param.initiator_depth);
-#endif
+	if (IS_ENABLED(CONFIG_SUNRPC_DEBUG)) {
+		struct sockaddr *sap;
+
+		dprintk("svcrdma: new connection accepted on device %s:\n", dev->name);
+		sap = (struct sockaddr *)&newxprt->sc_cm_id->route.addr.src_addr;
+		dprintk("    local address   : %pIS:%u\n", sap, rpc_get_port(sap));
+		sap = (struct sockaddr *)&newxprt->sc_cm_id->route.addr.dst_addr;
+		dprintk("    remote address  : %pIS:%u\n", sap, rpc_get_port(sap));
+		dprintk("    max_sge         : %d\n", newxprt->sc_max_send_sges);
+		dprintk("    sq_depth        : %d\n", newxprt->sc_sq_depth);
+		dprintk("    rdma_rw_ctxs    : %d\n", ctxts);
+		dprintk("    max_requests    : %d\n", newxprt->sc_max_requests);
+		dprintk("    ord             : %d\n", conn_param.initiator_depth);
+	}
 
 	return &newxprt->sc_xprt;
 
@@ -644,7 +652,8 @@ static int svc_rdma_has_wspace(struct svc_xprt *xprt)
 	 * If there are already waiters on the SQ,
 	 * return false.
 	 */
-	if (waitqueue_active(&rdma->sc_send_wait))
+	if (waitqueue_active(&rdma->sc_send_wait) ||
+	    waitqueue_active(&rdma->sc_sq_ticket_wait))
 		return 0;
 
 	/* Otherwise return true. */

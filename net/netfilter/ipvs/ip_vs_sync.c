@@ -329,7 +329,7 @@ ip_vs_sync_buff_create(struct netns_ipvs *ipvs, unsigned int len)
 {
 	struct ip_vs_sync_buff *sb;
 
-	if (!(sb=kmalloc(sizeof(struct ip_vs_sync_buff), GFP_ATOMIC)))
+	if (!(sb=kmalloc_obj(struct ip_vs_sync_buff, GFP_ATOMIC)))
 		return NULL;
 
 	len = max_t(unsigned int, len + sizeof(struct ip_vs_sync_mesg),
@@ -417,7 +417,7 @@ ip_vs_sync_buff_create_v0(struct netns_ipvs *ipvs, unsigned int len)
 	struct ip_vs_sync_buff *sb;
 	struct ip_vs_sync_mesg_v0 *mesg;
 
-	if (!(sb=kmalloc(sizeof(struct ip_vs_sync_buff), GFP_ATOMIC)))
+	if (!(sb=kmalloc_obj(struct ip_vs_sync_buff, GFP_ATOMIC)))
 		return NULL;
 
 	len = max_t(unsigned int, len + sizeof(struct ip_vs_sync_mesg_v0),
@@ -1755,6 +1755,28 @@ int start_sync_thread(struct netns_ipvs *ipvs, struct ipvs_sync_daemon_cfg *c,
 	if (!ip_vs_use_count_inc())
 		return -ENOPROTOOPT;
 
+	/* Backup server can be started without services just to sync conns,
+	 * make sure conn_tab is created even if ipvs->enable is 0.
+	 */
+	if (state == IP_VS_STATE_BACKUP) {
+		mutex_lock(&ipvs->service_mutex);
+		if (!rcu_dereference_protected(ipvs->conn_tab, 1)) {
+			int lfactor = sysctl_conn_lfactor(ipvs);
+			int new_size = ip_vs_conn_desired_size(ipvs, NULL,
+							       lfactor);
+			struct ip_vs_rht *tc_new;
+
+			tc_new = ip_vs_conn_tab_alloc(ipvs, new_size, lfactor);
+			if (!tc_new) {
+				mutex_unlock(&ipvs->service_mutex);
+				result = -ENOMEM;
+				goto out_module;
+			}
+			rcu_assign_pointer(ipvs->conn_tab, tc_new);
+		}
+		mutex_unlock(&ipvs->service_mutex);
+	}
+
 	/* Do not hold one mutex and then to block on another */
 	for (;;) {
 		rtnl_lock();
@@ -1827,7 +1849,7 @@ int start_sync_thread(struct netns_ipvs *ipvs, struct ipvs_sync_daemon_cfg *c,
 		struct ipvs_master_sync_state *ms;
 
 		result = -ENOMEM;
-		ipvs->ms = kcalloc(count, sizeof(ipvs->ms[0]), GFP_KERNEL);
+		ipvs->ms = kzalloc_objs(ipvs->ms[0], count);
 		if (!ipvs->ms)
 			goto out;
 		ms = ipvs->ms;
@@ -1841,8 +1863,7 @@ int start_sync_thread(struct netns_ipvs *ipvs, struct ipvs_sync_daemon_cfg *c,
 		}
 	}
 	result = -ENOMEM;
-	ti = kcalloc(count, sizeof(struct ip_vs_sync_thread_data),
-		     GFP_KERNEL);
+	ti = kzalloc_objs(struct ip_vs_sync_thread_data, count);
 	if (!ti)
 		goto out;
 
@@ -1923,6 +1944,7 @@ out_early:
 	mutex_unlock(&ipvs->sync_mutex);
 	rtnl_unlock();
 
+out_module:
 	/* decrease the module use count */
 	ip_vs_use_count_dec();
 	return result;

@@ -4,7 +4,7 @@
  * Portions Copyright (C) 2000-2008 Silicon Graphics, Inc.
  */
 
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
 #include "xfs_log_format.h"
@@ -332,8 +332,8 @@ xfs_vn_listxattr(
 	memset(&context, 0, sizeof(context));
 	context.dp = XFS_I(inode);
 	context.resynch = 1;
-	context.buffer = size ? data : NULL;
 	context.bufsize = size;
+	context.buffer = size ? data : NULL;
 	context.firstu = context.bufsize;
 	context.put_listent = xfs_xattr_put_listent;
 

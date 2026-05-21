@@ -49,6 +49,17 @@ properties:
   gpio-ranges:
     maxItems: 1
 
+  interrupt-controller: true
+
+  '#interrupt-cells':
+    const: 2
+    description:
+      The first cell contains the global GPIO port index, constructed using the
+      RZT2H_GPIO() helper macro from <dt-bindings/pinctrl/renesas,r9a09g077-pinctrl.h>
+      and the second cell is used to specify the flag.
+      E.g. "interrupts = <RZT2H_GPIO(8, 6) IRQ_TYPE_EDGE_FALLING>;" if P08_6 is
+      being used as an interrupt.
+
   clocks:
     maxItems: 1
 
@@ -72,6 +83,23 @@ definitions:
       input: true
       input-enable: true
       output-enable: true
+      bias-disable: true
+      bias-pull-down: true
+      bias-pull-up: true
+      input-schmitt-enable: true
+      input-schmitt-disable: true
+      slew-rate:
+        description: 0 is slow slew rate, 1 is fast slew rate
+        enum: [0, 1]
+      drive-strength-microamp:
+        description: |
+          Four discrete levels are supported (via registers DRCTLm), corresponding
+          to the following nominal values:
+          - 2500  (Low strength)
+          - 5000  (Middle strength)
+          - 9000  (High strength)
+          - 11800 (Ultra High strength)
+        enum: [2500, 5000, 9000, 11800]
     oneOf:
       - required: [pinmux]
       - required: [pins]
@@ -139,6 +167,8 @@ examples:
         gpio-controller;
         #gpio-cells = <2>;
         gpio-ranges = <&pinctrl 0 0 288>;
+        interrupt-controller;
+        #interrupt-cells = <2>;
         power-domains = <&cpg>;
 
         serial0-pins {

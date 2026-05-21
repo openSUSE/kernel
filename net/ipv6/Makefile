@@ -7,7 +7,7 @@ obj-$(CONFIG_IPV6) += ipv6.o
 
 ipv6-y :=	af_inet6.o anycast.o ip6_output.o ip6_input.o addrconf.o \
 		addrlabel.o \
-		route.o ip6_fib.o ipv6_sockglue.o ndisc.o udp.o udplite.o \
+		route.o ip6_fib.o ipv6_sockglue.o ndisc.o udp.o \
 		raw.o icmp.o mcast.o reassembly.o tcp_ipv6.o ping.o \
 		exthdrs.o datagram.o ip6_flowlabel.o inet6_connection_sock.o \
 		udp_offload.o seg6.o fib6_notifier.o rpl.o ioam6.o
@@ -45,7 +45,7 @@ obj-$(CONFIG_IPV6_FOU) += fou6.o
 
 obj-y += addrconf_core.o exthdrs_core.o ip6_checksum.o ip6_icmp.o
 obj-$(CONFIG_INET) += output_core.o protocol.o \
-			ip6_offload.o tcpv6_offload.o exthdrs_offload.o
+			ip6_offload.o exthdrs_offload.o
 
 obj-$(subst m,y,$(CONFIG_IPV6)) += inet6_hashtables.o
 

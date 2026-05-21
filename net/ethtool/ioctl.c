@@ -27,12 +27,13 @@
 #include <linux/net.h>
 #include <linux/pm_runtime.h>
 #include <linux/utsname.h>
+#include <linux/ethtool_netlink.h>
 #include <net/devlink.h>
 #include <net/ipv6.h>
-#include <net/xdp_sock_drv.h>
 #include <net/flow_offload.h>
 #include <net/netdev_lock.h>
-#include <linux/ethtool_netlink.h>
+#include <net/netdev_queues.h>
+
 #include "common.h"
 
 /* State held across locks and calls for commands which have devlink fallback */
@@ -1404,9 +1405,9 @@ static noinline_for_stack int ethtool_set_rxfh_indir(struct net_device *dev,
 
 	/* indicate whether rxfh was set to default */
 	if (user_size == 0)
-		dev->priv_flags &= ~IFF_RXFH_CONFIGURED;
+		dev->ethtool->rss_indir_user_size = 0;
 	else
-		dev->priv_flags |= IFF_RXFH_CONFIGURED;
+		dev->ethtool->rss_indir_user_size = rxfh_dev.indir_size;
 
 out_unlock:
 	mutex_unlock(&dev->ethtool->rss_lock);
@@ -1721,9 +1722,9 @@ static noinline_for_stack int ethtool_set_rxfh(struct net_device *dev,
 	if (!rxfh_dev.rss_context) {
 		/* indicate whether rxfh was set to default */
 		if (rxfh.indir_size == 0)
-			dev->priv_flags &= ~IFF_RXFH_CONFIGURED;
+			dev->ethtool->rss_indir_user_size = 0;
 		else if (rxfh.indir_size != ETH_RXFH_INDIR_NO_CHANGE)
-			dev->priv_flags |= IFF_RXFH_CONFIGURED;
+			dev->ethtool->rss_indir_user_size = dev_indir_size;
 	}
 	/* Update rss_ctx tracking */
 	if (rxfh_dev.rss_delete) {
@@ -1736,6 +1737,7 @@ static noinline_for_stack int ethtool_set_rxfh(struct net_device *dev,
 			ctx->indir_configured =
 				rxfh.indir_size &&
 				rxfh.indir_size != ETH_RXFH_INDIR_NO_CHANGE;
+			ctx->indir_user_size = dev_indir_size;
 		}
 		if (rxfh_dev.key) {
 			memcpy(ethtool_rxfh_context_key(ctx), rxfh_dev.key,
@@ -2248,7 +2250,6 @@ static noinline_for_stack int ethtool_set_channels(struct net_device *dev,
 						   void __user *useraddr)
 {
 	struct ethtool_channels channels, curr = { .cmd = ETHTOOL_GCHANNELS };
-	u16 from_channel, to_channel;
 	unsigned int i;
 	int ret;
 
@@ -2282,13 +2283,17 @@ static noinline_for_stack int ethtool_set_channels(struct net_device *dev,
 	if (ret)
 		return ret;
 
-	/* Disabling channels, query zero-copy AF_XDP sockets */
-	from_channel = channels.combined_count +
-		min(channels.rx_count, channels.tx_count);
-	to_channel = curr.combined_count + max(curr.rx_count, curr.tx_count);
-	for (i = from_channel; i < to_channel; i++)
-		if (xsk_get_pool_from_qid(dev, i))
+	/* Disabling channels, query busy queues (AF_XDP, queue leasing) */
+	for (i = channels.combined_count + channels.rx_count;
+	     i < curr.combined_count + curr.rx_count; i++) {
+		if (netdev_queue_busy(dev, i, NETDEV_QUEUE_TYPE_RX, NULL))
 			return -EINVAL;
+	}
+	for (i = channels.combined_count + channels.tx_count;
+	     i < curr.combined_count + curr.tx_count; i++) {
+		if (netdev_queue_busy(dev, i, NETDEV_QUEUE_TYPE_TX, NULL))
+			return -EINVAL;
+	}
 
 	ret = dev->ethtool_ops->set_channels(dev, &channels);
 	if (!ret)
@@ -2383,7 +2388,10 @@ static int ethtool_get_strings(struct net_device *dev, void __user *useraddr)
 		return -ENOMEM;
 	WARN_ON_ONCE(!ret);
 
-	gstrings.len = ret;
+	if (gstrings.len && gstrings.len != ret)
+		gstrings.len = 0;
+	else
+		gstrings.len = ret;
 
 	if (gstrings.len) {
 		data = vzalloc(array_size(gstrings.len, ETH_GSTRING_LEN));
@@ -2509,10 +2517,13 @@ static int ethtool_get_stats(struct net_device *dev, void __user *useraddr)
 	if (copy_from_user(&stats, useraddr, sizeof(stats)))
 		return -EFAULT;
 
-	stats.n_stats = n_stats;
+	if (stats.n_stats && stats.n_stats != n_stats)
+		stats.n_stats = 0;
+	else
+		stats.n_stats = n_stats;
 
-	if (n_stats) {
-		data = vzalloc(array_size(n_stats, sizeof(u64)));
+	if (stats.n_stats) {
+		data = vzalloc(array_size(stats.n_stats, sizeof(u64)));
 		if (!data)
 			return -ENOMEM;
 		ops->get_ethtool_stats(dev, &stats, data);
@@ -2524,7 +2535,9 @@ static int ethtool_get_stats(struct net_device *dev, void __user *useraddr)
 	if (copy_to_user(useraddr, &stats, sizeof(stats)))
 		goto out;
 	useraddr += sizeof(stats);
-	if (n_stats && copy_to_user(useraddr, data, array_size(n_stats, sizeof(u64))))
+	if (stats.n_stats &&
+	    copy_to_user(useraddr, data,
+			 array_size(stats.n_stats, sizeof(u64))))
 		goto out;
 	ret = 0;
 
@@ -2560,6 +2573,10 @@ static int ethtool_get_phy_stats_phydev(struct phy_device *phydev,
 		return -EOPNOTSUPP;
 
 	n_stats = phy_ops->get_sset_count(phydev);
+	if (stats->n_stats && stats->n_stats != n_stats) {
+		stats->n_stats = 0;
+		return 0;
+	}
 
 	ret = ethtool_vzalloc_stats_array(n_stats, data);
 	if (ret)
@@ -2580,6 +2597,10 @@ static int ethtool_get_phy_stats_ethtool(struct net_device *dev,
 		return -EOPNOTSUPP;
 
 	n_stats = ops->get_sset_count(dev, ETH_SS_PHY_STATS);
+	if (stats->n_stats && stats->n_stats != n_stats) {
+		stats->n_stats = 0;
+		return 0;
+	}
 
 	ret = ethtool_vzalloc_stats_array(n_stats, data);
 	if (ret)
@@ -2616,7 +2637,9 @@ static int ethtool_get_phy_stats(struct net_device *dev, void __user *useraddr)
 	}
 
 	useraddr += sizeof(stats);
-	if (copy_to_user(useraddr, data, array_size(stats.n_stats, sizeof(u64))))
+	if (stats.n_stats &&
+	    copy_to_user(useraddr, data,
+			 array_size(stats.n_stats, sizeof(u64))))
 		ret = -EFAULT;
 
  out:
@@ -3022,7 +3045,7 @@ ethtool_set_per_queue_coalesce(struct net_device *dev,
 
 	bitmap_from_arr32(queue_mask, per_queue_opt->queue_mask, MAX_NUM_QUEUE);
 	n_queue = bitmap_weight(queue_mask, MAX_NUM_QUEUE);
-	tmp = backup = kmalloc_array(n_queue, sizeof(*backup), GFP_KERNEL);
+	tmp = backup = kmalloc_objs(*backup, n_queue);
 	if (!backup)
 		return -ENOMEM;
 
@@ -3536,7 +3559,7 @@ int dev_ethtool(struct net *net, struct ifreq *ifr, void __user *useraddr)
 	if (copy_from_user(&ethcmd, useraddr, sizeof(ethcmd)))
 		return -EFAULT;
 
-	state = kzalloc(sizeof(*state), GFP_KERNEL);
+	state = kzalloc_obj(*state);
 	if (!state)
 		return -ENOMEM;
 

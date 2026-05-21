@@ -215,6 +215,14 @@ When mounting an XFS filesystem, the following options are accepted.
 	inconsistent namespace presentation during or after a
 	failover event.
 
+  errortag=tagname
+	When specified, enables the error inject tag named "tagname" with the
+	default frequency.  Can be specified multiple times to enable multiple
+	errortags.  Specifying this option on remount will reset the error tag
+	to the default value if it was set to any other value before.
+	This option is only supported when CONFIG_XFS_DEBUG is enabled, and
+	will not be reflected in /proc/self/mounts.
+
 Deprecation of V4 Format
 ========================
 
@@ -541,6 +549,10 @@ For zoned file systems, the following attributes are exposed in:
 	available for data placement. The value is determined at mount time and
 	is limited by the capabilities of the backing zoned device, file system
 	size and the max_open_zones mount option.
+
+  nr_open_zones			(Min:  0  Default:  Varies  Max:  UINTMAX)
+	This read-only attribute exposes the current number of open zones
+	used by the file system.
 
   zonegc_low_space		(Min:  0  Default:  0  Max:  100)
 	Define a percentage for how much of the unused space that GC should keep

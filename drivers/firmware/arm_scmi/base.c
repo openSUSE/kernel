@@ -7,6 +7,7 @@
 
 #define pr_fmt(fmt) "SCMI Notifications BASE - " fmt
 
+#include <linux/math.h>
 #include <linux/module.h>
 #include <linux/scmi_protocol.h>
 
@@ -219,8 +220,7 @@ scmi_base_implementation_list_get(const struct scmi_protocol_handle *ph,
 		}
 
 		real_list_sz = t->rx.len - sizeof(u32);
-		calc_list_sz = (1 + (loop_num_ret - 1) / sizeof(u32)) *
-				sizeof(u32);
+		calc_list_sz = round_up(loop_num_ret, sizeof(u32));
 		if (calc_list_sz != real_list_sz) {
 			dev_warn(dev,
 				 "Malformed reply - real_sz:%zd  calc_sz:%u  (loop_num_ret:%d)\n",
@@ -375,18 +375,13 @@ static int scmi_base_protocol_init(const struct scmi_protocol_handle *ph)
 {
 	int id, ret;
 	u8 *prot_imp;
-	u32 version;
 	char name[SCMI_SHORT_NAME_MAX_SIZE];
 	struct device *dev = ph->dev;
 	struct scmi_revision_info *rev = scmi_revision_area_get(ph);
 
-	ret = ph->xops->version_get(ph, &version);
-	if (ret)
-		return ret;
-
-	rev->major_ver = PROTOCOL_REV_MAJOR(version);
-	rev->minor_ver = PROTOCOL_REV_MINOR(version);
-	ph->set_priv(ph, rev, version);
+	rev->major_ver = PROTOCOL_REV_MAJOR(ph->version);
+	rev->minor_ver = PROTOCOL_REV_MINOR(ph->version);
+	ph->set_priv(ph, rev);
 
 	ret = scmi_base_attributes_get(ph);
 	if (ret)

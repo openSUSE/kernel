@@ -1683,9 +1683,6 @@ bail:
 	if (rename_lock)
 		ocfs2_rename_unlock(osb);
 
-	if (new_inode)
-		sync_mapping_buffers(old_inode->i_mapping);
-
 	iput(new_inode);
 
 	ocfs2_free_dir_lookup_result(&target_lookup_res);
@@ -1736,7 +1733,7 @@ static int ocfs2_create_symlink_data(struct ocfs2_super *osb,
 		goto bail;
 	}
 
-	bhs = kcalloc(blocks, sizeof(struct buffer_head *), GFP_KERNEL);
+	bhs = kzalloc_objs(struct buffer_head *, blocks);
 	if (!bhs) {
 		status = -ENOMEM;
 		mlog_errno(status);

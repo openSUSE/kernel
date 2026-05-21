@@ -247,7 +247,7 @@ static void tpm_dev_release(struct device *dev)
 	kfree(chip->work_space.context_buf);
 	kfree(chip->work_space.session_buf);
 #ifdef CONFIG_TCG_TPM2_HMAC
-	kfree(chip->auth);
+	kfree_sensitive(chip->auth);
 #endif
 	kfree(chip);
 }
@@ -295,7 +295,7 @@ struct tpm_chip *tpm_chip_alloc(struct device *pdev,
 	struct tpm_chip *chip;
 	int rc;
 
-	chip = kzalloc(sizeof(*chip), GFP_KERNEL);
+	chip = kzalloc_obj(*chip);
 	if (chip == NULL)
 		return ERR_PTR(-ENOMEM);
 

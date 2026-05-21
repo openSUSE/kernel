@@ -57,6 +57,7 @@ void dc_plane_construct(struct dc_context *ctx, struct dc_plane_state *plane_sta
 
 void dc_plane_destruct(struct dc_plane_state *plane_state)
 {
+	(void)plane_state;
 	// no more pointers to free within dc_plane_state
 }
 
@@ -85,8 +86,8 @@ uint8_t  dc_plane_get_pipe_mask(struct dc_state *dc_state, const struct dc_plane
  ******************************************************************************/
 struct dc_plane_state *dc_create_plane_state(const struct dc *dc)
 {
-	struct dc_plane_state *plane_state = kvzalloc(sizeof(*plane_state),
-							GFP_ATOMIC);
+	struct dc_plane_state *plane_state = kvzalloc_obj(*plane_state,
+							  GFP_ATOMIC);
 
 	if (NULL == plane_state)
 		return NULL;
@@ -139,6 +140,9 @@ const struct dc_plane_status *dc_plane_get_status(
 
 		if (pipe_ctx->plane_state && flags.bits.address)
 			pipe_ctx->plane_state->status.is_flip_pending = false;
+		if (pipe_ctx->plane_state && flags.bits.histogram)
+			memset(&pipe_ctx->plane_state->status.cm_hist, 0,
+				sizeof(pipe_ctx->plane_state->status.cm_hist));
 
 		break;
 	}
@@ -154,6 +158,12 @@ const struct dc_plane_status *dc_plane_get_status(
 
 		if (flags.bits.address)
 			dc->hwss.update_pending_status(pipe_ctx);
+		if (flags.bits.histogram) {
+			struct dpp *dpp = pipe_ctx->plane_res.dpp;
+
+			if (dpp && dpp->funcs->dpp_cm_hist_read)
+				dpp->funcs->dpp_cm_hist_read(dpp, &pipe_ctx->plane_state->status.cm_hist);
+		}
 	}
 
 	return plane_status;
@@ -195,7 +205,7 @@ void dc_gamma_release(struct dc_gamma **gamma)
 
 struct dc_gamma *dc_create_gamma(void)
 {
-	struct dc_gamma *gamma = kvzalloc(sizeof(*gamma), GFP_KERNEL);
+	struct dc_gamma *gamma = kvzalloc_obj(*gamma);
 
 	if (gamma == NULL)
 		goto alloc_fail;
@@ -225,7 +235,7 @@ void dc_transfer_func_release(struct dc_transfer_func *tf)
 
 struct dc_transfer_func *dc_create_transfer_func(void)
 {
-	struct dc_transfer_func *tf = kvzalloc(sizeof(*tf), GFP_KERNEL);
+	struct dc_transfer_func *tf = kvzalloc_obj(*tf);
 
 	if (tf == NULL)
 		goto alloc_fail;
@@ -247,7 +257,7 @@ static void dc_3dlut_func_free(struct kref *kref)
 
 struct dc_3dlut *dc_create_3dlut_func(void)
 {
-	struct dc_3dlut *lut = kvzalloc(sizeof(*lut), GFP_KERNEL);
+	struct dc_3dlut *lut = kvzalloc_obj(*lut);
 
 	if (lut == NULL)
 		goto alloc_fail;

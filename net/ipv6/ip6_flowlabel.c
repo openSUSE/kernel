@@ -133,11 +133,6 @@ static void fl_release(struct ip6_flowlabel *fl)
 		if (time_after(ttd, fl->expires))
 			fl->expires = ttd;
 		ttd = fl->expires;
-		if (fl->opt && fl->share == IPV6_FL_S_EXCL) {
-			struct ipv6_txoptions *opt = fl->opt;
-			fl->opt = NULL;
-			kfree(opt);
-		}
 		if (!timer_pending(&ip6_fl_gc_timer) ||
 		    time_after(ip6_fl_gc_timer.expires, ttd))
 			mod_timer(&ip6_fl_gc_timer, ttd);
@@ -386,7 +381,7 @@ fl_create(struct net *net, struct sock *sk, struct in6_flowlabel_req *freq,
 		goto done;
 
 	err = -ENOMEM;
-	fl = kzalloc(sizeof(*fl), GFP_KERNEL);
+	fl = kzalloc_obj(*fl);
 	if (!fl)
 		goto done;
 
@@ -638,7 +633,7 @@ static int ipv6_flowlabel_get(struct sock *sk, struct in6_flowlabel_req *freq,
 	if (!fl)
 		return err;
 
-	sfl1 = kmalloc(sizeof(*sfl1), GFP_KERNEL);
+	sfl1 = kmalloc_obj(*sfl1);
 
 	if (freq->flr_label) {
 		err = -EEXIST;

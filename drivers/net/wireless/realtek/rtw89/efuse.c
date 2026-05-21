@@ -7,10 +7,6 @@
 #include "mac.h"
 #include "reg.h"
 
-#define EF_FV_OFSET 0x5ea
-#define EF_CV_MASK GENMASK(7, 4)
-#define EF_CV_INV 15
-
 #define EFUSE_B1_MSSDEVTYPE_MASK GENMASK(3, 0)
 #define EFUSE_B1_MSSCUSTIDX0_MASK GENMASK(7, 4)
 #define EFUSE_B2_MSSKEYNUM_MASK GENMASK(3, 0)
@@ -189,8 +185,8 @@ static int rtw89_dump_physical_efuse_map_dav(struct rtw89_dev *rtwdev, u8 *map,
 	return 0;
 }
 
-static int rtw89_dump_physical_efuse_map(struct rtw89_dev *rtwdev, u8 *map,
-					 u32 dump_addr, u32 dump_size, bool dav)
+static int __rtw89_dump_physical_efuse_map(struct rtw89_dev *rtwdev, u8 *map,
+					   u32 dump_addr, u32 dump_size, bool dav)
 {
 	int ret;
 
@@ -210,6 +206,25 @@ static int rtw89_dump_physical_efuse_map(struct rtw89_dev *rtwdev, u8 *map,
 	}
 
 	return 0;
+}
+
+static int rtw89_dump_physical_efuse_map(struct rtw89_dev *rtwdev, u8 *map,
+					 u32 dump_addr, u32 dump_size, bool dav)
+{
+	int retry;
+	int ret;
+
+	for (retry = 0; retry < 5; retry++) {
+		ret = __rtw89_dump_physical_efuse_map(rtwdev, map, dump_addr,
+						      dump_size, dav);
+		if (!ret)
+			return 0;
+
+		rtw89_warn(rtwdev, "efuse dump (dav=%d) failed, retrying (%d)\n",
+			   dav, retry);
+	}
+
+	return ret;
 }
 
 #define invalid_efuse_header(hdr1, hdr2) \

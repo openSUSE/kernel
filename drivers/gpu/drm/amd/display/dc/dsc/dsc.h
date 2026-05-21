@@ -64,6 +64,11 @@ struct dcn_dsc_state {
 	uint32_t dsc_chunk_size;
 	uint32_t dsc_fw_en;
 	uint32_t dsc_opp_source;
+	uint32_t dsc_block_pred_enable;
+	uint32_t dsc_line_buf_depth;
+	uint32_t dsc_version_minor;
+	uint32_t dsc_rc_buffer_size;
+	uint32_t dsc_simple_422;
 };
 
 struct dcn_dsc_reg_state {
@@ -115,6 +120,7 @@ struct dsc_funcs {
 	void (*dsc_disconnect)(struct display_stream_compressor *dsc);
 	void (*dsc_wait_disconnect_pending_clear)(struct display_stream_compressor *dsc);
 	void (*dsc_get_single_enc_caps)(struct dsc_enc_caps *dsc_enc_caps, unsigned int max_dscclk_khz);
+	void (*set_fgcg)(struct display_stream_compressor *dsc, bool enable);
 };
 
 #endif

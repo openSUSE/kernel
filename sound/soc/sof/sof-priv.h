@@ -17,6 +17,7 @@
 #include <sound/sof/info.h>
 #include <sound/sof/pm.h>
 #include <sound/sof/trace.h>
+#include <sound/compress_params.h>
 #include <uapi/sound/sof/fw.h>
 #include <sound/sof/ext_manifest.h>
 
@@ -111,6 +112,7 @@ struct sof_compr_stream {
 	u32 sampling_rate;
 	u16 channels;
 	u16 sample_container_bytes;
+	struct snd_codec codec_params;
 	size_t posn_offset;
 };
 
@@ -580,6 +582,8 @@ struct snd_sof_dev {
 	wait_queue_head_t boot_wait;
 	enum sof_fw_state fw_state;
 	bool first_boot;
+	/* mutex to protect DSP firmware boot (except initial, probe time boot */
+	struct mutex dsp_fw_boot_mutex;
 
 	/* work queue in case the probe is implemented in two steps */
 	struct work_struct probe_work;
@@ -703,6 +707,7 @@ int snd_sof_suspend(struct device *dev);
 int snd_sof_dsp_power_down_notify(struct snd_sof_dev *sdev);
 int snd_sof_prepare(struct device *dev);
 void snd_sof_complete(struct device *dev);
+int snd_sof_boot_dsp_firmware(struct snd_sof_dev *sdev);
 
 void snd_sof_new_platform_drv(struct snd_sof_dev *sdev);
 

@@ -451,18 +451,13 @@ static int ovl_lower_dir(const char *name, const struct path *path,
 	return 0;
 }
 
-/* Workdir should not be subdir of upperdir and vice versa */
+/*
+ * Workdir should not be subdir of upperdir and vice versa, and
+ * they should not be the same.
+ */
 static bool ovl_workdir_ok(struct dentry *workdir, struct dentry *upperdir)
 {
-	bool ok = false;
-
-	if (workdir != upperdir) {
-		struct dentry *trap = lock_rename(workdir, upperdir);
-		if (!IS_ERR(trap))
-			unlock_rename(workdir, upperdir);
-		ok = (trap == NULL);
-	}
-	return ok;
+	return !is_subdir(workdir, upperdir) && !is_subdir(upperdir, workdir);
 }
 
 static int ovl_setup_trap(struct super_block *sb, struct dentry *dir,
@@ -634,6 +629,7 @@ static struct dentry *ovl_lookup_or_create(struct ovl_fs *ofs,
 	if (!IS_ERR(child)) {
 		if (!child->d_inode)
 			child = ovl_create_real(ofs, parent, child,
+						&QSTR(name),
 						OVL_CATTR(mode));
 		end_creating_keep(child);
 	}
@@ -776,7 +772,7 @@ static int ovl_make_workdir(struct super_block *sb, struct ovl_fs *ofs,
 	 * For volatile mount, create a incompat/volatile/dirty file to keep
 	 * track of it.
 	 */
-	if (ofs->config.ovl_volatile) {
+	if (ovl_is_volatile(&ofs->config)) {
 		err = ovl_create_volatile_dirty(ofs);
 		if (err < 0) {
 			pr_err("Failed to create volatile/dirty file.\n");
@@ -940,7 +936,7 @@ static bool ovl_lower_uuid_ok(struct ovl_fs *ofs, const uuid_t *uuid)
 		 * disable lower file handle decoding on all of them.
 		 */
 		if (ofs->fs[i].is_lower &&
-		    uuid_equal(&ofs->fs[i].sb->s_uuid, uuid)) {
+		    ovl_uuid_match(ofs, ofs->fs[i].sb, uuid)) {
 			ofs->fs[i].bad_uuid = true;
 			return false;
 		}
@@ -952,6 +948,7 @@ static bool ovl_lower_uuid_ok(struct ovl_fs *ofs, const uuid_t *uuid)
 static int ovl_get_fsid(struct ovl_fs *ofs, const struct path *path)
 {
 	struct super_block *sb = path->mnt->mnt_sb;
+	const uuid_t *uuid = ovl_origin_uuid(ofs) ? &sb->s_uuid : &uuid_null;
 	unsigned int i;
 	dev_t dev;
 	int err;
@@ -963,7 +960,7 @@ static int ovl_get_fsid(struct ovl_fs *ofs, const struct path *path)
 			return i;
 	}
 
-	if (!ovl_lower_uuid_ok(ofs, &sb->s_uuid)) {
+	if (!ovl_lower_uuid_ok(ofs, uuid)) {
 		bad_uuid = true;
 		if (ofs->config.xino == OVL_XINO_AUTO) {
 			ofs->config.xino = OVL_XINO_OFF;
@@ -975,9 +972,8 @@ static int ovl_get_fsid(struct ovl_fs *ofs, const struct path *path)
 			warn = true;
 		}
 		if (warn) {
-			pr_warn("%s uuid detected in lower fs '%pd2', falling back to xino=%s,index=off,nfs_export=off.\n",
-				uuid_is_null(&sb->s_uuid) ? "null" :
-							    "conflicting",
+			pr_warn("%s uuid in non-single lower fs '%pd2', falling back to xino=%s,index=off,nfs_export=off.\n",
+				uuid_is_null(uuid) ? "null" : "conflicting",
 				path->dentry, ovl_xino_mode(&ofs->config));
 		}
 	}
@@ -1031,7 +1027,7 @@ static int ovl_get_layers(struct super_block *sb, struct ovl_fs *ofs,
 	unsigned int i;
 	size_t nr_merged_lower;
 
-	ofs->fs = kcalloc(ctx->nr + 2, sizeof(struct ovl_sb), GFP_KERNEL);
+	ofs->fs = kzalloc_objs(struct ovl_sb, ctx->nr + 2);
 	if (ofs->fs == NULL)
 		return -ENOMEM;
 
@@ -1393,7 +1389,7 @@ static int ovl_fill_super_creds(struct fs_context *fc, struct super_block *sb)
 	}
 
 	err = -ENOMEM;
-	layers = kcalloc(ctx->nr + 1, sizeof(struct ovl_layer), GFP_KERNEL);
+	layers = kzalloc_objs(struct ovl_layer, ctx->nr + 1);
 	if (!layers)
 		return err;
 
@@ -1469,10 +1465,7 @@ static int ovl_fill_super_creds(struct fs_context *fc, struct super_block *sb)
 	if (!ovl_upper_mnt(ofs))
 		sb->s_flags |= SB_RDONLY;
 
-	if (!ovl_origin_uuid(ofs) && ofs->numfs > 1) {
-		pr_warn("The uuid=off requires a single fs for lower and upper, falling back to uuid=null.\n");
-		ofs->config.uuid = OVL_UUID_NULL;
-	} else if (ovl_has_fsid(ofs) && ovl_upper_mnt(ofs)) {
+	if (ovl_has_fsid(ofs) && ovl_upper_mnt(ofs)) {
 		/* Use per instance persistent uuid/fsid */
 		ovl_init_uuid_xattr(sb, ofs, &ctx->upper);
 	}

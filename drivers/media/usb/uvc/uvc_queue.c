@@ -78,16 +78,15 @@ static int uvc_queue_setup(struct vb2_queue *vq,
 			   unsigned int sizes[], struct device *alloc_devs[])
 {
 	struct uvc_video_queue *queue = vb2_get_drv_priv(vq);
-	struct uvc_streaming *stream;
+	struct uvc_streaming *stream = queue->stream;
 	unsigned int size;
 
 	switch (vq->type) {
 	case V4L2_BUF_TYPE_META_CAPTURE:
-		size = UVC_METADATA_BUF_SIZE;
+		size = stream->meta.buffersize;
 		break;
 
 	default:
-		stream = uvc_queue_to_stream(queue);
 		size = stream->ctrl.dwMaxVideoFrameSize;
 		break;
 	}
@@ -113,7 +112,7 @@ static int uvc_buffer_prepare(struct vb2_buffer *vb)
 
 	if (vb->type == V4L2_BUF_TYPE_VIDEO_OUTPUT &&
 	    vb2_get_plane_payload(vb, 0) > vb2_plane_size(vb, 0)) {
-		uvc_dbg(uvc_queue_to_stream(queue)->dev, CAPTURE,
+		uvc_dbg(queue->stream->dev, CAPTURE,
 			"[E] Bytes used out of bounds\n");
 		return -EINVAL;
 	}
@@ -160,46 +159,47 @@ static void uvc_buffer_finish(struct vb2_buffer *vb)
 {
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	struct uvc_video_queue *queue = vb2_get_drv_priv(vb->vb2_queue);
-	struct uvc_streaming *stream = uvc_queue_to_stream(queue);
 	struct uvc_buffer *buf = uvc_vbuf_to_buffer(vbuf);
 
 	if (vb->state == VB2_BUF_STATE_DONE)
-		uvc_video_clock_update(stream, vbuf, buf);
+		uvc_video_clock_update(queue->stream, vbuf, buf);
 }
 
 static int uvc_start_streaming_video(struct vb2_queue *vq, unsigned int count)
 {
 	struct uvc_video_queue *queue = vb2_get_drv_priv(vq);
-	struct uvc_streaming *stream = uvc_queue_to_stream(queue);
+	struct uvc_streaming *stream = queue->stream;
 	int ret;
 
 	lockdep_assert_irqs_enabled();
 
 	ret = uvc_pm_get(stream->dev);
 	if (ret)
-		return ret;
+		goto err_buffers;
 
 	queue->buf_used = 0;
 
 	ret = uvc_video_start_streaming(stream);
-	if (ret == 0)
-		return 0;
+	if (ret)
+		goto err_pm;
 
+	return 0;
+
+err_pm:
 	uvc_pm_put(stream->dev);
-
+err_buffers:
 	uvc_queue_return_buffers(queue, UVC_BUF_STATE_QUEUED);
-
 	return ret;
 }
 
 static void uvc_stop_streaming_video(struct vb2_queue *vq)
 {
 	struct uvc_video_queue *queue = vb2_get_drv_priv(vq);
-	struct uvc_streaming *stream = uvc_queue_to_stream(queue);
+	struct uvc_streaming *stream = queue->stream;
 
 	lockdep_assert_irqs_enabled();
 
-	uvc_video_stop_streaming(uvc_queue_to_stream(queue));
+	uvc_video_stop_streaming(stream);
 
 	uvc_pm_put(stream->dev);
 
@@ -236,12 +236,14 @@ static const struct vb2_ops uvc_meta_queue_qops = {
 	.stop_streaming = uvc_stop_streaming_meta,
 };
 
-int uvc_queue_init(struct uvc_video_queue *queue, enum v4l2_buf_type type)
+int uvc_queue_init(struct uvc_streaming *stream, struct uvc_video_queue *queue,
+		   enum v4l2_buf_type type)
 {
 	int ret;
 
+	queue->stream = stream;
 	queue->queue.type = type;
-	queue->queue.io_modes = VB2_MMAP | VB2_USERPTR;
+	queue->queue.io_modes = VB2_MMAP | VB2_USERPTR | VB2_DMABUF;
 	queue->queue.drv_priv = queue;
 	queue->queue.buf_struct_size = sizeof(struct uvc_buffer);
 	queue->queue.mem_ops = &vb2_vmalloc_memops;
@@ -254,7 +256,6 @@ int uvc_queue_init(struct uvc_video_queue *queue, enum v4l2_buf_type type)
 		queue->queue.ops = &uvc_meta_queue_qops;
 		break;
 	default:
-		queue->queue.io_modes |= VB2_DMABUF;
 		queue->queue.ops = &uvc_queue_qops;
 		break;
 	}
@@ -339,7 +340,7 @@ struct uvc_buffer *uvc_queue_get_current_buffer(struct uvc_video_queue *queue)
  * the device has been disconnected.
  */
 static void uvc_queue_buffer_requeue(struct uvc_video_queue *queue,
-		struct uvc_buffer *buf)
+				     struct uvc_buffer *buf)
 {
 	buf->error = 0;
 	buf->state = UVC_BUF_STATE_QUEUED;

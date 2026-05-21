@@ -71,7 +71,7 @@ MODULE_PARM_DESC(max_reason,
 
 static int ramoops_ecc;
 module_param_named(ecc, ramoops_ecc, int, 0400);
-MODULE_PARM_DESC(ramoops_ecc,
+MODULE_PARM_DESC(ecc,
 		"if non-zero, the option enables ECC support and specifies "
 		"ECC buffer size in bytes (1 is a special value, means 16 "
 		"bytes ECC)");
@@ -232,8 +232,7 @@ static ssize_t ramoops_pstore_read(struct pstore_record *record)
 			 */
 			struct persistent_ram_zone *tmp_prz, *prz_next;
 
-			tmp_prz = kzalloc(sizeof(struct persistent_ram_zone),
-					  GFP_KERNEL);
+			tmp_prz = kzalloc_obj(struct persistent_ram_zone);
 			if (!tmp_prz)
 				return -ENOMEM;
 			prz = tmp_prz;
@@ -539,7 +538,7 @@ static int ramoops_init_przs(const char *name,
 		goto fail;
 	}
 
-	prz_ar = kcalloc(*cnt, sizeof(**przs), GFP_KERNEL);
+	prz_ar = kzalloc_objs(**przs, *cnt);
 	if (!prz_ar)
 		goto fail;
 

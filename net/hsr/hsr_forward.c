@@ -184,7 +184,7 @@ struct sk_buff *hsr_get_untagged_frame(struct hsr_frame_info *frame,
 				create_stripped_skb_hsr(frame->skb_hsr, frame);
 		else
 			netdev_warn_once(port->dev,
-					 "Unexpected frame received in hsr_get_untagged_frame()\n");
+					 "Unexpected frame received in %s()\n", __func__);
 
 		if (!frame->skb_std)
 			return NULL;
@@ -205,6 +205,8 @@ struct sk_buff *prp_get_untagged_frame(struct hsr_frame_info *frame,
 				__pskb_copy(frame->skb_prp,
 					    skb_headroom(frame->skb_prp),
 					    GFP_ATOMIC);
+			if (!frame->skb_std)
+				return NULL;
 		} else {
 			/* Unexpected */
 			WARN_ONCE(1, "%s:%d: Unexpected frame received (port_src %s)\n",

@@ -34,6 +34,7 @@
 #include <drm/display/drm_dp_tunnel.h>
 #include <drm/display/drm_dsc.h>
 #include <drm/drm_atomic.h>
+#include <drm/drm_colorop.h>
 #include <drm/drm_crtc.h>
 #include <drm/drm_encoder.h>
 #include <drm/drm_framebuffer.h>
@@ -144,7 +145,7 @@ struct intel_framebuffer {
 		struct intel_fb_view remapped_view;
 	};
 
-	struct i915_address_space *dpt_vm;
+	struct intel_dpt *dpt;
 
 	unsigned int min_alignment;
 	unsigned int vtd_guard;
@@ -350,6 +351,7 @@ struct intel_vbt_panel_data {
 		bool low_vswing;
 		bool hobl;
 		bool dsc_disable;
+		bool pipe_joiner_enable;
 	} edp;
 
 	struct {
@@ -509,6 +511,12 @@ struct intel_hdcp {
 	bool force_hdcp14;
 };
 
+enum intel_panel_replay_dsc_support {
+	INTEL_DP_PANEL_REPLAY_DSC_NOT_SUPPORTED,
+	INTEL_DP_PANEL_REPLAY_DSC_FULL_FRAME_ONLY,
+	INTEL_DP_PANEL_REPLAY_DSC_SELECTIVE_UPDATE,
+};
+
 struct intel_connector {
 	struct drm_connector base;
 	/*
@@ -561,6 +569,30 @@ struct intel_connector {
 			} overall_throughput;
 			int max_line_width;
 		} dsc_branch_caps;
+
+		struct {
+			u8 dpcd[DP_PANEL_REPLAY_CAP_SIZE];
+#define INTEL_PR_DPCD_INDEX(pr_dpcd_register)	((pr_dpcd_register) - DP_PANEL_REPLAY_CAP_SUPPORT)
+
+			bool support;
+			bool su_support;
+			enum intel_panel_replay_dsc_support dsc_support;
+
+			u16 su_w_granularity;
+			u16 su_y_granularity;
+		} panel_replay_caps;
+
+		struct {
+			u8 dpcd[EDP_PSR_RECEIVER_CAP_SIZE];
+
+			bool support;
+			bool su_support;
+
+			u16 su_w_granularity;
+			u16 su_y_granularity;
+
+			u8 sync_latency;
+		} psr_caps;
 	} dp;
 
 	struct {
@@ -803,6 +835,7 @@ struct intel_pipe_wm {
 
 struct skl_wm_level {
 	u16 min_ddb_alloc;
+	u16 min_ddb_alloc_uv; /* for pre-icl */
 	u16 blocks;
 	u8 lines;
 	bool enable;
@@ -813,13 +846,11 @@ struct skl_wm_level {
 
 struct skl_plane_wm {
 	struct skl_wm_level wm[8];
-	struct skl_wm_level uv_wm[8];
 	struct skl_wm_level trans_wm;
 	struct {
 		struct skl_wm_level wm0;
 		struct skl_wm_level trans_wm;
 	} sagv;
-	bool is_planar;
 };
 
 struct skl_pipe_wm {
@@ -953,12 +984,6 @@ struct intel_csc_matrix {
 	u16 coeff[9];
 	u16 preoff[3];
 	u16 postoff[3];
-};
-
-enum intel_panel_replay_dsc_support {
-	INTEL_DP_PANEL_REPLAY_DSC_NOT_SUPPORTED,
-	INTEL_DP_PANEL_REPLAY_DSC_FULL_FRAME_ONLY,
-	INTEL_DP_PANEL_REPLAY_DSC_SELECTIVE_UPDATE,
 };
 
 struct scaler_filter_coeff {
@@ -1137,6 +1162,7 @@ struct intel_crtc_state {
 	} dsi_pll;
 
 	int max_link_bpp_x16;	/* in 1/16 bpp units */
+	int max_pipe_bpp;	/* in 1 bpp units */
 	int pipe_bpp;		/* in 1 bpp units */
 	int min_hblank;
 	struct intel_link_m_n dp_m_n;
@@ -1152,6 +1178,8 @@ struct intel_crtc_state {
 	bool enable_psr2_su_region_et;
 	bool req_psr2_sdp_prior_scanline;
 	bool has_panel_replay;
+	bool link_off_after_as_sdp_when_pr_active;
+	bool disable_as_sdp_when_pr_active;
 	bool wm_level_disabled;
 	bool pkg_c_latency_used;
 	/* Only used for state verification. */
@@ -1159,6 +1187,7 @@ struct intel_crtc_state {
 	u32 dc3co_exitline;
 	u16 su_y_granularity;
 	u8 active_non_psr_pipes;
+	u8 entry_setup_frames;
 	const char *no_psr_reason;
 
 	/*
@@ -1306,10 +1335,13 @@ struct intel_crtc_state {
 		/* Only used for state computation, not read out from the HW. */
 		bool compression_enabled_on_link;
 		bool compression_enable;
-		int num_streams;
+		struct intel_dsc_slice_config {
+			int pipes_per_line;
+			int streams_per_pipe;
+			int slices_per_stream;
+		} slice_config;
 		/* Compressed Bpp in U6.4 format (first 4 bits for fractional part) */
 		u16 compressed_bpp_x16;
-		u8 slice_count;
 		struct drm_dsc_config config;
 	} dsc;
 
@@ -1358,6 +1390,13 @@ struct intel_crtc_state {
 		u8 pipeline_full;
 		u16 flipline, vmin, vmax, guardband;
 		u32 vsync_end, vsync_start;
+		struct {
+			bool enable;
+			u16 vmin, vmax;
+			u16 guardband, slope;
+			u16 max_increase, max_decrease;
+			u16 vblank_target;
+		} dc_balance;
 	} vrr;
 
 	/* Content Match Refresh Rate state */
@@ -1445,6 +1484,7 @@ struct intel_flipq {
 
 struct intel_crtc {
 	struct drm_crtc base;
+	struct list_head pipe_head;
 	enum pipe pipe;
 	/*
 	 * Whether the crtc and the connected output pipeline is active. Implies
@@ -1497,6 +1537,10 @@ struct intel_crtc {
 		enum transcoder cpu_transcoder;
 		struct intel_link_m_n m_n, m2_n2;
 	} drrs;
+
+	struct {
+		u64 flip_count;
+	} dc_balance;
 
 	int scanline_offset;
 
@@ -1662,7 +1706,7 @@ struct intel_pps {
 	unsigned long last_power_on;
 	unsigned long last_backlight_off;
 	ktime_t panel_power_off_time;
-	intel_wakeref_t vdd_wakeref;
+	struct ref_tracker *vdd_wakeref;
 
 	union {
 		/*
@@ -1716,14 +1760,12 @@ struct intel_psr {
 	bool active;
 	struct work_struct work;
 	unsigned int busy_frontbuffer_bits;
-	bool sink_psr2_support;
 	bool link_standby;
 	bool sel_update_enabled;
 	bool psr2_sel_fetch_enabled;
 	bool psr2_sel_fetch_cff_enabled;
 	bool su_region_et_enabled;
 	bool req_psr2_sdp_prior_scanline;
-	u8 sink_sync_latency;
 	ktime_t last_entry_attempt;
 	ktime_t last_exit;
 	bool sink_not_reliable;
@@ -1732,8 +1774,6 @@ struct intel_psr {
 	u16 su_y_granularity;
 	bool source_panel_replay_support;
 	bool sink_panel_replay_support;
-	bool sink_panel_replay_su_support;
-	enum intel_panel_replay_dsc_support sink_panel_replay_dsc_support;
 	bool panel_replay_enabled;
 	u32 dc3co_exitline;
 	u32 dc3co_exit_delay;
@@ -1757,12 +1797,10 @@ struct intel_dp {
 	int link_rate;
 	u8 lane_count;
 	u8 sink_count;
+	bool downstream_port_changed;
 	bool needs_modeset_retry;
 	bool use_max_params;
 	u8 dpcd[DP_RECEIVER_CAP_SIZE];
-	u8 psr_dpcd[EDP_PSR_RECEIVER_CAP_SIZE];
-	u8 pr_dpcd[DP_PANEL_REPLAY_CAP_SIZE];
-#define INTEL_PR_DPCD_INDEX(pr_dpcd_register)	((pr_dpcd_register) - DP_PANEL_REPLAY_CAP_SUPPORT)
 
 	u8 downstream_ports[DP_MAX_DOWNSTREAM_PORTS];
 	u8 edp_dpcd[EDP_DISPLAY_CTL_CAP_SIZE];
@@ -1940,12 +1978,13 @@ struct intel_digital_port {
 	bool lane_reversal;
 	bool ddi_a_4_lanes;
 	bool release_cl2_override;
+	bool dedicated_external;
 	u8 max_lanes;
 	/* Used for DP and ICL+ TypeC/DP and TypeC/HDMI ports. */
 	enum aux_ch aux_ch;
 	enum intel_display_power_domain ddi_io_power_domain;
-	intel_wakeref_t ddi_io_wakeref;
-	intel_wakeref_t aux_wakeref;
+	struct ref_tracker *ddi_io_wakeref;
+	struct ref_tracker *aux_wakeref;
 
 	struct intel_tc_port *tc;
 

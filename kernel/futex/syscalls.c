@@ -333,7 +333,7 @@ SYSCALL_DEFINE5(futex_waitv, struct futex_waitv __user *, waiters,
 	if (timeout && (ret = futex2_setup_timeout(timeout, clockid, &to)))
 		return ret;
 
-	futexv = kcalloc(nr_futexes, sizeof(*futexv), GFP_KERNEL);
+	futexv = kzalloc_objs(*futexv, nr_futexes);
 	if (!futexv) {
 		ret = -ENOMEM;
 		goto destroy_timer;
@@ -458,6 +458,14 @@ SYSCALL_DEFINE4(futex_requeue,
 	ret = futex_parse_waitv(futexes, waiters, 2, futex_wake_mark, NULL);
 	if (ret)
 		return ret;
+
+	/*
+	 * For now mandate both flags are identical, like the sys_futex()
+	 * interface has. If/when we merge the variable sized futex support,
+	 * that patch can modify this test to allow a difference in size.
+	 */
+	if (futexes[0].w.flags != futexes[1].w.flags)
+		return -EINVAL;
 
 	cmpval = futexes[0].w.val;
 

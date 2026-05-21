@@ -29,6 +29,7 @@ extern struct lsm_blob_sizes blob_sizes;
 
 /* LSM blob caches */
 extern struct kmem_cache *lsm_file_cache;
+extern struct kmem_cache *lsm_backing_file_cache;
 extern struct kmem_cache *lsm_inode_cache;
 
 /* LSM blob allocators */
@@ -36,15 +37,6 @@ int lsm_cred_alloc(struct cred *cred, gfp_t gfp);
 int lsm_task_alloc(struct task_struct *task);
 
 /* LSM framework initializers */
-
-#ifdef CONFIG_MMU
-int min_addr_init(void);
-#else
-static inline int min_addr_init(void)
-{
-	return 0;
-}
-#endif /* CONFIG_MMU */
 
 #ifdef CONFIG_SECURITYFS
 int securityfs_init(void);

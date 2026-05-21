@@ -270,7 +270,7 @@ static int get_freq_hardware(unsigned int cpu, unsigned int human)
 {
 	unsigned long freq;
 
-	if (cpupower_cpu_info.caps & CPUPOWER_CAP_APERF)
+	if (!(cpupower_cpu_info.caps & CPUPOWER_CAP_APERF))
 		return -EINVAL;
 
 	freq = cpufreq_get_freq_hardware(cpu);
@@ -542,8 +542,6 @@ static struct option info_opts[] = {
 
 int cmd_freq_info(int argc, char **argv)
 {
-	extern char *optarg;
-	extern int optind, opterr, optopt;
 	int ret = 0, cont = 1;
 	unsigned int cpu = 0;
 	unsigned int human = 0;

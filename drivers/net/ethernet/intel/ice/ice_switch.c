@@ -1847,7 +1847,7 @@ ice_cfg_rdma_fltr(struct ice_hw *hw, u16 vsi_handle, bool enable)
 	if (!cached_ctx)
 		return -ENOENT;
 
-	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	ctx = kzalloc_obj(*ctx);
 	if (!ctx)
 		return -ENOMEM;
 
@@ -2069,7 +2069,7 @@ ice_update_recipe_lkup_idx(struct ice_hw *hw,
 	u16 num_recps = ICE_MAX_NUM_RECIPES;
 	int status;
 
-	rcp_list = kcalloc(num_recps, sizeof(*rcp_list), GFP_KERNEL);
+	rcp_list = kzalloc_objs(*rcp_list, num_recps);
 	if (!rcp_list)
 		return -ENOMEM;
 
@@ -2326,7 +2326,7 @@ ice_get_recp_frm_fw(struct ice_hw *hw, struct ice_sw_recipe *recps, u8 rid,
 	bitmap_zero(result_bm, ICE_MAX_FV_WORDS);
 
 	/* we need a buffer big enough to accommodate all the recipes */
-	tmp = kcalloc(ICE_MAX_NUM_RECIPES, sizeof(*tmp), GFP_KERNEL);
+	tmp = kzalloc_objs(*tmp, ICE_MAX_NUM_RECIPES);
 	if (!tmp)
 		return -ENOMEM;
 
@@ -4984,10 +4984,8 @@ ice_find_free_recp_res_idx(struct ice_hw *hw, const unsigned long *profiles,
 			  hw->switch_info->recp_list[bit].res_idxs,
 			  ICE_MAX_FV_WORDS);
 
-	bitmap_xor(free_idx, used_idx, possible_idx, ICE_MAX_FV_WORDS);
-
 	/* return number of free indexes */
-	return (u16)bitmap_weight(free_idx, ICE_MAX_FV_WORDS);
+	return (u16)bitmap_weighted_xor(free_idx, used_idx, possible_idx, ICE_MAX_FV_WORDS);
 }
 
 /**
@@ -5096,7 +5094,7 @@ ice_add_sw_recipe(struct ice_hw *hw, struct ice_sw_recipe *rm,
 	if (recp_cnt > ICE_MAX_CHAIN_RECIPE_RES)
 		return -E2BIG;
 
-	buf = kcalloc(recp_cnt, sizeof(*buf), GFP_KERNEL);
+	buf = kzalloc_objs(*buf, recp_cnt);
 	if (!buf)
 		return -ENOMEM;
 
@@ -5324,7 +5322,7 @@ ice_add_adv_recipe(struct ice_hw *hw, struct ice_adv_lkup_elem *lkups,
 	if (!lkups_cnt)
 		return -EINVAL;
 
-	lkup_exts = kzalloc(sizeof(*lkup_exts), GFP_KERNEL);
+	lkup_exts = kzalloc_obj(*lkup_exts);
 	if (!lkup_exts)
 		return -ENOMEM;
 
@@ -5346,7 +5344,7 @@ ice_add_adv_recipe(struct ice_hw *hw, struct ice_adv_lkup_elem *lkups,
 		}
 	}
 
-	rm = kzalloc(sizeof(*rm), GFP_KERNEL);
+	rm = kzalloc_obj(*rm);
 	if (!rm) {
 		status = -ENOMEM;
 		goto err_free_lkup_exts;
@@ -5530,7 +5528,7 @@ ice_dummy_packet_add_vlan(const struct ice_dummy_pkt_profile *dummy_pkt,
 	memcpy(pkt + etype_off + off, dummy_pkt->pkt + etype_off,
 	       dummy_pkt->pkt_len - etype_off);
 
-	profile = kzalloc(sizeof(*profile), GFP_KERNEL);
+	profile = kzalloc_obj(*profile);
 	if (!profile) {
 		kfree(offsets);
 		kfree(pkt);

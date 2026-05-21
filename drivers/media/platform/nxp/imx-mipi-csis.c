@@ -12,6 +12,7 @@
  *
  */
 
+#include <linux/cleanup.h>
 #include <linux/clk.h>
 #include <linux/debugfs.h>
 #include <linux/delay.h>
@@ -1349,28 +1350,27 @@ static int mipi_csis_async_register(struct mipi_csis_device *csis)
 		.bus_type = V4L2_MBUS_CSI2_DPHY,
 	};
 	struct v4l2_async_connection *asd;
-	struct fwnode_handle *ep;
 	unsigned int i;
 	int ret;
 
 	v4l2_async_subdev_nf_init(&csis->notifier, &csis->sd);
 
-	ep = fwnode_graph_get_endpoint_by_id(dev_fwnode(csis->dev), 0, 0,
-					     FWNODE_GRAPH_ENDPOINT_NEXT);
+	struct fwnode_handle *ep __free(fwnode_handle) =
+		fwnode_graph_get_endpoint_by_id(dev_fwnode(csis->dev), 0, 0,
+						FWNODE_GRAPH_ENDPOINT_NEXT);
 	if (!ep)
-		return -ENOTCONN;
+		return dev_err_probe(csis->dev, -ENOTCONN,
+				     "failed to get local endpoint\n");
 
 	ret = v4l2_fwnode_endpoint_parse(ep, &vep);
 	if (ret)
-		goto err_parse;
+		return dev_err_probe(csis->dev, ret,
+				     "failed to parse endpoint\n");
 
 	for (i = 0; i < vep.bus.mipi_csi2.num_data_lanes; ++i) {
-		if (vep.bus.mipi_csi2.data_lanes[i] != i + 1) {
-			dev_err(csis->dev,
-				"data lanes reordering is not supported");
-			ret = -EINVAL;
-			goto err_parse;
-		}
+		if (vep.bus.mipi_csi2.data_lanes[i] != i + 1)
+			return dev_err_probe(csis->dev, -EINVAL,
+					     "data lanes reordering is not supported\n");
 	}
 
 	csis->bus = vep.bus.mipi_csi2;
@@ -1381,25 +1381,23 @@ static int mipi_csis_async_register(struct mipi_csis_device *csis)
 
 	asd = v4l2_async_nf_add_fwnode_remote(&csis->notifier, ep,
 					      struct v4l2_async_connection);
-	if (IS_ERR(asd)) {
-		ret = PTR_ERR(asd);
-		goto err_parse;
-	}
-
-	fwnode_handle_put(ep);
+	if (IS_ERR(asd))
+		return dev_err_probe(csis->dev, PTR_ERR(asd),
+				     "failed to add remote fwnode to notifier\n");
 
 	csis->notifier.ops = &mipi_csis_notify_ops;
 
 	ret = v4l2_async_nf_register(&csis->notifier);
 	if (ret)
-		return ret;
+		return dev_err_probe(csis->dev, ret,
+				     "failed to register notifier\n");
 
-	return v4l2_async_register_subdev(&csis->sd);
+	ret = v4l2_async_register_subdev(&csis->sd);
+	if (ret)
+		return dev_err_probe(csis->dev, ret,
+				     "failed to register subdev\n");
 
-err_parse:
-	fwnode_handle_put(ep);
-
-	return ret;
+	return 0;
 }
 
 /* -----------------------------------------------------------------------------
@@ -1547,10 +1545,8 @@ static int mipi_csis_probe(struct platform_device *pdev)
 	/* Now that the hardware is initialized, request the interrupt. */
 	ret = devm_request_irq(dev, irq, mipi_csis_irq_handler, 0,
 			       dev_name(dev), csis);
-	if (ret) {
-		dev_err(dev, "Interrupt request failed\n");
-		return ret;
-	}
+	if (ret)
+		return dev_err_probe(dev, ret, "Interrupt request failed\n");
 
 	/* Initialize and register the subdev. */
 	ret = mipi_csis_subdev_init(csis);
@@ -1560,10 +1556,8 @@ static int mipi_csis_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, &csis->sd);
 
 	ret = mipi_csis_async_register(csis);
-	if (ret < 0) {
-		dev_err(dev, "async register failed: %d\n", ret);
+	if (ret < 0)
 		goto err_cleanup;
-	}
 
 	/* Initialize debugfs. */
 	mipi_csis_debugfs_init(csis);

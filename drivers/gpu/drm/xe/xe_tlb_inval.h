@@ -23,7 +23,7 @@ int xe_tlb_inval_ggtt(struct xe_tlb_inval *tlb_inval);
 void xe_tlb_inval_vm(struct xe_tlb_inval *tlb_inval, struct xe_vm *vm);
 int xe_tlb_inval_range(struct xe_tlb_inval *tlb_inval,
 		       struct xe_tlb_inval_fence *fence,
-		       u64 start, u64 end, u32 asid);
+		       u64 start, u64 end, u32 asid, struct drm_suballoc *prl_sa);
 
 void xe_tlb_inval_fence_init(struct xe_tlb_inval *tlb_inval,
 			     struct xe_tlb_inval_fence *fence,
@@ -42,5 +42,13 @@ xe_tlb_inval_fence_wait(struct xe_tlb_inval_fence *fence)
 }
 
 void xe_tlb_inval_done_handler(struct xe_tlb_inval *tlb_inval, int seqno);
+
+bool xe_tlb_inval_idle(struct xe_tlb_inval *tlb_inval);
+
+int xe_tlb_inval_range_tilemask_submit(struct xe_device *xe, u32 asid,
+				       u64 start, u64 end, u8 tile_mask,
+				       struct xe_tlb_inval_batch *batch);
+
+void xe_tlb_inval_batch_wait(struct xe_tlb_inval_batch *batch);
 
 #endif	/* _XE_TLB_INVAL_ */

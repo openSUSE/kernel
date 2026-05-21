@@ -378,7 +378,7 @@ static int q6asm_dai_open(struct snd_soc_component *component,
 		return -EINVAL;
 	}
 
-	prtd = kzalloc(sizeof(struct q6asm_dai_rtd), GFP_KERNEL);
+	prtd = kzalloc_obj(struct q6asm_dai_rtd);
 	if (prtd == NULL)
 		return -ENOMEM;
 
@@ -621,7 +621,7 @@ static int q6asm_dai_compr_open(struct snd_soc_component *component,
 		return -EINVAL;
 	}
 
-	prtd = kzalloc(sizeof(*prtd), GFP_KERNEL);
+	prtd = kzalloc_obj(*prtd);
 	if (!prtd)
 		return -ENOMEM;
 
@@ -1224,7 +1224,7 @@ static const struct snd_soc_component_driver q6asm_fe_dai_component = {
 	.trigger		= q6asm_dai_trigger,
 	.ack			= q6asm_dai_ack,
 	.pointer		= q6asm_dai_pointer,
-	.pcm_construct		= q6asm_dai_pcm_new,
+	.pcm_new		= q6asm_dai_pcm_new,
 	.compress_ops		= &q6asm_dai_compress_ops,
 	.dapm_widgets		= q6asm_dapm_widgets,
 	.num_dapm_widgets	= ARRAY_SIZE(q6asm_dapm_widgets),

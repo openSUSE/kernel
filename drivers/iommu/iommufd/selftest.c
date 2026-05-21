@@ -308,7 +308,7 @@ static void *mock_domain_hw_info(struct device *dev, u32 *length,
 	    *type != IOMMU_HW_INFO_TYPE_SELFTEST)
 		return ERR_PTR(-EOPNOTSUPP);
 
-	info = kzalloc(sizeof(*info), GFP_KERNEL);
+	info = kzalloc_obj(*info);
 	if (!info)
 		return ERR_PTR(-ENOMEM);
 
@@ -353,7 +353,7 @@ __mock_domain_alloc_nested(const struct iommu_user_data *user_data)
 	if (rc)
 		return ERR_PTR(rc);
 
-	mock_nested = kzalloc(sizeof(*mock_nested), GFP_KERNEL);
+	mock_nested = kzalloc_obj(*mock_nested);
 	if (!mock_nested)
 		return ERR_PTR(-ENOMEM);
 	mock_nested->domain.ops = &domain_nested_ops;
@@ -421,19 +421,6 @@ static const struct iommu_dirty_ops amdv1_mock_dirty_ops = {
 	.set_dirty_tracking = mock_domain_set_dirty_tracking,
 };
 
-static const struct iommu_domain_ops amdv1_ops = {
-	IOMMU_PT_DOMAIN_OPS(amdv1),
-	.free = mock_domain_free,
-	.attach_dev = mock_domain_nop_attach,
-	.set_dev_pasid = mock_domain_set_dev_pasid_nop,
-	.iotlb_sync = &mock_iotlb_sync,
-};
-
-static const struct iommu_dirty_ops amdv1_dirty_ops = {
-	IOMMU_PT_DIRTY_OPS(amdv1),
-	.set_dirty_tracking = mock_domain_set_dirty_tracking,
-};
-
 static struct mock_iommu_domain *
 mock_domain_alloc_pgtable(struct device *dev,
 			  const struct iommu_hwpt_selftest *user_cfg, u32 flags)
@@ -441,7 +428,7 @@ mock_domain_alloc_pgtable(struct device *dev,
 	struct mock_iommu_domain *mock;
 	int rc;
 
-	mock = kzalloc(sizeof(*mock), GFP_KERNEL);
+	mock = kzalloc_obj(*mock);
 	if (!mock)
 		return ERR_PTR(-ENOMEM);
 	mock->domain.type = IOMMU_DOMAIN_UNMANAGED;
@@ -475,24 +462,6 @@ mock_domain_alloc_pgtable(struct device *dev,
 						     PAGE_SIZE;
 		if (flags & IOMMU_HWPT_ALLOC_DIRTY_TRACKING)
 			mock->domain.dirty_ops = &amdv1_mock_dirty_ops;
-		break;
-	}
-
-	case MOCK_IOMMUPT_AMDV1: {
-		struct pt_iommu_amdv1_cfg cfg = {};
-
-		cfg.common.hw_max_vasz_lg2 = 64;
-		cfg.common.hw_max_oasz_lg2 = 52;
-		cfg.common.features = BIT(PT_FEAT_DYNAMIC_TOP) |
-				      BIT(PT_FEAT_AMDV1_ENCRYPT_TABLES) |
-				      BIT(PT_FEAT_AMDV1_FORCE_COHERENCE);
-		cfg.starting_level = 2;
-		mock->domain.ops = &amdv1_ops;
-		rc = pt_iommu_amdv1_init(&mock->amdv1, &cfg, GFP_KERNEL);
-		if (rc)
-			goto err_free;
-		if (flags & IOMMU_HWPT_ALLOC_DIRTY_TRACKING)
-			mock->domain.dirty_ops = &amdv1_dirty_ops;
 		break;
 	}
 	default:
@@ -636,7 +605,7 @@ static void mock_viommu_destroy(struct iommufd_viommu *viommu)
 	if (mock_viommu->mmap_offset)
 		iommufd_viommu_destroy_mmap(&mock_viommu->core,
 					    mock_viommu->mmap_offset);
-	free_page((unsigned long)mock_viommu->page);
+	free_pages((unsigned long)mock_viommu->page, 1);
 	mutex_destroy(&mock_viommu->queue_mutex);
 
 	/* iommufd core frees mock_viommu and viommu */
@@ -674,7 +643,7 @@ static int mock_viommu_cache_invalidate(struct iommufd_viommu *viommu,
 		return 0;
 	}
 
-	cmds = kcalloc(array->entry_num, sizeof(*cmds), GFP_KERNEL);
+	cmds = kzalloc_objs(*cmds, array->entry_num);
 	if (!cmds)
 		return -ENOMEM;
 	cur = cmds;
@@ -870,7 +839,7 @@ err_destroy_mmap:
 	iommufd_viommu_destroy_mmap(&mock_viommu->core,
 				    mock_viommu->mmap_offset);
 err_free_page:
-	free_page((unsigned long)mock_viommu->page);
+	free_pages((unsigned long)mock_viommu->page, 1);
 	return rc;
 }
 
@@ -1023,7 +992,7 @@ static struct mock_dev *mock_dev_create(unsigned long dev_flags)
 	if (dev_flags & ~valid_flags)
 		return ERR_PTR(-EINVAL);
 
-	mdev = kzalloc(sizeof(*mdev), GFP_KERNEL);
+	mdev = kzalloc_obj(*mdev);
 	if (!mdev)
 		return ERR_PTR(-ENOMEM);
 
@@ -1184,14 +1153,20 @@ static int iommufd_test_add_reserved(struct iommufd_ucmd *ucmd,
 				     unsigned int mockpt_id,
 				     unsigned long start, size_t length)
 {
+	unsigned long last;
 	struct iommufd_ioas *ioas;
 	int rc;
+
+	if (!length)
+		return -EINVAL;
+	if (check_add_overflow(start, length - 1, &last))
+		return -EOVERFLOW;
 
 	ioas = iommufd_get_ioas(ucmd->ictx, mockpt_id);
 	if (IS_ERR(ioas))
 		return PTR_ERR(ioas);
 	down_write(&ioas->iopt.iova_rwsem);
-	rc = iopt_reserve_iova(&ioas->iopt, start, start + length - 1, NULL);
+	rc = iopt_reserve_iova(&ioas->iopt, start, last, NULL);
 	up_write(&ioas->iopt.iova_rwsem);
 	iommufd_put_object(ucmd->ictx, &ioas->obj);
 	return rc;
@@ -1215,8 +1190,10 @@ static int iommufd_test_md_check_pa(struct iommufd_ucmd *ucmd,
 	page_size = 1 << __ffs(mock->domain.pgsize_bitmap);
 	if (iova % page_size || length % page_size ||
 	    (uintptr_t)uptr % page_size ||
-	    check_add_overflow((uintptr_t)uptr, (uintptr_t)length, &end))
-		return -EINVAL;
+	    check_add_overflow((uintptr_t)uptr, (uintptr_t)length, &end)) {
+		rc = -EINVAL;
+		goto out_put;
+	}
 
 	for (; length; length -= page_size) {
 		struct page *pages[1];
@@ -1440,7 +1417,7 @@ static struct selftest_access *iommufd_test_alloc_access(void)
 	struct selftest_access *staccess;
 	struct file *filep;
 
-	staccess = kzalloc(sizeof(*staccess), GFP_KERNEL_ACCOUNT);
+	staccess = kzalloc_obj(*staccess, GFP_KERNEL_ACCOUNT);
 	if (!staccess)
 		return ERR_PTR(-ENOMEM);
 	INIT_LIST_HEAD(&staccess->items);
@@ -1584,7 +1561,7 @@ static int iommufd_test_access_pages(struct iommufd_ucmd *ucmd,
 	npages = (ALIGN(iova + length, PAGE_SIZE) -
 		  ALIGN_DOWN(iova, PAGE_SIZE)) /
 		 PAGE_SIZE;
-	pages = kvcalloc(npages, sizeof(*pages), GFP_KERNEL_ACCOUNT);
+	pages = kvzalloc_objs(*pages, npages, GFP_KERNEL_ACCOUNT);
 	if (!pages) {
 		rc = -ENOMEM;
 		goto out_put;
@@ -1614,7 +1591,7 @@ static int iommufd_test_access_pages(struct iommufd_ucmd *ucmd,
 			goto out_unaccess;
 	}
 
-	item = kzalloc(sizeof(*item), GFP_KERNEL_ACCOUNT);
+	item = kzalloc_obj(*item, GFP_KERNEL_ACCOUNT);
 	if (!item) {
 		rc = -ENOMEM;
 		goto out_unaccess;
@@ -1994,7 +1971,7 @@ static const struct dma_buf_ops iommufd_test_dmabuf_ops = {
 };
 
 int iommufd_test_dma_buf_iommufd_map(struct dma_buf_attachment *attachment,
-				     struct dma_buf_phys_vec *phys)
+				     struct phys_vec *phys)
 {
 	struct iommufd_test_dma_buf *priv = attachment->dmabuf->priv;
 
@@ -2024,7 +2001,7 @@ static int iommufd_test_dmabuf_get(struct iommufd_ucmd *ucmd,
 	if (len == 0 || len > PAGE_SIZE * 512)
 		return -EINVAL;
 
-	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
+	priv = kzalloc_obj(*priv);
 	if (!priv)
 		return -ENOMEM;
 
@@ -2073,7 +2050,7 @@ static int iommufd_test_dmabuf_revoke(struct iommufd_ucmd *ucmd, int fd,
 	priv = dmabuf->priv;
 	dma_resv_lock(dmabuf->resv, NULL);
 	priv->revoked = revoked;
-	dma_buf_move_notify(dmabuf);
+	dma_buf_invalidate_mappings(dmabuf);
 	dma_resv_unlock(dmabuf->resv);
 
 err_put:

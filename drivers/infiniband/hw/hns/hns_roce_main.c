@@ -36,6 +36,7 @@
 #include <rdma/ib_smi.h>
 #include <rdma/ib_user_verbs.h>
 #include <rdma/ib_cache.h>
+#include <rdma/uverbs_ioctl.h>
 #include "hns_roce_common.h"
 #include "hns_roce_device.h"
 #include "hns_roce_hem.h"
@@ -259,6 +260,11 @@ static int hns_roce_query_device(struct ib_device *ib_dev,
 		props->max_srq_sge = hr_dev->caps.max_srq_sges;
 	}
 
+	if (hr_dev->caps.flags & HNS_ROCE_CAP_FLAG_LIMIT_BANK) {
+		props->max_cq >>= 1;
+		props->max_qp >>= 1;
+	}
+
 	if (hr_dev->caps.flags & HNS_ROCE_CAP_FLAG_FRMR &&
 	    hr_dev->pci_dev->revision >= PCI_REVISION_ID_HIP09) {
 		props->device_cap_flags |= IB_DEVICE_MEM_MGT_EXTENSIONS;
@@ -361,7 +367,7 @@ hns_roce_user_mmap_entry_insert(struct ib_ucontext *ucontext, u64 address,
 	struct hns_user_mmap_entry *entry;
 	int ret;
 
-	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+	entry = kzalloc_obj(*entry);
 	if (!entry)
 		return NULL;
 
@@ -419,7 +425,7 @@ static int hns_roce_alloc_ucontext(struct ib_ucontext *uctx,
 	struct hns_roce_ucontext *context = to_hr_ucontext(uctx);
 	struct hns_roce_dev *hr_dev = to_hr_dev(uctx->device);
 	struct hns_roce_ib_alloc_ucontext_resp resp = {};
-	struct hns_roce_ib_alloc_ucontext ucmd = {};
+	struct hns_roce_ib_alloc_ucontext ucmd;
 	int ret = -EAGAIN;
 
 	if (!hr_dev->active)
@@ -428,8 +434,7 @@ static int hns_roce_alloc_ucontext(struct ib_ucontext *uctx,
 	resp.qp_tab_size = hr_dev->caps.num_qps;
 	resp.srq_tab_size = hr_dev->caps.num_srqs;
 
-	ret = ib_copy_from_udata(&ucmd, udata,
-				 min(udata->inlen, sizeof(ucmd)));
+	ret = ib_copy_validate_udata_in(udata, ucmd, reserved);
 	if (ret)
 		goto error_out;
 
@@ -1148,8 +1153,7 @@ void hns_roce_handle_device_err(struct hns_roce_dev *hr_dev)
 
 static int hns_roce_alloc_dfx_cnt(struct hns_roce_dev *hr_dev)
 {
-	hr_dev->dfx_cnt = kvcalloc(HNS_ROCE_DFX_CNT_TOTAL, sizeof(atomic64_t),
-				   GFP_KERNEL);
+	hr_dev->dfx_cnt = kvzalloc_objs(atomic64_t, HNS_ROCE_DFX_CNT_TOTAL);
 	if (!hr_dev->dfx_cnt)
 		return -ENOMEM;
 

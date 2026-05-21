@@ -226,6 +226,7 @@ config BLK_DEV_DM
 	select BLOCK_HOLDER_DEPRECATED if SYSFS
 	select BLK_DEV_DM_BUILTIN
 	select BLK_MQ_STACKING
+	select CRYPTO_LIB_SHA256 if IMA
 	depends on DAX || DAX=n
 	help
 	  Device-mapper is a low level volume manager.  It works by allowing
@@ -299,6 +300,7 @@ config DM_CRYPT
 	select CRYPTO
 	select CRYPTO_CBC
 	select CRYPTO_ESSIV
+	select CRYPTO_LIB_AES
 	select CRYPTO_LIB_MD5 # needed by lmk IV mode
 	help
 	  This device-mapper target allows you to create a device that
@@ -549,6 +551,8 @@ config DM_VERITY
 	select CRYPTO_HASH
 	select CRYPTO_LIB_SHA256
 	select DM_BUFIO
+	select REED_SOLOMON if DM_VERITY_FEC
+	select REED_SOLOMON_DEC8 if DM_VERITY_FEC
 	help
 	  This device-mapper target creates a read-only device that
 	  transparently validates the data on one underlying device against
@@ -598,8 +602,6 @@ config DM_VERITY_VERIFY_ROOTHASH_SIG_PLATFORM_KEYRING
 config DM_VERITY_FEC
 	bool "Verity forward error correction support"
 	depends on DM_VERITY
-	select REED_SOLOMON
-	select REED_SOLOMON_DEC8
 	help
 	  Add forward error correction support to dm-verity. This option
 	  makes it possible to use pre-generated error correction data to

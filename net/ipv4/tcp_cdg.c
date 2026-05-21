@@ -162,7 +162,7 @@ static void tcp_cdg_hystart_update(struct sock *sk)
 				NET_ADD_STATS(sock_net(sk),
 					      LINUX_MIB_TCPHYSTARTTRAINCWND,
 					      tcp_snd_cwnd(tp));
-				tp->snd_ssthresh = tcp_snd_cwnd(tp);
+				WRITE_ONCE(tp->snd_ssthresh, tcp_snd_cwnd(tp));
 				return;
 			}
 		}
@@ -181,7 +181,7 @@ static void tcp_cdg_hystart_update(struct sock *sk)
 				NET_ADD_STATS(sock_net(sk),
 					      LINUX_MIB_TCPHYSTARTDELAYCWND,
 					      tcp_snd_cwnd(tp));
-				tp->snd_ssthresh = tcp_snd_cwnd(tp);
+				WRITE_ONCE(tp->snd_ssthresh, tcp_snd_cwnd(tp));
 			}
 		}
 	}
@@ -378,8 +378,8 @@ static void tcp_cdg_init(struct sock *sk)
 	ca->gradients = NULL;
 	/* We silently fall back to window = 1 if allocation fails. */
 	if (window > 1)
-		ca->gradients = kcalloc(window, sizeof(ca->gradients[0]),
-					GFP_NOWAIT);
+		ca->gradients = kzalloc_objs(ca->gradients[0], window,
+					     GFP_NOWAIT);
 	ca->rtt_seq = tp->snd_nxt;
 	ca->shadow_wnd = tcp_snd_cwnd(tp);
 }

@@ -322,6 +322,51 @@ copy_to_page:
 
 	ret = copy_inline_to_page(inode, new_key->offset,
 				  inline_data, size, datal, comp_type);
+
+	/*
+	 * If we copied the inline extent data to a page/folio beyond the i_size
+	 * of the destination inode, then we need to increase the i_size before
+	 * we start a transaction to update the inode item. This is to prevent a
+	 * deadlock when the flushoncommit mount option is used, which happens
+	 * like this:
+	 *
+	 * 1) Task A clones an inline extent from inode X to an offset of inode
+	 *    Y that is beyond Y's current i_size. This means we copied the
+	 *    inline extent's data to a folio of inode Y that is beyond its EOF,
+	 *    using the call above to copy_inline_to_page();
+	 *
+	 * 2) Task B starts a transaction commit and calls
+	 *    btrfs_start_delalloc_flush() to flush delalloc;
+	 *
+	 * 3) The delalloc flushing sees the new dirty folio of inode Y and when
+	 *    it attempts to flush it, it ends up at extent_writepage() and sees
+	 *    that the offset of the folio is beyond the i_size of inode Y, so
+	 *    it attempts to invalidate the folio by calling folio_invalidate(),
+	 *    which ends up at btrfs' folio invalidate callback -
+	 *    btrfs_invalidate_folio(). There it tries to lock the folio's range
+	 *    in inode Y's extent io tree, but it blocks since it's currently
+	 *    locked by task A - during reflink we lock the inodes and the
+	 *    source and destination ranges after flushing all delalloc and
+	 *    waiting for ordered extent completion - after that we don't expect
+	 *    to have dirty folios in the ranges, the exception is if we have to
+	 *    copy an inline extent's data (because the destination offset is
+	 *    not zero);
+	 *
+	 * 4) Task A then does the 'goto out' below and attempts to start a
+	 *    transaction to update the inode item, and then it's blocked since
+	 *    the current transaction is in the TRANS_STATE_COMMIT_START state.
+	 *    Therefore task A has to wait for the current transaction to become
+	 *    unblocked (its state >= TRANS_STATE_UNBLOCKED).
+	 *
+	 * This leads to a deadlock - the task committing the transaction
+	 * waiting for the delalloc flushing which is blocked during folio
+	 * invalidation on the inode's extent lock and the reflink task waiting
+	 * for the current transaction to be unblocked so that it can start a
+	 * a new one to update the inode item (while holding the extent lock).
+	 */
+	if (ret == 0 && new_key->offset + datal > i_size_read(&inode->vfs_inode))
+		i_size_write(&inode->vfs_inode, new_key->offset + datal);
+
 	goto out;
 }
 
@@ -646,7 +691,7 @@ static int btrfs_extent_same_range(struct btrfs_inode *src, u64 loff, u64 len,
 	 */
 	btrfs_lock_extent(&dst->io_tree, dst_loff, end, &cached_state);
 	ret = btrfs_clone(&src->vfs_inode, &dst->vfs_inode, loff, len,
-			  ALIGN(len, bs), dst_loff, 1);
+			  ALIGN(len, bs), dst_loff, true);
 	btrfs_unlock_extent(&dst->io_tree, dst_loff, end, &cached_state);
 
 	btrfs_btree_balance_dirty(fs_info);
@@ -705,7 +750,6 @@ static noinline int btrfs_clone_files(struct file *file, struct file *file_src,
 	struct inode *src = file_inode(file_src);
 	struct btrfs_fs_info *fs_info = inode_to_fs_info(inode);
 	int ret;
-	int wb_ret;
 	u64 len = olen;
 	u64 bs = fs_info->sectorsize;
 	u64 end;
@@ -748,27 +792,36 @@ static noinline int btrfs_clone_files(struct file *file, struct file *file_src,
 	 */
 	end = destoff + len - 1;
 	btrfs_lock_extent(&BTRFS_I(inode)->io_tree, destoff, end, &cached_state);
-	ret = btrfs_clone(src, inode, off, olen, len, destoff, 0);
+	ret = btrfs_clone(src, inode, off, olen, len, destoff, false);
 	btrfs_unlock_extent(&BTRFS_I(inode)->io_tree, destoff, end, &cached_state);
+	if (ret < 0)
+		return ret;
 
 	/*
 	 * We may have copied an inline extent into a page of the destination
-	 * range, so wait for writeback to complete before truncating pages
-	 * from the page cache. This is a rare case.
+	 * range. So flush delalloc and wait for ordered extent completion.
+	 * This is to ensure the invalidation below does not fail, as if for
+	 * example it finds a dirty folio, our folio release callback
+	 * (btrfs_release_folio()) returns false, which makes the invalidation
+	 * return an -EBUSY error. We can't ignore such failures since they
+	 * could come from some range other than the copied inline extent's
+	 * destination range and we have no way to know that.
 	 */
-	wb_ret = btrfs_wait_ordered_range(BTRFS_I(inode), destoff, len);
-	ret = ret ? ret : wb_ret;
+	ret = btrfs_wait_ordered_range(BTRFS_I(inode), destoff, len);
+	if (ret < 0)
+		return ret;
+
 	/*
-	 * Truncate page cache pages so that future reads will see the cloned
-	 * data immediately and not the previous data.
+	 * Invalidate page cache so that future reads will see the cloned data
+	 * immediately and not the previous data.
 	 */
-	truncate_inode_pages_range(&inode->i_data,
-				round_down(destoff, PAGE_SIZE),
-				round_up(destoff + len, PAGE_SIZE) - 1);
+	ret = filemap_invalidate_inode(inode, false, destoff, end);
+	if (ret < 0)
+		return ret;
 
 	btrfs_btree_balance_dirty(fs_info);
 
-	return ret;
+	return 0;
 }
 
 static int btrfs_remap_file_range_prep(struct file *file_in, loff_t pos_in,
@@ -870,7 +923,7 @@ loff_t btrfs_remap_file_range(struct file *src_file, loff_t off,
 	bool same_inode = dst_inode == src_inode;
 	int ret;
 
-	if (unlikely(btrfs_is_shutdown(inode_to_fs_info(file_inode(src_file)))))
+	if (btrfs_is_shutdown(inode_to_fs_info(file_inode(src_file))))
 		return -EIO;
 
 	if (remap_flags & ~(REMAP_FILE_DEDUP | REMAP_FILE_ADVISORY))

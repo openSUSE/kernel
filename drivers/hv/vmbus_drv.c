@@ -25,13 +25,13 @@
 #include <linux/cpu.h>
 #include <linux/sched/isolation.h>
 #include <linux/sched/task_stack.h>
+#include <linux/smpboot.h>
 
 #include <linux/delay.h>
 #include <linux/panic_notifier.h>
 #include <linux/ptrace.h>
-#include <linux/screen_info.h>
+#include <linux/sysfb.h>
 #include <linux/efi.h>
-#include <linux/random.h>
 #include <linux/kernel.h>
 #include <linux/syscore_ops.h>
 #include <linux/dma-map-ops.h>
@@ -51,7 +51,7 @@ static struct device  *vmbus_root_device;
 
 static int hyperv_cpuhp_online;
 
-static long __percpu *vmbus_evt;
+static DEFINE_PER_CPU(long, vmbus_evt);
 
 /* Values parsed from ACPI DSDT */
 int vmbus_irq;
@@ -100,13 +100,11 @@ struct device *hv_get_vmbus_root_device(void)
 }
 EXPORT_SYMBOL_GPL(hv_get_vmbus_root_device);
 
-static int vmbus_exists(void)
+bool hv_vmbus_exists(void)
 {
-	if (vmbus_root_device == NULL)
-		return -ENODEV;
-
-	return 0;
+	return vmbus_root_device != NULL;
 }
+EXPORT_SYMBOL_GPL(hv_vmbus_exists);
 
 static u8 channel_monitor_group(const struct vmbus_channel *channel)
 {
@@ -755,7 +753,7 @@ static int vmbus_add_dynid(struct hv_driver *drv, guid_t *guid)
 {
 	struct vmbus_dynid *dynid;
 
-	dynid = kzalloc(sizeof(*dynid), GFP_KERNEL);
+	dynid = kzalloc_obj(*dynid);
 	if (!dynid)
 		return -ENOMEM;
 
@@ -1119,7 +1117,7 @@ static void __vmbus_on_msg_dpc(void *message_page_addr)
 	}
 
 	if (entry->handler_type	== VMHT_BLOCKING) {
-		ctx = kmalloc(struct_size(ctx, msg.payload, payload_size), GFP_ATOMIC);
+		ctx = kmalloc_flex(*ctx, msg.payload, payload_size, GFP_ATOMIC);
 		if (ctx == NULL)
 			return;
 
@@ -1257,17 +1255,12 @@ static void vmbus_chan_sched(void *event_page_addr)
 		return;
 	event = (union hv_synic_event_flags *)event_page_addr + VMBUS_MESSAGE_SINT;
 
-	maxbits = HV_EVENT_FLAGS_COUNT;
+	maxbits = READ_ONCE(vmbus_connection.relid_hiwater) + 1;
 	recv_int_page = event->flags;
 
 	if (unlikely(!recv_int_page))
 		return;
 
-	/*
-	 * Suggested-by: Michael Kelley <mhklinux@outlook.com>
-	 * One possible optimization would be to keep track of the largest relID that's in use,
-	 * and only scan up to that relID.
-	 */
 	for_each_set_bit(relid, recv_int_page, maxbits) {
 		void (*callback_fn)(void *context);
 		struct vmbus_channel *channel;
@@ -1350,7 +1343,7 @@ static void vmbus_message_sched(struct hv_per_cpu_context *hv_cpu, void *message
 	}
 }
 
-void vmbus_isr(void)
+static void __vmbus_isr(void)
 {
 	struct hv_per_cpu_context *hv_cpu
 		= this_cpu_ptr(hv_context.cpu_context);
@@ -1360,8 +1353,53 @@ void vmbus_isr(void)
 
 	vmbus_message_sched(hv_cpu, hv_cpu->hyp_synic_message_page);
 	vmbus_message_sched(hv_cpu, hv_cpu->para_synic_message_page);
+}
 
-	add_interrupt_randomness(vmbus_interrupt);
+static DEFINE_PER_CPU(bool, vmbus_irq_pending);
+static DEFINE_PER_CPU(struct task_struct *, vmbus_irqd);
+
+static void vmbus_irqd_wake(void)
+{
+	struct task_struct *tsk = __this_cpu_read(vmbus_irqd);
+
+	__this_cpu_write(vmbus_irq_pending, true);
+	wake_up_process(tsk);
+}
+
+static void vmbus_irqd_setup(unsigned int cpu)
+{
+	sched_set_fifo(current);
+}
+
+static int vmbus_irqd_should_run(unsigned int cpu)
+{
+	return __this_cpu_read(vmbus_irq_pending);
+}
+
+static void run_vmbus_irqd(unsigned int cpu)
+{
+	__this_cpu_write(vmbus_irq_pending, false);
+	__vmbus_isr();
+}
+
+static bool vmbus_irq_initialized;
+
+static struct smp_hotplug_thread vmbus_irq_threads = {
+	.store                  = &vmbus_irqd,
+	.setup			= vmbus_irqd_setup,
+	.thread_should_run      = vmbus_irqd_should_run,
+	.thread_fn              = run_vmbus_irqd,
+	.thread_comm            = "vmbus_irq/%u",
+};
+
+void vmbus_isr(void)
+{
+	if (IS_ENABLED(CONFIG_PREEMPT_RT)) {
+		vmbus_irqd_wake();
+	} else {
+		lockdep_hardirq_threaded();
+		__vmbus_isr();
+	}
 }
 EXPORT_SYMBOL_FOR_MODULES(vmbus_isr, "mshv_vtl");
 
@@ -1382,7 +1420,6 @@ static int vmbus_alloc_synic_and_connect(void)
 {
 	int ret, cpu;
 	struct work_struct __percpu *works;
-	int hyperv_cpuhp_online;
 
 	ret = hv_synic_alloc();
 	if (ret < 0)
@@ -1462,16 +1499,21 @@ static int vmbus_bus_init(void)
 	 * the VMbus interrupt handler.
 	 */
 
+	if (IS_ENABLED(CONFIG_PREEMPT_RT) && !vmbus_irq_initialized) {
+		ret = smpboot_register_percpu_thread(&vmbus_irq_threads);
+		if (ret)
+			goto err_kthread;
+		vmbus_irq_initialized = true;
+	}
+
 	if (vmbus_irq == -1) {
 		hv_setup_vmbus_handler(vmbus_isr);
 	} else {
-		vmbus_evt = alloc_percpu(long);
 		ret = request_percpu_irq(vmbus_irq, vmbus_percpu_isr,
-				"Hyper-V VMbus", vmbus_evt);
+				"Hyper-V VMbus", &vmbus_evt);
 		if (ret) {
 			pr_err("Can't request Hyper-V VMbus IRQ %d, Err %d",
 					vmbus_irq, ret);
-			free_percpu(vmbus_evt);
 			goto err_setup;
 		}
 	}
@@ -1500,13 +1542,16 @@ static int vmbus_bus_init(void)
 	return 0;
 
 err_connect:
-	if (vmbus_irq == -1) {
+	if (vmbus_irq == -1)
 		hv_remove_vmbus_handler();
-	} else {
-		free_percpu_irq(vmbus_irq, vmbus_evt);
-		free_percpu(vmbus_evt);
-	}
+	else
+		free_percpu_irq(vmbus_irq, &vmbus_evt);
 err_setup:
+	if (IS_ENABLED(CONFIG_PREEMPT_RT) && vmbus_irq_initialized) {
+		smpboot_unregister_percpu_thread(&vmbus_irq_threads);
+		vmbus_irq_initialized = false;
+	}
+err_kthread:
 	bus_unregister(&hv_bus);
 	return ret;
 }
@@ -1526,11 +1571,10 @@ int __vmbus_driver_register(struct hv_driver *hv_driver, struct module *owner, c
 {
 	int ret;
 
-	pr_info("registering driver %s\n", hv_driver->name);
+	if (!hv_vmbus_exists())
+		return -ENODEV;
 
-	ret = vmbus_exists();
-	if (ret < 0)
-		return ret;
+	pr_info("registering driver %s\n", hv_driver->name);
 
 	hv_driver->driver.name = hv_driver->name;
 	hv_driver->driver.owner = owner;
@@ -1556,9 +1600,8 @@ EXPORT_SYMBOL_GPL(__vmbus_driver_register);
  */
 void vmbus_driver_unregister(struct hv_driver *hv_driver)
 {
-	pr_info("unregistering driver %s\n", hv_driver->name);
-
-	if (!vmbus_exists()) {
+	if (hv_vmbus_exists()) {
+		pr_info("unregistering driver %s\n", hv_driver->name);
 		driver_unregister(&hv_driver->driver);
 		vmbus_free_dynids(hv_driver);
 	}
@@ -1895,12 +1938,19 @@ static int hv_mmap_ring_buffer_wrapper(struct file *filp, struct kobject *kobj,
 				       struct vm_area_struct *vma)
 {
 	struct vmbus_channel *channel = container_of(kobj, struct vmbus_channel, kobj);
+	struct vm_area_desc desc;
+	int err;
 
 	/*
-	 * hv_(create|remove)_ring_sysfs implementation ensures that mmap_ring_buffer
-	 * is not NULL.
+	 * hv_(create|remove)_ring_sysfs implementation ensures that
+	 * mmap_prepare_ring_buffer is not NULL.
 	 */
-	return channel->mmap_ring_buffer(channel, vma);
+	compat_set_desc_from_vma(&desc, filp, vma);
+	err = channel->mmap_prepare_ring_buffer(channel, &desc);
+	if (err)
+		return err;
+
+	return __compat_vma_mmap(&desc, vma);
 }
 
 static struct bin_attribute chan_attr_ring_buffer = {
@@ -1992,13 +2042,13 @@ static const struct kobj_type vmbus_chan_ktype = {
 /**
  * hv_create_ring_sysfs() - create "ring" sysfs entry corresponding to ring buffers for a channel.
  * @channel: Pointer to vmbus_channel structure
- * @hv_mmap_ring_buffer: function pointer for initializing the function to be called on mmap of
+ * @hv_mmap_prepare_ring_buffer: function pointer for initializing the function to be called on mmap
  *                       channel's "ring" sysfs node, which is for the ring buffer of that channel.
  *                       Function pointer is of below type:
- *                       int (*hv_mmap_ring_buffer)(struct vmbus_channel *channel,
- *                                                  struct vm_area_struct *vma))
- *                       This has a pointer to the channel and a pointer to vm_area_struct,
- *                       used for mmap, as arguments.
+ *                       int (*hv_mmap_prepare_ring_buffer)(struct vmbus_channel *channel,
+ *                                                          struct vm_area_desc *desc))
+ *                       This has a pointer to the channel and a pointer to vm_area_desc,
+ *                       used for mmap_prepare, as arguments.
  *
  * Sysfs node for ring buffer of a channel is created along with other fields, however its
  * visibility is disabled by default. Sysfs creation needs to be controlled when the use-case
@@ -2015,12 +2065,12 @@ static const struct kobj_type vmbus_chan_ktype = {
  * Returns 0 on success or error code on failure.
  */
 int hv_create_ring_sysfs(struct vmbus_channel *channel,
-			 int (*hv_mmap_ring_buffer)(struct vmbus_channel *channel,
-						    struct vm_area_struct *vma))
+			 int (*hv_mmap_prepare_ring_buffer)(struct vmbus_channel *channel,
+							    struct vm_area_desc *desc))
 {
 	struct kobject *kobj = &channel->kobj;
 
-	channel->mmap_ring_buffer = hv_mmap_ring_buffer;
+	channel->mmap_prepare_ring_buffer = hv_mmap_prepare_ring_buffer;
 	channel->ring_sysfs_visible = true;
 
 	return sysfs_update_group(kobj, &vmbus_chan_group);
@@ -2042,7 +2092,7 @@ int hv_remove_ring_sysfs(struct vmbus_channel *channel)
 
 	channel->ring_sysfs_visible = false;
 	ret = sysfs_update_group(kobj, &vmbus_chan_group);
-	channel->mmap_ring_buffer = NULL;
+	channel->mmap_prepare_ring_buffer = NULL;
 	return ret;
 }
 EXPORT_SYMBOL_GPL(hv_remove_ring_sysfs);
@@ -2100,7 +2150,7 @@ struct hv_device *vmbus_device_create(const guid_t *type,
 {
 	struct hv_device *child_device_obj;
 
-	child_device_obj = kzalloc(sizeof(struct hv_device), GFP_KERNEL);
+	child_device_obj = kzalloc_obj(struct hv_device);
 	if (!child_device_obj) {
 		pr_err("Unable to allocate device object for child device\n");
 		return NULL;
@@ -2262,7 +2312,7 @@ static acpi_status vmbus_walk_resources(struct acpi_resource *res, void *ctx)
 	if (end < 0x100000)
 		return AE_OK;
 
-	new_res = kzalloc(sizeof(*new_res), GFP_ATOMIC);
+	new_res = kzalloc_obj(*new_res, GFP_ATOMIC);
 	if (!new_res)
 		return AE_NO_MEMORY;
 
@@ -2340,8 +2390,8 @@ static void __maybe_unused vmbus_reserve_fb(void)
 	if (efi_enabled(EFI_BOOT)) {
 		/* Gen2 VM: get FB base from EFI framebuffer */
 		if (IS_ENABLED(CONFIG_SYSFB)) {
-			start = screen_info.lfb_base;
-			size = max_t(__u32, screen_info.lfb_size, 0x800000);
+			start = sysfb_primary_display.screen.lfb_base;
+			size = max_t(__u32, sysfb_primary_display.screen.lfb_size, 0x800000);
 		}
 	} else {
 		/* Gen1 VM: get FB base from PCI */
@@ -2356,8 +2406,8 @@ static void __maybe_unused vmbus_reserve_fb(void)
 		}
 
 		/*
-		 * Release the PCI device so hyperv_drm or hyperv_fb driver can
-		 * grab it later.
+		 * Release the PCI device so hyperv_drm driver can grab it
+		 * later.
 		 */
 		pci_dev_put(pdev);
 	}
@@ -2616,7 +2666,7 @@ static int vmbus_device_add(struct platform_device *pdev)
 	for_each_of_range(&parser, &range) {
 		struct resource *res;
 
-		res = kzalloc(sizeof(*res), GFP_KERNEL);
+		res = kzalloc_obj(*res);
 		if (!res) {
 			vmbus_mmio_remove();
 			return -ENOMEM;
@@ -2837,7 +2887,6 @@ static struct platform_driver vmbus_platform_driver = {
 
 static void hv_kexec_handler(void)
 {
-	hv_stimer_global_cleanup();
 	vmbus_initiate_unload(false);
 	/* Make sure conn_state is set as hv_synic_cleanup checks for it */
 	mb();
@@ -2970,11 +3019,13 @@ static void __exit vmbus_exit(void)
 	vmbus_connection.conn_state = DISCONNECTED;
 	hv_stimer_global_cleanup();
 	vmbus_disconnect();
-	if (vmbus_irq == -1) {
+	if (vmbus_irq == -1)
 		hv_remove_vmbus_handler();
-	} else {
-		free_percpu_irq(vmbus_irq, vmbus_evt);
-		free_percpu(vmbus_evt);
+	else
+		free_percpu_irq(vmbus_irq, &vmbus_evt);
+	if (IS_ENABLED(CONFIG_PREEMPT_RT) && vmbus_irq_initialized) {
+		smpboot_unregister_percpu_thread(&vmbus_irq_threads);
+		vmbus_irq_initialized = false;
 	}
 	for_each_online_cpu(cpu) {
 		struct hv_per_cpu_context *hv_cpu

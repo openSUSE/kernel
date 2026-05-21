@@ -9,6 +9,8 @@
 #include <linux/types.h>
 #include <linux/units.h>
 
+#include <drm/intel/intel_pcode_regs.h>
+
 #include "i915_drv.h"
 #include "i915_hwmon.h"
 #include "i915_reg.h"
@@ -915,7 +917,7 @@ void i915_hwmon_register(struct drm_i915_private *i915)
 	if (!IS_DGFX(i915))
 		return;
 
-	hwmon = kzalloc(sizeof(*hwmon), GFP_KERNEL);
+	hwmon = kzalloc_obj(*hwmon);
 	if (!hwmon)
 		return;
 

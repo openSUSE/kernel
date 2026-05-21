@@ -69,6 +69,8 @@ struct sdca_interrupt_info {
 int sdca_irq_request(struct device *dev, struct sdca_interrupt_info *interrupt_info,
 		     int sdca_irq, const char *name, irq_handler_t handler,
 		     void *data);
+void sdca_irq_free(struct device *dev, struct sdca_interrupt_info *interrupt_info,
+		   int sdca_irq, const char *name, void *data);
 int sdca_irq_data_populate(struct device *dev, struct regmap *function_regmap,
 			   struct snd_soc_component *component,
 			   struct sdca_function_data *function,
@@ -81,7 +83,17 @@ int sdca_irq_populate_early(struct device *dev, struct regmap *function_regmap,
 int sdca_irq_populate(struct sdca_function_data *function,
 		      struct snd_soc_component *component,
 		      struct sdca_interrupt_info *info);
+void sdca_irq_cleanup(struct device *dev,
+		      struct sdca_function_data *function,
+		      struct sdca_interrupt_info *info);
 struct sdca_interrupt_info *sdca_irq_allocate(struct device *dev,
 					      struct regmap *regmap, int irq);
+
+void sdca_irq_enable_early(struct sdca_function_data *function,
+			   struct sdca_interrupt_info *info);
+void sdca_irq_enable(struct sdca_function_data *function,
+		     struct sdca_interrupt_info *info);
+void sdca_irq_disable(struct sdca_function_data *function,
+		      struct sdca_interrupt_info *info);
 
 #endif

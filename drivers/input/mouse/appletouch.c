@@ -200,7 +200,6 @@ struct atp {
 	u8			*data;		/* transferred data */
 	struct input_dev	*input;		/* input dev */
 	const struct atp_info	*info;		/* touchpad model */
-	bool			open;
 	bool			valid;		/* are the samples valid? */
 	bool			size_detect_done;
 	bool			overflow_warned;
@@ -800,7 +799,6 @@ static int atp_open(struct input_dev *input)
 	if (usb_submit_urb(dev->urb, GFP_KERNEL))
 		return -EIO;
 
-	dev->open = true;
 	return 0;
 }
 
@@ -810,7 +808,6 @@ static void atp_close(struct input_dev *input)
 
 	usb_kill_urb(dev->urb);
 	cancel_work_sync(&dev->work);
-	dev->open = false;
 }
 
 static int atp_handle_geyser(struct atp *dev)
@@ -832,30 +829,21 @@ static int atp_probe(struct usb_interface *iface,
 	struct atp *dev;
 	struct input_dev *input_dev;
 	struct usb_device *udev = interface_to_usbdev(iface);
-	struct usb_host_interface *iface_desc;
-	struct usb_endpoint_descriptor *endpoint;
-	int int_in_endpointAddr = 0;
-	int i, error = -ENOMEM;
+	struct usb_endpoint_descriptor *ep;
+	int error;
 	const struct atp_info *info = (const struct atp_info *)id->driver_info;
 
 	/* set up the endpoint information */
 	/* use only the first interrupt-in endpoint */
-	iface_desc = iface->cur_altsetting;
-	for (i = 0; i < iface_desc->desc.bNumEndpoints; i++) {
-		endpoint = &iface_desc->endpoint[i].desc;
-		if (!int_in_endpointAddr && usb_endpoint_is_int_in(endpoint)) {
-			/* we found an interrupt in endpoint */
-			int_in_endpointAddr = endpoint->bEndpointAddress;
-			break;
-		}
-	}
-	if (!int_in_endpointAddr) {
+	error = usb_find_int_in_endpoint(iface->cur_altsetting, &ep);
+	if (error) {
 		dev_err(&iface->dev, "Could not find int-in endpoint\n");
 		return -EIO;
 	}
 
 	/* allocate memory for our device state and initialize it */
-	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+	error = -ENOMEM;
+	dev = kzalloc_obj(*dev);
 	input_dev = input_allocate_device();
 	if (!dev || !input_dev) {
 		dev_err(&iface->dev, "Out of memory\n");
@@ -878,7 +866,7 @@ static int atp_probe(struct usb_interface *iface,
 		goto err_free_urb;
 
 	usb_fill_int_urb(dev->urb, udev,
-			 usb_rcvintpipe(udev, int_in_endpointAddr),
+			 usb_rcvintpipe(udev, usb_endpoint_num(ep)),
 			 dev->data, dev->info->datalen,
 			 dev->info->callback, dev, 1);
 
@@ -963,7 +951,8 @@ static int atp_recover(struct atp *dev)
 	if (error)
 		return error;
 
-	if (dev->open && usb_submit_urb(dev->urb, GFP_KERNEL))
+	guard(mutex)(&dev->input->mutex);
+	if (input_device_enabled(dev->input) && usb_submit_urb(dev->urb, GFP_KERNEL))
 		return -EIO;
 
 	return 0;
@@ -981,7 +970,8 @@ static int atp_resume(struct usb_interface *iface)
 {
 	struct atp *dev = usb_get_intfdata(iface);
 
-	if (dev->open && usb_submit_urb(dev->urb, GFP_KERNEL))
+	guard(mutex)(&dev->input->mutex);
+	if (input_device_enabled(dev->input) && usb_submit_urb(dev->urb, GFP_KERNEL))
 		return -EIO;
 
 	return 0;

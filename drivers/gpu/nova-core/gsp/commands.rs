@@ -2,14 +2,15 @@
 
 use core::{
     array,
-    convert::Infallible, //
+    convert::Infallible,
+    ffi::FromBytesUntilNulError,
+    str::Utf8Error, //
 };
 
 use kernel::{
     device,
     pci,
     prelude::*,
-    time::Delta,
     transmute::{
         AsBytes,
         FromBytes, //
@@ -22,7 +23,8 @@ use crate::{
         cmdq::{
             Cmdq,
             CommandToGsp,
-            MessageFromGsp, //
+            MessageFromGsp,
+            NoReply, //
         },
         fw::{
             commands::*,
@@ -30,7 +32,6 @@ use crate::{
         },
     },
     sbuffer::SBufferIter,
-    util,
 };
 
 /// The `GspSetSystemInfo` command.
@@ -48,6 +49,7 @@ impl<'a> SetSystemInfo<'a> {
 impl<'a> CommandToGsp for SetSystemInfo<'a> {
     const FUNCTION: MsgFunction = MsgFunction::GspSetSystemInfo;
     type Command = GspSetSystemInfo;
+    type Reply = NoReply;
     type InitError = Error;
 
     fn init(&self) -> impl Init<Self::Command, Self::InitError> {
@@ -99,6 +101,7 @@ impl SetRegistry {
 impl CommandToGsp for SetRegistry {
     const FUNCTION: MsgFunction = MsgFunction::SetRegistry;
     type Command = PackedRegistryTable;
+    type Reply = NoReply;
     type InitError = Infallible;
 
     fn init(&self) -> impl Init<Self::Command, Self::InitError> {
@@ -142,7 +145,7 @@ impl CommandToGsp for SetRegistry {
 }
 
 /// Message type for GSP initialization done notification.
-struct GspInitDone {}
+struct GspInitDone;
 
 // SAFETY: `GspInitDone` is a zero-sized type with no bytes, therefore it
 // trivially has no uninitialized bytes.
@@ -151,20 +154,20 @@ unsafe impl FromBytes for GspInitDone {}
 impl MessageFromGsp for GspInitDone {
     const FUNCTION: MsgFunction = MsgFunction::GspInitDone;
     type InitError = Infallible;
-    type Message = GspInitDone;
+    type Message = ();
 
     fn read(
         _msg: &Self::Message,
         _sbuffer: &mut SBufferIter<array::IntoIter<&[u8], 2>>,
     ) -> Result<Self, Self::InitError> {
-        Ok(GspInitDone {})
+        Ok(GspInitDone)
     }
 }
 
 /// Waits for GSP initialization to complete.
-pub(crate) fn wait_gsp_init_done(cmdq: &mut Cmdq) -> Result {
+pub(crate) fn wait_gsp_init_done(cmdq: &Cmdq) -> Result {
     loop {
-        match cmdq.receive_msg::<GspInitDone>(Delta::from_secs(10)) {
+        match cmdq.receive_msg::<GspInitDone>(Cmdq::RECEIVE_TIMEOUT) {
             Ok(_) => break Ok(()),
             Err(ERANGE) => continue,
             Err(e) => break Err(e),
@@ -178,6 +181,7 @@ struct GetGspStaticInfo;
 impl CommandToGsp for GetGspStaticInfo {
     const FUNCTION: MsgFunction = MsgFunction::GetGspStaticInfo;
     type Command = GspStaticConfigInfo;
+    type Reply = GetGspStaticInfoReply;
     type InitError = Infallible;
 
     fn init(&self) -> impl Init<Self::Command, Self::InitError> {
@@ -205,23 +209,31 @@ impl MessageFromGsp for GetGspStaticInfoReply {
     }
 }
 
+/// Error type for [`GetGspStaticInfoReply::gpu_name`].
+#[derive(Debug)]
+pub(crate) enum GpuNameError {
+    /// The GPU name string does not contain a null terminator.
+    NoNullTerminator(FromBytesUntilNulError),
+
+    /// The GPU name string contains invalid UTF-8.
+    #[expect(dead_code)]
+    InvalidUtf8(Utf8Error),
+}
+
 impl GetGspStaticInfoReply {
-    /// Returns the name of the GPU as a string, or `None` if the string given by the GSP was
-    /// invalid.
-    pub(crate) fn gpu_name(&self) -> Option<&str> {
-        util::str_from_null_terminated(&self.gpu_name)
+    /// Returns the name of the GPU as a string.
+    ///
+    /// Returns an error if the string given by the GSP does not contain a null terminator or
+    /// contains invalid UTF-8.
+    pub(crate) fn gpu_name(&self) -> core::result::Result<&str, GpuNameError> {
+        CStr::from_bytes_until_nul(&self.gpu_name)
+            .map_err(GpuNameError::NoNullTerminator)?
+            .to_str()
+            .map_err(GpuNameError::InvalidUtf8)
     }
 }
 
 /// Send the [`GetGspInfo`] command and awaits for its reply.
-pub(crate) fn get_gsp_info(cmdq: &mut Cmdq, bar: &Bar0) -> Result<GetGspStaticInfoReply> {
-    cmdq.send_command(bar, GetGspStaticInfo)?;
-
-    loop {
-        match cmdq.receive_msg::<GetGspStaticInfoReply>(Delta::from_secs(5)) {
-            Ok(info) => return Ok(info),
-            Err(ERANGE) => continue,
-            Err(e) => return Err(e),
-        }
-    }
+pub(crate) fn get_gsp_info(cmdq: &Cmdq, bar: &Bar0) -> Result<GetGspStaticInfoReply> {
+    cmdq.send_command(bar, GetGspStaticInfo)
 }

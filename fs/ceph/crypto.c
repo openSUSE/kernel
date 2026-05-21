@@ -50,7 +50,7 @@ static int ceph_crypt_set_context(struct inode *inode, const void *ctx,
 	if (len > FSCRYPT_SET_CONTEXT_MAX_SIZE)
 		return -EINVAL;
 
-	cfa = kzalloc(sizeof(*cfa), GFP_KERNEL);
+	cfa = kzalloc_obj(*cfa);
 	if (!cfa)
 		return -ENOMEM;
 
@@ -112,7 +112,7 @@ int ceph_fscrypt_prepare_context(struct inode *dir, struct inode *inode,
 	if (!encrypted)
 		return 0;
 
-	as->fscrypt_auth = kzalloc(sizeof(*as->fscrypt_auth), GFP_KERNEL);
+	as->fscrypt_auth = kzalloc_obj(*as->fscrypt_auth);
 	if (!as->fscrypt_auth)
 		return -ENOMEM;
 
@@ -166,12 +166,13 @@ static struct inode *parse_longname(const struct inode *parent,
 	struct ceph_vino vino = { .snap = CEPH_NOSNAP };
 	char *name_end, *inode_number;
 	int ret = -EIO;
-	/* NUL-terminate */
-	char *str __free(kfree) = kmemdup_nul(name, *name_len, GFP_KERNEL);
+	/* Snapshot name must start with an underscore */
+	if (*name_len <= 0 || name[0] != '_')
+		return ERR_PTR(-EIO);
+	/* Skip initial '_' and NUL-terminate */
+	char *str __free(kfree) = kmemdup_nul(name + 1, *name_len - 1, GFP_KERNEL);
 	if (!str)
 		return ERR_PTR(-ENOMEM);
-	/* Skip initial '_' */
-	str++;
 	name_end = strrchr(str, '_');
 	if (!name_end) {
 		doutc(cl, "failed to parse long snapshot name: %s\n", str);
@@ -271,7 +272,7 @@ int ceph_encode_encrypted_dname(struct inode *parent, char *buf, int elen)
 	/* To understand the 240 limit, see CEPH_NOHASH_NAME_MAX comments */
 	WARN_ON(elen > 240);
 	if (dir != parent) // leading _ is already there; append _<inum>
-		elen += 1 + sprintf(p + elen, "_%ld", dir->i_ino);
+		elen += 1 + sprintf(p + elen, "_%llu", dir->i_ino);
 
 out:
 	kfree(cryptbuf);
@@ -376,7 +377,7 @@ int ceph_fname_to_usr(const struct ceph_fname *fname, struct fscrypt_str *tname,
 	if (!ret && (dir != fname->dir)) {
 		char tmp_buf[BASE64_CHARS(NAME_MAX)];
 
-		name_len = snprintf(tmp_buf, sizeof(tmp_buf), "_%.*s_%ld",
+		name_len = snprintf(tmp_buf, sizeof(tmp_buf), "_%.*s_%llu",
 				    oname->len, oname->name, dir->i_ino);
 		memcpy(oname->name, tmp_buf, name_len);
 		oname->len = name_len;

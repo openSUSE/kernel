@@ -107,7 +107,7 @@ static int lock_extent_direct(struct inode *inode, u64 lockstart, u64 lockend,
 			    test_bit(BTRFS_ORDERED_DIRECT, &ordered->flags))
 				btrfs_start_ordered_extent(ordered);
 			else
-				ret = nowait ? -EAGAIN : -ENOTBLK;
+				ret = -ENOTBLK;
 			btrfs_put_ordered_extent(ordered);
 		} else {
 			/*
@@ -625,7 +625,7 @@ static int btrfs_dio_iomap_end(struct inode *inode, loff_t pos, loff_t length,
 		pos += submitted;
 		length -= submitted;
 		if (write)
-			btrfs_finish_ordered_extent(dio_data->ordered, NULL,
+			btrfs_finish_ordered_extent(dio_data->ordered,
 						    pos, length, false);
 		else
 			btrfs_unlock_dio_extent(&BTRFS_I(inode)->io_tree, pos,
@@ -657,9 +657,8 @@ static void btrfs_dio_end_io(struct btrfs_bio *bbio)
 	}
 
 	if (btrfs_op(bio) == BTRFS_MAP_WRITE) {
-		btrfs_finish_ordered_extent(bbio->ordered, NULL,
-					    dip->file_offset, dip->bytes,
-					    !bio->bi_status);
+		btrfs_finish_ordered_extent(bbio->ordered, dip->file_offset,
+					    dip->bytes, !bio->bi_status);
 	} else {
 		btrfs_unlock_dio_extent(&inode->io_tree, dip->file_offset,
 					dip->file_offset + dip->bytes - 1, NULL);
@@ -735,7 +734,7 @@ static void btrfs_dio_submit_io(const struct iomap_iter *iter, struct bio *bio,
 
 		ret = btrfs_extract_ordered_extent(bbio, dio_data->ordered);
 		if (ret) {
-			btrfs_finish_ordered_extent(dio_data->ordered, NULL,
+			btrfs_finish_ordered_extent(dio_data->ordered,
 						    file_offset, dip->bytes,
 						    !ret);
 			bio->bi_status = errno_to_blk_status(ret);
@@ -763,7 +762,7 @@ static ssize_t btrfs_dio_read(struct kiocb *iocb, struct iov_iter *iter,
 	struct btrfs_dio_data data = { 0 };
 
 	return iomap_dio_rw(iocb, iter, &btrfs_dio_iomap_ops, &btrfs_dio_ops,
-			    IOMAP_DIO_PARTIAL, &data, done_before);
+			    IOMAP_DIO_PARTIAL | IOMAP_DIO_FSBLOCK_ALIGNED, &data, done_before);
 }
 
 static struct iomap_dio *btrfs_dio_write(struct kiocb *iocb, struct iov_iter *iter,
@@ -772,7 +771,7 @@ static struct iomap_dio *btrfs_dio_write(struct kiocb *iocb, struct iov_iter *it
 	struct btrfs_dio_data data = { 0 };
 
 	return __iomap_dio_rw(iocb, iter, &btrfs_dio_iomap_ops, &btrfs_dio_ops,
-			    IOMAP_DIO_PARTIAL, &data, done_before);
+			    IOMAP_DIO_PARTIAL | IOMAP_DIO_FSBLOCK_ALIGNED, &data, done_before);
 }
 
 static ssize_t check_direct_IO(struct btrfs_fs_info *fs_info,
@@ -785,19 +784,6 @@ static ssize_t check_direct_IO(struct btrfs_fs_info *fs_info,
 
 	if (iov_iter_alignment(iter) & blocksize_mask)
 		return -EINVAL;
-
-	/*
-	 * For bs > ps support, we heavily rely on large folios to make sure no
-	 * block will cross large folio boundaries.
-	 *
-	 * But memory provided by direct IO is only virtually contiguous, not
-	 * physically contiguous, and will break the btrfs' large folio requirement.
-	 *
-	 * So for bs > ps support, all direct IOs should fallback to buffered ones.
-	 */
-	if (fs_info->sectorsize > PAGE_SIZE)
-		return -EINVAL;
-
 	return 0;
 }
 
@@ -814,6 +800,8 @@ ssize_t btrfs_direct_write(struct kiocb *iocb, struct iov_iter *from)
 	ssize_t ret;
 	unsigned int ilock_flags = 0;
 	struct iomap_dio *dio;
+	const u64 data_profile = btrfs_data_alloc_profile(fs_info) &
+				 BTRFS_BLOCK_GROUP_PROFILE_MASK;
 
 	if (iocb->ki_flags & IOCB_NOWAIT)
 		ilock_flags |= BTRFS_ILOCK_TRY;
@@ -826,6 +814,16 @@ ssize_t btrfs_direct_write(struct kiocb *iocb, struct iov_iter *from)
 	 */
 	if (iocb->ki_pos + iov_iter_count(from) <= i_size_read(inode) && IS_NOSEC(inode))
 		ilock_flags |= BTRFS_ILOCK_SHARED;
+
+	/*
+	 * If our data profile has duplication (either extra mirrors or RAID56),
+	 * we can not trust the direct IO buffer, the content may change during
+	 * writeback and cause different contents written to different mirrors.
+	 *
+	 * Thus only RAID0 and SINGLE can go true zero-copy direct IO.
+	 */
+	if (data_profile != BTRFS_BLOCK_GROUP_RAID0 && data_profile != 0)
+		goto buffered;
 
 relock:
 	ret = btrfs_inode_lock(BTRFS_I(inode), ilock_flags);

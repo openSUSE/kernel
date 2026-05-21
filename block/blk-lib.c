@@ -32,7 +32,7 @@ static sector_t bio_discard_limit(struct block_device *bdev, sector_t sector)
 	 * Align the bio size to the discard granularity to make splitting the bio
 	 * at discard granularity boundaries easier in the driver if needed.
 	 */
-	return round_down(UINT_MAX, discard_granularity) >> SECTOR_SHIFT;
+	return round_down(BIO_MAX_SIZE, discard_granularity) >> SECTOR_SHIFT;
 }
 
 struct bio *blk_alloc_discard_bio(struct block_device *bdev,
@@ -60,7 +60,7 @@ struct bio *blk_alloc_discard_bio(struct block_device *bdev,
 	return bio;
 }
 
-int __blkdev_issue_discard(struct block_device *bdev, sector_t sector,
+void __blkdev_issue_discard(struct block_device *bdev, sector_t sector,
 		sector_t nr_sects, gfp_t gfp_mask, struct bio **biop)
 {
 	struct bio *bio;
@@ -68,7 +68,6 @@ int __blkdev_issue_discard(struct block_device *bdev, sector_t sector,
 	while ((bio = blk_alloc_discard_bio(bdev, &sector, &nr_sects,
 			gfp_mask)))
 		*biop = bio_chain_and_submit(*biop, bio);
-	return 0;
 }
 EXPORT_SYMBOL(__blkdev_issue_discard);
 
@@ -107,8 +106,7 @@ static sector_t bio_write_zeroes_limit(struct block_device *bdev)
 {
 	sector_t bs_mask = (bdev_logical_block_size(bdev) >> 9) - 1;
 
-	return min(bdev_write_zeroes_sectors(bdev),
-		(UINT_MAX >> SECTOR_SHIFT) & ~bs_mask);
+	return min(bdev_write_zeroes_sectors(bdev), BIO_MAX_SECTORS & ~bs_mask);
 }
 
 /*
@@ -157,13 +155,7 @@ static int blkdev_issue_write_zeroes(struct block_device *bdev, sector_t sector,
 	__blkdev_issue_write_zeroes(bdev, sector, nr_sects, gfp, &bio,
 			flags, limit);
 	if (bio) {
-		if ((flags & BLKDEV_ZERO_KILLABLE) &&
-		    fatal_signal_pending(current)) {
-			bio_await_chain(bio);
-			blk_finish_plug(&plug);
-			return -EINTR;
-		}
-		ret = submit_bio_wait(bio);
+		ret = bio_submit_or_kill(bio, flags);
 		bio_put(bio);
 	}
 	blk_finish_plug(&plug);
@@ -238,13 +230,7 @@ static int blkdev_issue_zero_pages(struct block_device *bdev, sector_t sector,
 	blk_start_plug(&plug);
 	__blkdev_issue_zero_pages(bdev, sector, nr_sects, gfp, &bio, flags);
 	if (bio) {
-		if ((flags & BLKDEV_ZERO_KILLABLE) &&
-		    fatal_signal_pending(current)) {
-			bio_await_chain(bio);
-			blk_finish_plug(&plug);
-			return -EINTR;
-		}
-		ret = submit_bio_wait(bio);
+		ret = bio_submit_or_kill(bio, flags);
 		bio_put(bio);
 	}
 	blk_finish_plug(&plug);
@@ -337,8 +323,8 @@ int blkdev_issue_secure_erase(struct block_device *bdev, sector_t sector,
 	int ret = 0;
 
 	/* make sure that "len << SECTOR_SHIFT" doesn't overflow */
-	if (max_sectors > UINT_MAX >> SECTOR_SHIFT)
-		max_sectors = UINT_MAX >> SECTOR_SHIFT;
+	if (max_sectors > BIO_MAX_SECTORS)
+		max_sectors = BIO_MAX_SECTORS;
 	max_sectors &= ~bs_mask;
 
 	if (max_sectors == 0)

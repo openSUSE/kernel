@@ -21,6 +21,7 @@
 #include <linux/types.h>
 #include <linux/socket.h>
 #include <linux/sockios.h>
+#include <linux/string.h>
 #include <linux/net.h>
 #include <linux/in6.h>
 #include <linux/netdevice.h>
@@ -256,9 +257,9 @@ static struct ip_tunnel *ipip6_tunnel_locate(struct net *net,
 	if (parms->name[0]) {
 		if (!dev_valid_name(parms->name))
 			goto failed;
-		strscpy(name, parms->name, IFNAMSIZ);
+		strscpy(name, parms->name);
 	} else {
-		strcpy(name, "sit%d");
+		strscpy(name, "sit%d");
 	}
 	dev = alloc_netdev(sizeof(*t), name, NET_NAME_UNKNOWN,
 			   ipip6_tunnel_setup);
@@ -275,7 +276,7 @@ static struct ip_tunnel *ipip6_tunnel_locate(struct net *net,
 		goto failed_free;
 
 	if (!parms->name[0])
-		strcpy(parms->name, dev->name);
+		strscpy(parms->name, dev->name);
 
 	return nt;
 
@@ -308,7 +309,7 @@ static int ipip6_tunnel_get_prl(struct net_device *dev, struct ip_tunnel_prl __u
 	struct ip_tunnel_prl kprl, *kp;
 	struct ip_tunnel_prl_entry *prl;
 	unsigned int cmax, c = 0, ca, len;
-	int ret = 0;
+	int ret;
 
 	if (dev == dev_to_sit_net(dev)->fb_tunnel_dev)
 		return -EINVAL;
@@ -323,7 +324,7 @@ static int ipip6_tunnel_get_prl(struct net_device *dev, struct ip_tunnel_prl __u
 	 * we try harder to allocate.
 	 */
 	kp = (cmax <= 1 || capable(CAP_NET_ADMIN)) ?
-		kcalloc(cmax, sizeof(*kp), GFP_KERNEL_ACCOUNT | __GFP_NOWARN) :
+		kzalloc_objs(*kp, cmax, GFP_KERNEL_ACCOUNT | __GFP_NOWARN) :
 		NULL;
 
 	ca = min(t->prl_count, cmax);
@@ -334,8 +335,8 @@ static int ipip6_tunnel_get_prl(struct net_device *dev, struct ip_tunnel_prl __u
 		 * For root users, retry allocating enough memory for
 		 * the answer.
 		 */
-		kp = kcalloc(ca, sizeof(*kp), GFP_ATOMIC | __GFP_ACCOUNT |
-					      __GFP_NOWARN);
+		kp = kzalloc_objs(*kp, ca,
+				  GFP_ATOMIC | __GFP_ACCOUNT | __GFP_NOWARN);
 		if (!kp) {
 			ret = -ENOMEM;
 			goto out;
@@ -394,7 +395,7 @@ ipip6_tunnel_add_prl(struct ip_tunnel *t, struct ip_tunnel_prl *a, int chg)
 		goto out;
 	}
 
-	p = kzalloc(sizeof(struct ip_tunnel_prl_entry), GFP_KERNEL);
+	p = kzalloc_obj(struct ip_tunnel_prl_entry);
 	if (!p) {
 		err = -ENOBUFS;
 		goto out;
@@ -962,7 +963,7 @@ static netdev_tx_t ipip6_tunnel_xmit(struct sk_buff *skb,
 	}
 
 	if (df) {
-		mtu = dst_mtu(&rt->dst) - t_hlen;
+		mtu = dst4_mtu(&rt->dst) - t_hlen;
 
 		if (mtu < IPV4_MIN_MTU) {
 			DEV_STATS_INC(dev, collisions);
@@ -1442,7 +1443,7 @@ static int ipip6_tunnel_init(struct net_device *dev)
 	int err;
 
 	tunnel->dev = dev;
-	strcpy(tunnel->parms.name, dev->name);
+	strscpy(tunnel->parms.name, dev->name);
 
 	ipip6_tunnel_bind_dev(dev);
 
@@ -1863,7 +1864,7 @@ static int __net_init sit_init_net(struct net *net)
 	ipip6_tunnel_clone_6rd(sitn->fb_tunnel_dev, sitn);
 	ipip6_fb_tunnel_init(sitn->fb_tunnel_dev);
 
-	strcpy(t->parms.name, sitn->fb_tunnel_dev->name);
+	strscpy(t->parms.name, sitn->fb_tunnel_dev->name);
 	return 0;
 
 err_reg_dev:

@@ -198,7 +198,7 @@ int hsr_add_port(struct hsr_priv *hsr, struct net_device *dev,
 	if (port)
 		return -EBUSY;	/* This port already exists */
 
-	port = kzalloc(sizeof(*port), GFP_KERNEL);
+	port = kzalloc_obj(*port);
 	if (!port)
 		return -ENOMEM;
 
@@ -243,7 +243,11 @@ void hsr_del_port(struct hsr_port *port)
 		if (!port->hsr->fwd_offloaded)
 			dev_set_promiscuity(port->dev, -1);
 		netdev_upper_dev_unlink(port->dev, master->dev);
-		eth_hw_addr_set(port->dev, port->original_macaddress);
+		if (hsr->prot_version == PRP_V1 &&
+		    port->type == HSR_PT_SLAVE_B) {
+			eth_hw_addr_set(port->dev, port->original_macaddress);
+			call_netdevice_notifiers(NETDEV_CHANGEADDR, port->dev);
+		}
 	}
 
 	kfree_rcu(port, rcu);

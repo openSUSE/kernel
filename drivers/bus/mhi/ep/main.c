@@ -367,7 +367,7 @@ static void mhi_ep_read_completion(struct mhi_ep_buf_info *buf_info)
 				ret = mhi_ep_send_completion_event(mhi_cntrl, ring, el,
 							     MHI_TRE_DATA_GET_LEN(el),
 							     MHI_EV_CC_EOB);
-				if (ret < 0) {
+				if (ret) {
 					dev_err(&mhi_chan->mhi_dev->dev,
 						"Error sending transfer compl. event\n");
 					goto err_free_tre_buf;
@@ -383,7 +383,7 @@ static void mhi_ep_read_completion(struct mhi_ep_buf_info *buf_info)
 				ret = mhi_ep_send_completion_event(mhi_cntrl, ring, el,
 							     MHI_TRE_DATA_GET_LEN(el),
 							     MHI_EV_CC_EOT);
-				if (ret < 0) {
+				if (ret) {
 					dev_err(&mhi_chan->mhi_dev->dev,
 						"Error sending transfer compl. event\n");
 					goto err_free_tre_buf;
@@ -449,7 +449,7 @@ static int mhi_ep_read_channel(struct mhi_ep_cntrl *mhi_cntrl,
 
 		dev_dbg(dev, "Reading %zd bytes from channel (%u)\n", tr_len, ring->ch_id);
 		ret = mhi_cntrl->read_async(mhi_cntrl, &buf_info);
-		if (ret < 0) {
+		if (ret) {
 			dev_err(&mhi_chan->mhi_dev->dev, "Error reading from channel\n");
 			goto err_free_buf_addr;
 		}
@@ -494,7 +494,7 @@ static int mhi_ep_process_ch_ring(struct mhi_ep_ring *ring)
 	} else {
 		/* UL channel */
 		ret = mhi_ep_read_channel(mhi_cntrl, ring);
-		if (ret < 0) {
+		if (ret) {
 			dev_err(&mhi_chan->mhi_dev->dev, "Failed to read channel\n");
 			return ret;
 		}
@@ -591,7 +591,7 @@ int mhi_ep_queue_skb(struct mhi_ep_device *mhi_dev, struct sk_buff *skb)
 
 		dev_dbg(dev, "Writing %zd bytes to channel (%u)\n", tr_len, ring->ch_id);
 		ret = mhi_cntrl->write_async(mhi_cntrl, &buf_info);
-		if (ret < 0) {
+		if (ret) {
 			dev_err(dev, "Error writing to the channel\n");
 			goto err_exit;
 		}
@@ -963,7 +963,7 @@ static void mhi_ep_process_ctrl_interrupt(struct mhi_ep_cntrl *mhi_cntrl,
 {
 	struct mhi_ep_state_transition *item;
 
-	item = kzalloc(sizeof(*item), GFP_ATOMIC);
+	item = kzalloc_obj(*item, GFP_ATOMIC);
 	if (!item)
 		return;
 
@@ -1136,9 +1136,8 @@ int mhi_ep_power_up(struct mhi_ep_cntrl *mhi_cntrl)
 	mhi_ep_mmio_mask_interrupts(mhi_cntrl);
 	mhi_ep_mmio_init(mhi_cntrl);
 
-	mhi_cntrl->mhi_event = kcalloc(mhi_cntrl->event_rings,
-				       sizeof(*mhi_cntrl->mhi_event),
-				       GFP_KERNEL);
+	mhi_cntrl->mhi_event = kzalloc_objs(*mhi_cntrl->mhi_event,
+					    mhi_cntrl->event_rings);
 	if (!mhi_cntrl->mhi_event)
 		return -ENOMEM;
 
@@ -1276,7 +1275,7 @@ static struct mhi_ep_device *mhi_ep_alloc_device(struct mhi_ep_cntrl *mhi_cntrl,
 	struct mhi_ep_device *mhi_dev;
 	struct device *dev;
 
-	mhi_dev = kzalloc(sizeof(*mhi_dev), GFP_KERNEL);
+	mhi_dev = kzalloc_obj(*mhi_dev);
 	if (!mhi_dev)
 		return ERR_PTR(-ENOMEM);
 
@@ -1400,8 +1399,8 @@ static int mhi_ep_chan_init(struct mhi_ep_cntrl *mhi_cntrl,
 	 * Allocate max_channels supported by the MHI endpoint and populate
 	 * only the defined channels
 	 */
-	mhi_cntrl->mhi_chan = kcalloc(mhi_cntrl->max_chan, sizeof(*mhi_cntrl->mhi_chan),
-				      GFP_KERNEL);
+	mhi_cntrl->mhi_chan = kzalloc_objs(*mhi_cntrl->mhi_chan,
+					   mhi_cntrl->max_chan);
 	if (!mhi_cntrl->mhi_chan)
 		return -ENOMEM;
 
@@ -1460,7 +1459,7 @@ int mhi_ep_register_controller(struct mhi_ep_cntrl *mhi_cntrl,
 	if (ret)
 		return ret;
 
-	mhi_cntrl->mhi_cmd = kcalloc(NR_OF_CMD_RINGS, sizeof(*mhi_cntrl->mhi_cmd), GFP_KERNEL);
+	mhi_cntrl->mhi_cmd = kzalloc_objs(*mhi_cntrl->mhi_cmd, NR_OF_CMD_RINGS);
 	if (!mhi_cntrl->mhi_cmd) {
 		ret = -ENOMEM;
 		goto err_free_ch;
@@ -1596,7 +1595,7 @@ void mhi_ep_unregister_controller(struct mhi_ep_cntrl *mhi_cntrl)
 }
 EXPORT_SYMBOL_GPL(mhi_ep_unregister_controller);
 
-static int mhi_ep_driver_probe(struct device *dev)
+static int mhi_ep_probe(struct device *dev)
 {
 	struct mhi_ep_device *mhi_dev = to_mhi_ep_device(dev);
 	struct mhi_ep_driver *mhi_drv = to_mhi_ep_driver(dev->driver);
@@ -1609,7 +1608,7 @@ static int mhi_ep_driver_probe(struct device *dev)
 	return mhi_drv->probe(mhi_dev, mhi_dev->id);
 }
 
-static int mhi_ep_driver_remove(struct device *dev)
+static void mhi_ep_remove(struct device *dev)
 {
 	struct mhi_ep_device *mhi_dev = to_mhi_ep_device(dev);
 	struct mhi_ep_driver *mhi_drv = to_mhi_ep_driver(dev->driver);
@@ -1619,7 +1618,7 @@ static int mhi_ep_driver_remove(struct device *dev)
 
 	/* Skip if it is a controller device */
 	if (mhi_dev->dev_type == MHI_DEVICE_CONTROLLER)
-		return 0;
+		return;
 
 	/* Disconnect the channels associated with the driver */
 	for (dir = 0; dir < 2; dir++) {
@@ -1643,8 +1642,6 @@ static int mhi_ep_driver_remove(struct device *dev)
 
 	/* Remove the client driver now */
 	mhi_drv->remove(mhi_dev);
-
-	return 0;
 }
 
 int __mhi_ep_driver_register(struct mhi_ep_driver *mhi_drv, struct module *owner)
@@ -1660,8 +1657,6 @@ int __mhi_ep_driver_register(struct mhi_ep_driver *mhi_drv, struct module *owner
 
 	driver->bus = &mhi_ep_bus_type;
 	driver->owner = owner;
-	driver->probe = mhi_ep_driver_probe;
-	driver->remove = mhi_ep_driver_remove;
 
 	return driver_register(driver);
 }
@@ -1708,6 +1703,8 @@ const struct bus_type mhi_ep_bus_type = {
 	.dev_name = "mhi_ep",
 	.match = mhi_ep_match,
 	.uevent = mhi_ep_uevent,
+	.probe = mhi_ep_probe,
+	.remove = mhi_ep_remove,
 };
 
 static int __init mhi_ep_init(void)

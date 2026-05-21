@@ -6,11 +6,12 @@ cflags-nogcse-$(CONFIG_X86)$(CONFIG_CC_IS_GCC) := -fno-gcse
 endif
 CFLAGS_core.o += -Wno-override-init $(cflags-nogcse-yy)
 
-obj-$(CONFIG_BPF_SYSCALL) += syscall.o verifier.o inode.o helpers.o tnum.o log.o token.o liveness.o
+obj-$(CONFIG_BPF_SYSCALL) += syscall.o verifier.o inode.o helpers.o tnum.o log.o token.o liveness.o const_fold.o
 obj-$(CONFIG_BPF_SYSCALL) += bpf_iter.o map_iter.o task_iter.o prog_iter.o link_iter.o
 obj-$(CONFIG_BPF_SYSCALL) += hashtab.o arraymap.o percpu_freelist.o bpf_lru_list.o lpm_trie.o map_in_map.o bloom_filter.o
 obj-$(CONFIG_BPF_SYSCALL) += local_storage.o queue_stack_maps.o ringbuf.o bpf_insn_array.o
 obj-$(CONFIG_BPF_SYSCALL) += bpf_local_storage.o bpf_task_storage.o
+obj-$(CONFIG_BPF_SYSCALL) += fixups.o cfg.o states.o backtrack.o check_btf.o
 obj-${CONFIG_BPF_LSM}	  += bpf_inode_storage.o
 obj-$(CONFIG_BPF_SYSCALL) += disasm.o mprog.o
 obj-$(CONFIG_BPF_JIT) += trampoline.o
@@ -42,7 +43,17 @@ endif
 ifeq ($(CONFIG_BPF_JIT),y)
 obj-$(CONFIG_BPF_SYSCALL) += bpf_struct_ops.o
 obj-$(CONFIG_BPF_SYSCALL) += cpumask.o
-obj-${CONFIG_BPF_LSM} += bpf_lsm.o
+# bpf_lsm_proto.o must precede bpf_lsm.o. The current pahole logic
+# deduplicates function prototypes within
+# btf_encoder__add_saved_func() by keeping the first instance seen. We
+# need the function prototype(s) in bpf_lsm_proto.o to take precedence
+# over those within bpf_lsm.o. Having bpf_lsm_proto.o precede
+# bpf_lsm.o ensures its DWARF CU is processed early, forcing the
+# generated BTF to contain the overrides.
+#
+# Notably, this is a temporary workaround whilst the deduplication
+# semantics within pahole are revisited accordingly.
+obj-${CONFIG_BPF_LSM} += bpf_lsm_proto.o bpf_lsm.o
 endif
 ifneq ($(CONFIG_CRYPTO),)
 obj-$(CONFIG_BPF_SYSCALL) += crypto.o

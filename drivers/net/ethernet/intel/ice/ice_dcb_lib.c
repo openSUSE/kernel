@@ -399,7 +399,7 @@ int ice_pf_dcb_cfg(struct ice_pf *pf, struct ice_dcbx_cfg *new_cfg, bool locked)
 	}
 
 	/* Notify AUX drivers about impending change to TCs */
-	event = kzalloc(sizeof(*event), GFP_KERNEL);
+	event = kzalloc_obj(*event);
 	if (!event) {
 		ret = -ENOMEM;
 		goto free_cfg;
@@ -575,7 +575,7 @@ void ice_dcb_rebuild(struct ice_pf *pf)
 
 dcb_error:
 	dev_err(dev, "Disabling DCB until new settings occur\n");
-	err_cfg = kzalloc(sizeof(*err_cfg), GFP_KERNEL);
+	err_cfg = kzalloc_obj(*err_cfg);
 	if (!err_cfg) {
 		mutex_unlock(&pf->tc_mutex);
 		return;
@@ -641,7 +641,7 @@ int ice_dcb_sw_dflt_cfg(struct ice_pf *pf, bool ets_willing, bool locked)
 
 	hw = &pf->hw;
 	pi = hw->port_info;
-	dcbcfg = kzalloc(sizeof(*dcbcfg), GFP_KERNEL);
+	dcbcfg = kzalloc_obj(*dcbcfg);
 	if (!dcbcfg)
 		return -ENOMEM;
 
@@ -791,7 +791,7 @@ void ice_pf_dcb_recfg(struct ice_pf *pf, bool locked)
 		privd = cdev->iidc_priv;
 		ice_setup_dcb_qos_info(pf, &privd->qos_info);
 		/* Notify the AUX drivers that TC change is finished */
-		event = kzalloc(sizeof(*event), GFP_KERNEL);
+		event = kzalloc_obj(*event);
 		if (!event)
 			return;
 
@@ -943,7 +943,7 @@ ice_tx_prepare_vlan_flags_dcb(struct ice_tx_ring *tx_ring,
 		/* if this is not already set it means a VLAN 0 + priority needs
 		 * to be offloaded
 		 */
-		if (tx_ring->flags & ICE_TX_FLAGS_RING_VLAN_L2TAG2)
+		if (test_bit(ICE_TX_RING_FLAGS_VLAN_L2TAG2, tx_ring->flags))
 			first->tx_flags |= ICE_TX_FLAGS_HW_OUTER_SINGLE_VLAN;
 		else
 			first->tx_flags |= ICE_TX_FLAGS_HW_VLAN;

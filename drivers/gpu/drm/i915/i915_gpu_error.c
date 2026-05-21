@@ -31,7 +31,7 @@
 #include <linux/debugfs.h>
 #include <linux/highmem.h>
 #include <linux/nmi.h>
-#include <linux/pagevec.h>
+#include <linux/folio_batch.h>
 #include <linux/scatterlist.h>
 #include <linux/string_helpers.h>
 #include <linux/utsname.h>
@@ -686,7 +686,7 @@ static void err_print_guc_ctb(struct drm_i915_error_state_buf *m,
 }
 
 /* This list includes registers that are useful in debugging GuC hangs. */
-const struct {
+static const struct {
 	u32 start;
 	u32 count;
 } guc_hw_reg_state[] = {
@@ -823,9 +823,6 @@ static void err_print_gt_global(struct drm_i915_error_state_buf *m,
 	if (GRAPHICS_VER(m->i915) >= 8)
 		err_printf(m, "FAULT_TLB_DATA: 0x%08x 0x%08x\n",
 			   gt->fault_data1, gt->fault_data0);
-
-	if (GRAPHICS_VER(m->i915) == 7)
-		err_printf(m, "ERR_INT: 0x%08x\n", gt->err_int);
 
 	if (IS_GRAPHICS_VER(m->i915, 8, 11))
 		err_printf(m, "GTT_CACHE_EN: 0x%08x\n", gt->gtt_cache);
@@ -1155,7 +1152,7 @@ i915_vma_coredump_create(const struct intel_gt *gt,
 	if (!vma_res || !vma_res->bi.pages || !compress)
 		return NULL;
 
-	dst = kmalloc(sizeof(*dst), ALLOW_FAIL);
+	dst = kmalloc_obj(*dst, ALLOW_FAIL);
 	if (!dst)
 		return NULL;
 
@@ -1502,7 +1499,7 @@ capture_vma_snapshot(struct intel_engine_capture_vma *next,
 	if (!vma_res)
 		return next;
 
-	c = kmalloc(sizeof(*c), gfp);
+	c = kmalloc_obj(*c, gfp);
 	if (!c)
 		return next;
 
@@ -1598,7 +1595,7 @@ intel_engine_coredump_alloc(struct intel_engine_cs *engine, gfp_t gfp, u32 dump_
 {
 	struct intel_engine_coredump *ee;
 
-	ee = kzalloc(sizeof(*ee), gfp);
+	ee = kzalloc_obj(*ee, gfp);
 	if (!ee)
 		return NULL;
 
@@ -1829,7 +1826,7 @@ gt_record_uc(struct intel_gt_coredump *gt,
 	const struct intel_uc *uc = &gt->_gt->uc;
 	struct intel_uc_coredump *error_uc;
 
-	error_uc = kzalloc(sizeof(*error_uc), ALLOW_FAIL);
+	error_uc = kzalloc_obj(*error_uc, ALLOW_FAIL);
 	if (!error_uc)
 		return NULL;
 
@@ -1928,9 +1925,6 @@ static void gt_record_global_regs(struct intel_gt_coredump *gt)
 	/* 1: Registers specific to a single generation */
 	if (IS_VALLEYVIEW(i915))
 		gt->forcewake = intel_uncore_read_fw(uncore, FORCEWAKE_VLV);
-
-	if (GRAPHICS_VER(i915) == 7)
-		gt->err_int = intel_uncore_read(uncore, GEN7_ERR_INT);
 
 	if (GRAPHICS_VER_FULL(i915) >= IP_VER(12, 55)) {
 		gt->fault_data0 = intel_gt_mcr_read_any((struct intel_gt *)gt->_gt,
@@ -2088,7 +2082,7 @@ i915_gpu_coredump_alloc(struct drm_i915_private *i915, gfp_t gfp)
 	if (!i915->params.error_capture)
 		return NULL;
 
-	error = kzalloc(sizeof(*error), gfp);
+	error = kzalloc_obj(*error, gfp);
 	if (!error)
 		return NULL;
 
@@ -2112,7 +2106,7 @@ intel_gt_coredump_alloc(struct intel_gt *gt, gfp_t gfp, u32 dump_flags)
 {
 	struct intel_gt_coredump *gc;
 
-	gc = kzalloc(sizeof(*gc), gfp);
+	gc = kzalloc_obj(*gc, gfp);
 	if (!gc)
 		return NULL;
 
@@ -2143,7 +2137,7 @@ i915_vma_capture_prepare(struct intel_gt_coredump *gt)
 {
 	struct i915_vma_compress *compress;
 
-	compress = kmalloc(sizeof(*compress), ALLOW_FAIL);
+	compress = kmalloc_obj(*compress, ALLOW_FAIL);
 	if (!compress)
 		return NULL;
 

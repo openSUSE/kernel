@@ -123,7 +123,7 @@ cmd_alloc_ent(struct mlx5_cmd *cmd, struct mlx5_cmd_msg *in,
 	gfp_t alloc_flags = cbk ? GFP_ATOMIC : GFP_KERNEL;
 	struct mlx5_cmd_work_ent *ent;
 
-	ent = kzalloc(sizeof(*ent), alloc_flags);
+	ent = kzalloc_obj(*ent, alloc_flags);
 	if (!ent)
 		return ERR_PTR(-ENOMEM);
 
@@ -196,17 +196,18 @@ static void cmd_ent_put(struct mlx5_cmd_work_ent *ent)
 	unsigned long flags;
 
 	spin_lock_irqsave(&cmd->alloc_lock, flags);
-	if (!refcount_dec_and_test(&ent->refcnt))
-		goto out;
+	if (!refcount_dec_and_test(&ent->refcnt)) {
+		spin_unlock_irqrestore(&cmd->alloc_lock, flags);
+		return;
+	}
 
 	if (ent->idx >= 0) {
 		cmd_free_index(cmd, ent->idx);
 		up(ent->page_queue ? &cmd->vars.pages_sem : &cmd->vars.sem);
 	}
+	spin_unlock_irqrestore(&cmd->alloc_lock, flags);
 
 	cmd_free_ent(ent);
-out:
-	spin_unlock_irqrestore(&cmd->alloc_lock, flags);
 }
 
 static struct mlx5_cmd_layout *get_inst(struct mlx5_cmd *cmd, int idx)
@@ -1436,7 +1437,7 @@ static struct mlx5_cmd_mailbox *alloc_cmd_box(struct mlx5_core_dev *dev,
 {
 	struct mlx5_cmd_mailbox *mailbox;
 
-	mailbox = kmalloc(sizeof(*mailbox), flags);
+	mailbox = kmalloc_obj(*mailbox, flags);
 	if (!mailbox)
 		return ERR_PTR(-ENOMEM);
 
@@ -1470,7 +1471,7 @@ static struct mlx5_cmd_msg *mlx5_alloc_cmd_msg(struct mlx5_core_dev *dev,
 	int n;
 	int i;
 
-	msg = kzalloc(sizeof(*msg), flags);
+	msg = kzalloc_obj(*msg, flags);
 	if (!msg)
 		return ERR_PTR(-ENOMEM);
 

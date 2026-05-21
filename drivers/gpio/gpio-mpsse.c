@@ -591,7 +591,7 @@ static int gpio_mpsse_probe(struct usb_interface *interface,
 
 	INIT_LIST_HEAD(&priv->workers);
 
-	priv->udev = usb_get_dev(interface_to_usbdev(interface));
+	priv->udev = interface_to_usbdev(interface);
 	priv->intf = interface;
 	priv->intf_id = interface->cur_altsetting->desc.bInterfaceNumber;
 
@@ -713,7 +713,6 @@ static void gpio_mpsse_disconnect(struct usb_interface *intf)
 
 	priv->intf = NULL;
 	usb_set_intfdata(intf, NULL);
-	usb_put_dev(priv->udev);
 }
 
 static struct usb_driver gpio_mpsse_driver = {

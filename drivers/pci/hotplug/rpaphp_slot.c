@@ -32,7 +32,7 @@ struct slot *alloc_slot_struct(struct device_node *dn,
 {
 	struct slot *slot;
 
-	slot = kzalloc(sizeof(struct slot), GFP_KERNEL);
+	slot = kzalloc_obj(struct slot);
 	if (!slot)
 		goto error_nomem;
 	slot->name = kstrdup(drc_name, GFP_KERNEL);
@@ -82,7 +82,6 @@ EXPORT_SYMBOL_GPL(rpaphp_deregister_slot);
 int rpaphp_register_slot(struct slot *slot)
 {
 	struct hotplug_slot *php_slot = &slot->hotplug_slot;
-	struct device_node *child;
 	u32 my_index;
 	int retval;
 	int slotno = -1;
@@ -97,11 +96,10 @@ int rpaphp_register_slot(struct slot *slot)
 		return -EAGAIN;
 	}
 
-	for_each_child_of_node(slot->dn, child) {
+	for_each_child_of_node_scoped(slot->dn, child) {
 		retval = of_property_read_u32(child, "ibm,my-drc-index", &my_index);
 		if (my_index == slot->index) {
 			slotno = PCI_SLOT(PCI_DN(child)->devfn);
-			of_node_put(child);
 			break;
 		}
 	}

@@ -67,6 +67,29 @@ TEST_F(pci_ep_bar, BAR_TEST)
 	pci_ep_ioctl(PCITEST_BAR, variant->barno);
 	if (ret == -ENODATA)
 		SKIP(return, "BAR is disabled");
+	if (ret == -ENOBUFS)
+		SKIP(return, "BAR is reserved");
+	EXPECT_FALSE(ret) TH_LOG("Test failed for BAR%d", variant->barno);
+}
+
+TEST_F(pci_ep_bar, BAR_SUBRANGE_TEST)
+{
+	int ret;
+
+	pci_ep_ioctl(PCITEST_SET_IRQTYPE, PCITEST_IRQ_TYPE_AUTO);
+	ASSERT_EQ(0, ret) TH_LOG("Can't set AUTO IRQ type");
+
+	pci_ep_ioctl(PCITEST_BAR_SUBRANGE, variant->barno);
+	if (ret == -ENODATA)
+		SKIP(return, "BAR is disabled");
+	if (ret == -EBUSY)
+		SKIP(return, "BAR is test register space");
+	if (ret == -EOPNOTSUPP)
+		SKIP(return, "Subrange map is not supported");
+	if (ret == -ENOBUFS)
+		SKIP(return, "BAR is reserved");
+	if (ret == -ENOSPC)
+		SKIP(return, "Not enough inbound windows");
 	EXPECT_FALSE(ret) TH_LOG("Test failed for BAR%d", variant->barno);
 }
 
@@ -259,6 +282,8 @@ TEST_F(pcie_ep_doorbell, DOORBELL_TEST)
 	ASSERT_EQ(0, ret) TH_LOG("Can't set AUTO IRQ type");
 
 	pci_ep_ioctl(PCITEST_DOORBELL, 0);
+	if (ret == -EOPNOTSUPP)
+		SKIP(return, "Doorbell test is not supported");
 	EXPECT_FALSE(ret) TH_LOG("Test failed for Doorbell\n");
 }
 TEST_HARNESS_MAIN

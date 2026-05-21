@@ -23,6 +23,7 @@
  */
 #include <linux/list.h>
 #include "amdgpu.h"
+#include "amdgpu_ras_mgr.h"
 
 static const guid_t MCE			= CPER_NOTIFY_MCE;
 static const guid_t CMC			= CPER_NOTIFY_CMC;
@@ -30,6 +31,8 @@ static const guid_t BOOT		= BOOT_TYPE;
 
 static const guid_t CRASHDUMP		= AMD_CRASHDUMP;
 static const guid_t RUNTIME		= AMD_GPU_NONSTANDARD_ERROR;
+
+#define CPER_SIGNATURE_SZ		(sizeof(((struct cper_hdr *)0)->signature))
 
 static void __inc_entry_length(struct cper_hdr *hdr, uint32_t size)
 {
@@ -424,23 +427,40 @@ int amdgpu_cper_generate_ce_records(struct amdgpu_device *adev,
 
 static bool amdgpu_cper_is_hdr(struct amdgpu_ring *ring, u64 pos)
 {
-	struct cper_hdr *chdr;
+	char signature[CPER_SIGNATURE_SZ];
 
-	chdr = (struct cper_hdr *)&(ring->ring[pos]);
-	return strcmp(chdr->signature, "CPER") ? false : true;
+	if ((pos << 2) >= ring->ring_size)
+		return false;
+
+	if ((pos << 2) + CPER_SIGNATURE_SZ <= ring->ring_size) {
+		memcpy(signature, &ring->ring[pos], CPER_SIGNATURE_SZ);
+	} else {
+		u32 chunk = ring->ring_size - (pos << 2);
+
+		memcpy(signature, &ring->ring[pos], chunk);
+		memcpy(signature + chunk, ring->ring, CPER_SIGNATURE_SZ - chunk);
+	}
+
+	return !memcmp(signature, "CPER", CPER_SIGNATURE_SZ);
 }
 
 static u32 amdgpu_cper_ring_get_ent_sz(struct amdgpu_ring *ring, u64 pos)
 {
-	struct cper_hdr *chdr;
+	struct cper_hdr chdr;
 	u64 p;
 	u32 chunk, rec_len = 0;
 
-	chdr = (struct cper_hdr *)&(ring->ring[pos]);
 	chunk = ring->ring_size - (pos << 2);
 
-	if (!strcmp(chdr->signature, "CPER")) {
-		rec_len = chdr->record_length;
+	if (amdgpu_cper_is_hdr(ring, pos)) {
+		if (chunk >= sizeof(chdr)) {
+			memcpy(&chdr, &ring->ring[pos], sizeof(chdr));
+		} else {
+			memcpy(&chdr, &ring->ring[pos], chunk);
+			memcpy((u8 *)&chdr + chunk, ring->ring, sizeof(chdr) - chunk);
+		}
+
+		rec_len = chdr.record_length;
 		goto calc;
 	}
 
@@ -449,8 +469,7 @@ static u32 amdgpu_cper_ring_get_ent_sz(struct amdgpu_ring *ring, u64 pos)
 		goto calc;
 
 	for (p = pos + 1; p <= ring->buf_mask; p++) {
-		chdr = (struct cper_hdr *)&(ring->ring[p]);
-		if (!strcmp(chdr->signature, "CPER")) {
+		if (amdgpu_cper_is_hdr(ring, p)) {
 			rec_len = (p - pos) << 2;
 			goto calc;
 		}
@@ -559,7 +578,10 @@ int amdgpu_cper_init(struct amdgpu_device *adev)
 {
 	int r;
 
-	if (!amdgpu_aca_is_enabled(adev) && !amdgpu_sriov_ras_cper_en(adev))
+	if (amdgpu_sriov_vf(adev) && !amdgpu_sriov_ras_cper_en(adev))
+		return 0;
+	else if (!amdgpu_sriov_vf(adev) && !amdgpu_uniras_enabled(adev) &&
+		!amdgpu_aca_is_enabled(adev))
 		return 0;
 
 	r = amdgpu_cper_ring_init(adev);

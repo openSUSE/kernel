@@ -53,6 +53,17 @@ EXPORT_SYMBOL(mem_map);
 void *high_memory;
 EXPORT_SYMBOL(high_memory);
 
+unsigned long zero_page_pfn __ro_after_init;
+EXPORT_SYMBOL(zero_page_pfn);
+
+#ifndef __HAVE_COLOR_ZERO_PAGE
+uint8_t empty_zero_page[PAGE_SIZE] __page_aligned_bss;
+EXPORT_SYMBOL(empty_zero_page);
+
+struct page *__zero_page __ro_after_init;
+EXPORT_SYMBOL(__zero_page);
+#endif /* __HAVE_COLOR_ZERO_PAGE */
+
 #ifdef CONFIG_DEBUG_MEMORY_INIT
 int __meminitdata mminit_loglevel;
 
@@ -187,7 +198,7 @@ void mm_compute_batch(int overcommit_policy)
 	/*
 	 * For policy OVERCOMMIT_NEVER, set batch size to 0.4% of
 	 * (total memory/#cpus), and lift it to 25% for other policies
-	 * to easy the possible lock contention for percpu_counter
+	 * to ease the possible lock contention for percpu_counter
 	 * vm_committed_as, while the max limit is INT_MAX
 	 */
 	if (overcommit_policy == OVERCOMMIT_NEVER)
@@ -646,21 +657,18 @@ int __meminit early_pfn_to_nid(unsigned long pfn)
 	return nid;
 }
 
-int hashdist = HASHDIST_DEFAULT;
+bool hashdist = HASHDIST_DEFAULT;
 
 static int __init set_hashdist(char *str)
 {
-	if (!str)
-		return 0;
-	hashdist = simple_strtoul(str, &str, 0);
-	return 1;
+	return kstrtobool(str, &hashdist) == 0;
 }
 __setup("hashdist=", set_hashdist);
 
 static inline void fixup_hashdist(void)
 {
 	if (num_node_state(N_MEMORY) == 1)
-		hashdist = 0;
+		hashdist = false;
 }
 #else
 static inline void fixup_hashdist(void) {}
@@ -775,36 +783,11 @@ void __meminit init_deferred_page(unsigned long pfn, int nid)
 	__init_deferred_page(pfn, nid);
 }
 
-/*
- * Initialised pages do not have PageReserved set. This function is
- * called for each range allocated by the bootmem allocator and
- * marks the pages PageReserved. The remaining valid pages are later
- * sent to the buddy page allocator.
- */
-void __meminit reserve_bootmem_region(phys_addr_t start,
-				      phys_addr_t end, int nid)
-{
-	unsigned long pfn;
-
-	for_each_valid_pfn(pfn, PFN_DOWN(start), PFN_UP(end)) {
-		struct page *page = pfn_to_page(pfn);
-
-		__init_deferred_page(pfn, nid);
-
-		/*
-		 * no need for atomic set_bit because the struct
-		 * page is not visible yet so nobody should
-		 * access it yet.
-		 */
-		__SetPageReserved(page);
-	}
-}
-
 /* If zone is ZONE_MOVABLE but memory is mirrored, it is an overlapped init */
 static bool __meminit
 overlap_memmap_init(unsigned long zone, unsigned long *pfn)
 {
-	static struct memblock_region *r;
+	static struct memblock_region *r __meminitdata;
 
 	if (mirrored_kernelcore && zone == ZONE_MOVABLE) {
 		if (!r || *pfn >= memblock_region_memory_end_pfn(r)) {
@@ -1102,7 +1085,7 @@ static void __ref memmap_init_compound(struct page *head,
 		struct page *page = pfn_to_page(pfn);
 
 		__init_zone_device_page(page, pfn, zone_idx, nid, pgmap);
-		prep_compound_tail(head, pfn - head_pfn);
+		prep_compound_tail(page, head, order);
 		set_page_count(page, 0);
 	}
 	prep_compound_head(head, order);
@@ -1748,7 +1731,7 @@ static void __init free_area_init_node(int nid)
 	lru_gen_init_pgdat(pgdat);
 }
 
-/* Any regular or high memory on that node ? */
+/* Any regular or high memory on that node? */
 static void __init check_for_memory(pg_data_t *pgdat)
 {
 	enum zone_type zone_type;
@@ -1810,7 +1793,6 @@ static void __init set_high_memory(void)
 
 /**
  * free_area_init - Initialise all pg_data_t and zone data
- * @max_zone_pfn: an array of max PFNs for each zone
  *
  * This will call free_area_init_node() for each active node in the system.
  * Using the page ranges provided by memblock_set_node(), the size of each
@@ -1821,17 +1803,15 @@ static void __init set_high_memory(void)
  * starts where the previous one ended. For example, ZONE_DMA32 starts
  * at arch_max_dma_pfn.
  */
-void __init free_area_init(unsigned long *max_zone_pfn)
+static void __init free_area_init(void)
 {
+	unsigned long max_zone_pfn[MAX_NR_ZONES] = { 0 };
 	unsigned long start_pfn, end_pfn;
 	int i, nid, zone;
 	bool descending;
 
-	/* Record where the zone boundaries are */
-	memset(arch_zone_lowest_possible_pfn, 0,
-				sizeof(arch_zone_lowest_possible_pfn));
-	memset(arch_zone_highest_possible_pfn, 0,
-				sizeof(arch_zone_highest_possible_pfn));
+	arch_zone_limits_init(max_zone_pfn);
+	sparse_init();
 
 	start_pfn = PHYS_PFN(memblock_start_of_DRAM());
 	descending = arch_has_descending_max_zone_pfns();
@@ -1891,7 +1871,7 @@ void __init free_area_init(unsigned long *max_zone_pfn)
 		pr_info("  node %3d: [mem %#018Lx-%#018Lx]\n", nid,
 			(u64)start_pfn << PAGE_SHIFT,
 			((u64)end_pfn << PAGE_SHIFT) - 1);
-		subsection_map_init(start_pfn, end_pfn - start_pfn);
+		sparse_init_subsection_map(start_pfn, end_pfn - start_pfn);
 	}
 
 	/* Initialise every node */
@@ -1902,7 +1882,11 @@ void __init free_area_init(unsigned long *max_zone_pfn)
 	for_each_node(nid) {
 		pg_data_t *pgdat;
 
-		if (!node_online(nid))
+		/*
+		 * If an architecture has not allocated node data for
+		 * this node, presume the node is memoryless or offline.
+		 */
+		if (!NODE_DATA(nid))
 			alloc_offline_node_data(nid);
 
 		pgdat = NODE_DATA(nid);
@@ -2048,7 +2032,7 @@ static unsigned long __init deferred_init_pages(struct zone *zone,
  * Initialize and free pages.
  *
  * At this point reserved pages and struct pages that correspond to holes in
- * memblock.memory are already intialized so every free range has a valid
+ * memblock.memory are already initialized so every free range has a valid
  * memory map around it.
  * This ensures that access of pages that are ahead of the range being
  * initialized (computing buddy page in __free_one_page()) always reads a valid
@@ -2059,7 +2043,7 @@ static unsigned long __init deferred_init_pages(struct zone *zone,
  */
 static unsigned long __init
 deferred_init_memmap_chunk(unsigned long start_pfn, unsigned long end_pfn,
-			   struct zone *zone)
+			   struct zone *zone, bool can_resched)
 {
 	int nid = zone_to_nid(zone);
 	unsigned long nr_pages = 0;
@@ -2085,10 +2069,10 @@ deferred_init_memmap_chunk(unsigned long start_pfn, unsigned long end_pfn,
 
 			spfn = chunk_end;
 
-			if (irqs_disabled())
-				touch_nmi_watchdog();
-			else
+			if (can_resched)
 				cond_resched();
+			else
+				touch_nmi_watchdog();
 		}
 	}
 
@@ -2101,7 +2085,7 @@ deferred_init_memmap_job(unsigned long start_pfn, unsigned long end_pfn,
 {
 	struct zone *zone = arg;
 
-	deferred_init_memmap_chunk(start_pfn, end_pfn, zone);
+	deferred_init_memmap_chunk(start_pfn, end_pfn, zone, true);
 }
 
 static unsigned int __init
@@ -2216,7 +2200,7 @@ bool __init deferred_grow_zone(struct zone *zone, unsigned int order)
 	for (spfn = first_deferred_pfn, epfn = SECTION_ALIGN_UP(spfn + 1);
 	     nr_pages < nr_pages_needed && spfn < zone_end_pfn(zone);
 	     spfn = epfn, epfn += PAGES_PER_SECTION) {
-		nr_pages += deferred_init_memmap_chunk(spfn, epfn, zone);
+		nr_pages += deferred_init_memmap_chunk(spfn, epfn, zone, false);
 	}
 
 	/*
@@ -2480,9 +2464,10 @@ void *__init alloc_large_system_hash(const char *tablename,
 	return table;
 }
 
-void __init memblock_free_pages(struct page *page, unsigned long pfn,
-							unsigned int order)
+void __init memblock_free_pages(unsigned long pfn, unsigned int order)
 {
+	struct page *page = pfn_to_page(pfn);
+
 	if (IS_ENABLED(CONFIG_DEFERRED_STRUCT_PAGE_INIT)) {
 		int nid = early_pfn_to_nid(pfn);
 
@@ -2673,6 +2658,22 @@ static void __init mem_init_print_info(void)
 		);
 }
 
+#ifndef __HAVE_COLOR_ZERO_PAGE
+/*
+ * architectures that __HAVE_COLOR_ZERO_PAGE must define this function
+ */
+void __init __weak arch_setup_zero_pages(void)
+{
+	__zero_page = virt_to_page(empty_zero_page);
+}
+#endif
+
+static void __init init_zero_page_pfn(void)
+{
+	arch_setup_zero_pages();
+	zero_page_pfn = page_to_pfn(ZERO_PAGE(0));
+}
+
 void __init __weak arch_mm_preinit(void)
 {
 }
@@ -2681,13 +2682,21 @@ void __init __weak mem_init(void)
 {
 }
 
+void __init mm_core_init_early(void)
+{
+	hugetlb_cma_reserve();
+	hugetlb_bootmem_alloc();
+
+	free_area_init();
+}
+
 /*
  * Set up kernel memory allocators
  */
 void __init mm_core_init(void)
 {
 	arch_mm_preinit();
-	hugetlb_bootmem_alloc();
+	init_zero_page_pfn();
 
 	/* Initializations relying on SMP setup */
 	BUILD_BUG_ON(MAX_ZONELISTS > 2);

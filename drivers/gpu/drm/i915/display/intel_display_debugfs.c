@@ -13,9 +13,9 @@
 #include <drm/drm_file.h>
 #include <drm/drm_fourcc.h>
 #include <drm/drm_print.h>
+#include <drm/intel/intel_gmd_misc_regs.h>
 
 #include "hsw_ips.h"
-#include "i915_reg.h"
 #include "i9xx_wm_regs.h"
 #include "intel_alpm.h"
 #include "intel_bo.h"
@@ -86,7 +86,7 @@ static int i915_frontbuffer_tracking(struct seq_file *m, void *unused)
 static int i915_sr_status(struct seq_file *m, void *unused)
 {
 	struct intel_display *display = node_to_intel_display(m->private);
-	intel_wakeref_t wakeref;
+	struct ref_tracker *wakeref;
 	bool sr_enabled = false;
 
 	wakeref = intel_display_power_get(display, POWER_DOMAIN_INIT);

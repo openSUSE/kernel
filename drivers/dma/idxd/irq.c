@@ -397,6 +397,17 @@ static void idxd_device_flr(struct work_struct *work)
 		dev_err(&idxd->pdev->dev, "FLR failed\n");
 }
 
+static void idxd_wqs_flush_descs(struct idxd_device *idxd)
+{
+	int i;
+
+	for (i = 0; i < idxd->max_wqs; i++) {
+		struct idxd_wq *wq = idxd->wqs[i];
+
+		idxd_wq_flush_descs(wq);
+	}
+}
+
 static irqreturn_t idxd_halt(struct idxd_device *idxd)
 {
 	union gensts_reg gensts;
@@ -415,6 +426,11 @@ static irqreturn_t idxd_halt(struct idxd_device *idxd)
 		} else if (gensts.reset_type == IDXD_DEVICE_RESET_FLR) {
 			idxd->state = IDXD_DEV_HALTED;
 			idxd_mask_error_interrupts(idxd);
+			/* Flush all pending descriptors, and disable
+			 * interrupts, they will be re-enabled when FLR
+			 * concludes.
+			 */
+			idxd_wqs_flush_descs(idxd);
 			dev_dbg(&idxd->pdev->dev,
 				"idxd halted, doing FLR. After FLR, configs are restored\n");
 			INIT_WORK(&idxd->work, idxd_device_flr);
@@ -492,7 +508,7 @@ irqreturn_t idxd_misc_thread(int vec, void *data)
 
 		val |= IDXD_INTC_INT_HANDLE_REVOKED;
 
-		revoke = kzalloc(sizeof(*revoke), GFP_ATOMIC);
+		revoke = kzalloc_obj(*revoke, GFP_ATOMIC);
 		if (revoke) {
 			revoke->idxd = idxd;
 			INIT_WORK(&revoke->work, idxd_int_handle_revoke);
@@ -567,7 +583,7 @@ bool idxd_queue_int_handle_resubmit(struct idxd_desc *desc)
 	struct idxd_device *idxd = wq->idxd;
 	struct idxd_resubmit *irw;
 
-	irw = kzalloc(sizeof(*irw), GFP_KERNEL);
+	irw = kzalloc_obj(*irw);
 	if (!irw)
 		return false;
 

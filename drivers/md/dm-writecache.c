@@ -1640,16 +1640,8 @@ static void writecache_io_hints(struct dm_target *ti, struct queue_limits *limit
 {
 	struct dm_writecache *wc = ti->private;
 
-	if (limits->logical_block_size < wc->block_size)
-		limits->logical_block_size = wc->block_size;
-
-	if (limits->physical_block_size < wc->block_size)
-		limits->physical_block_size = wc->block_size;
-
-	if (limits->io_min < wc->block_size)
-		limits->io_min = wc->block_size;
+	dm_stack_bs_limits(limits, wc->block_size);
 }
-
 
 static void writecache_writeback_endio(struct bio *bio)
 {
@@ -1848,9 +1840,8 @@ static void __writecache_writeback_pmem(struct dm_writecache *wc, struct writeba
 		bio->bi_iter.bi_sector = read_original_sector(wc, e);
 
 		if (unlikely(max_pages > WB_LIST_INLINE))
-			wb->wc_list = kmalloc_array(max_pages, sizeof(struct wc_entry *),
-						    GFP_NOIO | __GFP_NORETRY |
-						    __GFP_NOMEMALLOC | __GFP_NOWARN);
+			wb->wc_list = kmalloc_objs(struct wc_entry *, max_pages,
+						   GFP_NOIO | __GFP_NORETRY | __GFP_NOMEMALLOC | __GFP_NOWARN);
 
 		if (likely(max_pages <= WB_LIST_INLINE) || unlikely(!wb->wc_list)) {
 			wb->wc_list = wb->wc_list_inline;
@@ -2246,7 +2237,7 @@ static int writecache_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	as.argc = argc;
 	as.argv = argv;
 
-	wc = kzalloc(sizeof(struct dm_writecache), GFP_KERNEL);
+	wc = kzalloc_obj(struct dm_writecache);
 	if (!wc) {
 		ti->error = "Cannot allocate writecache structure";
 		r = -ENOMEM;
@@ -2275,7 +2266,8 @@ static int writecache_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 		goto bad;
 	}
 
-	wc->writeback_wq = alloc_workqueue("writecache-writeback", WQ_MEM_RECLAIM, 1);
+	wc->writeback_wq = alloc_workqueue("writecache-writeback",
+					   WQ_MEM_RECLAIM | WQ_PERCPU, 1);
 	if (!wc->writeback_wq) {
 		r = -ENOMEM;
 		ti->error = "Could not allocate writeback workqueue";

@@ -733,7 +733,7 @@ static struct dj_receiver_dev *dj_get_receiver_dev(struct hid_device *hdev,
 
 	djrcv_dev = dj_find_receiver_dev(hdev, type);
 	if (!djrcv_dev) {
-		djrcv_dev = kzalloc(sizeof(*djrcv_dev), GFP_KERNEL);
+		djrcv_dev = kzalloc_obj(*djrcv_dev);
 		if (!djrcv_dev)
 			goto out;
 
@@ -851,7 +851,7 @@ static void logi_dj_recv_add_djhid_device(struct dj_receiver_dev *djrcv_dev,
 	snprintf(tmpstr, sizeof(tmpstr), ":%d", device_index);
 	strlcat(dj_hiddev->phys, tmpstr, sizeof(dj_hiddev->phys));
 
-	dj_dev = kzalloc(sizeof(struct dj_device), GFP_KERNEL);
+	dj_dev = kzalloc_obj(struct dj_device);
 
 	if (!dj_dev) {
 		hid_err(djrcv_hdev, "%s: failed allocating dj_dev\n", __func__);
@@ -1332,7 +1332,7 @@ static int logi_dj_recv_query_paired_devices(struct dj_receiver_dev *djrcv_dev)
 		goto out;
 	}
 
-	dj_report = kzalloc(sizeof(struct dj_report), GFP_KERNEL);
+	dj_report = kzalloc_obj(struct dj_report);
 	if (!dj_report)
 		return -ENOMEM;
 	dj_report->report_id = REPORT_ID_DJ_SHORT;
@@ -1356,7 +1356,7 @@ static int logi_dj_recv_switch_to_dj_mode(struct dj_receiver_dev *djrcv_dev,
 	u8 *buf;
 	int retval = 0;
 
-	dj_report = kzalloc(sizeof(struct dj_report), GFP_KERNEL);
+	dj_report = kzalloc_obj(struct dj_report);
 	if (!dj_report)
 		return -ENOMEM;
 
@@ -1664,7 +1664,7 @@ static int logi_dj_dj_event(struct hid_device *hdev,
 		 * so ignore those reports too.
 		 */
 		if (dj_report->device_index != DJ_RECEIVER_INDEX)
-			hid_err(hdev, "%s: invalid device index:%d\n",
+			hid_err(hdev, "%s: invalid receiver index:%d\n",
 				__func__, dj_report->device_index);
 		return false;
 	}
@@ -1858,7 +1858,8 @@ static int logi_dj_raw_event(struct hid_device *hdev,
 static int logi_dj_probe(struct hid_device *hdev,
 			 const struct hid_device_id *id)
 {
-	struct hid_report_enum *rep_enum;
+	struct hid_report_enum *input_report_enum;
+	struct hid_report_enum *output_report_enum;
 	struct hid_report *rep;
 	struct dj_receiver_dev *djrcv_dev;
 	struct usb_interface *intf;
@@ -1903,10 +1904,20 @@ static int logi_dj_probe(struct hid_device *hdev,
 		}
 	}
 
-	rep_enum = &hdev->report_enum[HID_INPUT_REPORT];
+	output_report_enum = &hdev->report_enum[HID_OUTPUT_REPORT];
+	rep = output_report_enum->report_id_hash[REPORT_ID_DJ_SHORT];
+
+	if (rep && (rep->maxfield < 1 ||
+		    rep->field[0]->report_count != DJREPORT_SHORT_LENGTH - 1)) {
+		hid_err(hdev, "Expected size of DJ short report is %d, but got %d",
+			DJREPORT_SHORT_LENGTH - 1, rep->field[0]->report_count);
+		return -EINVAL;
+	}
+
+	input_report_enum = &hdev->report_enum[HID_INPUT_REPORT];
 
 	/* no input reports, bail out */
-	if (list_empty(&rep_enum->report_list))
+	if (list_empty(&input_report_enum->report_list))
 		return -ENODEV;
 
 	/*
@@ -1914,7 +1925,7 @@ static int logi_dj_probe(struct hid_device *hdev,
 	 * Note: we should theoretically check for HID++ and DJ
 	 * collections, but this will do.
 	 */
-	list_for_each_entry(rep, &rep_enum->report_list, list) {
+	list_for_each_entry(rep, &input_report_enum->report_list, list) {
 		if (rep->application == 0xff000001)
 			has_hidpp = true;
 	}
@@ -1927,7 +1938,7 @@ static int logi_dj_probe(struct hid_device *hdev,
 		return -ENODEV;
 
 	/* get the current application attached to the node */
-	rep = list_first_entry(&rep_enum->report_list, struct hid_report, list);
+	rep = list_first_entry(&input_report_enum->report_list, struct hid_report, list);
 	djrcv_dev = dj_get_receiver_dev(hdev, id->driver_data,
 					rep->application, has_hidpp);
 	if (!djrcv_dev) {
@@ -1935,7 +1946,7 @@ static int logi_dj_probe(struct hid_device *hdev,
 		return -ENOMEM;
 	}
 
-	if (!rep_enum->numbered)
+	if (!input_report_enum->numbered)
 		djrcv_dev->unnumbered_application = rep->application;
 
 	/* Starts the usb device and connects to upper interfaces hiddev and
@@ -1983,7 +1994,6 @@ hid_hw_start_fail:
 	return retval;
 }
 
-#ifdef CONFIG_PM
 static int logi_dj_reset_resume(struct hid_device *hdev)
 {
 	struct dj_receiver_dev *djrcv_dev = hid_get_drvdata(hdev);
@@ -1994,7 +2004,6 @@ static int logi_dj_reset_resume(struct hid_device *hdev)
 	logi_dj_recv_switch_to_dj_mode(djrcv_dev, 0);
 	return 0;
 }
-#endif
 
 static void logi_dj_remove(struct hid_device *hdev)
 {
@@ -2150,9 +2159,7 @@ static struct hid_driver logi_djreceiver_driver = {
 	.probe = logi_dj_probe,
 	.remove = logi_dj_remove,
 	.raw_event = logi_dj_raw_event,
-#ifdef CONFIG_PM
-	.reset_resume = logi_dj_reset_resume,
-#endif
+	.reset_resume = pm_ptr(logi_dj_reset_resume),
 };
 
 module_hid_driver(logi_djreceiver_driver);

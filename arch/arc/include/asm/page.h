@@ -32,6 +32,8 @@ struct page;
 
 void copy_user_highpage(struct page *to, struct page *from,
 			unsigned long u_vaddr, struct vm_area_struct *vma);
+
+#define clear_user_page clear_user_page
 void clear_user_page(void *to, unsigned long u_vaddr, struct page *page);
 
 typedef struct {
@@ -129,7 +131,7 @@ static inline unsigned long virt_to_pfn(const void *kaddr)
 #define virt_addr_valid(kaddr)  pfn_valid(virt_to_pfn(kaddr))
 
 /* Default Permissions for stack/heaps pages (Non Executable) */
-#define VM_DATA_DEFAULT_FLAGS	VM_DATA_FLAGS_NON_EXEC
+#define VMA_DATA_DEFAULT_FLAGS	VMA_DATA_FLAGS_NON_EXEC
 
 #define WANT_PAGE_VIRTUAL   1
 

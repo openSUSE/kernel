@@ -3,7 +3,7 @@
  * Copyright (C) 2019 - 2021
  *
  * Richard van Schagen <vschagen@icloud.com>
- * Christian Marangi <ansuelsmth@gmail.com
+ * Christian Marangi <ansuelsmth@gmail.com>
  */
 
 #include <crypto/aes.h>
@@ -61,7 +61,7 @@ static int eip93_skcipher_cra_init(struct crypto_tfm *tfm)
 	ctx->eip93 = tmpl->eip93;
 	ctx->type = tmpl->type;
 
-	ctx->sa_record = kzalloc(sizeof(*ctx->sa_record), GFP_KERNEL);
+	ctx->sa_record = kzalloc_obj(*ctx->sa_record);
 	if (!ctx->sa_record)
 		return -ENOMEM;
 
@@ -320,7 +320,7 @@ struct eip93_alg_template eip93_alg_ecb_des = {
 		.ivsize	= 0,
 		.base = {
 			.cra_name = "ecb(des)",
-			.cra_driver_name = "ebc(des-eip93)",
+			.cra_driver_name = "ecb(des-eip93)",
 			.cra_priority = EIP93_CRA_PRIORITY,
 			.cra_flags = CRYPTO_ALG_ASYNC |
 					CRYPTO_ALG_KERN_DRIVER_ONLY,

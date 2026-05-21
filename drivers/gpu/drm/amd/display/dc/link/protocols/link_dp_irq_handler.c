@@ -34,10 +34,12 @@
 #include "link_dp_training.h"
 #include "link_dp_capability.h"
 #include "link_edp_panel_control.h"
+#include "link_dp_panel_replay.h"
 #include "link/accessories/link_dp_trace.h"
 #include "link/link_dpms.h"
 #include "dm_helpers.h"
 #include "link_dp_dpia_bw.h"
+#include "link_dp_panel_replay.h"
 
 #define DC_LOGGER \
 	link->ctx->logger
@@ -185,9 +187,46 @@ static bool handle_hpd_irq_psr_sink(struct dc_link *link)
 	return false;
 }
 
-static void handle_hpd_irq_replay_sink(struct dc_link *link)
+static void handle_hpd_irq_vesa_replay_sink(struct dc_link *link)
+{
+	union pr_error_status pr_error_status = {0};
+
+	if (!link->replay_settings.replay_feature_enabled ||
+			link->replay_settings.config.replay_version != DC_VESA_PANEL_REPLAY)
+		return;
+
+	dm_helpers_dp_read_dpcd(
+		link->ctx,
+		link,
+		DP_PR_ERROR_STATUS,
+		&pr_error_status.raw,
+		sizeof(pr_error_status.raw));
+
+	if (pr_error_status.bits.LINK_CRC_ERROR ||
+			pr_error_status.bits.RFB_STORAGE_ERROR ||
+			pr_error_status.bits.VSC_SDP_ERROR ||
+			pr_error_status.bits.ASSDP_MISSING_ERROR) {
+
+		/* Acknowledge and clear error bits */
+		dm_helpers_dp_write_dpcd(
+			link->ctx,
+			link,
+			DP_PR_ERROR_STATUS, /*DpcdAddress_PR_Error_Status*/
+			&pr_error_status.raw,
+			sizeof(pr_error_status.raw));
+
+		/* Replay error, disable and re-enable Replay */
+		if (link->replay_settings.replay_allow_active) {
+			dp_pr_enable(link, false);
+			dp_pr_enable(link, true);
+		}
+	}
+}
+
+static void handle_hpd_irq_replay_sink(struct dc_link *link, bool *need_re_enable)
 {
 	union dpcd_replay_configuration replay_configuration = {0};
+	union dpcd_replay_configuration replay_sink_status = {0};
 	/*AMD Replay version reuse DP_PSR_ERROR_STATUS for REPLAY_ERROR status.*/
 	union psr_error_status replay_error_status = {0};
 	bool ret = false;
@@ -195,6 +234,11 @@ static void handle_hpd_irq_replay_sink(struct dc_link *link)
 
 	if (!link->replay_settings.replay_feature_enabled)
 		return;
+
+	if (link->replay_settings.config.replay_version != DC_FREESYNC_REPLAY) {
+		handle_hpd_irq_vesa_replay_sink(link);
+		return;
+	}
 
 	while (retries < 10) {
 		ret = dm_helpers_dp_read_dpcd(
@@ -222,9 +266,17 @@ static void handle_hpd_irq_replay_sink(struct dc_link *link)
 		&replay_error_status.raw,
 		sizeof(replay_error_status.raw));
 
+	dm_helpers_dp_read_dpcd(
+		link->ctx,
+		link,
+		DP_PR_REPLAY_SINK_STATUS,
+		&replay_sink_status.raw,
+		1);
+
 	if (replay_error_status.bits.LINK_CRC_ERROR ||
 		replay_configuration.bits.DESYNC_ERROR_STATUS ||
-		replay_configuration.bits.STATE_TRANSITION_ERROR_STATUS) {
+		replay_configuration.bits.STATE_TRANSITION_ERROR_STATUS ||
+		replay_sink_status.bits.SINK_DEVICE_REPLAY_STATUS == 0x7) {
 		bool allow_active;
 
 		link->replay_settings.config.replay_error_status.raw |= replay_error_status.raw;
@@ -256,8 +308,7 @@ static void handle_hpd_irq_replay_sink(struct dc_link *link)
 		if (link->replay_settings.replay_allow_active) {
 			allow_active = false;
 			edp_set_replay_allow_active(link, &allow_active, true, false, NULL);
-			allow_active = true;
-			edp_set_replay_allow_active(link, &allow_active, true, false, NULL);
+			*need_re_enable = true;
 		}
 	}
 }
@@ -417,6 +468,7 @@ bool dp_handle_hpd_rx_irq(struct dc_link *link,
 	union device_service_irq device_service_clear = {0};
 	enum dc_status result;
 	bool status = false;
+	bool replay_re_enable_needed = false;
 
 	if (out_link_loss)
 		*out_link_loss = false;
@@ -476,7 +528,7 @@ bool dp_handle_hpd_rx_irq(struct dc_link *link,
 		/* PSR-related error was detected and handled */
 		return true;
 
-	handle_hpd_irq_replay_sink(link);
+	handle_hpd_irq_replay_sink(link, &replay_re_enable_needed);
 
 	/* If PSR-related error handled, Main link may be off,
 	 * so do not handle as a normal sink status change interrupt.
@@ -495,16 +547,16 @@ bool dp_handle_hpd_rx_irq(struct dc_link *link,
 		return false;
 	}
 
-	/* For now we only handle 'Downstream port status' case.
+	/* Handle 'Downstream port status' case for all DP link types.
 	 * If we got sink count changed it means
 	 * Downstream port status changed,
 	 * then DM should call DC to do the detection.
-	 * NOTE: Do not handle link loss on eDP since it is internal link
+	 * NOTE: Now includes eDP link loss detection and retraining
 	 */
-	if ((link->connector_signal != SIGNAL_TYPE_EDP) &&
-			dp_parse_link_loss_status(
-					link,
-					&hpd_irq_dpcd_data)) {
+
+	if (dp_parse_link_loss_status(
+			link,
+			&hpd_irq_dpcd_data)) {
 		/* Connectivity log: link loss */
 		CONN_DATA_LINK_LOSS(link,
 					hpd_irq_dpcd_data.raw,
@@ -533,6 +585,11 @@ bool dp_handle_hpd_rx_irq(struct dc_link *link,
 			!= link->dpcd_sink_count)
 		status = true;
 
+	if (replay_re_enable_needed) {
+		bool allow_active = true;
+
+		edp_set_replay_allow_active(link, &allow_active, true, false, NULL);
+	}
 	/* reasons for HPD RX:
 	 * 1. Link Loss - ie Re-train the Link
 	 * 2. MST sideband message

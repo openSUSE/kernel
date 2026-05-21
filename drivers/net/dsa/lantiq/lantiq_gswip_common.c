@@ -118,15 +118,11 @@ static u32 gswip_switch_r_timeout(struct gswip_priv *priv, u32 offset,
 static void gswip_mii_mask_cfg(struct gswip_priv *priv, u32 mask, u32 set,
 			       int port)
 {
-	int reg_port;
-
 	/* MII_CFG register only exists for MII ports */
-	if (!(priv->hw_info->mii_ports & BIT(port)))
+	if (priv->hw_info->mii_cfg[port] == -1)
 		return;
 
-	reg_port = port + priv->hw_info->mii_port_reg_offset;
-
-	regmap_write_bits(priv->mii, GSWIP_MII_CFGp(reg_port), mask,
+	regmap_write_bits(priv->mii, priv->hw_info->mii_cfg[port], mask,
 			  set);
 }
 
@@ -425,6 +421,12 @@ static int gswip_port_setup(struct dsa_switch *ds, int port)
 	struct gswip_priv *priv = ds->priv;
 	int err;
 
+	if (priv->hw_info->port_setup) {
+		err = priv->hw_info->port_setup(ds, port);
+		if (err)
+			return err;
+	}
+
 	if (!dsa_is_cpu_port(ds, port)) {
 		err = gswip_add_single_port_br(priv, port, true);
 		if (err)
@@ -604,27 +606,12 @@ static void gswip_mii_delay_setup(struct gswip_priv *priv, struct dsa_port *dp,
 	u32 tx_delay = GSWIP_MII_PCDU_TXDLY_DEFAULT;
 	u32 rx_delay = GSWIP_MII_PCDU_RXDLY_DEFAULT;
 	struct device_node *port_dn = dp->dn;
-	u16 mii_pcdu_reg;
 
 	/* As MII_PCDU registers only exist for MII ports, silently return
 	 * unless the port is an MII port
 	 */
-	if (!(priv->hw_info->mii_ports & BIT(dp->index)))
+	if (priv->hw_info->mii_pcdu[dp->index] == -1)
 		return;
-
-	switch (dp->index + priv->hw_info->mii_port_reg_offset) {
-	case 0:
-		mii_pcdu_reg = GSWIP_MII_PCDU0;
-		break;
-	case 1:
-		mii_pcdu_reg = GSWIP_MII_PCDU1;
-		break;
-	case 5:
-		mii_pcdu_reg = GSWIP_MII_PCDU5;
-		break;
-	default:
-		return;
-	}
 
 	/* legacy code to set default delays according to the interface mode */
 	switch (interface) {
@@ -646,7 +633,7 @@ static void gswip_mii_delay_setup(struct gswip_priv *priv, struct dsa_port *dp,
 	of_property_read_u32(port_dn, "rx-internal-delay-ps", &rx_delay);
 	of_property_read_u32(port_dn, "tx-internal-delay-ps", &tx_delay);
 
-	regmap_write_bits(priv->mii, mii_pcdu_reg,
+	regmap_write_bits(priv->mii, priv->hw_info->mii_pcdu[dp->index],
 			  GSWIP_MII_PCDU_TXDLY_MASK |
 			  GSWIP_MII_PCDU_RXDLY_MASK,
 			  GSWIP_MII_PCDU_TXDLY(tx_delay) |
@@ -750,6 +737,13 @@ static int gswip_setup(struct dsa_switch *ds)
 	ds->mtu_enforcement_ingress = true;
 
 	return 0;
+}
+
+static void gswip_teardown(struct dsa_switch *ds)
+{
+	struct gswip_priv *priv = ds->priv;
+
+	regmap_clear_bits(priv->mdio, GSWIP_MDIO_GLOB, GSWIP_MDIO_GLOB_ENABLE);
 }
 
 static enum dsa_tag_protocol gswip_get_tag_protocol(struct dsa_switch *ds,
@@ -1629,6 +1623,7 @@ static const struct phylink_mac_ops gswip_phylink_mac_ops = {
 static const struct dsa_switch_ops gswip_switch_ops = {
 	.get_tag_protocol	= gswip_get_tag_protocol,
 	.setup			= gswip_setup,
+	.teardown		= gswip_teardown,
 	.port_setup		= gswip_port_setup,
 	.port_enable		= gswip_port_enable,
 	.port_disable		= gswip_port_disable,
@@ -1655,12 +1650,6 @@ static const struct dsa_switch_ops gswip_switch_ops = {
 	.port_hsr_join		= dsa_port_simple_hsr_join,
 	.port_hsr_leave		= dsa_port_simple_hsr_leave,
 };
-
-void gswip_disable_switch(struct gswip_priv *priv)
-{
-	regmap_clear_bits(priv->mdio, GSWIP_MDIO_GLOB, GSWIP_MDIO_GLOB_ENABLE);
-}
-EXPORT_SYMBOL_GPL(gswip_disable_switch);
 
 static int gswip_validate_cpu_port(struct dsa_switch *ds)
 {
@@ -1718,15 +1707,14 @@ int gswip_probe_common(struct gswip_priv *priv, u32 version)
 
 	err = gswip_validate_cpu_port(priv->ds);
 	if (err)
-		goto disable_switch;
+		goto unregister_switch;
 
 	dev_info(priv->dev, "probed GSWIP version %lx mod %lx\n",
 		 GSWIP_VERSION_REV(version), GSWIP_VERSION_MOD(version));
 
 	return 0;
 
-disable_switch:
-	gswip_disable_switch(priv);
+unregister_switch:
 	dsa_unregister_switch(priv->ds);
 
 	return err;

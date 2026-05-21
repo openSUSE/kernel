@@ -334,7 +334,7 @@ static int ocfs2_info_handle_freeinode(struct inode *inode,
 	struct ocfs2_super *osb = OCFS2_SB(inode->i_sb);
 	struct inode *inode_alloc = NULL;
 
-	oifi = kzalloc(sizeof(struct ocfs2_info_freeinode), GFP_KERNEL);
+	oifi = kzalloc_obj(struct ocfs2_info_freeinode);
 	if (!oifi) {
 		status = -ENOMEM;
 		mlog_errno(status);
@@ -441,12 +441,15 @@ static int ocfs2_info_freefrag_scan_chain(struct ocfs2_super *osb,
 	struct buffer_head *bh = NULL;
 	struct ocfs2_group_desc *bg = NULL;
 
-	unsigned int max_bits, num_clusters;
+	unsigned int max_bits, max_bitmap_bits, num_clusters;
 	unsigned int offset = 0, cluster, chunk;
 	unsigned int chunk_free, last_chunksize = 0;
 
 	if (!le32_to_cpu(rec->c_free))
 		goto bail;
+
+	max_bitmap_bits = 8 * ocfs2_group_bitmap_size(osb->sb, 0,
+					      osb->s_feature_incompat);
 
 	do {
 		if (!bg)
@@ -479,6 +482,19 @@ static int ocfs2_info_freefrag_scan_chain(struct ocfs2_super *osb,
 			continue;
 
 		max_bits = le16_to_cpu(bg->bg_bits);
+
+		/*
+		 * Non-coherent scans read raw blocks and do not get the
+		 * bg_bits validation from
+		 * ocfs2_read_group_descriptor().
+		 */
+		if (max_bits > max_bitmap_bits) {
+			mlog(ML_ERROR,
+			     "Group desc #%llu has %u bits, max bitmap bits %u\n",
+			     (unsigned long long)blkno, max_bits, max_bitmap_bits);
+			max_bits = max_bitmap_bits;
+		}
+
 		offset = 0;
 
 		for (chunk = 0; chunk < chunks_in_group; chunk++) {
@@ -620,7 +636,7 @@ static int ocfs2_info_handle_freefrag(struct inode *inode,
 	struct ocfs2_super *osb = OCFS2_SB(inode->i_sb);
 	struct inode *gb_inode = NULL;
 
-	oiff = kzalloc(sizeof(struct ocfs2_info_freefrag), GFP_KERNEL);
+	oiff = kzalloc_obj(struct ocfs2_info_freefrag);
 	if (!oiff) {
 		status = -ENOMEM;
 		mlog_errno(status);

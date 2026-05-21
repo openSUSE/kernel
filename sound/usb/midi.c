@@ -699,15 +699,18 @@ static void snd_usbmidi_transmit_byte(struct usbmidi_out_port *port,
 static void snd_usbmidi_standard_output(struct snd_usb_midi_out_endpoint *ep,
 					struct urb *urb)
 {
-	int p;
+	int port0 = ep->current_port;
+	int i;
 
-	/* FIXME: lower-numbered ports can starve higher-numbered ports */
-	for (p = 0; p < 0x10; ++p) {
-		struct usbmidi_out_port *port = &ep->ports[p];
+	for (i = 0; i < 0x10; ++i) {
+		int portnum = (port0 + i) & 15;
+		struct usbmidi_out_port *port = &ep->ports[portnum];
+
 		if (!port->active)
 			continue;
 		while (urb->transfer_buffer_length + 3 < ep->max_transfer) {
 			uint8_t b;
+
 			if (snd_rawmidi_transmit(port->substream, &b, 1) != 1) {
 				port->active = 0;
 				break;
@@ -715,6 +718,7 @@ static void snd_usbmidi_standard_output(struct snd_usb_midi_out_endpoint *ep,
 			snd_usbmidi_transmit_byte(port, b, urb);
 		}
 	}
+	ep->current_port = (port0 + 1) & 15;
 }
 
 static const struct usb_protocol_ops snd_usbmidi_standard_ops = {
@@ -1328,7 +1332,7 @@ static int snd_usbmidi_in_endpoint_create(struct snd_usb_midi *umidi,
 	int err;
 
 	rep->in = NULL;
-	ep = kzalloc(sizeof(*ep), GFP_KERNEL);
+	ep = kzalloc_obj(*ep);
 	if (!ep)
 		return -ENOMEM;
 	ep->umidi = umidi;
@@ -1414,7 +1418,7 @@ static int snd_usbmidi_out_endpoint_create(struct snd_usb_midi *umidi,
 	int err;
 
 	rep->out = NULL;
-	ep = kzalloc(sizeof(*ep), GFP_KERNEL);
+	ep = kzalloc_obj(*ep);
 	if (!ep)
 		return -ENOMEM;
 	ep->umidi = umidi;
@@ -2506,7 +2510,7 @@ int __snd_usbmidi_create(struct snd_card *card,
 	int out_ports, in_ports;
 	int i, err;
 
-	umidi = kzalloc(sizeof(*umidi), GFP_KERNEL);
+	umidi = kzalloc_obj(*umidi);
 	if (!umidi)
 		return -ENOMEM;
 	umidi->dev = interface_to_usbdev(iface);

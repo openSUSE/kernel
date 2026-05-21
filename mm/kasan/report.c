@@ -203,7 +203,7 @@ static inline void fail_non_kasan_kunit_test(void) { }
 
 static DEFINE_RAW_SPINLOCK(report_lock);
 
-static void start_report(unsigned long *flags, bool sync)
+static void start_report(unsigned long *flags)
 {
 	fail_non_kasan_kunit_test();
 	/* Respect the /proc/sys/kernel/traceoff_on_warning interface. */
@@ -543,7 +543,7 @@ void kasan_report_invalid_free(void *ptr, unsigned long ip, enum kasan_report_ty
 	if (unlikely(!report_enabled()))
 		return;
 
-	start_report(&flags, true);
+	start_report(&flags);
 
 	__memset(&info, 0, sizeof(info));
 	info.type = type;
@@ -581,7 +581,7 @@ bool kasan_report(const void *addr, size_t size, bool is_write,
 		goto out;
 	}
 
-	start_report(&irq_flags, true);
+	start_report(&irq_flags);
 
 	__memset(&info, 0, sizeof(info));
 	info.type = KASAN_REPORT_ACCESS;
@@ -615,7 +615,7 @@ void kasan_report_async(void)
 	if (unlikely(!report_enabled()))
 		return;
 
-	start_report(&flags, false);
+	start_report(&flags);
 	pr_err("BUG: KASAN: invalid-access\n");
 	pr_err("Asynchronous fault: no details available\n");
 	pr_err("\n");
@@ -638,7 +638,7 @@ void kasan_report_async(void)
  */
 void kasan_non_canonical_hook(unsigned long addr)
 {
-	unsigned long orig_addr;
+	unsigned long orig_addr, user_orig_addr;
 	const char *bug_type;
 
 	/*
@@ -649,6 +649,9 @@ void kasan_non_canonical_hook(unsigned long addr)
 		return;
 
 	orig_addr = (unsigned long)kasan_shadow_to_mem((void *)addr);
+
+	/* Strip pointer tag before comparing against userspace ranges */
+	user_orig_addr = (unsigned long)set_tag((void *)orig_addr, 0);
 
 	/*
 	 * For faults near the shadow address for NULL, we can be fairly certain
@@ -661,11 +664,13 @@ void kasan_non_canonical_hook(unsigned long addr)
 	 * address, but make it clear that this is not necessarily what's
 	 * actually going on.
 	 */
-	if (orig_addr < PAGE_SIZE)
+	if (user_orig_addr < PAGE_SIZE) {
 		bug_type = "null-ptr-deref";
-	else if (orig_addr < TASK_SIZE)
+		orig_addr = user_orig_addr;
+	} else if (user_orig_addr < TASK_SIZE) {
 		bug_type = "probably user-memory-access";
-	else if (addr_in_shadow((void *)addr))
+		orig_addr = user_orig_addr;
+	} else if (addr_in_shadow((void *)addr))
 		bug_type = "probably wild-memory-access";
 	else
 		bug_type = "maybe wild-memory-access";

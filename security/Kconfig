@@ -21,16 +21,14 @@ config SECURITY_DMESG_RESTRICT
 
 choice
 	prompt "Allow /proc/pid/mem access override"
-	default PROC_MEM_ALWAYS_FORCE
+	default PROC_MEM_FORCE_PTRACE
 	help
 	  Traditionally /proc/pid/mem allows users to override memory
 	  permissions for users like ptrace, assuming they have ptrace
 	  capability.
 
 	  This allows people to limit that - either never override, or
-	  require actual active ptrace attachment.
-
-	  Defaults to the traditional behavior (for now)
+	  require actual active ptrace attachment (default).
 
 config PROC_MEM_ALWAYS_FORCE
 	bool "Traditional /proc/pid/mem behavior"
@@ -283,6 +281,23 @@ config LSM
 	  This can be controlled at boot with the "lsm=" parameter.
 
 	  If unsure, leave this as the default.
+
+config SECURITY_COMMONCAP_KUNIT_TEST
+	bool "Build KUnit tests for commoncap" if !KUNIT_ALL_TESTS
+	depends on KUNIT=y && USER_NS
+	default KUNIT_ALL_TESTS
+	help
+	  This builds the commoncap KUnit tests.
+
+	  KUnit tests run during boot and output the results to the debug log
+	  in TAP format (https://testanything.org/). Only useful for kernel devs
+	  running KUnit test harness and are not for inclusion into a
+	  production build.
+
+	  For more information on KUnit and unit tests in general please refer
+	  to the KUnit documentation in Documentation/dev-tools/kunit/.
+
+	  If unsure, say N.
 
 source "security/Kconfig.hardening"
 

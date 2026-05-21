@@ -768,7 +768,7 @@ int saa7134_input_init1(struct saa7134_dev *dev)
 		return -ENODEV;
 	}
 
-	ir = kzalloc(sizeof(*ir), GFP_KERNEL);
+	ir = kzalloc_obj(*ir);
 	rc = rc_allocate_device(RC_DRIVER_SCANCODE);
 	if (!ir || !rc) {
 		err = -ENOMEM;
@@ -834,6 +834,7 @@ void saa7134_input_fini(struct saa7134_dev *dev)
 		return;
 
 	rc_unregister_device(dev->remote->dev);
+	rc_free_device(dev->remote->dev);
 	kfree(dev->remote);
 	dev->remote = NULL;
 }

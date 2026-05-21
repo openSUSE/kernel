@@ -1557,12 +1557,15 @@ static int ath11k_mac_setup_bcn_tmpl_ema(struct ath11k_vif *arvif,
 	if (!beacons || !beacons->cnt) {
 		ath11k_warn(arvif->ar->ab,
 			    "failed to get ema beacon templates from mac80211\n");
-		return -EPERM;
+		ret = -EPERM;
+		goto free;
 	}
 
 	if (tx_arvif == arvif) {
-		if (ath11k_mac_set_vif_params(tx_arvif, beacons->bcn[0].skb))
-			return -EINVAL;
+		if (ath11k_mac_set_vif_params(tx_arvif, beacons->bcn[0].skb)) {
+			ret = -EINVAL;
+			goto free;
+		}
 	} else {
 		arvif->wpaie_present = tx_arvif->wpaie_present;
 	}
@@ -1589,11 +1592,11 @@ static int ath11k_mac_setup_bcn_tmpl_ema(struct ath11k_vif *arvif,
 		}
 	}
 
-	ieee80211_beacon_free_ema_list(beacons);
-
 	if (tx_arvif != arvif && !nontx_vif_params_set)
-		return -EINVAL; /* Profile not found in the beacons */
+		ret = -EINVAL; /* Profile not found in the beacons */
 
+free:
+	ieee80211_beacon_free_ema_list(beacons);
 	return ret;
 }
 
@@ -1622,19 +1625,22 @@ static int ath11k_mac_setup_bcn_tmpl_mbssid(struct ath11k_vif *arvif,
 	}
 
 	if (tx_arvif == arvif) {
-		if (ath11k_mac_set_vif_params(tx_arvif, bcn))
-			return -EINVAL;
+		if (ath11k_mac_set_vif_params(tx_arvif, bcn)) {
+			ret = -EINVAL;
+			goto free;
+		}
 	} else if (!ath11k_mac_set_nontx_vif_params(tx_arvif, arvif, bcn)) {
-		return -EINVAL;
+		ret = -EINVAL;
+		goto free;
 	}
 
 	ret = ath11k_wmi_bcn_tmpl(ar, arvif->vdev_id, &offs, bcn, 0);
-	kfree_skb(bcn);
-
 	if (ret)
 		ath11k_warn(ab, "failed to submit beacon template command: %d\n",
 			    ret);
 
+free:
+	kfree_skb(bcn);
 	return ret;
 }
 
@@ -2911,6 +2917,8 @@ static void ath11k_peer_assoc_h_phymode(struct ath11k *ar,
 
 	arg->peer_phymode = phymode;
 	WARN_ON(phymode == MODE_UNKNOWN);
+
+	ath11k_cfr_update_phymode(ar, phymode);
 }
 
 static void ath11k_peer_assoc_prepare(struct ath11k *ar,
@@ -3303,7 +3311,7 @@ static int ath11k_mac_fils_discovery(struct ath11k_vif *arvif,
 	if (info->fils_discovery.max_interval) {
 		interval = info->fils_discovery.max_interval;
 
-		tmpl = ieee80211_get_fils_discovery_tmpl(ar->hw, arvif->vif);
+		tmpl = ieee80211_get_fils_discovery_tmpl(ar->hw, arvif->vif, 0);
 		if (tmpl)
 			ret = ath11k_wmi_fils_discovery_tmpl(ar, arvif->vdev_id,
 							     tmpl);
@@ -3312,7 +3320,7 @@ static int ath11k_mac_fils_discovery(struct ath11k_vif *arvif,
 		interval = info->unsol_bcast_probe_resp_interval;
 
 		tmpl = ieee80211_get_unsol_bcast_probe_resp_tmpl(ar->hw,
-								 arvif->vif);
+								 arvif->vif, 0);
 		if (tmpl)
 			ret = ath11k_wmi_probe_resp_tmpl(ar, arvif->vdev_id,
 							 tmpl);
@@ -4219,7 +4227,7 @@ static int ath11k_mac_op_hw_scan(struct ieee80211_hw *hw,
 	if (ret)
 		goto exit;
 
-	arg = kzalloc(sizeof(*arg), GFP_KERNEL);
+	arg = kzalloc_obj(*arg);
 
 	if (!arg) {
 		ret = -ENOMEM;
@@ -6186,6 +6194,8 @@ static int ath11k_mac_mgmt_tx_wmi(struct ath11k *ar, struct ath11k_vif *arvif,
 	dma_addr_t paddr;
 	int buf_id;
 	int ret;
+	bool tx_params_valid = false;
+	bool peer_in_unassoc_pool;
 
 	ATH11K_SKB_CB(skb)->ar = ar;
 
@@ -6224,7 +6234,18 @@ static int ath11k_mac_mgmt_tx_wmi(struct ath11k *ar, struct ath11k_vif *arvif,
 
 	ATH11K_SKB_CB(skb)->paddr = paddr;
 
-	ret = ath11k_wmi_mgmt_send(ar, arvif->vdev_id, buf_id, skb);
+	peer_in_unassoc_pool = ath11k_cfr_peer_is_in_cfr_unassoc_pool(ar, hdr->addr1);
+
+	if (ar->cfr_enabled &&
+	    ieee80211_is_probe_resp(hdr->frame_control) &&
+	    peer_in_unassoc_pool)
+		tx_params_valid = true;
+
+	if (peer_in_unassoc_pool)
+		ath11k_cfr_update_unassoc_pool_entry(ar, hdr->addr1);
+
+	ret = ath11k_wmi_mgmt_send(ar, arvif->vdev_id, buf_id, skb,
+				   tx_params_valid);
 	if (ret) {
 		ath11k_warn(ar->ab, "failed to send mgmt frame: %d\n", ret);
 		goto err_unmap_buf;
@@ -6267,10 +6288,10 @@ static int ath11k_mac_mgmt_action_frame_fill_elem_data(struct ath11k_vif *arvif,
 	lockdep_assert_held(&ar->conf_mutex);
 
 	/* make sure category field is present */
-	if (skb->len < IEEE80211_MIN_ACTION_SIZE)
+	if (skb->len < IEEE80211_MIN_ACTION_SIZE(category))
 		return -EINVAL;
 
-	remaining_len = skb->len - IEEE80211_MIN_ACTION_SIZE;
+	remaining_len = skb->len - IEEE80211_MIN_ACTION_SIZE(category);
 	has_protected = ieee80211_has_protected(hdr->frame_control);
 
 	/* In case of SW crypto and hdr protected (PMF), packet will already be encrypted,
@@ -7392,7 +7413,7 @@ err_vdev_del:
 	idr_for_each(&ar->txmgmt_idr,
 		     ath11k_mac_vif_txmgmt_idr_remove, vif);
 
-	for (i = 0; i < ab->hw_params.max_tx_ring; i++) {
+	for (i = 0; i < ab->hw_params.hal_params->num_tx_rings; i++) {
 		spin_lock_bh(&ab->dp.tx_ring[i].tx_idr_lock);
 		idr_for_each(&ab->dp.tx_ring[i].txbuf_idr,
 			     ath11k_mac_vif_unref, vif);
@@ -7861,7 +7882,7 @@ ath11k_mac_update_active_vif_chan(struct ath11k *ar,
 	if (arg.n_vifs == 0)
 		return;
 
-	arg.vifs = kcalloc(arg.n_vifs, sizeof(arg.vifs[0]), GFP_KERNEL);
+	arg.vifs = kzalloc_objs(arg.vifs[0], arg.n_vifs);
 	if (!arg.vifs)
 		return;
 
@@ -9714,7 +9735,7 @@ static int ath11k_mac_op_remain_on_channel(struct ieee80211_hw *hw,
 
 	scan_time_msec = ar->hw->wiphy->max_remain_on_channel_duration * 2;
 
-	arg = kzalloc(sizeof(*arg), GFP_KERNEL);
+	arg = kzalloc_obj(*arg);
 	if (!arg) {
 		ret = -ENOMEM;
 		goto exit;
@@ -9808,7 +9829,7 @@ static int ath11k_mac_station_add(struct ath11k *ar,
 		arvif->reinstall_group_keys = false;
 	}
 
-	arsta->rx_stats = kzalloc(sizeof(*arsta->rx_stats), GFP_KERNEL);
+	arsta->rx_stats = kzalloc_obj(*arsta->rx_stats);
 	if (!arsta->rx_stats) {
 		ret = -ENOMEM;
 		goto dec_num_station;
@@ -9829,7 +9850,7 @@ static int ath11k_mac_station_add(struct ath11k *ar,
 		   sta->addr, arvif->vdev_id);
 
 	if (ath11k_debugfs_is_extd_tx_stats_enabled(ar)) {
-		arsta->tx_stats = kzalloc(sizeof(*arsta->tx_stats), GFP_KERNEL);
+		arsta->tx_stats = kzalloc_obj(*arsta->tx_stats);
 		if (!arsta->tx_stats) {
 			ret = -ENOMEM;
 			goto free_peer;
@@ -9979,6 +10000,8 @@ static int ath11k_mac_op_sta_state(struct ieee80211_hw *hw,
 		}
 		spin_unlock_bh(&ar->ab->base_lock);
 		mutex_unlock(&ar->ab->tbl_mtx_lock);
+
+		ath11k_cfr_decrement_peer_count(ar, arsta);
 	} else if (old_state == IEEE80211_STA_AUTH &&
 		   new_state == IEEE80211_STA_ASSOC &&
 		   (vif->type == NL80211_IFTYPE_AP ||
@@ -10261,7 +10284,7 @@ static void ath11k_mac_setup_mac_address_list(struct ath11k *ar)
 		return;
 
 	n_addresses = ar->ab->hw_params.num_vdevs;
-	addresses = kcalloc(n_addresses, sizeof(*addresses), GFP_KERNEL);
+	addresses = kzalloc_objs(*addresses, n_addresses);
 	if (!addresses)
 		return;
 
@@ -10293,7 +10316,7 @@ static int ath11k_mac_setup_iface_combinations(struct ath11k *ar)
 	else
 		n_combos = 1;
 
-	combinations = kcalloc(n_combos, sizeof(*combinations), GFP_KERNEL);
+	combinations = kzalloc_objs(*combinations, n_combos);
 	if (!combinations)
 		return -ENOMEM;
 
@@ -10302,7 +10325,7 @@ static int ath11k_mac_setup_iface_combinations(struct ath11k *ar)
 	else
 		n_limits = 2;
 
-	limits = kcalloc(n_limits, sizeof(*limits), GFP_KERNEL);
+	limits = kzalloc_objs(*limits, n_limits);
 	if (!limits) {
 		kfree(combinations);
 		return -ENOMEM;
@@ -10640,7 +10663,7 @@ static int __ath11k_mac_register(struct ath11k *ar)
 	if (!ab->hw_params.supports_monitor)
 		/* There's a race between calling ieee80211_register_hw()
 		 * and here where the monitor mode is enabled for a little
-		 * while. But that time is so short and in practise it make
+		 * while. But that time is so short and in practice it doesn't make
 		 * a difference in real life.
 		 */
 		ar->hw->wiphy->interface_modes &= ~BIT(NL80211_IFTYPE_MONITOR);

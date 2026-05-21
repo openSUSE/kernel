@@ -83,7 +83,10 @@ struct create_durable_rsp {
 	} Data;
 } __packed;
 
-/* equivalent of the contents of SMB3.1.1 POSIX open context response */
+/*
+ * See POSIX-SMB2 2.2.14.2.16
+ * Link: https://gitlab.com/samba-team/smb3-posix-spec/-/blob/master/smb3_posix_extensions.md
+ */
 struct create_posix_rsp {
 	struct create_context_hdr ccontext;
 	__u8    Name[16];
@@ -181,15 +184,6 @@ struct smb2_file_access_info {
 
 struct smb2_file_alignment_info {
 	__le32 AlignmentRequirement;
-} __packed;
-
-struct smb2_file_basic_info { /* data block encoding of response to level 18 */
-	__le64 CreationTime;	/* Beginning of FILE_BASIC_INFO equivalent */
-	__le64 LastAccessTime;
-	__le64 LastWriteTime;
-	__le64 ChangeTime;
-	__le32 Attributes;
-	__u32  Pad1;		/* End of FILE_BASIC_INFO_INFO equivalent */
 } __packed;
 
 struct smb2_file_alt_name_info {
@@ -382,15 +376,6 @@ int smb2_lock(struct ksmbd_work *work);
 int smb2_ioctl(struct ksmbd_work *work);
 int smb2_oplock_break(struct ksmbd_work *work);
 int smb2_notify(struct ksmbd_work *ksmbd_work);
-
-/*
- * Get the body of the smb2 message excluding the 4 byte rfc1002 headers
- * from request/response buffer.
- */
-static inline void *smb2_get_msg(void *buf)
-{
-	return buf + 4;
-}
 
 #define POSIX_TYPE_FILE		0
 #define POSIX_TYPE_DIR		1

@@ -344,7 +344,7 @@ static void svc_i3c_master_reset_fifo_trigger(struct svc_i3c_master *master)
 {
 	u32 reg;
 
-	/* Set RX and TX tigger levels, flush FIFOs */
+	/* Set RX and TX trigger levels, flush FIFOs */
 	reg = SVC_I3C_MDATACTRL_FLUSHTB |
 	      SVC_I3C_MDATACTRL_FLUSHRB |
 	      SVC_I3C_MDATACTRL_UNLOCK_TRIG |
@@ -533,8 +533,8 @@ static int svc_i3c_master_handle_ibi_won(struct svc_i3c_master *master, u32 msta
 static void svc_i3c_master_ibi_isr(struct svc_i3c_master *master)
 {
 	struct svc_i3c_i2c_dev_data *data;
+	struct i3c_dev_desc *dev = NULL;
 	unsigned int ibitype, ibiaddr;
-	struct i3c_dev_desc *dev;
 	u32 status, val;
 	int ret;
 
@@ -572,7 +572,7 @@ static void svc_i3c_master_ibi_isr(struct svc_i3c_master *master)
 	 * 3. IBI isr writes an AutoIBI request.
 	 * 4. The controller will not start AutoIBI process because SDA is not low.
 	 * 5. IBIWON polling times out.
-	 * 6. Controller reamins in AutoIBI state and doesn't accept EmitStop request.
+	 * 6. Controller remains in AutoIBI state and doesn't accept EmitStop request.
 	 */
 	writel(SVC_I3C_MCTRL_REQUEST_START_ADDR |
 	       SVC_I3C_MCTRL_TYPE_I3C |
@@ -627,7 +627,7 @@ static void svc_i3c_master_ibi_isr(struct svc_i3c_master *master)
 	 * for the slave to interrupt again.
 	 */
 	if (svc_i3c_master_error(master)) {
-		if (master->ibi.tbq_slot) {
+		if (master->ibi.tbq_slot && dev) {
 			data = i3c_dev_get_master_data(dev);
 			i3c_generic_ibi_recycle_slot(data->ibi_pool,
 						     master->ibi.tbq_slot);
@@ -774,7 +774,7 @@ static int svc_i3c_master_bus_init(struct i3c_master_controller *m)
 
 	/*
 	 * Using I3C Open-Drain mode, target is 4.17MHz/240ns with a
-	 * duty-cycle tuned so that high levels are filetered out by
+	 * duty-cycle tuned so that high levels are filtered out by
 	 * the 50ns filter (target being 40ns).
 	 */
 	odhpp = 1;
@@ -900,7 +900,7 @@ static int svc_i3c_master_attach_i3c_dev(struct i3c_dev_desc *dev)
 	if (slot < 0)
 		return slot;
 
-	data = kzalloc(sizeof(*data), GFP_KERNEL);
+	data = kzalloc_obj(*data);
 	if (!data) {
 		svc_i3c_master_release_slot(master, slot);
 		return -ENOMEM;
@@ -953,7 +953,7 @@ static int svc_i3c_master_attach_i2c_dev(struct i2c_dev_desc *dev)
 	if (slot < 0)
 		return slot;
 
-	data = kzalloc(sizeof(*data), GFP_KERNEL);
+	data = kzalloc_obj(*data);
 	if (!data) {
 		svc_i3c_master_release_slot(master, slot);
 		return -ENOMEM;
@@ -1268,7 +1268,7 @@ static int svc_i3c_master_do_daa(struct i3c_master_controller *m)
 	/* Configure IBI auto-rules */
 	ret = svc_i3c_update_ibirules(master);
 	if (ret)
-		dev_err(master->dev, "Cannot handle such a list of devices");
+		dev_err(master->dev, "Cannot handle such a list of devices\n");
 
 rpm_out:
 	pm_runtime_put_autosuspend(master->dev);
@@ -1504,7 +1504,7 @@ svc_i3c_master_alloc_xfer(struct svc_i3c_master *master, unsigned int ncmds)
 {
 	struct svc_i3c_xfer *xfer;
 
-	xfer = kzalloc(struct_size(xfer, cmds, ncmds), GFP_KERNEL);
+	xfer = kzalloc_flex(*xfer, cmds, ncmds);
 	if (!xfer)
 		return NULL;
 

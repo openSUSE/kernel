@@ -129,6 +129,15 @@
  *     churn a lot and we can avoid making some extent tree modifications if we
  *     are able to delay for as long as possible.
  *
+ *   RECLAIM_ZONES
+ *     This state only works for the zoned mode. In zoned mode, we cannot reuse
+ *     regions that have once been allocated and then been freed until we reset
+ *     the zone, due to the sequential write requirement. The RECLAIM_ZONES state
+ *     calls the reclaim machinery, evacuating the still valid data in these
+ *     block-groups and relocates it to the data_reloc_bg. Afterwards these
+ *     block-groups get deleted and the transaction is committed. This frees up
+ *     space to use for new allocations.
+ *
  *   RESET_ZONES
  *     This state works only for the zoned mode. On the zoned mode, we cannot
  *     reuse once allocated then freed region until we reset the zone, due to
@@ -203,6 +212,8 @@ void btrfs_clear_space_info_full(struct btrfs_fs_info *info)
 
 #define BTRFS_UNALLOC_BLOCK_GROUP_TARGET			(10ULL)
 
+#define BTRFS_ZONED_SYNC_RECLAIM_BATCH				(5)
+
 /*
  * Calculate chunk size depending on volume type (regular or zoned).
  */
@@ -215,7 +226,7 @@ static u64 calc_chunk_size(const struct btrfs_fs_info *fs_info, u64 flags)
 
 	if (flags & BTRFS_BLOCK_GROUP_DATA)
 		return BTRFS_MAX_DATA_CHUNK_SIZE;
-	else if (flags & BTRFS_BLOCK_GROUP_SYSTEM)
+	else if (flags & (BTRFS_BLOCK_GROUP_SYSTEM | BTRFS_BLOCK_GROUP_METADATA_REMAP))
 		return SZ_32M;
 
 	/* Handle BTRFS_BLOCK_GROUP_METADATA */
@@ -266,7 +277,7 @@ static int create_space_info_sub_group(struct btrfs_space_info *parent, u64 flag
 	       "parent->subgroup_id=%d", parent->subgroup_id);
 	ASSERT(id != BTRFS_SUB_GROUP_PRIMARY, "id=%d", id);
 
-	sub_group = kzalloc(sizeof(*sub_group), GFP_NOFS);
+	sub_group = kzalloc_obj(*sub_group, GFP_NOFS);
 	if (!sub_group)
 		return -ENOMEM;
 
@@ -276,10 +287,8 @@ static int create_space_info_sub_group(struct btrfs_space_info *parent, u64 flag
 	sub_group->subgroup_id = id;
 
 	ret = btrfs_sysfs_add_space_info_type(sub_group);
-	if (ret) {
-		kfree(sub_group);
+	if (ret)
 		parent->sub_group[index] = NULL;
-	}
 	return ret;
 }
 
@@ -289,7 +298,7 @@ static int create_space_info(struct btrfs_fs_info *info, u64 flags)
 	struct btrfs_space_info *space_info;
 	int ret = 0;
 
-	space_info = kzalloc(sizeof(*space_info), GFP_NOFS);
+	space_info = kzalloc_obj(*space_info, GFP_NOFS);
 	if (!space_info)
 		return -ENOMEM;
 
@@ -306,7 +315,7 @@ static int create_space_info(struct btrfs_fs_info *info, u64 flags)
 							  0);
 
 		if (ret)
-			return ret;
+			goto out_free;
 	}
 
 	ret = btrfs_sysfs_add_space_info_type(space_info);
@@ -318,6 +327,10 @@ static int create_space_info(struct btrfs_fs_info *info, u64 flags)
 		info->data_sinfo = space_info;
 
 	return ret;
+
+out_free:
+	kfree(space_info);
+	return ret;
 }
 
 int btrfs_init_space_info(struct btrfs_fs_info *fs_info)
@@ -325,7 +338,7 @@ int btrfs_init_space_info(struct btrfs_fs_info *fs_info)
 	struct btrfs_super_block *disk_super;
 	u64 features;
 	u64 flags;
-	int mixed = 0;
+	bool mixed = false;
 	int ret;
 
 	disk_super = fs_info->super_copy;
@@ -334,26 +347,35 @@ int btrfs_init_space_info(struct btrfs_fs_info *fs_info)
 
 	features = btrfs_super_incompat_flags(disk_super);
 	if (features & BTRFS_FEATURE_INCOMPAT_MIXED_GROUPS)
-		mixed = 1;
+		mixed = true;
 
 	flags = BTRFS_BLOCK_GROUP_SYSTEM;
 	ret = create_space_info(fs_info, flags);
 	if (ret)
-		goto out;
+		return ret;
 
 	if (mixed) {
 		flags = BTRFS_BLOCK_GROUP_METADATA | BTRFS_BLOCK_GROUP_DATA;
 		ret = create_space_info(fs_info, flags);
+		if (ret)
+			return ret;
 	} else {
 		flags = BTRFS_BLOCK_GROUP_METADATA;
 		ret = create_space_info(fs_info, flags);
 		if (ret)
-			goto out;
+			return ret;
 
 		flags = BTRFS_BLOCK_GROUP_DATA;
 		ret = create_space_info(fs_info, flags);
+		if (ret)
+			return ret;
 	}
-out:
+
+	if (features & BTRFS_FEATURE_INCOMPAT_REMAP_TREE) {
+		flags = BTRFS_BLOCK_GROUP_METADATA_REMAP;
+		ret = create_space_info(fs_info, flags);
+	}
+
 	return ret;
 }
 
@@ -366,8 +388,13 @@ void btrfs_add_bg_to_space_info(struct btrfs_fs_info *info,
 	factor = btrfs_bg_type_to_factor(block_group->flags);
 
 	spin_lock(&space_info->lock);
-	space_info->total_bytes += block_group->length;
-	space_info->disk_total += block_group->length * factor;
+
+	if (!(block_group->flags & BTRFS_BLOCK_GROUP_REMAPPED) ||
+	    block_group->identity_remap_count != 0) {
+		space_info->total_bytes += block_group->length;
+		space_info->disk_total += block_group->length * factor;
+	}
+
 	space_info->bytes_used += block_group->used;
 	space_info->disk_used += block_group->used * factor;
 	space_info->bytes_readonly += block_group->bytes_super;
@@ -385,10 +412,10 @@ void btrfs_add_bg_to_space_info(struct btrfs_fs_info *info,
 	up_write(&space_info->groups_sem);
 }
 
-struct btrfs_space_info *btrfs_find_space_info(struct btrfs_fs_info *info,
+struct btrfs_space_info *btrfs_find_space_info(const struct btrfs_fs_info *info,
 					       u64 flags)
 {
-	struct list_head *head = &info->space_info;
+	const struct list_head *head = &info->space_info;
 	struct btrfs_space_info *found;
 
 	flags &= BTRFS_BLOCK_GROUP_TYPE_MASK;
@@ -400,7 +427,7 @@ struct btrfs_space_info *btrfs_find_space_info(struct btrfs_fs_info *info,
 	return NULL;
 }
 
-static u64 calc_effective_data_chunk_size(struct btrfs_fs_info *fs_info)
+static u64 calc_effective_data_chunk_size(const struct btrfs_fs_info *fs_info)
 {
 	struct btrfs_space_info *data_sinfo;
 	u64 data_chunk_size;
@@ -426,6 +453,7 @@ static u64 calc_available_free_space(const struct btrfs_space_info *space_info,
 				     enum btrfs_reserve_flush_enum flush)
 {
 	struct btrfs_fs_info *fs_info = space_info->fs_info;
+	bool has_per_profile;
 	u64 profile;
 	u64 avail;
 	u64 data_chunk_size;
@@ -436,19 +464,21 @@ static u64 calc_available_free_space(const struct btrfs_space_info *space_info,
 	else
 		profile = btrfs_metadata_alloc_profile(fs_info);
 
-	avail = atomic64_read(&fs_info->free_chunk_space);
+	has_per_profile = btrfs_get_per_profile_avail(fs_info, profile, &avail);
+	if (!has_per_profile) {
+		avail = atomic64_read(&fs_info->free_chunk_space);
 
-	/*
-	 * If we have dup, raid1 or raid10 then only half of the free
-	 * space is actually usable.  For raid56, the space info used
-	 * doesn't include the parity drive, so we don't have to
-	 * change the math
-	 */
-	factor = btrfs_bg_type_to_factor(profile);
-	avail = div_u64(avail, factor);
-	if (avail == 0)
-		return 0;
-
+		/*
+		 * If we have dup, raid1 or raid10 then only half of the free
+		 * space is actually usable.  For raid56, the space info used
+		 * doesn't include the parity drive, so we don't have to
+		 * change the math
+		 */
+		factor = btrfs_bg_type_to_factor(profile);
+		avail = div_u64(avail, factor);
+		if (avail == 0)
+			return 0;
+	}
 	data_chunk_size = calc_effective_data_chunk_size(fs_info);
 
 	/*
@@ -471,10 +501,10 @@ static u64 calc_available_free_space(const struct btrfs_space_info *space_info,
 	/*
 	 * If we aren't flushing all things, let us overcommit up to
 	 * 1/2th of the space. If we can flush, don't let us overcommit
-	 * too much, let it overcommit up to 1/8 of the space.
+	 * too much, let it overcommit up to 1/64th of the space.
 	 */
-	if (flush == BTRFS_RESERVE_FLUSH_ALL)
-		avail >>= 3;
+	if (flush == BTRFS_RESERVE_FLUSH_ALL || flush == BTRFS_RESERVE_FLUSH_ALL_STEAL)
+		avail >>= 6;
 	else
 		avail >>= 1;
 
@@ -602,27 +632,12 @@ do {									\
 	spin_unlock(&__rsv->lock);					\
 } while (0)
 
-static const char *space_info_flag_to_str(const struct btrfs_space_info *space_info)
-{
-	switch (space_info->flags) {
-	case BTRFS_BLOCK_GROUP_SYSTEM:
-		return "SYSTEM";
-	case BTRFS_BLOCK_GROUP_METADATA | BTRFS_BLOCK_GROUP_DATA:
-		return "DATA+METADATA";
-	case BTRFS_BLOCK_GROUP_DATA:
-		return "DATA";
-	case BTRFS_BLOCK_GROUP_METADATA:
-		return "METADATA";
-	default:
-		return "UNKNOWN";
-	}
-}
-
 static void dump_global_block_rsv(struct btrfs_fs_info *fs_info)
 {
 	DUMP_BLOCK_RSV(fs_info, global_block_rsv);
 	DUMP_BLOCK_RSV(fs_info, trans_block_rsv);
 	DUMP_BLOCK_RSV(fs_info, chunk_block_rsv);
+	DUMP_BLOCK_RSV(fs_info, remap_block_rsv);
 	DUMP_BLOCK_RSV(fs_info, delayed_block_rsv);
 	DUMP_BLOCK_RSV(fs_info, delayed_refs_rsv);
 }
@@ -630,7 +645,7 @@ static void dump_global_block_rsv(struct btrfs_fs_info *fs_info)
 static void __btrfs_dump_space_info(const struct btrfs_space_info *info)
 {
 	const struct btrfs_fs_info *fs_info = info->fs_info;
-	const char *flag_str = space_info_flag_to_str(info);
+	const char *flag_str = btrfs_space_info_type_str(info);
 	lockdep_assert_held(&info->lock);
 
 	/* The free space could be negative in case of overcommit */
@@ -668,8 +683,7 @@ again:
 		u64 avail;
 
 		spin_lock(&cache->lock);
-		avail = cache->length - cache->used - cache->pinned -
-			cache->reserved - cache->bytes_super - cache->zone_unusable;
+		avail = btrfs_block_group_available_space(cache);
 		btrfs_info(fs_info,
 "block group %llu has %llu bytes, %llu used %llu pinned %llu reserved %llu delalloc %llu super %llu zone_unusable (%llu bytes available) %s",
 			   cache->start, cache->length, cache->used, cache->pinned,
@@ -899,6 +913,18 @@ static void flush_space(struct btrfs_space_info *space_info, u64 num_bytes,
 
 		if (ret > 0 || ret == -ENOSPC)
 			ret = 0;
+		break;
+	case RECLAIM_ZONES:
+		if (btrfs_is_zoned(fs_info)) {
+			btrfs_reclaim_sweep(fs_info);
+			btrfs_delete_unused_bgs(fs_info);
+			btrfs_reclaim_block_groups(fs_info,
+						   BTRFS_ZONED_SYNC_RECLAIM_BATCH);
+			ASSERT(current->journal_info == NULL);
+			ret = btrfs_commit_current_transaction(root);
+		} else {
+			ret = 0;
+		}
 		break;
 	case RUN_DELAYED_IPUTS:
 		/*
@@ -1398,6 +1424,7 @@ static const enum btrfs_flush_state data_flush_states[] = {
 	FLUSH_DELALLOC_FULL,
 	RUN_DELAYED_IPUTS,
 	COMMIT_TRANS,
+	RECLAIM_ZONES,
 	RESET_ZONES,
 	ALLOC_CHUNK_FORCE,
 };
@@ -2095,11 +2122,11 @@ static bool is_reclaim_urgent(struct btrfs_space_info *space_info)
 	return unalloc < data_chunk_size;
 }
 
-static void do_reclaim_sweep(struct btrfs_space_info *space_info, int raid)
+static bool do_reclaim_sweep(struct btrfs_space_info *space_info, int raid)
 {
 	struct btrfs_block_group *bg;
 	int thresh_pct;
-	bool try_again = true;
+	bool will_reclaim = false;
 	bool urgent;
 
 	spin_lock(&space_info->lock);
@@ -2117,7 +2144,7 @@ again:
 		spin_lock(&bg->lock);
 		thresh = mult_perc(bg->length, thresh_pct);
 		if (bg->used < thresh && bg->reclaim_mark) {
-			try_again = false;
+			will_reclaim = true;
 			reclaim = true;
 		}
 		bg->reclaim_mark++;
@@ -2134,12 +2161,13 @@ again:
 	 * If we have any staler groups, we don't touch the fresher ones, but if we
 	 * really need a block group, do take a fresh one.
 	 */
-	if (try_again && urgent) {
-		try_again = false;
+	if (!will_reclaim && urgent) {
+		urgent = false;
 		goto again;
 	}
 
 	up_read(&space_info->groups_sem);
+	return will_reclaim;
 }
 
 void btrfs_space_info_update_reclaimable(struct btrfs_space_info *space_info, s64 bytes)
@@ -2149,7 +2177,8 @@ void btrfs_space_info_update_reclaimable(struct btrfs_space_info *space_info, s6
 	lockdep_assert_held(&space_info->lock);
 	space_info->reclaimable_bytes += bytes;
 
-	if (space_info->reclaimable_bytes >= chunk_sz)
+	if (space_info->reclaimable_bytes > 0 &&
+	    space_info->reclaimable_bytes >= chunk_sz)
 		btrfs_set_periodic_reclaim_ready(space_info, true);
 }
 
@@ -2176,7 +2205,6 @@ static bool btrfs_should_periodic_reclaim(struct btrfs_space_info *space_info)
 
 	spin_lock(&space_info->lock);
 	ret = space_info->periodic_reclaim_ready;
-	btrfs_set_periodic_reclaim_ready(space_info, false);
 	spin_unlock(&space_info->lock);
 
 	return ret;
@@ -2190,8 +2218,13 @@ void btrfs_reclaim_sweep(const struct btrfs_fs_info *fs_info)
 	list_for_each_entry(space_info, &fs_info->space_info, list) {
 		if (!btrfs_should_periodic_reclaim(space_info))
 			continue;
-		for (raid = 0; raid < BTRFS_NR_RAID_TYPES; raid++)
-			do_reclaim_sweep(space_info, raid);
+		for (raid = 0; raid < BTRFS_NR_RAID_TYPES; raid++) {
+			if (do_reclaim_sweep(space_info, raid)) {
+				spin_lock(&space_info->lock);
+				btrfs_set_periodic_reclaim_ready(space_info, false);
+				spin_unlock(&space_info->lock);
+			}
+		}
 	}
 }
 

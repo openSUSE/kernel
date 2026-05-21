@@ -424,6 +424,12 @@ static void digital_in_recv_sdd_res(struct nfc_digital_dev *ddev, void *arg,
 		size = 4;
 	}
 
+	if (target->nfcid1_len + size > NFC_NFCID1_MAXSIZE) {
+		PROTOCOL_ERR("4.7.2.1");
+		rc = -EPROTO;
+		goto exit;
+	}
+
 	memcpy(target->nfcid1 + target->nfcid1_len, sdd_res->nfcid1 + offset,
 	       size);
 	target->nfcid1_len += size;
@@ -490,7 +496,7 @@ static void digital_in_recv_sens_res(struct nfc_digital_dev *ddev, void *arg,
 		goto exit;
 	}
 
-	target = kzalloc(sizeof(struct nfc_target), GFP_KERNEL);
+	target = kzalloc_obj(struct nfc_target);
 	if (!target) {
 		rc = -ENOMEM;
 		goto exit;
@@ -688,7 +694,7 @@ static void digital_in_recv_sensb_res(struct nfc_digital_dev *ddev, void *arg,
 	else
 		ddev->target_fsc = digital_ats_fsc[fsci];
 
-	target = kzalloc(sizeof(struct nfc_target), GFP_KERNEL);
+	target = kzalloc_obj(struct nfc_target);
 	if (!target) {
 		rc = -ENOMEM;
 		goto exit;
@@ -863,7 +869,7 @@ static void digital_in_recv_iso15693_inv_res(struct nfc_digital_dev *ddev,
 		goto out_free_skb;
 	}
 
-	target = kzalloc(sizeof(*target), GFP_KERNEL);
+	target = kzalloc_obj(*target);
 	if (!target) {
 		rc = -ENOMEM;
 		goto out_free_skb;

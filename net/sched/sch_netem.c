@@ -519,8 +519,9 @@ static int netem_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 			goto finish_segs;
 		}
 
-		skb->data[get_random_u32_below(skb_headlen(skb))] ^=
-			1<<get_random_u32_below(8);
+		if (skb_headlen(skb))
+			skb->data[get_random_u32_below(skb_headlen(skb))] ^=
+				1 << get_random_u32_below(8);
 	}
 
 	if (unlikely(q->t_len >= sch->limit)) {
@@ -814,7 +815,7 @@ static int get_dist_table(struct disttable **tbl, const struct nlattr *attr)
 	if (!n || n > NETEM_DIST_MAX)
 		return -EINVAL;
 
-	d = kvmalloc(struct_size(d, table, n), GFP_KERNEL);
+	d = kvmalloc_flex(*d, table, n);
 	if (!d)
 		return -ENOMEM;
 

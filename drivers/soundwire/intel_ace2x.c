@@ -82,6 +82,11 @@ static int intel_ace2x_bpt_open_stream(struct sdw_intel *sdw, struct sdw_slave *
 	int len;
 	int i;
 
+	if (cdns->bus.bpt_stream) {
+		dev_err(cdns->dev, "%s: BPT stream already exists\n", __func__);
+		return -EAGAIN;
+	}
+
 	stream = sdw_alloc_stream("BPT", SDW_STREAM_BPT);
 	if (!stream)
 		return -ENOMEM;
@@ -127,7 +132,7 @@ static int intel_ace2x_bpt_open_stream(struct sdw_intel *sdw, struct sdw_slave *
 	sconfig.bps = 32; /* this is required for BPT/BRA */
 
 	/* Port configuration */
-	pconfig = kcalloc(2, sizeof(*pconfig), GFP_KERNEL);
+	pconfig = kzalloc_objs(*pconfig, 2);
 	if (!pconfig) {
 		ret =  -ENOMEM;
 		goto remove_slave;
@@ -747,8 +752,7 @@ static int intel_hw_params(struct snd_pcm_substream *substream,
 	sconfig.bps = snd_pcm_format_width(params_format(params));
 
 	/* Port configuration */
-	struct sdw_port_config *pconfig __free(kfree) = kzalloc(sizeof(*pconfig),
-								GFP_KERNEL);
+	struct sdw_port_config *pconfig __free(kfree) = kzalloc_obj(*pconfig);
 	if (!pconfig)
 		return -ENOMEM;
 

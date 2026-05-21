@@ -39,6 +39,8 @@ enum mgmt_mod_type {
 	/* Configuration module */
 	MGMT_MOD_CFGM   = 7,
 	MGMT_MOD_HILINK = 14,
+	/* hardware max module id */
+	MGMT_MOD_HW_MAX = 20,
 };
 
 static inline void mgmt_msg_params_init_default(struct mgmt_msg_params *msg_params,
@@ -110,6 +112,11 @@ enum comm_cmd {
 	COMM_CMD_CFG_MSIX_CTRL_REG       = 23,
 	COMM_CMD_SET_CEQ_CTRL_REG        = 24,
 	COMM_CMD_SET_DMA_ATTR            = 25,
+
+	/* Commands for obtaining information */
+	COMM_CMD_GET_FW_VERSION          = 60,
+	COMM_CMD_SYNC_TIME               = 62,
+	COMM_CMD_SEND_BDF_INFO           = 64,
 };
 
 struct comm_cmd_cfg_msix_ctrl_reg {
@@ -249,6 +256,35 @@ struct comm_cmd_clear_resource {
 	struct mgmt_msg_head head;
 	u16                  func_id;
 	u16                  rsvd1[3];
+};
+
+struct comm_cmd_sync_time {
+	struct mgmt_msg_head head;
+
+	u64                  mstime;
+	u64                  rsvd1;
+};
+
+struct comm_cmd_bdf_info {
+	struct mgmt_msg_head head;
+
+	u16                  function_idx;
+	u8                   rsvd1[2];
+	u8                   bus;
+	u8                   device;
+	u8                   function;
+	u8                   rsvd2[5];
+};
+
+#define COMM_FW_VERSION_LEN       16
+#define COMM_FW_COMPILE_TIME_LEN  20
+struct comm_cmd_get_fw_version {
+	struct mgmt_msg_head head;
+
+	u16                  fw_type;
+	u16                  rsvd1;
+	u8                   ver[COMM_FW_VERSION_LEN];
+	u8                   time[COMM_FW_COMPILE_TIME_LEN];
 };
 
 /* Services supported by HW. HW uses these values when delivering events.

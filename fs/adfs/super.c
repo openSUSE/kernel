@@ -317,6 +317,9 @@ static int adfs_validate_bblk(struct super_block *sb, struct buffer_head *bh,
 	if (adfs_checkdiscrecord(dr))
 		return -EILSEQ;
 
+	if ((dr->nzones | dr->nzones_high << 8) == 0)
+		return -EILSEQ;
+
 	*drp = dr;
 	return 0;
 }
@@ -437,7 +440,7 @@ static int adfs_init_fs_context(struct fs_context *fc)
 {
 	struct adfs_sb_info *asb;
 
-	asb = kzalloc(sizeof(struct adfs_sb_info), GFP_KERNEL);
+	asb = kzalloc_obj(struct adfs_sb_info);
 	if (!asb)
 		return -ENOMEM;
 

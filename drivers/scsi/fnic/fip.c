@@ -139,7 +139,7 @@ void fnic_fcoe_process_vlan_resp(struct fnic *fnic, struct fip_header *fiph)
 			FNIC_FIP_DBG(KERN_INFO, fnic->host,
 				     fnic->fnic_num,
 				     "process_vlan_resp: FIP VLAN %d\n", vid);
-			vlan = kzalloc(sizeof(*vlan), GFP_KERNEL);
+			vlan = kzalloc_obj(*vlan);
 
 			if (!vlan) {
 				/* retry from timer */
@@ -737,7 +737,7 @@ void fnic_work_on_fip_timer(struct work_struct *work)
 		if (memcmp(iport->selected_fcf.fcf_mac, zmac, ETH_ALEN) != 0) {
 
 			if (iport->flags & FNIC_FIRST_LINK_UP) {
-				fnic_scsi_fcpio_reset(iport->fnic);
+				fnic_fcpio_reset(iport->fnic);
 				iport->flags &= ~FNIC_FIRST_LINK_UP;
 			}
 

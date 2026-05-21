@@ -49,15 +49,12 @@ static const struct drm_gem_object_funcs drm_gem_vram_object_funcs;
  * To initialize the VRAM helper library call drmm_vram_helper_init().
  * The function allocates and initializes an instance of &struct drm_vram_mm
  * in &struct drm_device.vram_mm . Use &DRM_GEM_VRAM_DRIVER to initialize
- * &struct drm_driver and  &DRM_VRAM_MM_FILE_OPERATIONS to initialize
+ * &struct drm_driver and &DEFINE_DRM_GEM_FOPS to define
  * &struct file_operations; as illustrated below.
  *
  * .. code-block:: c
  *
- *	struct file_operations fops ={
- *		.owner = THIS_MODULE,
- *		DRM_VRAM_MM_FILE_OPERATION
- *	};
+ *	DEFINE_DRM_GEM_FOPS(fops);
  *	struct drm_driver drv = {
  *		.driver_feature = DRM_ ... ,
  *		.fops = &fops,
@@ -197,7 +194,7 @@ struct drm_gem_vram_object *drm_gem_vram_create(struct drm_device *dev,
 			return ERR_CAST(gem);
 		gbo = drm_gem_vram_of_gem(gem);
 	} else {
-		gbo = kzalloc(sizeof(*gbo), GFP_KERNEL);
+		gbo = kzalloc_obj(*gbo);
 		if (!gbo)
 			return ERR_PTR(-ENOMEM);
 		gem = &gbo->bo.base;
@@ -721,7 +718,7 @@ static struct ttm_tt *bo_driver_ttm_tt_create(struct ttm_buffer_object *bo,
 	struct ttm_tt *tt;
 	int ret;
 
-	tt = kzalloc(sizeof(*tt), GFP_KERNEL);
+	tt = kzalloc_obj(*tt);
 	if (!tt)
 		return NULL;
 
@@ -890,7 +887,7 @@ static struct drm_vram_mm *drm_vram_helper_alloc_mm(struct drm_device *dev, uint
 	if (WARN_ON(dev->vram_mm))
 		return dev->vram_mm;
 
-	dev->vram_mm = kzalloc(sizeof(*dev->vram_mm), GFP_KERNEL);
+	dev->vram_mm = kzalloc_obj(*dev->vram_mm);
 	if (!dev->vram_mm)
 		return ERR_PTR(-ENOMEM);
 

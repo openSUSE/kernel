@@ -10,15 +10,16 @@
  * Author: Mark Brown <broonie@opensource.wolfsonmicro.com>
  */
 
-#include <linux/list.h>
-#include <linux/rbtree.h>
-#include <linux/ktime.h>
+#include <linux/bug.h>
+#include <linux/cleanup.h>
 #include <linux/delay.h>
 #include <linux/err.h>
-#include <linux/bug.h>
-#include <linux/lockdep.h>
-#include <linux/iopoll.h>
 #include <linux/fwnode.h>
+#include <linux/iopoll.h>
+#include <linux/ktime.h>
+#include <linux/list.h>
+#include <linux/lockdep.h>
+#include <linux/rbtree.h>
 
 struct module;
 struct clk;
@@ -359,6 +360,10 @@ typedef void (*regmap_unlock)(void *);
  * @reg_defaults: Power on reset values for registers (for use with
  *                register cache support).
  * @num_reg_defaults: Number of elements in reg_defaults.
+ * @reg_default_cb: Optional callback to return default values for registers
+ *                  not listed in reg_defaults. This is only used for
+ *                  REGCACHE_FLAT population; drivers must ensure the readable_reg/
+ *                  writeable_reg callbacks are defined to handle holes.
  *
  * @read_flag_mask: Mask to be set in the top bytes of the register when doing
  *                  a read.
@@ -449,6 +454,8 @@ struct regmap_config {
 	const struct regmap_access_table *rd_noinc_table;
 	const struct reg_default *reg_defaults;
 	unsigned int num_reg_defaults;
+	int (*reg_default_cb)(struct device *dev, unsigned int reg,
+			      unsigned int *def);
 	enum regcache_type cache_type;
 	const void *reg_defaults_raw;
 	unsigned int num_reg_defaults_raw;
@@ -686,6 +693,10 @@ struct regmap *__regmap_init_sdw_mbq(struct device *dev, struct sdw_slave *sdw,
 				     const struct regmap_sdw_mbq_cfg *mbq_config,
 				     struct lock_class_key *lock_key,
 				     const char *lock_name);
+struct regmap *__regmap_init_i3c(struct i3c_device *i3c,
+				 const struct regmap_config *config,
+				 struct lock_class_key *lock_key,
+				 const char *lock_name);
 struct regmap *__regmap_init_spi_avmm(struct spi_device *spi,
 				      const struct regmap_config *config,
 				      struct lock_class_key *lock_key,
@@ -991,6 +1002,19 @@ bool regmap_ac97_default_volatile(struct device *dev, unsigned int reg);
 #define regmap_init_sdw_mbq_cfg(dev, sdw, config, mbq_config)		\
 	__regmap_lockdep_wrapper(__regmap_init_sdw_mbq, #config,	\
 				dev, sdw, config, mbq_config)
+
+/**
+ * regmap_init_i3c() - Initialise register map
+ *
+ * @i3c: Device that will be interacted with
+ * @config: Configuration for register map
+ *
+ * The return value will be an ERR_PTR() on error or a valid pointer to
+ * a struct regmap.
+ */
+#define regmap_init_i3c(i3c, config)					\
+	__regmap_lockdep_wrapper(__regmap_init_i3c, #config,		\
+				i3c, config)
 
 /**
  * regmap_init_spi_avmm() - Initialize register map for Intel SPI Slave
@@ -1349,6 +1373,14 @@ static inline int regmap_write_bits(struct regmap *map, unsigned int reg,
 	return regmap_update_bits_base(map, reg, mask, val, NULL, false, true);
 }
 
+static inline int regmap_default_zero_cb(struct device *dev,
+					 unsigned int reg,
+					 unsigned int *def)
+{
+	*def = 0;
+	return 0;
+}
+
 int regmap_get_val_bytes(struct regmap *map);
 int regmap_get_max_register(struct regmap *map);
 int regmap_get_reg_stride(struct regmap *map);
@@ -1445,6 +1477,8 @@ struct reg_field {
 struct regmap_field *regmap_field_alloc(struct regmap *regmap,
 		struct reg_field reg_field);
 void regmap_field_free(struct regmap_field *field);
+
+DEFINE_FREE(regmap_field, struct regmap_field *, if (_T) regmap_field_free(_T))
 
 struct regmap_field *devm_regmap_field_alloc(struct device *dev,
 		struct regmap *regmap, struct reg_field reg_field);

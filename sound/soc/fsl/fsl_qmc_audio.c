@@ -54,8 +54,8 @@ struct qmc_dai_prtd {
 	struct snd_pcm_substream *substream;
 };
 
-static int qmc_audio_pcm_construct(struct snd_soc_component *component,
-				   struct snd_soc_pcm_runtime *rtd)
+static int qmc_audio_pcm_new(struct snd_soc_component *component,
+			     struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_card *card = rtd->card->snd_card;
 	int ret;
@@ -316,7 +316,7 @@ static int qmc_audio_pcm_open(struct snd_soc_component *component,
 	if (ret < 0)
 		return ret;
 
-	prtd = kzalloc(sizeof(*prtd), GFP_KERNEL);
+	prtd = kzalloc_obj(*prtd);
 	if (!prtd)
 		return -ENOMEM;
 
@@ -340,7 +340,7 @@ static const struct snd_soc_component_driver qmc_audio_soc_platform = {
 	.hw_params		= qmc_audio_pcm_hw_params,
 	.trigger		= qmc_audio_pcm_trigger,
 	.pointer		= qmc_audio_pcm_pointer,
-	.pcm_construct		= qmc_audio_pcm_construct,
+	.pcm_new		= qmc_audio_pcm_new,
 	.of_xlate_dai_name	= qmc_audio_of_xlate_dai_name,
 };
 

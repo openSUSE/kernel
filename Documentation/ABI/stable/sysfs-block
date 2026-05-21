@@ -609,6 +609,51 @@ Description:
 		enabled, and whether tags are shared.
 
 
+What:		/sys/block/<disk>/queue/async_depth
+Date:		August 2025
+Contact:	linux-block@vger.kernel.org
+Description:
+		[RW] Controls how many asynchronous requests may be allocated
+		in the block layer. The value is always capped at nr_requests.
+
+		When no elevator is active (none):
+
+		- async_depth is always equal to nr_requests.
+
+		For bfq scheduler:
+
+		- By default, async_depth is set to 75% of nr_requests.
+		  Internal limits are then derived from this value:
+
+		  * Sync writes: limited to async_depth (≈75% of nr_requests).
+		  * Async I/O: limited to ~2/3 of async_depth (≈50% of
+		    nr_requests).
+
+		  If a bfq_queue is weight-raised:
+
+		  * Sync writes: limited to ~1/2 of async_depth (≈37% of
+		    nr_requests).
+		  * Async I/O: limited to ~1/4 of async_depth (≈18% of
+		    nr_requests).
+
+		- If the user writes a custom value to async_depth, BFQ will
+		  recompute these limits proportionally based on the new value.
+
+		For Kyber:
+
+		- By default async_depth is set to 75% of nr_requests.
+		- If the user writes a custom value to async_depth, then it
+		  overrides the default and directly controls the limit for
+		  writes and async I/O.
+
+		For mq-deadline:
+
+		- By default async_depth is set to nr_requests.
+		- If the user writes a custom value to async_depth, then it
+		  overrides the default and directly controls the limit for
+		  writes and async I/O.
+
+
 What:		/sys/block/<disk>/queue/nr_zones
 Date:		November 2018
 Contact:	Damien Le Moal <damien.lemoal@wdc.com>
@@ -840,6 +885,21 @@ Description:
 		However, since drive-managed zoned block devices do not support
 		zone commands, they will be treated as regular block devices and
 		zoned will report "none".
+
+What:		/sys/block/<disk>/queue/zoned_qd1_writes
+Date:		January 2026
+Contact:	Damien Le Moal <dlemoal@kernel.org>
+Description:
+		[RW] zoned_qd1_writes indicates if write operations to a zoned
+		block device are being handled using a single issuer context (a
+		kernel thread) operating at a maximum queue depth of 1. This
+		attribute is visible only for zoned block devices. The default
+		value for zoned block devices that are not rotational devices
+		(e.g. ZNS SSDs or zoned UFS devices) is 0. For rotational zoned
+		block devices (e.g. SMR HDDs) the default value is 1. Since
+		this default may not be appropriate for some devices, e.g.
+		remotely connected devices over high latency networks, the user
+		can disable this feature by setting this attribute to 0.
 
 
 What:		/sys/block/<disk>/hidden

@@ -670,6 +670,9 @@ static int brcmf_fw_request_firmware(const struct firmware **fw,
 	}
 
 fallback:
+	if (cur->flags & BRCMF_FW_REQF_OPTIONAL)
+		return firmware_request_nowarn(fw, cur->path, fwctx->dev);
+
 	return request_firmware(fw, cur->path, fwctx->dev);
 }
 
@@ -714,9 +717,10 @@ static void brcmf_fw_request_done_alt_path(const struct firmware *fw, void *ctx)
 		if (!alt_path)
 			goto fallback;
 
-		ret = request_firmware_nowait(THIS_MODULE, true, alt_path,
-					      fwctx->dev, GFP_KERNEL, fwctx,
-					      brcmf_fw_request_done_alt_path);
+		ret = firmware_request_nowait_nowarn(THIS_MODULE,
+						     alt_path, fwctx->dev,
+						     GFP_KERNEL, fwctx,
+						     brcmf_fw_request_done_alt_path);
 		kfree(alt_path);
 
 		if (ret < 0)
@@ -765,7 +769,7 @@ int brcmf_fw_get_firmwares(struct device *dev, struct brcmf_fw_request *req,
 	if (!brcmf_fw_request_is_valid(req))
 		return -EINVAL;
 
-	fwctx = kzalloc(sizeof(*fwctx), GFP_KERNEL);
+	fwctx = kzalloc_obj(*fwctx);
 	if (!fwctx)
 		return -ENOMEM;
 
@@ -779,9 +783,10 @@ int brcmf_fw_get_firmwares(struct device *dev, struct brcmf_fw_request *req,
 					    fwctx->req->board_types[0]);
 	if (alt_path) {
 		fwctx->board_index++;
-		ret = request_firmware_nowait(THIS_MODULE, true, alt_path,
-					      fwctx->dev, GFP_KERNEL, fwctx,
-					      brcmf_fw_request_done_alt_path);
+		ret = firmware_request_nowait_nowarn(THIS_MODULE,
+						     alt_path, fwctx->dev,
+						     GFP_KERNEL, fwctx,
+						     brcmf_fw_request_done_alt_path);
 		kfree(alt_path);
 	} else {
 		ret = request_firmware_nowait(THIS_MODULE, true, first->path,
@@ -825,7 +830,7 @@ brcmf_fw_alloc_request(u32 chip, u32 chiprev,
 		return NULL;
 	}
 
-	fwreq = kzalloc(struct_size(fwreq, items, n_fwnames), GFP_KERNEL);
+	fwreq = kzalloc_flex(*fwreq, items, n_fwnames);
 	if (!fwreq)
 		return NULL;
 

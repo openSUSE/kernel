@@ -3,6 +3,8 @@
 // Copyright (C) 2025 Google LLC.
 
 //! Binder -- the Android IPC mechanism.
+
+#![crate_name = "rust_binder"]
 #![recursion_limit = "256"]
 #![allow(
     clippy::as_underscore,
@@ -18,6 +20,7 @@ use kernel::{
     prelude::*,
     seq_file::SeqFile,
     seq_print,
+    sync::atomic::{ordering::Relaxed, Atomic},
     sync::poll::PollTable,
     sync::Arc,
     task::Pid,
@@ -28,10 +31,7 @@ use kernel::{
 
 use crate::{context::Context, page_range::Shrinker, process::Process, thread::Thread};
 
-use core::{
-    ptr::NonNull,
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
-};
+use core::ptr::NonNull;
 
 mod allocation;
 mod context;
@@ -89,10 +89,18 @@ module! {
     license: "GPL",
 }
 
-fn next_debug_id() -> usize {
-    static NEXT_DEBUG_ID: AtomicUsize = AtomicUsize::new(0);
+use kernel::bindings::rust_binder_layout;
+#[no_mangle]
+static RUST_BINDER_LAYOUT: rust_binder_layout = rust_binder_layout {
+    t: transaction::TRANSACTION_LAYOUT,
+    p: process::PROCESS_LAYOUT,
+    n: node::NODE_LAYOUT,
+};
 
-    NEXT_DEBUG_ID.fetch_add(1, Ordering::Relaxed)
+fn next_debug_id() -> usize {
+    static NEXT_DEBUG_ID: Atomic<usize> = Atomic::new(0);
+
+    NEXT_DEBUG_ID.fetch_add(1, Relaxed)
 }
 
 /// Provides a single place to write Binder return values via the
@@ -110,6 +118,7 @@ impl<'a> BinderReturnWriter<'a> {
     /// Write a return code back to user space.
     /// Should be a `BR_` constant from [`defs`] e.g. [`defs::BR_TRANSACTION_COMPLETE`].
     fn write_code(&mut self, code: u32) -> Result {
+        crate::trace::trace_return(code);
         stats::GLOBAL_STATS.inc_br(code);
         self.thread.process.stats.inc_br(code);
         self.writer.write(&code)
@@ -215,7 +224,7 @@ impl<T: ListArcSafe> DTRWrap<T> {
 
 struct DeliverCode {
     code: u32,
-    skip: AtomicBool,
+    skip: Atomic<bool>,
 }
 
 kernel::list::impl_list_arc_safe! {
@@ -226,7 +235,7 @@ impl DeliverCode {
     fn new(code: u32) -> Self {
         Self {
             code,
-            skip: AtomicBool::new(false),
+            skip: Atomic::new(false),
         }
     }
 
@@ -235,7 +244,7 @@ impl DeliverCode {
     /// This is used instead of removing it from the work list, since `LinkedList::remove` is
     /// unsafe, whereas this method is not.
     fn skip(&self) {
-        self.skip.store(true, Ordering::Relaxed);
+        self.skip.store(true, Relaxed);
     }
 }
 
@@ -245,7 +254,7 @@ impl DeliverToRead for DeliverCode {
         _thread: &Thread,
         writer: &mut BinderReturnWriter<'_>,
     ) -> Result<bool> {
-        if !self.skip.load(Ordering::Relaxed) {
+        if !self.skip.load(Relaxed) {
             writer.write_code(self.code)?;
         }
         Ok(true)
@@ -259,7 +268,7 @@ impl DeliverToRead for DeliverCode {
 
     fn debug_print(&self, m: &SeqFile, prefix: &str, _tprefix: &str) -> Result<()> {
         seq_print!(m, "{}", prefix);
-        if self.skip.load(Ordering::Relaxed) {
+        if self.skip.load(Relaxed) {
             seq_print!(m, "(skipped) ");
         }
         if self.code == defs::BR_TRANSACTION_COMPLETE {
@@ -286,9 +295,7 @@ impl kernel::Module for BinderModule {
         // SAFETY: The module initializer never runs twice, so we only call this once.
         unsafe { crate::context::CONTEXTS.init() };
 
-        pr_warn!("Loaded Rust Binder.");
-
-        BINDER_SHRINKER.register(kernel::c_str!("android-binder"))?;
+        BINDER_SHRINKER.register(c"android-binder")?;
 
         // SAFETY: The module is being loaded, so we can initialize binderfs.
         unsafe { kernel::error::to_result(binderfs::init_rust_binderfs())? };
@@ -300,7 +307,7 @@ impl kernel::Module for BinderModule {
 /// Makes the inner type Sync.
 #[repr(transparent)]
 pub struct AssertSync<T>(T);
-// SAFETY: Used only to insert `file_operations` into a global, which is safe.
+// SAFETY: Used only to insert C bindings types into globals, which is safe.
 unsafe impl<T> Sync for AssertSync<T> {}
 
 /// File operations that rust_binderfs.c can use.
@@ -314,7 +321,7 @@ pub static rust_binder_fops: AssertSync<kernel::bindings::file_operations> = {
         owner: THIS_MODULE.as_ptr(),
         poll: Some(rust_binder_poll),
         unlocked_ioctl: Some(rust_binder_ioctl),
-        compat_ioctl: Some(bindings::compat_ptr_ioctl),
+        compat_ioctl: bindings::compat_ptr_ioctl,
         mmap: Some(rust_binder_mmap),
         open: Some(rust_binder_open),
         release: Some(rust_binder_release),

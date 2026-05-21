@@ -33,6 +33,7 @@
 #include <linux/hwmon-sysfs.h>
 #include <linux/nospec.h>
 #include <linux/pm_runtime.h>
+#include <linux/string_choices.h>
 #include <asm/processor.h>
 
 #define MAX_NUM_OF_FEATURES_PER_SUBSET		8
@@ -243,11 +244,11 @@ static ssize_t amdgpu_set_power_dpm_state(struct device *dev,
 	enum amd_pm_state_type  state;
 	int ret;
 
-	if (strncmp("battery", buf, strlen("battery")) == 0)
+	if (sysfs_streq(buf, "battery"))
 		state = POWER_STATE_TYPE_BATTERY;
-	else if (strncmp("balanced", buf, strlen("balanced")) == 0)
+	else if (sysfs_streq(buf, "balanced"))
 		state = POWER_STATE_TYPE_BALANCED;
-	else if (strncmp("performance", buf, strlen("performance")) == 0)
+	else if (sysfs_streq(buf, "performance"))
 		state = POWER_STATE_TYPE_PERFORMANCE;
 	else
 		return -EINVAL;
@@ -363,29 +364,28 @@ static ssize_t amdgpu_set_power_dpm_force_performance_level(struct device *dev,
 	enum amd_dpm_forced_level level;
 	int ret = 0;
 
-	if (strncmp("low", buf, strlen("low")) == 0) {
+	if (sysfs_streq(buf, "low"))
 		level = AMD_DPM_FORCED_LEVEL_LOW;
-	} else if (strncmp("high", buf, strlen("high")) == 0) {
+	else if (sysfs_streq(buf, "high"))
 		level = AMD_DPM_FORCED_LEVEL_HIGH;
-	} else if (strncmp("auto", buf, strlen("auto")) == 0) {
+	else if (sysfs_streq(buf, "auto"))
 		level = AMD_DPM_FORCED_LEVEL_AUTO;
-	} else if (strncmp("manual", buf, strlen("manual")) == 0) {
+	else if (sysfs_streq(buf, "manual"))
 		level = AMD_DPM_FORCED_LEVEL_MANUAL;
-	} else if (strncmp("profile_exit", buf, strlen("profile_exit")) == 0) {
+	else if (sysfs_streq(buf, "profile_exit"))
 		level = AMD_DPM_FORCED_LEVEL_PROFILE_EXIT;
-	} else if (strncmp("profile_standard", buf, strlen("profile_standard")) == 0) {
+	else if (sysfs_streq(buf, "profile_standard"))
 		level = AMD_DPM_FORCED_LEVEL_PROFILE_STANDARD;
-	} else if (strncmp("profile_min_sclk", buf, strlen("profile_min_sclk")) == 0) {
+	else if (sysfs_streq(buf, "profile_min_sclk"))
 		level = AMD_DPM_FORCED_LEVEL_PROFILE_MIN_SCLK;
-	} else if (strncmp("profile_min_mclk", buf, strlen("profile_min_mclk")) == 0) {
+	else if (sysfs_streq(buf, "profile_min_mclk"))
 		level = AMD_DPM_FORCED_LEVEL_PROFILE_MIN_MCLK;
-	} else if (strncmp("profile_peak", buf, strlen("profile_peak")) == 0) {
+	else if (sysfs_streq(buf, "profile_peak"))
 		level = AMD_DPM_FORCED_LEVEL_PROFILE_PEAK;
-	} else if (strncmp("perf_determinism", buf, strlen("perf_determinism")) == 0) {
+	else if (sysfs_streq(buf, "perf_determinism"))
 		level = AMD_DPM_FORCED_LEVEL_PERF_DETERMINISM;
-	}  else {
+	else
 		return -EINVAL;
-	}
 
 	ret = amdgpu_pm_get_access(adev);
 	if (ret < 0)
@@ -681,6 +681,8 @@ static ssize_t amdgpu_set_pp_table(struct device *dev,
  * - minimum(not available for Vega20 and Navi1x) and maximum memory
  *   clock labeled OD_MCLK
  *
+ * - minimum and maximum fabric clock labeled OD_FCLK (SMU13)
+ *
  * - three <frequency, voltage> points labeled OD_VDDC_CURVE.
  *   They can be used to calibrate the sclk voltage curve. This is
  *   available for Vega20 and NV1X.
@@ -716,10 +718,11 @@ static ssize_t amdgpu_set_pp_table(struct device *dev,
  * - First select manual using power_dpm_force_performance_level
  *
  * - For clock frequency setting, enter a new value by writing a
- *   string that contains "s/m index clock" to the file. The index
+ *   string that contains "s/m/f index clock" to the file. The index
  *   should be 0 if to set minimum clock. And 1 if to set maximum
  *   clock. E.g., "s 0 500" will update minimum sclk to be 500 MHz.
- *   "m 1 800" will update maximum mclk to be 800Mhz. For core
+ *   "m 1 800" will update maximum mclk to be 800Mhz. "f 1 1600" will
+ *   update maximum fabric clock to be 1600Mhz. For core
  *   clocks on VanGogh, the string contains "p core index clock".
  *   E.g., "p 2 0 800" would set the minimum core clock on core
  *   2 to 800Mhz.
@@ -769,6 +772,8 @@ static ssize_t amdgpu_set_pp_od_clk_voltage(struct device *dev,
 		type = PP_OD_EDIT_CCLK_VDDC_TABLE;
 	else if (*buf == 'm')
 		type = PP_OD_EDIT_MCLK_VDDC_TABLE;
+	else if (*buf == 'f')
+		type = PP_OD_EDIT_FCLK_TABLE;
 	else if (*buf == 'r')
 		type = PP_OD_RESTORE_DEFAULT_TABLE;
 	else if (*buf == 'c')
@@ -844,9 +849,10 @@ static ssize_t amdgpu_get_pp_od_clk_voltage(struct device *dev,
 	struct amdgpu_device *adev = drm_to_adev(ddev);
 	int size = 0;
 	int ret;
-	enum pp_clock_type od_clocks[6] = {
+	enum pp_clock_type od_clocks[] = {
 		OD_SCLK,
 		OD_MCLK,
+		OD_FCLK,
 		OD_VDDC_CURVE,
 		OD_RANGE,
 		OD_VDDGFX_OFFSET,
@@ -858,18 +864,8 @@ static ssize_t amdgpu_get_pp_od_clk_voltage(struct device *dev,
 	if (ret)
 		return ret;
 
-	for (clk_index = 0 ; clk_index < 6 ; clk_index++) {
-		ret = amdgpu_dpm_emit_clock_levels(adev, od_clocks[clk_index], buf, &size);
-		if (ret)
-			break;
-	}
-	if (ret == -ENOENT) {
-		size = amdgpu_dpm_print_clock_levels(adev, OD_SCLK, buf);
-		size += amdgpu_dpm_print_clock_levels(adev, OD_MCLK, buf + size);
-		size += amdgpu_dpm_print_clock_levels(adev, OD_VDDC_CURVE, buf + size);
-		size += amdgpu_dpm_print_clock_levels(adev, OD_VDDGFX_OFFSET, buf + size);
-		size += amdgpu_dpm_print_clock_levels(adev, OD_RANGE, buf + size);
-		size += amdgpu_dpm_print_clock_levels(adev, OD_CCLK, buf + size);
+	for (clk_index = 0 ; clk_index < ARRAY_SIZE(od_clocks) ; clk_index++) {
+		amdgpu_dpm_emit_clock_levels(adev, od_clocks[clk_index], buf, &size);
 	}
 
 	if (size == 0)
@@ -999,12 +995,15 @@ static ssize_t amdgpu_get_pp_dpm_clock(struct device *dev,
 		return ret;
 
 	ret = amdgpu_dpm_emit_clock_levels(adev, type, buf, &size);
-	if (ret == -ENOENT)
-		size = amdgpu_dpm_print_clock_levels(adev, type, buf);
+	if (ret) {
+		size = ret;
+		goto out_pm_put;
+	}
 
 	if (size == 0)
 		size = sysfs_emit(buf, "\n");
 
+out_pm_put:
 	amdgpu_pm_put_access(adev);
 
 	return size;
@@ -1597,7 +1596,7 @@ static ssize_t amdgpu_get_thermal_throttling_logging(struct device *dev,
 
 	return sysfs_emit(buf, "%s: thermal throttling logging %s, with interval %d seconds\n",
 			  adev_to_drm(adev)->unique,
-			  atomic_read(&adev->throttling_logging_enabled) ? "enabled" : "disabled",
+			  str_enabled_disabled(atomic_read(&adev->throttling_logging_enabled)),
 			  adev->throttling_logging_rs.interval / HZ + 1);
 }
 
@@ -1919,8 +1918,6 @@ static int ss_bias_attr_update(struct amdgpu_device *adev, struct amdgpu_device_
 static int pp_od_clk_voltage_attr_update(struct amdgpu_device *adev, struct amdgpu_device_attr *attr,
 					 uint32_t mask, enum amdgpu_device_attr_states *states)
 {
-	uint32_t gc_ver = amdgpu_ip_version(adev, GC_HWIP, 0);
-
 	*states = ATTR_STATE_SUPPORTED;
 
 	if (!amdgpu_dpm_is_overdrive_supported(adev)) {
@@ -1928,10 +1925,8 @@ static int pp_od_clk_voltage_attr_update(struct amdgpu_device *adev, struct amdg
 		return 0;
 	}
 
-	/* Enable pp_od_clk_voltage node for gc 9.4.3, 9.4.4, 9.5.0 SRIOV/BM support */
-	if (gc_ver == IP_VERSION(9, 4, 3) ||
-	    gc_ver == IP_VERSION(9, 4, 4) ||
-	    gc_ver == IP_VERSION(9, 5, 0)) {
+	/* Enable pp_od_clk_voltage node for gc 9.4.3, 9.4.4, 9.5.0, 12.1.0 SRIOV/BM support */
+	if (amdgpu_is_multi_aid(adev)) {
 		if (amdgpu_sriov_multi_vf_mode(adev))
 			*states = ATTR_STATE_UNSUPPORTED;
 		return 0;
@@ -2009,9 +2004,7 @@ static int pp_dpm_clk_default_attr_update(struct amdgpu_device *adev, struct amd
 		      gc_ver == IP_VERSION(11, 5, 0) ||
 		      gc_ver == IP_VERSION(11, 0, 2) ||
 		      gc_ver == IP_VERSION(11, 0, 3) ||
-		      gc_ver == IP_VERSION(9, 4, 3) ||
-		      gc_ver == IP_VERSION(9, 4, 4) ||
-		      gc_ver == IP_VERSION(9, 5, 0)))
+		      amdgpu_is_multi_aid(adev)))
 			*states = ATTR_STATE_UNSUPPORTED;
 	} else if (DEVICE_ATTR_IS(pp_dpm_vclk1)) {
 		if (!((gc_ver == IP_VERSION(10, 3, 1) ||
@@ -2032,9 +2025,7 @@ static int pp_dpm_clk_default_attr_update(struct amdgpu_device *adev, struct amd
 		      gc_ver == IP_VERSION(11, 5, 0) ||
 		      gc_ver == IP_VERSION(11, 0, 2) ||
 		      gc_ver == IP_VERSION(11, 0, 3) ||
-		      gc_ver == IP_VERSION(9, 4, 3) ||
-		      gc_ver == IP_VERSION(9, 4, 4) ||
-		      gc_ver == IP_VERSION(9, 5, 0)))
+		      amdgpu_is_multi_aid(adev)))
 			*states = ATTR_STATE_UNSUPPORTED;
 	} else if (DEVICE_ATTR_IS(pp_dpm_dclk1)) {
 		if (!((gc_ver == IP_VERSION(10, 3, 1) ||
@@ -2044,9 +2035,7 @@ static int pp_dpm_clk_default_attr_update(struct amdgpu_device *adev, struct amd
 			*states = ATTR_STATE_UNSUPPORTED;
 	} else if (DEVICE_ATTR_IS(pp_dpm_pcie)) {
 		if (gc_ver == IP_VERSION(9, 4, 2) ||
-		    gc_ver == IP_VERSION(9, 4, 3) ||
-		    gc_ver == IP_VERSION(9, 4, 4) ||
-		    gc_ver == IP_VERSION(9, 5, 0))
+		    amdgpu_is_multi_aid(adev))
 			*states = ATTR_STATE_UNSUPPORTED;
 	}
 
@@ -2081,9 +2070,10 @@ static int pp_dpm_clk_default_attr_update(struct amdgpu_device *adev, struct amd
  * for user application to monitor various board reated attributes.
  *
  * The amdgpu driver provides a sysfs API for reporting board attributes. Presently,
- * seven types of attributes are reported. Baseboard temperature and
+ * nine types of attributes are reported. Baseboard temperature and
  * gpu board temperature are reported as binary files. Npm status, current node power limit,
- * max node power limit, node power and global ppt residency is reported as ASCII text file.
+ * max node power limit, node power, global ppt residency, baseboard_power, baseboard_power_limit
+ * is reported as ASCII text file.
  *
  * * .. code-block:: console
  *
@@ -2100,6 +2090,10 @@ static int pp_dpm_clk_default_attr_update(struct amdgpu_device *adev, struct amd
  *      hexdump /sys/bus/pci/devices/.../board/node_power
  *
  *      hexdump /sys/bus/pci/devices/.../board/global_ppt_resid
+ *
+ *      hexdump /sys/bus/pci/devices/.../board/baseboard_power
+ *
+ *      hexdump /sys/bus/pci/devices/.../board/baseboard_power_limit
  */
 
 /**
@@ -2245,7 +2239,7 @@ static ssize_t amdgpu_show_npm_status(struct device *dev,
 	if (r)
 		return r;
 
-	return sysfs_emit(buf, "%s\n", npower ? "enabled" : "disabled");
+	return sysfs_emit(buf, "%s\n", str_enabled_disabled(npower));
 }
 
 /**
@@ -2294,6 +2288,52 @@ static ssize_t amdgpu_show_max_node_power_limit(struct device *dev,
 	return sysfs_emit(buf, "%u\n", max_nplimit);
 }
 
+/**
+ * DOC: baseboard_power
+ *
+ * The amdgpu driver provides a sysfs API for retrieving current ubb power in watts.
+ * The file baseboard_power is used for this.
+ */
+static ssize_t amdgpu_show_baseboard_power(struct device *dev,
+					   struct device_attribute *attr, char *buf)
+{
+	struct drm_device *ddev = dev_get_drvdata(dev);
+	struct amdgpu_device *adev = drm_to_adev(ddev);
+	u32 ubbpower;
+	int r;
+
+	/* get the ubb power */
+	r = amdgpu_pm_get_sensor_generic(adev, AMDGPU_PP_SENSOR_UBB_POWER,
+					 (void *)&ubbpower);
+	if (r)
+		return r;
+
+	return sysfs_emit(buf, "%u\n", ubbpower);
+}
+
+/**
+ * DOC: baseboard_power_limit
+ *
+ * The amdgpu driver provides a sysfs API for retrieving threshold ubb power in watts.
+ * The file baseboard_power_limit is used for this.
+ */
+static ssize_t amdgpu_show_baseboard_power_limit(struct device *dev,
+						 struct device_attribute *attr, char *buf)
+{
+	struct drm_device *ddev = dev_get_drvdata(dev);
+	struct amdgpu_device *adev = drm_to_adev(ddev);
+	u32 ubbpowerlimit;
+	int r;
+
+	/* get the ubb power limit */
+	r = amdgpu_pm_get_sensor_generic(adev, AMDGPU_PP_SENSOR_UBB_POWER_LIMIT,
+					 (void *)&ubbpowerlimit);
+	if (r)
+		return r;
+
+	return sysfs_emit(buf, "%u\n", ubbpowerlimit);
+}
+
 static DEVICE_ATTR(baseboard_temp, 0444, amdgpu_get_baseboard_temp_metrics, NULL);
 static DEVICE_ATTR(gpuboard_temp, 0444, amdgpu_get_gpuboard_temp_metrics, NULL);
 static DEVICE_ATTR(cur_node_power_limit, 0444, amdgpu_show_cur_node_power_limit, NULL);
@@ -2301,6 +2341,8 @@ static DEVICE_ATTR(node_power, 0444, amdgpu_show_node_power, NULL);
 static DEVICE_ATTR(global_ppt_resid, 0444, amdgpu_show_global_ppt_resid, NULL);
 static DEVICE_ATTR(max_node_power_limit, 0444, amdgpu_show_max_node_power_limit, NULL);
 static DEVICE_ATTR(npm_status, 0444, amdgpu_show_npm_status, NULL);
+static DEVICE_ATTR(baseboard_power, 0444, amdgpu_show_baseboard_power, NULL);
+static DEVICE_ATTR(baseboard_power_limit, 0444, amdgpu_show_baseboard_power_limit, NULL);
 
 static struct attribute *board_attrs[] = {
 	&dev_attr_baseboard_temp.attr,
@@ -2607,6 +2649,7 @@ static int default_attr_update(struct amdgpu_device *adev, struct amdgpu_device_
 		case IP_VERSION(11, 0, 3):
 		case IP_VERSION(12, 0, 0):
 		case IP_VERSION(12, 0, 1):
+		case IP_VERSION(12, 1, 0):
 			*states = ATTR_STATE_SUPPORTED;
 			break;
 		default:
@@ -2702,7 +2745,7 @@ static int amdgpu_device_attr_create(struct amdgpu_device *adev,
 			name, ret);
 	}
 
-	attr_entry = kmalloc(sizeof(*attr_entry), GFP_KERNEL);
+	attr_entry = kmalloc_obj(*attr_entry);
 	if (!attr_entry)
 		return -ENOMEM;
 
@@ -3688,8 +3731,7 @@ static umode_t hwmon_attributes_visible(struct kobject *kobj,
 
 	/* Skip crit temp on APU */
 	if ((((adev->flags & AMD_IS_APU) && (adev->family >= AMDGPU_FAMILY_CZ)) ||
-	    (gc_ver == IP_VERSION(9, 4, 3) || gc_ver == IP_VERSION(9, 4, 4) ||
-	     gc_ver == IP_VERSION(9, 5, 0))) &&
+	     amdgpu_is_multi_aid(adev)) &&
 	    (attr == &sensor_dev_attr_temp1_crit.dev_attr.attr ||
 	     attr == &sensor_dev_attr_temp1_crit_hyst.dev_attr.attr))
 		return 0;
@@ -3771,18 +3813,14 @@ static umode_t hwmon_attributes_visible(struct kobject *kobj,
 
 	if ((adev->family == AMDGPU_FAMILY_SI ||	/* not implemented yet */
 	     adev->family == AMDGPU_FAMILY_KV ||	/* not implemented yet */
-	     (gc_ver == IP_VERSION(9, 4, 3) ||
-	      gc_ver == IP_VERSION(9, 4, 4) ||
-	      gc_ver == IP_VERSION(9, 5, 0))) &&
+	     amdgpu_is_multi_aid(adev)) &&
 	    (attr == &sensor_dev_attr_in0_input.dev_attr.attr ||
 	     attr == &sensor_dev_attr_in0_label.dev_attr.attr))
 		return 0;
 
 	/* only APUs other than gc 9,4,3 have vddnb */
 	if ((!(adev->flags & AMD_IS_APU) ||
-	     (gc_ver == IP_VERSION(9, 4, 3) ||
-	      gc_ver == IP_VERSION(9, 4, 4) ||
-	      gc_ver == IP_VERSION(9, 5, 0))) &&
+	     amdgpu_is_multi_aid(adev)) &&
 	    (attr == &sensor_dev_attr_in1_input.dev_attr.attr ||
 	     attr == &sensor_dev_attr_in1_label.dev_attr.attr))
 		return 0;
@@ -3811,9 +3849,7 @@ static umode_t hwmon_attributes_visible(struct kobject *kobj,
 		return 0;
 
 	/* hotspot temperature for gc 9,4,3*/
-	if (gc_ver == IP_VERSION(9, 4, 3) ||
-	    gc_ver == IP_VERSION(9, 4, 4) ||
-	    gc_ver == IP_VERSION(9, 5, 0)) {
+	if (amdgpu_is_multi_aid(adev)) {
 		if (attr == &sensor_dev_attr_temp1_input.dev_attr.attr ||
 		    attr == &sensor_dev_attr_temp1_emergency.dev_attr.attr ||
 		    attr == &sensor_dev_attr_temp1_label.dev_attr.attr)
@@ -3833,7 +3869,7 @@ static umode_t hwmon_attributes_visible(struct kobject *kobj,
 	     attr == &sensor_dev_attr_temp3_emergency.dev_attr.attr))
 		return 0;
 
-	/* only Vangogh has fast PPT limit and power labels */
+	/* only a few GPUs have fast PPT limit and power labels */
 	if ((attr == &sensor_dev_attr_power2_cap_max.dev_attr.attr ||
 	     attr == &sensor_dev_attr_power2_cap_min.dev_attr.attr ||
 	     attr == &sensor_dev_attr_power2_cap.dev_attr.attr ||
@@ -3868,10 +3904,15 @@ static int amdgpu_retrieve_od_settings(struct amdgpu_device *adev,
 	if (ret)
 		return ret;
 
-	size = amdgpu_dpm_print_clock_levels(adev, od_type, buf);
+	ret = amdgpu_dpm_emit_clock_levels(adev, od_type, buf, &size);
+	if (ret) {
+		size = ret;
+		goto out_pm_put;
+	}
 	if (size == 0)
 		size = sysfs_emit(buf, "\n");
 
+out_pm_put:
 	amdgpu_pm_put_access(adev);
 
 	return size;
@@ -4546,7 +4587,7 @@ static int amdgpu_od_set_init(struct amdgpu_device *adev)
 	int ret;
 
 	/* Setup the top `gpu_od` directory which holds all other OD interfaces */
-	top_set = kzalloc(sizeof(*top_set), GFP_KERNEL);
+	top_set = kzalloc_obj(*top_set);
 	if (!top_set)
 		return -ENOMEM;
 	list_add(&top_set->entry, &adev->pm.od_kobj_list);
@@ -4583,7 +4624,7 @@ static int amdgpu_od_set_init(struct amdgpu_device *adev)
 			 * The container is presented as a plain file under top `gpu_od`
 			 * directory.
 			 */
-			attribute = kzalloc(sizeof(*attribute), GFP_KERNEL);
+			attribute = kzalloc_obj(*attribute);
 			if (!attribute) {
 				ret = -ENOMEM;
 				goto err_out;
@@ -4603,7 +4644,7 @@ static int amdgpu_od_set_init(struct amdgpu_device *adev)
 				goto err_out;
 		} else {
 			/* The container is presented as a sub directory. */
-			sub_set = kzalloc(sizeof(*sub_set), GFP_KERNEL);
+			sub_set = kzalloc_obj(*sub_set);
 			if (!sub_set) {
 				ret = -ENOMEM;
 				goto err_out;
@@ -4633,7 +4674,7 @@ static int amdgpu_od_set_init(struct amdgpu_device *adev)
 				 * With the container presented as a sub directory, the entry within
 				 * it is presented as a plain file under the sub directory.
 				 */
-				attribute = kzalloc(sizeof(*attribute), GFP_KERNEL);
+				attribute = kzalloc_obj(*attribute);
 				if (!attribute) {
 					ret = -ENOMEM;
 					goto err_out;
@@ -4754,6 +4795,14 @@ int amdgpu_pm_sysfs_init(struct amdgpu_device *adev)
 						&dev_attr_max_node_power_limit.attr,
 						amdgpu_board_attr_group.name);
 			sysfs_add_file_to_group(&adev->dev->kobj, &dev_attr_npm_status.attr,
+						amdgpu_board_attr_group.name);
+		}
+		if (amdgpu_pm_get_sensor_generic(adev, AMDGPU_PP_SENSOR_UBB_POWER_LIMIT,
+						 (void *)&tmp) != -EOPNOTSUPP) {
+			sysfs_add_file_to_group(&adev->dev->kobj,
+						&dev_attr_baseboard_power_limit.attr,
+						amdgpu_board_attr_group.name);
+			sysfs_add_file_to_group(&adev->dev->kobj, &dev_attr_baseboard_power.attr,
 						amdgpu_board_attr_group.name);
 		}
 	}

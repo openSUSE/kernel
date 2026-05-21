@@ -1005,7 +1005,8 @@ static int rtw8822b_set_antenna(struct rtw_dev *rtwdev,
 	hal->antenna_tx = antenna_tx;
 	hal->antenna_rx = antenna_rx;
 
-	rtw8822b_config_trx_mode(rtwdev, antenna_tx, antenna_rx, false);
+	if (test_bit(RTW_FLAG_POWERON, rtwdev->flags))
+		rtw8822b_config_trx_mode(rtwdev, antenna_tx, antenna_rx, false);
 
 	return 0;
 }
@@ -2216,6 +2217,11 @@ static const struct coex_table_para table_sant_8822b[] = {
 	{0x66556aaa, 0x6a5a6aaa}, /* case-30 */
 	{0xffffffff, 0x5aaa5aaa},
 	{0x56555555, 0x5a5a5aaa},
+	{0xdaffdaff, 0xdaffdaff},
+	{0xddffddff, 0xddffddff},
+	{0xe5555555, 0xe5555555}, /* case-35 */
+	{0xea5a5a5a, 0xea5a5a5a},
+	{0xea6a6a6a, 0xea6a6a6a},
 };
 
 /* Non-Shared-Antenna Coex Table */

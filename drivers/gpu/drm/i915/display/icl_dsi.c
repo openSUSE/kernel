@@ -34,7 +34,6 @@
 #include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 
-#include "i915_reg.h"
 #include "icl_dsi.h"
 #include "icl_dsi_regs.h"
 #include "intel_atomic.h"
@@ -712,7 +711,7 @@ gen11_dsi_configure_transcoder(struct intel_encoder *encoder,
 		dsi_trans = dsi_port_to_transcoder(port);
 		tmp = intel_de_read(display, DSI_TRANS_FUNC_CONF(dsi_trans));
 
-		if (intel_dsi->eotp_pkt)
+		if (intel_dsi->eot_pkt)
 			tmp &= ~EOTP_DISABLED;
 		else
 			tmp |= EOTP_DISABLED;
@@ -729,6 +728,12 @@ gen11_dsi_configure_transcoder(struct intel_encoder *encoder,
 			tmp |= CLK_ENTER_LP_AFTER_DATA;
 		else
 			tmp |= CLK_HS_CONTINUOUS;
+
+		if (DISPLAY_VER(display) >= 12 &&
+		    intel_dsi->lp_clock_during_lpm)
+			tmp |= LP_CLK_DURING_LPM;
+		else
+			tmp &= ~LP_CLK_DURING_LPM;
 
 		/* configure buffer threshold limit to minimum */
 		tmp &= ~PIX_BUF_THRESHOLD_MASK;
@@ -766,10 +771,11 @@ gen11_dsi_configure_transcoder(struct intel_encoder *encoder,
 			}
 		}
 
-		if (DISPLAY_VER(display) >= 12) {
-			if (is_vid_mode(intel_dsi))
-				tmp |= BLANKING_PACKET_ENABLE;
-		}
+		if (DISPLAY_VER(display) >= 12 &&
+		    is_vid_mode(intel_dsi) && intel_dsi->blanking_pkt)
+			tmp |= BLANKING_PACKET_ENABLE;
+		else
+			tmp &= ~BLANKING_PACKET_ENABLE;
 
 		/* program DSI operation mode */
 		if (is_vid_mode(intel_dsi)) {
@@ -889,7 +895,7 @@ gen11_dsi_set_transcoder_timings(struct intel_encoder *encoder,
 	 * non-compressed link speeds, and simplifies down to the ratio between
 	 * compressed and non-compressed bpp.
 	 */
-	if (crtc_state->dsc.compression_enable) {
+	if (is_vid_mode(intel_dsi) && crtc_state->dsc.compression_enable) {
 		mul = fxp_q4_to_int(crtc_state->dsc.compressed_bpp_x16);
 		div = mipi_dsi_pixel_format_to_bpp(intel_dsi->pixel_format);
 	}
@@ -1411,7 +1417,7 @@ static void gen11_dsi_disable_io_power(struct intel_encoder *encoder)
 	enum port port;
 
 	for_each_dsi_port(port, intel_dsi->ports) {
-		intel_wakeref_t wakeref;
+		struct ref_tracker *wakeref;
 
 		wakeref = fetch_and_zero(&intel_dsi->io_wakeref[port]);
 		intel_display_power_put(display,
@@ -1503,7 +1509,7 @@ static void gen11_dsi_get_timings(struct intel_encoder *encoder,
 	struct drm_display_mode *adjusted_mode =
 					&pipe_config->hw.adjusted_mode;
 
-	if (pipe_config->dsc.compressed_bpp_x16) {
+	if (is_vid_mode(intel_dsi) && pipe_config->dsc.compressed_bpp_x16) {
 		int div = fxp_q4_to_int(pipe_config->dsc.compressed_bpp_x16);
 		int mul = mipi_dsi_pixel_format_to_bpp(intel_dsi->pixel_format);
 
@@ -1624,12 +1630,6 @@ static int gen11_dsi_dsc_compute_config(struct intel_encoder *encoder,
 	if (crtc_state->pipe_bpp < 8 * 3)
 		return -EINVAL;
 
-	/* FIXME: split only when necessary */
-	if (crtc_state->dsc.slice_count > 1)
-		crtc_state->dsc.num_streams = 2;
-	else
-		crtc_state->dsc.num_streams = 1;
-
 	/* FIXME: initialize from VBT */
 	vdsc_cfg->rc_model_size = DSC_RC_MODEL_SIZE_CONST;
 
@@ -1722,7 +1722,7 @@ static bool gen11_dsi_get_hw_state(struct intel_encoder *encoder,
 	struct intel_display *display = to_intel_display(encoder);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(encoder);
 	enum transcoder dsi_trans;
-	intel_wakeref_t wakeref;
+	struct ref_tracker *wakeref;
 	enum port port;
 	bool ret = false;
 	u32 tmp;
@@ -1934,7 +1934,7 @@ void icl_dsi_init(struct intel_display *display,
 	if (port == PORT_NONE)
 		return;
 
-	intel_dsi = kzalloc(sizeof(*intel_dsi), GFP_KERNEL);
+	intel_dsi = kzalloc_obj(*intel_dsi);
 	if (!intel_dsi)
 		return;
 

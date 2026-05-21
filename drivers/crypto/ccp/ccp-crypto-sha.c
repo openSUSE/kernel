@@ -418,7 +418,7 @@ static int ccp_register_hmac_alg(struct list_head *head,
 	struct crypto_alg *base;
 	int ret;
 
-	ccp_alg = kzalloc(sizeof(*ccp_alg), GFP_KERNEL);
+	ccp_alg = kzalloc_obj(*ccp_alg);
 	if (!ccp_alg)
 		return -ENOMEM;
 
@@ -462,7 +462,7 @@ static int ccp_register_sha_alg(struct list_head *head,
 	struct crypto_alg *base;
 	int ret;
 
-	ccp_alg = kzalloc(sizeof(*ccp_alg), GFP_KERNEL);
+	ccp_alg = kzalloc_obj(*ccp_alg);
 	if (!ccp_alg)
 		return -ENOMEM;
 
@@ -484,9 +484,8 @@ static int ccp_register_sha_alg(struct list_head *head,
 	halg->statesize = sizeof(struct ccp_sha_exp_ctx);
 
 	base = &halg->base;
-	snprintf(base->cra_name, CRYPTO_MAX_ALG_NAME, "%s", def->name);
-	snprintf(base->cra_driver_name, CRYPTO_MAX_ALG_NAME, "%s",
-		 def->drv_name);
+	strscpy(base->cra_name, def->name);
+	strscpy(base->cra_driver_name, def->drv_name);
 	base->cra_flags = CRYPTO_ALG_ASYNC |
 			  CRYPTO_ALG_ALLOCATES_MEMORY |
 			  CRYPTO_ALG_KERN_DRIVER_ONLY |

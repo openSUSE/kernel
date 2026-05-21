@@ -169,7 +169,7 @@ static int ibmveth_alloc_buffer_pool(struct ibmveth_buff_pool *pool)
 	if (!pool->free_map)
 		return -1;
 
-	pool->dma_addr = kcalloc(pool->size, sizeof(dma_addr_t), GFP_KERNEL);
+	pool->dma_addr = kzalloc_objs(dma_addr_t, pool->size);
 	if (!pool->dma_addr) {
 		kfree(pool->free_map);
 		pool->free_map = NULL;
@@ -355,7 +355,7 @@ hcall_failure:
 
 		/*
 		 * If multi rx buffers hcall is no longer supported by FW
-		 * e.g. in the case of Live Parttion Migration
+		 * e.g. in the case of Live Partition Migration
 		 */
 		if (batch > 1 && lpar_rc == H_FUNCTION) {
 			/*
@@ -480,7 +480,7 @@ static int ibmveth_remove_buffer_from_pool(struct ibmveth_adapter *adapter,
 	 */
 	if (!reuse) {
 		/* remove the skb pointer to mark free. actual freeing is done
-		 * by upper level networking after gro_recieve
+		 * by upper level networking after gro_receive
 		 */
 		adapter->rx_buff_pool[pool].skbuff[index] = NULL;
 

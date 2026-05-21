@@ -634,7 +634,7 @@
 			#address-cells = <1>;
 			#size-cells = <1>;
 
-			gpu_speed_bin: gpu_speed_bin@1a2 {
+			gpu_speed_bin: gpu-speed-bin@1a2 {
 				reg = <0x1a2 0x2>;
 				bits = <5 8>;
 			};
@@ -1128,6 +1128,17 @@
 			compatible = "qcom,sdm670-refgen-regulator",
 				     "qcom,sdm845-refgen-regulator";
 			reg = <0x0 0x00ff1000 0x0 0x60>;
+		};
+
+		llcc: system-cache-controller@1100000 {
+			compatible = "qcom,sdm670-llcc";
+			reg = <0 0x01100000 0 0x50000>,
+			      <0 0x01180000 0 0x50000>,
+			      <0 0x01300000 0 0x50000>;
+			reg-names = "llcc0_base",
+				    "llcc1_base",
+				    "llcc_broadcast_base";
+			interrupts = <GIC_SPI 582 IRQ_TYPE_LEVEL_HIGH>;
 		};
 
 		mem_noc: interconnect@1380000 {

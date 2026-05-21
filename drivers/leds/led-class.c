@@ -273,7 +273,7 @@ static struct led_classdev *of_led_get(struct device_node *np, int index,
 	if (!led_node)
 		return ERR_PTR(-ENOENT);
 
-	led_dev = class_find_device_by_of_node(&leds_class, led_node);
+	led_dev = class_find_device_by_fwnode(&leds_class, of_fwnode_handle(led_node));
 	of_node_put(led_node);
 
 	return led_module_get(led_dev);
@@ -421,6 +421,9 @@ EXPORT_SYMBOL_GPL(led_add_lookup);
  */
 void led_remove_lookup(struct led_lookup_data *led_lookup)
 {
+	if (!led_lookup)
+		return;
+
 	mutex_lock(&leds_lookup_lock);
 	list_del(&led_lookup->list);
 	mutex_unlock(&leds_lookup_lock);
@@ -560,11 +563,6 @@ int led_classdev_register_ext(struct device *parent,
 #ifdef CONFIG_LEDS_BRIGHTNESS_HW_CHANGED
 	led_cdev->brightness_hw_changed = -1;
 #endif
-	/* add to the list of leds */
-	down_write(&leds_list_lock);
-	list_add_tail(&led_cdev->node, &leds_list);
-	up_write(&leds_list_lock);
-
 	if (!led_cdev->max_brightness)
 		led_cdev->max_brightness = LED_FULL;
 
@@ -573,6 +571,11 @@ int led_classdev_register_ext(struct device *parent,
 	led_cdev->wq = leds_wq;
 
 	led_init_core(led_cdev);
+
+	/* add to the list of leds */
+	down_write(&leds_list_lock);
+	list_add_tail(&led_cdev->node, &leds_list);
+	up_write(&leds_list_lock);
 
 #ifdef CONFIG_LEDS_TRIGGERS
 	led_trigger_set_default(led_cdev);

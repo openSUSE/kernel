@@ -96,20 +96,6 @@ int io_validate_user_buf_range(u64 uaddr, u64 ulen)
 	return 0;
 }
 
-static int io_buffer_validate(struct iovec *iov)
-{
-	/*
-	 * Don't impose further limits on the size and buffer
-	 * constraints here, we'll -EINVAL later when IO is
-	 * submitted if they are wrong.
-	 */
-	if (!iov->iov_base)
-		return iov->iov_len ? -EFAULT : 0;
-
-	return io_validate_user_buf_range((unsigned long)iov->iov_base,
-					  iov->iov_len);
-}
-
 static void io_release_ubuf(void *priv)
 {
 	struct io_mapped_ubuf *imu = priv;
@@ -127,8 +113,7 @@ static struct io_mapped_ubuf *io_alloc_imu(struct io_ring_ctx *ctx,
 {
 	if (nr_bvecs <= IO_CACHED_BVECS_SEGS)
 		return io_cache_alloc(&ctx->imu_cache, GFP_KERNEL);
-	return kvmalloc(struct_size_t(struct io_mapped_ubuf, bvec, nr_bvecs),
-			GFP_KERNEL);
+	return kvmalloc_flex(struct io_mapped_ubuf, bvec, nr_bvecs);
 }
 
 static void io_free_imu(struct io_ring_ctx *ctx, struct io_mapped_ubuf *imu)
@@ -183,7 +168,7 @@ bool io_rsrc_cache_init(struct io_ring_ctx *ctx)
 void io_rsrc_cache_free(struct io_ring_ctx *ctx)
 {
 	io_alloc_cache_free(&ctx->node_cache, kfree);
-	io_alloc_cache_free(&ctx->imu_cache, kfree);
+	io_alloc_cache_free(&ctx->imu_cache, kvfree);
 }
 
 static void io_clear_table_tags(struct io_rsrc_data *data)
@@ -214,8 +199,8 @@ __cold void io_rsrc_data_free(struct io_ring_ctx *ctx,
 
 __cold int io_rsrc_data_alloc(struct io_rsrc_data *data, unsigned nr)
 {
-	data->nodes = kvmalloc_array(nr, sizeof(struct io_rsrc_node *),
-					GFP_KERNEL_ACCOUNT | __GFP_ZERO);
+	data->nodes = kvmalloc_objs(struct io_rsrc_node *, nr,
+				    GFP_KERNEL_ACCOUNT | __GFP_ZERO);
 	if (data->nodes) {
 		data->nr = nr;
 		return 0;
@@ -253,6 +238,9 @@ static int __io_sqe_files_update(struct io_ring_ctx *ctx,
 			continue;
 
 		i = up->offset + done;
+		if (i >= ctx->file_table.data.nr)
+			break;
+		i = array_index_nospec(i, ctx->file_table.data.nr);
 		if (io_reset_rsrc_node(ctx, &ctx->file_table.data, i))
 			io_file_bitmap_clear(&ctx->file_table, i);
 
@@ -310,7 +298,7 @@ static int __io_sqe_buffers_update(struct io_ring_ctx *ctx,
 		u64 tag = 0;
 
 		uvec = u64_to_user_ptr(user_data);
-		iov = iovec_from_user(uvec, 1, 1, &fast_iov, ctx->compat);
+		iov = iovec_from_user(uvec, 1, 1, &fast_iov, io_is_compat(ctx));
 		if (IS_ERR(iov)) {
 			err = PTR_ERR(iov);
 			break;
@@ -319,9 +307,6 @@ static int __io_sqe_buffers_update(struct io_ring_ctx *ctx,
 			err = -EFAULT;
 			break;
 		}
-		err = io_buffer_validate(iov);
-		if (err)
-			break;
 		node = io_sqe_buffer_register(ctx, iov, &last_hpage);
 		if (IS_ERR(node)) {
 			err = PTR_ERR(node);
@@ -337,7 +322,7 @@ static int __io_sqe_buffers_update(struct io_ring_ctx *ctx,
 		i = array_index_nospec(up->offset + done, ctx->buf_table.nr);
 		io_reset_rsrc_node(ctx, &ctx->buf_table, i);
 		ctx->buf_table.nodes[i] = node;
-		if (ctx->compat)
+		if (io_is_compat(ctx))
 			user_data += sizeof(struct compat_iovec);
 		else
 			user_data += sizeof(struct iovec);
@@ -701,7 +686,7 @@ static bool io_coalesce_buffer(struct page ***pages, int *nr_pages,
 	unsigned i, j;
 
 	/* Store head pages only*/
-	new_array = kvmalloc_array(nr_folios, sizeof(struct page *), GFP_KERNEL);
+	new_array = kvmalloc_objs(struct page *, nr_folios);
 	if (!new_array)
 		return false;
 
@@ -790,8 +775,17 @@ static struct io_rsrc_node *io_sqe_buffer_register(struct io_ring_ctx *ctx,
 	struct io_imu_folio_data data;
 	bool coalesced = false;
 
-	if (!iov->iov_base)
+	if (!iov->iov_base) {
+		if (iov->iov_len)
+			return ERR_PTR(-EFAULT);
+		/* remove the buffer without installing a new one */
 		return NULL;
+	}
+
+	ret = io_validate_user_buf_range((unsigned long)iov->iov_base,
+					 iov->iov_len);
+	if (ret)
+		return ERR_PTR(ret);
 
 	node = io_rsrc_node_alloc(ctx, IORING_RSRC_BUFFER);
 	if (!node)
@@ -828,7 +822,7 @@ static struct io_rsrc_node *io_sqe_buffer_register(struct io_ring_ctx *ctx,
 	imu->folio_shift = PAGE_SHIFT;
 	imu->release = io_release_ubuf;
 	imu->priv = imu;
-	imu->is_kbuf = false;
+	imu->flags = 0;
 	imu->dir = IO_IMU_DEST | IO_IMU_SOURCE;
 	if (coalesced)
 		imu->folio_shift = data.folio_shift;
@@ -892,15 +886,12 @@ int io_sqe_buffers_register(struct io_ring_ctx *ctx, void __user *arg,
 
 		if (arg) {
 			uvec = (struct iovec __user *) arg;
-			iov = iovec_from_user(uvec, 1, 1, &fast_iov, ctx->compat);
+			iov = iovec_from_user(uvec, 1, 1, &fast_iov, io_is_compat(ctx));
 			if (IS_ERR(iov)) {
 				ret = PTR_ERR(iov);
 				break;
 			}
-			ret = io_buffer_validate(iov);
-			if (ret)
-				break;
-			if (ctx->compat)
+			if (io_is_compat(ctx))
 				arg += sizeof(struct compat_iovec);
 			else
 				arg += sizeof(struct iovec);
@@ -973,7 +964,7 @@ int io_buffer_register_bvec(struct io_uring_cmd *cmd, struct request *rq,
 	 */
 	imu = io_alloc_imu(ctx, blk_rq_nr_phys_segments(rq));
 	if (!imu) {
-		kfree(node);
+		io_cache_free(&ctx->node_cache, node);
 		ret = -ENOMEM;
 		goto unlock;
 	}
@@ -985,7 +976,7 @@ int io_buffer_register_bvec(struct io_uring_cmd *cmd, struct request *rq,
 	refcount_set(&imu->refs, 1);
 	imu->release = release;
 	imu->priv = rq;
-	imu->is_kbuf = true;
+	imu->flags = IO_REGBUF_F_KBUF;
 	imu->dir = 1 << rq_data_dir(rq);
 
 	rq_for_each_bvec(bv, rq, rq_iter)
@@ -1020,7 +1011,7 @@ int io_buffer_unregister_bvec(struct io_uring_cmd *cmd, unsigned int index,
 		ret = -EINVAL;
 		goto unlock;
 	}
-	if (!node->buf->is_kbuf) {
+	if (!(node->buf->flags & IO_REGBUF_F_KBUF)) {
 		ret = -EBUSY;
 		goto unlock;
 	}
@@ -1055,16 +1046,6 @@ static int io_import_kbuf(int ddir, struct iov_iter *iter,
 
 	iov_iter_bvec(iter, ddir, imu->bvec, imu->nr_bvecs, count);
 	iov_iter_advance(iter, offset);
-
-	if (count < imu->len) {
-		const struct bio_vec *bvec = iter->bvec;
-
-		while (len > bvec->bv_len) {
-			len -= bvec->bv_len;
-			bvec++;
-		}
-		iter->nr_segs = 1 + bvec - iter->bvec;
-	}
 	return 0;
 }
 
@@ -1083,10 +1064,14 @@ static int io_import_fixed(int ddir, struct iov_iter *iter,
 		return ret;
 	if (!(imu->dir & (1 << ddir)))
 		return -EFAULT;
+	if (unlikely(!len)) {
+		iov_iter_bvec(iter, ddir, NULL, 0, 0);
+		return 0;
+	}
 
 	offset = buf_addr - imu->ubuf;
 
-	if (imu->is_kbuf)
+	if (imu->flags & IO_REGBUF_F_KBUF)
 		return io_import_kbuf(ddir, iter, imu, len, offset);
 
 	/*
@@ -1291,7 +1276,7 @@ int io_register_clone_buffers(struct io_ring_ctx *ctx, void __user *arg)
 		return -EINVAL;
 
 	registered_src = (buf.flags & IORING_REGISTER_SRC_REGISTERED) != 0;
-	file = io_uring_register_get_file(buf.src_fd, registered_src);
+	file = io_uring_ctx_get_file(buf.src_fd, registered_src);
 	if (IS_ERR(file))
 		return PTR_ERR(file);
 
@@ -1313,7 +1298,8 @@ out:
 	if (src_ctx != ctx)
 		mutex_unlock(&src_ctx->uring_lock);
 
-	fput(file);
+	if (!registered_src)
+		fput(file);
 	return ret;
 }
 
@@ -1328,10 +1314,10 @@ void io_vec_free(struct iou_vec *iv)
 
 int io_vec_realloc(struct iou_vec *iv, unsigned nr_entries)
 {
-	gfp_t gfp = GFP_KERNEL | __GFP_NOWARN;
+	gfp_t gfp = GFP_KERNEL_ACCOUNT | __GFP_NOWARN;
 	struct iovec *iov;
 
-	iov = kmalloc_array(nr_entries, sizeof(iov[0]), gfp);
+	iov = kmalloc_objs(iov[0], nr_entries, gfp);
 	if (!iov)
 		return -ENOMEM;
 
@@ -1506,7 +1492,7 @@ int io_import_reg_vec(int ddir, struct iov_iter *iter,
 	iovec_off = vec->nr - nr_iovs;
 	iov = vec->iovec + iovec_off;
 
-	if (imu->is_kbuf) {
+	if (imu->flags & IO_REGBUF_F_KBUF) {
 		int ret = io_kern_bvec_size(iov, nr_iovs, imu, &nr_segs);
 
 		if (unlikely(ret))
@@ -1544,7 +1530,7 @@ int io_import_reg_vec(int ddir, struct iov_iter *iter,
 		req->flags |= REQ_F_NEED_CLEANUP;
 	}
 
-	if (imu->is_kbuf)
+	if (imu->flags & IO_REGBUF_F_KBUF)
 		return io_vec_fill_kern_bvec(ddir, iter, imu, iov, nr_iovs, vec);
 
 	return io_vec_fill_bvec(ddir, iter, imu, iov, nr_iovs, vec);

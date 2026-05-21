@@ -152,7 +152,7 @@ static int roccat_open(struct inode *inode, struct file *file)
 	struct roccat_device *device;
 	int error = 0;
 
-	reader = kzalloc(sizeof(struct roccat_reader), GFP_KERNEL);
+	reader = kzalloc_obj(struct roccat_reader);
 	if (!reader)
 		return -ENOMEM;
 
@@ -257,6 +257,7 @@ int roccat_report_event(int minor, u8 const *data)
 	if (!new_value)
 		return -ENOMEM;
 
+	mutex_lock(&device->readers_lock);
 	mutex_lock(&device->cbuf_lock);
 
 	report = &device->cbuf[device->cbuf_end];
@@ -279,6 +280,7 @@ int roccat_report_event(int minor, u8 const *data)
 	}
 
 	mutex_unlock(&device->cbuf_lock);
+	mutex_unlock(&device->readers_lock);
 
 	wake_up_interruptible(&device->wait);
 	return 0;
@@ -301,7 +303,7 @@ int roccat_connect(const struct class *klass, struct hid_device *hid, int report
 	struct roccat_device *device;
 	int temp;
 
-	device = kzalloc(sizeof(struct roccat_device), GFP_KERNEL);
+	device = kzalloc_obj(struct roccat_device);
 	if (!device)
 		return -ENOMEM;
 

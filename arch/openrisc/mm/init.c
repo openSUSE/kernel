@@ -39,16 +39,12 @@
 
 int mem_init_done;
 
-static void __init zone_sizes_init(void)
+void __init arch_zone_limits_init(unsigned long *max_zone_pfns)
 {
-	unsigned long max_zone_pfn[MAX_NR_ZONES] = { 0 };
-
 	/*
 	 * We use only ZONE_NORMAL
 	 */
-	max_zone_pfn[ZONE_NORMAL] = max_low_pfn;
-
-	free_area_init(max_zone_pfn);
+	max_zone_pfns[ZONE_NORMAL] = max_low_pfn;
 }
 
 extern const char _s_kernel_ro[], _e_kernel_ro[];
@@ -141,8 +137,6 @@ void __init paging_init(void)
 
 	map_ram();
 
-	zone_sizes_init();
-
 	/* self modifying code ;) */
 	/* Since the old TLB miss handler has been running up until now,
 	 * the kernel pages are still all RW, so we can still modify the
@@ -193,9 +187,6 @@ void __init paging_init(void)
 void __init mem_init(void)
 {
 	BUG_ON(!mem_map);
-
-	/* clear the zero-page */
-	memset((void *)empty_zero_page, 0, PAGE_SIZE);
 
 	printk("mem_init_done ...........................................\n");
 	mem_init_done = 1;

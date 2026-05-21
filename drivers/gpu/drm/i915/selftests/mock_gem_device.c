@@ -148,7 +148,7 @@ struct drm_i915_private *mock_gem_device(void)
 	struct pci_dev *pdev;
 	int ret;
 
-	pdev = kzalloc(sizeof(*pdev), GFP_KERNEL);
+	pdev = kzalloc_obj(*pdev);
 	if (!pdev)
 		return NULL;
 	device_initialize(&pdev->dev);
@@ -223,7 +223,7 @@ struct drm_i915_private *mock_gem_device(void)
 	if (!i915->wq)
 		goto err_drv;
 
-	i915->unordered_wq = alloc_workqueue("mock-unordered", 0, 0);
+	i915->unordered_wq = alloc_workqueue("mock-unordered", WQ_PERCPU, 0);
 	if (!i915->unordered_wq)
 		goto err_wq;
 

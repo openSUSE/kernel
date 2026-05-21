@@ -324,7 +324,7 @@ static struct ocfs2_xattr_bucket *ocfs2_xattr_bucket_new(struct inode *inode)
 
 	BUG_ON(blks > OCFS2_XATTR_MAX_BLOCKS_PER_BUCKET);
 
-	bucket = kzalloc(sizeof(struct ocfs2_xattr_bucket), GFP_NOFS);
+	bucket = kzalloc_obj(struct ocfs2_xattr_bucket, GFP_NOFS);
 	if (bucket) {
 		bucket->bu_inode = inode;
 		bucket->bu_blocks = blks;
@@ -911,8 +911,8 @@ static int ocfs2_xattr_list_entry(struct super_block *sb,
 	total_len = prefix_len + name_len + 1;
 	*result += total_len;
 
-	/* we are just looking for how big our buffer needs to be */
-	if (!size)
+	/* No buffer means we are only looking for the required size. */
+	if (!buffer)
 		return 0;
 
 	if (*result > size)
@@ -1971,8 +1971,7 @@ static void ocfs2_xa_remove_entry(struct ocfs2_xa_loc *loc)
 	ocfs2_xa_wipe_namevalue(loc);
 	loc->xl_entry = NULL;
 
-	le16_add_cpu(&xh->xh_count, -1);
-	count = le16_to_cpu(xh->xh_count);
+	count = le16_to_cpu(xh->xh_count) - 1;
 
 	/*
 	 * Only zero out the entry if there are more remaining.  This is
@@ -1987,6 +1986,8 @@ static void ocfs2_xa_remove_entry(struct ocfs2_xa_loc *loc)
 		memset(&xh->xh_entries[count], 0,
 		       sizeof(struct ocfs2_xattr_entry));
 	}
+
+	xh->xh_count = cpu_to_le16(count);
 }
 
 /*
@@ -3740,7 +3741,7 @@ static int ocfs2_xattr_get_rec(struct inode *inode,
 
 		if (el->l_tree_depth) {
 			ret = ocfs2_error(inode->i_sb,
-					  "Inode %lu has non zero tree depth in xattr tree block %llu\n",
+					  "Inode %llu has non zero tree depth in xattr tree block %llu\n",
 					  inode->i_ino,
 					  (unsigned long long)eb_bh->b_blocknr);
 			goto out;
@@ -3757,7 +3758,7 @@ static int ocfs2_xattr_get_rec(struct inode *inode,
 	}
 
 	if (!e_blkno) {
-		ret = ocfs2_error(inode->i_sb, "Inode %lu has bad extent record (%u, %u, 0) in xattr\n",
+		ret = ocfs2_error(inode->i_sb, "Inode %llu has bad extent record (%u, %u, 0) in xattr\n",
 				  inode->i_ino,
 				  le32_to_cpu(rec->e_cpos),
 				  ocfs2_rec_clusters(el, rec));
@@ -6394,6 +6395,10 @@ static int ocfs2_reflink_xattr_header(handle_t *handle,
 					(void *)last - (void *)xe);
 				memset(last, 0,
 				       sizeof(struct ocfs2_xattr_entry));
+				last = &new_xh->xh_entries[le16_to_cpu(new_xh->xh_count)] - 1;
+			} else {
+				memset(xe, 0, sizeof(struct ocfs2_xattr_entry));
+				last = NULL;
 			}
 
 			/*

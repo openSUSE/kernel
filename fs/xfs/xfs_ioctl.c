@@ -3,7 +3,7 @@
  * Copyright (c) 2000-2005 Silicon Graphics, Inc.
  * All Rights Reserved.
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -37,10 +37,15 @@
 #include "xfs_ioctl.h"
 #include "xfs_xattr.h"
 #include "xfs_rtbitmap.h"
+#include "xfs_rtrmap_btree.h"
 #include "xfs_file.h"
 #include "xfs_exchrange.h"
 #include "xfs_handle.h"
 #include "xfs_rtgroup.h"
+#include "xfs_healthmon.h"
+#include "xfs_verify_media.h"
+#include "xfs_zone_priv.h"
+#include "xfs_zone_alloc.h"
 
 #include <linux/mount.h>
 #include <linux/fileattr.h>
@@ -411,6 +416,7 @@ xfs_ioc_rtgroup_geometry(
 {
 	struct xfs_rtgroup	*rtg;
 	struct xfs_rtgroup_geometry rgeo;
+	xfs_rgblock_t		highest_rgbno;
 	int			error;
 
 	if (copy_from_user(&rgeo, arg, sizeof(rgeo)))
@@ -430,6 +436,21 @@ xfs_ioc_rtgroup_geometry(
 	xfs_rtgroup_put(rtg);
 	if (error)
 		return error;
+
+	if (xfs_has_zoned(mp)) {
+		xfs_rtgroup_lock(rtg, XFS_RTGLOCK_RMAP);
+		if (rtg->rtg_open_zone) {
+			rgeo.rg_writepointer = rtg->rtg_open_zone->oz_allocated;
+		} else {
+			highest_rgbno = xfs_rtrmap_highest_rgbno(rtg);
+			if (highest_rgbno == NULLRGBLOCK)
+				rgeo.rg_writepointer = 0;
+			else
+				rgeo.rg_writepointer = highest_rgbno + 1;
+		}
+		xfs_rtgroup_unlock(rtg, XFS_RTGLOCK_RMAP);
+		rgeo.rg_flags |= XFS_RTGROUP_GEOM_WRITEPOINTER;
+	}
 
 	if (copy_to_user(arg, &rgeo, sizeof(rgeo)))
 		return -EFAULT;
@@ -894,7 +915,7 @@ xfs_ioc_getbmap(
 	if (bmx.bmv_count >= INT_MAX / recsize)
 		return -ENOMEM;
 
-	buf = kvcalloc(bmx.bmv_count, sizeof(*buf), GFP_KERNEL);
+	buf = kvzalloc_objs(*buf, bmx.bmv_count);
 	if (!buf)
 		return -ENOMEM;
 
@@ -1418,6 +1439,11 @@ xfs_file_ioctl(
 		return xfs_ioc_start_commit(filp, arg);
 	case XFS_IOC_COMMIT_RANGE:
 		return xfs_ioc_commit_range(filp, arg);
+
+	case XFS_IOC_HEALTH_MONITOR:
+		return xfs_ioc_health_monitor(filp, arg);
+	case XFS_IOC_VERIFY_MEDIA:
+		return xfs_ioc_verify_media(filp, arg);
 
 	default:
 		return -ENOTTY;

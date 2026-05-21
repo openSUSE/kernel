@@ -63,6 +63,26 @@ properties:
 
       - items:
           - enum:
+              - qcom,eliza-mtp
+          - const: qcom,eliza
+
+      - items:
+          - enum:
+              - qcom,glymur-crd
+          - const: qcom,glymur
+
+      - items:
+          - enum:
+              - qcom,mahua-crd
+          - const: qcom,mahua
+
+      - items:
+          - enum:
+              - fairphone,fp6
+          - const: qcom,milos
+
+      - items:
+          - enum:
               - microsoft,dempsey
               - microsoft,makepeace
               - microsoft,moneypenny
@@ -166,6 +186,7 @@ properties:
               - qcom,msm8916-mtp
               - samsung,a3u-eur
               - samsung,a5u-eur
+              - samsung,coreprimeltevzw
               - samsung,e5
               - samsung,e7
               - samsung,fortuna3g
@@ -181,6 +202,7 @@ properties:
               - samsung,serranove
               - thwc,uf896
               - thwc,ufi001c
+              - wiko,chuppito
               - wingtech,wt86518
               - wingtech,wt86528
               - wingtech,wt88047
@@ -190,6 +212,8 @@ properties:
       - items:
           - enum:
               - xiaomi,riva
+              - xiaomi,rolex
+              - xiaomi,tiare
           - const: qcom,msm8917
 
       - items:
@@ -236,6 +260,13 @@ properties:
               - arrow,apq8096-db820c
               - inforce,ifc6640
           - const: qcom,apq8096-sbc
+          - const: qcom,apq8096
+
+      - items:
+          - const: arrow,apq8096sg-db820c
+          - const: arrow,apq8096-db820c
+          - const: qcom,apq8096-sbc
+          - const: qcom,apq8096sg
           - const: qcom,apq8096
 
       - items:
@@ -294,6 +325,11 @@ properties:
 
       - items:
           - enum:
+              - qcom,ipq5210-rdp504
+          - const: qcom,ipq5210
+
+      - items:
+          - enum:
               - qcom,ipq5332-ap-mi01.2
               - qcom,ipq5332-ap-mi01.3
               - qcom,ipq5332-ap-mi01.6
@@ -321,11 +357,19 @@ properties:
       - items:
           - enum:
               - qcom,ipq9574-ap-al02-c2
+              - qcom,ipq9574-ap-al02-c2-emmc
               - qcom,ipq9574-ap-al02-c6
               - qcom,ipq9574-ap-al02-c7
+              - qcom,ipq9574-ap-al02-c7-emmc
               - qcom,ipq9574-ap-al02-c8
               - qcom,ipq9574-ap-al02-c9
           - const: qcom,ipq9574
+
+      - items:
+          - enum:
+              - qcom,kaanapali-mtp
+              - qcom,kaanapali-qrd
+          - const: qcom,kaanapali
 
       - description: Sierra Wireless MangOH Green with WP8548 Module
         items:
@@ -336,6 +380,7 @@ properties:
       - description: Qualcomm Technologies, Inc. Robotics RB1
         items:
           - enum:
+              - arduino,imola
               - qcom,qrb2210-rb1
           - const: qcom,qrb2210
           - const: qcom,qcm2290
@@ -348,6 +393,8 @@ properties:
               - qcom,qcs6490-rb3gen2
               - radxa,dragon-q6a
               - shift,otter
+              - thundercomm,minipc-g1iot
+              - thundercomm,rubikpi3
           - const: qcom,qcm6490
 
       - description: Qualcomm Technologies, Inc. Distributed Unit 1000 platform
@@ -372,6 +419,7 @@ properties:
       - items:
           - enum:
               - acer,aspire1
+              - ecs,liva-qc710
               - qcom,sc7180-idp
           - const: qcom,sc7180
 
@@ -833,6 +881,12 @@ properties:
 
       - items:
           - enum:
+              - google,bonito-tianma
+          - const: google,bonito
+          - const: qcom,sdm670
+
+      - items:
+          - enum:
               - qcom,sdx55-mtp
               - qcom,sdx55-telit-fn980-tlb
               - qcom,sdx55-t55
@@ -863,6 +917,7 @@ properties:
 
       - items:
           - enum:
+              - arduino,monza
               - qcom,monaco-evk
               - qcom,qcs8300-ride
           - const: qcom,qcs8300
@@ -870,6 +925,7 @@ properties:
       - items:
           - enum:
               - qcom,qcs615-ride
+              - qcom,talos-evk
           - const: qcom,qcs615
           - const: qcom,sm6150
 
@@ -900,6 +956,8 @@ properties:
 
       - items:
           - enum:
+              - google,blueline
+              - google,crosshatch
               - huawei,planck
               - lenovo,yoga-c630
               - lg,judyln
@@ -951,6 +1009,7 @@ properties:
               - sony,pdx201
               - xiaomi,ginkgo
               - xiaomi,laurel-sprout
+              - xiaomi,willow
           - const: qcom,sm6125
 
       - items:
@@ -1042,6 +1101,7 @@ properties:
 
       - items:
           - enum:
+              - ayaneo,pocket-s2
               - qcom,sm8650-hdk
               - qcom,sm8650-mtp
               - qcom,sm8650-qrd
@@ -1069,6 +1129,19 @@ properties:
 
       - items:
           - enum:
+              - medion,sprchrgd14s1
+              - tuxedo,elite14gen1
+          - const: qcom,x1e78100
+          - const: qcom,x1e80100
+
+      - items:
+          - const: microsoft,denali-lcd
+          - const: microsoft,denali
+          - const: qcom,x1p64100
+          - const: qcom,x1e80100
+
+      - items:
+          - enum:
               - asus,vivobook-s15
               - asus,zenbook-a14-ux3407ra
               - dell,inspiron-14-plus-7441
@@ -1076,6 +1149,7 @@ properties:
               - dell,xps13-9345
               - hp,elitebook-ultra-g1q
               - hp,omnibook-x14
+              - lenovo,ideacentre-mini-01q8x10
               - lenovo,yoga-slim7x
               - microsoft,romulus13
               - microsoft,romulus15
@@ -1090,6 +1164,17 @@ properties:
           - const: qcom,x1e80100
 
       - items:
+          - const: microsoft,denali-oled
+          - const: microsoft,denali
+          - const: qcom,x1e80100
+
+      - items:
+          - enum:
+              - qcom,purwa-iot-evk
+          - const: qcom,purwa-iot-som
+          - const: qcom,x1p42100
+
+      - items:
           - enum:
               - asus,zenbook-a14-ux3407qa-lcd
               - asus,zenbook-a14-ux3407qa-oled
@@ -1098,6 +1183,7 @@ properties:
 
       - items:
           - enum:
+              - asus,vivobook-s15-x1p4
               - hp,omnibook-x14-fe1
               - lenovo,thinkbook-16
               - qcom,x1p42100-crd

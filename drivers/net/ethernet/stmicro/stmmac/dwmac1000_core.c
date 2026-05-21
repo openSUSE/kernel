@@ -22,14 +22,19 @@
 #include "stmmac_ptp.h"
 #include "dwmac1000.h"
 
+static const struct stmmac_pcs_info dwmac1000_pcs_info = {
+	.pcs_offset = GMAC_PCS_BASE,
+	.rgsmii_offset = GMAC_RGSMIIIS,
+	.rgsmii_status_mask = GMAC_RSGMIIIS_MASK,
+	.int_mask = GMAC_INT_DISABLE_PCSLINK | GMAC_INT_DISABLE_PCSAN,
+};
+
 static int dwmac1000_pcs_init(struct stmmac_priv *priv)
 {
 	if (!priv->dma_cap.pcs)
 		return 0;
 
-	return stmmac_integrated_pcs_init(priv, GMAC_PCS_BASE,
-					  GMAC_INT_DISABLE_PCSLINK |
-					  GMAC_INT_DISABLE_PCSAN);
+	return stmmac_integrated_pcs_init(priv, &dwmac1000_pcs_info);
 }
 
 static void dwmac1000_core_init(struct mac_device_info *hw,
@@ -222,7 +227,7 @@ static void dwmac1000_set_filter(struct mac_device_info *hw,
 
 static void dwmac1000_flow_ctrl(struct mac_device_info *hw, unsigned int duplex,
 				unsigned int fc, unsigned int pause_time,
-				u32 tx_cnt)
+				u8 tx_cnt)
 {
 	void __iomem *ioaddr = hw->pcsr;
 	/* Set flow such that DZPQ in Mac Register 6 is 0,
@@ -242,7 +247,7 @@ static void dwmac1000_flow_ctrl(struct mac_device_info *hw, unsigned int duplex,
 
 	if (duplex) {
 		pr_debug("\tduplex mode: PAUSE %d\n", pause_time);
-		flow |= (pause_time << GMAC_FLOW_CTRL_PT_SHIFT);
+		flow |= FIELD_PREP(GMAC_FLOW_CTRL_PT_MASK, pause_time);
 	}
 
 	writel(flow, ioaddr + GMAC_FLOW_CTRL);
@@ -265,10 +270,10 @@ static void dwmac1000_pmt(struct mac_device_info *hw, unsigned long mode)
 	writel(pmt, ioaddr + GMAC_PMT);
 }
 
-static int dwmac1000_irq_status(struct mac_device_info *hw,
+static int dwmac1000_irq_status(struct stmmac_priv *priv,
 				struct stmmac_extra_stats *x)
 {
-	void __iomem *ioaddr = hw->pcsr;
+	void __iomem *ioaddr = priv->hw->pcsr;
 	u32 intr_status = readl(ioaddr + GMAC_INT_STATUS);
 	u32 intr_mask = readl(ioaddr + GMAC_INT_MASK);
 	int ret = 0;
@@ -304,7 +309,8 @@ static int dwmac1000_irq_status(struct mac_device_info *hw,
 			x->irq_rx_path_exit_lpi_mode_n++;
 	}
 
-	dwmac_pcs_isr(ioaddr, GMAC_PCS_BASE, intr_status, x);
+	if (intr_status & (PCS_ANE_IRQ | PCS_LINK_IRQ))
+		stmmac_integrated_pcs_irq(priv, intr_status, x);
 
 	return ret;
 }
@@ -378,8 +384,8 @@ static void dwmac1000_debug(struct stmmac_priv *priv, void __iomem *ioaddr,
 	if (value & GMAC_DEBUG_TWCSTS)
 		x->mmtl_fifo_ctrl++;
 	if (value & GMAC_DEBUG_TRCSTS_MASK) {
-		u32 trcsts = (value & GMAC_DEBUG_TRCSTS_MASK)
-			     >> GMAC_DEBUG_TRCSTS_SHIFT;
+		u32 trcsts = FIELD_GET(GMAC_DEBUG_TRCSTS_MASK, value);
+
 		if (trcsts == GMAC_DEBUG_TRCSTS_WRITE)
 			x->mtl_tx_fifo_read_ctrl_write++;
 		else if (trcsts == GMAC_DEBUG_TRCSTS_TXW)
@@ -392,8 +398,7 @@ static void dwmac1000_debug(struct stmmac_priv *priv, void __iomem *ioaddr,
 	if (value & GMAC_DEBUG_TXPAUSED)
 		x->mac_tx_in_pause++;
 	if (value & GMAC_DEBUG_TFCSTS_MASK) {
-		u32 tfcsts = (value & GMAC_DEBUG_TFCSTS_MASK)
-			      >> GMAC_DEBUG_TFCSTS_SHIFT;
+		u32 tfcsts = FIELD_GET(GMAC_DEBUG_TFCSTS_MASK, value);
 
 		if (tfcsts == GMAC_DEBUG_TFCSTS_XFER)
 			x->mac_tx_frame_ctrl_xfer++;
@@ -407,8 +412,7 @@ static void dwmac1000_debug(struct stmmac_priv *priv, void __iomem *ioaddr,
 	if (value & GMAC_DEBUG_TPESTS)
 		x->mac_gmii_tx_proto_engine++;
 	if (value & GMAC_DEBUG_RXFSTS_MASK) {
-		u32 rxfsts = (value & GMAC_DEBUG_RXFSTS_MASK)
-			     >> GMAC_DEBUG_RRCSTS_SHIFT;
+		u32 rxfsts = FIELD_GET(GMAC_DEBUG_RXFSTS_MASK, value);
 
 		if (rxfsts == GMAC_DEBUG_RXFSTS_FULL)
 			x->mtl_rx_fifo_fill_level_full++;
@@ -420,8 +424,7 @@ static void dwmac1000_debug(struct stmmac_priv *priv, void __iomem *ioaddr,
 			x->mtl_rx_fifo_fill_level_empty++;
 	}
 	if (value & GMAC_DEBUG_RRCSTS_MASK) {
-		u32 rrcsts = (value & GMAC_DEBUG_RRCSTS_MASK) >>
-			     GMAC_DEBUG_RRCSTS_SHIFT;
+		u32 rrcsts = FIELD_GET(GMAC_DEBUG_RRCSTS_MASK, value);
 
 		if (rrcsts == GMAC_DEBUG_RRCSTS_FLUSH)
 			x->mtl_rx_fifo_read_ctrl_flush++;
@@ -435,8 +438,8 @@ static void dwmac1000_debug(struct stmmac_priv *priv, void __iomem *ioaddr,
 	if (value & GMAC_DEBUG_RWCSTS)
 		x->mtl_rx_fifo_ctrl_active++;
 	if (value & GMAC_DEBUG_RFCFCSTS_MASK)
-		x->mac_rx_frame_ctrl_fifo = (value & GMAC_DEBUG_RFCFCSTS_MASK)
-					    >> GMAC_DEBUG_RFCFCSTS_SHIFT;
+		x->mac_rx_frame_ctrl_fifo = FIELD_GET(GMAC_DEBUG_RFCFCSTS_MASK,
+						      value);
 	if (value & GMAC_DEBUG_RPESTS)
 		x->mac_gmii_rx_proto_engine++;
 }
@@ -498,12 +501,9 @@ int dwmac1000_setup(struct stmmac_priv *priv)
 	mac->link.speed_mask = GMAC_CONTROL_PS | GMAC_CONTROL_FES;
 	mac->mii.addr = GMAC_MII_ADDR;
 	mac->mii.data = GMAC_MII_DATA;
-	mac->mii.addr_shift = 11;
-	mac->mii.addr_mask = 0x0000F800;
-	mac->mii.reg_shift = 6;
-	mac->mii.reg_mask = 0x000007C0;
-	mac->mii.clk_csr_shift = 2;
-	mac->mii.clk_csr_mask = GENMASK(5, 2);
+	mac->mii.addr_mask = GENMASK_U32(15, 11);
+	mac->mii.reg_mask = GENMASK_U32(10, 6);
+	mac->mii.clk_csr_mask = GENMASK_U32(5, 2);
 
 	return 0;
 }
@@ -534,7 +534,7 @@ void dwmac1000_timestamp_interrupt(struct stmmac_priv *priv)
 	if (!(priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN))
 		return;
 
-	num_snapshot = (ts_status & GMAC3_X_ATSNS) >> GMAC3_X_ATSNS_SHIFT;
+	num_snapshot = FIELD_GET(GMAC3_X_ATSNS, ts_status);
 
 	for (i = 0; i < num_snapshot; i++) {
 		read_lock_irqsave(&priv->ptp_lock, flags);

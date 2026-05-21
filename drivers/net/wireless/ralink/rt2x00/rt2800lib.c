@@ -10965,13 +10965,13 @@ EXPORT_SYMBOL_GPL(rt2800_read_eeprom_efuse);
 
 int rt2800_read_eeprom_nvmem(struct rt2x00_dev *rt2x00dev)
 {
-	struct device_node *np = rt2x00dev->dev->of_node;
+	struct device *dev = rt2x00dev->dev;
 	unsigned int len = rt2x00dev->ops->eeprom_size;
 	struct nvmem_cell *cell;
 	const void *data;
 	size_t retlen;
 
-	cell = of_nvmem_cell_get(np, "eeprom");
+	cell = nvmem_cell_get(dev, "eeprom");
 	if (IS_ERR(cell))
 		return PTR_ERR(cell);
 
@@ -11907,13 +11907,12 @@ static int rt2800_probe_hw_mode(struct rt2x00_dev *rt2x00dev)
 	/*
 	 * Create channel information and survey arrays
 	 */
-	info = kcalloc(spec->num_channels, sizeof(*info), GFP_KERNEL);
+	info = kzalloc_objs(*info, spec->num_channels);
 	if (!info)
 		return -ENOMEM;
 
 	rt2x00dev->chan_survey =
-		kcalloc(spec->num_channels, sizeof(struct rt2x00_chan_survey),
-			GFP_KERNEL);
+		kzalloc_objs(struct rt2x00_chan_survey, spec->num_channels);
 	if (!rt2x00dev->chan_survey) {
 		kfree(info);
 		return -ENOMEM;

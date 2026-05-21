@@ -25,24 +25,30 @@
 static void test_sys_enter_exit(void)
 {
 	struct task_local_storage *skel;
+	pid_t pid = sys_gettid();
 	int err;
 
 	skel = task_local_storage__open_and_load();
 	if (!ASSERT_OK_PTR(skel, "skel_open_and_load"))
 		return;
 
-	skel->bss->target_pid = sys_gettid();
-
 	err = task_local_storage__attach(skel);
 	if (!ASSERT_OK(err, "skel_attach"))
 		goto out;
 
+	/* Set target_pid after attach so that syscalls made during
+	 * attach are not counted.
+	 */
+	skel->bss->target_pid = pid;
+
 	sys_gettid();
 	sys_gettid();
 
-	/* 3x syscalls: 1x attach and 2x gettid */
-	ASSERT_EQ(skel->bss->enter_cnt, 3, "enter_cnt");
-	ASSERT_EQ(skel->bss->exit_cnt, 3, "exit_cnt");
+	skel->bss->target_pid = 0;
+
+	/* 2x gettid syscalls */
+	ASSERT_EQ(skel->bss->enter_cnt, 2, "enter_cnt");
+	ASSERT_EQ(skel->bss->exit_cnt, 2, "exit_cnt");
 	ASSERT_EQ(skel->bss->mismatch_cnt, 0, "mismatch_cnt");
 out:
 	task_local_storage__destroy(skel);
@@ -112,24 +118,24 @@ static void test_recursion(void)
 	task_ls_recursion__detach(skel);
 
 	/* Refer to the comment in BPF_PROG(on_update) for
-	 * the explanation on the value 201 and 100.
+	 * the explanation on the value 200 and 1.
 	 */
 	map_fd = bpf_map__fd(skel->maps.map_a);
 	err = bpf_map_lookup_elem(map_fd, &task_fd, &value);
 	ASSERT_OK(err, "lookup map_a");
-	ASSERT_EQ(value, 201, "map_a value");
-	ASSERT_EQ(skel->bss->nr_del_errs, 1, "bpf_task_storage_delete busy");
+	ASSERT_EQ(value, 200, "map_a value");
+	ASSERT_EQ(skel->bss->nr_del_errs, 0, "bpf_task_storage_delete busy");
 
 	map_fd = bpf_map__fd(skel->maps.map_b);
 	err = bpf_map_lookup_elem(map_fd, &task_fd, &value);
 	ASSERT_OK(err, "lookup map_b");
-	ASSERT_EQ(value, 100, "map_b value");
+	ASSERT_EQ(value, 1, "map_b value");
 
 	prog_fd = bpf_program__fd(skel->progs.on_update);
 	memset(&info, 0, sizeof(info));
 	err = bpf_prog_get_info_by_fd(prog_fd, &info, &info_len);
 	ASSERT_OK(err, "get prog info");
-	ASSERT_EQ(info.recursion_misses, 0, "on_update prog recursion");
+	ASSERT_EQ(info.recursion_misses, 2, "on_update prog recursion");
 
 	prog_fd = bpf_program__fd(skel->progs.on_enter);
 	memset(&info, 0, sizeof(info));

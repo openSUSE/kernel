@@ -147,6 +147,8 @@ static const struct of_device_id blocklist[] __initconst = {
 	{ .compatible = "nvidia,tegra30", },
 	{ .compatible = "nvidia,tegra114", },
 	{ .compatible = "nvidia,tegra124", },
+	{ .compatible = "nvidia,tegra186", },
+	{ .compatible = "nvidia,tegra194", },
 	{ .compatible = "nvidia,tegra210", },
 	{ .compatible = "nvidia,tegra234", },
 
@@ -157,6 +159,7 @@ static const struct of_device_id blocklist[] __initconst = {
 	{ .compatible = "qcom,qcm2290", },
 	{ .compatible = "qcom,qcm6490", },
 	{ .compatible = "qcom,qcs404", },
+	{ .compatible = "qcom,qcs8300", },
 	{ .compatible = "qcom,qdu1000", },
 	{ .compatible = "qcom,sa8155p" },
 	{ .compatible = "qcom,sa8540p" },
@@ -169,8 +172,11 @@ static const struct of_device_id blocklist[] __initconst = {
 	{ .compatible = "qcom,sdm845", },
 	{ .compatible = "qcom,sdx75", },
 	{ .compatible = "qcom,sm6115", },
+	{ .compatible = "qcom,sm6125", },
+	{ .compatible = "qcom,sm6150", },
 	{ .compatible = "qcom,sm6350", },
 	{ .compatible = "qcom,sm6375", },
+	{ .compatible = "qcom,sm7125", },
 	{ .compatible = "qcom,sm7225", },
 	{ .compatible = "qcom,sm7325", },
 	{ .compatible = "qcom,sm8150", },
@@ -191,6 +197,7 @@ static const struct of_device_id blocklist[] __initconst = {
 	{ .compatible = "ti,am625", },
 	{ .compatible = "ti,am62a7", },
 	{ .compatible = "ti,am62d2", },
+	{ .compatible = "ti,am62l3", },
 	{ .compatible = "ti,am62p5", },
 
 	{ .compatible = "qcom,ipq5332", },
@@ -219,11 +226,12 @@ static bool __init cpu0_node_has_opp_v2_prop(void)
 
 static int __init cpufreq_dt_platdev_init(void)
 {
-	const void *data;
+	const void *data = NULL;
 
-	data = of_machine_get_match_data(allowlist);
-	if (data)
+	if (of_machine_device_match(allowlist)) {
+		data = of_machine_get_match_data(allowlist);
 		goto create_pdev;
+	}
 
 	if (cpu0_node_has_opp_v2_prop() && !of_machine_device_match(blocklist))
 		goto create_pdev;

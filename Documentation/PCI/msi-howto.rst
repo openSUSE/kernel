@@ -98,7 +98,7 @@ function::
 
 which allocates up to max_vecs interrupt vectors for a PCI device.  It
 returns the number of vectors allocated or a negative error.  If the device
-has a requirements for a minimum number of vectors the driver can pass a
+has a requirement for a minimum number of vectors the driver can pass a
 min_vecs argument set to this limit, and the PCI core will return -ENOSPC
 if it can't meet the minimum number of vectors.
 
@@ -113,8 +113,11 @@ vectors, use the following function::
 
   int pci_irq_vector(struct pci_dev *dev, unsigned int nr);
 
-Any allocated resources should be freed before removing the device using
-the following function::
+If the driver enables the device using pcim_enable_device(), the driver
+shouldn't call pci_free_irq_vectors() because pcim_enable_device()
+activates automatic management for IRQ vectors. Otherwise, the driver should
+free any allocated IRQ vectors before removing the device using the following
+function::
 
   void pci_free_irq_vectors(struct pci_dev *dev);
 
@@ -127,7 +130,7 @@ not be able to allocate as many vectors for MSI as it could for MSI-X.  On
 some platforms, MSI interrupts must all be targeted at the same set of CPUs
 whereas MSI-X interrupts can all be targeted at different CPUs.
 
-If a device supports neither MSI-X or MSI it will fall back to a single
+If a device supports neither MSI-X nor MSI it will fall back to a single
 legacy IRQ vector.
 
 The typical usage of MSI or MSI-X interrupts is to allocate as many vectors
@@ -203,7 +206,7 @@ How to tell whether MSI/MSI-X is enabled on a device
 ----------------------------------------------------
 
 Using 'lspci -v' (as root) may show some devices with "MSI", "Message
-Signalled Interrupts" or "MSI-X" capabilities.  Each of these capabilities
+Signaled Interrupts" or "MSI-X" capabilities.  Each of these capabilities
 has an 'Enable' flag which is followed with either "+" (enabled)
 or "-" (disabled).
 

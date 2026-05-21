@@ -161,6 +161,7 @@ static int tegra210_i2s_init(struct snd_soc_dapm_widget *w,
 		stream = SNDRV_PCM_STREAM_CAPTURE;
 		status_reg = TEGRA210_I2S_TX_STATUS + i2s->soc_data->tx_offset;
 	} else {
+		dev_err(dev, "invalid I2S direction register 0x%x\n", w->reg);
 		return -EINVAL;
 	}
 
@@ -235,6 +236,7 @@ static int tegra210_i2s_set_fmt(struct snd_soc_dai *dai,
 		val = I2S_CTRL_MASTER_EN;
 		break;
 	default:
+		dev_err(dai->dev, "invalid clock provider format 0x%x\n", fmt);
 		return -EINVAL;
 	}
 
@@ -270,6 +272,7 @@ static int tegra210_i2s_set_fmt(struct snd_soc_dai *dai,
 		tegra210_i2s_set_data_offset(i2s, 0);
 		break;
 	default:
+		dev_err(dai->dev, "invalid I2S frame format 0x%x\n", fmt);
 		return -EINVAL;
 	}
 
@@ -290,6 +293,7 @@ static int tegra210_i2s_set_fmt(struct snd_soc_dai *dai,
 		val ^= I2S_CTRL_LRCK_POL_MASK;
 		break;
 	default:
+		dev_err(dai->dev, "invalid I2S clock inversion 0x%x\n", fmt);
 		return -EINVAL;
 	}
 
@@ -997,6 +1001,7 @@ static const struct regmap_config tegra210_regmap_conf = {
 	.volatile_reg		= tegra210_i2s_volatile_reg,
 	.reg_defaults		= tegra210_i2s_reg_defaults,
 	.num_reg_defaults	= ARRAY_SIZE(tegra210_i2s_reg_defaults),
+	.reg_default_cb		= regmap_default_zero_cb,
 	.cache_type		= REGCACHE_FLAT,
 };
 
@@ -1044,6 +1049,7 @@ static const struct regmap_config tegra264_regmap_conf = {
 	.volatile_reg		= tegra264_i2s_volatile_reg,
 	.reg_defaults		= tegra264_i2s_reg_defaults,
 	.num_reg_defaults	= ARRAY_SIZE(tegra264_i2s_reg_defaults),
+	.reg_default_cb		= regmap_default_zero_cb,
 	.cache_type		= REGCACHE_FLAT,
 };
 
@@ -1068,10 +1074,9 @@ static int tegra210_i2s_probe(struct platform_device *pdev)
 	dev_set_drvdata(dev, i2s);
 
 	i2s->clk_i2s = devm_clk_get(dev, "i2s");
-	if (IS_ERR(i2s->clk_i2s)) {
-		dev_err(dev, "can't retrieve I2S bit clock\n");
-		return PTR_ERR(i2s->clk_i2s);
-	}
+	if (IS_ERR(i2s->clk_i2s))
+		return dev_err_probe(dev, PTR_ERR(i2s->clk_i2s),
+				     "can't retrieve I2S bit clock\n");
 
 	/*
 	 * Not an error, as this clock is needed only when some other I/O
@@ -1088,10 +1093,9 @@ static int tegra210_i2s_probe(struct platform_device *pdev)
 
 	i2s->regmap = devm_regmap_init_mmio(dev, regs,
 					    i2s->soc_data->regmap_conf);
-	if (IS_ERR(i2s->regmap)) {
-		dev_err(dev, "regmap init failed\n");
-		return PTR_ERR(i2s->regmap);
-	}
+	if (IS_ERR(i2s->regmap))
+		return dev_err_probe(dev, PTR_ERR(i2s->regmap),
+				     "regmap init failed\n");
 
 	tegra210_parse_client_convert(dev);
 
@@ -1106,10 +1110,9 @@ static int tegra210_i2s_probe(struct platform_device *pdev)
 	err = devm_snd_soc_register_component(dev, i2s->soc_data->i2s_cmpnt,
 					      tegra210_i2s_dais,
 					      ARRAY_SIZE(tegra210_i2s_dais));
-	if (err) {
-		dev_err(dev, "can't register I2S component, err: %d\n", err);
-		return err;
-	}
+	if (err)
+		return dev_err_probe(dev, err,
+				     "can't register I2S component\n");
 
 	pm_runtime_enable(dev);
 

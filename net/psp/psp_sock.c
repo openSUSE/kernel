@@ -50,8 +50,8 @@ struct psp_assoc *psp_assoc_create(struct psp_dev *psd)
 
 	lockdep_assert_held(&psd->lock);
 
-	pas = kzalloc(struct_size(pas, drv_data, psd->caps->assoc_drv_spc),
-		      GFP_KERNEL_ACCOUNT);
+	pas = kzalloc_flex(*pas, drv_data, psd->caps->assoc_drv_spc,
+			   GFP_KERNEL_ACCOUNT);
 	if (!pas)
 		return NULL;
 
@@ -291,4 +291,3 @@ void psp_reply_set_decrypted(const struct sock *sk, struct sk_buff *skb)
 		skb->decrypted = 1;
 	rcu_read_unlock();
 }
-EXPORT_IPV6_MOD_GPL(psp_reply_set_decrypted);

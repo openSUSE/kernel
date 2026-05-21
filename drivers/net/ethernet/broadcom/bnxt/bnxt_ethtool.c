@@ -27,12 +27,13 @@
 #include <net/netdev_queues.h>
 #include <net/netlink.h>
 #include <linux/bnxt/hsi.h>
+#include <linux/bnxt/ulp.h>
 #include "bnxt.h"
 #include "bnxt_hwrm.h"
-#include "bnxt_ulp.h"
 #include "bnxt_xdp.h"
 #include "bnxt_ptp.h"
 #include "bnxt_ethtool.h"
+#include "bnxt_gso.h"
 #include "bnxt_nvm_defs.h"	/* NVRAM content constant and structure defs */
 #include "bnxt_fw_hdr.h"	/* Firmware hdr constant and structure defs */
 #include "bnxt_coredump.h"
@@ -340,7 +341,7 @@ enum {
 	RX_NETPOLL_DISCARDS,
 };
 
-static const char *const bnxt_ring_err_stats_arr[] = {
+static const char *const bnxt_ring_drv_stats_arr[] = {
 	"rx_total_l4_csum_errors",
 	"rx_total_resets",
 	"rx_total_buf_errors",
@@ -500,7 +501,7 @@ static const struct {
 	BNXT_TX_STATS_PRI_ENTRIES(tx_packets),
 };
 
-#define BNXT_NUM_RING_ERR_STATS	ARRAY_SIZE(bnxt_ring_err_stats_arr)
+#define BNXT_NUM_RING_DRV_STATS	ARRAY_SIZE(bnxt_ring_drv_stats_arr)
 #define BNXT_NUM_PORT_STATS ARRAY_SIZE(bnxt_port_stats_arr)
 #define BNXT_NUM_STATS_PRI			\
 	(ARRAY_SIZE(bnxt_rx_bytes_pri_arr) +	\
@@ -539,7 +540,7 @@ static int bnxt_get_num_stats(struct bnxt *bp)
 	int num_stats = bnxt_get_num_ring_stats(bp);
 	int len;
 
-	num_stats += BNXT_NUM_RING_ERR_STATS;
+	num_stats += BNXT_NUM_RING_DRV_STATS;
 
 	if (bp->flags & BNXT_FLAG_PORT_STATS)
 		num_stats += BNXT_NUM_PORT_STATS;
@@ -594,7 +595,7 @@ static bool is_tx_ring(struct bnxt *bp, int ring_num)
 static void bnxt_get_ethtool_stats(struct net_device *dev,
 				   struct ethtool_stats *stats, u64 *buf)
 {
-	struct bnxt_total_ring_err_stats ring_err_stats = {0};
+	struct bnxt_total_ring_drv_stats ring_drv_stats = {0};
 	struct bnxt *bp = netdev_priv(dev);
 	u64 *curr, *prev;
 	u32 tpa_stats;
@@ -643,12 +644,12 @@ skip_tpa_ring_stats:
 			buf[j] = sw[k];
 	}
 
-	bnxt_get_ring_err_stats(bp, &ring_err_stats);
+	bnxt_get_ring_drv_stats(bp, &ring_drv_stats);
 
 skip_ring_stats:
-	curr = &ring_err_stats.rx_total_l4_csum_errors;
-	prev = &bp->ring_err_stats_prev.rx_total_l4_csum_errors;
-	for (i = 0; i < BNXT_NUM_RING_ERR_STATS; i++, j++, curr++, prev++)
+	curr = &ring_drv_stats.rx_total_l4_csum_errors;
+	prev = &bp->ring_drv_stats_prev.rx_total_l4_csum_errors;
+	for (i = 0; i < BNXT_NUM_RING_DRV_STATS; i++, j++, curr++, prev++)
 		buf[j] = *curr + *prev;
 
 	if (bp->flags & BNXT_FLAG_PORT_STATS) {
@@ -758,8 +759,8 @@ skip_tpa_stats:
 				ethtool_sprintf(&buf, "[%d]: %s", i, str);
 			}
 		}
-		for (i = 0; i < BNXT_NUM_RING_ERR_STATS; i++)
-			ethtool_puts(&buf, bnxt_ring_err_stats_arr[i]);
+		for (i = 0; i < BNXT_NUM_RING_DRV_STATS; i++)
+			ethtool_puts(&buf, bnxt_ring_drv_stats_arr[i]);
 
 		if (bp->flags & BNXT_FLAG_PORT_STATS)
 			for (i = 0; i < BNXT_NUM_PORT_STATS; i++) {
@@ -852,10 +853,16 @@ static int bnxt_set_ringparam(struct net_device *dev,
 	u8 tcp_data_split = kernel_ering->tcp_data_split;
 	struct bnxt *bp = netdev_priv(dev);
 	u8 hds_config_mod;
+	int rc;
 
 	if ((ering->rx_pending > BNXT_MAX_RX_DESC_CNT) ||
 	    (ering->tx_pending > BNXT_MAX_TX_DESC_CNT) ||
 	    (ering->tx_pending < BNXT_MIN_TX_DESC_CNT))
+		return -EINVAL;
+
+	if ((dev->features & NETIF_F_GSO_UDP_L4) &&
+	    !(bp->flags & BNXT_FLAG_UDP_GSO_CAP) &&
+	    ering->tx_pending < 2 * BNXT_SW_USO_MAX_DESCS)
 		return -EINVAL;
 
 	hds_config_mod = tcp_data_split != dev->cfg->hds_config;
@@ -882,9 +889,17 @@ static int bnxt_set_ringparam(struct net_device *dev,
 	bp->tx_ring_size = ering->tx_pending;
 	bnxt_set_ring_params(bp);
 
-	if (netif_running(dev))
-		return bnxt_open_nic(bp, false, false);
+	if (netif_running(dev)) {
+		rc = bnxt_open_nic(bp, false, false);
+		if (rc)
+			return rc;
+	}
 
+	/* ring size changes may affect features (SW USO requires a minimum
+	 * ring size), so recalculate features to ensure the correct features
+	 * are blocked/available.
+	 */
+	netdev_update_features(dev);
 	return 0;
 }
 
@@ -942,10 +957,10 @@ static int bnxt_set_channels(struct net_device *dev,
 {
 	struct bnxt *bp = netdev_priv(dev);
 	int req_tx_rings, req_rx_rings, tcs;
+	u32 new_tbl_size = 0, old_tbl_size;
 	bool sh = false;
 	int tx_xdp = 0;
 	int rc = 0;
-	int tx_cp;
 
 	if (channel->other_count)
 		return -EINVAL;
@@ -977,17 +992,31 @@ static int bnxt_set_channels(struct net_device *dev,
 		tx_xdp = req_rx_rings;
 	}
 
-	if (bnxt_get_nr_rss_ctxs(bp, req_rx_rings) !=
-	    bnxt_get_nr_rss_ctxs(bp, bp->rx_nr_rings) &&
-	    netif_is_rxfh_configured(dev)) {
-		netdev_warn(dev, "RSS table size change required, RSS table entries must be default to proceed\n");
-		return -EINVAL;
-	}
-
 	rc = bnxt_check_rings(bp, req_tx_rings, req_rx_rings, sh, tcs, tx_xdp);
 	if (rc) {
 		netdev_warn(dev, "Unable to allocate the requested rings\n");
 		return rc;
+	}
+
+	/* RSS table size only changes on P5 chips with older firmware;
+	 * newer firmware always uses the largest table size.
+	 */
+	if (bnxt_get_nr_rss_ctxs(bp, req_rx_rings) !=
+	    bnxt_get_nr_rss_ctxs(bp, bp->rx_nr_rings)) {
+		new_tbl_size = bnxt_get_nr_rss_ctxs(bp, req_rx_rings) *
+			       BNXT_RSS_TABLE_ENTRIES_P5;
+		old_tbl_size = bnxt_get_rxfh_indir_size(dev);
+
+		if (!ethtool_rxfh_indir_can_resize(dev, bp->rss_indir_tbl,
+						   old_tbl_size,
+						   new_tbl_size)) {
+			netdev_warn(dev, "RSS table resize not possible\n");
+			return -EINVAL;
+		}
+
+		rc = ethtool_rxfh_ctxs_can_resize(dev, new_tbl_size);
+		if (rc)
+			return rc;
 	}
 
 	if (netif_running(dev)) {
@@ -997,6 +1026,12 @@ static int bnxt_set_channels(struct net_device *dev,
 			 */
 		}
 		bnxt_close_nic(bp, true, false);
+	}
+
+	if (new_tbl_size) {
+		ethtool_rxfh_indir_resize(dev, bp->rss_indir_tbl,
+					  old_tbl_size, new_tbl_size);
+		ethtool_rxfh_ctxs_resize(dev, new_tbl_size);
 	}
 
 	if (sh) {
@@ -1013,9 +1048,7 @@ static int bnxt_set_channels(struct net_device *dev,
 	if (tcs > 1)
 		bp->tx_nr_rings = bp->tx_nr_rings_per_tc * tcs + tx_xdp;
 
-	tx_cp = bnxt_num_tx_to_cp(bp, bp->tx_nr_rings);
-	bp->cp_nr_rings = sh ? max_t(int, tx_cp, bp->rx_nr_rings) :
-			       tx_cp + bp->rx_nr_rings;
+	bnxt_set_cp_rings(bp, sh);
 
 	/* After changing number of rx channels, update NTUPLE feature. */
 	netdev_update_features(dev);
@@ -1346,16 +1379,17 @@ static int bnxt_add_ntuple_cls_rule(struct bnxt *bp,
 	struct bnxt_l2_filter *l2_fltr;
 	struct bnxt_flow_masks *fmasks;
 	struct flow_keys *fkeys;
-	u32 idx, ring;
+	u32 idx;
 	int rc;
-	u8 vf;
 
 	if (!bp->vnic_info)
 		return -EAGAIN;
 
-	vf = ethtool_get_flow_spec_ring_vf(fs->ring_cookie);
-	ring = ethtool_get_flow_spec_ring(fs->ring_cookie);
-	if ((fs->flow_type & (FLOW_MAC_EXT | FLOW_EXT)) || vf)
+	if (fs->flow_type & (FLOW_MAC_EXT | FLOW_EXT))
+		return -EOPNOTSUPP;
+
+	if (fs->ring_cookie != RX_CLS_FLOW_DISC &&
+	    ethtool_get_flow_spec_ring_vf(fs->ring_cookie))
 		return -EOPNOTSUPP;
 
 	if (flow_type == IP_USER_FLOW) {
@@ -1370,7 +1404,7 @@ static int bnxt_add_ntuple_cls_rule(struct bnxt *bp,
 			return -EOPNOTSUPP;
 	}
 
-	new_fltr = kzalloc(sizeof(*new_fltr), GFP_KERNEL);
+	new_fltr = kzalloc_obj(*new_fltr);
 	if (!new_fltr)
 		return -ENOMEM;
 
@@ -1481,7 +1515,7 @@ static int bnxt_add_ntuple_cls_rule(struct bnxt *bp,
 	if (fs->ring_cookie == RX_CLS_FLOW_DISC)
 		new_fltr->base.flags |= BNXT_ACT_DROP;
 	else
-		new_fltr->base.rxq = ring;
+		new_fltr->base.rxq = ethtool_get_flow_spec_ring(fs->ring_cookie);
 	__set_bit(BNXT_FLTR_VALID, &new_fltr->base.state);
 	rc = bnxt_insert_ntp_filter(bp, new_fltr, idx);
 	if (!rc) {
@@ -3216,6 +3250,56 @@ static int bnxt_get_fecparam(struct net_device *dev,
 	return 0;
 }
 
+static const struct ethtool_fec_hist_range bnxt_fec_ranges[] = {
+	{ 0, 0},
+	{ 1, 1},
+	{ 2, 2},
+	{ 3, 3},
+	{ 4, 4},
+	{ 5, 5},
+	{ 6, 6},
+	{ 7, 7},
+	{ 8, 8},
+	{ 9, 9},
+	{ 10, 10},
+	{ 11, 11},
+	{ 12, 12},
+	{ 13, 13},
+	{ 14, 14},
+	{ 15, 15},
+	{ 0, 0},
+};
+
+static void bnxt_hwrm_port_phy_fdrstat(struct bnxt *bp,
+				       struct ethtool_fec_hist *hist)
+{
+	struct ethtool_fec_hist_value *values = hist->values;
+	struct hwrm_port_phy_fdrstat_output *resp;
+	struct hwrm_port_phy_fdrstat_input *req;
+	int rc, i;
+
+	if (!(bp->phy_flags & BNXT_PHY_FL_FDRSTATS))
+		return;
+
+	rc = hwrm_req_init(bp, req, HWRM_PORT_PHY_FDRSTAT);
+	if (rc)
+		return;
+
+	req->port_id = cpu_to_le16(bp->pf.port_id);
+	req->ops = cpu_to_le16(PORT_PHY_FDRSTAT_REQ_OPS_COUNTER);
+	resp = hwrm_req_hold(bp, req);
+	rc = hwrm_req_send(bp, req);
+	if (!rc) {
+		hist->ranges = bnxt_fec_ranges;
+		for (i = 0; i <= 15; i++) {
+			__le64 sum = resp->accumulated_codewords_err_s[i];
+
+			values[i].sum = le64_to_cpu(sum);
+		}
+	}
+	hwrm_req_drop(bp, req);
+}
+
 static void bnxt_get_fec_stats(struct net_device *dev,
 			       struct ethtool_fec_stats *fec_stats,
 			       struct ethtool_fec_hist *hist)
@@ -3237,6 +3321,7 @@ static void bnxt_get_fec_stats(struct net_device *dev,
 		*(rx + BNXT_RX_STATS_EXT_OFFSET(rx_fec_corrected_blocks));
 	fec_stats->uncorrectable_blocks.total =
 		*(rx + BNXT_RX_STATS_EXT_OFFSET(rx_fec_uncorrectable_blocks));
+	bnxt_hwrm_port_phy_fdrstat(bp, hist);
 }
 
 static u32 bnxt_ethtool_forced_fec_to_fw(struct bnxt_link_info *link_info,
@@ -3379,6 +3464,40 @@ static u32 bnxt_get_link(struct net_device *dev)
 
 	/* TODO: handle MF, VF, driver close case */
 	return BNXT_LINK_IS_UP(bp);
+}
+
+static int bnxt_get_link_ext_state(struct net_device *dev,
+				   struct ethtool_link_ext_state_info *info)
+{
+	struct bnxt *bp = netdev_priv(dev);
+	u8 reason;
+
+	if (BNXT_LINK_IS_UP(bp))
+		return -ENODATA;
+
+	reason = bp->link_info.link_down_reason;
+	if (reason & PORT_PHY_QCFG_RESP_LINK_DOWN_REASON_RF) {
+		info->link_ext_state = ETHTOOL_LINK_EXT_STATE_LINK_TRAINING_FAILURE;
+		info->link_training = ETHTOOL_LINK_EXT_SUBSTATE_LT_REMOTE_FAULT;
+		return 0;
+	}
+	if (reason & PORT_PHY_QCFG_RESP_LINK_DOWN_REASON_CABLE_REMOVED) {
+		info->link_ext_state = ETHTOOL_LINK_EXT_STATE_NO_CABLE;
+		return 0;
+	}
+	if (reason & PORT_PHY_QCFG_RESP_LINK_DOWN_REASON_OTP_SPEED_VIOLATION) {
+		info->link_ext_state = ETHTOOL_LINK_EXT_STATE_OTP_SPEED_VIOLATION;
+		return 0;
+	}
+	if (reason & PORT_PHY_QCFG_RESP_LINK_DOWN_REASON_MODULE_FAULT) {
+		info->link_ext_state = ETHTOOL_LINK_EXT_STATE_MODULE;
+		return 0;
+	}
+	if (reason & PORT_PHY_QCFG_RESP_LINK_DOWN_REASON_BMC_REQUEST) {
+		info->link_ext_state = ETHTOOL_LINK_EXT_STATE_BMC_REQUEST_DOWN;
+		return 0;
+	}
+	return -ENODATA;
 }
 
 int bnxt_hwrm_nvm_get_dev_info(struct bnxt *bp,
@@ -3797,9 +3916,25 @@ static int nvm_update_err_to_stderr(struct net_device *dev, u8 result,
 #define BNXT_NVM_MORE_FLAG	(cpu_to_le16(NVM_MODIFY_REQ_FLAGS_BATCH_MODE))
 #define BNXT_NVM_LAST_FLAG	(cpu_to_le16(NVM_MODIFY_REQ_FLAGS_BATCH_LAST))
 
+static int bnxt_hwrm_nvm_defrag(struct bnxt *bp)
+{
+	struct hwrm_nvm_defrag_input *req;
+	int rc;
+
+	rc = hwrm_req_init(bp, req, HWRM_NVM_DEFRAG);
+	if (rc)
+		return rc;
+	req->flags = cpu_to_le32(NVM_DEFRAG_REQ_FLAGS_DEFRAG);
+	hwrm_req_timeout(bp, req, bp->hwrm_cmd_max_timeout);
+
+	return hwrm_req_send(bp, req);
+}
+
 static int bnxt_resize_update_entry(struct net_device *dev, size_t fw_size,
 				    struct netlink_ext_ack *extack)
 {
+	struct bnxt *bp = netdev_priv(dev);
+	bool retry = false;
 	u32 item_len;
 	int rc;
 
@@ -3812,9 +3947,19 @@ static int bnxt_resize_update_entry(struct net_device *dev, size_t fw_size,
 	}
 
 	if (fw_size > item_len) {
-		rc = bnxt_flash_nvram(dev, BNX_DIR_TYPE_UPDATE,
-				      BNX_DIR_ORDINAL_FIRST, 0, 1,
-				      round_up(fw_size, 4096), NULL, 0);
+		do {
+			rc = bnxt_flash_nvram(dev, BNX_DIR_TYPE_UPDATE,
+					      BNX_DIR_ORDINAL_FIRST, 0, 1,
+					      round_up(fw_size, 4096), NULL,
+					      0);
+
+			if (rc == -ENOSPC) {
+				if (retry || bnxt_hwrm_nvm_defrag(bp))
+					break;
+				retry = true;
+			}
+		} while (rc == -ENOSPC);
+
 		if (rc) {
 			BNXT_NVM_ERR_MSG(dev, extack, MSG_RESIZE_UPDATE_ERR);
 			return rc;
@@ -5100,7 +5245,7 @@ static void bnxt_self_test(struct net_device *dev, struct ethtool_test *etest,
 
 	memset(buf, 0, sizeof(u64) * bp->num_tests);
 	if (etest->flags & ETH_TEST_FL_OFFLINE &&
-	    bnxt_ulp_registered(bp->edev)) {
+	    bnxt_ulp_registered(bp->edev[BNXT_AUXDEV_RDMA])) {
 		etest->flags |= ETH_TEST_FL_FAILED;
 		netdev_warn(dev, "Offline tests cannot be run with RoCE driver loaded\n");
 		return;
@@ -5373,7 +5518,7 @@ void bnxt_ethtool_init(struct bnxt *bp)
 
 	test_info = bp->test_info;
 	if (!test_info) {
-		test_info = kzalloc(sizeof(*bp->test_info), GFP_KERNEL);
+		test_info = kzalloc_obj(*bp->test_info);
 		if (!test_info)
 			return;
 		bp->test_info = test_info;
@@ -5634,6 +5779,7 @@ const struct ethtool_ops bnxt_ethtool_ops = {
 	.get_eeprom             = bnxt_get_eeprom,
 	.set_eeprom		= bnxt_set_eeprom,
 	.get_link		= bnxt_get_link,
+	.get_link_ext_state	= bnxt_get_link_ext_state,
 	.get_link_ext_stats	= bnxt_get_link_ext_stats,
 	.get_eee		= bnxt_get_eee,
 	.set_eee		= bnxt_set_eee,

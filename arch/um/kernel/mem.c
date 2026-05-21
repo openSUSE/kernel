@@ -44,10 +44,6 @@ __section(".kasan_init") __used
 = kasan_init;
 #endif
 
-/* allocated in paging_init, zeroed in mem_init, and unchanged thereafter */
-unsigned long *empty_zero_page = NULL;
-EXPORT_SYMBOL(empty_zero_page);
-
 /*
  * Initialized during boot, and readonly for initializing page tables
  * afterwards
@@ -65,9 +61,6 @@ void __init arch_mm_preinit(void)
 	/* Safe to call after jump_label_init(). Enables KASAN. */
 	kasan_init_generic();
 
-	/* clear the zero-page */
-	memset(empty_zero_page, 0, PAGE_SIZE);
-
 	/* Map in the area just after the brk now that kmalloc is about
 	 * to be turned on.
 	 */
@@ -84,18 +77,9 @@ void __init mem_init(void)
 	kmalloc_ok = 1;
 }
 
-void __init paging_init(void)
+void __init arch_zone_limits_init(unsigned long *max_zone_pfns)
 {
-	unsigned long max_zone_pfn[MAX_NR_ZONES] = { 0 };
-
-	empty_zero_page = (unsigned long *) memblock_alloc_low(PAGE_SIZE,
-							       PAGE_SIZE);
-	if (!empty_zero_page)
-		panic("%s: Failed to allocate %lu bytes align=%lx\n",
-		      __func__, PAGE_SIZE, PAGE_SIZE);
-
-	max_zone_pfn[ZONE_NORMAL] = high_physmem >> PAGE_SHIFT;
-	free_area_init(max_zone_pfn);
+	max_zone_pfns[ZONE_NORMAL] = high_physmem >> PAGE_SHIFT;
 }
 
 /*

@@ -283,7 +283,7 @@ int au0828_rc_register(struct au0828_dev *dev)
 	if (!i2c_rc_dev_addr)
 		return -ENODEV;
 
-	ir = kzalloc(sizeof(*ir), GFP_KERNEL);
+	ir = kzalloc_obj(*ir);
 	rc = rc_allocate_device(RC_DRIVER_IR_RAW);
 	if (!ir || !rc)
 		goto error;
@@ -300,6 +300,7 @@ int au0828_rc_register(struct au0828_dev *dev)
 	if (dev->board.has_ir_i2c) {	/* external i2c device */
 		switch (dev->boardnr) {
 		case AU0828_BOARD_HAUPPAUGE_HVR950Q:
+		case AU0828_BOARD_HAUPPAUGE_HVR1265:
 			rc->map_name = RC_MAP_HAUPPAUGE;
 			ir->get_key_i2c = au0828_get_key_au8522;
 			break;
@@ -357,6 +358,7 @@ void au0828_rc_unregister(struct au0828_dev *dev)
 		return;
 
 	rc_unregister_device(ir->rc);
+	rc_free_device(ir->rc);
 
 	/* done */
 	kfree(ir);

@@ -608,7 +608,7 @@ static int tegra124_emc_prepare_timing_change(struct tegra_emc *emc,
 
 	if ((last->emc_mode_1 & 0x1) == (timing->emc_mode_1 & 0x1))
 		dll_change = DLL_CHANGE_NONE;
-	else if (timing->emc_mode_1 & 0x1)
+	else if (!(timing->emc_mode_1 & 0x1))
 		dll_change = DLL_CHANGE_ON;
 	else
 		dll_change = DLL_CHANGE_OFF;
@@ -1291,7 +1291,7 @@ emc_of_icc_xlate_extended(const struct of_phandle_args *spec, void *data)
 		if (node->id != TEGRA_ICC_EMEM)
 			continue;
 
-		ndata = kzalloc(sizeof(*ndata), GFP_KERNEL);
+		ndata = kzalloc_obj(*ndata);
 		if (!ndata)
 			return ERR_PTR(-ENOMEM);
 

@@ -84,13 +84,15 @@ struct scsi_host_template {
 	 *
 	 * STATUS: REQUIRED
 	 */
-	int (* queuecommand)(struct Scsi_Host *, struct scsi_cmnd *);
+	enum scsi_qc_status (*queuecommand)(struct Scsi_Host *,
+					    struct scsi_cmnd *);
 
 	/*
 	 * Queue a reserved command (BLK_MQ_REQ_RESERVED). The .queuecommand()
 	 * documentation also applies to the .queue_reserved_command() callback.
 	 */
-	int (*queue_reserved_command)(struct Scsi_Host *, struct scsi_cmnd *);
+	enum scsi_qc_status (*queue_reserved_command)(struct Scsi_Host *,
+						      struct scsi_cmnd *);
 
 	/*
 	 * The commit_rqs function is used to trigger a hardware
@@ -525,10 +527,12 @@ struct scsi_host_template {
  *
  */
 #define DEF_SCSI_QCMD(func_name) \
-	int func_name(struct Scsi_Host *shost, struct scsi_cmnd *cmd)	\
+	enum scsi_qc_status func_name(struct Scsi_Host *shost,		\
+				      struct scsi_cmnd *cmd)		\
 	{								\
 		unsigned long irq_flags;				\
-		int rc;							\
+		enum scsi_qc_status rc;					\
+									\
 		spin_lock_irqsave(shost->host_lock, irq_flags);		\
 		rc = func_name##_lck(cmd);				\
 		spin_unlock_irqrestore(shost->host_lock, irq_flags);	\
@@ -656,6 +660,10 @@ struct Scsi_Host {
 	 */
 	unsigned nr_hw_queues;
 	unsigned nr_maps;
+
+	/* Asynchronous scan in progress */
+	bool async_scan __guarded_by(&scan_mutex);
+
 	unsigned active_mode:2;
 
 	/*
@@ -673,9 +681,6 @@ struct Scsi_Host {
 
 	/* Task mgmt function in progress */
 	unsigned tmf_in_progress:1;
-
-	/* Asynchronous scan in progress */
-	unsigned async_scan:1;
 
 	/* Don't resume host in EH */
 	unsigned eh_noresume:1;

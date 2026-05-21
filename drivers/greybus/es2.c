@@ -547,7 +547,7 @@ static int cport_enable(struct gb_host_device *hd, u16 cport_id,
 	u32 connection_flags;
 	int ret;
 
-	req = kzalloc(sizeof(*req), GFP_KERNEL);
+	req = kzalloc_obj(*req);
 	if (!req)
 		return -ENOMEM;
 
@@ -772,7 +772,6 @@ static int check_urb_status(struct urb *urb)
 
 static void es2_destroy(struct es2_ap_dev *es2)
 {
-	struct usb_device *udev;
 	struct urb *urb;
 	int i;
 
@@ -804,10 +803,7 @@ static void es2_destroy(struct es2_ap_dev *es2)
 	gb_hd_cport_release_reserved(es2->hd, ES2_CPORT_CDSI1);
 	gb_hd_cport_release_reserved(es2->hd, ES2_CPORT_CDSI0);
 
-	udev = es2->usb_dev;
 	gb_hd_put(es2->hd);
-
-	usb_put_dev(udev);
 }
 
 static void cport_in_callback(struct urb *urb)
@@ -883,7 +879,7 @@ static struct arpc *arpc_alloc(void *payload, u16 size, u8 type)
 	if (size + sizeof(*rpc->req) > ARPC_OUT_SIZE_MAX)
 		return NULL;
 
-	rpc = kzalloc(sizeof(*rpc), GFP_KERNEL);
+	rpc = kzalloc_obj(*rpc);
 	if (!rpc)
 		return NULL;
 
@@ -892,7 +888,7 @@ static struct arpc *arpc_alloc(void *payload, u16 size, u8 type)
 	if (!rpc->req)
 		goto err_free_rpc;
 
-	rpc->resp = kzalloc(sizeof(*rpc->resp), GFP_KERNEL);
+	rpc->resp = kzalloc_obj(*rpc->resp);
 	if (!rpc->resp)
 		goto err_free_req;
 
@@ -1203,7 +1199,7 @@ static int apb_get_cport_count(struct usb_device *udev)
 	int retval;
 	__le16 *cport_count;
 
-	cport_count = kzalloc(sizeof(*cport_count), GFP_KERNEL);
+	cport_count = kzalloc_obj(*cport_count);
 	if (!cport_count)
 		return -ENOMEM;
 
@@ -1257,11 +1253,10 @@ static int ap_probe(struct usb_interface *interface,
 	bool bulk_in_found = false;
 	bool arpc_in_found = false;
 
-	udev = usb_get_dev(interface_to_usbdev(interface));
+	udev = interface_to_usbdev(interface);
 
 	num_cports = apb_get_cport_count(udev);
 	if (num_cports < 0) {
-		usb_put_dev(udev);
 		dev_err(&udev->dev, "Cannot retrieve CPort count: %d\n",
 			num_cports);
 		return num_cports;
@@ -1269,10 +1264,8 @@ static int ap_probe(struct usb_interface *interface,
 
 	hd = gb_hd_create(&es2_driver, &udev->dev, ES2_GBUF_MSG_SIZE_MAX,
 			  num_cports);
-	if (IS_ERR(hd)) {
-		usb_put_dev(udev);
+	if (IS_ERR(hd))
 		return PTR_ERR(hd);
-	}
 
 	es2 = hd_to_es2(hd);
 	es2->hd = hd;

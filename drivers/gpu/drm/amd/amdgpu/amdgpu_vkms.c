@@ -53,7 +53,9 @@ static enum hrtimer_restart amdgpu_vkms_vblank_simulate(struct hrtimer *timer)
 	ret_overrun = hrtimer_forward_now(&amdgpu_crtc->vblank_timer,
 					  output->period_ns);
 	if (ret_overrun != 1)
-		DRM_WARN("%s: vblank timer overrun\n", __func__);
+		drm_warn(amdgpu_crtc->base.dev,
+			 "%s: vblank timer overrun count: %llu\n",
+			 __func__, ret_overrun);
 
 	ret = drm_crtc_handle_vblank(crtc);
 	/* Don't queue timer again when vblank is disabled. */
@@ -326,11 +328,9 @@ static int amdgpu_vkms_prepare_fb(struct drm_plane *plane,
 		return r;
 	}
 
-	r = dma_resv_reserve_fences(rbo->tbo.base.resv, 1);
-	if (r) {
-		dev_err(adev->dev, "allocating fence slot failed (%d)\n", r);
+	r = dma_resv_reserve_fences(rbo->tbo.base.resv, TTM_NUM_MOVE_FENCES);
+	if (r)
 		goto error_unlock;
-	}
 
 	if (plane->type != DRM_PLANE_TYPE_CURSOR)
 		domain = amdgpu_display_supported_domains(adev, rbo->flags);
@@ -409,7 +409,7 @@ static struct drm_plane *amdgpu_vkms_plane_init(struct drm_device *dev,
 	struct drm_plane *plane;
 	int ret;
 
-	plane = kzalloc(sizeof(*plane), GFP_KERNEL);
+	plane = kzalloc_obj(*plane);
 	if (!plane)
 		return ERR_PTR(-ENOMEM);
 
@@ -497,8 +497,8 @@ static int amdgpu_vkms_sw_init(struct amdgpu_ip_block *ip_block)
 	int r, i;
 	struct amdgpu_device *adev = ip_block->adev;
 
-	adev->amdgpu_vkms_output = kcalloc(adev->mode_info.num_crtc,
-		sizeof(struct amdgpu_vkms_output), GFP_KERNEL);
+	adev->amdgpu_vkms_output = kzalloc_objs(struct amdgpu_vkms_output,
+						adev->mode_info.num_crtc);
 	if (!adev->amdgpu_vkms_output)
 		return -ENOMEM;
 

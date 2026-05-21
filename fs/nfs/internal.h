@@ -253,6 +253,8 @@ extern struct nfs_client *nfs4_set_ds_client(struct nfs_server *mds_srv,
 					     u32 minor_version);
 extern struct rpc_clnt *nfs4_find_or_create_ds_client(struct nfs_client *,
 						struct inode *);
+extern void nfs4_session_limit_rwsize(struct nfs_server *server);
+extern void nfs4_session_limit_xasize(struct nfs_server *server);
 extern struct nfs_client *nfs3_set_ds_client(struct nfs_server *mds_srv,
 			const struct sockaddr_storage *ds_addr, int ds_addrlen,
 			int ds_proto, unsigned int ds_timeo,
@@ -334,17 +336,13 @@ extern int nfs3_decode_dirent(struct xdr_stream *,
 #if IS_ENABLED(CONFIG_NFS_V4)
 extern int nfs4_decode_dirent(struct xdr_stream *,
 				struct nfs_entry *, bool);
-#endif
-#ifdef CONFIG_NFS_V4_1
 extern const u32 nfs41_maxread_overhead;
 extern const u32 nfs41_maxwrite_overhead;
 extern const u32 nfs41_maxgetdevinfo_overhead;
-#endif
 
 /* nfs4proc.c */
-#if IS_ENABLED(CONFIG_NFS_V4)
 extern const struct rpc_procinfo nfs4_procedures[];
-#endif
+#endif /* CONFIG_NFS_V4 */
 
 #ifdef CONFIG_NFS_V4_SECURITY_LABEL
 extern struct nfs4_label *nfs4_label_alloc(struct nfs_server *server, gfp_t flags);
@@ -639,7 +637,7 @@ void nfs_pageio_stop_mirroring(struct nfs_pageio_descriptor *pgio);
 int nfs_filemap_write_and_wait_range(struct address_space *mapping,
 		loff_t lstart, loff_t lend);
 
-#ifdef CONFIG_NFS_V4_1
+#ifdef CONFIG_NFS_V4
 static inline void
 pnfs_bucket_clear_pnfs_ds_commit_verifiers(struct pnfs_commit_bucket *buckets,
 		unsigned int nbuckets)
@@ -660,12 +658,12 @@ void nfs_clear_pnfs_ds_commit_verifiers(struct pnfs_ds_commit_info *cinfo)
 				array->nbuckets);
 	rcu_read_unlock();
 }
-#else
+#else /* CONFIG_NFS_V4 */
 static inline
 void nfs_clear_pnfs_ds_commit_verifiers(struct pnfs_ds_commit_info *cinfo)
 {
 }
-#endif
+#endif /* CONFIG_NFS_V4 */
 
 #ifdef CONFIG_MIGRATION
 int nfs_migrate_folio(struct address_space *, struct folio *dst,
@@ -739,9 +737,6 @@ extern ssize_t nfs_dreq_bytes_left(struct nfs_direct_req *dreq, loff_t offset);
 /* nfs4proc.c */
 extern struct nfs_client *nfs4_init_client(struct nfs_client *clp,
 			    const struct nfs_client_initdata *);
-extern int nfs40_walk_client_list(struct nfs_client *clp,
-				struct nfs_client **result,
-				const struct cred *cred);
 extern int nfs41_walk_client_list(struct nfs_client *clp,
 				struct nfs_client **result,
 				const struct cred *cred);
@@ -866,7 +861,7 @@ static inline void nfs_folio_mark_unstable(struct folio *folio,
 		 * writeback is happening on the server now.
 		 */
 		node_stat_mod_folio(folio, NR_WRITEBACK, nr);
-		wb_stat_mod(&inode_to_bdi(inode)->wb, WB_WRITEBACK, nr);
+		bdi_wb_stat_mod(inode, WB_WRITEBACK, nr);
 		__mark_inode_dirty(inode, I_DIRTY_DATASYNC);
 	}
 }

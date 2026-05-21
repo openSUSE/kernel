@@ -28,11 +28,11 @@ use kernel::{
     seq_print,
     sync::poll::PollTable,
     sync::{
+        aref::ARef,
         lock::{spinlock::SpinLockBackend, Guard},
         Arc, ArcBorrow, CondVar, CondVarTimeoutResult, Mutex, SpinLock, UniqueArc,
     },
     task::Task,
-    types::ARef,
     uaccess::{UserSlice, UserSliceReader},
     uapi,
     workqueue::{self, Work},
@@ -48,6 +48,7 @@ use crate::{
     range_alloc::{RangeAllocator, ReserveNew, ReserveNewArgs},
     stats::BinderStats,
     thread::{PushWorkRes, Thread},
+    transaction::TransactionInfo,
     BinderfsProcFile, DArc, DLArc, DTRWrap, DeliverToRead,
 };
 
@@ -418,6 +419,13 @@ impl ProcessNodeRefs {
     }
 }
 
+use core::mem::offset_of;
+use kernel::bindings::rb_process_layout;
+pub(crate) const PROCESS_LAYOUT: rb_process_layout = rb_process_layout {
+    arc_offset: Arc::<Process>::DATA_OFFSET,
+    task: offset_of!(Process, task),
+};
+
 /// A process using binder.
 ///
 /// Strictly speaking, there can be multiple of these per process. There is one for each binder fd
@@ -496,7 +504,7 @@ impl workqueue::WorkItem for Process {
 impl Process {
     fn new(ctx: Arc<Context>, cred: ARef<Credential>) -> Result<Arc<Self>> {
         let current = kernel::current!();
-        let list_process = ListArc::pin_init::<Error>(
+        let process = Arc::pin_init::<Error>(
             try_pin_init!(Process {
                 ctx,
                 cred,
@@ -512,8 +520,7 @@ impl Process {
             GFP_KERNEL,
         )?;
 
-        let process = list_process.clone_arc();
-        process.ctx.register_process(list_process);
+        process.ctx.register_process(process.clone())?;
 
         Ok(process)
     }
@@ -675,7 +682,7 @@ impl Process {
     fn get_current_thread(self: ArcBorrow<'_, Self>) -> Result<Arc<Thread>> {
         let id = {
             let current = kernel::current!();
-            if !core::ptr::eq(current.group_leader(), &*self.task) {
+            if self.task != current.group_leader() {
                 pr_err!("get_current_thread was called from the wrong process.");
                 return Err(EINVAL);
             }
@@ -997,16 +1004,15 @@ impl Process {
         self: &Arc<Self>,
         debug_id: usize,
         size: usize,
-        is_oneway: bool,
-        from_pid: i32,
+        info: &mut TransactionInfo,
     ) -> BinderResult<NewAllocation> {
         use kernel::page::PAGE_SIZE;
 
         let mut reserve_new_args = ReserveNewArgs {
             debug_id,
             size,
-            is_oneway,
-            pid: from_pid,
+            is_oneway: info.is_oneway(),
+            pid: info.from_pid,
             ..ReserveNewArgs::default()
         };
 
@@ -1022,13 +1028,13 @@ impl Process {
             reserve_new_args = alloc_request.make_alloc()?;
         };
 
+        info.oneway_spam_suspect = new_alloc.oneway_spam_detected;
         let res = Allocation::new(
             self.clone(),
             debug_id,
             new_alloc.offset,
             size,
             addr + new_alloc.offset,
-            new_alloc.oneway_spam_detected,
         );
 
         // This allocation will be marked as in use until the `Allocation` is used to free it.
@@ -1060,7 +1066,7 @@ impl Process {
         let mapping = inner.mapping.as_mut()?;
         let offset = ptr.checked_sub(mapping.address)?;
         let (size, debug_id, odata) = mapping.alloc.reserve_existing(offset).ok()?;
-        let mut alloc = Allocation::new(self.clone(), debug_id, offset, size, ptr, false);
+        let mut alloc = Allocation::new(self.clone(), debug_id, offset, size, ptr);
         if let Some(data) = odata {
             alloc.set_info(data);
         }
@@ -1289,7 +1295,8 @@ impl Process {
     }
 
     pub(crate) fn dead_binder_done(&self, cookie: u64, thread: &Thread) {
-        if let Some(death) = self.inner.lock().pull_delivered_death(cookie) {
+        let death = self.inner.lock().pull_delivered_death(cookie);
+        if let Some(death) = death {
             death.set_notification_done(thread);
         }
     }
@@ -1407,8 +1414,7 @@ impl Process {
                 .alloc
                 .take_for_each(|offset, size, debug_id, odata| {
                     let ptr = offset + address;
-                    let mut alloc =
-                        Allocation::new(self.clone(), debug_id, offset, size, ptr, false);
+                    let mut alloc = Allocation::new(self.clone(), debug_id, offset, size, ptr);
                     if let Some(data) = odata {
                         alloc.set_info(data);
                     }
@@ -1436,6 +1442,9 @@ impl Process {
         }
     }
 
+    // #[export_name] is a temporary workaround so that ps output does not become unreadable from
+    // mangled symbol names.
+    #[export_name = "rust_binder_freeze"]
     pub(crate) fn ioctl_freeze(&self, info: &BinderFreezeInfo) -> Result {
         if info.enable == 0 {
             let msgs = self.prepare_freeze_messages()?;
@@ -1650,11 +1659,14 @@ impl Process {
 
         const _IOC_READ_WRITE: u32 = _IOC_READ | _IOC_WRITE;
 
-        match _IOC_DIR(cmd) {
+        let res = match _IOC_DIR(cmd) {
             _IOC_WRITE => Self::ioctl_write_only(this, file, cmd, &mut user_slice.reader()),
             _IOC_READ_WRITE => Self::ioctl_write_read(this, file, cmd, user_slice),
             _ => Err(EINVAL),
-        }
+        };
+
+        crate::trace::trace_ioctl_done(res);
+        res
     }
 
     pub(crate) fn mmap(
@@ -1663,7 +1675,7 @@ impl Process {
         vma: &mm::virt::VmaNew,
     ) -> Result {
         // We don't allow mmap to be used in a different process.
-        if !core::ptr::eq(kernel::current!().group_leader(), &*this.task) {
+        if this.task != kernel::current!().group_leader() {
             return Err(EINVAL);
         }
         if vma.start() == 0 {

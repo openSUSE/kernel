@@ -46,7 +46,6 @@ config SND_SOC_ALL_CODECS
 	imply SND_SOC_AK4554
 	imply SND_SOC_AK4613
 	imply SND_SOC_AK4619
-	imply SND_SOC_AK4641
 	imply SND_SOC_AK4642
 	imply SND_SOC_AK4671
 	imply SND_SOC_AK5386
@@ -212,6 +211,7 @@ config SND_SOC_ALL_CODECS
 	imply SND_SOC_RT1305
 	imply SND_SOC_RT1308
 	imply SND_SOC_RT5514
+	imply SND_SOC_RT5575
 	imply SND_SOC_RT5616
 	imply SND_SOC_RT5631
 	imply SND_SOC_RT5640
@@ -398,31 +398,21 @@ config SND_SOC_WM_HUBS
 	default m if SND_SOC_WM8993=m || SND_SOC_WM8994=m
 
 config SND_SOC_WM_ADSP
-	tristate
+	tristate "Cirrus Logic wm_adsp driver" if KUNIT
 	select FW_CS_DSP
 	select SND_SOC_COMPRESS
-	default y if SND_SOC_MADERA=y
-	default y if SND_SOC_CS47L24=y
-	default y if SND_SOC_WM5102=y
-	default y if SND_SOC_WM5110=y
-	default y if SND_SOC_WM2200=y
-	default y if SND_SOC_CS35L41_SPI=y
-	default y if SND_SOC_CS35L41_I2C=y
-	default y if SND_SOC_CS35L45_SPI=y
-	default y if SND_SOC_CS35L45_I2C=y
-	default y if SND_SOC_CS35L56=y
-	default y if SND_SOC_CS48L32=y
-	default m if SND_SOC_MADERA=m
-	default m if SND_SOC_CS47L24=m
-	default m if SND_SOC_WM5102=m
-	default m if SND_SOC_WM5110=m
-	default m if SND_SOC_WM2200=m
-	default m if SND_SOC_CS35L41_SPI=m
-	default m if SND_SOC_CS35L41_I2C=m
-	default m if SND_SOC_CS35L45_SPI=m
-	default m if SND_SOC_CS35L45_I2C=m
-	default m if SND_SOC_CS35L56=m
-	default m if SND_SOC_CS48L32=m
+
+config SND_SOC_WM_ADSP_TEST
+	tristate "KUnit tests for Cirrus Logic wm_adsp" if !KUNIT_ALL_TESTS
+	depends on KUNIT
+	depends on SND_SOC_WM_ADSP
+	default KUNIT_ALL_TESTS
+	help
+	  This builds KUnit tests for the Cirrus Logic wm_adsp library.
+	  For more information on KUnit and unit tests in general,
+	  please refer to the KUnit documentation in
+	  Documentation/dev-tools/kunit/.
+	  If in doubt, say "N".
 
 config SND_SOC_AB8500_CODEC
 	tristate
@@ -624,11 +614,6 @@ config SND_SOC_AK4619
         tristate "AKM AK4619 CODEC"
         depends on I2C
 
-config SND_SOC_AK4641
-	tristate
-	depends on I2C
-	depends on GPIOLIB_LEGACY
-
 config SND_SOC_AK4642
 	tristate "AKM AK4642 CODEC"
 	depends on I2C
@@ -785,9 +770,14 @@ config SND_SOC_CROS_EC_CODEC
 config SND_SOC_CS_AMP_LIB
 	tristate
 
+config SND_SOC_CS_AMP_LIB_TEST_HOOKS
+	bool
+	depends on SND_SOC_CS_AMP_LIB
+
 config SND_SOC_CS_AMP_LIB_TEST
 	tristate "KUnit test for Cirrus Logic cs-amp-lib" if !KUNIT_ALL_TESTS
 	depends on SND_SOC_CS_AMP_LIB && KUNIT
+	select SND_SOC_CS_AMP_LIB_TEST_HOOKS
 	default KUNIT_ALL_TESTS
 	help
 	  This builds KUnit tests for the Cirrus Logic common
@@ -822,6 +812,7 @@ config SND_SOC_CS35L41_LIB
 
 config SND_SOC_CS35L41
 	tristate
+	select SND_SOC_WM_ADSP
 
 config SND_SOC_CS35L41_SPI
 	tristate "Cirrus Logic CS35L41 CODEC (SPI)"
@@ -840,6 +831,7 @@ config SND_SOC_CS35L41_I2C
 config SND_SOC_CS35L45
 	tristate
 	select REGMAP_IRQ
+	select SND_SOC_WM_ADSP
 
 config SND_SOC_CS35L45_SPI
 	tristate "Cirrus Logic CS35L45 CODEC (SPI)"
@@ -863,6 +855,7 @@ config SND_SOC_CS35L45_I2C
 
 config SND_SOC_CS35L56
 	tristate
+	select SND_SOC_WM_ADSP
 
 config SND_SOC_CS35L56_SHARED
 	select SND_SOC_CS_AMP_LIB
@@ -927,6 +920,46 @@ config SND_SOC_CS35L56_CAL_SET_CTRL
 	  On most platforms this is not needed.
 
 	  If unsure select "N".
+
+config SND_SOC_CS35L56_CAL_PERFORM_CTRL
+	bool "CS35L56 ALSA control to perform factory calibration"
+	default N
+	select SND_SOC_CS35L56_CAL_DEBUGFS_COMMON
+	help
+	  Allow performing factory calibration data through an ALSA
+	  control. It is recommended to use the debugfs method instead
+	  because debugfs has restricted access permissions.
+
+	  On most platforms this is not needed.
+
+	  If unsure select "N".
+
+config SND_SOC_CS35L56_TEST
+	tristate "KUnit test for Cirrus Logic cs35l56 driver" if !KUNIT_ALL_TESTS
+	depends on SND_SOC_CS35L56 && KUNIT
+	default KUNIT_ALL_TESTS
+	select SND_SOC_CS_AMP_LIB_TEST_HOOKS
+	help
+	  This builds KUnit tests for the Cirrus Logic cs35l56
+	  codec driver.
+
+	  For more information on KUnit and unit tests in general,
+	  please refer to the KUnit documentation in
+	  Documentation/dev-tools/kunit/.
+	  If in doubt, say "N".
+
+config SND_SOC_CS35L56_SHARED_TEST
+	tristate "KUnit test for Cirrus Logic cs35l56-shared" if !KUNIT_ALL_TESTS
+	depends on SND_SOC_CS35L56_SHARED && KUNIT
+	default KUNIT_ALL_TESTS
+	help
+	  This builds KUnit tests for the Cirrus Logic cs35l56-shared
+	  module.
+
+	  For more information on KUnit and unit tests in general,
+	  please refer to the KUnit documentation in
+	  Documentation/dev-tools/kunit/.
+	  If in doubt, say "N".
 endmenu
 
 config SND_SOC_CS40L50
@@ -1073,6 +1106,7 @@ config SND_SOC_CS47L15
 config SND_SOC_CS47L24
 	tristate
 	depends on MFD_CS47L24 && MFD_ARIZONA
+	select SND_SOC_WM_ADSP
 
 config SND_SOC_CS47L35
 	tristate
@@ -1094,6 +1128,7 @@ config SND_SOC_CS48L32
 	tristate "Cirrus Logic CS48L32 audio DSP"
 	depends on SPI_MASTER
 	select REGMAP_SPI
+	select SND_SOC_WM_ADSP
 	help
 	  Build the codec driver for the Cirrus Logic CS48L32 audio DSP.
 
@@ -1352,6 +1387,7 @@ config SND_SOC_LOCHNAGAR_SC
 
 config SND_SOC_MADERA
 	tristate
+	select SND_SOC_WM_ADSP
 	default y if SND_SOC_CS47L15=y
 	default y if SND_SOC_CS47L35=y
 	default y if SND_SOC_CS47L85=y
@@ -1783,6 +1819,16 @@ config SND_SOC_RT5514_SPI_BUILTIN
 	bool # force RT5514_SPI to be built-in to avoid link errors
 	default SND_SOC_RT5514=y && SND_SOC_RT5514_SPI=m
 
+config SND_SOC_RT5575
+	tristate "Realtek ALC5575 Codec - I2C"
+	depends on I2C
+
+config SND_SOC_RT5575_SPI
+	bool "Realtek ALC5575 Codec - SPI"
+	depends on SPI_MASTER && I2C
+	depends on SND_SOC_RT5575
+	depends on SPI_MASTER=y || SND_SOC_RT5575=m
+
 config SND_SOC_RT5616
 	tristate "Realtek RT5616 CODEC"
 	depends on I2C
@@ -2146,6 +2192,7 @@ config SND_SOC_TAS2781_I2C
 config SND_SOC_TAS2783_SDW
 	tristate "Texas Instruments TAS2783 speaker amplifier (sdw)"
 	depends on SOUNDWIRE
+	depends on SND_SOC_SDCA
 	depends on EFI
 	select REGMAP_SOUNDWIRE
 	select REGMAP_SOUNDWIRE_MBQ
@@ -2326,9 +2373,11 @@ config SND_SOC_UDA1342
 	  mic inputs), stereo audio DAC, with basic audio processing.
 
 config SND_SOC_UDA1380
-	tristate
+	tristate "Philips UDA1380 CODEC"
 	depends on I2C
-	depends on GPIOLIB_LEGACY
+	help
+	  The UDA1380 codec is used in the HTC Magician and on a number of
+	  Samsung reference boards, as well as the LPC32xx series.
 
 config SND_SOC_WCD_CLASSH
 	tristate
@@ -2439,6 +2488,7 @@ config SND_SOC_WM2000
 config SND_SOC_WM2200
 	tristate
 	depends on I2C
+	select SND_SOC_WM_ADSP
 
 config SND_SOC_WM5100
 	tristate
@@ -2447,10 +2497,12 @@ config SND_SOC_WM5100
 config SND_SOC_WM5102
 	tristate
 	depends on MFD_WM5102 && MFD_ARIZONA
+	select SND_SOC_WM_ADSP
 
 config SND_SOC_WM5110
 	tristate
 	depends on MFD_WM5110 && MFD_ARIZONA
+	select SND_SOC_WM_ADSP
 
 config SND_SOC_WM8350
 	tristate

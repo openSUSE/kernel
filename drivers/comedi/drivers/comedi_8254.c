@@ -633,7 +633,7 @@ static struct comedi_8254 *__i8254_init(comedi_8254_iocb_fn *iocb,
 	if (!iocb)
 		return ERR_PTR(-EINVAL);
 
-	i8254 = kzalloc(sizeof(*i8254), GFP_KERNEL);
+	i8254 = kzalloc_obj(*i8254);
 	if (!i8254)
 		return ERR_PTR(-ENOMEM);
 
@@ -723,17 +723,6 @@ struct comedi_8254 *comedi_8254_mm_alloc(void __iomem *mmio,
 	return __i8254_init(iocb, (unsigned long)mmio, osc_base, iosize, regshift);
 }
 EXPORT_SYMBOL_GPL(comedi_8254_mm_alloc);
-
-static int __init comedi_8254_module_init(void)
-{
-	return 0;
-}
-module_init(comedi_8254_module_init);
-
-static void __exit comedi_8254_module_exit(void)
-{
-}
-module_exit(comedi_8254_module_exit);
 
 MODULE_AUTHOR("H Hartley Sweeten <hsweeten@visionengravers.com>");
 MODULE_DESCRIPTION("Comedi: Generic 8254 timer/counter support");

@@ -338,8 +338,7 @@ void aie2_error_async_events_free(struct amdxdna_dev_hdl *ndev)
 	destroy_workqueue(events->wq);
 	mutex_lock(&xdna->dev_lock);
 
-	dma_free_noncoherent(xdna->ddev.dev, events->size, events->buf,
-			     events->addr, DMA_FROM_DEVICE);
+	aie2_free_msg_buffer(ndev, events->size, events->buf, events->addr);
 	kfree(events);
 }
 
@@ -351,14 +350,13 @@ int aie2_error_async_events_alloc(struct amdxdna_dev_hdl *ndev)
 	struct async_events *events;
 	int i, ret;
 
-	events = kzalloc(struct_size(events, event, total_col), GFP_KERNEL);
+	events = kzalloc_flex(*events, event, total_col);
 	if (!events)
 		return -ENOMEM;
 
-	events->buf = dma_alloc_noncoherent(xdna->ddev.dev, total_size, &events->addr,
-					    DMA_FROM_DEVICE, GFP_KERNEL);
-	if (!events->buf) {
-		ret = -ENOMEM;
+	events->buf = aie2_alloc_msg_buffer(ndev, &total_size, &events->addr);
+	if (IS_ERR(events->buf)) {
+		ret = PTR_ERR(events->buf);
 		goto free_events;
 	}
 	events->size = total_size;
@@ -396,8 +394,7 @@ int aie2_error_async_events_alloc(struct amdxdna_dev_hdl *ndev)
 free_wq:
 	destroy_workqueue(events->wq);
 free_buf:
-	dma_free_noncoherent(xdna->ddev.dev, events->size, events->buf,
-			     events->addr, DMA_FROM_DEVICE);
+	aie2_free_msg_buffer(ndev, events->size, events->buf, events->addr);
 free_events:
 	kfree(events);
 	return ret;

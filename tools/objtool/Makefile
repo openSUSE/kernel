@@ -13,7 +13,7 @@ endif
 
 ifeq ($(ARCH_HAS_KLP),y)
 	HAVE_XXHASH = $(shell printf "$(pound)include <xxhash.h>\nXXH3_state_t *state;int main() {}" | \
-		      $(HOSTCC) -xc - -o /dev/null -lxxhash 2> /dev/null && echo y || echo n)
+		      $(HOSTCC) $(HOSTCFLAGS) -xc - -o /dev/null -lxxhash 2> /dev/null && echo y || echo n)
 	ifeq ($(HAVE_XXHASH),y)
 		BUILD_KLP	 := y
 		LIBXXHASH_CFLAGS := $(shell $(HOSTPKG_CONFIG) libxxhash --cflags 2>/dev/null) \
@@ -28,6 +28,8 @@ ifeq ($(srctree),)
 srctree := $(patsubst %/,%,$(dir $(CURDIR)))
 srctree := $(patsubst %/,%,$(dir $(srctree)))
 endif
+
+RM ?= rm -f
 
 LIBSUBCMD_DIR = $(srctree)/tools/lib/subcmd/
 ifneq ($(OUTPUT),)
@@ -72,23 +74,40 @@ HOST_OVERRIDES := CC="$(HOSTCC)" LD="$(HOSTLD)" AR="$(HOSTAR)"
 
 #
 # To support disassembly, objtool needs libopcodes which is provided
-# with libbdf (binutils-dev or binutils-devel package).
+# with libbfd (binutils-dev or binutils-devel package).
 #
-FEATURE_USER = .objtool
-FEATURE_TESTS = libbfd disassembler-init-styled
-FEATURE_DISPLAY =
-include $(srctree)/tools/build/Makefile.feature
+# We check using HOSTCC directly rather than the shared feature framework
+# because objtool is a host tool that links against host libraries.
+#
+# When using shared libraries, -lopcodes is sufficient as dependencies are
+# resolved automatically. With static libraries, we must explicitly link
+# against libopcodes' dependencies: libbfd, libiberty, and sometimes libz.
+# Try each combination and use the first one that succeeds.
+#
+LIBOPCODES_LIBS := $(shell \
+	for libs in "-lopcodes" \
+		    "-lopcodes -lbfd" \
+		    "-lopcodes -lbfd -liberty" \
+		    "-lopcodes -lbfd -liberty -lz"; do \
+		echo 'extern void disassemble_init_for_target(void *);' \
+		     'int main(void) { disassemble_init_for_target(0); return 0; }' | \
+			$(HOSTCC) -xc - -o /dev/null $$libs 2>/dev/null && \
+			echo "$$libs" && break; \
+	done)
 
-ifeq ($(feature-disassembler-init-styled), 1)
-	OBJTOOL_CFLAGS += -DDISASM_INIT_STYLED
-endif
+# Styled disassembler support requires binutils >= 2.39
+HAVE_DISASM_STYLED := $(shell echo '$(pound)include <dis-asm.h>' | \
+			$(HOSTCC) -E -xc - 2>/dev/null | grep -q disassembler_style && echo y)
 
 BUILD_DISAS := n
 
-ifeq ($(feature-libbfd),1)
+ifneq ($(LIBOPCODES_LIBS),)
 	BUILD_DISAS := y
-	OBJTOOL_CFLAGS += -DDISAS -DPACKAGE="objtool"
-	OBJTOOL_LDFLAGS += -lopcodes
+	OBJTOOL_CFLAGS += -DDISAS -DPACKAGE='"objtool"'
+	OBJTOOL_LDFLAGS += $(LIBOPCODES_LIBS)
+ifeq ($(HAVE_DISASM_STYLED),y)
+	OBJTOOL_CFLAGS += -DDISASM_INIT_STYLED
+endif
 endif
 
 export BUILD_DISAS
@@ -123,13 +142,15 @@ $(LIBSUBCMD)-clean:
 	$(Q)$(RM) -r -- $(LIBSUBCMD_OUTPUT)
 
 clean: $(LIBSUBCMD)-clean
-	$(call QUIET_CLEAN, objtool) $(RM) $(OBJTOOL)
-	$(Q)find $(OUTPUT) -name '*.o' -delete -o -name '\.*.cmd' -delete -o -name '\.*.d' -delete
+	$(Q)find $(OUTPUT) \( -name '*.o' -o -name '\.*.cmd' -o -name '\.*.d' \) -type f -print | xargs $(RM)
 	$(Q)$(RM) $(OUTPUT)arch/x86/lib/cpu-feature-names.c $(OUTPUT)fixdep
 	$(Q)$(RM) $(OUTPUT)arch/x86/lib/inat-tables.c $(OUTPUT)fixdep
 	$(Q)$(RM) -- $(OUTPUT)FEATURE-DUMP.objtool
 	$(Q)$(RM) -r -- $(OUTPUT)feature
 
+mrproper: clean
+	$(call QUIET_CLEAN, objtool) $(RM) $(OBJTOOL)
+
 FORCE:
 
-.PHONY: clean FORCE
+.PHONY: clean mrproper FORCE

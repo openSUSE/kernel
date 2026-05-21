@@ -66,7 +66,7 @@ static inline struct fwnode_handle *acpi_alloc_fwnode_static(void)
 {
 	struct fwnode_handle *fwnode;
 
-	fwnode = kzalloc(sizeof(struct fwnode_handle), GFP_KERNEL);
+	fwnode = kzalloc_obj(struct fwnode_handle);
 	if (!fwnode)
 		return NULL;
 
@@ -107,6 +107,7 @@ enum acpi_irq_model_id {
 	ACPI_IRQ_MODEL_IOSAPIC,
 	ACPI_IRQ_MODEL_PLATFORM,
 	ACPI_IRQ_MODEL_GIC,
+	ACPI_IRQ_MODEL_GIC_V5,
 	ACPI_IRQ_MODEL_LPIC,
 	ACPI_IRQ_MODEL_RINTC,
 	ACPI_IRQ_MODEL_COUNT
@@ -322,6 +323,17 @@ int acpi_unmap_cpu(int cpu);
 #endif /* CONFIG_ACPI_HOTPLUG_CPU */
 
 acpi_handle acpi_get_processor_handle(int cpu);
+
+/**
+ * acpi_get_cpu_uid() - Get ACPI Processor UID of from MADT table
+ * @cpu: Logical CPU number (0-based)
+ * @uid: Pointer to store ACPI Processor UID
+ *
+ * Return: 0 on success (ACPI Processor ID stored in *uid);
+ *         -EINVAL if CPU number is invalid or out of range;
+ *         -ENODEV if ACPI Processor UID for the CPU is not found.
+ */
+int acpi_get_cpu_uid(unsigned int cpu, u32 *uid);
 
 #ifdef CONFIG_ACPI_HOTPLUG_IOAPIC
 int acpi_get_ioapic_id(acpi_handle handle, u32 gsi_base, u64 *phys_addr);
@@ -790,6 +802,14 @@ const char *acpi_get_subsystem_id(acpi_handle handle);
 int acpi_mrrm_max_mem_region(void);
 #endif
 
+#define ACPI_CMOS_RTC_IDS	\
+	{ "PNP0B00", },		\
+	{ "PNP0B01", },		\
+	{ "PNP0B02", },		\
+	{ "", }
+
+extern bool cmos_rtc_platform_device_present;
+
 #else	/* !CONFIG_ACPI */
 
 #define acpi_disabled 1
@@ -937,6 +957,12 @@ static inline int acpi_table_parse(char *id,
 				int (*handler)(struct acpi_table_header *))
 {
 	return -ENODEV;
+}
+
+static inline int acpi_get_cpu_uid(unsigned int cpu, u32 *uid)
+{
+	*uid = cpu;
+	return 0;
 }
 
 static inline int acpi_nvs_register(__u64 start, __u64 size)
@@ -1114,6 +1140,8 @@ static inline int acpi_mrrm_max_mem_region(void)
 {
 	return 1;
 }
+
+#define cmos_rtc_platform_device_present	false
 
 #endif	/* !CONFIG_ACPI */
 

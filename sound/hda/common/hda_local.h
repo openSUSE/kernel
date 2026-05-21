@@ -221,6 +221,7 @@ struct hda_multi_out {
 	unsigned int spdif_rates;
 	unsigned int spdif_maxbps;
 	u64 spdif_formats;
+	struct snd_kcontrol *share_spdif_kctl; /* cached shared SPDIF switch */
 };
 
 int snd_hda_create_spdif_share_sw(struct hda_codec *codec,
@@ -424,7 +425,7 @@ int _snd_hda_set_pin_ctl(struct hda_codec *codec, hda_nid_t pin,
 			 unsigned int val, bool cached);
 
 /**
- * _snd_hda_set_pin_ctl - Set a pin-control value safely
+ * snd_hda_set_pin_ctl - Set a pin-control value safely
  * @codec: the codec instance
  * @pin: the pin NID to set the control
  * @val: the pin-control value (AC_PINCTL_* bits)

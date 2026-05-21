@@ -63,7 +63,7 @@ static inline bool dwmac_is_xmac(enum dwmac_core_type core_type)
 #define DMA_MIN_RX_SIZE		64
 #define DMA_MAX_RX_SIZE		1024
 #define DMA_DEFAULT_RX_SIZE	512
-#define STMMAC_GET_ENTRY(x, size)	((x + 1) & (size - 1))
+#define STMMAC_NEXT_ENTRY(x, size)	((x + 1) & (size - 1))
 
 #undef FRAME_FILTER_DEBUG
 /* #define FRAME_FILTER_DEBUG */
@@ -257,6 +257,7 @@ struct stmmac_safety_stats {
 	(sizeof(struct stmmac_safety_stats) / sizeof(unsigned long))
 
 /* CSR Frequency Access Defines*/
+#define CSR_F_20M	20000000
 #define CSR_F_35M	35000000
 #define CSR_F_60M	60000000
 #define CSR_F_100M	100000000
@@ -276,9 +277,6 @@ struct stmmac_safety_stats {
 #define FLOW_RX		1
 #define FLOW_TX		2
 #define FLOW_AUTO	(FLOW_TX | FLOW_RX)
-
-/* PCS defines */
-#define STMMAC_PCS_SGMII	(1 << 1)
 
 #define SF_DMA_MODE 1		/* DMA STORE-AND-FORWARD Operation Mode */
 
@@ -322,6 +320,10 @@ struct stmmac_safety_stats {
 #define PHY_INTF_SEL_RTBI	5
 #define PHY_INTF_SEL_SMII	6
 #define PHY_INTF_SEL_REVMII	7
+
+/* XGMAC uses a different encoding - from the AgileX5 documentation */
+#define PHY_INTF_GMII		0
+#define PHY_INTF_RGMII		1
 
 /* MSI defines */
 #define STMMAC_MSI_VEC_MAX	32
@@ -390,7 +392,6 @@ enum request_irq_err {
 	REQ_IRQ_ERR_SFTY,
 	REQ_IRQ_ERR_SFTY_UE,
 	REQ_IRQ_ERR_SFTY_CE,
-	REQ_IRQ_ERR_LPI,
 	REQ_IRQ_ERR_WOL,
 	REQ_IRQ_ERR_MAC,
 	REQ_IRQ_ERR_NO,
@@ -442,8 +443,8 @@ struct dma_features {
 	unsigned int number_rx_channel;
 	unsigned int number_tx_channel;
 	/* TX and RX number of queues */
-	unsigned int number_rx_queues;
-	unsigned int number_tx_queues;
+	u8 number_rx_queues;
+	u8 number_tx_queues;
 	/* PPS output */
 	unsigned int pps_out_num;
 	/* Number of Traffic Classes */
@@ -512,6 +513,8 @@ struct dma_features {
 	unsigned int dbgmem;
 	/* Number of Policing Counters */
 	unsigned int pcsel;
+	/* Active PHY interface, PHY_INTF_SEL_xxx */
+	u8 actphyif;
 };
 
 /* RX Buffer size must be multiple of 4/8/16 bytes */
@@ -602,12 +605,9 @@ struct mac_link {
 struct mii_regs {
 	unsigned int addr;	/* MII Address */
 	unsigned int data;	/* MII Data */
-	unsigned int addr_shift;	/* MII address shift */
-	unsigned int reg_shift;		/* MII reg shift */
-	unsigned int addr_mask;		/* MII address mask */
-	unsigned int reg_mask;		/* MII reg mask */
-	unsigned int clk_csr_shift;
-	unsigned int clk_csr_mask;
+	u32 addr_mask;		/* MII address mask */
+	u32 reg_mask;		/* MII reg mask */
+	u32 clk_csr_mask;
 };
 
 struct mac_device_info {
@@ -629,8 +629,6 @@ struct mac_device_info {
 	unsigned int unicast_filter_entries;
 	unsigned int mcast_bits_log2;
 	unsigned int rx_csum;
-	unsigned int pcs;
-	unsigned int xlgmac;
 	unsigned int num_vlan;
 	u32 vlan_filter[32];
 	bool vlan_fail_q_en;

@@ -290,13 +290,14 @@ EXPORT_SYMBOL(disk_check_media_change);
  * Should be called when the media changes for @disk.  Generates a uevent
  * and attempts to free all dentries and inodes and invalidates all block
  * device page cache entries in that case.
+ *
+ * Callers that need a partition re-scan should arrange for one explicitly.
  */
 void disk_force_media_change(struct gendisk *disk)
 {
 	disk_event_uevent(disk, DISK_EVENT_MEDIA_CHANGE);
 	inc_diskseq(disk);
 	bdev_mark_dead(disk->part0, true);
-	set_bit(GD_NEED_PART_SCAN, &disk->state);
 }
 EXPORT_SYMBOL_GPL(disk_force_media_change);
 
@@ -436,7 +437,7 @@ int disk_alloc_events(struct gendisk *disk)
 	if (!disk->fops->check_events || !disk->events)
 		return 0;
 
-	ev = kzalloc(sizeof(*ev), GFP_KERNEL);
+	ev = kzalloc_obj(*ev);
 	if (!ev) {
 		pr_warn("%s: failed to initialize events\n", disk->disk_name);
 		return -ENOMEM;

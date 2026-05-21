@@ -172,9 +172,30 @@ static inline void kvm_nested_vmexit_handle_ibrs(struct kvm_vcpu *vcpu)
 		indirect_branch_prediction_barrier();
 }
 
-static inline bool kvm_vcpu_has_run(struct kvm_vcpu *vcpu)
+/*
+ * Disallow modifying CPUID and feature MSRs, which affect the core virtual CPU
+ * model exposed to the guest and virtualized by KVM, if the vCPU has already
+ * run or is in guest mode (L2).  In both cases, KVM has already consumed the
+ * current virtual CPU model, and doesn't support "unwinding" to react to the
+ * new model.
+ *
+ * Note, the only way is_guest_mode() can be true with 'last_vmentry_cpu == -1'
+ * is if userspace sets CPUID and feature MSRs (to enable VMX/SVM), then sets
+ * nested state, and then attempts to set CPUID and/or feature MSRs *again*.
+ */
+static inline bool kvm_can_set_cpuid_and_feature_msrs(struct kvm_vcpu *vcpu)
 {
-	return vcpu->arch.last_vmentry_cpu != -1;
+	return vcpu->arch.last_vmentry_cpu == -1 && !is_guest_mode(vcpu);
+}
+
+/*
+ * WARN if a nested VM-Enter is pending completion, and userspace hasn't gained
+ * control since the nested VM-Enter was initiated (in which case, userspace
+ * may have modified vCPU state to induce an architecturally invalid VM-Exit).
+ */
+static inline void kvm_warn_on_nested_run_pending(struct kvm_vcpu *vcpu)
+{
+	WARN_ON_ONCE(vcpu->arch.nested_run_pending == KVM_NESTED_RUN_PENDING);
 }
 
 static inline void kvm_set_mp_state(struct kvm_vcpu *vcpu, int mp_state)
@@ -470,6 +491,9 @@ extern struct kvm_caps kvm_caps;
 extern struct kvm_host_values kvm_host;
 
 extern bool enable_pmu;
+extern bool enable_mediated_pmu;
+
+void kvm_setup_xss_caps(void);
 
 /*
  * Get a filtered version of KVM's supported XCR0 that strips out dynamic
@@ -698,13 +722,37 @@ static inline bool __kvm_is_valid_cr4(struct kvm_vcpu *vcpu, unsigned long cr4)
 	__reserved_bits;                                \
 })
 
-int kvm_sev_es_mmio_write(struct kvm_vcpu *vcpu, gpa_t src, unsigned int bytes,
-			  void *dst);
-int kvm_sev_es_mmio_read(struct kvm_vcpu *vcpu, gpa_t src, unsigned int bytes,
-			 void *dst);
+int kvm_sev_es_mmio(struct kvm_vcpu *vcpu, bool is_write, gpa_t gpa,
+		    unsigned int bytes, void *data);
 int kvm_sev_es_string_io(struct kvm_vcpu *vcpu, unsigned int size,
 			 unsigned int port, void *data,  unsigned int count,
 			 int in);
+
+static inline void __kvm_prepare_emulated_mmio_exit(struct kvm_vcpu *vcpu,
+						    gpa_t gpa, unsigned int len,
+						    const void *data,
+						    bool is_write)
+{
+	struct kvm_run *run = vcpu->run;
+
+	KVM_BUG_ON(len > 8, vcpu->kvm);
+
+	run->mmio.len = len;
+	run->mmio.is_write = is_write;
+	run->exit_reason = KVM_EXIT_MMIO;
+	run->mmio.phys_addr = gpa;
+	if (is_write)
+		memcpy(run->mmio.data, data, len);
+}
+
+static inline void kvm_prepare_emulated_mmio_exit(struct kvm_vcpu *vcpu,
+						  struct kvm_mmio_fragment *frag)
+{
+	WARN_ON_ONCE(!vcpu->mmio_needed || !vcpu->mmio_nr_fragments);
+
+	__kvm_prepare_emulated_mmio_exit(vcpu, frag->gpa, min(8u, frag->len),
+					 frag->data, vcpu->mmio_is_write);
+}
 
 static inline bool user_exit_on_hypercall(struct kvm *kvm, unsigned long hc_nr)
 {

@@ -48,7 +48,7 @@ struct shmem_inode_info {
 	};
 	struct timespec64	i_crtime;	/* file creation time */
 	struct shared_policy	policy;		/* NUMA memory alloc policy */
-	struct simple_xattrs	xattrs;		/* list of xattrs */
+	struct simple_xattrs	*xattrs;	/* list of xattrs */
 	pgoff_t			fallocend;	/* highest fallocate endindex */
 	unsigned int		fsflags;	/* for FS_IOC_[SG]ETFLAGS */
 	atomic_t		stop_eviction;	/* hold when working on inode */
@@ -102,12 +102,10 @@ static inline struct shmem_inode_info *SHMEM_I(struct inode *inode)
 extern const struct fs_parameter_spec shmem_fs_parameters[];
 extern void shmem_init(void);
 extern int shmem_init_fs_context(struct fs_context *fc);
-extern struct file *shmem_file_setup(const char *name,
-					loff_t size, unsigned long flags);
-extern struct file *shmem_kernel_file_setup(const char *name, loff_t size,
-					    unsigned long flags);
+struct file *shmem_file_setup(const char *name, loff_t size, vma_flags_t flags);
+struct file *shmem_kernel_file_setup(const char *name, loff_t size, vma_flags_t vma_flags);
 extern struct file *shmem_file_setup_with_mnt(struct vfsmount *mnt,
-		const char *name, loff_t size, unsigned long flags);
+		const char *name, loff_t size, vma_flags_t flags);
 int shmem_zero_setup(struct vm_area_struct *vma);
 int shmem_zero_setup_desc(struct vm_area_desc *desc);
 extern unsigned long shmem_get_unmapped_area(struct file *, unsigned long addr,
@@ -222,20 +220,6 @@ static inline pgoff_t shmem_fallocend(struct inode *inode, pgoff_t eof)
 }
 
 extern bool shmem_charge(struct inode *inode, long pages);
-
-#ifdef CONFIG_USERFAULTFD
-#ifdef CONFIG_SHMEM
-extern int shmem_mfill_atomic_pte(pmd_t *dst_pmd,
-				  struct vm_area_struct *dst_vma,
-				  unsigned long dst_addr,
-				  unsigned long src_addr,
-				  uffd_flags_t flags,
-				  struct folio **foliop);
-#else /* !CONFIG_SHMEM */
-#define shmem_mfill_atomic_pte(dst_pmd, dst_vma, dst_addr, \
-			       src_addr, flags, foliop) ({ BUG(); 0; })
-#endif /* CONFIG_SHMEM */
-#endif /* CONFIG_USERFAULTFD */
 
 /*
  * Used space is stored as unsigned 64-bit value in bytes but

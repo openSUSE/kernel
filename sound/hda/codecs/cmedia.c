@@ -24,7 +24,7 @@ static int cmedia_probe(struct hda_codec *codec, const struct hda_device_id *id)
 	bool is_cmi8888 = id->vendor_id == 0x13f68888;
 	int err;
 
-	spec = kzalloc(sizeof(*spec), GFP_KERNEL);
+	spec = kzalloc_obj(*spec);
 	if (spec == NULL)
 		return -ENOMEM;
 
@@ -38,13 +38,6 @@ static int cmedia_probe(struct hda_codec *codec, const struct hda_device_id *id)
 		 */
 		spec->out_vol_mask = (1ULL << 0x10);
 	}
-
-	err = snd_hda_parse_pin_defcfg(codec, cfg, NULL, 0);
-	if (err < 0)
-		goto error;
-	err = snd_hda_gen_parse_auto_config(codec, cfg);
-	if (err < 0)
-		goto error;
 
 	err = snd_hda_parse_pin_defcfg(codec, cfg, NULL, 0);
 	if (err < 0)

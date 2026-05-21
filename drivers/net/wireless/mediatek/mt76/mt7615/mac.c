@@ -1055,7 +1055,7 @@ mt7615_mac_queue_rate_update(struct mt7615_phy *phy, struct mt7615_sta *sta,
 	if (work_pending(&dev->rate_work))
 		return -EBUSY;
 
-	wrd = kzalloc(sizeof(*wrd), GFP_ATOMIC);
+	wrd = kzalloc_obj(*wrd, GFP_ATOMIC);
 	if (!wrd)
 		return -ENOMEM;
 
@@ -1166,21 +1166,6 @@ void mt7615_mac_set_rates(struct mt7615_phy *phy, struct mt7615_sta *sta,
 	sta->rate_probe = !!probe_rate;
 }
 EXPORT_SYMBOL_GPL(mt7615_mac_set_rates);
-
-void mt7615_mac_enable_rtscts(struct mt7615_dev *dev,
-			      struct ieee80211_vif *vif, bool enable)
-{
-	struct mt7615_vif *mvif = (struct mt7615_vif *)vif->drv_priv;
-	u32 addr;
-
-	addr = mt7615_mac_wtbl_addr(dev, mvif->sta.wcid.idx) + 3 * 4;
-
-	if (enable)
-		mt76_set(dev, addr, MT_WTBL_W3_RTS);
-	else
-		mt76_clear(dev, addr, MT_WTBL_W3_RTS);
-}
-EXPORT_SYMBOL_GPL(mt7615_mac_enable_rtscts);
 
 static int
 mt7615_mac_wtbl_update_key(struct mt7615_dev *dev, struct mt76_wcid *wcid,

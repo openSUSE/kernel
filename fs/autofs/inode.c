@@ -13,7 +13,7 @@ struct autofs_info *autofs_new_ino(struct autofs_sb_info *sbi)
 {
 	struct autofs_info *ino;
 
-	ino = kzalloc(sizeof(*ino), GFP_KERNEL);
+	ino = kzalloc_obj(*ino);
 	if (ino) {
 		INIT_LIST_HEAD(&ino->active);
 		INIT_LIST_HEAD(&ino->expiring);
@@ -92,7 +92,7 @@ static int autofs_show_options(struct seq_file *m, struct dentry *root)
 		seq_puts(m, ",ignore");
 #ifdef CONFIG_CHECKPOINT_RESTORE
 	if (sbi->pipe)
-		seq_printf(m, ",pipe_ino=%ld", file_inode(sbi->pipe)->i_ino);
+		seq_printf(m, ",pipe_ino=%llu", file_inode(sbi->pipe)->i_ino);
 	else
 		seq_puts(m, ",pipe_ino=-1");
 #endif
@@ -242,7 +242,7 @@ static struct autofs_sb_info *autofs_alloc_sbi(void)
 {
 	struct autofs_sb_info *sbi;
 
-	sbi = kzalloc(sizeof(*sbi), GFP_KERNEL);
+	sbi = kzalloc_obj(*sbi);
 	if (!sbi)
 		return NULL;
 
@@ -405,7 +405,7 @@ int autofs_init_fs_context(struct fs_context *fc)
 	struct autofs_fs_context *ctx;
 	struct autofs_sb_info *sbi;
 
-	ctx = kzalloc(sizeof(struct autofs_fs_context), GFP_KERNEL);
+	ctx = kzalloc_obj(struct autofs_fs_context);
 	if (!ctx)
 		goto nomem;
 

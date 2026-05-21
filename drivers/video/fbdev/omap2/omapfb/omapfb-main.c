@@ -1121,7 +1121,7 @@ static int omapfb_mmap(struct fb_info *fbi, struct vm_area_struct *vma)
 	return 0;
 
 error:
-	omapfb_put_mem_region(ofbi->region);
+	omapfb_put_mem_region(rg);
 
 	return r;
 }
@@ -2023,19 +2023,19 @@ static int omapfb_mode_to_timings(const char *mode_str,
 	var = NULL;
 	fbops = NULL;
 
-	fbi = kzalloc(sizeof(*fbi), GFP_KERNEL);
+	fbi = kzalloc_obj(*fbi);
 	if (fbi == NULL) {
 		r = -ENOMEM;
 		goto err;
 	}
 
-	var = kzalloc(sizeof(*var), GFP_KERNEL);
+	var = kzalloc_obj(*var);
 	if (var == NULL) {
 		r = -ENOMEM;
 		goto err;
 	}
 
-	fbops = kzalloc(sizeof(*fbops), GFP_KERNEL);
+	fbops = kzalloc_obj(*fbops);
 	if (fbops == NULL) {
 		r = -ENOMEM;
 		goto err;
@@ -2244,7 +2244,7 @@ static int omapfb_find_best_mode(struct omap_dss_device *display,
 	if (r < 0)
 		goto err1;
 
-	specs = kzalloc(sizeof(*specs), GFP_KERNEL);
+	specs = kzalloc_obj(*specs);
 	if (specs == NULL) {
 		r = -ENOMEM;
 		goto err1;

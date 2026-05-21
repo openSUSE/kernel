@@ -33,7 +33,6 @@
 #include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 
-#include "i915_reg.h"
 #include "intel_atomic.h"
 #include "intel_backlight.h"
 #include "intel_connector.h"
@@ -936,7 +935,7 @@ static bool intel_dsi_get_hw_state(struct intel_encoder *encoder,
 {
 	struct intel_display *display = to_intel_display(encoder);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(encoder);
-	intel_wakeref_t wakeref;
+	struct ref_tracker *wakeref;
 	enum port port;
 	bool active = false;
 
@@ -1368,7 +1367,7 @@ static void intel_dsi_prepare(struct intel_encoder *encoder,
 	}
 
 	tmp = 0;
-	if (intel_dsi->eotp_pkt == 0)
+	if (!intel_dsi->eot_pkt)
 		tmp |= EOT_DISABLE;
 	if (intel_dsi->clock_stop)
 		tmp |= CLOCKSTOP;
@@ -1919,7 +1918,7 @@ void vlv_dsi_init(struct intel_display *display)
 	else
 		display->dsi.mmio_base = VLV_MIPI_BASE;
 
-	intel_dsi = kzalloc(sizeof(*intel_dsi), GFP_KERNEL);
+	intel_dsi = kzalloc_obj(*intel_dsi);
 	if (!intel_dsi)
 		return;
 

@@ -12,7 +12,7 @@
 #include <linux/vmalloc.h>
 #include <net/addrconf.h>
 #include <rdma/erdma-abi.h>
-#include <rdma/ib_umem.h>
+#include <rdma/iter.h>
 #include <rdma/uverbs_ioctl.h>
 
 #include "erdma.h"
@@ -291,8 +291,7 @@ static struct rdma_user_mmap_entry *
 erdma_user_mmap_entry_insert(struct erdma_ucontext *uctx, void *address,
 			     u32 size, u8 mmap_flag, u64 *mmap_offset)
 {
-	struct erdma_user_mmap_entry *entry =
-		kzalloc(sizeof(*entry), GFP_KERNEL);
+	struct erdma_user_mmap_entry *entry = kzalloc_obj(*entry);
 	int ret;
 
 	if (!entry)
@@ -600,7 +599,7 @@ static struct erdma_mtt *erdma_create_cont_mtt(struct erdma_dev *dev,
 {
 	struct erdma_mtt *mtt;
 
-	mtt = kzalloc(sizeof(*mtt), GFP_KERNEL);
+	mtt = kzalloc_obj(*mtt);
 	if (!mtt)
 		return ERR_PTR(-ENOMEM);
 
@@ -725,7 +724,7 @@ static struct erdma_mtt *erdma_create_scatter_mtt(struct erdma_dev *dev,
 	struct erdma_mtt *mtt;
 	int ret = -ENOMEM;
 
-	mtt = kzalloc(sizeof(*mtt), GFP_KERNEL);
+	mtt = kzalloc_obj(*mtt);
 	if (!mtt)
 		return ERR_PTR(-ENOMEM);
 
@@ -888,7 +887,7 @@ static int erdma_map_user_dbrecords(struct erdma_ucontext *ctx,
 		if (page->va == (dbrecords_va & PAGE_MASK))
 			goto found;
 
-	page = kmalloc(sizeof(*page), GFP_KERNEL);
+	page = kmalloc_obj(*page);
 	if (!page) {
 		rv = -ENOMEM;
 		goto out;
@@ -1040,8 +1039,7 @@ int erdma_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attrs,
 	qp->attrs.rq_size = roundup_pow_of_two(attrs->cap.max_recv_wr);
 
 	if (uctx) {
-		ret = ib_copy_from_udata(&ureq, udata,
-					 min(sizeof(ureq), udata->inlen));
+		ret = ib_copy_validate_udata_in(udata, ureq, rsvd0);
 		if (ret)
 			goto err_out_xa;
 
@@ -1116,7 +1114,7 @@ struct ib_mr *erdma_get_dma_mr(struct ib_pd *ibpd, int acc)
 	u32 stag;
 	int ret;
 
-	mr = kzalloc(sizeof(*mr), GFP_KERNEL);
+	mr = kzalloc_obj(*mr);
 	if (!mr)
 		return ERR_PTR(-ENOMEM);
 
@@ -1160,7 +1158,7 @@ struct ib_mr *erdma_ib_alloc_mr(struct ib_pd *ibpd, enum ib_mr_type mr_type,
 	if (max_num_sg > ERDMA_MR_MAX_MTT_CNT)
 		return ERR_PTR(-EINVAL);
 
-	mr = kzalloc(sizeof(*mr), GFP_KERNEL);
+	mr = kzalloc_obj(*mr);
 	if (!mr)
 		return ERR_PTR(-ENOMEM);
 
@@ -1246,7 +1244,7 @@ struct ib_mr *erdma_reg_user_mr(struct ib_pd *ibpd, u64 start, u64 len,
 	if (!len || len > dev->attrs.max_mr_size)
 		return ERR_PTR(-EINVAL);
 
-	mr = kzalloc(sizeof(*mr), GFP_KERNEL);
+	mr = kzalloc_obj(*mr);
 	if (!mr)
 		return ERR_PTR(-ENOMEM);
 
@@ -1981,8 +1979,7 @@ int erdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 		struct erdma_ureq_create_cq ureq;
 		struct erdma_uresp_create_cq uresp;
 
-		ret = ib_copy_from_udata(&ureq, udata,
-					 min(udata->inlen, sizeof(ureq)));
+		ret = ib_copy_validate_udata_in(udata, ureq, rsvd0);
 		if (ret)
 			goto err_out_xa;
 

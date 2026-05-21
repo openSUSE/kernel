@@ -1838,6 +1838,11 @@ static int rt5640_set_dai_sysclk(struct snd_soc_dai *dai,
 	unsigned int pll_bit = 0;
 	int ret;
 
+	if (!freq) {
+		rt5640->sysclk = 0;
+		return 0;
+	}
+
 	switch (clk_id) {
 	case RT5640_SCLK_S_MCLK:
 		ret = clk_set_rate(rt5640->mclk, freq);
@@ -2564,7 +2569,7 @@ static void rt5640_enable_jack_detect(struct snd_soc_component *component,
 		rt5640->use_platform_clock = jack_data->use_platform_clock;
 
 	ret = request_irq(rt5640->irq, rt5640_irq,
-			  IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
+			  IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
 			  "rt5640", rt5640);
 	if (ret) {
 		dev_warn(component->dev, "Failed to request IRQ %d: %d\n", rt5640->irq, ret);
@@ -2618,7 +2623,7 @@ static void rt5640_enable_hda_jack_detect(
 	rt5640->jack = jack;
 
 	ret = request_irq(rt5640->irq, rt5640_irq,
-			  IRQF_TRIGGER_RISING | IRQF_ONESHOT, "rt5640", rt5640);
+			  IRQF_TRIGGER_RISING, "rt5640", rt5640);
 	if (ret) {
 		dev_warn(component->dev, "Failed to request IRQ %d: %d\n", rt5640->irq, ret);
 		rt5640->jack = NULL;

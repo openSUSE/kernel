@@ -129,7 +129,7 @@ static void rtl8187_iowrite_async(struct rtl8187_priv *priv, __le16 addr,
 	} *buf;
 	int rc;
 
-	buf = kmalloc(sizeof(*buf), GFP_ATOMIC);
+	buf = kmalloc_obj(*buf, GFP_ATOMIC);
 	if (!buf)
 		return;
 
@@ -1463,7 +1463,7 @@ static int rtl8187_probe(struct usb_interface *intf,
 	priv->is_rtl8187b = (id->driver_info == DEVICE_RTL8187B);
 
 	/* allocate "DMA aware" buffer for register accesses */
-	priv->io_dmabuf = kmalloc(sizeof(*priv->io_dmabuf), GFP_KERNEL);
+	priv->io_dmabuf = kmalloc_obj(*priv->io_dmabuf);
 	if (!priv->io_dmabuf) {
 		err = -ENOMEM;
 		goto err_free_dev;
@@ -1474,8 +1474,6 @@ static int rtl8187_probe(struct usb_interface *intf,
 	SET_IEEE80211_DEV(dev, &intf->dev);
 	usb_set_intfdata(intf, dev);
 	priv->udev = udev;
-
-	usb_get_dev(udev);
 
 	skb_queue_head_init(&priv->rx_queue);
 
@@ -1663,7 +1661,6 @@ static int rtl8187_probe(struct usb_interface *intf,
  err_free_dmabuf:
 	kfree(priv->io_dmabuf);
 	usb_set_intfdata(intf, NULL);
-	usb_put_dev(udev);
  err_free_dev:
 	ieee80211_free_hw(dev);
 	return err;
@@ -1685,7 +1682,6 @@ static void rtl8187_disconnect(struct usb_interface *intf)
 
 	priv = dev->priv;
 	usb_reset_device(priv->udev);
-	usb_put_dev(interface_to_usbdev(intf));
 	kfree(priv->io_dmabuf);
 	ieee80211_free_hw(dev);
 }

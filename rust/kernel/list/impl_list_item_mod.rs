@@ -29,6 +29,7 @@ pub unsafe trait HasListLinks<const ID: u64 = 0> {
 
 /// Implements the [`HasListLinks`] trait for the given type.
 #[macro_export]
+#[doc(hidden)]
 macro_rules! impl_has_list_links {
     ($(impl$({$($generics:tt)*})?
        HasListLinks$(<$id:tt>)?
@@ -74,6 +75,7 @@ where
 
 /// Implements the [`HasListLinks`] and [`HasSelfPtr`] traits for the given type.
 #[macro_export]
+#[doc(hidden)]
 macro_rules! impl_has_list_links_self_ptr {
     ($(impl$({$($generics:tt)*})?
        HasSelfPtr<$item_type:ty $(, $id:tt)?>
@@ -84,11 +86,12 @@ macro_rules! impl_has_list_links_self_ptr {
         // right type.
         unsafe impl$(<$($generics)*>)? $crate::list::HasSelfPtr<$item_type $(, $id)?> for $self {}
 
+        // SAFETY: TODO.
         unsafe impl$(<$($generics)*>)? $crate::list::HasListLinks$(<$id>)? for $self {
             #[inline]
             unsafe fn raw_get_list_links(ptr: *mut Self) -> *mut $crate::list::ListLinks$(<$id>)? {
-                // SAFETY: The caller promises that the pointer is not dangling.
                 let ptr: *mut $crate::list::ListLinksSelfPtr<$item_type $(, $id)?> =
+                    // SAFETY: The caller promises that the pointer is not dangling.
                     unsafe { ::core::ptr::addr_of_mut!((*ptr)$(.$field)*) };
                 ptr.cast()
             }
@@ -180,6 +183,7 @@ pub use impl_has_list_links_self_ptr;
 /// }
 /// ```
 #[macro_export]
+#[doc(hidden)]
 macro_rules! impl_list_item {
     (
         $(impl$({$($generics:tt)*})? ListItem<$num:tt> for $self:ty {
@@ -217,7 +221,7 @@ macro_rules! impl_list_item {
                 // SAFETY: `me` originates from the most recent call to `prepare_to_insert`, so it
                 // points at the field `$field` in a value of type `Self`. Thus, reversing that
                 // operation is still in-bounds of the allocation.
-                $crate::container_of!(me, Self, $($field).*)
+                unsafe { $crate::container_of!(me, Self, $($field).*) }
             }
 
             // GUARANTEES:
@@ -242,7 +246,7 @@ macro_rules! impl_list_item {
                 // SAFETY: `me` originates from the most recent call to `prepare_to_insert`, so it
                 // points at the field `$field` in a value of type `Self`. Thus, reversing that
                 // operation is still in-bounds of the allocation.
-                $crate::container_of!(me, Self, $($field).*)
+                unsafe { $crate::container_of!(me, Self, $($field).*) }
             }
         }
     )*};
@@ -270,9 +274,12 @@ macro_rules! impl_list_item {
                 // SAFETY: The caller promises that `me` points at a valid value of type `Self`.
                 let links_field = unsafe { <Self as $crate::list::ListItem<$num>>::view_links(me) };
 
-                let container = $crate::container_of!(
-                    links_field, $crate::list::ListLinksSelfPtr<Self, $num>, inner
-                );
+                // SAFETY: TODO.
+                let container = unsafe {
+                    $crate::container_of!(
+                        links_field, $crate::list::ListLinksSelfPtr<Self, $num>, inner
+                    )
+                };
 
                 // SAFETY: By the same reasoning above, `links_field` is a valid pointer.
                 let self_ptr = unsafe {
@@ -319,9 +326,12 @@ macro_rules! impl_list_item {
             //   `ListArc` containing `Self` until the next call to `post_remove`. The value cannot
             //   be destroyed while a `ListArc` reference exists.
             unsafe fn view_value(links_field: *mut $crate::list::ListLinks<$num>) -> *const Self {
-                let container = $crate::container_of!(
-                    links_field, $crate::list::ListLinksSelfPtr<Self, $num>, inner
-                );
+                // SAFETY: TODO.
+                let container = unsafe {
+                    $crate::container_of!(
+                        links_field, $crate::list::ListLinksSelfPtr<Self, $num>, inner
+                    )
+                };
 
                 // SAFETY: By the same reasoning above, `links_field` is a valid pointer.
                 let self_ptr = unsafe {

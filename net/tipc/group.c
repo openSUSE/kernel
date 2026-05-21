@@ -169,7 +169,7 @@ struct tipc_group *tipc_group_create(struct net *net, u32 portid,
 	struct tipc_group *grp;
 	u32 type = mreq->type;
 
-	grp = kzalloc(sizeof(*grp), GFP_ATOMIC);
+	grp = kzalloc_obj(*grp, GFP_ATOMIC);
 	if (!grp)
 		return NULL;
 	tipc_nlist_init(&grp->dests, tipc_own_addr(net));
@@ -306,7 +306,7 @@ static struct tipc_member *tipc_group_create_member(struct tipc_group *grp,
 	struct tipc_member *m;
 	int ret;
 
-	m = kzalloc(sizeof(*m), GFP_ATOMIC);
+	m = kzalloc_obj(*m, GFP_ATOMIC);
 	if (!m)
 		return NULL;
 	INIT_LIST_HEAD(&m->list);
@@ -746,6 +746,7 @@ void tipc_group_proto_rcv(struct tipc_group *grp, bool *usr_wakeup,
 	u32 port = msg_origport(hdr);
 	struct tipc_member *m, *pm;
 	u16 remitted, in_flight;
+	u16 acked;
 
 	if (!grp)
 		return;
@@ -798,7 +799,10 @@ void tipc_group_proto_rcv(struct tipc_group *grp, bool *usr_wakeup,
 	case GRP_ACK_MSG:
 		if (!m)
 			return;
-		m->bc_acked = msg_grp_bc_acked(hdr);
+		acked = msg_grp_bc_acked(hdr);
+		if (less_eq(acked, m->bc_acked))
+			return;
+		m->bc_acked = acked;
 		if (--grp->bc_ackers)
 			return;
 		list_del_init(&m->small_win);

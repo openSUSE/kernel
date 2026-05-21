@@ -70,7 +70,7 @@ struct hsi_client *hsi_new_client(struct hsi_port *port,
 	struct hsi_client *cl;
 	size_t size;
 
-	cl = kzalloc(sizeof(*cl), GFP_KERNEL);
+	cl = kzalloc_obj(*cl);
 	if (!cl)
 		goto err;
 
@@ -203,7 +203,7 @@ static void hsi_add_client_from_dt(struct hsi_port *port,
 	char name[32];
 	int length, cells, err, i, max_chan, mode;
 
-	cl = kzalloc(sizeof(*cl), GFP_KERNEL);
+	cl = kzalloc_obj(*cl);
 	if (!cl)
 		return;
 
@@ -253,13 +253,13 @@ static void hsi_add_client_from_dt(struct hsi_port *port,
 
 	cl->rx_cfg.num_channels = cells;
 	cl->tx_cfg.num_channels = cells;
-	cl->rx_cfg.channels = kcalloc(cells, sizeof(channel), GFP_KERNEL);
+	cl->rx_cfg.channels = kzalloc_objs(channel, cells);
 	if (!cl->rx_cfg.channels) {
 		err = -ENOMEM;
 		goto err;
 	}
 
-	cl->tx_cfg.channels = kcalloc(cells, sizeof(channel), GFP_KERNEL);
+	cl->tx_cfg.channels = kzalloc_objs(channel, cells);
 	if (!cl->tx_cfg.channels) {
 		err = -ENOMEM;
 		goto err2;
@@ -342,7 +342,6 @@ static void hsi_controller_release(struct device *dev)
 {
 	struct hsi_controller *hsi = to_hsi_controller(dev);
 
-	kfree(hsi->port);
 	kfree(hsi);
 }
 
@@ -446,7 +445,7 @@ void hsi_put_controller(struct hsi_controller *hsi)
 		return;
 
 	for (i = 0; i < hsi->num_ports; i++)
-		if (hsi->port && hsi->port[i])
+		if (hsi->port[i])
 			put_device(&hsi->port[i]->device);
 	put_device(&hsi->device);
 }
@@ -462,39 +461,33 @@ EXPORT_SYMBOL_GPL(hsi_put_controller);
 struct hsi_controller *hsi_alloc_controller(unsigned int n_ports, gfp_t flags)
 {
 	struct hsi_controller	*hsi;
-	struct hsi_port		**port;
 	unsigned int		i;
 
 	if (!n_ports)
 		return NULL;
 
-	hsi = kzalloc(sizeof(*hsi), flags);
+	hsi = kzalloc_flex(*hsi, port, n_ports, flags);
 	if (!hsi)
 		return NULL;
-	port = kcalloc(n_ports, sizeof(*port), flags);
-	if (!port) {
-		kfree(hsi);
-		return NULL;
-	}
+
 	hsi->num_ports = n_ports;
-	hsi->port = port;
 	hsi->device.release = hsi_controller_release;
 	device_initialize(&hsi->device);
 
 	for (i = 0; i < n_ports; i++) {
-		port[i] = kzalloc(sizeof(**port), flags);
-		if (port[i] == NULL)
+		hsi->port[i] = kzalloc_obj(**hsi->port, flags);
+		if (hsi->port[i] == NULL)
 			goto out;
-		port[i]->num = i;
-		port[i]->async = hsi_dummy_msg;
-		port[i]->setup = hsi_dummy_cl;
-		port[i]->flush = hsi_dummy_cl;
-		port[i]->start_tx = hsi_dummy_cl;
-		port[i]->stop_tx = hsi_dummy_cl;
-		port[i]->release = hsi_dummy_cl;
-		mutex_init(&port[i]->lock);
-		BLOCKING_INIT_NOTIFIER_HEAD(&port[i]->n_head);
-		dev_set_name(&port[i]->device, "port%d", i);
+		hsi->port[i]->num = i;
+		hsi->port[i]->async = hsi_dummy_msg;
+		hsi->port[i]->setup = hsi_dummy_cl;
+		hsi->port[i]->flush = hsi_dummy_cl;
+		hsi->port[i]->start_tx = hsi_dummy_cl;
+		hsi->port[i]->stop_tx = hsi_dummy_cl;
+		hsi->port[i]->release = hsi_dummy_cl;
+		mutex_init(&hsi->port[i]->lock);
+		BLOCKING_INIT_NOTIFIER_HEAD(&hsi->port[i]->n_head);
+		dev_set_name(&hsi->port[i]->device, "port%d", i);
 		hsi->port[i]->device.release = hsi_port_release;
 		device_initialize(&hsi->port[i]->device);
 	}
@@ -538,7 +531,7 @@ struct hsi_msg *hsi_alloc_msg(unsigned int nents, gfp_t flags)
 	struct hsi_msg *msg;
 	int err;
 
-	msg = kzalloc(sizeof(*msg), flags);
+	msg = kzalloc_obj(*msg, flags);
 	if (!msg)
 		return NULL;
 

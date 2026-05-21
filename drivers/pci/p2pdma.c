@@ -147,11 +147,19 @@ static int p2pmem_alloc_mmap(struct file *filp, struct kobject *kobj,
 		 * we have just allocated the page no one else should be
 		 * using it.
 		 */
-		VM_WARN_ON_ONCE_PAGE(!page_ref_count(page), page);
+		VM_WARN_ON_ONCE_PAGE(page_ref_count(page), page);
 		set_page_count(page, 1);
 		ret = vm_insert_page(vma, vaddr, page);
 		if (ret) {
 			gen_pool_free(p2pdma->pool, (uintptr_t)kaddr, len);
+
+			/*
+			 * Reset the page count. We don't use put_page()
+			 * because we don't want to trigger the
+			 * p2pdma_folio_free() path.
+			 */
+			set_page_count(page, 0);
+			percpu_ref_put(ref);
 			return ret;
 		}
 		percpu_ref_get(ref);
@@ -522,7 +530,7 @@ static bool cpu_supports_p2pdma(void)
 
 static const struct pci_p2pdma_whitelist_entry {
 	unsigned short vendor;
-	unsigned short device;
+	int device;
 	enum {
 		REQ_SAME_HOST_BRIDGE	= 1 << 0,
 	} flags;
@@ -540,6 +548,8 @@ static const struct pci_p2pdma_whitelist_entry {
 	{PCI_VENDOR_ID_INTEL,	0x2033, 0},
 	{PCI_VENDOR_ID_INTEL,	0x2020, 0},
 	{PCI_VENDOR_ID_INTEL,	0x09a2, 0},
+	/* Google SoCs. */
+	{PCI_VENDOR_ID_GOOGLE,	PCI_ANY_ID, 0},
 	{}
 };
 
@@ -593,8 +603,12 @@ static bool __host_bridge_whitelist(struct pci_host_bridge *host,
 	device = root->device;
 
 	for (entry = pci_p2pdma_whitelist; entry->vendor; entry++) {
-		if (vendor != entry->vendor || device != entry->device)
+		if (vendor != entry->vendor)
 			continue;
+
+		if (entry->device != PCI_ANY_ID && device != entry->device)
+			continue;
+
 		if (entry->flags & REQ_SAME_HOST_BRIDGE && !same_host_bridge)
 			return false;
 
@@ -998,7 +1012,7 @@ struct scatterlist *pci_p2pmem_alloc_sgl(struct pci_dev *pdev,
 	struct scatterlist *sg;
 	void *addr;
 
-	sg = kmalloc(sizeof(*sg), GFP_KERNEL);
+	sg = kmalloc_obj(*sg);
 	if (!sg)
 		return NULL;
 

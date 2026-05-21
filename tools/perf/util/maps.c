@@ -10,6 +10,7 @@
 #include "thread.h"
 #include "ui/ui.h"
 #include "unwind.h"
+#include "unwind-libdw.h"
 #include <internal/rc_check.h>
 
 /*
@@ -39,6 +40,9 @@ DECLARE_RC_STRUCT(maps) {
 #ifdef HAVE_LIBUNWIND_SUPPORT
 	void		*addr_space;
 	const struct unwind_libunwind_ops *unwind_libunwind_ops;
+#endif
+#ifdef HAVE_LIBDW_SUPPORT
+	void		*libdw_addr_space_dwfl;
 #endif
 	refcount_t	 refcnt;
 	/**
@@ -203,6 +207,17 @@ void maps__set_unwind_libunwind_ops(struct maps *maps, const struct unwind_libun
 	RC_CHK_ACCESS(maps)->unwind_libunwind_ops = ops;
 }
 #endif
+#ifdef HAVE_LIBDW_SUPPORT
+void *maps__libdw_addr_space_dwfl(const struct maps *maps)
+{
+	return RC_CHK_ACCESS(maps)->libdw_addr_space_dwfl;
+}
+
+void maps__set_libdw_addr_space_dwfl(struct maps *maps, void *dwfl)
+{
+	RC_CHK_ACCESS(maps)->libdw_addr_space_dwfl = dwfl;
+}
+#endif
 
 static struct rw_semaphore *maps__lock(struct maps *maps)
 {
@@ -218,6 +233,9 @@ static void maps__init(struct maps *maps, struct machine *machine)
 #ifdef HAVE_LIBUNWIND_SUPPORT
 	RC_CHK_ACCESS(maps)->addr_space = NULL;
 	RC_CHK_ACCESS(maps)->unwind_libunwind_ops = NULL;
+#endif
+#ifdef HAVE_LIBDW_SUPPORT
+	RC_CHK_ACCESS(maps)->libdw_addr_space_dwfl = NULL;
 #endif
 	refcount_set(maps__refcnt(maps), 1);
 	RC_CHK_ACCESS(maps)->nr_maps = 0;
@@ -240,6 +258,9 @@ static void maps__exit(struct maps *maps)
 	zfree(&maps_by_address);
 	zfree(&maps_by_name);
 	unwind__finish_access(maps);
+#ifdef HAVE_LIBDW_SUPPORT
+	libdw__invalidate_dwfl(maps, maps__libdw_addr_space_dwfl(maps));
+#endif
 }
 
 struct maps *maps__new(struct machine *machine)
@@ -549,6 +570,9 @@ void maps__remove(struct maps *maps, struct map *map)
 	__maps__remove(maps, map);
 	check_invariants(maps);
 	up_write(maps__lock(maps));
+#ifdef HAVE_LIBDW_SUPPORT
+	libdw__invalidate_dwfl(maps, maps__libdw_addr_space_dwfl(maps));
+#endif
 }
 
 bool maps__empty(struct maps *maps)
@@ -604,18 +628,26 @@ int maps__for_each_map(struct maps *maps, int (*cb)(struct map *map, void *data)
 void maps__remove_maps(struct maps *maps, bool (*cb)(struct map *map, void *data), void *data)
 {
 	struct map **maps_by_address;
+	bool removed = false;
 
 	down_write(maps__lock(maps));
 
 	maps_by_address = maps__maps_by_address(maps);
 	for (unsigned int i = 0; i < maps__nr_maps(maps);) {
-		if (cb(maps_by_address[i], data))
+		if (cb(maps_by_address[i], data)) {
 			__maps__remove(maps, maps_by_address[i]);
-		else
+			removed = true;
+		} else {
 			i++;
+		}
 	}
 	check_invariants(maps);
 	up_write(maps__lock(maps));
+	if (removed) {
+#ifdef HAVE_LIBDW_SUPPORT
+		libdw__invalidate_dwfl(maps, maps__libdw_addr_space_dwfl(maps));
+#endif
+	}
 }
 
 struct symbol *maps__find_symbol(struct maps *maps, u64 addr, struct map **mapp)
@@ -676,6 +708,7 @@ int maps__find_ams(struct maps *maps, struct addr_map_symbol *ams)
 	if (ams->addr < map__start(ams->ms.map) || ams->addr >= map__end(ams->ms.map)) {
 		if (maps == NULL)
 			return -1;
+		map__put(ams->ms.map);
 		ams->ms.map = maps__find(maps, ams->addr);
 		if (ams->ms.map == NULL)
 			return -1;
@@ -811,7 +844,6 @@ static int __maps__insert_sorted(struct maps *maps, unsigned int first_after_ind
 static int __maps__fixup_overlap_and_insert(struct maps *maps, struct map *new)
 {
 	int err = 0;
-	FILE *fp = debug_file();
 	unsigned int i, ni = INT_MAX; // Some gcc complain, but depends on maps_by_name...
 
 	if (!maps__maps_by_address_sorted(maps))
@@ -839,8 +871,8 @@ static int __maps__fixup_overlap_and_insert(struct maps *maps, struct map *new)
 				dso__name(map__dso(new)));
 		} else if (verbose >= 2) {
 			pr_debug("overlapping maps:\n");
-			map__fprintf(new, fp);
-			map__fprintf(pos, fp);
+			map__fprintf(new, debug_file());
+			map__fprintf(pos, debug_file());
 		}
 
 		if (maps_by_name)
@@ -861,7 +893,7 @@ static int __maps__fixup_overlap_and_insert(struct maps *maps, struct map *new)
 			map__set_end(before, map__start(new));
 
 			if (verbose >= 2 && !use_browser)
-				map__fprintf(before, fp);
+				map__fprintf(before, debug_file());
 		}
 		if (map__end(new) < map__end(pos)) {
 			/* The new map isn't as long as the existing map. */
@@ -879,7 +911,7 @@ static int __maps__fixup_overlap_and_insert(struct maps *maps, struct map *new)
 			       map__map_ip(after, map__end(new)));
 
 			if (verbose >= 2 && !use_browser)
-				map__fprintf(after, fp);
+				map__fprintf(after, debug_file());
 		}
 		/*
 		 * If adding one entry, for `before` or `after`, we can replace
@@ -923,6 +955,7 @@ static int __maps__fixup_overlap_and_insert(struct maps *maps, struct map *new)
 			if (maps_by_name) {
 				map__put(maps_by_name[ni]);
 				maps_by_name[ni] = map__get(new);
+				maps__set_maps_by_name_sorted(maps, false);
 			}
 
 			err = __maps__insert_sorted(maps, i + 1, after, NULL);
@@ -949,6 +982,7 @@ static int __maps__fixup_overlap_and_insert(struct maps *maps, struct map *new)
 				if (maps_by_name) {
 					map__put(maps_by_name[ni]);
 					maps_by_name[ni] = map__get(new);
+					maps__set_maps_by_name_sorted(maps, false);
 				}
 
 				check_invariants(maps);
@@ -1047,16 +1081,9 @@ int maps__copy_from(struct maps *dest, struct maps *parent)
 				map__put(new);
 		}
 		maps__set_maps_by_address_sorted(dest, maps__maps_by_address_sorted(parent));
-		if (!err) {
-			RC_CHK_ACCESS(dest)->last_search_by_name_idx =
-				RC_CHK_ACCESS(parent)->last_search_by_name_idx;
-			maps__set_maps_by_name_sorted(dest,
-						dest_maps_by_name &&
-						maps__maps_by_name_sorted(parent));
-		} else {
-			RC_CHK_ACCESS(dest)->last_search_by_name_idx = 0;
-			maps__set_maps_by_name_sorted(dest, false);
-		}
+		RC_CHK_ACCESS(dest)->last_search_by_name_idx = 0;
+		/* Values were copied into the name array in address order. */
+		maps__set_maps_by_name_sorted(dest, false);
 	} else {
 		/* Unexpected copying to a maps containing entries. */
 		for (unsigned int i = 0; !err && i < n; i++) {

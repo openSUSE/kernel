@@ -91,6 +91,41 @@ DEFINE_EVENT(nfsd_xdr_err_class, nfsd_##name##_err, \
 DEFINE_NFSD_XDR_ERR_EVENT(garbage_args);
 DEFINE_NFSD_XDR_ERR_EVENT(cant_encode);
 
+DECLARE_EVENT_CLASS(nfsd_dynthread_class,
+	TP_PROTO(
+		const struct net *net,
+		const struct svc_pool *pool
+	),
+	TP_ARGS(net, pool),
+	TP_STRUCT__entry(
+		__field(unsigned int, netns_ino)
+		__field(unsigned int, pool_id)
+		__field(unsigned int, nrthreads)
+		__field(unsigned int, nrthrmin)
+		__field(unsigned int, nrthrmax)
+	),
+	TP_fast_assign(
+		__entry->netns_ino = net->ns.inum;
+		__entry->pool_id = pool->sp_id;
+		__entry->nrthreads = pool->sp_nrthreads;
+		__entry->nrthrmin = pool->sp_nrthrmin;
+		__entry->nrthrmax = pool->sp_nrthrmax;
+	),
+	TP_printk("pool=%u nrthreads=%u nrthrmin=%u nrthrmax=%u",
+		__entry->pool_id, __entry->nrthreads,
+		__entry->nrthrmin, __entry->nrthrmax
+	)
+);
+
+#define DEFINE_NFSD_DYNTHREAD_EVENT(name) \
+DEFINE_EVENT(nfsd_dynthread_class, nfsd_dynthread_##name, \
+	TP_PROTO(const struct net *net, const struct svc_pool *pool), \
+	TP_ARGS(net, pool))
+
+DEFINE_NFSD_DYNTHREAD_EVENT(start);
+DEFINE_NFSD_DYNTHREAD_EVENT(kill);
+DEFINE_NFSD_DYNTHREAD_EVENT(trylock_fail);
+
 #define show_nfsd_may_flags(x)						\
 	__print_flags(x, "|",						\
 		{ NFSD_MAY_EXEC,		"EXEC" },		\
@@ -338,6 +373,7 @@ DEFINE_EVENT_CONDITION(nfsd_fh_err_class, nfsd_##name,	\
 
 DEFINE_NFSD_FH_ERR_EVENT(set_fh_dentry_badexport);
 DEFINE_NFSD_FH_ERR_EVENT(set_fh_dentry_badhandle);
+DEFINE_NFSD_FH_ERR_EVENT(set_fh_dentry_badmac);
 
 TRACE_EVENT(nfsd_exp_find_key,
 	TP_PROTO(const struct svc_expkey *key,
@@ -2129,6 +2165,25 @@ TRACE_EVENT(nfsd_ctl_maxblksize,
 	)
 );
 
+TRACE_EVENT(nfsd_ctl_minthreads,
+	TP_PROTO(
+		const struct net *net,
+		int minthreads
+	),
+	TP_ARGS(net, minthreads),
+	TP_STRUCT__entry(
+		__field(unsigned int, netns_ino)
+		__field(int, minthreads)
+	),
+	TP_fast_assign(
+		__entry->netns_ino = net->ns.inum;
+		__entry->minthreads = minthreads
+	),
+	TP_printk("minthreads=%d",
+		__entry->minthreads
+	)
+);
+
 TRACE_EVENT(nfsd_ctl_time,
 	TP_PROTO(
 		const struct net *net,
@@ -2183,6 +2238,28 @@ TRACE_EVENT(nfsd_end_grace,
 		__entry->netns_ino = net->ns.inum;
 	),
 	TP_printk("nn=%d", __entry->netns_ino
+	)
+);
+
+TRACE_EVENT(nfsd_ctl_fh_key_set,
+	TP_PROTO(
+		const char *key,
+		int result
+	),
+	TP_ARGS(key, result),
+	TP_STRUCT__entry(
+		__field(u32, key_hash)
+		__field(int, result)
+	),
+	TP_fast_assign(
+		if (key)
+			__entry->key_hash = ~crc32_le(0xFFFFFFFF, key, 16);
+		else
+			__entry->key_hash = 0;
+		__entry->result = result;
+	),
+	TP_printk("key=0x%08x result=%d",
+		__entry->key_hash, __entry->result
 	)
 );
 

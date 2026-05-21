@@ -796,7 +796,7 @@ static irqreturn_t ssp_int(int irq, void *dev_id)
  * The function calculates parameters for all cases and chooses the one closest
  * to the asked baud rate.
  */
-static unsigned int quark_x1000_get_clk_div(int rate, u32 *dds)
+static unsigned int quark_x1000_get_clk_div(u32 rate, u32 *dds)
 {
 	unsigned long xtal = 200000000;
 	unsigned long fref = xtal / 2;		/* mandatory division by 2,
@@ -885,12 +885,12 @@ static unsigned int quark_x1000_get_clk_div(int rate, u32 *dds)
 	return q - 1;
 }
 
-static unsigned int ssp_get_clk_div(struct driver_data *drv_data, int rate)
+static unsigned int ssp_get_clk_div(struct driver_data *drv_data, u32 rate)
 {
-	unsigned long ssp_clk = drv_data->controller->max_speed_hz;
+	u32 ssp_clk = drv_data->controller->max_speed_hz;
 	const struct ssp_device *ssp = drv_data->ssp;
 
-	rate = min_t(int, ssp_clk, rate);
+	rate = min(ssp_clk, rate);
 
 	/*
 	 * Calculate the divisor for the SCR (Serial Clock Rate), avoiding
@@ -902,8 +902,7 @@ static unsigned int ssp_get_clk_div(struct driver_data *drv_data, int rate)
 		return (DIV_ROUND_UP(ssp_clk, rate) - 1)  & 0xfff;
 }
 
-static unsigned int pxa2xx_ssp_get_clk_div(struct driver_data *drv_data,
-					   int rate)
+static unsigned int pxa2xx_ssp_get_clk_div(struct driver_data *drv_data, u32 rate)
 {
 	struct chip_data *chip =
 		spi_get_ctldata(drv_data->controller->cur_msg->spi);
@@ -1184,7 +1183,7 @@ static int setup(struct spi_device *spi)
 	/* Only allocate on the first setup */
 	chip = spi_get_ctldata(spi);
 	if (!chip) {
-		chip = kzalloc(sizeof(struct chip_data), GFP_KERNEL);
+		chip = kzalloc_obj(struct chip_data);
 		if (!chip)
 			return -ENOMEM;
 	}
@@ -1289,8 +1288,6 @@ int pxa2xx_spi_probe(struct device *dev, struct ssp_device *ssp,
 	drv_data->controller = controller;
 	drv_data->controller_info = platform_info;
 	drv_data->ssp = ssp;
-
-	device_set_node(&controller->dev, dev_fwnode(dev));
 
 	/* The spi->mode bits understood by this driver: */
 	controller->mode_bits = SPI_CPOL | SPI_CPHA | SPI_CS_HIGH | SPI_LOOP;

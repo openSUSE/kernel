@@ -13,6 +13,7 @@
 #include <linux/bitops.h>
 #include <linux/blkdev.h>
 #include <linux/completion.h>
+#include <linux/ctype.h>
 #include <linux/kernel.h>
 #include <linux/export.h>
 #include <linux/init.h>
@@ -76,7 +77,7 @@ int scsi_init_sense_cache(struct Scsi_Host *shost)
 }
 
 static void
-scsi_set_blocked(struct scsi_cmnd *cmd, int reason)
+scsi_set_blocked(struct scsi_cmnd *cmd, enum scsi_qc_status reason)
 {
 	struct Scsi_Host *host = cmd->device->host;
 	struct scsi_device *device = cmd->device;
@@ -139,7 +140,8 @@ static void scsi_mq_requeue_cmd(struct scsi_cmnd *cmd, unsigned long msecs)
  * for a requeue after completion, which should only occur in this
  * file.
  */
-static void __scsi_queue_insert(struct scsi_cmnd *cmd, int reason, bool unbusy)
+static void __scsi_queue_insert(struct scsi_cmnd *cmd,
+				enum scsi_qc_status reason, bool unbusy)
 {
 	struct scsi_device *device = cmd->device;
 
@@ -179,7 +181,7 @@ static void __scsi_queue_insert(struct scsi_cmnd *cmd, int reason, bool unbusy)
  * Context: This could be called either from an interrupt context or a normal
  * process context.
  */
-void scsi_queue_insert(struct scsi_cmnd *cmd, int reason)
+void scsi_queue_insert(struct scsi_cmnd *cmd, enum scsi_qc_status reason)
 {
 	__scsi_queue_insert(cmd, reason, true);
 }
@@ -376,6 +378,14 @@ static void scsi_dec_host_busy(struct Scsi_Host *shost, struct scsi_cmnd *cmd)
 	rcu_read_lock();
 	__clear_bit(SCMD_STATE_INFLIGHT, &cmd->state);
 	if (unlikely(scsi_host_in_recovery(shost))) {
+		/*
+		 * Ensure the clear of SCMD_STATE_INFLIGHT is visible to
+		 * other CPUs before counting busy requests. Otherwise,
+		 * reordering can cause CPUs to race and miss an eh wakeup
+		 * when no CPU sees all busy requests as done or timed out.
+		 */
+		smp_mb();
+
 		unsigned int busy = scsi_host_busy(shost);
 
 		spin_lock_irqsave(shost->host_lock, flags);
@@ -1577,7 +1587,7 @@ static void scsi_complete(struct request *rq)
  * Return: nonzero return request was rejected and device's queue needs to be
  * plugged.
  */
-static int scsi_dispatch_cmd(struct scsi_cmnd *cmd)
+static enum scsi_qc_status scsi_dispatch_cmd(struct scsi_cmnd *cmd)
 {
 	struct Scsi_Host *host = cmd->device->host;
 	int rtn = 0;
@@ -1826,7 +1836,7 @@ static blk_status_t scsi_queue_rq(struct blk_mq_hw_ctx *hctx,
 	struct Scsi_Host *shost = sdev->host;
 	struct scsi_cmnd *cmd = blk_mq_rq_to_pdu(req);
 	blk_status_t ret;
-	int reason;
+	enum scsi_qc_status reason;
 
 	WARN_ON_ONCE(cmd->budget_token < 0);
 
@@ -2459,7 +2469,7 @@ EXPORT_SYMBOL(scsi_mode_sense);
  *	@retries: number of retries before failing
  *	@sshdr: outpout pointer for decoded sense information.
  *
- *	Returns zero if unsuccessful or an error if TUR failed.  For
+ *	Returns zero if successful or an error if TUR failed.  For
  *	removable media, UNIT_ATTENTION sets ->changed flag.
  **/
 int
@@ -2742,7 +2752,7 @@ EXPORT_SYMBOL_GPL(sdev_evt_send);
 struct scsi_event *sdev_evt_alloc(enum scsi_device_event evt_type,
 				  gfp_t gfpflags)
 {
-	struct scsi_event *evt = kzalloc(sizeof(struct scsi_event), gfpflags);
+	struct scsi_event *evt = kzalloc_obj(struct scsi_event, gfpflags);
 	if (!evt)
 		return NULL;
 
@@ -3450,6 +3460,52 @@ int scsi_vpd_lun_id(struct scsi_device *sdev, char *id, size_t id_len)
 	return id_size;
 }
 EXPORT_SYMBOL(scsi_vpd_lun_id);
+
+/**
+ * scsi_vpd_lun_serial - return a unique device serial number
+ * @sdev: SCSI device
+ * @sn:   buffer for the serial number
+ * @sn_size: size of the buffer
+ *
+ * Copies the device serial number into @sn based on the information in
+ * the VPD page 0x80 of the device. The string will be null terminated
+ * and have leading and trailing whitespace stripped.
+ *
+ * Returns the length of the serial number or error on failure.
+ */
+int scsi_vpd_lun_serial(struct scsi_device *sdev, char *sn, size_t sn_size)
+{
+	const struct scsi_vpd *vpd_pg80;
+	const unsigned char *d;
+	int len;
+
+	guard(rcu)();
+	vpd_pg80 = rcu_dereference(sdev->vpd_pg80);
+	if (!vpd_pg80)
+		return -ENXIO;
+
+	len = vpd_pg80->len - 4;
+	d = vpd_pg80->data + 4;
+
+	/* Skip leading spaces */
+	while (len > 0 && isspace(*d)) {
+		len--;
+		d++;
+	}
+
+	/* Skip trailing spaces */
+	while (len > 0 && isspace(d[len - 1]))
+		len--;
+
+	if (sn_size < len + 1)
+		return -EINVAL;
+
+	memcpy(sn, d, len);
+	sn[len] = '\0';
+
+	return len;
+}
+EXPORT_SYMBOL(scsi_vpd_lun_serial);
 
 /**
  * scsi_vpd_tpg_id - return a target port group identifier

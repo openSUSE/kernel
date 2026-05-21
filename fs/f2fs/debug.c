@@ -423,6 +423,7 @@ static const char *s_flag[MAX_SBI_FLAG] = {
 	[SBI_IS_RESIZEFS]	= "resizefs",
 	[SBI_IS_FREEZING]	= "freezefs",
 	[SBI_IS_WRITABLE]	= "writable",
+	[SBI_ENABLE_CHECKPOINT]	= "enable_checkpoint",
 };
 
 static const char *ipu_mode_names[F2FS_IPU_MAX] = {
@@ -658,6 +659,7 @@ static int stat_show(struct seq_file *s, void *v)
 				si->bg_node_blks);
 		seq_printf(s, "BG skip : IO: %u, Other: %u\n",
 				si->io_skip_bggc, si->other_skip_bggc);
+		seq_printf(s, "defrag blocks : %u\n", si->defrag_blks);
 		seq_puts(s, "\nExtent Cache (Read):\n");
 		seq_printf(s, "  - Hit Count: L1-1:%llu L1-2:%llu L2:%llu\n",
 				si->hit_largest, si->hit_cached[EX_READ],

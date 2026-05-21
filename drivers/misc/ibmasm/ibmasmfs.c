@@ -235,7 +235,7 @@ static int command_file_open(struct inode *inode, struct file *file)
 	if (!inode->i_private)
 		return -ENODEV;
 
-	command_data = kmalloc(sizeof(struct ibmasmfs_command_data), GFP_KERNEL);
+	command_data = kmalloc_obj(struct ibmasmfs_command_data);
 	if (!command_data)
 		return -ENOMEM;
 
@@ -303,6 +303,8 @@ static ssize_t command_file_write(struct file *file, const char __user *ubuff, s
 		return -EINVAL;
 	if (count == 0 || count > IBMASM_CMD_MAX_BUFFER_SIZE)
 		return 0;
+	if (count < sizeof(struct dot_command_header))
+		return -EINVAL;
 	if (*offset != 0)
 		return 0;
 
@@ -317,6 +319,11 @@ static ssize_t command_file_write(struct file *file, const char __user *ubuff, s
 	if (copy_from_user(cmd->buffer, ubuff, count)) {
 		command_put(cmd);
 		return -EFAULT;
+	}
+
+	if (count < get_dot_command_size(cmd->buffer)) {
+		command_put(cmd);
+		return -EINVAL;
 	}
 
 	spin_lock_irqsave(&command_data->sp->lock, flags);
@@ -344,7 +351,7 @@ static int event_file_open(struct inode *inode, struct file *file)
 
 	sp = inode->i_private;
 
-	event_data = kmalloc(sizeof(struct ibmasmfs_event_data), GFP_KERNEL);
+	event_data = kmalloc_obj(struct ibmasmfs_event_data);
 	if (!event_data)
 		return -ENOMEM;
 
@@ -430,7 +437,7 @@ static int r_heartbeat_file_open(struct inode *inode, struct file *file)
 	if (!inode->i_private)
 		return -ENODEV;
 
-	rhbeat = kmalloc(sizeof(struct ibmasmfs_heartbeat_data), GFP_KERNEL);
+	rhbeat = kmalloc_obj(struct ibmasmfs_heartbeat_data);
 	if (!rhbeat)
 		return -ENOMEM;
 

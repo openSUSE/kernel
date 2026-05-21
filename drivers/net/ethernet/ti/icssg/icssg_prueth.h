@@ -236,7 +236,6 @@ struct prueth_emac {
 	/* Mutex to serialize access to firmware command interface */
 	struct mutex cmd_lock;
 	struct work_struct rx_mode_work;
-	struct workqueue_struct	*cmd_wq;
 
 	struct pruss_mem_region dram;
 
@@ -424,6 +423,8 @@ void icssg_class_promiscuous_sr1(struct regmap *miig_rt, int slice);
 void icssg_class_add_mcast_sr1(struct regmap *miig_rt, int slice,
 			       struct net_device *ndev);
 void icssg_ft1_set_mac_addr(struct regmap *miig_rt, int slice, u8 *mac_addr);
+void icssg_ft3_hsr_configurations(struct regmap *miig_rt, int slice,
+				  struct prueth *prueth);
 
 /* config helpers */
 void icssg_config_ipg(struct prueth_emac *emac);

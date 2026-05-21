@@ -66,12 +66,20 @@ void BPF_STRUCT_OPS(cpu0_enqueue, struct task_struct *p, u64 enq_flags)
 void BPF_STRUCT_OPS(cpu0_dispatch, s32 cpu, struct task_struct *prev)
 {
 	if (cpu == 0)
-		scx_bpf_dsq_move_to_local(DSQ_CPU0);
+		scx_bpf_dsq_move_to_local(DSQ_CPU0, 0);
 }
 
 s32 BPF_STRUCT_OPS_SLEEPABLE(cpu0_init)
 {
-	return scx_bpf_create_dsq(DSQ_CPU0, -1);
+	int ret;
+
+	ret = scx_bpf_create_dsq(DSQ_CPU0, -1);
+	if (ret) {
+		scx_bpf_error("failed to create DSQ %d (%d)", DSQ_CPU0, ret);
+		return ret;
+	}
+
+	return 0;
 }
 
 void BPF_STRUCT_OPS(cpu0_exit, struct scx_exit_info *ei)

@@ -63,9 +63,9 @@ static void dmub_dcn30_get_fb_base_offset(struct dmub_srv *dmub,
 {
 	uint32_t tmp;
 
-	if (dmub->fb_base || dmub->fb_offset) {
-		*fb_base = dmub->fb_base;
-		*fb_offset = dmub->fb_offset;
+	if (dmub->soc_fb_info.fb_base || dmub->soc_fb_info.fb_offset) {
+		*fb_base = dmub->soc_fb_info.fb_base;
+		*fb_offset = dmub->soc_fb_info.fb_offset;
 		return;
 	}
 
@@ -127,6 +127,7 @@ void dmub_dcn30_setup_windows(struct dmub_srv *dmub,
 			      const struct dmub_window *cw6,
 			      const struct dmub_window *region6)
 {
+	(void)region6;
 	union dmub_addr offset;
 
 	/* sienna_cichlid  has hardwired virtual addressing for CW2-CW7 */

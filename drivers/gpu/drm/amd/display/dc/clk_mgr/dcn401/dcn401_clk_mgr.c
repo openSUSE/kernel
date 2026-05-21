@@ -333,6 +333,7 @@ bool dcn401_is_dc_mode_present(struct clk_mgr *clk_mgr_base)
 static void dcn401_dump_clk_registers(struct clk_state_registers_and_bypass *regs_and_bypass,
 		struct clk_mgr *clk_mgr_base, struct clk_log_info *log_info)
 {
+	(void)log_info;
 		struct clk_mgr_internal *clk_mgr = TO_CLK_MGR_INTERNAL(clk_mgr_base);
 		uint32_t dprefclk_did = 0;
 		uint32_t dcfclk_did = 0;
@@ -525,6 +526,7 @@ static void dcn401_update_clocks_update_dtb_dto(struct clk_mgr_internal *clk_mgr
 			struct dc_state *context,
 			int ref_dtbclk_khz)
 {
+	(void)ref_dtbclk_khz;
 	int i;
 	struct dccg *dccg = clk_mgr->dccg;
 	struct pipe_ctx *otg_master;
@@ -614,6 +616,7 @@ static void dcn401_update_clocks_update_dentist(
 		struct clk_mgr_internal *clk_mgr,
 		struct dc_state *context)
 {
+	(void)context;
 	uint32_t new_disp_divider = 0;
 	uint32_t new_dispclk_wdivider = 0;
 	uint32_t dentist_dispclk_wdivider_readback = 0;
@@ -1549,7 +1552,7 @@ struct clk_mgr_internal *dcn401_clk_mgr_construct(
 		struct dccg *dccg)
 {
 	struct clk_log_info log_info = {0};
-	struct dcn401_clk_mgr *clk_mgr401 = kzalloc(sizeof(struct dcn401_clk_mgr), GFP_KERNEL);
+	struct dcn401_clk_mgr *clk_mgr401 = kzalloc_obj(struct dcn401_clk_mgr);
 	struct clk_mgr_internal *clk_mgr;
 
 	if (!clk_mgr401)
@@ -1599,7 +1602,7 @@ struct clk_mgr_internal *dcn401_clk_mgr_construct(
 
 	clk_mgr->smu_present = false;
 
-	clk_mgr->base.bw_params = kzalloc(sizeof(*clk_mgr->base.bw_params), GFP_KERNEL);
+	clk_mgr->base.bw_params = kzalloc_obj(*clk_mgr->base.bw_params);
 	if (!clk_mgr->base.bw_params) {
 		BREAK_TO_DEBUGGER();
 		kfree(clk_mgr401);

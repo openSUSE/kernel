@@ -35,6 +35,7 @@
 #include "hubp.h"
 #include "mpc.h"
 #include "dwb.h"
+#include "hw/dio.h"
 #include "mcif_wb.h"
 #include "panel_cntl.h"
 #include "dmub/inc/dmub_cmd.h"
@@ -213,6 +214,7 @@ struct resource_funcs {
             unsigned int index);
 
 	void (*get_panel_config_defaults)(struct dc_panel_config *panel_config);
+	void (*get_default_tiling_info)(struct dc_tiling_info *tiling_info);
 	void (*build_pipe_pix_clk_params)(struct pipe_ctx *pipe_ctx);
 	/*
 	 * Get indicator of power from a context that went through full validation
@@ -250,6 +252,7 @@ struct resource_pool {
 	struct timing_generator *timing_generators[MAX_PIPES];
 	struct stream_encoder *stream_enc[MAX_PIPES * 2];
 	struct hubbub *hubbub;
+	struct dio *dio;
 	struct mpc *mpc;
 	struct pp_smu_funcs *pp_smu;
 	struct dce_aux *engines[MAX_PIPES];
@@ -702,6 +705,14 @@ struct dc_bounding_box_max_clk {
 	int max_dispclk_mhz;
 	int max_dppclk_mhz;
 	int max_phyclk_mhz;
+};
+
+struct memory_qos {
+	uint32_t peak_bw_mbps;
+	uint32_t avg_bw_mbps;
+	uint32_t max_latency_ns;
+	uint32_t min_latency_ns;
+	uint32_t avg_latency_ns;
 };
 
 #endif /* _CORE_TYPES_H_ */

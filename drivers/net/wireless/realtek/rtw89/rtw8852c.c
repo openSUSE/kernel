@@ -18,7 +18,7 @@
 #define RTW8852C_FW_FORMAT_MAX 2
 #define RTW8852C_FW_BASENAME "rtw89/rtw8852c_fw"
 #define RTW8852C_MODULE_FIRMWARE \
-	RTW8852C_FW_BASENAME "-" __stringify(RTW8852C_FW_FORMAT_MAX) ".bin"
+	RTW89_GEN_MODULE_FWNAME(RTW8852C_FW_BASENAME, RTW8852C_FW_FORMAT_MAX)
 
 static const struct rtw89_hfc_ch_cfg rtw8852c_hfc_chcfg_pcie[] = {
 	{13, 1614, grp_0}, /* ACH 0 */
@@ -463,7 +463,7 @@ static int rtw8852c_pwr_off_func(struct rtw89_dev *rtwdev)
 	else if (rtwdev->hci.type == RTW89_HCI_TYPE_USB)
 		rtw89_write32_clr(rtwdev, R_AX_SYS_PW_CTRL, B_AX_SOP_EDSWR);
 
-	rtw89_write32_set(rtwdev, R_AX_SYS_PW_CTRL, B_AX_XTAL_OFF_A_DIE);
+	rtw89_write32_clr(rtwdev, R_AX_SYS_PW_CTRL, B_AX_XTAL_OFF_A_DIE);
 	rtw89_write32_set(rtwdev, R_AX_SYS_SWR_CTRL1, B_AX_SYM_CTRL_SPS_PWMFREQ);
 	rtw89_write32_mask(rtwdev, R_AX_SPS_DIG_ON_CTRL0,
 			   B_AX_REG_ZCDC_H_MASK, 0x3);
@@ -599,8 +599,6 @@ static int rtw8852c_read_efuse(struct rtw89_dev *rtwdev, u8 *log_map,
 
 	efuse->rfe_type = map->rfe_type;
 	efuse->xtal_cap = map->xtal_k;
-
-	rtw89_info(rtwdev, "chip rfe_type is %d\n", efuse->rfe_type);
 
 	return 0;
 }
@@ -3067,6 +3065,7 @@ static const struct rtw89_chip_ops rtw8852c_chip_ops = {
 	.cfg_txrx_path		= rtw8852c_bb_cfg_txrx_path,
 	.set_txpwr_ul_tb_offset	= rtw8852c_set_txpwr_ul_tb_offset,
 	.digital_pwr_comp	= NULL,
+	.calc_rx_gain_normal	= NULL,
 	.pwr_on_func		= rtw8852c_pwr_on_func,
 	.pwr_off_func		= rtw8852c_pwr_off_func,
 	.query_rxdesc		= rtw89_core_query_rxdesc,
@@ -3088,6 +3087,7 @@ static const struct rtw89_chip_ops rtw8852c_chip_ops = {
 	.h2c_default_dmac_tbl	= NULL,
 	.h2c_update_beacon	= rtw89_fw_h2c_update_beacon,
 	.h2c_ba_cam		= rtw89_fw_h2c_ba_cam,
+	.h2c_wow_cam_update	= rtw89_fw_h2c_wow_cam_update,
 
 	.btc_set_rfe		= rtw8852c_btc_set_rfe,
 	.btc_init_cfg		= rtw8852c_btc_init_cfg,
@@ -3106,8 +3106,11 @@ const struct rtw89_chip_info rtw8852c_chip_info = {
 	.ops			= &rtw8852c_chip_ops,
 	.mac_def		= &rtw89_mac_gen_ax,
 	.phy_def		= &rtw89_phy_gen_ax,
-	.fw_basename		= RTW8852C_FW_BASENAME,
-	.fw_format_max		= RTW8852C_FW_FORMAT_MAX,
+	.fw_def			= {
+		.fw_basename	= RTW8852C_FW_BASENAME,
+		.fw_format_max	= RTW8852C_FW_FORMAT_MAX,
+		.fw_b_aid	= 0,
+	},
 	.try_ce_fw		= false,
 	.bbmcu_nr		= 0,
 	.needed_fw_elms		= 0,
@@ -3116,6 +3119,10 @@ const struct rtw89_chip_info rtw8852c_chip_info = {
 	.small_fifo_size	= false,
 	.dle_scc_rsvd_size	= 0,
 	.max_amsdu_limit	= 8000,
+	.max_vht_mpdu_cap	= IEEE80211_VHT_CAP_MAX_MPDU_LENGTH_11454,
+	.max_eht_mpdu_cap	= 0,
+	.max_tx_agg_num		= 128,
+	.max_rx_agg_num		= 64,
 	.dis_2g_40m_ul_ofdma	= false,
 	.rsvd_ple_ofst		= 0x6f800,
 	.hfc_param_ini		= {rtw8852c_hfc_param_ini_pcie,
@@ -3164,7 +3171,7 @@ const struct rtw89_chip_info rtw8852c_chip_info = {
 	.support_noise		= false,
 	.ul_tb_waveform_ctrl	= false,
 	.ul_tb_pwr_diff		= true,
-	.rx_freq_frome_ie	= false,
+	.rx_freq_from_ie	= false,
 	.hw_sec_hdr		= true,
 	.hw_mgmt_tx_encrypt	= true,
 	.hw_tkip_crypto		= true,
@@ -3204,6 +3211,10 @@ const struct rtw89_chip_info rtw8852c_chip_info = {
 	.rf_para_ulink		= rtw89_btc_8852c_rf_ul,
 	.rf_para_dlink_num	= ARRAY_SIZE(rtw89_btc_8852c_rf_dl),
 	.rf_para_dlink		= rtw89_btc_8852c_rf_dl,
+	.rf_para_ulink_v9	= NULL,
+	.rf_para_dlink_v9	= NULL,
+	.rf_para_ulink_num_v9	= 0,
+	.rf_para_dlink_num_v9	= 0,
 	.ps_mode_supported	= BIT(RTW89_PS_MODE_RFOFF) |
 				  BIT(RTW89_PS_MODE_CLK_GATED) |
 				  BIT(RTW89_PS_MODE_PWR_GATED),
@@ -3236,12 +3247,14 @@ const struct rtw89_chip_info rtw8852c_chip_info = {
 	.bss_clr_map_reg	= R_BSS_CLR_MAP,
 	.rfkill_init		= &rtw8852c_rfkill_regs,
 	.rfkill_get		= {R_AX_GPIO_EXT_CTRL, B_AX_GPIO_IN_9},
+	.btc_sb			= {{{R_AX_SCOREBOARD, R_AX_SCOREBOARD},}},
 	.dma_ch_mask		= 0,
 	.edcca_regs		= &rtw8852c_edcca_regs,
 #ifdef CONFIG_PM
 	.wowlan_stub		= &rtw_wowlan_stub_8852c,
 #endif
 	.xtal_info		= NULL,
+	.default_quirks		= 0,
 };
 EXPORT_SYMBOL(rtw8852c_chip_info);
 

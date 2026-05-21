@@ -13,9 +13,11 @@
 #include <linux/skbuff.h>
 #include <linux/rtnetlink.h>
 #include <linux/pkt_cls.h>
+#include <linux/if_tunnel.h>
 #include <linux/ip.h>
 #include <linux/ipv6.h>
 #include <linux/rhashtable.h>
+#include <net/gre.h>
 #include <net/netlink.h>
 #include <net/pkt_sched.h>
 #include <net/pkt_cls.h>
@@ -326,11 +328,15 @@ static int tcf_ct_flow_table_get(struct net *net, struct tcf_ct_params *params)
 	int err = -ENOMEM;
 
 	mutex_lock(&zones_mutex);
-	ct_ft = rhashtable_lookup_fast(&zones_ht, &key, zones_params);
-	if (ct_ft && refcount_inc_not_zero(&ct_ft->ref))
+	rcu_read_lock();
+	ct_ft = rhashtable_lookup(&zones_ht, &key, zones_params);
+	if (ct_ft && refcount_inc_not_zero(&ct_ft->ref)) {
+		rcu_read_unlock();
 		goto out_unlock;
+	}
+	rcu_read_unlock();
 
-	ct_ft = kzalloc(sizeof(*ct_ft), GFP_KERNEL);
+	ct_ft = kzalloc_obj(*ct_ft);
 	if (!ct_ft)
 		goto err_alloc;
 	refcount_set(&ct_ft->ref, 1);
@@ -1358,6 +1364,12 @@ static int tcf_ct_init(struct net *net, struct nlattr *nla,
 		return -EINVAL;
 	}
 
+	if (bind && !(flags & TCA_ACT_FLAGS_AT_INGRESS_OR_CLSACT)) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Attaching ct to a non ingress/clsact qdisc is unsupported");
+		return -EOPNOTSUPP;
+	}
+
 	err = nla_parse_nested(tb, TCA_CT_MAX, nla, ct_policy, extack);
 	if (err < 0)
 		return err;
@@ -1395,7 +1407,7 @@ static int tcf_ct_init(struct net *net, struct nlattr *nla,
 
 	c = to_ct(*a);
 
-	params = kzalloc(sizeof(*params), GFP_KERNEL);
+	params = kzalloc_obj(*params);
 	if (unlikely(!params)) {
 		err = -ENOMEM;
 		goto cleanup;

@@ -228,7 +228,7 @@ int radeon_fbdev_driver_fbdev_probe(struct drm_fb_helper *fb_helper,
 	}
 	rbo = gem_to_radeon_bo(gobj);
 
-	fb = kzalloc(sizeof(*fb), GFP_KERNEL);
+	fb = kzalloc_obj(*fb);
 	if (!fb) {
 		ret = -ENOMEM;
 		goto err_radeon_fbdev_destroy_pinned_object;
@@ -273,21 +273,4 @@ err_kfree:
 err_radeon_fbdev_destroy_pinned_object:
 	radeon_fbdev_destroy_pinned_object(gobj);
 	return ret;
-}
-
-bool radeon_fbdev_robj_is_fb(struct radeon_device *rdev, struct radeon_bo *robj)
-{
-	struct drm_fb_helper *fb_helper = rdev_to_drm(rdev)->fb_helper;
-	struct drm_gem_object *gobj;
-
-	if (!fb_helper)
-		return false;
-
-	gobj = drm_gem_fb_get_obj(fb_helper->fb, 0);
-	if (!gobj)
-		return false;
-	if (gobj != &robj->tbo.base)
-		return false;
-
-	return true;
 }

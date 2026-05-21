@@ -13,6 +13,8 @@
 
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/panic.h>
+#include <linux/reboot.h>
 #include <linux/slab.h>
 #include <linux/mm.h>
 #include <linux/highmem.h>
@@ -69,6 +71,10 @@ static struct workqueue_struct *kacpi_hotplug_wq;
 static bool acpi_os_initialized;
 unsigned int acpi_sci_irq = INVALID_ACPI_IRQ;
 bool acpi_permanent_mmap = false;
+
+static bool poweroff_on_fatal = true;
+module_param(poweroff_on_fatal, bool, 0);
+MODULE_PARM_DESC(poweroff_on_fatal, "Poweroff when encountering a fatal ACPI error");
 
 /*
  * This list of permanent mappings is for memory that may be accessed from
@@ -344,7 +350,7 @@ void __iomem __ref
 		goto out;
 	}
 
-	map = kzalloc(sizeof(*map), GFP_KERNEL);
+	map = kzalloc_obj(*map);
 	if (!map) {
 		mutex_unlock(&acpi_ioremap_lock);
 		return NULL;
@@ -1117,7 +1123,7 @@ acpi_status acpi_os_execute(acpi_execute_type type,
 	 * having a static work_struct.
 	 */
 
-	dpc = kzalloc(sizeof(struct acpi_os_dpc), GFP_ATOMIC);
+	dpc = kzalloc_obj(struct acpi_os_dpc, GFP_ATOMIC);
 	if (!dpc)
 		return AE_NO_MEMORY;
 
@@ -1197,7 +1203,7 @@ acpi_status acpi_hotplug_schedule(struct acpi_device *adev, u32 src)
 			  "Scheduling hotplug event %u for deferred handling\n",
 			   src);
 
-	hpw = kmalloc(sizeof(*hpw), GFP_KERNEL);
+	hpw = kmalloc_obj(*hpw);
 	if (!hpw)
 		return AE_NO_MEMORY;
 
@@ -1257,7 +1263,7 @@ acpi_status acpi_os_delete_semaphore(acpi_handle handle)
 
 	ACPI_DEBUG_PRINT((ACPI_DB_MUTEX, "Deleting semaphore[%p].\n", handle));
 
-	BUG_ON(!list_empty(&sem->wait_list));
+	BUG_ON(sem->first_waiter);
 	kfree(sem);
 	sem = NULL;
 
@@ -1381,9 +1387,20 @@ acpi_status acpi_os_notify_command_complete(void)
 
 acpi_status acpi_os_signal(u32 function, void *info)
 {
+	struct acpi_signal_fatal_info *fatal_info;
+
 	switch (function) {
 	case ACPI_SIGNAL_FATAL:
-		pr_err("Fatal opcode executed\n");
+		fatal_info = info;
+		pr_emerg("Fatal error while evaluating ACPI control method\n");
+		pr_emerg("Type 0x%X Code 0x%X Argument 0x%X\n",
+			 fatal_info->type, fatal_info->code, fatal_info->argument);
+
+		if (poweroff_on_fatal)
+			orderly_poweroff(true);
+		else
+			add_taint(TAINT_FIRMWARE_WORKAROUND, LOCKDEP_STILL_OK);
+
 		break;
 	case ACPI_SIGNAL_BREAKPOINT:
 		/*
@@ -1681,7 +1698,7 @@ acpi_status __init acpi_os_initialize(void)
 		 * Use acpi_os_map_generic_address to pre-map the reset
 		 * register if it's in system memory.
 		 */
-		void *rv;
+		void __iomem *rv;
 
 		rv = acpi_os_map_generic_address(&acpi_gbl_FADT.reset_register);
 		pr_debug("%s: Reset register mapping %s\n", __func__,

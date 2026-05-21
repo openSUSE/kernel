@@ -6,6 +6,7 @@
  */
 
 #include <linux/bitfield.h>
+#include <linux/cleanup.h>
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
 #include <linux/delay.h>
@@ -71,21 +72,6 @@ enum {
 	ST_SUSPENDED	= 4,
 };
 
-enum imx8mq_mipi_csi_clk {
-	CSI2_CLK_CORE,
-	CSI2_CLK_ESC,
-	CSI2_CLK_UI,
-	CSI2_NUM_CLKS,
-};
-
-static const char * const imx8mq_mipi_csi_clk_id[CSI2_NUM_CLKS] = {
-	[CSI2_CLK_CORE] = "core",
-	[CSI2_CLK_ESC] = "esc",
-	[CSI2_CLK_UI] = "ui",
-};
-
-#define CSI2_NUM_CLKS	ARRAY_SIZE(imx8mq_mipi_csi_clk_id)
-
 struct imx8mq_plat_data {
 	int (*enable)(struct csi_state *state, u32 hs_settle);
 	void (*disable)(struct csi_state *state);
@@ -111,7 +97,9 @@ struct csi_state {
 	struct device *dev;
 	const struct imx8mq_plat_data *pdata;
 	void __iomem *regs;
-	struct clk_bulk_data clks[CSI2_NUM_CLKS];
+	struct clk_bulk_data *clks;
+	struct clk *esc_clk;
+	u32 num_clks;
 	struct reset_control *rst;
 	struct regulator *mipi_phy_regulator;
 
@@ -351,18 +339,14 @@ static int imx8mq_mipi_csi_sw_reset(struct csi_state *state)
 {
 	int ret;
 
-	/*
-	 * these are most likely self-clearing reset bits. to make it
-	 * more clear, the reset-imx7 driver should implement the
-	 * .reset() operation.
-	 */
 	ret = reset_control_assert(state->rst);
 	if (ret < 0) {
 		dev_err(state->dev, "Failed to assert resets: %d\n", ret);
 		return ret;
 	}
 
-	return 0;
+	/* Explicitly release reset to make sure reset bits are cleared. */
+	return reset_control_deassert(state->rst);
 }
 
 static void imx8mq_mipi_csi_set_params(struct csi_state *state)
@@ -384,24 +368,16 @@ static void imx8mq_mipi_csi_set_params(struct csi_state *state)
 			      CSI2RX_SEND_LEVEL);
 }
 
-static int imx8mq_mipi_csi_clk_enable(struct csi_state *state)
-{
-	return clk_bulk_prepare_enable(CSI2_NUM_CLKS, state->clks);
-}
-
-static void imx8mq_mipi_csi_clk_disable(struct csi_state *state)
-{
-	clk_bulk_disable_unprepare(CSI2_NUM_CLKS, state->clks);
-}
-
-static int imx8mq_mipi_csi_clk_get(struct csi_state *state)
+static struct clk *imx8mq_mipi_csi_find_esc_clk(struct csi_state *state)
 {
 	unsigned int i;
 
-	for (i = 0; i < CSI2_NUM_CLKS; i++)
-		state->clks[i].id = imx8mq_mipi_csi_clk_id[i];
+	for (i = 0; i < state->num_clks; i++) {
+		if (!strcmp(state->clks[i].id, "esc"))
+			return state->clks[i].clk;
+	}
 
-	return devm_clk_bulk_get(state->dev, CSI2_NUM_CLKS, state->clks);
+	return ERR_PTR(-ENODEV);
 }
 
 static int imx8mq_mipi_csi_calc_hs_settle(struct csi_state *state,
@@ -456,7 +432,7 @@ static int imx8mq_mipi_csi_calc_hs_settle(struct csi_state *state,
 	 * documentation recommends picking a value away from the boundaries.
 	 * Let's pick the average.
 	 */
-	esc_clk_rate = clk_get_rate(state->clks[CSI2_CLK_ESC].clk);
+	esc_clk_rate = clk_get_rate(state->esc_clk);
 	if (!esc_clk_rate) {
 		dev_err(state->dev, "Could not get esc clock rate.\n");
 		return -EINVAL;
@@ -717,28 +693,27 @@ static int imx8mq_mipi_csi_async_register(struct csi_state *state)
 		.bus_type = V4L2_MBUS_CSI2_DPHY,
 	};
 	struct v4l2_async_connection *asd;
-	struct fwnode_handle *ep;
 	unsigned int i;
 	int ret;
 
 	v4l2_async_subdev_nf_init(&state->notifier, &state->sd);
 
-	ep = fwnode_graph_get_endpoint_by_id(dev_fwnode(state->dev), 0, 0,
-					     FWNODE_GRAPH_ENDPOINT_NEXT);
+	struct fwnode_handle *ep __free(fwnode_handle) =
+		fwnode_graph_get_endpoint_by_id(dev_fwnode(state->dev), 0, 0,
+						FWNODE_GRAPH_ENDPOINT_NEXT);
 	if (!ep)
-		return -ENOTCONN;
+		return dev_err_probe(state->dev, -ENOTCONN,
+				     "failed to get local endpoint fwnode\n");
 
 	ret = v4l2_fwnode_endpoint_parse(ep, &vep);
 	if (ret)
-		goto err_parse;
+		return dev_err_probe(state->dev, ret,
+				     "failed to parse endpoint\n");
 
 	for (i = 0; i < vep.bus.mipi_csi2.num_data_lanes; ++i) {
-		if (vep.bus.mipi_csi2.data_lanes[i] != i + 1) {
-			dev_err(state->dev,
-				"data lanes reordering is not supported");
-			ret = -EINVAL;
-			goto err_parse;
-		}
+		if (vep.bus.mipi_csi2.data_lanes[i] != i + 1)
+			return dev_err_probe(state->dev, -EINVAL,
+					     "data lanes reordering is not supported");
 	}
 
 	state->bus = vep.bus.mipi_csi2;
@@ -749,25 +724,23 @@ static int imx8mq_mipi_csi_async_register(struct csi_state *state)
 
 	asd = v4l2_async_nf_add_fwnode_remote(&state->notifier, ep,
 					      struct v4l2_async_connection);
-	if (IS_ERR(asd)) {
-		ret = PTR_ERR(asd);
-		goto err_parse;
-	}
-
-	fwnode_handle_put(ep);
+	if (IS_ERR(asd))
+		return dev_err_probe(state->dev, PTR_ERR(asd),
+				     "failed to add fwnode to notifier\n");
 
 	state->notifier.ops = &imx8mq_mipi_csi_notify_ops;
 
 	ret = v4l2_async_nf_register(&state->notifier);
 	if (ret)
-		return ret;
+		return dev_err_probe(state->dev, ret,
+				     "failed to register notifier\n");
 
-	return v4l2_async_register_subdev(&state->sd);
+	ret = v4l2_async_register_subdev(&state->sd);
+	if (ret)
+		return dev_err_probe(state->dev, ret,
+				     "failed to register subdev\n");
 
-err_parse:
-	fwnode_handle_put(ep);
-
-	return ret;
+	return 0;
 }
 
 /* -----------------------------------------------------------------------------
@@ -783,7 +756,7 @@ static void imx8mq_mipi_csi_pm_suspend(struct device *dev)
 
 	if (state->state & ST_POWERED) {
 		imx8mq_mipi_csi_stop_stream(state);
-		imx8mq_mipi_csi_clk_disable(state);
+		clk_bulk_disable_unprepare(state->num_clks, state->clks);
 		state->state &= ~ST_POWERED;
 	}
 
@@ -801,7 +774,7 @@ static int imx8mq_mipi_csi_pm_resume(struct device *dev)
 
 	if (!(state->state & ST_POWERED)) {
 		state->state |= ST_POWERED;
-		ret = imx8mq_mipi_csi_clk_enable(state);
+		ret = clk_bulk_prepare_enable(state->num_clks, state->clks);
 	}
 	if (state->state & ST_STREAMING) {
 		sd_state = v4l2_subdev_lock_and_get_active_state(sd);
@@ -951,10 +924,9 @@ static int imx8mq_mipi_csi_parse_dt(struct csi_state *state)
 	int ret = 0;
 
 	state->rst = devm_reset_control_array_get_exclusive(dev);
-	if (IS_ERR(state->rst)) {
-		dev_err(dev, "Failed to get reset: %pe\n", state->rst);
-		return PTR_ERR(state->rst);
-	}
+	if (IS_ERR(state->rst))
+		return dev_err_probe(dev, PTR_ERR(state->rst),
+				     "Failed to get reset\n");
 
 	if (state->pdata->use_reg_csr) {
 		const struct regmap_config regmap_config = {
@@ -977,24 +949,22 @@ static int imx8mq_mipi_csi_parse_dt(struct csi_state *state)
 
 	ret = of_property_read_u32_array(np, "fsl,mipi-phy-gpr", out_val,
 					 ARRAY_SIZE(out_val));
-	if (ret) {
-		dev_err(dev, "no fsl,mipi-phy-gpr property found: %d\n", ret);
-		return ret;
-	}
+	if (ret)
+		return dev_err_probe(dev, ret, "property %s not found\n",
+				    "fsl,mipi-phy-gpr");
 
 	ph = *out_val;
 
 	node = of_find_node_by_phandle(ph);
-	if (!node) {
-		dev_err(dev, "Error finding node by phandle\n");
-		return -ENODEV;
-	}
+	if (!node)
+		return dev_err_probe(dev, -ENODEV,
+				     "Error finding node by phandle\n");
+
 	state->phy_gpr = syscon_node_to_regmap(node);
 	of_node_put(node);
-	if (IS_ERR(state->phy_gpr)) {
-		dev_err(dev, "failed to get gpr regmap: %pe\n", state->phy_gpr);
-		return PTR_ERR(state->phy_gpr);
-	}
+	if (IS_ERR(state->phy_gpr))
+		return dev_err_probe(dev, PTR_ERR(state->phy_gpr),
+				     "failed to get gpr regmap\n");
 
 	state->phy_gpr_reg = out_val[1];
 	dev_dbg(dev, "phy gpr register set to 0x%x\n", state->phy_gpr_reg);
@@ -1017,19 +987,24 @@ static int imx8mq_mipi_csi_probe(struct platform_device *pdev)
 	state->pdata = of_device_get_match_data(dev);
 
 	ret = imx8mq_mipi_csi_parse_dt(state);
-	if (ret < 0) {
-		dev_err(dev, "Failed to parse device tree: %d\n", ret);
+	if (ret < 0)
 		return ret;
-	}
 
 	/* Acquire resources. */
 	state->regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(state->regs))
 		return PTR_ERR(state->regs);
 
-	ret = imx8mq_mipi_csi_clk_get(state);
+	ret = devm_clk_bulk_get_all(dev, &state->clks);
 	if (ret < 0)
-		return ret;
+		return dev_err_probe(dev, ret, "Failed to get clocks\n");
+
+	state->num_clks = ret;
+
+	state->esc_clk = imx8mq_mipi_csi_find_esc_clk(state);
+	if (IS_ERR(state->esc_clk))
+		return dev_err_probe(dev, PTR_ERR(state->esc_clk),
+				     "Couldn't find esc clock\n");
 
 	platform_set_drvdata(pdev, &state->sd);
 
@@ -1095,6 +1070,7 @@ static void imx8mq_mipi_csi_remove(struct platform_device *pdev)
 static const struct of_device_id imx8mq_mipi_csi_of_match[] = {
 	{ .compatible = "fsl,imx8mq-mipi-csi2", .data = &imx8mq_data },
 	{ .compatible = "fsl,imx8qxp-mipi-csi2", .data = &imx8qxp_data },
+	{ .compatible = "fsl,imx8ulp-mipi-csi2", .data = &imx8qxp_data },
 	{ /* sentinel */ },
 };
 MODULE_DEVICE_TABLE(of, imx8mq_mipi_csi_of_match);

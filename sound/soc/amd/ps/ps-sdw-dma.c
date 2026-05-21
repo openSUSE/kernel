@@ -318,7 +318,7 @@ static int acp63_sdw_dma_open(struct snd_soc_component *component,
 	runtime = substream->runtime;
 	cpu_dai = snd_soc_rtd_to_cpu(prtd, 0);
 	amd_manager = snd_soc_dai_get_drvdata(cpu_dai);
-	stream = kzalloc(sizeof(*stream), GFP_KERNEL);
+	stream = kzalloc_obj(*stream);
 	if (!stream)
 		return -ENOMEM;
 
@@ -634,7 +634,7 @@ static const struct snd_soc_component_driver acp63_sdw_component = {
 	.hw_params	= acp63_sdw_dma_hw_params,
 	.trigger	= acp63_sdw_dma_trigger,
 	.pointer	= acp63_sdw_dma_pointer,
-	.pcm_construct	= acp63_sdw_dma_new,
+	.pcm_new	= acp63_sdw_dma_new,
 	.use_dai_pcm_id = true,
 
 };

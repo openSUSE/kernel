@@ -27,6 +27,7 @@
 
 #include <drm/drm_gem.h>
 #include <drm/drm_print.h>
+#include <drm/intel/display_parent_interface.h>
 
 #include "display/intel_fb.h"
 #include "display/intel_frontbuffer.h"
@@ -394,7 +395,7 @@ struct i915_vma_work *i915_vma_work(void)
 {
 	struct i915_vma_work *vw;
 
-	vw = kzalloc(sizeof(*vw), GFP_KERNEL);
+	vw = kzalloc_obj(*vw);
 	if (!vw)
 		return NULL;
 
@@ -1027,7 +1028,7 @@ intel_rotate_pages(struct intel_rotation_info *rot_info,
 	int i;
 
 	/* Allocate target SG list. */
-	st = kmalloc(sizeof(*st), GFP_KERNEL);
+	st = kmalloc_obj(*st);
 	if (!st)
 		goto err_st_alloc;
 
@@ -1237,7 +1238,7 @@ intel_remap_pages(struct intel_remapped_info *rem_info,
 	int i;
 
 	/* Allocate target SG list. */
-	st = kmalloc(sizeof(*st), GFP_KERNEL);
+	st = kmalloc_obj(*st);
 	if (!st)
 		goto err_st_alloc;
 
@@ -1275,7 +1276,7 @@ intel_partial_pages(const struct i915_gtt_view *view,
 	unsigned int count = view->partial.size;
 	int ret = -ENOMEM;
 
-	st = kmalloc(sizeof(*st), GFP_KERNEL);
+	st = kmalloc_obj(*st);
 	if (!st)
 		goto err_st_alloc;
 
@@ -2332,3 +2333,12 @@ int __init i915_vma_module_init(void)
 
 	return 0;
 }
+
+static int i915_vma_fence_id(const struct i915_vma *vma)
+{
+	return vma->fence ? vma->fence->id : -1;
+}
+
+const struct intel_display_vma_interface i915_display_vma_interface = {
+	.fence_id = i915_vma_fence_id,
+};

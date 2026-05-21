@@ -49,7 +49,7 @@ int cache_tag_assign(struct dmar_domain *domain, u16 did, struct device *dev,
 	struct list_head *prev;
 	unsigned long flags;
 
-	tag = kzalloc(sizeof(*tag), GFP_KERNEL);
+	tag = kzalloc_obj(*tag);
 	if (!tag)
 		return -ENOMEM;
 
@@ -123,7 +123,7 @@ static int domain_qi_batch_alloc(struct dmar_domain *domain)
 	if (domain->qi_batch)
 		goto out_unlock;
 
-	domain->qi_batch = kzalloc(sizeof(*domain->qi_batch), GFP_ATOMIC);
+	domain->qi_batch = kzalloc_obj(*domain->qi_batch, GFP_ATOMIC);
 	if (!domain->qi_batch)
 		ret = -ENOMEM;
 out_unlock:
@@ -255,7 +255,6 @@ void cache_tag_unassign_domain(struct dmar_domain *domain,
 
 static unsigned long calculate_psi_aligned_address(unsigned long start,
 						   unsigned long end,
-						   unsigned long *_pages,
 						   unsigned long *_mask)
 {
 	unsigned long pages = aligned_nrpages(start, end - start + 1);
@@ -281,10 +280,8 @@ static unsigned long calculate_psi_aligned_address(unsigned long start,
 		 */
 		shared_bits = ~(pfn ^ end_pfn) & ~bitmask;
 		mask = shared_bits ? __ffs(shared_bits) : MAX_AGAW_PFN_WIDTH;
-		aligned_pages = 1UL << mask;
 	}
 
-	*_pages = aligned_pages;
 	*_mask = mask;
 
 	return ALIGN_DOWN(start, VTD_PAGE_SIZE << mask);
@@ -330,19 +327,19 @@ static void qi_batch_add_dev_iotlb(struct intel_iommu *iommu, u16 sid, u16 pfsid
 	qi_batch_increment_index(iommu, batch);
 }
 
+static void qi_batch_add_piotlb_all(struct intel_iommu *iommu, u16 did,
+				    u32 pasid, struct qi_batch *batch)
+{
+	qi_desc_piotlb_all(did, pasid, &batch->descs[batch->index]);
+	qi_batch_increment_index(iommu, batch);
+}
+
 static void qi_batch_add_piotlb(struct intel_iommu *iommu, u16 did, u32 pasid,
-				u64 addr, unsigned long npages, bool ih,
+				u64 addr, unsigned int size_order, bool ih,
 				struct qi_batch *batch)
 {
-	/*
-	 * npages == -1 means a PASID-selective invalidation, otherwise,
-	 * a positive value for Page-selective-within-PASID invalidation.
-	 * 0 is not a valid input.
-	 */
-	if (!npages)
-		return;
-
-	qi_desc_piotlb(did, pasid, addr, npages, ih, &batch->descs[batch->index]);
+	qi_desc_piotlb(did, pasid, addr, size_order, ih,
+		       &batch->descs[batch->index]);
 	qi_batch_increment_index(iommu, batch);
 }
 
@@ -363,16 +360,26 @@ static void qi_batch_add_pasid_dev_iotlb(struct intel_iommu *iommu, u16 sid, u16
 	qi_batch_increment_index(iommu, batch);
 }
 
+static bool intel_domain_use_piotlb(struct dmar_domain *domain)
+{
+	return domain->domain.type == IOMMU_DOMAIN_SVA ||
+			domain->domain.type == IOMMU_DOMAIN_NESTED ||
+			intel_domain_is_fs_paging(domain);
+}
+
 static void cache_tag_flush_iotlb(struct dmar_domain *domain, struct cache_tag *tag,
-				  unsigned long addr, unsigned long pages,
-				  unsigned long mask, int ih)
+				  unsigned long addr, unsigned long mask, int ih)
 {
 	struct intel_iommu *iommu = tag->iommu;
 	u64 type = DMA_TLB_PSI_FLUSH;
 
-	if (intel_domain_is_fs_paging(domain)) {
-		qi_batch_add_piotlb(iommu, tag->domain_id, tag->pasid, addr,
-				    pages, ih, domain->qi_batch);
+	if (intel_domain_use_piotlb(domain)) {
+		if (mask >= MAX_AGAW_PFN_WIDTH)
+			qi_batch_add_piotlb_all(iommu, tag->domain_id,
+						tag->pasid, domain->qi_batch);
+		else
+			qi_batch_add_piotlb(iommu, tag->domain_id, tag->pasid,
+					    addr, mask, ih, domain->qi_batch);
 		return;
 	}
 
@@ -381,7 +388,7 @@ static void cache_tag_flush_iotlb(struct dmar_domain *domain, struct cache_tag *
 	 * is too big.
 	 */
 	if (!cap_pgsel_inv(iommu->cap) ||
-	    mask > cap_max_amask_val(iommu->cap) || pages == -1) {
+	    mask > cap_max_amask_val(iommu->cap)) {
 		addr = 0;
 		mask = 0;
 		ih = 0;
@@ -430,16 +437,15 @@ void cache_tag_flush_range(struct dmar_domain *domain, unsigned long start,
 			   unsigned long end, int ih)
 {
 	struct intel_iommu *iommu = NULL;
-	unsigned long pages, mask, addr;
+	unsigned long mask, addr;
 	struct cache_tag *tag;
 	unsigned long flags;
 
 	if (start == 0 && end == ULONG_MAX) {
 		addr = 0;
-		pages = -1;
 		mask = MAX_AGAW_PFN_WIDTH;
 	} else {
-		addr = calculate_psi_aligned_address(start, end, &pages, &mask);
+		addr = calculate_psi_aligned_address(start, end, &mask);
 	}
 
 	spin_lock_irqsave(&domain->cache_lock, flags);
@@ -451,7 +457,7 @@ void cache_tag_flush_range(struct dmar_domain *domain, unsigned long start,
 		switch (tag->type) {
 		case CACHE_TAG_IOTLB:
 		case CACHE_TAG_NESTING_IOTLB:
-			cache_tag_flush_iotlb(domain, tag, addr, pages, mask, ih);
+			cache_tag_flush_iotlb(domain, tag, addr, mask, ih);
 			break;
 		case CACHE_TAG_NESTING_DEVTLB:
 			/*
@@ -469,7 +475,7 @@ void cache_tag_flush_range(struct dmar_domain *domain, unsigned long start,
 			break;
 		}
 
-		trace_cache_tag_flush_range(tag, start, end, addr, pages, mask);
+		trace_cache_tag_flush_range(tag, start, end, addr, mask);
 	}
 	qi_batch_flush_descs(iommu, domain->qi_batch);
 	spin_unlock_irqrestore(&domain->cache_lock, flags);
@@ -499,11 +505,11 @@ void cache_tag_flush_range_np(struct dmar_domain *domain, unsigned long start,
 			      unsigned long end)
 {
 	struct intel_iommu *iommu = NULL;
-	unsigned long pages, mask, addr;
+	unsigned long mask, addr;
 	struct cache_tag *tag;
 	unsigned long flags;
 
-	addr = calculate_psi_aligned_address(start, end, &pages, &mask);
+	addr = calculate_psi_aligned_address(start, end, &mask);
 
 	spin_lock_irqsave(&domain->cache_lock, flags);
 	list_for_each_entry(tag, &domain->cache_tags, node) {
@@ -519,9 +525,9 @@ void cache_tag_flush_range_np(struct dmar_domain *domain, unsigned long start,
 
 		if (tag->type == CACHE_TAG_IOTLB ||
 		    tag->type == CACHE_TAG_NESTING_IOTLB)
-			cache_tag_flush_iotlb(domain, tag, addr, pages, mask, 0);
+			cache_tag_flush_iotlb(domain, tag, addr, mask, 0);
 
-		trace_cache_tag_flush_range_np(tag, start, end, addr, pages, mask);
+		trace_cache_tag_flush_range_np(tag, start, end, addr, mask);
 	}
 	qi_batch_flush_descs(iommu, domain->qi_batch);
 	spin_unlock_irqrestore(&domain->cache_lock, flags);

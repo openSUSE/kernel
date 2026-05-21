@@ -12,10 +12,10 @@
 #include "rtw8852a_table.h"
 #include "txrx.h"
 
-#define RTW8852A_FW_FORMAT_MAX 0
+#define RTW8852A_FW_FORMAT_MAX 1
 #define RTW8852A_FW_BASENAME "rtw89/rtw8852a_fw"
 #define RTW8852A_MODULE_FIRMWARE \
-	RTW8852A_FW_BASENAME ".bin"
+	RTW89_GEN_MODULE_FWNAME(RTW8852A_FW_BASENAME, RTW8852A_FW_FORMAT_MAX)
 
 static const struct rtw89_hfc_ch_cfg rtw8852a_hfc_chcfg_pcie[] = {
 	{128, 1896, grp_0}, /* ACH 0 */
@@ -677,8 +677,6 @@ static int rtw8852a_read_efuse(struct rtw89_dev *rtwdev, u8 *log_map,
 
 	efuse->rfe_type = map->rfe_type;
 	efuse->xtal_cap = map->xtal_k;
-
-	rtw89_info(rtwdev, "chip rfe_type is %d\n", efuse->rfe_type);
 
 	return 0;
 }
@@ -2181,6 +2179,57 @@ static void rtw8852a_query_ppdu(struct rtw89_dev *rtwdev,
 		rtw8852a_fill_freq_with_ppdu(rtwdev, phy_ppdu, status);
 }
 
+#define DECLARE_DIG_TABLE(name) \
+static const struct rtw89_phy_dig_gain_cfg name##_table = { \
+	.table = name, \
+	.size = ARRAY_SIZE(name) \
+}
+
+static const struct rtw89_reg_def rtw89_8852a_lna_gain_g[] = {
+	{R_PATH0_LNA_ERR1, B_PATH0_LNA_ERR_G0_G_MSK},
+	{R_PATH0_LNA_ERR2, B_PATH0_LNA_ERR_G1_G_MSK},
+	{R_PATH0_LNA_ERR2, B_PATH0_LNA_ERR_G2_G_MSK},
+	{R_PATH0_LNA_ERR3, B_PATH0_LNA_ERR_G3_G_MSK},
+	{R_PATH0_LNA_ERR3, B_PATH0_LNA_ERR_G4_G_MSK},
+	{R_PATH0_LNA_ERR4, B_PATH0_LNA_ERR_G5_G_MSK},
+	{R_PATH0_LNA_ERR5, B_PATH0_LNA_ERR_G6_G_MSK},
+};
+
+DECLARE_DIG_TABLE(rtw89_8852a_lna_gain_g);
+
+static const struct rtw89_reg_def rtw89_8852a_tia_gain_g[] = {
+	{R_PATH0_TIA_ERR_G0, B_PATH0_TIA_ERR_G0_G_MSK},
+	{R_PATH0_TIA_ERR_G1, B_PATH0_TIA_ERR_G1_G_MSK},
+};
+
+DECLARE_DIG_TABLE(rtw89_8852a_tia_gain_g);
+
+static const struct rtw89_reg_def rtw89_8852a_lna_gain_a[] = {
+	{R_PATH0_LNA_ERR1, B_PATH0_LNA_ERR_G0_A_MSK},
+	{R_PATH0_LNA_ERR1, B_PATH0_LNA_ERR_G1_A_MSK},
+	{R_PATH0_LNA_ERR2, B_PATH0_LNA_ERR_G2_A_MSK},
+	{R_PATH0_LNA_ERR3, B_PATH0_LNA_ERR_G3_A_MSK},
+	{R_PATH0_LNA_ERR3, B_PATH0_LNA_ERR_G4_A_MSK},
+	{R_PATH0_LNA_ERR4, B_PATH0_LNA_ERR_G5_A_MSK},
+	{R_PATH0_LNA_ERR4, B_PATH0_LNA_ERR_G6_A_MSK},
+};
+
+DECLARE_DIG_TABLE(rtw89_8852a_lna_gain_a);
+
+static const struct rtw89_reg_def rtw89_8852a_tia_gain_a[] = {
+	{R_PATH0_TIA_ERR_G0, B_PATH0_TIA_ERR_G0_A_MSK},
+	{R_PATH0_TIA_ERR_G1, B_PATH0_TIA_ERR_G1_A_MSK},
+};
+
+DECLARE_DIG_TABLE(rtw89_8852a_tia_gain_a);
+
+static const struct rtw89_phy_dig_gain_table rtw89_8852a_phy_dig_table = {
+	.cfg_lna_g = &rtw89_8852a_lna_gain_g_table,
+	.cfg_tia_g = &rtw89_8852a_tia_gain_g_table,
+	.cfg_lna_a = &rtw89_8852a_lna_gain_a_table,
+	.cfg_tia_a = &rtw89_8852a_tia_gain_a_table
+};
+
 #ifdef CONFIG_PM
 static const struct wiphy_wowlan_support rtw_wowlan_stub_8852a = {
 	.flags = WIPHY_WOWLAN_MAGIC_PKT | WIPHY_WOWLAN_DISCONNECT,
@@ -2226,6 +2275,7 @@ static const struct rtw89_chip_ops rtw8852a_chip_ops = {
 	.cfg_txrx_path		= NULL,
 	.set_txpwr_ul_tb_offset	= rtw8852a_set_txpwr_ul_tb_offset,
 	.digital_pwr_comp	= NULL,
+	.calc_rx_gain_normal	= NULL,
 	.pwr_on_func		= NULL,
 	.pwr_off_func		= NULL,
 	.query_rxdesc		= rtw89_core_query_rxdesc,
@@ -2247,6 +2297,7 @@ static const struct rtw89_chip_ops rtw8852a_chip_ops = {
 	.h2c_default_dmac_tbl	= NULL,
 	.h2c_update_beacon	= rtw89_fw_h2c_update_beacon,
 	.h2c_ba_cam		= rtw89_fw_h2c_ba_cam,
+	.h2c_wow_cam_update	= rtw89_fw_h2c_wow_cam_update,
 
 	.btc_set_rfe		= rtw8852a_btc_set_rfe,
 	.btc_init_cfg		= rtw8852a_btc_init_cfg,
@@ -2265,8 +2316,11 @@ const struct rtw89_chip_info rtw8852a_chip_info = {
 	.ops			= &rtw8852a_chip_ops,
 	.mac_def		= &rtw89_mac_gen_ax,
 	.phy_def		= &rtw89_phy_gen_ax,
-	.fw_basename		= RTW8852A_FW_BASENAME,
-	.fw_format_max		= RTW8852A_FW_FORMAT_MAX,
+	.fw_def			= {
+		.fw_basename	= RTW8852A_FW_BASENAME,
+		.fw_format_max	= RTW8852A_FW_FORMAT_MAX,
+		.fw_b_aid	= 0,
+	},
 	.try_ce_fw		= false,
 	.bbmcu_nr		= 0,
 	.needed_fw_elms		= 0,
@@ -2275,6 +2329,10 @@ const struct rtw89_chip_info rtw8852a_chip_info = {
 	.small_fifo_size	= false,
 	.dle_scc_rsvd_size	= 0,
 	.max_amsdu_limit	= 3500,
+	.max_vht_mpdu_cap	= IEEE80211_VHT_CAP_MAX_MPDU_LENGTH_11454,
+	.max_eht_mpdu_cap	= 0,
+	.max_tx_agg_num		= 128,
+	.max_rx_agg_num		= 64,
 	.dis_2g_40m_ul_ofdma	= true,
 	.rsvd_ple_ofst		= 0x6f800,
 	.hfc_param_ini		= {rtw8852a_hfc_param_ini_pcie,
@@ -2320,7 +2378,7 @@ const struct rtw89_chip_info rtw8852a_chip_info = {
 	.support_noise		= true,
 	.ul_tb_waveform_ctrl	= false,
 	.ul_tb_pwr_diff		= false,
-	.rx_freq_frome_ie	= true,
+	.rx_freq_from_ie	= true,
 	.hw_sec_hdr		= false,
 	.hw_mgmt_tx_encrypt	= false,
 	.hw_tkip_crypto		= false,
@@ -2360,6 +2418,10 @@ const struct rtw89_chip_info rtw8852a_chip_info = {
 	.rf_para_ulink		= rtw89_btc_8852a_rf_ul,
 	.rf_para_dlink_num	= ARRAY_SIZE(rtw89_btc_8852a_rf_dl),
 	.rf_para_dlink		= rtw89_btc_8852a_rf_dl,
+	.rf_para_ulink_v9	= NULL,
+	.rf_para_dlink_v9	= NULL,
+	.rf_para_ulink_num_v9	= 0,
+	.rf_para_dlink_num_v9	= 0,
 	.ps_mode_supported	= BIT(RTW89_PS_MODE_RFOFF) |
 				  BIT(RTW89_PS_MODE_CLK_GATED) |
 				  BIT(RTW89_PS_MODE_PWR_GATED),
@@ -2391,12 +2453,14 @@ const struct rtw89_chip_info rtw8852a_chip_info = {
 	.bss_clr_map_reg	= R_BSS_CLR_MAP,
 	.rfkill_init		= &rtw8852a_rfkill_regs,
 	.rfkill_get		= {R_AX_GPIO_EXT_CTRL, B_AX_GPIO_IN_9},
+	.btc_sb			= {{{R_AX_SCOREBOARD, R_AX_SCOREBOARD},}},
 	.dma_ch_mask		= 0,
 	.edcca_regs		= &rtw8852a_edcca_regs,
 #ifdef CONFIG_PM
 	.wowlan_stub		= &rtw_wowlan_stub_8852a,
 #endif
 	.xtal_info		= &rtw8852a_xtal_info,
+	.default_quirks		= 0,
 };
 EXPORT_SYMBOL(rtw8852a_chip_info);
 

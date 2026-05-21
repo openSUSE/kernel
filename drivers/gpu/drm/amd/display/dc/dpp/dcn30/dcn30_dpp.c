@@ -376,10 +376,10 @@ void dpp3_cnv_setup (
 
 		tbl_entry.color_space = input_color_space;
 
-		if (color_space >= COLOR_SPACE_YCBCR601)
-			select = INPUT_CSC_SELECT_ICSC;
-		else
+		if (dpp3_should_bypass_post_csc_for_colorspace(color_space))
 			select = INPUT_CSC_SELECT_BYPASS;
+		else
+			select = INPUT_CSC_SELECT_ICSC;
 
 		dpp3_program_post_csc(dpp_base, color_space, select,
 				      &tbl_entry);
@@ -524,10 +524,14 @@ bool dpp3_get_optimal_number_of_taps(
 		scl_data->taps.v_taps_c = max_taps_c;
 
 	if (!dpp->ctx->dc->debug.always_scale) {
-		if (IDENTITY_RATIO(scl_data->ratios.horz))
+		if (IDENTITY_RATIO(scl_data->ratios.horz)) {
 			scl_data->taps.h_taps = 1;
-		if (IDENTITY_RATIO(scl_data->ratios.vert))
+			scl_data->taps.h_taps_c = 1;
+		}
+		if (IDENTITY_RATIO(scl_data->ratios.vert)) {
 			scl_data->taps.v_taps = 1;
+			scl_data->taps.v_taps_c = 1;
+		}
 		if (IDENTITY_RATIO(scl_data->ratios.horz_c))
 			scl_data->taps.h_taps_c = 1;
 		if (IDENTITY_RATIO(scl_data->ratios.vert_c))
@@ -1303,6 +1307,7 @@ static void dpp3_set_3dlut_mode(
 		bool is_color_channel_12bits,
 		bool is_lut_size17x17x17)
 {
+	(void)is_color_channel_12bits;
 	uint32_t lut_mode;
 	struct dcn3_dpp *dpp = TO_DCN30_DPP(dpp_base);
 
@@ -1541,3 +1546,18 @@ bool dpp3_construct(
 	return true;
 }
 
+bool dpp3_should_bypass_post_csc_for_colorspace(enum dc_color_space dc_color_space)
+{
+	switch (dc_color_space) {
+	case COLOR_SPACE_UNKNOWN:
+	case COLOR_SPACE_SRGB:
+	case COLOR_SPACE_XR_RGB:
+	case COLOR_SPACE_SRGB_LIMITED:
+	case COLOR_SPACE_MSREF_SCRGB:
+	case COLOR_SPACE_2020_RGB_FULLRANGE:
+	case COLOR_SPACE_2020_RGB_LIMITEDRANGE:
+		return true;
+	default:
+		return false;
+	}
+}

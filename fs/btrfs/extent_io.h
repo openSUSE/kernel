@@ -99,6 +99,8 @@ struct extent_buffer {
 	spinlock_t refs_lock;
 	refcount_t refs;
 	int read_mirror;
+	/* Inhibit WB_SYNC_NONE writeback when > 0. */
+	atomic_t writeback_inhibitors;
 	/* >= 0 if eb belongs to a log tree, -1 otherwise */
 	s8 log_index;
 	u8 folio_shift;
@@ -196,11 +198,30 @@ static inline void extent_changeset_init(struct extent_changeset *changeset)
 	ulist_init(&changeset->range_changed);
 }
 
+/*
+ * Sentinel value for range_changed.prealloc indicating that the changeset
+ * only tracks bytes_changed and does not record individual ranges. This
+ * avoids GFP_ATOMIC allocations inside add_extent_changeset() when the
+ * caller doesn't need to iterate the changed ranges afterwards.
+ */
+#define EXTENT_CHANGESET_BYTES_ONLY	((struct ulist_node *)1)
+
+static inline void extent_changeset_init_bytes_only(struct extent_changeset *changeset)
+{
+	changeset->bytes_changed = 0;
+	changeset->range_changed.prealloc = EXTENT_CHANGESET_BYTES_ONLY;
+}
+
+static inline bool extent_changeset_tracks_ranges(const struct extent_changeset *changeset)
+{
+	return changeset->range_changed.prealloc != EXTENT_CHANGESET_BYTES_ONLY;
+}
+
 static inline struct extent_changeset *extent_changeset_alloc(void)
 {
 	struct extent_changeset *ret;
 
-	ret = kmalloc(sizeof(*ret), GFP_KERNEL);
+	ret = kmalloc_obj(*ret);
 	if (!ret)
 		return NULL;
 
@@ -210,6 +231,7 @@ static inline struct extent_changeset *extent_changeset_alloc(void)
 
 static inline void extent_changeset_prealloc(struct extent_changeset *changeset, gfp_t gfp_mask)
 {
+	ASSERT(extent_changeset_tracks_ranges(changeset));
 	ulist_prealloc(&changeset->range_changed, gfp_mask);
 }
 
@@ -218,7 +240,8 @@ static inline void extent_changeset_release(struct extent_changeset *changeset)
 	if (!changeset)
 		return;
 	changeset->bytes_changed = 0;
-	ulist_release(&changeset->range_changed);
+	if (extent_changeset_tracks_ranges(changeset))
+		ulist_release(&changeset->range_changed);
 }
 
 static inline void extent_changeset_free(struct extent_changeset *changeset)
@@ -237,8 +260,7 @@ void extent_write_locked_range(struct inode *inode, const struct folio *locked_f
 			       u64 start, u64 end, struct writeback_control *wbc,
 			       bool pages_dirty);
 int btrfs_writepages(struct address_space *mapping, struct writeback_control *wbc);
-int btree_write_cache_pages(struct address_space *mapping,
-			    struct writeback_control *wbc);
+int btree_writepages(struct address_space *mapping, struct writeback_control *wbc);
 void btrfs_btree_wait_writeback_range(struct btrfs_fs_info *fs_info, u64 start, u64 end);
 void btrfs_readahead(struct readahead_control *rac);
 int set_folio_extent_mapped(struct folio *folio);
@@ -299,7 +321,7 @@ static inline int __pure num_extent_folios(const struct extent_buffer *eb)
 	return num_extent_pages(eb);
 }
 
-static inline int extent_buffer_uptodate(const struct extent_buffer *eb)
+static inline bool extent_buffer_uptodate(const struct extent_buffer *eb)
 {
 	return test_bit(EXTENT_BUFFER_UPTODATE, &eb->bflags);
 }
@@ -381,5 +403,9 @@ void btrfs_extent_buffer_leak_debug_check(struct btrfs_fs_info *fs_info);
 #else
 #define btrfs_extent_buffer_leak_debug_check(fs_info)	do {} while (0)
 #endif
+
+void btrfs_inhibit_eb_writeback(struct btrfs_trans_handle *trans,
+			       struct extent_buffer *eb);
+void btrfs_uninhibit_all_eb_writeback(struct btrfs_trans_handle *trans);
 
 #endif

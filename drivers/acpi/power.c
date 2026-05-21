@@ -37,8 +37,6 @@
 #include "sleep.h"
 #include "internal.h"
 
-#define ACPI_POWER_CLASS		"power_resource"
-#define ACPI_POWER_DEVICE_NAME		"Power Resource"
 #define ACPI_POWER_RESOURCE_STATE_OFF	0x00
 #define ACPI_POWER_RESOURCE_STATE_ON	0x01
 #define ACPI_POWER_RESOURCE_STATE_UNKNOWN 0xFF
@@ -104,7 +102,7 @@ static int acpi_power_resources_list_add(acpi_handle handle,
 	if (!resource || !list)
 		return -EINVAL;
 
-	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+	entry = kzalloc_obj(*entry);
 	if (!entry)
 		return -ENOMEM;
 
@@ -265,7 +263,7 @@ acpi_power_resource_add_dependent(struct acpi_power_resource *resource,
 			goto unlock;
 	}
 
-	dep = kzalloc(sizeof(*dep), GFP_KERNEL);
+	dep = kzalloc_obj(*dep);
 	if (!dep) {
 		ret = -ENOMEM;
 		goto unlock;
@@ -945,7 +943,7 @@ struct acpi_device *acpi_add_power_resource(acpi_handle handle)
 	if (device)
 		return device;
 
-	resource = kzalloc(sizeof(*resource), GFP_KERNEL);
+	resource = kzalloc_obj(*resource);
 	if (!resource)
 		return NULL;
 
@@ -955,8 +953,6 @@ struct acpi_device *acpi_add_power_resource(acpi_handle handle)
 	mutex_init(&resource->resource_lock);
 	INIT_LIST_HEAD(&resource->list_node);
 	INIT_LIST_HEAD(&resource->dependents);
-	strscpy(acpi_device_name(device), ACPI_POWER_DEVICE_NAME);
-	strscpy(acpi_device_class(device), ACPI_POWER_CLASS);
 	device->power.state = ACPI_STATE_UNKNOWN;
 	device->flags.match_driver = true;
 
@@ -991,7 +987,7 @@ struct acpi_device *acpi_add_power_resource(acpi_handle handle)
 	return device;
 
  err:
-	acpi_release_power_resource(&device->dev);
+	acpi_dev_put(device);
 	return NULL;
 }
 
@@ -1112,6 +1108,19 @@ static const struct dmi_system_id dmi_leave_unused_power_resources_on[] = {
 			DMI_MATCH(DMI_SYS_VENDOR, "TOSHIBA"),
 			DMI_MATCH(DMI_PRODUCT_NAME, "SATELLITE Click Mini L9W-B"),
 		},
+	},
+	{
+		/*
+		 * THUNDEROBOT ZERO laptop: Due to its SSDT table bug, power
+		 * resource 'PXP' will be shut down on initialization, making
+		 * the NVMe #2 and the NVIDIA dGPU both unavailable (they're
+		 * both controlled by 'PXP').
+		 */
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "THUNDEROBOT"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "ZERO"),
+		}
+
 	},
 	{}
 };

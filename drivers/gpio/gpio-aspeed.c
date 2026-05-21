@@ -42,8 +42,8 @@
 #define GPIO_G7_CTRL_IRQ_TYPE1 BIT(4)
 #define GPIO_G7_CTRL_IRQ_TYPE2 BIT(5)
 #define GPIO_G7_CTRL_RST_TOLERANCE BIT(6)
-#define GPIO_G7_CTRL_DEBOUNCE_SEL1 BIT(7)
-#define GPIO_G7_CTRL_DEBOUNCE_SEL2 BIT(8)
+#define GPIO_G7_CTRL_DEBOUNCE_SEL2 BIT(7)
+#define GPIO_G7_CTRL_DEBOUNCE_SEL1 BIT(8)
 #define GPIO_G7_CTRL_INPUT_MASK BIT(9)
 #define GPIO_G7_CTRL_IRQ_STS BIT(12)
 #define GPIO_G7_CTRL_IN_DATA BIT(13)
@@ -655,7 +655,7 @@ static void aspeed_init_irq_valid_mask(struct gpio_chip *gc,
 
 	while (!is_bank_props_sentinel(props)) {
 		unsigned int offset;
-		const unsigned long int input = props->input;
+		const unsigned long input = props->input;
 
 		/* Pretty crummy approach, but similar to GPIO core */
 		for_each_clear_bit(offset, &input, 32) {
@@ -1302,7 +1302,6 @@ MODULE_DEVICE_TABLE(of, aspeed_gpio_of_table);
 
 static int aspeed_gpio_probe(struct platform_device *pdev)
 {
-	const struct of_device_id *gpio_id;
 	struct gpio_irq_chip *girq;
 	struct aspeed_gpio *gpio;
 	int rc, irq, i, banks, err;
@@ -1320,8 +1319,8 @@ static int aspeed_gpio_probe(struct platform_device *pdev)
 
 	raw_spin_lock_init(&gpio->lock);
 
-	gpio_id = of_match_node(aspeed_gpio_of_table, pdev->dev.of_node);
-	if (!gpio_id)
+	gpio->config = device_get_match_data(&pdev->dev);
+	if (!gpio->config)
 		return -EINVAL;
 
 	gpio->clk = devm_clk_get_enabled(&pdev->dev, NULL);
@@ -1330,8 +1329,6 @@ static int aspeed_gpio_probe(struct platform_device *pdev)
 				"Failed to get clock from devicetree, debouncing disabled\n");
 		gpio->clk = NULL;
 	}
-
-	gpio->config = gpio_id->data;
 
 	if (!gpio->config->llops->reg_bit_set || !gpio->config->llops->reg_bit_get ||
 	    !gpio->config->llops->reg_bank_get)

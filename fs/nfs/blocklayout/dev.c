@@ -370,11 +370,14 @@ bl_open_path(struct pnfs_block_volume *v, const char *prefix)
 	if (!devname)
 		return ERR_PTR(-ENOMEM);
 
-	bdev_file = bdev_file_open_by_path(devname, BLK_OPEN_READ | BLK_OPEN_WRITE,
-					NULL, NULL);
+	bdev_file = bdev_file_open_by_path(devname,
+			BLK_OPEN_READ | BLK_OPEN_WRITE, NULL, NULL);
 	if (IS_ERR(bdev_file)) {
 		dprintk("failed to open device %s (%ld)\n",
 			devname, PTR_ERR(bdev_file));
+	} else {
+		pr_info("pNFS: using block device %s\n",
+			file_bdev(bdev_file)->bd_disk->disk_name);
 	}
 
 	kfree(devname);
@@ -417,8 +420,10 @@ bl_parse_scsi(struct nfs_server *server, struct pnfs_block_dev *d,
 	d->map = bl_map_simple;
 	d->pr_key = v->scsi.pr_key;
 
-	if (d->len == 0)
-		return -ENODEV;
+	if (d->len == 0) {
+		error = -ENODEV;
+		goto out_blkdev_put;
+	}
 
 	ops = bdev->bd_disk->fops->pr_ops;
 	if (!ops) {
@@ -459,8 +464,8 @@ bl_parse_concat(struct nfs_server *server, struct pnfs_block_dev *d,
 	u64 len = 0;
 	int ret, i;
 
-	d->children = kcalloc(v->concat.volumes_count,
-			sizeof(struct pnfs_block_dev), gfp_mask);
+	d->children = kzalloc_objs(struct pnfs_block_dev,
+				   v->concat.volumes_count, gfp_mask);
 	if (!d->children)
 		return -ENOMEM;
 
@@ -488,8 +493,8 @@ bl_parse_stripe(struct nfs_server *server, struct pnfs_block_dev *d,
 	u64 len = 0;
 	int ret, i;
 
-	d->children = kcalloc(v->stripe.volumes_count,
-			sizeof(struct pnfs_block_dev), gfp_mask);
+	d->children = kzalloc_objs(struct pnfs_block_dev,
+				   v->stripe.volumes_count, gfp_mask);
 	if (!d->children)
 		return -ENOMEM;
 
@@ -557,8 +562,7 @@ bl_alloc_deviceid_node(struct nfs_server *server, struct pnfs_device *pdev,
 		goto out_free_scratch;
 	nr_volumes = be32_to_cpup(p++);
 
-	volumes = kcalloc(nr_volumes, sizeof(struct pnfs_block_volume),
-			  gfp_mask);
+	volumes = kzalloc_objs(struct pnfs_block_volume, nr_volumes, gfp_mask);
 	if (!volumes)
 		goto out_free_scratch;
 
@@ -568,7 +572,7 @@ bl_alloc_deviceid_node(struct nfs_server *server, struct pnfs_device *pdev,
 			goto out_free_volumes;
 	}
 
-	top = kzalloc(sizeof(*top), gfp_mask);
+	top = kzalloc_obj(*top, gfp_mask);
 	if (!top)
 		goto out_free_volumes;
 

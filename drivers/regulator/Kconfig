@@ -241,13 +241,13 @@ config REGULATOR_BD71815
 	  will be called bd71815-regulator.
 
 config REGULATOR_BD71828
-	tristate "ROHM BD71828 Power Regulator"
+	tristate "ROHM BD71828, BD72720 and BD73900 Power Regulators"
 	depends on MFD_ROHM_BD71828
 	select REGULATOR_ROHM
 	help
-	  This driver supports voltage regulators on ROHM BD71828 PMIC.
-	  This will enable support for the software controllable buck
-	  and LDO regulators.
+	  This driver supports voltage regulators on ROHM BD71828,
+	  BD71879, BD72720 and BD73900 PMICs. This will enable
+	  support for the software controllable buck and LDO regulators.
 
 	  This driver can also be built as a module. If so, the module
 	  will be called bd71828-regulator.
@@ -508,7 +508,7 @@ config REGULATOR_FP9931
 	  This driver supports the FP9931/JD9930 voltage regulator chip
 	  which is used to provide power to Electronic Paper Displays
 	  so it is found in E-Book readers.
-	  If HWWON is enabled, it also provides temperature measurement.
+	  If HWMON is enabled, it also provides temperature measurement.
 
 config REGULATOR_LM363X
 	tristate "TI LM363X voltage regulators"
@@ -658,6 +658,15 @@ config REGULATOR_MAX77650
 	  Regulator driver for MAX77650/77651 PMIC from Maxim
 	  Semiconductor. This device has a SIMO with three independent
 	  power rails and an LDO.
+
+config REGULATOR_MAX77675
+	tristate "Maxim MAX77675 regulator driver"
+	depends on I2C && OF
+	select REGMAP_I2C
+	help
+	  This driver controls the Maxim MAX77675 power regulator via I2C.
+	  It supports four programmable buck-boost outputs.
+	  Say Y here to enable the regulator driver
 
 config REGULATOR_MAX77857
 	tristate "ADI MAX77857/MAX77831 regulator support"
@@ -1164,7 +1173,7 @@ config REGULATOR_QCOM_RPM
 	  "qcom_rpm-regulator".
 
 config REGULATOR_QCOM_RPMH
-	tristate "Qualcomm Technologies, Inc. RPMh regulator driver"
+	tristate "Qualcomm RPMh regulator driver"
 	depends on QCOM_RPMH || (QCOM_RPMH=n && COMPILE_TEST)
 	depends on QCOM_COMMAND_DB || (QCOM_COMMAND_DB=n && COMPILE_TEST)
 	help
@@ -1223,7 +1232,6 @@ config REGULATOR_RASPBERRYPI_TOUCHSCREEN_ATTINY
 	depends on ARM || ARM64 || COMPILE_TEST
 	depends on BACKLIGHT_CLASS_DEVICE
 	depends on I2C
-	depends on OF_GPIO
 	select REGMAP_I2C
 	help
 	  This driver supports ATTINY regulator on the Raspberry Pi 7-inch
@@ -1323,7 +1331,6 @@ config REGULATOR_RT5133
 	depends on I2C && GPIOLIB && OF
 	select REGMAP
 	select CRC8
-	select OF_GPIO
 	help
 	  This driver adds support for RT5133 PMIC regulators.
 	  RT5133 is an integrated chip. It includes 8 LDOs and 3 GPOs that
@@ -1393,6 +1400,15 @@ config REGULATOR_RT6245
 	  This adds support for Richtek RT6245 voltage regulator.
 	  It can support up to 14A output current and adjustable output voltage
 	  from 0.4375V to 1.3875V, per step 12.5mV.
+
+config REGULATOR_RT8092
+	tristate "Richtek RT8092 voltage regulator"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  The RT8092 is a peak-current mode PWM step-down DC/DC converter with
+	  I2C control interface. It is capable of delivering 4A continuing
+	  current over a wide input range from 2.5V to 5.5V.
 
 config REGULATOR_RTQ2134
 	tristate "Richtek RTQ2134 SubPMIC Regulator"
@@ -1690,6 +1706,17 @@ config REGULATOR_TPS65132
 	  This driver supports TPS65132 single inductor - dual output
 	  power supply specifically designed for display panels.
 
+config REGULATOR_TPS65185
+	tristate "TI TPS65185 EPD regulator"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  This driver supports the TPS65185 voltage regulator chip
+	  which is used to provide power to Electronic Paper Displays
+	  so it is found in E-Book readers.
+	  If HWWON is enabled, it also provides temperature measurement.
+
+
 config REGULATOR_TPS65217
 	tristate "TI TPS65217 Power regulators"
 	depends on MFD_TPS65217
@@ -1850,7 +1877,7 @@ config REGULATOR_WM8994
 	  WM8994 CODEC.
 
 config REGULATOR_QCOM_LABIBB
-	tristate "QCOM LAB/IBB regulator support"
+	tristate "Qualcomm LAB/IBB regulator support"
 	depends on SPMI || COMPILE_TEST
 	help
 	  This driver supports Qualcomm's LAB/IBB regulators present on the

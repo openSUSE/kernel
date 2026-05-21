@@ -1,8 +1,8 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017-2025 Broadcom. All Rights Reserved. The term *
- * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.  *
+ * Copyright (C) 2017-2026 Broadcom. All Rights Reserved. The term *
+ * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.     *
  * Copyright (C) 2004-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
  * www.broadcom.com                                                *
@@ -22,6 +22,7 @@
  *******************************************************************/
 
 #include <linux/blkdev.h>
+#include <linux/crc32.h>
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
 #include <linux/idr.h>
@@ -788,7 +789,9 @@ lpfc_hba_init_link_fc_topology(struct lpfc_hba *phba, uint32_t fc_topology,
 	    ((phba->cfg_link_speed == LPFC_USER_LINK_SPEED_32G) &&
 	     !(phba->lmt & LMT_32Gb)) ||
 	    ((phba->cfg_link_speed == LPFC_USER_LINK_SPEED_64G) &&
-	     !(phba->lmt & LMT_64Gb))) {
+	     !(phba->lmt & LMT_64Gb)) ||
+	    ((phba->cfg_link_speed == LPFC_USER_LINK_SPEED_128G) &&
+	     !(phba->lmt & LMT_128Gb))) {
 		/* Reset link speed to auto */
 		lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
 				"1302 Invalid speed for this board:%d "
@@ -1087,7 +1090,6 @@ lpfc_hba_down_post_s4(struct lpfc_hba *phba)
 	struct lpfc_async_xchg_ctx *ctxp, *ctxp_next;
 	struct lpfc_sli4_hdw_queue *qp;
 	LIST_HEAD(aborts);
-	LIST_HEAD(nvme_aborts);
 	LIST_HEAD(nvmet_aborts);
 	struct lpfc_sglq *sglq_entry = NULL;
 	int cnt, idx;
@@ -1946,6 +1948,7 @@ lpfc_sli4_port_sta_fn_reset(struct lpfc_hba *phba, int mbx_action,
 
 	lpfc_offline_prep(phba, mbx_action);
 	lpfc_sli_flush_io_rings(phba);
+	lpfc_nvme_flush_abts_list(phba);
 	lpfc_nvmels_flush_cmd(phba);
 	lpfc_offline(phba);
 	/* release interrupt for possible resource change */
@@ -2534,7 +2537,9 @@ lpfc_get_hba_model_desc(struct lpfc_hba *phba, uint8_t *mdp, uint8_t *descp)
 		return;
 	}
 
-	if (phba->lmt & LMT_64Gb)
+	if (phba->lmt & LMT_128Gb)
+		max_speed = 128;
+	else if (phba->lmt & LMT_64Gb)
 		max_speed = 64;
 	else if (phba->lmt & LMT_32Gb)
 		max_speed = 32;
@@ -2752,6 +2757,9 @@ lpfc_get_hba_model_desc(struct lpfc_hba *phba, uint8_t *mdp, uint8_t *descp)
 	case PCI_DEVICE_ID_LANCER_G7P_FC:
 		m = (typeof(m)){"LPe38000", "PCIe", "Fibre Channel Adapter"};
 		break;
+	case PCI_DEVICE_ID_LANCER_G8_FC:
+		m = (typeof(m)){"LPe42100", "PCIe", "Fibre Channel Adapter"};
+		break;
 	case PCI_DEVICE_ID_SKYHAWK:
 	case PCI_DEVICE_ID_SKYHAWK_VF:
 		oneConnect = 1;
@@ -2820,7 +2828,7 @@ lpfc_sli3_post_buffer(struct lpfc_hba *phba, struct lpfc_sli_ring *pring, int cn
 
 		/* 2 buffers can be posted per command */
 		/* Allocate buffer to post */
-		mp1 = kmalloc(sizeof (struct lpfc_dmabuf), GFP_KERNEL);
+		mp1 = kmalloc_obj(struct lpfc_dmabuf);
 		if (mp1)
 		    mp1->virt = lpfc_mbuf_alloc(phba, MEM_PRI, &mp1->phys);
 		if (!mp1 || !mp1->virt) {
@@ -2833,7 +2841,7 @@ lpfc_sli3_post_buffer(struct lpfc_hba *phba, struct lpfc_sli_ring *pring, int cn
 		INIT_LIST_HEAD(&mp1->list);
 		/* Allocate buffer to post */
 		if (cnt > 1) {
-			mp2 = kmalloc(sizeof (struct lpfc_dmabuf), GFP_KERNEL);
+			mp2 = kmalloc_obj(struct lpfc_dmabuf);
 			if (mp2)
 				mp2->virt = lpfc_mbuf_alloc(phba, MEM_PRI,
 							    &mp2->phys);
@@ -3539,7 +3547,7 @@ void lpfc_create_multixri_pools(struct lpfc_hba *phba)
 	count_per_hwq = phba->sli4_hba.io_xri_cnt / hwq_count;
 
 	for (i = 0; i < hwq_count; i++) {
-		multixri_pool = kzalloc(sizeof(*multixri_pool), GFP_KERNEL);
+		multixri_pool = kzalloc_obj(*multixri_pool);
 
 		if (!multixri_pool) {
 			lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
@@ -4064,8 +4072,7 @@ lpfc_sli4_els_sgl_update(struct lpfc_hba *phba)
 				els_xri_cnt);
 		/* allocate the additional els sgls */
 		for (i = 0; i < xri_cnt; i++) {
-			sglq_entry = kzalloc(sizeof(struct lpfc_sglq),
-					     GFP_KERNEL);
+			sglq_entry = kzalloc_obj(struct lpfc_sglq);
 			if (sglq_entry == NULL) {
 				lpfc_printf_log(phba, KERN_ERR,
 						LOG_TRACE_EVENT,
@@ -4184,8 +4191,7 @@ lpfc_sli4_nvmet_sgl_update(struct lpfc_hba *phba)
 				phba->sli4_hba.nvmet_xri_cnt, nvmet_xri_cnt);
 		/* allocate the additional nvmet sgls */
 		for (i = 0; i < xri_cnt; i++) {
-			sglq_entry = kzalloc(sizeof(struct lpfc_sglq),
-					     GFP_KERNEL);
+			sglq_entry = kzalloc_obj(struct lpfc_sglq);
 			if (sglq_entry == NULL) {
 				lpfc_printf_log(phba, KERN_ERR,
 						LOG_TRACE_EVENT,
@@ -4478,7 +4484,7 @@ lpfc_new_io_buf(struct lpfc_hba *phba, int num_to_alloc)
 
 	phba->sli4_hba.io_xri_cnt = 0;
 	for (bcnt = 0; bcnt < num_to_alloc; bcnt++) {
-		lpfc_ncmd = kzalloc(sizeof(*lpfc_ncmd), GFP_KERNEL);
+		lpfc_ncmd = kzalloc_obj(*lpfc_ncmd);
 		if (!lpfc_ncmd)
 			break;
 		/*
@@ -4637,8 +4643,7 @@ lpfc_vmid_res_alloc(struct lpfc_hba *phba, struct lpfc_vport *vport)
 
 	if (lpfc_is_vmid_enabled(phba)) {
 		vport->vmid =
-		    kcalloc(phba->cfg_max_vmid, sizeof(struct lpfc_vmid),
-			    GFP_KERNEL);
+		    kzalloc_objs(struct lpfc_vmid, phba->cfg_max_vmid);
 		if (!vport->vmid)
 			return -ENOMEM;
 
@@ -5637,8 +5642,7 @@ lpfc_cgn_update_stat(struct lpfc_hba *phba, uint32_t dtag)
 		cp->cgn_stat_npm = value;
 	}
 
-	value = lpfc_cgn_calc_crc32(cp, LPFC_CGN_INFO_SZ,
-				    LPFC_CGN_CRC32_SEED);
+	value = lpfc_cgn_calc_crc32(cp, LPFC_CGN_INFO_SZ);
 	cp->cgn_info_crc = cpu_to_le32(value);
 }
 
@@ -5900,8 +5904,7 @@ lpfc_cmf_stats_timer(struct hrtimer *timer)
 	cp->cgn_warn_freq = cpu_to_le16(value);
 	cp->cgn_alarm_freq = cpu_to_le16(value);
 
-	lvalue = lpfc_cgn_calc_crc32(cp, LPFC_CGN_INFO_SZ,
-				     LPFC_CGN_CRC32_SEED);
+	lvalue = lpfc_cgn_calc_crc32(cp, LPFC_CGN_INFO_SZ);
 	cp->cgn_info_crc = cpu_to_le32(lvalue);
 
 	hrtimer_forward_now(timer, ktime_set(0, LPFC_SEC_MIN * NSEC_PER_SEC));
@@ -7124,8 +7127,7 @@ lpfc_cgn_params_parse(struct lpfc_hba *phba,
 			cp->cgn_info_level0 = phba->cgn_p.cgn_param_level0;
 			cp->cgn_info_level1 = phba->cgn_p.cgn_param_level1;
 			cp->cgn_info_level2 = phba->cgn_p.cgn_param_level2;
-			crc = lpfc_cgn_calc_crc32(cp, LPFC_CGN_INFO_SZ,
-						  LPFC_CGN_CRC32_SEED);
+			crc = lpfc_cgn_calc_crc32(cp, LPFC_CGN_INFO_SZ);
 			cp->cgn_info_crc = cpu_to_le32(crc);
 		}
 		spin_unlock_irq(&phba->hbalock);
@@ -7773,9 +7775,8 @@ lpfc_sli_driver_resource_setup(struct lpfc_hba *phba)
 		return -ENODEV;
 
 	if (!phba->sli.sli3_ring)
-		phba->sli.sli3_ring = kcalloc(LPFC_SLI3_MAX_RING,
-					      sizeof(struct lpfc_sli_ring),
-					      GFP_KERNEL);
+		phba->sli.sli3_ring = kzalloc_objs(struct lpfc_sli_ring,
+						   LPFC_SLI3_MAX_RING);
 	if (!phba->sli.sli3_ring)
 		return -ENOMEM;
 
@@ -8287,7 +8288,7 @@ lpfc_sli4_driver_resource_setup(struct lpfc_hba *phba)
 			phba->cfg_total_seg_cnt,  phba->cfg_scsi_seg_cnt,
 			phba->cfg_nvme_seg_cnt);
 
-	i = min(phba->cfg_sg_dma_buf_size, SLI4_PAGE_SIZE);
+	i = min_t(u32, phba->cfg_sg_dma_buf_size, SLI4_PAGE_SIZE);
 
 	phba->lpfc_sg_dma_buf_pool =
 			dma_pool_create("lpfc_sg_dma_buf_pool",
@@ -8357,9 +8358,8 @@ lpfc_sli4_driver_resource_setup(struct lpfc_hba *phba)
 		goto out_remove_rpi_hdrs;
 	}
 
-	phba->sli4_hba.hba_eq_hdl = kcalloc(phba->cfg_irq_chann,
-					    sizeof(struct lpfc_hba_eq_hdl),
-					    GFP_KERNEL);
+	phba->sli4_hba.hba_eq_hdl = kzalloc_objs(struct lpfc_hba_eq_hdl,
+						 phba->cfg_irq_chann);
 	if (!phba->sli4_hba.hba_eq_hdl) {
 		lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
 				"2572 Failed allocate memory for "
@@ -8368,9 +8368,8 @@ lpfc_sli4_driver_resource_setup(struct lpfc_hba *phba)
 		goto out_free_fcf_rr_bmask;
 	}
 
-	phba->sli4_hba.cpu_map = kcalloc(phba->sli4_hba.num_possible_cpu,
-					sizeof(struct lpfc_vector_map_info),
-					GFP_KERNEL);
+	phba->sli4_hba.cpu_map = kzalloc_objs(struct lpfc_vector_map_info,
+					      phba->sli4_hba.num_possible_cpu);
 	if (!phba->sli4_hba.cpu_map) {
 		lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
 				"3327 Failed allocate memory for msi-x "
@@ -8387,9 +8386,8 @@ lpfc_sli4_driver_resource_setup(struct lpfc_hba *phba)
 		goto out_free_hba_cpu_map;
 	}
 
-	phba->sli4_hba.idle_stat = kcalloc(phba->sli4_hba.num_possible_cpu,
-					   sizeof(*phba->sli4_hba.idle_stat),
-					   GFP_KERNEL);
+	phba->sli4_hba.idle_stat = kzalloc_objs(*phba->sli4_hba.idle_stat,
+						phba->sli4_hba.num_possible_cpu);
 	if (!phba->sli4_hba.idle_stat) {
 		lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
 				"3390 Failed allocation for idle_stat\n");
@@ -8663,7 +8661,7 @@ lpfc_init_iocb_list(struct lpfc_hba *phba, int iocb_count)
 	/* Initialize and populate the iocb list per host.  */
 	INIT_LIST_HEAD(&phba->lpfc_iocb_list);
 	for (i = 0; i < iocb_count; i++) {
-		iocbq_entry = kzalloc(sizeof(struct lpfc_iocbq), GFP_KERNEL);
+		iocbq_entry = kzalloc_obj(struct lpfc_iocbq);
 		if (iocbq_entry == NULL) {
 			printk(KERN_ERR "%s: only allocated %d iocbs of "
 				"expected %d count. Unloading driver.\n",
@@ -8913,7 +8911,7 @@ lpfc_sli4_create_rpi_hdr(struct lpfc_hba *phba)
 	 * First allocate the protocol header region for the port.  The
 	 * port expects a 4KB DMA-mapped memory region that is 4K aligned.
 	 */
-	dmabuf = kzalloc(sizeof(struct lpfc_dmabuf), GFP_KERNEL);
+	dmabuf = kzalloc_obj(struct lpfc_dmabuf);
 	if (!dmabuf)
 		return NULL;
 
@@ -8931,7 +8929,7 @@ lpfc_sli4_create_rpi_hdr(struct lpfc_hba *phba)
 	}
 
 	/* Save the rpi header data for cleanup later. */
-	rpi_hdr = kzalloc(sizeof(struct lpfc_rpi_hdr), GFP_KERNEL);
+	rpi_hdr = kzalloc_obj(struct lpfc_rpi_hdr);
 	if (!rpi_hdr)
 		goto err_free_coherent;
 
@@ -9004,7 +9002,7 @@ lpfc_hba_alloc(struct pci_dev *pdev)
 	struct lpfc_hba *phba;
 
 	/* Allocate memory for HBA structure */
-	phba = kzalloc(sizeof(struct lpfc_hba), GFP_KERNEL);
+	phba = kzalloc_obj(struct lpfc_hba);
 	if (!phba) {
 		dev_err(&pdev->dev, "failed to allocate hba struct\n");
 		return NULL;
@@ -9722,7 +9720,7 @@ lpfc_create_bootstrap_mbox(struct lpfc_hba *phba)
 	uint32_t pa_addr;
 	uint64_t phys_addr;
 
-	dmabuf = kzalloc(sizeof(struct lpfc_dmabuf), GFP_KERNEL);
+	dmabuf = kzalloc_obj(struct lpfc_dmabuf);
 	if (!dmabuf)
 		return -ENOMEM;
 
@@ -9999,6 +9997,11 @@ lpfc_sli4_read_config(struct lpfc_hba *phba)
 				(phba->sli4_hba.max_cfg_param.max_vpi - 1) : 0;
 		phba->max_vports = phba->max_vpi;
 
+		if (bf_get(lpfc_mbx_rd_conf_fedif, rd_config))
+			phba->sli4_hba.encryption_support = true;
+		else
+			phba->sli4_hba.encryption_support = false;
+
 		/* Next decide on FPIN or Signal E2E CGN support
 		 * For congestion alarms and warnings valid combination are:
 		 * 1. FPIN alarms / FPIN warnings
@@ -10147,6 +10150,10 @@ lpfc_sli4_read_config(struct lpfc_hba *phba)
 			case LINK_SPEED_64G:
 				phba->cfg_link_speed =
 					LPFC_USER_LINK_SPEED_64G;
+				break;
+			case LINK_SPEED_128G:
+				phba->cfg_link_speed =
+					LPFC_USER_LINK_SPEED_128G;
 				break;
 			case 0xffff:
 				phba->cfg_link_speed =
@@ -10437,9 +10444,8 @@ lpfc_sli4_queue_create(struct lpfc_hba *phba)
 	phba->sli4_hba.cq_ecount = LPFC_CQE_DEF_COUNT;
 
 	if (!phba->sli4_hba.hdwq) {
-		phba->sli4_hba.hdwq = kcalloc(
-			phba->cfg_hdw_queue, sizeof(struct lpfc_sli4_hdw_queue),
-			GFP_KERNEL);
+		phba->sli4_hba.hdwq = kzalloc_objs(struct lpfc_sli4_hdw_queue,
+						   phba->cfg_hdw_queue);
 		if (!phba->sli4_hba.hdwq) {
 			lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
 					"6427 Failed allocate memory for "
@@ -10468,30 +10474,24 @@ lpfc_sli4_queue_create(struct lpfc_hba *phba)
 
 	if (phba->cfg_enable_fc4_type & LPFC_ENABLE_NVME) {
 		if (phba->nvmet_support) {
-			phba->sli4_hba.nvmet_cqset = kcalloc(
-					phba->cfg_nvmet_mrq,
-					sizeof(struct lpfc_queue *),
-					GFP_KERNEL);
+			phba->sli4_hba.nvmet_cqset = kzalloc_objs(struct lpfc_queue *,
+								  phba->cfg_nvmet_mrq);
 			if (!phba->sli4_hba.nvmet_cqset) {
 				lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
 					"3121 Fail allocate memory for "
 					"fast-path CQ set array\n");
 				goto out_error;
 			}
-			phba->sli4_hba.nvmet_mrq_hdr = kcalloc(
-					phba->cfg_nvmet_mrq,
-					sizeof(struct lpfc_queue *),
-					GFP_KERNEL);
+			phba->sli4_hba.nvmet_mrq_hdr = kzalloc_objs(struct lpfc_queue *,
+								    phba->cfg_nvmet_mrq);
 			if (!phba->sli4_hba.nvmet_mrq_hdr) {
 				lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
 					"3122 Fail allocate memory for "
 					"fast-path RQ set hdr array\n");
 				goto out_error;
 			}
-			phba->sli4_hba.nvmet_mrq_data = kcalloc(
-					phba->cfg_nvmet_mrq,
-					sizeof(struct lpfc_queue *),
-					GFP_KERNEL);
+			phba->sli4_hba.nvmet_mrq_data = kzalloc_objs(struct lpfc_queue *,
+								     phba->cfg_nvmet_mrq);
 			if (!phba->sli4_hba.nvmet_mrq_data) {
 				lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
 					"3124 Fail allocate memory for "
@@ -11376,8 +11376,8 @@ lpfc_sli4_queue_setup(struct lpfc_hba *phba)
 
 	if (phba->sli4_hba.cq_max) {
 		kfree(phba->sli4_hba.cq_lookup);
-		phba->sli4_hba.cq_lookup = kcalloc((phba->sli4_hba.cq_max + 1),
-			sizeof(struct lpfc_queue *), GFP_KERNEL);
+		phba->sli4_hba.cq_lookup = kzalloc_objs(struct lpfc_queue *,
+							(phba->sli4_hba.cq_max + 1));
 		if (!phba->sli4_hba.cq_lookup) {
 			lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
 					"0549 Failed setup of CQ Lookup table: "
@@ -11506,7 +11506,7 @@ lpfc_sli4_cq_event_pool_create(struct lpfc_hba *phba)
 	int i;
 
 	for (i = 0; i < (4 * phba->sli4_hba.cq_ecount); i++) {
-		cq_event = kmalloc(sizeof(struct lpfc_cq_event), GFP_KERNEL);
+		cq_event = kmalloc_obj(struct lpfc_cq_event);
 		if (!cq_event)
 			goto out_pool_create_fail;
 		list_add_tail(&cq_event->list,
@@ -11804,6 +11804,7 @@ lpfc_sli4_pci_mem_setup(struct lpfc_hba *phba)
 	unsigned long bar0map_len, bar1map_len, bar2map_len;
 	int error;
 	uint32_t if_type;
+	u8 sli_family;
 
 	if (!pdev)
 		return -ENODEV;
@@ -11832,6 +11833,14 @@ lpfc_sli4_pci_mem_setup(struct lpfc_hba *phba)
 				"sli_intf reg 0x%x\n",
 				phba->sli4_hba.sli_intf.word0);
 		return -ENODEV;
+	}
+
+	/* Check if ASIC_ID register should be read */
+	sli_family = bf_get(lpfc_sli_intf_sli_family, &phba->sli4_hba.sli_intf);
+	if (sli_family == LPFC_SLI_INTF_ASIC_ID) {
+		if (pci_read_config_dword(pdev, LPFC_ASIC_ID_OFFSET,
+					  &phba->sli4_hba.asic_id.word0))
+			return -ENODEV;
 	}
 
 	if_type = bf_get(lpfc_sli_intf_if_type, &phba->sli4_hba.sli_intf);
@@ -12034,6 +12043,8 @@ lpfc_sli4_pci_mem_unset(struct lpfc_hba *phba)
 		iounmap(phba->sli4_hba.conf_regs_memmap_p);
 		if (phba->sli4_hba.dpp_regs_memmap_p)
 			iounmap(phba->sli4_hba.dpp_regs_memmap_p);
+		if (phba->sli4_hba.dpp_regs_memmap_wc_p)
+			iounmap(phba->sli4_hba.dpp_regs_memmap_wc_p);
 		break;
 	case LPFC_SLI_INTF_IF_TYPE_1:
 		break;
@@ -13050,6 +13061,10 @@ lpfc_sli4_enable_msix(struct lpfc_hba *phba)
 			/* Iterate to next offline or online cpu in aff_mask */
 			cpu = cpumask_next(cpu, aff_mask);
 
+			/* Reached the end of the aff_mask */
+			if (cpu >= nr_cpu_ids)
+				break;
+
 			/* Find next online cpu in aff_mask to set affinity */
 			cpu_select = lpfc_next_online_cpu(aff_mask, cpu);
 		} else if (vectors == 1) {
@@ -13502,54 +13517,14 @@ lpfc_sli4_hba_unset(struct lpfc_hba *phba)
 		phba->pport->work_port_events = 0;
 }
 
-static uint32_t
-lpfc_cgn_crc32(uint32_t crc, u8 byte)
-{
-	uint32_t msb = 0;
-	uint32_t bit;
-
-	for (bit = 0; bit < 8; bit++) {
-		msb = (crc >> 31) & 1;
-		crc <<= 1;
-
-		if (msb ^ (byte & 1)) {
-			crc ^= LPFC_CGN_CRC32_MAGIC_NUMBER;
-			crc |= 1;
-		}
-		byte >>= 1;
-	}
-	return crc;
-}
-
-static uint32_t
-lpfc_cgn_reverse_bits(uint32_t wd)
-{
-	uint32_t result = 0;
-	uint32_t i;
-
-	for (i = 0; i < 32; i++) {
-		result <<= 1;
-		result |= (1 & (wd >> i));
-	}
-	return result;
-}
-
 /*
  * The routine corresponds with the algorithm the HBA firmware
  * uses to validate the data integrity.
  */
 uint32_t
-lpfc_cgn_calc_crc32(void *ptr, uint32_t byteLen, uint32_t crc)
+lpfc_cgn_calc_crc32(const void *data, size_t size)
 {
-	uint32_t  i;
-	uint32_t result;
-	uint8_t  *data = (uint8_t *)ptr;
-
-	for (i = 0; i < byteLen; ++i)
-		crc = lpfc_cgn_crc32(crc, data[i]);
-
-	result = ~lpfc_cgn_reverse_bits(crc);
-	return result;
+	return ~crc32c(~0, data, size);
 }
 
 void
@@ -13598,7 +13573,7 @@ lpfc_init_congestion_buf(struct lpfc_hba *phba)
 
 	cp->cgn_warn_freq = cpu_to_le16(LPFC_FPIN_INIT_FREQ);
 	cp->cgn_alarm_freq = cpu_to_le16(LPFC_FPIN_INIT_FREQ);
-	crc = lpfc_cgn_calc_crc32(cp, LPFC_CGN_INFO_SZ, LPFC_CGN_CRC32_SEED);
+	crc = lpfc_cgn_calc_crc32(cp, LPFC_CGN_INFO_SZ);
 	cp->cgn_info_crc = cpu_to_le32(crc);
 
 	phba->cgn_evt_timestamp = jiffies +
@@ -13621,7 +13596,7 @@ lpfc_init_congestion_stat(struct lpfc_hba *phba)
 	memset(&cp->cgn_stat, 0, sizeof(cp->cgn_stat));
 
 	lpfc_cgn_update_tstamp(phba, &cp->stat_start);
-	crc = lpfc_cgn_calc_crc32(cp, LPFC_CGN_INFO_SZ, LPFC_CGN_CRC32_SEED);
+	crc = lpfc_cgn_calc_crc32(cp, LPFC_CGN_INFO_SZ);
 	cp->cgn_info_crc = cpu_to_le32(crc);
 }
 
@@ -13763,7 +13738,9 @@ lpfc_get_sli4_parameters(struct lpfc_hba *phba, LPFC_MBOXQ_t *mboxq)
 	sli4_params->cqv = bf_get(cfg_cqv, mbx_sli4_parameters);
 	sli4_params->mqv = bf_get(cfg_mqv, mbx_sli4_parameters);
 	sli4_params->wqv = bf_get(cfg_wqv, mbx_sli4_parameters);
-	sli4_params->rqv = bf_get(cfg_rqv, mbx_sli4_parameters);
+	sli4_params->rqv =
+		(sli4_params->if_type < LPFC_SLI_INTF_IF_TYPE_2) ?
+			LPFC_Q_CREATE_VERSION_0 : LPFC_Q_CREATE_VERSION_1;
 	sli4_params->eqav = bf_get(cfg_eqav, mbx_sli4_parameters);
 	sli4_params->cqav = bf_get(cfg_cqav, mbx_sli4_parameters);
 	sli4_params->wqsize = bf_get(cfg_wqsize, mbx_sli4_parameters);
@@ -13825,12 +13802,6 @@ fcponly:
 	if (phba->cfg_enable_fc4_type & LPFC_ENABLE_NVME)
 		phba->cfg_sg_seg_cnt = LPFC_MAX_NVME_SEG_CNT;
 
-	/* Enable embedded Payload BDE if support is indicated */
-	if (bf_get(cfg_pbde, mbx_sli4_parameters))
-		phba->cfg_enable_pbde = 1;
-	else
-		phba->cfg_enable_pbde = 0;
-
 	/*
 	 * To support Suppress Response feature we must satisfy 3 conditions.
 	 * lpfc_suppress_rsp module parameter must be set (default).
@@ -13865,9 +13836,8 @@ fcponly:
 		phba->fcp_embed_io = 0;
 
 	lpfc_printf_log(phba, KERN_INFO, LOG_INIT | LOG_NVME,
-			"6422 XIB %d PBDE %d: FCP %d NVME %d %d %d\n",
+			"6422 XIB %d: FCP %d NVME %d %d %d\n",
 			bf_get(cfg_xib, mbx_sli4_parameters),
-			phba->cfg_enable_pbde,
 			phba->fcp_embed_io, sli4_params->nvme,
 			phba->cfg_nvme_embed_cmd, phba->cfg_suppress_rsp);
 
@@ -14532,6 +14502,12 @@ lpfc_log_write_firmware_error(struct lpfc_hba *phba, uint32_t offset,
 	u8 sli_family;
 
 	sli_family = bf_get(lpfc_sli_intf_sli_family, &phba->sli4_hba.sli_intf);
+
+	/* Refer to ASIC_ID register case */
+	if (sli_family == LPFC_SLI_INTF_ASIC_ID)
+		sli_family = bf_get(lpfc_asic_id_gen_num,
+				    &phba->sli4_hba.asic_id);
+
 	/* Three cases:  (1) FW was not supported on the detected adapter.
 	 * (2) FW update has been locked out administratively.
 	 * (3) Some other error during FW update.
@@ -14544,7 +14520,9 @@ lpfc_log_write_firmware_error(struct lpfc_hba *phba, uint32_t offset,
 	    (sli_family == LPFC_SLI_INTF_FAMILY_G7 &&
 	     magic_number != MAGIC_NUMBER_G7) ||
 	    (sli_family == LPFC_SLI_INTF_FAMILY_G7P &&
-	     magic_number != MAGIC_NUMBER_G7P)) {
+	     magic_number != MAGIC_NUMBER_G7P) ||
+	    (sli_family == LPFC_SLI_INTF_FAMILY_G8 &&
+	     magic_number != MAGIC_NUMBER_G8)) {
 		lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
 				"3030 This firmware version is not supported on"
 				" this HBA model. Device:%x Magic:%x Type:%x "
@@ -14611,8 +14589,7 @@ lpfc_write_firmware(const struct firmware *fw, void *context)
 			     "New Version:%s\n",
 			     fwrev, image->revision);
 		for (i = 0; i < LPFC_MBX_WR_CONFIG_MAX_BDE; i++) {
-			dmabuf = kzalloc(sizeof(struct lpfc_dmabuf),
-					 GFP_KERNEL);
+			dmabuf = kzalloc_obj(struct lpfc_dmabuf);
 			if (!dmabuf) {
 				rc = -ENOMEM;
 				goto release_out;

@@ -204,7 +204,7 @@ int amdgpu_display_crtc_page_flip_target(struct drm_crtc *crtc,
 	u64 tiling_flags;
 	int i, r;
 
-	work = kzalloc(sizeof(*work), GFP_KERNEL);
+	work = kzalloc_obj(*work);
 	if (work == NULL)
 		return -ENOMEM;
 
@@ -415,15 +415,15 @@ void amdgpu_display_print_display_setup(struct drm_device *dev)
 	int i = 0;
 
 	drm_connector_list_iter_begin(dev, &iter);
-	DRM_INFO("AMDGPU Display Connectors\n");
+	drm_info(dev, "AMDGPU Display Connectors\n");
 	drm_for_each_connector_iter(connector, &iter) {
 		amdgpu_connector = to_amdgpu_connector(connector);
-		DRM_INFO("Connector %d:\n", i);
-		DRM_INFO("  %s\n", connector->name);
+		drm_info(dev, "Connector %d:\n", i);
+		drm_info(dev, "  %s\n", connector->name);
 		if (amdgpu_connector->hpd.hpd != AMDGPU_HPD_NONE)
-			DRM_INFO("  %s\n", hpd_names[amdgpu_connector->hpd.hpd]);
+			drm_info(dev, "  %s\n", hpd_names[amdgpu_connector->hpd.hpd]);
 		if (amdgpu_connector->ddc_bus) {
-			DRM_INFO("  DDC: 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n",
+			drm_info(dev, "  DDC: 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n",
 				 amdgpu_connector->ddc_bus->rec.mask_clk_reg,
 				 amdgpu_connector->ddc_bus->rec.mask_data_reg,
 				 amdgpu_connector->ddc_bus->rec.a_clk_reg,
@@ -433,11 +433,11 @@ void amdgpu_display_print_display_setup(struct drm_device *dev)
 				 amdgpu_connector->ddc_bus->rec.y_clk_reg,
 				 amdgpu_connector->ddc_bus->rec.y_data_reg);
 			if (amdgpu_connector->router.ddc_valid)
-				DRM_INFO("  DDC Router 0x%x/0x%x\n",
+				drm_info(dev, "  DDC Router 0x%x/0x%x\n",
 					 amdgpu_connector->router.ddc_mux_control_pin,
 					 amdgpu_connector->router.ddc_mux_state);
 			if (amdgpu_connector->router.cd_valid)
-				DRM_INFO("  Clock/Data Router 0x%x/0x%x\n",
+				drm_info(dev, "  Clock/Data Router 0x%x/0x%x\n",
 					 amdgpu_connector->router.cd_mux_control_pin,
 					 amdgpu_connector->router.cd_mux_state);
 		} else {
@@ -447,35 +447,35 @@ void amdgpu_display_print_display_setup(struct drm_device *dev)
 			    connector->connector_type == DRM_MODE_CONNECTOR_DVIA ||
 			    connector->connector_type == DRM_MODE_CONNECTOR_HDMIA ||
 			    connector->connector_type == DRM_MODE_CONNECTOR_HDMIB)
-				DRM_INFO("  DDC: no ddc bus - possible BIOS bug - please report to xorg-driver-ati@lists.x.org\n");
+				drm_info(dev, "  DDC: no ddc bus - possible BIOS bug - please report to xorg-driver-ati@lists.x.org\n");
 		}
-		DRM_INFO("  Encoders:\n");
+		drm_info(dev, "  Encoders:\n");
 		list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
 			amdgpu_encoder = to_amdgpu_encoder(encoder);
 			devices = amdgpu_encoder->devices & amdgpu_connector->devices;
 			if (devices) {
 				if (devices & ATOM_DEVICE_CRT1_SUPPORT)
-					DRM_INFO("    CRT1: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
+					drm_info(dev, "    CRT1: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
 				if (devices & ATOM_DEVICE_CRT2_SUPPORT)
-					DRM_INFO("    CRT2: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
+					drm_info(dev, "    CRT2: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
 				if (devices & ATOM_DEVICE_LCD1_SUPPORT)
-					DRM_INFO("    LCD1: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
+					drm_info(dev, "    LCD1: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
 				if (devices & ATOM_DEVICE_DFP1_SUPPORT)
-					DRM_INFO("    DFP1: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
+					drm_info(dev, "    DFP1: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
 				if (devices & ATOM_DEVICE_DFP2_SUPPORT)
-					DRM_INFO("    DFP2: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
+					drm_info(dev, "    DFP2: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
 				if (devices & ATOM_DEVICE_DFP3_SUPPORT)
-					DRM_INFO("    DFP3: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
+					drm_info(dev, "    DFP3: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
 				if (devices & ATOM_DEVICE_DFP4_SUPPORT)
-					DRM_INFO("    DFP4: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
+					drm_info(dev, "    DFP4: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
 				if (devices & ATOM_DEVICE_DFP5_SUPPORT)
-					DRM_INFO("    DFP5: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
+					drm_info(dev, "    DFP5: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
 				if (devices & ATOM_DEVICE_DFP6_SUPPORT)
-					DRM_INFO("    DFP6: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
+					drm_info(dev, "    DFP6: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
 				if (devices & ATOM_DEVICE_TV1_SUPPORT)
-					DRM_INFO("    TV1: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
+					drm_info(dev, "    TV1: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
 				if (devices & ATOM_DEVICE_CV_SUPPORT)
-					DRM_INFO("    CV: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
+					drm_info(dev, "    CV: %s\n", encoder_names[amdgpu_encoder->encoder_id]);
 			}
 		}
 		i++;
@@ -1323,7 +1323,7 @@ amdgpu_display_user_framebuffer_create(struct drm_device *dev,
 		return ERR_PTR(-EINVAL);
 	}
 
-	amdgpu_fb = kzalloc(sizeof(*amdgpu_fb), GFP_KERNEL);
+	amdgpu_fb = kzalloc_obj(*amdgpu_fb);
 	if (amdgpu_fb == NULL) {
 		drm_gem_object_put(obj);
 		return ERR_PTR(-ENOMEM);
@@ -1738,21 +1738,6 @@ bool amdgpu_crtc_get_scanout_position(struct drm_crtc *crtc,
 						  stime, etime, mode);
 }
 
-static bool
-amdgpu_display_robj_is_fb(struct amdgpu_device *adev, struct amdgpu_bo *robj)
-{
-	struct drm_device *dev = adev_to_drm(adev);
-	struct drm_fb_helper *fb_helper = dev->fb_helper;
-
-	if (!fb_helper || !fb_helper->buffer)
-		return false;
-
-	if (gem_to_amdgpu_bo(fb_helper->buffer->gem) != robj)
-		return false;
-
-	return true;
-}
-
 int amdgpu_display_suspend_helper(struct amdgpu_device *adev)
 {
 	struct drm_device *dev = adev_to_drm(adev);
@@ -1775,7 +1760,6 @@ int amdgpu_display_suspend_helper(struct amdgpu_device *adev)
 	list_for_each_entry(crtc, &dev->mode_config.crtc_list, head) {
 		struct amdgpu_crtc *amdgpu_crtc = to_amdgpu_crtc(crtc);
 		struct drm_framebuffer *fb = crtc->primary->fb;
-		struct amdgpu_bo *robj;
 
 		if (amdgpu_crtc->cursor_bo && !adev->enable_virtual_display) {
 			struct amdgpu_bo *aobj = gem_to_amdgpu_bo(amdgpu_crtc->cursor_bo);
@@ -1790,8 +1774,9 @@ int amdgpu_display_suspend_helper(struct amdgpu_device *adev)
 		if (!fb || !fb->obj[0])
 			continue;
 
-		robj = gem_to_amdgpu_bo(fb->obj[0]);
-		if (!amdgpu_display_robj_is_fb(adev, robj)) {
+		if (!drm_fb_helper_gem_is_fb(dev->fb_helper, fb->obj[0])) {
+			struct amdgpu_bo *robj = gem_to_amdgpu_bo(fb->obj[0]);
+
 			r = amdgpu_bo_reserve(robj, true);
 			if (r == 0) {
 				amdgpu_bo_unpin(robj);
@@ -1880,7 +1865,12 @@ int amdgpu_display_get_scanout_buffer(struct drm_plane *plane,
 				      struct drm_scanout_buffer *sb)
 {
 	struct amdgpu_bo *abo;
-	struct drm_framebuffer *fb = plane->state->fb;
+	struct drm_framebuffer *fb;
+
+	if (drm_drv_uses_atomic_modeset(plane->dev))
+		fb = plane->state->fb;
+	else
+		fb = plane->fb;
 
 	if (!fb)
 		return -EINVAL;

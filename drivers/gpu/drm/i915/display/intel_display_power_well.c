@@ -6,10 +6,8 @@
 #include <linux/iopoll.h>
 
 #include <drm/drm_print.h>
+#include <drm/intel/intel_pcode_regs.h>
 
-#include "i915_drv.h"
-#include "i915_irq.h"
-#include "i915_reg.h"
 #include "intel_backlight_regs.h"
 #include "intel_combo_phy.h"
 #include "intel_combo_phy_regs.h"
@@ -20,6 +18,7 @@
 #include "intel_display_regs.h"
 #include "intel_display_rpm.h"
 #include "intel_display_types.h"
+#include "intel_display_wa.h"
 #include "intel_dkl_phy.h"
 #include "intel_dkl_phy_regs.h"
 #include "intel_dmc.h"
@@ -28,7 +27,7 @@
 #include "intel_dpio_phy.h"
 #include "intel_dpll.h"
 #include "intel_hotplug.h"
-#include "intel_pcode.h"
+#include "intel_parent.h"
 #include "intel_pps.h"
 #include "intel_psr.h"
 #include "intel_tc.h"
@@ -196,6 +195,48 @@ int intel_power_well_refcount(struct i915_power_well *power_well)
 	return power_well->count;
 }
 
+static u32 dss_pipe_gating_bits(u8 irq_pipe_mask)
+{
+	u32 bits = 0;
+
+	if (irq_pipe_mask & BIT(PIPE_A))
+		bits |= DSS_PIPE_A_GATING_DISABLED;
+	if (irq_pipe_mask & BIT(PIPE_B))
+		bits |= DSS_PIPE_B_GATING_DISABLED;
+	if (irq_pipe_mask & BIT(PIPE_C))
+		bits |= DSS_PIPE_C_GATING_DISABLED;
+	if (irq_pipe_mask & BIT(PIPE_D))
+		bits |= DSS_PIPE_D_GATING_DISABLED;
+
+	return bits;
+}
+
+static void dss_pipe_gating_enable_disable(struct intel_display *display,
+					   u8 irq_pipe_mask,
+					   bool disable)
+{
+	u32 bits = dss_pipe_gating_bits(irq_pipe_mask);
+	u32 clear, set;
+
+	if (!bits)
+		return;
+
+	/*
+	 * Single intel_de_rmw() for both enable/disable:
+	 *  - disable == true, set bits (disable clock gating)
+	 *  - disable == false, clear bits (re-enable clock gating)
+	 */
+	set = disable ? bits : 0;
+	clear = disable ? 0 : bits;
+
+	intel_de_rmw(display, CLKGATE_DIS_DSSDSC, clear, set);
+
+	drm_dbg_kms(display->drm,
+		    "DSS clock gating %sd for pipe_mask=0x%x (CLKGATE_DIS_DSSDSC=0x%08x)\n",
+		    str_enable_disable(!disable), irq_pipe_mask,
+		    intel_de_read(display, CLKGATE_DIS_DSSDSC));
+}
+
 /*
  * Starting with Haswell, we have a "Power Down Well" that can be turned off
  * when not needed anymore. We have 4 registers that can request the power well
@@ -203,20 +244,25 @@ int intel_power_well_refcount(struct i915_power_well *power_well)
  * requesting it to be enabled.
  */
 static void hsw_power_well_post_enable(struct intel_display *display,
-				       u8 irq_pipe_mask, bool has_vga)
+				       u8 irq_pipe_mask)
 {
-	if (has_vga)
-		intel_vga_reset_io_mem(display);
-
-	if (irq_pipe_mask)
+	if (irq_pipe_mask) {
 		gen8_irq_power_well_post_enable(display, irq_pipe_mask);
+
+		if (intel_display_wa(display, INTEL_DISPLAY_WA_22021048059))
+			dss_pipe_gating_enable_disable(display, irq_pipe_mask, false);
+	}
 }
 
 static void hsw_power_well_pre_disable(struct intel_display *display,
 				       u8 irq_pipe_mask)
 {
-	if (irq_pipe_mask)
+	if (irq_pipe_mask) {
+		if (intel_display_wa(display, INTEL_DISPLAY_WA_22021048059))
+			dss_pipe_gating_enable_disable(display, irq_pipe_mask, true);
+
 		gen8_irq_power_well_pre_disable(display, irq_pipe_mask);
+	}
 }
 
 #define ICL_AUX_PW_TO_PHY(pw_idx)	\
@@ -258,8 +304,9 @@ aux_ch_to_digital_port(struct intel_display *display,
 	return NULL;
 }
 
-static enum phy icl_aux_pw_to_phy(struct intel_display *display,
-				  const struct i915_power_well *power_well)
+static struct intel_encoder *
+icl_aux_pw_to_encoder(struct intel_display *display,
+		      const struct i915_power_well *power_well)
 {
 	enum aux_ch aux_ch = icl_aux_pw_to_ch(power_well);
 	struct intel_digital_port *dig_port = aux_ch_to_digital_port(display, aux_ch);
@@ -271,7 +318,23 @@ static enum phy icl_aux_pw_to_phy(struct intel_display *display,
 	 * as HDMI-only and routed to a combo PHY, the encoder either won't be
 	 * present at all or it will not have an aux_ch assigned.
 	 */
-	return dig_port ? intel_encoder_to_phy(&dig_port->base) : PHY_NONE;
+	return dig_port ? &dig_port->base : NULL;
+}
+
+static enum phy icl_aux_pw_to_phy(struct intel_display *display,
+				  const struct i915_power_well *power_well)
+{
+	struct intel_encoder *encoder = icl_aux_pw_to_encoder(display, power_well);
+
+	return encoder ? intel_encoder_to_phy(encoder) : PHY_NONE;
+}
+
+static bool icl_aux_pw_is_tc_phy(struct intel_display *display,
+				 const struct i915_power_well *power_well)
+{
+	struct intel_encoder *encoder = icl_aux_pw_to_encoder(display, power_well);
+
+	return encoder && intel_encoder_is_tc(encoder);
 }
 
 static void hsw_wait_for_power_well_enable(struct intel_display *display,
@@ -402,8 +465,7 @@ static void hsw_power_well_enable(struct intel_display *display,
 	}
 
 	hsw_power_well_post_enable(display,
-				   power_well->desc->irq_pipe_mask,
-				   power_well->desc->has_vga);
+				   power_well->desc->irq_pipe_mask);
 }
 
 static void hsw_power_well_disable(struct intel_display *display,
@@ -506,7 +568,7 @@ static void icl_tc_cold_exit(struct intel_display *display)
 	int ret, tries = 0;
 
 	while (1) {
-		ret = intel_pcode_write(display->drm, ICL_PCODE_EXIT_TCCOLD, 0);
+		ret = intel_parent_pcode_write(display, ICL_PCODE_EXIT_TCCOLD, 0);
 		if (ret != -EAGAIN || ++tries == 3)
 			break;
 		msleep(1);
@@ -570,9 +632,7 @@ static void
 icl_aux_power_well_enable(struct intel_display *display,
 			  struct i915_power_well *power_well)
 {
-	enum phy phy = icl_aux_pw_to_phy(display, power_well);
-
-	if (intel_phy_is_tc(display, phy))
+	if (icl_aux_pw_is_tc_phy(display, power_well))
 		return icl_tc_phy_aux_power_well_enable(display, power_well);
 	else if (display->platform.icelake)
 		return icl_combo_phy_aux_power_well_enable(display,
@@ -585,9 +645,7 @@ static void
 icl_aux_power_well_disable(struct intel_display *display,
 			   struct i915_power_well *power_well)
 {
-	enum phy phy = icl_aux_pw_to_phy(display, power_well);
-
-	if (intel_phy_is_tc(display, phy))
+	if (icl_aux_pw_is_tc_phy(display, power_well))
 		return hsw_power_well_disable(display, power_well);
 	else if (display->platform.icelake)
 		return icl_combo_phy_aux_power_well_disable(display,
@@ -628,8 +686,6 @@ static bool hsw_power_well_enabled(struct intel_display *display,
 
 static void assert_can_enable_dc9(struct intel_display *display)
 {
-	struct drm_i915_private *dev_priv = to_i915(display->drm);
-
 	drm_WARN_ONCE(display->drm,
 		      (intel_de_read(display, DC_STATE_EN) & DC_STATE_EN_DC9),
 		      "DC9 already programmed to be enabled.\n");
@@ -641,7 +697,7 @@ static void assert_can_enable_dc9(struct intel_display *display)
 		      intel_de_read(display, HSW_PWR_WELL_CTL2) &
 		      HSW_PWR_WELL_CTL_REQ(SKL_PW_CTL_IDX_PW_2),
 		      "Power well 2 on.\n");
-	drm_WARN_ONCE(display->drm, intel_irqs_enabled(dev_priv),
+	drm_WARN_ONCE(display->drm, intel_parent_irq_enabled(display),
 		      "Interrupts not disabled yet.\n");
 
 	 /*
@@ -655,9 +711,7 @@ static void assert_can_enable_dc9(struct intel_display *display)
 
 static void assert_can_disable_dc9(struct intel_display *display)
 {
-	struct drm_i915_private *dev_priv = to_i915(display->drm);
-
-	drm_WARN_ONCE(display->drm, intel_irqs_enabled(dev_priv),
+	drm_WARN_ONCE(display->drm, intel_parent_irq_enabled(display),
 		      "Interrupts not disabled yet.\n");
 	drm_WARN_ONCE(display->drm,
 		      intel_de_read(display, DC_STATE_EN) &
@@ -798,7 +852,7 @@ void gen9_set_dc_state(struct intel_display *display, u32 state)
 			power_domains->dc_state, val & mask);
 
 	enable_dc6 = state & DC_STATE_EN_UPTO_DC6;
-	dc6_was_enabled = val & DC_STATE_EN_UPTO_DC6;
+	dc6_was_enabled = power_domains->dc_state & DC_STATE_EN_UPTO_DC6;
 	if (!dc6_was_enabled && enable_dc6)
 		intel_dmc_update_dc6_allowed_count(display, true);
 
@@ -1222,7 +1276,7 @@ static void vlv_init_display_clock_gating(struct intel_display *display)
 	 * Disable trickle feed and enable pnd deadline calculation
 	 */
 	intel_de_write(display, MI_ARB_VLV,
-		       MI_ARB_DISPLAY_TRICKLE_FEED_DISABLE);
+		       MI_ARB_DISPLAY_TRICKLE_FEED_DISABLE_VLV);
 	intel_de_write(display, CBR1_VLV, 0);
 
 	drm_WARN_ON(display->drm, DISPLAY_RUNTIME_INFO(display)->rawclk_freq == 0);
@@ -1281,12 +1335,10 @@ static void vlv_display_power_well_init(struct intel_display *display)
 
 static void vlv_display_power_well_deinit(struct intel_display *display)
 {
-	struct drm_i915_private *dev_priv = to_i915(display->drm);
-
 	valleyview_disable_display_irqs(display);
 
 	/* make sure we're done processing display irqs */
-	intel_synchronize_irq(dev_priv);
+	intel_parent_irq_synchronize(display);
 
 	vlv_pps_reset_all(display);
 
@@ -1789,7 +1841,7 @@ tgl_tc_cold_request(struct intel_display *display, bool block)
 		 * Spec states that we should timeout the request after 200us
 		 * but the function below will timeout after 500us
 		 */
-		ret = intel_pcode_read(display->drm, TGL_PCODE_TCCOLD, &low_val, &high_val);
+		ret = intel_parent_pcode_read(display, TGL_PCODE_TCCOLD, &low_val, &high_val);
 		if (ret == 0) {
 			if (block &&
 			    (low_val & TGL_PCODE_EXIT_TCCOLD_DATA_L_EXIT_FAILED))
@@ -1852,7 +1904,7 @@ static void xelpdp_aux_power_well_enable(struct intel_display *display,
 	enum aux_ch aux_ch = i915_power_well_instance(power_well)->xelpdp.aux_ch;
 	enum phy phy = icl_aux_pw_to_phy(display, power_well);
 
-	if (intel_phy_is_tc(display, phy))
+	if (icl_aux_pw_is_tc_phy(display, power_well))
 		icl_tc_port_assert_ref_held(display, power_well,
 					    aux_ch_to_digital_port(display, aux_ch));
 
@@ -1860,19 +1912,19 @@ static void xelpdp_aux_power_well_enable(struct intel_display *display,
 		     XELPDP_DP_AUX_CH_CTL_POWER_REQUEST,
 		     XELPDP_DP_AUX_CH_CTL_POWER_REQUEST);
 
-	/*
-	 * The power status flag cannot be used to determine whether aux
-	 * power wells have finished powering up.  Instead we're
-	 * expected to just wait a fixed 600us after raising the request
-	 * bit.
-	 */
-	if (DISPLAY_VER(display) >= 35) {
+	if (HAS_LT_PHY(display)) {
 		if (intel_de_wait_for_set_ms(display, XELPDP_DP_AUX_CH_CTL(display, aux_ch),
 					     XELPDP_DP_AUX_CH_CTL_POWER_STATUS, 2))
 			drm_warn(display->drm,
 				 "Timeout waiting for PHY %c AUX channel power to be up\n",
 				 phy_name(phy));
 	} else {
+		/*
+		 * The power status flag cannot be used to determine whether aux
+		 * power wells have finished powering up.  Instead we're
+		 * expected to just wait a fixed 600us after raising the request
+		 * bit.
+		 */
 		usleep_range(600, 1200);
 	}
 }
@@ -1887,7 +1939,7 @@ static void xelpdp_aux_power_well_disable(struct intel_display *display,
 		     XELPDP_DP_AUX_CH_CTL_POWER_REQUEST,
 		     0);
 
-	if (DISPLAY_VER(display) >= 35) {
+	if (HAS_LT_PHY(display)) {
 		if (intel_de_wait_for_clear_ms(display, XELPDP_DP_AUX_CH_CTL(display, aux_ch),
 					       XELPDP_DP_AUX_CH_CTL_POWER_STATUS, 1))
 			drm_warn(display->drm,

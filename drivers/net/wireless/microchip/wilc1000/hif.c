@@ -60,7 +60,7 @@ wilc_alloc_work(struct wilc_vif *vif, void (*work_fun)(struct work_struct *),
 	if (!work_fun)
 		return ERR_PTR(-EINVAL);
 
-	msg = kzalloc(sizeof(*msg), GFP_ATOMIC);
+	msg = kzalloc_obj(*msg, GFP_ATOMIC);
 	if (!msg)
 		return ERR_PTR(-ENOMEM);
 	msg->fn = work_fun;
@@ -163,7 +163,7 @@ int wilc_scan(struct wilc_vif *vif, u8 scan_source,
 	u32 index = 0;
 	u32 i, scan_timeout;
 	u8 *buffer;
-	u8 valuesize = 0;
+	u32 valuesize = 0;
 	u8 *search_ssid_vals = NULL;
 	const u8 ch_list_len = request->n_channels;
 	struct host_if_drv *hif_drv = vif->hif_drv;
@@ -387,7 +387,7 @@ wilc_parse_join_bss_param(struct cfg80211_bss *bss,
 	u64 ies_tsf;
 	int ret;
 
-	param = kzalloc(sizeof(*param), GFP_KERNEL);
+	param = kzalloc_obj(*param);
 	if (!param)
 		return NULL;
 
@@ -1039,7 +1039,7 @@ int wilc_set_external_auth_param(struct wilc_vif *vif,
 	wid.id = WID_EXTERNAL_AUTH_PARAM;
 	wid.type = WID_BIN_DATA;
 	wid.size = sizeof(*param);
-	param = kzalloc(sizeof(*param), GFP_KERNEL);
+	param = kzalloc_obj(*param);
 	if (!param)
 		return -EINVAL;
 
@@ -1123,7 +1123,7 @@ int wilc_add_ptk(struct wilc_vif *vif, const u8 *ptk, u8 ptk_key_len,
 		wid_list[0].size = sizeof(char);
 		wid_list[0].val = (s8 *)&cipher_mode;
 
-		key_buf = kzalloc(sizeof(*key_buf) + t_key_len, GFP_KERNEL);
+		key_buf = kzalloc_flex(*key_buf, key, t_key_len);
 		if (!key_buf)
 			return -ENOMEM;
 
@@ -1151,7 +1151,7 @@ int wilc_add_ptk(struct wilc_vif *vif, const u8 *ptk, u8 ptk_key_len,
 		struct wid wid;
 		struct wilc_sta_wpa_ptk *key_buf;
 
-		key_buf = kzalloc(sizeof(*key_buf) + t_key_len, GFP_KERNEL);
+		key_buf = kzalloc_flex(*key_buf, key, t_key_len);
 		if (!key_buf)
 			return -ENOMEM;
 
@@ -1186,7 +1186,7 @@ int wilc_add_igtk(struct wilc_vif *vif, const u8 *igtk, u8 igtk_key_len,
 	struct wid wid;
 	struct wilc_wpa_igtk *key_buf;
 
-	key_buf = kzalloc(sizeof(*key_buf) + t_key_len, GFP_KERNEL);
+	key_buf = kzalloc_flex(*key_buf, key, t_key_len);
 	if (!key_buf)
 		return -ENOMEM;
 
@@ -1217,7 +1217,7 @@ int wilc_add_rx_gtk(struct wilc_vif *vif, const u8 *rx_gtk, u8 gtk_key_len,
 	struct wilc_gtk_key *gtk_key;
 	int t_key_len = gtk_key_len + WILC_RX_MIC_KEY_LEN + WILC_TX_MIC_KEY_LEN;
 
-	gtk_key = kzalloc(sizeof(*gtk_key) + t_key_len, GFP_KERNEL);
+	gtk_key = kzalloc_flex(*gtk_key, key, t_key_len);
 	if (!gtk_key)
 		return -ENOMEM;
 
@@ -1516,7 +1516,7 @@ int wilc_init(struct net_device *dev, struct host_if_drv **hif_drv_handler)
 	struct host_if_drv *hif_drv;
 	struct wilc_vif *vif = netdev_priv(dev);
 
-	hif_drv  = kzalloc(sizeof(*hif_drv), GFP_KERNEL);
+	hif_drv = kzalloc_obj(*hif_drv);
 	if (!hif_drv)
 		return -ENOMEM;
 

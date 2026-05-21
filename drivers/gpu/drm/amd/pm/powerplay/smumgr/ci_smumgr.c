@@ -245,7 +245,7 @@ static void ci_initialize_power_tune_defaults(struct pp_hwmgr *hwmgr)
 		smu_data->power_tune_defaults = &defaults_hawaii_pro;
 		break;
 	case 0x67B8:
-	case 0x66B0:
+	case 0x67B0:
 		smu_data->power_tune_defaults = &defaults_hawaii_xt;
 		break;
 	case 0x6640:
@@ -543,12 +543,11 @@ static int ci_populate_dw8(struct pp_hwmgr *hwmgr, uint32_t fuse_table_offset)
 {
 	struct ci_smumgr *smu_data = (struct ci_smumgr *)(hwmgr->smu_backend);
 	const struct ci_pt_defaults *defaults = smu_data->power_tune_defaults;
-	uint32_t temp;
 
 	if (ci_read_smc_sram_dword(hwmgr,
 			fuse_table_offset +
 			offsetof(SMU7_Discrete_PmFuses, TdcWaterfallCtl),
-			(uint32_t *)&temp, SMC_RAM_END))
+			(uint32_t *)&smu_data->power_tune_table.TdcWaterfallCtl, SMC_RAM_END))
 		PP_ASSERT_WITH_CODE(false,
 				"Attempt to read PmFuses.DW6 (SviLoadLineEn) from SMC Failed!",
 				return -EINVAL);
@@ -1217,7 +1216,7 @@ static int ci_populate_single_memory_level(
 	}
 
 	memory_level->EnabledForThrottle = 1;
-	memory_level->EnabledForActivity = 1;
+	memory_level->EnabledForActivity = 0;
 	memory_level->UpH = data->current_profile_setting.mclk_up_hyst;
 	memory_level->DownH = data->current_profile_setting.mclk_down_hyst;
 	memory_level->VoltageDownH = 0;
@@ -1320,6 +1319,14 @@ static int ci_populate_all_memory_levels(struct pp_hwmgr *hwmgr)
 			&(smu_data->smc_state_table.MemoryLevel[i]));
 		if (0 != result)
 			return result;
+	}
+
+	if (data->mclk_dpm_key_disabled && dpm_table->mclk_table.count) {
+		/* Populate the table with the highest MCLK level when MCLK DPM is disabled */
+		for (i = 0; i < dpm_table->mclk_table.count - 1; i++) {
+			levels[i] = levels[dpm_table->mclk_table.count - 1];
+			levels[i].DisplayWatermark = PPSMC_DISPLAY_WATERMARK_HIGH;
+		}
 	}
 
 	smu_data->smc_state_table.MemoryLevel[0].EnabledForActivity = 1;
@@ -2681,7 +2688,7 @@ static int ci_initialize_mc_reg_table(struct pp_hwmgr *hwmgr)
 	struct ci_mc_reg_table *ni_table = &smu_data->mc_reg_table;
 	uint8_t module_index = ci_get_memory_modile_index(hwmgr);
 
-	table = kzalloc(sizeof(pp_atomctrl_mc_reg_table), GFP_KERNEL);
+	table = kzalloc_obj(pp_atomctrl_mc_reg_table);
 
 	if (NULL == table)
 		return -ENOMEM;
@@ -2735,7 +2742,7 @@ static int ci_smu_init(struct pp_hwmgr *hwmgr)
 {
 	struct ci_smumgr *ci_priv;
 
-	ci_priv = kzalloc(sizeof(struct ci_smumgr), GFP_KERNEL);
+	ci_priv = kzalloc_obj(struct ci_smumgr);
 
 	if (ci_priv == NULL)
 		return -ENOMEM;

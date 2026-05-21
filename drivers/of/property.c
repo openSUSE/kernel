@@ -21,6 +21,7 @@
 
 #define pr_fmt(fmt)	"OF: " fmt
 
+#include <linux/ctype.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/of_device.h>
@@ -87,7 +88,7 @@ EXPORT_SYMBOL(of_graph_is_present);
  * Search for a property in a device node and count the number of elements of
  * size elem_size in it.
  *
- * Return: The number of elements on sucess, -EINVAL if the property does not
+ * Return: The number of elements on success, -EINVAL if the property does not
  * exist or its length does not match a multiple of elem_size and -ENODATA if
  * the property does not have a value.
  */
@@ -1294,17 +1295,6 @@ static struct device_node *parse_##fname(struct device_node *np,	  \
 	return parse_prop_cells(np, prop_name, index, name, cells);	  \
 }
 
-static int strcmp_suffix(const char *str, const char *suffix)
-{
-	unsigned int len, suffix_len;
-
-	len = strlen(str);
-	suffix_len = strlen(suffix);
-	if (len <= suffix_len)
-		return -1;
-	return strcmp(str + len - suffix_len, suffix);
-}
-
 /**
  * parse_suffix_prop_cells - Suffix property parsing function for suppliers
  *
@@ -1331,7 +1321,7 @@ static struct device_node *parse_suffix_prop_cells(struct device_node *np,
 {
 	struct of_phandle_args sup_args;
 
-	if (strcmp_suffix(prop_name, suffix))
+	if (!strends(prop_name, suffix))
 		return NULL;
 
 	if (of_parse_phandle_with_args(np, prop_name, cells_name, index,
@@ -1391,15 +1381,6 @@ DEFINE_SIMPLE_PROP(extcon, "extcon", NULL)
 DEFINE_SIMPLE_PROP(nvmem_cells, "nvmem-cells", "#nvmem-cell-cells")
 DEFINE_SIMPLE_PROP(phys, "phys", "#phy-cells")
 DEFINE_SIMPLE_PROP(wakeup_parent, "wakeup-parent", NULL)
-DEFINE_SIMPLE_PROP(pinctrl0, "pinctrl-0", NULL)
-DEFINE_SIMPLE_PROP(pinctrl1, "pinctrl-1", NULL)
-DEFINE_SIMPLE_PROP(pinctrl2, "pinctrl-2", NULL)
-DEFINE_SIMPLE_PROP(pinctrl3, "pinctrl-3", NULL)
-DEFINE_SIMPLE_PROP(pinctrl4, "pinctrl-4", NULL)
-DEFINE_SIMPLE_PROP(pinctrl5, "pinctrl-5", NULL)
-DEFINE_SIMPLE_PROP(pinctrl6, "pinctrl-6", NULL)
-DEFINE_SIMPLE_PROP(pinctrl7, "pinctrl-7", NULL)
-DEFINE_SIMPLE_PROP(pinctrl8, "pinctrl-8", NULL)
 DEFINE_SIMPLE_PROP(pwms, "pwms", "#pwm-cells")
 DEFINE_SIMPLE_PROP(resets, "resets", "#reset-cells")
 DEFINE_SIMPLE_PROP(leds, "leds", NULL)
@@ -1410,13 +1391,26 @@ DEFINE_SIMPLE_PROP(post_init_providers, "post-init-providers", NULL)
 DEFINE_SIMPLE_PROP(access_controllers, "access-controllers", "#access-controller-cells")
 DEFINE_SIMPLE_PROP(pses, "pses", "#pse-cells")
 DEFINE_SIMPLE_PROP(power_supplies, "power-supplies", NULL)
+DEFINE_SIMPLE_PROP(mmc_pwrseq, "mmc-pwrseq", NULL)
 DEFINE_SUFFIX_PROP(regulators, "-supply", NULL)
 DEFINE_SUFFIX_PROP(gpio, "-gpio", "#gpio-cells")
+
+static struct device_node *parse_pinctrl_n(struct device_node *np,
+					   const char *prop_name, int index)
+{
+	if (!strstarts(prop_name, "pinctrl-"))
+		return NULL;
+
+	if (!isdigit(prop_name[strlen("pinctrl-")]))
+		return NULL;
+
+	return of_parse_phandle(np, prop_name, index);
+}
 
 static struct device_node *parse_gpios(struct device_node *np,
 				       const char *prop_name, int index)
 {
-	if (!strcmp_suffix(prop_name, ",nr-gpios"))
+	if (strends(prop_name, ",nr-gpios"))
 		return NULL;
 
 	return parse_suffix_prop_cells(np, prop_name, index, "-gpios",
@@ -1536,15 +1530,7 @@ static const struct supplier_bindings of_supplier_bindings[] = {
 	{ .parse_prop = parse_nvmem_cells, },
 	{ .parse_prop = parse_phys, },
 	{ .parse_prop = parse_wakeup_parent, },
-	{ .parse_prop = parse_pinctrl0, },
-	{ .parse_prop = parse_pinctrl1, },
-	{ .parse_prop = parse_pinctrl2, },
-	{ .parse_prop = parse_pinctrl3, },
-	{ .parse_prop = parse_pinctrl4, },
-	{ .parse_prop = parse_pinctrl5, },
-	{ .parse_prop = parse_pinctrl6, },
-	{ .parse_prop = parse_pinctrl7, },
-	{ .parse_prop = parse_pinctrl8, },
+	{ .parse_prop = parse_pinctrl_n, },
 	{
 		.parse_prop = parse_remote_endpoint,
 		.get_con_dev = of_graph_get_port_parent,
@@ -1557,6 +1543,7 @@ static const struct supplier_bindings of_supplier_bindings[] = {
 	{ .parse_prop = parse_msi_parent, },
 	{ .parse_prop = parse_pses, },
 	{ .parse_prop = parse_power_supplies, },
+	{ .parse_prop = parse_mmc_pwrseq, },
 	{ .parse_prop = parse_gpio_compat, },
 	{ .parse_prop = parse_interrupts, },
 	{ .parse_prop = parse_interrupt_map, },
@@ -1633,12 +1620,36 @@ static int of_fwnode_irq_get(const struct fwnode_handle *fwnode,
 	return of_irq_get(to_of_node(fwnode), index);
 }
 
+static int match_property_by_path(const char *node_path, const char *prop_name,
+				  const char *value)
+{
+	struct device_node *np __free(device_node) = of_find_node_by_path(node_path);
+
+	return of_property_match_string(np, prop_name, value);
+}
+
+static bool of_is_fwnode_add_links_supported(void)
+{
+	static int is_supported = -1;
+
+	if (!IS_ENABLED(CONFIG_X86))
+		return true;
+
+	if (is_supported != -1)
+		return !!is_supported;
+
+	is_supported = !((match_property_by_path("/soc", "compatible", "intel,ce4100-cp") >= 0) ||
+			 (match_property_by_path("/", "architecture", "OLPC") >= 0));
+
+	return !!is_supported;
+}
+
 static int of_fwnode_add_links(struct fwnode_handle *fwnode)
 {
 	const struct property *p;
 	struct device_node *con_np = to_of_node(fwnode);
 
-	if (IS_ENABLED(CONFIG_X86))
+	if (!of_is_fwnode_add_links_supported())
 		return 0;
 
 	if (!con_np)

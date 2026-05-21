@@ -8,6 +8,7 @@
 #include <linux/random.h>
 
 #include "ext4.h"
+#include "mballoc.h"
 
 struct mbt_grp_ctx {
 	struct buffer_head bitmap_bh;
@@ -34,7 +35,7 @@ static struct inode *mbt_alloc_inode(struct super_block *sb)
 {
 	struct ext4_inode_info *ei;
 
-	ei = kmalloc(sizeof(struct ext4_inode_info), GFP_KERNEL);
+	ei = kmalloc_obj(struct ext4_inode_info);
 	if (!ei)
 		return NULL;
 
@@ -72,12 +73,12 @@ static int mbt_mb_init(struct super_block *sb)
 	ext4_fsblk_t block;
 	int ret;
 
-	/* needed by ext4_mb_init->bdev_nonrot(sb->s_bdev) */
-	sb->s_bdev = kzalloc(sizeof(*sb->s_bdev), GFP_KERNEL);
+	/* needed by ext4_mb_init->bdev_rot(sb->s_bdev) */
+	sb->s_bdev = kzalloc_obj(*sb->s_bdev);
 	if (sb->s_bdev == NULL)
 		return -ENOMEM;
 
-	sb->s_bdev->bd_queue = kzalloc(sizeof(struct request_queue), GFP_KERNEL);
+	sb->s_bdev->bd_queue = kzalloc_obj(struct request_queue);
 	if (sb->s_bdev->bd_queue == NULL) {
 		kfree(sb->s_bdev);
 		return -ENOMEM;
@@ -137,7 +138,7 @@ static struct super_block *mbt_ext4_alloc_super_block(void)
 	struct super_block *sb;
 	struct ext4_sb_info *sbi;
 
-	fsb = kzalloc(sizeof(*fsb), GFP_KERNEL);
+	fsb = kzalloc_obj(*fsb);
 	if (fsb == NULL)
 		return NULL;
 
@@ -148,7 +149,7 @@ static struct super_block *mbt_ext4_alloc_super_block(void)
 	sbi = &fsb->sbi;
 
 	sbi->s_blockgroup_lock =
-		kzalloc(sizeof(struct blockgroup_lock), GFP_KERNEL);
+		kzalloc_obj(struct blockgroup_lock);
 	if (!sbi->s_blockgroup_lock)
 		goto out_deactivate;
 
@@ -252,8 +253,7 @@ static int mbt_ctx_init(struct super_block *sb)
 	struct mbt_ctx *ctx = MBT_CTX(sb);
 	ext4_group_t i, ngroups = ext4_get_groups_count(sb);
 
-	ctx->grp_ctx = kcalloc(ngroups, sizeof(struct mbt_grp_ctx),
-			       GFP_KERNEL);
+	ctx->grp_ctx = kzalloc_objs(struct mbt_grp_ctx, ngroups);
 	if (ctx->grp_ctx == NULL)
 		return -ENOMEM;
 
@@ -337,7 +337,7 @@ ext4_mb_mark_context_stub(handle_t *handle, struct super_block *sb, bool state,
 	if (state)
 		mb_set_bits(bitmap_bh->b_data, blkoff, len);
 	else
-		mb_clear_bits(bitmap_bh->b_data, blkoff, len);
+		mb_clear_bits_test(bitmap_bh->b_data, blkoff, len);
 
 	return 0;
 }
@@ -362,7 +362,6 @@ static int mbt_kunit_init(struct kunit *test)
 		return ret;
 	}
 
-	test->priv = sb;
 	kunit_activate_static_stub(test,
 				   ext4_read_block_bitmap_nowait,
 				   ext4_read_block_bitmap_nowait_stub);
@@ -383,12 +382,17 @@ static int mbt_kunit_init(struct kunit *test)
 		return -ENOMEM;
 	}
 
+	test->priv = sb;
+
 	return 0;
 }
 
 static void mbt_kunit_exit(struct kunit *test)
 {
 	struct super_block *sb = (struct super_block *)test->priv;
+
+	if (!sb)
+		return;
 
 	mbt_mb_release(sb);
 	mbt_ctx_release(sb);
@@ -414,14 +418,14 @@ static void test_new_blocks_simple(struct kunit *test)
 
 	/* get block at goal */
 	ar.goal = ext4_group_first_block_no(sb, goal_group);
-	found = ext4_mb_new_blocks_simple(&ar, &err);
+	found = ext4_mb_new_blocks_simple_test(&ar, &err);
 	KUNIT_ASSERT_EQ_MSG(test, ar.goal, found,
 		"failed to alloc block at goal, expected %llu found %llu",
 		ar.goal, found);
 
 	/* get block after goal in goal group */
 	ar.goal = ext4_group_first_block_no(sb, goal_group);
-	found = ext4_mb_new_blocks_simple(&ar, &err);
+	found = ext4_mb_new_blocks_simple_test(&ar, &err);
 	KUNIT_ASSERT_EQ_MSG(test, ar.goal + EXT4_C2B(sbi, 1), found,
 		"failed to alloc block after goal in goal group, expected %llu found %llu",
 		ar.goal + 1, found);
@@ -429,7 +433,7 @@ static void test_new_blocks_simple(struct kunit *test)
 	/* get block after goal group */
 	mbt_ctx_mark_used(sb, goal_group, 0, EXT4_CLUSTERS_PER_GROUP(sb));
 	ar.goal = ext4_group_first_block_no(sb, goal_group);
-	found = ext4_mb_new_blocks_simple(&ar, &err);
+	found = ext4_mb_new_blocks_simple_test(&ar, &err);
 	KUNIT_ASSERT_EQ_MSG(test,
 		ext4_group_first_block_no(sb, goal_group + 1), found,
 		"failed to alloc block after goal group, expected %llu found %llu",
@@ -439,7 +443,7 @@ static void test_new_blocks_simple(struct kunit *test)
 	for (i = goal_group; i < ext4_get_groups_count(sb); i++)
 		mbt_ctx_mark_used(sb, i, 0, EXT4_CLUSTERS_PER_GROUP(sb));
 	ar.goal = ext4_group_first_block_no(sb, goal_group);
-	found = ext4_mb_new_blocks_simple(&ar, &err);
+	found = ext4_mb_new_blocks_simple_test(&ar, &err);
 	KUNIT_ASSERT_EQ_MSG(test,
 		ext4_group_first_block_no(sb, 0) + EXT4_C2B(sbi, 1), found,
 		"failed to alloc block before goal group, expected %llu found %llu",
@@ -449,7 +453,7 @@ static void test_new_blocks_simple(struct kunit *test)
 	for (i = 0; i < ext4_get_groups_count(sb); i++)
 		mbt_ctx_mark_used(sb, i, 0, EXT4_CLUSTERS_PER_GROUP(sb));
 	ar.goal = ext4_group_first_block_no(sb, goal_group);
-	found = ext4_mb_new_blocks_simple(&ar, &err);
+	found = ext4_mb_new_blocks_simple_test(&ar, &err);
 	KUNIT_ASSERT_NE_MSG(test, err, 0,
 		"unexpectedly get block when no block is available");
 }
@@ -493,16 +497,16 @@ validate_free_blocks_simple(struct kunit *test, struct super_block *sb,
 			continue;
 
 		bitmap = mbt_ctx_bitmap(sb, i);
-		bit = mb_find_next_zero_bit(bitmap, max, 0);
+		bit = mb_find_next_zero_bit_test(bitmap, max, 0);
 		KUNIT_ASSERT_EQ_MSG(test, bit, max,
 				    "free block on unexpected group %d", i);
 	}
 
 	bitmap = mbt_ctx_bitmap(sb, goal_group);
-	bit = mb_find_next_zero_bit(bitmap, max, 0);
+	bit = mb_find_next_zero_bit_test(bitmap, max, 0);
 	KUNIT_ASSERT_EQ(test, bit, start);
 
-	bit = mb_find_next_bit(bitmap, max, bit + 1);
+	bit = mb_find_next_bit_test(bitmap, max, bit + 1);
 	KUNIT_ASSERT_EQ(test, bit, start + len);
 }
 
@@ -525,7 +529,7 @@ test_free_blocks_simple_range(struct kunit *test, ext4_group_t goal_group,
 
 	block = ext4_group_first_block_no(sb, goal_group) +
 		EXT4_C2B(sbi, start);
-	ext4_free_blocks_simple(inode, block, len);
+	ext4_free_blocks_simple_test(inode, block, len);
 	validate_free_blocks_simple(test, sb, goal_group, start, len);
 	mbt_ctx_mark_used(sb, goal_group, 0, EXT4_CLUSTERS_PER_GROUP(sb));
 }
@@ -567,15 +571,15 @@ test_mark_diskspace_used_range(struct kunit *test,
 
 	bitmap = mbt_ctx_bitmap(sb, TEST_GOAL_GROUP);
 	memset(bitmap, 0, sb->s_blocksize);
-	ret = ext4_mb_mark_diskspace_used(ac, NULL, 0);
+	ret = ext4_mb_mark_diskspace_used_test(ac, NULL);
 	KUNIT_ASSERT_EQ(test, ret, 0);
 
 	max = EXT4_CLUSTERS_PER_GROUP(sb);
-	i = mb_find_next_bit(bitmap, max, 0);
+	i = mb_find_next_bit_test(bitmap, max, 0);
 	KUNIT_ASSERT_EQ(test, i, start);
-	i = mb_find_next_zero_bit(bitmap, max, i + 1);
+	i = mb_find_next_zero_bit_test(bitmap, max, i + 1);
 	KUNIT_ASSERT_EQ(test, i, start + len);
-	i = mb_find_next_bit(bitmap, max, i + 1);
+	i = mb_find_next_bit_test(bitmap, max, i + 1);
 	KUNIT_ASSERT_EQ(test, max, i);
 }
 
@@ -618,54 +622,54 @@ static void mbt_generate_buddy(struct super_block *sb, void *buddy,
 	max = EXT4_CLUSTERS_PER_GROUP(sb);
 	bb_h = buddy + sbi->s_mb_offsets[1];
 
-	off = mb_find_next_zero_bit(bb, max, 0);
+	off = mb_find_next_zero_bit_test(bb, max, 0);
 	grp->bb_first_free = off;
 	while (off < max) {
 		grp->bb_counters[0]++;
 		grp->bb_free++;
 
-		if (!(off & 1) && !mb_test_bit(off + 1, bb)) {
+		if (!(off & 1) && !mb_test_bit_test(off + 1, bb)) {
 			grp->bb_free++;
 			grp->bb_counters[0]--;
-			mb_clear_bit(off >> 1, bb_h);
+			mb_clear_bit_test(off >> 1, bb_h);
 			grp->bb_counters[1]++;
 			grp->bb_largest_free_order = 1;
 			off++;
 		}
 
-		off = mb_find_next_zero_bit(bb, max, off + 1);
+		off = mb_find_next_zero_bit_test(bb, max, off + 1);
 	}
 
 	for (order = 1; order < MB_NUM_ORDERS(sb) - 1; order++) {
 		bb = buddy + sbi->s_mb_offsets[order];
 		bb_h = buddy + sbi->s_mb_offsets[order + 1];
 		max = max >> 1;
-		off = mb_find_next_zero_bit(bb, max, 0);
+		off = mb_find_next_zero_bit_test(bb, max, 0);
 
 		while (off < max) {
-			if (!(off & 1) && !mb_test_bit(off + 1, bb)) {
+			if (!(off & 1) && !mb_test_bit_test(off + 1, bb)) {
 				mb_set_bits(bb, off, 2);
 				grp->bb_counters[order] -= 2;
-				mb_clear_bit(off >> 1, bb_h);
+				mb_clear_bit_test(off >> 1, bb_h);
 				grp->bb_counters[order + 1]++;
 				grp->bb_largest_free_order = order + 1;
 				off++;
 			}
 
-			off = mb_find_next_zero_bit(bb, max, off + 1);
+			off = mb_find_next_zero_bit_test(bb, max, off + 1);
 		}
 	}
 
 	max = EXT4_CLUSTERS_PER_GROUP(sb);
-	off = mb_find_next_zero_bit(bitmap, max, 0);
+	off = mb_find_next_zero_bit_test(bitmap, max, 0);
 	while (off < max) {
 		grp->bb_fragments++;
 
-		off = mb_find_next_bit(bitmap, max, off + 1);
+		off = mb_find_next_bit_test(bitmap, max, off + 1);
 		if (off + 1 >= max)
 			break;
 
-		off = mb_find_next_zero_bit(bitmap, max, off + 1);
+		off = mb_find_next_zero_bit_test(bitmap, max, off + 1);
 	}
 }
 
@@ -707,7 +711,7 @@ do_test_generate_buddy(struct kunit *test, struct super_block *sb, void *bitmap,
 	/* needed by validation in ext4_mb_generate_buddy */
 	ext4_grp->bb_free = mbt_grp->bb_free;
 	memset(ext4_buddy, 0xff, sb->s_blocksize);
-	ext4_mb_generate_buddy(sb, ext4_buddy, bitmap, TEST_GOAL_GROUP,
+	ext4_mb_generate_buddy_test(sb, ext4_buddy, bitmap, TEST_GOAL_GROUP,
 			       ext4_grp);
 
 	KUNIT_ASSERT_EQ(test, memcmp(mbt_buddy, ext4_buddy, sb->s_blocksize),
@@ -761,7 +765,7 @@ test_mb_mark_used_range(struct kunit *test, struct ext4_buddy *e4b,
 	ex.fe_group = TEST_GOAL_GROUP;
 
 	ext4_lock_group(sb, TEST_GOAL_GROUP);
-	mb_mark_used(e4b, &ex);
+	mb_mark_used_test(e4b, &ex);
 	ext4_unlock_group(sb, TEST_GOAL_GROUP);
 
 	mb_set_bits(bitmap, start, len);
@@ -770,7 +774,7 @@ test_mb_mark_used_range(struct kunit *test, struct ext4_buddy *e4b,
 	memset(buddy, 0xff, sb->s_blocksize);
 	for (i = 0; i < MB_NUM_ORDERS(sb); i++)
 		grp->bb_counters[i] = 0;
-	ext4_mb_generate_buddy(sb, buddy, bitmap, 0, grp);
+	ext4_mb_generate_buddy_test(sb, buddy, bitmap, 0, grp);
 
 	KUNIT_ASSERT_EQ(test, memcmp(buddy, e4b->bd_buddy, sb->s_blocksize),
 			0);
@@ -799,7 +803,7 @@ static void test_mb_mark_used(struct kunit *test)
 				bb_counters[MB_NUM_ORDERS(sb)]), GFP_KERNEL);
 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, grp);
 
-	ret = ext4_mb_load_buddy(sb, TEST_GOAL_GROUP, &e4b);
+	ret = ext4_mb_load_buddy_test(sb, TEST_GOAL_GROUP, &e4b);
 	KUNIT_ASSERT_EQ(test, ret, 0);
 
 	grp->bb_free = EXT4_CLUSTERS_PER_GROUP(sb);
@@ -810,7 +814,7 @@ static void test_mb_mark_used(struct kunit *test)
 		test_mb_mark_used_range(test, &e4b, ranges[i].start,
 					ranges[i].len, bitmap, buddy, grp);
 
-	ext4_mb_unload_buddy(&e4b);
+	ext4_mb_unload_buddy_test(&e4b);
 }
 
 static void
@@ -826,16 +830,16 @@ test_mb_free_blocks_range(struct kunit *test, struct ext4_buddy *e4b,
 		return;
 
 	ext4_lock_group(sb, e4b->bd_group);
-	mb_free_blocks(NULL, e4b, start, len);
+	mb_free_blocks_test(NULL, e4b, start, len);
 	ext4_unlock_group(sb, e4b->bd_group);
 
-	mb_clear_bits(bitmap, start, len);
+	mb_clear_bits_test(bitmap, start, len);
 	/* bypass bb_free validatoin in ext4_mb_generate_buddy */
 	grp->bb_free += len;
 	memset(buddy, 0xff, sb->s_blocksize);
 	for (i = 0; i < MB_NUM_ORDERS(sb); i++)
 		grp->bb_counters[i] = 0;
-	ext4_mb_generate_buddy(sb, buddy, bitmap, 0, grp);
+	ext4_mb_generate_buddy_test(sb, buddy, bitmap, 0, grp);
 
 	KUNIT_ASSERT_EQ(test, memcmp(buddy, e4b->bd_buddy, sb->s_blocksize),
 			0);
@@ -866,7 +870,7 @@ static void test_mb_free_blocks(struct kunit *test)
 				bb_counters[MB_NUM_ORDERS(sb)]), GFP_KERNEL);
 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, grp);
 
-	ret = ext4_mb_load_buddy(sb, TEST_GOAL_GROUP, &e4b);
+	ret = ext4_mb_load_buddy_test(sb, TEST_GOAL_GROUP, &e4b);
 	KUNIT_ASSERT_EQ(test, ret, 0);
 
 	ex.fe_start = 0;
@@ -874,7 +878,7 @@ static void test_mb_free_blocks(struct kunit *test)
 	ex.fe_group = TEST_GOAL_GROUP;
 
 	ext4_lock_group(sb, TEST_GOAL_GROUP);
-	mb_mark_used(&e4b, &ex);
+	mb_mark_used_test(&e4b, &ex);
 	ext4_unlock_group(sb, TEST_GOAL_GROUP);
 
 	grp->bb_free = 0;
@@ -887,7 +891,7 @@ static void test_mb_free_blocks(struct kunit *test)
 		test_mb_free_blocks_range(test, &e4b, ranges[i].start,
 					  ranges[i].len, bitmap, buddy, grp);
 
-	ext4_mb_unload_buddy(&e4b);
+	ext4_mb_unload_buddy_test(&e4b);
 }
 
 #define COUNT_FOR_ESTIMATE 100000
@@ -905,7 +909,7 @@ static void test_mb_mark_used_cost(struct kunit *test)
 	if (sb->s_blocksize > PAGE_SIZE)
 		kunit_skip(test, "blocksize exceeds pagesize");
 
-	ret = ext4_mb_load_buddy(sb, TEST_GOAL_GROUP, &e4b);
+	ret = ext4_mb_load_buddy_test(sb, TEST_GOAL_GROUP, &e4b);
 	KUNIT_ASSERT_EQ(test, ret, 0);
 
 	ex.fe_group = TEST_GOAL_GROUP;
@@ -919,7 +923,7 @@ static void test_mb_mark_used_cost(struct kunit *test)
 			ex.fe_start = ranges[i].start;
 			ex.fe_len = ranges[i].len;
 			ext4_lock_group(sb, TEST_GOAL_GROUP);
-			mb_mark_used(&e4b, &ex);
+			mb_mark_used_test(&e4b, &ex);
 			ext4_unlock_group(sb, TEST_GOAL_GROUP);
 		}
 		end = jiffies;
@@ -930,14 +934,14 @@ static void test_mb_mark_used_cost(struct kunit *test)
 				continue;
 
 			ext4_lock_group(sb, TEST_GOAL_GROUP);
-			mb_free_blocks(NULL, &e4b, ranges[i].start,
+			mb_free_blocks_test(NULL, &e4b, ranges[i].start,
 				       ranges[i].len);
 			ext4_unlock_group(sb, TEST_GOAL_GROUP);
 		}
 	}
 
 	kunit_info(test, "costed jiffies %lu\n", all);
-	ext4_mb_unload_buddy(&e4b);
+	ext4_mb_unload_buddy_test(&e4b);
 }
 
 static const struct mbt_ext4_block_layout mbt_test_layouts[] = {

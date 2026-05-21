@@ -35,6 +35,7 @@ struct user_namespace;
 struct workqueue_struct;
 struct writeback_control;
 struct xattr_handler;
+struct fserror_event;
 
 extern struct super_block *blockdev_superblock;
 
@@ -96,7 +97,6 @@ struct super_operations {
 			  const void *owner);
 	int (*unfreeze_fs)(struct super_block *sb);
 	int (*statfs)(struct dentry *dentry, struct kstatfs *kstatfs);
-	int (*remount_fs) (struct super_block *, int *, char *);
 	void (*umount_begin)(struct super_block *sb);
 
 	int (*show_options)(struct seq_file *seq, struct dentry *dentry);
@@ -124,6 +124,9 @@ struct super_operations {
 	 */
 	int (*remove_bdev)(struct super_block *sb, struct block_device *bdev);
 	void (*shutdown)(struct super_block *sb);
+
+	/* Report a filesystem error */
+	void (*report_error)(const struct fserror_event *event);
 };
 
 struct super_block {
@@ -268,6 +271,9 @@ struct super_block {
 	spinlock_t				s_inode_wblist_lock;
 	struct list_head			s_inodes_wb;	/* writeback inodes */
 	long					s_min_writeback_pages;
+
+	/* number of fserrors that are being sent to fsnotify/filesystems */
+	refcount_t				s_pending_errors;
 } __randomize_layout;
 
 /*
@@ -332,5 +338,6 @@ struct super_block {
 #define SB_I_NOUMASK	0x00001000	/* VFS does not apply umask */
 #define SB_I_NOIDMAP	0x00002000	/* No idmapped mounts on this superblock */
 #define SB_I_ALLOW_HSM	0x00004000	/* Allow HSM events on this superblock */
+#define SB_I_NO_DATA_INTEGRITY	0x00008000 /* fs cannot guarantee data persistence on sync */
 
 #endif /* _LINUX_FS_SUPER_TYPES_H */

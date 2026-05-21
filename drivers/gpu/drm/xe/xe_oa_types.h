@@ -87,6 +87,7 @@ struct xe_oa_regs {
 	struct xe_reg oa_ctrl;
 	struct xe_reg oa_debug;
 	struct xe_reg oa_status;
+	struct xe_reg oa_mmio_trg;
 	u32 oa_ctrl_counter_select_mask;
 };
 
@@ -237,9 +238,6 @@ struct xe_oa_stream {
 
 	/** @poll_period_ns: hrtimer period for checking OA buffer for available data */
 	u64 poll_period_ns;
-
-	/** @override_gucrc: GuC RC has been overridden for the OA stream */
-	bool override_gucrc;
 
 	/** @oa_status: temporary storage for oa_status register value */
 	u32 oa_status;

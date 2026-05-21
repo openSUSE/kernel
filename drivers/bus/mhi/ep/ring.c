@@ -49,7 +49,7 @@ static int __mhi_ep_cache_ring(struct mhi_ep_ring *ring, size_t end)
 		buf_info.dev_addr = &ring->ring_cache[start];
 
 		ret = mhi_cntrl->read_sync(mhi_cntrl, &buf_info);
-		if (ret < 0)
+		if (ret)
 			return ret;
 	} else {
 		buf_info.size = (ring->ring_size - start) * sizeof(struct mhi_ring_element);
@@ -57,7 +57,7 @@ static int __mhi_ep_cache_ring(struct mhi_ep_ring *ring, size_t end)
 		buf_info.dev_addr = &ring->ring_cache[start];
 
 		ret = mhi_cntrl->read_sync(mhi_cntrl, &buf_info);
-		if (ret < 0)
+		if (ret)
 			return ret;
 
 		if (end) {
@@ -66,7 +66,7 @@ static int __mhi_ep_cache_ring(struct mhi_ep_ring *ring, size_t end)
 			buf_info.size = end * sizeof(struct mhi_ring_element);
 
 			ret = mhi_cntrl->read_sync(mhi_cntrl, &buf_info);
-			if (ret < 0)
+			if (ret)
 				return ret;
 		}
 	}
@@ -205,7 +205,8 @@ int mhi_ep_ring_start(struct mhi_ep_cntrl *mhi_cntrl, struct mhi_ep_ring *ring,
 	ring->wr_offset = mhi_ep_ring_addr2offset(ring, le64_to_cpu(val));
 
 	/* Allocate ring cache memory for holding the copy of host ring */
-	ring->ring_cache = kcalloc(ring->ring_size, sizeof(struct mhi_ring_element), GFP_KERNEL);
+	ring->ring_cache = kzalloc_objs(struct mhi_ring_element,
+					ring->ring_size);
 	if (!ring->ring_cache)
 		return -ENOMEM;
 

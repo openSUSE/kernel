@@ -10,4 +10,6 @@ bng_en-y := bnge_core.o \
 	    bnge_resc.o \
 	    bnge_netdev.o \
 	    bnge_ethtool.o \
-	    bnge_auxr.o
+	    bnge_auxr.o \
+	    bnge_txrx.o \
+	    bnge_link.o

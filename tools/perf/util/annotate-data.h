@@ -117,7 +117,7 @@ extern struct annotated_data_type canary_type;
  */
 struct data_loc_info {
 	/* These are input field, should be filled by caller */
-	struct arch *arch;
+	const struct arch *arch;
 	struct thread *thread;
 	struct map_symbol *ms;
 	u64 ip;
@@ -182,6 +182,9 @@ struct type_state_reg {
 	s32 offset;
 	bool ok;
 	bool caller_saved;
+	/* DWARF location range tracking for register lifetime */
+	bool lifetime_active;
+	u64 lifetime_end;
 	u8 kind;
 	u8 copied_from;
 };

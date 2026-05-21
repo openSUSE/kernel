@@ -149,7 +149,7 @@ EXPORT_SYMBOL_GPL(pci_epf_bind);
  * @epf_vf: the virtual EP function to be added
  *
  * A physical endpoint function can be associated with multiple virtual
- * endpoint functions. Invoke pci_epf_add_epf() to add a virtual PCI endpoint
+ * endpoint functions. Invoke pci_epf_add_vepf() to add a virtual PCI endpoint
  * function to a physical PCI endpoint function.
  */
 int pci_epf_add_vepf(struct pci_epf *epf_pf, struct pci_epf *epf_vf)
@@ -535,7 +535,7 @@ struct pci_epf *pci_epf_create(const char *name)
 	struct device *dev;
 	int len;
 
-	epf = kzalloc(sizeof(*epf), GFP_KERNEL);
+	epf = kzalloc_obj(*epf);
 	if (!epf)
 		return ERR_PTR(-ENOMEM);
 

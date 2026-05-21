@@ -43,6 +43,8 @@ EXPORT_TRACEPOINT_SYMBOL(spi_transfer_stop);
 
 #include "internals.h"
 
+static int __spi_setup(struct spi_device *spi, bool initial_setup);
+
 static DEFINE_IDR(spi_controller_idr);
 
 static void spidev_release(struct device *dev)
@@ -50,7 +52,6 @@ static void spidev_release(struct device *dev)
 	struct spi_device	*spi = to_spi_device(dev);
 
 	spi_controller_put(spi->controller);
-	kfree(spi->driver_override);
 	free_percpu(spi->pcpu_statistics);
 	kfree(spi);
 }
@@ -73,10 +74,9 @@ static ssize_t driver_override_store(struct device *dev,
 				     struct device_attribute *a,
 				     const char *buf, size_t count)
 {
-	struct spi_device *spi = to_spi_device(dev);
 	int ret;
 
-	ret = driver_set_override(dev, &spi->driver_override, buf, count);
+	ret = __device_set_driver_override(dev, buf, count);
 	if (ret)
 		return ret;
 
@@ -86,35 +86,27 @@ static ssize_t driver_override_store(struct device *dev,
 static ssize_t driver_override_show(struct device *dev,
 				    struct device_attribute *a, char *buf)
 {
-	const struct spi_device *spi = to_spi_device(dev);
-	ssize_t len;
-
-	device_lock(dev);
-	len = sysfs_emit(buf, "%s\n", spi->driver_override ? : "");
-	device_unlock(dev);
-	return len;
+	guard(spinlock)(&dev->driver_override.lock);
+	return sysfs_emit(buf, "%s\n", dev->driver_override.name ?: "");
 }
 static DEVICE_ATTR_RW(driver_override);
 
-static struct spi_statistics __percpu *spi_alloc_pcpu_stats(struct device *dev)
+static struct spi_statistics __percpu *spi_alloc_pcpu_stats(void)
 {
 	struct spi_statistics __percpu *pcpu_stats;
+	int cpu;
 
-	if (dev)
-		pcpu_stats = devm_alloc_percpu(dev, struct spi_statistics);
-	else
-		pcpu_stats = alloc_percpu_gfp(struct spi_statistics, GFP_KERNEL);
+	pcpu_stats = alloc_percpu_gfp(struct spi_statistics, GFP_KERNEL);
+	if (!pcpu_stats)
+		return NULL;
 
-	if (pcpu_stats) {
-		int cpu;
+	for_each_possible_cpu(cpu) {
+		struct spi_statistics *stat;
 
-		for_each_possible_cpu(cpu) {
-			struct spi_statistics *stat;
-
-			stat = per_cpu_ptr(pcpu_stats, cpu);
-			u64_stats_init(&stat->syncp);
-		}
+		stat = per_cpu_ptr(pcpu_stats, cpu);
+		u64_stats_init(&stat->syncp);
 	}
+
 	return pcpu_stats;
 }
 
@@ -376,10 +368,12 @@ static int spi_match_device(struct device *dev, const struct device_driver *drv)
 {
 	const struct spi_device	*spi = to_spi_device(dev);
 	const struct spi_driver	*sdrv = to_spi_driver(drv);
+	int ret;
 
 	/* Check override first, and if set, only use the named driver */
-	if (spi->driver_override)
-		return strcmp(spi->driver_override, drv->name) == 0;
+	ret = device_match_driver_override(dev, drv);
+	if (ret >= 0)
+		return ret;
 
 	/* Attempt an OF style match */
 	if (of_driver_match_device(dev, drv))
@@ -568,13 +562,13 @@ struct spi_device *spi_alloc_device(struct spi_controller *ctlr)
 	if (!spi_controller_get(ctlr))
 		return NULL;
 
-	spi = kzalloc(sizeof(*spi), GFP_KERNEL);
+	spi = kzalloc_obj(*spi);
 	if (!spi) {
 		spi_controller_put(ctlr);
 		return NULL;
 	}
 
-	spi->pcpu_statistics = spi_alloc_pcpu_stats(NULL);
+	spi->pcpu_statistics = spi_alloc_pcpu_stats();
 	if (!spi->pcpu_statistics) {
 		kfree(spi);
 		spi_controller_put(ctlr);
@@ -641,11 +635,25 @@ static inline int spi_dev_check_cs(struct device *dev,
 	return 0;
 }
 
+struct spi_dev_check_info {
+	struct spi_device *new_spi;
+	struct spi_device *parent;	/* set for ancillary devices */
+};
+
 static int spi_dev_check(struct device *dev, void *data)
 {
 	struct spi_device *spi = to_spi_device(dev);
-	struct spi_device *new_spi = data;
+	struct spi_dev_check_info *info = data;
+	struct spi_device *new_spi = info->new_spi;
 	int status, idx;
+
+	/*
+	 * When registering an ancillary device, skip checking against the
+	 * parent device since the ancillary is intentionally using one of
+	 * the parent's chip selects.
+	 */
+	if (info->parent && spi == info->parent)
+		return 0;
 
 	if (spi->controller == new_spi->controller) {
 		for (idx = 0; idx < spi->num_chipselect; idx++) {
@@ -663,10 +671,11 @@ static void spi_cleanup(struct spi_device *spi)
 		spi->controller->cleanup(spi);
 }
 
-static int __spi_add_device(struct spi_device *spi)
+static int __spi_add_device(struct spi_device *spi, struct spi_device *parent)
 {
 	struct spi_controller *ctlr = spi->controller;
 	struct device *dev = ctlr->dev.parent;
+	struct spi_dev_check_info check_info;
 	int status, idx;
 	u8 cs;
 
@@ -710,7 +719,9 @@ static int __spi_add_device(struct spi_device *spi)
 	 * chipselect **BEFORE** we call setup(), else we'll trash
 	 * its configuration.
 	 */
-	status = bus_for_each_dev(&spi_bus_type, NULL, spi, spi_dev_check);
+	check_info.new_spi = spi;
+	check_info.parent = parent;
+	status = bus_for_each_dev(&spi_bus_type, NULL, &check_info, spi_dev_check);
 	if (status)
 		return status;
 
@@ -734,7 +745,7 @@ static int __spi_add_device(struct spi_device *spi)
 	 * normally rely on the device being setup.  Devices
 	 * using SPI_CS_HIGH can't coexist well otherwise...
 	 */
-	status = spi_setup(spi);
+	status = __spi_setup(spi, true);
 	if (status < 0) {
 		dev_err(dev, "can't setup %s, status %d\n",
 				dev_name(&spi->dev), status);
@@ -772,7 +783,7 @@ int spi_add_device(struct spi_device *spi)
 	spi_dev_set_name(spi);
 
 	mutex_lock(&ctlr->add_lock);
-	status = __spi_add_device(spi);
+	status = __spi_add_device(spi, NULL);
 	mutex_unlock(&ctlr->add_lock);
 	return status;
 }
@@ -921,7 +932,7 @@ int spi_register_board_info(struct spi_board_info const *info, unsigned n)
 	if (!n)
 		return 0;
 
-	bi = kcalloc(n, sizeof(*bi), GFP_KERNEL);
+	bi = kzalloc_objs(*bi, n);
 	if (!bi)
 		return -ENOMEM;
 
@@ -2354,8 +2365,8 @@ static void of_spi_parse_dt_cs_delay(struct device_node *nc,
 static int of_spi_parse_dt(struct spi_controller *ctlr, struct spi_device *spi,
 			   struct device_node *nc)
 {
-	u32 value, cs[SPI_DEVICE_CS_CNT_MAX];
-	int rc, idx;
+	u32 value, cs[SPI_DEVICE_CS_CNT_MAX], map[SPI_DEVICE_DATA_LANE_CNT_MAX];
+	int rc, idx, max_num_data_lanes;
 
 	/* Mode (clock phase/polarity/etc.) */
 	if (of_property_read_bool(nc, "spi-cpha"))
@@ -2370,7 +2381,65 @@ static int of_spi_parse_dt(struct spi_controller *ctlr, struct spi_device *spi,
 		spi->mode |= SPI_CS_HIGH;
 
 	/* Device DUAL/QUAD mode */
-	if (!of_property_read_u32(nc, "spi-tx-bus-width", &value)) {
+
+	rc = of_property_read_variable_u32_array(nc, "spi-tx-lane-map", map, 1,
+						 ARRAY_SIZE(map));
+	if (rc >= 0) {
+		max_num_data_lanes = rc;
+		for (idx = 0; idx < max_num_data_lanes; idx++)
+			spi->tx_lane_map[idx] = map[idx];
+	} else if (rc == -EINVAL) {
+		/* Default lane map is identity mapping. */
+		max_num_data_lanes = ARRAY_SIZE(spi->tx_lane_map);
+		for (idx = 0; idx < max_num_data_lanes; idx++)
+			spi->tx_lane_map[idx] = idx;
+	} else {
+		dev_err(&ctlr->dev,
+			"failed to read spi-tx-lane-map property: %d\n", rc);
+		return rc;
+	}
+
+	rc = of_property_count_u32_elems(nc, "spi-tx-bus-width");
+	if (rc < 0 && rc != -EINVAL) {
+		dev_err(&ctlr->dev,
+			"failed to read spi-tx-bus-width property: %d\n", rc);
+		return rc;
+	}
+	if (rc > max_num_data_lanes) {
+		dev_err(&ctlr->dev,
+			"spi-tx-bus-width has more elements (%d) than spi-tx-lane-map (%d)\n",
+			rc, max_num_data_lanes);
+		return -EINVAL;
+	}
+
+	if (rc == -EINVAL) {
+		/* Default when property is not present. */
+		spi->num_tx_lanes = 1;
+	} else {
+		u32 first_value;
+
+		spi->num_tx_lanes = rc;
+
+		for (idx = 0; idx < spi->num_tx_lanes; idx++) {
+			rc = of_property_read_u32_index(nc, "spi-tx-bus-width",
+							idx, &value);
+			if (rc)
+				return rc;
+
+			/*
+			 * For now, we only support all lanes having the same
+			 * width so we can keep using the existing mode flags.
+			 */
+			if (!idx)
+				first_value = value;
+			else if (first_value != value) {
+				dev_err(&ctlr->dev,
+					"spi-tx-bus-width has inconsistent values: first %d vs later %d\n",
+					first_value, value);
+				return -EINVAL;
+			}
+		}
+
 		switch (value) {
 		case 0:
 			spi->mode |= SPI_NO_TX;
@@ -2394,7 +2463,74 @@ static int of_spi_parse_dt(struct spi_controller *ctlr, struct spi_device *spi,
 		}
 	}
 
-	if (!of_property_read_u32(nc, "spi-rx-bus-width", &value)) {
+	for (idx = 0; idx < spi->num_tx_lanes; idx++) {
+		if (spi->tx_lane_map[idx] >= spi->controller->num_data_lanes) {
+			dev_err(&ctlr->dev,
+				"spi-tx-lane-map has invalid value %d (num_data_lanes=%d)\n",
+				spi->tx_lane_map[idx],
+				spi->controller->num_data_lanes);
+			return -EINVAL;
+		}
+	}
+
+	rc = of_property_read_variable_u32_array(nc, "spi-rx-lane-map", map, 1,
+						 ARRAY_SIZE(map));
+	if (rc >= 0) {
+		max_num_data_lanes = rc;
+		for (idx = 0; idx < max_num_data_lanes; idx++)
+			spi->rx_lane_map[idx] = map[idx];
+	} else if (rc == -EINVAL) {
+		/* Default lane map is identity mapping. */
+		max_num_data_lanes = ARRAY_SIZE(spi->rx_lane_map);
+		for (idx = 0; idx < max_num_data_lanes; idx++)
+			spi->rx_lane_map[idx] = idx;
+	} else {
+		dev_err(&ctlr->dev,
+			"failed to read spi-rx-lane-map property: %d\n", rc);
+		return rc;
+	}
+
+	rc = of_property_count_u32_elems(nc, "spi-rx-bus-width");
+	if (rc < 0 && rc != -EINVAL) {
+		dev_err(&ctlr->dev,
+			"failed to read spi-rx-bus-width property: %d\n", rc);
+		return rc;
+	}
+	if (rc > max_num_data_lanes) {
+		dev_err(&ctlr->dev,
+			"spi-rx-bus-width has more elements (%d) than spi-rx-lane-map (%d)\n",
+			rc, max_num_data_lanes);
+		return -EINVAL;
+	}
+
+	if (rc == -EINVAL) {
+		/* Default when property is not present. */
+		spi->num_rx_lanes = 1;
+	} else {
+		u32 first_value;
+
+		spi->num_rx_lanes = rc;
+
+		for (idx = 0; idx < spi->num_rx_lanes; idx++) {
+			rc = of_property_read_u32_index(nc, "spi-rx-bus-width",
+							idx, &value);
+			if (rc)
+				return rc;
+
+			/*
+			 * For now, we only support all lanes having the same
+			 * width so we can keep using the existing mode flags.
+			 */
+			if (!idx)
+				first_value = value;
+			else if (first_value != value) {
+				dev_err(&ctlr->dev,
+					"spi-rx-bus-width has inconsistent values: first %d vs later %d\n",
+					first_value, value);
+				return -EINVAL;
+			}
+		}
+
 		switch (value) {
 		case 0:
 			spi->mode |= SPI_NO_RX;
@@ -2415,6 +2551,16 @@ static int of_spi_parse_dt(struct spi_controller *ctlr, struct spi_device *spi,
 				"spi-rx-bus-width %d not supported\n",
 				value);
 			break;
+		}
+	}
+
+	for (idx = 0; idx < spi->num_rx_lanes; idx++) {
+		if (spi->rx_lane_map[idx] >= spi->controller->num_data_lanes) {
+			dev_err(&ctlr->dev,
+				"spi-rx-lane-map has invalid value %d (num_data_lanes=%d)\n",
+				spi->rx_lane_map[idx],
+				spi->controller->num_data_lanes);
+			return -EINVAL;
 		}
 	}
 
@@ -2580,8 +2726,8 @@ struct spi_device *spi_new_ancillary_device(struct spi_device *spi,
 
 	WARN_ON(!mutex_is_locked(&ctlr->add_lock));
 
-	/* Register the new device */
-	rc = __spi_add_device(ancillary);
+	/* Register the new device, passing the parent to skip CS conflict check */
+	rc = __spi_add_device(ancillary, spi);
 	if (rc) {
 		dev_err(&spi->dev, "failed to register ancillary device\n");
 		goto err_out;
@@ -2594,6 +2740,46 @@ err_out:
 	return ERR_PTR(rc);
 }
 EXPORT_SYMBOL_GPL(spi_new_ancillary_device);
+
+static void devm_spi_unregister_device(void *spi)
+{
+	spi_unregister_device(spi);
+}
+
+/**
+ * devm_spi_new_ancillary_device() - Register managed ancillary SPI device
+ * @spi:         Pointer to the main SPI device registering the ancillary device
+ * @chip_select: Chip Select of the ancillary device
+ *
+ * Register an ancillary SPI device; for example some chips have a chip-select
+ * for normal device usage and another one for setup/firmware upload.
+ *
+ * This is the managed version of spi_new_ancillary_device(). The ancillary
+ * device will be unregistered automatically when the parent SPI device is
+ * unregistered.
+ *
+ * This may only be called from main SPI device's probe routine.
+ *
+ * Return: Pointer to new ancillary device on success; ERR_PTR on failure
+ */
+struct spi_device *devm_spi_new_ancillary_device(struct spi_device *spi,
+						 u8 chip_select)
+{
+	struct spi_device *ancillary;
+	int ret;
+
+	ancillary = spi_new_ancillary_device(spi, chip_select);
+	if (IS_ERR(ancillary))
+		return ancillary;
+
+	ret = devm_add_action_or_reset(&spi->dev, devm_spi_unregister_device,
+				       ancillary);
+	if (ret)
+		return ERR_PTR(ret);
+
+	return ancillary;
+}
+EXPORT_SYMBOL_GPL(devm_spi_new_ancillary_device);
 
 #ifdef CONFIG_ACPI
 struct acpi_spi_lookup {
@@ -2914,6 +3100,8 @@ static void spi_controller_release(struct device *dev)
 	struct spi_controller *ctlr;
 
 	ctlr = container_of(dev, struct spi_controller, dev);
+
+	free_percpu(ctlr->pcpu_statistics);
 	kfree(ctlr);
 }
 
@@ -3057,6 +3245,12 @@ struct spi_controller *__spi_alloc_controller(struct device *dev,
 	if (!ctlr)
 		return NULL;
 
+	ctlr->pcpu_statistics = spi_alloc_pcpu_stats();
+	if (!ctlr->pcpu_statistics) {
+		kfree(ctlr);
+		return NULL;
+	}
+
 	device_initialize(&ctlr->dev);
 	INIT_LIST_HEAD(&ctlr->queue);
 	spin_lock_init(&ctlr->queue_lock);
@@ -3066,12 +3260,16 @@ struct spi_controller *__spi_alloc_controller(struct device *dev,
 	mutex_init(&ctlr->add_lock);
 	ctlr->bus_num = -1;
 	ctlr->num_chipselect = 1;
+	ctlr->num_data_lanes = 1;
 	ctlr->target = target;
 	if (IS_ENABLED(CONFIG_SPI_SLAVE) && target)
 		ctlr->dev.class = &spi_target_class;
 	else
 		ctlr->dev.class = &spi_controller_class;
 	ctlr->dev.parent = dev;
+
+	device_set_node(&ctlr->dev, dev_fwnode(dev));
+
 	pm_suspend_ignore_children(&ctlr->dev, true);
 	spi_controller_set_devdata(ctlr, (void *)ctlr + ctlr_size);
 
@@ -3079,9 +3277,9 @@ struct spi_controller *__spi_alloc_controller(struct device *dev,
 }
 EXPORT_SYMBOL_GPL(__spi_alloc_controller);
 
-static void devm_spi_release_controller(struct device *dev, void *ctlr)
+static void devm_spi_release_controller(void *ctlr)
 {
-	spi_controller_put(*(struct spi_controller **)ctlr);
+	spi_controller_put(ctlr);
 }
 
 /**
@@ -3103,21 +3301,18 @@ struct spi_controller *__devm_spi_alloc_controller(struct device *dev,
 						   unsigned int size,
 						   bool target)
 {
-	struct spi_controller **ptr, *ctlr;
-
-	ptr = devres_alloc(devm_spi_release_controller, sizeof(*ptr),
-			   GFP_KERNEL);
-	if (!ptr)
-		return NULL;
+	struct spi_controller *ctlr;
+	int ret;
 
 	ctlr = __spi_alloc_controller(dev, size, target);
-	if (ctlr) {
-		ctlr->devm_allocated = true;
-		*ptr = ctlr;
-		devres_add(dev, ptr);
-	} else {
-		devres_free(ptr);
-	}
+	if (!ctlr)
+		return NULL;
+
+	ret = devm_add_action_or_reset(dev, devm_spi_release_controller, ctlr);
+	if (ret)
+		return NULL;
+
+	ctlr->devm_allocated = true;
 
 	return ctlr;
 }
@@ -3247,8 +3442,8 @@ static int spi_controller_id_alloc(struct spi_controller *ctlr, int start, int e
  * device identification, boards need configuration tables telling which
  * chip is at which address.
  *
- * This must be called from context that can sleep.  It returns zero on
- * success, else a negative error code (dropping the controller's refcount).
+ * This must be called from context that can sleep.
+ *
  * After a successful return, the caller is responsible for calling
  * spi_unregister_controller().
  *
@@ -3344,17 +3539,8 @@ int spi_register_controller(struct spi_controller *ctlr)
 		dev_info(dev, "controller is unqueued, this is deprecated\n");
 	} else if (ctlr->transfer_one || ctlr->transfer_one_message) {
 		status = spi_controller_initialize_queue(ctlr);
-		if (status) {
-			device_del(&ctlr->dev);
-			goto free_bus_id;
-		}
-	}
-	/* Add statistics */
-	ctlr->pcpu_statistics = spi_alloc_pcpu_stats(dev);
-	if (!ctlr->pcpu_statistics) {
-		dev_err(dev, "Error allocating per-cpu statistics\n");
-		status = -ENOMEM;
-		goto destroy_queue;
+		if (status)
+			goto del_ctrl;
 	}
 
 	mutex_lock(&board_lock);
@@ -3368,8 +3554,8 @@ int spi_register_controller(struct spi_controller *ctlr)
 	acpi_register_spi_devices(ctlr);
 	return status;
 
-destroy_queue:
-	spi_destroy_queue(ctlr);
+del_ctrl:
+	device_del(&ctlr->dev);
 free_bus_id:
 	mutex_lock(&board_lock);
 	idr_remove(&spi_controller_idr, ctlr->bus_num);
@@ -3378,9 +3564,9 @@ free_bus_id:
 }
 EXPORT_SYMBOL_GPL(spi_register_controller);
 
-static void devm_spi_unregister(struct device *dev, void *res)
+static void devm_spi_unregister_controller(void *ctlr)
 {
-	spi_unregister_controller(*(struct spi_controller **)res);
+	spi_unregister_controller(ctlr);
 }
 
 /**
@@ -3391,27 +3577,31 @@ static void devm_spi_unregister(struct device *dev, void *res)
  * Context: can sleep
  *
  * Register a SPI device as with spi_register_controller() which will
- * automatically be unregistered and freed.
+ * automatically be unregistered (and freed unless it has been allocated using
+ * devm_spi_alloc_host/target()).
  *
  * Return: zero on success, else a negative error code.
  */
 int devm_spi_register_controller(struct device *dev,
 				 struct spi_controller *ctlr)
 {
-	struct spi_controller **ptr;
 	int ret;
 
-	ptr = devres_alloc(devm_spi_unregister, sizeof(*ptr), GFP_KERNEL);
-	if (!ptr)
-		return -ENOMEM;
-
 	ret = spi_register_controller(ctlr);
-	if (!ret) {
-		*ptr = ctlr;
-		devres_add(dev, ptr);
-	} else {
-		devres_free(ptr);
-	}
+	if (ret)
+		return ret;
+
+	/*
+	 * Prevent controller from being freed by spi_unregister_controller()
+	 * if devm_add_action_or_reset() fails for a non-devres allocated
+	 * controller.
+	 */
+	spi_controller_get(ctlr);
+
+	ret = devm_add_action_or_reset(dev, devm_spi_unregister_controller, ctlr);
+
+	if (ret == 0 || ctlr->devm_allocated)
+		spi_controller_put(ctlr);
 
 	return ret;
 }
@@ -3433,7 +3623,8 @@ static int __unregister(struct device *dev, void *null)
  *
  * This must be called from context that can sleep.
  *
- * Note that this function also drops a reference to the controller.
+ * Note that this function also drops a reference to the controller unless it
+ * has been allocated using devm_spi_alloc_host/target().
  */
 void spi_unregister_controller(struct spi_controller *ctlr)
 {
@@ -3860,27 +4051,7 @@ static int spi_set_cs_timing(struct spi_device *spi)
 	return status;
 }
 
-/**
- * spi_setup - setup SPI mode and clock rate
- * @spi: the device whose settings are being modified
- * Context: can sleep, and no requests are queued to the device
- *
- * SPI protocol drivers may need to update the transfer mode if the
- * device doesn't work with its default.  They may likewise need
- * to update clock rates or word sizes from initial values.  This function
- * changes those settings, and must be called from a context that can sleep.
- * Except for SPI_CS_HIGH, which takes effect immediately, the changes take
- * effect the next time the device is selected and data is transferred to
- * or from it.  When this function returns, the SPI device is deselected.
- *
- * Note that this call will fail if the protocol driver specifies an option
- * that the underlying controller or its driver does not support.  For
- * example, not all hardware supports wire transfers using nine bit words,
- * LSB-first wire encoding, or active-high chipselects.
- *
- * Return: zero on success, else a negative error code.
- */
-int spi_setup(struct spi_device *spi)
+static int __spi_setup(struct spi_device *spi, bool initial_setup)
 {
 	unsigned	bad_bits, ugly_bits;
 	int		status;
@@ -3965,7 +4136,7 @@ int spi_setup(struct spi_device *spi)
 	status = spi_set_cs_timing(spi);
 	if (status) {
 		mutex_unlock(&spi->controller->io_mutex);
-		return status;
+		goto err_cleanup;
 	}
 
 	if (spi->controller->auto_runtime_pm && spi->controller->set_cs) {
@@ -3974,7 +4145,7 @@ int spi_setup(struct spi_device *spi)
 			mutex_unlock(&spi->controller->io_mutex);
 			dev_err(&spi->controller->dev, "Failed to power device: %d\n",
 				status);
-			return status;
+			goto err_cleanup;
 		}
 
 		/*
@@ -4010,6 +4181,37 @@ int spi_setup(struct spi_device *spi)
 			status);
 
 	return status;
+
+err_cleanup:
+	if (initial_setup)
+		spi_cleanup(spi);
+
+	return status;
+}
+
+/**
+ * spi_setup - setup SPI mode and clock rate
+ * @spi: the device whose settings are being modified
+ * Context: can sleep, and no requests are queued to the device
+ *
+ * SPI protocol drivers may need to update the transfer mode if the
+ * device doesn't work with its default.  They may likewise need
+ * to update clock rates or word sizes from initial values.  This function
+ * changes those settings, and must be called from a context that can sleep.
+ * Except for SPI_CS_HIGH, which takes effect immediately, the changes take
+ * effect the next time the device is selected and data is transferred to
+ * or from it.  When this function returns, the SPI device is deselected.
+ *
+ * Note that this call will fail if the protocol driver specifies an option
+ * that the underlying controller or its driver does not support.  For
+ * example, not all hardware supports wire transfers using nine bit words,
+ * LSB-first wire encoding, or active-high chipselects.
+ *
+ * Return: zero on success, else a negative error code.
+ */
+int spi_setup(struct spi_device *spi)
+{
+	return __spi_setup(spi, false);
 }
 EXPORT_SYMBOL_GPL(spi_setup);
 
@@ -4099,12 +4301,7 @@ static int __spi_validate(struct spi_device *spi, struct spi_message *message)
 		 * SPI transfer length should be multiple of SPI word size
 		 * where SPI word size should be power-of-two multiple.
 		 */
-		if (xfer->bits_per_word <= 8)
-			w_size = 1;
-		else if (xfer->bits_per_word <= 16)
-			w_size = 2;
-		else
-			w_size = 4;
+		w_size = spi_bpw_to_bytes(xfer->bits_per_word);
 
 		/* No partial transfers accepted */
 		if (xfer->len % w_size)
@@ -4761,17 +4958,9 @@ EXPORT_SYMBOL_GPL(spi_write_then_read);
 
 /*-------------------------------------------------------------------------*/
 
-#if IS_ENABLED(CONFIG_OF_DYNAMIC)
-/* Must call put_device() when done with returned spi_device device */
-static struct spi_device *of_find_spi_device_by_node(struct device_node *node)
-{
-	struct device *dev = bus_find_device_by_of_node(&spi_bus_type, node);
-
-	return dev ? to_spi_device(dev) : NULL;
-}
-
+#if IS_ENABLED(CONFIG_OF)
 /* The spi controllers are not using spi_bus, so we find it with another way */
-static struct spi_controller *of_find_spi_controller_by_node(struct device_node *node)
+struct spi_controller *of_find_spi_controller_by_node(struct device_node *node)
 {
 	struct device *dev;
 
@@ -4783,6 +4972,17 @@ static struct spi_controller *of_find_spi_controller_by_node(struct device_node 
 
 	/* Reference got in class_find_device */
 	return container_of(dev, struct spi_controller, dev);
+}
+EXPORT_SYMBOL_GPL(of_find_spi_controller_by_node);
+#endif
+
+#if IS_ENABLED(CONFIG_OF_DYNAMIC)
+/* Must call put_device() when done with returned spi_device device */
+static struct spi_device *of_find_spi_device_by_node(struct device_node *node)
+{
+	struct device *dev = bus_find_device_by_of_node(&spi_bus_type, node);
+
+	return dev ? to_spi_device(dev) : NULL;
 }
 
 static int of_spi_notify(struct notifier_block *nb, unsigned long action,
@@ -4807,7 +5007,7 @@ static int of_spi_notify(struct notifier_block *nb, unsigned long action,
 		 * Clear the flag before adding the device so that fw_devlink
 		 * doesn't skip adding consumers to this device.
 		 */
-		rd->dn->fwnode.flags &= ~FWNODE_FLAG_NOT_DEVICE;
+		fwnode_clear_flag(&rd->dn->fwnode, FWNODE_FLAG_NOT_DEVICE);
 		spi = of_register_spi_device(ctlr, rd->dn);
 		put_device(&ctlr->dev);
 

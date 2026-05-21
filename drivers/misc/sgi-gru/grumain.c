@@ -356,7 +356,7 @@ struct gru_vma_data *gru_alloc_vma_data(struct vm_area_struct *vma, int tsid)
 {
 	struct gru_vma_data *vdata = NULL;
 
-	vdata = kmalloc(sizeof(*vdata), GFP_KERNEL);
+	vdata = kmalloc_obj(*vdata);
 	if (!vdata)
 		return NULL;
 
@@ -542,7 +542,7 @@ void gru_unload_context(struct gru_thread_state *gts, int savestate)
 	int ctxnum = gts->ts_ctxnum;
 
 	if (!is_kernel_context(gts))
-		zap_vma_ptes(gts->ts_vma, UGRUADDR(gts), GRU_GSEG_PAGESIZE);
+		zap_special_vma_range(gts->ts_vma, UGRUADDR(gts), GRU_GSEG_PAGESIZE);
 	cch = get_cch(gru->gs_gru_base_vaddr, ctxnum);
 
 	gru_dbg(grudev, "gts %p, cbrmap 0x%lx, dsrmap 0x%lx\n",

@@ -10,6 +10,7 @@
 #define _LINUX_IOPORT_H
 
 #ifndef __ASSEMBLY__
+#include <linux/args.h>
 #include <linux/bits.h>
 #include <linux/compiler.h>
 #include <linux/minmax.h>
@@ -165,8 +166,12 @@ enum {
 
 #define DEFINE_RES_NAMED(_start, _size, _name, _flags)			\
 	DEFINE_RES_NAMED_DESC(_start, _size, _name, _flags, IORES_DESC_NONE)
-#define DEFINE_RES(_start, _size, _flags)				\
+#define __DEFINE_RES0()							\
+	DEFINE_RES_NAMED(0, 0, NULL, IORESOURCE_UNSET)
+#define __DEFINE_RES3(_start, _size, _flags)				\
 	DEFINE_RES_NAMED(_start, _size, NULL, _flags)
+#define DEFINE_RES(...)							\
+	CONCATENATE(__DEFINE_RES, COUNT_ARGS(__VA_ARGS__))(__VA_ARGS__)
 
 #define DEFINE_RES_IO_NAMED(_start, _size, _name)			\
 	DEFINE_RES_NAMED((_start), (_size), (_name), IORESOURCE_IO)
@@ -197,6 +202,7 @@ enum {
  * typedef resource_alignf - Resource alignment callback
  * @data:	Private data used by the callback
  * @res:	Resource candidate range (an empty resource space)
+ * @empty_res:	Empty resource range without alignment applied
  * @size:	The minimum size of the empty space
  * @align:	Alignment from the constraints
  *
@@ -207,6 +213,7 @@ enum {
  */
 typedef resource_size_t (*resource_alignf)(void *data,
 					   const struct resource *res,
+					   const struct resource *empty_res,
 					   resource_size_t size,
 					   resource_size_t align);
 
@@ -232,6 +239,7 @@ struct resource_constraint {
 /* PC/ISA/whatever - the normal PC address spaces: IO and memory */
 extern struct resource ioport_resource;
 extern struct resource iomem_resource;
+extern struct resource soft_reserve_resource;
 
 extern struct resource *request_resource_conflict(struct resource *root, struct resource *new);
 extern int request_resource(struct resource *root, struct resource *new);
@@ -298,14 +306,28 @@ static inline unsigned long resource_ext_type(const struct resource *res)
 {
 	return res->flags & IORESOURCE_EXT_TYPE_BITS;
 }
-/* True iff r1 completely contains r2 */
-static inline bool resource_contains(const struct resource *r1, const struct resource *r2)
+
+/*
+ * For checking if @r1 completely contains @r2 for resources that have real
+ * addresses but are not yet crafted into the resource tree. Normally
+ * resource_contains() should be used instead of this function as it checks
+ * also IORESOURCE_UNSET flag.
+ */
+static inline bool __resource_contains_unbound(const struct resource *r1,
+					       const struct resource *r2)
 {
 	if (resource_type(r1) != resource_type(r2))
 		return false;
+
+	return r1->start <= r2->start && r1->end >= r2->end;
+}
+/* True iff r1 completely contains r2 */
+static inline bool resource_contains(const struct resource *r1, const struct resource *r2)
+{
 	if (r1->flags & IORESOURCE_UNSET || r2->flags & IORESOURCE_UNSET)
 		return false;
-	return r1->start <= r2->start && r1->end >= r2->end;
+
+	return __resource_contains_unbound(r1, r2);
 }
 
 /* True if any part of r1 overlaps r2 */
@@ -338,7 +360,7 @@ static inline bool resource_union(const struct resource *r1, const struct resour
  * Check if this resource is added to a resource tree or detached. Caller is
  * responsible for not racing assignment.
  */
-static inline bool resource_assigned(struct resource *res)
+static inline bool resource_assigned(const struct resource *res)
 {
 	return res->parent;
 }
@@ -418,6 +440,10 @@ walk_system_ram_res_rev(u64 start, u64 end, void *arg,
 extern int
 walk_iomem_res_desc(unsigned long desc, unsigned long flags, u64 start, u64 end,
 		    void *arg, int (*func)(struct resource *, void *));
+extern int walk_soft_reserve_res(u64 start, u64 end, void *arg,
+				 int (*func)(struct resource *, void *));
+extern int
+region_intersects_soft_reserve(resource_size_t start, size_t size);
 
 struct resource *devm_request_free_mem_region(struct device *dev,
 		struct resource *base, unsigned long size);

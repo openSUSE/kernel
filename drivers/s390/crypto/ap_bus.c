@@ -16,6 +16,7 @@
 #include <linux/kernel_stat.h>
 #include <linux/moduleparam.h>
 #include <linux/export.h>
+#include <linux/hex.h>
 #include <linux/init.h>
 #include <linux/delay.h>
 #include <linux/err.h>
@@ -52,24 +53,24 @@ MODULE_LICENSE("GPL");
 
 int ap_domain_index = -1;	/* Adjunct Processor Domain Index */
 static DEFINE_SPINLOCK(ap_domain_lock);
-module_param_named(domain, ap_domain_index, int, 0440);
+module_param_named(domain, ap_domain_index, int, 0444);
 MODULE_PARM_DESC(domain, "domain index for ap devices");
 EXPORT_SYMBOL(ap_domain_index);
 
 static int ap_thread_flag;
-module_param_named(poll_thread, ap_thread_flag, int, 0440);
+module_param_named(poll_thread, ap_thread_flag, int, 0444);
 MODULE_PARM_DESC(poll_thread, "Turn on/off poll thread, default is 0 (off).");
 
 static char *apm_str;
-module_param_named(apmask, apm_str, charp, 0440);
+module_param_named(apmask, apm_str, charp, 0444);
 MODULE_PARM_DESC(apmask, "AP bus adapter mask.");
 
 static char *aqm_str;
-module_param_named(aqmask, aqm_str, charp, 0440);
+module_param_named(aqmask, aqm_str, charp, 0444);
 MODULE_PARM_DESC(aqmask, "AP bus domain mask.");
 
 static int ap_useirq = 1;
-module_param_named(useirq, ap_useirq, int, 0440);
+module_param_named(useirq, ap_useirq, int, 0444);
 MODULE_PARM_DESC(useirq, "Use interrupt if available, default is 1 (on).");
 
 atomic_t ap_max_msg_size = ATOMIC_INIT(AP_DEFAULT_MAX_MSG_SIZE);
@@ -130,7 +131,7 @@ debug_info_t *ap_dbf_info;
  */
 static mempool_t *ap_msg_pool;
 static unsigned int ap_msg_pool_min_items = 8;
-module_param_named(msgpool_min_items, ap_msg_pool_min_items, uint, 0440);
+module_param_named(msgpool_min_items, ap_msg_pool_min_items, uint, 0400);
 MODULE_PARM_DESC(msgpool_min_items, "AP message pool minimal items");
 
 /*
@@ -858,25 +859,24 @@ static int __ap_queue_devices_with_id_unregister(struct device *dev, void *data)
 
 static int __ap_revise_reserved(struct device *dev, void *dummy)
 {
-	int rc, card, queue, devres, drvres;
+	int rc, card, queue, devres, drvres, ovrd;
 
 	if (is_queue_dev(dev)) {
 		struct ap_driver *ap_drv = to_ap_drv(dev->driver);
 		struct ap_queue *aq = to_ap_queue(dev);
-		struct ap_device *ap_dev = &aq->ap_dev;
 
 		card = AP_QID_CARD(aq->qid);
 		queue = AP_QID_QUEUE(aq->qid);
 
-		if (ap_dev->driver_override) {
-			if (strcmp(ap_dev->driver_override,
-				   ap_drv->driver.name)) {
-				pr_debug("reprobing queue=%02x.%04x\n", card, queue);
-				rc = device_reprobe(dev);
-				if (rc) {
-					AP_DBF_WARN("%s reprobing queue=%02x.%04x failed\n",
-						    __func__, card, queue);
-				}
+		ovrd = device_match_driver_override(dev, &ap_drv->driver);
+		if (ovrd > 0) {
+			/* override set and matches, nothing to do */
+		} else if (ovrd == 0) {
+			pr_debug("reprobing queue=%02x.%04x\n", card, queue);
+			rc = device_reprobe(dev);
+			if (rc) {
+				AP_DBF_WARN("%s reprobing queue=%02x.%04x failed\n",
+					    __func__, card, queue);
 			}
 		} else {
 			mutex_lock(&ap_attr_mutex);
@@ -927,7 +927,7 @@ int ap_owned_by_def_drv(int card, int queue)
 	if (aq) {
 		const struct device_driver *drv = aq->ap_dev.device.driver;
 		const struct ap_driver *ap_drv = to_ap_drv(drv);
-		bool override = !!aq->ap_dev.driver_override;
+		bool override = device_has_driver_override(&aq->ap_dev.device);
 
 		if (override && drv && ap_drv->flags & AP_DRIVER_FLAG_DEFAULT)
 			rc = 1;
@@ -976,7 +976,7 @@ static int ap_device_probe(struct device *dev)
 {
 	struct ap_device *ap_dev = to_ap_dev(dev);
 	struct ap_driver *ap_drv = to_ap_drv(dev->driver);
-	int card, queue, devres, drvres, rc = -ENODEV;
+	int card, queue, devres, drvres, rc = -ENODEV, ovrd;
 
 	if (!get_device(dev))
 		return rc;
@@ -990,10 +990,11 @@ static int ap_device_probe(struct device *dev)
 		 */
 		card = AP_QID_CARD(to_ap_queue(dev)->qid);
 		queue = AP_QID_QUEUE(to_ap_queue(dev)->qid);
-		if (ap_dev->driver_override) {
-			if (strcmp(ap_dev->driver_override,
-				   ap_drv->driver.name))
-				goto out;
+		ovrd = device_match_driver_override(dev, &ap_drv->driver);
+		if (ovrd > 0) {
+			/* override set and matches, nothing to do */
+		} else if (ovrd == 0) {
+			goto out;
 		} else {
 			mutex_lock(&ap_attr_mutex);
 			devres = test_bit_inv(card, ap_perms.apm) &&

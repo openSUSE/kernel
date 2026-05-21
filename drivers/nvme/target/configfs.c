@@ -4,6 +4,7 @@
  * Copyright (c) 2015-2016 HGST, a Western Digital Company.
  */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+#include <linux/hex.h>
 #include <linux/kstrtox.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -16,7 +17,6 @@
 #include <linux/nvme-auth.h>
 #endif
 #include <linux/nvme-keyring.h>
-#include <crypto/hash.h>
 #include <crypto/kpp.h>
 #include <linux/nospec.h>
 
@@ -1039,7 +1039,7 @@ static int nvmet_port_subsys_allow_link(struct config_item *parent,
 		return -EINVAL;
 	}
 	subsys = to_subsys(target);
-	link = kmalloc(sizeof(*link), GFP_KERNEL);
+	link = kmalloc_obj(*link);
 	if (!link)
 		return -ENOMEM;
 	link->subsys = subsys;
@@ -1119,7 +1119,7 @@ static int nvmet_allowed_hosts_allow_link(struct config_item *parent,
 	}
 
 	host = to_host(target);
-	link = kmalloc(sizeof(*link), GFP_KERNEL);
+	link = kmalloc_obj(*link);
 	if (!link)
 		return -ENOMEM;
 	link->host = host;
@@ -1824,7 +1824,7 @@ static struct config_group *nvmet_referral_make(
 {
 	struct nvmet_port *port;
 
-	port = kzalloc(sizeof(*port), GFP_KERNEL);
+	port = kzalloc_obj(*port);
 	if (!port)
 		return ERR_PTR(-ENOMEM);
 
@@ -1942,7 +1942,7 @@ static struct config_group *nvmet_ana_groups_make_group(
 		goto out;
 
 	ret = -ENOMEM;
-	grp = kzalloc(sizeof(*grp), GFP_KERNEL);
+	grp = kzalloc_obj(*grp);
 	if (!grp)
 		goto out;
 	grp->port = port;
@@ -2021,12 +2021,11 @@ static struct config_group *nvmet_ports_make(struct config_group *group,
 	if (kstrtou16(name, 0, &portid))
 		return ERR_PTR(-EINVAL);
 
-	port = kzalloc(sizeof(*port), GFP_KERNEL);
+	port = kzalloc_obj(*port);
 	if (!port)
 		return ERR_PTR(-ENOMEM);
 
-	port->ana_state = kcalloc(NVMET_MAX_ANAGRPS + 1,
-			sizeof(*port->ana_state), GFP_KERNEL);
+	port->ana_state = kzalloc_objs(*port->ana_state, NVMET_MAX_ANAGRPS + 1);
 	if (!port->ana_state) {
 		kfree(port);
 		return ERR_PTR(-ENOMEM);
@@ -2181,8 +2180,6 @@ static ssize_t nvmet_host_dhchap_hash_store(struct config_item *item,
 	hmac_id = nvme_auth_hmac_id(page);
 	if (hmac_id == NVME_AUTH_HASH_INVALID)
 		return -EINVAL;
-	if (!crypto_has_shash(nvme_auth_hmac_name(hmac_id), 0, 0))
-		return -ENOTSUPP;
 	host->dhchap_hash_id = hmac_id;
 	return count;
 }
@@ -2256,7 +2253,7 @@ static struct config_group *nvmet_hosts_make_group(struct config_group *group,
 {
 	struct nvmet_host *host;
 
-	host = kzalloc(sizeof(*host), GFP_KERNEL);
+	host = kzalloc_obj(*host);
 	if (!host)
 		return ERR_PTR(-ENOMEM);
 

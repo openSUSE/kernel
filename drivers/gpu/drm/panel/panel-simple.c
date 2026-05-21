@@ -623,8 +623,61 @@ static struct panel_simple *panel_simple_probe(struct device *dev)
 	if (IS_ERR(desc))
 		return ERR_CAST(desc);
 
+	connector_type = desc->connector_type;
+	/* Catch common mistakes for panels. */
+	switch (connector_type) {
+	case 0:
+		dev_warn(dev, "Specify missing connector_type\n");
+		connector_type = DRM_MODE_CONNECTOR_DPI;
+		break;
+	case DRM_MODE_CONNECTOR_LVDS:
+		WARN_ON(desc->bus_flags &
+			~(DRM_BUS_FLAG_DE_LOW |
+			  DRM_BUS_FLAG_DE_HIGH |
+			  DRM_BUS_FLAG_DATA_MSB_TO_LSB |
+			  DRM_BUS_FLAG_DATA_LSB_TO_MSB));
+		WARN_ON(desc->bus_format != MEDIA_BUS_FMT_RGB666_1X7X3_SPWG &&
+			desc->bus_format != MEDIA_BUS_FMT_RGB888_1X7X4_SPWG &&
+			desc->bus_format != MEDIA_BUS_FMT_RGB888_1X7X4_JEIDA);
+		WARN_ON(desc->bus_format == MEDIA_BUS_FMT_RGB666_1X7X3_SPWG &&
+			desc->bpc != 6);
+		WARN_ON((desc->bus_format == MEDIA_BUS_FMT_RGB888_1X7X4_SPWG ||
+			 desc->bus_format == MEDIA_BUS_FMT_RGB888_1X7X4_JEIDA) &&
+			desc->bpc != 8);
+		break;
+	case DRM_MODE_CONNECTOR_eDP:
+		dev_warn(dev, "eDP panels moved to panel-edp\n");
+		return ERR_PTR(-EINVAL);
+	case DRM_MODE_CONNECTOR_DSI:
+		if (desc->bpc != 6 && desc->bpc != 8)
+			dev_warn(dev, "Expected bpc in {6,8} but got: %u\n", desc->bpc);
+		break;
+	case DRM_MODE_CONNECTOR_DPI:
+		bus_flags = DRM_BUS_FLAG_DE_LOW |
+			    DRM_BUS_FLAG_DE_HIGH |
+			    DRM_BUS_FLAG_PIXDATA_SAMPLE_POSEDGE |
+			    DRM_BUS_FLAG_PIXDATA_SAMPLE_NEGEDGE |
+			    DRM_BUS_FLAG_DATA_MSB_TO_LSB |
+			    DRM_BUS_FLAG_DATA_LSB_TO_MSB |
+			    DRM_BUS_FLAG_SYNC_SAMPLE_POSEDGE |
+			    DRM_BUS_FLAG_SYNC_SAMPLE_NEGEDGE;
+		if (desc->bus_flags & ~bus_flags)
+			dev_warn(dev, "Unexpected bus_flags(%d)\n", desc->bus_flags & ~bus_flags);
+		if (!(desc->bus_flags & bus_flags))
+			dev_warn(dev, "Specify missing bus_flags\n");
+		if (desc->bus_format == 0)
+			dev_warn(dev, "Specify missing bus_format\n");
+		if (desc->bpc != 6 && desc->bpc != 8)
+			dev_warn(dev, "Expected bpc in {6,8} but got: %u\n", desc->bpc);
+		break;
+	default:
+		dev_warn(dev, "Specify a valid connector_type: %d\n", desc->connector_type);
+		connector_type = DRM_MODE_CONNECTOR_DPI;
+		break;
+	}
+
 	panel = devm_drm_panel_alloc(dev, struct panel_simple, base,
-				     &panel_simple_funcs, desc->connector_type);
+				     &panel_simple_funcs, connector_type);
 	if (IS_ERR(panel))
 		return ERR_CAST(panel);
 
@@ -664,60 +717,6 @@ static struct panel_simple *panel_simple_probe(struct device *dev)
 		err = panel_simple_override_nondefault_lvds_datamapping(dev, panel);
 		if (err)
 			goto free_ddc;
-	}
-
-	connector_type = desc->connector_type;
-	/* Catch common mistakes for panels. */
-	switch (connector_type) {
-	case 0:
-		dev_warn(dev, "Specify missing connector_type\n");
-		connector_type = DRM_MODE_CONNECTOR_DPI;
-		break;
-	case DRM_MODE_CONNECTOR_LVDS:
-		WARN_ON(desc->bus_flags &
-			~(DRM_BUS_FLAG_DE_LOW |
-			  DRM_BUS_FLAG_DE_HIGH |
-			  DRM_BUS_FLAG_DATA_MSB_TO_LSB |
-			  DRM_BUS_FLAG_DATA_LSB_TO_MSB));
-		WARN_ON(desc->bus_format != MEDIA_BUS_FMT_RGB666_1X7X3_SPWG &&
-			desc->bus_format != MEDIA_BUS_FMT_RGB888_1X7X4_SPWG &&
-			desc->bus_format != MEDIA_BUS_FMT_RGB888_1X7X4_JEIDA);
-		WARN_ON(desc->bus_format == MEDIA_BUS_FMT_RGB666_1X7X3_SPWG &&
-			desc->bpc != 6);
-		WARN_ON((desc->bus_format == MEDIA_BUS_FMT_RGB888_1X7X4_SPWG ||
-			 desc->bus_format == MEDIA_BUS_FMT_RGB888_1X7X4_JEIDA) &&
-			desc->bpc != 8);
-		break;
-	case DRM_MODE_CONNECTOR_eDP:
-		dev_warn(dev, "eDP panels moved to panel-edp\n");
-		err = -EINVAL;
-		goto free_ddc;
-	case DRM_MODE_CONNECTOR_DSI:
-		if (desc->bpc != 6 && desc->bpc != 8)
-			dev_warn(dev, "Expected bpc in {6,8} but got: %u\n", desc->bpc);
-		break;
-	case DRM_MODE_CONNECTOR_DPI:
-		bus_flags = DRM_BUS_FLAG_DE_LOW |
-			    DRM_BUS_FLAG_DE_HIGH |
-			    DRM_BUS_FLAG_PIXDATA_SAMPLE_POSEDGE |
-			    DRM_BUS_FLAG_PIXDATA_SAMPLE_NEGEDGE |
-			    DRM_BUS_FLAG_DATA_MSB_TO_LSB |
-			    DRM_BUS_FLAG_DATA_LSB_TO_MSB |
-			    DRM_BUS_FLAG_SYNC_SAMPLE_POSEDGE |
-			    DRM_BUS_FLAG_SYNC_SAMPLE_NEGEDGE;
-		if (desc->bus_flags & ~bus_flags)
-			dev_warn(dev, "Unexpected bus_flags(%d)\n", desc->bus_flags & ~bus_flags);
-		if (!(desc->bus_flags & bus_flags))
-			dev_warn(dev, "Specify missing bus_flags\n");
-		if (desc->bus_format == 0)
-			dev_warn(dev, "Specify missing bus_format\n");
-		if (desc->bpc != 6 && desc->bpc != 8)
-			dev_warn(dev, "Expected bpc in {6,8} but got: %u\n", desc->bpc);
-		break;
-	default:
-		dev_warn(dev, "Specify a valid connector_type: %d\n", desc->connector_type);
-		connector_type = DRM_MODE_CONNECTOR_DPI;
-		break;
 	}
 
 	dev_set_drvdata(dev, panel);
@@ -1296,7 +1295,7 @@ static const struct panel_desc auo_g190ean01 = {
 		.height = 301,
 	},
 	.delay = {
-		.prepare = 50,
+		.prepare = 30,
 		.enable = 200,
 		.disable = 110,
 		.unprepare = 1000,
@@ -1900,6 +1899,7 @@ static const struct panel_desc dataimage_scf0700c48ggu18 = {
 	},
 	.bus_format = MEDIA_BUS_FMT_RGB888_1X24,
 	.bus_flags = DRM_BUS_FLAG_DE_HIGH | DRM_BUS_FLAG_PIXDATA_DRIVE_POSEDGE,
+	.connector_type = DRM_MODE_CONNECTOR_DPI,
 };
 
 static const struct display_timing dlc_dlc0700yzg_1_timing = {
@@ -2093,6 +2093,35 @@ static const struct panel_desc edt_et057090dhu = {
 	},
 	.bus_format = MEDIA_BUS_FMT_RGB666_1X18,
 	.bus_flags = DRM_BUS_FLAG_DE_HIGH | DRM_BUS_FLAG_PIXDATA_DRIVE_NEGEDGE,
+	.connector_type = DRM_MODE_CONNECTOR_DPI,
+};
+
+static const struct display_timing edt_et057023udba_timing = {
+	.pixelclock = { 23200000, 24190000, 39640000 },
+	.hactive = { 640, 640, 640 },
+	.hfront_porch = { 20, 40, 200 },
+	.hback_porch = { 87, 40, 1 },
+	.hsync_len = { 1, 48, 87 },
+	.vactive = { 480, 480, 480 },
+	.vfront_porch = { 5, 13, 200 },
+	.vback_porch = { 31, 31, 29 },
+	.vsync_len = { 1, 1, 3 },
+	.flags = DISPLAY_FLAGS_VSYNC_LOW | DISPLAY_FLAGS_HSYNC_LOW |
+		 DISPLAY_FLAGS_DE_HIGH | DISPLAY_FLAGS_PIXDATA_POSEDGE |
+		 DISPLAY_FLAGS_SYNC_POSEDGE,
+};
+
+static const struct panel_desc edt_et057023udba = {
+	.timings = &edt_et057023udba_timing,
+	.num_timings = 1,
+	.bpc = 8,
+	.size = {
+		.width = 115,
+		.height = 86,
+	},
+	.bus_format = MEDIA_BUS_FMT_RGB888_1X24,
+	.bus_flags = DRM_BUS_FLAG_DE_HIGH | DRM_BUS_FLAG_PIXDATA_DRIVE_POSEDGE |
+		     DRM_BUS_FLAG_SYNC_DRIVE_POSEDGE,
 	.connector_type = DRM_MODE_CONNECTOR_DPI,
 };
 
@@ -2359,28 +2388,6 @@ static const struct panel_desc frida_frd350h54004 = {
 	.connector_type = DRM_MODE_CONNECTOR_DPI,
 };
 
-static const struct drm_display_mode friendlyarm_hd702e_mode = {
-	.clock		= 67185,
-	.hdisplay	= 800,
-	.hsync_start	= 800 + 20,
-	.hsync_end	= 800 + 20 + 24,
-	.htotal		= 800 + 20 + 24 + 20,
-	.vdisplay	= 1280,
-	.vsync_start	= 1280 + 4,
-	.vsync_end	= 1280 + 4 + 8,
-	.vtotal		= 1280 + 4 + 8 + 4,
-	.flags		= DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_NHSYNC,
-};
-
-static const struct panel_desc friendlyarm_hd702e = {
-	.modes = &friendlyarm_hd702e_mode,
-	.num_modes = 1,
-	.size = {
-		.width	= 94,
-		.height	= 151,
-	},
-};
-
 static const struct drm_display_mode giantplus_gpg482739qs5_mode = {
 	.clock = 9000,
 	.hdisplay = 480,
@@ -2504,6 +2511,31 @@ static const struct panel_desc hannstar_hsd101pww2 = {
 	.size = {
 		.width = 217,
 		.height = 136,
+	},
+	.bus_format = MEDIA_BUS_FMT_RGB888_1X7X4_SPWG,
+	.connector_type = DRM_MODE_CONNECTOR_LVDS,
+};
+
+static const struct display_timing hannstar_hsd156juw2_timing = {
+	.pixelclock = { 66000000, 72800000, 80500000 },
+	.hactive = { 1920, 1920, 1920 },
+	.hfront_porch = { 20, 30, 30 },
+	.hback_porch = { 20, 30, 30 },
+	.hsync_len = { 50, 60, 90 },
+	.vactive = { 1080, 1080, 1080 },
+	.vfront_porch = { 1, 2, 4 },
+	.vback_porch = { 1, 2, 4 },
+	.vsync_len = { 3, 40, 80 },
+	.flags = DISPLAY_FLAGS_DE_HIGH,
+};
+
+static const struct panel_desc hannstar_hsd156juw2 = {
+	.timings = &hannstar_hsd156juw2_timing,
+	.num_timings = 1,
+	.bpc = 8,
+	.size = {
+		.width = 344,
+		.height = 194,
 	},
 	.bus_format = MEDIA_BUS_FMT_RGB888_1X7X4_SPWG,
 	.connector_type = DRM_MODE_CONNECTOR_LVDS,
@@ -2811,6 +2843,32 @@ static const struct panel_desc innolux_g121xce_l01 = {
 	.connector_type = DRM_MODE_CONNECTOR_LVDS,
 };
 
+static const struct display_timing innolux_g150xge_l05_timing = {
+	.pixelclock   = { 53350000, 65000000, 80000000 },
+	.hactive      = { 1024, 1024, 1024 },
+	.hfront_porch = { 58, 160, 288 },
+	.hback_porch  = { 58, 160, 288 },
+	.hsync_len    = { 1, 1, 1 },
+	.vactive      = { 768, 768, 768 },
+	.vfront_porch = { 6, 19, 216 },
+	.vback_porch  = { 6, 19, 216 },
+	.vsync_len    = { 1, 1, 1 },
+	.flags        = DISPLAY_FLAGS_DE_HIGH,
+};
+
+static const struct panel_desc innolux_g150xge_l05 = {
+	.timings = &innolux_g150xge_l05_timing,
+	.num_timings = 1,
+	.bpc = 8,
+	.size = {
+		.width  = 304,
+		.height = 228,
+	},
+	.bus_format = MEDIA_BUS_FMT_RGB888_1X7X4_SPWG,
+	.bus_flags = DRM_BUS_FLAG_DE_HIGH,
+	.connector_type = DRM_MODE_CONNECTOR_LVDS,
+};
+
 static const struct display_timing innolux_g156hce_l01_timings = {
 	.pixelclock = { 120000000, 141860000, 150000000 },
 	.hactive = { 1920, 1920, 1920 },
@@ -2887,6 +2945,35 @@ static const struct panel_desc innolux_zj070na_01p = {
 		.width = 154,
 		.height = 90,
 	},
+};
+
+static const struct display_timing jutouch_jt070tm041_timing = {
+	.pixelclock = { 40800000, 51200000, 67200000 },
+	.hactive = { 1024, 1024, 1024 },
+	.hfront_porch = { 16, 160, 216 },
+	.hback_porch = { 160, 160, 160 },
+	.hsync_len = { 1, 1, 140 },
+	.vactive = { 600, 600, 600 },
+	.vfront_porch = { 1, 12, 127 },
+	.vback_porch = { 23, 23, 23 },
+	.vsync_len = { 1, 1, 20 },
+};
+
+static const struct panel_desc jutouch_jt070tm041 = {
+	.timings = &jutouch_jt070tm041_timing,
+	.num_timings = 1,
+	.bpc = 8,
+	.size = {
+		.width = 154,
+		.height = 86,
+	},
+	.delay = {
+		.enable = 50,
+		.disable = 50,
+	},
+	.bus_format = MEDIA_BUS_FMT_RGB888_1X7X4_SPWG,
+	.bus_flags = DRM_BUS_FLAG_DE_HIGH,
+	.connector_type = DRM_MODE_CONNECTOR_LVDS,
 };
 
 static const struct display_timing jutouch_jt101tm023_timing = {
@@ -4017,6 +4104,33 @@ static const struct panel_desc powertip_ph800480t013_idf02  = {
 	.connector_type = DRM_MODE_CONNECTOR_DPI,
 };
 
+static const struct drm_display_mode powertip_ph800480t032_zhc19_mode = {
+	.clock = 27200,
+	.hdisplay = 800,
+	.hsync_start = 800 + 52,
+	.hsync_end = 800 + 52 + 2,
+	.htotal = 800 + 52 + 2 + 44,
+	.vdisplay = 480,
+	.vsync_start = 480 + 7,
+	.vsync_end = 480 + 7 + 2,
+	.vtotal = 480 + 7 + 2 + 2,
+};
+
+static const struct panel_desc powertip_ph800480t032_zhc19 = {
+	.modes = &powertip_ph800480t032_zhc19_mode,
+	.num_modes = 1,
+	.bpc = 8,
+	.size = {
+		.width = 152,
+		.height = 91,
+	},
+	.bus_format = MEDIA_BUS_FMT_RGB888_1X24,
+	.bus_flags = DRM_BUS_FLAG_DE_HIGH |
+		DRM_BUS_FLAG_PIXDATA_SAMPLE_NEGEDGE |
+		DRM_BUS_FLAG_SYNC_SAMPLE_NEGEDGE,
+	.connector_type = DRM_MODE_CONNECTOR_DPI,
+};
+
 static const struct drm_display_mode primeview_pm070wl4_mode = {
 	.clock = 32000,
 	.hdisplay = 800,
@@ -4947,6 +5061,33 @@ static const struct panel_desc vl050_8048nt_c01 = {
 	.bus_flags = DRM_BUS_FLAG_DE_HIGH | DRM_BUS_FLAG_PIXDATA_SAMPLE_NEGEDGE,
 };
 
+static const struct drm_display_mode waveshare_133inch_mode = {
+	.clock = 148500,
+	.hdisplay = 1920,
+	.hsync_start = 1920 + 88,
+	.hsync_end = 1920 + 88 + 44,
+	.htotal = 1920 + 88 + 44 + 148,
+	.vdisplay = 1080,
+	.vsync_start = 1080 + 4,
+	.vsync_end = 1080 + 4 + 5,
+	.vtotal = 1080 + 4 + 5 + 36,
+	.flags = DRM_MODE_FLAG_PVSYNC | DRM_MODE_FLAG_PHSYNC,
+};
+
+static const struct panel_desc waveshare_133inch = {
+	.modes = &waveshare_133inch_mode,
+	.num_modes = 1,
+	.bpc = 8,
+	.size = {
+		.width = 293,
+		.height = 163,
+	},
+	.bus_format = MEDIA_BUS_FMT_RGB888_1X24,
+	.connector_type = DRM_MODE_CONNECTOR_DPI,
+	.bus_flags = DRM_BUS_FLAG_PIXDATA_SAMPLE_POSEDGE |
+		     DRM_BUS_FLAG_SYNC_SAMPLE_POSEDGE,
+};
+
 static const struct drm_display_mode winstar_wf35ltiacd_mode = {
 	.clock = 6410,
 	.hdisplay = 320,
@@ -5197,6 +5338,9 @@ static const struct of_device_id platform_of_match[] = {
 		.compatible = "edt,etm0430g0dh6",
 		.data = &edt_etm0430g0dh6,
 	}, {
+		.compatible = "edt,et057023udba",
+		.data = &edt_et057023udba,
+	}, {
 		.compatible = "edt,et057090dhu",
 		.data = &edt_et057090dhu,
 	}, {
@@ -5236,9 +5380,6 @@ static const struct of_device_id platform_of_match[] = {
 		.compatible = "frida,frd350h54004",
 		.data = &frida_frd350h54004,
 	}, {
-		.compatible = "friendlyarm,hd702e",
-		.data = &friendlyarm_hd702e,
-	}, {
 		.compatible = "giantplus,gpg482739qs5",
 		.data = &giantplus_gpg482739qs5
 	}, {
@@ -5253,6 +5394,9 @@ static const struct of_device_id platform_of_match[] = {
 	}, {
 		.compatible = "hannstar,hsd101pww2",
 		.data = &hannstar_hsd101pww2,
+	}, {
+		.compatible = "hannstar,hsd156juw2",
+		.data = &hannstar_hsd156juw2,
 	}, {
 		.compatible = "hit,tx23d38vm0caa",
 		.data = &hitachi_tx23d38vm0caa
@@ -5287,6 +5431,9 @@ static const struct of_device_id platform_of_match[] = {
 		.compatible = "innolux,g121xce-l01",
 		.data = &innolux_g121xce_l01,
 	}, {
+		.compatible = "innolux,g150xge-l05",
+		.data = &innolux_g150xge_l05,
+	}, {
 		.compatible = "innolux,g156hce-l01",
 		.data = &innolux_g156hce_l01,
 	}, {
@@ -5295,6 +5442,9 @@ static const struct of_device_id platform_of_match[] = {
 	}, {
 		.compatible = "innolux,zj070na-01p",
 		.data = &innolux_zj070na_01p,
+	}, {
+		.compatible = "jutouch,jt070tm041",
+		.data = &jutouch_jt070tm041,
 	}, {
 		.compatible = "jutouch,jt101tm023",
 		.data = &jutouch_jt101tm023,
@@ -5425,6 +5575,9 @@ static const struct of_device_id platform_of_match[] = {
 		.compatible = "powertip,ph800480t013-idf02",
 		.data = &powertip_ph800480t013_idf02,
 	}, {
+		.compatible = "powertip,ph800480t032-zhc19",
+		.data = &powertip_ph800480t032_zhc19,
+	}, {
 		.compatible = "primeview,pm070wl4",
 		.data = &primeview_pm070wl4,
 	}, {
@@ -5488,6 +5641,9 @@ static const struct of_device_id platform_of_match[] = {
 		.compatible = "tianma,p0700wxf1mbaa",
 		.data = &tianma_p0700wxf1mbaa,
 	}, {
+		.compatible = "tianma,tm050rdh03",
+		.data = &ontat_kd50g21_40nt_a1,
+	}, {
 		.compatible = "tianma,tm070jdhg30",
 		.data = &tianma_tm070jdhg30,
 	}, {
@@ -5541,6 +5697,9 @@ static const struct of_device_id platform_of_match[] = {
 	}, {
 		.compatible = "vxt,vl050-8048nt-c01",
 		.data = &vl050_8048nt_c01,
+	}, {
+		.compatible = "waveshare,13.3inch-panel",
+		.data = &waveshare_133inch,
 	}, {
 		.compatible = "winstar,wf35ltiacd",
 		.data = &winstar_wf35ltiacd,

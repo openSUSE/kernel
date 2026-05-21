@@ -70,20 +70,25 @@ int virtio_crypto_ctrl_vq_request(struct virtio_crypto *vcrypto, struct scatterl
 	return 0;
 }
 
-static void virtcrypto_done_task(unsigned long data)
+static void virtcrypto_done_work(struct work_struct *work)
 {
-	struct data_queue *data_vq = (struct data_queue *)data;
+	struct data_queue *data_vq = from_work(data_vq, work, done_work);
 	struct virtqueue *vq = data_vq->vq;
 	struct virtio_crypto_request *vc_req;
+	unsigned long flags;
 	unsigned int len;
 
+	spin_lock_irqsave(&data_vq->lock, flags);
 	do {
 		virtqueue_disable_cb(vq);
 		while ((vc_req = virtqueue_get_buf(vq, &len)) != NULL) {
+			spin_unlock_irqrestore(&data_vq->lock, flags);
 			if (vc_req->alg_cb)
 				vc_req->alg_cb(vc_req, len);
+			spin_lock_irqsave(&data_vq->lock, flags);
 		}
 	} while (!virtqueue_enable_cb(vq));
+	spin_unlock_irqrestore(&data_vq->lock, flags);
 }
 
 static void virtcrypto_dataq_callback(struct virtqueue *vq)
@@ -91,7 +96,7 @@ static void virtcrypto_dataq_callback(struct virtqueue *vq)
 	struct virtio_crypto *vcrypto = vq->vdev->priv;
 	struct data_queue *dq = &vcrypto->data_vq[vq->index];
 
-	tasklet_schedule(&dq->done_task);
+	queue_work(system_bh_wq, &dq->done_work);
 }
 
 static int virtcrypto_find_vqs(struct virtio_crypto *vi)
@@ -110,10 +115,10 @@ static int virtcrypto_find_vqs(struct virtio_crypto *vi)
 	total_vqs = vi->max_data_queues + 1;
 
 	/* Allocate space for find_vqs parameters */
-	vqs = kcalloc(total_vqs, sizeof(*vqs), GFP_KERNEL);
+	vqs = kzalloc_objs(*vqs, total_vqs);
 	if (!vqs)
 		goto err_vq;
-	vqs_info = kcalloc(total_vqs, sizeof(*vqs_info), GFP_KERNEL);
+	vqs_info = kzalloc_objs(*vqs_info, total_vqs);
 	if (!vqs_info)
 		goto err_vqs_info;
 
@@ -145,8 +150,7 @@ static int virtcrypto_find_vqs(struct virtio_crypto *vi)
 			ret = -ENOMEM;
 			goto err_engine;
 		}
-		tasklet_init(&vi->data_vq[i].done_task, virtcrypto_done_task,
-				(unsigned long)&vi->data_vq[i]);
+		INIT_WORK(&vi->data_vq[i].done_work, virtcrypto_done_work);
 	}
 
 	kfree(vqs_info);
@@ -165,8 +169,7 @@ err_vq:
 
 static int virtcrypto_alloc_queues(struct virtio_crypto *vi)
 {
-	vi->data_vq = kcalloc(vi->max_data_queues, sizeof(*vi->data_vq),
-				GFP_KERNEL);
+	vi->data_vq = kzalloc_objs(*vi->data_vq, vi->max_data_queues);
 	if (!vi->data_vq)
 		return -ENOMEM;
 
@@ -497,7 +500,7 @@ static void virtcrypto_remove(struct virtio_device *vdev)
 	if (virtcrypto_dev_started(vcrypto))
 		virtcrypto_dev_stop(vcrypto);
 	for (i = 0; i < vcrypto->max_data_queues; i++)
-		tasklet_kill(&vcrypto->data_vq[i].done_task);
+		cancel_work_sync(&vcrypto->data_vq[i].done_work);
 	virtio_reset_device(vdev);
 	virtcrypto_free_unused_reqs(vcrypto);
 	virtcrypto_clear_crypto_engines(vcrypto);

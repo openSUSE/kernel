@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: GPL-2.0
 
 . "$(cd "$(dirname "$0")" && pwd)"/test_common.sh
-TID="stress_01"
 ERR_CODE=0
 
 ublk_io_and_remove()
@@ -30,5 +29,5 @@ ublk_io_and_remove 256M -t loop -q 4 "${UBLK_BACKFILES[0]}" &
 ublk_io_and_remove 256M -t stripe -q 4 "${UBLK_BACKFILES[1]}" "${UBLK_BACKFILES[2]}" &
 wait
 
-_cleanup_test "stress"
+_cleanup_test
 _show_result $TID $ERR_CODE

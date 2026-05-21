@@ -187,7 +187,6 @@ void set_personality_ia32(bool);
 
 #define ELF_CORE_COPY_REGS(pr_reg, regs)			\
 do {								\
-	unsigned v;						\
 	(pr_reg)[0] = (regs)->r15;				\
 	(pr_reg)[1] = (regs)->r14;				\
 	(pr_reg)[2] = (regs)->r13;				\
@@ -211,10 +210,10 @@ do {								\
 	(pr_reg)[20] = (regs)->ss;				\
 	(pr_reg)[21] = x86_fsbase_read_cpu();			\
 	(pr_reg)[22] = x86_gsbase_read_cpu_inactive();		\
-	asm("movl %%ds,%0" : "=r" (v)); (pr_reg)[23] = v;	\
-	asm("movl %%es,%0" : "=r" (v)); (pr_reg)[24] = v;	\
-	asm("movl %%fs,%0" : "=r" (v)); (pr_reg)[25] = v;	\
-	asm("movl %%gs,%0" : "=r" (v)); (pr_reg)[26] = v;	\
+	savesegment(ds, (pr_reg)[23]);				\
+	savesegment(es, (pr_reg)[24]);				\
+	savesegment(fs, (pr_reg)[25]);				\
+	savesegment(gs, (pr_reg)[26]);				\
 } while (0);
 
 /* I'm not sure if we can use '-' here */
@@ -361,7 +360,7 @@ else if (IS_ENABLED(CONFIG_IA32_EMULATION))				\
 
 #define VDSO_ENTRY							\
 	((unsigned long)current->mm->context.vdso +			\
-	 vdso_image_32.sym___kernel_vsyscall)
+	 vdso32_image.sym___kernel_vsyscall)
 
 struct linux_binprm;
 

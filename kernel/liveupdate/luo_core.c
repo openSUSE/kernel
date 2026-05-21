@@ -35,8 +35,7 @@
  * iommu, interrupts, vfio, participating filesystems, and memory management.
  *
  * LUO uses Kexec Handover to transfer memory state from the current kernel to
- * the next kernel. For more details see
- * Documentation/core-api/kho/concepts.rst.
+ * the next kernel. For more details see Documentation/core-api/kho/index.rst.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -55,6 +54,7 @@
 #include <linux/liveupdate.h>
 #include <linux/miscdevice.h>
 #include <linux/mm.h>
+#include <linux/rwsem.h>
 #include <linux/sizes.h>
 #include <linux/string.h>
 #include <linux/unaligned.h>
@@ -68,6 +68,11 @@ static struct {
 	void *fdt_in;
 	u64 liveupdate_num;
 } luo_global;
+
+/*
+ * luo_register_rwlock - Protects registration of file handlers and FLBs.
+ */
+DECLARE_RWSEM(luo_register_rwlock);
 
 static int __init early_liveupdate_param(char *buf)
 {
@@ -89,7 +94,7 @@ static int __init luo_early_startup(void)
 	}
 
 	/* Retrieve LUO subtree, and verify its format. */
-	err = kho_retrieve_subtree(LUO_FDT_KHO_ENTRY_NAME, &fdt_phys);
+	err = kho_retrieve_subtree(LUO_FDT_KHO_ENTRY_NAME, &fdt_phys, NULL);
 	if (err) {
 		if (err != -ENOENT) {
 			pr_err("failed to retrieve FDT '%s' from KHO: %pe\n",
@@ -128,7 +133,9 @@ static int __init luo_early_startup(void)
 	if (err)
 		return err;
 
-	return 0;
+	err = luo_flb_setup_incoming(luo_global.fdt_in);
+
+	return err;
 }
 
 static int __init liveupdate_early_init(void)
@@ -165,12 +172,14 @@ static int __init luo_fdt_setup(void)
 	err |= fdt_property_string(fdt_out, "compatible", LUO_FDT_COMPATIBLE);
 	err |= fdt_property(fdt_out, LUO_FDT_LIVEUPDATE_NUM, &ln, sizeof(ln));
 	err |= luo_session_setup_outgoing(fdt_out);
+	err |= luo_flb_setup_outgoing(fdt_out);
 	err |= fdt_end_node(fdt_out);
 	err |= fdt_finish(fdt_out);
 	if (err)
 		goto exit_free;
 
-	err = kho_add_subtree(LUO_FDT_KHO_ENTRY_NAME, fdt_out);
+	err = kho_add_subtree(LUO_FDT_KHO_ENTRY_NAME, fdt_out,
+			      fdt_totalsize(fdt_out));
 	if (err)
 		goto exit_free;
 	luo_global.fdt_out = fdt_out;
@@ -226,17 +235,9 @@ int liveupdate_reboot(void)
 	if (err)
 		return err;
 
-	err = kho_finalize();
-	if (err) {
-		pr_err("kho_finalize failed %d\n", err);
-		/*
-		 * kho_finalize() may return libfdt errors, to aboid passing to
-		 * userspace unknown errors, change this to EAGAIN.
-		 */
-		err = -EAGAIN;
-	}
+	luo_flb_serialize();
 
-	return err;
+	return 0;
 }
 
 /**

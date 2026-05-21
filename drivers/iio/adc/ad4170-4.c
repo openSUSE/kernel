@@ -275,9 +275,9 @@ static const unsigned int ad4170_reg_size[] = {
 };
 
 enum ad4170_ref_buf {
-	AD4170_REF_BUF_PRE,	/* Pre-charge referrence buffer */
-	AD4170_REF_BUF_FULL,	/* Full referrence buffering */
-	AD4170_REF_BUF_BYPASS,	/* Bypass referrence buffering */
+	AD4170_REF_BUF_PRE,	/* Pre-charge reference buffer */
+	AD4170_REF_BUF_FULL,	/* Full reference buffering */
+	AD4170_REF_BUF_BYPASS,	/* Bypass reference buffering */
 };
 
 /* maps adi,positive/negative-reference-buffer property values to enum */
@@ -2973,7 +2973,7 @@ static int ad4170_probe(struct spi_device *spi)
 
 	if (spi->irq) {
 		ret = devm_request_irq(dev, spi->irq, &ad4170_irq_handler,
-				       IRQF_ONESHOT, indio_dev->name, indio_dev);
+				       IRQF_NO_THREAD, indio_dev->name, indio_dev);
 		if (ret)
 			return ret;
 

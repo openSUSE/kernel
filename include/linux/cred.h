@@ -33,12 +33,14 @@ struct group_info {
 
 /**
  * get_group_info - Get a reference to a group info structure
- * @group_info: The group info to reference
+ * @gi: The group info to reference
  *
  * This gets a reference to a set of supplementary groups.
  *
  * If the caller is accessing a task's credentials, they must hold the RCU read
  * lock when reading.
+ *
+ * Returns: @gi
  */
 static inline struct group_info *get_group_info(struct group_info *gi)
 {
@@ -164,7 +166,6 @@ static inline const struct cred *kernel_cred(void)
 	return rcu_dereference_raw(init_task.cred);
 }
 extern int set_security_override(struct cred *, u32);
-extern int set_security_override_from_ctx(struct cred *, const char *);
 extern int set_create_files_as(struct cred *, struct inode *);
 extern int cred_fscmp(const struct cred *, const struct cred *);
 extern void __init cred_init(void);
@@ -210,6 +211,8 @@ DEFINE_CLASS(override_creds,
  * usage count.  The purpose of this is to attempt to catch at compile time the
  * accidental alteration of a set of credentials that should be considered
  * immutable.
+ *
+ * Returns: @cred when the references are acquired, NULL otherwise.
  */
 static inline const struct cred *get_cred_many(const struct cred *cred, int nr)
 {
@@ -247,8 +250,8 @@ static inline const struct cred *get_cred_rcu(const struct cred *cred)
 }
 
 /**
- * put_cred - Release a reference to a set of credentials
- * @cred: The credentials to release
+ * put_cred_many - Release a reference to a set of credentials
+ * @_cred: The credentials to release
  * @nr: Number of references to release
  *
  * Release a reference to a set of credentials, deleting them when the last ref

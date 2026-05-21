@@ -480,7 +480,7 @@ static struct urb *uas_alloc_sense_urb(struct uas_dev_info *devinfo, gfp_t gfp,
 	if (!urb)
 		goto out;
 
-	iu = kzalloc(sizeof(*iu), gfp);
+	iu = kzalloc_obj(*iu, gfp);
 	if (!iu)
 		goto free;
 
@@ -636,7 +636,7 @@ static int uas_submit_urbs(struct scsi_cmnd *cmnd,
 	return 0;
 }
 
-static int uas_queuecommand_lck(struct scsi_cmnd *cmnd)
+static enum scsi_qc_status uas_queuecommand_lck(struct scsi_cmnd *cmnd)
 {
 	struct scsi_device *sdev = cmnd->device;
 	struct uas_dev_info *devinfo = sdev->hostdata;
@@ -772,7 +772,7 @@ static int uas_eh_abort_handler(struct scsi_cmnd *cmnd)
 	return FAILED;
 }
 
-static int uas_eh_device_reset_handler(struct scsi_cmnd *cmnd)
+static int uas_eh_host_reset_handler(struct scsi_cmnd *cmnd)
 {
 	struct scsi_device *sdev = cmnd->device;
 	struct uas_dev_info *devinfo = sdev->hostdata;
@@ -918,7 +918,7 @@ static const struct scsi_host_template uas_host_template = {
 	.sdev_init = uas_sdev_init,
 	.sdev_configure = uas_sdev_configure,
 	.eh_abort_handler = uas_eh_abort_handler,
-	.eh_device_reset_handler = uas_eh_device_reset_handler,
+	.eh_host_reset_handler = uas_eh_host_reset_handler,
 	.this_id = -1,
 	.skip_settle_delay = 1,
 	/*

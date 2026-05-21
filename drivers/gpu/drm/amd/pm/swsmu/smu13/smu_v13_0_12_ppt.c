@@ -49,13 +49,23 @@
 #undef pr_info
 #undef pr_debug
 
+#define hbm_stack_mask_valid(umc_mask) \
+	(((umc_mask) & 0x3) == 0x3)
+
+#define for_each_hbm_stack(stack_idx, umc_mask) \
+	for ((stack_idx) = 0; (umc_mask); \
+	     (umc_mask) >>= 2, (stack_idx)++) \
+
 #define SMU_13_0_12_FEA_MAP(smu_feature, smu_13_0_12_feature)                    \
 	[smu_feature] = { 1, (smu_13_0_12_feature) }
 
-#define FEATURE_MASK(feature) (1ULL << feature)
-#define SMC_DPM_FEATURE                                                        \
-	(FEATURE_MASK(FEATURE_DATA_CALCULATION) |                              \
-	 FEATURE_MASK(FEATURE_DPM_GFXCLK) | FEATURE_MASK(FEATURE_DPM_FCLK))
+static const struct smu_feature_bits smu_v13_0_12_dpm_features = {
+	.bits = {
+		SMU_FEATURE_BIT_INIT(FEATURE_DATA_CALCULATION),
+		SMU_FEATURE_BIT_INIT(FEATURE_DPM_GFXCLK),
+		SMU_FEATURE_BIT_INIT(FEATURE_DPM_FCLK)
+	}
+};
 
 #define NUM_JPEG_RINGS_FW	10
 #define NUM_JPEG_RINGS_GPU_METRICS(gpu_metrics) \
@@ -156,9 +166,6 @@ int smu_v13_0_12_tables_init(struct smu_context *smu)
 {
 	struct amdgpu_baseboard_temp_metrics_v1_0 *baseboard_temp_metrics;
 	struct amdgpu_gpuboard_temp_metrics_v1_0 *gpuboard_temp_metrics;
-	struct smu_table_context *smu_table = &smu->smu_table;
-	struct smu_table *tables = smu_table->tables;
-	struct smu_table_cache *cache;
 	int ret;
 
 	ret = smu_table_cache_init(smu, SMU_TABLE_PMFW_SYSTEM_METRICS,
@@ -167,25 +174,28 @@ int smu_v13_0_12_tables_init(struct smu_context *smu)
 	if (ret)
 		return ret;
 
-	ret = smu_table_cache_init(smu, SMU_TABLE_BASEBOARD_TEMP_METRICS,
-				   sizeof(*baseboard_temp_metrics), 50);
+	ret = smu_driver_table_init(smu,
+				    SMU_DRIVER_TABLE_BASEBOARD_TEMP_METRICS,
+				    sizeof(*baseboard_temp_metrics), 50);
 	if (ret)
 		return ret;
 	/* Initialize base board temperature metrics */
-	cache = &(tables[SMU_TABLE_BASEBOARD_TEMP_METRICS].cache);
-	baseboard_temp_metrics =
-		(struct amdgpu_baseboard_temp_metrics_v1_0 *) cache->buffer;
+	baseboard_temp_metrics = (struct amdgpu_baseboard_temp_metrics_v1_0 *)
+		smu_driver_table_ptr(smu,
+				     SMU_DRIVER_TABLE_BASEBOARD_TEMP_METRICS);
 	smu_cmn_init_baseboard_temp_metrics(baseboard_temp_metrics, 1, 0);
 	/* Initialize GPU board temperature metrics */
-	ret = smu_table_cache_init(smu, SMU_TABLE_GPUBOARD_TEMP_METRICS,
-				   sizeof(*gpuboard_temp_metrics), 50);
+	ret = smu_driver_table_init(smu, SMU_DRIVER_TABLE_GPUBOARD_TEMP_METRICS,
+				    sizeof(*gpuboard_temp_metrics), 50);
 	if (ret) {
 		smu_table_cache_fini(smu, SMU_TABLE_PMFW_SYSTEM_METRICS);
-		smu_table_cache_fini(smu, SMU_TABLE_BASEBOARD_TEMP_METRICS);
+		smu_driver_table_fini(smu,
+				      SMU_DRIVER_TABLE_BASEBOARD_TEMP_METRICS);
 		return ret;
 	}
-	cache = &(tables[SMU_TABLE_GPUBOARD_TEMP_METRICS].cache);
-	gpuboard_temp_metrics = (struct amdgpu_gpuboard_temp_metrics_v1_0 *)cache->buffer;
+	gpuboard_temp_metrics = (struct amdgpu_gpuboard_temp_metrics_v1_0 *)
+		smu_driver_table_ptr(smu,
+				     SMU_DRIVER_TABLE_GPUBOARD_TEMP_METRICS);
 	smu_cmn_init_gpuboard_temp_metrics(gpuboard_temp_metrics, 1, 0);
 
 	return 0;
@@ -193,20 +203,20 @@ int smu_v13_0_12_tables_init(struct smu_context *smu)
 
 void smu_v13_0_12_tables_fini(struct smu_context *smu)
 {
-	smu_table_cache_fini(smu, SMU_TABLE_BASEBOARD_TEMP_METRICS);
-	smu_table_cache_fini(smu, SMU_TABLE_GPUBOARD_TEMP_METRICS);
+	smu_driver_table_fini(smu, SMU_DRIVER_TABLE_BASEBOARD_TEMP_METRICS);
+	smu_driver_table_fini(smu, SMU_DRIVER_TABLE_GPUBOARD_TEMP_METRICS);
 	smu_table_cache_fini(smu, SMU_TABLE_PMFW_SYSTEM_METRICS);
 }
 
 static int smu_v13_0_12_get_enabled_mask(struct smu_context *smu,
-					 uint64_t *feature_mask)
+					 struct smu_feature_bits *feature_mask)
 {
 	int ret;
 
 	ret = smu_cmn_get_enabled_mask(smu, feature_mask);
 
 	if (ret == -EIO) {
-		*feature_mask = 0;
+		smu_feature_bits_clearall(feature_mask);
 		ret = 0;
 	}
 
@@ -220,7 +230,7 @@ static int smu_v13_0_12_fru_get_product_info(struct smu_context *smu,
 	struct amdgpu_device *adev = smu->adev;
 
 	if (!adev->fru_info) {
-		adev->fru_info = kzalloc(sizeof(*adev->fru_info), GFP_KERNEL);
+		adev->fru_info = kzalloc_obj(*adev->fru_info);
 		if (!adev->fru_info)
 			return -ENOMEM;
 	}
@@ -259,8 +269,9 @@ static void smu_v13_0_12_init_xgmi_data(struct smu_context *smu,
 	int ret;
 
 	if (smu_table->tables[SMU_TABLE_SMU_METRICS].version >= 0x13) {
-		max_width = (uint8_t)static_metrics->MaxXgmiWidth;
-		max_speed = (uint16_t)static_metrics->MaxXgmiBitrate;
+		max_width = (uint8_t)SMUQ10_ROUND(static_metrics->MaxXgmiWidth);
+		max_speed =
+			(uint16_t)SMUQ10_ROUND(static_metrics->MaxXgmiBitrate);
 		ret = 0;
 	} else {
 		MetricsTable_t *metrics = (MetricsTable_t *)smu_table->metrics_table;
@@ -372,14 +383,15 @@ int smu_v13_0_12_setup_driver_pptable(struct smu_context *smu)
 bool smu_v13_0_12_is_dpm_running(struct smu_context *smu)
 {
 	int ret;
-	uint64_t feature_enabled;
+	struct smu_feature_bits feature_enabled;
 
 	ret = smu_v13_0_12_get_enabled_mask(smu, &feature_enabled);
 
 	if (ret)
 		return false;
 
-	return !!(feature_enabled & SMC_DPM_FEATURE);
+	return smu_feature_bits_test_mask(&feature_enabled,
+					  smu_v13_0_12_dpm_features.bits);
 }
 
 int smu_v13_0_12_get_smu_metrics_data(struct smu_context *smu,
@@ -467,9 +479,14 @@ static int smu_v13_0_12_get_system_metrics_table(struct smu_context *smu)
 	}
 
 	amdgpu_hdp_invalidate(smu->adev, NULL);
+
+	ret = smu_cmn_vram_cpy(smu, sys_table->cache.buffer,
+			       table->cpu_addr,
+			       smu_v13_0_12_get_system_metrics_size());
+	if (ret)
+		return ret;
+
 	smu_table_cache_update_time(sys_table, jiffies);
-	memcpy(sys_table->cache.buffer, table->cpu_addr,
-	       smu_v13_0_12_get_system_metrics_size());
 
 	return 0;
 }
@@ -601,6 +618,40 @@ static bool smu_v13_0_12_is_temp_metrics_supported(struct smu_context *smu,
 	return false;
 }
 
+int smu_v13_0_12_get_system_power(struct smu_context *smu,
+				  enum amd_pp_sensors sensor,
+				  uint32_t *value)
+{
+	struct smu_table_context *smu_table = &smu->smu_table;
+	struct smu_table *tables = smu_table->tables;
+	SystemMetricsTable_t *metrics;
+	struct smu_table *sys_table;
+	int ret;
+
+	if (!smu_v13_0_6_cap_supported(smu, SMU_CAP(SYSTEM_POWER_METRICS)))
+		return -EOPNOTSUPP;
+
+	ret = smu_v13_0_12_get_system_metrics_table(smu);
+	if (ret)
+		return ret;
+
+	sys_table = &tables[SMU_TABLE_PMFW_SYSTEM_METRICS];
+	metrics = (SystemMetricsTable_t *)sys_table->cache.buffer;
+
+	switch (sensor) {
+	case AMDGPU_PP_SENSOR_UBB_POWER:
+		*value = metrics->SystemPower[SYSTEM_POWER_UBB_POWER];
+		break;
+	case AMDGPU_PP_SENSOR_UBB_POWER_LIMIT:
+		*value = metrics->SystemPower[SYSTEM_POWER_UBB_POWER_THRESHOLD];
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return ret;
+}
+
 int smu_v13_0_12_get_npm_data(struct smu_context *smu,
 			      enum amd_pp_sensors sensor,
 			      uint32_t *value)
@@ -652,29 +703,12 @@ static ssize_t smu_v13_0_12_get_temp_metrics(struct smu_context *smu,
 	struct amdgpu_gpuboard_temp_metrics_v1_0 *gpuboard_temp_metrics;
 	struct smu_table_context *smu_table = &smu->smu_table;
 	struct smu_table *tables = smu_table->tables;
+	enum smu_driver_table_id table_id;
 	SystemMetricsTable_t *metrics;
-	struct smu_table *data_table;
 	struct smu_table *sys_table;
 	int ret, sensor_type;
 	u32 idx, sensors;
 	ssize_t size;
-
-	if (type == SMU_TEMP_METRIC_BASEBOARD) {
-		/* Initialize base board temperature metrics */
-		data_table =
-			&smu->smu_table.tables[SMU_TABLE_BASEBOARD_TEMP_METRICS];
-		baseboard_temp_metrics =
-			(struct amdgpu_baseboard_temp_metrics_v1_0 *)
-				data_table->cache.buffer;
-		size = sizeof(*baseboard_temp_metrics);
-	} else {
-		data_table =
-			&smu->smu_table.tables[SMU_TABLE_GPUBOARD_TEMP_METRICS];
-		gpuboard_temp_metrics =
-			(struct amdgpu_gpuboard_temp_metrics_v1_0 *)
-				data_table->cache.buffer;
-		size = sizeof(*baseboard_temp_metrics);
-	}
 
 	ret = smu_v13_0_12_get_system_metrics_table(smu);
 	if (ret)
@@ -682,9 +716,15 @@ static ssize_t smu_v13_0_12_get_temp_metrics(struct smu_context *smu,
 
 	sys_table = &tables[SMU_TABLE_PMFW_SYSTEM_METRICS];
 	metrics = (SystemMetricsTable_t *)sys_table->cache.buffer;
-	smu_table_cache_update_time(data_table, jiffies);
 
-	if (type == SMU_TEMP_METRIC_GPUBOARD) {
+	switch (type) {
+	case SMU_TEMP_METRIC_GPUBOARD:
+		table_id = SMU_DRIVER_TABLE_GPUBOARD_TEMP_METRICS;
+		gpuboard_temp_metrics =
+			(struct amdgpu_gpuboard_temp_metrics_v1_0 *)
+				smu_driver_table_ptr(smu, table_id);
+		size = sizeof(*gpuboard_temp_metrics);
+
 		gpuboard_temp_metrics->accumulation_counter = metrics->AccumulationCounter;
 		gpuboard_temp_metrics->label_version = metrics->LabelVersion;
 		gpuboard_temp_metrics->node_id = metrics->NodeIdentifier;
@@ -711,7 +751,15 @@ static ssize_t smu_v13_0_12_get_temp_metrics(struct smu_context *smu,
 				idx++;
 			}
 		}
-	} else if (type == SMU_TEMP_METRIC_BASEBOARD) {
+		memcpy(table, gpuboard_temp_metrics, size);
+		break;
+	case SMU_TEMP_METRIC_BASEBOARD:
+		table_id = SMU_DRIVER_TABLE_BASEBOARD_TEMP_METRICS;
+		baseboard_temp_metrics =
+			(struct amdgpu_baseboard_temp_metrics_v1_0 *)
+				smu_driver_table_ptr(smu, table_id);
+		size = sizeof(*baseboard_temp_metrics);
+
 		baseboard_temp_metrics->accumulation_counter = metrics->AccumulationCounter;
 		baseboard_temp_metrics->label_version = metrics->LabelVersion;
 		baseboard_temp_metrics->node_id = metrics->NodeIdentifier;
@@ -726,9 +774,12 @@ static ssize_t smu_v13_0_12_get_temp_metrics(struct smu_context *smu,
 				idx++;
 			}
 		}
+		memcpy(table, baseboard_temp_metrics, size);
+		break;
+	default:
+		return -EINVAL;
 	}
-
-	memcpy(table, data_table->cache.buffer, size);
+	smu_driver_table_update_cache_time(smu, table_id);
 
 	return size;
 }
@@ -785,6 +836,9 @@ ssize_t smu_v13_0_12_get_xcp_metrics(struct smu_context *smu, struct amdgpu_xcp 
 		idx++;
 	}
 
+	xcp_metrics->accumulation_counter = metrics->AccumulationCounter;
+	xcp_metrics->firmware_timestamp = metrics->Timestamp;
+
 	return sizeof(*xcp_metrics);
 }
 
@@ -793,7 +847,7 @@ void smu_v13_0_12_get_gpu_metrics(struct smu_context *smu, void **table,
 				  struct smu_v13_0_6_gpu_metrics *gpu_metrics)
 {
 	struct amdgpu_device *adev = smu->adev;
-	int ret = 0, xcc_id, inst, i, j;
+	int ret = 0, xcc_id, inst, i, j, idx;
 	u8 num_jpeg_rings_gpu_metrics;
 	MetricsTable_t *metrics;
 
@@ -807,6 +861,31 @@ void smu_v13_0_12_get_gpu_metrics(struct smu_context *smu, void **table,
 	/* Reports max temperature of all voltage rails */
 	gpu_metrics->temperature_vrsoc =
 		SMUQ10_ROUND(metrics->MaxVrTemperature);
+
+	if (smu_v13_0_6_cap_supported(smu,
+				      SMU_CAP(TEMP_AID_XCD_HBM))) {
+		if (adev->umc.active_mask) {
+			u64 mask = adev->umc.active_mask;
+			int out_idx = 0;
+			int stack_idx;
+
+			if (unlikely(hweight64(mask) / 2 > SMU_13_0_6_MAX_HBM_STACKS)) {
+				dev_warn(adev->dev, "Invalid umc mask %lld\n", mask);
+			} else  {
+				for_each_hbm_stack(stack_idx, mask) {
+					if (!hbm_stack_mask_valid(mask))
+						continue;
+					gpu_metrics->temperature_hbm[out_idx++] =
+						metrics->HbmTemperature[stack_idx];
+				}
+			}
+		}
+		idx = 0;
+		for_each_inst(i, adev->aid_mask) {
+			gpu_metrics->temperature_aid[idx] = metrics->AidTemperature[i];
+			idx++;
+		}
+	}
 
 	gpu_metrics->average_gfx_activity =
 		SMUQ10_ROUND(metrics->SocketGfxBusy);
@@ -922,7 +1001,10 @@ void smu_v13_0_12_get_gpu_metrics(struct smu_context *smu, void **table,
 			gpu_metrics->gfx_below_host_limit_total_acc
 				[i] = SMUQ10_ROUND(
 				metrics->GfxclkBelowHostLimitTotalAcc[inst]);
-		};
+		}
+		if (smu_v13_0_6_cap_supported(smu,
+					      SMU_CAP(TEMP_AID_XCD_HBM)))
+			gpu_metrics->temperature_xcd[i] = metrics->XcdTemperature[inst];
 	}
 
 	gpu_metrics->xgmi_link_width = metrics->XgmiWidth;

@@ -14,12 +14,8 @@
 #include <drm/drm_print.h>
 
 #include "regs/xe_bars.h"
-#include "regs/xe_regs.h"
 #include "xe_device.h"
-#include "xe_gt.h"
-#include "xe_gt_printk.h"
 #include "xe_gt_sriov_vf.h"
-#include "xe_macros.h"
 #include "xe_sriov.h"
 #include "xe_trace.h"
 #include "xe_wa.h"
@@ -158,6 +154,15 @@ u8 xe_mmio_read8(struct xe_mmio *mmio, struct xe_reg reg)
 	return val;
 }
 
+void xe_mmio_write8(struct xe_mmio *mmio, struct xe_reg reg, u8 val)
+{
+	u32 addr = xe_mmio_adjusted_addr(mmio, reg.addr);
+
+	trace_xe_reg_rw(mmio, true, addr, val, sizeof(val));
+
+	writeb(val, mmio->regs + addr);
+}
+
 u16 xe_mmio_read16(struct xe_mmio *mmio, struct xe_reg reg)
 {
 	u32 addr = xe_mmio_adjusted_addr(mmio, reg.addr);
@@ -260,11 +265,11 @@ u64 xe_mmio_read64_2x32(struct xe_mmio *mmio, struct xe_reg reg)
 	struct xe_reg reg_udw = { .addr = reg.addr + 0x4 };
 	u32 ldw, udw, oldudw, retries;
 
-	reg.addr = xe_mmio_adjusted_addr(mmio, reg.addr);
-	reg_udw.addr = xe_mmio_adjusted_addr(mmio, reg_udw.addr);
-
-	/* we shouldn't adjust just one register address */
-	xe_tile_assert(mmio->tile, reg_udw.addr == reg.addr + 0x4);
+	/*
+	 * The two dwords of a 64-bit register can never straddle the offset
+	 * adjustment cutoff.
+	 */
+	xe_tile_assert(mmio->tile, !in_range(mmio->adj_limit, reg.addr + 1, 7));
 
 	oldudw = xe_mmio_read32(mmio, reg_udw);
 	for (retries = 5; retries; --retries) {

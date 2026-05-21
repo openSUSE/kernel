@@ -436,14 +436,13 @@ static int ravb_ring_init(struct net_device *ndev, int q)
 		goto error;
 
 	/* Allocate RX buffers */
-	priv->rx_buffers[q] = kcalloc(priv->num_rx_ring[q],
-				      sizeof(*priv->rx_buffers[q]), GFP_KERNEL);
+	priv->rx_buffers[q] = kzalloc_objs(*priv->rx_buffers[q],
+					   priv->num_rx_ring[q]);
 	if (!priv->rx_buffers[q])
 		goto error;
 
 	/* Allocate TX skb rings */
-	priv->tx_skb[q] = kcalloc(priv->num_tx_ring[q],
-				  sizeof(*priv->tx_skb[q]), GFP_KERNEL);
+	priv->tx_skb[q] = kzalloc_objs(*priv->tx_skb[q], priv->num_tx_ring[q]);
 	if (!priv->tx_skb[q])
 		goto error;
 
@@ -694,6 +693,9 @@ static int ravb_dmac_init(struct net_device *ndev)
 	struct ravb_private *priv = netdev_priv(ndev);
 	const struct ravb_hw_info *info = priv->info;
 	int error;
+
+	/* Clear transmission suspension */
+	ravb_modify(ndev, CCC, CCC_DTSR, 0);
 
 	/* Set CONFIG mode */
 	error = ravb_set_opmode(ndev, CCC_OPC_CONFIG);
@@ -1103,6 +1105,12 @@ static int ravb_stop_dma(struct net_device *ndev)
 	error = ravb_wait(ndev, CSR, CSR_RPO, 0);
 	if (error)
 		return error;
+
+	/* Request for transmission suspension */
+	ravb_modify(ndev, CCC, CCC_DTSR, CCC_DTSR);
+	error = ravb_wait(ndev, CSR, CSR_DTS, CSR_DTS);
+	if (error)
+		netdev_err(ndev, "failed to stop AXI BUS\n");
 
 	/* Stop AVB-DMAC process */
 	return ravb_set_opmode(ndev, CCC_OPC_CONFIG);
@@ -2199,7 +2207,7 @@ static netdev_tx_t ravb_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	/* TX timestamp required */
 	if (info->gptp || info->ccc_gac) {
 		if (q == RAVB_NC) {
-			ts_skb = kmalloc(sizeof(*ts_skb), GFP_ATOMIC);
+			ts_skb = kmalloc_obj(*ts_skb, GFP_ATOMIC);
 			if (!ts_skb) {
 				if (num_tx_desc > 1) {
 					desc--;
@@ -2368,6 +2376,7 @@ static int ravb_close(struct net_device *ndev)
 	ravb_write(ndev, 0, RIC0);
 	ravb_write(ndev, 0, RIC2);
 	ravb_write(ndev, 0, TIC);
+	ravb_write(ndev, 0, ECSIPR);
 
 	/* PHY disconnect */
 	if (ndev->phydev) {

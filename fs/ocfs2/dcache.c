@@ -145,7 +145,7 @@ struct dentry *ocfs2_find_local_alias(struct inode *inode,
 	struct dentry *dentry;
 
 	spin_lock(&inode->i_lock);
-	hlist_for_each_entry(dentry, &inode->i_dentry, d_u.d_alias) {
+	for_each_alias(dentry, inode) {
 		spin_lock(&dentry->d_lock);
 		if (ocfs2_match_dentry(dentry, parent_blkno, skip_unhashed)) {
 			trace_ocfs2_find_local_alias(dentry->d_name.len,
@@ -265,7 +265,7 @@ int ocfs2_dentry_attach_lock(struct dentry *dentry,
 	/*
 	 * There are no other aliases
 	 */
-	dl = kmalloc(sizeof(*dl), GFP_NOFS);
+	dl = kmalloc_obj(*dl, GFP_NOFS);
 	if (!dl) {
 		ret = -ENOMEM;
 		mlog_errno(ret);

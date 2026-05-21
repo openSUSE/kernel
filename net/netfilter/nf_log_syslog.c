@@ -78,7 +78,10 @@ dump_arp_packet(struct nf_log_buf *m,
 	else
 		logflags = NF_LOG_DEFAULT_MASK;
 
-	if (logflags & NF_LOG_MACDECODE) {
+	if ((logflags & NF_LOG_MACDECODE) &&
+	    skb->dev && skb->dev->type == ARPHRD_ETHER &&
+	    skb_mac_header_was_set(skb) &&
+	    skb_mac_header_len(skb) >= ETH_HLEN) {
 		nf_log_buf_add(m, "MACSRC=%pM MACDST=%pM ",
 			       eth_hdr(skb)->h_source, eth_hdr(skb)->h_dest);
 		nf_log_dump_vlan(m, skb);
@@ -165,18 +168,26 @@ static struct nf_logger nf_arp_logger __read_mostly = {
 static void nf_log_dump_sk_uid_gid(struct net *net, struct nf_log_buf *m,
 				   struct sock *sk)
 {
+	const struct socket *sock;
+	const struct file *file;
+
 	if (!sk || !sk_fullsock(sk) || !net_eq(net, sock_net(sk)))
 		return;
 
-	read_lock_bh(&sk->sk_callback_lock);
-	if (sk->sk_socket && sk->sk_socket->file) {
-		const struct cred *cred = sk->sk_socket->file->f_cred;
+	/* The sk pointer remains valid as long as the skb is. The sk_socket and
+	 * file pointer may become NULL if the socket is closed. Both structures
+	 * (including file->cred) are RCU freed which means they can be accessed
+	 * within a RCU read section.
+	 */
+	sock = READ_ONCE(sk->sk_socket);
+	file = sock ? READ_ONCE(sock->file) : NULL;
+	if (file) {
+		const struct cred *cred = file->f_cred;
 
 		nf_log_buf_add(m, "UID=%u GID=%u ",
 			       from_kuid_munged(&init_user_ns, cred->fsuid),
 			       from_kgid_munged(&init_user_ns, cred->fsgid));
 	}
-	read_unlock_bh(&sk->sk_callback_lock);
 }
 
 static noinline_for_stack int
@@ -561,7 +572,7 @@ dump_ipv6_packet(struct net *net, struct nf_log_buf *m,
 
 	/* Max length: 44 "LEN=65535 TC=255 HOPLIMIT=255 FLOWLBL=FFFFF " */
 	nf_log_buf_add(m, "LEN=%zu TC=%u HOPLIMIT=%u FLOWLBL=%u ",
-		       ntohs(ih->payload_len) + sizeof(struct ipv6hdr),
+		       ipv6_payload_len(skb, ih) + sizeof(struct ipv6hdr),
 		       (ntohl(*(__be32 *)ih) & 0x0ff00000) >> 20,
 		       ih->hop_limit,
 		       (ntohl(*(__be32 *)ih) & 0x000fffff));
@@ -789,6 +800,9 @@ static void dump_mac_header(struct nf_log_buf *m,
 
 	switch (dev->type) {
 	case ARPHRD_ETHER:
+		if (!skb_mac_header_was_set(skb) || skb_mac_header_len(skb) < ETH_HLEN)
+			return;
+
 		nf_log_buf_add(m, "MACSRC=%pM MACDST=%pM ",
 			       eth_hdr(skb)->h_source, eth_hdr(skb)->h_dest);
 		nf_log_dump_vlan(m, skb);

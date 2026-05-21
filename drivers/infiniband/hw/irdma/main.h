@@ -23,6 +23,7 @@
 #include <linux/workqueue.h>
 #include <linux/slab.h>
 #include <linux/io.h>
+#include <linux/iopoll.h>
 #include <linux/crc32c.h>
 #include <linux/kthread.h>
 #ifndef CONFIG_64BIT
@@ -36,8 +37,8 @@
 #include <rdma/rdma_cm.h>
 #include <rdma/iw_cm.h>
 #include <rdma/ib_user_verbs.h>
-#include <rdma/ib_umem.h>
 #include <rdma/ib_cache.h>
+#include <rdma/iter.h>
 #include <rdma/uverbs_ioctl.h>
 #include "osdep.h"
 #include "defs.h"
@@ -528,6 +529,7 @@ void irdma_cq_wq_destroy(struct irdma_pci_f *rf, struct irdma_sc_cq *cq);
 void irdma_srq_event(struct irdma_sc_srq *srq);
 void irdma_srq_wq_destroy(struct irdma_pci_f *rf, struct irdma_sc_srq *srq);
 void irdma_cleanup_pending_cqp_op(struct irdma_pci_f *rf);
+int irdma_get_timeout_threshold(struct irdma_sc_dev *dev);
 int irdma_hw_modify_qp(struct irdma_device *iwdev, struct irdma_qp *iwqp,
 		       struct irdma_modify_qp_info *info, bool wait);
 int irdma_qp_suspend_resume(struct irdma_sc_qp *qp, bool suspend);

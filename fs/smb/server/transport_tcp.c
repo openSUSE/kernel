@@ -40,6 +40,7 @@ static const struct ksmbd_transport_ops ksmbd_tcp_transport_ops;
 
 static void tcp_stop_kthread(struct task_struct *kthread);
 static struct interface *alloc_iface(char *ifname);
+static void ksmbd_tcp_disconnect(struct ksmbd_transport *t);
 
 #define KSMBD_TRANS(t)	(&(t)->transport)
 #define TCP_TRANS(t)	((struct tcp_transport *)container_of(t, \
@@ -60,7 +61,7 @@ static struct tcp_transport *alloc_transport(struct socket *client_sk)
 	struct tcp_transport *t;
 	struct ksmbd_conn *conn;
 
-	t = kzalloc(sizeof(*t), KSMBD_DEFAULT_GFP);
+	t = kzalloc_obj(*t, KSMBD_DEFAULT_GFP);
 	if (!t)
 		return NULL;
 	t->sock = client_sk;
@@ -155,7 +156,7 @@ static struct kvec *get_conn_iovec(struct tcp_transport *t, unsigned int nr_segs
 		return t->iov;
 
 	/* not big enough -- allocate a new one and release the old */
-	new_iov = kmalloc_array(nr_segs, sizeof(*new_iov), KSMBD_DEFAULT_GFP);
+	new_iov = kmalloc_objs(*new_iov, nr_segs, KSMBD_DEFAULT_GFP);
 	if (new_iov) {
 		kfree(t->iov);
 		t->iov = new_iov;
@@ -182,6 +183,8 @@ static int ksmbd_tcp_new_connection(struct socket *client_sk)
 	t = alloc_transport(client_sk);
 	if (!t) {
 		sock_release(client_sk);
+		if (server_conf.max_connections)
+			atomic_dec(&active_num_conn);
 		return -ENOMEM;
 	}
 
@@ -202,7 +205,7 @@ static int ksmbd_tcp_new_connection(struct socket *client_sk)
 	if (IS_ERR(handler)) {
 		pr_err("cannot start conn thread\n");
 		rc = PTR_ERR(handler);
-		free_transport(t);
+		ksmbd_tcp_disconnect(KSMBD_TRANS(t));
 	}
 	return rc;
 }
@@ -278,7 +281,7 @@ static int ksmbd_kthread_fn(void *p)
 
 skip_max_ip_conns_limit:
 		if (server_conf.max_connections &&
-		    atomic_inc_return(&active_num_conn) >= server_conf.max_connections) {
+		    atomic_inc_return(&active_num_conn) > server_conf.max_connections) {
 			pr_info_ratelimited("Limit the maximum number of connections(%u)\n",
 					    atomic_read(&active_num_conn));
 			atomic_dec(&active_num_conn);
@@ -635,7 +638,7 @@ static struct interface *alloc_iface(char *ifname)
 	if (!ifname)
 		return NULL;
 
-	iface = kzalloc(sizeof(struct interface), KSMBD_DEFAULT_GFP);
+	iface = kzalloc_obj(struct interface, KSMBD_DEFAULT_GFP);
 	if (!iface) {
 		kfree(ifname);
 		return NULL;

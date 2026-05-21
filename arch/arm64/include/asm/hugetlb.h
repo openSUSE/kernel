@@ -56,8 +56,6 @@ extern void huge_pte_clear(struct mm_struct *mm, unsigned long addr,
 #define __HAVE_ARCH_HUGE_PTEP_GET
 extern pte_t huge_ptep_get(struct mm_struct *mm, unsigned long addr, pte_t *ptep);
 
-void __init arm64_hugetlb_cma_reserve(void);
-
 #define huge_ptep_modify_prot_start huge_ptep_modify_prot_start
 extern pte_t huge_ptep_modify_prot_start(struct vm_area_struct *vma,
 					 unsigned long addr, pte_t *ptep);
@@ -73,23 +71,23 @@ static inline void __flush_hugetlb_tlb_range(struct vm_area_struct *vma,
 					     unsigned long start,
 					     unsigned long end,
 					     unsigned long stride,
-					     bool last_level)
+					     tlbf_t flags)
 {
 	switch (stride) {
 #ifndef __PAGETABLE_PMD_FOLDED
 	case PUD_SIZE:
-		__flush_tlb_range(vma, start, end, PUD_SIZE, last_level, 1);
+		__flush_tlb_range(vma, start, end, PUD_SIZE, 1, flags);
 		break;
 #endif
 	case CONT_PMD_SIZE:
 	case PMD_SIZE:
-		__flush_tlb_range(vma, start, end, PMD_SIZE, last_level, 2);
+		__flush_tlb_range(vma, start, end, PMD_SIZE, 2, flags);
 		break;
 	case CONT_PTE_SIZE:
-		__flush_tlb_range(vma, start, end, PAGE_SIZE, last_level, 3);
+		__flush_tlb_range(vma, start, end, PAGE_SIZE, 3, flags);
 		break;
 	default:
-		__flush_tlb_range(vma, start, end, PAGE_SIZE, last_level, TLBI_TTL_UNKNOWN);
+		__flush_tlb_range(vma, start, end, PAGE_SIZE, TLBI_TTL_UNKNOWN, flags);
 	}
 }
 
@@ -100,7 +98,7 @@ static inline void flush_hugetlb_tlb_range(struct vm_area_struct *vma,
 {
 	unsigned long stride = huge_page_size(hstate_vma(vma));
 
-	__flush_hugetlb_tlb_range(vma, start, end, stride, false);
+	__flush_hugetlb_tlb_range(vma, start, end, stride, TLBF_NONE);
 }
 
 #endif /* __ASM_HUGETLB_H */

@@ -162,7 +162,7 @@ static struct cs_spec *cs_alloc_spec(struct hda_codec *codec, int vendor_nid)
 {
 	struct cs_spec *spec;
 
-	spec = kzalloc(sizeof(*spec), GFP_KERNEL);
+	spec = kzalloc_obj(*spec);
 	if (!spec)
 		return NULL;
 	codec->spec = spec;
@@ -442,14 +442,9 @@ static int cs421x_init(struct hda_codec *codec)
 
 	snd_hda_gen_init(codec);
 
-	if (spec->gpio_mask) {
-		snd_hda_codec_write(codec, 0x01, 0, AC_VERB_SET_GPIO_MASK,
-				    spec->gpio_mask);
-		snd_hda_codec_write(codec, 0x01, 0, AC_VERB_SET_GPIO_DIRECTION,
-				    spec->gpio_dir);
-		snd_hda_codec_write(codec, 0x01, 0, AC_VERB_SET_GPIO_DATA,
-				    spec->gpio_data);
-	}
+	if (spec->gpio_mask)
+		snd_hda_codec_set_gpio(codec, spec->gpio_mask, spec->gpio_dir,
+				       spec->gpio_data, 0);
 
 	cs4210_spdif_automute(codec, NULL);
 

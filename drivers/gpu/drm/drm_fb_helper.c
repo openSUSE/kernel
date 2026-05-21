@@ -37,6 +37,7 @@
 #include <drm/drm_fb_helper.h>
 #include <drm/drm_fourcc.h>
 #include <drm/drm_framebuffer.h>
+#include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_modeset_helper_vtables.h>
 #include <drm/drm_print.h>
 #include <drm/drm_vblank.h>
@@ -75,9 +76,6 @@ MODULE_PARM_DESC(drm_leak_fbdev_smem,
 		 "Allow unsafe leaking fbdev physical smem address [default=false]");
 #endif
 
-static LIST_HEAD(kernel_fb_helper_list);
-static DEFINE_MUTEX(kernel_fb_helper_lock);
-
 /**
  * DOC: fbdev helpers
  *
@@ -114,101 +112,6 @@ static DEFINE_MUTEX(kernel_fb_helper_lock);
  * callback it will also schedule dirty_work with the damage collected from the
  * mmap page writes.
  */
-
-static void drm_fb_helper_restore_lut_atomic(struct drm_crtc *crtc)
-{
-	uint16_t *r_base, *g_base, *b_base;
-
-	if (crtc->funcs->gamma_set == NULL)
-		return;
-
-	r_base = crtc->gamma_store;
-	g_base = r_base + crtc->gamma_size;
-	b_base = g_base + crtc->gamma_size;
-
-	crtc->funcs->gamma_set(crtc, r_base, g_base, b_base,
-			       crtc->gamma_size, NULL);
-}
-
-/**
- * drm_fb_helper_debug_enter - implementation for &fb_ops.fb_debug_enter
- * @info: fbdev registered by the helper
- */
-int drm_fb_helper_debug_enter(struct fb_info *info)
-{
-	struct drm_fb_helper *helper = info->par;
-	const struct drm_crtc_helper_funcs *funcs;
-	struct drm_mode_set *mode_set;
-
-	list_for_each_entry(helper, &kernel_fb_helper_list, kernel_fb_list) {
-		mutex_lock(&helper->client.modeset_mutex);
-		drm_client_for_each_modeset(mode_set, &helper->client) {
-			if (!mode_set->crtc->enabled)
-				continue;
-
-			funcs =	mode_set->crtc->helper_private;
-			if (funcs->mode_set_base_atomic == NULL)
-				continue;
-
-			if (drm_drv_uses_atomic_modeset(mode_set->crtc->dev))
-				continue;
-
-			funcs->mode_set_base_atomic(mode_set->crtc,
-						    mode_set->fb,
-						    mode_set->x,
-						    mode_set->y,
-						    ENTER_ATOMIC_MODE_SET);
-		}
-		mutex_unlock(&helper->client.modeset_mutex);
-	}
-
-	return 0;
-}
-EXPORT_SYMBOL(drm_fb_helper_debug_enter);
-
-/**
- * drm_fb_helper_debug_leave - implementation for &fb_ops.fb_debug_leave
- * @info: fbdev registered by the helper
- */
-int drm_fb_helper_debug_leave(struct fb_info *info)
-{
-	struct drm_fb_helper *helper = info->par;
-	struct drm_client_dev *client = &helper->client;
-	struct drm_device *dev = helper->dev;
-	struct drm_crtc *crtc;
-	const struct drm_crtc_helper_funcs *funcs;
-	struct drm_mode_set *mode_set;
-	struct drm_framebuffer *fb;
-
-	mutex_lock(&client->modeset_mutex);
-	drm_client_for_each_modeset(mode_set, client) {
-		crtc = mode_set->crtc;
-		if (drm_drv_uses_atomic_modeset(crtc->dev))
-			continue;
-
-		funcs = crtc->helper_private;
-		fb = crtc->primary->fb;
-
-		if (!crtc->enabled)
-			continue;
-
-		if (!fb) {
-			drm_err(dev, "no fb to restore?\n");
-			continue;
-		}
-
-		if (funcs->mode_set_base_atomic == NULL)
-			continue;
-
-		drm_fb_helper_restore_lut_atomic(mode_set->crtc);
-		funcs->mode_set_base_atomic(mode_set->crtc, fb, crtc->x,
-					    crtc->y, LEAVE_ATOMIC_MODE_SET);
-	}
-	mutex_unlock(&client->modeset_mutex);
-
-	return 0;
-}
-EXPORT_SYMBOL(drm_fb_helper_debug_leave);
 
 static int
 __drm_fb_helper_restore_fbdev_mode_unlocked(struct drm_fb_helper *fb_helper,
@@ -366,6 +269,9 @@ static void drm_fb_helper_damage_work(struct work_struct *work)
 {
 	struct drm_fb_helper *helper = container_of(work, struct drm_fb_helper, damage_work);
 
+	if (helper->info->state != FBINFO_STATE_RUNNING)
+		return;
+
 	drm_fb_helper_fb_dirty(helper);
 }
 
@@ -397,7 +303,6 @@ void drm_fb_helper_prepare(struct drm_device *dev, struct drm_fb_helper *helper,
 	if (!preferred_bpp)
 		preferred_bpp = 32;
 
-	INIT_LIST_HEAD(&helper->kernel_fb_list);
 	spin_lock_init(&helper->damage_lock);
 	INIT_WORK(&helper->resume_work, drm_fb_helper_resume_worker);
 	INIT_WORK(&helper->damage_work, drm_fb_helper_damage_work);
@@ -439,18 +344,6 @@ EXPORT_SYMBOL(drm_fb_helper_unprepare);
 int drm_fb_helper_init(struct drm_device *dev,
 		       struct drm_fb_helper *fb_helper)
 {
-	int ret;
-
-	/*
-	 * If this is not the generic fbdev client, initialize a drm_client
-	 * without callbacks so we can use the modesets.
-	 */
-	if (!fb_helper->client.funcs) {
-		ret = drm_client_init(dev, &fb_helper->client, "drm_fb_helper", NULL);
-		if (ret)
-			return ret;
-	}
-
 	dev->fb_helper = fb_helper;
 
 	return 0;
@@ -533,14 +426,6 @@ void drm_fb_helper_fini(struct drm_fb_helper *fb_helper)
 	cancel_work_sync(&fb_helper->damage_work);
 
 	drm_fb_helper_release_info(fb_helper);
-
-	mutex_lock(&kernel_fb_helper_lock);
-	if (!list_empty(&fb_helper->kernel_fb_list))
-		list_del(&fb_helper->kernel_fb_list);
-	mutex_unlock(&kernel_fb_helper_lock);
-
-	if (!fb_helper->client.funcs)
-		drm_client_release(&fb_helper->client);
 }
 EXPORT_SYMBOL(drm_fb_helper_fini);
 
@@ -731,6 +616,13 @@ void drm_fb_helper_set_suspend_unlocked(struct drm_fb_helper *fb_helper,
 	if (suspend) {
 		if (fb_helper->info->state != FBINFO_STATE_RUNNING)
 			return;
+
+		/*
+		 * Cancel pending damage work. During GPU reset, VBlank
+		 * interrupts are disabled and drm_fb_helper_fb_dirty()
+		 * would wait for VBlank timeout otherwise.
+		 */
+		cancel_work_sync(&fb_helper->damage_work);
 
 		console_lock();
 
@@ -1735,8 +1627,10 @@ __drm_fb_helper_initial_config_and_unlock(struct drm_fb_helper *fb_helper)
 	drm_client_modeset_probe(&fb_helper->client, width, height);
 
 	info = drm_fb_helper_alloc_info(fb_helper);
-	if (IS_ERR(info))
+	if (IS_ERR(info)) {
+		mutex_unlock(&fb_helper->lock);
 		return PTR_ERR(info);
+	}
 
 	ret = drm_fb_helper_single_fb_probe(fb_helper);
 	if (ret < 0) {
@@ -1765,10 +1659,6 @@ __drm_fb_helper_initial_config_and_unlock(struct drm_fb_helper *fb_helper)
 
 	drm_info(dev, "fb%d: %s frame buffer device\n",
 		 info->node, info->fix.id);
-
-	mutex_lock(&kernel_fb_helper_lock);
-	list_add(&fb_helper->kernel_fb_list, &kernel_fb_helper_list);
-	mutex_unlock(&kernel_fb_helper_lock);
 
 	return 0;
 
@@ -1884,3 +1774,32 @@ int drm_fb_helper_hotplug_event(struct drm_fb_helper *fb_helper)
 	return 0;
 }
 EXPORT_SYMBOL(drm_fb_helper_hotplug_event);
+
+/**
+ * drm_fb_helper_gem_is_fb - Tests if GEM object is framebuffer
+ * @fb_helper: fb_helper instance, can be NULL
+ * @obj: The GEM object to test, can be NULL
+ *
+ * Call drm_fb_helper_gem_is_fb to test is a DRM device's fbdev emulation
+ * uses the specified GEM object for its framebuffer. The result is always
+ * false if either poiner is NULL.
+ *
+ * Returns:
+ * True if fbdev emulation uses the provided GEM object, or false otherwise.
+ */
+bool drm_fb_helper_gem_is_fb(const struct drm_fb_helper *fb_helper,
+			     const struct drm_gem_object *obj)
+{
+	const struct drm_gem_object *gem = NULL;
+
+	if (!fb_helper || !obj)
+		return false;
+	if (fb_helper->buffer && fb_helper->buffer->gem)
+		gem = fb_helper->buffer->gem;
+	else if (fb_helper->fb)
+		gem = drm_gem_fb_get_obj(fb_helper->fb, 0);
+
+	return gem == obj;
+}
+EXPORT_SYMBOL_GPL(drm_fb_helper_gem_is_fb);
+

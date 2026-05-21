@@ -18,6 +18,7 @@
 
 #include <asm/page.h>
 #include <asm/vdso.h>
+#include <asm/vdso/vdso.h>
 #include <vdso/helpers.h>
 #include <vdso/vsyscall.h>
 #include <vdso/datapage.h>
@@ -52,7 +53,7 @@ static int __init init_vdso(void)
 
 	vdso_info.size = PAGE_ALIGN(vdso_end - vdso_start);
 	vdso_info.code_mapping.pages =
-		kcalloc(vdso_info.size / PAGE_SIZE, sizeof(struct page *), GFP_KERNEL);
+		kzalloc_objs(struct page *, vdso_info.size / PAGE_SIZE);
 
 	if (!vdso_info.code_mapping.pages)
 		return -ENOMEM;

@@ -12,12 +12,14 @@
 #include "xe_gt_printk.h"
 #include "xe_gt_sysfs.h"
 #include "xe_mmio.h"
+#include "xe_pm.h"
 #include "xe_sriov.h"
+#include "xe_sriov_pf.h"
 
 static void __xe_gt_apply_ccs_mode(struct xe_gt *gt, u32 num_engines)
 {
 	u32 mode = CCS_MODE_CSLICE_0_3_MASK; /* disable all by default */
-	int num_slices = hweight32(CCS_MASK(gt));
+	int num_slices = hweight32(CCS_INSTANCES(gt));
 	struct xe_device *xe = gt_to_xe(gt);
 	int width, cslice = 0;
 	u32 config = 0;
@@ -59,7 +61,7 @@ static void __xe_gt_apply_ccs_mode(struct xe_gt *gt, u32 num_engines)
 			config |= BIT(hwe->instance) << XE_HW_ENGINE_CCS0;
 
 			/* If a slice is fused off, leave disabled */
-			while ((CCS_MASK(gt) & BIT(cslice)) == 0)
+			while ((CCS_INSTANCES(gt) & BIT(cslice)) == 0)
 				cslice++;
 
 			mode &= ~CCS_MODE_CSLICE(cslice, CCS_MODE_CSLICE_MASK);
@@ -88,13 +90,18 @@ void xe_gt_apply_ccs_mode(struct xe_gt *gt)
 	__xe_gt_apply_ccs_mode(gt, gt->ccs_mode);
 }
 
+static bool gt_ccs_mode_default(struct xe_gt *gt)
+{
+	return gt->ccs_mode == 1;
+}
+
 static ssize_t
 num_cslices_show(struct device *kdev,
 		 struct device_attribute *attr, char *buf)
 {
 	struct xe_gt *gt = kobj_to_gt(&kdev->kobj);
 
-	return sysfs_emit(buf, "%u\n", hweight32(CCS_MASK(gt)));
+	return sysfs_emit(buf, "%u\n", hweight32(CCS_INSTANCES(gt)));
 }
 
 static DEVICE_ATTR_RO(num_cslices);
@@ -117,12 +124,6 @@ ccs_mode_store(struct device *kdev, struct device_attribute *attr,
 	u32 num_engines, num_slices;
 	int ret;
 
-	if (IS_SRIOV(xe)) {
-		xe_gt_dbg(gt, "Can't change compute mode when running as %s\n",
-			  xe_sriov_mode_to_string(xe_device_sriov_mode(xe)));
-		return -EOPNOTSUPP;
-	}
-
 	ret = kstrtou32(buff, 0, &num_engines);
 	if (ret)
 		return ret;
@@ -131,7 +132,7 @@ ccs_mode_store(struct device *kdev, struct device_attribute *attr,
 	 * Ensure number of engines specified is valid and there is an
 	 * exact multiple of engines for slices.
 	 */
-	num_slices = hweight32(CCS_MASK(gt));
+	num_slices = hweight32(CCS_INSTANCES(gt));
 	if (!num_engines || num_engines > num_slices || num_slices % num_engines) {
 		xe_gt_dbg(gt, "Invalid compute config, %d engines %d slices\n",
 			  num_engines, num_slices);
@@ -139,21 +140,36 @@ ccs_mode_store(struct device *kdev, struct device_attribute *attr,
 	}
 
 	/* CCS mode can only be updated when there are no drm clients */
-	mutex_lock(&xe->drm.filelist_mutex);
+	guard(mutex)(&xe->drm.filelist_mutex);
 	if (!list_empty(&xe->drm.filelist)) {
-		mutex_unlock(&xe->drm.filelist_mutex);
 		xe_gt_dbg(gt, "Rejecting compute mode change as there are active drm clients\n");
 		return -EBUSY;
 	}
 
-	if (gt->ccs_mode != num_engines) {
-		xe_gt_info(gt, "Setting compute mode to %d\n", num_engines);
-		gt->ccs_mode = num_engines;
-		xe_gt_record_user_engines(gt);
-		xe_gt_reset(gt);
+	if (gt->ccs_mode == num_engines)
+		return count;
+
+	/*
+	 * Changing default CCS mode is only allowed when there
+	 * are no VFs. Try to lockdown PF to find out.
+	 */
+	if (gt_ccs_mode_default(gt) && IS_SRIOV_PF(xe)) {
+		ret = xe_sriov_pf_lockdown(xe);
+		if (ret) {
+			xe_gt_dbg(gt, "Can't change CCS Mode: VFs are enabled\n");
+			return ret;
+		}
 	}
 
-	mutex_unlock(&xe->drm.filelist_mutex);
+	xe_gt_info(gt, "Setting compute mode to %d\n", num_engines);
+	gt->ccs_mode = num_engines;
+	xe_gt_record_user_engines(gt);
+	guard(xe_pm_runtime)(xe);
+	xe_gt_reset(gt);
+
+	/* We may end PF lockdown once CCS mode is default again */
+	if (gt_ccs_mode_default(gt) && IS_SRIOV_PF(xe))
+		xe_sriov_pf_end_lockdown(xe);
 
 	return count;
 }
@@ -191,7 +207,7 @@ int xe_gt_ccs_mode_sysfs_init(struct xe_gt *gt)
 	struct xe_device *xe = gt_to_xe(gt);
 	int err;
 
-	if (!xe_gt_ccs_mode_enabled(gt))
+	if (!xe_gt_ccs_mode_enabled(gt) || IS_SRIOV_VF(xe))
 		return 0;
 
 	err = sysfs_create_files(gt->sysfs, gt_ccs_mode_attrs);

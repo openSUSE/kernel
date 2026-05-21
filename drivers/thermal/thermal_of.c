@@ -107,7 +107,7 @@ static struct thermal_trip *thermal_of_trips_init(struct device_node *np, int *n
 	if (!count)
 		return NULL;
 
-	struct thermal_trip *tt __free(kfree) = kcalloc(count, sizeof(*tt), GFP_KERNEL);
+	struct thermal_trip *tt __free(kfree) = kzalloc_objs(*tt, count);
 	if (!tt)
 		return ERR_PTR(-ENOMEM);
 
@@ -144,7 +144,7 @@ static struct device_node *of_thermal_zone_find(struct device_node *sensor, int 
 		count = of_count_phandle_with_args(child, "thermal-sensors",
 						   "#thermal-sensor-cells");
 		if (count <= 0) {
-			pr_err("%pOFn: missing thermal sensor\n", child);
+			pr_err("%pOFP: missing thermal sensor\n", child);
 			return ERR_PTR(-EINVAL);
 		}
 
@@ -156,14 +156,14 @@ static struct device_node *of_thermal_zone_find(struct device_node *sensor, int 
 							 "#thermal-sensor-cells",
 							 i, &sensor_specs);
 			if (ret < 0) {
-				pr_err("%pOFn: Failed to read thermal-sensors cells: %d\n", child, ret);
+				pr_err("%pOFP: Failed to read thermal-sensors cells: %d\n", child, ret);
 				return ERR_PTR(ret);
 			}
 
 			of_node_put(sensor_specs.np);
 			if ((sensor == sensor_specs.np) && id == (sensor_specs.args_count ?
 								  sensor_specs.args[0] : 0)) {
-				pr_debug("sensor %pOFn id=%d belongs to %pOFn\n", sensor, id, child);
+				pr_debug("sensor %pOFP id=%d belongs to %pOFP\n", sensor, id, child);
 				return no_free_ptr(child);
 			}
 		}
@@ -180,7 +180,7 @@ static int thermal_of_monitor_init(struct device_node *np, int *delay, int *pdel
 	if (ret == -EINVAL) {
 		*pdelay = 0;
 	} else if (ret < 0) {
-		pr_err("%pOFn: Couldn't get polling-delay-passive: %d\n", np, ret);
+		pr_err("%pOFP: Couldn't get polling-delay-passive: %d\n", np, ret);
 		return ret;
 	}
 
@@ -188,7 +188,7 @@ static int thermal_of_monitor_init(struct device_node *np, int *delay, int *pdel
 	if (ret == -EINVAL) {
 		*delay = 0;
 	} else if (ret < 0) {
-		pr_err("%pOFn: Couldn't get polling-delay: %d\n", np, ret);
+		pr_err("%pOFP: Couldn't get polling-delay: %d\n", np, ret);
 		return ret;
 	}
 
@@ -280,10 +280,10 @@ static bool thermal_of_cm_lookup(struct device_node *cm_np,
 				 struct cooling_spec *c)
 {
 	for_each_child_of_node_scoped(cm_np, child) {
-		struct device_node *tr_np;
 		int count, i;
 
-		tr_np = of_parse_phandle(child, "trip", 0);
+		struct device_node *tr_np __free(device_node) =
+			of_parse_phandle(child, "trip", 0);
 		if (tr_np != trip->priv)
 			continue;
 
@@ -380,23 +380,23 @@ static struct thermal_zone_device *thermal_of_zone_register(struct device_node *
 	np = of_thermal_zone_find(sensor, id);
 	if (IS_ERR(np)) {
 		if (PTR_ERR(np) != -ENODEV)
-			pr_err("Failed to find thermal zone for %pOFn id=%d\n", sensor, id);
+			pr_err("Failed to find thermal zone for %pOFP id=%d\n", sensor, id);
 		return ERR_CAST(np);
 	}
 
 	trips = thermal_of_trips_init(np, &ntrips);
 	if (IS_ERR(trips)) {
-		pr_err("Failed to parse trip points for %pOFn id=%d\n", sensor, id);
+		pr_err("Failed to parse trip points for %pOFP id=%d\n", sensor, id);
 		ret = PTR_ERR(trips);
 		goto out_of_node_put;
 	}
 
 	if (!trips)
-		pr_info("No trip points found for %pOFn id=%d\n", sensor, id);
+		pr_info("No trip points found for %pOFP id=%d\n", sensor, id);
 
 	ret = thermal_of_monitor_init(np, &delay, &pdelay);
 	if (ret) {
-		pr_err("Failed to initialize monitoring delays from %pOFn\n", np);
+		pr_err("Failed to initialize monitoring delays from %pOFP\n", np);
 		goto out_kfree_trips;
 	}
 
@@ -417,7 +417,7 @@ static struct thermal_zone_device *thermal_of_zone_register(struct device_node *
 						     pdelay, delay);
 	if (IS_ERR(tz)) {
 		ret = PTR_ERR(tz);
-		pr_err("Failed to register thermal zone %pOFn: %d\n", np, ret);
+		pr_err("Failed to register thermal zone %pOFP: %d\n", np, ret);
 		goto out_kfree_trips;
 	}
 

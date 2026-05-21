@@ -26,19 +26,27 @@ TEST_PROGS = \
 	ethtool_extended_state.sh \
 	ethtool_mm.sh \
 	ethtool_rmon.sh \
+	ethtool_std_stats.sh \
+	gro_hw.py \
 	hw_stats_l3.sh \
 	hw_stats_l3_gre.sh \
 	iou-zcrx.py \
 	irq.py \
 	loopback.sh \
 	nic_timestamp.py \
+	nk_netns.py \
+	nk_qlease.py \
+	ntuple.py \
 	pp_alloc_fail.py \
 	rss_api.py \
 	rss_ctx.py \
+	rss_drv.py \
 	rss_flow_label.py \
 	rss_input_xfrm.py \
 	toeplitz.py \
 	tso.py \
+	uso.py \
+	xdp_metadata.py \
 	xsk_reconfig.py \
 	#
 

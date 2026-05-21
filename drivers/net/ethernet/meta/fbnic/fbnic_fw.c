@@ -40,7 +40,7 @@ static void __fbnic_mbx_invalidate_desc(struct fbnic_dev *fbd, int mbx_idx,
 	fw_wr32(fbd, desc_offset + 1, 0);
 }
 
-static u64 __fbnic_mbx_rd_desc(struct fbnic_dev *fbd, int mbx_idx, int desc_idx)
+u64 __fbnic_mbx_rd_desc(struct fbnic_dev *fbd, int mbx_idx, int desc_idx)
 {
 	u32 desc_offset = FBNIC_IPC_MBX(mbx_idx, desc_idx);
 	u64 desc;
@@ -205,8 +205,7 @@ static int fbnic_mbx_alloc_rx_msgs(struct fbnic_dev *fbd)
 	while (!err && count--) {
 		struct fbnic_tlv_msg *msg;
 
-		msg = (struct fbnic_tlv_msg *)__get_free_page(GFP_ATOMIC |
-							      __GFP_NOWARN);
+		msg = (struct fbnic_tlv_msg *)__get_free_page(GFP_KERNEL);
 		if (!msg) {
 			err = -ENOMEM;
 			break;
@@ -380,6 +379,37 @@ fbnic_fw_get_cmpl_by_type(struct fbnic_dev *fbd, u32 msg_type)
 }
 
 /**
+ * fbnic_fw_xmit_test_msg - Create and transmit a test message to FW mailbox
+ * @fbd: FBNIC device structure
+ * @cmpl: fw completion struct
+ *
+ * Return: zero on success, negative value on failure
+ *
+ * Generates a single page mailbox test message and places it in the Tx
+ * mailbox queue. Expectation is that the FW will validate that the nested
+ * value matches the external values, and then will echo them back to us.
+ *
+ * Also sets a completion slot for use in the completion wait calls when
+ * the cmpl arg is non-NULL.
+ */
+int fbnic_fw_xmit_test_msg(struct fbnic_dev *fbd,
+			   struct fbnic_fw_completion *cmpl)
+{
+	struct fbnic_tlv_msg *test_msg;
+	int err;
+
+	test_msg = fbnic_tlv_test_create(fbd);
+	if (!test_msg)
+		return -ENOMEM;
+
+	err = fbnic_mbx_map_req_w_cmpl(fbd, test_msg, cmpl);
+	if (err)
+		free_page((unsigned long)test_msg);
+
+	return err;
+}
+
+/**
  * fbnic_fw_xmit_simple_msg - Transmit a simple single TLV message w/o data
  * @fbd: FBNIC device structure
  * @msg_type: ENUM value indicating message type to send
@@ -416,8 +446,9 @@ static int fbnic_fw_xmit_simple_msg(struct fbnic_dev *fbd, u32 msg_type)
 	return err;
 }
 
-static void fbnic_mbx_init_desc_ring(struct fbnic_dev *fbd, int mbx_idx)
+static int fbnic_mbx_init_desc_ring(struct fbnic_dev *fbd, int mbx_idx)
 {
+	u8 tlp_attr = fbd->relaxed_ord ? FBNIC_TLP_ATTR_RO : 0;
 	struct fbnic_fw_mbx *mbx = &fbd->mbx[mbx_idx];
 
 	mbx->ready = true;
@@ -426,17 +457,28 @@ static void fbnic_mbx_init_desc_ring(struct fbnic_dev *fbd, int mbx_idx)
 	case FBNIC_IPC_MBX_RX_IDX:
 		/* Enable DMA writes from the device */
 		wr32(fbd, FBNIC_PUL_OB_TLP_HDR_AW_CFG,
-		     FBNIC_PUL_OB_TLP_HDR_AW_CFG_BME);
+		     FBNIC_PUL_OB_TLP_HDR_AW_CFG_BME |
+		     FIELD_PREP(FBNIC_PUL_OB_TLP_HDR_AW_CFG_RDE_ATTR,
+				tlp_attr) |
+		     FIELD_PREP(FBNIC_PUL_OB_TLP_HDR_AW_CFG_TQM_ATTR,
+				tlp_attr));
 
 		/* Make sure we have a page for the FW to write to */
-		fbnic_mbx_alloc_rx_msgs(fbd);
-		break;
+		return fbnic_mbx_alloc_rx_msgs(fbd);
 	case FBNIC_IPC_MBX_TX_IDX:
 		/* Enable DMA reads from the device */
 		wr32(fbd, FBNIC_PUL_OB_TLP_HDR_AR_CFG,
-		     FBNIC_PUL_OB_TLP_HDR_AR_CFG_BME);
+		     FBNIC_PUL_OB_TLP_HDR_AR_CFG_BME |
+		     FIELD_PREP(FBNIC_PUL_OB_TLP_HDR_AR_CFG_TDE_ATTR,
+				tlp_attr) |
+		     FIELD_PREP(FBNIC_PUL_OB_TLP_HDR_AR_CFG_RQM_ATTR,
+				tlp_attr) |
+		     FIELD_PREP(FBNIC_PUL_OB_TLP_HDR_AR_CFG_TQM_ATTR,
+				tlp_attr));
 		break;
 	}
+
+	return 0;
 }
 
 static bool fbnic_mbx_event(struct fbnic_dev *fbd)
@@ -1556,7 +1598,29 @@ free_message:
 	return err;
 }
 
+static int
+fbnic_fw_parser_test(void *opaque, struct fbnic_tlv_msg **results)
+{
+	struct fbnic_fw_completion *cmpl;
+	struct fbnic_dev *fbd = opaque;
+	int err;
+
+	/* find cmpl */
+	cmpl = fbnic_fw_get_cmpl_by_type(fbd, FBNIC_TLV_MSG_ID_TEST);
+	if (!cmpl)
+		return -ENOSPC;
+
+	err = fbnic_tlv_parser_test(opaque, results);
+
+	cmpl->result = err;
+	complete(&cmpl->done);
+	fbnic_fw_put_cmpl(cmpl);
+
+	return err;
+}
+
 static const struct fbnic_tlv_parser fbnic_fw_tlv_parser[] = {
+	FBNIC_TLV_PARSER(TEST, fbnic_tlv_test_index, fbnic_fw_parser_test),
 	FBNIC_TLV_PARSER(FW_CAP_RESP, fbnic_fw_cap_resp_index,
 			 fbnic_fw_parse_cap_resp),
 	FBNIC_TLV_PARSER(OWNERSHIP_RESP, fbnic_ownership_resp_index,
@@ -1592,7 +1656,7 @@ static const struct fbnic_tlv_parser fbnic_fw_tlv_parser[] = {
 static void fbnic_mbx_process_rx_msgs(struct fbnic_dev *fbd)
 {
 	struct fbnic_fw_mbx *rx_mbx = &fbd->mbx[FBNIC_IPC_MBX_RX_IDX];
-	u8 head = rx_mbx->head;
+	u8 head = rx_mbx->head, tail = rx_mbx->tail;
 	u64 desc, length;
 
 	while (head != rx_mbx->tail) {
@@ -1603,8 +1667,8 @@ static void fbnic_mbx_process_rx_msgs(struct fbnic_dev *fbd)
 		if (!(desc & FBNIC_IPC_MBX_DESC_FW_CMPL))
 			break;
 
-		dma_unmap_single(fbd->dev, rx_mbx->buf_info[head].addr,
-				 PAGE_SIZE, DMA_FROM_DEVICE);
+		dma_sync_single_for_cpu(fbd->dev, rx_mbx->buf_info[head].addr,
+					FBNIC_RX_PAGE_SIZE, DMA_FROM_DEVICE);
 
 		msg = rx_mbx->buf_info[head].msg;
 
@@ -1637,19 +1701,26 @@ static void fbnic_mbx_process_rx_msgs(struct fbnic_dev *fbd)
 
 		dev_dbg(fbd->dev, "Parsed msg type %d\n", msg->hdr.type);
 next_page:
+		fw_wr32(fbd, FBNIC_IPC_MBX(FBNIC_IPC_MBX_RX_IDX, head), 0);
 
-		free_page((unsigned long)rx_mbx->buf_info[head].msg);
+		rx_mbx->buf_info[tail] = rx_mbx->buf_info[head];
 		rx_mbx->buf_info[head].msg = NULL;
+		rx_mbx->buf_info[head].addr = 0;
 
-		head++;
-		head %= FBNIC_IPC_MBX_DESC_LEN;
+		__fbnic_mbx_wr_desc(fbd, FBNIC_IPC_MBX_RX_IDX, tail,
+				    FIELD_PREP(FBNIC_IPC_MBX_DESC_LEN_MASK,
+					       FBNIC_RX_PAGE_SIZE) |
+				    (rx_mbx->buf_info[tail].addr &
+				     FBNIC_IPC_MBX_DESC_ADDR_MASK) |
+				    FBNIC_IPC_MBX_DESC_HOST_CMPL);
+
+		head = (head + 1) & (FBNIC_IPC_MBX_DESC_LEN - 1);
+		tail = (tail + 1) & (FBNIC_IPC_MBX_DESC_LEN - 1);
 	}
 
 	/* Record head for next interrupt */
 	rx_mbx->head = head;
-
-	/* Make sure we have at least one page for the FW to write to */
-	fbnic_mbx_alloc_rx_msgs(fbd);
+	rx_mbx->tail = tail;
 }
 
 void fbnic_mbx_poll(struct fbnic_dev *fbd)
@@ -1684,8 +1755,11 @@ int fbnic_mbx_poll_tx_ready(struct fbnic_dev *fbd)
 	} while (!fbnic_mbx_event(fbd));
 
 	/* FW has shown signs of life. Enable DMA and start Tx/Rx */
-	for (i = 0; i < FBNIC_IPC_MBX_INDICES; i++)
-		fbnic_mbx_init_desc_ring(fbd, i);
+	for (i = 0; i < FBNIC_IPC_MBX_INDICES; i++) {
+		err = fbnic_mbx_init_desc_ring(fbd, i);
+		if (err)
+			goto clean_mbx;
+	}
 
 	/* Request an update from the firmware. This should overwrite
 	 * mgmt.version once we get the actual version from the firmware
@@ -1775,6 +1849,53 @@ void fbnic_mbx_flush_tx(struct fbnic_dev *fbd)
 		msleep(20);
 		fbnic_mbx_process_tx_msgs(fbd);
 	} while (time_is_after_jiffies(timeout));
+}
+
+/**
+ * fbnic_fw_mbx_self_test() - verify firmware interface
+ * @fbd: device to test
+ *
+ * This function tests the interfaces to/from the firmware.
+ *
+ * Return: See enum fbnic_fw_self_test_codes
+ **/
+enum fbnic_fw_self_test_codes fbnic_fw_mbx_self_test(struct fbnic_dev *fbd)
+{
+	enum fbnic_fw_self_test_codes err;
+	struct fbnic_fw_completion *cmpl;
+
+	/* Skip test if FW interface is not present */
+	if (!fbnic_fw_present(fbd))
+		return FBNIC_TEST_FW_NO_FIRMWARE;
+
+	cmpl = fbnic_fw_alloc_cmpl(FBNIC_TLV_MSG_ID_TEST);
+	if (!cmpl)
+		return FBNIC_TEST_FW_NO_CMPL;
+
+	/* Load a test message onto the FW mailbox interface
+	 * and arm the completion.
+	 */
+	err = fbnic_fw_xmit_test_msg(fbd, cmpl);
+	if (err) {
+		err = FBNIC_TEST_FW_NO_XMIT;
+		goto exit_free;
+	}
+
+	/* Verify we received a message back */
+	if (!fbnic_mbx_wait_for_cmpl(cmpl)) {
+		err = FBNIC_TEST_FW_NO_MSG;
+		goto exit_cleanup;
+	}
+
+	/* Verify there were no parsing errors */
+	if (cmpl->result)
+		err = FBNIC_TEST_FW_PARSE;
+exit_cleanup:
+	fbnic_mbx_clear_cmpl(fbd, cmpl);
+exit_free:
+	fbnic_fw_put_cmpl(cmpl);
+
+	return err;
 }
 
 int fbnic_fw_xmit_rpc_macda_sync(struct fbnic_dev *fbd)

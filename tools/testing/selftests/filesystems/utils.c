@@ -158,7 +158,7 @@ static int get_userns_fd_cb(void *data)
 	_exit(0);
 }
 
-static int wait_for_pid(pid_t pid)
+int wait_for_pid(pid_t pid)
 {
 	int status, ret;
 
@@ -450,7 +450,7 @@ out_close:
 	return fret;
 }
 
-static int write_file(const char *path, const char *val)
+int write_file(const char *path, const char *val)
 {
 	int fd = open(path, O_WRONLY);
 	size_t len = strlen(val);
@@ -511,6 +511,32 @@ int setup_userns(void)
 		ksft_print_msg("making mount tree private: %s\n", strerror(errno));
 		return ret;
 	}
+
+	return 0;
+}
+
+int enter_userns(void)
+{
+	int ret;
+	char buf[32];
+	uid_t uid = getuid();
+	gid_t gid = getgid();
+
+	ret = unshare(CLONE_NEWUSER);
+	if (ret)
+		return ret;
+
+	sprintf(buf, "0 %d 1", uid);
+	ret = write_file("/proc/self/uid_map", buf);
+	if (ret)
+		return ret;
+	ret = write_file("/proc/self/setgroups", "deny");
+	if (ret)
+		return ret;
+	sprintf(buf, "0 %d 1", gid);
+	ret = write_file("/proc/self/gid_map", buf);
+	if (ret)
+		return ret;
 
 	return 0;
 }

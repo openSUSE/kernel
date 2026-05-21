@@ -163,6 +163,8 @@ static int tegra210_amx_set_audio_cif(struct snd_soc_dai *dai,
 		audio_bits = TEGRA_ACIF_BITS_32;
 		break;
 	default:
+		dev_err(dai->dev, "unsupported format: %d\n",
+			params_format(params));
 		return -EINVAL;
 	}
 
@@ -654,6 +656,7 @@ static const struct regmap_config tegra210_amx_regmap_config = {
 	.volatile_reg		= tegra210_amx_volatile_reg,
 	.reg_defaults		= tegra210_amx_reg_defaults,
 	.num_reg_defaults	= ARRAY_SIZE(tegra210_amx_reg_defaults),
+	.reg_default_cb		= regmap_default_zero_cb,
 	.cache_type		= REGCACHE_FLAT,
 };
 
@@ -667,6 +670,7 @@ static const struct regmap_config tegra194_amx_regmap_config = {
 	.volatile_reg		= tegra210_amx_volatile_reg,
 	.reg_defaults		= tegra210_amx_reg_defaults,
 	.num_reg_defaults	= ARRAY_SIZE(tegra210_amx_reg_defaults),
+	.reg_default_cb		= regmap_default_zero_cb,
 	.cache_type		= REGCACHE_FLAT,
 };
 
@@ -680,6 +684,7 @@ static const struct regmap_config tegra264_amx_regmap_config = {
 	.volatile_reg		= tegra264_amx_volatile_reg,
 	.reg_defaults		= tegra264_amx_reg_defaults,
 	.num_reg_defaults	= ARRAY_SIZE(tegra264_amx_reg_defaults),
+	.reg_default_cb		= regmap_default_zero_cb,
 	.cache_type		= REGCACHE_FLAT,
 };
 
@@ -740,10 +745,9 @@ static int tegra210_amx_platform_probe(struct platform_device *pdev)
 
 	amx->regmap = devm_regmap_init_mmio(dev, regs,
 					    amx->soc_data->regmap_conf);
-	if (IS_ERR(amx->regmap)) {
-		dev_err(dev, "regmap init failed\n");
-		return PTR_ERR(amx->regmap);
-	}
+	if (IS_ERR(amx->regmap))
+		return dev_err_probe(dev, PTR_ERR(amx->regmap),
+				     "regmap init failed\n");
 
 	regcache_cache_only(amx->regmap, true);
 
@@ -764,10 +768,9 @@ static int tegra210_amx_platform_probe(struct platform_device *pdev)
 	err = devm_snd_soc_register_component(dev, &tegra210_amx_cmpnt,
 					      tegra210_amx_dais,
 					      ARRAY_SIZE(tegra210_amx_dais));
-	if (err) {
-		dev_err(dev, "can't register AMX component, err: %d\n", err);
-		return err;
-	}
+	if (err)
+		return dev_err_probe(dev, err,
+				     "can't register AMX component\n");
 
 	pm_runtime_enable(dev);
 

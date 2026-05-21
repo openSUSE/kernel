@@ -749,7 +749,7 @@ struct mite_ring *mite_alloc_ring(struct mite *mite)
 {
 	struct mite_ring *ring;
 
-	ring = kmalloc(sizeof(*ring), GFP_KERNEL);
+	ring = kmalloc_obj(*ring);
 	if (!ring)
 		return NULL;
 	ring->hw_dev = get_device(&mite->pcidev->dev);
@@ -879,7 +879,7 @@ struct mite *mite_attach(struct comedi_device *dev, bool use_win1)
 	unsigned int i;
 	int ret;
 
-	mite = kzalloc(sizeof(*mite), GFP_KERNEL);
+	mite = kzalloc_obj(*mite);
 	if (!mite)
 		return NULL;
 
@@ -920,17 +920,6 @@ void mite_detach(struct mite *mite)
 	kfree(mite);
 }
 EXPORT_SYMBOL_GPL(mite_detach);
-
-static int __init mite_module_init(void)
-{
-	return 0;
-}
-module_init(mite_module_init);
-
-static void __exit mite_module_exit(void)
-{
-}
-module_exit(mite_module_exit);
 
 MODULE_AUTHOR("Comedi https://www.comedi.org");
 MODULE_DESCRIPTION("Comedi helper for NI Mite PCI interface chip");

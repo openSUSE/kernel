@@ -28,6 +28,10 @@ enum {
 	IO_IMU_SOURCE	= 1 << ITER_SOURCE,
 };
 
+enum {
+	IO_REGBUF_F_KBUF		= 1,
+};
+
 struct io_mapped_ubuf {
 	u64		ubuf;
 	unsigned int	len;
@@ -37,7 +41,7 @@ struct io_mapped_ubuf {
 	unsigned long	acct_pages;
 	void		(*release)(void *);
 	void		*priv;
-	bool		is_kbuf;
+	u8		flags;
 	u8		dir;
 	struct bio_vec	bvec[] __counted_by(nr_bvecs);
 };
@@ -90,7 +94,7 @@ bool io_check_coalesce_buffer(struct page **page_array, int nr_pages,
 			      struct io_imu_folio_data *data);
 
 static inline struct io_rsrc_node *io_rsrc_node_lookup(struct io_rsrc_data *data,
-						       int index)
+						       unsigned int index)
 {
 	if (index < data->nr)
 		return data->nodes[array_index_nospec(index, data->nr)];
@@ -105,10 +109,15 @@ static inline void io_put_rsrc_node(struct io_ring_ctx *ctx, struct io_rsrc_node
 }
 
 static inline bool io_reset_rsrc_node(struct io_ring_ctx *ctx,
-				      struct io_rsrc_data *data, int index)
+				      struct io_rsrc_data *data,
+				      unsigned int index)
 {
-	struct io_rsrc_node *node = data->nodes[index];
+	struct io_rsrc_node *node;
 
+	if (index >= data->nr)
+		return false;
+	index = array_index_nospec(index, data->nr);
+	node = data->nodes[index];
 	if (!node)
 		return false;
 	io_put_rsrc_node(ctx, node);

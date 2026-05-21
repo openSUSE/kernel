@@ -7,8 +7,8 @@
 #include <linux/sysfs.h>
 #include <drm/drm_managed.h>
 
+#include "xe_device_types.h"
 #include "xe_pm.h"
-#include "xe_tile.h"
 #include "xe_tile_sysfs.h"
 #include "xe_vram_freq.h"
 
@@ -36,7 +36,7 @@ int xe_tile_sysfs_init(struct xe_tile *tile)
 	struct kobj_tile *kt;
 	int err;
 
-	kt = kzalloc(sizeof(*kt), GFP_KERNEL);
+	kt = kzalloc_obj(*kt);
 	if (!kt)
 		return -ENOMEM;
 

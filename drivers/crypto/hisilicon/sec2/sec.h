@@ -82,11 +82,6 @@ struct sec_aead_req {
 	__u8 out_mac_buf[SEC_MAX_MAC_LEN];
 };
 
-struct sec_instance_backlog {
-	struct list_head list;
-	spinlock_t lock;
-};
-
 /* SEC request of Crypto */
 struct sec_req {
 	union {
@@ -112,7 +107,6 @@ struct sec_req {
 	bool use_pbuf;
 
 	struct list_head list;
-	struct sec_instance_backlog *backlog;
 	struct sec_request_buf buf;
 };
 
@@ -172,7 +166,6 @@ struct sec_qp_ctx {
 	spinlock_t id_lock;
 	struct hisi_acc_sgl_pool *c_in_pool;
 	struct hisi_acc_sgl_pool *c_out_pool;
-	struct sec_instance_backlog backlog;
 	u16 send_head;
 };
 
@@ -292,7 +285,5 @@ enum sec_cap_table_type {
 
 void sec_destroy_qps(struct hisi_qp **qps, int qp_num);
 struct hisi_qp **sec_create_qps(void);
-int sec_register_to_crypto(struct hisi_qm *qm);
-void sec_unregister_from_crypto(struct hisi_qm *qm);
 u64 sec_get_alg_bitmap(struct hisi_qm *qm, u32 high, u32 low);
 #endif

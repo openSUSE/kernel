@@ -175,12 +175,6 @@ static int migrate_vma_collect_huge_pmd(pmd_t *pmdp, unsigned long start,
 			return migrate_vma_collect_skip(start, end, walk);
 		}
 
-		if (softleaf_is_migration(entry)) {
-			migration_entry_wait_on_locked(entry, ptl);
-			spin_unlock(ptl);
-			return -EAGAIN;
-		}
-
 		if (softleaf_is_device_private_write(entry))
 			write = MIGRATE_PFN_WRITE;
 	} else {
@@ -271,7 +265,7 @@ again:
 	ptep = pte_offset_map_lock(mm, pmdp, start, &ptl);
 	if (!ptep)
 		goto again;
-	arch_enter_lazy_mmu_mode();
+	lazy_mmu_mode_enable();
 	ptep += (addr - start) / PAGE_SIZE;
 
 	for (; addr < end; addr += PAGE_SIZE, ptep++) {
@@ -313,7 +307,7 @@ again:
 			if (folio_test_large(folio)) {
 				int ret;
 
-				arch_leave_lazy_mmu_mode();
+				lazy_mmu_mode_disable();
 				pte_unmap_unlock(ptep, ptl);
 				ret = migrate_vma_split_folio(folio,
 							  migrate->fault_page);
@@ -356,7 +350,7 @@ again:
 			if (folio && folio_test_large(folio)) {
 				int ret;
 
-				arch_leave_lazy_mmu_mode();
+				lazy_mmu_mode_disable();
 				pte_unmap_unlock(ptep, ptl);
 				ret = migrate_vma_split_folio(folio,
 							  migrate->fault_page);
@@ -485,7 +479,7 @@ next:
 	if (unmapped)
 		flush_tlb_range(walk->vma, start, end);
 
-	arch_leave_lazy_mmu_mode();
+	lazy_mmu_mode_disable();
 	pte_unmap_unlock(ptep - 1, ptl);
 
 	return 0;
@@ -914,6 +908,10 @@ static int migrate_vma_split_unmapped_folio(struct migrate_vma *migrate,
 	unsigned long flags;
 	int ret = 0;
 
+	/*
+	 * take a reference, since split_huge_pmd_address() with freeze = true
+	 * drops a reference at the end.
+	 */
 	folio_get(folio);
 	split_huge_pmd_address(migrate->vma, addr, true);
 	ret = folio_split_unmapped(folio, 0);
@@ -1419,10 +1417,10 @@ EXPORT_SYMBOL(migrate_device_range);
 
 /**
  * migrate_device_pfns() - migrate device private pfns to normal memory.
- * @src_pfns: pre-popluated array of source device private pfns to migrate.
+ * @src_pfns: pre-populated array of source device private pfns to migrate.
  * @npages: number of pages to migrate.
  *
- * Similar to migrate_device_range() but supports non-contiguous pre-popluated
+ * Similar to migrate_device_range() but supports non-contiguous pre-populated
  * array of device pages to migrate.
  */
 int migrate_device_pfns(unsigned long *src_pfns, unsigned long npages)

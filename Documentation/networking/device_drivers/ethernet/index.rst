@@ -10,7 +10,6 @@ Contents:
 .. toctree::
    :maxdepth: 2
 
-   3com/3c509
    3com/vortex
    amazon/ena
    altera/altera_tse
@@ -48,12 +47,10 @@ Contents:
    meta/fbnic
    microsoft/netvsc
    mucse/rnpgbe
-   neterion/s2io
    netronome/nfp
    pensando/ionic
    pensando/ionic_rdma
    qualcomm/ppe/ppe
-   smsc/smc9
    stmicro/stmmac
    ti/cpsw
    ti/cpsw_switchdev
@@ -64,10 +61,3 @@ Contents:
    wangxun/txgbevf
    wangxun/ngbe
    wangxun/ngbevf
-
-.. only::  subproject and html
-
-   Indices
-   =======
-
-   * :ref:`genindex`

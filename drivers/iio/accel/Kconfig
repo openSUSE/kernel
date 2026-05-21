@@ -64,7 +64,7 @@ config ADXL345
 
 config ADXL345_I2C
 	tristate "Analog Devices ADXL345 3-Axis Digital Accelerometer I2C Driver"
-	depends on INPUT_ADXL34X=n
+	depends on !INPUT_ADXL34X
 	depends on I2C
 	select ADXL345
 	select REGMAP_I2C
@@ -74,11 +74,12 @@ config ADXL345_I2C
 
 	  To compile this driver as a module, choose M here: the module
 	  will be called adxl345_i2c and you will also get adxl345_core
-	  for the core module.
+	  for the core module. INPUT_ADXL34X share compatibles with this
+	  driver, do not add both modules to the kernel.
 
 config ADXL345_SPI
 	tristate "Analog Devices ADXL345 3-Axis Digital Accelerometer SPI Driver"
-	depends on INPUT_ADXL34X=n
+	depends on !INPUT_ADXL34X
 	depends on SPI
 	select ADXL345
 	select REGMAP_SPI
@@ -88,7 +89,8 @@ config ADXL345_SPI
 
 	  To compile this driver as a module, choose M here: the module
 	  will be called adxl345_spi and you will also get adxl345_core
-	  for the core module.
+	  for the core module. INPUT_ADXL34X share compatibles with this
+	  driver, do not add both modules to the kernel.
 
 config ADXL355
 	tristate
@@ -156,24 +158,24 @@ config ADXL372
 	select IIO_TRIGGERED_BUFFER
 
 config ADXL372_SPI
-	tristate "Analog Devices ADXL372 3-Axis Accelerometer SPI Driver"
+	tristate "Analog Devices ADXL371/ADXL372 3-Axis Accelerometer SPI Driver"
 	depends on SPI
 	select ADXL372
 	select REGMAP_SPI
 	help
-	  Say yes here to add support for the Analog Devices ADXL372 triaxial
-	  acceleration sensor.
+	  Say yes here to add support for the Analog Devices ADXL371/ADXL372
+	  triaxial acceleration sensor.
 	  To compile this driver as a module, choose M here: the
 	  module will be called adxl372_spi.
 
 config ADXL372_I2C
-	tristate "Analog Devices ADXL372 3-Axis Accelerometer I2C Driver"
+	tristate "Analog Devices ADXL371/ADXL372 3-Axis Accelerometer I2C Driver"
 	depends on I2C
 	select ADXL372
 	select REGMAP_I2C
 	help
-	  Say yes here to add support for the Analog Devices ADXL372 triaxial
-	  acceleration sensor.
+	  Say yes here to add support for the Analog Devices ADXL371/ADXL372
+	  triaxial acceleration sensor.
 	  To compile this driver as a module, choose M here: the
 	  module will be called adxl372_i2c.
 

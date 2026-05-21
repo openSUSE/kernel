@@ -103,6 +103,7 @@ enum iwl_ucode_tlv_type {
 	IWL_UCODE_TLV_D3_KEK_KCK_ADDR		= 67,
 	IWL_UCODE_TLV_CURRENT_PC		= 68,
 	IWL_UCODE_TLV_FSEQ_BIN_VERSION		= 72,
+	IWL_UCODE_TLV_CMD_BIOS_TABLE		= 73,
 
 	/* contains sub-sections like PNVM file does (did) */
 	IWL_UCODE_TLV_PNVM_DATA			= 74,
@@ -447,6 +448,7 @@ typedef unsigned int __bitwise iwl_ucode_tlv_capa_t;
  *	during assert handling even if the dump isn't split
  * @IWL_UCODE_TLV_CAPA_FW_ACCEPTS_RAW_DSM_TABLE: Firmware has capability of
  *	handling raw DSM table data.
+ * @IWL_UCODE_TLV_CAPA_NAN_SYNC_SUPPORT: Supports NAN synchronization
  *
  * @NUM_IWL_UCODE_TLV_CAPA: number of bits used
  */
@@ -550,6 +552,7 @@ enum iwl_ucode_tlv_capa {
 
 	IWL_UCODE_TLV_CAPA_RESET_DURING_ASSERT		= (__force iwl_ucode_tlv_capa_t)(4 * 32 + 0),
 	IWL_UCODE_TLV_CAPA_FW_ACCEPTS_RAW_DSM_TABLE 	= (__force iwl_ucode_tlv_capa_t)(4 * 32 + 1),
+	IWL_UCODE_TLV_CAPA_NAN_SYNC_SUPPORT		= (__force iwl_ucode_tlv_capa_t)(4 * 32 + 2),
 	NUM_IWL_UCODE_TLV_CAPA
 /*
  * This construction make both sparse (which cannot increment the previous
@@ -1036,6 +1039,20 @@ struct iwl_fw_cmd_version {
 	u8 group;
 	u8 cmd_ver;
 	u8 notif_ver;
+} __packed;
+
+/**
+ * struct iwl_fw_cmd_bios_table - firmware command BIOS revision entry
+ * @cmd: command ID
+ * @group: group ID
+ * @max_acpi_revision: max supported ACPI revision of command.
+ * @max_uefi_revision: max supported UEFI revision of command.
+ */
+struct iwl_fw_cmd_bios_table {
+	u8 cmd;
+	u8 group;
+	u8 max_acpi_revision;
+	u8 max_uefi_revision;
 } __packed;
 
 struct iwl_fw_tcm_error_addr {

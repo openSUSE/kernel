@@ -5,7 +5,7 @@
  * (for nl80211's connect() and wext)
  *
  * Copyright 2009	Johannes Berg <johannes@sipsolutions.net>
- * Copyright (C) 2009, 2020, 2022-2025 Intel Corporation. All rights reserved.
+ * Copyright (C) 2009, 2020, 2022-2026 Intel Corporation. All rights reserved.
  * Copyright 2017	Intel Deutschland GmbH
  */
 
@@ -570,7 +570,7 @@ static int cfg80211_sme_connect(struct wireless_dev *wdev,
 	if (wdev->conn)
 		return -EINPROGRESS;
 
-	wdev->conn = kzalloc(sizeof(*wdev->conn), GFP_KERNEL);
+	wdev->conn = kzalloc_obj(*wdev->conn);
 	if (!wdev->conn)
 		return -ENOMEM;
 
@@ -910,7 +910,7 @@ void __cfg80211_connect_result(struct net_device *dev,
 
 			ssid_len = min(ssid->datalen, IEEE80211_MAX_SSID_LEN);
 			memcpy(wdev->u.client.ssid, ssid->data, ssid_len);
-			wdev->u.client.ssid_len = ssid->datalen;
+			wdev->u.client.ssid_len = ssid_len;
 			break;
 		}
 		rcu_read_unlock();
@@ -1386,7 +1386,7 @@ void __cfg80211_disconnected(struct net_device *dev, const u8 *ie,
 			    NL80211_EXT_FEATURE_BEACON_PROTECTION_CLIENT))
 			max_key_idx = 7;
 		for (i = 0; i <= max_key_idx; i++)
-			rdev_del_key(rdev, dev, -1, i, false, NULL);
+			rdev_del_key(rdev, wdev, -1, i, false, NULL);
 	}
 
 	rdev_set_qos_map(rdev, dev, NULL);

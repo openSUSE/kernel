@@ -108,6 +108,18 @@
 #define SE_MODE_PAGE_BUF			512
 #define SE_SENSE_BUF				96
 
+/* Peripheral Device Text Identification Information */
+#define PD_TEXT_ID_INFO_LEN			256
+
+enum target_compl_type {
+	/* Use the fabric driver's default completion type */
+	TARGET_FABRIC_DEFAULT_COMPL,
+	/* Complete from the backend calling context */
+	TARGET_DIRECT_COMPL,
+	/* Defer completion to the LIO workqueue */
+	TARGET_QUEUE_COMPL,
+};
+
 enum target_submit_type {
 	/* Use the fabric driver's default submission type */
 	TARGET_FABRIC_DEFAULT_SUBMIT,
@@ -348,6 +360,7 @@ struct t10_wwn {
 	struct se_device *t10_dev;
 	struct config_group t10_wwn_group;
 	struct list_head t10_vpd_list;
+	char pd_text_id_info[PD_TEXT_ID_INFO_LEN];
 };
 
 struct t10_pr_registration {
@@ -737,6 +750,7 @@ struct se_dev_attrib {
 	u32		atomic_granularity;
 	u32		atomic_max_with_boundary;
 	u32		atomic_max_boundary;
+	u8		complete_type;
 	u8		submit_type;
 	struct se_device *da_dev;
 	struct config_group da_group;

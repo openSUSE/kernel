@@ -19,6 +19,7 @@
 #include <linux/printk.h>
 #include <linux/vmalloc.h>
 #include <linux/kexec_handover.h>
+#include <linux/kho/abi/kexec_handover.h>
 
 #include <net/checksum.h>
 
@@ -142,7 +143,8 @@ static int kho_test_preserve(struct kho_test_state *state)
 	if (err)
 		goto err_unpreserve_data;
 
-	err = kho_add_subtree(KHO_TEST_FDT, folio_address(state->fdt));
+	err = kho_add_subtree(KHO_TEST_FDT, folio_address(state->fdt),
+			      fdt_totalsize(folio_address(state->fdt)));
 	if (err)
 		goto err_unpreserve_data;
 
@@ -210,7 +212,7 @@ static int kho_test_save(void)
 	max_mem = PAGE_ALIGN(max_mem);
 	max_nr = max_mem >> PAGE_SHIFT;
 
-	folios = kvmalloc_array(max_nr, sizeof(*state->folios), GFP_KERNEL);
+	folios = kvmalloc_objs(*state->folios, max_nr);
 	if (!folios)
 		return -ENOMEM;
 	state->folios = folios;
@@ -317,7 +319,7 @@ static int __init kho_test_init(void)
 	if (!kho_is_enabled())
 		return 0;
 
-	err = kho_retrieve_subtree(KHO_TEST_FDT, &fdt_phys);
+	err = kho_retrieve_subtree(KHO_TEST_FDT, &fdt_phys, NULL);
 	if (!err) {
 		err = kho_test_restore(fdt_phys);
 		if (err)
@@ -339,11 +341,15 @@ module_init(kho_test_init);
 
 static void kho_test_cleanup(void)
 {
+	/* unpreserve and free the data stored in folios */
+	kho_test_unpreserve_data(&kho_test_state);
 	for (int i = 0; i < kho_test_state.nr_folios; i++)
 		folio_put(kho_test_state.folios[i]);
 
 	kvfree(kho_test_state.folios);
-	vfree(kho_test_state.folios_info);
+
+	/* Unpreserve and release the FDT folio */
+	kho_unpreserve_folio(kho_test_state.fdt);
 	folio_put(kho_test_state.fdt);
 }
 

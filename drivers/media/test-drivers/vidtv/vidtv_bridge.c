@@ -237,8 +237,10 @@ static int vidtv_start_feed(struct dvb_demux_feed *feed)
 
 	if (dvb->nfeeds == 1) {
 		ret = vidtv_start_streaming(dvb);
-		if (ret < 0)
+		if (ret < 0) {
+			dvb->nfeeds--;
 			rc = ret;
+		}
 	}
 
 	mutex_unlock(&dvb->feed_lock);
@@ -490,7 +492,7 @@ static int vidtv_bridge_probe(struct platform_device *pdev)
 	struct vidtv_dvb *dvb;
 	int ret;
 
-	dvb = kzalloc(sizeof(*dvb), GFP_KERNEL);
+	dvb = kzalloc_obj(*dvb);
 	if (!dvb)
 		return -ENOMEM;
 

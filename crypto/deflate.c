@@ -40,7 +40,7 @@ static void *deflate_alloc_stream(void)
 						     DEFLATE_DEF_MEMLEVEL));
 	struct deflate_stream *ctx;
 
-	ctx = kvmalloc(struct_size(ctx, workspace, size), GFP_KERNEL);
+	ctx = kvmalloc_flex(*ctx, workspace, size);
 	if (!ctx)
 		return ERR_PTR(-ENOMEM);
 
@@ -164,17 +164,20 @@ static int deflate_decompress_one(struct acomp_req *req,
 
 		do {
 			unsigned int dcur;
+			unsigned long avail_in;
 
 			dcur = acomp_walk_next_dst(&walk);
-			if (!dcur) {
-				out_of_space = true;
-				break;
-			}
 
 			stream->avail_out = dcur;
 			stream->next_out = walk.dst.virt.addr;
+			avail_in = stream->avail_in;
 
 			ret = zlib_inflate(stream, Z_NO_FLUSH);
+
+			if (!dcur && avail_in == stream->avail_in) {
+				out_of_space = true;
+				break;
+			}
 
 			dcur -= stream->avail_out;
 			acomp_walk_done_dst(&walk, dcur);

@@ -115,6 +115,7 @@ enum {
 enum {
 	REG_CQIS		= 0x0,
 	REG_CQIE		= 0x4,
+	REG_MCQIACR		= 0x8,
 };
 
 enum {
@@ -188,6 +189,7 @@ static inline u32 ufshci_version(u32 major, u32 minor)
 #define SYSTEM_BUS_FATAL_ERROR			0x20000
 #define CRYPTO_ENGINE_FATAL_ERROR		0x40000
 #define MCQ_CQ_EVENT_STATUS			0x100000
+#define MCQ_IAG_EVENT_STATUS			0x200000
 
 #define UFSHCD_UIC_HIBERN8_MASK	(UIC_HIBERNATE_ENTER |\
 				UIC_HIBERNATE_EXIT)
@@ -271,6 +273,7 @@ enum {
 /* UECDME - Host UIC Error Code DME 48h */
 #define UIC_DME_ERROR			0x80000000
 #define UIC_DME_ERROR_CODE_MASK		0x1
+#define UIC_DME_QOS_MASK		0xE
 
 /* UTRIACR - Interrupt Aggregation control register - 0x4Ch */
 #define INT_AGGR_TIMEOUT_VAL_MASK		0xFF
@@ -288,6 +291,7 @@ enum {
 
 /* REG_UFS_MEM_CFG - Global Config Registers 300h */
 #define MCQ_MODE_SELECT	BIT(0)
+#define ESI_ENABLE	BIT(1)
 
 /* CQISy - CQ y Interrupt Status Register  */
 #define UFSHCD_MCQ_CQIS_TAIL_ENT_PUSH_STS	0x1

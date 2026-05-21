@@ -8,6 +8,7 @@
 
 #include <drm/drm_gpusvm.h>
 #include <drm/drm_gpuvm.h>
+#include <drm/drm_pagemap_util.h>
 
 #include <linux/dma-resv.h>
 #include <linux/kref.h>
@@ -17,9 +18,13 @@
 #include "xe_device_types.h"
 #include "xe_pt_types.h"
 #include "xe_range_fence.h"
+#include "xe_tlb_inval_types.h"
 #include "xe_userptr.h"
 
+struct drm_pagemap;
+
 struct xe_bo;
+struct xe_pagefault;
 struct xe_svm_range;
 struct xe_sync_entry;
 struct xe_user_fence;
@@ -53,7 +58,7 @@ struct xe_vm_pgtable_update_op;
  */
 struct xe_vma_mem_attr {
 	/** @preferred_loc: preferred memory_location */
-	struct {
+	struct xe_vma_preferred_loc {
 		/** @preferred_loc.migration_policy: Pages migration policy */
 		u32 migration_policy;
 
@@ -64,6 +69,13 @@ struct xe_vma_mem_attr {
 		 * closest device memory respectively.
 		 */
 		u32 devmem_fd;
+		/**
+		 * @preferred_loc.dpagemap: Reference-counted pointer to the drm_pagemap preferred
+		 * for migration on a SVM page-fault. The pointer is protected by the
+		 * vm lock, and is %NULL if @devmem_fd should be consulted for special
+		 * values.
+		 */
+		struct drm_pagemap *dpagemap;
 	} preferred_loc;
 
 	/**
@@ -84,6 +96,17 @@ struct xe_vma_mem_attr {
 	 * same as default_pat_index unless overwritten by madvise.
 	 */
 	u16 pat_index;
+
+	/**
+	 * @purgeable_state: Purgeable hint for this VMA mapping
+	 *
+	 * Per-VMA purgeable state from madvise. Valid states are WILLNEED (0)
+	 * or DONTNEED (1). Shared BOs require all VMAs to be DONTNEED before
+	 * the BO can be purged. PURGED state exists only at BO level.
+	 *
+	 * Protected by BO dma-resv lock. Set via DRM_IOCTL_XE_MADVISE.
+	 */
+	u32 purgeable_state;
 };
 
 struct xe_vma {
@@ -165,6 +188,24 @@ struct xe_userptr_vma {
 
 struct xe_device;
 
+/**
+ * struct xe_vm_fault_entry - Elements of vm->faults.list
+ * @list: link into @xe_vm.faults.list
+ * @address: address of the fault
+ * @address_precision: precision of faulted address
+ * @access_type: type of address access that resulted in fault
+ * @fault_type: type of fault reported
+ * @fault_level: fault level of the fault
+ */
+struct xe_vm_fault_entry {
+	struct list_head list;
+	u64 address;
+	u32 address_precision;
+	u8 access_type;
+	u8 fault_type;
+	u8 fault_level;
+};
+
 struct xe_vm {
 	/** @gpuvm: base GPUVM used to track VMAs */
 	struct drm_gpuvm gpuvm;
@@ -191,6 +232,9 @@ struct xe_vm {
 			 */
 			struct work_struct work;
 		} garbage_collector;
+		struct xe_pagemap *pagemaps[XE_MAX_TILES_PER_DEVICE];
+		/** @svm.peer: Used for pagemap connectivity computations. */
+		struct drm_pagemap_peer peer;
 	} svm;
 
 	struct xe_device *xe;
@@ -219,6 +263,7 @@ struct xe_vm {
 #define XE_VM_FLAG_TILE_ID(flags)	FIELD_GET(GENMASK(7, 6), flags)
 #define XE_VM_FLAG_SET_TILE_ID(tile)	FIELD_PREP(GENMASK(7, 6), (tile)->id)
 #define XE_VM_FLAG_GSC			BIT(8)
+#define XE_VM_FLAG_NO_VM_OVERCOMMIT     BIT(9)
 	unsigned long flags;
 
 	/**
@@ -263,7 +308,7 @@ struct xe_vm {
 		 * @min_run_period_ms: The minimum run period before preempting
 		 * an engine again
 		 */
-		s64 min_run_period_ms;
+		unsigned int min_run_period_ms;
 		/** @exec_queues: list of exec queues attached to this VM */
 		struct list_head exec_queues;
 		/** @num_exec_queues: number exec queues attached to this VM */
@@ -285,6 +330,22 @@ struct xe_vm {
 		struct list_head pm_activate_link;
 	} preempt;
 
+	/** @exec_queues: Manages list of exec queues attached to this VM, protected by lock. */
+	struct {
+		/**
+		 * @exec_queues.list: list of exec queues attached to this VM,
+		 * per GT
+		 */
+		struct list_head list[XE_MAX_TILES_PER_DEVICE * XE_MAX_GT_PER_TILE];
+		/**
+		 * @exec_queues.count: count of exec queues attached to this VM,
+		 * per GT
+		 */
+		int count[XE_MAX_TILES_PER_DEVICE * XE_MAX_GT_PER_TILE];
+		/** @exec_queues.lock: lock to protect exec_queues list */
+		struct rw_semaphore lock;
+	} exec_queues;
+
 	/** @um: unified memory state */
 	struct {
 		/** @asid: address space ID, unique to each VM */
@@ -301,6 +362,16 @@ struct xe_vm {
 		/** @capture_once: capture only one error per VM */
 		bool capture_once;
 	} error_capture;
+
+	/** @faults: List of all faults associated with this VM */
+	struct {
+		/** @faults.lock: lock protecting @faults.list */
+		spinlock_t lock;
+		/** @faults.list: list of xe_vm_fault_entry entries */
+		struct list_head list;
+		/** @faults.len: length of @faults.list */
+		unsigned int len;
+	} faults;
 
 	/**
 	 * @validation: Validation data only valid with the vm resv held.
@@ -346,6 +417,8 @@ struct xe_vma_op_map {
 	bool immediate;
 	/** @read_only: Read only */
 	bool invalidate_on_bind;
+	/** @request_decompress: schedule decompression for GPU map */
+	bool request_decompress;
 	/** @pat_index: The pat index to use for this operation. */
 	u16 pat_index;
 };
@@ -360,6 +433,10 @@ struct xe_vma_op_remap {
 	u64 start;
 	/** @range: range of the VMA unmap */
 	u64 range;
+	/** @old_start: Original start of the VMA we unmap */
+	u64 old_start;
+	/** @old_range: Original range of the VMA we unmap */
+	u64 old_range;
 	/** @skip_prev: skip prev rebind */
 	bool skip_prev;
 	/** @skip_next: skip next rebind */
@@ -395,10 +472,10 @@ struct xe_vma_op_prefetch_range {
 	/** @ranges_count: number of svm ranges to map */
 	u32 ranges_count;
 	/**
-	 * @tile: Pointer to the tile structure containing memory to prefetch.
-	 *        NULL if prefetch requested region is smem
+	 * @dpagemap: Pointer to the dpagemap structure containing memory to prefetch.
+	 * NULL if prefetch requested region is smem
 	 */
-	struct xe_tile *tile;
+	struct drm_pagemap *dpagemap;
 };
 
 /** enum xe_vma_op_flags - flags for VMA operation */
@@ -467,6 +544,7 @@ struct xe_vma_ops {
 #define XE_VMA_OPS_FLAG_MADVISE          BIT(1)
 #define XE_VMA_OPS_ARRAY_OF_BINDS	 BIT(2)
 #define XE_VMA_OPS_FLAG_SKIP_TLB_WAIT	 BIT(3)
+#define XE_VMA_OPS_FLAG_ALLOW_SVM_UNMAP  BIT(4)
 	u32 flags;
 #ifdef TEST_VM_OPS_ERROR
 	/** @inject_error: inject error to test error handling */

@@ -83,6 +83,9 @@ unsafe impl<T: AlwaysRefCounted + Sync + Send> Send for ARef<T> {}
 // example, when the reference count reaches zero and `T` is dropped.
 unsafe impl<T: AlwaysRefCounted + Sync + Send> Sync for ARef<T> {}
 
+// Even if `T` is pinned, pointers to `T` can still move.
+impl<T: AlwaysRefCounted> Unpin for ARef<T> {}
+
 impl<T: AlwaysRefCounted> ARef<T> {
     /// Creates a new instance of [`ARef`].
     ///
@@ -165,5 +168,27 @@ impl<T: AlwaysRefCounted> Drop for ARef<T> {
         // SAFETY: The type invariants guarantee that the `ARef` owns the reference we're about to
         // decrement.
         unsafe { T::dec_ref(self.ptr) };
+    }
+}
+
+impl<T, U> PartialEq<ARef<U>> for ARef<T>
+where
+    T: AlwaysRefCounted + PartialEq<U>,
+    U: AlwaysRefCounted,
+{
+    #[inline]
+    fn eq(&self, other: &ARef<U>) -> bool {
+        T::eq(&**self, &**other)
+    }
+}
+impl<T: AlwaysRefCounted + Eq> Eq for ARef<T> {}
+
+impl<T, U> PartialEq<&'_ U> for ARef<T>
+where
+    T: AlwaysRefCounted + PartialEq<U>,
+{
+    #[inline]
+    fn eq(&self, other: &&U) -> bool {
+        T::eq(&**self, other)
     }
 }

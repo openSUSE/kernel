@@ -31,7 +31,6 @@ struct osnoise_top_cpu {
 
 struct osnoise_top_data {
 	struct osnoise_top_cpu	*cpu_data;
-	int			nr_cpus;
 };
 
 /*
@@ -51,15 +50,13 @@ static void osnoise_free_top_tool(struct osnoise_tool *tool)
 /*
  * osnoise_alloc_histogram - alloc runtime data
  */
-static struct osnoise_top_data *osnoise_alloc_top(int nr_cpus)
+static struct osnoise_top_data *osnoise_alloc_top(void)
 {
 	struct osnoise_top_data *data;
 
 	data = calloc(1, sizeof(*data));
 	if (!data)
 		return NULL;
-
-	data->nr_cpus = nr_cpus;
 
 	/* one set of histograms per CPU */
 	data->cpu_data = calloc(1, sizeof(*data->cpu_data) * nr_cpus);
@@ -232,18 +229,14 @@ osnoise_print_stats(struct osnoise_tool *top)
 {
 	struct osnoise_params *params = to_osnoise_params(top->params);
 	struct trace_instance *trace = &top->trace;
-	static int nr_cpus = -1;
 	int i;
-
-	if (nr_cpus == -1)
-		nr_cpus = sysconf(_SC_NPROCESSORS_CONF);
 
 	if (!params->common.quiet)
 		clear_terminal(trace->seq);
 
 	osnoise_top_header(top);
 
-	for_each_monitored_cpu(i, nr_cpus, &params->common) {
+	for_each_monitored_cpu(i, &params->common) {
 		osnoise_top_print(top, i);
 	}
 
@@ -257,14 +250,16 @@ osnoise_print_stats(struct osnoise_tool *top)
  */
 static void osnoise_top_usage(struct osnoise_params *params)
 {
-	int i;
+	const char *tool, *mode, *desc;
 
-	static const char * const msg[] = {
-		" [-h] [-q] [-D] [-d s] [-a us] [-p us] [-r us] [-s us] [-S us] \\",
+	static const char * const msg_start[] = {
+		"[-q] [-D] [-d s] [-a us] [-p us] [-r us] [-s us] [-S us] \\",
 		"	  [-T us] [-t [file]] [-e sys[:event]] [--filter <filter>] [--trigger <trigger>] \\",
 		"	  [-c cpu-list] [-H cpu-list] [-P priority] [-C [cgroup_name]] [--warm-up s]",
-		"",
-		"	  -h/--help: print this menu",
+		NULL,
+	};
+
+	static const char * const msg_opts[] = {
 		"	  -a/--auto: set automatic trace mode, stopping the session if argument in us sample is hit",
 		"	  -p/--period us: osnoise period in us",
 		"	  -r/--runtime us: osnoise runtime in us",
@@ -295,25 +290,16 @@ static void osnoise_top_usage(struct osnoise_params *params)
 	};
 
 	if (params->mode == MODE_OSNOISE) {
-		fprintf(stderr,
-			"rtla osnoise top: a per-cpu summary of the OS noise (version %s)\n",
-			VERSION);
-
-		fprintf(stderr, "  usage: rtla osnoise [top]");
+		tool = "osnoise";
+		mode = "top";
+		desc = "a per-cpu summary of the OS noise";
+	} else {
+		tool = "hwnoise";
+		mode = "";
+		desc = "a summary of hardware-related noise";
 	}
 
-	if (params->mode == MODE_HWNOISE) {
-		fprintf(stderr,
-			"rtla hwnoise: a summary of hardware-related noise (version %s)\n",
-			VERSION);
-
-		fprintf(stderr, "  usage: rtla hwnoise");
-	}
-
-	for (i = 0; msg[i]; i++)
-		fprintf(stderr, "%s\n", msg[i]);
-
-	exit(EXIT_SUCCESS);
+	common_usage(tool, mode, desc, msg_start, msg_opts);
 }
 
 /*
@@ -322,14 +308,11 @@ static void osnoise_top_usage(struct osnoise_params *params)
 struct common_params *osnoise_top_parse_args(int argc, char **argv)
 {
 	struct osnoise_params *params;
-	struct trace_events *tevent;
 	int retval;
 	int c;
 	char *trace_output = NULL;
 
-	params = calloc(1, sizeof(*params));
-	if (!params)
-		exit(1);
+	params = calloc_fatal(1, sizeof(*params));
 
 	actions_init(&params->common.threshold_actions);
 	actions_init(&params->common.end_actions);
@@ -346,15 +329,8 @@ struct common_params *osnoise_top_parse_args(int argc, char **argv)
 	while (1) {
 		static struct option long_options[] = {
 			{"auto",		required_argument,	0, 'a'},
-			{"cpus",		required_argument,	0, 'c'},
-			{"cgroup",		optional_argument,	0, 'C'},
-			{"debug",		no_argument,		0, 'D'},
-			{"duration",		required_argument,	0, 'd'},
-			{"event",		required_argument,	0, 'e'},
-			{"house-keeping",	required_argument,	0, 'H'},
 			{"help",		no_argument,		0, 'h'},
 			{"period",		required_argument,	0, 'p'},
-			{"priority",		required_argument,	0, 'P'},
 			{"quiet",		no_argument,		0, 'q'},
 			{"runtime",		required_argument,	0, 'r'},
 			{"stop",		required_argument,	0, 's'},
@@ -370,8 +346,10 @@ struct common_params *osnoise_top_parse_args(int argc, char **argv)
 			{0, 0, 0, 0}
 		};
 
-		c = getopt_long(argc, argv, "a:c:C::d:De:hH:p:P:qr:s:S:t::T:0:1:2:3:",
-				 long_options, NULL);
+		if (common_parse_options(argc, argv, &params->common))
+			continue;
+
+		c = getopt_auto(argc, argv, long_options);
 
 		/* Detect the end of the options. */
 		if (c == -1)
@@ -390,54 +368,14 @@ struct common_params *osnoise_top_parse_args(int argc, char **argv)
 				trace_output = "osnoise_trace.txt";
 
 			break;
-		case 'c':
-			retval = parse_cpu_set(optarg, &params->common.monitored_cpus);
-			if (retval)
-				fatal("Invalid -c cpu list");
-			params->common.cpus = optarg;
-			break;
-		case 'C':
-			params->common.cgroup = 1;
-			params->common.cgroup_name = parse_optional_arg(argc, argv);
-			break;
-		case 'D':
-			config_debug = 1;
-			break;
-		case 'd':
-			params->common.duration = parse_seconds_duration(optarg);
-			if (!params->common.duration)
-				fatal("Invalid -d duration");
-			break;
-		case 'e':
-			tevent = trace_event_alloc(optarg);
-			if (!tevent)
-				fatal("Error alloc trace event");
-
-			if (params->common.events)
-				tevent->next = params->common.events;
-			params->common.events = tevent;
-
-			break;
 		case 'h':
 		case '?':
 			osnoise_top_usage(params);
-			break;
-		case 'H':
-			params->common.hk_cpus = 1;
-			retval = parse_cpu_set(optarg, &params->common.hk_cpu_set);
-			if (retval)
-				fatal("Error parsing house keeping CPUs");
 			break;
 		case 'p':
 			params->period = get_llong_from_str(optarg);
 			if (params->period > 10000000)
 				fatal("Period longer than 10 s");
-			break;
-		case 'P':
-			retval = parse_prio(optarg, &params->common.sched_param);
-			if (retval == -1)
-				fatal("Invalid -P priority");
-			params->common.set_sched = 1;
 			break;
 		case 'q':
 			params->common.quiet = 1;
@@ -462,22 +400,16 @@ struct common_params *osnoise_top_parse_args(int argc, char **argv)
 			params->threshold = get_llong_from_str(optarg);
 			break;
 		case '0': /* trigger */
-			if (params->common.events) {
-				retval = trace_event_add_trigger(params->common.events, optarg);
-				if (retval)
-					fatal("Error adding trigger %s", optarg);
-			} else {
+			if (params->common.events)
+				trace_event_add_trigger(params->common.events, optarg);
+			else
 				fatal("--trigger requires a previous -e");
-			}
 			break;
 		case '1': /* filter */
-			if (params->common.events) {
-				retval = trace_event_add_filter(params->common.events, optarg);
-				if (retval)
-					fatal("Error adding filter %s", optarg);
-			} else {
+			if (params->common.events)
+				trace_event_add_filter(params->common.events, optarg);
+			else
 				fatal("--filter requires a previous -e");
-			}
 			break;
 		case '2':
 			params->common.warmup = get_llong_from_str(optarg);
@@ -547,15 +479,12 @@ out_err:
 struct osnoise_tool *osnoise_init_top(struct common_params *params)
 {
 	struct osnoise_tool *tool;
-	int nr_cpus;
-
-	nr_cpus = sysconf(_SC_NPROCESSORS_CONF);
 
 	tool = osnoise_init_tool("osnoise_top");
 	if (!tool)
 		return NULL;
 
-	tool->data = osnoise_alloc_top(nr_cpus);
+	tool->data = osnoise_alloc_top();
 	if (!tool->data) {
 		osnoise_destroy_tool(tool);
 		return NULL;

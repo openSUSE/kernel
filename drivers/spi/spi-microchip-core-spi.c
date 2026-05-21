@@ -161,7 +161,7 @@ static int mchp_corespi_setup(struct spi_device *spi)
 		return -EOPNOTSUPP;
 	}
 
-	if (spi->mode & SPI_MODE_X_MASK & ~spi->controller->mode_bits) {
+	if ((spi->mode ^ spi->controller->mode_bits) & SPI_MODE_X_MASK) {
 		dev_err(&spi->dev, "incompatible CPOL/CPHA, must match controller's Motorola mode\n");
 		return -EINVAL;
 	}
@@ -360,7 +360,6 @@ static int mchp_corespi_probe(struct platform_device *pdev)
 	host->bits_per_word_mask = SPI_BPW_RANGE_MASK(4, 32);
 	host->transfer_one = mchp_corespi_transfer_one;
 	host->set_cs = mchp_corespi_set_cs;
-	host->dev.of_node = dev->of_node;
 
 	ret = of_property_read_u32(dev->of_node, "fifo-depth", &spi->fifo_depth);
 	if (ret)
@@ -385,7 +384,7 @@ static int mchp_corespi_probe(struct platform_device *pdev)
 
 	mchp_corespi_init(host, spi);
 
-	ret = devm_spi_register_controller(dev, host);
+	ret = spi_register_controller(host);
 	if (ret) {
 		mchp_corespi_disable_ints(spi);
 		mchp_corespi_disable(spi);
@@ -399,6 +398,8 @@ static void mchp_corespi_remove(struct platform_device *pdev)
 {
 	struct spi_controller *host = platform_get_drvdata(pdev);
 	struct mchp_corespi *spi = spi_controller_get_devdata(host);
+
+	spi_unregister_controller(host);
 
 	mchp_corespi_disable_ints(spi);
 	mchp_corespi_disable(spi);

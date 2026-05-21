@@ -80,7 +80,7 @@ unregister_netdev() closes the device and waits for all users to be done
 with it. The memory of struct net_device itself may still be referenced
 by sysfs but all operations on that device will fail.
 
-free_netdev() can be called after unregister_netdev() returns on when
+free_netdev() can be called after unregister_netdev() returns or when
 register_netdev() failed.
 
 Device management under RTNL
@@ -289,6 +289,19 @@ ndo_tx_timeout:
 ndo_set_rx_mode:
 	Synchronization: netif_addr_lock spinlock.
 	Context: BHs disabled
+	Notes: Deprecated in favor of ndo_set_rx_mode_async which runs
+	in process context.
+
+ndo_set_rx_mode_async:
+	Synchronization: rtnl_lock() semaphore. In addition, netdev instance
+	lock if the driver implements queue management or shaper API.
+	Context: process (from a work queue)
+	Notes: Async version of ndo_set_rx_mode which runs in process
+	context. Receives snapshots of the unicast and multicast address lists.
+
+ndo_change_rx_flags:
+	Synchronization: rtnl_lock() semaphore. In addition, netdev instance
+	lock if the driver implements queue management or shaper API.
 
 ndo_setup_tc:
 	``TC_SETUP_BLOCK`` and ``TC_SETUP_FT`` are running under NFT locks
@@ -329,11 +342,17 @@ by setting ``request_ops_lock`` to true. Code comments and docs refer
 to drivers which have ops called under the instance lock as "ops locked".
 See also the documentation of the ``lock`` member of struct net_device.
 
+There is also a case of taking two per-netdev locks in sequence when netdev
+queues are leased, that is, the netdev-scope lock is taken for both the
+virtual and the physical device. To prevent deadlocks, the virtual device's
+lock must always be acquired before the physical device's (see
+``netdev_nl_queue_create_doit``).
+
 In the future, there will be an option for individual
 drivers to opt out of using ``rtnl_lock`` and instead perform their control
 operations directly under the netdev instance lock.
 
-Devices drivers are encouraged to rely on the instance lock where possible.
+Device drivers are encouraged to rely on the instance lock where possible.
 
 For the (mostly software) drivers that need to interact with the core stack,
 there are two sets of interfaces: ``dev_xxx``/``netdev_xxx`` and ``netif_xxx``

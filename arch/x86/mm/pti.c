@@ -15,7 +15,7 @@
  *   Signed-off-by: Michael Schwarz <michael.schwarz@iaik.tugraz.at>
  *
  * Major changes to the original code by: Dave Hansen <dave.hansen@intel.com>
- * Mostly rewritten by Thomas Gleixner <tglx@linutronix.de> and
+ * Mostly rewritten by Thomas Gleixner <tglx@kernel.org> and
  *		       Andy Lutomirsky <luto@amacapital.net>
  */
 #include <linux/kernel.h>
@@ -104,6 +104,11 @@ void __init pti_check_boottime_disable(void)
 	if (cpu_feature_enabled(X86_FEATURE_INVLPGB)) {
 		pr_debug("PTI enabled, disabling INVLPGB\n");
 		setup_clear_cpu_cap(X86_FEATURE_INVLPGB);
+	}
+
+	if (cpu_feature_enabled(X86_FEATURE_FRED)) {
+		pr_debug("PTI enabled, disabling FRED\n");
+		setup_clear_cpu_cap(X86_FEATURE_FRED);
 	}
 }
 

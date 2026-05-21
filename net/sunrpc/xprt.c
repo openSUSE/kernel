@@ -1663,6 +1663,22 @@ void xprt_add_backlog(struct rpc_xprt *xprt, struct rpc_task *task)
 }
 EXPORT_SYMBOL_GPL(xprt_add_backlog);
 
+/**
+ * xprt_add_backlog_noncongested - queue task on backlog
+ * @xprt: transport whose backlog queue receives the task
+ * @task: task to queue
+ *
+ * Like xprt_add_backlog, but does not set XPRT_CONGESTED.
+ * For transports whose free_slot path does not synchronize
+ * with xprt_throttle_congested via reserve_lock.
+ */
+void xprt_add_backlog_noncongested(struct rpc_xprt *xprt,
+				   struct rpc_task *task)
+{
+	rpc_sleep_on(&xprt->backlog, task, xprt_complete_request_init);
+}
+EXPORT_SYMBOL_GPL(xprt_add_backlog_noncongested);
+
 static bool __xprt_set_rq(struct rpc_task *task, void *data)
 {
 	struct rpc_rqst *req = data;
@@ -1709,7 +1725,7 @@ static struct rpc_rqst *xprt_dynamic_alloc_slot(struct rpc_xprt *xprt)
 		goto out;
 	++xprt->num_reqs;
 	spin_unlock(&xprt->reserve_lock);
-	req = kzalloc(sizeof(*req), rpc_task_gfp_mask());
+	req = kzalloc_obj(*req, rpc_task_gfp_mask());
 	spin_lock(&xprt->reserve_lock);
 	if (req != NULL)
 		goto out;
@@ -1829,7 +1845,7 @@ struct rpc_xprt *xprt_alloc(struct net *net, size_t size,
 	xprt_init(xprt, net);
 
 	for (i = 0; i < num_prealloc; i++) {
-		req = kzalloc(sizeof(struct rpc_rqst), GFP_KERNEL);
+		req = kzalloc_obj(struct rpc_rqst);
 		if (!req)
 			goto out_free;
 		list_add(&req->rq_list, &xprt->free);

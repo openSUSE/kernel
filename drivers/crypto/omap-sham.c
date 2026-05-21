@@ -37,6 +37,7 @@
 #include <linux/scatterlist.h>
 #include <linux/slab.h>
 #include <linux/string.h>
+#include <linux/sysfs.h>
 #include <linux/workqueue.h>
 
 #define MD5_DIGEST_SIZE			16
@@ -146,7 +147,6 @@ struct omap_sham_reqctx {
 	u8			digest[SHA512_DIGEST_SIZE] OMAP_ALIGNED;
 	size_t			digcnt;
 	size_t			bufcnt;
-	size_t			buflen;
 
 	/* walk state */
 	struct scatterlist	*sg;
@@ -155,7 +155,7 @@ struct omap_sham_reqctx {
 	int			sg_len;
 	unsigned int		total;	/* total request */
 
-	u8			buffer[] OMAP_ALIGNED;
+	u8			buffer[BUFLEN] OMAP_ALIGNED;
 };
 
 struct omap_sham_hmac_ctx {
@@ -635,7 +635,7 @@ static int omap_sham_copy_sg_lists(struct omap_sham_reqctx *ctx,
 	if (ctx->bufcnt)
 		n++;
 
-	ctx->sg = kmalloc_array(n, sizeof(*sg), GFP_KERNEL);
+	ctx->sg = kmalloc_objs(*sg, n);
 	if (!ctx->sg)
 		return -ENOMEM;
 
@@ -890,7 +890,7 @@ static int omap_sham_prepare_request(struct crypto_engine *engine, void *areq)
 	if (hash_later < 0)
 		hash_later = 0;
 
-	if (hash_later && hash_later <= rctx->buflen) {
+	if (hash_later && hash_later <= sizeof(rctx->buffer)) {
 		scatterwalk_map_and_copy(rctx->buffer,
 					 req->src,
 					 req->nbytes - hash_later,
@@ -901,7 +901,7 @@ static int omap_sham_prepare_request(struct crypto_engine *engine, void *areq)
 		rctx->bufcnt = 0;
 	}
 
-	if (hash_later > rctx->buflen)
+	if (hash_later > sizeof(rctx->buffer))
 		set_bit(FLAGS_HUGE, &rctx->dd->flags);
 
 	rctx->total = min(nbytes, rctx->total);
@@ -986,7 +986,6 @@ static int omap_sham_init(struct ahash_request *req)
 	ctx->digcnt = 0;
 	ctx->total = 0;
 	ctx->offset = 0;
-	ctx->buflen = BUFLEN;
 
 	if (tctx->flags & BIT(FLAGS_HMAC)) {
 		if (!test_bit(FLAGS_AUTO_XOR, &dd->flags)) {
@@ -1199,7 +1198,7 @@ static int omap_sham_update(struct ahash_request *req)
 	if (!req->nbytes)
 		return 0;
 
-	if (ctx->bufcnt + req->nbytes <= ctx->buflen) {
+	if (ctx->bufcnt + req->nbytes <= sizeof(ctx->buffer)) {
 		scatterwalk_map_and_copy(ctx->buffer + ctx->bufcnt, req->src,
 					 0, req->nbytes, 0);
 		ctx->bufcnt += req->nbytes;
@@ -1332,7 +1331,7 @@ static int omap_sham_cra_init_alg(struct crypto_tfm *tfm, const char *alg_base)
 	}
 
 	crypto_ahash_set_reqsize(__crypto_ahash_cast(tfm),
-				 sizeof(struct omap_sham_reqctx) + BUFLEN);
+				 sizeof(struct omap_sham_reqctx));
 
 	if (alg_base) {
 		struct omap_sham_hmac_ctx *bctx = tctx->base;
@@ -1403,7 +1402,8 @@ static int omap_sham_export(struct ahash_request *req, void *out)
 {
 	struct omap_sham_reqctx *rctx = ahash_request_ctx(req);
 
-	memcpy(out, rctx, sizeof(*rctx) + rctx->bufcnt);
+	memcpy(out, rctx, offsetof(struct omap_sham_reqctx, buffer) +
+			  rctx->bufcnt);
 
 	return 0;
 }
@@ -1413,7 +1413,8 @@ static int omap_sham_import(struct ahash_request *req, const void *in)
 	struct omap_sham_reqctx *rctx = ahash_request_ctx(req);
 	const struct omap_sham_reqctx *ctx_in = in;
 
-	memcpy(rctx, in, sizeof(*rctx) + ctx_in->bufcnt);
+	memcpy(rctx, in, offsetof(struct omap_sham_reqctx, buffer) +
+			 ctx_in->bufcnt);
 
 	return 0;
 }
@@ -1973,7 +1974,7 @@ static ssize_t fallback_show(struct device *dev, struct device_attribute *attr,
 {
 	struct omap_sham_dev *dd = dev_get_drvdata(dev);
 
-	return sprintf(buf, "%d\n", dd->fallback_sz);
+	return sysfs_emit(buf, "%d\n", dd->fallback_sz);
 }
 
 static ssize_t fallback_store(struct device *dev, struct device_attribute *attr,
@@ -2003,7 +2004,7 @@ static ssize_t queue_len_show(struct device *dev, struct device_attribute *attr,
 {
 	struct omap_sham_dev *dd = dev_get_drvdata(dev);
 
-	return sprintf(buf, "%d\n", dd->queue.max_qlen);
+	return sysfs_emit(buf, "%d\n", dd->queue.max_qlen);
 }
 
 static ssize_t queue_len_store(struct device *dev,
@@ -2145,8 +2146,7 @@ static int omap_sham_probe(struct platform_device *pdev)
 			alg = &ealg->base;
 			alg->export = omap_sham_export;
 			alg->import = omap_sham_import;
-			alg->halg.statesize = sizeof(struct omap_sham_reqctx) +
-					      BUFLEN;
+			alg->halg.statesize = sizeof(struct omap_sham_reqctx);
 			err = crypto_engine_register_ahash(ealg);
 			if (err)
 				goto err_algs;

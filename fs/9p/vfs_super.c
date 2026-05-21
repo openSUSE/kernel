@@ -90,7 +90,7 @@ static int v9fs_get_tree(struct fs_context *fc)
 
 	p9_debug(P9_DEBUG_VFS, "\n");
 
-	v9ses = kzalloc(sizeof(struct v9fs_session_info), GFP_KERNEL);
+	v9ses = kzalloc_obj(struct v9fs_session_info);
 	if (!v9ses)
 		return -ENOMEM;
 
@@ -308,9 +308,12 @@ static int v9fs_init_fs_context(struct fs_context *fc)
 {
 	struct v9fs_context	*ctx;
 
-	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	ctx = kzalloc_obj(*ctx);
 	if (!ctx)
 		return -ENOMEM;
+
+	fc->ops = &v9fs_context_ops;
+	fc->fs_private = ctx;
 
 	/* initialize core options */
 	ctx->session_opts.afid = ~0;
@@ -344,9 +347,6 @@ static int v9fs_init_fs_context(struct fs_context *fc)
 	ctx->rdma_opts.rq_depth = P9_RDMA_RQ_DEPTH;
 	ctx->rdma_opts.timeout = P9_RDMA_TIMEOUT;
 	ctx->rdma_opts.privport = false;
-
-	fc->ops = &v9fs_context_ops;
-	fc->fs_private = ctx;
 
 	return 0;
 error:

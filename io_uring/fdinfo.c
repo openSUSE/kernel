@@ -67,7 +67,7 @@ static void __io_uring_show_fdinfo(struct io_ring_ctx *ctx, struct seq_file *m)
 	unsigned int cq_head = READ_ONCE(r->cq.head);
 	unsigned int cq_tail = READ_ONCE(r->cq.tail);
 	unsigned int sq_shift = 0;
-	unsigned int sq_entries;
+	unsigned int cq_entries, sq_entries;
 	int sq_pid = -1, sq_cpu = -1;
 	u64 sq_total_time = 0, sq_work_time = 0;
 	unsigned int i;
@@ -119,12 +119,14 @@ static void __io_uring_show_fdinfo(struct io_ring_ctx *ctx, struct seq_file *m)
 					sq_idx);
 				break;
 			}
-			if ((++sq_head & sq_mask) == 0) {
+			if (sq_idx == sq_mask) {
 				seq_printf(m,
 					"%5u: corrupted sqe, wrapping 128B entry\n",
 					sq_idx);
 				break;
 			}
+			sq_head++;
+			i++;
 			sqe128 = true;
 		}
 		seq_printf(m, "%5u: opcode:%s, fd:%d, flags:%x, off:%llu, "
@@ -146,9 +148,11 @@ static void __io_uring_show_fdinfo(struct io_ring_ctx *ctx, struct seq_file *m)
 			}
 		}
 		seq_printf(m, "\n");
+		cond_resched();
 	}
 	seq_printf(m, "CQEs:\t%u\n", cq_tail - cq_head);
-	while (cq_head < cq_tail) {
+	cq_entries = min(cq_tail - cq_head, ctx->cq_entries);
+	for (i = 0; i < cq_entries; i++) {
 		struct io_uring_cqe *cqe;
 		bool cqe32 = false;
 
@@ -159,12 +163,15 @@ static void __io_uring_show_fdinfo(struct io_ring_ctx *ctx, struct seq_file *m)
 			   cq_head & cq_mask, cqe->user_data, cqe->res,
 			   cqe->flags);
 		if (cqe32)
-			seq_printf(m, ", extra1:%llu, extra2:%llu\n",
+			seq_printf(m, ", extra1:%llu, extra2:%llu",
 					cqe->big_cqe[0], cqe->big_cqe[1]);
 		seq_printf(m, "\n");
 		cq_head++;
-		if (cqe32)
+		if (cqe32) {
 			cq_head++;
+			i++;
+		}
+		cond_resched();
 	}
 
 	if (ctx->flags & IORING_SETUP_SQPOLL) {

@@ -648,7 +648,7 @@ struct usb_device *usb_alloc_dev(struct usb_device *parent,
 	struct usb_hcd *usb_hcd = bus_to_hcd(bus);
 	unsigned raw_port = port1;
 
-	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+	dev = kzalloc_obj(*dev);
 	if (!dev)
 		return NULL;
 
@@ -671,6 +671,7 @@ struct usb_device *usb_alloc_dev(struct usb_device *parent,
 	set_dev_node(&dev->dev, dev_to_node(bus->sysdev));
 	dev->state = USB_STATE_ATTACHED;
 	dev->lpm_disable_count = 1;
+	spin_lock_init(&dev->offload_lock);
 	dev->offload_usage = 0;
 	atomic_set(&dev->urbnum, 0);
 

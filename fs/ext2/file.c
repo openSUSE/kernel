@@ -22,6 +22,7 @@
 #include <linux/time.h>
 #include <linux/pagemap.h>
 #include <linux/dax.h>
+#include <linux/filelock.h>
 #include <linux/quotaops.h>
 #include <linux/iomap.h>
 #include <linux/uio.h>
@@ -155,9 +156,11 @@ static int ext2_release_file (struct inode * inode, struct file * filp)
 int ext2_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 {
 	int ret;
-	struct super_block *sb = file->f_mapping->host->i_sb;
+	struct inode *inode = file->f_mapping->host;
+	struct super_block *sb = inode->i_sb;
 
-	ret = generic_buffers_fsync(file, start, end, datasync);
+	ret = mmb_fsync(file, &EXT2_I(inode)->i_metadata_bhs,
+			start, end, datasync);
 	if (ret == -EIO)
 		/* We don't really know where the IO error happened... */
 		ext2_error(sb, __func__,
@@ -325,6 +328,7 @@ const struct file_operations ext2_file_operations = {
 	.get_unmapped_area = thp_get_unmapped_area,
 	.splice_read	= filemap_splice_read,
 	.splice_write	= iter_file_splice_write,
+	.setlease	= generic_setlease,
 };
 
 const struct inode_operations ext2_file_inode_operations = {

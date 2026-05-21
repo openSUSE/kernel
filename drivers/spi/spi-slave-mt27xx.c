@@ -395,7 +395,6 @@ static int mtk_spi_slave_probe(struct platform_device *pdev)
 	}
 
 	ctlr->auto_runtime_pm = true;
-	ctlr->dev.of_node = pdev->dev.of_node;
 	ctlr->mode_bits = SPI_CPOL | SPI_CPHA;
 	ctlr->mode_bits |= SPI_LSB_FIRST;
 
@@ -454,7 +453,7 @@ static int mtk_spi_slave_probe(struct platform_device *pdev)
 
 	pm_runtime_enable(&pdev->dev);
 
-	ret = devm_spi_register_controller(&pdev->dev, ctlr);
+	ret = spi_register_controller(ctlr);
 	clk_disable_unprepare(mdata->spi_clk);
 	if (ret) {
 		dev_err(&pdev->dev,
@@ -474,7 +473,15 @@ err_put_ctlr:
 
 static void mtk_spi_slave_remove(struct platform_device *pdev)
 {
+	struct spi_controller *ctlr = platform_get_drvdata(pdev);
+
+	spi_controller_get(ctlr);
+
+	spi_unregister_controller(ctlr);
+
 	pm_runtime_disable(&pdev->dev);
+
+	spi_controller_put(ctlr);
 }
 
 #ifdef CONFIG_PM_SLEEP

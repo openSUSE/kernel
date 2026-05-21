@@ -220,7 +220,7 @@ static void ledtrig_tty_work(struct work_struct *work)
 			goto out;
 
 		tty = tty_kopen_shared(devno);
-		if (IS_ERR(tty) || !tty)
+		if (IS_ERR_OR_NULL(tty))
 			/* What to do? retry or abort */
 			goto out;
 
@@ -312,7 +312,7 @@ static int ledtrig_tty_activate(struct led_classdev *led_cdev)
 {
 	struct ledtrig_tty_data *trigger_data;
 
-	trigger_data = kzalloc(sizeof(*trigger_data), GFP_KERNEL);
+	trigger_data = kzalloc_obj(*trigger_data);
 	if (!trigger_data)
 		return -ENOMEM;
 

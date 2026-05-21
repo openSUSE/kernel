@@ -40,7 +40,8 @@
 #include <asm/irq_remapping.h>
 #include <asm/kvm_page_track.h>
 #include <asm/kvm_vcpu_regs.h>
-#include <asm/reboot.h>
+#include <asm/virt.h>
+
 #include <hyperv/hvhdk.h>
 
 #define __KVM_HAVE_ARCH_VCPU_DEBUGFS
@@ -195,7 +196,15 @@ enum kvm_reg {
 
 	VCPU_EXREG_PDPTR = NR_VCPU_REGS,
 	VCPU_EXREG_CR0,
+	/*
+	 * Alias AMD's ERAPS (not a real register) to CR3 so that common code
+	 * can trigger emulation of the RAP (Return Address Predictor) with
+	 * minimal support required in common code.  Piggyback CR3 as the RAP
+	 * is cleared on writes to CR3, i.e. marking CR3 dirty will naturally
+	 * mark ERAPS dirty as well.
+	 */
 	VCPU_EXREG_CR3,
+	VCPU_EXREG_ERAPS = VCPU_EXREG_CR3,
 	VCPU_EXREG_CR4,
 	VCPU_EXREG_RFLAGS,
 	VCPU_EXREG_SEGMENTS,
@@ -529,6 +538,7 @@ struct kvm_pmc {
 	 */
 	u64 emulated_counter;
 	u64 eventsel;
+	u64 eventsel_hw;
 	struct perf_event *perf_event;
 	struct kvm_vcpu *vcpu;
 	/*
@@ -557,6 +567,7 @@ struct kvm_pmu {
 	unsigned nr_arch_fixed_counters;
 	unsigned available_event_types;
 	u64 fixed_ctr_ctrl;
+	u64 fixed_ctr_ctrl_hw;
 	u64 fixed_ctr_ctrl_rsvd;
 	u64 global_ctrl;
 	u64 global_status;
@@ -776,6 +787,8 @@ enum kvm_only_cpuid_leafs {
 	CPUID_24_0_EBX,
 	CPUID_8000_0021_ECX,
 	CPUID_7_1_ECX,
+	CPUID_1E_1_EAX,
+	CPUID_24_1_ECX,
 	NR_KVM_CPU_CAPS,
 
 	NKVMCAPINTS = NR_KVM_CPU_CAPS - NCAPINTS,
@@ -1086,6 +1099,21 @@ struct kvm_vcpu_arch {
 	 */
 	bool pdptrs_from_userspace;
 
+	/*
+	 * Set if an emulated nested VM-Enter to L2 is pending completion.  KVM
+	 * must not synthesize a VM-Exit to L1 before entering L2, as VM-Exits
+	 * can only occur at instruction boundaries.  The only exception is
+	 * VMX's "notify" exits, which exist in large part to break the CPU out
+	 * of infinite ucode loops, but can corrupt vCPU state in the process!
+	 *
+	 * For all intents and purposes, this is a boolean, but it's tracked as
+	 * a u8 so that KVM can detect when userspace may have stuffed vCPU
+	 * state and generated an architecturally-impossible VM-Exit.
+	 */
+#define KVM_NESTED_RUN_PENDING			1
+#define KVM_NESTED_RUN_PENDING_UNTRUSTED	2
+	u8 nested_run_pending;
+
 #if IS_ENABLED(CONFIG_HYPERV)
 	hpa_t hv_root_tdp;
 #endif
@@ -1222,8 +1250,16 @@ struct kvm_xen {
 
 enum kvm_irqchip_mode {
 	KVM_IRQCHIP_NONE,
+#ifdef CONFIG_KVM_IOAPIC
 	KVM_IRQCHIP_KERNEL,       /* created with KVM_CREATE_IRQCHIP */
+#endif
 	KVM_IRQCHIP_SPLIT,        /* created with KVM_CAP_SPLIT_IRQCHIP */
+};
+
+enum kvm_suppress_eoi_broadcast_mode {
+	KVM_SUPPRESS_EOI_BROADCAST_QUIRKED, /* Legacy behavior */
+	KVM_SUPPRESS_EOI_BROADCAST_ENABLED, /* Enable Suppress EOI broadcast */
+	KVM_SUPPRESS_EOI_BROADCAST_DISABLED /* Disable Suppress EOI broadcast */
 };
 
 struct kvm_x86_msr_filter {
@@ -1241,7 +1277,7 @@ struct kvm_x86_pmu_event_filter {
 	__u32 nr_excludes;
 	__u64 *includes;
 	__u64 *excludes;
-	__u64 events[];
+	__u64 events[] __counted_by(nevents);
 };
 
 enum kvm_apicv_inhibit {
@@ -1413,6 +1449,7 @@ struct kvm_arch {
 	struct kvm_pit *vpit;
 #endif
 	atomic_t vapics_in_nmi_mode;
+
 	struct mutex apic_map_lock;
 	struct kvm_apic_map __rcu *apic_map;
 	atomic_t apic_map_dirty;
@@ -1420,8 +1457,22 @@ struct kvm_arch {
 	bool apic_access_memslot_enabled;
 	bool apic_access_memslot_inhibited;
 
-	/* Protects apicv_inhibit_reasons */
+	/*
+	 * Force apicv_update_lock and apicv_nr_irq_window_req to reside in a
+	 * dedicated cacheline.  They are write-mostly, whereas most everything
+	 * else in kvm_arch is read-mostly.  Note that apicv_inhibit_reasons is
+	 * read-mostly: toggling VM-wide inhibits is rare; _checking_ for
+	 * inhibits is common.
+	 */
+	____cacheline_aligned
+	/*
+	 * Protects apicv_inhibit_reasons and apicv_nr_irq_window_req (with an
+	 * asterisk, see kvm_inc_or_dec_irq_window_inhibit() for details).
+	 */
 	struct rw_semaphore apicv_update_lock;
+	atomic_t apicv_nr_irq_window_req;
+	____cacheline_aligned
+
 	unsigned long apicv_inhibit_reasons;
 
 	gpa_t wall_clock;
@@ -1475,6 +1526,7 @@ struct kvm_arch {
 
 	bool x2apic_format;
 	bool x2apic_broadcast_quirk_disabled;
+	enum kvm_suppress_eoi_broadcast_mode suppress_eoi_broadcast_mode;
 
 	bool has_mapped_host_mmio;
 	bool guest_can_read_msr_platform_info;
@@ -1484,6 +1536,7 @@ struct kvm_arch {
 
 	bool bus_lock_detection_enabled;
 	bool enable_pmu;
+	bool created_mediated_pmu;
 
 	u32 notify_window;
 	u32 notify_vmexit_flags;
@@ -2075,9 +2128,6 @@ void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end);
 
 int load_pdptrs(struct kvm_vcpu *vcpu, unsigned long cr3);
 
-int emulator_write_phys(struct kvm_vcpu *vcpu, gpa_t gpa,
-			  const void *val, int bytes);
-
 extern bool tdp_enabled;
 
 u64 vcpu_tsc_khz(struct kvm_vcpu *vcpu);
@@ -2294,6 +2344,18 @@ static inline void kvm_clear_apicv_inhibit(struct kvm *kvm,
 	kvm_set_or_clear_apicv_inhibit(kvm, reason, false);
 }
 
+void kvm_inc_or_dec_irq_window_inhibit(struct kvm *kvm, bool inc);
+
+static inline void kvm_inc_apicv_irq_window_req(struct kvm *kvm)
+{
+	kvm_inc_or_dec_irq_window_inhibit(kvm, true);
+}
+
+static inline void kvm_dec_apicv_irq_window_req(struct kvm *kvm)
+{
+	kvm_inc_or_dec_irq_window_inhibit(kvm, false);
+}
+
 int kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 error_code,
 		       void *insn, int insn_len);
 void kvm_mmu_print_sptes(struct kvm_vcpu *vcpu, gpa_t gpa, const char *msg);
@@ -2463,7 +2525,8 @@ int memslot_rmap_alloc(struct kvm_memory_slot *slot, unsigned long npages);
 	 KVM_X86_QUIRK_MWAIT_NEVER_UD_FAULTS |	\
 	 KVM_X86_QUIRK_SLOT_ZAP_ALL |		\
 	 KVM_X86_QUIRK_STUFF_FEATURE_MSRS |	\
-	 KVM_X86_QUIRK_IGNORE_GUEST_PAT)
+	 KVM_X86_QUIRK_IGNORE_GUEST_PAT |	\
+	 KVM_X86_QUIRK_VMCS12_ALLOW_FREEZE_IN_SMM)
 
 #define KVM_X86_CONDITIONAL_QUIRKS		\
 	(KVM_X86_QUIRK_CD_NW_CLEARED |		\

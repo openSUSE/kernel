@@ -56,13 +56,13 @@ struct fuse_file *fuse_file_alloc(struct fuse_mount *fm, bool release)
 {
 	struct fuse_file *ff;
 
-	ff = kzalloc(sizeof(struct fuse_file), GFP_KERNEL_ACCOUNT);
+	ff = kzalloc_obj(struct fuse_file, GFP_KERNEL_ACCOUNT);
 	if (unlikely(!ff))
 		return NULL;
 
 	ff->fm = fm;
 	if (release) {
-		ff->args = kzalloc(sizeof(*ff->args), GFP_KERNEL_ACCOUNT);
+		ff->args = kzalloc_obj(*ff->args, GFP_KERNEL_ACCOUNT);
 		if (!ff->args) {
 			kfree(ff);
 			return NULL;
@@ -117,6 +117,12 @@ static void fuse_file_put(struct fuse_file *ff, bool sync)
 			fuse_simple_request(ff->fm, args);
 			fuse_release_end(ff->fm, args, 0);
 		} else {
+			/*
+			 * DAX inodes may need to issue a number of synchronous
+			 * request for clearing the mappings.
+			 */
+			if (ra && ra->inode && FUSE_IS_DAX(ra->inode))
+				args->may_block = true;
 			args->end = fuse_release_end;
 			if (fuse_simple_background(ff->fm, args,
 						   GFP_KERNEL | __GFP_NOFAIL))
@@ -684,7 +690,7 @@ static struct fuse_io_args *fuse_io_alloc(struct fuse_io_priv *io,
 {
 	struct fuse_io_args *ia;
 
-	ia = kzalloc(sizeof(*ia), GFP_KERNEL);
+	ia = kzalloc_obj(*ia);
 	if (ia) {
 		ia->io = io;
 		ia->ap.folios = fuse_folios_alloc(nfolios, GFP_KERNEL,
@@ -947,7 +953,8 @@ static int fuse_iomap_read_folio_range_async(const struct iomap_iter *iter,
 	return ret;
 }
 
-static void fuse_iomap_read_submit(struct iomap_read_folio_ctx *ctx)
+static void fuse_iomap_submit_read(const struct iomap_iter *iter,
+		struct iomap_read_folio_ctx *ctx)
 {
 	struct fuse_fill_read_data *data = ctx->read_ctx;
 
@@ -958,7 +965,7 @@ static void fuse_iomap_read_submit(struct iomap_read_folio_ctx *ctx)
 
 static const struct iomap_read_ops fuse_iomap_read_ops = {
 	.read_folio_range = fuse_iomap_read_folio_range_async,
-	.submit_read = fuse_iomap_read_submit,
+	.submit_read = fuse_iomap_submit_read,
 };
 
 static int fuse_read_folio(struct file *file, struct folio *folio)
@@ -979,7 +986,7 @@ static int fuse_read_folio(struct file *file, struct folio *folio)
 		return -EIO;
 	}
 
-	iomap_read_folio(&fuse_iomap_ops, &ctx);
+	iomap_read_folio(&fuse_iomap_ops, &ctx, NULL);
 	fuse_invalidate_atime(inode);
 	return 0;
 }
@@ -1081,7 +1088,7 @@ static void fuse_readahead(struct readahead_control *rac)
 	if (fuse_is_bad(inode))
 		return;
 
-	iomap_readahead(&fuse_iomap_ops, &ctx);
+	iomap_readahead(&fuse_iomap_ops, &ctx, NULL);
 }
 
 static ssize_t fuse_cache_read_iter(struct kiocb *iocb, struct iov_iter *to)
@@ -1242,7 +1249,6 @@ static ssize_t fuse_fill_write_pages(struct fuse_io_args *ia,
 {
 	struct fuse_args_pages *ap = &ia->ap;
 	struct fuse_conn *fc = get_fuse_conn(mapping->host);
-	unsigned offset = pos & (PAGE_SIZE - 1);
 	size_t count = 0;
 	unsigned int num;
 	int err = 0;
@@ -1269,7 +1275,7 @@ static ssize_t fuse_fill_write_pages(struct fuse_io_args *ia,
 		if (mapping_writably_mapped(mapping))
 			flush_dcache_folio(folio);
 
-		folio_offset = ((index - folio->index) << PAGE_SHIFT) + offset;
+		folio_offset = offset_in_folio(folio, pos);
 		bytes = min(folio_size(folio) - folio_offset, num);
 
 		tmp = copy_folio_from_iter_atomic(folio, folio_offset, bytes, ii);
@@ -1299,9 +1305,6 @@ static ssize_t fuse_fill_write_pages(struct fuse_io_args *ia,
 		count += tmp;
 		pos += tmp;
 		num -= tmp;
-		offset += tmp;
-		if (offset == folio_size(folio))
-			offset = 0;
 
 		/* If we copied full folio, mark it uptodate */
 		if (tmp == folio_size(folio))
@@ -1313,7 +1316,9 @@ static ssize_t fuse_fill_write_pages(struct fuse_io_args *ia,
 			ia->write.folio_locked = true;
 			break;
 		}
-		if (!fc->big_writes || offset != 0)
+		if (!fc->big_writes)
+			break;
+		if (folio_offset + tmp != folio_size(folio))
 			break;
 	}
 
@@ -1323,10 +1328,10 @@ static ssize_t fuse_fill_write_pages(struct fuse_io_args *ia,
 static inline unsigned int fuse_wr_pages(loff_t pos, size_t len,
 				     unsigned int max_pages)
 {
-	return min_t(unsigned int,
-		     ((pos + len - 1) >> PAGE_SHIFT) -
-		     (pos >> PAGE_SHIFT) + 1,
-		     max_pages);
+	unsigned int pages = ((pos + len - 1) >> PAGE_SHIFT) -
+			     (pos >> PAGE_SHIFT) + 1;
+
+	return min(pages, max_pages);
 }
 
 static ssize_t fuse_perform_write(struct kiocb *iocb, struct iov_iter *ii)
@@ -1607,7 +1612,7 @@ static int fuse_get_user_pages(struct fuse_args_pages *ap, struct iov_iter *ii,
 			struct folio *folio = page_folio(pages[i]);
 			unsigned int offset = start +
 				(folio_page_idx(folio, pages[i]) << PAGE_SHIFT);
-			unsigned int len = min_t(unsigned int, ret, PAGE_SIZE - start);
+			unsigned int len = umin(ret, PAGE_SIZE - start);
 
 			ap->descs[ap->num_folios].offset = offset;
 			ap->descs[ap->num_folios].length = len;
@@ -2045,7 +2050,7 @@ static struct fuse_writepage_args *fuse_writepage_args_alloc(void)
 	struct fuse_writepage_args *wpa;
 	struct fuse_args_pages *ap;
 
-	wpa = kzalloc(sizeof(*wpa), GFP_NOFS);
+	wpa = kzalloc_obj(*wpa, GFP_NOFS);
 	if (wpa) {
 		ap = &wpa->ia.ap;
 		ap->num_folios = 0;
@@ -2172,7 +2177,7 @@ static bool fuse_folios_need_send(struct fuse_conn *fc, loff_t pos,
 	WARN_ON(!ap->num_folios);
 
 	/* Reached max pages */
-	if ((bytes + PAGE_SIZE - 1) >> PAGE_SHIFT > fc->max_pages)
+	if (DIV_ROUND_UP(bytes, PAGE_SIZE) > fc->max_pages)
 		return true;
 
 	if (bytes > max_bytes)
@@ -2834,7 +2839,7 @@ fuse_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
 	if ((iov_iter_rw(iter) == READ) && (offset >= i_size))
 		return 0;
 
-	io = kmalloc(sizeof(struct fuse_io_priv), GFP_KERNEL);
+	io = kmalloc_obj(struct fuse_io_priv);
 	if (!io)
 		return -ENOMEM;
 	spin_lock_init(&io->lock);
@@ -3177,6 +3182,7 @@ static const struct file_operations fuse_file_operations = {
 	.poll		= fuse_file_poll,
 	.fallocate	= fuse_file_fallocate,
 	.copy_file_range = fuse_copy_file_range,
+	.setlease	= generic_setlease,
 };
 
 static const struct address_space_operations fuse_file_aops  = {

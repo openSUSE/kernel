@@ -18,7 +18,7 @@
 #include <linux/hugetlb.h>
 #include <linux/migrate.h>
 #include <linux/mm_inline.h>
-#include <linux/pagevec.h>
+#include <linux/folio_batch.h>
 #include <linux/sched/mm.h>
 #include <linux/shmem_fs.h>
 
@@ -2804,17 +2804,6 @@ static bool gup_fast_folio_allowed(struct folio *folio, unsigned int flags)
 		return false;
 	/* The only remaining allowed file system is shmem. */
 	return !reject_file_backed || shmem_mapping(mapping);
-}
-
-static void __maybe_unused gup_fast_undo_dev_pagemap(int *nr, int nr_start,
-		unsigned int flags, struct page **pages)
-{
-	while ((*nr) - nr_start) {
-		struct folio *folio = page_folio(pages[--(*nr)]);
-
-		folio_clear_referenced(folio);
-		gup_put_folio(folio, 1, flags);
-	}
 }
 
 #ifdef CONFIG_ARCH_HAS_PTE_SPECIAL

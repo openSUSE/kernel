@@ -967,7 +967,7 @@ static int ath12k_open_link_stats(struct inode *inode, struct file *file)
 				 "\nlink[%d] Tx Frame descriptor Encrypt Type = ",
 				 link_id);
 
-		for (i = 0; i < HAL_ENCRYPT_TYPE_MAX; i++) {
+		for (i = 0; i < DP_ENCRYPT_TYPE_MAX; i++) {
 			len += scnprintf(buf + len, buf_len - len,
 					 " %d:%d", i,
 					 linkstat.tx_encrypt_type[i]);
@@ -1020,13 +1020,15 @@ void ath12k_debugfs_op_vif_add(struct ieee80211_hw *hw,
 	debugfs_create_file("link_stats", 0400, vif->debugfs_dir, ahvif,
 			    &ath12k_fops_link_stats);
 }
+EXPORT_SYMBOL(ath12k_debugfs_op_vif_add);
 
 static ssize_t ath12k_debugfs_dump_device_dp_stats(struct file *file,
 						   char __user *user_buf,
 						   size_t count, loff_t *ppos)
 {
 	struct ath12k_base *ab = file->private_data;
-	struct ath12k_device_dp_stats *device_stats = &ab->device_stats;
+	struct ath12k_dp *dp = ath12k_ab_to_dp(ab);
+	struct ath12k_device_dp_stats *device_stats = &dp->device_stats;
 	int len = 0, i, j, ret;
 	struct ath12k *ar;
 	const int size = 4096;
@@ -1155,6 +1157,7 @@ static ssize_t ath12k_debugfs_dump_device_dp_stats(struct file *file,
 
 	len += scnprintf(buf + len, size - len, "\n");
 
+	rcu_read_lock();
 	for (i = 0; i < ab->num_radios; i++) {
 		ar = ath12k_mac_get_ar_by_pdev_id(ab, DP_SW2HW_MACID(i));
 		if (ar) {
@@ -1163,6 +1166,7 @@ static ssize_t ath12k_debugfs_dump_device_dp_stats(struct file *file,
 					atomic_read(&ar->dp.num_tx_pending));
 		}
 	}
+	rcu_read_unlock();
 
 	len += scnprintf(buf + len, size - len, "\nREO Rx Received:\n");
 
@@ -1469,18 +1473,35 @@ void ath12k_debugfs_register(struct ath12k *ar)
 {
 	struct ath12k_base *ab = ar->ab;
 	struct ieee80211_hw *hw = ar->ah->hw;
-	char pdev_name[5];
+	struct ath12k_hw *ah = ath12k_hw_to_ah(hw);
+	struct dentry *ath12k_fs;
 	char buf[100] = {};
+	char pdev_name[5];
 
 	scnprintf(pdev_name, sizeof(pdev_name), "%s%d", "mac", ar->pdev_idx);
 
 	ar->debug.debugfs_pdev = debugfs_create_dir(pdev_name, ab->debugfs_soc);
 
 	/* Create a symlink under ieee80211/phy* */
-	scnprintf(buf, sizeof(buf), "../../ath12k/%pd2", ar->debug.debugfs_pdev);
-	ar->debug.debugfs_pdev_symlink = debugfs_create_symlink("ath12k",
-								hw->wiphy->debugfsdir,
-								buf);
+	if (ar->radio_idx == 0) {
+		scnprintf(buf, sizeof(buf), "../../ath12k/%pd2",
+			  ar->debug.debugfs_pdev);
+		ath12k_fs = hw->wiphy->debugfsdir;
+
+		/* symbolic link for compatibility */
+		ar->debug.debugfs_pdev_symlink_default = debugfs_create_symlink("ath12k",
+										ath12k_fs,
+										buf);
+	}
+
+	if (ah->num_radio > 1) {
+		scnprintf(buf, sizeof(buf), "../../../ath12k/%pd2",
+			  ar->debug.debugfs_pdev);
+		ath12k_fs = hw->wiphy->radio_cfg[ar->radio_idx].radio_debugfsdir;
+		ar->debug.debugfs_pdev_symlink = debugfs_create_symlink("ath12k",
+									ath12k_fs,
+									buf);
+	}
 
 	if (ar->mac.sbands[NL80211_BAND_5GHZ].channels) {
 		debugfs_create_file("dfs_simulate_radar", 0200,
@@ -1509,7 +1530,9 @@ void ath12k_debugfs_unregister(struct ath12k *ar)
 
 	/* Remove symlink under ieee80211/phy* */
 	debugfs_remove(ar->debug.debugfs_pdev_symlink);
+	debugfs_remove(ar->debug.debugfs_pdev_symlink_default);
 	debugfs_remove_recursive(ar->debug.debugfs_pdev);
 	ar->debug.debugfs_pdev_symlink = NULL;
+	ar->debug.debugfs_pdev_symlink_default = NULL;
 	ar->debug.debugfs_pdev = NULL;
 }

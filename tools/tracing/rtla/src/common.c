@@ -4,11 +4,15 @@
 #include <pthread.h>
 #include <signal.h>
 #include <stdlib.h>
-#include <unistd.h>
+#include <string.h>
+#include <getopt.h>
+#include <sys/sysinfo.h>
+
 #include "common.h"
 
 struct trace_instance *trace_inst;
-int stop_tracing;
+volatile int stop_tracing;
+int nr_cpus;
 
 static void stop_trace(int sig)
 {
@@ -38,6 +42,126 @@ static void set_signals(struct common_params *params)
 }
 
 /*
+ * unset_signals - unsets the signals to stop the tool
+ */
+static void unset_signals(struct common_params *params)
+{
+	signal(SIGINT, SIG_DFL);
+	if (params->duration) {
+		alarm(0);
+		signal(SIGALRM, SIG_DFL);
+	}
+}
+
+/*
+ * getopt_auto - auto-generates optstring from long_options
+ */
+int getopt_auto(int argc, char **argv, const struct option *long_opts)
+{
+	char opts[256];
+	int n = 0;
+
+	for (int i = 0; long_opts[i].name; i++) {
+		if (long_opts[i].val < 32 || long_opts[i].val > 127)
+			continue;
+
+		if (n + 4 >= sizeof(opts))
+			fatal("optstring buffer overflow");
+
+		opts[n++] = long_opts[i].val;
+
+		if (long_opts[i].has_arg == required_argument)
+			opts[n++] = ':';
+		else if (long_opts[i].has_arg == optional_argument) {
+			opts[n++] = ':';
+			opts[n++] = ':';
+		}
+	}
+
+	opts[n] = '\0';
+
+	return getopt_long(argc, argv, opts, long_opts, NULL);
+}
+
+/*
+ * common_parse_options - parse common command line options
+ *
+ * @argc: argument count
+ * @argv: argument vector
+ * @common: common parameters structure
+ *
+ * Parse command line options that are common to all rtla tools.
+ *
+ * Returns: non zero if a common option was parsed, or 0
+ * if the option should be handled by tool-specific parsing.
+ */
+int common_parse_options(int argc, char **argv, struct common_params *common)
+{
+	struct trace_events *tevent;
+	int saved_state = optind;
+	int c;
+
+	static struct option long_options[] = {
+		{"cpus",                required_argument,      0, 'c'},
+		{"cgroup",              optional_argument,      0, 'C'},
+		{"debug",               no_argument,            0, 'D'},
+		{"duration",            required_argument,      0, 'd'},
+		{"event",               required_argument,      0, 'e'},
+		{"house-keeping",       required_argument,      0, 'H'},
+		{"priority",            required_argument,      0, 'P'},
+		{0, 0, 0, 0}
+	};
+
+	opterr = 0;
+	c = getopt_auto(argc, argv, long_options);
+	opterr = 1;
+
+	switch (c) {
+	case 'c':
+		if (parse_cpu_set(optarg, &common->monitored_cpus))
+			fatal("Invalid -c cpu list");
+		common->cpus = optarg;
+		break;
+	case 'C':
+		common->cgroup = 1;
+		common->cgroup_name = parse_optional_arg(argc, argv);
+		break;
+	case 'D':
+		config_debug = 1;
+		break;
+	case 'd':
+		common->duration = parse_seconds_duration(optarg);
+		if (!common->duration)
+			fatal("Invalid -d duration");
+		break;
+	case 'e':
+		tevent = trace_event_alloc(optarg);
+		if (!tevent)
+			fatal("Error alloc trace event");
+
+		if (common->events)
+			tevent->next = common->events;
+		common->events = tevent;
+		break;
+	case 'H':
+		common->hk_cpus = 1;
+		if (parse_cpu_set(optarg, &common->hk_cpu_set))
+			fatal("Error parsing house keeping CPUs");
+		break;
+	case 'P':
+		if (parse_prio(optarg, &common->sched_param) == -1)
+			fatal("Invalid -P priority");
+		common->set_sched = 1;
+		break;
+	default:
+		optind = saved_state;
+		return 0;
+	}
+
+	return c;
+}
+
+/*
  * common_apply_config - apply common configs to the initialized tool
  */
 int
@@ -55,7 +179,7 @@ common_apply_config(struct osnoise_tool *tool, struct common_params *params)
 	}
 
 	if (!params->cpus) {
-		for (i = 0; i < sysconf(_SC_NPROCESSORS_CONF); i++)
+		for (i = 0; i < nr_cpus; i++)
 			CPU_SET(i, &params->monitored_cpus);
 	}
 
@@ -95,6 +219,38 @@ out_err:
 }
 
 
+/**
+ * common_threshold_handler - handle latency threshold overflow
+ * @tool: pointer to the osnoise_tool instance containing trace contexts
+ *
+ * Executes the configured threshold actions (e.g., saving trace, printing,
+ * sending signals). If the continue flag is set (--on-threshold continue),
+ * restarts the auxiliary trace instances to continue monitoring.
+ *
+ * Return: 0 for success, -1 for error.
+ */
+int
+common_threshold_handler(const struct osnoise_tool *tool)
+{
+	actions_perform(&tool->params->threshold_actions);
+
+	if (!should_continue_tracing(tool->params))
+		/* continue flag not set, break */
+		return 0;
+
+	/* continue action reached, re-enable tracing */
+	if (tool->record && trace_instance_start(&tool->record->trace))
+		goto err;
+	if (tool->aa && trace_instance_start(&tool->aa->trace))
+		goto err;
+
+	return 0;
+
+err:
+	err_msg("Error restarting trace\n");
+	return -1;
+}
+
 int run_tool(struct tool_ops *ops, int argc, char *argv[])
 {
 	struct common_params *params;
@@ -103,6 +259,7 @@ int run_tool(struct tool_ops *ops, int argc, char *argv[])
 	bool stopped;
 	int retval;
 
+	nr_cpus = get_nprocs_conf();
 	params = ops->parse_args(argc, argv);
 	if (!params)
 		exit(1);
@@ -191,8 +348,10 @@ int run_tool(struct tool_ops *ops, int argc, char *argv[])
 		params->user.cgroup_name = params->cgroup_name;
 
 		retval = pthread_create(&user_thread, NULL, timerlat_u_dispatcher, &params->user);
-		if (retval)
+		if (retval) {
 			err_msg("Error creating timerlat user-space threads\n");
+			goto out_trace;
+		}
 	}
 
 	retval = ops->enable(tool);
@@ -204,7 +363,7 @@ int run_tool(struct tool_ops *ops, int argc, char *argv[])
 
 	retval = ops->main(tool);
 	if (retval)
-		goto out_trace;
+		goto out_signals;
 
 	if (params->user_workload && !params->user.stopped_running) {
 		params->user.should_run = 0;
@@ -226,6 +385,8 @@ int run_tool(struct tool_ops *ops, int argc, char *argv[])
 	if (ops->analyze)
 		ops->analyze(tool, stopped);
 
+out_signals:
+	unset_signals(params);
 out_trace:
 	trace_events_destroy(&tool->record->trace, params->events);
 	params->events = NULL;
@@ -272,17 +433,14 @@ int top_main_loop(struct osnoise_tool *tool)
 				/* stop tracing requested, do not perform actions */
 				return 0;
 
-			actions_perform(&params->threshold_actions);
+			retval = common_threshold_handler(tool);
+			if (retval)
+				return retval;
 
-			if (!params->threshold_actions.continue_flag)
-				/* continue flag not set, break */
+
+			if (!should_continue_tracing(params))
 				return 0;
 
-			/* continue action reached, re-enable tracing */
-			if (record)
-				trace_instance_start(&record->trace);
-			if (tool->aa)
-				trace_instance_start(&tool->aa->trace);
 			trace_instance_start(trace);
 		}
 
@@ -323,18 +481,14 @@ int hist_main_loop(struct osnoise_tool *tool)
 				/* stop tracing requested, do not perform actions */
 				break;
 
-			actions_perform(&params->threshold_actions);
+			retval = common_threshold_handler(tool);
+			if (retval)
+				return retval;
 
-			if (!params->threshold_actions.continue_flag)
-				/* continue flag not set, break */
-				break;
+			if (!should_continue_tracing(params))
+				return 0;
 
-			/* continue action reached, re-enable tracing */
-			if (tool->record)
-				trace_instance_start(&tool->record->trace);
-			if (tool->aa)
-				trace_instance_start(&tool->aa->trace);
-			trace_instance_start(&tool->trace);
+			trace_instance_start(trace);
 		}
 
 		/* is there still any user-threads ? */
@@ -347,4 +501,62 @@ int hist_main_loop(struct osnoise_tool *tool)
 	}
 
 	return retval;
+}
+
+int osn_set_stop(struct osnoise_tool *tool)
+{
+	struct common_params *params = tool->params;
+	int retval;
+
+	retval = osnoise_set_stop_us(tool->context, params->stop_us);
+	if (retval) {
+		err_msg("Failed to set stop us\n");
+		return retval;
+	}
+
+	retval = osnoise_set_stop_total_us(tool->context, params->stop_total_us);
+	if (retval) {
+		err_msg("Failed to set stop total us\n");
+		return retval;
+	}
+
+	return 0;
+}
+
+static void print_msg_array(const char * const *msgs)
+{
+	if (!msgs)
+		return;
+
+	for (int i = 0; msgs[i]; i++)
+		fprintf(stderr, "%s\n", msgs[i]);
+}
+
+/*
+ * common_usage - print complete usage information
+ */
+void common_usage(const char *tool, const char *mode,
+		  const char *desc, const char * const *start_msgs, const char * const *opt_msgs)
+{
+	static const char * const common_options[] = {
+		"	  -h/--help: print this menu",
+		NULL
+	};
+	fprintf(stderr, "rtla %s", tool);
+	if (strcmp(mode, ""))
+		fprintf(stderr, " %s", mode);
+	fprintf(stderr, ": %s (version %s)\n\n", desc, VERSION);
+	fprintf(stderr, "  usage: [rtla] %s ", tool);
+
+	if (strcmp(mode, "top") == 0)
+		fprintf(stderr, "[top] [-h] ");
+	else
+		fprintf(stderr, "%s [-h] ", mode);
+
+	print_msg_array(start_msgs);
+	fprintf(stderr, "\n");
+	print_msg_array(common_options);
+	print_msg_array(opt_msgs);
+
+	exit(EXIT_SUCCESS);
 }

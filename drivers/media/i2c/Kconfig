@@ -305,6 +305,7 @@ config VIDEO_MT9M111
 config VIDEO_MT9M114
 	tristate "onsemi MT9M114 sensor support"
 	select V4L2_CCI_I2C
+	select VIDEO_APTINA_PLL
 	help
 	  This is a Video4Linux2 sensor-level driver for the onsemi MT9M114
 	  camera.
@@ -354,6 +355,7 @@ config VIDEO_MT9V111
 
 config VIDEO_OG01A1B
 	tristate "OmniVision OG01A1B sensor support"
+	select V4L2_CCI_I2C
 	help
 	  This is a Video4Linux2 sensor driver for the OmniVision
 	  OG01A1B camera.
@@ -371,8 +373,19 @@ config VIDEO_OG0VE1B
 	  To compile this driver as a module, choose M here: the
 	  module will be called og0ve1b.
 
+config VIDEO_OS05B10
+        tristate "OmniVision OS05B10 sensor support"
+        select V4L2_CCI_I2C
+        help
+          This is a Video4Linux2 sensor driver for Omnivision
+          OS05B10 camera sensor.
+
+	  To compile this driver as a module, choose M here: the
+          module will be called os05b10.
+
 config VIDEO_OV01A10
 	tristate "OmniVision OV01A10 sensor support"
+	select V4L2_CCI_I2C
 	help
 	  This is a Video4Linux2 sensor driver for the OmniVision
 	  OV01A10 camera.
@@ -477,6 +490,19 @@ config VIDEO_OV2685
 	  To compile this driver as a module, choose M here: the
 	  module will be called ov2685.
 
+config VIDEO_OV2732
+	tristate "OmniVision OV2732 sensor support"
+	depends on OF
+	select MEDIA_CONTROLLER
+	select V4L2_CCI_I2C
+	select VIDEO_V4L2_SUBDEV_API
+	help
+	  This is a Video4Linux2 sensor driver for the OmniVision
+	  OV2732 camera.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called ov2732.
+
 config VIDEO_OV2735
 	tristate "OmniVision OV2735 sensor support"
 	select V4L2_CCI_I2C
@@ -529,6 +555,7 @@ config VIDEO_OV5645
 
 config VIDEO_OV5647
 	tristate "OmniVision OV5647 sensor support"
+	select V4L2_CCI_I2C
 	help
 	  This is a Video4Linux2 sensor driver for the OmniVision
 	  OV5647 camera.
@@ -677,6 +704,7 @@ config VIDEO_OV8865
 config VIDEO_OV9282
 	tristate "OmniVision OV9282 sensor support"
 	depends on OF_GPIO
+	select V4L2_CCI_I2C
 	help
 	  This is a Video4Linux2 sensor driver for the OmniVision
 	  OV9282 camera sensor.
@@ -743,6 +771,16 @@ config VIDEO_S5C73M3
 	  This is a V4L2 sensor driver for Samsung S5C73M3
 	  8 Mpixel camera.
 
+config VIDEO_S5K3M5
+	tristate "Samsung S5K3M5 sensor support"
+	select V4L2_CCI_I2C
+	help
+	  This is a V4L2 sensor driver for Samsung S5K3M5 13MP raw
+	  camera sensor.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called s5k3m5.
+
 config VIDEO_S5K5BAF
 	tristate "Samsung S5K5BAF sensor support"
 	help
@@ -754,6 +792,28 @@ config VIDEO_S5K6A3
 	help
 	  This is a V4L2 sensor driver for Samsung S5K6A3 raw
 	  camera sensor.
+
+config VIDEO_S5KJN1
+	tristate "Samsung S5KJN1 sensor support"
+	select V4L2_CCI_I2C
+	help
+	  This is a V4L2 sensor driver for Samsung S5KJN1 50MP raw
+	  camera sensor.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called s5kjn1.
+
+config VIDEO_T4KA3
+	tristate "Toshiba T4KA3 sensor support"
+	depends on ACPI || COMPILE_TEST
+	depends on GPIOLIB
+	select V4L2_CCI_I2C
+	help
+	  This is a Video4Linux2 sensor driver for the Toshiba T4KA3 8 MP
+	  camera sensor.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called t4ka3.
 
 config VIDEO_VD55G1
 	tristate "ST VD55G1 sensor support"
@@ -1691,8 +1751,8 @@ config VIDEO_DS90UB960
 	select V4L2_FWNODE
 	select VIDEO_V4L2_SUBDEV_API
 	help
-	  Device driver for the Texas Instruments DS90UB960
-	  FPD-Link III Deserializer and DS90UB9702 FPD-Link IV Deserializer.
+	  Device driver for the Texas Instruments DS90UB954, DS90UB960
+	  FPD-Link III Deserializers and DS90UB9702 FPD-Link IV Deserializer.
 
 config VIDEO_MAX96714
 	tristate "Maxim MAX96714 GMSL2 deserializer"

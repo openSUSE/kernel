@@ -41,7 +41,7 @@ static int catpt_do_suspend(struct device *dev)
 	memset(&cdev->dx_ctx, 0, sizeof(cdev->dx_ctx));
 	ret = catpt_ipc_enter_dxstate(cdev, CATPT_DX_STATE_D3, &cdev->dx_ctx);
 	if (ret) {
-		ret = CATPT_IPC_ERROR(ret);
+		ret = CATPT_IPC_RET(ret);
 		goto release_dma_chan;
 	}
 
@@ -107,7 +107,7 @@ static int catpt_resume(struct device *dev)
 
 		ret = catpt_ipc_set_device_format(cdev, &cdev->devfmt[i]);
 		if (ret)
-			return CATPT_IPC_ERROR(ret);
+			return CATPT_IPC_RET(ret);
 	}
 
 	return 0;
@@ -226,7 +226,7 @@ static void catpt_dev_init(struct catpt_dev *cdev, struct device *dev,
 	cdev->spec = spec;
 	init_completion(&cdev->fw_ready);
 	INIT_LIST_HEAD(&cdev->stream_list);
-	spin_lock_init(&cdev->list_lock);
+	mutex_init(&cdev->stream_mutex);
 	mutex_init(&cdev->clk_mutex);
 
 	/*
@@ -281,7 +281,15 @@ static int catpt_acpi_probe(struct platform_device *pdev)
 	if (IS_ERR(cdev->pci_ba))
 		return PTR_ERR(cdev->pci_ba);
 
-	/* alloc buffer for storing DRAM context during dx transitions */
+	/*
+	 * As per design HOST is responsible for preserving firmware's runtime
+	 * context during D0 -> D3 -> D0 transitions.  Addresses used for DMA
+	 * to/from HOST memory shall be outside the reserved range of 0xFFFxxxxx.
+	 */
+	ret = dma_coerce_mask_and_coherent(cdev->dev, DMA_BIT_MASK(31));
+	if (ret)
+		return ret;
+
 	cdev->dxbuf_vaddr = dmam_alloc_coherent(dev, catpt_dram_size(cdev),
 						&cdev->dxbuf_paddr, GFP_KERNEL);
 	if (!cdev->dxbuf_vaddr)
@@ -348,6 +356,7 @@ static struct snd_soc_acpi_mach wpt_machines[] = {
 static struct catpt_spec lpt_desc = {
 	.machines = lpt_machines,
 	.core_id = 0x01,
+	.fw_name = "intel/IntcSST1.bin",
 	.host_dram_offset = 0x000000,
 	.host_iram_offset = 0x080000,
 	.host_shim_offset = 0x0E7000,
@@ -363,6 +372,7 @@ static struct catpt_spec lpt_desc = {
 static struct catpt_spec wpt_desc = {
 	.machines = wpt_machines,
 	.core_id = 0x02,
+	.fw_name = "intel/IntcSST2.bin",
 	.host_dram_offset = 0x000000,
 	.host_iram_offset = 0x0A0000,
 	.host_shim_offset = 0x0FB000,

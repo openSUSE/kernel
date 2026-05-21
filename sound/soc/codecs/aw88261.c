@@ -11,6 +11,7 @@
 #include <linux/i2c.h>
 #include <linux/firmware.h>
 #include <linux/regmap.h>
+#include <linux/regulator/consumer.h>
 #include <sound/soc.h>
 #include "aw88261.h"
 #include "aw88395/aw88395_data_type.h"
@@ -423,9 +424,10 @@ static int aw88261_dev_reg_update(struct aw88261 *aw88261,
 			if (ret)
 				break;
 
+			/* keep all three bits from current hw status */
 			read_val &= (~AW88261_AMPPD_MASK) | (~AW88261_PWDN_MASK) |
 								(~AW88261_HMUTE_MASK);
-			reg_val &= (AW88261_AMPPD_MASK | AW88261_PWDN_MASK | AW88261_HMUTE_MASK);
+			reg_val &= (AW88261_AMPPD_MASK & AW88261_PWDN_MASK & AW88261_HMUTE_MASK);
 			reg_val |= read_val;
 
 			/* enable uls hmute */
@@ -1092,17 +1094,22 @@ static int aw88261_dev_init(struct aw88261 *aw88261, struct aw_container *aw_cfg
 static int aw88261_request_firmware_file(struct aw88261 *aw88261)
 {
 	const struct firmware *cont = NULL;
+	const char *fw_name;
 	int ret;
 
 	aw88261->aw_pa->fw_status = AW88261_DEV_FW_FAILED;
 
-	ret = request_firmware(&cont, AW88261_ACF_FILE, aw88261->aw_pa->dev);
+	ret = device_property_read_string(aw88261->aw_pa->dev, "firmware-name", &fw_name);
+	if (ret)
+		fw_name = AW88261_ACF_FILE;
+
+	ret = request_firmware(&cont, fw_name, aw88261->aw_pa->dev);
 	if (ret)
 		return dev_err_probe(aw88261->aw_pa->dev, ret,
-					"load [%s] failed!", AW88261_ACF_FILE);
+					"load [%s] failed!", fw_name);
 
 	dev_info(aw88261->aw_pa->dev, "loaded %s - size: %zu\n",
-			AW88261_ACF_FILE, cont ? cont->size : 0);
+			fw_name, cont ? cont->size : 0);
 
 	aw88261->aw_cfg = devm_kzalloc(aw88261->aw_pa->dev, cont->size + sizeof(int), GFP_KERNEL);
 	if (!aw88261->aw_cfg) {
@@ -1115,7 +1122,7 @@ static int aw88261_request_firmware_file(struct aw88261 *aw88261)
 
 	ret = aw88395_dev_load_acf_check(aw88261->aw_pa, aw88261->aw_cfg);
 	if (ret) {
-		dev_err(aw88261->aw_pa->dev, "load [%s] failed !", AW88261_ACF_FILE);
+		dev_err(aw88261->aw_pa->dev, "load [%s] failed !", fw_name);
 		return ret;
 	}
 
@@ -1190,6 +1197,10 @@ static int aw88261_init(struct aw88261 *aw88261, struct i2c_client *i2c, struct 
 	unsigned int chip_id;
 	int ret;
 
+	ret = devm_regulator_get_enable(&i2c->dev, "dvdd");
+	if (ret)
+		return dev_err_probe(&i2c->dev, ret, "Failed to enable dvdd supply\n");
+
 	/* read chip id */
 	ret = regmap_read(regmap, AW88261_ID_REG, &chip_id);
 	if (ret) {
@@ -1231,8 +1242,7 @@ static int aw88261_i2c_probe(struct i2c_client *i2c)
 	struct aw88261 *aw88261;
 	int ret;
 
-	ret = i2c_check_functionality(i2c->adapter, I2C_FUNC_I2C);
-	if (!ret)
+	if (!i2c_check_functionality(i2c->adapter, I2C_FUNC_I2C))
 		return dev_err_probe(&i2c->dev, -ENXIO, "check_functionality failed");
 
 	aw88261 = devm_kzalloc(&i2c->dev, sizeof(*aw88261), GFP_KERNEL);
@@ -1264,14 +1274,21 @@ static int aw88261_i2c_probe(struct i2c_client *i2c)
 }
 
 static const struct i2c_device_id aw88261_i2c_id[] = {
-	{ AW88261_I2C_NAME },
+	{ "aw88261" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, aw88261_i2c_id);
 
+static const struct of_device_id aw88261_of_table[] = {
+	{ .compatible = "awinic,aw88261" },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, aw88261_of_table);
+
 static struct i2c_driver aw88261_i2c_driver = {
 	.driver = {
-		.name = AW88261_I2C_NAME,
+		.name = "aw88261",
+		.of_match_table = aw88261_of_table,
 	},
 	.probe = aw88261_i2c_probe,
 	.id_table = aw88261_i2c_id,

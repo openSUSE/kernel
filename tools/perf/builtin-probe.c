@@ -211,8 +211,7 @@ static int opt_set_target_ns(const struct option *opt __maybe_unused,
 		ns_pid = (pid_t)strtol(str, NULL, 10);
 		if (errno != 0) {
 			ret = -errno;
-			pr_warning("Failed to parse %s as a pid: %s\n", str,
-				   strerror(errno));
+			pr_warning("Failed to parse %s as a pid: %m\n", str);
 			return ret;
 		}
 		nsip = nsinfo__new(ns_pid);
@@ -598,8 +597,8 @@ __cmd_probe(int argc, const char **argv)
 	OPT_BOOLEAN(0, "demangle-kernel", &symbol_conf.demangle_kernel,
 		    "Enable kernel symbol demangling"),
 	OPT_BOOLEAN(0, "cache", &probe_conf.cache, "Manipulate probe cache"),
-	OPT_STRING(0, "symfs", &symbol_conf.symfs, "directory",
-		   "Look for files with symbols relative to this directory"),
+	OPT_CALLBACK(0, "symfs", NULL, "directory[,layout]", SYMFS_HELP,
+		     symbol__config_symfs),
 	OPT_CALLBACK(0, "target-ns", NULL, "pid",
 		     "target pid for namespace contexts", opt_set_target_ns),
 	OPT_BOOLEAN(0, "bootconfig", &probe_conf.bootconfig,

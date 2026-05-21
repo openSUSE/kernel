@@ -342,7 +342,7 @@ static struct ima_rule_opt_list *ima_alloc_rule_opt_list(const substring_t *src)
 		return ERR_PTR(-EINVAL);
 	}
 
-	opt_list = kzalloc(struct_size(opt_list, items, count), GFP_KERNEL);
+	opt_list = kzalloc_flex(*opt_list, items, count);
 	if (!opt_list) {
 		kfree(src_copy);
 		return ERR_PTR(-ENOMEM);
@@ -921,8 +921,7 @@ static int __init ima_init_arch_policy(void)
 	for (rules = arch_rules; *rules != NULL; rules++)
 		arch_entries++;
 
-	arch_policy_entry = kcalloc(arch_entries + 1,
-				    sizeof(*arch_policy_entry), GFP_KERNEL);
+	arch_policy_entry = kzalloc_objs(*arch_policy_entry, arch_entries + 1);
 	if (!arch_policy_entry)
 		return 0;
 
@@ -1299,7 +1298,8 @@ static bool ima_validate_rule(struct ima_rule_entry *entry)
 				     IMA_GID | IMA_EGID |
 				     IMA_FGROUP | IMA_DIGSIG_REQUIRED |
 				     IMA_PERMIT_DIRECTIO | IMA_VALIDATE_ALGOS |
-				     IMA_CHECK_BLACKLIST | IMA_VERITY_REQUIRED))
+				     IMA_CHECK_BLACKLIST | IMA_VERITY_REQUIRED |
+				     IMA_SIGV3_REQUIRED))
 			return false;
 
 		break;
@@ -1834,9 +1834,7 @@ static int ima_parse_rule(char *rule, struct ima_rule_entry *entry)
 			break;
 		case Opt_digest_type:
 			ima_log_string(ab, "digest_type", args[0].from);
-			if (entry->flags & IMA_DIGSIG_REQUIRED)
-				result = -EINVAL;
-			else if ((strcmp(args[0].from, "verity")) == 0)
+			if ((strcmp(args[0].from, "verity")) == 0)
 				entry->flags |= IMA_VERITY_REQUIRED;
 			else
 				result = -EINVAL;
@@ -1850,14 +1848,13 @@ static int ima_parse_rule(char *rule, struct ima_rule_entry *entry)
 				else
 					entry->flags |= IMA_DIGSIG_REQUIRED | IMA_CHECK_BLACKLIST;
 			} else if (strcmp(args[0].from, "sigv3") == 0) {
-				/* Only fsverity supports sigv3 for now */
-				if (entry->flags & IMA_VERITY_REQUIRED)
-					entry->flags |= IMA_DIGSIG_REQUIRED | IMA_CHECK_BLACKLIST;
-				else
-					result = -EINVAL;
+				entry->flags |= IMA_SIGV3_REQUIRED |
+					IMA_DIGSIG_REQUIRED |
+					IMA_CHECK_BLACKLIST;
 			} else if (IS_ENABLED(CONFIG_IMA_APPRAISE_MODSIG) &&
 				 strcmp(args[0].from, "imasig|modsig") == 0) {
-				if (entry->flags & IMA_VERITY_REQUIRED)
+				if ((entry->flags & IMA_VERITY_REQUIRED) ||
+				    (entry->flags & IMA_SIGV3_REQUIRED))
 					result = -EINVAL;
 				else
 					entry->flags |= IMA_DIGSIG_REQUIRED |
@@ -1942,7 +1939,7 @@ static int ima_parse_rule(char *rule, struct ima_rule_entry *entry)
 
 	/* d-ngv2 template field recommended for unsigned fs-verity digests */
 	if (!result && entry->action == MEASURE &&
-	    entry->flags & IMA_VERITY_REQUIRED) {
+	    (entry->flags & IMA_VERITY_REQUIRED)) {
 		template_desc = entry->template ? entry->template :
 						  ima_template_desc_current();
 		check_template_field(template_desc, "d-ngv2",
@@ -1976,7 +1973,7 @@ ssize_t ima_parse_add_rule(char *rule)
 	if (*p == '#' || *p == '\0')
 		return len;
 
-	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+	entry = kzalloc_obj(*entry);
 	if (!entry) {
 		integrity_audit_msg(AUDIT_INTEGRITY_STATUS, NULL,
 				    NULL, op, "-ENOMEM", -ENOMEM, audit_info);
@@ -2310,7 +2307,7 @@ int ima_policy_show(struct seq_file *m, void *v)
 	if (entry->template)
 		seq_printf(m, "template=%s ", entry->template->name);
 	if (entry->flags & IMA_DIGSIG_REQUIRED) {
-		if (entry->flags & IMA_VERITY_REQUIRED)
+		if (entry->flags & IMA_SIGV3_REQUIRED)
 			seq_puts(m, "appraise_type=sigv3 ");
 		else if (entry->flags & IMA_MODSIG_ALLOWED)
 			seq_puts(m, "appraise_type=imasig|modsig ");

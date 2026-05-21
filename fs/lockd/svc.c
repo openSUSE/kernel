@@ -36,15 +36,14 @@
 #include <net/ip.h>
 #include <net/addrconf.h>
 #include <net/ipv6.h>
-#include <linux/lockd/lockd.h>
 #include <linux/nfs.h>
 
+#include "lockd.h"
 #include "netns.h"
 #include "procfs.h"
 #include "netlink.h"
 
 #define NLMDBG_FACILITY		NLMDBG_SVC
-#define LOCKD_BUFSIZE		(1024 + NLMSVC_XDRSIZE)
 
 static struct svc_program	nlmsvc_program;
 
@@ -141,7 +140,7 @@ lockd(void *vrqstp)
 	 */
 	while (!svc_thread_should_stop(rqstp)) {
 		nlmsvc_retry_blocked(rqstp);
-		svc_recv(rqstp);
+		svc_recv(rqstp, 0);
 	}
 	if (nlmsvc_ops)
 		nlmsvc_invalidate_all();
@@ -319,6 +318,7 @@ static struct notifier_block lockd_inet6addr_notifier = {
 static int lockd_get(void)
 {
 	struct svc_serv *serv;
+	unsigned int bufsize;
 	int error;
 
 	if (nlmsvc_serv) {
@@ -334,13 +334,21 @@ static int lockd_get(void)
 		printk(KERN_WARNING
 			"lockd_up: no pid, %d users??\n", nlmsvc_users);
 
-	serv = svc_create(&nlmsvc_program, LOCKD_BUFSIZE, lockd);
+#ifdef CONFIG_LOCKD_V4
+	bufsize = 1024 + max3(nlmsvc_version1.vs_xdrsize,
+			      nlmsvc_version3.vs_xdrsize,
+			      nlmsvc_version4.vs_xdrsize);
+#else
+	bufsize = 1024 + max(nlmsvc_version1.vs_xdrsize,
+			     nlmsvc_version3.vs_xdrsize);
+#endif
+	serv = svc_create(&nlmsvc_program, bufsize, lockd);
 	if (!serv) {
 		printk(KERN_WARNING "lockd_up: create service failed\n");
 		return -ENOMEM;
 	}
 
-	error = svc_set_num_threads(serv, NULL, 1);
+	error = svc_set_num_threads(serv, 0, 1);
 	if (error < 0) {
 		svc_destroy(&serv);
 		return error;
@@ -368,7 +376,7 @@ static void lockd_put(void)
 	unregister_inet6addr_notifier(&lockd_inet6addr_notifier);
 #endif
 
-	svc_set_num_threads(nlmsvc_serv, NULL, 0);
+	svc_set_num_threads(nlmsvc_serv, 0, 0);
 	timer_delete_sync(&nlmsvc_retry);
 	svc_destroy(&nlmsvc_serv);
 	dprintk("lockd_down: service destroyed\n");
@@ -640,7 +648,7 @@ module_exit(exit_nlm);
  *  %0: Processing complete; do not send a Reply
  *  %1: Processing complete; send Reply in rqstp->rq_res
  */
-static int nlmsvc_dispatch(struct svc_rqst *rqstp)
+int nlmsvc_dispatch(struct svc_rqst *rqstp)
 {
 	const struct svc_procedure *procp = rqstp->rq_procinfo;
 	__be32 *statp = rqstp->rq_accept_statp;
@@ -671,40 +679,6 @@ out_encode_err:
 /*
  * Define NLM program and procedures
  */
-static DEFINE_PER_CPU_ALIGNED(unsigned long, nlmsvc_version1_count[17]);
-static const struct svc_version	nlmsvc_version1 = {
-	.vs_vers	= 1,
-	.vs_nproc	= 17,
-	.vs_proc	= nlmsvc_procedures,
-	.vs_count	= nlmsvc_version1_count,
-	.vs_dispatch	= nlmsvc_dispatch,
-	.vs_xdrsize	= NLMSVC_XDRSIZE,
-};
-
-static DEFINE_PER_CPU_ALIGNED(unsigned long,
-			      nlmsvc_version3_count[ARRAY_SIZE(nlmsvc_procedures)]);
-static const struct svc_version	nlmsvc_version3 = {
-	.vs_vers	= 3,
-	.vs_nproc	= ARRAY_SIZE(nlmsvc_procedures),
-	.vs_proc	= nlmsvc_procedures,
-	.vs_count	= nlmsvc_version3_count,
-	.vs_dispatch	= nlmsvc_dispatch,
-	.vs_xdrsize	= NLMSVC_XDRSIZE,
-};
-
-#ifdef CONFIG_LOCKD_V4
-static DEFINE_PER_CPU_ALIGNED(unsigned long,
-			      nlmsvc_version4_count[ARRAY_SIZE(nlmsvc_procedures4)]);
-static const struct svc_version	nlmsvc_version4 = {
-	.vs_vers	= 4,
-	.vs_nproc	= ARRAY_SIZE(nlmsvc_procedures4),
-	.vs_proc	= nlmsvc_procedures4,
-	.vs_count	= nlmsvc_version4_count,
-	.vs_dispatch	= nlmsvc_dispatch,
-	.vs_xdrsize	= NLMSVC_XDRSIZE,
-};
-#endif
-
 static const struct svc_version *nlmsvc_version[] = {
 	[1] = &nlmsvc_version1,
 	[3] = &nlmsvc_version3,

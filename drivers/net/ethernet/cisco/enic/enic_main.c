@@ -66,12 +66,15 @@
 #define PCI_DEVICE_ID_CISCO_VIC_ENET         0x0043  /* ethernet vnic */
 #define PCI_DEVICE_ID_CISCO_VIC_ENET_DYN     0x0044  /* enet dynamic vnic */
 #define PCI_DEVICE_ID_CISCO_VIC_ENET_VF      0x0071  /* enet SRIOV VF */
+#define PCI_DEVICE_ID_CISCO_VIC_ENET_VF_V2   0x02b7  /* enet SRIOV V2 VF */
+#define PCI_DEVICE_ID_CISCO_VIC_ENET_VF_USNIC 0x00cf /* enet USNIC VF */
 
 /* Supported devices */
 static const struct pci_device_id enic_id_table[] = {
 	{ PCI_VDEVICE(CISCO, PCI_DEVICE_ID_CISCO_VIC_ENET) },
 	{ PCI_VDEVICE(CISCO, PCI_DEVICE_ID_CISCO_VIC_ENET_DYN) },
 	{ PCI_VDEVICE(CISCO, PCI_DEVICE_ID_CISCO_VIC_ENET_VF) },
+	{ PCI_VDEVICE(CISCO, PCI_DEVICE_ID_CISCO_VIC_ENET_VF_V2) },
 	{ 0, }	/* end of table */
 };
 
@@ -307,7 +310,8 @@ int enic_sriov_enabled(struct enic *enic)
 
 static int enic_is_sriov_vf(struct enic *enic)
 {
-	return enic->pdev->device == PCI_DEVICE_ID_CISCO_VIC_ENET_VF;
+	return enic->pdev->device == PCI_DEVICE_ID_CISCO_VIC_ENET_VF ||
+	       enic->pdev->device == PCI_DEVICE_ID_CISCO_VIC_ENET_VF_V2;
 }
 
 int enic_is_valid_vf(struct enic *enic, int vf)
@@ -1746,7 +1750,11 @@ static int enic_open(struct net_device *netdev)
 	if (vnic_dev_get_intr_mode(enic->vdev) == VNIC_DEV_INTR_MODE_MSIX)
 		for (i = 0; i < enic->wq_count; i++)
 			napi_enable(&enic->napi[enic_cq_wq(enic, i)]);
-	enic_dev_enable(enic);
+	err = enic_dev_enable(enic);
+	if (err) {
+		netdev_err(netdev, "Failed to enable device: %d\n", err);
+		goto err_out_dev_enable;
+	}
 
 	for (i = 0; i < enic->intr_count; i++)
 		vnic_intr_unmask(&enic->intr[i]);
@@ -1756,6 +1764,17 @@ static int enic_open(struct net_device *netdev)
 
 	return 0;
 
+err_out_dev_enable:
+	for (i = 0; i < enic->rq_count; i++)
+		napi_disable(&enic->napi[i]);
+	if (vnic_dev_get_intr_mode(enic->vdev) == VNIC_DEV_INTR_MODE_MSIX)
+		for (i = 0; i < enic->wq_count; i++)
+			napi_disable(&enic->napi[enic_cq_wq(enic, i)]);
+	netif_tx_disable(netdev);
+	if (!enic_is_dynamic(enic) && !enic_is_sriov_vf(enic))
+		enic_dev_del_station_addr(enic);
+	for (i = 0; i < enic->wq_count; i++)
+		vnic_wq_disable(&enic->wq[i].vwq);
 err_out_free_rq:
 	for (i = 0; i < enic->rq_count; i++) {
 		ret = vnic_rq_disable(&enic->rq[i].vrq);
@@ -2456,35 +2475,32 @@ static void enic_free_enic_resources(struct enic *enic)
 
 static int enic_alloc_enic_resources(struct enic *enic)
 {
-	enic->wq = kcalloc(enic->wq_avail, sizeof(struct enic_wq), GFP_KERNEL);
+	enic->wq = kzalloc_objs(struct enic_wq, enic->wq_avail);
 	if (!enic->wq)
 		goto free_queues;
 
-	enic->rq = kcalloc(enic->rq_avail, sizeof(struct enic_rq), GFP_KERNEL);
+	enic->rq = kzalloc_objs(struct enic_rq, enic->rq_avail);
 	if (!enic->rq)
 		goto free_queues;
 
-	enic->cq = kcalloc(enic->cq_avail, sizeof(struct vnic_cq), GFP_KERNEL);
+	enic->cq = kzalloc_objs(struct vnic_cq, enic->cq_avail);
 	if (!enic->cq)
 		goto free_queues;
 
-	enic->napi = kcalloc(enic->wq_avail + enic->rq_avail,
-			     sizeof(struct napi_struct), GFP_KERNEL);
+	enic->napi = kzalloc_objs(struct napi_struct,
+				  enic->wq_avail + enic->rq_avail);
 	if (!enic->napi)
 		goto free_queues;
 
-	enic->msix_entry = kcalloc(enic->intr_avail, sizeof(struct msix_entry),
-				   GFP_KERNEL);
+	enic->msix_entry = kzalloc_objs(struct msix_entry, enic->intr_avail);
 	if (!enic->msix_entry)
 		goto free_queues;
 
-	enic->msix = kcalloc(enic->intr_avail, sizeof(struct enic_msix_entry),
-			     GFP_KERNEL);
+	enic->msix = kzalloc_objs(struct enic_msix_entry, enic->intr_avail);
 	if (!enic->msix)
 		goto free_queues;
 
-	enic->intr = kcalloc(enic->intr_avail, sizeof(struct vnic_intr),
-			     GFP_KERNEL);
+	enic->intr = kzalloc_objs(struct vnic_intr, enic->intr_avail);
 	if (!enic->intr)
 		goto free_queues;
 
@@ -2621,6 +2637,41 @@ static void enic_iounmap(struct enic *enic)
 			iounmap(enic->bar[i].vaddr);
 }
 
+#ifdef CONFIG_PCI_IOV
+static void enic_sriov_detect_vf_type(struct enic *enic)
+{
+	struct pci_dev *pdev = enic->pdev;
+	int pos;
+	u16 vf_dev_id;
+
+	if (enic_is_sriov_vf(enic) || enic_is_dynamic(enic))
+		return;
+
+	pos = pci_find_ext_capability(pdev, PCI_EXT_CAP_ID_SRIOV);
+	if (!pos) {
+		enic->vf_type = ENIC_VF_TYPE_NONE;
+		return;
+	}
+
+	pci_read_config_word(pdev, pos + PCI_SRIOV_VF_DID, &vf_dev_id);
+
+	switch (vf_dev_id) {
+	case PCI_DEVICE_ID_CISCO_VIC_ENET_VF:
+		enic->vf_type = ENIC_VF_TYPE_V1;
+		break;
+	case PCI_DEVICE_ID_CISCO_VIC_ENET_VF_USNIC:
+		enic->vf_type = ENIC_VF_TYPE_USNIC;
+		break;
+	case PCI_DEVICE_ID_CISCO_VIC_ENET_VF_V2:
+		enic->vf_type = ENIC_VF_TYPE_V2;
+		break;
+	default:
+		enic->vf_type = ENIC_VF_TYPE_NONE;
+		break;
+	}
+}
+#endif
+
 static int enic_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	struct device *dev = &pdev->dev;
@@ -2734,10 +2785,11 @@ static int enic_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 			num_pps = enic->num_vfs;
 		}
 	}
+	enic_sriov_detect_vf_type(enic);
 #endif
 
 	/* Allocate structure for port profiles */
-	enic->pp = kcalloc(num_pps, sizeof(*enic->pp), GFP_KERNEL);
+	enic->pp = kzalloc_objs(*enic->pp, num_pps);
 	if (!enic->pp) {
 		err = -ENOMEM;
 		goto err_out_disable_sriov_pp;

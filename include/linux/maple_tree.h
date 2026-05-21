@@ -129,13 +129,6 @@ struct maple_arange_64 {
 	struct maple_metadata meta;
 };
 
-struct maple_alloc {
-	unsigned long total;
-	unsigned char node_count;
-	unsigned int request_count;
-	struct maple_alloc *slot[MAPLE_ALLOC_SLOTS];
-};
-
 struct maple_topiary {
 	struct maple_pnode *parent;
 	struct maple_enode *next; /* Overlaps the pivot */
@@ -146,6 +139,7 @@ enum maple_type {
 	maple_leaf_64,
 	maple_range_64,
 	maple_arange_64,
+	maple_copy,
 };
 
 enum store_type {
@@ -159,6 +153,46 @@ enum store_type {
 	wr_append,
 	wr_node_store,
 	wr_slot_store,
+};
+
+struct maple_copy {
+	/*
+	 * min, max, and pivots are values
+	 * start, end, split are indexes into arrays
+	 * data is a size
+	 */
+
+	struct {
+		struct maple_node *node;
+		unsigned long max;
+		enum maple_type mt;
+	} dst[3];
+	struct {
+		struct maple_node *node;
+		unsigned long max;
+		unsigned char start;
+		unsigned char end;
+		enum maple_type mt;
+	} src[4];
+	/* Simulated node */
+	void __rcu *slot[3];
+	unsigned long gap[3];
+	unsigned long min;
+	union {
+		unsigned long pivot[3];
+		struct {
+			void *_pad[2];
+			unsigned long max;
+		};
+	};
+	unsigned char end;
+
+	/*Avoid passing these around */
+	unsigned char s_count;
+	unsigned char d_count;
+	unsigned char split;
+	unsigned char data;
+	unsigned char height;
 };
 
 /**
@@ -306,7 +340,7 @@ struct maple_node {
 		};
 		struct maple_range_64 mr64;
 		struct maple_arange_64 ma64;
-		struct maple_alloc alloc;
+		struct maple_copy cp;
 	};
 };
 
@@ -536,7 +570,6 @@ bool mas_nomem(struct ma_state *mas, gfp_t gfp);
 void mas_pause(struct ma_state *mas);
 void maple_tree_init(void);
 void mas_destroy(struct ma_state *mas);
-int mas_expected_entries(struct ma_state *mas, unsigned long nr_entries);
 
 void *mas_prev(struct ma_state *mas, unsigned long min);
 void *mas_prev_range(struct ma_state *mas, unsigned long max);

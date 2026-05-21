@@ -1196,7 +1196,7 @@ static int agilent_82357a_allocate_private(struct gpib_board *board)
 {
 	struct agilent_82357a_priv *a_priv;
 
-	board->private_data = kzalloc(sizeof(struct agilent_82357a_priv), GFP_KERNEL);
+	board->private_data = kzalloc_obj(struct agilent_82357a_priv);
 	if (!board->private_data)
 		return -ENOMEM;
 	a_priv = board->private_data;
@@ -1316,7 +1316,7 @@ static int agilent_82357a_attach(struct gpib_board *board, const struct gpib_boa
 		return -ERESTARTSYS;
 
 	retval = agilent_82357a_allocate_private(board);
-	if (retval < 0) {
+	if (retval) {
 		mutex_unlock(&agilent_82357a_hotplug_lock);
 		return retval;
 	}
@@ -1479,7 +1479,7 @@ static int agilent_82357a_driver_probe(struct usb_interface *interface,
 
 	if (mutex_lock_interruptible(&agilent_82357a_hotplug_lock))
 		return -ERESTARTSYS;
-	usb_dev = usb_get_dev(interface_to_usbdev(interface));
+	usb_dev = interface_to_usbdev(interface);
 	for (i = 0; i < MAX_NUM_82357A_INTERFACES; ++i) {
 		if (!agilent_82357a_driver_interfaces[i]) {
 			agilent_82357a_driver_interfaces[i] = interface;
@@ -1490,14 +1490,12 @@ static int agilent_82357a_driver_probe(struct usb_interface *interface,
 		}
 	}
 	if (i == MAX_NUM_82357A_INTERFACES) {
-		usb_put_dev(usb_dev);
 		mutex_unlock(&agilent_82357a_hotplug_lock);
 		dev_err(&usb_dev->dev, "out of space in agilent_82357a_driver_interfaces[]\n");
 		return -1;
 	}
 	path = kmalloc(path_length, GFP_KERNEL);
 	if (!path) {
-		usb_put_dev(usb_dev);
 		mutex_unlock(&agilent_82357a_hotplug_lock);
 		return -ENOMEM;
 	}
@@ -1539,7 +1537,6 @@ static void agilent_82357a_driver_disconnect(struct usb_interface *interface)
 	}
 	if (i == MAX_NUM_82357A_INTERFACES)
 		dev_err(&usb_dev->dev, "unable to find interface - bug?\n");
-	usb_put_dev(usb_dev);
 
 	mutex_unlock(&agilent_82357a_hotplug_lock);
 }

@@ -109,6 +109,11 @@ static int __vlan_vid_add(struct net_device *dev, struct net_bridge *br,
 	/* Try switchdev op first. In case it is not supported, fallback to
 	 * 8021q add.
 	 */
+	err = br_switchdev_port_vlan_no_foreign_add(dev, v->vid, flags, false, extack);
+	if (err != -EOPNOTSUPP) {
+		v->priv_flags |= BR_VLFLAG_ADDED_BY_SWITCHDEV | BR_VLFLAG_TAGGING_BY_SWITCHDEV;
+		return err;
+	}
 	err = br_switchdev_port_vlan_add(dev, v->vid, flags, false, extack);
 	if (err == -EOPNOTSUPP)
 		return vlan_vid_add(dev, br->vlan_proto, v->vid);
@@ -787,7 +792,7 @@ int br_vlan_add(struct net_bridge *br, u16 vid, u16 flags, bool *changed,
 		return br_vlan_add_existing(br, vg, vlan, flags, changed,
 					    extack);
 
-	vlan = kzalloc(sizeof(*vlan), GFP_KERNEL);
+	vlan = kzalloc_obj(*vlan);
 	if (!vlan)
 		return -ENOMEM;
 
@@ -1224,7 +1229,7 @@ int br_vlan_init(struct net_bridge *br)
 	struct net_bridge_vlan_group *vg;
 	int ret = -ENOMEM;
 
-	vg = kzalloc(sizeof(*vg), GFP_KERNEL);
+	vg = kzalloc_obj(*vg);
 	if (!vg)
 		goto out;
 	ret = rhashtable_init(&vg->vlan_hash, &br_vlan_rht_params);
@@ -1260,7 +1265,7 @@ int nbp_vlan_init(struct net_bridge_port *p, struct netlink_ext_ack *extack)
 	struct net_bridge_vlan_group *vg;
 	int ret = -ENOMEM;
 
-	vg = kzalloc(sizeof(struct net_bridge_vlan_group), GFP_KERNEL);
+	vg = kzalloc_obj(struct net_bridge_vlan_group);
 	if (!vg)
 		goto out;
 
@@ -1334,7 +1339,7 @@ int nbp_vlan_add(struct net_bridge_port *port, u16 vid, u16 flags,
 		return 0;
 	}
 
-	vlan = kzalloc(sizeof(*vlan), GFP_KERNEL);
+	vlan = kzalloc_obj(*vlan);
 	if (!vlan)
 		return -ENOMEM;
 
@@ -1491,7 +1496,7 @@ int br_vlan_fill_forward_path_mode(struct net_bridge *br,
 
 	if (path->bridge.vlan_mode == DEV_PATH_BR_VLAN_TAG)
 		path->bridge.vlan_mode = DEV_PATH_BR_VLAN_KEEP;
-	else if (v->priv_flags & BR_VLFLAG_ADDED_BY_SWITCHDEV)
+	else if (v->priv_flags & BR_VLFLAG_TAGGING_BY_SWITCHDEV)
 		path->bridge.vlan_mode = DEV_PATH_BR_VLAN_UNTAG_HW;
 	else
 		path->bridge.vlan_mode = DEV_PATH_BR_VLAN_UNTAG;

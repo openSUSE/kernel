@@ -294,6 +294,9 @@ struct intel_display {
 	/* Parent, or core, driver functions exposed to display */
 	const struct intel_display_parent_interface *parent;
 
+	/* list of all intel_crtcs sorted by pipe */
+	struct list_head pipe_list;
+
 	/* Display functions */
 	struct {
 		/* Top level crtc-ish functions */
@@ -386,13 +389,28 @@ struct intel_display {
 
 	struct {
 		struct intel_dmc *dmc;
-		intel_wakeref_t wakeref;
+		struct ref_tracker *wakeref;
 	} dmc;
 
 	struct {
 		/* VLV/CHV/BXT/GLK DSI MMIO register base address */
 		u32 mmio_base;
 	} dsi;
+
+	struct {
+		const struct dram_info *info;
+	} dram;
+
+	struct {
+		struct intel_fbc *instances[I915_MAX_FBCS];
+
+		/* xe3p_lpd+: FBC instance utilizing the system cache */
+		struct sys_cache_cfg {
+			/* Protect concurrecnt access to system cache configuration */
+			struct mutex lock;
+			enum intel_fbc_id id;
+		} sys_cache;
+	} fbc;
 
 	struct {
 		/* list of fbdev register on this device */
@@ -611,7 +629,6 @@ struct intel_display {
 	struct drm_dp_tunnel_mgr *dp_tunnel_mgr;
 	struct intel_audio audio;
 	struct intel_dpll_global dpll;
-	struct intel_fbc *fbc[I915_MAX_FBCS];
 	struct intel_frontbuffer_tracking fb_tracking;
 	struct intel_hotplug hotplug;
 	struct intel_opregion *opregion;

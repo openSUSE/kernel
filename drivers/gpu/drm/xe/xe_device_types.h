@@ -13,10 +13,9 @@
 #include <drm/ttm/ttm_device.h>
 
 #include "xe_devcoredump_types.h"
+#include "xe_drm_ras_types.h"
 #include "xe_heci_gsc.h"
 #include "xe_late_bind_fw_types.h"
-#include "xe_lmtt_types.h"
-#include "xe_memirq_types.h"
 #include "xe_oa_types.h"
 #include "xe_pagefault_types.h"
 #include "xe_platform_types.h"
@@ -28,14 +27,14 @@
 #include "xe_sriov_vf_ccs_types.h"
 #include "xe_step_types.h"
 #include "xe_survivability_mode_types.h"
-#include "xe_tile_sriov_vf_types.h"
+#include "xe_tile_types.h"
 #include "xe_validation.h"
 
 #if IS_ENABLED(CONFIG_DRM_XE_DEBUG)
 #define TEST_VM_OPS_ERROR
 #endif
 
-struct dram_info;
+struct drm_pagemap_shrinker;
 struct intel_display;
 struct intel_dg_nvm_dev;
 struct xe_ggtt;
@@ -43,6 +42,22 @@ struct xe_i2c;
 struct xe_pat_ops;
 struct xe_pxp;
 struct xe_vram_region;
+
+/**
+ * enum xe_wedged_mode - possible wedged modes
+ * @XE_WEDGED_MODE_NEVER: Device will never be declared wedged.
+ * @XE_WEDGED_MODE_UPON_CRITICAL_ERROR: Device will be declared wedged only
+ *	when critical error occurs like GT reset failure or firmware failure.
+ *	This is the default mode.
+ * @XE_WEDGED_MODE_UPON_ANY_HANG_NO_RESET: Device will be declared wedged on
+ *	any hang. In this mode, engine resets are disabled to avoid automatic
+ *	recovery attempts. This mode is primarily intended for debugging hangs.
+ */
+enum xe_wedged_mode {
+	XE_WEDGED_MODE_NEVER = 0,
+	XE_WEDGED_MODE_UPON_CRITICAL_ERROR = 1,
+	XE_WEDGED_MODE_UPON_ANY_HANG_NO_RESET = 2,
+};
 
 #define XE_BO_INVALID_OFFSET	LONG_MAX
 
@@ -58,169 +73,14 @@ struct xe_vram_region;
 #define XE_GT1		1
 #define XE_MAX_TILES_PER_DEVICE	(XE_GT1 + 1)
 
+/*
+ * Highest GT/tile count for any platform.  Used only for memory allocation
+ * sizing.  Any logic looping over GTs or mapping userspace GT IDs into GT
+ * structures should use the per-platform xe->info.max_gt_per_tile instead.
+ */
+#define XE_MAX_GT_PER_TILE 2
+
 #define XE_MAX_ASID	(BIT(20))
-
-#define IS_PLATFORM_STEP(_xe, _platform, min_step, max_step)	\
-	((_xe)->info.platform == (_platform) &&			\
-	 (_xe)->info.step.graphics >= (min_step) &&		\
-	 (_xe)->info.step.graphics < (max_step))
-#define IS_SUBPLATFORM_STEP(_xe, _platform, sub, min_step, max_step)	\
-	((_xe)->info.platform == (_platform) &&				\
-	 (_xe)->info.subplatform == (sub) &&				\
-	 (_xe)->info.step.graphics >= (min_step) &&			\
-	 (_xe)->info.step.graphics < (max_step))
-
-#define tile_to_xe(tile__)								\
-	_Generic(tile__,								\
-		 const struct xe_tile * : (const struct xe_device *)((tile__)->xe),	\
-		 struct xe_tile * : (tile__)->xe)
-
-/**
- * struct xe_mmio - register mmio structure
- *
- * Represents an MMIO region that the CPU may use to access registers.  A
- * region may share its IO map with other regions (e.g., all GTs within a
- * tile share the same map with their parent tile, but represent different
- * subregions of the overall IO space).
- */
-struct xe_mmio {
-	/** @tile: Backpointer to tile, used for tracing */
-	struct xe_tile *tile;
-
-	/** @regs: Map used to access registers. */
-	void __iomem *regs;
-
-	/**
-	 * @sriov_vf_gt: Backpointer to GT.
-	 *
-	 * This pointer is only set for GT MMIO regions and only when running
-	 * as an SRIOV VF structure
-	 */
-	struct xe_gt *sriov_vf_gt;
-
-	/**
-	 * @regs_size: Length of the register region within the map.
-	 *
-	 * The size of the iomap set in *regs is generally larger than the
-	 * register mmio space since it includes unused regions and/or
-	 * non-register regions such as the GGTT PTEs.
-	 */
-	size_t regs_size;
-
-	/** @adj_limit: adjust MMIO address if address is below this value */
-	u32 adj_limit;
-
-	/** @adj_offset: offset to add to MMIO address when adjusting */
-	u32 adj_offset;
-};
-
-/**
- * struct xe_tile - hardware tile structure
- *
- * From a driver perspective, a "tile" is effectively a complete GPU, containing
- * an SGunit, 1-2 GTs, and (for discrete platforms) VRAM.
- *
- * Multi-tile platforms effectively bundle multiple GPUs behind a single PCI
- * device and designate one "root" tile as being responsible for external PCI
- * communication.  PCI BAR0 exposes the GGTT and MMIO register space for each
- * tile in a stacked layout, and PCI BAR2 exposes the local memory associated
- * with each tile similarly.  Device-wide interrupts can be enabled/disabled
- * at the root tile, and the MSTR_TILE_INTR register will report which tiles
- * have interrupts that need servicing.
- */
-struct xe_tile {
-	/** @xe: Backpointer to tile's PCI device */
-	struct xe_device *xe;
-
-	/** @id: ID of the tile */
-	u8 id;
-
-	/**
-	 * @primary_gt: Primary GT
-	 */
-	struct xe_gt *primary_gt;
-
-	/**
-	 * @media_gt: Media GT
-	 *
-	 * Only present on devices with media version >= 13.
-	 */
-	struct xe_gt *media_gt;
-
-	/**
-	 * @mmio: MMIO info for a tile.
-	 *
-	 * Each tile has its own 16MB space in BAR0, laid out as:
-	 * * 0-4MB: registers
-	 * * 4MB-8MB: reserved
-	 * * 8MB-16MB: global GTT
-	 */
-	struct xe_mmio mmio;
-
-	/** @mem: memory management info for tile */
-	struct {
-		/**
-		 * @mem.kernel_vram: kernel-dedicated VRAM info for tile.
-		 *
-		 * Although VRAM is associated with a specific tile, it can
-		 * still be accessed by all tiles' GTs.
-		 */
-		struct xe_vram_region *kernel_vram;
-
-		/**
-		 * @mem.vram: general purpose VRAM info for tile.
-		 *
-		 * Although VRAM is associated with a specific tile, it can
-		 * still be accessed by all tiles' GTs.
-		 */
-		struct xe_vram_region *vram;
-
-		/** @mem.ggtt: Global graphics translation table */
-		struct xe_ggtt *ggtt;
-
-		/**
-		 * @mem.kernel_bb_pool: Pool from which batchbuffers are allocated.
-		 *
-		 * Media GT shares a pool with its primary GT.
-		 */
-		struct xe_sa_manager *kernel_bb_pool;
-	} mem;
-
-	/** @sriov: tile level virtualization data */
-	union {
-		struct {
-			/** @sriov.pf.lmtt: Local Memory Translation Table. */
-			struct xe_lmtt lmtt;
-		} pf;
-		struct {
-			/** @sriov.vf.ggtt_balloon: GGTT regions excluded from use. */
-			struct xe_ggtt_node *ggtt_balloon[2];
-			/** @sriov.vf.self_config: VF configuration data */
-			struct xe_tile_sriov_vf_selfconfig self_config;
-		} vf;
-	} sriov;
-
-	/** @memirq: Memory Based Interrupts. */
-	struct xe_memirq memirq;
-
-	/** @csc_hw_error_work: worker to report CSC HW errors */
-	struct work_struct csc_hw_error_work;
-
-	/** @pcode: tile's PCODE */
-	struct {
-		/** @pcode.lock: protecting tile's PCODE mailbox data */
-		struct mutex lock;
-	} pcode;
-
-	/** @migrate: Migration helper for vram blits and clearing */
-	struct xe_migrate *migrate;
-
-	/** @sysfs: sysfs' kobj used by xe_tile_sysfs */
-	struct kobject *sysfs;
-
-	/** @debugfs: debugfs directory associated with this tile */
-	struct dentry *debugfs;
-};
 
 /**
  * struct xe_device - Top level struct of Xe device
@@ -269,6 +129,8 @@ struct xe_device {
 		u8 tile_count;
 		/** @info.max_gt_per_tile: Number of GT IDs allocated to each tile */
 		u8 max_gt_per_tile;
+		/** @info.multi_lrc_mask: bitmask of engine classes which support multi-lrc */
+		u8 multi_lrc_mask;
 		/** @info.gt_count: Total number of GTs for entire device */
 		u8 gt_count;
 		/** @info.vm_max_level: Max VM level */
@@ -282,10 +144,14 @@ struct xe_device {
 
 		/** @info.force_execlist: Forced execlist submission */
 		u8 force_execlist:1;
+		/** @info.has_access_counter: Device supports access counter */
+		u8 has_access_counter:1;
 		/** @info.has_asid: Has address space ID */
 		u8 has_asid:1;
 		/** @info.has_atomic_enable_pte_bit: Device has atomic enable PTE bit */
 		u8 has_atomic_enable_pte_bit:1;
+		/** @info.has_cached_pt: Supports caching pagetable */
+		u8 has_cached_pt:1;
 		/** @info.has_device_atomics_on_smem: Supports device atomics on SMEM */
 		u8 has_device_atomics_on_smem:1;
 		/** @info.has_fan_control: Device supports fan control */
@@ -298,6 +164,8 @@ struct xe_device {
 		u8 has_heci_cscfi:1;
 		/** @info.has_heci_gscfi: device has heci gscfi */
 		u8 has_heci_gscfi:1;
+		/** @info.has_i2c: Device has I2C controller */
+		u8 has_i2c:1;
 		/** @info.has_late_bind: Device has firmware late binding support */
 		u8 has_late_bind:1;
 		/** @info.has_llc: Device has a shared CPU+GPU last level cache */
@@ -306,12 +174,26 @@ struct xe_device {
 		 * pcode mailbox commands.
 		 */
 		u8 has_mbx_power_limits:1;
+		/** @info.has_mbx_thermal_info: Device supports thermal mailbox commands */
+		u8 has_mbx_thermal_info:1;
 		/** @info.has_mem_copy_instr: Device supports MEM_COPY instruction */
 		u8 has_mem_copy_instr:1;
+		/** @info.has_mert: Device has standalone MERT */
+		u8 has_mert:1;
+		/** @info.has_page_reclaim_hw_assist: Device supports page reclamation feature */
+		u8 has_page_reclaim_hw_assist:1;
+		/** @info.has_pre_prod_wa: Pre-production workarounds still present in driver */
+		u8 has_pre_prod_wa:1;
 		/** @info.has_pxp: Device has PXP support */
 		u8 has_pxp:1;
+		/** @info.has_ctx_tlb_inval: Has context based TLB invalidations */
+		u8 has_ctx_tlb_inval:1;
 		/** @info.has_range_tlb_inval: Has range based TLB invalidations */
 		u8 has_range_tlb_inval:1;
+		/** @info.has_soc_remapper_sysctrl: Has SoC remapper system controller */
+		u8 has_soc_remapper_sysctrl:1;
+		/** @info.has_soc_remapper_telem: Has SoC remapper telemetry support */
+		u8 has_soc_remapper_telem:1;
 		/** @info.has_sriov: Supports SR-IOV */
 		u8 has_sriov:1;
 		/** @info.has_usm: Device has unified shared memory support */
@@ -429,6 +311,10 @@ struct xe_device {
 #define XE_PAGEFAULT_QUEUE_COUNT	4
 		/** @usm.pf_queue: Page fault queues */
 		struct xe_pagefault_queue pf_queue[XE_PAGEFAULT_QUEUE_COUNT];
+#if IS_ENABLED(CONFIG_DRM_XE_PAGEMAP)
+		/** @usm.pagemap_shrinker: Shrinker for unused pagemaps */
+		struct drm_pagemap_shrinker *dpagemap_shrinker;
+#endif
 	} usm;
 
 	/** @pinned: pinned BO state */
@@ -508,10 +394,12 @@ struct xe_device {
 		const struct xe_pat_table_entry *table;
 		/** @pat.n_entries: Number of PAT entries */
 		int n_entries;
-		/** @pat.ats_entry: PAT entry for PCIe ATS responses */
+		/** @pat.pat_ats: PAT entry for PCIe ATS responses */
 		const struct xe_pat_table_entry *pat_ats;
-		/** @pat.pta_entry: PAT entry for page table accesses */
-		const struct xe_pat_table_entry *pat_pta;
+		/** @pat.pat_primary_pta: primary GT PAT entry for page table accesses */
+		const struct xe_pat_table_entry *pat_primary_pta;
+		/** @pat.pat_media_pta: media GT PAT entry for page table accesses */
+		const struct xe_pat_table_entry *pat_media_pta;
 		u32 idx[__XE_CACHE_LEVEL_COUNT];
 	} pat;
 
@@ -552,6 +440,18 @@ struct xe_device {
 		struct mutex lock;
 	} pmt;
 
+	/** @soc_remapper: SoC remapper object */
+	struct {
+		/** @soc_remapper.lock: Serialize access to SoC Remapper's index registers */
+		spinlock_t lock;
+
+		/** @soc_remapper.set_telem_region: Set telemetry index */
+		void (*set_telem_region)(struct xe_device *xe, u32 index);
+
+		/** @soc_remapper.set_sysctrl_region: Set system controller index */
+		void (*set_sysctrl_region)(struct xe_device *xe, u32 index);
+	} soc_remapper;
+
 	/**
 	 * @pm_callback_task: Track the active task that is running in either
 	 * the runtime_suspend or runtime_resume callbacks.
@@ -584,9 +484,11 @@ struct xe_device {
 		/** @wedged.flag: Xe device faced a critical error and is now blocked. */
 		atomic_t flag;
 		/** @wedged.mode: Mode controlled by kernel parameter and debugfs */
-		int mode;
+		enum xe_wedged_mode mode;
 		/** @wedged.method: Recovery method to be sent in the drm device wedged uevent */
 		unsigned long method;
+		/** @wedged.inconsistent_reset: Inconsistent reset policy state between GTs */
+		bool inconsistent_reset;
 	} wedged;
 
 	/** @bo_device: Struct to control async free of BOs */
@@ -600,11 +502,20 @@ struct xe_device {
 	/** @pmu: performance monitoring unit */
 	struct xe_pmu pmu;
 
+	/** @ras: RAS structure for device */
+	struct xe_drm_ras ras;
+
 	/** @i2c: I2C host controller */
 	struct xe_i2c *i2c;
 
 	/** @atomic_svm_timeslice_ms: Atomic SVM fault timeslice MS */
 	u32 atomic_svm_timeslice_ms;
+
+	/** @min_run_period_lr_ms: LR VM (preempt fence mode) timeslice */
+	u32 min_run_period_lr_ms;
+
+	/** @min_run_period_pf_ms: LR VM (page fault mode) timeslice */
+	u32 min_run_period_pf_ms;
 
 #ifdef TEST_VM_OPS_ERROR
 	/**
@@ -648,13 +559,6 @@ struct xe_device {
 	 * drm_i915_private during build. After cleanup these should go away,
 	 * migrating to the right sub-structs
 	 */
-	const struct dram_info *dram_info;
-
-	/*
-	 * edram size in MB.
-	 * Cannot be determined by PCIID. You must always read a register.
-	 */
-	u32 edram_size_mb;
 
 	struct intel_uncore {
 		spinlock_t lock;

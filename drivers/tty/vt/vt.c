@@ -38,7 +38,7 @@
  *
  *     - Arno Griffioen <arno@usn.nl>
  *     - David Carter <carter@cs.bris.ac.uk>
- * 
+ *
  *   The abstract console driver provides a generic interface for a text
  *   console. It supports VGA text mode, frame buffer based graphical consoles
  *   and special graphics processors that are only accessible through some
@@ -79,6 +79,7 @@
 #include <linux/kernel.h>
 #include <linux/string.h>
 #include <linux/errno.h>
+#include <linux/hex.h>
 #include <linux/kd.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
@@ -187,18 +188,11 @@ static DECLARE_WORK(con_driver_unregister_work, con_driver_unregister_callback);
  * fg_console is the current virtual console,
  * last_console is the last used one,
  * want_console is the console we want to switch to,
- * saved_* variants are for save/restore around kernel debugger enter/leave
  */
 int fg_console;
 EXPORT_SYMBOL(fg_console);
 int last_console;
 int want_console = -1;
-
-static int saved_fg_console;
-static int saved_last_console;
-static int saved_want_console;
-static int saved_vc_mode;
-static int saved_console_blanked;
 
 /*
  * For each existing display, we have a pointer to console currently visible
@@ -235,6 +229,40 @@ enum {
 	blank_normal_wait,
 	blank_vesa_wait,
 };
+
+/*
+ * struct vc_font
+ */
+
+/**
+ * vc_font_pitch - Calculates the number of bytes between two adjacent scanlines
+ * @font: The VC font
+ *
+ * Returns:
+ * The number of bytes between two adjacent scanlines in the font data
+ */
+unsigned int vc_font_pitch(const struct vc_font *font)
+{
+	return font_glyph_pitch(font->width);
+}
+EXPORT_SYMBOL_GPL(vc_font_pitch);
+
+/**
+ * vc_font_size - Calculates the size of the font data in bytes
+ * @font: The VC font
+ *
+ * vc_font_size() calculates the number of bytes of font data in the
+ * font specified by @font. The function calculates the size from the
+ * font parameters.
+ *
+ * Returns:
+ * The size of the font data in bytes.
+ */
+unsigned int vc_font_size(const struct vc_font *font)
+{
+	return font_glyph_size(font->width, font->height) * font->charcount;
+}
+EXPORT_SYMBOL_GPL(vc_font_size);
 
 /*
  * /sys/class/tty/tty0/
@@ -1071,7 +1099,7 @@ int vc_allocate(unsigned int currcons)	/* return 0 on success */
 	/* although the numbers above are not valid since long ago, the
 	   point is still up-to-date and the comment still has its value
 	   even if only as a historical artifact.  --mj, July 1998 */
-	param.vc = vc = kzalloc(sizeof(struct vc_data), GFP_KERNEL);
+	param.vc = vc = kzalloc_obj(struct vc_data);
 	if (!vc)
 		return -ENOMEM;
 
@@ -1345,6 +1373,8 @@ struct vc_data *vc_deallocate(unsigned int currcons)
 			kfree(vc->vc_saved_screen);
 			vc->vc_saved_screen = NULL;
 		}
+		vc_uniscr_free(vc->vc_saved_uni_lines);
+		vc->vc_saved_uni_lines = NULL;
 	}
 	return vc;
 }
@@ -1650,9 +1680,7 @@ static void rgb_background(struct vc_data *vc, const struct rgb *c)
 
 /*
  * ITU T.416 Higher colour modes. They break the usual properties of SGR codes
- * and thus need to be detected and ignored by hand. That standard also
- * wants : rather than ; as separators but sequences containing : are currently
- * completely ignored by the parser.
+ * and thus need to be detected and ignored by hand.
  *
  * Subcommands 3 (CMY) and 4 (CMYK) are so insane there's no point in
  * supporting them.
@@ -1709,6 +1737,7 @@ enum {
 	CSI_m_BG_COLOR_END		= 47,
 	CSI_m_BG_COLOR			= 48,
 	CSI_m_DEFAULT_BG_COLOR		= 49,
+	CSI_m_UNDERLINE_COLOR		= 58,
 	CSI_m_BRIGHT_FG_COLOR_BEG	= 90,
 	CSI_m_BRIGHT_FG_COLOR_END	= 97,
 	CSI_m_BRIGHT_FG_COLOR_OFF	= CSI_m_BRIGHT_FG_COLOR_BEG - CSI_m_FG_COLOR_BEG,
@@ -1890,6 +1919,8 @@ static void enter_alt_screen(struct vc_data *vc)
 	vc->vc_saved_screen = kmemdup((u16 *)vc->vc_origin, size, GFP_KERNEL);
 	if (vc->vc_saved_screen == NULL)
 		return;
+	vc->vc_saved_uni_lines = vc->vc_uni_lines;
+	vc->vc_uni_lines = NULL;
 	vc->vc_saved_rows = vc->vc_rows;
 	vc->vc_saved_cols = vc->vc_cols;
 	save_cur(vc);
@@ -1911,6 +1942,26 @@ static void leave_alt_screen(struct vc_data *vc)
 		dest = ((u16 *)vc->vc_origin) + r * vc->vc_cols;
 		memcpy(dest, src, 2 * cols);
 	}
+	/*
+	 * If the console was resized while in the alternate screen,
+	 * resize the saved unicode buffer to the current dimensions.
+	 * On allocation failure new_uniscr is NULL, causing the old
+	 * buffer to be freed and vc_uni_lines to be lazily rebuilt
+	 * via vc_uniscr_check() when next needed.
+	 */
+	if (vc->vc_saved_uni_lines &&
+	    (vc->vc_saved_rows != vc->vc_rows ||
+	     vc->vc_saved_cols != vc->vc_cols)) {
+		u32 **new_uniscr = vc_uniscr_alloc(vc->vc_cols, vc->vc_rows);
+
+		if (new_uniscr)
+			vc_uniscr_copy_area(new_uniscr, vc->vc_cols, vc->vc_rows,
+					    vc->vc_saved_uni_lines, cols, 0, rows);
+		vc_uniscr_free(vc->vc_saved_uni_lines);
+		vc->vc_saved_uni_lines = new_uniscr;
+	}
+	vc_uniscr_set(vc, vc->vc_saved_uni_lines);
+	vc->vc_saved_uni_lines = NULL;
 	restore_cur(vc);
 	/* Update the entire screen */
 	if (con_should_update(vc))
@@ -2166,6 +2217,7 @@ static void restore_cur(struct vc_data *vc)
  * @ESesc:		ESC parsed
  * @ESsquare:		CSI parsed -- modifiers/parameters/ctrl chars expected
  * @ESgetpars:		CSI parsed -- parameters/ctrl chars expected
+ * @ESgetsubpars:	CSI m parsed -- subparameters expected
  * @ESfunckey:		CSI [ parsed
  * @EShash:		ESC # parsed
  * @ESsetG0:		ESC ( parsed
@@ -2186,6 +2238,7 @@ enum vc_ctl_state {
 	ESesc,
 	ESsquare,
 	ESgetpars,
+	ESgetsubpars,
 	ESfunckey,
 	EShash,
 	ESsetG0,
@@ -2233,6 +2286,8 @@ static void reset_terminal(struct vc_data *vc, int do_clear)
 	if (vc->vc_saved_screen != NULL) {
 		kfree(vc->vc_saved_screen);
 		vc->vc_saved_screen = NULL;
+		vc_uniscr_free(vc->vc_saved_uni_lines);
+		vc->vc_saved_uni_lines = NULL;
 		vc->vc_saved_rows = 0;
 		vc->vc_saved_cols = 0;
 	}
@@ -2705,6 +2760,47 @@ static void do_con_trol(struct tty_struct *tty, struct vc_data *vc, u8 c)
 		fallthrough;
 	case ESgetpars: /* ESC [ aka CSI, parameters expected */
 		switch (c) {
+		case ':': /* ITU-T T.416 color subparameters */
+			if (vc->vc_par[vc->vc_npar] == CSI_m_FG_COLOR ||
+			    vc->vc_par[vc->vc_npar] == CSI_m_BG_COLOR ||
+			    vc->vc_par[vc->vc_npar] == CSI_m_UNDERLINE_COLOR)
+				vc->vc_state = ESgetsubpars;
+			else
+				break;
+			fallthrough;
+		case ';':
+			if (vc->vc_npar < NPAR - 1) {
+				vc->vc_npar++;
+				return;
+			}
+			break;
+		case '0' ... '9':
+			vc->vc_par[vc->vc_npar] *= 10;
+			vc->vc_par[vc->vc_npar] += c - '0';
+			return;
+		}
+		if (c >= ASCII_CSI_IGNORE_FIRST && c <= ASCII_CSI_IGNORE_LAST) {
+			vc->vc_state = EScsiignore;
+			return;
+		}
+
+		/* parameters done, handle the control char @c */
+
+		vc->vc_state = ESnormal;
+
+		switch (vc->vc_priv) {
+		case EPdec:
+			csi_DEC(tty, vc, c);
+			return;
+		case EPecma:
+			csi_ECMA(tty, vc, c);
+			return;
+		default:
+			return;
+		}
+	case ESgetsubpars: /* ESC [ 38/48/58, subparameters expected */
+		switch (c) {
+		case ':':
 		case ';':
 			if (vc->vc_npar < NPAR - 1) {
 				vc->vc_npar++;
@@ -3236,7 +3332,6 @@ rescan_last_byte:
 			goto rescan_last_byte;
 	}
 	con_flush(vc, &draw);
-	console_conditional_schedule();
 	notify_update(vc);
 
 	return n;
@@ -3784,7 +3879,8 @@ static int __init con_init(void)
 	}
 
 	for (currcons = 0; currcons < MIN_NR_CONSOLES; currcons++) {
-		vc_cons[currcons].d = vc = kzalloc(sizeof(struct vc_data), GFP_NOWAIT);
+		vc_cons[currcons].d = vc = kzalloc_obj(struct vc_data,
+						       GFP_NOWAIT);
 		INIT_WORK(&vc_cons[currcons].SAK_work, vc_SAK);
 		tty_port_init(&vc->port);
 		visual_init(vc, currcons, true);
@@ -4287,15 +4383,6 @@ EXPORT_SYMBOL(con_is_visible);
  */
 void con_debug_enter(struct vc_data *vc)
 {
-	saved_fg_console = fg_console;
-	saved_last_console = last_console;
-	saved_want_console = want_console;
-	saved_vc_mode = vc->vc_mode;
-	saved_console_blanked = console_blanked;
-	vc->vc_mode = KD_TEXT;
-	console_blanked = 0;
-	if (vc->vc_sw->con_debug_enter)
-		vc->vc_sw->con_debug_enter(vc);
 #ifdef CONFIG_KGDB_KDB
 	/* Set the initial LINES variable if it is not already set */
 	if (vc->vc_rows < 999) {
@@ -4335,19 +4422,7 @@ EXPORT_SYMBOL_GPL(con_debug_enter);
  * was invoked.
  */
 void con_debug_leave(void)
-{
-	struct vc_data *vc;
-
-	fg_console = saved_fg_console;
-	last_console = saved_last_console;
-	want_console = saved_want_console;
-	console_blanked = saved_console_blanked;
-	vc_cons[fg_console].d->vc_mode = saved_vc_mode;
-
-	vc = vc_cons[fg_console].d;
-	if (vc->vc_sw->con_debug_leave)
-		vc->vc_sw->con_debug_leave(vc);
-}
+{ }
 EXPORT_SYMBOL_GPL(con_debug_leave);
 
 static int do_register_con_driver(const struct consw *csw, int first, int last)

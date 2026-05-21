@@ -6,10 +6,10 @@
 #include <net/devlink.h>
 #include <net/netdev_lock.h>
 
-#include "netlink.h"
-#include "common.h"
 #include "bitset.h"
+#include "common.h"
 #include "module_fw.h"
+#include "netlink.h"
 
 struct module_req_info {
 	struct ethnl_req_info base;
@@ -301,7 +301,7 @@ module_flash_fw_schedule(struct net_device *dev, const char *file_name,
 	struct ethtool_module_fw_flash *module_fw;
 	int err;
 
-	module_fw = kzalloc(sizeof(*module_fw), GFP_KERNEL);
+	module_fw = kzalloc_obj(*module_fw);
 	if (!module_fw)
 		return -ENOMEM;
 

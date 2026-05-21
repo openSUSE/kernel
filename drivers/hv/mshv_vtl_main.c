@@ -117,7 +117,7 @@ mshv_ioctl_create_vtl(void __user *user_arg, struct device *module_dev)
 	struct file *file;
 	int fd;
 
-	vtl = kzalloc(sizeof(*vtl), GFP_KERNEL);
+	vtl = kzalloc_obj(*vtl);
 	if (!vtl)
 		return -ENOMEM;
 
@@ -386,17 +386,20 @@ static int mshv_vtl_ioctl_add_vtl0_mem(struct mshv_vtl *vtl, void __user *arg)
 
 	if (copy_from_user(&vtl0_mem, arg, sizeof(vtl0_mem)))
 		return -EFAULT;
-	/* vtl0_mem.last_pfn is excluded in the pagemap range for VTL0 as per design */
 	if (vtl0_mem.last_pfn <= vtl0_mem.start_pfn) {
 		dev_err(vtl->module_dev, "range start pfn (%llx) > end pfn (%llx)\n",
 			vtl0_mem.start_pfn, vtl0_mem.last_pfn);
 		return -EFAULT;
 	}
 
-	pgmap = kzalloc(sizeof(*pgmap), GFP_KERNEL);
+	pgmap = kzalloc_obj(*pgmap);
 	if (!pgmap)
 		return -ENOMEM;
 
+	/*
+	 * vtl0_mem.last_pfn is excluded in the pagemap range for VTL0 as per design.
+	 * last_pfn is not reserved or wasted, and reflects 'start_pfn + size' of pagemap range.
+	 */
 	pgmap->ranges[0].start = PFN_PHYS(vtl0_mem.start_pfn);
 	pgmap->ranges[0].end = PFN_PHYS(vtl0_mem.last_pfn) - 1;
 	pgmap->nr_range = 1;
@@ -405,8 +408,11 @@ static int mshv_vtl_ioctl_add_vtl0_mem(struct mshv_vtl *vtl, void __user *arg)
 	/*
 	 * Determine the highest page order that can be used for the given memory range.
 	 * This works best when the range is aligned; i.e. both the start and the length.
+	 * Clamp to MAX_FOLIO_ORDER to avoid a WARN in memremap_pages() when the range
+	 * alignment exceeds the maximum supported folio order for this kernel config.
 	 */
-	pgmap->vmemmap_shift = count_trailing_zeros(vtl0_mem.start_pfn | vtl0_mem.last_pfn);
+	pgmap->vmemmap_shift = min(count_trailing_zeros(vtl0_mem.start_pfn | vtl0_mem.last_pfn),
+				   MAX_FOLIO_ORDER);
 	dev_dbg(vtl->module_dev,
 		"Add VTL0 memory: start: 0x%llx, end_pfn: 0x%llx, page order: %lu\n",
 		vtl0_mem.start_pfn, vtl0_mem.last_pfn, pgmap->vmemmap_shift);
@@ -415,7 +421,7 @@ static int mshv_vtl_ioctl_add_vtl0_mem(struct mshv_vtl *vtl, void __user *arg)
 	if (IS_ERR(addr)) {
 		dev_err(vtl->module_dev, "devm_memremap_pages error: %ld\n", PTR_ERR(addr));
 		kfree(pgmap);
-		return -EFAULT;
+		return PTR_ERR(addr);
 	}
 
 	/* Don't free pgmap, since it has to stick around until the memory
@@ -845,9 +851,10 @@ static const struct file_operations mshv_vtl_fops = {
 	.mmap = mshv_vtl_mmap,
 };
 
-static void mshv_vtl_synic_mask_vmbus_sint(const u8 *mask)
+static void mshv_vtl_synic_mask_vmbus_sint(void *info)
 {
 	union hv_synic_sint sint;
+	const u8 *mask = info;
 
 	sint.as_uint64 = 0;
 	sint.vector = HYPERVISOR_CALLBACK_VECTOR;
@@ -999,7 +1006,7 @@ static int mshv_vtl_sint_ioctl_pause_msg_stream(struct mshv_sint_mask __user *ar
 	if (copy_from_user(&mask, arg, sizeof(mask)))
 		return -EFAULT;
 	guard(mutex)(&vtl2_vmbus_sint_mask_mutex);
-	on_each_cpu((smp_call_func_t)mshv_vtl_synic_mask_vmbus_sint, &mask.mask, 1);
+	on_each_cpu(mshv_vtl_synic_mask_vmbus_sint, &mask.mask, 1);
 	WRITE_ONCE(vtl_synic_mask_vmbus_sint_masked, mask.mask != 0);
 	if (mask.mask)
 		wake_up_interruptible_poll(&fd_wait_queue, EPOLLIN);
@@ -1343,7 +1350,7 @@ static int __init mshv_vtl_init(void)
 	/*
 	 * "mshv vtl mem dev" device is later used to setup VTL0 memory.
 	 */
-	mem_dev = kzalloc(sizeof(*mem_dev), GFP_KERNEL);
+	mem_dev = kzalloc_obj(*mem_dev);
 	if (!mem_dev) {
 		ret = -ENOMEM;
 		goto free_low;

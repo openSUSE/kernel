@@ -55,6 +55,7 @@
 
 #include <linux/types.h>
 #include <linux/errno.h>
+#include <linux/hex.h>
 #include <linux/time.h>
 #include <linux/time_namespace.h>
 #include <linux/kernel.h>
@@ -279,7 +280,7 @@ static inline void task_sig(struct seq_file *m, struct task_struct *p)
 		blocked = p->blocked;
 		collect_sigign_sigcatch(p, &ignored, &caught);
 		num_threads = get_nr_threads(p);
-		rcu_read_lock();  /* FIXME: is this correct? */
+		rcu_read_lock();
 		qsize = get_rlimit_value(task_ucounts(p), UCOUNT_RLIMIT_SIGPENDING);
 		rcu_read_unlock();
 		qlim = task_rlimit(p, RLIMIT_SIGPENDING);
@@ -528,7 +529,7 @@ static int do_task_stat(struct seq_file *m, struct pid_namespace *ns,
 		}
 
 		sid = task_session_nr_ns(task, ns);
-		ppid = task_tgid_nr_ns(task->real_parent, ns);
+		ppid = task_ppid_nr_ns(task, ns);
 		pgid = task_pgrp_nr_ns(task, ns);
 
 		unlock_task_sighand(task, &flags);

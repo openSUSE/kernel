@@ -452,7 +452,7 @@ static ssize_t phys_device_show(struct device *dev,
 static int print_allowed_zone(char *buf, int len, int nid,
 			      struct memory_group *group,
 			      unsigned long start_pfn, unsigned long nr_pages,
-			      int online_type, struct zone *default_zone)
+			      enum mmop online_type, struct zone *default_zone)
 {
 	struct zone *zone;
 
@@ -800,7 +800,7 @@ static int add_memory_block(unsigned long block_id, int nid, unsigned long state
 		put_device(&mem->dev);
 		return -EEXIST;
 	}
-	mem = kzalloc(sizeof(*mem), GFP_KERNEL);
+	mem = kzalloc_obj(*mem);
 	if (!mem)
 		return -ENOMEM;
 
@@ -815,7 +815,7 @@ static int add_memory_block(unsigned long block_id, int nid, unsigned long state
 		/*
 		 * MEM_ONLINE at this point implies early memory. With NUMA,
 		 * we'll determine the zone when setting the node id via
-		 * memory_block_add_nid(). Memory hotplug updated the zone
+		 * memory_block_add_nid_early(). Memory hotplug updated the zone
 		 * manually when memory onlining/offlining succeeds.
 		 */
 		mem->zone = early_node_zone_for_memory_block(mem, NUMA_NO_NODE);
@@ -1078,7 +1078,7 @@ static int memory_group_register(struct memory_group group)
 	if (!node_possible(group.nid))
 		return -EINVAL;
 
-	new_group = kzalloc(sizeof(group), GFP_KERNEL);
+	new_group = kzalloc_obj(group);
 	if (!new_group)
 		return -ENOMEM;
 	*new_group = group;

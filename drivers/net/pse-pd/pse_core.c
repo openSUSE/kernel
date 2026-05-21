@@ -162,7 +162,7 @@ static int of_load_pse_pis(struct pse_controller_dev *pcdev)
 	if (!np)
 		return -ENODEV;
 
-	pcdev->pi = kcalloc(pcdev->nr_lines, sizeof(*pcdev->pi), GFP_KERNEL);
+	pcdev->pi = kzalloc_objs(*pcdev->pi, pcdev->nr_lines);
 	if (!pcdev->pi)
 		return -ENOMEM;
 
@@ -234,7 +234,7 @@ out:
 }
 
 /**
- * pse_control_find_net_by_id - Find net attached to the pse control id
+ * pse_control_find_by_id - Find pse_control from an id
  * @pcdev: a pointer to the PSE
  * @id: index of the PSE control
  *
@@ -1170,6 +1170,7 @@ struct pse_irq {
 	struct pse_controller_dev *pcdev;
 	struct pse_irq_desc desc;
 	unsigned long *notifs;
+	unsigned long *notifs_mask;
 };
 
 /**
@@ -1247,7 +1248,6 @@ static int pse_set_config_isr(struct pse_controller_dev *pcdev, int id,
 static irqreturn_t pse_isr(int irq, void *data)
 {
 	struct pse_controller_dev *pcdev;
-	unsigned long notifs_mask = 0;
 	struct pse_irq_desc *desc;
 	struct pse_irq *h = data;
 	int ret, i;
@@ -1257,14 +1257,15 @@ static irqreturn_t pse_isr(int irq, void *data)
 
 	/* Clear notifs mask */
 	memset(h->notifs, 0, pcdev->nr_lines * sizeof(*h->notifs));
+	bitmap_zero(h->notifs_mask, pcdev->nr_lines);
 	mutex_lock(&pcdev->lock);
-	ret = desc->map_event(irq, pcdev, h->notifs, &notifs_mask);
-	if (ret || !notifs_mask) {
+	ret = desc->map_event(irq, pcdev, h->notifs, h->notifs_mask);
+	if (ret || bitmap_empty(h->notifs_mask, pcdev->nr_lines)) {
 		mutex_unlock(&pcdev->lock);
 		return IRQ_NONE;
 	}
 
-	for_each_set_bit(i, &notifs_mask, pcdev->nr_lines) {
+	for_each_set_bit(i, h->notifs_mask, pcdev->nr_lines) {
 		unsigned long notifs, rnotifs;
 		struct pse_ntf ntf = {};
 
@@ -1340,6 +1341,10 @@ int devm_pse_irq_helper(struct pse_controller_dev *pcdev, int irq,
 	if (!h->notifs)
 		return -ENOMEM;
 
+	h->notifs_mask = devm_bitmap_zalloc(dev, pcdev->nr_lines, GFP_KERNEL);
+	if (!h->notifs_mask)
+		return -ENOMEM;
+
 	ret = devm_request_threaded_irq(dev, irq, NULL, pse_isr,
 					IRQF_ONESHOT | irq_flags,
 					irq_name, h);
@@ -1408,7 +1413,7 @@ pse_control_get_internal(struct pse_controller_dev *pcdev, unsigned int index,
 		}
 	}
 
-	psec = kzalloc(sizeof(*psec), GFP_KERNEL);
+	psec = kzalloc_obj(*psec);
 	if (!psec)
 		return ERR_PTR(-ENOMEM);
 

@@ -42,18 +42,16 @@ o        `                     ~~~~\___/~~~~    ` controller in FPGA is ,.`
 
 #include <linux/bitops.h>
 #include <linux/cleanup.h>
-#include <linux/compiler.h>
 #include <linux/err.h>
-#include <linux/init.h>
 #include <linux/io.h>
 #include <linux/ioport.h>
+#include <linux/limits.h>
 #include <linux/log2.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/platform_device.h>
 #include <linux/property.h>
-#include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
 
@@ -724,6 +722,7 @@ static const struct of_device_id gpio_mmio_of_match[] = {
 	{ .compatible = "wd,mbl-gpio" },
 	{ .compatible = "ni,169445-nand-gpio" },
 	{ .compatible = "intel,ixp4xx-expansion-bus-mmio-gpio" },
+	{ .compatible = "opencores,gpio" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, gpio_mmio_of_match);

@@ -6,8 +6,137 @@
 
 #include <linux/types.h>
 
+struct dma_fence;
+struct drm_crtc;
 struct drm_device;
+struct drm_file;
+struct drm_framebuffer;
+struct drm_gem_object;
+struct drm_mode_fb_cmd2;
+struct drm_plane_state;
+struct drm_scanout_buffer;
+struct i915_vma;
+struct intel_dpt;
+struct intel_dsb_buffer;
+struct intel_frontbuffer;
+struct intel_hdcp_gsc_context;
+struct intel_initial_plane_config;
+struct intel_panic;
+struct intel_stolen_node;
 struct ref_tracker;
+struct seq_file;
+struct vm_area_struct;
+
+/* Keep struct definitions sorted */
+
+struct intel_display_bo_interface {
+	bool (*is_tiled)(struct drm_gem_object *obj); /* Optional */
+	bool (*is_userptr)(struct drm_gem_object *obj); /* Optional */
+	bool (*is_shmem)(struct drm_gem_object *obj); /* Optional */
+	bool (*is_protected)(struct drm_gem_object *obj);
+	int (*key_check)(struct drm_gem_object *obj);
+	int (*fb_mmap)(struct drm_gem_object *obj, struct vm_area_struct *vma);
+	int (*read_from_page)(struct drm_gem_object *obj, u64 offset, void *dst, int size);
+	void (*describe)(struct seq_file *m, struct drm_gem_object *obj); /* Optional */
+	int (*framebuffer_init)(struct drm_gem_object *obj, struct drm_mode_fb_cmd2 *mode_cmd);
+	void (*framebuffer_fini)(struct drm_gem_object *obj);
+	struct drm_gem_object *(*framebuffer_lookup)(struct drm_device *drm,
+						     struct drm_file *filp,
+						     const struct drm_mode_fb_cmd2 *user_mode_cmd);
+};
+
+struct intel_display_dpt_interface {
+	struct intel_dpt *(*create)(struct drm_gem_object *obj, size_t size);
+	void (*destroy)(struct intel_dpt *dpt);
+	void (*suspend)(struct intel_dpt *dpt);
+	void (*resume)(struct intel_dpt *dpt);
+};
+
+struct intel_display_dsb_interface {
+	u32 (*ggtt_offset)(struct intel_dsb_buffer *dsb_buf);
+	void (*write)(struct intel_dsb_buffer *dsb_buf, u32 idx, u32 val);
+	u32 (*read)(struct intel_dsb_buffer *dsb_buf, u32 idx);
+	void (*fill)(struct intel_dsb_buffer *dsb_buf, u32 idx, u32 val, size_t size);
+	struct intel_dsb_buffer *(*create)(struct drm_device *drm, size_t size);
+	void (*cleanup)(struct intel_dsb_buffer *dsb_buf);
+	void (*flush_map)(struct intel_dsb_buffer *dsb_buf);
+};
+
+struct intel_display_frontbuffer_interface {
+	struct intel_frontbuffer *(*get)(struct drm_gem_object *obj);
+	void (*ref)(struct intel_frontbuffer *front);
+	void (*put)(struct intel_frontbuffer *front);
+	void (*flush_for_display)(struct intel_frontbuffer *front);
+};
+
+struct intel_display_hdcp_interface {
+	ssize_t (*gsc_msg_send)(struct intel_hdcp_gsc_context *gsc_context,
+				void *msg_in, size_t msg_in_len,
+				void *msg_out, size_t msg_out_len);
+	bool (*gsc_check_status)(struct drm_device *drm);
+	struct intel_hdcp_gsc_context *(*gsc_context_alloc)(struct drm_device *drm);
+	void (*gsc_context_free)(struct intel_hdcp_gsc_context *gsc_context);
+};
+
+struct intel_display_initial_plane_interface {
+	void (*vblank_wait)(struct drm_crtc *crtc);
+	struct drm_gem_object *(*alloc_obj)(struct drm_device *drm, struct intel_initial_plane_config *plane_config);
+	int (*setup)(struct drm_plane_state *plane_state, struct intel_initial_plane_config *plane_config,
+		     struct drm_framebuffer *fb, struct i915_vma *vma);
+	void (*config_fini)(struct intel_initial_plane_config *plane_configs);
+};
+
+struct intel_display_irq_interface {
+	bool (*enabled)(struct drm_device *drm);
+	void (*synchronize)(struct drm_device *drm);
+};
+
+struct intel_display_overlay_interface {
+	bool (*is_active)(struct drm_device *drm);
+
+	int (*overlay_on)(struct drm_device *drm,
+			  u32 frontbuffer_bits);
+	int (*overlay_continue)(struct drm_device *drm,
+				struct i915_vma *vma,
+				bool load_polyphase_filter);
+	int (*overlay_off)(struct drm_device *drm);
+	int (*recover_from_interrupt)(struct drm_device *drm);
+	int (*release_old_vid)(struct drm_device *drm);
+
+	void (*reset)(struct drm_device *drm);
+
+	struct i915_vma *(*pin_fb)(struct drm_device *drm,
+				   struct drm_gem_object *obj,
+				   u32 *offset);
+	void (*unpin_fb)(struct drm_device *drm,
+			 struct i915_vma *vma);
+
+	struct drm_gem_object *(*obj_lookup)(struct drm_device *drm,
+					     struct drm_file *filp,
+					     u32 handle);
+
+	void __iomem *(*setup)(struct drm_device *drm,
+			       bool needs_physical);
+	void (*cleanup)(struct drm_device *drm);
+};
+
+struct intel_display_panic_interface {
+	struct intel_panic *(*alloc)(void);
+	int (*setup)(struct intel_panic *panic, struct drm_scanout_buffer *sb);
+	void (*finish)(struct intel_panic *panic);
+};
+
+struct intel_display_pc8_interface {
+	void (*block)(struct drm_device *drm);
+	void (*unblock)(struct drm_device *drm);
+};
+
+struct intel_display_pcode_interface {
+	int (*read)(struct drm_device *drm, u32 mbox, u32 *val, u32 *val1);
+	int (*write)(struct drm_device *drm, u32 mbox, u32 val, int timeout_ms);
+	int (*request)(struct drm_device *drm, u32 mbox, u32 request,
+		       u32 reply_mask, u32 reply, int timeout_base_ms);
+};
 
 struct intel_display_rpm_interface {
 	struct ref_tracker *(*get)(const struct drm_device *drm);
@@ -25,6 +154,32 @@ struct intel_display_rpm_interface {
 	void (*assert_unblock)(const struct drm_device *drm);
 };
 
+struct intel_display_rps_interface {
+	void (*boost_if_not_started)(struct dma_fence *fence);
+	void (*mark_interactive)(struct drm_device *drm, bool interactive);
+	void (*ilk_irq_handler)(struct drm_device *drm);
+};
+
+struct intel_display_stolen_interface {
+	int (*insert_node_in_range)(struct intel_stolen_node *node, u64 size,
+				    unsigned int align, u64 start, u64 end);
+	int (*insert_node)(struct intel_stolen_node *node, u64 size, unsigned int align); /* Optional */
+	void (*remove_node)(struct intel_stolen_node *node);
+	bool (*initialized)(struct drm_device *drm);
+	bool (*node_allocated)(const struct intel_stolen_node *node);
+	u64 (*node_offset)(const struct intel_stolen_node *node);
+	u64 (*area_address)(struct drm_device *drm); /* Optional */
+	u64 (*area_size)(struct drm_device *drm); /* Optional */
+	u64 (*node_address)(const struct intel_stolen_node *node);
+	u64 (*node_size)(const struct intel_stolen_node *node);
+	struct intel_stolen_node *(*node_alloc)(struct drm_device *drm);
+	void (*node_free)(const struct intel_stolen_node *node);
+};
+
+struct intel_display_vma_interface {
+	int (*fence_id)(const struct i915_vma *vma);
+};
+
 /**
  * struct intel_display_parent_interface - services parent driver provides to display
  *
@@ -38,8 +193,65 @@ struct intel_display_rpm_interface {
  * check the optional pointers.
  */
 struct intel_display_parent_interface {
+	/** @bo: BO interface */
+	const struct intel_display_bo_interface *bo;
+
+	/** @dpt: DPT interface. Optional. */
+	const struct intel_display_dpt_interface *dpt;
+
+	/** @dsb: DSB buffer interface */
+	const struct intel_display_dsb_interface *dsb;
+
+	/** @frontbuffer: Frontbuffer interface */
+	const struct intel_display_frontbuffer_interface *frontbuffer;
+
+	/** @hdcp: HDCP GSC interface */
+	const struct intel_display_hdcp_interface *hdcp;
+
+	/** @initial_plane: Initial plane interface */
+	const struct intel_display_initial_plane_interface *initial_plane;
+
+	/** @irq: IRQ interface */
+	const struct intel_display_irq_interface *irq;
+
+	/** @panic: Panic interface */
+	const struct intel_display_panic_interface *panic;
+
+	/** @overlay: Overlay. Optional. */
+	const struct intel_display_overlay_interface *overlay;
+
+	/** @pc8: PC8 interface. Optional. */
+	const struct intel_display_pc8_interface *pc8;
+
+	/** @pcode: Pcode interface */
+	const struct intel_display_pcode_interface *pcode;
+
 	/** @rpm: Runtime PM functions */
 	const struct intel_display_rpm_interface *rpm;
+
+	/** @rps: RPS interface. Optional. */
+	const struct intel_display_rps_interface *rps;
+
+	/** @stolen: Stolen memory. */
+	const struct intel_display_stolen_interface *stolen;
+
+	/** @vma: VMA interface. Optional. */
+	const struct intel_display_vma_interface *vma;
+
+	/* Generic independent functions */
+	struct {
+		/** @fence_priority_display: Set display priority. Optional. */
+		void (*fence_priority_display)(struct dma_fence *fence);
+
+		/** @has_auxccs: Are AuxCCS formats supported by the parent. Optional. */
+		bool (*has_auxccs)(struct drm_device *drm);
+
+		/** @has_fenced_regions: Support legacy fencing? Optional. */
+		bool (*has_fenced_regions)(struct drm_device *drm);
+
+		/** @vgpu_active: Is vGPU active? Optional. */
+		bool (*vgpu_active)(struct drm_device *drm);
+	};
 };
 
 #endif

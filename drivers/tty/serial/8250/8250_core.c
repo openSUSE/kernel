@@ -140,7 +140,7 @@ static struct irq_info *serial_get_or_create_irq_info(const struct uart_8250_por
 		if (i->irq == up->port.irq)
 			return i;
 
-	i = kzalloc(sizeof(*i), GFP_KERNEL);
+	i = kzalloc_obj(*i);
 	if (i == NULL)
 		return ERR_PTR(-ENOMEM);
 
@@ -524,7 +524,7 @@ console_initcall(univ8250_console_init);
 
 struct uart_driver serial8250_reg = {
 	.owner			= THIS_MODULE,
-	.driver_name		= "serial",
+	.driver_name		= "serial_8250",
 	.dev_name		= "ttyS",
 	.major			= TTY_MAJOR,
 	.minor			= 64,

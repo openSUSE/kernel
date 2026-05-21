@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2023 Advanced Micro Devices, Inc.
+ * Copyright 2012-2026 Advanced Micro Devices, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -63,7 +63,7 @@ struct dcn_dsc_reg_state;
 struct dcn_optc_reg_state;
 struct dcn_dccg_reg_state;
 
-#define DC_VER "3.2.359"
+#define DC_VER "3.2.378"
 
 /**
  * MAX_SURFACES - representative of the upper bound of surfaces that can be piped to a single CRTC
@@ -81,6 +81,8 @@ struct dcn_dccg_reg_state;
 #define MAX_HOST_ROUTERS_NUM 3
 #define MAX_DPIA_PER_HOST_ROUTER 3
 #define MAX_DPIA_NUM  (MAX_HOST_ROUTERS_NUM * MAX_DPIA_PER_HOST_ROUTER)
+
+#define NUM_FAST_FLIPS_TO_STEADY_STATE 20
 
 /* Display Core Interfaces */
 struct dc_versions {
@@ -293,6 +295,9 @@ struct dc_check_config {
 	 */
 	unsigned int max_optimizable_video_width;
 	bool enable_legacy_fast_update;
+
+	bool deferred_transition_state;
+	unsigned int transition_countdown_to_steady_state;
 };
 
 struct dc_caps {
@@ -500,7 +505,6 @@ union allow_lttpr_non_transparent_mode {
 	} bits;
 	unsigned char raw;
 };
-
 /* Structure to hold configuration flags set by dm at dc creation. */
 struct dc_config {
 	bool gpu_vm_support;
@@ -516,7 +520,7 @@ struct dc_config {
 	union allow_lttpr_non_transparent_mode allow_lttpr_non_transparent_mode;
 	bool multi_mon_pp_mclk_switch;
 	bool disable_dmcu;
-	bool enable_4to1MPC;
+	bool allow_4to1MPC;
 	bool enable_windowed_mpo_odm;
 	bool forceHBR2CP2520; // Used for switching between test patterns TPS4 and CP2520
 	uint32_t allow_edp_hotplug_detection;
@@ -555,8 +559,10 @@ struct dc_config {
 	bool enable_dpia_pre_training;
 	bool unify_link_enc_assignment;
 	bool enable_cursor_offload;
+	bool frame_update_cmd_version2;
 	struct spl_sharpness_range dcn_sharpness_range;
 	struct spl_sharpness_range dcn_override_sharpness_range;
+	bool no_native422_support;
 };
 
 enum visual_confirm {
@@ -576,6 +582,7 @@ enum visual_confirm {
 	VISUAL_CONFIRM_HW_CURSOR = 20,
 	VISUAL_CONFIRM_VABC = 21,
 	VISUAL_CONFIRM_DCC = 22,
+	VISUAL_CONFIRM_BOOSTED_REFRESH_RATE = 23,
 	VISUAL_CONFIRM_EXPLICIT = 0x80000000,
 };
 
@@ -728,6 +735,8 @@ struct dc_clocks {
 	struct {
 		uint8_t base_efficiency; //LP1
 		uint8_t low_power_efficiency; //LP2
+		uint8_t z8_stutter_efficiency;
+		int z8_stutter_period;
 	} stutter_efficiency;
 };
 
@@ -951,6 +960,19 @@ struct dc_bounding_box_overrides {
 	int min_dcfclk_mhz;
 };
 
+struct dc_qos_info {
+	uint32_t actual_peak_bw_in_mbps;
+	uint32_t qos_bandwidth_lb_in_mbps;
+	uint32_t actual_avg_bw_in_mbps;
+	uint32_t calculated_avg_bw_in_mbps;
+	uint32_t actual_max_latency_in_ns;
+	uint32_t actual_min_latency_in_ns;
+	uint32_t qos_max_latency_ub_in_ns;
+	uint32_t actual_avg_latency_in_ns;
+	uint32_t qos_avg_latency_ub_in_ns;
+	uint32_t dcn_bandwidth_ub_in_mbps;
+};
+
 struct dc_state;
 struct resource_pool;
 struct dce_hwseq;
@@ -965,7 +987,6 @@ struct link_service;
  * causing an issue or not.
  */
 struct dc_debug_options {
-	bool native422_support;
 	bool disable_dsc;
 	enum visual_confirm visual_confirm;
 	int visual_confirm_rect_height;
@@ -1040,9 +1061,11 @@ struct dc_debug_options {
 	bool hdmi20_disable;
 	bool skip_detection_link_training;
 	uint32_t edid_read_retry_times;
-	unsigned int force_odm_combine; //bit vector based on otg inst
-	unsigned int seamless_boot_odm_combine;
-	unsigned int force_odm_combine_4to1; //bit vector based on otg inst
+
+	uint8_t force_odm_combine; //bit vector based on otg inst
+	uint8_t seamless_boot_odm_combine;
+	uint8_t force_odm_combine_4to1; //bit vector based on otg inst
+
 	int minimum_z8_residency_time;
 	int minimum_z10_residency_time;
 	bool disable_z9_mpc;
@@ -1188,6 +1211,13 @@ struct dc_debug_options {
 	short auxless_alpm_lfps_t1t2_offset_us;
 	bool disable_stutter_for_wm_program;
 	bool enable_block_sequence_programming;
+	uint32_t custom_psp_footer_size;
+	bool disable_deferred_minimal_transitions;
+	unsigned int num_fast_flips_to_steady_state_override;
+	bool enable_dmu_recovery;
+	unsigned int force_vmin_threshold;
+	bool enable_otg_frame_sync_pwa;
+	unsigned int min_deep_sleep_dcfclk_khz;
 };
 
 
@@ -1377,15 +1407,50 @@ struct lut_mem_mapping {
 struct dc_rmcm_3dlut {
 	bool isInUse;
 	const struct dc_stream_state *stream;
-	uint8_t protection_bits;
 };
 
 struct dc_3dlut {
 	struct kref refcount;
 	struct tetrahedral_params lut_3d;
-	struct fixed31_32 hdr_multiplier;
 	union dc_3dlut_state state;
 };
+
+/* 3DLUT DMA (Fast Load) params */
+struct dc_3dlut_dma {
+	struct dc_plane_address addr;
+	enum dc_cm_lut_swizzle swizzle;
+	enum dc_cm_lut_pixel_format format;
+	uint16_t bias; /* FP1.5.10 */
+	uint16_t scale; /* FP1.5.10 */
+	enum dc_cm_lut_size size;
+};
+
+/* color manager */
+union dc_plane_cm_flags {
+	unsigned int all;
+	struct {
+		unsigned int shaper_enable    : 1;
+		unsigned int lut3d_enable     : 1;
+		unsigned int blend_enable     : 1;
+		/* whether legacy (lut3d_func) or DMA is valid */
+		unsigned int lut3d_dma_enable : 1;
+		/* RMCM lut to be used instead of MCM */
+		unsigned int rmcm_enable	 : 1;
+		unsigned int reserved: 27;
+	} bits;
+};
+
+struct dc_plane_cm {
+	struct kref refcount;
+	struct dc_transfer_func shaper_func;
+	union {
+		struct dc_3dlut lut3d_func;
+		struct dc_3dlut_dma lut3d_dma;
+	};
+	struct dc_transfer_func blend_func;
+	union dc_plane_cm_flags flags;
+};
+
 /*
  * This structure is filled in by dc_surface_get_status and contains
  * the last requested address and the currently active address so the called
@@ -1396,6 +1461,7 @@ struct dc_plane_status {
 	struct dc_plane_address current_address;
 	bool is_flip_pending;
 	bool is_right_eye;
+	struct cm_hist cm_hist;
 };
 
 union surface_update_flags {
@@ -1432,6 +1498,7 @@ union surface_update_flags {
 		uint32_t mcm_transfer_function_enable_change:1; /* disable or enable MCM transfer func */
 		uint32_t full_update:1;
 		uint32_t sdr_white_level_nits:1;
+		uint32_t cm_hist_change:1;
 	} bits;
 
 	uint32_t raw;
@@ -1461,14 +1528,18 @@ struct dc_plane_state {
 	struct fixed31_32 hdr_mult;
 	struct colorspace_transform gamut_remap_matrix;
 
-	// TODO: No longer used, remove
-	struct dc_hdr_static_metadata hdr_static_ctx;
-
 	enum dc_color_space color_space;
 
+	bool lut_bank_a;
+	struct dc_hdr_static_metadata hdr_static_ctx;
 	struct dc_3dlut lut3d_func;
 	struct dc_transfer_func in_shaper_func;
 	struct dc_transfer_func blend_tf;
+	enum dc_cm2_shaper_3dlut_setting mcm_shaper_3dlut_setting;
+	bool mcm_lut1d_enable;
+	struct dc_cm2_func_luts mcm_luts;
+	enum mpcc_movable_cm_location mcm_location;
+	struct dc_plane_cm cm;
 
 	struct dc_transfer_func *gamcor_tf;
 	enum surface_pixel_format format;
@@ -1505,17 +1576,13 @@ struct dc_plane_state {
 
 	bool is_statically_allocated;
 	enum chroma_cositing cositing;
-	enum dc_cm2_shaper_3dlut_setting mcm_shaper_3dlut_setting;
-	bool mcm_lut1d_enable;
-	struct dc_cm2_func_luts mcm_luts;
-	bool lut_bank_a;
-	enum mpcc_movable_cm_location mcm_location;
 	struct dc_csc_transform cursor_csc_color_matrix;
 	bool adaptive_sharpness_en;
 	int adaptive_sharpness_policy;
 	int sharpness_level;
 	enum linear_light_scaling linear_light_scaling;
 	unsigned int sdr_white_level_nits;
+	struct cm_hist_control cm_hist_control;
 	struct spl_sharpness_range sharpness_range;
 	enum sharpness_range_source sharpness_source;
 };
@@ -1659,6 +1726,10 @@ struct dc_scratch_space {
 	struct panel_cntl *panel_cntl;
 	struct link_encoder *link_enc;
 	struct graphics_object_id link_id;
+
+	/* External encoder eg. NUTMEG or TRAVIS used on CIK APUs. */
+	struct graphics_object_id ext_enc_id;
+
 	/* Endpoint type distinguishes display endpoints which do not have entries
 	 * in the BIOS connector table from those that do. Helps when tracking link
 	 * encoder to display endpoint assignments.
@@ -1707,13 +1778,13 @@ struct dc_scratch_space {
 	struct dc_link_status link_status;
 	struct dprx_states dprx_states;
 
-	struct gpio *hpd_gpio;
 	enum dc_link_fec_state fec_state;
 	bool is_dds;
 	bool is_display_mux_present;
 	bool link_powered_externally;	// Used to bypass hardware sequencing delays when panel is powered down forcibly
 
 	struct dc_panel_config panel_config;
+	enum dc_panel_type panel_type;
 	struct phy_state phy_state;
 	uint32_t phy_transition_bitmask;
 	// BW ALLOCATON USB4 ONLY
@@ -1820,6 +1891,9 @@ struct dc_fast_update {
 	struct dc_transfer_func *out_transfer_func;
 	struct dc_csc_transform *output_csc_transform;
 	const struct dc_csc_transform *cursor_csc_color_matrix;
+#if defined(CONFIG_DRM_AMD_DC_DCN4_2)
+	struct cm_hist_control *cm_hist_control;
+#endif
 };
 
 struct dc_surface_update {
@@ -1849,9 +1923,11 @@ struct dc_surface_update {
 	 * change cm2_params.cm2_luts: Fast update
 	 */
 	const struct dc_cm2_parameters *cm2_params;
+	const struct dc_plane_cm *cm;
 	const struct dc_csc_transform *cursor_csc_color_matrix;
 	unsigned int sdr_white_level_nits;
 	struct dc_bias_and_scale bias_and_scale;
+	struct cm_hist_control *cm_hist_control;
 };
 
 struct dc_underflow_debug_data {
@@ -1892,8 +1968,21 @@ struct dc_3dlut *dc_create_3dlut_func(void);
 void dc_3dlut_func_release(struct dc_3dlut *lut);
 void dc_3dlut_func_retain(struct dc_3dlut *lut);
 
+struct dc_plane_cm *dc_plane_cm_create(void);
+void dc_plane_cm_release(struct dc_plane_cm *cm);
+void dc_plane_cm_retain(struct dc_plane_cm *cm);
+
 void dc_post_update_surfaces_to_stream(
 		struct dc *dc);
+
+/*
+ * dc_get_default_tiling_info() - Retrieve an ASIC-appropriate default tiling
+ * description for (typically) linear surfaces.
+ *
+ * This is used by OS/DM paths that need a valid, fully-initialized tiling
+ * description without hardcoding gfx-version specifics in the caller.
+ */
+void dc_get_default_tiling_info(const struct dc *dc, struct dc_tiling_info *tiling_info);
 
 /**
  * struct dc_validation_set - Struct to store surface/stream associations for validation
@@ -1993,7 +2082,7 @@ bool dc_get_edp_link_panel_inst(const struct dc *dc,
 /* Return an array of link pointers to edp links. */
 void dc_get_edp_links(const struct dc *dc,
 		struct dc_link **edp_links,
-		int *edp_num);
+		unsigned int *edp_num);
 
 void dc_set_edp_power(const struct dc *dc, struct dc_link *edp_link,
 				 bool powerOn);
@@ -2455,6 +2544,48 @@ bool dc_link_set_replay_allow_active(struct dc_link *dc_link, const bool *enable
 
 bool dc_link_get_replay_state(const struct dc_link *dc_link, uint64_t *state);
 
+/*
+ * Enable or disable Panel Replay on the specified link:
+ *
+ * @link: pointer to the dc_link struct instance
+ * @enable: enable or disable Panel Replay
+ *
+ * return: true if successful, false otherwise
+ */
+bool dc_link_set_pr_enable(struct dc_link *link, bool enable);
+
+/*
+ * Update Panel Replay state parameters:
+ *
+ * @link: pointer to the dc_link struct instance
+ * @update_state_data: pointer to state update data structure
+ *
+ * return: true if successful, false otherwise
+ */
+bool dc_link_update_pr_state(struct dc_link *link,
+		struct dmub_cmd_pr_update_state_data *update_state_data);
+
+/*
+ * Send general command to Panel Replay firmware:
+ *
+ * @link: pointer to the dc_link struct instance
+ * @general_cmd_data: pointer to general command data structure
+ *
+ * return: true if successful, false otherwise
+ */
+bool dc_link_set_pr_general_cmd(struct dc_link *link,
+		struct dmub_cmd_pr_general_cmd_data *general_cmd_data);
+
+/*
+ * Get Panel Replay state:
+ *
+ * @link: pointer to the dc_link struct instance
+ * @state: pointer to store the Panel Replay state
+ *
+ * return: true if successful, false otherwise
+ */
+bool dc_link_get_pr_state(const struct dc_link *link, uint64_t *state);
+
 /* On eDP links this function call will stall until T12 has elapsed.
  * If the panel is not in power off state, this function will return
  * immediately.
@@ -2596,6 +2727,7 @@ struct dc_sink {
 	struct stereo_3d_features features_3d[TIMING_3D_FORMAT_MAX];
 	bool converter_disable_audio;
 
+	struct mccs_caps mccs_caps;
 	struct scdc_caps scdc_caps;
 	struct dc_sink_dsc_caps dsc_caps;
 	struct dc_sink_fec_caps fec_caps;
@@ -2793,7 +2925,7 @@ void dc_get_underflow_debug_data_for_otg(struct dc *dc, int primary_otg_inst, st
 
 void dc_get_power_feature_status(struct dc *dc, int primary_otg_inst, struct power_features *out_data);
 
-/**
+/*
  * Software state variables used to program register fields across the display pipeline
  */
 struct dc_register_software_state {
@@ -3279,5 +3411,29 @@ struct dc_register_software_state {
  * Return: true if state was successfully captured, false on error
  */
 bool dc_capture_register_software_state(struct dc *dc, struct dc_register_software_state *state);
+
+/**
+ * dc_get_qos_info() - Retrieve Quality of Service (QoS) information from display core
+ * @dc: DC context containing current display configuration
+ * @info: Pointer to dc_qos_info structure to populate with QoS metrics
+ *
+ * This function retrieves QoS metrics from the display core that can be used by
+ * benchmark tools to analyze display system performance. The function may take
+ * several milliseconds to execute due to hardware measurement requirements.
+ *
+ * QoS information includes:
+ * - Bandwidth bounds (lower limits in Mbps)
+ * - Latency bounds (upper limits in nanoseconds)
+ * - Hardware-measured bandwidth metrics (peak/average in Mbps)
+ * - Hardware-measured latency metrics (maximum/average in nanoseconds)
+ *
+ * The function will populate the provided dc_qos_info structure with current
+ * QoS measurements. If hardware measurement functions are not available for
+ * the current DCN version, the function returns false with zero'd info structure.
+ *
+ * Return: true if QoS information was successfully retrieved, false if measurement
+ *         functions are unavailable or hardware measurements cannot be performed
+ */
+bool dc_get_qos_info(struct dc *dc, struct dc_qos_info *info);
 
 #endif /* DC_INTERFACE_H_ */

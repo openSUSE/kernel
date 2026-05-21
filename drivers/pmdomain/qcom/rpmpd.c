@@ -978,7 +978,7 @@ static int rpmpd_send_corner(struct rpmpd *pd, int state, unsigned int corner)
 
 	return qcom_rpm_smd_write(rpmpd_smd_rpm, state, pd->res_type, pd->res_id,
 				  &req, sizeof(req));
-};
+}
 
 static void to_active_sleep(struct rpmpd *pd, unsigned int corner,
 			    unsigned int *active, unsigned int *sleep)
@@ -1001,7 +1001,7 @@ static int rpmpd_aggregate_corner(struct rpmpd *pd)
 
 	/* Clamp to the highest corner/level if sync_state isn't done yet */
 	if (!pd->state_synced)
-		this_active_corner = this_sleep_corner = pd->max_state - 1;
+		this_active_corner = this_sleep_corner = pd->max_state;
 	else
 		to_active_sleep(pd, pd->corner, &this_active_corner, &this_sleep_corner);
 

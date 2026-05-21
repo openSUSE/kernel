@@ -12,19 +12,7 @@
 
 static unsigned long alloc_gcs(unsigned long addr, unsigned long size)
 {
-	int flags = MAP_ANONYMOUS | MAP_PRIVATE;
-	struct mm_struct *mm = current->mm;
-	unsigned long mapped_addr, unused;
-
-	if (addr)
-		flags |= MAP_FIXED_NOREPLACE;
-
-	mmap_write_lock(mm);
-	mapped_addr = do_mmap(NULL, addr, size, PROT_READ, flags,
-			      VM_SHADOW_STACK | VM_WRITE, 0, &unused, NULL);
-	mmap_write_unlock(mm);
-
-	return mapped_addr;
+	return vm_mmap_shadow_stack(addr, size, 0);
 }
 
 static unsigned long gcs_size(unsigned long size)
@@ -199,8 +187,8 @@ int arch_set_shadow_stack_status(struct task_struct *task, unsigned long arg)
 
 		size = gcs_size(0);
 		gcs = alloc_gcs(0, size);
-		if (!gcs)
-			return -ENOMEM;
+		if (IS_ERR_VALUE(gcs))
+			return gcs;
 
 		task->thread.gcspr_el0 = gcs + size - sizeof(u64);
 		task->thread.gcs_base = gcs;

@@ -1787,7 +1787,8 @@ int enetc_xdp_xmit(struct net_device *ndev, int num_frames,
 	int xdp_tx_bd_cnt, i, k;
 	int xdp_tx_frm_cnt = 0;
 
-	if (unlikely(test_bit(ENETC_TX_DOWN, &priv->flags)))
+	if (unlikely(test_bit(ENETC_TX_DOWN, &priv->flags) ||
+		     !netif_carrier_ok(ndev)))
 		return -ENETDOWN;
 
 	enetc_lock_mdio();
@@ -2267,7 +2268,7 @@ enetc_alloc_tx_resources(struct enetc_ndev_priv *priv)
 	struct enetc_bdr_resource *tx_res;
 	int i, err;
 
-	tx_res = kcalloc(priv->num_tx_rings, sizeof(*tx_res), GFP_KERNEL);
+	tx_res = kzalloc_objs(*tx_res, priv->num_tx_rings);
 	if (!tx_res)
 		return ERR_PTR(-ENOMEM);
 
@@ -2339,7 +2340,7 @@ enetc_alloc_rx_resources(struct enetc_ndev_priv *priv, bool extended)
 	struct enetc_bdr_resource *rx_res;
 	int i, err;
 
-	rx_res = kcalloc(priv->num_rx_rings, sizeof(*rx_res), GFP_KERNEL);
+	rx_res = kzalloc_objs(*rx_res, priv->num_rx_rings);
 	if (!rx_res)
 		return ERR_PTR(-ENOMEM);
 
@@ -2468,7 +2469,7 @@ static int enetc_setup_default_rss_table(struct enetc_si *si, int num_groups)
 	int *rss_table;
 	int i;
 
-	rss_table = kmalloc_array(si->num_rss, sizeof(*rss_table), GFP_KERNEL);
+	rss_table = kmalloc_objs(*rss_table, si->num_rss);
 	if (!rss_table)
 		return -ENOMEM;
 
@@ -2511,10 +2512,13 @@ int enetc_configure_si(struct enetc_ndev_priv *priv)
 	struct enetc_hw *hw = &si->hw;
 	int err;
 
-	/* set SI cache attributes */
-	enetc_wr(hw, ENETC_SICAR0,
-		 ENETC_SICAR_RD_COHERENT | ENETC_SICAR_WR_COHERENT);
-	enetc_wr(hw, ENETC_SICAR1, ENETC_SICAR_MSI);
+	if (is_enetc_rev1(si)) {
+		/* set SI cache attributes */
+		enetc_wr(hw, ENETC_SICAR0,
+			 ENETC_SICAR_RD_COHERENT | ENETC_SICAR_WR_COHERENT);
+		enetc_wr(hw, ENETC_SICAR1, ENETC_SICAR_MSI);
+	}
+
 	/* enable SI */
 	enetc_wr(hw, ENETC_SIMR, ENETC_SIMR_EN);
 
@@ -2558,8 +2562,7 @@ int enetc_alloc_si_resources(struct enetc_ndev_priv *priv)
 {
 	struct enetc_si *si = priv->si;
 
-	priv->cls_rules = kcalloc(si->num_fs_entries, sizeof(*priv->cls_rules),
-				  GFP_KERNEL);
+	priv->cls_rules = kzalloc_objs(*priv->cls_rules, si->num_fs_entries);
 	if (!priv->cls_rules)
 		return -ENOMEM;
 
@@ -2575,6 +2578,7 @@ EXPORT_SYMBOL_GPL(enetc_free_si_resources);
 
 static void enetc_setup_txbdr(struct enetc_hw *hw, struct enetc_bdr *tx_ring)
 {
+	struct enetc_si *si = container_of(hw, struct enetc_si, hw);
 	int idx = tx_ring->index;
 	u32 tbmr;
 
@@ -2588,9 +2592,19 @@ static void enetc_setup_txbdr(struct enetc_hw *hw, struct enetc_bdr *tx_ring)
 	enetc_txbdr_wr(hw, idx, ENETC_TBLENR,
 		       ENETC_RTBLENR_LEN(tx_ring->bd_count));
 
-	/* clearing PI/CI registers for Tx not supported, adjust sw indexes */
+	/* For ENETC v1, clearing PI/CI registers for Tx not supported,
+	 * adjust sw indexes
+	 */
 	tx_ring->next_to_use = enetc_txbdr_rd(hw, idx, ENETC_TBPIR);
 	tx_ring->next_to_clean = enetc_txbdr_rd(hw, idx, ENETC_TBCIR);
+
+	if (tx_ring->next_to_use != tx_ring->next_to_clean &&
+	    !is_enetc_rev1(si)) {
+		tx_ring->next_to_use = 0;
+		tx_ring->next_to_clean = 0;
+		enetc_txbdr_wr(hw, idx, ENETC_TBPIR, 0);
+		enetc_txbdr_wr(hw, idx, ENETC_TBCIR, 0);
+	}
 
 	/* enable Tx ints by setting pkt thr to 1 */
 	enetc_txbdr_wr(hw, idx, ENETC_TBICR0, ENETC_TBICR0_ICEN | 0x1);
@@ -3450,7 +3464,7 @@ static int enetc_int_vector_init(struct enetc_ndev_priv *priv, int i,
 	struct enetc_bdr *bdr;
 	int j, err;
 
-	v = kzalloc(struct_size(v, tx_ring, v_tx_rings), GFP_KERNEL);
+	v = kzalloc_flex(*v, tx_ring, v_tx_rings);
 	if (!v)
 		return -ENOMEM;
 
@@ -3464,7 +3478,7 @@ static int enetc_int_vector_init(struct enetc_ndev_priv *priv, int i,
 	priv->rx_ring[i] = bdr;
 
 	err = __xdp_rxq_info_reg(&bdr->xdp.rxq, priv->ndev, i, 0,
-				 ENETC_RXB_DMA_SIZE_XDP);
+				 ENETC_RXB_TRUESIZE);
 	if (err)
 		goto free_vector;
 

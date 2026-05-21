@@ -57,7 +57,7 @@ struct yogabook_data {
 	struct work_struct work;
 	struct led_classdev kbd_bl_led;
 	unsigned long flags;
-	uint8_t brightness;
+	u8 brightness;
 };
 
 static void yogabook_work(struct work_struct *work)
@@ -338,16 +338,18 @@ static int yogabook_wmi_probe(struct wmi_device *wdev, const void *context)
 	int r;
 
 	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
-	if (data == NULL)
+	if (!data)
 		return -ENOMEM;
 
 	data->kbd_adev = acpi_dev_get_first_match_dev("GDIX1001", NULL, -1);
 	if (!data->kbd_adev)
-		return dev_err_probe(dev, -ENODEV, "Cannot find the touchpad device in ACPI tables\n");
+		return dev_err_probe(dev, -ENODEV,
+				     "Cannot find the touchpad device in ACPI tables\n");
 
 	data->dig_adev = acpi_dev_get_first_match_dev("WCOM0019", NULL, -1);
 	if (!data->dig_adev) {
-		r = dev_err_probe(dev, -ENODEV, "Cannot find the digitizer device in ACPI tables\n");
+		r = dev_err_probe(dev, -ENODEV,
+				  "Cannot find the digitizer device in ACPI tables\n");
 		goto error_put_devs;
 	}
 
@@ -409,8 +411,8 @@ static struct wmi_driver yogabook_wmi_driver = {
 		.name = "yogabook-wmi",
 		.pm = pm_sleep_ptr(&yogabook_pm_ops),
 	},
-	.no_notify_data = true,
 	.id_table = yogabook_wmi_id_table,
+	.min_event_size = 0,
 	.probe = yogabook_wmi_probe,
 	.remove = yogabook_wmi_remove,
 	.notify = yogabook_wmi_notify,
@@ -453,7 +455,7 @@ static int yogabook_pdev_probe(struct platform_device *pdev)
 	int r;
 
 	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
-	if (data == NULL)
+	if (!data)
 		return -ENOMEM;
 
 	data->kbd_dev = bus_find_device_by_name(&i2c_bus_type, NULL, "i2c-goodix_ts");

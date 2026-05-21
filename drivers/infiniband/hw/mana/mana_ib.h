@@ -8,7 +8,7 @@
 
 #include <rdma/ib_verbs.h>
 #include <rdma/ib_mad.h>
-#include <rdma/ib_umem.h>
+#include <rdma/iter.h>
 #include <rdma/mana-abi.h>
 #include <rdma/uverbs_ioctl.h>
 #include <linux/dmapool.h>
@@ -125,10 +125,20 @@ struct mana_ib_ah {
 	dma_addr_t dma_handle;
 };
 
+struct mana_ib_mw {
+	struct ib_mw ibmw;
+	mana_handle_t mw_handle;
+};
+
 struct mana_ib_mr {
 	struct ib_mr ibmr;
 	struct ib_umem *umem;
 	mana_handle_t mr_handle;
+};
+
+struct mana_ib_dm {
+	struct ib_dm ibdm;
+	mana_handle_t dm_handle;
 };
 
 struct mana_ib_cq {
@@ -731,8 +741,18 @@ void mana_drain_gsi_sqs(struct mana_ib_dev *mdev);
 int mana_ib_poll_cq(struct ib_cq *ibcq, int num_entries, struct ib_wc *wc);
 int mana_ib_arm_cq(struct ib_cq *ibcq, enum ib_cq_notify_flags flags);
 
+int mana_ib_alloc_mw(struct ib_mw *mw, struct ib_udata *udata);
+int mana_ib_dealloc_mw(struct ib_mw *mw);
+
 struct ib_mr *mana_ib_reg_user_mr_dmabuf(struct ib_pd *ibpd, u64 start, u64 length,
 					 u64 iova, int fd, int mr_access_flags,
 					 struct ib_dmah *dmah,
 					 struct uverbs_attr_bundle *attrs);
+
+struct ib_dm *mana_ib_alloc_dm(struct ib_device *dev, struct ib_ucontext *context,
+			       struct ib_dm_alloc_attr *attr, struct uverbs_attr_bundle *attrs);
+int mana_ib_dealloc_dm(struct ib_dm *dm, struct uverbs_attr_bundle *attrs);
+struct ib_mr *mana_ib_reg_dm_mr(struct ib_pd *pd, struct ib_dm *dm, struct ib_dm_mr_attr *attr,
+				struct uverbs_attr_bundle *attrs);
+
 #endif

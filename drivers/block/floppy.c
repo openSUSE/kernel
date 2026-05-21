@@ -145,8 +145,6 @@
  * Better audit of register_blkdev.
  */
 
-#define REALLY_SLOW_IO
-
 #define DEBUGT 2
 
 #define DPRINT(format, args...) \
@@ -4801,8 +4799,6 @@ static void floppy_release_allocated_regions(int fdc, const struct io_region *p)
 		release_region(fdc_state[fdc].address + p->offset, p->size);
 	}
 }
-
-#define ARRAY_END(X) (&((X)[ARRAY_SIZE(X)]))
 
 static int floppy_request_regions(int fdc)
 {

@@ -46,6 +46,7 @@
 #include "dchubbub.h"
 #include "reg_helper.h"
 #include "dcn10/dcn10_cm_common.h"
+#include "dcn10/dcn10_hubbub.h"
 #include "vm_helper.h"
 #include "dccg.h"
 #include "dc_dmub_srv.h"
@@ -74,6 +75,7 @@
 void dcn20_log_color_state(struct dc *dc,
 			   struct dc_log_buffer_ctx *log_ctx)
 {
+	(void)log_ctx;
 	struct dc_context *dc_ctx = dc->ctx;
 	struct resource_pool *pool = dc->res_pool;
 	bool is_gamut_remap_available = false;
@@ -356,26 +358,10 @@ void dcn20_enable_power_gating_plane(
 
 void dcn20_dccg_init(struct dce_hwseq *hws)
 {
-	/*
-	 * set MICROSECOND_TIME_BASE_DIV
-	 * 100Mhz refclk -> 0x120264
-	 * 27Mhz refclk -> 0x12021b
-	 * 48Mhz refclk -> 0x120230
-	 *
-	 */
-	REG_WRITE(MICROSECOND_TIME_BASE_DIV, 0x120264);
+	struct dc *dc = hws->ctx->dc;
 
-	/*
-	 * set MILLISECOND_TIME_BASE_DIV
-	 * 100Mhz refclk -> 0x1186a0
-	 * 27Mhz refclk -> 0x106978
-	 * 48Mhz refclk -> 0x10bb80
-	 *
-	 */
-	REG_WRITE(MILLISECOND_TIME_BASE_DIV, 0x1186a0);
-
-	/* This value is dependent on the hardware pipeline delay so set once per SOC */
-	REG_WRITE(DISPCLK_FREQ_CHANGE_CNTL, 0xe01003c);
+	if (dc->res_pool->dccg && dc->res_pool->dccg->funcs && dc->res_pool->dccg->funcs->dccg_init)
+		dc->res_pool->dccg->funcs->dccg_init(dc->res_pool->dccg);
 }
 
 void dcn20_disable_vga(
@@ -394,6 +380,7 @@ void dcn20_program_triple_buffer(
 	struct pipe_ctx *pipe_ctx,
 	bool enable_triple_buffer)
 {
+	(void)dc;
 	if (pipe_ctx->plane_res.hubp && pipe_ctx->plane_res.hubp->funcs) {
 		pipe_ctx->plane_res.hubp->funcs->hubp_enable_tripleBuffer(
 			pipe_ctx->plane_res.hubp,
@@ -908,7 +895,7 @@ enum dc_status dcn20_enable_stream_timing(
 		dccg->funcs->set_dtbclk_dto(dccg, &dto_params);
 	}
 
-	if (dc_is_hdmi_tmds_signal(stream->signal)) {
+	if (dc_is_tmds_signal(stream->signal)) {
 		stream->link->phy_state.symclk_ref_cnts.otg = 1;
 		if (stream->link->phy_state.symclk_state == SYMCLK_OFF_TX_OFF)
 			stream->link->phy_state.symclk_state = SYMCLK_ON_TX_OFF;
@@ -1190,6 +1177,8 @@ bool dcn20_set_input_transfer_func(struct dc *dc,
 
 void dcn20_update_odm(struct dc *dc, struct dc_state *context, struct pipe_ctx *pipe_ctx)
 {
+	(void)context;
+	(void)dc;
 	struct pipe_ctx *odm_pipe;
 	int opp_cnt = 1;
 	int opp_inst[MAX_PIPES] = { pipe_ctx->stream_res.opp->inst };
@@ -1312,6 +1301,7 @@ static void dcn20_power_on_plane_resources(
 void dcn20_enable_plane(struct dc *dc, struct pipe_ctx *pipe_ctx,
 			       struct dc_state *context)
 {
+	(void)context;
 	//if (dc->debug.sanity_checks) {
 	//	dcn10_verify_allow_pstate_change_high(dc);
 	//}
@@ -2667,6 +2657,7 @@ void dcn20_init_vm_ctx(
 		struct dc_virtual_addr_space_config *va_config,
 		int vmid)
 {
+	(void)hws;
 	struct dcn_hubbub_virt_addr_config config;
 
 	if (vmid == 0) {
@@ -2685,6 +2676,7 @@ void dcn20_init_vm_ctx(
 
 int dcn20_init_sys_ctx(struct dce_hwseq *hws, struct dc *dc, struct dc_phy_addr_space_config *pa_config)
 {
+	(void)hws;
 	struct dcn_hubbub_phys_addr_config config;
 
 	config.system_aperture.fb_top = pa_config->system_aperture.fb_top;
@@ -2814,6 +2806,7 @@ void dcn20_reset_back_end_for_pipe(
 		struct pipe_ctx *pipe_ctx,
 		struct dc_state *context)
 {
+	(void)context;
 	struct dc_link *link = pipe_ctx->stream->link;
 	const struct link_hwss *link_hwss = get_link_hwss(link, &pipe_ctx->link_res);
 	struct dccg *dccg = dc->res_pool->dccg;
@@ -2871,7 +2864,7 @@ void dcn20_reset_back_end_for_pipe(
 		 * the case where the same symclk is shared across multiple otg
 		 * instances
 		 */
-		if (dc_is_hdmi_tmds_signal(pipe_ctx->stream->signal))
+		if (dc_is_tmds_signal(pipe_ctx->stream->signal))
 			link->phy_state.symclk_ref_cnts.otg = 0;
 		if (link->phy_state.symclk_state == SYMCLK_ON_TX_OFF) {
 			link_hwss->disable_link_output(link,
@@ -3058,9 +3051,17 @@ void dcn20_enable_stream(struct pipe_ctx *pipe_ctx)
 			dccg->funcs->enable_symclk32_se(dccg, dp_hpo_inst, phyd32clk);
 		}
 	} else {
-		if (dccg->funcs->enable_symclk_se)
-			dccg->funcs->enable_symclk_se(dccg, stream_enc->stream_enc_inst,
+		if (dccg->funcs->enable_symclk_se && link_enc) {
+			if (link->ep_type == DISPLAY_ENDPOINT_USB4_DPIA
+				&& link->cur_link_settings.link_rate == LINK_RATE_UNKNOWN
+				&& !link->link_status.link_active) {
+				if (dccg->funcs->disable_symclk_se)
+					dccg->funcs->disable_symclk_se(dccg, stream_enc->stream_enc_inst,
 						      link_enc->transmitter - TRANSMITTER_UNIPHY_A);
+			} else
+				dccg->funcs->enable_symclk_se(dccg, stream_enc->stream_enc_inst,
+						      link_enc->transmitter - TRANSMITTER_UNIPHY_A);
+		}
 	}
 
 	if (dc->res_pool->dccg->funcs->set_pixel_rate_div)
@@ -3145,12 +3146,13 @@ void dcn20_fpga_init_hw(struct dc *dc)
 	REG_WRITE(RBBMIF_TIMEOUT_DIS, 0xFFFFFFFF);
 	REG_WRITE(RBBMIF_TIMEOUT_DIS_2, 0xFFFFFFFF);
 
-	hws->funcs.dccg_init(hws);
+	dcn10_hubbub_global_timer_enable(dc->res_pool->hubbub, true, 2);
 
-	REG_UPDATE(DCHUBBUB_GLOBAL_TIMER_CNTL, DCHUBBUB_GLOBAL_TIMER_REFDIV, 2);
-	REG_UPDATE(DCHUBBUB_GLOBAL_TIMER_CNTL, DCHUBBUB_GLOBAL_TIMER_ENABLE, 1);
-	if (REG(REFCLK_CNTL))
-		REG_WRITE(REFCLK_CNTL, 0);
+	if (hws->funcs.dccg_init)
+		hws->funcs.dccg_init(hws);
+
+	if (dc->res_pool->dccg && dc->res_pool->dccg->funcs && dc->res_pool->dccg->funcs->refclk_setup)
+		dc->res_pool->dccg->funcs->refclk_setup(dc->res_pool->dccg);
 	//
 
 
@@ -3251,6 +3253,7 @@ void dcn20_set_disp_pattern_generator(const struct dc *dc,
 		const struct tg_color *solid_color,
 		int width, int height, int offset)
 {
+	(void)dc;
 	pipe_ctx->stream_res.opp->funcs->opp_set_disp_pattern_generator(pipe_ctx->stream_res.opp, test_pattern,
 			color_space, color_depth, solid_color, width, height, offset);
 }

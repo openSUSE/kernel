@@ -11,6 +11,7 @@
  *  Author: Lars Pöschel <poeschel@lemonage.de>
  *  All rights reserved.
  */
+#include <linux/hex.h>
 #include <linux/kernel.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
@@ -98,8 +99,13 @@ static int lcd2s_print(struct charlcd *lcd, int c)
 {
 	struct lcd2s_data *lcd2s = lcd->drvdata;
 	u8 buf[2] = { LCD2S_CMD_WRITE, c };
+	int ret;
 
-	lcd2s_i2c_master_send(lcd2s->i2c, buf, sizeof(buf));
+	ret = lcd2s_i2c_master_send(lcd2s->i2c, buf, sizeof(buf));
+	if (ret < 0)
+		return ret;
+	if (ret != sizeof(buf))
+		return -EIO;
 	return 0;
 }
 
@@ -107,9 +113,13 @@ static int lcd2s_gotoxy(struct charlcd *lcd, unsigned int x, unsigned int y)
 {
 	struct lcd2s_data *lcd2s = lcd->drvdata;
 	u8 buf[3] = { LCD2S_CMD_CUR_POS, y + 1, x + 1 };
+	int ret;
 
-	lcd2s_i2c_master_send(lcd2s->i2c, buf, sizeof(buf));
-
+	ret = lcd2s_i2c_master_send(lcd2s->i2c, buf, sizeof(buf));
+	if (ret < 0)
+		return ret;
+	if (ret != sizeof(buf))
+		return -EIO;
 	return 0;
 }
 

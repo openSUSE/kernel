@@ -646,7 +646,7 @@ static int create_mem_extents(struct list_head *list, gfp_t gfp_mask)
 			/* New extent is necessary */
 			struct mem_extent *new_ext;
 
-			new_ext = kzalloc(sizeof(struct mem_extent), gfp_mask);
+			new_ext = kzalloc_obj(struct mem_extent, gfp_mask);
 			if (!new_ext) {
 				free_mem_extents(list);
 				return -ENOMEM;
@@ -1124,7 +1124,7 @@ int create_basic_memory_bitmaps(void)
 	else
 		BUG_ON(forbidden_pages_map || free_pages_map);
 
-	bm1 = kzalloc(sizeof(struct memory_bitmap), GFP_KERNEL);
+	bm1 = kzalloc_obj(struct memory_bitmap);
 	if (!bm1)
 		return -ENOMEM;
 
@@ -1132,7 +1132,7 @@ int create_basic_memory_bitmaps(void)
 	if (error)
 		goto Free_first_object;
 
-	bm2 = kzalloc(sizeof(struct memory_bitmap), GFP_KERNEL);
+	bm2 = kzalloc_obj(struct memory_bitmap);
 	if (!bm2)
 		goto Free_first_bitmap;
 
@@ -2855,6 +2855,17 @@ int snapshot_write_finalize(struct snapshot_handle *handle)
 {
 	int error;
 
+	/*
+	 * Call snapshot_write_next() to drain any trailing zero pages,
+	 * but make sure we're in the data page region first.
+	 * This function can return PAGE_SIZE if the kernel was expecting
+	 * another copy page. Return -ENODATA in that situation.
+	 */
+	if (handle->cur > nr_meta_pages + 1) {
+		error = snapshot_write_next(handle);
+		if (error)
+			return error > 0 ? -ENODATA : error;
+	}
 	copy_last_highmem_page();
 	error = hibernate_restore_protect_page(handle->buffer);
 	/* Do that only if we have loaded the image entirely */

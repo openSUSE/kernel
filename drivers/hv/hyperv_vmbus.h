@@ -276,8 +276,9 @@ struct vmbus_connection {
 	struct list_head chn_list;
 	struct mutex channel_mutex;
 
-	/* Array of channels */
+	/* Array of channel pointers, indexed by relid */
 	struct vmbus_channel **channels;
+	u32 relid_hiwater;
 
 	/*
 	 * An offer message is handled first on the work_queue, and then
@@ -370,12 +371,12 @@ static inline void vmbus_signal_eom(struct hv_message *msg, u32 old_msg_type)
 	 * CHANNELMSG_UNLOAD_RESPONSE and we don't care about other messages
 	 * on crash.
 	 */
-	if (cmpxchg(&msg->header.message_type, old_msg_type,
-		    HVMSG_NONE) != old_msg_type)
+	if (!try_cmpxchg(&msg->header.message_type,
+			 &old_msg_type, HVMSG_NONE))
 		return;
 
 	/*
-	 * The cmxchg() above does an implicit memory barrier to
+	 * The cmpxchg() above does an implicit memory barrier to
 	 * ensure the write to MessageType (ie set to
 	 * HVMSG_NONE) happens before we read the
 	 * MessagePending and EOMing. Otherwise, the EOMing
@@ -545,8 +546,8 @@ static inline int hv_debug_add_dev_dir(struct hv_device *dev)
 
 /* Create and remove sysfs entry for memory mapped ring buffers for a channel */
 int hv_create_ring_sysfs(struct vmbus_channel *channel,
-			 int (*hv_mmap_ring_buffer)(struct vmbus_channel *channel,
-						    struct vm_area_struct *vma));
+			 int (*hv_mmap_prepare_ring_buffer)(struct vmbus_channel *channel,
+							    struct vm_area_desc *desc));
 int hv_remove_ring_sysfs(struct vmbus_channel *channel);
 
 #endif /* _HYPERV_VMBUS_H */

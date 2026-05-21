@@ -246,14 +246,14 @@ struct mptcp_pm_data {
 
 struct mptcp_pm_local {
 	struct mptcp_addr_info	addr;
-	u8			flags;
+	u32			flags;
 	int			ifindex;
 };
 
 struct mptcp_pm_addr_entry {
 	struct list_head	list;
 	struct mptcp_addr_info	addr;
-	u8			flags;
+	u32			flags;
 	int			ifindex;
 	struct socket		*lsk;
 };
@@ -263,10 +263,18 @@ struct mptcp_data_frag {
 	u64 data_seq;
 	u16 data_len;
 	u16 offset;
-	u16 overhead;
+	u8 overhead;
+	u8 eor;			/* currently using 1 bit */
 	u16 already_sent;
 	struct page *page;
 };
+
+/* Arbitrary compromise between as low as possible to react timely to subflow
+ * close event and as big as possible to avoid being fouled by biased large
+ * samples due to peer sending data on a different subflow WRT to the incoming
+ * ack.
+ */
+#define MPTCP_RTT_SAMPLES	5
 
 /* MPTCP connection sock */
 struct mptcp_sock {
@@ -320,7 +328,8 @@ struct mptcp_sock {
 			fastopening:1,
 			in_accept_queue:1,
 			free_first:1,
-			rcvspace_init:1;
+			rcvspace_init:1,
+			fastclosing:1;
 	u32		notsent_lowat;
 	int		keepalive_cnt;
 	int		keepalive_idle;
@@ -339,11 +348,17 @@ struct mptcp_sock {
 				 */
 	struct mptcp_pm_data	pm;
 	struct mptcp_sched_ops	*sched;
+
+	/* Most recent rtt_us observed by in use incoming subflows. */
+	struct {
+		u32	samples[MPTCP_RTT_SAMPLES];
+		u32	next_sample;
+	} rcv_rtt_est;
+
 	struct {
 		int	space;	/* bytes copied in last measurement window */
 		int	copied; /* bytes copied in this measurement window */
 		u64	time;	/* start time of measurement window */
-		u64	rtt_us; /* last maximum rtt of subflows */
 	} rcvq_space;
 	u8		scaling_ratio;
 	bool		allow_subflows;
@@ -419,6 +434,27 @@ static inline struct mptcp_data_frag *mptcp_send_head(const struct sock *sk)
 	const struct mptcp_sock *msk = mptcp_sk(sk);
 
 	return msk->first_pending;
+}
+
+static inline void mptcp_init_rtt_est(struct mptcp_sock *msk)
+{
+	int i;
+
+	for (i = 0; i < MPTCP_RTT_SAMPLES; ++i)
+		msk->rcv_rtt_est.samples[i] = U32_MAX;
+	msk->rcv_rtt_est.next_sample = 0;
+	msk->scaling_ratio = TCP_DEFAULT_SCALING_RATIO;
+}
+
+static inline u32 mptcp_rtt_us_est(const struct mptcp_sock *msk)
+{
+	u32 rtt_us = READ_ONCE(msk->rcv_rtt_est.samples[0]);
+	int i;
+
+	/* Lockless access of collected samples. */
+	for (i = 1; i < MPTCP_RTT_SAMPLES; ++i)
+		rtt_us = min(rtt_us, READ_ONCE(msk->rcv_rtt_est.samples[i]));
+	return rtt_us;
 }
 
 static inline struct mptcp_data_frag *mptcp_send_next(struct sock *sk)
@@ -522,6 +558,7 @@ struct mptcp_subflow_context {
 	u32	map_data_len;
 	__wsum	map_data_csum;
 	u32	map_csum_len;
+	u32	prev_rtt_seq;
 	u32	request_mptcp : 1,  /* send MP_CAPABLE */
 		request_join : 1,   /* send MP_JOIN */
 		request_bkup : 1,
@@ -874,6 +911,7 @@ static inline void mptcp_subflow_tcp_fallback(struct sock *sk,
 void __init mptcp_proto_init(void);
 #if IS_ENABLED(CONFIG_MPTCP_IPV6)
 int __init mptcp_proto_v6_init(void);
+void __init mptcp_subflow_v6_init(void);
 #endif
 
 struct sock *mptcp_sk_clone_init(const struct sock *sk,
@@ -914,7 +952,11 @@ static inline bool mptcp_is_fully_established(struct sock *sk)
 	       READ_ONCE(mptcp_sk(sk)->fully_established);
 }
 
-void mptcp_rcv_space_init(struct mptcp_sock *msk, const struct sock *ssk);
+static inline u64 mptcp_stamp(void)
+{
+	return div_u64(tcp_clock_ns(), NSEC_PER_USEC);
+}
+
 void mptcp_data_ready(struct sock *sk, struct sock *ssk);
 bool mptcp_finish_join(struct sock *sk);
 bool mptcp_schedule_work(struct sock *sk);
@@ -970,7 +1012,7 @@ static inline void mptcp_write_space(struct sock *sk)
 	/* pairs with memory barrier in mptcp_poll */
 	smp_mb();
 	if (mptcp_stream_memory_free(sk, 1))
-		sk_stream_write_space(sk);
+		INDIRECT_CALL_1(sk->sk_write_space, sk_stream_write_space, sk);
 }
 
 static inline void __mptcp_sync_sndbuf(struct sock *sk)
@@ -1337,10 +1379,8 @@ static inline bool subflow_simultaneous_connect(struct sock *sk)
 {
 	struct mptcp_subflow_context *subflow = mptcp_subflow_ctx(sk);
 
-	return (1 << sk->sk_state) &
-	       (TCPF_ESTABLISHED | TCPF_FIN_WAIT1 | TCPF_FIN_WAIT2 | TCPF_CLOSING) &&
-	       is_active_ssk(subflow) &&
-	       !subflow->conn_finished;
+	/* Note that the sk state implies !subflow->conn_finished. */
+	return sk->sk_state == TCP_SYN_RECV && is_active_ssk(subflow);
 }
 
 #ifdef CONFIG_SYN_COOKIES

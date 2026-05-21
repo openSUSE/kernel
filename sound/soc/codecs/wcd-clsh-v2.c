@@ -848,9 +848,6 @@ int wcd_clsh_ctrl_set_state(struct wcd_clsh_ctrl *ctrl,
 {
 	struct snd_soc_component *comp = ctrl->comp;
 
-	if (nstate == ctrl->state)
-		return 0;
-
 	if (!wcd_clsh_is_state_valid(nstate)) {
 		dev_err(comp->dev, "Class-H not a valid new state:\n");
 		return -EINVAL;
@@ -883,7 +880,7 @@ struct wcd_clsh_ctrl *wcd_clsh_ctrl_alloc(struct snd_soc_component *comp,
 {
 	struct wcd_clsh_ctrl *ctrl;
 
-	ctrl = kzalloc(sizeof(*ctrl), GFP_KERNEL);
+	ctrl = kzalloc_obj(*ctrl);
 	if (!ctrl)
 		return ERR_PTR(-ENOMEM);
 

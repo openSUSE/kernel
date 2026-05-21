@@ -5,7 +5,7 @@
  * Copyright 2006-2007	Jiri Benc <jbenc@suse.cz>
  * Copyright 2013-2014  Intel Mobile Communications GmbH
  * Copyright (C) 2017     Intel Deutschland GmbH
- * Copyright (C) 2018-2025 Intel Corporation
+ * Copyright (C) 2018-2026 Intel Corporation
  */
 
 #include <net/mac80211.h>
@@ -915,6 +915,7 @@ struct ieee80211_hw *ieee80211_alloc_hw_nm(size_t priv_data_len,
 
 	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_TXQS);
 	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_RRM);
+	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_IEEE8021X_AUTH);
 
 	wiphy->bss_priv_size = sizeof(struct ieee80211_bss);
 
@@ -1117,13 +1118,26 @@ ieee80211_ifcomb_check(const struct ieee80211_iface_combination *c, int n_comb)
 	return true;
 }
 
+static void ieee80211_create_default_chandef(struct cfg80211_chan_def *chandef,
+					     struct ieee80211_channel *chan)
+{
+	*chandef = (struct cfg80211_chan_def) {
+		.chan = chan,
+		.width = chan->band == NL80211_BAND_S1GHZ ?
+				 NL80211_CHAN_WIDTH_1 :
+				 NL80211_CHAN_WIDTH_20_NOHT,
+		.center_freq1 = chan->center_freq,
+		.freq1_offset = chan->freq_offset,
+	};
+}
+
 int ieee80211_register_hw(struct ieee80211_hw *hw)
 {
 	struct ieee80211_local *local = hw_to_local(hw);
 	int result, i;
 	enum nl80211_band band;
 	int channels, max_bitrates;
-	bool supp_ht, supp_vht, supp_he, supp_eht, supp_s1g;
+	bool supp_ht, supp_vht, supp_he, supp_eht, supp_s1g, supp_uhr;
 	struct cfg80211_chan_def dflt_chandef = {};
 
 	if (ieee80211_hw_check(hw, QUEUE_CONTROL) &&
@@ -1143,7 +1157,9 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 
 	if (WARN_ON(local->hw.wiphy->interface_modes &
 			BIT(NL80211_IFTYPE_NAN) &&
-		    (!local->ops->start_nan || !local->ops->stop_nan)))
+		    ((!local->ops->start_nan || !local->ops->stop_nan) ||
+		     (local->hw.wiphy->nan_capa.flags & WIPHY_NAN_FLAGS_USERSPACE_DE &&
+		     (local->ops->add_nan_func || local->ops->del_nan_func)))))
 		return -EINVAL;
 
 	if (hw->wiphy->flags & WIPHY_FLAG_SUPPORTS_MLO) {
@@ -1237,6 +1253,7 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 	supp_he = false;
 	supp_eht = false;
 	supp_s1g = false;
+	supp_uhr = false;
 	for (band = 0; band < NUM_NL80211_BANDS; band++) {
 		const struct ieee80211_sband_iftype_data *iftd;
 		struct ieee80211_supported_band *sband;
@@ -1259,9 +1276,8 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 			/* if none found then use the first anyway */
 			if (i == sband->n_channels)
 				i = 0;
-			cfg80211_chandef_create(&dflt_chandef,
-						&sband->channels[i],
-						NL80211_CHAN_NO_HT);
+			ieee80211_create_default_chandef(&dflt_chandef,
+							 &sband->channels[i]);
 			/* init channel we're on */
 			local->monitor_chanreq.oper = dflt_chandef;
 			if (local->emulate_chanctx) {
@@ -1293,6 +1309,7 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 
 			supp_he = supp_he || iftd->he_cap.has_he;
 			supp_eht = supp_eht || iftd->eht_cap.has_eht;
+			supp_uhr = supp_uhr || iftd->uhr_cap.has_uhr;
 
 			if (band == NL80211_BAND_2GHZ)
 				he_40_mhz_cap =
@@ -1325,6 +1342,10 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 		if (WARN_ON(supp_eht && !supp_he))
 			return -EINVAL;
 
+		/* UHR requires EHT support */
+		if (WARN_ON(supp_uhr && !supp_eht))
+			return -EINVAL;
+
 		if (!sband->ht_cap.ht_supported)
 			continue;
 
@@ -1353,9 +1374,8 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 	hw->wiphy->software_iftypes |= BIT(NL80211_IFTYPE_MONITOR);
 
 
-	local->int_scan_req = kzalloc(struct_size(local->int_scan_req,
-						  channels, channels),
-				      GFP_KERNEL);
+	local->int_scan_req = kzalloc_flex(*local->int_scan_req, channels,
+					   channels);
 	if (!local->int_scan_req)
 		return -ENOMEM;
 
@@ -1436,6 +1456,11 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 				sizeof(struct ieee80211_eht_mcs_nss_supp) +
 				IEEE80211_EHT_PPE_THRES_MAX_LEN;
 	}
+
+	if (supp_uhr)
+		local->scan_ies_len +=
+			3 + sizeof(struct ieee80211_uhr_cap) +
+			sizeof(struct ieee80211_uhr_cap_phy);
 
 	if (!local->ops->hw_scan) {
 		/* For hw_scan, driver needs to set these up. */
@@ -1586,6 +1611,15 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 		local->hw.wiphy->bands[band] = sband;
 		local->sband_allocated |= BIT(band);
 	}
+
+	/*
+	 * mac80211 supports EPPKE, if the driver supports (Re)Association
+	 * frame encryption
+	 */
+	if (wiphy_ext_feature_isset(local->hw.wiphy,
+				    NL80211_EXT_FEATURE_ASSOC_FRAME_ENCRYPTION))
+		wiphy_ext_feature_set(local->hw.wiphy,
+				      NL80211_EXT_FEATURE_EPPKE);
 
 	result = wiphy_register(local->hw.wiphy);
 	if (result < 0)

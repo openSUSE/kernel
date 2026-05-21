@@ -131,7 +131,7 @@ static struct clk *xgene_register_clk_pll(struct device *dev,
 	struct clk_init_data init;
 
 	/* allocate the APM clock structure */
-	apmclk = kzalloc(sizeof(*apmclk), GFP_KERNEL);
+	apmclk = kzalloc_obj(*apmclk);
 	if (!apmclk)
 		return ERR_PTR(-ENOMEM);
 
@@ -188,6 +188,8 @@ static void xgene_pllclk_init(struct device_node *np, enum xgene_pll_type pll_ty
 		of_clk_add_provider(np, of_clk_src_simple_get, clk);
 		clk_register_clkdev(clk, clk_name, NULL);
 		pr_debug("Add %s clock PLL\n", clk_name);
+	} else {
+		iounmap(reg);
 	}
 }
 
@@ -352,7 +354,7 @@ xgene_register_clk_pmd(struct device *dev,
 	struct clk_init_data init;
 	struct clk *clk;
 
-	fd = kzalloc(sizeof(*fd), GFP_KERNEL);
+	fd = kzalloc_obj(*fd);
 	if (!fd)
 		return ERR_PTR(-ENOMEM);
 
@@ -638,7 +640,7 @@ static struct clk *xgene_register_clk(struct device *dev,
 	int rc;
 
 	/* allocate the APM clock structure */
-	apmclk = kzalloc(sizeof(*apmclk), GFP_KERNEL);
+	apmclk = kzalloc_obj(*apmclk);
 	if (!apmclk)
 		return ERR_PTR(-ENOMEM);
 

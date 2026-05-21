@@ -1063,11 +1063,7 @@ int iwl_trans_sw_reset(struct iwl_trans *trans);
 void iwl_trans_set_bits_mask(struct iwl_trans *trans, u32 reg,
 			     u32 mask, u32 value);
 
-bool _iwl_trans_grab_nic_access(struct iwl_trans *trans);
-
-#define iwl_trans_grab_nic_access(trans)		\
-	__cond_lock(nic_access,				\
-		    likely(_iwl_trans_grab_nic_access(trans)))
+bool iwl_trans_grab_nic_access(struct iwl_trans *trans);
 
 void __releases(nic_access)
 iwl_trans_release_nic_access(struct iwl_trans *trans);
@@ -1092,7 +1088,7 @@ static inline void iwl_trans_schedule_reset(struct iwl_trans *trans,
 	 */
 	trans->restart.during_reset = test_bit(STATUS_IN_SW_RESET,
 					       &trans->status);
-	queue_delayed_work(system_unbound_wq, &trans->restart.wk, 0);
+	queue_delayed_work(system_dfl_wq, &trans->restart.wk, 0);
 }
 
 static inline void iwl_trans_fw_error(struct iwl_trans *trans,
@@ -1261,5 +1257,23 @@ static inline u16 iwl_trans_get_device_id(struct iwl_trans *trans)
 bool iwl_trans_is_pm_supported(struct iwl_trans *trans);
 
 bool iwl_trans_is_ltr_enabled(struct iwl_trans *trans);
+
+static inline bool iwl_trans_is_top_reset_supported(struct iwl_trans *trans)
+{
+	/* not supported before Sc family */
+	if (trans->mac_cfg->device_family < IWL_DEVICE_FAMILY_SC)
+		return false;
+
+	/* for Sc family only supported for Sc2/Sc2f */
+	if (trans->mac_cfg->device_family == IWL_DEVICE_FAMILY_SC &&
+	    CSR_HW_REV_TYPE(trans->info.hw_rev) == IWL_CFG_MAC_TYPE_SC)
+		return false;
+
+	/* so far these numbers are increasing - not before Pe */
+	if (CSR_HW_RFID_TYPE(trans->info.hw_rf_id) < IWL_CFG_RF_TYPE_PE)
+		return false;
+
+	return true;
+}
 
 #endif /* __iwl_trans_h__ */

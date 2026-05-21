@@ -73,7 +73,7 @@ struct lsm_static_calls_table {
 
 /**
  * struct lsm_id - Identify a Linux Security Module.
- * @lsm: name of the LSM, must be approved by the LSM maintainers
+ * @name: name of the LSM, must be approved by the LSM maintainers
  * @id: LSM ID number from uapi/linux/lsm.h
  *
  * Contains the information that identifies the LSM.
@@ -104,6 +104,7 @@ struct security_hook_list {
 struct lsm_blob_sizes {
 	unsigned int lbs_cred;
 	unsigned int lbs_file;
+	unsigned int lbs_backing_file;
 	unsigned int lbs_ib;
 	unsigned int lbs_inode;
 	unsigned int lbs_sock;
@@ -164,7 +165,7 @@ enum lsm_order {
  * @initcall_core: LSM callback for core_initcall() setup, optional
  * @initcall_subsys: LSM callback for subsys_initcall() setup, optional
  * @initcall_fs: LSM callback for fs_initcall setup, optional
- * @nitcall_device: LSM callback for device_initcall() setup, optional
+ * @initcall_device: LSM callback for device_initcall() setup, optional
  * @initcall_late: LSM callback for late_initcall() setup, optional
  */
 struct lsm_info {

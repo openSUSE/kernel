@@ -933,6 +933,14 @@ irqreturn_t sdw_cdns_irq(int irq, void *dev_id)
 
 		cdns_read_response(cdns);
 
+		/*
+		 * Clear interrupt before signalling the completion to avoid
+		 * a race between this thread and the main thread starting
+		 * another TX.
+		 */
+		cdns_writel(cdns, CDNS_MCP_INTSTAT, CDNS_MCP_INT_RX_WL);
+		int_status &= ~CDNS_MCP_INT_RX_WL;
+
 		if (defer && defer->msg) {
 			cdns_fill_msg_resp(cdns, defer->msg,
 					   defer->length, 0);
@@ -1846,7 +1854,7 @@ int cdns_set_sdw_stream(struct snd_soc_dai *dai,
 		}
 
 		/* allocate and set dai_runtime info */
-		dai_runtime = kzalloc(sizeof(*dai_runtime), GFP_KERNEL);
+		dai_runtime = kzalloc_obj(*dai_runtime);
 		if (!dai_runtime)
 			return -ENOMEM;
 

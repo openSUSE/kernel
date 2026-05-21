@@ -460,7 +460,7 @@ static void gpioirq(struct tasklet_struct *t)
 
 	if (saa7146_wait_for_debi_done(av7110->dev, 0)) {
 		pr_err("%s(): saa7146_wait_for_debi_done timed out\n", __func__);
-		BUG(); /* maybe we should try resetting the debi? */
+		return;
 	}
 
 	spin_lock(&av7110->debilock);
@@ -2424,7 +2424,7 @@ static int av7110_attach(struct saa7146_dev *dev,
 	}
 
 	/* prepare the av7110 device struct */
-	av7110 = kzalloc(sizeof(*av7110), GFP_KERNEL);
+	av7110 = kzalloc_obj(*av7110);
 	if (!av7110) {
 		dprintk(1, "out of memory\n");
 		return -ENOMEM;

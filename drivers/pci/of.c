@@ -696,7 +696,7 @@ void of_pci_make_dev_node(struct pci_dev *pdev)
 	if (!name)
 		return;
 
-	cset = kmalloc(sizeof(*cset), GFP_KERNEL);
+	cset = kmalloc_obj(*cset);
 	if (!cset)
 		goto out_free_name;
 	of_changeset_init(cset);
@@ -775,7 +775,7 @@ void of_pci_make_host_bridge_node(struct pci_host_bridge *bridge)
 
 	/* Check if there is a DT root node to attach the created node */
 	if (!of_root) {
-		pr_err("of_root node is NULL, cannot create PCI host bridge node\n");
+		pr_debug("of_root node is NULL, cannot create PCI host bridge node\n");
 		return;
 	}
 
@@ -784,7 +784,7 @@ void of_pci_make_host_bridge_node(struct pci_host_bridge *bridge)
 	if (!name)
 		return;
 
-	cset = kmalloc(sizeof(*cset), GFP_KERNEL);
+	cset = kmalloc_obj(*cset);
 	if (!cset)
 		goto out_free_name;
 	of_changeset_init(cset);
@@ -867,6 +867,7 @@ bool of_pci_supply_present(struct device_node *np)
 
 	return false;
 }
+EXPORT_SYMBOL_GPL(of_pci_supply_present);
 
 #endif /* CONFIG_PCI */
 
@@ -874,24 +875,19 @@ bool of_pci_supply_present(struct device_node *np)
  * of_pci_get_max_link_speed - Find the maximum link speed of the given device node.
  * @node: Device tree node with the maximum link speed information.
  *
- * This function will try to find the limitation of link speed by finding
- * a property called "max-link-speed" of the given device node.
+ * This function will try to read the "max-link-speed" property of the given
+ * device tree node. It does NOT validate the value of the property.
  *
- * Return:
- * * > 0	- On success, a maximum link speed.
- * * -EINVAL	- Invalid "max-link-speed" property value, or failure to access
- *		  the property of the device tree node.
- *
- * Returns the associated max link speed from DT, or a negative value if the
- * required property is not found or is invalid.
+ * Return: Maximum link speed value on success, errno on failure.
  */
 int of_pci_get_max_link_speed(struct device_node *node)
 {
 	u32 max_link_speed;
+	int ret;
 
-	if (of_property_read_u32(node, "max-link-speed", &max_link_speed) ||
-	    max_link_speed == 0 || max_link_speed > 4)
-		return -EINVAL;
+	ret = of_property_read_u32(node, "max-link-speed", &max_link_speed);
+	if (ret)
+		return ret;
 
 	return max_link_speed;
 }

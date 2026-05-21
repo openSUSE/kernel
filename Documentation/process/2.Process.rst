@@ -3,7 +3,7 @@
 How the development process works
 =================================
 
-Linux kernel development in the early 1990's was a pretty loose affair,
+Linux kernel development in the early 1990s was a pretty loose affair,
 with relatively small numbers of users and developers involved.  With a
 user base in the millions and with some 2,000 developers involved over the
 course of one year, the kernel has since had to evolve a number of
@@ -291,7 +291,7 @@ Use of the MMOTM tree is likely to be a frustrating experience, though;
 there is a definite chance that it will not even compile.
 
 The primary tree for next-cycle patch merging is linux-next, maintained by
-Stephen Rothwell.  The linux-next tree is, by design, a snapshot of what
+Mark Brown.  The linux-next tree is, by design, a snapshot of what
 the mainline is expected to look like after the next merge window closes.
 Linux-next trees are announced on the linux-kernel and linux-next mailing
 lists when they are assembled; they can be downloaded from:

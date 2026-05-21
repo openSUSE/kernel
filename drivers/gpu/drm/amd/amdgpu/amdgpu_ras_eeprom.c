@@ -508,6 +508,9 @@ int amdgpu_ras_eeprom_reset_table(struct amdgpu_ras_eeprom_control *control)
 	control->bad_channel_bitmap = 0;
 	amdgpu_dpm_send_hbm_bad_channel_flag(adev, control->bad_channel_bitmap);
 	con->update_channel_flag = false;
+	/* there is no record on eeprom now, clear the counter */
+	if (con->eh_data)
+		con->eh_data->count_saved = 0;
 
 	amdgpu_ras_debugfs_set_ret_size(control);
 
@@ -1555,6 +1558,8 @@ int amdgpu_ras_eeprom_init(struct amdgpu_ras_eeprom_control *control)
 	unsigned char buf[RAS_TABLE_HEADER_SIZE] = { 0 };
 	struct amdgpu_ras_eeprom_table_header *hdr = &control->tbl_hdr;
 	struct amdgpu_ras *ras = amdgpu_ras_get_context(adev);
+	int dev_var = adev->pdev->device & 0xF;
+	uint32_t vram_type = adev->gmc.vram_type;
 	int res;
 
 	if (amdgpu_ras_smu_eeprom_supported(adev))
@@ -1591,6 +1596,12 @@ int amdgpu_ras_eeprom_init(struct amdgpu_ras_eeprom_control *control)
 	if (hdr->header != RAS_TABLE_HDR_VAL &&
 	    hdr->header != RAS_TABLE_HDR_BAD) {
 		dev_info(adev->dev, "Creating a new EEPROM table");
+		return amdgpu_ras_eeprom_reset_table(control);
+	}
+
+	if (!(adev->flags & AMD_IS_APU) && (dev_var == 0x5) &&
+	    (vram_type == AMDGPU_VRAM_TYPE_HBM3E) &&
+	    (hdr->version < RAS_TABLE_VER_V3)) {
 		return amdgpu_ras_eeprom_reset_table(control);
 	}
 
@@ -1701,10 +1712,12 @@ int amdgpu_ras_eeprom_check(struct amdgpu_ras_eeprom_control *control)
 		}
 
 		res = __verify_ras_table_checksum(control);
-		if (res)
+		if (res) {
 			dev_err(adev->dev,
 				"RAS table incorrect checksum or error:%d\n",
 				res);
+			return -EINVAL;
+		}
 
 		/* Warn if we are at 90% of the threshold or above
 		 */
@@ -1927,4 +1940,27 @@ int amdgpu_ras_smu_erase_ras_table(struct amdgpu_device *adev,
 		return smu_ras_drv->smu_eeprom_funcs->erase_ras_table(adev,
 									   result);
 	return -EOPNOTSUPP;
+}
+
+void amdgpu_ras_check_bad_page_status(struct amdgpu_device *adev)
+{
+	struct amdgpu_ras *ras = amdgpu_ras_get_context(adev);
+	struct amdgpu_ras_eeprom_control *control = ras ? &ras->eeprom_control : NULL;
+
+	if (!control || amdgpu_bad_page_threshold == 0)
+		return;
+
+	if (control->ras_num_bad_pages >= ras->bad_page_cnt_threshold) {
+		if (amdgpu_dpm_send_rma_reason(adev))
+			dev_warn(adev->dev, "Unable to send out-of-band RMA CPER");
+		else
+			dev_dbg(adev->dev, "Sent out-of-band RMA CPER");
+
+		if (adev->cper.enabled && !amdgpu_uniras_enabled(adev)) {
+			if (amdgpu_cper_generate_bp_threshold_record(adev))
+				dev_warn(adev->dev, "Unable to send in-band RMA CPER");
+			else
+				dev_dbg(adev->dev, "Sent in-band RMA CPER");
+		}
+	}
 }

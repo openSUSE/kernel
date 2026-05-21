@@ -17,6 +17,7 @@
 #include <linux/refcount.h>
 #include <linux/percpu-refcount.h>
 #include <linux/percpu-rwsem.h>
+#include <linux/sched.h>
 #include <linux/u64_stats_sync.h>
 #include <linux/workqueue.h>
 #include <linux/bpf-cgroup-defs.h>
@@ -167,6 +168,7 @@ struct cgroup_file {
 	struct kernfs_node *kn;
 	unsigned long notified_at;
 	struct timer_list notify_timer;
+	spinlock_t lock;
 };
 
 /*
@@ -535,10 +537,10 @@ struct cgroup {
 	 * one which may have more subsystems enabled.  Controller knobs
 	 * are made available iff it's enabled in ->subtree_control.
 	 */
-	u16 subtree_control;
-	u16 subtree_ss_mask;
-	u16 old_subtree_control;
-	u16 old_subtree_ss_mask;
+	u32 subtree_control;
+	u32 subtree_ss_mask;
+	u32 old_subtree_control;
+	u32 old_subtree_ss_mask;
 
 	/* Private pointers for each registered subsystem */
 	struct cgroup_subsys_state __rcu *subsys[CGROUP_SUBSYS_COUNT];
@@ -609,6 +611,9 @@ struct cgroup {
 	/* used to wait for offlining of csses */
 	wait_queue_head_t offline_waitq;
 
+	/* used by cgroup_rmdir() to wait for dying tasks to leave */
+	wait_queue_head_t dying_populated_waitq;
+
 	/* used to schedule release agent */
 	struct work_struct release_agent_work;
 
@@ -624,9 +629,18 @@ struct cgroup {
 #ifdef CONFIG_BPF_SYSCALL
 	struct bpf_local_storage __rcu  *bpf_cgrp_storage;
 #endif
+#ifdef CONFIG_EXT_SUB_SCHED
+	struct scx_sched __rcu *scx_sched;
+#endif
 
 	/* All ancestors including self */
-	struct cgroup *ancestors[];
+	union {
+		DECLARE_FLEX_ARRAY(struct cgroup *, ancestors);
+		struct {
+			struct cgroup *_root_ancestor;
+			DECLARE_FLEX_ARRAY(struct cgroup *, _low_ancestors);
+		};
+	};
 };
 
 /*
@@ -647,16 +661,6 @@ struct cgroup_root {
 	struct list_head root_list;
 	struct rcu_head rcu;	/* Must be near the top */
 
-	/*
-	 * The root cgroup. The containing cgroup_root will be destroyed on its
-	 * release. cgrp->ancestors[0] will be used overflowing into the
-	 * following field. cgrp_ancestor_storage must immediately follow.
-	 */
-	struct cgroup cgrp;
-
-	/* must follow cgrp for cgrp->ancestors[0], see above */
-	struct cgroup *cgrp_ancestor_storage;
-
 	/* Number of cgroups in the hierarchy, used only for /proc/cgroups */
 	atomic_t nr_cgrps;
 
@@ -668,6 +672,13 @@ struct cgroup_root {
 
 	/* The name for this hierarchy - may be empty */
 	char name[MAX_CGROUP_ROOT_NAMELEN];
+
+	/*
+	 * The root cgroup. The containing cgroup_root will be destroyed on its
+	 * release. This must be embedded last due to flexible array at the end
+	 * of struct cgroup.
+	 */
+	struct cgroup cgrp;
 };
 
 /*

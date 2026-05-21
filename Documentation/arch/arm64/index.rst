@@ -23,6 +23,7 @@ ARM64 Architecture
     memory
     memory-tagging-extension
     mops
+    mpam
     perf
     pointer-authentication
     ptdump
@@ -33,10 +34,3 @@ ARM64 Architecture
     tagged-pointers
 
     features
-
-.. only::  subproject and html
-
-   Indices
-   =======
-
-   * :ref:`genindex`

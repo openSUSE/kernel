@@ -30,8 +30,6 @@
 #define catu_dbg(x, ...) do {} while (0)
 #endif
 
-DEFINE_CORESIGHT_DEVLIST(catu_devs, "catu");
-
 struct catu_etr_buf {
 	struct tmc_sg_table *catu_table;
 	dma_addr_t sladdr;
@@ -337,7 +335,7 @@ static int catu_alloc_etr_buf(struct tmc_drvdata *tmc_drvdata,
 	csdev = tmc_etr_get_catu_device(tmc_drvdata);
 	if (!csdev)
 		return -ENODEV;
-	catu_buf = kzalloc(sizeof(*catu_buf), GFP_KERNEL);
+	catu_buf = kzalloc_obj(*catu_buf);
 	if (!catu_buf)
 		return -ENOMEM;
 
@@ -530,7 +528,7 @@ static int __catu_probe(struct device *dev, struct resource *res)
 	if (ret)
 		return ret;
 
-	catu_desc.name = coresight_alloc_device_name(&catu_devs, dev);
+	catu_desc.name = coresight_alloc_device_name("catu", dev);
 	if (!catu_desc.name)
 		return -ENOMEM;
 

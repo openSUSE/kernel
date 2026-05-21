@@ -61,7 +61,7 @@ int vfio_pci_eventfd_replace_locked(struct vfio_pci_core_device *vdev,
 	lockdep_assert_held(&vdev->igate);
 
 	if (ctx) {
-		new = kzalloc(sizeof(*new), GFP_KERNEL_ACCOUNT);
+		new = kzalloc_obj(*new, GFP_KERNEL_ACCOUNT);
 		if (!new)
 			return -ENOMEM;
 
@@ -175,8 +175,7 @@ static void vfio_pci_probe_mmaps(struct vfio_pci_core_device *vdev)
 			 * of the exclusive page in case that hot-add
 			 * device's bar is assigned into it.
 			 */
-			dummy_res =
-				kzalloc(sizeof(*dummy_res), GFP_KERNEL_ACCOUNT);
+			dummy_res = kzalloc_obj(*dummy_res, GFP_KERNEL_ACCOUNT);
 			if (dummy_res == NULL)
 				goto no_mmap;
 
@@ -588,6 +587,7 @@ EXPORT_SYMBOL_GPL(vfio_pci_core_enable);
 
 void vfio_pci_core_disable(struct vfio_pci_core_device *vdev)
 {
+	struct pci_dev *bridge;
 	struct pci_dev *pdev = vdev->pdev;
 	struct vfio_pci_dummy_resource *dummy_res, *tmp;
 	struct vfio_pci_ioeventfd *ioeventfd, *ioeventfd_tmp;
@@ -694,12 +694,20 @@ void vfio_pci_core_disable(struct vfio_pci_core_device *vdev)
 	 * We can not use the "try" reset interface here, which will
 	 * overwrite the previously restored configuration information.
 	 */
-	if (vdev->reset_works && pci_dev_trylock(pdev)) {
-		if (!__pci_reset_function_locked(pdev))
-			vdev->needs_reset = false;
-		pci_dev_unlock(pdev);
+	if (vdev->reset_works) {
+		bridge = pci_upstream_bridge(pdev);
+		if (bridge && !pci_dev_trylock(bridge))
+			goto out_restore_state;
+		if (pci_dev_trylock(pdev)) {
+			if (!__pci_reset_function_locked(pdev))
+				vdev->needs_reset = false;
+			pci_dev_unlock(pdev);
+		}
+		if (bridge)
+			pci_dev_unlock(bridge);
 	}
 
+out_restore_state:
 	pci_restore_state(pdev);
 out:
 	pci_disable_device(pdev);
@@ -726,9 +734,9 @@ void vfio_pci_core_close_device(struct vfio_device *core_vdev)
 #if IS_ENABLED(CONFIG_EEH)
 	eeh_dev_release(vdev->pdev);
 #endif
-	vfio_pci_core_disable(vdev);
-
 	vfio_pci_dma_buf_cleanup(vdev);
+
+	vfio_pci_core_disable(vdev);
 
 	mutex_lock(&vdev->igate);
 	vfio_pci_eventfd_replace_locked(vdev, &vdev->err_trigger, NULL);
@@ -1283,7 +1291,7 @@ static int vfio_pci_ioctl_get_pci_hot_reset_info(
 		goto header;
 	}
 
-	devices = kcalloc(count, sizeof(*devices), GFP_KERNEL);
+	devices = kzalloc_objs(*devices, count);
 	if (!devices)
 		return -ENOMEM;
 
@@ -1342,8 +1350,8 @@ vfio_pci_ioctl_pci_hot_reset_groups(struct vfio_pci_core_device *vdev,
 	if (array_count > count)
 		return -EINVAL;
 
-	group_fds = kcalloc(array_count, sizeof(*group_fds), GFP_KERNEL);
-	files = kcalloc(array_count, sizeof(*files), GFP_KERNEL);
+	group_fds = kzalloc_objs(*group_fds, array_count);
+	files = kzalloc_objs(*files, array_count);
 	if (!group_fds || !files) {
 		kfree(group_fds);
 		kfree(files);
@@ -1662,21 +1670,16 @@ vm_fault_t vfio_pci_vmf_insert_pfn(struct vfio_pci_core_device *vdev,
 	if (vdev->pm_runtime_engaged || !__vfio_pci_memory_enabled(vdev))
 		return VM_FAULT_SIGBUS;
 
-	switch (order) {
-	case 0:
+	if (!order)
 		return vmf_insert_pfn(vmf->vma, vmf->address, pfn);
-#ifdef CONFIG_ARCH_SUPPORTS_PMD_PFNMAP
-	case PMD_ORDER:
+
+	if (IS_ENABLED(CONFIG_ARCH_SUPPORTS_PMD_PFNMAP) && order == PMD_ORDER)
 		return vmf_insert_pfn_pmd(vmf, pfn, false);
-#endif
-#ifdef CONFIG_ARCH_SUPPORTS_PUD_PFNMAP
-	case PUD_ORDER:
+
+	if (IS_ENABLED(CONFIG_ARCH_SUPPORTS_PUD_PFNMAP) && order == PUD_ORDER)
 		return vmf_insert_pfn_pud(vmf, pfn, false);
-		break;
-#endif
-	default:
-		return VM_FAULT_FALLBACK;
-	}
+
+	return VM_FAULT_FALLBACK;
 }
 EXPORT_SYMBOL_GPL(vfio_pci_vmf_insert_pfn);
 
@@ -1979,9 +1982,8 @@ static int vfio_pci_bus_notifier(struct notifier_block *nb,
 	    pdev->is_virtfn && physfn == vdev->pdev) {
 		pci_info(vdev->pdev, "Captured SR-IOV VF %s driver_override\n",
 			 pci_name(pdev));
-		pdev->driver_override = kasprintf(GFP_KERNEL, "%s",
-						  vdev->vdev.ops->name);
-		WARN_ON(!pdev->driver_override);
+		WARN_ON(device_set_driver_override(&pdev->dev,
+						   vdev->vdev.ops->name));
 	} else if (action == BUS_NOTIFY_BOUND_DRIVER &&
 		   pdev->is_virtfn && physfn == vdev->pdev) {
 		struct pci_driver *drv = pci_dev_driver(pdev);
@@ -2026,7 +2028,7 @@ static int vfio_pci_vf_init(struct vfio_pci_core_device *vdev)
 	if (!pdev->is_physfn)
 		return 0;
 
-	vdev->vf_token = kzalloc(sizeof(*vdev->vf_token), GFP_KERNEL);
+	vdev->vf_token = kzalloc_obj(*vdev->vf_token);
 	if (!vdev->vf_token)
 		return -ENOMEM;
 
@@ -2129,6 +2131,10 @@ int vfio_pci_core_register_device(struct vfio_pci_core_device *vdev)
 
 	/* Drivers must set the vfio_pci_core_device to their drvdata */
 	if (WARN_ON(vdev != dev_get_drvdata(dev)))
+		return -EINVAL;
+
+	/* Drivers must set a name.  Required for sequestering SR-IOV VFs */
+	if (WARN_ON(!vdev->vdev.ops->name))
 		return -EINVAL;
 
 	if (pdev->hdr_type != PCI_HEADER_TYPE_NORMAL)

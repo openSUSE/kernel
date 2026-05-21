@@ -41,7 +41,8 @@
 #define UVC_EXT_GPIO_UNIT		0x7ffe
 #define UVC_EXT_GPIO_UNIT_ID		0x100
 
-#define UVC_INVALID_ENTITY_ID          0xffff
+#define UVC_HARDWARE_ENTITY_ID(id)	((id) & 0xff)
+#define UVC_INVALID_ENTITY_ID		0xffff
 
 /* ------------------------------------------------------------------------
  * Driver specific constants.
@@ -330,6 +331,7 @@ struct uvc_buffer {
 #define UVC_QUEUE_DISCONNECTED		(1 << 0)
 
 struct uvc_video_queue {
+	struct uvc_streaming *stream;
 	struct video_device vdev;
 	struct vb2_queue queue;
 	struct mutex mutex;			/*
@@ -408,7 +410,7 @@ struct uvc_stats_stream {
 	unsigned int max_sof;		/* Maximum STC.SOF value */
 };
 
-#define UVC_METADATA_BUF_SIZE 10240
+#define UVC_METADATA_BUF_MIN_SIZE 10240
 
 /**
  * struct uvc_copy_op: Context structure to schedule asynchronous memcpy
@@ -481,6 +483,7 @@ struct uvc_streaming {
 	struct {
 		struct uvc_video_queue queue;
 		u32 format;
+		u32 buffersize;
 	} meta;
 
 	/* Context data used by the bulk completion handler. */
@@ -690,7 +693,8 @@ do {									\
 struct uvc_entity *uvc_entity_by_id(struct uvc_device *dev, int id);
 
 /* Video buffers queue management. */
-int uvc_queue_init(struct uvc_video_queue *queue, enum v4l2_buf_type type);
+int uvc_queue_init(struct uvc_streaming *stream, struct uvc_video_queue *queue,
+		   enum v4l2_buf_type type);
 void uvc_queue_cancel(struct uvc_video_queue *queue, int disconnect);
 struct uvc_buffer *uvc_queue_next_buffer(struct uvc_video_queue *queue,
 					 struct uvc_buffer *buf);
@@ -699,12 +703,6 @@ void uvc_queue_buffer_release(struct uvc_buffer *buf);
 static inline int uvc_queue_streaming(struct uvc_video_queue *queue)
 {
 	return vb2_is_streaming(&queue->queue);
-}
-
-static inline struct uvc_streaming *
-uvc_queue_to_stream(struct uvc_video_queue *queue)
-{
-	return container_of(queue, struct uvc_streaming, queue);
 }
 
 /* V4L2 interface */
@@ -786,7 +784,7 @@ int uvc_ctrl_get(struct uvc_video_chain *chain, u32 which,
 		 struct v4l2_ext_control *xctrl);
 int uvc_ctrl_set(struct uvc_fh *handle, struct v4l2_ext_control *xctrl);
 int uvc_ctrl_is_accessible(struct uvc_video_chain *chain, u32 v4l2_id,
-			   const struct v4l2_ext_controls *ctrls,
+			   const struct v4l2_ext_controls *ctrls, u32 which,
 			   unsigned long ioctl);
 
 int uvc_xu_ctrl_query(struct uvc_video_chain *chain,

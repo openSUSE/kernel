@@ -163,7 +163,7 @@ ppp_asynctty_open(struct tty_struct *tty)
 		return -EOPNOTSUPP;
 
 	err = -ENOMEM;
-	ap = kzalloc(sizeof(*ap), GFP_KERNEL);
+	ap = kzalloc_obj(*ap);
 	if (!ap)
 		goto out;
 
@@ -491,7 +491,7 @@ static void ppp_async_process(struct tasklet_struct *t)
 	/* process received packets */
 	while ((skb = skb_dequeue(&ap->rqueue)) != NULL) {
 		if (skb->cb[0])
-			ppp_input_error(&ap->chan, 0);
+			ppp_input_error(&ap->chan);
 		ppp_input(&ap->chan, skb);
 	}
 

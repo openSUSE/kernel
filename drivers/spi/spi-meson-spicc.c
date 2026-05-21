@@ -1054,7 +1054,6 @@ static int meson_spicc_probe(struct platform_device *pdev)
 	device_reset_optional(&pdev->dev);
 
 	host->num_chipselect = 4;
-	host->dev.of_node = pdev->dev.of_node;
 	host->mode_bits = SPI_CPHA | SPI_CPOL | SPI_CS_HIGH | SPI_LOOP;
 	host->flags = (SPI_CONTROLLER_MUST_RX | SPI_CONTROLLER_MUST_TX);
 	host->min_speed_hz = spicc->data->min_speed_hz;
@@ -1082,7 +1081,7 @@ static int meson_spicc_probe(struct platform_device *pdev)
 		}
 	}
 
-	ret = devm_spi_register_controller(&pdev->dev, host);
+	ret = spi_register_controller(host);
 	if (ret) {
 		dev_err(&pdev->dev, "spi registration failed\n");
 		goto out_host;
@@ -1099,6 +1098,10 @@ out_host:
 static void meson_spicc_remove(struct platform_device *pdev)
 {
 	struct meson_spicc_device *spicc = platform_get_drvdata(pdev);
+
+	spi_controller_get(spicc->host);
+
+	spi_unregister_controller(spicc->host);
 
 	/* Disable SPI */
 	writel(0, spicc->base + SPICC_CONREG);

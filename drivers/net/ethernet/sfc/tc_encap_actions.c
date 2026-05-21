@@ -120,7 +120,7 @@ static int efx_bind_neigh(struct efx_nic *efx,
 		return -EOPNOTSUPP;
 	}
 
-	neigh = kzalloc(sizeof(*neigh), GFP_KERNEL_ACCOUNT);
+	neigh = kzalloc_obj(*neigh, GFP_KERNEL_ACCOUNT);
 	if (!neigh)
 		return -ENOMEM;
 	neigh->net = get_net_track(net, &neigh->ns_tracker, GFP_KERNEL_ACCOUNT);
@@ -149,8 +149,7 @@ static int efx_bind_neigh(struct efx_nic *efx,
 #if IS_ENABLED(CONFIG_IPV6)
 			struct dst_entry *dst;
 
-			dst = ipv6_stub->ipv6_dst_lookup_flow(net, NULL, &flow6,
-							      NULL);
+			dst = ip6_dst_lookup_flow(net, NULL, &flow6, NULL);
 			rc = PTR_ERR_OR_ZERO(dst);
 			if (rc) {
 				NL_SET_ERR_MSG_MOD(extack, "Failed to lookup route for IPv6 encap");
@@ -531,7 +530,7 @@ static int efx_neigh_event(struct efx_nic *efx, struct neighbour *n)
 	if (n->tbl == &arp_tbl) {
 		keysize = sizeof(keys.dst_ip);
 #if IS_ENABLED(CONFIG_IPV6)
-	} else if (n->tbl == ipv6_stub->nd_tbl) {
+	} else if (n->tbl == &nd_tbl) {
 		ipv6 = true;
 		keysize = sizeof(keys.dst_ip6);
 #endif
@@ -632,7 +631,7 @@ struct efx_tc_encap_action *efx_tc_flower_create_encap_md(
 				       info->mode);
 		return ERR_PTR(-EOPNOTSUPP);
 	}
-	encap = kzalloc(sizeof(*encap), GFP_KERNEL_ACCOUNT);
+	encap = kzalloc_obj(*encap, GFP_KERNEL_ACCOUNT);
 	if (!encap)
 		return ERR_PTR(-ENOMEM);
 	encap->type = type;

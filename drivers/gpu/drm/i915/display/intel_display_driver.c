@@ -18,8 +18,6 @@
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_vblank.h>
 
-#include "i915_drv.h"
-#include "i915_utils.h" /* for i915_inject_probe_failure() */
 #include "i9xx_wm.h"
 #include "intel_acpi.h"
 #include "intel_atomic.h"
@@ -54,11 +52,11 @@
 #include "intel_hdcp.h"
 #include "intel_hotplug.h"
 #include "intel_hti.h"
+#include "intel_initial_plane.h"
 #include "intel_modeset_lock.h"
 #include "intel_modeset_setup.h"
 #include "intel_opregion.h"
 #include "intel_overlay.h"
-#include "intel_plane_initial.h"
 #include "intel_pmdemand.h"
 #include "intel_pps.h"
 #include "intel_psr.h"
@@ -119,6 +117,7 @@ static void intel_mode_config_init(struct intel_display *display)
 
 	drm_mode_config_init(display->drm);
 	INIT_LIST_HEAD(&display->global.obj_list);
+	INIT_LIST_HEAD(&display->pipe_list);
 
 	mode_config->min_width = 0;
 	mode_config->min_height = 0;
@@ -199,11 +198,7 @@ void intel_display_driver_early_probe(struct intel_display *display)
 /* part #1: call before irq install */
 int intel_display_driver_probe_noirq(struct intel_display *display)
 {
-	struct drm_i915_private *i915 = to_i915(display->drm);
 	int ret;
-
-	if (i915_inject_probe_failure(i915))
-		return -ENODEV;
 
 	if (HAS_DISPLAY(display)) {
 		ret = drm_vblank_init(display->drm,
@@ -214,16 +209,12 @@ int intel_display_driver_probe_noirq(struct intel_display *display)
 
 	intel_bios_init(display);
 
-	ret = intel_vga_register(display);
-	if (ret)
-		goto cleanup_bios;
-
 	intel_psr_dc5_dc6_wa_init(display);
 
 	/* FIXME: completely on the wrong abstraction layer */
 	ret = intel_power_domains_init(display);
 	if (ret < 0)
-		goto cleanup_vga;
+		goto cleanup_bios;
 
 	intel_pmdemand_init_early(display);
 
@@ -235,7 +226,7 @@ int intel_display_driver_probe_noirq(struct intel_display *display)
 	display->hotplug.dp_wq = alloc_ordered_workqueue("intel-dp", 0);
 	if (!display->hotplug.dp_wq) {
 		ret = -ENOMEM;
-		goto cleanup_vga_client_pw_domain_dmc;
+		goto cleanup_pw_domain_dmc;
 	}
 
 	display->wq.modeset = alloc_ordered_workqueue("i915_modeset", 0);
@@ -251,13 +242,13 @@ int intel_display_driver_probe_noirq(struct intel_display *display)
 		goto cleanup_wq_modeset;
 	}
 
-	display->wq.cleanup = alloc_workqueue("i915_cleanup", WQ_HIGHPRI, 0);
+	display->wq.cleanup = alloc_workqueue("i915_cleanup", WQ_HIGHPRI | WQ_PERCPU, 0);
 	if (!display->wq.cleanup) {
 		ret = -ENOMEM;
 		goto cleanup_wq_flip;
 	}
 
-	display->wq.unordered = alloc_workqueue("display_unordered", 0, 0);
+	display->wq.unordered = alloc_workqueue("display_unordered", WQ_PERCPU, 0);
 	if (!display->wq.unordered) {
 		ret = -ENOMEM;
 		goto cleanup_wq_cleanup;
@@ -307,16 +298,15 @@ cleanup_wq_modeset:
 	destroy_workqueue(display->wq.modeset);
 cleanup_wq_dp:
 	destroy_workqueue(display->hotplug.dp_wq);
-cleanup_vga_client_pw_domain_dmc:
+cleanup_pw_domain_dmc:
 	intel_dmc_fini(display);
 	intel_power_domains_driver_remove(display);
-cleanup_vga:
-	intel_vga_unregister(display);
 cleanup_bios:
 	intel_bios_driver_remove(display);
 
 	return ret;
 }
+ALLOW_ERROR_INJECTION(intel_display_driver_probe_noirq, ERRNO);
 
 static void set_display_access(struct intel_display *display,
 			       bool any_task_allowed,
@@ -452,7 +442,6 @@ bool intel_display_driver_check_access(struct intel_display *display)
 /* part #2: call after irq install, but before gem init */
 int intel_display_driver_probe_nogem(struct intel_display *display)
 {
-	enum pipe pipe;
 	int ret;
 
 	if (!HAS_DISPLAY(display))
@@ -466,15 +455,9 @@ int intel_display_driver_probe_nogem(struct intel_display *display)
 
 	intel_gmbus_setup(display);
 
-	drm_dbg_kms(display->drm, "%d display pipe%s available.\n",
-		    INTEL_NUM_PIPES(display),
-		    INTEL_NUM_PIPES(display) > 1 ? "s" : "");
-
-	for_each_pipe(display, pipe) {
-		ret = intel_crtc_init(display, pipe);
-		if (ret)
-			goto err_mode_config;
-	}
+	ret = intel_crtc_init(display);
+	if (ret)
+		goto err_mode_config;
 
 	intel_plane_possible_crtcs_init(display);
 	intel_dpll_init(display);
@@ -565,6 +548,8 @@ void intel_display_driver_register(struct intel_display *display)
 
 	if (!HAS_DISPLAY(display))
 		return;
+
+	intel_vga_register(display);
 
 	/* Must be done after probing outputs */
 	intel_opregion_register(display);
@@ -658,8 +643,6 @@ void intel_display_driver_remove_nogem(struct intel_display *display)
 
 	intel_power_domains_driver_remove(display);
 
-	intel_vga_unregister(display);
-
 	intel_bios_driver_remove(display);
 }
 
@@ -687,6 +670,8 @@ void intel_display_driver_unregister(struct intel_display *display)
 
 	acpi_video_unregister();
 	intel_opregion_unregister(display);
+
+	intel_vga_unregister(display);
 }
 
 /*

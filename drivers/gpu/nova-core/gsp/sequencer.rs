@@ -2,24 +2,21 @@
 
 //! GSP Sequencer implementation for Pre-hopper GSP boot sequence.
 
-use core::{
-    array,
-    mem::{
-        size_of,
-        size_of_val, //
-    },
-};
+use core::array;
 
 use kernel::{
     device,
-    io::poll::read_poll_timeout,
+    io::{
+        poll::read_poll_timeout,
+        Io, //
+    },
     prelude::*,
+    sync::aref::ARef,
     time::{
         delay::fsleep,
         Delta, //
     },
-    transmute::FromBytes,
-    types::ARef, //
+    transmute::FromBytes, //
 };
 
 use crate::{
@@ -70,6 +67,7 @@ const CMD_SIZE: usize = size_of::<fw::SequencerBufferCmd>();
 /// GSP Sequencer Command types with payload data.
 /// Commands have an opcode and an opcode-dependent struct.
 #[allow(clippy::enum_variant_names)]
+#[derive(Debug)]
 pub(crate) enum GspSeqCmd {
     RegWrite(fw::RegWritePayload),
     RegModify(fw::RegModifyPayload),
@@ -121,7 +119,7 @@ impl GspSeqCmd {
         };
 
         if data.len() < size {
-            dev_err!(dev, "Data is not enough for command");
+            dev_err!(dev, "Data is not enough for command\n");
             return Err(EINVAL);
         }
 
@@ -147,12 +145,7 @@ pub(crate) struct GspSequencer<'a> {
     dev: ARef<device::Device>,
 }
 
-/// Trait for running sequencer commands.
-pub(crate) trait GspSeqCmdRunner {
-    fn run(&self, sequencer: &GspSequencer<'_>) -> Result;
-}
-
-impl GspSeqCmdRunner for fw::RegWritePayload {
+impl fw::RegWritePayload {
     fn run(&self, sequencer: &GspSequencer<'_>) -> Result {
         let addr = usize::from_safe_cast(self.addr());
 
@@ -160,7 +153,7 @@ impl GspSeqCmdRunner for fw::RegWritePayload {
     }
 }
 
-impl GspSeqCmdRunner for fw::RegModifyPayload {
+impl fw::RegModifyPayload {
     fn run(&self, sequencer: &GspSequencer<'_>) -> Result {
         let addr = usize::from_safe_cast(self.addr());
 
@@ -172,7 +165,7 @@ impl GspSeqCmdRunner for fw::RegModifyPayload {
     }
 }
 
-impl GspSeqCmdRunner for fw::RegPollPayload {
+impl fw::RegPollPayload {
     fn run(&self, sequencer: &GspSequencer<'_>) -> Result {
         let addr = usize::from_safe_cast(self.addr());
 
@@ -197,14 +190,14 @@ impl GspSeqCmdRunner for fw::RegPollPayload {
     }
 }
 
-impl GspSeqCmdRunner for fw::DelayUsPayload {
+impl fw::DelayUsPayload {
     fn run(&self, _sequencer: &GspSequencer<'_>) -> Result {
         fsleep(Delta::from_micros(i64::from(self.val())));
         Ok(())
     }
 }
 
-impl GspSeqCmdRunner for fw::RegStorePayload {
+impl fw::RegStorePayload {
     fn run(&self, sequencer: &GspSequencer<'_>) -> Result {
         let addr = usize::from_safe_cast(self.addr());
 
@@ -212,7 +205,7 @@ impl GspSeqCmdRunner for fw::RegStorePayload {
     }
 }
 
-impl GspSeqCmdRunner for GspSeqCmd {
+impl GspSeqCmd {
     fn run(&self, seq: &GspSequencer<'_>) -> Result {
         match self {
             GspSeqCmd::RegWrite(cmd) => cmd.run(seq),
@@ -320,7 +313,7 @@ impl<'a> Iterator for GspSeqIter<'a> {
 
         cmd_result.map_or_else(
             |_err| {
-                dev_err!(self.dev, "Error parsing command at offset {}", offset);
+                dev_err!(self.dev, "Error parsing command at offset {}\n", offset);
                 None
             },
             |(cmd, size)| {
@@ -363,9 +356,9 @@ pub(crate) struct GspSequencerParams<'a> {
 }
 
 impl<'a> GspSequencer<'a> {
-    pub(crate) fn run(cmdq: &mut Cmdq, params: GspSequencerParams<'a>) -> Result {
+    pub(crate) fn run(cmdq: &Cmdq, params: GspSequencerParams<'a>) -> Result {
         let seq_info = loop {
-            match cmdq.receive_msg::<GspSequence>(Delta::from_secs(10)) {
+            match cmdq.receive_msg::<GspSequence>(Cmdq::RECEIVE_TIMEOUT) {
                 Ok(seq_info) => break seq_info,
                 Err(ERANGE) => continue,
                 Err(e) => return Err(e),
@@ -382,7 +375,7 @@ impl<'a> GspSequencer<'a> {
             dev: params.dev,
         };
 
-        dev_dbg!(sequencer.dev, "Running CPU Sequencer commands");
+        dev_dbg!(sequencer.dev, "Running CPU Sequencer commands\n");
 
         for cmd_result in sequencer.iter() {
             match cmd_result {
@@ -390,7 +383,7 @@ impl<'a> GspSequencer<'a> {
                 Err(e) => {
                     dev_err!(
                         sequencer.dev,
-                        "Error running command at index {}",
+                        "Error running command at index {}\n",
                         sequencer.seq_info.cmd_index
                     );
                     return Err(e);
@@ -400,7 +393,7 @@ impl<'a> GspSequencer<'a> {
 
         dev_dbg!(
             sequencer.dev,
-            "CPU Sequencer commands completed successfully"
+            "CPU Sequencer commands completed successfully\n"
         );
         Ok(())
     }

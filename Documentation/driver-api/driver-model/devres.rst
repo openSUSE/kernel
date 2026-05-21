@@ -408,7 +408,6 @@ PINCTRL
   devm_pinctrl_get_select()
   devm_pinctrl_register()
   devm_pinctrl_register_and_init()
-  devm_pinctrl_unregister()
 
 POWER
   devm_reboot_mode_register()
@@ -465,3 +464,7 @@ SPI
 
 WATCHDOG
   devm_watchdog_register_device()
+
+WORKQUEUE
+  devm_alloc_workqueue()
+  devm_alloc_ordered_workqueue()

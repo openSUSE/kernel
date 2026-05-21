@@ -77,10 +77,6 @@
 
 /*-------------------------------------------------------------------------*/
 
-/* Keep track of which host controller drivers are loaded */
-unsigned long usb_hcds_loaded;
-EXPORT_SYMBOL_GPL(usb_hcds_loaded);
-
 /* host controllers we manage */
 DEFINE_IDR (usb_bus_idr);
 EXPORT_SYMBOL_GPL (usb_bus_idr);
@@ -2197,7 +2193,7 @@ int ehset_single_step_set_feature(struct usb_hcd *hcd, int port)
 	if (!buf)
 		return -ENOMEM;
 
-	dr = kmalloc(sizeof(struct usb_ctrlrequest), GFP_KERNEL);
+	dr = kmalloc_obj(struct usb_ctrlrequest);
 	if (!dr) {
 		kfree(buf);
 		return -ENOMEM;
@@ -2407,7 +2403,7 @@ void usb_hcd_resume_root_hub (struct usb_hcd *hcd)
 	if (hcd->rh_registered) {
 		pm_wakeup_event(&hcd->self.root_hub->dev, 0);
 		set_bit(HCD_FLAG_WAKEUP_PENDING, &hcd->flags);
-		queue_work(pm_wq, &hcd->wakeup_work);
+		queue_work(system_freezable_wq, &hcd->wakeup_work);
 	}
 	spin_unlock_irqrestore (&hcd_root_hub_lock, flags);
 }
@@ -2571,16 +2567,14 @@ struct usb_hcd *__usb_create_hcd(const struct hc_driver *driver,
 	if (!hcd)
 		return NULL;
 	if (primary_hcd == NULL) {
-		hcd->address0_mutex = kmalloc(sizeof(*hcd->address0_mutex),
-				GFP_KERNEL);
+		hcd->address0_mutex = kmalloc_obj(*hcd->address0_mutex);
 		if (!hcd->address0_mutex) {
 			kfree(hcd);
 			dev_dbg(dev, "hcd address0 mutex alloc failed\n");
 			return NULL;
 		}
 		mutex_init(hcd->address0_mutex);
-		hcd->bandwidth_mutex = kmalloc(sizeof(*hcd->bandwidth_mutex),
-				GFP_KERNEL);
+		hcd->bandwidth_mutex = kmalloc_obj(*hcd->bandwidth_mutex);
 		if (!hcd->bandwidth_mutex) {
 			kfree(hcd->address0_mutex);
 			kfree(hcd);

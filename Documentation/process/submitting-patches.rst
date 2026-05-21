@@ -23,7 +23,7 @@ easier.
 
 Some subsystems and maintainer trees have additional information about
 their workflow and expectations, see
-:ref:`Documentation/process/maintainer-handbooks.rst <maintainer_handbooks_main>`.
+Documentation/process/maintainer-handbooks.rst.
 
 Obtain a current source tree
 ----------------------------
@@ -634,6 +634,16 @@ bugzilla.kernel.org is a public place in this sense, but email addresses
 used there are private; so do not expose them in tags, unless the person
 used them in earlier contributions.
 
+Using Assisted-by:
+------------------
+
+If you used any sort of advanced coding tool in the creation of your patch,
+you need to acknowledge that use by adding an Assisted-by tag.  Failure to
+do so may impede the acceptance of your work.  Please see
+Documentation/process/coding-assistants.rst for details regarding the
+acknowledgment of coding assistants.
+
+
 .. _the_canonical_patch_format:
 
 The canonical patch format
@@ -805,7 +815,8 @@ not part of the changelog which gets committed to the git tree. It is
 additional information for the reviewers. If it's placed above the
 commit tags, it needs manual interaction to remove it. If it is below
 the separator line, it gets automatically stripped off when applying the
-patch::
+patch.  If available, adding links to previous versions of the patch (e.g.,
+lore.kernel.org archive link) is recommended to help reviewers::
 
   <commit message>
   ...
@@ -813,6 +824,9 @@ patch::
   ---
   V2 -> V3: Removed redundant helper function
   V1 -> V2: Cleaned up coding style and addressed review comments
+
+  v2: https://lore.kernel.org/bar
+  v1: https://lore.kernel.org/foo
 
   path/to/file | 5+++--
   ...

@@ -273,7 +273,7 @@ static struct policy_dbs_info *cs_alloc(void)
 {
 	struct cs_policy_dbs_info *dbs_info;
 
-	dbs_info = kzalloc(sizeof(*dbs_info), GFP_KERNEL);
+	dbs_info = kzalloc_obj(*dbs_info);
 	return dbs_info ? &dbs_info->policy_dbs : NULL;
 }
 
@@ -286,7 +286,7 @@ static int cs_init(struct dbs_data *dbs_data)
 {
 	struct cs_dbs_tuners *tuners;
 
-	tuners = kzalloc(sizeof(*tuners), GFP_KERNEL);
+	tuners = kzalloc_obj(*tuners);
 	if (!tuners)
 		return -ENOMEM;
 
@@ -313,6 +313,17 @@ static void cs_start(struct cpufreq_policy *policy)
 	dbs_info->requested_freq = policy->cur;
 }
 
+static void cs_limits(struct cpufreq_policy *policy)
+{
+	struct cs_policy_dbs_info *dbs_info = to_dbs_info(policy->governor_data);
+
+	/*
+	 * The limits have changed, so may have the current frequency. Reset
+	 * requested_freq to avoid any unintended outcomes due to the mismatch.
+	 */
+	dbs_info->requested_freq = policy->cur;
+}
+
 static struct dbs_governor cs_governor = {
 	.gov = CPUFREQ_DBS_GOVERNOR_INITIALIZER("conservative"),
 	.kobj_type = { .default_groups = cs_groups },
@@ -322,6 +333,7 @@ static struct dbs_governor cs_governor = {
 	.init = cs_init,
 	.exit = cs_exit,
 	.start = cs_start,
+	.limits = cs_limits,
 };
 
 #define CPU_FREQ_GOV_CONSERVATIVE	(cs_governor.gov)

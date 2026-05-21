@@ -174,7 +174,6 @@ sys_enter_openat_print(struct syscall_trace_enter *trace, struct syscall_metadat
 			{ O_NOFOLLOW, "O_NOFOLLOW" },
 			{ O_NOATIME, "O_NOATIME" },
 			{ O_CLOEXEC, "O_CLOEXEC" },
-			{ -1, NULL }
 		};
 
 	trace_seq_printf(s, "%s(", entry->name);
@@ -205,7 +204,7 @@ sys_enter_openat_print(struct syscall_trace_enter *trace, struct syscall_metadat
 				trace_seq_puts(s, "O_RDONLY|");
 			}
 
-			trace_print_flags_seq(s, "|", bits, __flags);
+			trace_print_flags_seq(s, "|", bits, __flags, ARRAY_SIZE(__flags));
 			/*
 			 * trace_print_flags_seq() adds a '\0' to the
 			 * buffer, but this needs to append more to the seq.
@@ -617,7 +616,7 @@ static int syscall_fault_buffer_enable(void)
 		return 0;
 	}
 
-	sbuf = kmalloc(sizeof(*sbuf), GFP_KERNEL);
+	sbuf = kmalloc_obj(*sbuf);
 	if (!sbuf)
 		return -ENOMEM;
 
@@ -1337,9 +1336,8 @@ void __init init_ftrace_syscalls(void)
 	void *ret;
 
 	if (!IS_ENABLED(CONFIG_HAVE_SPARSE_SYSCALL_NR)) {
-		syscalls_metadata = kcalloc(NR_syscalls,
-					sizeof(*syscalls_metadata),
-					GFP_KERNEL);
+		syscalls_metadata = kzalloc_objs(*syscalls_metadata,
+						 NR_syscalls);
 		if (!syscalls_metadata) {
 			WARN_ON(1);
 			return;

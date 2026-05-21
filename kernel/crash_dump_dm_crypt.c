@@ -6,6 +6,7 @@
 #include <linux/cc_platform.h>
 #include <linux/configfs.h>
 #include <linux/module.h>
+#include <linux/sysfs.h>
 
 #define KEY_NUM_MAX 128	/* maximum dm crypt keys */
 #define KEY_SIZE_MAX 256	/* maximum dm crypt key size */
@@ -115,7 +116,7 @@ static int restore_dm_crypt_keys_to_thread_keyring(void)
 
 	addr = dm_crypt_keys_addr;
 	dm_crypt_keys_read((char *)&key_count, sizeof(key_count), &addr);
-	if (key_count < 0 || key_count > KEY_NUM_MAX) {
+	if (key_count > KEY_NUM_MAX) {
 		kexec_dprintk("Failed to read the number of dm-crypt keys\n");
 		return -1;
 	}
@@ -139,10 +140,11 @@ static int restore_dm_crypt_keys_to_thread_keyring(void)
 	return 0;
 }
 
-static int read_key_from_user_keying(struct dm_crypt_key *dm_key)
+static int read_key_from_user_keyring(struct dm_crypt_key *dm_key)
 {
 	const struct user_key_payload *ukp;
 	struct key *key;
+	int ret = 0;
 
 	kexec_dprintk("Requesting logon key %s", dm_key->key_desc);
 	key = request_key(&key_type_logon, dm_key->key_desc, NULL);
@@ -152,20 +154,28 @@ static int read_key_from_user_keying(struct dm_crypt_key *dm_key)
 		return PTR_ERR(key);
 	}
 
+	down_read(&key->sem);
 	ukp = user_key_payload_locked(key);
-	if (!ukp)
-		return -EKEYREVOKED;
+	if (!ukp) {
+		ret = -EKEYREVOKED;
+		goto out;
+	}
 
 	if (ukp->datalen > KEY_SIZE_MAX) {
 		pr_err("Key size %u exceeds maximum (%u)\n", ukp->datalen, KEY_SIZE_MAX);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out;
 	}
 
 	memcpy(dm_key->data, ukp->data, ukp->datalen);
 	dm_key->key_size = ukp->datalen;
-	kexec_dprintk("Get dm crypt key (size=%u) %s: %8ph\n", dm_key->key_size,
-		      dm_key->key_desc, dm_key->data);
-	return 0;
+	kexec_dprintk("Get dm crypt key (size=%u) %s\n", dm_key->key_size,
+		      dm_key->key_desc);
+
+out:
+	up_read(&key->sem);
+	key_put(key);
+	return ret;
 }
 
 struct config_key {
@@ -180,7 +190,7 @@ static inline struct config_key *to_config_key(struct config_item *item)
 
 static ssize_t config_key_description_show(struct config_item *item, char *page)
 {
-	return sprintf(page, "%s\n", to_config_key(item)->description);
+	return sysfs_emit(page, "%s\n", to_config_key(item)->description);
 }
 
 static ssize_t config_key_description_store(struct config_item *item,
@@ -223,7 +233,7 @@ static void config_key_release(struct config_item *item)
 	key_count--;
 }
 
-static struct configfs_item_operations config_key_item_ops = {
+static const struct configfs_item_operations config_key_item_ops = {
 	.release = config_key_release,
 };
 
@@ -243,7 +253,7 @@ static struct config_item *config_keys_make_item(struct config_group *group,
 		return ERR_PTR(-EINVAL);
 	}
 
-	config_key = kzalloc(sizeof(struct config_key), GFP_KERNEL);
+	config_key = kzalloc_obj(struct config_key);
 	if (!config_key)
 		return ERR_PTR(-ENOMEM);
 
@@ -256,7 +266,7 @@ static struct config_item *config_keys_make_item(struct config_group *group,
 
 static ssize_t config_keys_count_show(struct config_item *item, char *page)
 {
-	return sprintf(page, "%d\n", key_count);
+	return sysfs_emit(page, "%d\n", key_count);
 }
 
 CONFIGFS_ATTR_RO(config_keys_, count);
@@ -265,7 +275,7 @@ static bool is_dm_key_reused;
 
 static ssize_t config_keys_reuse_show(struct config_item *item, char *page)
 {
-	return sprintf(page, "%d\n", is_dm_key_reused);
+	return sysfs_emit(page, "%d\n", is_dm_key_reused);
 }
 
 static ssize_t config_keys_reuse_store(struct config_item *item,
@@ -298,7 +308,7 @@ static struct configfs_attribute *config_keys_attrs[] = {
  * Note that, since no extra work is required on ->drop_item(),
  * no ->drop_item() is provided.
  */
-static struct configfs_group_operations config_keys_group_ops = {
+static const struct configfs_group_operations config_keys_group_ops = {
 	.make_item = config_keys_make_item,
 };
 
@@ -312,7 +322,7 @@ static bool restore;
 
 static ssize_t config_keys_restore_show(struct config_item *item, char *page)
 {
-	return sprintf(page, "%d\n", restore);
+	return sysfs_emit(page, "%d\n", restore);
 }
 
 static ssize_t config_keys_restore_store(struct config_item *item,
@@ -378,7 +388,7 @@ static int build_keys_header(void)
 
 		strscpy(keys_header->keys[i].key_desc, key->description,
 			KEY_DESC_MAX_LEN);
-		r = read_key_from_user_keying(&keys_header->keys[i]);
+		r = read_key_from_user_keyring(&keys_header->keys[i]);
 		if (r != 0) {
 			kexec_dprintk("Failed to read key %s\n",
 				      keys_header->keys[i].key_desc);
@@ -405,14 +415,16 @@ int crash_load_dm_crypt_keys(struct kimage *image)
 
 	if (key_count <= 0) {
 		kexec_dprintk("No dm-crypt keys\n");
-		return -ENOENT;
+		return 0;
 	}
 
 	if (!is_dm_key_reused) {
 		image->dm_crypt_keys_addr = 0;
 		r = build_keys_header();
-		if (r)
+		if (r) {
+			pr_err("Failed to build dm-crypt keys header, ret=%d\n", r);
 			return r;
+		}
 	}
 
 	kbuf.buffer = keys_header;
@@ -423,6 +435,7 @@ int crash_load_dm_crypt_keys(struct kimage *image)
 	kbuf.mem = KEXEC_BUF_MEM_UNKNOWN;
 	r = kexec_add_buffer(&kbuf);
 	if (r) {
+		pr_err("Failed to call kexec_add_buffer, ret=%d\n", r);
 		kvfree((void *)kbuf.buffer);
 		return r;
 	}

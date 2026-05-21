@@ -28,6 +28,14 @@
 #include "dc_types.h"
 #include "core_types.h"
 
+static bool dmub_hw_lock_has_inbox0_lock(const struct dc *dc)
+{
+	return dc->ctx && dc->ctx->dmub_srv &&
+	       dc->hwss.dmub_hw_control_lock &&
+	       dc->hwss.dmub_hw_control_lock_fast &&
+	       dc->ctx->dmub_srv->dmub->meta_info.feature_bits.bits.inbox0_lock_support;
+}
+
 void dmub_hw_lock_mgr_cmd(struct dc_dmub_srv *dmub_srv,
 				bool lock,
 				union dmub_hw_lock_flags *hw_locks,
@@ -69,12 +77,12 @@ bool dmub_hw_lock_mgr_does_link_require_lock(const struct dc *dc, const struct d
 	if (link->psr_settings.psr_version == DC_PSR_VERSION_SU_1)
 		return true;
 
-	if (link->replay_settings.replay_feature_enabled)
+	if (link->replay_settings.replay_feature_enabled && dc_is_embedded_signal(link->connector_signal))
 		return true;
 
 	if (link->psr_settings.psr_version == DC_PSR_VERSION_1) {
 		struct dc_link *edp_links[MAX_NUM_EDP];
-		int edp_num;
+		unsigned int edp_num;
 
 		dc_get_edp_links(dc, edp_links, &edp_num);
 		if (edp_num == 1)
@@ -105,5 +113,13 @@ bool should_use_dmub_inbox1_lock(const struct dc *dc, const struct dc_link *link
 	if (dc->ctx->dce_version >= DCN_VERSION_4_01)
 		return false;
 
+	if (dmub_hw_lock_has_inbox0_lock(dc))
+		return false;
+
 	return dmub_hw_lock_mgr_does_link_require_lock(dc, link);
+}
+
+bool should_use_dmub_inbox0_lock_for_link(const struct dc *dc, const struct dc_link *link)
+{
+	return dmub_hw_lock_has_inbox0_lock(dc) && dmub_hw_lock_mgr_does_link_require_lock(dc, link);
 }

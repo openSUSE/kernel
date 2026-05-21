@@ -99,7 +99,7 @@ static int subdev_open(struct file *file)
 	struct v4l2_subdev_fh *subdev_fh;
 	int ret;
 
-	subdev_fh = kzalloc(sizeof(*subdev_fh), GFP_KERNEL);
+	subdev_fh = kzalloc_obj(*subdev_fh);
 	if (subdev_fh == NULL)
 		return -ENOMEM;
 
@@ -1606,7 +1606,7 @@ __v4l2_subdev_state_alloc(struct v4l2_subdev *sd, const char *lock_name,
 	struct v4l2_subdev_state *state;
 	int ret;
 
-	state = kzalloc(sizeof(*state), GFP_KERNEL);
+	state = kzalloc_obj(*state);
 	if (!state)
 		return ERR_PTR(-ENOMEM);
 
@@ -1620,8 +1620,7 @@ __v4l2_subdev_state_alloc(struct v4l2_subdev *sd, const char *lock_name,
 
 	/* Drivers that support streams do not need the legacy pad config */
 	if (!(sd->flags & V4L2_SUBDEV_FL_STREAMS) && sd->entity.num_pads) {
-		state->pads = kvcalloc(sd->entity.num_pads,
-				       sizeof(*state->pads), GFP_KERNEL);
+		state->pads = kvzalloc_objs(*state->pads, sd->entity.num_pads);
 		if (!state->pads) {
 			ret = -ENOMEM;
 			goto err;
@@ -1889,9 +1888,8 @@ v4l2_subdev_init_stream_configs(struct v4l2_subdev_stream_configs *stream_config
 	}
 
 	if (new_configs.num_configs) {
-		new_configs.configs = kvcalloc(new_configs.num_configs,
-					       sizeof(*new_configs.configs),
-					       GFP_KERNEL);
+		new_configs.configs = kvzalloc_objs(*new_configs.configs,
+						    new_configs.num_configs);
 
 		if (!new_configs.configs)
 			return -ENOMEM;
@@ -2112,7 +2110,7 @@ int v4l2_subdev_routing_validate(struct v4l2_subdev *sd,
 {
 	u32 *remote_pads = NULL;
 	unsigned int i, j;
-	int ret = -EINVAL;
+	int ret = -ENXIO;
 
 	if (disallow & (V4L2_SUBDEV_ROUTING_NO_STREAM_MIX |
 			V4L2_SUBDEV_ROUTING_NO_MULTIPLEXING)) {
@@ -2546,6 +2544,125 @@ int v4l2_subdev_s_stream_helper(struct v4l2_subdev *sd, int enable)
 		return v4l2_subdev_disable_streams(sd, pad_index, source_mask);
 }
 EXPORT_SYMBOL_GPL(v4l2_subdev_s_stream_helper);
+
+int __v4l2_subdev_get_frame_desc_passthrough(struct v4l2_subdev *sd,
+					     struct v4l2_subdev_state *state,
+					     unsigned int pad,
+					     struct v4l2_mbus_frame_desc *fd)
+{
+	struct media_pad *local_sink_pad;
+	struct v4l2_subdev_route *route;
+	struct device *dev = sd->dev;
+	int ret = 0;
+
+	lockdep_assert_held(state->lock);
+
+	if (WARN_ON(!(sd->entity.pads[pad].flags & MEDIA_PAD_FL_SOURCE)))
+		return -EINVAL;
+
+	/* Iterate over sink pads */
+	media_entity_for_each_pad(&sd->entity, local_sink_pad) {
+		struct v4l2_mbus_frame_desc source_fd;
+		bool have_source_fd = false;
+
+		if (!(local_sink_pad->flags & MEDIA_PAD_FL_SINK))
+			continue;
+
+		/*
+		 * Copy frame desc entries for the streams going from the sink
+		 * pad to the requested pad
+		 */
+		for_each_active_route(&state->routing, route) {
+			struct v4l2_mbus_frame_desc_entry *source_entry = NULL;
+			struct media_pad *remote_source_pad;
+			struct v4l2_subdev *remote_sd;
+
+			if (route->source_pad != pad ||
+			    route->sink_pad != local_sink_pad->index)
+				continue;
+
+			if (!have_source_fd) {
+				remote_source_pad = media_pad_remote_pad_unique(local_sink_pad);
+				if (IS_ERR(remote_source_pad)) {
+					dev_dbg(dev, "Failed to find remote pad for sink pad %u\n",
+						local_sink_pad->index);
+					return PTR_ERR(remote_source_pad);
+				}
+
+				remote_sd = media_entity_to_v4l2_subdev(remote_source_pad->entity);
+				if (!remote_sd)
+					return -EINVAL;
+
+				ret = v4l2_subdev_call(remote_sd, pad,
+						       get_frame_desc,
+						       remote_source_pad->index,
+						       &source_fd);
+				if (ret) {
+					dev_err(dev,
+						"Failed to get frame desc from remote subdev %s\n",
+						remote_sd->name);
+					return ret;
+				}
+
+				have_source_fd = true;
+
+				if (fd->num_entries == 0) {
+					fd->type = source_fd.type;
+				} else if (fd->type != source_fd.type) {
+					dev_err(dev,
+						"Frame desc type mismatch: %u != %u\n",
+						fd->type, source_fd.type);
+					return -EPIPE;
+				}
+			}
+
+			for (unsigned int i = 0; i < source_fd.num_entries; i++) {
+				if (source_fd.entry[i].stream == route->sink_stream) {
+					source_entry = &source_fd.entry[i];
+					break;
+				}
+			}
+
+			if (!source_entry) {
+				dev_dbg(dev,
+					"Failed to find stream %u from source frame desc\n",
+					route->sink_stream);
+				return -EPIPE;
+			}
+
+			if (fd->num_entries >= V4L2_FRAME_DESC_ENTRY_MAX) {
+				dev_dbg(dev, "Frame desc entry limit reached\n");
+				return -ENOSPC;
+			}
+
+			fd->entry[fd->num_entries] = *source_entry;
+
+			fd->entry[fd->num_entries].stream = route->source_stream;
+
+			fd->num_entries++;
+		}
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(__v4l2_subdev_get_frame_desc_passthrough);
+
+int v4l2_subdev_get_frame_desc_passthrough(struct v4l2_subdev *sd,
+					   unsigned int pad,
+					   struct v4l2_mbus_frame_desc *fd)
+{
+	struct v4l2_subdev_state *state;
+	int ret;
+
+	state = v4l2_subdev_lock_and_get_active_state(sd);
+
+	ret = __v4l2_subdev_get_frame_desc_passthrough(sd, state, pad, fd);
+
+	v4l2_subdev_unlock_state(state);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(v4l2_subdev_get_frame_desc_passthrough);
 
 #endif /* CONFIG_VIDEO_V4L2_SUBDEV_API */
 

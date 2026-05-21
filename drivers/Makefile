@@ -10,7 +10,7 @@ obj-y				+= cache/
 obj-y				+= irqchip/
 obj-y				+= bus/
 
-obj-$(CONFIG_GENERIC_PHY)	+= phy/
+obj-y				+= phy/
 
 # GPIO must come after pinctrl as gpios may need to mux pins etc
 obj-$(CONFIG_PINCTRL)		+= pinctrl/
@@ -124,7 +124,6 @@ obj-$(CONFIG_WATCHDOG)		+= watchdog/
 obj-$(CONFIG_MD)		+= md/
 obj-$(CONFIG_BT)		+= bluetooth/
 obj-$(CONFIG_ACCESSIBILITY)	+= accessibility/
-obj-$(CONFIG_ISDN)		+= isdn/
 obj-$(CONFIG_EDAC)		+= edac/
 obj-$(CONFIG_EISA)		+= eisa/
 obj-$(CONFIG_PM_OPP)		+= opp/

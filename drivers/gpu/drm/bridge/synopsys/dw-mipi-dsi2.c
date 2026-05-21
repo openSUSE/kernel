@@ -540,10 +540,14 @@ static int dw_mipi_dsi2_host_attach(struct mipi_dsi_host *host,
 	if (pdata->host_ops && pdata->host_ops->attach) {
 		ret = pdata->host_ops->attach(pdata->priv_data, device);
 		if (ret < 0)
-			return ret;
+			goto err_remove_bridge;
 	}
 
 	return 0;
+
+err_remove_bridge:
+	drm_bridge_remove(&dsi2->bridge);
+	return ret;
 }
 
 static int dw_mipi_dsi2_host_detach(struct mipi_dsi_host *host,
@@ -711,7 +715,7 @@ dw_mipi_dsi2_bridge_atomic_get_input_bus_fmts(struct drm_bridge *bridge,
 						 output_fmt, num_input_fmts);
 
 	/* Fall back to MEDIA_BUS_FMT_FIXED as the only input format. */
-	input_fmts = kmalloc(sizeof(*input_fmts), GFP_KERNEL);
+	input_fmts = kmalloc_obj(*input_fmts);
 	if (!input_fmts)
 		return NULL;
 	input_fmts[0] = MEDIA_BUS_FMT_FIXED;

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (C) 2020-2024 Intel Corporation
+ * Copyright (C) 2020-2026 Intel Corporation
  */
 
 #include <linux/highmem.h>
@@ -47,8 +47,10 @@ static void ivpu_pm_prepare_cold_boot(struct ivpu_device *vdev)
 	ivpu_ipc_reset(vdev);
 	ivpu_fw_log_reset(vdev);
 	ivpu_fw_load(vdev);
-	fw->entry_point = fw->cold_boot_entry_point;
 	fw->last_heartbeat = 0;
+
+	ivpu_dbg(vdev, FW_BOOT, "Cold boot entry point 0x%llx", vdev->fw->cold_boot_entry_point);
+	fw->next_boot_mode = VPU_BOOT_TYPE_COLDBOOT;
 }
 
 static void ivpu_pm_prepare_warm_boot(struct ivpu_device *vdev)
@@ -56,13 +58,14 @@ static void ivpu_pm_prepare_warm_boot(struct ivpu_device *vdev)
 	struct ivpu_fw_info *fw = vdev->fw;
 	struct vpu_boot_params *bp = ivpu_bo_vaddr(fw->mem_bp);
 
-	if (!bp->save_restore_ret_address) {
+	fw->warm_boot_entry_point = bp->save_restore_ret_address;
+	if (!fw->warm_boot_entry_point) {
 		ivpu_pm_prepare_cold_boot(vdev);
 		return;
 	}
 
-	ivpu_dbg(vdev, FW_BOOT, "Save/restore entry point %llx", bp->save_restore_ret_address);
-	fw->entry_point = bp->save_restore_ret_address;
+	ivpu_dbg(vdev, FW_BOOT, "Warm boot entry point 0x%llx", fw->warm_boot_entry_point);
+	fw->next_boot_mode = VPU_BOOT_TYPE_WARMBOOT;
 }
 
 static int ivpu_suspend(struct ivpu_device *vdev)
@@ -110,7 +113,7 @@ err_power_down:
 	ivpu_hw_power_down(vdev);
 	pci_set_power_state(to_pci_dev(vdev->drm.dev), PCI_D3hot);
 
-	if (!ivpu_fw_is_cold_boot(vdev)) {
+	if (ivpu_fw_is_warm_boot(vdev)) {
 		ivpu_pm_prepare_cold_boot(vdev);
 		goto retry;
 	} else {
@@ -163,7 +166,7 @@ static void ivpu_pm_recovery_work(struct work_struct *work)
 	ivpu_pm_reset_begin(vdev);
 
 	if (!pm_runtime_status_suspended(vdev->drm.dev)) {
-		ivpu_jsm_state_dump(vdev);
+		ivpu_jsm_state_dump_no_reply(vdev);
 		ivpu_dev_coredump(vdev);
 		ivpu_suspend(vdev);
 	}
@@ -202,23 +205,31 @@ static void ivpu_job_timeout_work(struct work_struct *work)
 
 	if (ivpu_jsm_get_heartbeat(vdev, 0, &heartbeat) || heartbeat <= vdev->fw->last_heartbeat) {
 		ivpu_err(vdev, "Job timeout detected, heartbeat not progressed\n");
-		goto recovery;
+		goto abort;
 	}
 
 	inference_max_retries = DIV_ROUND_UP(inference_timeout_ms, timeout_ms);
 	if (atomic_fetch_inc(&vdev->job_timeout_counter) >= inference_max_retries) {
 		ivpu_err(vdev, "Job timeout detected, heartbeat limit (%lld) exceeded\n",
 			 inference_max_retries);
-		goto recovery;
+		goto abort;
 	}
 
 	vdev->fw->last_heartbeat = heartbeat;
 	ivpu_start_job_timeout_detection(vdev);
 	return;
 
-recovery:
+abort:
 	atomic_set(&vdev->job_timeout_counter, 0);
-	ivpu_pm_trigger_recovery(vdev, "TDR");
+
+	if (vdev->fw->sched_mode == VPU_SCHEDULING_MODE_OS) {
+		ivpu_pm_trigger_recovery(vdev, "Job timeout");
+		return;
+	}
+
+	ivpu_jsm_state_dump(vdev);
+	ivpu_dev_coredump(vdev);
+	queue_work(system_percpu_wq, &vdev->context_abort_work);
 }
 
 void ivpu_start_job_timeout_detection(struct ivpu_device *vdev)
@@ -401,6 +412,7 @@ void ivpu_pm_init(struct ivpu_device *vdev)
 	init_rwsem(&pm->reset_lock);
 	atomic_set(&pm->reset_pending, 0);
 	atomic_set(&pm->reset_counter, 0);
+	atomic_set(&pm->engine_reset_counter, 0);
 
 	INIT_WORK(&pm->recovery_work, ivpu_pm_recovery_work);
 	INIT_DELAYED_WORK(&pm->job_timeout_work, ivpu_job_timeout_work);

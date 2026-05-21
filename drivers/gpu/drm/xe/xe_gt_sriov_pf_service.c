@@ -5,20 +5,19 @@
 
 #include <drm/drm_managed.h>
 
-#include "abi/guc_actions_sriov_abi.h"
 #include "abi/guc_relay_actions_abi.h"
 
 #include "regs/xe_gt_regs.h"
 #include "regs/xe_guc_regs.h"
-#include "regs/xe_regs.h"
 
+#include "xe_assert.h"
 #include "xe_mmio.h"
 #include "xe_gt_sriov_printk.h"
-#include "xe_gt_sriov_pf_helpers.h"
 #include "xe_gt_sriov_pf_service.h"
 #include "xe_gt_sriov_pf_service_types.h"
 #include "xe_guc_ct.h"
 #include "xe_guc_hxg_helpers.h"
+#include "xe_sriov.h"
 #include "xe_sriov_pf_service.h"
 
 static const struct xe_reg tgl_runtime_regs[] = {
@@ -112,6 +111,8 @@ static const struct xe_reg ver_35_runtime_regs[] = {
 	XE2_GT_COMPUTE_DSS_2,		/* _MMIO(0x914c) */
 	XE2_GT_GEOMETRY_DSS_1,		/* _MMIO(0x9150) */
 	XE2_GT_GEOMETRY_DSS_2,		/* _MMIO(0x9154) */
+	XE3P_XPC_GT_GEOMETRY_DSS_3,	/* _MMIO(0x915c) */
+	XE3P_XPC_GT_COMPUTE_DSS_3,	/* _MMIO(0x9160) */
 	SERVICE_COPY_ENABLE,		/* _MMIO(0x9170) */
 };
 

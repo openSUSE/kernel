@@ -10,7 +10,7 @@
 #include <drm/drm_managed.h>
 
 #include "xe_bo.h"
-#include "xe_device.h"
+#include "xe_device_types.h"
 #include "xe_map.h"
 
 static void xe_sa_bo_manager_fini(struct drm_device *drm, void *arg)
@@ -29,6 +29,7 @@ static void xe_sa_bo_manager_fini(struct drm_device *drm, void *arg)
 		kvfree(sa_manager->cpu_ptr);
 
 	sa_manager->bo = NULL;
+	sa_manager->shadow = NULL;
 }
 
 /**
@@ -37,12 +38,14 @@ static void xe_sa_bo_manager_fini(struct drm_device *drm, void *arg)
  * @size: number of bytes to allocate
  * @guard: number of bytes to exclude from suballocations
  * @align: alignment for each suballocated chunk
+ * @flags: flags for suballocator
  *
  * Prepares the suballocation manager for suballocations.
  *
  * Return: a pointer to the &xe_sa_manager or an ERR_PTR on failure.
  */
-struct xe_sa_manager *__xe_sa_bo_manager_init(struct xe_tile *tile, u32 size, u32 guard, u32 align)
+struct xe_sa_manager *__xe_sa_bo_manager_init(struct xe_tile *tile, u32 size,
+					      u32 guard, u32 align, u32 flags)
 {
 	struct xe_device *xe = tile_to_xe(tile);
 	struct xe_sa_manager *sa_manager;
@@ -79,6 +82,32 @@ struct xe_sa_manager *__xe_sa_bo_manager_init(struct xe_tile *tile, u32 size, u3
 		memset(sa_manager->cpu_ptr, 0, bo->ttm.base.size);
 	}
 
+	if (flags & XE_SA_BO_MANAGER_FLAG_SHADOW) {
+		struct xe_bo *shadow;
+
+		ret = drmm_mutex_init(&xe->drm, &sa_manager->swap_guard);
+		if (ret)
+			return ERR_PTR(ret);
+
+		if (IS_ENABLED(CONFIG_PROVE_LOCKING)) {
+			fs_reclaim_acquire(GFP_KERNEL);
+			might_lock(&sa_manager->swap_guard);
+			fs_reclaim_release(GFP_KERNEL);
+		}
+
+		shadow = xe_managed_bo_create_pin_map(xe, tile, size,
+						      XE_BO_FLAG_VRAM_IF_DGFX(tile) |
+						      XE_BO_FLAG_GGTT |
+						      XE_BO_FLAG_GGTT_INVALIDATE |
+						      XE_BO_FLAG_PINNED_NORESTORE);
+		if (IS_ERR(shadow)) {
+			drm_err(&xe->drm, "Failed to prepare %uKiB BO for SA manager (%pe)\n",
+				size / SZ_1K, shadow);
+			return ERR_CAST(shadow);
+		}
+		sa_manager->shadow = shadow;
+	}
+
 	drm_suballoc_manager_init(&sa_manager->base, managed_size, align);
 	ret = drmm_add_action_or_reset(&xe->drm, xe_sa_bo_manager_fini,
 				       sa_manager);
@@ -86,6 +115,48 @@ struct xe_sa_manager *__xe_sa_bo_manager_init(struct xe_tile *tile, u32 size, u3
 		return ERR_PTR(ret);
 
 	return sa_manager;
+}
+
+/**
+ * xe_sa_bo_swap_shadow() - Swap the SA BO with shadow BO.
+ * @sa_manager: the XE sub allocator manager
+ *
+ * Swaps the sub-allocator primary buffer object with shadow buffer object.
+ *
+ * Return: None.
+ */
+void xe_sa_bo_swap_shadow(struct xe_sa_manager *sa_manager)
+{
+	struct xe_device *xe = tile_to_xe(sa_manager->bo->tile);
+
+	xe_assert(xe, sa_manager->shadow);
+	lockdep_assert_held(&sa_manager->swap_guard);
+
+	swap(sa_manager->bo, sa_manager->shadow);
+	if (!sa_manager->bo->vmap.is_iomem)
+		sa_manager->cpu_ptr = sa_manager->bo->vmap.vaddr;
+}
+
+/**
+ * xe_sa_bo_sync_shadow() - Sync the SA Shadow BO with primary BO.
+ * @sa_bo: the sub-allocator buffer object.
+ *
+ * Synchronize sub-allocator shadow buffer object with primary buffer object.
+ *
+ * Return: None.
+ */
+void xe_sa_bo_sync_shadow(struct drm_suballoc *sa_bo)
+{
+	struct xe_sa_manager *sa_manager = to_xe_sa_manager(sa_bo->manager);
+	struct xe_device *xe = tile_to_xe(sa_manager->bo->tile);
+
+	xe_assert(xe, sa_manager->shadow);
+	lockdep_assert_held(&sa_manager->swap_guard);
+
+	xe_map_memcpy_to(xe, &sa_manager->shadow->vmap,
+			 drm_suballoc_soffset(sa_bo),
+			 xe_sa_bo_cpu_addr(sa_bo),
+			 drm_suballoc_size(sa_bo));
 }
 
 /**
@@ -108,6 +179,36 @@ struct drm_suballoc *__xe_sa_bo_new(struct xe_sa_manager *sa_manager, u32 size, 
 		return ERR_PTR(-ENOBUFS);
 
 	return drm_suballoc_new(&sa_manager->base, size, gfp, true, 0);
+}
+
+/**
+ * xe_sa_bo_alloc() - Allocate uninitialized suballoc object.
+ * @gfp: gfp flags used for memory allocation.
+ *
+ * Allocate memory for an uninitialized suballoc object. Intended usage is
+ * allocate memory for suballoc object outside of a reclaim tainted context
+ * and then be initialized at a later time in a reclaim tainted context.
+ *
+ * Return: a new uninitialized suballoc object, or an ERR_PTR(-ENOMEM).
+ */
+struct drm_suballoc *xe_sa_bo_alloc(gfp_t gfp)
+{
+	return drm_suballoc_alloc(gfp);
+}
+
+/**
+ * xe_sa_bo_init() - Initialize a suballocation.
+ * @sa_manager: pointer to the sa_manager
+ * @sa: The struct drm_suballoc.
+ * @size: number of bytes we want to suballocate.
+ *
+ * Try to make a suballocation on a pre-allocated suballoc object of size @size.
+ *
+ * Return: zero on success, errno on failure.
+ */
+int xe_sa_bo_init(struct xe_sa_manager *sa_manager, struct drm_suballoc *sa, size_t size)
+{
+	return drm_suballoc_insert(&sa_manager->base, sa, size, true, 0);
 }
 
 /**

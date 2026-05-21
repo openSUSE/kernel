@@ -284,6 +284,7 @@ static uint32_t align_to_chunks_number_per_line(
 	struct dce112_compressor *cp110,
 	uint32_t pixels)
 {
+	(void)cp110;
 	return 256 * ((pixels + 255) / 256);
 }
 
@@ -831,7 +832,7 @@ void dce112_compressor_construct(struct dce112_compressor *compressor,
 struct compressor *dce112_compressor_create(struct dc_context *ctx)
 {
 	struct dce112_compressor *cp110 =
-		kzalloc(sizeof(struct dce112_compressor), GFP_KERNEL);
+		kzalloc_obj(struct dce112_compressor);
 
 	if (!cp110)
 		return NULL;

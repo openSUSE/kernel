@@ -107,7 +107,7 @@ static bool mlx5_sd_is_supported(struct mlx5_core_dev *dev, u8 host_buses)
 	/* Disconnect secondaries from the network */
 	if (!MLX5_CAP_GEN(dev, eswitch_manager))
 		return false;
-	if (!MLX5_CAP_GEN(dev, silent_mode))
+	if (!MLX5_CAP_GEN(dev, silent_mode_set))
 		return false;
 
 	/* RX steering from primary to secondaries */
@@ -187,7 +187,7 @@ static int sd_init(struct mlx5_core_dev *dev)
 		return 0;
 	}
 
-	sd = kzalloc(sizeof(*sd), GFP_KERNEL);
+	sd = kzalloc_obj(*sd);
 	if (!sd)
 		return -ENOMEM;
 

@@ -27,8 +27,6 @@
 #include <asm/page.h>
 #include <asm/sections.h>
 
-#include <crypto/sha1.h>
-
 #include "kallsyms_internal.h"
 #include "kexec_internal.h"
 
@@ -44,8 +42,14 @@ note_buf_t __percpu *crash_notes;
 
 int kimage_crash_copy_vmcoreinfo(struct kimage *image)
 {
-	struct page *vmcoreinfo_page;
+	struct page *vmcoreinfo_base;
+	struct page *vmcoreinfo_pages[DIV_ROUND_UP(VMCOREINFO_BYTES, PAGE_SIZE)];
+	unsigned int order, nr_pages;
+	int i;
 	void *safecopy;
+
+	nr_pages = DIV_ROUND_UP(VMCOREINFO_BYTES, PAGE_SIZE);
+	order = get_order(VMCOREINFO_BYTES);
 
 	if (!IS_ENABLED(CONFIG_CRASH_DUMP))
 		return 0;
@@ -61,12 +65,15 @@ int kimage_crash_copy_vmcoreinfo(struct kimage *image)
 	 * happens to generate vmcoreinfo note, hereby we rely on
 	 * vmap for this purpose.
 	 */
-	vmcoreinfo_page = kimage_alloc_control_pages(image, 0);
-	if (!vmcoreinfo_page) {
+	vmcoreinfo_base = kimage_alloc_control_pages(image, order);
+	if (!vmcoreinfo_base) {
 		pr_warn("Could not allocate vmcoreinfo buffer\n");
 		return -ENOMEM;
 	}
-	safecopy = vmap(&vmcoreinfo_page, 1, VM_MAP, PAGE_KERNEL);
+	for (i = 0; i < nr_pages; i++)
+		vmcoreinfo_pages[i] = vmcoreinfo_base + i;
+
+	safecopy = vmap(vmcoreinfo_pages, nr_pages, VM_MAP, PAGE_KERNEL);
 	if (!safecopy) {
 		pr_warn("Could not vmap vmcoreinfo buffer\n");
 		return -ENOMEM;
@@ -359,7 +366,7 @@ static int __crash_shrink_memory(struct resource *old_res,
 {
 	struct resource *ram_res;
 
-	ram_res = kzalloc(sizeof(*ram_res), GFP_KERNEL);
+	ram_res = kzalloc_obj(*ram_res);
 	if (!ram_res)
 		return -ENOMEM;
 

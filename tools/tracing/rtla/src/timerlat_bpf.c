@@ -7,6 +7,10 @@
 
 static struct timerlat_bpf *bpf;
 
+/* BPF object and program for action program */
+static struct bpf_object *obj;
+static struct bpf_program *prog;
+
 /*
  * timerlat_bpf_init - load and initialize BPF program to collect timerlat data
  */
@@ -60,6 +64,19 @@ int timerlat_bpf_init(struct timerlat_params *params)
 }
 
 /*
+ * timerlat_bpf_set_action - set action on threshold executed on BPF side
+ */
+static int timerlat_bpf_set_action(struct bpf_program *prog)
+{
+	unsigned int key = 0, value = bpf_program__fd(prog);
+
+	return bpf_map__update_elem(bpf->maps.bpf_action,
+				    &key, sizeof(key),
+				    &value, sizeof(value),
+				    BPF_ANY);
+}
+
+/*
  * timerlat_bpf_attach - attach BPF program to collect timerlat data
  */
 int timerlat_bpf_attach(void)
@@ -83,6 +100,11 @@ void timerlat_bpf_detach(void)
 void timerlat_bpf_destroy(void)
 {
 	timerlat_bpf__destroy(bpf);
+	bpf = NULL;
+	if (obj)
+		bpf_object__close(obj);
+	obj = NULL;
+	prog = NULL;
 }
 
 static int handle_rb_event(void *ctx, void *data, size_t data_sz)
@@ -125,24 +147,23 @@ static int get_value(struct bpf_map *map_irq,
 		     int key,
 		     long long *value_irq,
 		     long long *value_thread,
-		     long long *value_user,
-		     int cpus)
+		     long long *value_user)
 {
 	int err;
 
 	err = bpf_map__lookup_elem(map_irq, &key,
 				   sizeof(unsigned int), value_irq,
-				   sizeof(long long) * cpus, 0);
+				   sizeof(long long) * nr_cpus, 0);
 	if (err)
 		return err;
 	err = bpf_map__lookup_elem(map_thread, &key,
 				   sizeof(unsigned int), value_thread,
-				   sizeof(long long) * cpus, 0);
+				   sizeof(long long) * nr_cpus, 0);
 	if (err)
 		return err;
 	err = bpf_map__lookup_elem(map_user, &key,
 				   sizeof(unsigned int), value_user,
-				   sizeof(long long) * cpus, 0);
+				   sizeof(long long) * nr_cpus, 0);
 	if (err)
 		return err;
 	return 0;
@@ -154,13 +175,12 @@ static int get_value(struct bpf_map *map_irq,
 int timerlat_bpf_get_hist_value(int key,
 				long long *value_irq,
 				long long *value_thread,
-				long long *value_user,
-				int cpus)
+				long long *value_user)
 {
 	return get_value(bpf->maps.hist_irq,
 			 bpf->maps.hist_thread,
 			 bpf->maps.hist_user,
-			 key, value_irq, value_thread, value_user, cpus);
+			 key, value_irq, value_thread, value_user);
 }
 
 /*
@@ -169,12 +189,55 @@ int timerlat_bpf_get_hist_value(int key,
 int timerlat_bpf_get_summary_value(enum summary_field key,
 				   long long *value_irq,
 				   long long *value_thread,
-				   long long *value_user,
-				   int cpus)
+				   long long *value_user)
 {
 	return get_value(bpf->maps.summary_irq,
 			 bpf->maps.summary_thread,
 			 bpf->maps.summary_user,
-			 key, value_irq, value_thread, value_user, cpus);
+			 key, value_irq, value_thread, value_user);
 }
+
+/*
+ * timerlat_load_bpf_action_program - load and register a BPF action program
+ */
+int timerlat_load_bpf_action_program(const char *program_path)
+{
+	int err;
+
+	obj = bpf_object__open_file(program_path, NULL);
+	if (!obj) {
+		err_msg("Failed to open BPF action program: %s\n", program_path);
+		goto out_err;
+	}
+
+	err = bpf_object__load(obj);
+	if (err) {
+		err_msg("Failed to load BPF action program: %s\n", program_path);
+		goto out_obj_err;
+	}
+
+	prog = bpf_object__find_program_by_name(obj, "action_handler");
+	if (!prog) {
+		err_msg("BPF action program must have 'action_handler' function: %s\n",
+			program_path);
+		goto out_obj_err;
+	}
+
+	err = timerlat_bpf_set_action(prog);
+	if (err) {
+		err_msg("Failed to register BPF action program: %s\n", program_path);
+		goto out_prog_err;
+	}
+
+	return 0;
+
+out_prog_err:
+	prog = NULL;
+out_obj_err:
+	bpf_object__close(obj);
+	obj = NULL;
+out_err:
+	return 1;
+}
+
 #endif /* HAVE_BPF_SKEL */

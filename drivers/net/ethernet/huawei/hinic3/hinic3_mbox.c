@@ -5,6 +5,7 @@
 
 #include "hinic3_common.h"
 #include "hinic3_csr.h"
+#include "hinic3_eqs.h"
 #include "hinic3_hwdev.h"
 #include "hinic3_hwif.h"
 #include "hinic3_mbox.h"
@@ -50,9 +51,9 @@
 #define MBOX_WB_STATUS_NOT_FINISHED      0x00
 
 #define MBOX_STATUS_FINISHED(wb)  \
-	((FIELD_PREP(MBOX_WB_STATUS_MASK, (wb))) != MBOX_WB_STATUS_NOT_FINISHED)
+	((FIELD_GET(MBOX_WB_STATUS_MASK, (wb))) != MBOX_WB_STATUS_NOT_FINISHED)
 #define MBOX_STATUS_SUCCESS(wb)  \
-	((FIELD_PREP(MBOX_WB_STATUS_MASK, (wb))) ==  \
+	((FIELD_GET(MBOX_WB_STATUS_MASK, (wb))) ==  \
 	MBOX_WB_STATUS_FINISHED_SUCCESS)
 #define MBOX_STATUS_ERRCODE(wb)  \
 	((wb) & MBOX_WB_ERROR_CODE_MASK)
@@ -82,10 +83,19 @@ static struct hinic3_msg_desc *get_mbox_msg_desc(struct hinic3_mbox *mbox,
 						 enum mbox_msg_direction_type dir,
 						 u16 src_func_id)
 {
+	struct hinic3_hwdev *hwdev = mbox->hwdev;
 	struct hinic3_msg_channel *msg_ch;
 
-	msg_ch = (src_func_id == MBOX_MGMT_FUNC_ID) ?
-		&mbox->mgmt_msg : mbox->func_msg;
+	if (src_func_id == MBOX_MGMT_FUNC_ID) {
+		msg_ch = &mbox->mgmt_msg;
+	} else if (HINIC3_IS_VF(hwdev)) {
+		/* message from pf */
+		msg_ch = mbox->func_msg;
+		if (src_func_id != hinic3_pf_id_of_vf(hwdev) || !msg_ch)
+			return NULL;
+	} else {
+		return NULL;
+	}
 
 	return (dir == MBOX_MSG_SEND) ?
 		&msg_ch->recv_msg : &msg_ch->resp_msg;
@@ -191,6 +201,12 @@ void hinic3_mbox_func_aeqe_handler(struct hinic3_hwdev *hwdev, u8 *header,
 	dir = MBOX_MSG_HEADER_GET(mbox_header, DIRECTION);
 	src_func_id = MBOX_MSG_HEADER_GET(mbox_header, SRC_GLB_FUNC_IDX);
 	msg_desc = get_mbox_msg_desc(mbox, dir, src_func_id);
+	if (!msg_desc) {
+		dev_err(mbox->hwdev->dev,
+			"Mailbox source function id: %u is invalid for current function\n",
+			src_func_id);
+		return;
+	}
 	recv_mbox_handler(mbox, header, msg_desc);
 }
 
@@ -305,7 +321,7 @@ static int hinic3_init_func_mbox_msg_channel(struct hinic3_hwdev *hwdev)
 	int err;
 
 	mbox = hwdev->mbox;
-	mbox->func_msg = kzalloc(sizeof(*mbox->func_msg), GFP_KERNEL);
+	mbox->func_msg = kzalloc_obj(*mbox->func_msg);
 	if (!mbox->func_msg)
 		return -ENOMEM;
 
@@ -380,6 +396,7 @@ static int hinic3_mbox_pre_init(struct hinic3_hwdev *hwdev,
 {
 	mbox->hwdev = hwdev;
 	mutex_init(&mbox->mbox_send_lock);
+	mutex_init(&mbox->mbox_seg_send_lock);
 	spin_lock_init(&mbox->mbox_lock);
 
 	mbox->workq = create_singlethread_workqueue(HINIC3_MBOX_WQ_NAME);
@@ -397,7 +414,7 @@ int hinic3_init_mbox(struct hinic3_hwdev *hwdev)
 	struct hinic3_mbox *mbox;
 	int err;
 
-	mbox = kzalloc(sizeof(*mbox), GFP_KERNEL);
+	mbox = kzalloc_obj(*mbox);
 	if (!mbox)
 		return -ENOMEM;
 
@@ -409,9 +426,12 @@ int hinic3_init_mbox(struct hinic3_hwdev *hwdev)
 	if (err)
 		goto err_destroy_workqueue;
 
-	err = hinic3_init_func_mbox_msg_channel(hwdev);
-	if (err)
-		goto err_uninit_mgmt_msg_ch;
+	if (HINIC3_IS_VF(hwdev)) {
+		/* VF to PF mbox message channel */
+		err = hinic3_init_func_mbox_msg_channel(hwdev);
+		if (err)
+			goto err_uninit_mgmt_msg_ch;
+	}
 
 	err = alloc_mbox_wb_status(mbox);
 	if (err) {
@@ -424,14 +444,12 @@ int hinic3_init_mbox(struct hinic3_hwdev *hwdev)
 	return 0;
 
 err_uninit_func_mbox_msg_ch:
-	hinic3_uninit_func_mbox_msg_channel(hwdev);
-
+	if (HINIC3_IS_VF(hwdev))
+		hinic3_uninit_func_mbox_msg_channel(hwdev);
 err_uninit_mgmt_msg_ch:
 	uninit_mgmt_msg_channel(mbox);
-
 err_destroy_workqueue:
 	destroy_workqueue(mbox->workq);
-
 err_free_mbox:
 	kfree(mbox);
 
@@ -444,7 +462,8 @@ void hinic3_free_mbox(struct hinic3_hwdev *hwdev)
 
 	destroy_workqueue(mbox->workq);
 	free_mbox_wb_status(mbox);
-	hinic3_uninit_func_mbox_msg_channel(hwdev);
+	if (HINIC3_IS_VF(hwdev))
+		hinic3_uninit_func_mbox_msg_channel(hwdev);
 	uninit_mgmt_msg_channel(mbox);
 	kfree(mbox);
 }
@@ -576,7 +595,13 @@ static void write_mbox_msg_attr(struct hinic3_mbox *mbox,
 {
 	struct hinic3_hwif *hwif = mbox->hwdev->hwif;
 	u32 mbox_int, mbox_ctrl, tx_size;
+	u16 func = dst_func;
 
+	/* VF can send non-management messages only to PF. We set DST_FUNC field
+	 * to 0 since HW will ignore it anyway.
+	 */
+	if (HINIC3_IS_VF(mbox->hwdev) && dst_func != MBOX_MGMT_FUNC_ID)
+		func = 0;
 	tx_size = ALIGN(seg_len + MBOX_HEADER_SZ, MBOX_SEG_LEN_ALIGN) >> 2;
 
 	mbox_int = MBOX_INT_SET(dst_aeqn, DST_AEQN) |
@@ -587,11 +612,23 @@ static void write_mbox_msg_attr(struct hinic3_mbox *mbox,
 
 	mbox_ctrl = MBOX_CTRL_SET(1, TX_STATUS) |
 		    MBOX_CTRL_SET(0, TRIGGER_AEQE) |
-		    MBOX_CTRL_SET(dst_func, DST_FUNC);
+		    MBOX_CTRL_SET(func, DST_FUNC);
 
 	hinic3_hwif_write_reg(hwif, HINIC3_FUNC_CSR_MAILBOX_INT_OFF, mbox_int);
 	hinic3_hwif_write_reg(hwif, HINIC3_FUNC_CSR_MAILBOX_CONTROL_OFF,
 			      mbox_ctrl);
+}
+
+static void hinic3_dump_mbox_reg(struct hinic3_hwdev *hwdev)
+{
+	u32 val;
+
+	val = hinic3_hwif_read_reg(hwdev->hwif,
+				   HINIC3_FUNC_CSR_MAILBOX_CONTROL_OFF);
+	dev_err(hwdev->dev, "Mailbox control reg: 0x%x\n", val);
+	val = hinic3_hwif_read_reg(hwdev->hwif,
+				   HINIC3_FUNC_CSR_MAILBOX_INT_OFF);
+	dev_err(hwdev->dev, "Mailbox interrupt offset: 0x%x\n", val);
 }
 
 static u16 get_mbox_status(const struct hinic3_send_mbox *mbox)
@@ -610,6 +647,9 @@ static enum hinic3_wait_return check_mbox_wb_status(void *priv_data)
 {
 	struct hinic3_mbox *mbox = priv_data;
 	u16 wb_status;
+
+	if (!mbox->hwdev->chip_present_flag)
+		return HINIC3_WAIT_PROCESS_ERR;
 
 	wb_status = get_mbox_status(&mbox->send_mbox);
 
@@ -648,6 +688,7 @@ static int send_mbox_seg(struct hinic3_mbox *mbox, __le64 header,
 	if (err) {
 		dev_err(hwdev->dev, "Send mailbox segment timeout, wb status: 0x%x\n",
 			wb_status);
+		hinic3_dump_mbox_reg(hwdev);
 		return err;
 	}
 
@@ -683,6 +724,8 @@ static int send_mbox_msg(struct hinic3_mbox *mbox, u8 mod, u16 cmd,
 		rsp_aeq_id = MBOX_MSG_AEQ_FOR_MBOX;
 	else
 		rsp_aeq_id = 0;
+
+	mutex_lock(&mbox->mbox_seg_send_lock);
 
 	if (dst_func == MBOX_MGMT_FUNC_ID &&
 	    !(hwdev->features[0] & MBOX_COMM_F_MBOX_SEGMENT)) {
@@ -737,6 +780,8 @@ static int send_mbox_msg(struct hinic3_mbox *mbox, u8 mod, u16 cmd,
 	}
 
 err_send:
+	mutex_unlock(&mbox->mbox_seg_send_lock);
+
 	return err;
 }
 
@@ -751,6 +796,9 @@ static void set_mbox_to_func_event(struct hinic3_mbox *mbox,
 static enum hinic3_wait_return check_mbox_msg_finish(void *priv_data)
 {
 	struct hinic3_mbox *mbox = priv_data;
+
+	if (!mbox->hwdev->chip_present_flag)
+		return HINIC3_WAIT_PROCESS_ERR;
 
 	return (mbox->event_flag == MBOX_EVENT_SUCCESS) ?
 		HINIC3_WAIT_PROCESS_CPL : HINIC3_WAIT_PROCESS_WAITING;
@@ -783,6 +831,9 @@ int hinic3_send_mbox_to_mgmt(struct hinic3_hwdev *hwdev, u8 mod, u16 cmd,
 	u32 msg_len;
 	int err;
 
+	if (!hwdev->chip_present_flag)
+		return -EPERM;
+
 	/* expect response message */
 	msg_desc = get_mbox_msg_desc(mbox, MBOX_MSG_RESP, MBOX_MGMT_FUNC_ID);
 	mutex_lock(&mbox->mbox_send_lock);
@@ -803,6 +854,7 @@ int hinic3_send_mbox_to_mgmt(struct hinic3_hwdev *hwdev, u8 mod, u16 cmd,
 	if (wait_mbox_msg_completion(mbox, msg_params->timeout_ms)) {
 		dev_err(hwdev->dev,
 			"Send mbox msg timeout, msg_id: %u\n", msg_info.msg_id);
+		hinic3_dump_aeq_info(mbox->hwdev);
 		err = -ETIMEDOUT;
 		goto err_send;
 	}
@@ -840,12 +892,28 @@ err_send:
 	return err;
 }
 
+void hinic3_response_mbox_to_mgmt(struct hinic3_hwdev *hwdev, u8 mod, u16 cmd,
+				  const void *buf_in, u32 in_size, u16 msg_id)
+{
+	struct mbox_msg_info msg_info;
+
+	msg_info.msg_id = (u8)msg_id;
+	msg_info.status = 0;
+
+	send_mbox_msg(hwdev->mbox, mod, cmd, buf_in, in_size,
+		      MBOX_MGMT_FUNC_ID, MBOX_MSG_RESP,
+		      MBOX_MSG_NO_ACK, &msg_info);
+}
+
 int hinic3_send_mbox_to_mgmt_no_ack(struct hinic3_hwdev *hwdev, u8 mod, u16 cmd,
 				    const struct mgmt_msg_params *msg_params)
 {
 	struct hinic3_mbox *mbox = hwdev->mbox;
 	struct mbox_msg_info msg_info = {};
 	int err;
+
+	if (!hwdev->chip_present_flag)
+		return -EPERM;
 
 	mutex_lock(&mbox->mbox_send_lock);
 	err = send_mbox_msg(mbox, mod, cmd, msg_params->buf_in,

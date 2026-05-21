@@ -3,7 +3,8 @@
 // inspired by <https://github.com/nbdd0121/pin-init/blob/trunk/examples/pthread_mutex.rs>
 #![allow(clippy::undocumented_unsafe_blocks)]
 #![cfg_attr(feature = "alloc", feature(allocator_api))]
-#![cfg_attr(not(RUSTC_LINT_REASONS_IS_STABLE), feature(lint_reasons))]
+#![cfg_attr(USE_RUSTC_FEATURES, feature(lint_reasons))]
+#![cfg_attr(USE_RUSTC_FEATURES, feature(raw_ref_op))]
 
 #[cfg(not(windows))]
 mod pthread_mtx {
@@ -98,11 +99,11 @@ mod pthread_mtx {
                 // SAFETY: mutex has been initialized
                 unsafe { pin_init_from_closure(init) }
             }
-            try_pin_init!(Self {
-            data: UnsafeCell::new(data),
-            raw <- init_raw(),
-            pin: PhantomPinned,
-        }? Error)
+            pin_init!(Self {
+                data: UnsafeCell::new(data),
+                raw <- init_raw(),
+                pin: PhantomPinned,
+            }? Error)
         }
 
         #[allow(dead_code)]

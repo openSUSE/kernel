@@ -87,7 +87,7 @@ static struct iommufd_group *iommufd_get_group(struct iommufd_ctx *ictx,
 	}
 	xa_unlock(&ictx->groups);
 
-	new_igroup = kzalloc(sizeof(*new_igroup), GFP_KERNEL);
+	new_igroup = kzalloc_obj(*new_igroup);
 	if (!new_igroup) {
 		iommu_group_put(group);
 		return ERR_PTR(-ENOMEM);
@@ -508,7 +508,7 @@ static int iommufd_hwpt_attach_device(struct iommufd_hw_pagetable *hwpt,
 	if (rc)
 		return rc;
 
-	handle = kzalloc(sizeof(*handle), GFP_KERNEL);
+	handle = kzalloc_obj(*handle);
 	if (!handle)
 		return -ENOMEM;
 
@@ -575,7 +575,7 @@ static int iommufd_hwpt_replace_device(struct iommufd_device *idev,
 
 	old_handle = iommufd_device_get_attach_handle(idev, pasid);
 
-	handle = kzalloc(sizeof(*handle), GFP_KERNEL);
+	handle = kzalloc_obj(*handle);
 	if (!handle)
 		return -ENOMEM;
 
@@ -619,7 +619,7 @@ int iommufd_hw_pagetable_attach(struct iommufd_hw_pagetable *hwpt,
 	}
 
 	if (!attach) {
-		attach = kzalloc(sizeof(*attach), GFP_KERNEL);
+		attach = kzalloc_obj(*attach);
 		if (!attach) {
 			rc = -ENOMEM;
 			goto err_release_pasid;
@@ -866,7 +866,7 @@ iommufd_device_auto_get_domain(struct iommufd_device *idev, ioasid_t pasid,
 {
 	/*
 	 * iommufd_hw_pagetable_attach() is called by
-	 * iommufd_hw_pagetable_alloc() in immediate attachment mode, same as
+	 * iommufd_hwpt_paging_alloc() in immediate attachment mode, same as
 	 * iommufd_device_do_attach(). So if we are in this mode then we prefer
 	 * to use the immediate_attach path as it supports drivers that can't
 	 * directly allocate a domain.
@@ -1623,6 +1623,10 @@ int iommufd_get_hw_info(struct iommufd_ucmd *ucmd)
 	cmd->out_capabilities = 0;
 	if (device_iommu_capable(idev->dev, IOMMU_CAP_DIRTY_TRACKING))
 		cmd->out_capabilities |= IOMMU_HW_CAP_DIRTY_TRACKING;
+
+	/* Report when ATS cannot be used for this device */
+	if (!device_iommu_capable(idev->dev, IOMMU_CAP_PCI_ATS_SUPPORTED))
+		cmd->out_capabilities |= IOMMU_HW_CAP_PCI_ATS_NOT_SUPPORTED;
 
 	cmd->out_max_pasid_log2 = 0;
 	/*

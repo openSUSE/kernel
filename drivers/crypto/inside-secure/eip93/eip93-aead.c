@@ -3,7 +3,7 @@
  * Copyright (C) 2019 - 2021
  *
  * Richard van Schagen <vschagen@icloud.com>
- * Christian Marangi <ansuelsmth@gmail.com
+ * Christian Marangi <ansuelsmth@gmail.com>
  */
 
 #include <crypto/aead.h>
@@ -70,7 +70,7 @@ static int eip93_aead_cra_init(struct crypto_tfm *tfm)
 	ctx->type = tmpl->type;
 	ctx->set_assoc = true;
 
-	ctx->sa_record = kzalloc(sizeof(*ctx->sa_record), GFP_KERNEL);
+	ctx->sa_record = kzalloc_obj(*ctx->sa_record);
 	if (!ctx->sa_record)
 		return -ENOMEM;
 

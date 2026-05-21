@@ -8,6 +8,7 @@
 #include <linux/unaligned.h>
 #include <linux/fs.h>
 #include <linux/f2fs_fs.h>
+#include <linux/filelock.h>
 #include <linux/sched/signal.h>
 #include <linux/unicode.h>
 #include "f2fs.h"
@@ -67,7 +68,7 @@ int f2fs_init_casefolded_name(const struct inode *dir,
 	int len;
 
 	if (IS_CASEFOLDED(dir) &&
-	    !is_dot_dotdot(fname->usr_fname->name, fname->usr_fname->len)) {
+	    !name_is_dot_dotdot(fname->usr_fname->name, fname->usr_fname->len)) {
 		buf = f2fs_kmem_cache_alloc(f2fs_cf_name_slab,
 					    GFP_NOFS, false, F2FS_SB(sb));
 		if (!buf)
@@ -367,7 +368,7 @@ start_find_entry:
 
 	max_depth = F2FS_I(dir)->i_current_depth;
 	if (unlikely(max_depth > MAX_DIR_HASH_DEPTH)) {
-		f2fs_warn(F2FS_I_SB(dir), "Corrupted max_depth of %lu: %u",
+		f2fs_warn(F2FS_I_SB(dir), "Corrupted max_depth of %llu: %u",
 			  dir->i_ino, max_depth);
 		max_depth = MAX_DIR_HASH_DEPTH;
 		f2fs_i_depth_write(dir, max_depth);
@@ -1136,4 +1137,5 @@ const struct file_operations f2fs_dir_operations = {
 #ifdef CONFIG_COMPAT
 	.compat_ioctl   = f2fs_compat_ioctl,
 #endif
+	.setlease	= generic_setlease,
 };

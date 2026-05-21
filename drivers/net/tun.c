@@ -318,7 +318,7 @@ static struct tun_flow_entry *tun_flow_create(struct tun_struct *tun,
 					      struct hlist_head *head,
 					      u32 rxhash, u16 queue_index)
 {
-	struct tun_flow_entry *e = kmalloc(sizeof(*e), GFP_ATOMIC);
+	struct tun_flow_entry *e = kmalloc_obj(*e, GFP_ATOMIC);
 
 	if (e) {
 		netif_info(tun, tx_queued, tun->dev,
@@ -1031,9 +1031,11 @@ static netdev_tx_t tun_net_xmit(struct sk_buff *skb, struct net_device *dev)
 		goto drop;
 	}
 
-	if (tfile->socket.sk->sk_filter &&
-	    sk_filter_reason(tfile->socket.sk, skb, &drop_reason))
-		goto drop;
+	if (tfile->socket.sk->sk_filter) {
+		drop_reason = sk_filter_reason(tfile->socket.sk, skb);
+		if (drop_reason)
+			goto drop;
+	}
 
 	len = run_ebpf_filter(tun, skb, len);
 	if (len == 0) {
@@ -2228,7 +2230,7 @@ static int __tun_set_ebpf(struct tun_struct *tun,
 	struct tun_prog *old, *new = NULL;
 
 	if (prog) {
-		new = kmalloc(sizeof(*new), GFP_KERNEL);
+		new = kmalloc_obj(*new);
 		if (!new)
 			return -ENOMEM;
 		new->prog = prog;
@@ -3605,7 +3607,7 @@ static int tun_queue_resize(struct tun_struct *tun)
 	int n = tun->numqueues + tun->numdisabled;
 	int ret, i;
 
-	rings = kmalloc_array(n, sizeof(*rings), GFP_KERNEL);
+	rings = kmalloc_objs(*rings, n);
 	if (!rings)
 		return -ENOMEM;
 

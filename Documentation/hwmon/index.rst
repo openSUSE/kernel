@@ -41,6 +41,7 @@ Hardware Monitoring Kernel Drivers
    adt7475
    aht10
    amc6821
+   aps-379
    aquacomputer_d5next
    asb100
    asc7621
@@ -52,7 +53,6 @@ Hardware Monitoring Kernel Drivers
    bcm54140
    bel-pfe
    bpa-rs600
-   bt1-pvt
    cgbc-hwmon
    chipcap2
    coretemp
@@ -84,6 +84,7 @@ Hardware Monitoring Kernel Drivers
    gl518sm
    gpd-fan
    gxp-fan-ctrl
+   hac300s
    hih6130
    hp-wmi-sensors
    hs3001
@@ -110,6 +111,7 @@ Hardware Monitoring Kernel Drivers
    kbatt
    kfan
    lan966x
+   lattepanda-sigma-ec
    lineage-pem
    lm25066
    lm63
@@ -173,6 +175,7 @@ Hardware Monitoring Kernel Drivers
    mc33xs2410_hwmon
    mc34vr500
    mcp3021
+   mcp9982
    menf21bmc
    mlxreg-fan
    mp2856
@@ -185,6 +188,7 @@ Hardware Monitoring Kernel Drivers
    mp2993
    mp5023
    mp5920
+   mp5926
    mp5990
    mp9941
    mp9945
@@ -218,7 +222,6 @@ Hardware Monitoring Kernel Drivers
    q54sj108a2
    qnap-mcu-hwmon
    raspberrypi-hwmon
-   sa67
    sbrmi
    sbtsi_temp
    sch5627
@@ -233,6 +236,7 @@ Hardware Monitoring Kernel Drivers
    shtc1
    sis5595
    sl28cpld
+   stef48h28
    smpro-hwmon
    smsc47b397
    smsc47m192
@@ -280,11 +284,5 @@ Hardware Monitoring Kernel Drivers
    xdp710
    xdpe12284
    xdpe152c4
+   yogafan
    zl6100
-
-.. only::  subproject and html
-
-   Indices
-   =======
-
-   * :ref:`genindex`

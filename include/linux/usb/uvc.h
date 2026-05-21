@@ -10,6 +10,14 @@
 
 /* ------------------------------------------------------------------------
  * GUIDs
+ *
+ * The GUID returned by lsusb can be converted to this format with the
+ * following python snippet:
+ *
+ * import uuid
+ * id = "{01234567-89ab-cdef-0123-456789abcdef}"
+ * le = uuid.UUID(id).bytes_le
+ * print("{" + ", ".join([f"0x{b:02x}" for b in le]) + "}")
  */
 #define UVC_GUID_UVC_CAMERA \
 	{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, \
@@ -129,6 +137,9 @@
 	 0x9f, 0x53, 0x00, 0x20, 0xaf, 0x0b, 0xa7, 0x70}
 #define UVC_GUID_FORMAT_M420 \
 	{ 'M',  '4',  '2',  '0', 0x00, 0x00, 0x10, 0x00, \
+	 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}
+#define UVC_GUID_FORMAT_P010 \
+	{ 'P',  '0',  '1',  '0', 0x00, 0x00, 0x10, 0x00, \
 	 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}
 
 #define UVC_GUID_FORMAT_H264 \

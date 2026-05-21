@@ -63,11 +63,10 @@ u8 networktype_to_raid_ex(struct adapter *adapter, struct sta_info *psta)
 		break;
 	case WIRELESS_11B_24N:
 	case WIRELESS_11BG_24N:
-		if (psta->bw_mode == CHANNEL_WIDTH_20) {
+		if (psta->bw_mode == CHANNEL_WIDTH_20)
 			raid = RATEID_IDX_BGN_20M_1SS_BN;
-		} else {
+		else
 			raid = RATEID_IDX_BGN_40M_1SS;
-		}
 		break;
 	default:
 		raid = RATEID_IDX_BGN_40M_2SS;
@@ -243,7 +242,7 @@ void Switch_DM_Func(struct adapter *padapter, u32 mode, u8 enable)
 		rtw_hal_set_hwreg(padapter, HW_VAR_DM_FUNC_CLR, (u8 *)(&mode));
 }
 
-void Set_MSR(struct adapter *padapter, u8 type)
+void set_msr(struct adapter *padapter, u8 type)
 {
 	rtw_hal_set_hwreg(padapter, HW_VAR_MEDIA_STATUS, (u8 *)(&type));
 }
@@ -573,7 +572,7 @@ s16 rtw_camid_alloc(struct adapter *adapter, struct sta_info *sta, u8 kid)
 
 	if ((((mlmeinfo->state & 0x03) == WIFI_FW_AP_STATE) || ((mlmeinfo->state & 0x03) == WIFI_FW_ADHOC_STATE))
 		&& !sta) {
-		/* AP/Ad-hoc mode group key: static alloction to default key by key ID */
+		/* AP/Ad-hoc mode group key: static allocation to default key by key ID */
 		if (kid > 3) {
 			netdev_dbg(adapter->pnetdev,
 				   FUNC_ADPT_FMT " group key with invalid key id:%u\n",
@@ -598,7 +597,9 @@ s16 rtw_camid_alloc(struct adapter *adapter, struct sta_info *sta, u8 kid)
 
 		i = _rtw_camid_search(adapter, addr, kid);
 		if (i >= 0) {
-			/* Fix issue that pairwise and group key have same key id. Pairwise key first, group key can overwirte group only(ex: rekey) */
+			/* Fix issue that pairwise and group key have same key id.
+			 * Pairwise key first, group key can overwrite group only(ex: rekey)
+			 */
 			if (sta || _rtw_camid_is_gk(adapter, i))
 				cam_id = i;
 			else
@@ -617,7 +618,7 @@ s16 rtw_camid_alloc(struct adapter *adapter, struct sta_info *sta, u8 kid)
 				netdev_dbg(adapter->pnetdev,
 					   FUNC_ADPT_FMT " pairwise key with %pM id:%u no room\n",
 					   FUNC_ADPT_ARG(adapter),
-					   MAC_ARG(sta->hwaddr), kid);
+					   sta->hwaddr, kid);
 			else
 				netdev_dbg(adapter->pnetdev,
 					   FUNC_ADPT_FMT " group key id:%u no room\n",
@@ -694,8 +695,8 @@ int WMM_param_handler(struct adapter *padapter, struct ndis_80211_var_ie *pIE)
 
 	if (!memcmp(&(pmlmeinfo->WMM_param), (pIE->data + 6), sizeof(struct WMM_para_element)))
 		return false;
-	else
-		memcpy(&(pmlmeinfo->WMM_param), (pIE->data + 6), sizeof(struct WMM_para_element));
+
+	memcpy(&(pmlmeinfo->WMM_param), (pIE->data + 6), sizeof(struct WMM_para_element));
 
 	pmlmeinfo->WMM_enable = 1;
 	return true;
@@ -705,7 +706,7 @@ static void sort_wmm_ac_params(u32 *inx, u32 *edca)
 {
 	u32 i, j, change_inx = false;
 
-	/* entry indx: 0->vo, 1->vi, 2->be, 3->bk. */
+	/* entry index: 0->vo, 1->vi, 2->be, 3->bk. */
 	for (i = 0; i < 4; i++) {
 		for (j = i + 1; j < 4; j++) {
 			/* compare CW and AIFS */
@@ -1132,7 +1133,7 @@ int rtw_check_bcn_info(struct adapter *Adapter, u8 *pframe, u32 packet_len)
 	if (memcmp(cur_network->network.mac_address, pbssid, 6))
 		return true;
 
-	bssid = rtw_zmalloc(sizeof(struct wlan_bssid_ex));
+	bssid = kzalloc_obj(*bssid);
 	if (!bssid)
 		return true;
 
@@ -1450,9 +1451,7 @@ unsigned char check_assoc_AP(u8 *pframe, uint len)
 				return get_realtek_assoc_AP_vender(pIE);
 			else if (!memcmp(pIE->data, AIRGOCAP_OUI, 3))
 				return HT_IOT_PEER_AIRGO;
-			else
-				break;
-
+			break;
 		default:
 			break;
 		}
@@ -1596,7 +1595,7 @@ int update_sta_support_rate(struct adapter *padapter, u8 *pvar_ie, uint var_ie_l
 {
 	unsigned int	ie_len;
 	struct ndis_80211_var_ie *pIE;
-	int	supportRateNum = 0;
+	int	support_rate_num = 0;
 	struct mlme_ext_priv *pmlmeext = &(padapter->mlmeextpriv);
 	struct mlme_ext_info *pmlmeinfo = &(pmlmeext->mlmext_info);
 
@@ -1607,11 +1606,11 @@ int update_sta_support_rate(struct adapter *padapter, u8 *pvar_ie, uint var_ie_l
 		return _FAIL;
 
 	memcpy(pmlmeinfo->FW_sta_info[cam_idx].SupportedRates, pIE->data, ie_len);
-	supportRateNum = ie_len;
+	support_rate_num = ie_len;
 
 	pIE = (struct ndis_80211_var_ie *)rtw_get_ie(pvar_ie, WLAN_EID_EXT_SUPP_RATES, &ie_len, var_ie_len);
-	if (pIE && (ie_len <= sizeof(pmlmeinfo->FW_sta_info[cam_idx].SupportedRates) - supportRateNum))
-		memcpy((pmlmeinfo->FW_sta_info[cam_idx].SupportedRates + supportRateNum), pIE->data, ie_len);
+	if (pIE && (ie_len <= sizeof(pmlmeinfo->FW_sta_info[cam_idx].SupportedRates) - support_rate_num))
+		memcpy((pmlmeinfo->FW_sta_info[cam_idx].SupportedRates + support_rate_num), pIE->data, ie_len);
 
 	return _SUCCESS;
 }

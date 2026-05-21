@@ -595,7 +595,7 @@ static int find_valid_gpt(struct parsed_partitions *state, gpt_header **gpt,
 	lastlba = last_lba(state->disk);
         if (!force_gpt) {
 		/* This will be added to the EFI Spec. per Intel after v1.02. */
-		legacymbr = kzalloc(sizeof(*legacymbr), GFP_KERNEL);
+		legacymbr = kzalloc_obj(*legacymbr);
 		if (!legacymbr)
 			goto fail;
 
@@ -751,6 +751,6 @@ int efi_partition(struct parsed_partitions *state)
 	}
 	kfree(ptes);
 	kfree(gpt);
-	strlcat(state->pp_buf, "\n", PAGE_SIZE);
+	seq_buf_puts(&state->pp_buf, "\n");
 	return 1;
 }

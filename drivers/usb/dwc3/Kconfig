@@ -150,6 +150,18 @@ config USB_DWC3_IMX8MP
 	  functionality.
 	  Say 'Y' or 'M' if you have one such device.
 
+config USB_DWC3_IMX
+	tristate "NXP iMX Platform"
+	depends on OF && COMMON_CLK
+	depends on (ARCH_MXC && ARM64) || COMPILE_TEST
+	default USB_DWC3
+	help
+	  NXP iMX SoC use DesignWare Core IP for USB2/3
+	  functionality.
+	  This driver also handles the wakeup feature outside
+	  of DesignWare Core.
+	  Say 'Y' or 'M' if you have one such device.
+
 config USB_DWC3_XILINX
 	tristate "Xilinx Platforms"
 	depends on (ARCH_ZYNQMP || COMPILE_TEST) && OF
@@ -210,5 +222,16 @@ config USB_DWC3_APPLE
 	  The DesignWare Core USB3 IP has to be used in dual-role
 	  mode on these machines.
 	  Say 'Y' or 'M' if you have such device.
+
+config USB_DWC3_GOOGLE
+	tristate "Google Platform"
+	help
+	  Support the DesignWare Core USB3 IP found on Google Tensor SoCs,
+	  starting with the G5 generation (Laguna). This driver includes
+	  support for hibernation in host mode.
+	  Say 'Y' or 'M' if you have one such device.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called dwc3-google.ko.
 
 endif

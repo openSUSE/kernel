@@ -9,16 +9,8 @@ InfiniBand
 
    core_locking
    ipoib
-   opa_vnic
    sysfs
    tag_matching
    ucaps
    user_mad
    user_verbs
-
-.. only::  subproject and html
-
-   Indices
-   =======
-
-   * :ref:`genindex`

@@ -6,6 +6,8 @@
 #ifndef _XE_GT_STATS_TYPES_H_
 #define _XE_GT_STATS_TYPES_H_
 
+#include <linux/types.h>
+
 enum xe_gt_stats_id {
 	XE_GT_STATS_ID_SVM_PAGEFAULT_COUNT,
 	XE_GT_STATS_ID_TLB_INVAL,
@@ -13,6 +15,7 @@ enum xe_gt_stats_id {
 	XE_GT_STATS_ID_SVM_TLB_INVAL_US,
 	XE_GT_STATS_ID_VMA_PAGEFAULT_COUNT,
 	XE_GT_STATS_ID_VMA_PAGEFAULT_KB,
+	XE_GT_STATS_ID_INVALID_PREFETCH_PAGEFAULT_COUNT,
 	XE_GT_STATS_ID_SVM_4K_PAGEFAULT_COUNT,
 	XE_GT_STATS_ID_SVM_64K_PAGEFAULT_COUNT,
 	XE_GT_STATS_ID_SVM_2M_PAGEFAULT_COUNT,
@@ -37,15 +40,48 @@ enum xe_gt_stats_id {
 	XE_GT_STATS_ID_SVM_64K_CPU_COPY_US,
 	XE_GT_STATS_ID_SVM_2M_CPU_COPY_US,
 	XE_GT_STATS_ID_SVM_DEVICE_COPY_KB,
+	XE_GT_STATS_ID_SVM_4K_DEVICE_COPY_KB,
+	XE_GT_STATS_ID_SVM_64K_DEVICE_COPY_KB,
+	XE_GT_STATS_ID_SVM_2M_DEVICE_COPY_KB,
 	XE_GT_STATS_ID_SVM_CPU_COPY_KB,
+	XE_GT_STATS_ID_SVM_4K_CPU_COPY_KB,
+	XE_GT_STATS_ID_SVM_64K_CPU_COPY_KB,
+	XE_GT_STATS_ID_SVM_2M_CPU_COPY_KB,
 	XE_GT_STATS_ID_SVM_4K_GET_PAGES_US,
 	XE_GT_STATS_ID_SVM_64K_GET_PAGES_US,
 	XE_GT_STATS_ID_SVM_2M_GET_PAGES_US,
 	XE_GT_STATS_ID_SVM_4K_BIND_US,
 	XE_GT_STATS_ID_SVM_64K_BIND_US,
 	XE_GT_STATS_ID_SVM_2M_BIND_US,
+	XE_GT_STATS_ID_HW_ENGINE_GROUP_SUSPEND_LR_QUEUE_COUNT,
+	XE_GT_STATS_ID_HW_ENGINE_GROUP_SKIP_LR_QUEUE_COUNT,
+	XE_GT_STATS_ID_HW_ENGINE_GROUP_WAIT_DMA_QUEUE_COUNT,
+	XE_GT_STATS_ID_HW_ENGINE_GROUP_SUSPEND_LR_QUEUE_US,
+	XE_GT_STATS_ID_HW_ENGINE_GROUP_WAIT_DMA_QUEUE_US,
+	XE_GT_STATS_ID_PRL_4K_ENTRY_COUNT,
+	XE_GT_STATS_ID_PRL_64K_ENTRY_COUNT,
+	XE_GT_STATS_ID_PRL_2M_ENTRY_COUNT,
+	XE_GT_STATS_ID_PRL_ISSUED_COUNT,
+	XE_GT_STATS_ID_PRL_ABORTED_COUNT,
 	/* must be the last entry */
 	__XE_GT_STATS_NUM_IDS,
 };
+
+/**
+ * struct xe_gt_stats - Per-CPU GT statistics counters
+ * @counters: Array of 64-bit counters indexed by &enum xe_gt_stats_id
+ *
+ * This structure is used for high-frequency, per-CPU statistics collection
+ * in the Xe driver. By using a per-CPU allocation and ensuring the structure
+ * is cache-line aligned, we avoid the performance-heavy atomics and cache
+ * coherency traffic.
+ *
+ * Updates to these counters should be performed using the this_cpu_add()
+ * macro to ensure they are atomic with respect to local interrupts and
+ * preemption-safe without the overhead of explicit locking.
+ */
+struct xe_gt_stats {
+	u64 counters[__XE_GT_STATS_NUM_IDS];
+} ____cacheline_aligned;
 
 #endif

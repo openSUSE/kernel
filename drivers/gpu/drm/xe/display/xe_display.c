@@ -17,11 +17,11 @@
 #include <drm/intel/display_parent_interface.h>
 #include <uapi/drm/xe_drm.h>
 
-#include "soc/intel_dram.h"
 #include "intel_acpi.h"
 #include "intel_audio.h"
 #include "intel_bw.h"
 #include "intel_display.h"
+#include "intel_display_core.h"
 #include "intel_display_device.h"
 #include "intel_display_driver.h"
 #include "intel_display_irq.h"
@@ -29,14 +29,23 @@
 #include "intel_dmc.h"
 #include "intel_dmc_wl.h"
 #include "intel_dp.h"
+#include "intel_dram.h"
 #include "intel_encoder.h"
 #include "intel_fbdev.h"
 #include "intel_hdcp.h"
 #include "intel_hotplug.h"
 #include "intel_opregion.h"
 #include "skl_watermark.h"
+#include "xe_display_bo.h"
+#include "xe_display_pcode.h"
 #include "xe_display_rpm.h"
+#include "xe_dsb_buffer.h"
+#include "xe_frontbuffer.h"
+#include "xe_hdcp_gsc.h"
+#include "xe_initial_plane.h"
 #include "xe_module.h"
+#include "xe_panic.h"
+#include "xe_stolen.h"
 
 /* Ensure drm and display members are placed properly. */
 INTEL_DISPLAY_MEMBER_STATIC_ASSERT(struct xe_device, drm, display);
@@ -122,7 +131,7 @@ int xe_display_init_early(struct xe_device *xe)
 	 * Fill the dram structure to get the system dram info. This will be
 	 * used for memory latency calculation.
 	 */
-	err = intel_dram_detect(xe);
+	err = intel_dram_detect(display);
 	if (err)
 		goto err_opregion;
 
@@ -516,8 +525,42 @@ static void display_device_remove(struct drm_device *dev, void *arg)
 	intel_display_device_remove(display);
 }
 
+static bool irq_enabled(struct drm_device *drm)
+{
+	struct xe_device *xe = to_xe_device(drm);
+
+	return atomic_read(&xe->irq.enabled);
+}
+
+static void irq_synchronize(struct drm_device *drm)
+{
+	synchronize_irq(to_pci_dev(drm->dev)->irq);
+}
+
+static const struct intel_display_irq_interface xe_display_irq_interface = {
+	.enabled = irq_enabled,
+	.synchronize = irq_synchronize,
+};
+
+static bool has_auxccs(struct drm_device *drm)
+{
+	struct xe_device *xe = to_xe_device(drm);
+
+	return xe->info.platform == XE_ALDERLAKE_P;
+}
+
 static const struct intel_display_parent_interface parent = {
+	.bo = &xe_display_bo_interface,
+	.dsb = &xe_display_dsb_interface,
+	.frontbuffer = &xe_display_frontbuffer_interface,
+	.hdcp = &xe_display_hdcp_interface,
+	.initial_plane = &xe_display_initial_plane_interface,
+	.irq = &xe_display_irq_interface,
+	.panic = &xe_display_panic_interface,
+	.pcode = &xe_display_pcode_interface,
 	.rpm = &xe_display_rpm_interface,
+	.stolen = &xe_display_stolen_interface,
+	.has_auxccs = has_auxccs,
 };
 
 /**

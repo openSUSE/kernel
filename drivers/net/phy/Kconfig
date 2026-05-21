@@ -3,11 +3,6 @@
 # PHY Layer Configuration
 #
 
-config MDIO_BUS
-	tristate "MDIO bus consumer layer"
-	help
-	  MDIO bus consumer layer
-
 config PHYLINK
 	tristate
 	select PHYLIB
@@ -19,7 +14,6 @@ config PHYLINK
 
 menuconfig PHYLIB
 	tristate "PHY Device support and infrastructure"
-	select MDIO_BUS
 	help
 	  Ethernet controllers are usually attached to PHY
 	  devices.  This option provides infrastructure for
@@ -98,6 +92,7 @@ config AS21XXX_PHY
 
 config AIR_EN8811H_PHY
 	tristate "Airoha EN8811H 2.5 Gigabit PHY"
+	select PHY_COMMON_PROPS
 	help
 	  Currently supports the Airoha EN8811H PHY.
 

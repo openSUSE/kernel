@@ -29,7 +29,6 @@
 #include <drm/drm_file.h>
 #include <drm/drm_print.h>
 
-#include "i915_reg.h"
 #include "intel_crtc.h"
 #include "intel_de.h"
 #include "intel_display_power_well.h"
@@ -40,7 +39,6 @@
 #include "intel_dmc.h"
 #include "intel_dmc_regs.h"
 #include "intel_flipq.h"
-#include "intel_step.h"
 
 /**
  * DOC: DMC Firmware Support
@@ -419,15 +417,12 @@ bool intel_dmc_has_payload(struct intel_display *display)
 	return has_dmc_id_fw(display, DMC_FW_MAIN);
 }
 
-static const struct stepping_info *
-intel_get_stepping_info(struct intel_display *display,
-			struct stepping_info *si)
+static void initialize_stepping_info(struct intel_display *display, struct stepping_info *si)
 {
-	const char *step_name = intel_step_name(INTEL_DISPLAY_STEP(display));
+	const char *step_name = DISPLAY_RUNTIME_INFO(display)->step_name;
 
-	si->stepping = step_name[0];
-	si->substepping = step_name[1];
-	return si;
+	si->stepping = step_name[0] ?: '*';
+	si->substepping = step_name[1] ?: '*';
 }
 
 static void gen9_set_dc_state_debugmask(struct intel_display *display)
@@ -859,6 +854,14 @@ static void dmc_configure_event(struct intel_display *display,
 		      dmc_id, num_handlers, event_id);
 }
 
+void intel_dmc_configure_dc_balance_event(struct intel_display *display,
+					  enum pipe pipe, bool enable)
+{
+	enum intel_dmc_id dmc_id = PIPE_TO_DMC_ID(pipe);
+
+	dmc_configure_event(display, dmc_id, PIPEDMC_EVENT_ADAPTIVE_DCB_TRIGGER, enable);
+}
+
 /**
  * intel_dmc_block_pkgc() - block PKG C-state
  * @display: display instance
@@ -1267,14 +1270,15 @@ static int parse_dmc_fw(struct intel_dmc *dmc, const struct firmware *fw)
 	struct intel_css_header *css_header;
 	struct intel_package_header *package_header;
 	struct intel_dmc_header_base *dmc_header;
-	struct stepping_info display_info = { '*', '*'};
-	const struct stepping_info *si = intel_get_stepping_info(display, &display_info);
+	struct stepping_info si = {};
 	enum intel_dmc_id dmc_id;
 	u32 readcount = 0;
 	u32 r, offset;
 
 	if (!fw)
 		return -EINVAL;
+
+	initialize_stepping_info(display, &si);
 
 	/* Extract CSS Header information */
 	css_header = (struct intel_css_header *)fw->data;
@@ -1286,7 +1290,7 @@ static int parse_dmc_fw(struct intel_dmc *dmc, const struct firmware *fw)
 
 	/* Extract Package Header information */
 	package_header = (struct intel_package_header *)&fw->data[readcount];
-	r = parse_dmc_fw_package(dmc, package_header, si, fw->size - readcount);
+	r = parse_dmc_fw_package(dmc, package_header, &si, fw->size - readcount);
 	if (!r)
 		return -EINVAL;
 
@@ -1322,7 +1326,7 @@ static void intel_dmc_runtime_pm_get(struct intel_display *display)
 
 static void intel_dmc_runtime_pm_put(struct intel_display *display)
 {
-	intel_wakeref_t wakeref __maybe_unused =
+	struct ref_tracker *wakeref __maybe_unused =
 		fetch_and_zero(&display->dmc.wakeref);
 
 	intel_display_power_put(display, POWER_DOMAIN_INIT, wakeref);
@@ -1409,7 +1413,7 @@ void intel_dmc_init(struct intel_display *display)
 	 */
 	intel_dmc_runtime_pm_get(display);
 
-	dmc = kzalloc(sizeof(*dmc), GFP_KERNEL);
+	dmc = kzalloc_obj(*dmc);
 	if (!dmc)
 		return;
 
@@ -1539,7 +1543,7 @@ struct intel_dmc_snapshot *intel_dmc_snapshot_capture(struct intel_display *disp
 	if (!HAS_DMC(display))
 		return NULL;
 
-	snapshot = kzalloc(sizeof(*snapshot), GFP_ATOMIC);
+	snapshot = kzalloc_obj(*snapshot, GFP_ATOMIC);
 	if (!snapshot)
 		return NULL;
 
@@ -1591,8 +1595,7 @@ static bool intel_dmc_get_dc6_allowed_count(struct intel_display *display, u32 *
 		return false;
 
 	mutex_lock(&power_domains->lock);
-	dc6_enabled = intel_de_read(display, DC_STATE_EN) &
-		      DC_STATE_EN_UPTO_DC6;
+	dc6_enabled = power_domains->dc_state & DC_STATE_EN_UPTO_DC6;
 	if (dc6_enabled)
 		intel_dmc_update_dc6_allowed_count(display, false);
 
@@ -1754,4 +1757,21 @@ u32 intel_pipedmc_start_mmioaddr(struct intel_crtc *crtc)
 	enum intel_dmc_id dmc_id = PIPE_TO_DMC_ID(crtc->pipe);
 
 	return dmc ? dmc->dmc_info[dmc_id].start_mmioaddr : 0;
+}
+
+void intel_pipedmc_dcb_enable(struct intel_dsb *dsb, struct intel_crtc *crtc)
+{
+	struct intel_display *display = to_intel_display(crtc);
+	enum pipe pipe = crtc->pipe;
+
+	intel_de_write_dsb(display, dsb, PIPEDMC_DCB_CTL(pipe),
+			   PIPEDMC_ADAPTIVE_DCB_ENABLE);
+}
+
+void intel_pipedmc_dcb_disable(struct intel_dsb *dsb, struct intel_crtc *crtc)
+{
+	struct intel_display *display = to_intel_display(crtc);
+	enum pipe pipe = crtc->pipe;
+
+	intel_de_write_dsb(display, dsb, PIPEDMC_DCB_CTL(pipe), 0);
 }

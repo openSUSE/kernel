@@ -63,6 +63,7 @@ class KunitExecRequest(KunitParseRequest):
 	run_isolated: Optional[str]
 	list_tests: bool
 	list_tests_attr: bool
+	list_suites: bool
 
 @dataclass
 class KunitRequest(KunitExecRequest, KunitBuildRequest):
@@ -166,6 +167,12 @@ def exec_tests(linux: kunit_kernel.LinuxSourceTree, request: KunitExecRequest) -
 	if request.list_tests_attr:
 		attr_output = _list_tests_attr(linux, request)
 		for line in attr_output:
+			print(line.rstrip())
+		return KunitResult(status=KunitStatus.SUCCESS, elapsed_time=0.0)
+	if request.list_suites:
+		tests = _list_tests(linux, request)
+		output = _suites_from_test_list(tests)
+		for line in output:
 			print(line.rstrip())
 		return KunitResult(status=KunitStatus.SUCCESS, elapsed_time=0.0)
 	if request.run_isolated:
@@ -323,11 +330,27 @@ def get_default_jobs() -> int:
 		return ncpu
 	raise RuntimeError("os.cpu_count() returned None")
 
+def get_default_build_dir() -> str:
+	if 'KBUILD_OUTPUT' in os.environ:
+		return os.path.join(os.environ['KBUILD_OUTPUT'], '.kunit')
+	return '.kunit'
+
+def add_completion_opts(parser: argparse.ArgumentParser) -> None:
+	parser.add_argument('--list-opts',
+			    help=argparse.SUPPRESS,
+			    action='store_true')
+
+def add_root_opts(parser: argparse.ArgumentParser) -> None:
+	parser.add_argument('--list-cmds',
+			    help=argparse.SUPPRESS,
+			    action='store_true')
+	add_completion_opts(parser)
+
 def add_common_opts(parser: argparse.ArgumentParser) -> None:
 	parser.add_argument('--build_dir',
 			    help='As in the make command, it specifies the build '
 			    'directory.',
-			    type=str, default='.kunit', metavar='DIR')
+			    type=str, default=get_default_build_dir(), metavar='DIR')
 	parser.add_argument('--make_options',
 			    help='X=Y make option, can be repeated.',
 			    action='append', metavar='X=Y')
@@ -374,6 +397,8 @@ def add_common_opts(parser: argparse.ArgumentParser) -> None:
 			    help='Additional QEMU arguments, e.g. "-smp 8"',
 			    action='append', metavar='')
 
+	add_completion_opts(parser)
+
 def add_build_opts(parser: argparse.ArgumentParser) -> None:
 	parser.add_argument('--jobs',
 			    help='As in the make command, "Specifies  the number of '
@@ -419,6 +444,9 @@ def add_exec_opts(parser: argparse.ArgumentParser) -> None:
 			    action='store_true')
 	parser.add_argument('--list_tests_attr', help='If set, list all tests and test '
 			    'attributes.',
+			    action='store_true')
+	parser.add_argument('--list_suites', help='If set, list all suites that will be '
+			    'run.',
 			    action='store_true')
 
 def add_parse_opts(parser: argparse.ArgumentParser) -> None:
@@ -483,7 +511,8 @@ def run_handler(cli_args: argparse.Namespace) -> None:
 					kernel_args=cli_args.kernel_args,
 					run_isolated=cli_args.run_isolated,
 					list_tests=cli_args.list_tests,
-					list_tests_attr=cli_args.list_tests_attr)
+					list_tests_attr=cli_args.list_tests_attr,
+					list_suites=cli_args.list_suites)
 	result = run_tests(linux, request)
 	if result.status != KunitStatus.SUCCESS:
 		sys.exit(1)
@@ -532,7 +561,8 @@ def exec_handler(cli_args: argparse.Namespace) -> None:
 					kernel_args=cli_args.kernel_args,
 					run_isolated=cli_args.run_isolated,
 					list_tests=cli_args.list_tests,
-					list_tests_attr=cli_args.list_tests_attr)
+					list_tests_attr=cli_args.list_tests_attr,
+					list_suites=cli_args.list_suites)
 	result = exec_tests(linux, exec_request)
 	stdout.print_with_timestamp((
 		'Elapsed time: %.3fs\n') % (result.elapsed_time))
@@ -569,6 +599,7 @@ subcommand_handlers_map = {
 def main(argv: Sequence[str]) -> None:
 	parser = argparse.ArgumentParser(
 			description='Helps writing and running KUnit tests.')
+	add_root_opts(parser)
 	subparser = parser.add_subparsers(dest='subcommand')
 
 	# The 'run' command will config, build, exec, and parse in one go.
@@ -603,11 +634,27 @@ def main(argv: Sequence[str]) -> None:
 	parse_parser.add_argument('file',
 				  help='Specifies the file to read results from.',
 				  type=str, nargs='?', metavar='input_file')
+	add_completion_opts(parse_parser)
 
 	cli_args = parser.parse_args(massage_argv(argv))
 
 	if get_kernel_root_path():
 		os.chdir(get_kernel_root_path())
+
+	if cli_args.list_cmds:
+		print(" ".join(subparser.choices.keys()))
+		return
+
+	if cli_args.list_opts:
+		target_parser = subparser.choices.get(cli_args.subcommand)
+		if not target_parser:
+			target_parser = parser
+
+		# Accessing private attribute _option_string_actions to get
+		# the list of options. This is not a public API, but argparse
+		# does not provide a way to inspect options programmatically.
+		print(' '.join(target_parser._option_string_actions.keys()))
+		return
 
 	subcomand_handler = subcommand_handlers_map.get(cli_args.subcommand, None)
 

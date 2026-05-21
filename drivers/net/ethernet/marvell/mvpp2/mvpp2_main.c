@@ -3151,9 +3151,7 @@ static int mvpp2_txq_init(struct mvpp2_port *port,
 	for (thread = 0; thread < port->priv->nthreads; thread++) {
 		txq_pcpu = per_cpu_ptr(txq->pcpu, thread);
 		txq_pcpu->size = txq->size;
-		txq_pcpu->buffs = kmalloc_array(txq_pcpu->size,
-						sizeof(*txq_pcpu->buffs),
-						GFP_KERNEL);
+		txq_pcpu->buffs = kmalloc_objs(*txq_pcpu->buffs, txq_pcpu->size);
 		if (!txq_pcpu->buffs)
 			return -ENOMEM;
 
@@ -5018,7 +5016,7 @@ static int mvpp2_bm_switch_buffers(struct mvpp2 *priv, bool percpu)
 	if (priv->percpu_pools)
 		numbufs = port->nrxqs * 2;
 
-	if (change_percpu)
+	if (change_percpu && priv->global_tx_fc)
 		mvpp2_bm_pool_update_priv_fc(priv, false);
 
 	for (i = 0; i < numbufs; i++)
@@ -5043,7 +5041,7 @@ static int mvpp2_bm_switch_buffers(struct mvpp2 *priv, bool percpu)
 			mvpp2_open(port->dev);
 	}
 
-	if (change_percpu)
+	if (change_percpu && priv->global_tx_fc)
 		mvpp2_bm_pool_update_priv_fc(priv, true);
 
 	return 0;

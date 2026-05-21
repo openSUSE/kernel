@@ -231,16 +231,11 @@ void rtl8723b_InitBeaconParameters(struct adapter *padapter);
 void _InitBurstPktLen_8723BS(struct adapter *adapter);
 void _8051Reset8723(struct adapter *padapter);
 
-void rtl8723b_start_thread(struct adapter *padapter);
-void rtl8723b_stop_thread(struct adapter *padapter);
-
 int FirmwareDownloadBT(struct adapter *adapter, struct rt_firmware *firmware);
 
 void CCX_FwC2HTxRpt_8723b(struct adapter *padapter, u8 *pdata, u8 len);
 s32 c2h_id_filter_ccx_8723b(u8 *buf);
 s32 c2h_handler_8723b(struct adapter *padapter, u8 *pC2hEvent);
-u8 MRateToHwRate8723B(u8 rate);
-u8 HwRateToMRate8723B(u8 rate);
 
 void Hal_ReadRFGainOffset(struct adapter *padapter, u8 *hwinfo,
 			  bool AutoLoadFail);

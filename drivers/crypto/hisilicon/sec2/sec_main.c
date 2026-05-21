@@ -133,6 +133,8 @@
 #define SEC_AEAD_BITMAP			(GENMASK_ULL(7, 6) | GENMASK_ULL(18, 17) | \
 					GENMASK_ULL(45, 43))
 
+#define SEC_MAX_CHANNEL_NUM		1
+
 struct sec_hw_error {
 	u32 int_msk;
 	const char *msg;
@@ -417,18 +419,29 @@ struct hisi_qp **sec_create_qps(void)
 	int node = cpu_to_node(raw_smp_processor_id());
 	u32 ctx_num = ctx_q_num;
 	struct hisi_qp **qps;
+	u8 *type;
 	int ret;
 
-	qps = kcalloc(ctx_num, sizeof(struct hisi_qp *), GFP_KERNEL);
+	qps = kzalloc_objs(struct hisi_qp *, ctx_num);
 	if (!qps)
 		return NULL;
 
-	ret = hisi_qm_alloc_qps_node(&sec_devices, ctx_num, 0, node, qps);
-	if (!ret)
-		return qps;
+	/* The type of SEC is all 0, so just allocated by kcalloc */
+	type = kcalloc(ctx_num, sizeof(u8), GFP_KERNEL);
+	if (!type) {
+		kfree(qps);
+		return NULL;
+	}
 
-	kfree(qps);
-	return NULL;
+	ret = hisi_qm_alloc_qps_node(&sec_devices, ctx_num, type, node, qps);
+	if (ret) {
+		kfree(type);
+		kfree(qps);
+		return NULL;
+	}
+
+	kfree(type);
+	return qps;
 }
 
 u64 sec_get_alg_bitmap(struct hisi_qm *qm, u32 high, u32 low)
@@ -896,7 +909,7 @@ static int sec_debugfs_atomic64_set(void *data, u64 val)
 }
 
 DEFINE_DEBUGFS_ATTRIBUTE(sec_atomic64_ops, sec_debugfs_atomic64_get,
-			 sec_debugfs_atomic64_set, "%lld\n");
+			 sec_debugfs_atomic64_set, "%llu\n");
 
 static int sec_regs_show(struct seq_file *s, void *unused)
 {
@@ -1277,6 +1290,14 @@ static int sec_pre_store_cap_reg(struct hisi_qm *qm)
 	return 0;
 }
 
+static void sec_set_channels(struct hisi_qm *qm)
+{
+	struct qm_channel *channel_data = &qm->channel_data;
+
+	channel_data->channel_num = SEC_MAX_CHANNEL_NUM;
+	channel_data->channel_name[0] = "SEC";
+}
+
 static int sec_qm_init(struct hisi_qm *qm, struct pci_dev *pdev)
 {
 	u64 alg_msk;
@@ -1314,6 +1335,7 @@ static int sec_qm_init(struct hisi_qm *qm, struct pci_dev *pdev)
 		return ret;
 	}
 
+	sec_set_channels(qm);
 	/* Fetch and save the value of capability registers */
 	ret = sec_pre_store_cap_reg(qm);
 	if (ret) {

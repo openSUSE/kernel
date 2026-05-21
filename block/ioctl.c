@@ -153,13 +153,7 @@ static int blk_ioctl_discard(struct block_device *bdev, blk_mode_t mode,
 	nr_sects = len >> SECTOR_SHIFT;
 
 	blk_start_plug(&plug);
-	while (1) {
-		if (fatal_signal_pending(current)) {
-			if (prev)
-				bio_await_chain(prev);
-			err = -EINTR;
-			goto out_unplug;
-		}
+	while (!fatal_signal_pending(current)) {
 		bio = blk_alloc_discard_bio(bdev, &sector, &nr_sects,
 				GFP_KERNEL);
 		if (!bio)
@@ -167,12 +161,11 @@ static int blk_ioctl_discard(struct block_device *bdev, blk_mode_t mode,
 		prev = bio_chain_and_submit(prev, bio);
 	}
 	if (prev) {
-		err = submit_bio_wait(prev);
+		err = bio_submit_or_kill(prev, BLKDEV_ZERO_KILLABLE);
 		if (err == -EOPNOTSUPP)
 			err = 0;
 		bio_put(prev);
 	}
-out_unplug:
 	blk_finish_plug(&plug);
 fail:
 	filemap_invalidate_unlock(bdev->bd_mapping);
@@ -318,7 +311,13 @@ int blkdev_compat_ptr_ioctl(struct block_device *bdev, blk_mode_t mode,
 EXPORT_SYMBOL(blkdev_compat_ptr_ioctl);
 #endif
 
-static bool blkdev_pr_allowed(struct block_device *bdev, blk_mode_t mode)
+enum pr_direction {
+	PR_IN,  /* read from device */
+	PR_OUT, /* write to device */
+};
+
+static bool blkdev_pr_allowed(struct block_device *bdev, blk_mode_t mode,
+		enum pr_direction dir)
 {
 	/* no sense to make reservations for partitions */
 	if (bdev_is_partition(bdev))
@@ -326,11 +325,17 @@ static bool blkdev_pr_allowed(struct block_device *bdev, blk_mode_t mode)
 
 	if (capable(CAP_SYS_ADMIN))
 		return true;
+
 	/*
-	 * Only allow unprivileged reservations if the file descriptor is open
-	 * for writing.
+	 * Only allow unprivileged reservation _out_ commands if the file
+	 * descriptor is open for writing. Allow reservation _in_ commands if
+	 * the file descriptor is open for reading since they do not modify the
+	 * device.
 	 */
-	return mode & BLK_OPEN_WRITE;
+	if (dir == PR_IN)
+		return mode & BLK_OPEN_READ;
+	else
+		return mode & BLK_OPEN_WRITE;
 }
 
 static int blkdev_pr_register(struct block_device *bdev, blk_mode_t mode,
@@ -339,7 +344,7 @@ static int blkdev_pr_register(struct block_device *bdev, blk_mode_t mode,
 	const struct pr_ops *ops = bdev->bd_disk->fops->pr_ops;
 	struct pr_registration reg;
 
-	if (!blkdev_pr_allowed(bdev, mode))
+	if (!blkdev_pr_allowed(bdev, mode, PR_OUT))
 		return -EPERM;
 	if (!ops || !ops->pr_register)
 		return -EOPNOTSUPP;
@@ -357,7 +362,7 @@ static int blkdev_pr_reserve(struct block_device *bdev, blk_mode_t mode,
 	const struct pr_ops *ops = bdev->bd_disk->fops->pr_ops;
 	struct pr_reservation rsv;
 
-	if (!blkdev_pr_allowed(bdev, mode))
+	if (!blkdev_pr_allowed(bdev, mode, PR_OUT))
 		return -EPERM;
 	if (!ops || !ops->pr_reserve)
 		return -EOPNOTSUPP;
@@ -375,7 +380,7 @@ static int blkdev_pr_release(struct block_device *bdev, blk_mode_t mode,
 	const struct pr_ops *ops = bdev->bd_disk->fops->pr_ops;
 	struct pr_reservation rsv;
 
-	if (!blkdev_pr_allowed(bdev, mode))
+	if (!blkdev_pr_allowed(bdev, mode, PR_OUT))
 		return -EPERM;
 	if (!ops || !ops->pr_release)
 		return -EOPNOTSUPP;
@@ -393,7 +398,7 @@ static int blkdev_pr_preempt(struct block_device *bdev, blk_mode_t mode,
 	const struct pr_ops *ops = bdev->bd_disk->fops->pr_ops;
 	struct pr_preempt p;
 
-	if (!blkdev_pr_allowed(bdev, mode))
+	if (!blkdev_pr_allowed(bdev, mode, PR_OUT))
 		return -EPERM;
 	if (!ops || !ops->pr_preempt)
 		return -EOPNOTSUPP;
@@ -411,7 +416,7 @@ static int blkdev_pr_clear(struct block_device *bdev, blk_mode_t mode,
 	const struct pr_ops *ops = bdev->bd_disk->fops->pr_ops;
 	struct pr_clear c;
 
-	if (!blkdev_pr_allowed(bdev, mode))
+	if (!blkdev_pr_allowed(bdev, mode, PR_OUT))
 		return -EPERM;
 	if (!ops || !ops->pr_clear)
 		return -EOPNOTSUPP;
@@ -434,7 +439,7 @@ static int blkdev_pr_read_keys(struct block_device *bdev, blk_mode_t mode,
 	size_t keys_copy_len;
 	int ret;
 
-	if (!blkdev_pr_allowed(bdev, mode))
+	if (!blkdev_pr_allowed(bdev, mode, PR_IN))
 		return -EPERM;
 	if (!ops || !ops->pr_read_keys)
 		return -EOPNOTSUPP;
@@ -442,11 +447,12 @@ static int blkdev_pr_read_keys(struct block_device *bdev, blk_mode_t mode,
 	if (copy_from_user(&read_keys, arg, sizeof(read_keys)))
 		return -EFAULT;
 
-	keys_info_len = struct_size(keys_info, keys, read_keys.num_keys);
-	if (keys_info_len == SIZE_MAX)
+	if (read_keys.num_keys > PR_KEYS_MAX)
 		return -EINVAL;
 
-	keys_info = kzalloc(keys_info_len, GFP_KERNEL);
+	keys_info_len = struct_size(keys_info, keys, read_keys.num_keys);
+
+	keys_info = kvzalloc(keys_info_len, GFP_KERNEL);
 	if (!keys_info)
 		return -ENOMEM;
 
@@ -473,7 +479,7 @@ static int blkdev_pr_read_keys(struct block_device *bdev, blk_mode_t mode,
 	if (copy_to_user(arg, &read_keys, sizeof(read_keys)))
 		ret = -EFAULT;
 out:
-	kfree(keys_info);
+	kvfree(keys_info);
 	return ret;
 }
 
@@ -485,7 +491,7 @@ static int blkdev_pr_read_reservation(struct block_device *bdev,
 	struct pr_read_reservation out = {};
 	int ret;
 
-	if (!blkdev_pr_allowed(bdev, mode))
+	if (!blkdev_pr_allowed(bdev, mode, PR_IN))
 		return -EPERM;
 	if (!ops || !ops->pr_read_reservation)
 		return -EOPNOTSUPP;
@@ -691,7 +697,7 @@ static int blkdev_common_ioctl(struct block_device *bdev, blk_mode_t mode,
 				    queue_max_sectors(bdev_get_queue(bdev)));
 		return put_ushort(argp, max_sectors);
 	case BLKROTATIONAL:
-		return put_ushort(argp, !bdev_nonrot(bdev));
+		return put_ushort(argp, bdev_rot(bdev));
 	case BLKRASET:
 	case BLKFRASET:
 		if(!capable(CAP_SYS_ADMIN))

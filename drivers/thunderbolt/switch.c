@@ -7,6 +7,7 @@
  */
 
 #include <linux/delay.h>
+#include <linux/hex.h>
 #include <linux/idr.h>
 #include <linux/module.h>
 #include <linux/nvmem-provider.h>
@@ -68,7 +69,7 @@ static void nvm_set_auth_status(const struct tb_switch *sw, u32 status)
 	st = __nvm_get_auth_status(sw);
 
 	if (!st) {
-		st = kzalloc(sizeof(*st), GFP_KERNEL);
+		st = kzalloc_obj(*st);
 		if (!st)
 			goto unlock;
 
@@ -346,7 +347,7 @@ static int nvm_write(void *priv, unsigned int offset, void *val, size_t bytes)
 	return ret;
 }
 
-static int tb_switch_nvm_add(struct tb_switch *sw)
+static int tb_switch_nvm_init(struct tb_switch *sw)
 {
 	struct tb_nvm *nvm;
 	int ret;
@@ -363,6 +364,26 @@ static int tb_switch_nvm_add(struct tb_switch *sw)
 	ret = tb_nvm_read_version(nvm);
 	if (ret)
 		goto err_nvm;
+
+	sw->nvm = nvm;
+	return 0;
+
+err_nvm:
+	tb_sw_dbg(sw, "NVM upgrade disabled\n");
+	sw->no_nvm_upgrade = true;
+	if (!IS_ERR(nvm))
+		tb_nvm_free(nvm);
+
+	return ret;
+}
+
+static int tb_switch_nvm_add(struct tb_switch *sw)
+{
+	struct tb_nvm *nvm = sw->nvm;
+	int ret;
+
+	if (!nvm)
+		return 0;
 
 	/*
 	 * If the switch is in safe-mode the only accessible portion of
@@ -382,14 +403,12 @@ static int tb_switch_nvm_add(struct tb_switch *sw)
 			goto err_nvm;
 	}
 
-	sw->nvm = nvm;
 	return 0;
 
 err_nvm:
 	tb_sw_dbg(sw, "NVM upgrade disabled\n");
 	sw->no_nvm_upgrade = true;
-	if (!IS_ERR(nvm))
-		tb_nvm_free(nvm);
+	tb_nvm_free(nvm);
 
 	return ret;
 }
@@ -2474,7 +2493,7 @@ struct tb_switch *tb_switch_alloc(struct tb *tb, struct device *parent,
 	if (upstream_port < 0)
 		return ERR_PTR(upstream_port);
 
-	sw = kzalloc(sizeof(*sw), GFP_KERNEL);
+	sw = kzalloc_obj(*sw);
 	if (!sw)
 		return ERR_PTR(-ENOMEM);
 
@@ -2502,8 +2521,7 @@ struct tb_switch *tb_switch_alloc(struct tb *tb, struct device *parent,
 	}
 
 	/* initialize ports */
-	sw->ports = kcalloc(sw->config.max_port_number + 1, sizeof(*sw->ports),
-				GFP_KERNEL);
+	sw->ports = kzalloc_objs(*sw->ports, sw->config.max_port_number + 1);
 	if (!sw->ports) {
 		ret = -ENOMEM;
 		goto err_free_sw_ports;
@@ -2576,7 +2594,7 @@ tb_switch_alloc_safe_mode(struct tb *tb, struct device *parent, u64 route)
 {
 	struct tb_switch *sw;
 
-	sw = kzalloc(sizeof(*sw), GFP_KERNEL);
+	sw = kzalloc_obj(*sw);
 	if (!sw)
 		return ERR_PTR(-ENOMEM);
 
@@ -3310,6 +3328,10 @@ int tb_switch_add(struct tb_switch *sw)
 		dev_err(&sw->dev, "failed to add DMA port\n");
 		return ret;
 	}
+
+	ret = tb_switch_nvm_init(sw);
+	if (ret)
+		return ret;
 
 	if (!sw->safe_mode) {
 		tb_switch_credits_init(sw);

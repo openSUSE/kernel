@@ -48,7 +48,7 @@ struct cmd_struct {
 	int option;
 };
 
-static struct cmd_struct commands[] = {
+static const struct cmd_struct commands[] = {
 	{ "archive",	NULL,	0 },
 	{ "buildid-cache", cmd_buildid_cache, 0 },
 	{ "buildid-list", cmd_buildid_list, 0 },
@@ -169,8 +169,8 @@ static int set_debug_file(const char *path)
 {
 	debug_fp = fopen(path, "w");
 	if (!debug_fp) {
-		fprintf(stderr, "Open debug file '%s' failed: %s\n",
-			path, strerror(errno));
+		fprintf(stderr, "Open debug file '%s' failed: %m\n",
+			path);
 		return -1;
 	}
 
@@ -178,7 +178,7 @@ static int set_debug_file(const char *path)
 	return 0;
 }
 
-struct option options[] = {
+static const struct option options[] = {
 	OPT_ARGUMENT("help", "help"),
 	OPT_ARGUMENT("version", "version"),
 	OPT_ARGUMENT("exec-path", "exec-path"),
@@ -280,7 +280,7 @@ static int handle_options(const char ***argv, int *argc, int *envchanged)
 			unsigned int i;
 
 			for (i = 0; i < ARRAY_SIZE(commands); i++) {
-				struct cmd_struct *p = commands+i;
+				const struct cmd_struct *p = commands + i;
 				printf("%s ", p->cmd);
 			}
 			putchar('\n');
@@ -289,7 +289,7 @@ static int handle_options(const char ***argv, int *argc, int *envchanged)
 			unsigned int i;
 
 			for (i = 0; i < ARRAY_SIZE(options)-1; i++) {
-				struct option *p = options+i;
+				const struct option *p = options + i;
 				printf("--%s ", p->long_name);
 			}
 			putchar('\n');
@@ -331,11 +331,10 @@ static int handle_options(const char ***argv, int *argc, int *envchanged)
 #define RUN_SETUP	(1<<0)
 #define USE_PAGER	(1<<1)
 
-static int run_builtin(struct cmd_struct *p, int argc, const char **argv)
+static int run_builtin(const struct cmd_struct *p, int argc, const char **argv)
 {
 	int status;
 	struct stat st;
-	char sbuf[STRERR_BUFSIZE];
 
 	if (use_browser == -1)
 		use_browser = check_browser_config(p->cmd);
@@ -363,17 +362,15 @@ static int run_builtin(struct cmd_struct *p, int argc, const char **argv)
 	status = 1;
 	/* Check for ENOSPC and EIO errors.. */
 	if (fflush(stdout)) {
-		fprintf(stderr, "write failure on standard output: %s",
-			str_error_r(errno, sbuf, sizeof(sbuf)));
+		fprintf(stderr, "write failure on standard output: %m\n");
 		goto out;
 	}
 	if (ferror(stdout)) {
-		fprintf(stderr, "unknown write failure on standard output");
+		fprintf(stderr, "unknown write failure on standard output\n");
 		goto out;
 	}
 	if (fclose(stdout)) {
-		fprintf(stderr, "close failed on standard output: %s",
-			str_error_r(errno, sbuf, sizeof(sbuf)));
+		fprintf(stderr, "close failed on standard output: %m\n");
 		goto out;
 	}
 	status = 0;
@@ -393,7 +390,7 @@ static void handle_internal_command(int argc, const char **argv)
 	}
 
 	for (i = 0; i < ARRAY_SIZE(commands); i++) {
-		struct cmd_struct *p = commands+i;
+		const struct cmd_struct *p = commands+i;
 		if (p->fn == NULL)
 			continue;
 		if (strcmp(p->cmd, cmd))
@@ -459,7 +456,6 @@ int main(int argc, const char **argv)
 {
 	int err, done_help = 0;
 	const char *cmd;
-	char sbuf[STRERR_BUFSIZE];
 
 	perf_debug_setup();
 
@@ -573,8 +569,8 @@ int main(int argc, const char **argv)
 	}
 
 	if (cmd) {
-		fprintf(stderr, "Failed to run command '%s': %s\n",
-			cmd, str_error_r(errno, sbuf, sizeof(sbuf)));
+		fprintf(stderr, "Failed to run command '%s': %m\n",
+			cmd);
 	}
 out:
 	if (debug_fp)

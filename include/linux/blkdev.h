@@ -13,6 +13,7 @@
 #include <linux/minmax.h>
 #include <linux/timer.h>
 #include <linux/workqueue.h>
+#include <linux/completion.h>
 #include <linux/wait.h>
 #include <linux/bio.h>
 #include <linux/gfp.h>
@@ -38,6 +39,7 @@ struct blk_flush_queue;
 struct kiocb;
 struct pr_ops;
 struct rq_qos;
+struct hd_geometry;
 struct blk_report_zones_args;
 struct blk_queue_stats;
 struct blk_stat_callback;
@@ -200,10 +202,14 @@ struct gendisk {
 	u8 __rcu		*zones_cond;
 	unsigned int		zone_wplugs_hash_bits;
 	atomic_t		nr_zone_wplugs;
-	spinlock_t		zone_wplugs_lock;
+	spinlock_t		zone_wplugs_hash_lock;
 	struct mempool		*zone_wplugs_pool;
 	struct hlist_head	*zone_wplugs_hash;
 	struct workqueue_struct *zone_wplugs_wq;
+	spinlock_t		zone_wplugs_list_lock;
+	struct list_head	zone_wplugs_list;
+	struct task_struct	*zone_wplugs_worker;
+	struct completion	zone_wplugs_worker_bio_done;
 #endif /* CONFIG_BLK_DEV_ZONED */
 
 #if IS_ENABLED(CONFIG_CDROM)
@@ -340,13 +346,12 @@ typedef unsigned int __bitwise blk_features_t;
 /* skip this queue in blk_mq_(un)quiesce_tagset */
 #define BLK_FEAT_SKIP_TAGSET_QUIESCE	((__force blk_features_t)(1u << 13))
 
+/* atomic writes enabled */
+#define BLK_FEAT_ATOMIC_WRITES		((__force blk_features_t)(1u << 14))
+
 /* undocumented magic for bcache */
 #define BLK_FEAT_RAID_PARTIAL_STRIPES_EXPENSIVE \
 	((__force blk_features_t)(1u << 15))
-
-/* atomic writes enabled */
-#define BLK_FEAT_ATOMIC_WRITES \
-	((__force blk_features_t)(1u << 16))
 
 /*
  * Flags automatically inherited when stacking limits.
@@ -503,7 +508,7 @@ struct request_queue {
 
 	/* hw dispatch queues */
 	unsigned int		nr_hw_queues;
-	struct blk_mq_hw_ctx * __rcu *queue_hw_ctx;
+	struct blk_mq_hw_ctx * __rcu *queue_hw_ctx __counted_by_ptr(nr_hw_queues);
 
 	struct percpu_ref	q_usage_counter;
 	struct lock_class_key	io_lock_cls_key;
@@ -551,7 +556,8 @@ struct request_queue {
 	/*
 	 * queue settings
 	 */
-	unsigned long		nr_requests;	/* Max # of requests */
+	unsigned int		nr_requests;	/* Max # of requests */
+	unsigned int		async_depth;	/* Max # of async requests */
 
 #ifdef CONFIG_BLK_INLINE_ENCRYPTION
 	struct blk_crypto_profile *crypto_profile;
@@ -668,6 +674,7 @@ enum {
 	QUEUE_FLAG_NO_ELV_SWITCH,	/* can't switch elevator any more */
 	QUEUE_FLAG_QOS_ENABLED,		/* qos is enabled */
 	QUEUE_FLAG_BIO_ISSUE_TIME,	/* record bio->issue_time_ns */
+	QUEUE_FLAG_ZONED_QD1_WRITES,	/* Limit zoned devices writes to QD=1 */
 	QUEUE_FLAG_MAX
 };
 
@@ -681,7 +688,7 @@ void blk_queue_flag_clear(unsigned int flag, struct request_queue *q);
 #define blk_queue_nomerges(q)	test_bit(QUEUE_FLAG_NOMERGES, &(q)->queue_flags)
 #define blk_queue_noxmerges(q)	\
 	test_bit(QUEUE_FLAG_NOXMERGES, &(q)->queue_flags)
-#define blk_queue_nonrot(q)	(!((q)->limits.features & BLK_FEAT_ROTATIONAL))
+#define blk_queue_rot(q)	((q)->limits.features & BLK_FEAT_ROTATIONAL)
 #define blk_queue_io_stat(q)	((q)->limits.features & BLK_FEAT_IO_STAT)
 #define blk_queue_passthrough_stat(q)	\
 	((q)->limits.flags & BLK_FLAG_IOSTATS_PASSTHROUGH)
@@ -707,6 +714,8 @@ void blk_queue_flag_clear(unsigned int flag, struct request_queue *q);
 	test_bit(QUEUE_FLAG_DISABLE_WBT_DEF, &(q)->queue_flags)
 #define blk_queue_no_elv_switch(q)	\
 	test_bit(QUEUE_FLAG_NO_ELV_SWITCH, &(q)->queue_flags)
+#define blk_queue_zoned_qd1_writes(q)	\
+	test_bit(QUEUE_FLAG_ZONED_QD1_WRITES, &(q)->queue_flags)
 
 extern void blk_set_pm_only(struct request_queue *q);
 extern void blk_clear_pm_only(struct request_queue *q);
@@ -1026,7 +1035,7 @@ extern int blk_queue_enter(struct request_queue *q, blk_mq_req_flags_t flags);
 extern void blk_queue_exit(struct request_queue *q);
 extern void blk_sync_queue(struct request_queue *q);
 
-/* Helper to convert REQ_OP_XXX to its string format XXX */
+/* Convert a request operation REQ_OP_name into the string "name" */
 extern const char *blk_op_str(enum req_op op);
 
 int blk_status_to_errno(blk_status_t status);
@@ -1044,7 +1053,7 @@ static inline struct request_queue *bdev_get_queue(struct block_device *bdev)
 	return bdev->bd_queue;	/* this is never NULL */
 }
 
-/* Helper to convert BLK_ZONE_ZONE_XXX to its string format XXX */
+/* Convert a zone condition BLK_ZONE_COND_name into the string "name" */
 const char *blk_zone_cond_str(enum blk_zone_cond zone_cond);
 
 static inline unsigned int bio_zone_no(struct bio *bio)
@@ -1259,7 +1268,7 @@ extern void blk_io_schedule(void);
 
 int blkdev_issue_discard(struct block_device *bdev, sector_t sector,
 		sector_t nr_sects, gfp_t gfp_mask);
-int __blkdev_issue_discard(struct block_device *bdev, sector_t sector,
+void __blkdev_issue_discard(struct block_device *bdev, sector_t sector,
 		sector_t nr_sects, gfp_t gfp_mask, struct bio **biop);
 int blkdev_issue_secure_erase(struct block_device *bdev, sector_t sector,
 		sector_t nr_sects, gfp_t gfp);
@@ -1462,9 +1471,9 @@ bdev_write_zeroes_unmap_sectors(struct block_device *bdev)
 	return bdev_limits(bdev)->max_wzeroes_unmap_sectors;
 }
 
-static inline bool bdev_nonrot(struct block_device *bdev)
+static inline bool bdev_rot(struct block_device *bdev)
 {
-	return blk_queue_nonrot(bdev_get_queue(bdev));
+	return blk_queue_rot(bdev_get_queue(bdev));
 }
 
 static inline bool bdev_synchronous(struct block_device *bdev)
@@ -1472,14 +1481,18 @@ static inline bool bdev_synchronous(struct block_device *bdev)
 	return bdev->bd_disk->queue->limits.features & BLK_FEAT_SYNCHRONOUS;
 }
 
+static inline bool bdev_has_integrity_csum(struct block_device *bdev)
+{
+	struct queue_limits *lim = bdev_limits(bdev);
+
+	return IS_ENABLED(CONFIG_BLK_DEV_INTEGRITY) &&
+		lim->integrity.csum_type != BLK_INTEGRITY_CSUM_NONE;
+}
+
 static inline bool bdev_stable_writes(struct block_device *bdev)
 {
-	struct request_queue *q = bdev_get_queue(bdev);
-
-	if (IS_ENABLED(CONFIG_BLK_DEV_INTEGRITY) &&
-	    q->limits.integrity.csum_type != BLK_INTEGRITY_CSUM_NONE)
-		return true;
-	return q->limits.features & BLK_FEAT_STABLE_WRITES;
+	return bdev_has_integrity_csum(bdev) ||
+		(bdev_limits(bdev)->features & BLK_FEAT_STABLE_WRITES);
 }
 
 static inline bool blk_queue_write_cache(struct request_queue *q)
@@ -1822,6 +1835,7 @@ struct io_comp_batch {
 	struct rq_list req_list;
 	bool need_ts;
 	void (*complete)(struct io_comp_batch *);
+	void *poll_ctx;
 };
 
 static inline bool blk_atomic_write_start_sect_aligned(sector_t sector,
@@ -1869,6 +1883,24 @@ static inline int bio_split_rw_at(struct bio *bio,
 		unsigned *segs, unsigned max_bytes)
 {
 	return bio_split_io_at(bio, lim, segs, max_bytes, lim->dma_alignment);
+}
+
+/*
+ * Maximum contiguous integrity buffer allocation.
+ */
+#define BLK_INTEGRITY_MAX_SIZE		SZ_2M
+
+/*
+ * Maximum size of I/O that needs a block layer integrity buffer.  Limited
+ * by the number of intervals for which we can fit the integrity buffer into
+ * the buffer size.  Because the buffer is a single segment it is also limited
+ * by the maximum segment size.
+ */
+static inline unsigned int max_integrity_io_size(struct queue_limits *lim)
+{
+	return min_t(unsigned int, lim->max_segment_size,
+		(BLK_INTEGRITY_MAX_SIZE / lim->integrity.metadata_size) <<
+			lim->integrity.interval_exp);
 }
 
 #define DEFINE_IO_COMP_BATCH(name)	struct io_comp_batch name = { }

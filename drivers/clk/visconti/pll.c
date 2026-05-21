@@ -249,13 +249,13 @@ static struct clk_hw *visconti_register_pll(struct visconti_pll_provider *ctx,
 					    const struct visconti_pll_rate_table *rate_table,
 					    spinlock_t *lock)
 {
-	struct clk_init_data init;
+	struct clk_init_data init = {};
 	struct visconti_pll *pll;
 	struct clk_hw *pll_hw_clk;
 	size_t len;
 	int ret;
 
-	pll = kzalloc(sizeof(*pll), GFP_KERNEL);
+	pll = kzalloc_obj(*pll);
 	if (!pll)
 		return ERR_PTR(-ENOMEM);
 
@@ -330,7 +330,7 @@ struct visconti_pll_provider * __init visconti_init_pll(struct device_node *np,
 	struct visconti_pll_provider *ctx;
 	int i;
 
-	ctx = kzalloc(struct_size(ctx, clk_data.hws, nr_plls), GFP_KERNEL);
+	ctx = kzalloc_flex(*ctx, clk_data.hws, nr_plls);
 	if (!ctx)
 		return ERR_PTR(-ENOMEM);
 

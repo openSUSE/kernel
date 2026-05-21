@@ -308,11 +308,11 @@ static int sevseg_probe(struct usb_interface *interface,
 	struct usb_sevsegdev *mydev;
 	int rc = -ENOMEM;
 
-	mydev = kzalloc(sizeof(struct usb_sevsegdev), GFP_KERNEL);
+	mydev = kzalloc_obj(struct usb_sevsegdev);
 	if (!mydev)
 		goto error_mem;
 
-	mydev->udev = usb_get_dev(udev);
+	mydev->udev = udev;
 	mydev->intf = interface;
 	usb_set_intfdata(interface, mydev);
 
@@ -338,7 +338,6 @@ static void sevseg_disconnect(struct usb_interface *interface)
 
 	mydev = usb_get_intfdata(interface);
 	usb_set_intfdata(interface, NULL);
-	usb_put_dev(mydev->udev);
 	kfree(mydev);
 	dev_info(&interface->dev, "USB 7 Segment now disconnected\n");
 }

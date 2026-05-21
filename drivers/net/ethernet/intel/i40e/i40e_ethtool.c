@@ -2013,18 +2013,6 @@ static void i40e_get_drvinfo(struct net_device *netdev,
 		drvinfo->n_priv_flags += I40E_GL_PRIV_FLAGS_STR_LEN;
 }
 
-static u32 i40e_get_max_num_descriptors(struct i40e_pf *pf)
-{
-	struct i40e_hw *hw = &pf->hw;
-
-	switch (hw->mac.type) {
-	case I40E_MAC_XL710:
-		return I40E_MAX_NUM_DESCRIPTORS_XL710;
-	default:
-		return I40E_MAX_NUM_DESCRIPTORS;
-	}
-}
-
 static void i40e_get_ringparam(struct net_device *netdev,
 			       struct ethtool_ringparam *ring,
 			       struct kernel_ethtool_ringparam *kernel_ring,
@@ -2132,8 +2120,7 @@ static int i40e_set_ringparam(struct net_device *netdev,
 		netdev_info(netdev,
 			    "Changing Tx descriptor count from %d to %d.\n",
 			    vsi->tx_rings[0]->count, new_tx_count);
-		tx_rings = kcalloc(tx_alloc_queue_pairs,
-				   sizeof(struct i40e_ring), GFP_KERNEL);
+		tx_rings = kzalloc_objs(struct i40e_ring, tx_alloc_queue_pairs);
 		if (!tx_rings) {
 			err = -ENOMEM;
 			goto done;
@@ -2171,8 +2158,8 @@ static int i40e_set_ringparam(struct net_device *netdev,
 		netdev_info(netdev,
 			    "Changing Rx descriptor count from %d to %d\n",
 			    vsi->rx_rings[0]->count, new_rx_count);
-		rx_rings = kcalloc(vsi->alloc_queue_pairs,
-				   sizeof(struct i40e_ring), GFP_KERNEL);
+		rx_rings = kzalloc_objs(struct i40e_ring,
+					vsi->alloc_queue_pairs);
 		if (!rx_rings) {
 			err = -ENOMEM;
 			goto free_tx;
@@ -3637,6 +3624,7 @@ static int i40e_set_rxfh_fields(struct net_device *netdev,
 		   ((u64)i40e_read_rx_ctl(hw, I40E_PFQF_HENA(1)) << 32);
 	DECLARE_BITMAP(flow_pctypes, FLOW_PCTYPES_SIZE);
 	u64 i_set, i_setc;
+	u8 flow_id;
 
 	bitmap_zero(flow_pctypes, FLOW_PCTYPES_SIZE);
 
@@ -3720,20 +3708,14 @@ static int i40e_set_rxfh_fields(struct net_device *netdev,
 		return -EINVAL;
 	}
 
-	if (bitmap_weight(flow_pctypes, FLOW_PCTYPES_SIZE)) {
-		u8 flow_id;
+	for_each_set_bit(flow_id, flow_pctypes, FLOW_PCTYPES_SIZE) {
+		i_setc = (u64)i40e_read_rx_ctl(hw, I40E_GLQF_HASH_INSET(0, flow_id)) |
+			 ((u64)i40e_read_rx_ctl(hw, I40E_GLQF_HASH_INSET(1, flow_id)) << 32);
+		i_set = i40e_get_rss_hash_bits(&pf->hw, nfc, i_setc);
 
-		for_each_set_bit(flow_id, flow_pctypes, FLOW_PCTYPES_SIZE) {
-			i_setc = (u64)i40e_read_rx_ctl(hw, I40E_GLQF_HASH_INSET(0, flow_id)) |
-				 ((u64)i40e_read_rx_ctl(hw, I40E_GLQF_HASH_INSET(1, flow_id)) << 32);
-			i_set = i40e_get_rss_hash_bits(&pf->hw, nfc, i_setc);
-
-			i40e_write_rx_ctl(hw, I40E_GLQF_HASH_INSET(0, flow_id),
-					  (u32)i_set);
-			i40e_write_rx_ctl(hw, I40E_GLQF_HASH_INSET(1, flow_id),
-					  (u32)(i_set >> 32));
-			hena |= BIT_ULL(flow_id);
-		}
+		i40e_write_rx_ctl(hw, I40E_GLQF_HASH_INSET(0, flow_id), (u32)i_set);
+		i40e_write_rx_ctl(hw, I40E_GLQF_HASH_INSET(1, flow_id), (u32)(i_set >> 32));
+		hena |= BIT_ULL(flow_id);
 	}
 
 	i40e_write_rx_ctl(hw, I40E_PFQF_HENA(0), (u32)hena);
@@ -3988,7 +3970,7 @@ static int i40e_add_flex_offset(struct list_head *flex_pit_list,
 {
 	struct i40e_flex_pit *new_pit, *entry;
 
-	new_pit = kzalloc(sizeof(*entry), GFP_KERNEL);
+	new_pit = kzalloc_obj(*entry);
 	if (!new_pit)
 		return -ENOMEM;
 
@@ -4879,7 +4861,7 @@ static int i40e_add_fdir_ethtool(struct i40e_vsi *vsi,
 		q_index = ring;
 	}
 
-	input = kzalloc(sizeof(*input), GFP_KERNEL);
+	input = kzalloc_obj(*input);
 
 	if (!input)
 		return -ENOMEM;

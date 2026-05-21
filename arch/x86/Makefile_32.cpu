@@ -10,8 +10,6 @@ else
 align		:= -falign-functions=0 -falign-jumps=0 -falign-loops=0
 endif
 
-cflags-$(CONFIG_M486SX)		+= -march=i486
-cflags-$(CONFIG_M486)		+= -march=i486
 cflags-$(CONFIG_M586)		+= -march=i586
 cflags-$(CONFIG_M586TSC)	+= -march=i586
 cflags-$(CONFIG_M586MMX)	+= -march=pentium-mmx
@@ -42,9 +40,3 @@ cflags-$(CONFIG_MGEODE_LX)	+= $(call cc-option,-march=geode,-march=pentium-mmx)
 # add at the end to overwrite eventual tuning options from earlier
 # cpu entries
 cflags-$(CONFIG_X86_GENERIC) 	+= $(call tune,generic,$(call tune,i686))
-
-# Bug fix for binutils: this option is required in order to keep
-# binutils from generating NOPL instructions against our will.
-ifneq ($(CONFIG_X86_P6_NOP),y)
-cflags-y			+= $(call cc-option,-Wa$(comma)-mtune=generic32,)
-endif

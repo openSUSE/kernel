@@ -628,6 +628,10 @@ static int rockchip_sai_hw_params(struct snd_pcm_substream *substream,
 
 	regmap_update_bits(sai->regmap, reg, SAI_XCR_VDW_MASK | SAI_XCR_CSR_MASK, val);
 
+	if (!sai->is_tdm)
+		regmap_update_bits(sai->regmap, reg, SAI_XCR_SBW_MASK,
+				   SAI_XCR_SBW(params_physical_width(params)));
+
 	regmap_read(sai->regmap, reg, &val);
 
 	slot_width = SAI_XCR_SBW_V(val);
@@ -1487,8 +1491,9 @@ static int rockchip_sai_probe(struct platform_device *pdev)
 	return 0;
 
 err_runtime_suspend:
-	/* If we're !CONFIG_PM, we get -ENOSYS and disable manually */
-	if (pm_runtime_put(&pdev->dev))
+	if (IS_ENABLED(CONFIG_PM))
+		pm_runtime_put(&pdev->dev);
+	else
 		rockchip_sai_runtime_suspend(&pdev->dev);
 
 	return ret;

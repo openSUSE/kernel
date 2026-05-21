@@ -395,52 +395,36 @@ int arch_decode_instruction(struct objtool_file *file, const struct section *sec
 		if (!rex_w)
 			break;
 
-		if (modrm_reg == CFI_SP) {
-
-			if (mod_is_reg()) {
-				/* mov %rsp, reg */
-				ADD_OP(op) {
-					op->src.type = OP_SRC_REG;
-					op->src.reg = CFI_SP;
-					op->dest.type = OP_DEST_REG;
-					op->dest.reg = modrm_rm;
-				}
-				break;
-
-			} else {
-				/* skip RIP relative displacement */
-				if (is_RIP())
-					break;
-
-				/* skip nontrivial SIB */
-				if (have_SIB()) {
-					modrm_rm = sib_base;
-					if (sib_index != CFI_SP)
-						break;
-				}
-
-				/* mov %rsp, disp(%reg) */
-				ADD_OP(op) {
-					op->src.type = OP_SRC_REG;
-					op->src.reg = CFI_SP;
-					op->dest.type = OP_DEST_REG_INDIRECT;
-					op->dest.reg = modrm_rm;
-					op->dest.offset = ins.displacement.value;
-				}
-				break;
-			}
-
-			break;
-		}
-
-		if (rm_is_reg(CFI_SP)) {
-
-			/* mov reg, %rsp */
+		if (mod_is_reg()) {
+			/* mov reg, reg */
 			ADD_OP(op) {
 				op->src.type = OP_SRC_REG;
 				op->src.reg = modrm_reg;
 				op->dest.type = OP_DEST_REG;
-				op->dest.reg = CFI_SP;
+				op->dest.reg = modrm_rm;
+			}
+			break;
+		}
+
+		/* skip RIP relative displacement */
+		if (is_RIP())
+			break;
+
+		/* skip nontrivial SIB */
+		if (have_SIB()) {
+			modrm_rm = sib_base;
+			if (sib_index != CFI_SP)
+				break;
+		}
+
+		/* mov %rsp, disp(%reg) */
+		if (modrm_reg == CFI_SP) {
+			ADD_OP(op) {
+				op->src.type = OP_SRC_REG;
+				op->src.reg = CFI_SP;
+				op->dest.type = OP_DEST_REG_INDIRECT;
+				op->dest.reg = modrm_rm;
+				op->dest.offset = ins.displacement.value;
 			}
 			break;
 		}
@@ -711,10 +695,14 @@ int arch_decode_instruction(struct objtool_file *file, const struct section *sec
 			immr = find_reloc_by_dest(elf, (void *)sec, offset+3);
 			disp = find_reloc_by_dest(elf, (void *)sec, offset+7);
 
-			if (!immr || strcmp(immr->sym->name, "pv_ops"))
+			if (!immr || strncmp(immr->sym->name, "pv_ops", 6))
 				break;
 
-			idx = (reloc_addend(immr) + 8) / sizeof(void *);
+			idx = pv_ops_idx_off(immr->sym->name);
+			if (idx < 0)
+				break;
+
+			idx += (reloc_addend(immr) + 8) / sizeof(void *);
 
 			func = disp->sym;
 			if (disp->sym->type == STT_SECTION)
@@ -887,14 +875,20 @@ int arch_decode_hint_reg(u8 sp_reg, int *base)
 	case ORC_REG_UNDEFINED:
 		*base = CFI_UNDEFINED;
 		break;
+	case ORC_REG_AX:
+		*base = CFI_AX;
+		break;
+	case ORC_REG_DX:
+		*base = CFI_DX;
+		break;
 	case ORC_REG_SP:
 		*base = CFI_SP;
 		break;
 	case ORC_REG_BP:
 		*base = CFI_BP;
 		break;
-	case ORC_REG_SP_INDIRECT:
-		*base = CFI_SP_INDIRECT;
+	case ORC_REG_DI:
+		*base = CFI_DI;
 		break;
 	case ORC_REG_R10:
 		*base = CFI_R10;
@@ -902,11 +896,11 @@ int arch_decode_hint_reg(u8 sp_reg, int *base)
 	case ORC_REG_R13:
 		*base = CFI_R13;
 		break;
-	case ORC_REG_DI:
-		*base = CFI_DI;
+	case ORC_REG_SP_INDIRECT:
+		*base = CFI_SP_INDIRECT;
 		break;
-	case ORC_REG_DX:
-		*base = CFI_DX;
+	case ORC_REG_BP_INDIRECT:
+		*base = CFI_BP_INDIRECT;
 		break;
 	default:
 		return -1;

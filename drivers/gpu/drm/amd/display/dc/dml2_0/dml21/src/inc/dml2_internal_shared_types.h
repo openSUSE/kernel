@@ -16,6 +16,7 @@
 
 struct dram_bw_to_min_clk_table_entry {
 	unsigned long long pre_derate_dram_bw_kbps;
+	unsigned long min_uclk_khz;
 	unsigned long min_fclk_khz;
 	unsigned long min_dcfclk_khz;
 };
@@ -409,6 +410,7 @@ struct dml2_core_mode_support_in_out {
 	} legacy;
 };
 
+
 struct dml2_core_mode_programming_in_out {
 	/*
 	* Inputs
@@ -499,6 +501,7 @@ struct dml2_core_instance {
 	bool (*mode_programming)(struct dml2_core_mode_programming_in_out *in_out);
 	bool (*populate_informative)(struct dml2_core_populate_informative_in_out *in_out);
 	bool (*calculate_mcache_allocation)(struct dml2_calculate_mcache_allocation_in_out *in_out);
+
 
 	struct {
 		struct dml2_core_internal_display_mode_lib mode_lib;
@@ -751,6 +754,7 @@ struct dml2_pmo_instance {
 	bool (*init_for_stutter)(struct dml2_pmo_init_for_stutter_in_out *in_out);
 	bool (*test_for_stutter)(struct dml2_pmo_test_for_stutter_in_out *in_out);
 	bool (*optimize_for_stutter)(struct dml2_pmo_optimize_for_stutter_in_out *in_out);
+
 
 	struct dml2_pmo_init_data init_data;
 	struct dml2_pmo_scratch scratch;

@@ -420,7 +420,10 @@ void hfs_bnode_unlink(struct hfs_bnode *node)
 		tree->root = 0;
 		tree->depth = 0;
 	}
+
+	spin_lock(&tree->hash_lock);
 	set_bit(HFS_BNODE_DELETED, &node->flags);
+	spin_unlock(&tree->hash_lock);
 }
 
 static inline int hfs_bnode_hash(u32 num)
@@ -629,7 +632,7 @@ struct hfs_bnode *hfs_bnode_create(struct hfs_btree *tree, u32 num)
 	if (node) {
 		pr_crit("new node %u already hashed?\n", num);
 		WARN_ON(1);
-		return node;
+		return ERR_PTR(-EEXIST);
 	}
 	node = __hfs_bnode_create(tree, num);
 	if (!node)

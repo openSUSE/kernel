@@ -298,7 +298,7 @@ static int ocfs2_add_recovery_chunk(struct super_block *sb,
 {
 	struct ocfs2_recovery_chunk *rc;
 
-	rc = kmalloc(sizeof(struct ocfs2_recovery_chunk), GFP_NOFS);
+	rc = kmalloc_obj(struct ocfs2_recovery_chunk, GFP_NOFS);
 	if (!rc)
 		return -ENOMEM;
 	rc->rc_chunk = chunk;
@@ -372,7 +372,7 @@ static struct ocfs2_quota_recovery *ocfs2_alloc_quota_recovery(void)
 	int type;
 	struct ocfs2_quota_recovery *rec;
 
-	rec = kmalloc(sizeof(struct ocfs2_quota_recovery), GFP_NOFS);
+	rec = kmalloc_obj(struct ocfs2_quota_recovery, GFP_NOFS);
 	if (!rec)
 		return NULL;
 	for (type = 0; type < OCFS2_MAXQUOTAS; type++)
@@ -471,7 +471,7 @@ static int ocfs2_recover_local_quota_file(struct inode *lqinode,
 	qsize_t spacechange, inodechange;
 	unsigned int memalloc;
 
-	trace_ocfs2_recover_local_quota_file((unsigned long)lqinode->i_ino, type);
+	trace_ocfs2_recover_local_quota_file(lqinode->i_ino, type);
 
 	list_for_each_entry_safe(rchunk, next, &(rec->r_list[type]), rc_list) {
 		chunk = rchunk->rc_chunk;
@@ -692,7 +692,7 @@ static int ocfs2_local_read_info(struct super_block *sb, int type)
 
 	info->dqi_max_spc_limit = 0x7fffffffffffffffLL;
 	info->dqi_max_ino_limit = 0x7fffffffffffffffLL;
-	oinfo = kmalloc(sizeof(struct ocfs2_mem_dqinfo), GFP_NOFS);
+	oinfo = kmalloc_obj(struct ocfs2_mem_dqinfo, GFP_NOFS);
 	if (!oinfo) {
 		mlog(ML_ERROR, "failed to allocate memory for ocfs2 quota"
 			       " info.");
@@ -1224,7 +1224,9 @@ int ocfs2_create_local_dquot(struct dquot *dquot)
 	int status;
 	u64 pcount;
 
-	down_write(&OCFS2_I(lqinode)->ip_alloc_sem);
+	if (!down_write_trylock(&OCFS2_I(lqinode)->ip_alloc_sem))
+		return -EBUSY;
+
 	chunk = ocfs2_find_free_entry(sb, type, &offset);
 	if (!chunk) {
 		chunk = ocfs2_extend_local_quota_file(sb, type, &offset);

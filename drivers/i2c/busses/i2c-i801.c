@@ -85,6 +85,7 @@
  * Panther Lake-P (SOC)		0xe422	32	hard	yes	yes	yes
  * Wildcat Lake-U (SOC)		0x4d22	32	hard	yes	yes	yes
  * Diamond Rapids (SOC)		0x5827	32	hard	yes	yes	yes
+ * Nova Lake-S (PCH)		0x6e23	32	hard	yes	yes	yes
  *
  * Features supported by this driver:
  * Software PEC				no
@@ -245,6 +246,7 @@
 #define PCI_DEVICE_ID_INTEL_BIRCH_STREAM_SMBUS		0x5796
 #define PCI_DEVICE_ID_INTEL_DIAMOND_RAPIDS_SMBUS	0x5827
 #define PCI_DEVICE_ID_INTEL_BROXTON_SMBUS		0x5ad4
+#define PCI_DEVICE_ID_INTEL_NOVA_LAKE_S_SMBUS		0x6e23
 #define PCI_DEVICE_ID_INTEL_ARROW_LAKE_H_SMBUS		0x7722
 #define PCI_DEVICE_ID_INTEL_RAPTOR_LAKE_S_SMBUS		0x7a23
 #define PCI_DEVICE_ID_INTEL_ALDER_LAKE_S_SMBUS		0x7aa3
@@ -308,9 +310,10 @@ struct i801_priv {
 
 	/*
 	 * If set to true the host controller registers are reserved for
-	 * ACPI AML use.
+	 * ACPI AML use. Needs extra protection by acpi_lock.
 	 */
 	bool acpi_reserved;
+	struct mutex acpi_lock;
 };
 
 #define FEATURE_SMBUS_PEC	BIT(0)
@@ -892,8 +895,11 @@ static s32 i801_access(struct i2c_adapter *adap, u16 addr,
 	int hwpec, ret;
 	struct i801_priv *priv = i2c_get_adapdata(adap);
 
-	if (priv->acpi_reserved)
+	mutex_lock(&priv->acpi_lock);
+	if (priv->acpi_reserved) {
+		mutex_unlock(&priv->acpi_lock);
 		return -EBUSY;
+	}
 
 	pm_runtime_get_sync(&priv->pci_dev->dev);
 
@@ -933,6 +939,7 @@ out:
 	iowrite8(SMBHSTSTS_INUSE_STS | STATUS_FLAGS, SMBHSTSTS(priv));
 
 	pm_runtime_put_autosuspend(&priv->pci_dev->dev);
+	mutex_unlock(&priv->acpi_lock);
 	return ret;
 }
 
@@ -1061,6 +1068,7 @@ static const struct pci_device_id i801_ids[] = {
 	{ PCI_DEVICE_DATA(INTEL, PANTHER_LAKE_H_SMBUS,		FEATURES_ICH5 | FEATURE_TCO_CNL) },
 	{ PCI_DEVICE_DATA(INTEL, PANTHER_LAKE_P_SMBUS,		FEATURES_ICH5 | FEATURE_TCO_CNL) },
 	{ PCI_DEVICE_DATA(INTEL, WILDCAT_LAKE_U_SMBUS,		FEATURES_ICH5 | FEATURE_TCO_CNL) },
+	{ PCI_DEVICE_DATA(INTEL, NOVA_LAKE_S_SMBUS,		FEATURES_ICH5 | FEATURE_TCO_CNL) },
 	{ 0, }
 };
 
@@ -1462,7 +1470,7 @@ i801_acpi_io_handler(u32 function, acpi_physical_address address, u32 bits,
 	 * further access from the driver itself. This device is now owned
 	 * by the system firmware.
 	 */
-	i2c_lock_bus(&priv->adapter, I2C_LOCK_SEGMENT);
+	mutex_lock(&priv->acpi_lock);
 
 	if (!priv->acpi_reserved && i801_acpi_is_smbus_ioport(priv, address)) {
 		priv->acpi_reserved = true;
@@ -1482,7 +1490,7 @@ i801_acpi_io_handler(u32 function, acpi_physical_address address, u32 bits,
 	else
 		status = acpi_os_write_port(address, (u32)*value, bits);
 
-	i2c_unlock_bus(&priv->adapter, I2C_LOCK_SEGMENT);
+	mutex_unlock(&priv->acpi_lock);
 
 	return status;
 }
@@ -1542,6 +1550,7 @@ static int i801_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	priv->adapter.dev.parent = &dev->dev;
 	acpi_use_parent_companion(&priv->adapter.dev);
 	priv->adapter.retries = 3;
+	mutex_init(&priv->acpi_lock);
 
 	priv->pci_dev = dev;
 	priv->features = id->driver_data;
