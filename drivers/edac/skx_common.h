@@ -81,23 +81,23 @@
 /* Max correctable error count registers. */
 #define NUM_CECNT_REG		8
 
-/* Modes of RRL register set. */
-enum rrl_mode {
+/* Error source from which the RRL registers log errors. */
+enum rrl_source_type {
 	/* Last read error from patrol scrub. */
-	LRE_SCRUB,
+	RRL_SRC_LRE_SCRUB,
 	/* Last read error from demand. */
-	LRE_DEMAND,
+	RRL_SRC_LRE_DEMAND,
 	/* First read error from patrol scrub. */
-	FRE_SCRUB,
+	RRL_SRC_FRE_SCRUB,
 	/* First read error from demand. */
-	FRE_DEMAND,
+	RRL_SRC_FRE_DEMAND,
 };
 
 /* RRL registers per {,sub-,pseudo-}channel. */
 struct reg_rrl {
 	/* RRL register parts. */
 	int set_num, reg_num;
-	enum rrl_mode modes[NUM_RRL_SET];
+	enum rrl_source_type sources[NUM_RRL_SET];
 	u32 offsets[NUM_RRL_SET][NUM_RRL_REG];
 	/* RRL register widths in byte per set. */
 	u8 widths[NUM_RRL_REG];

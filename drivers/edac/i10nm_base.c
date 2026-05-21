@@ -78,7 +78,7 @@ static bool no_adxl;
 static struct reg_rrl icx_reg_rrl_ddr = {
 	.set_num = 2,
 	.reg_num = 6,
-	.modes = {LRE_SCRUB, LRE_DEMAND},
+	.sources = {RRL_SRC_LRE_SCRUB, RRL_SRC_LRE_DEMAND},
 	.offsets = {
 		{0x22c60, 0x22c54, 0x22c5c, 0x22c58, 0x22c28, 0x20ed8},
 		{0x22e54, 0x22e60, 0x22e64, 0x22e58, 0x22e5c, 0x20ee0},
@@ -99,7 +99,7 @@ static struct reg_rrl icx_reg_rrl_ddr = {
 static struct reg_rrl spr_reg_rrl_ddr = {
 	.set_num = 3,
 	.reg_num = 6,
-	.modes = {LRE_SCRUB, LRE_DEMAND, FRE_DEMAND},
+	.sources = {RRL_SRC_LRE_SCRUB, RRL_SRC_LRE_DEMAND, RRL_SRC_FRE_DEMAND},
 	.offsets = {
 		{0x22c60, 0x22c54, 0x22f08, 0x22c58, 0x22c28, 0x20ed8},
 		{0x22e54, 0x22e60, 0x22f10, 0x22e58, 0x22e5c, 0x20ee0},
@@ -121,7 +121,7 @@ static struct reg_rrl spr_reg_rrl_ddr = {
 static struct reg_rrl spr_reg_rrl_hbm_pch0 = {
 	.set_num = 2,
 	.reg_num = 6,
-	.modes = {LRE_SCRUB, LRE_DEMAND},
+	.sources = {RRL_SRC_LRE_SCRUB, RRL_SRC_LRE_DEMAND},
 	.offsets = {
 		{0x2860, 0x2854, 0x2b08, 0x2858, 0x2828, 0x0ed8},
 		{0x2a54, 0x2a60, 0x2b10, 0x2a58, 0x2a5c, 0x0ee0},
@@ -142,7 +142,7 @@ static struct reg_rrl spr_reg_rrl_hbm_pch0 = {
 static struct reg_rrl spr_reg_rrl_hbm_pch1 = {
 	.set_num = 2,
 	.reg_num = 6,
-	.modes = {LRE_SCRUB, LRE_DEMAND},
+	.sources = {RRL_SRC_LRE_SCRUB, RRL_SRC_LRE_DEMAND},
 	.offsets = {
 		{0x2c60, 0x2c54, 0x2f08, 0x2c58, 0x2c28, 0x0fa8},
 		{0x2e54, 0x2e60, 0x2f10, 0x2e58, 0x2e5c, 0x0fb0},
@@ -163,7 +163,7 @@ static struct reg_rrl spr_reg_rrl_hbm_pch1 = {
 static struct reg_rrl gnr_reg_rrl_ddr = {
 	.set_num = 4,
 	.reg_num = 6,
-	.modes = {FRE_SCRUB, FRE_DEMAND, LRE_SCRUB, LRE_DEMAND},
+	.sources = {RRL_SRC_FRE_SCRUB, RRL_SRC_FRE_DEMAND, RRL_SRC_LRE_SCRUB, RRL_SRC_LRE_DEMAND},
 	.offsets = {
 		{0x2f10, 0x2f20, 0x2f30, 0x2f50, 0x2f60, 0xba0},
 		{0x2f14, 0x2f24, 0x2f38, 0x2f54, 0x2f64, 0xba8},
@@ -186,15 +186,15 @@ static struct reg_rrl gnr_reg_rrl_ddr = {
 static void enable_rrl(struct skx_imc *imc, int chan, struct reg_rrl *rrl,
 		       int rrl_set, bool enable, u32 *rrl_ctl)
 {
-	enum rrl_mode mode = rrl->modes[rrl_set];
+	enum rrl_source_type source = rrl->sources[rrl_set];
 	u32 offset = rrl->offsets[rrl_set][0], v;
 	u8 width = rrl->widths[0];
 	bool first, scrub;
 
 	/* First or last read error. */
-	first = (mode == FRE_SCRUB || mode == FRE_DEMAND);
+	first = (source == RRL_SRC_FRE_SCRUB || source == RRL_SRC_FRE_DEMAND);
 	/* Patrol scrub or on-demand read error. */
-	scrub = (mode == FRE_SCRUB || mode == LRE_SCRUB);
+	scrub = (source == RRL_SRC_FRE_SCRUB || source == RRL_SRC_LRE_SCRUB);
 
 	v = skx_read_imc_reg(imc, chan, offset, width);
 
@@ -318,7 +318,7 @@ static void show_retry_rd_err_log(struct decoded_addr *res, char *msg,
 
 	n = scnprintf(msg, len, " retry_rd_err_log[");
 	for (i = 0; i < rrl->set_num; i++) {
-		scrub = (rrl->modes[i] == FRE_SCRUB || rrl->modes[i] == LRE_SCRUB);
+		scrub = (rrl->sources[i] == RRL_SRC_FRE_SCRUB || rrl->sources[i] == RRL_SRC_LRE_SCRUB);
 		if (scrub_err != scrub)
 			continue;
 
