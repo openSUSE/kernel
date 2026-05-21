@@ -1978,7 +1978,8 @@ static bool acpi_video_bus_dev_is_duplicate(struct device *dev)
 static int acpi_video_bus_probe(struct auxiliary_device *aux_dev,
 				const struct auxiliary_device_id *id_unused)
 {
-	struct acpi_device *device = ACPI_COMPANION(&aux_dev->dev);
+	struct device *dev = &aux_dev->dev;
+	struct acpi_device *device = ACPI_COMPANION(dev);
 	static DEFINE_MUTEX(probe_lock);
 	struct acpi_video_bus *video;
 	static int instance;
@@ -1988,7 +1989,7 @@ static int acpi_video_bus_probe(struct auxiliary_device *aux_dev,
 	/* Probe one video bus device at a time in case there are duplicates. */
 	guard(mutex)(&probe_lock);
 
-	if (!allow_duplicates && acpi_video_bus_dev_is_duplicate(&aux_dev->dev)) {
+	if (!allow_duplicates && acpi_video_bus_dev_is_duplicate(dev)) {
 		pr_info(FW_BUG
 			"Duplicate ACPI video bus devices for the"
 			" same VGA controller, please try module "
@@ -2059,7 +2060,7 @@ static int acpi_video_bus_probe(struct auxiliary_device *aux_dev,
 	    !auto_detect)
 		acpi_video_bus_register_backlight(video);
 
-	error = acpi_video_bus_add_notify_handler(video, &aux_dev->dev);
+	error = acpi_video_bus_add_notify_handler(video, dev);
 	if (error)
 		goto err_del;
 
