@@ -16,6 +16,7 @@
 #include <linux/device.h>
 #include <linux/gpio/driver.h>
 #include <linux/i2c.h>
+#include <linux/kconfig.h>
 #include <linux/module.h>
 #include <linux/mod_devicetable.h>
 #include <linux/property.h>
@@ -1507,6 +1508,21 @@ static const struct of_device_id __maybe_unused max310x_dt_ids[] = {
 };
 MODULE_DEVICE_TABLE(of, max310x_dt_ids);
 
+static const char *max310x_regmap_name(u8 port_id)
+{
+	switch (port_id) {
+	case 0:	return "port0";
+	case 1:	return "port1";
+	case 2:	return "port2";
+	case 3:	return "port3";
+	default:
+		WARN_ON(true);
+		return NULL;
+	}
+}
+
+#if IS_ENABLED(CONFIG_SPI_MASTER)
+
 static struct regmap_config regcfg = {
 	.reg_bits = 8,
 	.val_bits = 8,
@@ -1522,20 +1538,6 @@ static struct regmap_config regcfg = {
 	.max_raw_write = MAX310X_FIFO_SIZE,
 };
 
-static const char *max310x_regmap_name(u8 port_id)
-{
-	switch (port_id) {
-	case 0:	return "port0";
-	case 1:	return "port1";
-	case 2:	return "port2";
-	case 3:	return "port3";
-	default:
-		WARN_ON(true);
-		return NULL;
-	}
-}
-
-#ifdef CONFIG_SPI_MASTER
 static int max310x_spi_extended_reg_enable(struct device *dev, bool enable)
 {
 	struct max310x_port *s = dev_get_drvdata(dev);
@@ -1606,7 +1608,8 @@ static struct spi_driver max310x_spi_driver = {
 };
 #endif
 
-#ifdef CONFIG_I2C
+#if IS_ENABLED(CONFIG_I2C)
+
 static int max310x_i2c_extended_reg_enable(struct device *dev, bool enable)
 {
 	return 0;
@@ -1726,13 +1729,13 @@ static int __init max310x_uart_init(void)
 	if (ret)
 		return ret;
 
-#ifdef CONFIG_SPI_MASTER
+#if IS_ENABLED(CONFIG_SPI_MASTER)
 	ret = spi_register_driver(&max310x_spi_driver);
 	if (ret)
 		goto err_spi_register;
 #endif
 
-#ifdef CONFIG_I2C
+#if IS_ENABLED(CONFIG_I2C)
 	ret = i2c_add_driver(&max310x_i2c_driver);
 	if (ret)
 		goto err_i2c_register;
@@ -1740,12 +1743,13 @@ static int __init max310x_uart_init(void)
 
 	return 0;
 
-#ifdef CONFIG_I2C
+#if IS_ENABLED(CONFIG_I2C)
 err_i2c_register:
-	spi_unregister_driver(&max310x_spi_driver);
 #endif
-
+#if IS_ENABLED(CONFIG_SPI_MASTER)
+	spi_unregister_driver(&max310x_spi_driver);
 err_spi_register:
+#endif
 	uart_unregister_driver(&max310x_uart);
 
 	return ret;
@@ -1754,11 +1758,11 @@ module_init(max310x_uart_init);
 
 static void __exit max310x_uart_exit(void)
 {
-#ifdef CONFIG_I2C
+#if IS_ENABLED(CONFIG_I2C)
 	i2c_del_driver(&max310x_i2c_driver);
 #endif
 
-#ifdef CONFIG_SPI_MASTER
+#if IS_ENABLED(CONFIG_SPI_MASTER)
 	spi_unregister_driver(&max310x_spi_driver);
 #endif
 
