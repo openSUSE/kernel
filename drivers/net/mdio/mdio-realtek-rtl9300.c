@@ -68,7 +68,7 @@
 #define   PHY_CTRL_TYPE_C22		0
 #define   PHY_CTRL_CMD			BIT(0)
 #define   PHY_CTRL_FAIL			BIT(25)
-#define SMI_ACCESS_PHY_CTRL_2		0xcb78
+#define RTL9300_SMI_ACCESS_PHY_CTRL_2	0xcb78
 #define   PHY_CTRL_INDATA		GENMASK(31, 16)
 #define   PHY_CTRL_DATA			GENMASK(15, 0)
 #define RTL9300_SMI_ACCESS_PHY_CTRL_3	0xcb7c
@@ -85,6 +85,7 @@
 struct otto_emdio_cmd_regs {
 	u32 c22_data;
 	u32 c45_data;
+	u32 io_data;
 };
 
 struct otto_emdio_info {
@@ -141,13 +142,14 @@ static int otto_emdio_9300_read_c22(struct mii_bus *bus, int phy_id, int regnum)
 {
 	struct otto_emdio_chan *chan = bus->priv;
 	struct otto_emdio_priv *priv;
+	u32 io_reg, cmd_reg, val;
 	struct regmap *regmap;
-	u32 cmd_reg, val;
 	int port;
 	int err;
 
 	priv = chan->priv;
 	regmap = priv->regmap;
+	io_reg = priv->info->cmd_regs.io_data;
 	cmd_reg = priv->info->cmd_regs.c22_data; /* shared command/C22 register */
 
 	port = otto_emdio_phy_to_port(bus, phy_id);
@@ -159,7 +161,7 @@ static int otto_emdio_9300_read_c22(struct mii_bus *bus, int phy_id, int regnum)
 	if (err)
 		goto out_err;
 
-	err = regmap_write(regmap, SMI_ACCESS_PHY_CTRL_2, FIELD_PREP(PHY_CTRL_INDATA, port));
+	err = regmap_write(regmap, io_reg, FIELD_PREP(PHY_CTRL_INDATA, port));
 	if (err)
 		goto out_err;
 
@@ -175,7 +177,7 @@ static int otto_emdio_9300_read_c22(struct mii_bus *bus, int phy_id, int regnum)
 	if (err)
 		goto out_err;
 
-	err = regmap_read(regmap, SMI_ACCESS_PHY_CTRL_2, &val);
+	err = regmap_read(regmap, io_reg, &val);
 	if (err)
 		goto out_err;
 
@@ -191,13 +193,14 @@ static int otto_emdio_9300_write_c22(struct mii_bus *bus, int phy_id, int regnum
 {
 	struct otto_emdio_chan *chan = bus->priv;
 	struct otto_emdio_priv *priv;
+	u32 io_reg, cmd_reg, val;
 	struct regmap *regmap;
-	u32 cmd_reg, val;
 	int port;
 	int err;
 
 	priv = chan->priv;
 	regmap = priv->regmap;
+	io_reg = priv->info->cmd_regs.io_data;
 	cmd_reg = priv->info->cmd_regs.c22_data; /* shared command/C22 register */
 
 	port = otto_emdio_phy_to_port(bus, phy_id);
@@ -213,7 +216,7 @@ static int otto_emdio_9300_write_c22(struct mii_bus *bus, int phy_id, int regnum
 	if (err)
 		goto out_err;
 
-	err = regmap_write(regmap, SMI_ACCESS_PHY_CTRL_2, FIELD_PREP(PHY_CTRL_INDATA, value));
+	err = regmap_write(regmap, io_reg, FIELD_PREP(PHY_CTRL_INDATA, value));
 	if (err)
 		goto out_err;
 
@@ -246,13 +249,14 @@ static int otto_emdio_9300_read_c45(struct mii_bus *bus, int phy_id, int dev_add
 {
 	struct otto_emdio_chan *chan = bus->priv;
 	struct otto_emdio_priv *priv;
+	u32 io_reg, cmd_reg, val;
 	struct regmap *regmap;
-	u32 cmd_reg, val;
 	int port;
 	int err;
 
 	priv = chan->priv;
 	regmap = priv->regmap;
+	io_reg = priv->info->cmd_regs.io_data;
 	cmd_reg = priv->info->cmd_regs.c22_data; /* shared command/C22 register */
 
 	port = otto_emdio_phy_to_port(bus, phy_id);
@@ -265,7 +269,7 @@ static int otto_emdio_9300_read_c45(struct mii_bus *bus, int phy_id, int dev_add
 		goto out_err;
 
 	val = FIELD_PREP(PHY_CTRL_INDATA, port);
-	err = regmap_write(regmap, SMI_ACCESS_PHY_CTRL_2, val);
+	err = regmap_write(regmap, io_reg, val);
 	if (err)
 		goto out_err;
 
@@ -283,7 +287,7 @@ static int otto_emdio_9300_read_c45(struct mii_bus *bus, int phy_id, int dev_add
 	if (err)
 		goto out_err;
 
-	err = regmap_read(regmap, SMI_ACCESS_PHY_CTRL_2, &val);
+	err = regmap_read(regmap, io_reg, &val);
 	if (err)
 		goto out_err;
 
@@ -300,13 +304,14 @@ static int otto_emdio_9300_write_c45(struct mii_bus *bus, int phy_id, int dev_ad
 {
 	struct otto_emdio_chan *chan = bus->priv;
 	struct otto_emdio_priv *priv;
+	u32 io_reg, cmd_reg, val;
 	struct regmap *regmap;
-	u32 cmd_reg, val;
 	int port;
 	int err;
 
 	priv = chan->priv;
 	regmap = priv->regmap;
+	io_reg = priv->info->cmd_regs.io_data;
 	cmd_reg = priv->info->cmd_regs.c22_data; /* shared command/C22 register */
 
 	port = otto_emdio_phy_to_port(bus, phy_id);
@@ -323,7 +328,7 @@ static int otto_emdio_9300_write_c45(struct mii_bus *bus, int phy_id, int dev_ad
 		goto out_err;
 
 	val = FIELD_PREP(PHY_CTRL_INDATA, value);
-	err = regmap_write(regmap, SMI_ACCESS_PHY_CTRL_2, val);
+	err = regmap_write(regmap, io_reg, val);
 	if (err)
 		goto out_err;
 
@@ -551,6 +556,7 @@ static const struct otto_emdio_info otto_emdio_9300_info = {
 	.cmd_regs = {
 		.c22_data = RTL9300_SMI_ACCESS_PHY_CTRL_1,
 		.c45_data = RTL9300_SMI_ACCESS_PHY_CTRL_3,
+		.io_data = RTL9300_SMI_ACCESS_PHY_CTRL_2,
 	},
 	.num_buses = RTL9300_NUM_BUSES,
 	.num_ports = RTL9300_NUM_PORTS,
