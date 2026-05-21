@@ -5,6 +5,7 @@
 #include "util/tool.h"
 #include "util/time-utils.h"
 
+#include <stdlib.h>
 #include <linux/bitmap.h>
 #include <linux/list.h>
 #include <linux/rbtree.h>
@@ -163,6 +164,14 @@ struct kwork_class {
 	void (*work_name)(struct kwork_work *work,
 			  char *buf, int len);
 };
+
+static inline void work_exit(struct kwork_work *work)
+{
+	if (work) {
+		free(work->name);
+		work->name = NULL;
+	}
+}
 
 struct trace_kwork_handler {
 	int (*raise_event)(struct perf_kwork *kwork,
