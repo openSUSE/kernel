@@ -52,6 +52,56 @@ static LIST_HEAD(dev_edac_list);
 static bool skx_mem_cfg_2lm;
 static struct res_config *skx_res_cfg;
 
+u64 skx_readx(void __iomem *addr, u8 width)
+{
+	switch (width) {
+	case 1:
+		return readb(addr);
+	case 2:
+		return readw(addr);
+	case 4:
+		return readl(addr);
+	case 8:
+		return readq(addr);
+	default:
+		skx_printk(KERN_ERR, "Invalid reg 0x%p width %u to read.\n", addr, width);
+		return 0;
+	}
+}
+EXPORT_SYMBOL_GPL(skx_readx);
+
+static void skx_writex(void __iomem *addr, u8 width, u64 val)
+{
+	switch (width) {
+	case 1:
+		writeb((u8)val, addr);
+		return;
+	case 2:
+		writew((u16)val, addr);
+		return;
+	case 4:
+		writel((u32)val, addr);
+		return;
+	case 8:
+		writeq(val, addr);
+		return;
+	default:
+		skx_printk(KERN_ERR, "Invalid reg 0x%p width %u to write 0x%llx.\n", addr, width, val);
+	}
+}
+
+u64 skx_read_imc_reg(struct skx_imc *imc, int chan, u32 offset, u8 width)
+{
+	return skx_readx(imc->mbase + imc->chan_mmio_sz * chan + offset, width);
+}
+EXPORT_SYMBOL_GPL(skx_read_imc_reg);
+
+void skx_write_imc_reg(struct skx_imc *imc, int chan, u32 offset, u8 width, u64 val)
+{
+	skx_writex(imc->mbase + imc->chan_mmio_sz * chan + offset, width, val);
+}
+EXPORT_SYMBOL_GPL(skx_write_imc_reg);
+
 int skx_adxl_get(void)
 {
 	const char * const *names;

@@ -47,12 +47,6 @@
 	readl((m)->mbase + ((m)->hbm_mc ? 0xef8 :	\
 	(res_cfg->type == GNR ? 0xaf8 : 0x20ef8)) +	\
 	(i) * (m)->chan_mmio_sz)
-#define I10NM_GET_REG32(m, i, offset)	\
-	readl((m)->mbase + (i) * (m)->chan_mmio_sz + (offset))
-#define I10NM_GET_REG64(m, i, offset)	\
-	readq((m)->mbase + (i) * (m)->chan_mmio_sz + (offset))
-#define I10NM_SET_REG32(m, i, offset, v)	\
-	writel(v, (m)->mbase + (i) * (m)->chan_mmio_sz + (offset))
 
 #define I10NM_GET_SCK_MMIO_BASE(reg)	(GET_BITFIELD(reg, 0, 28) << 23)
 #define I10NM_GET_IMC_MMIO_OFFSET(reg)	(GET_BITFIELD(reg, 0, 10) << 12)
@@ -189,29 +183,6 @@ static struct reg_rrl gnr_reg_rrl_ddr = {
 	.cecnt_widths	= {4, 4, 4, 4, 4, 4, 4, 4},
 };
 
-static u64 read_imc_reg(struct skx_imc *imc, int chan, u32 offset, u8 width)
-{
-	switch (width) {
-	case 4:
-		return I10NM_GET_REG32(imc, chan, offset);
-	case 8:
-		return I10NM_GET_REG64(imc, chan, offset);
-	default:
-		i10nm_printk(KERN_ERR, "Invalid read RRL 0x%x width %d\n", offset, width);
-		return 0;
-	}
-}
-
-static void write_imc_reg(struct skx_imc *imc, int chan, u32 offset, u8 width, u64 val)
-{
-	switch (width) {
-	case 4:
-		return I10NM_SET_REG32(imc, chan, offset, (u32)val);
-	default:
-		i10nm_printk(KERN_ERR, "Invalid write RRL 0x%x width %d\n", offset, width);
-	}
-}
-
 static void enable_rrl(struct skx_imc *imc, int chan, struct reg_rrl *rrl,
 		       int rrl_set, bool enable, u32 *rrl_ctl)
 {
@@ -225,7 +196,7 @@ static void enable_rrl(struct skx_imc *imc, int chan, struct reg_rrl *rrl,
 	/* Patrol scrub or on-demand read error. */
 	scrub = (mode == FRE_SCRUB || mode == LRE_SCRUB);
 
-	v = read_imc_reg(imc, chan, offset, width);
+	v = skx_read_imc_reg(imc, chan, offset, width);
 
 	if (enable) {
 		/* Save default configurations. */
@@ -268,7 +239,7 @@ static void enable_rrl(struct skx_imc *imc, int chan, struct reg_rrl *rrl,
 			v &= ~rrl->en_mask;
 	}
 
-	write_imc_reg(imc, chan, offset, width, v);
+	skx_write_imc_reg(imc, chan, offset, width, v);
 }
 
 static void enable_rrls(struct skx_imc *imc, int chan, struct reg_rrl *rrl,
@@ -354,7 +325,7 @@ static void show_retry_rd_err_log(struct decoded_addr *res, char *msg,
 		for (j = 0; j < rrl->reg_num && len - n > 0; j++) {
 			offset = rrl->offsets[i][j];
 			width = rrl->widths[j];
-			log = read_imc_reg(imc, ch, offset, width);
+			log = skx_read_imc_reg(imc, ch, offset, width);
 
 			if (width == 4)
 				n += scnprintf(msg + n, len - n, "%.8llx ", log);
@@ -363,7 +334,7 @@ static void show_retry_rd_err_log(struct decoded_addr *res, char *msg,
 
 			/* Clear RRL status if RRL in Linux control mode. */
 			if (retry_rd_err_log == 2 && !j && (log & status_mask))
-				write_imc_reg(imc, ch, offset, width, log & ~status_mask);
+				skx_write_imc_reg(imc, ch, offset, width, log & ~status_mask);
 		}
 	}
 
@@ -376,7 +347,7 @@ static void show_retry_rd_err_log(struct decoded_addr *res, char *msg,
 		for (i = 0; i < rrl->cecnt_num && len - n > 0; i++) {
 			offset = rrl->cecnt_offsets[i];
 			width = rrl->cecnt_widths[i];
-			corr = read_imc_reg(imc, ch, offset, width);
+			corr = skx_read_imc_reg(imc, ch, offset, width);
 
 			/* CPUs {ICX,SPR} encode two counters per 4-byte CORRERRCNT register. */
 			if (res_cfg->type <= SPR) {

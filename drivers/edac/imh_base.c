@@ -71,28 +71,11 @@ struct local_reg {
 		.width	= (cfg)->ip_name##_reg_##reg_name##_width,		\
 	}
 
-static u64 readx(void __iomem *addr, u8 width)
-{
-	switch (width) {
-	case 1:
-		return readb(addr);
-	case 2:
-		return readw(addr);
-	case 4:
-		return readl(addr);
-	case 8:
-		return readq(addr);
-	default:
-		imh_printk(KERN_ERR, "Invalid reg 0x%p width %d\n", addr, width);
-		return 0;
-	}
-}
-
 static void __read_local_reg(void *reg)
 {
 	struct local_reg *r = (struct local_reg *)reg;
 
-	r->val = readx(r->vbase + r->offset, r->width);
+	r->val = skx_readx(r->vbase + r->offset, r->width);
 }
 
 /* Read a local-view register. */
@@ -378,22 +361,16 @@ static bool imh_2lm_enabled(struct res_config *cfg, struct list_head *head)
 	return false;
 }
 
-/* Helpers to read memory controller registers */
-static u64 read_imc_reg(struct skx_imc *imc, int chan, u32 offset, u8 width)
-{
-	return readx(imc->mbase + imc->chan_mmio_sz * chan + offset, width);
-}
-
 static u32 read_imc_mcmtr(struct res_config *cfg, struct skx_imc *imc, int chan)
 {
-	return (u32)read_imc_reg(imc, chan, cfg->ddr_reg_mcmtr_offset, cfg->ddr_reg_mcmtr_width);
+	return (u32)skx_read_imc_reg(imc, chan, cfg->ddr_reg_mcmtr_offset, cfg->ddr_reg_mcmtr_width);
 }
 
 static u32 read_imc_dimmmtr(struct res_config *cfg, struct skx_imc *imc, int chan, int dimm)
 {
-	return (u32)read_imc_reg(imc, chan, cfg->ddr_reg_dimmmtr_offset +
-				 cfg->ddr_reg_dimmmtr_width * dimm,
-				 cfg->ddr_reg_dimmmtr_width);
+	return (u32)skx_read_imc_reg(imc, chan, cfg->ddr_reg_dimmmtr_offset +
+				     cfg->ddr_reg_dimmmtr_width * dimm,
+				     cfg->ddr_reg_dimmmtr_width);
 }
 
 static bool ecc_enabled(u32 mcmtr)
