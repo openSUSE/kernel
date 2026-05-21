@@ -22,10 +22,10 @@ USB 支持
     chipidea
     dwc3
     ehci
+    usbmon
 
 Todolist:
 
-* usbmon
 * functionfs
 * functionfs-desc
 * gadget_configfs
