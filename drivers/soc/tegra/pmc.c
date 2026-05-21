@@ -1207,7 +1207,7 @@ static int tegra_pmc_restart_handler(struct sys_off_data *data)
 	return NOTIFY_DONE;
 }
 
-static int tegra_pmc_power_off_handler(struct sys_off_data *data)
+static int tegra_pmc_grouper_power_off_handler(struct sys_off_data *data)
 {
 	struct tegra_pmc *pmc = data->cb_data;
 
@@ -1215,8 +1215,7 @@ static int tegra_pmc_power_off_handler(struct sys_off_data *data)
 	 * Reboot Nexus 7 into special bootloader mode if USB cable is
 	 * connected in order to display battery status and power off.
 	 */
-	if (of_machine_is_compatible("asus,grouper") &&
-	    power_supply_is_system_supplied()) {
+	if (power_supply_is_system_supplied()) {
 		const u32 go_to_charger_mode = 0xa5a55a5a;
 
 		tegra_pmc_writel(pmc, go_to_charger_mode, PMC_SCRATCH37);
@@ -3087,18 +3086,20 @@ static int tegra_pmc_probe(struct platform_device *pdev)
 	}
 
 	/*
-	 * PMC should be primary power-off method if it soft-resets CPU,
-	 * asking bootloader to shutdown hardware.
+	 * PMC should be primary power-off method on Grouper if it soft-resets
+	 * CPU, asking bootloader to shutdown hardware.
 	 */
-	err = devm_register_sys_off_handler(&pdev->dev,
-					    SYS_OFF_MODE_POWER_OFF,
-					    SYS_OFF_PRIO_FIRMWARE,
-					    tegra_pmc_power_off_handler,
-					    pmc);
-	if (err) {
-		dev_err(&pdev->dev, "failed to register sys-off handler: %d\n",
-			err);
-		return err;
+	if (of_machine_is_compatible("asus,grouper")) {
+		err = devm_register_sys_off_handler(&pdev->dev,
+						    SYS_OFF_MODE_POWER_OFF,
+						    SYS_OFF_PRIO_FIRMWARE,
+						    tegra_pmc_grouper_power_off_handler,
+						    pmc);
+		if (err) {
+			dev_err(&pdev->dev, "failed to register sys-off handler: %d\n",
+				err);
+			return err;
+		}
 	}
 
 	/*
