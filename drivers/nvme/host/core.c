@@ -5256,7 +5256,7 @@ EXPORT_SYMBOL_GPL(nvme_unfreeze);
 
 int nvme_wait_freeze_timeout(struct nvme_ctrl *ctrl)
 {
-	unsigned long timeout = ctrl->io_timeout;
+	long timeout = ctrl->io_timeout;
 	struct nvme_ns *ns;
 	int srcu_idx;
 
