@@ -51,6 +51,7 @@
 #include <linux/property.h>
 #include <linux/regmap.h>
 
+#define RTL9300_NUM_BUSES		4
 #define SMI_GLB_CTRL			0xca00
 #define   GLB_CTRL_INTF_SEL(intf)	BIT(16 + (intf))
 #define SMI_PORT0_15_POLLING_SEL	0xca08
@@ -77,7 +78,12 @@
 #define MAX_SMI_BUSSES  4
 #define MAX_SMI_ADDR	0x1f
 
+struct otto_emdio_info {
+	u8 num_buses;
+};
+
 struct otto_emdio_priv {
+	const struct otto_emdio_info *info;
 	struct regmap *regmap;
 	struct mutex lock; /* protect HW access */
 	DECLARE_BITMAP(valid_ports, MAX_PORTS);
@@ -357,7 +363,7 @@ static int otto_emdio_9300_mdiobus_init(struct otto_emdio_priv *priv)
 
 	/* Put the interfaces into C45 mode if required */
 	glb_ctrl_mask = GENMASK(19, 16);
-	for (i = 0; i < MAX_SMI_BUSSES; i++)
+	for (i = 0; i < priv->info->num_buses; i++)
 		if (priv->smi_bus_is_c45[i])
 			glb_ctrl_val |= GLB_CTRL_INTF_SEL(i);
 
@@ -476,7 +482,7 @@ static int otto_emdio_map_ports(struct device *dev)
 		if (err)
 			return err;
 
-		if (bus >= MAX_SMI_BUSSES)
+		if (bus >= priv->info->num_buses)
 			return dev_err_probe(dev, -EINVAL, "illegal smi bus number %d\n", bus);
 
 		err = of_property_read_u32(phy_dn, "reg", &addr);
@@ -505,6 +511,7 @@ static int otto_emdio_probe(struct platform_device *pdev)
 	if (err)
 		return err;
 
+	priv->info = device_get_match_data(dev);
 	priv->regmap = syscon_node_to_regmap(dev->parent->of_node);
 	if (IS_ERR(priv->regmap))
 		return PTR_ERR(priv->regmap);
@@ -528,8 +535,12 @@ static int otto_emdio_probe(struct platform_device *pdev)
 	return 0;
 }
 
+static const struct otto_emdio_info otto_emdio_9300_info = {
+	.num_buses = RTL9300_NUM_BUSES,
+};
+
 static const struct of_device_id otto_emdio_ids[] = {
-	{ .compatible = "realtek,rtl9301-mdio" },
+	{ .compatible = "realtek,rtl9301-mdio", .data = &otto_emdio_9300_info },
 	{}
 };
 MODULE_DEVICE_TABLE(of, otto_emdio_ids);
