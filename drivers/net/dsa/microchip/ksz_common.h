@@ -518,6 +518,12 @@ int ksz_hsr_leave(struct dsa_switch *ds, int port,
 int ksz_suspend(struct dsa_switch *ds);
 int ksz_resume(struct dsa_switch *ds);
 
+int ksz_mdio_register(struct ksz_device *dev);
+int ksz_pirq_setup(struct ksz_device *dev, u8 p);
+int ksz_girq_setup(struct ksz_device *dev);
+void ksz_irq_free(struct ksz_irq *kirq);
+int ksz_parse_drive_strength(struct ksz_device *dev);
+
 /* Common register access functions */
 static inline struct regmap *ksz_regmap_8(struct ksz_device *dev)
 {

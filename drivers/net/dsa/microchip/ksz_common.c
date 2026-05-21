@@ -2488,7 +2488,7 @@ static int ksz_parse_dt_phy_config(struct ksz_device *dev, struct mii_bus *bus,
  *
  * Return: 0 on success, or a negative error code on failure.
  */
-static int ksz_mdio_register(struct ksz_device *dev)
+int ksz_mdio_register(struct ksz_device *dev)
 {
 	struct device_node *parent_bus_node;
 	struct mii_bus *parent_bus = NULL;
@@ -2644,7 +2644,7 @@ static const struct irq_domain_ops ksz_irq_domain_ops = {
 	.xlate	= irq_domain_xlate_twocell,
 };
 
-static void ksz_irq_free(struct ksz_irq *kirq)
+void ksz_irq_free(struct ksz_irq *kirq)
 {
 	int irq, virq;
 
@@ -2713,7 +2713,7 @@ out:
 	return ret;
 }
 
-static int ksz_girq_setup(struct ksz_device *dev)
+int ksz_girq_setup(struct ksz_device *dev)
 {
 	struct ksz_irq *girq = &dev->girq;
 
@@ -2728,7 +2728,7 @@ static int ksz_girq_setup(struct ksz_device *dev)
 	return ksz_irq_common_setup(dev, girq);
 }
 
-static int ksz_pirq_setup(struct ksz_device *dev, u8 p)
+int ksz_pirq_setup(struct ksz_device *dev, u8 p)
 {
 	struct ksz_irq *pirq = &dev->ports[p].pirq;
 
@@ -2744,8 +2744,6 @@ static int ksz_pirq_setup(struct ksz_device *dev, u8 p)
 
 	return ksz_irq_common_setup(dev, pirq);
 }
-
-static int ksz_parse_drive_strength(struct ksz_device *dev);
 
 int ksz_setup(struct dsa_switch *ds)
 {
@@ -4694,7 +4692,7 @@ static int ksz88x3_drive_strength_write(struct ksz_device *dev,
  *
  * Return: 0 on success, error code otherwise
  */
-static int ksz_parse_drive_strength(struct ksz_device *dev)
+int ksz_parse_drive_strength(struct ksz_device *dev)
 {
 	struct ksz_driver_strength_prop of_props[] = {
 		[KSZ_DRIVER_STRENGTH_HI] = {
