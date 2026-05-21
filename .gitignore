@@ -186,5 +186,8 @@ sphinx_*/
 # Rust analyzer configuration
 /rust-project.json
 
+# rustc error message long types
+*.long-type-*.txt
+
 # bc language scripts (not LLVM bitcode)
 !kernel/time/timeconst.bc
