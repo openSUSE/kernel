@@ -344,6 +344,8 @@ int skx_adxl_get(void);
 void skx_adxl_put(void);
 void skx_set_decode(skx_decode_f decode);
 void skx_set_show_rrl(skx_show_rrl_f rrl);
+void skx_show_rrl(struct decoded_addr *res, char *msg, int len, bool scrub_err);
+void skx_enable_rrl(bool enable);
 void skx_set_mem_cfg(bool mem_cfg_2lm);
 void skx_set_res_cfg(struct res_config *cfg);
 void skx_init_mc_mapping(struct skx_dev *d);

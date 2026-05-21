@@ -183,191 +183,6 @@ static struct reg_rrl gnr_reg_rrl_ddr = {
 	.cecnt_widths	= {4, 4, 4, 4, 4, 4, 4, 4},
 };
 
-static void enable_rrl(struct skx_imc *imc, int chan, struct reg_rrl *rrl,
-		       int rrl_set, bool enable, u32 *rrl_ctl)
-{
-	enum rrl_source_type source = rrl->sources[rrl_set];
-	u32 offset = rrl->offsets[rrl_set][0], v;
-	u8 width = rrl->widths[0];
-	bool first, scrub;
-
-	/* First or last read error. */
-	first = (source == RRL_SRC_FRE_SCRUB || source == RRL_SRC_FRE_DEMAND);
-	/* Patrol scrub or on-demand read error. */
-	scrub = (source == RRL_SRC_FRE_SCRUB || source == RRL_SRC_LRE_SCRUB);
-
-	v = skx_read_imc_reg(imc, chan, offset, width);
-
-	if (enable) {
-		/* Save default configurations. */
-		*rrl_ctl = v;
-		v &= ~rrl->uc_mask;
-
-		if (first)
-			v |= rrl->noover_mask;
-		else
-			v &= ~rrl->noover_mask;
-
-		if (scrub)
-			v |= rrl->en_patspr_mask;
-		else
-			v &= ~rrl->en_patspr_mask;
-
-		v |= rrl->en_mask;
-	} else {
-		/* Restore default configurations. */
-		if (*rrl_ctl & rrl->uc_mask)
-			v |= rrl->uc_mask;
-
-		if (first) {
-			if (!(*rrl_ctl & rrl->noover_mask))
-				v &= ~rrl->noover_mask;
-		} else {
-			if (*rrl_ctl & rrl->noover_mask)
-				v |= rrl->noover_mask;
-		}
-
-		if (scrub) {
-			if (!(*rrl_ctl & rrl->en_patspr_mask))
-				v &= ~rrl->en_patspr_mask;
-		} else {
-			if (*rrl_ctl & rrl->en_patspr_mask)
-				v |= rrl->en_patspr_mask;
-		}
-
-		if (!(*rrl_ctl & rrl->en_mask))
-			v &= ~rrl->en_mask;
-	}
-
-	skx_write_imc_reg(imc, chan, offset, width, v);
-}
-
-static void enable_rrls(struct skx_imc *imc, int chan, struct reg_rrl *rrl,
-			bool enable, u32 *rrl_ctl)
-{
-	for (int i = 0; i < rrl->set_num; i++)
-		enable_rrl(imc, chan, rrl, i, enable, rrl_ctl + i);
-}
-
-static void enable_rrls_ddr(struct skx_imc *imc, bool enable)
-{
-	struct reg_rrl *rrl_ddr = res_cfg->reg_rrl_ddr;
-	int i, chan_num = res_cfg->ddr_chan_num;
-	struct skx_channel *chan = imc->chan;
-
-	if (!imc->mbase)
-		return;
-
-	for (i = 0; i < chan_num; i++)
-		enable_rrls(imc, i, rrl_ddr, enable, chan[i].rrl_ctl[0]);
-}
-
-static void enable_rrls_hbm(struct skx_imc *imc, bool enable)
-{
-	struct reg_rrl **rrl_hbm = res_cfg->reg_rrl_hbm;
-	int i, chan_num = res_cfg->hbm_chan_num;
-	struct skx_channel *chan = imc->chan;
-
-	if (!imc->mbase || !imc->hbm_mc || !rrl_hbm[0] || !rrl_hbm[1])
-		return;
-
-	for (i = 0; i < chan_num; i++) {
-		enable_rrls(imc, i, rrl_hbm[0], enable, chan[i].rrl_ctl[0]);
-		enable_rrls(imc, i, rrl_hbm[1], enable, chan[i].rrl_ctl[1]);
-	}
-}
-
-static void enable_retry_rd_err_log(bool enable)
-{
-	struct skx_dev *d;
-	int i, imc_num;
-
-	edac_dbg(2, "\n");
-
-	list_for_each_entry(d, i10nm_edac_list, list) {
-		imc_num  = res_cfg->ddr_imc_num;
-		for (i = 0; i < imc_num; i++)
-			enable_rrls_ddr(&d->imc[i], enable);
-
-		imc_num += res_cfg->hbm_imc_num;
-		for (; i < imc_num; i++)
-			enable_rrls_hbm(&d->imc[i], enable);
-	}
-}
-
-static void show_retry_rd_err_log(struct decoded_addr *res, char *msg,
-				  int len, bool scrub_err)
-{
-	int i, j, n, ch = res->channel, pch = res->cs & 1;
-	struct skx_imc *imc = &res->dev->imc[res->imc];
-	u64 log, corr, status_mask;
-	struct reg_rrl *rrl;
-	bool scrub;
-	u32 offset;
-	u8 width;
-
-	if (!imc->mbase)
-		return;
-
-	rrl = imc->hbm_mc ? res_cfg->reg_rrl_hbm[pch] : res_cfg->reg_rrl_ddr;
-
-	if (!rrl)
-		return;
-
-	status_mask = rrl->over_mask | rrl->uc_mask | rrl->v_mask;
-
-	n = scnprintf(msg, len, " retry_rd_err_log[");
-	for (i = 0; i < rrl->set_num; i++) {
-		scrub = (rrl->sources[i] == RRL_SRC_FRE_SCRUB || rrl->sources[i] == RRL_SRC_LRE_SCRUB);
-		if (scrub_err != scrub)
-			continue;
-
-		for (j = 0; j < rrl->reg_num && len - n > 0; j++) {
-			offset = rrl->offsets[i][j];
-			width = rrl->widths[j];
-			log = skx_read_imc_reg(imc, ch, offset, width);
-
-			if (width == 4)
-				n += scnprintf(msg + n, len - n, "%.8llx ", log);
-			else
-				n += scnprintf(msg + n, len - n, "%.16llx ", log);
-
-			/* Clear RRL status if RRL in Linux control mode. */
-			if (res_cfg->rrl_ctrl_mode == RRL_CTRL_LINUX && !j && (log & status_mask))
-				skx_write_imc_reg(imc, ch, offset, width, log & ~status_mask);
-		}
-	}
-
-	/* Move back one space. */
-	n--;
-	n += scnprintf(msg + n, len - n, "]");
-
-	if (len - n > 0) {
-		n += scnprintf(msg + n, len - n, " correrrcnt[");
-		for (i = 0; i < rrl->cecnt_num && len - n > 0; i++) {
-			offset = rrl->cecnt_offsets[i];
-			width = rrl->cecnt_widths[i];
-			corr = skx_read_imc_reg(imc, ch, offset, width);
-
-			/* CPUs {ICX,SPR} encode two counters per 4-byte CORRERRCNT register. */
-			if (res_cfg->type <= SPR) {
-				n += scnprintf(msg + n, len - n, "%.4llx %.4llx ",
-					      corr & 0xffff, corr >> 16);
-			} else {
-			/* CPUs {GNR} encode one counter per CORRERRCNT register. */
-				if (width == 4)
-					n += scnprintf(msg + n, len - n, "%.8llx ", corr);
-				else
-					n += scnprintf(msg + n, len - n, "%.16llx ", corr);
-			}
-		}
-
-		/* Move back one space. */
-		n--;
-		n += scnprintf(msg + n, len - n, "]");
-	}
-}
-
 static struct pci_dev *pci_get_dev_wrapper(int dom, unsigned int bus,
 					   unsigned int dev, unsigned int fun)
 {
@@ -1209,9 +1024,9 @@ static int __init i10nm_init(void)
 
 	res_cfg->rrl_ctrl_mode = retry_rd_err_log;
 	if (retry_rd_err_log && res_cfg->reg_rrl_ddr) {
-		skx_set_show_rrl(show_retry_rd_err_log);
+		skx_set_show_rrl(skx_show_rrl);
 		if (retry_rd_err_log == RRL_CTRL_LINUX)
-			enable_retry_rd_err_log(true);
+			skx_enable_rrl(true);
 	}
 
 	skx_set_decode(i10nm_mc_decode);
@@ -1232,7 +1047,7 @@ static void __exit i10nm_exit(void)
 
 	if (retry_rd_err_log && res_cfg->reg_rrl_ddr) {
 		if (retry_rd_err_log == RRL_CTRL_LINUX)
-			enable_retry_rd_err_log(false);
+			skx_enable_rrl(false);
 		skx_set_show_rrl(NULL);
 	}
 

@@ -102,6 +102,192 @@ void skx_write_imc_reg(struct skx_imc *imc, int chan, u32 offset, u8 width, u64 
 }
 EXPORT_SYMBOL_GPL(skx_write_imc_reg);
 
+static void enable_rrl(struct skx_imc *imc, int chan, struct reg_rrl *rrl,
+		       int rrl_set, bool enable, u32 *rrl_ctl)
+{
+	enum rrl_source_type source = rrl->sources[rrl_set];
+	u32 offset = rrl->offsets[rrl_set][0], v;
+	u8 width = rrl->widths[0];
+	bool first, scrub;
+
+	/* First or last read error. */
+	first = (source == RRL_SRC_FRE_SCRUB || source == RRL_SRC_FRE_DEMAND);
+	/* Patrol scrub or on-demand read error. */
+	scrub = (source == RRL_SRC_FRE_SCRUB || source == RRL_SRC_LRE_SCRUB);
+
+	v = skx_read_imc_reg(imc, chan, offset, width);
+
+	if (enable) {
+		/* Save default configurations. */
+		*rrl_ctl = v;
+		v &= ~rrl->uc_mask;
+
+		if (first)
+			v |= rrl->noover_mask;
+		else
+			v &= ~rrl->noover_mask;
+
+		if (scrub)
+			v |= rrl->en_patspr_mask;
+		else
+			v &= ~rrl->en_patspr_mask;
+
+		v |= rrl->en_mask;
+	} else {
+		/* Restore default configurations. */
+		if (*rrl_ctl & rrl->uc_mask)
+			v |= rrl->uc_mask;
+
+		if (first) {
+			if (!(*rrl_ctl & rrl->noover_mask))
+				v &= ~rrl->noover_mask;
+		} else {
+			if (*rrl_ctl & rrl->noover_mask)
+				v |= rrl->noover_mask;
+		}
+
+		if (scrub) {
+			if (!(*rrl_ctl & rrl->en_patspr_mask))
+				v &= ~rrl->en_patspr_mask;
+		} else {
+			if (*rrl_ctl & rrl->en_patspr_mask)
+				v |= rrl->en_patspr_mask;
+		}
+
+		if (!(*rrl_ctl & rrl->en_mask))
+			v &= ~rrl->en_mask;
+	}
+
+	skx_write_imc_reg(imc, chan, offset, width, v);
+}
+
+static void enable_rrls(struct skx_imc *imc, int chan, struct reg_rrl *rrl,
+			bool enable, u32 *rrl_ctl)
+{
+	for (int i = 0; i < rrl->set_num; i++)
+		enable_rrl(imc, chan, rrl, i, enable, rrl_ctl + i);
+}
+
+static void enable_rrls_ddr(struct skx_imc *imc, bool enable)
+{
+	struct reg_rrl *rrl_ddr = skx_res_cfg->reg_rrl_ddr;
+	int i, chan_num = skx_res_cfg->ddr_chan_num;
+	struct skx_channel *chan = imc->chan;
+
+	if (!imc->mbase)
+		return;
+
+	for (i = 0; i < chan_num; i++)
+		enable_rrls(imc, i, rrl_ddr, enable, chan[i].rrl_ctl[0]);
+}
+
+static void enable_rrls_hbm(struct skx_imc *imc, bool enable)
+{
+	struct reg_rrl **rrl_hbm = skx_res_cfg->reg_rrl_hbm;
+	int i, chan_num = skx_res_cfg->hbm_chan_num;
+	struct skx_channel *chan = imc->chan;
+
+	if (!imc->mbase || !imc->hbm_mc || !rrl_hbm[0] || !rrl_hbm[1])
+		return;
+
+	for (i = 0; i < chan_num; i++) {
+		enable_rrls(imc, i, rrl_hbm[0], enable, chan[i].rrl_ctl[0]);
+		enable_rrls(imc, i, rrl_hbm[1], enable, chan[i].rrl_ctl[1]);
+	}
+}
+
+void skx_enable_rrl(bool enable)
+{
+	struct skx_dev *d;
+	int i, imc_num;
+
+	edac_dbg(2, "\n");
+
+	list_for_each_entry(d, &dev_edac_list, list) {
+		imc_num  = skx_res_cfg->ddr_imc_num;
+		for (i = 0; i < imc_num; i++)
+			enable_rrls_ddr(&d->imc[i], enable);
+
+		imc_num += skx_res_cfg->hbm_imc_num;
+		for (; i < imc_num; i++)
+			enable_rrls_hbm(&d->imc[i], enable);
+	}
+}
+EXPORT_SYMBOL_GPL(skx_enable_rrl);
+
+void skx_show_rrl(struct decoded_addr *res, char *msg, int len, bool scrub_err)
+{
+	int i, j, n, ch = res->channel, pch = res->cs & 1;
+	struct skx_imc *imc = &res->dev->imc[res->imc];
+	u64 log, corr, status_mask;
+	struct reg_rrl *rrl;
+	bool scrub;
+	u32 offset;
+	u8 width;
+
+	if (!imc->mbase)
+		return;
+
+	rrl = imc->hbm_mc ? skx_res_cfg->reg_rrl_hbm[pch] : skx_res_cfg->reg_rrl_ddr;
+
+	if (!rrl)
+		return;
+
+	status_mask = rrl->over_mask | rrl->uc_mask | rrl->v_mask;
+
+	n = scnprintf(msg, len, " retry_rd_err_log[");
+	for (i = 0; i < rrl->set_num; i++) {
+		scrub = (rrl->sources[i] == RRL_SRC_FRE_SCRUB || rrl->sources[i] == RRL_SRC_LRE_SCRUB);
+		if (scrub_err != scrub)
+			continue;
+
+		for (j = 0; j < rrl->reg_num && len - n > 0; j++) {
+			offset = rrl->offsets[i][j];
+			width = rrl->widths[j];
+			log = skx_read_imc_reg(imc, ch, offset, width);
+
+			if (width == 4)
+				n += scnprintf(msg + n, len - n, "%.8llx ", log);
+			else
+				n += scnprintf(msg + n, len - n, "%.16llx ", log);
+
+			/* Clear RRL status if RRL in Linux control mode. */
+			if (skx_res_cfg->rrl_ctrl_mode == RRL_CTRL_LINUX && !j && (log & status_mask))
+				skx_write_imc_reg(imc, ch, offset, width, log & ~status_mask);
+		}
+	}
+
+	/* Move back one space. */
+	n--;
+	n += scnprintf(msg + n, len - n, "]");
+
+	if (len - n > 0) {
+		n += scnprintf(msg + n, len - n, " correrrcnt[");
+		for (i = 0; i < rrl->cecnt_num && len - n > 0; i++) {
+			offset = rrl->cecnt_offsets[i];
+			width = rrl->cecnt_widths[i];
+			corr = skx_read_imc_reg(imc, ch, offset, width);
+
+			/* CPUs {ICX,SPR} encode two counters per 4-byte CORRERRCNT register. */
+			if (skx_res_cfg->type <= SPR) {
+				n += scnprintf(msg + n, len - n, "%.4llx %.4llx ",
+					      corr & 0xffff, corr >> 16);
+			} else {
+			/* CPUs {GNR} encode one counter per CORRERRCNT register. */
+				if (width == 4)
+					n += scnprintf(msg + n, len - n, "%.8llx ", corr);
+				else
+					n += scnprintf(msg + n, len - n, "%.16llx ", corr);
+			}
+		}
+
+		/* Move back one space. */
+		n--;
+		n += scnprintf(msg + n, len - n, "]");
+	}
+}
+EXPORT_SYMBOL_GPL(skx_show_rrl);
+
 int skx_adxl_get(void)
 {
 	const char * const *names;
