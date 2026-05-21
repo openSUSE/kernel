@@ -31,10 +31,12 @@ static const char * const component_names[] = {
 	[INDEX_CHANNEL]		= "ChannelId",
 	[INDEX_DIMM]		= "DimmSlotId",
 	[INDEX_CS]		= "ChipSelect",
+	[INDEX_SUBCH]		= "SubChId",
 	[INDEX_NM_MEMCTRL]	= "NmMemoryControllerId",
 	[INDEX_NM_CHANNEL]	= "NmChannelId",
 	[INDEX_NM_DIMM]		= "NmDimmSlotId",
 	[INDEX_NM_CS]		= "NmChipSelect",
+	[INDEX_NM_SUBCH]	= "NmSubChId",
 };
 
 static int component_indices[ARRAY_SIZE(component_names)];
@@ -43,6 +45,7 @@ static const char * const *adxl_component_names;
 static u64 *adxl_values;
 static char *adxl_msg;
 static unsigned long adxl_nm_bitmap;
+static unsigned long adxl_bitmap;
 
 static char skx_msg[MSG_SIZE];
 static skx_decode_f driver_decode;
@@ -288,6 +291,15 @@ void skx_show_rrl(struct decoded_addr *res, char *msg, int len, bool scrub_err)
 }
 EXPORT_SYMBOL_GPL(skx_show_rrl);
 
+static bool adxl_component_required(int idx)
+{
+	return idx == INDEX_SOCKET ||
+	       idx == INDEX_MEMCTRL ||
+	       idx == INDEX_CHANNEL ||
+	       idx == INDEX_DIMM ||
+	       idx == INDEX_CS;
+}
+
 int skx_adxl_get(void)
 {
 	const char * const *names;
@@ -306,12 +318,14 @@ int skx_adxl_get(void)
 
 				if (i >= INDEX_NM_FIRST)
 					adxl_nm_bitmap |= 1 << i;
+				else
+					adxl_bitmap |= 1 << i;
 
 				break;
 			}
 		}
 
-		if (!names[j] && i < INDEX_NM_FIRST)
+		if (!names[j] && adxl_component_required(i))
 			goto err;
 	}
 
@@ -438,11 +452,15 @@ static bool skx_adxl_decode(struct decoded_addr *res, enum error_source err_src)
 			       (int)adxl_values[component_indices[INDEX_NM_DIMM]] : -1;
 		res->cs      = (adxl_nm_bitmap & BIT_NM_CS) ?
 			       (int)adxl_values[component_indices[INDEX_NM_CS]] : -1;
+		res->subch   = (adxl_nm_bitmap & BIT_NM_SUBCH) ?
+			       (int)adxl_values[component_indices[INDEX_NM_SUBCH]] : -1;
 	} else {
 		res->imc     = (int)adxl_values[component_indices[INDEX_MEMCTRL]];
 		res->channel = (int)adxl_values[component_indices[INDEX_CHANNEL]];
 		res->dimm    = (int)adxl_values[component_indices[INDEX_DIMM]];
 		res->cs      = (int)adxl_values[component_indices[INDEX_CS]];
+		res->subch   = (adxl_bitmap & BIT_SUBCH) ?
+			       (int)adxl_values[component_indices[INDEX_SUBCH]] : -1;
 	}
 
 	if (res->imc < 0) {

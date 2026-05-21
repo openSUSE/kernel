@@ -210,11 +210,13 @@ enum {
 	INDEX_CHANNEL,
 	INDEX_DIMM,
 	INDEX_CS,
+	INDEX_SUBCH,
 	INDEX_NM_FIRST,
 	INDEX_NM_MEMCTRL = INDEX_NM_FIRST,
 	INDEX_NM_CHANNEL,
 	INDEX_NM_DIMM,
 	INDEX_NM_CS,
+	INDEX_NM_SUBCH,
 	INDEX_MAX
 };
 
@@ -225,10 +227,12 @@ enum error_source {
 	ERR_SRC_NOT_MEMORY,
 };
 
+#define BIT_SUBCH	BIT_ULL(INDEX_SUBCH)
 #define BIT_NM_MEMCTRL	BIT_ULL(INDEX_NM_MEMCTRL)
 #define BIT_NM_CHANNEL	BIT_ULL(INDEX_NM_CHANNEL)
 #define BIT_NM_DIMM	BIT_ULL(INDEX_NM_DIMM)
 #define BIT_NM_CS	BIT_ULL(INDEX_NM_CS)
+#define BIT_NM_SUBCH	BIT_ULL(INDEX_NM_SUBCH)
 
 struct decoded_addr {
 	struct mce *mce;
@@ -242,6 +246,7 @@ struct decoded_addr {
 	int	chanways;
 	int	dimm;
 	int	cs;
+	int	subch;
 	int	rank;
 	int	channel_rank;
 	u64	rank_address;
