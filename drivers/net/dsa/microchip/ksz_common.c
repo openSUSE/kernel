@@ -2947,8 +2947,7 @@ void ksz_port_bridge_leave(struct dsa_switch *ds, int port,
 	 */
 }
 
-static int ksz9477_set_default_prio_queue_mapping(struct ksz_device *dev,
-						  int port)
+int ksz9477_set_default_prio_queue_mapping(struct ksz_device *dev, int port)
 {
 	u32 queue_map = 0;
 	int ipm;
@@ -2968,30 +2967,6 @@ static int ksz9477_set_default_prio_queue_mapping(struct ksz_device *dev,
 	}
 
 	return ksz_pwrite32(dev, port, KSZ9477_PORT_MRI_TC_MAP__4, queue_map);
-}
-
-int ksz_port_setup(struct dsa_switch *ds, int port)
-{
-	struct ksz_device *dev = ds->priv;
-	int ret;
-
-	if (!dsa_is_user_port(ds, port))
-		return 0;
-
-	/* setup user port */
-	dev->dev_ops->port_setup(dev, port, false);
-
-	if (!is_ksz8(dev)) {
-		ret = ksz9477_set_default_prio_queue_mapping(dev, port);
-		if (ret)
-			return ret;
-	}
-
-	/* port_stp_state_set() will be called after to enable the port so
-	 * there is no need to do anything.
-	 */
-
-	return ksz_dcb_init_port(dev, port);
 }
 
 void ksz_port_stp_state_set(struct dsa_switch *ds, int port, u8 state)
