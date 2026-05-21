@@ -20,10 +20,10 @@ USB 支持
     acm
     authorization
     chipidea
+    dwc3
 
 Todolist:
 
-* dwc3
 * ehci
 * usbmon
 * functionfs
