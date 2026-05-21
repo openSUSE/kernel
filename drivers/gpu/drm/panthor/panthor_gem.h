@@ -19,12 +19,16 @@ struct panthor_vm;
 enum panthor_debugfs_gem_state_flags {
 	PANTHOR_DEBUGFS_GEM_STATE_IMPORTED_BIT = 0,
 	PANTHOR_DEBUGFS_GEM_STATE_EXPORTED_BIT = 1,
+	PANTHOR_DEBUGFS_GEM_STATE_EVICTED_BIT = 2,
 
 	/** @PANTHOR_DEBUGFS_GEM_STATE_FLAG_IMPORTED: GEM BO is PRIME imported. */
 	PANTHOR_DEBUGFS_GEM_STATE_FLAG_IMPORTED = BIT(PANTHOR_DEBUGFS_GEM_STATE_IMPORTED_BIT),
 
 	/** @PANTHOR_DEBUGFS_GEM_STATE_FLAG_EXPORTED: GEM BO is PRIME exported. */
 	PANTHOR_DEBUGFS_GEM_STATE_FLAG_EXPORTED = BIT(PANTHOR_DEBUGFS_GEM_STATE_EXPORTED_BIT),
+
+	/** @PANTHOR_DEBUGFS_GEM_STATE_FLAG_EVICTED: GEM BO is evicted to swap. */
+	PANTHOR_DEBUGFS_GEM_STATE_FLAG_EVICTED = BIT(PANTHOR_DEBUGFS_GEM_STATE_EVICTED_BIT),
 };
 
 enum panthor_debugfs_gem_usage_flags {
@@ -171,6 +175,12 @@ struct panthor_gem_object {
 
 	/** @reclaim_state: Cached reclaim state */
 	enum panthor_gem_reclaim_state reclaim_state;
+
+	/**
+	 * @reclaimed_count: How many times object has been evicted to swap.
+	 * The count saturates at %INT_MAX and will never wrap around to 0.
+	 */
+	atomic_t reclaimed_count;
 
 	/**
 	 * @exclusive_vm_root_gem: Root GEM of the exclusive VM this GEM object
