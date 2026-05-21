@@ -927,6 +927,7 @@ static void sof_ipc4_widget_free_comp_dai(struct snd_sof_widget *swidget)
 static int sof_ipc4_widget_setup_comp_pipeline(struct snd_sof_widget *swidget)
 {
 	struct snd_soc_component *scomp = swidget->scomp;
+	struct snd_sof_dev *sdev = snd_soc_component_get_drvdata(scomp);
 	struct sof_ipc4_pipeline *pipeline;
 	struct snd_sof_pipeline *spipe = swidget->spipe;
 	int ret;
@@ -940,6 +941,16 @@ static int sof_ipc4_widget_setup_comp_pipeline(struct snd_sof_widget *swidget)
 	if (ret) {
 		dev_err(scomp->dev, "parsing scheduler tokens failed\n");
 		goto err;
+	}
+
+	if (sof_debug_check_flag(SOF_DBG_DISABLE_MULTICORE)) {
+		pipeline->core_id = SOF_DSP_PRIMARY_CORE;
+	} else if (pipeline->core_id > sdev->num_cores - 1) {
+		dev_info(scomp->dev,
+			 "out of range core id for %s, moving it %d -> %d\n",
+			 swidget->widget->name, pipeline->core_id,
+			 SOF_DSP_PRIMARY_CORE);
+		pipeline->core_id = SOF_DSP_PRIMARY_CORE;
 	}
 
 	swidget->core = pipeline->core_id;

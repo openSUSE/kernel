@@ -1574,8 +1574,15 @@ static int sof_widget_ready(struct snd_soc_component *scomp, int index,
 		int core = sof_get_token_value(SOF_TKN_COMP_CORE_ID, swidget->tuples,
 					       swidget->num_tuples);
 
-		if (core >= 0)
+		if (core >= 0) {
+			if (core > sdev->num_cores - 1) {
+				dev_info(scomp->dev,
+					 "out of range core id for %s, moving it %d -> %d\n",
+					 swidget->widget->name, core, SOF_DSP_PRIMARY_CORE);
+				core = SOF_DSP_PRIMARY_CORE;
+			}
 			swidget->core = core;
+		}
 	}
 
 	/* bind widget to external event */
