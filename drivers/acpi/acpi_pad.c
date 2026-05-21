@@ -31,6 +31,8 @@
 static DEFINE_MUTEX(isolated_cpus_lock);
 static DEFINE_MUTEX(round_robin_lock);
 
+static bool acpi_pad_teardown;
+
 static unsigned int power_saving_mwait_eax;
 
 static unsigned char tsc_detected_unstable;
@@ -359,6 +361,9 @@ static int acpi_pad_pur(acpi_handle handle)
 	union acpi_object *package;
 	int num = -1;
 
+	if (unlikely(acpi_pad_teardown))
+		return -1;
+
 	if (ACPI_FAILURE(acpi_evaluate_object(handle, "_PUR", NULL, &buffer)))
 		return num;
 
@@ -418,22 +423,16 @@ static void acpi_pad_notify(acpi_handle handle, u32 event, void *data)
 
 static int acpi_pad_probe(struct platform_device *pdev)
 {
-	struct acpi_device *adev;
+	acpi_pad_teardown = false;
 
-	adev = ACPI_COMPANION(&pdev->dev);
-	if (!adev)
-		return -ENODEV;
-
-	return acpi_dev_install_notify_handler(adev, ACPI_DEVICE_NOTIFY,
-					       acpi_pad_notify, &pdev->dev);
+	return devm_acpi_install_notify_handler(&pdev->dev, ACPI_DEVICE_NOTIFY,
+						acpi_pad_notify, &pdev->dev);
 }
 
 static void acpi_pad_remove(struct platform_device *pdev)
 {
-	acpi_dev_remove_notify_handler(ACPI_COMPANION(&pdev->dev),
-				       ACPI_DEVICE_NOTIFY, acpi_pad_notify);
-
 	mutex_lock(&isolated_cpus_lock);
+	acpi_pad_teardown = true;
 	acpi_pad_idle_cpus(0);
 	mutex_unlock(&isolated_cpus_lock);
 }
