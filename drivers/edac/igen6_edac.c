@@ -151,6 +151,8 @@ static struct res_config {
 	/* MEMSS_PMA_CR registers. */
 	u32 reg_mem_config_offset;
 	u32 reg_mem_config_ddr_type_mask;
+	u32 reg_capabilities_misc_offset;
+	u32 reg_capabilities_misc_ibecc_dis;
 	/* Memory controller registers. */
 	u32 reg_mad_inter_size_mask[NUM_CHANNELS];
 	u64 reg_mad_inter_size_granularity;
@@ -405,27 +407,22 @@ static bool mtl_p_ibecc_available(struct pci_dev *pdev)
 	return !(CAPID_E_IBECC_BIT18 & v);
 }
 
-static bool mtl_ps_ibecc_available(struct pci_dev *pdev)
+static bool generic_ibecc_available(struct pci_dev *pdev)
 {
-#define MCHBAR_MEMSS_IBECCDIS	0x13c00
-	void __iomem *window;
-	u64 mchbar;
+	void __iomem *base = igen6_pvt->memss_pma_cr;
+	bool present;
 	u32 val;
 
-	if (get_mchbar(pdev, &mchbar))
-		return false;
-
-	window = ioremap(mchbar, MCHBAR_SIZE * 2);
-	if (!window) {
-		igen6_printk(KERN_ERR, "Failed to ioremap 0x%llx\n", mchbar);
-		return false;
+	if (res_cfg->reg_capabilities_misc_offset) {
+		val = readl(base + res_cfg->reg_capabilities_misc_offset);
+		present = !(val & res_cfg->reg_capabilities_misc_ibecc_dis);
+		edac_dbg(2, "capabilities misc reg 0x%x\n", val);
+	} else {
+		igen6_printk(KERN_ERR, "No register for detecting IBECC presence.\n");
+		present = false;
 	}
 
-	val = readl(window + MCHBAR_MEMSS_IBECCDIS);
-	iounmap(window);
-
-	/* Bit6: 1 - IBECC is disabled, 0 - IBECC isn't disabled */
-	return !GET_BITFIELD(val, 6, 6);
+	return present;
 }
 
 static u64 mem_addr_to_sys_addr(u64 maddr)
@@ -725,18 +722,20 @@ static struct res_config rpl_p_cfg = {
 };
 
 static struct res_config mtl_ps_cfg = {
-	.machine_check		= true,
-	.num_imc		= 2,
-	.reg_mchbar_mask	= GENMASK_ULL(41, 17),
-	.reg_tom_mask		= GENMASK_ULL(41, 20),
-	.reg_touud_mask		= GENMASK_ULL(41, 20),
-	.reg_eccerrlog_addr_mask = GENMASK_ULL(38, 5),
-	.imc_base		= 0xd800,
-	.ibecc_base		= 0xd400,
-	.ibecc_error_log_offset	= 0x170,
-	.ibecc_available	= mtl_ps_ibecc_available,
-	.err_addr_to_sys_addr	= adl_err_addr_to_sys_addr,
-	.err_addr_to_imc_addr	= adl_err_addr_to_imc_addr,
+	.machine_check				= true,
+	.num_imc				= 2,
+	.reg_mchbar_mask			= GENMASK_ULL(41, 17),
+	.reg_tom_mask				= GENMASK_ULL(41, 20),
+	.reg_touud_mask				= GENMASK_ULL(41, 20),
+	.reg_eccerrlog_addr_mask		= GENMASK_ULL(38, 5),
+	.reg_capabilities_misc_offset		= 0x13c00,
+	.reg_capabilities_misc_ibecc_dis	= BIT(6),
+	.imc_base				= 0xd800,
+	.ibecc_base				= 0xd400,
+	.ibecc_error_log_offset			= 0x170,
+	.ibecc_available			= generic_ibecc_available,
+	.err_addr_to_sys_addr			= adl_err_addr_to_sys_addr,
+	.err_addr_to_imc_addr			= adl_err_addr_to_imc_addr,
 };
 
 static struct res_config mtl_p_cfg = {
