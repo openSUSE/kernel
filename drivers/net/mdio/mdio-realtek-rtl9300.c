@@ -57,7 +57,7 @@
 #define SMI_GLB_CTRL			0xca00
 #define   GLB_CTRL_INTF_SEL(intf)	BIT(16 + (intf))
 #define SMI_PORT0_15_POLLING_SEL	0xca08
-#define SMI_ACCESS_PHY_CTRL_0		0xcb70
+#define RTL9300_SMI_ACCESS_PHY_CTRL_0	0xcb70
 #define RTL9300_SMI_ACCESS_PHY_CTRL_1	0xcb74
 #define   PHY_CTRL_REG_ADDR		GENMASK(24, 20)
 #define   PHY_CTRL_PARK_PAGE		GENMASK(19, 15)
@@ -86,6 +86,7 @@ struct otto_emdio_cmd_regs {
 	u32 c22_data;
 	u32 c45_data;
 	u32 io_data;
+	u32 port_mask_low;
 };
 
 struct otto_emdio_info {
@@ -212,7 +213,7 @@ static int otto_emdio_9300_write_c22(struct mii_bus *bus, int phy_id, int regnum
 	if (err)
 		goto out_err;
 
-	err = regmap_write(regmap, SMI_ACCESS_PHY_CTRL_0, BIT(port));
+	err = regmap_write(regmap, priv->info->cmd_regs.port_mask_low, BIT(port));
 	if (err)
 		goto out_err;
 
@@ -323,7 +324,7 @@ static int otto_emdio_9300_write_c45(struct mii_bus *bus, int phy_id, int dev_ad
 	if (err)
 		goto out_err;
 
-	err = regmap_write(regmap, SMI_ACCESS_PHY_CTRL_0, BIT(port));
+	err = regmap_write(regmap, priv->info->cmd_regs.port_mask_low, BIT(port));
 	if (err)
 		goto out_err;
 
@@ -557,6 +558,7 @@ static const struct otto_emdio_info otto_emdio_9300_info = {
 		.c22_data = RTL9300_SMI_ACCESS_PHY_CTRL_1,
 		.c45_data = RTL9300_SMI_ACCESS_PHY_CTRL_3,
 		.io_data = RTL9300_SMI_ACCESS_PHY_CTRL_2,
+		.port_mask_low = RTL9300_SMI_ACCESS_PHY_CTRL_0,
 	},
 	.num_buses = RTL9300_NUM_BUSES,
 	.num_ports = RTL9300_NUM_PORTS,
