@@ -374,24 +374,16 @@ static inline void arcnet_set_addr(struct net_device *dev, u8 addr)
 
 /* I/O equivalents */
 
-#ifdef CONFIG_SA1100_CT6001
-#define BUS_ALIGN  2  /* 8 bit device on a 16 bit bus - needs padding */
-#else
-#define BUS_ALIGN  1
-#endif
-
-/* addr and offset allow register like names to define the actual IO  address.
- * A configuration option multiplies the offset for alignment.
- */
+/* addr and offset allow register like names to define the actual IO address */
 #define arcnet_inb(addr, offset)					\
-	inb((addr) + BUS_ALIGN * (offset))
+	inb((addr) + (offset))
 #define arcnet_outb(value, addr, offset)				\
-	outb(value, (addr) + BUS_ALIGN * (offset))
+	outb(value, (addr) + (offset))
 
 #define arcnet_insb(addr, offset, buffer, count)			\
-	insb((addr) + BUS_ALIGN * (offset), buffer, count)
+	insb((addr) + (offset), buffer, count)
 #define arcnet_outsb(addr, offset, buffer, count)			\
-	outsb((addr) + BUS_ALIGN * (offset), buffer, count)
+	outsb((addr) + (offset), buffer, count)
 
 #define arcnet_readb(addr, offset)					\
 	readb((addr) + (offset))
