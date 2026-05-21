@@ -359,8 +359,6 @@ struct alu_struct {
 };
 
 struct ksz_dev_ops {
-	int (*setup)(struct dsa_switch *ds);
-	void (*teardown)(struct dsa_switch *ds);
 	u32 (*get_port_addr)(int port, int offset);
 	void (*cfg_port_member)(struct ksz_device *dev, int port, u8 member);
 	void (*port_setup)(struct ksz_device *dev, int port, bool cpu_port);
@@ -417,12 +415,7 @@ struct ksz_dev_ops {
 	void (*port_init_cnt)(struct ksz_device *dev, int port);
 	void (*setup_rgmii_delay)(struct ksz_device *dev, int port);
 	int (*tc_cbs_set_cinc)(struct ksz_device *dev, int port, u32 val);
-	void (*config_cpu_port)(struct dsa_switch *ds);
-	int (*enable_stp_addr)(struct ksz_device *dev);
-	int (*reset)(struct ksz_device *dev);
 	int (*init)(struct ksz_device *dev);
-
-	int (*pcs_create)(struct ksz_device *dev);
 };
 
 struct ksz_device *ksz_switch_alloc(struct device *base,
@@ -433,7 +426,6 @@ void ksz_switch_remove(struct ksz_device *dev);
 int ksz_switch_suspend(struct device *dev);
 int ksz_switch_resume(struct device *dev);
 
-int ksz_setup(struct dsa_switch *ds);
 void ksz_teardown(struct dsa_switch *ds);
 int ksz_port_setup(struct dsa_switch *ds, int port);
 void ksz_port_teardown(struct dsa_switch *ds, int port);
