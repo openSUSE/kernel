@@ -24,7 +24,7 @@ static int check_for_device(struct device *dev, void *data)
 
 static bool icl_nhi_is_device_connected(struct tb_nhi *nhi)
 {
-	struct tb *tb = pci_get_drvdata(nhi->pdev);
+	struct tb *tb = dev_get_drvdata(nhi->dev);
 	int ret;
 
 	ret = device_for_each_child(&tb->root_switch->dev, NULL,
@@ -34,6 +34,7 @@ static bool icl_nhi_is_device_connected(struct tb_nhi *nhi)
 
 static int icl_nhi_force_power(struct tb_nhi *nhi, bool power)
 {
+	struct pci_dev *pdev = to_pci_dev(nhi->dev);
 	u32 vs_cap;
 
 	/*
@@ -48,7 +49,7 @@ static int icl_nhi_force_power(struct tb_nhi *nhi, bool power)
 	 * The actual power management happens inside shared ACPI power
 	 * resources using standard ACPI methods.
 	 */
-	pci_read_config_dword(nhi->pdev, VS_CAP_22, &vs_cap);
+	pci_read_config_dword(pdev, VS_CAP_22, &vs_cap);
 	if (power) {
 		vs_cap &= ~VS_CAP_22_DMA_DELAY_MASK;
 		vs_cap |= 0x22 << VS_CAP_22_DMA_DELAY_SHIFT;
@@ -56,7 +57,7 @@ static int icl_nhi_force_power(struct tb_nhi *nhi, bool power)
 	} else {
 		vs_cap &= ~VS_CAP_22_FORCE_POWER;
 	}
-	pci_write_config_dword(nhi->pdev, VS_CAP_22, vs_cap);
+	pci_write_config_dword(pdev, VS_CAP_22, vs_cap);
 
 	if (power) {
 		unsigned int retries = 350;
@@ -64,7 +65,7 @@ static int icl_nhi_force_power(struct tb_nhi *nhi, bool power)
 
 		/* Wait until the firmware tells it is up and running */
 		do {
-			pci_read_config_dword(nhi->pdev, VS_CAP_9, &val);
+			pci_read_config_dword(pdev, VS_CAP_9, &val);
 			if (val & VS_CAP_9_FW_READY)
 				return 0;
 			usleep_range(3000, 3100);
@@ -78,14 +79,16 @@ static int icl_nhi_force_power(struct tb_nhi *nhi, bool power)
 
 static void icl_nhi_lc_mailbox_cmd(struct tb_nhi *nhi, enum icl_lc_mailbox_cmd cmd)
 {
+	struct pci_dev *pdev = to_pci_dev(nhi->dev);
 	u32 data;
 
 	data = (cmd << VS_CAP_19_CMD_SHIFT) & VS_CAP_19_CMD_MASK;
-	pci_write_config_dword(nhi->pdev, VS_CAP_19, data | VS_CAP_19_VALID);
+	pci_write_config_dword(pdev, VS_CAP_19, data | VS_CAP_19_VALID);
 }
 
 static int icl_nhi_lc_mailbox_cmd_complete(struct tb_nhi *nhi, int timeout)
 {
+	struct pci_dev *pdev = to_pci_dev(nhi->dev);
 	unsigned long end;
 	u32 data;
 
@@ -94,7 +97,7 @@ static int icl_nhi_lc_mailbox_cmd_complete(struct tb_nhi *nhi, int timeout)
 
 	end = jiffies + msecs_to_jiffies(timeout);
 	do {
-		pci_read_config_dword(nhi->pdev, VS_CAP_18, &data);
+		pci_read_config_dword(pdev, VS_CAP_18, &data);
 		if (data & VS_CAP_18_DONE)
 			goto clear;
 		usleep_range(1000, 1100);
@@ -104,24 +107,25 @@ static int icl_nhi_lc_mailbox_cmd_complete(struct tb_nhi *nhi, int timeout)
 
 clear:
 	/* Clear the valid bit */
-	pci_write_config_dword(nhi->pdev, VS_CAP_19, 0);
+	pci_write_config_dword(pdev, VS_CAP_19, 0);
 	return 0;
 }
 
 static void icl_nhi_set_ltr(struct tb_nhi *nhi)
 {
+	struct pci_dev *pdev = to_pci_dev(nhi->dev);
 	u32 max_ltr, ltr;
 
-	pci_read_config_dword(nhi->pdev, VS_CAP_16, &max_ltr);
+	pci_read_config_dword(pdev, VS_CAP_16, &max_ltr);
 	max_ltr &= 0xffff;
 	/* Program the same value for both snoop and no-snoop */
 	ltr = max_ltr << 16 | max_ltr;
-	pci_write_config_dword(nhi->pdev, VS_CAP_15, ltr);
+	pci_write_config_dword(pdev, VS_CAP_15, ltr);
 }
 
 static int icl_nhi_suspend(struct tb_nhi *nhi)
 {
-	struct tb *tb = pci_get_drvdata(nhi->pdev);
+	struct tb *tb = dev_get_drvdata(nhi->dev);
 	int ret;
 
 	if (icl_nhi_is_device_connected(nhi))
@@ -144,7 +148,7 @@ static int icl_nhi_suspend(struct tb_nhi *nhi)
 
 static int icl_nhi_suspend_noirq(struct tb_nhi *nhi, bool wakeup)
 {
-	struct tb *tb = pci_get_drvdata(nhi->pdev);
+	struct tb *tb = dev_get_drvdata(nhi->dev);
 	enum icl_lc_mailbox_cmd cmd;
 
 	if (!pm_suspend_via_firmware())

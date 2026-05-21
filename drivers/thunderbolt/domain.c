@@ -405,7 +405,7 @@ struct tb *tb_domain_alloc(struct tb_nhi *nhi, int timeout_msec, size_t privsize
 	if (!tb->ctl)
 		goto err_destroy_wq;
 
-	tb->dev.parent = &nhi->pdev->dev;
+	tb->dev.parent = nhi->dev;
 	tb->dev.bus = &tb_bus_type;
 	tb->dev.type = &tb_domain_type;
 	tb->dev.groups = domain_attr_groups;
