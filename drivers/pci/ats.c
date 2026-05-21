@@ -247,7 +247,8 @@ bool pci_ats_required(struct pci_dev *pdev)
 	if (pdev->is_virtfn)
 		pdev = pci_physfn(pdev);
 
-	return pci_cxl_ats_required(pdev);
+	return pci_cxl_ats_required(pdev) ||
+	       pci_dev_specific_ats_required(pdev);
 }
 EXPORT_SYMBOL_GPL(pci_ats_required);
 
