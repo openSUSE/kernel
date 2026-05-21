@@ -52,6 +52,7 @@
 #include <linux/regmap.h>
 
 #define RTL9300_NUM_BUSES		4
+#define RTL9300_NUM_PAGES		4096
 #define RTL9300_NUM_PORTS		28
 #define SMI_GLB_CTRL			0xca00
 #define   GLB_CTRL_INTF_SEL(intf)	BIT(16 + (intf))
@@ -78,10 +79,12 @@
 #define MAX_PORTS       28
 #define MAX_SMI_BUSSES  4
 #define MAX_SMI_ADDR	0x1f
+#define RAW_PAGE(priv)	((priv)->info->num_pages - 1)
 
 struct otto_emdio_info {
 	u8 num_buses;
 	u8 num_ports;
+	u16 num_pages;
 };
 
 struct otto_emdio_priv {
@@ -154,7 +157,7 @@ static int otto_emdio_9300_read_c22(struct mii_bus *bus, int phy_id, int regnum)
 
 	val = FIELD_PREP(PHY_CTRL_REG_ADDR, regnum) |
 	      FIELD_PREP(PHY_CTRL_PARK_PAGE, 0x1f) |
-	      FIELD_PREP(PHY_CTRL_MAIN_PAGE, 0xfff) |
+	      FIELD_PREP(PHY_CTRL_MAIN_PAGE, RAW_PAGE(priv)) |
 	      PHY_CTRL_READ | PHY_CTRL_TYPE_C22 | PHY_CTRL_CMD;
 	err = regmap_write(regmap, SMI_ACCESS_PHY_CTRL_1, val);
 	if (err)
@@ -207,7 +210,7 @@ static int otto_emdio_9300_write_c22(struct mii_bus *bus, int phy_id, int regnum
 
 	val = FIELD_PREP(PHY_CTRL_REG_ADDR, regnum) |
 	      FIELD_PREP(PHY_CTRL_PARK_PAGE, 0x1f) |
-	      FIELD_PREP(PHY_CTRL_MAIN_PAGE, 0xfff) |
+	      FIELD_PREP(PHY_CTRL_MAIN_PAGE, RAW_PAGE(priv)) |
 	      PHY_CTRL_WRITE | PHY_CTRL_TYPE_C22 | PHY_CTRL_CMD;
 	err = regmap_write(regmap, SMI_ACCESS_PHY_CTRL_1, val);
 	if (err)
@@ -540,6 +543,7 @@ static int otto_emdio_probe(struct platform_device *pdev)
 static const struct otto_emdio_info otto_emdio_9300_info = {
 	.num_buses = RTL9300_NUM_BUSES,
 	.num_ports = RTL9300_NUM_PORTS,
+	.num_pages = RTL9300_NUM_PAGES,
 };
 
 static const struct of_device_id otto_emdio_ids[] = {
