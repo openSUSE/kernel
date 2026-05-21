@@ -76,7 +76,6 @@ static DEFINE_MUTEX(video_list_lock);
 static LIST_HEAD(video_bus_head);
 static int acpi_video_bus_probe(struct auxiliary_device *aux_dev,
 				const struct auxiliary_device_id *id);
-static void acpi_video_bus_remove(struct auxiliary_device *aux);
 static void acpi_video_bus_notify(acpi_handle handle, u32 event, void *data);
 
 /*
@@ -99,7 +98,6 @@ MODULE_DEVICE_TABLE(auxiliary, video_bus_auxiliary_id_table);
 
 static struct auxiliary_driver acpi_video_bus = {
 	.probe = acpi_video_bus_probe,
-	.remove = acpi_video_bus_remove,
 	.id_table = video_bus_auxiliary_id_table,
 };
 
@@ -1945,8 +1943,9 @@ static void acpi_video_dev_remove_notify_handler(struct acpi_video_device *dev)
 	}
 }
 
-static void acpi_video_bus_remove_notify_handler(struct acpi_video_bus *video)
+static void acpi_video_bus_remove_notify_handler(void *data)
 {
+	struct acpi_video_bus *video = data;
 	struct acpi_video_device *dev;
 
 	mutex_lock(&video->device_list_lock);
@@ -2099,28 +2098,13 @@ static int acpi_video_bus_probe(struct auxiliary_device *aux_dev,
 	if (error)
 		return error;
 
-	error = acpi_dev_install_notify_handler(device, ACPI_DEVICE_NOTIFY,
-						acpi_video_bus_notify, video);
+	error = devm_add_action_or_reset(dev, acpi_video_bus_remove_notify_handler,
+					 video);
 	if (error)
-		goto err_remove;
+		return error;
 
-	return 0;
-
-err_remove:
-	acpi_video_bus_remove_notify_handler(video);
-
-	return error;
-}
-
-static void acpi_video_bus_remove(struct auxiliary_device *aux_dev)
-{
-	struct acpi_video_bus *video = auxiliary_get_drvdata(aux_dev);
-	struct acpi_device *device = ACPI_COMPANION(&aux_dev->dev);
-
-	acpi_dev_remove_notify_handler(device, ACPI_DEVICE_NOTIFY,
-				       acpi_video_bus_notify);
-
-	acpi_video_bus_remove_notify_handler(video);
+	return devm_acpi_install_notify_handler(dev, ACPI_DEVICE_NOTIFY,
+						acpi_video_bus_notify, video);
 }
 
 static int __init is_i740(struct pci_dev *dev)
