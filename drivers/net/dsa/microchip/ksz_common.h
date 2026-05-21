@@ -398,8 +398,6 @@ struct ksz_dev_ops {
 	 *  - Negative error code on failure (e.g., invalid configuration).
 	 */
 	int (*create_phy_addr_map)(struct ksz_device *dev, bool side_mdio);
-	int (*r_phy)(struct ksz_device *dev, u16 phy, u16 reg, u16 *val);
-	int (*w_phy)(struct ksz_device *dev, u16 phy, u16 reg, u16 val);
 	void (*r_mib_cnt)(struct ksz_device *dev, int port, u16 addr,
 			  u64 *cnt);
 	void (*r_mib_pkt)(struct ksz_device *dev, int port, u16 addr,
@@ -442,8 +440,6 @@ void ksz_switch_macaddr_put(struct dsa_switch *ds);
 void ksz_switch_shutdown(struct ksz_device *dev);
 int ksz_handle_wake_reason(struct ksz_device *dev, int port);
 
-int ksz_phy_read16(struct dsa_switch *ds, int addr, int reg);
-int ksz_phy_write16(struct dsa_switch *ds, int addr, int reg, u16 val);
 u32 ksz_get_phy_flags(struct dsa_switch *ds, int port);
 
 int ksz_sset_count(struct dsa_switch *ds, int port, int sset);

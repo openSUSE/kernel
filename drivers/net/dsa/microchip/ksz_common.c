@@ -2838,31 +2838,6 @@ void ksz_init_mib_timer(struct ksz_device *dev)
 	}
 }
 
-int ksz_phy_read16(struct dsa_switch *ds, int addr, int reg)
-{
-	struct ksz_device *dev = ds->priv;
-	u16 val = 0xffff;
-	int ret;
-
-	ret = dev->dev_ops->r_phy(dev, addr, reg, &val);
-	if (ret)
-		return ret;
-
-	return val;
-}
-
-int ksz_phy_write16(struct dsa_switch *ds, int addr, int reg, u16 val)
-{
-	struct ksz_device *dev = ds->priv;
-	int ret;
-
-	ret = dev->dev_ops->w_phy(dev, addr, reg, val);
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
 u32 ksz_get_phy_flags(struct dsa_switch *ds, int port)
 {
 	struct ksz_device *dev = ds->priv;

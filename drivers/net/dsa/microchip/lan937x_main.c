@@ -334,14 +334,29 @@ static int lan937x_internal_phy_read(struct ksz_device *dev, int addr, int reg,
 	return ksz_read16(dev, REG_VPHY_IND_DATA__2, val);
 }
 
-static int lan937x_r_phy(struct ksz_device *dev, u16 addr, u16 reg, u16 *data)
+static int lan937x_phy_read16(struct dsa_switch *ds, int addr, int reg)
 {
-	return lan937x_internal_phy_read(dev, addr, reg, data);
+	struct ksz_device *dev = ds->priv;
+	u16 val = 0xffff;
+	int ret;
+
+	ret =  lan937x_internal_phy_read(dev, addr, reg, &val);
+	if (ret)
+		return ret;
+
+	return val;
 }
 
-static int lan937x_w_phy(struct ksz_device *dev, u16 addr, u16 reg, u16 val)
+static int lan937x_phy_write16(struct dsa_switch *ds, int addr, int reg, u16 val)
 {
-	return lan937x_internal_phy_write(dev, addr, reg, val);
+	struct ksz_device *dev = ds->priv;
+	int ret;
+
+	ret = lan937x_internal_phy_write(dev, addr, reg, val);
+	if (ret)
+		return ret;
+
+	return 0;
 }
 
 static int lan937x_reset_switch(struct ksz_device *dev)
@@ -818,8 +833,6 @@ const struct ksz_dev_ops lan937x_dev_ops = {
 	.cfg_port_member = ksz9477_cfg_port_member,
 	.mdio_bus_preinit = lan937x_mdio_bus_preinit,
 	.create_phy_addr_map = lan937x_create_phy_addr_map,
-	.r_phy = lan937x_r_phy,
-	.w_phy = lan937x_w_phy,
 	.r_mib_cnt = ksz9477_r_mib_cnt,
 	.r_mib_pkt = ksz9477_r_mib_pkt,
 	.r_mib_stat64 = ksz_r_mib_stats64,
@@ -836,8 +849,8 @@ const struct dsa_switch_ops lan937x_switch_ops = {
 	.get_phy_flags		= ksz_get_phy_flags,
 	.setup			= lan937x_setup,
 	.teardown		= ksz_teardown,
-	.phy_read		= ksz_phy_read16,
-	.phy_write		= ksz_phy_write16,
+	.phy_read		= lan937x_phy_read16,
+	.phy_write		= lan937x_phy_write16,
 	.phylink_get_caps	= lan937x_phylink_get_caps,
 	.port_setup		= lan937x_dsa_port_setup,
 	.set_ageing_time	= lan937x_set_ageing_time,

@@ -1057,6 +1057,19 @@ static int ksz8_r_phy(struct ksz_device *dev, u16 phy, u16 reg, u16 *val)
 	return 0;
 }
 
+static int ksz8_phy_read16(struct dsa_switch *ds, int addr, int reg)
+{
+	struct ksz_device *dev = ds->priv;
+	u16 val = 0xffff;
+	int ret;
+
+	ret = ksz8_r_phy(dev, addr, reg, &val);
+	if (ret)
+		return ret;
+
+	return val;
+}
+
 /**
  * ksz8_w_phy_ctrl - Translates and writes to the SMI interface from a MIIM PHY
  *		     Control register (Reg. 31).
@@ -1262,6 +1275,18 @@ static int ksz8_w_phy(struct ksz_device *dev, u16 phy, u16 reg, u16 val)
 	default:
 		break;
 	}
+
+	return 0;
+}
+
+static int ksz8_phy_write16(struct dsa_switch *ds, int addr, int reg, u16 val)
+{
+	struct ksz_device *dev = ds->priv;
+	int ret;
+
+	ret = ksz8_w_phy(dev, addr, reg, val);
+	if (ret)
+		return ret;
 
 	return 0;
 }
@@ -2194,6 +2219,19 @@ static int ksz8463_r_phy(struct ksz_device *dev, u16 phy, u16 reg, u16 *val)
 	return 0;
 }
 
+static int ksz8463_phy_read16(struct dsa_switch *ds, int addr, int reg)
+{
+	struct ksz_device *dev = ds->priv;
+	u16 val = 0xffff;
+	int ret;
+
+	ret = ksz8463_r_phy(dev, addr, reg, &val);
+	if (ret)
+		return ret;
+
+	return val;
+}
+
 static int ksz8463_w_phy(struct ksz_device *dev, u16 phy, u16 reg, u16 val)
 {
 	u16 sw_reg = 0;
@@ -2218,6 +2256,18 @@ static int ksz8463_w_phy(struct ksz_device *dev, u16 phy, u16 reg, u16 val)
 		if (ret)
 			return ret;
 	}
+
+	return 0;
+}
+
+static int ksz8463_phy_write16(struct dsa_switch *ds, int addr, int reg, u16 val)
+{
+	struct ksz_device *dev = ds->priv;
+	int ret;
+
+	ret = ksz8463_w_phy(dev, addr, reg, val);
+	if (ret)
+		return ret;
 
 	return 0;
 }
@@ -2330,8 +2380,6 @@ const struct phylink_mac_ops ksz8_phylink_mac_ops = {
 const struct ksz_dev_ops ksz8463_dev_ops = {
 	.get_port_addr = ksz8463_get_port_addr,
 	.cfg_port_member = ksz8_cfg_port_member,
-	.r_phy = ksz8463_r_phy,
-	.w_phy = ksz8463_w_phy,
 	.r_mib_cnt = ksz8_r_mib_cnt,
 	.r_mib_pkt = ksz8_r_mib_pkt,
 	.r_mib_stat64 = ksz88xx_r_mib_stats64,
@@ -2343,8 +2391,6 @@ const struct ksz_dev_ops ksz8463_dev_ops = {
 const struct ksz_dev_ops ksz87xx_dev_ops = {
 	.get_port_addr = ksz8_get_port_addr,
 	.cfg_port_member = ksz8_cfg_port_member,
-	.r_phy = ksz8_r_phy,
-	.w_phy = ksz8_w_phy,
 	.r_mib_cnt = ksz8_r_mib_cnt,
 	.r_mib_pkt = ksz8_r_mib_pkt,
 	.r_mib_stat64 = ksz_r_mib_stats64,
@@ -2359,8 +2405,6 @@ const struct ksz_dev_ops ksz87xx_dev_ops = {
 const struct ksz_dev_ops ksz88xx_dev_ops = {
 	.get_port_addr = ksz8_get_port_addr,
 	.cfg_port_member = ksz8_cfg_port_member,
-	.r_phy = ksz8_r_phy,
-	.w_phy = ksz8_w_phy,
 	.r_mib_cnt = ksz8_r_mib_cnt,
 	.r_mib_pkt = ksz8_r_mib_pkt,
 	.r_mib_stat64 = ksz88xx_r_mib_stats64,
@@ -2378,8 +2422,8 @@ const struct dsa_switch_ops ksz8463_switch_ops = {
 	.get_phy_flags		= ksz_get_phy_flags,
 	.setup			= ksz8_setup,
 	.teardown		= ksz_teardown,
-	.phy_read		= ksz_phy_read16,
-	.phy_write		= ksz_phy_write16,
+	.phy_read		= ksz8463_phy_read16,
+	.phy_write		= ksz8463_phy_write16,
 	.phylink_get_caps	= ksz8_phylink_get_caps,
 	.port_setup		= ksz8_dsa_port_setup,
 	.get_strings		= ksz_get_strings,
@@ -2438,8 +2482,8 @@ const struct dsa_switch_ops ksz87xx_switch_ops = {
 	.get_phy_flags		= ksz_get_phy_flags,
 	.setup			= ksz8_setup,
 	.teardown		= ksz_teardown,
-	.phy_read		= ksz_phy_read16,
-	.phy_write		= ksz_phy_write16,
+	.phy_read		= ksz8_phy_read16,
+	.phy_write		= ksz8_phy_write16,
 	.phylink_get_caps	= ksz8_phylink_get_caps,
 	.port_setup		= ksz8_dsa_port_setup,
 	.get_strings		= ksz_get_strings,
@@ -2498,8 +2542,8 @@ const struct dsa_switch_ops ksz88xx_switch_ops = {
 	.get_phy_flags		= ksz_get_phy_flags,
 	.setup			= ksz8_setup,
 	.teardown		= ksz_teardown,
-	.phy_read		= ksz_phy_read16,
-	.phy_write		= ksz_phy_write16,
+	.phy_read		= ksz8_phy_read16,
+	.phy_write		= ksz8_phy_write16,
 	.phylink_get_caps	= ksz8_phylink_get_caps,
 	.port_setup		= ksz8_dsa_port_setup,
 	.get_strings		= ksz_get_strings,

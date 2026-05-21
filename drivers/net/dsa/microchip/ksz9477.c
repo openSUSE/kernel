@@ -575,6 +575,19 @@ static int ksz9477_r_phy(struct ksz_device *dev, u16 addr, u16 reg, u16 *data)
 	return 0;
 }
 
+static int ksz9477_phy_read16(struct dsa_switch *ds, int addr, int reg)
+{
+	struct ksz_device *dev = ds->priv;
+	u16 val = 0xffff;
+	int ret;
+
+	ret = ksz9477_r_phy(dev, addr, reg, &val);
+	if (ret)
+		return ret;
+
+	return val;
+}
+
 static int ksz9477_w_phy(struct ksz_device *dev, u16 addr, u16 reg, u16 val)
 {
 	u32 mask, val32;
@@ -598,6 +611,18 @@ static int ksz9477_w_phy(struct ksz_device *dev, u16 addr, u16 reg, u16 val)
 	}
 	reg &= ~1;
 	return ksz_prmw32(dev, addr, 0x100 + (reg << 1), mask, val32);
+}
+
+static int ksz9477_phy_write16(struct dsa_switch *ds, int addr, int reg, u16 val)
+{
+	struct ksz_device *dev = ds->priv;
+	int ret;
+
+	ret = ksz9477_w_phy(dev, addr, reg, val);
+	if (ret)
+		return ret;
+
+	return 0;
 }
 
 void ksz9477_cfg_port_member(struct ksz_device *dev, int port, u8 member)
@@ -1912,8 +1937,6 @@ const struct phylink_mac_ops ksz9477_phylink_mac_ops = {
 const struct ksz_dev_ops ksz9477_dev_ops = {
 	.get_port_addr = ksz9477_get_port_addr,
 	.cfg_port_member = ksz9477_cfg_port_member,
-	.r_phy = ksz9477_r_phy,
-	.w_phy = ksz9477_w_phy,
 	.r_mib_cnt = ksz9477_r_mib_cnt,
 	.r_mib_pkt = ksz9477_r_mib_pkt,
 	.r_mib_stat64 = ksz_r_mib_stats64,
@@ -1932,8 +1955,8 @@ const struct dsa_switch_ops ksz9477_switch_ops = {
 	.get_phy_flags		= ksz_get_phy_flags,
 	.setup			= ksz9477_setup,
 	.teardown		= ksz_teardown,
-	.phy_read		= ksz_phy_read16,
-	.phy_write		= ksz_phy_write16,
+	.phy_read		= ksz9477_phy_read16,
+	.phy_write		= ksz9477_phy_write16,
 	.phylink_get_caps	= ksz9477_phylink_get_caps,
 	.port_setup		= ksz9477_dsa_port_setup,
 	.set_ageing_time	= ksz9477_set_ageing_time,
