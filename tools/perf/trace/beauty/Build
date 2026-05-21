@@ -111,6 +111,13 @@ $(fsmount_arrays): $(beauty_uapi_linux_dir)/mount.h $(fsmount_tbls)
 	$(call rule_mkdir)
 	$(Q)$(call echo-cmd,gen)$(SHELL) '$(fsmount_tbls)' $(beauty_uapi_linux_dir) > $@
 
+fsmount_attr_arrays := $(beauty_outdir)/fsmount_attr_arrays.c
+fsmount_attr_tbls := $(srctree)/tools/perf/trace/beauty/fsmount_attr.sh
+
+$(fsmount_attr_arrays): $(beauty_uapi_linux_dir)/mount.h $(fsmount_attr_tbls)
+	$(call rule_mkdir)
+	$(Q)$(call echo-cmd,gen)$(SHELL) '$(fsmount_attr_tbls)' $(beauty_uapi_linux_dir) > $@
+
 fspick_arrays := $(beauty_outdir)/fspick_arrays.c
 fspick_tbls := $(srctree)/tools/perf/trace/beauty/fspick.sh
 
@@ -285,7 +292,7 @@ $(OUTPUT)trace/beauty/syscalltbl.o: $(syscall_array)
 $(OUTPUT)trace/beauty/fsconfig.o: $(fsconfig_arrays)
 $(OUTPUT)trace/beauty/clone.o: $(clone_flags_array)
 $(OUTPUT)trace/beauty/fs_at_flags.o: $(fs_at_flags_array)
-$(OUTPUT)trace/beauty/fsmount.o: $(fsmount_arrays)
+$(OUTPUT)trace/beauty/fsmount.o: $(fsmount_arrays) $(fsmount_attr_arrays)
 $(OUTPUT)trace/beauty/fspick.o: $(fspick_arrays)
 $(OUTPUT)trace/beauty/ioctl.o: $(drm_ioctl_array) $(sndrv_pcm_ioctl_array) $(sndrv_ctl_ioctl_array) $(kvm_ioctl_array) $(vhost_virtio_ioctl_array) $(perf_ioctl_array) $(usbdevfs_ioctl_array)
 $(OUTPUT)trace/beauty/kcmp.o: $(kcmp_type_array)
