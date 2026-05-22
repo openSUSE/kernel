@@ -806,8 +806,8 @@ static void blinkm_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id blinkm_id[] = {
-	{ "blinkm" },
-	{}
+	{ .name = "blinkm" },
+	{ }
 };
 
 MODULE_DEVICE_TABLE(i2c, blinkm_id);

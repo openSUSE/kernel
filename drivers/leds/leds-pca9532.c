@@ -67,10 +67,10 @@ enum {
 };
 
 static const struct i2c_device_id pca9532_id[] = {
-	{ "pca9530", pca9530 },
-	{ "pca9531", pca9531 },
-	{ "pca9532", pca9532 },
-	{ "pca9533", pca9533 },
+	{ .name = "pca9530", .driver_data = pca9530 },
+	{ .name = "pca9531", .driver_data = pca9531 },
+	{ .name = "pca9532", .driver_data = pca9532 },
+	{ .name = "pca9533", .driver_data = pca9533 },
 	{ }
 };
 

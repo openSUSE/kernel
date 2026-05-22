@@ -389,7 +389,7 @@ static int st1202_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id st1202_id[] = {
-	{ "st1202-i2c" },
+	{ .name = "st1202-i2c" },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(i2c, st1202_id);
