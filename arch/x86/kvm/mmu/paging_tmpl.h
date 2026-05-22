@@ -328,6 +328,12 @@ static int FNAME(walk_addr_generic)(struct guest_walker *walker,
 	const int write_fault = access & PFERR_WRITE_MASK;
 	const int user_fault  = access & PFERR_USER_MASK;
 	const int fetch_fault = access & PFERR_FETCH_MASK;
+	/*
+	 * Note! Track the error_code that's common to legacy shadow paging
+	 * and NPT shadow paging as a u16 to guard against unintentionally
+	 * setting any of bits 63:16.  Architecturally, the #PF error code is
+	 * 32 bits, and Intel CPUs don't support settings bits 31:16.
+	 */
 	u16 errcode = 0;
 	gpa_t real_gpa;
 	gfn_t gfn;
