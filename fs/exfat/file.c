@@ -406,6 +406,12 @@ int exfat_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 	exfat_truncate_inode_atime(inode);
 
 	if (attr->ia_valid & ATTR_SIZE) {
+		/*
+		 * Wait for any in-flight DIO to finish before truncating to
+		 * prevent a concurrent DIO from writing to clusters that are
+		 * about to be freed.
+		 */
+		inode_dio_wait(inode);
 		down_write(&EXFAT_I(inode)->truncate_lock);
 		truncate_setsize(inode, attr->ia_size);
 
