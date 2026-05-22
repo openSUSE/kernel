@@ -89,6 +89,80 @@ static int ntfs_ioctl_fitrim(struct ntfs_sb_info *sbi, unsigned long arg)
 	return 0;
 }
 
+/*
+ * ntfs_fileattr_get - inode_operations::fileattr_get
+ */
+int ntfs_fileattr_get(struct dentry *dentry, struct file_kattr *fa)
+{
+	struct inode *inode = d_inode(dentry);
+	struct ntfs_inode *ni = ntfs_i(inode);
+	u32 flags = 0;
+
+	/* Avoid any operation if inode is bad. */
+	if (unlikely(is_bad_ni(ni)))
+		return -EINVAL;
+
+	if (inode->i_flags & S_IMMUTABLE)
+		flags |= FS_IMMUTABLE_FL;
+
+	if (inode->i_flags & S_APPEND)
+		flags |= FS_APPEND_FL;
+
+	if (is_compressed(ni))
+		flags |= FS_COMPR_FL;
+
+	if (is_encrypted(ni))
+		flags |= FS_ENCRYPT_FL;
+
+	if (ni->nodump)
+		flags |= FS_NODUMP_FL;
+
+	fileattr_fill_flags(fa, flags);
+
+	return 0;
+}
+
+/*
+ * ntfs_fileattr_set - inode_operations::fileattr_set
+ */
+int ntfs_fileattr_set(struct mnt_idmap *idmap, struct dentry *dentry,
+		      struct file_kattr *fa)
+{
+	struct inode *inode = d_inode(dentry);
+	struct ntfs_inode *ni = ntfs_i(inode);
+	u32 flags = fa->flags;
+	unsigned int new_fl = 0;
+
+	/* Avoid any operation if inode is bad. */
+	if (unlikely(is_bad_ni(ni)))
+		return -EINVAL;
+
+	if (fileattr_has_fsx(fa))
+		return -EOPNOTSUPP;
+
+	if (flags & ~(FS_IMMUTABLE_FL | FS_APPEND_FL | FS_NODUMP_FL))
+		return -EOPNOTSUPP;
+
+	if (flags & FS_IMMUTABLE_FL)
+		new_fl |= S_IMMUTABLE;
+
+	if (flags & FS_APPEND_FL)
+		new_fl |= S_APPEND;
+
+	inode_set_flags(inode, new_fl, S_IMMUTABLE | S_APPEND);
+
+	/* Save nodump flag to return in ntfs_getattr. */
+	if (flags & FS_NODUMP_FL)
+		ni->nodump = 1;
+	else
+		ni->nodump = 0;
+
+	inode_set_ctime_current(inode);
+	mark_inode_dirty(inode);
+
+	return 0;
+}
+
 static int ntfs_ioctl_get_volume_label(struct ntfs_sb_info *sbi, u8 __user *buf)
 {
 	if (copy_to_user(buf, sbi->volume.label, FSLABEL_MAX))
@@ -202,6 +276,9 @@ int ntfs_getattr(struct mnt_idmap *idmap, const struct path *path,
 
 	if (inode->i_flags & S_APPEND)
 		stat->attributes |= STATX_ATTR_APPEND;
+
+	if (ni->nodump)
+		stat->attributes |= STATX_ATTR_NODUMP;
 
 	if (is_compressed(ni))
 		stat->attributes |= STATX_ATTR_COMPRESSED;
@@ -1547,6 +1624,8 @@ const struct inode_operations ntfs_file_inode_operations = {
 	.get_acl	= ntfs_get_acl,
 	.set_acl	= ntfs_set_acl,
 	.fiemap		= ntfs_fiemap,
+	.fileattr_get	= ntfs_fileattr_get,
+	.fileattr_set	= ntfs_fileattr_set,
 };
 
 const struct file_operations ntfs_file_operations = {
