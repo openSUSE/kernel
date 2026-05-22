@@ -1963,17 +1963,15 @@ static struct tmigr_hierarchy *tmigr_get_hierarchy(int cpu)
 	if (hier)
 		return hier;
 
-	hier = kzalloc(sizeof(*hier), GFP_KERNEL);
+	hier = kzalloc_flex(*hier, level_list, tmigr_hierarchy_levels);
 	if (!hier)
 		return ERR_PTR(-ENOMEM);
 
 	hier->cpumask = kzalloc(cpumask_size(), GFP_KERNEL);
-	if (!hier->cpumask)
-		goto err;
-
-	hier->level_list = kzalloc_objs(struct list_head, tmigr_hierarchy_levels);
-	if (!hier->level_list)
-		goto err;
+	if (!hier->cpumask) {
+		kfree(hier);
+		return ERR_PTR(-ENOMEM);
+	}
 
 	for (int i = 0; i < tmigr_hierarchy_levels; i++)
 		INIT_LIST_HEAD(&hier->level_list[i]);
@@ -1982,10 +1980,6 @@ static struct tmigr_hierarchy *tmigr_get_hierarchy(int cpu)
 	list_add_tail(&hier->node, &tmigr_hierarchy_list);
 
 	return hier;
-err:
-	kfree(hier->cpumask);
-	kfree(hier);
-	return ERR_PTR(-ENOMEM);
 }
 
 static int tmigr_connect_old_root(struct tmigr_hierarchy *hier, int cpu,
