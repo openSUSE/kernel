@@ -15,6 +15,12 @@
 #include <keys/rxrpc-type.h>
 #include "protocol.h"
 
+#define FCRYPT_ROUNDS 16
+
+struct fcrypt_key {
+	__be32 sched[FCRYPT_ROUNDS];
+};
+
 #define FCRYPT_BSIZE 8
 struct rxrpc_crypt {
 	union {
@@ -22,6 +28,14 @@ struct rxrpc_crypt {
 		__be32	n[2];
 	};
 } __attribute__((aligned(8)));
+
+void fcrypt_preparekey(struct fcrypt_key *key, const u8 raw_key[FCRYPT_BSIZE]);
+void fcrypt_pcbc_encrypt(const struct fcrypt_key *key,
+			 const u8 iv[FCRYPT_BSIZE], const void *src, void *dst,
+			 size_t nblocks);
+void fcrypt_pcbc_decrypt(const struct fcrypt_key *key,
+			 const u8 iv[FCRYPT_BSIZE], const void *src, void *dst,
+			 size_t nblocks);
 
 #define rxrpc_queue_work(WS)	queue_work(rxrpc_workqueue, (WS))
 #define rxrpc_queue_delayed_work(WS,D)	\

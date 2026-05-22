@@ -97,4 +97,11 @@ config RXPERF
 	  incoming calls from the rxperf program (an example of which can be
 	  found in OpenAFS).
 
+config AF_RXRPC_KUNIT_TEST
+	tristate "RxRPC crypto KUnit test" if !KUNIT_ALL_TESTS
+	depends on KUNIT && RXKAD
+	default KUNIT_ALL_TESTS
+	help
+	  Enable the KUnit test suite for RxRPC's crypto routines.
+
 endif
