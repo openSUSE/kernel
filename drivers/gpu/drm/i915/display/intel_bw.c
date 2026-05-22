@@ -578,6 +578,11 @@ static int icl_get_bw_info(struct intel_display *display,
 	return 0;
 }
 
+static int tgl_peakbw(int num_channels, int channel_width, int dclk)
+{
+	return num_channels * (channel_width / 8) * dclk;
+}
+
 static int tgl_get_bw_info(struct intel_display *display,
 			   const struct dram_info *dram_info,
 			   const struct intel_soc_bw_params *soc_bw_params,
@@ -587,7 +592,6 @@ static int tgl_get_bw_info(struct intel_display *display,
 	bool is_y_tile = true; /* assume y tile may be used */
 	int num_channels = max_t(u8, 1, dram_info->num_channels);
 	int ipqdepth, ipqdepthpch = 16;
-	int dclk_max;
 	int maxdebw, peakbw;
 	int clperchgroup;
 	int num_groups = ARRAY_SIZE(display->bw.max);
@@ -614,9 +618,7 @@ static int tgl_get_bw_info(struct intel_display *display,
 	if (qi.max_numchannels != 0)
 		num_channels = min_t(u8, num_channels, qi.max_numchannels);
 
-	dclk_max = icl_sagv_max_dclk(&qi);
-
-	peakbw = num_channels * DIV_ROUND_UP(qi.channel_width, 8) * dclk_max;
+	peakbw = tgl_peakbw(num_channels, qi.channel_width, icl_sagv_max_dclk(&qi));
 	maxdebw = min(soc_bw_params->deprogbwlimit * 1000, peakbw * DEPROGBWPCLIMIT / 100);
 
 	ipqdepth = min(ipqdepthpch, display_bw_params->displayrtids / num_channels);
@@ -662,9 +664,7 @@ static int tgl_get_bw_info(struct intel_display *display,
 
 			bi->deratedbw[j] = min(maxdebw,
 					       bw * (100 - soc_bw_params->derating) / 100);
-			bi->peakbw[j] = DIV_ROUND_CLOSEST(sp->dclk *
-							  num_channels *
-							  qi.channel_width, 8);
+			bi->peakbw[j] = tgl_peakbw(num_channels, qi.channel_width, sp->dclk);
 
 			drm_dbg_kms(display->drm,
 				    "BW%d / QGV %d: num_planes=%d deratedbw=%u peakbw: %u\n",
@@ -737,12 +737,12 @@ static int xe2_hpd_get_bw_info(struct intel_display *display,
 		return ret;
 	}
 
-	peakbw = num_channels * qi.channel_width / 8 * icl_sagv_max_dclk(&qi);
+	peakbw = tgl_peakbw(num_channels, qi.channel_width, icl_sagv_max_dclk(&qi));
 	maxdebw = min(soc_bw_params->deprogbwlimit * 1000, peakbw * DEPROGBWPCLIMIT / 100);
 
 	for (i = 0; i < qi.num_points; i++) {
-		const struct intel_qgv_point *point = &qi.points[i];
-		int bw = num_channels * (qi.channel_width / 8) * point->dclk;
+		const struct intel_qgv_point *sp = &qi.points[i];
+		int bw = tgl_peakbw(num_channels, qi.channel_width, sp->dclk);
 
 		display->bw.max[0].deratedbw[i] =
 			min(maxdebw, (100 - soc_bw_params->derating) * bw / 100);
