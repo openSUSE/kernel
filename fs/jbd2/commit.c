@@ -39,9 +39,7 @@ static void journal_end_buffer_io_sync(struct buffer_head *bh, int uptodate)
 	else
 		clear_buffer_uptodate(bh);
 	if (orig_bh) {
-		clear_bit_unlock(BH_Shadow, &orig_bh->b_state);
-		smp_mb__after_atomic();
-		wake_up_bit(&orig_bh->b_state, BH_Shadow);
+		clear_and_wake_up_bit(BH_Shadow, &orig_bh->b_state);
 	}
 	unlock_buffer(bh);
 }
