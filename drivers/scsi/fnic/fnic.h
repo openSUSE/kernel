@@ -438,6 +438,7 @@ struct fnic {
 	struct list_head tx_queue;
 	mempool_t *frame_pool;
 	mempool_t *frame_elem_pool;
+	mempool_t *frame_recv_pool;
 	struct work_struct tport_work;
 	struct list_head tport_event_list;
 
@@ -540,7 +541,8 @@ fnic_chk_state_flags_locked(struct fnic *fnic, unsigned long st_flags)
 }
 void __fnic_set_state_flags(struct fnic *, unsigned long, unsigned long);
 void fnic_dump_fchost_stats(struct Scsi_Host *, struct fc_host_statistics *);
-void fnic_free_txq(struct list_head *head);
+void fnic_free_txq(struct fnic *fnic);
+void fnic_free_rxq(struct fnic *fnic);
 int fnic_get_desc_by_devid(struct pci_dev *pdev, char **desc,
 						   char **subsys_desc);
 void fnic_fdls_link_status_change(struct fnic *fnic, int linkup);

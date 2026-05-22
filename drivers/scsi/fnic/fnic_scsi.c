@@ -776,7 +776,7 @@ static int fnic_fcpio_fw_reset_cmpl_handler(struct fnic *fnic,
 	 */
 	if (ret) {
 		spin_unlock_irqrestore(&fnic->fnic_lock, flags);
-		fnic_free_txq(&fnic->tx_queue);
+		fnic_free_txq(fnic);
 		goto reset_cmpl_handler_end;
 	}
 
