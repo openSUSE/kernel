@@ -7196,21 +7196,11 @@ __refill_objects_node(struct kmem_cache *s, void **p, gfp_t gfp, unsigned int mi
 
 		list_for_each_entry_safe(slab, slab2, &pc.slabs, slab_list) {
 
-			if (unlikely(!slab->inuse && n->nr_partial >= s->min_partial))
-				continue;
-
 			list_del(&slab->slab_list);
 			add_partial(n, slab, ADD_TO_TAIL);
 		}
 
 		spin_unlock_irqrestore(&n->list_lock, flags);
-
-		/* any slabs left are completely free and for discard */
-		list_for_each_entry_safe(slab, slab2, &pc.slabs, slab_list) {
-
-			list_del(&slab->slab_list);
-			discard_slab(s, slab);
-		}
 	}
 
 	return refilled;
