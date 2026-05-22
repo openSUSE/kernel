@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause)
 /* Copyright 2017-2019 NXP */
 
+#include <linux/iopoll.h>
 #include <linux/module.h>
 #include "enetc.h"
 
@@ -28,8 +29,8 @@ static void enetc_msg_dma_free(struct device *dev, struct enetc_msg_swbd *msg)
 static int enetc_msg_vsi_send(struct enetc_si *si, struct enetc_msg_swbd *msg)
 {
 	struct device *dev = &si->pdev->dev;
-	int timeout = 100;
 	u32 vsimsgsr;
+	int err;
 
 	/* The VSI mailbox may be busy if last message was not yet processed
 	 * by PSI. So need to check the mailbox status before sending.
@@ -48,19 +49,13 @@ static int enetc_msg_vsi_send(struct enetc_si *si, struct enetc_msg_swbd *msg)
 	enetc_msg_dma_free(dev, &si->msg);
 	si->msg = *msg;
 	enetc_msg_vsi_write_msg(&si->hw, msg);
-
-	do {
-		vsimsgsr = enetc_rd(&si->hw, ENETC_VSIMSGSR);
-		if (!(vsimsgsr & ENETC_VSIMSGSR_MB))
-			break;
-
-		usleep_range(1000, 2000);
-	} while (--timeout);
-
-	if (!timeout) {
+	err = read_poll_timeout(enetc_rd, vsimsgsr,
+				!(vsimsgsr & ENETC_VSIMSGSR_MB),
+				1000, 200000, false, &si->hw, ENETC_VSIMSGSR);
+	if (err) {
 		dev_err(dev, "VSI mailbox timeout\n");
 
-		return -ETIMEDOUT;
+		return err;
 	}
 
 	/* check for message delivery error */
