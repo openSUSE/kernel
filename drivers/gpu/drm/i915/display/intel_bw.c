@@ -240,10 +240,15 @@ intel_read_qgv_point_info(struct intel_display *display,
 		return icl_pcode_read_qgv_point_info(display, sp, point);
 }
 
+static bool is_y_tile(struct intel_display *display)
+{
+	/* assume Y tile may be used if supported */
+	return !HAS_4TILE(display);
+}
+
 static int icl_get_qgv_points(struct intel_display *display,
 			      const struct dram_info *dram_info,
-			      struct intel_qgv_info *qi,
-			      bool is_y_tile)
+			      struct intel_qgv_info *qi)
 {
 	int i, ret;
 
@@ -282,16 +287,16 @@ static int icl_get_qgv_points(struct intel_display *display,
 	} else if (DISPLAY_VER(display) >= 12) {
 		switch (dram_info->type) {
 		case INTEL_DRAM_DDR4:
-			qi->t_bl = is_y_tile ? 8 : 4;
+			qi->t_bl = is_y_tile(display) ? 8 : 4;
 			qi->max_numchannels = 2;
 			qi->channel_width = 64;
-			qi->deinterleave = is_y_tile ? 1 : 2;
+			qi->deinterleave = is_y_tile(display) ? 1 : 2;
 			break;
 		case INTEL_DRAM_DDR5:
-			qi->t_bl = is_y_tile ? 16 : 8;
+			qi->t_bl = is_y_tile(display) ? 16 : 8;
 			qi->max_numchannels = 4;
 			qi->channel_width = 32;
-			qi->deinterleave = is_y_tile ? 1 : 2;
+			qi->deinterleave = is_y_tile(display) ? 1 : 2;
 			break;
 		case INTEL_DRAM_LPDDR4:
 			if (display->platform.rocketlake) {
@@ -306,7 +311,7 @@ static int icl_get_qgv_points(struct intel_display *display,
 			qi->t_bl = 16;
 			qi->max_numchannels = 8;
 			qi->channel_width = 16;
-			qi->deinterleave = is_y_tile ? 2 : 4;
+			qi->deinterleave = is_y_tile(display) ? 2 : 4;
 			break;
 		default:
 			qi->t_bl = 16;
@@ -512,7 +517,6 @@ static int icl_get_bw_info(struct intel_display *display,
 			   const struct intel_display_bw_params *display_bw_params)
 {
 	struct intel_qgv_info qi = {};
-	bool is_y_tile = true; /* assume y tile may be used */
 	int num_channels = max_t(u8, 1, dram_info->num_channels);
 	int ipqdepth, ipqdepthpch = 16;
 	int dclk_max;
@@ -520,7 +524,7 @@ static int icl_get_bw_info(struct intel_display *display,
 	int num_groups = ARRAY_SIZE(display->bw.max);
 	int i, ret;
 
-	ret = icl_get_qgv_points(display, dram_info, &qi, is_y_tile);
+	ret = icl_get_qgv_points(display, dram_info, &qi);
 	if (ret) {
 		drm_dbg_kms(display->drm,
 			    "Failed to get memory subsystem information, ignoring bandwidth limits");
@@ -530,7 +534,7 @@ static int icl_get_bw_info(struct intel_display *display,
 	dclk_max = icl_sagv_max_dclk(&qi);
 	maxdebw = min(soc_bw_params->deprogbwlimit * 1000, dclk_max * 16 * 6 / 10);
 	ipqdepth = min(ipqdepthpch, display_bw_params->displayrtids / num_channels);
-	qi.deinterleave = DIV_ROUND_UP(num_channels, is_y_tile ? 4 : 2);
+	qi.deinterleave = DIV_ROUND_UP(num_channels, is_y_tile(display) ? 4 : 2);
 
 	for (i = 0; i < num_groups; i++) {
 		struct intel_bw_info *bi = &display->bw.max[i];
@@ -589,7 +593,6 @@ static int tgl_get_bw_info(struct intel_display *display,
 			   const struct intel_display_bw_params *display_bw_params)
 {
 	struct intel_qgv_info qi = {};
-	bool is_y_tile = true; /* assume y tile may be used */
 	int num_channels = max_t(u8, 1, dram_info->num_channels);
 	int ipqdepth, ipqdepthpch = 16;
 	int maxdebw, peakbw;
@@ -597,7 +600,7 @@ static int tgl_get_bw_info(struct intel_display *display,
 	int num_groups = ARRAY_SIZE(display->bw.max);
 	int i, ret;
 
-	ret = icl_get_qgv_points(display, dram_info, &qi, is_y_tile);
+	ret = icl_get_qgv_points(display, dram_info, &qi);
 	if (ret) {
 		drm_dbg_kms(display->drm,
 			    "Failed to get memory subsystem information, ignoring bandwidth limits");
@@ -728,7 +731,7 @@ static int xe2_hpd_get_bw_info(struct intel_display *display,
 	int peakbw, maxdebw;
 	int ret, i;
 
-	ret = icl_get_qgv_points(display, dram_info, &qi, true);
+	ret = icl_get_qgv_points(display, dram_info, &qi);
 	if (ret) {
 		drm_dbg_kms(display->drm,
 			    "Failed to get memory subsystem information, ignoring bandwidth limits");
