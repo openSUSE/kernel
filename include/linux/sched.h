@@ -939,6 +939,11 @@ struct task_struct {
 	unsigned			pasid_activated:1;
 #endif
 
+#ifndef __GENKSYMS__
+	/* Save user-dumpable when mm goes away */
+	unsigned			user_dumpable:1;
+#endif
+
 	unsigned long			atomic_flags; /* Flags requiring atomic access. */
 
 	struct restart_block		restart_block;
