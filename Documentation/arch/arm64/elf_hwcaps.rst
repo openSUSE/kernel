@@ -452,10 +452,12 @@ HWCAP3_LS64
     memory location, otherwise fallback to the non-atomic alternatives.
 
 HWCAP3_SVE_B16MM
-    Functionality implied by ID_AA64ZFR0_EL1.B16B16 == 0b0011
+    Functionality implied by ID_AA64PFR0_EL1.SVE == 0b0001 and
+    ID_AA64ZFR0_EL1.B16B16 == 0b0011
 
 HWCAP3_SVE2P3
-    Functionality implied by ID_AA64ZFR0_EL1.SVEver == 0b0100
+    Functionality implied by ID_AA64PFR0_EL1.SVE == 0b0001 and
+    ID_AA64ZFR0_EL1.SVEver == 0b0100
 
 HWCAP3_SME_LUT6
     Functionality implied by ID_AA64SMFR0_EL1.LUT6 == 0b1
@@ -473,8 +475,9 @@ HWCAP3_F16F32MM
     Functionality implied by ID_AA64ISAR0_EL1.FHM == 0b0011
 
 HWCAP3_SVE_LUT6
-    Functionality implied by ID_AA64ISAR2_EL1.LUT == 0b0010 and
-    ID_AA64PFR0_EL1.SVE == 0b0001.
+    Functionality implied by ID_AA64PFR0_EL1.SVE == 0b0001 and
+    ID_AA64ISAR2_EL1.LUT == 0b0010.
+
 
 4. Unused AT_HWCAP bits
 -----------------------
