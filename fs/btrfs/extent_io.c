@@ -3400,8 +3400,8 @@ retry:
 finish:
 	spin_lock(&mapping->i_private_lock);
 	if (existing_folio && btrfs_meta_is_subpage(fs_info)) {
-		/* We're going to reuse the existing page, can drop our folio now. */
-		__free_page(folio_page(eb->folios[i], 0));
+		/* We're going to reuse the existing folio, can drop our folio now. */
+		folio_put(eb->folios[i]);
 		eb->folios[i] = existing_folio;
 	} else if (existing_folio) {
 		struct extent_buffer *existing_eb;
@@ -3416,7 +3416,7 @@ finish:
 			return 1;
 		}
 		/* The extent buffer no longer exists, we can reuse the folio. */
-		__free_page(folio_page(eb->folios[i], 0));
+		folio_put(eb->folios[i]);
 		eb->folios[i] = existing_folio;
 	}
 	eb->folio_size = folio_size(eb->folios[i]);
