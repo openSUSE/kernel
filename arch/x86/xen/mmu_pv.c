@@ -84,6 +84,14 @@
 
 #include "xen-ops.h"
 
+enum pt_level {
+	PT_PGD,
+	PT_P4D,
+	PT_PUD,
+	PT_PMD,
+	PT_PTE
+};
+
 /*
  * Prototypes for functions called via PV_CALLEE_SAVE_REGS_THUNK() in order
  * to avoid warnings with "-Wmissing-prototypes".
