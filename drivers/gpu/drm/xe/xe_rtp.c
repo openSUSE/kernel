@@ -30,15 +30,19 @@ static bool has_samedia(const struct xe_device *xe)
 	return xe->info.media_verx100 >= 1300;
 }
 
-static bool rule_matches(const struct xe_device *xe,
-			 struct xe_gt *gt,
-			 struct xe_hw_engine *hwe,
-			 const struct xe_rtp_rule *rules,
-			 unsigned int n_rules)
+static bool rule_matches_with_err(const struct xe_device *xe,
+				  struct xe_gt *gt,
+				  struct xe_hw_engine *hwe,
+				  const struct xe_rtp_rule *rules,
+				  unsigned int n_rules,
+				  int *err)
 {
 	const struct xe_rtp_rule *r;
 	unsigned int i, rcount = 0;
 	bool match;
+
+	if (err)
+		*err = 0;
 
 	for (r = rules, i = 0; i < n_rules; r = &rules[++i]) {
 		switch (r->match_type) {
@@ -58,21 +62,21 @@ static bool rule_matches(const struct xe_device *xe,
 			break;
 		case XE_RTP_MATCH_PLATFORM_STEP:
 			if (drm_WARN_ON(&xe->drm, xe->info.step.platform == STEP_NONE))
-				return false;
+				goto error;
 
 			match = xe->info.step.platform >= r->step_start &&
 				xe->info.step.platform < r->step_end;
 			break;
 		case XE_RTP_MATCH_GRAPHICS_VERSION:
 			if (drm_WARN_ON(&xe->drm, !gt))
-				return false;
+				goto error;
 
 			match = xe->info.graphics_verx100 == r->ver_start &&
 				(!has_samedia(xe) || !xe_gt_is_media_type(gt));
 			break;
 		case XE_RTP_MATCH_GRAPHICS_VERSION_RANGE:
 			if (drm_WARN_ON(&xe->drm, !gt))
-				return false;
+				goto error;
 
 			match = xe->info.graphics_verx100 >= r->ver_start &&
 				xe->info.graphics_verx100 <= r->ver_end &&
@@ -80,13 +84,13 @@ static bool rule_matches(const struct xe_device *xe,
 			break;
 		case XE_RTP_MATCH_GRAPHICS_VERSION_ANY_GT:
 			if (drm_WARN_ON(&xe->drm, !gt))
-				return false;
+				goto error;
 
 			match = xe->info.graphics_verx100 == r->ver_start;
 			break;
 		case XE_RTP_MATCH_GRAPHICS_STEP:
 			if (drm_WARN_ON(&xe->drm, !gt))
-				return false;
+				goto error;
 
 			match = xe->info.step.graphics >= r->step_start &&
 				xe->info.step.graphics < r->step_end &&
@@ -94,14 +98,14 @@ static bool rule_matches(const struct xe_device *xe,
 			break;
 		case XE_RTP_MATCH_MEDIA_VERSION:
 			if (drm_WARN_ON(&xe->drm, !gt))
-				return false;
+				goto error;
 
 			match = xe->info.media_verx100 == r->ver_start &&
 				(!has_samedia(xe) || xe_gt_is_media_type(gt));
 			break;
 		case XE_RTP_MATCH_MEDIA_VERSION_RANGE:
 			if (drm_WARN_ON(&xe->drm, !gt))
-				return false;
+				goto error;
 
 			match = xe->info.media_verx100 >= r->ver_start &&
 				xe->info.media_verx100 <= r->ver_end &&
@@ -109,7 +113,7 @@ static bool rule_matches(const struct xe_device *xe,
 			break;
 		case XE_RTP_MATCH_MEDIA_STEP:
 			if (drm_WARN_ON(&xe->drm, !gt))
-				return false;
+				goto error;
 
 			match = xe->info.step.media >= r->step_start &&
 				xe->info.step.media < r->step_end &&
@@ -117,7 +121,7 @@ static bool rule_matches(const struct xe_device *xe,
 			break;
 		case XE_RTP_MATCH_MEDIA_VERSION_ANY_GT:
 			if (drm_WARN_ON(&xe->drm, !gt))
-				return false;
+				goto error;
 
 			match = xe->info.media_verx100 == r->ver_start;
 			break;
@@ -129,13 +133,13 @@ static bool rule_matches(const struct xe_device *xe,
 			break;
 		case XE_RTP_MATCH_ENGINE_CLASS:
 			if (drm_WARN_ON(&xe->drm, !hwe))
-				return false;
+				goto error;
 
 			match = hwe->class == r->engine_class;
 			break;
 		case XE_RTP_MATCH_NOT_ENGINE_CLASS:
 			if (drm_WARN_ON(&xe->drm, !hwe))
-				return false;
+				goto error;
 
 			match = hwe->class != r->engine_class;
 			break;
@@ -167,9 +171,24 @@ static bool rule_matches(const struct xe_device *xe,
 
 done:
 	if (drm_WARN_ON(&xe->drm, !rcount))
-		return false;
+		goto error;
 
 	return true;
+
+error:
+	if (err)
+		*err = -EINVAL;
+
+	return false;
+}
+
+static bool rule_matches(const struct xe_device *xe,
+			 struct xe_gt *gt,
+			 struct xe_hw_engine *hwe,
+			 const struct xe_rtp_rule *rules,
+			 unsigned int n_rules)
+{
+	return rule_matches_with_err(xe, gt, hwe, rules, n_rules, NULL);
 }
 
 static void rtp_add_sr_entry(const struct xe_rtp_action *action,
@@ -412,3 +431,7 @@ bool xe_rtp_match_has_msix(const struct xe_device *xe,
 {
 	return xe_device_has_msix(xe);
 }
+
+#if IS_ENABLED(CONFIG_DRM_XE_KUNIT_TEST)
+#include "tests/xe_rtp.c"
+#endif
