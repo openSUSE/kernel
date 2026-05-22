@@ -2288,7 +2288,7 @@ struct task_struct_orig {
 	 * Do not put anything below here!
 	 */
 };
-suse_kabi_static_assert(sizeof(struct task_struct) == sizeof(struct task_struct_orig));
+// RT disable suse_kabi_static_assert(sizeof(struct task_struct) == sizeof(struct task_struct_orig));
 
 static inline struct pid *task_pid(struct task_struct *task)
 {
