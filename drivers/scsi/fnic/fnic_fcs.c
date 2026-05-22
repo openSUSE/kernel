@@ -519,13 +519,13 @@ static void fnic_rq_cmpl_frame_recv(struct vnic_rq *rq, struct cq_desc
 
 	spin_unlock_irqrestore(&fnic->fnic_lock, flags);
 
-	frame_elem = mempool_alloc(fnic->frame_elem_pool,
-					GFP_ATOMIC | __GFP_ZERO);
+	frame_elem = mempool_alloc(fnic->frame_elem_pool, GFP_ATOMIC);
 	if (!frame_elem) {
 		FNIC_FCS_DBG(KERN_INFO, fnic->host, fnic->fnic_num,
 				 "Failed to allocate memory for frame elem");
 		goto drop;
 	}
+	memset(frame_elem, 0, sizeof(struct fnic_frame_list));
 	frame_elem->fp = fp;
 	frame_elem->rx_ethhdr_stripped = ethhdr_stripped;
 	frame_elem->frame_len = bytes_written;
@@ -704,13 +704,13 @@ fdls_send_fcoe_frame(struct fnic *fnic, void *frame, int frame_size,
 	 */
 	if ((fnic->state != FNIC_IN_FC_MODE)
 		&& (fnic->state != FNIC_IN_ETH_MODE)) {
-		frame_elem = mempool_alloc(fnic->frame_elem_pool,
-						GFP_ATOMIC | __GFP_ZERO);
+		frame_elem = mempool_alloc(fnic->frame_elem_pool, GFP_ATOMIC);
 		if (!frame_elem) {
 			FNIC_FCS_DBG(KERN_INFO, fnic->host, fnic->fnic_num,
 				 "Failed to allocate memory for frame elem");
 			return -ENOMEM;
 		}
+		memset(frame_elem, 0, sizeof(struct fnic_frame_list));
 
 		FNIC_FCS_DBG(KERN_DEBUG, fnic->host, fnic->fnic_num,
 			"Queueing FC frame: sid/did/type/oxid = 0x%x/0x%x/0x%x/0x%x\n",
