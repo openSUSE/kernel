@@ -7,7 +7,29 @@
 
 #define ENETC_DRV_NAME_STR "ENETC VF driver"
 
-/* Messaging */
+/* Note: This function should be called after filling the message body,
+ * because the CRC16 needs to be calculated after all the data has been
+ * filled.
+ */
+static void enetc_msg_fill_common_hdr(struct enetc_msg_swbd *msg_swbd,
+				      u8 class_id, u8 cmd_id, u8 proto_ver,
+				      u8 cookie)
+{
+	struct enetc_msg_header *hdr = msg_swbd->vaddr;
+	u8 *data_buf = ((u8 *)msg_swbd->vaddr) + 2; /* skip crc16 field */
+	u32 data_size = msg_swbd->size - 2;
+	u16 crc16;
+
+	hdr->class_id = class_id;
+	hdr->cmd_id = cmd_id;
+	hdr->len = ENETC_MSG_EXT_BODY_LEN(msg_swbd->size);
+	hdr->proto_ver = proto_ver;
+	hdr->cookie = FIELD_PREP(ENETC_VF_MSG_COOKIE, cookie);
+
+	crc16 = crc_itu_t(ENETC_CRC_INIT, data_buf, data_size);
+	hdr->crc16 = htons(crc16);
+}
+
 static void enetc_msg_vsi_write_msg(struct enetc_hw *hw,
 				    struct enetc_msg_swbd *msg)
 {
@@ -30,6 +52,7 @@ static int enetc_msg_vsi_send(struct enetc_si *si, struct enetc_msg_swbd *msg)
 {
 	struct device *dev = &si->pdev->dev;
 	u32 vsimsgsr;
+	u16 pf_msg;
 	int err;
 
 	/* The VSI mailbox may be busy if last message was not yet processed
@@ -60,36 +83,72 @@ static int enetc_msg_vsi_send(struct enetc_si *si, struct enetc_msg_swbd *msg)
 
 	/* check for message delivery error */
 	if (vsimsgsr & ENETC_VSIMSGSR_MS) {
-		dev_err(dev, "VSI command execute error: %d\n",
-			ENETC_SIMSGSR_GET_MC(vsimsgsr));
+		dev_err(dev, "Transfer error when copying the data\n");
 		return -EIO;
 	}
 
-	return 0;
+	pf_msg = ENETC_SIMSGSR_GET_MC(vsimsgsr);
+	/* Check the user-defined completion status. */
+	if (FIELD_GET(ENETC_PF_MSG_CLASS_ID, pf_msg) !=
+	    ENETC_MSG_CLASS_ID_CMD_SUCCESS) {
+		switch (FIELD_GET(ENETC_PF_MSG_CLASS_ID, pf_msg)) {
+		case ENETC_MSG_CLASS_ID_PERMISSION_DENY:
+			/* Intentionally returning early to prevent excessive
+			 * error logs due to permission issues.
+			 */
+			return -EACCES;
+		case ENETC_MSG_CLASS_ID_CMD_NOT_SUPPORT:
+		case ENETC_MSG_CLASS_ID_PROTO_NOT_SUPPORT:
+			err = -EOPNOTSUPP;
+			break;
+		case ENETC_MSG_CLASS_ID_PSI_BUSY:
+			err = -EBUSY;
+			break;
+		case ENETC_MSG_CLASS_ID_CMD_TIMEOUT:
+			err = -ETIME;
+			break;
+		case ENETC_MSG_CLASS_ID_INVALID_MSG_LEN:
+		case ENETC_MSG_CLASS_ID_MAC_FILTER:
+			err = -EINVAL;
+			break;
+		case ENETC_MSG_CLASS_ID_CMD_NOT_PERMITTED:
+			err = -EPERM;
+			break;
+		case ENETC_MSG_CLASS_ID_CMD_FAIL:
+		case ENETC_MSG_CLASS_ID_CRC_ERROR:
+		case ENETC_MSG_CLASS_ID_CMD_DEFERRED:
+		default:
+			err = -EIO;
+		}
+	}
+
+	if (err)
+		dev_err(dev, "Return error code from PSI: 0x%04x\n", pf_msg);
+
+	return err;
 }
 
 static int enetc_msg_vsi_set_primary_mac_addr(struct enetc_ndev_priv *priv,
 					      struct sockaddr *saddr)
 {
-	struct enetc_msg_cmd_set_primary_mac *cmd;
-	struct enetc_msg_swbd msg;
+	struct enetc_msg_mac_exact_filter *msg;
+	struct enetc_msg_swbd msg_swbd;
+	u32 msg_size;
 
-	msg.size = ALIGN(sizeof(struct enetc_msg_cmd_set_primary_mac), 64);
-	msg.vaddr = dma_alloc_coherent(priv->dev, msg.size, &msg.dma,
-				       GFP_KERNEL);
-	if (!msg.vaddr) {
-		dev_err(priv->dev, "Failed to alloc Tx msg (size: %d)\n",
-			msg.size);
+	msg_size = struct_size(msg, mac, 1);
+	msg_swbd.size = ALIGN(msg_size, ENETC_MSG_ALIGN);
+	msg_swbd.vaddr = dma_alloc_coherent(priv->dev, msg_swbd.size,
+					    &msg_swbd.dma, GFP_KERNEL);
+	if (!msg_swbd.vaddr)
 		return -ENOMEM;
-	}
 
-	cmd = (struct enetc_msg_cmd_set_primary_mac *)msg.vaddr;
-	cmd->header.type = ENETC_MSG_CMD_MNG_MAC;
-	cmd->header.id = ENETC_MSG_CMD_MNG_ADD;
-	memcpy(&cmd->mac, saddr, sizeof(struct sockaddr));
+	msg = (struct enetc_msg_mac_exact_filter *)msg_swbd.vaddr;
+	memcpy(&msg->mac[0].addr, saddr->sa_data, ETH_ALEN);
+	enetc_msg_fill_common_hdr(&msg_swbd, ENETC_MSG_CLASS_ID_MAC_FILTER,
+				  ENETC_MSG_SET_PRIMARY_MAC, 0, 0);
 
 	/* send the command and wait */
-	return enetc_msg_vsi_send(priv->si, &msg);
+	return enetc_msg_vsi_send(priv->si, &msg_swbd);
 }
 
 static int enetc_vf_set_mac_addr(struct net_device *ndev, void *addr)

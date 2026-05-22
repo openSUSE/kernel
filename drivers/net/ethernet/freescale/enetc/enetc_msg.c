@@ -3,6 +3,11 @@
 
 #include "enetc_pf_common.h"
 
+#define ENETC_PF_MSG_SUCCESS	FIELD_PREP(ENETC_PF_MSG_CLASS_ID, \
+					   ENETC_MSG_CLASS_ID_CMD_SUCCESS)
+#define ENETC_PF_MSG_NOTSUPP	FIELD_PREP(ENETC_PF_MSG_CLASS_ID, \
+					   ENETC_MSG_CLASS_ID_CMD_NOT_SUPPORT)
+
 static void enetc_msg_disable_mr_int(struct enetc_pf *pf)
 {
 	struct enetc_hw *hw = &pf->si->hw;
@@ -36,23 +41,35 @@ static irqreturn_t enetc_msg_psi_msix(int irq, void *data)
 }
 
 /* Messaging */
-static u16 enetc_msg_pf_set_vf_primary_mac_addr(struct enetc_pf *pf,
-						int vf_id, void *msg)
+static bool enetc_msg_check_crc16(void *msg_addr, u32 msg_size)
+{
+	u32 data_size = msg_size - 2;
+	u8 *data_buf = msg_addr + 2;
+	u16 verify_val;
+
+	verify_val = crc_itu_t(ENETC_CRC_INIT, data_buf, data_size);
+	verify_val = crc_itu_t(verify_val, msg_addr, 2);
+	if (verify_val)
+		return false;
+
+	return true;
+}
+
+static u16 enetc_msg_set_vf_primary_mac_addr(struct enetc_pf *pf, int vf_id,
+					     void *vf_msg)
 {
 	struct enetc_vf_state *vf_state = &pf->vf_state[vf_id];
-	struct enetc_msg_cmd_set_primary_mac *cmd = msg;
+	struct enetc_msg_mac_exact_filter *msg = vf_msg;
 	struct device *dev = &pf->si->pdev->dev;
-	u16 cmd_id = cmd->header.id;
-	char *addr;
+	char *addr = msg->mac[0].addr;
 
-	if (cmd_id != ENETC_MSG_CMD_MNG_ADD)
-		return ENETC_MSG_CMD_STATUS_FAIL;
-
-	addr = cmd->mac.sa_data;
 	if (!is_valid_ether_addr(addr)) {
 		dev_err_ratelimited(dev, "VF%d attempted to set invalid MAC\n",
 				    vf_id);
-		return ENETC_MSG_CMD_STATUS_FAIL;
+		return (FIELD_PREP(ENETC_PF_MSG_CLASS_ID,
+				   ENETC_MSG_CLASS_ID_MAC_FILTER) |
+			FIELD_PREP(ENETC_PF_MSG_CLASS_CODE,
+				   ENETC_MF_CLASS_CODE_INVALID_MAC));
 	}
 
 	mutex_lock(&vf_state->lock);
@@ -61,53 +78,97 @@ static u16 enetc_msg_pf_set_vf_primary_mac_addr(struct enetc_pf *pf,
 		dev_err_ratelimited(dev,
 				    "VF%d attempted to override PF set MAC\n",
 				    vf_id);
-		return ENETC_MSG_CMD_STATUS_FAIL;
+		return FIELD_PREP(ENETC_PF_MSG_CLASS_ID,
+				  ENETC_MSG_CLASS_ID_CMD_NOT_PERMITTED);
 	}
 
 	enetc_set_si_hw_addr(pf, vf_id + 1, addr);
 	mutex_unlock(&vf_state->lock);
 
-	return ENETC_MSG_CMD_STATUS_OK;
+	return ENETC_PF_MSG_SUCCESS;
+}
+
+static u16 enetc_msg_handle_mac_filter(struct enetc_pf *pf, int vf_id,
+				       void *vf_msg)
+{
+	struct enetc_msg_header *msg_hdr = vf_msg;
+
+	switch (msg_hdr->cmd_id) {
+	case ENETC_MSG_SET_PRIMARY_MAC:
+		return enetc_msg_set_vf_primary_mac_addr(pf, vf_id, vf_msg);
+	default:
+		return ENETC_PF_MSG_NOTSUPP;
+	}
 }
 
 static void enetc_msg_handle_rxmsg(struct enetc_pf *pf, int vf_id,
-				   u16 *status)
+				   u16 *pf_msg)
 {
 	struct enetc_msg_swbd *msg_swbd = &pf->rxmsg[vf_id];
+	struct enetc_msg_header *msg_hdr = msg_swbd->vaddr;
+	u32 msg_size = ENETC_MSG_SIZE(msg_hdr->len);
 	struct device *dev = &pf->si->pdev->dev;
-	struct enetc_msg_cmd_header *cmd_hdr;
-	u16 cmd_type;
 	u8 *msg;
 
-	msg = kzalloc_objs(*msg, msg_swbd->size);
-	if (!msg) {
+	if (msg_size > ENETC_DEFAULT_MSG_SIZE) {
 		dev_err_ratelimited(dev,
-				    "Failed to allocate message buffer\n");
-		*status = ENETC_MSG_CMD_STATUS_FAIL;
+				    "Invalid message size: %u\n", msg_size);
+		*pf_msg = FIELD_PREP(ENETC_PF_MSG_CLASS_ID,
+				     ENETC_MSG_CLASS_ID_INVALID_MSG_LEN);
 		return;
 	}
 
-	/* Currently, only ENETC_MSG_CMD_MNG_MAC command is supported, so
-	 * only sizeof(struct enetc_msg_cmd_set_primary_mac) bytes need to
-	 * be copied. This data already includes the cmd_type field, so it
-	 * can correctly return an error code.
+	/* To prevent malicious VF from tampering with the original data by
+	 * sending new messages after passing the check, the DMA buffer data
+	 * is copied to the msg buffer before validation.
 	 */
-	memcpy(msg, msg_swbd->vaddr,
-	       sizeof(struct enetc_msg_cmd_set_primary_mac));
-	cmd_hdr = (struct enetc_msg_cmd_header *)msg;
-	cmd_type = cmd_hdr->type;
-
-	switch (cmd_type) {
-	case ENETC_MSG_CMD_MNG_MAC:
-		*status = enetc_msg_pf_set_vf_primary_mac_addr(pf, vf_id, msg);
-		break;
-	default:
-		*status = ENETC_MSG_CMD_STATUS_FAIL;
+	msg = kzalloc_objs(*msg, msg_size);
+	if (!msg) {
 		dev_err_ratelimited(dev,
-				    "command not supported (cmd_type: 0x%x)\n",
-				    cmd_type);
+				    "Failed to allocate message buffer\n");
+		*pf_msg = FIELD_PREP(ENETC_PF_MSG_CLASS_ID,
+				     ENETC_MSG_CLASS_ID_CMD_FAIL);
+		return;
 	}
 
+	memcpy(msg, msg_swbd->vaddr, msg_size);
+	if (!enetc_msg_check_crc16(msg, msg_size)) {
+		dev_err_ratelimited(dev, "VSI to PSI Message CRC16 error\n");
+		*pf_msg = FIELD_PREP(ENETC_PF_MSG_CLASS_ID,
+				     ENETC_MSG_CLASS_ID_CRC_ERROR);
+
+		goto free_msg;
+	}
+
+	/* Default to not supported */
+	*pf_msg = ENETC_PF_MSG_NOTSUPP;
+	msg_hdr = (struct enetc_msg_header *)msg;
+
+	/* Currently, asynchronous actions are not supported */
+	if (FIELD_GET(ENETC_VF_MSG_COOKIE, msg_hdr->cookie)) {
+		dev_err_ratelimited(dev,
+				    "Cookie field is not supported yet\n");
+		goto free_msg;
+	}
+
+	/* Currently only support protocol version 0 */
+	if (msg_hdr->proto_ver) {
+		dev_err_ratelimited(dev, "Unsupported protocol version %u\n",
+				    msg_hdr->proto_ver);
+		goto free_msg;
+	}
+
+	switch (msg_hdr->class_id) {
+	case ENETC_MSG_CLASS_ID_MAC_FILTER:
+		*pf_msg = enetc_msg_handle_mac_filter(pf, vf_id, msg);
+		break;
+	default:
+		dev_err_ratelimited(dev,
+				    "Unsupported message class ID: 0x%x\n",
+				    msg_hdr->class_id);
+	}
+
+free_msg:
 	kfree(msg);
 }
 
