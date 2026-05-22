@@ -607,7 +607,7 @@ static int tgl_get_bw_info(struct intel_display *display,
 	qi.deinterleave = qi.deinterleave ? : DIV_ROUND_UP(num_channels, is_y_tile ? 4 : 2);
 
 	if (num_channels < qi.max_numchannels && DISPLAY_VER(display) >= 12)
-		qi.deinterleave = max(DIV_ROUND_UP(qi.deinterleave, 2), 1);
+		qi.deinterleave = max(qi.deinterleave / 2, 1);
 
 	if (DISPLAY_VER(display) >= 12 && num_channels > qi.max_numchannels)
 		drm_warn(display->drm, "Number of channels exceeds max number of channels.");
