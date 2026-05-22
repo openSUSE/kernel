@@ -244,10 +244,10 @@ static inline void __iomem __must_check *
 vfio_pci_core_get_iomap(struct vfio_pci_core_device *vdev, unsigned int bar)
 {
 	if (WARN_ON_ONCE(bar >= PCI_STD_NUM_BARS))
-		return ERR_PTR(-EINVAL);
+		return IOMEM_ERR_PTR(-EINVAL);
 
 	if (WARN_ON_ONCE(!vdev->barmap[bar]))
-		return ERR_PTR(-ENODEV);
+		return IOMEM_ERR_PTR(-ENODEV);
 
 	return vdev->barmap[bar];
 }
