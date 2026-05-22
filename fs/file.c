@@ -1133,7 +1133,6 @@ struct file *fget_task(struct task_struct *task, unsigned int fd)
 
 struct file *fget_task_next(struct task_struct *task, unsigned int *ret_fd)
 {
-	/* Must be called with rcu_read_lock held */
 	struct files_struct *files;
 	unsigned int fd = *ret_fd;
 	struct file *file = NULL;
