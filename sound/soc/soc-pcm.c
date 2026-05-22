@@ -26,6 +26,9 @@
 #include <sound/soc-link.h>
 #include <sound/initval.h>
 
+
+DEFINE_GUARD(snd_soc_card_mutex, struct snd_soc_card *,
+	     snd_soc_card_mutex_lock(_T), snd_soc_card_mutex_unlock(_T))
 #define soc_pcm_ret(rtd, ret) _soc_pcm_ret(rtd, __func__, ret)
 static inline int _soc_pcm_ret(struct snd_soc_pcm_runtime *rtd,
 			       const char *func, int ret)
