@@ -1526,6 +1526,7 @@ static int lenovo_input_configured(struct hid_device *hdev,
 						hi->input->propbit);
 			}
 			break;
+		case USB_DEVICE_ID_LENOVO_X12_TAB2:
 		case USB_DEVICE_ID_LENOVO_X13_TAB:
 			input_set_capability(hi->input, EV_KEY, KEY_PERFORMANCE);
 			break;
