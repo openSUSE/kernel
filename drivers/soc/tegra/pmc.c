@@ -3160,7 +3160,8 @@ static int tegra_pmc_probe(struct platform_device *pdev)
 	if (pmc->soc->set_wake_filters)
 		pmc->soc->set_wake_filters(pmc);
 
-	debugfs_create_file("powergate", 0444, NULL, pmc, &powergate_fops);
+	if (pmc->soc->num_powergates)
+		debugfs_create_file("powergate", 0444, NULL, pmc, &powergate_fops);
 
 	return 0;
 
