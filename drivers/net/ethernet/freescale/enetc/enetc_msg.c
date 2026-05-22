@@ -284,3 +284,4 @@ err_msg_psi:
 
 	return err;
 }
+EXPORT_SYMBOL_GPL(enetc_sriov_configure);
