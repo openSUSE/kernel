@@ -703,15 +703,6 @@ config CRYPTO_LRW
 
 	  See https://people.csail.mit.edu/rivest/pubs/LRW02.pdf
 
-config CRYPTO_PCBC
-	tristate "PCBC (Propagating Cipher Block Chaining)"
-	select CRYPTO_SKCIPHER
-	select CRYPTO_MANAGER
-	help
-	  PCBC (Propagating Cipher Block Chaining) mode
-
-	  This block cipher mode is required for RxRPC.
-
 config CRYPTO_XCTR
 	tristate
 	select CRYPTO_SKCIPHER
