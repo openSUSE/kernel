@@ -161,6 +161,39 @@ kunit_platform_device_register_full(struct kunit *test,
 }
 EXPORT_SYMBOL_GPL(kunit_platform_device_register_full);
 
+static bool
+kunit_platform_device_add_match(struct kunit *test, struct kunit_resource *res,
+				void *match_data)
+{
+	struct platform_device *pdev = match_data;
+
+	return res->data == pdev && res->free == kunit_platform_device_add_exit;
+}
+
+/**
+ * kunit_platform_device_unregister() - Unregister a KUnit-managed platform device
+ * @test: test context
+ * @pdev: platform device to unregister
+ *
+ * Unregister a test-managed platform device and cancel its release action.
+ */
+void kunit_platform_device_unregister(struct kunit *test,
+				      struct platform_device *pdev)
+{
+	struct kunit_resource *res;
+
+	res = kunit_find_resource(test, kunit_platform_device_add_match, pdev);
+	if (res) {
+		res->free = NULL;
+		kunit_put_resource(res);
+	} else {
+		kunit_remove_action(test, platform_device_unregister_wrapper, pdev);
+	}
+
+	platform_device_unregister(pdev);
+}
+EXPORT_SYMBOL_GPL(kunit_platform_device_unregister);
+
 struct kunit_platform_device_probe_nb {
 	struct completion *x;
 	struct device *dev;
