@@ -383,7 +383,7 @@ EXPORT_SYMBOL_GPL(fuse_dev_chan_new);
 
 unsigned int fuse_chan_num_background(struct fuse_chan *fch)
 {
-	return fch->num_background;
+	return READ_ONCE(fch->num_background);
 }
 
 unsigned int fuse_chan_max_background(struct fuse_chan *fch)
