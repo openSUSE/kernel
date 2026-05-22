@@ -624,7 +624,7 @@ static int tgl_get_bw_info(struct intel_display *display,
 	 * clperchgroup = 4kpagespermempage * clperchperblock,
 	 * clperchperblock = 8 / num_channels * interleave
 	 */
-	clperchgroup = 4 * DIV_ROUND_UP(8, num_channels) * qi.deinterleave;
+	clperchgroup = 4 * (8 / num_channels) * qi.deinterleave;
 
 	for (i = 0; i < num_groups; i++) {
 		struct intel_bw_info *bi = &display->bw.max[i];
