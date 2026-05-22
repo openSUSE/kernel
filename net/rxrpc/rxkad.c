@@ -7,16 +7,18 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <crypto/skcipher.h>
+#include <crypto/des.h>
+#include <kunit/visibility.h>
+#include <linux/export.h>
 #include <linux/fips.h>
 #include <linux/module.h>
 #include <linux/net.h>
 #include <linux/skbuff.h>
 #include <linux/udp.h>
-#include <linux/scatterlist.h>
 #include <linux/ctype.h>
 #include <linux/slab.h>
 #include <linux/key-type.h>
+#include <linux/unaligned.h>
 #include <net/sock.h>
 #include <net/af_rxrpc.h>
 #include <keys/rxrpc-type.h>
@@ -52,40 +54,41 @@ static void rxkad_prime_packet_security(struct rxrpc_connection *conn,
  */
 static int rxkad_preparse_server_key(struct key_preparsed_payload *prep)
 {
-	struct crypto_skcipher *ci;
+	struct des_ctx *des_key;
+	int err;
 
 	if (prep->datalen != 8)
 		return -EINVAL;
 
 	memcpy(&prep->payload.data[2], prep->data, 8);
 
-	ci = crypto_alloc_skcipher("pcbc(des)", 0, CRYPTO_ALG_ASYNC);
-	if (IS_ERR(ci)) {
-		_leave(" = %ld", PTR_ERR(ci));
-		return PTR_ERR(ci);
+	des_key = kmalloc_obj(*des_key);
+	if (!des_key) {
+		_leave(" = -ENOMEM");
+		return -ENOMEM;
 	}
 
-	if (crypto_skcipher_setkey(ci, prep->data, 8) < 0)
-		BUG();
+	err = des_expand_key(des_key, prep->data, 8);
+	if (err) {
+		kfree_sensitive(des_key);
+		_leave(" = %d", err);
+		return err;
+	}
 
-	prep->payload.data[0] = ci;
+	prep->payload.data[0] = des_key;
 	_leave(" = 0");
 	return 0;
 }
 
 static void rxkad_free_preparse_server_key(struct key_preparsed_payload *prep)
 {
-
-	if (prep->payload.data[0])
-		crypto_free_skcipher(prep->payload.data[0]);
+	kfree_sensitive(prep->payload.data[0]);
 }
 
 static void rxkad_destroy_server_key(struct key *key)
 {
-	if (key->payload.data[0]) {
-		crypto_free_skcipher(key->payload.data[0]);
-		key->payload.data[0] = NULL;
-	}
+	kfree_sensitive(key->payload.data[0]);
+	key->payload.data[0] = NULL;
 }
 
 /*
@@ -771,6 +774,22 @@ int rxkad_kernel_respond_to_challenge(struct sk_buff *challenge)
 }
 EXPORT_SYMBOL(rxkad_kernel_respond_to_challenge);
 
+/* Decrypt data in-place using DES-PCBC.  @len must be a multiple of 8. */
+VISIBLE_IF_KUNIT void des_pcbc_decrypt_inplace(const struct des_ctx *key,
+					       __le64 iv, u8 *data, size_t len)
+{
+	for (size_t i = 0; i < len; i += DES_BLOCK_SIZE) {
+		__le64 ctext, ptext;
+
+		ctext = get_unaligned((const __le64 *)&data[i]);
+		des_decrypt(key, (u8 *)&ptext, (const u8 *)&ctext);
+		ptext ^= iv;
+		put_unaligned(ptext, (__le64 *)&data[i]);
+		iv = ptext ^ ctext;
+	}
+}
+EXPORT_SYMBOL_IF_KUNIT(des_pcbc_decrypt_inplace);
+
 /*
  * decrypt the kerberos IV ticket in the response
  */
@@ -781,13 +800,10 @@ static int rxkad_decrypt_ticket(struct rxrpc_connection *conn,
 				struct rxrpc_crypt *_session_key,
 				time64_t *_expiry)
 {
-	struct skcipher_request *req;
-	struct rxrpc_crypt iv, key;
-	struct scatterlist sg[1];
+	struct rxrpc_crypt key;
 	struct in_addr addr;
 	unsigned int life;
 	time64_t issue, now;
-	int ret;
 	bool little_endian;
 	u8 *p, *q, *name, *end;
 
@@ -797,21 +813,13 @@ static int rxkad_decrypt_ticket(struct rxrpc_connection *conn,
 
 	ASSERT(server_key->payload.data[0] != NULL);
 
-	memcpy(&iv, &server_key->payload.data[2], sizeof(iv));
-
-	req = skcipher_request_alloc(server_key->payload.data[0], GFP_NOFS);
-	if (!req)
-		return -ENOMEM;
-
-	sg_init_one(&sg[0], ticket, ticket_len);
-	skcipher_request_set_callback(req, 0, NULL, NULL);
-	skcipher_request_set_crypt(req, sg, sg, ticket_len, iv.x);
-	ret = crypto_skcipher_decrypt(req);
-	skcipher_request_free(req);
-	if (ret < 0)
+	if (ticket_len % DES_BLOCK_SIZE != 0)
 		return rxrpc_abort_conn(conn, skb, RXKADBADTICKET, -EPROTO,
 					rxkad_abort_resp_tkt_short);
-
+	des_pcbc_decrypt_inplace(
+		server_key->payload.data[0],
+		get_unaligned((const __le64 *)&server_key->payload.data[2]),
+		ticket, ticket_len);
 	p = ticket;
 	end = p + ticket_len;
 

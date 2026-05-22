@@ -36,6 +36,11 @@ void fcrypt_pcbc_encrypt(const struct fcrypt_key *key,
 void fcrypt_pcbc_decrypt(const struct fcrypt_key *key,
 			 const u8 iv[FCRYPT_BSIZE], const void *src, void *dst,
 			 size_t nblocks);
+#if IS_ENABLED(CONFIG_KUNIT)
+struct des_ctx;
+void des_pcbc_decrypt_inplace(const struct des_ctx *key, __le64 iv, u8 *data,
+			      size_t len);
+#endif
 
 #define rxrpc_queue_work(WS)	queue_work(rxrpc_workqueue, (WS))
 #define rxrpc_queue_delayed_work(WS,D)	\

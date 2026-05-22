@@ -5,6 +5,7 @@
  * Copyright 2026 Google LLC
  */
 #include "../ar-internal.h"
+#include <crypto/des.h>
 #include <kunit/test.h>
 
 struct fcrypt_pcbc_testvec {
@@ -93,8 +94,38 @@ static void test_fcrypt_pcbc(struct kunit *test)
 	}
 }
 
+static void test_des_pcbc(struct kunit *test)
+{
+	/* This was generated from the original pcbc(des) crypto API code. */
+	static const u8 expected_ptext[24] =
+		"\xc8\xe2\x3c\xdf\x80\x61\x8a\xad\xa5\x52\xb4\x20"
+		"\x74\x32\x1f\xe4\x2c\x15\x7d\x21\x57\xda\x3f\x31";
+	u8 key[8];
+	union {
+		__le64 w;
+		u8 b[8];
+	} iv;
+	u8 data[24];
+	struct des_ctx ctx;
+	int err;
+
+	for (int i = 0; i < 8; i++) {
+		key[i] = i;
+		iv.b[i] = 255 - i;
+	}
+	for (int i = 0; i < sizeof(data); i++)
+		data[i] = i;
+
+	err = des_expand_key(&ctx, key, sizeof(key));
+	KUNIT_ASSERT_EQ(test, 0, err);
+
+	des_pcbc_decrypt_inplace(&ctx, iv.w, data, sizeof(data));
+	KUNIT_ASSERT_MEMEQ(test, expected_ptext, data, sizeof(data));
+}
+
 static struct kunit_case rxrpc_test_cases[] = {
 	KUNIT_CASE(test_fcrypt_pcbc),
+	KUNIT_CASE(test_des_pcbc),
 	{},
 };
 
