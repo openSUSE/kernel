@@ -39,19 +39,32 @@ static void nested_svm_inject_npf_exit(struct kvm_vcpu *vcpu,
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
 	struct vmcb *vmcb = svm->vmcb;
+	u64 fault_stage;
 
-	if (vmcb->control.exit_code != SVM_EXIT_NPF) {
-		/*
-		 * TODO: track the cause of the nested page fault, and
-		 * correctly fill in the high bits of exit_info_1.
-		 */
-		vmcb->control.exit_code = SVM_EXIT_NPF;
-		vmcb->control.exit_info_1 = (1ULL << 32);
-		vmcb->control.exit_info_2 = fault->address;
-	}
+	/*
+	 * For hardware NPF exits, the GUEST_FAULT_STAGE bits are only
+	 * available in the hardware exit_info_1, since the guest_mmu
+	 * walker doesn't know whether the faulting GPA was a page table
+	 * page or final page from L2's perspective.
+	 */
+	if (from_hardware)
+		fault_stage = vmcb->control.exit_info_1 &
+			      PFERR_GUEST_FAULT_STAGE_MASK;
+	else
+		fault_stage = fault->error_code & PFERR_GUEST_FAULT_STAGE_MASK;
 
-	vmcb->control.exit_info_1 &= ~0xffffffffULL;
-	vmcb->control.exit_info_1 |= fault->error_code;
+	/*
+	 * All nested page faults should be annotated as occurring on the
+	 * final translation *or* the page walk. Arbitrarily choose "final"
+	 * if KVM is buggy and enumerated both or neither.
+	 */
+	if (WARN_ON_ONCE(hweight64(fault_stage) != 1))
+		fault_stage = PFERR_GUEST_FINAL_MASK;
+
+	vmcb->control.exit_code = SVM_EXIT_NPF;
+	vmcb->control.exit_info_1 = fault_stage |
+				    (fault->error_code & ~PFERR_GUEST_FAULT_STAGE_MASK);
+	vmcb->control.exit_info_2 = fault->address;
 
 	nested_svm_vmexit(svm);
 }

@@ -397,16 +397,6 @@ retry_walk:
 					     nested_access | PFERR_GUEST_PAGE_MASK,
 					     &walker->fault, 0);
 
-		/*
-		 * FIXME: This can happen if emulation (for of an INS/OUTS
-		 * instruction) triggers a nested page fault.  The exit
-		 * qualification / exit info field will incorrectly have
-		 * "guest page access" as the nested page fault's cause,
-		 * instead of "guest page structure access".  To fix this,
-		 * the x86_exception struct should be augmented with enough
-		 * information to fix the exit_qualification or exit_info_1
-		 * fields.
-		 */
 		if (unlikely(real_gpa == INVALID_GPA))
 			return 0;
 
@@ -547,6 +537,11 @@ error:
 	walker->fault.address = addr;
 	walker->fault.nested_page_fault = mmu != vcpu->arch.walk_mmu;
 	walker->fault.async_page_fault = false;
+
+#if PTTYPE != PTTYPE_EPT
+	if (walker->fault.nested_page_fault)
+		walker->fault.error_code |= access & PFERR_GUEST_FAULT_STAGE_MASK;
+#endif
 
 	trace_kvm_mmu_walker_error(walker->fault.error_code);
 	return 0;
