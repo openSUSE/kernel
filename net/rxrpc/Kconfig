@@ -60,7 +60,6 @@ config RXKAD
 	select CRYPTO_MANAGER
 	select CRYPTO_SKCIPHER
 	select CRYPTO_PCBC
-	select CRYPTO_FCRYPT
 	help
 	  Provide kerberos 4 and AFS kaserver security handling for AF_RXRPC
 	  through the use of the key retention service.
