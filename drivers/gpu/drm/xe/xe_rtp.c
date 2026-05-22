@@ -30,11 +30,28 @@ static bool has_samedia(const struct xe_device *xe)
 	return xe->info.media_verx100 >= 1300;
 }
 
-static bool rule_match_item(const struct xe_device *xe,
-			    struct xe_gt *gt,
-			    struct xe_hw_engine *hwe,
-			    const struct xe_rtp_rule *r)
+struct rule_match_ctx {
+	const struct xe_device *xe;
+	struct xe_gt *gt;
+	struct xe_hw_engine *hwe;
+	const struct xe_rtp_rule *rules;
+	const unsigned int n_rules;
+	unsigned int head;
+	int err;
+};
+
+static bool rule_is_item(const struct xe_rtp_rule *r)
 {
+	return r->match_type != XE_RTP_MATCH_OR;
+}
+
+static bool rule_match_item(struct rule_match_ctx *match_ctx)
+{
+	const struct xe_device *xe = match_ctx->xe;
+	struct xe_gt *gt = match_ctx->gt;
+	struct xe_hw_engine *hwe = match_ctx->hwe;
+	const struct xe_rtp_rule *r = &match_ctx->rules[match_ctx->head];
+
 	switch (r->match_type) {
 	case XE_RTP_MATCH_PLATFORM:
 		return xe->info.platform == r->platform;
@@ -120,6 +137,63 @@ static bool rule_match_item(const struct xe_device *xe,
 	}
 }
 
+/*
+ * Match a conjunctive set of rules (rules joined by an implicit "AND").
+ *
+ * Once one item evaluates to false, the remaining items are not evaluated
+ * anymore.  Nevetheless, all rules are consumed to allow detecting syntax
+ * errors.
+ */
+static bool rule_match_and(struct rule_match_ctx *match_ctx, bool parse_only)
+{
+	bool match = true;
+	unsigned int count = 0;
+
+	while (match_ctx->head < match_ctx->n_rules &&
+	       rule_is_item(&match_ctx->rules[match_ctx->head])) {
+		if (!parse_only)
+			match = rule_match_item(match_ctx);
+
+		if (!match)
+			parse_only = true;
+
+		match_ctx->head++;
+		count++;
+	}
+
+	if (drm_WARN_ON(&match_ctx->xe->drm, !count)) {
+		match_ctx->err = -EINVAL;
+
+		if (!parse_only)
+			match = false;
+	}
+
+	return match;
+}
+
+/*
+ * Match a disjunctive set of rules (subset of rules joined by
+ * "XE_RTP_MATCH_OR").
+ *
+ * Once one subset evaluates to true, the remaining items are not evaluated
+ * anymore. Nevetheless, all rules are consumed to allow detecting syntax
+ * errors.
+ */
+static bool rule_match_or(struct rule_match_ctx *match_ctx)
+{
+	bool match = rule_match_and(match_ctx, false);
+
+	while (match_ctx->head < match_ctx->n_rules &&
+	       match_ctx->rules[match_ctx->head].match_type == XE_RTP_MATCH_OR) {
+		/* Consume XE_RTP_MATCH_OR. */
+		match_ctx->head++;
+
+		match = rule_match_and(match_ctx, match);
+	}
+
+	return match;
+}
+
 static bool rule_matches_with_err(const struct xe_device *xe,
 				  struct xe_gt *gt,
 				  struct xe_hw_engine *hwe,
@@ -127,55 +201,19 @@ static bool rule_matches_with_err(const struct xe_device *xe,
 				  unsigned int n_rules,
 				  int *err)
 {
-	const struct xe_rtp_rule *r;
-	unsigned int i, rcount = 0;
-	bool short_circuit_or = false;
+	struct rule_match_ctx match_ctx = {
+		.xe = xe,
+		.gt = gt,
+		.hwe = hwe,
+		.rules = rules,
+		.n_rules = n_rules,
+	};
+	bool match = rule_match_or(&match_ctx);
 
 	if (err)
-		*err = 0;
+		*err = match_ctx.err;
 
-	for (r = rules, i = 0; i < n_rules; r = &rules[++i]) {
-		if (r->match_type == XE_RTP_MATCH_OR) {
-			if (drm_WARN_ON(&xe->drm, !rcount)) {
-				if (err)
-					*err = -EINVAL;
-				continue;
-			}
-
-			/*
-			 * This is only reached if a complete conjunction of
-			 * rules passed, in which case we short-circuit rule
-			 * evaluation, but still keep parsing to find any syntax
-			 * errors.
-			 */
-			short_circuit_or = true;
-			rcount = 0;
-			continue;
-		}
-
-		if (short_circuit_or || rule_match_item(xe, gt, hwe, r)) {
-			rcount++;
-		} else {
-			/*
-			 * Advance rules until we find XE_RTP_MATCH_OR to check
-			 * if there's another set of conditions to check
-			 */
-			while (++i < n_rules && rules[i].match_type != XE_RTP_MATCH_OR)
-				;
-
-			if (i >= n_rules)
-				return false;
-
-			rcount = 0;
-		}
-	}
-
-	if (drm_WARN_ON(&xe->drm, !rcount)) {
-		if (err)
-			*err = -EINVAL;
-	}
-
-	return short_circuit_or || rcount;
+	return match;
 }
 
 static bool rule_matches(const struct xe_device *xe,
