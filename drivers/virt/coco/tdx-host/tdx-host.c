@@ -26,15 +26,24 @@ static ssize_t version_show(struct device *dev, struct device_attribute *attr,
 {
 	const struct tdx_sys_info *tdx_sysinfo = tdx_get_sysinfo();
 	const struct tdx_sys_info_version *ver;
+	int ret;
 
 	if (!tdx_sysinfo)
 		return -ENXIO;
 
-	ver = &tdx_sysinfo->version;
+	/*
+	 * The version number can change during an update.
+	 * Lock out updates while printing the version.
+	 */
+	seamldr_lock_module_update();
 
-	return sysfs_emit(buf, TDX_VERSION_FMT "\n", ver->major_version,
-						     ver->minor_version,
-						     ver->update_version);
+	ver = &tdx_sysinfo->version;
+	ret = sysfs_emit(buf, TDX_VERSION_FMT "\n", ver->major_version,
+						    ver->minor_version,
+						    ver->update_version);
+	seamldr_unlock_module_update();
+
+	return ret;
 }
 static DEVICE_ATTR_RO(version);
 
