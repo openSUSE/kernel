@@ -492,42 +492,23 @@ err:
 }
 EXPORT_SYMBOL_GPL(crypto_alloc_base);
 
-static void *crypto_alloc_tfmmem(struct crypto_alg *alg,
-				 const struct crypto_type *frontend, int node,
-				 gfp_t gfp)
-{
-	struct crypto_tfm *tfm;
-	unsigned int tfmsize;
-	unsigned int total;
-	char *mem;
-
-	tfmsize = frontend->tfmsize;
-	total = tfmsize + sizeof(*tfm) + frontend->extsize(alg);
-
-	mem = kzalloc_node(total, gfp, node);
-	if (mem == NULL)
-		return ERR_PTR(-ENOMEM);
-
-	tfm = (struct crypto_tfm *)(mem + tfmsize);
-	tfm->__crt_alg = alg;
-	tfm->node = node;
-
-	return mem;
-}
-
 void *crypto_create_tfm_node(struct crypto_alg *alg,
 			     const struct crypto_type *frontend,
 			     int node)
 {
 	struct crypto_tfm *tfm;
+	size_t size;
 	char *mem;
 	int err;
 
-	mem = crypto_alloc_tfmmem(alg, frontend, node, GFP_KERNEL);
-	if (IS_ERR(mem))
-		goto out;
+	size = frontend->tfmsize + sizeof(*tfm) + frontend->extsize(alg);
+	mem = kzalloc_node(size, GFP_KERNEL, node);
+	if (!mem)
+		return ERR_PTR(-ENOMEM);
 
 	tfm = (struct crypto_tfm *)(mem + frontend->tfmsize);
+	tfm->__crt_alg = alg;
+	tfm->node = node;
 	tfm->fb = tfm;
 
 	err = frontend->init_tfm(tfm);
