@@ -398,6 +398,12 @@ TC_INDIRECT_SCOPE int tcf_pedit_act(struct sk_buff *skb,
 
 	parms = rcu_dereference_bh(p->parms);
 
+	/* Linearize so we are sure pedit is operating on a private copy */
+	if (skb_has_shared_frag(skb)) {
+		if (__skb_linearize(skb))
+			goto bad;
+	}
+
 	max_offset = (skb_transport_header_was_set(skb) ?
 		      skb_transport_offset(skb) :
 		      skb_network_offset(skb)) +
