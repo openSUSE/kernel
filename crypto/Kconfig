@@ -464,15 +464,6 @@ config CRYPTO_DES
 	  Triple DES EDE (Encrypt/Decrypt/Encrypt) (FIPS 46-3, ISO/IEC 18033-3)
 	  cipher algorithms
 
-config CRYPTO_FCRYPT
-	tristate "FCrypt"
-	select CRYPTO_ALGAPI
-	select CRYPTO_SKCIPHER
-	help
-	  FCrypt algorithm used by RxRPC
-
-	  See https://ota.polyonymo.us/fcrypt-paper.txt
-
 config CRYPTO_KHAZAD
 	tristate "Khazad"
 	depends on CRYPTO_USER_API_ENABLE_OBSOLETE
