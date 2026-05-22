@@ -149,15 +149,16 @@ static int ens210_read_raw(struct iio_dev *indio_dev,
 	int ret;
 
 	switch (mask) {
-	case IIO_CHAN_INFO_RAW:
-		scoped_guard(mutex, &data->lock) {
-			ret = ens210_get_measurement(
-				indio_dev, channel->type == IIO_TEMP, val);
-			if (ret)
-				return ret;
-			return IIO_VAL_INT;
-		}
-		return -EINVAL; /* compiler warning workaround */
+	case IIO_CHAN_INFO_RAW: {
+		guard(mutex)(&data->lock);
+
+		ret = ens210_get_measurement(indio_dev, channel->type == IIO_TEMP,
+					     val);
+		if (ret)
+			return ret;
+
+		return IIO_VAL_INT;
+	}
 	case IIO_CHAN_INFO_SCALE:
 		if (channel->type == IIO_TEMP) {
 			*val = 15;
