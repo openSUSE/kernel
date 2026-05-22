@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause)
 /* Copyright 2017-2019 NXP */
 
-#include "enetc_pf.h"
+#include "enetc_pf_common.h"
 
 static void enetc_msg_disable_mr_int(struct enetc_pf *pf)
 {
@@ -33,6 +33,82 @@ static irqreturn_t enetc_msg_psi_msix(int irq, void *data)
 	schedule_work(&pf->msg_task);
 
 	return IRQ_HANDLED;
+}
+
+/* Messaging */
+static u16 enetc_msg_pf_set_vf_primary_mac_addr(struct enetc_pf *pf,
+						int vf_id, void *msg)
+{
+	struct enetc_vf_state *vf_state = &pf->vf_state[vf_id];
+	struct enetc_msg_cmd_set_primary_mac *cmd = msg;
+	struct device *dev = &pf->si->pdev->dev;
+	u16 cmd_id = cmd->header.id;
+	char *addr;
+
+	if (cmd_id != ENETC_MSG_CMD_MNG_ADD)
+		return ENETC_MSG_CMD_STATUS_FAIL;
+
+	addr = cmd->mac.sa_data;
+	if (!is_valid_ether_addr(addr)) {
+		dev_err_ratelimited(dev, "VF%d attempted to set invalid MAC\n",
+				    vf_id);
+		return ENETC_MSG_CMD_STATUS_FAIL;
+	}
+
+	mutex_lock(&vf_state->lock);
+	if (vf_state->flags & ENETC_VF_FLAG_PF_SET_MAC) {
+		mutex_unlock(&vf_state->lock);
+		dev_err_ratelimited(dev,
+				    "VF%d attempted to override PF set MAC\n",
+				    vf_id);
+		return ENETC_MSG_CMD_STATUS_FAIL;
+	}
+
+	enetc_set_si_hw_addr(pf, vf_id + 1, addr);
+	mutex_unlock(&vf_state->lock);
+
+	return ENETC_MSG_CMD_STATUS_OK;
+}
+
+static void enetc_msg_handle_rxmsg(struct enetc_pf *pf, int vf_id,
+				   u16 *status)
+{
+	struct enetc_msg_swbd *msg_swbd = &pf->rxmsg[vf_id];
+	struct device *dev = &pf->si->pdev->dev;
+	struct enetc_msg_cmd_header *cmd_hdr;
+	u16 cmd_type;
+	u8 *msg;
+
+	msg = kzalloc_objs(*msg, msg_swbd->size);
+	if (!msg) {
+		dev_err_ratelimited(dev,
+				    "Failed to allocate message buffer\n");
+		*status = ENETC_MSG_CMD_STATUS_FAIL;
+		return;
+	}
+
+	/* Currently, only ENETC_MSG_CMD_MNG_MAC command is supported, so
+	 * only sizeof(struct enetc_msg_cmd_set_primary_mac) bytes need to
+	 * be copied. This data already includes the cmd_type field, so it
+	 * can correctly return an error code.
+	 */
+	memcpy(msg, msg_swbd->vaddr,
+	       sizeof(struct enetc_msg_cmd_set_primary_mac));
+	cmd_hdr = (struct enetc_msg_cmd_header *)msg;
+	cmd_type = cmd_hdr->type;
+
+	switch (cmd_type) {
+	case ENETC_MSG_CMD_MNG_MAC:
+		*status = enetc_msg_pf_set_vf_primary_mac_addr(pf, vf_id, msg);
+		break;
+	default:
+		*status = ENETC_MSG_CMD_STATUS_FAIL;
+		dev_err_ratelimited(dev,
+				    "command not supported (cmd_type: 0x%x)\n",
+				    cmd_type);
+	}
+
+	kfree(msg);
 }
 
 static void enetc_msg_task(struct work_struct *work)
