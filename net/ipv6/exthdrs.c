@@ -180,6 +180,8 @@ static bool ip6_parse_tlv(const struct tlvtype_proc *procs,
 					   func(). */
 					if (curr->func(skb, off) == false)
 						return false;
+
+					nh = skb_network_header(skb);
 					break;
 				}
 			}
