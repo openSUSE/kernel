@@ -297,6 +297,8 @@ struct enetc_si;
 struct enetc_si_ops {
 	int (*get_rss_table)(struct enetc_si *si, u32 *table, int count);
 	int (*set_rss_table)(struct enetc_si *si, const u32 *table, int count);
+	int (*setup_cbdr)(struct enetc_si *si);
+	void (*teardown_cbdr)(struct enetc_si *si);
 };
 
 /* PCI IEP device data */
