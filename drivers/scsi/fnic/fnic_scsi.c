@@ -1971,13 +1971,10 @@ void fnic_scsi_unload(struct fnic *fnic)
 	 */
 	spin_lock_irqsave(&fnic->fnic_lock, flags);
 	fnic->iport.state = FNIC_IPORT_STATE_LINK_WAIT;
-	spin_unlock_irqrestore(&fnic->fnic_lock, flags);
-
-	if (fdls_get_state(&fnic->iport.fabric) != FDLS_STATE_INIT)
-		fnic_fcpio_reset(fnic);
-	spin_lock_irqsave(&fnic->fnic_lock, flags);
 	fnic->in_remove = 1;
 	spin_unlock_irqrestore(&fnic->fnic_lock, flags);
+
+	fnic_fcpio_reset(fnic);
 
 	fnic_flush_tport_event_list(fnic);
 	fnic_delete_fcp_tports(fnic);
