@@ -497,6 +497,23 @@ skip_switch:
 	return switched;
 }
 
+static inline void cgroup_writeback_pin(struct super_block *sb)
+{
+	atomic_inc(&sb->s_isw_nr_in_flight);
+}
+
+static inline void cgroup_writeback_unpin(struct super_block *sb)
+{
+	if (atomic_dec_and_test(&sb->s_isw_nr_in_flight))
+		wake_up_var(&sb->s_isw_nr_in_flight);
+}
+
+static inline void cgroup_writeback_drain(struct super_block *sb)
+{
+	wait_var_event(&sb->s_isw_nr_in_flight,
+		       !atomic_read(&sb->s_isw_nr_in_flight));
+}
+
 static void process_inode_switch_wbs(struct bdi_writeback *new_wb,
 				     struct inode_switch_wbs_context *isw)
 {
@@ -554,8 +571,12 @@ relock:
 		wb_put_many(old_wb, nr_switched);
 	}
 
-	for (inodep = isw->inodes; *inodep; inodep++)
+	for (inodep = isw->inodes; *inodep; inodep++) {
+		struct super_block *sb = (*inodep)->i_sb;
+
 		iput(*inodep);
+		cgroup_writeback_unpin(sb);
+	}
 	wb_put(new_wb);
 	kfree(isw);
 	atomic_dec(&isw_nr_in_flight);
@@ -598,16 +619,19 @@ void inode_switch_wbs_work_fn(struct work_struct *work)
 static bool inode_prepare_wbs_switch(struct inode *inode,
 				     struct bdi_writeback *new_wb)
 {
+	/* Avoid the atomic_inc/smp_mb dance once SB_ACTIVE is gone. */
+	if (!(inode->i_sb->s_flags & SB_ACTIVE))
+		return false;
+
 	/*
-	 * Paired with smp_mb() in cgroup_writeback_umount().
-	 * isw_nr_in_flight must be increased before checking SB_ACTIVE and
-	 * grabbing an inode, otherwise isw_nr_in_flight can be observed as 0
-	 * in cgroup_writeback_umount() and the isw_wq will be not flushed.
+	 * Pairs with smp_mb() in cgroup_writeback_umount(): the umounter either
+	 * sees a non-zero counter and waits, or we see SB_ACTIVE clear below.
 	 */
+	cgroup_writeback_pin(inode->i_sb);
 	smp_mb();
 
 	if (IS_DAX(inode))
-		return false;
+		goto out_unpin;
 
 	/* while holding I_WB_SWITCH, no one else can update the association */
 	spin_lock(&inode->i_lock);
@@ -615,13 +639,17 @@ static bool inode_prepare_wbs_switch(struct inode *inode,
 	    inode_state_read(inode) & (I_WB_SWITCH | I_FREEING | I_WILL_FREE) ||
 	    inode_to_wb(inode) == new_wb) {
 		spin_unlock(&inode->i_lock);
-		return false;
+		goto out_unpin;
 	}
 	inode_state_set(inode, I_WB_SWITCH);
 	__iget(inode);
 	spin_unlock(&inode->i_lock);
 
 	return true;
+
+out_unpin:
+	cgroup_writeback_unpin(inode->i_sb);
+	return false;
 }
 
 static void wb_queue_isw(struct bdi_writeback *wb,
@@ -1198,36 +1226,27 @@ out_bdi_put:
 }
 
 /**
- * cgroup_writeback_umount - flush inode wb switches for umount
+ * cgroup_writeback_umount - wait for in-flight inode wb switches on @sb
  * @sb: target super_block
  *
- * This function is called when a super_block is about to be destroyed and
- * flushes in-flight inode wb switches.  An inode wb switch goes through
- * RCU and then workqueue, so the two need to be flushed in order to ensure
- * that all previously scheduled switches are finished.  As wb switches are
- * rare occurrences and synchronize_rcu() can take a while, perform
- * flushing iff wb switches are in flight.
+ * Wait until every inode wb switch that already passed the SB_ACTIVE
+ * check on this superblock has been completed by the worker.  Since
+ * SB_ACTIVE is cleared before this is called, no new switches can start
+ * for @sb, so s_isw_nr_in_flight will monotonically drop to zero.
  */
 void cgroup_writeback_umount(struct super_block *sb)
 {
-
 	if (!(sb->s_bdi->capabilities & BDI_CAP_WRITEBACK))
 		return;
 
 	/*
-	 * SB_ACTIVE should be reliably cleared before checking
-	 * isw_nr_in_flight, see generic_shutdown_super().
+	 * Pairs with smp_mb() in inode_prepare_wbs_switch(): we either observe
+	 * a non-zero counter and wait, or the switcher sees SB_ACTIVE clear
+	 * (cleared by generic_shutdown_super()) and bails before grabbing the
+	 * inode.
 	 */
 	smp_mb();
-
-	if (atomic_read(&isw_nr_in_flight)) {
-		/*
-		 * Use rcu_barrier() to wait for all pending callbacks to
-		 * ensure that all in-flight wb switches are in the workqueue.
-		 */
-		rcu_barrier();
-		flush_workqueue(isw_wq);
-	}
+	cgroup_writeback_drain(sb);
 }
 
 static int __init cgroup_writeback_init(void)
