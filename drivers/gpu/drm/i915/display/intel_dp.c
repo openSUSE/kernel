@@ -363,7 +363,7 @@ int intel_dp_max_source_lane_count(struct intel_digital_port *dig_port)
 }
 
 /* Theoretical max between source and sink */
-int intel_dp_max_common_lane_count(struct intel_dp *intel_dp)
+static void intel_dp_set_max_common_lane_count(struct intel_dp *intel_dp)
 {
 	struct intel_digital_port *dig_port = dp_to_dig_port(intel_dp);
 	int source_max = intel_dp_max_source_lane_count(dig_port);
@@ -374,7 +374,12 @@ int intel_dp_max_common_lane_count(struct intel_dp *intel_dp)
 	if (lttpr_max)
 		sink_max = min(sink_max, lttpr_max);
 
-	return min3(source_max, sink_max, lane_max);
+	intel_dp->max_common_lane_count = min3(source_max, sink_max, lane_max);
+}
+
+int intel_dp_max_common_lane_count(struct intel_dp *intel_dp)
+{
+	return intel_dp->max_common_lane_count;
 }
 
 static int forced_lane_count(struct intel_dp *intel_dp)
@@ -810,6 +815,7 @@ static void intel_dp_set_common_rates(struct intel_dp *intel_dp)
 static void intel_dp_set_common_link_params(struct intel_dp *intel_dp)
 {
 	intel_dp_set_common_rates(intel_dp);
+	intel_dp_set_max_common_lane_count(intel_dp);
 	intel_dp_link_config_init(intel_dp);
 }
 
