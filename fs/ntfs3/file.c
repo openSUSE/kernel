@@ -323,18 +323,44 @@ static int ntfs_extend_initialized_size(struct file *file,
 	return 0;
 }
 
+/* Zero pagecache after 'from'. */
+static void ntfs_zero_tail(struct address_space *mapping, loff_t from)
+{
+	struct folio_batch fbatch;
+	pgoff_t index = from >> PAGE_SHIFT;
+	unsigned nr, i;
+
+	folio_batch_init(&fbatch);
+
+	nr = filemap_get_folios(mapping, &index, -1, &fbatch);
+
+	for (i = 0; i < nr; i++) {
+		struct folio *folio = fbatch.folios[i];
+		u32 st = folio_pos(folio) < from ?
+				 offset_in_folio(folio, from) :
+				 0;
+
+		folio_lock(folio);
+		folio_zero_segment(folio, st, folio_size(folio));
+
+		folio_unlock(folio);
+	}
+	folio_batch_release(&fbatch);
+}
+
 static void ntfs_filemap_close(struct vm_area_struct *vma)
 {
 	struct inode *inode = file_inode(vma->vm_file);
 	struct ntfs_inode *ni = ntfs_i(inode);
+	u64 i_size = i_size_read(inode);
 	u64 from = (u64)vma->vm_pgoff << PAGE_SHIFT;
-	u64 to = min_t(u64, i_size_read(inode),
-		       from + vma->vm_end - vma->vm_start);
+	u64 to = min(i_size, from + vma->vm_end - vma->vm_start);
 
 	if (ni->i_valid < to) {
 		ni->i_valid = to;
 		mark_inode_dirty(inode);
 	}
+	ntfs_zero_tail(inode->i_mapping, ni->i_valid);
 }
 
 /* Copy of generic_file_vm_ops. */
