@@ -992,31 +992,6 @@ static const struct iomap_writeback_ops ntfs_writeback_ops = {
 	.writeback_submit = iomap_ioend_writeback_submit,
 };
 
-static int ntfs_resident_writepage(struct folio *folio,
-				   struct writeback_control *wbc)
-{
-	struct address_space *mapping = folio->mapping;
-	struct inode *inode = mapping->host;
-	struct ntfs_inode *ni = ntfs_i(inode);
-	int ret;
-
-	/* Avoid any operation if inode is bad. */
-	if (unlikely(is_bad_ni(ni)))
-		return -EINVAL;
-
-	if (unlikely(ntfs3_forced_shutdown(inode->i_sb)))
-		return -EIO;
-
-	ni_lock(ni);
-	ret = attr_data_write_resident(ni, folio);
-	ni_unlock(ni);
-
-	if (ret != E_NTFS_NONRESIDENT)
-		folio_unlock(folio);
-	mapping_set_error(mapping, ret);
-	return ret;
-}
-
 static int ntfs_writepages(struct address_space *mapping,
 			   struct writeback_control *wbc)
 {
@@ -1038,9 +1013,22 @@ static int ntfs_writepages(struct address_space *mapping,
 
 	if (is_resident(ni)) {
 		struct folio *folio = NULL;
+		err = 0;
 
-		while ((folio = writeback_iter(mapping, wbc, folio, &err)))
-			err = ntfs_resident_writepage(folio, wbc);
+		while ((folio = writeback_iter(mapping, wbc, folio, &err))) {
+			int err2;
+
+			ni_lock(ni);
+			err2 = attr_data_write_resident(ni, folio);
+			ni_unlock(ni);
+
+			folio_unlock(folio);
+			if (err2) {
+				mapping_set_error(mapping, err2);
+				if (!err)
+					err = err2;
+			}
+		}
 
 		return err;
 	}
