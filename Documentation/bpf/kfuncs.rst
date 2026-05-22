@@ -462,6 +462,20 @@ In order to accommodate such requirements, the verifier will enforce strict
 PTR_TO_BTF_ID type matching if two types have the exact same name, with one
 being suffixed with ``___init``.
 
+2.8 Accessing arena memory through kfunc arguments
+--------------------------------------------------
+
+A read or write at any address inside an arena does not oops the kernel.
+Unallocated arena pages are lazily backed by a scratch page and the
+access is reported through the program's BPF stream as an error. Only
+the BPF program's correctness is affected; the kernel itself remains
+intact.
+
+The arena is followed by a ``GUARD_SZ / 2`` (32 KiB) guard region that
+is also covered by this recovery. A kfunc handed an arena pointer may
+therefore access up to ``GUARD_SZ / 2`` past it without bounds-checking
+against the arena. Larger accesses must verify the range explicitly.
+
 .. _BPF_kfunc_lifecycle_expectations:
 
 3. kfunc lifecycle expectations

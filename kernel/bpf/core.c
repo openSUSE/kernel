@@ -3350,6 +3350,11 @@ __weak u64 bpf_arena_get_kern_vm_start(struct bpf_arena *arena)
 {
 	return 0;
 }
+__weak bool bpf_arena_handle_page_fault(unsigned long addr, bool is_write,
+					unsigned long fault_ip)
+{
+	return false;
+}
 
 #ifdef CONFIG_BPF_SYSCALL
 static int __init bpf_global_ma_init(void)
