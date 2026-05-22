@@ -254,8 +254,6 @@ static inline void xen_hvm_post_suspend(int suspend_cancelled) {}
 
 void xen_add_extra_mem(unsigned long start_pfn, unsigned long n_pfns);
 
-struct dentry * __init xen_init_debugfs(void);
-
 bool __set_phys_to_machine(unsigned long pfn, unsigned long mfn);
 void xen_hvm_init_mmu_ops(void);
 
