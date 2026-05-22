@@ -1008,7 +1008,7 @@ static ssize_t ntfs_compress_write(struct kiocb *iocb, struct iov_iter *from)
 		CLST lcn, clen;
 
 		frame = valid >> frame_bits;
-		frame_vbo = valid & ~(frame_size - 1);
+		frame_vbo = valid & ~(u64)(frame_size - 1);
 		off = valid & (frame_size - 1);
 
 		err = attr_data_get_block(ni, frame << NTFS_LZNT_CUNIT, 1, &lcn,
@@ -1077,7 +1077,7 @@ static ssize_t ntfs_compress_write(struct kiocb *iocb, struct iov_iter *from)
 		if (bytes > count)
 			bytes = count;
 
-		frame_vbo = pos & ~(frame_size - 1);
+		frame_vbo = pos & ~(u64)(frame_size - 1);
 		index = frame_vbo >> PAGE_SHIFT;
 
 		if (unlikely(fault_in_iov_iter_readable(from, bytes))) {
@@ -1530,7 +1530,12 @@ static loff_t ntfs_llseek(struct file *file, loff_t offset, int whence)
 	loff_t maxbytes = ntfs_get_maxbytes(ni);
 	loff_t ret;
 
-	if (whence == SEEK_DATA || whence == SEEK_HOLE) {
+	if (whence != SEEK_DATA && whence != SEEK_HOLE) {
+		ret = generic_file_llseek_size(file, offset, whence, maxbytes,
+					       i_size_read(inode));
+	} else if ((unsigned long long)offset >= i_size_read(inode)) {
+		ret = -ENXIO;
+	} else {
 		inode_lock_shared(inode);
 		/* Scan file for hole or data. */
 		ret = ni_seek_data_or_hole(ni, offset, whence == SEEK_DATA);
@@ -1538,9 +1543,6 @@ static loff_t ntfs_llseek(struct file *file, loff_t offset, int whence)
 
 		if (ret >= 0)
 			ret = vfs_setpos(file, ret, maxbytes);
-	} else {
-		ret = generic_file_llseek_size(file, offset, whence, maxbytes,
-					       i_size_read(inode));
 	}
 	return ret;
 }

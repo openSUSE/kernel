@@ -2889,8 +2889,14 @@ loff_t ni_seek_data_or_hole(struct ntfs_inode *ni, loff_t offset, bool data)
 			 * the file offset is set to offset.
 			 */
 			if (lcn != SPARSE_LCN) {
-				vbo = (u64)vcn << cluster_bits;
-				return max(vbo, offset);
+				/* Normal cluster. */
+				break;
+			}
+
+			if ((ni->std_fa & FILE_ATTRIBUTE_COMPRESSED) &&
+			    (vcn & (NTFS_LZNT_CLUSTERS - 1))) {
+				/* Compressed cluster in compressed frame. */
+				break;
 			}
 		} else {
 			/*
@@ -2904,8 +2910,8 @@ loff_t ni_seek_data_or_hole(struct ntfs_inode *ni, loff_t offset, bool data)
 			    /* native compression hole begins at aligned vcn. */
 			    (!(ni->std_fa & FILE_ATTRIBUTE_COMPRESSED) ||
 			     !(vcn & (NTFS_LZNT_CLUSTERS - 1)))) {
-				vbo = (u64)vcn << cluster_bits;
-				return max(vbo, offset);
+				/* Hole in sparsed or compressed file frame. */
+				break;
 			}
 		}
 
@@ -2914,6 +2920,9 @@ loff_t ni_seek_data_or_hole(struct ntfs_inode *ni, loff_t offset, bool data)
 			return -EINVAL;
 		}
 	}
+
+	vbo = (u64)vcn << cluster_bits;
+	return max(vbo, offset);
 }
 
 /*
