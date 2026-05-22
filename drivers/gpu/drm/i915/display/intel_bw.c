@@ -67,25 +67,31 @@ struct intel_qgv_info {
 	u8 deinterleave;
 };
 
+static int dclk_freq_mhz(int ratio)
+{
+	/* multiple of 16.666 MHz (100/6) */
+	return DIV_ROUND_CLOSEST(ratio * 100, 6);
+}
+
 static int dg1_mchbar_read_qgv_point_info(struct intel_display *display,
 					  struct intel_qgv_point *sp,
 					  int point)
 {
-	u32 dclk_ratio, dclk_reference;
+	u32 dclk_ratio;
 	u32 val;
 
 	val = intel_mchbar_read(display, SA_PERF_STATUS_0_0_0_MCHBAR_PC);
 	dclk_ratio = REG_FIELD_GET(DG1_QCLK_RATIO_MASK, val);
 	if (val & DG1_QCLK_REFERENCE)
-		dclk_reference = 6; /* 6 * 16.666 MHz = 100 MHz */
+		dclk_ratio *= 6; /* 6 * 16.666 MHz = 100 MHz */
 	else
-		dclk_reference = 8; /* 8 * 16.666 MHz = 133 MHz */
-	sp->dclk = DIV_ROUND_UP((16667 * dclk_ratio * dclk_reference) + 500, 1000);
+		dclk_ratio *= 8; /* 8 * 16.666 MHz = 133 MHz */
 
 	val = intel_mchbar_read(display, SKL_MC_BIOS_DATA_0_0_0_MCHBAR_PCU);
 	if (val & DG1_GEAR_TYPE)
-		sp->dclk *= 2;
+		dclk_ratio *= 2;
 
+	sp->dclk = dclk_freq_mhz(dclk_ratio);
 	if (sp->dclk == 0)
 		return -EINVAL;
 
@@ -107,7 +113,6 @@ static int icl_pcode_read_qgv_point_info(struct intel_display *display,
 					 int point)
 {
 	u32 val = 0, val2 = 0;
-	u16 dclk;
 	int ret;
 
 	ret = intel_parent_pcode_read(display, ICL_PCODE_MEM_SUBSYSYSTEM_INFO |
@@ -116,9 +121,7 @@ static int icl_pcode_read_qgv_point_info(struct intel_display *display,
 	if (ret)
 		return ret;
 
-	dclk = val & 0xffff;
-	sp->dclk = DIV_ROUND_UP((16667 * dclk) + (DISPLAY_VER(display) >= 12 ? 500 : 0),
-				1000);
+	sp->dclk = dclk_freq_mhz(val & 0xffff);
 	sp->t_rp = (val & 0xff0000) >> 16;
 	sp->t_rcd = (val & 0xff000000) >> 24;
 
@@ -208,12 +211,11 @@ static int mtl_read_qgv_point_info(struct intel_display *display,
 				   struct intel_qgv_point *sp, int point)
 {
 	u32 val, val2;
-	u16 dclk;
 
 	val = intel_de_read(display, MTL_MEM_SS_INFO_QGV_POINT_LOW(point));
 	val2 = intel_de_read(display, MTL_MEM_SS_INFO_QGV_POINT_HIGH(point));
-	dclk = REG_FIELD_GET(MTL_DCLK_MASK, val);
-	sp->dclk = DIV_ROUND_CLOSEST(16667 * dclk, 1000);
+
+	sp->dclk = dclk_freq_mhz(REG_FIELD_GET(MTL_DCLK_MASK, val));
 	sp->t_rp = REG_FIELD_GET(MTL_TRP_MASK, val);
 	sp->t_rcd = REG_FIELD_GET(MTL_TRCD_MASK, val);
 
