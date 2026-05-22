@@ -836,16 +836,18 @@ EXPORT_SYMBOL(read_code);
 /*
  * Maps the mm_struct mm into the current task struct.
  * On success, this function returns with exec_update_lock
- * held for writing.
+ * held for writing. The replaced address space is stashed in
+ * bprm->old_mm for setup_new_exec() to release outside the lock.
  */
-static int exec_mmap(struct mm_struct *mm, struct user_namespace *user_ns)
+static int exec_mmap(struct linux_binprm *bprm)
 {
 	struct task_exec_state *exec_state __free(put_task_exec_state) = NULL;
+	struct mm_struct *mm = bprm->mm;
 	struct task_struct *tsk;
 	struct mm_struct *old_mm, *active_mm;
 	int ret;
 
-	exec_state = alloc_task_exec_state(user_ns);
+	exec_state = alloc_task_exec_state(bprm->user_ns);
 	if (!exec_state)
 		return -ENOMEM;
 
@@ -898,13 +900,20 @@ static int exec_mmap(struct mm_struct *mm, struct user_namespace *user_ns)
 	if (old_mm) {
 		mmap_read_unlock(old_mm);
 		BUG_ON(active_mm != old_mm);
-		setmax_mm_hiwater_rss(&tsk->signal->maxrss, old_mm);
-		mm_update_next_owner(old_mm);
-		mmput(old_mm);
+		/* Defer teardown to setup_new_exec(), outside the exec locks. */
+		bprm->old_mm = old_mm;
 		return 0;
 	}
 	mmdrop_lazy_tlb(active_mm);
 	return 0;
+}
+
+/* Release the address space replaced by exec, outside the exec locks. */
+static void exec_mm_put_old(struct mm_struct *old_mm)
+{
+	setmax_mm_hiwater_rss(&current->signal->maxrss, old_mm);
+	mm_update_next_owner(old_mm);
+	mmput(old_mm);
 }
 
 static int de_thread(struct task_struct *tsk)
@@ -1155,7 +1164,7 @@ int begin_new_exec(struct linux_binprm * bprm)
 	 * Release all of the old mmap stuff
 	 */
 	acct_arg_size(bprm, 0);
-	retval = exec_mmap(bprm->mm, bprm->user_ns);
+	retval = exec_mmap(bprm);
 	if (retval)
 		goto out;
 
@@ -1338,6 +1347,12 @@ void setup_new_exec(struct linux_binprm * bprm)
 	me->mm->task_size = TASK_SIZE;
 	up_write(&me->signal->exec_update_lock);
 	mutex_unlock(&me->signal->cred_guard_mutex);
+
+	/* The exec locks are dropped: release the old address space now. */
+	if (bprm->old_mm) {
+		exec_mm_put_old(bprm->old_mm);
+		bprm->old_mm = NULL;
+	}
 }
 EXPORT_SYMBOL(setup_new_exec);
 
@@ -1394,6 +1409,9 @@ static void free_bprm(struct linux_binprm *bprm)
 		mutex_unlock(&current->signal->cred_guard_mutex);
 		abort_creds(bprm->cred);
 	}
+	/* exec swapped the mm but failed before setup_new_exec() freed it */
+	if (bprm->old_mm)
+		exec_mm_put_old(bprm->old_mm);
 	do_close_execat(bprm->file);
 	if (bprm->executable)
 		fput(bprm->executable);
