@@ -1649,7 +1649,7 @@ static void tg_flush_bios(struct throtl_grp *tg)
 	 */
 	tg_update_disptime(tg);
 
-	throtl_schedule_pending_timer(sq, jiffies + 1);
+	throtl_schedule_next_dispatch(sq->parent_sq, true);
 }
 
 static void throtl_pd_offline(struct blkg_policy_data *pd)
@@ -1668,11 +1668,52 @@ struct blkcg_policy blkcg_policy_throtl = {
 	.pd_free_fn		= throtl_pd_free,
 };
 
+static void tg_cancel_writeback_bios(struct throtl_grp *tg,
+				      struct bio_list *cancel_bios)
+{
+	struct throtl_service_queue *sq = &tg->service_queue;
+	struct throtl_data *td = sq_to_td(sq);
+	int rw;
+
+	if (tg->flags & THROTL_TG_CANCELING)
+		return;
+	tg->flags |= THROTL_TG_CANCELING;
+
+	for (rw = READ; rw <= WRITE; rw++) {
+		struct throtl_qnode *qn, *tmp;
+		unsigned int nr_bios = 0;
+
+		list_for_each_entry_safe(qn, tmp, &sq->queued[rw], node) {
+			struct bio *bio;
+
+			while ((bio = bio_list_pop(&qn->bios_iops))) {
+				sq->nr_queued_iops[rw]--;
+				bio_list_add(&cancel_bios[rw], bio);
+				nr_bios++;
+			}
+			while ((bio = bio_list_pop(&qn->bios_bps))) {
+				sq->nr_queued_bps[rw]--;
+				bio_list_add(&cancel_bios[rw], bio);
+				nr_bios++;
+			}
+
+			list_del_init(&qn->node);
+			blkg_put(tg_to_blkg(qn->tg));
+		}
+
+		td->nr_queued[rw] -= nr_bios;
+	}
+
+	throtl_dequeue_tg(tg);
+}
+
 void blk_throtl_cancel_bios(struct gendisk *disk)
 {
 	struct request_queue *q = disk->queue;
 	struct cgroup_subsys_state *pos_css;
 	struct blkcg_gq *blkg;
+	struct bio_list cancel_bios[2] = { };
+	int rw;
 
 	if (!blk_throtl_activated(q))
 		return;
@@ -1693,10 +1734,16 @@ void blk_throtl_cancel_bios(struct gendisk *disk)
 		 * Cancel bios here to ensure no bios are inflight after
 		 * del_gendisk.
 		 */
-		tg_flush_bios(blkg_to_tg(blkg));
+		tg_cancel_writeback_bios(blkg_to_tg(blkg), cancel_bios);
 	}
 	rcu_read_unlock();
 	spin_unlock_irq(&q->queue_lock);
+
+	for (rw = READ; rw <= WRITE; rw++) {
+		struct bio *bio;
+		while ((bio = bio_list_pop(&cancel_bios[rw])))
+			bio_io_error(bio);
+	}
 }
 
 static bool tg_within_limit(struct throtl_grp *tg, struct bio *bio, bool rw)
