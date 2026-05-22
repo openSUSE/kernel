@@ -129,6 +129,7 @@ static bool rule_matches_with_err(const struct xe_device *xe,
 {
 	const struct xe_rtp_rule *r;
 	unsigned int i, rcount = 0;
+	bool short_circuit_or = false;
 
 	if (err)
 		*err = 0;
@@ -143,13 +144,16 @@ static bool rule_matches_with_err(const struct xe_device *xe,
 
 			/*
 			 * This is only reached if a complete conjunction of
-			 * rules passed, in which case we shortcut the other
-			 * rules and return true.
+			 * rules passed, in which case we short-circuit rule
+			 * evaluation, but still keep parsing to find any syntax
+			 * errors.
 			 */
-			return true;
+			short_circuit_or = true;
+			rcount = 0;
+			continue;
 		}
 
-		if (rule_match_item(xe, gt, hwe, r)) {
+		if (short_circuit_or || rule_match_item(xe, gt, hwe, r)) {
 			rcount++;
 		} else {
 			/*
@@ -166,16 +170,12 @@ static bool rule_matches_with_err(const struct xe_device *xe,
 		}
 	}
 
-	if (drm_WARN_ON(&xe->drm, !rcount))
-		goto error;
+	if (drm_WARN_ON(&xe->drm, !rcount)) {
+		if (err)
+			*err = -EINVAL;
+	}
 
-	return true;
-
-error:
-	if (err)
-		*err = -EINVAL;
-
-	return false;
+	return short_circuit_or || rcount;
 }
 
 static bool rule_matches(const struct xe_device *xe,

@@ -209,8 +209,7 @@ static const struct rtp_rules_test_case rtp_rules_cases[] = {
 	{
 		.name = "yes-or",
 		.expected_match = true,
-		/* FIXME: The parser should raise an error here. */
-		.expected_err = 0,
+		.expected_err = -EINVAL,
 		XE_RTP_RULES(FUNC(match_yes), OR),
 	},
 	{
@@ -228,8 +227,7 @@ static const struct rtp_rules_test_case rtp_rules_cases[] = {
 	{
 		.name = "yes-or-or-no",
 		.expected_match = true,
-		/* FIXME: The parser should raise an error here. */
-		.expected_err = 0,
+		.expected_err = -EINVAL,
 		XE_RTP_RULES(FUNC(match_yes), OR, OR, FUNC(match_no)),
 	},
 	{
