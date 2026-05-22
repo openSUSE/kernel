@@ -805,7 +805,11 @@ static void intel_dp_set_common_rates(struct intel_dp *intel_dp)
 		intel_dp->common_rates[0] = 162000;
 		intel_dp->num_common_rates = 1;
 	}
+}
 
+static void intel_dp_set_common_link_params(struct intel_dp *intel_dp)
+{
+	intel_dp_set_common_rates(intel_dp);
 	intel_dp_link_config_init(intel_dp);
 }
 
@@ -4877,7 +4881,7 @@ void intel_dp_update_sink_caps(struct intel_dp *intel_dp)
 {
 	intel_dp_set_sink_rates(intel_dp);
 	intel_dp_set_max_sink_lane_count(intel_dp);
-	intel_dp_set_common_rates(intel_dp);
+	intel_dp_set_common_link_params(intel_dp);
 }
 
 static bool
@@ -7318,7 +7322,7 @@ intel_dp_init_connector(struct intel_digital_port *dig_port,
 	}
 
 	intel_dp_set_source_rates(intel_dp);
-	intel_dp_set_common_rates(intel_dp);
+	intel_dp_set_common_link_params(intel_dp);
 	intel_dp_reset_link_params(intel_dp);
 
 	/* init MST on ports that can support it */
