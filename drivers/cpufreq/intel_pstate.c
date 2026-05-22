@@ -3826,6 +3826,12 @@ static int __init intel_pstate_init(void)
 		if (no_load)
 			return -ENODEV;
 
+		id = x86_match_cpu(intel_hybrid_scaling_factor);
+		if (id) {
+			pr_info("HWP-disabled hybrid CPU is not supported\n");
+			return -ENODEV;
+		}
+
 		id = x86_match_cpu(intel_pstate_cpu_ids);
 		if (!id) {
 			pr_info("CPU model not supported\n");
