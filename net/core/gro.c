@@ -111,6 +111,11 @@ int skb_gro_receive(struct sk_buff *p, struct sk_buff *skb)
 	if (p->pp_recycle != skb->pp_recycle)
 		return -ETOOMANYREFS;
 
+	/* Don't get into the games below if any frags are shared.
+	 */
+	if (skbinfo->flags & SKBFL_SHARED_FRAG)
+		return -ETOOMANYREFS;
+
 	/* pairs with WRITE_ONCE() in netif_set_gro(_ipv4)_max_size() */
 	gro_max_size = p->protocol == htons(ETH_P_IPV6) ?
 			READ_ONCE(p->dev->gro_max_size) :
