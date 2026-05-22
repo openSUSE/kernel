@@ -3,6 +3,7 @@
 
 #include "enetc_pf.h"
 
+void enetc_set_si_hw_addr(struct enetc_pf *pf, int si, const u8 *mac_addr);
 int enetc_pf_set_mac_addr(struct net_device *ndev, void *addr);
 int enetc_setup_mac_addresses(struct device_node *np, struct enetc_pf *pf);
 void enetc_pf_netdev_setup(struct enetc_si *si, struct net_device *ndev,

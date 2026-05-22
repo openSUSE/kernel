@@ -509,7 +509,7 @@ static u16 enetc_msg_pf_set_vf_primary_mac_addr(struct enetc_pf *pf,
 		return ENETC_MSG_CMD_STATUS_FAIL;
 	}
 
-	enetc_pf_set_primary_mac_addr(&pf->si->hw, vf_id + 1, addr);
+	enetc_set_si_hw_addr(pf, vf_id + 1, addr);
 	mutex_unlock(&vf_state->lock);
 
 	return ENETC_MSG_CMD_STATUS_OK;
