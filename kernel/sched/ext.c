@@ -5003,6 +5003,7 @@ static void scx_sched_free_rcu_work(struct work_struct *work)
 
 	rhashtable_free_and_destroy(&sch->dsq_hash, NULL, NULL);
 	free_exit_info(sch->exit_info);
+	scx_arena_pool_destroy(sch);
 	if (sch->arena_map)
 		bpf_map_put(sch->arena_map);
 	kfree(sch);
@@ -7155,6 +7156,12 @@ static void scx_root_enable_workfn(struct kthread_work *work)
 		sch->exit_info->flags |= SCX_EFLAG_INITIALIZED;
 	}
 
+	ret = scx_arena_pool_init(sch);
+	if (ret) {
+		cpus_read_unlock();
+		goto err_disable;
+	}
+
 	for (i = SCX_OPI_CPU_HOTPLUG_BEGIN; i < SCX_OPI_CPU_HOTPLUG_END; i++)
 		if (((void (**)(void))ops)[i])
 			set_bit(i, sch->has_op);
@@ -7472,6 +7479,10 @@ static void scx_sub_enable_workfn(struct kthread_work *work)
 		}
 		sch->exit_info->flags |= SCX_EFLAG_INITIALIZED;
 	}
+
+	ret = scx_arena_pool_init(sch);
+	if (ret)
+		goto err_disable;
 
 	if (validate_ops(sch, ops))
 		goto err_disable;
