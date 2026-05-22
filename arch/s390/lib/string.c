@@ -105,32 +105,6 @@ EXPORT_SYMBOL(strcat);
 #endif
 
 /**
- * strlcat - Append a length-limited, %NUL-terminated string to another
- * @dest: The string to be appended to
- * @src: The string to append to it
- * @n: The size of the destination buffer.
- */
-#ifdef __HAVE_ARCH_STRLCAT
-size_t strlcat(char *dest, const char *src, size_t n)
-{
-	size_t dsize = __strend(dest) - dest;
-	size_t len = __strend(src) - src;
-	size_t res = dsize + len;
-
-	if (dsize < n) {
-		dest += dsize;
-		n -= dsize;
-		if (len >= n)
-			len = n - 1;
-		dest[len] = '\0';
-		memcpy(dest, src, len);
-	}
-	return res;
-}
-EXPORT_SYMBOL(strlcat);
-#endif
-
-/**
  * strncat - Append a length-limited, %NUL-terminated string to another
  * @dest: The string to be appended to
  * @src: The string to append to it
