@@ -5101,16 +5101,33 @@ static int f2fs_dio_write_end_io(struct kiocb *iocb, ssize_t size, int error,
 	return 0;
 }
 
+static bool f2fs_valid_write_stream(struct f2fs_sb_info *sbi, u8 write_stream)
+{
+	int i;
+
+	if (!write_stream)
+		return true;
+	if (!f2fs_is_multi_device(sbi))
+		return write_stream <= bdev_max_write_streams(sbi->sb->s_bdev);
+
+	for (i = 0; i < sbi->s_ndevs; i++)
+		if (write_stream > bdev_max_write_streams(FDEV(i).bdev))
+			return false;
+	return true;
+}
+
 static void f2fs_dio_write_submit_io(const struct iomap_iter *iter,
 					struct bio *bio, loff_t file_offset)
 {
 	struct inode *inode = iter->inode;
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
+	struct kiocb *iocb = iter->private;
 	enum log_type type = f2fs_rw_hint_to_seg_type(sbi, inode->i_write_hint);
 	enum temp_type temp = f2fs_get_segment_temp(sbi, type);
 
 	bio->bi_write_hint = f2fs_io_type_to_rw_hint(sbi, DATA, temp);
 	bio->bi_write_stream =
+		iocb->ki_write_stream ? iocb->ki_write_stream :
 		f2fs_io_type_to_write_stream(bio->bi_bdev, DATA, temp);
 	f2fs_dio_iostat_start(sbi, bio);
 	blk_crypto_submit_bio(bio);
@@ -5150,6 +5167,11 @@ static ssize_t f2fs_dio_write_iter(struct kiocb *iocb, struct iov_iter *from,
 
 	trace_f2fs_direct_IO_enter(inode, iocb, count, WRITE);
 
+	if (!f2fs_valid_write_stream(sbi, iocb->ki_write_stream)) {
+		ret = -EINVAL;
+		goto out;
+	}
+
 	if (iocb->ki_flags & IOCB_NOWAIT) {
 		/* f2fs_convert_inline_inode() and block allocation can block */
 		if (f2fs_has_inline_data(inode) ||
@@ -5187,7 +5209,7 @@ static ssize_t f2fs_dio_write_iter(struct kiocb *iocb, struct iov_iter *from,
 	if (pos + count > inode->i_size)
 		dio_flags |= IOMAP_DIO_FORCE_WAIT;
 	dio = __iomap_dio_rw(iocb, from, &f2fs_iomap_ops,
-			     &f2fs_iomap_dio_write_ops, dio_flags, NULL, 0);
+			     &f2fs_iomap_dio_write_ops, dio_flags, iocb, 0);
 	if (IS_ERR_OR_NULL(dio)) {
 		ret = PTR_ERR_OR_ZERO(dio);
 		if (ret == -ENOTBLK)
