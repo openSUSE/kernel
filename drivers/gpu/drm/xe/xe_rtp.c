@@ -67,67 +67,85 @@ static bool rule_matches_with_err(const struct xe_device *xe,
 				xe->info.subplatform == r->subplatform;
 			break;
 		case XE_RTP_MATCH_PLATFORM_STEP:
-			if (drm_WARN_ON(&xe->drm, xe->info.step.platform == STEP_NONE))
-				goto error;
+			if (drm_WARN_ON(&xe->drm, xe->info.step.platform == STEP_NONE)) {
+				match = false;
+				break;
+			}
 
 			match = xe->info.step.platform >= r->step_start &&
 				xe->info.step.platform < r->step_end;
 			break;
 		case XE_RTP_MATCH_GRAPHICS_VERSION:
-			if (drm_WARN_ON(&xe->drm, !gt))
-				goto error;
+			if (drm_WARN_ON(&xe->drm, !gt)) {
+				match = false;
+				break;
+			}
 
 			match = xe->info.graphics_verx100 == r->ver_start &&
 				(!has_samedia(xe) || !xe_gt_is_media_type(gt));
 			break;
 		case XE_RTP_MATCH_GRAPHICS_VERSION_RANGE:
-			if (drm_WARN_ON(&xe->drm, !gt))
-				goto error;
+			if (drm_WARN_ON(&xe->drm, !gt)) {
+				match = false;
+				break;
+			}
 
 			match = xe->info.graphics_verx100 >= r->ver_start &&
 				xe->info.graphics_verx100 <= r->ver_end &&
 				(!has_samedia(xe) || !xe_gt_is_media_type(gt));
 			break;
 		case XE_RTP_MATCH_GRAPHICS_VERSION_ANY_GT:
-			if (drm_WARN_ON(&xe->drm, !gt))
-				goto error;
+			if (drm_WARN_ON(&xe->drm, !gt)) {
+				match = false;
+				break;
+			}
 
 			match = xe->info.graphics_verx100 == r->ver_start;
 			break;
 		case XE_RTP_MATCH_GRAPHICS_STEP:
-			if (drm_WARN_ON(&xe->drm, !gt))
-				goto error;
+			if (drm_WARN_ON(&xe->drm, !gt)) {
+				match = false;
+				break;
+			}
 
 			match = xe->info.step.graphics >= r->step_start &&
 				xe->info.step.graphics < r->step_end &&
 				(!has_samedia(xe) || !xe_gt_is_media_type(gt));
 			break;
 		case XE_RTP_MATCH_MEDIA_VERSION:
-			if (drm_WARN_ON(&xe->drm, !gt))
-				goto error;
+			if (drm_WARN_ON(&xe->drm, !gt)) {
+				match = false;
+				break;
+			}
 
 			match = xe->info.media_verx100 == r->ver_start &&
 				(!has_samedia(xe) || xe_gt_is_media_type(gt));
 			break;
 		case XE_RTP_MATCH_MEDIA_VERSION_RANGE:
-			if (drm_WARN_ON(&xe->drm, !gt))
-				goto error;
+			if (drm_WARN_ON(&xe->drm, !gt)) {
+				match = false;
+				break;
+			}
 
 			match = xe->info.media_verx100 >= r->ver_start &&
 				xe->info.media_verx100 <= r->ver_end &&
 				(!has_samedia(xe) || xe_gt_is_media_type(gt));
 			break;
 		case XE_RTP_MATCH_MEDIA_STEP:
-			if (drm_WARN_ON(&xe->drm, !gt))
-				goto error;
+			if (drm_WARN_ON(&xe->drm, !gt)) {
+				match = false;
+				break;
+			}
 
 			match = xe->info.step.media >= r->step_start &&
 				xe->info.step.media < r->step_end &&
 				(!has_samedia(xe) || xe_gt_is_media_type(gt));
 			break;
 		case XE_RTP_MATCH_MEDIA_VERSION_ANY_GT:
-			if (drm_WARN_ON(&xe->drm, !gt))
-				goto error;
+			if (drm_WARN_ON(&xe->drm, !gt)) {
+				match = false;
+				break;
+			}
 
 			match = xe->info.media_verx100 == r->ver_start;
 			break;
@@ -138,14 +156,18 @@ static bool rule_matches_with_err(const struct xe_device *xe,
 			match = xe->info.is_dgfx;
 			break;
 		case XE_RTP_MATCH_ENGINE_CLASS:
-			if (drm_WARN_ON(&xe->drm, !hwe))
-				goto error;
+			if (drm_WARN_ON(&xe->drm, !hwe)) {
+				match = false;
+				break;
+			}
 
 			match = hwe->class == r->engine_class;
 			break;
 		case XE_RTP_MATCH_NOT_ENGINE_CLASS:
-			if (drm_WARN_ON(&xe->drm, !hwe))
-				goto error;
+			if (drm_WARN_ON(&xe->drm, !hwe)) {
+				match = false;
+				break;
+			}
 
 			match = hwe->class != r->engine_class;
 			break;

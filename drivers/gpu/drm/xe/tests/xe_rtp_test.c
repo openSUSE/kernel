@@ -238,6 +238,34 @@ static const struct rtp_rules_test_case rtp_rules_cases[] = {
 		.expected_err = -EINVAL,
 		XE_RTP_RULES(FUNC(match_no), OR, OR, FUNC(match_no)),
 	},
+
+	/* No match because hwe is NULL. */
+	{
+		.name = "missing-context-engine-class",
+		.expected_match = false,
+		XE_RTP_RULES(ENGINE_CLASS(RENDER)),
+	},
+
+	/*
+	 * Missing context (hwe==NULL) does not cause parsing to stop, hence we
+	 * expect a match.
+	 */
+	{
+		.name = "missing-context-engine-class-or-yes",
+		.expected_match = true,
+		XE_RTP_RULES(ENGINE_CLASS(RENDER), OR, FUNC(match_yes)),
+	},
+
+	/*
+	 * Missing context (hwe==NULL) does not cause parsing to stop, hence we
+	 * expect a syntax error.
+	 */
+	{
+		.name = "missing-context-engine-class-or-or-yes",
+		.expected_match = true,
+		.expected_err = -EINVAL,
+		XE_RTP_RULES(ENGINE_CLASS(RENDER), OR, OR, FUNC(match_yes)),
+	},
 };
 
 static void xe_rtp_rules_tests(struct kunit *test)
