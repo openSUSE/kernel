@@ -166,8 +166,9 @@ static int tcs3472_read_raw(struct iio_dev *indio_dev,
 		*val = 0;
 		*val2 = (256 - data->atime) * 2400;
 		return IIO_VAL_INT_PLUS_MICRO;
+	default:
+		return -EINVAL;
 	}
-	return -EINVAL;
 }
 
 static int tcs3472_write_raw(struct iio_dev *indio_dev,
@@ -204,8 +205,9 @@ static int tcs3472_write_raw(struct iio_dev *indio_dev,
 
 		}
 		return -EINVAL;
+	default:
+		return -EINVAL;
 	}
-	return -EINVAL;
 }
 
 /*
