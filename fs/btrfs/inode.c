@@ -820,7 +820,7 @@ static struct folio *compressed_bio_last_folio(struct compressed_bio *cb)
 	ASSERT(bio->bi_vcnt);
 
 	bvec = &bio->bi_io_vec[bio->bi_vcnt - 1];
-	paddr = page_to_phys(bvec->bv_page) + bvec->bv_offset + bvec->bv_len - 1;
+	paddr = bvec_phys(bvec) + bvec->bv_len - 1;
 	return page_folio(phys_to_page(paddr));
 }
 
