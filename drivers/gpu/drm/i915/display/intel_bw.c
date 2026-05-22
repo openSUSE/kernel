@@ -1150,7 +1150,7 @@ static int mtl_find_qgv_points(struct intel_display *display,
 	}
 
 	/* MTL PM DEMAND expects QGV BW parameter in multiples of 100 mbps */
-	new_bw_state->qgv_point_peakbw = DIV_ROUND_CLOSEST(qgv_peak_bw, 100);
+	new_bw_state->qgv_point_peakbw = qgv_peak_bw / 100;
 
 	return 0;
 }
