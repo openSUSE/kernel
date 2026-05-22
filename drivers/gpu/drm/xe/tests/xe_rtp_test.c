@@ -195,10 +195,48 @@ static const struct rtp_rules_test_case rtp_rules_cases[] = {
 		XE_RTP_RULES(OR),
 	},
 	{
-		.name = "or-anything",
-		.expected_match = false,
+		.name = "or-yes",
+		.expected_match = true,
 		.expected_err = -EINVAL,
 		XE_RTP_RULES(OR, FUNC(match_yes)),
+	},
+	{
+		.name = "or-no",
+		.expected_match = false,
+		.expected_err = -EINVAL,
+		XE_RTP_RULES(OR, FUNC(match_no)),
+	},
+	{
+		.name = "yes-or",
+		.expected_match = true,
+		/* FIXME: The parser should raise an error here. */
+		.expected_err = 0,
+		XE_RTP_RULES(FUNC(match_yes), OR),
+	},
+	{
+		.name = "no-or",
+		.expected_match = false,
+		.expected_err = -EINVAL,
+		XE_RTP_RULES(FUNC(match_no), OR),
+	},
+	{
+		.name = "no-or-or-yes",
+		.expected_match = true,
+		.expected_err = -EINVAL,
+		XE_RTP_RULES(FUNC(match_no), OR, OR, FUNC(match_yes)),
+	},
+	{
+		.name = "yes-or-or-no",
+		.expected_match = true,
+		/* FIXME: The parser should raise an error here. */
+		.expected_err = 0,
+		XE_RTP_RULES(FUNC(match_yes), OR, OR, FUNC(match_no)),
+	},
+	{
+		.name = "no-or-or-no",
+		.expected_match = false,
+		.expected_err = -EINVAL,
+		XE_RTP_RULES(FUNC(match_no), OR, OR, FUNC(match_no)),
 	},
 };
 

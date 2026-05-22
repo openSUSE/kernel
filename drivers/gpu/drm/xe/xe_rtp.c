@@ -47,12 +47,18 @@ static bool rule_matches_with_err(const struct xe_device *xe,
 	for (r = rules, i = 0; i < n_rules; r = &rules[++i]) {
 		switch (r->match_type) {
 		case XE_RTP_MATCH_OR:
+			if (drm_WARN_ON(&xe->drm, !rcount)) {
+				if (err)
+					*err = -EINVAL;
+				continue;
+			}
+
 			/*
-			 * This is only reached if a complete set of
-			 * rules passed or none were evaluated. For both cases,
-			 * shortcut the other rules and return the proper value.
+			 * This is only reached if a complete conjunction of
+			 * rules passed, in which case we shortcut the other
+			 * rules and return true.
 			 */
-			goto done;
+			return true;
 		case XE_RTP_MATCH_PLATFORM:
 			match = xe->info.platform == r->platform;
 			break;
@@ -169,7 +175,6 @@ static bool rule_matches_with_err(const struct xe_device *xe,
 		}
 	}
 
-done:
 	if (drm_WARN_ON(&xe->drm, !rcount))
 		goto error;
 
