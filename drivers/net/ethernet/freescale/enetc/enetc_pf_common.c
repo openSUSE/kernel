@@ -443,6 +443,12 @@ int enetc_init_sriov_resources(struct enetc_pf *pf)
 	if (!pf->total_vfs)
 		return 0;
 
+	pf->rxmsg = devm_kcalloc(dev, pf->total_vfs,
+				 sizeof(struct enetc_msg_swbd),
+				 GFP_KERNEL);
+	if (!pf->rxmsg)
+		return -ENOMEM;
+
 	pf->vf_state = devm_kcalloc(dev, pf->total_vfs,
 				    sizeof(struct enetc_vf_state),
 				    GFP_KERNEL);

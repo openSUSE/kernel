@@ -43,7 +43,7 @@ struct enetc_pf {
 
 	struct enetc_mac_filter mac_filter[MADDR_TYPE];
 
-	struct enetc_msg_swbd rxmsg[ENETC_MAX_NUM_VFS];
+	struct enetc_msg_swbd *rxmsg;
 	struct work_struct msg_task;
 	char msg_int_name[ENETC_INT_NAME_MAX];
 
