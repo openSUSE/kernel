@@ -485,7 +485,7 @@ struct task_group {
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	/* runqueue "owned" by this group on each CPU */
-	struct cfs_rq		**cfs_rq;
+	struct cfs_rq __percpu	*cfs_rq;
 	unsigned long		shares;
 	/*
 	 * load_avg can be heavily contended at clock tick time, so put
@@ -2304,6 +2304,12 @@ struct cfs_tg_state {
 	struct sched_statistics	stats;
 } __no_randomize_layout;
 
+/* Access a specific CPU's cfs_rq from a task group */
+static inline struct cfs_rq *tg_cfs_rq(struct task_group *tg, int cpu)
+{
+	return per_cpu_ptr(tg->cfs_rq, cpu);
+}
+
 static inline struct sched_entity *tg_se(struct task_group *tg, int cpu)
 {
 	struct cfs_tg_state *state;
@@ -2311,7 +2317,7 @@ static inline struct sched_entity *tg_se(struct task_group *tg, int cpu)
 	if (is_root_task_group(tg))
 		return NULL;
 
-	state = container_of(tg->cfs_rq[cpu], struct cfs_tg_state, cfs_rq);
+	state = container_of(tg_cfs_rq(tg, cpu), struct cfs_tg_state, cfs_rq);
 	return &state->se;
 }
 
@@ -2335,8 +2341,8 @@ static inline void set_task_rq(struct task_struct *p, unsigned int cpu)
 #endif
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
-	set_task_rq_fair(&p->se, p->se.cfs_rq, tg->cfs_rq[cpu]);
-	p->se.cfs_rq = tg->cfs_rq[cpu];
+	set_task_rq_fair(&p->se, p->se.cfs_rq, tg_cfs_rq(tg, cpu));
+	p->se.cfs_rq = tg_cfs_rq(tg, cpu);
 	p->se.parent = tg_se(tg, cpu);
 	p->se.depth = p->se.parent ? p->se.parent->depth + 1 : 0;
 #endif
