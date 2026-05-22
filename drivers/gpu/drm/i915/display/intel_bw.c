@@ -636,8 +636,7 @@ static int tgl_get_bw_info(struct intel_display *display,
 			bi_next = &display->bw.max[i + 1];
 
 			if (clpchgroup < clperchgroup)
-				bi_next->num_planes = (ipqdepth - clpchgroup) /
-						       clpchgroup + 1;
+				bi_next->num_planes = (ipqdepth - clpchgroup) / clpchgroup;
 			else
 				bi_next->num_planes = 0;
 		}
@@ -801,11 +800,6 @@ static unsigned int tgl_max_bw_index(struct intel_display *display,
 				     int num_planes, int qgv_point)
 {
 	int i;
-
-	/*
-	 * Let's return max bw for 0 planes
-	 */
-	num_planes = max(1, num_planes);
 
 	for (i = ARRAY_SIZE(display->bw.max) - 1; i >= 0; i--) {
 		const struct intel_bw_info *bi =
