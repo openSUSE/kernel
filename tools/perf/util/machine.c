@@ -4,6 +4,7 @@
 #include <inttypes.h>
 #include <regex.h>
 #include <stdlib.h>
+#include <string.h>
 #include "callchain.h"
 #include "debug.h"
 #include "dso.h"
@@ -729,8 +730,14 @@ static int machine__process_ksymbol_register(struct machine *machine,
 {
 	struct symbol *sym;
 	struct dso *dso = NULL;
-	struct map *map = maps__find(machine__kernel_maps(machine), event->ksymbol.addr);
+	struct map *map;
 	int err = 0;
+
+	/* Ignore mapping symbols in ksymbol events - check early before any state mutation */
+	if (is_ignored_kernel_symbol(event->ksymbol.name))
+		return 0;
+
+	map = maps__find(machine__kernel_maps(machine), event->ksymbol.addr);
 
 	if (!map) {
 		dso = dso__new(event->ksymbol.name);
@@ -790,6 +797,10 @@ static int machine__process_ksymbol_unregister(struct machine *machine,
 	struct symbol *sym;
 	struct map *map;
 
+	/* Ignore mapping symbols in ksymbol events */
+	if (is_ignored_kernel_symbol(event->ksymbol.name))
+		return 0;
+
 	map = maps__find(machine__kernel_maps(machine), event->ksymbol.addr);
 	if (!map)
 		return 0;
@@ -813,6 +824,11 @@ int machine__process_ksymbol(struct machine *machine __maybe_unused,
 {
 	if (dump_trace)
 		perf_event__fprintf_ksymbol(event, stdout);
+
+	if (event->header.size < offsetof(struct perf_record_ksymbol, name) + 2 ||
+	    !memchr(event->ksymbol.name, '\0',
+		    event->header.size - offsetof(struct perf_record_ksymbol, name)))
+		return -EINVAL;
 
 	/* no need to process non-JIT BPF as it cannot get samples */
 	if (event->ksymbol.len == 0)

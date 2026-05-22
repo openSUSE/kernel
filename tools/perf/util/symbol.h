@@ -29,6 +29,21 @@ struct option;
 struct build_id;
 
 /*
+ * Ignore kernel mapping symbols, matching kernel is_mapping_symbol() logic.
+ * This checks for '$' prefix (used by ARM, AArch64, RISC-V) and
+ * x86 local symbol prefixes (.L* and L0*).
+ * Only use this for kernel symbols (kallsyms, ksymbol events, kernel ELF DSOs).
+ */
+static inline bool is_ignored_kernel_symbol(const char *str)
+{
+	if (str[0] == '.' && str[1] == 'L')
+		return true;
+	if (str[0] == 'L' && str[1] == '0')
+		return true;
+	return str[0] == '$';
+}
+
+/*
  * libelf 0.8.x and earlier do not support ELF_C_READ_MMAP;
  * for newer versions we can use mmap to reduce memory usage:
  */

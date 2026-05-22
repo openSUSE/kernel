@@ -770,8 +770,8 @@ static int map__process_kallsym_symbol(void *arg, const char *name,
 	if (!symbol_type__filter(type))
 		return 0;
 
-	/* Ignore local symbols for ARM modules */
-	if (name[0] == '$')
+	/* Ignore mapping symbols in kallsyms */
+	if (is_ignored_kernel_symbol(name))
 		return 0;
 
 	/*
