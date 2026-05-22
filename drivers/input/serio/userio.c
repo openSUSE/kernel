@@ -1,7 +1,7 @@
 /*
  * userio kernel serio device emulation module
  * Copyright (C) 2015 Red Hat
- * Copyright (C) 2015 Stephen Chandler Paul <thatslyude@gmail.com>
+ * Copyright (C) 2015 Lyude Paul <thatslyude@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published by
@@ -278,6 +278,6 @@ module_driver(userio_misc, misc_register, misc_deregister);
 MODULE_ALIAS_MISCDEV(USERIO_MINOR);
 MODULE_ALIAS("devname:" USERIO_NAME);
 
-MODULE_AUTHOR("Stephen Chandler Paul <thatslyude@gmail.com>");
+MODULE_AUTHOR("Lyude Paul <thatslyude@gmail.com>");
 MODULE_DESCRIPTION("Virtual Serio Device Support");
 MODULE_LICENSE("GPL");

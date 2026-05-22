@@ -5,7 +5,7 @@ The userio Protocol
 ===================
 
 
-:Copyright: |copy| 2015 Stephen Chandler Paul <thatslyude@gmail.com>
+:Copyright: |copy| 2015 Lyude Paul <thatslyude@gmail.com>
 
 Sponsored by Red Hat
 

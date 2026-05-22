@@ -28403,7 +28403,7 @@ F:	sound/drivers/pcmtest.c
 F:	tools/testing/selftests/alsa/test-pcmtest-driver.c
 
 VIRTUAL SERIO DEVICE DRIVER
-M:	Stephen Chandler Paul <thatslyude@gmail.com>
+M:	Lyude Paul <thatslyude@gmail.com>
 S:	Maintained
 F:	drivers/input/serio/userio.c
 F:	include/uapi/linux/userio.h
