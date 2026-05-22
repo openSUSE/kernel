@@ -858,6 +858,9 @@ static inline void mi_get_ref(const struct mft_inode *mi, struct MFT_REF *ref)
 /* Globals from run.c */
 bool run_lookup_entry(const struct runs_tree *run, CLST vcn, CLST *lcn,
 		      CLST *len, size_t *index);
+bool run_lookup_entry_da(const struct runs_tree *run,
+			 const struct runs_tree *run_da, CLST vcn, CLST *lcn,
+			 CLST *len);
 void run_truncate(struct runs_tree *run, CLST vcn);
 void run_truncate_head(struct runs_tree *run, CLST vcn);
 void run_truncate_around(struct runs_tree *run, CLST vcn);
