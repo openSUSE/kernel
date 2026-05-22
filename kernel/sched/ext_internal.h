@@ -1124,6 +1124,14 @@ struct scx_sched {
 	struct bpf_map		*arena_map;
 	struct gen_pool		*arena_pool;
 
+	/*
+	 * Per-CPU arena cmask used by scx_call_op_set_cpumask() to hand a cmask
+	 * to ops_cid.set_cmask(). The kernel writes through the stored kern_va;
+	 * the BPF-arena uaddr handed to BPF is recovered by subtracting the
+	 * arena's kern_vm_start.
+	 */
+	struct scx_cmask * __percpu *set_cmask_scratch;
+
 	DECLARE_BITMAP(has_op, SCX_OPI_END);
 
 	/*
@@ -1479,8 +1487,6 @@ enum scx_ops_state {
 
 extern struct scx_sched __rcu *scx_root;
 DECLARE_PER_CPU(struct rq *, scx_locked_rq_state);
-
-extern struct scx_cmask __percpu *scx_set_cmask_scratch;
 
 /*
  * True when the currently loaded scheduler hierarchy is cid-form. All scheds
