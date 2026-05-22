@@ -1289,6 +1289,8 @@ struct rq {
 	call_single_data_t	hrtick_csd;
 	struct hrtimer		hrtick_timer;
 	ktime_t			hrtick_time;
+	ktime_t			hrtick_delay;
+	unsigned int		hrtick_sched;
 #endif
 
 #ifdef CONFIG_SCHEDSTATS
@@ -2938,6 +2940,10 @@ static inline int hrtick_enabled_dl(struct rq *rq)
 }
 
 extern void hrtick_start(struct rq *rq, u64 delay);
+static inline bool hrtick_active(struct rq *rq)
+{
+	return hrtimer_active(&rq->hrtick_timer);
+}
 
 #else /* !CONFIG_SCHED_HRTICK: */
 

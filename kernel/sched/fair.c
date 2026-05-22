@@ -884,11 +884,11 @@ bool update_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se)
  *
  * lag_i >= 0 -> V >= v_i
  *
- *     \Sum (v_i - v)*w_i
- * V = ------------------ + v
+ *     \Sum (v_i - v0)*w_i
+ * V = ------------------- + v0
  *          \Sum w_i
  *
- * lag_i >= 0 -> \Sum (v_i - v)*w_i >= (v_i - v)*(\Sum w_i)
+ * lag_i >= 0 -> \Sum (v_i - v0)*w_i >= (v_i - v0)*(\Sum w_i)
  *
  * Note: using 'avg_vruntime() > se->vruntime' is inaccurate due
  *       to the loss in precision caused by the division.
@@ -896,7 +896,7 @@ bool update_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se)
 static int vruntime_eligible(struct cfs_rq *cfs_rq, u64 vruntime)
 {
 	struct sched_entity *curr = cfs_rq->curr;
-	s64 avg = cfs_rq->sum_w_vruntime;
+	s64 key, avg = cfs_rq->sum_w_vruntime;
 	long load = cfs_rq->sum_weight;
 
 	if (curr && curr->on_rq) {
@@ -906,7 +906,36 @@ static int vruntime_eligible(struct cfs_rq *cfs_rq, u64 vruntime)
 		load += weight;
 	}
 
-	return avg >= vruntime_op(vruntime, "-", cfs_rq->zero_vruntime) * load;
+	key = vruntime_op(vruntime, "-", cfs_rq->zero_vruntime);
+
+	/*
+	 * The worst case term for @key includes 'NSEC_TICK * NICE_0_LOAD'
+	 * and @load obviously includes NICE_0_LOAD. NSEC_TICK is around 24
+	 * bits, while NICE_0_LOAD is 20 on 64bit and 10 otherwise.
+	 *
+	 * This gives that on 64bit the product will be at least 64bit which
+	 * overflows s64, while on 32bit it will only be 44bits and should fit
+	 * comfortably.
+	 */
+#ifdef CONFIG_64BIT
+#ifdef CONFIG_ARCH_SUPPORTS_INT128
+	/* This often results in simpler code than __builtin_mul_overflow(). */
+	return avg >= (__int128)key * load;
+#else
+	s64 rhs;
+	/*
+	 * On overflow, the sign of key tells us the correct answer: a large
+	 * positive key means vruntime >> V, so not eligible; a large negative
+	 * key means vruntime << V, so eligible.
+	 */
+	if (check_mul_overflow(key, load, &rhs))
+		return key <= 0;
+
+	return avg >= rhs;
+#endif
+#else /* 32bit */
+	return avg >= key * load;
+#endif
 }
 
 int entity_eligible(struct cfs_rq *cfs_rq, struct sched_entity *se)
@@ -1106,7 +1135,7 @@ static inline void cancel_protect_slice(struct sched_entity *se)
  *
  * Which allows tree pruning through eligibility.
  */
-static struct sched_entity *__pick_eevdf(struct cfs_rq *cfs_rq, bool protect)
+static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq, bool protect)
 {
 	struct rb_node *node = cfs_rq->tasks_timeline.rb_root.rb_node;
 	struct sched_entity *se = __pick_first_entity(cfs_rq);
@@ -1175,11 +1204,6 @@ found:
 		best = curr;
 
 	return best;
-}
-
-static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
-{
-	return __pick_eevdf(cfs_rq, true);
 }
 
 struct sched_entity *__pick_last_entity(struct cfs_rq *cfs_rq)
@@ -5810,11 +5834,11 @@ static int dequeue_entities(struct rq *rq, struct sched_entity *se, int flags);
  * 4) do not run the "skip" process, if something else is available
  */
 static struct sched_entity *
-pick_next_entity(struct rq *rq, struct cfs_rq *cfs_rq)
+pick_next_entity(struct rq *rq, struct cfs_rq *cfs_rq, bool protect)
 {
 	struct sched_entity *se;
 
-	se = pick_eevdf(cfs_rq);
+	se = pick_eevdf(cfs_rq, protect);
 	if (se->sched_delayed) {
 		dequeue_entities(rq, se, DEQUEUE_SLEEP | DEQUEUE_DELAYED);
 		/*
@@ -5870,7 +5894,7 @@ entity_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr, int queued)
 	 * validating it and just reschedule.
 	 */
 	if (queued) {
-		resched_curr_lazy(rq_of(cfs_rq));
+		resched_curr(rq_of(cfs_rq));
 		return;
 	}
 #endif
@@ -7083,33 +7107,50 @@ static inline void sched_fair_update_stop_tick(struct rq *rq, struct task_struct
 static void hrtick_start_fair(struct rq *rq, struct task_struct *p)
 {
 	struct sched_entity *se = &p->se;
+	unsigned long scale = 1024;
+	unsigned long util = 0;
+	u64 vdelta;
+	u64 delta;
 
 	WARN_ON_ONCE(task_rq(p) != rq);
 
-	if (rq->cfs.h_nr_queued > 1) {
-		u64 ran = se->sum_exec_runtime - se->prev_sum_exec_runtime;
-		u64 slice = se->slice;
-		s64 delta = slice - ran;
+	if (rq->cfs.h_nr_queued <= 1)
+		return;
 
-		if (delta < 0) {
-			if (task_current_donor(rq, p))
-				resched_curr(rq);
-			return;
-		}
-		hrtick_start(rq, delta);
+	/*
+	 * Compute time until virtual deadline
+	 */
+	vdelta = se->deadline - se->vruntime;
+	if ((s64)vdelta < 0) {
+		if (task_current_donor(rq, p))
+			resched_curr(rq);
+		return;
 	}
+	delta = (se->load.weight * vdelta) / NICE_0_LOAD;
+
+	/*
+	 * Correct for instantaneous load of other classes.
+	 */
+	util += cpu_util_irq(rq);
+	if (util && util < 1024) {
+		scale *= 1024;
+		scale /= (1024 - util);
+	}
+
+	hrtick_start(rq, (scale * delta) / 1024);
 }
 
 /*
- * called from enqueue/dequeue and updates the hrtick when the
- * current task is from our class and nr_running is low enough
- * to matter.
+ * Called on enqueue to start the hrtick when h_nr_queued becomes more than 1.
  */
 static void hrtick_update(struct rq *rq)
 {
 	struct task_struct *donor = rq->donor;
 
 	if (!hrtick_enabled_fair(rq) || donor->sched_class != &fair_sched_class)
+		return;
+
+	if (hrtick_active(rq))
 		return;
 
 	hrtick_start_fair(rq, donor);
@@ -7435,9 +7476,6 @@ static int dequeue_entities(struct rq *rq, struct sched_entity *se, int flags)
 		WARN_ON_ONCE(!task_sleep);
 		WARN_ON_ONCE(p->on_rq != 1);
 
-		/* Fix-up what dequeue_task_fair() skipped */
-		hrtick_update(rq);
-
 		/*
 		 * Fix-up what block_task() skipped.
 		 *
@@ -7471,8 +7509,6 @@ static bool dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	/*
 	 * Must not reference @p after dequeue_entities(DEQUEUE_DELAYED).
 	 */
-
-	hrtick_update(rq);
 	return true;
 }
 
@@ -9102,7 +9138,7 @@ static void check_preempt_wakeup_fair(struct rq *rq, struct task_struct *p, int 
 {
 	enum preempt_wakeup_action preempt_action = PREEMPT_WAKEUP_PICK;
 	struct task_struct *donor = rq->donor;
-	struct sched_entity *se = &donor->se, *pse = &p->se;
+	struct sched_entity *nse, *se = &donor->se, *pse = &p->se;
 	struct cfs_rq *cfs_rq = task_cfs_rq(donor);
 	int cse_is_idle, pse_is_idle;
 
@@ -9207,11 +9243,17 @@ static void check_preempt_wakeup_fair(struct rq *rq, struct task_struct *p, int 
 	}
 
 pick:
-	/*
-	 * If @p has become the most eligible task, force preemption.
-	 */
-	if (__pick_eevdf(cfs_rq, preempt_action != PREEMPT_WAKEUP_SHORT) == pse)
+	nse = pick_next_entity(rq, cfs_rq, preempt_action != PREEMPT_WAKEUP_SHORT);
+	/* If @p has become the most eligible task, force preemption */
+	if (nse == pse)
 		goto preempt;
+
+	/*
+	 * Because p is enqueued, nse being null can only mean that we
+	 * dequeued a delayed task.
+	 */
+	if (!nse)
+		goto pick;
 
 	if (sched_feat(RUN_TO_PARITY))
 		update_protect_slice(cfs_rq, se);
@@ -9248,7 +9290,7 @@ again:
 
 		throttled |= check_cfs_rq_runtime(cfs_rq);
 
-		se = pick_next_entity(rq, cfs_rq);
+		se = pick_next_entity(rq, cfs_rq, true);
 		if (!se)
 			goto again;
 		cfs_rq = group_cfs_rq(se);
@@ -12731,14 +12773,14 @@ static inline int on_null_domain(struct rq *rq)
  */
 static inline int find_new_ilb(void)
 {
+	int this_cpu = smp_processor_id();
 	const struct cpumask *hk_mask;
 	int ilb_cpu;
 
 	hk_mask = housekeeping_cpumask(HK_TYPE_KERNEL_NOISE);
 
 	for_each_cpu_and(ilb_cpu, nohz.idle_cpus_mask, hk_mask) {
-
-		if (ilb_cpu == smp_processor_id())
+		if (ilb_cpu == this_cpu)
 			continue;
 
 		if (idle_cpu(ilb_cpu))
@@ -13752,11 +13794,8 @@ static void task_tick_fair(struct rq *rq, struct task_struct *curr, int queued)
 		entity_tick(cfs_rq, se, queued);
 	}
 
-	if (queued) {
-		if (!need_resched())
-			hrtick_start_fair(rq, curr);
+	if (queued)
 		return;
-	}
 
 	if (static_branch_unlikely(&sched_numa_balancing))
 		task_tick_numa(rq, curr);
