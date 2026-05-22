@@ -445,13 +445,29 @@ static void nested_ept_inject_page_fault(struct kvm_vcpu *vcpu,
 			exit_qualification = 0;
 		} else {
 			u64 mask = EPT_VIOLATION_GVA_IS_VALID |
-				EPT_VIOLATION_GVA_TRANSLATED;
+				   EPT_VIOLATION_GVA_TRANSLATED;
+
 			if (vmx->nested.msrs.ept_caps & VMX_EPT_ADVANCED_VMEXIT_INFO_BIT)
 				mask |= EPT_VIOLATION_GVA_USER |
-					       EPT_VIOLATION_GVA_WRITABLE |
-					       EPT_VIOLATION_GVA_NX;
-			exit_qualification = fault->exit_qualification;
-			exit_qualification |= vmx_get_exit_qual(vcpu) & mask;
+					EPT_VIOLATION_GVA_WRITABLE |
+					EPT_VIOLATION_GVA_NX;
+
+			exit_qualification = fault->exit_qualification & ~mask;
+
+			/*
+			 * Use the EXIT_QUALIFICATION from the VMCS if and only
+			 * if the hardware VM-Exit from L2 was an EPT Violation.
+			 * If the fault is synthesized, then EXIT_QUALIFICATION
+			 * is stale and/or holds entirely different data.  And
+			 * conversely, KVM _must_ rely on EXIT_QUALIFICATION if
+			 * the fault came from hardware, because KVM only sees
+			 * and walks the faulting GPA.
+			 */
+			if (from_hardware)
+				exit_qualification |= vmx_get_exit_qual(vcpu) & mask;
+			else
+				exit_qualification |= fault->exit_qualification & mask;
+
 			vm_exit_reason = EXIT_REASON_EPT_VIOLATION;
 		}
 
