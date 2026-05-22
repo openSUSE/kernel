@@ -362,19 +362,25 @@ int intel_dp_max_source_lane_count(struct intel_digital_port *dig_port)
 	return max_lanes;
 }
 
-/* Theoretical max between source and sink */
-static void intel_dp_set_max_common_lane_count(struct intel_dp *intel_dp)
+/*
+ * Theoretical max between source and sink.
+ * Return %true if the max common lane count changed.
+ */
+static bool intel_dp_set_max_common_lane_count(struct intel_dp *intel_dp)
 {
 	struct intel_digital_port *dig_port = dp_to_dig_port(intel_dp);
 	int source_max = intel_dp_max_source_lane_count(dig_port);
 	int sink_max = intel_dp->max_sink_lane_count;
 	int lane_max = intel_tc_port_max_lane_count(dig_port);
 	int lttpr_max = drm_dp_lttpr_max_lane_count(intel_dp->lttpr_common_caps);
+	int old_max_common_lane_count = intel_dp->max_common_lane_count;
 
 	if (lttpr_max)
 		sink_max = min(sink_max, lttpr_max);
 
 	intel_dp->max_common_lane_count = min3(source_max, sink_max, lane_max);
+
+	return intel_dp->max_common_lane_count != old_max_common_lane_count;
 }
 
 int intel_dp_max_common_lane_count(struct intel_dp *intel_dp)
@@ -792,12 +798,21 @@ int intel_dp_link_config_index(struct intel_dp *intel_dp, int link_rate, int lan
 	return -1;
 }
 
-static void intel_dp_set_common_rates(struct intel_dp *intel_dp)
+/* Return %true if the common rates changed. */
+static bool intel_dp_set_common_rates(struct intel_dp *intel_dp)
 {
 	struct intel_display *display = to_intel_display(intel_dp);
+	int num_old_common_rates = intel_dp->num_common_rates;
+	int old_common_rates[DP_MAX_SUPPORTED_RATES];
 
 	drm_WARN_ON(display->drm,
 		    !intel_dp->num_source_rates || !intel_dp->num_sink_rates);
+
+	/* TODO: Add a struct containing both rates and number of rates. */
+	static_assert(__same_type(old_common_rates[0], intel_dp->common_rates[0]) &&
+		      sizeof(old_common_rates) == sizeof(intel_dp->common_rates));
+	memcpy(old_common_rates, intel_dp->common_rates,
+	       num_old_common_rates * sizeof(old_common_rates[0]));
 
 	intel_dp->num_common_rates = intersect_rates(intel_dp->source_rates,
 						     intel_dp->num_source_rates,
@@ -810,13 +825,26 @@ static void intel_dp_set_common_rates(struct intel_dp *intel_dp)
 		intel_dp->common_rates[0] = 162000;
 		intel_dp->num_common_rates = 1;
 	}
+
+	return num_old_common_rates != intel_dp->num_common_rates ||
+	       memcmp(old_common_rates, intel_dp->common_rates,
+		      num_old_common_rates * sizeof(old_common_rates[0]));
 }
 
-static void intel_dp_set_common_link_params(struct intel_dp *intel_dp)
+/* Return %true if any common link param changed. */
+static bool intel_dp_set_common_link_params(struct intel_dp *intel_dp)
 {
-	intel_dp_set_common_rates(intel_dp);
-	intel_dp_set_max_common_lane_count(intel_dp);
+	bool params_changed = false;
+
+	if (intel_dp_set_common_rates(intel_dp))
+		params_changed = true;
+
+	if (intel_dp_set_max_common_lane_count(intel_dp))
+		params_changed = true;
+
 	intel_dp_link_config_init(intel_dp);
+
+	return params_changed;
 }
 
 bool intel_dp_link_params_valid(struct intel_dp *intel_dp, int link_rate,
@@ -4885,9 +4913,21 @@ intel_dp_has_sink_count(struct intel_dp *intel_dp)
 
 void intel_dp_update_sink_caps(struct intel_dp *intel_dp)
 {
+	struct intel_display *display = to_intel_display(intel_dp);
+
 	intel_dp_set_sink_rates(intel_dp);
 	intel_dp_set_max_sink_lane_count(intel_dp);
-	intel_dp_set_common_link_params(intel_dp);
+	/*
+	 * Handle unexpected sink cap changes, or a race between setting
+	 * the deferred link params flag in the HPD IRQ handler and
+	 * clearing the flag during connector detect.
+	 */
+	if (intel_dp_set_common_link_params(intel_dp) &&
+	    !intel_dp->reset_link_params) {
+		drm_dbg_kms(display->drm,
+			    "DPRX capabilities changed before long HPD or RX_CAP_CHANGED signal\n");
+		intel_dp->reset_link_params = true;
+	}
 }
 
 static bool
