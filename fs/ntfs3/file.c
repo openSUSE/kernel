@@ -1398,7 +1398,8 @@ static ssize_t ntfs_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 			goto out;
 	}
 
-	ret = iomap_dio_rw(iocb, from, &ntfs_iomap_ops, NULL, 0, NULL, 0);
+	ret = iomap_dio_rw(iocb, from, &ntfs_iomap_ops, NULL,
+			   IOMAP_DIO_FORCE_WAIT, NULL, 0);
 
 	if (ret == -ENOTBLK) {
 		/* Returns -ENOTBLK in case of a page invalidation failure for writes.*/
