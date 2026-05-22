@@ -887,9 +887,9 @@ static int ti_csi2rx_get_stream(struct ti_csi2rx_ctx *ctx)
 
 	/* Get the source pad connected to this ctx */
 	pad = media_entity_remote_source_pad_unique(ctx->pad.entity);
-	if (!pad) {
+	if (IS_ERR(pad)) {
 		dev_err(csi->dev, "No pad connected to ctx %d\n", ctx->idx);
-		return -ENODEV;
+		return PTR_ERR(pad);
 	}
 
 	state = v4l2_subdev_get_locked_active_state(&csi->subdev);
@@ -1183,8 +1183,8 @@ static int ti_csi2rx_sd_enable_streams(struct v4l2_subdev *sd,
 	spin_unlock_irqrestore(&dma->lock, flags);
 
 	remote_pad = media_entity_remote_source_pad_unique(&csi->subdev.entity);
-	if (!remote_pad)
-		return -ENODEV;
+	if (IS_ERR(remote_pad))
+		return PTR_ERR(remote_pad);
 	sink_streams = v4l2_subdev_state_xlate_streams(state, pad,
 						       TI_CSI2RX_PAD_SINK,
 						       &streams_mask);
@@ -1218,8 +1218,8 @@ static int ti_csi2rx_sd_disable_streams(struct v4l2_subdev *sd,
 		writel(0, csi->shim + SHIM_CNTL);
 
 	remote_pad = media_entity_remote_source_pad_unique(&csi->subdev.entity);
-	if (!remote_pad)
-		return -ENODEV;
+	if (IS_ERR(remote_pad))
+		return PTR_ERR(remote_pad);
 	sink_streams = v4l2_subdev_state_xlate_streams(state, pad,
 						       TI_CSI2RX_PAD_SINK,
 						       &streams_mask);
