@@ -114,6 +114,9 @@ static int enetc_msg_vsi_send(struct enetc_si *si, struct enetc_msg_swbd *msg)
 		case ENETC_MSG_CLASS_ID_CMD_NOT_PERMITTED:
 			err = -EPERM;
 			break;
+		case ENETC_MSG_CLASS_ID_IP_REVISION:
+			err = FIELD_GET(ENETC_PF_MSG_CLASS_CODE_U8, pf_msg);
+			break;
 		case ENETC_MSG_CLASS_ID_CMD_FAIL:
 		case ENETC_MSG_CLASS_ID_CRC_ERROR:
 		case ENETC_MSG_CLASS_ID_CMD_DEFERRED:
@@ -122,7 +125,7 @@ static int enetc_msg_vsi_send(struct enetc_si *si, struct enetc_msg_swbd *msg)
 		}
 	}
 
-	if (err)
+	if (err < 0)
 		dev_err(dev, "Return error code from PSI: 0x%04x\n", pf_msg);
 
 	return err;
@@ -149,6 +152,24 @@ static int enetc_msg_vsi_set_primary_mac_addr(struct enetc_ndev_priv *priv,
 
 	/* send the command and wait */
 	return enetc_msg_vsi_send(priv->si, &msg_swbd);
+}
+
+static int enetc_vf_get_ip_minor_revision(struct enetc_si *si)
+{
+	struct device *dev = &si->pdev->dev;
+	struct enetc_msg_swbd msg_swbd;
+
+	msg_swbd.size = ALIGN(sizeof(struct enetc_msg_generic),
+			      ENETC_MSG_ALIGN);
+	msg_swbd.vaddr = dma_alloc_coherent(dev, msg_swbd.size,
+					    &msg_swbd.dma, GFP_KERNEL);
+	if (!msg_swbd.vaddr)
+		return -ENOMEM;
+
+	enetc_msg_fill_common_hdr(&msg_swbd, ENETC_MSG_CLASS_ID_IP_REVISION,
+				  ENETC_MSG_GET_IP_MN, 0, 0);
+
+	return enetc_msg_vsi_send(si, &msg_swbd);
 }
 
 static int enetc_vf_set_mac_addr(struct net_device *ndev, void *addr)
@@ -202,6 +223,27 @@ static const struct net_device_ops enetc_ndev_ops = {
 	.ndo_hwtstamp_set	= enetc_hwtstamp_set,
 };
 
+static void enetc_vf_get_revision(struct enetc_si *si)
+{
+	int ip_mn;
+
+	if (is_enetc_rev1(si)) {
+		si->revision = ENETC_REV_1_0;
+		return;
+	}
+
+	ip_mn = enetc_vf_get_ip_minor_revision(si);
+	if (ip_mn >= 0) {
+		si->revision = (si->pdev->revision << 8) | ip_mn;
+		return;
+	}
+
+	si->revision = ENETC_REV_4_1;
+	dev_info(&si->pdev->dev,
+		 "Failed to get revision, use compatible revision: 0x%04x\n",
+		 si->revision);
+}
+
 static void enetc_vf_netdev_setup(struct enetc_si *si, struct net_device *ndev,
 				  const struct net_device_ops *ndev_ops)
 {
@@ -252,6 +294,7 @@ static int enetc_vf_probe(struct pci_dev *pdev,
 			  const struct pci_device_id *ent)
 {
 	struct enetc_ndev_priv *priv;
+	struct enetc_msg_swbd msg;
 	struct net_device *ndev;
 	struct enetc_si *si;
 	int err;
@@ -261,13 +304,13 @@ static int enetc_vf_probe(struct pci_dev *pdev,
 		return dev_err_probe(&pdev->dev, err, "PCI probing failed\n");
 
 	si = pci_get_drvdata(pdev);
-	si->revision = ENETC_REV_1_0;
+	enetc_vf_get_revision(si);
 	si->ops = &enetc_vsi_ops;
 	err = enetc_get_driver_data(si);
 	if (err) {
 		dev_err_probe(&pdev->dev, err,
 			      "Could not get VF driver data\n");
-		goto err_alloc_netdev;
+		goto err_get_driver_data;
 	}
 
 	enetc_get_si_caps(si);
@@ -327,7 +370,10 @@ err_setup_cbdr:
 	si->ndev = NULL;
 	free_netdev(ndev);
 err_alloc_netdev:
+err_get_driver_data:
+	msg = si->msg;
 	enetc_pci_remove(pdev);
+	enetc_msg_dma_free(&pdev->dev, &msg);
 
 	return err;
 }

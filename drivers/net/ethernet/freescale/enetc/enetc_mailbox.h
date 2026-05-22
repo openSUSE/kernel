@@ -65,6 +65,9 @@
  * (blocking requests), and
  * 2) PSI_TX_control: PSIMSGSR[MC] - for PSI to VSI notification messages
  * (async mode)
+ *
+ * Note that for some GET messages, there is no COOKIE field, and the CLASS
+ * CODE field is expanded to 8 bits.
  */
 
 #ifndef __ENETC_MAILBOX_H
@@ -84,6 +87,8 @@
 /* The fileds of PSI-to-VSI message, the message is only 16-bit */
 #define ENETC_PF_MSG_COOKIE			GENMASK(3, 0)
 #define ENETC_PF_MSG_CLASS_CODE			GENMASK(7, 4)
+/* Extend the class code to 8-bit for GET messages without COOKIE */
+#define ENETC_PF_MSG_CLASS_CODE_U8		GENMASK(7, 0)
 #define ENETC_PF_MSG_CLASS_ID			GENMASK(15, 8)
 
 enum enetc_msg_class_id {
@@ -102,10 +107,15 @@ enum enetc_msg_class_id {
 
 	/* Common Class ID for PSI-to-VSI and VSI-to-PSI messages */
 	ENETC_MSG_CLASS_ID_MAC_FILTER		= 0x20,
+	ENETC_MSG_CLASS_ID_IP_REVISION		= 0xf0,
 };
 
 enum enetc_msg_mac_filter_cmd_id {
 	ENETC_MSG_SET_PRIMARY_MAC,
+};
+
+enum enetc_msg_ip_revision_cmd_id {
+	ENETC_MSG_GET_IP_MN			= 1,
 };
 
 /* Class-specific error return codes of MAC filter */
@@ -146,6 +156,15 @@ struct enetc_msg_mac_exact_filter {
 	u8 mac_cnt; /* No need to set for cmd_id 0 */
 	u8 resv[3];
 	struct enetc_mac_addr mac[];
+};
+
+/* The generic message format applies to the following messages:
+ * Get IP revision message, class_id 0xf0.
+ * cmd_id 1: get IP minor revision
+ */
+struct enetc_msg_generic {
+	struct enetc_msg_header hdr;
+	u8 resv[16];
 };
 
 #endif

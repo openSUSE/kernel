@@ -101,6 +101,21 @@ static u16 enetc_msg_handle_mac_filter(struct enetc_pf *pf, int vf_id,
 	}
 }
 
+static u16 enetc_msg_handle_ip_revision(struct enetc_pf *pf, void *vf_msg)
+{
+	struct enetc_msg_header *msg_hdr = vf_msg;
+
+	switch (msg_hdr->cmd_id) {
+	case ENETC_MSG_GET_IP_MN:
+		return (FIELD_PREP(ENETC_PF_MSG_CLASS_ID,
+				   ENETC_MSG_CLASS_ID_IP_REVISION) |
+			FIELD_PREP(ENETC_PF_MSG_CLASS_CODE_U8,
+				   pf->si->revision));
+	default:
+		return ENETC_PF_MSG_NOTSUPP;
+	}
+}
+
 static void enetc_msg_handle_rxmsg(struct enetc_pf *pf, int vf_id,
 				   u16 *pf_msg)
 {
@@ -158,9 +173,23 @@ static void enetc_msg_handle_rxmsg(struct enetc_pf *pf, int vf_id,
 		goto free_msg;
 	}
 
+	/* The new messages are currently only supported on ENETC v4. If v1
+	 * requires them, the current restriction can be lifted.
+	 */
+	if (is_enetc_rev1(pf->si) &&
+	    !(msg_hdr->class_id == ENETC_MSG_CLASS_ID_MAC_FILTER &&
+	      msg_hdr->cmd_id == ENETC_MSG_SET_PRIMARY_MAC)) {
+		dev_err_ratelimited(dev, "Unsupported message for ENETC v1\n");
+
+		goto free_msg;
+	}
+
 	switch (msg_hdr->class_id) {
 	case ENETC_MSG_CLASS_ID_MAC_FILTER:
 		*pf_msg = enetc_msg_handle_mac_filter(pf, vf_id, msg);
+		break;
+	case ENETC_MSG_CLASS_ID_IP_REVISION:
+		*pf_msg = enetc_msg_handle_ip_revision(pf, msg);
 		break;
 	default:
 		dev_err_ratelimited(dev,
