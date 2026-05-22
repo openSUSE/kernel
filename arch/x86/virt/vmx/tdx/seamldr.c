@@ -350,3 +350,19 @@ out:
 	return ret;
 }
 EXPORT_SYMBOL_FOR_MODULES(seamldr_install_module, "tdx-host");
+
+/*
+ * stop_machine() does not interrupt preemption-disabled regions.
+ * Simply disabling preempt prevents updates.
+ */
+void seamldr_lock_module_update(void)
+{
+	preempt_disable();
+}
+EXPORT_SYMBOL_FOR_MODULES(seamldr_lock_module_update, "tdx-host");
+
+void seamldr_unlock_module_update(void)
+{
+	preempt_enable();
+}
+EXPORT_SYMBOL_FOR_MODULES(seamldr_unlock_module_update, "tdx-host");
