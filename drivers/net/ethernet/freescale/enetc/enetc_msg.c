@@ -189,7 +189,7 @@ static void enetc_msg_free_mbx(struct enetc_si *si, int idx)
 	memset(msg, 0, sizeof(*msg));
 }
 
-int enetc_msg_psi_init(struct enetc_pf *pf)
+static int enetc_msg_psi_init(struct enetc_pf *pf)
 {
 	struct enetc_si *si = pf->si;
 	int vector, i, err;
@@ -229,7 +229,7 @@ free_mbx:
 	return err;
 }
 
-void enetc_msg_psi_free(struct enetc_pf *pf)
+static void enetc_msg_psi_free(struct enetc_pf *pf)
 {
 	struct enetc_si *si = pf->si;
 	int i;
@@ -247,4 +247,40 @@ void enetc_msg_psi_free(struct enetc_pf *pf)
 
 	for (i = 0; i < pf->num_vfs; i++)
 		enetc_msg_free_mbx(si, i);
+}
+
+int enetc_sriov_configure(struct pci_dev *pdev, int num_vfs)
+{
+	struct enetc_si *si = pci_get_drvdata(pdev);
+	struct enetc_pf *pf = enetc_si_priv(si);
+	int err;
+
+	if (!num_vfs) {
+		pci_disable_sriov(pdev);
+		enetc_msg_psi_free(pf);
+		pf->num_vfs = 0;
+	} else {
+		pf->num_vfs = num_vfs;
+
+		err = enetc_msg_psi_init(pf);
+		if (err) {
+			dev_err(&pdev->dev, "enetc_msg_psi_init (%d)\n", err);
+			goto err_msg_psi;
+		}
+
+		err = pci_enable_sriov(pdev, num_vfs);
+		if (err) {
+			dev_err(&pdev->dev, "pci_enable_sriov err %d\n", err);
+			goto err_en_sriov;
+		}
+	}
+
+	return num_vfs;
+
+err_en_sriov:
+	enetc_msg_psi_free(pf);
+err_msg_psi:
+	pf->num_vfs = 0;
+
+	return err;
 }
