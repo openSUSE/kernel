@@ -1887,11 +1887,26 @@ int perf_session__peek_event(struct perf_session *session, off_t file_offset,
 	*event_ptr = NULL;
 
 	if (session->one_mmap && !session->header.needs_swap) {
-		event = file_offset - session->one_mmap_offset +
-			session->one_mmap_addr;
+		u64 offset_in_mmap;
 
-		/* Every event must at least contain its own header */
+		/* Validate offset with integer arithmetic to avoid pointer UB */
+		if ((u64)file_offset < session->one_mmap_offset)
+			return -1;
+
+		offset_in_mmap = (u64)file_offset - session->one_mmap_offset;
+
+		/* Use subtraction to avoid addition overflow */
+		if (offset_in_mmap >= session->one_mmap_size ||
+		    session->one_mmap_size - offset_in_mmap < sizeof(struct perf_event_header))
+			return -1;
+
+		event = session->one_mmap_addr + offset_in_mmap;
+
 		if (event->header.size < sizeof(struct perf_event_header))
+			return -1;
+
+		/* Ensure full event is within the mmap region */
+		if (session->one_mmap_size - offset_in_mmap < event->header.size)
 			return -1;
 	} else {
 		if (perf_data__is_pipe(session->data))
@@ -2560,6 +2575,14 @@ reader__mmap(struct reader *rd, struct perf_session *session)
 	if (session->one_mmap) {
 		session->one_mmap_addr = buf;
 		session->one_mmap_offset = rd->file_offset;
+		/*
+		 * mmap_size was set to the full file extent (data_offset +
+		 * data_size) but file_offset was shifted forward by
+		 * page_offset for page alignment.  Reduce by page_offset
+		 * so the bounds check reflects the file-backed portion
+		 * of the mapping — pages beyond the file cause SIGBUS.
+		 */
+		session->one_mmap_size = rd->mmap_size - page_offset;
 	}
 
 	return 0;
