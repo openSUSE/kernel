@@ -373,10 +373,9 @@ static bool squota_check_parent_usage(struct btrfs_fs_info *fs_info, struct btrf
 		    parent->excl_cmpr != excl_cmpr_sum || parent->rfer_cmpr != rfer_cmpr_sum);
 
 	WARN(mismatch,
-	     "parent squota qgroup %hu/%llu has mismatched usage from its %d members. "
+	     "parent squota qgroup " BTRFS_QGROUP_FMT " has mismatched usage from its %d members. "
 	     "%llu %llu %llu %llu vs %llu %llu %llu %llu\n",
-	     btrfs_qgroup_level(parent->qgroupid),
-	     btrfs_qgroup_subvolid(parent->qgroupid), nr_members, parent->excl,
+	     BTRFS_QGROUP_FMT_VALUE(parent), nr_members, parent->excl,
 	     parent->rfer, parent->excl_cmpr, parent->rfer_cmpr, excl_sum,
 	     rfer_sum, excl_cmpr_sum, rfer_cmpr_sum);
 	return mismatch;
@@ -652,9 +651,8 @@ bool btrfs_check_quota_leak(const struct btrfs_fs_info *fs_info)
 			if (qgroup->rsv.values[i]) {
 				ret = true;
 				btrfs_warn(fs_info,
-		"qgroup %hu/%llu has unreleased space, type %d rsv %llu",
-				   btrfs_qgroup_level(qgroup->qgroupid),
-				   btrfs_qgroup_subvolid(qgroup->qgroupid),
+		"qgroup " BTRFS_QGROUP_FMT " has unreleased space, type %d rsv %llu",
+				   BTRFS_QGROUP_FMT_VALUE(qgroup),
 				   i, qgroup->rsv.values[i]);
 			}
 		}
@@ -1863,9 +1861,8 @@ int btrfs_remove_qgroup(struct btrfs_trans_handle *trans, u64 qgroupid)
 		     qgroup->rsv.values[BTRFS_QGROUP_RSV_META_PERTRANS])) {
 		DEBUG_WARN();
 		btrfs_warn_rl(fs_info,
-"to be deleted qgroup %u/%llu has non-zero numbers, data %llu meta prealloc %llu meta pertrans %llu",
-			      btrfs_qgroup_level(qgroup->qgroupid),
-			      btrfs_qgroup_subvolid(qgroup->qgroupid),
+"to be deleted qgroup " BTRFS_QGROUP_FMT " has non-zero numbers, data %llu meta prealloc %llu meta pertrans %llu",
+			      BTRFS_QGROUP_FMT_VALUE(qgroup),
 			      qgroup->rsv.values[BTRFS_QGROUP_RSV_DATA],
 			      qgroup->rsv.values[BTRFS_QGROUP_RSV_META_PREALLOC],
 			      qgroup->rsv.values[BTRFS_QGROUP_RSV_META_PERTRANS]);
@@ -1883,9 +1880,8 @@ int btrfs_remove_qgroup(struct btrfs_trans_handle *trans, u64 qgroupid)
 			     qgroup->rfer_cmpr || qgroup->excl_cmpr)) {
 			DEBUG_WARN();
 			qgroup_mark_inconsistent(fs_info,
-				"to be deleted qgroup %u/%llu has non-zero numbers, rfer %llu rfer_cmpr %llu excl %llu excl_cmpr %llu",
-				btrfs_qgroup_level(qgroup->qgroupid),
-				btrfs_qgroup_subvolid(qgroup->qgroupid),
+"to be deleted qgroup " BTRFS_QGROUP_FMT " has non-zero numbers, rfer %llu rfer_cmpr %llu excl %llu excl_cmpr %llu",
+				BTRFS_QGROUP_FMT_VALUE(qgroup),
 				qgroup->rfer, qgroup->rfer_cmpr,
 				qgroup->excl, qgroup->excl_cmpr);
 		}
@@ -4971,9 +4967,8 @@ int btrfs_record_squota_delta(struct btrfs_fs_info *fs_info,
 		ASSERT(qg->excl == qg->rfer);
 		if (WARN_ON_ONCE(sign < 0 && qg->excl < num_bytes)) {
 			btrfs_warn(fs_info,
-				   "squota underflow qg %hu/%llu excl %llu num_bytes %llu",
-				   btrfs_qgroup_level(qg->qgroupid),
-				   btrfs_qgroup_subvolid(qg->qgroupid),
+				   "squota underflow qg " BTRFS_QGROUP_FMT " excl %llu num_bytes %llu",
+				   BTRFS_QGROUP_FMT_VALUE(qg),
 				   qg->excl, num_bytes);
 			qg->excl = 0;
 			qg->rfer = 0;
