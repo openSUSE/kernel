@@ -314,14 +314,6 @@ static void radeon_connector_get_edid(struct drm_connector *connector)
 	}
 }
 
-static void radeon_connector_free_edid(struct drm_connector *connector)
-{
-	struct radeon_connector *radeon_connector = to_radeon_connector(connector);
-
-	kfree(radeon_connector->edid);
-	radeon_connector->edid = NULL;
-}
-
 static int radeon_ddc_get_modes(struct drm_connector *connector)
 {
 	struct radeon_connector *radeon_connector = to_radeon_connector(connector);
@@ -895,7 +887,9 @@ static void radeon_connector_destroy(struct drm_connector *connector)
 {
 	struct radeon_connector *radeon_connector = to_radeon_connector(connector);
 
-	radeon_connector_free_edid(connector);
+	drm_edid_free(radeon_connector->edid);
+	radeon_connector->edid = NULL;
+
 	kfree(radeon_connector->con_priv);
 	drm_connector_unregister(connector);
 	drm_connector_cleanup(connector);
@@ -1007,7 +1001,8 @@ radeon_vga_detect(struct drm_connector *connector, bool force)
 		dret = radeon_ddc_probe(radeon_connector, false);
 	if (dret) {
 		radeon_connector->detected_by_load = false;
-		radeon_connector_free_edid(connector);
+		drm_edid_free(radeon_connector->edid);
+		radeon_connector->edid = NULL;
 		radeon_connector_get_edid(connector);
 
 		if (!radeon_connector->edid) {
@@ -1022,7 +1017,8 @@ radeon_vga_detect(struct drm_connector *connector, bool force)
 			 * with a shared ddc line (often vga + hdmi)
 			 */
 			if (radeon_connector->use_digital && radeon_connector->shared_ddc) {
-				radeon_connector_free_edid(connector);
+				drm_edid_free(radeon_connector->edid);
+				radeon_connector->edid = NULL;
 				ret = connector_status_disconnected;
 			} else {
 				ret = connector_status_connected;
@@ -1251,7 +1247,8 @@ radeon_dvi_detect(struct drm_connector *connector, bool force)
 	}
 	if (dret) {
 		radeon_connector->detected_by_load = false;
-		radeon_connector_free_edid(connector);
+		drm_edid_free(radeon_connector->edid);
+		radeon_connector->edid = NULL;
 		radeon_connector_get_edid(connector);
 
 		if (!radeon_connector->edid) {
@@ -1277,7 +1274,8 @@ radeon_dvi_detect(struct drm_connector *connector, bool force)
 			 * with a shared ddc line (often vga + hdmi)
 			 */
 			if ((!radeon_connector->use_digital) && radeon_connector->shared_ddc) {
-				radeon_connector_free_edid(connector);
+				drm_edid_free(radeon_connector->edid);
+				radeon_connector->edid = NULL;
 				ret = connector_status_disconnected;
 			} else {
 				ret = connector_status_connected;
@@ -1301,7 +1299,8 @@ radeon_dvi_detect(struct drm_connector *connector, bool force)
 						if (list_connector->connector_type != DRM_MODE_CONNECTOR_VGA) {
 							/* hpd is our only option in this case */
 							if (!radeon_hpd_sense(rdev, radeon_connector->hpd.hpd)) {
-								radeon_connector_free_edid(connector);
+								drm_edid_free(radeon_connector->edid);
+								radeon_connector->edid = NULL;
 								ret = connector_status_disconnected;
 							}
 						}
@@ -1635,7 +1634,8 @@ radeon_dp_detect(struct drm_connector *connector, bool force)
 		goto out;
 	}
 
-	radeon_connector_free_edid(connector);
+	drm_edid_free(radeon_connector->edid);
+	radeon_connector->edid = NULL;
 
 	if ((connector->connector_type == DRM_MODE_CONNECTOR_eDP) ||
 	    (connector->connector_type == DRM_MODE_CONNECTOR_LVDS)) {
