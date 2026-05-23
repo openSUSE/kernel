@@ -80,7 +80,6 @@ struct af_alg_rsgl {
 
 /**
  * struct af_alg_async_req - definition of crypto request
- * @iocb:		IOCB for AIO operations
  * @sk:			Socket the request is associated with
  * @first_rsgl:		First RX SG
  * @last_rsgl:		Pointer to last RX SG
@@ -92,7 +91,6 @@ struct af_alg_rsgl {
  * @cra_u:		Cipher request
  */
 struct af_alg_async_req {
-	struct kiocb *iocb;
 	struct sock *sk;
 
 	struct af_alg_rsgl first_rsgl;
@@ -138,7 +136,7 @@ struct af_alg_async_req {
  * @write:		True if we are in the middle of a write.
  * @init:		True if metadata has been sent.
  * @len:		Length of memory allocated for this data structure.
- * @inflight:		Non-zero when AIO requests are in flight.
+ * @inflight:		Non-zero when requests are in flight, for debugging only.
  */
 struct af_alg_ctx {
 	struct list_head tsgl_list;
@@ -237,7 +235,6 @@ int af_alg_wait_for_data(struct sock *sk, unsigned flags, unsigned min);
 int af_alg_sendmsg(struct socket *sock, struct msghdr *msg, size_t size,
 		   unsigned int ivsize);
 void af_alg_free_resources(struct af_alg_async_req *areq);
-void af_alg_async_cb(void *data, int err);
 __poll_t af_alg_poll(struct file *file, struct socket *sock,
 			 poll_table *wait);
 struct af_alg_async_req *af_alg_alloc_areq(struct sock *sk,
