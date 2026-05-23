@@ -662,7 +662,6 @@ static int cs35l56_shared_test_case_base_init(struct kunit *test, u8 type, u8 re
 
 	test->priv = priv;
 	priv->test = test;
-	priv->reg_offset = regmap_config->reg_base;
 
 	/* Create dummy amp driver dev */
 	priv->amp_dev = faux_device_create("cs35l56_shared_test_drv", NULL, NULL);
