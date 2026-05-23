@@ -280,9 +280,10 @@ struct lpfc_queue {
 	uint64_t isr_timestamp;
 	struct lpfc_queue *assoc_qp;
 	struct list_head _poll_list;
-	void **q_pgs;	/* array to index entries per page */
 
 	enum lpfc_poll_mode poll_mode;
+
+	void *q_pgs[];	/* array to index entries per page */
 };
 
 struct lpfc_sli4_link {

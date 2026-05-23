@@ -15875,7 +15875,7 @@ lpfc_sli4_queue_alloc(struct lpfc_hba *phba, uint32_t page_size,
 	if (pgcnt > phba->sli4_hba.pc_sli4_params.wqpcnt)
 		pgcnt = phba->sli4_hba.pc_sli4_params.wqpcnt;
 
-	queue = kzalloc_node(sizeof(*queue) + (sizeof(void *) * pgcnt),
+	queue = kzalloc_node(struct_size(queue, q_pgs, pgcnt),
 			     GFP_KERNEL, cpu_to_node(cpu));
 	if (!queue)
 		return NULL;
@@ -15892,7 +15892,6 @@ lpfc_sli4_queue_alloc(struct lpfc_hba *phba, uint32_t page_size,
 	 * resources, the free routine needs to know what was allocated.
 	 */
 	queue->page_count = pgcnt;
-	queue->q_pgs = (void **)&queue[1];
 	queue->entry_cnt_per_pg = hw_page_size / entry_size;
 	queue->entry_size = entry_size;
 	queue->entry_count = entry_count;
