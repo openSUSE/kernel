@@ -34,14 +34,25 @@ struct acpi_gtdt_descriptor {
 	void *platform_timer;
 };
 
+struct gtdt_v3 {
+	struct acpi_table_gtdt	gtdt_v2;
+	struct acpi_gtdt_el2	el2_vtimer;
+};
+
 static struct acpi_gtdt_descriptor acpi_gtdt_desc __initdata;
 
 static __init bool platform_timer_valid(void *platform_timer)
 {
 	struct acpi_gtdt_header *gh = platform_timer;
+	void *platform_timer_begin;
 
-	return (platform_timer >= (void *)(acpi_gtdt_desc.gtdt + 1) &&
-		platform_timer < acpi_gtdt_desc.gtdt_end &&
+	if (acpi_gtdt_desc.gtdt->header.revision >= 3)
+		platform_timer_begin = container_of(acpi_gtdt_desc.gtdt, struct gtdt_v3, gtdt_v2) + 1;
+	else
+		platform_timer_begin = acpi_gtdt_desc.gtdt + 1;
+
+	return (platform_timer >= platform_timer_begin &&
+		platform_timer + sizeof(*gh) <= acpi_gtdt_desc.gtdt_end &&
 		gh->length != 0 &&
 		platform_timer + gh->length <= acpi_gtdt_desc.gtdt_end);
 }
@@ -166,6 +177,13 @@ int __init acpi_gtdt_init(struct acpi_table_header *table,
 	u32 cnt = 0;
 
 	gtdt = container_of(table, struct acpi_table_gtdt, header);
+
+	if ((gtdt->header.revision >= 3 && gtdt->header.length < sizeof(struct gtdt_v3)) ||
+	    (gtdt->header.revision == 2 && gtdt->header.length < sizeof(*gtdt))) {
+		pr_err(FW_BUG "GTDT with invalid size %d\n", gtdt->header.length);
+		return -EINVAL;
+	}
+
 	acpi_gtdt_desc.gtdt = gtdt;
 	acpi_gtdt_desc.gtdt_end = (void *)table + table->length;
 	acpi_gtdt_desc.platform_timer = NULL;
