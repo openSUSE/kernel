@@ -28,8 +28,8 @@ functionality than that. It actually provides access to all software algorithms.
 
 This includes arbitrary compositions of different algorithms created via a
 complex template system, as well as algorithms that only make sense as internal
-implementation details of other algorithms. It also includes full zero-copy
-support, which is difficult for the kernel to implement securely.
+implementation details of other algorithms. In the past, it also included full
+zero-copy support, which was difficult for the kernel to implement securely.
 
 Ultimately, these algorithms are just math computations. They use the same
 instructions that userspace programs already have access to, just accessed in a
@@ -37,6 +37,21 @@ much more convoluted and less efficient way.
 
 Indeed, userspace code is nearly always what is being used anyway. These same
 algorithms are widely implemented in userspace crypto libraries.
+
+Even when zero-copy and off-CPU accelerators were supported, AF_ALG was usually
+much slower than optimized software cryptography in userspace. This was
+especially true for the small message sizes usually seen in performance-critical
+workloads. While it was possible to demonstrate performance wins for hashing
+large files on embedded devices, it is hard to imagine a situation where this
+would be performance-critical.
+
+Nowadays, AF_ALG no longer supports zero-copy or off-CPU accelerators.
+Therefore, it is *always* slower than an optimized userspace implementation,
+even for large messages. The only possible advantage left is that it avoids
+duplicating code between kernel and userspace. However, userspace
+implementations, especially hardware-accelerated ones, do not need to be large.
+Just because OpenSSL is huge does not mean that all userspace cryptography
+libraries are.
 
 Meanwhile, AF_ALG hasn't been withstanding modern vulnerability discovery tools
 such as syzbot and large language models. It receives a steady stream of CVEs.
