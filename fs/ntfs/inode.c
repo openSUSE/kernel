@@ -939,7 +939,9 @@ view_index_meta:
 		}
 		ir = (struct index_root *)((u8 *)a +
 				le16_to_cpu(a->data.resident.value_offset));
-		if (ntfs_index_root_inconsistent(ni->vol, a, ir, ni->mft_no)) {
+		if (ntfs_index_root_inconsistent(ni->vol, a, ir, ni->mft_no) ||
+		    ntfs_index_entries_inconsistent(ni->vol, &ir->index,
+						    ir->collation_rule, ni->mft_no)) {
 			ntfs_error(vi->i_sb, "Directory index is corrupt.");
 			goto unm_err_out;
 		}
@@ -1529,7 +1531,9 @@ static int ntfs_read_locked_index_inode(struct inode *base_vi, struct inode *vi)
 	}
 
 	ir = (struct index_root *)((u8 *)a + le16_to_cpu(a->data.resident.value_offset));
-	if (ntfs_index_root_inconsistent(vol, a, ir, ni->mft_no)) {
+	if (ntfs_index_root_inconsistent(vol, a, ir, ni->mft_no) ||
+	    ntfs_index_entries_inconsistent(vol, &ir->index,
+					    ir->collation_rule, ni->mft_no)) {
 		ntfs_error(vi->i_sb, "Index is corrupt.");
 		goto unm_err_out;
 	}
