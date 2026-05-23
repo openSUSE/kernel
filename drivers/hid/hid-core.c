@@ -2072,8 +2072,8 @@ int hid_report_raw_event(struct hid_device *hid, enum hid_report_type type, u8 *
 		rsize = max_buffer_size;
 
 	if (bsize < rsize) {
-		hid_warn_ratelimited(hid, "Event data for report %d was too short (%d vs %ld)\n",
-				     report->id, rsize, bsize);
+		hid_dbg_ratelimited(hid, "Event data for report %d was too short (%d vs %ld)\n",
+				    report->id, rsize, bsize);
 		return -EINVAL;
 	}
 
