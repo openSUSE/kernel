@@ -41,7 +41,7 @@ struct af_alg_control {
 };
 
 struct af_alg_type {
-	void *(*bind)(const char *name, u32 type, u32 mask);
+	void *(*bind)(const char *name);
 	void (*release)(void *private);
 	int (*setkey)(void *private, const u8 *key, unsigned int keylen);
 	int (*setentropy)(void *private, sockptr_t entropy, unsigned int len);
@@ -242,5 +242,17 @@ struct af_alg_async_req *af_alg_alloc_areq(struct sock *sk,
 int af_alg_get_rsgl(struct sock *sk, struct msghdr *msg, int flags,
 		    struct af_alg_async_req *areq, size_t maxsize,
 		    size_t *outlen);
+
+/*
+ * Mask used to disable unsupported algorithm implementations.
+ *
+ * This is the same as FSCRYPT_CRYPTOAPI_MASK in fs/crypto/fscrypt_private.h.
+ * In additions to the motivations there, this API is exposed to userspace
+ * that might not be fully trusted.
+ */
+#define AF_ALG_CRYPTOAPI_MASK                             \
+	(CRYPTO_ALG_ASYNC | CRYPTO_ALG_ALLOCATES_MEMORY | \
+	 CRYPTO_ALG_KERN_DRIVER_ONLY)
+
 
 #endif	/* _CRYPTO_IF_ALG_H */

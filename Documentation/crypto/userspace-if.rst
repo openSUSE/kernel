@@ -9,7 +9,8 @@ symmetric cipher, AEAD, and RNG algorithms that are implemented in kernel-mode
 code.
 
 AF_ALG is insecure and is deprecated. Originally added to the kernel in 2010,
-most kernel developers now consider it to be a mistake.
+most kernel developers now consider it to be a mistake. Support for hardware
+accelerators, which was the original purpose of AF_ALG, has been removed.
 
 AF_ALG continues to be supported only for backwards compatibility. On systems
 where no programs using AF_ALG remain, the support for it should be disabled by
@@ -58,6 +59,10 @@ Some of the examples include:
 - CVE-2014-9644
 - CVE-2013-7421
 - CVE-2011-4081
+
+Hardware accelerator drivers are frequently buggy. To reduce attack surface,
+AF_ALG now only provides access to algorithms implemented in software. This
+means that AF_ALG no longer fulfills its original purpose.
 
 It is recommended that, whenever possible, userspace programs be migrated to
 userspace crypto code (which again, is what is normally used anyway) and

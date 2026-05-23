@@ -342,9 +342,9 @@ static struct proto_ops algif_aead_ops_nokey = {
 	.poll		=	af_alg_poll,
 };
 
-static void *aead_bind(const char *name, u32 type, u32 mask)
+static void *aead_bind(const char *name)
 {
-	return crypto_alloc_aead(name, type, mask);
+	return crypto_alloc_aead(name, 0, AF_ALG_CRYPTOAPI_MASK);
 }
 
 static void aead_release(void *private)

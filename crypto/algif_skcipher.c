@@ -307,9 +307,9 @@ static struct proto_ops algif_skcipher_ops_nokey = {
 	.poll		=	af_alg_poll,
 };
 
-static void *skcipher_bind(const char *name, u32 type, u32 mask)
+static void *skcipher_bind(const char *name)
 {
-	return crypto_alloc_skcipher(name, type, mask);
+	return crypto_alloc_skcipher(name, 0, AF_ALG_CRYPTOAPI_MASK);
 }
 
 static void skcipher_release(void *private)
