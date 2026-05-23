@@ -2230,6 +2230,7 @@ static s64 perf_session__process_user_event(struct perf_session *session,
 {
 	struct ordered_events *oe = &session->ordered_events;
 	const struct perf_tool *tool = session->tool;
+	const u32 event_size = READ_ONCE(event->header.size);
 	struct perf_sample sample;
 	int fd = perf_data__fd(session->data);
 	s64 err;
@@ -2271,7 +2272,7 @@ static s64 perf_session__process_user_event(struct perf_session *session,
 		break;
 	case PERF_RECORD_HEADER_BUILD_ID:
 		if (!perf_event__check_nul(event->build_id.filename,
-					   (void *)event + event->header.size,
+					   (void *)event + event_size,
 					   "HEADER_BUILD_ID")) {
 			err = 0;
 			break;
@@ -2294,7 +2295,7 @@ static s64 perf_session__process_user_event(struct perf_session *session,
 		 * place already.
 		 */
 		if (!perf_data__is_pipe(session->data))
-			lseek(fd, file_offset + event->header.size, SEEK_SET);
+			lseek(fd, file_offset + event_size, SEEK_SET);
 		err = tool->auxtrace(tool, session, event);
 		break;
 	case PERF_RECORD_AUXTRACE_ERROR:
@@ -2304,14 +2305,14 @@ static s64 perf_session__process_user_event(struct perf_session *session,
 	case PERF_RECORD_THREAD_MAP: {
 		u64 max_nr;
 
-		if (event->header.size < sizeof(event->thread_map)) {
+		if (event_size < sizeof(event->thread_map)) {
 			pr_err("PERF_RECORD_THREAD_MAP: header.size (%u) too small\n",
-			       event->header.size);
+			       event_size);
 			err = -EINVAL;
 			break;
 		}
 
-		max_nr = (event->header.size - sizeof(event->thread_map)) /
+		max_nr = (event_size - sizeof(event->thread_map)) /
 			 sizeof(event->thread_map.entries[0]);
 		if (event->thread_map.nr > max_nr) {
 			pr_err("PERF_RECORD_THREAD_MAP: nr %" PRIu64 " exceeds max %" PRIu64 "\n",
@@ -2325,7 +2326,7 @@ static s64 perf_session__process_user_event(struct perf_session *session,
 	}
 	case PERF_RECORD_CPU_MAP: {
 		struct perf_record_cpu_map_data *data = &event->cpu_map.data;
-		u32 payload = event->header.size - sizeof(event->header);
+		u32 payload = event_size - sizeof(event->header);
 
 		/*
 		 * Native-endian events are mmap'd read-only, so we
@@ -2389,8 +2390,8 @@ static s64 perf_session__process_user_event(struct perf_session *session,
 		break;
 	}
 	case PERF_RECORD_STAT_CONFIG: {
-		/* Cannot underflow: perf_event__min_size[] guarantees header.size >= sizeof */
-		u64 max_nr = (event->header.size - sizeof(event->stat_config)) /
+		/* Cannot underflow: perf_event__min_size[] guarantees event_size >= sizeof */
+		u64 max_nr = (event_size - sizeof(event->stat_config)) /
 			     sizeof(event->stat_config.data[0]);
 
 		/*
@@ -2421,7 +2422,7 @@ static s64 perf_session__process_user_event(struct perf_session *session,
 		 */
 		memset(&session->time_conv, 0, sizeof(session->time_conv));
 		memcpy(&session->time_conv, &event->time_conv,
-		       min((size_t)event->header.size, sizeof(session->time_conv)));
+		       min((size_t)event_size, sizeof(session->time_conv)));
 		err = tool->time_conv(tool, session, event);
 		break;
 	case PERF_RECORD_HEADER_FEATURE:
@@ -2438,11 +2439,10 @@ static s64 perf_session__process_user_event(struct perf_session *session,
 		break;
 	case PERF_RECORD_BPF_METADATA: {
 		u64 nr_entries, max_entries;
-		u32 hdr_size = READ_ONCE(event->header.size);
 
-		if (hdr_size < sizeof(event->bpf_metadata)) {
+		if (event_size < sizeof(event->bpf_metadata)) {
 			pr_warning("WARNING: PERF_RECORD_BPF_METADATA: header.size (%u) too small, skipping\n",
-				   hdr_size);
+				   event_size);
 			err = 0;
 			break;
 		}
@@ -2458,9 +2458,8 @@ static s64 perf_session__process_user_event(struct perf_session *session,
 			break;
 		}
 
-		/* Snapshot — event is mmap'd and could change between reads */
 		nr_entries = READ_ONCE(event->bpf_metadata.nr_entries);
-		max_entries = (hdr_size - sizeof(event->bpf_metadata)) /
+		max_entries = (event_size - sizeof(event->bpf_metadata)) /
 			      sizeof(event->bpf_metadata.entries[0]);
 		if (nr_entries > max_entries) {
 			pr_warning("WARNING: PERF_RECORD_BPF_METADATA: nr_entries %" PRIu64 " exceeds max %" PRIu64 ", skipping\n",
