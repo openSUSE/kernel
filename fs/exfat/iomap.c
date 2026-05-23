@@ -12,6 +12,32 @@
 #include "exfat_fs.h"
 #include "iomap.h"
 
+/*
+ * exfat_file_write_dio_end_io - Direct I/O write completion handler
+ *
+ * Updates i_size if the write extended the file. Called from the dio layer
+ * after I/O completion.
+ */
+static int exfat_file_write_dio_end_io(struct kiocb *iocb, ssize_t size,
+		int error, unsigned int flags)
+{
+	struct inode *inode = file_inode(iocb->ki_filp);
+
+	if (error)
+		return error;
+
+	if (size && i_size_read(inode) < iocb->ki_pos + size) {
+		i_size_write(inode, iocb->ki_pos + size);
+		mark_inode_dirty(inode);
+	}
+
+	return 0;
+}
+
+const struct iomap_dio_ops exfat_write_dio_ops = {
+	.end_io		= exfat_file_write_dio_end_io,
+};
+
 static int __exfat_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 		unsigned int flags, struct iomap *iomap, bool may_alloc)
 {
