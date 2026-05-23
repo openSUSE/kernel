@@ -315,7 +315,6 @@ struct it66121_chip_info {
 struct it66121_ctx {
 	struct regmap *regmap;
 	struct drm_bridge bridge;
-	struct drm_connector *connector;
 	struct device *dev;
 	struct gpio_desc *gpio_reset;
 	struct i2c_client *client;
@@ -668,6 +667,58 @@ static int it66121_bridge_attach(struct drm_bridge *bridge,
 	return 0;
 }
 
+static void it66121_set_mode(struct it66121_ctx *ctx,
+			     struct drm_connector *connector,
+			     struct drm_atomic_commit *state)
+{
+	const struct drm_connector_state *conn_state;
+	const struct drm_crtc_state *crtc_state;
+	const struct drm_display_mode *mode;
+	struct drm_crtc *crtc;
+
+	conn_state = drm_atomic_get_new_connector_state(state, connector);
+	if (WARN_ON(!conn_state))
+		return;
+
+	crtc = conn_state->crtc;
+	if (WARN_ON(!crtc))
+		return;
+
+	crtc_state = drm_atomic_get_new_crtc_state(state, crtc);
+	if (WARN_ON(!crtc_state))
+		return;
+
+	mode = &crtc_state->adjusted_mode;
+
+	mutex_lock(&ctx->lock);
+
+	/* Set TX mode to HDMI */
+	if (regmap_write(ctx->regmap, IT66121_HDMI_MODE_REG, IT66121_HDMI_MODE_HDMI))
+		goto unlock;
+
+	if ((ctx->id == ID_IT66121 || ctx->id == ID_IT66122) &&
+	    regmap_write_bits(ctx->regmap, IT66121_CLK_BANK_REG,
+			      IT66121_CLK_BANK_PWROFF_TXCLK,
+			      IT66121_CLK_BANK_PWROFF_TXCLK)) {
+		goto unlock;
+	}
+
+	if (it66121_configure_input(ctx))
+		goto unlock;
+
+	if (it66121_configure_afe(ctx, mode))
+		goto unlock;
+
+	if ((ctx->id == ID_IT66121 || ctx->id == ID_IT66122) &&
+	    regmap_write_bits(ctx->regmap, IT66121_CLK_BANK_REG,
+			      IT66121_CLK_BANK_PWROFF_TXCLK, 0)) {
+		goto unlock;
+	}
+
+unlock:
+	mutex_unlock(&ctx->lock);
+}
+
 static int it66121_set_mute(struct it66121_ctx *ctx, bool mute)
 {
 	int ret;
@@ -740,13 +791,15 @@ static void it66121_bridge_enable(struct drm_bridge *bridge,
 				  struct drm_atomic_commit *state)
 {
 	struct it66121_ctx *ctx = container_of(bridge, struct it66121_ctx, bridge);
+	struct drm_connector *connector;
 
-	ctx->connector = drm_atomic_get_new_connector_for_encoder(state, bridge->encoder);
-	if (WARN_ON(!ctx->connector))
+	connector = drm_atomic_get_new_connector_for_encoder(state, bridge->encoder);
+	if (WARN_ON(!connector))
 		return;
 
-	drm_atomic_helper_connector_hdmi_update_infoframes(ctx->connector, state);
+	drm_atomic_helper_connector_hdmi_update_infoframes(connector, state);
 
+	it66121_set_mode(ctx, connector, state);
 	it66121_set_mute(ctx, false);
 }
 
@@ -756,8 +809,6 @@ static void it66121_bridge_disable(struct drm_bridge *bridge,
 	struct it66121_ctx *ctx = container_of(bridge, struct it66121_ctx, bridge);
 
 	it66121_set_mute(ctx, true);
-
-	ctx->connector = NULL;
 }
 
 static int it66121_bridge_check(struct drm_bridge *bridge,
@@ -776,42 +827,6 @@ static int it66121_bridge_check(struct drm_bridge *bridge,
 	}
 
 	return 0;
-}
-
-static
-void it66121_bridge_mode_set(struct drm_bridge *bridge,
-			     const struct drm_display_mode *mode,
-			     const struct drm_display_mode *adjusted_mode)
-{
-	struct it66121_ctx *ctx = container_of(bridge, struct it66121_ctx, bridge);
-
-	mutex_lock(&ctx->lock);
-
-	/* Set TX mode to HDMI */
-	if (regmap_write(ctx->regmap, IT66121_HDMI_MODE_REG, IT66121_HDMI_MODE_HDMI))
-		goto unlock;
-
-	if ((ctx->id == ID_IT66121 || ctx->id == ID_IT66122) &&
-	    regmap_write_bits(ctx->regmap, IT66121_CLK_BANK_REG,
-			      IT66121_CLK_BANK_PWROFF_TXCLK,
-			      IT66121_CLK_BANK_PWROFF_TXCLK)) {
-		goto unlock;
-	}
-
-	if (it66121_configure_input(ctx))
-		goto unlock;
-
-	if (it66121_configure_afe(ctx, adjusted_mode))
-		goto unlock;
-
-	if ((ctx->id == ID_IT66121 || ctx->id == ID_IT66122) &&
-	    regmap_write_bits(ctx->regmap, IT66121_CLK_BANK_REG,
-			      IT66121_CLK_BANK_PWROFF_TXCLK, 0)) {
-		goto unlock;
-	}
-
-unlock:
-	mutex_unlock(&ctx->lock);
 }
 
 static enum drm_connector_status
@@ -1532,7 +1547,6 @@ static const struct drm_bridge_funcs it66121_bridge_funcs = {
 	.atomic_enable = it66121_bridge_enable,
 	.atomic_disable = it66121_bridge_disable,
 	.atomic_check = it66121_bridge_check,
-	.mode_set = it66121_bridge_mode_set,
 	.detect = it66121_bridge_detect,
 	.edid_read = it66121_bridge_edid_read,
 	.hpd_enable = it66121_bridge_hpd_enable,
