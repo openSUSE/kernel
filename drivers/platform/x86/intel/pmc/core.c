@@ -623,7 +623,8 @@ static u32 convert_ltr_scale(u32 val)
 	 * ----------------------------------------------
 	 */
 	if (val > 5) {
-		pr_warn("Invalid LTR scale factor.\n");
+		pr_warn_once("Invalid LTR scale factor %u (only 0-5 are valid per PCIe spec)\n",
+			     val);
 		return 0;
 	}
 
