@@ -334,6 +334,8 @@
 		reg = <0x20>;
 		gpio-controller;
 		#gpio-cells = <2>;
+		interrupt-parent = <&gpio1>;
+		interrupts = <ASPEED_GPIO(B, 6) IRQ_TYPE_LEVEL_LOW>;
 
 		gpio-line-names =
 			"", "", "HMC_EROT_FATAL_ERROR_L-I", "",
@@ -552,6 +554,8 @@
 		reg = <0x38>;
 		gpio-controller;
 		#gpio-cells = <2>;
+		interrupt-parent = <&gpio1>;
+		interrupts = <ASPEED_GPIO(B, 6) IRQ_TYPE_LEVEL_LOW>;
 
 		gpio-line-names =
 			"SSD0_PRSNT_L-I", "E1S_PWR_EN-O",
