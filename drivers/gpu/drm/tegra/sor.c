@@ -23,10 +23,10 @@
 #include <drm/drm_debugfs.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_eld.h>
+#include <drm/drm_encoder.h>
 #include <drm/drm_file.h>
 #include <drm/drm_panel.h>
 #include <drm/drm_print.h>
-#include <drm/drm_simple_kms_helper.h>
 
 #include "dc.h"
 #include "dp.h"
@@ -3039,6 +3039,10 @@ static const struct tegra_sor_ops tegra_sor_dp_ops = {
 	.probe = tegra_sor_dp_probe,
 };
 
+static const struct drm_encoder_funcs tegra_sor_encoder_funcs_cleanup = {
+	.destroy = drm_encoder_cleanup,
+};
+
 static int tegra_sor_init(struct host1x_client *client)
 {
 	struct drm_device *drm = dev_get_drvdata(client->host);
@@ -3082,7 +3086,8 @@ static int tegra_sor_init(struct host1x_client *client)
 				 &tegra_sor_connector_helper_funcs);
 	sor->output.connector.dpms = DRM_MODE_DPMS_OFF;
 
-	drm_simple_encoder_init(drm, &sor->output.encoder, encoder);
+	drm_encoder_init(drm, &sor->output.encoder,
+			 &tegra_sor_encoder_funcs_cleanup, encoder, NULL);
 	drm_encoder_helper_add(&sor->output.encoder, helpers);
 
 	drm_connector_attach_encoder(&sor->output.connector,
