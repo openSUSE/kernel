@@ -67,12 +67,19 @@ enum {
 	MLX5_QP_RM_GO_BACK_N			= 0x1,
 };
 
+struct mlx5_rate_limit_ctx {
+	struct mlx5_rate_limit rl_old;
+	struct mlx5_rate_limit rl_desired;
+	u16 rl_desired_index;
+	bool rl_changed;
+};
+
 struct mlx5_modify_raw_qp_param {
 	u16 operation;
 
 	u32 set_mask; /* raw_qp_set_mask_map */
 
-	struct mlx5_rate_limit rl;
+	struct mlx5_rate_limit_ctx rl_ctx;
 
 	u8 rq_q_ctr_id;
 	u32 port;
@@ -3863,15 +3870,88 @@ out:
 	return err;
 }
 
+static int qp_rl_parse(struct mlx5_ib_dev *dev,
+		       const struct ib_qp_attr *attr,
+		       const struct mlx5_ib_modify_qp *ucmd,
+		       struct mlx5_rate_limit *rl_desired)
+{
+	rl_desired->rate = attr->rate_limit;
+
+	if (ucmd->burst_info.max_burst_sz) {
+		if (!attr->rate_limit ||
+		    !MLX5_CAP_QOS(dev->mdev, packet_pacing_burst_bound))
+			return -EINVAL;
+		rl_desired->max_burst_sz = ucmd->burst_info.max_burst_sz;
+	}
+
+	if (ucmd->burst_info.typical_pkt_sz) {
+		if (!attr->rate_limit ||
+		    !MLX5_CAP_QOS(dev->mdev, packet_pacing_typical_size))
+			return -EINVAL;
+		rl_desired->typical_pkt_sz = ucmd->burst_info.typical_pkt_sz;
+	}
+
+	return 0;
+}
+
+static int qp_rl_prepare(struct mlx5_ib_dev *dev,
+			 struct mlx5_ib_qp *qp, u16 op,
+			 struct mlx5_rate_limit_ctx *ctx)
+{
+	int err;
+
+	ctx->rl_old = qp->rl;
+
+	if (!qp->sq.wqe_cnt)
+		return 0;
+
+	if (op != MLX5_CMD_OP_RTR2RTS_QP &&
+	    op != MLX5_CMD_OP_RTS2RTS_QP)
+		return 0;
+
+	ctx->rl_changed = true;
+
+	if (ctx->rl_desired.rate) {
+		err = mlx5_rl_add_rate(dev->mdev, &ctx->rl_desired_index,
+				       &ctx->rl_desired);
+		if (err) {
+			pr_err("Failed configuring rate limit(err %d): rate %u, max_burst_sz %u, typical_pkt_sz %u\n",
+			       err, ctx->rl_desired.rate,
+			       ctx->rl_desired.max_burst_sz,
+			       ctx->rl_desired.typical_pkt_sz);
+			return err;
+		}
+	}
+
+	return 0;
+}
+
+static void qp_rl_rollback(struct mlx5_core_dev *dev,
+			   struct mlx5_rate_limit_ctx *ctx)
+{
+	if (ctx->rl_desired_index)
+		mlx5_rl_remove_rate(dev, &ctx->rl_desired);
+}
+
+static void qp_rl_commit(struct mlx5_core_dev *dev,
+			 struct mlx5_ib_qp *qp,
+			 struct mlx5_rate_limit_ctx *ctx)
+{
+	if (!ctx->rl_changed)
+		return;
+
+	if (ctx->rl_old.rate)
+		mlx5_rl_remove_rate(dev, &ctx->rl_old);
+
+	qp->rl = ctx->rl_desired;
+}
+
 static int modify_raw_packet_qp_sq(
 	struct mlx5_core_dev *dev, struct mlx5_ib_sq *sq, int new_state,
 	const struct mlx5_modify_raw_qp_param *raw_qp_param, struct ib_pd *pd)
 {
+	const struct mlx5_rate_limit_ctx *rl_ctx = &raw_qp_param->rl_ctx;
 	struct mlx5_ib_qp *ibqp = sq->base.container_mibqp;
-	struct mlx5_rate_limit old_rl = ibqp->rl;
-	struct mlx5_rate_limit new_rl = old_rl;
-	bool new_rate_added = false;
-	u16 rl_index = 0;
 	void *in;
 	void *sqc;
 	int inlen;
@@ -3889,49 +3969,26 @@ static int modify_raw_packet_qp_sq(
 	MLX5_SET(sqc, sqc, state, new_state);
 
 	if (raw_qp_param->set_mask & MLX5_RAW_QP_RATE_LIMIT) {
-		if (new_state != MLX5_SQC_STATE_RDY)
+		if (new_state != MLX5_SQC_STATE_RDY) {
 			pr_warn("%s: Rate limit can only be changed when SQ is moving to RDY\n",
 				__func__);
-		else
-			new_rl = raw_qp_param->rl;
-	}
-
-	if (!mlx5_rl_are_equal(&old_rl, &new_rl)) {
-		if (new_rl.rate) {
-			err = mlx5_rl_add_rate(dev, &rl_index, &new_rl);
-			if (err) {
-				pr_err("Failed configuring rate limit(err %d): \
-				       rate %u, max_burst_sz %u, typical_pkt_sz %u\n",
-				       err, new_rl.rate, new_rl.max_burst_sz,
-				       new_rl.typical_pkt_sz);
-
-				goto out;
-			}
-			new_rate_added = true;
+		} else if (rl_ctx->rl_changed) {
+			MLX5_SET64(modify_sq_in, in, modify_bitmask, 1);
+			/* index 0 means no limit */
+			MLX5_SET(sqc, sqc, packet_pacing_rate_limit_index,
+				 rl_ctx->rl_desired_index);
 		}
-
-		MLX5_SET64(modify_sq_in, in, modify_bitmask, 1);
-		/* index 0 means no limit */
-		MLX5_SET(sqc, sqc, packet_pacing_rate_limit_index, rl_index);
 	}
 
 	err = mlx5_core_modify_sq(dev, sq->base.mqp.qpn, in);
-	if (err) {
-		/* Remove new rate from table if failed */
-		if (new_rate_added)
-			mlx5_rl_remove_rate(dev, &new_rl);
+	if (err)
 		goto out;
+
+	if (new_state != MLX5_SQC_STATE_RDY) {
+		mlx5_rl_remove_rate(dev, &ibqp->rl);
+		memset(&ibqp->rl, 0, sizeof(ibqp->rl));
 	}
 
-	/* Only remove the old rate after new rate was set */
-	if ((old_rl.rate && !mlx5_rl_are_equal(&old_rl, &new_rl)) ||
-	    (new_state != MLX5_SQC_STATE_RDY)) {
-		mlx5_rl_remove_rate(dev, &old_rl);
-		if (new_state != MLX5_SQC_STATE_RDY)
-			memset(&new_rl, 0, sizeof(new_rl));
-	}
-
-	ibqp->rl = new_rl;
 	sq->state = new_state;
 
 out:
@@ -4406,34 +4463,29 @@ static int __mlx5_ib_modify_qp(struct ib_qp *ibqp,
 			raw_qp_param.port = attr->port_num;
 
 		if (attr_mask & IB_QP_RATE_LIMIT) {
-			raw_qp_param.rl.rate = attr->rate_limit;
+			err = qp_rl_parse(dev, qp, attr, ucmd,
+					  &raw_qp_param.rl_ctx.rl_desired);
+			if (err)
+				goto out;
 
-			if (ucmd->burst_info.max_burst_sz) {
-				if (attr->rate_limit &&
-				    MLX5_CAP_QOS(dev->mdev, packet_pacing_burst_bound)) {
-					raw_qp_param.rl.max_burst_sz =
-						ucmd->burst_info.max_burst_sz;
-				} else {
-					err = -EINVAL;
+			if (!mlx5_rl_are_equal(&raw_qp_param.rl_ctx.rl_desired,
+					       &qp->rl)) {
+				err = qp_rl_prepare(dev, qp, op,
+						    &raw_qp_param.rl_ctx);
+				if (err)
 					goto out;
-				}
-			}
-
-			if (ucmd->burst_info.typical_pkt_sz) {
-				if (attr->rate_limit &&
-				    MLX5_CAP_QOS(dev->mdev, packet_pacing_typical_size)) {
-					raw_qp_param.rl.typical_pkt_sz =
-						ucmd->burst_info.typical_pkt_sz;
-				} else {
-					err = -EINVAL;
-					goto out;
-				}
 			}
 
 			raw_qp_param.set_mask |= MLX5_RAW_QP_RATE_LIMIT;
 		}
 
 		err = modify_raw_packet_qp(dev, qp, &raw_qp_param, tx_affinity);
+		if (err) {
+			qp_rl_rollback(dev->mdev, &raw_qp_param.rl_ctx);
+			goto out;
+		}
+
+		qp_rl_commit(dev->mdev, qp, &raw_qp_param.rl_ctx);
 	} else {
 		if (udata) {
 			/* For the kernel flows, the resp will stay zero */
