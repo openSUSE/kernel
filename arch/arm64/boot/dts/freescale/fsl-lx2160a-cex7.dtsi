@@ -4,8 +4,6 @@
 //
 // Copyright 2019 SolidRun Ltd.
 
-#include "fsl-lx2160a.dtsi"
-
 / {
 	model = "SolidRun LX2160A COM Express Type 7 module";
 	compatible = "solidrun,lx2160a-cex7", "fsl,lx2160a";
