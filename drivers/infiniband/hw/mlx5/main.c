@@ -1214,20 +1214,29 @@ static int mlx5_ib_query_device(struct ib_device *ibdev,
 		}
 	}
 
-	if (offsetofend(typeof(resp), packet_pacing_caps) <= uhw_outlen &&
-	    raw_support) {
-		if (MLX5_CAP_QOS(mdev, packet_pacing) &&
-		    MLX5_CAP_GEN(mdev, qos)) {
-			resp.packet_pacing_caps.qp_rate_limit_max =
-				MLX5_CAP_QOS(mdev, packet_pacing_max_rate);
-			resp.packet_pacing_caps.qp_rate_limit_min =
-				MLX5_CAP_QOS(mdev, packet_pacing_min_rate);
-			resp.packet_pacing_caps.supported_qpts |=
-				1 << IB_QPT_RAW_PACKET;
-			if (MLX5_CAP_QOS(mdev, packet_pacing_burst_bound) &&
-			    MLX5_CAP_QOS(mdev, packet_pacing_typical_size))
-				resp.packet_pacing_caps.cap_flags |=
-					MLX5_IB_PP_SUPPORT_BURST;
+	if (offsetofend(typeof(resp), packet_pacing_caps) <= uhw_outlen) {
+		if (MLX5_CAP_GEN(mdev, qos)) {
+			if (MLX5_CAP_QOS(mdev, packet_pacing) && raw_support)
+				resp.packet_pacing_caps.supported_qpts |=
+					BIT(IB_QPT_RAW_PACKET);
+			if (MLX5_CAP_QOS(mdev, packet_pacing_req_ud))
+				resp.packet_pacing_caps.supported_qpts |=
+					BIT(IB_QPT_UD);
+			if (MLX5_CAP_QOS(mdev, packet_pacing_req_uc))
+				resp.packet_pacing_caps.supported_qpts |=
+					BIT(IB_QPT_UC);
+
+			if (resp.packet_pacing_caps.supported_qpts) {
+				resp.packet_pacing_caps.qp_rate_limit_max =
+					MLX5_CAP_QOS(mdev, packet_pacing_max_rate);
+				resp.packet_pacing_caps.qp_rate_limit_min =
+					MLX5_CAP_QOS(mdev, packet_pacing_min_rate);
+
+				if (MLX5_CAP_QOS(mdev, packet_pacing_burst_bound) &&
+				    MLX5_CAP_QOS(mdev, packet_pacing_typical_size))
+					resp.packet_pacing_caps.cap_flags |=
+						MLX5_IB_PP_SUPPORT_BURST;
+			}
 		}
 		resp.response_length += sizeof(resp.packet_pacing_caps);
 	}
