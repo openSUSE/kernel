@@ -451,6 +451,10 @@ static int msm_dp_hpd_unplug_handle(struct msm_dp_display_private *dp)
 	if (!dp->plugged)
 		return 0;
 
+	/* Don't forget modes for eDP */
+	if (!dp->msm_dp_display.is_edp)
+		msm_dp_panel_unplugged(dp->panel, dp->msm_dp_display.connector);
+
 	/* triggered by irq_hdp with sink_count = 0 */
 	if (dp->link->sink_count == 0)
 		msm_dp_display_host_phy_exit(dp);
