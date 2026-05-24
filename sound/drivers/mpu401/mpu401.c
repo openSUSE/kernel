@@ -46,7 +46,7 @@ module_param_array(uart_enter, bool, NULL, 0444);
 MODULE_PARM_DESC(uart_enter, "Issue UART_ENTER command at open.");
 
 static struct platform_device *platform_devices[SNDRV_CARDS];
-static int pnp_registered;
+static int pnp_registered __ro_after_init;
 static unsigned int snd_mpu401_devices;
 
 static int snd_mpu401_create(struct device *devptr, int dev,
