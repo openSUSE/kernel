@@ -65,7 +65,7 @@
 		#size-cells = <0>;
 		reg = <0x77>;
 
-		i2c@0 {
+		ddr_i2c: i2c@0 {
 			#address-cells = <1>;
 			#size-cells = <0>;
 			reg = <0>;
@@ -91,7 +91,7 @@
 			};
 		};
 
-		i2c@1 {
+		fan_i2c: i2c@1 {
 			#address-cells = <1>;
 			#size-cells = <0>;
 			reg = <1>;
@@ -102,7 +102,7 @@
 			};
 		};
 
-		i2c@2 {
+		power_i2c: i2c@2 {
 			#address-cells = <1>;
 			#size-cells = <0>;
 			reg = <2>;
@@ -113,7 +113,7 @@
 			};
 		};
 
-		i2c@3 {
+		i2c_smb: i2c@3 {
 			#address-cells = <1>;
 			#size-cells = <0>;
 			reg = <3>;
