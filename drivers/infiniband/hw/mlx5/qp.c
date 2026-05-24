@@ -3976,7 +3976,11 @@ static void qp_rl_commit(struct mlx5_core_dev *dev,
 		if (qp->rl.rate)
 			mlx5_rl_remove_rate(dev, &qp->rl);
 		memset(&qp->rl, 0, sizeof(qp->rl));
+		memset(&qp->rl_desired, 0, sizeof(qp->rl_desired));
+		return;
 	}
+
+	qp->rl_desired = ctx->rl_desired;
 }
 
 static int modify_raw_packet_qp_sq(
@@ -4020,6 +4024,7 @@ static int modify_raw_packet_qp_sq(
 	if (new_state != MLX5_SQC_STATE_RDY) {
 		mlx5_rl_remove_rate(dev, &ibqp->rl);
 		memset(&ibqp->rl, 0, sizeof(ibqp->rl));
+		memset(&ibqp->rl_desired, 0, sizeof(ibqp->rl_desired));
 	}
 
 	sq->state = new_state;
@@ -4479,7 +4484,7 @@ static int __mlx5_ib_modify_qp(struct ib_qp *ibqp,
 		if (err)
 			goto out;
 	} else {
-		rl_ctx.rl_desired = qp->rl;
+		rl_ctx.rl_desired = qp->rl_desired;
 	}
 
 	op = optab[mlx5_cur][mlx5_new];
@@ -4863,6 +4868,13 @@ int mlx5_ib_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
 				    attr_mask);
 			goto out;
 		}
+	} else if (attr_mask == IB_QP_RATE_LIMIT && cur_state != IB_QPS_RTS) {
+		struct mlx5_rate_limit rl_desired = {};
+
+		err = qp_rl_parse(dev, qp, attr, &ucmd, &rl_desired);
+		if (!err)
+			qp->rl_desired = rl_desired;
+		goto out;
 	} else if (qp_type != MLX5_IB_QPT_REG_UMR &&
 		   qp_type != MLX5_IB_QPT_DCI &&
 		   !ib_modify_qp_is_ok(cur_state, new_state, qp_type,

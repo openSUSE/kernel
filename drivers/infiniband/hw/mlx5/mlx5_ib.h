@@ -540,6 +540,7 @@ struct mlx5_ib_qp {
 	struct list_head	cq_recv_list;
 	struct list_head	cq_send_list;
 	struct mlx5_rate_limit	rl;
+	struct mlx5_rate_limit	rl_desired;
 	u32                     underlay_qpn;
 	u32			flags_en;
 	/*
