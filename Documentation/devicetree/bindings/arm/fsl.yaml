@@ -1888,6 +1888,7 @@ properties:
           - enum:
               - solidrun,clearfog-cx
               - solidrun,honeycomb
+              - solidrun,twins-single
           - const: solidrun,lx2160a-cex7
           - const: fsl,lx2160a
 
