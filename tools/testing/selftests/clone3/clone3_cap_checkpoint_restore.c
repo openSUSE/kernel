@@ -87,15 +87,11 @@ static int test_clone3_set_tid(struct __test_metadata *_metadata,
 	return ret;
 }
 
-struct libcap {
-	struct __user_cap_header_struct hdr;
-	struct __user_cap_data_struct data[2];
-};
-
 static int set_capability(void)
 {
-	cap_value_t cap_values[] = { CAP_SETUID, CAP_SETGID };
-	struct libcap *cap;
+	cap_value_t cap_values[] = {
+		CAP_SETUID, CAP_SETGID, CAP_CHECKPOINT_RESTORE
+	};
 	int ret = -1;
 	cap_t caps;
 
@@ -111,14 +107,8 @@ static int set_capability(void)
 		goto out;
 	}
 
-	cap_set_flag(caps, CAP_EFFECTIVE, 2, cap_values, CAP_SET);
-	cap_set_flag(caps, CAP_PERMITTED, 2, cap_values, CAP_SET);
-
-	cap = (struct libcap *) caps;
-
-	/* 40 -> CAP_CHECKPOINT_RESTORE */
-	cap->data[1].effective |= 1 << (40 - 32);
-	cap->data[1].permitted |= 1 << (40 - 32);
+	cap_set_flag(caps, CAP_EFFECTIVE, 3, cap_values, CAP_SET);
+	cap_set_flag(caps, CAP_PERMITTED, 3, cap_values, CAP_SET);
 
 	if (cap_set_proc(caps)) {
 		perror("cap_set_proc");
