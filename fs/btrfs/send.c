@@ -17,6 +17,7 @@
 #include <linux/compat.h>
 #include <linux/crc32c.h>
 #include <linux/fsverity.h>
+#include <linux/cleanup.h>
 #include "send.h"
 #include "ctree.h"
 #include "backref.h"
@@ -72,6 +73,8 @@ struct fs_path {
 #define FS_PATH_INLINE_SIZE \
 	sizeof_field(struct fs_path, inline_buf)
 
+static void fs_path_free(struct fs_path *p);
+DEFINE_FREE(fs_path_free, struct fs_path *, fs_path_free(_T))
 
 /* reused for each extent */
 struct clone_root {
@@ -981,7 +984,7 @@ static int iterate_inode_ref(struct btrfs_root *root, struct btrfs_path *path,
 	struct btrfs_inode_ref *iref;
 	struct btrfs_inode_extref *extref;
 	BTRFS_PATH_AUTO_FREE(tmp_path);
-	struct fs_path *p;
+	struct fs_path *p __free(fs_path_free) = NULL;
 	u32 cur = 0;
 	u32 total;
 	int slot = path->slots[0];
@@ -998,11 +1001,8 @@ static int iterate_inode_ref(struct btrfs_root *root, struct btrfs_path *path,
 		return -ENOMEM;
 
 	tmp_path = alloc_path_for_send();
-	if (!tmp_path) {
-		fs_path_free(p);
+	if (!tmp_path)
 		return -ENOMEM;
-	}
-
 
 	if (found_key->type == BTRFS_INODE_REF_KEY) {
 		ptr = (unsigned long)btrfs_item_ptr(eb, slot,
@@ -1034,30 +1034,27 @@ static int iterate_inode_ref(struct btrfs_root *root, struct btrfs_path *path,
 			start = btrfs_ref_to_path(root, tmp_path, name_len,
 						  name_off, eb, dir,
 						  p->buf, p->buf_len);
-			if (IS_ERR(start)) {
-				ret = PTR_ERR(start);
-				goto out;
-			}
+			if (IS_ERR(start))
+				return PTR_ERR(start);
+
 			if (start < p->buf) {
 				/* overflow , try again with larger buffer */
 				ret = fs_path_ensure_buf(p,
 						p->buf_len + p->buf - start);
 				if (ret < 0)
-					goto out;
+					return ret;
 				start = btrfs_ref_to_path(root, tmp_path,
 							  name_len, name_off,
 							  eb, dir,
 							  p->buf, p->buf_len);
-				if (IS_ERR(start)) {
-					ret = PTR_ERR(start);
-					goto out;
-				}
+				if (IS_ERR(start))
+					return PTR_ERR(start);
+
 				if (unlikely(start < p->buf)) {
 					btrfs_err(root->fs_info,
 			  "send: path ref buffer underflow for key " BTRFS_KEY_FMT,
 						  BTRFS_KEY_FMT_VALUE(found_key));
-					ret = -EINVAL;
-					goto out;
+					return -EINVAL;
 				}
 			}
 			p->start = start;
@@ -1065,17 +1062,15 @@ static int iterate_inode_ref(struct btrfs_root *root, struct btrfs_path *path,
 			ret = fs_path_add_from_extent_buffer(p, eb, name_off,
 							     name_len);
 			if (ret < 0)
-				goto out;
+				return ret;
 		}
 
 		cur += elem_size + name_len;
 		ret = iterate(dir, p, ctx);
 		if (ret)
-			goto out;
+			return ret;
 	}
 
-out:
-	fs_path_free(p);
 	return ret;
 }
 
@@ -2028,7 +2023,7 @@ static int is_first_ref(struct btrfs_root *root,
 			const char *name, int name_len)
 {
 	int ret;
-	struct fs_path *tmp_name;
+	struct fs_path *tmp_name __free(fs_path_free) = NULL;
 	u64 tmp_dir;
 
 	tmp_name = fs_path_alloc();
@@ -2037,17 +2032,13 @@ static int is_first_ref(struct btrfs_root *root,
 
 	ret = get_first_ref(root, ino, &tmp_dir, NULL, tmp_name);
 	if (ret < 0)
-		goto out;
+		return ret;
 
-	if (dir != tmp_dir || name_len != fs_path_len(tmp_name)) {
-		ret = 0;
-		goto out;
-	}
+	if (dir != tmp_dir || name_len != fs_path_len(tmp_name))
+		return 0;
 
 	ret = !memcmp(tmp_name->start, name, name_len);
 
-out:
-	fs_path_free(tmp_name);
 	return ret;
 }
 
@@ -2196,13 +2187,13 @@ static int did_overwrite_ref(struct send_ctx *sctx,
  */
 static int did_overwrite_first_ref(struct send_ctx *sctx, u64 ino, u64 gen)
 {
-	int ret = 0;
-	struct fs_path *name = NULL;
+	int ret;
+	struct fs_path *name __free(fs_path_free) = NULL;
 	u64 dir;
 	u64 dir_gen;
 
 	if (!sctx->parent_root)
-		goto out;
+		return 0;
 
 	name = fs_path_alloc();
 	if (!name)
@@ -2210,14 +2201,10 @@ static int did_overwrite_first_ref(struct send_ctx *sctx, u64 ino, u64 gen)
 
 	ret = get_first_ref(sctx->parent_root, ino, &dir, &dir_gen, name);
 	if (ret < 0)
-		goto out;
+		return ret;
 
-	ret = did_overwrite_ref(sctx, dir, dir_gen, ino, gen,
-			name->start, fs_path_len(name));
-
-out:
-	fs_path_free(name);
-	return ret;
+	return did_overwrite_ref(sctx, dir, dir_gen, ino, gen,
+				 name->start, fs_path_len(name));
 }
 
 static inline struct name_cache_entry *name_cache_search(struct send_ctx *sctx,
@@ -2375,7 +2362,7 @@ static int get_cur_path(struct send_ctx *sctx, u64 ino, u64 gen,
 			struct fs_path *dest)
 {
 	int ret = 0;
-	struct fs_path *name = NULL;
+	struct fs_path *name __free(fs_path_free) = NULL;
 	u64 parent_inode = 0;
 	u64 parent_gen = 0;
 	int stop = 0;
@@ -2389,10 +2376,8 @@ static int get_cur_path(struct send_ctx *sctx, u64 ino, u64 gen,
 	}
 
 	name = fs_path_alloc();
-	if (!name) {
-		ret = -ENOMEM;
-		goto out;
-	}
+	if (!name)
+		return -ENOMEM;
 
 	dest->reversed = 1;
 	fs_path_reset(dest);
@@ -2437,7 +2422,6 @@ static int get_cur_path(struct send_ctx *sctx, u64 ino, u64 gen,
 	}
 
 out:
-	fs_path_free(name);
 	if (!ret) {
 		fs_path_unreverse(dest);
 		if (is_cur_inode && dest != &sctx->cur_inode_path)
@@ -2787,7 +2771,7 @@ static int trim_dir_utimes_cache(struct send_ctx *sctx)
 static int send_create_inode(struct send_ctx *sctx, u64 ino)
 {
 	int ret = 0;
-	struct fs_path *p;
+	struct fs_path *p __free(fs_path_free) = NULL;
 	int cmd;
 	struct btrfs_inode_info info;
 	u64 gen;
@@ -2801,7 +2785,7 @@ static int send_create_inode(struct send_ctx *sctx, u64 ino)
 	if (ino != sctx->cur_ino) {
 		ret = get_inode_info(sctx->send_root, ino, &info);
 		if (ret < 0)
-			goto out;
+			return ret;
 		gen = info.gen;
 		mode = info.mode;
 		rdev = info.rdev;
@@ -2826,17 +2810,16 @@ static int send_create_inode(struct send_ctx *sctx, u64 ino)
 	} else {
 		btrfs_warn(sctx->send_root->fs_info, "unexpected inode type %o",
 				(int)(mode & S_IFMT));
-		ret = -EOPNOTSUPP;
-		goto out;
+		return -EOPNOTSUPP;
 	}
 
 	ret = begin_cmd(sctx, cmd);
 	if (ret < 0)
-		goto out;
+		return ret;
 
 	ret = gen_unique_name(sctx, ino, gen, p);
 	if (ret < 0)
-		goto out;
+		return ret;
 
 	TLV_PUT_PATH(sctx, BTRFS_SEND_A_PATH, p);
 	TLV_PUT_U64(sctx, BTRFS_SEND_A_INO, ino);
@@ -2845,7 +2828,7 @@ static int send_create_inode(struct send_ctx *sctx, u64 ino)
 		fs_path_reset(p);
 		ret = read_symlink(sctx->send_root, ino, p);
 		if (ret < 0)
-			goto out;
+			return ret;
 		TLV_PUT_PATH(sctx, BTRFS_SEND_A_PATH_LINK, p);
 	} else if (S_ISCHR(mode) || S_ISBLK(mode) ||
 		   S_ISFIFO(mode) || S_ISSOCK(mode)) {
@@ -2855,12 +2838,9 @@ static int send_create_inode(struct send_ctx *sctx, u64 ino)
 
 	ret = send_cmd(sctx);
 	if (ret < 0)
-		goto out;
-
+		return ret;
 
 tlv_put_failure:
-out:
-	fs_path_free(p);
 	return ret;
 }
 
@@ -3039,7 +3019,7 @@ static int orphanize_inode(struct send_ctx *sctx, u64 ino, u64 gen,
 			  struct fs_path *path)
 {
 	int ret;
-	struct fs_path *orphan;
+	struct fs_path *orphan __free(fs_path_free) = NULL;
 
 	orphan = fs_path_alloc();
 	if (!orphan)
@@ -3047,17 +3027,15 @@ static int orphanize_inode(struct send_ctx *sctx, u64 ino, u64 gen,
 
 	ret = gen_unique_name(sctx, ino, gen, orphan);
 	if (ret < 0)
-		goto out;
+		return ret;
 
 	ret = send_rename(sctx, path, orphan);
 	if (ret < 0)
-		goto out;
+		return ret;
 
 	if (ino == sctx->cur_ino && gen == sctx->cur_inode_gen)
 		ret = fs_path_copy(&sctx->cur_inode_path, orphan);
 
-out:
-	fs_path_free(orphan);
 	return ret;
 }
 
@@ -3467,9 +3445,9 @@ static int path_loop(struct send_ctx *sctx, struct fs_path *name,
 
 static int apply_dir_move(struct send_ctx *sctx, struct pending_dir_move *pm)
 {
-	struct fs_path *from_path = NULL;
-	struct fs_path *to_path = NULL;
-	struct fs_path *name = NULL;
+	struct fs_path *from_path __free(fs_path_free) = NULL;
+	struct fs_path *to_path __free(fs_path_free) = NULL;
+	struct fs_path *name __free(fs_path_free) = NULL;
 	u64 orig_progress = sctx->send_progress;
 	struct recorded_ref *cur;
 	u64 parent_ino, parent_gen;
@@ -3482,10 +3460,8 @@ static int apply_dir_move(struct send_ctx *sctx, struct pending_dir_move *pm)
 
 	name = fs_path_alloc();
 	from_path = fs_path_alloc();
-	if (!name || !from_path) {
-		ret = -ENOMEM;
-		goto out;
-	}
+	if (!name || !from_path)
+		return -ENOMEM;
 
 	dm = get_waiting_dir_move(sctx, pm->ino);
 	ASSERT(dm);
@@ -3599,9 +3575,6 @@ finish:
 	}
 
 out:
-	fs_path_free(name);
-	fs_path_free(from_path);
-	fs_path_free(to_path);
 	sctx->send_progress = orig_progress;
 
 	return ret;
