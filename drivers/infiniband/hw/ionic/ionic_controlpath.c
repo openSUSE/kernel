@@ -2535,6 +2535,23 @@ static bool ionic_qp_cur_state_is_ok(enum ib_qp_state q_state,
 	return false;
 }
 
+static bool ionic_is_modify_ok(enum ib_qp_attr_mask ext_mask,
+			       enum ib_qp_type type, enum ib_qp_state cur,
+			       enum ib_qp_state next)
+{
+	if (!ext_mask)
+		return true;
+
+	if (ext_mask & ~IB_QP_RATE_LIMIT)
+		return false;
+
+	/* Rate limit is only supported for RC QPs during specific transitions */
+	return type == IB_QPT_RC &&
+	       ((cur == IB_QPS_INIT && next == IB_QPS_RTR) ||
+		(cur == IB_QPS_RTR && next == IB_QPS_RTS) ||
+		(cur == IB_QPS_RTS && next == IB_QPS_RTS));
+}
+
 static int ionic_check_modify_qp(struct ionic_qp *qp, struct ib_qp_attr *attr,
 				 int mask)
 {
@@ -2547,7 +2564,9 @@ static int ionic_check_modify_qp(struct ionic_qp *qp, struct ib_qp_attr *attr,
 	    !ionic_qp_cur_state_is_ok(qp->state, attr->cur_qp_state))
 		return -EINVAL;
 
-	if (!ib_modify_qp_is_ok(cur_state, next_state, qp->ibqp.qp_type, mask))
+	if (!ib_modify_qp_is_ok(cur_state, next_state, qp->ibqp.qp_type, mask) ||
+	    !ionic_is_modify_ok(mask & ~IB_QP_ATTR_STANDARD_BITS,
+				qp->ibqp.qp_type, cur_state, next_state))
 		return -EINVAL;
 
 	/* unprivileged qp not allowed privileged qkey */
