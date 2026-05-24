@@ -3428,20 +3428,13 @@ static int gpio_chip_get_value(struct gpio_chip *gc, const struct gpio_desc *des
 
 static int gpiod_get_raw_value_commit(const struct gpio_desc *desc)
 {
-	struct gpio_device *gdev;
-	struct gpio_chip *gc;
 	int value;
 
-	/* FIXME Unable to use gpio_chip_guard due to const desc. */
-	gdev = desc->gdev;
-
-	guard(srcu)(&gdev->srcu);
-
-	gc = srcu_dereference(gdev->chip, &gdev->srcu);
-	if (!gc)
+	CLASS(gpio_chip_guard, guard)(desc);
+	if (!guard.gc)
 		return -ENODEV;
 
-	value = gpio_chip_get_value(gc, desc);
+	value = gpio_chip_get_value(guard.gc, desc);
 	value = value < 0 ? value : !!value;
 	trace_gpio_value(desc_to_gpio(desc), 1, value);
 	return value;
@@ -4148,8 +4141,6 @@ EXPORT_SYMBOL_GPL(gpiod_is_shared);
  */
 int gpiod_to_irq(const struct gpio_desc *desc)
 {
-	struct gpio_device *gdev;
-	struct gpio_chip *gc;
 	int offset;
 	int ret;
 
@@ -4157,16 +4148,13 @@ int gpiod_to_irq(const struct gpio_desc *desc)
 	if (ret <= 0)
 		return -EINVAL;
 
-	gdev = desc->gdev;
-	/* FIXME Cannot use gpio_chip_guard due to const desc. */
-	guard(srcu)(&gdev->srcu);
-	gc = srcu_dereference(gdev->chip, &gdev->srcu);
-	if (!gc)
+	CLASS(gpio_chip_guard, guard)(desc);
+	if (!guard.gc)
 		return -ENODEV;
 
 	offset = gpiod_hwgpio(desc);
-	if (gc->to_irq) {
-		ret = gc->to_irq(gc, offset);
+	if (guard.gc->to_irq) {
+		ret = guard.gc->to_irq(guard.gc, offset);
 		if (ret)
 			return ret;
 
@@ -4174,7 +4162,7 @@ int gpiod_to_irq(const struct gpio_desc *desc)
 		return -ENXIO;
 	}
 #ifdef CONFIG_GPIOLIB_IRQCHIP
-	if (gc->irq.chip) {
+	if (guard.gc->irq.chip) {
 		/*
 		 * Avoid race condition with other code, which tries to lookup
 		 * an IRQ before the irqchip has been properly registered,
