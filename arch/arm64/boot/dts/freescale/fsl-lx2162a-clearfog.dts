@@ -6,6 +6,8 @@
 
 /dts-v1/;
 
+#include <dt-bindings/leds/common.h>
+
 #include "fsl-lx2160a-rev2.dtsi"
 #include "fsl-lx2162a-sr-som.dtsi"
 
@@ -38,6 +40,9 @@
 		compatible = "gpio-leds";
 
 		led_sfp_at: led-sfp-at {
+			color = <LED_COLOR_ID_GREEN>;
+			function = LED_FUNCTION_LAN;
+			function-enumerator = <1>;
 			gpios = <&gpio2 5 GPIO_ACTIVE_HIGH>; /* PROC_IRQ5 */
 			default-state = "off";
 			linux,default-trigger = "netdev";
@@ -45,6 +50,9 @@
 		};
 
 		led_sfp_ab: led-sfp-ab {
+			color = <LED_COLOR_ID_GREEN>;
+			function = LED_FUNCTION_LAN;
+			function-enumerator = <2>;
 			gpios = <&gpio2 11 GPIO_ACTIVE_HIGH>; /* PROC_IRQ11 */
 			default-state = "off";
 			linux,default-trigger = "netdev";
@@ -52,6 +60,9 @@
 		};
 
 		led_sfp_bt: led-sfp-bt {
+			color = <LED_COLOR_ID_GREEN>;
+			function = LED_FUNCTION_LAN;
+			function-enumerator = <3>;
 			gpios = <&gpio2 13 GPIO_ACTIVE_HIGH>; /* EVT1_B */
 			default-state = "off";
 			linux,default-trigger = "netdev";
@@ -59,6 +70,9 @@
 		};
 
 		led_sfp_bb: led-sfp-bb {
+			color = <LED_COLOR_ID_GREEN>;
+			function = LED_FUNCTION_LAN;
+			function-enumerator = <4>;
 			gpios = <&gpio2 14 GPIO_ACTIVE_HIGH>; /* EVT2_B */
 			default-state = "off";
 			linux,default-trigger = "netdev";
