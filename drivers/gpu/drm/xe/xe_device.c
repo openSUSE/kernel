@@ -10,7 +10,6 @@
 #include <linux/fault-inject.h>
 #include <linux/units.h>
 
-#include <drm/drm_atomic_helper.h>
 #include <drm/drm_client.h>
 #include <drm/drm_gem_ttm_helper.h>
 #include <drm/drm_ioctl.h>
@@ -392,8 +391,9 @@ bool xe_is_xe_file(const struct file *file)
 	return file->f_op == &xe_driver_fops;
 }
 
-static struct drm_driver regular_driver = {
+static const struct drm_driver regular_driver = {
 	.driver_features =
+	    XE_DISPLAY_DRIVER_FEATURES |
 	    DRIVER_GEM |
 	    DRIVER_RENDER | DRIVER_SYNCOBJ |
 	    DRIVER_SYNCOBJ_TIMELINE | DRIVER_GEM_GPUVA,
@@ -415,6 +415,7 @@ static struct drm_driver regular_driver = {
 	.major = DRIVER_MAJOR,
 	.minor = DRIVER_MINOR,
 	.patchlevel = DRIVER_PATCHLEVEL,
+	XE_DISPLAY_DRIVER_OPS,
 };
 
 #ifdef CONFIG_PCI_IOV
@@ -423,8 +424,9 @@ static const struct drm_ioctl_desc xe_ioctls_admin_only[] = {
 	DRM_IOCTL_DEF_DRV(XE_OBSERVATION, xe_observation_ioctl, DRM_RENDER_ALLOW),
 };
 
-static struct drm_driver admin_only_driver = {
+static const struct drm_driver admin_only_driver = {
 	.driver_features =
+	    XE_DISPLAY_DRIVER_FEATURES |
 	    DRIVER_GEM | DRIVER_RENDER | DRIVER_GEM_GPUVA,
 	.open = xe_file_open,
 	.postclose = xe_file_close,
@@ -436,6 +438,7 @@ static struct drm_driver admin_only_driver = {
 	.major = DRIVER_MAJOR,
 	.minor = DRIVER_MINOR,
 	.patchlevel = DRIVER_PATCHLEVEL,
+	XE_DISPLAY_DRIVER_OPS,
 };
 
 /**
@@ -475,7 +478,7 @@ static void xe_device_destroy(struct drm_device *dev, void *dummy)
 struct xe_device *xe_device_create(struct pci_dev *pdev,
 				   const struct pci_device_id *ent)
 {
-	struct drm_driver *driver = &regular_driver;
+	const struct drm_driver *driver = &regular_driver;
 	struct xe_device *xe;
 	int err;
 
@@ -487,8 +490,6 @@ struct xe_device *xe_device_create(struct pci_dev *pdev,
 	if (xe_configfs_admin_only_pf(pdev))
 		driver = &admin_only_driver;
 #endif
-
-	xe_display_driver_set_hooks(driver);
 
 	err = aperture_remove_conflicting_pci_devices(pdev, driver->name);
 	if (err)
