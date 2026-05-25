@@ -17,6 +17,7 @@
 struct snd_pcm_substream;
 struct snd_soc_dapm_widget;
 struct snd_compr_stream;
+struct clk;
 
 /*
  * DAI hardware audio formats.
@@ -187,6 +188,8 @@ int snd_soc_dai_set_pll(struct snd_soc_dai *dai,
 	int pll_id, int source, unsigned int freq_in, unsigned int freq_out);
 
 int snd_soc_dai_set_bclk_ratio(struct snd_soc_dai *dai, unsigned int ratio);
+
+void snd_soc_dai_set_bclk_clk(struct snd_soc_dai *dai, struct clk *bclk);
 
 /* Digital Audio interface formatting */
 int snd_soc_dai_get_fmt_max_priority(const struct snd_soc_pcm_runtime *rtd);
@@ -472,6 +475,10 @@ struct snd_soc_dai {
 	unsigned int symmetric_rate;
 	unsigned int symmetric_channels;
 	unsigned int symmetric_sample_bits;
+
+	/* shared BCLK clock for cross-DAI rate constraints */
+	struct clk *bclk;
+	unsigned int bclk_ratio; /* BCLK = rate * bclk_ratio (0 = use channels * sample_bits) */
 
 	/* parent platform/codec */
 	struct snd_soc_component *component;
