@@ -1077,17 +1077,14 @@ impl FwSecBiosBuilder {
 impl FwSecBiosImage {
     /// Get the FwSec header ([`FalconUCodeDesc`]).
     pub(crate) fn header(&self) -> Result<FalconUCodeDesc> {
-        // Get the falcon ucode offset that was found in setup_falcon_data.
-        let falcon_ucode_offset = self.falcon_ucode_offset;
+        let data = self
+            .base
+            .data
+            .get(self.falcon_ucode_offset..)
+            .ok_or(EINVAL)?;
 
-        // Read the first 4 bytes to get the version.
-        let hdr_bytes: [u8; 4] = self.base.data[falcon_ucode_offset..falcon_ucode_offset + 4]
-            .try_into()
-            .map_err(|_| EINVAL)?;
-        let hdr = u32::from_le_bytes(hdr_bytes);
-        let ver = (hdr & 0xff00) >> 8;
-
-        let data = self.base.data.get(falcon_ucode_offset..).ok_or(EINVAL)?;
+        // Read the version byte from the header.
+        let ver = data.get(1).copied().ok_or(EINVAL)?;
         match ver {
             2 => {
                 let v2 = FalconUCodeDescV2::from_bytes_copy_prefix(data)
