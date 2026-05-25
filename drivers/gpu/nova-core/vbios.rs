@@ -352,18 +352,18 @@ impl Vbios {
         }
 
         // Using all the images, setup the falcon data pointer in Fwsec.
-        if let (Some(pci_at), Some(fwsec_section)) = (pci_at_image, fwsec_section) {
-            let fwsec_image = FwSecBiosImage::new(dev, pci_at, fwsec_section)
-                .inspect_err(|e| dev_err!(dev, "Falcon data setup failed: {:?}\n", e))?;
-
-            Ok(Vbios { fwsec_image })
-        } else {
+        let (Some(pci_at), Some(fwsec_section)) = (pci_at_image, fwsec_section) else {
             dev_err!(
                 dev,
                 "Missing required images for falcon data setup, skipping\n"
             );
-            Err(EINVAL)
-        }
+            return Err(EINVAL);
+        };
+
+        let fwsec_image = FwSecBiosImage::new(dev, pci_at, fwsec_section)
+            .inspect_err(|e| dev_err!(dev, "Falcon data setup failed: {:?}\n", e))?;
+
+        Ok(Vbios { fwsec_image })
     }
 
     pub(crate) fn fwsec_image(&self) -> &FwSecBiosImage {
