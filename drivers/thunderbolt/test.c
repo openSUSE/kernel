@@ -2975,6 +2975,44 @@ static void tb_test_property_parse_dir_len_underflow(struct kunit *test)
 	tb_property_free_dir(dir);
 }
 
+static void tb_test_property_parse_zero_length(struct kunit *test)
+{
+	u32 *block = kunit_kzalloc(test, 6 * sizeof(u32), GFP_KERNEL);
+	struct tb_property_dir *dir;
+
+	KUNIT_ASSERT_NOT_NULL(test, block);
+
+	block[0] = 0x55584401;	/* rootdir magic */
+	block[1] = 0x00000004;	/* root length: one entry */
+
+	block[2] = 0x61616161;	/* key_hi */
+	block[3] = 0x61616161;	/* key_lo */
+	block[4] = 0x74000000;	/* type=TEXT, reserved=0, length=0 */
+	block[5] = 0x00000000;	/* value */
+
+	dir = tb_property_parse_dir(block, 6);
+	KUNIT_EXPECT_NULL(test, dir);
+	tb_property_free_dir(dir);
+}
+
+static void tb_test_property_parse_rootdir_overflow(struct kunit *test)
+{
+	u32 *block = kunit_kzalloc(test, 4 * sizeof(u32), GFP_KERNEL);
+	struct tb_property_dir *dir;
+
+	KUNIT_ASSERT_NOT_NULL(test, block);
+
+	block[0] = 0x55584401;	/* rootdir magic */
+	block[1] = 0x00000004;	/* root length claims 4 dwords of content */
+	block[2] = 0x61616161;
+	block[3] = 0x61616161;
+
+	/* content_offset(2) + content_len(4) = 6 > block_len(4) */
+	dir = tb_property_parse_dir(block, 4);
+	KUNIT_EXPECT_NULL(test, dir);
+	tb_property_free_dir(dir);
+}
+
 static void tb_test_property_merge(struct kunit *test)
 {
 	struct tb_property_dir *dir1, *dir2, *dir3;
@@ -3099,6 +3137,8 @@ static struct kunit_case tb_test_cases[] = {
 	KUNIT_CASE(tb_test_property_parse),
 	KUNIT_CASE(tb_test_property_format),
 	KUNIT_CASE(tb_test_property_copy),
+	KUNIT_CASE(tb_test_property_parse_zero_length),
+	KUNIT_CASE(tb_test_property_parse_rootdir_overflow),
 	KUNIT_CASE(tb_test_property_merge),
 	{ }
 };
