@@ -11730,6 +11730,8 @@ void netdev_run_todo(void)
 		WARN_ON(rcu_access_pointer(dev->ip_ptr));
 		WARN_ON(rcu_access_pointer(dev->ip6_ptr));
 
+		netdev_name_node_alt_flush(dev);
+		netdev_name_node_free(dev->name_node);
 		netdev_do_free_pcpu_stats(dev);
 		if (dev->priv_destructor)
 			dev->priv_destructor(dev);
@@ -12443,8 +12445,6 @@ void unregister_netdevice_many_notify(struct list_head *head,
 		dev_uc_flush(dev);
 		dev_mc_flush(dev);
 
-		netdev_name_node_alt_flush(dev);
-		netdev_name_node_free(dev->name_node);
 
 		netdev_rss_contexts_free(dev);
 
