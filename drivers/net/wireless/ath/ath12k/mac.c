@@ -10235,6 +10235,7 @@ int ath12k_mac_vdev_create(struct ath12k *ar, struct ath12k_link_vif *arvif)
 	struct ieee80211_hw *hw = ah->hw;
 	struct ath12k_vif *ahvif = arvif->ahvif;
 	struct ieee80211_vif *vif = ath12k_ahvif_to_vif(ahvif);
+	struct wireless_dev *wdev = ieee80211_vif_to_wdev(vif);
 	struct ath12k_wmi_vdev_create_arg vdev_arg = {};
 	struct ath12k_wmi_peer_create_arg peer_param = {};
 	struct ieee80211_bss_conf *link_conf = NULL;
@@ -10401,6 +10402,25 @@ int ath12k_mac_vdev_create(struct ath12k *ar, struct ath12k_link_vif *arvif)
 			ath12k_warn(ar->ab, "failed to disable vdev %d ps mode: %d\n",
 				    arvif->vdev_id, ret);
 			goto err_peer_del;
+		}
+
+		/*
+		 * There could be race condition in firmware for the station
+		 * interface between enabling 4-address peer WMI param and
+		 * sending 4-address frame (NULL or EAPOL via TCL).
+		 * Make the station as WDS while bringup itself
+		 * to avoid the race condition
+		 */
+		if (vif->type == NL80211_IFTYPE_STATION &&
+		    (wdev && wdev->use_4addr)) {
+			ret = ath12k_wmi_vdev_set_param_cmd(ar, arvif->vdev_id,
+							    WMI_VDEV_PARAM_WDS,
+							    1);
+			if (ret) {
+				ath12k_warn(ar->ab, "failed to set WDS vdev param: %d\n",
+					    ret);
+				goto err_peer_del;
+			}
 		}
 
 		if (test_bit(WMI_TLV_SERVICE_11D_OFFLOAD, ab->wmi_ab.svc_map) &&
