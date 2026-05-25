@@ -143,13 +143,16 @@ enum rsnd_reg {
 	AUDIO_CLK_SEL0,
 	AUDIO_CLK_SEL1,
 	AUDIO_CLK_SEL2,
+	AUDIO_CLK_SEL3,
 
 	/* SSIU */
 	SSI_MODE,
 	SSI_MODE0,
 	SSI_MODE1,
 	SSI_MODE2,
+	SSI_MODE3,
 	SSI_CONTROL,
+	SSI_CONTROL2,
 	SSI_CTRL,
 	SSI_BUSIF0_MODE,
 	SSI_BUSIF1_MODE,
@@ -641,14 +644,28 @@ struct rsnd_priv {
 	struct platform_device *pdev;
 	spinlock_t lock;
 	unsigned long flags;
+
+	/*
+	 * Flags layout: 0xDCBA
+	 *
+	 * A: R-Car generation (Gen1/Gen2/Gen3/Gen4)
+	 * B: R-Car SoC variant (e.g. SOC_E for E1/E2/E3)
+	 * C: RZ series generation
+	 * D: RZ series SoC identifier (e.g. RZG3E)
+	 *
+	 * Bits 16+ are used for capability flags.
+	 */
 #define RSND_GEN_MASK	(0xF << 0)
 #define RSND_GEN1	(1 << 0)
 #define RSND_GEN2	(2 << 0)
 #define RSND_GEN3	(3 << 0)
 #define RSND_GEN4	(4 << 0)
-#define RSND_SOC_MASK	(0xF << 4)
-#define RSND_SOC_E	(1 << 4) /* E1/E2/E3 */
-
+#define RSND_SOC_MASK	(0xF << 4)  /* nibble B */
+#define RSND_SOC_E	(1 << 4)    /* E1/E2/E3 */
+#define RSND_RZ_MASK	(0xF << 8)  /* nibble C */
+#define RSND_RZ3	(3 << 8)
+#define RSND_RZ_ID_MASK	(0xF << 12) /* nibble D */
+#define RSND_RZG3E	(1 << 12)
 	/*
 	 * below value will be filled on rsnd_gen_probe()
 	 */
@@ -727,6 +744,9 @@ struct rsnd_priv {
 #define rsnd_is_gen3_e3(priv)	(((priv)->flags & \
 					(RSND_GEN_MASK | RSND_SOC_MASK)) == \
 					(RSND_GEN3 | RSND_SOC_E))
+#define rsnd_is_rzg3e(priv) (((priv)->flags & \
+				(RSND_RZ_MASK | RSND_RZ_ID_MASK)) == \
+					(RSND_RZ3 | RSND_RZG3E))
 
 #define rsnd_flags_has(p, f) ((p)->flags & (f))
 #define rsnd_flags_set(p, f) ((p)->flags |= (f))
