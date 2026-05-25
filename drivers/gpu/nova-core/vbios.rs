@@ -656,18 +656,6 @@ struct PciAtBiosImage {
     bit_offset: usize,
 }
 
-#[expect(dead_code)]
-struct EfiBiosImage {
-    base: BiosImage,
-    // EFI-specific fields can be added here in the future.
-}
-
-#[expect(dead_code)]
-struct NbsiBiosImage {
-    base: BiosImage,
-    // NBSI-specific fields can be added here in the future.
-}
-
 /// The [`FwSecBiosImage`] structure contains the PMU table and the Falcon Ucode.
 ///
 /// The PMU table contains voltage/frequency tables as well as a pointer to the Falcon Ucode.
