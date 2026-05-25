@@ -834,3 +834,37 @@ void rsnd_src_remove(struct rsnd_priv *priv)
 		rsnd_mod_quit(rsnd_mod_get(src));
 	}
 }
+
+void rsnd_src_suspend(struct rsnd_priv *priv)
+{
+	struct rsnd_src_ctrl *src_ctrl = rsnd_priv_to_src_ctrl(priv);
+	struct rsnd_src *src;
+	int i;
+
+	if (!src_ctrl)
+		return;
+
+	for_each_rsnd_src(src, priv, i)
+		rsnd_suspend_clk_reset(rsnd_mod_get(src)->clk,
+				       rsnd_mod_get(src)->rstc);
+
+	clk_disable_unprepare(src_ctrl->scu_x2);
+	clk_disable_unprepare(src_ctrl->scu);
+}
+
+void rsnd_src_resume(struct rsnd_priv *priv)
+{
+	struct rsnd_src_ctrl *src_ctrl = rsnd_priv_to_src_ctrl(priv);
+	struct rsnd_src *src;
+	int i;
+
+	if (!src_ctrl)
+		return;
+
+	clk_prepare_enable(src_ctrl->scu);
+	clk_prepare_enable(src_ctrl->scu_x2);
+
+	for_each_rsnd_src(src, priv, i)
+		rsnd_resume_clk_reset(rsnd_mod_get(src)->clk,
+				      rsnd_mod_get(src)->rstc);
+}

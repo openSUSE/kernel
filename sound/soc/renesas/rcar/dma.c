@@ -1035,3 +1035,25 @@ audmapp_end:
 	/* dummy mem mod for debug */
 	return rsnd_mod_init(NULL, &mem, &mem_ops, NULL, NULL, 0, 0);
 }
+
+void rsnd_dma_suspend(struct rsnd_priv *priv)
+{
+	struct rsnd_dma_ctrl *dmac = rsnd_priv_to_dmac(priv);
+
+	if (dmac) {
+		/* Mirror probe (which enables clk before deasserting reset) */
+		rsnd_suspend_clk_reset(NULL, dmac->audmapp_rstc);
+		clk_disable_unprepare(dmac->audmapp_clk);
+	}
+}
+
+void rsnd_dma_resume(struct rsnd_priv *priv)
+{
+	struct rsnd_dma_ctrl *dmac = rsnd_priv_to_dmac(priv);
+
+	if (dmac) {
+		/* Clock must be stable before reset is deasserted */
+		clk_prepare_enable(dmac->audmapp_clk);
+		rsnd_resume_clk_reset(NULL, dmac->audmapp_rstc);
+	}
+}
