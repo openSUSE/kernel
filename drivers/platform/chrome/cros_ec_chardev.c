@@ -13,6 +13,7 @@
 #include <linux/init.h>
 #include <linux/device.h>
 #include <linux/fs.h>
+#include <linux/kref.h>
 #include <linux/miscdevice.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
@@ -30,6 +31,21 @@
 
 /* Arbitrary bounded size for the event queue */
 #define CROS_MAX_EVENT_LEN	PAGE_SIZE
+
+/*
+ * Platform device driver data.
+ */
+struct chardev_pdata {
+	struct miscdevice misc;
+	struct kref kref;
+};
+
+static void chardev_pdata_release(struct kref *kref)
+{
+	struct chardev_pdata *pdata = container_of(kref, typeof(*pdata), kref);
+
+	kfree(pdata);
+}
 
 struct chardev_priv {
 	struct cros_ec_device *ec_dev;
@@ -374,28 +390,39 @@ static int cros_ec_chardev_probe(struct platform_device *pdev)
 {
 	struct cros_ec_dev *ec = dev_get_drvdata(pdev->dev.parent);
 	struct cros_ec_platform *ec_platform = dev_get_platdata(ec->dev);
-	struct miscdevice *misc;
+	struct chardev_pdata *pdata;
+	int ret;
 
-	/* Create a char device: we want to create it anew */
-	misc = devm_kzalloc(&pdev->dev, sizeof(*misc), GFP_KERNEL);
-	if (!misc)
+	pdata = kzalloc_obj(*pdata);
+	if (!pdata)
 		return -ENOMEM;
 
-	misc->minor = MISC_DYNAMIC_MINOR;
-	misc->fops = &chardev_fops;
-	misc->name = ec_platform->ec_name;
-	misc->parent = pdev->dev.parent;
+	platform_set_drvdata(pdev, pdata);
+	kref_init(&pdata->kref);
 
-	dev_set_drvdata(&pdev->dev, misc);
+	pdata->misc.minor = MISC_DYNAMIC_MINOR;
+	pdata->misc.fops = &chardev_fops;
+	pdata->misc.name = ec_platform->ec_name;
+	pdata->misc.parent = pdev->dev.parent;
 
-	return misc_register(misc);
+	ret = misc_register(&pdata->misc);
+	if (ret) {
+		dev_err(&pdev->dev, "failed to register misc device\n");
+		goto err_put_pdata;
+	}
+
+	return 0;
+err_put_pdata:
+	kref_put(&pdata->kref, chardev_pdata_release);
+	return ret;
 }
 
 static void cros_ec_chardev_remove(struct platform_device *pdev)
 {
-	struct miscdevice *misc = dev_get_drvdata(&pdev->dev);
+	struct chardev_pdata *pdata = platform_get_drvdata(pdev);
 
-	misc_deregister(misc);
+	misc_deregister(&pdata->misc);
+	kref_put(&pdata->kref, chardev_pdata_release);
 }
 
 static const struct platform_device_id cros_ec_chardev_id[] = {
