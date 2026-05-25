@@ -196,18 +196,29 @@ int rsnd_mod_init(struct rsnd_priv *priv,
 		  struct rsnd_mod *mod,
 		  struct rsnd_mod_ops *ops,
 		  struct clk *clk,
+		  struct reset_control *rstc,
 		  enum rsnd_mod_type type,
 		  int id)
 {
-	int ret = clk_prepare(clk);
+	int ret;
 
+	ret = clk_prepare_enable(clk);
 	if (ret)
 		return ret;
+
+	ret = reset_control_deassert(rstc);
+	if (ret) {
+		clk_disable_unprepare(clk);
+		return ret;
+	}
+
+	clk_disable(clk);
 
 	mod->id		= id;
 	mod->ops	= ops;
 	mod->type	= type;
 	mod->clk	= clk;
+	mod->rstc	= rstc;
 	mod->priv	= priv;
 
 	return 0;
@@ -215,6 +226,8 @@ int rsnd_mod_init(struct rsnd_priv *priv,
 
 void rsnd_mod_quit(struct rsnd_mod *mod)
 {
+	reset_control_assert(mod->rstc);
+	mod->rstc = NULL;
 	clk_unprepare(mod->clk);
 	mod->clk = NULL;
 }
