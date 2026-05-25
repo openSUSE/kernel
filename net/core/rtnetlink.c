@@ -2371,22 +2371,24 @@ static struct rtnl_link_ops *linkinfo_to_kind_ops(const struct nlattr *nla,
 static bool link_master_filtered(struct net_device *dev, int master_idx)
 {
 	struct net_device *master;
+	bool res = false;
 
 	if (!master_idx)
 		return false;
 
-	master = netdev_master_upper_dev_get(dev);
+	rcu_read_lock();
+	master = netdev_master_upper_dev_get_rcu(dev);
 
 	/* 0 is already used to denote IFLA_MASTER wasn't passed, therefore need
 	 * another invalid value for ifindex to denote "no master".
 	 */
 	if (master_idx == -1)
-		return !!master;
+		res = !!master;
+	else if (!master || master->ifindex != master_idx)
+		res = true;
+	rcu_read_unlock();
 
-	if (!master || master->ifindex != master_idx)
-		return true;
-
-	return false;
+	return res;
 }
 
 static bool link_kind_filtered(const struct net_device *dev,
