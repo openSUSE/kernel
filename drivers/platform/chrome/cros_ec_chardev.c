@@ -40,6 +40,8 @@ struct chardev_pdata {
 	struct kref kref;
 	struct cros_ec_device *ec_dev;
 	u16 cmd_offset;
+	struct blocking_notifier_head subscribers;
+	struct notifier_block relay;
 };
 
 static void chardev_pdata_release(struct kref *kref)
@@ -47,6 +49,17 @@ static void chardev_pdata_release(struct kref *kref)
 	struct chardev_pdata *pdata = container_of(kref, typeof(*pdata), kref);
 
 	kfree(pdata);
+}
+
+static int cros_ec_chardev_relay_event(struct notifier_block *nb,
+				       unsigned long queued_during_suspend,
+				       void *_notify)
+{
+	struct chardev_pdata *pdata = container_of(nb, typeof(*pdata), relay);
+
+	blocking_notifier_call_chain(&pdata->subscribers, queued_during_suspend,
+				     _notify);
+	return NOTIFY_OK;
 }
 
 struct chardev_priv {
@@ -190,7 +203,7 @@ static int cros_ec_chardev_open(struct inode *inode, struct file *filp)
 	nonseekable_open(inode, filp);
 
 	priv->notifier.notifier_call = cros_ec_chardev_mkbp_event;
-	ret = blocking_notifier_chain_register(&pdata->ec_dev->event_notifier,
+	ret = blocking_notifier_chain_register(&pdata->subscribers,
 					       &priv->notifier);
 	if (ret) {
 		dev_err(pdata->ec_dev->dev,
@@ -271,7 +284,7 @@ static int cros_ec_chardev_release(struct inode *inode, struct file *filp)
 	struct chardev_priv *priv = filp->private_data;
 	struct ec_event *event, *e;
 
-	blocking_notifier_chain_unregister(&priv->pdata->ec_dev->event_notifier,
+	blocking_notifier_chain_unregister(&priv->pdata->subscribers,
 					   &priv->notifier);
 	kref_put(&priv->pdata->kref, chardev_pdata_release);
 
@@ -403,6 +416,14 @@ static int cros_ec_chardev_probe(struct platform_device *pdev)
 	kref_init(&pdata->kref);
 	pdata->ec_dev = ec->ec_dev;
 	pdata->cmd_offset = ec->cmd_offset;
+	BLOCKING_INIT_NOTIFIER_HEAD(&pdata->subscribers);
+	pdata->relay.notifier_call = cros_ec_chardev_relay_event;
+	ret = blocking_notifier_chain_register(&pdata->ec_dev->event_notifier,
+					       &pdata->relay);
+	if (ret) {
+		dev_err(&pdev->dev, "failed to register event notifier\n");
+		goto err_put_pdata;
+	}
 
 	pdata->misc.minor = MISC_DYNAMIC_MINOR;
 	pdata->misc.fops = &chardev_fops;
@@ -412,10 +433,13 @@ static int cros_ec_chardev_probe(struct platform_device *pdev)
 	ret = misc_register(&pdata->misc);
 	if (ret) {
 		dev_err(&pdev->dev, "failed to register misc device\n");
-		goto err_put_pdata;
+		goto err_unregister_notifier;
 	}
 
 	return 0;
+err_unregister_notifier:
+	blocking_notifier_chain_unregister(&pdata->ec_dev->event_notifier,
+					   &pdata->relay);
 err_put_pdata:
 	kref_put(&pdata->kref, chardev_pdata_release);
 	return ret;
@@ -425,6 +449,8 @@ static void cros_ec_chardev_remove(struct platform_device *pdev)
 {
 	struct chardev_pdata *pdata = platform_get_drvdata(pdev);
 
+	blocking_notifier_chain_unregister(&pdata->ec_dev->event_notifier,
+					   &pdata->relay);
 	misc_deregister(&pdata->misc);
 	kref_put(&pdata->kref, chardev_pdata_release);
 }
