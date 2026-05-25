@@ -234,7 +234,7 @@ impl super::Gsp {
             libos_dma_handle: libos_handle,
             gsp_falcon,
             sec2_falcon,
-            dev: pdev.as_ref().into(),
+            dev,
             bar,
         };
         GspSequencer::run(&self.cmdq, seq_params)?;
