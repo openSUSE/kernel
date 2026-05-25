@@ -2,8 +2,6 @@
 
 //! VBIOS extraction and parsing.
 
-use core::convert::TryFrom;
-
 use kernel::{
     device,
     io::Io,
