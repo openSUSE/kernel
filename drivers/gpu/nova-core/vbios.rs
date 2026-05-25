@@ -897,19 +897,8 @@ struct PmuLookupTableEntry {
     data: u32,
 }
 
-impl PmuLookupTableEntry {
-    fn new(data: &[u8]) -> Result<Self> {
-        if data.len() < core::mem::size_of::<Self>() {
-            return Err(EINVAL);
-        }
-
-        Ok(PmuLookupTableEntry {
-            application_id: data[0],
-            target_id: data[1],
-            data: u32::from_le_bytes(data[2..6].try_into().map_err(|_| EINVAL)?),
-        })
-    }
-}
+// SAFETY: all bit patterns are valid for `PmuLookupTableEntry`.
+unsafe impl FromBytes for PmuLookupTableEntry {}
 
 #[repr(C)]
 struct PmuLookupTableHeader {
@@ -963,7 +952,13 @@ impl PmuLookupTable {
         }
 
         let index = (usize::from(idx)) * usize::from(self.header.entry_len);
-        PmuLookupTableEntry::new(&self.table_data[index..])
+        let (entry, _) = self
+            .table_data
+            .get(index..)
+            .and_then(PmuLookupTableEntry::from_bytes_copy_prefix)
+            .ok_or(EINVAL)?;
+
+        Ok(entry)
     }
 
     // find entry by type value
