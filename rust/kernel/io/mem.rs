@@ -62,12 +62,12 @@ impl<'a> IoRequest<'a> {
     ///
     /// impl platform::Driver for SampleDriver {
     ///    # type IdInfo = ();
-    ///    # type Data = Self;
+    ///    # type Data<'bound> = Self;
     ///
-    ///    fn probe(
-    ///       pdev: &platform::Device<Core<'_>>,
-    ///       info: Option<&Self::IdInfo>,
-    ///    ) -> impl PinInit<Self, Error> {
+    ///    fn probe<'bound>(
+    ///       pdev: &'bound platform::Device<Core<'_>>,
+    ///       info: Option<&'bound Self::IdInfo>,
+    ///    ) -> impl PinInit<Self, Error> + 'bound {
     ///       let offset = 0; // Some offset.
     ///
     ///       // If the size is known at compile time, use [`Self::iomap_sized`].
@@ -127,12 +127,12 @@ impl<'a> IoRequest<'a> {
     ///
     /// impl platform::Driver for SampleDriver {
     ///    # type IdInfo = ();
-    ///    # type Data = Self;
+    ///    # type Data<'bound> = Self;
     ///
-    ///    fn probe(
-    ///       pdev: &platform::Device<Core<'_>>,
-    ///       info: Option<&Self::IdInfo>,
-    ///    ) -> impl PinInit<Self, Error> {
+    ///    fn probe<'bound>(
+    ///       pdev: &'bound platform::Device<Core<'_>>,
+    ///       info: Option<&'bound Self::IdInfo>,
+    ///    ) -> impl PinInit<Self, Error> + 'bound {
     ///       let offset = 0; // Some offset.
     ///
     ///       // Unlike [`Self::iomap_sized`], here the size of the memory region
