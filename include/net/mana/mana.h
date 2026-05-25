@@ -560,6 +560,7 @@ struct mana_port_context {
 netdev_tx_t mana_start_xmit(struct sk_buff *skb, struct net_device *ndev);
 int mana_config_rss(struct mana_port_context *ac, enum TRI_STATE rx,
 		    bool update_hash, bool update_tab);
+int mana_disable_vport_rx(struct mana_port_context *apc);
 
 int mana_alloc_queues(struct net_device *ndev);
 int mana_attach(struct net_device *ndev);
@@ -956,6 +957,7 @@ struct mana_deregister_filter_resp {
 #define STATISTICS_FLAGS_TX_ERRORS_GDMA_ERROR		0x0000000004000000
 
 #define MANA_MAX_NUM_QUEUES 64
+#define MANA_DEF_NUM_QUEUES 16
 
 #define MANA_SHORT_VPORT_OFFSET_MAX ((1U << 8) - 1)
 

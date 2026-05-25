@@ -98,10 +98,17 @@ static int fsl_xcvr_arc_mode_put(struct snd_kcontrol *kcontrol,
 	struct fsl_xcvr *xcvr = snd_soc_dai_get_drvdata(dai);
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 	unsigned int *item = ucontrol->value.enumerated.item;
+	int val = snd_soc_enum_item_to_val(e, item[0]);
+	int ret;
 
-	xcvr->arc_mode = snd_soc_enum_item_to_val(e, item[0]);
+	if (val < 0 || val > 1)
+		return -EINVAL;
 
-	return 0;
+	ret = (xcvr->arc_mode != val);
+
+	xcvr->arc_mode = val;
+
+	return ret;
 }
 
 static int fsl_xcvr_arc_mode_get(struct snd_kcontrol *kcontrol,
@@ -152,10 +159,14 @@ static int fsl_xcvr_capds_put(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_dai *dai = snd_kcontrol_chip(kcontrol);
 	struct fsl_xcvr *xcvr = snd_soc_dai_get_drvdata(dai);
+	int changed;
 
-	memcpy(xcvr->cap_ds, ucontrol->value.bytes.data, FSL_XCVR_CAPDS_SIZE);
+	changed = memcmp(xcvr->cap_ds, ucontrol->value.bytes.data,
+			 sizeof(xcvr->cap_ds)) != 0;
+	memcpy(xcvr->cap_ds, ucontrol->value.bytes.data,
+	       sizeof(xcvr->cap_ds));
 
-	return 0;
+	return changed;
 }
 
 static struct snd_kcontrol_new fsl_xcvr_earc_capds_kctl = {
@@ -199,10 +210,17 @@ static int fsl_xcvr_mode_put(struct snd_kcontrol *kcontrol,
 	struct fsl_xcvr *xcvr = snd_soc_dai_get_drvdata(dai);
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 	unsigned int *item = ucontrol->value.enumerated.item;
+	int val = snd_soc_enum_item_to_val(e, item[0]);
 	struct snd_soc_card *card = dai->component->card;
 	struct snd_soc_pcm_runtime *rtd;
+	int ret;
 
-	xcvr->mode = snd_soc_enum_item_to_val(e, item[0]);
+	if (val < FSL_XCVR_MODE_SPDIF || val > FSL_XCVR_MODE_EARC)
+		return -EINVAL;
+
+	ret = (xcvr->mode != val);
+
+	xcvr->mode = val;
 
 	fsl_xcvr_activate_ctl(dai, fsl_xcvr_arc_mode_kctl.name,
 			      (xcvr->mode == FSL_XCVR_MODE_ARC));
@@ -212,7 +230,7 @@ static int fsl_xcvr_mode_put(struct snd_kcontrol *kcontrol,
 	rtd = snd_soc_get_pcm_runtime(card, card->dai_link);
 	rtd->pcm->streams[SNDRV_PCM_STREAM_PLAYBACK].substream_count =
 		(xcvr->mode == FSL_XCVR_MODE_SPDIF ? 1 : 0);
-	return 0;
+	return ret;
 }
 
 static int fsl_xcvr_mode_get(struct snd_kcontrol *kcontrol,
@@ -852,10 +870,15 @@ static int fsl_xcvr_tx_cs_put(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_dai *dai = snd_kcontrol_chip(kcontrol);
 	struct fsl_xcvr *xcvr = snd_soc_dai_get_drvdata(dai);
+	int changed;
 
-	memcpy(xcvr->tx_iec958.status, ucontrol->value.iec958.status, 24);
+	changed = memcmp(xcvr->tx_iec958.status,
+			 ucontrol->value.iec958.status,
+			 sizeof(xcvr->tx_iec958.status)) != 0;
+	memcpy(xcvr->tx_iec958.status, ucontrol->value.iec958.status,
+	       sizeof(xcvr->tx_iec958.status));
 
-	return 0;
+	return changed;
 }
 
 static struct snd_kcontrol_new fsl_xcvr_rx_ctls[] = {

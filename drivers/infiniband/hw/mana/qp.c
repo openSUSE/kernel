@@ -68,22 +68,6 @@ static int mana_ib_cfg_vport_steering(struct mana_ib_dev *dev,
 		  req->vport, default_rxobj);
 
 	err = mana_gd_send_request(gc, req_buf_size, req, sizeof(resp), &resp);
-	if (err) {
-		netdev_err(ndev, "Failed to configure vPort RX: %d\n", err);
-		goto out;
-	}
-
-	if (resp.hdr.status) {
-		netdev_err(ndev, "vPort RX configuration failed: 0x%x\n",
-			   resp.hdr.status);
-		err = -EPROTO;
-		goto out;
-	}
-
-	netdev_info(ndev, "Configured steering vPort %llu log_entries %u\n",
-		    mpc->port_handle, log_ind_tbl_size);
-
-out:
 	kfree(req);
 	return err;
 }
@@ -732,7 +716,6 @@ static int mana_ib_gd_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
 	struct gdma_context *gc = mdev_to_gc(mdev);
 	struct mana_port_context *mpc;
 	struct net_device *ndev;
-	int err;
 
 	mana_gd_init_req_hdr(&req.hdr, MANA_IB_SET_QP_STATE, sizeof(req), sizeof(resp));
 
@@ -785,13 +768,7 @@ static int mana_ib_gd_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
 		req.ah_attr.flow_label = attr->ah_attr.grh.flow_label;
 	}
 
-	err = mana_gd_send_request(gc, sizeof(req), &req, sizeof(resp), &resp);
-	if (err) {
-		ibdev_err(&mdev->ib_dev, "Failed modify qp err %d", err);
-		return err;
-	}
-
-	return 0;
+	return mana_gd_send_request(gc, sizeof(req), &req, sizeof(resp), &resp);
 }
 
 int mana_ib_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
@@ -822,6 +799,21 @@ static int mana_ib_destroy_qp_rss(struct mana_ib_qp *qp,
 
 	ndev = mana_ib_get_netdev(qp->ibqp.device, qp->port);
 	mpc = netdev_priv(ndev);
+
+	/* Disable vPort RX steering before destroying RX WQ objects.
+	 * Otherwise firmware still routes traffic to the destroyed queues,
+	 * which can cause bogus completions on reused CQ IDs when the
+	 * ethernet driver later creates new queues on mana_open().
+	 *
+	 * Unlike the ethernet teardown path, mana_fence_rqs() cannot be
+	 * used here because the fence completion CQE is delivered on the
+	 * CQ which is polled by userspace (e.g. DPDK), so there is no way
+	 * for the kernel to wait for fence completion.
+	 *
+	 * This is best effort — if it fails there is not much we can do,
+	 * and mana_cfg_vport_steering() already logs the error.
+	 */
+	mana_disable_vport_rx(mpc);
 
 	for (i = 0; i < (1 << ind_tbl->log_ind_tbl_size); i++) {
 		ibwq = ind_tbl->ind_tbl[i];

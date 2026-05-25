@@ -33,8 +33,10 @@ static int efi_pstore_open(struct pstore_info *psi)
 		return err;
 
 	psi->data = kzalloc(record_size, GFP_KERNEL);
-	if (!psi->data)
+	if (!psi->data) {
+		efivar_unlock();
 		return -ENOMEM;
+	}
 
 	return 0;
 }
