@@ -128,19 +128,25 @@ static int __init early_init_dt_reserve_memory(phys_addr_t base,
 }
 
 /*
- * __reserved_mem_reserve_reg() - reserve all memory described in 'reg' property
+ * __reserved_mem_reserve_reg() - reserve memory described in the
+ * first entry in 'reg' property
  */
 static int __init __reserved_mem_reserve_reg(unsigned long node,
 					     const char *uname)
 {
 	phys_addr_t base, size;
-	int i, len, err;
+	int len, err;
 	const __be32 *prop;
 	bool nomap;
+	u64 b, s;
 
 	prop = of_flat_dt_get_addr_size_prop(node, "reg", &len);
-	if (!prop)
+	if (!prop || !len)
 		return -ENOENT;
+
+	if (len > 1)
+		pr_warn("Reserved memory: node '%s' has %d <base size> entries, only the first is used\n",
+			uname, len);
 
 	nomap = of_get_flat_dt_prop(node, "no-map", NULL) != NULL;
 
@@ -148,22 +154,17 @@ static int __init __reserved_mem_reserve_reg(unsigned long node,
 	if (err && err != -ENODEV)
 		return err;
 
-	for (i = 0; i < len; i++) {
-		u64 b, s;
+	of_flat_dt_read_addr_size(prop, 0, &b, &s);
+	base = b;
+	size = s;
 
-		of_flat_dt_read_addr_size(prop, i, &b, &s);
-
-		base = b;
-		size = s;
-
-		if (size && early_init_dt_reserve_memory(base, size, nomap) == 0) {
-			fdt_fixup_reserved_mem_node(node, base, size);
-			pr_debug("Reserved memory: reserved region for node '%s': base %pa, size %lu MiB\n",
-				uname, &base, (unsigned long)(size / SZ_1M));
-		} else {
-			pr_err("Reserved memory: failed to reserve memory for node '%s': base %pa, size %lu MiB\n",
-			       uname, &base, (unsigned long)(size / SZ_1M));
-		}
+	if (size && early_init_dt_reserve_memory(base, size, nomap) == 0) {
+		fdt_fixup_reserved_mem_node(node, base, size);
+		pr_debug("Reserved memory: reserved region for node '%s': base %pa, size %lu MiB\n",
+			 uname, &base, (unsigned long)(size / SZ_1M));
+	} else {
+		pr_err("Reserved memory: failed to reserve memory for node '%s': base %pa, size %lu MiB\n",
+		       uname, &base, (unsigned long)(size / SZ_1M));
 	}
 	return 0;
 }
@@ -274,20 +275,24 @@ void __init fdt_scan_reserved_mem_late(void)
 	}
 
 	fdt_for_each_subnode(child, fdt, node) {
+		const __be32 *prop;
 		const char *uname;
 		u64 b, s;
 		int ret;
+		int len;
 
 		if (!of_fdt_device_is_available(fdt, child))
 			continue;
 
-		if (!of_flat_dt_get_addr_size(child, "reg", &b, &s))
+		prop = of_flat_dt_get_addr_size_prop(child, "reg", &len);
+		if (!prop || !len)
 			continue;
 
 		ret = fdt_validate_reserved_mem_node(child, NULL);
 		if (ret && ret != -ENODEV)
 			continue;
 
+		of_flat_dt_read_addr_size(prop, 0, &b, &s);
 		base = b;
 		size = s;
 
