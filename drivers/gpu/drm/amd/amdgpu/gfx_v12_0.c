@@ -602,6 +602,13 @@ static int gfx_v12_0_init_microcode(struct amdgpu_device *adev)
 				   "amdgpu/%s_pfp.bin", ucode_prefix);
 	if (err)
 		goto out;
+
+	adev->gfx.rs64_enable = amdgpu_ucode_hdr_version(
+				(union amdgpu_firmware_header *)
+				adev->gfx.pfp_fw->data, 2, 0);
+	if (adev->gfx.rs64_enable)
+		dev_dbg(adev->dev, "CP RS64 enable\n");
+
 	amdgpu_gfx_cp_init_microcode(adev, AMDGPU_UCODE_ID_CP_RS64_PFP);
 	amdgpu_gfx_cp_init_microcode(adev, AMDGPU_UCODE_ID_CP_RS64_PFP_P0_STACK);
 
@@ -4854,15 +4861,7 @@ static int gfx_v12_0_eop_irq(struct amdgpu_device *adev,
 	DRM_DEBUG("IH: CP EOP\n");
 
 	if (adev->enable_mes && doorbell_offset) {
-		struct xarray *xa = &adev->userq_doorbell_xa;
-		struct amdgpu_usermode_queue *queue;
-		unsigned long flags;
-
-		xa_lock_irqsave(xa, flags);
-		queue = xa_load(xa, doorbell_offset);
-		if (queue)
-			amdgpu_userq_fence_driver_process(queue->fence_drv);
-		xa_unlock_irqrestore(xa, flags);
+		amdgpu_userq_process_fence_irq(adev, doorbell_offset);
 	} else {
 		me_id = (entry->ring_id & 0x0c) >> 2;
 		pipe_id = (entry->ring_id & 0x03) >> 0;
