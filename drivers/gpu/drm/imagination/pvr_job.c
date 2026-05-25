@@ -14,6 +14,7 @@
 #include "pvr_stream.h"
 #include "pvr_stream_defs.h"
 #include "pvr_sync.h"
+#include "pvr_trace.h"
 
 #include <drm/drm_exec.h>
 #include <drm/drm_gem.h>
@@ -510,6 +511,8 @@ static int pvr_job_data_init(struct pvr_device *pvr_dev,
 		}
 
 		job_data_out[i].sync_op_count = job_args[i].sync_ops.count;
+
+		trace_pvr_job_create(pvr_dev, job_data_out[i].job, job_data_out[i].sync_op_count);
 	}
 
 	return 0;

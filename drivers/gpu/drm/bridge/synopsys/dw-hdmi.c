@@ -51,8 +51,6 @@
 /* DW-HDMI Controller >= 0x200a are at least compliant with SCDC version 1 */
 #define SCDC_MIN_SOURCE_VERSION	0x1
 
-#define HDMI14_MAX_TMDSCLK	340000000
-
 static const u16 csc_coeff_default[3][4] = {
 	{ 0x2000, 0x0000, 0x0000, 0x0000 },
 	{ 0x0000, 0x2000, 0x0000, 0x0000 },
@@ -1426,7 +1424,7 @@ void dw_hdmi_set_high_tmds_clock_ratio(struct dw_hdmi *hdmi,
 
 	/* Control for TMDS Bit Period/TMDS Clock-Period Ratio */
 	if (dw_hdmi_support_scdc(hdmi, display)) {
-		if (mtmdsclock > HDMI14_MAX_TMDSCLK)
+		if (mtmdsclock > HDMI_1_3_TMDS_CHAR_RATE_MAX_HZ)
 			drm_scdc_set_high_tmds_clock_ratio(hdmi->curr_conn, 1);
 		else
 			drm_scdc_set_high_tmds_clock_ratio(hdmi->curr_conn, 0);
@@ -1671,7 +1669,7 @@ static int hdmi_phy_configure(struct dw_hdmi *hdmi,
 	}
 
 	/* Wait for resuming transmission of TMDS clock and data */
-	if (mtmdsclock > HDMI14_MAX_TMDSCLK)
+	if (mtmdsclock > HDMI_1_3_TMDS_CHAR_RATE_MAX_HZ)
 		msleep(100);
 
 	return dw_hdmi_phy_power_on(hdmi);
@@ -2032,7 +2030,7 @@ static void hdmi_av_composer(struct dw_hdmi *hdmi,
 	/* Set up HDMI_FC_INVIDCONF */
 	inv_val = (hdmi->hdmi_data.hdcp_enable ||
 		   (dw_hdmi_support_scdc(hdmi, display) &&
-		    (vmode->mtmdsclock > HDMI14_MAX_TMDSCLK ||
+		    (vmode->mtmdsclock > HDMI_1_3_TMDS_CHAR_RATE_MAX_HZ ||
 		     hdmi_info->scdc.scrambling.low_rates)) ?
 		HDMI_FC_INVIDCONF_HDCP_KEEPOUT_ACTIVE :
 		HDMI_FC_INVIDCONF_HDCP_KEEPOUT_INACTIVE);
@@ -2100,7 +2098,7 @@ static void hdmi_av_composer(struct dw_hdmi *hdmi,
 
 	/* Scrambling Control */
 	if (dw_hdmi_support_scdc(hdmi, display)) {
-		if (vmode->mtmdsclock > HDMI14_MAX_TMDSCLK ||
+		if (vmode->mtmdsclock > HDMI_1_3_TMDS_CHAR_RATE_MAX_HZ ||
 		    hdmi_info->scdc.scrambling.low_rates) {
 			/*
 			 * HDMI2.0 Specifies the following procedure:

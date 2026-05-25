@@ -31,8 +31,6 @@
 #include <drm/display/drm_hdmi_helper.h>
 #include <drm/display/drm_hdmi_state_helper.h>
 
-#define INNO_HDMI_MIN_TMDS_CLOCK  25000000U
-
 #define DDC_SEGMENT_ADDR		0x30
 
 #define HDMI_SCL_RATE			(100 * 1000)
@@ -820,7 +818,7 @@ static enum drm_mode_status inno_hdmi_bridge_mode_valid(struct drm_bridge *bridg
 
 	mpixelclk = mode->clock * 1000;
 
-	if (mpixelclk < INNO_HDMI_MIN_TMDS_CLOCK)
+	if (mpixelclk < HDMI_TMDS_CHAR_RATE_MIN_HZ)
 		return MODE_CLOCK_LOW;
 
 	if (inno_hdmi_find_phy_config(hdmi, mpixelclk) < 0)
