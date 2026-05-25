@@ -663,9 +663,6 @@ pub(crate) struct FwSecBiosImage {
 ///
 /// A BiosImage struct is embedded into all image types and implements common operations.
 struct BiosImage {
-    /// PCI ROM Expansion Header
-    #[expect(dead_code)]
-    rom_header: PciRomHeader,
     /// PCI Data Structure
     pcir: PcirStruct,
     /// NVIDIA PCI Data Extension (optional)
@@ -741,7 +738,6 @@ impl BiosImage {
         data_copy.extend_from_slice(data, GFP_KERNEL)?;
 
         Ok(BiosImage {
-            rom_header,
             pcir,
             npde,
             data: data_copy,
