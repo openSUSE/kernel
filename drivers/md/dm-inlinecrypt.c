@@ -33,6 +33,7 @@ static const struct dm_inlinecrypt_cipher {
  *	       preceded by @iv_offset 512-byte sectors.
  * @sector_size: crypto sector size in bytes (usually 4096)
  * @sector_bits: log2(sector_size)
+ * @key_type: type of the key -- either raw or hardware-wrapped
  * @key: the encryption key to use
  * @max_dun: the maximum DUN that may be used (computed from other params)
  */
@@ -44,6 +45,7 @@ struct inlinecrypt_ctx {
 	u64 iv_offset;
 	unsigned int sector_size;
 	unsigned int sector_bits;
+	enum blk_crypto_key_type key_type;
 	struct blk_crypto_key key;
 	u64 max_dun;
 };
@@ -83,8 +85,8 @@ static bool contains_whitespace(const char *str)
 	return false;
 }
 
-static int set_key_user(struct key *key, char *bin_key,
-			const unsigned int bin_key_size)
+static int set_key_user(struct key *key, char *key_bytes,
+			const unsigned int key_bytes_size)
 {
 	const struct user_key_payload *ukp;
 
@@ -92,23 +94,23 @@ static int set_key_user(struct key *key, char *bin_key,
 	if (!ukp)
 		return -EKEYREVOKED;
 
-	if (bin_key_size != ukp->datalen)
+	if (key_bytes_size != ukp->datalen)
 		return -EINVAL;
 
-	memcpy(bin_key, ukp->data, bin_key_size);
+	memcpy(key_bytes, ukp->data, key_bytes_size);
 
 	return 0;
 }
 
-static int inlinecrypt_get_keyring_key(const char *key_string, u8 *bin_key,
-					const unsigned int bin_key_size)
+static int inlinecrypt_get_keyring_key(const char *key_string, u8 *key_bytes,
+					const unsigned int key_bytes_size)
 {
 	char *key_desc;
 	int ret;
 	struct key_type *type;
 	struct key *key;
-	int (*set_key)(struct key *key, char *bin_key,
-				   const unsigned int bin_key_size);
+	int (*set_key)(struct key *key, char *key_bytes,
+				   const unsigned int key_bytes_size);
 
 	/*
 	 * Reject key_string with whitespace. dm core currently lacks code for
@@ -137,7 +139,7 @@ static int inlinecrypt_get_keyring_key(const char *key_string, u8 *bin_key,
 
 	down_read(&key->sem);
 
-	ret = set_key(key, (char *)bin_key, bin_key_size);
+	ret = set_key(key, (char *)key_bytes, key_bytes_size);
 
 	up_read(&key->sem);
 	key_put(key);
@@ -178,8 +180,8 @@ static int get_key_size(char **key_string)
 
 #else
 
-static int inlinecrypt_get_keyring_key(const char *key_string, u8 *bin_key,
-					const unsigned int bin_key_size)
+static int inlinecrypt_get_keyring_key(const char *key_string, u8 *key_bytes,
+					const unsigned int key_bytes_size)
 {
 	return -EINVAL;
 }
@@ -234,7 +236,7 @@ static int inlinecrypt_ctr_optional(struct dm_target *ti,
 	struct inlinecrypt_ctx *ctx = ti->private;
 	struct dm_arg_set as;
 	static const struct dm_arg _args[] = {
-		{0, 3, "Invalid number of feature args"},
+		{0, 4, "Invalid number of feature args"},
 	};
 	unsigned int opt_params;
 	const char *opt_string;
@@ -255,7 +257,23 @@ static int inlinecrypt_ctr_optional(struct dm_target *ti,
 			ti->error = "Not enough feature arguments";
 			return -EINVAL;
 		}
-		if (!strcmp(opt_string, "allow_discards")) {
+		if (str_has_prefix(opt_string, "keytype:")) {
+			const char *val = opt_string + strlen("keytype:");
+
+			if (!*val) {
+				ti->error = "Invalid block key type";
+				return -EINVAL;
+			}
+
+			if (!strcmp(val, "raw")) {
+				ctx->key_type = BLK_CRYPTO_KEY_TYPE_RAW;
+			} else if (!strcmp(val, "hw-wrapped")) {
+				ctx->key_type = BLK_CRYPTO_KEY_TYPE_HW_WRAPPED;
+			} else {
+				ti->error = "Invalid block key type";
+				return -EINVAL;
+			}
+		} else if (!strcmp(opt_string, "allow_discards")) {
 			ti->num_discard_bios = 1;
 		} else if (sscanf(opt_string, "sector_size:%u%c",
 				  &ctx->sector_size, &dummy) == 1) {
@@ -293,7 +311,7 @@ static int inlinecrypt_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 {
 	struct inlinecrypt_ctx *ctx;
 	const struct dm_inlinecrypt_cipher *cipher;
-	u8 raw_key[BLK_CRYPTO_MAX_ANY_KEY_SIZE];
+	u8 key_bytes[BLK_CRYPTO_MAX_ANY_KEY_SIZE];
 	unsigned int dun_bytes;
 	unsigned long long tmpll;
 	char dummy;
@@ -333,7 +351,7 @@ static int inlinecrypt_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	}
 	ctx->key_size = err;
 
-	err = inlinecrypt_get_key(argv[1], raw_key, ctx->key_size);
+	err = inlinecrypt_get_key(argv[1], key_bytes, ctx->key_size);
 	if (err) {
 		ti->error = "Malformed key string";
 		goto bad;
@@ -365,6 +383,7 @@ static int inlinecrypt_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 
 	/* optional arguments */
 	ctx->sector_size = SECTOR_SIZE;
+	ctx->key_type = BLK_CRYPTO_KEY_TYPE_RAW;
 	if (argc > 5) {
 		err = inlinecrypt_ctr_optional(ti, argc - 5, &argv[5]);
 		if (err)
@@ -385,10 +404,9 @@ static int inlinecrypt_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 		       (ctx->sector_bits - SECTOR_SHIFT);
 	dun_bytes = DIV_ROUND_UP(fls64(ctx->max_dun), 8);
 
-	err = blk_crypto_init_key(&ctx->key, raw_key, ctx->key_size,
-				  BLK_CRYPTO_KEY_TYPE_RAW,
-				  cipher->mode_num, dun_bytes,
-				  ctx->sector_size);
+	err = blk_crypto_init_key(&ctx->key, key_bytes, ctx->key_size,
+				  ctx->key_type, cipher->mode_num,
+				  dun_bytes, ctx->sector_size);
 	if (err) {
 		ti->error = "Error initializing blk-crypto key";
 		goto bad;
@@ -408,7 +426,7 @@ static int inlinecrypt_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 bad:
 	inlinecrypt_dtr(ti);
 out:
-	memzero_explicit(raw_key, sizeof(raw_key));
+	memzero_explicit(key_bytes, sizeof(key_bytes));
 	return err;
 }
 
@@ -502,8 +520,9 @@ static void inlinecrypt_status(struct dm_target *ti, status_type_t type,
 		 * the returned table.  Userspace is responsible for redacting
 		 * the key when needed.
 		 */
-		DMEMIT("%s %*phN %llu %s %llu", ctx->cipher_string,
-		       ctx->key.size, ctx->key.bytes, ctx->iv_offset,
+		DMEMIT("%s %*phN %u %llu %s %llu", ctx->cipher_string,
+		       ctx->key.size, ctx->key.bytes,
+		       ctx->key_type, ctx->iv_offset,
 		       ctx->dev->name, ctx->start);
 		num_feature_args += !!ti->num_discard_bios;
 		if (ctx->sector_size != SECTOR_SIZE)

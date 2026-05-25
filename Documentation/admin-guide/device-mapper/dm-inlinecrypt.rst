@@ -39,18 +39,19 @@ Parameters::
 
 <key_string>
     The kernel keyring key is identified by string in following format:
-    <key_size>:<key_type>:<key_description>.
+    <key_size>:<keyring_type>:<key_description>.
 
 <key_size>
     The encryption key size in bytes. The kernel key payload size must match
     the value passed in <key_size>.
 
-<key_type>
-    Either 'logon', or 'trusted' kernel key type.
+<keyring_type>
+    The type of the key inside the kernel keyring. It can be either 'logon',
+    or 'trusted' kernel key type.
 
 <key_description>
     The kernel keyring key description inlinecrypt target should look for
-    when loading key of <key_type>.
+    when loading key of <keyring_type>.
 
 <iv_offset>
     The IV offset is a sector count that is added to the sector number
@@ -70,7 +71,12 @@ Parameters::
     Otherwise #opt_params is the number of following arguments.
 
     Example of optional parameters section:
-        allow_discards sector_size:4096 iv_large_sectors
+        keytype:raw allow_discards sector_size:4096 iv_large_sectors
+
+<key_type>
+    The type of the key as seen by the block layer, either standard or
+    hardware-wrapped. The string is supplied in the table as <keytype:raw>
+    or <keytype:hw-wrapped>.
 
 allow_discards
     Block discard requests (a.k.a. TRIM) are passed through the inlinecrypt
@@ -113,11 +119,11 @@ using dmsetup
 
 	#!/bin/sh
 	# Create a inlinecrypt device using dmsetup
-	dmsetup create inlinecrypt1 --table "0 `blockdev --getsz $1` inlinecrypt aes-xts-plain64 babebabebabebabebabebabebabebabebabebabebabebabebabebabebabebabe 0 $1 0"
+	dmsetup create inlinecrypt1 --table "0 `blockdev --getsz $1` inlinecrypt aes-xts-plain64 babebabebabebabebabebabebabebabebabebabebabebabebabebabebabebabe 0 0 $1 0 1 keytype:raw"
 
 ::
 
 	#!/bin/sh
 	# Create a inlinecrypt device using dmsetup when encryption key is stored in keyring service
-	dmsetup create inlinecrypt2 --table "0 `blockdev --getsz $1` inlinecrypt aes-xts-plain64 :64:logon:fde:dminlinecrypt_test_key 0 $1 0"
+	dmsetup create inlinecrypt2 --table "0 `blockdev --getsz $1` inlinecrypt aes-xts-plain64 :64:logon:fde:dminlinecrypt_test_key 0 0 $1 0 1 keytype:raw"
 
