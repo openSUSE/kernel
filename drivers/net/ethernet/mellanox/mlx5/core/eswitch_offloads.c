@@ -2748,7 +2748,7 @@ static int esw_port_metadata_get(struct devlink *devlink, u32 id,
 }
 
 static int esw_port_metadata_validate(struct devlink *devlink, u32 id,
-				      union devlink_param_value val,
+				      union devlink_param_value *val,
 				      struct netlink_ext_ack *extack)
 {
 	struct mlx5_core_dev *dev = devlink_priv(devlink);
