@@ -224,6 +224,8 @@ int ath12k_peer_create(struct ath12k *ar, struct ath12k_link_vif *arvif,
 						       HTT_TCL_META_DATA_PEER_ID) |
 				       u16_encode_bits(0,
 						       HTT_TCL_META_DATA_VALID_HTT);
+		arsta->ast_hash = peer->ast_hash;
+		arsta->ast_idx = peer->hw_peer_id;
 		peer->link_id = arsta->link_id;
 
 		/* Fill ML info into created peer */

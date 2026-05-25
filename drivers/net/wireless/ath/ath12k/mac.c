@@ -6576,6 +6576,7 @@ static int ath12k_mac_sta_set_4addr(struct wiphy *wiphy, struct ath12k_sta *ahst
 	struct ath12k_dp_link_peer *peer;
 	struct ath12k_link_vif *arvif;
 	struct ath12k_link_sta *arsta;
+	struct ath12k_vif *ahvif;
 	struct ath12k_dp *dp;
 	unsigned long links;
 	struct ath12k *ar;
@@ -6589,10 +6590,11 @@ static int ath12k_mac_sta_set_4addr(struct wiphy *wiphy, struct ath12k_sta *ahst
 			continue;
 
 		arvif = arsta->arvif;
+		ahvif = arvif->ahvif;
 		ar = arvif->ar;
 
 		if (arvif->set_wds_vdev_param)
-			goto skip_use_4addr;
+			goto skip_nawds;
 
 		ath12k_dbg(ar->ab, ATH12K_DBG_MAC,
 			   "setting USE_4ADDR for peer %pM\n", arsta->addr);
@@ -6607,7 +6609,21 @@ static int ath12k_mac_sta_set_4addr(struct wiphy *wiphy, struct ath12k_sta *ahst
 			return ret;
 		}
 
-skip_use_4addr:
+		if (ahvif->dp_vif.tx_encap_type != ATH12K_HW_TXRX_ETHERNET)
+			goto skip_nawds;
+
+		ret = ath12k_wmi_vdev_set_param_cmd(ar, arvif->vdev_id,
+						    WMI_VDEV_PARAM_AP_ENABLE_NAWDS,
+						    WDS_EXT_ENABLE);
+		if (ret) {
+			ath12k_warn(ar->ab, "failed to set vdev %d nawds parameter: %d\n",
+				    arvif->vdev_id, ret);
+			return ret;
+		}
+
+		arvif->nawds_enabled = true;
+
+skip_nawds:
 		dp = ath12k_ab_to_dp(ar->ab);
 		spin_lock_bh(&dp->dp_lock);
 		peer = ath12k_dp_link_peer_find_by_vdev_and_addr(dp, arvif->vdev_id,
@@ -10098,12 +10114,14 @@ static void ath12k_mac_update_vif_offload(struct ath12k_link_vif *arvif)
 		vif->offload_flags &= ~(IEEE80211_OFFLOAD_ENCAP_ENABLED |
 					IEEE80211_OFFLOAD_DECAP_ENABLED);
 
-	if (vif->offload_flags & IEEE80211_OFFLOAD_ENCAP_ENABLED)
+	if (vif->offload_flags & IEEE80211_OFFLOAD_ENCAP_ENABLED) {
 		ahvif->dp_vif.tx_encap_type = ATH12K_HW_TXRX_ETHERNET;
-	else if (test_bit(ATH12K_FLAG_RAW_MODE, &ab->dev_flags))
+		vif->offload_flags |= IEEE80211_OFFLOAD_ENCAP_4ADDR;
+	} else if (test_bit(ATH12K_FLAG_RAW_MODE, &ab->dev_flags)) {
 		ahvif->dp_vif.tx_encap_type = ATH12K_HW_TXRX_RAW;
-	else
+	} else {
 		ahvif->dp_vif.tx_encap_type = ATH12K_HW_TXRX_NATIVE_WIFI;
+	}
 
 	ret = ath12k_wmi_vdev_set_param_cmd(ar, arvif->vdev_id,
 					    param_id, ahvif->dp_vif.tx_encap_type);
