@@ -720,6 +720,7 @@ int rsnd_src_probe(struct rsnd_priv *priv)
 {
 	struct device_node *node;
 	struct device *dev = rsnd_priv_to_dev(priv);
+	struct reset_control *rstc;
 	struct rsnd_src_ctrl *src_ctrl;
 	struct rsnd_src *src;
 	struct clk *clk;
@@ -772,6 +773,16 @@ int rsnd_src_probe(struct rsnd_priv *priv)
 		goto rsnd_src_probe_done;
 	}
 
+	/*
+	 * Shared SCU reset for every SRC module; acquire once.
+	 * R-Car platforms typically don't have SRC reset controls.
+	 */
+	rstc = devm_reset_control_get_optional_shared(dev, "scu");
+	if (IS_ERR(rstc)) {
+		ret = PTR_ERR(rstc);
+		goto rsnd_src_probe_done;
+	}
+
 	i = 0;
 	for_each_child_of_node_scoped(node, np) {
 		if (!of_device_is_available(np))
@@ -798,7 +809,7 @@ int rsnd_src_probe(struct rsnd_priv *priv)
 		}
 
 		ret = rsnd_mod_init(priv, rsnd_mod_get(src),
-				    &rsnd_src_ops, clk, NULL, RSND_MOD_SRC, i);
+				    &rsnd_src_ops, clk, rstc, RSND_MOD_SRC, i);
 		if (ret)
 			goto rsnd_src_probe_done;
 
