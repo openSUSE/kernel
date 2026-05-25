@@ -84,7 +84,7 @@ struct VbiosIterator<'a> {
     /// progressively extends. It is used so that we do not re-read any contents that are already
     /// read as we use the cumulative length read so far, and re-read any gaps as we extend the
     /// length.
-    data: KVec<u8>,
+    data: KVVec<u8>,
     /// Current offset of the [`Iterator`].
     current_offset: usize,
     /// Indicate whether the last image has been found.
@@ -177,7 +177,7 @@ impl<'a> VbiosIterator<'a> {
         Ok(Self {
             dev,
             bar0,
-            data: KVec::new(),
+            data: KVVec::new(),
             current_offset: vbios_rom_offset(dev, bar0)?,
             last_found: false,
         })
@@ -315,8 +315,7 @@ impl Vbios {
     pub(crate) fn new(dev: &device::Device, bar0: &Bar0) -> Result<Vbios> {
         // Images to extract from iteration
         let mut pci_at_image: Option<PciAtBiosImage> = None;
-        let mut first_fwsec_image: Option<BiosImage> = None;
-        let mut second_fwsec_image: Option<BiosImage> = None;
+        let mut fwsec_section: Option<KVVec<u8>> = None;
 
         // Parse all VBIOS images in the ROM
         for image_result in VbiosIterator::new(dev, bar0)? {
@@ -330,6 +329,13 @@ impl Vbios {
                 image.is_last()
             );
 
+            // Once we have found the first FWSEC image, grab all data after that as the FWSEC
+            // section. This is indexed as one logical block to build the final FWSEC image.
+            if let Some(data) = fwsec_section.as_mut() {
+                data.extend_from_slice(&image.data, GFP_KERNEL)?;
+                continue;
+            }
+
             // Convert to a specific image type
             match BiosImageType::try_from(image.pcir.code_type) {
                 Ok(BiosImageType::PciAt) => {
@@ -338,13 +344,7 @@ impl Vbios {
                         pci_at_image = Some(PciAtBiosImage::try_from(image)?);
                     }
                 }
-                Ok(BiosImageType::FwSec) => {
-                    if first_fwsec_image.is_none() {
-                        first_fwsec_image = Some(image);
-                    } else {
-                        second_fwsec_image = Some(image);
-                    }
-                }
+                Ok(BiosImageType::FwSec) => fwsec_section = Some(image.data),
                 _ => {
                     // Ignore other image types or unknown types
                 }
@@ -352,10 +352,8 @@ impl Vbios {
         }
 
         // Using all the images, setup the falcon data pointer in Fwsec.
-        if let (Some(second), Some(first), Some(pci_at)) =
-            (second_fwsec_image, first_fwsec_image, pci_at_image)
-        {
-            let fwsec_image = FwSecBiosImage::new(pci_at, first, second)
+        if let (Some(pci_at), Some(fwsec_section)) = (pci_at_image, fwsec_section) {
+            let fwsec_image = FwSecBiosImage::new(dev, pci_at, fwsec_section)
                 .inspect_err(|e| dev_err!(dev, "Falcon data setup failed: {:?}\n", e))?;
 
             Ok(Vbios { fwsec_image })
@@ -703,7 +701,10 @@ struct NbsiBiosImage {
 ///
 /// The PMU table contains voltage/frequency tables as well as a pointer to the Falcon Ucode.
 pub(crate) struct FwSecBiosImage {
-    base: BiosImage,
+    /// Used for logging.
+    dev: ARef<device::Device>,
+    /// FWSEC data.
+    data: KVVec<u8>,
     /// The offset of the Falcon ucode.
     falcon_ucode_offset: usize,
 }
@@ -713,8 +714,6 @@ pub(crate) struct FwSecBiosImage {
 /// A BiosImage struct is embedded into all image types and implements common operations.
 #[expect(dead_code)]
 struct BiosImage {
-    /// Used for logging.
-    dev: ARef<device::Device>,
     /// PCI ROM Expansion Header
     rom_header: PciRomHeader,
     /// PCI Data Structure
@@ -722,7 +721,7 @@ struct BiosImage {
     /// NVIDIA PCI Data Extension (optional)
     npde: Option<NpdeStruct>,
     /// Image data (includes ROM header and PCIR)
-    data: KVec<u8>,
+    data: KVVec<u8>,
 }
 
 impl BiosImage {
@@ -795,11 +794,10 @@ impl BiosImage {
         let npde = NpdeStruct::find_in_data(dev, data, &rom_header, &pcir);
 
         // Create a copy of the data.
-        let mut data_copy = KVec::new();
+        let mut data_copy = KVVec::new();
         data_copy.extend_from_slice(data, GFP_KERNEL)?;
 
         Ok(BiosImage {
-            dev: dev.into(),
             rom_header,
             pcir,
             npde,
@@ -837,7 +835,7 @@ impl PciAtBiosImage {
     /// treats the PCI-AT and FWSEC images as logically contiguous even when an EFI image sits in
     /// between them, so subtract the PCI-AT image size here to convert it to a FWSEC-relative
     /// offset.
-    fn falcon_data_offset(&self) -> Result<usize> {
+    fn falcon_data_offset(&self, dev: &device::Device) -> Result<usize> {
         let token = self.get_bit_token(BIT_TOKEN_ID_FALCON_DATA)?;
         let offset = usize::from(token.data_offset);
 
@@ -852,7 +850,7 @@ impl PciAtBiosImage {
             .checked_sub(data.len())
             .ok_or(EINVAL)
             .inspect_err(|_| {
-                dev_err!(self.base.dev, "Falcon data pointer out of bounds\n");
+                dev_err!(dev, "Falcon data pointer out of bounds\n");
             })
     }
 }
@@ -942,59 +940,38 @@ impl PmuLookupTable {
 impl FwSecBiosImage {
     /// Build the final `FwSecBiosImage` from the PCI-AT and FWSEC BIOS images.
     fn new(
+        dev: &device::Device,
         pci_at_image: PciAtBiosImage,
-        first_fwsec: BiosImage,
-        second_fwsec: BiosImage,
+        data: KVVec<u8>,
     ) -> Result<FwSecBiosImage> {
-        let offset = pci_at_image.falcon_data_offset()?;
+        let offset = pci_at_image.falcon_data_offset(dev)?;
 
-        // The offset is from the start of the first FwSec image, but it
-        // may point into the second FwSec image. Treat the two FwSec images
-        // as contiguous here and subtract the first image length when the
-        // target lies in the second one.
-        let pmu_lookup_data = if offset < first_fwsec.data.len() {
-            first_fwsec.data.get(offset..)
-        } else {
-            second_fwsec.data.get(offset - first_fwsec.data.len()..)
-        }
-        .ok_or(EINVAL)?;
-
-        let pmu_lookup_table = PmuLookupTable::new(&second_fwsec.dev, pmu_lookup_data)?;
+        let pmu_lookup_data = data.get(offset..).ok_or(EINVAL)?;
+        let pmu_lookup_table = PmuLookupTable::new(dev, pmu_lookup_data)?;
 
         let entry = pmu_lookup_table
             .find_entry_by_type(FALCON_UCODE_ENTRY_APPID_FWSEC_PROD)
             .inspect_err(|e| {
-                dev_err!(
-                    second_fwsec.dev,
-                    "PmuLookupTableEntry not found, error: {:?}\n",
-                    e
-                );
+                dev_err!(dev, "PmuLookupTableEntry not found, error: {:?}\n", e);
             })?;
 
         let falcon_ucode_offset = usize::from_safe_cast(entry.data)
             .checked_sub(pci_at_image.base.data.len())
-            .and_then(|o| o.checked_sub(first_fwsec.data.len()))
             .ok_or(EINVAL)
             .inspect_err(|_| {
-                dev_err!(
-                    second_fwsec.dev,
-                    "Falcon Ucode offset not in second Fwsec.\n"
-                );
+                dev_err!(dev, "Falcon Ucode offset not in Fwsec.\n");
             })?;
 
         Ok(FwSecBiosImage {
-            base: second_fwsec,
+            dev: dev.into(),
+            data,
             falcon_ucode_offset,
         })
     }
 
     /// Get the FwSec header ([`FalconUCodeDesc`]).
     pub(crate) fn header(&self) -> Result<FalconUCodeDesc> {
-        let data = self
-            .base
-            .data
-            .get(self.falcon_ucode_offset..)
-            .ok_or(EINVAL)?;
+        let data = self.data.get(self.falcon_ucode_offset..).ok_or(EINVAL)?;
 
         // Read the version byte from the header.
         let ver = data.get(1).copied().ok_or(EINVAL)?;
@@ -1012,7 +989,7 @@ impl FwSecBiosImage {
                 Ok(FalconUCodeDesc::V3(v3))
             }
             _ => {
-                dev_err!(self.base.dev, "invalid fwsec firmware version: {:?}\n", ver);
+                dev_err!(self.dev, "invalid fwsec firmware version: {:?}\n", ver);
                 Err(EINVAL)
             }
         }
@@ -1027,15 +1004,14 @@ impl FwSecBiosImage {
         );
 
         // The ucode data follows the descriptor.
-        self.base
-            .data
+        self.data
             .get(self.falcon_ucode_offset..)
             .and_then(|data| data.get(desc.size()..))
             .and_then(|data| data.get(..size))
             .ok_or(ERANGE)
             .inspect_err(|_| {
                 dev_err!(
-                    self.base.dev,
+                    self.dev,
                     "fwsec ucode data not contained within BIOS bounds\n"
                 )
             })
@@ -1053,9 +1029,9 @@ impl FwSecBiosImage {
         let sigs_size = sigs_count * core::mem::size_of::<Bcrt30Rsa3kSignature>();
 
         // Make sure the data is within bounds.
-        if sigs_data_offset + sigs_size > self.base.data.len() {
+        if sigs_data_offset + sigs_size > self.data.len() {
             dev_err!(
-                self.base.dev,
+                self.dev,
                 "fwsec signatures data not contained within BIOS bounds\n"
             );
             return Err(ERANGE);
@@ -1065,8 +1041,7 @@ impl FwSecBiosImage {
         // sizeof::<Bcrt30Rsa3kSignature>()` is within the bounds of `data`.
         Ok(unsafe {
             core::slice::from_raw_parts(
-                self.base
-                    .data
+                self.data
                     .as_ptr()
                     .add(sigs_data_offset)
                     .cast::<Bcrt30Rsa3kSignature>(),
