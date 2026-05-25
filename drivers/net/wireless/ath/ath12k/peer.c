@@ -255,6 +255,9 @@ int ath12k_peer_create(struct ath12k *ar, struct ath12k_link_vif *arvif,
 						 ar->hw_link_id);
 	}
 
+	if (vif->type == NL80211_IFTYPE_AP && peer->dp_peer)
+		peer->dp_peer->ucast_ra_only = true;
+
 	return ret;
 }
 

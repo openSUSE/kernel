@@ -6630,6 +6630,7 @@ skip_nawds:
 								 arsta->addr);
 		if (peer && peer->dp_peer) {
 			peer->dp_peer->ucast_ra_only = true;
+			peer->dp_peer->use_4addr = true;
 		} else {
 			spin_unlock_bh(&dp->dp_lock);
 			ath12k_warn(ar->ab, "failed to find DP peer for %pM\n",
