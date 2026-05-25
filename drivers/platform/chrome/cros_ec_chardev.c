@@ -23,6 +23,7 @@
 #include <linux/platform_data/cros_ec_proto.h>
 #include <linux/platform_device.h>
 #include <linux/poll.h>
+#include <linux/rwsem.h>
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
@@ -38,6 +39,7 @@
 struct chardev_pdata {
 	struct miscdevice misc;
 	struct kref kref;
+	struct rw_semaphore ec_dev_sem;
 	struct cros_ec_device *ec_dev;
 	u16 cmd_offset;
 	struct blocking_notifier_head subscribers;
@@ -122,10 +124,18 @@ static int cros_ec_chardev_mkbp_event(struct notifier_block *nb,
 {
 	struct chardev_priv *priv = container_of(nb, struct chardev_priv,
 						 notifier);
-	struct cros_ec_device *ec_dev = priv->pdata->ec_dev;
+	struct cros_ec_device *ec_dev;
 	struct ec_event *event;
-	unsigned long event_bit = 1 << ec_dev->event_data.event_type;
-	int total_size = sizeof(*event) + ec_dev->event_size;
+	unsigned long event_bit;
+	int total_size;
+
+	guard(rwsem_read)(&priv->pdata->ec_dev_sem);
+	if (!priv->pdata->ec_dev)
+		return NOTIFY_DONE;
+	ec_dev = priv->pdata->ec_dev;
+
+	event_bit = 1 << ec_dev->event_data.event_type;
+	total_size = sizeof(*event) + ec_dev->event_size;
 
 	if (!(event_bit & priv->event_mask) ||
 	    (priv->event_len + total_size) > CROS_MAX_EVENT_LEN)
@@ -219,6 +229,10 @@ static __poll_t cros_ec_chardev_poll(struct file *filp, poll_table *wait)
 {
 	struct chardev_priv *priv = filp->private_data;
 
+	guard(rwsem_read)(&priv->pdata->ec_dev_sem);
+	if (!priv->pdata->ec_dev)
+		return EPOLLHUP;
+
 	poll_wait(filp, &priv->wait_event, wait);
 
 	if (list_empty(&priv->events))
@@ -235,6 +249,10 @@ static ssize_t cros_ec_chardev_read(struct file *filp, char __user *buffer,
 	struct chardev_priv *priv = filp->private_data;
 	size_t count;
 	int ret;
+
+	guard(rwsem_read)(&priv->pdata->ec_dev_sem);
+	if (!priv->pdata->ec_dev)
+		return -ENODEV;
 
 	if (priv->event_mask) { /* queued MKBP event */
 		struct ec_event *event;
@@ -374,6 +392,10 @@ static long cros_ec_chardev_ioctl(struct file *filp, unsigned int cmd,
 {
 	struct chardev_priv *priv = filp->private_data;
 
+	guard(rwsem_read)(&priv->pdata->ec_dev_sem);
+	if (!priv->pdata->ec_dev)
+		return -ENODEV;
+
 	if (_IOC_TYPE(cmd) != CROS_EC_DEV_IOC)
 		return -ENOTTY;
 
@@ -414,6 +436,7 @@ static int cros_ec_chardev_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, pdata);
 	kref_init(&pdata->kref);
+	init_rwsem(&pdata->ec_dev_sem);
 	pdata->ec_dev = ec->ec_dev;
 	pdata->cmd_offset = ec->cmd_offset;
 	BLOCKING_INIT_NOTIFIER_HEAD(&pdata->subscribers);
@@ -448,10 +471,16 @@ err_put_pdata:
 static void cros_ec_chardev_remove(struct platform_device *pdev)
 {
 	struct chardev_pdata *pdata = platform_get_drvdata(pdev);
+	struct cros_ec_device *ec_dev = pdata->ec_dev;
 
-	blocking_notifier_chain_unregister(&pdata->ec_dev->event_notifier,
-					   &pdata->relay);
+	/* stop new fops from being created */
 	misc_deregister(&pdata->misc);
+	/* stop existing fops from running */
+	scoped_guard(rwsem_write, &pdata->ec_dev_sem)
+		pdata->ec_dev = NULL;
+
+	blocking_notifier_chain_unregister(&ec_dev->event_notifier,
+					   &pdata->relay);
 	kref_put(&pdata->kref, chardev_pdata_release);
 }
 
