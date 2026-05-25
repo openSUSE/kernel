@@ -477,6 +477,25 @@ int rsnd_runtime_is_tdm(struct rsnd_dai_stream *io);
 int rsnd_runtime_is_tdm_split(struct rsnd_dai_stream *io);
 
 /*
+ * Indexed clock and reset name helpers.
+ *
+ * Historically the rsnd driver has looked up per-instance clocks and
+ * resets using dot-separated names (e.g. "ssi.0", "src.0", "adg.ssi.0").
+ * Newer Renesas SoC bindings (RZ/G3E and later) use hyphen-separated
+ * names ("ssi-0", "src-0", ...) to follow the standard Device Tree
+ * naming convention. These helpers look up the hyphenated name first
+ * and transparently fall back to the dotted name, so a single driver
+ * build supports both conventions.
+ */
+struct clk *rsnd_devm_clk_get_indexed(struct device *dev,
+				      const char *base, int index);
+struct clk *rsnd_devm_clk_get_optional_indexed(struct device *dev,
+					       const char *base, int index);
+struct reset_control *
+rsnd_devm_reset_control_get_optional_indexed(struct device *dev,
+					     const char *base, int index);
+
+/*
  * DT
  */
 #define rsnd_parse_of_node(priv, node)					\

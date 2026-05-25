@@ -1232,6 +1232,73 @@ int rsnd_node_count(struct rsnd_priv *priv, struct device_node *node, char *name
 	return i;
 }
 
+/*
+ * Build "<base>-<index>" or "<base>.<index>" and try the hyphen form first,
+ * falling back to the dot form if the hyphen form is not present. This lets
+ * the driver accept both the new DT convention ("ssi-0", "src-0", ...) and
+ * the legacy R-Car convention ("ssi.0", "src.0", ...) transparently.
+ *
+ * @base: name prefix ("ssi", "src", "ctu", "mix", "dvc", "adg.ssi", ...)
+ * @index: integer suffix
+ *
+ * On -ENOENT from the hyphen form, the dot form is tried. All other errors
+ * (including -EPROBE_DEFER) are returned to the caller unchanged, so
+ * behaviour against the clock and reset frameworks is preserved.
+ */
+#define RSND_INDEXED_NAME_MAX	32
+
+static void rsnd_format_indexed_name(char *buf, size_t buflen, char sep,
+				     const char *base, int index)
+{
+	snprintf(buf, buflen, "%s%c%d", base, sep, index);
+}
+
+struct clk *rsnd_devm_clk_get_indexed(struct device *dev,
+				      const char *base, int index)
+{
+	char name[RSND_INDEXED_NAME_MAX];
+	struct clk *clk;
+
+	rsnd_format_indexed_name(name, sizeof(name), '-', base, index);
+	clk = devm_clk_get(dev, name);
+	if (!IS_ERR(clk) || PTR_ERR(clk) != -ENOENT)
+		return clk;
+
+	rsnd_format_indexed_name(name, sizeof(name), '.', base, index);
+	return devm_clk_get(dev, name);
+}
+
+struct clk *rsnd_devm_clk_get_optional_indexed(struct device *dev,
+					       const char *base, int index)
+{
+	char name[RSND_INDEXED_NAME_MAX];
+	struct clk *clk;
+
+	rsnd_format_indexed_name(name, sizeof(name), '-', base, index);
+	clk = devm_clk_get_optional(dev, name);
+	if (IS_ERR(clk) || clk)
+		return clk;
+
+	rsnd_format_indexed_name(name, sizeof(name), '.', base, index);
+	return devm_clk_get_optional(dev, name);
+}
+
+struct reset_control *
+rsnd_devm_reset_control_get_optional_indexed(struct device *dev,
+					     const char *base, int index)
+{
+	char name[RSND_INDEXED_NAME_MAX];
+	struct reset_control *rstc;
+
+	rsnd_format_indexed_name(name, sizeof(name), '-', base, index);
+	rstc = devm_reset_control_get_optional(dev, name);
+	if (IS_ERR(rstc) || rstc)
+		return rstc;
+
+	rsnd_format_indexed_name(name, sizeof(name), '.', base, index);
+	return devm_reset_control_get_optional(dev, name);
+}
+
 static struct device_node*
 	rsnd_pick_endpoint_node_for_ports(struct device_node *e_ports,
 					  struct device_node *e_port)

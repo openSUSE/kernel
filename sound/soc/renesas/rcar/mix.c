@@ -32,7 +32,6 @@
 
 #include "rsnd.h"
 
-#define MIX_NAME_SIZE	16
 #define MIX_NAME "mix"
 
 struct rsnd_mix {
@@ -291,7 +290,6 @@ int rsnd_mix_probe(struct rsnd_priv *priv)
 	struct device *dev = rsnd_priv_to_dev(priv);
 	struct rsnd_mix *mix;
 	struct clk *clk;
-	char name[MIX_NAME_SIZE];
 	int i, nr, ret;
 
 	node = rsnd_mix_of_node(priv);
@@ -318,10 +316,7 @@ int rsnd_mix_probe(struct rsnd_priv *priv)
 	for_each_child_of_node_scoped(node, np) {
 		mix = rsnd_mix_get(priv, i);
 
-		snprintf(name, MIX_NAME_SIZE, "%s.%d",
-			 MIX_NAME, i);
-
-		clk = devm_clk_get(dev, name);
+		clk = rsnd_devm_clk_get_indexed(dev, MIX_NAME, i);
 		if (IS_ERR(clk)) {
 			ret = PTR_ERR(clk);
 			goto rsnd_mix_probe_done;

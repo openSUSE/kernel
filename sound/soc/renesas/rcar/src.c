@@ -39,7 +39,6 @@ struct rsnd_src {
 	int irq;
 };
 
-#define RSND_SRC_NAME_SIZE 16
 
 #define rsnd_src_get(priv, id) ((struct rsnd_src *)(priv->src) + id)
 #define rsnd_src_nr(priv) ((priv)->src_nr)
@@ -715,7 +714,6 @@ int rsnd_src_probe(struct rsnd_priv *priv)
 	struct device *dev = rsnd_priv_to_dev(priv);
 	struct rsnd_src *src;
 	struct clk *clk;
-	char name[RSND_SRC_NAME_SIZE];
 	int i, nr, ret;
 
 	node = rsnd_src_of_node(priv);
@@ -750,16 +748,13 @@ int rsnd_src_probe(struct rsnd_priv *priv)
 
 		src = rsnd_src_get(priv, i);
 
-		snprintf(name, RSND_SRC_NAME_SIZE, "%s.%d",
-			 SRC_NAME, i);
-
 		src->irq = irq_of_parse_and_map(np, 0);
 		if (!src->irq) {
 			ret = -EINVAL;
 			goto rsnd_src_probe_done;
 		}
 
-		clk = devm_clk_get(dev, name);
+		clk = rsnd_devm_clk_get_indexed(dev, SRC_NAME, i);
 		if (IS_ERR(clk)) {
 			ret = PTR_ERR(clk);
 			goto rsnd_src_probe_done;

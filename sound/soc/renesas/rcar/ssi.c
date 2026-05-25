@@ -21,7 +21,6 @@
 #include <linux/of_irq.h>
 #include <linux/delay.h>
 #include "rsnd.h"
-#define RSND_SSI_NAME_SIZE 16
 
 /*
  * SSICR
@@ -1163,7 +1162,6 @@ int rsnd_ssi_probe(struct rsnd_priv *priv)
 	struct rsnd_mod_ops *ops;
 	struct clk *clk;
 	struct rsnd_ssi *ssi;
-	char name[RSND_SSI_NAME_SIZE];
 	int i, nr, ret;
 
 	node = rsnd_ssi_of_node(priv);
@@ -1198,10 +1196,7 @@ int rsnd_ssi_probe(struct rsnd_priv *priv)
 
 		ssi = rsnd_ssi_get(priv, i);
 
-		snprintf(name, RSND_SSI_NAME_SIZE, "%s.%d",
-			 SSI_NAME, i);
-
-		clk = devm_clk_get(dev, name);
+		clk = rsnd_devm_clk_get_indexed(dev, SSI_NAME, i);
 		if (IS_ERR(clk)) {
 			ret = PTR_ERR(clk);
 			goto rsnd_ssi_probe_done;
