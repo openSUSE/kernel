@@ -1704,6 +1704,56 @@ static bool ath12k_wifi7_dp_rx_h_tkip_mic_err(struct ath12k_pdev_dp *dp_pdev,
 	return false;
 }
 
+static bool ath12k_wifi7_dp_rx_h_unauth_wds_err(struct ath12k_pdev_dp *dp_pdev,
+						struct sk_buff *msdu,
+						struct hal_rx_desc_data *rx_info)
+{
+	struct ath12k_skb_rxcb *rxcb = ATH12K_SKB_RXCB(msdu);
+	struct ath12k_dp *dp = dp_pdev->dp;
+	u32 hdr_len, hal_rx_desc_sz = dp->ab->hal.hal_desc_sz;
+	u8 l3pad_bytes = rx_info->l3_pad_bytes;
+	struct ath12k_dp_rx_rfc1042_hdr *llc;
+	u16 msdu_len = rx_info->msdu_len;
+	struct ath12k_dp_peer *peer;
+	struct ieee80211_hdr *hdr;
+	int ret;
+
+	guard(rcu)();
+	peer = ath12k_dp_peer_find_by_peerid(dp_pdev, rxcb->peer_id);
+	if (!peer) {
+		ath12k_dbg(dp->ab, ATH12K_DBG_DATA,
+			   "failed to find the peer to process unauth wds err handling peer_id %d\n",
+			   rxcb->peer_id);
+		return true;
+	}
+
+	if ((hal_rx_desc_sz + l3pad_bytes + msdu_len) > DP_RX_BUFFER_SIZE)
+		return true;
+
+	skb_put(msdu, hal_rx_desc_sz + l3pad_bytes + msdu_len);
+	skb_pull(msdu, hal_rx_desc_sz + l3pad_bytes);
+
+	if (unlikely(!ath12k_dp_rx_check_nwifi_hdr_len_valid(dp, msdu,
+							     rx_info)))
+		return true;
+
+	ath12k_dp_rx_h_ppdu(dp_pdev, rx_info);
+
+	ret = ath12k_wifi7_dp_rx_h_mpdu(dp_pdev, msdu, rx_info);
+	if (ret)
+		return true;
+
+	rxcb->tid = rx_info->tid;
+
+	hdr = (struct ieee80211_hdr *)msdu->data;
+	hdr_len = ieee80211_hdrlen(hdr->frame_control);
+	llc = (struct ath12k_dp_rx_rfc1042_hdr *)(msdu->data + hdr_len);
+	if (llc->snap_type != cpu_to_be16(ETH_P_PAE))
+		return true;
+
+	return false;
+}
+
 static bool ath12k_wifi7_dp_rx_h_rxdma_err(struct ath12k_pdev_dp *dp_pdev,
 					   struct sk_buff *msdu,
 					   struct hal_rx_desc_data *rx_info)
@@ -1715,6 +1765,9 @@ static bool ath12k_wifi7_dp_rx_h_rxdma_err(struct ath12k_pdev_dp *dp_pdev,
 	dp->device_stats.rxdma_error[rxcb->err_code]++;
 
 	switch (rxcb->err_code) {
+	case HAL_REO_ENTR_RING_RXDMA_ECODE_UNAUTH_WDS_ERR:
+		drop = ath12k_wifi7_dp_rx_h_unauth_wds_err(dp_pdev, msdu, rx_info);
+		break;
 	case HAL_REO_ENTR_RING_RXDMA_ECODE_DECRYPT_ERR:
 	case HAL_REO_ENTR_RING_RXDMA_ECODE_TKIP_MIC_ERR:
 		if (rx_info->err_bitmap & HAL_RX_MPDU_ERR_TKIP_MIC) {
