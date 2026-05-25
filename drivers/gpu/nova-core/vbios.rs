@@ -533,67 +533,38 @@ impl BitToken {
 
 /// PCI ROM Expansion Header as defined in PCI Firmware Specification.
 ///
-/// This is header is at the beginning of every image in the set of images in the ROM. It contains
-/// a pointer to the PCI Data Structure which describes the image. For "NBSI" images (NoteBook
-/// System Information), the ROM header deviates from the standard and contains an offset to the
-/// NBSI image however we do not yet parse that in this module and keep it for future reference.
+/// This header is at the beginning of every image in the set of images in the ROM. It contains a
+/// pointer to the PCI Data Structure which describes the image.
 #[derive(Debug, Clone, Copy)]
-#[expect(dead_code)]
+#[repr(C)]
 struct PciRomHeader {
     /// 00h: Signature (0xAA55)
     signature: u16,
-    /// 02h: Reserved bytes for processor architecture unique data (20 bytes)
-    reserved: [u8; 20],
-    /// 16h: NBSI Data Offset (NBSI-specific, offset from header to NBSI image)
-    nbsi_data_offset: Option<u16>,
+    /// 02h: Reserved bytes for processor architecture unique data (22 bytes)
+    reserved: [u8; 22],
     /// 18h: Pointer to PCI Data Structure (offset from start of ROM image)
     pci_data_struct_offset: u16,
-    /// 1Ah: Size of block (this is NBSI-specific)
-    size_of_block: Option<u32>,
 }
+
+// SAFETY: all bit patterns are valid for `PciRomHeader`.
+unsafe impl FromBytes for PciRomHeader {}
 
 impl PciRomHeader {
     fn new(dev: &device::Device, data: &[u8]) -> Result<Self> {
-        if data.len() < 26 {
-            // Need at least 26 bytes to read pciDataStrucPtr and sizeOfBlock.
-            return Err(EINVAL);
-        }
-
-        let signature = u16::from_le_bytes([data[0], data[1]]);
+        let (rom_header, _) = PciRomHeader::from_bytes_copy_prefix(data)
+            .ok_or(EINVAL)
+            .inspect_err(|_| dev_err!(dev, "Not enough data for ROM header\n"))?;
 
         // Check for valid ROM signatures.
-        match signature {
+        match rom_header.signature {
             0xAA55 | 0x4E56 => {}
             _ => {
-                dev_err!(dev, "ROM signature unknown {:#x}\n", signature);
+                dev_err!(dev, "ROM signature unknown {:#x}\n", rom_header.signature);
                 return Err(EINVAL);
             }
         }
 
-        // Read the pointer to the PCI Data Structure at offset 0x18.
-        let pci_data_struct_ptr = u16::from_le_bytes([data[24], data[25]]);
-
-        // Try to read optional fields if enough data.
-        let mut size_of_block = None;
-        let mut nbsi_data_offset = None;
-
-        if data.len() >= 30 {
-            // Read size_of_block at offset 0x1A.
-            size_of_block = Some(u32::from_le_bytes([data[26], data[27], data[28], data[29]]));
-        }
-
-        // For NBSI images, try to read the nbsiDataOffset at offset 0x16.
-        if data.len() >= 24 {
-            nbsi_data_offset = Some(u16::from_le_bytes([data[22], data[23]]));
-        }
-
-        Ok(PciRomHeader {
-            signature,
-            reserved: [0u8; 20],
-            pci_data_struct_offset: pci_data_struct_ptr,
-            size_of_block,
-            nbsi_data_offset,
-        })
+        Ok(rom_header)
     }
 }
 
@@ -712,9 +683,9 @@ pub(crate) struct FwSecBiosImage {
 /// BIOS Image structure containing various headers and reference fields to all BIOS images.
 ///
 /// A BiosImage struct is embedded into all image types and implements common operations.
-#[expect(dead_code)]
 struct BiosImage {
     /// PCI ROM Expansion Header
+    #[expect(dead_code)]
     rom_header: PciRomHeader,
     /// PCI Data Structure
     pcir: PcirStruct,
@@ -759,15 +730,8 @@ impl BiosImage {
 
     /// Creates a new BiosImage from raw byte data.
     fn new(dev: &device::Device, data: &[u8]) -> Result<Self> {
-        // Ensure we have enough data for the ROM header.
-        if data.len() < 26 {
-            dev_err!(dev, "Not enough data for ROM header\n");
-            return Err(EINVAL);
-        }
-
         // Parse the ROM header.
-        let rom_header = PciRomHeader::new(dev, &data[0..26])
-            .inspect_err(|e| dev_err!(dev, "Failed to create PciRomHeader: {:?}\n", e))?;
+        let rom_header = PciRomHeader::new(dev, data)?;
 
         // Get the PCI Data Structure using the pointer from the ROM header.
         let pcir_offset = usize::from(rom_header.pci_data_struct_offset);
