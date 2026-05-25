@@ -122,7 +122,7 @@ impl platform::Driver for RustDebugFs {
     const ACPI_ID_TABLE: Option<acpi::IdTable<Self::IdInfo>> = Some(&ACPI_TABLE);
 
     fn probe(
-        pdev: &platform::Device<Core>,
+        pdev: &platform::Device<Core<'_>>,
         _info: Option<&Self::IdInfo>,
     ) -> impl PinInit<Self, Error> {
         RustDebugFs::new(pdev).pin_chain(|this| {
@@ -147,7 +147,7 @@ impl RustDebugFs {
         dir.read_write_file(c"pair", new_mutex!(Inner { x: 3, y: 10 }))
     }
 
-    fn new(pdev: &platform::Device<Core>) -> impl PinInit<Self, Error> + '_ {
+    fn new<'a>(pdev: &'a platform::Device<Core<'_>>) -> impl PinInit<Self, Error> + 'a {
         let debugfs = Dir::new(c"sample_debugfs");
         let dev = pdev.as_ref();
 

@@ -95,7 +95,7 @@ impl platform::Driver for TyrPlatformDriverData {
     const OF_ID_TABLE: Option<of::IdTable<Self::IdInfo>> = Some(&OF_TABLE);
 
     fn probe(
-        pdev: &platform::Device<Core>,
+        pdev: &platform::Device<Core<'_>>,
         _info: Option<&Self::IdInfo>,
     ) -> impl PinInit<Self, Error> {
         let core_clk = Clk::get(pdev.as_ref(), Some(c"core"))?;

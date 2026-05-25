@@ -42,7 +42,7 @@ impl i2c::Driver for SampleDriver {
     const OF_ID_TABLE: Option<of::IdTable<Self::IdInfo>> = Some(&OF_TABLE);
 
     fn probe(
-        idev: &i2c::I2cClient<Core>,
+        idev: &i2c::I2cClient<Core<'_>>,
         info: Option<&Self::IdInfo>,
     ) -> impl PinInit<Self, Error> {
         let dev = idev.as_ref();
@@ -56,11 +56,11 @@ impl i2c::Driver for SampleDriver {
         Ok(Self)
     }
 
-    fn shutdown(idev: &i2c::I2cClient<Core>, _this: Pin<&Self>) {
+    fn shutdown(idev: &i2c::I2cClient<Core<'_>>, _this: Pin<&Self>) {
         dev_info!(idev.as_ref(), "Shutdown Rust I2C driver sample.\n");
     }
 
-    fn unbind(idev: &i2c::I2cClient<Core>, _this: Pin<&Self>) {
+    fn unbind(idev: &i2c::I2cClient<Core<'_>>, _this: Pin<&Self>) {
         dev_info!(idev.as_ref(), "Unbind Rust I2C driver sample.\n");
     }
 }

@@ -892,7 +892,7 @@ pub trait Driver {
 ///     const OF_ID_TABLE: Option<of::IdTable<Self::IdInfo>> = None;
 ///
 ///     fn probe(
-///         pdev: &platform::Device<Core>,
+///         pdev: &platform::Device<Core<'_>>,
 ///         _id_info: Option<&Self::IdInfo>,
 ///     ) -> impl PinInit<Self, Error> {
 ///         cpufreq::Registration::<SampleDriver>::new_foreign_owned(pdev.as_ref())?;

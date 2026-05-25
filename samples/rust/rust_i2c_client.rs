@@ -111,7 +111,7 @@ impl platform::Driver for SampleDriver {
     const ACPI_ID_TABLE: Option<acpi::IdTable<Self::IdInfo>> = Some(&ACPI_TABLE);
 
     fn probe(
-        pdev: &platform::Device<device::Core>,
+        pdev: &platform::Device<device::Core<'_>>,
         _info: Option<&Self::IdInfo>,
     ) -> impl PinInit<Self, Error> {
         dev_info!(
@@ -130,7 +130,7 @@ impl platform::Driver for SampleDriver {
         })
     }
 
-    fn unbind(pdev: &platform::Device<device::Core>, _this: Pin<&Self>) {
+    fn unbind(pdev: &platform::Device<device::Core<'_>>, _this: Pin<&Self>) {
         dev_info!(
             pdev.as_ref(),
             "Unbind Rust I2C Client registration sample.\n"

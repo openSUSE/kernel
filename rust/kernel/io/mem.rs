@@ -65,7 +65,7 @@ impl<'a> IoRequest<'a> {
     ///    # type Data = Self;
     ///
     ///    fn probe(
-    ///       pdev: &platform::Device<Core>,
+    ///       pdev: &platform::Device<Core<'_>>,
     ///       info: Option<&Self::IdInfo>,
     ///    ) -> impl PinInit<Self, Error> {
     ///       let offset = 0; // Some offset.
@@ -130,7 +130,7 @@ impl<'a> IoRequest<'a> {
     ///    # type Data = Self;
     ///
     ///    fn probe(
-    ///       pdev: &platform::Device<Core>,
+    ///       pdev: &platform::Device<Core<'_>>,
     ///       info: Option<&Self::IdInfo>,
     ///    ) -> impl PinInit<Self, Error> {
     ///       let offset = 0; // Some offset.

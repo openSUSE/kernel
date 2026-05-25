@@ -87,7 +87,7 @@ impl<T: Driver> Adapter<T> {
         // `struct auxiliary_device`.
         //
         // INVARIANT: `adev` is valid for the duration of `probe_callback()`.
-        let adev = unsafe { &*adev.cast::<Device<device::CoreInternal>>() };
+        let adev = unsafe { &*adev.cast::<Device<device::CoreInternal<'_>>>() };
 
         // SAFETY: `DeviceId` is a `#[repr(transparent)`] wrapper of `struct auxiliary_device_id`
         // and does not add additional invariants, so it's safe to transmute.
@@ -107,7 +107,7 @@ impl<T: Driver> Adapter<T> {
         // `struct auxiliary_device`.
         //
         // INVARIANT: `adev` is valid for the duration of `remove_callback()`.
-        let adev = unsafe { &*adev.cast::<Device<device::CoreInternal>>() };
+        let adev = unsafe { &*adev.cast::<Device<device::CoreInternal<'_>>>() };
 
         // SAFETY: `remove_callback` is only ever called after a successful call to
         // `probe_callback`, hence it's guaranteed that `Device::set_drvdata()` has been called
@@ -211,8 +211,10 @@ pub trait Driver {
     /// Auxiliary driver probe.
     ///
     /// Called when an auxiliary device is matches a corresponding driver.
-    fn probe(dev: &Device<device::Core>, id_info: &Self::IdInfo)
-        -> impl PinInit<Self::Data, Error>;
+    fn probe(
+        dev: &Device<device::Core<'_>>,
+        id_info: &Self::IdInfo,
+    ) -> impl PinInit<Self::Data, Error>;
 
     /// Auxiliary driver unbind.
     ///
@@ -224,7 +226,7 @@ pub trait Driver {
     /// operations to gracefully tear down the device.
     ///
     /// Otherwise, release operations for driver resources should be performed in `Drop`.
-    fn unbind(dev: &Device<device::Core>, this: Pin<&Self::Data>) {
+    fn unbind(dev: &Device<device::Core<'_>>, this: Pin<&Self::Data>) {
         let _ = (dev, this);
     }
 }

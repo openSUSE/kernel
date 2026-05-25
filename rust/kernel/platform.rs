@@ -97,7 +97,7 @@ impl<T: Driver> Adapter<T> {
         // `struct platform_device`.
         //
         // INVARIANT: `pdev` is valid for the duration of `probe_callback()`.
-        let pdev = unsafe { &*pdev.cast::<Device<device::CoreInternal>>() };
+        let pdev = unsafe { &*pdev.cast::<Device<device::CoreInternal<'_>>>() };
         let info = <Self as driver::Adapter>::id_info(pdev.as_ref());
 
         from_result(|| {
@@ -113,7 +113,7 @@ impl<T: Driver> Adapter<T> {
         // `struct platform_device`.
         //
         // INVARIANT: `pdev` is valid for the duration of `remove_callback()`.
-        let pdev = unsafe { &*pdev.cast::<Device<device::CoreInternal>>() };
+        let pdev = unsafe { &*pdev.cast::<Device<device::CoreInternal<'_>>>() };
 
         // SAFETY: `remove_callback` is only ever called after a successful call to
         // `probe_callback`, hence it's guaranteed that `Device::set_drvdata()` has been called
@@ -197,7 +197,7 @@ macro_rules! module_platform_driver {
 ///     const ACPI_ID_TABLE: Option<acpi::IdTable<Self::IdInfo>> = Some(&ACPI_TABLE);
 ///
 ///     fn probe(
-///         _pdev: &platform::Device<Core>,
+///         _pdev: &platform::Device<Core<'_>>,
 ///         _id_info: Option<&Self::IdInfo>,
 ///     ) -> impl PinInit<Self, Error> {
 ///         Err(ENODEV)
@@ -227,7 +227,7 @@ pub trait Driver {
     /// Called when a new platform device is added or discovered.
     /// Implementers should attempt to initialize the device here.
     fn probe(
-        dev: &Device<device::Core>,
+        dev: &Device<device::Core<'_>>,
         id_info: Option<&Self::IdInfo>,
     ) -> impl PinInit<Self::Data, Error>;
 
@@ -241,7 +241,7 @@ pub trait Driver {
     /// operations to gracefully tear down the device.
     ///
     /// Otherwise, release operations for driver resources should be performed in `Drop`.
-    fn unbind(dev: &Device<device::Core>, this: Pin<&Self::Data>) {
+    fn unbind(dev: &Device<device::Core<'_>>, this: Pin<&Self::Data>) {
         let _ = (dev, this);
     }
 }
@@ -513,7 +513,7 @@ impl Device<Bound> {
 kernel::impl_device_context_deref!(unsafe { Device });
 kernel::impl_device_context_into_aref!(Device);
 
-impl crate::dma::Device for Device<device::Core> {}
+impl<'a> crate::dma::Device<'a> for Device<device::Core<'a>> {}
 
 // SAFETY: Instances of `Device` are always reference-counted.
 unsafe impl crate::sync::aref::AlwaysRefCounted for Device {

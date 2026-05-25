@@ -30,18 +30,18 @@ impl usb::Driver for SampleDriver {
     const ID_TABLE: usb::IdTable<Self::IdInfo> = &USB_TABLE;
 
     fn probe(
-        intf: &usb::Interface<Core>,
+        intf: &usb::Interface<Core<'_>>,
         _id: &usb::DeviceId,
         _info: &Self::IdInfo,
     ) -> impl PinInit<Self, Error> {
-        let dev: &device::Device<Core> = intf.as_ref();
+        let dev: &device::Device<Core<'_>> = intf.as_ref();
         dev_info!(dev, "Rust USB driver sample probed\n");
 
         Ok(Self { _intf: intf.into() })
     }
 
-    fn disconnect(intf: &usb::Interface<Core>, _data: Pin<&Self>) {
-        let dev: &device::Device<Core> = intf.as_ref();
+    fn disconnect(intf: &usb::Interface<Core<'_>>, _data: Pin<&Self>) {
+        let dev: &device::Device<Core<'_>> = intf.as_ref();
         dev_info!(dev, "Rust USB driver sample disconnected\n");
     }
 }

@@ -27,11 +27,11 @@
 //!     const ACPI_ID_TABLE: Option<acpi::IdTable<Self::IdInfo>> = None;
 //!
 //!     /// Driver probe.
-//!     fn probe(dev: &Device<device::Core>, id_info: &Self::IdInfo)
+//!     fn probe(dev: &Device<device::Core<'_>>, id_info: &Self::IdInfo)
 //!         -> impl PinInit<Self::Data, Error>;
 //!
 //!     /// Driver unbind (optional).
-//!     fn unbind(dev: &Device<device::Core>, this: Pin<&Self::Data>) {
+//!     fn unbind(dev: &Device<device::Core<'_>>, this: Pin<&Self::Data>) {
 //!         let _ = (dev, this);
 //!     }
 //! }
@@ -191,7 +191,7 @@ impl<T: RegistrationOps> Registration<T> {
         // a `struct device`.
         //
         // INVARIANT: `dev` is valid for the duration of the `post_unbind_callback()`.
-        let dev = unsafe { &*dev.cast::<device::Device<device::CoreInternal>>() };
+        let dev = unsafe { &*dev.cast::<device::Device<device::CoreInternal<'_>>>() };
 
         // `remove()` has been completed at this point; devres resources are still valid and will
         // be released after the driver's bus device private data is dropped.

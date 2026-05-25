@@ -105,7 +105,7 @@ impl<T: Driver> Adapter<T> {
         // `struct pci_dev`.
         //
         // INVARIANT: `pdev` is valid for the duration of `probe_callback()`.
-        let pdev = unsafe { &*pdev.cast::<Device<device::CoreInternal>>() };
+        let pdev = unsafe { &*pdev.cast::<Device<device::CoreInternal<'_>>>() };
 
         // SAFETY: `DeviceId` is a `#[repr(transparent)]` wrapper of `struct pci_device_id` and
         // does not add additional invariants, so it's safe to transmute.
@@ -125,7 +125,7 @@ impl<T: Driver> Adapter<T> {
         // `struct pci_dev`.
         //
         // INVARIANT: `pdev` is valid for the duration of `remove_callback()`.
-        let pdev = unsafe { &*pdev.cast::<Device<device::CoreInternal>>() };
+        let pdev = unsafe { &*pdev.cast::<Device<device::CoreInternal<'_>>>() };
 
         // SAFETY: `remove_callback` is only ever called after a successful call to
         // `probe_callback`, hence it's guaranteed that `Device::set_drvdata()` has been called
@@ -283,7 +283,7 @@ macro_rules! pci_device_table {
 ///     const ID_TABLE: pci::IdTable<Self::IdInfo> = &PCI_TABLE;
 ///
 ///     fn probe(
-///         _pdev: &pci::Device<Core>,
+///         _pdev: &pci::Device<Core<'_>>,
 ///         _id_info: &Self::IdInfo,
 ///     ) -> impl PinInit<Self, Error> {
 ///         Err(ENODEV)
@@ -311,8 +311,10 @@ pub trait Driver {
     ///
     /// Called when a new pci device is added or discovered. Implementers should
     /// attempt to initialize the device here.
-    fn probe(dev: &Device<device::Core>, id_info: &Self::IdInfo)
-        -> impl PinInit<Self::Data, Error>;
+    fn probe(
+        dev: &Device<device::Core<'_>>,
+        id_info: &Self::IdInfo,
+    ) -> impl PinInit<Self::Data, Error>;
 
     /// PCI driver unbind.
     ///
@@ -324,7 +326,7 @@ pub trait Driver {
     /// operations to gracefully tear down the device.
     ///
     /// Otherwise, release operations for driver resources should be performed in `Drop`.
-    fn unbind(dev: &Device<device::Core>, this: Pin<&Self::Data>) {
+    fn unbind(dev: &Device<device::Core<'_>>, this: Pin<&Self::Data>) {
         let _ = (dev, this);
     }
 }
@@ -359,7 +361,7 @@ impl Device {
     ///
     /// ```
     /// # use kernel::{device::Core, pci::{self, Vendor}, prelude::*};
-    /// fn log_device_info(pdev: &pci::Device<Core>) -> Result {
+    /// fn log_device_info(pdev: &pci::Device<Core<'_>>) -> Result {
     ///     // Get an instance of `Vendor`.
     ///     let vendor = pdev.vendor_id();
     ///     dev_info!(
@@ -450,7 +452,7 @@ impl Device {
     }
 }
 
-impl Device<device::Core> {
+impl<'a> Device<device::Core<'a>> {
     /// Enable memory resources for this device.
     pub fn enable_device_mem(&self) -> Result {
         // SAFETY: `self.as_raw` is guaranteed to be a pointer to a valid `struct pci_dev`.
@@ -476,7 +478,7 @@ unsafe impl<Ctx: device::DeviceContext> device::AsBusDevice<Ctx> for Device<Ctx>
 kernel::impl_device_context_deref!(unsafe { Device });
 kernel::impl_device_context_into_aref!(Device);
 
-impl crate::dma::Device for Device<device::Core> {}
+impl<'a> crate::dma::Device<'a> for Device<device::Core<'a>> {}
 
 // SAFETY: Instances of `Device` are always reference-counted.
 unsafe impl crate::sync::aref::AlwaysRefCounted for Device {

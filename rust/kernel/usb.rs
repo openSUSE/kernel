@@ -82,7 +82,7 @@ impl<T: Driver> Adapter<T> {
         // `struct usb_interface` and `struct usb_device_id`.
         //
         // INVARIANT: `intf` is valid for the duration of `probe_callback()`.
-        let intf = unsafe { &*intf.cast::<Interface<device::CoreInternal>>() };
+        let intf = unsafe { &*intf.cast::<Interface<device::CoreInternal<'_>>>() };
 
         from_result(|| {
             // SAFETY: `DeviceId` is a `#[repr(transparent)]` wrapper of `struct usb_device_id` and
@@ -92,7 +92,7 @@ impl<T: Driver> Adapter<T> {
             let info = T::ID_TABLE.info(id.index());
             let data = T::probe(intf, id, info);
 
-            let dev: &device::Device<device::CoreInternal> = intf.as_ref();
+            let dev: &device::Device<device::CoreInternal<'_>> = intf.as_ref();
             dev.set_drvdata(data)?;
             Ok(0)
         })
@@ -103,9 +103,9 @@ impl<T: Driver> Adapter<T> {
         // `struct usb_interface`.
         //
         // INVARIANT: `intf` is valid for the duration of `disconnect_callback()`.
-        let intf = unsafe { &*intf.cast::<Interface<device::CoreInternal>>() };
+        let intf = unsafe { &*intf.cast::<Interface<device::CoreInternal<'_>>>() };
 
-        let dev: &device::Device<device::CoreInternal> = intf.as_ref();
+        let dev: &device::Device<device::CoreInternal<'_>> = intf.as_ref();
 
         // SAFETY: `disconnect_callback` is only ever called after a successful call to
         // `probe_callback`, hence it's guaranteed that `Device::set_drvdata()` has been called
@@ -291,14 +291,14 @@ macro_rules! usb_device_table {
 ///     const ID_TABLE: usb::IdTable<Self::IdInfo> = &USB_TABLE;
 ///
 ///     fn probe(
-///         _interface: &usb::Interface<Core>,
+///         _interface: &usb::Interface<Core<'_>>,
 ///         _id: &usb::DeviceId,
 ///         _info: &Self::IdInfo,
 ///     ) -> impl PinInit<Self::Data, Error> {
 ///         Err(ENODEV)
 ///     }
 ///
-///     fn disconnect(_interface: &usb::Interface<Core>, _data: Pin<&Self::Data>) {}
+///     fn disconnect(_interface: &usb::Interface<Core<'_>>, _data: Pin<&Self::Data>) {}
 /// }
 ///```
 pub trait Driver {
@@ -316,7 +316,7 @@ pub trait Driver {
     /// Called when a new USB interface is bound to this driver.
     /// Implementers should attempt to initialize the interface here.
     fn probe(
-        interface: &Interface<device::Core>,
+        interface: &Interface<device::Core<'_>>,
         id: &DeviceId,
         id_info: &Self::IdInfo,
     ) -> impl PinInit<Self::Data, Error>;
@@ -324,7 +324,7 @@ pub trait Driver {
     /// USB driver disconnect.
     ///
     /// Called when the USB interface is about to be unbound from this driver.
-    fn disconnect(interface: &Interface<device::Core>, data: Pin<&Self::Data>);
+    fn disconnect(interface: &Interface<device::Core<'_>>, data: Pin<&Self::Data>);
 }
 
 /// A USB interface.

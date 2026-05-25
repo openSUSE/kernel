@@ -320,7 +320,7 @@ impl platform::Driver for Th1520PwmPlatformDriver {
     const OF_ID_TABLE: Option<of::IdTable<Self::IdInfo>> = Some(&OF_TABLE);
 
     fn probe(
-        pdev: &platform::Device<Core>,
+        pdev: &platform::Device<Core<'_>>,
         _id_info: Option<&Self::IdInfo>,
     ) -> impl PinInit<Self, Error> {
         let dev = pdev.as_ref();

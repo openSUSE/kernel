@@ -42,7 +42,7 @@ impl platform::Driver for SampleSocDriver {
     const ACPI_ID_TABLE: Option<acpi::IdTable<Self::IdInfo>> = Some(&ACPI_TABLE);
 
     fn probe(
-        pdev: &platform::Device<Core>,
+        pdev: &platform::Device<Core<'_>>,
         _info: Option<&Self::IdInfo>,
     ) -> impl PinInit<Self, Error> {
         dev_dbg!(pdev, "Probe Rust SoC driver sample.\n");

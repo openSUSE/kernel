@@ -106,7 +106,7 @@ impl platform::Driver for SampleDriver {
     const ACPI_ID_TABLE: Option<acpi::IdTable<Self::IdInfo>> = Some(&ACPI_TABLE);
 
     fn probe(
-        pdev: &platform::Device<Core>,
+        pdev: &platform::Device<Core<'_>>,
         info: Option<&Self::IdInfo>,
     ) -> impl PinInit<Self, Error> {
         let dev = pdev.as_ref();

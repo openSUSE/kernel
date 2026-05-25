@@ -35,7 +35,10 @@ impl auxiliary::Driver for AuxiliaryDriver {
 
     const ID_TABLE: auxiliary::IdTable<Self::IdInfo> = &AUX_TABLE;
 
-    fn probe(adev: &auxiliary::Device<Core>, _info: &Self::IdInfo) -> impl PinInit<Self, Error> {
+    fn probe(
+        adev: &auxiliary::Device<Core<'_>>,
+        _info: &Self::IdInfo,
+    ) -> impl PinInit<Self, Error> {
         dev_info!(
             adev,
             "Probing auxiliary driver for auxiliary device with id={}\n",
@@ -70,7 +73,7 @@ impl pci::Driver for ParentDriver {
 
     const ID_TABLE: pci::IdTable<Self::IdInfo> = &PCI_TABLE;
 
-    fn probe(pdev: &pci::Device<Core>, _info: &Self::IdInfo) -> impl PinInit<Self, Error> {
+    fn probe(pdev: &pci::Device<Core<'_>>, _info: &Self::IdInfo) -> impl PinInit<Self, Error> {
         Ok(Self {
             _reg0: auxiliary::Registration::new(
                 pdev.as_ref(),
