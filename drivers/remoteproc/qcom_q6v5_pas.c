@@ -92,9 +92,6 @@ struct qcom_pas {
 	const struct firmware *firmware;
 	const struct firmware *dtb_firmware;
 
-	struct completion start_done;
-	struct completion stop_done;
-
 	phys_addr_t mem_phys;
 	phys_addr_t dtb_mem_phys;
 	phys_addr_t mem_reloc;
