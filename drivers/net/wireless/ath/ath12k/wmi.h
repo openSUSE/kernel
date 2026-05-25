@@ -2334,6 +2334,11 @@ enum wmi_preamble {
 	WMI_VDEV_PREAMBLE_SHORT = 2,
 };
 
+enum wmi_peer_4addr_allow_frame {
+	WMI_PEER_4ADDR_ALLOW_DATA_FRAME = 1,
+	WMI_PEER_4ADDR_ALLOW_EAPOL_DATA_FRAME = 2,
+};
+
 enum wmi_peer_smps_state {
 	WMI_PEER_SMPS_PS_NONE =	0,
 	WMI_PEER_SMPS_STATIC  = 1,

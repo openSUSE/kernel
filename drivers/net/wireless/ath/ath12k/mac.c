@@ -6571,6 +6571,62 @@ static int ath12k_mac_station_disassoc(struct ath12k *ar,
 	return 0;
 }
 
+static int ath12k_mac_sta_set_4addr(struct wiphy *wiphy, struct ath12k_sta *ahsta)
+{
+	struct ath12k_dp_link_peer *peer;
+	struct ath12k_link_vif *arvif;
+	struct ath12k_link_sta *arsta;
+	struct ath12k_dp *dp;
+	unsigned long links;
+	struct ath12k *ar;
+	u8 link_id;
+	int ret;
+
+	links = ahsta->links_map;
+	for_each_set_bit(link_id, &links, IEEE80211_MLD_MAX_NUM_LINKS) {
+		arsta = wiphy_dereference(wiphy, ahsta->link[link_id]);
+		if (!arsta)
+			continue;
+
+		arvif = arsta->arvif;
+		ar = arvif->ar;
+
+		if (arvif->set_wds_vdev_param)
+			goto skip_use_4addr;
+
+		ath12k_dbg(ar->ab, ATH12K_DBG_MAC,
+			   "setting USE_4ADDR for peer %pM\n", arsta->addr);
+
+		ret = ath12k_wmi_set_peer_param(ar, arsta->addr,
+						arvif->vdev_id,
+						WMI_PEER_USE_4ADDR,
+						WMI_PEER_4ADDR_ALLOW_EAPOL_DATA_FRAME);
+		if (ret) {
+			ath12k_warn(ar->ab, "failed to set peer %pM 4addr capability: %d\n",
+				    arsta->addr, ret);
+			return ret;
+		}
+
+skip_use_4addr:
+		dp = ath12k_ab_to_dp(ar->ab);
+		spin_lock_bh(&dp->dp_lock);
+		peer = ath12k_dp_link_peer_find_by_vdev_and_addr(dp, arvif->vdev_id,
+								 arsta->addr);
+		if (peer && peer->dp_peer) {
+			peer->dp_peer->ucast_ra_only = true;
+		} else {
+			spin_unlock_bh(&dp->dp_lock);
+			ath12k_warn(ar->ab, "failed to find DP peer for %pM\n",
+				    arsta->addr);
+			return -ENOENT;
+		}
+
+		spin_unlock_bh(&dp->dp_lock);
+	}
+
+	return 0;
+}
+
 static void ath12k_sta_rc_update_wk(struct wiphy *wiphy, struct wiphy_work *wk)
 {
 	struct ieee80211_link_sta *link_sta;
@@ -7864,6 +7920,28 @@ out:
 	return ret;
 }
 EXPORT_SYMBOL(ath12k_mac_op_sta_set_txpwr);
+
+void ath12k_mac_op_sta_set_4addr(struct ieee80211_hw *hw,
+				 struct ieee80211_vif *vif,
+				 struct ieee80211_sta *sta, bool enabled)
+{
+	struct ath12k_sta *ahsta = ath12k_sta_to_ahsta(sta);
+
+	lockdep_assert_wiphy(hw->wiphy);
+
+	/*
+	 * 4-address mode disabled option is available only for station
+	 * interface from mac80211, and we have wds_vdev_param for station
+	 * interface and target will not allow to disable the wds_vdev_param
+	 * during run time. So, add support only for enable case, for
+	 * disable case station interface needs to be reconnect.
+	 */
+	if (enabled && !ahsta->enable_4addr) {
+		if (!ath12k_mac_sta_set_4addr(hw->wiphy, ahsta))
+			ahsta->enable_4addr = true;
+	}
+}
+EXPORT_SYMBOL(ath12k_mac_op_sta_set_4addr);
 
 void ath12k_mac_op_link_sta_rc_update(struct ieee80211_hw *hw,
 				      struct ieee80211_vif *vif,
@@ -10421,6 +10499,7 @@ int ath12k_mac_vdev_create(struct ath12k *ar, struct ath12k_link_vif *arvif)
 					    ret);
 				goto err_peer_del;
 			}
+			arvif->set_wds_vdev_param = true;
 		}
 
 		if (test_bit(WMI_TLV_SERVICE_11D_OFFLOAD, ab->wmi_ab.svc_map) &&
