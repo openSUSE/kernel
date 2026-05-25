@@ -985,48 +985,40 @@ impl FwSecBiosBuilder {
         pci_at_image: &PciAtBiosImage,
         first_fwsec: &FwSecBiosBuilder,
     ) -> Result {
-        let mut offset = pci_at_image.falcon_data_offset()?;
-        let mut pmu_in_first_fwsec = false;
+        let offset = pci_at_image.falcon_data_offset()?;
 
-        // The offset is now from the start of the first Fwsec image, however
-        // the offset points to a location in the second Fwsec image. Since
-        // the fwsec images are contiguous, subtract the length of the first Fwsec
-        // image from the offset to get the offset to the start of the second
-        // Fwsec image.
-        if offset < first_fwsec.base.data.len() {
-            pmu_in_first_fwsec = true;
+        // The offset is from the start of the first FwSec image, but it
+        // may point into the second FwSec image. Treat the two FwSec images
+        // as contiguous here and subtract the first image length when the
+        // target lies in the second one.
+        let pmu_lookup_data = if offset < first_fwsec.base.data.len() {
+            first_fwsec.base.data.get(offset..)
         } else {
-            offset -= first_fwsec.base.data.len();
+            self.base.data.get(offset - first_fwsec.base.data.len()..)
         }
+        .ok_or(EINVAL)?;
 
-        let pmu_lookup_data = if pmu_in_first_fwsec {
-            &first_fwsec.base.data[offset..]
-        } else {
-            self.base.data.get(offset..).ok_or(EINVAL)?
-        };
         let pmu_lookup_table = PmuLookupTable::new(&self.base.dev, pmu_lookup_data)?;
 
-        match pmu_lookup_table.find_entry_by_type(FALCON_UCODE_ENTRY_APPID_FWSEC_PROD) {
-            Ok(entry) => {
-                self.falcon_ucode_offset = Some(
-                    usize::from_safe_cast(entry.data)
-                        .checked_sub(pci_at_image.base.data.len())
-                        .and_then(|o| o.checked_sub(first_fwsec.base.data.len()))
-                        .ok_or(EINVAL)
-                        .inspect_err(|_| {
-                            dev_err!(self.base.dev, "Falcon Ucode offset not in second Fwsec.\n");
-                        })?,
-                );
-            }
-            Err(e) => {
+        let entry = pmu_lookup_table
+            .find_entry_by_type(FALCON_UCODE_ENTRY_APPID_FWSEC_PROD)
+            .inspect_err(|e| {
                 dev_err!(
                     self.base.dev,
                     "PmuLookupTableEntry not found, error: {:?}\n",
                     e
                 );
-                return Err(EINVAL);
-            }
-        }
+            })?;
+
+        let falcon_ucode_offset = usize::from_safe_cast(entry.data)
+            .checked_sub(pci_at_image.base.data.len())
+            .and_then(|o| o.checked_sub(first_fwsec.base.data.len()))
+            .ok_or(EINVAL)
+            .inspect_err(|_| {
+                dev_err!(self.base.dev, "Falcon Ucode offset not in second Fwsec.\n");
+            })?;
+
+        self.falcon_ucode_offset = Some(falcon_ucode_offset);
         Ok(())
     }
 
