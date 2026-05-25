@@ -77,6 +77,13 @@ static const char * const clkin_name_gen2[] = {
 	[CLKI]	= "clk_i",
 };
 
+static const char * const clkin_name_rzg3e[] = {
+	[CLKA]	= "audio-clka",
+	[CLKB]	= "audio-clkb",
+	[CLKC]	= "audio-clkc",
+	[CLKI]	= "audio-clki",
+};
+
 static const char * const clkout_name_gen2[] = {
 	[CLKOUT]  = "audio_clkout",
 	[CLKOUT1] = "audio_clkout1",
@@ -574,6 +581,9 @@ static int rsnd_adg_get_clkin(struct rsnd_priv *priv)
 	if (rsnd_is_gen4(priv)) {
 		clkin_name = clkin_name_gen4;
 		clkin_size = ARRAY_SIZE(clkin_name_gen4);
+	} else if (rsnd_is_rzg3e(priv)) {
+		clkin_name = clkin_name_rzg3e;
+		clkin_size = ARRAY_SIZE(clkin_name_rzg3e);
 	}
 
 	/*
