@@ -1301,6 +1301,40 @@ rsnd_devm_reset_control_get_optional_indexed(struct device *dev,
 	return devm_reset_control_get_optional(dev, name);
 }
 
+/*
+ * Strip the "rcar_sound," prefix from a legacy node name.
+ *
+ * The RZ/G3E binding uses unprefixed sub-node names (e.g. "ssi",
+ * "ssiu") while earlier R-Car bindings use the legacy "rcar_sound,*"
+ * form. This helper returns the unprefixed portion (the part after
+ * the comma) or NULL if there is no prefix.
+ *
+ * Centralising the convention here keeps every call site consistent.
+ */
+static const char *rsnd_node_name_strip_prefix(const char *name)
+{
+	const char *comma = strchr(name, ',');
+
+	return comma ? comma + 1 : NULL;
+}
+
+struct device_node *rsnd_parse_of_node(struct rsnd_priv *priv, const char *name)
+{
+	struct device_node *np = rsnd_priv_to_dev(priv)->of_node;
+	struct device_node *node;
+	const char *unprefixed;
+
+	node = of_get_child_by_name(np, name);
+	if (node)
+		return node;
+
+	unprefixed = rsnd_node_name_strip_prefix(name);
+	if (unprefixed)
+		node = of_get_child_by_name(np, unprefixed);
+
+	return node;
+}
+
 static struct device_node*
 	rsnd_pick_endpoint_node_for_ports(struct device_node *e_ports,
 					  struct device_node *e_port)

@@ -501,8 +501,8 @@ rsnd_devm_reset_control_get_optional_indexed(struct device *dev,
 /*
  * DT
  */
-#define rsnd_parse_of_node(priv, node)					\
-	of_get_child_by_name(rsnd_priv_to_dev(priv)->of_node, node)
+struct device_node *rsnd_parse_of_node(struct rsnd_priv *priv, const char *name);
+
 #define RSND_NODE_DAI	"rcar_sound,dai"
 #define RSND_NODE_SSI	"rcar_sound,ssi"
 #define RSND_NODE_SSIU	"rcar_sound,ssiu"
