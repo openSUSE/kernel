@@ -666,6 +666,7 @@ struct rsnd_priv {
 #define RSND_RZ3	(3 << 8)
 #define RSND_RZ_ID_MASK	(0xF << 12) /* nibble D */
 #define RSND_RZG3E	(1 << 12)
+#define RSND_SSIU_BUSIF_STATUS_COUNT_2	BIT(16) /* Only 2 BUSIF error-status register pairs */
 	/*
 	 * below value will be filled on rsnd_gen_probe()
 	 */
@@ -690,6 +691,7 @@ struct rsnd_priv {
 	/*
 	 * below value will be filled on rsnd_ssiu_probe()
 	 */
+	void *ssiu_ctrl;
 	void *ssiu;
 	int ssiu_nr;
 
