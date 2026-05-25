@@ -917,8 +917,7 @@ unsafe impl FromBytes for PmuLookupTableHeader {}
 /// The table of entries is pointed to by the falcon data pointer in the BIT table, and is used to
 /// locate the Falcon Ucode.
 struct PmuLookupTable {
-    header: PmuLookupTableHeader,
-    table_data: KVec<u8>,
+    entries: KVVec<PmuLookupTableEntry>,
 }
 
 impl PmuLookupTable {
@@ -929,48 +928,29 @@ impl PmuLookupTable {
         let entry_len = usize::from(header.entry_len);
         let entry_count = usize::from(header.entry_count);
 
-        let required_bytes = header_len + (entry_count * entry_len);
+        let data = data
+            .get(header_len..header_len + entry_count * entry_len)
+            .ok_or(EINVAL)
+            .inspect_err(|_| {
+                dev_err!(dev, "PmuLookupTable data length less than required\n");
+            })?;
 
-        if data.len() < required_bytes {
-            dev_err!(dev, "PmuLookupTable data length less than required\n");
-            return Err(EINVAL);
+        let mut entries = KVVec::with_capacity(entry_count, GFP_KERNEL)?;
+        for i in 0..entry_count {
+            let (entry, _) = PmuLookupTableEntry::from_bytes_copy_prefix(&data[i * entry_len..])
+                .ok_or(EINVAL)?;
+            entries.push(entry, GFP_KERNEL)?;
         }
 
-        // Create a copy of only the table data
-        let table_data = {
-            let mut ret = KVec::new();
-            ret.extend_from_slice(&data[header_len..required_bytes], GFP_KERNEL)?;
-            ret
-        };
-
-        Ok(PmuLookupTable { header, table_data })
-    }
-
-    fn lookup_index(&self, idx: u8) -> Result<PmuLookupTableEntry> {
-        if idx >= self.header.entry_count {
-            return Err(EINVAL);
-        }
-
-        let index = (usize::from(idx)) * usize::from(self.header.entry_len);
-        let (entry, _) = self
-            .table_data
-            .get(index..)
-            .and_then(PmuLookupTableEntry::from_bytes_copy_prefix)
-            .ok_or(EINVAL)?;
-
-        Ok(entry)
+        Ok(PmuLookupTable { entries })
     }
 
     // find entry by type value
-    fn find_entry_by_type(&self, entry_type: u8) -> Result<PmuLookupTableEntry> {
-        for i in 0..self.header.entry_count {
-            let entry = self.lookup_index(i)?;
-            if entry.application_id == entry_type {
-                return Ok(entry);
-            }
-        }
-
-        Err(EINVAL)
+    fn find_entry_by_type(&self, entry_type: u8) -> Result<&PmuLookupTableEntry> {
+        self.entries
+            .iter()
+            .find(|entry| entry.application_id == entry_type)
+            .ok_or(EINVAL)
     }
 }
 
