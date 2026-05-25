@@ -246,6 +246,14 @@ static void stack_map_get_build_id_offset_sleepable(struct bpf_stack_build_id *i
 {
 	struct mm_struct *mm = current->mm;
 	struct stack_map_vma_lock lock = { .mm = mm };
+	struct {
+		struct file *file;
+		const unsigned char *build_id;
+		unsigned long vm_start;
+		unsigned long vm_end;
+		unsigned long vm_pgoff;
+	} cache = {};
+	unsigned long vm_pgoff, vm_start, vm_end;
 	struct vm_area_struct *vma;
 	struct file *file;
 	u64 offset;
@@ -253,6 +261,17 @@ static void stack_map_get_build_id_offset_sleepable(struct bpf_stack_build_id *i
 
 	for (u32 i = 0; i < trace_nr; i++) {
 		ip = READ_ONCE(id_offs[i].ip);
+
+		/*
+		 * Range cache fast path: if ip falls within the previously
+		 * resolved VMA range, reuse the cache build_id without
+		 * re-acquiring the VMA lock.
+		 */
+		if (cache.build_id && ip >= cache.vm_start && ip < cache.vm_end) {
+			offset = stack_map_build_id_offset(cache.vm_pgoff, cache.vm_start, ip);
+			stack_map_build_id_set_valid(&id_offs[i], offset, cache.build_id);
+			continue;
+		}
 
 		vma = stack_map_lock_vma(&lock, ip);
 		if (!vma) {
@@ -265,17 +284,47 @@ static void stack_map_get_build_id_offset_sleepable(struct bpf_stack_build_id *i
 			continue;
 		}
 
-		file = get_file(vma->vm_file);
-		offset = stack_map_build_id_offset(vma->vm_pgoff, vma->vm_start, ip);
+		file = vma->vm_file;
+		vm_pgoff = vma->vm_pgoff;
+		vm_start = vma->vm_start;
+		vm_end = vma->vm_end;
+		offset = stack_map_build_id_offset(vm_pgoff, vm_start, ip);
+
+		/*
+		 * Same backing file as previous (e.g. different VMAs
+		 * of the same ELF binary). Reuse the cache build_id.
+		 */
+		if (file == cache.file) {
+			stack_map_unlock_vma(&lock);
+			stack_map_build_id_set_valid(&id_offs[i], offset, cache.build_id);
+			cache.vm_start = vm_start;
+			cache.vm_end = vm_end;
+			cache.vm_pgoff = vm_pgoff;
+			continue;
+		}
+
+		file = get_file(file);
 		stack_map_unlock_vma(&lock);
 
 		/* build_id_parse_file() may block on filesystem reads */
-		if (build_id_parse_file(file, id_offs[i].build_id, NULL))
+		if (build_id_parse_file(file, id_offs[i].build_id, NULL)) {
 			stack_map_build_id_set_ip(&id_offs[i]);
-		else
-			stack_map_build_id_set_valid(&id_offs[i], offset, id_offs[i].build_id);
-		fput(file);
+			fput(file);
+			continue;
+		}
+
+		stack_map_build_id_set_valid(&id_offs[i], offset, id_offs[i].build_id);
+		if (cache.file)
+			fput(cache.file);
+		cache.file = file;
+		cache.build_id = id_offs[i].build_id;
+		cache.vm_start = vm_start;
+		cache.vm_end = vm_end;
+		cache.vm_pgoff = vm_pgoff;
 	}
+
+	if (cache.file)
+		fput(cache.file);
 }
 
 /*
