@@ -185,8 +185,13 @@ impl<'a> VbiosIterator<'a> {
 
     /// Read bytes from the ROM at the current end of the data vector.
     fn read_more(&mut self, len: usize) -> Result {
-        let current_len = self.data.len();
-        let start = ROM_OFFSET + current_len;
+        let start = self.data.len();
+        let end = start + len;
+
+        if end > BIOS_MAX_SCAN_LEN {
+            dev_err!(self.dev, "Error: exceeded BIOS scan limit.\n");
+            return Err(EINVAL);
+        }
 
         // Ensure length is a multiple of 4 for 32-bit reads
         if len % core::mem::size_of::<u32>() != 0 {
@@ -200,9 +205,9 @@ impl<'a> VbiosIterator<'a> {
 
         self.data.reserve(len, GFP_KERNEL)?;
         // Read ROM data bytes and push directly to `data`.
-        for addr in (start..start + len).step_by(core::mem::size_of::<u32>()) {
+        for addr in (start..end).step_by(core::mem::size_of::<u32>()) {
             // Read 32-bit word from the VBIOS ROM
-            let word = self.bar0.try_read32(addr)?;
+            let word = self.bar0.try_read32(ROM_OFFSET + addr)?;
 
             // Convert the `u32` to a 4 byte array and push each byte.
             word.to_ne_bytes()
@@ -215,17 +220,9 @@ impl<'a> VbiosIterator<'a> {
 
     /// Read bytes at a specific offset, filling any gap.
     fn read_more_at_offset(&mut self, offset: usize, len: usize) -> Result {
-        if offset > BIOS_MAX_SCAN_LEN {
-            dev_err!(self.dev, "Error: exceeded BIOS scan limit.\n");
-            return Err(EINVAL);
-        }
+        let end = offset.checked_add(len).ok_or(EINVAL)?;
 
-        // If `offset` is beyond current data size, fill the gap first.
-        let current_len = self.data.len();
-        let gap_bytes = offset.saturating_sub(current_len);
-
-        // Now read the requested bytes at the offset.
-        self.read_more(gap_bytes + len)
+        self.read_more(end.saturating_sub(self.data.len()))
     }
 
     /// Read a BIOS image at a specific offset and create a [`BiosImage`] from it.
