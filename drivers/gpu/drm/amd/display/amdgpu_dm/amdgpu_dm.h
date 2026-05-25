@@ -53,12 +53,6 @@
 
 #define AMDGPU_DMUB_NOTIFICATION_MAX 8
 
-#define HDMI_AMD_VENDOR_SPECIFIC_DATA_BLOCK_IEEE_REGISTRATION_ID 0x00001A
-#define AMD_VSDB_VERSION_3_FEATURECAP_REPLAYMODE 0x40
-#define AMD_VDSB_VERSION_3_PANEL_TYPE_MASK 0xC0
-#define AMD_VDSB_VERSION_3_PANEL_TYPE_SHIFT 6
-#define HDMI_AMD_VENDOR_SPECIFIC_DATA_BLOCK_VERSION_3 0x3
-
 enum amd_vsdb_panel_type {
 	AMD_VSDB_PANEL_TYPE_DEFAULT = 0,
 	AMD_VSDB_PANEL_TYPE_MINILED,
@@ -96,14 +90,6 @@ struct dmub_srv;
 struct dc_plane_state;
 struct dmub_notification;
 struct dmub_cmd_fused_request;
-
-struct amd_vsdb_block {
-	unsigned char ieee_id[3];
-	unsigned char version;
-	unsigned char feature_caps;
-	unsigned char reserved[3];
-	unsigned char color_space_eotf_support;
-};
 
 struct common_irq_params {
 	struct amdgpu_device *adev;
@@ -773,6 +759,11 @@ struct amdgpu_hdmi_vsdb_info {
 	unsigned int max_refresh_rate_hz;
 
 	/**
+	 * @freesync_mccs_vcp_code: MCCS VCP code for freesync state
+	 */
+	unsigned int freesync_mccs_vcp_code;
+
+	/**
 	 * @replay_mode: Replay supported
 	 */
 	bool replay_mode;
@@ -1080,7 +1071,7 @@ void dm_restore_drm_connector_state(struct drm_device *dev,
 				    struct drm_connector *connector);
 
 void amdgpu_dm_update_freesync_caps(struct drm_connector *connector,
-				    const struct drm_edid *drm_edid);
+				    const struct drm_edid *drm_edid, bool do_mccs);
 
 void amdgpu_dm_trigger_timing_sync(struct drm_device *dev);
 

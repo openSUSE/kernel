@@ -1153,7 +1153,7 @@ out_free_reserve:
 				     NULL, &cached,
 				     EXTENT_LOCKED | EXTENT_DELALLOC |
 				     EXTENT_DELALLOC_NEW |
-				     EXTENT_DEFRAG | EXTENT_DO_ACCOUNTING,
+				     EXTENT_DEFRAG | EXTENT_CLEAR_META_RESV,
 				     PAGE_UNLOCK | PAGE_START_WRITEBACK |
 				     PAGE_END_WRITEBACK);
 	if (async_extent->cb)
@@ -4958,6 +4958,8 @@ static int btrfs_rmdir(struct inode *vfs_dir, struct dentry *dentry)
 	ret = btrfs_orphan_add(trans, inode);
 	if (ret)
 		goto out;
+
+	btrfs_record_unlink_dir(trans, dir, inode, false);
 
 	/* now the directory is empty */
 	ret = btrfs_unlink_inode(trans, dir, inode, &fname.disk_name);
@@ -9297,10 +9299,38 @@ next:
 		if (!(mode & FALLOC_FL_KEEP_SIZE) &&
 		    (actual_len > inode->i_size) &&
 		    (cur_offset > inode->i_size)) {
+			u64 range_start;
+			u64 range_end;
+
 			if (cur_offset > actual_len)
 				i_size = actual_len;
 			else
 				i_size = cur_offset;
+
+			/*
+			 * Make sure the file_extent_tree covers the entire
+			 * range [old_i_size, new_i_size) before we update
+			 * disk_i_size. Without this, a previous KEEP_SIZE
+			 * prealloc that extended past i_size (and was lost
+			 * across umount/mount because file_extent_tree is
+			 * only populated up to round_up(i_size) on inode
+			 * load) can leave a gap inside this range. That gap
+			 * would cause btrfs_inode_safe_disk_i_size_write()
+			 * (via find_contiguous_extent_bit() starting at 0)
+			 * to truncate disk_i_size to the start of the gap,
+			 * making the persisted size smaller than i_size.
+			 */
+			range_start = round_down(inode->i_size, fs_info->sectorsize);
+			range_end = round_up(i_size, fs_info->sectorsize);
+			ret = btrfs_inode_set_file_extent_range(BTRFS_I(inode),
+					range_start, range_end - range_start);
+			if (ret) {
+				btrfs_abort_transaction(trans, ret);
+				if (own_trans)
+					btrfs_end_transaction(trans);
+				break;
+			}
+
 			i_size_write(inode, i_size);
 			btrfs_inode_safe_disk_i_size_write(BTRFS_I(inode), 0);
 		}

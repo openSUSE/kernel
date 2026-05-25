@@ -1190,6 +1190,16 @@ static void volume_control_quirks(struct usb_mixer_elem_info *cval,
 			cval->res = 1;
 		}
 		break;
+
+	case USB_ID(0x0e6f, 0x024a): /* PDP Riffmaster for PS4 */
+	case USB_ID(0x0e6f, 0x0249): /* PDP Riffmaster for PS5 */
+		if (!strcmp(kctl->id.name, "PCM Playback Volume")) {
+			usb_audio_info(chip,
+				"set volume quirk for PDP Riffmaster for PS4/PS5\n");
+			cval->min = -2560; /* Mute under it */
+		}
+		break;
+
 	case USB_ID(0x3302, 0x12db): /* MOONDROP Quark2 */
 		if (!strcmp(kctl->id.name, "PCM Playback Volume")) {
 			usb_audio_info(chip,
@@ -2664,6 +2674,16 @@ static int build_audio_procunit(struct mixer_build *state, int unitid,
 
 		/* get min/max values */
 		switch (type) {
+		case USB_XU_CLOCK_RATE:
+			/*
+			 * E-Mu USB 0404/0202/TrackerPre/0204
+			 * samplerate control quirk
+			 */
+			cval->min = 0;
+			cval->max = 5;
+			cval->res = 1;
+			cval->initialized = 1;
+			break;
 		case UAC_PROCESS_UP_DOWNMIX: {
 			bool mode_sel = false;
 
@@ -2687,31 +2707,17 @@ static int build_audio_procunit(struct mixer_build *state, int unitid,
 				cval->max = control_spec[0];
 				cval->res = 1;
 				cval->initialized = 1;
-				err = 0;
 				break;
 			}
 
-			err = get_min_max(cval, valinfo->min_value);
-			break;
+			fallthrough;
 		}
-		case USB_XU_CLOCK_RATE:
-			/*
-			 * E-Mu USB 0404/0202/TrackerPre/0204
-			 * samplerate control quirk
-			 */
-			cval->min = 0;
-			cval->max = 5;
-			cval->res = 1;
-			cval->initialized = 1;
-			err = 0;
-			break;
 		default:
 			err = get_min_max(cval, valinfo->min_value);
-			break;
-		}
-		if (err < 0 && err != -EAGAIN) {
-			usb_mixer_elem_info_free(cval);
-			return err;
+			if (err < 0 && err != -EAGAIN) {
+				usb_mixer_elem_info_free(cval);
+				return err;
+			}
 		}
 
 		err = get_cur_ctl_value(cval, cval->control << 8, &val);

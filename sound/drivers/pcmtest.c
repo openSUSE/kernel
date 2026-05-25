@@ -679,9 +679,9 @@ static ssize_t pattern_read(struct file *file, char __user *u_buff, size_t len, 
 		return 0;
 
 	if (copy_to_user(u_buff, patt_buf->buf + *off, to_read))
-		to_read = 0;
-	else
-		*off += to_read;
+		return -EFAULT;
+
+	*off += to_read;
 
 	return to_read;
 }
@@ -754,13 +754,22 @@ static int __init mod_init(void)
 
 	err = init_debug_files(buf_allocated);
 	if (err)
-		return err;
+		goto err_free_patterns;
 	err = platform_device_register(&pcmtst_pdev);
 	if (err)
-		return err;
+		goto err_clear_debug;
 	err = platform_driver_register(&pcmtst_pdrv);
-	if (err)
+	if (err) {
 		platform_device_unregister(&pcmtst_pdev);
+		goto err_clear_debug;
+	}
+
+	return 0;
+
+err_clear_debug:
+	clear_debug_files();
+err_free_patterns:
+	free_pattern_buffers();
 	return err;
 }
 

@@ -510,6 +510,8 @@ struct smb2_encryption_neg_context {
 /* Pattern scanning algorithm See MS-SMB2 3.1.4.4.1 */
 #define SMB3_COMPRESS_PATTERN	cpu_to_le16(0x0004) /* Pattern_V1 */
 #define SMB3_COMPRESS_LZ4	cpu_to_le16(0x0005)
+/* Account for NONE for easier array indexing */
+#define SMB3_COMPRESS_MAX_ALGS	6
 
 /* Compression Flags */
 #define SMB2_COMPRESSION_CAPABILITIES_FLAG_NONE		cpu_to_le32(0x00000000)
@@ -1564,6 +1566,10 @@ struct validate_negotiate_info_rsp {
 #define FILE_STANDARD_LINK_INFORMATION	54
 #define FILE_ID_INFORMATION		59
 #define FILE_ID_EXTD_DIRECTORY_INFORMATION 60	/* also for QUERY_DIR */
+#define FileId64ExtdDirectoryInformation 78	/* also for QUERY_DIR */
+#define FileId64ExtdBothDirectoryInformation 79 /* also for QUERY_DIR */
+#define FileIdAllExtdDirectoryInformation 80	/* also for QUERY_DIR */
+#define FileIdAllExtdBothDirectoryInformation 81 /* also for QUERY_DIR */
 /* Used for Query Info and Find File POSIX Info for SMB3.1.1 and SMB1 */
 #define SMB_FIND_FILE_POSIX_INFO	0x064
 

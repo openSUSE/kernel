@@ -778,7 +778,10 @@ int smu_v13_0_6_get_metrics_table(struct smu_context *smu, void *metrics_table,
 		}
 
 		amdgpu_hdp_invalidate(smu->adev, NULL);
-		memcpy(smu_table->metrics_table, table->cpu_addr, table_size);
+		ret = smu_cmn_vram_cpy(smu, smu_table->metrics_table,
+				       table->cpu_addr, table_size);
+		if (ret)
+			return ret;
 
 		smu_table->metrics_time = jiffies;
 	}
@@ -857,9 +860,9 @@ int smu_v13_0_6_get_static_metrics_table(struct smu_context *smu)
 	}
 
 	amdgpu_hdp_invalidate(smu->adev, NULL);
-	memcpy(smu_table->metrics_table, table->cpu_addr, table_size);
 
-	return 0;
+	return smu_cmn_vram_cpy(smu, smu_table->metrics_table,
+				table->cpu_addr, table_size);
 }
 
 static void smu_v13_0_6_update_caps(struct smu_context *smu)
@@ -1126,6 +1129,7 @@ static int smu_v13_0_6_set_default_dpm_table(struct smu_context *smu)
 	/* gfxclk dpm table setup */
 	dpm_table = &dpm_context->dpm_tables.gfx_table;
 	dpm_table->clk_type = SMU_GFXCLK;
+	dpm_table->flags = SMU_DPM_TABLE_FINE_GRAINED;
 	if (smu_cmn_feature_is_enabled(smu, SMU_FEATURE_DPM_GFXCLK_BIT)) {
 		/* In the case of gfxclk, only fine-grained dpm is honored.
 		 * Get min/max values from FW.
@@ -2404,13 +2408,15 @@ static int smu_v13_0_6_request_i2c_xfer(struct smu_context *smu,
 
 	table_size = smu_table->tables[SMU_TABLE_I2C_COMMANDS].size;
 
-	memcpy(table->cpu_addr, table_data, table_size);
+	ret = smu_cmn_vram_cpy(smu, table->cpu_addr, table_data, table_size);
+	if (ret)
+		return ret;
+
 	/* Flush hdp cache */
 	amdgpu_hdp_flush(adev, NULL);
-	ret = smu_cmn_send_smc_msg(smu, SMU_MSG_RequestI2cTransaction,
-					  NULL);
 
-	return ret;
+	return smu_cmn_send_smc_msg(smu, SMU_MSG_RequestI2cTransaction,
+				    NULL);
 }
 
 static int smu_v13_0_6_i2c_xfer(struct i2c_adapter *i2c_adap,
