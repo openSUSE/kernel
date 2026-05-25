@@ -799,7 +799,6 @@ int pcm3168a_probe(struct device *dev, struct regmap *regmap)
 
 	pm_runtime_set_active(dev);
 	pm_runtime_enable(dev);
-	pm_runtime_idle(dev);
 
 	memcpy(pcm3168a->dai_drv, pcm3168a_dais, sizeof(pcm3168a->dai_drv));
 	ret = devm_snd_soc_register_component(dev, &pcm3168a_driver,
