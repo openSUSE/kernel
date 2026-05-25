@@ -15,9 +15,11 @@ use kernel::{
 use crate::file::File;
 use crate::gem::NovaObject;
 
-pub(crate) struct NovaDriver {
+pub(crate) struct NovaDriver;
+
+pub(crate) struct Nova {
     #[expect(unused)]
-    drm: ARef<drm::Device<Self>>,
+    drm: ARef<drm::Device<NovaDriver>>,
 }
 
 /// Convienence type alias for the DRM device type for this driver
@@ -51,19 +53,19 @@ kernel::auxiliary_device_table!(
 
 impl auxiliary::Driver for NovaDriver {
     type IdInfo = ();
-    type Data<'bound> = Self;
+    type Data<'bound> = Nova;
     const ID_TABLE: auxiliary::IdTable<Self::IdInfo> = &AUX_TABLE;
 
     fn probe<'bound>(
         adev: &'bound auxiliary::Device<Core<'_>>,
         _info: &'bound Self::IdInfo,
-    ) -> impl PinInit<Self, Error> + 'bound {
+    ) -> impl PinInit<Self::Data<'bound>, Error> + 'bound {
         let data = try_pin_init!(NovaData { adev: adev.into() });
 
         let drm = drm::Device::<Self>::new(adev.as_ref(), data)?;
         drm::Registration::new_foreign_owned(&drm, adev.as_ref(), 0)?;
 
-        Ok(Self { drm })
+        Ok(Nova { drm })
     }
 }
 
