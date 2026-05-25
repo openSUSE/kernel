@@ -93,6 +93,7 @@ struct rz_dmac_chan {
 	u32 chcfg;
 	u32 chctrl;
 	int mid_rid;
+	int dmac_ack;
 
 	struct {
 		u32 nxla;
@@ -118,6 +119,9 @@ struct rz_dmac_icu {
 struct rz_dmac_info {
 	void (*icu_register_dma_req)(struct platform_device *icu_dev,
 				     u8 dmac_index, u8 dmac_channel, u16 req_no);
+	void (*icu_register_dma_ack)(struct platform_device *icu_dev,
+				     u8 dmac_index, u8 dmac_channel, u16 ack_no);
+	u16 default_dma_ack_no;
 	u16 default_dma_req_no;
 };
 
@@ -366,6 +370,60 @@ static void rz_dmac_set_dma_req_no(struct rz_dmac *dmac, unsigned int index,
 		rz_dmac_set_dmars_register(dmac, index, req_no);
 }
 
+/*
+ * Map MID/RID request number (bits[0:9] of DMA specifier) to the ICU
+ * DMA ACK signal number, per RZ/G3E hardware manual Table 4.6-28.
+ *
+ * Three peripheral groups cover all ACK-capable peripherals:
+ *
+ *   PFC external DMA pins (DREQ0..DREQ4):
+ *     req_no 0x000-0x004 -> ACK No. 84-88  (ack = req_no + 84)
+ *
+ *   SSIU BUSIFs (ssip00..ssip93):
+ *     req_no 0x161-0x198 -> ACK No. 28-83  (ack = req_no - 0x145)
+ *
+ *   SPDIF (CH0..CH2) + SCU SRC (sr0..sr9) + DVC (cmd0..cmd1):
+ *     req_no 0x199-0x1b4 -> ACK No. 0-27   (ack = req_no - 0x199)
+ */
+static int rz_dmac_get_ack_no(const struct rz_dmac_info *info, u16 req_no)
+{
+	if (!info->icu_register_dma_ack)
+		return -EINVAL;
+
+	switch (req_no) {
+	case 0x000 ... 0x004:
+		/* PFC external DMA pins: ACK No. 84-88 */
+		return req_no + 84;
+	case 0x161 ... 0x198:
+		/* SSIU BUSIFs: ACK No. 28-83 */
+		return req_no - 0x145;
+	case 0x199 ... 0x1b4:
+		/* SPDIF + SCU SRC + DVC: ACK No. 0-27 */
+		return req_no - 0x199;
+	default:
+		return -EINVAL;
+	}
+}
+
+static void rz_dmac_set_dma_ack_no(struct rz_dmac *dmac, unsigned int index,
+				   int ack_no)
+{
+	if (ack_no < 0 || !dmac->info->icu_register_dma_ack)
+		return;
+
+	dmac->info->icu_register_dma_ack(dmac->icu.pdev, dmac->icu.dmac_index,
+					 index, ack_no);
+}
+
+static void rz_dmac_reset_dma_ack_no(struct rz_dmac *dmac, int ack_no)
+{
+	if (ack_no < 0 || !dmac->info->icu_register_dma_ack)
+		return;
+
+	dmac->info->icu_register_dma_ack(dmac->icu.pdev, dmac->icu.dmac_index,
+					 dmac->info->default_dma_ack_no, ack_no);
+}
+
 static void rz_dmac_prepare_desc_for_memcpy(struct rz_dmac_chan *channel)
 {
 	struct dma_chan *chan = &channel->vc.chan;
@@ -438,6 +496,7 @@ static void rz_dmac_prepare_descs_for_slave_sg(struct rz_dmac_chan *channel)
 	channel->lmdesc.tail = lmdesc;
 
 	rz_dmac_set_dma_req_no(dmac, channel->index, channel->mid_rid);
+	rz_dmac_set_dma_ack_no(dmac, channel->index, channel->dmac_ack);
 
 	channel->chctrl = 0;
 }
@@ -491,6 +550,7 @@ static void rz_dmac_prepare_descs_for_cyclic(struct rz_dmac_chan *channel)
 	channel->lmdesc.tail = lmdesc;
 
 	rz_dmac_set_dma_req_no(dmac, channel->index, channel->mid_rid);
+	rz_dmac_set_dma_ack_no(dmac, channel->index, channel->dmac_ack);
 }
 
 static void rz_dmac_xfer_desc(struct rz_dmac_chan *chan)
@@ -579,6 +639,8 @@ static void rz_dmac_free_chan_resources(struct dma_chan *chan)
 	}
 
 	channel->status = 0;
+	rz_dmac_reset_dma_ack_no(dmac, channel->dmac_ack);
+	channel->dmac_ack = -EINVAL;
 
 	spin_unlock_irqrestore(&channel->vc.lock, flags);
 
@@ -853,6 +915,7 @@ static void rz_dmac_device_synchronize(struct dma_chan *chan)
 		dev_warn(dmac->dev, "DMA Timeout");
 
 	rz_dmac_set_dma_req_no(dmac, channel->index, dmac->info->default_dma_req_no);
+	rz_dmac_reset_dma_ack_no(dmac, channel->dmac_ack);
 }
 
 static struct rz_lmdesc *
@@ -1190,6 +1253,8 @@ static bool rz_dmac_chan_filter(struct dma_chan *chan, void *arg)
 	channel->chcfg = CHCFG_FILL_TM(ch_cfg) | CHCFG_FILL_AM(ch_cfg) |
 			 CHCFG_FILL_LVL(ch_cfg) | CHCFG_FILL_HIEN(ch_cfg);
 
+	channel->dmac_ack = rz_dmac_get_ack_no(dmac->info, channel->mid_rid);
+
 	return !test_and_set_bit(channel->mid_rid, dmac->modules);
 }
 
@@ -1226,6 +1291,7 @@ static int rz_dmac_chan_probe(struct rz_dmac *dmac,
 
 	channel->index = index;
 	channel->mid_rid = -EINVAL;
+	channel->dmac_ack = -EINVAL;
 
 	/* Set io base address for each channel */
 	if (index < 8) {
@@ -1572,6 +1638,7 @@ static int rz_dmac_resume(struct device *dev)
 			continue;
 
 		rz_dmac_set_dma_req_no(dmac, channel->index, channel->mid_rid);
+		rz_dmac_set_dma_ack_no(dmac, channel->index, channel->dmac_ack);
 
 		rz_dmac_ch_writel(channel, channel->pm_state.nxla, NXLA, 1);
 		rz_dmac_ch_writel(channel, channel->chcfg, CHCFG, 1);
@@ -1593,6 +1660,8 @@ static DEFINE_SIMPLE_DEV_PM_OPS(rz_dmac_pm_ops, rz_dmac_suspend, rz_dmac_resume)
 
 static const struct rz_dmac_info rz_dmac_v2h_info = {
 	.icu_register_dma_req = rzv2h_icu_register_dma_req,
+	.icu_register_dma_ack = rzv2h_icu_register_dma_ack,
+	.default_dma_ack_no = RZV2H_ICU_DMAC_ACK_NO_DEFAULT,
 	.default_dma_req_no = RZV2H_ICU_DMAC_REQ_NO_DEFAULT,
 };
 
