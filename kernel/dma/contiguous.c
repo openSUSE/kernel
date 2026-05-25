@@ -134,7 +134,6 @@ EXPORT_SYMBOL_GPL(dev_get_cma_area);
 
 static struct cma *dma_contiguous_numa_area[MAX_NUMNODES];
 static phys_addr_t numa_cma_size[MAX_NUMNODES] __initdata;
-static struct cma *dma_contiguous_pernuma_area[MAX_NUMNODES];
 static phys_addr_t pernuma_size_bytes __initdata;
 static bool numa_cma_configured __initdata;
 
@@ -208,7 +207,7 @@ static void __init dma_numa_cma_reserve(void)
 		pernuma_size_bytes = cma_get_size(dma_contiguous_default_area);
 
 	for_each_node(nid) {
-		int ret;
+		int size, ret;
 		char name[CMA_MAX_NAME];
 		struct cma **cma;
 
@@ -218,27 +217,17 @@ static void __init dma_numa_cma_reserve(void)
 			continue;
 		}
 
-		if (pernuma_size_bytes) {
+		/* per-node numa setting has the priority */
+		size = numa_cma_size[nid] ?: pernuma_size_bytes;
+		if (!size)
+			continue;
 
-			cma = &dma_contiguous_pernuma_area[nid];
-			snprintf(name, sizeof(name), "pernuma%d", nid);
-			ret = cma_declare_contiguous_nid(0, pernuma_size_bytes, 0, 0,
-							 0, false, name, cma, nid);
-			if (ret)
-				pr_warn("%s: reservation failed: err %d, node %d", __func__,
-					ret, nid);
-		}
-
-		if (numa_cma_size[nid]) {
-
-			cma = &dma_contiguous_numa_area[nid];
-			snprintf(name, sizeof(name), "numa%d", nid);
-			ret = cma_declare_contiguous_nid(0, numa_cma_size[nid], 0, 0, 0, false,
-							 name, cma, nid);
-			if (ret)
-				pr_warn("%s: reservation failed: err %d, node %d", __func__,
-					ret, nid);
-		}
+		cma = &dma_contiguous_numa_area[nid];
+		snprintf(name, sizeof(name), "numa%d", nid);
+		ret = cma_declare_contiguous_nid(0, size, 0, 0, 0, false, name, cma, nid);
+		if (ret)
+			pr_warn("%s: reservation failed: err %d, node %d", __func__,
+				ret, nid);
 	}
 }
 #else
@@ -437,16 +426,8 @@ struct page *dma_alloc_contiguous(struct device *dev, size_t size, gfp_t gfp)
 
 #ifdef CONFIG_DMA_NUMA_CMA
 	if (nid != NUMA_NO_NODE && !(gfp & (GFP_DMA | GFP_DMA32))) {
-		struct cma *cma = dma_contiguous_pernuma_area[nid];
+		struct cma *cma = dma_contiguous_numa_area[nid];
 		struct page *page;
-
-		if (cma) {
-			page = cma_alloc_aligned(cma, size, gfp);
-			if (page)
-				return page;
-		}
-
-		cma = dma_contiguous_numa_area[nid];
 		if (cma) {
 			page = cma_alloc_aligned(cma, size, gfp);
 			if (page)
@@ -484,9 +465,6 @@ void dma_free_contiguous(struct device *dev, struct page *page, size_t size)
 		 * otherwise, page is from either per-numa cma or default cma
 		 */
 #ifdef CONFIG_DMA_NUMA_CMA
-		if (cma_release(dma_contiguous_pernuma_area[page_to_nid(page)],
-					page, count))
-			return;
 		if (cma_release(dma_contiguous_numa_area[page_to_nid(page)],
 					page, count))
 			return;
