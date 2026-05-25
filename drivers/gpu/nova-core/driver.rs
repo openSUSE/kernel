@@ -3,7 +3,6 @@
 use kernel::{
     auxiliary,
     device::Core,
-    devres::Devres,
     dma::Device,
     dma::DmaMask,
     pci,
@@ -21,6 +20,7 @@ use kernel::{
         },
         Arc,
     },
+    types::ForLt,
 };
 
 use crate::gpu::Gpu;
@@ -29,10 +29,11 @@ use crate::gpu::Gpu;
 static AUXILIARY_ID_COUNTER: Atomic<u32> = Atomic::new(0);
 
 #[pin_data]
-pub(crate) struct NovaCore {
+pub(crate) struct NovaCore<'bound> {
     #[pin]
     pub(crate) gpu: Gpu,
-    _reg: Devres<auxiliary::Registration<()>>,
+    #[allow(clippy::type_complexity)]
+    _reg: auxiliary::Registration<'bound, ForLt!(())>,
 }
 
 pub(crate) struct NovaCoreDriver;
@@ -76,13 +77,13 @@ kernel::pci_device_table!(
 
 impl pci::Driver for NovaCoreDriver {
     type IdInfo = ();
-    type Data<'bound> = NovaCore;
+    type Data<'bound> = NovaCore<'bound>;
     const ID_TABLE: pci::IdTable<Self::IdInfo> = &PCI_TABLE;
 
     fn probe<'bound>(
         pdev: &'bound pci::Device<Core<'_>>,
         _info: &'bound Self::IdInfo,
-    ) -> impl PinInit<NovaCore, Error> + 'bound {
+    ) -> impl PinInit<Self::Data<'bound>, Error> + 'bound {
         pin_init::pin_init_scope(move || {
             dev_dbg!(pdev, "Probe Nova Core GPU driver.\n");
 
@@ -115,7 +116,7 @@ impl pci::Driver for NovaCoreDriver {
         })
     }
 
-    fn unbind<'bound>(pdev: &'bound pci::Device<Core<'_>>, this: Pin<&NovaCore>) {
+    fn unbind<'bound>(pdev: &'bound pci::Device<Core<'_>>, this: Pin<&Self::Data<'bound>>) {
         this.gpu.unbind(pdev.as_ref());
     }
 }

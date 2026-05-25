@@ -10,10 +10,10 @@ use kernel::{
         Bound,
         Core, //
     },
-    devres::Devres,
     driver,
     pci,
     prelude::*,
+    types::ForLt,
     InPlaceModule, //
 };
 
@@ -55,9 +55,12 @@ struct Data {
     index: u32,
 }
 
-struct ParentDriver {
-    _reg0: Devres<auxiliary::Registration<Data>>,
-    _reg1: Devres<auxiliary::Registration<Data>>,
+struct ParentDriver;
+
+#[allow(clippy::type_complexity)]
+struct ParentData<'bound> {
+    _reg0: auxiliary::Registration<'bound, ForLt!(Data)>,
+    _reg1: auxiliary::Registration<'bound, ForLt!(Data)>,
 }
 
 kernel::pci_device_table!(
@@ -69,15 +72,15 @@ kernel::pci_device_table!(
 
 impl pci::Driver for ParentDriver {
     type IdInfo = ();
-    type Data<'bound> = Self;
+    type Data<'bound> = ParentData<'bound>;
 
     const ID_TABLE: pci::IdTable<Self::IdInfo> = &PCI_TABLE;
 
     fn probe<'bound>(
         pdev: &'bound pci::Device<Core<'_>>,
         _info: &'bound Self::IdInfo,
-    ) -> impl PinInit<Self, Error> + 'bound {
-        Ok(Self {
+    ) -> impl PinInit<Self::Data<'bound>, Error> + 'bound {
+        Ok(ParentData {
             _reg0: auxiliary::Registration::new(
                 pdev.as_ref(),
                 AUXILIARY_NAME,
@@ -101,7 +104,7 @@ impl ParentDriver {
         let dev = adev.parent();
         let pdev: &pci::Device<Bound> = dev.try_into()?;
 
-        let data = adev.registration_data::<Data>()?;
+        let data = adev.registration_data::<ForLt!(Data)>()?;
 
         dev_info!(
             dev,

@@ -12,7 +12,7 @@ use crate::{
         RawDeviceId,
         RawDeviceIdIndex, //
     },
-    devres::Devres,
+
     driver,
     error::{
         from_result,
@@ -20,6 +20,7 @@ use crate::{
     },
     prelude::*,
     types::{
+        ForLt,
         ForeignOwnable,
         Opaque, //
     },
@@ -271,12 +272,16 @@ impl Device<device::Bound> {
 
     /// Returns a pinned reference to the registration data set by the registering (parent) driver.
     ///
-    /// Returns [`EINVAL`] if `T` does not match the type used by the parent driver when calling
+    /// `F` is the [`ForLt`](trait@ForLt) encoding of the data type. The returned
+    /// reference has its lifetime shortened from `'static` to `&self`'s borrow lifetime via
+    /// [`ForLt::cast_ref`].
+    ///
+    /// Returns [`EINVAL`] if `F` does not match the type used by the parent driver when calling
     /// [`Registration::new()`].
     ///
     /// Returns [`ENOENT`] if no registration data has been set, e.g. when the device was
     /// registered by a C driver.
-    pub fn registration_data<T: 'static>(&self) -> Result<Pin<&T>> {
+    pub fn registration_data<F: ForLt + 'static>(&self) -> Result<Pin<&F::Of<'_>>> {
         // SAFETY: By the type invariant, `self.as_raw()` is a valid `struct auxiliary_device`.
         let ptr = unsafe { (*self.as_raw()).registration_data_rust };
         if ptr.is_null() {
@@ -289,18 +294,23 @@ impl Device<device::Bound> {
 
         // SAFETY: `ptr` is non-null and was set via `into_foreign()` in `Registration::new()`;
         // `RegistrationData` is `#[repr(C)]` with `type_id` at offset 0, so reading a `TypeId`
-        // at the start of the allocation is valid regardless of `T`.
+        // at the start of the allocation is valid regardless of `F`.
         let type_id = unsafe { ptr.cast::<TypeId>().read() };
-        if type_id != TypeId::of::<T>() {
+        if type_id != TypeId::of::<F>() {
             return Err(EINVAL);
         }
 
-        // SAFETY: The `TypeId` check above confirms that the stored type is `T`; `ptr` remains
-        // valid until `Registration::drop()` calls `from_foreign()`.
-        let wrapper = unsafe { Pin::<KBox<RegistrationData<T>>>::borrow(ptr) };
+        // SAFETY: The `TypeId` check above confirms that the stored type matches
+        // `F::Of<'static>`; `ptr` remains valid until `Registration::drop()` calls
+        // `from_foreign()`.
+        let wrapper = unsafe { Pin::<KBox<RegistrationData<F::Of<'static>>>>::borrow(ptr) };
 
         // SAFETY: `data` is a structurally pinned field of `RegistrationData`.
-        Ok(unsafe { wrapper.map_unchecked(|w| &w.data) })
+        let pinned: Pin<&F::Of<'_>> = unsafe { wrapper.map_unchecked(|w| &w.data) };
+
+        // SAFETY: The data was pinned when stored; `cast_ref` only shortens
+        // the lifetime, so the pinning guarantee is preserved.
+        Ok(unsafe { Pin::new_unchecked(F::cast_ref(pinned.get_ref())) })
     }
 }
 
@@ -389,42 +399,59 @@ struct RegistrationData<T> {
 /// This type represents the registration of a [`struct auxiliary_device`]. When its parent device
 /// is unbound, the corresponding auxiliary device will be unregistered from the system.
 ///
-/// The type parameter `T` is the type of the registration data owned by the registering (parent)
-/// driver. It can be accessed by the auxiliary driver through
-/// [`Device::registration_data()`].
+/// The type parameter `F` is a [`ForLt`](trait@ForLt) encoding of the registration
+/// data type. For non-lifetime-parameterized types, use [`ForLt!(T)`](macro@ForLt).
+/// The data can be accessed by the auxiliary driver through [`Device::registration_data()`].
 ///
 /// # Invariants
 ///
 /// `self.adev` always holds a valid pointer to an initialized and registered
 /// [`struct auxiliary_device`] whose `registration_data_rust` field points to a
-/// valid `Pin<KBox<RegistrationData<T>>>`.
-pub struct Registration<T: 'static> {
+/// valid `Pin<KBox<RegistrationData<F::Of<'static>>>>`.
+pub struct Registration<'a, F: ForLt + 'static> {
     adev: NonNull<bindings::auxiliary_device>,
-    _data: PhantomData<T>,
+    _phantom: PhantomData<F::Of<'a>>,
 }
 
-impl<T: Send + Sync + 'static> Registration<T> {
+impl<'a, F: ForLt> Registration<'a, F>
+where
+    for<'b> F::Of<'b>: Send + Sync,
+{
     /// Create and register a new auxiliary device with the given registration data.
     ///
     /// The `data` is owned by the registration and can be accessed through the auxiliary device
     /// via [`Device::registration_data()`].
-    pub fn new<E>(
-        parent: &device::Device<device::Bound>,
+    ///
+    /// # Safety
+    ///
+    /// The caller must not `mem::forget()` the returned [`Registration`] or otherwise prevent its
+    /// [`Drop`] implementation from running, since the registration data may contain borrowed
+    /// references that become invalid after `'a` ends.
+    ///
+    /// If the registration data is `'static`, use the safe [`Registration::new()`] instead.
+    pub unsafe fn new_with_lt<E>(
+        parent: &'a device::Device<device::Bound>,
         name: &CStr,
         id: u32,
         modname: &CStr,
-        data: impl PinInit<T, E>,
-    ) -> Result<Devres<Self>>
+        data: impl PinInit<F::Of<'a>, E>,
+    ) -> Result<Self>
     where
         Error: From<E>,
     {
         let data = KBox::pin_init::<Error>(
             try_pin_init!(RegistrationData {
-                type_id: TypeId::of::<T>(),
+                type_id: TypeId::of::<F>(),
                 data <- data,
             }),
             GFP_KERNEL,
         )?;
+
+        // SAFETY: `'a` is invariant (via `Registration`'s `PhantomData`). Lifetimes do not
+        // affect layout, so RegistrationData<F::Of<'a>> and RegistrationData<F::Of<'static>>
+        // have identical representation.
+        let data: Pin<KBox<RegistrationData<F::Of<'static>>>> =
+            unsafe { core::mem::transmute(data) };
 
         let boxed: KBox<Opaque<bindings::auxiliary_device>> = KBox::zeroed(GFP_KERNEL)?;
         let adev = boxed.get();
@@ -455,7 +482,9 @@ impl<T: Send + Sync + 'static> Registration<T> {
         if ret != 0 {
             // SAFETY: `registration_data` was set above via `into_foreign()`.
             drop(unsafe {
-                Pin::<KBox<RegistrationData<T>>>::from_foreign((*adev).registration_data_rust)
+                Pin::<KBox<RegistrationData<F::Of<'static>>>>::from_foreign(
+                    (*adev).registration_data_rust,
+                )
             });
 
             // SAFETY: `adev` is guaranteed to be a valid pointer to a
@@ -467,18 +496,36 @@ impl<T: Send + Sync + 'static> Registration<T> {
 
         // INVARIANT: The device will remain registered until `auxiliary_device_delete()` is
         // called, which happens in `Self::drop()`.
-        let reg = Self {
+        Ok(Self {
             // SAFETY: `adev` is guaranteed to be non-null, since the `KBox` was allocated
             // successfully.
             adev: unsafe { NonNull::new_unchecked(adev) },
-            _data: PhantomData,
-        };
+            _phantom: PhantomData,
+        })
+    }
 
-        Devres::new::<core::convert::Infallible>(parent, reg)
+    /// Create and register a new auxiliary device with `'static` registration data.
+    ///
+    /// Safe variant of [`Registration::new_with_lt()`] for registration data that does not contain
+    /// borrowed references.
+    pub fn new<E>(
+        parent: &'a device::Device<device::Bound>,
+        name: &CStr,
+        id: u32,
+        modname: &CStr,
+        data: impl PinInit<F::Of<'a>, E>,
+    ) -> Result<Self>
+    where
+        F::Of<'a>: 'static,
+        Error: From<E>,
+    {
+        // SAFETY: `F::Of<'a>: 'static` guarantees the data contains no borrowed references,
+        // so forgetting the `Registration` cannot cause use-after-free.
+        unsafe { Self::new_with_lt(parent, name, id, modname, data) }
     }
 }
 
-impl<T: 'static> Drop for Registration<T> {
+impl<F: ForLt> Drop for Registration<'_, F> {
     fn drop(&mut self) {
         // SAFETY: By the type invariant of `Self`, `self.adev.as_ptr()` is a valid registered
         // `struct auxiliary_device`.
@@ -486,7 +533,7 @@ impl<T: 'static> Drop for Registration<T> {
 
         // SAFETY: `registration_data` was set in `new()` via `into_foreign()`.
         drop(unsafe {
-            Pin::<KBox<RegistrationData<T>>>::from_foreign(
+            Pin::<KBox<RegistrationData<F::Of<'static>>>>::from_foreign(
                 (*self.adev.as_ptr()).registration_data_rust,
             )
         });
@@ -500,7 +547,7 @@ impl<T: 'static> Drop for Registration<T> {
 }
 
 // SAFETY: A `Registration` of a `struct auxiliary_device` can be released from any thread.
-unsafe impl<T: Send + Sync> Send for Registration<T> {}
+unsafe impl<F: ForLt> Send for Registration<'_, F> where for<'a> F::Of<'a>: Send {}
 
 // SAFETY: `Registration` does not expose any methods or fields that need synchronization.
-unsafe impl<T: Send + Sync> Sync for Registration<T> {}
+unsafe impl<F: ForLt> Sync for Registration<'_, F> where for<'a> F::Of<'a>: Send {}
