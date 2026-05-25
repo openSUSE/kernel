@@ -4267,6 +4267,9 @@ int skb_gro_receive(struct sk_buff *p, struct sk_buff *skb)
 	unsigned int delta_truesize;
 	struct sk_buff *lp;
 
+	if (skb_zcopy(p) || skb_zcopy(skb))
+		return -ETOOMANYREFS;
+
 	if (unlikely(p->len + len >= 65536 || NAPI_GRO_CB(skb)->flush))
 		return -E2BIG;
 
