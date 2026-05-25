@@ -181,7 +181,7 @@ unsafe impl<T: RegistrationOps> Sync for Registration<T> {}
 // any thread, so `Registration` is `Send`.
 unsafe impl<T: RegistrationOps> Send for Registration<T> {}
 
-impl<T: RegistrationOps + 'static> Registration<T> {
+impl<T: RegistrationOps> Registration<T> {
     extern "C" fn post_unbind_callback(dev: *mut bindings::device) {
         // SAFETY: The driver core only ever calls the post unbind callback with a valid pointer to
         // a `struct device`.
@@ -215,7 +215,10 @@ impl<T: RegistrationOps + 'static> Registration<T> {
     }
 
     /// Creates a new instance of the registration object.
-    pub fn new(name: &'static CStr, module: &'static ThisModule) -> impl PinInit<Self, Error> {
+    pub fn new(name: &'static CStr, module: &'static ThisModule) -> impl PinInit<Self, Error>
+    where
+        T: 'static,
+    {
         try_pin_init!(Self {
             reg <- Opaque::try_ffi_init(|ptr: *mut T::DriverType| {
                 // SAFETY: `try_ffi_init` guarantees that `ptr` is valid for write.

@@ -44,7 +44,7 @@ pub struct Adapter<T: Driver>(T);
 // - `T` is the type of the driver's device private data.
 // - `struct auxiliary_driver` embeds a `struct device_driver`.
 // - `DEVICE_DRIVER_OFFSET` is the correct byte offset to the embedded `struct device_driver`.
-unsafe impl<T: Driver + 'static> driver::DriverLayout for Adapter<T> {
+unsafe impl<T: Driver> driver::DriverLayout for Adapter<T> {
     type DriverType = bindings::auxiliary_driver;
     type DriverData = T;
     const DEVICE_DRIVER_OFFSET: usize = core::mem::offset_of!(Self::DriverType, driver);
@@ -52,7 +52,7 @@ unsafe impl<T: Driver + 'static> driver::DriverLayout for Adapter<T> {
 
 // SAFETY: A call to `unregister` for a given instance of `DriverType` is guaranteed to be valid if
 // a preceding call to `register` has been successful.
-unsafe impl<T: Driver + 'static> driver::RegistrationOps for Adapter<T> {
+unsafe impl<T: Driver> driver::RegistrationOps for Adapter<T> {
     unsafe fn register(
         adrv: &Opaque<Self::DriverType>,
         name: &'static CStr,
@@ -78,7 +78,7 @@ unsafe impl<T: Driver + 'static> driver::RegistrationOps for Adapter<T> {
     }
 }
 
-impl<T: Driver + 'static> Adapter<T> {
+impl<T: Driver> Adapter<T> {
     extern "C" fn probe_callback(
         adev: *mut bindings::auxiliary_device,
         id: *const bindings::auxiliary_device_id,
