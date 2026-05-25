@@ -232,7 +232,7 @@ Falcon data in the VBIOS which contains the PMU lookup table. This lookup table 
 used to find the required Falcon ucode based on an application ID.
 
 The location of the PMU lookup table is found by scanning the BIT (`BIOS Information Table`_)
-tokens for a token with the id `BIT_TOKEN_ID_FALCON_DATA` (0x70) which indicates the
+tokens for a token with the Falcon data token id (0x70) which indicates the
 offset of the same from the start of the VBIOS image. Unfortunately, the offset
 does not account for the EFI image located between the PciAt and FwSec images.
 The `vbios.rs` code compensates for this with appropriate arithmetic.
