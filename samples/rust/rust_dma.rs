@@ -58,6 +58,7 @@ kernel::pci_device_table!(
 
 impl pci::Driver for DmaSampleDriver {
     type IdInfo = ();
+    type Data = Self;
     const ID_TABLE: pci::IdTable<Self::IdInfo> = &PCI_TABLE;
 
     fn probe(pdev: &pci::Device<Core>, _info: &Self::IdInfo) -> impl PinInit<Self, Error> {

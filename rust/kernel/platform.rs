@@ -45,12 +45,12 @@ pub struct Adapter<T: Driver>(T);
 
 // SAFETY:
 // - `bindings::platform_driver` is a C type declared as `repr(C)`.
-// - `T` is the type of the driver's device private data.
+// - `T::Data` is the type of the driver's device private data.
 // - `struct platform_driver` embeds a `struct device_driver`.
 // - `DEVICE_DRIVER_OFFSET` is the correct byte offset to the embedded `struct device_driver`.
 unsafe impl<T: Driver> driver::DriverLayout for Adapter<T> {
     type DriverType = bindings::platform_driver;
-    type DriverData = T;
+    type DriverData<'bound> = T::Data;
     const DEVICE_DRIVER_OFFSET: usize = core::mem::offset_of!(Self::DriverType, driver);
 }
 
@@ -117,8 +117,8 @@ impl<T: Driver> Adapter<T> {
 
         // SAFETY: `remove_callback` is only ever called after a successful call to
         // `probe_callback`, hence it's guaranteed that `Device::set_drvdata()` has been called
-        // and stored a `Pin<KBox<T>>`.
-        let data = unsafe { pdev.as_ref().drvdata_borrow::<T>() };
+        // and stored a `Pin<KBox<T::Data>>`.
+        let data = unsafe { pdev.as_ref().drvdata_borrow::<T::Data>() };
 
         T::unbind(pdev, data);
     }
@@ -192,6 +192,7 @@ macro_rules! module_platform_driver {
 ///
 /// impl platform::Driver for MyDriver {
 ///     type IdInfo = ();
+///     type Data = Self;
 ///     const OF_ID_TABLE: Option<of::IdTable<Self::IdInfo>> = Some(&OF_TABLE);
 ///     const ACPI_ID_TABLE: Option<acpi::IdTable<Self::IdInfo>> = Some(&ACPI_TABLE);
 ///
@@ -203,7 +204,7 @@ macro_rules! module_platform_driver {
 ///     }
 /// }
 ///```
-pub trait Driver: Send {
+pub trait Driver {
     /// The type holding driver private data about each device id supported by the driver.
     // TODO: Use associated_type_defaults once stabilized:
     //
@@ -211,6 +212,9 @@ pub trait Driver: Send {
     // type IdInfo: 'static = ();
     // ```
     type IdInfo: 'static;
+
+    /// The type of the driver's bus device private data.
+    type Data: Send;
 
     /// The table of OF device ids supported by the driver.
     const OF_ID_TABLE: Option<of::IdTable<Self::IdInfo>> = None;
@@ -225,7 +229,7 @@ pub trait Driver: Send {
     fn probe(
         dev: &Device<device::Core>,
         id_info: Option<&Self::IdInfo>,
-    ) -> impl PinInit<Self, Error>;
+    ) -> impl PinInit<Self::Data, Error>;
 
     /// Platform driver unbind.
     ///
@@ -236,8 +240,8 @@ pub trait Driver: Send {
     /// `&Device<Core>` or `&Device<Bound>` reference. For instance, drivers may try to perform I/O
     /// operations to gracefully tear down the device.
     ///
-    /// Otherwise, release operations for driver resources should be performed in `Self::drop`.
-    fn unbind(dev: &Device<device::Core>, this: Pin<&Self>) {
+    /// Otherwise, release operations for driver resources should be performed in `Drop`.
+    fn unbind(dev: &Device<device::Core>, this: Pin<&Self::Data>) {
         let _ = (dev, this);
     }
 }

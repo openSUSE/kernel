@@ -140,6 +140,7 @@ impl SampleDriver {
 
 impl pci::Driver for SampleDriver {
     type IdInfo = TestIndex;
+    type Data = Self;
 
     const ID_TABLE: pci::IdTable<Self::IdInfo> = &PCI_TABLE;
 

@@ -31,6 +31,7 @@ kernel::auxiliary_device_table!(
 
 impl auxiliary::Driver for AuxiliaryDriver {
     type IdInfo = ();
+    type Data = Self;
 
     const ID_TABLE: auxiliary::IdTable<Self::IdInfo> = &AUX_TABLE;
 
@@ -65,6 +66,7 @@ kernel::pci_device_table!(
 
 impl pci::Driver for ParentDriver {
     type IdInfo = ();
+    type Data = Self;
 
     const ID_TABLE: pci::IdTable<Self::IdInfo> = &PCI_TABLE;
 

@@ -888,6 +888,7 @@ pub trait Driver {
 ///
 /// impl platform::Driver for SampleDriver {
 ///     type IdInfo = ();
+///     type Data = Self;
 ///     const OF_ID_TABLE: Option<of::IdTable<Self::IdInfo>> = None;
 ///
 ///     fn probe(

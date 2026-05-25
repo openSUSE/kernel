@@ -51,6 +51,7 @@ kernel::auxiliary_device_table!(
 
 impl auxiliary::Driver for NovaDriver {
     type IdInfo = ();
+    type Data = Self;
     const ID_TABLE: auxiliary::IdTable<Self::IdInfo> = &AUX_TABLE;
 
     fn probe(adev: &auxiliary::Device<Core>, _info: &Self::IdInfo) -> impl PinInit<Self, Error> {

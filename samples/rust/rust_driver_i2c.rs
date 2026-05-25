@@ -35,6 +35,7 @@ kernel::of_device_table! {
 
 impl i2c::Driver for SampleDriver {
     type IdInfo = u32;
+    type Data = Self;
 
     const ACPI_ID_TABLE: Option<acpi::IdTable<Self::IdInfo>> = Some(&ACPI_TABLE);
     const I2C_ID_TABLE: Option<i2c::IdTable<Self::IdInfo>> = Some(&I2C_TABLE);

@@ -13,9 +13,12 @@
 //! The main driver interface is defined by a bus specific driver trait. For instance:
 //!
 //! ```ignore
-//! pub trait Driver: Send {
+//! pub trait Driver {
 //!     /// The type holding information about each device ID supported by the driver.
 //!     type IdInfo: 'static;
+//!
+//!     /// The type of the driver's bus device private data.
+//!     type Data: Send;
 //!
 //!     /// The table of OF device ids supported by the driver.
 //!     const OF_ID_TABLE: Option<of::IdTable<Self::IdInfo>> = None;
@@ -24,10 +27,11 @@
 //!     const ACPI_ID_TABLE: Option<acpi::IdTable<Self::IdInfo>> = None;
 //!
 //!     /// Driver probe.
-//!     fn probe(dev: &Device<device::Core>, id_info: &Self::IdInfo) -> impl PinInit<Self, Error>;
+//!     fn probe(dev: &Device<device::Core>, id_info: &Self::IdInfo)
+//!         -> impl PinInit<Self::Data, Error>;
 //!
 //!     /// Driver unbind (optional).
-//!     fn unbind(dev: &Device<device::Core>, this: Pin<&Self>) {
+//!     fn unbind(dev: &Device<device::Core>, this: Pin<&Self::Data>) {
 //!         let _ = (dev, this);
 //!     }
 //! }
@@ -42,9 +46,9 @@
 )]
 #![cfg_attr(CONFIG_PCI, doc = "* [`pci::Driver`](kernel::pci::Driver)")]
 //!
-//! The `probe()` callback should return a `impl PinInit<Self, Error>`, i.e. the driver's private
-//! data. The bus abstraction should store the pointer in the corresponding bus device. The generic
-//! [`Device`] infrastructure provides common helpers for this purpose on its
+//! The `probe()` callback should return a `impl PinInit<Self::Data, Error>`, i.e. the driver's
+//! private data. The bus abstraction should store the pointer in the corresponding bus device. The
+//! generic [`Device`] infrastructure provides common helpers for this purpose on its
 //! [`Device<CoreInternal>`] implementation.
 //!
 //! All driver callbacks should provide a reference to the driver's private data. Once the driver
@@ -118,8 +122,8 @@ pub unsafe trait DriverLayout {
     /// The specific driver type embedding a `struct device_driver`.
     type DriverType: Default;
 
-    /// The type of the driver's device private data.
-    type DriverData;
+    /// The type of the driver's bus device private data.
+    type DriverData<'bound>;
 
     /// Byte offset of the embedded `struct device_driver` within `DriverType`.
     ///
@@ -193,8 +197,8 @@ impl<T: RegistrationOps> Registration<T> {
         // driver's device private data.
         //
         // SAFETY: By the safety requirements of the `Driver` trait, `T::DriverData` is the
-        // driver's device private data type.
-        drop(unsafe { dev.drvdata_obtain::<T::DriverData>() });
+        // driver's bus device private data type.
+        drop(unsafe { dev.drvdata_obtain::<T::DriverData<'_>>() });
     }
 
     /// Attach generic `struct device_driver` callbacks.

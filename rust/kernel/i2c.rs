@@ -93,12 +93,12 @@ pub struct Adapter<T: Driver>(T);
 
 // SAFETY:
 // - `bindings::i2c_driver` is a C type declared as `repr(C)`.
-// - `T` is the type of the driver's device private data.
+// - `T::Data` is the type of the driver's device private data.
 // - `struct i2c_driver` embeds a `struct device_driver`.
 // - `DEVICE_DRIVER_OFFSET` is the correct byte offset to the embedded `struct device_driver`.
 unsafe impl<T: Driver> driver::DriverLayout for Adapter<T> {
     type DriverType = bindings::i2c_driver;
-    type DriverData = T;
+    type DriverData<'bound> = T::Data;
     const DEVICE_DRIVER_OFFSET: usize = core::mem::offset_of!(Self::DriverType, driver);
 }
 
@@ -176,8 +176,8 @@ impl<T: Driver> Adapter<T> {
 
         // SAFETY: `remove_callback` is only ever called after a successful call to
         // `probe_callback`, hence it's guaranteed that `I2cClient::set_drvdata()` has been called
-        // and stored a `Pin<KBox<T>>`.
-        let data = unsafe { idev.as_ref().drvdata_borrow::<T>() };
+        // and stored a `Pin<KBox<T::Data>>`.
+        let data = unsafe { idev.as_ref().drvdata_borrow::<T::Data>() };
 
         T::unbind(idev, data);
     }
@@ -188,8 +188,8 @@ impl<T: Driver> Adapter<T> {
 
         // SAFETY: `shutdown_callback` is only ever called after a successful call to
         // `probe_callback`, hence it's guaranteed that `Device::set_drvdata()` has been called
-        // and stored a `Pin<KBox<T>>`.
-        let data = unsafe { idev.as_ref().drvdata_borrow::<T>() };
+        // and stored a `Pin<KBox<T::Data>>`.
+        let data = unsafe { idev.as_ref().drvdata_borrow::<T::Data>() };
 
         T::shutdown(idev, data);
     }
@@ -294,6 +294,7 @@ macro_rules! module_i2c_driver {
 ///
 /// impl i2c::Driver for MyDriver {
 ///     type IdInfo = ();
+///     type Data = Self;
 ///     const I2C_ID_TABLE: Option<i2c::IdTable<Self::IdInfo>> = Some(&I2C_TABLE);
 ///     const OF_ID_TABLE: Option<of::IdTable<Self::IdInfo>> = Some(&OF_TABLE);
 ///     const ACPI_ID_TABLE: Option<acpi::IdTable<Self::IdInfo>> = Some(&ACPI_TABLE);
@@ -301,15 +302,15 @@ macro_rules! module_i2c_driver {
 ///     fn probe(
 ///         _idev: &i2c::I2cClient<Core>,
 ///         _id_info: Option<&Self::IdInfo>,
-///     ) -> impl PinInit<Self, Error> {
+///     ) -> impl PinInit<Self::Data, Error> {
 ///         Err(ENODEV)
 ///     }
 ///
-///     fn shutdown(_idev: &i2c::I2cClient<Core>, this: Pin<&Self>) {
+///     fn shutdown(_idev: &i2c::I2cClient<Core>, this: Pin<&Self::Data>) {
 ///     }
 /// }
 ///```
-pub trait Driver: Send {
+pub trait Driver {
     /// The type holding information about each device id supported by the driver.
     // TODO: Use `associated_type_defaults` once stabilized:
     //
@@ -317,6 +318,9 @@ pub trait Driver: Send {
     // type IdInfo: 'static = ();
     // ```
     type IdInfo: 'static;
+
+    /// The type of the driver's bus device private data.
+    type Data: Send;
 
     /// The table of device ids supported by the driver.
     const I2C_ID_TABLE: Option<IdTable<Self::IdInfo>> = None;
@@ -334,7 +338,7 @@ pub trait Driver: Send {
     fn probe(
         dev: &I2cClient<device::Core>,
         id_info: Option<&Self::IdInfo>,
-    ) -> impl PinInit<Self, Error>;
+    ) -> impl PinInit<Self::Data, Error>;
 
     /// I2C driver shutdown.
     ///
@@ -346,8 +350,8 @@ pub trait Driver: Send {
     ///
     /// This callback is distinct from final resource cleanup, as the driver instance remains valid
     /// after it returns. Any deallocation or teardown of driver-owned resources should instead be
-    /// handled in `Self::drop`.
-    fn shutdown(dev: &I2cClient<device::Core>, this: Pin<&Self>) {
+    /// handled in `Drop`.
+    fn shutdown(dev: &I2cClient<device::Core>, this: Pin<&Self::Data>) {
         let _ = (dev, this);
     }
 
@@ -360,8 +364,8 @@ pub trait Driver: Send {
     /// `&Device<Core>` or `&Device<Bound>` reference. For instance, drivers may try to perform I/O
     /// operations to gracefully tear down the device.
     ///
-    /// Otherwise, release operations for driver resources should be performed in `Self::drop`.
-    fn unbind(dev: &I2cClient<device::Core>, this: Pin<&Self>) {
+    /// Otherwise, release operations for driver resources should be performed in `Drop`.
+    fn unbind(dev: &I2cClient<device::Core>, this: Pin<&Self::Data>) {
         let _ = (dev, this);
     }
 }

@@ -91,6 +91,7 @@ kernel::of_device_table!(
 
 impl platform::Driver for TyrPlatformDriverData {
     type IdInfo = ();
+    type Data = Self;
     const OF_ID_TABLE: Option<of::IdTable<Self::IdInfo>> = Some(&OF_TABLE);
 
     fn probe(

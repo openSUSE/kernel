@@ -26,6 +26,7 @@ kernel::usb_device_table!(
 
 impl usb::Driver for SampleDriver {
     type IdInfo = ();
+    type Data = Self;
     const ID_TABLE: usb::IdTable<Self::IdInfo> = &USB_TABLE;
 
     fn probe(
