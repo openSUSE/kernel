@@ -2499,6 +2499,7 @@ static int rtnl_dump_ifinfo(struct sk_buff *skb, struct netlink_callback *cb)
 	int ops_srcu_index;
 	int master_idx = 0;
 	int netnsid = -1;
+	bool need_rtnl;
 	int err, i;
 
 	err = rtnl_valid_dump_ifinfo_req(nlh, cb->strict_check, tb, extack);
@@ -2548,6 +2549,12 @@ static int rtnl_dump_ifinfo(struct sk_buff *skb, struct netlink_callback *cb)
 
 walk_entries:
 	err = 0;
+	need_rtnl = !(ext_filter_mask & RTEXT_FILTER_NAME_ONLY);
+	if (need_rtnl)
+		rtnl_lock();
+	else
+		rcu_read_lock();
+
 	for_each_netdev_dump(tgt_net, dev, ctx->ifindex) {
 		if (link_dump_filtered(dev, master_idx, kind_ops))
 			continue;
@@ -2559,11 +2566,13 @@ walk_entries:
 		if (err < 0)
 			break;
 	}
-
-
-	cb->seq = tgt_net->dev_base_seq;
+	cb->seq = READ_ONCE(tgt_net->dev_base_seq);
 	nl_dump_check_consistent(cb, nlmsg_hdr(skb));
 
+	if (need_rtnl)
+		rtnl_unlock();
+	else
+		rcu_read_unlock();
 out:
 
 	if (kind_ops)
@@ -7159,7 +7168,9 @@ static const struct rtnl_msg_handler rtnetlink_rtnl_msg_handlers[] __initconst =
 	 .flags = RTNL_FLAG_DOIT_PERNET_WIP},
 	{.msgtype = RTM_GETLINK, .doit = rtnl_getlink,
 	 .dumpit = rtnl_dump_ifinfo,
-	 .flags = RTNL_FLAG_DUMP_SPLIT_NLM_DONE | RTNL_FLAG_DOIT_UNLOCKED},
+	 .flags = RTNL_FLAG_DUMP_SPLIT_NLM_DONE |
+		  RTNL_FLAG_DOIT_UNLOCKED |
+		  RTNL_FLAG_DUMP_UNLOCKED},
 	{.msgtype = RTM_SETLINK, .doit = rtnl_setlink,
 	 .flags = RTNL_FLAG_DOIT_PERNET_WIP},
 	{.msgtype = RTM_GETADDR, .dumpit = rtnl_dump_all},
