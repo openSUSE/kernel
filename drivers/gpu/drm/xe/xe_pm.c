@@ -363,6 +363,9 @@ int xe_pm_init_early(struct xe_device *xe)
 {
 	int err;
 
+	init_completion(&xe->pm_block);
+	complete_all(&xe->pm_block);
+	INIT_LIST_HEAD(&xe->rebind_resume_list);
 	INIT_LIST_HEAD(&xe->mem_access.vram_userfault.list);
 
 	err = drmm_mutex_init(&xe->drm, &xe->mem_access.vram_userfault.lock);
@@ -370,6 +373,10 @@ int xe_pm_init_early(struct xe_device *xe)
 		return err;
 
 	err = drmm_mutex_init(&xe->drm, &xe->d3cold.lock);
+	if (err)
+		return err;
+
+	err = drmm_mutex_init(&xe->drm, &xe->rebind_resume_lock);
 	if (err)
 		return err;
 
@@ -483,14 +490,6 @@ int xe_pm_init(struct xe_device *xe)
 	err = register_pm_notifier(&xe->pm_notifier);
 	if (err)
 		return err;
-
-	err = drmm_mutex_init(&xe->drm, &xe->rebind_resume_lock);
-	if (err)
-		goto err_unregister;
-
-	init_completion(&xe->pm_block);
-	complete_all(&xe->pm_block);
-	INIT_LIST_HEAD(&xe->rebind_resume_list);
 
 	/* For now suspend/resume is only allowed with GuC */
 	if (!xe_device_uc_enabled(xe))
