@@ -46,7 +46,7 @@ struct telem_endpoint;
 #define SPT_PMC_SLP_S0_RES_COUNTER_STEP		0x68
 #define PMC_BASE_ADDR_MASK			~(SPT_PMC_MMIO_REG_LEN - 1)
 #define MTPMC_MASK				0xffff0000
-#define PPFEAR_MAX_NUM_ENTRIES			12
+#define PPFEAR_MAX_NUM_ENTRIES			13
 #define SPT_PPFEAR_NUM_ENTRIES			5
 #define SPT_PMC_READ_DISABLE_BIT		0x16
 #define SPT_PMC_MSG_FULL_STS_BIT		0x18
@@ -307,6 +307,29 @@ enum ppfear_regs {
 #define WCL_NUM_S0IX_BLOCKER			94
 #define WCL_BLK_REQ_OFFSET			50
 
+/* Nova Lake */
+#define NVL_PCDH_PPFEAR_NUM_ENTRIES		13
+#define NVL_PCDH_PMC_MMIO_REG_LEN		0x363c
+#define NVL_PCDS_PMC_MMIO_REG_LEN		0x3118
+#define NVL_PCHS_PMC_MMIO_REG_LEN		0x30d8
+#define NVL_LPM_PRI_OFFSET			0x17a4
+#define NVL_LPM_EN_OFFSET			0x17a0
+#define NVL_LPM_RESIDENCY_OFFSET		0x17a8
+#define NVL_LPM_LIVE_STATUS_OFFSET		0x1760
+#define NVL_LPM_NUM_MAPS			15
+#define NVL_PCDH_NUM_S0IX_BLOCKER		107
+#define NVL_PCDS_NUM_S0IX_BLOCKER		71
+#define NVL_PCHS_NUM_S0IX_BLOCKER		54
+#define NVL_PCDS_PMC_LTR_RESERVED		0x1bac
+#define NVL_PCDH_BLK_REQ_OFFSET			53
+#define NVL_PCDS_BLK_REQ_OFFSET			18
+#define NVL_PCHS_BLK_REQ_OFFSET			46
+#define NVL_PMT_PC_GUID				0x13000101
+#define NVL_PMT_DMU_GUID			0x1a000101
+#define NVL_LTR_BLK_OFFSET			64
+#define NVL_PKGC_BLK_OFFSET			4
+#define NVL_PMT_DMU_DIE_C6_OFFSET		25
+
 /* SSRAM PMC Device ID */
 /* LNL */
 #define PMC_DEVID_LNL_SOCM	0xa87f
@@ -328,6 +351,11 @@ enum ppfear_regs {
 #define PMC_DEVID_MTL_SOCM	0x7e7f
 #define PMC_DEVID_MTL_IOEP	0x7ecf
 #define PMC_DEVID_MTL_IOEM	0x7ebf
+
+/* NVL */
+#define PMC_DEVID_NVL_PCDH	0xd37e
+#define PMC_DEVID_NVL_PCDS	0xd47e
+#define PMC_DEVID_NVL_PCHS	0x6e27
 
 extern const char *pmc_lpm_modes[];
 
@@ -558,6 +586,7 @@ extern const struct pmc_reg_map mtl_ioep_reg_map;
 extern const struct pmc_bit_map ptl_pcdp_clocksource_status_map[];
 extern const struct pmc_bit_map ptl_pcdp_vnn_req_status_3_map[];
 extern const struct pmc_bit_map ptl_pcdp_signal_status_map[];
+extern const struct pmc_bit_map ptl_pcdp_ltr_show_map[];
 
 void pmc_core_get_tgl_lpm_reqs(struct platform_device *pdev);
 int pmc_core_send_ltr_ignore(struct pmc_dev *pmcdev, u32 value, int ignore);
@@ -581,6 +610,8 @@ extern struct pmc_dev_info arl_h_pmc_dev;
 extern struct pmc_dev_info lnl_pmc_dev;
 extern struct pmc_dev_info ptl_pmc_dev;
 extern struct pmc_dev_info wcl_pmc_dev;
+extern struct pmc_dev_info nvl_s_pmc_dev;
+extern struct pmc_dev_info nvl_h_pmc_dev;
 
 void cnl_suspend(struct pmc_dev *pmcdev);
 int cnl_resume(struct pmc_dev *pmcdev);
