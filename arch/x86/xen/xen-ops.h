@@ -112,9 +112,8 @@ static inline struct multicall_space xen_mc_entry(size_t args)
 void xen_mc_flush(void);
 
 /* Issue a multicall if we're not in a lazy mode */
-static inline void xen_mc_issue(unsigned mode)
+static inline void xen_mc_issue(bool flush)
 {
-	bool flush = !(xen_get_lazy_mode() & mode);
 	unsigned long flags = this_cpu_read(xen_mc_irq_flags);
 
 	trace_xen_mc_issue(flush, flags);

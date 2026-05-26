@@ -544,7 +544,7 @@ static void xen_set_ldt(const void *addr, unsigned entries)
 
 	MULTI_mmuext_op(mcs.mc, op, 1, NULL, DOMID_SELF);
 
-	xen_mc_issue(XEN_LAZY_CPU);
+	xen_mc_issue(xen_get_lazy_mode() != XEN_LAZY_CPU);
 }
 
 static void xen_load_gdt(const struct desc_ptr *dtr)
@@ -649,7 +649,7 @@ static void xen_load_tls(struct thread_struct *t, unsigned int cpu)
 	load_TLS_descriptor(t, cpu, 1);
 	load_TLS_descriptor(t, cpu, 2);
 
-	xen_mc_issue(XEN_LAZY_CPU);
+	xen_mc_issue(xen_get_lazy_mode() != XEN_LAZY_CPU);
 }
 
 static void xen_load_gs_index(unsigned int idx)
@@ -1011,7 +1011,7 @@ static void xen_load_sp0(unsigned long sp0)
 
 	mcs = xen_mc_entry(0);
 	MULTI_stack_switch(mcs.mc, __KERNEL_DS, sp0);
-	xen_mc_issue(XEN_LAZY_CPU);
+	xen_mc_issue(xen_get_lazy_mode() != XEN_LAZY_CPU);
 	this_cpu_write(cpu_tss_rw.x86_tss.sp0, sp0);
 }
 
@@ -1071,7 +1071,7 @@ static void xen_write_cr0(unsigned long cr0)
 
 	MULTI_fpu_taskswitch(mcs.mc, (cr0 & X86_CR0_TS) != 0);
 
-	xen_mc_issue(XEN_LAZY_CPU);
+	xen_mc_issue(xen_get_lazy_mode() != XEN_LAZY_CPU);
 }
 
 static void xen_write_cr4(unsigned long cr4)
