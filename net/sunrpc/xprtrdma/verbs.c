@@ -1259,6 +1259,10 @@ void rpcrdma_reply_put(struct rpcrdma_buffer *buffers, struct rpcrdma_req *req)
 		req->rl_reply = NULL;
 		rpcrdma_rep_put(buffers, rep);
 	}
+	/* I2: rl_reply NULL after the put closes the
+	 * 'rep on rb_free_reps still referenced by req' window.
+	 */
+	WARN_ON_ONCE(req->rl_reply);
 }
 
 /**
@@ -1435,6 +1439,8 @@ void rpcrdma_post_recvs(struct rpcrdma_xprt *r_xprt, int needed)
 			rep = rpcrdma_rep_create(r_xprt);
 		if (!rep)
 			break;
+		/* I1: a rep on rb_free_reps must carry no rqst pointer. */
+		WARN_ON_ONCE(rep->rr_rqst);
 		if (!rpcrdma_regbuf_dma_map(r_xprt, rep->rr_rdmabuf)) {
 			rpcrdma_rep_put(buf, rep);
 			break;
