@@ -46,7 +46,7 @@ ib_uverbs-y :=			uverbs_main.o uverbs_cmd.o uverbs_marshall.o \
 				uverbs_std_types_async_fd.o \
 				uverbs_std_types_srq.o \
 				uverbs_std_types_wq.o \
-				uverbs_std_types_qp.o \
-				ucaps.o
+				uverbs_std_types_qp.o
 
-ib_uverbs_support-y :=		rdma_core.o
+ib_uverbs_support-y :=		rdma_core.o \
+				ucaps.o
