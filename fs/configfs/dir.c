@@ -856,8 +856,7 @@ static void configfs_detach_item(struct dentry *dentry)
  * clean up the configfs items, and they expect their callers will
  * handle the dcache bits.
  */
-static int configfs_attach_item(struct config_item *parent_item,
-				struct config_item *item,
+static int configfs_attach_item(struct config_item *item,
 				struct dentry *dentry,
 				struct configfs_fragment *frag)
 {
@@ -899,7 +898,7 @@ static int configfs_attach_group(struct config_item *parent_item,
 	int ret;
 	struct configfs_dirent *sd;
 
-	ret = configfs_attach_item(parent_item, item, dentry, frag);
+	ret = configfs_attach_item(item, dentry, frag);
 	if (!ret) {
 		sd = dentry->d_fsdata;
 		sd->s_type |= CONFIGFS_USET_DIR;
@@ -1426,7 +1425,7 @@ static struct dentry *configfs_mkdir(struct mnt_idmap *idmap, struct inode *dir,
 	if (group)
 		ret = configfs_attach_group(parent_item, item, dentry, frag);
 	else
-		ret = configfs_attach_item(parent_item, item, dentry, frag);
+		ret = configfs_attach_item(item, dentry, frag);
 
 	spin_lock(&configfs_dirent_lock);
 	sd->s_type &= ~CONFIGFS_USET_IN_MKDIR;
