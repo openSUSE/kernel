@@ -503,10 +503,9 @@ rz_dmac_prep_dma_memcpy(struct dma_chan *chan, dma_addr_t dest, dma_addr_t src,
 		__func__, channel->index, &src, &dest, len);
 
 	scoped_guard(spinlock_irqsave, &channel->vc.lock) {
-		if (list_empty(&channel->ld_free))
+		desc = list_first_entry_or_null(&channel->ld_free, struct rz_dmac_desc, node);
+		if (!desc)
 			return NULL;
-
-		desc = list_first_entry(&channel->ld_free, struct rz_dmac_desc, node);
 
 		desc->type = RZ_DMAC_DESC_MEMCPY;
 		desc->src = src;
@@ -533,10 +532,9 @@ rz_dmac_prep_slave_sg(struct dma_chan *chan, struct scatterlist *sgl,
 	int i = 0;
 
 	scoped_guard(spinlock_irqsave, &channel->vc.lock) {
-		if (list_empty(&channel->ld_free))
+		desc = list_first_entry_or_null(&channel->ld_free, struct rz_dmac_desc, node);
+		if (!desc)
 			return NULL;
-
-		desc = list_first_entry(&channel->ld_free, struct rz_dmac_desc, node);
 
 		for_each_sg(sgl, sg, sg_len, i)
 			dma_length += sg_dma_len(sg);
