@@ -2094,7 +2094,7 @@ void intel_power_domains_disable(struct intel_display *display)
  * It must be called with power domains already disabled (after a call to
  * intel_power_domains_disable()) and paired with intel_power_domains_resume().
  */
-void intel_power_domains_suspend(struct intel_display *display, bool s2idle)
+static void intel_power_domains_suspend(struct intel_display *display, bool s2idle)
 {
 	struct i915_power_domains *power_domains = &display->power.domains;
 	struct ref_tracker *wakeref __maybe_unused =
@@ -2147,7 +2147,7 @@ void intel_power_domains_suspend(struct intel_display *display, bool s2idle)
  * intel_power_domains_enable()) and must be paired with
  * intel_power_domains_suspend().
  */
-void intel_power_domains_resume(struct intel_display *display)
+static void intel_power_domains_resume(struct intel_display *display)
 {
 	struct i915_power_domains *power_domains = &display->power.domains;
 

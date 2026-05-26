@@ -175,8 +175,6 @@ void intel_power_domains_init_hw(struct intel_display *display, bool resume);
 void intel_power_domains_driver_remove(struct intel_display *display);
 void intel_power_domains_enable(struct intel_display *display);
 void intel_power_domains_disable(struct intel_display *display);
-void intel_power_domains_suspend(struct intel_display *display, bool s2idle);
-void intel_power_domains_resume(struct intel_display *display);
 void intel_power_domains_sanitize_state(struct intel_display *display);
 
 void intel_display_power_suspend_late(struct intel_display *display, bool s2idle);
