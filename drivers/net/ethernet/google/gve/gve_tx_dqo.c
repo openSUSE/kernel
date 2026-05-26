@@ -296,7 +296,6 @@ static int gve_tx_alloc_ring_dqo(struct gve_priv *priv,
 {
 	struct device *hdev = &priv->pdev->dev;
 	int num_pending_packets;
-	int qpl_page_cnt;
 	size_t bytes;
 	u32 qpl_id;
 	int i;
@@ -366,10 +365,9 @@ static int gve_tx_alloc_ring_dqo(struct gve_priv *priv,
 
 	if (!cfg->raw_addressing) {
 		qpl_id = gve_tx_qpl_id(priv, tx->q_num);
-		qpl_page_cnt = priv->tx_pages_per_qpl;
 
 		tx->dqo.qpl = gve_alloc_queue_page_list(priv, qpl_id,
-							qpl_page_cnt);
+							cfg->pages_per_qpl);
 		if (!tx->dqo.qpl)
 			goto err;
 
@@ -388,27 +386,23 @@ int gve_tx_alloc_rings_dqo(struct gve_priv *priv,
 			   struct gve_tx_alloc_rings_cfg *cfg)
 {
 	struct gve_tx_ring *tx = cfg->tx;
+	int total_queues;
 	int err = 0;
 	int i, j;
 
-	if (cfg->start_idx + cfg->num_rings > cfg->qcfg->max_queues) {
+	total_queues = cfg->qcfg->num_queues + cfg->num_xdp_rings;
+	if (total_queues > cfg->qcfg->max_queues) {
 		netif_err(priv, drv, priv->dev,
 			  "Cannot alloc more than the max num of Tx rings\n");
 		return -EINVAL;
 	}
 
-	if (cfg->start_idx == 0) {
-		tx = kvcalloc(cfg->qcfg->max_queues, sizeof(struct gve_tx_ring),
-			      GFP_KERNEL);
-		if (!tx)
-			return -ENOMEM;
-	} else if (!tx) {
-		netif_err(priv, drv, priv->dev,
-			  "Cannot alloc tx rings from a nonzero start idx without tx array\n");
-		return -EINVAL;
-	}
+	tx = kvcalloc(cfg->qcfg->max_queues, sizeof(struct gve_tx_ring),
+		      GFP_KERNEL);
+	if (!tx)
+		return -ENOMEM;
 
-	for (i = cfg->start_idx; i < cfg->start_idx + cfg->num_rings; i++) {
+	for (i = 0; i < total_queues; i++) {
 		err = gve_tx_alloc_ring_dqo(priv, cfg, &tx[i], i);
 		if (err) {
 			netif_err(priv, drv, priv->dev,
@@ -424,8 +418,7 @@ int gve_tx_alloc_rings_dqo(struct gve_priv *priv,
 err:
 	for (j = 0; j < i; j++)
 		gve_tx_free_ring_dqo(priv, &tx[j], cfg);
-	if (cfg->start_idx == 0)
-		kvfree(tx);
+	kvfree(tx);
 	return err;
 }
 
@@ -438,13 +431,11 @@ void gve_tx_free_rings_dqo(struct gve_priv *priv,
 	if (!tx)
 		return;
 
-	for (i = cfg->start_idx; i < cfg->start_idx + cfg->num_rings; i++)
+	for (i = 0; i < cfg->qcfg->num_queues + cfg->qcfg->num_xdp_queues; i++)
 		gve_tx_free_ring_dqo(priv, &tx[i], cfg);
 
-	if (cfg->start_idx == 0) {
-		kvfree(tx);
-		cfg->tx = NULL;
-	}
+	kvfree(tx);
+	cfg->tx = NULL;
 }
 
 /* Returns the number of slots available in the ring */
