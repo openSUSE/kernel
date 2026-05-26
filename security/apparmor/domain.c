@@ -136,7 +136,7 @@ static int label_compound_match(struct aa_profile *profile,
 	struct label_it i;
 	struct path_cond cond = { };
 
-	/* find first subcomponent that is in view and going to be interated with */
+	/* find first subcomponent that is in view and going to be interacted with */
 	label_for_each(i, label, tp) {
 		if (!aa_ns_visible(profile->ns, tp->ns, inview))
 			continue;
