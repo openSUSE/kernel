@@ -4344,14 +4344,6 @@ int try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 		WRITE_ONCE(p->__state, TASK_WAKING);
 
 		/*
-		 * We never clear the blocked_on relation on proxy_deactivate.
-		 * If we don't clear it here, we have TASK_RUNNING + p->blocked_on
-		 * when waking up. Since this is a fully blocked, off CPU task
-		 * waking up, it should be safe to clear the blocked_on relation.
-		 */
-		if (task_is_blocked(p))
-			clear_task_blocked_on(p, NULL);
-		/*
 		 * If the owning (remote) CPU is still in the middle of schedule() with
 		 * this task as prev, considering queueing p on the remote CPUs wake_list
 		 * which potentially sends an IPI instead of spinning on p->on_cpu to
@@ -6739,6 +6731,7 @@ static void proxy_deactivate(struct rq *rq, struct task_struct *donor)
 	unsigned long state = READ_ONCE(donor->__state);
 
 	WARN_ON_ONCE(state == TASK_RUNNING);
+	WARN_ON_ONCE(donor->blocked_on);
 	/*
 	 * Because we got donor from pick_next_task(), it is *crucial*
 	 * that we call proxy_resched_idle() before we deactivate it.
@@ -6864,9 +6857,9 @@ find_proxy_task(struct rq *rq, struct task_struct *donor, struct rq_flags *rf)
 	for (p = donor; (mutex = p->blocked_on); p = owner) {
 		/* if its PROXY_WAKING, do return migration or run if current */
 		if (mutex == PROXY_WAKING) {
+			clear_task_blocked_on(p, PROXY_WAKING);
 			if (task_current(rq, p)) {
 				p->is_blocked = 0;
-				clear_task_blocked_on(p, PROXY_WAKING);
 				return p;
 			}
 			goto deactivate;
@@ -6900,9 +6893,9 @@ find_proxy_task(struct rq *rq, struct task_struct *donor, struct rq_flags *rf)
 			 * and return p (if it is current and safe to
 			 * just run on this rq), or return-migrate the task.
 			 */
+			__clear_task_blocked_on(p, NULL);
 			if (task_current(rq, p)) {
 				p->is_blocked = 0;
-				__clear_task_blocked_on(p, NULL);
 				return p;
 			}
 			goto deactivate;
@@ -6912,6 +6905,7 @@ find_proxy_task(struct rq *rq, struct task_struct *donor, struct rq_flags *rf)
 			/* XXX Don't handle blocked owners/delayed dequeue yet */
 			if (curr_in_chain)
 				return proxy_resched_idle(rq);
+			__clear_task_blocked_on(p, NULL);
 			goto deactivate;
 		}
 
