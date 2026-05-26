@@ -94,7 +94,7 @@ enum tpm_tis_flags {
 
 struct tpm_tis_data {
 	struct tpm_chip *chip;
-	u16 manufacturer_id;
+	u32 did_vid;
 	struct mutex locality_count_mutex;
 	unsigned int locality_count;
 	int locality;
