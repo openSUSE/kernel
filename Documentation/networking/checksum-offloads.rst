@@ -19,7 +19,6 @@ The following technologies are described:
 
 Things that should be documented here but aren't yet:
 
-* RX Checksum Offload
 * CHECKSUM_UNNECESSARY conversion
 
 
@@ -139,3 +138,19 @@ In Linux, RCO is implemented individually in each encapsulation protocol, and
 most tunnel types have flags controlling its use. For instance, VXLAN has the
 configuration flag VXLAN_F_REMCSUM_TX to indicate that RCO should be used when
 transmitting.
+
+
+RX Checksum Offload
+===================
+
+RX checksum offload is controlled via NETIF_F_RXCSUM. When disabled the driver
+must not set skb->ip_summed on ingress packets. As mentioned, IPv4 checksum
+is not offloaded, the RXCSUM feature controls the offload of verification of
+transport layer checksums.
+
+Note that packets with bad TCP/UDP checksums must still be passed
+to the stack. skb->ip_summed of such packets can be set to ``CHECKSUM_COMPLETE``
+or left at ``CHECKSUM_NONE``. Drivers **must not discard** packets with
+bad TCP/UDP checksum and must not configure the device to drop them.
+Checksum validation is relatively inexpensive and having bad packets reflected
+in SNMP counters is crucial for network monitoring.
