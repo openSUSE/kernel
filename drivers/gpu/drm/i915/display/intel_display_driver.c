@@ -218,7 +218,7 @@ int intel_display_driver_probe_noirq(struct intel_display *display)
 
 	intel_pmdemand_init_early(display);
 
-	intel_display_power_init_hw(display, false);
+	intel_display_power_init_hw(display);
 
 	if (!HAS_DISPLAY(display))
 		return 0;
