@@ -98,9 +98,8 @@ If in doubt set ``offset`` to 0, ``max_len`` to ``PAGE_SIZE`` and
 pass -1 as ``dma_sync_size``. That combination of arguments is always
 correct.
 
-Note that the syncing parameters are for the entire page.
-This is important to remember when using fragments (``PP_FLAG_PAGE_FRAG``),
-where allocated buffers may be smaller than a full page.
+Note that the syncing parameters are for the **entire page**, even if
+the driver allocates fragments (e.g. via ``page_pool_dev_alloc_frag()``).
 Unless the driver author really understands page pool internals
 it's recommended to always use ``offset = 0``, ``max_len = PAGE_SIZE``
 with fragmented page pools.
