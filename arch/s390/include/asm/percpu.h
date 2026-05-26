@@ -60,6 +60,68 @@
 #define this_cpu_or_1(pcp, val)		arch_this_cpu_to_op_simple(pcp, val, |)
 #define this_cpu_or_2(pcp, val)		arch_this_cpu_to_op_simple(pcp, val, |)
 
+/*
+ * Macros to be used for percpu code section based on atomic instructions.
+ *
+ * Avoid the need to use preempt_disable() / preempt_disable() pairs and the
+ * conditional preempt_schedule_notrace() function calls which come with
+ * this. The idea is that this_cpu operations based on atomic instructions are
+ * guarded with mviy instructions:
+ *
+ * - The first mviy instruction writes the register number, which contains the
+ *   percpu address variable to lowcore. This also indicates that a percpu
+ *   code section is executed.
+ *
+ * - The first mviy instruction following the mviy instruction must be the ag
+ *   instruction which adds the percpu offset to the percpu address register.
+ *
+ * - Afterwards the atomic percpu operation follows.
+ *
+ * - Then a second mviy instruction writes a zero to lowcore, which indicates
+ *   the end of the percpu code section.
+ *
+ * - In case of an interrupt/exception/nmi the register number which was
+ *   written to lowcore is copied to the exception frame (pt_regs), and a zero
+ *   is written to lowcore.
+ *
+ * - On return to the previous context it is checked if a percpu code section
+ *   was executed (saved register number not zero), and if the process was
+ *   migrated to a different cpu. If the percpu offset was already added to
+ *   the percpu address register (instruction address does _not_ point to the
+ *   ag instruction) the content of the percpu address register is adjusted so
+ *   it points to percpu variable of the new cpu.
+ *
+ * Inline assemblies making use of this typically have a code sequence like:
+ *
+ *   MVIY_PERCPU(...) <- start of percpu code section
+ *   AG_ALT(...)      <- add percpu offset; must be the second instruction
+ *   atomic_op	      <- atomic op
+ *   MVIY_ALT(...)    <- end of percpu code section
+ */
+
+#define MVIY_PERCPU(disp, dispalt, reg)						\
+	".macro GEN_MVIY disp reg\n"						\
+	".irp	rs,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15\n"			\
+	"	.ifc \\reg,%%r\\rs\n"						\
+	"	mviy	\\disp(%%r0),\\rs\n"					\
+	"	.endif\n"							\
+	".endr\n"								\
+	".endm\n"								\
+	ALTERNATIVE("GEN_MVIY " __stringify(disp)    " " __stringify(reg) "\n",	\
+		    "GEN_MVIY " __stringify(dispalt) " " __stringify(reg) "\n",	\
+		    ALT_FEATURE(MFEATURE_LOWCORE))				\
+	".purgem GEN_MVIY\n"
+
+#define MVIY_ALT(disp, dispalt)							\
+	ALTERNATIVE("	mviy	" disp	  "(%%r0),0\n",				\
+		    "	mviy	" dispalt "(%%r0),0\n",				\
+		    ALT_FEATURE(MFEATURE_LOWCORE))
+
+#define AG_ALT(disp, dispalt, reg)						\
+	ALTERNATIVE("	ag	" reg ", " disp	   "(%%r0)\n",			\
+		    "	ag	" reg ", " dispalt "(%%r0)\n",			\
+		    ALT_FEATURE(MFEATURE_LOWCORE))
+
 #ifndef MARCH_HAS_Z196_FEATURES
 
 #define this_cpu_add_4(pcp, val)	arch_this_cpu_to_op_simple(pcp, val, +)
