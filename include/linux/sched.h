@@ -702,6 +702,11 @@ struct sched_dl_entity {
 	 * running, skipping the defer phase.
 	 *
 	 * @dl_defer_idle tracks idle state
+	 *
+	 * @dl_bw_attached tells if this server's bandwidth currently
+	 * contributes to the root domain's total_bw. Only meaningful for server
+	 * entities (@dl_server == 1). Allows toggling the reservation on/off
+	 * without losing the configured @dl_runtime/@dl_period.
 	 */
 	unsigned int			dl_throttled      : 1;
 	unsigned int			dl_yielded        : 1;
@@ -713,6 +718,7 @@ struct sched_dl_entity {
 	unsigned int			dl_defer_armed	  : 1;
 	unsigned int			dl_defer_running  : 1;
 	unsigned int			dl_defer_idle     : 1;
+	unsigned int			dl_bw_attached    : 1;
 
 	/*
 	 * Bandwidth enforcement timer. Each -deadline task has its

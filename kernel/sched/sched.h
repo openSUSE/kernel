@@ -421,6 +421,10 @@ extern void ext_server_init(struct rq *rq);
 extern void __dl_server_attach_root(struct sched_dl_entity *dl_se, struct rq *rq);
 extern int dl_server_apply_params(struct sched_dl_entity *dl_se,
 		    u64 runtime, u64 period, bool init);
+extern int dl_server_attach_bw(struct sched_dl_entity *dl_se);
+extern void dl_server_detach_bw(struct sched_dl_entity *dl_se);
+extern int dl_server_swap_bw(struct sched_dl_entity *detach_se,
+			     struct sched_dl_entity *attach_se);
 
 static inline bool dl_server_active(struct sched_dl_entity *dl_se)
 {
