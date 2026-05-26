@@ -104,9 +104,14 @@ const struct software_node alchemy_gpio2_node = {
 	.name = "alchemy-gpio2",
 };
 
+const struct software_node alchemy_gpic_node = {
+	.name = "alchemy-gpic",
+};
+
 static const struct software_node *alchemy_gpio_node_group[] = {
 	&alchemy_gpio1_node,
 	&alchemy_gpio2_node,
+	&alchemy_gpic_node,
 	NULL
 };
 
@@ -189,6 +194,7 @@ static int __init alchemy_gpio_nodes_init(void)
 
 	alchemy_gpio_chip[0].fwnode = software_node_fwnode(&alchemy_gpio1_node);
 	alchemy_gpio_chip[1].fwnode = software_node_fwnode(&alchemy_gpio2_node);
+	au1300_gpiochip.fwnode = software_node_fwnode(&alchemy_gpic_node);
 
 	return 0;
 }
