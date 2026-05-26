@@ -207,6 +207,11 @@ thermal_of_cooling_device_register(struct device_node *np, u32 cdev_id,
 				   const struct thermal_cooling_device_ops *ops);
 
 struct thermal_cooling_device *
+devm_thermal_of_cooling_device_register(struct device *dev, u32 cdev_id,
+					const char *type, void *devdata,
+					const struct thermal_cooling_device_ops *ops);
+
+struct thermal_cooling_device *
 devm_thermal_of_child_cooling_device_register(struct device *dev,
 					      struct device_node *np,
 					      const char *type, void *devdata,
@@ -229,6 +234,14 @@ static inline struct thermal_cooling_device *
 thermal_of_cooling_device_register(struct device_node *np, u32 cdev_id,
 				   const char *type, void *devdata,
 				   const struct thermal_cooling_device_ops *ops)
+{
+	return ERR_PTR(-ENODEV);
+}
+
+static inline struct thermal_cooling_device *
+devm_thermal_of_cooling_device_register(struct device *dev, u32 cdev_id,
+					const char *type, void *devdata,
+					const struct thermal_cooling_device_ops *ops)
 {
 	return ERR_PTR(-ENODEV);
 }
