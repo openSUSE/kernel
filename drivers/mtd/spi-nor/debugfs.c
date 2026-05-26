@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 
 #include <linux/debugfs.h>
+#include <linux/math64.h>
 #include <linux/mtd/spi-nor.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/spi-mem.h>
@@ -77,11 +78,14 @@ static void spi_nor_print_flags(struct seq_file *s, unsigned long flags,
 static int spi_nor_params_show(struct seq_file *s, void *data)
 {
 	struct spi_nor *nor = s->private;
+	u64 min_prot_len = spi_nor_get_min_prot_length_sr(nor);
 	struct spi_nor_flash_parameter *params = nor->params;
 	struct spi_nor_erase_map *erase_map = &params->erase_map;
 	struct spi_nor_erase_region *region = erase_map->regions;
 	const struct flash_info *info = nor->info;
 	char buf[16], *str;
+	loff_t lock_start;
+	u64 lock_length;
 	unsigned int i;
 
 	seq_printf(s, "name\t\t%s\n", info->name);
@@ -157,6 +161,30 @@ static int spi_nor_params_show(struct seq_file *s, void *data)
 			   erase_mask & BIT(2) ? '2' : ' ',
 			   erase_mask & BIT(3) ? '3' : ' ',
 			   region[i].overlaid ? "yes" : "no");
+	}
+
+	if (!spi_nor_has_default_locking_ops(nor))
+		return 0;
+
+	seq_puts(s, "\nlocked sectors\n");
+	seq_puts(s, " region (in hex)   | status   | #sectors\n");
+	seq_puts(s, " ------------------+----------+---------\n");
+
+	spi_nor_get_locked_range_sr(nor, nor->dfs_sr_cache, &lock_start, &lock_length);
+	if (!lock_length || lock_length == params->size) {
+		seq_printf(s, " %08llx-%08llx | %s | %llu\n", 0ULL, params->size - 1,
+			   lock_length ? "  locked" : "unlocked",
+			   div_u64(params->size, min_prot_len));
+	} else if (!lock_start) {
+		seq_printf(s, " %08llx-%08llx | %s | %llu\n", 0ULL, lock_length - 1,
+			   "  locked", div_u64(lock_length, min_prot_len));
+		seq_printf(s, " %08llx-%08llx | %s | %llu\n", lock_length, params->size - 1,
+			   "unlocked", div_u64(params->size - lock_length, min_prot_len));
+	} else {
+		seq_printf(s, " %08llx-%08llx | %s | %llu\n", 0ULL, lock_start - 1,
+			   "unlocked", div_u64(lock_start, min_prot_len));
+		seq_printf(s, " %08llx-%08llx | %s | %llu\n", lock_start, params->size - 1,
+			   "  locked", div_u64(lock_length, min_prot_len));
 	}
 
 	return 0;
