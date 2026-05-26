@@ -49,4 +49,5 @@ ib_uverbs-y :=			uverbs_main.o uverbs_cmd.o uverbs_marshall.o \
 				uverbs_std_types_qp.o
 
 ib_uverbs_support-y :=		rdma_core.o \
-				ucaps.o
+				ucaps.o \
+				uverbs_flow.o
