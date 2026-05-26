@@ -1003,4 +1003,5 @@ struct pmc_dev_info mtl_pmc_dev = {
 	.init = mtl_core_init,
 	.sub_req = pmc_core_pmt_get_lpm_req,
 	.ssram_hidden = true,
+	.die_c6_offset = MTL_PMT_DMU_DIE_C6_OFFSET,
 };

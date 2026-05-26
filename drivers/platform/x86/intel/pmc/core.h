@@ -514,6 +514,7 @@ enum pmc_index {
  * @init:		Function to perform platform specific init action
  * @sub_req:		Function to achieve low power mode substate requirements
  * @ssram_hidden:	Some SSRAM devices are hidden on this platform
+ * @die_c6_offset:	Telemetry offset to read Die C6 residency
  */
 struct pmc_dev_info {
 	u32 *dmu_guids;
@@ -530,6 +531,7 @@ struct pmc_dev_info {
 	int (*init)(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_info);
 	int (*sub_req)(struct pmc_dev *pmcdev, struct pmc *pmc, struct telem_endpoint *ep);
 	bool ssram_hidden;
+	u32 die_c6_offset;
 };
 
 extern const struct pmc_bit_map msr_map[];
