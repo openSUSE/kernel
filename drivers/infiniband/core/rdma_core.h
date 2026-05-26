@@ -70,7 +70,6 @@ void uverbs_finalize_object(struct ib_uobject *uobj,
 int uverbs_output_written(const struct uverbs_attr_bundle *bundle, size_t idx);
 
 void setup_ufile_idr_uobject(struct ib_uverbs_file *ufile);
-void release_ufile_idr_uobject(struct ib_uverbs_file *ufile);
 
 struct ib_udata *uverbs_get_cleared_udata(struct uverbs_attr_bundle *attrs);
 

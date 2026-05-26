@@ -61,6 +61,7 @@
 MODULE_AUTHOR("Roland Dreier");
 MODULE_DESCRIPTION("InfiniBand userspace verbs access");
 MODULE_LICENSE("Dual BSD/GPL");
+MODULE_IMPORT_NS("rdma_core");
 
 enum {
 	IB_UVERBS_MAJOR       = 231,
@@ -163,42 +164,6 @@ void ib_uverbs_detach_umcast(struct ib_qp *qp,
 		list_del(&mcast->list);
 		kfree(mcast);
 	}
-}
-
-static void ib_uverbs_comp_dev(struct ib_uverbs_device *dev)
-{
-	complete(&dev->comp);
-}
-
-void ib_uverbs_release_file(struct kref *ref)
-{
-	struct ib_uverbs_file *file =
-		container_of(ref, struct ib_uverbs_file, ref);
-	struct ib_device *ib_dev;
-	int srcu_key;
-
-	release_ufile_idr_uobject(file);
-
-	srcu_key = srcu_read_lock(&file->device->disassociate_srcu);
-	ib_dev = srcu_dereference(file->device->ib_dev,
-				  &file->device->disassociate_srcu);
-	if (ib_dev && !ib_dev->ops.disassociate_ucontext)
-		module_put(ib_dev->ops.owner);
-	srcu_read_unlock(&file->device->disassociate_srcu, srcu_key);
-
-	if (refcount_dec_and_test(&file->device->refcount))
-		ib_uverbs_comp_dev(file->device);
-
-	if (file->default_async_file)
-		uverbs_uobject_put(&file->default_async_file->uobj);
-	put_device(&file->device->dev);
-
-	if (file->disassociate_page)
-		__free_pages(file->disassociate_page, 0);
-	mutex_destroy(&file->disassociation_lock);
-	mutex_destroy(&file->umap_lock);
-	mutex_destroy(&file->ucontext_lock);
-	kfree(file);
 }
 
 static ssize_t ib_uverbs_event_read(struct ib_uverbs_event_queue *ev_queue,
@@ -983,6 +948,69 @@ err:
 
 	put_device(&dev->dev);
 	return ret;
+}
+
+/*
+ * Drop the ucontext off the ufile and completely disconnect it from the
+ * ib_device
+ */
+static void ufile_destroy_ucontext(struct ib_uverbs_file *ufile,
+			    enum rdma_remove_reason reason)
+{
+	struct ib_ucontext *ucontext = ufile->ucontext;
+	struct ib_device *ib_dev = ucontext->device;
+
+	/*
+	 * If we are closing the FD then the user mmap VMAs must have
+	 * already been destroyed as they hold on to the filep, otherwise
+	 * they need to be zap'd.
+	 */
+	if (reason == RDMA_REMOVE_DRIVER_REMOVE) {
+		uverbs_user_mmap_disassociate(ufile);
+		if (ib_dev->ops.disassociate_ucontext)
+			ib_dev->ops.disassociate_ucontext(ucontext);
+	}
+
+	ib_rdmacg_uncharge(&ucontext->cg_obj, ib_dev,
+			   RDMACG_RESOURCE_HCA_HANDLE);
+
+	rdma_restrack_del(&ucontext->res);
+
+	ib_dev->ops.dealloc_ucontext(ucontext);
+	WARN_ON(!xa_empty(&ucontext->mmap_xa));
+	kfree(ucontext);
+
+	ufile->ucontext = NULL;
+}
+
+/*
+ * Destroy the ucontext and every uobject associated with it.
+ *
+ * This is internally locked and can be called in parallel from multiple
+ * contexts.
+ */
+void uverbs_destroy_ufile_hw(struct ib_uverbs_file *ufile,
+			     enum rdma_remove_reason reason)
+{
+	down_write(&ufile->hw_destroy_rwsem);
+
+	/*
+	 * If a ucontext was never created then we can't have any uobjects to
+	 * cleanup, nothing to do.
+	 */
+	if (!ufile->ucontext)
+		goto done;
+
+	while (!list_empty(&ufile->uobjects) &&
+	       !__uverbs_cleanup_ufile(ufile, reason)) {
+	}
+
+	if (WARN_ON(!list_empty(&ufile->uobjects)))
+		__uverbs_cleanup_ufile(ufile, RDMA_REMOVE_DRIVER_FAILURE);
+	ufile_destroy_ucontext(ufile, reason);
+
+done:
+	up_write(&ufile->hw_destroy_rwsem);
 }
 
 static int ib_uverbs_close(struct inode *inode, struct file *filp)
