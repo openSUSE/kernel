@@ -25,10 +25,8 @@ Things that should be documented here but aren't yet:
 TX Checksum Offload
 ===================
 
-The interface for offloading a transmit checksum to a device is explained in
-detail in comments near the top of include/linux/skbuff.h.
-
-In brief, it allows to request the device fill in a single ones-complement
+In brief, Tx checksum offload allows to request the device fill in a single
+ones-complement
 checksum defined by the sk_buff fields skb->csum_start and skb->csum_offset.
 The device should compute the 16-bit ones-complement checksum (i.e. the
 'IP-style' checksum) from csum_start to the end of the packet, and fill in the
@@ -47,8 +45,7 @@ mechanism such as LCO or RCO.
 SCTP CRC32c can also be offloaded using this interface, by means of filling
 skb->csum_start and skb->csum_offset as described above, setting
 skb->csum_not_inet, and advertising NETIF_F_SCTP_CRC. Drivers must not treat
-ordinary IP checksum offload as SCTP CRC32c support. See the skbuff.h comment
-(section 'D') for more details.
+ordinary IP checksum offload as SCTP CRC32c support.
 
 No offloading of the IP header checksum is performed; it is always done in
 software.  This is OK because when we build the IP header, we obviously have it
@@ -56,8 +53,7 @@ in cache, so summing it isn't expensive.  It's also rather short.
 
 The requirements for GSO are more complicated, because when segmenting an
 encapsulated packet both the inner and outer checksums may need to be edited or
-recomputed for each resulting segment.  See the skbuff.h comment (section 'E')
-for more details.
+recomputed for each resulting segment.
 
 A driver declares its offload capabilities in netdev->hw_features; see
 Documentation/networking/netdev-features.rst for more. NETIF_F_IP_CSUM and
@@ -154,3 +150,9 @@ or left at ``CHECKSUM_NONE``. Drivers **must not discard** packets with
 bad TCP/UDP checksum and must not configure the device to drop them.
 Checksum validation is relatively inexpensive and having bad packets reflected
 in SNMP counters is crucial for network monitoring.
+
+skb checksum documentation
+==========================
+
+.. kernel-doc:: include/linux/skbuff.h
+   :doc: skb checksums
