@@ -248,6 +248,22 @@ static inline int verify_replay(struct xfrm_usersa_info *p,
 	return 0;
 }
 
+static int verify_mtimer_thresh(bool has_encap, u8 dir,
+				struct netlink_ext_ack *extack)
+{
+	if (!has_encap) {
+		NL_SET_ERR_MSG(extack,
+			       "MTIMER_THRESH requires encapsulation");
+		return -EINVAL;
+	}
+	if (dir == XFRM_SA_DIR_OUT) {
+		NL_SET_ERR_MSG(extack,
+			       "MTIMER_THRESH should not be set on output SA");
+		return -EINVAL;
+	}
+	return 0;
+}
+
 static int verify_newsa_info(struct xfrm_usersa_info *p,
 			     struct nlattr **attrs,
 			     struct netlink_ext_ack *extack)
@@ -455,18 +471,9 @@ static int verify_newsa_info(struct xfrm_usersa_info *p,
 	err = 0;
 
 	if (attrs[XFRMA_MTIMER_THRESH]) {
-		if (!attrs[XFRMA_ENCAP]) {
-			NL_SET_ERR_MSG(extack, "MTIMER_THRESH attribute can only be set on ENCAP states");
-			err = -EINVAL;
+		err = verify_mtimer_thresh(!!attrs[XFRMA_ENCAP], sa_dir, extack);
+		if (err)
 			goto out;
-		}
-
-		if (sa_dir == XFRM_SA_DIR_OUT) {
-			NL_SET_ERR_MSG(extack,
-				       "MTIMER_THRESH attribute should not be set on output SA");
-			err = -EINVAL;
-			goto out;
-		}
 	}
 
 	if (sa_dir == XFRM_SA_DIR_OUT) {
