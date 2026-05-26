@@ -324,7 +324,7 @@ static bool xen_batched_set_pte(pte_t *ptep, pte_t pteval)
 {
 	struct mmu_update u;
 
-	if (xen_get_lazy_mode() != XEN_LAZY_MMU)
+	if (!is_lazy_mmu_mode_active())
 		return false;
 
 	xen_mc_batch();
@@ -2151,21 +2151,10 @@ static void xen_set_fixmap(unsigned idx, phys_addr_t phys, pgprot_t prot)
 #endif
 }
 
-static void xen_enter_lazy_mmu(void)
-{
-	preempt_disable();
-	if (xen_get_lazy_mode() != XEN_LAZY_MMU)
-		enter_lazy(XEN_LAZY_MMU);
-	preempt_enable();
-}
-
 static void xen_flush_lazy_mmu(void)
 {
 	preempt_disable();
-
-	if (xen_get_lazy_mode() == XEN_LAZY_MMU)
-		xen_mc_flush();
-
+	xen_mc_flush();
 	preempt_enable();
 }
 
@@ -2187,15 +2176,6 @@ static void __init xen_post_allocator_init(void)
 	pv_ops.mmu.make_pte = PV_CALLEE_SAVE(xen_make_pte);
 
 	pv_ops.mmu.write_cr3 = &xen_write_cr3;
-}
-
-static void xen_leave_lazy_mmu(void)
-{
-	preempt_disable();
-	xen_mc_flush();
-	if (xen_get_lazy_mode() != XEN_LAZY_NONE)
-		leave_lazy(XEN_LAZY_MMU);
-	preempt_enable();
 }
 
 void __init xen_init_mmu_ops(void)
@@ -2237,9 +2217,7 @@ void __init xen_init_mmu_ops(void)
 	pv_ops.mmu.make_p4d = PV_CALLEE_SAVE(xen_make_p4d);
 	pv_ops.mmu.enter_mmap = xen_enter_mmap;
 	pv_ops.mmu.exit_mmap = xen_exit_mmap;
-	pv_ops.mmu.lazy_mode.enter = xen_enter_lazy_mmu;
-	pv_ops.mmu.lazy_mode.leave = xen_leave_lazy_mmu;
-	pv_ops.mmu.lazy_mode.flush = xen_flush_lazy_mmu;
+	pv_ops.mmu.lazy_mode_flush = xen_flush_lazy_mmu;
 	pv_ops.mmu.set_fixmap = xen_set_fixmap;
 
 	memset(dummy_mapping, 0xff, PAGE_SIZE);

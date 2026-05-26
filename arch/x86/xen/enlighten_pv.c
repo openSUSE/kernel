@@ -424,9 +424,7 @@ static void xen_start_context_switch(struct task_struct *prev)
 {
 	BUG_ON(preemptible());
 
-	if (this_cpu_read(xen_lazy_mode) == XEN_LAZY_MMU) {
-		arch_leave_lazy_mmu_mode();
-	}
+	__task_lazy_mmu_mode_pause(prev);
 	enter_lazy(XEN_LAZY_CPU);
 }
 
@@ -436,8 +434,7 @@ static void xen_end_context_switch(struct task_struct *next)
 
 	xen_mc_flush();
 	leave_lazy(XEN_LAZY_CPU);
-	if (__task_lazy_mmu_mode_active(next))
-		arch_enter_lazy_mmu_mode();
+	__task_lazy_mmu_mode_resume(next);
 }
 
 static unsigned long xen_store_tr(void)

@@ -204,11 +204,7 @@ struct paravirt_patch_template pv_ops = {
 
 	.mmu.enter_mmap		= paravirt_nop,
 
-	.mmu.lazy_mode = {
-		.enter		= paravirt_nop,
-		.leave		= paravirt_nop,
-		.flush		= paravirt_nop,
-	},
+	.mmu.lazy_mode_flush	= paravirt_nop,
 
 	.mmu.set_fixmap		= native_set_fixmap,
 #endif /* CONFIG_PARAVIRT_XXL */
