@@ -134,8 +134,9 @@ static void ccm_rx_timer_start(struct br_cfm_peer_mep *peer_mep)
 	 * of the configured CC 'expected_interval'
 	 * in order to detect CCM defect after 3.25 interval.
 	 */
-	queue_delayed_work(system_wq, &peer_mep->ccm_rx_dwork,
-			   usecs_to_jiffies(interval_us / 4));
+	if (!peer_mep->ccm_rx_dwork_disabled)
+		queue_delayed_work(system_wq, &peer_mep->ccm_rx_dwork,
+				   usecs_to_jiffies(interval_us / 4));
 }
 
 static void br_cfm_notify(int event, const struct net_bridge_port *port)
@@ -576,6 +577,8 @@ static void mep_delete_implementation(struct net_bridge *br,
 
 	/* Empty and free peer MEP list */
 	hlist_for_each_entry_safe(peer_mep, n_store, &mep->peer_mep_list, head) {
+		/* prevent queueing, workaround for missing disable_ */
+		peer_mep->ccm_rx_dwork_disabled = true;
 		cancel_delayed_work_sync(&peer_mep->ccm_rx_dwork);
 		hlist_del_rcu(&peer_mep->head);
 		kfree_rcu(peer_mep, rcu);
@@ -699,6 +702,7 @@ int br_cfm_cc_peer_mep_add(struct net_bridge *br, const u32 instance,
 
 	peer_mep->mepid = mepid;
 	peer_mep->mep = mep;
+	peer_mep->ccm_rx_dwork_disabled = false;
 	INIT_DELAYED_WORK(&peer_mep->ccm_rx_dwork, ccm_rx_work_expired);
 
 	if (mep->cc_config.enable)
@@ -732,7 +736,9 @@ int br_cfm_cc_peer_mep_remove(struct net_bridge *br, const u32 instance,
 		return -ENOENT;
 	}
 
-	cc_peer_disable(peer_mep);
+	/* prevent queueing, workaround for missing disable_ */
+	peer_mep->ccm_rx_dwork_disabled = true;
+	cancel_delayed_work_sync(&peer_mep->ccm_rx_dwork);
 
 	hlist_del_rcu(&peer_mep->head);
 	kfree_rcu(peer_mep, rcu);

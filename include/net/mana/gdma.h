@@ -421,10 +421,12 @@ struct gdma_context {
 
 	phys_addr_t		bar0_pa;
 	void __iomem		*bar0_va;
+	resource_size_t		bar0_size;
 	void __iomem		*shm_base;
 	void __iomem		*db_page_base;
 	phys_addr_t		phys_db_page_base;
-	u32 db_page_size;
+	u64 db_page_off;
+	u64 db_page_size;
 	int                     numa_node;
 
 	/* Shared memory chanenl (used to bootstrap HWC) */
@@ -790,6 +792,7 @@ enum gdma_mr_access_flags {
 	GDMA_ACCESS_FLAG_REMOTE_READ = BIT_ULL(2),
 	GDMA_ACCESS_FLAG_REMOTE_WRITE = BIT_ULL(3),
 	GDMA_ACCESS_FLAG_REMOTE_ATOMIC = BIT_ULL(4),
+	GDMA_ACCESS_FLAG_BIND_MW = BIT_ULL(5),
 };
 
 /* GDMA_CREATE_DMA_REGION */
@@ -882,6 +885,10 @@ enum gdma_mr_type {
 	GDMA_MR_TYPE_ZBVA = 4,
 	/* Device address MRs */
 	GDMA_MR_TYPE_DM = 5,
+	/* Memory Window type 1 */
+	GDMA_MR_TYPE_MW1 = 6,
+	/* Memory Window type 2 */
+	GDMA_MR_TYPE_MW2 = 7,
 };
 
 struct gdma_create_mr_params {

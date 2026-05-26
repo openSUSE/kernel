@@ -175,6 +175,7 @@ static const struct of_device_id dp_dt_match[] = {
 	{ .compatible = "qcom,x1e80100-dp", .data = &x1e80100_dp_descs },
 	{}
 };
+MODULE_DEVICE_TABLE(of, msm_dp_dt_match);
 
 static struct dp_display_private *dev_get_dp_display_private(struct device *dev)
 {
