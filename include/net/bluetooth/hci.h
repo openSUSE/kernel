@@ -2486,6 +2486,12 @@ struct hci_rp_le_cs_test {
 
 #define HCI_OP_LE_CS_TEST_END			0x2096
 
+#define HCI_OP_LE_SET_HOST_FEATURE_V2		0x2097
+struct hci_cp_le_set_host_feature_v2 {
+	__le16	bit_number;
+	__u8	bit_value;
+} __packed;
+
 /* ---- HCI Events ---- */
 struct hci_ev_status {
 	__u8    status;
