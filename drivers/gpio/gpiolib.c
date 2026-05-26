@@ -5520,8 +5520,8 @@ static int gpiolib_seq_show(struct seq_file *s, void *v)
 	if (gc->label)
 		seq_printf(s, ", %s", gc->label);
 	if (gc->can_sleep)
-		seq_printf(s, ", can sleep");
-	seq_printf(s, ":\n");
+		seq_puts(s, ", can sleep");
+	seq_puts(s, ":\n");
 
 	if (gc->dbg_show)
 		gc->dbg_show(s, gc);
