@@ -453,6 +453,9 @@ struct pmc {
  * @suspend:		Function to perform platform specific suspend
  * @resume:		Function to perform platform specific resume
  *
+ * @pkgc_ltr_blocker_counters: Array of PKGC LTR blocker counters
+ * @pkgc_ltr_blocker_offset: Offset to PKGC LTR blockers in telemetry region
+ *
  * pmc_dev contains info about power management controller device.
  */
 struct pmc_dev {
@@ -471,8 +474,12 @@ struct pmc_dev {
 	u8 num_of_pkgc;
 
 	u32 die_c6_offset;
+	struct telem_endpoint *pc_ep;
 	struct telem_endpoint *punit_ep;
 	struct pmc_info *regmap_list;
+
+	const char **pkgc_ltr_blocker_counters;
+	u32 pkgc_ltr_blocker_offset;
 };
 
 enum pmc_index {
@@ -486,12 +493,15 @@ enum pmc_index {
  * struct pmc_dev_info - Structure to keep PMC device info
  * @pci_func:		Function number of the primary PMC
  * @dmu_guids:		List of Die Management Unit GUID
+ * @pc_guid:		GUID for telemetry region to read PKGC blocker info
+ * @pkgc_ltr_blocker_offset: Offset to PKGC LTR blockers in telemetry region
  * @regmap_list:	Pointer to a list of pmc_info structure that could be
  *			available for the platform. When set, this field implies
  *			SSRAM support.
  * @map:		Pointer to a pmc_reg_map struct that contains platform
  *			specific attributes of the primary PMC
  * @sub_req_show:	File operations to show substate requirements
+ * @pkgc_ltr_blocker_counters: Array of PKGC LTR blocker counters
  * @suspend:		Function to perform platform specific suspend
  * @resume:		Function to perform platform specific resume
  * @init:		Function to perform platform specific init action
@@ -500,9 +510,12 @@ enum pmc_index {
 struct pmc_dev_info {
 	u8 pci_func;
 	u32 *dmu_guids;
+	u32 pc_guid;
+	u32 pkgc_ltr_blocker_offset;
 	struct pmc_info *regmap_list;
 	const struct pmc_reg_map *map;
 	const struct file_operations *sub_req_show;
+	const char **pkgc_ltr_blocker_counters;
 	void (*suspend)(struct pmc_dev *pmcdev);
 	int (*resume)(struct pmc_dev *pmcdev);
 	int (*init)(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_info);
@@ -535,7 +548,7 @@ int pmc_core_send_ltr_ignore(struct pmc_dev *pmcdev, u32 value, int ignore);
 
 int pmc_core_resume_common(struct pmc_dev *pmcdev);
 int get_primary_reg_base(struct pmc *pmc);
-void pmc_core_punit_pmt_init(struct pmc_dev *pmcdev, u32 *guids);
+void pmc_core_punit_pmt_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_info);
 void pmc_core_set_device_d3(unsigned int device);
 
 int generic_core_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_info);
