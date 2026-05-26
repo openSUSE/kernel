@@ -41,19 +41,19 @@ check_top_hist "disable auto-analysis" \
 
 # Thread tests
 check_top_hist "verify -P/--priority" \
-	"timerlat TOOL -P F:1 -c 0 -d 10s -T 1 --on-threshold shell,command=\"tests/scripts/check-priority.sh SCHED_FIFO 1\"" \
+	"timerlat TOOL -P F:1 -c 0 -d 10s -T 1 --on-threshold shell,command=\"$testdir/scripts/check-priority.sh SCHED_FIFO 1\"" \
 	2 "Priorities are set correctly"
 check_top_hist "verify -C/--cgroup" \
-	"timerlat TOOL -k -C -c 0 -d 10s -T 1 --on-threshold shell,command=\"tests/scripts/check-cgroup-match.sh\"" \
+	"timerlat TOOL -k -C -c 0 -d 10s -T 1 --on-threshold shell,command=\"$testdir/scripts/check-cgroup-match.sh\"" \
 	2 "cgroup matches for all workload PIDs"
 check_top_q_hist "verify -c/--cpus" \
-	"timerlat TOOL -c 0 -d 10s -T 1 --on-threshold shell,command=tests/scripts/check-cpus.sh" 2 "^Affinity of threads: 0$"
+	"timerlat TOOL -c 0 -d 10s -T 1 --on-threshold shell,command=$testdir/scripts/check-cpus.sh" 2 "^Affinity of threads: 0$"
 check_top_q_hist "verify -H/--house-keeping" \
-	"timerlat TOOL -H 0 -d 10s -T 1 --on-threshold shell,command=tests/scripts/check-housekeeping-cpus.sh" 2 "^Affinity of threads: 0$"
+	"timerlat TOOL -H 0 -d 10s -T 1 --on-threshold shell,command=$testdir/scripts/check-housekeeping-cpus.sh" 2 "^Affinity of threads: 0$"
 check_top_q_hist "verify -k/--kernel-threads" \
-	"timerlat TOOL -k -c 0 -d 10s -T 1 --on-threshold shell,command=tests/scripts/check-user-kernel-threads.sh" 2 "1 kernel threads, 0 user threads"
+	"timerlat TOOL -k -c 0 -d 10s -T 1 --on-threshold shell,command=$testdir/scripts/check-user-kernel-threads.sh" 2 "1 kernel threads, 0 user threads"
 check_top_q_hist "verify -u/--user-threads" \
-	"timerlat TOOL -u -c 0 -d 10s -T 1 --on-threshold shell,command=tests/scripts/check-user-kernel-threads.sh" 2 "0 kernel threads, 1 user threads"
+	"timerlat TOOL -u -c 0 -d 10s -T 1 --on-threshold shell,command=$testdir/scripts/check-user-kernel-threads.sh" 2 "0 kernel threads, 1 user threads"
 
 # Histogram tests
 check "hist with -b/--bucket-size" \
@@ -103,12 +103,12 @@ then
 	# Test BPF action program properly in BPF mode
 	[ -z "$BPFTOOL" ] && BPFTOOL=bpftool
 	check_top_q_hist "with BPF action program (BPF mode)" \
-		"timerlat TOOL -T 2 --bpf-action tests/bpf/bpf_action_map.o --on-threshold shell,command='$BPFTOOL map dump name rtla_test_map'" \
+		"timerlat TOOL -T 2 --bpf-action $testdir/bpf/bpf_action_map.o --on-threshold shell,command='$BPFTOOL map dump name rtla_test_map'" \
 		2 '"value": 42'
 else
 	# Test BPF action program failure in non-BPF mode
 	check_top_q_hist "with BPF action program (non-BPF mode)" \
-		"timerlat TOOL -T 2 --bpf-action tests/bpf/bpf_action_map.o" \
+		"timerlat TOOL -T 2 --bpf-action $testdir/bpf/bpf_action_map.o" \
 		1 "BPF actions are not supported in tracefs-only mode"
 fi
 done

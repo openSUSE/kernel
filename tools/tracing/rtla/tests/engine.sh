@@ -4,6 +4,9 @@ test_begin() {
 	# Count tests to allow the test harness to double-check if all were
 	# included correctly.
 	ctr=0
+	# Set test directory to the directory of the script
+	scriptfile=$(realpath "$0")
+	testdir=$(dirname "$scriptfile")
 	[ -z "$RTLA" ] && RTLA="./rtla"
 	[ -n "$TEST_COUNT" ] && echo "1..$TEST_COUNT"
 }
@@ -51,6 +54,11 @@ check() {
 	then
 		# Reset osnoise options before running test.
 		[ "$NO_RESET_OSNOISE" == 1 ] || reset_osnoise
+
+		# Create a temporary directory to contain rtla output
+		tmpdir=$(mktemp -d)
+		pushd $tmpdir >/dev/null
+
 		# Run rtla; in case of failure, include its output as comment
 		# in the test results.
 		result=$(eval stdbuf -oL $TIMEOUT "$RTLA" $2 2>&1); exitcode=$?
@@ -82,6 +90,10 @@ check() {
 			echo "$result" | col -b | while read line; do echo "# $line"; done
 			printf "#\n# exit code %s\n" $exitcode
 		fi
+
+		# Remove temporary directory
+		popd >/dev/null
+		rm -r $tmpdir
 	fi
 }
 
