@@ -782,7 +782,7 @@ static int pmc_core_substate_res_show(struct seq_file *s, void *unused)
 
 	seq_printf(s, "%-10s %-15s\n", "Substate", "Residency");
 
-	pmc_for_each_mode(mode, pmcdev) {
+	pmc_for_each_mode(mode, pmc) {
 		seq_printf(s, "%-10s %-15llu\n", pmc_lpm_modes[mode],
 			   adjust_lpm_residency(pmc, offset + (4 * mode), lpm_adj_x2));
 	}
@@ -837,10 +837,11 @@ static void pmc_core_substate_req_header_show(struct seq_file *s, int pmc_index,
 					      enum header_type type)
 {
 	struct pmc_dev *pmcdev = s->private;
+	struct pmc *pmc = pmcdev->pmcs[pmc_index];
 	int mode;
 
 	seq_printf(s, "%40s |", "Element");
-	pmc_for_each_mode(mode, pmcdev)
+	pmc_for_each_mode(mode, pmc)
 		seq_printf(s, " %9s |", pmc_lpm_modes[mode]);
 
 	if (type == HEADER_STATUS) {
@@ -886,7 +887,7 @@ static int pmc_core_substate_blk_req_show(struct seq_file *s, void *unused)
 
 				counter = pmc_core_reg_read(pmc, offset);
 				seq_printf(s, "pmc%u: %34s |", pmc_idx, map->name);
-				pmc_for_each_mode(mode, pmcdev) {
+				pmc_for_each_mode(mode, pmc) {
 					bool required = *lpm_req_regs & BIT(mode);
 
 					seq_printf(s, " %9s |", required ? "Required" : " ");
@@ -959,7 +960,7 @@ static int pmc_core_substate_req_regs_show(struct seq_file *s, void *unused)
 			 * show an element if it's required for at least one of the
 			 * enabled low power modes
 			 */
-			pmc_for_each_mode(mode, pmcdev)
+			pmc_for_each_mode(mode, pmc)
 				req_mask |= lpm_req_regs[mp + (mode * num_maps)];
 
 			/* Get the last latched status for this map */
@@ -985,7 +986,7 @@ static int pmc_core_substate_req_regs_show(struct seq_file *s, void *unused)
 				seq_printf(s, "pmc%d: %34s |", pmc_idx, map[i].name);
 
 				/* Loop over the enabled states and display if required */
-				pmc_for_each_mode(mode, pmcdev) {
+				pmc_for_each_mode(mode, pmc) {
 					bool required = lpm_req_regs[mp + (mode * num_maps)] &
 							bit_mask;
 					seq_printf(s, " %9s |", required ? "Required" : " ");
@@ -1058,6 +1059,44 @@ static int pmc_core_die_c6_us_show(struct seq_file *s, void *unused)
 }
 DEFINE_SHOW_ATTRIBUTE(pmc_core_die_c6_us);
 
+static int pmc_core_pkgc_counters_show(struct seq_file *s,
+				       struct telem_endpoint *ep,
+				       u32 offset, const char **counters)
+{
+	unsigned int i;
+	u32 counter;
+	int ret;
+
+	for (i = 0; counters[i]; i++) {
+		ret = pmt_telem_read32(ep, offset + i, &counter, 1);
+		if (ret)
+			return ret;
+		seq_printf(s, "%-30s %-30u\n", counters[i], counter);
+	}
+
+	return 0;
+}
+
+static int pmc_core_pkgc_ltr_blocker_show(struct seq_file *s, void *unused)
+{
+	struct pmc_dev *pmcdev = s->private;
+
+	return pmc_core_pkgc_counters_show(s, pmcdev->pc_ep,
+					   pmcdev->pkgc_ltr_blocker_offset,
+					   pmcdev->pkgc_ltr_blocker_counters);
+}
+DEFINE_SHOW_ATTRIBUTE(pmc_core_pkgc_ltr_blocker);
+
+static int pmc_core_pkgc_blocker_residency_show(struct seq_file *s, void *unused)
+{
+	struct pmc_dev *pmcdev = s->private;
+
+	return pmc_core_pkgc_counters_show(s, pmcdev->pc_ep,
+					   pmcdev->pkgc_blocker_offset,
+					   pmcdev->pkgc_blocker_counters);
+}
+DEFINE_SHOW_ATTRIBUTE(pmc_core_pkgc_blocker_residency);
+
 static int pmc_core_lpm_latch_mode_show(struct seq_file *s, void *unused)
 {
 	struct pmc_dev *pmcdev = s->private;
@@ -1075,7 +1114,7 @@ static int pmc_core_lpm_latch_mode_show(struct seq_file *s, void *unused)
 		c10 = true;
 	}
 
-	pmc_for_each_mode(mode, pmcdev) {
+	pmc_for_each_mode(mode, pmc) {
 		if ((BIT(mode) & reg) && !c10)
 			seq_printf(s, " [%s]", pmc_lpm_modes[mode]);
 		else
@@ -1114,7 +1153,7 @@ static ssize_t pmc_core_lpm_latch_mode_write(struct file *file,
 	mode = sysfs_match_string(pmc_lpm_modes, buf);
 
 	/* Check string matches enabled mode */
-	pmc_for_each_mode(m, pmcdev)
+	pmc_for_each_mode(m, pmc)
 		if (mode == m)
 			break;
 
@@ -1210,9 +1249,8 @@ static bool pmc_core_pri_verify(u32 lpm_pri, u8 *mode_order)
 	return true;
 }
 
-void pmc_core_get_low_power_modes(struct pmc_dev *pmcdev)
+static void pmc_core_pmc_get_low_power_modes(struct pmc_dev *pmcdev, struct pmc *pmc)
 {
-	struct pmc *pmc = pmcdev->pmcs[PMC_IDX_MAIN];
 	u8 pri_order[LPM_MAX_NUM_MODES] = LPM_DEFAULT_PRI;
 	u8 mode_order[LPM_MAX_NUM_MODES];
 	u32 lpm_pri;
@@ -1229,7 +1267,7 @@ void pmc_core_get_low_power_modes(struct pmc_dev *pmcdev)
 	 * Lower byte is enough to cover the number of lpm modes for all
 	 * platforms and hence mask the upper 3 bytes.
 	 */
-	pmcdev->num_lpm_modes = hweight32(lpm_en & 0xFF);
+	pmc->num_lpm_modes = hweight32(lpm_en & 0xFF);
 
 	/* Read 32 bit LPM_PRI register */
 	lpm_pri = pmc_core_reg_read(pmc, pmc->map->lpm_priority_offset);
@@ -1258,7 +1296,22 @@ void pmc_core_get_low_power_modes(struct pmc_dev *pmcdev)
 		if (!(BIT(mode) & lpm_en))
 			continue;
 
-		pmcdev->lpm_en_modes[i++] = mode;
+		pmc->lpm_en_modes[i++] = mode;
+	}
+}
+
+static void pmc_core_get_low_power_modes(struct pmc_dev *pmcdev)
+{
+	unsigned int pmc_idx;
+
+	for (pmc_idx = 0; pmc_idx < ARRAY_SIZE(pmcdev->pmcs); pmc_idx++) {
+		struct pmc *pmc;
+
+		pmc = pmcdev->pmcs[pmc_idx];
+		if (!pmc)
+			continue;
+
+		pmc_core_pmc_get_low_power_modes(pmcdev, pmc);
 	}
 }
 
@@ -1294,28 +1347,45 @@ static struct telem_endpoint *pmc_core_register_endpoint(struct pci_dev *pcidev,
 	return ERR_PTR(-ENODEV);
 }
 
-void pmc_core_punit_pmt_init(struct pmc_dev *pmcdev, u32 *guids)
+void pmc_core_punit_pmt_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_info)
 {
 	struct telem_endpoint *ep;
-	struct pci_dev *pcidev;
 
-	pcidev = pci_get_domain_bus_and_slot(0, 0, PCI_DEVFN(10, 0));
+	struct pci_dev *pcidev __free(pci_dev_put) = pci_get_domain_bus_and_slot(0, 0,
+										 PCI_DEVFN(10, 0));
 	if (!pcidev) {
 		dev_err(&pmcdev->pdev->dev, "PUNIT PMT device not found.");
 		return;
 	}
 
-	ep = pmc_core_register_endpoint(pcidev, guids);
-	pci_dev_put(pcidev);
-	if (IS_ERR(ep)) {
-		dev_err(&pmcdev->pdev->dev,
-			"pmc_core: couldn't get DMU telem endpoint %ld",
-			PTR_ERR(ep));
-		return;
+	if (pmc_dev_info->dmu_guids) {
+		ep = pmc_core_register_endpoint(pcidev, pmc_dev_info->dmu_guids);
+		if (IS_ERR(ep)) {
+			dev_err(&pmcdev->pdev->dev,
+				"pmc_core: couldn't get DMU telem endpoint %ld",
+				PTR_ERR(ep));
+			return;
+		}
+
+		pmcdev->punit_ep = ep;
+		pmcdev->die_c6_offset = pmc_dev_info->die_c6_offset;
 	}
 
-	pmcdev->punit_ep = ep;
-	pmcdev->die_c6_offset = MTL_PMT_DMU_DIE_C6_OFFSET;
+	if (pmc_dev_info->pc_guid) {
+		ep = pmt_telem_find_and_register_endpoint(&pcidev->dev, pmc_dev_info->pc_guid, 0);
+		if (IS_ERR(ep)) {
+			dev_err(&pmcdev->pdev->dev,
+				"pmc_core: couldn't get Package C-state telem endpoint %ld",
+				PTR_ERR(ep));
+			return;
+		}
+
+		pmcdev->pc_ep = ep;
+		pmcdev->pkgc_ltr_blocker_counters = pmc_dev_info->pkgc_ltr_blocker_counters;
+		pmcdev->pkgc_ltr_blocker_offset = pmc_dev_info->pkgc_ltr_blocker_offset;
+		pmcdev->pkgc_blocker_counters = pmc_dev_info->pkgc_blocker_counters;
+		pmcdev->pkgc_blocker_offset = pmc_dev_info->pkgc_blocker_offset;
+	}
 }
 
 void pmc_core_set_device_d3(unsigned int device)
@@ -1439,6 +1509,16 @@ static void pmc_core_dbgfs_register(struct pmc_dev *pmcdev, struct pmc_dev_info 
 				    pmcdev->dbgfs_dir, pmcdev,
 				    &pmc_core_die_c6_us_fops);
 	}
+
+	if (pmcdev->pc_ep) {
+		debugfs_create_file("pkgc_ltr_blocker_show", 0444,
+				    pmcdev->dbgfs_dir, pmcdev,
+				    &pmc_core_pkgc_ltr_blocker_fops);
+		debugfs_create_file("pkgc_blocker_residency_show", 0444,
+				    pmcdev->dbgfs_dir, pmcdev,
+				    &pmc_core_pkgc_blocker_residency_fops);
+	}
+
 }
 
 /*
@@ -1503,7 +1583,7 @@ int pmc_core_pmt_get_lpm_req(struct pmc_dev *pmcdev, struct pmc *pmc, struct tel
 		return -ENOMEM;
 
 	mode_offset = LPM_HEADER_OFFSET + LPM_MODE_OFFSET;
-	pmc_for_each_mode(mode, pmcdev) {
+	pmc_for_each_mode(mode, pmc) {
 		u32 *req_offset = pmc->lpm_req_regs + (mode * num_maps);
 		int m;
 
@@ -1553,17 +1633,13 @@ int pmc_core_pmt_get_blk_sub_req(struct pmc_dev *pmcdev, struct pmc *pmc,
 
 static int pmc_core_get_telem_info(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_info)
 {
-	struct pci_dev *pcidev __free(pci_dev_put) = NULL;
 	struct telem_endpoint *ep;
 	unsigned int pmc_idx;
 	int ret;
 
-	pcidev = pci_get_domain_bus_and_slot(0, 0, PCI_DEVFN(20, pmc_dev_info->pci_func));
-	if (!pcidev)
-		return -ENODEV;
-
 	for (pmc_idx = 0; pmc_idx < ARRAY_SIZE(pmcdev->pmcs); ++pmc_idx) {
 		struct pmc *pmc;
+		u16 devid;
 
 		pmc = pmcdev->pmcs[pmc_idx];
 		if (!pmc)
@@ -1571,6 +1647,16 @@ static int pmc_core_get_telem_info(struct pmc_dev *pmcdev, struct pmc_dev_info *
 
 		if (!pmc->map->lpm_req_guid)
 			return -ENXIO;
+
+		if (pmc_dev_info->ssram_hidden)
+			devid = pmcdev->pmcs[PMC_IDX_MAIN]->devid;
+		else
+			devid = pmc->devid;
+
+		struct pci_dev *pcidev __free(pci_dev_put) =
+			pci_get_device(PCI_VENDOR_ID_INTEL, devid, NULL);
+		if (!pcidev)
+			return -ENODEV;
 
 		ep = pmt_telem_find_and_register_endpoint(&pcidev->dev, pmc->map->lpm_req_guid, 0);
 		if (IS_ERR(ep)) {
@@ -1622,6 +1708,7 @@ static int pmc_core_pmc_add(struct pmc_dev *pmcdev, unsigned int pmc_idx)
 
 	pmc->map = map;
 	pmc->base_addr = pmc_ssram_telemetry.base_addr;
+	pmc->devid = pmc_ssram_telemetry.devid;
 	pmc->regbase = ioremap(pmc->base_addr, pmc->map->regmap_length);
 
 	if (!pmc->regbase) {
@@ -1634,16 +1721,17 @@ static int pmc_core_pmc_add(struct pmc_dev *pmcdev, unsigned int pmc_idx)
 	return 0;
 }
 
-static int pmc_core_ssram_get_reg_base(struct pmc_dev *pmcdev)
+static int pmc_core_ssram_get_reg_base(struct pmc_dev *pmcdev, u8 num_pmcs, const u8 *pmc_list)
 {
+	unsigned int i;
 	int ret;
 
-	ret = pmc_core_pmc_add(pmcdev, PMC_IDX_MAIN);
-	if (ret)
-		return ret;
-
-	pmc_core_pmc_add(pmcdev, PMC_IDX_IOE);
-	pmc_core_pmc_add(pmcdev, PMC_IDX_PCH);
+	for (i = 0; i < num_pmcs; ++i) {
+		/* Non-MAIN PMCs are allowed to fail */
+		ret = pmc_core_pmc_add(pmcdev, pmc_list[i]);
+		if (ret && (pmc_list[i] == PMC_IDX_MAIN))
+			return ret;
+	}
 
 	return 0;
 }
@@ -1665,7 +1753,9 @@ int generic_core_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_info)
 	ssram = pmc_dev_info->regmap_list != NULL;
 	if (ssram) {
 		pmcdev->regmap_list = pmc_dev_info->regmap_list;
-		ret = pmc_core_ssram_get_reg_base(pmcdev);
+		ret = pmc_core_ssram_get_reg_base(pmcdev,
+						  pmc_dev_info->num_pmcs,
+						  pmc_dev_info->pmc_list);
 		/*
 		 * EAGAIN error code indicates Intel PMC SSRAM Telemetry driver
 		 * has not finished probe and PMC info is not available yet. Try
@@ -1689,8 +1779,8 @@ int generic_core_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_info)
 	}
 
 	pmc_core_get_low_power_modes(pmcdev);
-	if (pmc_dev_info->dmu_guids)
-		pmc_core_punit_pmt_init(pmcdev, pmc_dev_info->dmu_guids);
+	if (pmc_dev_info->dmu_guids || pmc_dev_info->pc_guid)
+		pmc_core_punit_pmt_init(pmcdev, pmc_dev_info);
 
 	if (ssram) {
 		ret = pmc_core_get_telem_info(pmcdev, pmc_dev_info);
@@ -1710,6 +1800,9 @@ unmap_regbase:
 
 	if (pmcdev->punit_ep)
 		pmt_telem_unregister_endpoint(pmcdev->punit_ep);
+
+	if (pmcdev->pc_ep)
+		pmt_telem_unregister_endpoint(pmcdev->pc_ep);
 
 	return ret;
 }
@@ -1743,6 +1836,8 @@ static const struct x86_cpu_id intel_pmc_core_ids[] = {
 	X86_MATCH_VFM(INTEL_LUNARLAKE_M,	&lnl_pmc_dev),
 	X86_MATCH_VFM(INTEL_PANTHERLAKE_L,	&ptl_pmc_dev),
 	X86_MATCH_VFM(INTEL_WILDCATLAKE_L,	&wcl_pmc_dev),
+	X86_MATCH_VFM(INTEL_NOVALAKE,		&nvl_s_pmc_dev),
+	X86_MATCH_VFM(INTEL_NOVALAKE_L,		&nvl_h_pmc_dev),
 	{}
 };
 
@@ -1806,6 +1901,9 @@ static void pmc_core_clean_structure(struct platform_device *pdev)
 
 	if (pmcdev->punit_ep)
 		pmt_telem_unregister_endpoint(pmcdev->punit_ep);
+
+	if (pmcdev->pc_ep)
+		pmt_telem_unregister_endpoint(pmcdev->pc_ep);
 
 	platform_set_drvdata(pdev, NULL);
 }
