@@ -3764,7 +3764,7 @@ static inline void proxy_reset_donor(struct rq *rq)
  */
 static inline bool proxy_needs_return(struct rq *rq, struct task_struct *p)
 {
-	if (!task_is_blocked(p))
+	if (!p->is_blocked)
 		return false;
 
 	/*
@@ -6866,14 +6866,14 @@ find_proxy_task(struct rq *rq, struct task_struct *donor, struct rq_flags *rf)
 	bool curr_in_chain = false;
 	int this_cpu = cpu_of(rq);
 	struct task_struct *p;
-	struct mutex *mutex;
 	int owner_cpu;
 
 	/* Follow blocked_on chain. */
-	for (p = donor; (mutex = p->blocked_on); p = owner) {
+	for (p = donor; p->is_blocked; p = owner) {
 		/* if its PROXY_WAKING, do return migration or run if current */
-		if (mutex == PROXY_WAKING) {
-			clear_task_blocked_on(p, PROXY_WAKING);
+		struct mutex *mutex = p->blocked_on;
+		if (!mutex || mutex == PROXY_WAKING) {
+			clear_task_blocked_on(p, mutex);
 			if (task_current(rq, p)) {
 				p->is_blocked = 0;
 				return p;
@@ -7147,7 +7147,7 @@ pick_again:
 
 		rq_set_donor(rq, next);
 		next->blocked_donor = NULL;
-		if (unlikely(next->is_blocked && next->blocked_on)) {
+		if (unlikely(next->is_blocked)) {
 			next = find_proxy_task(rq, next, &rf);
 			if (!next) {
 				zap_balance_callbacks(rq);
