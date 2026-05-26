@@ -549,12 +549,22 @@ static void rz_dmac_free_chan_resources(struct dma_chan *chan)
 	struct rz_dmac *dmac = to_rz_dmac(chan->device);
 	struct rz_dmac_desc *desc, *_desc;
 	unsigned long flags;
+	int ret;
+
+	PM_RUNTIME_ACQUIRE_IF_ENABLED(dmac->dev, pm);
+	ret = PM_RUNTIME_ACQUIRE_ERR(&pm);
+	if (ret) {
+		dev_err(dmac->dev, "RPM resume failed for channel %s, ret=%d\n!",
+			dma_chan_name(chan), ret);
+	}
 
 	spin_lock_irqsave(&channel->vc.lock, flags);
 
 	rz_lmdesc_setup(channel, channel->lmdesc.base);
 
-	rz_dmac_disable_hw(channel);
+	/*  Skip touching HW if RPM resume failed. Let the cleanup do its jobs. */
+	if (!ret)
+		rz_dmac_disable_hw(channel);
 
 	if (channel->mid_rid >= 0) {
 		clear_bit(channel->mid_rid, dmac->modules);
@@ -697,11 +707,22 @@ rz_dmac_prep_dma_cyclic(struct dma_chan *chan, dma_addr_t buf_addr,
 static int rz_dmac_terminate_all(struct dma_chan *chan)
 {
 	struct rz_dmac_chan *channel = to_rz_dmac_chan(chan);
+	struct rz_dmac *dmac = to_rz_dmac(chan->device);
 	unsigned long flags;
 	LIST_HEAD(head);
+	int ret;
+
+	PM_RUNTIME_ACQUIRE_IF_ENABLED(dmac->dev, pm);
+	ret = PM_RUNTIME_ACQUIRE_ERR(&pm);
+	if (ret) {
+		dev_err(dmac->dev, "RPM resume failed for channel %s, ret=%d\n!",
+			dma_chan_name(chan), ret);
+	}
 
 	spin_lock_irqsave(&channel->vc.lock, flags);
-	rz_dmac_disable_hw(channel);
+	/* Don't return if RPM failed. Let the cleanup do its jobs. */
+	if (!ret)
+		rz_dmac_disable_hw(channel);
 	rz_lmdesc_setup(channel, channel->lmdesc.base);
 
 	if (channel->desc) {
@@ -716,13 +737,20 @@ static int rz_dmac_terminate_all(struct dma_chan *chan)
 	spin_unlock_irqrestore(&channel->vc.lock, flags);
 	vchan_dma_desc_free_list(&channel->vc, &head);
 
-	return 0;
+	return ret;
 }
 
 static void rz_dmac_issue_pending(struct dma_chan *chan)
 {
 	struct rz_dmac_chan *channel = to_rz_dmac_chan(chan);
+	struct rz_dmac *dmac = to_rz_dmac(chan->device);
 	unsigned long flags;
+	int ret;
+
+	PM_RUNTIME_ACQUIRE_IF_ENABLED(dmac->dev, pm);
+	ret = PM_RUNTIME_ACQUIRE_ERR(&pm);
+	if (ret)
+		return;
 
 	spin_lock_irqsave(&channel->vc.lock, flags);
 
@@ -807,6 +835,11 @@ static void rz_dmac_device_synchronize(struct dma_chan *chan)
 
 	vchan_synchronize(&channel->vc);
 
+	PM_RUNTIME_ACQUIRE_IF_ENABLED(dmac->dev, pm);
+	ret = PM_RUNTIME_ACQUIRE_ERR(&pm);
+	if (ret)
+		return;
+
 	ret = read_poll_timeout(rz_dmac_ch_readl, chstat, !(chstat & CHSTAT_EN),
 				100, 100000, false, channel, CHSTAT, 1);
 	if (ret < 0)
@@ -866,6 +899,7 @@ static int rz_dmac_chan_get_residue(struct device *dev, struct rz_dmac_chan *cha
 	struct rz_dmac_desc *desc = NULL;
 	struct virt_dma_desc *vd;
 	u32 crla, crtb, i;
+	int ret;
 
 	vd = vchan_find_desc(&channel->vc, cookie);
 	if (vd) {
@@ -883,6 +917,11 @@ static int rz_dmac_chan_get_residue(struct device *dev, struct rz_dmac_chan *cha
 		*residue = 0;
 		return 0;
 	}
+
+	PM_RUNTIME_ACQUIRE_IF_ENABLED(dev, pm);
+	ret = PM_RUNTIME_ACQUIRE_ERR(&pm);
+	if (ret)
+		return ret;
 
 	/*
 	 * We need to read two registers. Make sure the hardware does not move
@@ -965,6 +1004,13 @@ set_bit:
 static int rz_dmac_device_pause(struct dma_chan *chan)
 {
 	struct rz_dmac_chan *channel = to_rz_dmac_chan(chan);
+	struct rz_dmac *dmac = to_rz_dmac(chan->device);
+	int ret;
+
+	PM_RUNTIME_ACQUIRE_IF_ENABLED(dmac->dev, pm);
+	ret = PM_RUNTIME_ACQUIRE_ERR(&pm);
+	if (ret)
+		return ret;
 
 	guard(spinlock_irqsave)(&channel->vc.lock);
 
@@ -994,6 +1040,13 @@ static int rz_dmac_device_resume_set(struct rz_dmac_chan *channel,
 static int rz_dmac_device_resume(struct dma_chan *chan)
 {
 	struct rz_dmac_chan *channel = to_rz_dmac_chan(chan);
+	struct rz_dmac *dmac = to_rz_dmac(chan->device);
+	int ret;
+
+	PM_RUNTIME_ACQUIRE_IF_ENABLED(dmac->dev, pm);
+	ret = PM_RUNTIME_ACQUIRE_ERR(&pm);
+	if (ret)
+		return ret;
 
 	guard(spinlock_irqsave)(&channel->vc.lock);
 
@@ -1274,6 +1327,7 @@ static int rz_dmac_probe(struct platform_device *pdev)
 		return dev_err_probe(&pdev->dev, PTR_ERR(dmac->rstc),
 				     "failed to get resets\n");
 
+	pm_runtime_irq_safe(&pdev->dev);
 	pm_runtime_enable(&pdev->dev);
 	ret = pm_runtime_resume_and_get(&pdev->dev);
 	if (ret < 0) {
