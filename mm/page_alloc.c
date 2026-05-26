@@ -4161,7 +4161,8 @@ __alloc_pages_direct_compact(gfp_t gfp_mask, unsigned int order,
 	psi_memstall_leave(&pflags);
 	delayacct_compact_end();
 
-	if (*compact_result == COMPACT_SKIPPED)
+	if (*compact_result == COMPACT_SKIPPED ||
+	    *compact_result == COMPACT_DEFERRED)
 		return NULL;
 	/*
 	 * At least in one zone compaction wasn't deferred or skipped, so let's
