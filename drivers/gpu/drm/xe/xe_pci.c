@@ -575,14 +575,14 @@ static bool id_blocked(u16 device_id)
 }
 
 static const struct xe_subplatform_desc *
-find_subplatform(const struct xe_device *xe, const struct xe_device_desc *desc)
+find_subplatform(const struct xe_device_desc *desc, u16 devid)
 {
 	const struct xe_subplatform_desc *sp;
 	const u16 *id;
 
 	for (sp = desc->subplatforms; sp && sp->subplatform; sp++)
 		for (id = sp->pciidlist; *id; id++)
-			if (*id == xe->info.devid)
+			if (*id == devid)
 				return sp;
 
 	return NULL;
@@ -1064,6 +1064,8 @@ static int xe_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	struct xe_device *xe;
 	int err;
 
+	subplatform_desc = find_subplatform(desc, pdev->device);
+
 	xe_configfs_check_device(pdev);
 
 	if (desc->require_force_probe && !id_forced(pdev->device)) {
@@ -1098,7 +1100,6 @@ static int xe_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	pci_set_drvdata(pdev, &xe->drm);
 
 	xe_pm_assert_unbounded_bridge(xe);
-	subplatform_desc = find_subplatform(xe, desc);
 
 	pci_set_master(pdev);
 
