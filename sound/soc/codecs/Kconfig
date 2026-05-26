@@ -1302,6 +1302,7 @@ config SND_SOC_ES8389
 
 config SND_SOC_ES9356
 	tristate "Everest Semi ES9356 CODEC SDW"
+	depends on SND_SOC_SDCA
 	depends on SOUNDWIRE
 	select REGMAP_SOUNDWIRE
 	select REGMAP_SOUNDWIRE_MBQ
