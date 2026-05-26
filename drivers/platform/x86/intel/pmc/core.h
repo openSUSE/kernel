@@ -425,6 +425,7 @@ struct pmc_info {
  * @ltr_ign:		Holds LTR ignore data while suspended
  * @num_lpm_modes:	Count of enabled modes
  * @lpm_en_modes:	Array of enabled modes from lowest to highest priority
+ * @devid:		Device ID of the SSRAM device
  *
  * pmc contains info about one power management controller device.
  */
@@ -436,6 +437,7 @@ struct pmc {
 	u32 ltr_ign;
 	u8 num_lpm_modes;
 	u8 lpm_en_modes[LPM_MAX_NUM_MODES];
+	u16 devid;
 };
 
 /**
@@ -495,7 +497,6 @@ enum pmc_index {
 
 /**
  * struct pmc_dev_info - Structure to keep PMC device info
- * @pci_func:		Function number of the primary PMC
  * @dmu_guids:		List of Die Management Unit GUID
  * @pc_guid:		GUID for telemetry region to read PKGC blocker info
  * @pkgc_ltr_blocker_offset: Offset to PKGC LTR blockers in telemetry region
@@ -512,9 +513,9 @@ enum pmc_index {
  * @resume:		Function to perform platform specific resume
  * @init:		Function to perform platform specific init action
  * @sub_req:		Function to achieve low power mode substate requirements
+ * @ssram_hidden:	Some SSRAM devices are hidden on this platform
  */
 struct pmc_dev_info {
-	u8 pci_func;
 	u32 *dmu_guids;
 	u32 pc_guid;
 	u32 pkgc_ltr_blocker_offset;
@@ -528,6 +529,7 @@ struct pmc_dev_info {
 	int (*resume)(struct pmc_dev *pmcdev);
 	int (*init)(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_info);
 	int (*sub_req)(struct pmc_dev *pmcdev, struct pmc *pmc, struct telem_endpoint *ep);
+	bool ssram_hidden;
 };
 
 extern const struct pmc_bit_map msr_map[];

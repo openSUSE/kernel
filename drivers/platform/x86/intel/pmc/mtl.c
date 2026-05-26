@@ -994,7 +994,6 @@ static int mtl_core_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_in
 
 static u32 MTL_PMT_DMU_GUIDS[] = {MTL_PMT_DMU_GUID, 0x0};
 struct pmc_dev_info mtl_pmc_dev = {
-	.pci_func = 2,
 	.dmu_guids = MTL_PMT_DMU_GUIDS,
 	.regmap_list = mtl_pmc_info_list,
 	.map = &mtl_socm_reg_map,
@@ -1003,4 +1002,5 @@ struct pmc_dev_info mtl_pmc_dev = {
 	.resume = mtl_resume,
 	.init = mtl_core_init,
 	.sub_req = pmc_core_pmt_get_lpm_req,
+	.ssram_hidden = true,
 };
