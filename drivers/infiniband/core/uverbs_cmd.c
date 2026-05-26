@@ -163,17 +163,6 @@ static int uverbs_request_finish(struct uverbs_req_iter *iter)
 	return 0;
 }
 
-/*
- * When calling a destroy function during an error unwind we need to pass in
- * the udata that is sanitized of all user arguments. Ie from the driver
- * perspective it looks like no udata was passed.
- */
-struct ib_udata *uverbs_get_cleared_udata(struct uverbs_attr_bundle *attrs)
-{
-	attrs->driver_udata = (struct ib_udata){};
-	return &attrs->driver_udata;
-}
-
 static struct ib_uverbs_completion_event_file *
 _ib_uverbs_lookup_comp_file(s32 fd, struct uverbs_attr_bundle *attrs)
 {
@@ -1461,8 +1450,7 @@ static int create_qp(struct uverbs_attr_bundle *attrs,
 		attr.source_qpn = cmd->source_qpn;
 	}
 
-	qp = ib_create_qp_user(device, pd, &attr, &attrs->driver_udata, obj,
-			       KBUILD_MODNAME);
+	qp = ib_create_qp_user(device, pd, &attr, attrs, obj, KBUILD_MODNAME);
 	if (IS_ERR(qp)) {
 		ret = PTR_ERR(qp);
 		goto err_put;

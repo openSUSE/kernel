@@ -53,6 +53,7 @@
 #include <rdma/rw.h>
 #include <rdma/lag.h>
 
+#include "rdma_core.h"
 #include "core_priv.h"
 #include <trace/events/rdma_core.h>
 
@@ -1265,10 +1266,9 @@ static struct ib_qp *create_xrc_qp_user(struct ib_qp *qp,
 
 static struct ib_qp *create_qp(struct ib_device *dev, struct ib_pd *pd,
 			       struct ib_qp_init_attr *attr,
-			       struct ib_udata *udata,
+			       struct uverbs_attr_bundle *uattrs,
 			       struct ib_uqp_object *uobj, const char *caller)
 {
-	struct ib_udata dummy = {};
 	struct ib_qp *qp;
 	int ret;
 
@@ -1301,9 +1301,10 @@ static struct ib_qp *create_qp(struct ib_device *dev, struct ib_pd *pd,
 	qp->recv_cq = attr->recv_cq;
 
 	rdma_restrack_new(&qp->res, RDMA_RESTRACK_QP);
-	WARN_ONCE(!udata && !caller, "Missing kernel QP owner");
-	rdma_restrack_set_name(&qp->res, udata ? NULL : caller);
-	ret = dev->ops.create_qp(qp, attr, udata);
+	WARN_ONCE(!uattrs && !caller, "Missing kernel QP owner");
+	rdma_restrack_set_name(&qp->res, uattrs ? NULL : caller);
+	ret = dev->ops.create_qp(qp, attr,
+				 uattrs ? &uattrs->driver_udata : NULL);
 	if (ret)
 		goto err_create;
 
@@ -1322,7 +1323,8 @@ static struct ib_qp *create_qp(struct ib_device *dev, struct ib_pd *pd,
 	return qp;
 
 err_security:
-	qp->device->ops.destroy_qp(qp, udata ? &dummy : NULL);
+	qp->device->ops.destroy_qp(
+		qp, uattrs ? uverbs_get_cleared_udata(uattrs) : NULL);
 err_create:
 	rdma_restrack_put(&qp->res);
 	kfree(qp);
@@ -1338,13 +1340,13 @@ err_create:
  * @attr: A list of initial attributes required to create the
  *   QP.  If QP creation succeeds, then the attributes are updated to
  *   the actual capabilities of the created QP.
- * @udata: User data
+ * @uattrs: User ioctl attributes and udata
  * @uobj: uverbs obect
  * @caller: caller's build-time module name
  */
 struct ib_qp *ib_create_qp_user(struct ib_device *dev, struct ib_pd *pd,
 				struct ib_qp_init_attr *attr,
-				struct ib_udata *udata,
+				struct uverbs_attr_bundle *uattrs,
 				struct ib_uqp_object *uobj, const char *caller)
 {
 	struct ib_qp *qp, *xrc_qp;
@@ -1352,7 +1354,7 @@ struct ib_qp *ib_create_qp_user(struct ib_device *dev, struct ib_pd *pd,
 	if (attr->qp_type == IB_QPT_XRC_TGT)
 		qp = create_qp(dev, pd, attr, NULL, NULL, caller);
 	else
-		qp = create_qp(dev, pd, attr, udata, uobj, NULL);
+		qp = create_qp(dev, pd, attr, uattrs, uobj, NULL);
 	if (attr->qp_type != IB_QPT_XRC_TGT || IS_ERR(qp))
 		return qp;
 
