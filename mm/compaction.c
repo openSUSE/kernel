@@ -2448,7 +2448,7 @@ bool compaction_suitable(struct zone *zone, int order, unsigned long watermark,
 
 /* Used by direct reclaimers */
 bool compaction_zonelist_suitable(struct alloc_context *ac, int order,
-		int alloc_flags)
+		int alloc_flags, gfp_t gfp_mask)
 {
 	struct zone *zone;
 	struct zoneref *z;
@@ -2460,6 +2460,10 @@ bool compaction_zonelist_suitable(struct alloc_context *ac, int order,
 	for_each_zone_zonelist_nodemask(zone, z, ac->zonelist,
 				ac->highest_zoneidx, ac->nodemask) {
 		unsigned long available;
+
+		if (cpusets_enabled() && (alloc_flags & ALLOC_CPUSET) &&
+		    !__cpuset_zone_allowed(zone, gfp_mask))
+			continue;
 
 		/*
 		 * Do not consider all the reclaimable memory because we do not

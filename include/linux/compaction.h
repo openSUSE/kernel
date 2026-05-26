@@ -101,7 +101,7 @@ extern void compaction_defer_reset(struct zone *zone, int order,
 				bool alloc_success);
 
 bool compaction_zonelist_suitable(struct alloc_context *ac, int order,
-					int alloc_flags);
+					int alloc_flags, gfp_t gfp_mask);
 
 extern void __meminit kcompactd_run(int nid);
 extern void __meminit kcompactd_stop(int nid);
