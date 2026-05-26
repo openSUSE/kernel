@@ -231,6 +231,14 @@ static irqreturn_t nxp_nci_i2c_irq_thread_fn(int irq, void *phy_id)
 		if (info->mode == NXP_NCI_MODE_FW)
 			nxp_nci_fw_recv_frame(phy->ndev, NULL);
 	}
+	if (r == -ENXIO) {
+		/*
+		 * -ENXIO may occur if the controller has not yet
+		 * provided data after asserting IRQ.
+		 */
+		dev_dbg(&client->dev, "No data available yet\n");
+		goto exit_irq_handled;
+	}
 	if (r < 0) {
 		nfc_err(&client->dev, "Read failed with error %d\n", r);
 		goto exit_irq_handled;
