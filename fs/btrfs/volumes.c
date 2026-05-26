@@ -4405,7 +4405,7 @@ static int __btrfs_balance(struct btrfs_fs_info *fs_info)
 	u32 count_data = 0;
 	u32 count_meta = 0;
 	u32 count_sys = 0;
-	int chunk_reserved = 0;
+	bool chunk_reserved = false;
 	struct remap_chunk_info *rci;
 	unsigned int num_remap_chunks = 0;
 	LIST_HEAD(remap_chunks);
@@ -4574,7 +4574,7 @@ again:
 				mutex_unlock(&fs_info->reclaim_bgs_lock);
 				goto error;
 			} else if (ret == 1) {
-				chunk_reserved = 1;
+				chunk_reserved = true;
 			}
 		}
 
@@ -4835,7 +4835,7 @@ int btrfs_balance(struct btrfs_fs_info *fs_info,
 {
 	u64 meta_target, data_target;
 	u64 allowed;
-	int mixed = 0;
+	bool mixed = false;
 	int ret;
 	u64 num_devices;
 	unsigned seq;
@@ -4852,7 +4852,7 @@ int btrfs_balance(struct btrfs_fs_info *fs_info,
 
 	allowed = btrfs_super_incompat_flags(fs_info->super_copy);
 	if (allowed & BTRFS_FEATURE_INCOMPAT_MIXED_GROUPS)
-		mixed = 1;
+		mixed = true;
 
 	/*
 	 * In case of mixed groups both data and meta should be picked,

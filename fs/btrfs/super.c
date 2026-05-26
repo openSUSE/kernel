@@ -1737,7 +1737,7 @@ static int btrfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	struct btrfs_block_rsv *block_rsv = &fs_info->global_block_rsv;
 	int ret;
 	u64 thresh = 0;
-	int mixed = 0;
+	bool mixed = false;
 	__kernel_fsid_t f_fsid;
 
 	list_for_each_entry(found, &fs_info->space_info, list) {
@@ -1761,7 +1761,7 @@ static int btrfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 		 */
 		if (!mixed && found->flags & BTRFS_BLOCK_GROUP_METADATA) {
 			if (found->flags & BTRFS_BLOCK_GROUP_DATA)
-				mixed = 1;
+				mixed = true;
 			else
 				total_free_meta += found->disk_total -
 					found->disk_used;

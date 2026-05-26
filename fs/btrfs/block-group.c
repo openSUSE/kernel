@@ -2482,7 +2482,7 @@ static int check_chunk_block_group_mappings(struct btrfs_fs_info *fs_info)
 static int read_one_block_group(struct btrfs_fs_info *info,
 				struct btrfs_block_group_item_v2 *bgi,
 				const struct btrfs_key *key,
-				int need_clear)
+				bool need_clear)
 {
 	struct btrfs_block_group *cache;
 	const bool mixed = btrfs_fs_incompat(info, MIXED_GROUPS);
@@ -2663,7 +2663,7 @@ int btrfs_read_block_groups(struct btrfs_fs_info *info)
 	struct btrfs_block_group *cache;
 	struct btrfs_space_info *space_info;
 	struct btrfs_key key;
-	int need_clear = 0;
+	bool need_clear = false;
 	u64 cache_gen;
 
 	/*
@@ -2688,9 +2688,9 @@ int btrfs_read_block_groups(struct btrfs_fs_info *info)
 	cache_gen = btrfs_super_cache_generation(info->super_copy);
 	if (btrfs_test_opt(info, SPACE_CACHE) &&
 	    btrfs_super_generation(info->super_copy) != cache_gen)
-		need_clear = 1;
+		need_clear = true;
 	if (btrfs_test_opt(info, CLEAR_CACHE))
-		need_clear = 1;
+		need_clear = true;
 
 	while (1) {
 		struct btrfs_block_group_item_v2 bgi;

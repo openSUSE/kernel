@@ -1373,7 +1373,7 @@ static int __btrfs_write_out_cache(struct inode *inode,
 	int entries = 0;
 	int bitmaps = 0;
 	int ret;
-	int must_iput = 0;
+	bool must_iput = false;
 	int i_size;
 
 	if (!i_size_read(inode))
@@ -1393,7 +1393,7 @@ static int __btrfs_write_out_cache(struct inode *inode,
 			up_write(&block_group->data_rwsem);
 			BTRFS_I(inode)->generation = 0;
 			ret = 0;
-			must_iput = 1;
+			must_iput = true;
 			goto out;
 		}
 		spin_unlock(&block_group->lock);
@@ -2306,7 +2306,7 @@ static int insert_into_bitmap(struct btrfs_free_space_ctl *ctl,
 {
 	struct btrfs_free_space *bitmap_info;
 	struct btrfs_block_group *block_group = ctl->block_group;
-	int added = 0;
+	bool added = false;
 	u64 bytes, offset, bytes_added;
 	enum btrfs_trim_state trim_state;
 	int ret;
@@ -2365,7 +2365,7 @@ no_cluster_bitmap:
 	bitmap_info = tree_search_offset(ctl, offset_to_bitmap(ctl, offset),
 					 1, 0);
 	if (!bitmap_info) {
-		ASSERT(added == 0);
+		ASSERT(!added);
 		goto new_bitmap;
 	}
 
@@ -2373,7 +2373,7 @@ no_cluster_bitmap:
 					  trim_state);
 	bytes -= bytes_added;
 	offset += bytes_added;
-	added = 0;
+	added = false;
 
 	if (!bytes) {
 		ret = 1;
@@ -2384,7 +2384,7 @@ no_cluster_bitmap:
 new_bitmap:
 	if (info && info->bitmap) {
 		add_new_bitmap(ctl, info, offset);
-		added = 1;
+		added = true;
 		info = NULL;
 		goto again;
 	} else {

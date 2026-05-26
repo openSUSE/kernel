@@ -141,7 +141,7 @@ int btrfs_drop_extents(struct btrfs_trans_handle *trans,
 	int ret;
 	int modify_tree = -1;
 	int update_refs;
-	int found = 0;
+	bool found = false;
 	struct btrfs_path *path = args->path;
 
 	args->bytes_found = 0;
@@ -249,7 +249,7 @@ next_slot:
 			goto next_slot;
 		}
 
-		found = 1;
+		found = true;
 		search_start = max(key.offset, args->start);
 		if (recow || !modify_tree) {
 			modify_tree = -1;

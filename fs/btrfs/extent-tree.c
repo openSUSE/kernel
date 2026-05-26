@@ -1699,13 +1699,13 @@ static int run_delayed_extent_op(struct btrfs_trans_handle *trans,
 	struct extent_buffer *leaf;
 	u32 item_size;
 	int ret;
-	int metadata = 1;
+	bool metadata = true;
 
 	if (TRANS_ABORTED(trans))
 		return 0;
 
 	if (!btrfs_fs_incompat(fs_info, SKINNY_METADATA))
-		metadata = 0;
+		metadata = false;
 
 	path = btrfs_alloc_path();
 	if (!path)
@@ -1745,7 +1745,7 @@ again:
 			}
 			if (ret > 0) {
 				btrfs_release_path(path);
-				metadata = 0;
+				metadata = false;
 
 				key.objectid = head->bytenr;
 				key.type = BTRFS_EXTENT_ITEM_KEY;
@@ -3283,7 +3283,7 @@ static int __btrfs_free_extent(struct btrfs_trans_handle *trans,
 	int ret;
 	int is_data;
 	int extent_slot = 0;
-	int found_extent = 0;
+	bool found_extent = false;
 	int num_to_del = 1;
 	int refs_to_drop = node->ref_mod;
 	u32 item_size;
@@ -3339,12 +3339,12 @@ static int __btrfs_free_extent(struct btrfs_trans_handle *trans,
 				break;
 			if (key.type == BTRFS_EXTENT_ITEM_KEY &&
 			    key.offset == num_bytes) {
-				found_extent = 1;
+				found_extent = true;
 				break;
 			}
 			if (key.type == BTRFS_METADATA_ITEM_KEY &&
 			    key.offset == owner_objectid) {
-				found_extent = 1;
+				found_extent = true;
 				break;
 			}
 

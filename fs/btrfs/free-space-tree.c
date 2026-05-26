@@ -209,7 +209,8 @@ int btrfs_convert_free_space_to_bitmaps(struct btrfs_trans_handle *trans,
 	u64 bitmap_range, i;
 	u32 bitmap_size, flags, expected_extent_count;
 	u32 extent_count = 0;
-	int done = 0, nr;
+	bool done = false;
+	int nr;
 	int ret;
 
 	bitmap_size = free_space_bitmap_size(fs_info, block_group->length);
@@ -240,7 +241,7 @@ int btrfs_convert_free_space_to_bitmaps(struct btrfs_trans_handle *trans,
 			if (found_key.type == BTRFS_FREE_SPACE_INFO_KEY) {
 				ASSERT(found_key.objectid == block_group->start);
 				ASSERT(found_key.offset == block_group->length);
-				done = 1;
+				done = true;
 				break;
 			} else if (found_key.type == BTRFS_FREE_SPACE_EXTENT_KEY) {
 				u64 first, last;
@@ -353,7 +354,8 @@ int btrfs_convert_free_space_to_extents(struct btrfs_trans_handle *trans,
 	u32 bitmap_size, flags, expected_extent_count;
 	unsigned long nrbits, start_bit, end_bit;
 	u32 extent_count = 0;
-	int done = 0, nr;
+	bool done = false;
+	int nr;
 	int ret;
 
 	bitmap_size = free_space_bitmap_size(fs_info, block_group->length);
@@ -384,7 +386,7 @@ int btrfs_convert_free_space_to_extents(struct btrfs_trans_handle *trans,
 			if (found_key.type == BTRFS_FREE_SPACE_INFO_KEY) {
 				ASSERT(found_key.objectid == block_group->start);
 				ASSERT(found_key.offset == block_group->length);
-				done = 1;
+				done = true;
 				break;
 			} else if (found_key.type == BTRFS_FREE_SPACE_BITMAP_KEY) {
 				unsigned long ptr;
@@ -1473,7 +1475,8 @@ int btrfs_remove_block_group_free_space(struct btrfs_trans_handle *trans,
 	struct btrfs_key key, found_key;
 	struct extent_buffer *leaf;
 	u64 start, end;
-	int done = 0, nr;
+	bool done = false;
+	int nr;
 	int ret;
 
 	if (!btrfs_fs_compat_ro(trans->fs_info, FREE_SPACE_TREE))
@@ -1514,7 +1517,7 @@ int btrfs_remove_block_group_free_space(struct btrfs_trans_handle *trans,
 			if (found_key.type == BTRFS_FREE_SPACE_INFO_KEY) {
 				ASSERT(found_key.objectid == block_group->start);
 				ASSERT(found_key.offset == block_group->length);
-				done = 1;
+				done = true;
 				nr++;
 				path->slots[0]--;
 				break;

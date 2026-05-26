@@ -2267,7 +2267,7 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 	btrfs_create_pending_block_groups(trans);
 
 	if (!test_bit(BTRFS_TRANS_DIRTY_BG_RUN, &cur_trans->flags)) {
-		int run_it = 0;
+		bool run_it = false;
 
 		/* this mutex is also taken before trying to set
 		 * block groups readonly.  We need to make sure
@@ -2285,7 +2285,7 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 		mutex_lock(&fs_info->ro_block_group_mutex);
 		if (!test_and_set_bit(BTRFS_TRANS_DIRTY_BG_RUN,
 				      &cur_trans->flags))
-			run_it = 1;
+			run_it = true;
 		mutex_unlock(&fs_info->ro_block_group_mutex);
 
 		if (run_it) {
