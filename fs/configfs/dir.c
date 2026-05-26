@@ -701,14 +701,14 @@ static void detach_groups(struct dentry *dentry)
  * We could, perhaps, tweak our parent's ->mkdir for a minute and
  * try using vfs_mkdir.  Just a thought.
  */
-static int create_default_group(struct config_group *parent_group,
+static int create_default_group(struct dentry *parent,
 				struct config_group *group,
 				struct configfs_fragment *frag)
 {
 	int ret;
 	struct configfs_dirent *sd;
 	/* We trust the caller holds a reference to parent */
-	struct dentry *child, *parent = parent_group->cg_item.ci_dentry;
+	struct dentry *child;
 
 	if (!group->cg_item.ci_name)
 		group->cg_item.ci_name = group->cg_item.ci_namebuf;
@@ -735,10 +735,11 @@ static int create_default_group(struct config_group *parent_group,
 static int populate_groups(struct config_group *group,
 			   struct configfs_fragment *frag)
 {
+	struct dentry *parent = group->cg_item.ci_dentry;
 	struct config_group *new_group;
 
 	list_for_each_entry(new_group, &group->default_groups, group_entry) {
-		int ret = create_default_group(group, new_group, frag);
+		int ret = create_default_group(parent, new_group, frag);
 		if (ret)
 			return ret;
 	}
@@ -1767,7 +1768,7 @@ int configfs_register_group(struct config_group *parent_group,
 	parent = parent_group->cg_item.ci_dentry;
 
 	inode_lock_nested(d_inode(parent), I_MUTEX_PARENT);
-	ret = create_default_group(parent_group, group, frag);
+	ret = create_default_group(parent, group, frag);
 	if (ret)
 		goto err_out;
 
