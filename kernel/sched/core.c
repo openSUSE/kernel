@@ -6676,8 +6676,9 @@ static bool try_to_block_task(struct rq *rq, struct task_struct *p,
 {
 	unsigned long task_state = *task_state_p;
 
+	WARN_ON_ONCE(p->is_blocked);
+
 	if (signal_pending_state(task_state, p)) {
-		p->is_blocked = 0;
 		WRITE_ONCE(p->__state, TASK_RUNNING);
 		*task_state_p = TASK_RUNNING;
 		clear_task_blocked_on(p, NULL);
