@@ -6349,6 +6349,7 @@ F:	Documentation/process/code-of-conduct.rst
 CODE TAGGING
 M:	Suren Baghdasaryan <surenb@google.com>
 M:	Kent Overstreet <kent.overstreet@linux.dev>
+R:	Hao Ge <hao.ge@linux.dev>
 S:	Maintained
 F:	include/asm-generic/codetag.lds.h
 F:	include/linux/codetag.h
@@ -16706,6 +16707,7 @@ F:	tools/testing/memblock/
 MEMORY ALLOCATION PROFILING
 M:	Suren Baghdasaryan <surenb@google.com>
 M:	Kent Overstreet <kent.overstreet@linux.dev>
+R:	Hao Ge <hao.ge@linux.dev>
 L:	linux-mm@kvack.org
 S:	Maintained
 F:	Documentation/mm/allocation-profiling.rst
