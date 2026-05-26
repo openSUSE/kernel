@@ -860,8 +860,8 @@ static u32 rz_dmac_calculate_residue_bytes_in_vd(struct rz_dmac_chan *channel,
 	return residue;
 }
 
-static u32 rz_dmac_chan_get_residue(struct rz_dmac_chan *channel,
-				    dma_cookie_t cookie)
+static int rz_dmac_chan_get_residue(struct device *dev, struct rz_dmac_chan *channel,
+				    dma_cookie_t cookie, u32 *residue)
 {
 	struct rz_dmac_desc *desc = NULL;
 	struct virt_dma_desc *vd;
@@ -871,7 +871,8 @@ static u32 rz_dmac_chan_get_residue(struct rz_dmac_chan *channel,
 	if (vd) {
 		/* Descriptor has been issued but not yet processed. */
 		desc = to_rz_dmac_desc(vd);
-		return desc->len;
+		*residue = desc->len;
+		return 0;
 	} else if (channel->desc && channel->desc->vd.tx.cookie == cookie) {
 		/* Descriptor is currently processed. */
 		desc = channel->desc;
@@ -879,6 +880,7 @@ static u32 rz_dmac_chan_get_residue(struct rz_dmac_chan *channel,
 
 	if (!desc) {
 		/* Descriptor was not found. May be already completed by now. */
+		*residue = 0;
 		return 0;
 	}
 
@@ -901,7 +903,9 @@ static u32 rz_dmac_chan_get_residue(struct rz_dmac_chan *channel,
 	 * Calculate number of bytes transferred in processing virtual descriptor.
 	 * One virtual descriptor can have many lmdesc.
 	 */
-	return crtb + rz_dmac_calculate_residue_bytes_in_vd(channel, desc, crla);
+	*residue = crtb + rz_dmac_calculate_residue_bytes_in_vd(channel, desc, crla);
+
+	return 0;
 }
 
 static enum dma_status rz_dmac_tx_status(struct dma_chan *chan,
@@ -909,15 +913,20 @@ static enum dma_status rz_dmac_tx_status(struct dma_chan *chan,
 					 struct dma_tx_state *txstate)
 {
 	struct rz_dmac_chan *channel = to_rz_dmac_chan(chan);
+	struct rz_dmac *dmac = to_rz_dmac(chan->device);
 	enum dma_status status;
 	u32 residue;
 
 	scoped_guard(spinlock_irqsave, &channel->vc.lock) {
+		int ret;
+
 		status = dma_cookie_status(chan, cookie, txstate);
 		if (status == DMA_COMPLETE || !txstate)
 			return status;
 
-		residue = rz_dmac_chan_get_residue(channel, cookie);
+		ret = rz_dmac_chan_get_residue(dmac->dev, channel, cookie, &residue);
+		if (ret)
+			return DMA_ERROR;
 
 		if (status == DMA_IN_PROGRESS && rz_dmac_chan_is_paused(channel))
 			status = DMA_PAUSED;
