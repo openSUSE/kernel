@@ -32,6 +32,7 @@
 #include <asm/mach-db1x00/bcsr.h>
 #include <asm/mach-au1x00/prom.h>
 
+#include "db1xxx.h"
 #include "platform.h"
 
 /* FPGA (external mux) interrupt sources */
