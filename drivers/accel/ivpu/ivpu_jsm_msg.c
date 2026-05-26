@@ -275,9 +275,6 @@ int ivpu_jsm_pwr_d0i3_enter(struct ivpu_device *vdev)
 	struct vpu_jsm_msg resp;
 	int ret;
 
-	if (IVPU_WA(disable_d0i3_msg))
-		return 0;
-
 	req.payload.pwr_d0i3_enter.send_response = 1;
 
 	ret = ivpu_ipc_send_receive_internal(vdev, &req, VPU_JSM_MSG_PWR_D0I3_ENTER_DONE, &resp,
