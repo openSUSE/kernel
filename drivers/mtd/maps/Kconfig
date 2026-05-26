@@ -204,12 +204,6 @@ config MTD_TSUNAMI
 	help
 	  Support for the flash chip on Tsunami TIG bus.
 
-config MTD_NETtel
-	tristate "CFI flash device on SnapGear/SecureEdge"
-	depends on X86 && MTD_JEDECPROBE
-	help
-	  Support for flash chips on NETtel/SecureEdge/SnapGear boards.
-
 config MTD_LANTIQ
 	tristate "Lantiq SoC NOR support"
 	depends on LANTIQ
