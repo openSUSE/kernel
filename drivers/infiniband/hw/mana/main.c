@@ -549,6 +549,11 @@ int mana_ib_query_device(struct ib_device *ibdev, struct ib_device_attr *props,
 {
 	struct mana_ib_dev *dev = container_of(ibdev, struct mana_ib_dev, ib_dev);
 	struct pci_dev *pdev = to_pci_dev(mdev_to_gc(dev)->dev);
+	int err;
+
+	err = ib_is_udata_in_empty(uhw);
+	if (err)
+		return err;
 
 	memset(props, 0, sizeof(*props));
 	props->vendor_id = pdev->vendor;
@@ -576,7 +581,7 @@ int mana_ib_query_device(struct ib_device *ibdev, struct ib_device_attr *props,
 	if (!mana_ib_is_rnic(dev))
 		props->raw_packet_caps = IB_RAW_PACKET_CAP_IP_CSUM;
 
-	return 0;
+	return ib_respond_empty_udata(uhw);
 }
 
 int mana_ib_query_port(struct ib_device *ibdev, u32 port,

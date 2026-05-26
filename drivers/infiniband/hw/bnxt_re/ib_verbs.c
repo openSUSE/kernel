@@ -265,7 +265,10 @@ int bnxt_re_query_device(struct ib_device *ibdev,
 		resp.packet_pacing_caps.supported_qpts =
 			1 << IB_QPT_RC;
 	}
-	return ib_respond_udata(udata, resp);
+
+	if (udata)
+		return ib_respond_udata(udata, resp);
+	return 0;
 }
 
 int bnxt_re_modify_device(struct ib_device *ibdev,

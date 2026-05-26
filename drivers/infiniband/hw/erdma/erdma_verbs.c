@@ -315,9 +315,14 @@ erdma_user_mmap_entry_insert(struct erdma_ucontext *uctx, void *address,
 }
 
 int erdma_query_device(struct ib_device *ibdev, struct ib_device_attr *attr,
-		       struct ib_udata *unused)
+		       struct ib_udata *udata)
 {
 	struct erdma_dev *dev = to_edev(ibdev);
+	int err;
+
+	err = ib_is_udata_in_empty(udata);
+	if (err)
+		return err;
 
 	memset(attr, 0, sizeof(*attr));
 
@@ -358,7 +363,7 @@ int erdma_query_device(struct ib_device *ibdev, struct ib_device_attr *attr,
 		addrconf_addr_eui48((u8 *)&attr->sys_image_guid,
 				    dev->netdev->dev_addr);
 
-	return 0;
+	return ib_respond_empty_udata(udata);
 }
 
 int erdma_query_gid(struct ib_device *ibdev, u32 port, int idx,

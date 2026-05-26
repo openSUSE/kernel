@@ -1246,7 +1246,6 @@ out:
  */
 static int setup_device(struct ib_device *device)
 {
-	struct ib_udata uhw = {.outlen = 0, .inlen = 0};
 	int ret;
 
 	ib_device_check_mandatory(device);
@@ -1258,7 +1257,7 @@ static int setup_device(struct ib_device *device)
 	}
 
 	memset(&device->attrs, 0, sizeof(device->attrs));
-	ret = device->ops.query_device(device, &device->attrs, &uhw);
+	ret = device->ops.query_device(device, &device->attrs, NULL);
 	if (ret) {
 		dev_warn(&device->dev,
 			 "Couldn't query the device attributes\n");

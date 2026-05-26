@@ -444,8 +444,9 @@ static int mlx4_ib_query_device(struct ib_device *ibdev,
 	struct mlx4_uverbs_ex_query_device cmd;
 	struct mlx4_uverbs_ex_query_device_resp resp = {};
 	struct mlx4_clock_params clock_params;
+	size_t uhw_outlen = uhw ? uhw->outlen : 0;
 
-	if (uhw->inlen) {
+	if (uhw && uhw->inlen) {
 		err = ib_copy_validate_udata_in_cm(uhw, cmd, reserved, 0);
 		if (err)
 			return err;
@@ -572,7 +573,7 @@ static int mlx4_ib_query_device(struct ib_device *ibdev,
 	props->cq_caps.max_cq_moderation_count = MLX4_MAX_CQ_COUNT;
 	props->cq_caps.max_cq_moderation_period = MLX4_MAX_CQ_PERIOD;
 
-	if (uhw->outlen >= resp.response_length + sizeof(resp.hca_core_clock_offset)) {
+	if (uhw_outlen >= resp.response_length + sizeof(resp.hca_core_clock_offset)) {
 		resp.response_length += sizeof(resp.hca_core_clock_offset);
 		if (!mlx4_get_internal_clock_params(dev->dev, &clock_params)) {
 			resp.comp_mask |= MLX4_IB_QUERY_DEV_RESP_MASK_CORE_CLOCK_OFFSET;
@@ -580,14 +581,14 @@ static int mlx4_ib_query_device(struct ib_device *ibdev,
 		}
 	}
 
-	if (uhw->outlen >= resp.response_length +
+	if (uhw_outlen >= resp.response_length +
 	    sizeof(resp.max_inl_recv_sz)) {
 		resp.response_length += sizeof(resp.max_inl_recv_sz);
 		resp.max_inl_recv_sz  = dev->dev->caps.max_rq_sg *
 			sizeof(struct mlx4_wqe_data_seg);
 	}
 
-	if (offsetofend(typeof(resp), rss_caps) <= uhw->outlen) {
+	if (offsetofend(typeof(resp), rss_caps) <= uhw_outlen) {
 		if (props->rss_caps.supported_qpts) {
 			resp.rss_caps.rx_hash_function =
 				MLX4_IB_RX_HASH_FUNC_TOEPLITZ;
@@ -611,7 +612,7 @@ static int mlx4_ib_query_device(struct ib_device *ibdev,
 				       sizeof(resp.rss_caps);
 	}
 
-	if (offsetofend(typeof(resp), tso_caps) <= uhw->outlen) {
+	if (offsetofend(typeof(resp), tso_caps) <= uhw_outlen) {
 		if (dev->dev->caps.max_gso_sz &&
 		    ((mlx4_ib_port_link_layer(ibdev, 1) ==
 		    IB_LINK_LAYER_ETHERNET) ||
@@ -625,7 +626,7 @@ static int mlx4_ib_query_device(struct ib_device *ibdev,
 				       sizeof(resp.tso_caps);
 	}
 
-	if (uhw->outlen) {
+	if (uhw_outlen) {
 		err = ib_respond_udata(uhw, resp);
 		if (err)
 			goto out;

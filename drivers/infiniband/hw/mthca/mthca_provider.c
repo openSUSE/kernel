@@ -55,16 +55,19 @@ static int mthca_query_device(struct ib_device *ibdev, struct ib_device_attr *pr
 {
 	struct ib_smp *in_mad;
 	struct ib_smp *out_mad;
-	int err = -ENOMEM;
+	int err;
 	struct mthca_dev *mdev = to_mdev(ibdev);
 
-	if (uhw->inlen || uhw->outlen)
-		return -EINVAL;
+	err = ib_is_udata_in_empty(uhw);
+	if (err)
+		return err;
 
 	in_mad = kzalloc_obj(*in_mad);
 	out_mad = kmalloc_obj(*out_mad);
-	if (!in_mad || !out_mad)
+	if (!in_mad || !out_mad) {
+		err = -ENOMEM;
 		goto out;
+	}
 
 	memset(props, 0, sizeof *props);
 
@@ -111,7 +114,7 @@ static int mthca_query_device(struct ib_device *ibdev, struct ib_device_attr *pr
 	props->max_total_mcast_qp_attach = props->max_mcast_qp_attach *
 					   props->max_mcast_grp;
 
-	err = 0;
+	err = ib_respond_empty_udata(uhw);
  out:
 	kfree(in_mad);
 	kfree(out_mad);

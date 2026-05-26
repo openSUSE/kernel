@@ -22,19 +22,13 @@ static int rxe_query_device(struct ib_device *ibdev,
 	struct rxe_dev *rxe = to_rdev(ibdev);
 	int err;
 
-	if (udata->inlen || udata->outlen) {
-		rxe_dbg_dev(rxe, "malformed udata\n");
-		err = -EINVAL;
-		goto err_out;
-	}
+	err = ib_is_udata_in_empty(udata);
+	if (err)
+		return err;
 
 	memcpy(attr, &rxe->attr, sizeof(*attr));
 
-	return 0;
-
-err_out:
-	rxe_err_dev(rxe, "returned err = %d\n", err);
-	return err;
+	return ib_respond_empty_udata(udata);
 }
 
 static int rxe_query_port(struct ib_device *ibdev,

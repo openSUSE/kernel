@@ -275,10 +275,12 @@ int usnic_ib_query_device(struct ib_device *ibdev,
 	union ib_gid gid;
 	struct ethtool_drvinfo info;
 	int qp_per_vf;
+	int err;
 
 	usnic_dbg("\n");
-	if (uhw->inlen || uhw->outlen)
-		return -EINVAL;
+	err = ib_is_udata_in_empty(uhw);
+	if (err)
+		return err;
 
 	mutex_lock(&us_ibdev->usdev_lock);
 	us_ibdev->netdev->ethtool_ops->get_drvinfo(us_ibdev->netdev, &info);
@@ -322,7 +324,7 @@ int usnic_ib_query_device(struct ib_device *ibdev,
 	 * max_qp_wr, max_sge, max_sge_rd, max_cqe */
 	mutex_unlock(&us_ibdev->usdev_lock);
 
-	return 0;
+	return ib_respond_empty_udata(uhw);
 }
 
 int usnic_ib_query_port(struct ib_device *ibdev, u32 port,

@@ -67,9 +67,11 @@ int pvrdma_query_device(struct ib_device *ibdev,
 			struct ib_udata *uhw)
 {
 	struct pvrdma_dev *dev = to_vdev(ibdev);
+	int err;
 
-	if (uhw->inlen || uhw->outlen)
-		return -EINVAL;
+	err = ib_is_udata_in_empty(uhw);
+	if (err)
+		return err;
 
 	props->fw_ver = dev->dsr->caps.fw_ver;
 	props->sys_image_guid = dev->dsr->caps.sys_image_guid;
@@ -114,7 +116,7 @@ int pvrdma_query_device(struct ib_device *ibdev,
 	props->device_cap_flags |= IB_DEVICE_PORT_ACTIVE_EVENT |
 				   IB_DEVICE_RC_RNR_NAK_GEN;
 
-	return 0;
+	return ib_respond_empty_udata(uhw);
 }
 
 /**

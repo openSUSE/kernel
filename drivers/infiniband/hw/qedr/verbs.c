@@ -105,6 +105,7 @@ int qedr_query_device(struct ib_device *ibdev,
 {
 	struct qedr_dev *dev = get_qedr_dev(ibdev);
 	struct qedr_device_attr *qattr = &dev->attr;
+	int rc;
 
 	if (!dev->rdma_ctx) {
 		DP_ERR(dev,
@@ -112,6 +113,10 @@ int qedr_query_device(struct ib_device *ibdev,
 		       dev->rdma_ctx);
 		return -EINVAL;
 	}
+
+	rc = ib_is_udata_in_empty(udata);
+	if (rc)
+		return rc;
 
 	memset(attr, 0, sizeof(*attr));
 
@@ -155,7 +160,7 @@ int qedr_query_device(struct ib_device *ibdev,
 	attr->max_pkeys = qattr->max_pkey;
 	attr->max_ah = qattr->max_ah;
 
-	return 0;
+	return ib_respond_empty_udata(udata);
 }
 
 static inline void get_link_speed_and_width(int speed, u16 *ib_speed,

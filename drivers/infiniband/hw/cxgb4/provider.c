@@ -259,11 +259,13 @@ static int c4iw_query_device(struct ib_device *ibdev, struct ib_device_attr *pro
 {
 
 	struct c4iw_dev *dev;
+	int err;
 
 	pr_debug("ibdev %p\n", ibdev);
 
-	if (uhw->inlen || uhw->outlen)
-		return -EINVAL;
+	err = ib_is_udata_in_empty(uhw);
+	if (err)
+		return err;
 
 	dev = to_c4iw_dev(ibdev);
 	addrconf_addr_eui48((u8 *)&props->sys_image_guid,
@@ -298,7 +300,7 @@ static int c4iw_query_device(struct ib_device *ibdev, struct ib_device_attr *pro
 	props->max_fast_reg_page_list_len =
 		t4_max_fr_depth(dev->rdev.lldi.ulptx_memwrite_dsgl && use_dsgl);
 
-	return 0;
+	return ib_respond_empty_udata(uhw);
 }
 
 static int c4iw_query_port(struct ib_device *ibdev, u32 port,

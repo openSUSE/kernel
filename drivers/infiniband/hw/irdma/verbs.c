@@ -16,9 +16,11 @@ static int irdma_query_device(struct ib_device *ibdev,
 	struct irdma_pci_f *rf = iwdev->rf;
 	struct pci_dev *pcidev = iwdev->rf->pcidev;
 	struct irdma_hw_attrs *hw_attrs = &rf->sc_dev.hw_attrs;
+	int err;
 
-	if (udata->inlen || udata->outlen)
-		return -EINVAL;
+	err = ib_is_udata_in_empty(udata);
+	if (err)
+		return err;
 
 	memset(props, 0, sizeof(*props));
 	addrconf_addr_eui48((u8 *)&props->sys_image_guid,
@@ -74,7 +76,7 @@ static int irdma_query_device(struct ib_device *ibdev,
 	if (hw_attrs->uk_attrs.hw_rev >= IRDMA_GEN_3)
 		props->device_cap_flags |= IB_DEVICE_MEM_WINDOW_TYPE_2B;
 
-	return 0;
+	return ib_respond_empty_udata(udata);
 }
 
 /**

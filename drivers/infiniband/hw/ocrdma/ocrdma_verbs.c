@@ -68,9 +68,11 @@ int ocrdma_query_device(struct ib_device *ibdev, struct ib_device_attr *attr,
 			struct ib_udata *uhw)
 {
 	struct ocrdma_dev *dev = get_ocrdma_dev(ibdev);
+	int err;
 
-	if (uhw->inlen || uhw->outlen)
-		return -EINVAL;
+	err = ib_is_udata_in_empty(uhw);
+	if (err)
+		return err;
 
 	memset(attr, 0, sizeof *attr);
 	memcpy(&attr->fw_ver, &dev->attr.fw_ver[0],
@@ -110,7 +112,7 @@ int ocrdma_query_device(struct ib_device *ibdev, struct ib_device_attr *attr,
 	attr->local_ca_ack_delay = dev->attr.local_ca_ack_delay;
 	attr->max_fast_reg_page_list_len = dev->attr.max_pages_per_frmr;
 	attr->max_pkeys = 1;
-	return 0;
+	return ib_respond_empty_udata(uhw);
 }
 
 static inline void get_link_speed_and_width(struct ocrdma_dev *dev,
