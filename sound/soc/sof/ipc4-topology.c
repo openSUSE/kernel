@@ -1092,6 +1092,15 @@ static int sof_ipc4_widget_setup_comp_src(struct snd_sof_widget *swidget)
 	if (ret)
 		goto err;
 
+	if (!src->available_fmt.num_input_formats ||
+	    !src->available_fmt.num_output_formats) {
+		dev_err(scomp->dev,
+			"Invalid number of formats: input: %d, output: %d\n",
+			src->available_fmt.num_input_formats,
+			src->available_fmt.num_output_formats);
+		goto err;
+	}
+
 	ret = sof_update_ipc_object(scomp, &src->data, SOF_SRC_TOKENS, swidget->tuples,
 				    swidget->num_tuples, sizeof(*src), 1);
 	if (ret) {
@@ -1134,6 +1143,15 @@ static int sof_ipc4_widget_setup_comp_asrc(struct snd_sof_widget *swidget)
 				     &asrc->data.base_config);
 	if (ret)
 		goto err;
+
+	if (!asrc->available_fmt.num_input_formats ||
+	    !asrc->available_fmt.num_output_formats) {
+		dev_err(scomp->dev,
+			"Invalid number of formats: input: %d, output: %d\n",
+			asrc->available_fmt.num_input_formats,
+			asrc->available_fmt.num_output_formats);
+		goto err;
+	}
 
 	ret = sof_update_ipc_object(scomp, &asrc->data, SOF_ASRC_TOKENS, swidget->tuples,
 				    swidget->num_tuples, sizeof(*asrc), 1);
