@@ -514,6 +514,7 @@ EXPORT_SYMBOL_GPL(devm_thermal_of_zone_unregister);
 /**
  * thermal_of_cooling_device_register() - register an OF thermal cooling device
  * @np:		a pointer to a device tree node.
+ * @cdev_id:	a cooling device id in the cooling controller
  * @type:	the thermal cooling device type.
  * @devdata:	device private data.
  * @ops:	standard thermal cooling devices callbacks.
@@ -528,9 +529,9 @@ EXPORT_SYMBOL_GPL(devm_thermal_of_zone_unregister);
  * ERR_PTR. Caller must check return value with IS_ERR*() helpers.
  */
 struct thermal_cooling_device *
-thermal_of_cooling_device_register(struct device_node *np,
-				     const char *type, void *devdata,
-				     const struct thermal_cooling_device_ops *ops)
+thermal_of_cooling_device_register(struct device_node *np, u32 cdev_id,
+				   const char *type, void *devdata,
+				   const struct thermal_cooling_device_ops *ops)
 {
 	struct thermal_cooling_device *cdev;
 	int ret;
@@ -540,6 +541,7 @@ thermal_of_cooling_device_register(struct device_node *np,
 		return cdev;
 
 	cdev->np = np;
+	cdev->cdev_id = cdev_id;
 
 	ret = thermal_cooling_device_add(cdev, devdata);
 	if (ret)
@@ -585,9 +587,9 @@ devm_thermal_of_child_cooling_device_register(struct device *dev,
         struct thermal_cooling_device *cdev;
         int ret;
 
-        cdev = thermal_of_cooling_device_register(np, type, devdata, ops);
-        if (IS_ERR(cdev))
-                return cdev;
+	cdev = thermal_of_cooling_device_register(np, 0, type, devdata, ops);
+	if (IS_ERR(cdev))
+		return cdev;
 
         ret = devm_add_action_or_reset(dev, thermal_of_cooling_device_release, cdev);
         if (ret)
