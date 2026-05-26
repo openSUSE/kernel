@@ -328,6 +328,18 @@ START_TEST(test_actions_perform_continue_after_failed_shell_command)
 }
 END_TEST
 
+START_TEST(test_actions_perform_continue_unset_flag)
+{
+	actions_fixture.continue_flag = true;
+
+	actions_add_shell(&actions_fixture, "exit 1");
+	actions_add_continue(&actions_fixture);
+	ck_assert_int_eq(actions_perform(&actions_fixture), 1 << 8);
+
+	ck_assert(!actions_fixture.continue_flag);
+}
+END_TEST
+
 Suite *actions_suite(void)
 {
 	Suite *s = suite_create("actions");
@@ -374,6 +386,7 @@ Suite *actions_suite(void)
 	tcase_add_test(tc, test_actions_perform_continue);
 	tcase_add_test(tc, test_actions_perform_continue_after_successful_shell_command);
 	tcase_add_test(tc, test_actions_perform_continue_after_failed_shell_command);
+	tcase_add_test(tc, test_actions_perform_continue_unset_flag);
 	suite_add_tcase(s, tc);
 
 	return s;
