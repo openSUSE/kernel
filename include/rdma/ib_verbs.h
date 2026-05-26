@@ -3101,6 +3101,7 @@ void  ib_set_client_data(struct ib_device *device, struct ib_client *client,
 void ib_set_device_ops(struct ib_device *device,
 		       const struct ib_device_ops *ops);
 
+#if IS_ENABLED(CONFIG_INFINIBAND_USER_ACCESS)
 int rdma_user_mmap_io(struct ib_ucontext *ucontext, struct vm_area_struct *vma,
 		      unsigned long pfn, unsigned long size, pgprot_t prot,
 		      struct rdma_user_mmap_entry *entry);
@@ -3112,13 +3113,7 @@ int rdma_user_mmap_entry_insert_range(struct ib_ucontext *ucontext,
 				      size_t length, u32 min_pgoff,
 				      u32 max_pgoff);
 
-#if IS_ENABLED(CONFIG_INFINIBAND_USER_ACCESS)
 void rdma_user_mmap_disassociate(struct ib_device *device);
-#else
-static inline void rdma_user_mmap_disassociate(struct ib_device *device)
-{
-}
-#endif
 
 static inline int
 rdma_user_mmap_entry_insert_exact(struct ib_ucontext *ucontext,
@@ -3138,6 +3133,66 @@ rdma_user_mmap_entry_get(struct ib_ucontext *ucontext,
 void rdma_user_mmap_entry_put(struct rdma_user_mmap_entry *entry);
 
 void rdma_user_mmap_entry_remove(struct rdma_user_mmap_entry *entry);
+#else
+static inline int rdma_user_mmap_io(struct ib_ucontext *ucontext,
+				    struct vm_area_struct *vma,
+				    unsigned long pfn, unsigned long size,
+				    pgprot_t prot,
+				    struct rdma_user_mmap_entry *entry)
+{
+	return -EINVAL;
+}
+
+static inline int
+rdma_user_mmap_entry_insert(struct ib_ucontext *ucontext,
+			    struct rdma_user_mmap_entry *entry, size_t length)
+{
+	return -EINVAL;
+}
+
+static inline int
+rdma_user_mmap_entry_insert_range(struct ib_ucontext *ucontext,
+				  struct rdma_user_mmap_entry *entry,
+				  size_t length, u32 min_pgoff, u32 max_pgoff)
+{
+	return -EINVAL;
+}
+
+static inline void rdma_user_mmap_disassociate(struct ib_device *device)
+{
+}
+
+static inline int
+rdma_user_mmap_entry_insert_exact(struct ib_ucontext *ucontext,
+				  struct rdma_user_mmap_entry *entry,
+				  size_t length, u32 pgoff)
+{
+	return -EINVAL;
+}
+
+static inline struct rdma_user_mmap_entry *
+rdma_user_mmap_entry_get_pgoff(struct ib_ucontext *ucontext,
+			       unsigned long pgoff)
+{
+	return NULL;
+}
+
+static inline struct rdma_user_mmap_entry *
+rdma_user_mmap_entry_get(struct ib_ucontext *ucontext,
+			 struct vm_area_struct *vma)
+{
+	return NULL;
+}
+
+static inline void rdma_user_mmap_entry_put(struct rdma_user_mmap_entry *entry)
+{
+}
+
+static inline void
+rdma_user_mmap_entry_remove(struct rdma_user_mmap_entry *entry)
+{
+}
+#endif
 
 static inline int ib_copy_from_udata(void *dest, struct ib_udata *udata, size_t len)
 {

@@ -398,7 +398,7 @@ EXPORT_SYMBOL(rdma_user_mmap_entry_insert);
  * The struct ib_device that is handling the uverbs call. Must not be called if
  * udata is NULL. The result can be NULL.
  */
-struct ib_device *rdma_udata_to_dev(struct ib_udata *udata)
+static struct ib_device *rdma_udata_to_dev(struct ib_udata *udata)
 {
 	struct uverbs_attr_bundle *bundle =
 		rdma_udata_to_uverbs_attr_bundle(udata);
@@ -415,10 +415,9 @@ struct ib_device *rdma_udata_to_dev(struct ib_udata *udata)
 	return srcu_dereference(bundle->ufile->device->ib_dev,
 				&bundle->ufile->device->disassociate_srcu);
 }
-EXPORT_SYMBOL(rdma_udata_to_dev);
 
-#if IS_ENABLED(CONFIG_INFINIBAND_USER_ACCESS)
-uverbs_api_ioctl_handler_fn uverbs_get_handler_fn(struct ib_udata *udata)
+typedef int (*uverbs_api_ioctl_handler_fn)(struct uverbs_attr_bundle *attrs);
+static uverbs_api_ioctl_handler_fn uverbs_get_handler_fn(struct ib_udata *udata)
 {
 	struct uverbs_attr_bundle *bundle =
 		rdma_udata_to_uverbs_attr_bundle(udata);
@@ -502,4 +501,3 @@ err_fault:
 	return -EFAULT;
 }
 EXPORT_SYMBOL(_ib_respond_udata);
-#endif
