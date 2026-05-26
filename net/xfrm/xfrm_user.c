@@ -264,6 +264,56 @@ static int verify_mtimer_thresh(bool has_encap, u8 dir,
 	return 0;
 }
 
+static int verify_xfrm_family(u16 family, struct netlink_ext_ack *extack)
+{
+	switch (family) {
+	case AF_INET:
+		return 0;
+	case AF_INET6:
+#if IS_ENABLED(CONFIG_IPV6)
+		return 0;
+#else
+		NL_SET_ERR_MSG(extack, "IPv6 support disabled");
+		return -EAFNOSUPPORT;
+#endif
+	default:
+		NL_SET_ERR_MSG(extack, "Invalid address family");
+		return -EINVAL;
+	}
+}
+
+static int verify_selector_prefixlen(u16 family,
+				     const struct xfrm_selector *sel,
+				     struct netlink_ext_ack *extack)
+{
+	switch (family) {
+	case AF_UNSPEC:
+		return 0;
+	case AF_INET:
+		if (sel->prefixlen_d > 32 || sel->prefixlen_s > 32) {
+			NL_SET_ERR_MSG(extack,
+				       "Invalid prefix length in selector (must be <= 32 for IPv4)");
+			return -EINVAL;
+		}
+		return 0;
+	case AF_INET6:
+#if IS_ENABLED(CONFIG_IPV6)
+		if (sel->prefixlen_d > 128 || sel->prefixlen_s > 128) {
+			NL_SET_ERR_MSG(extack,
+				       "Invalid prefix length in selector (must be <= 128 for IPv6)");
+			return -EINVAL;
+		}
+		return 0;
+#else
+		NL_SET_ERR_MSG(extack, "IPv6 support disabled");
+		return -EAFNOSUPPORT;
+#endif
+	default:
+		NL_SET_ERR_MSG(extack, "Invalid address family in selector");
+		return -EINVAL;
+	}
+}
+
 static int verify_newsa_info(struct xfrm_usersa_info *p,
 			     struct nlattr **attrs,
 			     struct netlink_ext_ack *extack)
@@ -272,58 +322,16 @@ static int verify_newsa_info(struct xfrm_usersa_info *p,
 	u8 sa_dir = nla_get_u8_default(attrs[XFRMA_SA_DIR], 0);
 	u16 family = p->sel.family;
 
-	err = -EINVAL;
-	switch (p->family) {
-	case AF_INET:
-		break;
-
-	case AF_INET6:
-#if IS_ENABLED(CONFIG_IPV6)
-		break;
-#else
-		err = -EAFNOSUPPORT;
-		NL_SET_ERR_MSG(extack, "IPv6 support disabled");
+	err = verify_xfrm_family(p->family, extack);
+	if (err)
 		goto out;
-#endif
-
-	default:
-		NL_SET_ERR_MSG(extack, "Invalid address family");
-		goto out;
-	}
 
 	if (!family && !(p->flags & XFRM_STATE_AF_UNSPEC))
 		family = p->family;
 
-	switch (family) {
-	case AF_UNSPEC:
-		break;
-
-	case AF_INET:
-		if (p->sel.prefixlen_d > 32 || p->sel.prefixlen_s > 32) {
-			NL_SET_ERR_MSG(extack, "Invalid prefix length in selector (must be <= 32 for IPv4)");
-			goto out;
-		}
-
-		break;
-
-	case AF_INET6:
-#if IS_ENABLED(CONFIG_IPV6)
-		if (p->sel.prefixlen_d > 128 || p->sel.prefixlen_s > 128) {
-			NL_SET_ERR_MSG(extack, "Invalid prefix length in selector (must be <= 128 for IPv6)");
-			goto out;
-		}
-
-		break;
-#else
-		NL_SET_ERR_MSG(extack, "IPv6 support disabled");
-		err = -EAFNOSUPPORT;
+	err = verify_selector_prefixlen(family, &p->sel, extack);
+	if (err)
 		goto out;
-#endif
-
-	default:
-		NL_SET_ERR_MSG(extack, "Invalid address family in selector");
-		goto out;
-	}
 
 	err = -EINVAL;
 	switch (p->id.proto) {
