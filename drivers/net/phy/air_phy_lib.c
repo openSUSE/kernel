@@ -137,8 +137,8 @@ static int __air_buckpbus_reg_modify(struct phy_device *phydev,
 	return 0;
 }
 
-int air_buckpbus_reg_read(struct phy_device *phydev, u32 pbus_address,
-			  u32 *pbus_data)
+int air_phy_buckpbus_reg_read(struct phy_device *phydev, u32 pbus_address,
+			      u32 *pbus_data)
 {
 	int saved_page;
 	int ret = 0;
@@ -154,10 +154,10 @@ int air_buckpbus_reg_read(struct phy_device *phydev, u32 pbus_address,
 
 	return phy_restore_page(phydev, saved_page, ret);
 }
-EXPORT_SYMBOL_GPL(air_buckpbus_reg_read);
+EXPORT_SYMBOL_GPL(air_phy_buckpbus_reg_read);
 
-int air_buckpbus_reg_write(struct phy_device *phydev, u32 pbus_address,
-			   u32 pbus_data)
+int air_phy_buckpbus_reg_write(struct phy_device *phydev, u32 pbus_address,
+			       u32 pbus_data)
 {
 	int saved_page;
 	int ret = 0;
@@ -174,10 +174,10 @@ int air_buckpbus_reg_write(struct phy_device *phydev, u32 pbus_address,
 
 	return phy_restore_page(phydev, saved_page, ret);
 }
-EXPORT_SYMBOL_GPL(air_buckpbus_reg_write);
+EXPORT_SYMBOL_GPL(air_phy_buckpbus_reg_write);
 
-int air_buckpbus_reg_modify(struct phy_device *phydev, u32 pbus_address,
-			    u32 mask, u32 set)
+int air_phy_buckpbus_reg_modify(struct phy_device *phydev, u32 pbus_address,
+				u32 mask, u32 set)
 {
 	int saved_page;
 	int ret = 0;
@@ -194,7 +194,7 @@ int air_buckpbus_reg_modify(struct phy_device *phydev, u32 pbus_address,
 
 	return phy_restore_page(phydev, saved_page, ret);
 }
-EXPORT_SYMBOL_GPL(air_buckpbus_reg_modify);
+EXPORT_SYMBOL_GPL(air_phy_buckpbus_reg_modify);
 
 int air_phy_read_page(struct phy_device *phydev)
 {
