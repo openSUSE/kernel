@@ -1123,7 +1123,7 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 		 * To minimise LRU disruption, the caller can indicate with
 		 * ISOLATE_ASYNC_MIGRATE that it only wants to isolate pages
 		 * it will be able to migrate without blocking - clean pages
-		 * for the most part.  PageWriteback would require blocking.
+		 * for the most part.  Writeback would require blocking.
 		 */
 		if ((mode & ISOLATE_ASYNC_MIGRATE) && folio_test_writeback(folio))
 			goto isolate_fail_put;
