@@ -9777,10 +9777,6 @@ void perf_tp_event(u16 event_type, u64 count, void *record, int entry_size,
 		   struct pt_regs *regs, struct hlist_head *head, int rctx,
 		   struct task_struct *task)
 {
-	/*
-	 * Per being a tracepoint, this runs with preemption disabled.
-	 */
-	lockdep_assert_preemption_disabled();
 	struct perf_sample_data data;
 	struct perf_event *event;
 
@@ -9790,6 +9786,11 @@ void perf_tp_event(u16 event_type, u64 count, void *record, int entry_size,
 			.data = record,
 		},
 	};
+
+	/*
+	 * Per being a tracepoint, this runs with preemption disabled.
+	 */
+	lockdep_assert_preemption_disabled();
 
 	perf_sample_data_init(&data, 0, 0);
 	data.raw = &raw;
