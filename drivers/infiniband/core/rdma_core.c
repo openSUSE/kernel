@@ -465,8 +465,8 @@ alloc_begin_fd_uobject(const struct uverbs_api_object *obj,
 
 	fd_type =
 		container_of(obj->type_attrs, struct uverbs_obj_fd_type, type);
-	if (WARN_ON(fd_type->fops && fd_type->fops->release != &uverbs_uobject_fd_release &&
-		    fd_type->fops->release != &uverbs_async_event_release)) {
+	if (WARN_ON(fd_type->fops &&
+		    fd_type->fops->release != &uverbs_uobject_fd_release)) {
 		ret = ERR_PTR(-EINVAL);
 		goto err_fd;
 	}
@@ -846,13 +846,37 @@ int uverbs_uobject_release(struct ib_uobject *uobj)
  */
 int uverbs_uobject_fd_release(struct inode *inode, struct file *filp)
 {
+	void (*release_cleanup)(struct ib_uobject *uobj) = NULL;
+	struct ib_uobject *uobj = filp->private_data;
+	const struct uverbs_obj_type *type_attrs;
+	int ret;
+
 	/*
 	 * This can only happen if the fput came from alloc_abort_fd_uobject()
 	 */
-	if (!filp->private_data)
+	if (!uobj)
 		return 0;
 
-	return uverbs_uobject_release(filp->private_data);
+	/*
+	 * uverbs_disassociate_api() can NULL type_attrs after disassociate, but
+	 * it won't if release_cleanup is used.
+	 */
+	type_attrs = READ_ONCE(uobj->uapi_object->type_attrs);
+	if (type_attrs)
+		release_cleanup = container_of(type_attrs,
+					       struct uverbs_obj_fd_type, type)
+					  ->release_cleanup;
+	if (release_cleanup)
+		uverbs_uobject_get(uobj);
+
+	ret = uverbs_uobject_release(uobj);
+
+	if (release_cleanup) {
+		release_cleanup(uobj);
+		uverbs_uobject_put(uobj);
+	}
+
+	return ret;
 }
 EXPORT_SYMBOL(uverbs_uobject_fd_release);
 
