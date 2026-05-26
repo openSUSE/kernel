@@ -12,24 +12,29 @@
 struct multicall_entry;
 
 /* Multicalls */
-DECLARE_EVENT_CLASS(xen_mc__batch,
-	    TP_PROTO(enum xen_lazy_mode mode),
-	    TP_ARGS(mode),
+TRACE_EVENT(xen_mc_batch,
+	    TP_PROTO(unsigned long flags),
+	    TP_ARGS(flags),
 	    TP_STRUCT__entry(
-		    __field(enum xen_lazy_mode, mode)
+		    __field(unsigned long, flags)
 		    ),
-	    TP_fast_assign(__entry->mode = mode),
-	    TP_printk("start batch LAZY_%s",
-		      (__entry->mode == XEN_LAZY_MMU) ? "MMU" :
-		      (__entry->mode == XEN_LAZY_CPU) ? "CPU" : "NONE")
+	    TP_fast_assign(__entry->flags = flags),
+	    TP_printk("start batch lazy flags %lx", __entry->flags)
 	);
-#define DEFINE_XEN_MC_BATCH(name)			\
-	DEFINE_EVENT(xen_mc__batch, name,		\
-		TP_PROTO(enum xen_lazy_mode mode),	\
-		     TP_ARGS(mode))
 
-DEFINE_XEN_MC_BATCH(xen_mc_batch);
-DEFINE_XEN_MC_BATCH(xen_mc_issue);
+TRACE_EVENT(xen_mc_issue,
+	    TP_PROTO(bool flush, unsigned long flags),
+	    TP_ARGS(flush, flags),
+	    TP_STRUCT__entry(
+		    __field(unsigned long, flags)
+		    __field(bool, flush)
+		    ),
+	    TP_fast_assign(__entry->flush = flush;
+			   __entry->flags = flags;
+		    ),
+	    TP_printk("flush: %s, flags %lx",
+		      __entry->flush ? "yes" : "no", __entry->flags)
+	);
 
 TRACE_DEFINE_SIZEOF(ulong);
 
