@@ -48,12 +48,17 @@ genetlink family (see Documentation/netlink/specs/netdev.yaml).
 
 API interface
 =============
-The number of pools created **must** match the number of hardware queues
+The number of pools created **must** match the number of NAPI contexts / queues
 unless hardware restrictions make that impossible. This would otherwise beat the
 purpose of page pool, which is allocate pages fast from cache without locking.
 This lockless guarantee naturally comes from running under a NAPI softirq.
 The protection doesn't strictly have to be NAPI, any guarantee that allocating
 a page will cause no race conditions is enough.
+
+If ``params.napi`` is set, the NAPI instance must be the sole consumer
+context for pages allocated from the pool. In other words, when running in
+that NAPI context, the page pool may safely access consumer-side resources
+**without any additional locking**.
 
 .. kernel-doc:: net/core/page_pool.c
    :identifiers: page_pool_create
@@ -139,7 +144,7 @@ Registration
     pp_params.pool_size = DESC_NUM;
     pp_params.nid = NUMA_NO_NODE;
     pp_params.dev = priv->dev;
-    pp_params.napi = napi; /* only if locking is tied to NAPI */
+    pp_params.napi = napi; /* only if this NAPI is the sole consumer, see above */
     pp_params.dma_dir = xdp_prog ? DMA_BIDIRECTIONAL : DMA_FROM_DEVICE;
     page_pool = page_pool_create(&pp_params);
 
