@@ -138,14 +138,11 @@ struct tls_descs {
 	struct desc_struct desc[3];
 };
 
-DEFINE_PER_CPU(enum xen_lazy_mode, xen_lazy_mode) = XEN_LAZY_NONE;
+static DEFINE_PER_CPU(bool, xen_cpu_lazy_mode);
 
-enum xen_lazy_mode xen_get_lazy_mode(void)
+bool xen_is_cpu_lazy_mode(void)
 {
-	if (in_interrupt())
-		return XEN_LAZY_NONE;
-
-	return this_cpu_read(xen_lazy_mode);
+	return !in_interrupt() && this_cpu_read(xen_cpu_lazy_mode);
 }
 
 /*
@@ -425,7 +422,7 @@ static void xen_start_context_switch(struct task_struct *prev)
 	BUG_ON(preemptible());
 
 	__task_lazy_mmu_mode_pause(prev);
-	enter_lazy(XEN_LAZY_CPU);
+	this_cpu_write(xen_cpu_lazy_mode, true);
 }
 
 static void xen_end_context_switch(struct task_struct *next)
@@ -433,7 +430,7 @@ static void xen_end_context_switch(struct task_struct *next)
 	BUG_ON(preemptible());
 
 	xen_mc_flush();
-	leave_lazy(XEN_LAZY_CPU);
+	this_cpu_write(xen_cpu_lazy_mode, false);
 	__task_lazy_mmu_mode_resume(next);
 }
 
@@ -541,7 +538,7 @@ static void xen_set_ldt(const void *addr, unsigned entries)
 
 	MULTI_mmuext_op(mcs.mc, op, 1, NULL, DOMID_SELF);
 
-	xen_mc_issue(xen_get_lazy_mode() != XEN_LAZY_CPU);
+	xen_mc_issue(!xen_is_cpu_lazy_mode());
 }
 
 static void xen_load_gdt(const struct desc_ptr *dtr)
@@ -637,7 +634,7 @@ static void xen_load_tls(struct thread_struct *t, unsigned int cpu)
 	 * exception between the new %fs descriptor being loaded and
 	 * %fs being effectively cleared at __switch_to().
 	 */
-	if (xen_get_lazy_mode() == XEN_LAZY_CPU)
+	if (xen_is_cpu_lazy_mode())
 		loadsegment(fs, 0);
 
 	xen_mc_batch();
@@ -646,7 +643,7 @@ static void xen_load_tls(struct thread_struct *t, unsigned int cpu)
 	load_TLS_descriptor(t, cpu, 1);
 	load_TLS_descriptor(t, cpu, 2);
 
-	xen_mc_issue(xen_get_lazy_mode() != XEN_LAZY_CPU);
+	xen_mc_issue(!xen_is_cpu_lazy_mode());
 }
 
 static void xen_load_gs_index(unsigned int idx)
@@ -1008,7 +1005,7 @@ static void xen_load_sp0(unsigned long sp0)
 
 	mcs = xen_mc_entry(0);
 	MULTI_stack_switch(mcs.mc, __KERNEL_DS, sp0);
-	xen_mc_issue(xen_get_lazy_mode() != XEN_LAZY_CPU);
+	xen_mc_issue(!xen_is_cpu_lazy_mode());
 	this_cpu_write(cpu_tss_rw.x86_tss.sp0, sp0);
 }
 
@@ -1068,7 +1065,7 @@ static void xen_write_cr0(unsigned long cr0)
 
 	MULTI_fpu_taskswitch(mcs.mc, (cr0 & X86_CR0_TS) != 0);
 
-	xen_mc_issue(xen_get_lazy_mode() != XEN_LAZY_CPU);
+	xen_mc_issue(!xen_is_cpu_lazy_mode());
 }
 
 static void xen_write_cr4(unsigned long cr4)
