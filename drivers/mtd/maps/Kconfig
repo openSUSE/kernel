@@ -249,13 +249,6 @@ config MTD_DC21285
 	  21285 bridge used with Intel's StrongARM processors. More info at
 	  <https://www.intel.com/design/bridge/docs/21285_documentation.htm>.
 
-config MTD_IMPA7
-	tristate "JEDEC Flash device mapped on impA7"
-	depends on ARM && MTD_JEDECPROBE
-	help
-	  This enables access to the NOR Flash on the impA7 board of
-	  implementa GmbH. If you have such a board, say 'Y' here.
-
 # This needs CFI or JEDEC, depending on the cards found.
 config MTD_PCI
 	tristate "PCI MTD driver"
