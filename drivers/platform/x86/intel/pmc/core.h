@@ -501,6 +501,8 @@ enum pmc_index {
  * @pc_guid:		GUID for telemetry region to read PKGC blocker info
  * @pkgc_ltr_blocker_offset: Offset to PKGC LTR blockers in telemetry region
  * @pkgc_blocker_offset:Offset to PKGC blocker in telemetry region
+ * @num_pmcs:		Number of entries in @pmc_list
+ * @pmc_list:		Index list of available PMC
  * @regmap_list:	Pointer to a list of pmc_info structure that could be
  *			available for the platform. When set, this field implies
  *			SSRAM support.
@@ -521,6 +523,8 @@ struct pmc_dev_info {
 	u32 pc_guid;
 	u32 pkgc_ltr_blocker_offset;
 	u32 pkgc_blocker_offset;
+	u8 num_pmcs;
+	const u8 *pmc_list;
 	struct pmc_info *regmap_list;
 	const struct pmc_reg_map *map;
 	const struct file_operations *sub_req_show;
