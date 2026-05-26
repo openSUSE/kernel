@@ -45,9 +45,11 @@ encapsulation is used, the packet may have multiple checksum fields in
 different header layers, and the rest will have to be handled by another
 mechanism such as LCO or RCO.
 
-CRC32c can also be offloaded using this interface, by means of filling
-skb->csum_start and skb->csum_offset as described above, and setting
-skb->csum_not_inet: see skbuff.h comment (section 'D') for more details.
+SCTP CRC32c can also be offloaded using this interface, by means of filling
+skb->csum_start and skb->csum_offset as described above, setting
+skb->csum_not_inet, and advertising NETIF_F_SCTP_CRC. Drivers must not treat
+ordinary IP checksum offload as SCTP CRC32c support. See the skbuff.h comment
+(section 'D') for more details.
 
 No offloading of the IP header checksum is performed; it is always done in
 software.  This is OK because when we build the IP header, we obviously have it
@@ -59,14 +61,12 @@ recomputed for each resulting segment.  See the skbuff.h comment (section 'E')
 for more details.
 
 A driver declares its offload capabilities in netdev->hw_features; see
-Documentation/networking/netdev-features.rst for more.  Note that a device
-which only advertises NETIF_F_IP[V6]_CSUM must still obey the csum_start and
-csum_offset given in the SKB; if it tries to deduce these itself in hardware
-(as some NICs do) the driver should check that the values in the SKB match
-those which the hardware will deduce, and if not, fall back to checksumming in
-software instead (with skb_csum_hwoffload_help() or one of the
-skb_checksum_help() / skb_crc32c_csum_help functions, as mentioned in
-include/linux/skbuff.h).
+Documentation/networking/netdev-features.rst for more. NETIF_F_IP_CSUM and
+NETIF_F_IPV6_CSUM are restricted legacy features and are being deprecated in
+favor of NETIF_F_HW_CSUM. New devices should use NETIF_F_HW_CSUM to advertise
+generic checksum offload. The skb_csum_hwoffload_help() helper can resolve
+CHECKSUM_PARTIAL according to the device's advertised checksum capabilities,
+falling back to software when needed.
 
 The stack should, for the most part, assume that checksum offload is supported
 by the underlying device.  The only place that should check is
@@ -108,11 +108,9 @@ LCO is performed by the stack when constructing an outer UDP header for an
 encapsulation such as VXLAN or GENEVE, in udp_set_csum().  Similarly for the
 IPv6 equivalents, in udp6_set_csum().
 
-It is also performed when constructing an IPv4 GRE header, in
-net/ipv4/ip_gre.c:build_header().  It is *not* currently performed when
-constructing an IPv6 GRE header; the GRE checksum is computed over the whole
-packet in net/ipv6/ip6_gre.c:ip6gre_xmit2(), but it should be possible to use
-LCO here as IPv6 GRE still uses an IP-style checksum.
+It is also performed when constructing GRE headers with the shared
+gre_build_header() helper in include/net/gre.h, which is used by both IPv4 and
+IPv6 GRE.
 
 All of the LCO implementations use a helper function lco_csum(), in
 include/linux/skbuff.h.
@@ -138,6 +136,6 @@ RCO is detailed in the following Internet-Drafts:
 * https://tools.ietf.org/html/draft-herbert-vxlan-rco-00
 
 In Linux, RCO is implemented individually in each encapsulation protocol, and
-most tunnel types have flags controlling its use.  For instance, VXLAN has the
-flag VXLAN_F_REMCSUM_TX (per struct vxlan_rdst) to indicate that RCO should be
-used when transmitting to a given remote destination.
+most tunnel types have flags controlling its use. For instance, VXLAN has the
+configuration flag VXLAN_F_REMCSUM_TX to indicate that RCO should be used when
+transmitting.
