@@ -1044,7 +1044,7 @@ static noinline void __sched __mutex_unlock_slowpath(struct mutex *lock, unsigne
 			next_lock = __get_task_blocked_on(donor);
 			if (next_lock == lock) {
 				next = get_task_struct(donor);
-				__set_task_blocked_on_waking(donor, next_lock);
+				__clear_task_blocked_on(next, lock);
 				current->blocked_donor = NULL;
 			}
 			raw_spin_unlock(&donor->blocked_lock);
@@ -1060,7 +1060,7 @@ static noinline void __sched __mutex_unlock_slowpath(struct mutex *lock, unsigne
 
 		raw_spin_lock_nested(&next->blocked_lock, SINGLE_DEPTH_NESTING);
 		debug_mutex_wake_waiter(lock, waiter);
-		__set_task_blocked_on_waking(next, lock);
+		__clear_task_blocked_on(next, lock);
 		raw_spin_unlock(&next->blocked_lock);
 
 	}
