@@ -7142,9 +7142,6 @@ pick_again:
 	if (sched_proxy_exec()) {
 		struct task_struct *prev_donor = rq->donor;
 
-		if (!prev_state && prev->blocked_on)
-			clear_task_blocked_on(prev, NULL);
-
 		rq_set_donor(rq, next);
 		next->blocked_donor = NULL;
 		if (unlikely(next->is_blocked)) {
