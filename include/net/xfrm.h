@@ -684,12 +684,20 @@ struct xfrm_migrate {
 	xfrm_address_t		new_saddr;
 	struct xfrm_encap_tmpl *encap;
 	struct xfrm_user_offload *xuo;
+	struct xfrm_mark        old_mark;
+	const struct xfrm_mark *new_mark;
+	struct xfrm_mark        smark;
 	u8			proto;
 	u8			mode;
-	u16			reserved;
+	u16			msg_type; /* XFRM_MSG_MIGRATE or XFRM_MSG_MIGRATE_STATE */
+	u32			flags;
 	u32			old_reqid;
+	u32			new_reqid;
+	u32			nat_keepalive_interval;
+	u32			mapping_maxage;
 	u16			old_family;
 	u16			new_family;
+	const struct xfrm_selector *new_sel;
 };
 
 #define XFRM_KM_TIMEOUT                30

@@ -4643,6 +4643,21 @@ static int xfrm_migrate_check(const struct xfrm_migrate *m, int num_migrate,
 	return 0;
 }
 
+/*
+ * Fill migrate fields that are invariant in XFRM_MSG_MIGRATE: inherited
+ * from the existing SA unchanged. XFRM_MSG_MIGRATE_STATE can update these.
+ */
+static void xfrm_migrate_copy_old(const struct xfrm_state *x,
+				  struct xfrm_migrate *mp)
+{
+	mp->msg_type               = XFRM_MSG_MIGRATE;
+	mp->smark                  = x->props.smark;
+	mp->new_reqid              = x->props.reqid;
+	mp->nat_keepalive_interval = x->nat_keepalive_interval;
+	mp->mapping_maxage         = x->mapping_maxage;
+	mp->new_mark               = &x->mark;
+}
+
 int xfrm_migrate(const struct xfrm_selector *sel, u8 dir, u8 type,
 		 struct xfrm_migrate *m, int num_migrate,
 		 struct xfrm_kmaddress *k, struct net *net,
@@ -4682,6 +4697,8 @@ int xfrm_migrate(const struct xfrm_selector *sel, u8 dir, u8 type,
 			nx_cur++;
 			mp->encap = encap;
 			mp->xuo = xuo;
+			xfrm_migrate_copy_old(x, mp);
+
 			xc = xfrm_state_migrate(x, mp, net, extack);
 			if (xc) {
 				x_new[nx_new] = xc;
