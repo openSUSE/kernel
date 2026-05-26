@@ -908,7 +908,7 @@ void batadv_originator_free(struct batadv_priv *bat_priv)
 	if (!hash)
 		return;
 
-	cancel_delayed_work_sync(&bat_priv->orig_work);
+	disable_delayed_work_sync(&bat_priv->orig_work);
 
 	bat_priv->orig_hash = NULL;
 

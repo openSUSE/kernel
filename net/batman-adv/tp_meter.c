@@ -421,7 +421,7 @@ static bool batadv_tp_list_detach(struct batadv_tp_vars_common *tp_vars)
  */
 static void batadv_tp_sender_cleanup(struct batadv_tp_sender *tp_vars)
 {
-	cancel_delayed_work_sync(&tp_vars->finish_work);
+	disable_delayed_work_sync(&tp_vars->finish_work);
 
 	if (batadv_tp_list_detach(&tp_vars->common))
 		batadv_tp_sender_put(tp_vars);

@@ -1282,7 +1282,7 @@ purge_now:
 
 			if (purged) {
 				/* reference for pending report_work */
-				if (cancel_work_sync(&backbone_gw->report_work))
+				if (disable_work_sync(&backbone_gw->report_work))
 					batadv_backbone_gw_put(backbone_gw);
 
 				/* reference for hash_entry */
@@ -1850,7 +1850,7 @@ void batadv_bla_free(struct batadv_priv *bat_priv)
 {
 	struct batadv_hard_iface *primary_if;
 
-	cancel_delayed_work_sync(&bat_priv->bla.work);
+	disable_delayed_work_sync(&bat_priv->bla.work);
 	primary_if = batadv_primary_if_get_selected(bat_priv);
 
 	if (bat_priv->bla.claim_hash) {

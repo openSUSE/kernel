@@ -415,6 +415,8 @@ int batadv_v_ogm_iface_enable(struct batadv_hard_iface *hard_iface)
 {
 	struct batadv_priv *bat_priv = netdev_priv(hard_iface->mesh_iface);
 
+	enable_delayed_work(&hard_iface->bat_v.aggr_wq);
+
 	batadv_v_ogm_start_queue_timer(hard_iface);
 	batadv_v_ogm_start_timer(bat_priv);
 
@@ -427,7 +429,7 @@ int batadv_v_ogm_iface_enable(struct batadv_hard_iface *hard_iface)
  */
 void batadv_v_ogm_iface_disable(struct batadv_hard_iface *hard_iface)
 {
-	cancel_delayed_work_sync(&hard_iface->bat_v.aggr_wq);
+	disable_delayed_work_sync(&hard_iface->bat_v.aggr_wq);
 
 	spin_lock_bh(&hard_iface->bat_v.aggr_list.lock);
 	batadv_v_ogm_aggr_list_free(hard_iface);
@@ -1080,7 +1082,7 @@ int batadv_v_ogm_init(struct batadv_priv *bat_priv)
  */
 void batadv_v_ogm_free(struct batadv_priv *bat_priv)
 {
-	cancel_delayed_work_sync(&bat_priv->bat_v.ogm_wq);
+	disable_delayed_work_sync(&bat_priv->bat_v.ogm_wq);
 
 	mutex_lock(&bat_priv->bat_v.ogm_buff_mutex);
 
