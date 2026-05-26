@@ -297,7 +297,7 @@ static void i915_driver_late_release(struct drm_i915_private *dev_priv)
 	struct intel_display *display = dev_priv->display;
 
 	intel_irq_fini(dev_priv);
-	intel_power_domains_cleanup(display);
+	intel_display_power_cleanup(display);
 	i915_gem_cleanup_early(dev_priv);
 	intel_gt_driver_late_release_all(dev_priv);
 	intel_region_ttm_device_fini(dev_priv);
@@ -660,7 +660,7 @@ static int i915_driver_register(struct drm_i915_private *dev_priv)
 
 	intel_display_driver_register(display);
 
-	intel_power_domains_enable(display);
+	intel_display_power_enable(display);
 	intel_runtime_pm_enable(&dev_priv->runtime_pm);
 
 	if (i915_switcheroo_register(dev_priv))
@@ -682,7 +682,7 @@ static void i915_driver_unregister(struct drm_i915_private *dev_priv)
 	i915_switcheroo_unregister(dev_priv);
 
 	intel_runtime_pm_disable(&dev_priv->runtime_pm);
-	intel_power_domains_disable(display);
+	intel_display_power_disable(display);
 
 	intel_display_driver_unregister(display);
 
@@ -1043,7 +1043,7 @@ void i915_driver_shutdown(struct drm_i915_private *i915)
 
 	disable_rpm_wakeref_asserts(&i915->runtime_pm);
 	intel_runtime_pm_disable(&i915->runtime_pm);
-	intel_power_domains_disable(display);
+	intel_display_power_disable(display);
 
 	drm_client_dev_suspend(&i915->drm);
 	if (intel_display_device_present(display)) {
@@ -1079,7 +1079,7 @@ void i915_driver_shutdown(struct drm_i915_private *i915)
 	 * - unify the driver remove and system/runtime suspend sequences with
 	 *   the above unified shutdown/poweroff sequence.
 	 */
-	intel_power_domains_driver_remove(display);
+	intel_display_power_driver_remove(display);
 	enable_rpm_wakeref_asserts(&i915->runtime_pm);
 
 	intel_runtime_pm_driver_last_release(&i915->runtime_pm);
@@ -1126,7 +1126,7 @@ static int i915_drm_suspend(struct drm_device *dev)
 
 	/* We do a lot of poking in a lot of registers, make sure they work
 	 * properly. */
-	intel_power_domains_disable(display);
+	intel_display_power_disable(display);
 	drm_client_dev_suspend(dev);
 	if (intel_display_device_present(display)) {
 		drm_kms_helper_poll_disable(dev);
@@ -1326,7 +1326,7 @@ static int i915_drm_resume(struct drm_device *dev)
 
 	drm_client_dev_resume(dev);
 
-	intel_power_domains_enable(display);
+	intel_display_power_enable(display);
 
 	intel_gvt_resume(dev_priv);
 

@@ -1011,5 +1011,5 @@ void intel_modeset_setup_hw_state(struct intel_display *display,
 
 	intel_display_power_put(display, POWER_DOMAIN_INIT, wakeref);
 
-	intel_power_domains_sanitize_state(display);
+	intel_display_power_sanitize_state(display);
 }
