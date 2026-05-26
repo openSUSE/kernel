@@ -657,8 +657,7 @@ static int populate_attrs(struct config_item *item)
 	return 0;
 }
 
-static int configfs_attach_group(struct config_item *parent_item,
-				 struct config_item *item,
+static int configfs_attach_group(struct config_item *item,
 				 struct dentry *dentry,
 				 struct configfs_fragment *frag);
 static void configfs_detach_group(struct dentry *dentry);
@@ -719,8 +718,7 @@ static int create_default_group(struct config_group *parent_group,
 	if (child) {
 		d_add(child, NULL);
 
-		ret = configfs_attach_group(&parent_group->cg_item,
-					    &group->cg_item, child, frag);
+		ret = configfs_attach_group(&group->cg_item, child, frag);
 		if (!ret) {
 			sd = child->d_fsdata;
 			sd->s_type |= CONFIGFS_USET_DEFAULT;
@@ -890,8 +888,7 @@ static void configfs_detach_group(struct dentry *dentry)
 	configfs_detach_item(dentry);
 }
 
-static int configfs_attach_group(struct config_item *parent_item,
-				 struct config_item *item,
+static int configfs_attach_group(struct config_item *item,
 				 struct dentry *dentry,
 				 struct configfs_fragment *frag)
 {
@@ -1423,7 +1420,7 @@ static struct dentry *configfs_mkdir(struct mnt_idmap *idmap, struct inode *dir,
 	spin_unlock(&configfs_dirent_lock);
 
 	if (group)
-		ret = configfs_attach_group(parent_item, item, dentry, frag);
+		ret = configfs_attach_group(item, dentry, frag);
 	else
 		ret = configfs_attach_item(item, dentry, frag);
 
@@ -1908,8 +1905,7 @@ int configfs_register_subsystem(struct configfs_subsystem *subsys)
 
 		err = configfs_dirent_exists(dentry);
 		if (!err)
-			err = configfs_attach_group(sd->s_element,
-						    &group->cg_item,
+			err = configfs_attach_group(&group->cg_item,
 						    dentry, frag);
 		if (err) {
 			BUG_ON(d_inode(dentry));
