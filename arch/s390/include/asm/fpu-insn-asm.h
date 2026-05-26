@@ -27,54 +27,11 @@
  */
 .macro	GR_NUM	opd gr
 	\opd = 255
-	.ifc \gr,%r0
-		\opd = 0
+	.irp rs,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+	.ifc \gr,%r\rs
+		\opd = \rs
 	.endif
-	.ifc \gr,%r1
-		\opd = 1
-	.endif
-	.ifc \gr,%r2
-		\opd = 2
-	.endif
-	.ifc \gr,%r3
-		\opd = 3
-	.endif
-	.ifc \gr,%r4
-		\opd = 4
-	.endif
-	.ifc \gr,%r5
-		\opd = 5
-	.endif
-	.ifc \gr,%r6
-		\opd = 6
-	.endif
-	.ifc \gr,%r7
-		\opd = 7
-	.endif
-	.ifc \gr,%r8
-		\opd = 8
-	.endif
-	.ifc \gr,%r9
-		\opd = 9
-	.endif
-	.ifc \gr,%r10
-		\opd = 10
-	.endif
-	.ifc \gr,%r11
-		\opd = 11
-	.endif
-	.ifc \gr,%r12
-		\opd = 12
-	.endif
-	.ifc \gr,%r13
-		\opd = 13
-	.endif
-	.ifc \gr,%r14
-		\opd = 14
-	.endif
-	.ifc \gr,%r15
-		\opd = 15
-	.endif
+	.endr
 	.if \opd == 255
 		\opd = \gr
 	.endif
@@ -91,102 +48,11 @@
  */
 .macro	VX_NUM	opd vxr
 	\opd = 255
-	.ifc \vxr,%v0
-		\opd = 0
+	.irp vs,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31
+	.ifc \vxr,%v\vs
+		\opd = \vs
 	.endif
-	.ifc \vxr,%v1
-		\opd = 1
-	.endif
-	.ifc \vxr,%v2
-		\opd = 2
-	.endif
-	.ifc \vxr,%v3
-		\opd = 3
-	.endif
-	.ifc \vxr,%v4
-		\opd = 4
-	.endif
-	.ifc \vxr,%v5
-		\opd = 5
-	.endif
-	.ifc \vxr,%v6
-		\opd = 6
-	.endif
-	.ifc \vxr,%v7
-		\opd = 7
-	.endif
-	.ifc \vxr,%v8
-		\opd = 8
-	.endif
-	.ifc \vxr,%v9
-		\opd = 9
-	.endif
-	.ifc \vxr,%v10
-		\opd = 10
-	.endif
-	.ifc \vxr,%v11
-		\opd = 11
-	.endif
-	.ifc \vxr,%v12
-		\opd = 12
-	.endif
-	.ifc \vxr,%v13
-		\opd = 13
-	.endif
-	.ifc \vxr,%v14
-		\opd = 14
-	.endif
-	.ifc \vxr,%v15
-		\opd = 15
-	.endif
-	.ifc \vxr,%v16
-		\opd = 16
-	.endif
-	.ifc \vxr,%v17
-		\opd = 17
-	.endif
-	.ifc \vxr,%v18
-		\opd = 18
-	.endif
-	.ifc \vxr,%v19
-		\opd = 19
-	.endif
-	.ifc \vxr,%v20
-		\opd = 20
-	.endif
-	.ifc \vxr,%v21
-		\opd = 21
-	.endif
-	.ifc \vxr,%v22
-		\opd = 22
-	.endif
-	.ifc \vxr,%v23
-		\opd = 23
-	.endif
-	.ifc \vxr,%v24
-		\opd = 24
-	.endif
-	.ifc \vxr,%v25
-		\opd = 25
-	.endif
-	.ifc \vxr,%v26
-		\opd = 26
-	.endif
-	.ifc \vxr,%v27
-		\opd = 27
-	.endif
-	.ifc \vxr,%v28
-		\opd = 28
-	.endif
-	.ifc \vxr,%v29
-		\opd = 29
-	.endif
-	.ifc \vxr,%v30
-		\opd = 30
-	.endif
-	.ifc \vxr,%v31
-		\opd = 31
-	.endif
+	.endr
 	.if \opd == 255
 		\opd = \vxr
 	.endif
