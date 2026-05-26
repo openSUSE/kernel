@@ -43,8 +43,17 @@ Architecture overview
 
 Monitoring
 ==========
-Information about page pools on the system can be accessed via the netdev
-genetlink family (see Documentation/netlink/specs/netdev.yaml).
+Information about allocated page pools, their memory use, recycling statistics
+etc. can be accessed via the netdev genetlink family
+(see Documentation/netlink/specs/netdev.yaml).
+
+Statistics
+----------
+
+.. kernel-doc:: include/net/page_pool/types.h
+   :identifiers: struct page_pool_recycle_stats
+		 struct page_pool_alloc_stats
+		 struct page_pool_stats
 
 API interface
 =============
@@ -74,7 +83,7 @@ that NAPI context, the page pool may safely access consumer-side resources
 		 page_pool_get_dma_addr page_pool_get_dma_dir
 
 .. kernel-doc:: net/core/page_pool.c
-   :identifiers: page_pool_put_page_bulk page_pool_get_stats
+   :identifiers: page_pool_put_page_bulk
 
 DMA sync
 --------
@@ -108,22 +117,6 @@ the driver allocates fragments (e.g. via ``page_pool_dev_alloc_frag()``).
 Unless the driver author really understands page pool internals
 it's recommended to always use ``offset = 0``, ``max_len = PAGE_SIZE``
 with fragmented page pools.
-
-Stats API and structures
-------------------------
-If the kernel is configured with ``CONFIG_PAGE_POOL_STATS=y``, the API
-page_pool_get_stats() and structures described below are available.
-It takes a  pointer to a ``struct page_pool`` and a pointer to a struct
-page_pool_stats allocated by the caller.
-
-Older drivers expose page pool statistics via ethtool or debugfs.
-The same statistics are accessible via the netlink netdev family
-in a driver-independent fashion.
-
-.. kernel-doc:: include/net/page_pool/types.h
-   :identifiers: struct page_pool_recycle_stats
-		 struct page_pool_alloc_stats
-		 struct page_pool_stats
 
 Coding examples
 ===============
@@ -177,21 +170,6 @@ NAPI poller
             new_page = page_pool_dev_alloc_pages(page_pool);
         }
     }
-
-Stats
------
-
-.. code-block:: c
-
-	#ifdef CONFIG_PAGE_POOL_STATS
-	/* retrieve stats */
-	struct page_pool_stats stats = { 0 };
-	if (page_pool_get_stats(page_pool, &stats)) {
-		/* perhaps the driver reports statistics with ethool */
-		ethtool_print_allocation_stats(&stats.alloc_stats);
-		ethtool_print_recycle_stats(&stats.recycle_stats);
-	}
-	#endif
 
 Driver unload
 -------------

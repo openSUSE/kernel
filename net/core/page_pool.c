@@ -76,6 +76,9 @@ static const char pp_stats[][ETH_GSTRING_LEN] = {
  * @pool:	pool from which page was allocated
  * @stats:	struct page_pool_stats to fill in
  *
+ * Deprecated driver API for querying stats. Page pool stats can be queried
+ * via netdev Netlink.
+ *
  * Retrieve statistics about the page_pool. This API is only available
  * if the kernel has been configured with ``CONFIG_PAGE_POOL_STATS=y``.
  * A pointer to a caller allocated struct page_pool_stats structure
