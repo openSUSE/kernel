@@ -1154,9 +1154,10 @@ int nested_svm_vmrun(struct kvm_vcpu *vcpu)
 	 * FIXME: If TF is set on VMRUN should inject a #DB (or handle guest
 	 * debugging) right after #VMEXIT, right now it's just ignored.
 	 */
-	ret = svm_skip_emulated_instruction(vcpu);
-	if (ret)
-		kvm_pmu_instruction_retired(vcpu);
+	if (!svm_skip_emulated_instruction(vcpu))
+		return 0;
+
+	kvm_pmu_instruction_retired(vcpu);
 
 	/*
 	 * Since vmcb01 is not in use, we can use it to store some of the L1
@@ -1186,7 +1187,7 @@ int nested_svm_vmrun(struct kvm_vcpu *vcpu)
 		nested_svm_vmexit(svm);
 	}
 
-	return ret;
+	return 1;
 }
 
 /* Copy state save area fields which are handled by VMRUN */
