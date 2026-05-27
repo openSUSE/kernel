@@ -1574,7 +1574,7 @@ static noinline_for_stack int merge_reloc_root(struct reloc_control *rc,
 	 * and * 2 since we have two trees to COW.
 	 */
 	reserve_level = max_t(int, 1, btrfs_root_level(root_item));
-	min_reserved = fs_info->nodesize * reserve_level * 2;
+	min_reserved = (reserve_level << fs_info->nodesize_bits) * 2;
 	memset(&next_key, 0, sizeof(next_key));
 
 	while (1) {
@@ -2572,7 +2572,7 @@ static int relocate_cowonly_block(struct btrfs_trans_handle *trans,
 
 	nr_levels = max(btrfs_header_level(root->node) - block->level, 0) + 1;
 
-	num_bytes = fs_info->nodesize * nr_levels;
+	num_bytes = (nr_levels << fs_info->nodesize_bits);
 	ret = refill_metadata_space(trans, rc, num_bytes);
 	if (ret) {
 		btrfs_put_root(root);

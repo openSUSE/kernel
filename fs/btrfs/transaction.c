@@ -631,7 +631,7 @@ start_transaction(struct btrfs_root *root, unsigned int num_items,
 	 * the appropriate flushing if need be.
 	 */
 	if (num_items && root != fs_info->chunk_root) {
-		qgroup_reserved = num_items * fs_info->nodesize;
+		qgroup_reserved = (num_items << fs_info->nodesize_bits);
 		/*
 		 * Use prealloc for now, as there might be a currently running
 		 * transaction that could free this reserved space prematurely

@@ -1309,7 +1309,7 @@ found:
 
 	index += ins_size;
 	ins_size /= csum_size;
-	total_bytes += ins_size * fs_info->sectorsize;
+	total_bytes += (ins_size << fs_info->sectorsize_bits);
 
 	if (total_bytes < sums->len) {
 		btrfs_release_path(path);

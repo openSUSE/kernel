@@ -563,7 +563,7 @@ static bool btree_dirty_folio(struct address_space *mapping,
 			continue;
 		}
 		spin_unlock_irqrestore(&subpage->lock, flags);
-		cur = page_start + cur_bit * fs_info->sectorsize;
+		cur = page_start + (cur_bit << fs_info->sectorsize_bits);
 
 		eb = find_extent_buffer(fs_info, cur);
 		ASSERT(eb);
