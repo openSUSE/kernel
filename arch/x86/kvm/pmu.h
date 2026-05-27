@@ -53,6 +53,9 @@ struct kvm_pmu_ops {
 	const u32 MSR_STRIDE;
 };
 
+extern bool enable_pmu;
+extern bool enable_mediated_pmu;
+
 void kvm_pmu_ops_update(const struct kvm_pmu_ops *pmu_ops);
 
 void kvm_handle_guest_mediated_pmi(void);
