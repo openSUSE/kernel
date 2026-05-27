@@ -396,9 +396,9 @@ static unsigned vce_v3_0_get_harvest_config(struct amdgpu_device *adev)
 	}
 }
 
-static int vce_v3_0_early_init(void *handle)
+static int vce_v3_0_early_init(struct amdgpu_ip_block *ip_block)
 {
-	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
+	struct amdgpu_device *adev = ip_block->adev;
 
 	adev->vce.harvest_config = vce_v3_0_get_harvest_config(adev);
 
@@ -570,7 +570,7 @@ static void vce_v3_0_mc_resume(struct amdgpu_device *adev, int idx)
 	} else
 		WREG32(mmVCE_LMI_VCPU_CACHE_40BIT_BAR, (adev->vce.gpu_addr >> 8));
 	offset = AMDGPU_VCE_FIRMWARE_OFFSET;
-	size = VCE_V3_0_FW_SIZE;
+	size = VCE_V3_0_FW_SIZE - AMDGPU_VCE_FIRMWARE_OFFSET;
 	WREG32(mmVCE_VCPU_CACHE_OFFSET0, offset & 0x7fffffff);
 	WREG32(mmVCE_VCPU_CACHE_SIZE0, size);
 
