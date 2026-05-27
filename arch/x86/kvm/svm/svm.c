@@ -333,7 +333,7 @@ done:
 	return 1;
 }
 
-static int svm_skip_emulated_instruction(struct kvm_vcpu *vcpu)
+int svm_skip_emulated_instruction(struct kvm_vcpu *vcpu)
 {
 	return __svm_skip_emulated_instruction(vcpu, EMULTYPE_SKIP, true);
 }
