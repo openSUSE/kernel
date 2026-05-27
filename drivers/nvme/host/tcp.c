@@ -340,32 +340,25 @@ static void nvme_tcp_init_iter(struct nvme_tcp_request *req,
 		unsigned int dir)
 {
 	struct request *rq = blk_mq_rq_from_pdu(req);
-	struct bio_vec *vec;
-	unsigned int size;
-	int nr_bvec;
-	size_t offset;
 
 	if (rq->rq_flags & RQF_SPECIAL_PAYLOAD) {
-		vec = &rq->special_vec;
-		nr_bvec = 1;
-		size = blk_rq_payload_bytes(rq);
-		offset = 0;
+		iov_iter_bvec(&req->iter, dir, &rq->special_vec, 1,
+				blk_rq_payload_bytes(rq));
+		req->iter.iov_offset = 0;
 	} else {
 		struct bio *bio = req->curr_bio;
 		struct bvec_iter bi;
 		struct bio_vec bv;
+		int nr_bvec = 0;
 
-		vec = __bvec_iter_bvec(bio->bi_io_vec, bio->bi_iter);
-		nr_bvec = 0;
-		bio_for_each_bvec(bv, bio, bi) {
+		bio_for_each_bvec(bv, bio, bi)
 			nr_bvec++;
-		}
-		size = bio->bi_iter.bi_size;
-		offset = bio->bi_iter.bi_bvec_done;
-	}
 
-	iov_iter_bvec(&req->iter, dir, vec, nr_bvec, size);
-	req->iter.iov_offset = offset;
+		iov_iter_bvec(&req->iter, dir,
+			__bvec_iter_bvec(bio->bi_io_vec, bio->bi_iter), nr_bvec,
+			bio->bi_iter.bi_size);
+		req->iter.iov_offset = bio->bi_iter.bi_bvec_done;
+	}
 }
 
 static inline void nvme_tcp_advance_req(struct nvme_tcp_request *req,
