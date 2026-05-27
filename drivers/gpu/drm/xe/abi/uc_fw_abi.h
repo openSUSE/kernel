@@ -3,8 +3,8 @@
  * Copyright © 2022 Intel Corporation
  */
 
-#ifndef _XE_UC_FW_ABI_H_
-#define _XE_UC_FW_ABI_H_
+#ifndef _ABI_UC_FW_ABI_H
+#define _ABI_UC_FW_ABI_H
 
 #include <linux/build_bug.h>
 #include <linux/types.h>
