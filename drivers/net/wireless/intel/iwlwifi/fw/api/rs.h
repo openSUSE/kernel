@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /*
- * Copyright (C) 2012-2014, 2018-2022, 2024-2025 Intel Corporation
+ * Copyright (C) 2012-2014, 2018-2022, 2024-2026 Intel Corporation
  * Copyright (C) 2017 Intel Deutschland GmbH
  */
 #ifndef __iwl_fw_api_rs_h__
@@ -889,7 +889,6 @@ struct iwl_lq_cmd {
 	__le32 ss_params;
 }; /* LINK_QUALITY_CMD_API_S_VER_1 */
 
-u8 iwl_fw_rate_idx_to_plcp(int idx);
 const struct iwl_rate_mcs_info *iwl_rate_mcs(int idx);
 const char *iwl_rs_pretty_ant(u8 ant);
 const char *iwl_rs_pretty_bw(int bw);

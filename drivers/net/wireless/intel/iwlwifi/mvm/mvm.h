@@ -1646,6 +1646,7 @@ int __iwl_mvm_mac_start(struct iwl_mvm *mvm);
 int iwl_run_init_mvm_ucode(struct iwl_mvm *mvm);
 
 /* Utils */
+u8 iwl_mvm_rate_idx_to_plcp(int idx);
 int iwl_mvm_legacy_hw_idx_to_mac80211_idx(u32 rate_n_flags,
 					  enum nl80211_band band);
 int iwl_mvm_legacy_rate_to_mac80211_idx(u32 rate_n_flags,

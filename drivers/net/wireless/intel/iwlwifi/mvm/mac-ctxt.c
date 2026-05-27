@@ -937,7 +937,7 @@ u16 iwl_mvm_mac_ctxt_get_beacon_flags(const struct iwl_fw *fw, u8 rate_idx)
 	if (iwl_fw_lookup_cmd_ver(fw, TX_CMD, 0) > 8)
 		flags |= iwl_mvm_rate_idx_to_fw_idx(fw, rate_idx);
 	else
-		flags |= iwl_fw_rate_idx_to_plcp(rate_idx);
+		flags |= iwl_mvm_rate_idx_to_plcp(rate_idx);
 
 	return flags;
 }
