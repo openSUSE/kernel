@@ -2289,7 +2289,7 @@ void intel_display_power_resume_early(struct intel_display *display)
 	intel_power_domains_resume(display);
 }
 
-void intel_display_power_suspend(struct intel_display *display)
+void intel_display_power_runtime_suspend(struct intel_display *display)
 {
 	if (DISPLAY_VER(display) >= 11) {
 		icl_display_core_uninit(display);
@@ -2302,7 +2302,7 @@ void intel_display_power_suspend(struct intel_display *display)
 	}
 }
 
-void intel_display_power_resume(struct intel_display *display)
+void intel_display_power_runtime_resume(struct intel_display *display)
 {
 	struct i915_power_domains *power_domains = &display->power.domains;
 
