@@ -391,7 +391,7 @@ struct acpi_rsconvert_info acpi_rs_convert_i2c_serial_bus[18] = {
 	 AML_OFFSET(i2c_serial_bus.type_specific_flags),
 	 0},
 
-	{ACPI_RSC_1BITFLAG, ACPI_RS_OFFSET(data.i2c_serial_bus.lvr),
+	{ACPI_RSC_MOVE8, ACPI_RS_OFFSET(data.i2c_serial_bus.lvr),
 	 AML_OFFSET(i2c_serial_bus.type_specific_flags) + 1,
 	 0},
 
