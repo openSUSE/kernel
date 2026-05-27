@@ -1796,7 +1796,7 @@ static int airoha_dev_set_macaddr(struct net_device *netdev, void *p)
 	return 0;
 }
 
-static int airoha_set_gdm2_loopback(struct airoha_gdm_dev *dev)
+static int airoha_enable_gdm2_loopback(struct airoha_gdm_dev *dev)
 {
 	struct airoha_gdm_port *port = dev->port;
 	struct airoha_eth *eth = dev->eth;
@@ -1877,7 +1877,7 @@ static int airoha_dev_init(struct net_device *netdev)
 		if (!eth->ports[1]) {
 			int err;
 
-			err = airoha_set_gdm2_loopback(dev);
+			err = airoha_enable_gdm2_loopback(dev);
 			if (err)
 				return err;
 		}
