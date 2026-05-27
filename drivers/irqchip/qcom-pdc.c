@@ -27,6 +27,8 @@
 /* Valid only on HW version < 3.2 */
 #define IRQ_ENABLE_BANK		0x10
 #define IRQ_ENABLE_BANK_MAX	(IRQ_ENABLE_BANK + BITS_TO_BYTES(PDC_MAX_GPIO_IRQS))
+#define IRQ_ENABLE_BANK_INDEX_MASK	GENMASK(31, 5)
+#define IRQ_ENABLE_BANK_BIT_MASK	GENMASK(4, 0)
 #define IRQ_i_CFG		0x110
 
 /* Valid only on HW version >= 3.2 */
@@ -109,8 +111,8 @@ static void pdc_enable_intr_bank(int pin_out, bool on)
 	unsigned long enable;
 	u32 index, mask;
 
-	index = pin_out / 32;
-	mask = pin_out % 32;
+	index = FIELD_GET(IRQ_ENABLE_BANK_INDEX_MASK, pin_out);
+	mask = FIELD_GET(IRQ_ENABLE_BANK_BIT_MASK, pin_out);
 
 	enable = pdc_reg_read(IRQ_ENABLE_BANK, index);
 	__assign_bit(mask, &enable, on);
