@@ -53,6 +53,14 @@ struct kvm_pmu_ops {
 	const u32 MSR_STRIDE;
 };
 
+#define kvm_pmu_call(func) static_call(kvm_x86_pmu_##func)
+
+#define KVM_X86_PMU_OP(func) \
+	DECLARE_STATIC_CALL(kvm_x86_pmu_##func, *(((struct kvm_pmu_ops *)0)->func));
+#define KVM_X86_PMU_OP_OPTIONAL KVM_X86_PMU_OP
+#define KVM_X86_PMU_OP_OPTIONAL_RET0 KVM_X86_PMU_OP
+#include <asm/kvm-x86-pmu-ops.h>
+
 extern bool enable_pmu;
 extern bool enable_mediated_pmu;
 

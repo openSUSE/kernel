@@ -98,6 +98,7 @@ static struct kvm_pmu_ops kvm_pmu_ops __read_mostly;
 	DEFINE_STATIC_CALL_NULL(kvm_x86_pmu_##func,			     \
 				*(((struct kvm_pmu_ops *)0)->func));
 #define KVM_X86_PMU_OP_OPTIONAL KVM_X86_PMU_OP
+#define KVM_X86_PMU_OP_OPTIONAL_RET0 KVM_X86_PMU_OP
 #include <asm/kvm-x86-pmu-ops.h>
 
 void kvm_pmu_ops_update(const struct kvm_pmu_ops *pmu_ops)
@@ -109,6 +110,9 @@ void kvm_pmu_ops_update(const struct kvm_pmu_ops *pmu_ops)
 #define KVM_X86_PMU_OP(func) \
 	WARN_ON(!kvm_pmu_ops.func); __KVM_X86_PMU_OP(func)
 #define KVM_X86_PMU_OP_OPTIONAL __KVM_X86_PMU_OP
+#define KVM_X86_PMU_OP_OPTIONAL_RET0(func) \
+	static_call_update(kvm_x86_pmu_##func, (void *)kvm_pmu_ops.func ? : \
+					       (void *)__static_call_return0);
 #include <asm/kvm-x86-pmu-ops.h>
 #undef __KVM_X86_PMU_OP
 }
