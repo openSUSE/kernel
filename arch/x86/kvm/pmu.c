@@ -889,7 +889,7 @@ int kvm_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		if (pmu->global_ctrl != data) {
 			diff = pmu->global_ctrl ^ data;
 			pmu->global_ctrl = data;
-			reprogram_counters(pmu, diff);
+			kvm_pmu_request_counters_reprogram(pmu, diff);
 		}
 		/*
 		 * Unconditionally forward writes to vendor code, i.e. to the

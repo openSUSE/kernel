@@ -391,7 +391,7 @@ static int intel_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		if (pmu->pebs_enable != data) {
 			diff = pmu->pebs_enable ^ data;
 			pmu->pebs_enable = data;
-			reprogram_counters(pmu, diff);
+			kvm_pmu_request_counters_reprogram(pmu, diff);
 		}
 		break;
 	case MSR_IA32_DS_AREA:
