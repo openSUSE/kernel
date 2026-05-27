@@ -3254,6 +3254,22 @@ static void intel_dp_compute_as_sdp(struct intel_dp *intel_dp,
 	} else {
 		as_sdp->mode = DP_AS_SDP_AVT_FIXED_VTOTAL;
 	}
+
+	/*
+	 * For Panel Replay with Async Video Timing support, the source can
+	 * disable sending the AS SDP during PR Active state. In that case,
+	 * the sink needs the coasting vtotal value to maintain the refresh
+	 * rate. The HW only samples this on PR_ALPM_CTL[AS SDP Transmission
+	 * in Active Disable], which we never program, so providing the value
+	 * unconditionally when the sink advertises the capability is safe.
+	 *
+	 * #TODO:
+	 * If we ever advertise support for coasting at other refresh targets,
+	 * this logic could be revisited. For now, use the minimum refresh rate
+	 * as the only safe coasting value.
+	 */
+	if (intel_psr_pr_async_video_timing_supported(intel_dp))
+		as_sdp->coasting_vtotal = crtc_state->vrr.vmax;
 }
 
 static void intel_dp_compute_vsc_sdp(struct intel_dp *intel_dp,
@@ -5245,6 +5261,9 @@ static ssize_t intel_dp_as_sdp_pack(const struct drm_dp_as_sdp *as_sdp,
 	if (as_sdp->target_rr_divider)
 		sdp->db[4] |= 0x20;
 
+	sdp->db[7] = as_sdp->coasting_vtotal & 0xFF;
+	sdp->db[8] = (as_sdp->coasting_vtotal >> 8) & 0xFF;
+
 	return length;
 }
 
@@ -5429,6 +5448,7 @@ int intel_dp_as_sdp_unpack(struct drm_dp_as_sdp *as_sdp,
 	as_sdp->vtotal = (sdp->db[2] << 8) | sdp->db[1];
 	as_sdp->target_rr = ((sdp->db[4] & 0x3) << 8) | sdp->db[3];
 	as_sdp->target_rr_divider = sdp->db[4] & 0x20 ? true : false;
+	as_sdp->coasting_vtotal = (sdp->db[8] << 8) | sdp->db[7];
 
 	return 0;
 }

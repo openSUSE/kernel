@@ -4911,7 +4911,8 @@ intel_compare_dp_as_sdp(const struct drm_dp_as_sdp *a,
 		a->duration_incr_ms == b->duration_incr_ms &&
 		a->duration_decr_ms == b->duration_decr_ms &&
 		a->target_rr_divider == b->target_rr_divider &&
-		a->mode == b->mode;
+		a->mode == b->mode &&
+		a->coasting_vtotal == b->coasting_vtotal;
 }
 
 static bool
