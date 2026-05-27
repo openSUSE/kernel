@@ -21,7 +21,7 @@
 #include <linux/types.h>
 
 #define PDC_MAX_GPIO_IRQS	256
-#define PDC_DRV_OFFSET		0x10000
+#define PDC_DRV_SIZE		0x10000
 
 /* Valid only on HW version < 3.2 */
 #define IRQ_ENABLE_BANK		0x10
@@ -357,7 +357,6 @@ static int pdc_setup_pin_mapping(struct device_node *np)
 	return 0;
 }
 
-#define QCOM_PDC_SIZE 0x30000
 
 static int qcom_pdc_probe(struct platform_device *pdev, struct device_node *parent)
 {
@@ -371,7 +370,7 @@ static int qcom_pdc_probe(struct platform_device *pdev, struct device_node *pare
 	if (of_address_to_resource(node, 0, &res))
 		return -EINVAL;
 
-	res_size = max_t(resource_size_t, resource_size(&res), QCOM_PDC_SIZE);
+	res_size = max_t(resource_size_t, resource_size(&res), PDC_DRV_SIZE);
 	if (res_size > resource_size(&res))
 		pr_warn("%pOF: invalid reg size, please fix DT\n", node);
 
@@ -384,7 +383,7 @@ static int qcom_pdc_probe(struct platform_device *pdev, struct device_node *pare
 	 * region with the expected offset to preserve support for old DTs.
 	 */
 	if (of_device_is_compatible(node, "qcom,x1e80100-pdc")) {
-		pdc_prev_base = ioremap(res.start - PDC_DRV_OFFSET, IRQ_ENABLE_BANK_MAX);
+		pdc_prev_base = ioremap(res.start - PDC_DRV_SIZE, IRQ_ENABLE_BANK_MAX);
 		if (!pdc_prev_base) {
 			pr_err("%pOF: unable to map previous PDC DRV region\n", node);
 			return -ENXIO;
