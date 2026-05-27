@@ -260,6 +260,37 @@ static void amd_mediated_pmu_put(struct kvm_vcpu *vcpu)
 		wrmsrq(MSR_AMD64_PERF_CNTR_GLOBAL_STATUS_CLR, pmu->global_status);
 }
 
+static bool amd_pmc_is_disabled_in_current_mode(struct kvm_pmc *pmc)
+{
+	struct kvm_vcpu *vcpu = pmc->vcpu;
+	u64 host_guest_bits;
+
+	if (!kvm_vcpu_has_mediated_pmu(vcpu))
+		return false;
+
+	/* Common code is supposed to check the common enable bit */
+	if (WARN_ON_ONCE(!(pmc->eventsel & ARCH_PERFMON_EVENTSEL_ENABLE)))
+		return false;
+
+	/* If both bits are cleared, the counter is always enabled */
+	host_guest_bits = pmc->eventsel & AMD64_EVENTSEL_HOST_GUEST_MASK;
+	if (!host_guest_bits)
+		return false;
+
+	/* If EFER.SVME=0 and either bit is set, the counter is disabled */
+	if (!(vcpu->arch.efer & EFER_SVME))
+		return true;
+
+	/*
+	 * If EFER.SVME=1, the counter is disabled iff only one of the bits is
+	 * set AND the set bit doesn't match the vCPU mode.
+	 */
+	if (host_guest_bits == AMD64_EVENTSEL_HOST_GUEST_MASK)
+		return false;
+
+	return !!(host_guest_bits & AMD64_EVENTSEL_GUESTONLY) != is_guest_mode(vcpu);
+}
+
 struct kvm_pmu_ops amd_pmu_ops __initdata = {
 	.rdpmc_ecx_to_pmc = amd_rdpmc_ecx_to_pmc,
 	.msr_idx_to_pmc = amd_msr_idx_to_pmc,
@@ -269,6 +300,7 @@ struct kvm_pmu_ops amd_pmu_ops __initdata = {
 	.set_msr = amd_pmu_set_msr,
 	.refresh = amd_pmu_refresh,
 	.init = amd_pmu_init,
+	.pmc_is_disabled_in_current_mode = amd_pmc_is_disabled_in_current_mode,
 
 	.is_mediated_pmu_supported = amd_pmu_is_mediated_pmu_supported,
 	.mediated_load = amd_mediated_pmu_load,
