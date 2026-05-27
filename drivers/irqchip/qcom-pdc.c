@@ -3,6 +3,7 @@
  * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/bitfield.h>
 #include <linux/err.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
@@ -31,12 +32,18 @@
 /* Valid only on HW version >= 3.2 */
 #define IRQ_i_CFG_IRQ_ENABLE	3
 
-#define IRQ_i_CFG_TYPE_MASK	GENMASK(2, 0)
+#define IRQ_i_CFG_TYPE_MASK		GENMASK(2, 0)
 
-#define PDC_VERSION_REG		0x1000
+#define PDC_VERSION_REG			0x1000
+#define PDC_VERSION_MAJOR		GENMASK(23, 16)
+#define PDC_VERSION_MINOR		GENMASK(15, 8)
+#define PDC_VERSION_STEP		GENMASK(7, 0)
+#define PDC_VERSION(maj, min, step)	(FIELD_PREP(PDC_VERSION_MAJOR, (maj)) | \
+					 FIELD_PREP(PDC_VERSION_MINOR, (min)) | \
+					 FIELD_PREP(PDC_VERSION_STEP,  (step)))
 
 /* Notable PDC versions */
-#define PDC_VERSION_3_2		0x30200
+#define PDC_VERSION_3_2			PDC_VERSION(3, 2, 0)
 
 struct pdc_pin_region {
 	u32 pin_base;
