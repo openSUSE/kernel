@@ -1301,10 +1301,11 @@ config SND_SOC_ES8389
 	depends on I2C
 
 config SND_SOC_ES9356
-        tristate "Everest Semi ES9356 CODEC SDW"
-        depends on SOUNDWIRE
-        select REGMAP_SOUNDWIRE
-        select REGMAP_SOUNDWIRE_MBQ
+	tristate "Everest Semi ES9356 CODEC SDW"
+	depends on SND_SOC_SDCA
+	depends on SOUNDWIRE
+	select REGMAP_SOUNDWIRE
+	select REGMAP_SOUNDWIRE_MBQ
 
 config SND_SOC_FRAMER
 	tristate "Framer codec"
