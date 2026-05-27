@@ -1055,13 +1055,6 @@ config REGULATOR_PF9453
 	help
 	  Say y here to support the NXP PF9453 PMIC regulator driver.
 
-config REGULATOR_PCAP
-	tristate "Motorola PCAP2 regulator driver"
-	depends on EZX_PCAP
-	help
-	 This driver provides support for the voltage regulators of the
-	 PCAP2 PMIC.
-
 config REGULATOR_PF0900
 	tristate "NXP PF0900/PF0901/PF09XX regulator driver"
 	depends on I2C
