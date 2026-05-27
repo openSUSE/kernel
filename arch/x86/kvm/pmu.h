@@ -216,6 +216,7 @@ extern struct x86_pmu_capability kvm_pmu_cap;
 void kvm_init_pmu_capability(struct kvm_pmu_ops *pmu_ops);
 
 void kvm_pmu_recalc_pmc_emulation(struct kvm_pmu *pmu, struct kvm_pmc *pmc);
+void kvm_pmu_handle_event(struct kvm_vcpu *vcpu);
 
 static inline void kvm_pmu_request_counter_reprogram(struct kvm_pmc *pmc)
 {
@@ -225,14 +226,24 @@ static inline void kvm_pmu_request_counter_reprogram(struct kvm_pmc *pmc)
 	kvm_make_request(KVM_REQ_PMU, pmc->vcpu);
 }
 
-static inline void kvm_pmu_request_counters_reprogram(struct kvm_pmu *pmu,
-						      u64 counters)
+static inline void __kvm_pmu_reprogram_counters(struct kvm_pmu *pmu,
+						u64 counters,
+						bool defer)
 {
 	if (!counters)
 		return;
 
 	atomic64_or(counters, &pmu->__reprogram_pmi);
-	kvm_make_request(KVM_REQ_PMU, pmu_to_vcpu(pmu));
+	if (defer)
+		kvm_make_request(KVM_REQ_PMU, pmu_to_vcpu(pmu));
+	else
+		kvm_pmu_handle_event(pmu_to_vcpu(pmu));
+}
+
+static inline void kvm_pmu_request_counters_reprogram(struct kvm_pmu *pmu,
+						      u64 counters)
+{
+	__kvm_pmu_reprogram_counters(pmu, counters, true);
 }
 
 /*
@@ -261,7 +272,6 @@ static inline bool kvm_pmu_is_fastpath_emulation_allowed(struct kvm_vcpu *vcpu)
 }
 
 void kvm_pmu_deliver_pmi(struct kvm_vcpu *vcpu);
-void kvm_pmu_handle_event(struct kvm_vcpu *vcpu);
 int kvm_pmu_rdpmc(struct kvm_vcpu *vcpu, unsigned pmc, u64 *data);
 int kvm_pmu_check_rdpmc_early(struct kvm_vcpu *vcpu, unsigned int idx);
 bool kvm_pmu_is_valid_msr(struct kvm_vcpu *vcpu, u32 msr);

@@ -25,6 +25,7 @@
 #include "cpuid.h"
 #include "kvm_cache_regs.h"
 #include "x86.h"
+#include "pmu.h"
 
 /*
  * Helpers to convert to/from physical addresses for pages whose address is
@@ -896,6 +897,28 @@ void nested_copy_vmcb_save_to_cache(struct vcpu_svm *svm,
 				    struct vmcb_save_area *save);
 void nested_sync_control_from_vmcb02(struct vcpu_svm *svm);
 void svm_switch_vmcb(struct vcpu_svm *svm, struct kvm_vmcb_info *target_vmcb);
+
+
+static inline void __svm_pmu_handle_nested_transition(struct vcpu_svm *svm,
+						      bool defer)
+{
+	struct kvm_pmu *pmu = vcpu_to_pmu(&svm->vcpu);
+	u64 counters = *(u64 *)pmu->pmc_has_mode_specific_enables;
+
+	__kvm_pmu_reprogram_counters(pmu, counters, defer);
+}
+
+static inline void svm_pmu_handle_nested_transition(struct vcpu_svm *svm)
+{
+	/*
+	 * Do NOT defer reprogramming the counters by default.  Instructions
+	 * causing a state change are counted based on the _new_ CPU state
+	 * (e.g. a successful VMRUN is counted in guest mode). Hence, the
+	 * counters should be reprogrammed with the new state _before_ the
+	 * instruction is potentially counted upon emulation completion.
+	 */
+	__svm_pmu_handle_nested_transition(svm, false);
+}
 
 extern struct kvm_x86_nested_ops svm_nested_ops;
 

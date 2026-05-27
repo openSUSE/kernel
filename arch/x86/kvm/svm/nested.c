@@ -837,6 +837,7 @@ static void nested_vmcb02_prepare_control(struct vcpu_svm *svm)
 
 	/* Enter Guest-Mode */
 	enter_guest_mode(vcpu);
+	svm_pmu_handle_nested_transition(svm);
 
 	/*
 	 * Filled at exit: exit_code, exit_info_1, exit_info_2, exit_int_info,
@@ -1320,6 +1321,8 @@ void nested_svm_vmexit(struct vcpu_svm *svm)
 
 	/* Exit Guest-Mode */
 	leave_guest_mode(vcpu);
+	svm_pmu_handle_nested_transition(svm);
+
 	svm->nested.vmcb12_gpa = 0;
 
 	kvm_warn_on_nested_run_pending(vcpu);
@@ -1536,6 +1539,15 @@ void svm_leave_nested(struct kvm_vcpu *vcpu)
 		svm->nested.vmcb12_gpa = INVALID_GPA;
 
 		leave_guest_mode(vcpu);
+
+		/*
+		 * Force leaving nested is a non-architectural flow so precision
+		 * isn't a priority.  Defer updating the PMU until the next vCPU
+		 * run, potentially tolerating some imprecision to avoid poking
+		 * into PMU state from arbitrary contexts (e.g. to avoid using
+		 * stale state).
+		 */
+		__svm_pmu_handle_nested_transition(svm, true);
 
 		svm_switch_vmcb(svm, &svm->vmcb01);
 
