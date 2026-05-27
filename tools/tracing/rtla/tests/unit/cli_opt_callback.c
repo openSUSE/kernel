@@ -545,6 +545,17 @@ START_TEST(test_opt_nano_cb)
 }
 END_TEST
 
+START_TEST(test_opt_timerlat_align_cb)
+{
+	struct timerlat_params params = {0};
+	const struct option opt = TEST_CALLBACK(&params, opt_timerlat_align_cb);
+
+	ck_assert_int_eq(opt_timerlat_align_cb(&opt, "500", 0), 0);
+	ck_assert(params.timerlat_align);
+	ck_assert_int_eq(params.timerlat_align_us, 500);
+}
+END_TEST
+
 START_TEST(test_opt_stack_format_cb)
 {
 	int stack_format = 0;
@@ -689,6 +700,7 @@ Suite *cli_opt_callback_suite(void)
 	tcase_add_test(tc, test_opt_nano_cb);
 	tcase_add_test(tc, test_opt_stack_format_cb);
 	tcase_add_exit_test(tc, test_opt_stack_format_cb_invalid, EXIT_FAILURE);
+	tcase_add_test(tc, test_opt_timerlat_align_cb);
 	suite_add_tcase(s, tc);
 
 	tc = tcase_create("histogram");

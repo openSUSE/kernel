@@ -373,6 +373,24 @@ START_TEST(test_user_threads_long)
 }
 END_TEST
 
+START_TEST(test_aligned_short)
+{
+	PARSE_ARGS("timerlat", "top", "-A", "500");
+
+	ck_assert(tlat_params->timerlat_align);
+	ck_assert_int_eq(tlat_params->timerlat_align_us, 500);
+}
+END_TEST
+
+START_TEST(test_aligned_long)
+{
+	PARSE_ARGS("timerlat", "top", "--aligned", "500");
+
+	ck_assert(tlat_params->timerlat_align);
+	ck_assert_int_eq(tlat_params->timerlat_align_us, 500);
+}
+END_TEST
+
 /* Output */
 
 START_TEST(test_nano_short)
@@ -596,6 +614,8 @@ Suite *timerlat_top_cli_suite(void)
 	tcase_add_test(tc, test_user_load_long);
 	tcase_add_test(tc, test_user_threads_short);
 	tcase_add_test(tc, test_user_threads_long);
+	tcase_add_test(tc, test_aligned_short);
+	tcase_add_test(tc, test_aligned_long);
 	suite_add_tcase(s, tc);
 
 	tc = tcase_create("output");

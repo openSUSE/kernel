@@ -373,6 +373,24 @@ START_TEST(test_user_threads_long)
 }
 END_TEST
 
+START_TEST(test_aligned_short)
+{
+	PARSE_ARGS("timerlat", "hist", "-A", "500");
+
+	ck_assert(tlat_params->timerlat_align);
+	ck_assert_int_eq(tlat_params->timerlat_align_us, 500);
+}
+END_TEST
+
+START_TEST(test_aligned_long)
+{
+	PARSE_ARGS("timerlat", "hist", "--aligned", "500");
+
+	ck_assert(tlat_params->timerlat_align);
+	ck_assert_int_eq(tlat_params->timerlat_align_us, 500);
+}
+END_TEST
+
 /* Histogram Options */
 
 START_TEST(test_bucket_size_short)
@@ -654,6 +672,8 @@ Suite *timerlat_hist_cli_suite(void)
 	tcase_add_test(tc, test_user_load_long);
 	tcase_add_test(tc, test_user_threads_short);
 	tcase_add_test(tc, test_user_threads_long);
+	tcase_add_test(tc, test_aligned_short);
+	tcase_add_test(tc, test_aligned_long);
 	suite_add_tcase(s, tc);
 
 	tc = tcase_create("histogram_options");
