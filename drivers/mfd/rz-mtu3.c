@@ -21,7 +21,6 @@
 
 struct rz_mtu3_priv {
 	void __iomem *mmio;
-	struct reset_control *rstc;
 	spinlock_t lock;
 };
 
@@ -314,6 +313,7 @@ static int rz_mtu3_probe(struct platform_device *pdev)
 {
 	struct rz_mtu3_priv *priv;
 	struct rz_mtu3 *ddata;
+	struct reset_control *rstc;
 	unsigned int i;
 
 	ddata = devm_kzalloc(&pdev->dev, sizeof(*ddata), GFP_KERNEL);
@@ -330,9 +330,9 @@ static int rz_mtu3_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->mmio))
 		return PTR_ERR(priv->mmio);
 
-	priv->rstc = devm_reset_control_get_exclusive_deasserted(&pdev->dev, NULL);
-	if (IS_ERR(priv->rstc))
-		return PTR_ERR(priv->rstc);
+	rstc = devm_reset_control_get_exclusive_deasserted(&pdev->dev, NULL);
+	if (IS_ERR(rstc))
+		return PTR_ERR(rstc);
 
 	ddata->clk = devm_clk_get(&pdev->dev, NULL);
 	if (IS_ERR(ddata->clk))
