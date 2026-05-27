@@ -1106,10 +1106,8 @@ static int tegra234_mc_icc_aggregate(struct icc_node *node, u32 tag, u32 avg_bw,
 
 	if (node->id == TEGRA_ICC_MC_CPU_CLUSTER0 ||
 	    node->id == TEGRA_ICC_MC_CPU_CLUSTER1 ||
-	    node->id == TEGRA_ICC_MC_CPU_CLUSTER2) {
-		if (mc)
-			peak_bw = peak_bw * mc->num_channels;
-	}
+	    node->id == TEGRA_ICC_MC_CPU_CLUSTER2)
+		peak_bw = peak_bw * mc->num_channels;
 
 	*agg_avg += avg_bw;
 	*agg_peak = max(*agg_peak, peak_bw);
