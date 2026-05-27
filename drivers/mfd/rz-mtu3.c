@@ -301,15 +301,6 @@ void rz_mtu3_disable(struct rz_mtu3_channel *ch)
 }
 EXPORT_SYMBOL_GPL(rz_mtu3_disable);
 
-static void rz_mtu3_reset_assert(void *data)
-{
-	struct rz_mtu3 *mtu = dev_get_drvdata(data);
-	struct rz_mtu3_priv *priv = mtu->priv_data;
-
-	mfd_remove_devices(data);
-	reset_control_assert(priv->rstc);
-}
-
 static const struct mfd_cell rz_mtu3_devs[] = {
 	{
 		.name = "rz-mtu3-counter",
@@ -324,7 +315,6 @@ static int rz_mtu3_probe(struct platform_device *pdev)
 	struct rz_mtu3_priv *priv;
 	struct rz_mtu3 *ddata;
 	unsigned int i;
-	int ret;
 
 	ddata = devm_kzalloc(&pdev->dev, sizeof(*ddata), GFP_KERNEL);
 	if (!ddata)
@@ -340,7 +330,7 @@ static int rz_mtu3_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->mmio))
 		return PTR_ERR(priv->mmio);
 
-	priv->rstc = devm_reset_control_get_exclusive(&pdev->dev, NULL);
+	priv->rstc = devm_reset_control_get_exclusive_deasserted(&pdev->dev, NULL);
 	if (IS_ERR(priv->rstc))
 		return PTR_ERR(priv->rstc);
 
@@ -348,7 +338,6 @@ static int rz_mtu3_probe(struct platform_device *pdev)
 	if (IS_ERR(ddata->clk))
 		return PTR_ERR(ddata->clk);
 
-	reset_control_deassert(priv->rstc);
 	spin_lock_init(&priv->lock);
 	platform_set_drvdata(pdev, ddata);
 
@@ -358,17 +347,8 @@ static int rz_mtu3_probe(struct platform_device *pdev)
 		mutex_init(&ddata->channels[i].lock);
 	}
 
-	ret = mfd_add_devices(&pdev->dev, 0, rz_mtu3_devs,
-			      ARRAY_SIZE(rz_mtu3_devs), NULL, 0, NULL);
-	if (ret < 0)
-		goto err_assert;
-
-	return devm_add_action_or_reset(&pdev->dev, rz_mtu3_reset_assert,
-					&pdev->dev);
-
-err_assert:
-	reset_control_assert(priv->rstc);
-	return ret;
+	return devm_mfd_add_devices(&pdev->dev, 0, rz_mtu3_devs,
+				    ARRAY_SIZE(rz_mtu3_devs), NULL, 0, NULL);
 }
 
 static const struct of_device_id rz_mtu3_of_match[] = {
