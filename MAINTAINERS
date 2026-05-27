@@ -28908,8 +28908,8 @@ F:	arch/x86/kernel/unwind_*.c
 
 X86 TRUST DOMAIN EXTENSIONS (TDX)
 M:	Kiryl Shutsemau <kas@kernel.org>
+M:	Rick Edgecombe <rick.p.edgecombe@intel.com>
 R:	Dave Hansen <dave.hansen@linux.intel.com>
-R:	Rick Edgecombe <rick.p.edgecombe@intel.com>
 L:	x86@kernel.org
 L:	linux-coco@lists.linux.dev
 L:	kvm@vger.kernel.org
