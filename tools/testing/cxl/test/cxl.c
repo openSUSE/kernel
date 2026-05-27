@@ -318,7 +318,7 @@ static struct {
 			.restrictions = ACPI_CEDT_CFMWS_RESTRICT_HOSTONLYMEM |
 					ACPI_CEDT_CFMWS_RESTRICT_VOLATILE,
 			.qtg_id = FAKE_QTG_ID,
-			.window_size = SZ_256M,
+			.window_size = SZ_256M > PMD_SIZE ? SZ_256M : PMD_SIZE,
 		},
 		.target = { 3 },
 	},
@@ -495,9 +495,12 @@ static int populate_cedt(void)
 
 	for (i = cfmws_start; i <= cfmws_end; i++) {
 		struct acpi_cedt_cfmws *window = mock_cfmws[i];
+		int align = SZ_256M;
 
 		cfmws_elc_update(window, i);
-		res = alloc_mock_res(window->window_size, SZ_256M);
+		if (window->restrictions & ACPI_CEDT_CFMWS_RESTRICT_VOLATILE)
+			align = max_t(int, SZ_256M, PMD_SIZE);
+		res = alloc_mock_res(window->window_size, align);
 		if (!res)
 			return -ENOMEM;
 		window->base_hpa = res->range.start;
@@ -1818,6 +1821,12 @@ static __init int cxl_test_init(void)
 {
 	int rc, i;
 	struct range mappable;
+
+	if (!IS_ALIGNED(mock_auto_region_size, PMD_SIZE)) {
+		pr_err_once("mock_auto_region_size %d must be PMD-aligned\n",
+			    mock_auto_region_size);
+		return -EINVAL;
+	}
 
 	cxl_acpi_test();
 	cxl_core_test();
