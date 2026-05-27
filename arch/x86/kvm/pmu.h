@@ -213,13 +213,10 @@ static inline void kvm_pmu_request_counter_reprogram(struct kvm_pmc *pmc)
 static inline void kvm_pmu_request_counters_reprogram(struct kvm_pmu *pmu,
 						      u64 counters)
 {
-	int bit;
-
 	if (!counters)
 		return;
 
-	for_each_set_bit(bit, (unsigned long *)&counters, X86_PMC_IDX_MAX)
-		set_bit(bit, pmu->reprogram_pmi);
+	atomic64_or(counters, &pmu->__reprogram_pmi);
 	kvm_make_request(KVM_REQ_PMU, pmu_to_vcpu(pmu));
 }
 
