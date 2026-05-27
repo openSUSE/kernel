@@ -2059,6 +2059,12 @@ int ieee80211_nan_set_peer_sched(struct ieee80211_sub_if_data *sdata,
 				 struct cfg80211_nan_peer_sched *sched);
 void ieee80211_nan_free_peer_sched(struct ieee80211_nan_peer_sched *sched);
 void ieee80211_nan_update_ndi_carrier(struct ieee80211_sub_if_data *ndi_sdata);
+struct ieee80211_nan_channel *
+ieee80211_nan_find_evac_chan(struct ieee80211_local *local,
+			     struct ieee80211_sub_if_data *sdata,
+			     struct ieee80211_chanctx *ctx);
+void ieee80211_nan_evacuate_channel(struct ieee80211_sub_if_data *sdata,
+				    struct ieee80211_nan_channel *nan_channel);
 
 static inline struct ieee80211_sub_if_data *
 ieee80211_find_nan_sdata(struct ieee80211_local *local)

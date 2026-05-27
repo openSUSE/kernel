@@ -712,7 +712,7 @@ out:
 	return ret;
 }
 
-static void
+void
 ieee80211_nan_evacuate_channel(struct ieee80211_sub_if_data *sdata,
 			       struct ieee80211_nan_channel *nan_channel)
 {
@@ -754,7 +754,7 @@ ieee80211_nan_evacuate_channel(struct ieee80211_sub_if_data *sdata,
 		ieee80211_free_chanctx(sdata->local, ctx, false);
 }
 
-static struct ieee80211_nan_channel *
+struct ieee80211_nan_channel *
 ieee80211_nan_find_evac_chan(struct ieee80211_local *local,
 			     struct ieee80211_sub_if_data *sdata,
 			     struct ieee80211_chanctx *ctx)
