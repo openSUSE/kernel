@@ -2383,8 +2383,8 @@ static int iwl_fw_dbg_restart_recording(struct iwl_trans *trans,
 
 int iwl_fw_send_timestamp_marker_cmd(struct iwl_fw_runtime *fwrt)
 {
-	struct iwl_mvm_marker marker = {
-		.dw_len = sizeof(struct iwl_mvm_marker) / 4,
+	struct iwl_marker marker = {
+		.dw_len = sizeof(struct iwl_marker) / 4,
 		.marker_id = MARKER_ID_SYNC_CLOCK,
 	};
 	struct iwl_host_cmd hcmd = {
@@ -2392,7 +2392,7 @@ int iwl_fw_send_timestamp_marker_cmd(struct iwl_fw_runtime *fwrt)
 		.id = WIDE_ID(LONG_GROUP, MARKER_CMD),
 		.dataflags = {},
 	};
-	struct iwl_mvm_marker_rsp *resp;
+	struct iwl_marker_rsp *resp;
 	int cmd_ver = iwl_fw_lookup_cmd_ver(fwrt->fw,
 					    WIDE_ID(LONG_GROUP, MARKER_CMD),
 					    IWL_FW_CMD_VER_UNKNOWN);
