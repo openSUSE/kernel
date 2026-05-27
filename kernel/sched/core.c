@@ -3767,6 +3767,21 @@ static inline bool proxy_needs_return(struct rq *rq, struct task_struct *p)
 	if (!task_is_blocked(p))
 		return false;
 
+	/*
+	 * Typically per __set_task_cpu(), task_cpu(p) == p->wake_cpu.
+	 *
+	 * However, proxy_set_task_cpu() is such that it preserves the
+	 * original cpu in p->wake_cpu while migrating p for proxy reasons
+	 * (possibly outside of the allowed p->cpus_ptr).
+	 *
+	 * Furthermore, migration_cpu_stop() / __migrate_swap_task(), will
+	 * only set p->wake_cpu when !p->on_rq, and since here p->on_rq, this
+	 * will not apply. But if it did, this check is the safe way around
+	 * and would migrate.
+	 */
+	if (task_cpu(p) == p->wake_cpu)
+		return false;
+
 	scoped_guard(raw_spinlock, &p->blocked_lock) {
 		/* Task is waking up; clear any blocked_on relationship */
 		__clear_task_blocked_on(p, NULL);
