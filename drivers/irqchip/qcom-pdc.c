@@ -97,28 +97,37 @@ static void pdc_x1e_irq_enable_write(u32 bank, u32 enable)
 	pdc_base_reg_write(base, IRQ_ENABLE_BANK, bank, enable);
 }
 
-static void __pdc_enable_intr(int pin_out, bool on)
+static void pdc_enable_intr_bank(int pin_out, bool on)
 {
 	unsigned long enable;
+	u32 index, mask;
 
-	if (pdc_version < PDC_VERSION_3_2) {
-		u32 index, mask;
+	index = pin_out / 32;
+	mask = pin_out % 32;
 
-		index = pin_out / 32;
-		mask = pin_out % 32;
+	enable = pdc_reg_read(IRQ_ENABLE_BANK, index);
+	__assign_bit(mask, &enable, on);
 
-		enable = pdc_reg_read(IRQ_ENABLE_BANK, index);
-		__assign_bit(mask, &enable, on);
+	if (pdc_x1e_quirk)
+		pdc_x1e_irq_enable_write(index, enable);
+	else
+		pdc_reg_write(IRQ_ENABLE_BANK, index, enable);
+}
 
-		if (pdc_x1e_quirk)
-			pdc_x1e_irq_enable_write(index, enable);
-		else
-			pdc_reg_write(IRQ_ENABLE_BANK, index, enable);
-	} else {
-		enable = pdc_reg_read(IRQ_i_CFG, pin_out);
-		__assign_bit(IRQ_i_CFG_IRQ_ENABLE, &enable, on);
-		pdc_reg_write(IRQ_i_CFG, pin_out, enable);
-	}
+static void pdc_enable_intr_cfg(int pin_out, bool on)
+{
+	unsigned long enable = pdc_reg_read(IRQ_i_CFG, pin_out);
+
+	__assign_bit(IRQ_i_CFG_IRQ_ENABLE, &enable, on);
+	pdc_reg_write(IRQ_i_CFG, pin_out, enable);
+}
+
+static void __pdc_enable_intr(int pin_out, bool on)
+{
+	if (pdc_version < PDC_VERSION_3_2)
+		pdc_enable_intr_bank(pin_out, on);
+	else
+		pdc_enable_intr_cfg(pin_out, on);
 }
 
 static void pdc_enable_intr(struct irq_data *d, bool on)
