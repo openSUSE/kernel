@@ -7,7 +7,7 @@ use syn::{
     parse_quote, parse_quote_spanned,
     spanned::Spanned,
     visit_mut::VisitMut,
-    Field, Generics, Ident, Item, PathSegment, Type, TypePath, Visibility, WhereClause,
+    Attribute, Field, Generics, Ident, Item, PathSegment, Type, TypePath, Visibility, WhereClause,
 };
 
 use crate::diagnostics::{DiagCtxt, ErrorGuaranteed};
@@ -38,6 +38,7 @@ impl Parse for Args {
 struct FieldInfo<'a> {
     field: &'a Field,
     pinned: bool,
+    cfg_attrs: Vec<&'a Attribute>,
 }
 
 pub(crate) fn pin_data(
@@ -86,9 +87,16 @@ pub(crate) fn pin_data(
             field.attrs.retain(|a| !a.path().is_ident("pin"));
             let pinned = len != field.attrs.len();
 
+            let cfg_attrs = field
+                .attrs
+                .iter()
+                .filter(|a| a.path().is_ident("cfg"))
+                .collect();
+
             FieldInfo {
                 field: &*field,
                 pinned,
+                cfg_attrs,
             }
         })
         .collect();
@@ -171,7 +179,15 @@ fn generate_unpin_impl(
     else {
         unreachable!()
     };
-    let pinned_fields = fields.iter().filter(|f| f.pinned).map(|f| f.field);
+    let pinned_fields = fields.iter().filter(|f| f.pinned).map(|f| {
+        let ident = f.field.ident.as_ref().unwrap();
+        let ty = &f.field.ty;
+        let cfg_attrs = &f.cfg_attrs;
+        quote!(
+            #(#cfg_attrs)*
+            #ident: #ty
+        )
+    });
     quote! {
         // This struct will be used for the unpin analysis. It is needed, because only structurally
         // pinned fields are relevant whether the struct should implement `Unpin`.
@@ -259,27 +275,20 @@ fn generate_projections(
     let (fields_decl, fields_proj): (Vec<_>, Vec<_>) = fields
         .iter()
         .map(|field| {
-            let Field {
-                vis,
-                ident,
-                ty,
-                attrs,
-                ..
-            } = &field.field;
+            let Field { vis, ident, ty, .. } = &field.field;
+            let cfg_attrs = &field.cfg_attrs;
 
-            let mut no_doc_attrs = attrs.clone();
-            no_doc_attrs.retain(|a| !a.path().is_ident("doc"));
             let ident = ident
                 .as_ref()
                 .expect("only structs with named fields are supported");
             if field.pinned {
                 (
                     quote!(
-                        #(#attrs)*
+                        #(#cfg_attrs)*
                         #vis #ident: ::core::pin::Pin<&'__pin mut #ty>,
                     ),
                     quote!(
-                        #(#no_doc_attrs)*
+                        #(#cfg_attrs)*
                         // SAFETY: this field is structurally pinned.
                         #ident: unsafe { ::core::pin::Pin::new_unchecked(&mut #this.#ident) },
                     ),
@@ -287,11 +296,11 @@ fn generate_projections(
             } else {
                 (
                     quote!(
-                        #(#attrs)*
+                        #(#cfg_attrs)*
                         #vis #ident: &'__pin mut #ty,
                     ),
                     quote!(
-                        #(#no_doc_attrs)*
+                        #(#cfg_attrs)*
                         #ident: &mut #this.#ident,
                     ),
                 )
@@ -358,13 +367,8 @@ fn generate_the_pin_data(
     let field_accessors = fields
         .iter()
         .map(|f| {
-            let Field {
-                vis,
-                ident,
-                ty,
-                attrs,
-                ..
-            } = f.field;
+            let Field { vis, ident, ty, .. } = f.field;
+            let cfg_attrs = &f.cfg_attrs;
 
             let field_name = ident
                 .as_ref()
@@ -381,7 +385,7 @@ fn generate_the_pin_data(
                 /// - `(*slot).#field_name` is properly aligned.
                 /// - `(*slot).#field_name` points to uninitialized and exclusively accessed
                 ///   memory.
-                #(#attrs)*
+                #(#cfg_attrs)*
                 #[inline(always)]
                 #vis unsafe fn #field_name(
                     self,
