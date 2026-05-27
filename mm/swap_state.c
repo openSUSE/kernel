@@ -465,6 +465,16 @@ static struct folio *__swap_cache_alloc(struct swap_cluster_info *ci,
 		return ERR_PTR(-ENOMEM);
 	}
 
+	if (order > 1 && folio_memcg_alloc_deferred(folio)) {
+		spin_lock(&ci->lock);
+		__swap_cache_do_del_folio(ci, folio, entry, shadow);
+		spin_unlock(&ci->lock);
+		folio_unlock(folio);
+		/* nr_pages refs from swap cache, 1 from allocation */
+		folio_put_refs(folio, nr_pages + 1);
+		return ERR_PTR(-ENOMEM);
+	}
+
 	/* memsw uncharges swap when folio is added to swap cache */
 	memcg1_swapin(folio);
 	if (shadow)
