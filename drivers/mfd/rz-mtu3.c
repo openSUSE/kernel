@@ -311,16 +311,17 @@ static const struct mfd_cell rz_mtu3_devs[] = {
 
 static int rz_mtu3_probe(struct platform_device *pdev)
 {
+	struct device *dev = &pdev->dev;
 	struct rz_mtu3_priv *priv;
 	struct rz_mtu3 *ddata;
 	struct reset_control *rstc;
 	unsigned int i;
 
-	ddata = devm_kzalloc(&pdev->dev, sizeof(*ddata), GFP_KERNEL);
+	ddata = devm_kzalloc(dev, sizeof(*ddata), GFP_KERNEL);
 	if (!ddata)
 		return -ENOMEM;
 
-	ddata->priv_data = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
+	ddata->priv_data = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
 	if (!ddata->priv_data)
 		return -ENOMEM;
 
@@ -330,11 +331,11 @@ static int rz_mtu3_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->mmio))
 		return PTR_ERR(priv->mmio);
 
-	rstc = devm_reset_control_get_exclusive_deasserted(&pdev->dev, NULL);
+	rstc = devm_reset_control_get_exclusive_deasserted(dev, NULL);
 	if (IS_ERR(rstc))
 		return PTR_ERR(rstc);
 
-	ddata->clk = devm_clk_get(&pdev->dev, NULL);
+	ddata->clk = devm_clk_get(dev, NULL);
 	if (IS_ERR(ddata->clk))
 		return PTR_ERR(ddata->clk);
 
@@ -347,7 +348,7 @@ static int rz_mtu3_probe(struct platform_device *pdev)
 		mutex_init(&ddata->channels[i].lock);
 	}
 
-	return devm_mfd_add_devices(&pdev->dev, 0, rz_mtu3_devs,
+	return devm_mfd_add_devices(dev, 0, rz_mtu3_devs,
 				    ARRAY_SIZE(rz_mtu3_devs), NULL, 0, NULL);
 }
 
