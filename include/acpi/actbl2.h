@@ -1524,7 +1524,7 @@ struct acpi_madt_generic_translator {
 
 #define ACPI_MADT_ITS_NON_COHERENT      (1)
 
-/* 16: Multiprocessor wakeup (ACPI 6.4) */
+/* 16: Multiprocessor wakeup (ACPI 6.6) */
 
 struct acpi_madt_multiproc_wakeup {
 	struct acpi_subtable_header header;
