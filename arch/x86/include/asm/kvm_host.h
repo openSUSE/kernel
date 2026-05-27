@@ -2320,7 +2320,6 @@ static inline void kvm_inject_emulated_page_fault(struct kvm_vcpu *vcpu,
 	__kvm_inject_emulated_page_fault(vcpu, fault, false);
 }
 
-bool kvm_require_cpl(struct kvm_vcpu *vcpu, int required_cpl);
 bool kvm_require_dr(struct kvm_vcpu *vcpu, int dr);
 
 static inline int __kvm_irq_line_state(unsigned long *irq_state,
