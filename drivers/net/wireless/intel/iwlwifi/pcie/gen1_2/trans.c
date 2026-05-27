@@ -521,7 +521,6 @@ static int iwl_pcie_nic_init(struct iwl_trans *trans)
 
 #define HW_READY_TIMEOUT (50)
 
-/* Note: returns poll_bit return value, which is >= 0 if success */
 static int iwl_pcie_set_hw_ready(struct iwl_trans *trans)
 {
 	int ret;
