@@ -431,7 +431,7 @@ pub use ::pin_init_internal::Zeroable;
 /// ```
 /// use pin_init::MaybeZeroable;
 ///
-/// // implmements `Zeroable`
+/// // implements `Zeroable`
 /// #[derive(MaybeZeroable)]
 /// pub struct DriverData {
 ///     pub(crate) id: i64,
@@ -439,7 +439,7 @@ pub use ::pin_init_internal::Zeroable;
 ///     len: usize,
 /// }
 ///
-/// // does not implmement `Zeroable`
+/// // does not implement `Zeroable`
 /// #[derive(MaybeZeroable)]
 /// pub struct DriverData2 {
 ///     pub(crate) id: i64,
