@@ -12848,6 +12848,12 @@ S:	Orphan
 T:	git git://git.code.sf.net/p/intel-sas/isci
 F:	drivers/scsi/isci/
 
+INTEL COMPUTER VISION SENSING (CVS) DRIVER
+M:	Miguel Vadillo <miguel.vadillo@intel.com>
+L:	linux-media@vger.kernel.org
+S:	Maintained
+F:	drivers/media/i2c/cvs/
+
 INTEL CPU family model numbers
 M:	Tony Luck <tony.luck@intel.com>
 M:	x86@kernel.org
