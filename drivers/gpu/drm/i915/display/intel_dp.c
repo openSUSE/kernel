@@ -3210,11 +3210,11 @@ static void intel_dp_compute_vsc_colorimetry(const struct intel_crtc_state *crtc
 static bool intel_dp_needs_as_sdp(struct intel_dp *intel_dp,
 				  struct intel_crtc_state *crtc_state)
 {
-	if (!intel_dp->as_sdp_supported)
+	if (!intel_dp->as_sdp_v2_supported)
 		return false;
 
 	/*
-	 * #TODO Implement AS SDP for DP branch device.
+	 * #TODO: Add AS SDP v1 support for PCONs (DP branch devices).
 	 */
 	if (drm_dp_is_branch(intel_dp->dpcd))
 		return false;
