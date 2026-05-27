@@ -3534,8 +3534,13 @@ static int mac80211_hwsim_change_vif_links(struct ieee80211_hw *hw,
 	if (!new_links)
 		add |= BIT(0);
 
-	for_each_set_bit(i, &rem, IEEE80211_MLD_MAX_NUM_LINKS)
+	wiphy_dbg(hw->wiphy, "%s:\n", __func__);
+
+	for_each_set_bit(i, &rem, IEEE80211_MLD_MAX_NUM_LINKS) {
 		mac80211_hwsim_config_mac_nl(hw, old[i]->addr, false);
+		wiphy_dbg(hw->wiphy,
+			  "  link [%d/%pM] removed\n", i, old[i]->addr);
+	}
 
 	for_each_set_bit(i, &add, IEEE80211_MLD_MAX_NUM_LINKS) {
 		struct ieee80211_bss_conf *link_conf;
@@ -3545,6 +3550,8 @@ static int mac80211_hwsim_change_vif_links(struct ieee80211_hw *hw,
 			continue;
 
 		mac80211_hwsim_config_mac_nl(hw, link_conf->addr, true);
+		wiphy_dbg(hw->wiphy,
+			  "  link [%d/%pM] added\n", i, link_conf->addr);
 	}
 
 	return 0;
