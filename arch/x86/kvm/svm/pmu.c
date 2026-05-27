@@ -168,6 +168,12 @@ static int amd_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 			pmc->eventsel = data;
 			pmc->eventsel_hw = (data & ~AMD64_EVENTSEL_HOSTONLY) |
 					   AMD64_EVENTSEL_GUESTONLY;
+
+			if (data & AMD64_EVENTSEL_HOST_GUEST_MASK)
+				__set_bit(pmc->idx, pmu->pmc_has_mode_specific_enables);
+			else
+				__clear_bit(pmc->idx, pmu->pmc_has_mode_specific_enables);
+
 			kvm_pmu_request_counter_reprogram(pmc);
 		}
 		return 0;
