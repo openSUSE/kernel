@@ -15,6 +15,14 @@
 #include "slab.h"
 #include "internal.h"
 
+static inline void lock_list_lru(struct list_lru_one *l, bool irq)
+{
+	if (irq)
+		spin_lock_irq(&l->lock);
+	else
+		spin_lock(&l->lock);
+}
+
 static inline void unlock_list_lru(struct list_lru_one *l, bool irq_off)
 {
 	if (irq_off)
@@ -66,14 +74,6 @@ list_lru_from_memcg_idx(struct list_lru *lru, int nid, int idx)
 		return mlru ? &mlru->node[nid] : NULL;
 	}
 	return &lru->node[nid].lru;
-}
-
-static inline void lock_list_lru(struct list_lru_one *l, bool irq)
-{
-	if (irq)
-		spin_lock_irq(&l->lock);
-	else
-		spin_lock(&l->lock);
 }
 
 static inline struct list_lru_one *
@@ -136,10 +136,7 @@ lock_list_lru_of_memcg(struct list_lru *lru, int nid,
 {
 	struct list_lru_one *l = &lru->node[nid].lru;
 
-	if (irq)
-		spin_lock_irq(&l->lock);
-	else
-		spin_lock(&l->lock);
+	lock_list_lru(l, irq);
 
 	return l;
 }
