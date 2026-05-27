@@ -2704,23 +2704,27 @@ static void ublk_start_cancel(struct ublk_device *ub)
 {
 	struct gendisk *disk = ublk_get_disk(ub);
 
-	/* Our disk has been dead */
-	if (!disk)
-		return;
-
 	mutex_lock(&ub->cancel_mutex);
 	if (ub->canceling)
 		goto out;
-	/*
-	 * Now we are serialized with ublk_queue_rq()
-	 *
-	 * Make sure that ubq->canceling is set when queue is frozen,
-	 * because ublk_queue_rq() has to rely on this flag for avoiding to
-	 * touch completed uring_cmd
-	 */
-	blk_mq_quiesce_queue(disk->queue);
-	ublk_set_canceling(ub, true);
-	blk_mq_unquiesce_queue(disk->queue);
+
+	if (disk) {
+		/*
+		 * Quiesce to serialize with ublk_queue_rq(), ensuring
+		 * ubq->canceling is visible when the queue resumes.
+		 */
+		blk_mq_quiesce_queue(disk->queue);
+		ublk_set_canceling(ub, true);
+		blk_mq_unquiesce_queue(disk->queue);
+	} else {
+		/*
+		 * Disk not yet allocated by ublk_ctrl_start_dev(), so
+		 * there is no request queue and ublk_queue_rq() cannot
+		 * be running.  Just set the flag; if start_dev proceeds
+		 * later, new I/O will see canceling and be aborted.
+		 */
+		ublk_set_canceling(ub, true);
+	}
 out:
 	mutex_unlock(&ub->cancel_mutex);
 	ublk_put_disk(disk);
