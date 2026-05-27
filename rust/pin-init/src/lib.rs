@@ -1096,11 +1096,11 @@ where
 ///
 /// It is unsafe to create this type, since the closure needs to fulfill the same safety
 /// requirement as the `__pinned_init`/`__init` functions.
-struct InitClosure<F, T: ?Sized, E>(F, __internal::PhantomInvariant<(E, T)>);
+struct InitClosure<F, T: ?Sized>(F, __internal::PhantomInvariant<T>);
 
 // SAFETY: While constructing the `InitClosure`, the user promised that it upholds the
 // `__init` invariants.
-unsafe impl<T: ?Sized, F, E> Init<T, E> for InitClosure<F, T, E>
+unsafe impl<T: ?Sized, F, E> Init<T, E> for InitClosure<F, T>
 where
     F: FnOnce(*mut T) -> Result<(), E>,
 {
@@ -1112,7 +1112,7 @@ where
 
 // SAFETY: While constructing the `InitClosure`, the user promised that it upholds the
 // `__pinned_init` invariants.
-unsafe impl<T: ?Sized, F, E> PinInit<T, E> for InitClosure<F, T, E>
+unsafe impl<T: ?Sized, F, E> PinInit<T, E> for InitClosure<F, T>
 where
     F: FnOnce(*mut T) -> Result<(), E>,
 {
