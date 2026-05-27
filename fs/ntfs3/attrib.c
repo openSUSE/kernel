@@ -1152,7 +1152,7 @@ again:
 			struct ATTRIB *attr2;
 
 			attr2 = ni_find_attr(ni, attr_b, &le_b, ATTR_DATA, NULL,
-					       0, &vcn0, &mi);
+					     0, &vcn0, &mi);
 			if (!attr2) {
 				err = -EINVAL;
 				goto out;

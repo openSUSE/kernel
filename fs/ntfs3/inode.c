@@ -592,7 +592,6 @@ static void ntfs_iomap_read_end_io(struct bio *bio)
 		u32 f_size = folio_size(folio);
 		loff_t f_pos = folio_pos(folio);
 
-
 		if (valid < f_pos + f_size) {
 			u32 z_from = valid <= f_pos ?
 					     0 :
@@ -765,7 +764,7 @@ static int ntfs_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 		clen_max = bytes_to_cluster(sbi, endbyte) - vcn;
 	}
 
-	/* 
+	/*
 	 * Force to allocate clusters if directIO(write) or writeback_range.
 	 * NOTE: attr_data_get_block allocates clusters only for sparse file.
 	 * Normal file allocates clusters in attr_set_size.
@@ -830,7 +829,6 @@ static int ntfs_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 		iomap->type = IOMAP_DELALLOC;
 		iomap->addr = IOMAP_NULL_ADDR;
 	} else {
-
 		/* Translate clusters into bytes. */
 		iomap->addr = ((loff_t)lcn << cluster_bits) + off;
 		if (length && iomap->length > length)
@@ -987,7 +985,6 @@ static ssize_t ntfs_writeback_range(struct iomap_writepage_ctx *wpc,
 	return iomap_add_to_ioend(wpc, folio, offset, end_pos, len);
 }
 
-
 static const struct iomap_writeback_ops ntfs_writeback_ops = {
 	.writeback_range = ntfs_writeback_range,
 	.writeback_submit = iomap_ioend_writeback_submit,
@@ -1000,7 +997,7 @@ static int ntfs_writepages(struct address_space *mapping,
 	struct inode *inode = mapping->host;
 	struct ntfs_inode *ni = ntfs_i(inode);
 	struct iomap_writepage_ctx wpc = {
-		.inode = mapping->host,
+		.inode = inode,
 		.wbc = wbc,
 		.ops = &ntfs_writeback_ops,
 	};
@@ -1280,7 +1277,6 @@ int ntfs_create_inode(struct mnt_idmap *idmap, struct inode *dir,
 	if (!(mode & 0222))
 		fa |= FILE_ATTRIBUTE_READONLY;
 
-	/* Allocate PATH_MAX bytes. */
 	new_de = kzalloc(PATH_MAX, GFP_KERNEL);
 	if (!new_de) {
 		err = -ENOMEM;
@@ -1719,7 +1715,6 @@ int ntfs_link_inode(struct inode *inode, struct dentry *dentry)
 	struct ntfs_sb_info *sbi = inode->i_sb->s_fs_info;
 	struct NTFS_DE *de;
 
-	/* Allocate PATH_MAX bytes. */
 	de = kzalloc(PATH_MAX, GFP_KERNEL);
 	if (!de)
 		return -ENOMEM;
