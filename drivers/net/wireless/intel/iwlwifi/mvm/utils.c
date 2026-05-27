@@ -157,7 +157,7 @@ int iwl_mvm_legacy_rate_to_mac80211_idx(u32 rate_n_flags,
 	return -1;
 }
 
-u8 iwl_mvm_mac80211_idx_to_hwrate(const struct iwl_fw *fw, int rate_idx)
+u8 iwl_mvm_rate_idx_to_fw_idx(const struct iwl_fw *fw, int rate_idx)
 {
 	return rate_idx >= IWL_FIRST_OFDM_RATE ?
 		rate_idx - IWL_FIRST_OFDM_RATE :
