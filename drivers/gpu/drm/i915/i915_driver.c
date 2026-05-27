@@ -1558,7 +1558,7 @@ static int i915_pm_restore(struct device *kdev)
 	return i915_pm_resume(kdev);
 }
 
-static int intel_runtime_suspend(struct device *kdev)
+static int i915_pm_runtime_suspend(struct device *kdev)
 {
 	struct drm_i915_private *dev_priv = kdev_to_i915(kdev);
 	struct intel_display *display = dev_priv->display;
@@ -1632,7 +1632,7 @@ static int intel_runtime_suspend(struct device *kdev)
 	if (IS_BROADWELL(dev_priv)) {
 		/*
 		 * On Broadwell, if we use PCI_D1 the PCH DDI ports will stop
-		 * being detected, and the call we do at intel_runtime_resume()
+		 * being detected, and the call we do at i915_pm_runtime_resume()
 		 * won't be able to restore them. Since PCI_D3hot matches the
 		 * actual specification and appears to be working, use it.
 		 */
@@ -1657,7 +1657,7 @@ static int intel_runtime_suspend(struct device *kdev)
 	return 0;
 }
 
-static int intel_runtime_resume(struct device *kdev)
+static int i915_pm_runtime_resume(struct device *kdev)
 {
 	struct drm_i915_private *dev_priv = kdev_to_i915(kdev);
 	struct intel_display *display = dev_priv->display;
@@ -1765,8 +1765,8 @@ const struct dev_pm_ops i915_pm_ops = {
 	.restore = i915_pm_restore,
 
 	/* S0ix (via runtime suspend) event handlers */
-	.runtime_suspend = intel_runtime_suspend,
-	.runtime_resume = intel_runtime_resume,
+	.runtime_suspend = i915_pm_runtime_suspend,
+	.runtime_resume = i915_pm_runtime_resume,
 };
 
 static const struct file_operations i915_driver_fops = {
