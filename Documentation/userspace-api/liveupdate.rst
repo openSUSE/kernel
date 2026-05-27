@@ -14,6 +14,14 @@ ioctl uAPI
 ===========
 .. kernel-doc:: include/uapi/linux/liveupdate.h
 
+Note on Compatibility
+=====================
+
+Note that the Live Update feature is still under development and subject to
+change, so compatibility is not guaranteed when kexec rebooting between
+different kernel versions. This is expected to change and stabilize in a future
+version.
+
 Userspace Integration
 =====================
 
