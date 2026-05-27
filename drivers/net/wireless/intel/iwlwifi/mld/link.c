@@ -1024,7 +1024,7 @@ iwl_mld_get_avail_chan_load(struct iwl_mld *mld,
 	return MAX_CHAN_LOAD - iwl_mld_get_chan_load(mld, link_conf);
 }
 
-static s8
+VISIBLE_IF_IWLWIFI_KUNIT s8
 iwl_mld_get_dup_beacon_rssi_adjust(struct iwl_mld *mld,
 				   struct ieee80211_bss_conf *link_conf)
 {
@@ -1077,6 +1077,7 @@ iwl_mld_get_dup_beacon_rssi_adjust(struct iwl_mld *mld,
 		return 0;
 	}
 }
+EXPORT_SYMBOL_IF_IWLWIFI_KUNIT(iwl_mld_get_dup_beacon_rssi_adjust);
 
 static s8 iwl_mld_get_primary_psd(const struct ieee80211_parsed_tpe_psd *psd,
 				  const struct cfg80211_chan_def *chandef,
