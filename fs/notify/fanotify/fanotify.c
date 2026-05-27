@@ -120,10 +120,7 @@ static bool fanotify_error_event_equal(struct fanotify_error_event *fee1,
 				       struct fanotify_error_event *fee2)
 {
 	/* Error events against the same file system are always merged. */
-	if (!fanotify_fsid_equal(&fee1->fsid, &fee2->fsid))
-		return false;
-
-	return true;
+	return fanotify_fsid_equal(&fee1->fsid, &fee2->fsid);
 }
 
 static bool fanotify_should_merge(struct fanotify_event *old,
