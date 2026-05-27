@@ -58,36 +58,6 @@ impl PhantomInvariantLifetime<'_> {
     }
 }
 
-/// Module-internal type implementing `PinInit` and `Init`.
-///
-/// It is unsafe to create this type, since the closure needs to fulfill the same safety
-/// requirement as the `__pinned_init`/`__init` functions.
-pub(crate) struct InitClosure<F, T: ?Sized, E>(pub(crate) F, pub(crate) PhantomInvariant<(E, T)>);
-
-// SAFETY: While constructing the `InitClosure`, the user promised that it upholds the
-// `__init` invariants.
-unsafe impl<T: ?Sized, F, E> Init<T, E> for InitClosure<F, T, E>
-where
-    F: FnOnce(*mut T) -> Result<(), E>,
-{
-    #[inline]
-    unsafe fn __init(self, slot: *mut T) -> Result<(), E> {
-        (self.0)(slot)
-    }
-}
-
-// SAFETY: While constructing the `InitClosure`, the user promised that it upholds the
-// `__pinned_init` invariants.
-unsafe impl<T: ?Sized, F, E> PinInit<T, E> for InitClosure<F, T, E>
-where
-    F: FnOnce(*mut T) -> Result<(), E>,
-{
-    #[inline]
-    unsafe fn __pinned_init(self, slot: *mut T) -> Result<(), E> {
-        (self.0)(slot)
-    }
-}
-
 /// Token type to signify successful initialization.
 ///
 /// Can only be constructed via the unsafe [`Self::new`] function. The initializer macros use this

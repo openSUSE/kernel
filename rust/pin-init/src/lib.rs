@@ -1092,6 +1092,36 @@ where
     }
 }
 
+/// Implement `PinInit` and `Init` for closures.
+///
+/// It is unsafe to create this type, since the closure needs to fulfill the same safety
+/// requirement as the `__pinned_init`/`__init` functions.
+struct InitClosure<F, T: ?Sized, E>(F, __internal::PhantomInvariant<(E, T)>);
+
+// SAFETY: While constructing the `InitClosure`, the user promised that it upholds the
+// `__init` invariants.
+unsafe impl<T: ?Sized, F, E> Init<T, E> for InitClosure<F, T, E>
+where
+    F: FnOnce(*mut T) -> Result<(), E>,
+{
+    #[inline]
+    unsafe fn __init(self, slot: *mut T) -> Result<(), E> {
+        (self.0)(slot)
+    }
+}
+
+// SAFETY: While constructing the `InitClosure`, the user promised that it upholds the
+// `__pinned_init` invariants.
+unsafe impl<T: ?Sized, F, E> PinInit<T, E> for InitClosure<F, T, E>
+where
+    F: FnOnce(*mut T) -> Result<(), E>,
+{
+    #[inline]
+    unsafe fn __pinned_init(self, slot: *mut T) -> Result<(), E> {
+        (self.0)(slot)
+    }
+}
+
 /// Creates a new [`PinInit<T, E>`] from the given closure.
 ///
 /// # Safety
@@ -1108,7 +1138,7 @@ where
 pub const unsafe fn pin_init_from_closure<T: ?Sized, E>(
     f: impl FnOnce(*mut T) -> Result<(), E>,
 ) -> impl PinInit<T, E> {
-    __internal::InitClosure(f, __internal::PhantomInvariant::new())
+    InitClosure(f, __internal::PhantomInvariant::new())
 }
 
 /// Creates a new [`Init<T, E>`] from the given closure.
@@ -1127,7 +1157,7 @@ pub const unsafe fn pin_init_from_closure<T: ?Sized, E>(
 pub const unsafe fn init_from_closure<T: ?Sized, E>(
     f: impl FnOnce(*mut T) -> Result<(), E>,
 ) -> impl Init<T, E> {
-    __internal::InitClosure(f, __internal::PhantomInvariant::new())
+    InitClosure(f, __internal::PhantomInvariant::new())
 }
 
 /// Changes the to be initialized type.
