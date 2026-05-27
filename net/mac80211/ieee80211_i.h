@@ -2818,10 +2818,36 @@ int ieee80211_send_action_csa(struct ieee80211_sub_if_data *sdata,
 			      struct cfg80211_csa_settings *csa_settings);
 void ieee80211_recalc_sb_count(struct ieee80211_sub_if_data *sdata, u64 tsf);
 void ieee80211_recalc_dtim(struct ieee80211_sub_if_data *sdata, u64 tsf);
-int ieee80211_check_combinations(struct ieee80211_sub_if_data *sdata,
-				 const struct cfg80211_chan_def *chandef,
-				 enum ieee80211_chanctx_mode chanmode,
-				 u8 radar_detect, int radio_idx);
+
+struct ieee80211_check_combinations_data {
+	const struct cfg80211_chan_def *chandef;
+	enum ieee80211_chanctx_mode chanmode;
+	u8 radar_detect;
+	int radio_idx;
+	bool (*chanctx_filter)(struct ieee80211_chanctx *ctx,
+			       void *filter_data);
+	void *filter_data;
+};
+
+int ieee80211_check_combinations_ext(struct ieee80211_sub_if_data *sdata,
+				     struct ieee80211_check_combinations_data *data);
+
+static inline int
+ieee80211_check_combinations(struct ieee80211_sub_if_data *sdata,
+			     const struct cfg80211_chan_def *chandef,
+			     enum ieee80211_chanctx_mode chanmode,
+			     u8 radar_detect, int radio_idx)
+{
+	struct ieee80211_check_combinations_data data = {
+		.chandef = chandef,
+		.chanmode = chanmode,
+		.radar_detect = radar_detect,
+		.radio_idx = radio_idx,
+	};
+
+	return ieee80211_check_combinations_ext(sdata, &data);
+}
+
 int ieee80211_max_num_channels(struct ieee80211_local *local, int radio_idx);
 u32 ieee80211_get_radio_mask(struct wiphy *wiphy, struct net_device *dev);
 void ieee80211_recalc_chanctx_chantype(struct ieee80211_local *local,
