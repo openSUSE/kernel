@@ -51,6 +51,14 @@ struct osnoise_context {
 	/* -1 as init value because 0 is off */
 	int			orig_opt_workload;
 	int			opt_workload;
+
+	/* -1 as init value because 0 is off */
+	int			orig_opt_timerlat_align;
+	int			opt_timerlat_align;
+
+	/* 0 as init value */
+	unsigned long long	orig_timerlat_align_us;
+	unsigned long long	timerlat_align_us;
 };
 
 extern volatile int stop_tracing;

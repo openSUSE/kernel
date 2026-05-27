@@ -31,6 +31,8 @@ struct timerlat_params {
 	enum timerlat_tracing_mode mode;
 	const char		*bpf_action_program;
 	enum stack_format	stack_format;
+	bool			timerlat_align;
+	unsigned long long	timerlat_align_us;
 };
 
 #define to_timerlat_params(ptr) container_of(ptr, struct timerlat_params, common)

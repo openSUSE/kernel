@@ -248,6 +248,7 @@ struct common_params *timerlat_top_parse_args(int argc, char **argv)
 		RTLA_OPT_USER_THREADS,
 		RTLA_OPT_KERNEL_THREADS,
 		RTLA_OPT_USER_LOAD,
+		TIMERLAT_OPT_ALIGNED,
 
 	OPT_GROUP("Output:"),
 		TIMERLAT_OPT_NANO,
@@ -362,6 +363,7 @@ struct common_params *timerlat_hist_parse_args(int argc, char **argv)
 		RTLA_OPT_USER_THREADS,
 		RTLA_OPT_KERNEL_THREADS,
 		RTLA_OPT_USER_LOAD,
+		TIMERLAT_OPT_ALIGNED,
 
 	OPT_GROUP("Histogram Options:"),
 		HIST_OPT_BUCKET_SIZE,

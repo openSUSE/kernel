@@ -77,6 +77,24 @@ timerlat_apply_config(struct osnoise_tool *tool, struct timerlat_params *params)
 		goto out_err;
 	}
 
+	retval = osnoise_set_timerlat_align(tool->context, params->timerlat_align);
+	if (retval && params->timerlat_align) {
+		/*
+		 * We might be running on a kernel that does not support timerlat align.
+		 * Unless user requested it explicitly, ignore the error.
+		 */
+		err_msg("Failed to enable timerlat align\n");
+		goto out_err;
+	}
+
+	if (params->timerlat_align) {
+		retval = osnoise_set_timerlat_align_us(tool->context, params->timerlat_align_us);
+		if (retval) {
+			err_msg("Failed to set timerlat align us\n");
+			goto out_err;
+		}
+	}
+
 	/*
 	 * If the user did not specify a type of thread, try user-threads first.
 	 * Fall back to kernel threads otherwise.

@@ -447,6 +447,10 @@ static int opt_osnoise_on_end_cb(const struct option *opt, const char *arg, int 
 	"set the stack format (truncate, skip, full)", \
 	opt_stack_format_cb)
 
+#define TIMERLAT_OPT_ALIGNED OPT_CALLBACK('A', "aligned", params, "us", \
+	"align thread wakeups to a specific offset", \
+	opt_timerlat_align_cb)
+
 /*
  * Callback functions for command line options for timerlat tools
  */
@@ -604,6 +608,19 @@ static int opt_stack_format_cb(const struct option *opt, const char *arg, int un
 
 	if (*format == -1)
 		fatal("Invalid --stack-format option");
+
+	return 0;
+}
+
+static int opt_timerlat_align_cb(const struct option *opt, const char *arg, int unset)
+{
+	struct timerlat_params *params = opt->value;
+
+	if (unset || !arg)
+		return -1;
+
+	params->timerlat_align = true;
+	params->timerlat_align_us = get_llong_from_str((char *)arg);
 
 	return 0;
 }
