@@ -535,10 +535,15 @@ struct airoha_qdma {
 	struct airoha_queue q_rx[AIROHA_NUM_RX_RING];
 };
 
+struct airoha_gdm_dev {
+	struct airoha_gdm_port *port;
+	struct net_device *dev;
+	struct airoha_eth *eth;
+};
+
 struct airoha_gdm_port {
 	struct airoha_qdma *qdma;
-	struct airoha_eth *eth;
-	struct net_device *dev;
+	struct airoha_gdm_dev *dev;
 	int id;
 	int nbq;
 
@@ -662,8 +667,8 @@ static inline bool airoha_is_7583(struct airoha_eth *eth)
 }
 
 int airoha_get_fe_port(struct airoha_gdm_port *port);
-bool airoha_is_valid_gdm_port(struct airoha_eth *eth,
-			      struct airoha_gdm_port *port);
+bool airoha_is_valid_gdm_dev(struct airoha_eth *eth,
+			     struct airoha_gdm_dev *dev);
 
 void airoha_ppe_set_cpu_port(struct airoha_gdm_port *port, u8 ppe_id,
 			     u8 fport);
