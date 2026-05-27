@@ -4,6 +4,8 @@
 
 # Shell functions for the rest of the scripts.
 
+export LC_ALL=C
+
 MAX_RETRIES=600
 RETRY_INTERVAL=".1"	# seconds
 SYSFS_KERNEL_DIR="/sys/kernel"
