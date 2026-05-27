@@ -77,14 +77,14 @@ static inline bool lock_list_lru(struct list_lru_one *l, bool irq)
 }
 
 static inline struct list_lru_one *
-lock_list_lru_of_memcg(struct list_lru *lru, int nid, struct mem_cgroup *memcg,
-		       bool irq, bool skip_empty)
+lock_list_lru_of_memcg(struct list_lru *lru, int nid,
+		       struct mem_cgroup **memcg, bool irq, bool skip_empty)
 {
 	struct list_lru_one *l;
 
 	rcu_read_lock();
 again:
-	l = list_lru_from_memcg_idx(lru, nid, memcg_kmem_id(memcg));
+	l = list_lru_from_memcg_idx(lru, nid, memcg_kmem_id(*memcg));
 	if (likely(l) && lock_list_lru(l, irq)) {
 		rcu_read_unlock();
 		return l;
@@ -97,8 +97,8 @@ again:
 		rcu_read_unlock();
 		return NULL;
 	}
-	VM_WARN_ON(!css_is_dying(&memcg->css));
-	memcg = parent_mem_cgroup(memcg);
+	VM_WARN_ON(!css_is_dying(&(*memcg)->css));
+	*memcg = parent_mem_cgroup(*memcg);
 	goto again;
 }
 
@@ -135,8 +135,8 @@ list_lru_from_memcg_idx(struct list_lru *lru, int nid, int idx)
 }
 
 static inline struct list_lru_one *
-lock_list_lru_of_memcg(struct list_lru *lru, int nid, struct mem_cgroup *memcg,
-		       bool irq, bool skip_empty)
+lock_list_lru_of_memcg(struct list_lru *lru, int nid,
+		       struct mem_cgroup **memcg, bool irq, bool skip_empty)
 {
 	struct list_lru_one *l = &lru->node[nid].lru;
 
@@ -164,12 +164,16 @@ bool list_lru_add(struct list_lru *lru, struct list_head *item, int nid,
 	struct list_lru_node *nlru = &lru->node[nid];
 	struct list_lru_one *l;
 
-	l = lock_list_lru_of_memcg(lru, nid, memcg, false, false);
+	l = lock_list_lru_of_memcg(lru, nid, &memcg, false, false);
 	if (!l)
 		return false;
 	if (list_empty(item)) {
 		list_add_tail(item, &l->list);
-		/* Set shrinker bit if the first element was added */
+		/*
+		 * Set shrinker bit on the memcg that owns the locked
+		 * sublist - lock_list_lru_of_memcg() may have walked up
+		 * past a dying memcg, and the bit must be set there.
+		 */
 		if (!l->nr_items++)
 			set_shrinker_bit(memcg, nid, lru_shrinker_id(lru));
 		unlock_list_lru(l, false);
@@ -204,7 +208,7 @@ bool list_lru_del(struct list_lru *lru, struct list_head *item, int nid,
 {
 	struct list_lru_node *nlru = &lru->node[nid];
 	struct list_lru_one *l;
-	l = lock_list_lru_of_memcg(lru, nid, memcg, false, false);
+	l = lock_list_lru_of_memcg(lru, nid, &memcg, false, false);
 	if (!l)
 		return false;
 	if (!list_empty(item)) {
@@ -288,7 +292,7 @@ __list_lru_walk_one(struct list_lru *lru, int nid, struct mem_cgroup *memcg,
 	unsigned long isolated = 0;
 
 restart:
-	l = lock_list_lru_of_memcg(lru, nid, memcg, irq_off, true);
+	l = lock_list_lru_of_memcg(lru, nid, &memcg, irq_off, true);
 	if (!l)
 		return isolated;
 	list_for_each_safe(item, n, &l->list) {
