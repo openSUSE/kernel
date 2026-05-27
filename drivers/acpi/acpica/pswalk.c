@@ -49,8 +49,8 @@ void acpi_ps_delete_parse_tree(union acpi_parse_object *subtree_root)
 
 				/* This debug option will print the entire parse tree */
 
-				acpi_os_printf("      %*.s%s %p", (level * 4),
-					       " ",
+				acpi_os_printf("      %*s%s %p", (level * 4),
+					       "",
 					       acpi_ps_get_opcode_name(op->
 								       common.
 								       aml_opcode),
