@@ -26,8 +26,8 @@ Description:	read/write
 		Documentation/leds/leds-class-multicolor.rst.
 
 What:		/sys/class/leds/<led>/multi_max_intensity
-Date:		March 2026
-KernelVersion:	7.1
+Date:		May 2026
+KernelVersion:	7.2
 Contact:	Armin Wolf <W_Armin@gmx.de>
 Description:	read
 		This file contains an array of integers describing the maximum
