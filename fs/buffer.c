@@ -402,11 +402,13 @@ static void decrypt_bh(struct work_struct *work)
 }
 
 /*
- * I/O completion handler for block_read_full_folio() - pages
+ * I/O completion handler for block_read_full_folio() - folios
  * which come unlocked at the end of I/O.
  */
-static void end_buffer_async_read_io(struct buffer_head *bh, int uptodate)
+static void bh_end_async_read(struct bio *bio)
 {
+	struct buffer_head *bh;
+	bool uptodate = bio_endio_bh(bio, &bh);
 	struct inode *inode = bh->b_folio->mapping->host;
 	bool decrypt = fscrypt_inode_uses_fs_layer_crypto(inode);
 	struct fsverity_info *vi = NULL;
@@ -431,7 +433,7 @@ static void end_buffer_async_read_io(struct buffer_head *bh, int uptodate)
 			}
 			return;
 		}
-		uptodate = 0;
+		uptodate = false;
 	}
 	end_buffer_async_read(bh, uptodate);
 }
@@ -493,33 +495,6 @@ void bh_end_async_write(struct bio *bio)
 	end_buffer_async_write(bh, success);
 }
 EXPORT_SYMBOL(bh_end_async_write);
-
-/*
- * If a page's buffers are under async readin (end_buffer_async_read
- * completion) then there is a possibility that another thread of
- * control could lock one of the buffers after it has completed
- * but while some of the other buffers have not completed.  This
- * locked buffer would confuse end_buffer_async_read() into not unlocking
- * the page.  So the absence of BH_Async_Read tells end_buffer_async_read()
- * that this buffer is not under async I/O.
- *
- * The page comes unlocked when it has no locked buffer_async buffers
- * left.
- *
- * PageLocked prevents anyone starting new async I/O reads any of
- * the buffers.
- *
- * PageWriteback is used to prevent simultaneous writeout of the same
- * page.
- *
- * PageLocked prevents anyone from starting writeback of a page which is
- * under read I/O (PageWriteback is only ever set against a locked page).
- */
-static void mark_buffer_async_read(struct buffer_head *bh)
-{
-	bh->b_end_io = end_buffer_async_read_io;
-	set_buffer_async_read(bh);
-}
 
 void mark_buffer_async_write(struct buffer_head *bh)
 {
@@ -2497,9 +2472,33 @@ int block_read_full_folio(struct folio *folio, get_block_t *get_block)
 			continue;
 		}
 
-		mark_buffer_async_read(bh);
+		/*
+		 * If a folio's buffers are under async readin
+		 * (end_buffer_async_read completion) then there is a
+		 * possibility that another thread of control could lock
+		 * one of the buffers after it has completed but while
+		 * some of the other buffers have not completed.  This
+		 * locked buffer would confuse end_buffer_async_read()
+		 * into not unlocking the folio.  So the absence of
+		 * BH_Async_Read tells end_buffer_async_read() that this
+		 * buffer is not under async I/O.
+		 *
+		 * The folio comes unlocked when it has no locked
+		 * buffer_async buffers left.
+		 *
+		 * The folio lock prevents anyone starting new async
+		 * I/O reads into any of the buffers.
+		 *
+		 * The writeback flag is used to prevent simultaneous
+		 * writeout of the same folio.
+		 *
+		 * The folio lock prevents anyone from starting writeback
+		 * of a folio which is under read I/O (the writeback
+		 * flag is only ever set on a locked folio).
+		 */
+		set_buffer_async_read(bh);
 		if (prev)
-			submit_bh(REQ_OP_READ, prev);
+			bh_submit(prev, REQ_OP_READ, bh_end_async_read);
 		prev = bh;
 	} while (iblock++, (bh = bh->b_this_page) != head);
 
@@ -2513,7 +2512,7 @@ int block_read_full_folio(struct folio *folio, get_block_t *get_block)
 	 * in this folio.
 	 */
 	if (prev)
-		submit_bh(REQ_OP_READ, prev);
+		bh_submit(prev, REQ_OP_READ, bh_end_async_read);
 	else
 		folio_end_read(folio, !page_error);
 
