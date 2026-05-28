@@ -1880,12 +1880,12 @@ static int is_dmi_valid(const char *field)
 }
 
 /*
- * Append a string to card->dmi_longname with character cleanups.
+ * Append a string to dmi_longname with character cleanups.
  */
-static void append_dmi_string(struct snd_soc_card *card, const char *str)
+#define DMI_LONGNAME_LEN	80
+static void append_dmi_string(char *dst, const char *str)
 {
-	char *dst = card->dmi_longname;
-	size_t dst_len = sizeof(card->dmi_longname);
+	size_t dst_len = DMI_LONGNAME_LEN;
 	size_t len;
 
 	len = strlen(dst);
@@ -1929,6 +1929,7 @@ static void append_dmi_string(struct snd_soc_card *card, const char *str)
 static int snd_soc_set_dmi_name(struct snd_soc_card *card)
 {
 	const char *vendor, *product, *board;
+	char *dmi_longname;
 
 	if (card->long_name)
 		return 0; /* long name already set by driver or from DMI */
@@ -1943,27 +1944,31 @@ static int snd_soc_set_dmi_name(struct snd_soc_card *card)
 		return 0;
 	}
 
-	snprintf(card->dmi_longname, sizeof(card->dmi_longname), "%s", vendor);
-	cleanup_dmi_name(card->dmi_longname);
+	dmi_longname = devm_kzalloc(card->dev, DMI_LONGNAME_LEN, GFP_KERNEL);
+	if (!dmi_longname)
+		return -ENOMEM;
+
+	snprintf(dmi_longname, DMI_LONGNAME_LEN, "%s", vendor);
+	cleanup_dmi_name(dmi_longname);
 
 	product = dmi_get_system_info(DMI_PRODUCT_NAME);
 	if (product && is_dmi_valid(product)) {
 		const char *product_version = dmi_get_system_info(DMI_PRODUCT_VERSION);
 
-		append_dmi_string(card, product);
+		append_dmi_string(dmi_longname, product);
 
 		/*
 		 * some vendors like Lenovo may only put a self-explanatory
 		 * name in the product version field
 		 */
 		if (product_version && is_dmi_valid(product_version))
-			append_dmi_string(card, product_version);
+			append_dmi_string(dmi_longname, product_version);
 	}
 
 	board = dmi_get_system_info(DMI_BOARD_NAME);
 	if (board && is_dmi_valid(board)) {
 		if (!product || strcasecmp(board, product))
-			append_dmi_string(card, board);
+			append_dmi_string(dmi_longname, board);
 	} else if (!product) {
 		/* fall back to using legacy name */
 		dev_warn(card->dev, "ASoC: no DMI board/product name!\n");
@@ -1971,7 +1976,7 @@ static int snd_soc_set_dmi_name(struct snd_soc_card *card)
 	}
 
 	/* set the card long name */
-	card->long_name = card->dmi_longname;
+	card->long_name = dmi_longname;
 
 	return 0;
 }
