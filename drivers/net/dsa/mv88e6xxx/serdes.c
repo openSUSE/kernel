@@ -102,6 +102,17 @@ int mv88e6xxx_pcs_decode_state(struct device *dev, u16 bmsr, u16 lpa,
 	return 0;
 }
 
+int mv88e6352_serdes_get_lane(struct mv88e6xxx_chip *chip, int port)
+{
+	int has_serdes;
+
+	has_serdes = mv88e6352_g2_scratch_port_has_serdes(chip, port);
+	if (has_serdes == 0)
+		return -ENODEV;
+
+	return MV88E6352_ADDR_SERDES;
+}
+
 struct mv88e6352_serdes_hw_stat {
 	char string[ETH_GSTRING_LEN];
 	int sizeof_stat;
