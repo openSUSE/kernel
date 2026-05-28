@@ -4,6 +4,7 @@
  * Copyright (C) 2017 Texas Instruments Inc.
  */
 
+#include <linux/clk.h>
 #include <linux/ethtool.h>
 #include <linux/etherdevice.h>
 #include <linux/kernel.h>
@@ -986,10 +987,17 @@ static int dp8382x_probe(struct phy_device *phydev)
 {
 	struct device *dev = &phydev->mdio.dev;
 	struct dp83822_private *dp83822;
+	struct clk *clk;
 
 	dp83822 = devm_kzalloc(dev, sizeof(*dp83822), GFP_KERNEL);
 	if (!dp83822)
 		return -ENOMEM;
+
+	clk = devm_clk_get_optional_enabled(dev, NULL);
+	if (IS_ERR(clk)) {
+		return dev_err_probe(dev, PTR_ERR(clk),
+				     "Failed to request ref clock\n");
+	}
 
 	dp83822->tx_amplitude_100base_tx_index = -1;
 	dp83822->mac_termination_index = -1;
