@@ -192,25 +192,6 @@ void bh_end_read(struct bio *bio)
 }
 EXPORT_SYMBOL(bh_end_read);
 
-static void __end_buffer_write_sync(struct buffer_head *bh, int uptodate)
-{
-	if (uptodate) {
-		set_buffer_uptodate(bh);
-	} else {
-		buffer_io_error(bh, ", lost sync page write");
-		mark_buffer_write_io_error(bh);
-		clear_buffer_uptodate(bh);
-	}
-	unlock_buffer(bh);
-}
-
-void end_buffer_write_sync(struct buffer_head *bh, int uptodate)
-{
-	__end_buffer_write_sync(bh, uptodate);
-	put_bh(bh);
-}
-EXPORT_SYMBOL(end_buffer_write_sync);
-
 /**
  * bh_end_write - I/O end handler for writes
  * @bio: The bio being completed.
@@ -222,7 +203,15 @@ void bh_end_write(struct bio *bio)
 {
 	struct buffer_head *bh;
 	bool success = bio_endio_bh(bio, &bh);
-	__end_buffer_write_sync(bh, success);
+
+	if (success) {
+		set_buffer_uptodate(bh);
+	} else {
+		buffer_io_error(bh, ", lost sync page write");
+		mark_buffer_write_io_error(bh);
+		clear_buffer_uptodate(bh);
+	}
+	unlock_buffer(bh);
 }
 EXPORT_SYMBOL(bh_end_write);
 
