@@ -1495,13 +1495,13 @@ panthor_gem_shrinker_scan(struct shrinker *shrinker, struct shrink_control *sc)
 	if (!can_swap())
 		goto out;
 
-	freed += drm_gem_lru_scan(&ptdev->reclaim.unused,
+	freed += drm_gem_lru_scan(&ptdev->base, &ptdev->reclaim.unused,
 				  sc->nr_to_scan - freed, &remaining,
 				  panthor_gem_try_evict_no_resv_wait, NULL);
 	if (freed >= sc->nr_to_scan)
 		goto out;
 
-	freed += drm_gem_lru_scan(&ptdev->reclaim.mmapped,
+	freed += drm_gem_lru_scan(&ptdev->base, &ptdev->reclaim.mmapped,
 				  sc->nr_to_scan - freed, &remaining,
 				  panthor_gem_try_evict_no_resv_wait, NULL);
 	if (freed >= sc->nr_to_scan)
@@ -1515,7 +1515,7 @@ panthor_gem_shrinker_scan(struct shrinker *shrinker, struct shrink_control *sc)
 	if (freed >= sc->nr_to_scan)
 		goto out;
 
-	freed += drm_gem_lru_scan(&ptdev->reclaim.gpu_mapped_shared,
+	freed += drm_gem_lru_scan(&ptdev->base, &ptdev->reclaim.gpu_mapped_shared,
 				  sc->nr_to_scan - freed, &remaining,
 				  panthor_gem_try_evict, NULL);
 
@@ -1544,21 +1544,16 @@ out:
 int panthor_gem_shrinker_init(struct panthor_device *ptdev)
 {
 	struct shrinker *shrinker;
-	int ret;
-
-	ret = drmm_mutex_init(&ptdev->base, &ptdev->reclaim.lock);
-	if (ret)
-		return ret;
 
 	INIT_LIST_HEAD(&ptdev->reclaim.vms);
-	drm_gem_lru_init(&ptdev->reclaim.unused, &ptdev->reclaim.lock);
-	drm_gem_lru_init(&ptdev->reclaim.mmapped, &ptdev->reclaim.lock);
-	drm_gem_lru_init(&ptdev->reclaim.gpu_mapped_shared, &ptdev->reclaim.lock);
+	drm_gem_lru_init(&ptdev->reclaim.unused);
+	drm_gem_lru_init(&ptdev->reclaim.mmapped);
+	drm_gem_lru_init(&ptdev->reclaim.gpu_mapped_shared);
 	ptdev->reclaim.gpu_mapped_count = 0;
 
 	/* Teach lockdep about lock ordering wrt. shrinker: */
 	fs_reclaim_acquire(GFP_KERNEL);
-	might_lock(&ptdev->reclaim.lock);
+	might_lock(&ptdev->base.gem_lru_mutex);
 	fs_reclaim_release(GFP_KERNEL);
 
 	shrinker = shrinker_alloc(0, "drm-panthor-gem");

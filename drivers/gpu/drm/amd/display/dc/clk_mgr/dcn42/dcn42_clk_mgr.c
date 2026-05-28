@@ -309,6 +309,8 @@ void dcn42_update_clocks(struct clk_mgr *clk_mgr_base,
 	}
 
 	// workaround: Limit dppclk to 100Mhz to avoid lower eDP panel switch to plus 4K monitor underflow.
+	if (new_clocks->dppclk_khz < 100000)
+		new_clocks->dppclk_khz = 100000;
 
 	if (should_set_clock(safe_to_lower, new_clocks->dppclk_khz, clk_mgr->base.clks.dppclk_khz)) {
 		if (clk_mgr->base.clks.dppclk_khz > new_clocks->dppclk_khz)
@@ -879,7 +881,7 @@ int dcn42_get_dispclk_from_dentist(struct clk_mgr *clk_mgr_base)
 	(void)clk_mgr_base;
 	struct clk_mgr_internal *clk_mgr = TO_CLK_MGR_INTERNAL(clk_mgr_base);
 	uint32_t dispclk_wdivider;
-	int disp_divider;
+	unsigned int disp_divider;
 
 	REG_GET(DENTIST_DISPCLK_CNTL, DENTIST_DISPCLK_WDIVIDER, &dispclk_wdivider);
 	disp_divider = dentist_get_divider_from_did(dispclk_wdivider);
@@ -1078,10 +1080,11 @@ void dcn42_clk_mgr_construct(
 
 			dcn42_bw_params.vram_type = ctx->dc_bios->integrated_info->memory_type;
 			dcn42_bw_params.dram_channel_width_bytes = ctx->dc_bios->integrated_info->memory_type == 0x22 ? 8 : 4;
-			dcn42_bw_params.num_channels = ctx->dc_bios->integrated_info->ma_channel_number ? ctx->dc_bios->integrated_info->ma_channel_number : 1;
-			clk_mgr->base.base.dprefclk_khz = dcn42_smu_get_dprefclk(&clk_mgr->base);
-			clk_mgr->base.base.clks.ref_dtbclk_khz = dcn42_smu_get_dtbclk(&clk_mgr->base);
-
+			dcn42_bw_params.num_channels = ctx->dc_bios->integrated_info->ma_channel_number ? ctx->dc_bios->integrated_info->ma_channel_number : 2;
+			if (clk_mgr->base.smu_present) {
+				clk_mgr->base.base.clks.ref_dtbclk_khz = dcn42_smu_get_dtbclk(&clk_mgr->base);
+				clk_mgr->base.base.dprefclk_khz = dcn42_smu_get_dprefclk(&clk_mgr->base);
+			}
 			clk_mgr->base.base.bw_params = &dcn42_bw_params;
 
 			if (clk_mgr->base.smu_present)

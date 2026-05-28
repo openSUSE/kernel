@@ -16,6 +16,7 @@ struct drm_mode_fb_cmd2;
 struct drm_plane_state;
 struct drm_scanout_buffer;
 struct fb_info;
+struct i915_gtt_view;
 struct i915_vma;
 struct intel_dpt;
 struct intel_dsb_buffer;
@@ -24,9 +25,21 @@ struct intel_hdcp_gsc_context;
 struct intel_initial_plane_config;
 struct intel_panic;
 struct intel_stolen_node;
+struct iosys_map;
 struct ref_tracker;
 struct seq_file;
 struct vm_area_struct;
+
+struct intel_fb_pin_params {
+	const struct i915_gtt_view *view;
+	unsigned int alignment;
+	unsigned int phys_alignment;
+	unsigned int vtd_guard;
+	bool needs_cpu_lmem_access;
+	bool needs_low_address;
+	bool needs_physical;
+	bool needs_fence;
+};
 
 /* Keep struct definitions sorted */
 
@@ -67,6 +80,32 @@ struct intel_display_dsb_interface {
 	struct intel_dsb_buffer *(*create)(struct drm_device *drm, size_t size);
 	void (*cleanup)(struct intel_dsb_buffer *dsb_buf);
 	void (*flush_map)(struct intel_dsb_buffer *dsb_buf);
+};
+
+struct intel_display_fb_pin_interface {
+	int (*ggtt_pin)(struct drm_gem_object *obj,
+			const struct intel_fb_pin_params *pin_params,
+			struct i915_vma **out_ggtt_vma,
+			u32 *out_offset,
+			int *out_fence_id);
+	void (*ggtt_unpin)(struct i915_vma *ggtt_vma,
+			   int fence_id);
+	int (*dpt_pin)(struct drm_gem_object *obj,
+		       struct intel_dpt *dpt,
+		       const struct intel_fb_pin_params *pin_params,
+		       struct i915_vma **out_dpt_vma,
+		       struct i915_vma **out_ggtt_vma,
+		       u32 *out_offset);
+	void (*dpt_unpin)(struct intel_dpt *dpt,
+			  struct i915_vma *dpt_vma,
+			  struct i915_vma *ggtt_vma);
+	struct i915_vma *(*reuse_vma)(struct i915_vma *old_ggtt_vma,
+				      struct drm_gem_object *old_obj,
+				      const struct i915_gtt_view *old_view,
+				      struct drm_gem_object *new_obj,
+				      const struct i915_gtt_view *new_view,
+				      u32 *out_offset);
+	void (*get_map)(struct i915_vma *vma, struct iosys_map *map);
 };
 
 struct intel_display_frontbuffer_interface {
@@ -210,6 +249,9 @@ struct intel_display_parent_interface {
 
 	/** @dsb: DSB buffer interface */
 	const struct intel_display_dsb_interface *dsb;
+
+	/** @fb_pin: Framebuffer pin interface */
+	const struct intel_display_fb_pin_interface *fb_pin;
 
 	/** @frontbuffer: Frontbuffer interface */
 	const struct intel_display_frontbuffer_interface *frontbuffer;

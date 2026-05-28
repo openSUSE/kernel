@@ -715,10 +715,10 @@ int panthor_vm_active(struct panthor_vm *vm)
 	 * never became active in the first place will be reclaimed last, but
 	 * that's an acceptable trade-off.
 	 */
-	mutex_lock(&ptdev->reclaim.lock);
+	mutex_lock(&ptdev->base.gem_lru_mutex);
 	if (vm->reclaim.lru.count)
 		list_move_tail(&vm->reclaim.lru_node, &ptdev->reclaim.vms);
-	mutex_unlock(&ptdev->reclaim.lock);
+	mutex_unlock(&ptdev->base.gem_lru_mutex);
 
 	/* Make sure we don't race with lock/unlock_region() calls
 	 * happening around VM bind operations.
@@ -1962,9 +1962,9 @@ static void panthor_vm_free(struct drm_gpuvm *gpuvm)
 	struct panthor_vm *vm = container_of(gpuvm, struct panthor_vm, base);
 	struct panthor_device *ptdev = vm->ptdev;
 
-	mutex_lock(&ptdev->reclaim.lock);
+	mutex_lock(&ptdev->base.gem_lru_mutex);
 	list_del_init(&vm->reclaim.lru_node);
-	mutex_unlock(&ptdev->reclaim.lock);
+	mutex_unlock(&ptdev->base.gem_lru_mutex);
 
 	mutex_lock(&vm->heaps.lock);
 	if (drm_WARN_ON(&ptdev->base, vm->heaps.pool))
@@ -2360,11 +2360,11 @@ void panthor_vm_update_bo_reclaim_lru_locked(struct panthor_gem_object *bo)
 		drm_WARN_ON(&ptdev->base, vm);
 		vm = container_of(vm_bo->vm, struct panthor_vm, base);
 
-		mutex_lock(&ptdev->reclaim.lock);
+		mutex_lock(&ptdev->base.gem_lru_mutex);
 		drm_gem_lru_move_tail_locked(&vm->reclaim.lru, &bo->base);
 		if (list_empty(&vm->reclaim.lru_node))
 			list_move(&vm->reclaim.lru_node, &ptdev->reclaim.vms);
-		mutex_unlock(&ptdev->reclaim.lock);
+		mutex_unlock(&ptdev->base.gem_lru_mutex);
 	}
 }
 
@@ -2774,7 +2774,7 @@ panthor_vm_create(struct panthor_device *ptdev, bool for_mcu,
 	vm->kernel_auto_va.start = auto_kernel_va_start;
 	vm->kernel_auto_va.end = vm->kernel_auto_va.start + auto_kernel_va_size - 1;
 
-	drm_gem_lru_init(&vm->reclaim.lru, &ptdev->reclaim.lock);
+	drm_gem_lru_init(&vm->reclaim.lru);
 	INIT_LIST_HEAD(&vm->reclaim.lru_node);
 	INIT_LIST_HEAD(&vm->node);
 	INIT_LIST_HEAD(&vm->as.lru_node);
@@ -3140,7 +3140,7 @@ panthor_mmu_reclaim_priv_bos(struct panthor_device *ptdev,
 	LIST_HEAD(remaining_vms);
 	LIST_HEAD(vms);
 
-	mutex_lock(&ptdev->reclaim.lock);
+	mutex_lock(&ptdev->base.gem_lru_mutex);
 	list_splice_init(&ptdev->reclaim.vms, &vms);
 
 	while (freed < nr_to_scan) {
@@ -3156,12 +3156,13 @@ panthor_mmu_reclaim_priv_bos(struct panthor_device *ptdev,
 			continue;
 		}
 
-		mutex_unlock(&ptdev->reclaim.lock);
+		mutex_unlock(&ptdev->base.gem_lru_mutex);
 
-		freed += drm_gem_lru_scan(&vm->reclaim.lru, nr_to_scan - freed,
+		freed += drm_gem_lru_scan(&ptdev->base, &vm->reclaim.lru,
+					  nr_to_scan - freed,
 					  remaining, shrink, NULL);
 
-		mutex_lock(&ptdev->reclaim.lock);
+		mutex_lock(&ptdev->base.gem_lru_mutex);
 
 		/* If the VM is still in the temporary list, remove it so we
 		 * can proceed with the next VM.
@@ -3177,11 +3178,11 @@ panthor_mmu_reclaim_priv_bos(struct panthor_device *ptdev,
 				list_add_tail(&vm->reclaim.lru_node, &remaining_vms);
 		}
 
-		mutex_unlock(&ptdev->reclaim.lock);
+		mutex_unlock(&ptdev->base.gem_lru_mutex);
 
 		panthor_vm_put(vm);
 
-		mutex_lock(&ptdev->reclaim.lock);
+		mutex_lock(&ptdev->base.gem_lru_mutex);
 	}
 
 	/* Re-insert VMs with remaining data to reclaim at the beginning of
@@ -3192,7 +3193,7 @@ panthor_mmu_reclaim_priv_bos(struct panthor_device *ptdev,
 	 */
 	list_splice_tail(&vms, &remaining_vms);
 	list_splice(&remaining_vms, &ptdev->reclaim.vms);
-	mutex_unlock(&ptdev->reclaim.lock);
+	mutex_unlock(&ptdev->base.gem_lru_mutex);
 
 	return freed;
 }

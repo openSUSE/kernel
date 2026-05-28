@@ -839,7 +839,7 @@ static void dce110_resource_destruct(struct dce110_resource_pool *pool)
 		}
 	}
 
-	for (i = 0; i < pool->base.res_cap->num_ddc; i++) {
+	for (i = 0; i < (unsigned int)pool->base.res_cap->num_ddc; i++) {
 		if (pool->base.engines[i] != NULL)
 			dce110_engine_destroy(&pool->base.engines[i]);
 		if (pool->base.hw_i2cs[i] != NULL) {
@@ -1213,7 +1213,7 @@ struct stream_encoder *dce110_find_first_free_match_stream_enc_for_link(
 		const struct resource_pool *pool,
 		struct dc_stream_state *stream)
 {
-	int i;
+	unsigned int i;
 	int j = -1;
 	struct dc_link *link = stream->link;
 
@@ -1223,7 +1223,7 @@ struct stream_encoder *dce110_find_first_free_match_stream_enc_for_link(
 			/* Store first available for MST second display
 			 * in daisy chain use case
 			 */
-			j = i;
+			j = (int)i;
 			if (pool->stream_enc[i]->id ==
 					link->link_enc->preferred_engine)
 				return pool->stream_enc[i];
@@ -1492,7 +1492,7 @@ static bool dce110_resource_construct(
 		}
 	}
 
-	for (i = 0; i < pool->base.res_cap->num_ddc; i++) {
+	for (i = 0; i < (unsigned int)pool->base.res_cap->num_ddc; i++) {
 		pool->base.engines[i] = dce110_aux_engine_create(ctx, i);
 		if (pool->base.engines[i] == NULL) {
 			BREAK_TO_DEBUGGER();

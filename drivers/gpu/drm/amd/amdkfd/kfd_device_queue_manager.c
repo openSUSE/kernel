@@ -324,6 +324,29 @@ static int remove_queue_mes_on_reset_option(struct device_queue_manager *dqm, st
 	return r;
 }
 
+static void set_perfcount(struct device_queue_manager *dqm, int enable)
+{
+	struct device_process_node *cur;
+	struct qcm_process_device *qpd;
+	struct queue *q;
+	struct mqd_update_info minfo = { 0 };
+
+	if (!dqm)
+		return;
+
+	minfo.update_flag = (enable == 1 ? UPDATE_FLAG_PERFCOUNT_ENABLE :
+						 UPDATE_FLAG_PERFCOUNT_DISABLE);
+	dqm_lock(dqm);
+	list_for_each_entry(cur, &dqm->queues, list) {
+		qpd = cur->qpd;
+		list_for_each_entry(q, &qpd->queues_list, list) {
+			pqm_update_mqd(qpd->pqm, q->properties.queue_id,
+						&minfo);
+		}
+	}
+	dqm_unlock(dqm);
+}
+
 static int remove_queue_mes(struct device_queue_manager *dqm, struct queue *q,
 			    struct qcm_process_device *qpd)
 {
@@ -589,6 +612,9 @@ static int allocate_doorbell(struct qcm_process_device *qpd,
 	} else {
 		/* For CP queues on SOC15 */
 		if (restore_id) {
+			if (*restore_id >= KFD_MAX_NUM_OF_QUEUES_PER_PROCESS)
+				return -EINVAL;
+
 			/* make sure that ID is free  */
 			if (__test_and_set_bit(*restore_id, qpd->doorbell_bitmap))
 				return -EINVAL;
@@ -1701,6 +1727,9 @@ static int allocate_sdma_queue(struct device_queue_manager *dqm,
 		}
 
 		if (restore_sdma_id) {
+			if (*restore_sdma_id >= get_num_sdma_queues(dqm))
+				return -EINVAL;
+
 			/* Re-use existing sdma_id */
 			if (!test_bit(*restore_sdma_id, dqm->sdma_bitmap)) {
 				dev_err(dev, "SDMA queue already in use\n");
@@ -1727,6 +1756,9 @@ static int allocate_sdma_queue(struct device_queue_manager *dqm,
 			return -ENOMEM;
 		}
 		if (restore_sdma_id) {
+			if (*restore_sdma_id >= get_num_xgmi_sdma_queues(dqm))
+				return -EINVAL;
+
 			/* Re-use existing sdma_id */
 			if (!test_bit(*restore_sdma_id, dqm->xgmi_sdma_bitmap)) {
 				dev_err(dev, "SDMA queue already in use\n");
@@ -1911,10 +1943,11 @@ static int halt_cpsch(struct device_queue_manager *dqm)
 static int unhalt_cpsch(struct device_queue_manager *dqm)
 {
 	int ret = 0;
+	struct amdgpu_device *adev = dqm->dev->adev;
 
 	dqm_lock(dqm);
 	if (!dqm->sched_running || !dqm->sched_halt) {
-		WARN_ONCE(!dqm->sched_halt, "Scheduling is not on halt.\n");
+		dev_dbg(adev->dev, "Scheduling is not on halt.\n");
 		dqm_unlock(dqm);
 		return 0;
 	}
@@ -3113,6 +3146,7 @@ struct device_queue_manager *device_queue_manager_init(struct kfd_node *dev)
 		dqm->ops.reset_queues = reset_queues_cpsch;
 		dqm->ops.get_queue_checkpoint_info = get_queue_checkpoint_info;
 		dqm->ops.checkpoint_mqd = checkpoint_mqd;
+		dqm->ops.set_perfcount = set_perfcount;
 		break;
 	case KFD_SCHED_POLICY_NO_HWS:
 		/* initialize dqm for no cp scheduling */
@@ -3133,6 +3167,7 @@ struct device_queue_manager *device_queue_manager_init(struct kfd_node *dev)
 		dqm->ops.get_wave_state = get_wave_state;
 		dqm->ops.get_queue_checkpoint_info = get_queue_checkpoint_info;
 		dqm->ops.checkpoint_mqd = checkpoint_mqd;
+		dqm->ops.set_perfcount = set_perfcount;
 		break;
 	default:
 		dev_err(dev->adev->dev, "Invalid scheduling policy %d\n", dqm->sched_policy);

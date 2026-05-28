@@ -9,24 +9,30 @@
 #include <drm/drm_drv.h>
 #include <drm/drm_kunit_helpers.h>
 
+#include <kunit/static_stub.h>
 #include <kunit/test.h>
 
 #include "regs/xe_gt_regs.h"
 #include "regs/xe_reg_defs.h"
 #include "xe_device.h"
 #include "xe_device_types.h"
+#include "xe_gt_mcr.h"
 #include "xe_kunit_helpers.h"
 #include "xe_pci_test.h"
 #include "xe_reg_sr.h"
 #include "xe_rtp.h"
 
-#define REGULAR_REG1	XE_REG(1)
-#define REGULAR_REG2	XE_REG(2)
-#define REGULAR_REG3	XE_REG(3)
-#define MCR_REG1	XE_REG_MCR(1)
-#define MCR_REG2	XE_REG_MCR(2)
-#define MCR_REG3	XE_REG_MCR(3)
-#define MASKED_REG1	XE_REG(1, XE_REG_OPTION_MASKED)
+#define REGULAR_REG1		XE_REG(1)
+#define REGULAR_REG2		XE_REG(2)
+#define REGULAR_REG3		XE_REG(3)
+#define REGULAR_REG4		XE_REG(4)
+#define BAD_REGULAR_REG5	XE_REG(5)
+#define MCR_REG1		XE_REG_MCR(1)
+#define MCR_REG2		XE_REG_MCR(2)
+#define MCR_REG3		XE_REG_MCR(3)
+#define BAD_MCR_REG4		XE_REG_MCR(4)
+#define MCR_REG5		XE_REG_MCR(5)
+#define MASKED_REG1		XE_REG(1, XE_REG_OPTION_MASKED)
 
 #undef XE_REG_MCR
 #define XE_REG_MCR(...)     XE_REG(__VA_ARGS__, .mcr = 1)
@@ -47,6 +53,23 @@ struct rtp_test_case {
 	unsigned long expected_active;
 	const struct xe_rtp_entry *entries;
 };
+
+static bool fake_xe_gt_mcr_check_reg(struct xe_gt *gt, struct xe_reg reg)
+{
+	/*
+	 * All supported platforms in this imaginary setup will always have REG4
+	 * as a non-MCR register and REG5 as MCR, meaning that BAD_MCR_REG4 and
+	 * BAD_REGULAR_REG5 represent programming errors to be captured by our
+	 * tests.
+	 */
+	if (reg.raw == BAD_REGULAR_REG5.raw)
+		return true;
+
+	if (reg.raw == BAD_MCR_REG4.raw)
+		return false;
+
+	return reg.mcr;
+}
 
 static bool match_yes(const struct xe_device *xe, const struct xe_gt *gt,
 		      const struct xe_hw_engine *hwe)
@@ -304,6 +327,38 @@ static const struct rtp_to_sr_test_case rtp_to_sr_cases[] = {
 			{}
 		},
 	},
+	{
+		.name = "bad-mcr-reg-forced-to-regular",
+		.expected_reg = REGULAR_REG4,
+		.expected_set_bits = REG_BIT(0),
+		.expected_clr_bits = REG_BIT(0),
+		.expected_active = BIT(0),
+		.expected_count_sr_entries = 1,
+		.expected_sr_errors = 1,
+		.entries = (const struct xe_rtp_entry_sr[]) {
+			{ XE_RTP_NAME("bad-mcr-regular-reg"),
+			  XE_RTP_RULES(FUNC(match_yes)),
+			  XE_RTP_ACTIONS(SET(BAD_MCR_REG4, REG_BIT(0)))
+			},
+			{}
+		},
+	},
+	{
+		.name = "bad-regular-reg-forced-to-mcr",
+		.expected_reg = MCR_REG5,
+		.expected_set_bits = REG_BIT(0),
+		.expected_clr_bits = REG_BIT(0),
+		.expected_active = BIT(0),
+		.expected_count_sr_entries = 1,
+		.expected_sr_errors = 1,
+		.entries = (const struct xe_rtp_entry_sr[]) {
+			{ XE_RTP_NAME("bad-regular-reg"),
+			  XE_RTP_RULES(FUNC(match_yes)),
+			  XE_RTP_ACTIONS(SET(BAD_REGULAR_REG5, REG_BIT(0)))
+			},
+			{}
+		},
+	},
 };
 
 static void xe_rtp_process_to_sr_tests(struct kunit *test)
@@ -522,6 +577,8 @@ static int xe_rtp_test_init(struct kunit *test)
 
 	xe->drm.dev = dev;
 	test->priv = xe;
+
+	kunit_activate_static_stub(test, xe_gt_mcr_check_reg, fake_xe_gt_mcr_check_reg);
 
 	return 0;
 }

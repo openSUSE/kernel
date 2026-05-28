@@ -7,6 +7,8 @@
 
 #include <linux/minmax.h>
 
+#include <kunit/visibility.h>
+
 #include <drm/drm_managed.h>
 #include <uapi/drm/xe_drm.h>
 
@@ -393,10 +395,7 @@ int xe_gt_record_default_lrcs(struct xe_gt *gt)
 		if (gt->default_lrc[hwe->class])
 			continue;
 
-		xe_reg_sr_init(&hwe->reg_lrc, hwe->name, xe);
-		xe_wa_process_lrc(hwe);
-		xe_hw_engine_setup_default_lrc_state(hwe);
-		xe_tuning_process_lrc(hwe);
+		xe_hw_engine_setup_reg_lrc(hwe);
 
 		default_lrc = drmm_kzalloc(&xe->drm,
 					   xe_gt_lrc_size(gt, hwe->class),
@@ -788,6 +787,7 @@ void xe_gt_mmio_init(struct xe_gt *gt)
 	if (IS_SRIOV_VF(xe))
 		gt->mmio.sriov_vf_gt = gt;
 }
+EXPORT_SYMBOL_IF_KUNIT(xe_gt_mmio_init);
 
 void xe_gt_record_user_engines(struct xe_gt *gt)
 {

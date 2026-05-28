@@ -444,6 +444,7 @@ static const struct xe_device_desc nvls_desc = {
 	.has_display = true,
 	.has_flat_ccs = 1,
 	.has_pre_prod_wa = 1,
+	.has_sriov = true,
 	.max_gt_per_tile = 2,
 	MULTI_LRC_MASK,
 	.require_force_probe = true,
@@ -482,6 +483,7 @@ static const struct xe_device_desc nvlp_desc = {
 	.has_flat_ccs = 1,
 	.has_page_reclaim_hw_assist = true,
 	.has_pre_prod_wa = true,
+	.has_sriov = true,
 	.max_gt_per_tile = 2,
 	MULTI_LRC_MASK,
 	.require_force_probe = true,
@@ -848,6 +850,15 @@ static struct xe_gt *alloc_primary_gt(struct xe_tile *tile,
 	gt->info.engine_mask = graphics_desc->hw_engine_mask;
 	gt->info.num_geometry_xecore_fuse_regs = graphics_desc->num_geometry_xecore_fuse_regs;
 	gt->info.num_compute_xecore_fuse_regs = graphics_desc->num_compute_xecore_fuse_regs;
+
+	/*
+	 * Even if the service copy engines wind up being fused off, their
+	 * presence in the IP descriptor indicates that the platform supports
+	 * Xe2-style MEM_SET and MEM_COPY functionality.
+	 */
+	if (graphics_desc->hw_engine_mask & GENMASK(XE_HW_ENGINE_BCS8,
+						    XE_HW_ENGINE_BCS1))
+		gt->info.has_xe2_blt_instructions = true;
 
 	/*
 	 * Before media version 13, the media IP was part of the primary GT

@@ -666,7 +666,7 @@ static bool assert_hdmi_port_valid(struct intel_display *display, enum port port
 }
 
 bool g4x_hdmi_init(struct intel_display *display,
-		   i915_reg_t hdmi_reg, enum port port)
+		   intel_reg_t hdmi_reg, enum port port)
 {
 	const struct intel_bios_encoder_data *devdata;
 	struct intel_digital_port *dig_port;

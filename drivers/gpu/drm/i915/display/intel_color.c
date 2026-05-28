@@ -1348,7 +1348,7 @@ static void i965_load_luts(const struct intel_crtc_state *crtc_state)
 }
 
 static void ilk_lut_write(const struct intel_crtc_state *crtc_state,
-			  i915_reg_t reg, u32 val)
+			  intel_reg_t reg, u32 val)
 {
 	struct intel_display *display = to_intel_display(crtc_state);
 
@@ -1359,7 +1359,7 @@ static void ilk_lut_write(const struct intel_crtc_state *crtc_state,
 }
 
 static void ilk_lut_write_indexed(const struct intel_crtc_state *crtc_state,
-				  i915_reg_t reg, u32 val)
+				  intel_reg_t reg, u32 val)
 {
 	struct intel_display *display = to_intel_display(crtc_state);
 

@@ -383,6 +383,11 @@ struct kfd_dev {
 	int kfd_dev_lock;
 
 	atomic_t kfd_processes_count;
+
+	/* Lock for profiler process */
+	struct mutex profiler_lock;
+	/* Process currently holding the lock */
+	struct kfd_process *profiler_process;
 };
 
 enum kfd_mempool {
@@ -394,6 +399,7 @@ enum kfd_mempool {
 /* Character device interface */
 int kfd_chardev_init(void);
 void kfd_chardev_exit(void);
+void kfd_dev_unmap_mapping_range(loff_t const holebegin, loff_t const holelen);
 
 /**
  * enum kfd_unmap_queues_filter - Enum for queue filters.
@@ -556,6 +562,8 @@ enum mqd_update_flag {
 	UPDATE_FLAG_DBG_WA_ENABLE = 1,
 	UPDATE_FLAG_DBG_WA_DISABLE = 2,
 	UPDATE_FLAG_IS_GWS = 4, /* quirk for gfx9 IP */
+	UPDATE_FLAG_PERFCOUNT_ENABLE = 5,
+	UPDATE_FLAG_PERFCOUNT_DISABLE = 6,
 };
 
 struct mqd_update_info {
@@ -865,6 +873,8 @@ struct kfd_process_device {
 	bool has_reset_queue;
 
 	u32 pasid;
+	/* Indicates this process has requested PTL stay disabled */
+	bool ptl_disable_req;
 };
 
 #define qpd_to_pdd(x) container_of(x, struct kfd_process_device, qpd)
@@ -1595,6 +1605,12 @@ static inline bool kfd_is_first_node(struct kfd_node *node)
 {
 	return (node == node->kfd->nodes[0]);
 }
+
+/* PTL support */
+int kfd_ptl_disable_request(struct kfd_process_device *pdd,
+		struct kfd_process *p);
+int kfd_ptl_disable_release(struct kfd_process_device *pdd,
+		struct kfd_process *p);
 
 /* Debugfs */
 #if defined(CONFIG_DEBUG_FS)

@@ -595,7 +595,7 @@ static void hsw_audio_codec_enable(struct intel_encoder *encoder,
 }
 
 struct ibx_audio_regs {
-	i915_reg_t hdmiw_hdmiedid, aud_config, aud_cntl_st, aud_cntrl_st2;
+	intel_reg_t hdmiw_hdmiedid, aud_config, aud_cntl_st, aud_cntrl_st2;
 };
 
 static void ibx_audio_regs_init(struct intel_display *display,

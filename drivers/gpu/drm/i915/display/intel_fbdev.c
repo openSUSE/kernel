@@ -38,6 +38,7 @@
 #include <linux/vga_switcheroo.h>
 
 #include <drm/clients/drm_client_setup.h>
+#include <drm/intel/display_parent_interface.h>
 #include <drm/drm_crtc.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_fb_helper.h>
@@ -52,9 +53,9 @@
 #include "intel_display_rpm.h"
 #include "intel_display_types.h"
 #include "intel_fb.h"
-#include "intel_fb_pin.h"
 #include "intel_fbdev.h"
 #include "intel_frontbuffer.h"
+#include "intel_parent.h"
 #include "intel_plane.h"
 
 struct intel_fbdev {
@@ -131,6 +132,7 @@ static int intel_fbdev_mmap(struct fb_info *info, struct vm_area_struct *vma)
 static void intel_fbdev_fb_destroy(struct fb_info *info)
 {
 	struct drm_fb_helper *fb_helper = info->par;
+	struct intel_display *display = to_intel_display(fb_helper->client.dev);
 	struct intel_fbdev *ifbdev = to_intel_fbdev(fb_helper);
 
 	drm_fb_helper_fini(fb_helper);
@@ -140,7 +142,7 @@ static void intel_fbdev_fb_destroy(struct fb_info *info)
 	 * the info->screen_base mmaping. Leaking the VMA is simpler than
 	 * trying to rectify all the possible error paths leading here.
 	 */
-	intel_fb_unpin_vma(ifbdev->vma, -1);
+	intel_parent_fb_pin_ggtt_unpin(display, ifbdev->vma, -1);
 	drm_framebuffer_remove(fb_helper->fb);
 
 	drm_client_release(&fb_helper->client);
@@ -272,6 +274,7 @@ int intel_fbdev_driver_fbdev_probe(struct drm_fb_helper *helper,
 	struct i915_vma *vma;
 	bool prealloc = false;
 	struct drm_gem_object *obj;
+	u32 offset;
 	int ret;
 
 	ifbdev->fb = NULL;
@@ -319,11 +322,10 @@ int intel_fbdev_driver_fbdev_probe(struct drm_fb_helper *helper,
 						       DRM_MODE_ROTATE_0);
 	pin_params.needs_low_address = intel_plane_needs_low_address(display);
 
-	vma = intel_fb_pin_to_ggtt(obj, &pin_params, NULL);
-	if (IS_ERR(vma)) {
-		ret = PTR_ERR(vma);
+	ret = intel_parent_fb_pin_ggtt_pin(display, obj, &pin_params,
+					   &vma, &offset, NULL);
+	if (ret)
 		goto out_unlock;
-	}
 
 	helper->funcs = &intel_fb_helper_funcs;
 	helper->fb = &fb->base;
@@ -354,7 +356,7 @@ int intel_fbdev_driver_fbdev_probe(struct drm_fb_helper *helper,
 	return 0;
 
 out_unpin:
-	intel_fb_unpin_vma(vma, -1);
+	intel_parent_fb_pin_ggtt_unpin(display, vma, -1);
 out_unlock:
 	intel_display_rpm_put(display, wakeref);
 
@@ -558,12 +560,9 @@ struct intel_framebuffer *intel_fbdev_framebuffer(struct intel_fbdev *fbdev)
 	return fbdev->fb;
 }
 
-struct i915_vma *intel_fbdev_vma_pointer(struct intel_fbdev *fbdev)
+void intel_fbdev_get_map(struct intel_display *display, struct iosys_map *map)
 {
-	return fbdev ? fbdev->vma : NULL;
-}
+	struct intel_fbdev *fbdev = display->fbdev.fbdev;
 
-void intel_fbdev_get_map(struct intel_fbdev *fbdev, struct iosys_map *map)
-{
-	intel_fb_get_map(fbdev->vma, map);
+	intel_parent_fb_pin_get_map(display, fbdev->vma, map);
 }

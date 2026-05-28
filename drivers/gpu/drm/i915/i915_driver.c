@@ -99,6 +99,7 @@
 #include "i915_drv.h"
 #include "i915_dsb_buffer.h"
 #include "i915_edram.h"
+#include "i915_fb_pin.h"
 #include "i915_file_private.h"
 #include "i915_getparam.h"
 #include "i915_gmch.h"
@@ -768,6 +769,7 @@ static const struct intel_display_parent_interface parent = {
 	.bo = &i915_display_bo_interface,
 	.dpt = &i915_display_dpt_interface,
 	.dsb = &i915_display_dsb_interface,
+	.fb_pin = &i915_display_fb_pin_interface,
 	.frontbuffer = &i915_display_frontbuffer_interface,
 	.hdcp = &i915_display_hdcp_interface,
 	.initial_plane = &i915_display_initial_plane_interface,

@@ -36,10 +36,12 @@
 #include "intel_hotplug.h"
 #include "intel_opregion.h"
 #include "skl_watermark.h"
+#include "xe_device.h"
 #include "xe_display_bo.h"
 #include "xe_display_pcode.h"
 #include "xe_display_rpm.h"
 #include "xe_dsb_buffer.h"
+#include "xe_fb_pin.h"
 #include "xe_frontbuffer.h"
 #include "xe_hdcp_gsc.h"
 #include "xe_initial_plane.h"
@@ -69,31 +71,9 @@ bool xe_display_driver_probe_defer(struct pci_dev *pdev)
 	return intel_display_driver_probe_defer(pdev);
 }
 
-/**
- * xe_display_driver_set_hooks - Add driver flags and hooks for display
- * @driver: DRM device driver
- *
- * Set features and function hooks in @driver that are needed for driving the
- * display IP. This sets the driver's capability of driving display, regardless
- * if the device has it enabled
- *
- * Note: This is called before xe or display device creation.
- */
-void xe_display_driver_set_hooks(struct drm_driver *driver)
-{
-	if (!xe_modparam.probe_display)
-		return;
-
-#ifdef CONFIG_DRM_FBDEV_EMULATION
-	driver->fbdev_probe = intel_fbdev_driver_fbdev_probe;
-#endif
-
-	driver->driver_features |= DRIVER_MODESET | DRIVER_ATOMIC;
-}
-
 static void unset_display_features(struct xe_device *xe)
 {
-	xe->drm.driver_features &= ~(DRIVER_MODESET | DRIVER_ATOMIC);
+	xe->drm.driver_features &= ~XE_DISPLAY_DRIVER_FEATURES;
 }
 
 static void xe_display_fini_early(void *arg)
@@ -553,6 +533,7 @@ static bool has_auxccs(struct drm_device *drm)
 static const struct intel_display_parent_interface parent = {
 	.bo = &xe_display_bo_interface,
 	.dsb = &xe_display_dsb_interface,
+	.fb_pin = &xe_display_fb_pin_interface,
 	.frontbuffer = &xe_display_frontbuffer_interface,
 	.hdcp = &xe_display_hdcp_interface,
 	.initial_plane = &xe_display_initial_plane_interface,
@@ -602,3 +583,11 @@ no_display:
 	unset_display_features(xe);
 	return 0;
 }
+
+#ifdef CONFIG_DRM_FBDEV_EMULATION
+int xe_display_driver_fbdev_probe(struct drm_fb_helper *fbh,
+				  struct drm_fb_helper_surface_size *sizes)
+{
+	return intel_fbdev_driver_fbdev_probe(fbh, sizes);
+}
+#endif

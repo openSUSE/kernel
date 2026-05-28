@@ -42,6 +42,7 @@ struct xe_ggtt;
 struct xe_i2c;
 struct xe_pat_ops;
 struct xe_pxp;
+struct xe_ttm_stolen_mgr;
 struct xe_vram_region;
 
 /**
@@ -276,6 +277,8 @@ struct xe_device {
 		struct ttm_resource_manager sys_mgr;
 		/** @mem.shrinker: system memory shrinker. */
 		struct xe_shrinker *shrinker;
+		/** @mem.stolen_mgr: stolen memory manager. */
+		struct xe_ttm_stolen_mgr *stolen_mgr;
 	} mem;
 
 	/** @sriov: device level virtualization data */

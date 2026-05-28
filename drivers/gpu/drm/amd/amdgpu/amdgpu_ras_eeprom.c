@@ -1051,6 +1051,7 @@ int amdgpu_ras_eeprom_read_idx(struct amdgpu_ras_eeprom_control *control,
 	uint64_t ts, end_idx;
 	int i, ret;
 	u64 mca, ipid;
+	u32 cu, mem_channel, mcumc_id;
 
 	if (!amdgpu_ras_smu_eeprom_supported(adev))
 		return 0;
@@ -1079,9 +1080,10 @@ int amdgpu_ras_eeprom_read_idx(struct amdgpu_ras_eeprom_control *control,
 		record[i - rec_idx].err_type = AMDGPU_RAS_EEPROM_ERR_NON_RECOVERABLE;
 
 		adev->umc.ras->mca_ipid_parse(adev, ipid,
-			(uint32_t *)&(record[i - rec_idx].cu),
-			(uint32_t *)&(record[i - rec_idx].mem_channel),
-			(uint32_t *)&(record[i - rec_idx].mcumc_id), NULL);
+			&cu, &mem_channel, &mcumc_id, NULL);
+		record[i - rec_idx].cu = (u8)cu;
+		record[i - rec_idx].mem_channel = (u8)mem_channel;
+		record[i - rec_idx].mcumc_id = (u8)mcumc_id;
 	}
 
 	return 0;
@@ -1632,6 +1634,14 @@ int amdgpu_ras_eeprom_init(struct amdgpu_ras_eeprom_control *control)
 	}
 
 	control->ras_fri = RAS_OFFSET_TO_INDEX(control, hdr->first_rec_offset);
+	if (hdr->first_rec_offset < control->ras_record_offset ||
+	    control->ras_fri >= control->ras_max_record_count) {
+		dev_err(adev->dev,
+			"RAS header invalid, ras_fri: %u, first_rec_offset:0x%x",
+			control->ras_fri, hdr->first_rec_offset);
+		return -EINVAL;
+	}
+
 	control->ras_num_mca_recs = 0;
 	control->ras_num_pa_recs = 0;
 	return 0;

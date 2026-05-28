@@ -105,9 +105,9 @@
 #define   ERR_INT_FIFO_UNDERRUN_A	(1 << 0)
 #define   ERR_INT_FIFO_UNDERRUN(pipe)	(1 << ((pipe) * 3))
 
-#define VLV_IRQ_REGS		I915_IRQ_REGS(VLV_IMR, \
-					      VLV_IER, \
-					      VLV_IIR)
+#define VLV_IRQ_REGS		INTEL_IRQ_REGS(VLV_IMR, \
+					       VLV_IER, \
+					       VLV_IIR)
 
 #define VLV_EIR		_MMIO(VLV_DISPLAY_BASE + 0x20b0)
 #define VLV_EMR		_MMIO(VLV_DISPLAY_BASE + 0x20b4)
@@ -117,7 +117,7 @@
 #define   VLV_ERROR_PAGE_TABLE				(1 << 4)
 #define   VLV_ERROR_CLAIM				(1 << 0)
 
-#define VLV_ERROR_REGS		I915_ERROR_REGS(VLV_EMR, VLV_EIR)
+#define VLV_ERROR_REGS		INTEL_ERROR_REGS(VLV_EMR, VLV_EIR)
 
 #define _MBUS_ABOX0_CTL			0x45038
 #define _MBUS_ABOX1_CTL			0x45048
@@ -1147,9 +1147,9 @@
 #define DEIIR   _MMIO(0x44008)
 #define DEIER   _MMIO(0x4400c)
 
-#define DE_IRQ_REGS		I915_IRQ_REGS(DEIMR, \
-					      DEIER, \
-					      DEIIR)
+#define DE_IRQ_REGS		INTEL_IRQ_REGS(DEIMR, \
+					       DEIER, \
+					       DEIIR)
 
 #define DIGITAL_PORT_HOTPLUG_CNTRL	_MMIO(0x44030)
 #define  DIGITAL_PORTA_HOTPLUG_ENABLE		(1 << 4)
@@ -1438,9 +1438,9 @@
 #define  GEN8_PIPE_VSYNC		REG_BIT(1)
 #define  GEN8_PIPE_VBLANK		REG_BIT(0)
 
-#define GEN8_DE_PIPE_IRQ_REGS(pipe)	I915_IRQ_REGS(GEN8_DE_PIPE_IMR(pipe), \
-						      GEN8_DE_PIPE_IER(pipe), \
-						      GEN8_DE_PIPE_IIR(pipe))
+#define GEN8_DE_PIPE_IRQ_REGS(pipe)	INTEL_IRQ_REGS(GEN8_DE_PIPE_IMR(pipe), \
+						       GEN8_DE_PIPE_IER(pipe), \
+						       GEN8_DE_PIPE_IIR(pipe))
 
 #define _HPD_PIN_DDI(hpd_pin)	((hpd_pin) - HPD_PORT_A)
 #define _HPD_PIN_TC(hpd_pin)	((hpd_pin) - HPD_PORT_TC1)
@@ -1477,9 +1477,9 @@
 #define  TGL_DE_PORT_AUX_DDIB		REG_BIT(1)
 #define  TGL_DE_PORT_AUX_DDIA		REG_BIT(0)
 
-#define GEN8_DE_PORT_IRQ_REGS		I915_IRQ_REGS(GEN8_DE_PORT_IMR, \
-						      GEN8_DE_PORT_IER, \
-						      GEN8_DE_PORT_IIR)
+#define GEN8_DE_PORT_IRQ_REGS		INTEL_IRQ_REGS(GEN8_DE_PORT_IMR, \
+						       GEN8_DE_PORT_IER, \
+						       GEN8_DE_PORT_IIR)
 
 /* interrupts */
 #define DE_MASTER_IRQ_CONTROL   (1 << 31)
@@ -1530,9 +1530,9 @@
 #define  XELPDP_PMDEMAND_RSP		REG_BIT(3)
 #define  XE2LPD_DBUF_OVERLAP_DETECTED	REG_BIT(1)
 
-#define GEN8_DE_MISC_IRQ_REGS		I915_IRQ_REGS(GEN8_DE_MISC_IMR, \
-						      GEN8_DE_MISC_IER, \
-						      GEN8_DE_MISC_IIR)
+#define GEN8_DE_MISC_IRQ_REGS		INTEL_IRQ_REGS(GEN8_DE_MISC_IMR, \
+						       GEN8_DE_MISC_IER, \
+						       GEN8_DE_MISC_IIR)
 
 #define GEN11_DISPLAY_INT_CTL		_MMIO(0x44200)
 #define  GEN11_DISPLAY_IRQ_ENABLE	(1 << 31)
@@ -1564,9 +1564,9 @@
 						 GEN11_TBT_HOTPLUG(HPD_PORT_TC2) | \
 						 GEN11_TBT_HOTPLUG(HPD_PORT_TC1))
 
-#define GEN11_DE_HPD_IRQ_REGS		I915_IRQ_REGS(GEN11_DE_HPD_IMR, \
-						      GEN11_DE_HPD_IER, \
-						      GEN11_DE_HPD_IIR)
+#define GEN11_DE_HPD_IRQ_REGS		INTEL_IRQ_REGS(GEN11_DE_HPD_IMR, \
+						       GEN11_DE_HPD_IER, \
+						       GEN11_DE_HPD_IIR)
 
 #define GEN11_TBT_HOTPLUG_CTL				_MMIO(0x44030)
 #define GEN11_TC_HOTPLUG_CTL				_MMIO(0x44038)
@@ -1588,9 +1588,9 @@
 #define  XELPDP_TBT_HOTPLUG(hpd_pin)		REG_BIT(_HPD_PIN_TC(hpd_pin))
 #define  XELPDP_TBT_HOTPLUG_MASK		REG_GENMASK(3, 0)
 
-#define PICAINTERRUPT_IRQ_REGS			I915_IRQ_REGS(PICAINTERRUPT_IMR, \
-							      PICAINTERRUPT_IER, \
-							      PICAINTERRUPT_IIR)
+#define PICAINTERRUPT_IRQ_REGS			INTEL_IRQ_REGS(PICAINTERRUPT_IMR, \
+							       PICAINTERRUPT_IER, \
+							       PICAINTERRUPT_IIR)
 
 #define XELPDP_PORT_HOTPLUG_CTL(hpd_pin)	_MMIO(0x16F270 + (_HPD_PIN_TC(hpd_pin) * 0x200))
 #define  XELPDP_TBT_HOTPLUG_ENABLE		REG_BIT(6)
@@ -1906,9 +1906,9 @@
 #define SDEIIR  _MMIO(0xc4008)
 #define SDEIER  _MMIO(0xc400c)
 
-#define SDE_IRQ_REGS			I915_IRQ_REGS(SDEIMR, \
-						      SDEIER, \
-						      SDEIIR)
+#define SDE_IRQ_REGS			INTEL_IRQ_REGS(SDEIMR, \
+						       SDEIER, \
+						       SDEIIR)
 
 #define SERR_INT			_MMIO(0xc4040)
 #define  SERR_INT_POISON		(1 << 31)

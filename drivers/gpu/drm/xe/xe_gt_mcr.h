@@ -26,6 +26,7 @@ void xe_gt_mcr_unicast_write(struct xe_gt *gt, struct xe_reg_mcr mcr_reg,
 void xe_gt_mcr_multicast_write(struct xe_gt *gt, struct xe_reg_mcr mcr_reg,
 			       u32 value);
 
+bool xe_gt_mcr_check_reg(struct xe_gt *gt, struct xe_reg reg);
 bool xe_gt_mcr_get_nonterminated_steering(struct xe_gt *gt,
 					  struct xe_reg_mcr reg_mcr,
 					  u8 *group, u8 *instance);

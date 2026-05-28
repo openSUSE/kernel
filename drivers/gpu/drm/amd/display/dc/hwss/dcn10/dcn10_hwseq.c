@@ -181,6 +181,7 @@ void dcn10_set_wait_for_update_needed_for_pipe(struct dc *dc, struct pipe_ctx *p
 	uint32_t vupdate_start, vupdate_end;
 	struct crtc_position position;
 	unsigned int vpos, cur_frame;
+	uint32_t max_frame_count;
 
 	if (!pipe_ctx->stream ||
 		!pipe_ctx->stream_res.tg ||
@@ -197,7 +198,8 @@ void dcn10_set_wait_for_update_needed_for_pipe(struct dc *dc, struct pipe_ctx *p
 
 	struct optc *optc1 = DCN10TG_FROM_TG(tg);
 
-	ASSERT(optc1->max_frame_count != 0);
+	max_frame_count = optc1->tg_mask->OTG_FRAME_COUNT >> optc1->tg_shift->OTG_FRAME_COUNT;
+	ASSERT(max_frame_count != 0);
 
 	if (tg->funcs->is_tg_enabled && !tg->funcs->is_tg_enabled(tg))
 		return;
@@ -209,8 +211,8 @@ void dcn10_set_wait_for_update_needed_for_pipe(struct dc *dc, struct pipe_ctx *p
 	if (vpos < vupdate_start) {
 		pipe_ctx->wait_frame_count = cur_frame;
 	} else {
-		if (cur_frame + 1 > optc1->max_frame_count)
-			pipe_ctx->wait_frame_count = cur_frame + 1 - optc1->max_frame_count;
+		if (cur_frame + 1 > max_frame_count)
+			pipe_ctx->wait_frame_count = cur_frame + 1 - max_frame_count;
 		else
 			pipe_ctx->wait_frame_count = cur_frame + 1;
 	}
@@ -2485,7 +2487,8 @@ void dcn10_enable_vblanks_synchronization(
 	(void)group_index;
 	struct output_pixel_processor *opp;
 	struct timing_generator *tg;
-	int i, width = 0, height = 0, master;
+	int i, master;
+	uint32_t width = 0, height = 0;
 
 	DC_LOGGER_INIT(dc->ctx);
 
@@ -2551,7 +2554,8 @@ void dcn10_enable_timing_synchronization(
 	(void)group_index;
 	struct output_pixel_processor *opp;
 	struct timing_generator *tg;
-	int i, width = 0, height = 0;
+	int i;
+	uint32_t width = 0, height = 0;
 
 	DC_LOGGER_INIT(dc->ctx);
 
@@ -3636,8 +3640,8 @@ void dcn10_update_pending_status(struct pipe_ctx *pipe_ctx)
 
 	if (dc->hwseq->wa_state.disallow_self_refresh_during_multi_plane_transition_applied) {
 		struct dce_hwseq *hwseq = dc->hwseq;
-		struct timing_generator *tg = dc->res_pool->timing_generators[0];
-		unsigned int cur_frame = tg->funcs->get_frame_count(tg);
+		struct timing_generator *wa_tg = dc->res_pool->timing_generators[0];
+		unsigned int cur_frame = wa_tg->funcs->get_frame_count(wa_tg);
 
 		if (cur_frame != hwseq->wa_state.disallow_self_refresh_during_multi_plane_transition_applied_on_frame) {
 			struct hubbub *hubbub = dc->res_pool->hubbub;

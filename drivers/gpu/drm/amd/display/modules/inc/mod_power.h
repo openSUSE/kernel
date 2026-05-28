@@ -5,6 +5,8 @@
 
 #include "dm_services.h"
 
+struct core_power;
+
 struct mod_power_init_params {
 
 	bool disable_fractional_pwm;
