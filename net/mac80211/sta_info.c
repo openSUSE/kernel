@@ -3258,7 +3258,10 @@ void sta_set_sinfo(struct sta_info *sta, struct station_info *sinfo,
 		struct link_sta_info *link_sta;
 		int link_id;
 
-		ether_addr_copy(sinfo->mld_addr, sta->addr);
+		sinfo->mlo_params_valid = true;
+		sinfo->assoc_link_id = sta->deflink.link_id;
+		if (sta->sta.mlo)
+			ether_addr_copy(sinfo->mld_addr, sta->addr);
 
 		/* assign valid links first for iteration */
 		sinfo->valid_links = sta->sta.valid_links;
