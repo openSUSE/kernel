@@ -2836,9 +2836,7 @@ void write_dirty_buffer(struct buffer_head *bh, blk_opf_t op_flags)
 		unlock_buffer(bh);
 		return;
 	}
-	bh->b_end_io = end_buffer_write_sync;
-	get_bh(bh);
-	submit_bh(REQ_OP_WRITE | op_flags, bh);
+	bh_submit(bh, REQ_OP_WRITE | op_flags, bh_end_write);
 }
 EXPORT_SYMBOL(write_dirty_buffer);
 
