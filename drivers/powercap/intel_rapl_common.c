@@ -1441,7 +1441,7 @@ static ssize_t cpumask_show(struct device *dev,
 	}
 	cpus_read_unlock();
 
-	ret = cpumap_print_to_pagebuf(true, buf, cpu_mask);
+	ret = sysfs_emit(buf, "%*pbl\n", cpumask_pr_args(cpu_mask));
 
 	free_cpumask_var(cpu_mask);
 
