@@ -1004,8 +1004,11 @@ void rebuild_sched_domains_locked(void)
 	* prevent the panic.
 	*/
 	for (i = 0; doms && i < ndoms; i++) {
-		if (WARN_ON_ONCE(!cpumask_subset(doms[i], cpu_active_mask)))
+		if (WARN_ON_ONCE(!cpumask_subset(doms[i], cpu_active_mask))) {
+			free_sched_domains(doms, ndoms);
+			kfree(attr);
 			return;
+		}
 	}
 
 	/* Have scheduler rebuild the domains */
