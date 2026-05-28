@@ -336,8 +336,8 @@ static ssize_t idlecpus_store(struct device *dev,
 static ssize_t idlecpus_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
-	return cpumap_print_to_pagebuf(false, buf,
-				       to_cpumask(pad_busy_cpus_bits));
+	return sysfs_emit(buf, "%*pb\n",
+			  cpumask_pr_args(to_cpumask(pad_busy_cpus_bits)));
 }
 
 static DEVICE_ATTR_RW(idlecpus);
