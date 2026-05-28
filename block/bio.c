@@ -1299,7 +1299,7 @@ static void bio_free_folios(struct bio *bio)
 	int i;
 
 	bio_for_each_bvec_all(bv, bio, i) {
-		struct folio *folio = page_folio(bv->bv_page);
+		struct folio *folio = bvec_folio(bv);
 
 		if (!is_zero_folio(folio))
 			folio_put(folio);
@@ -1406,7 +1406,7 @@ int bio_iov_iter_bounce(struct bio *bio, struct iov_iter *iter, size_t maxlen)
 
 static void bvec_unpin(struct bio_vec *bv, bool mark_dirty)
 {
-	struct folio *folio = page_folio(bv->bv_page);
+	struct folio *folio = bvec_folio(bv);
 	size_t nr_pages = (bv->bv_offset + bv->bv_len - 1) / PAGE_SIZE -
 			bv->bv_offset / PAGE_SIZE + 1;
 
@@ -1440,7 +1440,7 @@ static void bio_iov_iter_unbounce_read(struct bio *bio, bool is_error,
 			bvec_unpin(&bio->bi_io_vec[1 + i], mark_dirty);
 	}
 
-	folio_put(page_folio(bio->bi_io_vec[0].bv_page));
+	folio_put(bvec_folio(&bio->bi_io_vec[0]));
 }
 
 /**

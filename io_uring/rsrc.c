@@ -102,7 +102,7 @@ static void io_release_ubuf(void *priv)
 	unsigned int i;
 
 	for (i = 0; i < imu->nr_bvecs; i++) {
-		struct folio *folio = page_folio(imu->bvec[i].bv_page);
+		struct folio *folio = bvec_folio(&imu->bvec[i]);
 
 		unpin_user_folio(folio, 1);
 	}
