@@ -1,0 +1,40 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+#ifndef __NETMEM_PRIV_H
+#define __NETMEM_PRIV_H
+
+#include <linux/mm.h>
+
+#define __netmem_clear_lsb(netmem) netmem_to_page(netmem)
+
+static inline unsigned long netmem_get_pp_magic(netmem_ref netmem)
+{
+        return __netmem_clear_lsb(netmem)->pp_magic;
+}
+
+static inline void netmem_or_pp_magic(netmem_ref netmem, unsigned long pp_magic)
+{
+        __netmem_clear_lsb(netmem)->pp_magic |= pp_magic;
+}
+
+static inline void netmem_clear_pp_magic(netmem_ref netmem)
+{
+        __netmem_clear_lsb(netmem)->pp_magic = 0;
+}
+
+static inline bool netmem_is_pp(netmem_ref netmem)
+{
+        return (netmem_get_pp_magic(netmem) & PP_MAGIC_MASK) == PP_SIGNATURE;
+}
+
+static inline void netmem_set_pp(netmem_ref netmem, struct page_pool *pool)
+{
+        __netmem_clear_lsb(netmem)->pp = pool;
+}
+
+static inline void netmem_set_dma_addr(netmem_ref netmem,
+                                       unsigned long dma_addr)
+{
+        __netmem_clear_lsb(netmem)->dma_addr = dma_addr;
+}
+
+#endif
