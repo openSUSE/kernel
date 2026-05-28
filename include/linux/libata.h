@@ -1315,7 +1315,8 @@ extern int ata_tport_add(struct device *parent, struct ata_port *ap);
 extern void ata_tport_delete(struct ata_port *ap);
 int ata_sas_sdev_configure(struct scsi_device *sdev, struct queue_limits *lim,
 			   struct ata_port *ap);
-extern int ata_sas_queuecmd(struct scsi_cmnd *cmd, struct ata_port *ap);
+extern int ata_sas_queuecmd(struct scsi_cmnd *cmd, struct ata_port *ap)
+	__must_hold(ap->lock);
 extern void ata_tf_to_fis(const struct ata_taskfile *tf,
 			  u8 pmp, int is_cmd, u8 *fis);
 extern void ata_tf_from_fis(const u8 *fis, struct ata_taskfile *tf);

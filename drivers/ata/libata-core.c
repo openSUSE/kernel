@@ -5162,6 +5162,7 @@ EXPORT_SYMBOL_GPL(ata_qc_get_active);
  *	spin_lock_irqsave(host lock)
  */
 void ata_qc_issue(struct ata_port *ap, struct ata_queued_cmd *qc)
+	__must_hold(ap->lock)
 {
 	struct ata_link *link = qc->dev->link;
 	u8 prot = qc->tf.protocol;

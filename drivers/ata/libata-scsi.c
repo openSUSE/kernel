@@ -1769,6 +1769,7 @@ static void ata_scsi_qc_complete(struct ata_queued_cmd *qc)
 }
 
 static int ata_scsi_qc_issue(struct ata_port *ap, struct ata_queued_cmd *qc)
+	__must_hold(ap->lock)
 {
 	struct ata_link *link = qc->dev->link;
 	int ret;
@@ -1864,6 +1865,7 @@ free_qc:
  */
 static int ata_scsi_translate(struct ata_device *dev, struct scsi_cmnd *cmd,
 			      ata_xlat_func_t xlat_func, struct ata_port *ap)
+	__must_hold(ap->lock)
 {
 	struct ata_queued_cmd *qc;
 
@@ -4523,6 +4525,7 @@ static void ata_scsi_simulate(struct ata_device *dev, struct scsi_cmnd *cmd)
 enum scsi_qc_status __ata_scsi_queuecmd(struct scsi_cmnd *scmd,
 					struct ata_device *dev,
 					struct ata_port *ap)
+	__must_hold(ap->lock)
 {
 	u8 scsi_op = scmd->cmnd[0];
 	ata_xlat_func_t xlat_func;
