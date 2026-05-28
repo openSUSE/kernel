@@ -1820,9 +1820,7 @@ static int jbd2_write_superblock(journal_t *journal, blk_opf_t write_flags)
 	}
 	if (jbd2_journal_has_csum_v2or3(journal))
 		sb->s_checksum = jbd2_superblock_csum(sb);
-	get_bh(bh);
-	bh->b_end_io = end_buffer_write_sync;
-	submit_bh(REQ_OP_WRITE | write_flags, bh);
+	bh_submit(bh, REQ_OP_WRITE | write_flags, bh_end_write);
 	wait_on_buffer(bh);
 	if (buffer_write_io_error(bh)) {
 		clear_buffer_write_io_error(bh);
