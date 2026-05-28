@@ -33,7 +33,7 @@ struct {
 SEC("tc")
 int test_stack_arg_scalar(struct __sk_buff *skb)
 {
-	return bpf_kfunc_call_stack_arg(1, 2, 3, 4, 5, 6, 7, 8);
+	return bpf_kfunc_call_stack_arg(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
 }
 
 SEC("tc")
@@ -41,7 +41,7 @@ int test_stack_arg_ptr(struct __sk_buff *skb)
 {
 	struct prog_test_pass1 p = { .x0 = 10, .x1 = 20 };
 
-	return bpf_kfunc_call_stack_arg_ptr(1, 2, 3, 4, 5, &p);
+	return bpf_kfunc_call_stack_arg_ptr(1, 2, 3, 4, 5, 6, 7, 8, 9, &p);
 }
 
 SEC("tc")
@@ -50,17 +50,17 @@ int test_stack_arg_mix(struct __sk_buff *skb)
 	struct prog_test_pass1 p = { .x0 = 10 };
 	struct prog_test_pass1 q = { .x1 = 20 };
 
-	return bpf_kfunc_call_stack_arg_mix(1, 2, 3, 4, 5, &p, 6, &q);
+	return bpf_kfunc_call_stack_arg_mix(1, 2, 3, 4, 5, 6, 7, &p, 8, &q);
 }
 
-/* 1 + 2 + 3 + 4 + 5 + sizeof(pkt_v4) = 15 + 54 = 69 */
+/* 1+2+3+4+5+6+7+8+9+sizeof(pkt_v4) = 45+54 = 99 */
 SEC("tc")
 int test_stack_arg_dynptr(struct __sk_buff *skb)
 {
 	struct bpf_dynptr ptr;
 
 	bpf_dynptr_from_skb(skb, 0, &ptr);
-	return bpf_kfunc_call_stack_arg_dynptr(1, 2, 3, 4, 5, &ptr);
+	return bpf_kfunc_call_stack_arg_dynptr(1, 2, 3, 4, 5, 6, 7, 8, 9, &ptr);
 }
 
 /* 1 + 2 + 3 + 4 + 5 + (1 + 2 + ... + 16) = 15 + 136 = 151 */
@@ -72,7 +72,7 @@ int test_stack_arg_mem(struct __sk_buff *skb)
 	return bpf_kfunc_call_stack_arg_mem(1, 2, 3, 4, 5, buf, sizeof(buf));
 }
 
-/* 1 + 2 + 3 + 4 + 5 + 100 = 115 */
+/* 1+2+3+4+5+6+7+8+9+100 = 145 */
 SEC("tc")
 int test_stack_arg_iter(struct __sk_buff *skb)
 {
@@ -80,21 +80,22 @@ int test_stack_arg_iter(struct __sk_buff *skb)
 	u64 ret;
 
 	bpf_iter_testmod_seq_new(&it, 100, 10);
-	ret = bpf_kfunc_call_stack_arg_iter(1, 2, 3, 4, 5, &it);
+	ret = bpf_kfunc_call_stack_arg_iter(1, 2, 3, 4, 5, 6, 7, 8, 9, &it);
 	bpf_iter_testmod_seq_destroy(&it);
 	return ret;
 }
 
 const char cstr[] = "hello";
 
-/* 1 + 2 + 3 + 4 + 5 = 15 */
+/* 1+2+3+4+5+6+7+8+9 = 45 */
 SEC("tc")
 int test_stack_arg_const_str(struct __sk_buff *skb)
 {
-	return bpf_kfunc_call_stack_arg_const_str(1, 2, 3, 4, 5, cstr);
+	return bpf_kfunc_call_stack_arg_const_str(1, 2, 3, 4, 5, 6, 7, 8, 9,
+						  cstr);
 }
 
-/* 1 + 2 + 3 + 4 + 5 = 15 */
+/* 1+2+3+4+5+6+7+8+9 = 45 */
 SEC("tc")
 int test_stack_arg_timer(struct __sk_buff *skb)
 {
@@ -104,7 +105,8 @@ int test_stack_arg_timer(struct __sk_buff *skb)
 	val = bpf_map_lookup_elem(&kfunc_timer_map, &key);
 	if (!val)
 		return 0;
-	return bpf_kfunc_call_stack_arg_timer(1, 2, 3, 4, 5, &val->timer);
+	return bpf_kfunc_call_stack_arg_timer(1, 2, 3, 4, 5, 6, 7, 8, 9,
+					      &val->timer);
 }
 
 #else

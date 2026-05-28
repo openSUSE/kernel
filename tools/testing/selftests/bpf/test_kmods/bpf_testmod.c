@@ -826,30 +826,34 @@ __bpf_kfunc int bpf_kfunc_call_test5(u8 a, u16 b, u32 c)
 }
 
 __bpf_kfunc u64 bpf_kfunc_call_stack_arg(u64 a, u64 b, u64 c, u64 d,
-					 u64 e, u64 f, u64 g, u64 h)
+					 u64 e, u64 f, u64 g, u64 h,
+					 u64 i, u64 j)
 {
-	return a + b + c + d + e + f + g + h;
+	return a + b + c + d + e + f + g + h + i + j;
 }
 
 __bpf_kfunc u64 bpf_kfunc_call_stack_arg_ptr(u64 a, u64 b, u64 c, u64 d, u64 e,
+					     u64 f, u64 g, u64 h, u64 i,
 					     struct prog_test_pass1 *p)
 {
-	return a + b + c + d + e + p->x0 + p->x1;
+	return a + b + c + d + e + f + g + h + i + p->x0 + p->x1;
 }
 
 __bpf_kfunc u64 bpf_kfunc_call_stack_arg_mix(u64 a, u64 b, u64 c, u64 d, u64 e,
-					     struct prog_test_pass1 *p, u64 f,
+					     u64 f, u64 g,
+					     struct prog_test_pass1 *p, u64 h,
 					     struct prog_test_pass1 *q)
 {
-	return a + b + c + d + e + p->x0 + f + q->x1;
+	return a + b + c + d + e + f + g + p->x0 + h + q->x1;
 }
 
 __bpf_kfunc u64 bpf_kfunc_call_stack_arg_dynptr(u64 a, u64 b, u64 c, u64 d, u64 e,
+					       u64 f, u64 g, u64 h, u64 i,
 					       struct bpf_dynptr *ptr)
 {
 	const struct bpf_dynptr_kern *kern_ptr = (void *)ptr;
 
-	return a + b + c + d + e + (kern_ptr->size & 0xFFFFFF);
+	return a + b + c + d + e + f + g + h + i + (kern_ptr->size & 0xFFFFFF);
 }
 
 __bpf_kfunc u64 bpf_kfunc_call_stack_arg_mem(u64 a, u64 b, u64 c, u64 d, u64 e,
@@ -865,21 +869,24 @@ __bpf_kfunc u64 bpf_kfunc_call_stack_arg_mem(u64 a, u64 b, u64 c, u64 d, u64 e,
 }
 
 __bpf_kfunc u64 bpf_kfunc_call_stack_arg_iter(u64 a, u64 b, u64 c, u64 d, u64 e,
+					      u64 f, u64 g, u64 h, u64 i,
 					      struct bpf_iter_testmod_seq *it__iter)
 {
-	return a + b + c + d + e + it__iter->value;
+	return a + b + c + d + e + f + g + h + i + it__iter->value;
 }
 
 __bpf_kfunc u64 bpf_kfunc_call_stack_arg_const_str(u64 a, u64 b, u64 c, u64 d, u64 e,
+						   u64 f, u64 g, u64 h, u64 i,
 						   const char *str__str)
 {
-	return a + b + c + d + e;
+	return a + b + c + d + e + f + g + h + i;
 }
 
 __bpf_kfunc u64 bpf_kfunc_call_stack_arg_timer(u64 a, u64 b, u64 c, u64 d, u64 e,
+					       u64 f, u64 g, u64 h, u64 i,
 					       struct bpf_timer *timer)
 {
-	return a + b + c + d + e;
+	return a + b + c + d + e + f + g + h + i;
 }
 
 __bpf_kfunc u64 bpf_kfunc_call_stack_arg_big(u64 a, u64 b, u64 c, u64 d, u64 e,

@@ -27,14 +27,16 @@ int timer_result;
 const volatile bool has_stack_arg = true;
 
 __noinline static int static_func_many_args(int a, int b, int c, int d,
-					    int e, int f, int g, int h)
+					    int e, int f, int g, int h,
+					    int i, int j)
 {
-	return a + b + c + d + e + f + g + h;
+	return a + b + c + d + e + f + g + h + i + j;
 }
 
 __noinline int global_calls_many_args(int a, int b, int c)
 {
-	return static_func_many_args(a, b, c, 4, 5, 6, 7, 8);
+	return static_func_many_args(a, b, c, a + 3, a + 4, a + 5, a + 6,
+				     a + 7, a + 8, a + 9);
 }
 
 SEC("tc")
@@ -48,18 +50,20 @@ struct test_data {
 	long y;
 };
 
-/* 1 + 2 + 3 + 4 + 5 + 10 + 20 = 45 */
+/* 1+2+3+4+5+6+7+8+9+10+20 = 75 */
 __noinline static long func_with_ptr_stack_arg(long a, long b, long c, long d,
-					       long e, struct test_data *p)
+					       long e, long f, long g, long h,
+					       long i, struct test_data *p)
 {
-	return a + b + c + d + e + p->x + p->y;
+	return a + b + c + d + e + f + g + h + i + p->x + p->y;
 }
 
 __noinline long global_ptr_stack_arg(long a, long b, long c, long d, long e)
 {
 	struct test_data data = { .x = 10, .y = 20 };
 
-	return func_with_ptr_stack_arg(a, b, c, d, e, &data);
+	return func_with_ptr_stack_arg(a, b, c, d, e, a + 5, a + 6, a + 7,
+				      a + 8, &data);
 }
 
 SEC("tc")
@@ -68,12 +72,13 @@ int test_bpf2bpf_ptr_stack_arg(void)
 	return global_ptr_stack_arg(1, 2, 3, 4, 5);
 }
 
-/* 1 + 2 + 3 + 4 + 5 + 10 + 6 + 20 = 51 */
+/* 1+2+3+4+5+6+7+10+8+20 = 66 */
 __noinline static long func_with_mix_stack_args(long a, long b, long c, long d,
-						long e, struct test_data *p,
-						long f, struct test_data *q)
+						long e, long f, long g,
+						struct test_data *p,
+						long h, struct test_data *q)
 {
-	return a + b + c + d + e + p->x + f + q->y;
+	return a + b + c + d + e + f + g + p->x + h + q->y;
 }
 
 __noinline long global_mix_stack_args(long a, long b, long c, long d, long e)
@@ -81,7 +86,8 @@ __noinline long global_mix_stack_args(long a, long b, long c, long d, long e)
 	struct test_data p = { .x = 10 };
 	struct test_data q = { .y = 20 };
 
-	return func_with_mix_stack_args(a, b, c, d, e, &p, e + 1, &q);
+	return func_with_mix_stack_args(a, b, c, d, e, e + 1, e + 2, &p,
+					e + 3, &q);
 }
 
 SEC("tc")
@@ -94,26 +100,30 @@ int test_bpf2bpf_mix_stack_args(void)
  * Nesting test: func_outer calls func_inner, both with struct pointer
  * as stack arg.
  *
- * func_inner: (a+1) + (b+1) + (c+1) + (d+1) + (e+1) + p->x + p->y
- *           = 2 + 3 + 4 + 5 + 6 + 10 + 20 = 50
+ * func_inner: (a+1)+...+(i+1) + p->x + p->y
+ *           = 2+3+4+5+6+7+8+9+10+10+20 = 84
  */
 __noinline static long func_inner_ptr(long a, long b, long c, long d,
-				      long e, struct test_data *p)
+				      long e, long f, long g, long h,
+				      long i, struct test_data *p)
 {
-	return a + b + c + d + e + p->x + p->y;
+	return a + b + c + d + e + f + g + h + i + p->x + p->y;
 }
 
 __noinline static long func_outer_ptr(long a, long b, long c, long d,
-				      long e, struct test_data *p)
+				      long e, long f, long g, long h,
+				      long i, struct test_data *p)
 {
-	return func_inner_ptr(a + 1, b + 1, c + 1, d + 1, e + 1, p);
+	return func_inner_ptr(a + 1, b + 1, c + 1, d + 1, e + 1,
+			      f + 1, g + 1, h + 1, i + 1, p);
 }
 
 __noinline long global_nesting_ptr(long a, long b, long c, long d, long e)
 {
 	struct test_data data = { .x = 10, .y = 20 };
 
-	return func_outer_ptr(a, b, c, d, e, &data);
+	return func_outer_ptr(a, b, c, d, e, a + 5, a + 6, a + 7, a + 8,
+			      &data);
 }
 
 SEC("tc")
@@ -122,11 +132,12 @@ int test_bpf2bpf_nesting_stack_arg(void)
 	return global_nesting_ptr(1, 2, 3, 4, 5);
 }
 
-/* 1 + 2 + 3 + 4 + 5 + sizeof(pkt_v4) = 15 + 54 = 69 */
+/* 1+2+3+4+5+6+7+8+9+sizeof(pkt_v4) = 45+54 = 99 */
 __noinline static long func_with_dynptr(long a, long b, long c, long d,
-					long e, struct bpf_dynptr *ptr)
+					long e, long f, long g, long h,
+					long i, struct bpf_dynptr *ptr)
 {
-	return a + b + c + d + e + bpf_dynptr_size(ptr);
+	return a + b + c + d + e + f + g + h + i + bpf_dynptr_size(ptr);
 }
 
 __noinline long global_dynptr_stack_arg(void *ctx __arg_ctx, long a, long b,
@@ -135,7 +146,8 @@ __noinline long global_dynptr_stack_arg(void *ctx __arg_ctx, long a, long b,
 	struct bpf_dynptr ptr;
 
 	bpf_dynptr_from_skb(ctx, 0, &ptr);
-	return func_with_dynptr(a, b, c, d, d + 1, &ptr);
+	return func_with_dynptr(a, b, c, d, d + 1, d + 2, d + 3, d + 4,
+				d + 5, &ptr);
 }
 
 SEC("tc")
@@ -144,24 +156,25 @@ int test_bpf2bpf_dynptr_stack_arg(struct __sk_buff *skb)
 	return global_dynptr_stack_arg(skb, 1, 2, 3, 4);
 }
 
-/* foo1: a+b+c+d+e+f+g+h */
-__noinline static int foo1(int a, int b, int c, int d,
-			   int e, int f, int g, int h)
-{
-	return a + b + c + d + e + f + g + h;
-}
-
-/* foo2: a+b+c+d+e+f+g+h+i+j */
-__noinline static int foo2(int a, int b, int c, int d, int e,
+/* foo1: a+b+c+d+e+f+g+h+i+j */
+__noinline static int foo1(int a, int b, int c, int d, int e,
 			   int f, int g, int h, int i, int j)
 {
 	return a + b + c + d + e + f + g + h + i + j;
 }
 
-/* global_two_callees calls foo1 (3 stack args) and foo2 (5 stack args).
+/* foo2: a+b+c+d+e+f+g+h+i+j+k+l */
+__noinline static int foo2(int a, int b, int c, int d, int e,
+			   int f, int g, int h, int i, int j,
+			   int k, int l)
+{
+	return a + b + c + d + e + f + g + h + i + j + k + l;
+}
+
+/* global_two_callees calls foo1 (5 stack args) and foo2 (7 stack args).
  * The outgoing stack arg area is sized for foo2 (the larger callee).
  * Stores for foo1 are a subset of the area used by foo2.
- * Result: foo1(1,2,3,4,5,6,7,8) + foo2(1,2,3,4,5,6,7,8,9,10) = 36 + 55 = 91
+ * Result: foo1(1..10) + foo2(1..12) = 55 + 78 = 133
  *
  * Pass a-e through so the compiler can't constant-fold the stack args away.
  */
@@ -169,8 +182,9 @@ __noinline int global_two_callees(int a, int b, int c, int d, int e)
 {
 	int ret;
 
-	ret = foo1(a, b, c, d, e, a + 5, a + 6, a + 7);
-	ret += foo2(a, b, c, d, e, a + 5, a + 6, a + 7, a + 8, a + 9);
+	ret = foo1(a, b, c, d, e, a + 5, a + 6, a + 7, a + 8, a + 9);
+	ret += foo2(a, b, c, d, e, a + 5, a + 6, a + 7, a + 8, a + 9,
+		    a + 10, a + 11);
 	return ret;
 }
 
@@ -180,9 +194,15 @@ int test_two_callees(void)
 	return global_two_callees(1, 2, 3, 4, 5);
 }
 
+const volatile int timer_base = 10;
+
 static int timer_cb_many_args(void *map, int *key, struct bpf_timer *timer)
 {
-	timer_result = static_func_many_args(10, 20, 30, 40, 50, 60, 70, 80);
+	int v = timer_base;
+
+	timer_result = static_func_many_args(v, v * 2, v * 3, v * 4, v * 5,
+					     v * 6, v * 7, v * 8, v * 9,
+					     v * 10);
 	return 0;
 }
 
