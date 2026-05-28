@@ -136,6 +136,10 @@ int q6apm_write_async(struct q6apm_graph *graph, uint32_t len, uint32_t msw_ts,
 int q6apm_map_memory_fixed_region(struct device *dev,
 			     unsigned int graph_id, phys_addr_t phys,
 			     size_t sz);
+int q6apm_map_pos_buffer(struct device *dev,
+			     unsigned int graph_id, phys_addr_t phys,
+			     size_t sz);
+int q6apm_unmap_pos_buffer(struct device *dev, unsigned int graph_id);
 int q6apm_alloc_fragments(struct q6apm_graph *graph,
 			unsigned int dir, phys_addr_t phys,
 			size_t period_sz, unsigned int periods);
@@ -155,4 +159,9 @@ int q6apm_remove_initial_silence(struct device *dev, struct q6apm_graph *graph, 
 int q6apm_remove_trailing_silence(struct device *dev, struct q6apm_graph *graph, uint32_t samples);
 int q6apm_set_real_module_id(struct device *dev, struct q6apm_graph *graph, uint32_t codec_id);
 int q6apm_get_hw_pointer(struct q6apm_graph *graph, int dir);
+bool q6apm_is_graph_in_push_pull_mode(struct q6apm_graph *graph);
+bool q6apm_is_graph_in_push_pull_mode_from_id(struct device *dev, unsigned int graph_id, int dir);
+int q6apm_push_pull_config(struct q6apm_graph *graph, phys_addr_t bphys,
+			   phys_addr_t pphys, uint32_t size);
+
 #endif /* __APM_GRAPH_ */
