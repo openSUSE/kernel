@@ -1291,8 +1291,12 @@ static int ip__fprintf_jump(uint64_t ip, struct branch_entry *en,
 			if (!verbose) {
 				for (j = 0; j < num; j++)
 					printed += fprintf(fp, "%s", pos->abbr_name);
-			} else
-				printed += fprintf(fp, "%s %d ", pos->name, num);
+				if (mask && (num == mask))
+					printed += fprintf(fp, "+");
+			} else {
+				printed += fprintf(fp, "%s %d%s", pos->name,
+						   num, mask && (num == mask) ? "+ " : " ");
+			}
 		}
 		if (numprinted == 0 && !verbose)
 			printed += fprintf(fp, "-");
