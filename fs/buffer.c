@@ -2857,9 +2857,7 @@ int __sync_dirty_buffer(struct buffer_head *bh, blk_opf_t op_flags)
 			return -EIO;
 		}
 
-		get_bh(bh);
-		bh->b_end_io = end_buffer_write_sync;
-		submit_bh(REQ_OP_WRITE | op_flags, bh);
+		bh_submit(bh, REQ_OP_WRITE | op_flags, bh_end_write);
 		wait_on_buffer(bh);
 		if (!buffer_uptodate(bh))
 			return -EIO;
