@@ -54,9 +54,6 @@
 
 #include "internal.h"
 
-static void submit_bh_wbc(blk_opf_t opf, struct buffer_head *bh,
-			  enum rw_hint hint, struct writeback_control *wbc);
-
 #define BH_ENTRY(list) list_entry((list), struct buffer_head, b_assoc_buffers)
 
 inline void touch_buffer(struct buffer_head *bh)
@@ -1156,6 +1153,79 @@ void __bforget(struct buffer_head *bh)
 	__brelse(bh);
 }
 EXPORT_SYMBOL(__bforget);
+
+static void end_bio_bh_io_sync(struct bio *bio)
+{
+	struct buffer_head *bh = bio->bi_private;
+
+	if (unlikely(bio_flagged(bio, BIO_QUIET)))
+		set_bit(BH_Quiet, &bh->b_state);
+
+	bh->b_end_io(bh, !bio->bi_status);
+	bio_put(bio);
+}
+
+static void buffer_set_crypto_ctx(struct bio *bio, const struct buffer_head *bh,
+				  gfp_t gfp_mask)
+{
+	const struct address_space *mapping = folio_mapping(bh->b_folio);
+
+	/*
+	 * The ext4 journal (jbd2) can submit a buffer_head it directly created
+	 * for a non-pagecache page.  fscrypt doesn't care about these.
+	 */
+	if (!mapping)
+		return;
+	fscrypt_set_bio_crypt_ctx(bio, mapping->host,
+			folio_pos(bh->b_folio) + bh_offset(bh), gfp_mask);
+}
+
+static void submit_bh_wbc(blk_opf_t opf, struct buffer_head *bh,
+		enum rw_hint write_hint, struct writeback_control *wbc)
+{
+	const enum req_op op = opf & REQ_OP_MASK;
+	struct bio *bio;
+
+	BUG_ON(!buffer_locked(bh));
+	BUG_ON(!buffer_mapped(bh));
+	BUG_ON(!bh->b_end_io);
+	BUG_ON(buffer_delay(bh));
+	BUG_ON(buffer_unwritten(bh));
+
+	/*
+	 * Only clear out a write error when rewriting
+	 */
+	if (test_set_buffer_req(bh) && (op == REQ_OP_WRITE))
+		clear_buffer_write_io_error(bh);
+
+	if (buffer_meta(bh))
+		opf |= REQ_META;
+	if (buffer_prio(bh))
+		opf |= REQ_PRIO;
+
+	bio = bio_alloc(bh->b_bdev, 1, opf, GFP_NOIO);
+
+	if (IS_ENABLED(CONFIG_FS_ENCRYPTION))
+		buffer_set_crypto_ctx(bio, bh, GFP_NOIO);
+
+	bio->bi_iter.bi_sector = bh->b_blocknr * (bh->b_size >> 9);
+	bio->bi_write_hint = write_hint;
+
+	bio_add_folio_nofail(bio, bh->b_folio, bh->b_size, bh_offset(bh));
+
+	bio->bi_end_io = end_bio_bh_io_sync;
+	bio->bi_private = bh;
+
+	/* Take care of bh's that straddle the end of the device */
+	guard_bio_eod(bio);
+
+	if (wbc) {
+		wbc_init_bio(wbc, bio);
+		wbc_account_cgroup_owner(wbc, bh->b_folio, bh->b_size);
+	}
+
+	blk_crypto_submit_bio(bio);
+}
 
 static struct buffer_head *__bread_slow(struct buffer_head *bh)
 {
@@ -2662,80 +2732,6 @@ sector_t generic_block_bmap(struct address_space *mapping, sector_t block,
 	return tmp.b_blocknr;
 }
 EXPORT_SYMBOL(generic_block_bmap);
-
-static void end_bio_bh_io_sync(struct bio *bio)
-{
-	struct buffer_head *bh = bio->bi_private;
-
-	if (unlikely(bio_flagged(bio, BIO_QUIET)))
-		set_bit(BH_Quiet, &bh->b_state);
-
-	bh->b_end_io(bh, !bio->bi_status);
-	bio_put(bio);
-}
-
-static void buffer_set_crypto_ctx(struct bio *bio, const struct buffer_head *bh,
-				  gfp_t gfp_mask)
-{
-	const struct address_space *mapping = folio_mapping(bh->b_folio);
-
-	/*
-	 * The ext4 journal (jbd2) can submit a buffer_head it directly created
-	 * for a non-pagecache page.  fscrypt doesn't care about these.
-	 */
-	if (!mapping)
-		return;
-	fscrypt_set_bio_crypt_ctx(bio, mapping->host,
-			folio_pos(bh->b_folio) + bh_offset(bh), gfp_mask);
-}
-
-static void submit_bh_wbc(blk_opf_t opf, struct buffer_head *bh,
-			  enum rw_hint write_hint,
-			  struct writeback_control *wbc)
-{
-	const enum req_op op = opf & REQ_OP_MASK;
-	struct bio *bio;
-
-	BUG_ON(!buffer_locked(bh));
-	BUG_ON(!buffer_mapped(bh));
-	BUG_ON(!bh->b_end_io);
-	BUG_ON(buffer_delay(bh));
-	BUG_ON(buffer_unwritten(bh));
-
-	/*
-	 * Only clear out a write error when rewriting
-	 */
-	if (test_set_buffer_req(bh) && (op == REQ_OP_WRITE))
-		clear_buffer_write_io_error(bh);
-
-	if (buffer_meta(bh))
-		opf |= REQ_META;
-	if (buffer_prio(bh))
-		opf |= REQ_PRIO;
-
-	bio = bio_alloc(bh->b_bdev, 1, opf, GFP_NOIO);
-
-	if (IS_ENABLED(CONFIG_FS_ENCRYPTION))
-		buffer_set_crypto_ctx(bio, bh, GFP_NOIO);
-
-	bio->bi_iter.bi_sector = bh->b_blocknr * (bh->b_size >> 9);
-	bio->bi_write_hint = write_hint;
-
-	bio_add_folio_nofail(bio, bh->b_folio, bh->b_size, bh_offset(bh));
-
-	bio->bi_end_io = end_bio_bh_io_sync;
-	bio->bi_private = bh;
-
-	/* Take care of bh's that straddle the end of the device */
-	guard_bio_eod(bio);
-
-	if (wbc) {
-		wbc_init_bio(wbc, bio);
-		wbc_account_cgroup_owner(wbc, bh->b_folio, bh->b_size);
-	}
-
-	blk_crypto_submit_bio(bio);
-}
 
 void submit_bh(blk_opf_t opf, struct buffer_head *bh)
 {
