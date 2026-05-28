@@ -161,7 +161,7 @@ MODULE_ALIAS("ext3");
 
 
 static inline void __ext4_read_bh(struct buffer_head *bh, blk_opf_t op_flags,
-				  bh_end_io_t *end_io, bool simu_fail)
+				  bio_end_io_t end_io, bool simu_fail)
 {
 	if (simu_fail) {
 		clear_buffer_uptodate(bh);
@@ -176,13 +176,13 @@ static inline void __ext4_read_bh(struct buffer_head *bh, blk_opf_t op_flags,
 	 */
 	clear_buffer_verified(bh);
 
-	bh->b_end_io = end_io ? end_io : end_buffer_read_sync;
-	get_bh(bh);
-	submit_bh(REQ_OP_READ | op_flags, bh);
+	if (!end_io)
+		end_io = bh_end_read;
+	bh_submit(bh, REQ_OP_READ | op_flags, end_io);
 }
 
 void ext4_read_bh_nowait(struct buffer_head *bh, blk_opf_t op_flags,
-			 bh_end_io_t *end_io, bool simu_fail)
+			 bio_end_io_t end_io, bool simu_fail)
 {
 	BUG_ON(!buffer_locked(bh));
 
@@ -194,7 +194,7 @@ void ext4_read_bh_nowait(struct buffer_head *bh, blk_opf_t op_flags,
 }
 
 int ext4_read_bh(struct buffer_head *bh, blk_opf_t op_flags,
-		 bh_end_io_t *end_io, bool simu_fail)
+		 bio_end_io_t end_io, bool simu_fail)
 {
 	BUG_ON(!buffer_locked(bh));
 
