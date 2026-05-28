@@ -1821,16 +1821,6 @@ int dpaa2_switch_port_vlans_add(struct net_device *netdev,
 	if (attr->max_vlans - attr->num_vlans < 1)
 		return -ENOSPC;
 
-	/* Check if there is space for a new VLAN */
-	err = dpsw_get_attributes(ethsw->mc_io, 0, ethsw->dpsw_handle,
-				  &ethsw->sw_attr);
-	if (err) {
-		netdev_err(netdev, "dpsw_get_attributes err %d\n", err);
-		return err;
-	}
-	if (attr->max_vlans - attr->num_vlans < 1)
-		return -ENOSPC;
-
 	if (!port_priv->ethsw_data->vlans[vlan->vid]) {
 		/* this is a new VLAN */
 		err = dpaa2_switch_add_vlan(port_priv, vlan->vid);
