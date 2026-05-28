@@ -154,7 +154,7 @@ static int catpt_register_board(struct catpt_dev *cdev)
 					PLATFORM_DEVID_NONE,
 					(const void *)mach, sizeof(*mach));
 	if (IS_ERR(board)) {
-		dev_err(cdev->dev, "board register failed\n");
+		dev_err(cdev->dev, "register board failed: %ld\n", PTR_ERR(board));
 		return PTR_ERR(board);
 	}
 
