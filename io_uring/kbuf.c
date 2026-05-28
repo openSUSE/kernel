@@ -541,11 +541,11 @@ static int io_add_buffers(struct io_ring_ctx *ctx, struct io_provide_buf *pbuf,
 
 	for (i = 0; i < pbuf->nbufs; i++) {
 		/*
-		 * Nonsensical to have more than sizeof(bid) buffers in a
+		 * Nonsensical to have more than MAX_BIDS_PER_BGID buffers in a
 		 * buffer list, as the application then has no way of knowing
 		 * which duplicate bid refers to what buffer.
 		 */
-		if (bl->nbufs == USHRT_MAX) {
+		if (bl->nbufs == MAX_BIDS_PER_BGID) {
 			ret = -EOVERFLOW;
 			break;
 		}
