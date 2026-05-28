@@ -501,6 +501,32 @@ static int mes_v12_0_reset_queue_mmio(struct amdgpu_mes *mes, uint32_t queue_typ
 	return r;
 }
 
+static int mes_v12_0_detect_and_reset_hung_queues(struct amdgpu_mes *mes,
+						  struct mes_detect_and_reset_queue_input *input)
+{
+	union MESAPI__RESET mes_reset_queue_pkt;
+
+	memset(&mes_reset_queue_pkt, 0, sizeof(mes_reset_queue_pkt));
+
+	mes_reset_queue_pkt.header.type = MES_API_TYPE_SCHEDULER;
+	mes_reset_queue_pkt.header.opcode = MES_SCH_API_RESET;
+	mes_reset_queue_pkt.header.dwsize = API_FRAME_SIZE_IN_DWORDS;
+
+	mes_reset_queue_pkt.queue_type =
+		convert_to_mes_queue_type(input->queue_type);
+	mes_reset_queue_pkt.doorbell_offset_addr =
+		mes->hung_queue_db_array_gpu_addr;
+
+	if (input->detect_only)
+		mes_reset_queue_pkt.hang_detect_only = 1;
+	else
+		mes_reset_queue_pkt.hang_detect_then_reset = 1;
+
+	return mes_v12_0_submit_pkt_and_poll_completion(mes, AMDGPU_MES_SCHED_PIPE,
+			&mes_reset_queue_pkt, sizeof(mes_reset_queue_pkt),
+			offsetof(union MESAPI__RESET, api_status));
+}
+
 static int mes_v12_0_map_legacy_queue(struct amdgpu_mes *mes,
 				      struct mes_map_legacy_queue_input *input)
 {
@@ -913,32 +939,6 @@ static int mes_v12_0_reset_hw_queue(struct amdgpu_mes *mes,
 		pipe = AMDGPU_MES_SCHED_PIPE;
 
 	return mes_v12_0_submit_pkt_and_poll_completion(mes, pipe,
-			&mes_reset_queue_pkt, sizeof(mes_reset_queue_pkt),
-			offsetof(union MESAPI__RESET, api_status));
-}
-
-static int mes_v12_0_detect_and_reset_hung_queues(struct amdgpu_mes *mes,
-						  struct mes_detect_and_reset_queue_input *input)
-{
-	union MESAPI__RESET mes_reset_queue_pkt;
-
-	memset(&mes_reset_queue_pkt, 0, sizeof(mes_reset_queue_pkt));
-
-	mes_reset_queue_pkt.header.type = MES_API_TYPE_SCHEDULER;
-	mes_reset_queue_pkt.header.opcode = MES_SCH_API_RESET;
-	mes_reset_queue_pkt.header.dwsize = API_FRAME_SIZE_IN_DWORDS;
-
-	mes_reset_queue_pkt.queue_type =
-		convert_to_mes_queue_type(input->queue_type);
-	mes_reset_queue_pkt.doorbell_offset_addr =
-		mes->hung_queue_db_array_gpu_addr;
-
-	if (input->detect_only)
-		mes_reset_queue_pkt.hang_detect_only = 1;
-	else
-		mes_reset_queue_pkt.hang_detect_then_reset = 1;
-
-	return mes_v12_0_submit_pkt_and_poll_completion(mes, AMDGPU_MES_SCHED_PIPE,
 			&mes_reset_queue_pkt, sizeof(mes_reset_queue_pkt),
 			offsetof(union MESAPI__RESET, api_status));
 }
