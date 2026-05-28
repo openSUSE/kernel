@@ -1985,7 +1985,6 @@ static inline int snd_soc_set_dmi_name(struct snd_soc_card *card)
 static void soc_check_tplg_fes(struct snd_soc_card *card)
 {
 	struct snd_soc_component *component;
-	const struct snd_soc_component_driver *comp_drv;
 	struct snd_soc_dai_link *dai_link;
 	int i;
 
@@ -2046,21 +2045,7 @@ match:
 		}
 
 		/* Inform userspace we are using alternate topology */
-		if (component->driver->topology_name_prefix) {
-
-			/* topology shortname created? */
-			if (!card->topology_shortname_created) {
-				comp_drv = component->driver;
-
-				snprintf(card->topology_shortname, 32, "%s-%s",
-					 comp_drv->topology_name_prefix,
-					 card->name);
-				card->topology_shortname_created = true;
-			}
-
-			/* use topology shortname */
-			card->name = card->topology_shortname;
-		}
+		snd_soc_card_set_topology_name(card, component->driver->topology_name_prefix);
 	}
 }
 

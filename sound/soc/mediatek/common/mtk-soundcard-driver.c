@@ -289,11 +289,8 @@ int mtk_soundcard_common_probe(struct platform_device *pdev)
 		soc_card_data->sof_priv = pdata->sof_priv;
 		card->probe = mtk_sof_card_probe;
 		card->late_probe = mtk_sof_card_late_probe;
-		if (!card->topology_shortname_created) {
-			snprintf(card->topology_shortname, 32, "sof-%s", card->name);
-			card->topology_shortname_created = true;
-		}
-		card->name = card->topology_shortname;
+
+		snd_soc_card_set_topology_name(card, "sof");
 	}
 
 	/*
