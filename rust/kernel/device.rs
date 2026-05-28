@@ -201,9 +201,9 @@ impl Device {
     }
 }
 
-impl Device<CoreInternal> {
+impl<'a> Device<CoreInternal<'a>> {
     /// Store a pointer to the bound driver's private data.
-    pub fn set_drvdata<T: 'static>(&self, data: impl PinInit<T, Error>) -> Result {
+    pub fn set_drvdata<T>(&self, data: impl PinInit<T, Error>) -> Result {
         let data = KBox::pin_init(data, GFP_KERNEL)?;
 
         // SAFETY: By the type invariants, `self.as_raw()` is a valid pointer to a `struct device`.
@@ -218,7 +218,7 @@ impl Device<CoreInternal> {
     ///
     /// - The type `T` must match the type of the `ForeignOwnable` previously stored by
     ///   [`Device::set_drvdata`].
-    pub(crate) unsafe fn drvdata_obtain<T: 'static>(&self) -> Option<Pin<KBox<T>>> {
+    pub(crate) unsafe fn drvdata_obtain<T>(&self) -> Option<Pin<KBox<T>>> {
         // SAFETY: By the type invariants, `self.as_raw()` is a valid pointer to a `struct device`.
         let ptr = unsafe { bindings::dev_get_drvdata(self.as_raw()) };
 
@@ -244,7 +244,7 @@ impl Device<CoreInternal> {
     ///   device is fully unbound.
     /// - The type `T` must match the type of the `ForeignOwnable` previously stored by
     ///   [`Device::set_drvdata`].
-    pub unsafe fn drvdata_borrow<T: 'static>(&self) -> Pin<&T> {
+    pub unsafe fn drvdata_borrow<T>(&self) -> Pin<&T> {
         // SAFETY: `drvdata_unchecked()` has the exact same safety requirements as the ones
         // required by this method.
         unsafe { self.drvdata_unchecked() }
@@ -260,7 +260,7 @@ impl Device<Bound> {
     ///   the device is fully unbound.
     /// - The type `T` must match the type of the `ForeignOwnable` previously stored by
     ///   [`Device::set_drvdata`].
-    unsafe fn drvdata_unchecked<T: 'static>(&self) -> Pin<&T> {
+    unsafe fn drvdata_unchecked<T>(&self) -> Pin<&T> {
         // SAFETY: By the type invariants, `self.as_raw()` is a valid pointer to a `struct device`.
         let ptr = unsafe { bindings::dev_get_drvdata(self.as_raw()) };
 
@@ -467,6 +467,10 @@ unsafe impl Send for Device {}
 // synchronization in `struct device`.
 unsafe impl Sync for Device {}
 
+// SAFETY: Same as `Device<Normal>` -- the underlying `struct device` is the same; `Bound` is a
+// zero-sized type-state marker that does not affect thread safety.
+unsafe impl Sync for Device<Bound> {}
+
 /// Marker trait for the context or scope of a bus specific device.
 ///
 /// [`DeviceContext`] is a marker trait for types representing the context of a bus specific
@@ -507,7 +511,7 @@ pub struct Normal;
 /// callback it appears in. It is intended to be used for synchronization purposes. Bus device
 /// implementations can implement methods for [`Device<Core>`], such that they can only be called
 /// from bus callbacks.
-pub struct Core;
+pub struct Core<'a>(PhantomData<&'a ()>);
 
 /// Semantically the same as [`Core`], but reserved for internal usage of the corresponding bus
 /// abstraction.
@@ -518,7 +522,7 @@ pub struct Core;
 ///
 /// This context mainly exists to share generic [`Device`] infrastructure that should only be called
 /// from bus callbacks with bus abstractions, but without making them accessible for drivers.
-pub struct CoreInternal;
+pub struct CoreInternal<'a>(PhantomData<&'a ()>);
 
 /// The [`Bound`] context is the [`DeviceContext`] of a bus specific device when it is guaranteed to
 /// be bound to a driver.
@@ -542,14 +546,14 @@ mod private {
     pub trait Sealed {}
 
     impl Sealed for super::Bound {}
-    impl Sealed for super::Core {}
-    impl Sealed for super::CoreInternal {}
+    impl<'a> Sealed for super::Core<'a> {}
+    impl<'a> Sealed for super::CoreInternal<'a> {}
     impl Sealed for super::Normal {}
 }
 
 impl DeviceContext for Bound {}
-impl DeviceContext for Core {}
-impl DeviceContext for CoreInternal {}
+impl<'a> DeviceContext for Core<'a> {}
+impl<'a> DeviceContext for CoreInternal<'a> {}
 impl DeviceContext for Normal {}
 
 impl<Ctx: DeviceContext> AsRef<Device<Ctx>> for Device<Ctx> {
@@ -599,6 +603,22 @@ pub unsafe trait AsBusDevice<Ctx: DeviceContext>: AsRef<Device<Ctx>> {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __impl_device_context_deref {
+    (unsafe { $device:ident, <$lt:lifetime> $src:ty => $dst:ty }) => {
+        impl<$lt> ::core::ops::Deref for $device<$src> {
+            type Target = $device<$dst>;
+
+            fn deref(&self) -> &Self::Target {
+                let ptr: *const Self = self;
+
+                // CAST: `$device<$src>` and `$device<$dst>` transparently wrap the same type by the
+                // safety requirement of the macro.
+                let ptr = ptr.cast::<Self::Target>();
+
+                // SAFETY: `ptr` was derived from `&self`.
+                unsafe { &*ptr }
+            }
+        }
+    };
     (unsafe { $device:ident, $src:ty => $dst:ty }) => {
         impl ::core::ops::Deref for $device<$src> {
             type Target = $device<$dst>;
@@ -631,14 +651,14 @@ macro_rules! impl_device_context_deref {
         // `__impl_device_context_deref!`.
         ::kernel::__impl_device_context_deref!(unsafe {
             $device,
-            $crate::device::CoreInternal => $crate::device::Core
+            <'a> $crate::device::CoreInternal<'a> => $crate::device::Core<'a>
         });
 
         // SAFETY: This macro has the exact same safety requirement as
         // `__impl_device_context_deref!`.
         ::kernel::__impl_device_context_deref!(unsafe {
             $device,
-            $crate::device::Core => $crate::device::Bound
+            <'a> $crate::device::Core<'a> => $crate::device::Bound
         });
 
         // SAFETY: This macro has the exact same safety requirement as
@@ -653,6 +673,13 @@ macro_rules! impl_device_context_deref {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __impl_device_context_into_aref {
+    (<$lt:lifetime> $src:ty, $device:tt) => {
+        impl<$lt> ::core::convert::From<&$device<$src>> for $crate::sync::aref::ARef<$device> {
+            fn from(dev: &$device<$src>) -> Self {
+                (&**dev).into()
+            }
+        }
+    };
     ($src:ty, $device:tt) => {
         impl ::core::convert::From<&$device<$src>> for $crate::sync::aref::ARef<$device> {
             fn from(dev: &$device<$src>) -> Self {
@@ -667,8 +694,12 @@ macro_rules! __impl_device_context_into_aref {
 #[macro_export]
 macro_rules! impl_device_context_into_aref {
     ($device:tt) => {
-        ::kernel::__impl_device_context_into_aref!($crate::device::CoreInternal, $device);
-        ::kernel::__impl_device_context_into_aref!($crate::device::Core, $device);
+        ::kernel::__impl_device_context_into_aref!(
+            <'a> $crate::device::CoreInternal<'a>, $device
+        );
+        ::kernel::__impl_device_context_into_aref!(
+            <'a> $crate::device::Core<'a>, $device
+        );
         ::kernel::__impl_device_context_into_aref!($crate::device::Bound, $device);
     };
 }

@@ -10,10 +10,10 @@ use kernel::{
         Bound,
         Core, //
     },
-    devres::Devres,
     driver,
     pci,
     prelude::*,
+    types::ForLt,
     InPlaceModule, //
 };
 
@@ -31,10 +31,14 @@ kernel::auxiliary_device_table!(
 
 impl auxiliary::Driver for AuxiliaryDriver {
     type IdInfo = ();
+    type Data<'bound> = Self;
 
     const ID_TABLE: auxiliary::IdTable<Self::IdInfo> = &AUX_TABLE;
 
-    fn probe(adev: &auxiliary::Device<Core>, _info: &Self::IdInfo) -> impl PinInit<Self, Error> {
+    fn probe<'bound>(
+        adev: &'bound auxiliary::Device<Core<'_>>,
+        _info: &'bound Self::IdInfo,
+    ) -> impl PinInit<Self, Error> + 'bound {
         dev_info!(
             adev,
             "Probing auxiliary driver for auxiliary device with id={}\n",
@@ -47,13 +51,17 @@ impl auxiliary::Driver for AuxiliaryDriver {
     }
 }
 
-struct Data {
+struct Data<'bound> {
     index: u32,
+    parent: &'bound pci::Device<Bound>,
 }
 
-struct ParentDriver {
-    _reg0: Devres<auxiliary::Registration<Data>>,
-    _reg1: Devres<auxiliary::Registration<Data>>,
+struct ParentDriver;
+
+#[allow(clippy::type_complexity)]
+struct ParentData<'bound> {
+    _reg0: auxiliary::Registration<'bound, ForLt!(Data<'_>)>,
+    _reg1: auxiliary::Registration<'bound, ForLt!(Data<'_>)>,
 }
 
 kernel::pci_device_table!(
@@ -65,38 +73,53 @@ kernel::pci_device_table!(
 
 impl pci::Driver for ParentDriver {
     type IdInfo = ();
+    type Data<'bound> = ParentData<'bound>;
 
     const ID_TABLE: pci::IdTable<Self::IdInfo> = &PCI_TABLE;
 
-    fn probe(pdev: &pci::Device<Core>, _info: &Self::IdInfo) -> impl PinInit<Self, Error> {
-        Ok(Self {
-            _reg0: auxiliary::Registration::new(
-                pdev.as_ref(),
-                AUXILIARY_NAME,
-                0,
-                MODULE_NAME,
-                Data { index: 0 },
-            )?,
-            _reg1: auxiliary::Registration::new(
-                pdev.as_ref(),
-                AUXILIARY_NAME,
-                1,
-                MODULE_NAME,
-                Data { index: 1 },
-            )?,
+    fn probe<'bound>(
+        pdev: &'bound pci::Device<Core<'_>>,
+        _info: &'bound Self::IdInfo,
+    ) -> impl PinInit<Self::Data<'bound>, Error> + 'bound {
+        Ok(ParentData {
+            // SAFETY: `ParentData` is the driver's private data, which is dropped when the
+            // device is unbound; i.e. `mem::forget()` is never called on it.
+            _reg0: unsafe {
+                auxiliary::Registration::new_with_lt(
+                    pdev.as_ref(),
+                    AUXILIARY_NAME,
+                    0,
+                    MODULE_NAME,
+                    Data {
+                        index: 0,
+                        parent: pdev,
+                    },
+                )?
+            },
+            // SAFETY: See `_reg0` above.
+            _reg1: unsafe {
+                auxiliary::Registration::new_with_lt(
+                    pdev.as_ref(),
+                    AUXILIARY_NAME,
+                    1,
+                    MODULE_NAME,
+                    Data {
+                        index: 1,
+                        parent: pdev,
+                    },
+                )?
+            },
         })
     }
 }
 
 impl ParentDriver {
     fn connect(adev: &auxiliary::Device<Bound>) -> Result {
-        let dev = adev.parent();
-        let pdev: &pci::Device<Bound> = dev.try_into()?;
-
-        let data = adev.registration_data::<Data>()?;
+        let data = adev.registration_data::<ForLt!(Data<'_>)>()?;
+        let pdev = data.parent;
 
         dev_info!(
-            dev,
+            pdev,
             "Connect auxiliary {} with parent: VendorID={}, DeviceID={:#x}\n",
             adev.id(),
             pdev.vendor_id(),
@@ -104,7 +127,7 @@ impl ParentDriver {
         );
 
         dev_info!(
-            dev,
+            pdev,
             "Connected to auxiliary device with index {}.\n",
             data.index
         );
