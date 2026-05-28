@@ -417,31 +417,6 @@ int q6apm_graph_media_format_pcm(struct q6apm_graph *graph, struct audioreach_mo
 }
 EXPORT_SYMBOL_GPL(q6apm_graph_media_format_pcm);
 
-static int q6apm_graph_get_tx_shmem_module_iid(struct q6apm_graph *graph)
-{
-	struct audioreach_module *module;
-
-	module = q6apm_find_module_by_mid(graph, MODULE_ID_RD_SHARED_MEM_EP);
-	if (!module)
-		return -ENODEV;
-
-	return module->instance_id;
-
-}
-
-int q6apm_graph_get_rx_shmem_module_iid(struct q6apm_graph *graph)
-{
-	struct audioreach_module *module;
-
-	module = q6apm_find_module_by_mid(graph, MODULE_ID_WR_SHARED_MEM_EP);
-	if (!module)
-		return -ENODEV;
-
-	return module->instance_id;
-
-}
-EXPORT_SYMBOL_GPL(q6apm_graph_get_rx_shmem_module_iid);
-
 int q6apm_write_async(struct q6apm_graph *graph, uint32_t len, uint32_t msw_ts,
 		      uint32_t lsw_ts, uint32_t wflags)
 {
@@ -614,6 +589,18 @@ static int graph_callback(const struct gpr_resp_pkt *data, void *priv, int op)
 	return 0;
 }
 
+static int q6apm_graph_get_module_iid(struct q6apm_graph *graph, uint32_t mid)
+{
+	struct audioreach_module *module;
+
+	module = q6apm_find_module_by_mid(graph, mid);
+	if (!module)
+		return -ENODEV;
+
+	return module->instance_id;
+
+}
+
 struct q6apm_graph *q6apm_graph_open(struct device *dev, q6apm_cb cb,
 				     void *priv, int graph_id, int dir)
 {
@@ -643,9 +630,9 @@ struct q6apm_graph *q6apm_graph_open(struct device *dev, q6apm_cb cb,
 	graph->dev = dev;
 
 	if (dir == SNDRV_PCM_STREAM_PLAYBACK)
-		graph->shm_iid = q6apm_graph_get_rx_shmem_module_iid(graph);
+		graph->shm_iid = q6apm_graph_get_module_iid(graph, MODULE_ID_WR_SHARED_MEM_EP);
 	else
-		graph->shm_iid = q6apm_graph_get_tx_shmem_module_iid(graph);
+		graph->shm_iid = q6apm_graph_get_module_iid(graph, MODULE_ID_RD_SHARED_MEM_EP);
 
 
 	mutex_init(&graph->lock);

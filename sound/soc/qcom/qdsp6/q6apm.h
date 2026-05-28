@@ -148,8 +148,6 @@ int q6apm_send_cmd_sync(struct q6apm *apm, const struct gpr_pkt *pkt,
 /* Callback for graph specific */
 struct audioreach_module *q6apm_find_module_by_mid(struct q6apm_graph *graph,
 						    uint32_t mid);
-int q6apm_graph_get_rx_shmem_module_iid(struct q6apm_graph *graph);
-
 bool q6apm_is_adsp_ready(void);
 
 int q6apm_enable_compress_module(struct device *dev, struct q6apm_graph *graph, bool en);
