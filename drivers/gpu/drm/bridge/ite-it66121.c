@@ -306,7 +306,6 @@ struct it66121_ctx {
 	struct mutex lock; /* Protects fields below and device registers */
 	struct hdmi_avi_infoframe hdmi_avi_infoframe;
 	struct {
-		struct platform_device *pdev;
 		u8 ch_enable;
 		u8 fs;
 		u8 swl;
@@ -722,7 +721,7 @@ static u32 *it66121_bridge_atomic_get_input_bus_fmts(struct drm_bridge *bridge,
 }
 
 static void it66121_bridge_enable(struct drm_bridge *bridge,
-				  struct drm_atomic_state *state)
+				  struct drm_atomic_commit *state)
 {
 	struct it66121_ctx *ctx = container_of(bridge, struct it66121_ctx, bridge);
 
@@ -732,7 +731,7 @@ static void it66121_bridge_enable(struct drm_bridge *bridge,
 }
 
 static void it66121_bridge_disable(struct drm_bridge *bridge,
-				   struct drm_atomic_state *state)
+				   struct drm_atomic_commit *state)
 {
 	struct it66121_ctx *ctx = container_of(bridge, struct it66121_ctx, bridge);
 
@@ -901,24 +900,6 @@ out_unlock:
 
 	return drm_edid;
 }
-
-static const struct drm_bridge_funcs it66121_bridge_funcs = {
-	.atomic_duplicate_state = drm_atomic_helper_bridge_duplicate_state,
-	.atomic_destroy_state = drm_atomic_helper_bridge_destroy_state,
-	.atomic_reset = drm_atomic_helper_bridge_reset,
-	.attach = it66121_bridge_attach,
-	.atomic_get_output_bus_fmts = it66121_bridge_atomic_get_output_bus_fmts,
-	.atomic_get_input_bus_fmts = it66121_bridge_atomic_get_input_bus_fmts,
-	.atomic_enable = it66121_bridge_enable,
-	.atomic_disable = it66121_bridge_disable,
-	.atomic_check = it66121_bridge_check,
-	.mode_set = it66121_bridge_mode_set,
-	.mode_valid = it66121_bridge_mode_valid,
-	.detect = it66121_bridge_detect,
-	.edid_read = it66121_bridge_edid_read,
-	.hpd_enable = it66121_bridge_hpd_enable,
-	.hpd_disable = it66121_bridge_hpd_disable,
-};
 
 static irqreturn_t it66121_irq_threaded_handler(int irq, void *dev_id)
 {
@@ -1225,14 +1206,16 @@ static int it661221_audio_ch_enable(struct it66121_ctx *ctx, bool enable)
 	return ret;
 }
 
-static int it66121_audio_hw_params(struct device *dev, void *data,
-				   struct hdmi_codec_daifmt *daifmt,
-				   struct hdmi_codec_params *params)
+static int it66121_hdmi_audio_prepare(struct drm_bridge *bridge,
+				      struct drm_connector *connector,
+				      struct hdmi_codec_daifmt *daifmt,
+				      struct hdmi_codec_params *params)
 {
 	u8 fs;
 	u8 swl;
 	int ret;
-	struct it66121_ctx *ctx = dev_get_drvdata(dev);
+	struct it66121_ctx *ctx = container_of(bridge, struct it66121_ctx, bridge);
+	struct device *dev = ctx->dev;
 	static u8 iec60958_chstat[5];
 	unsigned int channels = params->channels;
 	unsigned int sample_rate = params->sample_rate;
@@ -1379,41 +1362,44 @@ out:
 	return ret;
 }
 
-static int it66121_audio_startup(struct device *dev, void *data)
+static int it66121_hdmi_audio_startup(struct drm_bridge *bridge,
+				      struct drm_connector *connector)
 {
 	int ret;
-	struct it66121_ctx *ctx = dev_get_drvdata(dev);
+	struct it66121_ctx *ctx = container_of(bridge, struct it66121_ctx, bridge);
 
 	mutex_lock(&ctx->lock);
 	ret = it661221_audio_output_enable(ctx, true);
 	if (ret)
-		dev_err(dev, "Failed to enable audio output: %d\n", ret);
+		dev_err(ctx->dev, "Failed to enable audio output: %d\n", ret);
 
 	mutex_unlock(&ctx->lock);
 
 	return ret;
 }
 
-static void it66121_audio_shutdown(struct device *dev, void *data)
+static void it66121_hdmi_audio_shutdown(struct drm_bridge *bridge,
+					struct drm_connector *connector)
 {
 	int ret;
-	struct it66121_ctx *ctx = dev_get_drvdata(dev);
+	struct it66121_ctx *ctx = container_of(bridge, struct it66121_ctx, bridge);
 
 	mutex_lock(&ctx->lock);
 	ret = it661221_audio_output_enable(ctx, false);
 	if (ret)
-		dev_err(dev, "Failed to disable audio output: %d\n", ret);
+		dev_err(ctx->dev, "Failed to disable audio output: %d\n", ret);
 
 	mutex_unlock(&ctx->lock);
 }
 
-static int it66121_audio_mute(struct device *dev, void *data,
-			      bool enable, int direction)
+static int it66121_hdmi_audio_mute_stream(struct drm_bridge *bridge,
+					  struct drm_connector *connector,
+					  bool enable, int direction)
 {
 	int ret;
-	struct it66121_ctx *ctx = dev_get_drvdata(dev);
+	struct it66121_ctx *ctx = container_of(bridge, struct it66121_ctx, bridge);
 
-	dev_dbg(dev, "%s: enable=%s, direction=%d\n",
+	dev_dbg(ctx->dev, "%s: enable=%s, direction=%d\n",
 		__func__, enable ? "true" : "false", direction);
 
 	mutex_lock(&ctx->lock);
@@ -1436,63 +1422,27 @@ static int it66121_audio_mute(struct device *dev, void *data,
 	return ret;
 }
 
-static int it66121_audio_get_eld(struct device *dev, void *data,
-				 u8 *buf, size_t len)
-{
-	struct it66121_ctx *ctx = dev_get_drvdata(dev);
-
-	mutex_lock(&ctx->lock);
-	if (!ctx->connector) {
-		/* Pass en empty ELD if connector not available */
-		dev_dbg(dev, "No connector present, passing empty EDID data");
-		memset(buf, 0, len);
-	} else {
-		mutex_lock(&ctx->connector->eld_mutex);
-		memcpy(buf, ctx->connector->eld,
-		       min(sizeof(ctx->connector->eld), len));
-		mutex_unlock(&ctx->connector->eld_mutex);
-	}
-	mutex_unlock(&ctx->lock);
-
-	return 0;
-}
-
-static const struct hdmi_codec_ops it66121_audio_codec_ops = {
-	.hw_params = it66121_audio_hw_params,
-	.audio_startup = it66121_audio_startup,
-	.audio_shutdown = it66121_audio_shutdown,
-	.mute_stream = it66121_audio_mute,
-	.get_eld = it66121_audio_get_eld,
+static const struct drm_bridge_funcs it66121_bridge_funcs = {
+	.atomic_duplicate_state = drm_atomic_helper_bridge_duplicate_state,
+	.atomic_destroy_state = drm_atomic_helper_bridge_destroy_state,
+	.atomic_reset = drm_atomic_helper_bridge_reset,
+	.attach = it66121_bridge_attach,
+	.atomic_get_output_bus_fmts = it66121_bridge_atomic_get_output_bus_fmts,
+	.atomic_get_input_bus_fmts = it66121_bridge_atomic_get_input_bus_fmts,
+	.atomic_enable = it66121_bridge_enable,
+	.atomic_disable = it66121_bridge_disable,
+	.atomic_check = it66121_bridge_check,
+	.mode_set = it66121_bridge_mode_set,
+	.mode_valid = it66121_bridge_mode_valid,
+	.detect = it66121_bridge_detect,
+	.edid_read = it66121_bridge_edid_read,
+	.hpd_enable = it66121_bridge_hpd_enable,
+	.hpd_disable = it66121_bridge_hpd_disable,
+	.hdmi_audio_startup = it66121_hdmi_audio_startup,
+	.hdmi_audio_prepare = it66121_hdmi_audio_prepare,
+	.hdmi_audio_shutdown = it66121_hdmi_audio_shutdown,
+	.hdmi_audio_mute_stream = it66121_hdmi_audio_mute_stream,
 };
-
-static int it66121_audio_codec_init(struct it66121_ctx *ctx, struct device *dev)
-{
-	struct hdmi_codec_pdata codec_data = {
-		.ops = &it66121_audio_codec_ops,
-		.i2s = 1, /* Only i2s support for now */
-		.spdif = 0,
-		.max_i2s_channels = 8,
-		.no_capture_mute = 1,
-	};
-
-	if (!of_property_present(dev->of_node, "#sound-dai-cells")) {
-		dev_info(dev, "No \"#sound-dai-cells\", no audio\n");
-		return 0;
-	}
-
-	ctx->audio.pdev = platform_device_register_data(dev,
-							HDMI_CODEC_DRV_NAME,
-							PLATFORM_DEVID_AUTO,
-							&codec_data,
-							sizeof(codec_data));
-
-	if (IS_ERR(ctx->audio.pdev)) {
-		dev_err(dev, "Failed to initialize HDMI audio codec: %d\n",
-			PTR_ERR_OR_ZERO(ctx->audio.pdev));
-	}
-
-	return PTR_ERR_OR_ZERO(ctx->audio.pdev);
-}
 
 static const char * const it66121_supplies[] = {
 	"vcn33", "vcn18", "vrf12"
@@ -1559,6 +1509,11 @@ static int it66121_probe(struct i2c_client *client)
 		return ret;
 	}
 
+	ctx->gpio_reset = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
+	if (IS_ERR(ctx->gpio_reset))
+		return dev_err_probe(dev, PTR_ERR(ctx->gpio_reset),
+				     "Failed to get reset GPIO\n");
+
 	it66121_hw_reset(ctx);
 
 	ctx->regmap = devm_regmap_init_i2c(client, &it66121_regmap_config);
@@ -1602,7 +1557,15 @@ static int it66121_probe(struct i2c_client *client)
 		}
 	}
 
-	it66121_audio_codec_init(ctx, dev);
+	if (of_property_present(dev->of_node, "#sound-dai-cells")) {
+		ctx->bridge.ops |= DRM_BRIDGE_OP_HDMI_AUDIO;
+		ctx->bridge.hdmi_audio_dev = dev;
+		ctx->bridge.hdmi_audio_max_i2s_playback_channels = 8;
+		/* of-graph not supported, phandle match only */
+		ctx->bridge.hdmi_audio_dai_port = -1;
+	} else {
+		dev_info(dev, "No \"#sound-dai-cells\", no audio\n");
+	}
 
 	drm_bridge_add(&ctx->bridge);
 

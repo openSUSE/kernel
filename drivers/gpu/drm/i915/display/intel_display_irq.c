@@ -30,7 +30,7 @@
 #include "intel_psr.h"
 #include "intel_psr_regs.h"
 
-static void irq_reset(struct intel_display *display, struct i915_irq_regs regs)
+static void irq_reset(struct intel_display *display, struct intel_irq_regs regs)
 {
 	intel_de_write(display, regs.imr, 0xffffffff);
 	intel_de_posting_read(display, regs.imr);
@@ -47,7 +47,7 @@ static void irq_reset(struct intel_display *display, struct i915_irq_regs regs)
 /*
  * We should clear IMR at preinstall/uninstall, and just check at postinstall.
  */
-static void assert_iir_is_zero(struct intel_display *display, i915_reg_t reg)
+static void assert_iir_is_zero(struct intel_display *display, intel_reg_t reg)
 {
 	u32 val = intel_de_read(display, reg);
 
@@ -56,14 +56,14 @@ static void assert_iir_is_zero(struct intel_display *display, i915_reg_t reg)
 
 	drm_WARN(display->drm, 1,
 		 "Interrupt register 0x%x is not zero: 0x%08x\n",
-		 i915_mmio_reg_offset(reg), val);
+		 intel_reg_offset(reg), val);
 	intel_de_write(display, reg, 0xffffffff);
 	intel_de_posting_read(display, reg);
 	intel_de_write(display, reg, 0xffffffff);
 	intel_de_posting_read(display, reg);
 }
 
-static void irq_init(struct intel_display *display, struct i915_irq_regs regs,
+static void irq_init(struct intel_display *display, struct intel_irq_regs regs,
 		     u32 imr_val, u32 ier_val)
 {
 	assert_iir_is_zero(display, regs.iir);
@@ -73,7 +73,7 @@ static void irq_init(struct intel_display *display, struct i915_irq_regs regs,
 	intel_de_posting_read(display, regs.imr);
 }
 
-static void error_reset(struct intel_display *display, struct i915_error_regs regs)
+static void error_reset(struct intel_display *display, struct intel_error_regs regs)
 {
 	intel_de_write(display, regs.emr, 0xffffffff);
 	intel_de_posting_read(display, regs.emr);
@@ -84,7 +84,7 @@ static void error_reset(struct intel_display *display, struct i915_error_regs re
 	intel_de_posting_read(display, regs.eir);
 }
 
-static void error_init(struct intel_display *display, struct i915_error_regs regs,
+static void error_init(struct intel_display *display, struct intel_error_regs regs,
 		       u32 emr_val)
 {
 	intel_de_write(display, regs.eir, 0xffffffff);
@@ -343,7 +343,7 @@ out:
 void i915_enable_pipestat(struct intel_display *display,
 			  enum pipe pipe, u32 status_mask)
 {
-	i915_reg_t reg = PIPESTAT(display, pipe);
+	intel_reg_t reg = PIPESTAT(display, pipe);
 	u32 enable_mask;
 
 	drm_WARN_ONCE(display->drm, status_mask & ~PIPESTAT_INT_STATUS_MASK,
@@ -366,7 +366,7 @@ void i915_enable_pipestat(struct intel_display *display,
 void i915_disable_pipestat(struct intel_display *display,
 			   enum pipe pipe, u32 status_mask)
 {
-	i915_reg_t reg = PIPESTAT(display, pipe);
+	intel_reg_t reg = PIPESTAT(display, pipe);
 	u32 enable_mask;
 
 	drm_WARN_ONCE(display->drm, status_mask & ~PIPESTAT_INT_STATUS_MASK,
@@ -543,7 +543,7 @@ void i9xx_pipestat_irq_ack(struct intel_display *display,
 	}
 
 	for_each_pipe(display, pipe) {
-		i915_reg_t reg;
+		intel_reg_t reg;
 		u32 status_mask, enable_mask, iir_bit = 0;
 
 		/*
@@ -1284,7 +1284,7 @@ gen8_de_misc_irq_handler(struct intel_display *display, u32 iir)
 	if (iir & GEN8_DE_EDP_PSR) {
 		struct intel_encoder *encoder;
 		u32 psr_iir;
-		i915_reg_t iir_reg;
+		intel_reg_t iir_reg;
 
 		for_each_intel_encoder_with_psr(display->drm, encoder) {
 			struct intel_dp *intel_dp = enc_to_intel_dp(encoder);
@@ -2457,6 +2457,10 @@ void dg1_de_irq_postinstall(struct intel_display *display)
 	gen8_de_irq_postinstall(display);
 	intel_de_write(display, GEN11_DISPLAY_INT_CTL, GEN11_DISPLAY_IRQ_ENABLE);
 }
+
+struct intel_display_irq_funcs {
+	void (*reset)(struct intel_display *display);
+};
 
 void intel_display_irq_init(struct intel_display *display)
 {

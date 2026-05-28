@@ -2034,20 +2034,31 @@ static int pp_dpm_clk_default_attr_update(struct amdgpu_device *adev, struct amd
 		       gc_ver == IP_VERSION(11, 0, 3)) && adev->vcn.num_vcn_inst >= 2))
 			*states = ATTR_STATE_UNSUPPORTED;
 	} else if (DEVICE_ATTR_IS(pp_dpm_pcie)) {
-		if (gc_ver == IP_VERSION(9, 4, 2) ||
-		    amdgpu_is_multi_aid(adev))
+		if (amdgpu_is_multi_aid(adev))
 			*states = ATTR_STATE_UNSUPPORTED;
 	}
 
 	switch (gc_ver) {
 	case IP_VERSION(9, 4, 1):
-	case IP_VERSION(9, 4, 2):
-		/* the Mi series card does not support standalone mclk/socclk/fclk level setting */
+		/* Arcturus does not support standalone mclk/socclk/fclk level setting */
 		if (DEVICE_ATTR_IS(pp_dpm_mclk) ||
 		    DEVICE_ATTR_IS(pp_dpm_socclk) ||
 		    DEVICE_ATTR_IS(pp_dpm_fclk)) {
 			dev_attr->attr.mode &= ~S_IWUGO;
 			dev_attr->store = NULL;
+		}
+		break;
+	case IP_VERSION(9, 4, 2):
+		if (DEVICE_ATTR_IS(pp_dpm_mclk) ||
+		    DEVICE_ATTR_IS(pp_dpm_socclk)) {
+			/* Aldebaran mclk/socclk DPM only supports voltage control,
+			 * not allow to set dpm level directly */
+			dev_attr->attr.mode &= ~S_IWUGO;
+			dev_attr->store = NULL;
+		} else if (DEVICE_ATTR_IS(pp_dpm_fclk) ||
+			   DEVICE_ATTR_IS(pp_dpm_pcie)) {
+			/* Aldebaran does not support fclk/pcie dpm */
+			*states = ATTR_STATE_UNSUPPORTED;
 		}
 		break;
 	default:
@@ -2505,12 +2516,12 @@ static ssize_t amdgpu_set_pm_policy_attr(struct device *dev,
 		.dev_attr = __ATTR(_name, 0644, amdgpu_get_pm_policy_attr, \
 				   amdgpu_set_pm_policy_attr),             \
 		.id = PP_PM_POLICY_##_id,                                  \
-	};
+	}
 
 #define AMDGPU_PM_POLICY_ATTR_VAR(_name) pm_policy_attr_##_name.dev_attr.attr
 
-AMDGPU_PM_POLICY_ATTR(soc_pstate, SOC_PSTATE)
-AMDGPU_PM_POLICY_ATTR(xgmi_plpd, XGMI_PLPD)
+AMDGPU_PM_POLICY_ATTR(soc_pstate, SOC_PSTATE);
+AMDGPU_PM_POLICY_ATTR(xgmi_plpd, XGMI_PLPD);
 
 static struct attribute *pm_policy_attrs[] = {
 	&AMDGPU_PM_POLICY_ATTR_VAR(soc_pstate),

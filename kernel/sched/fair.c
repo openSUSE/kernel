@@ -847,13 +847,19 @@ static s64 entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se, u64 avrunt
  * Similarly, check that the entity didn't gain positive lag when DELAY_ZERO
  * is set.
  *
- * Return true if the lag has been adjusted.
+ * Return true if the vlag has been modified. Specifically:
+ *
+ *   se->vlag != avg_vruntime() - se->vruntime
+ *
+ * This can be due to clamping in entity_lag() or clamping due to
+ * sched_delayed. Either way, when vlag is modified and the entity is
+ * retained, the tree needs to be adjusted.
  */
 static __always_inline
 bool update_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-	s64 vlag = entity_lag(cfs_rq, se, avg_vruntime(cfs_rq));
-	bool ret;
+	u64 avruntime = avg_vruntime(cfs_rq);
+	s64 vlag = entity_lag(cfs_rq, se, avruntime);
 
 	WARN_ON_ONCE(!se->on_rq);
 
@@ -863,10 +869,9 @@ bool update_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se)
 		if (sched_feat(DELAY_ZERO))
 			vlag = min(vlag, 0);
 	}
-	ret = (vlag == se->vlag);
 	se->vlag = vlag;
 
-	return ret;
+	return avruntime - vlag != se->vruntime;
 }
 
 /*
@@ -877,11 +882,11 @@ bool update_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se)
  *
  * lag_i >= 0 -> V >= v_i
  *
- *     \Sum (v_i - v)*w_i
- * V = ------------------ + v
+ *     \Sum (v_i - v0)*w_i
+ * V = ------------------- + v0
  *          \Sum w_i
  *
- * lag_i >= 0 -> \Sum (v_i - v)*w_i >= (v_i - v)*(\Sum w_i)
+ * lag_i >= 0 -> \Sum (v_i - v0)*w_i >= (v_i - v0)*(\Sum w_i)
  *
  * Note: using 'avg_vruntime() > se->vruntime' is inaccurate due
  *       to the loss in precision caused by the division.
@@ -889,7 +894,7 @@ bool update_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se)
 static int vruntime_eligible(struct cfs_rq *cfs_rq, u64 vruntime)
 {
 	struct sched_entity *curr = cfs_rq->curr;
-	s64 avg = cfs_rq->sum_w_vruntime;
+	s64 key, avg = cfs_rq->sum_w_vruntime;
 	long load = cfs_rq->sum_weight;
 
 	if (curr && curr->on_rq) {
@@ -899,7 +904,36 @@ static int vruntime_eligible(struct cfs_rq *cfs_rq, u64 vruntime)
 		load += weight;
 	}
 
-	return avg >= vruntime_op(vruntime, "-", cfs_rq->zero_vruntime) * load;
+	key = vruntime_op(vruntime, "-", cfs_rq->zero_vruntime);
+
+	/*
+	 * The worst case term for @key includes 'NSEC_TICK * NICE_0_LOAD'
+	 * and @load obviously includes NICE_0_LOAD. NSEC_TICK is around 24
+	 * bits, while NICE_0_LOAD is 20 on 64bit and 10 otherwise.
+	 *
+	 * This gives that on 64bit the product will be at least 64bit which
+	 * overflows s64, while on 32bit it will only be 44bits and should fit
+	 * comfortably.
+	 */
+#ifdef CONFIG_64BIT
+#ifdef CONFIG_ARCH_SUPPORTS_INT128
+	/* This often results in simpler code than __builtin_mul_overflow(). */
+	return avg >= (__int128)key * load;
+#else
+	s64 rhs;
+	/*
+	 * On overflow, the sign of key tells us the correct answer: a large
+	 * positive key means vruntime >> V, so not eligible; a large negative
+	 * key means vruntime << V, so eligible.
+	 */
+	if (check_mul_overflow(key, load, &rhs))
+		return key <= 0;
+
+	return avg >= rhs;
+#endif
+#else /* 32bit */
+	return avg >= key * load;
+#endif
 }
 
 int entity_eligible(struct cfs_rq *cfs_rq, struct sched_entity *se)
@@ -1099,7 +1133,7 @@ static inline void cancel_protect_slice(struct sched_entity *se)
  *
  * Which allows tree pruning through eligibility.
  */
-static struct sched_entity *__pick_eevdf(struct cfs_rq *cfs_rq, bool protect)
+static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq, bool protect)
 {
 	struct rb_node *node = cfs_rq->tasks_timeline.rb_root.rb_node;
 	struct sched_entity *se = __pick_first_entity(cfs_rq);
@@ -1168,11 +1202,6 @@ found:
 		best = curr;
 
 	return best;
-}
-
-static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
-{
-	return __pick_eevdf(cfs_rq, true);
 }
 
 struct sched_entity *__pick_last_entity(struct cfs_rq *cfs_rq)
@@ -5749,11 +5778,11 @@ static int dequeue_entities(struct rq *rq, struct sched_entity *se, int flags);
  * 4) do not run the "skip" process, if something else is available
  */
 static struct sched_entity *
-pick_next_entity(struct rq *rq, struct cfs_rq *cfs_rq)
+pick_next_entity(struct rq *rq, struct cfs_rq *cfs_rq, bool protect)
 {
 	struct sched_entity *se;
 
-	se = pick_eevdf(cfs_rq);
+	se = pick_eevdf(cfs_rq, protect);
 	if (se->sched_delayed) {
 		dequeue_entities(rq, se, DEQUEUE_SLEEP | DEQUEUE_DELAYED);
 		/*
@@ -9027,7 +9056,7 @@ static void wakeup_preempt_fair(struct rq *rq, struct task_struct *p, int wake_f
 {
 	enum preempt_wakeup_action preempt_action = PREEMPT_WAKEUP_PICK;
 	struct task_struct *donor = rq->donor;
-	struct sched_entity *se = &donor->se, *pse = &p->se;
+	struct sched_entity *nse, *se = &donor->se, *pse = &p->se;
 	struct cfs_rq *cfs_rq = task_cfs_rq(donor);
 	int cse_is_idle, pse_is_idle;
 
@@ -9138,11 +9167,18 @@ static void wakeup_preempt_fair(struct rq *rq, struct task_struct *p, int wake_f
 	}
 
 pick:
-	/*
-	 * If @p has become the most eligible task, force preemption.
-	 */
-	if (__pick_eevdf(cfs_rq, preempt_action != PREEMPT_WAKEUP_SHORT) == pse)
+	nse = pick_next_entity(rq, cfs_rq, preempt_action != PREEMPT_WAKEUP_SHORT);
+	/* If @p has become the most eligible task, force preemption */
+	if (nse == pse)
 		goto preempt;
+
+	/*
+	 * Because p is enqueued, nse being null can only mean that we
+	 * dequeued a delayed task. If there are still entities queued in
+	 * cfs, check if the next one will be p.
+	 */
+	if (!nse && cfs_rq->nr_queued)
+		goto pick;
 
 	if (sched_feat(RUN_TO_PARITY))
 		update_protect_slice(cfs_rq, se);
@@ -9179,7 +9215,7 @@ again:
 
 		throttled |= check_cfs_rq_runtime(cfs_rq);
 
-		se = pick_next_entity(rq, cfs_rq);
+		se = pick_next_entity(rq, cfs_rq, true);
 		if (!se)
 			goto again;
 		cfs_rq = group_cfs_rq(se);

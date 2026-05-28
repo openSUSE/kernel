@@ -64,6 +64,7 @@
 #include "nbio_v7_2.h"
 #include "nbio_v7_7.h"
 #include "nbif_v6_3_1.h"
+#include "nbio_v6_3_2.h"
 #include "hdp_v5_0.h"
 #include "hdp_v5_2.h"
 #include "hdp_v6_0.h"
@@ -304,7 +305,7 @@ static int amdgpu_discovery_get_tmr_info(struct amdgpu_device *adev,
 				adev->virt.crit_regn_tbl[AMD_SRIOV_MSG_IPD_TABLE_ID].offset;
 			adev->discovery.size =
 				adev->virt.crit_regn_tbl[AMD_SRIOV_MSG_IPD_TABLE_ID].size_kb << 10;
-			if (!adev->discovery.offset || !adev->discovery.size)
+			if (!adev->discovery.size)
 				return -EINVAL;
 		} else {
 			goto out;
@@ -2737,6 +2738,9 @@ static int amdgpu_discovery_set_vpe_ip_blocks(struct amdgpu_device *adev)
 	case IP_VERSION(6, 1, 3):
 		amdgpu_device_ip_block_add(adev, &vpe_v6_1_ip_block);
 		break;
+	case IP_VERSION(2, 0, 0):
+		amdgpu_device_ip_block_add(adev, &vpe_v2_0_ip_block);
+		break;
 	default:
 		break;
 	}
@@ -3090,10 +3094,8 @@ int amdgpu_discovery_set_ip_blocks(struct amdgpu_device *adev)
 	case IP_VERSION(11, 5, 1):
 	case IP_VERSION(11, 5, 2):
 	case IP_VERSION(11, 5, 3):
-		adev->family = AMDGPU_FAMILY_GC_11_5_0;
-		break;
 	case IP_VERSION(11, 5, 4):
-		adev->family = AMDGPU_FAMILY_GC_11_5_4;
+		adev->family = AMDGPU_FAMILY_GC_11_5_0;
 		break;
 	case IP_VERSION(12, 0, 0):
 	case IP_VERSION(12, 0, 1):
@@ -3194,6 +3196,9 @@ int amdgpu_discovery_set_ip_blocks(struct amdgpu_device *adev)
 	case IP_VERSION(7, 11, 4):
 		adev->nbio.funcs = &nbif_v6_3_1_funcs;
 		adev->nbio.hdp_flush_reg = &nbif_v6_3_1_hdp_flush_reg;
+		break;
+	case IP_VERSION(6, 3, 2):
+		adev->nbio.funcs = &nbio_v6_3_2_funcs;
 		break;
 	default:
 		break;
@@ -3418,3 +3423,28 @@ int amdgpu_discovery_set_ip_blocks(struct amdgpu_device *adev)
 	return 0;
 }
 
+int amdgpu_discovery_get_gc_major_minor_version(struct amdgpu_device *adev,
+						uint16_t *major, uint16_t *minor)
+{
+	uint8_t *discovery_bin = adev->discovery.bin;
+	struct table_info *info;
+	union gc_info *gc_info;
+	u16 offset;
+
+	if (!discovery_bin)
+		return -EINVAL;
+	if (amdgpu_discovery_get_table_info(adev, &info, GC))
+		return -EINVAL;
+
+	offset = le16_to_cpu(info->offset);
+	if (!offset)
+		return -EINVAL;
+
+	gc_info = (union gc_info *)(discovery_bin + offset);
+
+	if (major)
+		*major = le16_to_cpu(gc_info->v1.header.version_major);
+	if (minor)
+		*minor = le16_to_cpu(gc_info->v1.header.version_minor);
+	return 0;
+}

@@ -464,6 +464,13 @@ struct amdgpu_display_manager {
 	struct mutex dc_lock;
 
 	/**
+	 * @dmub_lock:
+	 *
+	 * Guards access to DMUB command submission.
+	 */
+	spinlock_t dmub_lock;
+
+	/**
 	 * @audio_lock:
 	 *
 	 * Guards access to audio instance changes.
@@ -568,6 +575,7 @@ struct amdgpu_display_manager {
 	struct amdgpu_dm_backlight_caps backlight_caps[AMDGPU_DM_MAX_NUM_EDP];
 
 	struct mod_freesync *freesync_module;
+	struct mod_power *power_module;
 	struct hdcp_workqueue *hdcp_workqueue;
 
 	/**
@@ -584,7 +592,7 @@ struct amdgpu_display_manager {
 	 */
 	struct idle_workqueue *idle_workqueue;
 
-	struct drm_atomic_state *cached_state;
+	struct drm_atomic_commit *cached_state;
 	struct dc_state *cached_dc_state;
 
 	struct dm_compressor_info compressor;
@@ -835,6 +843,7 @@ struct amdgpu_dm_connector {
 	bool force_yuv420_output;
 	bool force_yuv422_output;
 	struct dsc_preferred_settings dsc_settings;
+	struct psr_caps psr_caps;
 	union dp_downstream_port_present mst_downstream_port_present;
 	/* Cached display modes */
 	struct drm_display_mode freesync_vid_base;
@@ -1123,11 +1132,11 @@ struct dc_stream_state *
 					const struct dm_connector_state *dm_state,
 					const struct dc_stream_state *old_stream);
 
-int dm_atomic_get_state(struct drm_atomic_state *state,
+int dm_atomic_get_state(struct drm_atomic_commit *state,
 			struct dm_atomic_state **dm_state);
 
 struct drm_connector *
-amdgpu_dm_find_first_crtc_matching_connector(struct drm_atomic_state *state,
+amdgpu_dm_find_first_crtc_matching_connector(struct drm_atomic_commit *state,
 					     struct drm_crtc *crtc);
 
 int convert_dc_color_depth_into_bpc(enum dc_color_depth display_color_depth);
@@ -1149,4 +1158,5 @@ int amdgpu_dm_initialize_hdmi_connector(struct amdgpu_dm_connector *aconnector);
 
 void retrieve_dmi_info(struct amdgpu_display_manager *dm);
 
+void amdgpu_dm_update_backlight_caps(struct amdgpu_display_manager *dm, int bl_idx);
 #endif /* __AMDGPU_DM_H__ */

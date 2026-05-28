@@ -28,6 +28,7 @@
 #include <drm/drm_debugfs.h>
 #include <drm/drm_print.h>
 #include <drm/drm_vblank.h>
+#include <drm/intel/step.h>
 
 #include "intel_alpm.h"
 #include "intel_atomic.h"
@@ -43,7 +44,9 @@
 #include "intel_display_wa.h"
 #include "intel_dmc.h"
 #include "intel_dp.h"
+#include "intel_dpcd.h"
 #include "intel_dp_aux.h"
+#include "intel_dp_tunnel.h"
 #include "intel_dsb.h"
 #include "intel_frontbuffer.h"
 #include "intel_hdmi.h"
@@ -51,7 +54,6 @@
 #include "intel_psr_regs.h"
 #include "intel_quirks.h"
 #include "intel_snps_phy.h"
-#include "intel_step.h"
 #include "intel_vblank.h"
 #include "intel_vdsc.h"
 #include "intel_vrr.h"
@@ -302,8 +304,8 @@ static u32 psr_irq_mask_get(struct intel_dp *intel_dp)
 		EDP_PSR_MASK(intel_dp->psr.transcoder);
 }
 
-static i915_reg_t psr_ctl_reg(struct intel_display *display,
-			      enum transcoder cpu_transcoder)
+static intel_reg_t psr_ctl_reg(struct intel_display *display,
+			       enum transcoder cpu_transcoder)
 {
 	if (DISPLAY_VER(display) >= 8)
 		return EDP_PSR_CTL(display, cpu_transcoder);
@@ -311,8 +313,8 @@ static i915_reg_t psr_ctl_reg(struct intel_display *display,
 		return HSW_SRD_CTL;
 }
 
-static i915_reg_t psr_debug_reg(struct intel_display *display,
-				enum transcoder cpu_transcoder)
+static intel_reg_t psr_debug_reg(struct intel_display *display,
+				 enum transcoder cpu_transcoder)
 {
 	if (DISPLAY_VER(display) >= 8)
 		return EDP_PSR_DEBUG(display, cpu_transcoder);
@@ -320,8 +322,8 @@ static i915_reg_t psr_debug_reg(struct intel_display *display,
 		return HSW_SRD_DEBUG;
 }
 
-static i915_reg_t psr_perf_cnt_reg(struct intel_display *display,
-				   enum transcoder cpu_transcoder)
+static intel_reg_t psr_perf_cnt_reg(struct intel_display *display,
+				    enum transcoder cpu_transcoder)
 {
 	if (DISPLAY_VER(display) >= 8)
 		return EDP_PSR_PERF_CNT(display, cpu_transcoder);
@@ -329,8 +331,8 @@ static i915_reg_t psr_perf_cnt_reg(struct intel_display *display,
 		return HSW_SRD_PERF_CNT;
 }
 
-static i915_reg_t psr_status_reg(struct intel_display *display,
-				 enum transcoder cpu_transcoder)
+static intel_reg_t psr_status_reg(struct intel_display *display,
+				  enum transcoder cpu_transcoder)
 {
 	if (DISPLAY_VER(display) >= 8)
 		return EDP_PSR_STATUS(display, cpu_transcoder);
@@ -338,8 +340,8 @@ static i915_reg_t psr_status_reg(struct intel_display *display,
 		return HSW_SRD_STATUS;
 }
 
-static i915_reg_t psr_imr_reg(struct intel_display *display,
-			      enum transcoder cpu_transcoder)
+static intel_reg_t psr_imr_reg(struct intel_display *display,
+			       enum transcoder cpu_transcoder)
 {
 	if (DISPLAY_VER(display) >= 12)
 		return TRANS_PSR_IMR(display, cpu_transcoder);
@@ -347,8 +349,8 @@ static i915_reg_t psr_imr_reg(struct intel_display *display,
 		return EDP_PSR_IMR;
 }
 
-static i915_reg_t psr_iir_reg(struct intel_display *display,
-			      enum transcoder cpu_transcoder)
+static intel_reg_t psr_iir_reg(struct intel_display *display,
+			       enum transcoder cpu_transcoder)
 {
 	if (DISPLAY_VER(display) >= 12)
 		return TRANS_PSR_IIR(display, cpu_transcoder);
@@ -356,8 +358,8 @@ static i915_reg_t psr_iir_reg(struct intel_display *display,
 		return EDP_PSR_IIR;
 }
 
-static i915_reg_t psr_aux_ctl_reg(struct intel_display *display,
-				  enum transcoder cpu_transcoder)
+static intel_reg_t psr_aux_ctl_reg(struct intel_display *display,
+				   enum transcoder cpu_transcoder)
 {
 	if (DISPLAY_VER(display) >= 8)
 		return EDP_PSR_AUX_CTL(display, cpu_transcoder);
@@ -365,8 +367,8 @@ static i915_reg_t psr_aux_ctl_reg(struct intel_display *display,
 		return HSW_SRD_AUX_CTL;
 }
 
-static i915_reg_t psr_aux_data_reg(struct intel_display *display,
-				   enum transcoder cpu_transcoder, int i)
+static intel_reg_t psr_aux_data_reg(struct intel_display *display,
+				    enum transcoder cpu_transcoder, int i)
 {
 	if (DISPLAY_VER(display) >= 8)
 		return EDP_PSR_AUX_DATA(display, cpu_transcoder, i);
@@ -694,6 +696,9 @@ static void _psr_init_dpcd(struct intel_dp *intel_dp, struct intel_connector *co
 
 	connector->dp.psr_caps.sync_latency = intel_dp_get_sink_sync_latency(intel_dp);
 
+	if (intel_has_quirk(display, QUIRK_DISABLE_PSR2))
+		return;
+
 	if (DISPLAY_VER(display) >= 9 &&
 	    connector->dp.psr_caps.dpcd[0] >= DP_PSR2_WITH_Y_COORD_IS_SUPPORTED) {
 		bool y_req = connector->dp.psr_caps.dpcd[1] &
@@ -716,8 +721,14 @@ static void _psr_init_dpcd(struct intel_dp *intel_dp, struct intel_connector *co
 			    connector->dp.psr_caps.su_support ? "" : "not ");
 	}
 
-	if (connector->dp.psr_caps.su_support)
+	if (connector->dp.psr_caps.su_support) {
+		ret = drm_dp_dpcd_read_byte(&intel_dp->aux,
+					    INTEL_DPCD_INTEL_WA_REGISTER_CAPS,
+					    &connector->dp.psr_caps.intel_wa_dpcd);
+		if (ret < 0)
+			return;
 		_psr_compute_su_granularity(intel_dp, connector);
+	}
 }
 
 void intel_psr_init_dpcd(struct intel_dp *intel_dp, struct intel_connector *connector)
@@ -1031,11 +1042,27 @@ static u8 frames_before_su_entry(struct intel_dp *intel_dp)
 	return frames_before_su_entry;
 }
 
+static bool intel_psr_allow_pr_bw_optimization(struct intel_dp *intel_dp)
+{
+	if (intel_dp_is_edp(intel_dp))
+		return false;
+
+	if (!intel_dp_tunnel_bw_alloc_is_enabled(intel_dp))
+		return false;
+
+	if (!intel_dp_tunnel_pr_optimization_supported(intel_dp))
+		return false;
+
+	return true;
+}
+
 static void dg2_activate_panel_replay(struct intel_dp *intel_dp)
 {
 	struct intel_display *display = to_intel_display(intel_dp);
 	struct intel_psr *psr = &intel_dp->psr;
 	enum transcoder cpu_transcoder = intel_dp->psr.transcoder;
+	u32 dp2_ctl_set = TRANS_DP2_PANEL_REPLAY_ENABLE;
+	u32 dp2_ctl_clear = 0;
 
 	if (intel_dp_is_edp(intel_dp) && psr->sel_update_enabled) {
 		u32 val = psr->su_region_et_enabled ?
@@ -1048,12 +1075,16 @@ static void dg2_activate_panel_replay(struct intel_dp *intel_dp)
 			       val);
 	}
 
+	if (intel_psr_allow_pr_bw_optimization(intel_dp))
+		dp2_ctl_set |= TRANS_DP2_PR_TUNNELING_ENABLE;
+	else
+		dp2_ctl_clear = TRANS_DP2_PR_TUNNELING_ENABLE;
+
 	intel_de_rmw(display,
 		     PSR2_MAN_TRK_CTL(display, intel_dp->psr.transcoder),
 		     0, ADLP_PSR2_MAN_TRK_CTL_SF_CONTINUOS_FULL_FRAME);
 
-	intel_de_rmw(display, TRANS_DP2_CTL(intel_dp->psr.transcoder), 0,
-		     TRANS_DP2_PANEL_REPLAY_ENABLE);
+	intel_de_rmw(display, TRANS_DP2_CTL(intel_dp->psr.transcoder), dp2_ctl_clear, dp2_ctl_set);
 }
 
 static void hsw_activate_psr2(struct intel_dp *intel_dp)
@@ -1358,9 +1389,35 @@ static bool psr2_granularity_check(struct intel_crtc_state *crtc_state,
 	return true;
 }
 
-static bool _compute_psr2_sdp_prior_scanline_indication(struct intel_dp *intel_dp,
-							struct intel_crtc_state *crtc_state)
+static bool apply_scanline_indication_wa(struct intel_crtc_state *crtc_state,
+					 struct intel_connector *connector)
 {
+	struct intel_dp *intel_dp = intel_attached_dp(connector);
+	u8 early_scanline_support = connector->dp.psr_caps.intel_wa_dpcd &
+		INTEL_DPCD_INTEL_WA_REGISTER_CAPS_PSR2_EARLYSCANLINE_SDP_SUPPORT_MASK;
+
+	if (intel_dp->edp_dpcd[0] >= DP_EDP_15)
+		return true;
+
+	switch (early_scanline_support)	{
+	case INTEL_DPCD_INTEL_WA_REGISTER_CAPS_FALL_BACK_TO_PSR1:
+		crtc_state->req_psr2_sdp_prior_scanline = false;
+		return false;
+	case INTEL_DPCD_INTEL_WA_REGISTER_CAPS_PSR2_WITH_EARLY_SCANLINE:
+		return true;
+	case INTEL_DPCD_INTEL_WA_REGISTER_CAPS_PSR2_WITHOUT_EARLY_SCANLINE:
+		crtc_state->req_psr2_sdp_prior_scanline = false;
+		return true;
+	default:
+		MISSING_CASE(early_scanline_support);
+		return false;
+	}
+}
+
+static bool _compute_psr2_sdp_prior_scanline_indication(struct intel_crtc_state *crtc_state,
+							struct intel_connector *connector)
+{
+	struct intel_dp *intel_dp = intel_attached_dp(connector);
 	struct intel_display *display = to_intel_display(intel_dp);
 	const struct drm_display_mode *adjusted_mode = &crtc_state->uapi.adjusted_mode;
 	u32 hblank_total, hblank_ns, req_ns;
@@ -1379,7 +1436,8 @@ static bool _compute_psr2_sdp_prior_scanline_indication(struct intel_dp *intel_d
 		return false;
 
 	crtc_state->req_psr2_sdp_prior_scanline = true;
-	return true;
+
+	return apply_scanline_indication_wa(crtc_state, connector);
 }
 
 static int intel_psr_entry_setup_frames(struct intel_dp *intel_dp,
@@ -1660,7 +1718,7 @@ static bool intel_sel_update_config_valid(struct intel_crtc_state *crtc_state,
 								      conn_state))
 		goto unsupported;
 
-	if (!_compute_psr2_sdp_prior_scanline_indication(intel_dp, crtc_state)) {
+	if (!_compute_psr2_sdp_prior_scanline_indication(crtc_state, connector)) {
 		drm_dbg_kms(display->drm,
 			    "Selective update not enabled, SDP indication do not fit in hblank\n");
 		goto unsupported;
@@ -2295,7 +2353,7 @@ static void intel_psr_wait_exit_locked(struct intel_dp *intel_dp)
 {
 	struct intel_display *display = to_intel_display(intel_dp);
 	enum transcoder cpu_transcoder = intel_dp->psr.transcoder;
-	i915_reg_t psr_status;
+	intel_reg_t psr_status;
 	u32 psr_status_mask;
 
 	if (intel_dp_is_edp(intel_dp) && (intel_dp->psr.sel_update_enabled ||
@@ -3326,7 +3384,7 @@ static bool __psr_wait_for_idle_locked(struct intel_dp *intel_dp)
 {
 	struct intel_display *display = to_intel_display(intel_dp);
 	enum transcoder cpu_transcoder = intel_dp->psr.transcoder;
-	i915_reg_t reg;
+	intel_reg_t reg;
 	u32 mask;
 	int err;
 
@@ -3358,11 +3416,11 @@ static int intel_psr_fastset_force(struct intel_display *display)
 {
 	struct drm_connector_list_iter conn_iter;
 	struct drm_modeset_acquire_ctx ctx;
-	struct drm_atomic_state *state;
+	struct drm_atomic_commit *state;
 	struct drm_connector *conn;
 	int err = 0;
 
-	state = drm_atomic_state_alloc(display->drm);
+	state = drm_atomic_commit_alloc(display->drm);
 	if (!state)
 		return -ENOMEM;
 
@@ -3404,7 +3462,7 @@ retry:
 		err = drm_atomic_commit(state);
 
 	if (err == -EDEADLK) {
-		drm_atomic_state_clear(state);
+		drm_atomic_commit_clear(state);
 		err = drm_modeset_backoff(&ctx);
 		if (!err)
 			goto retry;
@@ -3412,7 +3470,7 @@ retry:
 
 	drm_modeset_drop_locks(&ctx);
 	drm_modeset_acquire_fini(&ctx);
-	drm_atomic_state_put(state);
+	drm_atomic_commit_put(state);
 
 	return err;
 }

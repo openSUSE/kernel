@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (C) 2020-2025 Intel Corporation
+ * Copyright (C) 2020-2026 Intel Corporation
  */
 
 #include <linux/firmware.h>
@@ -234,7 +234,7 @@ static int ivpu_get_param_ioctl(struct drm_device *dev, void *data, struct drm_f
 		args->value = vdev->platform;
 		break;
 	case DRM_IVPU_PARAM_CORE_CLOCK_RATE:
-		args->value = ivpu_hw_dpu_max_freq_get(vdev);
+		args->value = ivpu_hw_btrs_pll_ratio_to_hz(vdev, vdev->hw->pll.max_ratio);
 		break;
 	case DRM_IVPU_PARAM_NUM_CONTEXTS:
 		args->value = file_priv->user_limits->max_ctx_count;
@@ -487,6 +487,10 @@ int ivpu_boot(struct ivpu_device *vdev)
 		ret = ivpu_hw_sched_init(vdev);
 		if (ret)
 			goto err_disable_ipc;
+
+		ret = ivpu_hw_btrs_cfg_freq_init(vdev);
+		if (ret)
+			goto err_disable_ipc;
 	}
 
 	return 0;
@@ -537,6 +541,26 @@ static const struct file_operations ivpu_fops = {
 #endif
 };
 
+static int ivpu_gem_prime_handle_to_fd(struct drm_device *dev, struct drm_file *file_priv,
+				       u32 handle, u32 flags, int *prime_fd)
+{
+	struct drm_gem_object *obj;
+
+	obj = drm_gem_object_lookup(file_priv, handle);
+	if (!obj)
+		return -ENOENT;
+
+	if (drm_gem_is_imported(obj)) {
+		/* Do not allow re-exporting */
+		drm_gem_object_put(obj);
+		return -EOPNOTSUPP;
+	}
+
+	drm_gem_object_put(obj);
+
+	return drm_gem_prime_handle_to_fd(dev, file_priv, handle, flags, prime_fd);
+}
+
 static const struct drm_driver driver = {
 	.driver_features = DRIVER_GEM | DRIVER_COMPUTE_ACCEL,
 
@@ -545,6 +569,7 @@ static const struct drm_driver driver = {
 
 	.gem_create_object = ivpu_gem_create_object,
 	.gem_prime_import = ivpu_gem_prime_import,
+	.prime_handle_to_fd = ivpu_gem_prime_handle_to_fd,
 
 	.ioctls = ivpu_drm_ioctls,
 	.num_ioctls = ARRAY_SIZE(ivpu_drm_ioctls),

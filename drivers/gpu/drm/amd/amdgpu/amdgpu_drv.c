@@ -246,6 +246,7 @@ int amdgpu_umsch_mm_fwlog;
 int amdgpu_rebar = -1; /* auto */
 int amdgpu_user_queue = -1;
 uint amdgpu_hdmi_hpd_debounce_delay_ms;
+int amdgpu_ptl = -1; /* auto */
 
 DECLARE_DYNDBG_CLASSMAP(drm_debug_classes, DD_CLASS_TYPE_DISJOINT_BITS, 0,
 			"DRM_UT_CORE",
@@ -1111,6 +1112,18 @@ module_param_named(user_queue, amdgpu_user_queue, int, 0444);
  */
 MODULE_PARM_DESC(hdmi_hpd_debounce_delay_ms, "HDMI HPD disconnect debounce delay in milliseconds (0 to disable (by default), 1500 is common)");
 module_param_named(hdmi_hpd_debounce_delay_ms, amdgpu_hdmi_hpd_debounce_delay_ms, uint, 0644);
+
+/**
+ * DOC: ptl (int)
+ * Enable PTL feature at boot time. Possible values:
+ *
+ * - -1 = auto (ASIC specific default)
+ * -  0 = disable PTL (default)
+ * -  1 = enable PTL
+ * -  2 = permanently disable PTL (cannot be re-enabled at runtime)
+ */
+MODULE_PARM_DESC(ptl, "Enable PTL (-1 = auto, 0 = disable (default), 1 = enable, 2 = permanently disable)");
+module_param_named(ptl, amdgpu_ptl, int, 0444);
 
 /* These devices are not supported by amdgpu.
  * They are supported by the mach64, r128, radeon drivers
@@ -2797,12 +2810,11 @@ static int amdgpu_runtime_idle_check_userq(struct device *dev)
 	return xa_empty(&adev->userq_doorbell_xa) ? 0 : -EBUSY;
 }
 
-static int amdgpu_pmops_runtime_suspend(struct device *dev)
+static int amdgpu_pmops_runtime_checks(struct device *dev)
 {
-	struct pci_dev *pdev = to_pci_dev(dev);
-	struct drm_device *drm_dev = pci_get_drvdata(pdev);
+	struct drm_device *drm_dev = dev_get_drvdata(dev);
 	struct amdgpu_device *adev = drm_to_adev(drm_dev);
-	int ret, i;
+	int ret;
 
 	if (adev->pm.rpm_mode == AMDGPU_RUNPM_NONE) {
 		pm_runtime_forbid(dev);
@@ -2812,7 +2824,27 @@ static int amdgpu_pmops_runtime_suspend(struct device *dev)
 	ret = amdgpu_runtime_idle_check_display(dev);
 	if (ret)
 		return ret;
-	ret = amdgpu_runtime_idle_check_userq(dev);
+
+	return amdgpu_runtime_idle_check_userq(dev);
+}
+
+static int amdgpu_pmops_runtime_idle(struct device *dev)
+{
+	int ret;
+
+	ret = amdgpu_pmops_runtime_checks(dev);
+	pm_runtime_autosuspend(dev);
+	return ret;
+}
+
+static int amdgpu_pmops_runtime_suspend(struct device *dev)
+{
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct drm_device *drm_dev = pci_get_drvdata(pdev);
+	struct amdgpu_device *adev = drm_to_adev(drm_dev);
+	int ret, i;
+
+	ret = amdgpu_pmops_runtime_checks(dev);
 	if (ret)
 		return ret;
 
@@ -2922,27 +2954,6 @@ static int amdgpu_pmops_runtime_resume(struct device *dev)
 		drm_dev->switch_power_state = DRM_SWITCH_POWER_ON;
 	adev->in_runpm = false;
 	return 0;
-}
-
-static int amdgpu_pmops_runtime_idle(struct device *dev)
-{
-	struct drm_device *drm_dev = dev_get_drvdata(dev);
-	struct amdgpu_device *adev = drm_to_adev(drm_dev);
-	int ret;
-
-	if (adev->pm.rpm_mode == AMDGPU_RUNPM_NONE) {
-		pm_runtime_forbid(dev);
-		return -EBUSY;
-	}
-
-	ret = amdgpu_runtime_idle_check_display(dev);
-	if (ret)
-		goto done;
-
-	ret = amdgpu_runtime_idle_check_userq(dev);
-done:
-	pm_runtime_autosuspend(dev);
-	return ret;
 }
 
 static int amdgpu_drm_release(struct inode *inode, struct file *filp)
@@ -3149,17 +3160,15 @@ static int __init amdgpu_init(void)
 
 	r = amdgpu_sync_init();
 	if (r)
-		goto error_sync;
-
-	r = amdgpu_userq_fence_slab_init();
-	if (r)
-		goto error_fence;
+		return r;
 
 	amdgpu_register_atpx_handler();
 	amdgpu_acpi_detect();
 
-	/* Ignore KFD init failures. Normal when CONFIG_HSA_AMD is not set. */
-	amdgpu_amdkfd_init();
+	/* Ignore KFD init failures when CONFIG_HSA_AMD is not set. */
+	r = amdgpu_amdkfd_init();
+	if (r && r != -ENOENT)
+		goto error_fini_sync;
 
 	if (amdgpu_pp_feature_mask & PP_OVERDRIVE_MASK) {
 		add_taint(TAINT_CPU_OUT_OF_SPEC, LOCKDEP_STILL_OK);
@@ -3170,10 +3179,8 @@ static int __init amdgpu_init(void)
 	/* let modprobe override vga console setting */
 	return pci_register_driver(&amdgpu_kms_pci_driver);
 
-error_fence:
+error_fini_sync:
 	amdgpu_sync_fini();
-
-error_sync:
 	return r;
 }
 
@@ -3184,7 +3191,6 @@ static void __exit amdgpu_exit(void)
 	amdgpu_unregister_atpx_handler();
 	amdgpu_acpi_release();
 	amdgpu_sync_fini();
-	amdgpu_userq_fence_slab_fini();
 	mmu_notifier_synchronize();
 	amdgpu_xcp_drv_release();
 }
