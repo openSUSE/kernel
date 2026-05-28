@@ -55,7 +55,7 @@ typedef void (bh_end_io_t)(struct buffer_head *bh, int uptodate);
  * is the bio, and buffer_heads are used for extracting block
  * mappings (via a get_block_t call), for tracking state within
  * a folio (via a folio_mapping) and for wrapping bio submission
- * for backward compatibility reasons (e.g. submit_bh).
+ * for backward compatibility reasons (e.g. bh_submit).
  */
 struct buffer_head {
 	unsigned long b_state;		/* buffer state bitmap (see above) */
@@ -244,7 +244,6 @@ void __lock_buffer(struct buffer_head *bh);
 int sync_dirty_buffer(struct buffer_head *bh);
 int __sync_dirty_buffer(struct buffer_head *bh, blk_opf_t op_flags);
 void write_dirty_buffer(struct buffer_head *bh, blk_opf_t op_flags);
-void submit_bh(blk_opf_t, struct buffer_head *);
 void bh_submit(struct buffer_head *, blk_opf_t, bio_end_io_t);
 void write_boundary_block(struct block_device *bdev,
 			sector_t bblock, unsigned blocksize);

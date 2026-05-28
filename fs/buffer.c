@@ -1187,14 +1187,6 @@ void __bforget(struct buffer_head *bh)
 }
 EXPORT_SYMBOL(__bforget);
 
-static void end_bio_bh_io_sync(struct bio *bio)
-{
-	struct buffer_head *bh;
-	bool uptodate = bio_endio_bh(bio, &bh);
-
-	bh->b_end_io(bh, uptodate);
-}
-
 static void buffer_set_crypto_ctx(struct bio *bio, const struct buffer_head *bh,
 				  gfp_t gfp_mask)
 {
@@ -1829,15 +1821,15 @@ static struct buffer_head *folio_create_buffers(struct folio *folio,
 
 /*
  * While block_write_full_folio is writing back the dirty buffers under
- * the page lock, whoever dirtied the buffers may decide to clean them
+ * the folio lock, whoever dirtied the buffers may decide to clean them
  * again at any time.  We handle that by only looking at the buffer
  * state inside lock_buffer().
  *
  * If block_write_full_folio() is called for regular writeback
- * (wbc->sync_mode == WB_SYNC_NONE) then it will redirty a page which has a
- * locked buffer.   This only can happen if someone has written the buffer
- * directly, with submit_bh().  At the address_space level PageWriteback
- * prevents this contention from occurring.
+ * (wbc->sync_mode == WB_SYNC_NONE) then it will redirty a folio which
+ * has a locked buffer.   This only can happen if someone has written
+ * the buffer directly, with bh_submit().  At the address_space level
+ * the folio writeback flag prevents this contention from occurring.
  *
  * If block_write_full_folio() is called with wbc->sync_mode ==
  * WB_SYNC_ALL, the writes are posted using REQ_SYNC; this
@@ -1954,7 +1946,7 @@ done:
 		/*
 		 * The folio was marked dirty, but the buffers were
 		 * clean.  Someone wrote them back by hand with
-		 * write_dirty_buffer/submit_bh.  A rare case.
+		 * write_dirty_buffer/bh_submit.  A rare case.
 		 */
 		folio_end_writeback(folio);
 
@@ -2799,13 +2791,6 @@ sector_t generic_block_bmap(struct address_space *mapping, sector_t block,
 	return tmp.b_blocknr;
 }
 EXPORT_SYMBOL(generic_block_bmap);
-
-void submit_bh(blk_opf_t opf, struct buffer_head *bh)
-{
-	BUG_ON(!bh->b_end_io);
-	__bh_submit(bh, opf, WRITE_LIFE_NOT_SET, NULL, end_bio_bh_io_sync);
-}
-EXPORT_SYMBOL(submit_bh);
 
 void write_dirty_buffer(struct buffer_head *bh, blk_opf_t op_flags)
 {
