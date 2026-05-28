@@ -298,47 +298,66 @@ set_tci_error:
 }
 
 static int dpaa2_switch_port_add_vlan(struct ethsw_port_priv *port_priv,
-				      u16 vid, u16 flags)
+				      u16 vid, u16 flags, bool changed)
 {
 	struct ethsw_core *ethsw = port_priv->ethsw_data;
 	struct net_device *netdev = port_priv->netdev;
 	struct dpsw_vlan_if_cfg vcfg = {0};
 	int err;
 
-	if (port_priv->vlans[vid]) {
-		netdev_err(netdev, "VLAN %d already configured\n", vid);
-		return -EEXIST;
-	}
-
-	/* If hit, this VLAN rule will lead the packet into the FDB table
-	 * specified in the vlan configuration below
-	 */
-	vcfg.num_ifs = 1;
-	vcfg.if_id[0] = port_priv->idx;
-	vcfg.fdb_id = dpaa2_switch_port_get_fdb_id(port_priv);
-	vcfg.options |= DPSW_VLAN_ADD_IF_OPT_FDB_ID;
-	err = dpsw_vlan_add_if(ethsw->mc_io, 0, ethsw->dpsw_handle, vid, &vcfg);
-	if (err) {
-		netdev_err(netdev, "dpsw_vlan_add_if err %d\n", err);
-		return err;
-	}
-
-	port_priv->vlans[vid] = ETHSW_VLAN_MEMBER;
-
-	if (flags & BRIDGE_VLAN_INFO_UNTAGGED) {
-		err = dpsw_vlan_add_if_untagged(ethsw->mc_io, 0,
-						ethsw->dpsw_handle,
-						vid, &vcfg);
+	if (!port_priv->vlans[vid]) {
+		/* If hit, this VLAN rule will lead the packet into the FDB
+		 * table specified in the vlan configuration below
+		 */
+		vcfg.num_ifs = 1;
+		vcfg.if_id[0] = port_priv->idx;
+		vcfg.fdb_id = dpaa2_switch_port_get_fdb_id(port_priv);
+		vcfg.options |= DPSW_VLAN_ADD_IF_OPT_FDB_ID;
+		err = dpsw_vlan_add_if(ethsw->mc_io, 0, ethsw->dpsw_handle,
+				       vid, &vcfg);
 		if (err) {
-			netdev_err(netdev,
-				   "dpsw_vlan_add_if_untagged err %d\n", err);
+			netdev_err(netdev, "dpsw_vlan_add_if err %d\n", err);
 			return err;
 		}
-		port_priv->vlans[vid] |= ETHSW_VLAN_UNTAGGED;
+
+		port_priv->vlans[vid] = ETHSW_VLAN_MEMBER;
+	}
+
+	memset(&vcfg, 0, sizeof(vcfg));
+	vcfg.num_ifs = 1;
+	vcfg.if_id[0] = port_priv->idx;
+
+	if (flags & BRIDGE_VLAN_INFO_UNTAGGED) {
+		if (!(port_priv->vlans[vid] & ETHSW_VLAN_UNTAGGED)) {
+			err = dpsw_vlan_add_if_untagged(ethsw->mc_io, 0,
+							ethsw->dpsw_handle,
+							vid, &vcfg);
+			if (err) {
+				netdev_err(netdev,
+					   "dpsw_vlan_add_if_untagged err %d\n",
+					   err);
+				return err;
+			}
+			port_priv->vlans[vid] |= ETHSW_VLAN_UNTAGGED;
+		}
+	} else if (changed && (port_priv->vlans[vid] & ETHSW_VLAN_UNTAGGED)) {
+		err = dpsw_vlan_remove_if_untagged(ethsw->mc_io, 0,
+						   ethsw->dpsw_handle,
+						   vid, &vcfg);
+		if (err) {
+			netdev_err(netdev,
+				   "dpsw_vlan_remove_if_untagged err %d\n",
+				   err);
+		}
+		port_priv->vlans[vid] &= ~ETHSW_VLAN_UNTAGGED;
 	}
 
 	if (flags & BRIDGE_VLAN_INFO_PVID) {
 		err = dpaa2_switch_port_set_pvid(port_priv, vid);
+		if (err)
+			return err;
+	} else if (changed && port_priv->vlans[vid] & ETHSW_VLAN_PVID) {
+		err = dpaa2_switch_port_set_pvid(port_priv, 4095);
 		if (err)
 			return err;
 	}
@@ -970,6 +989,7 @@ static int dpaa2_switch_port_vlan_add(struct net_device *netdev, __be16 proto,
 		.obj.orig_dev = netdev,
 		/* This API only allows programming tagged, non-PVID VIDs */
 		.flags = 0,
+		.changed = false,
 	};
 
 	return dpaa2_switch_port_vlans_add(netdev, &vlan);
@@ -1803,25 +1823,19 @@ int dpaa2_switch_port_vlans_add(struct net_device *netdev,
 	struct dpsw_attr *attr = &ethsw->sw_attr;
 	int err = 0;
 
-	/* Make sure that the VLAN is not already configured
-	 * on the switch port
-	 */
-	if (port_priv->vlans[vlan->vid] & ETHSW_VLAN_MEMBER) {
-		netdev_err(netdev, "VLAN %d already configured\n", vlan->vid);
-		return -EEXIST;
-	}
-
-	/* Check if there is space for a new VLAN */
-	err = dpsw_get_attributes(ethsw->mc_io, 0, ethsw->dpsw_handle,
-				  &ethsw->sw_attr);
-	if (err) {
-		netdev_err(netdev, "dpsw_get_attributes err %d\n", err);
-		return err;
-	}
-	if (attr->max_vlans - attr->num_vlans < 1)
-		return -ENOSPC;
-
 	if (!port_priv->ethsw_data->vlans[vlan->vid]) {
+		/* Only check for space in case this is a new VLAN from the
+		 * DPSW perspective
+		 */
+		err = dpsw_get_attributes(ethsw->mc_io, 0, ethsw->dpsw_handle,
+					  &ethsw->sw_attr);
+		if (err) {
+			netdev_err(netdev, "dpsw_get_attributes err %d\n", err);
+			return err;
+		}
+		if (attr->max_vlans - attr->num_vlans < 1)
+			return -ENOSPC;
+
 		/* this is a new VLAN */
 		err = dpaa2_switch_add_vlan(port_priv, vlan->vid);
 		if (err)
@@ -1830,7 +1844,8 @@ int dpaa2_switch_port_vlans_add(struct net_device *netdev,
 		port_priv->ethsw_data->vlans[vlan->vid] |= ETHSW_VLAN_GLOBAL;
 	}
 
-	return dpaa2_switch_port_add_vlan(port_priv, vlan->vid, vlan->flags);
+	return dpaa2_switch_port_add_vlan(port_priv, vlan->vid, vlan->flags,
+					  vlan->changed);
 }
 
 static int dpaa2_switch_port_lookup_address(struct net_device *netdev, int is_uc,
@@ -2146,7 +2161,8 @@ static int dpaa2_switch_port_bridge_leave(struct net_device *netdev)
 	 * the dpaa2 switch interfaces are not capable to be VLAN unaware
 	 */
 	return dpaa2_switch_port_add_vlan(port_priv, DEFAULT_VLAN_ID,
-					  BRIDGE_VLAN_INFO_UNTAGGED | BRIDGE_VLAN_INFO_PVID);
+					  BRIDGE_VLAN_INFO_UNTAGGED | BRIDGE_VLAN_INFO_PVID,
+					  false);
 }
 
 static int dpaa2_switch_prevent_bridging_with_8021q_upper(struct net_device *netdev)
