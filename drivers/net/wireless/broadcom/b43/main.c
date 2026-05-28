@@ -4617,7 +4617,8 @@ static int b43_phy_versioning(struct b43_wldev *dev)
 		    radio_id != 0x2057)
 			unsupported = 1;
 		if (radio_id == 0x2057 &&
-		    !(radio_rev == 9 || radio_rev == 14))
+		    !(radio_rev == 8 || radio_rev == 9 ||
+		      radio_rev == 14))
 			unsupported = 1;
 		break;
 	case B43_PHYTYPE_LP:
