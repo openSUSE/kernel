@@ -323,14 +323,13 @@ static const struct rtc_class_ops ab8500_rtc_ops = {
 };
 
 static const struct platform_device_id ab85xx_rtc_ids[] = {
-	{ "ab8500-rtc", (kernel_ulong_t)&ab8500_rtc_ops, },
+	{ .name = "ab8500-rtc" },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(platform, ab85xx_rtc_ids);
 
 static int ab8500_rtc_probe(struct platform_device *pdev)
 {
-	const struct platform_device_id *platid = platform_get_device_id(pdev);
 	int err;
 	struct rtc_device *rtc;
 	u8 rtc_ctrl;
@@ -366,7 +365,7 @@ static int ab8500_rtc_probe(struct platform_device *pdev)
 	if (IS_ERR(rtc))
 		return PTR_ERR(rtc);
 
-	rtc->ops = (struct rtc_class_ops *)platid->driver_data;
+	rtc->ops = &ab8500_rtc_ops;
 
 	err = devm_request_threaded_irq(&pdev->dev, irq, NULL,
 			rtc_alarm_handler, IRQF_ONESHOT,
