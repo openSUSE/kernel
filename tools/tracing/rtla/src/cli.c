@@ -124,7 +124,7 @@ struct common_params *osnoise_top_parse_args(int argc, char **argv)
 	if (cb_data.trace_output)
 		actions_add_trace_output(&params->common.threshold_actions, cb_data.trace_output);
 
-	if (geteuid())
+	if (geteuid() && !in_unit_test)
 		fatal("osnoise needs root permission");
 
 	return &params->common;
@@ -206,7 +206,7 @@ struct common_params *osnoise_hist_parse_args(int argc, char **argv)
 	if (cb_data.trace_output)
 		actions_add_trace_output(&params->common.threshold_actions, cb_data.trace_output);
 
-	if (geteuid())
+	if (geteuid() && !in_unit_test)
 		fatal("rtla needs root permission");
 
 	if (params->common.hist.no_index && !params->common.hist.with_zeros)
@@ -301,7 +301,7 @@ struct common_params *timerlat_top_parse_args(int argc, char **argv)
 	if (cb_data.trace_output)
 		actions_add_trace_output(&params->common.threshold_actions, cb_data.trace_output);
 
-	if (geteuid())
+	if (geteuid() && !in_unit_test)
 		fatal("rtla needs root permission");
 
 	/*
@@ -427,7 +427,7 @@ struct common_params *timerlat_hist_parse_args(int argc, char **argv)
 	if (cb_data.trace_output)
 		actions_add_trace_output(&params->common.threshold_actions, cb_data.trace_output);
 
-	if (geteuid())
+	if (geteuid() && !in_unit_test)
 		fatal("rtla needs root permission");
 
 	if (params->common.hist.no_irq && params->common.hist.no_thread)
