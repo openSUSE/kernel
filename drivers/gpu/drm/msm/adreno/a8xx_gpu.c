@@ -104,7 +104,7 @@ void a8xx_gpu_get_slice_info(struct msm_gpu *gpu)
 		return;
 	}
 
-	slice_mask &= a6xx_llc_read(a6xx_gpu,
+	slice_mask &= a6xx_cx_misc_read(a6xx_gpu,
 			REG_A8XX_CX_MISC_SLICE_ENABLE_FINAL);
 
 	a6xx_gpu->slice_mask = slice_mask;

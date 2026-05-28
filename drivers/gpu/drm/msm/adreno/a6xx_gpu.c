@@ -1961,7 +1961,7 @@ static void a6xx_llc_activate(struct a6xx_gpu *a6xx_gpu)
 	struct msm_gpu *gpu = &adreno_gpu->base;
 	u32 cntl1_regval = 0;
 
-	if (IS_ERR(a6xx_gpu->llc_mmio))
+	if (IS_ERR(a6xx_gpu->cx_misc_mmio))
 		return;
 
 	if (!llcc_slice_activate(a6xx_gpu->llc_slice)) {
@@ -2000,14 +2000,14 @@ static void a6xx_llc_activate(struct a6xx_gpu *a6xx_gpu)
 	 * pagetables
 	 */
 	if (!a6xx_gpu->have_mmu500) {
-		a6xx_llc_write(a6xx_gpu,
+		a6xx_cx_misc_write(a6xx_gpu,
 			REG_A6XX_CX_MISC_SYSTEM_CACHE_CNTL_1, cntl1_regval);
 
 		/*
 		 * Program cacheability overrides to not allocate cache
 		 * lines on a write miss
 		 */
-		a6xx_llc_rmw(a6xx_gpu,
+		a6xx_cx_misc_rmw(a6xx_gpu,
 			REG_A6XX_CX_MISC_SYSTEM_CACHE_CNTL_0, 0xF, 0x03);
 		return;
 	}
@@ -2020,7 +2020,7 @@ static void a7xx_llc_activate(struct a6xx_gpu *a6xx_gpu)
 	struct adreno_gpu *adreno_gpu = &a6xx_gpu->base;
 	struct msm_gpu *gpu = &adreno_gpu->base;
 
-	if (IS_ERR(a6xx_gpu->llc_mmio))
+	if (IS_ERR(a6xx_gpu->cx_misc_mmio))
 		return;
 
 	if (!llcc_slice_activate(a6xx_gpu->llc_slice)) {
@@ -2073,15 +2073,15 @@ static void a6xx_llc_slices_init(struct platform_device *pdev,
 	of_node_put(phandle);
 
 	if (is_a7xx || !a6xx_gpu->have_mmu500)
-		a6xx_gpu->llc_mmio = msm_ioremap(pdev, "cx_mem");
+		a6xx_gpu->cx_misc_mmio = msm_ioremap(pdev, "cx_mem");
 	else
-		a6xx_gpu->llc_mmio = NULL;
+		a6xx_gpu->cx_misc_mmio = NULL;
 
 	a6xx_gpu->llc_slice = llcc_slice_getd(LLCC_GPU);
 	a6xx_gpu->htw_llc_slice = llcc_slice_getd(LLCC_GPUHTW);
 
 	if (IS_ERR_OR_NULL(a6xx_gpu->llc_slice) && IS_ERR_OR_NULL(a6xx_gpu->htw_llc_slice))
-		a6xx_gpu->llc_mmio = ERR_PTR(-EINVAL);
+		a6xx_gpu->cx_misc_mmio = ERR_PTR(-EINVAL);
 }
 
 #define GBIF_CLIENT_HALT_MASK		BIT(0)
@@ -2618,7 +2618,7 @@ static int a6xx_read_speedbin(struct device *dev, struct a6xx_gpu *a6xx_gpu,
 		return ret;
 
 	if (info->quirks & ADRENO_QUIRK_SOFTFUSE) {
-		*speedbin = a6xx_llc_read(a6xx_gpu, REG_A8XX_CX_MISC_SW_FUSE_FREQ_LIMIT_STATUS);
+		*speedbin = a6xx_cx_misc_read(a6xx_gpu, REG_A8XX_CX_MISC_SW_FUSE_FREQ_LIMIT_STATUS);
 		*speedbin = A8XX_CX_MISC_SW_FUSE_FREQ_LIMIT_STATUS_FINALFREQLIMIT(*speedbin);
 		return 0;
 	}
