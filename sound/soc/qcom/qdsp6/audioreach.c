@@ -1118,6 +1118,42 @@ static int audioreach_pcm_set_media_format(struct q6apm_graph *graph,
 	return q6apm_send_cmd_sync(graph->apm, pkt, 0);
 }
 
+int audioreach_shmem_register_event(struct q6apm_graph *graph, int bytes, int num_levels)
+{
+	struct apm_module_register_events *event;
+	struct event_cfg_sh_mem_pull_push_mode_watermark_t *level;
+	int i, payload_size;
+	struct gpr_pkt *pkt __free(kfree) = NULL;
+	void *p;
+
+	if (num_levels <= 0 || bytes <= 0)
+		return -EINVAL;
+
+	payload_size = sizeof(*event) + sizeof(*level) + num_levels * sizeof(uint32_t);
+
+	pkt = audioreach_alloc_cmd_pkt(payload_size, APM_CMD_REGISTER_MODULE_EVENTS, 0,
+				     graph->port->id, graph->shm_iid);
+	if (IS_ERR(pkt))
+		return PTR_ERR(pkt);
+
+	p = (void *)pkt + GPR_HDR_SIZE + APM_CMD_HDR_SIZE;
+
+	event = p;
+	event->module_instance_id = graph->shm_iid;
+	event->event_id = EVENT_ID_SH_MEM_PULL_PUSH_MODE_WATERMARK;
+	event->is_register = 1;
+	event->event_config_payload_size = sizeof(*level) + num_levels * sizeof(uint32_t);
+	p += sizeof(*event);
+	level = p;
+	level->num_water_mark_levels = num_levels;
+
+	for (i = 0; i < num_levels; i++)
+		level->level[i] = (i + 1) * bytes;
+
+	return audioreach_graph_send_cmd_sync(graph, pkt, 0);
+}
+EXPORT_SYMBOL_GPL(audioreach_shmem_register_event);
+
 static int audioreach_shmem_set_media_format(struct q6apm_graph *graph,
 					     const struct audioreach_module *module,
 					     const struct audioreach_module_config *mcfg)

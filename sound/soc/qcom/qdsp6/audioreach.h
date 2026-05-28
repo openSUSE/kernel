@@ -62,6 +62,8 @@ struct q6apm_graph;
 #define APM_CMD_GET_CFG				0x01001007
 #define APM_CMD_SHARED_MEM_MAP_REGIONS		0x0100100C
 #define APM_CMD_SHARED_MEM_UNMAP_REGIONS	0x0100100D
+#define APM_CMD_REGISTER_MODULE_EVENTS		0x0100100E
+#define APM_EVENT_MODULE_TO_CLIENT              0x03001000
 #define APM_CMD_RSP_SHARED_MEM_MAP_REGIONS	0x02001001
 #define APM_MMAP_TOKEN_GID_MASK			GENMASK(15, 0)
 #define APM_MMAP_TOKEN_MAP_TYPE_POS_BUF		BIT(16)
@@ -69,6 +71,48 @@ struct q6apm_graph;
 #define APM_CMD_RSP_GET_CFG			0x02001000
 #define APM_CMD_CLOSE_ALL			0x01001013
 #define APM_CMD_REGISTER_SHARED_CFG		0x0100100A
+#define EVENT_ID_SH_MEM_PULL_PUSH_MODE_WATERMARK	0x0800101C
+
+/**
+ * struct event_cfg_sh_mem_pull_push_mode_watermark_t - Watermark config
+ * @num_water_mark_levels: Number of watermark levels.
+ * @level: Watermark levels.
+ *
+ * If @num_water_mark_levels is zero, no watermark levels are specified
+ * and watermark events are not supported.
+ */
+struct event_cfg_sh_mem_pull_push_mode_watermark_t {
+	uint32_t num_water_mark_levels;
+	uint32_t level[];
+} __packed;
+
+/**
+ * struct apm_module_register_events - Register or unregister module events
+ * @module_instance_id: Module instance identifier.
+ * @event_id: Module event identifier.
+ * @is_register: 1 to register the event, 0 to unregister it.
+ * @error_code: Error code for out-of-band command mode.
+ * @event_config_payload_size: Event configuration payload size in bytes.
+ * @reserved: Reserved for alignment; must be zero.
+ */
+struct apm_module_register_events {
+	uint32_t module_instance_id;
+	uint32_t event_id;
+	uint32_t is_register;
+	uint32_t error_code;
+	uint32_t event_config_payload_size;
+	uint32_t reserved;
+} __packed;
+
+/**
+ * struct apm_module_event - Module event descriptor
+ * @event_id: Module event identifier.
+ * @event_payload_size: Event payload size in bytes.
+ */
+struct apm_module_event {
+	uint32_t event_id;
+	uint32_t event_payload_size;
+} __packed;
 
 #define APM_MEMORY_MAP_SHMEM8_4K_POOL		3
 
@@ -907,4 +951,5 @@ int audioreach_setup_push_pull(struct q6apm_graph *graph, phys_addr_t bphys,
 				uint32_t pos_buf_mem_map_handle, uint32_t size);
 int audioreach_map_memory_position_buffer(struct q6apm_graph *graph, unsigned int dir);
 
+int audioreach_shmem_register_event(struct q6apm_graph *graph, int bytes, int num_levels);
 #endif /* __AUDIOREACH_H__ */

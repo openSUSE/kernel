@@ -557,6 +557,7 @@ static int graph_callback(const struct gpr_resp_pkt *data, void *priv, int op)
 {
 	struct data_cmd_rsp_rd_sh_mem_ep_data_buffer_done_v2 *rd_done;
 	struct data_cmd_rsp_wr_sh_mem_ep_data_buffer_done_v2 *done;
+	struct apm_module_event *event;
 	const struct gpr_ibasic_rsp_result_t *result;
 	struct q6apm_graph *graph = priv;
 	const struct gpr_hdr *hdr = &data->hdr;
@@ -568,6 +569,16 @@ static int graph_callback(const struct gpr_resp_pkt *data, void *priv, int op)
 	result = data->payload;
 
 	switch (hdr->opcode) {
+	case APM_EVENT_MODULE_TO_CLIENT:
+		event = data->payload;
+		switch (event->event_id) {
+		case EVENT_ID_SH_MEM_PULL_PUSH_MODE_WATERMARK:
+			client_event = APM_CLIENT_EVENT_WATERMARK_EVENT;
+			graph->cb(client_event, hdr->token, data->payload, graph->priv);
+			break;
+		}
+
+		break;
 	case DATA_CMD_RSP_WR_SH_MEM_EP_DATA_BUFFER_DONE_V2:
 		if (!graph->ar_graph)
 			break;
@@ -623,6 +634,7 @@ static int graph_callback(const struct gpr_resp_pkt *data, void *priv, int op)
 		switch (result->opcode) {
 		case APM_CMD_SHARED_MEM_MAP_REGIONS:
 		case DATA_CMD_WR_SH_MEM_EP_MEDIA_FORMAT:
+		case APM_CMD_REGISTER_MODULE_EVENTS:
 		case APM_CMD_SET_CFG:
 			graph->result.opcode = result->opcode;
 			graph->result.status = result->status;
@@ -640,6 +652,13 @@ static int graph_callback(const struct gpr_resp_pkt *data, void *priv, int op)
 	}
 	return 0;
 }
+
+int q6apm_register_watermark_event(struct q6apm_graph *graph, int water_mark_level_bytes,
+				   int num_levels)
+{
+	return audioreach_shmem_register_event(graph, water_mark_level_bytes, num_levels);
+}
+EXPORT_SYMBOL_GPL(q6apm_register_watermark_event);
 
 int q6apm_push_pull_config(struct q6apm_graph *graph, phys_addr_t bphys,
 			   phys_addr_t pphys, uint32_t size)
