@@ -1605,7 +1605,7 @@ unsigned int ata_exec_internal(struct ata_device *dev, struct ata_taskfile *tf,
 	qc->private_data = &wait;
 	qc->complete_fn = ata_qc_complete_internal;
 
-	ata_qc_issue(qc);
+	ata_qc_issue(ap, qc);
 
 	spin_unlock_irqrestore(ap->lock, flags);
 
@@ -5150,6 +5150,7 @@ EXPORT_SYMBOL_GPL(ata_qc_get_active);
 
 /**
  *	ata_qc_issue - issue taskfile to device
+ *	@ap: ATA port of interest
  *	@qc: command to issue to device
  *
  *	Prepare an ATA command to submission to device.
@@ -5160,9 +5161,8 @@ EXPORT_SYMBOL_GPL(ata_qc_get_active);
  *	LOCKING:
  *	spin_lock_irqsave(host lock)
  */
-void ata_qc_issue(struct ata_queued_cmd *qc)
+void ata_qc_issue(struct ata_port *ap, struct ata_queued_cmd *qc)
 {
-	struct ata_port *ap = qc->ap;
 	struct ata_link *link = qc->dev->link;
 	u8 prot = qc->tf.protocol;
 

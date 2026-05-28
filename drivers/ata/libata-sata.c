@@ -1379,7 +1379,7 @@ EXPORT_SYMBOL_GPL(ata_sas_sdev_configure);
 int ata_sas_queuecmd(struct scsi_cmnd *cmd, struct ata_port *ap)
 {
 	if (likely(ata_dev_enabled(ap->link.device)))
-		return __ata_scsi_queuecmd(cmd, ap->link.device);
+		return __ata_scsi_queuecmd(cmd, ap->link.device, ap);
 
 	cmd->result = (DID_BAD_TARGET << 16);
 	scsi_done(cmd);
