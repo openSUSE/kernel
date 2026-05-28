@@ -443,16 +443,10 @@ static void mark_buffer_async_read(struct buffer_head *bh)
 	set_buffer_async_read(bh);
 }
 
-static void mark_buffer_async_write_endio(struct buffer_head *bh,
-					  bh_end_io_t *handler)
-{
-	bh->b_end_io = handler;
-	set_buffer_async_write(bh);
-}
-
 void mark_buffer_async_write(struct buffer_head *bh)
 {
-	mark_buffer_async_write_endio(bh, end_buffer_async_write);
+	bh->b_end_io = end_buffer_async_write;
+	set_buffer_async_write(bh);
 }
 EXPORT_SYMBOL(mark_buffer_async_write);
 
@@ -1903,8 +1897,7 @@ int __block_write_full_folio(struct inode *inode, struct folio *folio,
 			continue;
 		}
 		if (test_clear_buffer_dirty(bh)) {
-			mark_buffer_async_write_endio(bh,
-				end_buffer_async_write);
+			mark_buffer_async_write(bh);
 		} else {
 			unlock_buffer(bh);
 		}
@@ -1958,8 +1951,7 @@ recover:
 		if (buffer_mapped(bh) && buffer_dirty(bh) &&
 		    !buffer_delay(bh)) {
 			lock_buffer(bh);
-			mark_buffer_async_write_endio(bh,
-				end_buffer_async_write);
+			mark_buffer_async_write(bh);
 		} else {
 			/*
 			 * The buffer may have been set dirty during
