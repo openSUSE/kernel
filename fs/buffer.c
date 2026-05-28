@@ -3089,9 +3089,7 @@ int __bh_read(struct buffer_head *bh, blk_opf_t op_flags, bool wait)
 
 	BUG_ON(!buffer_locked(bh));
 
-	get_bh(bh);
-	bh->b_end_io = end_buffer_read_sync;
-	submit_bh(REQ_OP_READ | op_flags, bh);
+	bh_submit(bh, REQ_OP_READ | op_flags, bh_end_read);
 	if (wait) {
 		wait_on_buffer(bh);
 		if (!buffer_uptodate(bh))
