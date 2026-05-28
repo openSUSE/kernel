@@ -3131,9 +3131,7 @@ void __bh_read_batch(int nr, struct buffer_head *bhs[],
 			continue;
 		}
 
-		bh->b_end_io = end_buffer_read_sync;
-		get_bh(bh);
-		submit_bh(REQ_OP_READ | op_flags, bh);
+		bh_submit(bh, REQ_OP_READ | op_flags, bh_end_read);
 	}
 }
 EXPORT_SYMBOL(__bh_read_batch);
