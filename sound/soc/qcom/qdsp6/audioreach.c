@@ -955,7 +955,7 @@ int audioreach_compr_set_param(struct q6apm_graph *graph,
 	struct media_format *header;
 	int rc;
 	void *p;
-	int iid = q6apm_graph_get_rx_shmem_module_iid(graph);
+	int iid = graph->shm_iid;
 	int payload_size = sizeof(struct apm_sh_module_media_fmt_cmd);
 
 	struct gpr_pkt *pkt __free(kfree) = audioreach_alloc_cmd_pkt(payload_size,
@@ -1404,7 +1404,7 @@ EXPORT_SYMBOL_GPL(audioreach_graph_free_buf);
 int audioreach_shared_memory_send_eos(struct q6apm_graph *graph)
 {
 	struct data_cmd_wr_sh_mem_ep_eos *eos;
-	int iid = q6apm_graph_get_rx_shmem_module_iid(graph);
+	int iid = graph->shm_iid;
 	struct gpr_pkt *pkt __free(kfree) = audioreach_alloc_cmd_pkt(sizeof(*eos),
 					DATA_CMD_WR_SH_MEM_EP_EOS, 0, graph->port->id, iid);
 	if (IS_ERR(pkt))
