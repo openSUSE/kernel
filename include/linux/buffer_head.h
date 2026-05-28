@@ -46,7 +46,6 @@ enum bh_state_bits {
 struct page;
 struct buffer_head;
 struct address_space;
-typedef void (bh_end_io_t)(struct buffer_head *bh, int uptodate);
 
 /*
  * Historically, a buffer_head was used to map a single block
@@ -70,8 +69,7 @@ struct buffer_head {
 	char *b_data;			/* pointer to data within the page */
 
 	struct block_device *b_bdev;
-	bh_end_io_t *b_end_io;		/* I/O completion */
- 	void *b_private;		/* reserved for b_end_io */
+	void *b_private;		/* reserved for bio_end_io */
 	struct list_head b_assoc_buffers; /* associated with another mapping */
 	struct mapping_metadata_bhs *b_mmb; /* head of the list of metadata bhs
 					     * this buffer is associated with */

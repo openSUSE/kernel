@@ -946,7 +946,6 @@ static sector_t folio_init_buffers(struct folio *folio,
 
 	do {
 		if (!buffer_mapped(bh)) {
-			bh->b_end_io = NULL;
 			bh->b_private = NULL;
 			bh->b_bdev = bdev;
 			bh->b_blocknr = block;
