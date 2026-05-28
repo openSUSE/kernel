@@ -38,12 +38,12 @@ static void rtla_usage(int err)
 }
 
 /*
- * run_command - try to run a rtla tool command
+ * run_tool_command - try to run a rtla tool command
  *
  * It returns 0 if it fails. The tool's main will generally not
  * return as they should call exit().
  */
-int run_command(int argc, char **argv, int start_position)
+int run_tool_command(int argc, char **argv, int start_position)
 {
 	if (strcmp(argv[start_position], "osnoise") == 0) {
 		osnoise_main(argc-start_position, &argv[start_position]);
@@ -69,7 +69,7 @@ int main(int argc, char *argv[])
 	int retval;
 
 	/* is it an alias? */
-	retval = run_command(argc, argv, 0);
+	retval = run_tool_command(argc, argv, 0);
 	if (retval)
 		exit(0);
 
@@ -82,7 +82,7 @@ int main(int argc, char *argv[])
 		rtla_usage(0);
 	}
 
-	retval = run_command(argc, argv, 1);
+	retval = run_tool_command(argc, argv, 1);
 	if (retval)
 		exit(0);
 

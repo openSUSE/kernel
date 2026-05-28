@@ -7,6 +7,8 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
+#include <linux/container_of.h>
+
 /*
  * '18446744073709551615\0'
  */
@@ -36,10 +38,6 @@ static inline bool str_has_prefix(const char *str, const char *prefix)
 {
 	return strncmp(str, prefix, strlen(prefix)) == 0;
 }
-
-#define container_of(ptr, type, member)({			\
-	const typeof(((type *)0)->member) *__mptr = (ptr);	\
-	(type *)((char *)__mptr - offsetof(type, member)) ; })
 
 extern int config_debug;
 void debug_msg(const char *fmt, ...);
