@@ -388,7 +388,7 @@ struct rzg2l_pinctrl_reg_cache {
 	u8	sd_ch[2];
 	u8	eth_poc[2];
 	u8	oen;
-	u8      other_poc;
+	u8	other_poc;
 	u8	qspi;
 };
 
