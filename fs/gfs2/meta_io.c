@@ -59,7 +59,7 @@ static void gfs2_aspace_write_folio(struct folio *folio,
 			continue;
 		}
 		if (test_clear_buffer_dirty(bh)) {
-			mark_buffer_async_write(bh);
+			set_buffer_async_write(bh);
 		} else {
 			unlock_buffer(bh);
 		}
@@ -75,7 +75,8 @@ static void gfs2_aspace_write_folio(struct folio *folio,
 	do {
 		struct buffer_head *next = bh->b_this_page;
 		if (buffer_async_write(bh)) {
-			submit_bh(REQ_OP_WRITE | write_flags, bh);
+			bh_submit(bh, REQ_OP_WRITE | write_flags,
+					bh_end_async_write);
 			nr_underway++;
 		}
 		bh = next;
@@ -221,7 +222,7 @@ static void gfs2_meta_read_endio(struct bio *bio)
 
 /*
  * Submit several consecutive buffer head I/O requests as a single bio I/O
- * request.  (See submit_bh_wbc.)
+ * request.  (See bh_submit.)
  */
 static void gfs2_submit_bhs(blk_opf_t opf, struct buffer_head *bhs[], int num)
 {
