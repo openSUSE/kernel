@@ -23,8 +23,8 @@ struct timerlat_params {
 	long long		timerlat_period_us;
 	long long		print_stack;
 	int			dma_latency;
-	int			no_aa;
-	int			dump_tasks;
+	bool			no_aa;
+	bool			dump_tasks;
 	int			deepest_idle_state;
 	enum timerlat_tracing_mode mode;
 	const char		*bpf_action_program;

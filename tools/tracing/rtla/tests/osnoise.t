@@ -6,9 +6,9 @@ test_begin
 set_timeout 2m
 
 check "verify help page" \
-	"osnoise --help" 0 "osnoise version"
+	"osnoise --help" 129 "osnoise version"
 check_top_hist "verify help page" \
-	"osnoise TOOL --help" 0 "rtla osnoise"
+	"osnoise TOOL --help" 129 "rtla osnoise"
 check_top_q_hist "verify the --stop/-s param" \
 	"osnoise TOOL -s 30 -T 1" 2 "osnoise hit stop tracing"
 check_top_q_hist "verify the --trace param" \
@@ -32,7 +32,7 @@ check "hist with -b/--bucket-size" \
 check "hist with -E/--entries" \
 	"osnoise hist -E 10 -d 1s"
 check "hist with -E/--entries out of range" \
-	"osnoise hist -E 1 -d 1s" 1 "^Entries must be > 10 and < 9999999$"
+	"osnoise hist -E 1 -d 1s" 1 "^Entries must be > 10 and < 10000000$"
 check "hist with --no-header" \
 	"osnoise hist --no-header -d 1s" 0 "" "RTLA osnoise histogram"
 check "hist with --with-zeros" \

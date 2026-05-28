@@ -13,6 +13,8 @@
 #include <stdio.h>
 #include <sched.h>
 
+#include <linux/compiler.h>
+
 #include "timerlat.h"
 #include "timerlat_aa.h"
 #include "timerlat_bpf.h"
@@ -231,7 +233,7 @@ void timerlat_free(struct osnoise_tool *tool)
 	free_cpu_idle_disable_states();
 }
 
-static void timerlat_usage(int err)
+__noreturn static void timerlat_usage(int err)
 {
 	int i;
 
@@ -269,7 +271,7 @@ int timerlat_main(int argc, char *argv[])
 	}
 
 	if ((strcmp(argv[1], "-h") == 0) || (strcmp(argv[1], "--help") == 0)) {
-		timerlat_usage(0);
+		timerlat_usage(129);
 	} else if (str_has_prefix(argv[1], "-")) {
 		/* the user skipped the tool, call the default one */
 		run_tool(&timerlat_top_ops, argc, argv);
@@ -283,6 +285,5 @@ int timerlat_main(int argc, char *argv[])
 	}
 
 usage:
-	timerlat_usage(1);
-	exit(1);
+	timerlat_usage(129);
 }

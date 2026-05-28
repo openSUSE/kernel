@@ -21,9 +21,9 @@ export RTLA_NO_BPF=$option
 
 # Basic tests
 check "verify help page" \
-	"timerlat --help" 0 "timerlat version"
+	"timerlat --help" 129 "timerlat version"
 check_top_hist "verify help page" \
-	"timerlat TOOL --help" 0 "rtla timerlat"
+	"timerlat TOOL --help" 129 "rtla timerlat"
 check_top_hist "verify -s/--stack" \
 	"timerlat TOOL -s 3 -T 10 -t" 2 "Blocking thread stack trace"
 check_top_hist "test in nanoseconds" \
@@ -61,7 +61,7 @@ check "hist with -b/--bucket-size" \
 check "hist with -E/--entries" \
 	"timerlat hist -E 10 -d 1s"
 check "hist with -E/--entries out of range" \
-	"timerlat hist -E 1 -d 1s" 1 "^Entries must be > 10 and < 9999999$"
+	"timerlat hist -E 1 -d 1s" 1 "^Entries must be > 10 and < 10000000$"
 check "hist with --no-header" \
 	"timerlat hist --no-header -d 1s" 0 "" "RTLA timerlat histogram"
 check "hist with --with-zeros" \

@@ -15,6 +15,8 @@
 #include <stdio.h>
 #include <sched.h>
 
+#include <linux/compiler.h>
+
 #include "osnoise.h"
 
 #define DEFAULT_SAMPLE_PERIOD	1000000			/* 1s */
@@ -1171,7 +1173,7 @@ int osnoise_enable(struct osnoise_tool *tool)
 	return 0;
 }
 
-static void osnoise_usage(int err)
+__noreturn static void osnoise_usage(int err)
 {
 	int i;
 
@@ -1209,7 +1211,7 @@ int osnoise_main(int argc, char *argv[])
 	}
 
 	if ((strcmp(argv[1], "-h") == 0) || (strcmp(argv[1], "--help") == 0)) {
-		osnoise_usage(0);
+		osnoise_usage(129);
 	} else if (str_has_prefix(argv[1], "-")) {
 		/* the user skipped the tool, call the default one */
 		run_tool(&osnoise_top_ops, argc, argv);
@@ -1223,8 +1225,7 @@ int osnoise_main(int argc, char *argv[])
 	}
 
 usage:
-	osnoise_usage(1);
-	exit(1);
+	osnoise_usage(129);
 }
 
 int hwnoise_main(int argc, char *argv[])
