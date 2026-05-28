@@ -286,10 +286,10 @@ int gfs2_meta_read(struct gfs2_glock *gl, u64 blkno, int flags,
 		lock_buffer(bh);
 		if (buffer_uptodate(bh)) {
 			unlock_buffer(bh);
-			brelse(bh);
 		} else {
 			bhs[num++] = bh;
 		}
+		brelse(bh);
 	}
 
 	gfs2_submit_bhs(REQ_OP_READ | REQ_META | REQ_PRIO, bhs, num);

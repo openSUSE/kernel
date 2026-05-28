@@ -157,15 +157,15 @@ bool bio_endio_bh(struct bio *bio, struct buffer_head **bhp)
 }
 EXPORT_SYMBOL(bio_endio_bh);
 
-/*
- * End-of-IO handler helper function which does not touch the bh after
- * unlocking it.
- * Note: unlock_buffer() sort-of does touch the bh after unlocking it, but
- * a race there is benign: unlock_buffer() only use the bh's address for
- * hashing after unlocking the buffer, so it doesn't actually touch the bh
- * itself.
+/**
+ * end_buffer_read_sync - Handle buffer reads finishing
+ * @bh: The buffer.
+ * @uptodate: True if the read was successful.
+ *
+ * If a buffer is read through a mechanism that isn't bh_submit(), you
+ * can call this function to finish the read.
  */
-static void __end_buffer_read_notouch(struct buffer_head *bh, int uptodate)
+void end_buffer_read_sync(struct buffer_head *bh, int uptodate)
 {
 	if (uptodate) {
 		set_buffer_uptodate(bh);
@@ -174,16 +174,6 @@ static void __end_buffer_read_notouch(struct buffer_head *bh, int uptodate)
 		clear_buffer_uptodate(bh);
 	}
 	unlock_buffer(bh);
-}
-
-/*
- * Default synchronous end-of-IO handler..  Just mark it up-to-date and
- * unlock the buffer.
- */
-void end_buffer_read_sync(struct buffer_head *bh, int uptodate)
-{
-	put_bh(bh);
-	__end_buffer_read_notouch(bh, uptodate);
 }
 EXPORT_SYMBOL(end_buffer_read_sync);
 
@@ -198,7 +188,7 @@ void bh_end_read(struct bio *bio)
 {
 	struct buffer_head *bh;
 	bool uptodate = bio_endio_bh(bio, &bh);
-	__end_buffer_read_notouch(bh, uptodate);
+	end_buffer_read_sync(bh, uptodate);
 }
 EXPORT_SYMBOL(bh_end_read);
 
