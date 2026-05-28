@@ -56,6 +56,8 @@ struct amdxdna_gem_obj {
 
 	/* True, if BO is managed by XRT, not application */
 	bool				internal;
+	/* True, if BO is not exportable */
+	bool				private_buffer;
 };
 
 #define to_gobj(obj)    (&(obj)->base.base)

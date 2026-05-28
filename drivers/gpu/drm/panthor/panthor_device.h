@@ -187,9 +187,6 @@ struct panthor_device {
 		/** @reclaim.shrinker: Shrinker instance */
 		struct shrinker *shrinker;
 
-		/** @reclaim.lock: Lock protecting all LRUs */
-		struct mutex lock;
-
 		/**
 		 * @reclaim.unused: BOs with unused pages
 		 *
