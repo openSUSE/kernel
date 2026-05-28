@@ -1961,7 +1961,7 @@ static void a6xx_llc_activate(struct a6xx_gpu *a6xx_gpu)
 	struct msm_gpu *gpu = &adreno_gpu->base;
 	u32 cntl1_regval = 0;
 
-	if (IS_ERR(a6xx_gpu->cx_misc_mmio))
+	if (IS_ERR_OR_NULL(a6xx_gpu->llc_slice) && IS_ERR_OR_NULL(a6xx_gpu->htw_llc_slice))
 		return;
 
 	if (!llcc_slice_activate(a6xx_gpu->llc_slice)) {
@@ -2020,7 +2020,7 @@ static void a7xx_llc_activate(struct a6xx_gpu *a6xx_gpu)
 	struct adreno_gpu *adreno_gpu = &a6xx_gpu->base;
 	struct msm_gpu *gpu = &adreno_gpu->base;
 
-	if (IS_ERR(a6xx_gpu->cx_misc_mmio))
+	if (IS_ERR_OR_NULL(a6xx_gpu->llc_slice) && IS_ERR_OR_NULL(a6xx_gpu->htw_llc_slice))
 		return;
 
 	if (!llcc_slice_activate(a6xx_gpu->llc_slice)) {
@@ -2057,31 +2057,12 @@ static void a6xx_llc_slices_destroy(struct a6xx_gpu *a6xx_gpu)
 static void a6xx_llc_slices_init(struct platform_device *pdev,
 		struct a6xx_gpu *a6xx_gpu, bool is_a7xx)
 {
-	struct device_node *phandle;
-
 	/* No LLCC on non-RPMh (and by extension, non-GMU) SoCs */
 	if (adreno_has_gmu_wrapper(&a6xx_gpu->base))
 		return;
 
-	/*
-	 * There is a different programming path for A6xx targets with an
-	 * mmu500 attached, so detect if that is the case
-	 */
-	phandle = of_parse_phandle(pdev->dev.of_node, "iommus", 0);
-	a6xx_gpu->have_mmu500 = (phandle &&
-		of_device_is_compatible(phandle, "arm,mmu-500"));
-	of_node_put(phandle);
-
-	if (is_a7xx || !a6xx_gpu->have_mmu500)
-		a6xx_gpu->cx_misc_mmio = msm_ioremap(pdev, "cx_mem");
-	else
-		a6xx_gpu->cx_misc_mmio = NULL;
-
 	a6xx_gpu->llc_slice = llcc_slice_getd(LLCC_GPU);
 	a6xx_gpu->htw_llc_slice = llcc_slice_getd(LLCC_GPUHTW);
-
-	if (IS_ERR_OR_NULL(a6xx_gpu->llc_slice) && IS_ERR_OR_NULL(a6xx_gpu->htw_llc_slice))
-		a6xx_gpu->cx_misc_mmio = ERR_PTR(-EINVAL);
 }
 
 #define GBIF_CLIENT_HALT_MASK		BIT(0)
@@ -2679,6 +2660,7 @@ static struct msm_gpu *a6xx_gpu_init(struct drm_device *dev)
 	struct platform_device *pdev = priv->gpu_pdev;
 	struct adreno_platform_config *config = pdev->dev.platform_data;
 	const struct adreno_info *info = config->info;
+	struct device_node *phandle;
 	struct a6xx_gpu *a6xx_gpu;
 	struct adreno_gpu *adreno_gpu;
 	struct msm_gpu *gpu;
@@ -2728,6 +2710,20 @@ static struct msm_gpu *a6xx_gpu_init(struct drm_device *dev)
 	is_a7xx = info->family >= ADRENO_7XX_GEN1;
 
 	a6xx_llc_slices_init(pdev, a6xx_gpu, is_a7xx);
+
+	/*
+	 * There is a different programming path for A6xx targets with an
+	 * mmu500 attached, so detect if that is the case
+	 */
+	phandle = of_parse_phandle(pdev->dev.of_node, "iommus", 0);
+	a6xx_gpu->have_mmu500 = (phandle &&
+		of_device_is_compatible(phandle, "arm,mmu-500"));
+	of_node_put(phandle);
+
+	if (is_a7xx || !a6xx_gpu->have_mmu500)
+		a6xx_gpu->cx_misc_mmio = msm_ioremap(pdev, "cx_mem");
+	else
+		a6xx_gpu->cx_misc_mmio = NULL;
 
 	ret = a6xx_set_supported_hw(&pdev->dev, a6xx_gpu, info);
 	if (ret) {
