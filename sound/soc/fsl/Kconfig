@@ -358,6 +358,7 @@ config SND_SOC_IMX_RPMSG
 	depends on OF && I2C
 	select SND_SOC_IMX_PCM_RPMSG
 	select SND_SOC_IMX_AUDIO_RPMSG
+	select SND_SIMPLE_CARD_UTILS
 	help
 	  SoC Audio support for i.MX boards with rpmsg.
 	  There should be rpmsg devices defined in other core (M core)

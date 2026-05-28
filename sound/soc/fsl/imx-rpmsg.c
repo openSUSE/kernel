@@ -12,6 +12,7 @@
 #include <sound/control.h>
 #include <sound/pcm_params.h>
 #include <sound/soc-dapm.h>
+#include <sound/simple_card_utils.h>
 #include "imx-pcm-rpmsg.h"
 
 struct imx_rpmsg {
@@ -19,6 +20,7 @@ struct imx_rpmsg {
 	struct snd_soc_card card;
 	unsigned long sysclk;
 	bool lpa;
+	struct simple_util_jack hp_jack;
 };
 
 static struct dev_pm_ops lpa_pm;
@@ -85,6 +87,15 @@ static int imx_rpmsg_late_probe(struct snd_soc_card *card)
 	struct snd_soc_dai *codec_dai = snd_soc_rtd_to_codec(rtd, 0);
 	struct device *dev = card->dev;
 	int ret;
+
+	if (of_property_present(card->dev->of_node, "hp-det-gpios")) {
+		ret = simple_util_init_jack(card, &data->hp_jack,
+					    1, NULL, "Headphone Jack");
+		if (ret) {
+			dev_err(dev, "failed to init hp jack\n");
+			return ret;
+		}
+	}
 
 	if (data->lpa) {
 		struct device_node *codec_np;
