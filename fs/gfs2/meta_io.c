@@ -212,7 +212,7 @@ static void gfs2_meta_read_endio(struct bio *bio)
 		do {
 			struct buffer_head *next = bh->b_this_page;
 			len -= bh->b_size;
-			bh->b_end_io(bh, !bio->bi_status);
+			end_buffer_read_sync(bh, bio->bi_status == BLK_STS_OK);
 			bh = next;
 		} while (bh && len);
 	}
@@ -275,7 +275,6 @@ int gfs2_meta_read(struct gfs2_glock *gl, u64 blkno, int flags,
 		unlock_buffer(bh);
 		flags &= ~DIO_WAIT;
 	} else {
-		bh->b_end_io = end_buffer_read_sync;
 		get_bh(bh);
 		bhs[num++] = bh;
 	}
@@ -288,7 +287,6 @@ int gfs2_meta_read(struct gfs2_glock *gl, u64 blkno, int flags,
 			unlock_buffer(bh);
 			brelse(bh);
 		} else {
-			bh->b_end_io = end_buffer_read_sync;
 			bhs[num++] = bh;
 		}
 	}
