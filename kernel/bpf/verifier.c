@@ -6927,6 +6927,12 @@ static int check_mem_reg(struct bpf_verifier_env *env, struct bpf_reg_state *reg
 	if (bpf_register_is_null(reg))
 		return 0;
 
+	if (mem_size > S32_MAX) {
+		verbose(env, "%s memory size %u is too large\n",
+			reg_arg_name(env, argno), mem_size);
+		return -EACCES;
+	}
+
 	/* Assuming that the register contains a value check if the memory
 	 * access is safe. Temporarily save and restore the register's state as
 	 * the conversion shouldn't be visible to a caller.
