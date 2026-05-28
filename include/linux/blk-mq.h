@@ -1252,4 +1252,44 @@ static inline int blk_rq_map_sg(struct request *rq, struct scatterlist *sglist)
 }
 void blk_dump_rq_flags(struct request *, char *);
 
+/**
+ * blk_rq_passthrough_stats - check if this request should account stats
+ * @rq: request to check
+ * @q: the queue accumulating the stats
+ *
+ * Note, @q does not necessarily need to be the request_queue that provides
+ * @rq.
+ *
+ * Return: true if stats should be accounted.
+ */
+static inline bool blk_rq_passthrough_stats(struct request *rq,
+					    struct request_queue *q)
+{
+	struct bio *bio = rq->bio;
+
+	if (!blk_queue_passthrough_stat(q))
+		return false;
+
+	/* Requests without a bio do not transfer data. */
+	if (!bio)
+		return false;
+
+	/*
+	 * Stats are accumulated in the bdev, so must have one attached to a
+	 * bio to track stats. Most drivers do not set the bdev for passthrough
+	 * requests, but nvme is one that will set it.
+	 */
+	if (!bio->bi_bdev)
+		return false;
+
+	/*
+	 * We don't know what a passthrough command does, but we know the
+	 * payload size and data direction. Ensuring the size is aligned to the
+	 * block size filters out most commands with payloads that don't
+	 * represent sector access.
+	 */
+	if (blk_rq_bytes(rq) & (bdev_logical_block_size(bio->bi_bdev) - 1))
+		return false;
+	return true;
+}
 #endif /* BLK_MQ_H */
