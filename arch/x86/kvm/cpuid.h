@@ -126,7 +126,7 @@ static __always_inline bool guest_cpuid_has(struct kvm_vcpu *vcpu,
 
 	entry = kvm_find_cpuid_entry_index(vcpu, cpuid.function, cpuid.index);
 	if (!entry)
-		return NULL;
+		return false;
 
 	reg = __cpuid_entry_get_reg(entry, cpuid.reg);
 	if (!reg)
