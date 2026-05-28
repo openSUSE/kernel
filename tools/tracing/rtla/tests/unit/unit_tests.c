@@ -13,6 +13,7 @@ Suite *osnoise_top_cli_suite(void);
 Suite *osnoise_hist_cli_suite(void);
 Suite *timerlat_top_cli_suite(void);
 Suite *timerlat_hist_cli_suite(void);
+Suite *cli_opt_callback_suite(void);
 
 int main(int argc, char *argv[])
 {
@@ -22,6 +23,7 @@ int main(int argc, char *argv[])
 	in_unit_test = true;
 
 	sr = srunner_create(utils_suite());
+	srunner_add_suite(sr, cli_opt_callback_suite());
 	srunner_add_suite(sr, actions_suite());
 	srunner_add_suite(sr, osnoise_top_cli_suite());
 	srunner_add_suite(sr, osnoise_hist_cli_suite());
