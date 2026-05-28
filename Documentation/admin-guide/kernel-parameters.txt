@@ -2580,28 +2580,49 @@ Kernel parameters
 			Don't force hardware IOMMU usage when it is not
 			needed. (default).
 
-		biomerge
-		panic
-		nopanic
 		merge
+			Do scatter-gather (SG) merging. Implies "force"
+			(experimental).
+
 		nomerge
+			Don't do scatter-gather (SG) merging.
+
+		biomerge
+			Do scatter-gather (SG) merging. Implies "force"
+			(experimental). [same as "merge"]
+
+		panic
+			Always panic when IOMMU overflows.
+
+		nopanic
+			Don't panic on IOMMU overflows.
+
+		pt
+			Use passththrough mode by default
+			(Equivalent to iommu.passthrough=1)
+
+		nopt
+			Use translated mode for DMA by default
+			(Equivalent to iommu.passthrough=0)
 
 		soft
 			Use software bounce buffering (SWIOTLB) (default for
 			Intel machines). This can be used to prevent the usage
 			of an available hardware IOMMU.
 
-		pt
-		nopt
-		nobypass	[PPC/POWERNV]
-			Disable IOMMU bypass, using IOMMU for PCI devices.
+		usedac
+			Use the DAC on VIA PCI bridge
+			(default: disable the VIA PCI bridge DAC)
 
-		AMD Gart HW IOMMU-specific options:
+	    AMD Gart HW IOMMU-specific options: (CONFIG_GART_IOMMU)
 
 		<size>
 			Set the size of the remapping area in bytes.
 
 		allowed
+			Overwrite iommu off workarounds for specific chipsets
+
+		force
 			Overwrite iommu off workarounds for specific chipsets
 
 		fullflush
@@ -2614,21 +2635,16 @@ Kernel parameters
 			Allocate an own aperture over RAM with size
 			32MB<<order.  (default: order=1, i.e. 64MB)
 
-		merge
-			Do scatter-gather (SG) merging. Implies "force"
-			(experimental).
-
-		nomerge
-			Don't do scatter-gather (SG) merging.
-
 		noaperture
 			Ask the IOMMU not to touch the aperture for AGP.
 
 		noagp
 			Don't initialize the AGP driver and use full aperture.
 
-		panic
-			Always panic when IOMMU overflows.
+	iommu=		[PPC/POWERNV]
+
+		nobypass
+			Disable IOMMU bypass, using IOMMU for PCI devices.
 
 	iommu.forcedac=	[ARM64,X86,EARLY] Control IOVA allocation for PCI devices.
 			Format: { "0" | "1" }
