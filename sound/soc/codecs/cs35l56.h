@@ -66,6 +66,11 @@ static inline struct cs35l56_private *cs35l56_private_from_base(struct cs35l56_b
 
 extern const struct dev_pm_ops cs35l56_pm_ops_i2c_spi;
 
+void cs35l56_mask_soundwire_interrupts(struct sdw_slave *peripheral);
+void cs35l56_unmask_soundwire_interrupts(struct sdw_slave *peripheral);
+void cs35l56_disable_sdw_interrupts(struct cs35l56_private *cs35l56);
+void cs35l56_enable_sdw_interrupts(struct cs35l56_private *cs35l56);
+
 int cs35l56_system_suspend(struct device *dev);
 int cs35l56_system_suspend_late(struct device *dev);
 int cs35l56_system_suspend_no_irq(struct device *dev);
