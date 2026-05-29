@@ -828,10 +828,9 @@ static size_t ieee802_11_find_bssid_profile(const u8 *start, size_t len,
 					    u8 *nontransmitted_profile)
 {
 	const struct element *elem, *sub;
-	size_t profile_len = 0;
 
 	if (!bss || !bss->transmitted_bss)
-		return profile_len;
+		return 0;
 
 	for_each_element_id(elem, WLAN_EID_MULTIPLE_BSSID, start, len) {
 		if (elem->datalen < 2)
@@ -841,6 +840,7 @@ static size_t ieee802_11_find_bssid_profile(const u8 *start, size_t len,
 
 		for_each_element(sub, elem->data + 1, elem->datalen - 1) {
 			u8 new_bssid[ETH_ALEN];
+			size_t profile_len;
 			const u8 *index;
 
 			if (sub->id != 0 || sub->datalen < 4) {
