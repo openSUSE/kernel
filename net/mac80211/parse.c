@@ -54,9 +54,6 @@ struct ieee80211_elems_parse {
 	/* must be first for kfree to work */
 	struct ieee802_11_elems elems;
 
-	/* The basic Multi-Link element in the original elements */
-	const struct element *ml_basic_elem;
-
 	struct ieee80211_elem_defrag ml_reconf, ml_epcs;
 
 	bool inside_multilink;
@@ -947,6 +944,7 @@ ieee80211_prep_mle_link_parse(struct ieee80211_elems_parse *elems_parse,
 {
 	struct ieee802_11_elems *elems = &elems_parse->elems;
 	struct ieee80211_mle_per_sta_profile *prof;
+	const struct element *ml_basic_elem = NULL;
 	const struct element *tmp, *ret;
 	ssize_t ml_len;
 	const u8 *end;
@@ -966,12 +964,11 @@ ieee80211_prep_mle_link_parse(struct ieee80211_elems_parse *elems_parse,
 		    IEEE80211_ML_CONTROL_TYPE_BASIC)
 			continue;
 
-		elems_parse->ml_basic_elem = tmp;
+		ml_basic_elem = tmp;
 		break;
 	}
 
-	ml_len = cfg80211_defragment_element(elems_parse->ml_basic_elem,
-					     elems->ie_start,
+	ml_len = cfg80211_defragment_element(ml_basic_elem, elems->ie_start,
 					     elems->total_len,
 					     elems_parse->scratch_pos,
 					     elems_parse->scratch +
@@ -1130,7 +1127,10 @@ ieee802_11_parse_elems_full(struct ieee80211_elems_parse_params *params)
 		if (params->bss->transmitted_bss && !non_inherit)
 			non_inherit = (const void *)empty_non_inheritance;
 	} else {
-		/* must always parse to get elems_parse->ml_basic_elem */
+		/*
+		 * Find the multi-link element and the non-inherit element inside
+		 * the applicable profile, if requested by params->link_id >= 0.
+		 */
 		non_inherit = ieee80211_prep_mle_link_parse(elems_parse, params,
 							    &sub);
 		inside_multilink = true;
