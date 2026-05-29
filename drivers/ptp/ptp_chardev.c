@@ -317,8 +317,8 @@ typedef int (*ptp_crosststamp_fn)(struct ptp_clock_info *,
 static long ptp_sys_offset_precise(struct ptp_clock *ptp, void __user *arg,
 				   ptp_crosststamp_fn crosststamp_fn)
 {
+	struct system_device_crosststamp xtstamp = { .clock_id = CLOCK_REALTIME };
 	struct ptp_sys_offset_precise precise_offset;
-	struct system_device_crosststamp xtstamp;
 	struct timespec64 ts;
 	int err;
 

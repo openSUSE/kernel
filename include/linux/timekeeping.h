@@ -315,12 +315,14 @@ struct system_counterval_t {
 /**
  * struct system_device_crosststamp - system/device cross-timestamp
  *				      (synchronized capture)
+ * @clock_id:		System time Clock ID to capture
  * @device:		Device time
  * @sys_counter:	Clocksource counter value simultaneous with device time
  * @sys_realtime:	Realtime simultaneous with device time
  * @sys_monoraw:	Monotonic raw simultaneous with device time
  */
 struct system_device_crosststamp {
+	clockid_t			clock_id;
 	ktime_t				device;
 	struct system_counterval_t	sys_counter;
 	ktime_t				sys_realtime;
