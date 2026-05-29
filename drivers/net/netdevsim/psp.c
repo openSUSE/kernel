@@ -22,6 +22,7 @@ nsim_do_psp(struct sk_buff *skb, struct netdevsim *ns,
 	struct psp_dev *peer_psd;
 	struct psp_assoc *pas;
 	struct net *net;
+	int psp_len;
 	void **ptr;
 
 	rcu_read_lock();
@@ -48,6 +49,12 @@ nsim_do_psp(struct sk_buff *skb, struct netdevsim *ns,
 		goto out_unlock;
 	}
 
+	psp_len = skb->len - skb_inner_transport_offset(skb);
+	u64_stats_update_begin(&ns->psp.syncp);
+	u64_stats_inc(&ns->psp.tx_packets);
+	u64_stats_add(&ns->psp.tx_bytes, psp_len);
+	u64_stats_update_end(&ns->psp.syncp);
+
 	/* Now pretend we just received this frame */
 	peer_psd = rcu_dereference(peer_ns->psp.dev);
 	if (peer_psd && peer_psd->config.versions & (1 << pas->version)) {
@@ -72,14 +79,10 @@ nsim_do_psp(struct sk_buff *skb, struct netdevsim *ns,
 		refcount_inc(&(*psp_ext)->refcnt);
 		skb->decrypted = 1;
 
-		u64_stats_update_begin(&ns->psp.syncp);
-		u64_stats_inc(&ns->psp.tx_packets);
-		u64_stats_inc(&ns->psp.rx_packets);
-		u64_stats_add(&ns->psp.tx_bytes,
-			      skb->len - skb_inner_transport_offset(skb));
-		u64_stats_add(&ns->psp.rx_bytes,
-			      skb->len - skb_inner_transport_offset(skb));
-		u64_stats_update_end(&ns->psp.syncp);
+		u64_stats_update_begin(&peer_ns->psp.syncp);
+		u64_stats_inc(&peer_ns->psp.rx_packets);
+		u64_stats_add(&peer_ns->psp.rx_bytes, psp_len);
+		u64_stats_update_end(&peer_ns->psp.syncp);
 	} else {
 		struct ipv6hdr *ip6h __maybe_unused;
 		struct iphdr *iph;
