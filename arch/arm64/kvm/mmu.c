@@ -524,13 +524,17 @@ static int unshare_pfn_hyp(u64 pfn)
 		goto unlock;
 	}
 
-	this->count--;
-	if (this->count)
+	if (this->count > 1) {
+		this->count--;
+		goto unlock;
+	}
+
+	ret = kvm_call_hyp_nvhe(__pkvm_host_unshare_hyp, pfn);
+	if (ret)
 		goto unlock;
 
 	rb_erase(&this->node, &hyp_shared_pfns);
 	kfree(this);
-	ret = kvm_call_hyp_nvhe(__pkvm_host_unshare_hyp, pfn);
 unlock:
 	mutex_unlock(&hyp_shared_pfns_lock);
 
@@ -581,6 +585,11 @@ void kvm_unshare_hyp(void *from, void *to)
 	end = PAGE_ALIGN(__pa(to));
 	for (cur = start; cur < end; cur += PAGE_SIZE) {
 		pfn = __phys_to_pfn(cur);
+		/*
+		 * A failed unshare leaks the page: it stays shared with the
+		 * hypervisor and is no longer reusable for pKVM. No isolation
+		 * guarantee is broken, and this is not expected in practice.
+		 */
 		WARN_ON(unshare_pfn_hyp(pfn));
 	}
 }
