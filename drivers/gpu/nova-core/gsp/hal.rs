@@ -30,9 +30,28 @@ use crate::{
     },
 };
 
+/// Trait for types containing the resources and code required to fully reset the GSP.
+///
+/// The GSP unload code might run in a situation where we cannot load firmware dynamically (e.g.
+/// because we are in shutdown and the file system is not accessible anymore). Thus, the firmware
+/// required for unloading is prepared at load time, and stored here until it needs to be run.
+pub(super) trait UnloadBundle: Send {
+    /// Performs the steps required to properly reset the GSP after it has been stopped.
+    fn run(
+        &self,
+        dev: &device::Device<device::Bound>,
+        bar: &Bar0,
+        gsp_falcon: &Falcon<GspEngine>,
+        sec2_falcon: &Falcon<Sec2>,
+    ) -> Result;
+}
+
 /// Trait implemented by GSP HALs.
 pub(super) trait GspHal: Send {
     /// Performs the GSP boot process, loading and running the required firmwares as needed.
+    ///
+    /// Upon success, returns the [`UnloadBundle`] to be run (if any) in order to properly reset the
+    /// GSP after it has been stopped.
     #[allow(clippy::too_many_arguments)]
     fn boot(
         &self,
@@ -44,7 +63,7 @@ pub(super) trait GspHal: Send {
         wpr_meta: &Coherent<GspFwWprMeta>,
         gsp_falcon: &Falcon<GspEngine>,
         sec2_falcon: &Falcon<Sec2>,
-    ) -> Result;
+    ) -> Result<Option<crate::gsp::UnloadBundle>>;
 
     /// Performs HAL-specific post-GSP boot tasks.
     ///

@@ -282,7 +282,6 @@ impl FirmwareObject<BooterFirmware, Unsigned> {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub(crate) enum BooterKind {
     Loader,
-    #[expect(unused)]
     Unloader,
 }
 

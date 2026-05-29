@@ -185,3 +185,6 @@ impl Gsp {
         })
     }
 }
+
+/// Opaque bundle required to unload the GSP. Created by [`Gsp::boot`], consumed by [`Gsp::unload`].
+pub(crate) struct UnloadBundle(KBox<dyn hal::UnloadBundle>);

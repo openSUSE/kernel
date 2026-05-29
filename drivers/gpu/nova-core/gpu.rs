@@ -18,7 +18,10 @@ use crate::{
         Falcon, //
     },
     fb::SysmemFlush,
-    gsp::Gsp,
+    gsp::{
+        self,
+        Gsp, //
+    },
     regs,
 };
 
@@ -260,6 +263,8 @@ pub(crate) struct Gpu<'gpu> {
     /// GSP runtime data. Temporarily an empty placeholder.
     #[pin]
     gsp: Gsp,
+    /// GSP unload firmware bundle, if any.
+    unload_bundle: Option<gsp::UnloadBundle>,
 }
 
 impl<'gpu> Gpu<'gpu> {
@@ -293,7 +298,10 @@ impl<'gpu> Gpu<'gpu> {
 
             gsp <- Gsp::new(pdev),
 
-            _: { gsp.boot(pdev, bar, spec.chipset, gsp_falcon, sec2_falcon)? },
+            // This member must be initialized last, so the `UnloadBundle` can never be dropped from
+            // outside of the constructed `Gpu`, ensuring that the unload sequence is properly run
+            // in case of failure.
+            unload_bundle: gsp.boot(pdev, bar, spec.chipset, gsp_falcon, sec2_falcon)?,
         })
     }
 }
@@ -304,12 +312,13 @@ impl PinnedDrop for Gpu<'_> {
         let this = self.project();
         let device = *this.device;
         let bar = *this.bar;
+        let bundle = this.unload_bundle.take();
 
         let _ = this
             .gsp
             .as_ref()
             .get_ref()
-            .unload(device, bar, &*this.gsp_falcon)
+            .unload(device, bar, &*this.gsp_falcon, &*this.sec2_falcon, bundle)
             .inspect_err(|e| dev_err!(device, "failed to unload GSP: {:?}\n", e));
     }
 }

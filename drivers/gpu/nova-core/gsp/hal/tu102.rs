@@ -32,7 +32,10 @@ use crate::{
     },
     gpu::Chipset,
     gsp::{
-        hal::GspHal,
+        hal::{
+            GspHal,
+            UnloadBundle, //
+        },
         sequencer::{
             GspSequencer,
             GspSequencerParams, //
@@ -43,6 +46,124 @@ use crate::{
     regs,
     vbios::Vbios, //
 };
+
+// A ready-to-run FWSEC unload firmware.
+//
+// Since there are two variants of the prepared firmware (with and without a bootloader), this type
+// abstracts the difference.
+enum FwsecUnloadFirmware {
+    WithoutBl(FwsecFirmware),
+    WithBl(FwsecFirmwareWithBl),
+}
+
+impl FwsecUnloadFirmware {
+    /// Loads the FWSEC SB firmware, as well as its bootloader if `chipset` requires it.
+    fn new(
+        dev: &device::Device<device::Bound>,
+        bar: &Bar0,
+        chipset: Chipset,
+        bios: &Vbios,
+        gsp_falcon: &Falcon<GspEngine>,
+    ) -> Result<Self> {
+        let fwsec_sb = FwsecFirmware::new(dev, gsp_falcon, bar, bios, FwsecCommand::Sb)?;
+
+        Ok(if chipset.needs_fwsec_bootloader() {
+            Self::WithBl(FwsecFirmwareWithBl::new(fwsec_sb, dev, chipset)?)
+        } else {
+            Self::WithoutBl(fwsec_sb)
+        })
+    }
+
+    /// Runs the FWSEC SB firmware.
+    fn run(
+        &self,
+        dev: &device::Device<device::Bound>,
+        bar: &Bar0,
+        gsp_falcon: &Falcon<GspEngine>,
+    ) -> Result {
+        match self {
+            Self::WithoutBl(fw) => fw.run(dev, gsp_falcon, bar),
+            Self::WithBl(fw) => fw.run(dev, gsp_falcon, bar),
+        }
+    }
+}
+
+// Contains the firmware required to fully reset GSP on chipsets where the GSP is started using
+// FWSEC/Booter.
+struct Sec2UnloadBundle {
+    fwsec_sb: FwsecUnloadFirmware,
+    booter_unloader: BooterFirmware,
+}
+
+impl Sec2UnloadBundle {
+    /// Load and prepare the resources required to properly reset the GSP after it has been stopped.
+    fn build(
+        dev: &device::Device<device::Bound>,
+        bar: &Bar0,
+        chipset: Chipset,
+        bios: &Vbios,
+        gsp_falcon: &Falcon<GspEngine>,
+        sec2_falcon: &Falcon<Sec2>,
+    ) -> Result<KBox<dyn UnloadBundle>> {
+        KBox::new(
+            Self {
+                fwsec_sb: FwsecUnloadFirmware::new(dev, bar, chipset, bios, gsp_falcon)?,
+                booter_unloader: BooterFirmware::new(
+                    dev,
+                    BooterKind::Unloader,
+                    chipset,
+                    FIRMWARE_VERSION,
+                    sec2_falcon,
+                    bar,
+                )?,
+            },
+            GFP_KERNEL,
+        )
+        .map(|b| b as KBox<dyn UnloadBundle>)
+        .map_err(Into::into)
+    }
+}
+
+impl UnloadBundle for Sec2UnloadBundle {
+    fn run(
+        &self,
+        dev: &device::Device<device::Bound>,
+        bar: &Bar0,
+        gsp_falcon: &Falcon<GspEngine>,
+        sec2_falcon: &Falcon<Sec2>,
+    ) -> Result {
+        // Run FWSEC-SB to reset the GSP falcon to its pre-libos state.
+        self.fwsec_sb.run(dev, bar, gsp_falcon)?;
+
+        // Remove WPR2 region if set.
+        let wpr2_hi = bar.read(regs::NV_PFB_PRI_MMU_WPR2_ADDR_HI);
+        if wpr2_hi.is_wpr2_set() {
+            sec2_falcon.reset(bar)?;
+            sec2_falcon.load(dev, bar, &self.booter_unloader)?;
+
+            // Sentinel value to confirm that Booter Unloader has run.
+            const MAILBOX_SENTINEL: u32 = 0xff;
+            let (mbox0, _) =
+                sec2_falcon.boot(bar, Some(MAILBOX_SENTINEL), Some(MAILBOX_SENTINEL))?;
+            if mbox0 != 0 {
+                dev_err!(dev, "Booter Unloader returned error 0x{:x}\n", mbox0);
+                return Err(EINVAL);
+            }
+
+            // Confirm that the WPR2 region has been removed.
+            let wpr2_hi = bar.read(regs::NV_PFB_PRI_MMU_WPR2_ADDR_HI);
+            if wpr2_hi.is_wpr2_set() {
+                dev_err!(
+                    dev,
+                    "WPR2 region still set after Booter Unloader returned\n"
+                );
+                return Err(EBUSY);
+            }
+        }
+
+        Ok(())
+    }
+}
 
 /// Helper function to load and run the FWSEC-FRTS firmware and confirm that it has properly
 /// created the WPR2 region.
@@ -143,8 +264,23 @@ impl GspHal for Tu102 {
         wpr_meta: &Coherent<GspFwWprMeta>,
         gsp_falcon: &Falcon<GspEngine>,
         sec2_falcon: &Falcon<Sec2>,
-    ) -> Result {
+    ) -> Result<Option<crate::gsp::UnloadBundle>> {
         let bios = Vbios::new(dev, bar)?;
+
+        // Try and prepare the unload bundle. If this fails, the GPU will need to be reset
+        // before the driver can be probed again.
+        let unload_bundle =
+            Sec2UnloadBundle::build(dev, bar, chipset, &bios, gsp_falcon, sec2_falcon)
+                .inspect_err(|e| {
+                    dev_warn!(dev, "Failed to prepare unload firmware: {:?}\n", e);
+                    dev_warn!(dev, "The GSP won't be able to unload properly on unbind.\n");
+                    dev_warn!(
+                        dev,
+                        "The GPU will need to be reset before the driver can bind again.\n"
+                    );
+                })
+                .map(crate::gsp::UnloadBundle)
+                .ok();
 
         // FWSEC-FRTS is not executed on chips where the FRTS region size is 0 (e.g. GA100).
         if !fb_layout.frts.is_empty() {
@@ -175,7 +311,7 @@ impl GspHal for Tu102 {
         )?
         .run(dev, bar, sec2_falcon, wpr_meta)?;
 
-        Ok(())
+        Ok(unload_bundle)
     }
 
     fn post_boot(

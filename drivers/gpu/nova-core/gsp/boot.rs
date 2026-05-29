@@ -38,7 +38,8 @@ impl super::Gsp {
     /// user-space, patching them with signatures, and building firmware-specific intricate data
     /// structures that the GSP will use at runtime.
     ///
-    /// Upon return, the GSP is up and running, and its runtime object given as return value.
+    /// Upon return, the GSP is up and running, and its unload bundle (to be given as argument to
+    /// [`Self::unload`]) returned.
     pub(crate) fn boot(
         self: Pin<&mut Self>,
         pdev: &pci::Device<device::Bound>,
@@ -46,7 +47,7 @@ impl super::Gsp {
         chipset: Chipset,
         gsp_falcon: &Falcon<Gsp>,
         sec2_falcon: &Falcon<Sec2>,
-    ) -> Result {
+    ) -> Result<Option<super::UnloadBundle>> {
         let dev = pdev.as_ref();
         let hal = super::hal::gsp_hal(chipset);
 
@@ -57,8 +58,8 @@ impl super::Gsp {
 
         let wpr_meta = Coherent::init(dev, GFP_KERNEL, GspFwWprMeta::new(&gsp_fw, &fb_layout))?;
 
-        // Perform the chipset-specific boot sequence.
-        hal.boot(
+        // Perform the chipset-specific boot sequence, and retrieve the unload bundle.
+        let unload_bundle = hal.boot(
             &self,
             dev,
             bar,
@@ -98,7 +99,7 @@ impl super::Gsp {
             Err(e) => dev_warn!(pdev, "GPU name unavailable: {:?}\n", e),
         }
 
-        Ok(())
+        Ok(unload_bundle)
     }
 
     /// Shut down the GSP and wait until it is offline.
@@ -130,16 +131,35 @@ impl super::Gsp {
         dev: &device::Device<device::Bound>,
         bar: &Bar0,
         gsp_falcon: &Falcon<Gsp>,
+        sec2_falcon: &Falcon<Sec2>,
+        unload_bundle: Option<super::UnloadBundle>,
     ) -> Result {
-        // Shut down the GSP.
-        Self::shutdown_gsp(
+        // Shut down the GSP. Keep going even in case of error.
+        let mut res = Self::shutdown_gsp(
             &self.cmdq,
             bar,
             gsp_falcon,
             commands::PowerStateLevel::Level0,
         )
-        .inspect_err(|e| dev_err!(dev, "Unload guest driver failed: {:?}\n", e))?;
+        .inspect_err(|e| dev_err!(dev, "GSP shutdown failed: {:?}\n", e));
 
-        Ok(())
+        // Run the unload bundle to reset the GSP so it can be booted again.
+        if let Some(unload_bundle) = unload_bundle {
+            res = res.and(
+                unload_bundle
+                    .0
+                    .run(dev, bar, gsp_falcon, sec2_falcon)
+                    .inspect_err(|e| dev_err!(dev, "Unload bundle failed: {:?}\n", e)),
+            );
+        } else {
+            dev_warn!(
+                dev,
+                "Unload bundle is missing, GSP won't be properly reset.\n"
+            );
+
+            res = Err(EAGAIN);
+        }
+
+        res.inspect(|()| dev_info!(dev, "GSP successfully unloaded\n"))
     }
 }

@@ -41,7 +41,7 @@ impl GspHal for Gh100 {
         _wpr_meta: &Coherent<GspFwWprMeta>,
         _gsp_falcon: &Falcon<GspEngine>,
         _sec2_falcon: &Falcon<Sec2>,
-    ) -> Result {
+    ) -> Result<Option<crate::gsp::UnloadBundle>> {
         Err(ENOTSUPP)
     }
 }
