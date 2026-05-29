@@ -775,7 +775,7 @@ static void nested_vmcb02_prepare_save(struct vcpu_svm *svm)
 
 	svm->vcpu.arch.cr2 = save->cr2;
 
-	kvm_rax_write(vcpu, save->rax);
+	kvm_rax_write_raw(vcpu, save->rax);
 	kvm_rsp_write(vcpu, save->rsp);
 	kvm_rip_write(vcpu, save->rip);
 
@@ -1260,7 +1260,7 @@ static int nested_svm_vmexit_update_vmcb12(struct kvm_vcpu *vcpu)
 	vmcb12->save.rflags = kvm_get_rflags(vcpu);
 	vmcb12->save.rip    = kvm_rip_read(vcpu);
 	vmcb12->save.rsp    = kvm_rsp_read(vcpu);
-	vmcb12->save.rax    = kvm_rax_read(vcpu);
+	vmcb12->save.rax    = kvm_rax_read_raw(vcpu);
 	vmcb12->save.dr7    = vmcb02->save.dr7;
 	vmcb12->save.dr6    = svm->vcpu.arch.dr6;
 	vmcb12->save.cpl    = vmcb02->save.cpl;
@@ -1413,7 +1413,7 @@ void nested_svm_vmexit(struct vcpu_svm *svm)
 	svm_set_efer(vcpu, vmcb01->save.efer);
 	svm_set_cr0(vcpu, vmcb01->save.cr0 | X86_CR0_PE);
 	svm_set_cr4(vcpu, vmcb01->save.cr4);
-	kvm_rax_write(vcpu, vmcb01->save.rax);
+	kvm_rax_write_raw(vcpu, vmcb01->save.rax);
 	kvm_rsp_write(vcpu, vmcb01->save.rsp);
 	kvm_rip_write(vcpu, vmcb01->save.rip);
 

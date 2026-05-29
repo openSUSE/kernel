@@ -2397,15 +2397,12 @@ static int clgi_interception(struct kvm_vcpu *vcpu)
 
 static int invlpga_interception(struct kvm_vcpu *vcpu)
 {
+	/* FIXME: Handle an address size prefix. */
 	gva_t gva = kvm_rax_read(vcpu);
-	u32 asid = kvm_rcx_read(vcpu);
+	u32 asid = kvm_ecx_read(vcpu);
 
 	if (nested_svm_check_permissions(vcpu))
 		return 1;
-
-	/* FIXME: Handle an address size prefix. */
-	if (!is_64_bit_mode(vcpu))
-		gva = (u32)gva;
 
 	trace_kvm_invlpga(to_svm(vcpu)->vmcb->save.rip, asid, gva);
 

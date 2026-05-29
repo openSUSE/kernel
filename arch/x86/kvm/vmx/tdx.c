@@ -1169,11 +1169,11 @@ static int complete_hypercall_exit(struct kvm_vcpu *vcpu)
 
 static int tdx_emulate_vmcall(struct kvm_vcpu *vcpu)
 {
-	kvm_rax_write(vcpu, to_tdx(vcpu)->vp_enter_args.r10);
-	kvm_rbx_write(vcpu, to_tdx(vcpu)->vp_enter_args.r11);
-	kvm_rcx_write(vcpu, to_tdx(vcpu)->vp_enter_args.r12);
-	kvm_rdx_write(vcpu, to_tdx(vcpu)->vp_enter_args.r13);
-	kvm_rsi_write(vcpu, to_tdx(vcpu)->vp_enter_args.r14);
+	kvm_rax_write_raw(vcpu, to_tdx(vcpu)->vp_enter_args.r10);
+	kvm_rbx_write_raw(vcpu, to_tdx(vcpu)->vp_enter_args.r11);
+	kvm_rcx_write_raw(vcpu, to_tdx(vcpu)->vp_enter_args.r12);
+	kvm_rdx_write_raw(vcpu, to_tdx(vcpu)->vp_enter_args.r13);
+	kvm_rsi_write_raw(vcpu, to_tdx(vcpu)->vp_enter_args.r14);
 
 	return __kvm_emulate_hypercall(vcpu, 0, complete_hypercall_exit);
 }
@@ -2051,12 +2051,12 @@ int tdx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t fastpath)
 	case EXIT_REASON_IO_INSTRUCTION:
 		return tdx_emulate_io(vcpu);
 	case EXIT_REASON_MSR_READ:
-		kvm_rcx_write(vcpu, tdx->vp_enter_args.r12);
+		kvm_ecx_write(vcpu, tdx->vp_enter_args.r12);
 		return kvm_emulate_rdmsr(vcpu);
 	case EXIT_REASON_MSR_WRITE:
-		kvm_rcx_write(vcpu, tdx->vp_enter_args.r12);
-		kvm_rax_write(vcpu, tdx->vp_enter_args.r13 & -1u);
-		kvm_rdx_write(vcpu, tdx->vp_enter_args.r13 >> 32);
+		kvm_ecx_write(vcpu, tdx->vp_enter_args.r12);
+		kvm_eax_write(vcpu, tdx->vp_enter_args.r13);
+		kvm_edx_write(vcpu, tdx->vp_enter_args.r13 >> 32);
 		return kvm_emulate_wrmsr(vcpu);
 	case EXIT_REASON_EPT_MISCONFIG:
 		return tdx_emulate_mmio(vcpu);
