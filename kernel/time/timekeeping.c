@@ -1312,7 +1312,7 @@ static int adjust_historical_crosststamp(struct system_time_snapshot *history,
 					 struct system_device_crosststamp *ts)
 {
 	struct timekeeper *tk = &tk_core.timekeeper;
-	u64 corr_raw, corr_real;
+	u64 corr_raw, corr_sys;
 	bool interp_forward;
 	int ret;
 
@@ -1329,8 +1329,7 @@ static int adjust_historical_crosststamp(struct system_time_snapshot *history,
 	 * Scale the monotonic raw time delta by:
 	 *	partial_history_cycles / total_history_cycles
 	 */
-	corr_raw = (u64)ktime_to_ns(
-		ktime_sub(ts->sys_monoraw, history->monoraw));
+	corr_raw = (u64)ktime_to_ns(ktime_sub(ts->sys_monoraw, history->monoraw));
 	ret = scale64_check_overflow(partial_history_cycles,
 				     total_history_cycles, &corr_raw);
 	if (ret)
@@ -1338,30 +1337,29 @@ static int adjust_historical_crosststamp(struct system_time_snapshot *history,
 
 	/*
 	 * If there is a discontinuity in the history, scale monotonic raw
-	 *	correction by:
-	 *	mult(real)/mult(raw) yielding the realtime correction
-	 * Otherwise, calculate the realtime correction similar to monotonic
-	 *	raw calculation
+	 * correction by:
+	 *	mult(sys)/mult(raw) yielding the system time correction
+	 *
+	 * Otherwise, calculate the system time correction similar to monotonic
+	 * raw calculation
 	 */
 	if (discontinuity) {
-		corr_real = mul_u64_u32_div
-			(corr_raw, tk->tkr_mono.mult, tk->tkr_raw.mult);
+		corr_sys = mul_u64_u32_div(corr_raw, tk->tkr_mono.mult, tk->tkr_raw.mult);
 	} else {
-		corr_real = (u64)ktime_to_ns(
-			ktime_sub(ts->sys_realtime, history->systime));
-		ret = scale64_check_overflow(partial_history_cycles,
-					     total_history_cycles, &corr_real);
+		corr_sys = (u64)ktime_to_ns(ktime_sub(ts->sys_systime, history->systime));
+		ret = scale64_check_overflow(partial_history_cycles, total_history_cycles,
+					     &corr_sys);
 		if (ret)
 			return ret;
 	}
 
-	/* Fixup monotonic raw and real time time values */
+	/* Fixup monotonic raw and system time time values */
 	if (interp_forward) {
 		ts->sys_monoraw = ktime_add_ns(history->monoraw, corr_raw);
-		ts->sys_realtime = ktime_add_ns(history->systime, corr_real);
+		ts->sys_systime = ktime_add_ns(history->systime, corr_sys);
 	} else {
 		ts->sys_monoraw = ktime_sub_ns(ts->sys_monoraw, corr_raw);
-		ts->sys_realtime = ktime_sub_ns(ts->sys_realtime, corr_real);
+		ts->sys_systime = ktime_sub_ns(ts->sys_systime, corr_sys);
 	}
 
 	return 0;
@@ -1505,16 +1503,29 @@ int get_device_system_crosststamp(int (*get_time_fn)
 				  struct system_device_crosststamp *xtstamp)
 {
 	u64 syscnt_cycles, cycles, now, interval_start;
-	struct timekeeper *tk = &tk_core.timekeeper;
 	unsigned int seq, clock_was_set_seq = 0;
-	ktime_t base_real, base_raw;
-	u64 nsec_real, nsec_raw;
+	ktime_t base_sys, base_raw, *offs;
+	u64 nsec_sys, nsec_raw;
 	u8 cs_was_changed_seq;
 	bool do_interp;
+	struct timekeeper *tk;
+	struct tk_data *tkd;
 	int ret;
 
+	switch (xtstamp->clock_id) {
+	case CLOCK_REALTIME:
+		tkd = &tk_core;
+		offs = &tk_core.timekeeper.offs_real;
+		break;
+	default:
+		WARN_ON_ONCE(1);
+		return -ENODEV;
+	}
+
+	tk = &tkd->timekeeper;
+
 	do {
-		seq = read_seqcount_begin(&tk_core.seq);
+		seq = read_seqcount_begin(&tkd->seq);
 		/*
 		 * Try to synchronously capture device time and a system
 		 * counter value calling back into the device driver
@@ -1549,15 +1560,14 @@ int get_device_system_crosststamp(int (*get_time_fn)
 			do_interp = false;
 		}
 
-		base_real = ktime_add(tk->tkr_mono.base,
-				      tk_core.timekeeper.offs_real);
+		base_sys = ktime_add(tk->tkr_mono.base, *offs);
 		base_raw = tk->tkr_raw.base;
 
-		nsec_real = timekeeping_cycles_to_ns(&tk->tkr_mono, cycles);
+		nsec_sys = timekeeping_cycles_to_ns(&tk->tkr_mono, cycles);
 		nsec_raw = timekeeping_cycles_to_ns(&tk->tkr_raw, cycles);
-	} while (read_seqcount_retry(&tk_core.seq, seq));
+	} while (read_seqcount_retry(&tkd->seq, seq));
 
-	xtstamp->sys_realtime = ktime_add_ns(base_real, nsec_real);
+	xtstamp->sys_systime = ktime_add_ns(base_sys, nsec_sys);
 	xtstamp->sys_monoraw = ktime_add_ns(base_raw, nsec_raw);
 
 	/*

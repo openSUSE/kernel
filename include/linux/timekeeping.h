@@ -319,13 +319,18 @@ struct system_counterval_t {
  * @device:		Device time
  * @sys_counter:	Clocksource counter value simultaneous with device time
  * @sys_realtime:	Realtime simultaneous with device time
+ * @sys_systime:	System time for @clock_id
  * @sys_monoraw:	Monotonic raw simultaneous with device time
  */
 struct system_device_crosststamp {
 	clockid_t			clock_id;
 	ktime_t				device;
 	struct system_counterval_t	sys_counter;
-	ktime_t				sys_realtime;
+	union {
+		/* realtime goes away once all users are converted */
+		ktime_t			sys_realtime;
+		ktime_t			sys_systime;
+	};
 	ktime_t				sys_monoraw;
 };
 
