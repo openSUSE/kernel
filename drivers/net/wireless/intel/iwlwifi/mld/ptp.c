@@ -271,7 +271,7 @@ iwl_mld_phc_get_crosstimestamp(struct ptp_clock_info *ptp,
 
 	/* System monotonic raw time is not used */
 	xtstamp->device = ns_to_ktime(gp2_ns);
-	xtstamp->sys_realtime = sys_time;
+	xtstamp->sys_systime = sys_time;
 
 	return ret;
 }

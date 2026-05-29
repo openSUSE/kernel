@@ -185,7 +185,7 @@ iwl_mvm_phc_get_crosstimestamp(struct ptp_clock_info *ptp,
 
 	/* System monotonic raw time is not used */
 	xtstamp->device = (ktime_t)gp2_ns;
-	xtstamp->sys_realtime = sys_time;
+	xtstamp->sys_systime = sys_time;
 
 out:
 	mutex_unlock(&mvm->mutex);
