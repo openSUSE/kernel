@@ -468,7 +468,7 @@ static int bpmp_populate_debugfs_inband(struct tegra_bpmp *bpmp,
 			dentry = debugfs_create_file(name, mode, parent, bpmp,
 						     &bpmp_debug_fops);
 			if (IS_ERR(dentry)) {
-				err = -ENOMEM;
+				err = PTR_ERR(dentry);
 				goto out;
 			}
 		}
@@ -719,7 +719,7 @@ static int bpmp_populate_dir(struct tegra_bpmp *bpmp, struct seqbuf *seqbuf,
 		if (t & DEBUGFS_S_ISDIR) {
 			dentry = debugfs_create_dir(name, parent);
 			if (IS_ERR(dentry))
-				return -ENOMEM;
+				return PTR_ERR(dentry);
 			err = bpmp_populate_dir(bpmp, seqbuf, dentry, depth+1);
 			if (err < 0)
 				return err;
@@ -732,7 +732,7 @@ static int bpmp_populate_dir(struct tegra_bpmp *bpmp, struct seqbuf *seqbuf,
 						     parent, bpmp,
 						     &debugfs_fops);
 			if (IS_ERR(dentry))
-				return -ENOMEM;
+				return PTR_ERR(dentry);
 		}
 	}
 
@@ -782,11 +782,11 @@ int tegra_bpmp_init_debugfs(struct tegra_bpmp *bpmp)
 
 	root = debugfs_create_dir("bpmp", NULL);
 	if (IS_ERR(root))
-		return -ENOMEM;
+		return PTR_ERR(root);
 
 	bpmp->debugfs_mirror = debugfs_create_dir("debug", root);
 	if (IS_ERR(bpmp->debugfs_mirror)) {
-		err = -ENOMEM;
+		err = PTR_ERR(bpmp->debugfs_mirror);
 		goto out;
 	}
 
