@@ -1517,6 +1517,12 @@ int get_device_system_crosststamp(int (*get_time_fn)
 		tkd = &tk_core;
 		offs = &tk_core.timekeeper.offs_real;
 		break;
+	case CLOCK_AUX ... CLOCK_AUX_LAST:
+		tkd = aux_get_tk_data(xtstamp->clock_id);
+		if (!tkd)
+			return -ENODEV;
+		offs = &tkd->timekeeper.offs_aux;
+		break;
 	default:
 		WARN_ON_ONCE(1);
 		return -ENODEV;
