@@ -3414,9 +3414,6 @@ static int sev_es_validate_vmgexit(struct vcpu_svm *svm)
 {
 	struct vmcb_control_area *control = &svm->vmcb->control;
 	struct kvm_vcpu *vcpu = &svm->vcpu;
-	u64 reason;
-
-	reason = GHCB_ERR_MISSING_INPUT;
 
 	if (!kvm_ghcb_sw_exit_code_is_valid(svm) ||
 	    !kvm_ghcb_sw_exit_info_1_is_valid(svm) ||
@@ -3424,13 +3421,9 @@ static int sev_es_validate_vmgexit(struct vcpu_svm *svm)
 		goto vmgexit_err;
 
 	switch (control->exit_code) {
-	case SVM_EXIT_READ_DR7:
-		break;
 	case SVM_EXIT_WRITE_DR7:
 		if (!kvm_ghcb_rax_is_valid(svm))
 			goto vmgexit_err;
-		break;
-	case SVM_EXIT_RDTSC:
 		break;
 	case SVM_EXIT_RDPMC:
 		if (!kvm_ghcb_rcx_is_valid(svm))
@@ -3443,8 +3436,6 @@ static int sev_es_validate_vmgexit(struct vcpu_svm *svm)
 		if (vcpu->arch.regs[VCPU_REGS_RAX] == 0xd)
 			if (!kvm_ghcb_xcr0_is_valid(svm))
 				goto vmgexit_err;
-		break;
-	case SVM_EXIT_INVD:
 		break;
 	case SVM_EXIT_IOIO:
 		if (control->exit_info_1 & SVM_IOIO_STR_MASK) {
@@ -3470,10 +3461,6 @@ static int sev_es_validate_vmgexit(struct vcpu_svm *svm)
 		    !kvm_ghcb_cpl_is_valid(svm))
 			goto vmgexit_err;
 		break;
-	case SVM_EXIT_RDTSCP:
-		break;
-	case SVM_EXIT_WBINVD:
-		break;
 	case SVM_EXIT_MONITOR:
 		if (!kvm_ghcb_rax_is_valid(svm) ||
 		    !kvm_ghcb_rcx_is_valid(svm) ||
@@ -3495,23 +3482,12 @@ static int sev_es_validate_vmgexit(struct vcpu_svm *svm)
 			if (!kvm_ghcb_rax_is_valid(svm))
 				goto vmgexit_err;
 		break;
-	case SVM_VMGEXIT_NMI_COMPLETE:
-	case SVM_VMGEXIT_AP_HLT_LOOP:
-	case SVM_VMGEXIT_AP_JUMP_TABLE:
-	case SVM_VMGEXIT_UNSUPPORTED_EVENT:
-	case SVM_VMGEXIT_HV_FEATURES:
-	case SVM_VMGEXIT_TERM_REQUEST:
-		break;
 	case SVM_VMGEXIT_PSC:
 		if (!kvm_ghcb_sw_scratch_is_valid(svm))
 			goto vmgexit_err;
 		break;
-	case SVM_VMGEXIT_GUEST_REQUEST:
-	case SVM_VMGEXIT_EXT_GUEST_REQUEST:
-		break;
 	default:
-		reason = GHCB_ERR_INVALID_EVENT;
-		goto vmgexit_err;
+		break;
 	}
 
 	return 0;
@@ -3521,16 +3497,10 @@ vmgexit_err:
 	 * Print the exit code even though it may not be marked valid as it
 	 * could help with debugging.
 	 */
-	if (reason == GHCB_ERR_INVALID_EVENT) {
-		vcpu_unimpl(vcpu, "vmgexit: exit code %#llx is not valid\n",
-			    control->exit_code);
-	} else {
-		vcpu_unimpl(vcpu, "vmgexit: exit code %#llx input is not valid\n",
-			    control->exit_code);
-		dump_ghcb(svm);
-	}
-
-	svm_vmgexit_bad_input(svm, reason);
+	vcpu_unimpl(vcpu, "vmgexit: exit code %#llx input is not valid\n",
+		    control->exit_code);
+	dump_ghcb(svm);
+	svm_vmgexit_bad_input(svm, GHCB_ERR_MISSING_INPUT);
 
 	/* Resume the guest to "return" the error code. */
 	return 1;
@@ -4547,6 +4517,25 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 	svm_vmgexit_success(svm, 0);
 
 	switch (control->exit_code) {
+	case SVM_EXIT_IOIO:
+		if (!((control->exit_info_1 & SVM_IOIO_SIZE_MASK) >> SVM_IOIO_SIZE_SHIFT))
+			return 1;
+
+		fallthrough;
+	case SVM_EXIT_READ_DR7:
+	case SVM_EXIT_WRITE_DR7:
+	case SVM_EXIT_RDTSC:
+	case SVM_EXIT_RDTSCP:
+	case SVM_EXIT_RDPMC:
+	case SVM_EXIT_CPUID:
+	case SVM_EXIT_INVD:
+	case SVM_EXIT_MSR:
+	case SVM_EXIT_VMMCALL:
+	case SVM_EXIT_WBINVD:
+	case SVM_EXIT_MONITOR:
+	case SVM_EXIT_MWAIT:
+		ret = svm_invoke_exit_handler(vcpu, control->exit_code);
+		break;
 	case SVM_VMGEXIT_MMIO_READ:
 	case SVM_VMGEXIT_MMIO_WRITE: {
 		bool is_write = control->exit_code == SVM_VMGEXIT_MMIO_WRITE;
@@ -4643,18 +4632,21 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 						       control->exit_info_2);
 		break;
 	case SVM_VMGEXIT_UNSUPPORTED_EVENT:
+		/*
+		 * Note, the _guest_ is reporting an unsupported #VC, i.e. this
+		 * isn't the same thing as KVM getting an unsupported #VMGEXIT.
+		 */
 		vcpu_unimpl(vcpu,
 			    "vmgexit: unsupported event - exit_info_1=%#llx, exit_info_2=%#llx\n",
 			    control->exit_info_1, control->exit_info_2);
 		ret = -EINVAL;
 		break;
-	case SVM_EXIT_IOIO:
-		if (!((control->exit_info_1 & SVM_IOIO_SIZE_MASK) >> SVM_IOIO_SIZE_SHIFT))
-			return 1;
-
-		fallthrough;
 	default:
-		ret = svm_invoke_exit_handler(vcpu, control->exit_code);
+		vcpu_unimpl(vcpu, "vmgexit: exit code %#llx is not valid\n",
+			    control->exit_code);
+		svm_vmgexit_bad_input(svm, GHCB_ERR_INVALID_EVENT);
+		ret = 1;
+		break;
 	}
 
 	return ret;
