@@ -67,6 +67,7 @@ static inline bool tk_is_aux(const struct timekeeper *tk)
 {
 	return tk->id >= TIMEKEEPER_AUX_FIRST && tk->id <= TIMEKEEPER_AUX_LAST;
 }
+static inline struct tk_data *aux_get_tk_data(clockid_t id);
 #else
 static inline bool tk_get_aux_ts64(unsigned int tkid, struct timespec64 *ts)
 {
@@ -76,6 +77,10 @@ static inline bool tk_get_aux_ts64(unsigned int tkid, struct timespec64 *ts)
 static inline bool tk_is_aux(const struct timekeeper *tk)
 {
 	return false;
+}
+static inline struct tk_data *aux_get_tk_data(clockid_t id)
+{
+	return NULL;
 }
 #endif
 
@@ -1218,6 +1223,12 @@ void ktime_get_snapshot_id(clockid_t clock_id, struct system_time_snapshot *syst
 		tkd = &tk_core;
 		offs = &tk_core.timekeeper.offs_boot;
 		break;
+	case CLOCK_AUX ... CLOCK_AUX_LAST:
+		tkd = aux_get_tk_data(clock_id);
+		if (!tkd)
+			return;
+		offs = &tkd->timekeeper.offs_aux;
+		break;
 	default:
 		WARN_ON_ONCE(1);
 		return;
@@ -1227,6 +1238,10 @@ void ktime_get_snapshot_id(clockid_t clock_id, struct system_time_snapshot *syst
 
 	do {
 		seq = read_seqcount_begin(&tkd->seq);
+
+		/* Aux clocks can be invalid */
+		if (!tk->clock_valid)
+			return;
 
 		now = tk_clock_read(&tk->tkr_mono);
 		systime_snapshot->cs_id = tk->tkr_mono.clock->id;
