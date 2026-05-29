@@ -2156,8 +2156,6 @@ int load_pdptrs(struct kvm_vcpu *vcpu, unsigned long cr3);
 
 extern bool tdp_enabled;
 
-u64 vcpu_tsc_khz(struct kvm_vcpu *vcpu);
-
 /*
  * EMULTYPE_NO_DECODE - Set when re-emulating an instruction (after completing
  *			userspace I/O) to indicate that the emulation context
