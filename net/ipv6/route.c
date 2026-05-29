@@ -3521,8 +3521,7 @@ out:
 		fib_nh_common_release(&fib6_nh->nh_common);
 		fib6_nh->nh_common.nhc_pcpu_rth_output = NULL;
 		fib6_nh->fib_nh_lws = NULL;
-		if (dev)
-			dev_put(dev);
+		dev_put(dev);
 	}
 
 	return err;
