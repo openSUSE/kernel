@@ -2,6 +2,7 @@
 /* Copyright (C) 2023 SUSE LLC */
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
+#include "../../../include/linux/filter.h"
 #include "bpf_misc.h"
 
 struct {
@@ -404,7 +405,6 @@ SEC("?raw_tp")
 __success __log_level(2)
 __msg("mark_precise: frame0: regs=r1 stack= before 10: (57) r1 &= 7")
 __msg("mark_precise: frame0: regs=r1 stack= before 9: (db) r1 = atomic64_fetch_add((u64 *)(r0 +0), r1)")
-__not_msg("falling back to forcing all scalars precise")
 __naked int bpf_atomic_fetch_add_map_precision(void)
 {
 	asm volatile (
@@ -434,7 +434,6 @@ SEC("?raw_tp")
 __success __log_level(2)
 __msg("mark_precise: frame0: regs=r0 stack= before 12: (57) r0 &= 7")
 __msg("mark_precise: frame0: regs=r0 stack= before 11: (db) r0 = atomic64_cmpxchg((u64 *)(r6 +0), r0, r1)")
-__not_msg("falling back to forcing all scalars precise")
 __naked int bpf_atomic_cmpxchg_map_precision(void)
 {
 	asm volatile (
@@ -466,7 +465,6 @@ SEC("?raw_tp")
 __success __log_level(2)
 __msg("mark_precise: frame0: regs=r1 stack= before 10: (57) r1 &= 7")
 __msg("mark_precise: frame0: regs=r1 stack= before 9: (c3) r1 = atomic_fetch_add((u32 *)(r0 +0), r1)")
-__not_msg("falling back to forcing all scalars precise")
 __naked int bpf_atomic_fetch_add_32bit_precision(void)
 {
 	asm volatile (
@@ -496,7 +494,6 @@ SEC("?raw_tp")
 __success __log_level(2)
 __msg("mark_precise: frame0: regs=r0 stack= before 12: (57) r0 &= 7")
 __msg("mark_precise: frame0: regs=r0 stack= before 11: (c3) r0 = atomic_cmpxchg((u32 *)(r6 +0), r0, r1)")
-__not_msg("falling back to forcing all scalars precise")
 __naked int bpf_atomic_cmpxchg_32bit_precision(void)
 {
 	asm volatile (
