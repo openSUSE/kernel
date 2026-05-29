@@ -182,6 +182,10 @@ static inline pteval_t __phys_to_pte_val(phys_addr_t phys)
  */
 #define pte_valid_cont(pte)	(pte_valid(pte) && pte_cont(pte))
 /*
+ * Returns true if the pte is valid and has the contiguous bit cleared.
+ */
+#define pte_valid_noncont(pte)	(pte_valid(pte) && !pte_cont(pte))
+/*
  * Could the pte be present in the TLB? We must check mm_tlb_flush_pending
  * so that we don't erroneously return false for pages that have been
  * remapped as PROT_NONE but are yet to be flushed from the TLB.
