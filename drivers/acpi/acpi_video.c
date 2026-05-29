@@ -63,7 +63,7 @@ MODULE_PARM_DESC(hw_changes_brightness,
  * Whether the struct acpi_video_device_attrib::device_id_scheme bit should be
  * assumed even if not actually set.
  */
-static bool device_id_scheme = false;
+static bool device_id_scheme;
 module_param(device_id_scheme, bool, 0444);
 
 static int only_lcd;
