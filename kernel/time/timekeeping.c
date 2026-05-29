@@ -1196,8 +1196,6 @@ void ktime_get_snapshot_id(clockid_t clock_id, struct system_time_snapshot *syst
 	struct timekeeper *tk;
 	struct tk_data *tkd;
 	unsigned int seq;
-	ktime_t base_real;
-	ktime_t base_boot;
 
 	/* Invalidate the snapshot for all failure cases */
 	systime_snapshot->valid = false;
@@ -1239,18 +1237,12 @@ void ktime_get_snapshot_id(clockid_t clock_id, struct system_time_snapshot *syst
 		offs_sys = *offs;
 		base_raw = tk->tkr_raw.base;
 
-		/* Kept around until the callers are fixed up */
-		base_real = ktime_add(base_sys, tk_core.timekeeper.offs_real);
-		base_boot = ktime_add(base_sys, tk_core.timekeeper.offs_boot);
-
 		nsec_sys = timekeeping_cycles_to_ns(&tk->tkr_mono, now);
 		nsec_raw = timekeeping_cycles_to_ns(&tk->tkr_raw, now);
 	} while (read_seqcount_retry(&tkd->seq, seq));
 
 	systime_snapshot->cycles = now;
 	systime_snapshot->systime = ktime_add_ns(base_sys, offs_sys + nsec_sys);
-	systime_snapshot->real = ktime_add_ns(base_real, nsec_sys);
-	systime_snapshot->boot = ktime_add_ns(base_boot, nsec_sys);
 	systime_snapshot->monoraw = ktime_add_ns(base_raw, nsec_raw);
 
 	/*
