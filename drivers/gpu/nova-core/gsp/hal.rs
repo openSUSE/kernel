@@ -25,6 +25,7 @@ use crate::{
         Chipset, //
     },
     gsp::{
+        boot::BootUnloadGuard,
         Gsp,
         GspFwWprMeta, //
     },
@@ -50,20 +51,20 @@ pub(super) trait UnloadBundle: Send {
 pub(super) trait GspHal: Send {
     /// Performs the GSP boot process, loading and running the required firmwares as needed.
     ///
-    /// Upon success, returns the [`UnloadBundle`] to be run (if any) in order to properly reset the
-    /// GSP after it has been stopped.
+    /// Upon success, returns a guard that runs the GSP unload sequence if GSP boot does not
+    /// complete.
     #[allow(clippy::too_many_arguments)]
-    fn boot(
+    fn boot<'a>(
         &self,
-        gsp: &Gsp,
-        dev: &device::Device<device::Bound>,
-        bar: &Bar0,
+        gsp: &'a Gsp,
+        dev: &'a device::Device<device::Bound>,
+        bar: &'a Bar0,
         chipset: Chipset,
         fb_layout: &FbLayout,
         wpr_meta: &Coherent<GspFwWprMeta>,
-        gsp_falcon: &Falcon<GspEngine>,
-        sec2_falcon: &Falcon<Sec2>,
-    ) -> Result<Option<crate::gsp::UnloadBundle>>;
+        gsp_falcon: &'a Falcon<GspEngine>,
+        sec2_falcon: &'a Falcon<Sec2>,
+    ) -> Result<BootUnloadGuard<'a>>;
 
     /// Performs HAL-specific post-GSP boot tasks.
     ///

@@ -32,6 +32,7 @@ use crate::{
     },
     gpu::Chipset,
     gsp::{
+        boot::BootUnloadGuard,
         hal::{
             GspHal,
             UnloadBundle, //
@@ -254,21 +255,23 @@ fn run_fwsec_frts(
 struct Tu102;
 
 impl GspHal for Tu102 {
-    fn boot(
+    fn boot<'a>(
         &self,
-        gsp: &Gsp,
-        dev: &device::Device<device::Bound>,
-        bar: &Bar0,
+        gsp: &'a Gsp,
+        dev: &'a device::Device<device::Bound>,
+        bar: &'a Bar0,
         chipset: Chipset,
         fb_layout: &FbLayout,
         wpr_meta: &Coherent<GspFwWprMeta>,
-        gsp_falcon: &Falcon<GspEngine>,
-        sec2_falcon: &Falcon<Sec2>,
-    ) -> Result<Option<crate::gsp::UnloadBundle>> {
+        gsp_falcon: &'a Falcon<GspEngine>,
+        sec2_falcon: &'a Falcon<Sec2>,
+    ) -> Result<BootUnloadGuard<'a>> {
         let bios = Vbios::new(dev, bar)?;
 
-        // Try and prepare the unload bundle. If this fails, the GPU will need to be reset
-        // before the driver can be probed again.
+        // Try and prepare the unload bundle.
+        //
+        // If the unload bundle creation fails, the GPU will need to be reset before the driver can
+        // be probed again.
         let unload_bundle =
             Sec2UnloadBundle::build(dev, bar, chipset, &bios, gsp_falcon, sec2_falcon)
                 .inspect_err(|e| {
@@ -279,8 +282,12 @@ impl GspHal for Tu102 {
                         "The GPU will need to be reset before the driver can bind again.\n"
                     );
                 })
-                .map(crate::gsp::UnloadBundle)
-                .ok();
+                .ok()
+                .map(crate::gsp::UnloadBundle);
+
+        // Wrap the unload bundle into a drop guard so it is automatically run upon failure.
+        let unload_guard =
+            BootUnloadGuard::new(gsp, dev, bar, gsp_falcon, sec2_falcon, unload_bundle);
 
         // FWSEC-FRTS is not executed on chips where the FRTS region size is 0 (e.g. GA100).
         if !fb_layout.frts.is_empty() {
@@ -311,7 +318,7 @@ impl GspHal for Tu102 {
         )?
         .run(dev, bar, sec2_falcon, wpr_meta)?;
 
-        Ok(unload_bundle)
+        Ok(unload_guard)
     }
 
     fn post_boot(

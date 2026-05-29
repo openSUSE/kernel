@@ -8,7 +8,8 @@ use kernel::{
     io::poll::read_poll_timeout,
     pci,
     prelude::*,
-    time::Delta, //
+    time::Delta,
+    types::ScopeGuard, //
 };
 
 use crate::{
@@ -30,6 +31,66 @@ use crate::{
         GspFwWprMeta, //
     },
 };
+
+/// Arguments required to call [`Gsp::unload`](super::Gsp::unload).
+///
+/// Stored as their own type to avoid repeating a long and tedious list in [`BootUnloadGuard`].
+pub(super) struct BootUnloadArgs<'a> {
+    gsp: &'a super::Gsp,
+    dev: &'a device::Device<device::Bound>,
+    bar: &'a Bar0,
+    gsp_falcon: &'a Falcon<Gsp>,
+    sec2_falcon: &'a Falcon<Sec2>,
+    unload_bundle: Option<super::UnloadBundle>,
+}
+
+/// Guard that calls [`Gsp::unload`](super::Gsp::unload) with a
+/// [`UnloadBundle`](super::UnloadBundle) when dropped.
+///
+/// Used to ensure the `UnloadBundle` is run during failure paths.
+pub(super) struct BootUnloadGuard<'a> {
+    guard: ScopeGuard<BootUnloadArgs<'a>, fn(BootUnloadArgs<'a>)>,
+}
+
+impl<'a> BootUnloadGuard<'a> {
+    /// Wraps `unload_bundle` into a guard that executes it when dropped.
+    pub(super) fn new(
+        gsp: &'a super::Gsp,
+        dev: &'a device::Device<device::Bound>,
+        bar: &'a Bar0,
+        gsp_falcon: &'a Falcon<Gsp>,
+        sec2_falcon: &'a Falcon<Sec2>,
+        unload_bundle: Option<super::UnloadBundle>,
+    ) -> Self {
+        Self {
+            guard: ScopeGuard::new_with_data(
+                BootUnloadArgs {
+                    gsp,
+                    dev,
+                    bar,
+                    gsp_falcon,
+                    sec2_falcon,
+                    unload_bundle,
+                },
+                |args| {
+                    let _ = super::Gsp::unload(
+                        args.gsp,
+                        args.dev,
+                        args.bar,
+                        args.gsp_falcon,
+                        args.sec2_falcon,
+                        args.unload_bundle,
+                    );
+                },
+            ),
+        }
+    }
+
+    /// Disarms the guard and returns the [`UnloadBundle`](super::UnloadBundle) it contains.
+    pub(super) fn dismiss(self) -> Option<super::UnloadBundle> {
+        self.guard.dismiss().unload_bundle
+    }
+}
 
 impl super::Gsp {
     /// Attempt to boot the GSP.
@@ -59,7 +120,7 @@ impl super::Gsp {
         let wpr_meta = Coherent::init(dev, GFP_KERNEL, GspFwWprMeta::new(&gsp_fw, &fb_layout))?;
 
         // Perform the chipset-specific boot sequence, and retrieve the unload bundle.
-        let unload_bundle = hal.boot(
+        let unload_guard = hal.boot(
             &self,
             dev,
             bar,
@@ -99,7 +160,7 @@ impl super::Gsp {
             Err(e) => dev_warn!(pdev, "GPU name unavailable: {:?}\n", e),
         }
 
-        Ok(unload_bundle)
+        Ok(unload_guard.dismiss())
     }
 
     /// Shut down the GSP and wait until it is offline.
