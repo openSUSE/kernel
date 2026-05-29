@@ -53,6 +53,24 @@ struct ieee80211_mesh_hwmp_preq_bottom {
 	struct ieee80211_mesh_hwmp_preq_target targets[];
 } __packed;
 
+struct ieee80211_mesh_hwmp_prep_top {
+	u8 flags;
+	u8 hopcount;
+	u8 ttl;
+	u8 target_addr[ETH_ALEN];
+	__le32 target_sn;
+
+	/* optional Target External Address */
+	u8 variable[];
+} __packed;
+
+struct ieee80211_mesh_hwmp_prep_bottom {
+	__le32 lifetime;
+	__le32 metric;
+	u8 orig_addr[ETH_ALEN];
+	__le32 orig_sn;
+} __packed;
+
 /* Mesh flags */
 #define MESH_FLAGS_AE_A4 	0x1
 #define MESH_FLAGS_AE_A5_A6	0x2
@@ -264,6 +282,15 @@ static inline struct ieee80211_mesh_hwmp_preq_bottom *
 ieee80211_mesh_hwmp_preq_get_bottom(const u8 *ie)
 {
 	struct ieee80211_mesh_hwmp_preq_top *top = (void *)ie;
+
+	return (void *)&top->variable[
+		ieee80211_mesh_preq_prep_ae_enabled(ie) ? ETH_ALEN : 0];
+}
+
+static inline struct ieee80211_mesh_hwmp_prep_bottom *
+ieee80211_mesh_hwmp_prep_get_bottom(const u8 *ie)
+{
+	struct ieee80211_mesh_hwmp_prep_top *top = (void *)ie;
 
 	return (void *)&top->variable[
 		ieee80211_mesh_preq_prep_ae_enabled(ie) ? ETH_ALEN : 0];
