@@ -333,7 +333,7 @@ static long ptp_sys_offset_precise(struct ptp_clock *ptp, void __user *arg,
 	ts = ktime_to_timespec64(xtstamp.device);
 	precise_offset.device.sec = ts.tv_sec;
 	precise_offset.device.nsec = ts.tv_nsec;
-	ts = ktime_to_timespec64(xtstamp.sys_realtime);
+	ts = ktime_to_timespec64(xtstamp.sys_systime);
 	precise_offset.sys_realtime.sec = ts.tv_sec;
 	precise_offset.sys_realtime.nsec = ts.tv_nsec;
 	ts = ktime_to_timespec64(xtstamp.sys_monoraw);
