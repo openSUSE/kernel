@@ -572,6 +572,20 @@ static int sta_info_alloc_link(struct ieee80211_local *local,
 	link_info->rx_omi_bw_tx = IEEE80211_STA_RX_BW_MAX;
 	link_info->rx_omi_bw_staging = IEEE80211_STA_RX_BW_MAX;
 
+	/*
+	 * This will always be taken into account, so set to MAX.
+	 * When mac80211 is the client on a UHR AP, it'll be used
+	 * for the TX side, to limit the bandwidth to TX to the AP
+	 * with, to limit to the BSS width during DBE enablement.
+	 *
+	 * This is needed since the chanreq, which normally has
+	 * maximum bandwidth to use with the AP, will already be
+	 * set to the DBE width during enablement to prepare for
+	 * RX (and not be racy), but the TX can only use higher
+	 * bandwidth after enablement finishes.
+	 */
+	link_info->uhr_usable_tx_width = IEEE80211_STA_RX_BW_MAX;
+
 	link_info->op_mode_bw = IEEE80211_STA_RX_BW_MAX;
 
 	/*
@@ -3727,6 +3741,8 @@ ieee80211_sta_current_bw_tx_to_sta(struct link_sta_info *link_sta,
 	bw = min(bw, link_sta->op_mode_bw);
 	/* also limit to RX OMI bandwidth we TX to the STA */
 	bw = min(bw, link_sta->rx_omi_bw_tx);
+	/* and UHR DBE transition limits */
+	bw = min(bw, link_sta->uhr_usable_tx_width);
 
 	/* Don't consider AP's bandwidth for TDLS peers, section 11.23.1 of
 	 * IEEE80211-2016 specification makes higher bandwidth operation

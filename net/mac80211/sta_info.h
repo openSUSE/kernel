@@ -511,6 +511,9 @@ struct ieee80211_fragment_cache {
  * @rx_omi_bw_tx: RX OMI bandwidth restriction to apply for TX
  * @rx_omi_bw_staging: RX OMI bandwidth restriction to apply later
  *	during finalize
+ * @uhr_usable_tx_width: bandwidth restriction for UHR for TX, only when
+ *	the link_sta is an AP, to restrict TX to BSS width during DBE
+ *	enablement
  * @debugfs_dir: debug filesystem directory dentry
  * @pub: public (driver visible) link STA data
  */
@@ -562,6 +565,7 @@ struct link_sta_info {
 	enum ieee80211_sta_rx_bandwidth rx_omi_bw_rx,
 					rx_omi_bw_tx,
 					rx_omi_bw_staging;
+	enum ieee80211_sta_rx_bandwidth uhr_usable_tx_width;
 
 #ifdef CONFIG_MAC80211_DEBUGFS
 	struct dentry *debugfs_dir;

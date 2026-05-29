@@ -99,6 +99,7 @@ enum ieee80211_status_data {
 	IEEE80211_STATUS_TYPE_INVALID	= 0,
 	IEEE80211_STATUS_TYPE_SMPS	= 1,
 	IEEE80211_STATUS_TYPE_NEG_TTLM	= 2,
+	IEEE80211_STATUS_TYPE_UHR_OMP	= 3,
 	IEEE80211_STATUS_SUBDATA_MASK	= 0x1ff0,
 };
 
@@ -412,6 +413,7 @@ enum ieee80211_conn_bw_limit {
 struct ieee80211_conn_settings {
 	enum ieee80211_conn_mode mode;
 	enum ieee80211_conn_bw_limit bw_limit;
+	bool dbe_enabled;
 };
 
 extern const struct ieee80211_conn_settings ieee80211_conn_settings_unlimited;
@@ -639,6 +641,15 @@ struct ieee80211_if_managed {
 		bool enabled;
 		u8 dialog_token;
 	} epcs;
+
+	struct {
+		struct wiphy_hrtimer_work status_work;
+		u32 timeout_us;
+		u16 links;
+		u16 pending, pending_init;
+		u8 dialog_token;
+		bool acked;
+	} uhr_omp;
 };
 
 struct ieee80211_if_ibss {
@@ -2790,6 +2801,7 @@ ieee80211_chanreq_downgrade(struct ieee80211_chan_req *chanreq,
 		return;
 	if (conn->mode < IEEE80211_CONN_MODE_EHT)
 		chanreq->ap.chan = NULL;
+	conn->dbe_enabled = false;
 }
 
 bool ieee80211_chanreq_identical(const struct ieee80211_chan_req *a,
@@ -2980,7 +2992,8 @@ void ieee80211_rearrange_tpe_psd(struct ieee80211_parsed_tpe_psd *psd,
 struct ieee802_11_elems *
 ieee80211_determine_chan_mode(struct ieee80211_sub_if_data *sdata,
 			      struct ieee80211_conn_settings *conn,
-			      struct cfg80211_bss *cbss, int link_id,
+			      struct cfg80211_bss *cbss,
+			      struct link_sta_info *link_sta, int link_id,
 			      struct ieee80211_chan_req *chanreq,
 			      struct cfg80211_chan_def *ap_chandef,
 			      unsigned long *userspace_selectors);

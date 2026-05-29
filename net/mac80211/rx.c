@@ -3947,6 +3947,20 @@ ieee80211_rx_h_action(struct ieee80211_rx_data *rx)
 			break;
 		}
 		break;
+	case WLAN_CATEGORY_PROTECTED_UHR:
+		if (len < IEEE80211_MIN_ACTION_SIZE(action_code))
+			break;
+
+		switch (mgmt->u.action.action_code) {
+		case IEEE80211_PROTECTED_UHR_ACTION_LINK_RECONFIG_NOTIFY:
+			if (sdata->vif.type != NL80211_IFTYPE_STATION)
+				break;
+
+			if (len < IEEE80211_MIN_ACTION_SIZE(uhr_link_reconf_notif))
+				goto invalid;
+			goto queue;
+		}
+		break;
 	}
 
 	return RX_CONTINUE;

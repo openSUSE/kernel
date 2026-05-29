@@ -10,11 +10,13 @@
 #include <linux/types.h>
 #include <linux/bitfield.h>
 #include <linux/if_ether.h>
+#include "ieee80211-eht.h"
 
 #define IEEE80211_UHR_OPER_PARAMS_DPS_ENA		0x0001
 #define IEEE80211_UHR_OPER_PARAMS_NPCA_ENA		0x0002
 #define IEEE80211_UHR_OPER_PARAMS_PEDCA_ENA		0x0004
 #define IEEE80211_UHR_OPER_PARAMS_DBE_ENA		0x0008
+#define IEEE80211_UHR_OPER_PARAMS_DBE_BW		0x0070
 
 struct ieee80211_uhr_operation {
 	__le16 params;
@@ -178,6 +180,29 @@ enum ieee80211_uhr_dbe_oper_bw {
 };
 
 /**
+ * ieee80211_uhr_dbe_bw_mhz - get bandwidth in MHz from UHR DBE bandwidth
+ * @bw: UHR DBE bandwidth
+ *
+ * Return: the bandwidth in MHz, or -1 for invalid values
+ */
+static inline int ieee80211_uhr_dbe_bw_mhz(enum ieee80211_uhr_dbe_oper_bw bw)
+{
+	switch (bw) {
+	case IEEE80211_UHR_DBE_OPER_BW_40:
+		return 40;
+	case IEEE80211_UHR_DBE_OPER_BW_80:
+		return 80;
+	case IEEE80211_UHR_DBE_OPER_BW_160:
+		return 160;
+	case IEEE80211_UHR_DBE_OPER_BW_320_1:
+	case IEEE80211_UHR_DBE_OPER_BW_320_2:
+		return 320;
+	default:
+		return -1;
+	}
+}
+
+/**
  * struct ieee80211_uhr_dbe_info - DBE operation information
  *
  * This structure is the "DBE Operation Parameters field" of
@@ -335,6 +360,35 @@ ieee80211_uhr_npca_dis_subch_bitmap(const struct ieee80211_uhr_operation *oper)
 	return npca->dis_subch_bmap;
 }
 
+/*
+ * Note: cannot call this on the element coming from a beacon,
+ * must ensure ieee80211_uhr_oper_size_ok(..., false) first
+ */
+static inline const struct ieee80211_uhr_dbe_info *
+ieee80211_uhr_oper_dbe_info(const struct ieee80211_uhr_operation *oper)
+{
+	const u8 *pos = oper->variable;
+
+	if (!(oper->params & cpu_to_le16(IEEE80211_UHR_OPER_PARAMS_DBE_ENA)))
+		return NULL;
+
+	if (oper->params & cpu_to_le16(IEEE80211_UHR_OPER_PARAMS_DPS_ENA))
+		pos += sizeof(struct ieee80211_uhr_dps_info);
+
+	if (oper->params & cpu_to_le16(IEEE80211_UHR_OPER_PARAMS_NPCA_ENA)) {
+		const struct ieee80211_uhr_npca_info *npca = (const void *)pos;
+
+		pos += sizeof(*npca);
+		if (npca->params & cpu_to_le32(IEEE80211_UHR_NPCA_PARAMS_DIS_SUBCH_BMAP_PRES))
+			pos += sizeof(npca->dis_subch_bmap[0]);
+	}
+
+	if (oper->params & cpu_to_le16(IEEE80211_UHR_OPER_PARAMS_PEDCA_ENA))
+		pos += sizeof(struct ieee80211_uhr_p_edca_info);
+
+	return (const void *)pos;
+}
+
 #define IEEE80211_UHR_MAC_CAP0_DPS_SUPP			0x01
 #define IEEE80211_UHR_MAC_CAP0_DPS_ASSIST_SUPP		0x02
 #define IEEE80211_UHR_MAC_CAP0_DPS_AP_STATIC_HCM_SUPP	0x04
@@ -473,6 +527,44 @@ static inline bool ieee80211_uhr_capa_size_ok(const u8 *data, u8 len,
 	}
 
 	return len >= needed;
+}
+
+#define IEEE80211_UHR_OM_PU_TO_128TU	11
+
+/**
+ * ieee80211_uhr_capa_get_om_pu_to_us - get OM parameter update timeout in usec
+ * @cap: the UHR capability element, size must be validated
+ *
+ * Return: the OM parameter update timeout in usec, or -1 if it's not valid
+ */
+static inline int
+ieee80211_uhr_capa_get_om_pu_to_us(const struct ieee80211_uhr_cap *cap)
+{
+	u8 timeout;
+
+	timeout = u8_get_bits(cap->mac.mac_cap[3],
+			      IEEE80211_UHR_MAC_CAP3_UHR_OM_PU_TO_HIGH);
+	timeout <<= 2;
+	timeout |= u8_get_bits(cap->mac.mac_cap[2],
+			       IEEE80211_UHR_MAC_CAP2_UHR_OM_PU_TO_LOW);
+
+	if (timeout > IEEE80211_UHR_OM_PU_TO_128TU)
+		return -1;
+
+	if (!timeout)
+		return 0;
+
+	return 128 << (timeout - 1);
+}
+
+/* only valid from AP, must check ieee80211_uhr_capa_size_ok(..., true) */
+static inline const struct ieee80211_uhr_cap_dbe *
+ieee80211_uhr_dbe_cap(const struct ieee80211_uhr_cap *cap)
+{
+	if (!(cap->mac.mac_cap[1] & IEEE80211_UHR_MAC_CAP1_DBE_SUPP))
+		return NULL;
+
+	return (const void *)cap->variable;
 }
 
 #define IEEE80211_SMD_INFO_CAPA_DL_DATA_FWD		0x01
