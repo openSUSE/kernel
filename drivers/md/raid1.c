@@ -2634,35 +2634,33 @@ static void handle_write_finished(struct r1conf *conf, struct r1bio *r1_bio)
 
 static void handle_read_error(struct r1conf *conf, struct r1bio *r1_bio)
 {
+	struct md_rdev *rdev = conf->mirrors[r1_bio->read_disk].rdev;
+	struct bio *bio = r1_bio->bios[r1_bio->read_disk];
 	struct mddev *mddev = conf->mddev;
-	struct bio *bio;
-	struct md_rdev *rdev;
 	sector_t sector;
 
 	clear_bit(R1BIO_ReadError, &r1_bio->state);
-	/* we got a read error. Maybe the drive is bad.  Maybe just
-	 * the block and we can fix it.
-	 * We freeze all other IO, and try reading the block from
-	 * other devices.  When we find one, we re-write
-	 * and check it that fixes the read error.
-	 * This is all done synchronously while the array is
-	 * frozen
-	 */
 
-	bio = r1_bio->bios[r1_bio->read_disk];
 	bio_put(bio);
 	r1_bio->bios[r1_bio->read_disk] = NULL;
 
-	rdev = conf->mirrors[r1_bio->read_disk].rdev;
-	if (mddev->ro == 0
-	    && !test_bit(FailFast, &rdev->flags)) {
+	/*
+	 * We got a read error. Maybe the drive is bad.  Maybe just the block
+	 * and we can fix it.
+	 *
+	 * If allowed, freeze all other IO, and try reading the block from other
+	 * devices.  If we find one, we re-write and check it that fixes the
+	 * read error.  This is all done synchronously while the array is
+	 * frozen.
+	 */
+	if (mddev->ro) {
+		r1_bio->bios[r1_bio->read_disk] = IO_BLOCKED;
+	} else if (test_bit(FailFast, &rdev->flags)) {
+		md_error(mddev, rdev);
+	} else {
 		freeze_array(conf, 1);
 		fix_read_error(conf, r1_bio);
 		unfreeze_array(conf);
-	} else if (mddev->ro == 0 && test_bit(FailFast, &rdev->flags)) {
-		md_error(mddev, rdev);
-	} else {
-		r1_bio->bios[r1_bio->read_disk] = IO_BLOCKED;
 	}
 
 	rdev_dec_pending(rdev, conf->mddev);
