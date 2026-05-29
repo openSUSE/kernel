@@ -42,6 +42,14 @@ The watchdog subsystem includes an registration deferral mechanism,
 which allows you to register an watchdog as early as you wish during
 the boot process.
 
+There is also a resource-managed watchdog_register_device(),
+devm_watchdog_register_device(). If you use this to register a watchdog
+device, watchdog_unregister_device() is called automatically on driver
+detach::
+
+        int devm_watchdog_register_device(struct device *dev,
+				struct watchdog_device *wdd);
+
 The watchdog device structure looks like this::
 
   struct watchdog_device {
