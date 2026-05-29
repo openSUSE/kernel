@@ -525,7 +525,7 @@ static int azx_get_time_info(struct snd_pcm_substream *substream,
 			break;
 
 		default:
-			*system_ts = ktime_to_timespec64(xtstamp.sys_realtime);
+			*system_ts = ktime_to_timespec64(xtstamp.sys_systime);
 			break;
 
 		}
