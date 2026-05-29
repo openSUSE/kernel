@@ -83,8 +83,6 @@ struct uverbs_attr_bundle;
 struct ib_umem *ib_umem_get_desc(struct ib_device *device,
 				 const struct ib_uverbs_buffer_desc *desc,
 				 int access);
-struct ib_umem *ib_umem_get_va(struct ib_device *device, unsigned long addr,
-			       size_t size, int access);
 struct ib_umem *ib_umem_get_attr(struct ib_device *device,
 				 const struct uverbs_attr_bundle *attrs,
 				 u16 attr_id, size_t size, int access);
@@ -92,6 +90,13 @@ struct ib_umem *ib_umem_get_attr_or_va(struct ib_device *device,
 				       const struct uverbs_attr_bundle *attrs,
 				       u16 attr_id, u64 addr, size_t size,
 				       int access);
+
+static inline struct ib_umem *ib_umem_get_va(struct ib_device *device,
+					     unsigned long addr, size_t size,
+					     int access)
+{
+	return ib_umem_get_attr_or_va(device, NULL, 0, addr, size, access);
+}
 
 void ib_umem_release(struct ib_umem *umem);
 int ib_umem_copy_from(void *dst, struct ib_umem *umem, size_t offset,
