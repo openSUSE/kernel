@@ -398,7 +398,7 @@ enum ieee80211_uhr_dbe_max_supported_bw {
 };
 
 struct ieee80211_uhr_cap_mac {
-	u8 mac_cap[5];
+	u8 mac_cap[6];
 } __packed;
 
 #define IEEE80211_UHR_PHY_CAP_MAX_NSS_RX_SND_NDP_LE80	0x00000001
