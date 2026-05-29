@@ -490,12 +490,12 @@ static int dw_mci_idmac_init(struct dw_mci *host)
 
 	if (host->dma_64bit_address == 1) {
 		struct idmac_desc_64addr *p;
-		/* Number of descriptors in the ring buffer */
-		host->ring_size =
+
+		host->desc_num =
 			DESC_RING_BUF_SZ / sizeof(struct idmac_desc_64addr);
 
 		/* Forward link the descriptor list */
-		for (i = 0, p = host->sg_cpu; i < host->ring_size - 1;
+		for (i = 0, p = host->sg_cpu; i < host->desc_num - 1;
 								i++, p++) {
 			p->des6 = (host->sg_dma +
 					(sizeof(struct idmac_desc_64addr) *
@@ -518,13 +518,13 @@ static int dw_mci_idmac_init(struct dw_mci *host)
 
 	} else {
 		struct idmac_desc *p;
-		/* Number of descriptors in the ring buffer */
-		host->ring_size =
+
+		host->desc_num =
 			DESC_RING_BUF_SZ / sizeof(struct idmac_desc);
 
 		/* Forward link the descriptor list */
 		for (i = 0, p = host->sg_cpu;
-		     i < host->ring_size - 1;
+		     i < host->desc_num - 1;
 		     i++, p++) {
 			p->des3 = cpu_to_le32(host->sg_dma +
 					(sizeof(struct idmac_desc) * (i + 1)));
@@ -2857,10 +2857,10 @@ static int dw_mci_init_host(struct dw_mci *host)
 
 	/* Useful defaults if platform data is unset. */
 	if (host->use_dma == TRANS_MODE_IDMAC) {
-		mmc->max_segs = host->ring_size;
+		mmc->max_segs = host->desc_num;
 		mmc->max_blk_size = 65535;
 		mmc->max_seg_size = 0x1000;
-		mmc->max_req_size = mmc->max_seg_size * host->ring_size;
+		mmc->max_req_size = mmc->max_seg_size * host->desc_num;
 		mmc->max_blk_count = mmc->max_req_size / 512;
 	} else if (host->use_dma == TRANS_MODE_EDMAC) {
 		mmc->max_segs = 64;
