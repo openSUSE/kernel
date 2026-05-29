@@ -3719,6 +3719,11 @@ static int prepare_write_begin(struct f2fs_sb_info *sbi,
 	int flag = F2FS_GET_BLOCK_PRE_AIO;
 	int err = 0;
 
+	if (!f2fs_has_inline_data(inode) && !f2fs_compressed_file(inode) &&
+	    (pos & PAGE_MASK) < i_size_read(inode) &&
+	    f2fs_lookup_read_extent_cache_block(inode, index, blk_addr))
+		return 0;
+
 	/*
 	 * If a whole page is being written and we already preallocated all the
 	 * blocks, then there is no need to get a block address now.
