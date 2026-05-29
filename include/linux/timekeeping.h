@@ -350,11 +350,6 @@ extern int get_device_system_crosststamp(
  */
 extern void ktime_get_snapshot_id(clockid_t clock_id, struct system_time_snapshot *systime_snapshot);
 
-static inline void ktime_get_snapshot(struct system_time_snapshot *systime_snapshot)
-{
-	ktime_get_snapshot_id(CLOCK_REALTIME, systime_snapshot);
-}
-
 /*
  * Persistent clock related interfaces
  */
