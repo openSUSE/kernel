@@ -575,13 +575,6 @@ static struct kmem_cache *kvm_alloc_emulator_cache(void)
 
 static int emulator_fix_hypercall(struct x86_emulate_ctxt *ctxt);
 
-static inline void kvm_async_pf_hash_reset(struct kvm_vcpu *vcpu)
-{
-	int i;
-	for (i = 0; i < ASYNC_PF_PER_VCPU; i++)
-		vcpu->arch.apf.gfns[i] = ~0;
-}
-
 static void kvm_destroy_user_return_msrs(void)
 {
 	int cpu;
@@ -1031,18 +1024,6 @@ bool kvm_require_dr(struct kvm_vcpu *vcpu, int dr)
 	return false;
 }
 EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_require_dr);
-
-static bool __kvm_pv_async_pf_enabled(u64 data)
-{
-	u64 mask = KVM_ASYNC_PF_ENABLED | KVM_ASYNC_PF_DELIVERY_AS_INT;
-
-	return (data & mask) == mask;
-}
-
-static bool kvm_pv_async_pf_enabled(struct kvm_vcpu *vcpu)
-{
-	return __kvm_pv_async_pf_enabled(vcpu->arch.apf.msr_en_val);
-}
 
 static inline u64 pdptr_rsvd_bits(struct kvm_vcpu *vcpu)
 {
