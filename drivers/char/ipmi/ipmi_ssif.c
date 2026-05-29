@@ -2127,7 +2127,7 @@ static void ssif_platform_remove(struct platform_device *dev)
 }
 
 static const struct platform_device_id ssif_plat_ids[] = {
-    { "dmi-ipmi-ssif", 0 },
+    { .name = "dmi-ipmi-ssif" },
     { }
 };
 MODULE_DEVICE_TABLE(platform, ssif_plat_ids);
