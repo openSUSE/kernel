@@ -15,6 +15,7 @@
 #include <linux/regulator/consumer.h>
 #include <sound/soc.h>
 #include <sound/pcm_params.h>
+#include <sound/tlv.h>
 #include "aw88261.h"
 #include "aw88395/aw88395_data_type.h"
 #include "aw88395/aw88395_device.h"
@@ -29,20 +30,10 @@ static const struct regmap_config aw88261_remap_config = {
 
 static void aw88261_dev_set_volume(struct aw_device *aw_dev, unsigned int value)
 {
-	struct aw_volume_desc *vol_desc = &aw_dev->volume_desc;
-	unsigned int real_value, volume;
-	unsigned int reg_value;
+	unsigned int volume = min(value, (unsigned int)AW88261_MUTE_VOL);
 
-	volume = min((value + vol_desc->init_volume), (unsigned int)AW88261_MUTE_VOL);
-	real_value = DB_TO_REG_VAL(volume);
-
-	regmap_read(aw_dev->regmap, AW88261_SYSCTRL2_REG, &reg_value);
-
-	real_value = (real_value | (reg_value & AW88261_VOL_START_MASK));
-
-	dev_dbg(aw_dev->dev, "value 0x%x , real_value:0x%x", value, real_value);
-
-	regmap_write(aw_dev->regmap, AW88261_SYSCTRL2_REG, real_value);
+	regmap_update_bits(aw_dev->regmap, AW88261_SYSCTRL2_REG,
+		~AW88261_VOL_MASK, DB_TO_REG_VAL(volume));
 }
 
 static void aw88261_dev_i2s_tx_enable(struct aw_device *aw_dev, bool flag)
@@ -994,7 +985,8 @@ static int aw88261_volume_get(struct snd_kcontrol *kcontrol,
 	struct aw88261 *aw88261 = snd_soc_component_get_drvdata(codec);
 	struct aw_volume_desc *vol_desc = &aw88261->aw_pa->volume_desc;
 
-	ucontrol->value.integer.value[0] = vol_desc->ctl_volume;
+	ucontrol->value.integer.value[0] =
+		(AW88261_MUTE_VOL - vol_desc->ctl_volume) / 2;
 
 	return 0;
 }
@@ -1007,12 +999,12 @@ static int aw88261_volume_set(struct snd_kcontrol *kcontrol,
 	struct aw_volume_desc *vol_desc = &aw88261->aw_pa->volume_desc;
 	struct soc_mixer_control *mc =
 		(struct soc_mixer_control *)kcontrol->private_value;
-	int value;
-
-	value = ucontrol->value.integer.value[0];
+	int value = ucontrol->value.integer.value[0];
 
 	if (value < mc->min || value > mc->max)
 		return -EINVAL;
+
+	value = AW88261_MUTE_VOL - (value * 2);
 
 	if (vol_desc->ctl_volume != value) {
 		vol_desc->ctl_volume = value;
@@ -1024,10 +1016,18 @@ static int aw88261_volume_set(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+/*
+ * The field contains 4 bits in units of 6dB + 6 bits in units of 0.125dB
+ * which is too precise for TLV (!) so we have to multiply the scale by 2.
+ *
+ * The range is clamped at -90dB to prevent overflowing the 4-bit part.
+ */
+static const DECLARE_TLV_DB_SCALE(volume_tlv, -9000, 25, 0);
+
 static const struct snd_kcontrol_new aw88261_controls[] = {
-	SOC_SINGLE_EXT("PCM Playback Volume", AW88261_SYSCTRL2_REG,
-		6, AW88261_MUTE_VOL, 0, aw88261_volume_get,
-		aw88261_volume_set),
+	SOC_SINGLE_EXT_TLV("PCM Playback Volume", AW88261_SYSCTRL2_REG,
+		6, AW88261_CTL_MAX_VOL, 1,
+		aw88261_volume_get, aw88261_volume_set, volume_tlv),
 	AW88261_PROFILE_EXT("Profile Set", aw88261_profile_info,
 		aw88261_profile_get, aw88261_profile_set),
 };
@@ -1278,7 +1278,7 @@ static int aw88261_init(struct aw88261 *aw88261, struct i2c_client *i2c, struct 
 	aw_dev->prof_info.prof_type = AW88395_DEV_NONE_TYPE_ID;
 	aw_dev->channel = 0;
 	aw_dev->fw_status = AW88261_DEV_FW_FAILED;
-	aw_dev->volume_desc.ctl_volume = AW88261_VOL_DEFAULT_VALUE;
+	aw_dev->volume_desc.ctl_volume = AW88261_CTL_DEFAULT_VOL;
 	aw_dev->volume_desc.mute_volume = AW88261_MUTE_VOL;
 	aw88261_parse_channel_dt(aw88261);
 
