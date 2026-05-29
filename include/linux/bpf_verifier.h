@@ -66,7 +66,6 @@ struct bpf_reg_state {
 
 		struct { /* for PTR_TO_MEM | PTR_TO_MEM_OR_NULL */
 			u32 mem_size;
-			u32 dynptr_id; /* for dynptr slices */
 		};
 
 		/* For dynptr stack slots */
@@ -148,46 +147,14 @@ struct bpf_reg_state {
 #define BPF_ADD_CONST32 (1U << 30)
 #define BPF_ADD_CONST (BPF_ADD_CONST64 | BPF_ADD_CONST32)
 	u32 id;
-	/* PTR_TO_SOCKET and PTR_TO_TCP_SOCK could be a ptr returned
-	 * from a pointer-cast helper, bpf_sk_fullsock() and
-	 * bpf_tcp_sock().
-	 *
-	 * Consider the following where "sk" is a reference counted
-	 * pointer returned from "sk = bpf_sk_lookup_tcp();":
-	 *
-	 * 1: sk = bpf_sk_lookup_tcp();
-	 * 2: if (!sk) { return 0; }
-	 * 3: fullsock = bpf_sk_fullsock(sk);
-	 * 4: if (!fullsock) { bpf_sk_release(sk); return 0; }
-	 * 5: tp = bpf_tcp_sock(fullsock);
-	 * 6: if (!tp) { bpf_sk_release(sk); return 0; }
-	 * 7: bpf_sk_release(sk);
-	 * 8: snd_cwnd = tp->snd_cwnd;  // verifier will complain
-	 *
-	 * After bpf_sk_release(sk) at line 7, both "fullsock" ptr and
-	 * "tp" ptr should be invalidated also.  In order to do that,
-	 * the reg holding "fullsock" and "sk" need to remember
-	 * the original refcounted ptr id (i.e. sk_reg->id) in ref_obj_id
-	 * such that the verifier can reset all regs which have
-	 * ref_obj_id matching the sk_reg->id.
-	 *
-	 * sk_reg->ref_obj_id is set to sk_reg->id at line 1.
-	 * sk_reg->id will stay as NULL-marking purpose only.
-	 * After NULL-marking is done, sk_reg->id can be reset to 0.
-	 *
-	 * After "fullsock = bpf_sk_fullsock(sk);" at line 3,
-	 * fullsock_reg->ref_obj_id is set to sk_reg->ref_obj_id.
-	 *
-	 * After "tp = bpf_tcp_sock(fullsock);" at line 5,
-	 * tp_reg->ref_obj_id is set to fullsock_reg->ref_obj_id
-	 * which is the same as sk_reg->ref_obj_id.
-	 *
-	 * From the verifier perspective, if sk, fullsock and tp
-	 * are not NULL, they are the same ptr with different
-	 * reg->type.  In particular, bpf_sk_release(tp) is also
-	 * allowed and has the same effect as bpf_sk_release(sk).
+	/*
+	 * Tracks the parent object this register was derived from.
+	 * Used for cascading invalidation: when the parent object is
+	 * released or invalidated, all registers with matching parent_id
+	 * are also invalidated. For example, a slice from bpf_dynptr_data()
+	 * gets parent_id set to the dynptr's id.
 	 */
-	u32 ref_obj_id;
+	u32 parent_id;
 	/* Inside the callee two registers can be both PTR_TO_STACK like
 	 * R1=fp-8 and R2=fp-8, but one of them points to this function stack
 	 * while another to the caller's stack. To differentiate them 'frameno'
@@ -364,10 +331,14 @@ struct bpf_reference_state {
 	 * is used purely to inform the user of a reference leak.
 	 */
 	int insn_idx;
-	/* Use to keep track of the source object of a lock, to ensure
-	 * it matches on unlock.
-	 */
-	void *ptr;
+	union {
+		/* For REF_TYPE_PTR */
+		int parent_id;
+		/* Use to keep track of the source object of a lock, to ensure
+		 * it matches on unlock.
+		 */
+		void *ptr;
+	};
 };
 
 struct bpf_retval_range {
@@ -585,7 +556,7 @@ bpf_get_spilled_stack_arg(int slot, struct bpf_func_state *frame)
 	     iter < frame->out_stack_arg_cnt;                          \
 	     iter++, reg = bpf_get_spilled_stack_arg(iter, frame))
 
-#define bpf_for_each_reg_in_vstate_mask(__vst, __state, __reg, __mask, __expr)   \
+#define bpf_for_each_reg_in_vstate_mask(__vst, __state, __reg, __stack, __mask, __expr)   \
 	({                                                               \
 		struct bpf_verifier_state *___vstate = __vst;            \
 		int ___i, ___j;                                          \
@@ -593,6 +564,7 @@ bpf_get_spilled_stack_arg(int slot, struct bpf_func_state *frame)
 			struct bpf_reg_state *___regs;                   \
 			__state = ___vstate->frame[___i];                \
 			___regs = __state->regs;                         \
+			__stack = NULL;                                  \
 			for (___j = 0; ___j < MAX_BPF_REG; ___j++) {     \
 				__reg = &___regs[___j];                  \
 				(void)(__expr);                          \
@@ -600,8 +572,10 @@ bpf_get_spilled_stack_arg(int slot, struct bpf_func_state *frame)
 			bpf_for_each_spilled_reg(___j, __state, __reg, __mask) { \
 				if (!__reg)                              \
 					continue;                        \
+				__stack = &__state->stack[___j];         \
 				(void)(__expr);                          \
 			}                                                \
+			__stack = NULL;                                  \
 			bpf_for_each_spilled_stack_arg(___j, __state, __reg) { \
 				if (!__reg)                              \
 					continue;                        \
@@ -611,8 +585,13 @@ bpf_get_spilled_stack_arg(int slot, struct bpf_func_state *frame)
 	})
 
 /* Invoke __expr over regsiters in __vst, setting __state and __reg */
-#define bpf_for_each_reg_in_vstate(__vst, __state, __reg, __expr) \
-	bpf_for_each_reg_in_vstate_mask(__vst, __state, __reg, 1 << STACK_SPILL, __expr)
+#define bpf_for_each_reg_in_vstate(__vst, __state, __reg, __expr)		\
+	({									\
+		struct bpf_stack_state * ___stack;                        	\
+		(void)___stack;							\
+		bpf_for_each_reg_in_vstate_mask(__vst, __state, __reg, ___stack,\
+						1 << STACK_SPILL, __expr);	\
+	})
 
 /* linked list of verifier states used to prune search */
 struct bpf_verifier_state_list {
@@ -1442,7 +1421,7 @@ struct bpf_map_desc {
 struct bpf_dynptr_desc {
 	enum bpf_dynptr_type type;
 	u32 id;
-	u32 ref_obj_id;
+	u32 parent_id;
 };
 
 struct bpf_kfunc_call_arg_meta {
@@ -1453,7 +1432,7 @@ struct bpf_kfunc_call_arg_meta {
 	const struct btf_type *func_proto;
 	const char *func_name;
 	/* Out parameters */
-	u32 ref_obj_id;
+	u32 id;
 	u8 release_regno;
 	bool r0_rdonly;
 	u32 ret_btf_id;
