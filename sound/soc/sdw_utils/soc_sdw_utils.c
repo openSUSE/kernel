@@ -1629,7 +1629,9 @@ const char *asoc_sdw_get_codec_name(struct device *dev,
 				__func__, component->name, dai_info->codec_name);
 			return devm_kstrdup(dev, component->name, GFP_KERNEL);
 		} else {
-			return devm_kstrdup(dev, dai_info->codec_name, GFP_KERNEL);
+			dev_dbg(dev, "%s component %s is not registered yet\n",
+				__func__, dai_info->codec_name);
+			return ERR_PTR(-EPROBE_DEFER);
 		}
 	}
 
@@ -2021,7 +2023,9 @@ int asoc_sdw_parse_sdw_endpoints(struct snd_soc_card *card,
 						codec_info->auxs[j].codec_name);
 					soc_aux->dlc.name = component->name;
 				} else {
-					soc_aux->dlc.name = codec_info->auxs[j].codec_name;
+					dev_dbg(dev, "%s the aux component %s is not registered yet\n",
+						__func__, codec_info->auxs[j].codec_name);
+					return -EPROBE_DEFER;
 				}
 				soc_aux++;
 			}
@@ -2121,6 +2125,8 @@ int asoc_sdw_parse_sdw_endpoints(struct snd_soc_card *card,
 
 				codec_name = asoc_sdw_get_codec_name(dev, dai_info,
 								     adr_link, i);
+				if (IS_ERR(codec_name))
+					return PTR_ERR(codec_name);
 				if (!codec_name)
 					return -ENOMEM;
 
