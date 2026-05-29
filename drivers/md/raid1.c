@@ -2418,11 +2418,6 @@ static void fix_read_error(struct r1conf *conf, struct r1bio *r1_bio)
 	struct mddev *mddev = conf->mddev;
 	struct md_rdev *rdev = conf->mirrors[read_disk].rdev;
 
-	if (exceed_read_errors(mddev, rdev)) {
-		r1_bio->bios[r1_bio->read_disk] = IO_BLOCKED;
-		return;
-	}
-
 	while(sectors) {
 		int s = sectors;
 		int d = read_disk;
@@ -2659,7 +2654,10 @@ static void handle_read_error(struct r1conf *conf, struct r1bio *r1_bio)
 		md_error(mddev, rdev);
 	} else {
 		freeze_array(conf, 1);
-		fix_read_error(conf, r1_bio);
+		if (exceed_read_errors(mddev, rdev))
+			r1_bio->bios[r1_bio->read_disk] = IO_BLOCKED;
+		else
+			fix_read_error(conf, r1_bio);
 		unfreeze_array(conf);
 	}
 
