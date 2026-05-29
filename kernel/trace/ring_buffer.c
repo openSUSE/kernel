@@ -1929,6 +1929,12 @@ static int __rb_validate_buffer(struct buffer_page *bpage, int cpu,
 	 */
 	if (ret < 0 || (prev_ts && prev_ts > ts) || (next_ts && ts > next_ts)) {
 		local_set(&bpage->entries, 0);
+		/*
+		 * Note, the RB_MISSED_EVENTS is only set inside the main write
+		 * buffer by this verification logic. The normal ring buffer
+		 * has this bit set when the page is read and passed to the
+		 * consumers.
+		 */
 		local_set(&dpage->commit, RB_MISSED_EVENTS);
 		dpage->time_stamp = prev_ts ? prev_ts : next_ts;
 		ret = -1;
@@ -7232,6 +7238,14 @@ int ring_buffer_read_page(struct trace_buffer *buffer,
 			local_add(RB_MISSED_STORED, &dpage->commit);
 			size += sizeof(missed_events);
 		}
+		/*
+		 * Note, for the persistent ring buffer, the RB_MISSED_EVENTS
+		 * may have been set in the main buffer via the verification code.
+		 * But here, dpage is a copy of that page and has not yet had
+		 * the RB_MISSED_EVENTS set. As for the normal buffers,
+		 * the main write buffer does not set these bits and it needs
+		 * to be set here.
+		 */
 		local_add(RB_MISSED_EVENTS, &dpage->commit);
 	}
 
