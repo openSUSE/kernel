@@ -1424,6 +1424,18 @@ struct bpf_dynptr_desc {
 	u32 parent_id;
 };
 
+/*
+ * The last seen rereferenced object; Updated by update_ref_obj() when a register refers to a
+ * referenced object. Used when the helper or kfunc is releasing a referenced object, casting
+ * a referenced object, returning allocated memory derived from referenced object or creating
+ * a dynptr with a referenced object as parent.
+ */
+struct ref_obj_desc {
+	u32 id;
+	u32 parent_id;
+	u8 cnt;
+};
+
 struct bpf_kfunc_call_arg_meta {
 	/* In parameters */
 	struct btf *btf;
@@ -1432,7 +1444,6 @@ struct bpf_kfunc_call_arg_meta {
 	const struct btf_type *func_proto;
 	const char *func_name;
 	/* Out parameters */
-	u32 id;
 	u8 release_regno;
 	bool r0_rdonly;
 	u32 ret_btf_id;
@@ -1470,6 +1481,7 @@ struct bpf_kfunc_call_arg_meta {
 	} iter;
 	struct bpf_map_desc map;
 	struct bpf_dynptr_desc dynptr;
+	struct ref_obj_desc ref_obj;
 	u64 mem_size;
 };
 
