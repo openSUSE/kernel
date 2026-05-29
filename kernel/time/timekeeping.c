@@ -320,6 +320,7 @@ static __always_inline u64 tk_clock_read(const struct tk_read_base *tkr)
 
 	return clock->read(clock);
 }
+
 static inline void clocksource_disable_inline_read(void) { }
 static inline void clocksource_enable_inline_read(void) { }
 #endif
@@ -1187,6 +1188,18 @@ noinstr time64_t __ktime_get_real_seconds(void)
 	return tk->xtime_sec;
 }
 
+static inline u64 tk_clock_read_snapshot(const struct tk_read_base *tkr,
+					 struct clocksource_hw_snapshot *chs)
+{
+	struct clocksource *clock = READ_ONCE(tkr->clock);
+
+	if (unlikely(clock->read_snapshot))
+		return clock->read_snapshot(clock, chs);
+
+	return clock->read(clock);
+}
+
+
 /**
  * ktime_get_snapshot_id -  Simultaneously snapshot a given clock ID with
  *			    CLOCK_MONOTONIC_RAW and the underlying
@@ -1237,14 +1250,20 @@ void ktime_get_snapshot_id(clockid_t clock_id, struct system_time_snapshot *syst
 	tk = &tkd->timekeeper;
 
 	do {
+		struct clocksource_hw_snapshot chs = { };
+
 		seq = read_seqcount_begin(&tkd->seq);
 
 		/* Aux clocks can be invalid */
 		if (!tk->clock_valid)
 			return;
 
-		now = tk_clock_read(&tk->tkr_mono);
+		now = tk_clock_read_snapshot(&tk->tkr_mono, &chs);
 		systime_snapshot->cs_id = tk->tkr_mono.clock->id;
+
+		systime_snapshot->hw_cycles = chs.hw_cycles;
+		systime_snapshot->hw_csid = chs.hw_csid;
+
 		systime_snapshot->cs_was_changed_seq = tk->cs_was_changed_seq;
 		systime_snapshot->clock_was_set_seq = tk->clock_was_set_seq;
 

@@ -279,18 +279,24 @@ static inline bool ktime_get_aux_ts64(clockid_t id, struct timespec64 *kt) { ret
  * struct system_time_snapshot - Simultaneous time capture of CLOCK_MONOTONIC_RAW,
  *				 a selected CLOCK_* and the clocksource counter value
  * @cycles:		Clocksource counter value to produce the system times
+ * @hw_cycles:		For derived clocksources, the hardware counter value from
+ *			which @cycles was derived
  * @systime:		The system time of the selected CLOCK ID
  * @monoraw:		Monotonic raw system time
  * @cs_id:		Clocksource ID
+ * @hw_csid:		Clocksource ID of the underlying hardware counter for derived
+ *			clocksources which implement the read_snapshot() callback.
  * @clock_was_set_seq:	The sequence number of clock-was-set events
  * @cs_was_changed_seq:	The sequence number of clocksource change events
  * @valid:		True if the snapshot is valid
  */
 struct system_time_snapshot {
 	u64			cycles;
+	u64			hw_cycles;
 	ktime_t			systime;
 	ktime_t			monoraw;
 	enum clocksource_ids	cs_id;
+	enum clocksource_ids	hw_csid;
 	unsigned int		clock_was_set_seq;
 	u8			cs_was_changed_seq;
 	u8			valid;
