@@ -45,50 +45,6 @@ static void aw88261_dev_set_volume(struct aw_device *aw_dev, unsigned int value)
 	regmap_write(aw_dev->regmap, AW88261_SYSCTRL2_REG, real_value);
 }
 
-static void aw88261_dev_fade_in(struct aw_device *aw_dev)
-{
-	struct aw_volume_desc *desc = &aw_dev->volume_desc;
-	int fade_in_vol = desc->ctl_volume;
-	int fade_step = aw_dev->fade_step;
-	int i;
-
-	if (fade_step == 0 || aw_dev->fade_in_time == 0) {
-		aw88261_dev_set_volume(aw_dev, fade_in_vol);
-		return;
-	}
-
-	for (i = AW88261_MUTE_VOL; i >= fade_in_vol; i -= fade_step) {
-		aw88261_dev_set_volume(aw_dev, i);
-		usleep_range(aw_dev->fade_in_time,
-					aw_dev->fade_in_time + 10);
-	}
-
-	if (i != fade_in_vol)
-		aw88261_dev_set_volume(aw_dev, fade_in_vol);
-}
-
-static void aw88261_dev_fade_out(struct aw_device *aw_dev)
-{
-	struct aw_volume_desc *desc = &aw_dev->volume_desc;
-	int fade_step = aw_dev->fade_step;
-	int i;
-
-	if (fade_step == 0 || aw_dev->fade_out_time == 0) {
-		aw88261_dev_set_volume(aw_dev, AW88261_MUTE_VOL);
-		return;
-	}
-
-	for (i = desc->ctl_volume; i <= AW88261_MUTE_VOL; i += fade_step) {
-		aw88261_dev_set_volume(aw_dev, i);
-		usleep_range(aw_dev->fade_out_time, aw_dev->fade_out_time + 10);
-	}
-
-	if (i != AW88261_MUTE_VOL) {
-		aw88261_dev_set_volume(aw_dev, AW88261_MUTE_VOL);
-		usleep_range(aw_dev->fade_out_time, aw_dev->fade_out_time + 10);
-	}
-}
-
 static void aw88261_dev_i2s_tx_enable(struct aw_device *aw_dev, bool flag)
 {
 	if (flag)
@@ -122,13 +78,13 @@ static void aw88261_dev_amppd(struct aw_device *aw_dev, bool amppd)
 static void aw88261_dev_mute(struct aw_device *aw_dev, bool is_mute)
 {
 	if (is_mute) {
-		aw88261_dev_fade_out(aw_dev);
+		aw88261_dev_set_volume(aw_dev, AW88261_MUTE_VOL);
 		regmap_update_bits(aw_dev->regmap, AW88261_SYSCTRL_REG,
 				~AW88261_HMUTE_MASK, AW88261_HMUTE_ENABLE_VALUE);
 	} else {
 		regmap_update_bits(aw_dev->regmap, AW88261_SYSCTRL_REG,
 				~AW88261_HMUTE_MASK, AW88261_HMUTE_DISABLE_VALUE);
-		aw88261_dev_fade_in(aw_dev);
+		aw88261_dev_set_volume(aw_dev, aw_dev->volume_desc.ctl_volume);
 	}
 }
 
@@ -960,75 +916,6 @@ static struct snd_soc_dai_driver aw88261_dai[] = {
 	},
 };
 
-static int aw88261_get_fade_in_time(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
-	struct aw88261 *aw88261 = snd_soc_component_get_drvdata(component);
-	struct aw_device *aw_dev = aw88261->aw_pa;
-
-	ucontrol->value.integer.value[0] = aw_dev->fade_in_time;
-
-	return 0;
-}
-
-static int aw88261_set_fade_in_time(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
-	struct aw88261 *aw88261 = snd_soc_component_get_drvdata(component);
-	struct soc_mixer_control *mc =
-		(struct soc_mixer_control *)kcontrol->private_value;
-	struct aw_device *aw_dev = aw88261->aw_pa;
-	int time;
-
-	time = ucontrol->value.integer.value[0];
-
-	if (time < mc->min || time > mc->max)
-		return -EINVAL;
-
-	if (time != aw_dev->fade_in_time) {
-		aw_dev->fade_in_time = time;
-		return 1;
-	}
-
-	return 0;
-}
-
-static int aw88261_get_fade_out_time(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
-	struct aw88261 *aw88261 = snd_soc_component_get_drvdata(component);
-	struct aw_device *aw_dev = aw88261->aw_pa;
-
-	ucontrol->value.integer.value[0] = aw_dev->fade_out_time;
-
-	return 0;
-}
-
-static int aw88261_set_fade_out_time(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
-	struct aw88261 *aw88261 = snd_soc_component_get_drvdata(component);
-	struct soc_mixer_control *mc =
-		(struct soc_mixer_control *)kcontrol->private_value;
-	struct aw_device *aw_dev = aw88261->aw_pa;
-	int time;
-
-	time = ucontrol->value.integer.value[0];
-	if (time < mc->min || time > mc->max)
-		return -EINVAL;
-
-	if (time != aw_dev->fade_out_time) {
-		aw_dev->fade_out_time = time;
-		return 1;
-	}
-
-	return 0;
-}
-
 static int aw88261_dev_set_profile_index(struct aw_device *aw_dev, int index)
 {
 	/* check the index whether is valid */
@@ -1152,48 +1039,10 @@ static int aw88261_volume_set(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-static int aw88261_get_fade_step(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
-	struct aw88261 *aw88261 = snd_soc_component_get_drvdata(codec);
-
-	ucontrol->value.integer.value[0] = aw88261->aw_pa->fade_step;
-
-	return 0;
-}
-
-static int aw88261_set_fade_step(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
-	struct aw88261 *aw88261 = snd_soc_component_get_drvdata(codec);
-	struct soc_mixer_control *mc =
-		(struct soc_mixer_control *)kcontrol->private_value;
-	int value;
-
-	value = ucontrol->value.integer.value[0];
-	if (value < mc->min || value > mc->max)
-		return -EINVAL;
-
-	if (aw88261->aw_pa->fade_step != value) {
-		aw88261->aw_pa->fade_step = value;
-		return 1;
-	}
-
-	return 0;
-}
-
 static const struct snd_kcontrol_new aw88261_controls[] = {
 	SOC_SINGLE_EXT("PCM Playback Volume", AW88261_SYSCTRL2_REG,
 		6, AW88261_MUTE_VOL, 0, aw88261_volume_get,
 		aw88261_volume_set),
-	SOC_SINGLE_EXT("Fade Step", 0, 0, AW88261_MUTE_VOL, 0,
-		aw88261_get_fade_step, aw88261_set_fade_step),
-	SOC_SINGLE_EXT("Volume Ramp Up Step", 0, 0, FADE_TIME_MAX, FADE_TIME_MIN,
-		aw88261_get_fade_in_time, aw88261_set_fade_in_time),
-	SOC_SINGLE_EXT("Volume Ramp Down Step", 0, 0, FADE_TIME_MAX, FADE_TIME_MIN,
-		aw88261_get_fade_out_time, aw88261_set_fade_out_time),
 	AW88261_PROFILE_EXT("Profile Set", aw88261_profile_info,
 		aw88261_profile_get, aw88261_profile_set),
 };
@@ -1284,8 +1133,6 @@ static int aw88261_dev_init(struct aw88261 *aw88261, struct aw_container *aw_cfg
 	if (ret)
 		return ret;
 
-	aw_dev->fade_in_time = AW88261_500_US;
-	aw_dev->fade_out_time = AW88261_500_US;
 	aw_dev->prof_cur = AW88261_INIT_PROFILE;
 	aw_dev->prof_index = AW88261_INIT_PROFILE;
 
@@ -1456,7 +1303,6 @@ static int aw88261_init(struct aw88261 *aw88261, struct i2c_client *i2c, struct 
 	aw_dev->prof_info.prof_type = AW88395_DEV_NONE_TYPE_ID;
 	aw_dev->channel = 0;
 	aw_dev->fw_status = AW88261_DEV_FW_FAILED;
-	aw_dev->fade_step = AW88261_VOLUME_STEP_DB;
 	aw_dev->volume_desc.ctl_volume = AW88261_VOL_DEFAULT_VALUE;
 	aw_dev->volume_desc.mute_volume = AW88261_MUTE_VOL;
 	aw88261_parse_channel_dt(aw88261);
