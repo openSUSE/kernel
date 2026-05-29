@@ -2063,11 +2063,20 @@ const struct cpumask *tl_mc_mask(struct sched_domain_topology_level *tl, int cpu
 	return cpu_coregroup_mask(cpu);
 }
 
-#define llc_mask(cpu) cpu_coregroup_mask(cpu)
+/*
+ * Majority of architectures have LLC at MC domain level with exception
+ * such as powerpc. Provide a way for arch to specify where its LLC is
+ * if it falls in exception category
+ */
+# ifndef arch_llc_mask
+#define arch_llc_mask(cpu) cpu_coregroup_mask(cpu)
+# endif
 
 #else
-#define llc_mask(cpu) cpumask_of(cpu)
+#define arch_llc_mask(cpu) cpumask_of(cpu)
 #endif
+
+#define llc_mask(cpu) arch_llc_mask(cpu)
 
 const struct cpumask *tl_pkg_mask(struct sched_domain_topology_level *tl, int cpu)
 {
