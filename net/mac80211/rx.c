@@ -3952,6 +3952,15 @@ ieee80211_rx_h_action(struct ieee80211_rx_data *rx)
 			break;
 
 		switch (mgmt->u.action.action_code) {
+		case IEEE80211_PROTECTED_UHR_ACTION_LINK_RECONFIG_REQUEST:
+			if (sdata->vif.type != NL80211_IFTYPE_AP)
+				break;
+			if (len < IEEE80211_MIN_ACTION_SIZE(uhr_link_reconf_req))
+				goto invalid;
+			if (mgmt->u.action.uhr_link_reconf_req.type !=
+			    IEEE80211_UHR_LINK_RECONFIG_REQUEST_OMP_REQUEST)
+				break;
+			goto queue;
 		case IEEE80211_PROTECTED_UHR_ACTION_LINK_RECONFIG_NOTIFY:
 			if (sdata->vif.type != NL80211_IFTYPE_STATION)
 				break;

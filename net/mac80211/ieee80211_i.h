@@ -1146,6 +1146,7 @@ struct ieee80211_link_data {
 
 	struct {
 		enum ieee80211_sta_rx_bandwidth he_and_lower;
+		enum ieee80211_sta_rx_bandwidth eht; /* and UHR non-DBE */
 	} bss_bw;
 
 #ifdef CONFIG_MAC80211_DEBUGFS
@@ -2003,6 +2004,7 @@ bool ieee80211_is_our_addr(struct ieee80211_sub_if_data *sdata,
 /* AP code */
 void ieee80211_ap_rx_queued_frame(struct ieee80211_sub_if_data *sdata,
 				  struct sk_buff *skb);
+void ieee80211_uhr_disable_dbe_all_stas(struct ieee80211_link_data *link);
 
 /* STA code */
 void ieee80211_sta_setup_sdata(struct ieee80211_sub_if_data *sdata);

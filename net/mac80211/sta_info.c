@@ -3701,10 +3701,14 @@ ieee80211_sta_usable_bw(struct link_sta_info *link_sta,
 	if (WARN_ON(!link))
 		return IEEE80211_STA_RX_BW_20;
 
-	if (link_sta->pub->eht_cap.has_eht)
-		return bw;
+	if (!link_sta->pub->eht_cap.has_eht)
+		return min(bw, link->bss_bw.he_and_lower);
 
-	return min(bw, link->bss_bw.he_and_lower);
+	if (!link_sta->pub->uhr_cap.has_uhr ||
+	    !link_sta->uhr_dbe_enabled)
+		return min(bw, link->bss_bw.eht);
+
+	return bw;
 }
 
 static enum ieee80211_sta_rx_bandwidth

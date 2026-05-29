@@ -628,4 +628,20 @@ struct ieee80211_uhr_mode_change_tuple {
 	u8 variable[];
 } __packed;
 
+static inline int
+ieee80211_uhr_mode_change_tuple_size(const struct ieee80211_uhr_mode_change_tuple *tuple)
+{
+	return sizeof(*tuple) +
+	       le16_get_bits(tuple->control,
+			     IEEE80211_UHR_MODE_CHANGE_CONTROL_MODE_LENGTH);
+}
+
+#define for_each_uhr_mode_change_tuple(data, len, tuple)		\
+	for (tuple = (const void *)(data);				\
+	     (len) - ((const u8 *)tuple - (data)) >= sizeof(*tuple) &&	\
+	     (len) - ((const u8 *)tuple - (data)) >=			\
+		ieee80211_uhr_mode_change_tuple_size(tuple);		\
+	     tuple = (const void *)((const u8 *)tuple +			\
+				    ieee80211_uhr_mode_change_tuple_size(tuple)))
+
 #endif /* LINUX_IEEE80211_UHR_H */

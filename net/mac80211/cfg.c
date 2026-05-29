@@ -1391,6 +1391,36 @@ ieee80211_calc_ap_he_and_lower(struct cfg80211_beacon_data *params)
 	return IEEE80211_STA_RX_BW_20;
 }
 
+static enum ieee80211_sta_rx_bandwidth
+ieee80211_calc_ap_eht_bw(struct cfg80211_beacon_data *params,
+			 enum ieee80211_sta_rx_bandwidth he_and_lower)
+{
+	const struct ieee80211_eht_operation_info *info;
+
+	if (!params->eht_oper)
+		return he_and_lower;
+
+	info = ieee80211_eht_oper_info(params->eht_oper);
+	if (!info)
+		return he_and_lower;
+
+	switch (u8_get_bits(info->control, IEEE80211_EHT_OPER_CHAN_WIDTH)) {
+	case IEEE80211_EHT_OPER_CHAN_WIDTH_20MHZ:
+		return IEEE80211_STA_RX_BW_20;
+	case IEEE80211_EHT_OPER_CHAN_WIDTH_40MHZ:
+		return IEEE80211_STA_RX_BW_40;
+	case IEEE80211_EHT_OPER_CHAN_WIDTH_80MHZ:
+		return IEEE80211_STA_RX_BW_80;
+	case IEEE80211_EHT_OPER_CHAN_WIDTH_160MHZ:
+		return IEEE80211_STA_RX_BW_160;
+	case IEEE80211_EHT_OPER_CHAN_WIDTH_320MHZ:
+		return IEEE80211_STA_RX_BW_320;
+	}
+
+	/* invalid setting, assume 20 MHz */
+	return IEEE80211_STA_RX_BW_20;
+}
+
 static void ieee80211_update_ap_bandwidth(struct ieee80211_link_data *link,
 					  struct cfg80211_beacon_data *params)
 {
@@ -1415,6 +1445,8 @@ static void ieee80211_update_ap_bandwidth(struct ieee80211_link_data *link,
 		return;
 
 	link->bss_bw.he_and_lower = ieee80211_calc_ap_he_and_lower(params);
+	link->bss_bw.eht = ieee80211_calc_ap_eht_bw(params,
+						    link->bss_bw.he_and_lower);
 
 	chanctx_conf = sdata_dereference(link->conf->chanctx_conf, link->sdata);
 	chanctx = container_of(chanctx_conf, struct ieee80211_chanctx, conf);
@@ -4468,6 +4500,9 @@ static int __ieee80211_csa_finalize(struct ieee80211_link_data *link_data)
 		return err;
 
 	ieee80211_link_info_change_notify(sdata, link_data, changed);
+
+	if (sdata->vif.type == NL80211_IFTYPE_AP)
+		ieee80211_uhr_disable_dbe_all_stas(link_data);
 
 	ieee80211_vif_unblock_queues_csa(sdata);
 

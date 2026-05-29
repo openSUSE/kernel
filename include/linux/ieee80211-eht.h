@@ -394,13 +394,23 @@ ieee80211_eht_oper_size_ok(const u8 *data, u8 len)
 }
 
 /* must validate ieee80211_eht_oper_size_ok() first */
+static inline const struct ieee80211_eht_operation_info *
+ieee80211_eht_oper_info(const struct ieee80211_eht_operation *eht_oper)
+{
+	if (!(eht_oper->params & IEEE80211_EHT_OPER_INFO_PRESENT))
+		return NULL;
+
+	return (const void *)eht_oper->optional;
+}
+
+/* must validate ieee80211_eht_oper_size_ok() first */
 static inline u16
 ieee80211_eht_oper_dis_subchan_bitmap(const struct ieee80211_eht_operation *eht_oper)
 {
-	const struct ieee80211_eht_operation_info *info =
-		(const void *)eht_oper->optional;
+	const struct ieee80211_eht_operation_info *info;
 
-	if (!(eht_oper->params & IEEE80211_EHT_OPER_INFO_PRESENT))
+	info = ieee80211_eht_oper_info(eht_oper);
+	if (!info)
 		return 0;
 
 	if (!(eht_oper->params & IEEE80211_EHT_OPER_DISABLED_SUBCHANNEL_BITMAP_PRESENT))

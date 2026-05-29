@@ -514,6 +514,8 @@ struct ieee80211_fragment_cache {
  * @uhr_usable_tx_width: bandwidth restriction for UHR for TX, only when
  *	the link_sta is an AP, to restrict TX to BSS width during DBE
  *	enablement
+ * @uhr_dbe_enabled: for STAs as clients to an AP interface indicates
+ *	DBE is enabled by the STA
  * @debugfs_dir: debug filesystem directory dentry
  * @pub: public (driver visible) link STA data
  */
@@ -566,6 +568,8 @@ struct link_sta_info {
 					rx_omi_bw_tx,
 					rx_omi_bw_staging;
 	enum ieee80211_sta_rx_bandwidth uhr_usable_tx_width;
+
+	bool uhr_dbe_enabled;
 
 #ifdef CONFIG_MAC80211_DEBUGFS
 	struct dentry *debugfs_dir;
