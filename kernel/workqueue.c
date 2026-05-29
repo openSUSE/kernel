@@ -5802,7 +5802,7 @@ static struct workqueue_struct *__alloc_workqueue(const char *fmt,
 
 	/* see the comment above the definition of WQ_POWER_EFFICIENT */
 	if ((flags & WQ_POWER_EFFICIENT) && wq_power_efficient)
-		flags |= WQ_UNBOUND;
+		flags = (flags & ~WQ_PERCPU) | WQ_UNBOUND;
 
 	/* allocate wq and format name */
 	if (flags & WQ_UNBOUND)
@@ -5825,6 +5825,23 @@ static struct workqueue_struct *__alloc_workqueue(const char *fmt,
 	if (name_len >= WQ_NAME_LEN)
 		pr_warn_once("workqueue: name exceeds WQ_NAME_LEN. Truncating to: %s\n",
 			     wq->name);
+
+	/*
+	 * One among WQ_PERCPU and WQ_UNBOUND must be set, but not both.
+	 * - If neither is set, default to WQ_PERCPU
+	 * - If both are set, default to WQ_UNBOUND
+	 *
+	 * This code can be removed after workqueue are unbound by default
+	 */
+	if (unlikely(!(flags & (WQ_UNBOUND | WQ_PERCPU)))) {
+		WARN_ONCE(1, "workqueue: %s is using neither WQ_PERCPU or WQ_UNBOUND. "
+			  "Setting WQ_PERCPU.\n", wq->name);
+		flags |= WQ_PERCPU;
+	} else if (unlikely((flags & WQ_PERCPU) && (flags & WQ_UNBOUND))) {
+		WARN_ONCE(1, "workqueue: %s uses both WQ_PERCPU and WQ_UNBOUND. "
+			  "Dropped WQ_PERCPU, keeping WQ_UNBOUND.\n", wq->name);
+		flags &= ~WQ_PERCPU;
+	}
 
 	if (flags & WQ_BH) {
 		/*
