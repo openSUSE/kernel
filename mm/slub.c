@@ -3751,6 +3751,7 @@ static bool get_partial_node_bulk(struct kmem_cache *s,
 				  bool allow_spin)
 {
 	struct slab *slab, *slab2;
+	struct slab *first = NULL, *last = NULL;
 	unsigned int total_free = 0;
 	unsigned long flags;
 
@@ -3769,8 +3770,15 @@ static bool get_partial_node_bulk(struct kmem_cache *s,
 		struct freelist_counters flc;
 		unsigned int slab_free;
 
-		if (!pfmemalloc_match(slab, pc->flags))
+		if (!pfmemalloc_match(slab, pc->flags)) {
+			if (first) {
+				list_bulk_move_tail(&pc->slabs,
+						    &first->slab_list,
+						    &last->slab_list);
+				first = NULL;
+			}
 			continue;
+		}
 
 		/*
 		 * determine the number of free objects in the slab racily
@@ -3787,14 +3795,19 @@ static bool get_partial_node_bulk(struct kmem_cache *s,
 		    && total_free + slab_free > pc->max_objects)
 			break;
 
-		remove_partial(n, slab);
-
-		list_add(&slab->slab_list, &pc->slabs);
+		if (!first)
+			first = slab;
+		last = slab;
+		clear_node_partial_state(n, slab);
 
 		total_free += slab_free;
 		if (total_free >= pc->max_objects)
 			break;
 	}
+
+	if (first)
+		list_bulk_move_tail(&pc->slabs, &first->slab_list,
+				    &last->slab_list);
 
 	spin_unlock_irqrestore(&n->list_lock, flags);
 	return total_free > 0;
@@ -7205,11 +7218,10 @@ __refill_objects_node(struct kmem_cache *s, void **p, gfp_t gfp, unsigned int mi
 	if (!list_empty(&pc.slabs)) {
 		spin_lock_irqsave(&n->list_lock, flags);
 
-		list_for_each_entry_safe(slab, slab2, &pc.slabs, slab_list) {
+		list_for_each_entry(slab, &pc.slabs, slab_list)
+			set_node_partial_state(n, slab);
 
-			list_del(&slab->slab_list);
-			add_partial(n, slab, ADD_TO_TAIL);
-		}
+		list_splice_tail(&pc.slabs, &n->partial);
 
 		spin_unlock_irqrestore(&n->list_lock, flags);
 	}
