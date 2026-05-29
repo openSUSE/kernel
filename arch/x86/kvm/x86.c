@@ -10433,8 +10433,6 @@ int ____kvm_emulate_hypercall(struct kvm_vcpu *vcpu, int cpl,
 
 	++vcpu->stat.hypercalls;
 
-	trace_kvm_hypercall(nr, a0, a1, a2, a3);
-
 	if (!op_64_bit) {
 		nr &= 0xFFFFFFFF;
 		a0 &= 0xFFFFFFFF;
@@ -10442,6 +10440,8 @@ int ____kvm_emulate_hypercall(struct kvm_vcpu *vcpu, int cpl,
 		a2 &= 0xFFFFFFFF;
 		a3 &= 0xFFFFFFFF;
 	}
+
+	trace_kvm_hypercall(nr, a0, a1, a2, a3);
 
 	if (cpl) {
 		ret = -KVM_EPERM;
