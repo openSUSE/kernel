@@ -4871,9 +4871,9 @@ static void kvm_vcpu_ioctl_x86_get_xsave2(struct kvm_vcpu *vcpu,
 	if (fpstate_is_confidential(&vcpu->arch.guest_fpu))
 		return;
 
-	fpu_copy_guest_fpstate_to_uabi(&vcpu->arch.guest_fpu, state, size,
-				       vcpu->arch.guest_fpu.fpstate->user_xfeatures,
-				       vcpu->arch.pkru);
+	fpu_copy_guest_fpstate_to_uabi_new(&vcpu->arch.guest_fpu, state, size,
+					   vcpu->arch.guest_fpu.fpstate->user_xfeatures,
+					   vcpu->arch.pkru);
 }
 
 static void kvm_vcpu_ioctl_x86_get_xsave(struct kvm_vcpu *vcpu,

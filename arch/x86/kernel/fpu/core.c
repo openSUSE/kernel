@@ -262,8 +262,9 @@ int fpu_swap_kvm_fpstate(struct fpu_guest *guest_fpu, bool enter_guest)
 }
 EXPORT_SYMBOL_GPL(fpu_swap_kvm_fpstate);
 
-void fpu_copy_guest_fpstate_to_uabi(struct fpu_guest *gfpu, void *buf,
-				    unsigned int size, u64 xfeatures, u32 pkru)
+void fpu_copy_guest_fpstate_to_uabi_new(struct fpu_guest *gfpu, void *buf,
+					unsigned int size, u64 xfeatures,
+					u32 pkru)
 {
 	struct fpstate *kstate = gfpu->fpstate;
 	union fpregs_state *ustate = buf;
@@ -278,6 +279,13 @@ void fpu_copy_guest_fpstate_to_uabi(struct fpu_guest *gfpu, void *buf,
 		/* Make it restorable on a XSAVE enabled host */
 		ustate->xsave.header.xfeatures = XFEATURE_MASK_FPSSE;
 	}
+}
+EXPORT_SYMBOL_GPL(fpu_copy_guest_fpstate_to_uabi_new);
+
+void fpu_copy_guest_fpstate_to_uabi(struct fpu_guest *gfpu, void *buf,
+				    unsigned int size, u32 pkru)
+{
+	fpu_copy_guest_fpstate_to_uabi_new(gfpu, buf, size, ~0, pkru);
 }
 EXPORT_SYMBOL_GPL(fpu_copy_guest_fpstate_to_uabi);
 
