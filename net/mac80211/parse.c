@@ -54,7 +54,7 @@ struct ieee80211_elems_parse {
 	/* must be first for kfree to work */
 	struct ieee802_11_elems elems;
 
-	struct ieee80211_elem_defrag ml_reconf, ml_epcs;
+	struct ieee80211_elem_defrag ml_reconf, ml_epcs, ml_basic;
 
 	bool inside_multilink;
 	bool skip_vendor;
@@ -169,6 +169,9 @@ ieee80211_parse_extension_element(u32 *crc,
 						IEEE80211_PARSE_ERR_DUP_NEST_ML_BASIC;
 					break;
 				}
+				elems_parse->ml_basic.elem = elem;
+				elems_parse->ml_basic.start = params->start;
+				elems_parse->ml_basic.len = params->len;
 				break;
 			case IEEE80211_ML_CONTROL_TYPE_RECONF:
 				elems_parse->ml_reconf.elem = elem;
@@ -1155,6 +1158,10 @@ ieee802_11_parse_elems_full(struct ieee80211_elems_parse_params *params)
 	elems->ml_epcs = ieee80211_mle_defrag(elems_parse,
 					      &elems_parse->ml_epcs,
 					      &elems->ml_epcs_len);
+	if (!elems->ml_basic)
+		elems->ml_basic = ieee80211_mle_defrag(elems_parse,
+						       &elems_parse->ml_basic,
+						       &elems->ml_basic_len);
 
 	if (elems->tim && !elems->parse_error) {
 		const struct ieee80211_tim_ie *tim_ie = elems->tim;
