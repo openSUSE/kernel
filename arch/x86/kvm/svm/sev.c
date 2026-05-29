@@ -4418,7 +4418,6 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 	struct vcpu_svm *svm = to_svm(vcpu);
 	struct vmcb_control_area *control = &svm->vmcb->control;
 	u64 ghcb_gpa;
-	int ret;
 
 	/* Validate the GHCB */
 	ghcb_gpa = control->ghcb_gpa;
@@ -4503,12 +4502,12 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 	case SVM_EXIT_WBINVD:
 	case SVM_EXIT_MONITOR:
 	case SVM_EXIT_MWAIT:
-		ret = svm_invoke_exit_handler(vcpu, control->exit_code);
-		break;
+		return svm_invoke_exit_handler(vcpu, control->exit_code);
 	case SVM_VMGEXIT_MMIO_READ:
 	case SVM_VMGEXIT_MMIO_WRITE: {
 		bool is_write = control->exit_code == SVM_VMGEXIT_MMIO_WRITE;
 		u64 len = control->exit_info_2;
+		int r;
 
 		if (!len)
 			return 1;
@@ -4518,24 +4517,21 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 			return 1;
 		}
 
-		ret = setup_vmgexit_scratch(svm, !is_write, len);
-		if (ret)
-			break;
+		r = setup_vmgexit_scratch(svm, !is_write, len);
+		if (r)
+			return r;
 
-		ret = kvm_sev_es_mmio(vcpu, is_write, control->exit_info_1, len,
-				      svm->sev_es.ghcb_sa);
-		break;
+		return kvm_sev_es_mmio(vcpu, is_write, control->exit_info_1, len,
+				       svm->sev_es.ghcb_sa);
 	}
 	case SVM_VMGEXIT_NMI_COMPLETE:
 		++vcpu->stat.nmi_window_exits;
 		svm->nmi_masked = false;
 		kvm_make_request(KVM_REQ_EVENT, vcpu);
-		ret = 1;
-		break;
+		return 1;
 	case SVM_VMGEXIT_AP_HLT_LOOP:
 		svm->sev_es.ap_reset_hold_type = AP_RESET_HOLD_NAE_EVENT;
-		ret = kvm_emulate_ap_reset_hold(vcpu);
-		break;
+		return kvm_emulate_ap_reset_hold(vcpu);
 	case SVM_VMGEXIT_AP_JUMP_TABLE: {
 		struct kvm_sev_info *sev = to_kvm_sev_info(vcpu->kvm);
 
@@ -4553,14 +4549,11 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 			       control->exit_info_1);
 			svm_vmgexit_bad_input(svm, GHCB_ERR_INVALID_INPUT);
 		}
-
-		ret = 1;
-		break;
+		return 1;
 	}
 	case SVM_VMGEXIT_HV_FEATURES:
 		svm_vmgexit_success(svm, GHCB_HV_FT_SUPPORTED);
-		ret = 1;
-		break;
+		return 1;
 	case SVM_VMGEXIT_TERM_REQUEST:
 		pr_info("SEV-ES guest requested termination: reason %#llx info %#llx\n",
 			control->exit_info_1, control->exit_info_2);
@@ -4568,23 +4561,20 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 		vcpu->run->system_event.type = KVM_SYSTEM_EVENT_SEV_TERM;
 		vcpu->run->system_event.ndata = 1;
 		vcpu->run->system_event.data[0] = control->ghcb_gpa;
-		ret = 0;
-		break;
-	case SVM_VMGEXIT_PSC:
-		ret = setup_vmgexit_scratch(svm, true, sizeof(struct psc_hdr));
-		if (ret)
-			break;
+		return 0;
+	case SVM_VMGEXIT_PSC: {
+		int r;
 
-		ret = snp_begin_psc(svm);
-		break;
+		r = setup_vmgexit_scratch(svm, true, sizeof(struct psc_hdr));
+		if (r)
+			return r;
+
+		return snp_begin_psc(svm);
+	}
 	case SVM_VMGEXIT_AP_CREATION:
-		ret = sev_snp_ap_creation(svm);
-		if (ret) {
+		if (sev_snp_ap_creation(svm))
 			svm_vmgexit_bad_input(svm, GHCB_ERR_INVALID_INPUT);
-		}
-
-		ret = 1;
-		break;
+		return 1;
 	case SVM_VMGEXIT_GUEST_REQUEST:
 	case SVM_VMGEXIT_EXT_GUEST_REQUEST:
 		if (!PAGE_ALIGNED(control->exit_info_1) ||
@@ -4595,12 +4585,11 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 		}
 
 		if (control->exit_code == SVM_VMGEXIT_GUEST_REQUEST)
-			ret = snp_handle_guest_req(svm, control->exit_info_1,
-						   control->exit_info_2);
-		else
-			ret = snp_handle_ext_guest_req(svm, control->exit_info_1,
-						       control->exit_info_2);
-		break;
+			return snp_handle_guest_req(svm, control->exit_info_1,
+						    control->exit_info_2);
+
+		return snp_handle_ext_guest_req(svm, control->exit_info_1,
+						control->exit_info_2);
 	case SVM_VMGEXIT_UNSUPPORTED_EVENT:
 		/*
 		 * Note, the _guest_ is reporting an unsupported #VC, i.e. this
@@ -4609,17 +4598,16 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 		vcpu_unimpl(vcpu,
 			    "vmgexit: unsupported event - exit_info_1=%#llx, exit_info_2=%#llx\n",
 			    control->exit_info_1, control->exit_info_2);
-		ret = -EINVAL;
-		break;
+		return -EINVAL;
 	default:
 		vcpu_unimpl(vcpu, "vmgexit: exit code %#llx is not valid\n",
 			    control->exit_code);
 		svm_vmgexit_bad_input(svm, GHCB_ERR_INVALID_EVENT);
-		ret = 1;
-		break;
+		return 1;
 	}
 
-	return ret;
+	KVM_BUG_ON(1, vcpu->kvm);
+	return -EIO;
 }
 
 int sev_es_string_io(struct vcpu_svm *svm, int size, unsigned int port, int in)
