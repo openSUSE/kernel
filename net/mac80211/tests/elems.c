@@ -97,6 +97,46 @@ static const struct mesh_preq_parse_test_case {
 
 KUNIT_ARRAY_PARAM_DESC(mesh_preq_parse, mesh_preq_parse_cases, desc);
 
+static const struct mesh_prep_parse_test_case {
+	const char *desc;
+	u8 len;
+	bool ae_enabled;
+	bool result;
+} mesh_prep_parse_cases[] = {
+	{
+		.desc = "shorter than header",
+		.len = 12,
+		.ae_enabled = false,
+		.result = false,
+	},
+	{
+		.desc = "non AE short",
+		.len = 30,
+		.ae_enabled = false,
+		.result = false,
+	},
+	{
+		.desc = "non AE",
+		.len = 31,
+		.ae_enabled = false,
+		.result = true,
+	},
+	{
+		.desc = "AE short",
+		.len = 36,
+		.ae_enabled = true,
+		.result = false,
+	},
+	{
+		.desc = "AE",
+		.len = 37,
+		.ae_enabled = true,
+		.result = true,
+	},
+};
+
+KUNIT_ARRAY_PARAM_DESC(mesh_prep_parse, mesh_prep_parse_cases, desc);
+
 static void mle_defrag(struct kunit *test)
 {
 	struct ieee80211_elems_parse_params parse_params = {
@@ -195,9 +235,22 @@ static void mesh_preq_parse(struct kunit *test)
 			params->result);
 }
 
+static void mesh_prep_parse(struct kunit *test)
+{
+	const struct mesh_prep_parse_test_case *params = test->param_value;
+	u8 data[64] = {};
+	struct ieee80211_mesh_hwmp_prep_top *top = (void *)data;
+	top->flags = params->ae_enabled ? AE_F : 0;
+
+	KUNIT_EXPECT_EQ(test,
+			ieee80211_mesh_prep_size_ok(data, params->len),
+			params->result);
+}
+
 static struct kunit_case element_parsing_test_cases[] = {
 	KUNIT_CASE(mle_defrag),
 	KUNIT_CASE_PARAM(mesh_preq_parse, mesh_preq_parse_gen_params),
+	KUNIT_CASE_PARAM(mesh_prep_parse, mesh_prep_parse_gen_params),
 	{}
 };
 
