@@ -243,8 +243,10 @@ impl fmt::Display for Spec {
 }
 
 /// Structure holding the resources required to operate the GPU.
-#[pin_data]
+#[pin_data(PinnedDrop)]
 pub(crate) struct Gpu<'gpu> {
+    /// Device owning the GPU.
+    device: &'gpu device::Device<device::Bound>,
     spec: Spec,
     /// MMIO mapping of PCI BAR 0.
     bar: &'gpu Bar0,
@@ -266,6 +268,7 @@ impl<'gpu> Gpu<'gpu> {
         bar: &'gpu Bar0,
     ) -> impl PinInit<Self, Error> + 'gpu {
         try_pin_init!(Self {
+            device: pdev.as_ref(),
             spec: Spec::new(pdev.as_ref(), bar).inspect(|spec| {
                 dev_info!(pdev,"NVIDIA ({})\n", spec);
             })?,
@@ -292,5 +295,21 @@ impl<'gpu> Gpu<'gpu> {
 
             _: { gsp.boot(pdev, bar, spec.chipset, gsp_falcon, sec2_falcon)? },
         })
+    }
+}
+
+#[pinned_drop]
+impl PinnedDrop for Gpu<'_> {
+    fn drop(self: Pin<&mut Self>) {
+        let this = self.project();
+        let device = *this.device;
+        let bar = *this.bar;
+
+        let _ = this
+            .gsp
+            .as_ref()
+            .get_ref()
+            .unload(device, bar, &*this.gsp_falcon)
+            .inspect_err(|e| dev_err!(device, "failed to unload GSP: {:?}\n", e));
     }
 }
