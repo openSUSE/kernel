@@ -114,8 +114,8 @@ iwl_mld_get_tlc_cmd_flags(struct iwl_mld *mld,
 	}
 
 	if (uhr_cap && uhr_cap->has_uhr && own_uhr_cap &&
-	    uhr_cap->phy.cap & IEEE80211_UHR_PHY_CAP_ELR_RX &&
-	    own_uhr_cap->phy.cap & IEEE80211_UHR_PHY_CAP_ELR_TX)
+	    uhr_cap->phy.cap & cpu_to_le32(IEEE80211_UHR_PHY_CAP_ELR_RX) &&
+	    own_uhr_cap->phy.cap & cpu_to_le32(IEEE80211_UHR_PHY_CAP_ELR_TX))
 		flags |= IWL_TLC_MNG_CFG_FLAGS_UHR_ELR_1_5_MBPS_MSK |
 			 IWL_TLC_MNG_CFG_FLAGS_UHR_ELR_3_MBPS_MSK;
 
