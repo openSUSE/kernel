@@ -71,6 +71,21 @@ struct ieee80211_mesh_hwmp_prep_bottom {
 	__le32 orig_sn;
 } __packed;
 
+struct ieee80211_mesh_hwmp_perr_dst {
+	u8 flags;
+	u8 addr[ETH_ALEN];
+	__le32 sn;
+	/* optional Destination External Address */
+	u8 variable[];
+} __packed;
+
+struct ieee80211_mesh_hwmp_perr {
+	u8 ttl;
+	u8 number_of_dst;
+	/* Destinations */
+	u8 variable[];
+} __packed;
+
 /* Mesh flags */
 #define MESH_FLAGS_AE_A4 	0x1
 #define MESH_FLAGS_AE_A5_A6	0x2
@@ -294,6 +309,53 @@ ieee80211_mesh_hwmp_prep_get_bottom(const u8 *ie)
 
 	return (void *)&top->variable[
 		ieee80211_mesh_preq_prep_ae_enabled(ie) ? ETH_ALEN : 0];
+}
+
+static inline struct ieee80211_mesh_hwmp_perr_dst *
+ieee80211_mesh_hwmp_perr_get_dst(const u8 *ie, u8 dst_idx)
+{
+	struct ieee80211_mesh_hwmp_perr *perr_ie = (void *)ie;
+	struct ieee80211_mesh_hwmp_perr_dst *dst;
+	u8 *pos = perr_ie->variable;
+	int i;
+
+	for (i = 0; i < dst_idx + 1; i++) {
+		dst = (void *)pos;
+		pos += sizeof(struct ieee80211_mesh_hwmp_perr_dst) +
+			  ((dst->flags & AE_F) ? ETH_ALEN : 0)
+			  /* Destination External Address */ +
+			  2 /* Reason Code */;
+	}
+
+	return dst;
+}
+
+static inline u8 *
+ieee80211_mesh_hwmp_perr_get_addr(const u8 *ie, u8 dst_idx)
+{
+	struct ieee80211_mesh_hwmp_perr_dst *dst =
+		ieee80211_mesh_hwmp_perr_get_dst(ie, dst_idx);
+
+	return dst->addr;
+}
+
+static inline u32
+ieee80211_mesh_hwmp_perr_get_sn(const u8 *ie, u8 dst_idx)
+{
+	struct ieee80211_mesh_hwmp_perr_dst *dst =
+		ieee80211_mesh_hwmp_perr_get_dst(ie, dst_idx);
+
+	return le32_to_cpu(dst->sn);
+}
+
+static inline u16
+ieee80211_mesh_hwmp_perr_get_rcode(const u8 *ie, u8 dst_idx)
+{
+	struct ieee80211_mesh_hwmp_perr_dst *dst =
+		ieee80211_mesh_hwmp_perr_get_dst(ie, dst_idx);
+
+	return get_unaligned_le16(&dst->variable[
+		(dst->flags & AE_F) ? ETH_ALEN : 0]);
 }
 
 #endif /* LINUX_IEEE80211_MESH_H */
