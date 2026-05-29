@@ -389,7 +389,7 @@ ieee80211_determine_ap_chan(struct ieee80211_sub_if_data *sdata,
 	}
 
 check_uhr:
-	if (conn->mode < IEEE80211_CONN_MODE_UHR || !uhr_oper)
+	if (conn->mode < IEEE80211_CONN_MODE_UHR || !uhr_oper || !elems->ml_basic)
 		return IEEE80211_CONN_MODE_EHT;
 
 	if (elems->frame_type != (IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_BEACON)) {
