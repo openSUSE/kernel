@@ -3775,3 +3775,26 @@ ieee80211_sta_current_bw(struct link_sta_info *link_sta,
 	/* unreachable */
 	return IEEE80211_STA_RX_BW_20;
 }
+
+bool ieee80211_link_sta_update_rc_bw(struct ieee80211_link_data *link,
+				     struct link_sta_info *link_sta)
+{
+	struct ieee80211_sub_if_data *sdata = link->sdata;
+	struct ieee80211_supported_band *sband;
+	enum ieee80211_sta_rx_bandwidth new_bw;
+	enum nl80211_band band;
+
+	band = link->conf->chanreq.oper.chan->band;
+	sband = sdata->local->hw.wiphy->bands[band];
+
+	new_bw = ieee80211_sta_current_bw(link_sta, &link->conf->chanreq.oper,
+					  IEEE80211_STA_BW_TX_TO_STA);
+	if (link_sta->pub->bandwidth == new_bw)
+		return false;
+
+	link_sta->pub->bandwidth = new_bw;
+	rate_control_rate_update(sdata->local, sband, link_sta,
+				 IEEE80211_RC_BW_CHANGED);
+
+	return true;
+}

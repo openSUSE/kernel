@@ -1015,6 +1015,9 @@ ieee80211_sta_current_bw(struct link_sta_info *link_sta,
 			 struct cfg80211_chan_def *chandef,
 			 enum ieee80211_sta_bw_direction direction);
 
+bool ieee80211_link_sta_update_rc_bw(struct ieee80211_link_data *link,
+				     struct link_sta_info *link_sta);
+
 enum sta_stats_type {
 	STA_STATS_RATE_TYPE_INVALID = 0,
 	STA_STATS_RATE_TYPE_LEGACY,
