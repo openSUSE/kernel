@@ -708,6 +708,31 @@ int uverbs_get_flags32(u32 *to, const struct uverbs_attr_bundle *attrs_bundle,
 }
 EXPORT_SYMBOL(uverbs_get_flags32);
 
+/**
+ * uverbs_get_buffer_desc - Read a buffer descriptor from a uverbs attr.
+ * @attrs_bundle: uverbs attribute bundle.
+ * @attr_id:      id of an UVERBS_ATTR_UMEM-typed attribute.
+ * @desc:         descriptor to fill.
+ *
+ * Return: 0 on success, -ENOENT if @attr_id is not set, -EINVAL on a
+ * malformed descriptor, or any other negative errno propagated from
+ * uverbs_copy_from() (notably -EFAULT on copy_from_user() failure).
+ */
+int uverbs_get_buffer_desc(const struct uverbs_attr_bundle *attrs_bundle,
+			   u16 attr_id, struct ib_uverbs_buffer_desc *desc)
+{
+	int ret;
+
+	ret = uverbs_copy_from(desc, attrs_bundle, attr_id);
+	if (ret)
+		return ret;
+	if (desc->flags & ~IB_UVERBS_BUFFER_DESC_FLAGS_KNOWN_MASK)
+		return -EINVAL;
+	desc->optional_flags &= IB_UVERBS_BUFFER_DESC_OPTIONAL_FLAGS_KNOWN_MASK;
+	return 0;
+}
+EXPORT_SYMBOL(uverbs_get_buffer_desc);
+
 /* Once called an abort will call through to the type's destroy_hw() */
 void uverbs_finalize_uobj_create(const struct uverbs_attr_bundle *bundle,
 				 u16 idx)
