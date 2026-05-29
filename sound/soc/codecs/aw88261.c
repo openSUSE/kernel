@@ -651,17 +651,7 @@ static void aw88261_start_pa(struct aw88261 *aw88261)
 		dev_err(aw88261->aw_pa->dev, "start failure (%d)\n", ret);
 }
 
-static void aw88261_startup_work(struct work_struct *work)
-{
-	struct aw88261 *aw88261 =
-		container_of(work, struct aw88261, start_work.work);
-
-	mutex_lock(&aw88261->lock);
-	aw88261_start_pa(aw88261);
-	mutex_unlock(&aw88261->lock);
-}
-
-static void aw88261_start(struct aw88261 *aw88261, bool sync_start)
+static void aw88261_start(struct aw88261 *aw88261)
 {
 	if (aw88261->aw_pa->fw_status != AW88261_DEV_FW_OK)
 		return;
@@ -669,12 +659,7 @@ static void aw88261_start(struct aw88261 *aw88261, bool sync_start)
 	if (aw88261->aw_pa->status == AW88261_DEV_PW_ON)
 		return;
 
-	if (sync_start == AW88261_SYNC_START)
-		aw88261_start_pa(aw88261);
-	else
-		queue_delayed_work(system_dfl_wq,
-			&aw88261->start_work,
-			AW88261_START_WORK_DELAY_MS);
+	aw88261_start_pa(aw88261);
 }
 
 static int aw88261_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
@@ -994,7 +979,7 @@ static int aw88261_profile_set(struct snd_kcontrol *kcontrol,
 
 	if (aw88261->aw_pa->status) {
 		aw88261_dev_stop(aw88261->aw_pa);
-		aw88261_start(aw88261, AW88261_SYNC_START);
+		aw88261_start(aw88261);
 	}
 
 	mutex_unlock(&aw88261->lock);
@@ -1056,7 +1041,7 @@ static int aw88261_playback_event(struct snd_soc_dapm_widget *w,
 	mutex_lock(&aw88261->lock);
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
-		aw88261_start(aw88261, AW88261_ASYNC_START);
+		aw88261_start(aw88261);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
 		aw88261_dev_stop(aw88261->aw_pa);
@@ -1216,8 +1201,6 @@ static int aw88261_codec_probe(struct snd_soc_component *component)
 	struct aw88261 *aw88261 = snd_soc_component_get_drvdata(component);
 	int ret;
 
-	INIT_DELAYED_WORK(&aw88261->start_work, aw88261_startup_work);
-
 	ret = aw88261_request_firmware_file(aw88261);
 	if (ret)
 		return dev_err_probe(aw88261->aw_pa->dev, ret,
@@ -1241,16 +1224,8 @@ static int aw88261_codec_probe(struct snd_soc_component *component)
 	return ret;
 }
 
-static void aw88261_codec_remove(struct snd_soc_component *aw_codec)
-{
-	struct aw88261 *aw88261 = snd_soc_component_get_drvdata(aw_codec);
-
-	cancel_delayed_work_sync(&aw88261->start_work);
-}
-
 static const struct snd_soc_component_driver soc_codec_dev_aw88261 = {
 	.probe = aw88261_codec_probe,
-	.remove = aw88261_codec_remove,
 };
 
 static void aw88261_parse_channel_dt(struct aw88261 *aw88261)
