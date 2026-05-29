@@ -297,19 +297,6 @@ struct system_time_snapshot {
 };
 
 /**
- * struct system_device_crosststamp - system/device cross-timestamp
- *				      (synchronized capture)
- * @device:		Device time
- * @sys_realtime:	Realtime simultaneous with device time
- * @sys_monoraw:	Monotonic raw simultaneous with device time
- */
-struct system_device_crosststamp {
-	ktime_t device;
-	ktime_t sys_realtime;
-	ktime_t sys_monoraw;
-};
-
-/**
  * struct system_counterval_t - system counter value with the ID of the
  *				corresponding clocksource
  * @cycles:	System counter value
@@ -323,6 +310,21 @@ struct system_counterval_t {
 	u64			cycles;
 	enum clocksource_ids	cs_id;
 	bool			use_nsecs;
+};
+
+/**
+ * struct system_device_crosststamp - system/device cross-timestamp
+ *				      (synchronized capture)
+ * @device:		Device time
+ * @sys_counter:	Clocksource counter value simultaneous with device time
+ * @sys_realtime:	Realtime simultaneous with device time
+ * @sys_monoraw:	Monotonic raw simultaneous with device time
+ */
+struct system_device_crosststamp {
+	ktime_t				device;
+	struct system_counterval_t	sys_counter;
+	ktime_t				sys_realtime;
+	ktime_t				sys_monoraw;
 };
 
 extern bool ktime_real_to_base_clock(ktime_t treal,
