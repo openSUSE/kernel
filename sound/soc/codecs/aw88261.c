@@ -10,6 +10,7 @@
 
 #include <linux/i2c.h>
 #include <linux/firmware.h>
+#include <linux/bitops.h>
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
 #include <sound/soc.h>
@@ -181,6 +182,30 @@ static int aw88261_dev_configure_syspll(struct aw88261 *aw88261)
 	struct aw_device *aw_dev = aw88261->aw_pa;
 	int ret;
 
+	/* Configure TDM slots (I2S is represented as no slots) */
+	ret = regmap_update_bits(aw_dev->regmap, AW88261_I2SCTRL2_REG,
+			~AW88261_SLOT_NUM_MASK, aw88261->slot_num_value);
+	if (ret)
+		return ret;
+
+	ret = regmap_update_bits(aw_dev->regmap, AW88261_I2SCTRL2_REG,
+			~AW88261_I2S_TX_SLOTVLD_MASK,
+			aw88261->tx_slotvld_mask);
+	if (ret)
+		return ret;
+
+	ret = regmap_update_bits(aw_dev->regmap, AW88261_I2SCTRL2_REG,
+			~AW88261_I2S_RXL_SLOTVLD_MASK,
+			aw88261->rxl_slotvld_mask);
+	if (ret)
+		return ret;
+
+	ret = regmap_update_bits(aw_dev->regmap, AW88261_I2SCTRL2_REG,
+			~AW88261_I2S_RXR_SLOTVLD_MASK,
+			aw88261->rxr_slotvld_mask);
+	if (ret)
+		return ret;
+
 	/* PLL divider must be used for 8/16/32 kHz modes */
 	ret = regmap_update_bits(aw_dev->regmap, AW88261_PLLCTRL1_REG,
 			~AW88261_CCO_MUX_MASK, aw88261->cco_mux_value);
@@ -195,7 +220,9 @@ static int aw88261_dev_configure_syspll(struct aw88261 *aw88261)
 
 	/* The bit clock (BCK) defines the length of a frame */
 	ret = regmap_update_bits(aw_dev->regmap, AW88261_I2SCTRL1_REG,
-			~AW88261_I2SBCK_MASK, aw88261->bck_value);
+			~AW88261_I2SBCK_MASK,
+			(aw88261->tdm_bck_value != AW88261_TDM_BCK_UNSET)
+			? aw88261->tdm_bck_value : aw88261->bck_value);
 	if (ret)
 		return ret;
 
@@ -710,9 +737,11 @@ static int aw88261_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
+	case SND_SOC_DAIFMT_DSP_A:
 		aw88261->md_value = AW88261_I2SMD_PHILIPS_STANDARD_VALUE;
 		break;
 	case SND_SOC_DAIFMT_MSB:
+	case SND_SOC_DAIFMT_DSP_B:
 		aw88261->md_value = AW88261_I2SMD_MSB_JUSTIFIED_VALUE;
 		break;
 	case SND_SOC_DAIFMT_LSB:
@@ -819,9 +848,90 @@ static int aw88261_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+static int aw88261_set_tdm_slot(struct snd_soc_dai *dai,
+	unsigned int tx_mask, unsigned int rx_mask, int slots, int slot_width)
+{
+	struct snd_soc_component *component = dai->component;
+	struct aw88261 *aw88261 = snd_soc_component_get_drvdata(component);
+	int chan;
+
+	switch (slots) {
+	case 0:
+		/* Just reset everything TDM related to I2S values */
+		aw88261->slot_num_value = AW88261_SLOT_NUM_I2S_MODE_VALUE;
+		aw88261->tdm_bck_value = AW88261_TDM_BCK_UNSET;
+		aw88261->tx_slotvld_mask = 0 << AW88261_I2S_TX_SLOTVLD_START_BIT;
+		aw88261->rxl_slotvld_mask = 0 << AW88261_I2S_RXL_SLOTVLD_START_BIT;
+		aw88261->rxr_slotvld_mask = 1 << AW88261_I2S_RXR_SLOTVLD_START_BIT;
+		return 0;
+	case 1:
+		aw88261->slot_num_value = AW88261_SLOT_NUM_TDM1S_VALUE;
+		break;
+	case 2:
+		aw88261->slot_num_value = AW88261_SLOT_NUM_TDM2S_VALUE;
+		break;
+	case 4:
+		aw88261->slot_num_value = AW88261_SLOT_NUM_TDM4S_VALUE;
+		break;
+	case 6:
+		aw88261->slot_num_value = AW88261_SLOT_NUM_TDM6S_VALUE;
+		break;
+	case 8:
+		aw88261->slot_num_value = AW88261_SLOT_NUM_TDM8S_VALUE;
+		break;
+	case 16:
+		aw88261->slot_num_value = AW88261_SLOT_NUM_TDM16S_VALUE;
+		break;
+	default:
+		dev_err(aw88261->aw_pa->dev, "unsupported slot count %d\n", slots);
+		return -EINVAL;
+	}
+
+	switch (slot_width) {
+	case 16:
+		aw88261->tdm_bck_value = AW88261_I2SBCK_32FS_VALUE;
+		break;
+	case 20:
+	case 24:
+		aw88261->tdm_bck_value = AW88261_I2SBCK_48FS_VALUE;
+		break;
+	case 32:
+		aw88261->tdm_bck_value = AW88261_I2SBCK_64FS_VALUE;
+		break;
+	default:
+		dev_err(aw88261->aw_pa->dev, "unsupported slot width %d\n",
+			slot_width);
+		return -EINVAL;
+	}
+
+	if (tx_mask != 0) {
+		if ((chan = __ffs(tx_mask)) > 16)
+			return -EINVAL;
+
+		aw88261->tx_slotvld_mask = chan << AW88261_I2S_TX_SLOTVLD_START_BIT;
+	}
+
+	if (rx_mask != 0) {
+		if ((chan = __ffs(rx_mask)) > 16)
+			return -EINVAL;
+
+		aw88261->rxl_slotvld_mask = chan << AW88261_I2S_RXL_SLOTVLD_START_BIT;
+	}
+
+	if ((rx_mask & ~BIT(chan)) != 0) {
+		if ((chan = __ffs(rx_mask & ~BIT(chan))) > 16)
+			return -EINVAL;
+
+		aw88261->rxr_slotvld_mask = chan << AW88261_I2S_RXR_SLOTVLD_START_BIT;
+	}
+
+	return 0;
+}
+
 static const struct snd_soc_dai_ops aw88261_dai_ops = {
 	.set_fmt = aw88261_set_fmt,
 	.hw_params = aw88261_hw_params,
+	.set_tdm_slot = aw88261_set_tdm_slot,
 };
 
 static struct snd_soc_dai_driver aw88261_dai[] = {
@@ -1363,12 +1473,15 @@ static int aw88261_i2c_probe(struct i2c_client *i2c)
 		return -ENOMEM;
 
 	/* set defaults */
+	aw88261->slot_num_value = AW88261_SLOT_NUM_I2S_MODE_VALUE;
 	aw88261->sr_value = AW88261_I2SSR_48KHZ_VALUE;
 	aw88261->cco_mux_value = AW88261_CCO_MUX_BYPASS_VALUE;
 	aw88261->fs_value = AW88261_I2SFS_24_BITS_VALUE;
 	aw88261->bck_value = AW88261_I2SBCK_64FS_VALUE;
 	aw88261->bck_inv_value = AW88261_BCKINV_NOT_INVERT_VALUE;
+	aw88261->tdm_bck_value = AW88261_TDM_BCK_UNSET;
 	aw88261->md_value = AW88261_I2SMD_PHILIPS_STANDARD_VALUE;
+	aw88261->rxr_slotvld_mask = 1 << AW88261_I2S_RXR_SLOTVLD_START_BIT;
 
 	mutex_init(&aw88261->lock);
 
