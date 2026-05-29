@@ -137,6 +137,109 @@ static const struct mesh_prep_parse_test_case {
 
 KUNIT_ARRAY_PARAM_DESC(mesh_prep_parse, mesh_prep_parse_cases, desc);
 
+static const struct mesh_perr_parse_test_case {
+	const char *desc;
+	u8 len;
+	u8 number_of_dst;
+	int ae_enabled_idx;
+	bool result;
+} mesh_perr_parse_cases[] = {
+	{
+		.desc = "shorter than header",
+		.len = 1,
+		.number_of_dst = 1,
+		.ae_enabled_idx = -1,
+		.result = false,
+	},
+	{
+		.desc = "number_of_dst is 0",
+		.len = 2,
+		.number_of_dst = 0,
+		.ae_enabled_idx = -1,
+		.result = true,
+	},
+	{
+		.desc = "number_of_dst is 20",
+		.len = 255,
+		.number_of_dst = 20,
+		.ae_enabled_idx = -1,
+		.result = false,
+	},
+	{
+		.desc = "number_of_dst is 1, non AE, short",
+		.len = 14,
+		.number_of_dst = 1,
+		.ae_enabled_idx = -1,
+		.result = false,
+	},
+	{
+		.desc = "number_of_dst is 1, non AE",
+		.len = 15,
+		.number_of_dst = 1,
+		.ae_enabled_idx = -1,
+		.result = true,
+	},
+	{
+		.desc = "number_of_dst is 1, non AE, extra short dst header",
+		.len = 25,
+		.number_of_dst = 1,
+		.ae_enabled_idx = -1,
+		.result = false,
+	},
+	{
+		.desc = "number_of_dst is 1, non AE, extra dst header",
+		.len = 26,
+		.number_of_dst = 1,
+		.ae_enabled_idx = -1,
+		.result = false,
+	},
+	{
+		.desc = "number_of_dst is 1, AE, short",
+		.len = 20,
+		.number_of_dst = 1,
+		.ae_enabled_idx = 0,
+		.result = false,
+	},
+	{
+		.desc = "number_of_dst is 1, AE",
+		.len = 21,
+		.number_of_dst = 1,
+		.ae_enabled_idx = 0,
+		.result = true,
+	},
+	{
+		.desc = "number_of_dst is 19, non AE, short",
+		.len = 2 + 13 * 19 - 1,
+		.number_of_dst = 19,
+		.ae_enabled_idx = -1,
+		.result = false,
+	},
+	{
+		.desc = "number_of_dst is 19, non AE",
+		.len = 2 + 13 * 19,
+		.number_of_dst = 19,
+		.ae_enabled_idx = -1,
+		.result = true,
+	},
+	{
+		.desc = "number_of_dst is 19, AE, short",
+		.len = 2 + 13 * 19 + 6 - 1,
+		.number_of_dst = 19,
+		.ae_enabled_idx = 18,
+		.result = false,
+	},
+	{
+		.desc = "number_of_dst is 19, AE",
+		.len = 2 + 13 * 19 + 6,
+		.number_of_dst = 19,
+		.ae_enabled_idx = 18,
+		.result = true,
+	},
+};
+
+KUNIT_ARRAY_PARAM_DESC(mesh_perr_parse, mesh_perr_parse_cases, desc);
+
+
 static void mle_defrag(struct kunit *test)
 {
 	struct ieee80211_elems_parse_params parse_params = {
@@ -247,10 +350,31 @@ static void mesh_prep_parse(struct kunit *test)
 			params->result);
 }
 
+static void mesh_perr_parse(struct kunit *test)
+{
+	const struct mesh_perr_parse_test_case *params = test->param_value;
+	u8 data[256] = {};
+	struct ieee80211_mesh_hwmp_perr *perr = (void *)data;
+
+	perr->number_of_dst = params->number_of_dst;
+	if (params->ae_enabled_idx > -1) {
+		struct ieee80211_mesh_hwmp_perr_dst *dst =
+			ieee80211_mesh_hwmp_perr_get_dst(
+				data, params->ae_enabled_idx);
+
+		dst->flags = AE_F;
+	}
+
+	KUNIT_EXPECT_EQ(test,
+			ieee80211_mesh_perr_size_ok(data, params->len),
+			params->result);
+}
+
 static struct kunit_case element_parsing_test_cases[] = {
 	KUNIT_CASE(mle_defrag),
 	KUNIT_CASE_PARAM(mesh_preq_parse, mesh_preq_parse_gen_params),
 	KUNIT_CASE_PARAM(mesh_prep_parse, mesh_prep_parse_gen_params),
+	KUNIT_CASE_PARAM(mesh_perr_parse, mesh_perr_parse_gen_params),
 	{}
 };
 
