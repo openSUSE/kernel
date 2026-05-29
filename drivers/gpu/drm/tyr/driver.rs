@@ -6,11 +6,9 @@ use kernel::{
         OptionalClk, //
     },
     device::{
-        Bound,
         Core,
         Device, //
     },
-    devres::Devres,
     dma::{
         Device as DmaDevice,
         DmaMask, //
@@ -30,7 +28,6 @@ use kernel::{
     sizes::SZ_2M,
     sync::{
         aref::ARef,
-        Arc,
         Mutex, //
     },
     time, //
@@ -44,7 +41,7 @@ use crate::{
     regs::gpu_control::*, //
 };
 
-pub(crate) type IoMem = kernel::io::mem::IoMem<'static, SZ_2M>;
+pub(crate) type IoMem<'a> = kernel::io::mem::IoMem<'a, SZ_2M>;
 
 pub(crate) struct TyrDrmDriver;
 
@@ -74,15 +71,11 @@ pub(crate) struct TyrDrmDeviceData {
     pub(crate) gpu_info: GpuInfo,
 }
 
-fn issue_soft_reset(dev: &Device<Bound>, iomem: &Devres<IoMem>) -> Result {
-    let io = (*iomem).access(dev)?;
-    io.write_reg(GPU_COMMAND::reset(ResetMode::SoftReset));
+fn issue_soft_reset(dev: &Device, iomem: &IoMem<'_>) -> Result {
+    iomem.write_reg(GPU_COMMAND::reset(ResetMode::SoftReset));
 
     poll::read_poll_timeout(
-        || {
-            let io = (*iomem).access(dev)?;
-            Ok(io.read(GPU_IRQ_RAWSTAT))
-        },
+        || Ok(iomem.read(GPU_IRQ_RAWSTAT)),
         |status| status.reset_completed(),
         time::Delta::from_millis(1),
         time::Delta::from_millis(100),
@@ -123,12 +116,12 @@ impl platform::Driver for TyrPlatformDriver {
         let sram_regulator = Regulator::<regulator::Enabled>::get(pdev.as_ref(), c"sram")?;
 
         let request = pdev.io_request_by_index(0).ok_or(ENODEV)?;
-        let iomem = Arc::new(request.iomap_sized::<SZ_2M>()?.into_devres()?, GFP_KERNEL)?;
+        let iomem = request.iomap_sized::<SZ_2M>()?;
 
         issue_soft_reset(pdev.as_ref(), &iomem)?;
         gpu::l2_power_on(pdev.as_ref(), &iomem)?;
 
-        let gpu_info = GpuInfo::new(pdev.as_ref(), &iomem)?;
+        let gpu_info = GpuInfo::new(&iomem);
         gpu_info.log(pdev.as_ref());
 
         let pa_bits = MMU_FEATURES::from_raw(gpu_info.mmu_features)

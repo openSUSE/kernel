@@ -9,7 +9,6 @@ use kernel::{
         Bound,
         Device, //
     },
-    devres::Devres,
     io::{
         poll,
         register::Array,
@@ -40,10 +39,8 @@ use crate::{
 pub(crate) struct GpuInfo(pub(crate) uapi::drm_panthor_gpu_info);
 
 impl GpuInfo {
-    pub(crate) fn new(dev: &Device<Bound>, iomem: &Devres<IoMem>) -> Result<Self> {
-        let io = (*iomem).access(dev)?;
-
-        Ok(Self(uapi::drm_panthor_gpu_info {
+    pub(crate) fn new(io: &IoMem<'_>) -> Self {
+        Self(uapi::drm_panthor_gpu_info {
             gpu_id: io.read(GPU_ID).into_raw(),
             gpu_rev: io.read(REVIDR).into_raw(),
             csf_id: io.read(CSF_ID).into_raw(),
@@ -81,7 +78,7 @@ impl GpuInfo {
             pad: 0,
             //GPU_FEATURES register is not available; it was introduced in arch 11.x.
             gpu_features: 0,
-        }))
+        })
     }
 
     pub(crate) fn log(&self, dev: &Device<Bound>) {
@@ -163,15 +160,11 @@ const GPU_MODELS: [GpuModels; 1] = [GpuModels {
 }];
 
 /// Powers on the l2 block.
-pub(crate) fn l2_power_on(dev: &Device<Bound>, iomem: &Devres<IoMem>) -> Result {
-    let io = (*iomem).access(dev)?;
+pub(crate) fn l2_power_on(dev: &Device, io: &IoMem<'_>) -> Result {
     io.write_reg(L2_PWRON_LO::zeroed().with_const_request::<1>());
 
     poll::read_poll_timeout(
-        || {
-            let io = (*iomem).access(dev)?;
-            Ok(io.read(L2_READY_LO))
-        },
+        || Ok(io.read(L2_READY_LO)),
         |status| status.ready() == 1,
         Delta::from_millis(1),
         Delta::from_millis(100),
