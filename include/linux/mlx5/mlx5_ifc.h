@@ -4487,8 +4487,8 @@ struct mlx5_ifc_nic_vport_context_bits {
 	u8         promisc_all[0x1];
 	u8         reserved_at_783[0x2];
 	u8         allowed_list_type[0x3];
-	u8         reserved_at_788[0xc];
-	u8         allowed_list_size[0xc];
+	u8         reserved_at_788[0x8];
+	u8         allowed_list_size[0x10];
 
 	struct mlx5_ifc_mac_address_layout_bits permanent_address;
 
