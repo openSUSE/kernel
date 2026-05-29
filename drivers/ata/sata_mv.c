@@ -2398,6 +2398,7 @@ static struct ata_queued_cmd *mv_get_active_qc(struct ata_port *ap)
 }
 
 static void mv_pmp_error_handler(struct ata_port *ap)
+	__must_hold(&ap->host->eh_mutex)
 {
 	unsigned int pmp, pmp_map;
 	struct mv_port_priv *pp = ap->private_data;

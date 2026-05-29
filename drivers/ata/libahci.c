@@ -2208,6 +2208,7 @@ static void ahci_thaw(struct ata_port *ap)
 }
 
 void ahci_error_handler(struct ata_port *ap)
+	__must_hold(&ap->host->eh_mutex)
 {
 	struct ahci_host_priv *hpriv = ap->host->private_data;
 

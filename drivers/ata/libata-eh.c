@@ -469,6 +469,7 @@ static void ata_eh_clear_action(struct ata_link *link, struct ata_device *dev,
  *	EH context.
  */
 void ata_eh_acquire(struct ata_port *ap)
+	__acquires(&ap->host->eh_mutex)
 {
 	mutex_lock(&ap->host->eh_mutex);
 	WARN_ON_ONCE(ap->host->eh_owner);
@@ -486,6 +487,7 @@ void ata_eh_acquire(struct ata_port *ap)
  *	EH context.
  */
 void ata_eh_release(struct ata_port *ap)
+	__releases(&ap->host->eh_mutex)
 {
 	WARN_ON_ONCE(ap->host->eh_owner != current);
 	ap->host->eh_owner = NULL;
@@ -2833,6 +2835,7 @@ static bool ata_eh_followup_srst_needed(struct ata_link *link, int rc)
 
 int ata_eh_reset(struct ata_port *ap, struct ata_link *link, int classify,
 		 struct ata_reset_operations *reset_ops)
+	__must_hold(&ap->host->eh_mutex)
 {
 	struct ata_link *slave = ap->slave_link;
 	struct ata_eh_context *ehc = &link->eh_context;
@@ -3815,6 +3818,7 @@ static int ata_eh_handle_dev_fail(struct ata_device *dev, int err)
  */
 int ata_eh_recover(struct ata_port *ap, struct ata_reset_operations *reset_ops,
 		   struct ata_link **r_failed_link)
+	__must_hold(&ap->host->eh_mutex)
 {
 	struct ata_link *link;
 	struct ata_device *dev;
@@ -4112,6 +4116,7 @@ void ata_eh_finish(struct ata_port *ap)
  *	Kernel thread context (may sleep).
  */
 void ata_std_error_handler(struct ata_port *ap)
+	__must_hold(&ap->host->eh_mutex)
 {
 	struct ata_reset_operations *reset_ops = &ap->ops->reset;
 	struct ata_link *link = &ap->link;

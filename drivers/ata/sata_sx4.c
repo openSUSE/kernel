@@ -853,6 +853,7 @@ static int pdc_softreset(struct ata_link *link, unsigned int *class,
 }
 
 static void pdc_error_handler(struct ata_port *ap)
+	__must_hold(&ap->host->eh_mutex)
 {
 	if (!ata_port_is_frozen(ap))
 		pdc_reset_port(ap);

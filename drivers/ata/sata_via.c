@@ -573,6 +573,7 @@ static irqreturn_t vt642x_interrupt(int irq, void *dev_instance)
 }
 
 static void vt6421_error_handler(struct ata_port *ap)
+	__must_hold(&ap->host->eh_mutex)
 {
 	struct svia_priv *hpriv = ap->host->private_data;
 	struct pci_dev *pdev = to_pci_dev(ap->host->dev);

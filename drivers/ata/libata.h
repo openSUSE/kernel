@@ -173,8 +173,10 @@ void ata_scsi_requeue_deferred_qc(struct ata_port *ap);
 /* libata-eh.c */
 extern unsigned int ata_internal_cmd_timeout(struct ata_device *dev, u8 cmd);
 extern void ata_internal_cmd_timed_out(struct ata_device *dev, u8 cmd);
-extern void ata_eh_acquire(struct ata_port *ap);
-extern void ata_eh_release(struct ata_port *ap);
+extern void ata_eh_acquire(struct ata_port *ap)
+	__acquires(&ap->host->eh_mutex);
+extern void ata_eh_release(struct ata_port *ap)
+	__releases(&ap->host->eh_mutex);
 extern void ata_scsi_error(struct Scsi_Host *host);
 extern void ata_eh_fastdrain_timerfn(struct timer_list *t);
 extern void ata_qc_schedule_eh(struct ata_queued_cmd *qc);
@@ -188,10 +190,12 @@ extern void ata_eh_autopsy(struct ata_port *ap);
 const char *ata_get_cmd_name(u8 command);
 extern void ata_eh_report(struct ata_port *ap);
 extern int ata_eh_reset(struct ata_port *ap, struct ata_link *link,
-			int classify, struct ata_reset_operations *reset_ops);
+			int classify, struct ata_reset_operations *reset_ops)
+	__must_hold(&ap->host->eh_mutex);
 extern int ata_eh_recover(struct ata_port *ap,
 			  struct ata_reset_operations *reset_ops,
-			  struct ata_link **r_failed_disk);
+			  struct ata_link **r_failed_disk)
+	__must_hold(&ap->host->eh_mutex);
 extern void ata_eh_finish(struct ata_port *ap);
 extern int ata_ering_map(struct ata_ering *ering,
 			 int (*map_fn)(struct ata_ering_entry *, void *),

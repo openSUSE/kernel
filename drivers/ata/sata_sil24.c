@@ -1171,6 +1171,7 @@ static irqreturn_t sil24_interrupt(int irq, void *dev_instance)
 }
 
 static void sil24_error_handler(struct ata_port *ap)
+	__must_hold(&ap->host->eh_mutex)
 {
 	struct sil24_port_priv *pp = ap->private_data;
 

@@ -658,6 +658,7 @@ static void arasan_cf_freeze(struct ata_port *ap)
 }
 
 static void arasan_cf_error_handler(struct ata_port *ap)
+	__must_hold(&ap->host->eh_mutex)
 {
 	struct arasan_cf_dev *acdev = ap->host->private_data;
 
