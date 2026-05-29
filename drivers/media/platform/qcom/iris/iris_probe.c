@@ -266,7 +266,6 @@ static int iris_probe(struct platform_device *pdev)
 		return ret;
 
 	iris_init_ops(core);
-	core->iris_firmware_data->init_hfi_ops(core);
 
 	ret = iris_init_resources(core);
 	if (ret)
