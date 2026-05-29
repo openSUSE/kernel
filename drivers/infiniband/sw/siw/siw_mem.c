@@ -350,7 +350,7 @@ struct siw_umem *siw_umem_get(struct ib_device *base_dev, u64 start,
 	if (!umem)
 		return ERR_PTR(-ENOMEM);
 
-	base_mem = ib_umem_get(base_dev, start, len, rights);
+	base_mem = ib_umem_get_va(base_dev, start, len, rights);
 	if (IS_ERR(base_mem)) {
 		rv = PTR_ERR(base_mem);
 		siw_dbg(base_dev, "Cannot pin user memory: %d\n", rv);
@@ -385,7 +385,7 @@ struct siw_umem *siw_umem_get(struct ib_device *base_dev, u64 start,
 
 	if (num_pages) {
 		/*
-		 * Unexpected size of sg list provided by ib_umem_get()
+		 * Unexpected size of sg list provided by ib_umem_get_va()
 		 */
 		siw_dbg(base_dev, "Short SG list, missing %u pages\n",
 			num_pages);
