@@ -403,4 +403,40 @@ static inline bool ieee80211_mesh_prep_size_ok(const u8 *pos, u8 elen)
 	return elen == needed;
 }
 
+/* IEEE Std 802.11-2016 9.4.2.115 PERR element */
+static inline bool ieee80211_mesh_perr_size_ok(const u8 *pos, u8 elen)
+{
+	struct ieee80211_mesh_hwmp_perr *perr_elem = (void *)pos;
+	const u8 *start = pos;
+	u8 number_of_dst;
+	int needed;
+	int i;
+
+	needed = sizeof(struct ieee80211_mesh_hwmp_perr);
+
+	/* Check if the element contains number of dst */
+	if (elen < needed)
+		return false;
+
+	pos += sizeof(struct ieee80211_mesh_hwmp_perr);
+	number_of_dst = perr_elem->number_of_dst;
+
+	for (i = 0; i < number_of_dst; i++) {
+		struct ieee80211_mesh_hwmp_perr_dst *dst = (void *)pos;
+		u8 dst_len = sizeof(struct ieee80211_mesh_hwmp_perr_dst);
+
+		/* Check if the element contains flags */
+		if (elen < pos - start + dst_len)
+			return false;
+
+		dst_len += ((dst->flags & AE_F) ? ETH_ALEN : 0)
+			  /* Destination External Address */ +
+			  2 /* Reason Code */;
+		needed += dst_len;
+		pos += dst_len;
+	}
+
+	return elen == needed;
+}
+
 #endif /* LINUX_IEEE80211_MESH_H */
