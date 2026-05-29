@@ -97,13 +97,6 @@
 		regulator-always-on;
 	};
 
-	reg_rgb_sel: regulator-rgb-enable {
-		compatible = "regulator-fixed";
-		regulator-name = "RGBSEL";
-		gpio = <&pca9534 7 GPIO_ACTIVE_HIGH>;
-		enable-active-high;
-	};
-
 	reg_usdhc2_vmmc: regulator-usdhc2 {
 		compatible = "regulator-fixed";
 		regulator-name = "VSD_3V3";
@@ -258,7 +251,6 @@
 		#interrupt-cells = <2>;
 		interrupt-parent = <&gpio2>;
 		interrupts = <4 IRQ_TYPE_EDGE_FALLING>;
-		vcc-supply = <&reg_rgb_sel>;
 		wakeup-source;
 
 		tpm-enable-hog {
@@ -266,6 +258,14 @@
 			gpios = <4 GPIO_ACTIVE_HIGH>;
 			output-high;
 			line-name = "tpm_en";
+		};
+
+		/* RGB_SEL */
+		lvds-brg-enable-hog {
+			gpio-hog;
+			gpios = <7 GPIO_ACTIVE_HIGH>;
+			output-high;
+			line-name = "lvds_brg_en";
 		};
 	};
 
