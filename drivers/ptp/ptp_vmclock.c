@@ -132,7 +132,7 @@ static int vmclock_get_crosststamp(struct vmclock_state *st,
 		 * will be derived from the *same* counter value.
 		 *
 		 * If the system isn't using the same counter, then the value
-		 * from ktime_get_snapshot() will still be used as pre_ts, and
+		 * from ktime_get_snapshot_id() will still be used as pre_ts, and
 		 * ptp_read_system_postts() is called to populate postts after
 		 * calling get_cycles().
 		 *
@@ -140,7 +140,7 @@ static int vmclock_get_crosststamp(struct vmclock_state *st,
 		 * the seq_count loop.
 		 */
 		if (sts) {
-			ktime_get_snapshot(&systime_snapshot);
+			ktime_get_snapshot_id(CLOCK_REALTIME, &systime_snapshot);
 			if (systime_snapshot.cs_id == st->cs_id) {
 				cycle = systime_snapshot.cycles;
 			} else {
@@ -181,7 +181,7 @@ static int vmclock_get_crosststamp(struct vmclock_state *st,
 	}
 
 	if (sts) {
-		sts->pre_ts = ktime_to_timespec64(systime_snapshot.real);
+		sts->pre_ts = ktime_to_timespec64(systime_snapshot.systime);
 		if (systime_snapshot.cs_id == st->cs_id)
 			sts->post_ts = sts->pre_ts;
 	}
@@ -272,7 +272,7 @@ static int ptp_vmclock_getcrosststamp(struct ptp_clock_info *ptp,
 	if (ret == -ENODEV) {
 		struct system_time_snapshot systime_snapshot;
 
-		ktime_get_snapshot(&systime_snapshot);
+		ktime_get_snapshot_id(CLOCK_REALTIME, &systime_snapshot);
 
 		if (systime_snapshot.cs_id == CSID_X86_TSC ||
 		    systime_snapshot.cs_id == CSID_X86_KVM_CLK) {
