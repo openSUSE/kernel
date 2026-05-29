@@ -7169,7 +7169,6 @@ static void ieee80211_ml_reconf_work(struct wiphy *wiphy,
 		container_of(work, struct ieee80211_sub_if_data,
 			     u.mgd.ml_reconf_work.work);
 	u16 new_valid_links, new_active_links, new_dormant_links;
-	struct sta_info *sta;
 	int ret;
 
 	if (!sdata->u.mgd.removed_links)
@@ -7203,16 +7202,6 @@ static void ieee80211_ml_reconf_work(struct wiphy *wiphy,
 				   "Failed setting active links\n");
 			goto out;
 		}
-	}
-
-	sta = sta_info_get(sdata, sdata->vif.cfg.ap_addr);
-	if (sta) {
-		unsigned long removed_links = sdata->u.mgd.removed_links;
-		unsigned int link_id;
-
-		for_each_set_bit(link_id, &removed_links,
-				 IEEE80211_MLD_MAX_NUM_LINKS)
-			ieee80211_sta_remove_link(sta, link_id);
 	}
 
 	new_dormant_links = sdata->vif.dormant_links & ~sdata->u.mgd.removed_links;
@@ -11069,14 +11058,6 @@ int ieee80211_mgd_assoc_ml_reconf(struct ieee80211_sub_if_data *sdata,
 				   "mlo: reconf: failed set valid links\n");
 			kfree_skb(skb);
 			goto err_free;
-		}
-
-		for (link_id = 0; link_id < IEEE80211_MLD_MAX_NUM_LINKS;
-		     link_id++) {
-			if (!(req->rem_links & BIT(link_id)))
-				continue;
-
-			ieee80211_sta_remove_link(sta, link_id);
 		}
 
 		/* notify the driver and upper layers */
