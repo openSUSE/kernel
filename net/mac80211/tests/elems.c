@@ -9,6 +9,94 @@
 
 MODULE_IMPORT_NS("EXPORTED_FOR_KUNIT_TESTING");
 
+static const struct mesh_preq_parse_test_case {
+	const char *desc;
+	u8 len;
+	bool ae_enabled;
+	u8 target_count;
+	bool result;
+} mesh_preq_parse_cases[] = {
+	{
+		.desc = "shorter than header",
+		.len = 16,
+		.ae_enabled = false,
+		.target_count = 1,
+		.result = false,
+	},
+	{
+		.desc = "too short non AE, target count is not included",
+		.len = 29,
+		.ae_enabled = false,
+		.target_count = 1,
+		.result = false,
+	},
+	{
+		.desc = "too short non AE, target count is 1",
+		.len = 36,
+		.ae_enabled = false,
+		.target_count = 1,
+		.result = false,
+	},
+	{
+		.desc = "too short AE, target count is not included",
+		.len = 35,
+		.ae_enabled = true,
+		.target_count = 1,
+		.result = false,
+	},
+	{
+		.desc = "too short AE, target count is 1",
+		.len = 42,
+		.ae_enabled = true,
+		.target_count = 1,
+		.result = false,
+	},
+	{
+		.desc = "target count is zero",
+		.len = 26,
+		.ae_enabled = false,
+		.target_count = 0,
+		.result = false,
+	},
+	{
+		.desc = "target count is 21",
+		.len = 255,
+		.ae_enabled = false,
+		.target_count = 21,
+		.result = false,
+	},
+	{
+		.desc = "non AE, target count is 1",
+		.len = 37,
+		.ae_enabled = false,
+		.target_count = 1,
+		.result = true,
+	},
+	{
+		.desc = "non AE, target count is 20",
+		.len = 246,
+		.ae_enabled = false,
+		.target_count = 20,
+		.result = true,
+	},
+	{
+		.desc = "AE, target count is 1",
+		.len = 43,
+		.ae_enabled = true,
+		.target_count = 1,
+		.result = true,
+	},
+	{
+		.desc = "AE, target count is 20",
+		.len = 252,
+		.ae_enabled = true,
+		.target_count = 20,
+		.result = true,
+	},
+};
+
+KUNIT_ARRAY_PARAM_DESC(mesh_preq_parse, mesh_preq_parse_cases, desc);
+
 static void mle_defrag(struct kunit *test)
 {
 	struct ieee80211_elems_parse_params parse_params = {
@@ -91,8 +179,25 @@ free_skb:
 	kfree_skb(skb);
 }
 
+static void mesh_preq_parse(struct kunit *test)
+{
+	const struct mesh_preq_parse_test_case *params = test->param_value;
+	u8 data[64] = {};
+	struct ieee80211_mesh_hwmp_preq_top *top = (void *)data;
+	struct ieee80211_mesh_hwmp_preq_bottom *bottom;
+
+	top->flags = params->ae_enabled ? AE_F : 0;
+	bottom = ieee80211_mesh_hwmp_preq_get_bottom(data);
+	bottom->target_count = params->target_count;
+
+	KUNIT_EXPECT_EQ(test,
+			ieee80211_mesh_preq_size_ok(data, params->len),
+			params->result);
+}
+
 static struct kunit_case element_parsing_test_cases[] = {
 	KUNIT_CASE(mle_defrag),
+	KUNIT_CASE_PARAM(mesh_preq_parse, mesh_preq_parse_gen_params),
 	{}
 };
 
