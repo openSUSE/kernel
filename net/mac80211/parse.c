@@ -59,7 +59,7 @@ struct ieee80211_elems_parse {
 
 	struct ieee80211_elem_defrag ml_reconf, ml_epcs;
 
-	bool multi_link_inner;
+	bool inside_multilink;
 	bool skip_vendor;
 
 	/*
@@ -167,7 +167,7 @@ ieee80211_parse_extension_element(u32 *crc,
 			switch (le16_get_bits(mle->control,
 					      IEEE80211_ML_CONTROL_TYPE)) {
 			case IEEE80211_ML_CONTROL_TYPE_BASIC:
-				if (elems_parse->multi_link_inner) {
+				if (elems_parse->inside_multilink) {
 					elems->parse_error |=
 						IEEE80211_PARSE_ERR_DUP_NEST_ML_BASIC;
 					break;
@@ -1061,7 +1061,7 @@ ieee802_11_parse_elems_full(struct ieee80211_elems_parse_params *params)
 	const struct element *non_inherit = NULL;
 	struct ieee802_11_elems *elems;
 	size_t scratch_len = 3 * params->len;
-	bool multi_link_inner = false;
+	bool inside_multilink = false;
 
 	BUILD_BUG_ON(sizeof(empty_non_inheritance) != empty_non_inheritance[1] + 2);
 	BUILD_BUG_ON(offsetof(typeof(*elems_parse), elems) != 0);
@@ -1129,7 +1129,7 @@ ieee802_11_parse_elems_full(struct ieee80211_elems_parse_params *params)
 		/* must always parse to get elems_parse->ml_basic_elem */
 		non_inherit = ieee80211_prep_mle_link_parse(elems_parse, params,
 							    &sub);
-		multi_link_inner = true;
+		inside_multilink = true;
 	}
 
 	elems_parse->skip_vendor =
@@ -1140,7 +1140,7 @@ ieee802_11_parse_elems_full(struct ieee80211_elems_parse_params *params)
 
 	/* Override with nontransmitted/per-STA profile if found */
 	if (sub.len) {
-		elems_parse->multi_link_inner = multi_link_inner;
+		elems_parse->inside_multilink = inside_multilink;
 		elems_parse->skip_vendor = false;
 		_ieee802_11_parse_elems_full(&sub, elems_parse, NULL);
 	}
