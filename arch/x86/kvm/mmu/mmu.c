@@ -22,7 +22,7 @@
 #include "mmu_internal.h"
 #include "tdp_mmu.h"
 #include "x86.h"
-#include "kvm_cache_regs.h"
+#include "regs.h"
 #include "smm.h"
 #include "kvm_emulate.h"
 #include "page_track.h"

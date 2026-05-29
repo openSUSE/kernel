@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-#ifndef ASM_KVM_CACHE_REGS_H
-#define ASM_KVM_CACHE_REGS_H
+#ifndef ARCH_X86_KVM_REGS_H
+#define ARCH_X86_KVM_REGS_H
 
 #include <linux/kvm_host.h>
 

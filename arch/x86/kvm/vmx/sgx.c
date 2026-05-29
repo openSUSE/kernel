@@ -6,7 +6,7 @@
 #include <asm/sgx.h>
 
 #include "x86.h"
-#include "kvm_cache_regs.h"
+#include "regs.h"
 #include "nested.h"
 #include "sgx.h"
 #include "vmx.h"
