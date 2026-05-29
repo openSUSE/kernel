@@ -132,7 +132,7 @@ static inline const char *ufshcd_get_var_name(struct ufs_hba *hba)
 static inline void ufshcd_vops_exit(struct ufs_hba *hba)
 {
 	if (hba->vops && hba->vops->exit)
-		return hba->vops->exit(hba);
+		hba->vops->exit(hba);
 }
 
 static inline u32 ufshcd_vops_get_ufs_hci_version(struct ufs_hba *hba)
@@ -211,7 +211,7 @@ static inline void ufshcd_vops_setup_task_mgmt(struct ufs_hba *hba,
 					int tag, u8 tm_function)
 {
 	if (hba->vops && hba->vops->setup_task_mgmt)
-		return hba->vops->setup_task_mgmt(hba, tag, tm_function);
+		hba->vops->setup_task_mgmt(hba, tag, tm_function);
 }
 
 static inline void ufshcd_vops_hibern8_notify(struct ufs_hba *hba,
@@ -219,7 +219,7 @@ static inline void ufshcd_vops_hibern8_notify(struct ufs_hba *hba,
 					enum ufs_notify_change_status status)
 {
 	if (hba->vops && hba->vops->hibern8_notify)
-		return hba->vops->hibern8_notify(hba, cmd, status);
+		hba->vops->hibern8_notify(hba, cmd, status);
 }
 
 static inline int ufshcd_vops_apply_dev_quirks(struct ufs_hba *hba)
