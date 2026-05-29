@@ -4,7 +4,6 @@ use kernel::{
     device,
     dma::Coherent,
     io::poll::read_poll_timeout,
-    io::Io,
     pci,
     prelude::*,
     time::Delta, //
@@ -19,121 +18,17 @@ use crate::{
     },
     fb::FbLayout,
     firmware::{
-        booter::{
-            BooterFirmware,
-            BooterKind, //
-        },
-        fwsec::{
-            bootloader::FwsecFirmwareWithBl,
-            FwsecCommand,
-            FwsecFirmware, //
-        },
         gsp::GspFirmware,
         FIRMWARE_VERSION, //
     },
-    gpu::{
-        Architecture,
-        Chipset, //
-    },
+    gpu::Chipset,
     gsp::{
         commands,
-        sequencer::{
-            GspSequencer,
-            GspSequencerParams, //
-        },
         GspFwWprMeta, //
     },
-    regs,
-    vbios::Vbios,
 };
 
 impl super::Gsp {
-    /// Helper function to load and run the FWSEC-FRTS firmware and confirm that it has properly
-    /// created the WPR2 region.
-    fn run_fwsec_frts(
-        dev: &device::Device<device::Bound>,
-        chipset: Chipset,
-        falcon: &Falcon<Gsp>,
-        bar: &Bar0,
-        bios: &Vbios,
-        fb_layout: &FbLayout,
-    ) -> Result<()> {
-        // Check that the WPR2 region does not already exists - if it does, we cannot run
-        // FWSEC-FRTS until the GPU is reset.
-        if bar.read(regs::NV_PFB_PRI_MMU_WPR2_ADDR_HI).higher_bound() != 0 {
-            dev_err!(
-                dev,
-                "WPR2 region already exists - GPU needs to be reset to proceed\n"
-            );
-            return Err(EBUSY);
-        }
-
-        // FWSEC-FRTS will create the WPR2 region.
-        let fwsec_frts = FwsecFirmware::new(
-            dev,
-            falcon,
-            bar,
-            bios,
-            FwsecCommand::Frts {
-                frts_addr: fb_layout.frts.start,
-                frts_size: fb_layout.frts.len(),
-            },
-        )?;
-
-        if chipset.needs_fwsec_bootloader() {
-            let fwsec_frts_bl = FwsecFirmwareWithBl::new(fwsec_frts, dev, chipset)?;
-            // Load and run the bootloader, which will load FWSEC-FRTS and run it.
-            fwsec_frts_bl.run(dev, falcon, bar)?;
-        } else {
-            // Load and run FWSEC-FRTS directly.
-            fwsec_frts.run(dev, falcon, bar)?;
-        }
-
-        // SCRATCH_E contains the error code for FWSEC-FRTS.
-        let frts_status = bar
-            .read(regs::NV_PBUS_SW_SCRATCH_0E_FRTS_ERR)
-            .frts_err_code();
-        if frts_status != 0 {
-            dev_err!(
-                dev,
-                "FWSEC-FRTS returned with error code {:#x}\n",
-                frts_status
-            );
-
-            return Err(EIO);
-        }
-
-        // Check that the WPR2 region has been created as we requested.
-        let (wpr2_lo, wpr2_hi) = (
-            bar.read(regs::NV_PFB_PRI_MMU_WPR2_ADDR_LO).lower_bound(),
-            bar.read(regs::NV_PFB_PRI_MMU_WPR2_ADDR_HI).higher_bound(),
-        );
-
-        match (wpr2_lo, wpr2_hi) {
-            (_, 0) => {
-                dev_err!(dev, "WPR2 region not created after running FWSEC-FRTS\n");
-
-                Err(EIO)
-            }
-            (wpr2_lo, _) if wpr2_lo != fb_layout.frts.start => {
-                dev_err!(
-                    dev,
-                    "WPR2 region created at unexpected address {:#x}; expected {:#x}\n",
-                    wpr2_lo,
-                    fb_layout.frts.start,
-                );
-
-                Err(EIO)
-            }
-            (wpr2_lo, wpr2_hi) => {
-                dev_dbg!(dev, "WPR2: {:#x}-{:#x}\n", wpr2_lo, wpr2_hi);
-                dev_dbg!(dev, "GPU instance built\n");
-
-                Ok(())
-            }
-        }
-    }
-
     /// Attempt to boot the GSP.
     ///
     /// This is a GPU-dependent and complex procedure that involves loading firmware files from
@@ -149,17 +44,8 @@ impl super::Gsp {
         gsp_falcon: &Falcon<Gsp>,
         sec2_falcon: &Falcon<Sec2>,
     ) -> Result {
-        // The FSP boot process of Hopper+ is not supported for now.
-        if matches!(
-            chipset.arch(),
-            Architecture::Hopper | Architecture::BlackwellGB10x | Architecture::BlackwellGB20x
-        ) {
-            return Err(ENOTSUPP);
-        }
-
         let dev = pdev.as_ref();
-
-        let bios = Vbios::new(dev, bar)?;
+        let hal = super::hal::gsp_hal(chipset);
 
         let gsp_fw = KBox::pin_init(GspFirmware::new(dev, chipset, FIRMWARE_VERSION), GFP_KERNEL)?;
 
@@ -168,38 +54,21 @@ impl super::Gsp {
 
         let wpr_meta = Coherent::init(dev, GFP_KERNEL, GspFwWprMeta::new(&gsp_fw, &fb_layout))?;
 
-        // FWSEC-FRTS is not executed on chips where the FRTS region size is 0 (e.g. GA100).
-        if !fb_layout.frts.is_empty() {
-            Self::run_fwsec_frts(dev, chipset, gsp_falcon, bar, &bios, &fb_layout)?;
-        }
-
-        gsp_falcon.reset(bar)?;
-        let libos_handle = self.libos.dma_handle();
-        let (mbox0, mbox1) = gsp_falcon.boot(
-            bar,
-            Some(libos_handle as u32),
-            Some((libos_handle >> 32) as u32),
-        )?;
-        dev_dbg!(pdev, "GSP MBOX0: {:#x}, MBOX1: {:#x}\n", mbox0, mbox1);
-
-        dev_dbg!(
-            pdev,
-            "Using SEC2 to load and run the booter_load firmware...\n"
-        );
-
-        BooterFirmware::new(
+        // Perform the chipset-specific boot sequence.
+        hal.boot(
+            &self,
             dev,
-            BooterKind::Loader,
-            chipset,
-            FIRMWARE_VERSION,
-            sec2_falcon,
             bar,
-        )?
-        .run(dev, bar, sec2_falcon, &wpr_meta)?;
+            chipset,
+            &fb_layout,
+            &wpr_meta,
+            gsp_falcon,
+            sec2_falcon,
+        )?;
 
         gsp_falcon.write_os_version(bar, gsp_fw.bootloader.app_version);
 
-        // Poll for RISC-V to become active before running sequencer
+        // Poll for RISC-V to become active before continuing.
         read_poll_timeout(
             || Ok(gsp_falcon.is_riscv_active(bar)),
             |val: &bool| *val,
@@ -214,16 +83,7 @@ impl super::Gsp {
         self.cmdq
             .send_command_no_wait(bar, commands::SetRegistry::new())?;
 
-        // Create and run the GSP sequencer.
-        let seq_params = GspSequencerParams {
-            bootloader_app_version: gsp_fw.bootloader.app_version,
-            libos_dma_handle: libos_handle,
-            gsp_falcon,
-            sec2_falcon,
-            dev,
-            bar,
-        };
-        GspSequencer::run(&self.cmdq, seq_params)?;
+        hal.post_boot(&self, dev, bar, &gsp_fw, gsp_falcon, sec2_falcon)?;
 
         // Wait until GSP is fully initialized.
         commands::wait_gsp_init_done(&self.cmdq)?;
