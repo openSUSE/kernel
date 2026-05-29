@@ -859,7 +859,7 @@ static void iommu_poll_ppr_log(struct amd_iommu *iommu)
 			raw[0] = raw[1] = 0UL;
 
 		/* Update head pointer of hardware ring-buffer */
-		head = (head + PPR_ENTRY_SIZE) % PPR_LOG_SIZE;
+		head = (head + PPRLOG_ENTRY_SIZE) % amd_iommu_pprlog_size;
 		writel(head, iommu->mmio_base + MMIO_PPR_HEAD_OFFSET);
 
 		/* TODO: PPR Handler will be added when we add IOPF support */

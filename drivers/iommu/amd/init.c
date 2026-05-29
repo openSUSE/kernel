@@ -133,6 +133,7 @@ struct ivhd_entry {
 } __attribute__((packed));
 
 int amd_iommu_evtlog_size = EVTLOG_SIZE_DEF;
+int amd_iommu_pprlog_size = PPRLOG_SIZE_DEF;
 
 /*
  * An AMD IOMMU memory definition structure. It defines things like exclusion
@@ -921,7 +922,7 @@ static void __init free_event_buffer(struct amd_iommu *iommu)
 static int __init alloc_ppr_log(struct amd_iommu *iommu)
 {
 	iommu->ppr_log = iommu_alloc_4k_pages(iommu, GFP_KERNEL | __GFP_ZERO,
-					      PPR_LOG_SIZE);
+					      amd_iommu_pprlog_size);
 
 	return iommu->ppr_log ? 0 : -ENOMEM;
 }
@@ -935,7 +936,9 @@ static void iommu_enable_ppr_log(struct amd_iommu *iommu)
 
 	iommu_feature_enable(iommu, CONTROL_PPR_EN);
 
-	entry = iommu_virt_to_phys(iommu->ppr_log) | PPR_LOG_SIZE_512;
+	entry = iommu_virt_to_phys(iommu->ppr_log);
+	entry |= (amd_iommu_pprlog_size == PPRLOG_SIZE_DEF) ?
+			PPRLOG_LEN_MASK_DEF : PPRLOG_LEN_MASK_MAX;
 
 	memcpy_toio(iommu->mmio_base + MMIO_PPR_LOG_OFFSET,
 		    &entry, sizeof(entry));
@@ -950,7 +953,7 @@ static void iommu_enable_ppr_log(struct amd_iommu *iommu)
 
 static void __init free_ppr_log(struct amd_iommu *iommu)
 {
-	free_pages((unsigned long)iommu->ppr_log, get_order(PPR_LOG_SIZE));
+	free_pages((unsigned long)iommu->ppr_log, get_order(amd_iommu_pprlog_size));
 }
 
 static void free_ga_log(struct amd_iommu *iommu)
@@ -3287,6 +3290,16 @@ static void amd_iommu_apply_erratum_snp(void)
 	amd_iommu_evtlog_size = EVTLOG_SIZE_MAX;
 	pr_info("Applying erratum: Increase Event log size to 0x%x\n",
 		amd_iommu_evtlog_size);
+
+	/*
+	 * Set PPR log buffer size to max.
+	 * (Family 0x19, model < 0x10 doesn't support PPR when SNP is enabled).
+	 */
+	if (boot_cpu_data.x86_model >= 0x10) {
+		amd_iommu_pprlog_size = PPRLOG_SIZE_MAX;
+		pr_info("Applying erratum: Increase PPR log size to 0x%x\n",
+			amd_iommu_pprlog_size);
+	}
 #endif
 }
 
@@ -3924,7 +3937,7 @@ int amd_iommu_snp_disable(void)
 		if (ret)
 			return ret;
 
-		ret = iommu_make_shared(iommu->ppr_log, PPR_LOG_SIZE);
+		ret = iommu_make_shared(iommu->ppr_log, amd_iommu_pprlog_size);
 		if (ret)
 			return ret;
 
