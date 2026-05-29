@@ -73,19 +73,29 @@ static const char *nvme_iopolicy_names[] = {
 
 static int iopolicy = NVME_IOPOLICY_NUMA;
 
+static int nvme_iopolicy_parse(const char *str)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(nvme_iopolicy_names); i++) {
+		if (sysfs_streq(str, nvme_iopolicy_names[i]))
+			return i;
+	}
+	return -EINVAL;
+}
+
 static int nvme_set_iopolicy(const char *val, const struct kernel_param *kp)
 {
+	int policy;
+
 	if (!val)
 		return -EINVAL;
-	if (!strncmp(val, "numa", 4))
-		iopolicy = NVME_IOPOLICY_NUMA;
-	else if (!strncmp(val, "round-robin", 11))
-		iopolicy = NVME_IOPOLICY_RR;
-	else if (!strncmp(val, "queue-depth", 11))
-		iopolicy = NVME_IOPOLICY_QD;
-	else
-		return -EINVAL;
 
+	policy = nvme_iopolicy_parse(val);
+	if (policy < 0)
+		return policy;
+
+	iopolicy = policy;
 	return 0;
 }
 
@@ -1039,16 +1049,14 @@ static ssize_t nvme_subsys_iopolicy_store(struct device *dev,
 {
 	struct nvme_subsystem *subsys =
 		container_of(dev, struct nvme_subsystem, dev);
-	int i;
+	int policy;
 
-	for (i = 0; i < ARRAY_SIZE(nvme_iopolicy_names); i++) {
-		if (sysfs_streq(buf, nvme_iopolicy_names[i])) {
-			nvme_subsys_iopolicy_update(subsys, i);
-			return count;
-		}
-	}
+	policy = nvme_iopolicy_parse(buf);
+	if (policy < 0)
+		return policy;
 
-	return -EINVAL;
+	nvme_subsys_iopolicy_update(subsys, policy);
+	return count;
 }
 SUBSYS_ATTR_RW(iopolicy, S_IRUGO | S_IWUSR,
 		      nvme_subsys_iopolicy_show, nvme_subsys_iopolicy_store);
