@@ -2567,7 +2567,7 @@ static int nvme_update_ns_info(struct nvme_ns *ns, struct nvme_ns_info *info)
 
 		set_capacity_and_notify(ns->head->disk, get_capacity(ns->disk));
 		set_disk_ro(ns->head->disk, nvme_ns_is_readonly(ns, info));
-		nvme_mpath_revalidate_paths(ns);
+		nvme_mpath_revalidate_paths(ns->head);
 
 		blk_mq_unfreeze_queue(ns->head->disk->queue, memflags);
 	}
