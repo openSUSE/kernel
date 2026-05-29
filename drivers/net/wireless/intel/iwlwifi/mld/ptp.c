@@ -250,7 +250,8 @@ iwl_mld_phc_get_crosstimestamp(struct ptp_clock_info *ptp,
 	/* System (wall) time */
 	ktime_t sys_time;
 
-	memset(xtstamp, 0, sizeof(struct system_device_crosststamp));
+	if (xtstamp->clock_id != CLOCK_REALTIME)
+		return -ENOTSUPP;
 
 	ret = iwl_mld_get_crosstimestamp_fw(mld, &gp2, &sys_time);
 	if (ret) {
