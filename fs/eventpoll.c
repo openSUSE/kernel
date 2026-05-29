@@ -433,7 +433,11 @@ struct ep_ctl_ctx {
 	/*
 	 * Singly-linked list of epitems_head objects collected during
 	 * ep_loop_check_proc(), then walked by reverse_path_check().
-	 * NULL means empty.
+	 * Terminated by EP_UNACTIVE_PTR, not NULL: epitems_head->next
+	 * doubles as a membership flag (a NULL ->next means "not on this
+	 * list", see ep_remove_file()), so the list uses a non-NULL
+	 * sentinel to keep the tail head distinguishable from an unlisted
+	 * one.
 	 */
 	struct epitems_head *tfile_check_list;
 
@@ -1704,7 +1708,7 @@ static int reverse_path_check(struct ep_ctl_ctx *ctx)
 {
 	struct epitems_head *p;
 
-	for (p = ctx->tfile_check_list; p; p = p->next) {
+	for (p = ctx->tfile_check_list; p != EP_UNACTIVE_PTR; p = p->next) {
 		int error;
 		path_count_init(ctx);
 		rcu_read_lock();
@@ -2458,7 +2462,7 @@ static int ep_loop_check(struct ep_ctl_ctx *ctx, struct eventpoll *ep,
 static void clear_tfile_check_list(struct ep_ctl_ctx *ctx)
 {
 	rcu_read_lock();
-	while (ctx->tfile_check_list) {
+	while (ctx->tfile_check_list != EP_UNACTIVE_PTR) {
 		struct epitems_head *head = ctx->tfile_check_list;
 		ctx->tfile_check_list = head->next;
 		unlist_file(head);
@@ -2621,7 +2625,9 @@ int do_epoll_ctl_file(struct file *f, int op, struct epoll_key *tf,
 	int full_check;
 	struct eventpoll *ep;
 	struct epitem *epi;
-	struct ep_ctl_ctx ctx = { };
+	struct ep_ctl_ctx ctx = {
+		.tfile_check_list = EP_UNACTIVE_PTR,
+	};
 
 	/* The target file descriptor must support poll */
 	if (!file_can_poll(tf->file))
