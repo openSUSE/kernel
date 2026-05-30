@@ -204,6 +204,7 @@ static void ep93xx_pata_enable_pio(void __iomem *base, int pio_mode)
  */
 static void ep93xx_pata_delay(unsigned long count)
 {
+#ifdef CONFIG_ARM
 	__asm__ volatile (
 		"0:\n"
 		"mov r0, r0\n"
@@ -212,6 +213,10 @@ static void ep93xx_pata_delay(unsigned long count)
 		: "=r" (count)
 		: "0" (count)
 	);
+#else
+	while (count--)
+		cpu_relax();
+#endif
 }
 
 static unsigned long ep93xx_pata_wait_for_iordy(void __iomem *base,
