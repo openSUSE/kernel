@@ -3053,6 +3053,8 @@ static int __init nvme_tcp_init_module(void)
 
 	if (wq_unbound)
 		wq_flags |= WQ_UNBOUND;
+	else
+		wq_flags |= WQ_PERCPU;
 
 	nvme_tcp_wq = alloc_workqueue("nvme_tcp_wq", wq_flags, 0);
 	if (!nvme_tcp_wq)
