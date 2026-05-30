@@ -977,7 +977,7 @@ static int ep93xx_pata_probe(struct platform_device *pdev)
 
 		match = soc_device_match(ep93xx_soc_table);
 		if (match)
-			ap->udma_mask = (unsigned int) match->data;
+			ap->udma_mask = (unsigned long) match->data;
 		else
 			ap->udma_mask = ATA_UDMA2;
 	}
