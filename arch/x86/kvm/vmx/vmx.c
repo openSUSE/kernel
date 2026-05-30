@@ -3366,30 +3366,26 @@ void vmx_flush_tlb_guest(struct kvm_vcpu *vcpu)
 
 void vmx_ept_load_pdptrs(struct kvm_vcpu *vcpu)
 {
-	struct kvm_mmu *mmu = vcpu->arch.walk_mmu;
-
 	if (!kvm_register_is_dirty(vcpu, VCPU_REG_PDPTR))
 		return;
 
 	if (is_pae_paging(vcpu)) {
-		vmcs_write64(GUEST_PDPTR0, mmu->pdptrs[0]);
-		vmcs_write64(GUEST_PDPTR1, mmu->pdptrs[1]);
-		vmcs_write64(GUEST_PDPTR2, mmu->pdptrs[2]);
-		vmcs_write64(GUEST_PDPTR3, mmu->pdptrs[3]);
+		vmcs_write64(GUEST_PDPTR0, vcpu->arch.pdptrs[0]);
+		vmcs_write64(GUEST_PDPTR1, vcpu->arch.pdptrs[1]);
+		vmcs_write64(GUEST_PDPTR2, vcpu->arch.pdptrs[2]);
+		vmcs_write64(GUEST_PDPTR3, vcpu->arch.pdptrs[3]);
 	}
 }
 
 void ept_save_pdptrs(struct kvm_vcpu *vcpu)
 {
-	struct kvm_mmu *mmu = vcpu->arch.walk_mmu;
-
 	if (WARN_ON_ONCE(!is_pae_paging(vcpu)))
 		return;
 
-	mmu->pdptrs[0] = vmcs_read64(GUEST_PDPTR0);
-	mmu->pdptrs[1] = vmcs_read64(GUEST_PDPTR1);
-	mmu->pdptrs[2] = vmcs_read64(GUEST_PDPTR2);
-	mmu->pdptrs[3] = vmcs_read64(GUEST_PDPTR3);
+	vcpu->arch.pdptrs[0] = vmcs_read64(GUEST_PDPTR0);
+	vcpu->arch.pdptrs[1] = vmcs_read64(GUEST_PDPTR1);
+	vcpu->arch.pdptrs[2] = vmcs_read64(GUEST_PDPTR2);
+	vcpu->arch.pdptrs[3] = vmcs_read64(GUEST_PDPTR3);
 
 	kvm_register_mark_available(vcpu, VCPU_REG_PDPTR);
 }

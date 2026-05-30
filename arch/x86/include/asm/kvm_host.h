@@ -522,10 +522,7 @@ struct kvm_mmu {
 	 * the bits spte never used.
 	 */
 	struct rsvd_bits_validate shadow_zero_check;
-
 	struct rsvd_bits_validate guest_rsvd_check;
-
-	u64 pdptrs[4]; /* pae */
 };
 
 enum pmc_type {
@@ -882,6 +879,8 @@ struct kvm_vcpu_arch {
 	 * gva_to_gpa translations.
 	 */
 	struct kvm_mmu *walk_mmu;
+
+	u64 pdptrs[4]; /* pae */
 
 	struct kvm_mmu_memory_cache mmu_pte_list_desc_cache;
 	struct kvm_mmu_memory_cache mmu_shadow_page_cache;
