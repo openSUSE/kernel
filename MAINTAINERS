@@ -11705,7 +11705,7 @@ F:	drivers/mfd/hi6421-spmi-pmic.c
 HISILICON TRUE RANDOM NUMBER GENERATOR V2 SUPPORT
 M:	Weili Qian <qianweili@huawei.com>
 S:	Maintained
-F:	drivers/crypto/hisilicon/trng/trng.c
+F:	drivers/char/hw_random/hisi-trng-v2.c
 
 HISILICON V3XX SPI NOR FLASH Controller Driver
 M:	Yang Shen <shenyang39@huawei.com>
