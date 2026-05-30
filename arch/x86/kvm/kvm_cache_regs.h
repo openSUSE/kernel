@@ -77,6 +77,14 @@ static inline bool kvm_register_is_dirty(struct kvm_vcpu *vcpu,
 	return test_bit(reg, vcpu->arch.regs_dirty);
 }
 
+static inline void kvm_register_mark_for_reload(struct kvm_vcpu *vcpu,
+					       enum kvm_reg reg)
+{
+	kvm_assert_register_caching_allowed(vcpu);
+	__clear_bit(reg, vcpu->arch.regs_avail);
+	__clear_bit(reg, vcpu->arch.regs_dirty);
+}
+
 static inline void kvm_register_mark_available(struct kvm_vcpu *vcpu,
 					       enum kvm_reg reg)
 {

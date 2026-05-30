@@ -690,9 +690,12 @@ static int nested_svm_load_cr3(struct kvm_vcpu *vcpu, unsigned long cr3,
 	if (CC(!kvm_vcpu_is_legal_cr3(vcpu, cr3)))
 		return -EINVAL;
 
-	if (reload_pdptrs && !nested_npt && is_pae_paging(vcpu) &&
-	    CC(!load_pdptrs(vcpu, cr3)))
-		return -EINVAL;
+	if (reload_pdptrs && is_pae_paging(vcpu)) {
+		if (nested_npt)
+			kvm_register_mark_for_reload(vcpu, VCPU_REG_PDPTR);
+		else if (CC(!load_pdptrs(vcpu, cr3)))
+			return -EINVAL;
+	}
 
 	vcpu->arch.cr3 = cr3;
 
@@ -2040,15 +2043,21 @@ static bool svm_get_nested_state_pages(struct kvm_vcpu *vcpu)
 	if (WARN_ON(!is_guest_mode(vcpu)))
 		return true;
 
-	if (!vcpu->arch.pdptrs_from_userspace &&
-	    !nested_npt_enabled(to_svm(vcpu)) && is_pae_paging(vcpu))
+	if (is_pae_paging(vcpu)) {
 		/*
-		 * Reload the guest's PDPTRs since after a migration
-		 * the guest CR3 might be restored prior to setting the nested
-		 * state which can lead to a load of wrong PDPTRs.
+		 * After migration, CR3 may have been restored before
+		 * KVM_SET_NESTED_STATE, so the PDPTR load into mmu->pdptrs[]
+		 * may have treated CR3 as an L1 GPA. For nNPT, drop the
+		 * cache so the next access reloads them with the proper
+		 * nGPA translation. For !nNPT, reload eagerly unless userspace
+		 * already supplied authoritative PDPTRs via KVM_SET_SREGS2.
 		 */
-		if (CC(!load_pdptrs(vcpu, vcpu->arch.cr3)))
+		if (nested_npt_enabled(to_svm(vcpu)))
+			kvm_register_mark_for_reload(vcpu, VCPU_REG_PDPTR);
+		else if (!vcpu->arch.pdptrs_from_userspace &&
+			 CC(!load_pdptrs(vcpu, vcpu->arch.cr3)))
 			return false;
+	}
 
 	if (!nested_svm_merge_msrpm(vcpu)) {
 		vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
