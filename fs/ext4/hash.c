@@ -321,3 +321,7 @@ opaque_seq:
 #endif
 	return __ext4fs_dirhash(dir, name, len, hinfo);
 }
+
+#if IS_ENABLED(CONFIG_EXT4_KUNIT_TESTS)
+EXPORT_SYMBOL_FOR_EXT4_TEST(ext4fs_dirhash);
+#endif
