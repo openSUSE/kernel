@@ -9,7 +9,7 @@
 #include "fw/api/txq.h"
 
 /* Highest firmware core release supported */
-#define IWL_DR_UCODE_CORE_MAX	105
+#define IWL_DR_UCODE_CORE_MAX	106
 
 /* Lowest firmware core release supported */
 #define IWL_DR_UCODE_CORE_MIN	102
