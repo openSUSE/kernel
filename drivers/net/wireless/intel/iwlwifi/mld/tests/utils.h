@@ -77,6 +77,8 @@ CHANNEL(chan_6ghz_221, NL80211_BAND_6GHZ, 7055);
 		NL80211_CHAN_WIDTH_160)				\
 	CHANDEF(chandef_6ghz_320mhz, chan_6ghz, 6105,		\
 		NL80211_CHAN_WIDTH_320)				\
+	CHANDEF(chandef_6ghz_320mhz_pri0, chan_6ghz, 6265,	\
+		NL80211_CHAN_WIDTH_320)				\
 	CHANDEF(chandef_6ghz_221_160mhz, chan_6ghz_221, 6985,	\
 		NL80211_CHAN_WIDTH_160)				\
 	/* Feel free to add more */

@@ -145,6 +145,7 @@ unsigned int iwl_mld_get_link_grade(struct iwl_mld *mld,
 #if IS_ENABLED(CONFIG_IWLWIFI_KUNIT_TESTS)
 s8 iwl_mld_get_dup_beacon_rssi_adjust(struct iwl_mld *mld,
 				      struct ieee80211_bss_conf *link_conf);
+s8 iwl_mld_get_psd_eirp_rssi_adjust(struct ieee80211_bss_conf *link_conf);
 #endif
 
 unsigned int iwl_mld_get_chan_load(struct iwl_mld *mld,

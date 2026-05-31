@@ -1098,7 +1098,8 @@ static s8 iwl_mld_get_primary_psd(const struct ieee80211_parsed_tpe_psd *psd,
 	return psd->power[primary_idx] / 2;
 }
 
-static s8 iwl_mld_get_psd_eirp_rssi_adjust(struct ieee80211_bss_conf *link_conf)
+VISIBLE_IF_IWLWIFI_KUNIT s8
+iwl_mld_get_psd_eirp_rssi_adjust(struct ieee80211_bss_conf *link_conf)
 {
 	const struct ieee80211_parsed_tpe *tpe = &link_conf->tpe;
 	s8 psd_20mhz, psd_oper, psd_local, psd_reg, psd_boost;
@@ -1217,6 +1218,7 @@ static s8 iwl_mld_get_psd_eirp_rssi_adjust(struct ieee80211_bss_conf *link_conf)
 
 	return adjustment;
 }
+EXPORT_SYMBOL_IF_IWLWIFI_KUNIT(iwl_mld_get_psd_eirp_rssi_adjust);
 
 /* This function calculates the grade of a link. Returns 0 in error case */
 unsigned int iwl_mld_get_link_grade(struct iwl_mld *mld,
