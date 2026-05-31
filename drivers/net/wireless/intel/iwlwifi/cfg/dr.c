@@ -12,7 +12,7 @@
 #define IWL_DR_UCODE_CORE_MAX	105
 
 /* Lowest firmware core release supported */
-#define IWL_DR_UCODE_CORE_MIN	101
+#define IWL_DR_UCODE_CORE_MIN	102
 
 #define IWL_DR_A_PE_A_FW_PRE		"iwlwifi-dr-a0-pe-a0"
 
