@@ -1673,16 +1673,16 @@ void iwl_mvm_get_sync_time(struct iwl_mvm *mvm, int clock_type, u32 *gp2,
 u32 iwl_mvm_get_systime(struct iwl_mvm *mvm);
 
 /* Tx / Host Commands */
-int __must_check iwl_mvm_send_cmd(struct iwl_mvm *mvm,
-				  struct iwl_host_cmd *cmd);
-int __must_check iwl_mvm_send_cmd_pdu(struct iwl_mvm *mvm, u32 id,
-				      u32 flags, u16 len, const void *data);
-int __must_check iwl_mvm_send_cmd_status(struct iwl_mvm *mvm,
-					 struct iwl_host_cmd *cmd,
-					 u32 *status);
-int __must_check iwl_mvm_send_cmd_pdu_status(struct iwl_mvm *mvm, u32 id,
-					     u16 len, const void *data,
-					     u32 *status);
+int iwl_mvm_send_cmd(struct iwl_mvm *mvm,
+		     struct iwl_host_cmd *cmd);
+int iwl_mvm_send_cmd_pdu(struct iwl_mvm *mvm, u32 id,
+			 u32 flags, u16 len, const void *data);
+int iwl_mvm_send_cmd_status(struct iwl_mvm *mvm,
+			    struct iwl_host_cmd *cmd,
+			    u32 *status);
+int iwl_mvm_send_cmd_pdu_status(struct iwl_mvm *mvm, u32 id,
+				u16 len, const void *data,
+				u32 *status);
 int iwl_mvm_tx_skb_sta(struct iwl_mvm *mvm, struct sk_buff *skb,
 		       struct ieee80211_sta *sta);
 int iwl_mvm_tx_skb_non_sta(struct iwl_mvm *mvm, struct sk_buff *skb);
