@@ -7420,10 +7420,10 @@ Kernel parameters
 			Set the STI (builtin display/keyboard on the HP-PARISC
 			machines) console (graphic card) which should be used
 			as the initial boot-console.
-			See also comment in drivers/video/console/sticore.c.
+			See also comment in drivers/video/sticore.c.
 
 	sti_font=	[HW]
-			See comment in drivers/video/console/sticore.c.
+			See comment in drivers/video/sticore.c.
 
 	stifb=		[HW]
 			Format: bpp:<bpp1>[:<bpp2>[:<bpp3>...]]
