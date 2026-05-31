@@ -23702,14 +23702,6 @@ F:	Documentation/devicetree/bindings/mailbox/google,gs101-mbox.yaml
 F:	drivers/mailbox/exynos-mailbox.c
 F:	include/linux/mailbox/exynos-message.h
 
-SAMSUNG EXYNOS PSEUDO RANDOM NUMBER GENERATOR (RNG) DRIVER
-M:	Krzysztof Kozlowski <krzk@kernel.org>
-L:	linux-crypto@vger.kernel.org
-L:	linux-samsung-soc@vger.kernel.org
-S:	Maintained
-F:	Documentation/devicetree/bindings/rng/samsung,exynos4-rng.yaml
-F:	drivers/crypto/exynos-rng.c
-
 SAMSUNG EXYNOS TRUE RANDOM NUMBER GENERATOR (TRNG) DRIVER
 M:	Łukasz Stelmach <l.stelmach@samsung.com>
 L:	linux-samsung-soc@vger.kernel.org
