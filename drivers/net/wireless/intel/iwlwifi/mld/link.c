@@ -3,6 +3,8 @@
  * Copyright (C) 2024-2026 Intel Corporation
  */
 
+#include <kunit/static_stub.h>
+
 #include "constants.h"
 #include "link.h"
 #include "iface.h"
@@ -1032,6 +1034,9 @@ iwl_mld_get_dup_beacon_rssi_adjust(struct iwl_mld *mld,
 	const struct cfg80211_bss_ies *beacon_ies;
 	const struct element *elem;
 
+	KUNIT_STATIC_STUB_REDIRECT(iwl_mld_get_dup_beacon_rssi_adjust,
+				   mld, link_conf);
+
 	/* Duplicated beacon feature is only specific to 6 GHz */
 	if (WARN_ONCE(link_conf->chanreq.oper.chan->band != NL80211_BAND_6GHZ,
 		      "Unexpected band %d\n",
@@ -1108,6 +1113,9 @@ iwl_mld_get_psd_eirp_rssi_adjust(struct ieee80211_bss_conf *link_conf)
 	s8 eirp_20mhz, eirp_oper, eirp_local, eirp_reg;
 	int bw_mhz, num_subchans;
 	u8 bw_index;
+
+	KUNIT_STATIC_STUB_REDIRECT(iwl_mld_get_psd_eirp_rssi_adjust,
+				   link_conf);
 
 	/* PSD/EIRP adjustment is only specific to 6 GHz */
 	if (WARN_ONCE(link_conf->chanreq.oper.chan->band != NL80211_BAND_6GHZ,
