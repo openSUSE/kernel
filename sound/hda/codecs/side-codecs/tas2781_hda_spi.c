@@ -593,7 +593,7 @@ static int tas2781_hda_spi_snd_ctls(struct tas2781_hda *h)
 		return rc;
 	}
 	i++;
-	snprintf(name, sizeof(name), "Froce Speaker-%d FW Load", p->index);
+	snprintf(name, sizeof(name), "Force Speaker-%d FW Load", p->index);
 	tas2781_snd_ctls[i].name = name;
 	h_priv->snd_ctls[i] = snd_ctl_new1(&tas2781_snd_ctls[i], p);
 	rc = snd_ctl_add(c->card, h_priv->snd_ctls[i]);
