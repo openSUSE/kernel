@@ -1369,9 +1369,9 @@ struct btrfs_super_block *btrfs_read_disk_super(struct block_device *bdev,
 				      (bytenr + BTRFS_SUPER_INFO_SIZE) >> PAGE_SHIFT);
 	}
 
-	filemap_invalidate_lock(mapping);
+	filemap_invalidate_lock_shared(mapping);
 	page = read_cache_page_gfp(mapping, bytenr >> PAGE_SHIFT, GFP_NOFS);
-	filemap_invalidate_unlock(mapping);
+	filemap_invalidate_unlock_shared(mapping);
 	if (IS_ERR(page))
 		return ERR_CAST(page);
 
