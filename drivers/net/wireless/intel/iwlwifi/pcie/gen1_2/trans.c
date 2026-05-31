@@ -2590,7 +2590,7 @@ int iwl_trans_pcie_wait_txq_empty(struct iwl_trans *trans, int txq_idx)
 	struct iwl_txq *txq;
 	unsigned long now = jiffies;
 	bool overflow_tx;
-	u8 wr_ptr;
+	int wr_ptr;
 
 	/* Make sure the NIC is still alive in the bus */
 	if (test_bit(STATUS_TRANS_DEAD, &trans->status))
@@ -2613,7 +2613,7 @@ int iwl_trans_pcie_wait_txq_empty(struct iwl_trans *trans, int txq_idx)
 		overflow_tx) &&
 	       !time_after(jiffies,
 			   now + msecs_to_jiffies(IWL_FLUSH_WAIT_MS))) {
-		u8 write_ptr = READ_ONCE(txq->write_ptr);
+		int write_ptr = READ_ONCE(txq->write_ptr);
 
 		/*
 		 * If write pointer moved during the wait, warn only
