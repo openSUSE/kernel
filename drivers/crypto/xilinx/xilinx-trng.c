@@ -4,6 +4,7 @@
  * Copyright (c) 2024 - 2025 Advanced Micro Devices, Inc.
  */
 
+#include <crypto/sha2.h>
 #include <linux/bitfield.h>
 #include <linux/clk.h>
 #include <linux/delay.h>
@@ -15,9 +16,6 @@
 #include <linux/module.h>
 #include <linux/mod_devicetable.h>
 #include <linux/platform_device.h>
-#include <crypto/aes.h>
-#include <crypto/df_sp80090a.h>
-#include <crypto/internal/cipher.h>
 
 /* TRNG Registers Offsets */
 #define TRNG_STATUS_OFFSET			0x4U
@@ -43,7 +41,6 @@
 
 /* Sizes in bytes */
 #define TRNG_SEED_LEN_BYTES			48U
-#define TRNG_ENTROPY_SEED_LEN_BYTES		64U
 #define TRNG_SEC_STRENGTH_SHIFT			5U
 #define TRNG_SEC_STRENGTH_BYTES			BIT(TRNG_SEC_STRENGTH_SHIFT)
 #define TRNG_BYTES_PER_REG			4U
@@ -55,8 +52,6 @@
 struct xilinx_rng {
 	void __iomem *rng_base;
 	struct device *dev;
-	unsigned char *scratchpadbuf;
-	struct aes_enckey *aeskey;
 	struct hwrng trng;
 };
 
@@ -172,29 +167,30 @@ static void xtrng_enable_entropy(struct xilinx_rng *rng)
 
 static int xtrng_reseed_internal(struct xilinx_rng *rng)
 {
-	u8 entropy[TRNG_ENTROPY_SEED_LEN_BYTES];
-	struct drbg_string data;
-	LIST_HEAD(seedlist);
+	static const u8 default_salt[SHA512_DIGEST_SIZE];
+	u8 entropy[SHA512_DIGEST_SIZE] __aligned(4);
 	u32 val;
 	int ret;
 
-	drbg_string_fill(&data, entropy, TRNG_SEED_LEN_BYTES);
-	list_add_tail(&data.list, &seedlist);
-	memset(entropy, 0, sizeof(entropy));
 	xtrng_enable_entropy(rng);
 
-	/* collect random data to use it as entropy (input for DF) */
+	/* Collect some output from the TRNG. */
+	static_assert(sizeof(entropy) >= TRNG_SEED_LEN_BYTES);
 	ret = xtrng_collect_random_data(rng, entropy, TRNG_SEED_LEN_BYTES, true);
 	if (ret != TRNG_SEED_LEN_BYTES)
 		return -EINVAL;
-	ret = crypto_drbg_ctr_df(rng->aeskey, rng->scratchpadbuf,
-				 TRNG_SEED_LEN_BYTES, &seedlist, AES_BLOCK_SIZE,
-				 TRNG_SEED_LEN_BYTES);
-	if (ret)
-		return ret;
 
+	/* Extract entropy from the TRNG output using HKDF-SHA512-Extract. */
+	hmac_sha512_usingrawkey(default_salt, sizeof(default_salt), entropy,
+				TRNG_SEED_LEN_BYTES, entropy);
+
+	/* Write the extracted entropy to the hardware. */
 	xtrng_write_multiple_registers(rng->rng_base + TRNG_EXT_SEED_OFFSET,
-				       (u32 *)rng->scratchpadbuf, TRNG_NUM_INIT_REGS);
+				       (u32 *)entropy, TRNG_NUM_INIT_REGS);
+
+	/* Clear the entropy from the stack. */
+	memzero_explicit(entropy, sizeof(entropy));
+
 	/* select reseed operation */
 	iowrite32(TRNG_CTRL_PRNGXS_MASK, rng->rng_base + TRNG_CTRL_OFFSET);
 
@@ -278,7 +274,6 @@ static void xtrng_hwrng_unregister(struct hwrng *trng)
 static int xtrng_probe(struct platform_device *pdev)
 {
 	struct xilinx_rng *rng;
-	size_t sb_size;
 	int ret;
 
 	rng = devm_kzalloc(&pdev->dev, sizeof(*rng), GFP_KERNEL);
@@ -291,15 +286,6 @@ static int xtrng_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "Failed to map resource %pe\n", rng->rng_base);
 		return PTR_ERR(rng->rng_base);
 	}
-
-	rng->aeskey = devm_kzalloc(&pdev->dev, sizeof(*rng->aeskey), GFP_KERNEL);
-	if (!rng->aeskey)
-		return -ENOMEM;
-
-	sb_size = crypto_drbg_ctr_df_datalen(TRNG_SEED_LEN_BYTES, AES_BLOCK_SIZE);
-	rng->scratchpadbuf = devm_kzalloc(&pdev->dev, sb_size, GFP_KERNEL);
-	if (!rng->scratchpadbuf)
-		return -ENOMEM;
 
 	xtrng_trng_reset(rng->rng_base);
 	ret = xtrng_reseed_internal(rng);

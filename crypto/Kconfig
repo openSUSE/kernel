@@ -1246,11 +1246,6 @@ config CRYPTO_KDF800108_CTR
 	select CRYPTO_HMAC
 	select CRYPTO_SHA256
 
-config CRYPTO_DF80090A
-	tristate
-	select CRYPTO_AES
-	select CRYPTO_CTR
-
 endmenu
 menu "Userspace interface (deprecated)"
 
