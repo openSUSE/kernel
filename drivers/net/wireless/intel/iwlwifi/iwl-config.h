@@ -372,7 +372,7 @@ struct iwl_mac_cfg {
 };
 
 /*
- * These sizes were picked according to 8 MSDUs inside 64/256/612 A-MSDUs
+ * These sizes were picked according to 8 MSDUs inside 64/256/512 A-MSDUs
  * in an A-MPDU, with additional overhead to account for processing time.
  * They will be doubled for MACs starting from So/Ty that don't support
  * putting multiple frames into a single buffer.
