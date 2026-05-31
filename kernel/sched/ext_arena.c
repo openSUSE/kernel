@@ -80,7 +80,12 @@ static int scx_arena_grow(struct scx_sched *sch, u32 page_cnt)
 		return -ENOMEM;
 
 	uaddr32 = (u32)(unsigned long)p;
+	/* arena.o, which defines these, is built only on MMU && 64BIT */
+#if defined(CONFIG_MMU) && defined(CONFIG_64BIT)
 	kern_vm_start = bpf_arena_map_kern_vm_start(sch->arena_map);
+#else
+	kern_vm_start = 0;
+#endif
 
 	ret = gen_pool_add(sch->arena_pool, kern_vm_start + uaddr32,
 			   page_cnt * PAGE_SIZE, NUMA_NO_NODE);

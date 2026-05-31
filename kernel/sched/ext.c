@@ -622,8 +622,12 @@ static inline void scx_call_op_set_cpumask(struct scx_sched *sch, struct rq *rq,
 
 	if (scx_is_cid_type()) {
 		struct scx_cmask *kern_va = *this_cpu_ptr(sch->set_cmask_scratch);
-		unsigned long uaddr = (unsigned long)kern_va -
-			bpf_arena_map_kern_vm_start(sch->arena_map);
+		unsigned long uaddr = (unsigned long)kern_va;
+
+		/* arena.o, which defines these, is built only on MMU && 64BIT */
+#if defined(CONFIG_MMU) && defined(CONFIG_64BIT)
+		uaddr -= bpf_arena_map_kern_vm_start(sch->arena_map);
+#endif
 		/*
 		 * Build the per-CPU arena cmask and hand BPF the uaddr. Caller
 		 * holds the rq lock with IRQs disabled, which makes us the sole
@@ -7992,8 +7996,12 @@ struct scx_arena_scan {
 static int scx_arena_scan_prog(struct bpf_prog *prog, void *data)
 {
 	struct scx_arena_scan *s = data;
-	struct bpf_map *arena = bpf_prog_arena(prog);
+	struct bpf_map *arena = NULL;
 
+	/* arena.o, which defines these, is built only on MMU && 64BIT */
+#if defined(CONFIG_MMU) && defined(CONFIG_64BIT)
+	arena = bpf_prog_arena(prog);
+#endif
 	if (!arena)
 		return 0;
 	if (s->arena && s->arena != arena) {
