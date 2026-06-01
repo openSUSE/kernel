@@ -340,8 +340,9 @@ remove_button_dir:
 	return -ENODEV;
 }
 
-static void acpi_lid_remove_fs(struct acpi_button *button)
+static void acpi_lid_remove_fs(void *data)
 {
+	struct acpi_button *button = data;
 	struct acpi_device *device = button->adev;
 
 	remove_proc_entry(ACPI_BUTTON_FILE_STATE,
@@ -353,6 +354,17 @@ static void acpi_lid_remove_fs(struct acpi_button *button)
 	acpi_lid_dir = NULL;
 	remove_proc_entry(ACPI_BUTTON_CLASS, acpi_root_dir);
 	acpi_button_dir = NULL;
+}
+
+static int devm_acpi_lid_add_fs(struct device *dev, struct acpi_button *button)
+{
+	int ret;
+
+	ret = acpi_lid_add_fs(button);
+	if (ret)
+		return ret;
+
+	return devm_add_action_or_reset(dev, acpi_lid_remove_fs, button);
 }
 
 static acpi_handle saved_lid_handle;
@@ -530,8 +542,20 @@ static acpi_notify_handler acpi_button_notify_handler(struct acpi_button *button
 	return acpi_button_notify;
 }
 
-static void acpi_button_remove_event_handler(struct acpi_button *button)
+static void acpi_button_wakeup_cleanup(void *data)
 {
+	device_init_wakeup(data, false);
+}
+
+static int devm_acpi_button_init_wakeup(struct device *dev)
+{
+	device_init_wakeup(dev, true);
+	return devm_add_action_or_reset(dev, acpi_button_wakeup_cleanup, dev);
+}
+
+static void acpi_button_remove_event_handler(void *data)
+{
+	struct acpi_button *button = data;
 	struct acpi_device *adev = button->adev;
 
 	switch (adev->device_type) {
@@ -608,6 +632,19 @@ static int acpi_button_add_event_handler(struct acpi_button *button)
 	return 0;
 }
 
+static int devm_acpi_button_add_event_handler(struct device *dev,
+					      struct acpi_button *button)
+{
+	int ret;
+
+	ret = acpi_button_add_event_handler(button);
+	if (ret)
+		return ret;
+
+	return devm_add_action_or_reset(dev, acpi_button_remove_event_handler,
+					button);
+}
+
 static int acpi_button_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -627,7 +664,7 @@ static int acpi_button_probe(struct platform_device *pdev)
 	    lid_init_state == ACPI_BUTTON_LID_INIT_DISABLED)
 		return -ENODEV;
 
-	button = kzalloc_obj(struct acpi_button);
+	button = devm_kzalloc(dev, sizeof(*button), GFP_KERNEL);
 	if (!button)
 		return -ENOMEM;
 
@@ -635,11 +672,10 @@ static int acpi_button_probe(struct platform_device *pdev)
 
 	button->dev = dev;
 	button->adev = device;
-	input = input_allocate_device();
-	if (!input) {
-		error = -ENOMEM;
-		goto err_free_button;
-	}
+	input = devm_input_allocate_device(dev);
+	if (!input)
+		return -ENOMEM;
+
 	button->input = input;
 	button->type = button_type;
 
@@ -651,11 +687,10 @@ static int acpi_button_probe(struct platform_device *pdev)
 		input_set_capability(input, EV_SW, SW_LID);
 		input->open = acpi_lid_input_open;
 
-		error = acpi_lid_add_fs(button);
-		if (error) {
-			input_free_device(input);
-			goto err_free_button;
-		}
+		error = devm_acpi_lid_add_fs(dev, button);
+		if (error)
+			return error;
+
 		break;
 
 	case ACPI_BUTTON_TYPE_POWER:
@@ -674,9 +709,7 @@ static int acpi_button_probe(struct platform_device *pdev)
 		break;
 
 	default:
-		input_free_device(input);
-		error = dev_err_probe(dev, -ENODEV, "Unrecognized button type\n");
-		goto err_free_button;
+		return dev_err_probe(dev, -ENODEV, "Unrecognized button type\n");
 	}
 
 	snprintf(button->phys, sizeof(button->phys), "%s/button/input0",
@@ -685,20 +718,19 @@ static int acpi_button_probe(struct platform_device *pdev)
 	input->phys = button->phys;
 	input->id.bustype = BUS_HOST;
 	input->id.product = button_type;
-	input->dev.parent = dev;
 
 	input_set_drvdata(input, button);
 	error = input_register_device(input);
-	if (error) {
-		input_free_device(input);
-		goto err_remove_fs;
-	}
-
-	device_init_wakeup(button->dev, true);
-
-	error = acpi_button_add_event_handler(button);
 	if (error)
-		goto err_input_unregister;
+		return error;
+
+	error = devm_acpi_button_init_wakeup(dev);
+	if (error)
+		return error;
+
+	error = devm_acpi_button_add_event_handler(dev, button);
+	if (error)
+		return error;
 
 	if (button_type == ACPI_BUTTON_TYPE_LID) {
 		/*
@@ -709,37 +741,16 @@ static int acpi_button_probe(struct platform_device *pdev)
 	}
 
 	pr_info("%s [%s]\n", input->name, acpi_device_bid(device));
+
 	return 0;
-
-err_input_unregister:
-	device_init_wakeup(button->dev, false);
-	input_unregister_device(input);
-err_remove_fs:
-	if (button_type == ACPI_BUTTON_TYPE_LID)
-		acpi_lid_remove_fs(button);
-
-err_free_button:
-	kfree(button);
-	return error;
 }
 
 static void acpi_button_remove(struct platform_device *pdev)
 {
 	struct acpi_button *button = platform_get_drvdata(pdev);
-	struct acpi_device *adev = button->adev;
 
 	if (button->type == ACPI_BUTTON_TYPE_LID)
-		acpi_lid_forget(adev);
-
-	acpi_button_remove_event_handler(button);
-
-	device_init_wakeup(button->dev, false);
-
-	input_unregister_device(button->input);
-	if (button->type == ACPI_BUTTON_TYPE_LID)
-		acpi_lid_remove_fs(button);
-
-	kfree(button);
+		acpi_lid_forget(button->adev);
 }
 
 static int param_set_lid_init_state(const char *val,
