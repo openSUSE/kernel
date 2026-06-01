@@ -1722,15 +1722,13 @@ static void read_symbols(const char *modname)
 			license = get_next_modinfo(&info, "license", license);
 		}
 
-		namespace = get_modinfo(&info, "import_ns");
-		while (namespace) {
+		for (namespace = get_modinfo(&info, "import_ns");
+		     namespace;
+		     namespace = get_next_modinfo(&info, "import_ns", namespace)) {
 			if (namespace[0] == '"')
 				error("%s: MODULE_IMPORT_NS used with a quoted namespace '%s'. Remove the quotes.\n",
 				      mod->name, namespace);
-
 			add_namespace(&mod->imported_namespaces, namespace);
-			namespace = get_next_modinfo(&info, "import_ns",
-						     namespace);
 		}
 
 		if (extra_warn && !get_modinfo(&info, "description"))
