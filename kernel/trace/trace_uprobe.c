@@ -912,7 +912,7 @@ static int uprobe_buffer_enable(void)
 {
 	int ret = 0;
 
-	BUG_ON(!mutex_is_locked(&event_mutex));
+	lockdep_assert_held(&event_mutex);
 
 	if (uprobe_buffer_refcnt++ == 0) {
 		ret = uprobe_buffer_init();
@@ -927,7 +927,7 @@ static void uprobe_buffer_disable(void)
 {
 	int cpu;
 
-	BUG_ON(!mutex_is_locked(&event_mutex));
+	lockdep_assert_held(&event_mutex);
 
 	if (--uprobe_buffer_refcnt == 0) {
 		for_each_possible_cpu(cpu)
