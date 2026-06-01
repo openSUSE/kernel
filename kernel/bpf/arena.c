@@ -144,6 +144,7 @@ static long compute_pgoff(struct bpf_arena *arena, long uaddr)
 
 struct apply_range_data {
 	struct page **pages;
+	struct page *scratch_page;
 	int i;
 };
 
@@ -156,19 +157,44 @@ static int apply_range_set_cb(pte_t *pte, unsigned long addr, void *data)
 {
 	struct apply_range_data *d = data;
 	struct page *page;
+	pte_t pteval;
 
 	if (!data)
 		return 0;
-	/* sanity check */
-	if (unlikely(!pte_none(ptep_get(pte))))
-		return -EBUSY;
 
 	page = d->pages[d->i];
 	/* paranoia, similar to vmap_pages_pte_range() */
 	if (WARN_ON_ONCE(!pfn_valid(page_to_pfn(page))))
 		return -EINVAL;
 
-	set_pte_at(&init_mm, addr, pte, mk_pte(page, PAGE_KERNEL));
+	pteval = mk_pte(page, PAGE_KERNEL);
+#ifdef ptep_try_set
+	/*
+	 * Kernel-fault recovery may have installed the scratch page here, and
+	 * some architectures (arm64) prohibit valid->valid PTE transitions.
+	 * Install atomically into a none slot. If scratch is present, clear it
+	 * and flush_tlb_before_set() (break-before-make) before retrying.
+	 */
+	while (!ptep_try_set(pte, pteval)) {
+		pte_t old = ptep_get(pte);
+
+		if (pte_none(old))
+			continue;
+		if (WARN_ON_ONCE(pte_page(old) != d->scratch_page))
+			return -EBUSY;
+		ptep_get_and_clear(&init_mm, addr, pte);
+		flush_tlb_before_set(addr);
+	}
+#else
+	/*
+	 * Without ptep_try_set() there is no atomic installer, but such arches
+	 * also do not wire up bpf_arena_handle_page_fault(), so no scratch page
+	 * is ever installed and the slot is always none here.
+	 */
+	if (unlikely(!pte_none(ptep_get(pte))))
+		return -EBUSY;
+	set_pte_at(&init_mm, addr, pte, pteval);
+#endif
 	d->i++;
 	return 0;
 }
@@ -480,7 +506,8 @@ static vm_fault_t arena_vm_fault(struct vm_fault *vmf)
 	if (ret)
 		goto out_sigsegv_memcg;
 
-	struct apply_range_data data = { .pages = &page, .i = 0 };
+	struct apply_range_data data = { .pages = &page, .i = 0,
+					 .scratch_page = arena->scratch_page };
 	/* Account into memcg of the process that created bpf_arena */
 	ret = bpf_map_alloc_pages(map, NUMA_NO_NODE, 1, &page);
 	if (ret) {
@@ -670,6 +697,7 @@ static long arena_alloc_pages(struct bpf_arena *arena, long uaddr, long page_cnt
 		return 0;
 	}
 	data.pages = pages;
+	data.scratch_page = arena->scratch_page;
 
 	if (raw_res_spin_lock_irqsave(&arena->spinlock, flags))
 		goto out_free_pages;
