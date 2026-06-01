@@ -8523,8 +8523,8 @@ __init int vmx_hardware_setup(void)
 	}
 
 	r = alloc_kvm_area();
-	if (r && nested)
-		nested_vmx_hardware_unsetup();
+	if (r)
+		goto err_kvm_area;
 
 	kvm_set_posted_intr_wakeup_handler(pi_wakeup_handler);
 
@@ -8548,7 +8548,14 @@ __init int vmx_hardware_setup(void)
 	 */
 	if (!static_cpu_has(X86_FEATURE_SELFSNOOP))
 		kvm_caps.supported_quirks &= ~KVM_X86_QUIRK_IGNORE_GUEST_PAT;
-       kvm_caps.inapplicable_quirks &= ~KVM_X86_QUIRK_IGNORE_GUEST_PAT;
+
+	kvm_caps.inapplicable_quirks &= ~KVM_X86_QUIRK_IGNORE_GUEST_PAT;
+
+	return 0;
+
+err_kvm_area:
+	if (nested)
+		nested_vmx_hardware_unsetup();
 	return r;
 }
 
