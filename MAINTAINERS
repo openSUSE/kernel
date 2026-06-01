@@ -15693,6 +15693,14 @@ F:	Documentation/devicetree/bindings/hwmon/pmbus/adi,max20830.yaml
 F:	Documentation/hwmon/max20830.rst
 F:	drivers/hwmon/pmbus/max20830.c
 
+MAX20860A HARDWARE MONITOR DRIVER
+M:	Sanman Pradhan <psanman@juniper.net>
+L:	linux-hwmon@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/hwmon/pmbus/adi,max20860a.yaml
+F:	Documentation/hwmon/max20860a.rst
+F:	drivers/hwmon/pmbus/max20860a.c
+
 MAX2175 SDR TUNER DRIVER
 M:	Ramesh Shanmugasundaram <rashanmu@gmail.com>
 L:	linux-media@vger.kernel.org

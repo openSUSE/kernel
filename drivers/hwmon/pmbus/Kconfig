@@ -402,6 +402,25 @@ config SENSORS_MAX20830
 	  This driver can also be built as a module. If so, the module will
 	  be called max20830.
 
+config SENSORS_MAX20860A
+	tristate "Analog Devices MAX20860A"
+	help
+	  If you say yes here you get hardware monitoring support for Analog
+	  Devices MAX20860A step-down converter.
+
+	  This driver can also be built as a module. If so, the module will
+	  be called max20860a.
+
+config SENSORS_MAX20860A_REGULATOR
+	bool "Regulator support for MAX20860A"
+	depends on SENSORS_MAX20860A && REGULATOR
+	help
+	  If you say yes here you get regulator support for Analog Devices
+	  MAX20860A step-down converter.
+
+	  This enables the MAX20860A to be used as a regulator device,
+	  providing voltage control through the regulator framework.
+
 config SENSORS_MAX31785
 	tristate "Maxim MAX31785 and compatibles"
 	help
