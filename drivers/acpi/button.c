@@ -541,6 +541,7 @@ static int acpi_lid_input_open(struct input_dev *input)
 
 static int acpi_button_probe(struct platform_device *pdev)
 {
+	struct device *dev = &pdev->dev;
 	acpi_notify_handler handler;
 	struct acpi_device *device;
 	struct acpi_button *button;
@@ -550,7 +551,7 @@ static int acpi_button_probe(struct platform_device *pdev)
 	const char *hid;
 	int error = 0;
 
-	device = ACPI_COMPANION(&pdev->dev);
+	device = ACPI_COMPANION(dev);
 	if (!device)
 		return -ENODEV;
 
@@ -565,7 +566,7 @@ static int acpi_button_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, button);
 
-	button->dev = &pdev->dev;
+	button->dev = dev;
 	button->adev = device;
 	button->input = input = input_allocate_device();
 	if (!input) {
@@ -615,7 +616,7 @@ static int acpi_button_probe(struct platform_device *pdev)
 	input->phys = button->phys;
 	input->id.bustype = BUS_HOST;
 	input->id.product = button->type;
-	input->dev.parent = &pdev->dev;
+	input->dev.parent = dev;
 
 	switch (button->type) {
 	case ACPI_BUTTON_TYPE_POWER:
