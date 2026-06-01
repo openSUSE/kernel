@@ -1661,6 +1661,7 @@ static void tb_test_tunnel_3dp(struct kunit *test)
 	KUNIT_ASSERT_EQ(test, tunnel3->npaths, 3);
 	KUNIT_ASSERT_EQ(test, tunnel3->paths[0]->path_length, 3);
 
+	tb_tunnel_put(tunnel3);
 	tb_tunnel_put(tunnel2);
 	tb_tunnel_put(tunnel1);
 }
