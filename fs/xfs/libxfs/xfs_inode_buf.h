@@ -16,7 +16,7 @@ struct xfs_dinode;
 struct xfs_imap {
 	xfs_agblock_t	im_agbno;	/* starting agbno of inode cluster */
 	unsigned short	im_boffset;	/* offset in inode cluster in bytes */
-};
+} __packed;
 
 int	xfs_read_icluster(struct xfs_perag *pag, struct xfs_trans *tp,
 		xfs_agblock_t agbno, struct xfs_buf **bpp);
