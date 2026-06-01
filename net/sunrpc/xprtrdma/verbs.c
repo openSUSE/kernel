@@ -1259,10 +1259,6 @@ void rpcrdma_reply_put(struct rpcrdma_buffer *buffers, struct rpcrdma_req *req)
 		req->rl_reply = NULL;
 		rpcrdma_rep_put(buffers, rep);
 	}
-	/* I2: rl_reply NULL after the put closes the
-	 * 'rep on rb_free_reps still referenced by req' window.
-	 */
-	WARN_ON_ONCE(req->rl_reply);
 }
 
 /**
