@@ -306,3 +306,11 @@ struct tsens_plat_data data_8996 = {
 	.feat		= &tsens_v2_feat,
 	.fields	= tsens_v2_regfields,
 };
+
+/* Do not enable wakeup capable interrupts for automotive platforms */
+struct tsens_plat_data data_automotive_v2 = {
+	.ops		= &ops_generic_v2,
+	.feat		= &tsens_v2_feat,
+	.fields		= tsens_v2_regfields,
+	.no_irq_wake = true,
+};
