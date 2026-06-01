@@ -204,7 +204,7 @@ static int acpi_lid_evaluate_state(acpi_handle lid_handle)
 	return !!lid_state;
 }
 
-static int acpi_lid_notify_state(struct acpi_button *button, bool state)
+static void acpi_lid_notify_state(struct acpi_button *button, bool state)
 {
 	struct acpi_device *device = button->adev;
 	ktime_t next_report;
@@ -282,8 +282,6 @@ static int acpi_lid_notify_state(struct acpi_button *button, bool state)
 		button->last_state = state;
 		button->last_time = ktime_get();
 	}
-
-	return 0;
 }
 
 static int __maybe_unused acpi_button_state_seq_show(struct seq_file *seq,
@@ -407,19 +405,18 @@ int acpi_lid_open(void)
 }
 EXPORT_SYMBOL(acpi_lid_open);
 
-static int acpi_lid_update_state(struct acpi_button *button,
-				 bool signal_wakeup)
+static void acpi_lid_update_state(struct acpi_button *button, bool signal_wakeup)
 {
 	int state;
 
 	state = acpi_lid_evaluate_state(button->adev->handle);
 	if (state < 0)
-		return state;
+		return;
 
 	if (state && signal_wakeup)
 		acpi_pm_wakeup_event(button->dev);
 
-	return acpi_lid_notify_state(button, state);
+	acpi_lid_notify_state(button, state);
 }
 
 static void acpi_lid_initialize_state(struct acpi_button *button)
