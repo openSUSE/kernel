@@ -979,6 +979,7 @@ static struct uprobe_cpu_buffer *prepare_uprobe_buffer(struct trace_uprobe *tu,
 	ucb = uprobe_buffer_get();
 	ucb->dsize = tu->tp.size + dsize;
 
+	BUILD_BUG_ON(MAX_UCB_BUFFER_SIZE < MAX_PROBE_EVENT_SIZE);
 	if (WARN_ON_ONCE(ucb->dsize > MAX_UCB_BUFFER_SIZE)) {
 		ucb->dsize = MAX_UCB_BUFFER_SIZE;
 		dsize = MAX_UCB_BUFFER_SIZE - tu->tp.size;
