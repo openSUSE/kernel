@@ -5434,18 +5434,16 @@ static int bpf_map_get_info_by_fd(struct file *file,
 
 		if (!map->ops->map_get_hash)
 			return -EINVAL;
-
-		if (info.hash_size != SHA256_DIGEST_SIZE)
+		if (info.hash_size != sizeof(map->sha))
 			return -EINVAL;
-
 		if (!READ_ONCE(map->frozen))
 			return -EPERM;
 
-		err = map->ops->map_get_hash(map, SHA256_DIGEST_SIZE, map->sha);
+		err = map->ops->map_get_hash(map);
 		if (err != 0)
 			return err;
 
-		if (copy_to_user(uhash, map->sha, SHA256_DIGEST_SIZE) != 0)
+		if (copy_to_user(uhash, map->sha, sizeof(map->sha)) != 0)
 			return -EFAULT;
 	} else if (info.hash_size) {
 		return -EINVAL;
