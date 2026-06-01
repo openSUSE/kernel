@@ -1824,6 +1824,7 @@ static int evlist__deliver_sample(struct evlist *evlist, const struct perf_tool 
 struct deferred_event {
 	struct list_head list;
 	union perf_event *event;
+	u64 file_offset;
 };
 
 /*
@@ -1858,6 +1859,7 @@ static int evlist__deliver_deferred_callchain(struct evlist *evlist,
 			perf_sample__exit(&orig_sample);
 			break;
 		}
+		orig_sample.file_offset = de->file_offset;
 
 		if (sample->tid != orig_sample.tid) {
 			perf_sample__exit(&orig_sample);
@@ -1906,6 +1908,7 @@ static int session__flush_deferred_samples(struct perf_session *session,
 			perf_sample__exit(&sample);
 			break;
 		}
+		sample.file_offset = de->file_offset;
 
 		sample.evsel = evlist__id2evsel(evlist, sample.id);
 		ret = evlist__deliver_sample(evlist, tool, de->event,
@@ -1984,6 +1987,7 @@ static int machines__deliver_event(struct machines *machines,
 				return -ENOMEM;
 			}
 			memcpy(de->event, event, sz);
+			de->file_offset = sample->file_offset;
 			list_add_tail(&de->list, &evlist->deferred_samples);
 			return 0;
 		}
@@ -2126,6 +2130,7 @@ static int perf_session__deliver_event(struct perf_session *session,
 		pr_err("Can't parse sample, err = %d\n", ret);
 		goto out;
 	}
+	sample.file_offset = file_offset;
 	/*
 	 * evsel__parse_sample() doesn't populate machine_pid/vcpu,
 	 * which are needed by machines__find_for_cpumode() to
