@@ -5,8 +5,8 @@
 
 #include <drm/drm_print.h>
 #include <drm/drm_vblank.h>
+#include <drm/intel/intel_gmd_interrupt_regs.h>
 
-#include "i915_reg.h"
 #include "icl_dsi_regs.h"
 #include "intel_crtc.h"
 #include "intel_de.h"
@@ -1619,7 +1619,7 @@ static void i915gm_irq_cstate_wa_enable(struct intel_display *display)
 	 */
 	if (display->irq.vblank_enabled++ == 0)
 		intel_de_write(display, SCPD0,
-			       _MASKED_BIT_ENABLE(CSTATE_RENDER_CLOCK_GATE_DISABLE));
+			       REG_MASKED_FIELD_ENABLE(CSTATE_RENDER_CLOCK_GATE_DISABLE));
 }
 
 static void i915gm_irq_cstate_wa_disable(struct intel_display *display)
@@ -1628,7 +1628,7 @@ static void i915gm_irq_cstate_wa_disable(struct intel_display *display)
 
 	if (--display->irq.vblank_enabled == 0)
 		intel_de_write(display, SCPD0,
-			       _MASKED_BIT_DISABLE(CSTATE_RENDER_CLOCK_GATE_DISABLE));
+			       REG_MASKED_FIELD_DISABLE(CSTATE_RENDER_CLOCK_GATE_DISABLE));
 }
 
 void i915gm_irq_cstate_wa(struct intel_display *display, bool enable)
@@ -1773,8 +1773,12 @@ static void intel_display_vblank_notify_work(struct work_struct *work)
 	struct intel_display *display =
 		container_of(work, typeof(*display), irq.vblank_notify_work);
 	int vblank_enable_count = READ_ONCE(display->irq.vblank_enable_count);
+	bool vblank_status = !!vblank_enable_count;
 
-	intel_psr_notify_vblank_enable_disable(display, vblank_enable_count);
+	if (display->irq.vblank_status_last_notified != vblank_status) {
+		intel_psr_notify_vblank_enable_disable(display, vblank_status);
+		display->irq.vblank_status_last_notified = vblank_status;
+	}
 }
 
 int bdw_enable_vblank(struct drm_crtc *_crtc)
@@ -1787,10 +1791,10 @@ int bdw_enable_vblank(struct drm_crtc *_crtc)
 	if (gen11_dsi_configure_te(crtc, true))
 		return 0;
 
+	spin_lock_irqsave(&display->irq.lock, irqflags);
 	if (crtc->vblank_psr_notify && display->irq.vblank_enable_count++ == 0)
 		schedule_work(&display->irq.vblank_notify_work);
 
-	spin_lock_irqsave(&display->irq.lock, irqflags);
 	bdw_enable_pipe_irq(display, pipe, GEN8_PIPE_VBLANK);
 	spin_unlock_irqrestore(&display->irq.lock, irqflags);
 
@@ -2472,6 +2476,7 @@ void intel_display_irq_init(struct intel_display *display)
 
 struct intel_display_irq_snapshot {
 	u32 derrmr;
+	u32 err_int;
 };
 
 struct intel_display_irq_snapshot *
@@ -2486,6 +2491,9 @@ intel_display_irq_snapshot_capture(struct intel_display *display)
 	if (DISPLAY_VER(display) >= 6 && DISPLAY_VER(display) < 20 && !HAS_GMCH(display))
 		snapshot->derrmr = intel_de_read(display, DERRMR);
 
+	if (DISPLAY_VER(display) == 7)
+		snapshot->err_int = intel_de_read(display, GEN7_ERR_INT);
+
 	return snapshot;
 }
 
@@ -2496,4 +2504,5 @@ void intel_display_irq_snapshot_print(const struct intel_display_irq_snapshot *s
 		return;
 
 	drm_printf(p, "DERRMR: 0x%08x\n", snapshot->derrmr);
+	drm_printf(p, "ERR_INT: 0x%08x\n", snapshot->err_int);
 }

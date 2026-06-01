@@ -227,7 +227,7 @@ static void kill_midi_urbs(struct snd_usb_midi2_endpoint *ep, bool suspending)
 	if (!ep)
 		return;
 	if (suspending)
-		ep->suspended = ep->running;
+		atomic_set(&ep->suspended, atomic_read(&ep->running));
 	atomic_set(&ep->running, 0);
 	for (i = 0; i < ep->num_urbs; i++) {
 		if (!ep->urbs[i].urb)
@@ -496,15 +496,17 @@ static void *find_usb_ms_endpoint_descriptor(struct usb_host_endpoint *hostep,
 	while (extralen > 3) {
 		struct usb_ms_endpoint_descriptor *ms_ep =
 			(struct usb_ms_endpoint_descriptor *)extra;
+		int length = ms_ep->bLength;
 
-		if (ms_ep->bLength > 3 &&
+		if (!length || length > extralen)
+			break;
+
+		if (length > 3 &&
 		    ms_ep->bDescriptorType == USB_DT_CS_ENDPOINT &&
 		    ms_ep->bDescriptorSubtype == subtype)
 			return ms_ep;
-		if (!extra[0])
-			break;
-		extralen -= extra[0];
-		extra += extra[0];
+		extralen -= length;
+		extra += length;
 	}
 	return NULL;
 }
@@ -1057,10 +1059,8 @@ static void set_fallback_rawmidi_names(struct snd_usb_midi2_interface *umidi)
 			strscpy(ump->core.name, ump->info.name,
 				sizeof(ump->core.name));
 		/* use serial number string as unique UMP product id */
-		if (!*ump->info.product_id && dev->descriptor.iSerialNumber)
-			usb_string(dev, dev->descriptor.iSerialNumber,
-				   ump->info.product_id,
-				   sizeof(ump->info.product_id));
+		if (!*ump->info.product_id && dev->serial && *dev->serial)
+			strscpy(ump->info.product_id, dev->serial);
 	}
 }
 
@@ -1190,10 +1190,11 @@ void snd_usb_midi_v2_suspend_all(struct snd_usb_audio *chip)
 
 static void resume_midi2_endpoint(struct snd_usb_midi2_endpoint *ep)
 {
-	ep->running = ep->suspended;
-	if (ep->direction == STR_IN)
+	atomic_set(&ep->running, atomic_read(&ep->suspended));
+	atomic_set(&ep->suspended, 0);
+
+	if (ep->direction == STR_IN || atomic_read(&ep->running))
 		submit_io_urbs(ep);
-	/* FIXME: does it all? */
 }
 
 void snd_usb_midi_v2_resume_all(struct snd_usb_audio *chip)

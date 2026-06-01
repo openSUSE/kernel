@@ -2384,7 +2384,8 @@ static void bpf_kprobe_multi_link_release(struct bpf_link *link)
 	struct bpf_kprobe_multi_link *kmulti_link;
 
 	kmulti_link = container_of(link, struct bpf_kprobe_multi_link, link);
-	unregister_fprobe(&kmulti_link->fp);
+	/* Don't wait for RCU GP here. */
+	unregister_fprobe_async(&kmulti_link->fp);
 	kprobe_multi_put_modules(kmulti_link->mods, kmulti_link->mods_cnt);
 }
 
@@ -2750,6 +2751,10 @@ int bpf_kprobe_multi_link_attach(const union bpf_attr *attr, struct bpf_prog *pr
 		return -EINVAL;
 
 	if (!is_kprobe_multi(prog))
+		return -EINVAL;
+
+	/* kprobe_multi is not allowed to be sleepable. */
+	if (prog->sleepable)
 		return -EINVAL;
 
 	/* Writing to context is not allowed for kprobes. */

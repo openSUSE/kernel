@@ -26,8 +26,6 @@
 
 #include "sbshc.h"
 
-#define ACPI_SBS_CLASS			"sbs"
-#define ACPI_AC_CLASS			"ac_adapter"
 #define ACPI_SBS_DEVICE_NAME		"Smart Battery System"
 #define ACPI_BATTERY_DIR_NAME		"BAT%i"
 #define ACPI_AC_DIR_NAME		"AC0"
@@ -631,10 +629,14 @@ static void acpi_sbs_callback(void *context)
 
 static int acpi_sbs_probe(struct platform_device *pdev)
 {
-	struct acpi_device *device = ACPI_COMPANION(&pdev->dev);
+	struct acpi_device *device;
 	struct acpi_sbs *sbs;
 	int result = 0;
 	int id;
+
+	device = ACPI_COMPANION(&pdev->dev);
+	if (!device)
+		return -ENODEV;
 
 	sbs = kzalloc_obj(struct acpi_sbs);
 	if (!sbs) {
@@ -648,8 +650,6 @@ static int acpi_sbs_probe(struct platform_device *pdev)
 
 	sbs->hc = dev_get_drvdata(pdev->dev.parent);
 	sbs->device = device;
-	strscpy(acpi_device_name(device), ACPI_SBS_DEVICE_NAME);
-	strscpy(acpi_device_class(device), ACPI_SBS_CLASS);
 
 	result = acpi_charger_add(sbs);
 	if (result && result != -ENODEV)

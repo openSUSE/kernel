@@ -27,6 +27,7 @@
 #include <linux/sched.h>
 #include <linux/rbtree.h>
 #include <linux/xxhash.h>
+#include <linux/fserror.h>
 #include <uapi/linux/btrfs.h>
 #include <uapi/linux/btrfs_tree.h>
 #include "extent-io-tree.h"
@@ -154,6 +155,7 @@ enum {
 	BTRFS_FS_LOG_RECOVERING,
 	BTRFS_FS_OPEN,
 	BTRFS_FS_QUOTA_ENABLED,
+	BTRFS_FS_SQUOTA_ENABLING,
 	BTRFS_FS_UPDATE_UUID_TREE_GEN,
 	BTRFS_FS_CREATING_FREE_SPACE_TREE,
 	BTRFS_FS_BTREE_ERR,
@@ -966,13 +968,13 @@ struct btrfs_fs_info {
 #define inode_to_fs_info(_inode) (BTRFS_I(_Generic((_inode),			\
 					   struct inode *: (_inode)))->root->fs_info)
 
-static inline gfp_t btrfs_alloc_write_mask(struct address_space *mapping)
+static inline gfp_t btrfs_alloc_write_mask(const struct address_space *mapping)
 {
 	return mapping_gfp_constraint(mapping, ~__GFP_FS);
 }
 
 /* Return the minimal folio size of the fs. */
-static inline unsigned int btrfs_min_folio_size(struct btrfs_fs_info *fs_info)
+static inline unsigned int btrfs_min_folio_size(const struct btrfs_fs_info *fs_info)
 {
 	return 1U << (PAGE_SHIFT + fs_info->block_min_order);
 }
@@ -1199,8 +1201,10 @@ static inline void btrfs_force_shutdown(struct btrfs_fs_info *fs_info)
 	 * So here we only mark the fs error without flipping it RO.
 	 */
 	WRITE_ONCE(fs_info->fs_error, -EIO);
-	if (!test_and_set_bit(BTRFS_FS_STATE_EMERGENCY_SHUTDOWN, &fs_info->fs_state))
+	if (!test_and_set_bit(BTRFS_FS_STATE_EMERGENCY_SHUTDOWN, &fs_info->fs_state)) {
 		btrfs_crit(fs_info, "emergency shutdown");
+		fserror_report_shutdown(fs_info->sb, GFP_KERNEL);
+	}
 }
 
 /*

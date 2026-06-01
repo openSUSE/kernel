@@ -12,6 +12,8 @@
 #include "xe_pat.h"
 #include "xe_pt.h"
 #include "xe_svm.h"
+#include "xe_tlb_inval.h"
+#include "xe_vm.h"
 
 struct xe_vmas_in_madvise_range {
 	u64 addr;
@@ -25,6 +27,8 @@ struct xe_vmas_in_madvise_range {
 /**
  * struct xe_madvise_details - Argument to madvise_funcs
  * @dpagemap: Reference-counted pointer to a struct drm_pagemap.
+ * @has_purged_bo: Track if any BO was purged (for purgeable state)
+ * @retained_ptr: User pointer for retained value (for purgeable state)
  *
  * The madvise IOCTL handler may, in addition to the user-space
  * args, have additional info to pass into the madvise_func that
@@ -33,6 +37,8 @@ struct xe_vmas_in_madvise_range {
  */
 struct xe_madvise_details {
 	struct drm_pagemap *dpagemap;
+	bool has_purged_bo;
+	u64 retained_ptr;
 };
 
 static int get_vmas(struct xe_vm *vm, struct xe_vmas_in_madvise_range *madvise_range)
@@ -179,6 +185,80 @@ static void madvise_pat_index(struct xe_device *xe, struct xe_vm *vm,
 	}
 }
 
+/**
+ * madvise_purgeable - Handle purgeable buffer object advice
+ * @xe: XE device
+ * @vm: VM
+ * @vmas: Array of VMAs
+ * @num_vmas: Number of VMAs
+ * @op: Madvise operation
+ * @details: Madvise details for return values
+ *
+ * Handles DONTNEED/WILLNEED/PURGED states. Tracks if any BO was purged
+ * in details->has_purged_bo for later copy to userspace.
+ */
+static void madvise_purgeable(struct xe_device *xe, struct xe_vm *vm,
+			      struct xe_vma **vmas, int num_vmas,
+			      struct drm_xe_madvise *op,
+			      struct xe_madvise_details *details)
+{
+	int i;
+
+	xe_assert(vm->xe, op->type == DRM_XE_VMA_ATTR_PURGEABLE_STATE);
+
+	for (i = 0; i < num_vmas; i++) {
+		struct xe_bo *bo = xe_vma_bo(vmas[i]);
+
+		if (!bo) {
+			/* Purgeable state applies to BOs only, skip non-BO VMAs */
+			vmas[i]->skip_invalidation = true;
+			continue;
+		}
+
+		/* BO must be locked before modifying madv state */
+		xe_bo_assert_held(bo);
+
+		/*
+		 * Once purged, always purged. Cannot transition back to WILLNEED.
+		 * This matches i915 semantics where purged BOs are permanently invalid.
+		 */
+		if (xe_bo_is_purged(bo)) {
+			details->has_purged_bo = true;
+			vmas[i]->skip_invalidation = true;
+			continue;
+		}
+
+		switch (op->purge_state_val.val) {
+		case DRM_XE_VMA_PURGEABLE_STATE_WILLNEED:
+			vmas[i]->skip_invalidation = true;
+			/* Only act on a real DONTNEED -> WILLNEED transition. */
+			if (vmas[i]->attr.purgeable_state == XE_MADV_PURGEABLE_DONTNEED) {
+				vmas[i]->attr.purgeable_state = XE_MADV_PURGEABLE_WILLNEED;
+				xe_bo_willneed_get_locked(bo);
+			}
+			break;
+		case DRM_XE_VMA_PURGEABLE_STATE_DONTNEED:
+			/*
+			 * Don't zap PTEs at DONTNEED time -- pages are still
+			 * alive. The zap happens in xe_bo_move_notify() right
+			 * before the shrinker frees them.
+			 */
+			vmas[i]->skip_invalidation = true;
+
+			/* Only act on a real WILLNEED -> DONTNEED transition. */
+			if (vmas[i]->attr.purgeable_state == XE_MADV_PURGEABLE_WILLNEED) {
+				vmas[i]->attr.purgeable_state = XE_MADV_PURGEABLE_DONTNEED;
+				xe_bo_willneed_put_locked(bo);
+			}
+			break;
+		default:
+			/* Should never hit - values validated in madvise_args_are_sane() */
+			xe_assert(vm->xe, 0);
+			return;
+		}
+	}
+}
+
 typedef void (*madvise_func)(struct xe_device *xe, struct xe_vm *vm,
 			     struct xe_vma **vmas, int num_vmas,
 			     struct drm_xe_madvise *op,
@@ -188,6 +268,7 @@ static const madvise_func madvise_funcs[] = {
 	[DRM_XE_MEM_RANGE_ATTR_PREFERRED_LOC] = madvise_preferred_mem_loc,
 	[DRM_XE_MEM_RANGE_ATTR_ATOMIC] = madvise_atomic,
 	[DRM_XE_MEM_RANGE_ATTR_PAT] = madvise_pat_index,
+	[DRM_XE_VMA_ATTR_PURGEABLE_STATE] = madvise_purgeable,
 };
 
 static u8 xe_zap_ptes_in_madvise_range(struct xe_vm *vm, u64 start, u64 end)
@@ -235,13 +316,20 @@ static u8 xe_zap_ptes_in_madvise_range(struct xe_vm *vm, u64 start, u64 end)
 static int xe_vm_invalidate_madvise_range(struct xe_vm *vm, u64 start, u64 end)
 {
 	u8 tile_mask = xe_zap_ptes_in_madvise_range(vm, start, end);
+	struct xe_tlb_inval_batch batch;
+	int err;
 
 	if (!tile_mask)
 		return 0;
 
 	xe_device_wmb(vm->xe);
 
-	return xe_vm_range_tilemask_tlb_inval(vm, start, end, tile_mask);
+	err = xe_tlb_inval_range_tilemask_submit(vm->xe, vm->usm.asid, start, end,
+						 tile_mask, &batch);
+	if (!err)
+		xe_tlb_inval_batch_wait(&batch);
+
+	return err;
 }
 
 static bool madvise_args_are_sane(struct xe_device *xe, const struct drm_xe_madvise *args)
@@ -301,7 +389,7 @@ static bool madvise_args_are_sane(struct xe_device *xe, const struct drm_xe_madv
 		if (XE_IOCTL_DBG(xe, !coh_mode))
 			return false;
 
-		if (XE_WARN_ON(coh_mode > XE_COH_AT_LEAST_1WAY))
+		if (XE_WARN_ON(coh_mode > XE_COH_2WAY))
 			return false;
 
 		if (XE_IOCTL_DBG(xe, args->pat_index.pad))
@@ -309,6 +397,19 @@ static bool madvise_args_are_sane(struct xe_device *xe, const struct drm_xe_madv
 
 		if (XE_IOCTL_DBG(xe, args->pat_index.reserved))
 			return false;
+		break;
+	}
+	case DRM_XE_VMA_ATTR_PURGEABLE_STATE:
+	{
+		u32 val = args->purge_state_val.val;
+
+		if (XE_IOCTL_DBG(xe, !(val == DRM_XE_VMA_PURGEABLE_STATE_WILLNEED ||
+				       val == DRM_XE_VMA_PURGEABLE_STATE_DONTNEED)))
+			return false;
+
+		if (XE_IOCTL_DBG(xe, args->purge_state_val.pad))
+			return false;
+
 		break;
 	}
 	default:
@@ -328,6 +429,12 @@ static int xe_madvise_details_init(struct xe_vm *vm, const struct drm_xe_madvise
 	struct xe_device *xe = vm->xe;
 
 	memset(details, 0, sizeof(*details));
+
+	/* Store retained pointer for purgeable state */
+	if (args->type == DRM_XE_VMA_ATTR_PURGEABLE_STATE) {
+		details->retained_ptr = args->purge_state_val.retained_ptr;
+		return 0;
+	}
 
 	if (args->type == DRM_XE_MEM_RANGE_ATTR_PREFERRED_LOC) {
 		int fd = args->preferred_mem_loc.devmem_fd;
@@ -355,6 +462,60 @@ static int xe_madvise_details_init(struct xe_vm *vm, const struct drm_xe_madvise
 static void xe_madvise_details_fini(struct xe_madvise_details *details)
 {
 	drm_pagemap_put(details->dpagemap);
+}
+
+static int xe_madvise_purgeable_retained_to_user(const struct xe_madvise_details *details)
+{
+	u32 retained;
+
+	if (!details->retained_ptr)
+		return 0;
+
+	retained = !details->has_purged_bo;
+
+	if (put_user(retained, (u32 __user *)u64_to_user_ptr(details->retained_ptr)))
+		return -EFAULT;
+
+	return 0;
+}
+
+static bool check_pat_args_are_sane(struct xe_device *xe,
+				    struct xe_vmas_in_madvise_range *madvise_range,
+				    u16 pat_index)
+{
+	u16 coh_mode = xe_pat_index_get_coh_mode(xe, pat_index);
+	int i;
+
+	/*
+	 * Using coh_none with CPU cached buffers is not allowed on iGPU.
+	 * On iGPU the GPU shares the LLC with the CPU, so with coh_none
+	 * the GPU bypasses CPU caches and reads directly from DRAM,
+	 * potentially seeing stale sensitive data from previously freed
+	 * pages. On dGPU this restriction does not apply, because the
+	 * platform does not provide a non-coherent system memory access
+	 * path that would violate the DMA coherency contract.
+	 */
+	if (coh_mode != XE_COH_NONE || IS_DGFX(xe))
+		return true;
+
+	for (i = 0; i < madvise_range->num_vmas; i++) {
+		struct xe_vma *vma = madvise_range->vmas[i];
+		struct xe_bo *bo = xe_vma_bo(vma);
+
+		if (bo) {
+			/* BO with WB caching + COH_NONE is not allowed */
+			if (XE_IOCTL_DBG(xe, bo->cpu_caching == DRM_XE_GEM_CPU_CACHING_WB))
+				return false;
+			/* Imported dma-buf without caching info, assume cached */
+			if (XE_IOCTL_DBG(xe, !bo->cpu_caching))
+				return false;
+		} else if (XE_IOCTL_DBG(xe, xe_vma_is_cpu_addr_mirror(vma) ||
+					    xe_vma_is_userptr(vma)))
+			/* System memory (userptr/SVM) is always CPU cached */
+			return false;
+	}
+
+	return true;
 }
 
 static bool check_bo_args_are_sane(struct xe_vm *vm, struct xe_vma **vmas,
@@ -408,12 +569,21 @@ int xe_vm_madvise_ioctl(struct drm_device *dev, void *data, struct drm_file *fil
 	struct xe_device *xe = to_xe_device(dev);
 	struct xe_file *xef = to_xe_file(file);
 	struct drm_xe_madvise *args = data;
-	struct xe_vmas_in_madvise_range madvise_range = {.addr = args->start,
-							 .range =  args->range, };
+	struct xe_vmas_in_madvise_range madvise_range = {
+		/*
+		 * Userspace may pass canonical (sign-extended) addresses.
+		 * Strip the sign extension to get the internal non-canonical
+		 * form used by the GPUVM, matching xe_vm_bind_ioctl() behavior.
+		 */
+		.addr = xe_device_uncanonicalize_addr(xe, args->start),
+		.range = args->range,
+	};
 	struct xe_madvise_details details;
+	u16 pat_index, coh_mode;
 	struct xe_vm *vm;
 	struct drm_exec exec;
 	int err, attr_type;
+	bool do_retained;
 
 	vm = xe_vm_lookup(xef, args->vm_id);
 	if (XE_IOCTL_DBG(xe, !vm))
@@ -422,6 +592,25 @@ int xe_vm_madvise_ioctl(struct drm_device *dev, void *data, struct drm_file *fil
 	if (!madvise_args_are_sane(vm->xe, args)) {
 		err = -EINVAL;
 		goto put_vm;
+	}
+
+	/* Cache whether we need to write retained, and validate it's initialized to 0 */
+	do_retained = args->type == DRM_XE_VMA_ATTR_PURGEABLE_STATE &&
+		      args->purge_state_val.retained_ptr;
+	if (do_retained) {
+		u32 retained;
+		u32 __user *retained_ptr;
+
+		retained_ptr = u64_to_user_ptr(args->purge_state_val.retained_ptr);
+		if (get_user(retained, retained_ptr)) {
+			err = -EFAULT;
+			goto put_vm;
+		}
+
+		if (XE_IOCTL_DBG(xe, retained != 0)) {
+			err = -EINVAL;
+			goto put_vm;
+		}
 	}
 
 	xe_svm_flush(vm);
@@ -439,13 +628,32 @@ int xe_vm_madvise_ioctl(struct drm_device *dev, void *data, struct drm_file *fil
 	if (err)
 		goto unlock_vm;
 
-	err = xe_vm_alloc_madvise_vma(vm, args->start, args->range);
+	err = xe_vm_alloc_madvise_vma(vm, madvise_range.addr, args->range);
 	if (err)
 		goto madv_fini;
 
 	err = get_vmas(vm, &madvise_range);
 	if (err || !madvise_range.num_vmas)
 		goto madv_fini;
+
+	if (args->type == DRM_XE_MEM_RANGE_ATTR_PAT) {
+		pat_index = array_index_nospec(args->pat_index.val, xe->pat.n_entries);
+		coh_mode = xe_pat_index_get_coh_mode(xe, pat_index);
+		if (XE_IOCTL_DBG(xe, madvise_range.has_svm_userptr_vmas &&
+				 xe_device_is_l2_flush_optimized(xe) &&
+				 (pat_index != 19 && coh_mode != XE_COH_2WAY))) {
+			err = -EINVAL;
+			goto madv_fini;
+		}
+	}
+
+	if (args->type == DRM_XE_MEM_RANGE_ATTR_PAT) {
+		if (!check_pat_args_are_sane(xe, &madvise_range,
+					     args->pat_index.val)) {
+			err = -EINVAL;
+			goto free_vmas;
+		}
+	}
 
 	if (madvise_range.has_bo_vmas) {
 		if (args->type == DRM_XE_MEM_RANGE_ATTR_ATOMIC) {
@@ -464,6 +672,17 @@ int xe_vm_madvise_ioctl(struct drm_device *dev, void *data, struct drm_file *fil
 
 				if (!bo)
 					continue;
+
+				if (args->type == DRM_XE_MEM_RANGE_ATTR_PAT) {
+					if (XE_IOCTL_DBG(xe, bo->ttm.base.import_attach &&
+							 xe_device_is_l2_flush_optimized(xe) &&
+							 (pat_index != 19 &&
+							  coh_mode != XE_COH_2WAY))) {
+						err = -EINVAL;
+						goto err_fini;
+					}
+				}
+
 				err = drm_exec_lock_obj(&exec, &bo->ttm.base);
 				drm_exec_retry_on_contention(&exec);
 				if (err)
@@ -479,10 +698,18 @@ int xe_vm_madvise_ioctl(struct drm_device *dev, void *data, struct drm_file *fil
 	}
 
 	attr_type = array_index_nospec(args->type, ARRAY_SIZE(madvise_funcs));
+
+	/* Ensure the madvise function exists for this type */
+	if (!madvise_funcs[attr_type]) {
+		err = -EINVAL;
+		goto err_fini;
+	}
+
 	madvise_funcs[attr_type](xe, vm, madvise_range.vmas, madvise_range.num_vmas, args,
 				 &details);
 
-	err = xe_vm_invalidate_madvise_range(vm, args->start, args->start + args->range);
+	err = xe_vm_invalidate_madvise_range(vm, madvise_range.addr,
+					     madvise_range.addr + args->range);
 
 	if (madvise_range.has_svm_userptr_vmas)
 		xe_svm_notifier_unlock(vm);
@@ -497,6 +724,10 @@ madv_fini:
 	xe_madvise_details_fini(&details);
 unlock_vm:
 	up_write(&vm->lock);
+
+	/* Write retained value to user after releasing all locks */
+	if (!err && do_retained)
+		err = xe_madvise_purgeable_retained_to_user(&details);
 put_vm:
 	xe_vm_put(vm);
 	return err;

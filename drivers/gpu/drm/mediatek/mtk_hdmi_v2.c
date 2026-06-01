@@ -50,7 +50,7 @@ enum mtk_hdmi_v2_clk_id {
 	MTK_HDMI_V2_CLK_COUNT,
 };
 
-const char *const mtk_hdmi_v2_clk_names[MTK_HDMI_V2_CLK_COUNT] = {
+static const char *const mtk_hdmi_v2_clk_names[MTK_HDMI_V2_CLK_COUNT] = {
 	[MTK_HDMI_V2_CLK_HDMI_APB_SEL] = "bus",
 	[MTK_HDMI_V2_CLK_HDCP_SEL] = "hdcp",
 	[MTK_HDMI_V2_CLK_HDCP_24M_SEL] = "hdcp24m",
@@ -747,12 +747,12 @@ static void mtk_hdmi_v2_change_video_resolution(struct mtk_hdmi *hdmi,
 
 	switch (conn_state->hdmi.output_format) {
 	default:
-	case HDMI_COLORSPACE_RGB:
-	case HDMI_COLORSPACE_YUV444:
+	case DRM_OUTPUT_COLOR_FORMAT_RGB444:
+	case DRM_OUTPUT_COLOR_FORMAT_YCBCR444:
 		/* Disable YUV420 downsampling for RGB and YUV444 */
 		mtk_hdmi_yuv420_downsampling(hdmi, false);
 		break;
-	case HDMI_COLORSPACE_YUV422:
+	case DRM_OUTPUT_COLOR_FORMAT_YCBCR422:
 		/*
 		 * YUV420 downsampling is special and needs a bit of setup
 		 * so we disable everything there before doing anything else.
@@ -763,7 +763,7 @@ static void mtk_hdmi_v2_change_video_resolution(struct mtk_hdmi *hdmi,
 		regmap_set_bits(hdmi->regs, VID_DOWNSAMPLE_CONFIG,
 				C444_C422_CONFIG_ENABLE);
 		break;
-	case HDMI_COLORSPACE_YUV420:
+	case DRM_OUTPUT_COLOR_FORMAT_YCBCR420:
 		mtk_hdmi_yuv420_downsampling(hdmi, true);
 		break;
 	}

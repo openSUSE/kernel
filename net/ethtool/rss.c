@@ -2,8 +2,8 @@
 
 #include <net/netdev_lock.h>
 
-#include "netlink.h"
 #include "common.h"
+#include "netlink.h"
 
 struct rss_req_info {
 	struct ethnl_req_info		base;
@@ -66,7 +66,9 @@ const struct nla_policy ethnl_rss_get_policy[] = {
 };
 
 static int
-rss_parse_request(struct ethnl_req_info *req_info, struct nlattr **tb,
+rss_parse_request(struct ethnl_req_info *req_info,
+		  const struct genl_info *info,
+		  struct nlattr **tb,
 		  struct netlink_ext_ack *extack)
 {
 	struct rss_req_info *request = RSS_REQINFO(req_info);
@@ -132,8 +134,7 @@ rss_get_data_alloc(struct net_device *dev, struct rss_reply_data *data)
 	if (!rss_config)
 		return -ENOMEM;
 
-	if (data->indir_size)
-		data->indir_table = (u32 *)rss_config;
+	data->indir_table = (u32 *)rss_config;
 	if (data->hkey_size)
 		data->hkey = rss_config + indir_bytes;
 
@@ -168,8 +169,10 @@ rss_prepare_get(const struct rss_req_info *request, struct net_device *dev,
 	rxfh.key = data->hkey;
 
 	ret = ops->get_rxfh(dev, &rxfh);
-	if (ret)
+	if (ret) {
+		rss_get_data_free(data);
 		goto out_unlock;
+	}
 
 	data->hfunc = rxfh.hfunc;
 	data->input_xfrm = rxfh.input_xfrm;
@@ -684,9 +687,9 @@ rss_set_prep_indir(struct net_device *dev, struct genl_info *info,
 				ethtool_rxfh_indir_default(i, num_rx_rings);
 	}
 
-	*mod |= memcmp(rxfh->indir, data->indir_table, data->indir_size);
+	*mod |= memcmp(rxfh->indir, data->indir_table, alloc_size);
 
-	return 0;
+	return user_size;
 
 err_free:
 	kfree(rxfh->indir);
@@ -833,6 +836,7 @@ ethnl_rss_set(struct ethnl_req_info *req_info, struct genl_info *info)
 	struct nlattr **tb = info->attrs;
 	struct rss_reply_data data = {};
 	const struct ethtool_ops *ops;
+	u32 indir_user_size;
 	int ret;
 
 	ops = dev->ethtool_ops;
@@ -845,8 +849,9 @@ ethnl_rss_set(struct ethnl_req_info *req_info, struct genl_info *info)
 	rxfh.rss_context = request->rss_context;
 
 	ret = rss_set_prep_indir(dev, info, &data, &rxfh, &indir_reset, &mod);
-	if (ret)
+	if (ret < 0)
 		goto exit_clean_data;
+	indir_user_size = ret;
 	indir_mod = !!tb[ETHTOOL_A_RSS_INDIR];
 
 	rxfh.hfunc = data.hfunc;
@@ -889,12 +894,15 @@ ethnl_rss_set(struct ethnl_req_info *req_info, struct genl_info *info)
 	if (ret)
 		goto exit_unlock;
 
-	if (ctx)
+	if (ctx) {
 		rss_set_ctx_update(ctx, tb, &data, &rxfh);
-	else if (indir_reset)
-		dev->priv_flags &= ~IFF_RXFH_CONFIGURED;
-	else if (indir_mod)
-		dev->priv_flags |= IFF_RXFH_CONFIGURED;
+		if (indir_user_size)
+			ctx->indir_user_size = indir_user_size;
+	} else if (indir_reset) {
+		dev->ethtool->rss_indir_user_size = 0;
+	} else if (indir_mod) {
+		dev->ethtool->rss_indir_user_size = indir_user_size;
+	}
 
 exit_unlock:
 	mutex_unlock(&dev->ethtool->rss_lock);
@@ -974,11 +982,17 @@ ethnl_rss_create_validate(struct net_device *dev, struct genl_info *info)
 }
 
 static void
-ethnl_rss_create_send_ntf(struct sk_buff *rsp, struct net_device *dev)
+ethnl_rss_create_send_ntf(const struct sk_buff *rsp, struct net_device *dev)
 {
-	struct nlmsghdr *nlh = (void *)rsp->data;
 	struct genlmsghdr *genl_hdr;
+	struct nlmsghdr *nlh;
+	struct sk_buff *ntf;
 
+	ntf = skb_copy_expand(rsp, 0, 0, GFP_KERNEL);
+	if (!ntf)
+		return;
+
+	nlh = nlmsg_hdr(ntf);
 	/* Convert the reply into a notification */
 	nlh->nlmsg_pid = 0;
 	nlh->nlmsg_seq = ethnl_bcast_seq_next();
@@ -986,7 +1000,7 @@ ethnl_rss_create_send_ntf(struct sk_buff *rsp, struct net_device *dev)
 	genl_hdr = nlmsg_data(nlh);
 	genl_hdr->cmd =	ETHTOOL_MSG_RSS_CREATE_NTF;
 
-	ethnl_multicast(rsp, dev);
+	ethnl_multicast(ntf, dev);
 }
 
 int ethnl_rss_create_doit(struct sk_buff *skb, struct genl_info *info)
@@ -999,6 +1013,7 @@ int ethnl_rss_create_doit(struct sk_buff *skb, struct genl_info *info)
 	const struct ethtool_ops *ops;
 	struct rss_req_info req = {};
 	struct net_device *dev;
+	u32 indir_user_size;
 	struct sk_buff *rsp;
 	void *hdr;
 	u32 limit;
@@ -1035,8 +1050,9 @@ int ethnl_rss_create_doit(struct sk_buff *skb, struct genl_info *info)
 		goto exit_ops;
 
 	ret = rss_set_prep_indir(dev, info, &data, &rxfh, &indir_dflt, &mod);
-	if (ret)
+	if (ret < 0)
 		goto exit_clean_data;
+	indir_user_size = ret;
 
 	ethnl_update_u8(&rxfh.hfunc, tb[ETHTOOL_A_RSS_HFUNC], &mod);
 
@@ -1080,6 +1096,7 @@ int ethnl_rss_create_doit(struct sk_buff *skb, struct genl_info *info)
 
 	/* Store the config from rxfh to Xarray.. */
 	rss_set_ctx_update(ctx, tb, &data, &rxfh);
+	ctx->indir_user_size = indir_user_size;
 	/* .. copy from Xarray to data. */
 	__rss_prepare_ctx(dev, &data, ctx);
 
@@ -1089,17 +1106,13 @@ int ethnl_rss_create_doit(struct sk_buff *skb, struct genl_info *info)
 	ntf_fail |= rss_fill_reply(rsp, &req.base, &data.base);
 	if (WARN_ON(!hdr || ntf_fail)) {
 		ret = -EMSGSIZE;
-		goto exit_unlock;
+		goto err_remove_ctx;
 	}
 
 	genlmsg_end(rsp, hdr);
 
-	/* Use the same skb for the response and the notification,
-	 * genlmsg_reply() will copy the skb if it has elevated user count.
-	 */
-	skb_get(rsp);
-	ret = genlmsg_reply(rsp, info);
 	ethnl_rss_create_send_ntf(rsp, dev);
+	ret = genlmsg_reply(rsp, info);
 	rsp = NULL;
 
 exit_unlock:
@@ -1121,6 +1134,10 @@ exit_free_rsp:
 	nlmsg_free(rsp);
 	return ret;
 
+err_remove_ctx:
+	if (ops->remove_rxfh_context(dev, ctx, req.rss_context, NULL))
+		/* leave the context on failure, like ethnl_rss_delete_doit() */
+		goto exit_unlock;
 err_ctx_id_free:
 	xa_erase(&dev->ethtool->rss_ctx, req.rss_context);
 err_unlock_free_ctx:
@@ -1158,8 +1175,10 @@ int ethnl_rss_delete_doit(struct sk_buff *skb, struct genl_info *info)
 	dev = req.dev;
 	ops = dev->ethtool_ops;
 
-	if (!ops->create_rxfh_context)
+	if (!ops->create_rxfh_context) {
+		ret = -EOPNOTSUPP;
 		goto exit_free_dev;
+	}
 
 	rtnl_lock();
 	netdev_lock_ops(dev);

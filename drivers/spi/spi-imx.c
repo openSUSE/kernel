@@ -1382,9 +1382,7 @@ static int spi_imx_setupxfer(struct spi_device *spi,
 		spi_imx->target_burst = t->len;
 	}
 
-	spi_imx->devtype_data->prepare_transfer(spi_imx, spi, t);
-
-	return 0;
+	return spi_imx->devtype_data->prepare_transfer(spi_imx, spi, t);
 }
 
 static void spi_imx_sdma_exit(struct spi_imx_data *spi_imx)
@@ -1709,6 +1707,7 @@ static int spi_imx_dma_data_prepare(struct spi_imx_data *spi_imx,
 			kfree(spi_imx->dma_data[0].dma_tx_buf);
 			kfree(spi_imx->dma_data[0].dma_rx_buf);
 			kfree(spi_imx->dma_data);
+			return ret;
 		}
 	}
 
@@ -1836,7 +1835,7 @@ static void spi_imx_dma_max_wml_find(struct spi_imx_data *spi_imx,
 	unsigned int i;
 
 	for (i = spi_imx->devtype_data->fifo_size / 2; i > 0; i--) {
-		if (!dma_data->dma_len % (i * bytes_per_word))
+		if (!(dma_data->dma_len % (i * bytes_per_word)))
 			break;
 	}
 	/* Use 1 as wml in case no available burst length got */
@@ -2231,11 +2230,9 @@ static int spi_imx_probe(struct platform_device *pdev)
 	target_mode = devtype_data->has_targetmode &&
 		      of_property_read_bool(np, "spi-slave");
 	if (target_mode)
-		controller = spi_alloc_target(&pdev->dev,
-					      sizeof(struct spi_imx_data));
+		controller = devm_spi_alloc_target(&pdev->dev, sizeof(*spi_imx));
 	else
-		controller = spi_alloc_host(&pdev->dev,
-					    sizeof(struct spi_imx_data));
+		controller = devm_spi_alloc_host(&pdev->dev, sizeof(*spi_imx));
 	if (!controller)
 		return -ENOMEM;
 
@@ -2304,40 +2301,31 @@ static int spi_imx_probe(struct platform_device *pdev)
 	init_completion(&spi_imx->xfer_done);
 
 	spi_imx->base = devm_platform_get_and_ioremap_resource(pdev, 0, &res);
-	if (IS_ERR(spi_imx->base)) {
-		ret = PTR_ERR(spi_imx->base);
-		goto out_controller_put;
-	}
+	if (IS_ERR(spi_imx->base))
+		return PTR_ERR(spi_imx->base);
+
 	spi_imx->base_phys = res->start;
 
 	irq = platform_get_irq(pdev, 0);
-	if (irq < 0) {
-		ret = irq;
-		goto out_controller_put;
-	}
+	if (irq < 0)
+		return irq;
 
 	ret = devm_request_irq(&pdev->dev, irq, spi_imx_isr, 0,
 			       dev_name(&pdev->dev), spi_imx);
-	if (ret) {
-		dev_err(&pdev->dev, "can't get irq%d: %d\n", irq, ret);
-		goto out_controller_put;
-	}
+	if (ret)
+		return dev_err_probe(&pdev->dev, ret, "can't get irq%d\n", irq);
 
 	spi_imx->clk_ipg = devm_clk_get(&pdev->dev, "ipg");
-	if (IS_ERR(spi_imx->clk_ipg)) {
-		ret = PTR_ERR(spi_imx->clk_ipg);
-		goto out_controller_put;
-	}
+	if (IS_ERR(spi_imx->clk_ipg))
+		return PTR_ERR(spi_imx->clk_ipg);
 
 	spi_imx->clk_per = devm_clk_get(&pdev->dev, "per");
-	if (IS_ERR(spi_imx->clk_per)) {
-		ret = PTR_ERR(spi_imx->clk_per);
-		goto out_controller_put;
-	}
+	if (IS_ERR(spi_imx->clk_per))
+		return PTR_ERR(spi_imx->clk_per);
 
 	ret = clk_prepare_enable(spi_imx->clk_per);
 	if (ret)
-		goto out_controller_put;
+		return ret;
 
 	ret = clk_prepare_enable(spi_imx->clk_ipg);
 	if (ret)
@@ -2384,13 +2372,12 @@ out_register_controller:
 out_runtime_pm_put:
 	pm_runtime_dont_use_autosuspend(spi_imx->dev);
 	pm_runtime_disable(spi_imx->dev);
+	pm_runtime_put_noidle(spi_imx->dev);
 	pm_runtime_set_suspended(&pdev->dev);
 
 	clk_disable_unprepare(spi_imx->clk_ipg);
 out_put_per:
 	clk_disable_unprepare(spi_imx->clk_per);
-out_controller_put:
-	spi_controller_put(controller);
 
 	return ret;
 }

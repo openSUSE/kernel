@@ -14,6 +14,7 @@ extern bool __read_mostly flexpriority_enabled;
 extern bool __read_mostly enable_ept;
 extern bool __read_mostly enable_unrestricted_guest;
 extern bool __read_mostly enable_ept_ad_bits;
+extern bool __read_mostly enable_cet;
 extern bool __read_mostly enable_pml;
 extern int __read_mostly pt_mode;
 
@@ -107,7 +108,7 @@ static inline bool cpu_has_load_perf_global_ctrl(void)
 
 static inline bool cpu_has_load_cet_ctrl(void)
 {
-	return (vmcs_config.vmentry_ctrl & VM_ENTRY_LOAD_CET_STATE);
+	return vmcs_config.vmentry_ctrl & VM_ENTRY_LOAD_CET_STATE;
 }
 
 static inline bool cpu_has_save_perf_global_ctrl(void)

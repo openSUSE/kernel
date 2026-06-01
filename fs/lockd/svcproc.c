@@ -10,39 +10,52 @@
 
 #include <linux/types.h>
 #include <linux/time.h>
-#include <linux/lockd/lockd.h>
-#include <linux/lockd/share.h>
 #include <linux/sunrpc/svc_xprt.h>
+
+#include "lockd.h"
+#include "share.h"
 
 #define NLMDBG_FACILITY		NLMDBG_CLIENT
 
 #ifdef CONFIG_LOCKD_V4
-static __be32
-cast_to_nlm(__be32 status, u32 vers)
+static inline __be32 cast_status(__be32 status)
 {
-	/* Note: status is assumed to be in network byte order !!! */
-	if (vers != 4){
-		switch (status) {
-		case nlm_granted:
-		case nlm_lck_denied:
-		case nlm_lck_denied_nolocks:
-		case nlm_lck_blocked:
-		case nlm_lck_denied_grace_period:
-		case nlm_drop_reply:
-			break;
-		case nlm4_deadlock:
-			status = nlm_lck_denied;
-			break;
-		default:
-			status = nlm_lck_denied_nolocks;
-		}
+	switch (status) {
+	case nlm_granted:
+	case nlm_lck_denied:
+	case nlm_lck_denied_nolocks:
+	case nlm_lck_blocked:
+	case nlm_lck_denied_grace_period:
+	case nlm__int__drop_reply:
+		break;
+	case nlm__int__deadlock:
+		status = nlm_lck_denied;
+		break;
+	default:
+		status = nlm_lck_denied_nolocks;
 	}
 
-	return (status);
+	return status;
 }
-#define	cast_status(status) (cast_to_nlm(status, rqstp->rq_vers))
 #else
-#define cast_status(status) (status)
+static inline __be32 cast_status(__be32 status)
+{
+	switch (status) {
+	case nlm__int__deadlock:
+		status = nlm_lck_denied;
+		break;
+	case nlm__int__stale_fh:
+	case nlm__int__failed:
+		status = nlm_lck_denied_nolocks;
+		break;
+	default:
+		if (be32_to_cpu(status) >= 30000)
+			pr_warn_once("lockd: unhandled internal status %u\n",
+				     be32_to_cpu(status));
+		break;
+	}
+	return status;
+}
 #endif
 
 /*
@@ -55,6 +68,8 @@ nlmsvc_retrieve_args(struct svc_rqst *rqstp, struct nlm_args *argp,
 	struct nlm_host		*host = NULL;
 	struct nlm_file		*file = NULL;
 	struct nlm_lock		*lock = &argp->lock;
+	bool			is_test = (rqstp->rq_proc == NLMPROC_TEST ||
+					   rqstp->rq_proc == NLMPROC_TEST_MSG);
 	int			mode;
 	__be32			error = 0;
 
@@ -70,15 +85,22 @@ nlmsvc_retrieve_args(struct svc_rqst *rqstp, struct nlm_args *argp,
 
 	/* Obtain file pointer. Not used by FREE_ALL call. */
 	if (filp != NULL) {
-		error = cast_status(nlm_lookup_file(rqstp, &file, lock));
+		mode = lock_to_openmode(&lock->fl);
+
+		if (is_test)
+			mode = O_RDWR;
+
+		error = cast_status(nlm_lookup_file(rqstp, &file, lock, mode));
 		if (error != 0)
 			goto no_locks;
 		*filp = file;
 
 		/* Set up the missing parts of the file_lock structure */
-		mode = lock_to_openmode(&lock->fl);
 		lock->fl.c.flc_flags = FL_POSIX;
-		lock->fl.c.flc_file  = file->f_file[mode];
+		if (is_test)
+			lock->fl.c.flc_file = nlmsvc_file_file(file);
+		else
+			lock->fl.c.flc_file = file->f_file[mode];
 		lock->fl.c.flc_pid = current->tgid;
 		lock->fl.fl_lmops = &nlmsvc_lock_operations;
 		nlmsvc_locks_init_private(&lock->fl, host, (pid_t)lock->svid);
@@ -124,12 +146,13 @@ __nlmsvc_proc_test(struct svc_rqst *rqstp, struct nlm_res *resp)
 
 	/* Obtain client and file */
 	if ((resp->status = nlmsvc_retrieve_args(rqstp, argp, &host, &file)))
-		return resp->status == nlm_drop_reply ? rpc_drop_reply :rpc_success;
+		return resp->status == nlm__int__drop_reply ?
+			rpc_drop_reply : rpc_success;
 
 	/* Now check for conflicting locks */
 	resp->status = cast_status(nlmsvc_testlock(rqstp, file, host,
 						   &argp->lock, &resp->lock));
-	if (resp->status == nlm_drop_reply)
+	if (resp->status == nlm__int__drop_reply)
 		rc = rpc_drop_reply;
 	else
 		dprintk("lockd: TEST          status %d vers %d\n",
@@ -161,13 +184,14 @@ __nlmsvc_proc_lock(struct svc_rqst *rqstp, struct nlm_res *resp)
 
 	/* Obtain client and file */
 	if ((resp->status = nlmsvc_retrieve_args(rqstp, argp, &host, &file)))
-		return resp->status == nlm_drop_reply ? rpc_drop_reply :rpc_success;
+		return resp->status == nlm__int__drop_reply ?
+			rpc_drop_reply : rpc_success;
 
 	/* Now try to lock the file */
 	resp->status = cast_status(nlmsvc_lock(rqstp, file, host, &argp->lock,
 					       argp->block, &argp->cookie,
 					       argp->reclaim));
-	if (resp->status == nlm_drop_reply)
+	if (resp->status == nlm__int__drop_reply)
 		rc = rpc_drop_reply;
 	else
 		dprintk("lockd: LOCK         status %d\n", ntohl(resp->status));
@@ -204,7 +228,8 @@ __nlmsvc_proc_cancel(struct svc_rqst *rqstp, struct nlm_res *resp)
 
 	/* Obtain client and file */
 	if ((resp->status = nlmsvc_retrieve_args(rqstp, argp, &host, &file)))
-		return resp->status == nlm_drop_reply ? rpc_drop_reply :rpc_success;
+		return resp->status == nlm__int__drop_reply ?
+			rpc_drop_reply : rpc_success;
 
 	/* Try to cancel request. */
 	resp->status = cast_status(nlmsvc_cancel_blocked(net, file, &argp->lock));
@@ -245,7 +270,8 @@ __nlmsvc_proc_unlock(struct svc_rqst *rqstp, struct nlm_res *resp)
 
 	/* Obtain client and file */
 	if ((resp->status = nlmsvc_retrieve_args(rqstp, argp, &host, &file)))
-		return resp->status == nlm_drop_reply ? rpc_drop_reply :rpc_success;
+		return resp->status == nlm__int__drop_reply ?
+			rpc_drop_reply : rpc_success;
 
 	/* Now try to remove the lock */
 	resp->status = cast_status(nlmsvc_unlock(net, file, &argp->lock));
@@ -402,10 +428,13 @@ nlmsvc_proc_share(struct svc_rqst *rqstp)
 
 	/* Obtain client and file */
 	if ((resp->status = nlmsvc_retrieve_args(rqstp, argp, &host, &file)))
-		return resp->status == nlm_drop_reply ? rpc_drop_reply :rpc_success;
+		return resp->status == nlm__int__drop_reply ?
+			rpc_drop_reply : rpc_success;
 
 	/* Now try to create the share */
-	resp->status = cast_status(nlmsvc_share_file(host, file, argp));
+	resp->status = cast_status(nlmsvc_share_file(host, file, &argp->lock.oh,
+						     argp->fsm_access,
+						     argp->fsm_mode));
 
 	dprintk("lockd: SHARE         status %d\n", ntohl(resp->status));
 	nlmsvc_release_lockowner(&argp->lock);
@@ -437,10 +466,12 @@ nlmsvc_proc_unshare(struct svc_rqst *rqstp)
 
 	/* Obtain client and file */
 	if ((resp->status = nlmsvc_retrieve_args(rqstp, argp, &host, &file)))
-		return resp->status == nlm_drop_reply ? rpc_drop_reply :rpc_success;
+		return resp->status == nlm__int__drop_reply ?
+			rpc_drop_reply : rpc_success;
 
 	/* Now try to unshare the file */
-	resp->status = cast_status(nlmsvc_unshare_file(host, file, argp));
+	resp->status = cast_status(nlmsvc_unshare_file(host, file,
+						       &argp->lock.oh));
 
 	dprintk("lockd: UNSHARE       status %d\n", ntohl(resp->status));
 	nlmsvc_release_lockowner(&argp->lock);
@@ -536,7 +567,7 @@ struct nlm_void			{ int dummy; };
 #define	No	(1+1024/4)			/* Net Obj */
 #define	Rg	2				/* range - offset + size */
 
-const struct svc_procedure nlmsvc_procedures[24] = {
+static const struct svc_procedure nlmsvc_procedures[24] = {
 	[NLMPROC_NULL] = {
 		.pc_func = nlmsvc_proc_null,
 		.pc_decode = nlmsvc_decode_void,
@@ -777,4 +808,40 @@ const struct svc_procedure nlmsvc_procedures[24] = {
 		.pc_xdrressize = 0,
 		.pc_name = "FREE_ALL",
 	},
+};
+
+/*
+ * Storage requirements for XDR arguments and results
+ */
+union nlmsvc_xdrstore {
+	struct nlm_args			args;
+	struct nlm_res			res;
+	struct nlm_reboot		reboot;
+};
+
+/*
+ * NLMv1 defines only procedures 1 - 15. Linux lockd also implements
+ * procedures 0 (NULL) and 16 (SM_NOTIFY).
+ */
+static DEFINE_PER_CPU_ALIGNED(unsigned long, nlm1svc_call_counters[17]);
+
+const struct svc_version nlmsvc_version1 = {
+	.vs_vers	= 1,
+	.vs_nproc	= 17,
+	.vs_proc	= nlmsvc_procedures,
+	.vs_count	= nlm1svc_call_counters,
+	.vs_dispatch	= nlmsvc_dispatch,
+	.vs_xdrsize	= sizeof(union nlmsvc_xdrstore),
+};
+
+static DEFINE_PER_CPU_ALIGNED(unsigned long,
+			      nlm3svc_call_counters[ARRAY_SIZE(nlmsvc_procedures)]);
+
+const struct svc_version nlmsvc_version3 = {
+	.vs_vers	= 3,
+	.vs_nproc	= ARRAY_SIZE(nlmsvc_procedures),
+	.vs_proc	= nlmsvc_procedures,
+	.vs_count	= nlm3svc_call_counters,
+	.vs_dispatch	= nlmsvc_dispatch,
+	.vs_xdrsize	= sizeof(union nlmsvc_xdrstore),
 };

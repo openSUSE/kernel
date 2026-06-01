@@ -647,13 +647,13 @@ static int aml_spisg_clk_init(struct spisg_device *spisg, void __iomem *base)
 	int ret, i;
 
 	spisg->core = devm_clk_get_enabled(dev, "core");
-	if (IS_ERR_OR_NULL(spisg->core)) {
+	if (IS_ERR(spisg->core)) {
 		dev_err(dev, "core clock request failed\n");
 		return PTR_ERR(spisg->core);
 	}
 
 	spisg->pclk = devm_clk_get_enabled(dev, "pclk");
-	if (IS_ERR_OR_NULL(spisg->pclk)) {
+	if (IS_ERR(spisg->pclk)) {
 		dev_err(dev, "pclk clock request failed\n");
 		return PTR_ERR(spisg->pclk);
 	}
@@ -703,7 +703,7 @@ static int aml_spisg_clk_init(struct spisg_device *spisg, void __iomem *base)
 	}
 
 	spisg->sclk = devm_clk_hw_get_clk(dev, &div->hw, NULL);
-	if (IS_ERR_OR_NULL(spisg->sclk)) {
+	if (IS_ERR(spisg->sclk)) {
 		dev_err(dev, "get clock failed\n");
 		return PTR_ERR(spisg->sclk);
 	}
@@ -794,19 +794,18 @@ static int aml_spisg_probe(struct platform_device *pdev)
 
 	dma_set_max_seg_size(&pdev->dev, SPISG_BLOCK_MAX);
 
+	init_completion(&spisg->completion);
 	ret = devm_request_irq(&pdev->dev, irq, aml_spisg_irq, 0, NULL, spisg);
 	if (ret) {
 		dev_err(&pdev->dev, "irq request failed\n");
 		goto out_clk;
 	}
 
-	ret = devm_spi_register_controller(dev, ctlr);
+	ret = spi_register_controller(ctlr);
 	if (ret) {
 		dev_err(&pdev->dev, "spi controller registration failed\n");
 		goto out_clk;
 	}
-
-	init_completion(&spisg->completion);
 
 	pm_runtime_put(&spisg->pdev->dev);
 
@@ -822,6 +821,8 @@ out_clk:
 static void aml_spisg_remove(struct platform_device *pdev)
 {
 	struct spisg_device *spisg = platform_get_drvdata(pdev);
+
+	spi_unregister_controller(spisg->controller);
 
 	if (!pm_runtime_suspended(&pdev->dev)) {
 		pinctrl_pm_select_sleep_state(&spisg->pdev->dev);

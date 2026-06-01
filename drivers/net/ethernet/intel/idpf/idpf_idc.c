@@ -90,7 +90,10 @@ static int idpf_plug_vport_aux_dev(struct iidc_rdma_core_dev_info *cdev_info,
 	return 0;
 
 err_aux_dev_add:
+	ida_free(&idpf_idc_ida, adev->id);
+	vdev_info->adev = NULL;
 	auxiliary_device_uninit(adev);
+	return ret;
 err_aux_dev_init:
 	ida_free(&idpf_idc_ida, adev->id);
 err_ida_alloc:
@@ -228,7 +231,10 @@ static int idpf_plug_core_aux_dev(struct iidc_rdma_core_dev_info *cdev_info)
 	return 0;
 
 err_aux_dev_add:
+	ida_free(&idpf_idc_ida, adev->id);
+	cdev_info->adev = NULL;
 	auxiliary_device_uninit(adev);
+	return ret;
 err_aux_dev_init:
 	ida_free(&idpf_idc_ida, adev->id);
 err_ida_alloc:
@@ -470,10 +476,11 @@ err_privd_alloc:
 
 /**
  * idpf_idc_deinit_core_aux_device - de-initialize Auxiliary Device(s)
- * @cdev_info: IDC core device info pointer
+ * @adapter: driver private data structure
  */
-void idpf_idc_deinit_core_aux_device(struct iidc_rdma_core_dev_info *cdev_info)
+void idpf_idc_deinit_core_aux_device(struct idpf_adapter *adapter)
 {
+	struct iidc_rdma_core_dev_info *cdev_info = adapter->cdev_info;
 	struct iidc_rdma_priv_dev_info *privd;
 
 	if (!cdev_info)
@@ -485,6 +492,7 @@ void idpf_idc_deinit_core_aux_device(struct iidc_rdma_core_dev_info *cdev_info)
 	kfree(privd->mapped_mem_regions);
 	kfree(privd);
 	kfree(cdev_info);
+	adapter->cdev_info = NULL;
 }
 
 /**

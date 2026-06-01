@@ -5151,8 +5151,13 @@ void ata_qc_issue(struct ata_queued_cmd *qc)
 	struct ata_link *link = qc->dev->link;
 	u8 prot = qc->tf.protocol;
 
-	/* Make sure only one non-NCQ command is outstanding. */
-	WARN_ON_ONCE(ata_tag_valid(link->active_tag));
+	/*
+	 * Make sure we have a valid tag and that only one non-NCQ command is
+	 * outstanding.
+	 */
+	if (WARN_ON_ONCE(!ata_tag_valid(qc->tag)) ||
+	    WARN_ON_ONCE(ata_tag_valid(link->active_tag)))
+		goto sys_err;
 
 	if (ata_is_ncq(prot)) {
 		WARN_ON_ONCE(link->sactive & (1 << qc->hw_tag));
@@ -5579,6 +5584,7 @@ void ata_link_init(struct ata_port *ap, struct ata_link *link, int pmp)
 	link->pmp = pmp;
 	link->active_tag = ATA_TAG_POISON;
 	link->hw_sata_spd_limit = UINT_MAX;
+	INIT_WORK(&link->deferred_qc_work, ata_scsi_deferred_qc_work);
 
 	/* can't use iterator, ap isn't initialized yet */
 	for (i = 0; i < ATA_MAX_DEVICES; i++) {
@@ -5661,7 +5667,6 @@ struct ata_port *ata_port_alloc(struct ata_host *host)
 	mutex_init(&ap->scsi_scan_mutex);
 	INIT_DELAYED_WORK(&ap->hotplug_task, ata_scsi_hotplug);
 	INIT_DELAYED_WORK(&ap->scsi_rescan_task, ata_scsi_dev_rescan);
-	INIT_WORK(&ap->deferred_qc_work, ata_scsi_deferred_qc_work);
 	INIT_LIST_HEAD(&ap->eh_done_q);
 	init_waitqueue_head(&ap->eh_wait_q);
 	init_completion(&ap->park_req_pending);
@@ -6286,11 +6291,14 @@ static void ata_port_detach(struct ata_port *ap)
 
 	/* It better be dead now and not have any remaining deferred qc. */
 	WARN_ON(!(ap->pflags & ATA_PFLAG_UNLOADED));
-	WARN_ON(ap->deferred_qc);
 
-	cancel_work_sync(&ap->deferred_qc_work);
 	cancel_delayed_work_sync(&ap->hotplug_task);
 	cancel_delayed_work_sync(&ap->scsi_rescan_task);
+
+	ata_for_each_link(link, ap, PMP_FIRST) {
+		WARN_ON(link->deferred_qc);
+		cancel_work_sync(&link->deferred_qc_work);
+	}
 
 	/* Delete port multiplier link transport devices */
 	if (ap->pmp_link) {
@@ -6773,23 +6781,14 @@ static int __init ata_init(void)
 	}
 
 	libata_transport_init();
-	ata_scsi_transport_template = ata_attach_transport();
-	if (!ata_scsi_transport_template) {
-		ata_sff_exit();
-		rc = -ENOMEM;
-		goto err_out;
-	}
 
 	printk(KERN_DEBUG "libata version " DRV_VERSION " loaded.\n");
-	return 0;
 
-err_out:
-	return rc;
+	return 0;
 }
 
 static void __exit ata_exit(void)
 {
-	ata_release_transport(ata_scsi_transport_template);
 	libata_transport_exit();
 	ata_sff_exit();
 	ata_free_force_param();

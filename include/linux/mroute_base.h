@@ -76,7 +76,7 @@ static inline int mr_call_vif_notifiers(struct net *net,
 					struct vif_device *vif,
 					struct net_device *vif_dev,
 					unsigned short vif_index, u32 tb_id,
-					unsigned int *ipmr_seq)
+					atomic_t *ipmr_seq)
 {
 	struct vif_entry_notifier_info info = {
 		.info = {
@@ -89,7 +89,7 @@ static inline int mr_call_vif_notifiers(struct net *net,
 	};
 
 	ASSERT_RTNL();
-	(*ipmr_seq)++;
+	atomic_inc(ipmr_seq);
 	return call_fib_notifiers(net, event_type, &info.info);
 }
 
@@ -198,7 +198,7 @@ static inline int mr_call_mfc_notifiers(struct net *net,
 					unsigned short family,
 					enum fib_event_type event_type,
 					struct mr_mfc *mfc, u32 tb_id,
-					unsigned int *ipmr_seq)
+					atomic_t *ipmr_seq)
 {
 	struct mfc_entry_notifier_info info = {
 		.info = {
@@ -208,8 +208,7 @@ static inline int mr_call_mfc_notifiers(struct net *net,
 		.tb_id = tb_id
 	};
 
-	ASSERT_RTNL();
-	(*ipmr_seq)++;
+	atomic_inc(ipmr_seq);
 	return call_fib_notifiers(net, event_type, &info.info);
 }
 
@@ -227,6 +226,7 @@ struct mr_table_ops {
 
 /**
  * struct mr_table - a multicast routing table
+ * @work: used for table destruction
  * @list: entry within a list of multicast routing tables
  * @net: net where this table belongs
  * @ops: protocol specific operations
@@ -244,6 +244,7 @@ struct mr_table_ops {
  * @mroute_reg_vif_num: PIM-device vif index
  */
 struct mr_table {
+	struct rcu_work		work;
 	struct list_head	list;
 	possible_net_t		net;
 	struct mr_table_ops	ops;
@@ -275,6 +276,7 @@ void vif_device_init(struct vif_device *v,
 		     unsigned short flags,
 		     unsigned short get_iflink_mask);
 
+void mr_table_free(struct mr_table *mrt);
 struct mr_table *
 mr_table_alloc(struct net *net, u32 id,
 	       struct mr_table_ops *ops,

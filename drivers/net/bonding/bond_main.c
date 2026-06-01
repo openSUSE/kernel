@@ -93,8 +93,6 @@
 #include <net/netdev_lock.h>
 #include <net/xdp.h>
 
-#include "bonding_priv.h"
-
 /*---------------------------- Module parameters ----------------------------*/
 
 /* monitor all links that often (in milliseconds). <=0 disables monitoring */
@@ -206,7 +204,7 @@ MODULE_PARM_DESC(lp_interval, "The number of seconds between instances where "
 /*----------------------------- Global variables ----------------------------*/
 
 #ifdef CONFIG_NET_POLL_CONTROLLER
-atomic_t netpoll_block_tx = ATOMIC_INIT(0);
+DEFINE_STATIC_KEY_FALSE(netpoll_block_tx);
 #endif
 
 unsigned int bond_net_id __read_mostly;
@@ -1435,7 +1433,7 @@ static void bond_poll_controller(struct net_device *bond_dev)
 
 		if (BOND_MODE(bond) == BOND_MODE_8023AD) {
 			struct aggregator *agg =
-			    SLAVE_AD_INFO(slave)->port.aggregator;
+			    rcu_dereference(SLAVE_AD_INFO(slave)->port.aggregator);
 
 			if (agg &&
 			    agg->aggregator_identifier != ad_info.aggregator_id)
@@ -1891,6 +1889,12 @@ int bond_enslave(struct net_device *bond_dev, struct net_device *slave_dev,
 	struct slave *new_slave = NULL, *prev_slave;
 	struct sockaddr_storage ss;
 	int res = 0, i;
+
+	if (slave_dev->type == ARPHRD_CAN) {
+		BOND_NL_ERR(bond_dev, extack,
+			    "CAN devices cannot be enslaved");
+		return -EPERM;
+	}
 
 	if (slave_dev->flags & IFF_MASTER &&
 	    !netif_is_bond_master(slave_dev)) {
@@ -5181,15 +5185,16 @@ int bond_update_slave_arr(struct bonding *bond, struct slave *skipslave)
 		spin_unlock_bh(&bond->mode_lock);
 		agg_id = ad_info.aggregator_id;
 	}
+	rcu_read_lock();
 	bond_for_each_slave(bond, slave, iter) {
 		if (skipslave == slave)
 			continue;
 
 		all_slaves->arr[all_slaves->count++] = slave;
 		if (BOND_MODE(bond) == BOND_MODE_8023AD) {
-			struct aggregator *agg;
+			const struct aggregator *agg;
 
-			agg = SLAVE_AD_INFO(slave)->port.aggregator;
+			agg = rcu_dereference(SLAVE_AD_INFO(slave)->port.aggregator);
 			if (!agg || agg->aggregator_identifier != agg_id)
 				continue;
 		}
@@ -5201,6 +5206,7 @@ int bond_update_slave_arr(struct bonding *bond, struct slave *skipslave)
 
 		usable_slaves->arr[usable_slaves->count++] = slave;
 	}
+	rcu_read_unlock();
 
 	bond_set_slave_arr(bond, usable_slaves, all_slaves);
 	return ret;
@@ -5326,7 +5332,7 @@ static netdev_tx_t bond_xmit_broadcast(struct sk_buff *skb,
 		if (!(bond_slave_is_up(slave) && slave->link == BOND_LINK_UP))
 			continue;
 
-		if (bond_is_last_slave(bond, slave)) {
+		if (i + 1 == slaves_count) {
 			skb2 = skb;
 			skb_used = true;
 		} else {
@@ -5876,7 +5882,7 @@ static int bond_ethtool_get_link_ksettings(struct net_device *bond_dev,
 static void bond_ethtool_get_drvinfo(struct net_device *bond_dev,
 				     struct ethtool_drvinfo *drvinfo)
 {
-	strscpy(drvinfo->driver, DRV_NAME, sizeof(drvinfo->driver));
+	strscpy(drvinfo->driver, KBUILD_MODNAME, sizeof(drvinfo->driver));
 	snprintf(drvinfo->fw_version, sizeof(drvinfo->fw_version), "%d",
 		 BOND_ABI_VERSION);
 }
@@ -6649,13 +6655,13 @@ static void __exit bonding_exit(void)
 
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	/* Make sure we don't have an imbalance on our netpoll blocking */
-	WARN_ON(atomic_read(&netpoll_block_tx));
+	WARN_ON(static_branch_unlikely(&netpoll_block_tx));
 #endif
 }
 
 module_init(bonding_init);
 module_exit(bonding_exit);
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION(DRV_DESCRIPTION);
+MODULE_DESCRIPTION("Ethernet Channel Bonding Driver");
 MODULE_AUTHOR("Thomas Davis, tadavis@lbl.gov and many others");
 MODULE_IMPORT_NS("NETDEV_INTERNAL");

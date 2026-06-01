@@ -9,6 +9,7 @@
 #include <linux/dma-resv.h>
 #include "uverbs.h"
 #include "core_priv.h"
+#include "rdma_core.h"
 
 MODULE_IMPORT_NS("DMA_BUF");
 
@@ -246,7 +247,7 @@ void rdma_user_mmap_entry_remove(struct rdma_user_mmap_entry *entry)
 		dma_resv_lock(uverbs_dmabuf->dmabuf->resv, NULL);
 		list_del(&uverbs_dmabuf->dmabufs_elm);
 		uverbs_dmabuf->revoked = true;
-		dma_buf_move_notify(uverbs_dmabuf->dmabuf);
+		dma_buf_invalidate_mappings(uverbs_dmabuf->dmabuf);
 		dma_resv_wait_timeout(uverbs_dmabuf->dmabuf->resv,
 				      DMA_RESV_USAGE_BOOKKEEP, false,
 				      MAX_SCHEDULE_TIMEOUT);
@@ -389,3 +390,116 @@ int rdma_user_mmap_entry_insert(struct ib_ucontext *ucontext,
 						 U32_MAX);
 }
 EXPORT_SYMBOL(rdma_user_mmap_entry_insert);
+
+/**
+ * rdma_udata_to_dev - Get a ib_device from a udata
+ * @udata: The system calls ib_udata struct
+ *
+ * The struct ib_device that is handling the uverbs call. Must not be called if
+ * udata is NULL. The result can be NULL.
+ */
+struct ib_device *rdma_udata_to_dev(struct ib_udata *udata)
+{
+	struct uverbs_attr_bundle *bundle =
+		rdma_udata_to_uverbs_attr_bundle(udata);
+
+	lockdep_assert_held(&bundle->ufile->device->disassociate_srcu);
+
+	if (bundle->context)
+		return bundle->context->device;
+
+	/*
+	 * If the context hasn't been created yet use the ufile's dev, but it
+	 * might be NULL if we are racing with disassociate.
+	 */
+	return srcu_dereference(bundle->ufile->device->ib_dev,
+				&bundle->ufile->device->disassociate_srcu);
+}
+EXPORT_SYMBOL(rdma_udata_to_dev);
+
+#if IS_ENABLED(CONFIG_INFINIBAND_USER_ACCESS)
+uverbs_api_ioctl_handler_fn uverbs_get_handler_fn(struct ib_udata *udata)
+{
+	struct uverbs_attr_bundle *bundle =
+		rdma_udata_to_uverbs_attr_bundle(udata);
+
+	lockdep_assert_held(&bundle->ufile->device->disassociate_srcu);
+
+	return srcu_dereference(bundle->method_elm->handler,
+				&bundle->ufile->device->disassociate_srcu);
+}
+
+int _ib_copy_validate_udata_in(struct ib_udata *udata, void *req,
+			       size_t kernel_size, size_t minimum_size)
+{
+	int err;
+
+	if (udata->inlen < minimum_size) {
+		ibdev_dbg(
+			rdma_udata_to_dev(udata),
+			"System call driver input udata too small (%zu < %zu) for ioctl %ps called by %pSR\n",
+			udata->inlen, minimum_size,
+			uverbs_get_handler_fn(udata),
+			__builtin_return_address(0));
+		return -EINVAL;
+	}
+
+	err = copy_struct_from_user(req, kernel_size, udata->inbuf,
+				    udata->inlen);
+	if (err) {
+		if (err == -E2BIG) {
+			ibdev_dbg(
+				rdma_udata_to_dev(udata),
+				"System call driver input udata not zero from %zu -> %zu for ioctl %ps called by %pSR\n",
+				minimum_size, udata->inlen,
+				uverbs_get_handler_fn(udata),
+				__builtin_return_address(0));
+			return -EOPNOTSUPP;
+		}
+		ibdev_dbg(
+			rdma_udata_to_dev(udata),
+			"System call driver input udata EFAULT for ioctl %ps called by %pSR\n",
+			uverbs_get_handler_fn(udata),
+			__builtin_return_address(0));
+		return err;
+	}
+	return 0;
+}
+EXPORT_SYMBOL(_ib_copy_validate_udata_in);
+
+int _ib_copy_validate_udata_cm_fail(struct ib_udata *udata, u64 req_cm,
+				    u64 valid_cm)
+{
+	ibdev_dbg(
+		rdma_udata_to_dev(udata),
+		"System call driver input udata has unsupported comp_mask %llx & ~%llx = %llx for ioctl %ps called by %pSR\n",
+		req_cm, valid_cm, req_cm & ~valid_cm,
+		uverbs_get_handler_fn(udata), __builtin_return_address(0));
+	return -EOPNOTSUPP;
+}
+EXPORT_SYMBOL(_ib_copy_validate_udata_cm_fail);
+
+int _ib_respond_udata(struct ib_udata *udata, const void *src, size_t len)
+{
+	size_t copy_len;
+
+	/* 0 length copy_len is a NOP for copy_to_user() and doesn't fail. */
+	copy_len = min(len, udata->outlen);
+	if (copy_to_user(udata->outbuf, src, copy_len))
+		goto err_fault;
+	if (copy_len < udata->outlen) {
+		if (clear_user(udata->outbuf + copy_len,
+			       udata->outlen - copy_len))
+			goto err_fault;
+	}
+	return 0;
+err_fault:
+	ibdev_dbg(
+		rdma_udata_to_dev(udata),
+		"System call driver out udata has EFAULT (%zu into %zu) for ioctl %ps called by %pSR\n",
+		len, udata->outlen, uverbs_get_handler_fn(udata),
+		__builtin_return_address(0));
+	return -EFAULT;
+}
+EXPORT_SYMBOL(_ib_respond_udata);
+#endif

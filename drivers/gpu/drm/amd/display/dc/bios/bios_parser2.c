@@ -205,6 +205,7 @@ static enum bp_result bios_parser_get_src_obj(struct dc_bios *dcb,
 	struct graphics_object_id object_id, uint32_t index,
 	struct graphics_object_id *src_object_id)
 {
+	(void)index;
 	struct bios_parser *bp = BP_FROM_DCB(dcb);
 	unsigned int i;
 	enum bp_result bp_result = BP_RESULT_BADINPUT;
@@ -492,6 +493,10 @@ static enum bp_result get_gpio_i2c_info(
 			- sizeof(struct atom_common_table_header))
 				/ sizeof(struct atom_gpio_pin_assignment);
 
+	if (!bios_get_image(&bp->base, DATA_TABLES(gpio_pin_lut),
+			    le16_to_cpu(header->table_header.structuresize)))
+		return BP_RESULT_BADBIOSTABLE;
+
 	pin = (struct atom_gpio_pin_assignment *) header->gpio_pin;
 
 	for (table_index = 0; table_index < count; table_index++) {
@@ -680,6 +685,11 @@ static enum bp_result bios_parser_get_gpio_pin_info(
 	count = (le16_to_cpu(header->table_header.structuresize)
 			- sizeof(struct atom_common_table_header))
 				/ sizeof(struct atom_gpio_pin_assignment);
+
+	if (!bios_get_image(&bp->base, DATA_TABLES(gpio_pin_lut),
+			    le16_to_cpu(header->table_header.structuresize)))
+		return BP_RESULT_BADBIOSTABLE;
+
 	for (i = 0; i < count; ++i) {
 		if (header->gpio_pin[i].gpio_id != gpio_id)
 			continue;
@@ -765,6 +775,7 @@ static enum bp_result bios_parser_get_device_tag(
 	uint32_t device_tag_index,
 	struct connector_device_tag_info *info)
 {
+	(void)device_tag_index;
 	struct bios_parser *bp = BP_FROM_DCB(dcb);
 	struct atom_display_object_path_v2 *object;
 
@@ -809,6 +820,7 @@ static enum bp_result get_ss_info_v4_1(
 	uint32_t index,
 	struct spread_spectrum_info *ss_info)
 {
+	(void)index;
 	enum bp_result result = BP_RESULT_OK;
 	struct atom_display_controller_info_v4_1 *disp_cntl_tbl = NULL;
 	struct atom_smu_info_v3_3 *smu_info = NULL;
@@ -897,6 +909,7 @@ static enum bp_result get_ss_info_v4_2(
 	uint32_t index,
 	struct spread_spectrum_info *ss_info)
 {
+	(void)index;
 	enum bp_result result = BP_RESULT_OK;
 	struct atom_display_controller_info_v4_2 *disp_cntl_tbl = NULL;
 	struct atom_smu_info_v3_1 *smu_info = NULL;
@@ -977,6 +990,7 @@ static enum bp_result get_ss_info_v4_5(
 	uint32_t index,
 	struct spread_spectrum_info *ss_info)
 {
+	(void)index;
 	enum bp_result result = BP_RESULT_OK;
 	struct atom_display_controller_info_v4_5 *disp_cntl_tbl = NULL;
 
@@ -1604,6 +1618,8 @@ static uint32_t bios_parser_get_ss_entry_number(
 	struct dc_bios *dcb,
 	enum as_signal_type signal)
 {
+	(void)dcb;
+	(void)signal;
 	/* TODO: DAL2 atomfirmware implementation does not need this.
 	 * why DAL3 need this?
 	 */
@@ -3536,6 +3552,8 @@ static uint16_t bios_parser_pack_data_tables(
 	struct dc_bios *dcb,
 	void *dst)
 {
+	(void)dcb;
+	(void)dst;
 	// TODO: There is data bytes alignment issue, disable it for now.
 	return 0;
 }

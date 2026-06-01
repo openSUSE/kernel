@@ -10,20 +10,13 @@
 #include <linux/gfp.h>
 #include "isofs.h"
 
-/*
- * ok, we cannot use strncmp, as the name is not in our data space.
- * Thus we'll have to use isofs_match. No big problem. Match also makes
- * some sanity tests.
- */
 static int
 isofs_cmp(struct dentry *dentry, const char *compare, int dlen)
 {
-	struct qstr qstr;
-	qstr.name = compare;
-	qstr.len = dlen;
 	if (likely(!dentry->d_op))
 		return dentry->d_name.len != dlen || memcmp(dentry->d_name.name, compare, dlen);
-	return dentry->d_op->d_compare(NULL, dentry->d_name.len, dentry->d_name.name, &qstr);
+	return dentry->d_op->d_compare(NULL, dentry->d_name.len, dentry->d_name.name,
+				       &QSTR_LEN(compare, dlen));
 }
 
 /*
@@ -100,7 +93,7 @@ isofs_find_entry(struct inode *dir, struct dentry *dentry,
 		/* Basic sanity check, whether name doesn't exceed dir entry */
 		if (de_len < dlen + sizeof(struct iso_directory_record)) {
 			printk(KERN_NOTICE "iso9660: Corrupted directory entry"
-			       " in block %lu of inode %lu\n", block,
+			       " in block %lu of inode %llu\n", block,
 			       dir->i_ino);
 			brelse(bh);
 			return 0;

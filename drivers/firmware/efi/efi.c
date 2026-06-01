@@ -402,6 +402,28 @@ static void __init efi_debugfs_init(void)
 static inline void efi_debugfs_init(void) {}
 #endif
 
+static int __init efipostcore_init(void)
+{
+	if (!efi_enabled(EFI_RUNTIME_SERVICES))
+		efi.runtime_supported_mask = 0;
+
+	if (efi.runtime_supported_mask) {
+		/*
+		 * Since we process only one efi_runtime_service() at a time, an
+		 * ordered workqueue (which creates only one execution context)
+		 * should suffice for all our needs.
+		 */
+		efi_rts_wq = alloc_ordered_workqueue("efi_runtime", WQ_SYSFS);
+		if (!efi_rts_wq) {
+			pr_err("Creating efi_rts_wq failed, EFI runtime services disabled.\n");
+			clear_bit(EFI_RUNTIME_SERVICES, &efi.flags);
+			efi.runtime_supported_mask = 0;
+		}
+	}
+	return 0;
+}
+postcore_initcall(efipostcore_init);
+
 /*
  * We register the efi subsystem with the firmware subsystem and the
  * efivars subsystem with the efi subsystem, if the system was booted with
@@ -411,26 +433,8 @@ static int __init efisubsys_init(void)
 {
 	int error;
 
-	if (!efi_enabled(EFI_RUNTIME_SERVICES))
-		efi.runtime_supported_mask = 0;
-
 	if (!efi_enabled(EFI_BOOT))
 		return 0;
-
-	if (efi.runtime_supported_mask) {
-		/*
-		 * Since we process only one efi_runtime_service() at a time, an
-		 * ordered workqueue (which creates only one execution context)
-		 * should suffice for all our needs.
-		 */
-		efi_rts_wq = alloc_ordered_workqueue("efi_rts_wq", 0);
-		if (!efi_rts_wq) {
-			pr_err("Creating efi_rts_wq failed, EFI runtime services disabled.\n");
-			clear_bit(EFI_RUNTIME_SERVICES, &efi.flags);
-			efi.runtime_supported_mask = 0;
-			return 0;
-		}
-	}
 
 	if (efi_rt_services_supported(EFI_RT_SUPPORTED_TIME_SERVICES))
 		platform_device_register_simple("rtc-efi", 0, NULL, 0);
@@ -600,7 +604,9 @@ void __init efi_mem_reserve(phys_addr_t addr, u64 size)
 		return;
 
 	if (!memblock_is_region_reserved(addr, size))
-		memblock_reserve(addr, size);
+		memblock_reserve_kern(addr, size);
+	else
+		memblock_reserved_mark_kern(addr, size);
 
 	/*
 	 * Some architectures (x86) reserve all boot services ranges
@@ -983,18 +989,12 @@ char * __init efi_md_typeattr_format(char *buf, size_t size,
  */
 u64 efi_mem_attributes(unsigned long phys_addr)
 {
-	efi_memory_desc_t *md;
+	efi_memory_desc_t md;
 
-	if (!efi_enabled(EFI_MEMMAP))
+	if (efi_mem_desc_lookup(phys_addr, &md))
 		return 0;
 
-	for_each_efi_memory_desc(md) {
-		if ((md->phys_addr <= phys_addr) &&
-		    (phys_addr < (md->phys_addr +
-		    (md->num_pages << EFI_PAGE_SHIFT))))
-			return md->attribute;
-	}
-	return 0;
+	return md.attribute;
 }
 
 /*
@@ -1007,18 +1007,15 @@ u64 efi_mem_attributes(unsigned long phys_addr)
  */
 int efi_mem_type(unsigned long phys_addr)
 {
-	const efi_memory_desc_t *md;
+	efi_memory_desc_t md;
 
-	if (!efi_enabled(EFI_MEMMAP))
+	if (!efi_enabled(EFI_MEMMAP) && !efi_enabled(EFI_PARAVIRT))
 		return -ENOTSUPP;
 
-	for_each_efi_memory_desc(md) {
-		if ((md->phys_addr <= phys_addr) &&
-		    (phys_addr < (md->phys_addr +
-				  (md->num_pages << EFI_PAGE_SHIFT))))
-			return md->type;
-	}
-	return -EINVAL;
+	if (efi_mem_desc_lookup(phys_addr, &md))
+		return -EINVAL;
+
+	return md.type;
 }
 
 int efi_status_to_err(efi_status_t status)
