@@ -521,6 +521,7 @@ static int kvm_sbi_ext_fwft_set_reg(struct kvm_vcpu *vcpu, unsigned long reg_num
 		break;
 	case 2:
 		ret = conf->feature->set(vcpu, conf, true, value);
+		vcpu->arch.csr_dirty = true;
 		break;
 	default:
 		return -ENOENT;
