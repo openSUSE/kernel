@@ -197,6 +197,14 @@ static u32 cgrp_dfl_implicit_ss_mask;
 /* some controllers can be threaded on the default hierarchy */
 static u32 cgrp_dfl_threaded_ss_mask;
 
+/*
+ * Set across rebind_subsystems() to the controllers leaving a hierarchy.
+ * Guarded by cgroup_mutex. Makes find_existing_css_set() resolve them to the
+ * root css so the affected tasks are migrated there before
+ * cgroup_apply_control_disable() kills the per-cgroup csses.
+ */
+static u32 cgroup_rebind_ss_mask;
+
 /* The list of hierarchy roots */
 LIST_HEAD(cgroup_roots);
 static int cgroup_root_count;
@@ -1083,7 +1091,15 @@ static struct css_set *find_existing_css_set(struct css_set *old_cset,
 	 * won't change, so no need for locking.
 	 */
 	for_each_subsys(ss, i) {
-		if (root->subsys_mask & (1UL << i)) {
+		if (unlikely(cgroup_rebind_ss_mask & (1UL << i))) {
+			/*
+			 * @ss is leaving this hierarchy and its per-cgroup
+			 * csses are about to be killed. Resolve to the
+			 * surviving root css so the tasks are migrated there.
+			 */
+			template[i] = cgroup_css(&root->cgrp, ss);
+			WARN_ON_ONCE(!template[i]);
+		} else if (root->subsys_mask & (1UL << i)) {
 			/*
 			 * @ss is in this hierarchy, so we want the
 			 * effective css from @cgrp.
@@ -1853,11 +1869,17 @@ int rebind_subsystems(struct cgroup_root *dst_root, u32 ss_mask)
 		struct cgroup *scgrp = &cgrp_dfl_root.cgrp;
 
 		/*
-		 * Controllers from default hierarchy that need to be rebound
-		 * are all disabled together in one go.
+		 * Controllers leaving the default hierarchy are disabled
+		 * together. cgroup_rebind_ss_mask makes cgroup_apply_control()
+		 * migrate their tasks to the root css, so the per-cgroup csses
+		 * are unpopulated when cgroup_finalize_control() kills them.
+		 * Clear it before cgroup_finalize_control(), which does no
+		 * css_set lookup.
 		 */
 		cgrp_dfl_root.subsys_mask &= ~dfl_disable_ss_mask;
+		cgroup_rebind_ss_mask = dfl_disable_ss_mask;
 		WARN_ON(cgroup_apply_control(scgrp));
+		cgroup_rebind_ss_mask = 0;
 		cgroup_finalize_control(scgrp, 0);
 	}
 
@@ -1871,9 +1893,14 @@ int rebind_subsystems(struct cgroup_root *dst_root, u32 ss_mask)
 		WARN_ON(!css || cgroup_css(dcgrp, ss));
 
 		if (src_root != &cgrp_dfl_root) {
-			/* disable from the source */
+			/*
+			 * Disable from the source, migrating its tasks to the
+			 * root css first (see cgroup_rebind_ss_mask).
+			 */
 			src_root->subsys_mask &= ~(1 << ssid);
+			cgroup_rebind_ss_mask = 1 << ssid;
 			WARN_ON(cgroup_apply_control(scgrp));
+			cgroup_rebind_ss_mask = 0;
 			cgroup_finalize_control(scgrp, 0);
 		}
 
