@@ -288,8 +288,9 @@ static int process_sample_event(const struct perf_tool *tool,
 
 	addr_location__init(&al);
 	if (machine__resolve(machine, &al, sample) < 0) {
-		pr_warning("problem processing %d event, skipping it.\n",
-			   event->header.type);
+		pr_warning("problem processing %s (%u) event at offset %#" PRIx64 ", skipping it.\n",
+			   perf_event__name(event->header.type), event->header.type,
+			   sample->file_offset);
 		ret = -1;
 		goto out_put;
 	}

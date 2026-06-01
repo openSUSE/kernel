@@ -9,6 +9,7 @@
 #include "perf.h"
 
 #include "util/data.h"
+#include "util/event.h"
 #include "util/evlist.h"
 #include "util/evsel.h"
 #include "util/header.h"
@@ -897,7 +898,8 @@ static int timehist_exit_event(struct perf_kwork *kwork,
 
 	addr_location__init(&al);
 	if (machine__resolve(machine, &al, sample) < 0) {
-		pr_debug("Problem processing event, skipping it\n");
+		pr_debug("problem processing event at offset %#" PRIx64 ", skipping it\n",
+			 sample->file_offset);
 		ret = -1;
 		goto out;
 	}

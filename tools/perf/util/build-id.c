@@ -10,6 +10,7 @@
 #include "util.h" // lsdir(), mkdir_p(), rm_rf()
 #include <dirent.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -62,8 +63,8 @@ int build_id__mark_dso_hit(const struct perf_tool *tool __maybe_unused,
 							sample->tid);
 
 	if (thread == NULL) {
-		pr_err("problem processing %d event, skipping it.\n",
-			event->header.type);
+		pr_err("problem processing %s event at offset %#" PRIx64 ", skipping it.\n",
+		       perf_event__name(event->header.type), sample->file_offset);
 		return -1;
 	}
 

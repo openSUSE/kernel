@@ -22,6 +22,7 @@
 #include "util/synthetic-events.h"
 #include "util/top.h"
 #include "util/data.h"
+#include "util/event.h"
 #include "util/ordered-events.h"
 #include "util/kvm-stat.h"
 #include "util/util.h"
@@ -1141,14 +1142,16 @@ static int process_sample_event(const struct perf_tool *tool,
 		return 0;
 
 	if (machine__resolve(machine, &kvm->al, sample) < 0) {
-		pr_warning("Fail to resolve address location, skip sample.\n");
+		pr_warning("WARNING: at offset %#" PRIx64 ": fail to resolve address location, skipping sample\n",
+			   sample->file_offset);
 		return 0;
 	}
 
 	thread = machine__findnew_thread(machine, sample->pid, sample->tid);
 	if (thread == NULL) {
-		pr_debug("problem processing %d event, skipping it.\n",
-			event->header.type);
+		pr_debug("problem processing %s (%u) event at offset %#" PRIx64 ", skipping it.\n",
+			 perf_event__name(event->header.type), event->header.type,
+			 sample->file_offset);
 		return -1;
 	}
 

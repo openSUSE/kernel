@@ -27,6 +27,7 @@
 
 #include "perf.h"
 #include "util/debug.h"
+#include "util/event.h"
 #include "util/evlist.h"
 #include "util/evsel.h"
 #include "util/evswitch.h"
@@ -284,8 +285,9 @@ static int process_sample_event(const struct perf_tool *tool,
 
 	addr_location__init(&al);
 	if (machine__resolve(machine, &al, sample) < 0) {
-		pr_debug("problem processing %d event, skipping it.\n",
-			 event->header.type);
+		pr_debug("problem processing %s (%u) event at offset %#" PRIx64 ", skipping it.\n",
+			 perf_event__name(event->header.type), event->header.type,
+			 sample->file_offset);
 		ret = -1;
 		goto out_put;
 	}
@@ -332,7 +334,8 @@ static int process_sample_event(const struct perf_tool *tool,
 
 	ret = hist_entry_iter__add(&iter, &al, rep->max_stack, rep);
 	if (ret < 0)
-		pr_debug("problem adding hist entry, skipping event\n");
+		pr_debug("problem adding hist entry at offset %#" PRIx64 ", skipping event\n",
+			 sample->file_offset);
 out_put:
 	addr_location__exit(&al);
 	return ret;

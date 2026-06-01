@@ -22,6 +22,7 @@
 #include "util/cpumap.h"
 
 #include "util/debug.h"
+#include "util/event.h"
 #include "util/string2.h"
 #include "util/util.h"
 
@@ -987,8 +988,9 @@ static int process_sample_event(const struct perf_tool *tool __maybe_unused,
 							sample->tid);
 
 	if (thread == NULL) {
-		pr_debug("problem processing %d event, skipping it.\n",
-			 event->header.type);
+		pr_debug("problem processing %s (%u) event at offset %#" PRIx64 ", skipping it.\n",
+			 perf_event__name(event->header.type), event->header.type,
+			 sample->file_offset);
 		return -1;
 	}
 
