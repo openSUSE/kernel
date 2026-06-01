@@ -192,12 +192,12 @@ MODULE_PARM_DESC(lid_report_interval, "Interval (ms) between lid key events");
 static struct proc_dir_entry *acpi_button_dir;
 static struct proc_dir_entry *acpi_lid_dir;
 
-static int acpi_lid_evaluate_state(struct acpi_device *device)
+static int acpi_lid_evaluate_state(acpi_handle lid_handle)
 {
 	unsigned long long lid_state;
 	acpi_status status;
 
-	status = acpi_evaluate_integer(device->handle, "_LID", NULL, &lid_state);
+	status = acpi_evaluate_integer(lid_handle, "_LID", NULL, &lid_state);
 	if (ACPI_FAILURE(status))
 		return -ENODEV;
 
@@ -292,7 +292,7 @@ static int __maybe_unused acpi_button_state_seq_show(struct seq_file *seq,
 	struct acpi_button *button = seq->private;
 	int state;
 
-	state = acpi_lid_evaluate_state(button->adev);
+	state = acpi_lid_evaluate_state(button->adev->handle);
 	seq_printf(seq, "state:      %s\n",
 		   state < 0 ? "unsupported" : (state ? "open" : "closed"));
 	return 0;
@@ -377,22 +377,22 @@ static int acpi_button_remove_fs(struct acpi_button *button)
 	return 0;
 }
 
-static struct acpi_device *lid_device;
+static acpi_handle saved_lid_handle;
 static DEFINE_MUTEX(acpi_lid_lock);
 
 static void acpi_lid_save(struct acpi_device *adev)
 {
 	guard(mutex)(&acpi_lid_lock);
 
-	lid_device = adev;
+	saved_lid_handle = adev->handle;
 }
 
 static void acpi_lid_forget(struct acpi_device *adev)
 {
 	guard(mutex)(&acpi_lid_lock);
 
-	if (lid_device == adev)
-		lid_device = NULL;
+	if (saved_lid_handle == adev->handle)
+		saved_lid_handle = NULL;
 }
 
 /* Driver Interface */
@@ -400,20 +400,19 @@ int acpi_lid_open(void)
 {
 	guard(mutex)(&acpi_lid_lock);
 
-	if (!lid_device)
+	if (!saved_lid_handle)
 		return -ENODEV;
 
-	return acpi_lid_evaluate_state(lid_device);
+	return acpi_lid_evaluate_state(saved_lid_handle);
 }
 EXPORT_SYMBOL(acpi_lid_open);
 
 static int acpi_lid_update_state(struct acpi_button *button,
 				 bool signal_wakeup)
 {
-	struct acpi_device *device = button->adev;
 	int state;
 
-	state = acpi_lid_evaluate_state(device);
+	state = acpi_lid_evaluate_state(button->adev->handle);
 	if (state < 0)
 		return state;
 
@@ -516,12 +515,11 @@ static int acpi_button_suspend(struct device *dev)
 static int acpi_button_resume(struct device *dev)
 {
 	struct acpi_button *button = dev_get_drvdata(dev);
-	struct acpi_device *device = ACPI_COMPANION(dev);
 	struct input_dev *input;
 
 	button->suspended = false;
 	if (button->type == ACPI_BUTTON_TYPE_LID) {
-		button->last_state = !!acpi_lid_evaluate_state(device);
+		button->last_state = !!acpi_lid_evaluate_state(ACPI_HANDLE(dev));
 		button->last_time = ktime_get();
 		acpi_lid_initialize_state(button);
 	}
@@ -540,9 +538,8 @@ static int acpi_button_resume(struct device *dev)
 static int acpi_lid_input_open(struct input_dev *input)
 {
 	struct acpi_button *button = input_get_drvdata(input);
-	struct acpi_device *device = button->adev;
 
-	button->last_state = !!acpi_lid_evaluate_state(device);
+	button->last_state = !!acpi_lid_evaluate_state(button->adev->handle);
 	button->last_time = ktime_get();
 	acpi_lid_initialize_state(button);
 
