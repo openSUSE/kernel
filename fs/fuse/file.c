@@ -1590,7 +1590,7 @@ static int fuse_get_user_pages(struct fuse_args_pages *ap, struct iov_iter *ii,
 	 * manually extract pages using iov_iter_extract_pages() and then
 	 * copy that to a folios array.
 	 */
-	struct page **pages = kzalloc(max_pages * sizeof(struct page *),
+	struct page **pages = kcalloc(max_pages, sizeof(struct page *),
 				      GFP_KERNEL);
 	if (!pages) {
 		ret = -ENOMEM;
