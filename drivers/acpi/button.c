@@ -175,7 +175,7 @@ struct acpi_button {
 	struct input_dev *input;
 	char phys[32];			/* for input device */
 	unsigned long pushed;
-	int last_state;
+	bool last_state;
 	ktime_t last_time;
 	bool suspended;
 	bool lid_state_initialized;
@@ -204,7 +204,7 @@ static int acpi_lid_evaluate_state(acpi_handle lid_handle)
 	return lid_state ? 1 : 0;
 }
 
-static int acpi_lid_notify_state(struct acpi_button *button, int state)
+static int acpi_lid_notify_state(struct acpi_button *button, bool state)
 {
 	struct acpi_device *device = button->adev;
 	ktime_t next_report;
@@ -218,14 +218,14 @@ static int acpi_lid_notify_state(struct acpi_button *button, int state)
 	 * switch.
 	 */
 	if (lid_init_state != ACPI_BUTTON_LID_INIT_IGNORE ||
-	    button->last_state != !!state)
+	    button->last_state != state)
 		do_update = true;
 	else
 		do_update = false;
 
 	next_report = ktime_add(button->last_time,
 				ms_to_ktime(lid_report_interval));
-	if (button->last_state == !!state &&
+	if (button->last_state == state &&
 	    ktime_after(ktime_get(), next_report)) {
 		/* Complain about the buggy firmware. */
 		pr_warn_once(FW_BUG "Unexpected lid state reported by firmware\n");
@@ -279,7 +279,7 @@ static int acpi_lid_notify_state(struct acpi_button *button, int state)
 				  state ? "open" : "closed");
 		input_report_switch(button->input, SW_LID, !state);
 		input_sync(button->input);
-		button->last_state = !!state;
+		button->last_state = state;
 		button->last_time = ktime_get();
 	}
 
@@ -426,10 +426,10 @@ static void acpi_lid_initialize_state(struct acpi_button *button)
 {
 	switch (lid_init_state) {
 	case ACPI_BUTTON_LID_INIT_OPEN:
-		(void)acpi_lid_notify_state(button, 1);
+		acpi_lid_notify_state(button, true);
 		break;
 	case ACPI_BUTTON_LID_INIT_METHOD:
-		(void)acpi_lid_update_state(button, false);
+		acpi_lid_update_state(button, false);
 		break;
 	case ACPI_BUTTON_LID_INIT_IGNORE:
 	default:
