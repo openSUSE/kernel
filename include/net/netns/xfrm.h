@@ -26,6 +26,7 @@ struct xfrm_policy_hthresh {
 	u8			rbits4;
 	u8			lbits6;
 	u8			rbits6;
+	bool			work_disabled;
 };
 
 struct netns_xfrm {
