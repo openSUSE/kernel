@@ -357,9 +357,9 @@ netdev_tx_t mana_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	if (unlikely(ipv6_hopopt_jumbo_remove(skb)))
 		goto tx_drop_count;
 
-	txq = &apc->tx_qp[txq_idx].txq;
+	txq = &apc->tx_qp[txq_idx]->txq;
 	gdma_sq = txq->gdma_sq;
-	cq = &apc->tx_qp[txq_idx].tx_cq;
+	cq = &apc->tx_qp[txq_idx]->tx_cq;
 	tx_stats = &txq->stats;
 
 	BUILD_BUG_ON(MAX_TX_WQE_SGL_ENTRIES != MANA_MAX_TX_WQE_SGL_ENTRIES);
@@ -617,7 +617,7 @@ static void mana_get_stats64(struct net_device *ndev,
 	}
 
 	for (q = 0; q < num_queues; q++) {
-		tx_stats = &apc->tx_qp[q].txq.stats;
+		tx_stats = &apc->tx_qp[q]->txq.stats;
 
 		do {
 			start = u64_stats_fetch_begin(&tx_stats->syncp);
@@ -2304,23 +2304,28 @@ static void mana_destroy_txq(struct mana_port_context *apc)
 		return;
 
 	for (i = 0; i < apc->num_queues; i++) {
-		debugfs_remove_recursive(apc->tx_qp[i].mana_tx_debugfs);
-		apc->tx_qp[i].mana_tx_debugfs = NULL;
+		if (!apc->tx_qp[i])
+			continue;
 
-		napi = &apc->tx_qp[i].tx_cq.napi;
-		if (apc->tx_qp[i].txq.napi_initialized) {
+		debugfs_remove_recursive(apc->tx_qp[i]->mana_tx_debugfs);
+		apc->tx_qp[i]->mana_tx_debugfs = NULL;
+
+		napi = &apc->tx_qp[i]->tx_cq.napi;
+		if (apc->tx_qp[i]->txq.napi_initialized) {
 			napi_synchronize(napi);
 			netdev_lock(napi->dev);
 			napi_disable_locked(napi);
 			netif_napi_del_locked(napi);
 			netdev_unlock(napi->dev);
-			apc->tx_qp[i].txq.napi_initialized = false;
+			apc->tx_qp[i]->txq.napi_initialized = false;
 		}
-		mana_destroy_wq_obj(apc, GDMA_SQ, apc->tx_qp[i].tx_object);
+		mana_destroy_wq_obj(apc, GDMA_SQ, apc->tx_qp[i]->tx_object);
 
-		mana_deinit_cq(apc, &apc->tx_qp[i].tx_cq);
+		mana_deinit_cq(apc, &apc->tx_qp[i]->tx_cq);
 
-		mana_deinit_txq(apc, &apc->tx_qp[i].txq);
+		mana_deinit_txq(apc, &apc->tx_qp[i]->txq);
+
+		kvfree(apc->tx_qp[i]);
 	}
 
 	kfree(apc->tx_qp);
@@ -2329,7 +2334,7 @@ static void mana_destroy_txq(struct mana_port_context *apc)
 
 static void mana_create_txq_debugfs(struct mana_port_context *apc, int idx)
 {
-	struct mana_tx_qp *tx_qp = &apc->tx_qp[idx];
+	struct mana_tx_qp *tx_qp = apc->tx_qp[idx];
 	char qnum[32];
 
 	sprintf(qnum, "TX-%d", idx);
@@ -2368,7 +2373,7 @@ static int mana_create_txq(struct mana_port_context *apc,
 	int err;
 	int i;
 
-	apc->tx_qp = kcalloc(apc->num_queues, sizeof(struct mana_tx_qp),
+	apc->tx_qp = kcalloc(apc->num_queues, sizeof(struct mana_tx_qp *),
 			     GFP_KERNEL);
 	if (!apc->tx_qp)
 		return -ENOMEM;
@@ -2389,10 +2394,16 @@ static int mana_create_txq(struct mana_port_context *apc,
 	gc = gd->gdma_context;
 
 	for (i = 0; i < apc->num_queues; i++) {
-		apc->tx_qp[i].tx_object = INVALID_MANA_HANDLE;
+		apc->tx_qp[i] = kvzalloc(sizeof(*apc->tx_qp[i]), GFP_KERNEL);
+		if (!apc->tx_qp[i]) {
+			err = -ENOMEM;
+			goto out;
+		}
+
+		apc->tx_qp[i]->tx_object = INVALID_MANA_HANDLE;
 
 		/* Create SQ */
-		txq = &apc->tx_qp[i].txq;
+		txq = &apc->tx_qp[i]->txq;
 
 		u64_stats_init(&txq->stats.syncp);
 		txq->ndev = net;
@@ -2410,7 +2421,7 @@ static int mana_create_txq(struct mana_port_context *apc,
 			goto out;
 
 		/* Create SQ's CQ */
-		cq = &apc->tx_qp[i].tx_cq;
+		cq = &apc->tx_qp[i]->tx_cq;
 		cq->type = MANA_CQ_TYPE_TX;
 
 		cq->txq = txq;
@@ -2439,7 +2450,7 @@ static int mana_create_txq(struct mana_port_context *apc,
 
 		err = mana_create_wq_obj(apc, apc->port_handle, GDMA_SQ,
 					 &wq_spec, &cq_spec,
-					 &apc->tx_qp[i].tx_object);
+					 &apc->tx_qp[i]->tx_object);
 
 		if (err)
 			goto out;
@@ -3288,7 +3299,7 @@ static int mana_dealloc_queues(struct net_device *ndev)
 
 	if (apc->tx_qp) {
 		for (i = 0; i < apc->num_queues; i++) {
-			txq = &apc->tx_qp[i].txq;
+			txq = &apc->tx_qp[i]->txq;
 			tsleep = 1000;
 			while (atomic_read(&txq->pending_sends) > 0 &&
 			       time_before(jiffies, timeout)) {
@@ -3309,7 +3320,7 @@ static int mana_dealloc_queues(struct net_device *ndev)
 		}
 
 		for (i = 0; i < apc->num_queues; i++) {
-			txq = &apc->tx_qp[i].txq;
+			txq = &apc->tx_qp[i]->txq;
 			while ((skb = skb_dequeue(&txq->pending_skbs))) {
 				mana_unmap_skb(skb, apc);
 				dev_kfree_skb_any(skb);
