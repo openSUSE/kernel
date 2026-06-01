@@ -395,7 +395,6 @@ xchk_iallocbt_check_cluster(
 	 */
 	ir_holemask = (irec->ir_holemask & cluster_mask);
 	imap.im_blkno = xfs_agbno_to_daddr(to_perag(bs->cur->bc_group), agbno);
-	imap.im_len = XFS_FSB_TO_BB(mp, M_IGEO(mp)->blocks_per_cluster);
 	imap.im_boffset = XFS_INO_TO_OFFSET(mp, irec->ir_startino) <<
 			mp->m_sb.sb_inodelog;
 
@@ -406,7 +405,8 @@ xchk_iallocbt_check_cluster(
 	}
 
 	trace_xchk_iallocbt_check_cluster(to_perag(bs->cur->bc_group),
-			irec->ir_startino, imap.im_blkno, imap.im_len,
+			irec->ir_startino, imap.im_blkno,
+			XFS_FSB_TO_BB(mp, M_IGEO(mp)->blocks_per_cluster),
 			cluster_base, nr_inodes, cluster_mask, ir_holemask,
 			XFS_INO_TO_OFFSET(mp, irec->ir_startino +
 					  cluster_base));

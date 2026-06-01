@@ -647,13 +647,14 @@ xfs_inode_item_format(
 {
 	struct xfs_inode_log_item *iip = INODE_ITEM(lip);
 	struct xfs_inode	*ip = iip->ili_inode;
+	struct xfs_mount	*mp = ip->i_mount;
 	struct xfs_inode_log_format *ilf;
 
 	ilf = xlog_format_start(lfb, XLOG_REG_TYPE_IFORMAT);
 	ilf->ilf_type = XFS_LI_INODE;
 	ilf->ilf_ino = I_INO(ip);
 	ilf->ilf_blkno = ip->i_imap.im_blkno;
-	ilf->ilf_len = ip->i_imap.im_len;
+	ilf->ilf_len = XFS_FSB_TO_BB(mp, M_IGEO(mp)->blocks_per_cluster);
 	ilf->ilf_boffset = ip->i_imap.im_boffset;
 	ilf->ilf_fields = XFS_ILOG_CORE;
 	ilf->ilf_size = 2; /* format + core */

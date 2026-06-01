@@ -306,7 +306,6 @@ xrep_ibt_process_cluster(
 	 * either inode btree.
 	 */
 	imap.im_blkno = xfs_agbno_to_daddr(sc->sa.pag, cluster_bno);
-	imap.im_len = XFS_FSB_TO_BB(mp, igeo->blocks_per_cluster);
 	imap.im_boffset = 0;
 	error = xfs_imap_to_bp(mp, sc->tp, &imap, &cluster_bp);
 	if (error)
