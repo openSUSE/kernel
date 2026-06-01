@@ -1792,8 +1792,10 @@ static int process_sched_switch_event(const struct perf_tool *tool,
 	u32 prev_pid = perf_sample__intval(sample, "prev_pid"),
 	    next_pid = perf_sample__intval(sample, "next_pid");
 
+	/* perf.data is untrusted input — CPU may be absent or corrupted */
 	if (this_cpu < 0 || this_cpu >= MAX_CPUS) {
-		pr_warning("Out-of-bound sample CPU %d. Skipping sample\n", this_cpu);
+		pr_warning("WARNING: at offset %#" PRIx64 ": out-of-bound sample CPU %d, skipping sample\n",
+			   sample->file_offset, this_cpu);
 		return 0;
 	}
 
@@ -1819,8 +1821,10 @@ static int process_sched_runtime_event(const struct perf_tool *tool,
 {
 	struct perf_sched *sched = container_of(tool, struct perf_sched, tool);
 
+	/* perf.data is untrusted input — CPU may be absent or corrupted */
 	if (sample->cpu >= MAX_CPUS) {
-		pr_warning("Out-of-bound sample CPU %u. Skipping sample\n", sample->cpu);
+		pr_warning("WARNING: at offset %#" PRIx64 ": out-of-bound sample CPU %u, skipping sample\n",
+			   sample->file_offset, sample->cpu);
 		return 0;
 	}
 
@@ -2786,15 +2790,18 @@ static int timehist_sched_change_event(const struct perf_tool *tool,
 	int rc = 0;
 	const char state = perf_sample__taskstate(sample, "prev_state");
 
+	/* perf.data is untrusted input — CPU may be absent or corrupted */
 	if (sample->cpu >= MAX_CPUS) {
-		pr_warning("Out-of-bound sample CPU %d. Skipping sample\n", sample->cpu);
+		pr_warning("WARNING: at offset %#" PRIx64 ": out-of-bound sample CPU %d, skipping sample\n",
+			   sample->file_offset, sample->cpu);
 		return 0;
 	}
 
 	addr_location__init(&al);
 	if (machine__resolve(machine, &al, sample) < 0) {
-		pr_err("problem processing %d event. skipping it\n",
-		       event->header.type);
+		pr_err("problem processing %s (%u) event at offset %#" PRIx64 ", skipping it\n",
+		       perf_event__name(event->header.type), event->header.type,
+		       sample->file_offset);
 		rc = -1;
 		goto out;
 	}
