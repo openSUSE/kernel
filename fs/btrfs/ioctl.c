@@ -2829,9 +2829,13 @@ static long btrfs_ioctl_default_subvol(struct file *file, void __user *argp)
 	if (IS_ERR_OR_NULL(di)) {
 		btrfs_release_path(path);
 		btrfs_end_transaction(trans);
+		if (di)
+			ret = PTR_ERR(di);
+		else
+			ret = -ENOENT;
 		btrfs_err(fs_info,
-			  "Umm, you don't have the default diritem, this isn't going to work");
-		ret = -ENOENT;
+			  "could not find default diritem for dir %llu: %d",
+			  dir_id, ret);
 		goto out_free;
 	}
 
