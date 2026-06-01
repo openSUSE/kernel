@@ -217,12 +217,8 @@ static void acpi_lid_notify_state(struct acpi_button *button, bool state)
 	 * So "last_time" is only updated after a timeout or an actual
 	 * switch.
 	 */
-	if (lid_init_state != ACPI_BUTTON_LID_INIT_IGNORE ||
-	    button->last_state != state)
-		do_update = true;
-	else
-		do_update = false;
-
+	do_update = lid_init_state != ACPI_BUTTON_LID_INIT_IGNORE ||
+			button->last_state != state;
 	next_report = ktime_add(button->last_time,
 				ms_to_ktime(lid_report_interval));
 	if (button->last_state == state &&
