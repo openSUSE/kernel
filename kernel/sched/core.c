@@ -9116,7 +9116,8 @@ void sched_move_task(struct task_struct *tsk, bool for_autogroup)
 		 * resched to make sure that task can still run.
 		 */
 		resched_curr(rq);
-	}
+	} else if (queued)
+		wakeup_preempt(rq, tsk, 0);
 }
 
 static struct cgroup_subsys_state *
