@@ -809,6 +809,13 @@ _mutex_lock_nest_lock(struct mutex *lock, struct lockdep_map *nest)
 EXPORT_SYMBOL_GPL(_mutex_lock_nest_lock);
 
 int __sched
+mutex_lock_killable_nested(struct mutex *lock, unsigned int subclass)
+{
+	return __mutex_lock(lock, TASK_KILLABLE, subclass, NULL, _RET_IP_);
+}
+EXPORT_SYMBOL_GPL(mutex_lock_killable_nested);
+
+int __sched
 _mutex_lock_killable(struct mutex *lock, unsigned int subclass,
 				      struct lockdep_map *nest)
 {
