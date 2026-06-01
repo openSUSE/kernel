@@ -37,7 +37,7 @@ static void test_global_many(void)
 	if (!ASSERT_OK(stack_arg__load(skel), "load"))
 		goto out;
 
-	run_subtest(skel->progs.test_global_many_args, 36);
+	run_subtest(skel->progs.test_global_many_args, 55);
 
 out:
 	stack_arg__destroy(skel);
@@ -62,10 +62,10 @@ static void test_async_cb_many(void)
 	run_subtest(skel->progs.test_async_cb_many_args, 0);
 
 	/* Wait for the timer callback to fire and verify the result.
-	 * 10+20+30+40+50+60+70+80 = 360
+	 * 10+20+30+40+50+60+70+80+90+100 = 550
 	 */
 	usleep(50);
-	ASSERT_EQ(skel->bss->timer_result, 360, "timer_result");
+	ASSERT_EQ(skel->bss->timer_result, 550, "timer_result");
 
 out:
 	stack_arg__destroy(skel);
@@ -87,11 +87,11 @@ static void test_bpf2bpf(void)
 	if (!ASSERT_OK(stack_arg__load(skel), "load"))
 		goto out;
 
-	run_subtest(skel->progs.test_bpf2bpf_ptr_stack_arg, 45);
-	run_subtest(skel->progs.test_bpf2bpf_mix_stack_args, 51);
-	run_subtest(skel->progs.test_bpf2bpf_nesting_stack_arg, 50);
-	run_subtest(skel->progs.test_bpf2bpf_dynptr_stack_arg, 69);
-	run_subtest(skel->progs.test_two_callees, 91);
+	run_subtest(skel->progs.test_bpf2bpf_ptr_stack_arg, 75);
+	run_subtest(skel->progs.test_bpf2bpf_mix_stack_args, 66);
+	run_subtest(skel->progs.test_bpf2bpf_nesting_stack_arg, 84);
+	run_subtest(skel->progs.test_bpf2bpf_dynptr_stack_arg, 99);
+	run_subtest(skel->progs.test_two_callees, 133);
 
 out:
 	stack_arg__destroy(skel);
@@ -113,14 +113,14 @@ static void test_kfunc(void)
 	if (!ASSERT_OK(stack_arg_kfunc__load(skel), "load"))
 		goto out;
 
-	run_subtest(skel->progs.test_stack_arg_scalar, 36);
-	run_subtest(skel->progs.test_stack_arg_ptr, 45);
-	run_subtest(skel->progs.test_stack_arg_mix, 51);
-	run_subtest(skel->progs.test_stack_arg_dynptr, 69);
+	run_subtest(skel->progs.test_stack_arg_scalar, 55);
+	run_subtest(skel->progs.test_stack_arg_ptr, 75);
+	run_subtest(skel->progs.test_stack_arg_mix, 66);
+	run_subtest(skel->progs.test_stack_arg_dynptr, 99);
 	run_subtest(skel->progs.test_stack_arg_mem, 151);
-	run_subtest(skel->progs.test_stack_arg_iter, 115);
-	run_subtest(skel->progs.test_stack_arg_const_str, 15);
-	run_subtest(skel->progs.test_stack_arg_timer, 15);
+	run_subtest(skel->progs.test_stack_arg_iter, 145);
+	run_subtest(skel->progs.test_stack_arg_const_str, 45);
+	run_subtest(skel->progs.test_stack_arg_timer, 45);
 
 out:
 	stack_arg_kfunc__destroy(skel);
