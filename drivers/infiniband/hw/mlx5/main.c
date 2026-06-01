@@ -5116,7 +5116,7 @@ err_out:
 		if (profile->stage[i].cleanup)
 			profile->stage[i].cleanup(dev);
 	}
-	return -ENOMEM;
+	return err;
 }
 
 static const struct mlx5_ib_profile pf_profile = {
