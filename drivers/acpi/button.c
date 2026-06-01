@@ -201,7 +201,7 @@ static int acpi_lid_evaluate_state(acpi_handle lid_handle)
 	if (ACPI_FAILURE(status))
 		return -ENODEV;
 
-	return lid_state ? 1 : 0;
+	return !!lid_state;
 }
 
 static int acpi_lid_notify_state(struct acpi_button *button, bool state)
