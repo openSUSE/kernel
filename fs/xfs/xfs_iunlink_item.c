@@ -59,7 +59,7 @@ xfs_iunlink_log_dinode(
 	int			offset;
 	int			error;
 
-	error = xfs_imap_to_bp(tp->t_mountp, tp, &ip->i_imap, &ibp);
+	error = xfs_read_icluster(tp->t_mountp, tp, ip->i_imap.im_blkno, &ibp);
 	if (error)
 		return error;
 	/*

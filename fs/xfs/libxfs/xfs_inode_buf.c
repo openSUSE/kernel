@@ -123,24 +123,22 @@ const struct xfs_buf_ops xfs_inode_buf_ra_ops = {
 
 
 /*
- * This routine is called to map an inode to the buffer containing the on-disk
- * version of the inode.  It returns a pointer to the buffer containing the
- * on-disk inode in the bpp parameter.
+ * Read the inode cluster at @bno and return it in @bpp.
  */
 int
-xfs_imap_to_bp(
+xfs_read_icluster(
 	struct xfs_mount	*mp,
 	struct xfs_trans	*tp,
-	struct xfs_imap		*imap,
+	xfs_daddr_t		bno,
 	struct xfs_buf		**bpp)
 {
 	int			error;
 
-	error = xfs_trans_read_buf(mp, tp, mp->m_ddev_targp, imap->im_blkno,
+	error = xfs_trans_read_buf(mp, tp, mp->m_ddev_targp, bno,
 			XFS_FSB_TO_BB(mp, M_IGEO(mp)->blocks_per_cluster),
 			0, bpp, &xfs_inode_buf_ops);
 	if (xfs_metadata_is_sick(error))
-		xfs_agno_mark_sick(mp, xfs_daddr_to_agno(mp, imap->im_blkno),
+		xfs_agno_mark_sick(mp, xfs_daddr_to_agno(mp, bno),
 				XFS_SICK_AG_INODES);
 	return error;
 }

@@ -11,15 +11,15 @@ struct xfs_dinode;
 
 /*
  * Inode location information.  Stored in the inode and passed to
- * xfs_imap_to_bp() to get a buffer and dinode for a given inode.
+ * xfs_read_icluster() to get a buffer and dinode for a given inode.
  */
 struct xfs_imap {
 	xfs_daddr_t	im_blkno;	/* starting BB of inode chunk */
 	unsigned short	im_boffset;	/* inode offset in block in bytes */
 };
 
-int	xfs_imap_to_bp(struct xfs_mount *mp, struct xfs_trans *tp,
-		       struct xfs_imap *imap, struct xfs_buf **bpp);
+int	xfs_read_icluster(struct xfs_mount *mp, struct xfs_trans *tp,
+		xfs_daddr_t bno, struct xfs_buf **bpp);
 void	xfs_dinode_calc_crc(struct xfs_mount *mp, struct xfs_dinode *dip);
 void	xfs_inode_to_disk(struct xfs_inode *ip, struct xfs_dinode *to,
 			  xfs_lsn_t lsn);

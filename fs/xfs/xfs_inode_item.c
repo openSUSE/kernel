@@ -167,7 +167,8 @@ xfs_inode_item_precommit(
 		 * here.
 		 */
 		spin_unlock(&iip->ili_lock);
-		error = xfs_imap_to_bp(ip->i_mount, tp, &ip->i_imap, &bp);
+		error = xfs_read_icluster(ip->i_mount, tp, ip->i_imap.im_blkno,
+				&bp);
 		if (error)
 			return error;
 

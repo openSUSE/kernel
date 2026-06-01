@@ -287,7 +287,6 @@ xrep_ibt_process_cluster(
 	struct xrep_ibt		*ri,
 	xfs_agblock_t		cluster_bno)
 {
-	struct xfs_imap		imap;
 	struct xfs_buf		*cluster_bp;
 	struct xfs_scrub	*sc = ri->sc;
 	struct xfs_mount	*mp = sc->mp;
@@ -305,9 +304,9 @@ xrep_ibt_process_cluster(
 	 * inobt because imap_to_bp directly maps the buffer without touching
 	 * either inode btree.
 	 */
-	imap.im_blkno = xfs_agbno_to_daddr(sc->sa.pag, cluster_bno);
-	imap.im_boffset = 0;
-	error = xfs_imap_to_bp(mp, sc->tp, &imap, &cluster_bp);
+	error = xfs_read_icluster(mp, sc->tp,
+			xfs_agbno_to_daddr(sc->sa.pag, cluster_bno),
+			&cluster_bp);
 	if (error)
 		return error;
 

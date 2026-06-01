@@ -1075,7 +1075,7 @@ xfs_dialloc_check_ino(
 	if (error)
 		return -EAGAIN;
 
-	error = xfs_imap_to_bp(pag_mount(pag), tp, &imap, &bp);
+	error = xfs_read_icluster(pag_mount(pag), tp, imap.im_blkno, &bp);
 	if (error)
 		return -EAGAIN;
 

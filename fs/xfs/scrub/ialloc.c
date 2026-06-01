@@ -429,7 +429,8 @@ xchk_iallocbt_check_cluster(
 			&XFS_RMAP_OINFO_INODES);
 
 	/* Grab the inode cluster buffer. */
-	error = xfs_imap_to_bp(mp, bs->cur->bc_tp, &imap, &cluster_bp);
+	error = xfs_read_icluster(mp, bs->cur->bc_tp, imap.im_blkno,
+			&cluster_bp);
 	if (!xchk_btree_xref_process_error(bs->sc, bs->cur, 0, &error))
 		return error;
 
