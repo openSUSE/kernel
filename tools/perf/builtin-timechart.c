@@ -489,6 +489,10 @@ static void sched_switch(struct timechart *tchart, int cpu, u64 timestamp,
 	}
 }
 
+/*
+ * Returns a malloc'd backtrace string built via open_memstream, or NULL
+ * on error.  Caller must free() the returned pointer.
+ */
 static char *cat_backtrace(union perf_event *event,
 			   struct perf_sample *sample,
 			   struct machine *machine)
@@ -500,6 +504,7 @@ static char *cat_backtrace(union perf_event *event,
 	u8 cpumode = PERF_RECORD_MISC_USER;
 	struct ip_callchain *chain = sample->callchain;
 	FILE *f = open_memstream(&p, &p_len);
+	bool corrupted = false;
 
 	if (!f) {
 		perror("open_memstream error");
@@ -511,8 +516,9 @@ static char *cat_backtrace(union perf_event *event,
 		goto exit;
 
 	if (machine__resolve(machine, &al, sample) < 0) {
-		fprintf(stderr, "problem processing %d event, skipping it.\n",
-			event->header.type);
+		pr_err("problem processing %s (%u) event at offset %#" PRIx64 ", skipping it.\n",
+		       perf_event__name(event->header.type), event->header.type,
+		       sample->file_offset);
 		goto exit;
 	}
 
@@ -537,14 +543,8 @@ static char *cat_backtrace(union perf_event *event,
 				cpumode = PERF_RECORD_MISC_USER;
 				break;
 			default:
-				pr_debug("invalid callchain context: "
-					 "%"PRId64"\n", (s64) ip);
-
-				/*
-				 * It seems the callchain is corrupted.
-				 * Discard all.
-				 */
-				zfree(&p);
+				pr_debug("invalid callchain context: %" PRId64 "\n", (s64) ip);
+				corrupted = true;
 				goto exit;
 			}
 			continue;
@@ -561,7 +561,14 @@ static char *cat_backtrace(union perf_event *event,
 	}
 exit:
 	addr_location__exit(&al);
+	/*
+	 * fclose() on an open_memstream always sets p to a valid buffer,
+	 * even if nothing was written — see open_memstream(3).  So p is
+	 * never NULL after fclose and we need the flag to discard it.
+	 */
 	fclose(f);
+	if (corrupted)
+		zfree(&p);
 
 	return p;
 }
@@ -686,7 +693,8 @@ process_sample_power_start(struct timechart *tchart __maybe_unused,
 
 	/* perf.data is untrusted input — cpu_id may be corrupted */
 	if (cpu_id >= MAX_CPUS) {
-		pr_debug("Out-of-bounds cpu_id %llu\n", (unsigned long long)cpu_id);
+		pr_debug("at offset %#" PRIx64 ": out-of-bounds cpu_id %llu\n",
+			 sample->file_offset, (unsigned long long)cpu_id);
 		return -1;
 	}
 	c_state_start(cpu_id, sample->time, value);
@@ -700,7 +708,8 @@ process_sample_power_end(struct timechart *tchart,
 {
 	/* perf.data is untrusted input — CPU may be absent or corrupted */
 	if (sample->cpu >= MAX_CPUS) {
-		pr_debug("Out-of-bounds cpu %u\n", sample->cpu);
+		pr_debug("at offset %#" PRIx64 ": out-of-bounds cpu %u\n",
+			 sample->file_offset, sample->cpu);
 		return -1;
 	}
 	c_state_end(tchart, sample->cpu, sample->time);
@@ -717,7 +726,8 @@ process_sample_power_frequency(struct timechart *tchart,
 
 	/* perf.data is untrusted input — cpu_id may be corrupted */
 	if (cpu_id >= MAX_CPUS) {
-		pr_debug("Out-of-bounds cpu_id %llu\n", (unsigned long long)cpu_id);
+		pr_debug("at offset %#" PRIx64 ": out-of-bounds cpu_id %llu\n",
+			 sample->file_offset, (unsigned long long)cpu_id);
 		return -1;
 	}
 	p_state_change(tchart, cpu_id, sample->time, value);
