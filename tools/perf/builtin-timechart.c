@@ -605,8 +605,10 @@ process_sample_cpu_idle(struct timechart *tchart __maybe_unused,
 	u32 state  = perf_sample__intval(sample, "state");
 	u32 cpu_id = perf_sample__intval(sample, "cpu_id");
 
+	/* perf.data is untrusted input — cpu_id may be corrupted */
 	if (cpu_id >= MAX_CPUS) {
-		pr_debug("Out-of-bounds cpu_id %u\n", cpu_id);
+		pr_debug("at offset %#" PRIx64 ": out-of-bounds cpu_id %u\n",
+			 sample->file_offset, cpu_id);
 		return -1;
 	}
 	if (state == (u32)PWR_EVENT_EXIT)
@@ -624,8 +626,10 @@ process_sample_cpu_frequency(struct timechart *tchart,
 	u32 state  = perf_sample__intval(sample, "state");
 	u32 cpu_id = perf_sample__intval(sample, "cpu_id");
 
+	/* perf.data is untrusted input — cpu_id may be corrupted */
 	if (cpu_id >= MAX_CPUS) {
-		pr_debug("Out-of-bounds cpu_id %u\n", cpu_id);
+		pr_debug("at offset %#" PRIx64 ": out-of-bounds cpu_id %u\n",
+			 sample->file_offset, cpu_id);
 		return -1;
 	}
 	p_state_change(tchart, cpu_id, sample->time, state);
@@ -641,8 +645,10 @@ process_sample_sched_wakeup(struct timechart *tchart,
 	int waker = perf_sample__intval(sample, "common_pid");
 	int wakee = perf_sample__intval(sample, "pid");
 
+	/* perf.data is untrusted input — CPU may be absent or corrupted */
 	if (sample->cpu >= MAX_CPUS) {
-		pr_debug("Out-of-bounds cpu %u\n", sample->cpu);
+		pr_debug("at offset %#" PRIx64 ": out-of-bounds cpu %u\n",
+			 sample->file_offset, sample->cpu);
 		return -1;
 	}
 	sched_wakeup(tchart, sample->cpu, sample->time, waker, wakee, flags, backtrace);
@@ -658,8 +664,10 @@ process_sample_sched_switch(struct timechart *tchart,
 	int next_pid   = perf_sample__intval(sample, "next_pid");
 	u64 prev_state = perf_sample__intval(sample, "prev_state");
 
+	/* perf.data is untrusted input — CPU may be absent or corrupted */
 	if (sample->cpu >= MAX_CPUS) {
-		pr_debug("Out-of-bounds cpu %u\n", sample->cpu);
+		pr_debug("at offset %#" PRIx64 ": out-of-bounds cpu %u\n",
+			 sample->file_offset, sample->cpu);
 		return -1;
 	}
 	sched_switch(tchart, sample->cpu, sample->time, prev_pid, next_pid,
@@ -676,6 +684,7 @@ process_sample_power_start(struct timechart *tchart __maybe_unused,
 	u64 cpu_id = perf_sample__intval(sample, "cpu_id");
 	u64 value  = perf_sample__intval(sample, "value");
 
+	/* perf.data is untrusted input — cpu_id may be corrupted */
 	if (cpu_id >= MAX_CPUS) {
 		pr_debug("Out-of-bounds cpu_id %llu\n", (unsigned long long)cpu_id);
 		return -1;
@@ -689,6 +698,7 @@ process_sample_power_end(struct timechart *tchart,
 			 struct perf_sample *sample,
 			 const char *backtrace __maybe_unused)
 {
+	/* perf.data is untrusted input — CPU may be absent or corrupted */
 	if (sample->cpu >= MAX_CPUS) {
 		pr_debug("Out-of-bounds cpu %u\n", sample->cpu);
 		return -1;
@@ -705,6 +715,7 @@ process_sample_power_frequency(struct timechart *tchart,
 	u64 cpu_id = perf_sample__intval(sample, "cpu_id");
 	u64 value  = perf_sample__intval(sample, "value");
 
+	/* perf.data is untrusted input — cpu_id may be corrupted */
 	if (cpu_id >= MAX_CPUS) {
 		pr_debug("Out-of-bounds cpu_id %llu\n", (unsigned long long)cpu_id);
 		return -1;
