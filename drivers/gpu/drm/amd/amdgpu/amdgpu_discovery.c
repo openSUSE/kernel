@@ -304,7 +304,7 @@ static int amdgpu_discovery_get_tmr_info(struct amdgpu_device *adev,
 				adev->virt.crit_regn_tbl[AMD_SRIOV_MSG_IPD_TABLE_ID].offset;
 			adev->discovery.size =
 				adev->virt.crit_regn_tbl[AMD_SRIOV_MSG_IPD_TABLE_ID].size_kb << 10;
-			if (!adev->discovery.offset || !adev->discovery.size)
+			if (!adev->discovery.size)
 				return -EINVAL;
 		} else {
 			goto out;
@@ -3090,10 +3090,8 @@ int amdgpu_discovery_set_ip_blocks(struct amdgpu_device *adev)
 	case IP_VERSION(11, 5, 1):
 	case IP_VERSION(11, 5, 2):
 	case IP_VERSION(11, 5, 3):
-		adev->family = AMDGPU_FAMILY_GC_11_5_0;
-		break;
 	case IP_VERSION(11, 5, 4):
-		adev->family = AMDGPU_FAMILY_GC_11_5_4;
+		adev->family = AMDGPU_FAMILY_GC_11_5_0;
 		break;
 	case IP_VERSION(12, 0, 0):
 	case IP_VERSION(12, 0, 1):
