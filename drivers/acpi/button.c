@@ -227,8 +227,8 @@ static int acpi_lid_notify_state(struct acpi_button *button, int state)
 				ms_to_ktime(lid_report_interval));
 	if (button->last_state == !!state &&
 	    ktime_after(ktime_get(), next_report)) {
-		/* Complain the buggy firmware */
-		pr_warn_once("The lid device is not compliant to SW_LID.\n");
+		/* Complain about the buggy firmware. */
+		pr_warn_once(FW_BUG "Unexpected lid state reported by firmware\n");
 
 		/*
 		 * Send the unreliable complement switch event:
