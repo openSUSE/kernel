@@ -1912,7 +1912,6 @@ mlx5e_skb_from_cqe_mpwrq_nonlinear(struct mlx5e_rq *rq, struct mlx5e_mpw_info *w
 				   u32 page_idx)
 {
 	struct mlx5e_frag_page *frag_page = &wi->alloc_units.frag_pages[page_idx];
-	u16 headlen = min_t(u16, MLX5E_RX_MAX_HEAD, cqe_bcnt);
 	struct mlx5e_frag_page *head_page = frag_page;
 	struct mlx5e_frag_page *linear_page = NULL;
 	struct mlx5e_xdp_buff *mxbuf = &rq->mxbuf;
@@ -1928,6 +1927,7 @@ mlx5e_skb_from_cqe_mpwrq_nonlinear(struct mlx5e_rq *rq, struct mlx5e_mpw_info *w
 	u32 linear_frame_sz;
 	u16 linear_data_len;
 	u16 linear_hr;
+	u16 headlen;
 
 	if (unlikely(cqe_bcnt > rq->hw_mtu)) {
 		u8 lro_num_seg = get_cqe_lro_num_seg(cqe);
@@ -1971,10 +1971,13 @@ mlx5e_skb_from_cqe_mpwrq_nonlinear(struct mlx5e_rq *rq, struct mlx5e_mpw_info *w
 		net_prefetchw(va); /* xdp_frame data area */
 		net_prefetchw(skb->data);
 
+		headlen = min(MLX5E_RX_MAX_HEAD, cqe_bcnt);
 		addr = page_pool_get_dma_addr_netmem(head_page->netmem);
 		dma_sync_single_for_cpu(rq->pdev, addr + head_offset,
 					ALIGN(headlen, sizeof(long)),
 					rq->buff.map_dir);
+
+		headlen = eth_get_headlen(rq->netdev, head_addr, headlen);
 
 		frag_offset += headlen;
 		byte_cnt -= headlen;
@@ -2060,9 +2063,9 @@ mlx5e_skb_from_cqe_mpwrq_nonlinear(struct mlx5e_rq *rq, struct mlx5e_mpw_info *w
 				pagep->frags++;
 			while (++pagep < frag_page);
 
-			headlen = min_t(u16, MLX5E_RX_MAX_HEAD - len,
-					skb->data_len);
-			__pskb_pull_tail(skb, headlen);
+			if (len < ETH_HLEN)
+				__pskb_pull_tail(skb, min(ETH_HLEN - len,
+							  skb->data_len));
 		}
 	} else {
 		if (xdp_buff_has_frags(&mxbuf->xdp)) {
