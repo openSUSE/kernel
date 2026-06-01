@@ -28,14 +28,15 @@
 #define ACPI_BUTTON_NOTIFY_WAKE		0x02
 #define ACPI_BUTTON_NOTIFY_STATUS	0x80
 
-#define ACPI_BUTTON_SUBCLASS_POWER	"power"
+#define ACPI_BUTTON_CLASS_POWER		"button/power"
 #define ACPI_BUTTON_DEVICE_NAME_POWER	"Power Button"
 #define ACPI_BUTTON_TYPE_POWER		0x01
 
-#define ACPI_BUTTON_SUBCLASS_SLEEP	"sleep"
+#define ACPI_BUTTON_CLASS_SLEEP		"button/sleep"
 #define ACPI_BUTTON_DEVICE_NAME_SLEEP	"Sleep Button"
 #define ACPI_BUTTON_TYPE_SLEEP		0x03
 
+#define ACPI_BUTTON_CLASS_LID		"button/lid"
 #define ACPI_BUTTON_SUBCLASS_LID	"lid"
 #define ACPI_BUTTON_DEVICE_NAME_LID	"Lid Switch"
 #define ACPI_BUTTON_TYPE_LID		0x05
@@ -173,6 +174,7 @@ struct acpi_button {
 	struct device *dev;		/* physical button device */
 	unsigned int type;
 	struct input_dev *input;
+	const char *class;		/* for netlink messages */
 	char phys[32];			/* for input device */
 	unsigned long pushed;
 	bool last_state;
@@ -462,8 +464,7 @@ static void acpi_button_notify(acpi_handle handle, u32 event, void *data)
 	input_report_key(input, keycode, 0);
 	input_sync(input);
 
-	acpi_bus_generate_netlink_event(acpi_device_class(device),
-					dev_name(&device->dev),
+	acpi_bus_generate_netlink_event(button->class, dev_name(&device->dev),
 					event, ++button->pushed);
 }
 
@@ -530,7 +531,6 @@ static int acpi_button_probe(struct platform_device *pdev)
 	struct acpi_button *button;
 	struct input_dev *input;
 	acpi_status status;
-	char *class;
 	u8 button_type;
 	int error = 0;
 
@@ -559,17 +559,15 @@ static int acpi_button_probe(struct platform_device *pdev)
 	button->input = input;
 	button->type = button_type;
 
-	class = acpi_device_class(device);
-
 	switch (button_type) {
 	case ACPI_BUTTON_TYPE_LID:
+		button->class = ACPI_BUTTON_CLASS_LID;
+
 		input->name = ACPI_BUTTON_DEVICE_NAME_LID;
 		input_set_capability(input, EV_SW, SW_LID);
 		input->open = acpi_lid_input_open;
 
 		handler = acpi_lid_notify;
-		sprintf(class, "%s/%s",
-			ACPI_BUTTON_CLASS, ACPI_BUTTON_SUBCLASS_LID);
 
 		error = acpi_lid_add_fs(button);
 		if (error) {
@@ -579,22 +577,22 @@ static int acpi_button_probe(struct platform_device *pdev)
 		break;
 
 	case ACPI_BUTTON_TYPE_POWER:
+		button->class = ACPI_BUTTON_CLASS_POWER;
+
 		input->name = ACPI_BUTTON_DEVICE_NAME_POWER;
 		input_set_capability(input, EV_KEY, KEY_POWER);
 		input_set_capability(input, EV_KEY, KEY_WAKEUP);
 
 		handler = acpi_button_notify;
-		sprintf(class, "%s/%s",
-			ACPI_BUTTON_CLASS, ACPI_BUTTON_SUBCLASS_POWER);
 		break;
 
 	case ACPI_BUTTON_TYPE_SLEEP:
+		button->class = ACPI_BUTTON_CLASS_SLEEP;
+
 		input->name = ACPI_BUTTON_DEVICE_NAME_SLEEP;
 		input_set_capability(input, EV_KEY, KEY_SLEEP);
 
 		handler = acpi_button_notify;
-		sprintf(class, "%s/%s",
-			ACPI_BUTTON_CLASS, ACPI_BUTTON_SUBCLASS_SLEEP);
 		break;
 
 	default:
@@ -677,7 +675,6 @@ err_remove_fs:
 
 err_free_button:
 	kfree(button);
-	memset(acpi_device_class(device), 0, sizeof(acpi_device_class));
 	return error;
 }
 
@@ -720,8 +717,6 @@ static void acpi_button_remove(struct platform_device *pdev)
 		acpi_lid_remove_fs(button);
 
 	kfree(button);
-
-	memset(acpi_device_class(adev), 0, sizeof(acpi_device_class));
 }
 
 static int param_set_lid_init_state(const char *val,
