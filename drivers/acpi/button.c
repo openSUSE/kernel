@@ -548,7 +548,7 @@ static int acpi_button_probe(struct platform_device *pdev)
 	struct acpi_button *button;
 	struct input_dev *input;
 	acpi_status status;
-	char *name, *class;
+	char *class;
 	u8 button_type;
 	int error = 0;
 
@@ -581,23 +581,23 @@ static int acpi_button_probe(struct platform_device *pdev)
 
 	switch (button_type) {
 	case ACPI_BUTTON_TYPE_LID:
+		input->name = ACPI_BUTTON_DEVICE_NAME_LID;
 		handler = acpi_lid_notify;
-		name = ACPI_BUTTON_DEVICE_NAME_LID;
 		sprintf(class, "%s/%s",
 			ACPI_BUTTON_CLASS, ACPI_BUTTON_SUBCLASS_LID);
 		input->open = acpi_lid_input_open;
 		break;
 
 	case ACPI_BUTTON_TYPE_POWER:
+		input->name = ACPI_BUTTON_DEVICE_NAME_POWER;
 		handler = acpi_button_notify;
-		name = ACPI_BUTTON_DEVICE_NAME_POWER;
 		sprintf(class, "%s/%s",
 			ACPI_BUTTON_CLASS, ACPI_BUTTON_SUBCLASS_POWER);
 		break;
 
 	case ACPI_BUTTON_TYPE_SLEEP:
+		input->name = ACPI_BUTTON_DEVICE_NAME_SLEEP;
 		handler = acpi_button_notify;
-		name = ACPI_BUTTON_DEVICE_NAME_SLEEP;
 		sprintf(class, "%s/%s",
 			ACPI_BUTTON_CLASS, ACPI_BUTTON_SUBCLASS_SLEEP);
 		break;
@@ -616,7 +616,6 @@ static int acpi_button_probe(struct platform_device *pdev)
 
 	snprintf(button->phys, sizeof(button->phys), "%s/button/input0", id->id);
 
-	input->name = name;
 	input->phys = button->phys;
 	input->id.bustype = BUS_HOST;
 	input->id.product = button_type;
@@ -691,7 +690,7 @@ static int acpi_button_probe(struct platform_device *pdev)
 		acpi_lid_save(device);
 	}
 
-	pr_info("%s [%s]\n", name, acpi_device_bid(device));
+	pr_info("%s [%s]\n", input->name, acpi_device_bid(device));
 	return 0;
 
 err_input_unregister:
