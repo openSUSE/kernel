@@ -292,15 +292,10 @@ static int __maybe_unused acpi_button_state_seq_show(struct seq_file *seq,
 	return 0;
 }
 
-static int acpi_button_add_fs(struct acpi_button *button)
+static int acpi_lid_add_fs(struct acpi_button *button)
 {
 	struct acpi_device *device = button->adev;
 	struct proc_dir_entry *entry = NULL;
-	int ret = 0;
-
-	/* procfs I/F for ACPI lid device only */
-	if (button->type != ACPI_BUTTON_TYPE_LID)
-		return 0;
 
 	if (acpi_button_dir || acpi_lid_dir) {
 		pr_info("More than one Lid device found!\n");
@@ -314,33 +309,25 @@ static int acpi_button_add_fs(struct acpi_button *button)
 
 	/* create /proc/acpi/button/lid */
 	acpi_lid_dir = proc_mkdir(ACPI_BUTTON_SUBCLASS_LID, acpi_button_dir);
-	if (!acpi_lid_dir) {
-		ret = -ENODEV;
+	if (!acpi_lid_dir)
 		goto remove_button_dir;
-	}
 
 	/* create /proc/acpi/button/lid/LID/ */
 	acpi_device_dir(device) = proc_mkdir(acpi_device_bid(device), acpi_lid_dir);
-	if (!acpi_device_dir(device)) {
-		ret = -ENODEV;
+	if (!acpi_device_dir(device))
 		goto remove_lid_dir;
-	}
 
 	/* create /proc/acpi/button/lid/LID/state */
 	entry = proc_create_single_data(ACPI_BUTTON_FILE_STATE, S_IRUGO,
 			acpi_device_dir(device), acpi_button_state_seq_show,
 			button);
-	if (!entry) {
-		ret = -ENODEV;
+	if (!entry)
 		goto remove_dev_dir;
-	}
 
-done:
-	return ret;
+	return 0;
 
 remove_dev_dir:
-	remove_proc_entry(acpi_device_bid(device),
-			  acpi_lid_dir);
+	remove_proc_entry(acpi_device_bid(device), acpi_lid_dir);
 	acpi_device_dir(device) = NULL;
 remove_lid_dir:
 	remove_proc_entry(ACPI_BUTTON_SUBCLASS_LID, acpi_button_dir);
@@ -348,15 +335,12 @@ remove_lid_dir:
 remove_button_dir:
 	remove_proc_entry(ACPI_BUTTON_CLASS, acpi_root_dir);
 	acpi_button_dir = NULL;
-	goto done;
+	return -ENODEV;
 }
 
-static int acpi_button_remove_fs(struct acpi_button *button)
+static void acpi_lid_remove_fs(struct acpi_button *button)
 {
 	struct acpi_device *device = button->adev;
-
-	if (button->type != ACPI_BUTTON_TYPE_LID)
-		return 0;
 
 	remove_proc_entry(ACPI_BUTTON_FILE_STATE,
 			  acpi_device_dir(device));
@@ -367,8 +351,6 @@ static int acpi_button_remove_fs(struct acpi_button *button)
 	acpi_lid_dir = NULL;
 	remove_proc_entry(ACPI_BUTTON_CLASS, acpi_root_dir);
 	acpi_button_dir = NULL;
-
-	return 0;
 }
 
 static acpi_handle saved_lid_handle;
@@ -588,6 +570,12 @@ static int acpi_button_probe(struct platform_device *pdev)
 		handler = acpi_lid_notify;
 		sprintf(class, "%s/%s",
 			ACPI_BUTTON_CLASS, ACPI_BUTTON_SUBCLASS_LID);
+
+		error = acpi_lid_add_fs(button);
+		if (error) {
+			input_free_device(input);
+			goto err_free_button;
+		}
 		break;
 
 	case ACPI_BUTTON_TYPE_POWER:
@@ -612,12 +600,6 @@ static int acpi_button_probe(struct platform_device *pdev)
 	default:
 		input_free_device(input);
 		error = dev_err_probe(dev, -ENODEV, "Unrecognized button type\n");
-		goto err_free_button;
-	}
-
-	error = acpi_button_add_fs(button);
-	if (error) {
-		input_free_device(input);
 		goto err_free_button;
 	}
 
@@ -690,7 +672,9 @@ err_input_unregister:
 	device_init_wakeup(button->dev, false);
 	input_unregister_device(input);
 err_remove_fs:
-	acpi_button_remove_fs(button);
+	if (button_type == ACPI_BUTTON_TYPE_LID)
+		acpi_lid_remove_fs(button);
+
 err_free_button:
 	kfree(button);
 	memset(acpi_device_class(device), 0, sizeof(acpi_device_class));
@@ -731,8 +715,10 @@ static void acpi_button_remove(struct platform_device *pdev)
 
 	device_init_wakeup(button->dev, false);
 
-	acpi_button_remove_fs(button);
 	input_unregister_device(button->input);
+	if (button->type == ACPI_BUTTON_TYPE_LID)
+		acpi_lid_remove_fs(button);
+
 	kfree(button);
 
 	memset(acpi_device_class(adev), 0, sizeof(acpi_device_class));
