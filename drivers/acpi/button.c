@@ -522,15 +522,99 @@ static int acpi_lid_input_open(struct input_dev *input)
 	return 0;
 }
 
+static acpi_notify_handler acpi_button_notify_handler(struct acpi_button *button)
+{
+	if (button->type == ACPI_BUTTON_TYPE_LID)
+		return acpi_lid_notify;
+
+	return acpi_button_notify;
+}
+
+static void acpi_button_remove_event_handler(struct acpi_button *button)
+{
+	struct acpi_device *adev = button->adev;
+
+	switch (adev->device_type) {
+	case ACPI_BUS_TYPE_POWER_BUTTON:
+		acpi_remove_fixed_event_handler(ACPI_EVENT_POWER_BUTTON,
+						acpi_button_event);
+		break;
+
+	case ACPI_BUS_TYPE_SLEEP_BUTTON:
+		acpi_remove_fixed_event_handler(ACPI_EVENT_SLEEP_BUTTON,
+						acpi_button_event);
+		break;
+
+	default:
+		if (button->gpe_enabled) {
+			dev_dbg(button->dev, "Disabling ACPI GPE%02llx\n",
+				adev->wakeup.gpe_number);
+			acpi_disable_gpe(adev->wakeup.gpe_device,
+					 adev->wakeup.gpe_number);
+		}
+		acpi_remove_notify_handler(adev->handle, ACPI_ALL_NOTIFY,
+					   acpi_button_notify_handler(button));
+		break;
+	}
+	acpi_os_wait_events_complete();
+}
+
+static int acpi_button_add_fixed_event_handler(u32 event,
+					       struct acpi_button *button)
+{
+	acpi_status status;
+
+	status = acpi_install_fixed_event_handler(event, acpi_button_event, button);
+	if (ACPI_FAILURE(status))
+		return -ENODEV;
+
+	return 0;
+}
+
+static int acpi_button_add_event_handler(struct acpi_button *button)
+{
+	struct acpi_device *adev = button->adev;
+	acpi_status status;
+
+	if (adev->device_type == ACPI_BUS_TYPE_POWER_BUTTON)
+		return acpi_button_add_fixed_event_handler(ACPI_EVENT_POWER_BUTTON,
+							   button);
+
+	if (adev->device_type == ACPI_BUS_TYPE_SLEEP_BUTTON)
+		return acpi_button_add_fixed_event_handler(ACPI_EVENT_SLEEP_BUTTON,
+							   button);
+
+	status = acpi_install_notify_handler(adev->handle, ACPI_ALL_NOTIFY,
+					     acpi_button_notify_handler(button),
+					     button);
+	if (ACPI_FAILURE(status))
+		return -ENODEV;
+
+	if (!adev->wakeup.flags.valid)
+		return 0;
+
+	/*
+	 * If the wakeup GPE has a handler method, enable it in case it is also
+	 * used for signaling runtime events.
+	 */
+	status = acpi_enable_gpe_cond(adev->wakeup.gpe_device,
+				      adev->wakeup.gpe_number,
+				      ACPI_GPE_DISPATCH_METHOD);
+	button->gpe_enabled = ACPI_SUCCESS(status);
+	if (button->gpe_enabled)
+		dev_dbg(button->dev, "Enabled ACPI GPE%02llx\n",
+			adev->wakeup.gpe_number);
+
+	return 0;
+}
+
 static int acpi_button_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct acpi_device *device = ACPI_COMPANION(dev);
 	const struct acpi_device_id *id;
-	acpi_notify_handler handler;
 	struct acpi_button *button;
 	struct input_dev *input;
-	acpi_status status;
 	u8 button_type;
 	int error = 0;
 
@@ -567,8 +651,6 @@ static int acpi_button_probe(struct platform_device *pdev)
 		input_set_capability(input, EV_SW, SW_LID);
 		input->open = acpi_lid_input_open;
 
-		handler = acpi_lid_notify;
-
 		error = acpi_lid_add_fs(button);
 		if (error) {
 			input_free_device(input);
@@ -582,8 +664,6 @@ static int acpi_button_probe(struct platform_device *pdev)
 		input->name = ACPI_BUTTON_DEVICE_NAME_POWER;
 		input_set_capability(input, EV_KEY, KEY_POWER);
 		input_set_capability(input, EV_KEY, KEY_WAKEUP);
-
-		handler = acpi_button_notify;
 		break;
 
 	case ACPI_BUTTON_TYPE_SLEEP:
@@ -591,8 +671,6 @@ static int acpi_button_probe(struct platform_device *pdev)
 
 		input->name = ACPI_BUTTON_DEVICE_NAME_SLEEP;
 		input_set_capability(input, EV_KEY, KEY_SLEEP);
-
-		handler = acpi_button_notify;
 		break;
 
 	default:
@@ -618,42 +696,9 @@ static int acpi_button_probe(struct platform_device *pdev)
 
 	device_init_wakeup(button->dev, true);
 
-	switch (device->device_type) {
-	case ACPI_BUS_TYPE_POWER_BUTTON:
-		status = acpi_install_fixed_event_handler(ACPI_EVENT_POWER_BUTTON,
-							  acpi_button_event,
-							  button);
-		break;
-	case ACPI_BUS_TYPE_SLEEP_BUTTON:
-		status = acpi_install_fixed_event_handler(ACPI_EVENT_SLEEP_BUTTON,
-							  acpi_button_event,
-							  button);
-		break;
-	default:
-		status = acpi_install_notify_handler(device->handle,
-						     ACPI_ALL_NOTIFY, handler,
-						     button);
-		if (ACPI_SUCCESS(status) && device->wakeup.flags.valid) {
-			acpi_status st;
-
-			/*
-			 * If the wakeup GPE has a handler method, enable it in
-			 * case it is also used for signaling runtime events.
-			 */
-			st = acpi_enable_gpe_cond(device->wakeup.gpe_device,
-						   device->wakeup.gpe_number,
-						   ACPI_GPE_DISPATCH_METHOD);
-			button->gpe_enabled = ACPI_SUCCESS(st);
-			if (button->gpe_enabled)
-				dev_dbg(button->dev, "Enabled ACPI GPE%02llx\n",
-					device->wakeup.gpe_number);
-		}
-		break;
-	}
-	if (ACPI_FAILURE(status)) {
-		error = -ENODEV;
+	error = acpi_button_add_event_handler(button);
+	if (error)
 		goto err_input_unregister;
-	}
 
 	if (button_type == ACPI_BUTTON_TYPE_LID) {
 		/*
@@ -686,29 +731,7 @@ static void acpi_button_remove(struct platform_device *pdev)
 	if (button->type == ACPI_BUTTON_TYPE_LID)
 		acpi_lid_forget(adev);
 
-	switch (adev->device_type) {
-	case ACPI_BUS_TYPE_POWER_BUTTON:
-		acpi_remove_fixed_event_handler(ACPI_EVENT_POWER_BUTTON,
-						acpi_button_event);
-		break;
-	case ACPI_BUS_TYPE_SLEEP_BUTTON:
-		acpi_remove_fixed_event_handler(ACPI_EVENT_SLEEP_BUTTON,
-						acpi_button_event);
-		break;
-	default:
-		if (button->gpe_enabled) {
-			dev_dbg(button->dev, "Disabling ACPI GPE%02llx\n",
-				adev->wakeup.gpe_number);
-			acpi_disable_gpe(adev->wakeup.gpe_device,
-					 adev->wakeup.gpe_number);
-		}
-		acpi_remove_notify_handler(adev->handle, ACPI_ALL_NOTIFY,
-					   button->type == ACPI_BUTTON_TYPE_LID ?
-						acpi_lid_notify :
-						acpi_button_notify);
-		break;
-	}
-	acpi_os_wait_events_complete();
+	acpi_button_remove_event_handler(button);
 
 	device_init_wakeup(button->dev, false);
 
