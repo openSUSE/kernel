@@ -255,6 +255,21 @@ bool kvm_intr_is_single_vcpu(struct kvm *kvm, struct kvm_lapic_irq *irq,
 }
 EXPORT_SYMBOL_GPL(kvm_intr_is_single_vcpu);
 
+void kvm_scan_ioapic_irq(struct kvm_vcpu *vcpu, u32 dest_id, u16 dest_mode,
+			 u8 vector, unsigned long *ioapic_handled_vectors)
+{
+	/*
+	 * Intercept EOI if the vCPU is the target of the new IRQ routing, or
+	 * the vCPU has a pending IRQ from the old routing, i.e. if the vCPU
+	 * may receive a level-triggered IRQ in the future, or already received
+	 * level-triggered IRQ.  The EOI needs to be intercepted and forwarded
+	 * to I/O APIC emulation so that the IRQ can be de-asserted.
+	 */
+	if (kvm_apic_match_dest(vcpu, NULL, APIC_DEST_NOSHORT, dest_id, dest_mode) ||
+	    kvm_apic_pending_eoi(vcpu, vector))
+		__set_bit(vector, ioapic_handled_vectors);
+}
+
 void kvm_scan_ioapic_routes(struct kvm_vcpu *vcpu,
 			    ulong *ioapic_handled_vectors)
 {
@@ -280,10 +295,8 @@ void kvm_scan_ioapic_routes(struct kvm_vcpu *vcpu,
 			if (!irq.trig_mode)
 				continue;
 
-			if (kvm_apic_match_dest(vcpu, NULL, APIC_DEST_NOSHORT,
-						irq.dest_id, irq.dest_mode) ||
-			     kvm_apic_pending_eoi(vcpu, irq.vector))
-				__set_bit(irq.vector, ioapic_handled_vectors);
+			kvm_scan_ioapic_irq(vcpu, irq.dest_id, irq.dest_mode,
+					    irq.vector, ioapic_handled_vectors);
 		}
 	}
 	srcu_read_unlock(&kvm->irq_srcu, idx);
