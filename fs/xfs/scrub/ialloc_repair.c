@@ -304,8 +304,7 @@ xrep_ibt_process_cluster(
 	 * inobt because imap_to_bp directly maps the buffer without touching
 	 * either inode btree.
 	 */
-	error = xfs_read_icluster(mp, sc->tp,
-			xfs_agbno_to_daddr(sc->sa.pag, cluster_bno),
+	error = xfs_read_icluster(sc->sa.pag, sc->tp, cluster_bno,
 			&cluster_bp);
 	if (error)
 		return error;

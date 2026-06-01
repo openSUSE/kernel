@@ -1561,7 +1561,8 @@ xrep_dinode_core(
 
 	/* Read the inode cluster buffer. */
 	error = xfs_trans_read_buf(mp, sc->tp, mp->m_ddev_targp,
-			ri->imap.im_blkno,
+			XFS_AGB_TO_DADDR(mp, XFS_INO_TO_AGNO(mp, ino),
+					ri->imap.im_agbno),
 			XFS_FSB_TO_BB(mp, M_IGEO(mp)->blocks_per_cluster),
 			0, &bp, NULL);
 	if (error)

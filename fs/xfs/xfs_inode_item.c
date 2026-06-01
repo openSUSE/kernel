@@ -18,6 +18,7 @@
 #include "xfs_buf_item.h"
 #include "xfs_log.h"
 #include "xfs_log_priv.h"
+#include "xfs_ag.h"
 #include "xfs_error.h"
 #include "xfs_rtbitmap.h"
 
@@ -104,6 +105,7 @@ xfs_inode_item_precommit(
 {
 	struct xfs_inode_log_item *iip = INODE_ITEM(lip);
 	struct xfs_inode	*ip = iip->ili_inode;
+	struct xfs_mount	*mp = ip->i_mount;
 	struct inode		*inode = VFS_I(ip);
 	unsigned int		flags = iip->ili_dirty_flags;
 
@@ -124,8 +126,7 @@ xfs_inode_item_precommit(
 	 * to upgrade this inode to bigtime format, do so now.
 	 */
 	if ((flags & (XFS_ILOG_CORE | XFS_ILOG_TIMESTAMP)) &&
-	    xfs_has_bigtime(ip->i_mount) &&
-	    !xfs_inode_has_bigtime(ip)) {
+	    xfs_has_bigtime(mp) && !xfs_inode_has_bigtime(ip)) {
 		ip->i_diflags2 |= XFS_DIFLAG2_BIGTIME;
 		flags |= XFS_ILOG_CORE;
 	}
@@ -138,14 +139,14 @@ xfs_inode_item_precommit(
 	 */
 	if (ip->i_diflags & XFS_DIFLAG_RTINHERIT) {
 		if ((ip->i_diflags & XFS_DIFLAG_EXTSZINHERIT) &&
-		    xfs_extlen_to_rtxmod(ip->i_mount, ip->i_extsize) > 0) {
+		    xfs_extlen_to_rtxmod(mp, ip->i_extsize) > 0) {
 			ip->i_diflags &= ~(XFS_DIFLAG_EXTSIZE |
 					   XFS_DIFLAG_EXTSZINHERIT);
 			ip->i_extsize = 0;
 			flags |= XFS_ILOG_CORE;
 		}
 		if ((ip->i_diflags2 & XFS_DIFLAG2_COWEXTSIZE) &&
-		    xfs_extlen_to_rtxmod(ip->i_mount, ip->i_cowextsize) > 0) {
+		    xfs_extlen_to_rtxmod(mp, ip->i_cowextsize) > 0) {
 			ip->i_diflags2 &= ~XFS_DIFLAG2_COWEXTSIZE;
 			ip->i_cowextsize = 0;
 			flags |= XFS_ILOG_CORE;
@@ -154,6 +155,7 @@ xfs_inode_item_precommit(
 
 	spin_lock(&iip->ili_lock);
 	if (!iip->ili_item.li_buf) {
+		struct xfs_perag *pag;
 		struct xfs_buf	*bp;
 		int		error;
 
@@ -167,8 +169,9 @@ xfs_inode_item_precommit(
 		 * here.
 		 */
 		spin_unlock(&iip->ili_lock);
-		error = xfs_read_icluster(ip->i_mount, tp, ip->i_imap.im_blkno,
-				&bp);
+		pag = xfs_perag_get(mp, XFS_INODE_TO_AGNO(ip));
+		error = xfs_read_icluster(pag, tp, ip->i_imap.im_agbno, &bp);
+		xfs_perag_put(pag);
 		if (error)
 			return error;
 
@@ -654,7 +657,8 @@ xfs_inode_item_format(
 	ilf = xlog_format_start(lfb, XLOG_REG_TYPE_IFORMAT);
 	ilf->ilf_type = XFS_LI_INODE;
 	ilf->ilf_ino = I_INO(ip);
-	ilf->ilf_blkno = ip->i_imap.im_blkno;
+	ilf->ilf_blkno = XFS_AGB_TO_DADDR(mp, XFS_INODE_TO_AGNO(ip),
+				ip->i_imap.im_agbno);
 	ilf->ilf_len = XFS_FSB_TO_BB(mp, M_IGEO(mp)->blocks_per_cluster);
 	ilf->ilf_boffset = ip->i_imap.im_boffset;
 	ilf->ilf_fields = XFS_ILOG_CORE;

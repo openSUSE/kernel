@@ -14,12 +14,12 @@ struct xfs_dinode;
  * xfs_read_icluster() to get a buffer and dinode for a given inode.
  */
 struct xfs_imap {
-	xfs_daddr_t	im_blkno;	/* starting BB of inode chunk */
-	unsigned short	im_boffset;	/* inode offset in block in bytes */
+	xfs_agblock_t	im_agbno;	/* starting agbno of inode cluster */
+	unsigned short	im_boffset;	/* offset in inode cluster in bytes */
 };
 
-int	xfs_read_icluster(struct xfs_mount *mp, struct xfs_trans *tp,
-		xfs_daddr_t bno, struct xfs_buf **bpp);
+int	xfs_read_icluster(struct xfs_perag *pag, struct xfs_trans *tp,
+		xfs_agblock_t agbno, struct xfs_buf **bpp);
 void	xfs_dinode_calc_crc(struct xfs_mount *mp, struct xfs_dinode *dip);
 void	xfs_inode_to_disk(struct xfs_inode *ip, struct xfs_dinode *to,
 			  xfs_lsn_t lsn);

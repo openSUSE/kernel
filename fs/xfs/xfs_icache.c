@@ -663,7 +663,7 @@ xfs_iget_cache_miss(
 	} else {
 		struct xfs_buf		*bp;
 
-		error = xfs_read_icluster(mp, tp, ip->i_imap.im_blkno, &bp);
+		error = xfs_read_icluster(pag, tp, ip->i_imap.im_agbno, &bp);
 		if (error)
 			goto out_destroy;
 

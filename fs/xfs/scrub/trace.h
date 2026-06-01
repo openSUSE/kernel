@@ -785,17 +785,17 @@ TRACE_EVENT(xchk_xref_error,
 
 TRACE_EVENT(xchk_iallocbt_check_cluster,
 	TP_PROTO(const struct xfs_perag *pag, xfs_agino_t startino,
-		 xfs_daddr_t map_daddr,  unsigned short map_len,
+		 xfs_agblock_t map_agblock,  unsigned short map_len,
 		 unsigned int chunk_ino,  unsigned int nr_inodes,
 		 uint16_t cluster_mask, uint16_t holemask,
 		 unsigned int cluster_ino),
-	TP_ARGS(pag, startino, map_daddr, map_len, chunk_ino, nr_inodes,
+	TP_ARGS(pag, startino, map_agblock, map_len, chunk_ino, nr_inodes,
 		cluster_mask, holemask, cluster_ino),
 	TP_STRUCT__entry(
 		__field(dev_t, dev)
 		__field(xfs_agnumber_t, agno)
 		__field(xfs_agino_t, startino)
-		__field(xfs_daddr_t, map_daddr)
+		__field(xfs_agblock_t, map_agblock)
 		__field(unsigned short, map_len)
 		__field(unsigned int, chunk_ino)
 		__field(unsigned int, nr_inodes)
@@ -807,7 +807,7 @@ TRACE_EVENT(xchk_iallocbt_check_cluster,
 		__entry->dev = pag_mount(pag)->m_super->s_dev;
 		__entry->agno = pag_agno(pag);
 		__entry->startino = startino;
-		__entry->map_daddr = map_daddr;
+		__entry->map_agblock = map_agblock;
 		__entry->map_len = map_len;
 		__entry->chunk_ino = chunk_ino;
 		__entry->nr_inodes = nr_inodes;
@@ -815,11 +815,11 @@ TRACE_EVENT(xchk_iallocbt_check_cluster,
 		__entry->holemask = holemask;
 		__entry->cluster_ino = cluster_ino;
 	),
-	TP_printk("dev %d:%d agno 0x%x startino 0x%x daddr 0x%llx bbcount 0x%x chunkino 0x%x nr_inodes %u cluster_mask 0x%x holemask 0x%x cluster_ino 0x%x",
+	TP_printk("dev %d:%d agno 0x%x startino 0x%x agblock 0x%x bbcount 0x%x chunkino 0x%x nr_inodes %u cluster_mask 0x%x holemask 0x%x cluster_ino 0x%x",
 		  MAJOR(__entry->dev), MINOR(__entry->dev),
 		  __entry->agno,
 		  __entry->startino,
-		  __entry->map_daddr,
+		  __entry->map_agblock,
 		  __entry->map_len,
 		  __entry->chunk_ino,
 		  __entry->nr_inodes,
