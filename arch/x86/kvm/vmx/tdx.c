@@ -3294,7 +3294,12 @@ int tdx_gmem_private_max_mapping_level(struct kvm *kvm, kvm_pfn_t pfn)
 	return PG_LEVEL_4K;
 }
 
-static int __init __tdx_bringup(void)
+void tdx_hardware_unsetup(void)
+{
+	misc_cg_set_capacity(MISC_CG_RES_TDX, 0);
+}
+
+static int __init __tdx_hardware_setup(void)
 {
 	const struct tdx_sys_info_td_conf *td_conf;
 	int i;
@@ -3368,7 +3373,7 @@ static int __init __tdx_bringup(void)
 	return 0;
 }
 
-int __init tdx_bringup(void)
+int __init tdx_hardware_setup(void)
 {
 	int r, i;
 
@@ -3404,7 +3409,7 @@ int __init tdx_bringup(void)
 		goto success_disable_tdx;
 	}
 
-	r = __tdx_bringup();
+	r = __tdx_hardware_setup();
 	if (r) {
 		/*
 		 * Disable TDX only but don't fail to load module if the TDX
@@ -3418,29 +3423,9 @@ int __init tdx_bringup(void)
 		 */
 		if (r == -ENODEV)
 			goto success_disable_tdx;
+		return r;
 	}
 
-	return r;
-
-success_disable_tdx:
-	enable_tdx = 0;
-	return 0;
-}
-
-void tdx_cleanup(void)
-{
-	if (!enable_tdx)
-		return;
-
-	misc_cg_set_capacity(MISC_CG_RES_TDX, 0);
-}
-
-void __init tdx_hardware_setup(void)
-{
-	/*
-	 * Note, if the TDX module can't be loaded, KVM TDX support will be
-	 * disabled but KVM will continue loading (see tdx_bringup()).
-	 */
 	vt_x86_ops.vm_size = max_t(unsigned int, vt_x86_ops.vm_size, sizeof(struct kvm_tdx));
 
 	vt_x86_ops.link_external_spt = tdx_sept_link_private_spt;
@@ -3448,4 +3433,9 @@ void __init tdx_hardware_setup(void)
 	vt_x86_ops.free_external_spt = tdx_sept_free_private_spt;
 	vt_x86_ops.remove_external_spte = tdx_sept_remove_private_spte;
 	vt_x86_ops.protected_apic_has_interrupt = tdx_protected_apic_has_interrupt;
+	return 0;
+
+success_disable_tdx:
+	enable_tdx = 0;
+	return 0;
 }
