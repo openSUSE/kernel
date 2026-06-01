@@ -27,7 +27,7 @@
 #define KVM_PMU_EVENT_FILTER_MAX_EVENTS 300
 
 struct x86_pmu_capability __read_mostly kvm_pmu_cap;
-EXPORT_SYMBOL_GPL(kvm_pmu_cap);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_pmu_cap);
 
 struct kvm_pmu_emulated_event_selectors __read_mostly kvm_pmu_eventsel;
 EXPORT_SYMBOL_GPL(kvm_pmu_eventsel);
@@ -318,7 +318,7 @@ void pmc_write_counter(struct kvm_pmc *pmc, u64 val)
 	pmc->counter &= pmc_bitmask(pmc);
 	pmc_update_sample_period(pmc);
 }
-EXPORT_SYMBOL_GPL(pmc_write_counter);
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(pmc_write_counter);
 
 static int filter_cmp(const void *pa, const void *pb, u64 mask)
 {
