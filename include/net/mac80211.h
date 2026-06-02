@@ -1704,6 +1704,7 @@ enum mac80211_rx_encoding {
 	RX_ENC_HE,
 	RX_ENC_EHT,
 	RX_ENC_UHR,
+	RX_ENC_S1G,
 };
 
 /**

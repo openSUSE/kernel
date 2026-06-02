@@ -5621,6 +5621,14 @@ void ieee80211_rx_list(struct ieee80211_hw *hw, struct ieee80211_sta *pubsta,
 				      status->rate_idx, status->nss))
 				goto drop;
 			break;
+		case RX_ENC_S1G:
+			if (WARN_ONCE(status->rate_idx > 12 ||
+				      !status->nss ||
+				      status->nss > 4,
+				      "Rate marked as an S1G rate but data is invalid: MCS: %d, NSS: %d\n",
+				      status->rate_idx, status->nss))
+				goto drop;
+			break;
 		default:
 			WARN_ON_ONCE(1);
 			fallthrough;

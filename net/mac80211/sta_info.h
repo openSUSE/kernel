@@ -1042,7 +1042,7 @@ enum sta_stats_type {
 #define STA_STATS_FIELD_VHT_MCS		0x0000F000
 #define STA_STATS_FIELD_VHT_NSS		0x000F0000
 
-/* HT & VHT */
+/* HT, VHT & S1G */
 #define STA_STATS_FIELD_SGI		0x00100000
 
 /* STA_STATS_RATE_TYPE_HE */
@@ -1066,6 +1066,9 @@ enum sta_stats_type {
 #define STA_STATS_FIELD_UHR_ELR		0x08000000
 #define STA_STATS_FIELD_UHR_IM		0x10000000
 
+/* STA_STATS_RATE_TYPE_S1G */
+#define STA_STATS_FIELD_S1G_MCS		0x0000F000
+#define STA_STATS_FIELD_S1G_NSS		0x000F0000
 
 #define STA_STATS_FIELD(_n, _v)		FIELD_PREP(STA_STATS_FIELD_ ## _n, _v)
 #define STA_STATS_GET(_n, _v)		FIELD_GET(STA_STATS_FIELD_ ## _n, _v)
@@ -1081,6 +1084,7 @@ static inline u32 sta_stats_encode_rate(struct ieee80211_rx_status *s)
 	switch (s->encoding) {
 	case RX_ENC_HT:
 	case RX_ENC_VHT:
+	case RX_ENC_S1G:
 		if (s->enc_flags & RX_ENC_FLAG_SHORT_GI)
 			r |= STA_STATS_FIELD(SGI, 1);
 		break;
@@ -1126,6 +1130,11 @@ static inline u32 sta_stats_encode_rate(struct ieee80211_rx_status *s)
 		r |= STA_STATS_FIELD(UHR_RU, s->uhr.ru);
 		r |= STA_STATS_FIELD(UHR_ELR, s->uhr.elr);
 		r |= STA_STATS_FIELD(UHR_IM, s->uhr.im);
+		break;
+	case RX_ENC_S1G:
+		r |= STA_STATS_FIELD(TYPE, STA_STATS_RATE_TYPE_S1G);
+		r |= STA_STATS_FIELD(S1G_NSS, s->nss);
+		r |= STA_STATS_FIELD(S1G_MCS, s->rate_idx);
 		break;
 	default:
 		WARN_ON(1);

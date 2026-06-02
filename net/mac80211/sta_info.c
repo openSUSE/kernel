@@ -2605,6 +2605,13 @@ static void sta_stats_decode_rate(struct ieee80211_local *local, u32 rate,
 		if (STA_STATS_GET(UHR_IM, rate))
 			rinfo->flags |= RATE_INFO_FLAGS_UHR_IM;
 		break;
+	case STA_STATS_RATE_TYPE_S1G:
+		rinfo->flags = RATE_INFO_FLAGS_S1G_MCS;
+		rinfo->mcs = STA_STATS_GET(S1G_MCS, rate);
+		rinfo->nss = STA_STATS_GET(S1G_NSS, rate);
+		if (STA_STATS_GET(SGI, rate))
+			rinfo->flags |= RATE_INFO_FLAGS_SHORT_GI;
+		break;
 	}
 }
 
