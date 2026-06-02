@@ -123,10 +123,10 @@ check_rdma_conf_enabled() {
 		probe_module "$2"
 		return
 	fi
-	echo "selftests: [SKIP] rdma transport requires $1 enabled"
+	echo "selftests: [XFAIL] rdma transport requires $1 enabled"
 	echo "To enable, run" \
 	     "tools/testing/selftests/net/rds/config.sh -r and rebuild"
-	exit 4
+	exit 2
 }
 
 # Load the module backing a config that is built as a loadable module
@@ -148,7 +148,7 @@ check_conf() {
 }
 
 # Check kernel config and host environment for RDS-RDMA support.
-# Exits with SKIP (4) if the user requested rdma but prerequisites
+# Exits with XFAIL (2) if the user requested rdma but prerequisites
 # are not met.
 check_rdma_conf()
 {
@@ -163,9 +163,9 @@ check_rdma_conf()
 	check_rdma_conf_enabled CONFIG_RDS_RDMA rds_rdma
 
 	if ! which rdma > /dev/null 2>&1; then
-		echo "selftests: [SKIP] rdma transport requires the 'rdma'" \
-		      " tool (iproute2)"
-		exit 4
+		echo "selftests: [XFAIL] rdma transport requires the 'rdma'" \
+		      "tool (iproute2)"
+		exit 2
 	fi
 }
 
