@@ -345,6 +345,16 @@ static void test_invalid_punch_hole(int fd, size_t total_size)
 	}
 }
 
+static void test_invalid_binding(struct kvm_vm *vm, int fd, size_t size)
+{
+	int r;
+
+	r = __vm_set_user_memory_region2(vm, 0, KVM_MEM_GUEST_MEMFD, 0, size, 0,
+					 fd, ALIGN_DOWN(INT64_MAX, page_size));
+	TEST_ASSERT(r && errno == EINVAL,
+		    "Memslot with out-of-range offset+size should fail");
+}
+
 static void test_create_guest_memfd_invalid_sizes(struct kvm_vm *vm,
 						  u64 guest_memfd_flags)
 {
@@ -456,6 +466,7 @@ static void __test_guest_memfd(struct kvm_vm *vm, u64 flags)
 	gmem_test(file_size, vm, flags);
 	gmem_test(fallocate, vm, flags);
 	gmem_test(invalid_punch_hole, vm, flags);
+	gmem_test_vm(invalid_binding, vm, flags);
 }
 
 static void test_guest_memfd(unsigned long vm_type)
