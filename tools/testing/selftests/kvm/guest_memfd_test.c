@@ -408,16 +408,25 @@ static void test_guest_memfd_flags(struct kvm_vm *vm)
 	}
 }
 
-#define __gmem_test(__test, __vm, __flags, __gmem_size)			\
+#define ____gmem_test(__test, __vm, __flags, __gmem_size, args...)	\
 do {									\
 	int fd = vm_create_guest_memfd(__vm, __gmem_size, __flags);	\
 									\
-	test_##__test(fd, __gmem_size);					\
+	test_##__test(args);						\
 	close(fd);							\
 } while (0)
 
+#define __gmem_test(__test, __vm, __flags, __gmem_size)			\
+	____gmem_test(__test, __vm, __flags, __gmem_size, fd, __gmem_size)
+
 #define gmem_test(__test, __vm, __flags)				\
 	__gmem_test(__test, __vm, __flags, page_size * 4)
+
+#define __gmem_test_vm(__test, __vm, __flags, __gmem_size)		\
+	____gmem_test(__test, __vm, __flags, __gmem_size, __vm, fd, __gmem_size)
+
+#define gmem_test_vm(__test, __vm, __flags)				\
+	__gmem_test_vm(__test, __vm, __flags, page_size * 4)
 
 static void __test_guest_memfd(struct kvm_vm *vm, u64 flags)
 {
