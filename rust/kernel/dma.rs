@@ -1152,8 +1152,8 @@ unsafe impl Sync for CoherentHandle {}
 /// unsafe impl kernel::transmute::AsBytes for MyStruct{};
 ///
 /// # fn test(alloc: &kernel::dma::Coherent<[MyStruct]>) -> Result {
-/// let whole = kernel::dma_read!(alloc, [2]?);
-/// let field = kernel::dma_read!(alloc, [1]?.field);
+/// let whole = kernel::dma_read!(alloc, [try: 2]);
+/// let field = kernel::dma_read!(alloc, [panic: 1].field);
 /// # Ok::<(), Error>(()) }
 /// ```
 #[macro_export]
@@ -1189,8 +1189,8 @@ macro_rules! dma_read {
 /// unsafe impl kernel::transmute::AsBytes for MyStruct{};
 ///
 /// # fn test(alloc: &kernel::dma::Coherent<[MyStruct]>) -> Result {
-/// kernel::dma_write!(alloc, [2]?.member, 0xf);
-/// kernel::dma_write!(alloc, [1]?, MyStruct { member: 0xf });
+/// kernel::dma_write!(alloc, [try: 2].member, 0xf);
+/// kernel::dma_write!(alloc, [panic: 1], MyStruct { member: 0xf });
 /// # Ok::<(), Error>(()) }
 /// ```
 #[macro_export]
