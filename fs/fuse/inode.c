@@ -1064,12 +1064,11 @@ static struct dentry *fuse_get_dentry(struct super_block *sb,
 	inode = ilookup5(sb, handle->nodeid, fuse_inode_eq, &handle->nodeid);
 	if (!inode) {
 		struct fuse_entry_out outarg;
-		const struct qstr name = QSTR_INIT(".", 1);
 
 		if (!fc->export_support)
 			goto out_err;
 
-		err = fuse_lookup_name(sb, handle->nodeid, &name, &outarg,
+		err = fuse_lookup_name(sb, handle->nodeid, &QSTR("."), &outarg,
 				       &inode);
 		if (err && err != -ENOENT)
 			goto out_err;
