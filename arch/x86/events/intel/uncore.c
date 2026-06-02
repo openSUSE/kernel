@@ -1716,7 +1716,7 @@ err:
 	return ret;
 }
 
-static int uncore_mmio_global_init(u64 ctl)
+static int uncore_mmio_global_init(int die, u64 ctl)
 {
 	void __iomem *io_addr;
 
@@ -1729,6 +1729,16 @@ static int uncore_mmio_global_init(u64 ctl)
 
 	iounmap(io_addr);
 	return 0;
+}
+
+static int uncore_msr_global_init(int die, u64 msr)
+{
+	int cpu = uncore_die_to_cpu(die);
+
+	if (cpu == -1)
+		return -ENODEV;
+
+	return wrmsrq_on_cpu(cpu, msr, 0);
 }
 
 static const struct uncore_plat_init nhm_uncore_init __initconst = {
@@ -1871,6 +1881,7 @@ static const struct uncore_plat_init gnr_uncore_init __initconst = {
 	.domain[0].base_is_pci = true,
 	.domain[0].discovery_base = UNCORE_DISCOVERY_TABLE_DEVICE,
 	.domain[0].units_ignore = gnr_uncore_units_ignore,
+	.domain[0].global_init = uncore_msr_global_init,
 };
 
 static const struct uncore_plat_init dmr_uncore_init __initconst = {

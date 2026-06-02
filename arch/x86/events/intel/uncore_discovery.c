@@ -287,7 +287,7 @@ static int __parse_discovery_table(struct uncore_discovery_domain *domain,
 	if (!io_addr)
 		return -ENOMEM;
 
-	if (domain->global_init && domain->global_init(global.ctl)) {
+	if (domain->global_init && domain->global_init(die, global.ctl)) {
 		ret = -ENODEV;
 		goto out;
 	}
@@ -399,7 +399,6 @@ static bool uncore_discovery_msr(struct uncore_discovery_domain *domain)
 	if (!die_mask)
 		return false;
 
-	cpus_read_lock();
 	for_each_online_cpu(cpu) {
 		die = topology_logical_die_id(cpu);
 		if (__test_and_set_bit(die, die_mask))
@@ -414,8 +413,6 @@ static bool uncore_discovery_msr(struct uncore_discovery_domain *domain)
 		__parse_discovery_table(domain, base, die, &parsed);
 	}
 
-	cpus_read_unlock();
-
 	kfree(die_mask);
 	return parsed;
 }
@@ -429,10 +426,14 @@ bool uncore_discovery(struct uncore_plat_init *init)
 	for (i = 0; i < UNCORE_DISCOVERY_DOMAINS; i++) {
 		domain = &init->domain[i];
 		if (domain->discovery_base) {
+			cpus_read_lock();
+
 			if (!domain->base_is_pci)
 				ret |= uncore_discovery_msr(domain);
 			else
 				ret |= uncore_discovery_pci(domain);
+
+			cpus_read_unlock();
 		}
 	}
 
