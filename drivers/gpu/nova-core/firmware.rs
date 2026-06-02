@@ -629,14 +629,33 @@ mod elf {
         })
     }
 
-    /// Tries to extract section with name `name` from the ELF64 image `elf`, and returns it.
-    pub(super) fn elf64_section<'a>(elf: &'a [u8], name: &str) -> Option<&'a [u8]> {
+    /// Extract the section with name `name` from the ELF64 image `elf`.
+    fn elf64_section<'a>(elf: &'a [u8], name: &str) -> Option<&'a [u8]> {
         elf_section_generic::<Elf64Format>(elf, name)
     }
 
     /// Extract the section with name `name` from the ELF32 image `elf`.
-    #[expect(dead_code)]
-    pub(super) fn elf32_section<'a>(elf: &'a [u8], name: &str) -> Option<&'a [u8]> {
+    fn elf32_section<'a>(elf: &'a [u8], name: &str) -> Option<&'a [u8]> {
         elf_section_generic::<Elf32Format>(elf, name)
+    }
+
+    /// Automatically detects ELF32 vs ELF64 based on the ELF header.
+    pub(super) fn elf_section<'a>(elf: &'a [u8], name: &str) -> Option<&'a [u8]> {
+        // ELF identification: a 4-byte magic followed by a class byte (32- vs 64-bit).
+        const ELFMAG: &[u8] = b"\x7fELF";
+        const SELFMAG: usize = ELFMAG.len();
+        const EI_CLASS: usize = 4;
+        const ELFCLASS32: u8 = 1;
+        const ELFCLASS64: u8 = 2;
+
+        if elf.get(0..SELFMAG) != Some(ELFMAG) {
+            return None;
+        }
+
+        match *elf.get(EI_CLASS)? {
+            ELFCLASS32 => elf32_section(elf, name),
+            ELFCLASS64 => elf64_section(elf, name),
+            _ => None,
+        }
     }
 }
