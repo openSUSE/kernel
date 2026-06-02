@@ -176,6 +176,8 @@ struct kmem_cache *mmu_page_header_cache;
 static struct percpu_counter kvm_total_used_mmu_pages;
 
 static void mmu_spte_set(u64 *sptep, u64 spte);
+static int mmu_page_zap_pte(struct kvm *kvm, struct kvm_mmu_page *sp,
+			    u64 *spte, struct list_head *invalid_list);
 static union kvm_mmu_page_role
 kvm_mmu_calc_root_page_role(struct kvm_vcpu *vcpu);
 
@@ -2969,8 +2971,20 @@ static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 			break;
 
 		drop_large_spte(vcpu, it.sptep);
-		if (is_shadow_present_pte(*it.sptep))
-			continue;
+		if (is_shadow_present_pte(*it.sptep)) {
+			struct kvm_mmu_page *child = spte_to_child_sp(*it.sptep);
+			struct kvm_mmu_page *parent_sp;
+			LIST_HEAD(invalid_list);
+
+			if (child && child->gfn == base_gfn)
+				continue;
+
+			parent_sp = sptep_to_sp(it.sptep);
+			WARN_ON_ONCE(parent_sp->role.level == PG_LEVEL_4K);
+
+			mmu_page_zap_pte(vcpu->kvm, parent_sp, it.sptep, &invalid_list);
+			kvm_mmu_remote_flush_or_zap(vcpu->kvm, &invalid_list, true);
+		}
 
 		sp = kvm_mmu_get_page(vcpu, base_gfn, it.addr,
 				      it.level - 1, true, ACC_ALL);
