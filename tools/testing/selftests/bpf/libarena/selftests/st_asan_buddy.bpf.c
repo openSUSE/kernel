@@ -8,7 +8,7 @@
 /* Required for parsing the ASAN call stacks. */
 #include "test_progs_compat.h"
 
-extern buddy_t buddy;
+extern struct buddy __arena buddy;
 
 #ifdef BPF_ARENA_ASAN
 
@@ -54,7 +54,7 @@ static __always_inline int asan_test_buddy_oob_single(size_t alloc_size)
  * Factored out because asan_validate_addr is complex enough to cause
  * verification failures if verified with the rest of asan_test_buddy_uaf_single.
  */
-__weak int asan_test_buddy_byte(u8 __arena __arg_arena *mem, int i, bool freed)
+__weak int asan_test_buddy_byte(u8 __arena *mem, int i, bool freed)
 {
 	int ret;
 

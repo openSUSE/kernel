@@ -9,7 +9,7 @@ static inline void print_asan_map_state(void __arena *addr)
 {
 	arena_stdout("%s:%d ASAN %p -> (val: %x gran: %x set: [%s])",
 			__func__, __LINE__, addr,
-			*(s8a *)(addr), ASAN_GRANULE(addr),
+			*(s8 __arena *)(addr), ASAN_GRANULE(addr),
 			asan_shadow_set(addr) ? "yes" : "no");
 }
 

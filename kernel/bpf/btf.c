@@ -7802,6 +7802,120 @@ enum btf_arg_tag {
 	ARG_TAG_ARENA	  = BIT_ULL(5),
 };
 
+static int btf_scan_decl_tags(struct bpf_verifier_env *env,
+			      const struct btf *btf,
+			      const struct btf_type *fn_t,
+			      u32 arg_idx, bool is_global, u32 *tags)
+{
+	int id = btf_named_start_id(btf, false) - 1;
+
+	/*
+	 * The 'arg:<tag>' decl_tag takes precedence over the derivation
+	 * of the register type from the BTF type itself.
+	 */
+	while ((id = btf_find_next_decl_tag(btf, fn_t, arg_idx, "arg:", id)) > 0) {
+		const struct btf_type *tag_t = btf_type_by_id(btf, id);
+		const char *tag = __btf_name_by_offset(btf, tag_t->name_off) + 4;
+
+		/* disallow arg tags in static subprogs */
+		if (!is_global) {
+			bpf_log(&env->log,
+				"arg#%d type tag is not supported in static functions\n",
+				arg_idx);
+			return -EOPNOTSUPP;
+		}
+
+		if (strcmp(tag, "ctx") == 0) {
+			*tags |= ARG_TAG_CTX;
+		} else if (strcmp(tag, "trusted") == 0) {
+			*tags |= ARG_TAG_TRUSTED;
+		} else if (strcmp(tag, "untrusted") == 0) {
+			*tags |= ARG_TAG_UNTRUSTED;
+		} else if (strcmp(tag, "nonnull") == 0) {
+			*tags |= ARG_TAG_NONNULL;
+		} else if (strcmp(tag, "nullable") == 0) {
+			*tags |= ARG_TAG_NULLABLE;
+		} else if (strcmp(tag, "arena") == 0) {
+			*tags |= ARG_TAG_ARENA;
+		} else {
+			bpf_log(&env->log, "arg#%d has unsupported set of tags\n", arg_idx);
+			return -EOPNOTSUPP;
+		}
+	}
+	if (id != -ENOENT) {
+		bpf_log(&env->log, "arg#%d type tag fetching failure: %d\n", arg_idx, id);
+		return id;
+	}
+
+	return 0;
+}
+
+static int btf_scan_type_tags(struct bpf_verifier_env *env,
+			      const struct btf *btf, u32 type_id,
+			      u32 *tags)
+{
+	const struct btf_type *t;
+
+	/* Find the first pointer type in the chain. */
+	t = btf_type_skip_modifiers(btf, type_id, NULL);
+
+	/*
+	 * We currently reject type tags on non-pointer types,
+	 * which neither LLVM nor GCC support anyway.
+	 */
+	if (!t || !btf_type_is_ptr(t))
+		return 0;
+
+	/* We got a pointer, get all associated type tags. */
+	for (t = btf_type_by_id(btf, t->type); t && btf_type_is_modifier(t);
+		t = btf_type_by_id(btf, t->type)) {
+
+		/* Skip non-type tag modifiers. */
+		if (!btf_type_is_type_tag(t))
+			continue;
+
+		const char *tag = __btf_name_by_offset(btf, t->name_off);
+
+		if (strcmp(tag, "arena") == 0) {
+			*tags |= ARG_TAG_ARENA;
+		} else {
+			bpf_log(&env->log, "function signature member has unsupported type tag '%s'\n",
+				tag);
+			return -EOPNOTSUPP;
+		}
+	}
+
+	return 0;
+}
+
+/* Check whether the type is a valid return type. */
+static int btf_validate_return_type(struct bpf_verifier_env *env, struct btf *btf,
+		const struct btf_type *t, int subprog)
+{
+	u32 tags = 0;
+	int err;
+
+	err = btf_scan_type_tags(env, btf, t->type, &tags);
+	if (err)
+		return err;
+
+	t = btf_type_skip_modifiers(btf, t->type, NULL);
+
+	/*
+	 * We allow all subprogs except for the main one to return any kind of arena pointer.
+	 * General arena variables are not allowed, since it makes no sense to return by value
+	 * a variable that's on the heap in the first place.
+	 */
+	if (subprog && (tags & ARG_TAG_ARENA) && btf_type_is_ptr(t))
+		return 0;
+
+	/* We always accept void or scalars. */
+	if (btf_type_is_void(t) || btf_type_is_int(t) || btf_is_any_enum(t))
+		return 0;
+
+	return -EOPNOTSUPP;
+}
+
 /* Process BTF of a function to produce high-level expectation of function
  * arguments (like ARG_PTR_TO_CTX, or ARG_PTR_TO_MEM, etc). This information
  * is cached in subprog info for reuse.
@@ -7820,6 +7934,7 @@ int btf_prepare_func_args(struct bpf_verifier_env *env, int subprog)
 	struct btf *btf = prog->aux->btf;
 	const struct btf_param *args;
 	const struct btf_type *t, *ref_t, *fn_t;
+	int err;
 	u32 i, nargs, btf_id;
 	const char *tname;
 
@@ -7884,18 +7999,16 @@ int btf_prepare_func_args(struct bpf_verifier_env *env, int subprog)
 			tname, nargs, MAX_BPF_FUNC_REG_ARGS);
 		return -EINVAL;
 	}
-	/* check that function is void or returns int, exception cb also requires this */
-	t = btf_type_by_id(btf, t->type);
-	while (btf_type_is_modifier(t))
-		t = btf_type_by_id(btf, t->type);
-	if (!btf_type_is_void(t) && !btf_type_is_int(t) && !btf_is_any_enum(t)) {
-		if (!is_global)
-			return -EINVAL;
-		bpf_log(log,
-			"Global function %s() return value not void or scalar. "
-			"Only those are supported.\n",
-			tname);
-		return -EINVAL;
+
+	err = btf_validate_return_type(env, btf, t, subprog);
+	if (err) {
+		if (is_global) {
+			bpf_log(log,
+				"Global function %s() return value not void or scalar. "
+				"Only those are supported.\n",
+				tname);
+		}
+		return err;
 	}
 
 	/* Convert BTF function arguments into verifier types.
@@ -7903,42 +8016,13 @@ int btf_prepare_func_args(struct bpf_verifier_env *env, int subprog)
 	 */
 	for (i = 0; i < nargs; i++) {
 		u32 tags = 0;
-		int id = btf_named_start_id(btf, false) - 1;
+		err = btf_scan_decl_tags(env, btf, fn_t, i, is_global, &tags);
+		if (err)
+			return err;
 
-		/* 'arg:<tag>' decl_tag takes precedence over derivation of
-		 * register type from BTF type itself
-		 */
-		while ((id = btf_find_next_decl_tag(btf, fn_t, i, "arg:", id)) > 0) {
-			const struct btf_type *tag_t = btf_type_by_id(btf, id);
-			const char *tag = __btf_name_by_offset(btf, tag_t->name_off) + 4;
-
-			/* disallow arg tags in static subprogs */
-			if (!is_global) {
-				bpf_log(log, "arg#%d type tag is not supported in static functions\n", i);
-				return -EOPNOTSUPP;
-			}
-
-			if (strcmp(tag, "ctx") == 0) {
-				tags |= ARG_TAG_CTX;
-			} else if (strcmp(tag, "trusted") == 0) {
-				tags |= ARG_TAG_TRUSTED;
-			} else if (strcmp(tag, "untrusted") == 0) {
-				tags |= ARG_TAG_UNTRUSTED;
-			} else if (strcmp(tag, "nonnull") == 0) {
-				tags |= ARG_TAG_NONNULL;
-			} else if (strcmp(tag, "nullable") == 0) {
-				tags |= ARG_TAG_NULLABLE;
-			} else if (strcmp(tag, "arena") == 0) {
-				tags |= ARG_TAG_ARENA;
-			} else {
-				bpf_log(log, "arg#%d has unsupported set of tags\n", i);
-				return -EOPNOTSUPP;
-			}
-		}
-		if (id != -ENOENT) {
-			bpf_log(log, "arg#%d type tag fetching failure: %d\n", i, id);
-			return id;
-		}
+		err = btf_scan_type_tags(env, btf, args[i].type, &tags);
+		if (err)
+			return err;
 
 		t = btf_type_by_id(btf, args[i].type);
 		while (btf_type_is_modifier(t))

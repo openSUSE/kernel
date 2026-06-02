@@ -33,12 +33,12 @@
 #endif
 
 #if defined(__BPF_FEATURE_ADDR_SPACE_CAST) && !defined(BPF_ARENA_FORCE_ASM)
-#define __arena __attribute__((address_space(1)))
+#define __arena __attribute__((address_space(1))) __attribute__((btf_type_tag("arena")))
 #define __arena_global __attribute__((address_space(1)))
 #define cast_kern(ptr) /* nop for bpf prog. emitted by LLVM */
 #define cast_user(ptr) /* nop for bpf prog. emitted by LLVM */
 #else
-#define __arena
+#define __arena __attribute__((btf_type_tag("arena")))
 #define __arena_global SEC(".addr_space.1")
 #define cast_kern(ptr) bpf_addr_space_cast(ptr, 0, 1)
 #define cast_user(ptr) bpf_addr_space_cast(ptr, 1, 0)
@@ -54,7 +54,6 @@ void bpf_arena_free_pages(void *map, void __arena *ptr, __u32 page_cnt) __ksym _
 #else /* when compiled as user space code */
 
 #define __arena
-#define __arg_arena
 #define cast_kern(ptr) /* nop for user space */
 #define cast_user(ptr) /* nop for user space */
 __weak char arena[1];

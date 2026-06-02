@@ -16,10 +16,6 @@
 #define EOPNOTSUPP 95
 #define ETIMEDOUT 110
 
-#ifndef __arena
-#define __arena __attribute__((address_space(1)))
-#endif
-
 extern unsigned long CONFIG_NR_CPUS __kconfig;
 
 /*
@@ -246,7 +242,7 @@ static __always_inline int arena_spin_trylock(arena_spinlock_t __arena *lock)
 }
 
 __noinline __weak
-int arena_spin_lock_slowpath(arena_spinlock_t __arena __arg_arena *lock, u32 val)
+int arena_spin_lock_slowpath(arena_spinlock_t __arena *lock, u32 val)
 {
 	struct arena_mcs_spinlock __arena *prev, *next, *node0, *node;
 	int ret = -ETIMEDOUT;

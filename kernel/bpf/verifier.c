@@ -16503,6 +16503,10 @@ static int check_global_subprog_return_code(struct bpf_verifier_env *env)
 	if (err)
 		return err;
 
+	/* Pointers to arena are safe to pass between subprograms. */
+	if (is_arena_reg(env, BPF_REG_0))
+		return 0;
+
 	if (is_pointer_value(env, BPF_REG_0)) {
 		verbose(env, "R%d leaks addr as return value\n", BPF_REG_0);
 		return -EACCES;
