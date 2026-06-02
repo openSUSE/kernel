@@ -1679,6 +1679,39 @@ int simple_xattr_add(struct simple_xattr_cache *cache, struct list_head *xattrs,
 }
 
 /**
+ * simple_xattr_add_limited - add an xattr object, charging per-inode limits
+ * @cache: anchor for the hash table
+ * @xattrs: the header of the xattr object
+ * @limits: per-inode limit counters
+ * @new_xattr: the xattr object to add
+ *
+ * Like simple_xattr_add(), but also accounts @new_xattr against @limits so
+ * that a later removal or replacement of it through simple_xattr_set_limited()
+ * decrements counters that were actually incremented, rather than underflowing
+ * them. Use this instead of simple_xattr_add() when seeding initial xattrs
+ * that share a namespace with the limited set/remove path.
+ *
+ * Return: On success zero is returned. On failure a negative error code is
+ * returned.
+ */
+int simple_xattr_add_limited(struct simple_xattr_cache *cache,
+			     struct list_head *xattrs,
+			     struct simple_xattr_limits *limits,
+			     struct simple_xattr *new_xattr)
+{
+	int err;
+
+	err = simple_xattr_limits_inc(limits, new_xattr->size);
+	if (err)
+		return err;
+
+	err = simple_xattr_add(cache, xattrs, new_xattr);
+	if (err)
+		simple_xattr_limits_dec(limits, new_xattr->size);
+	return err;
+}
+
+/**
  * simple_xattrs_free - free xattrs
  * @cache: anchor for the hash table
  * @xattrs: xattr header whose xattrs to destroy
