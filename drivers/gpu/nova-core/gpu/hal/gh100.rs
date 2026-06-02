@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0
 
-use kernel::prelude::*;
+use kernel::{
+    dma::DmaMask,
+    prelude::*, //
+};
 
 use crate::driver::Bar0;
 
@@ -11,6 +14,10 @@ struct Gh100;
 impl GpuHal for Gh100 {
     fn wait_gfw_boot_completion(&self, _bar: &Bar0) -> Result {
         Ok(())
+    }
+
+    fn dma_mask(&self) -> DmaMask {
+        DmaMask::new::<52>()
     }
 }
 

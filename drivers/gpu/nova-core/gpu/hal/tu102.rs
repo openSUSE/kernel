@@ -19,6 +19,7 @@
 //! Note that the devinit sequence also needs to run during suspend/resume.
 
 use kernel::{
+    dma::DmaMask,
     io::{
         poll::read_poll_timeout,
         Io, //
@@ -79,6 +80,10 @@ impl GpuHal for Tu102 {
             Delta::from_secs(4),
         )
         .map(|_| ())
+    }
+
+    fn dma_mask(&self) -> DmaMask {
+        DmaMask::new::<47>()
     }
 }
 

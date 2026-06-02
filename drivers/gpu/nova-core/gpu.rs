@@ -2,6 +2,7 @@
 
 use kernel::{
     device,
+    dma::Device,
     fmt,
     io::Io,
     num::Bounded,
@@ -269,7 +270,7 @@ pub(crate) struct Gpu<'gpu> {
 
 impl<'gpu> Gpu<'gpu> {
     pub(crate) fn new(
-        pdev: &'gpu pci::Device<device::Bound>,
+        pdev: &'gpu pci::Device<device::Core<'_>>,
         bar: &'gpu Bar0,
     ) -> impl PinInit<Self, Error> + 'gpu {
         try_pin_init!(Self {
@@ -280,7 +281,14 @@ impl<'gpu> Gpu<'gpu> {
 
             // We must wait for GFW_BOOT completion before doing any significant setup on the GPU.
             _: {
-                hal::gpu_hal(spec.chipset).wait_gfw_boot_completion(bar)
+                let hal = hal::gpu_hal(spec.chipset);
+                let dma_mask = hal.dma_mask();
+
+                // SAFETY: `Gpu` owns all DMA allocations for this device, and we are
+                // still constructing it, so no concurrent DMA allocations can exist.
+                unsafe { pdev.dma_set_mask_and_coherent(dma_mask)? };
+
+                hal.wait_gfw_boot_completion(bar)
                     .inspect_err(|_| dev_err!(pdev, "GFW boot did not complete\n"))?;
             },
 
