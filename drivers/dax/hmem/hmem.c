@@ -4,6 +4,7 @@
 #include <linux/module.h>
 #include <linux/pfn_t.h>
 #include <linux/dax.h>
+#include <cxl/cxl.h>
 #include "../bus.h"
 
 static bool region_idle;
@@ -59,25 +60,36 @@ static void release_hmem(void *pdev)
 	platform_device_unregister(pdev);
 }
 
-static int hmem_register_device(struct device *host, int target_nid,
-				const struct resource *res)
+struct dax_defer_work {
+	struct platform_device *pdev;
+	struct work_struct work;
+};
+
+static void process_defer_work(struct work_struct *w);
+
+static struct dax_defer_work dax_hmem_work = {
+	.work = __WORK_INITIALIZER(dax_hmem_work.work, process_defer_work),
+};
+
+void dax_hmem_flush_work(void)
+{
+	flush_work(&dax_hmem_work.work);
+}
+EXPORT_SYMBOL_GPL(dax_hmem_flush_work);
+
+static int __hmem_register_device(struct device *host, int target_nid,
+				  const struct resource *res)
 {
 	struct platform_device *pdev;
 	struct memregion_info info;
 	long id;
 	int rc;
 
-	if (IS_ENABLED(CONFIG_CXL_REGION) &&
-	    region_intersects(res->start, resource_size(res), IORESOURCE_MEM,
-			      IORES_DESC_CXL) != REGION_DISJOINT) {
-		dev_dbg(host, "deferring range to CXL: %pr\n", res);
-		return 0;
-	}
-
-	rc = region_intersects(res->start, resource_size(res), IORESOURCE_MEM,
-			       IORES_DESC_SOFT_RESERVED);
+	rc = region_intersects_soft_reserve(res->start, resource_size(res));
 	if (rc != REGION_INTERSECTS)
 		return 0;
+
+	/* TODO: Add Soft-Reserved memory back to iomem */
 
 	id = memregion_alloc(GFP_KERNEL);
 	if (id < 0) {
@@ -123,8 +135,72 @@ out_put:
 	return rc;
 }
 
+static int hmem_register_device(struct device *host, int target_nid,
+				const struct resource *res)
+{
+	if (IS_ENABLED(CONFIG_DEV_DAX_CXL) &&
+	    region_intersects(res->start, resource_size(res), IORESOURCE_MEM,
+			      IORES_DESC_CXL) != REGION_DISJOINT) {
+		if (!dax_hmem_initial_probe) {
+			dev_dbg(host, "await CXL initial probe: %pr\n", res);
+			queue_work(system_long_wq, &dax_hmem_work.work);
+			return 0;
+		}
+		dev_dbg(host, "deferring range to CXL: %pr\n", res);
+		return 0;
+	}
+
+	return __hmem_register_device(host, target_nid, res);
+}
+
+static int hmem_register_cxl_device(struct device *host, int target_nid,
+				    const struct resource *res)
+{
+	if (region_intersects(res->start, resource_size(res), IORESOURCE_MEM,
+			      IORES_DESC_CXL) == REGION_DISJOINT)
+		return 0;
+
+	if (cxl_region_contains_resource((struct resource *)res)) {
+		dev_dbg(host, "CXL claims resource, dropping: %pr\n", res);
+		return 0;
+	}
+
+	dev_dbg(host, "CXL did not claim resource, registering: %pr\n", res);
+	return __hmem_register_device(host, target_nid, res);
+}
+
+static void process_defer_work(struct work_struct *w)
+{
+	struct dax_defer_work *work = container_of(w, typeof(*work), work);
+	struct platform_device *pdev;
+
+	if (!work->pdev)
+		return;
+
+	pdev = work->pdev;
+
+	/* Relies on cxl_acpi and cxl_pci having had a chance to load */
+	wait_for_device_probe();
+
+	guard(device)(&pdev->dev);
+	if (!pdev->dev.driver)
+		return;
+
+	if (!dax_hmem_initial_probe) {
+		dax_hmem_initial_probe = true;
+		walk_hmem_resources(&pdev->dev, hmem_register_cxl_device);
+	}
+}
+
 static int dax_hmem_platform_probe(struct platform_device *pdev)
 {
+	if (work_pending(&dax_hmem_work.work))
+		return -EBUSY;
+
+	if (!dax_hmem_work.pdev)
+		dax_hmem_work.pdev =
+			to_platform_device(get_device(&pdev->dev));
+
 	return walk_hmem_resources(&pdev->dev, hmem_register_device);
 }
 
@@ -139,6 +215,16 @@ static __init int dax_hmem_init(void)
 {
 	int rc;
 
+	/*
+	 * Ensure that cxl_acpi and cxl_pci have a chance to kick off
+	 * CXL topology discovery at least once before scanning the
+	 * iomem resource tree for IORES_DESC_CXL resources.
+	 */
+	if (IS_ENABLED(CONFIG_DEV_DAX_CXL)) {
+		request_module("cxl_acpi");
+		request_module("cxl_pci");
+	}
+
 	rc = platform_driver_register(&dax_hmem_platform_driver);
 	if (rc)
 		return rc;
@@ -152,19 +238,17 @@ static __init int dax_hmem_init(void)
 
 static __exit void dax_hmem_exit(void)
 {
+	if (dax_hmem_work.pdev) {
+		flush_work(&dax_hmem_work.work);
+		put_device(&dax_hmem_work.pdev->dev);
+	}
+
 	platform_driver_unregister(&dax_hmem_driver);
 	platform_driver_unregister(&dax_hmem_platform_driver);
 }
 
 module_init(dax_hmem_init);
 module_exit(dax_hmem_exit);
-
-/* Allow for CXL to define its own dax regions */
-#if IS_ENABLED(CONFIG_CXL_REGION)
-#if IS_MODULE(CONFIG_CXL_ACPI)
-MODULE_SOFTDEP("pre: cxl_acpi");
-#endif
-#endif
 
 MODULE_ALIAS("platform:hmem*");
 MODULE_ALIAS("platform:hmem_platform*");
