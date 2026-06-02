@@ -55,12 +55,40 @@ struct futex_mm_phash {
 struct futex_mm_phash { };
 #endif /* !CONFIG_FUTEX_ROBUST_UNLOCK */
 
+#ifdef CONFIG_FUTEX_ROBUST_UNLOCK
+/**
+ * struct futex_unlock_cs_range - Range for the VDSO unlock critical section
+ * @start_ip:	The start IP of the robust futex unlock critical section (inclusive)
+ * @len:	The length of the robust futex unlock critical section
+ * @pop_size32:	Pending OP pointer size indicator. 0 == 64-bit, 1 == 32-bit
+ */
+struct futex_unlock_cs_range {
+	unsigned long	       start_ip;
+	unsigned int	       len;
+	unsigned int	       pop_size32;
+};
+
+#define FUTEX_ROBUST_MAX_CS_RANGES	(1 + IS_ENABLED(CONFIG_COMPAT))
+
+/**
+ * struct futex_unlock_cs_ranges - Futex unlock VSDO critical sections
+ * @cs_ranges:	Array of critical section ranges
+ */
+struct futex_unlock_cs_ranges {
+	struct futex_unlock_cs_range	cs_ranges[FUTEX_ROBUST_MAX_CS_RANGES];
+};
+#else  /* CONFIG_FUTEX_ROBUST_UNLOCK */
+struct futex_unlock_cs_ranges { };
+#endif /* !CONFIG_FUTEX_ROBUST_UNLOCK */
+
 /**
  * struct futex_mm_data - Futex related per MM data
  * @phash:	Futex private hash related data
+ * @unlock:	Futex unlock VDSO critical sections
  */
 struct futex_mm_data {
 	struct futex_mm_phash		phash;
+	struct futex_unlock_cs_ranges	unlock;
 };
 #else  /* CONFIG_FUTEX */
 struct futex_sched_data { };

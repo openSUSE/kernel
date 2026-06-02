@@ -81,11 +81,9 @@ int futex_hash_prctl(unsigned long arg2, unsigned long arg3, unsigned long arg4)
 #ifdef CONFIG_FUTEX_PRIVATE_HASH
 int futex_hash_allocate_default(void);
 void futex_hash_free(struct mm_struct *mm);
-void futex_mm_init(struct mm_struct *mm);
 #else  /* CONFIG_FUTEX_PRIVATE_HASH */
 static inline int futex_hash_allocate_default(void) { return 0; }
 static inline int futex_hash_free(struct mm_struct *mm) { return 0; }
-static inline void futex_mm_init(struct mm_struct *mm) { }
 #endif /* !CONFIG_FUTEX_PRIVATE_HASH */
 
 #else  /* CONFIG_FUTEX */
@@ -104,7 +102,24 @@ static inline int futex_hash_prctl(unsigned long arg2, unsigned long arg3, unsig
 }
 static inline int futex_hash_allocate_default(void) { return 0; }
 static inline int futex_hash_free(struct mm_struct *mm) { return 0; }
-static inline void futex_mm_init(struct mm_struct *mm) { }
 #endif /* !CONFIG_FUTEX */
+
+#ifdef CONFIG_FUTEX_ROBUST_UNLOCK
+void futex_reset_cs_ranges(struct futex_mm_data *fd);
+
+static inline void futex_set_vdso_cs_range(struct futex_mm_data *fd, unsigned int idx,
+					   unsigned long start, unsigned long end, bool sz32)
+{
+	fd->unlock.cs_ranges[idx].start_ip = start;
+	fd->unlock.cs_ranges[idx].len = end - start;
+	fd->unlock.cs_ranges[idx].pop_size32 = sz32;
+}
+#endif /* CONFIG_FUTEX_ROBUST_UNLOCK */
+
+#if defined(CONFIG_FUTEX_PRIVATE_HASH) || defined(CONFIG_FUTEX_ROBUST_UNLOCK)
+void futex_mm_init(struct mm_struct *mm);
+#else
+static inline void futex_mm_init(struct mm_struct *mm) { }
+#endif
 
 #endif /* _LINUX_FUTEX_H */

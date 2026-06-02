@@ -1761,11 +1761,11 @@ static bool futex_ref_is_dead(struct futex_private_hash *fph)
 	return atomic_long_read(&mm->futex.phash.atomic) == 0;
 }
 
-void futex_mm_init(struct mm_struct *mm)
+static void futex_hash_init_mm(struct futex_mm_data *fd)
 {
-	memset(&mm->futex, 0, sizeof(mm->futex));
-	mutex_init(&mm->futex.phash.lock);
-	mm->futex.phash.batches = get_state_synchronize_rcu();
+	memset(&fd->phash, 0, sizeof(fd->phash));
+	mutex_init(&fd->phash.lock);
+	fd->phash.batches = get_state_synchronize_rcu();
 }
 
 void futex_hash_free(struct mm_struct *mm)
@@ -1969,19 +1969,47 @@ static int futex_hash_get_slots(void)
 		return fph->hash_mask + 1;
 	return 0;
 }
+#else  /* CONFIG_FUTEX_PRIVATE_HASH */
+static inline int futex_hash_allocate(unsigned int hslots, unsigned int flags) { return -EINVAL; }
+static inline int futex_hash_get_slots(void) { return 0; }
+static inline void futex_hash_init_mm(struct futex_mm_data *fd) { }
+#endif /* !CONFIG_FUTEX_PRIVATE_HASH */
 
-#else
-
-static int futex_hash_allocate(unsigned int hash_slots, unsigned int flags)
+#ifdef CONFIG_FUTEX_ROBUST_UNLOCK
+static void futex_invalidate_cs_ranges(struct futex_mm_data *fd)
 {
-	return -EINVAL;
+	/*
+	 * Invalidate start_ip so that the quick check fails for ip >= start_ip
+	 * if VDSO is not mapped or the second slot is not available for compat
+	 * tasks as they use VDSO32 which does not provide the 64-bit pointer
+	 * variant.
+	 */
+	for (int i = 0; i < FUTEX_ROBUST_MAX_CS_RANGES; i++)
+		fd->unlock.cs_ranges[i].start_ip = ~0UL;
 }
 
-static int futex_hash_get_slots(void)
+void futex_reset_cs_ranges(struct futex_mm_data *fd)
 {
-	return 0;
+	memset(fd->unlock.cs_ranges, 0, sizeof(fd->unlock.cs_ranges));
+	futex_invalidate_cs_ranges(fd);
 }
 
+static void futex_robust_unlock_init_mm(struct futex_mm_data *fd)
+{
+	/* mm_dup() preserves the range, mm_alloc() clears it */
+	if (!fd->unlock.cs_ranges[0].start_ip)
+		futex_invalidate_cs_ranges(fd);
+}
+#else  /* CONFIG_FUTEX_ROBUST_UNLOCK */
+static inline void futex_robust_unlock_init_mm(struct futex_mm_data *fd) { }
+#endif /* !CONFIG_FUTEX_ROBUST_UNLOCK */
+
+#if defined(CONFIG_FUTEX_PRIVATE_HASH) || defined(CONFIG_FUTEX_ROBUST_UNLOCK)
+void futex_mm_init(struct mm_struct *mm)
+{
+	futex_hash_init_mm(&mm->futex);
+	futex_robust_unlock_init_mm(&mm->futex);
+}
 #endif
 
 int futex_hash_prctl(unsigned long arg2, unsigned long arg3, unsigned long arg4)
