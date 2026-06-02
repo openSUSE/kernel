@@ -56,6 +56,7 @@ struct thread *thread__new(pid_t pid, pid_t tid)
 		thread__set_cpu(thread, -1);
 		thread__set_guest_cpu(thread, -1);
 		thread__set_e_machine(thread, EM_NONE);
+		thread__set_e_is_big_endian(thread, false);
 		thread__set_lbr_stitch_enable(thread, false);
 		INIT_LIST_HEAD(thread__namespaces_list(thread));
 		INIT_LIST_HEAD(thread__comm_list(thread));
@@ -429,7 +430,7 @@ void thread__find_cpumode_addr_location(struct thread *thread, u64 addr,
 	}
 }
 
-static uint16_t read_proc_e_machine_for_pid(pid_t pid, uint32_t *e_flags)
+static uint16_t read_proc_e_machine_for_pid(pid_t pid, uint32_t *e_flags, bool *is_big_endian)
 {
 	char path[6 /* "/proc/" */ + 11 /* max length of pid */ + 5 /* "/exe\0" */];
 	int fd;
@@ -438,7 +439,8 @@ static uint16_t read_proc_e_machine_for_pid(pid_t pid, uint32_t *e_flags)
 	snprintf(path, sizeof(path), "/proc/%d/exe", pid);
 	fd = open(path, O_RDONLY);
 	if (fd >= 0) {
-		e_machine = dso__read_e_machine(/*optional_dso=*/NULL, fd, e_flags);
+		e_machine = dso__read_e_machine_endian(/*optional_dso=*/NULL, fd, e_flags,
+						       is_big_endian);
 		close(fd);
 	}
 	return e_machine;
@@ -448,6 +450,7 @@ struct thread__e_machine_callback_args {
 	struct machine *machine;
 	uint32_t e_flags;
 	uint16_t e_machine;
+	bool is_big_endian;
 };
 
 static int thread__e_machine_callback(struct map *map, void *_args)
@@ -458,24 +461,38 @@ static int thread__e_machine_callback(struct map *map, void *_args)
 	if (!dso)
 		return 0; // No dso, continue search.
 
-	args->e_machine = dso__e_machine(dso, args->machine, &args->e_flags);
+	args->e_machine =
+		dso__e_machine_endian(dso, args->machine, &args->e_flags, &args->is_big_endian);
 	return args->e_machine != EM_NONE ? 1 /* stop search */ : 0 /* continue search */;
 }
 
-uint16_t thread__e_machine(struct thread *thread, struct machine *machine, uint32_t *e_flags)
+uint16_t thread__e_machine_endian(struct thread *thread, struct machine *machine, uint32_t *e_flags,
+				  bool *is_big_endian)
 {
 	pid_t tid, pid;
-	uint16_t e_machine = RC_CHK_ACCESS(thread)->e_machine;
+	uint16_t e_machine;
 	uint32_t local_e_flags = 0;
-	struct thread__e_machine_callback_args args = {
-		.machine = machine,
-		.e_flags = 0,
-		.e_machine = EM_NONE,
-	};
+	struct thread__e_machine_callback_args args;
+
+	if (!thread) {
+		if (is_big_endian) {
+			*is_big_endian = perf_arch_is_big_endian(
+				machine && machine->env ? perf_env__arch(machine->env) : NULL);
+		}
+		return perf_env__e_machine(machine ? machine->env : NULL, e_flags);
+	}
+
+	e_machine = RC_CHK_ACCESS(thread)->e_machine;
+	args.machine = machine;
+	args.e_flags = 0;
+	args.e_machine = EM_NONE;
+	args.is_big_endian = false;
 
 	if (e_machine != EM_NONE) {
 		if (e_flags)
 			*e_flags = thread__e_flags(thread);
+		if (is_big_endian)
+			*is_big_endian = thread__e_is_big_endian(thread);
 		return e_machine;
 	}
 
@@ -483,6 +500,7 @@ uint16_t thread__e_machine(struct thread *thread, struct machine *machine, uint3
 		struct maps *maps = thread__maps(thread);
 
 		machine = maps__machine(maps);
+		args.machine = machine;
 	}
 	tid = thread__tid(thread);
 	pid = thread__pid(thread);
@@ -490,7 +508,8 @@ uint16_t thread__e_machine(struct thread *thread, struct machine *machine, uint3
 		struct thread *parent = machine__findnew_thread(machine, pid, pid);
 
 		if (parent) {
-			e_machine = thread__e_machine(parent, machine, &local_e_flags);
+			e_machine = thread__e_machine_endian(parent, machine, &local_e_flags,
+							     &args.is_big_endian);
 			thread__put(parent);
 			goto out;
 		}
@@ -515,16 +534,27 @@ uint16_t thread__e_machine(struct thread *thread, struct machine *machine, uint3
 			is_live = !!session->data;
 		}
 		/* Read from /proc/pid/exe if live. */
-		if (is_live)
-			e_machine = read_proc_e_machine_for_pid(pid, &local_e_flags);
+		if (is_live) {
+			e_machine = read_proc_e_machine_for_pid(pid, &local_e_flags,
+								&args.is_big_endian);
+		} else if (machine && machine->env) {
+			/* Offline analysis: fallback to environment metadata. */
+			e_machine = perf_env__e_machine(machine->env, &local_e_flags);
+			args.is_big_endian = perf_arch_is_big_endian(perf_env__arch(machine->env));
+		}
 	}
 out:
 	if (e_machine != EM_NONE) {
-		thread__set_e_machine(thread, e_machine);
 		thread__set_e_flags(thread, local_e_flags);
+		thread__set_e_is_big_endian(thread, args.is_big_endian);
+		thread__set_e_machine(thread, e_machine);
+		if (is_big_endian)
+			*is_big_endian = args.is_big_endian;
 	} else {
 		e_machine = EM_HOST;
 		local_e_flags = EF_HOST;
+		if (is_big_endian)
+			*is_big_endian = (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
 	}
 	if (e_flags)
 		*e_flags = local_e_flags;

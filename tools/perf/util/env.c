@@ -342,6 +342,22 @@ int perf_env__kernel_is_64_bit(struct perf_env *env)
 	return env->kernel_is_64_bit;
 }
 
+bool perf_arch_is_big_endian(const char *arch)
+{
+	if (!arch)
+		return __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__;
+
+	if (str_ends_with(arch, "_be") || !strcmp(arch, "sparc") || !strcmp(arch, "sparc64") ||
+	    !strcmp(arch, "s390") || !strcmp(arch, "s390x") || !strcmp(arch, "powerpc") ||
+	    !strcmp(arch, "ppc") || !strcmp(arch, "ppc64") ||
+	    !strcmp(arch, "mips") || !strcmp(arch, "mips64") || !strcmp(arch, "parisc") ||
+	    !strcmp(arch, "parisc64") || !strcmp(arch, "m68k") ||
+	    !strcmp(arch, "armeb") || !strcmp(arch, "mipseb") || !strcmp(arch, "mips64eb"))
+		return true;
+
+	return false;
+}
+
 int perf_env__set_cmdline(struct perf_env *env, int argc, const char *argv[])
 {
 	int i;
