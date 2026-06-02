@@ -36,6 +36,7 @@ perf-y += signum.o
 perf-y += socket_type.o
 perf-y += waitid_options.o
 perf-util-y += arch_errno_names.o
+
 perf-y += tracepoints/
 
 ifdef SHELLCHECK
