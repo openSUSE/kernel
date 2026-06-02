@@ -303,7 +303,7 @@ static SV *perl_process_callchain(struct perf_sample *sample,
 			}
 			if (!hv_stores(sym, "start",   newSVuv(node->ms.sym->start)) ||
 			    !hv_stores(sym, "end",     newSVuv(node->ms.sym->end)) ||
-			    !hv_stores(sym, "binding", newSVuv(node->ms.sym->binding)) ||
+			    !hv_stores(sym, "binding", newSVuv(symbol__binding(node->ms.sym))) ||
 			    !hv_stores(sym, "name",    newSVpvn(node->ms.sym->name,
 								node->ms.sym->namelen)) ||
 			    !hv_stores(elem, "sym",    newRV_noinc((SV*)sym))) {

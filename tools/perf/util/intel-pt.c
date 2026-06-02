@@ -3000,7 +3000,7 @@ static u64 intel_pt_switch_ip(struct intel_pt *pt, u64 *ptss_ip)
 	start = dso__first_symbol(map__dso(map));
 
 	for (sym = start; sym; sym = dso__next_symbol(sym)) {
-		if (sym->binding == STB_GLOBAL &&
+		if (symbol__binding(sym) == STB_GLOBAL &&
 		    !strcmp(sym->name, "__switch_to")) {
 			ip = map__unmap_ip(map, sym->start);
 			if (ip >= map__start(map) && ip < map__end(map)) {

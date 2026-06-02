@@ -2387,7 +2387,7 @@ static void save_task_callchain(struct perf_sched *sched,
 			if (!strcmp(sym->name, "schedule") ||
 			    !strcmp(sym->name, "__schedule") ||
 			    !strcmp(sym->name, "preempt_schedule"))
-				sym->ignore = 1;
+				symbol__set_ignore(sym, true);
 		}
 
 		callchain_cursor_advance(cursor);
@@ -3048,7 +3048,7 @@ static size_t callchain__fprintf_folded(FILE *fp, struct callchain_node *node)
 	list_for_each_entry(chain, &node->val, list) {
 		if (chain->ip >= PERF_CONTEXT_MAX)
 			continue;
-		if (chain->ms.sym && chain->ms.sym->ignore)
+		if (chain->ms.sym && symbol__ignore(chain->ms.sym))
 			continue;
 		ret += fprintf(fp, "%s%s", first ? "" : sep,
 			       callchain_list__sym_name(chain, bf, sizeof(bf),

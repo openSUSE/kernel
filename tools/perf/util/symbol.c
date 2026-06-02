@@ -50,7 +50,7 @@
 
 static int dso__load_kernel_sym(struct dso *dso, struct map *map);
 static int dso__load_guest_kernel_sym(struct dso *dso, struct map *map);
-static bool symbol__is_idle(const char *name);
+static bool symbol__compute_is_idle(const char *name);
 
 int vmlinux_path__nr_entries;
 char **vmlinux_path;
@@ -163,24 +163,24 @@ static int choose_best_symbol(struct symbol *syma, struct symbol *symb)
 	else if ((a == 0) && (b > 0))
 		return SYMBOL_B;
 
-	if (syma->type != symb->type) {
-		if (syma->type == STT_NOTYPE)
+	if (symbol__type(syma) != symbol__type(symb)) {
+		if (symbol__type(syma) == STT_NOTYPE)
 			return SYMBOL_B;
-		if (symb->type == STT_NOTYPE)
+		if (symbol__type(symb) == STT_NOTYPE)
 			return SYMBOL_A;
 	}
 
 	/* Prefer a non weak symbol over a weak one */
-	a = syma->binding == STB_WEAK;
-	b = symb->binding == STB_WEAK;
+	a = symbol__binding(syma) == STB_WEAK;
+	b = symbol__binding(symb) == STB_WEAK;
 	if (b && !a)
 		return SYMBOL_A;
 	if (a && !b)
 		return SYMBOL_B;
 
 	/* Prefer a global symbol over a non global one */
-	a = syma->binding == STB_GLOBAL;
-	b = symb->binding == STB_GLOBAL;
+	a = symbol__binding(syma) == STB_GLOBAL;
+	b = symbol__binding(symb) == STB_GLOBAL;
 	if (a && !b)
 		return SYMBOL_A;
 	if (b && !a)
@@ -227,14 +227,14 @@ again:
 			continue;
 
 		if (choose_best_symbol(curr, next) == SYMBOL_A) {
-			if (next->type == STT_GNU_IFUNC)
-				curr->ifunc_alias = true;
+			if (symbol__type(next) == STT_GNU_IFUNC)
+				symbol__set_ifunc_alias(curr, true);
 			rb_erase_cached(&next->rb_node, symbols);
 			symbol__delete(next);
 			goto again;
 		} else {
-			if (curr->type == STT_GNU_IFUNC)
-				next->ifunc_alias = true;
+			if (symbol__type(curr) == STT_GNU_IFUNC)
+				symbol__set_ifunc_alias(next, true);
 			nd = rb_next(&curr->rb_node);
 			rb_erase_cached(&curr->rb_node, symbols);
 			symbol__delete(curr);
@@ -322,8 +322,8 @@ struct symbol *symbol__new(u64 start, u64 len, u8 binding, u8 type, const char *
 
 	sym->start   = start;
 	sym->end     = len ? start + len : start;
-	sym->type    = type;
-	sym->binding = binding;
+	atomic_init(&sym->flags, (type << SYMBOL_FLAG_TYPE_SHIFT) |
+				 (binding << SYMBOL_FLAG_BINDING_SHIFT));
 	sym->namelen = namelen - 1;
 
 	pr_debug4("%s: %s %#" PRIx64 "-%#" PRIx64 "\n",
@@ -345,6 +345,49 @@ void symbol__delete(struct symbol *sym)
 	free(((void *)sym) - symbol_conf.priv_size);
 }
 
+void symbol__set_ignore(struct symbol *sym, bool ignore)
+{
+	if (ignore)
+		atomic_fetch_or(&sym->flags, SYMBOL_FLAG_IGNORE);
+	else
+		atomic_fetch_and(&sym->flags, ~SYMBOL_FLAG_IGNORE);
+}
+
+void symbol__set_annotate2(struct symbol *sym, bool annotate2)
+{
+	if (annotate2)
+		atomic_fetch_or(&sym->flags, SYMBOL_FLAG_ANNOTATE2);
+	else
+		atomic_fetch_and(&sym->flags, ~SYMBOL_FLAG_ANNOTATE2);
+}
+
+void symbol__set_inlined(struct symbol *sym, bool inlined)
+{
+	if (inlined)
+		atomic_fetch_or(&sym->flags, SYMBOL_FLAG_INLINED);
+	else
+		atomic_fetch_and(&sym->flags, ~SYMBOL_FLAG_INLINED);
+}
+
+void symbol__set_ifunc_alias(struct symbol *sym, bool ifunc_alias)
+{
+	if (ifunc_alias)
+		atomic_fetch_or(&sym->flags, SYMBOL_FLAG_IFUNC_ALIAS);
+	else
+		atomic_fetch_and(&sym->flags, ~SYMBOL_FLAG_IFUNC_ALIAS);
+}
+
+static void symbol__set_idle(struct symbol *sym, bool idle)
+{
+	uint16_t old_flags = atomic_load(&sym->flags);
+	uint16_t new_flags;
+	uint16_t idle_val = idle ? SYMBOL_IDLE__IDLE : SYMBOL_IDLE__NOT_IDLE;
+
+	do {
+		new_flags = old_flags & ~SYMBOL_FLAG_IDLE_MASK;
+		new_flags |= (idle_val << SYMBOL_FLAG_IDLE_SHIFT);
+	} while (!atomic_compare_exchange_weak(&sym->flags, &old_flags, new_flags));
+}
 void symbols__delete(struct rb_root_cached *symbols)
 {
 	struct symbol *pos;
@@ -375,7 +418,7 @@ void __symbols__insert(struct rb_root_cached *symbols,
 		 */
 		if (name[0] == '.')
 			name++;
-		sym->idle = symbol__is_idle(name);
+		symbol__set_idle(sym, symbol__compute_is_idle(name));
 	}
 
 	while (*p != NULL) {
@@ -717,11 +760,21 @@ out:
 	return err;
 }
 
+bool symbol__is_idle(struct symbol *sym,
+		     const struct dso *dso __maybe_unused,
+		     struct perf_env *env __maybe_unused)
+{
+	uint16_t flags = atomic_load_explicit(&sym->flags, memory_order_relaxed);
+	uint16_t idle_val = (flags & SYMBOL_FLAG_IDLE_MASK) >> SYMBOL_FLAG_IDLE_SHIFT;
+
+	return idle_val == SYMBOL_IDLE__IDLE;
+}
+
 /*
  * These are symbols in the kernel image, so make sure that
  * sym is from a kernel DSO.
  */
-static bool symbol__is_idle(const char *name)
+static bool symbol__compute_is_idle(const char *name)
 {
 	const char * const idle_symbols[] = {
 		"acpi_idle_do_entry",
@@ -2492,6 +2545,7 @@ void symbol__exit(void)
 {
 	if (!symbol_conf.initialized)
 		return;
+
 	strlist__delete(symbol_conf.bt_stop_list);
 	strlist__delete(symbol_conf.sym_list);
 	strlist__delete(symbol_conf.dso_list);

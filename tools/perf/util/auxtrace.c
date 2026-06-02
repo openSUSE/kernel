@@ -2694,7 +2694,7 @@ static bool dso_sym_match(struct symbol *sym, const char *name, int *cnt,
 {
 	/* Same name, and global or the n'th found or any */
 	return !arch__compare_symbol_names(name, sym->name) &&
-	       ((!idx && sym->binding == STB_GLOBAL) ||
+	       ((!idx && symbol__binding(sym) == STB_GLOBAL) ||
 		(idx > 0 && ++*cnt == idx) ||
 		idx < 0);
 }
@@ -2712,8 +2712,8 @@ static void print_duplicate_syms(struct dso *dso, const char *sym_name)
 		if (dso_sym_match(sym, sym_name, &cnt, -1)) {
 			pr_err("#%d\t0x%"PRIx64"\t%c\t%s\n",
 			       ++cnt, sym->start,
-			       sym->binding == STB_GLOBAL ? 'g' :
-			       sym->binding == STB_LOCAL  ? 'l' : 'w',
+			       symbol__binding(sym) == STB_GLOBAL ? 'g' :
+			       symbol__binding(sym) == STB_LOCAL  ? 'l' : 'w',
 			       sym->name);
 			near = true;
 		} else if (near) {

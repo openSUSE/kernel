@@ -130,7 +130,7 @@ static int libdw_a2l_cb(Dwarf_Die *die, void *_args)
 	return 0;
 
 abort_delete_sym:
-	if (inline_sym->inlined)
+	if (symbol__inlined(inline_sym))
 		symbol__delete(inline_sym);
 abort_enomem:
 	args->err = -ENOMEM;

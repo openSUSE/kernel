@@ -1095,7 +1095,7 @@ static u64 find_entry_trampoline(struct dso *dso)
 	unsigned int i;
 
 	for (; sym; sym = dso__next_symbol(sym)) {
-		if (sym->binding != STB_GLOBAL)
+		if (symbol__binding(sym) != STB_GLOBAL)
 			continue;
 		for (i = 0; i < ARRAY_SIZE(syms); i++) {
 			if (!strcmp(sym->name, syms[i]))

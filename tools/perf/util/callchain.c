@@ -801,7 +801,7 @@ static enum match_result match_chain(struct callchain_cursor_node *node,
 			 * symbol start. Otherwise do a faster comparison based
 			 * on the symbol start address.
 			 */
-			if (cnode->ms.sym->inlined || node->ms.sym->inlined) {
+			if (symbol__inlined(cnode->ms.sym) || symbol__inlined(node->ms.sym)) {
 				match = match_chain_strings(cnode->ms.sym->name,
 							    node->ms.sym->name);
 				if (match != MATCH_ERROR)
@@ -1245,7 +1245,7 @@ char *callchain_list__sym_name(struct callchain_list *cl,
 	int printed;
 
 	if (cl->ms.sym) {
-		const char *inlined = cl->ms.sym->inlined ? " (inlined)" : "";
+		const char *inlined = symbol__inlined(cl->ms.sym) ? " (inlined)" : "";
 
 		if (show_srcline && cl->srcline)
 			printed = scnprintf(bf, bfsize, "%s %s%s",

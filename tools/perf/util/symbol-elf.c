@@ -350,7 +350,8 @@ static bool get_ifunc_name(Elf *elf, struct dso *dso, GElf_Ehdr *ehdr,
 	sym = dso__find_symbol_nocache(dso, addr);
 
 	/* Expecting the address to be an IFUNC or IFUNC alias */
-	if (!sym || sym->start != addr || (sym->type != STT_GNU_IFUNC && !sym->ifunc_alias))
+	if (!sym || sym->start != addr ||
+	    (symbol__type(sym) != STT_GNU_IFUNC && !symbol__ifunc_alias(sym)))
 		return false;
 
 	snprintf(buf, buf_sz, "%s@plt", sym->name);

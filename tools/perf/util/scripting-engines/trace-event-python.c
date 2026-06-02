@@ -436,7 +436,7 @@ static PyObject *python_process_callchain(struct perf_sample *sample,
 			pydict_set_item_string_decref(pysym, "end",
 					PyLong_FromUnsignedLongLong(node->ms.sym->end));
 			pydict_set_item_string_decref(pysym, "binding",
-					_PyLong_FromLong(node->ms.sym->binding));
+					_PyLong_FromLong(symbol__binding(node->ms.sym)));
 			pydict_set_item_string_decref(pysym, "name",
 					_PyUnicode_FromStringAndSize(node->ms.sym->name,
 							node->ms.sym->namelen));
@@ -1270,7 +1270,7 @@ static int python_export_symbol(struct db_export *dbe, struct symbol *sym,
 	tuple_set_d64(t, 1, dso__db_id(dso));
 	tuple_set_d64(t, 2, sym->start);
 	tuple_set_d64(t, 3, sym->end);
-	tuple_set_s32(t, 4, sym->binding);
+	tuple_set_s32(t, 4, symbol__binding(sym));
 	tuple_set_string(t, 5, sym->name);
 
 	call_object(tables->symbol_handler, t, "symbol_table");

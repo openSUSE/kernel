@@ -752,7 +752,7 @@ static int hists__resort_cb(struct hist_entry *he, void *arg)
 	struct report *rep = arg;
 	struct symbol *sym = he->ms.sym;
 
-	if (rep->symbol_ipc && sym && !sym->annotate2) {
+	if (rep->symbol_ipc && sym && !symbol__is_annotate2(sym)) {
 		struct evsel *evsel = hists_to_evsel(he->hists);
 
 		symbol__annotate2(&he->ms, evsel, NULL);

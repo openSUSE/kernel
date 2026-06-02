@@ -346,7 +346,7 @@ next_pair:
 			 * such as __indirect_thunk_end.
 			 */
 			continue;
-		} else if (is_ignored_symbol(sym->name, sym->type)) {
+		} else if (is_ignored_symbol(sym->name, symbol__type(sym))) {
 			/*
 			 * Ignore hidden symbols, see scripts/kallsyms.c for the details
 			 */

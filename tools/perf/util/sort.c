@@ -469,7 +469,7 @@ int64_t _sort__sym_cmp(struct symbol *sym_l, struct symbol *sym_r)
 	if (sym_l == sym_r)
 		return 0;
 
-	if (sym_l->inlined || sym_r->inlined) {
+	if (symbol__inlined(sym_l) || symbol__inlined(sym_r)) {
 		int ret = strcmp(sym_l->name, sym_r->name);
 
 		if (ret)
@@ -536,7 +536,7 @@ static int _hist_entry__sym_snprintf(struct map_symbol *ms,
 
 	ret += repsep_snprintf(bf + ret, size - ret, "[%c] ", level);
 	if (sym && map) {
-		if (sym->type == STT_OBJECT) {
+		if (symbol__type(sym) == STT_OBJECT) {
 			ret += repsep_snprintf(bf + ret, size - ret, "%s", sym->name);
 			ret += repsep_snprintf(bf + ret, size - ret, "+0x%llx",
 					ip - map__unmap_ip(map, sym->start));
@@ -544,7 +544,7 @@ static int _hist_entry__sym_snprintf(struct map_symbol *ms,
 			ret += repsep_snprintf(bf + ret, size - ret, "%.*s",
 					       width - ret,
 					       sym->name);
-			if (sym->inlined)
+			if (symbol__inlined(sym))
 				ret += repsep_snprintf(bf + ret, size - ret,
 						       " (inlined)");
 		}
@@ -1483,7 +1483,7 @@ static int _hist_entry__addr_snprintf(struct map_symbol *ms,
 
 	ret += repsep_snprintf(bf + ret, size - ret, "[%c] ", level);
 	if (sym && map) {
-		if (sym->type == STT_OBJECT) {
+		if (symbol__type(sym) == STT_OBJECT) {
 			ret += repsep_snprintf(bf + ret, size - ret, "%s", sym->name);
 			ret += repsep_snprintf(bf + ret, size - ret, "+0x%llx",
 					ip - map__unmap_ip(map, sym->start));
