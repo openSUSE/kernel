@@ -19,7 +19,7 @@ struct xfrm_policy_hash {
 	u8			sbits6;
 };
 
-struct xfrm_policy_hthresh {
+struct __orig_xfrm_policy_hthresh {
 	struct work_struct	work;
 	seqlock_t		lock;
 	u8			lbits4;
@@ -27,6 +27,20 @@ struct xfrm_policy_hthresh {
 	u8			lbits6;
 	u8			rbits6;
 };
+
+struct xfrm_policy_hthresh {
+	struct work_struct	work;
+	seqlock_t		lock;
+	u8			lbits4;
+	u8			rbits4;
+	u8			lbits6;
+	u8			rbits6;
+#ifndef __GENKSYMS__
+	bool			work_disabled;
+#endif
+};
+suse_kabi_static_assert(sizeof(struct xfrm_policy_hthresh) ==
+			sizeof(struct __orig_xfrm_policy_hthresh));
 
 struct netns_xfrm {
 	struct list_head	state_all;

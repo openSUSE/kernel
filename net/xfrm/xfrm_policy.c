@@ -666,7 +666,8 @@ static void xfrm_hash_rebuild(struct work_struct *work)
 
 void xfrm_policy_hash_rebuild(struct net *net)
 {
-	schedule_work(&net->xfrm.policy_hthresh.work);
+	if (!net->xfrm.policy_hthresh.work_disabled)
+		schedule_work(&net->xfrm.policy_hthresh.work);
 }
 EXPORT_SYMBOL(xfrm_policy_hash_rebuild);
 
@@ -2992,6 +2993,7 @@ static int __net_init xfrm_policy_init(struct net *net)
 	INIT_LIST_HEAD(&net->xfrm.policy_all);
 	INIT_WORK(&net->xfrm.policy_hash_work, xfrm_hash_resize);
 	INIT_WORK(&net->xfrm.policy_hthresh.work, xfrm_hash_rebuild);
+	net->xfrm.policy_hthresh.work_disabled = false;
 	if (net_eq(net, &init_net))
 		xfrm_dev_init();
 	return 0;
@@ -3012,6 +3014,9 @@ static void xfrm_policy_fini(struct net *net)
 {
 	unsigned int sz;
 	int dir;
+
+	net->xfrm.policy_hthresh.work_disabled = true;
+	cancel_work_sync(&net->xfrm.policy_hthresh.work);
 
 	flush_work(&net->xfrm.policy_hash_work);
 #ifdef CONFIG_XFRM_SUB_POLICY
