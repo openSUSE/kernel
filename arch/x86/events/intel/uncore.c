@@ -91,7 +91,7 @@ int uncore_device_to_die(struct pci_dev *dev)
  */
 int uncore_die_to_cpu(int die)
 {
-	int res = 0, cpu;
+	int res = -1, cpu;
 
 	for_each_online_cpu(cpu) {
 		if (topology_logical_die_id(cpu) == die) {

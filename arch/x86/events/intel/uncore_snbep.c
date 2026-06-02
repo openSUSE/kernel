@@ -3772,12 +3772,17 @@ static void pmu_free_topology(struct intel_uncore_type *type)
 static int skx_pmu_get_topology(struct intel_uncore_type *type,
 				 int (*topology_cb)(struct intel_uncore_type*, int, int, u64))
 {
-	int die, ret = -EPERM;
+	int die, ret = -ENODEV;
 	u64 cpu_bus_msr;
+	int cpu;
 
 	cpus_read_lock();
 	for (die = 0; die < uncore_max_dies(); die++) {
-		ret = skx_msr_cpu_bus_read(uncore_die_to_cpu(die), &cpu_bus_msr);
+		cpu = uncore_die_to_cpu(die);
+		if (cpu == -1)
+			continue;
+
+		ret = skx_msr_cpu_bus_read(cpu, &cpu_bus_msr);
 		if (ret)
 			break;
 
