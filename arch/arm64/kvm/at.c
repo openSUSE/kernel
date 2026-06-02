@@ -521,8 +521,12 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 		}
 
 		ret = kvm_swap_s1_desc(vcpu, ipa, desc, new_desc, wi);
-		if (ret)
+		if (ret == -EAGAIN)
 			return ret;
+		if (ret) {
+			fail_s1_walk(wr, ESR_ELx_FSC_SEA_TTW(level), false);
+			return ret;
+		}
 
 		desc = new_desc;
 	}

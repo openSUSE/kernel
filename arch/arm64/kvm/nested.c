@@ -352,8 +352,13 @@ static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, phys_addr_t ipa,
 
 	if (new_desc != desc) {
 		ret = swap_guest_s2_desc(vcpu, paddr, desc, new_desc, wi);
-		if (ret)
+		if (ret == -EAGAIN)
 			return ret;
+		if (ret) {
+			out->esr = ESR_ELx_FSC_SEA_TTW(level);
+			out->desc = desc;
+			return 1;
+		}
 
 		desc = new_desc;
 	}
