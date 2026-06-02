@@ -6,7 +6,7 @@
 #include <libarena/asan.h>
 #include <libarena/buddy.h>
 
-extern buddy_t buddy;
+extern struct buddy __arena buddy;
 
 struct segarr_entry {
 	u8 __arena *block;

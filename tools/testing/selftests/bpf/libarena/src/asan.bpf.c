@@ -110,7 +110,7 @@ volatile bool asan_report_once = false;
  * to exit due to a missing implementation. Provide a simple implementation
  * just for memset to use it for poisoning/unpoisoning the map.
  */
-__weak int asan_memset(s8a __arg_arena *dst, s8 val, size_t size)
+__weak int asan_memset(s8 __arena *dst, s8 val, size_t size)
 {
 	size_t i;
 
@@ -121,9 +121,9 @@ __weak int asan_memset(s8a __arg_arena *dst, s8 val, size_t size)
 }
 
 /* Validate a 1-byte access, always within a single byte. */
-static __always_inline bool memory_is_poisoned_1(s8a *addr)
+static __always_inline bool memory_is_poisoned_1(s8 __arena *addr)
 {
-	s8 shadow_value = *(s8a *)mem_to_shadow(addr);
+	s8 shadow_value = *(s8 __arena *)mem_to_shadow(addr);
 
 	/* Byte is 0, access is valid. */
 	if (likely(!shadow_value))
@@ -139,7 +139,7 @@ static __always_inline bool memory_is_poisoned_1(s8a *addr)
 }
 
 /* Validate a 2- 4-, 8-byte access, shadow spans up to 2 bytes. */
-static __always_inline bool memory_is_poisoned_2_4_8(s8a *addr, u64 size)
+static __always_inline bool memory_is_poisoned_2_4_8(s8 __arena *addr, u64 size)
 {
 	u64 end = (u64)addr + size - 1;
 
@@ -148,17 +148,17 @@ static __always_inline bool memory_is_poisoned_2_4_8(s8a *addr, u64 size)
 	 * overflow above ASAN_GRANULE).
 	 */
 	if (likely(ASAN_GRANULE(end) >= size - 1))
-		return memory_is_poisoned_1((s8a *)end);
+		return memory_is_poisoned_1((s8 __arena *)end);
 
 	/*
 	 * Otherwise first byte must be fully unpoisoned, and second byte
 	 * must be unpoisoned up to the end of the accessed region.
 	 */
 
-	return *(s8a *)mem_to_shadow(addr) || memory_is_poisoned_1((s8a *)end);
+	return *(s8 __arena *)mem_to_shadow(addr) || memory_is_poisoned_1((s8 __arena *)end);
 }
 
-__weak bool asan_shadow_set(void __arena __arg_arena *addr)
+__weak bool asan_shadow_set(void __arena *addr)
 {
 	return memory_is_poisoned_1(addr);
 }
@@ -166,7 +166,7 @@ __weak bool asan_shadow_set(void __arena __arg_arena *addr)
 static __always_inline u64 first_nonzero_byte(u64 addr, size_t size)
 {
 	while (size && can_loop) {
-		if (unlikely(*(s8a *)addr))
+		if (unlikely(*(s8 __arena *)addr))
 			return addr;
 		addr += 1;
 		size -= 1;
@@ -175,7 +175,7 @@ static __always_inline u64 first_nonzero_byte(u64 addr, size_t size)
 	return SHADOW_ALL_ZEROES;
 }
 
-static __always_inline bool memory_is_poisoned_n(s8a *addr, u64 size)
+static __always_inline bool memory_is_poisoned_n(s8 __arena *addr, u64 size)
 {
 	u64 ret;
 	u64 start;
@@ -189,10 +189,10 @@ static __always_inline bool memory_is_poisoned_n(s8a *addr, u64 size)
 	if (likely(ret == SHADOW_ALL_ZEROES))
 		return false;
 
-	return unlikely(ret != end || ASAN_GRANULE(addr + size - 1) >= *(s8a *)end);
+	return unlikely(ret != end || ASAN_GRANULE(addr + size - 1) >= *(s8 __arena *)end);
 }
 
-__weak int asan_report(s8a __arg_arena *addr, size_t sz, u32 flags)
+__weak int asan_report(s8 __arena *addr, size_t sz, u32 flags)
 {
 	u32 reported = __sync_val_compare_and_swap(&asan_reported, false, true);
 
@@ -211,7 +211,7 @@ __weak int asan_report(s8a __arg_arena *addr, size_t sz, u32 flags)
 	return 0;
 }
 
-static __always_inline bool check_asan_args(s8a *addr, size_t size,
+static __always_inline bool check_asan_args(s8 __arena *addr, size_t size,
 					    bool *result)
 {
 	bool valid = true;
@@ -253,7 +253,7 @@ confirmed_valid:
 static __always_inline bool check_region_inline(intptr_t ptr, size_t size,
 						u32 flags)
 {
-	s8a *addr = (s8a *)(u64)ptr;
+	s8 __arena *addr = (s8 __arena *)(u64)ptr;
 	bool is_poisoned, is_valid;
 
 	if (check_asan_args(addr, size, &is_valid)) {
@@ -305,19 +305,19 @@ static __always_inline bool check_region_inline(intptr_t ptr, size_t size,
 	}                                                             \
 	__hidden void __asan_report_store##size(intptr_t addr)           \
 	{                                                             \
-		asan_report((s8a *)addr, size, ASAN_WRITE);           \
+		asan_report((s8 __arena *)addr, size, ASAN_WRITE);           \
 	}                                                             \
 	__hidden void __asan_report_store##size##_noabort(intptr_t addr) \
 	{                                                             \
-		asan_report((s8a *)addr, size, ASAN_WRITE);           \
+		asan_report((s8 __arena *)addr, size, ASAN_WRITE);           \
 	}                                                             \
 	__hidden void __asan_report_load##size(intptr_t addr)            \
 	{                                                             \
-		asan_report((s8a *)addr, size, ASAN_READ);            \
+		asan_report((s8 __arena *)addr, size, ASAN_READ);            \
 	}                                                             \
 	__hidden void __asan_report_load##size##_noabort(intptr_t addr)  \
 	{                                                             \
-		asan_report((s8a *)addr, size, ASAN_READ);            \
+		asan_report((s8 __arena *)addr, size, ASAN_READ);            \
 	}
 
 DEFINE_ASAN_LOAD_STORE(1);
@@ -385,7 +385,7 @@ void *__asan_memset(void *p, int c, size_t n)
  */
 __hidden __noasan int asan_poison(void __arena *addr, s8 val, size_t size)
 {
-	s8a *shadow;
+	s8 __arena *shadow;
 	size_t len;
 
 	/*
@@ -443,7 +443,7 @@ __hidden __noasan int asan_poison(void __arena *addr, s8 val, size_t size)
 __hidden __noasan int asan_unpoison(void __arena *addr, size_t size)
 {
 	size_t partial = size & ASAN_GRANULE_MASK;
-	s8a *shadow;
+	s8 __arena *shadow;
 	size_t len;
 
 	/*

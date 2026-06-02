@@ -4,6 +4,7 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_helpers.h>
 #include "bpf_misc.h"
+#include <bpf_arena_common.h>
 #include <bpf_arena_spin_lock.h>
 
 struct {
