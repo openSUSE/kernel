@@ -665,8 +665,8 @@ static void print_reg_state(struct bpf_verifier_env *env,
 		verbose_a("id=%d", reg->id & ~BPF_ADD_CONST);
 	if (reg->id & BPF_ADD_CONST)
 		verbose(env, "%+d", reg->delta);
-	if (reg->ref_obj_id)
-		verbose_a("ref_obj_id=%d", reg->ref_obj_id);
+	if (reg->parent_id)
+		verbose_a("parent_id=%d", reg->parent_id);
 	if (type_is_non_owning_ref(reg->type))
 		verbose_a("%s", "non_own_ref");
 	if (type_is_map_ptr(t)) {
@@ -768,21 +768,19 @@ void print_verifier_state(struct bpf_verifier_env *env, const struct bpf_verifie
 			verbose(env, "=dynptr_%s(", dynptr_type_str(reg->dynptr.type));
 			if (reg->id)
 				verbose_a("id=%d", reg->id);
-			if (reg->ref_obj_id)
-				verbose_a("ref_id=%d", reg->ref_obj_id);
-			if (reg->dynptr_id)
-				verbose_a("dynptr_id=%d", reg->dynptr_id);
+			if (reg->parent_id)
+				verbose_a("parent_id=%d", reg->parent_id);
 			verbose(env, ")");
 			break;
 		case STACK_ITER:
-			/* only main slot has ref_obj_id set; skip others */
-			if (!reg->ref_obj_id)
+			/* only main slot has id set; skip others */
+			if (!reg->id)
 				continue;
 
-			verbose(env, " fp%d=iter_%s(ref_id=%d,state=%s,depth=%u)",
+			verbose(env, " fp%d=iter_%s(id=%d,state=%s,depth=%u)",
 				(-i - 1) * BPF_REG_SIZE,
 				iter_type_str(reg->iter.btf, reg->iter.btf_id),
-				reg->ref_obj_id, iter_state_str(reg->iter.state),
+				reg->id, iter_state_str(reg->iter.state),
 				reg->iter.depth);
 			break;
 		case STACK_MISC:

@@ -200,14 +200,14 @@ struct bpf_verifier_stack_elem {
 
 #define BPF_PRIV_STACK_MIN_SIZE		64
 
-static int acquire_reference(struct bpf_verifier_env *env, int insn_idx);
-static int release_reference_nomark(struct bpf_verifier_state *state, int ref_obj_id);
-static int release_reference(struct bpf_verifier_env *env, int ref_obj_id);
+static int acquire_reference(struct bpf_verifier_env *env, int insn_idx, int parent_id);
+static int release_reference_nomark(struct bpf_verifier_state *state, int id);
+static int release_reference(struct bpf_verifier_env *env, int id);
 static void invalidate_non_owning_refs(struct bpf_verifier_env *env);
 static bool in_rbtree_lock_required_cb(struct bpf_verifier_env *env);
 static int ref_set_non_owning(struct bpf_verifier_env *env,
 			      struct bpf_reg_state *reg);
-static bool is_trusted_reg(const struct bpf_reg_state *reg);
+static bool is_trusted_reg(struct bpf_verifier_env *env, const struct bpf_reg_state *reg);
 static inline bool in_sleepable_context(struct bpf_verifier_env *env);
 static const char *non_sleepable_context_description(struct bpf_verifier_env *env);
 static void scalar32_min_max_add(struct bpf_reg_state *dst_reg, struct bpf_reg_state *src_reg);
@@ -231,8 +231,28 @@ static void bpf_map_key_store(struct bpf_insn_aux_data *aux, u64 state)
 			     (poisoned ? BPF_MAP_KEY_POISON : 0ULL);
 }
 
+static void update_ref_obj(struct ref_obj_desc *ref_obj, struct bpf_reg_state *reg)
+{
+	ref_obj->id = reg->id;
+	ref_obj->parent_id = reg->parent_id;
+	ref_obj->cnt++;
+}
+
+static int validate_ref_obj(struct bpf_verifier_env *env, struct ref_obj_desc *ref_obj)
+{
+	if (ref_obj->cnt > 1) {
+		verifier_bug(env, "function expects only one referenced object but got %d\n",
+			     ref_obj->cnt);
+		return -EFAULT;
+	}
+
+	return 0;
+}
+
 struct bpf_call_arg_meta {
 	struct bpf_map_desc map;
+	struct bpf_dynptr_desc dynptr;
+	struct ref_obj_desc ref_obj;
 	bool raw_mode;
 	bool pkt_access;
 	u8 release_regno;
@@ -240,8 +260,6 @@ struct bpf_call_arg_meta {
 	int access_size;
 	int mem_size;
 	u64 msize_max_value;
-	int ref_obj_id;
-	int dynptr_id;
 	int func_id;
 	struct btf *btf;
 	u32 btf_id;
@@ -339,7 +357,7 @@ static void verbose_invalid_scalar(struct bpf_verifier_env *env,
 	verbose(env, " should have been in [%d, %d]\n", range.minval, range.maxval);
 }
 
-static bool reg_not_null(const struct bpf_reg_state *reg)
+static bool reg_not_null(struct bpf_verifier_env *env, const struct bpf_reg_state *reg)
 {
 	enum bpf_reg_type type;
 
@@ -353,7 +371,7 @@ static bool reg_not_null(const struct bpf_reg_state *reg)
 		type == PTR_TO_MAP_VALUE ||
 		type == PTR_TO_MAP_KEY ||
 		type == PTR_TO_SOCK_COMMON ||
-		(type == PTR_TO_BTF_ID && is_trusted_reg(reg)) ||
+		(type == PTR_TO_BTF_ID && is_trusted_reg(env, reg)) ||
 		(type == PTR_TO_MEM && !(reg->type & PTR_UNTRUSTED)) ||
 		type == CONST_PTR_TO_MAP;
 }
@@ -470,11 +488,6 @@ static bool is_ptr_cast_function(enum bpf_func_id func_id)
 		func_id == BPF_FUNC_skc_to_tcp_request_sock;
 }
 
-static bool is_dynptr_ref_function(enum bpf_func_id func_id)
-{
-	return func_id == BPF_FUNC_dynptr_data;
-}
-
 static bool is_sync_callback_calling_kfunc(u32 btf_id);
 static bool is_async_callback_calling_kfunc(u32 btf_id);
 static bool is_callback_calling_kfunc(u32 btf_id);
@@ -532,22 +545,6 @@ bool bpf_is_may_goto_insn(struct bpf_insn *insn)
 {
 	return insn->code == (BPF_JMP | BPF_JCOND) && insn->src_reg == BPF_MAY_GOTO;
 }
-
-static bool helper_multiple_ref_obj_use(enum bpf_func_id func_id,
-					const struct bpf_map *map)
-{
-	int ref_obj_uses = 0;
-
-	if (is_ptr_cast_function(func_id))
-		ref_obj_uses++;
-	if (is_acquire_function(func_id, map))
-		ref_obj_uses++;
-	if (is_dynptr_ref_function(func_id))
-		ref_obj_uses++;
-
-	return ref_obj_uses > 1;
-}
-
 
 static bool is_spi_bounds_valid(struct bpf_func_state *state, int spi, int nr_slots)
 {
@@ -645,43 +642,44 @@ static enum bpf_type_flag get_dynptr_type_flag(enum bpf_dynptr_type type)
 	}
 }
 
-static bool dynptr_type_refcounted(enum bpf_dynptr_type type)
+static bool dynptr_type_referenced(enum bpf_dynptr_type type)
 {
 	return type == BPF_DYNPTR_TYPE_RINGBUF || type == BPF_DYNPTR_TYPE_FILE;
 }
 
 static void __mark_dynptr_reg(struct bpf_reg_state *reg,
 			      enum bpf_dynptr_type type,
-			      bool first_slot, int dynptr_id);
+			      bool first_slot, int id, int parent_id);
 
 
 static void mark_dynptr_stack_regs(struct bpf_verifier_env *env,
 				   struct bpf_reg_state *sreg1,
 				   struct bpf_reg_state *sreg2,
-				   enum bpf_dynptr_type type)
+				   enum bpf_dynptr_type type, int parent_id)
 {
 	int id = ++env->id_gen;
 
-	__mark_dynptr_reg(sreg1, type, true, id);
-	__mark_dynptr_reg(sreg2, type, false, id);
+	__mark_dynptr_reg(sreg1, type, true, id, parent_id);
+	__mark_dynptr_reg(sreg2, type, false, id, parent_id);
 }
 
 static void mark_dynptr_cb_reg(struct bpf_verifier_env *env,
 			       struct bpf_reg_state *reg,
 			       enum bpf_dynptr_type type)
 {
-	__mark_dynptr_reg(reg, type, true, ++env->id_gen);
+	__mark_dynptr_reg(reg, type, true, ++env->id_gen, 0);
 }
 
 static int destroy_if_dynptr_stack_slot(struct bpf_verifier_env *env,
 				        struct bpf_func_state *state, int spi);
 
 static int mark_stack_slots_dynptr(struct bpf_verifier_env *env, struct bpf_reg_state *reg,
-				   enum bpf_arg_type arg_type, int insn_idx, int clone_ref_obj_id)
+				   enum bpf_arg_type arg_type, int insn_idx,
+				   struct ref_obj_desc *ref_obj, struct bpf_dynptr_desc *dynptr)
 {
 	struct bpf_func_state *state = bpf_func(env, reg);
+	int spi, i, err, parent_id = 0;
 	enum bpf_dynptr_type type;
-	int spi, i, err;
 
 	spi = dynptr_get_spi(env, reg);
 	if (spi < 0)
@@ -712,85 +710,69 @@ static int mark_stack_slots_dynptr(struct bpf_verifier_env *env, struct bpf_reg_
 	if (type == BPF_DYNPTR_TYPE_INVALID)
 		return -EINVAL;
 
-	mark_dynptr_stack_regs(env, &state->stack[spi].spilled_ptr,
-			       &state->stack[spi - 1].spilled_ptr, type);
+	if (dynptr->type == BPF_DYNPTR_TYPE_INVALID) { /* dynptr constructors */
+		err = validate_ref_obj(env, ref_obj);
+		if (err)
+			return err;
 
-	if (dynptr_type_refcounted(type)) {
-		/* The id is used to track proper releasing */
-		int id;
+		/* Track parent's id if the parent is a referenced object */
+		parent_id = ref_obj->id;
 
-		if (clone_ref_obj_id)
-			id = clone_ref_obj_id;
-		else
-			id = acquire_reference(env, insn_idx);
+		if (dynptr_type_referenced(type)) {
+			int id;
 
-		if (id < 0)
-			return id;
+			/*
+			 * Create an intermediate reference that tracks the referenced
+			 * object for the referenced dynptr. Freeing a referenced dynptr
+			 * through helpers/kfuncs will invalidate all clones.
+			 */
+			id = acquire_reference(env, insn_idx, parent_id);
+			if (id < 0)
+				return id;
 
-		state->stack[spi].spilled_ptr.ref_obj_id = id;
-		state->stack[spi - 1].spilled_ptr.ref_obj_id = id;
+			parent_id = id;
+		}
+	} else { /* bpf_dynptr_clone() */
+		parent_id = dynptr->parent_id;
 	}
+
+	mark_dynptr_stack_regs(env, &state->stack[spi].spilled_ptr,
+			       &state->stack[spi - 1].spilled_ptr, type, parent_id);
 
 	return 0;
 }
 
-static void invalidate_dynptr(struct bpf_verifier_env *env, struct bpf_func_state *state, int spi)
+static void invalidate_dynptr(struct bpf_verifier_env *env, struct bpf_stack_state *stack)
 {
 	int i;
 
 	for (i = 0; i < BPF_REG_SIZE; i++) {
-		state->stack[spi].slot_type[i] = STACK_INVALID;
-		state->stack[spi - 1].slot_type[i] = STACK_INVALID;
+		stack[0].slot_type[i] = STACK_INVALID;
+		stack[1].slot_type[i] = STACK_INVALID;
 	}
 
-	bpf_mark_reg_not_init(env, &state->stack[spi].spilled_ptr);
-	bpf_mark_reg_not_init(env, &state->stack[spi - 1].spilled_ptr);
+	bpf_mark_reg_not_init(env, &stack[0].spilled_ptr);
+	bpf_mark_reg_not_init(env, &stack[1].spilled_ptr);
 }
 
 static int unmark_stack_slots_dynptr(struct bpf_verifier_env *env, struct bpf_reg_state *reg)
 {
 	struct bpf_func_state *state = bpf_func(env, reg);
-	int spi, ref_obj_id, i;
+	int spi;
 
 	spi = dynptr_get_spi(env, reg);
 	if (spi < 0)
 		return spi;
 
-	if (!dynptr_type_refcounted(state->stack[spi].spilled_ptr.dynptr.type)) {
-		invalidate_dynptr(env, state, spi);
-		return 0;
-	}
-
-	ref_obj_id = state->stack[spi].spilled_ptr.ref_obj_id;
-
-	/* If the dynptr has a ref_obj_id, then we need to invalidate
-	 * two things:
-	 *
-	 * 1) Any dynptrs with a matching ref_obj_id (clones)
-	 * 2) Any slices derived from this dynptr.
+	/*
+	 * For referenced dynptr, release the parent ref which cascades to
+	 * all clones and derived slices. For non-referenced dynptr, only
+	 * the dynptr and slices derived from it will be invalidated.
 	 */
-
-	/* Invalidate any slices associated with this dynptr */
-	WARN_ON_ONCE(release_reference(env, ref_obj_id));
-
-	/* Invalidate any dynptr clones */
-	for (i = 1; i < state->allocated_stack / BPF_REG_SIZE; i++) {
-		if (state->stack[i].spilled_ptr.ref_obj_id != ref_obj_id)
-			continue;
-
-		/* it should always be the case that if the ref obj id
-		 * matches then the stack slot also belongs to a
-		 * dynptr
-		 */
-		if (state->stack[i].slot_type[0] != STACK_DYNPTR) {
-			verifier_bug(env, "misconfigured ref_obj_id");
-			return -EFAULT;
-		}
-		if (state->stack[i].spilled_ptr.dynptr.first_slot)
-			invalidate_dynptr(env, state, i);
-	}
-
-	return 0;
+	reg = &state->stack[spi].spilled_ptr;
+	return release_reference(env, dynptr_type_referenced(reg->dynptr.type)
+				      ? reg->parent_id
+				      : reg->id);
 }
 
 static void __mark_reg_unknown(const struct bpf_verifier_env *env,
@@ -804,12 +786,29 @@ static void mark_reg_invalid(const struct bpf_verifier_env *env, struct bpf_reg_
 		__mark_reg_unknown(env, reg);
 }
 
+static int dynptr_ref_cnt(struct bpf_verifier_env *env, int v_parent_id)
+{
+	struct bpf_stack_state *stack;
+	struct bpf_func_state *state;
+	struct bpf_reg_state *reg;
+	int ref_cnt = 0;
+
+	bpf_for_each_reg_in_vstate_mask(env->cur_state, state, reg, stack, 1 << STACK_DYNPTR, ({
+		if (!stack || stack->slot_type[0] != STACK_DYNPTR)
+			continue;
+		if (!stack->spilled_ptr.dynptr.first_slot)
+			continue;
+		if (stack->spilled_ptr.parent_id == v_parent_id)
+			ref_cnt++;
+	}));
+
+	return ref_cnt;
+}
+
 static int destroy_if_dynptr_stack_slot(struct bpf_verifier_env *env,
 				        struct bpf_func_state *state, int spi)
 {
-	struct bpf_func_state *fstate;
-	struct bpf_reg_state *dreg;
-	int i, dynptr_id;
+	int err = 0;
 
 	/* We always ensure that STACK_DYNPTR is never set partially,
 	 * hence just checking for slot_type[0] is enough. This is
@@ -823,56 +822,25 @@ static int destroy_if_dynptr_stack_slot(struct bpf_verifier_env *env,
 	if (!state->stack[spi].spilled_ptr.dynptr.first_slot)
 		spi = spi + 1;
 
-	if (dynptr_type_refcounted(state->stack[spi].spilled_ptr.dynptr.type)) {
-		int ref_obj_id = state->stack[spi].spilled_ptr.ref_obj_id;
-		int ref_cnt = 0;
-
-		/*
-		 * A referenced dynptr can be overwritten only if there is at
-		 * least one other dynptr sharing the same ref_obj_id,
-		 * ensuring the reference can still be properly released.
-		 */
-		for (i = 0; i < state->allocated_stack / BPF_REG_SIZE; i++) {
-			if (state->stack[i].slot_type[0] != STACK_DYNPTR)
-				continue;
-			if (!state->stack[i].spilled_ptr.dynptr.first_slot)
-				continue;
-			if (state->stack[i].spilled_ptr.ref_obj_id == ref_obj_id)
-				ref_cnt++;
-		}
-
-		if (ref_cnt <= 1) {
-			verbose(env, "cannot overwrite referenced dynptr\n");
-			return -EINVAL;
-		}
-	}
-
-	mark_stack_slot_scratched(env, spi);
-	mark_stack_slot_scratched(env, spi - 1);
-
-	/* Writing partially to one dynptr stack slot destroys both. */
-	for (i = 0; i < BPF_REG_SIZE; i++) {
-		state->stack[spi].slot_type[i] = STACK_INVALID;
-		state->stack[spi - 1].slot_type[i] = STACK_INVALID;
-	}
-
-	dynptr_id = state->stack[spi].spilled_ptr.id;
-	/* Invalidate any slices associated with this dynptr */
-	bpf_for_each_reg_in_vstate(env->cur_state, fstate, dreg, ({
-		/* Dynptr slices are only PTR_TO_MEM_OR_NULL and PTR_TO_MEM */
-		if (dreg->type != (PTR_TO_MEM | PTR_MAYBE_NULL) && dreg->type != PTR_TO_MEM)
-			continue;
-		if (dreg->dynptr_id == dynptr_id)
-			mark_reg_invalid(env, dreg);
-	}));
-
-	/* Do not release reference state, we are destroying dynptr on stack,
-	 * not using some helper to release it. Just reset register.
+	/*
+	 * A referenced dynptr can be overwritten only if there is at
+	 * least one other dynptr sharing the same virtual ref parent,
+	 * ensuring the reference can still be properly released.
 	 */
-	bpf_mark_reg_not_init(env, &state->stack[spi].spilled_ptr);
-	bpf_mark_reg_not_init(env, &state->stack[spi - 1].spilled_ptr);
+	if (dynptr_type_referenced(state->stack[spi].spilled_ptr.dynptr.type) &&
+	    dynptr_ref_cnt(env, state->stack[spi].spilled_ptr.parent_id) <= 1) {
+		verbose(env, "cannot overwrite referenced dynptr\n");
+		return -EINVAL;
+	}
 
-	return 0;
+	/* Invalidate the dynptr and any derived slices */
+	err = release_reference(env, state->stack[spi].spilled_ptr.id);
+	if (!err) {
+		mark_stack_slot_scratched(env, spi);
+		mark_stack_slot_scratched(env, spi - 1);
+	}
+
+	return err;
 }
 
 static bool is_dynptr_reg_valid_uninit(struct bpf_verifier_env *env, struct bpf_reg_state *reg)
@@ -972,7 +940,7 @@ static int mark_stack_slots_iter(struct bpf_verifier_env *env,
 	if (spi < 0)
 		return spi;
 
-	id = acquire_reference(env, insn_idx);
+	id = acquire_reference(env, insn_idx, 0);
 	if (id < 0)
 		return id;
 
@@ -988,7 +956,7 @@ static int mark_stack_slots_iter(struct bpf_verifier_env *env,
 			else
 				st->type |= PTR_UNTRUSTED;
 		}
-		st->ref_obj_id = i == 0 ? id : 0;
+		st->id = i == 0 ? id : 0;
 		st->iter.btf = btf;
 		st->iter.btf_id = btf_id;
 		st->iter.state = BPF_ITER_STATE_ACTIVE;
@@ -1018,7 +986,7 @@ static int unmark_stack_slots_iter(struct bpf_verifier_env *env,
 		struct bpf_reg_state *st = &slot->spilled_ptr;
 
 		if (i == 0)
-			WARN_ON_ONCE(release_reference(env, st->ref_obj_id));
+			WARN_ON_ONCE(release_reference(env, st->id));
 
 		bpf_mark_reg_not_init(env, st);
 
@@ -1074,10 +1042,10 @@ static int is_iter_reg_valid_init(struct bpf_verifier_env *env, struct bpf_reg_s
 
 		if (st->type & PTR_UNTRUSTED)
 			return -EPROTO;
-		/* only main (first) slot has ref_obj_id set */
-		if (i == 0 && !st->ref_obj_id)
+		/* only main (first) slot has id set */
+		if (i == 0 && !st->id)
 			return -EINVAL;
-		if (i != 0 && st->ref_obj_id)
+		if (i != 0 && st->id)
 			return -EINVAL;
 		if (st->iter.btf != btf || st->iter.btf_id != btf_id)
 			return -EINVAL;
@@ -1116,7 +1084,7 @@ static int mark_stack_slot_irq_flag(struct bpf_verifier_env *env,
 
 	__mark_reg_known_zero(st);
 	st->type = PTR_TO_STACK; /* we don't have dedicated reg type */
-	st->ref_obj_id = id;
+	st->id = id;
 	st->irq.kfunc_class = kfunc_class;
 
 	for (i = 0; i < BPF_REG_SIZE; i++)
@@ -1150,7 +1118,7 @@ static int unmark_stack_slot_irq_flag(struct bpf_verifier_env *env, struct bpf_r
 		return -EINVAL;
 	}
 
-	err = release_irq_state(env->cur_state, st->ref_obj_id);
+	err = release_irq_state(env->cur_state, st->id);
 	WARN_ON_ONCE(err && err != -EACCES);
 	if (err) {
 		int insn_idx = 0;
@@ -1214,7 +1182,7 @@ static int is_irq_flag_reg_valid_init(struct bpf_verifier_env *env, struct bpf_r
 	slot = &state->stack[spi];
 	st = &slot->spilled_ptr;
 
-	if (!st->ref_obj_id)
+	if (!st->id)
 		return -EINVAL;
 
 	for (i = 0; i < BPF_REG_SIZE; i++)
@@ -1455,7 +1423,7 @@ static struct bpf_reference_state *acquire_reference_state(struct bpf_verifier_e
 	return &state->refs[new_ofs];
 }
 
-static int acquire_reference(struct bpf_verifier_env *env, int insn_idx)
+static int acquire_reference(struct bpf_verifier_env *env, int insn_idx, int parent_id)
 {
 	struct bpf_reference_state *s;
 
@@ -1464,6 +1432,7 @@ static int acquire_reference(struct bpf_verifier_env *env, int insn_idx)
 		return -ENOMEM;
 	s->type = REF_TYPE_PTR;
 	s->id = ++env->id_gen;
+	s->parent_id = parent_id;
 	return s->id;
 }
 
@@ -1520,15 +1489,23 @@ static void release_reference_state(struct bpf_verifier_state *state, int idx)
 	return;
 }
 
-static bool find_reference_state(struct bpf_verifier_state *state, int ptr_id)
+static bool find_reference_state(struct bpf_verifier_state *state, int id)
 {
 	int i;
 
-	for (i = 0; i < state->acquired_refs; i++)
-		if (state->refs[i].id == ptr_id)
+	for (i = 0; i < state->acquired_refs; i++) {
+		if (state->refs[i].type != REF_TYPE_PTR)
+			continue;
+		if (state->refs[i].id == id)
 			return true;
+	}
 
 	return false;
+}
+
+static bool reg_is_referenced(struct bpf_verifier_env *env, const struct bpf_reg_state *reg)
+{
+	return find_reference_state(env->cur_state, reg->id);
 }
 
 static int release_lock_state(struct bpf_verifier_state *state, int type, int id, void *ptr)
@@ -1844,7 +1821,7 @@ static void __mark_reg_known(struct bpf_reg_state *reg, u64 imm)
 	memset(((u8 *)reg) + sizeof(reg->type), 0,
 	       offsetof(struct bpf_reg_state, var_off) - sizeof(reg->type));
 	reg->id = 0;
-	reg->ref_obj_id = 0;
+	reg->parent_id = 0;
 	___mark_reg_known(reg, imm);
 }
 
@@ -1879,7 +1856,7 @@ static void mark_reg_known_zero(struct bpf_verifier_env *env,
 }
 
 static void __mark_dynptr_reg(struct bpf_reg_state *reg, enum bpf_dynptr_type type,
-			      bool first_slot, int dynptr_id)
+			      bool first_slot, int id, int parent_id)
 {
 	/* reg->type has no meaning for STACK_DYNPTR, but when we set reg for
 	 * callback arguments, it does need to be CONST_PTR_TO_DYNPTR, so simply
@@ -1888,7 +1865,8 @@ static void __mark_dynptr_reg(struct bpf_reg_state *reg, enum bpf_dynptr_type ty
 	__mark_reg_known_zero(reg);
 	reg->type = CONST_PTR_TO_DYNPTR;
 	/* Give each dynptr a unique id to uniquely associate slices to it. */
-	reg->id = dynptr_id;
+	reg->id = id;
+	reg->parent_id = parent_id;
 	reg->dynptr.type = type;
 	reg->dynptr.first_slot = first_slot;
 }
@@ -2168,17 +2146,12 @@ out:
 /* Mark a register as having a completely unknown (scalar) value. */
 void bpf_mark_reg_unknown_imprecise(struct bpf_reg_state *reg)
 {
-	/*
-	 * Clear type, off, and union(map_ptr, range) and
-	 * padding between 'type' and union
-	 */
-	memset(reg, 0, offsetof(struct bpf_reg_state, var_off));
+	s32 subreg_def = reg->subreg_def;
+
+	memset(reg, 0, sizeof(*reg));
 	reg->type = SCALAR_VALUE;
-	reg->id = 0;
-	reg->ref_obj_id = 0;
 	reg->var_off = tnum_unknown;
-	reg->frameno = 0;
-	reg->precise = false;
+	reg->subreg_def = subreg_def;
 	__mark_reg_unbounded(reg);
 }
 
@@ -3006,50 +2979,13 @@ out:
 	return ret;
 }
 
-static int mark_stack_slot_obj_read(struct bpf_verifier_env *env, struct bpf_reg_state *reg,
-				    int spi, int nr_slots)
+static void mark_stack_slots_scratched(struct bpf_verifier_env *env,
+				       int spi, int nr_slots)
 {
 	int i;
 
 	for (i = 0; i < nr_slots; i++)
 		mark_stack_slot_scratched(env, spi - i);
-	return 0;
-}
-
-static int mark_dynptr_read(struct bpf_verifier_env *env, struct bpf_reg_state *reg)
-{
-	int spi;
-
-	/* For CONST_PTR_TO_DYNPTR, it must have already been done by
-	 * check_reg_arg in check_helper_call and mark_btf_func_reg_size in
-	 * check_kfunc_call.
-	 */
-	if (reg->type == CONST_PTR_TO_DYNPTR)
-		return 0;
-	spi = dynptr_get_spi(env, reg);
-	if (spi < 0)
-		return spi;
-	/* Caller ensures dynptr is valid and initialized, which means spi is in
-	 * bounds and spi is the first dynptr slot. Simply mark stack slot as
-	 * read.
-	 */
-	return mark_stack_slot_obj_read(env, reg, spi, BPF_DYNPTR_NR_SLOTS);
-}
-
-static int mark_iter_read(struct bpf_verifier_env *env, struct bpf_reg_state *reg,
-			  int spi, int nr_slots)
-{
-	return mark_stack_slot_obj_read(env, reg, spi, nr_slots);
-}
-
-static int mark_irq_flag_read(struct bpf_verifier_env *env, struct bpf_reg_state *reg)
-{
-	int spi;
-
-	spi = irq_flag_get_spi(env, reg);
-	if (spi < 0)
-		return spi;
-	return mark_stack_slot_obj_read(env, reg, spi, 1);
 }
 
 /* This function is supposed to be used by the following 32-bit optimization
@@ -4374,7 +4310,7 @@ static int map_kptr_match_type(struct bpf_verifier_env *env,
 	 * referenced PTR_TO_BTF_ID, and that its fixed offset is 0. For the
 	 * normal store of unreferenced kptr, we must ensure var_off is zero.
 	 * Since ref_ptr cannot be accessed directly by BPF insns, check for
-	 * reg->ref_obj_id is not needed here.
+	 * reg->id is not needed here.
 	 */
 	if (__check_ptr_off_reg(env, reg, argno_from_reg(regno), true))
 		return -EACCES;
@@ -4747,8 +4683,8 @@ static int __check_ctx_access(struct bpf_verifier_env *env, int insn_idx, int of
 		 * type of narrower access.
 		 */
 		if (base_type(info->reg_type) == PTR_TO_BTF_ID) {
-			if (info->ref_obj_id &&
-			    !find_reference_state(env->cur_state, info->ref_obj_id)) {
+			if (info->ref_id &&
+			    !find_reference_state(env->cur_state, info->ref_id)) {
 				verbose(env, "invalid bpf_context access off=%d. Reference may already be released\n",
 					off);
 				return -EACCES;
@@ -4917,10 +4853,10 @@ static u32 *reg2btf_ids[__BPF_REG_TYPE_MAX] = {
 	[CONST_PTR_TO_MAP] = btf_bpf_map_id,
 };
 
-static bool is_trusted_reg(const struct bpf_reg_state *reg)
+static bool is_trusted_reg(struct bpf_verifier_env *env, const struct bpf_reg_state *reg)
 {
 	/* A referenced register is always trusted. */
-	if (reg->ref_obj_id)
+	if (reg_is_referenced(env, reg))
 		return true;
 
 	/* Types listed in the reg2btf_ids are always trusted */
@@ -5834,7 +5770,7 @@ static int check_ptr_to_btf_access(struct bpf_verifier_env *env,
 		ret = env->ops->btf_struct_access(&env->log, reg, off, size);
 	} else {
 		/* Writes are permitted with default btf_struct_access for
-		 * program allocated objects (which always have ref_obj_id > 0),
+		 * program allocated objects (which always have id > 0),
 		 * but not for untrusted PTR_TO_BTF_ID | MEM_ALLOC.
 		 */
 		if (atype != BPF_READ && !type_is_ptr_alloc_obj(reg->type)) {
@@ -5843,8 +5779,8 @@ static int check_ptr_to_btf_access(struct bpf_verifier_env *env,
 		}
 
 		if (type_is_alloc(reg->type) && !type_is_non_owning_ref(reg->type) &&
-		    !(reg->type & MEM_RCU) && !reg->ref_obj_id) {
-			verifier_bug(env, "ref_obj_id for allocated object must be non-zero");
+		    !(reg->type & MEM_RCU) && !reg_is_referenced(env, reg)) {
+			verifier_bug(env, "allocated object must have a referenced id");
 			return -EFAULT;
 		}
 
@@ -5863,7 +5799,7 @@ static int check_ptr_to_btf_access(struct bpf_verifier_env *env,
 		 */
 		flag = PTR_UNTRUSTED;
 
-	} else if (is_trusted_reg(reg) || is_rcu_reg(reg)) {
+	} else if (is_trusted_reg(env, reg) || is_rcu_reg(reg)) {
 		/* By default any pointer obtained from walking a trusted pointer is no
 		 * longer trusted, unless the field being accessed has explicitly been
 		 * marked as inheriting its parent's state of trust (either full or RCU).
@@ -6252,8 +6188,6 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, struct b
 			} else {
 				mark_reg_known_zero(env, regs,
 						    value_regno);
-				if (type_may_be_null(info.reg_type))
-					regs[value_regno].id = ++env->id_gen;
 				/* A load of ctx field could have different
 				 * actual load size with the one encoded in the
 				 * insn. When the dst is PTR, it is for sure not
@@ -6263,8 +6197,10 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, struct b
 				if (base_type(info.reg_type) == PTR_TO_BTF_ID) {
 					regs[value_regno].btf = info.btf;
 					regs[value_regno].btf_id = info.btf_id;
-					regs[value_regno].ref_obj_id = info.ref_obj_id;
+					regs[value_regno].id = info.ref_id;
 				}
+				if (type_may_be_null(info.reg_type) && !regs[value_regno].id)
+					regs[value_regno].id = ++env->id_gen;
 			}
 			regs[value_regno].type = info.reg_type;
 		}
@@ -7244,7 +7180,16 @@ static int process_kptr_func(struct bpf_verifier_env *env, int regno,
 	return 0;
 }
 
-/* There are two register types representing a bpf_dynptr, one is PTR_TO_STACK
+/*
+ * Validate dynptr arguments for helper, kfunc and subprog.
+ *
+ * @dynptr is both input and output. It is populated when the argument is
+ * tagged with MEM_UNINIT (i.e., the dynptr argument that will be constructed)
+ * and consumed when the argument is expecting to be an initialized dynptr.
+ * @parent_id is used to track the referenced parent object (e.g., file or skb in
+ * qdisc program) when constructing a dynptr.
+ *
+ * There are two register types representing a bpf_dynptr, one is PTR_TO_STACK
  * which points to a stack slot, and the other is CONST_PTR_TO_DYNPTR.
  *
  * In both cases we deal with the first 8 bytes, but need to mark the next 8
@@ -7258,10 +7203,11 @@ static int process_kptr_func(struct bpf_verifier_env *env, int regno,
  * use case. The second level is tracked using the upper bit of bpf_dynptr->size
  * and checked dynamically during runtime.
  */
-static int process_dynptr_func(struct bpf_verifier_env *env, struct bpf_reg_state *reg, argno_t argno, int insn_idx,
-			       enum bpf_arg_type arg_type, int clone_ref_obj_id)
+static int process_dynptr_func(struct bpf_verifier_env *env, struct bpf_reg_state *reg,
+			       argno_t argno, int insn_idx, enum bpf_arg_type arg_type,
+			       struct ref_obj_desc *ref_obj, struct bpf_dynptr_desc *dynptr)
 {
-	int err;
+	int spi, err = 0;
 
 	if (reg->type != PTR_TO_STACK && reg->type != CONST_PTR_TO_DYNPTR) {
 		verbose(env,
@@ -7300,7 +7246,7 @@ static int process_dynptr_func(struct bpf_verifier_env *env, struct bpf_reg_stat
 				return err;
 		}
 
-		err = mark_stack_slots_dynptr(env, reg, arg_type, insn_idx, clone_ref_obj_id);
+		err = mark_stack_slots_dynptr(env, reg, arg_type, insn_idx, ref_obj, dynptr);
 	} else /* OBJ_RELEASE and None case from above */ {
 		/* For the reg->type == PTR_TO_STACK case, bpf_dynptr is never const */
 		if (reg->type == CONST_PTR_TO_DYNPTR && (arg_type & OBJ_RELEASE)) {
@@ -7323,16 +7269,29 @@ static int process_dynptr_func(struct bpf_verifier_env *env, struct bpf_reg_stat
 			return -EINVAL;
 		}
 
-		err = mark_dynptr_read(env, reg);
+		if (reg->type != CONST_PTR_TO_DYNPTR) {
+			struct bpf_func_state *state = bpf_func(env, reg);
+
+			spi = dynptr_get_spi(env, reg);
+			if (spi < 0)
+				return spi;
+
+			/*
+			 * For CONST_PTR_TO_DYNPTR, reg is already scratched by check_reg_arg
+			 * in check_helper_call and mark_btf_func_reg_size in check_kfunc_call.
+			 */
+			mark_stack_slots_scratched(env, spi, BPF_DYNPTR_NR_SLOTS);
+
+			reg = &state->stack[spi].spilled_ptr;
+		}
+
+		if (dynptr) {
+			dynptr->type = reg->dynptr.type;
+			dynptr->id = reg->id;
+			dynptr->parent_id = reg->parent_id;
+		}
 	}
 	return err;
-}
-
-static u32 iter_ref_obj_id(struct bpf_verifier_env *env, struct bpf_reg_state *reg, int spi)
-{
-	struct bpf_func_state *state = bpf_func(env, reg);
-
-	return state->stack[spi].spilled_ptr.ref_obj_id;
 }
 
 static bool is_iter_kfunc(struct bpf_kfunc_call_arg_meta *meta)
@@ -7367,6 +7326,7 @@ static bool is_kfunc_arg_iter(struct bpf_kfunc_call_arg_meta *meta, int arg_idx,
 static int process_iter_arg(struct bpf_verifier_env *env, struct bpf_reg_state *reg, argno_t argno, int insn_idx,
 			    struct bpf_kfunc_call_arg_meta *meta)
 {
+	struct bpf_func_state *state = bpf_func(env, reg);
 	const struct btf_type *t;
 	u32 arg_idx = arg_idx_from_argno(argno);
 	int spi, err, i, nr_slots, btf_id;
@@ -7433,14 +7393,12 @@ static int process_iter_arg(struct bpf_verifier_env *env, struct bpf_reg_state *
 		if (spi < 0)
 			return spi;
 
-		err = mark_iter_read(env, reg, spi, nr_slots);
-		if (err)
-			return err;
+		mark_stack_slots_scratched(env, spi, nr_slots);
 
 		/* remember meta->iter info for process_iter_next_call() */
 		meta->iter.spi = spi;
 		meta->iter.frameno = reg->frameno;
-		meta->ref_obj_id = iter_ref_obj_id(env, reg, spi);
+		update_ref_obj(&meta->ref_obj, &state->stack[spi].spilled_ptr);
 
 		if (is_iter_destroy_kfunc(meta)) {
 			err = unmark_stack_slots_iter(env, reg, nr_slots);
@@ -8023,7 +7981,7 @@ static int check_func_arg_reg_off(struct bpf_verifier_env *env,
 	/* When referenced register is passed to release function, its fixed
 	 * offset must be 0.
 	 *
-	 * We will check arg_type_is_release reg has ref_obj_id when storing
+	 * We will check arg_type_is_release reg has id when storing
 	 * meta->release_regno.
 	 */
 	if (arg_type_is_release(arg_type)) {
@@ -8092,72 +8050,6 @@ static int check_func_arg_reg_off(struct bpf_verifier_env *env,
 	default:
 		return __check_ptr_off_reg(env, reg, argno, false);
 	}
-}
-
-static struct bpf_reg_state *get_dynptr_arg_reg(struct bpf_verifier_env *env,
-						const struct bpf_func_proto *fn,
-						struct bpf_reg_state *regs)
-{
-	struct bpf_reg_state *state = NULL;
-	int i;
-
-	for (i = 0; i < MAX_BPF_FUNC_REG_ARGS; i++)
-		if (arg_type_is_dynptr(fn->arg_type[i])) {
-			if (state) {
-				verbose(env, "verifier internal error: multiple dynptr args\n");
-				return NULL;
-			}
-			state = &regs[BPF_REG_1 + i];
-		}
-
-	if (!state)
-		verbose(env, "verifier internal error: no dynptr arg found\n");
-
-	return state;
-}
-
-static int dynptr_id(struct bpf_verifier_env *env, struct bpf_reg_state *reg)
-{
-	struct bpf_func_state *state = bpf_func(env, reg);
-	int spi;
-
-	if (reg->type == CONST_PTR_TO_DYNPTR)
-		return reg->id;
-	spi = dynptr_get_spi(env, reg);
-	if (spi < 0)
-		return spi;
-	return state->stack[spi].spilled_ptr.id;
-}
-
-static int dynptr_ref_obj_id(struct bpf_verifier_env *env, struct bpf_reg_state *reg)
-{
-	struct bpf_func_state *state = bpf_func(env, reg);
-	int spi;
-
-	if (reg->type == CONST_PTR_TO_DYNPTR)
-		return reg->ref_obj_id;
-	spi = dynptr_get_spi(env, reg);
-	if (spi < 0)
-		return spi;
-	return state->stack[spi].spilled_ptr.ref_obj_id;
-}
-
-static enum bpf_dynptr_type dynptr_get_type(struct bpf_verifier_env *env,
-					    struct bpf_reg_state *reg)
-{
-	struct bpf_func_state *state = bpf_func(env, reg);
-	int spi;
-
-	if (reg->type == CONST_PTR_TO_DYNPTR)
-		return reg->dynptr.type;
-
-	spi = bpf_get_spi(reg->var_off.value);
-	if (spi < 0) {
-		verbose(env, "verifier internal error: invalid spi when querying dynptr type\n");
-		return BPF_DYNPTR_TYPE_INVALID;
-	}
-
-	return state->stack[spi].spilled_ptr.dynptr.type;
 }
 
 static int check_arg_const_str(struct bpf_verifier_env *env,
@@ -8285,6 +8177,7 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 arg,
 	u32 regno = BPF_REG_1 + arg;
 	struct bpf_reg_state *reg = reg_state(env, regno);
 	enum bpf_arg_type arg_type = fn->arg_type[arg];
+	argno_t argno = argno_from_arg(arg + 1);
 	enum bpf_reg_type type = reg->type;
 	u32 *arg_btf_id = NULL;
 	u32 key_size;
@@ -8338,47 +8231,15 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 arg,
 		return err;
 
 skip_type_check:
-	if (arg_type_is_release(arg_type)) {
-		if (arg_type_is_dynptr(arg_type)) {
-			struct bpf_func_state *state = bpf_func(env, reg);
-			int spi;
-
-			/* Only dynptr created on stack can be released, thus
-			 * the get_spi and stack state checks for spilled_ptr
-			 * should only be done before process_dynptr_func for
-			 * PTR_TO_STACK.
-			 */
-			if (reg->type == PTR_TO_STACK) {
-				spi = dynptr_get_spi(env, reg);
-				if (spi < 0 || !state->stack[spi].spilled_ptr.ref_obj_id) {
-					verbose(env, "arg %d is an unacquired reference\n", regno);
-					return -EINVAL;
-				}
-			} else {
-				verbose(env, "cannot release unowned const bpf_dynptr\n");
-				return -EINVAL;
-			}
-		} else if (!reg->ref_obj_id && !bpf_register_is_null(reg)) {
-			verbose(env, "R%d must be referenced when passed to release function\n",
-				regno);
-			return -EINVAL;
-		}
-		if (meta->release_regno) {
-			verifier_bug(env, "more than one release argument");
-			return -EFAULT;
-		}
-		meta->release_regno = regno;
+	if (arg_type_is_release(arg_type) && !arg_type_is_dynptr(arg_type) &&
+	    !reg_is_referenced(env, reg) && !bpf_register_is_null(reg)) {
+		verbose(env, "release helper %s expects referenced PTR_TO_BTF_ID passed to %s\n",
+			func_id_name(meta->func_id), reg_arg_name(env, argno));
+		return -EINVAL;
 	}
 
-	if (reg->ref_obj_id && base_type(arg_type) != ARG_KPTR_XCHG_DEST) {
-		if (meta->ref_obj_id) {
-			verbose(env, "more than one arg with ref_obj_id R%d %u %u",
-				regno, reg->ref_obj_id,
-				meta->ref_obj_id);
-			return -EACCES;
-		}
-		meta->ref_obj_id = reg->ref_obj_id;
-	}
+	if (reg_is_referenced(env, reg))
+		update_ref_obj(&meta->ref_obj, reg);
 
 	switch (base_type(arg_type)) {
 	case ARG_CONST_MAP_PTR:
@@ -8517,7 +8378,8 @@ skip_type_check:
 					 true, meta);
 		break;
 	case ARG_PTR_TO_DYNPTR:
-		err = process_dynptr_func(env, reg, argno_from_reg(regno), insn_idx, arg_type, 0);
+		err = process_dynptr_func(env, reg, argno_from_reg(regno), insn_idx, arg_type, &meta->ref_obj,
+					  &meta->dynptr);
 		if (err)
 			return err;
 		break;
@@ -8936,11 +8798,29 @@ static bool check_mem_arg_rw_flag_ok(const struct bpf_func_proto *fn)
 	return true;
 }
 
-static int check_func_proto(const struct bpf_func_proto *fn)
+static bool check_proto_release_reg(const struct bpf_func_proto *fn, struct bpf_call_arg_meta *meta)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(fn->arg_type); i++) {
+		enum bpf_arg_type arg_type = fn->arg_type[i];
+
+		if (arg_type_is_release(arg_type)) {
+			if (meta->release_regno)
+				return false;
+			meta->release_regno = i + 1;
+		}
+	}
+
+	return true;
+}
+
+static int check_func_proto(const struct bpf_func_proto *fn, struct bpf_call_arg_meta *meta)
 {
 	return check_raw_mode_ok(fn) &&
 	       check_arg_pair_ok(fn) &&
 	       check_mem_arg_rw_flag_ok(fn) &&
+	       check_proto_release_reg(fn, meta) &&
 	       check_btf_id_ok(fn) ? 0 : -EINVAL;
 }
 
@@ -8987,14 +8867,14 @@ static void mark_pkt_end(struct bpf_verifier_state *vstate, int regn, bool range
 		reg->range = AT_PKT_END;
 }
 
-static int release_reference_nomark(struct bpf_verifier_state *state, int ref_obj_id)
+static int release_reference_nomark(struct bpf_verifier_state *state, int id)
 {
 	int i;
 
 	for (i = 0; i < state->acquired_refs; i++) {
 		if (state->refs[i].type != REF_TYPE_PTR)
 			continue;
-		if (state->refs[i].id == ref_obj_id) {
+		if (state->refs[i].id == id) {
 			release_reference_state(state, i);
 			return 0;
 		}
@@ -9002,26 +8882,83 @@ static int release_reference_nomark(struct bpf_verifier_state *state, int ref_ob
 	return -EINVAL;
 }
 
-/* The pointer with the specified id has released its reference to kernel
- * resources. Identify all copies of the same pointer and clear the reference.
- *
- * This is the release function corresponding to acquire_reference(). Idempotent.
- */
-static int release_reference(struct bpf_verifier_env *env, int ref_obj_id)
+static int idstack_push(struct bpf_idmap *idmap, u32 id)
 {
+	int i;
+
+	if (!id)
+		return 0;
+
+	for (i = 0; i < idmap->cnt; i++)
+		if (idmap->map[i].old == id)
+			return 0;
+
+	if (WARN_ON_ONCE(idmap->cnt >= BPF_ID_MAP_SIZE))
+		return -EFAULT;
+
+	idmap->map[idmap->cnt++].old = id;
+	return 0;
+}
+
+static int idstack_pop(struct bpf_idmap *idmap)
+{
+	if (!idmap->cnt)
+		return 0;
+
+	return idmap->map[--idmap->cnt].old;
+}
+
+/* Release id and objects derived from it iteratively in a DFS manner */
+static int release_reference(struct bpf_verifier_env *env, int id)
+{
+	u32 mask = (1 << STACK_SPILL) | (1 << STACK_DYNPTR);
 	struct bpf_verifier_state *vstate = env->cur_state;
+	struct bpf_idmap *idstack = &env->idmap_scratch;
+	struct bpf_stack_state *stack;
 	struct bpf_func_state *state;
 	struct bpf_reg_state *reg;
-	int err;
+	int i, err;
 
-	err = release_reference_nomark(vstate, ref_obj_id);
+	idstack->cnt = 0;
+	err = idstack_push(idstack, id);
 	if (err)
 		return err;
 
-	bpf_for_each_reg_in_vstate(vstate, state, reg, ({
-		if (reg->ref_obj_id == ref_obj_id)
-			mark_reg_invalid(env, reg);
-	}));
+	if (find_reference_state(vstate, id))
+		WARN_ON_ONCE(release_reference_nomark(vstate, id));
+
+	while ((id = idstack_pop(idstack))) {
+		/*
+		 * Child references are inaccessible after parent is released,
+		 * any child references that exist at this point are a leak.
+		 */
+		for (i = 0; i < vstate->acquired_refs; i++) {
+			if (vstate->refs[i].type != REF_TYPE_PTR)
+				continue;
+			if (vstate->refs[i].parent_id != id)
+				continue;
+			verbose(env, "Leaking reference id=%d alloc_insn=%d. Release it first.\n",
+				vstate->refs[i].id, vstate->refs[i].insn_idx);
+			return -EINVAL;
+		}
+
+		bpf_for_each_reg_in_vstate_mask(vstate, state, reg, stack, mask, ({
+			if (reg->id != id && reg->parent_id != id)
+				continue;
+
+			/* Free objects derived from the current object */
+			if (reg->parent_id == id) {
+				err = idstack_push(idstack, reg->id);
+				if (err)
+					return err;
+			}
+
+			if (!stack || stack->slot_type[BPF_REG_SIZE - 1] == STACK_SPILL)
+				mark_reg_invalid(env, reg);
+			else if (stack->slot_type[BPF_REG_SIZE - 1] == STACK_DYNPTR)
+				invalidate_dynptr(env, stack);
+		}));
+	}
 
 	return 0;
 }
@@ -9035,6 +8972,42 @@ static void invalidate_non_owning_refs(struct bpf_verifier_env *env)
 		if (type_is_non_owning_ref(reg->type))
 			mark_reg_invalid(env, reg);
 	}));
+}
+
+static void invalidate_rcu_protected_refs(struct bpf_verifier_env *env)
+{
+	struct bpf_stack_state *stack;
+	struct bpf_func_state *state;
+	struct bpf_reg_state *reg;
+	u32 clear_mask = (1 << STACK_SPILL) | (1 << STACK_ITER);
+
+	bpf_for_each_reg_in_vstate_mask(env->cur_state, state, reg, stack, clear_mask, ({
+		if (reg->type & MEM_RCU) {
+			reg->type &= ~(MEM_RCU | PTR_MAYBE_NULL);
+			reg->type |= PTR_UNTRUSTED;
+		}
+	}));
+}
+
+static int ref_convert_alloc_rcu_protected(struct bpf_verifier_env *env, u32 id)
+{
+	struct bpf_func_state *state;
+	struct bpf_reg_state *reg;
+	int err;
+
+	err = release_reference_nomark(env->cur_state, id);
+
+	bpf_for_each_reg_in_vstate(env->cur_state, state, reg, ({
+		if (reg->id != id)
+			continue;
+		if ((reg->type & MEM_ALLOC) && (reg->type & MEM_PERCPU)) {
+			reg->id = 0;
+			reg->type &= ~MEM_ALLOC;
+			reg->type |= MEM_RCU;
+		}
+	}));
+
+	return err;
 }
 
 static void clear_caller_saved_regs(struct bpf_verifier_env *env,
@@ -9122,6 +9095,7 @@ static int btf_check_func_arg_match(struct bpf_verifier_env *env, int subprog,
 	struct bpf_subprog_info *sub = subprog_info(env, subprog);
 	struct bpf_func_state *caller = cur_func(env);
 	struct bpf_verifier_log *log = &env->log;
+	struct ref_obj_desc ref_obj = {};
 	u32 i;
 	int ret, err;
 
@@ -9199,7 +9173,7 @@ static int btf_check_func_arg_match(struct bpf_verifier_env *env, int subprog,
 			if (ret)
 				return ret;
 
-			ret = process_dynptr_func(env, reg, argno, -1, arg->arg_type, 0);
+			ret = process_dynptr_func(env, reg, argno, -1, arg->arg_type, &ref_obj, NULL);
 			if (ret)
 				return ret;
 		} else if (base_type(arg->arg_type) == ARG_PTR_TO_BTF_ID) {
@@ -9922,7 +9896,7 @@ static int check_reference_leak(struct bpf_verifier_env *env, bool exception_exi
 		 * kernel. Type checks are performed later in check_return_code.
 		 */
 		if (type == BPF_PROG_TYPE_STRUCT_OPS && !exception_exit &&
-		    reg->ref_obj_id == state->refs[i].id)
+		    reg->id == state->refs[i].id)
 			continue;
 		verbose(env, "Unreleased reference id=%d alloc_insn=%d\n",
 			state->refs[i].id, state->refs[i].insn_idx);
@@ -10108,6 +10082,24 @@ static const char *non_sleepable_context_description(struct bpf_verifier_env *en
 	return "non-sleepable prog";
 }
 
+static int release_reg(struct bpf_verifier_env *env, struct bpf_reg_state *reg,
+		       bool convert_rcu, bool release_dynptr)
+{
+	int err = -EINVAL;
+
+	if (bpf_register_is_null(reg))
+		return 0;
+
+	if (release_dynptr)
+		err = unmark_stack_slots_dynptr(env, reg);
+	else if (convert_rcu)
+		err = ref_convert_alloc_rcu_protected(env, reg->id);
+	else if (reg_is_referenced(env, reg))
+		err = release_reference(env, reg->id);
+
+	return err;
+}
+
 static int check_helper_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
 			     int *insn_idx_p)
 {
@@ -10157,7 +10149,7 @@ static int check_helper_call(struct bpf_verifier_env *env, struct bpf_insn *insn
 	memset(&meta, 0, sizeof(meta));
 	meta.pkt_access = fn->pkt_access;
 
-	err = check_func_proto(fn);
+	err = check_func_proto(fn, &meta);
 	if (err) {
 		verifier_bug(env, "incorrect func proto %s#%d", func_id_name(func_id), func_id);
 		return err;
@@ -10202,42 +10194,13 @@ static int check_helper_call(struct bpf_verifier_env *env, struct bpf_insn *insn
 	}
 
 	if (meta.release_regno) {
-		err = -EINVAL;
-		if (arg_type_is_dynptr(fn->arg_type[meta.release_regno - BPF_REG_1])) {
-			err = unmark_stack_slots_dynptr(env, &regs[meta.release_regno]);
-		} else if (func_id == BPF_FUNC_kptr_xchg && meta.ref_obj_id) {
-			u32 ref_obj_id = meta.ref_obj_id;
-			bool in_rcu = in_rcu_cs(env);
-			struct bpf_func_state *state;
-			struct bpf_reg_state *reg;
+		struct bpf_reg_state *reg = &regs[meta.release_regno];
+		bool convert_rcu = (func_id == BPF_FUNC_kptr_xchg) && in_rcu_cs(env) &&
+				   (reg->type & MEM_ALLOC) && (reg->type & MEM_PERCPU);
 
-			err = release_reference_nomark(env->cur_state, ref_obj_id);
-			if (!err) {
-				bpf_for_each_reg_in_vstate(env->cur_state, state, reg, ({
-					if (reg->ref_obj_id == ref_obj_id) {
-						if (in_rcu && (reg->type & MEM_ALLOC) && (reg->type & MEM_PERCPU)) {
-							reg->ref_obj_id = 0;
-							reg->type &= ~MEM_ALLOC;
-							reg->type |= MEM_RCU;
-						} else {
-							mark_reg_invalid(env, reg);
-						}
-					}
-				}));
-			}
-		} else if (meta.ref_obj_id) {
-			err = release_reference(env, meta.ref_obj_id);
-		} else if (bpf_register_is_null(&regs[meta.release_regno])) {
-			/* meta.ref_obj_id can only be 0 if register that is meant to be
-			 * released is NULL, which must be > R0.
-			 */
-			err = 0;
-		}
-		if (err) {
-			verbose(env, "func %s#%d reference has not been acquired before\n",
-				func_id_name(func_id), func_id);
+		err = release_reg(env, reg, convert_rcu, !!meta.dynptr.id);
+		if (err)
 			return err;
-		}
 	}
 
 	switch (func_id) {
@@ -10307,52 +10270,10 @@ static int check_helper_call(struct bpf_verifier_env *env, struct bpf_insn *insn
 			}
 		}
 		break;
-	case BPF_FUNC_dynptr_data:
-	{
-		struct bpf_reg_state *reg;
-		int id, ref_obj_id;
-
-		reg = get_dynptr_arg_reg(env, fn, regs);
-		if (!reg)
-			return -EFAULT;
-
-
-		if (meta.dynptr_id) {
-			verifier_bug(env, "meta.dynptr_id already set");
-			return -EFAULT;
-		}
-		if (meta.ref_obj_id) {
-			verifier_bug(env, "meta.ref_obj_id already set");
-			return -EFAULT;
-		}
-
-		id = dynptr_id(env, reg);
-		if (id < 0) {
-			verifier_bug(env, "failed to obtain dynptr id");
-			return id;
-		}
-
-		ref_obj_id = dynptr_ref_obj_id(env, reg);
-		if (ref_obj_id < 0) {
-			verifier_bug(env, "failed to obtain dynptr ref_obj_id");
-			return ref_obj_id;
-		}
-
-		meta.dynptr_id = id;
-		meta.ref_obj_id = ref_obj_id;
-
-		break;
-	}
 	case BPF_FUNC_dynptr_write:
 	{
-		enum bpf_dynptr_type dynptr_type;
-		struct bpf_reg_state *reg;
+		enum bpf_dynptr_type dynptr_type = meta.dynptr.type;
 
-		reg = get_dynptr_arg_reg(env, fn, regs);
-		if (!reg)
-			return -EFAULT;
-
-		dynptr_type = dynptr_get_type(env, reg);
 		if (dynptr_type == BPF_DYNPTR_TYPE_INVALID)
 			return -EFAULT;
 
@@ -10538,28 +10459,44 @@ static int check_helper_call(struct bpf_verifier_env *env, struct bpf_insn *insn
 	if (type_may_be_null(regs[BPF_REG_0].type))
 		regs[BPF_REG_0].id = ++env->id_gen;
 
-	if (helper_multiple_ref_obj_use(func_id, meta.map.ptr)) {
-		verifier_bug(env, "func %s#%d sets ref_obj_id more than once",
-			     func_id_name(func_id), func_id);
-		return -EFAULT;
-	}
+	if (is_ptr_cast_function(func_id) &&
+	    find_reference_state(env->cur_state, meta.ref_obj.id)) {
+		struct bpf_verifier_state *branch;
+		struct bpf_reg_state *r0;
 
-	if (is_dynptr_ref_function(func_id))
-		regs[BPF_REG_0].dynptr_id = meta.dynptr_id;
+		err = validate_ref_obj(env, &meta.ref_obj);
+		if (err)
+			return err;
 
-	if (is_ptr_cast_function(func_id) || is_dynptr_ref_function(func_id)) {
-		/* For release_reference() */
-		regs[BPF_REG_0].ref_obj_id = meta.ref_obj_id;
+		/*
+		 * In order for a release of any of the original or cast pointers
+		 * to invalidate all other pointers, reuse the same reference id for
+		 * the cast result.
+		 * This reference id can't be used for nullness propagation,
+		 * as cast might return NULL for a non-NULL input.
+		 * Hence, explore the NULL case as a separate branch.
+		 */
+		branch = push_stack(env, env->insn_idx + 1, env->insn_idx, false);
+		if (IS_ERR(branch))
+			return PTR_ERR(branch);
+
+		r0 = &branch->frame[branch->curframe]->regs[BPF_REG_0];
+		__mark_reg_known_zero(r0);
+		r0->type = SCALAR_VALUE;
+
+		regs[BPF_REG_0].type &= ~PTR_MAYBE_NULL;
+		regs[BPF_REG_0].id = meta.ref_obj.id;
 	} else if (is_acquire_function(func_id, meta.map.ptr)) {
-		int id = acquire_reference(env, insn_idx);
+		int id = acquire_reference(env, insn_idx, 0);
 
 		if (id < 0)
 			return id;
-		/* For mark_ptr_or_null_reg() */
+
 		regs[BPF_REG_0].id = id;
-		/* For release_reference() */
-		regs[BPF_REG_0].ref_obj_id = id;
 	}
+
+	if (func_id == BPF_FUNC_dynptr_data)
+		regs[BPF_REG_0].parent_id = meta.dynptr.id;
 
 	err = do_refine_retval_range(env, regs, fn->ret_type, func_id, &meta);
 	if (err)
@@ -10655,7 +10592,6 @@ static bool is_kfunc_release(struct bpf_kfunc_call_arg_meta *meta)
 {
 	return meta->kfunc_flags & KF_RELEASE;
 }
-
 
 static bool is_kfunc_destructive(struct bpf_kfunc_call_arg_meta *meta)
 {
@@ -11371,7 +11307,7 @@ static int process_kf_arg_ptr_to_btf_id(struct bpf_verifier_env *env,
 	 * btf_struct_ids_match() to walk the struct at the 0th offset, and
 	 * resolve types.
 	 */
-	if ((is_kfunc_release(meta) && reg->ref_obj_id) ||
+	if ((is_kfunc_release(meta) && reg_is_referenced(env, reg)) ||
 	    btf_type_ids_nocast_alias(&env->log, reg_btf, reg_ref_id, meta->btf, ref_id))
 		strict_type_match = true;
 
@@ -11399,7 +11335,7 @@ static int process_kf_arg_ptr_to_btf_id(struct bpf_verifier_env *env,
 static int process_irq_flag(struct bpf_verifier_env *env, struct bpf_reg_state *reg, argno_t argno,
 			     struct bpf_kfunc_call_arg_meta *meta)
 {
-	int err, kfunc_class = IRQ_NATIVE_KFUNC;
+	int err, spi, kfunc_class = IRQ_NATIVE_KFUNC;
 	bool irq_save;
 
 	if (meta->func_id == special_kfunc_list[KF_bpf_local_irq_save] ||
@@ -11440,9 +11376,11 @@ static int process_irq_flag(struct bpf_verifier_env *env, struct bpf_reg_state *
 			return err;
 		}
 
-		err = mark_irq_flag_read(env, reg);
-		if (err)
-			return err;
+		spi = irq_flag_get_spi(env, reg);
+		if (spi < 0)
+			return spi;
+
+		mark_stack_slots_scratched(env, spi, 1);
 
 		err = unmark_stack_slot_irq_flag(env, reg, kfunc_class);
 		if (err)
@@ -11473,36 +11411,21 @@ static int ref_set_non_owning(struct bpf_verifier_env *env, struct bpf_reg_state
 	return 0;
 }
 
-static int ref_convert_owning_non_owning(struct bpf_verifier_env *env, u32 ref_obj_id)
+static void ref_convert_owning_non_owning(struct bpf_verifier_env *env, u32 id)
 {
-	struct bpf_verifier_state *state = env->cur_state;
 	struct bpf_func_state *unused;
 	struct bpf_reg_state *reg;
-	int i;
 
-	if (!ref_obj_id) {
-		verifier_bug(env, "ref_obj_id is zero for owning -> non-owning conversion");
-		return -EFAULT;
-	}
+	WARN_ON_ONCE(release_reference_nomark(env->cur_state, id));
 
-	for (i = 0; i < state->acquired_refs; i++) {
-		if (state->refs[i].id != ref_obj_id)
-			continue;
+	bpf_for_each_reg_in_vstate(env->cur_state, unused, reg, ({
+		if (reg->id == id) {
+			reg->id = 0;
+			ref_set_non_owning(env, reg);
+		}
+	}));
 
-		/* Clear ref_obj_id here so release_reference doesn't clobber
-		 * the whole reg
-		 */
-		bpf_for_each_reg_in_vstate(env->cur_state, unused, reg, ({
-			if (reg->ref_obj_id == ref_obj_id) {
-				reg->ref_obj_id = 0;
-				ref_set_non_owning(env, reg);
-			}
-		}));
-		return 0;
-	}
-
-	verifier_bug(env, "ref state missing for ref_obj_id");
-	return -EFAULT;
+	return;
 }
 
 /* Implementation details:
@@ -12034,23 +11957,15 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 			return -EACCES;
 		}
 
-		if (reg->ref_obj_id) {
-			if (is_kfunc_release(meta) && meta->ref_obj_id) {
-				verifier_bug(env, "more than one arg with ref_obj_id %s %u %u",
-					     reg_arg_name(env, argno), reg->ref_obj_id,
-					     meta->ref_obj_id);
-				return -EFAULT;
-			}
-			meta->ref_obj_id = reg->ref_obj_id;
-			if (is_kfunc_release(meta)) {
-				if (regno < 0) {
-					verbose(env, "%s release arg cannot be a stack argument\n",
-						reg_arg_name(env, argno));
-					return -EINVAL;
-				}
-				meta->release_regno = regno;
-			}
+		if (regno == meta->release_regno && !is_kfunc_arg_dynptr(meta->btf, &args[i]) &&
+		    !reg_is_referenced(env, reg) && !bpf_register_is_null(reg)) {
+			verbose(env, "release kfunc %s expects referenced PTR_TO_BTF_ID passed to %s\n",
+				func_name, reg_arg_name(env, argno));
+			return -EINVAL;
 		}
+
+		if (reg_is_referenced(env, reg))
+			update_ref_obj(&meta->ref_obj, reg);
 
 		ref_t = btf_type_skip_modifiers(btf, t->type, &ref_id);
 		ref_tname = btf_name_by_offset(btf, ref_t->name_off);
@@ -12102,7 +12017,7 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 			fallthrough;
 		case KF_ARG_PTR_TO_ALLOC_BTF_ID:
 		case KF_ARG_PTR_TO_BTF_ID:
-			if (!is_trusted_reg(reg)) {
+			if (!is_trusted_reg(env, reg)) {
 				if (!is_kfunc_rcu(meta)) {
 					verbose(env, "%s must be referenced or trusted\n",
 						reg_arg_name(env, argno));
@@ -12115,7 +12030,6 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 				}
 			}
 			fallthrough;
-		case KF_ARG_PTR_TO_DYNPTR:
 		case KF_ARG_PTR_TO_ITER:
 		case KF_ARG_PTR_TO_LIST_HEAD:
 		case KF_ARG_PTR_TO_LIST_NODE:
@@ -12132,6 +12046,9 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 		case KF_ARG_PTR_TO_IRQ_FLAG:
 		case KF_ARG_PTR_TO_RES_SPIN_LOCK:
 			break;
+		case KF_ARG_PTR_TO_DYNPTR:
+			arg_type = ARG_PTR_TO_DYNPTR;
+			break;
 		case KF_ARG_PTR_TO_CTX:
 			arg_type = ARG_PTR_TO_CTX;
 			break;
@@ -12140,7 +12057,7 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 			return -EFAULT;
 		}
 
-		if (is_kfunc_release(meta) && reg->ref_obj_id)
+		if (regno == meta->release_regno)
 			arg_type |= OBJ_RELEASE;
 		ret = check_func_arg_reg_off(env, reg, argno, arg_type);
 		if (ret < 0)
@@ -12179,7 +12096,7 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 					reg_arg_name(env, argno));
 				return -EINVAL;
 			}
-			if (!reg->ref_obj_id) {
+			if (!reg_is_referenced(env, reg)) {
 				verbose(env, "allocated object must be referenced\n");
 				return -EINVAL;
 			}
@@ -12191,7 +12108,6 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 		case KF_ARG_PTR_TO_DYNPTR:
 		{
 			enum bpf_arg_type dynptr_arg_type = ARG_PTR_TO_DYNPTR;
-			int clone_ref_obj_id = 0;
 
 			if (is_kfunc_arg_uninit(btf, &args[i]))
 				dynptr_arg_type |= MEM_UNINIT;
@@ -12206,15 +12122,9 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 				dynptr_arg_type |= DYNPTR_TYPE_FILE;
 			} else if (meta->func_id == special_kfunc_list[KF_bpf_dynptr_file_discard]) {
 				dynptr_arg_type |= DYNPTR_TYPE_FILE | OBJ_RELEASE;
-				if (regno < 0) {
-					verbose(env, "%s release arg cannot be a stack argument\n",
-						reg_arg_name(env, argno));
-					return -EINVAL;
-				}
-				meta->release_regno = regno;
 			} else if (meta->func_id == special_kfunc_list[KF_bpf_dynptr_clone] &&
 				   (dynptr_arg_type & MEM_UNINIT)) {
-				enum bpf_dynptr_type parent_type = meta->initialized_dynptr.type;
+				enum bpf_dynptr_type parent_type = meta->dynptr.type;
 
 				if (parent_type == BPF_DYNPTR_TYPE_INVALID) {
 					verifier_bug(env, "no dynptr type for parent of clone");
@@ -12222,30 +12132,12 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 				}
 
 				dynptr_arg_type |= (unsigned int)get_dynptr_type_flag(parent_type);
-				clone_ref_obj_id = meta->initialized_dynptr.ref_obj_id;
-				if (dynptr_type_refcounted(parent_type) && !clone_ref_obj_id) {
-					verifier_bug(env, "missing ref obj id for parent of clone");
-					return -EFAULT;
-				}
 			}
 
-			ret = process_dynptr_func(env, reg, argno, insn_idx,
-						  dynptr_arg_type, clone_ref_obj_id);
+			ret = process_dynptr_func(env, reg, argno, insn_idx, dynptr_arg_type,
+						  &meta->ref_obj, &meta->dynptr);
 			if (ret < 0)
 				return ret;
-
-			if (!(dynptr_arg_type & MEM_UNINIT)) {
-				int id = dynptr_id(env, reg);
-
-				if (id < 0) {
-					verifier_bug(env, "failed to obtain dynptr id");
-					return id;
-				}
-				meta->initialized_dynptr.id = id;
-				meta->initialized_dynptr.type = dynptr_get_type(env, reg);
-				meta->initialized_dynptr.ref_obj_id = dynptr_ref_obj_id(env, reg);
-			}
-
 			break;
 		}
 		case KF_ARG_PTR_TO_ITER:
@@ -12266,7 +12158,8 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 					reg_arg_name(env, argno));
 				return -EINVAL;
 			}
-			if (reg->type == (PTR_TO_BTF_ID | MEM_ALLOC) && !reg->ref_obj_id) {
+			if (reg->type == (PTR_TO_BTF_ID | MEM_ALLOC) &&
+			    !reg_is_referenced(env, reg)) {
 				verbose(env, "allocated object must be referenced\n");
 				return -EINVAL;
 			}
@@ -12281,7 +12174,8 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 					reg_arg_name(env, argno));
 				return -EINVAL;
 			}
-			if (reg->type == (PTR_TO_BTF_ID | MEM_ALLOC) && !reg->ref_obj_id) {
+			if (reg->type == (PTR_TO_BTF_ID | MEM_ALLOC) &&
+			    !reg_is_referenced(env, reg)) {
 				verbose(env, "allocated object must be referenced\n");
 				return -EINVAL;
 			}
@@ -12291,7 +12185,7 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 			break;
 		case KF_ARG_PTR_TO_LIST_NODE:
 			if (is_kfunc_arg_nonown_allowed(btf, &args[i]) &&
-			    type_is_non_owning_ref(reg->type) && !reg->ref_obj_id) {
+			    type_is_non_owning_ref(reg->type) && !reg_is_referenced(env, reg)) {
 				/* Allow bpf_list_front/back return value for
 				 * __nonown_allowed list-node arguments.
 				 */
@@ -12302,7 +12196,7 @@ static int check_kfunc_args(struct bpf_verifier_env *env, struct bpf_kfunc_call_
 					reg_arg_name(env, argno));
 				return -EINVAL;
 			}
-			if (!reg->ref_obj_id) {
+			if (!reg_is_referenced(env, reg)) {
 				verbose(env, "allocated object must be referenced\n");
 				return -EINVAL;
 			}
@@ -12318,12 +12212,13 @@ check_ok:
 						reg_arg_name(env, argno));
 					return -EINVAL;
 				}
-				if (!reg->ref_obj_id) {
+				if (!reg_is_referenced(env, reg)) {
 					verbose(env, "allocated object must be referenced\n");
 					return -EINVAL;
 				}
 			} else {
-				if (!type_is_non_owning_ref(reg->type) && !reg->ref_obj_id) {
+				if (!type_is_non_owning_ref(reg->type) &&
+				    !reg_is_referenced(env, reg)) {
 					verbose(env, "%s can only take non-owning or refcounted bpf_rb_node pointer\n", func_name);
 					return -EINVAL;
 				}
@@ -12515,12 +12410,6 @@ check_ok:
 		}
 	}
 
-	if (is_kfunc_release(meta) && !meta->release_regno) {
-		verbose(env, "release kernel function %s expects refcounted PTR_TO_BTF_ID\n",
-			func_name);
-		return -EINVAL;
-	}
-
 	return 0;
 }
 
@@ -12546,6 +12435,10 @@ int bpf_fetch_kfunc_arg_meta(struct bpf_verifier_env *env,
 		return -EACCES;
 
 	meta->kfunc_flags = *kfunc.flags;
+
+	/* Only support release referenced argument passed by register */
+	if (is_kfunc_release(meta))
+		meta->release_regno = BPF_REG_1;
 
 	return 0;
 }
@@ -12876,7 +12769,7 @@ static int check_special_kfunc(struct bpf_verifier_env *env, struct bpf_kfunc_ca
 		}
 	} else if (meta->func_id == special_kfunc_list[KF_bpf_dynptr_slice] ||
 		   meta->func_id == special_kfunc_list[KF_bpf_dynptr_slice_rdwr]) {
-		enum bpf_type_flag type_flag = get_dynptr_type_flag(meta->initialized_dynptr.type);
+		enum bpf_type_flag type_flag = get_dynptr_type_flag(meta->dynptr.type);
 
 		mark_reg_known_zero(env, regs, BPF_REG_0);
 
@@ -12900,16 +12793,11 @@ static int check_special_kfunc(struct bpf_verifier_env *env, struct bpf_kfunc_ca
 			}
 		}
 
-		if (!meta->initialized_dynptr.id) {
+		if (!meta->dynptr.id) {
 			verifier_bug(env, "no dynptr id");
 			return -EFAULT;
 		}
-		regs[BPF_REG_0].dynptr_id = meta->initialized_dynptr.id;
-
-		/* we don't need to set BPF_REG_0's ref obj id
-		 * because packet slices are not refcounted (see
-		 * dynptr_type_refcounted)
-		 */
+		regs[BPF_REG_0].parent_id = meta->dynptr.id;
 	} else {
 		return 0;
 	}
@@ -12923,13 +12811,13 @@ static int check_kfunc_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
 			    int *insn_idx_p)
 {
 	bool sleepable, rcu_lock, rcu_unlock, preempt_disable, preempt_enable;
-	u32 i, nargs, ptr_type_id, release_ref_obj_id;
 	struct bpf_reg_state *regs = cur_regs(env);
 	const char *func_name, *ptr_type_name;
 	const struct btf_type *t, *ptr_type;
 	struct bpf_kfunc_call_arg_meta meta;
 	struct bpf_insn_aux_data *insn_aux;
 	int err, insn_idx = *insn_idx_p;
+	u32 i, nargs, ptr_type_id, id;
 	const struct btf_param *args;
 	struct btf *desc_btf;
 
@@ -13042,22 +12930,12 @@ static int check_kfunc_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
 	if (rcu_lock) {
 		env->cur_state->active_rcu_locks++;
 	} else if (rcu_unlock) {
-		struct bpf_func_state *state;
-		struct bpf_reg_state *reg;
-		u32 clear_mask = (1 << STACK_SPILL) | (1 << STACK_ITER);
-
 		if (env->cur_state->active_rcu_locks == 0) {
 			verbose(env, "unmatched rcu read unlock (kernel function %s)\n", func_name);
 			return -EINVAL;
 		}
-		if (--env->cur_state->active_rcu_locks == 0) {
-			bpf_for_each_reg_in_vstate_mask(env->cur_state, state, reg, clear_mask, ({
-				if (reg->type & MEM_RCU) {
-					reg->type &= ~(MEM_RCU | PTR_MAYBE_NULL);
-					reg->type |= PTR_UNTRUSTED;
-				}
-			}));
-		}
+		if (--env->cur_state->active_rcu_locks == 0)
+			invalidate_rcu_protected_refs(env);
 	} else if (preempt_disable) {
 		env->cur_state->active_preempt_locks++;
 	} else if (preempt_enable) {
@@ -13088,37 +12966,16 @@ static int check_kfunc_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
 	 * PTR_TO_BTF_ID in bpf_kfunc_arg_meta, do the release now.
 	 */
 	if (meta.release_regno) {
-		struct bpf_reg_state *reg = &regs[meta.release_regno];
-
-		if (meta.initialized_dynptr.ref_obj_id) {
-			err = unmark_stack_slots_dynptr(env, reg);
-		} else {
-			err = release_reference(env, reg->ref_obj_id);
-			if (err)
-				verbose(env, "kfunc %s#%d reference has not been acquired before\n",
-					func_name, meta.func_id);
-		}
+		err = release_reg(env, &regs[meta.release_regno], false, !!meta.dynptr.id);
 		if (err)
 			return err;
 	}
 
 	if (is_bpf_list_push_kfunc(meta.func_id) || is_bpf_rbtree_add_kfunc(meta.func_id)) {
-		release_ref_obj_id = regs[BPF_REG_2].ref_obj_id;
+		id = regs[BPF_REG_2].id;
 		insn_aux->insert_off = regs[BPF_REG_2].var_off.value;
 		insn_aux->kptr_struct_meta = btf_find_struct_meta(meta.arg_btf, meta.arg_btf_id);
-		err = ref_convert_owning_non_owning(env, release_ref_obj_id);
-		if (err) {
-			verbose(env, "kfunc %s#%d conversion of owning ref to non-owning failed\n",
-				func_name, meta.func_id);
-			return err;
-		}
-
-		err = release_reference(env, release_ref_obj_id);
-		if (err) {
-			verbose(env, "kfunc %s#%d reference has not been acquired before\n",
-				func_name, meta.func_id);
-			return err;
-		}
+		ref_convert_owning_non_owning(env, id);
 	}
 
 	if (meta.func_id == special_kfunc_list[KF_bpf_throw]) {
@@ -13203,8 +13060,12 @@ static int check_kfunc_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
 				regs[BPF_REG_0].type |= MEM_RDONLY;
 
 			/* Ensures we don't access the memory after a release_reference() */
-			if (meta.ref_obj_id)
-				regs[BPF_REG_0].ref_obj_id = meta.ref_obj_id;
+			if (meta.ref_obj.id) {
+				err = validate_ref_obj(env, &meta.ref_obj);
+				if (err)
+					return err;
+				regs[BPF_REG_0].parent_id = meta.ref_obj.id;
+			}
 
 			if (is_kfunc_rcu_protected(&meta))
 				regs[BPF_REG_0].type |= MEM_RCU;
@@ -13250,13 +13111,10 @@ static int check_kfunc_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
 		}
 		mark_btf_func_reg_size(env, BPF_REG_0, sizeof(void *));
 		if (is_kfunc_acquire(&meta)) {
-			int id = acquire_reference(env, insn_idx);
-
+			id = acquire_reference(env, insn_idx, 0);
 			if (id < 0)
 				return id;
-			if (is_kfunc_ret_null(&meta))
-				regs[BPF_REG_0].id = id;
-			regs[BPF_REG_0].ref_obj_id = id;
+			regs[BPF_REG_0].id = id;
 		} else if (is_rbtree_node_type(ptr_type) || is_list_node_type(ptr_type)) {
 			ref_set_non_owning(env, &regs[BPF_REG_0]);
 		}
@@ -15487,7 +15345,7 @@ static int is_branch_taken(struct bpf_verifier_env *env, struct bpf_reg_state *r
 		if (!is_reg_const(reg2, is_jmp32))
 			return -1;
 
-		if (!reg_not_null(reg1))
+		if (!reg_not_null(env, reg1))
 			return -1;
 
 		/* If pointer is valid tests against zero will fail so we can
@@ -15704,7 +15562,7 @@ static void mark_ptr_or_null_reg(struct bpf_func_state *state,
 		    WARN_ON_ONCE(!tnum_equals_const(reg->var_off, 0)))
 			return;
 		if (is_null) {
-			/* We don't need id and ref_obj_id from this point
+			/* We don't need id from this point
 			 * onwards anymore, thus we should better reset it,
 			 * so that state pruning has chances to take effect.
 			 */
@@ -15716,15 +15574,10 @@ static void mark_ptr_or_null_reg(struct bpf_func_state *state,
 
 		mark_ptr_not_null_reg(reg);
 
-		if (!reg_may_point_to_spin_lock(reg)) {
-			/* For not-NULL ptr, reg->ref_obj_id will be reset
-			 * in release_reference().
-			 *
-			 * reg->id is still used by spin_lock ptr. Other
-			 * than spin_lock ptr type, reg->id can be reset.
-			 */
-			reg->id = 0;
-		}
+		/*
+		 * reg->id is preserved for object relationship tracking
+		 * and spin_lock lock state tracking
+		 */
 	}
 }
 
@@ -15736,10 +15589,9 @@ static void mark_ptr_or_null_regs(struct bpf_verifier_state *vstate, u32 regno,
 {
 	struct bpf_func_state *state = vstate->frame[vstate->curframe];
 	struct bpf_reg_state *regs = state->regs, *reg;
-	u32 ref_obj_id = regs[regno].ref_obj_id;
 	u32 id = regs[regno].id;
 
-	if (ref_obj_id && ref_obj_id == id && is_null)
+	if (is_null && find_reference_state(vstate, id))
 		/* regs[regno] is in the " == NULL" branch.
 		 * No one could have freed the reference state before
 		 * doing the NULL check.
@@ -16578,7 +16430,7 @@ static int check_return_code(struct bpf_verifier_env *env, int regno, const char
 		ret_type = btf_type_resolve_ptr(prog->aux->attach_btf,
 						prog->aux->attach_func_proto->type,
 						NULL);
-		if (ret_type && ret_type == reg_type && reg->ref_obj_id)
+		if (ret_type && ret_type == reg_type && reg_is_referenced(env, reg))
 			return __check_ptr_off_reg(env, reg, argno_from_reg(regno), false);
 	}
 
@@ -18447,7 +18299,7 @@ static int do_check_common(struct bpf_verifier_env *env, int subprog)
 				mark_reg_unknown(env, regs, i);
 			} else if (arg->arg_type == ARG_PTR_TO_DYNPTR) {
 				/* assume unspecial LOCAL dynptr type */
-				__mark_dynptr_reg(reg, BPF_DYNPTR_TYPE_LOCAL, true, ++env->id_gen);
+				__mark_dynptr_reg(reg, BPF_DYNPTR_TYPE_LOCAL, true, ++env->id_gen, 0);
 			} else if (base_type(arg->arg_type) == ARG_PTR_TO_MEM) {
 				reg->type = PTR_TO_MEM;
 				reg->type |= arg->arg_type &
@@ -18506,8 +18358,8 @@ static int do_check_common(struct bpf_verifier_env *env, int subprog)
 	/* Acquire references for struct_ops program arguments tagged with "__ref" */
 	if (!subprog && env->prog->type == BPF_PROG_TYPE_STRUCT_OPS) {
 		for (i = 0; i < aux->ctx_arg_info_size; i++)
-			aux->ctx_arg_info[i].ref_obj_id = aux->ctx_arg_info[i].refcounted ?
-							  acquire_reference(env, 0) : 0;
+			aux->ctx_arg_info[i].ref_id = aux->ctx_arg_info[i].refcounted ?
+						      acquire_reference(env, 0, 0) : 0;
 	}
 
 	ret = do_check(env);
