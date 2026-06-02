@@ -45,7 +45,10 @@ pub unsafe trait ProjectIndex<T: ?Sized>: Sized {
     /// Returns an index-projected pointer; fail the build if it cannot be proved to be in bounds.
     #[inline(always)]
     fn build_index(self, slice: *mut T) -> *mut Self::Output {
-        Self::get(self, slice).unwrap_or_else(|| build_error!())
+        match Self::get(self, slice) {
+            Some(v) => v,
+            None => build_error!(),
+        }
     }
 }
 
