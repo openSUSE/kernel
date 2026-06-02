@@ -587,3 +587,39 @@ pub(crate) mod ga100 {
         }
     }
 }
+
+pub(crate) const NV_THERM_I2CS_SCRATCH_FSP_BOOT_COMPLETE_STATUS_SUCCESS: u32 = 0xff;
+
+pub(crate) mod gh100 {
+    use kernel::io::register;
+
+    // PTHERM
+
+    register! {
+        pub(crate) NV_THERM_I2CS_SCRATCH(u32) @ 0x000200bc {
+            31:0    data;
+        }
+
+        // Alias to `NV_THERM_I2CS_SCRATCH` when used to check for FSP boot completion.
+        pub(crate) NV_THERM_I2CS_SCRATCH_FSP_BOOT_COMPLETE(u32) => NV_THERM_I2CS_SCRATCH {
+            31:0    fsp_boot_complete;
+        }
+    }
+}
+
+pub(crate) mod gb202 {
+    use kernel::io::register;
+
+    // PTHERM
+
+    register! {
+        pub(crate) NV_THERM_I2CS_SCRATCH(u32) @ 0x00ad00bc {
+            31:0    data;
+        }
+
+        // Alias to `NV_THERM_I2CS_SCRATCH` when used to check for FSP boot completion.
+        pub(crate) NV_THERM_I2CS_SCRATCH_FSP_BOOT_COMPLETE(u32) => NV_THERM_I2CS_SCRATCH {
+            31:0    fsp_boot_complete;
+        }
+    }
+}

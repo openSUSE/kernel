@@ -15,7 +15,6 @@ use crate::falcon::{
 };
 
 /// Type specifying the `Fsp` falcon engine. Cannot be instantiated.
-#[expect(dead_code)]
 pub(crate) struct Fsp(());
 
 impl RegisterBase<PFalconBase> for Fsp {

@@ -17,6 +17,7 @@ mod driver;
 mod falcon;
 mod fb;
 mod firmware;
+mod fsp;
 mod gpu;
 mod gsp;
 #[macro_use]
