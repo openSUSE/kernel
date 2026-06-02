@@ -1198,7 +1198,8 @@ static int bnxt_re_init_user_qp(struct bnxt_re_dev *rdev, struct bnxt_re_pd *pd,
 				struct bnxt_re_qp *qp, struct bnxt_re_ucontext *cntx,
 				struct bnxt_re_qp_req *ureq,
 				bool fixed_que_attr,
-				struct bnxt_re_dbr_obj *dbr_obj)
+				struct bnxt_re_dbr_obj *dbr_obj,
+				struct uverbs_attr_bundle *attrs)
 {
 	struct bnxt_qplib_qp *qplib_qp;
 	struct ib_umem *umem;
@@ -1213,8 +1214,9 @@ static int bnxt_re_init_user_qp(struct bnxt_re_dev *rdev, struct bnxt_re_pd *pd,
 		bytes += bnxt_re_get_psn_bytes(rdev, cntx, qplib_qp, ureq, fixed_que_attr);
 
 	bytes = PAGE_ALIGN(bytes);
-	umem = ib_umem_get_va(&rdev->ibdev, ureq->qpsva, bytes,
-			      IB_ACCESS_LOCAL_WRITE);
+	umem = ib_umem_get_attr_or_va(&rdev->ibdev, attrs,
+				      UVERBS_ATTR_CREATE_QP_SQ_BUF_UMEM,
+				      ureq->qpsva, bytes, IB_ACCESS_LOCAL_WRITE);
 	if (IS_ERR(umem))
 		return PTR_ERR(umem);
 
@@ -1228,8 +1230,9 @@ static int bnxt_re_init_user_qp(struct bnxt_re_dev *rdev, struct bnxt_re_pd *pd,
 
 	bytes = (qplib_qp->rq.max_wqe * qplib_qp->rq.wqe_size);
 	bytes = PAGE_ALIGN(bytes);
-	umem = ib_umem_get_va(&rdev->ibdev, ureq->qprva, bytes,
-			      IB_ACCESS_LOCAL_WRITE);
+	umem = ib_umem_get_attr_or_va(&rdev->ibdev, attrs,
+				      UVERBS_ATTR_CREATE_QP_RQ_BUF_UMEM,
+				      ureq->qprva, bytes, IB_ACCESS_LOCAL_WRITE);
 	if (IS_ERR(umem)) {
 		rc = PTR_ERR(umem);
 		goto fail;
@@ -1721,7 +1724,8 @@ static int bnxt_re_init_qp_attr(struct bnxt_re_qp *qp, struct bnxt_re_pd *pd,
 				struct bnxt_re_ucontext *uctx,
 				struct bnxt_re_qp_req *ureq,
 				struct bnxt_re_dbr_obj *dbr_obj,
-				bool fixed_que_attr)
+				bool fixed_que_attr,
+				struct uverbs_attr_bundle *attrs)
 {
 	struct bnxt_qplib_dev_attr *dev_attr;
 	struct bnxt_qplib_qp *qplqp;
@@ -1795,7 +1799,7 @@ static int bnxt_re_init_qp_attr(struct bnxt_re_qp *qp, struct bnxt_re_pd *pd,
 
 	if (uctx) { /* This will update DPI and qp_handle */
 		rc = bnxt_re_init_user_qp(rdev, pd, qp, uctx, ureq, fixed_que_attr,
-					  dbr_obj);
+					  dbr_obj, attrs);
 		if (rc)
 			return rc;
 	}
@@ -1931,9 +1935,9 @@ static int bnxt_re_add_unique_gid(struct bnxt_re_dev *rdev)
 int bnxt_re_create_qp(struct ib_qp *ib_qp, struct ib_qp_init_attr *qp_init_attr,
 		      struct ib_udata *udata)
 {
+	struct uverbs_attr_bundle *attrs = NULL;
 	struct bnxt_re_dbr_obj *dbr_obj = NULL;
 	struct bnxt_qplib_dev_attr *dev_attr;
-	struct uverbs_attr_bundle *attrs;
 	struct bnxt_re_ucontext *uctx;
 	bool fixed_que_attr = false;
 	struct bnxt_re_qp_req ureq;
@@ -1979,7 +1983,7 @@ int bnxt_re_create_qp(struct ib_qp *ib_qp, struct ib_qp_init_attr *qp_init_attr,
 
 	qp->rdev = rdev;
 	rc = bnxt_re_init_qp_attr(qp, pd, qp_init_attr, uctx, &ureq,
-				  dbr_obj, fixed_que_attr);
+				  dbr_obj, fixed_que_attr, attrs);
 	if (rc)
 		goto fail;
 
