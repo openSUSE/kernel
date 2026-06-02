@@ -83,6 +83,25 @@ int uncore_device_to_die(struct pci_dev *dev)
 	return -1;
 }
 
+/*
+ * Using cpus_read_lock() to ensure cpu is not going down between
+ * looking at cpu_online_mask.
+ *
+ * The lock must be held by the caller.
+ */
+int uncore_die_to_cpu(int die)
+{
+	int res = 0, cpu;
+
+	for_each_online_cpu(cpu) {
+		if (topology_logical_die_id(cpu) == die) {
+			res = cpu;
+			break;
+		}
+	}
+	return res;
+}
+
 static void uncore_free_pcibus_map(void)
 {
 	struct pci2phy_map *map, *tmp;
