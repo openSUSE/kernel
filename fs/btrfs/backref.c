@@ -1256,7 +1256,7 @@ static bool lookup_backref_shared_cache(struct btrfs_backref_share_check_ctx *ct
 	 * realizing. We cache results only for extent buffers that lead from
 	 * the root node down to the leaf with the file extent item.
 	 */
-	ASSERT(level >= 0);
+	ASSERT(level >= 0, "level=%d", level);
 
 	entry = &ctx->path_cache_entries[level];
 
@@ -1327,7 +1327,7 @@ static void store_backref_shared_cache(struct btrfs_backref_share_check_ctx *ctx
 	 * realizing. We cache results only for extent buffers that lead from
 	 * the root node down to the leaf with the file extent item.
 	 */
-	ASSERT(level >= 0);
+	ASSERT(level >= 0, "level=%d", level);
 
 	if (is_shared)
 		gen = btrfs_get_last_root_drop_gen(fs_info);
@@ -2964,7 +2964,9 @@ int btrfs_backref_iter_next(struct btrfs_fs_info *fs_info, struct btrfs_backref_
 
 	if (btrfs_backref_iter_is_inline_ref(iter)) {
 		/* We're still inside the inline refs */
-		ASSERT(iter->cur_ptr < iter->end_ptr);
+		ASSERT(iter->cur_ptr < iter->end_ptr,
+		       "iter->cur_ptr=%u iter->end_ptr=%u",
+		       iter->cur_ptr, iter->end_ptr);
 
 		if (btrfs_backref_has_tree_block_info(iter)) {
 			/* First tree block info */
@@ -3030,7 +3032,7 @@ struct btrfs_backref_node *btrfs_backref_alloc_node(
 {
 	struct btrfs_backref_node *node;
 
-	ASSERT(level >= 0 && level < BTRFS_MAX_LEVEL);
+	ASSERT(level >= 0 && level < BTRFS_MAX_LEVEL, "level=%d", level);
 	node = kzalloc_obj(*node, GFP_NOFS);
 	if (!node)
 		return node;
@@ -3052,7 +3054,7 @@ void btrfs_backref_free_node(struct btrfs_backref_cache *cache,
 	if (node) {
 		ASSERT(list_empty(&node->list));
 		ASSERT(list_empty(&node->lower));
-		ASSERT(node->eb == NULL);
+		ASSERT(node->eb == NULL, "node->eb->start=%llu", node->eb->start);
 		cache->nr_nodes--;
 		btrfs_put_root(node->root);
 		kfree(node);
@@ -3155,15 +3157,18 @@ void btrfs_backref_release_cache(struct btrfs_backref_cache *cache)
 
 	ASSERT(list_empty(&cache->pending_edge));
 	ASSERT(list_empty(&cache->useless_node));
-	ASSERT(!cache->nr_nodes);
-	ASSERT(!cache->nr_edges);
+	ASSERT(!cache->nr_nodes, "cache->nr_nodes=%d", cache->nr_nodes);
+	ASSERT(!cache->nr_edges, "cache->nr_edges=%d", cache->nr_edges);
 }
 
 static void btrfs_backref_link_edge(struct btrfs_backref_edge *edge,
 				    struct btrfs_backref_node *lower,
 				    struct btrfs_backref_node *upper)
 {
-	ASSERT(upper && lower && upper->level == lower->level + 1);
+	ASSERT(upper != NULL);
+	ASSERT(lower != NULL);
+	ASSERT(upper->level == lower->level + 1, "upper->level=%d lower->level=%d",
+	       upper->level, lower->level);
 	edge->node[LOWER] = lower;
 	edge->node[UPPER] = upper;
 	list_add_tail(&edge->list[LOWER], &lower->upper);
@@ -3283,7 +3288,9 @@ static int handle_indirect_tree_backref(struct btrfs_trans_handle *trans,
 
 	if (btrfs_root_level(&root->root_item) == cur->level) {
 		/* Tree root */
-		ASSERT(btrfs_root_bytenr(&root->root_item) == cur->bytenr);
+		ASSERT(btrfs_root_bytenr(&root->root_item) == cur->bytenr,
+		       "root_bytenr=%llu cur->bytenr=%llu",
+		       btrfs_root_bytenr(&root->root_item), cur->bytenr);
 		/*
 		 * For reloc backref cache, we may ignore reloc root.  But for
 		 * general purpose backref cache, we can't rely on
@@ -3333,8 +3340,9 @@ static int handle_indirect_tree_backref(struct btrfs_trans_handle *trans,
 	/* Add all nodes and edges in the path */
 	for (; level < BTRFS_MAX_LEVEL; level++) {
 		if (!path->nodes[level]) {
-			ASSERT(btrfs_root_bytenr(&root->root_item) ==
-			       lower->bytenr);
+			ASSERT(btrfs_root_bytenr(&root->root_item) == lower->bytenr,
+			       "root_bytenr=%llu lower->bytenr=%llu",
+			       btrfs_root_bytenr(&root->root_item), lower->bytenr);
 			/* Same as previous should_ignore_reloc_root() call */
 			if (btrfs_should_ignore_reloc_root(root) &&
 			    cache->is_reloc) {
