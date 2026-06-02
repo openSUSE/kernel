@@ -1378,6 +1378,7 @@ struct kvm_arch {
 	struct kvm_ioapic *vioapic;
 	struct kvm_pit *vpit;
 	atomic_t vapics_in_nmi_mode;
+
 	struct mutex apic_map_lock;
 	struct kvm_apic_map __rcu *apic_map;
 	atomic_t apic_map_dirty;
@@ -1385,9 +1386,13 @@ struct kvm_arch {
 	bool apic_access_memslot_enabled;
 	bool apic_access_memslot_inhibited;
 
-	/* Protects apicv_inhibit_reasons */
+	/*
+	 * Protects apicv_inhibit_reasons and apicv_nr_irq_window_req (with an
+	 * asterisk, see kvm_inc_or_dec_irq_window_inhibit() for details).
+	 */
 	struct rw_semaphore apicv_update_lock;
 	unsigned long apicv_inhibit_reasons;
+	atomic_t apicv_nr_irq_window_req;
 
 	gpa_t wall_clock;
 
@@ -2273,6 +2278,18 @@ static inline void kvm_clear_apicv_inhibit(struct kvm *kvm,
 					   enum kvm_apicv_inhibit reason)
 {
 	kvm_set_or_clear_apicv_inhibit(kvm, reason, false);
+}
+
+void kvm_inc_or_dec_irq_window_inhibit(struct kvm *kvm, bool inc);
+
+static inline void kvm_inc_apicv_irq_window_req(struct kvm *kvm)
+{
+	kvm_inc_or_dec_irq_window_inhibit(kvm, true);
+}
+
+static inline void kvm_dec_apicv_irq_window_req(struct kvm *kvm)
+{
+	kvm_inc_or_dec_irq_window_inhibit(kvm, false);
 }
 
 int kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 error_code,
