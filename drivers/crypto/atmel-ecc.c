@@ -284,15 +284,7 @@ static unsigned int atmel_ecdh_max_size(struct crypto_kpp *tfm)
 {
 	struct atmel_ecdh_ctx *ctx = kpp_tfm_ctx(tfm);
 
-	if (ctx->fallback)
-		return crypto_kpp_maxsize(ctx->fallback);
-
-	/*
-	 * The device only supports NIST P256 ECC keys. The public key size will
-	 * always be the same. Use a macro for the key size to avoid unnecessary
-	 * computations.
-	 */
-	return ATMEL_ECC_PUBKEY_SIZE;
+	return crypto_kpp_maxsize(ctx->fallback);
 }
 
 static struct kpp_alg atmel_ecdh_nist_p256 = {
