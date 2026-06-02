@@ -5862,13 +5862,13 @@ Kernel parameters
 			use a call_rcu[_hurry]() path. Please note, this is for a
 			normal grace period.
 
-			How to enable it:
+			How to disable it:
 
-			echo 1 > /sys/module/rcutree/parameters/rcu_normal_wake_from_gp
-			or pass a boot parameter "rcutree.rcu_normal_wake_from_gp=1"
+			echo 0 > /sys/module/rcutree/parameters/rcu_normal_wake_from_gp
+			or pass a boot parameter "rcutree.rcu_normal_wake_from_gp=0"
 
-			Default is 1 if num_possible_cpus() <= 16 and it is not explicitly
-			disabled by the boot parameter passing 0.
+			Default is 1 if it is not explicitly disabled by the boot parameter
+			passing 0.
 
 	rcuscale.gp_async= [KNL]
 			Measure performance of asynchronous
