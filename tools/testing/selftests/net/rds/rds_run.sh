@@ -209,8 +209,9 @@ while getopts "d:l:c:u:t:T:" opt; do
       TRANSPORT=${OPTARG}
       ;;
     :)
-      echo "USAGE: run.sh [-d logdir] [-l packet_loss] [-c packet_corruption]" \
-           "[-u packet_duplicate] [-t timeout] [-T tcp|rdma|tcp,rdma]"
+      echo "USAGE: rds_run.sh [-d logdir] [-l packet_loss]" \
+           "[-c packet_corruption] [-u packet_duplicate] [-t timeout]" \
+           "[-T tcp|rdma|tcp,rdma]"
       exit 1
       ;;
     ?)
@@ -224,7 +225,7 @@ done
 IFS=',' read -ra transports <<< "$TRANSPORT"
 for t in "${transports[@]}"; do
     if [ "$t" != "tcp" ] && [ "$t" != "rdma" ]; then
-        echo "run.sh: unknown transport '$t' (expected tcp or rdma)"
+        echo "rds_run.sh: unknown transport '$t' (expected tcp or rdma)"
         exit 1
     fi
 done
