@@ -649,6 +649,17 @@ static inline void user_access_restore(unsigned long flags) { }
 #define user_read_access_end user_access_end
 #endif
 
+#ifndef unsafe_atomic_store_release_user
+# define unsafe_atomic_store_release_user(val, uptr, elbl)	\
+	do {							\
+		if (!IS_ENABLED(CONFIG_ARCH_MEMORY_ORDER_TSO))	\
+			smp_mb();				\
+		else						\
+			barrier();				\
+		unsafe_put_user(val, uptr, elbl);		\
+	} while (0)
+#endif
+
 /* Define RW variant so the below _mode macro expansion works */
 #define masked_user_rw_access_begin(u)	masked_user_access_begin(u)
 #define user_rw_access_begin(u, s)	user_access_begin(u, s)
