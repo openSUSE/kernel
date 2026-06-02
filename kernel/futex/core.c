@@ -1062,7 +1062,7 @@ retry:
 	owner = uval & FUTEX_TID_MASK;
 
 	if (pending_op && !pi && !owner) {
-		futex_wake(uaddr, FLAGS_SIZE_32 | FLAGS_SHARED, 1,
+		futex_wake(uaddr, FLAGS_SIZE_32 | FLAGS_SHARED, NULL, 1,
 			   FUTEX_BITSET_MATCH_ANY);
 		return 0;
 	}
@@ -1116,7 +1116,7 @@ retry:
 	 * PI futexes happens in exit_pi_state():
 	 */
 	if (!pi && (uval & FUTEX_WAITERS)) {
-		futex_wake(uaddr, FLAGS_SIZE_32 | FLAGS_SHARED, 1,
+		futex_wake(uaddr, FLAGS_SIZE_32 | FLAGS_SHARED, NULL, 1,
 			   FUTEX_BITSET_MATCH_ANY);
 	}
 
@@ -1206,6 +1206,27 @@ static void exit_robust_list(struct task_struct *curr)
 		handle_futex_death((void __user *)pending + futex_offset,
 				   curr, pend_mod, HANDLE_DEATH_PENDING);
 	}
+}
+
+static bool robust_list_clear_pending(unsigned long __user *pop)
+{
+	struct robust_list_head __user *head = current->futex.robust_list;
+
+	if (!put_user(0UL, pop))
+		return true;
+
+	/*
+	 * Just give up. The robust list head is usually part of TLS, so the
+	 * chance that this gets resolved is close to zero.
+	 *
+	 * If @pop_addr is the robust_list_head::list_op_pending pointer then
+	 * clear the robust list head pointer to prevent further damage when the
+	 * task exits.  Better a few stale futexes than corrupted memory. But
+	 * that's mostly an academic exercise.
+	 */
+	if (pop == (unsigned long __user *)&head->list_op_pending)
+		current->futex.robust_list = NULL;
+	return false;
 }
 
 #ifdef CONFIG_COMPAT
@@ -1304,6 +1325,21 @@ static void compat_exit_robust_list(struct task_struct *curr)
 		handle_futex_death(uaddr, curr, pend_mod, HANDLE_DEATH_PENDING);
 	}
 }
+
+static bool compat_robust_list_clear_pending(u32 __user *pop)
+{
+	struct compat_robust_list_head __user *head = current->futex.compat_robust_list;
+
+	if (!put_user(0U, pop))
+		return true;
+
+	/* See comment in robust_list_clear_pending(). */
+	if (pop == &head->list_op_pending)
+		current->futex.compat_robust_list = NULL;
+	return false;
+}
+#else
+static bool compat_robust_list_clear_pending(u32 __user *pop_addr) { return false; }
 #endif
 
 #ifdef CONFIG_FUTEX_PI
@@ -1396,6 +1432,19 @@ static void exit_pi_state_list(struct task_struct *curr)
 #else
 static inline void exit_pi_state_list(struct task_struct *curr) { }
 #endif
+
+bool futex_robust_list_clear_pending(void __user *pop, unsigned int flags)
+{
+	bool size32bit = !!(flags & FLAGS_ROBUST_LIST32);
+
+	if (!IS_ENABLED(CONFIG_64BIT) && !size32bit)
+		return false;
+
+	if (IS_ENABLED(CONFIG_64BIT) && size32bit)
+		return compat_robust_list_clear_pending(pop);
+
+	return robust_list_clear_pending(pop);
+}
 
 static void futex_cleanup(struct task_struct *tsk)
 {

@@ -150,12 +150,35 @@ void futex_wake_mark(struct wake_q_head *wake_q, struct futex_q *q)
 }
 
 /*
+ * If requested, clear the robust list pending op and unlock the futex
+ */
+static bool futex_robust_unlock(u32 __user *uaddr, unsigned int flags, void __user *pop)
+{
+	if (!(flags & FLAGS_ROBUST_UNLOCK))
+		return true;
+
+	/* First unlock the futex, which requires release semantics. */
+	scoped_user_write_access(uaddr, efault)
+		unsafe_atomic_store_release_user(0, uaddr, efault);
+
+	/*
+	 * Clear the pending list op now. If that fails, then the task is in
+	 * deeper trouble as the robust list head is usually part of the TLS.
+	 * The chance of survival is close to zero.
+	 */
+	return futex_robust_list_clear_pending(pop, flags);
+
+efault:
+	return false;
+}
+
+/*
  * Wake up waiters matching bitset queued on this futex (uaddr).
  */
-int futex_wake(u32 __user *uaddr, unsigned int flags, int nr_wake, u32 bitset)
+int futex_wake(u32 __user *uaddr, unsigned int flags, void __user *pop, int nr_wake, u32 bitset)
 {
-	struct futex_q *this, *next;
 	union futex_key key = FUTEX_KEY_INIT;
+	struct futex_q *this, *next;
 	DEFINE_WAKE_Q(wake_q);
 	int ret;
 
@@ -165,6 +188,9 @@ int futex_wake(u32 __user *uaddr, unsigned int flags, int nr_wake, u32 bitset)
 	ret = get_futex_key(uaddr, flags, &key, FUTEX_READ);
 	if (unlikely(ret != 0))
 		return ret;
+
+	if (!futex_robust_unlock(uaddr, flags, pop))
+		return -EFAULT;
 
 	if ((flags & FLAGS_STRICT) && !nr_wake)
 		return 0;

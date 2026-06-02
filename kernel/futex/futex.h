@@ -40,6 +40,8 @@
 #define FLAGS_NUMA		0x0080
 #define FLAGS_STRICT		0x0100
 #define FLAGS_MPOL		0x0200
+#define FLAGS_ROBUST_UNLOCK	0x0400
+#define FLAGS_ROBUST_LIST32	0x0800
 
 /* FUTEX_ to FLAGS_ */
 static inline unsigned int futex_to_flags(unsigned int op)
@@ -51,6 +53,12 @@ static inline unsigned int futex_to_flags(unsigned int op)
 
 	if (op & FUTEX_CLOCK_REALTIME)
 		flags |= FLAGS_CLOCKRT;
+
+	if (op & FUTEX_ROBUST_UNLOCK)
+		flags |= FLAGS_ROBUST_UNLOCK;
+
+	if (op & FUTEX_ROBUST_LIST32)
+		flags |= FLAGS_ROBUST_LIST32;
 
 	return flags;
 }
@@ -449,13 +457,16 @@ extern int futex_unqueue_multiple(struct futex_vector *v, int count);
 extern int futex_wait_multiple(struct futex_vector *vs, unsigned int count,
 			       struct hrtimer_sleeper *to);
 
-extern int futex_wake(u32 __user *uaddr, unsigned int flags, int nr_wake, u32 bitset);
+extern int futex_wake(u32 __user *uaddr, unsigned int flags, void __user *pop,
+		      int nr_wake, u32 bitset);
 
 extern int futex_wake_op(u32 __user *uaddr1, unsigned int flags,
 			 u32 __user *uaddr2, int nr_wake, int nr_wake2, int op);
 
-extern int futex_unlock_pi(u32 __user *uaddr, unsigned int flags);
+extern int futex_unlock_pi(u32 __user *uaddr, unsigned int flags, void __user *pop);
 
 extern int futex_lock_pi(u32 __user *uaddr, unsigned int flags, ktime_t *time, int trylock);
+
+bool futex_robust_list_clear_pending(void __user *pop, unsigned int flags);
 
 #endif /* _FUTEX_H */

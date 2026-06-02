@@ -118,6 +118,13 @@ long do_futex(u32 __user *uaddr, int op, u32 val, ktime_t *timeout,
 			return -ENOSYS;
 	}
 
+	if (flags & FLAGS_ROBUST_UNLOCK) {
+		if (cmd != FUTEX_WAKE &&
+		    cmd != FUTEX_WAKE_BITSET &&
+		    cmd != FUTEX_UNLOCK_PI)
+			return -ENOSYS;
+	}
+
 	switch (cmd) {
 	case FUTEX_WAIT:
 		val3 = FUTEX_BITSET_MATCH_ANY;
@@ -128,7 +135,7 @@ long do_futex(u32 __user *uaddr, int op, u32 val, ktime_t *timeout,
 		val3 = FUTEX_BITSET_MATCH_ANY;
 		fallthrough;
 	case FUTEX_WAKE_BITSET:
-		return futex_wake(uaddr, flags, val, val3);
+		return futex_wake(uaddr, flags, uaddr2, val, val3);
 	case FUTEX_REQUEUE:
 		return futex_requeue(uaddr, flags, uaddr2, flags, val, val2, NULL, 0);
 	case FUTEX_CMP_REQUEUE:
@@ -141,7 +148,7 @@ long do_futex(u32 __user *uaddr, int op, u32 val, ktime_t *timeout,
 	case FUTEX_LOCK_PI2:
 		return futex_lock_pi(uaddr, flags, timeout, 0);
 	case FUTEX_UNLOCK_PI:
-		return futex_unlock_pi(uaddr, flags);
+		return futex_unlock_pi(uaddr, flags, uaddr2);
 	case FUTEX_TRYLOCK_PI:
 		return futex_lock_pi(uaddr, flags, NULL, 1);
 	case FUTEX_WAIT_REQUEUE_PI:
@@ -375,7 +382,7 @@ SYSCALL_DEFINE4(futex_wake,
 	if (!futex_validate_input(flags, mask))
 		return -EINVAL;
 
-	return futex_wake(uaddr, FLAGS_STRICT | flags, nr, mask);
+	return futex_wake(uaddr, FLAGS_STRICT | flags, NULL, nr, mask);
 }
 
 /*
