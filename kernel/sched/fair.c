@@ -6991,12 +6991,11 @@ static void unthrottle_cfs_rq_async(struct cfs_rq *cfs_rq)
 
 static bool distribute_cfs_runtime(struct cfs_bandwidth *cfs_b)
 {
+	bool throttled = false, unthrottle_local = false;
 	int this_cpu = smp_processor_id();
 	u64 runtime, remaining = 1;
-	bool throttled = false;
-	struct cfs_rq *cfs_rq, *tmp;
+	struct cfs_rq *cfs_rq;
 	struct rq *rq;
-	LIST_HEAD(local_unthrottle);
 
 	guard(rcu)();
 
@@ -7047,24 +7046,23 @@ static bool distribute_cfs_runtime(struct cfs_bandwidth *cfs_b)
 		}
 
 		/*
-		 * We currently only expect to be unthrottling
-		 * a single cfs_rq locally.
+		 * Allow a parallel async unthrottle to unthrottle
+		 * this cfs_rq too via __cfsb_csd_unthrottle().
+		 * If we are first, do it ourselves at the end and
+		 * save on an IPI from remote CPUs.
 		 */
-		WARN_ON_ONCE(!list_empty(&local_unthrottle));
-		list_add_tail(&cfs_rq->throttled_csd_list, &local_unthrottle);
+		unthrottle_local = list_empty(&rq->cfsb_csd_list);
+		list_add_tail(&cfs_rq->throttled_csd_list, &rq->cfsb_csd_list);
 	}
 
-	list_for_each_entry_safe(cfs_rq, tmp, &local_unthrottle,
-				 throttled_csd_list) {
-		struct rq *rq = rq_of(cfs_rq);
-
-		guard(rq_lock_irqsave)(rq);
-
-		list_del_init(&cfs_rq->throttled_csd_list);
-		if (cfs_rq_throttled(cfs_rq))
-			unthrottle_cfs_rq(cfs_rq);
+	if (unthrottle_local) {
+		/*
+		 * Protect against an IPI that is also trying to flush
+		 * the unthrottled cfs_rq(s) from this CPU's csd_list.
+		 */
+		scoped_guard(irqsave)
+			__cfsb_csd_unthrottle(cpu_rq(this_cpu));
 	}
-	WARN_ON_ONCE(!list_empty(&local_unthrottle));
 
 	return throttled;
 }
