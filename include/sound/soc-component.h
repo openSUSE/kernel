@@ -248,7 +248,6 @@ struct snd_soc_component {
 	void *mark_pm;
 
 	struct dentry *debugfs_root;
-	const char *debugfs_prefix;
 };
 
 #define for_each_component_dais(component, dai)\
