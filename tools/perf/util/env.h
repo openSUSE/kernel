@@ -6,6 +6,7 @@
 #include <linux/rbtree.h>
 #include "cpumap.h"
 #include "rwsem.h"
+#include "mutex.h"
 
 struct perf_cpu_map;
 
@@ -156,6 +157,8 @@ struct perf_env {
 		 */
 		bool	enabled;
 	} clock;
+	/* Protects lazy environment initialization (e.g. os_release, e_machine). */
+	struct mutex		lock;
 };
 
 enum perf_compress_type {

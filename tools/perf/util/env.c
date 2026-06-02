@@ -250,6 +250,8 @@ void perf_env__exit(struct perf_env *env)
 {
 	int i, j;
 
+	mutex_destroy(&env->lock);
+
 	perf_env__purge_bpf(env);
 	perf_env__purge_cgroups(env);
 	zfree(&env->hostname);
@@ -307,6 +309,7 @@ void perf_env__init(struct perf_env *env)
 	init_rwsem(&env->bpf_progs.lock);
 #endif
 	env->kernel_is_64_bit = -1;
+	mutex_init(&env->lock);
 }
 
 static void perf_env__init_kernel_mode(struct perf_env *env)
@@ -1014,6 +1017,7 @@ bool x86__is_amd_cpu(void)
 	struct perf_env env = { .total_mem = 0, };
 	bool is_amd;
 
+	perf_env__init(&env);
 	perf_env__cpuid(&env);
 	is_amd = perf_env__is_x86_amd_cpu(&env);
 	perf_env__exit(&env);
@@ -1036,6 +1040,7 @@ bool x86__is_intel_cpu(void)
 	struct perf_env env = { .total_mem = 0, };
 	bool is_intel;
 
+	perf_env__init(&env);
 	perf_env__cpuid(&env);
 	is_intel = perf_env__is_x86_intel_cpu(&env);
 	perf_env__exit(&env);
