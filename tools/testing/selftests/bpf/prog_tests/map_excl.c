@@ -7,6 +7,7 @@
 #include <bpf/btf.h>
 
 #include "map_excl.skel.h"
+#include "bpf_iter_bpf_array_map.skel.h"
 
 #ifndef SHA256_DIGEST_SIZE
 #define SHA256_DIGEST_SIZE	32
@@ -89,6 +90,42 @@ out:
 	close(excl_fd);
 }
 
+static void test_map_excl_no_map_iter(void)
+{
+	__u8 hash[SHA256_DIGEST_SIZE] = {};
+	LIBBPF_OPTS(bpf_map_create_opts, excl_opts,
+		    .excl_prog_hash = hash,
+		    .excl_prog_hash_size = sizeof(hash));
+	DECLARE_LIBBPF_OPTS(bpf_iter_attach_opts, opts);
+	struct bpf_iter_bpf_array_map *skel = NULL;
+	union bpf_iter_link_info linfo;
+	struct bpf_link *link;
+	int excl_fd;
+
+	excl_fd = bpf_map_create(BPF_MAP_TYPE_ARRAY, "excl_iter", 4, 8, 3, &excl_opts);
+	if (!ASSERT_OK_FD(excl_fd, "create exclusive map"))
+		return;
+
+	skel = bpf_iter_bpf_array_map__open_and_load();
+	if (!ASSERT_OK_PTR(skel, "bpf_iter_bpf_array_map__open_and_load"))
+		goto out;
+
+	memset(&linfo, 0, sizeof(linfo));
+	linfo.map.map_fd = excl_fd;
+	opts.link_info = &linfo;
+	opts.link_info_len = sizeof(linfo);
+
+	link = bpf_program__attach_iter(skel->progs.dump_bpf_array_map, &opts);
+	if (!ASSERT_ERR_PTR(link, "reject exclusive map as iter target")) {
+		bpf_link__destroy(link);
+		goto out;
+	}
+	ASSERT_EQ(libbpf_get_error(link), -EPERM, "iter attach errno");
+out:
+	bpf_iter_bpf_array_map__destroy(skel);
+	close(excl_fd);
+}
+
 void test_map_excl(void)
 {
 	if (test__start_subtest("map_excl_allowed"))
@@ -97,4 +134,6 @@ void test_map_excl(void)
 		test_map_excl_denied();
 	if (test__start_subtest("map_excl_no_map_in_map"))
 		test_map_excl_no_map_in_map();
+	if (test__start_subtest("map_excl_no_map_iter"))
+		test_map_excl_no_map_iter();
 }
