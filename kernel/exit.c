@@ -988,8 +988,8 @@ void __noreturn do_exit(long code)
 	proc_exit_connector(tsk);
 	mpol_put_task_policy(tsk);
 #ifdef CONFIG_FUTEX
-	if (unlikely(current->pi_state_cache))
-		kfree(current->pi_state_cache);
+	if (unlikely(current->futex.pi_state_cache))
+		kfree(current->futex.pi_state_cache);
 #endif
 	/*
 	 * Make sure we are holding no locks:

@@ -25,17 +25,13 @@
  * @head:	pointer to the list-head
  * @len:	length of the list-head, as userspace expects
  */
-SYSCALL_DEFINE2(set_robust_list, struct robust_list_head __user *, head,
-		size_t, len)
+SYSCALL_DEFINE2(set_robust_list, struct robust_list_head __user *, head, size_t, len)
 {
-	/*
-	 * The kernel knows only one size for now:
-	 */
+	/* The kernel knows only one size for now. */
 	if (unlikely(len != sizeof(*head)))
 		return -EINVAL;
 
-	current->robust_list = head;
-
+	current->futex.robust_list = head;
 	return 0;
 }
 
@@ -43,9 +39,9 @@ static inline void __user *futex_task_robust_list(struct task_struct *p, bool co
 {
 #ifdef CONFIG_COMPAT
 	if (compat)
-		return p->compat_robust_list;
+		return p->futex.compat_robust_list;
 #endif
-	return p->robust_list;
+	return p->futex.robust_list;
 }
 
 static void __user *futex_get_robust_list_common(int pid, bool compat)
@@ -475,15 +471,13 @@ SYSCALL_DEFINE4(futex_requeue,
 }
 
 #ifdef CONFIG_COMPAT
-COMPAT_SYSCALL_DEFINE2(set_robust_list,
-		struct compat_robust_list_head __user *, head,
-		compat_size_t, len)
+COMPAT_SYSCALL_DEFINE2(set_robust_list, struct compat_robust_list_head __user *, head,
+		       compat_size_t, len)
 {
 	if (unlikely(len != sizeof(*head)))
 		return -EINVAL;
 
-	current->compat_robust_list = head;
-
+	current->futex.compat_robust_list = head;
 	return 0;
 }
 
@@ -523,4 +517,3 @@ SYSCALL_DEFINE6(futex_time32, u32 __user *, uaddr, int, op, u32, val,
 	return do_futex(uaddr, op, val, tp, uaddr2, (unsigned long)utime, val3);
 }
 #endif /* CONFIG_COMPAT_32BIT_TIME */
-

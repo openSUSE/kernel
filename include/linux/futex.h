@@ -64,14 +64,10 @@ enum {
 
 static inline void futex_init_task(struct task_struct *tsk)
 {
-	tsk->robust_list = NULL;
-#ifdef CONFIG_COMPAT
-	tsk->compat_robust_list = NULL;
-#endif
-	INIT_LIST_HEAD(&tsk->pi_state_list);
-	tsk->pi_state_cache = NULL;
-	tsk->futex_state = FUTEX_STATE_OK;
-	mutex_init(&tsk->futex_exit_mutex);
+	memset(&tsk->futex, 0, sizeof(tsk->futex));
+	INIT_LIST_HEAD(&tsk->futex.pi_state_list);
+	tsk->futex.state = FUTEX_STATE_OK;
+	mutex_init(&tsk->futex.exit_mutex);
 }
 
 void futex_exit_recursive(struct task_struct *tsk);

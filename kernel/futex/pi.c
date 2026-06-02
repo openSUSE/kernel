@@ -14,7 +14,7 @@ int refill_pi_state_cache(void)
 {
 	struct futex_pi_state *pi_state;
 
-	if (likely(current->pi_state_cache))
+	if (likely(current->futex.pi_state_cache))
 		return 0;
 
 	pi_state = kzalloc_obj(*pi_state);
@@ -28,17 +28,17 @@ int refill_pi_state_cache(void)
 	refcount_set(&pi_state->refcount, 1);
 	pi_state->key = FUTEX_KEY_INIT;
 
-	current->pi_state_cache = pi_state;
+	current->futex.pi_state_cache = pi_state;
 
 	return 0;
 }
 
 static struct futex_pi_state *alloc_pi_state(void)
 {
-	struct futex_pi_state *pi_state = current->pi_state_cache;
+	struct futex_pi_state *pi_state = current->futex.pi_state_cache;
 
 	WARN_ON(!pi_state);
-	current->pi_state_cache = NULL;
+	current->futex.pi_state_cache = NULL;
 
 	return pi_state;
 }
@@ -60,7 +60,7 @@ static void pi_state_update_owner(struct futex_pi_state *pi_state,
 	if (new_owner) {
 		raw_spin_lock(&new_owner->pi_lock);
 		WARN_ON(!list_empty(&pi_state->list));
-		list_add(&pi_state->list, &new_owner->pi_state_list);
+		list_add(&pi_state->list, &new_owner->futex.pi_state_list);
 		pi_state->owner = new_owner;
 		raw_spin_unlock(&new_owner->pi_lock);
 	}
@@ -96,7 +96,7 @@ void put_pi_state(struct futex_pi_state *pi_state)
 		raw_spin_unlock_irqrestore(&pi_state->pi_mutex.wait_lock, flags);
 	}
 
-	if (current->pi_state_cache) {
+	if (current->futex.pi_state_cache) {
 		kfree(pi_state);
 	} else {
 		/*
@@ -106,7 +106,7 @@ void put_pi_state(struct futex_pi_state *pi_state)
 		 */
 		pi_state->owner = NULL;
 		refcount_set(&pi_state->refcount, 1);
-		current->pi_state_cache = pi_state;
+		current->futex.pi_state_cache = pi_state;
 	}
 }
 
@@ -179,7 +179,7 @@ void put_pi_state(struct futex_pi_state *pi_state)
  *
  * p->pi_lock:
  *
- *	p->pi_state_list -> pi_state->list, relation
+ *	p->futex.pi_state_list -> pi_state->list, relation
  *	pi_mutex->owner -> pi_state->owner, relation
  *
  * pi_state->refcount:
@@ -327,7 +327,7 @@ static int handle_exit_race(u32 __user *uaddr, u32 uval,
 	 * If the futex exit state is not yet FUTEX_STATE_DEAD, tell the
 	 * caller that the alleged owner is busy.
 	 */
-	if (tsk && tsk->futex_state != FUTEX_STATE_DEAD)
+	if (tsk && tsk->futex.state != FUTEX_STATE_DEAD)
 		return -EBUSY;
 
 	/*
@@ -346,8 +346,8 @@ static int handle_exit_race(u32 __user *uaddr, u32 uval,
 	 *    *uaddr = 0xC0000000;	     tsk = get_task(PID);
 	 *   }				     if (!tsk->flags & PF_EXITING) {
 	 *  ...				       attach();
-	 *  tsk->futex_state =               } else {
-	 *	FUTEX_STATE_DEAD;              if (tsk->futex_state !=
+	 *  tsk->futex.state =               } else {
+	 *	FUTEX_STATE_DEAD;              if (tsk->futex.state !=
 	 *					  FUTEX_STATE_DEAD)
 	 *				         return -EAGAIN;
 	 *				       return -ESRCH; <--- FAIL
@@ -396,7 +396,7 @@ static void __attach_to_pi_owner(struct task_struct *p, union futex_key *key,
 	pi_state->key = *key;
 
 	WARN_ON(!list_empty(&pi_state->list));
-	list_add(&pi_state->list, &p->pi_state_list);
+	list_add(&pi_state->list, &p->futex.pi_state_list);
 	/*
 	 * Assignment without holding pi_state->pi_mutex.wait_lock is safe
 	 * because there is no concurrency as the object is not published yet.
@@ -440,7 +440,7 @@ static int attach_to_pi_owner(u32 __user *uaddr, u32 uval, union futex_key *key,
 	 * in futex_exit_release(), we do this protected by p->pi_lock:
 	 */
 	raw_spin_lock_irq(&p->pi_lock);
-	if (unlikely(p->futex_state != FUTEX_STATE_OK)) {
+	if (unlikely(p->futex.state != FUTEX_STATE_OK)) {
 		/*
 		 * The task is on the way out. When the futex state is
 		 * FUTEX_STATE_DEAD, we know that the task has finished
