@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 
+use core::ops::Range;
+
 use kernel::{
     dma::DmaMask,
     prelude::*, //
@@ -22,6 +24,9 @@ pub(crate) trait GpuHal {
 
     /// Returns the DMA mask for the current architecture.
     fn dma_mask(&self) -> DmaMask;
+
+    /// Returns the address range of the PCI config mirror space.
+    fn pci_config_mirror_range(&self) -> Range<u32>;
 }
 
 pub(super) fn gpu_hal(chipset: Chipset) -> &'static dyn GpuHal {
