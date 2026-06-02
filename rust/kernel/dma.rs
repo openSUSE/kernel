@@ -1207,6 +1207,9 @@ macro_rules! dma_write {
     (@parse [$dma:expr] [$($proj:tt)*] [.$field:tt $($rest:tt)*]) => {
         $crate::dma_write!(@parse [$dma] [$($proj)* .$field] [$($rest)*])
     };
+    (@parse [$dma:expr] [$($proj:tt)*] [[$flavor:ident: $index:expr] $($rest:tt)*]) => {
+        $crate::dma_write!(@parse [$dma] [$($proj)* [$flavor: $index]] [$($rest)*])
+    };
     (@parse [$dma:expr] [$($proj:tt)*] [[$index:expr]? $($rest:tt)*]) => {
         $crate::dma_write!(@parse [$dma] [$($proj)* [$index]?] [$($rest)*])
     };
