@@ -252,9 +252,8 @@ impl FbLayout {
         };
 
         let heap = {
-            const HEAP_SIZE: u64 = u64::SZ_1M;
-
-            FbRange(wpr2.start - HEAP_SIZE..wpr2.start)
+            let heap_size = u64::from(hal.non_wpr_heap_size());
+            FbRange(wpr2.start - heap_size..wpr2.start)
         };
 
         Ok(Self {

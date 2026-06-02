@@ -44,6 +44,10 @@ pub(super) const fn pmu_reserved_size_tu102() -> u32 {
     0
 }
 
+pub(super) const fn non_wpr_heap_size_tu102() -> u32 {
+    u32::SZ_1M
+}
+
 pub(super) const fn frts_size_tu102() -> u64 {
     u64::SZ_1M
 }
@@ -69,6 +73,10 @@ impl FbHal for Tu102 {
 
     fn pmu_reserved_size(&self) -> u32 {
         pmu_reserved_size_tu102()
+    }
+
+    fn non_wpr_heap_size(&self) -> u32 {
+        non_wpr_heap_size_tu102()
     }
 
     fn frts_size(&self) -> u64 {

@@ -1,31 +1,21 @@
 // SPDX-License-Identifier: GPL-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-//! Blackwell GB10x framebuffer HAL.
+//! Blackwell GB20x framebuffer HAL.
 
 use kernel::{
     prelude::*,
-    ptr::{
-        const_align_up,
-        Alignment, //
-    },
-    sizes::*, //
+    sizes::SizeConstants, //
 };
 
 use crate::{
     driver::Bar0,
-    fb::hal::FbHal,
-    num::usize_into_u32, //
+    fb::hal::FbHal, //
 };
 
-struct Gb100;
+struct Gb202;
 
-pub(super) const fn pmu_reserved_size_gb100() -> u32 {
-    usize_into_u32::<{ const_align_up(SZ_8M + SZ_16M + SZ_4K, Alignment::new::<SZ_128K>()).unwrap() }>(
-    )
-}
-
-impl FbHal for Gb100 {
+impl FbHal for Gb202 {
     fn read_sysmem_flush_page(&self, bar: &Bar0) -> u64 {
         super::ga100::read_sysmem_flush_page_ga100(bar)
     }
@@ -45,12 +35,12 @@ impl FbHal for Gb100 {
     }
 
     fn pmu_reserved_size(&self) -> u32 {
-        pmu_reserved_size_gb100()
+        super::gb100::pmu_reserved_size_gb100()
     }
 
     fn non_wpr_heap_size(&self) -> u32 {
-        // Non-WPR heap for GB10x (see Open RM: kgspGetNonWprHeapSize, GB100/GB102).
-        u32::SZ_2M
+        // Non-WPR heap for GB20x (see Open RM: kgspGetNonWprHeapSize, GB202+).
+        u32::SZ_2M + u32::SZ_128K
     }
 
     fn frts_size(&self) -> u64 {
@@ -58,5 +48,5 @@ impl FbHal for Gb100 {
     }
 }
 
-const GB100: Gb100 = Gb100;
-pub(super) const GB100_HAL: &dyn FbHal = &GB100;
+const GB202: Gb202 = Gb202;
+pub(super) const GB202_HAL: &dyn FbHal = &GB202;

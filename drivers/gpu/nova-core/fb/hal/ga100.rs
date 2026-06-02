@@ -72,6 +72,10 @@ impl FbHal for Ga100 {
         super::tu102::pmu_reserved_size_tu102()
     }
 
+    fn non_wpr_heap_size(&self) -> u32 {
+        super::tu102::non_wpr_heap_size_tu102()
+    }
+
     // GA100 is a special case where its FRTS region exists, but is empty.  We
     // return a size of 0 because we still need to record where the region starts.
     fn frts_size(&self) -> u64 {

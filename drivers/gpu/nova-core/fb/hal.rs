@@ -14,6 +14,8 @@ use crate::{
 mod ga100;
 mod ga102;
 mod gb100;
+mod gb202;
+mod gh100;
 mod tu102;
 
 pub(crate) trait FbHal {
@@ -34,6 +36,9 @@ pub(crate) trait FbHal {
     /// Returns the amount of VRAM to reserve for the PMU.
     fn pmu_reserved_size(&self) -> u32;
 
+    /// Returns the non-WPR heap size for this chipset, in bytes.
+    fn non_wpr_heap_size(&self) -> u32;
+
     /// Returns the FRTS size, in bytes.
     fn frts_size(&self) -> u64;
 }
@@ -43,7 +48,9 @@ pub(super) fn fb_hal(chipset: Chipset) -> &'static dyn FbHal {
     match chipset.arch() {
         Architecture::Turing => tu102::TU102_HAL,
         Architecture::Ampere if chipset == Chipset::GA100 => ga100::GA100_HAL,
-        Architecture::Ampere | Architecture::Ada | Architecture::Hopper => ga102::GA102_HAL,
-        Architecture::BlackwellGB10x | Architecture::BlackwellGB20x => gb100::GB100_HAL,
+        Architecture::Ampere | Architecture::Ada => ga102::GA102_HAL,
+        Architecture::Hopper => gh100::GH100_HAL,
+        Architecture::BlackwellGB10x => gb100::GB100_HAL,
+        Architecture::BlackwellGB20x => gb202::GB202_HAL,
     }
 }
