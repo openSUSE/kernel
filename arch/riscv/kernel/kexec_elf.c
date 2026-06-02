@@ -17,6 +17,7 @@
 #include <linux/libfdt.h>
 #include <linux/types.h>
 #include <linux/memblock.h>
+#include <linux/minmax.h>
 #include <asm/setup.h>
 
 static int riscv_kexec_elf_load(struct kimage *image, struct elfhdr *ehdr,
@@ -25,7 +26,6 @@ static int riscv_kexec_elf_load(struct kimage *image, struct elfhdr *ehdr,
 {
 	int i;
 	int ret = 0;
-	size_t size;
 	struct kexec_buf kbuf = {};
 	const struct elf_phdr *phdr;
 
@@ -36,12 +36,8 @@ static int riscv_kexec_elf_load(struct kimage *image, struct elfhdr *ehdr,
 		if (phdr->p_type != PT_LOAD)
 			continue;
 
-		size = phdr->p_filesz;
-		if (size > phdr->p_memsz)
-			size = phdr->p_memsz;
-
 		kbuf.buffer = (void *) elf_info->buffer + phdr->p_offset;
-		kbuf.bufsz = size;
+		kbuf.bufsz = min(phdr->p_filesz, phdr->p_memsz);
 		kbuf.buf_align = phdr->p_align;
 		kbuf.mem = phdr->p_paddr - old_pbase + new_pbase;
 		kbuf.memsz = phdr->p_memsz;
