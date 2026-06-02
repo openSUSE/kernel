@@ -105,7 +105,41 @@ static inline int futex_hash_free(struct mm_struct *mm) { return 0; }
 #endif /* !CONFIG_FUTEX */
 
 #ifdef CONFIG_FUTEX_ROBUST_UNLOCK
+#include <asm/futex_robust.h>
+
 void futex_reset_cs_ranges(struct futex_mm_data *fd);
+void __futex_fixup_robust_unlock(struct pt_regs *regs, struct futex_unlock_cs_range *csr);
+
+static inline bool futex_within_robust_unlock(struct pt_regs *regs,
+					      struct futex_unlock_cs_range *csr)
+{
+	unsigned long ip = instruction_pointer(regs);
+
+	return ip >= csr->start_ip && ip < csr->start_ip + csr->len;
+}
+
+static inline void futex_fixup_robust_unlock(struct pt_regs *regs)
+{
+	struct futex_unlock_cs_range *csr;
+
+	/*
+	 * Avoid dereferencing current->mm if not returning from interrupt.
+	 * current->rseq.event is going to be used subsequently, so bringing the
+	 * cache line in is not a big deal.
+	 */
+	if (!current->rseq.event.user_irq)
+		return;
+
+	csr = current->mm->futex.unlock.cs_ranges;
+
+	/* The loop is optimized out for !COMPAT */
+	for (int r = 0; r < FUTEX_ROBUST_MAX_CS_RANGES; r++, csr++) {
+		if (unlikely(futex_within_robust_unlock(regs, csr))) {
+			__futex_fixup_robust_unlock(regs, csr);
+			return;
+		}
+	}
+}
 
 static inline void futex_set_vdso_cs_range(struct futex_mm_data *fd, unsigned int idx,
 					   unsigned long start, unsigned long end, bool sz32)
@@ -114,7 +148,10 @@ static inline void futex_set_vdso_cs_range(struct futex_mm_data *fd, unsigned in
 	fd->unlock.cs_ranges[idx].len = end - start;
 	fd->unlock.cs_ranges[idx].pop_size32 = sz32;
 }
-#endif /* CONFIG_FUTEX_ROBUST_UNLOCK */
+#else /* CONFIG_FUTEX_ROBUST_UNLOCK */
+static inline void futex_fixup_robust_unlock(struct pt_regs *regs) { }
+#endif /* !CONFIG_FUTEX_ROBUST_UNLOCK */
+
 
 #if defined(CONFIG_FUTEX_PRIVATE_HASH) || defined(CONFIG_FUTEX_ROBUST_UNLOCK)
 void futex_mm_init(struct mm_struct *mm);

@@ -46,6 +46,8 @@
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 
+#include <vdso/futex.h>
+
 #include "futex.h"
 #include "../locking/rtmutex_common.h"
 
@@ -1445,6 +1447,22 @@ bool futex_robust_list_clear_pending(void __user *pop, unsigned int flags)
 
 	return robust_list_clear_pending(pop);
 }
+
+#ifdef CONFIG_FUTEX_ROBUST_UNLOCK
+void __futex_fixup_robust_unlock(struct pt_regs *regs, struct futex_unlock_cs_range *csr)
+{
+	/*
+	 * arch_futex_robust_unlock_get_pop() returns the list pending op pointer from
+	 * @regs if the try_cmpxchg() succeeded.
+	 */
+	void __user *pop = arch_futex_robust_unlock_get_pop(regs);
+
+	if (!pop)
+		return;
+
+	futex_robust_list_clear_pending(pop, csr->pop_size32 ? FLAGS_ROBUST_LIST32 : 0);
+}
+#endif /* CONFIG_FUTEX_ROBUST_UNLOCK */
 
 static void futex_cleanup(struct task_struct *tsk)
 {
