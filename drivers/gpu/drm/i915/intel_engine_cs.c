@@ -1075,8 +1075,10 @@ void intel_engines_reset_default_submission(struct drm_i915_private *i915)
 	struct intel_engine_cs *engine;
 	enum intel_engine_id id;
 
-	for_each_engine(engine, i915, id)
-		engine->set_default_submission(engine);
+	for_each_engine(engine, i915, id) {
+		if (engine->set_default_submission)
+			engine->set_default_submission(engine);
+	}
 }
 
 /**
