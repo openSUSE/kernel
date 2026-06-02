@@ -423,6 +423,9 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 
 		if (wi->s2) {
 			ret = kvm_walk_nested_s2(vcpu, ipa, &s2_trans);
+			if (ret == -EAGAIN)
+				return ret;
+
 			if (ret) {
 				fail_s1_walk(wr,
 					     (s2_trans.esr & ~ESR_ELx_FSC_LEVEL) | level,
