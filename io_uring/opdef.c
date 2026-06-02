@@ -204,7 +204,7 @@ const struct io_issue_def io_issue_defs[] = {
 		.pollout		= 1,
 #if defined(CONFIG_NET)
 		.filter_pdu_size	= sizeof_field(struct io_uring_bpf_ctx, connect),
-		.async_size		= sizeof(struct io_async_msghdr),
+		.async_size		= sizeof(struct sockaddr_storage),
 		.prep			= io_connect_prep,
 		.issue			= io_connect,
 		.filter_populate	= io_connect_bpf_populate,
@@ -505,7 +505,7 @@ const struct io_issue_def io_issue_defs[] = {
 		.needs_file		= 1,
 		.prep			= io_bind_prep,
 		.issue			= io_bind,
-		.async_size		= sizeof(struct io_async_msghdr),
+		.async_size		= sizeof(struct sockaddr_storage),
 #else
 		.prep			= io_eopnotsupp_prep,
 #endif
