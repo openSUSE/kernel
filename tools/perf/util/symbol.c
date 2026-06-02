@@ -50,7 +50,6 @@
 
 static int dso__load_kernel_sym(struct dso *dso, struct map *map);
 static int dso__load_guest_kernel_sym(struct dso *dso, struct map *map);
-static bool symbol__compute_is_idle(const char *name);
 
 int vmlinux_path__nr_entries;
 char **vmlinux_path;
@@ -379,7 +378,7 @@ void symbol__set_ifunc_alias(struct symbol *sym, bool ifunc_alias)
 
 static void symbol__set_idle(struct symbol *sym, bool idle)
 {
-	uint16_t old_flags = atomic_load(&sym->flags);
+	uint16_t old_flags = atomic_load_explicit(&sym->flags, memory_order_relaxed);
 	uint16_t new_flags;
 	uint16_t idle_val = idle ? SYMBOL_IDLE__IDLE : SYMBOL_IDLE__NOT_IDLE;
 
@@ -401,25 +400,13 @@ void symbols__delete(struct rb_root_cached *symbols)
 	}
 }
 
-void __symbols__insert(struct rb_root_cached *symbols,
-		       struct symbol *sym, bool kernel)
+void __symbols__insert(struct rb_root_cached *symbols, struct symbol *sym)
 {
 	struct rb_node **p = &symbols->rb_root.rb_node;
 	struct rb_node *parent = NULL;
 	const u64 ip = sym->start;
 	struct symbol *s;
 	bool leftmost = true;
-
-	if (kernel) {
-		const char *name = sym->name;
-		/*
-		 * ppc64 uses function descriptors and appends a '.' to the
-		 * start of every instruction address. Remove it.
-		 */
-		if (name[0] == '.')
-			name++;
-		symbol__set_idle(sym, symbol__compute_is_idle(name));
-	}
 
 	while (*p != NULL) {
 		parent = *p;
@@ -437,7 +424,7 @@ void __symbols__insert(struct rb_root_cached *symbols,
 
 void symbols__insert(struct rb_root_cached *symbols, struct symbol *sym)
 {
-	__symbols__insert(symbols, sym, false);
+	__symbols__insert(symbols, sym);
 }
 
 static struct symbol *symbols__find(struct rb_root_cached *symbols, u64 ip)
@@ -598,7 +585,7 @@ void dso__reset_find_symbol_cache(struct dso *dso)
 
 void dso__insert_symbol(struct dso *dso, struct symbol *sym)
 {
-	__symbols__insert(dso__symbols(dso), sym, dso__kernel(dso));
+	__symbols__insert(dso__symbols(dso), sym);
 
 	/* update the symbol cache if necessary */
 	if (dso__last_find_result_addr(dso) >= sym->start &&
@@ -760,57 +747,120 @@ out:
 	return err;
 }
 
-bool symbol__is_idle(struct symbol *sym,
-		     const struct dso *dso __maybe_unused,
-		     struct perf_env *env __maybe_unused)
-{
-	uint16_t flags = atomic_load_explicit(&sym->flags, memory_order_relaxed);
-	uint16_t idle_val = (flags & SYMBOL_FLAG_IDLE_MASK) >> SYMBOL_FLAG_IDLE_SHIFT;
-
-	return idle_val == SYMBOL_IDLE__IDLE;
-}
 
 /*
  * These are symbols in the kernel image, so make sure that
  * sym is from a kernel DSO.
  */
-static bool symbol__compute_is_idle(const char *name)
+static int sym_name_cmp(const void *a, const void *b)
 {
-	const char * const idle_symbols[] = {
+	const char *name = a;
+	const char *const *sym = b;
+
+	return strcmp(name, *sym);
+}
+
+static bool match_x86_idle_routine(const char *name, const char *base)
+{
+	if (strstarts(name, base)) {
+		size_t len = strlen(base);
+
+		if (name[len] == '\0' || name[len] == '.')
+			return true;
+	}
+	return false;
+}
+
+bool symbol__is_idle(struct symbol *sym, const struct dso *dso, struct perf_env *env)
+{
+	static const char * const idle_symbols[] = {
 		"acpi_idle_do_entry",
 		"acpi_processor_ffh_cstate_enter",
 		"arch_cpu_idle",
 		"cpu_idle",
 		"cpu_startup_entry",
-		"idle_cpu",
-		"intel_idle",
-		"intel_idle_ibrs",
 		"default_idle",
-		"native_safe_halt",
 		"enter_idle",
 		"exit_idle",
-		"mwait_idle",
-		"mwait_idle_with_hints",
-		"mwait_idle_with_hints.constprop.0",
+		"idle_cpu",
+		"native_safe_halt",
 		"poll_idle",
-		"ppc64_runlatch_off",
 		"pseries_dedicated_idle_sleep",
-		"psw_idle",
-		"psw_idle_exit",
-		NULL
 	};
-	int i;
-	static struct strlist *idle_symbols_list;
+	const char *name = sym->name;
+	uint16_t e_machine;
 
-	if (idle_symbols_list)
-		return strlist__has_entry(idle_symbols_list, name);
+	{
+		uint16_t flags = atomic_load_explicit(&sym->flags, memory_order_relaxed);
+		uint16_t idle_val = (flags & SYMBOL_FLAG_IDLE_MASK) >> SYMBOL_FLAG_IDLE_SHIFT;
 
-	idle_symbols_list = strlist__new(NULL, NULL);
+		if (idle_val != SYMBOL_IDLE__UNKNOWN)
+			return idle_val == SYMBOL_IDLE__IDLE;
+	}
 
-	for (i = 0; idle_symbols[i]; i++)
-		strlist__add(idle_symbols_list, idle_symbols[i]);
+	if (!dso || dso__kernel(dso) == DSO_SPACE__USER) {
+		symbol__set_idle(sym, /*idle=*/false);
+		return false;
+	}
 
-	return strlist__has_entry(idle_symbols_list, name);
+	/*
+	 * ppc64 uses function descriptors and appends a '.' to the
+	 * start of every instruction address. Remove it.
+	 */
+	if (name[0] == '.')
+		name++;
+
+	if (bsearch(name, idle_symbols, ARRAY_SIZE(idle_symbols),
+		    sizeof(idle_symbols[0]), sym_name_cmp)) {
+		symbol__set_idle(sym, /*idle=*/true);
+		return true;
+	}
+
+	e_machine = (env && env->arch) ? perf_env__e_machine(env, NULL) : EM_NONE;
+	if (e_machine == EM_NONE && dso)
+		e_machine = dso__e_machine((struct dso *)dso, NULL, NULL);
+	if (e_machine == EM_NONE && env)
+		e_machine = perf_env__e_machine(env, NULL);
+
+	if (e_machine == EM_386 || e_machine == EM_X86_64) {
+		if (match_x86_idle_routine(name, "intel_idle") ||
+		    match_x86_idle_routine(name, "intel_idle_irq") ||
+		    match_x86_idle_routine(name, "intel_idle_ibrs") ||
+		    match_x86_idle_routine(name, "mwait_idle") ||
+		    match_x86_idle_routine(name, "mwait_idle_with_hints")) {
+			symbol__set_idle(sym, /*idle=*/true);
+			return true;
+		}
+	}
+
+	if (e_machine == EM_PPC64 && !strcmp(name, "ppc64_runlatch_off")) {
+		symbol__set_idle(sym, /*idle=*/true);
+		return true;
+	}
+
+	if (e_machine == EM_S390 && strstarts(name, "psw_idle")) {
+		int major = 0, minor = 0;
+		const char *release = env ? perf_env__os_release(env) : NULL;
+
+		/*
+		 * If we can't determine the release (e.g. unpopulated guest traces),
+		 * default to idle.
+		 */
+		if (!release) {
+			symbol__set_idle(sym, /*idle=*/true);
+			return true;
+		}
+
+		/* Before v6.10, s390 used psw_idle. */
+		if (sscanf(release, "%d.%d", &major, &minor) == 2 &&
+		    (major < 6 || (major == 6 && minor < 10))) {
+			symbol__set_idle(sym, /*idle=*/true);
+			return true;
+		}
+	}
+
+	symbol__set_idle(sym, /*idle=*/false);
+	return false;
 }
 
 static int map__process_kallsym_symbol(void *arg, const char *name,
@@ -839,7 +889,7 @@ static int map__process_kallsym_symbol(void *arg, const char *name,
 	 * We will pass the symbols to the filter later, in
 	 * map__split_kallsyms, when we have split the maps per module
 	 */
-	__symbols__insert(root, sym, !strchr(name, '['));
+	__symbols__insert(root, sym);
 
 	return 0;
 }
