@@ -41,7 +41,7 @@ pub(super) trait UnloadBundle: Send {
     fn run(
         &self,
         dev: &device::Device<device::Bound>,
-        bar: &Bar0,
+        bar: Bar0<'_>,
         gsp_falcon: &Falcon<GspEngine>,
         sec2_falcon: &Falcon<Sec2>,
     ) -> Result;
@@ -58,7 +58,7 @@ pub(super) trait GspHal: Send {
         &self,
         gsp: &'a Gsp,
         dev: &'a device::Device<device::Bound>,
-        bar: &'a Bar0,
+        bar: Bar0<'a>,
         chipset: Chipset,
         fb_layout: &FbLayout,
         wpr_meta: &Coherent<GspFwWprMeta>,
@@ -74,7 +74,7 @@ pub(super) trait GspHal: Send {
         &self,
         _gsp: &Gsp,
         _dev: &device::Device<device::Bound>,
-        _bar: &Bar0,
+        _bar: Bar0<'_>,
         _gsp_fw: &GspFirmware,
         _gsp_falcon: &Falcon<GspEngine>,
         _sec2_falcon: &Falcon<Sec2>,

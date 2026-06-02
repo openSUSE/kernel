@@ -55,7 +55,7 @@ impl GpuHal for Tu102 {
     /// This function waits for a signal indicating that core initialization is complete. Before
     /// this signal is received, little can be done with the GPU. This signal is set by the FWSEC
     /// running on the GSP in Heavy-secured mode.
-    fn wait_gfw_boot_completion(&self, bar: &Bar0) -> Result {
+    fn wait_gfw_boot_completion(&self, bar: Bar0<'_>) -> Result {
         // Before accessing the completion status in `NV_PGC6_AON_SECURE_SCRATCH_GROUP_05`, we must
         // first check `NV_PGC6_AON_SECURE_SCRATCH_GROUP_05_PRIV_LEVEL_MASK`. This is because
         // `NV_PGC6_AON_SECURE_SCRATCH_GROUP_05` becomes accessible only after the secure firmware

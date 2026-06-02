@@ -28,7 +28,7 @@ impl RegisterBase<regs::Fbhub0Base> for Gb202 {
     const BASE: usize = 0x008a_0000;
 }
 
-fn read_sysmem_flush_page_gb202(bar: &Bar0) -> u64 {
+fn read_sysmem_flush_page_gb202(bar: Bar0<'_>) -> u64 {
     let lo = u64::from(
         bar.read(regs::NV_PFB_FBHUB_PCIE_FLUSH_SYSMEM_ADDR_LO::of::<Gb202>())
             .adr(),
@@ -42,7 +42,7 @@ fn read_sysmem_flush_page_gb202(bar: &Bar0) -> u64 {
 }
 
 /// Write the sysmem flush page address through the GB20x FBHUB0 registers.
-fn write_sysmem_flush_page_gb202(bar: &Bar0, addr: Bounded<u64, 52>) {
+fn write_sysmem_flush_page_gb202(bar: Bar0<'_>, addr: Bounded<u64, 52>) {
     // Write HI first. The hardware will trigger the flush on the LO write.
     bar.write(
         regs::NV_PFB_FBHUB_PCIE_FLUSH_SYSMEM_ADDR_HI::of::<Gb202>(),
@@ -57,11 +57,11 @@ fn write_sysmem_flush_page_gb202(bar: &Bar0, addr: Bounded<u64, 52>) {
 }
 
 impl FbHal for Gb202 {
-    fn read_sysmem_flush_page(&self, bar: &Bar0) -> u64 {
+    fn read_sysmem_flush_page(&self, bar: Bar0<'_>) -> u64 {
         read_sysmem_flush_page_gb202(bar)
     }
 
-    fn write_sysmem_flush_page(&self, bar: &Bar0, addr: u64) -> Result {
+    fn write_sysmem_flush_page(&self, bar: Bar0<'_>, addr: u64) -> Result {
         let addr = Bounded::<u64, 52>::try_new(addr).ok_or(EINVAL)?;
 
         write_sysmem_flush_page_gb202(bar, addr);
@@ -69,11 +69,11 @@ impl FbHal for Gb202 {
         Ok(())
     }
 
-    fn supports_display(&self, bar: &Bar0) -> bool {
+    fn supports_display(&self, bar: Bar0<'_>) -> bool {
         super::ga100::display_enabled_ga100(bar)
     }
 
-    fn vidmem_size(&self, bar: &Bar0) -> u64 {
+    fn vidmem_size(&self, bar: Bar0<'_>) -> u64 {
         super::ga102::vidmem_size_ga102(bar)
     }
 

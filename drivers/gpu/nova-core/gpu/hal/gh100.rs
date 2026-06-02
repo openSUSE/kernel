@@ -14,7 +14,7 @@ use super::GpuHal;
 struct Gh100;
 
 impl GpuHal for Gh100 {
-    fn wait_gfw_boot_completion(&self, _bar: &Bar0) -> Result {
+    fn wait_gfw_boot_completion(&self, _bar: Bar0<'_>) -> Result {
         Ok(())
     }
 

@@ -12,7 +12,7 @@ use crate::{
 struct Gb202;
 
 impl FspHal for Gb202 {
-    fn fsp_boot_status(&self, bar: &Bar0) -> u32 {
+    fn fsp_boot_status(&self, bar: Bar0<'_>) -> u32 {
         bar.read(regs::gb202::NV_THERM_I2CS_SCRATCH_FSP_BOOT_COMPLETE)
             .fsp_boot_complete()
             .into()

@@ -131,7 +131,7 @@ pub(crate) struct GspSequencer<'a> {
     /// Sequencer information with command data.
     seq_info: GspSequence,
     /// `Bar0` for register access.
-    bar: &'a Bar0,
+    bar: Bar0<'a>,
     /// SEC2 falcon for core operations.
     sec2_falcon: &'a Falcon<Sec2>,
     /// GSP falcon for core operations.
@@ -351,7 +351,7 @@ pub(crate) struct GspSequencerParams<'a> {
     /// Device for logging.
     pub(crate) dev: &'a device::Device,
     /// BAR0 for register access.
-    pub(crate) bar: &'a Bar0,
+    pub(crate) bar: Bar0<'a>,
 }
 
 impl<'a> GspSequencer<'a> {

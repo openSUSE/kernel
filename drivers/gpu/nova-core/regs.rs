@@ -518,7 +518,7 @@ impl NV_PFALCON_FALCON_DMATRFCMD {
 
 impl NV_PFALCON_FALCON_ENGINE {
     /// Resets the falcon
-    pub(crate) fn reset_engine<E: FalconEngine>(bar: &Bar0) {
+    pub(crate) fn reset_engine<E: FalconEngine>(bar: Bar0<'_>) {
         bar.update(Self::of::<E>(), |r| r.with_reset(true));
 
         // TIMEOUT: falcon engine should not take more than 10us to reset.

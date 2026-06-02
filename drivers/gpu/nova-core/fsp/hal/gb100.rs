@@ -9,7 +9,7 @@ use crate::{
 struct Gb100;
 
 impl FspHal for Gb100 {
-    fn fsp_boot_status(&self, bar: &Bar0) -> u32 {
+    fn fsp_boot_status(&self, bar: Bar0<'_>) -> u32 {
         // GB10x shares Hopper's FSP secure boot status register.
         super::gh100::fsp_boot_status_gh100(bar)
     }

@@ -61,7 +61,7 @@ impl FwsecUnloadFirmware {
     /// Loads the FWSEC SB firmware, as well as its bootloader if `chipset` requires it.
     fn new(
         dev: &device::Device<device::Bound>,
-        bar: &Bar0,
+        bar: Bar0<'_>,
         chipset: Chipset,
         bios: &Vbios,
         gsp_falcon: &Falcon<GspEngine>,
@@ -79,7 +79,7 @@ impl FwsecUnloadFirmware {
     fn run(
         &self,
         dev: &device::Device<device::Bound>,
-        bar: &Bar0,
+        bar: Bar0<'_>,
         gsp_falcon: &Falcon<GspEngine>,
     ) -> Result {
         match self {
@@ -100,7 +100,7 @@ impl Sec2UnloadBundle {
     /// Load and prepare the resources required to properly reset the GSP after it has been stopped.
     fn build(
         dev: &device::Device<device::Bound>,
-        bar: &Bar0,
+        bar: Bar0<'_>,
         chipset: Chipset,
         bios: &Vbios,
         gsp_falcon: &Falcon<GspEngine>,
@@ -129,7 +129,7 @@ impl UnloadBundle for Sec2UnloadBundle {
     fn run(
         &self,
         dev: &device::Device<device::Bound>,
-        bar: &Bar0,
+        bar: Bar0<'_>,
         gsp_falcon: &Falcon<GspEngine>,
         sec2_falcon: &Falcon<Sec2>,
     ) -> Result {
@@ -172,7 +172,7 @@ fn run_fwsec_frts(
     dev: &device::Device<device::Bound>,
     chipset: Chipset,
     falcon: &Falcon<GspEngine>,
-    bar: &Bar0,
+    bar: Bar0<'_>,
     bios: &Vbios,
     fb_layout: &FbLayout,
 ) -> Result {
@@ -259,7 +259,7 @@ impl GspHal for Tu102 {
         &self,
         gsp: &'a Gsp,
         dev: &'a device::Device<device::Bound>,
-        bar: &'a Bar0,
+        bar: Bar0<'a>,
         chipset: Chipset,
         fb_layout: &FbLayout,
         wpr_meta: &Coherent<GspFwWprMeta>,
@@ -325,7 +325,7 @@ impl GspHal for Tu102 {
         &self,
         gsp: &Gsp,
         dev: &device::Device<device::Bound>,
-        bar: &Bar0,
+        bar: Bar0<'_>,
         gsp_fw: &GspFirmware,
         gsp_falcon: &Falcon<GspEngine>,
         sec2_falcon: &Falcon<Sec2>,

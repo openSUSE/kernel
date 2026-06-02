@@ -12,28 +12,28 @@ use crate::{
     regs, //
 };
 
-pub(super) fn vidmem_size_ga102(bar: &Bar0) -> u64 {
+pub(super) fn vidmem_size_ga102(bar: Bar0<'_>) -> u64 {
     bar.read(regs::NV_USABLE_FB_SIZE_IN_MB).usable_fb_size()
 }
 
 struct Ga102;
 
 impl FbHal for Ga102 {
-    fn read_sysmem_flush_page(&self, bar: &Bar0) -> u64 {
+    fn read_sysmem_flush_page(&self, bar: Bar0<'_>) -> u64 {
         super::ga100::read_sysmem_flush_page_ga100(bar)
     }
 
-    fn write_sysmem_flush_page(&self, bar: &Bar0, addr: u64) -> Result {
+    fn write_sysmem_flush_page(&self, bar: Bar0<'_>, addr: u64) -> Result {
         super::ga100::write_sysmem_flush_page_ga100(bar, addr);
 
         Ok(())
     }
 
-    fn supports_display(&self, bar: &Bar0) -> bool {
+    fn supports_display(&self, bar: Bar0<'_>) -> bool {
         super::ga100::display_enabled_ga100(bar)
     }
 
-    fn vidmem_size(&self, bar: &Bar0) -> u64 {
+    fn vidmem_size(&self, bar: Bar0<'_>) -> u64 {
         vidmem_size_ga102(bar)
     }
 

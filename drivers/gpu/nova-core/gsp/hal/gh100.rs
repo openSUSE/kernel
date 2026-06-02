@@ -46,7 +46,7 @@ struct GspMbox {
 
 impl GspMbox {
     /// Reads both mailboxes from the GSP falcon.
-    fn read(gsp_falcon: &Falcon<GspEngine>, bar: &Bar0) -> Self {
+    fn read(gsp_falcon: &Falcon<GspEngine>, bar: Bar0<'_>) -> Self {
         Self {
             mbox0: gsp_falcon.read_mailbox0(bar),
             mbox1: gsp_falcon.read_mailbox1(bar),
@@ -65,7 +65,7 @@ impl GspMbox {
     fn lockdown_released_or_error(
         &self,
         gsp_falcon: &Falcon<GspEngine>,
-        bar: &Bar0,
+        bar: Bar0<'_>,
         fmc_boot_params_addr: u64,
     ) -> bool {
         // GSP-FMC normally clears the boot parameters address from the mailboxes early during
@@ -82,7 +82,7 @@ impl GspMbox {
 /// Waits for GSP lockdown to be released after FSP Chain of Trust.
 fn wait_for_gsp_lockdown_release(
     dev: &device::Device<device::Bound>,
-    bar: &Bar0,
+    bar: Bar0<'_>,
     gsp_falcon: &Falcon<GspEngine>,
     fmc_boot_params_addr: u64,
 ) -> Result {
@@ -126,7 +126,7 @@ impl UnloadBundle for FspUnloadBundle {
     fn run(
         &self,
         dev: &device::Device<device::Bound>,
-        bar: &Bar0,
+        bar: Bar0<'_>,
         gsp_falcon: &Falcon<GspEngine>,
         _sec2_falcon: &Falcon<Sec2>,
     ) -> Result {
@@ -153,7 +153,7 @@ impl GspHal for Gh100 {
         &self,
         gsp: &'a Gsp,
         dev: &'a device::Device<device::Bound>,
-        bar: &'a Bar0,
+        bar: Bar0<'a>,
         chipset: Chipset,
         fb_layout: &FbLayout,
         wpr_meta: &Coherent<GspFwWprMeta>,

@@ -212,7 +212,7 @@ impl Fsp {
     /// interface is not used before secure boot has completed.
     pub(crate) fn wait_secure_boot(
         dev: &device::Device<device::Bound>,
-        bar: &Bar0,
+        bar: Bar0<'_>,
         chipset: Chipset,
         fsp_fw: FspFirmware,
     ) -> Result<Fsp> {
@@ -236,7 +236,7 @@ impl Fsp {
     }
 
     /// Sends a message to FSP and waits for the response.
-    fn send_sync_fsp<M>(&mut self, dev: &device::Device, bar: &Bar0, msg: &M) -> Result
+    fn send_sync_fsp<M>(&mut self, dev: &device::Device, bar: Bar0<'_>, msg: &M) -> Result
     where
         M: MessageToFsp,
     {
@@ -304,7 +304,7 @@ impl Fsp {
     pub(crate) fn boot_fmc(
         &mut self,
         dev: &device::Device<device::Bound>,
-        bar: &Bar0,
+        bar: Bar0<'_>,
         fb_layout: &FbLayout,
         args: &FmcBootArgs,
     ) -> Result {

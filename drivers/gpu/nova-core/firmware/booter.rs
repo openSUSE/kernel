@@ -294,7 +294,7 @@ impl BooterFirmware {
         chipset: Chipset,
         ver: &str,
         falcon: &Falcon<<Self as FalconFirmware>::Target>,
-        bar: &Bar0,
+        bar: Bar0<'_>,
     ) -> Result<Self> {
         let fw_name = match kind {
             BooterKind::Loader => "booter_load",
@@ -405,7 +405,7 @@ impl BooterFirmware {
     pub(crate) fn run<T>(
         &self,
         dev: &device::Device<device::Bound>,
-        bar: &Bar0,
+        bar: Bar0<'_>,
         sec2_falcon: &Falcon<Sec2>,
         wpr_meta: &Coherent<T>,
     ) -> Result {

@@ -208,7 +208,7 @@ pub(crate) struct Spec {
 }
 
 impl Spec {
-    fn new(dev: &device::Device, bar: &Bar0) -> Result<Spec> {
+    fn new(dev: &device::Device, bar: Bar0<'_>) -> Result<Spec> {
         // Some brief notes about boot0 and boot42, in chronological order:
         //
         // NV04 through NV50:
@@ -269,7 +269,7 @@ pub(crate) struct Gpu<'gpu> {
     device: &'gpu device::Device<device::Bound>,
     spec: Spec,
     /// MMIO mapping of PCI BAR 0.
-    bar: &'gpu Bar0,
+    bar: Bar0<'gpu>,
     /// System memory page required for flushing all pending GPU-side memory writes done through
     /// PCIE into system memory, via sysmembar (A GPU-initiated HW memory-barrier operation).
     sysmem_flush: SysmemFlush<'gpu>,
@@ -287,7 +287,7 @@ pub(crate) struct Gpu<'gpu> {
 impl<'gpu> Gpu<'gpu> {
     pub(crate) fn new(
         pdev: &'gpu pci::Device<device::Core<'_>>,
-        bar: &'gpu Bar0,
+        bar: Bar0<'gpu>,
     ) -> impl PinInit<Self, Error> + 'gpu {
         try_pin_init!(Self {
             device: pdev.as_ref(),
@@ -308,8 +308,6 @@ impl<'gpu> Gpu<'gpu> {
                     .inspect_err(|_| dev_err!(pdev, "GFW boot did not complete\n"))?;
             },
 
-            bar,
-
             sysmem_flush: SysmemFlush::register(pdev.as_ref(), bar, spec.chipset)?,
 
             gsp_falcon: Falcon::new(
@@ -326,6 +324,7 @@ impl<'gpu> Gpu<'gpu> {
             // outside of the constructed `Gpu`, ensuring that the unload sequence is properly run
             // in case of failure.
             unload_bundle: gsp.boot(pdev, bar, spec.chipset, gsp_falcon, sec2_falcon)?,
+            bar,
         })
     }
 }

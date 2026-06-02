@@ -36,7 +36,7 @@ pub(crate) struct NovaCoreDriver;
 
 const BAR0_SIZE: usize = SZ_16M;
 
-pub(crate) type Bar0 = kernel::io::Mmio<BAR0_SIZE>;
+pub(crate) type Bar0<'a> = &'a pci::Bar<'a, BAR0_SIZE>;
 
 kernel::pci_device_table!(
     PCI_TABLE,

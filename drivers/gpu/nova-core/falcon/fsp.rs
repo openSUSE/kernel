@@ -53,7 +53,7 @@ impl Falcon<Fsp> {
     ///
     /// `data` is interpreted as little-endian 32-bit words. Returns `EINVAL`
     /// if the `data` length is not 4-byte aligned.
-    fn write_emem(&mut self, bar: &Bar0, data: &[u8]) -> Result {
+    fn write_emem(&mut self, bar: Bar0<'_>, data: &[u8]) -> Result {
         if data.len() % 4 != 0 {
             return Err(EINVAL);
         }
@@ -81,7 +81,7 @@ impl Falcon<Fsp> {
     ///
     /// `data` is stored as little-endian 32-bit words. Returns `EINVAL` if
     /// the `data` length is not 4-byte aligned.
-    fn read_emem(&mut self, bar: &Bar0, data: &mut [u8]) -> Result {
+    fn read_emem(&mut self, bar: Bar0<'_>, data: &mut [u8]) -> Result {
         if data.len() % 4 != 0 {
             return Err(EINVAL);
         }
@@ -107,7 +107,7 @@ impl Falcon<Fsp> {
     ///
     /// The FSP message queue is not circular. Pointers are reset to 0 after each
     /// message exchange, so `tail >= head` is always true when data is present.
-    fn poll_msgq(&self, bar: &Bar0) -> u32 {
+    fn poll_msgq(&self, bar: Bar0<'_>) -> u32 {
         let head = bar.read(regs::NV_PFSP_MSGQ_HEAD::at(0)).val();
         let tail = bar.read(regs::NV_PFSP_MSGQ_TAIL::at(0)).val();
 
@@ -122,7 +122,7 @@ impl Falcon<Fsp> {
     /// Writes `packet` to FSP EMEM and updates the queue pointers to notify FSP.
     ///
     /// Returns `EINVAL` if `packet` is empty or its length is not 4-byte aligned.
-    pub(crate) fn send_msg(&mut self, bar: &Bar0, packet: &[u8]) -> Result {
+    pub(crate) fn send_msg(&mut self, bar: Bar0<'_>, packet: &[u8]) -> Result {
         if packet.is_empty() {
             return Err(EINVAL);
         }
@@ -148,7 +148,7 @@ impl Falcon<Fsp> {
     ///
     /// Returns `ETIMEDOUT` if no message was available until timeout, or a regular error code if a
     /// memory allocation error occurred.
-    pub(crate) fn recv_msg(&mut self, bar: &Bar0) -> Result<KVec<u8>> {
+    pub(crate) fn recv_msg(&mut self, bar: Bar0<'_>) -> Result<KVec<u8>> {
         let msg_size = read_poll_timeout(
             || Ok(self.poll_msgq(bar)),
             |&size| size > 0,

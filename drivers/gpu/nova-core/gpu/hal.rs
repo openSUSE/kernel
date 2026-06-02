@@ -20,7 +20,7 @@ mod tu102;
 
 pub(crate) trait GpuHal {
     /// Waits for GFW_BOOT completion if required by this hardware family.
-    fn wait_gfw_boot_completion(&self, bar: &Bar0) -> Result;
+    fn wait_gfw_boot_completion(&self, bar: Bar0<'_>) -> Result;
 
     /// Returns the DMA mask for the current architecture.
     fn dma_mask(&self) -> DmaMask;

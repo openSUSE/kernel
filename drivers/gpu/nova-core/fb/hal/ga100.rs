@@ -17,13 +17,13 @@ use super::tu102::FLUSH_SYSMEM_ADDR_SHIFT;
 
 struct Ga100;
 
-pub(super) fn read_sysmem_flush_page_ga100(bar: &Bar0) -> u64 {
+pub(super) fn read_sysmem_flush_page_ga100(bar: Bar0<'_>) -> u64 {
     u64::from(bar.read(regs::NV_PFB_NISO_FLUSH_SYSMEM_ADDR).adr_39_08()) << FLUSH_SYSMEM_ADDR_SHIFT
         | u64::from(bar.read(regs::NV_PFB_NISO_FLUSH_SYSMEM_ADDR_HI).adr_63_40())
             << FLUSH_SYSMEM_ADDR_SHIFT_HI
 }
 
-pub(super) fn write_sysmem_flush_page_ga100(bar: &Bar0, addr: u64) {
+pub(super) fn write_sysmem_flush_page_ga100(bar: Bar0<'_>, addr: u64) {
     bar.write_reg(
         regs::NV_PFB_NISO_FLUSH_SYSMEM_ADDR_HI::zeroed().with_adr_63_40(
             Bounded::<u64, _>::from(addr)
@@ -40,7 +40,7 @@ pub(super) fn write_sysmem_flush_page_ga100(bar: &Bar0, addr: u64) {
     );
 }
 
-pub(super) fn display_enabled_ga100(bar: &Bar0) -> bool {
+pub(super) fn display_enabled_ga100(bar: Bar0<'_>) -> bool {
     !bar.read(regs::ga100::NV_FUSE_STATUS_OPT_DISPLAY)
         .display_disabled()
 }
@@ -50,21 +50,21 @@ pub(super) fn display_enabled_ga100(bar: &Bar0) -> bool {
 const FLUSH_SYSMEM_ADDR_SHIFT_HI: u32 = 40;
 
 impl FbHal for Ga100 {
-    fn read_sysmem_flush_page(&self, bar: &Bar0) -> u64 {
+    fn read_sysmem_flush_page(&self, bar: Bar0<'_>) -> u64 {
         read_sysmem_flush_page_ga100(bar)
     }
 
-    fn write_sysmem_flush_page(&self, bar: &Bar0, addr: u64) -> Result {
+    fn write_sysmem_flush_page(&self, bar: Bar0<'_>, addr: u64) -> Result {
         write_sysmem_flush_page_ga100(bar, addr);
 
         Ok(())
     }
 
-    fn supports_display(&self, bar: &Bar0) -> bool {
+    fn supports_display(&self, bar: Bar0<'_>) -> bool {
         display_enabled_ga100(bar)
     }
 
-    fn vidmem_size(&self, bar: &Bar0) -> u64 {
+    fn vidmem_size(&self, bar: Bar0<'_>) -> u64 {
         super::tu102::vidmem_size_gp102(bar)
     }
 

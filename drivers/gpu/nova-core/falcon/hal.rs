@@ -34,7 +34,7 @@ pub(crate) enum LoadMethod {
 /// registers.
 pub(crate) trait FalconHal<E: FalconEngine>: Send + Sync {
     /// Activates the Falcon core if the engine is a risvc/falcon dual engine.
-    fn select_core(&self, _falcon: &Falcon<E>, _bar: &Bar0) -> Result {
+    fn select_core(&self, _falcon: &Falcon<E>, _bar: Bar0<'_>) -> Result {
         Ok(())
     }
 
@@ -43,23 +43,23 @@ pub(crate) trait FalconHal<E: FalconEngine>: Send + Sync {
     fn signature_reg_fuse_version(
         &self,
         falcon: &Falcon<E>,
-        bar: &Bar0,
+        bar: Bar0<'_>,
         engine_id_mask: u16,
         ucode_id: u8,
     ) -> Result<u32>;
 
     /// Program the boot ROM registers prior to starting a secure firmware.
-    fn program_brom(&self, falcon: &Falcon<E>, bar: &Bar0, params: &FalconBromParams);
+    fn program_brom(&self, falcon: &Falcon<E>, bar: Bar0<'_>, params: &FalconBromParams);
 
     /// Check if the RISC-V core is active.
     /// Returns `true` if the RISC-V core is active, `false` otherwise.
-    fn is_riscv_active(&self, bar: &Bar0) -> bool;
+    fn is_riscv_active(&self, bar: Bar0<'_>) -> bool;
 
     /// Wait for memory scrubbing to complete.
-    fn reset_wait_mem_scrubbing(&self, bar: &Bar0) -> Result;
+    fn reset_wait_mem_scrubbing(&self, bar: Bar0<'_>) -> Result;
 
     /// Reset the falcon engine.
-    fn reset_eng(&self, bar: &Bar0) -> Result;
+    fn reset_eng(&self, bar: Bar0<'_>) -> Result;
 
     /// Returns the method used to load data into the falcon's memory.
     ///

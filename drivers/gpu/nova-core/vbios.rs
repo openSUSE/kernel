@@ -58,7 +58,7 @@ impl TryFrom<u8> for BiosImageType {
 /// Vbios Reader for constructing the VBIOS data.
 struct VbiosIterator<'a> {
     dev: &'a device::Device,
-    bar0: &'a Bar0,
+    bar0: Bar0<'a>,
     /// VBIOS data vector: As BIOS images are scanned, they are added to this vector for reference
     /// or copying into other data structures. It is the entire scanned contents of the VBIOS which
     /// progressively extends. It is used so that we do not re-read any contents that are already
@@ -90,7 +90,7 @@ impl<'a> VbiosIterator<'a> {
     /// so that PROM reads transparently skip the header. On GA100, for some reason, the IFR offset
     /// is not applied to PROM reads. Therefore, the search for the PCI expansion must skip the IFR
     /// header, if found.
-    fn rom_offset(dev: &device::Device, bar0: &Bar0) -> Result<usize> {
+    fn rom_offset(dev: &device::Device, bar0: Bar0<'_>) -> Result<usize> {
         // IFR Header in VBIOS.
         register! {
             NV_PBUS_IFR_FMT_FIXED0(u32) @ 0x300000 {
@@ -158,7 +158,7 @@ impl<'a> VbiosIterator<'a> {
         }
     }
 
-    fn new(dev: &'a device::Device, bar0: &'a Bar0) -> Result<Self> {
+    fn new(dev: &'a device::Device, bar0: Bar0<'a>) -> Result<Self> {
         Ok(Self {
             dev,
             bar0,
@@ -297,7 +297,7 @@ impl Vbios {
     /// Probe for VBIOS extraction.
     ///
     /// Once the VBIOS object is built, `bar0` is not read for [`Vbios`] purposes anymore.
-    pub(crate) fn new(dev: &device::Device, bar0: &Bar0) -> Result<Vbios> {
+    pub(crate) fn new(dev: &device::Device, bar0: Bar0<'_>) -> Result<Vbios> {
         // Images to extract from iteration
         let mut pci_at_image: Option<PciAtBiosImage> = None;
         let mut fwsec_section: Option<KVVec<u8>> = None;

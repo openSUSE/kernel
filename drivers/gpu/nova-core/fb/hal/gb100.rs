@@ -33,7 +33,7 @@ impl RegisterBase<regs::Hshub0Base> for Gb100 {
     const BASE: usize = 0x0087_0000;
 }
 
-fn read_sysmem_flush_page_gb100(bar: &Bar0) -> u64 {
+fn read_sysmem_flush_page_gb100(bar: Bar0<'_>) -> u64 {
     let lo = u64::from(
         bar.read(regs::NV_PFB_HSHUB_PCIE_FLUSH_SYSMEM_ADDR_LO::of::<Gb100>())
             .adr(),
@@ -50,7 +50,7 @@ fn read_sysmem_flush_page_gb100(bar: &Bar0) -> u64 {
 ///
 /// Both the primary and EG (egress) register pairs must be programmed to the same address,
 /// as required by hardware.
-fn write_sysmem_flush_page_gb100(bar: &Bar0, addr: Bounded<u64, 52>) {
+fn write_sysmem_flush_page_gb100(bar: Bar0<'_>, addr: Bounded<u64, 52>) {
     // CAST: lower 32 bits. Hardware ignores bits 7:0.
     let addr_lo = *addr as u32;
     let addr_hi = addr.shr::<32, 20>().cast::<u32>();
@@ -84,11 +84,11 @@ pub(super) const fn pmu_reserved_size_gb100() -> u32 {
 }
 
 impl FbHal for Gb100 {
-    fn read_sysmem_flush_page(&self, bar: &Bar0) -> u64 {
+    fn read_sysmem_flush_page(&self, bar: Bar0<'_>) -> u64 {
         read_sysmem_flush_page_gb100(bar)
     }
 
-    fn write_sysmem_flush_page(&self, bar: &Bar0, addr: u64) -> Result {
+    fn write_sysmem_flush_page(&self, bar: Bar0<'_>, addr: u64) -> Result {
         let addr = Bounded::<u64, 52>::try_new(addr).ok_or(EINVAL)?;
 
         write_sysmem_flush_page_gb100(bar, addr);
@@ -96,11 +96,11 @@ impl FbHal for Gb100 {
         Ok(())
     }
 
-    fn supports_display(&self, bar: &Bar0) -> bool {
+    fn supports_display(&self, bar: Bar0<'_>) -> bool {
         super::ga100::display_enabled_ga100(bar)
     }
 
-    fn vidmem_size(&self, bar: &Bar0) -> u64 {
+    fn vidmem_size(&self, bar: Bar0<'_>) -> u64 {
         super::ga102::vidmem_size_ga102(bar)
     }
 

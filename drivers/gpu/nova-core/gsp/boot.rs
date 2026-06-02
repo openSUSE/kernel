@@ -38,7 +38,7 @@ use crate::{
 pub(super) struct BootUnloadArgs<'a> {
     gsp: &'a super::Gsp,
     dev: &'a device::Device<device::Bound>,
-    bar: &'a Bar0,
+    bar: Bar0<'a>,
     gsp_falcon: &'a Falcon<Gsp>,
     sec2_falcon: &'a Falcon<Sec2>,
     unload_bundle: Option<super::UnloadBundle>,
@@ -57,7 +57,7 @@ impl<'a> BootUnloadGuard<'a> {
     pub(super) fn new(
         gsp: &'a super::Gsp,
         dev: &'a device::Device<device::Bound>,
-        bar: &'a Bar0,
+        bar: Bar0<'a>,
         gsp_falcon: &'a Falcon<Gsp>,
         sec2_falcon: &'a Falcon<Sec2>,
         unload_bundle: Option<super::UnloadBundle>,
@@ -104,7 +104,7 @@ impl super::Gsp {
     pub(crate) fn boot(
         self: Pin<&mut Self>,
         pdev: &pci::Device<device::Bound>,
-        bar: &Bar0,
+        bar: Bar0<'_>,
         chipset: Chipset,
         gsp_falcon: &Falcon<Gsp>,
         sec2_falcon: &Falcon<Sec2>,
@@ -166,7 +166,7 @@ impl super::Gsp {
     /// Shut down the GSP and wait until it is offline.
     fn shutdown_gsp(
         cmdq: &Cmdq,
-        bar: &Bar0,
+        bar: Bar0<'_>,
         gsp_falcon: &Falcon<Gsp>,
         mode: commands::PowerStateLevel,
     ) -> Result {
@@ -190,7 +190,7 @@ impl super::Gsp {
     pub(crate) fn unload(
         &self,
         dev: &device::Device<device::Bound>,
-        bar: &Bar0,
+        bar: Bar0<'_>,
         gsp_falcon: &Falcon<Gsp>,
         sec2_falcon: &Falcon<Sec2>,
         unload_bundle: Option<super::UnloadBundle>,
