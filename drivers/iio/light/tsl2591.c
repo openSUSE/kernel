@@ -308,31 +308,6 @@ static int tsl2591_compatible_gain(struct tsl2591_chip *chip, const u8 als_gain)
 	}
 }
 
-static int tsl2591_compatible_als_persist_cycle(struct tsl2591_chip *chip,
-						const u32 als_persist)
-{
-	switch (als_persist) {
-	case TSL2591_PRST_ALS_INT_CYCLE_ANY:
-	case TSL2591_PRST_ALS_INT_CYCLE_2:
-	case TSL2591_PRST_ALS_INT_CYCLE_3:
-	case TSL2591_PRST_ALS_INT_CYCLE_5:
-	case TSL2591_PRST_ALS_INT_CYCLE_10:
-	case TSL2591_PRST_ALS_INT_CYCLE_15:
-	case TSL2591_PRST_ALS_INT_CYCLE_20:
-	case TSL2591_PRST_ALS_INT_CYCLE_25:
-	case TSL2591_PRST_ALS_INT_CYCLE_30:
-	case TSL2591_PRST_ALS_INT_CYCLE_35:
-	case TSL2591_PRST_ALS_INT_CYCLE_40:
-	case TSL2591_PRST_ALS_INT_CYCLE_45:
-	case TSL2591_PRST_ALS_INT_CYCLE_50:
-	case TSL2591_PRST_ALS_INT_CYCLE_55:
-	case TSL2591_PRST_ALS_INT_CYCLE_60:
-		return 0;
-	default:
-		return -EINVAL;
-	}
-}
-
 static int tsl2591_check_als_valid(struct i2c_client *client)
 {
 	int ret;
@@ -913,10 +888,6 @@ static int tsl2591_write_event_value(struct iio_dev *indio_dev,
 			ret = -EINVAL;
 			goto err_unlock;
 		}
-
-		ret = tsl2591_compatible_als_persist_cycle(chip, als_persist);
-		if (ret < 0)
-			goto err_unlock;
 
 		ret = tsl2591_set_als_persist_cycle(chip, als_persist);
 		if (ret < 0)
