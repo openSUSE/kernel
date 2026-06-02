@@ -1101,6 +1101,7 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 #endif
 	mm_init_uprobes_state(mm);
 	hugetlb_count_init(mm);
+	futex_mm_init(mm);
 
 	mm_flags_clear_all(mm);
 	if (current->mm) {
@@ -1113,11 +1114,8 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 		mm->def_flags = 0;
 	}
 
-	if (futex_mm_init(mm))
-		goto fail_mm_init;
-
 	if (mm_alloc_pgd(mm))
-		goto fail_nopgd;
+		goto fail_mm_init;
 
 	if (mm_alloc_id(mm))
 		goto fail_noid;
@@ -1144,8 +1142,6 @@ fail_nocontext:
 	mm_free_id(mm);
 fail_noid:
 	mm_free_pgd(mm);
-fail_nopgd:
-	futex_hash_free(mm);
 fail_mm_init:
 	free_mm(mm);
 	return NULL;
