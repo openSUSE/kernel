@@ -525,7 +525,7 @@ static int se_is_idle(struct sched_entity *se)
 #endif /* !CONFIG_FAIR_GROUP_SCHED */
 
 static __always_inline
-void account_cfs_rq_runtime(struct cfs_rq *cfs_rq, u64 delta_exec);
+bool account_cfs_rq_runtime(struct cfs_rq *cfs_rq, u64 delta_exec);
 
 /**************************************************************
  * Scheduling class tree data structure manipulation methods:
@@ -6388,8 +6388,6 @@ pick_next_entity(struct rq *rq, struct cfs_rq *cfs_rq, bool protect)
 	return se;
 }
 
-static bool check_cfs_rq_runtime(struct cfs_rq *cfs_rq);
-
 static void put_prev_entity(struct cfs_rq *cfs_rq, struct sched_entity *prev)
 {
 	/*
@@ -6398,9 +6396,6 @@ static void put_prev_entity(struct cfs_rq *cfs_rq, struct sched_entity *prev)
 	 */
 	if (prev->on_rq)
 		update_curr(cfs_rq);
-
-	/* throttle cfs_rqs exceeding runtime */
-	check_cfs_rq_runtime(cfs_rq);
 
 	if (prev->on_rq) {
 		update_stats_wait_start_fair(cfs_rq, prev);
@@ -6536,41 +6531,32 @@ static int __assign_cfs_rq_runtime(struct cfs_bandwidth *cfs_b,
 	return cfs_rq->runtime_remaining > 0;
 }
 
-/* returns 0 on failure to allocate runtime */
-static int assign_cfs_rq_runtime(struct cfs_rq *cfs_rq)
-{
-	struct cfs_bandwidth *cfs_b = tg_cfs_bandwidth(cfs_rq->tg);
+static bool throttle_cfs_rq(struct cfs_rq *cfs_rq);
 
-	guard(raw_spinlock)(&cfs_b->lock);
-
-	return __assign_cfs_rq_runtime(cfs_b, cfs_rq, sched_cfs_bandwidth_slice());
-}
-
-static void __account_cfs_rq_runtime(struct cfs_rq *cfs_rq, u64 delta_exec)
+static bool __account_cfs_rq_runtime(struct cfs_rq *cfs_rq, u64 delta_exec)
 {
 	/* dock delta_exec before expiring quota (as it could span periods) */
 	cfs_rq->runtime_remaining -= delta_exec;
 
 	if (likely(cfs_rq->runtime_remaining > 0))
-		return;
+		return false;
 
 	if (cfs_rq->throttled)
-		return;
+		return true;
 	/*
-	 * if we're unable to extend our runtime we resched so that the active
-	 * hierarchy can be throttled
+	 * throttle_cfs_rq() will try to extend the runtime first
+	 * before throttling the hierarchy.
 	 */
-	if (!assign_cfs_rq_runtime(cfs_rq) && likely(cfs_rq->curr))
-		resched_curr(rq_of(cfs_rq));
+	return throttle_cfs_rq(cfs_rq);
 }
 
 static __always_inline
-void account_cfs_rq_runtime(struct cfs_rq *cfs_rq, u64 delta_exec)
+bool account_cfs_rq_runtime(struct cfs_rq *cfs_rq, u64 delta_exec)
 {
 	if (!cfs_bandwidth_used() || !cfs_rq->runtime_enabled)
-		return;
+		return false;
 
-	__account_cfs_rq_runtime(cfs_rq, delta_exec);
+	return __account_cfs_rq_runtime(cfs_rq, delta_exec);
 }
 
 static inline int cfs_rq_throttled(struct cfs_rq *cfs_rq)
@@ -6858,10 +6844,24 @@ static int tg_throttle_down(struct task_group *tg, void *data)
 
 static bool throttle_cfs_rq(struct cfs_rq *cfs_rq)
 {
-	struct rq *rq = rq_of(cfs_rq);
 	struct cfs_bandwidth *cfs_b = tg_cfs_bandwidth(cfs_rq->tg);
+	struct sched_entity *curr = cfs_rq->curr;
+	struct rq *rq = rq_of(cfs_rq);
 
 	scoped_guard(raw_spinlock, &cfs_b->lock) {
+		u64 target_runtime = 1;
+
+		/*
+		 * If cfs_rq->curr is still runnable, we are here from an
+		 * update_curr(). Request sysctl_sched_cfs_bandwidth_slice
+		 * worth of bandwidth to continue running.
+		 *
+		 * If the curr is not runnable, just request enough bandwidth
+		 * to be runnable next time the pick selects this cfs_rq.
+		 */
+		if (curr && curr->on_rq)
+			target_runtime = sched_cfs_bandwidth_slice();
+
 		/*
 		 * Check if We have raced with bandwidth becoming available. If
 		 * we actually throttled the timer might not unthrottle us for
@@ -6872,7 +6872,7 @@ static bool throttle_cfs_rq(struct cfs_rq *cfs_rq)
 		 *
 		 * This will start the period timer if necessary.
 		 */
-		if (__assign_cfs_rq_runtime(cfs_b, cfs_rq, 1))
+		if (__assign_cfs_rq_runtime(cfs_b, cfs_rq, target_runtime))
 			return false;
 
 		/*
@@ -6893,6 +6893,17 @@ static bool throttle_cfs_rq(struct cfs_rq *cfs_rq)
 	 */
 	cfs_rq->throttled = 1;
 	WARN_ON_ONCE(cfs_rq->throttled_clock);
+
+	/*
+	 * If current hierarchy was throttled, add throttle work to the
+	 * current donor. In case of proxy-execution, the execution
+	 * context cannot exit to the userspace while holding a mutex
+	 * and the rule of throttle deferral to only throttle the
+	 * throttled context at exit to userspace is still preserved.
+	 */
+	if (curr && curr->on_rq)
+		task_throttle_setup_work(rq->donor);
+
 	return true;
 }
 
@@ -7283,7 +7294,7 @@ static void check_enqueue_throttle(struct cfs_rq *cfs_rq)
 	if (!cfs_bandwidth_used())
 		return;
 
-	/* an active group must be handled by the update_curr()->put() path */
+	/* an active group must be handled by the update_curr() path */
 	if (!cfs_rq->runtime_enabled || cfs_rq->curr)
 		return;
 
@@ -7293,8 +7304,6 @@ static void check_enqueue_throttle(struct cfs_rq *cfs_rq)
 
 	/* update runtime allocation */
 	account_cfs_rq_runtime(cfs_rq, 0);
-	if (cfs_rq->runtime_remaining <= 0)
-		throttle_cfs_rq(cfs_rq);
 }
 
 static void sync_throttle(struct task_group *tg, int cpu)
@@ -7322,25 +7331,6 @@ static void sync_throttle(struct task_group *tg, int cpu)
 	 */
 	if (cfs_rq->throttle_count)
 		cfs_rq->pelt_clock_throttled = 1;
-}
-
-/* conditionally throttle active cfs_rq's from put_prev_entity() */
-static bool check_cfs_rq_runtime(struct cfs_rq *cfs_rq)
-{
-	if (!cfs_bandwidth_used())
-		return false;
-
-	if (likely(!cfs_rq->runtime_enabled || cfs_rq->runtime_remaining > 0))
-		return false;
-
-	/*
-	 * it's possible for a throttled entity to be forced into a running
-	 * state (e.g. set_curr_task), in this case we're finished.
-	 */
-	if (cfs_rq_throttled(cfs_rq))
-		return true;
-
-	return throttle_cfs_rq(cfs_rq);
 }
 
 static enum hrtimer_restart sched_cfs_slack_timer(struct hrtimer *timer)
@@ -7596,8 +7586,7 @@ static void sched_fair_update_stop_tick(struct rq *rq, struct task_struct *p)
 
 #else /* !CONFIG_CFS_BANDWIDTH: */
 
-static void account_cfs_rq_runtime(struct cfs_rq *cfs_rq, u64 delta_exec) {}
-static bool check_cfs_rq_runtime(struct cfs_rq *cfs_rq) { return false; }
+static bool account_cfs_rq_runtime(struct cfs_rq *cfs_rq, u64 delta_exec) { return false; }
 static void check_enqueue_throttle(struct cfs_rq *cfs_rq) {}
 static inline void sync_throttle(struct task_group *tg, int cpu) {}
 static __always_inline void return_cfs_rq_runtime(struct cfs_rq *cfs_rq) {}
@@ -9933,8 +9922,6 @@ again:
 		/* Might not have done put_prev_entity() */
 		if (cfs_rq->curr && cfs_rq->curr->on_rq)
 			update_curr(cfs_rq);
-
-		throttled |= check_cfs_rq_runtime(cfs_rq);
 
 		se = pick_next_entity(rq, cfs_rq, true);
 		if (!se)
@@ -14853,8 +14840,8 @@ static inline void task_tick_core(struct rq *rq, struct task_struct *curr) {}
  */
 static void task_tick_fair(struct rq *rq, struct task_struct *curr, int queued)
 {
-	struct cfs_rq *cfs_rq;
 	struct sched_entity *se = &curr->se;
+	struct cfs_rq *cfs_rq;
 
 	for_each_sched_entity(se) {
 		cfs_rq = cfs_rq_of(se);
@@ -15036,6 +15023,7 @@ static void switched_to_fair(struct rq *rq, struct task_struct *p)
 static void set_next_task_fair(struct rq *rq, struct task_struct *p, bool first)
 {
 	struct sched_entity *se = &p->se;
+	bool throttled = false;
 
 	for_each_sched_entity(se) {
 		struct cfs_rq *cfs_rq = cfs_rq_of(se);
@@ -15046,8 +15034,11 @@ static void set_next_task_fair(struct rq *rq, struct task_struct *p, bool first)
 
 		set_next_entity(cfs_rq, se, first);
 		/* ensure bandwidth has been allocated on our new cfs_rq */
-		account_cfs_rq_runtime(cfs_rq, 0);
+		throttled |= account_cfs_rq_runtime(cfs_rq, 0);
 	}
+
+	if (throttled)
+		task_throttle_setup_work(p);
 
 	se = &p->se;
 
