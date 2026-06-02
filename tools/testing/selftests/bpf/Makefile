@@ -194,8 +194,15 @@ ifeq ($(feature-llvm),1)
   LLVM_CONFIG_LIB_COMPONENTS := mcdisassembler all-targets
   # both llvm-config and lib.mk add -D_GNU_SOURCE, which ends up as conflict
   LLVM_CFLAGS  += $(filter-out -D_GNU_SOURCE,$(shell $(LLVM_CONFIG) --cflags))
-  # Prefer linking statically if it's available, otherwise fallback to shared
-  ifeq ($(shell $(LLVM_CONFIG) --link-static --libs >/dev/null 2>&1 && echo static),static)
+  # Cross compilation must use dynamic linking to avoid unresolved library
+  # dependencies. For native build, prefer linking statically if it's
+  # available, otherwise fallback to shared.
+  ifneq ($(ARCH), $(HOSTARCH))
+    LLVM_LINK_STATIC :=
+  else
+    LLVM_LINK_STATIC := $(shell $(LLVM_CONFIG) --link-static --libs >/dev/null 2>&1 && echo y)
+  endif
+  ifeq ($(LLVM_LINK_STATIC),y)
     LLVM_LDLIBS  += $(shell $(LLVM_CONFIG) --link-static --libs $(LLVM_CONFIG_LIB_COMPONENTS))
     LLVM_LDLIBS  += $(filter-out -lxml2,$(shell $(LLVM_CONFIG) --link-static --system-libs $(LLVM_CONFIG_LIB_COMPONENTS)))
     LLVM_LDLIBS  += -lstdc++
