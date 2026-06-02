@@ -28,6 +28,7 @@ use crate::{
 };
 
 pub(crate) mod booter;
+pub(crate) mod fsp;
 pub(crate) mod fwsec;
 pub(crate) mod gsp;
 pub(crate) mod riscv;
@@ -431,8 +432,14 @@ impl<const N: usize> ModInfoBuilder<N> {
             .make_entry_file(name, "bootloader")
             .make_entry_file(name, "gsp");
 
-        if chipset.needs_fwsec_bootloader() {
+        let this = if chipset.needs_fwsec_bootloader() {
             this.make_entry_file(name, "gen_bootloader")
+        } else {
+            this
+        };
+
+        if chipset.uses_fsp() {
+            this.make_entry_file(name, "fmc")
         } else {
             this
         }

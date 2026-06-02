@@ -137,6 +137,15 @@ impl Chipset {
         matches!(self.arch(), Architecture::Turing) || matches!(self, Self::GA100)
     }
 
+    /// Returns `true` if this chipset boots via FSP (Hopper and later), which requires the FMC
+    /// firmware image.
+    pub(crate) const fn uses_fsp(self) -> bool {
+        matches!(
+            self.arch(),
+            Architecture::Hopper | Architecture::BlackwellGB10x | Architecture::BlackwellGB20x
+        )
+    }
+
     /// Returns the address range of the PCI config mirror space.
     pub(crate) fn pci_config_mirror_range(self) -> Range<u32> {
         hal::gpu_hal(self).pci_config_mirror_range()
