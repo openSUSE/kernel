@@ -658,6 +658,11 @@ static const struct usb_device_id	products [] = {
 	USB_INTERFACE_INFO(USB_CLASS_COMM, 2 /* ACM */, 0x0ff),
 	.driver_info = (unsigned long) &rndis_info,
 }, {
+	/* Telit Cinterion LE310X1 RNDIS */
+	USB_DEVICE_AND_INTERFACE_INFO(0x1bc7, 0x7030,
+				      USB_CLASS_WIRELESS_CONTROLLER, 1, 3),
+	.driver_info = (unsigned long)&rndis_info,
+}, {
 	/* "ActiveSync" is an undocumented variant of RNDIS, used in WM5 */
 	USB_INTERFACE_INFO(USB_CLASS_MISC, 1, 1),
 	.driver_info = (unsigned long) &rndis_poll_status_info,
