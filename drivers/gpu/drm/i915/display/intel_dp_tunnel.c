@@ -146,7 +146,7 @@ static int allocate_initial_tunnel_bw_for_pipes(struct intel_dp *intel_dp, u8 pi
 	int tunnel_bw = 0;
 	int err;
 
-	for_each_intel_crtc_in_pipe_mask(display->drm, crtc, pipe_mask) {
+	for_each_intel_crtc_in_pipe_mask(display, crtc, pipe_mask) {
 		const struct intel_crtc_state *crtc_state =
 			to_intel_crtc_state(crtc->base.state);
 		int stream_bw = intel_dp_config_required_rate(crtc_state);
@@ -740,9 +740,8 @@ static void atomic_decrease_bw(struct intel_atomic_state *state)
 	struct intel_crtc *crtc;
 	const struct intel_crtc_state *old_crtc_state;
 	const struct intel_crtc_state *new_crtc_state;
-	int i;
 
-	for_each_oldnew_intel_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state, i) {
+	for_each_oldnew_intel_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state) {
 		const struct drm_dp_tunnel_state *new_tunnel_state;
 		struct drm_dp_tunnel *tunnel;
 		int old_bw;
@@ -795,9 +794,8 @@ static void atomic_increase_bw(struct intel_atomic_state *state)
 {
 	struct intel_crtc *crtc;
 	const struct intel_crtc_state *crtc_state;
-	int i;
 
-	for_each_new_intel_crtc_in_state(state, crtc, crtc_state, i) {
+	for_each_new_intel_crtc_in_state(state, crtc, crtc_state) {
 		struct drm_dp_tunnel_state *tunnel_state;
 		struct drm_dp_tunnel *tunnel = crtc_state->dp_tunnel_ref.tunnel;
 		int bw;

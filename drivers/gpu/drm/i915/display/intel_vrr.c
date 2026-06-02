@@ -94,12 +94,10 @@ bool intel_vrr_possible(const struct intel_crtc_state *crtc_state)
 void
 intel_vrr_check_modeset(struct intel_atomic_state *state)
 {
-	int i;
 	struct intel_crtc_state *old_crtc_state, *new_crtc_state;
 	struct intel_crtc *crtc;
 
-	for_each_oldnew_intel_crtc_in_state(state, crtc, old_crtc_state,
-					    new_crtc_state, i) {
+	for_each_oldnew_intel_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state) {
 		if (new_crtc_state->uapi.vrr_enabled !=
 		    old_crtc_state->uapi.vrr_enabled)
 			new_crtc_state->uapi.mode_changed = true;

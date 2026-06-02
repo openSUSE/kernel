@@ -1018,13 +1018,13 @@ static u32 get_allowed_dc_mask(struct intel_display *display, int enable_dc)
 }
 
 /**
- * intel_power_domains_init - initializes the power domain structures
+ * intel_display_power_init - initializes the power domain structures
  * @display: display device instance
  *
  * Initializes the power domain structures for @display depending upon the
  * supported platform.
  */
-int intel_power_domains_init(struct intel_display *display)
+int intel_display_power_init(struct intel_display *display)
 {
 	struct i915_power_domains *power_domains = &display->power.domains;
 
@@ -1045,12 +1045,12 @@ int intel_power_domains_init(struct intel_display *display)
 }
 
 /**
- * intel_power_domains_cleanup - clean up power domains resources
+ * intel_display_power_cleanup - clean up power domains resources
  * @display: display device instance
  *
- * Release any resources acquired by intel_power_domains_init()
+ * Release any resources acquired by intel_display_power_init()
  */
-void intel_power_domains_cleanup(struct intel_display *display)
+void intel_display_power_cleanup(struct intel_display *display)
 {
 	intel_display_power_map_cleanup(&display->power.domains);
 }
@@ -1203,7 +1203,7 @@ static void assert_can_disable_lcpll(struct intel_display *display)
 {
 	struct intel_crtc *crtc;
 
-	for_each_intel_crtc(display->drm, crtc)
+	for_each_intel_crtc(display, crtc)
 		INTEL_DISPLAY_STATE_WARN(display, crtc->active,
 					 "CRTC for pipe %c enabled\n",
 					 pipe_name(crtc->pipe));
@@ -1917,23 +1917,7 @@ static void assert_isp_power_gated(struct intel_display *display)
 
 static void intel_power_domains_verify_state(struct intel_display *display);
 
-/**
- * intel_power_domains_init_hw - initialize hardware power domain state
- * @display: display device instance
- * @resume: Called from resume code paths or not
- *
- * This function initializes the hardware power domain state and enables all
- * power wells belonging to the INIT power domain. Power wells in other
- * domains (and not in the INIT domain) are referenced or disabled by
- * intel_modeset_readout_hw_state(). After that the reference count of each
- * power well must match its HW enabled state, see
- * intel_power_domains_verify_state().
- *
- * It will return with power domains disabled (to be enabled later by
- * intel_power_domains_enable()) and must be paired with
- * intel_power_domains_driver_remove().
- */
-void intel_power_domains_init_hw(struct intel_display *display, bool resume)
+static void __intel_display_power_init_hw(struct intel_display *display, bool resume)
 {
 	struct i915_power_domains *power_domains = &display->power.domains;
 
@@ -1967,7 +1951,7 @@ void intel_power_domains_init_hw(struct intel_display *display, bool resume)
 	 * Keep all power wells enabled for any dependent HW access during
 	 * initialization and to make sure we keep BIOS enabled display HW
 	 * resources powered until display HW readout is complete. We drop
-	 * this reference in intel_power_domains_enable().
+	 * this reference in intel_display_power_enable().
 	 */
 	drm_WARN_ON(display->drm, power_domains->init_wakeref);
 	power_domains->init_wakeref =
@@ -1985,17 +1969,37 @@ void intel_power_domains_init_hw(struct intel_display *display, bool resume)
 }
 
 /**
- * intel_power_domains_driver_remove - deinitialize hw power domain state
+ * intel_display_power_init_hw - initialize hardware power domain state
+ * @display: display device instance
+ *
+ * This function initializes the hardware power domain state and enables all
+ * power wells belonging to the INIT power domain. Power wells in other
+ * domains (and not in the INIT domain) are referenced or disabled by
+ * intel_modeset_readout_hw_state(). After that the reference count of each
+ * power well must match its HW enabled state, see
+ * intel_power_domains_verify_state().
+ *
+ * It will return with power domains disabled (to be enabled later by
+ * intel_display_power_enable()) and must be paired with
+ * intel_display_power_driver_remove().
+ */
+void intel_display_power_init_hw(struct intel_display *display)
+{
+	__intel_display_power_init_hw(display, false);
+}
+
+/**
+ * intel_display_power_driver_remove - deinitialize hw power domain state
  * @display: display device instance
  *
  * De-initializes the display power domain HW state. It also ensures that the
  * device stays powered up so that the driver can be reloaded.
  *
  * It must be called with power domains already disabled (after a call to
- * intel_power_domains_disable()) and must be paired with
- * intel_power_domains_init_hw().
+ * intel_display_power_disable()) and must be paired with
+ * intel_display_power_init_hw().
  */
-void intel_power_domains_driver_remove(struct intel_display *display)
+void intel_display_power_driver_remove(struct intel_display *display)
 {
 	struct ref_tracker *wakeref __maybe_unused =
 		fetch_and_zero(&display->power.domains.init_wakeref);
@@ -2014,7 +2018,7 @@ void intel_power_domains_driver_remove(struct intel_display *display)
 }
 
 /**
- * intel_power_domains_sanitize_state - sanitize power domains state
+ * intel_display_power_sanitize_state - sanitize power domains state
  * @display: display device instance
  *
  * Sanitize the power domains state during driver loading and system resume.
@@ -2023,7 +2027,7 @@ void intel_power_domains_driver_remove(struct intel_display *display)
  * on it by the time this function is called, after the state of all the
  * pipe, encoder, etc. HW resources have been sanitized).
  */
-void intel_power_domains_sanitize_state(struct intel_display *display)
+void intel_display_power_sanitize_state(struct intel_display *display)
 {
 	struct i915_power_domains *power_domains = &display->power.domains;
 	struct i915_power_well *power_well;
@@ -2045,18 +2049,18 @@ void intel_power_domains_sanitize_state(struct intel_display *display)
 }
 
 /**
- * intel_power_domains_enable - enable toggling of display power wells
+ * intel_display_power_enable - enable toggling of display power wells
  * @display: display device instance
  *
  * Enable the ondemand enabling/disabling of the display power wells. Note that
  * power wells not belonging to POWER_DOMAIN_INIT are allowed to be toggled
  * only at specific points of the display modeset sequence, thus they are not
- * affected by the intel_power_domains_enable()/disable() calls. The purpose
+ * affected by the intel_display_power_enable()/disable() calls. The purpose
  * of these function is to keep the rest of power wells enabled until the end
  * of display HW readout (which will acquire the power references reflecting
  * the current HW state).
  */
-void intel_power_domains_enable(struct intel_display *display)
+void intel_display_power_enable(struct intel_display *display)
 {
 	struct ref_tracker *wakeref __maybe_unused =
 		fetch_and_zero(&display->power.domains.init_wakeref);
@@ -2066,13 +2070,13 @@ void intel_power_domains_enable(struct intel_display *display)
 }
 
 /**
- * intel_power_domains_disable - disable toggling of display power wells
+ * intel_display_power_disable - disable toggling of display power wells
  * @display: display device instance
  *
  * Disable the ondemand enabling/disabling of the display power wells. See
- * intel_power_domains_enable() for which power wells this call controls.
+ * intel_display_power_enable() for which power wells this call controls.
  */
-void intel_power_domains_disable(struct intel_display *display)
+void intel_display_power_disable(struct intel_display *display)
 {
 	struct i915_power_domains *power_domains = &display->power.domains;
 
@@ -2092,9 +2096,9 @@ void intel_power_domains_disable(struct intel_display *display)
  * system suspend.
  *
  * It must be called with power domains already disabled (after a call to
- * intel_power_domains_disable()) and paired with intel_power_domains_resume().
+ * intel_display_power_disable()) and paired with intel_power_domains_resume().
  */
-void intel_power_domains_suspend(struct intel_display *display, bool s2idle)
+static void intel_power_domains_suspend(struct intel_display *display, bool s2idle)
 {
 	struct i915_power_domains *power_domains = &display->power.domains;
 	struct ref_tracker *wakeref __maybe_unused =
@@ -2144,15 +2148,15 @@ void intel_power_domains_suspend(struct intel_display *display, bool s2idle)
  * This function resume the hardware power domain state during system resume.
  *
  * It will return with power domain support disabled (to be enabled later by
- * intel_power_domains_enable()) and must be paired with
+ * intel_display_power_enable()) and must be paired with
  * intel_power_domains_suspend().
  */
-void intel_power_domains_resume(struct intel_display *display)
+static void intel_power_domains_resume(struct intel_display *display)
 {
 	struct i915_power_domains *power_domains = &display->power.domains;
 
 	if (power_domains->display_core_suspended) {
-		intel_power_domains_init_hw(display, true);
+		__intel_display_power_init_hw(display, true);
 		power_domains->display_core_suspended = false;
 	} else {
 		drm_WARN_ON(display->drm, power_domains->init_wakeref);
@@ -2285,7 +2289,7 @@ void intel_display_power_resume_early(struct intel_display *display)
 	intel_power_domains_resume(display);
 }
 
-void intel_display_power_suspend(struct intel_display *display)
+void intel_display_power_runtime_suspend(struct intel_display *display)
 {
 	if (DISPLAY_VER(display) >= 11) {
 		icl_display_core_uninit(display);
@@ -2298,7 +2302,7 @@ void intel_display_power_suspend(struct intel_display *display)
 	}
 }
 
-void intel_display_power_resume(struct intel_display *display)
+void intel_display_power_runtime_resume(struct intel_display *display)
 {
 	struct i915_power_domains *power_domains = &display->power.domains;
 

@@ -1532,7 +1532,7 @@ static void icl_plane_update_sel_fetch_noarm(struct intel_dsb *dsb,
 	if (!color_plane)
 		y = plane_state->view.color_plane[color_plane].y + clip->y1;
 	else
-		y = plane_state->view.color_plane[color_plane].y + clip->y1 / 2;
+		y = plane_state->view.color_plane[color_plane].y + DIV_ROUND_UP(clip->y1, 2);
 
 	val = y << 16 | x;
 

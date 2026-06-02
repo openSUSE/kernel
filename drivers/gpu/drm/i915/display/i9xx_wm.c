@@ -640,7 +640,7 @@ static struct intel_crtc *single_enabled_crtc(struct intel_display *display)
 {
 	struct intel_crtc *crtc, *enabled = NULL;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		if (intel_crtc_active(crtc)) {
 			if (enabled)
 				return NULL;
@@ -1393,7 +1393,7 @@ static void g4x_merge_wm(struct intel_display *display,
 	wm->hpll_en = true;
 	wm->fbc_en = true;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		const struct g4x_wm_state *wm_state = &crtc->wm.active.g4x;
 
 		if (!crtc->active)
@@ -1415,7 +1415,7 @@ static void g4x_merge_wm(struct intel_display *display,
 		wm->fbc_en = false;
 	}
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		const struct g4x_wm_state *wm_state = &crtc->wm.active.g4x;
 		enum pipe pipe = crtc->pipe;
 
@@ -2034,7 +2034,7 @@ static void vlv_merge_wm(struct intel_display *display,
 	wm->level = display->wm.num_levels - 1;
 	wm->cxsr = true;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		const struct vlv_wm_state *wm_state = &crtc->wm.active.vlv;
 
 		if (!crtc->active)
@@ -2053,7 +2053,7 @@ static void vlv_merge_wm(struct intel_display *display,
 	if (num_active_pipes > 1)
 		wm->level = VLV_WM_LEVEL_PM2;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		const struct vlv_wm_state *wm_state = &crtc->wm.active.vlv;
 		enum pipe pipe = crtc->pipe;
 
@@ -3078,7 +3078,7 @@ static void ilk_merge_wm_level(struct intel_display *display,
 
 	ret_wm->enable = true;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		const struct intel_pipe_wm *active = &crtc->wm.active.ilk;
 		const struct intel_wm_level *wm = &active->wm[level];
 
@@ -3218,7 +3218,7 @@ static void ilk_compute_wm_results(struct intel_display *display,
 	}
 
 	/* LP0 register values */
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		enum pipe pipe = crtc->pipe;
 		const struct intel_pipe_wm *pipe_wm = &crtc->wm.active.ilk;
 		const struct intel_wm_level *r = &pipe_wm->wm[0];
@@ -3416,7 +3416,7 @@ static void ilk_compute_wm_config(struct intel_display *display,
 	struct intel_crtc *crtc;
 
 	/* Compute the currently _active_ config */
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		const struct intel_pipe_wm *wm = &crtc->wm.active.ilk;
 
 		if (!wm->pipe_enabled)
@@ -3533,10 +3533,11 @@ static void ilk_pipe_wm_get_hw_state(struct intel_crtc *crtc)
 
 static int ilk_sanitize_watermarks_add_affected(struct drm_atomic_commit *state)
 {
+	struct intel_display *display = to_intel_display(state->dev);
 	struct drm_plane *plane;
 	struct intel_crtc *crtc;
 
-	for_each_intel_crtc(state->dev, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		struct intel_crtc_state *crtc_state;
 
 		crtc_state = intel_atomic_get_crtc_state(state, crtc);
@@ -3581,7 +3582,6 @@ void ilk_wm_sanitize(struct intel_display *display)
 	struct intel_crtc_state *crtc_state;
 	struct drm_modeset_acquire_ctx ctx;
 	int ret;
-	int i;
 
 	/* Only supported on platforms that use atomic watermark design */
 	if (!display->wm.funcs->optimize_watermarks)
@@ -3619,7 +3619,7 @@ retry:
 		goto fail;
 
 	/* Write calculated watermark values back */
-	for_each_new_intel_crtc_in_state(intel_state, crtc, crtc_state, i) {
+	for_each_new_intel_crtc_in_state(intel_state, crtc, crtc_state) {
 		crtc_state->wm.need_postvbl_update = true;
 		intel_optimize_watermarks(intel_state, crtc);
 
@@ -3769,7 +3769,7 @@ static void g4x_wm_get_hw_state(struct intel_display *display)
 
 	wm->cxsr = intel_de_read(display, FW_BLC_SELF) & FW_BLC_SELF_EN;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		struct intel_crtc_state *crtc_state =
 			to_intel_crtc_state(crtc->base.state);
 		struct g4x_wm_state *active = &crtc->wm.active.g4x;
@@ -3884,7 +3884,7 @@ static void g4x_wm_sanitize(struct intel_display *display)
 		}
 	}
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		struct intel_crtc_state *crtc_state =
 			to_intel_crtc_state(crtc->base.state);
 		int ret;
@@ -3951,7 +3951,7 @@ static void vlv_wm_get_hw_state(struct intel_display *display)
 		vlv_punit_put(display);
 	}
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		struct intel_crtc_state *crtc_state =
 			to_intel_crtc_state(crtc->base.state);
 		struct vlv_wm_state *active = &crtc->wm.active.vlv;
@@ -4033,7 +4033,7 @@ static void vlv_wm_sanitize(struct intel_display *display)
 		}
 	}
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		struct intel_crtc_state *crtc_state =
 			to_intel_crtc_state(crtc->base.state);
 		int ret;
@@ -4074,7 +4074,7 @@ static void ilk_wm_get_hw_state(struct intel_display *display)
 
 	ilk_init_lp_watermarks(display);
 
-	for_each_intel_crtc(display->drm, crtc)
+	for_each_intel_crtc(display, crtc)
 		ilk_pipe_wm_get_hw_state(crtc);
 
 	hw->wm_lp[0] = intel_de_read(display, WM1_LP_ILK);

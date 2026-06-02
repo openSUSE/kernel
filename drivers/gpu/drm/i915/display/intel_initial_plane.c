@@ -50,7 +50,7 @@ intel_reuse_initial_plane_obj(struct intel_crtc *this,
 	struct intel_display *display = to_intel_display(this);
 	struct intel_crtc *crtc;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		struct intel_plane *plane =
 			to_intel_plane(crtc->base.primary);
 		const struct intel_plane_state *plane_state =
@@ -208,7 +208,7 @@ void intel_initial_plane_config(struct intel_display *display)
 	struct intel_initial_plane_configs all_plane_configs = {};
 	struct intel_crtc *crtc;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		const struct intel_crtc_state *crtc_state =
 			to_intel_crtc_state(crtc->base.state);
 		struct intel_initial_plane_config *plane_config =

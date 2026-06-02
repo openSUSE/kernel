@@ -2495,9 +2495,9 @@ skl_compute_ddb(struct intel_atomic_state *state)
 	struct intel_dbuf_state *new_dbuf_state = NULL;
 	struct intel_crtc_state *new_crtc_state;
 	struct intel_crtc *crtc;
-	int ret, i;
+	int ret;
 
-	for_each_new_intel_crtc_in_state(state, crtc, new_crtc_state, i) {
+	for_each_new_intel_crtc_in_state(state, crtc, new_crtc_state) {
 		new_dbuf_state = intel_atomic_get_dbuf_state(state);
 		if (IS_ERR(new_dbuf_state))
 			return PTR_ERR(new_dbuf_state);
@@ -2529,7 +2529,7 @@ skl_compute_ddb(struct intel_atomic_state *state)
 		}
 	}
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		enum pipe pipe = crtc->pipe;
 
 		new_dbuf_state->slices[pipe] =
@@ -2561,7 +2561,7 @@ skl_compute_ddb(struct intel_atomic_state *state)
 			    str_yes_no(new_dbuf_state->joined_mbus));
 	}
 
-	for_each_new_intel_crtc_in_state(state, crtc, new_crtc_state, i) {
+	for_each_new_intel_crtc_in_state(state, crtc, new_crtc_state) {
 		enum pipe pipe = crtc->pipe;
 
 		new_dbuf_state->weight[pipe] = intel_crtc_ddb_weight(new_crtc_state);
@@ -2574,13 +2574,13 @@ skl_compute_ddb(struct intel_atomic_state *state)
 			return ret;
 	}
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		ret = skl_crtc_allocate_ddb(state, crtc);
 		if (ret)
 			return ret;
 	}
 
-	for_each_new_intel_crtc_in_state(state, crtc, new_crtc_state, i) {
+	for_each_new_intel_crtc_in_state(state, crtc, new_crtc_state) {
 		ret = skl_crtc_allocate_plane_ddb(state, crtc);
 		if (ret)
 			return ret;
@@ -2687,13 +2687,11 @@ skl_print_wm_changes(struct intel_atomic_state *state)
 	const struct intel_crtc_state *new_crtc_state;
 	struct intel_plane *plane;
 	struct intel_crtc *crtc;
-	int i;
 
 	if (!drm_debug_enabled(DRM_UT_KMS))
 		return;
 
-	for_each_oldnew_intel_crtc_in_state(state, crtc, old_crtc_state,
-					    new_crtc_state, i) {
+	for_each_oldnew_intel_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state) {
 		const struct skl_pipe_wm *old_pipe_wm, *new_pipe_wm;
 
 		old_pipe_wm = &old_crtc_state->wm.skl.optimal;
@@ -2833,19 +2831,19 @@ static int pkgc_max_linetime(struct intel_atomic_state *state)
 	struct intel_display *display = to_intel_display(state);
 	const struct intel_crtc_state *crtc_state;
 	struct intel_crtc *crtc;
-	int i, max_linetime;
+	int max_linetime;
 
 	/*
 	 * Apparenty the hardware uses WM_LINETIME internally for
 	 * this stuff, compute everything based on that.
 	 */
-	for_each_new_intel_crtc_in_state(state, crtc, crtc_state, i) {
+	for_each_new_intel_crtc_in_state(state, crtc, crtc_state) {
 		display->pkgc.disable[crtc->pipe] = crtc_state->vrr.enable;
 		display->pkgc.linetime[crtc->pipe] = DIV_ROUND_UP(crtc_state->linetime, 8);
 	}
 
 	max_linetime = 0;
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		if (display->pkgc.disable[crtc->pipe])
 			return 0;
 
@@ -2909,9 +2907,9 @@ skl_compute_wm(struct intel_atomic_state *state)
 	struct intel_display *display = to_intel_display(state);
 	struct intel_crtc *crtc;
 	struct intel_crtc_state __maybe_unused *new_crtc_state;
-	int ret, i;
+	int ret;
 
-	for_each_new_intel_crtc_in_state(state, crtc, new_crtc_state, i) {
+	for_each_new_intel_crtc_in_state(state, crtc, new_crtc_state) {
 		ret = skl_build_pipe_wm(state, crtc);
 		if (ret)
 			return ret;
@@ -2926,7 +2924,7 @@ skl_compute_wm(struct intel_atomic_state *state)
 	 * based on how much ddb is available. Now we can actually
 	 * check if the final watermarks changed.
 	 */
-	for_each_new_intel_crtc_in_state(state, crtc, new_crtc_state, i) {
+	for_each_new_intel_crtc_in_state(state, crtc, new_crtc_state) {
 		struct skl_pipe_wm *pipe_wm = &new_crtc_state->wm.skl.optimal;
 
 		/*
@@ -3033,7 +3031,7 @@ static void skl_wm_get_hw_state(struct intel_display *display)
 	dbuf_state->mdclk_cdclk_ratio = intel_mdclk_cdclk_ratio(display, &display->cdclk.hw);
 	dbuf_state->active_pipes = 0;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		struct intel_crtc_state *crtc_state =
 			to_intel_crtc_state(crtc->base.state);
 		enum pipe pipe = crtc->pipe;
@@ -3446,7 +3444,7 @@ static void pipe_mbus_dbox_ctl_update(struct intel_display *display,
 {
 	struct intel_crtc *crtc;
 
-	for_each_intel_crtc_in_pipe_mask(display->drm, crtc, dbuf_state->active_pipes)
+	for_each_intel_crtc_in_pipe_mask(display, crtc, dbuf_state->active_pipes)
 		intel_de_write(display, PIPE_MBUS_DBOX_CTL(crtc->pipe),
 			       pipe_mbus_dbox_ctl(crtc, dbuf_state));
 }
@@ -3758,14 +3756,14 @@ static bool skl_dbuf_is_misconfigured(struct intel_display *display)
 	struct skl_ddb_entry entries[I915_MAX_PIPES] = {};
 	struct intel_crtc *crtc;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		const struct intel_crtc_state *crtc_state =
 			to_intel_crtc_state(crtc->base.state);
 
 		entries[crtc->pipe] = crtc_state->wm.skl.ddb;
 	}
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		const struct intel_crtc_state *crtc_state =
 			to_intel_crtc_state(crtc->base.state);
 		u8 slices;
@@ -3803,7 +3801,7 @@ static void skl_dbuf_sanitize(struct intel_display *display)
 
 	drm_dbg_kms(display->drm, "BIOS has misprogrammed the DBUF, disabling all planes\n");
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		struct intel_plane *plane = to_intel_plane(crtc->base.primary);
 		const struct intel_plane_state *plane_state =
 			to_intel_plane_state(plane->base.state);

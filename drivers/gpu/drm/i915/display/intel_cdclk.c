@@ -3124,10 +3124,9 @@ static int bxt_compute_min_voltage_level(struct intel_atomic_state *state)
 	struct intel_crtc *crtc;
 	struct intel_crtc_state *crtc_state;
 	u8 min_voltage_level;
-	int i;
 	enum pipe pipe;
 
-	for_each_new_intel_crtc_in_state(state, crtc, crtc_state, i) {
+	for_each_new_intel_crtc_in_state(state, crtc, crtc_state) {
 		int ret;
 
 		if (crtc_state->hw.enable)
@@ -3219,13 +3218,13 @@ static int skl_dpll0_vco(struct intel_atomic_state *state)
 		intel_atomic_get_new_cdclk_state(state);
 	struct intel_crtc *crtc;
 	struct intel_crtc_state *crtc_state;
-	int vco, i;
+	int vco;
 
 	vco = cdclk_state->logical.vco;
 	if (!vco)
 		vco = display->cdclk.skl_preferred_vco_freq;
 
-	for_each_new_intel_crtc_in_state(state, crtc, crtc_state, i) {
+	for_each_new_intel_crtc_in_state(state, crtc, crtc_state) {
 		if (!crtc_state->hw.enable)
 			continue;
 
@@ -3424,10 +3423,9 @@ static int intel_crtcs_calc_min_cdclk(struct intel_atomic_state *state,
 	const struct intel_crtc_state *old_crtc_state;
 	const struct intel_crtc_state *new_crtc_state;
 	struct intel_crtc *crtc;
-	int i, ret;
+	int ret;
 
-	for_each_oldnew_intel_crtc_in_state(state, crtc, old_crtc_state,
-					    new_crtc_state, i) {
+	for_each_oldnew_intel_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state) {
 		ret = intel_cdclk_update_crtc_min_cdclk(state, crtc,
 							old_crtc_state->min_cdclk,
 							new_crtc_state->min_cdclk,
@@ -3647,7 +3645,7 @@ void intel_cdclk_update_hw_state(struct intel_display *display)
 	cdclk_state->enabled_pipes = 0;
 	cdclk_state->active_pipes = 0;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		const struct intel_crtc_state *crtc_state =
 			to_intel_crtc_state(crtc->base.state);
 		enum pipe pipe = crtc->pipe;

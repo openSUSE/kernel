@@ -89,7 +89,7 @@ intel_load_detect_get_pipe(struct drm_connector *connector,
 	}
 
 	/* Find an unused one (if possible) */
-	for_each_intel_crtc(display->drm, possible_crtc) {
+	for_each_intel_crtc(display, possible_crtc) {
 		if (!(encoder->base.possible_crtcs &
 		      drm_crtc_mask(&possible_crtc->base)))
 			continue;
