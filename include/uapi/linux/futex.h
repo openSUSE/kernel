@@ -177,6 +177,10 @@ struct robust_list_head {
  */
 #define ROBUST_LIST_LIMIT	2048
 
+/* Modifiers for robust_list_head::list_op_pending */
+#define FUTEX_ROBUST_MOD_PI		(0x1UL)
+#define FUTEX_ROBUST_MOD_MASK		(FUTEX_ROBUST_MOD_PI)
+
 /*
  * bitset with all bits set for the FUTEX_xxx_BITSET OPs to request a
  * match of any bit.
