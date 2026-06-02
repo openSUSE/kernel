@@ -394,16 +394,37 @@ struct xe_reg_sr;
  * XE_RTP_RULES - Helper to set multiple rules to a struct xe_rtp_entry_sr entry
  * @...: Rules
  *
- * At least one rule is needed and up to 12 are supported. Multiple rules are
- * AND'ed together, i.e. all the rules must evaluate to true for the entry to
- * be processed. See XE_RTP_MATCH_* for the possible match rules. Example:
+ * When an RTP table is being processed, the rules of each entry are evaluated
+ * to check if they match the target entity (platform, gt or hwe, depending on
+ * the specific RTP table).
+ *
+ * The sequence of arguments of this macro must follow the following eBNF
+ * grammar::
+ *
+ *            rules = disjunction;
+ *      disjunction = conjunction, { "OR", conjunction };
+ *      conjunction = single_rule, { single_rule };
+ *				   (* the AND operator is implicit *)
+ *      single_rule = ? GRAPHICS_VERSION(...), MEDIA_VERSION(...),
+ *                      FUNC(...), etc ?
+ *
+ * Examples:
  *
  * .. code-block:: c
  *
  *	const struct xe_rtp_entry_sr wa_entries[] = {
  *		...
- *		{ XE_RTP_NAME("test-entry"),
+ *		{ XE_RTP_NAME("entry-a"),
+ *		  // Match DG2-G10 with graphics steppings A0 up-to B0
+ *		  // (exclusive).
  *		  XE_RTP_RULES(SUBPLATFORM(DG2, G10), GRAPHICS_STEP(A0, B0)),
+ *		  ...
+ *		},
+ *		{ XE_RTP_NAME("entry-b"),
+ *		  // Match graphics version 20 (all steppings) or graphics
+ *		  // version 30 steppings A0 up-to B0 (exclusive).
+ *		  XE_RTP_RULES(GRAPHICS_VERSION(2000), OR,
+ *			       GRAPHICS_VERSION(3000), GRAPHICS_STEP(A0, B0))
  *		  ...
  *		},
  *		...

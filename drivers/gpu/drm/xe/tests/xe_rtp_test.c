@@ -21,6 +21,7 @@
 #include "xe_pci_test.h"
 #include "xe_reg_sr.h"
 #include "xe_rtp.h"
+#include "xe_rtp_test.h"
 
 #define REGULAR_REG1		XE_REG(1)
 #define REGULAR_REG2		XE_REG(2)
@@ -36,6 +37,14 @@
 
 #undef XE_REG_MCR
 #define XE_REG_MCR(...)     XE_REG(__VA_ARGS__, .mcr = 1)
+
+struct rtp_rules_test_case {
+	const char *name;
+	bool expected_match;
+	int expected_err;
+	const struct xe_rtp_rule *rules;
+	u8 n_rules;
+};
 
 struct rtp_to_sr_test_case {
 	const char *name;
@@ -83,6 +92,194 @@ static bool match_no(const struct xe_device *xe, const struct xe_gt *gt,
 	return false;
 }
 
+static const struct rtp_rules_test_case rtp_rules_cases[] = {
+	/*
+	 * Single rules.
+	 *
+	 * TODO: Include other types of rules as well: GRAPHICS_VERSION(),
+	 * MEDIA_VERSION(), etc.
+	 */
+	{
+		.name = "no",
+		.expected_match = false,
+		XE_RTP_RULES(FUNC(match_no)),
+	},
+	{
+		.name = "yes",
+		.expected_match = true,
+		XE_RTP_RULES(FUNC(match_yes)),
+	},
+
+	/* Conjunctions with 2 operands. */
+	{
+		.name = "no-and-no",
+		.expected_match = false,
+		XE_RTP_RULES(FUNC(match_no), FUNC(match_no)),
+	},
+	{
+		.name = "no-and-yes",
+		.expected_match = false,
+		XE_RTP_RULES(FUNC(match_no), FUNC(match_yes)),
+	},
+	{
+		.name = "yes-and-no",
+		.expected_match = false,
+		XE_RTP_RULES(FUNC(match_yes), FUNC(match_no)),
+	},
+	{
+		.name = "yes-and-yes",
+		.expected_match = true,
+		XE_RTP_RULES(FUNC(match_yes), FUNC(match_yes)),
+	},
+
+	/* Disjunctions with 2 operands. */
+	{
+		.name = "no-or-no",
+		.expected_match = false,
+		XE_RTP_RULES(FUNC(match_no), OR, FUNC(match_no)),
+	},
+	{
+		.name = "no-or-yes",
+		.expected_match = true,
+		XE_RTP_RULES(FUNC(match_no), OR, FUNC(match_yes)),
+	},
+	{
+		.name = "yes-or-no",
+		.expected_match = true,
+		XE_RTP_RULES(FUNC(match_yes), OR, FUNC(match_no)),
+	},
+	{
+		.name = "yes-or-yes",
+		.expected_match = true,
+		XE_RTP_RULES(FUNC(match_yes), OR, FUNC(match_yes)),
+	},
+
+	/* Conjunction and disjunctions. */
+	{
+		.name = "no-yes-or-yes-no",
+		.expected_match = false,
+		XE_RTP_RULES(FUNC(match_no), FUNC(match_yes), OR,
+			     FUNC(match_yes), FUNC(match_no)),
+	},
+	{
+		.name = "no-yes-or-yes-yes",
+		.expected_match = true,
+		XE_RTP_RULES(FUNC(match_no), FUNC(match_yes), OR,
+			     FUNC(match_yes), FUNC(match_yes)),
+	},
+	{
+		.name = "yes-yes-or-no-yes",
+		.expected_match = true,
+		XE_RTP_RULES(FUNC(match_yes), FUNC(match_yes), OR,
+			     FUNC(match_no), FUNC(match_yes)),
+	},
+	{
+		.name = "yes-yes-or-yes-yes",
+		.expected_match = true,
+		XE_RTP_RULES(FUNC(match_yes), FUNC(match_yes), OR,
+			     FUNC(match_yes), FUNC(match_yes)),
+	},
+	{
+		.name = "no-no-or-yes-or-no",
+		.expected_match = true,
+		XE_RTP_RULES(FUNC(match_no), FUNC(match_no), OR,
+			     FUNC(match_yes), OR,
+			     FUNC(match_no)),
+	},
+
+	/* Syntax errors. */
+	{
+		.name = "or",
+		.expected_match = false,
+		.expected_err = -EINVAL,
+		XE_RTP_RULES(OR),
+	},
+	{
+		.name = "or-yes",
+		.expected_match = true,
+		.expected_err = -EINVAL,
+		XE_RTP_RULES(OR, FUNC(match_yes)),
+	},
+	{
+		.name = "or-no",
+		.expected_match = false,
+		.expected_err = -EINVAL,
+		XE_RTP_RULES(OR, FUNC(match_no)),
+	},
+	{
+		.name = "yes-or",
+		.expected_match = true,
+		.expected_err = -EINVAL,
+		XE_RTP_RULES(FUNC(match_yes), OR),
+	},
+	{
+		.name = "no-or",
+		.expected_match = false,
+		.expected_err = -EINVAL,
+		XE_RTP_RULES(FUNC(match_no), OR),
+	},
+	{
+		.name = "no-or-or-yes",
+		.expected_match = true,
+		.expected_err = -EINVAL,
+		XE_RTP_RULES(FUNC(match_no), OR, OR, FUNC(match_yes)),
+	},
+	{
+		.name = "yes-or-or-no",
+		.expected_match = true,
+		.expected_err = -EINVAL,
+		XE_RTP_RULES(FUNC(match_yes), OR, OR, FUNC(match_no)),
+	},
+	{
+		.name = "no-or-or-no",
+		.expected_match = false,
+		.expected_err = -EINVAL,
+		XE_RTP_RULES(FUNC(match_no), OR, OR, FUNC(match_no)),
+	},
+
+	/* No match because hwe is NULL. */
+	{
+		.name = "missing-context-engine-class",
+		.expected_match = false,
+		XE_RTP_RULES(ENGINE_CLASS(RENDER)),
+	},
+
+	/*
+	 * Missing context (hwe==NULL) does not cause parsing to stop, hence we
+	 * expect a match.
+	 */
+	{
+		.name = "missing-context-engine-class-or-yes",
+		.expected_match = true,
+		XE_RTP_RULES(ENGINE_CLASS(RENDER), OR, FUNC(match_yes)),
+	},
+
+	/*
+	 * Missing context (hwe==NULL) does not cause parsing to stop, hence we
+	 * expect a syntax error.
+	 */
+	{
+		.name = "missing-context-engine-class-or-or-yes",
+		.expected_match = true,
+		.expected_err = -EINVAL,
+		XE_RTP_RULES(ENGINE_CLASS(RENDER), OR, OR, FUNC(match_yes)),
+	},
+};
+
+static void xe_rtp_rules_tests(struct kunit *test)
+{
+	const struct rtp_rules_test_case *param = test->param_value;
+	struct xe_device *xe = test->priv;
+	struct xe_gt *gt = xe_device_get_root_tile(xe)->primary_gt;
+	int err;
+	bool match;
+
+	match = xe_rtp_rule_matches(xe, gt, NULL, param->rules, param->n_rules, &err);
+
+	KUNIT_EXPECT_EQ(test, match, param->expected_match);
+	KUNIT_EXPECT_EQ(test, err, param->expected_err);
+}
+
 static const struct rtp_to_sr_test_case rtp_to_sr_cases[] = {
 	{
 		.name = "coalesce-same-reg",
@@ -119,80 +316,6 @@ static const struct rtp_to_sr_test_case rtp_to_sr_cases[] = {
 			},
 			{ XE_RTP_NAME("basic-2"),
 			  XE_RTP_RULES(FUNC(match_no)),
-			  XE_RTP_ACTIONS(SET(REGULAR_REG1, REG_BIT(1)))
-			},
-			{}
-		},
-	},
-	{
-		.name = "match-or",
-		.expected_reg = REGULAR_REG1,
-		.expected_set_bits = REG_BIT(0) | REG_BIT(1) | REG_BIT(2),
-		.expected_clr_bits = REG_BIT(0) | REG_BIT(1) | REG_BIT(2),
-		.expected_active = BIT(0) | BIT(1) | BIT(2),
-		.expected_count_sr_entries = 1,
-		.entries = (const struct xe_rtp_entry_sr[]) {
-			{ XE_RTP_NAME("first"),
-			  XE_RTP_RULES(FUNC(match_yes), OR, FUNC(match_no)),
-			  XE_RTP_ACTIONS(SET(REGULAR_REG1, REG_BIT(0)))
-			},
-			{ XE_RTP_NAME("middle"),
-			  XE_RTP_RULES(FUNC(match_no), FUNC(match_no), OR,
-				       FUNC(match_yes), OR,
-				       FUNC(match_no)),
-			  XE_RTP_ACTIONS(SET(REGULAR_REG1, REG_BIT(1)))
-			},
-			{ XE_RTP_NAME("last"),
-			  XE_RTP_RULES(FUNC(match_no), OR, FUNC(match_yes)),
-			  XE_RTP_ACTIONS(SET(REGULAR_REG1, REG_BIT(2)))
-			},
-			{ XE_RTP_NAME("no-match"),
-			  XE_RTP_RULES(FUNC(match_no), OR, FUNC(match_no)),
-			  XE_RTP_ACTIONS(SET(REGULAR_REG1, REG_BIT(3)))
-			},
-			{}
-		},
-	},
-	{
-		.name = "match-or-xfail",
-		.expected_reg = REGULAR_REG1,
-		.expected_count_sr_entries = 0,
-		.entries = (const struct xe_rtp_entry_sr[]) {
-			{ XE_RTP_NAME("leading-or"),
-			  XE_RTP_RULES(OR, FUNC(match_yes)),
-			  XE_RTP_ACTIONS(SET(REGULAR_REG1, REG_BIT(0)))
-			},
-			{ XE_RTP_NAME("trailing-or"),
-			  /*
-			   * First condition is match_no, otherwise the failure
-			   * wouldn't really trigger as RTP stops processing as
-			   * soon as it has a matching set of rules
-			   */
-			  XE_RTP_RULES(FUNC(match_no), OR),
-			  XE_RTP_ACTIONS(SET(REGULAR_REG1, REG_BIT(1)))
-			},
-			{ XE_RTP_NAME("no-or-or-yes"),
-			  XE_RTP_RULES(FUNC(match_no), OR, OR, FUNC(match_yes)),
-			  XE_RTP_ACTIONS(SET(REGULAR_REG1, REG_BIT(2)))
-			},
-			{}
-		},
-	},
-	{
-		.name = "no-match-no-add-multiple-rules",
-		.expected_reg = REGULAR_REG1,
-		.expected_set_bits = REG_BIT(0),
-		.expected_clr_bits = REG_BIT(0),
-		.expected_active = BIT(0),
-		.expected_count_sr_entries = 1,
-		/* Don't coalesce second entry due to one of the rules */
-		.entries = (const struct xe_rtp_entry_sr[]) {
-			{ XE_RTP_NAME("basic-1"),
-			  XE_RTP_RULES(FUNC(match_yes)),
-			  XE_RTP_ACTIONS(SET(REGULAR_REG1, REG_BIT(0)))
-			},
-			{ XE_RTP_NAME("basic-2"),
-			  XE_RTP_RULES(FUNC(match_yes), FUNC(match_no)),
 			  XE_RTP_ACTIONS(SET(REGULAR_REG1, REG_BIT(1)))
 			},
 			{}
@@ -458,16 +581,15 @@ static const struct rtp_test_case rtp_cases[] = {
 		},
 	},
 	{
-		.name = "inactive-1st_or_active-inactive",
+		.name = "inactive-active-inactive",
 		.expected_active = BIT(1),
 		.entries = (const struct xe_rtp_entry[]) {
 			{ XE_RTP_NAME("r1"),
 			  XE_RTP_RULES(FUNC(match_no)),
 			},
-			{ XE_RTP_NAME("r2_or_conditions"),
-			  XE_RTP_RULES(FUNC(match_yes), OR,
-				       FUNC(match_no), OR,
-				       FUNC(match_no)) },
+			{ XE_RTP_NAME("r2"),
+			  XE_RTP_RULES(FUNC(match_yes)),
+			},
 			{ XE_RTP_NAME("r3"),
 			  XE_RTP_RULES(FUNC(match_no)),
 			},
@@ -475,50 +597,15 @@ static const struct rtp_test_case rtp_cases[] = {
 		},
 	},
 	{
-		.name = "inactive-2nd_or_active-inactive",
-		.expected_active = BIT(1),
-		.entries = (const struct xe_rtp_entry[]) {
-			{ XE_RTP_NAME("r1"),
-			  XE_RTP_RULES(FUNC(match_no)),
-			},
-			{ XE_RTP_NAME("r2_or_conditions"),
-			  XE_RTP_RULES(FUNC(match_no), OR,
-				       FUNC(match_yes), OR,
-				       FUNC(match_no)) },
-			{ XE_RTP_NAME("r3"),
-			  XE_RTP_RULES(FUNC(match_no)),
-			},
-			{}
-		},
-	},
-	{
-		.name = "inactive-last_or_active-inactive",
-		.expected_active = BIT(1),
-		.entries = (const struct xe_rtp_entry[]) {
-			{ XE_RTP_NAME("r1"),
-			  XE_RTP_RULES(FUNC(match_no)),
-			},
-			{ XE_RTP_NAME("r2_or_conditions"),
-			  XE_RTP_RULES(FUNC(match_no), OR,
-				       FUNC(match_no), OR,
-				       FUNC(match_yes)) },
-			{ XE_RTP_NAME("r3"),
-			  XE_RTP_RULES(FUNC(match_no)),
-			},
-			{}
-		},
-	},
-	{
-		.name = "inactive-no_or_active-inactive",
+		.name = "inactive-inactive-inactive",
 		.expected_active = 0,
 		.entries = (const struct xe_rtp_entry[]) {
 			{ XE_RTP_NAME("r1"),
 			  XE_RTP_RULES(FUNC(match_no)),
 			},
-			{ XE_RTP_NAME("r2_or_conditions"),
-			  XE_RTP_RULES(FUNC(match_no), OR,
-				       FUNC(match_no), OR,
-				       FUNC(match_no)) },
+			{ XE_RTP_NAME("r2"),
+			  XE_RTP_RULES(FUNC(match_no)),
+			},
 			{ XE_RTP_NAME("r3"),
 			  XE_RTP_RULES(FUNC(match_no)),
 			},
@@ -543,6 +630,13 @@ static void xe_rtp_process_tests(struct kunit *test)
 
 	KUNIT_EXPECT_EQ(test, active, param->expected_active);
 }
+
+static void rtp_rules_desc(const struct rtp_rules_test_case *t, char *desc)
+{
+	strscpy(desc, t->name, KUNIT_PARAM_DESC_SIZE);
+}
+
+KUNIT_ARRAY_PARAM(rtp_rules, rtp_rules_cases, rtp_rules_desc);
 
 static void rtp_to_sr_desc(const struct rtp_to_sr_test_case *t, char *desc)
 {
@@ -591,6 +685,7 @@ static void xe_rtp_test_exit(struct kunit *test)
 }
 
 static struct kunit_case xe_rtp_tests[] = {
+	KUNIT_CASE_PARAM(xe_rtp_rules_tests, rtp_rules_gen_params),
 	KUNIT_CASE_PARAM(xe_rtp_process_to_sr_tests, rtp_to_sr_gen_params),
 	KUNIT_CASE_PARAM(xe_rtp_process_tests, rtp_gen_params),
 	{}
