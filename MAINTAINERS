@@ -18886,7 +18886,7 @@ F:	drivers/net/net_failover.c
 F:	include/net/net_failover.h
 
 NFC SUBSYSTEM
-M:	David Heidelberg <david+nfc@ixit.cz>
+M:	David Heidelberg <david@ixit.cz>
 L:	oe-linux-nfc@lists.linux.dev
 S:	Maintained
 T:	git https://codeberg.org/linux-nfc/linux.git
