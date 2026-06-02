@@ -6740,6 +6740,15 @@ static int tg_unthrottle_up(struct task_group *tg, void *data)
 	struct cfs_rq *cfs_rq = tg_cfs_rq(tg, cpu_of(rq));
 	struct task_struct *p, *tmp;
 
+	/*
+	 * If cfs_rq->curr is set, the cfs_rq might not have caught up
+	 * since the last clock update. Do it now before we begin
+	 * queueing task onto it to save the need for unnecessarily
+	 * unthrottle the hierarchy for this cfs_rq to be throttled
+	 * right back again.
+	 */
+	update_curr(cfs_rq);
+
 	if (--cfs_rq->throttle_count)
 		return 0;
 
@@ -6882,13 +6891,15 @@ void unthrottle_cfs_rq(struct cfs_rq *cfs_rq)
 	 * We can't unthrottle this cfs_rq without any runtime remaining because
 	 * any enqueue in tg_unthrottle_up() will immediately trigger a throttle,
 	 * which is not supposed to happen on unthrottle path.
+	 *
+	 * Catch up on the remaining runtime since last clock update before
+	 * checking runtime remaining.
 	 */
+	update_curr(cfs_rq);
 	if (cfs_rq->runtime_enabled && cfs_rq->runtime_remaining <= 0)
 		return;
 
 	cfs_rq->throttled = 0;
-
-	update_rq_clock(rq);
 
 	scoped_guard(raw_spinlock, &cfs_b->lock) {
 		list_del_rcu(&cfs_rq->throttled_list);
@@ -6964,6 +6975,7 @@ static inline void __unthrottle_cfs_rq_async(struct cfs_rq *cfs_rq)
 	bool first;
 
 	if (rq == this_rq()) {
+		update_rq_clock(rq);
 		unthrottle_cfs_rq(cfs_rq);
 		return;
 	}
@@ -7016,6 +7028,11 @@ static bool distribute_cfs_runtime(struct cfs_bandwidth *cfs_b)
 		/* Already queued for async unthrottle */
 		if (!list_empty(&cfs_rq->throttled_csd_list))
 			continue;
+
+		if (cfs_rq->curr) {
+			update_rq_clock(rq);
+			update_curr(cfs_rq);
+		}
 
 		/* By the above checks, this should never be true */
 		WARN_ON_ONCE(cfs_rq->runtime_remaining > 0);

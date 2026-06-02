@@ -9859,11 +9859,14 @@ static int tg_set_cfs_bandwidth(struct task_group *tg,
 		struct rq *rq = cfs_rq->rq;
 
 		guard(rq_lock_irq)(rq);
+
 		cfs_rq->runtime_enabled = runtime_enabled;
 		cfs_rq->runtime_remaining = 1;
 
-		if (cfs_rq->throttled)
+		if (cfs_rq->throttled) {
+			update_rq_clock(rq);
 			unthrottle_cfs_rq(cfs_rq);
+		}
 	}
 
 	if (runtime_was_enabled && !runtime_enabled)
