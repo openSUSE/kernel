@@ -247,6 +247,7 @@ impl GspFwWprMeta {
             fbSize: fb_layout.fb.end - fb_layout.fb.start,
             vgaWorkspaceOffset: fb_layout.vga_workspace.start,
             vgaWorkspaceSize: fb_layout.vga_workspace.end - fb_layout.vga_workspace.start,
+            pmuReservedSize: fb_layout.pmu_reserved_size,
             ..Zeroable::init_zeroed()
         });
 

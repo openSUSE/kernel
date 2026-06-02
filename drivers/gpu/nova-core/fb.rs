@@ -165,6 +165,8 @@ pub(crate) struct FbLayout {
     pub(crate) wpr2: FbRange,
     pub(crate) heap: FbRange,
     pub(crate) vf_partition_count: u8,
+    /// PMU reserved memory size, in bytes.
+    pub(crate) pmu_reserved_size: u32,
 }
 
 impl FbLayout {
@@ -265,6 +267,7 @@ impl FbLayout {
             wpr2,
             heap,
             vf_partition_count: 0,
+            pmu_reserved_size: hal.pmu_reserved_size(),
         })
     }
 }

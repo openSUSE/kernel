@@ -1,24 +1,31 @@
 // SPDX-License-Identifier: GPL-2.0
-// SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+//! Blackwell framebuffer HAL.
 
 use kernel::{
-    io::Io,
-    prelude::*, //
+    prelude::*,
+    ptr::{
+        const_align_up,
+        Alignment, //
+    },
+    sizes::*, //
 };
 
 use crate::{
     driver::Bar0,
     fb::hal::FbHal,
-    regs, //
+    num::usize_into_u32, //
 };
 
-pub(super) fn vidmem_size_ga102(bar: &Bar0) -> u64 {
-    bar.read(regs::NV_USABLE_FB_SIZE_IN_MB).usable_fb_size()
+struct Gb100;
+
+const fn pmu_reserved_size_gb100() -> u32 {
+    usize_into_u32::<{ const_align_up(SZ_8M + SZ_16M + SZ_4K, Alignment::new::<SZ_128K>()).unwrap() }>(
+    )
 }
 
-struct Ga102;
-
-impl FbHal for Ga102 {
+impl FbHal for Gb100 {
     fn read_sysmem_flush_page(&self, bar: &Bar0) -> u64 {
         super::ga100::read_sysmem_flush_page_ga100(bar)
     }
@@ -34,11 +41,11 @@ impl FbHal for Ga102 {
     }
 
     fn vidmem_size(&self, bar: &Bar0) -> u64 {
-        vidmem_size_ga102(bar)
+        super::ga102::vidmem_size_ga102(bar)
     }
 
     fn pmu_reserved_size(&self) -> u32 {
-        super::tu102::pmu_reserved_size_tu102()
+        pmu_reserved_size_gb100()
     }
 
     fn frts_size(&self) -> u64 {
@@ -46,5 +53,5 @@ impl FbHal for Ga102 {
     }
 }
 
-const GA102: Ga102 = Ga102;
-pub(super) const GA102_HAL: &dyn FbHal = &GA102;
+const GB100: Gb100 = Gb100;
+pub(super) const GB100_HAL: &dyn FbHal = &GB100;

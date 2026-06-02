@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 use kernel::prelude::*;
 
@@ -12,6 +13,7 @@ use crate::{
 
 mod ga100;
 mod ga102;
+mod gb100;
 mod tu102;
 
 pub(crate) trait FbHal {
@@ -29,6 +31,9 @@ pub(crate) trait FbHal {
     /// Returns the VRAM size, in bytes.
     fn vidmem_size(&self, bar: &Bar0) -> u64;
 
+    /// Returns the amount of VRAM to reserve for the PMU.
+    fn pmu_reserved_size(&self) -> u32;
+
     /// Returns the FRTS size, in bytes.
     fn frts_size(&self) -> u64;
 }
@@ -38,10 +43,7 @@ pub(super) fn fb_hal(chipset: Chipset) -> &'static dyn FbHal {
     match chipset.arch() {
         Architecture::Turing => tu102::TU102_HAL,
         Architecture::Ampere if chipset == Chipset::GA100 => ga100::GA100_HAL,
-        Architecture::Ampere => ga102::GA102_HAL,
-        Architecture::Ada
-        | Architecture::Hopper
-        | Architecture::BlackwellGB10x
-        | Architecture::BlackwellGB20x => ga102::GA102_HAL,
+        Architecture::Ampere | Architecture::Ada | Architecture::Hopper => ga102::GA102_HAL,
+        Architecture::BlackwellGB10x | Architecture::BlackwellGB20x => gb100::GB100_HAL,
     }
 }
