@@ -170,7 +170,8 @@ int snd_seq_insert_port(struct snd_seq_client *client, int port,
 	list_add_tail(&new_port->list, insert_before);
 	client->num_ports++;
 	new_port->addr.port = num;	/* store the port number in the port */
-	sprintf(new_port->name, "port-%d", num);
+	if (!new_port->name[0])
+		sprintf(new_port->name, "port-%d", num);
 
 	return num;
 }
