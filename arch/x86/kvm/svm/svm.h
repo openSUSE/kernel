@@ -324,6 +324,7 @@ struct vcpu_svm {
 
 	bool guest_state_loaded;
 
+	bool avic_irq_window;
 	bool x2avic_msrs_intercepted;
 
 	/* Guest GIF value, used when vGIF is not enabled */
