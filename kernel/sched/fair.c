@@ -6739,6 +6739,7 @@ static int tg_unthrottle_up(struct task_group *tg, void *data)
 	struct rq *rq = data;
 	struct cfs_rq *cfs_rq = tg_cfs_rq(tg, cpu_of(rq));
 	struct task_struct *p, *tmp;
+	LIST_HEAD(throttled_tasks);
 
 	/*
 	 * If cfs_rq->curr is set, the cfs_rq might not have caught up
@@ -6769,12 +6770,30 @@ static int tg_unthrottle_up(struct task_group *tg, void *data)
 		cfs_rq->throttled_clock_self_time += delta;
 	}
 
+	/*
+	 * Move the tasks to a local list since an update_curr() during
+	 * enqueue_task_fair() can throttle a higher cfs_rq, and it can
+	 * see the "throttled_limbo_list" being non-empty in
+	 * tg_throttle_down() if throttle_count turned 0 above.
+	 */
+	list_splice_init(&cfs_rq->throttled_limbo_list, &throttled_tasks);
+
 	/* Re-enqueue the tasks that have been throttled at this level. */
-	list_for_each_entry_safe(p, tmp, &cfs_rq->throttled_limbo_list, throttle_node) {
+	list_for_each_entry_safe(p, tmp, &throttled_tasks, throttle_node) {
+		/*
+		 * Back to being throttled! Break out and put the remaining
+		 * tasks back onto the limbo_list to prevent running them
+		 * unnecessarily.
+		 */
+		if (cfs_rq->throttle_count)
+			break;
+
 		list_del_init(&p->throttle_node);
 		p->throttled = false;
-		enqueue_task_fair(rq_of(cfs_rq), p, ENQUEUE_WAKEUP);
+		enqueue_task_fair(rq, p, ENQUEUE_WAKEUP);
 	}
+
+	list_splice(&throttled_tasks, &cfs_rq->throttled_limbo_list);
 
 	/* Add cfs_rq with load or one or more already running entities to the list */
 	if (!cfs_rq_is_decayed(cfs_rq))
