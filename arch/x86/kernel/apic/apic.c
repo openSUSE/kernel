@@ -36,6 +36,7 @@
 #include <linux/dmi.h>
 #include <linux/smp.h>
 #include <linux/mm.h>
+#include <linux/kvm_types.h>
 
 #include <xen/xen.h>
 
@@ -2314,7 +2315,7 @@ u32 x86_msi_msg_get_destid(struct msi_msg *msg, bool extid)
 		dest |= msg->arch_addr_hi.destid_8_31 << 8;
 	return dest;
 }
-EXPORT_SYMBOL_GPL(x86_msi_msg_get_destid);
+EXPORT_SYMBOL_FOR_KVM(x86_msi_msg_get_destid);
 
 static void __init apic_bsp_up_setup(void)
 {
@@ -2379,7 +2380,7 @@ static struct {
 	unsigned int apic_cmci;
 } apic_pm_state;
 
-static int lapic_suspend(void)
+static int lapic_suspend(void *data)
 {
 	unsigned long flags;
 	int maxlvt;
@@ -2427,7 +2428,7 @@ static int lapic_suspend(void)
 	return 0;
 }
 
-static void lapic_resume(void)
+static void lapic_resume(void *data)
 {
 	unsigned int l, h;
 	unsigned long flags;
@@ -2502,9 +2503,13 @@ static void lapic_resume(void)
  * are needed on every CPU up until machine_halt/restart/poweroff.
  */
 
-static struct syscore_ops lapic_syscore_ops = {
+static const struct syscore_ops lapic_syscore_ops = {
 	.resume		= lapic_resume,
 	.suspend	= lapic_suspend,
+};
+
+static struct syscore lapic_syscore = {
+	.ops = &lapic_syscore_ops,
 };
 
 static void apic_pm_activate(void)
@@ -2516,7 +2521,7 @@ static int __init init_lapic_sysfs(void)
 {
 	/* XXX: remove suspend/resume procs if !apic_pm_state.active? */
 	if (boot_cpu_has(X86_FEATURE_APIC))
-		register_syscore_ops(&lapic_syscore_ops);
+		register_syscore(&lapic_syscore);
 
 	return 0;
 }

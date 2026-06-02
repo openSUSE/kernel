@@ -38,7 +38,8 @@
 #include <asm/asm.h>
 #include <asm/kvm_page_track.h>
 #include <asm/kvm_vcpu_regs.h>
-#include <asm/reboot.h>
+#include <asm/virt.h>
+
 #include <hyperv/hvhdk.h>
 
 #define __KVM_HAVE_ARCH_VCPU_DEBUGFS
@@ -1036,6 +1037,7 @@ struct kvm_vcpu_arch {
 
 	int pending_ioapic_eoi;
 	int pending_external_vector;
+	int highest_stale_pending_ioapic_eoi;
 
 	/* be preempted when it's in kernel-mode(cpl=0) */
 	bool preempted_in_kernel;
@@ -1374,9 +1376,11 @@ struct kvm_arch {
 	atomic_t noncoherent_dma_count;
 #define __KVM_HAVE_ARCH_ASSIGNED_DEVICE
 	atomic_t assigned_device_count;
+#ifdef CONFIG_KVM_IOAPIC
 	struct kvm_pic *vpic;
 	struct kvm_ioapic *vioapic;
 	struct kvm_pit *vpit;
+#endif
 	atomic_t vapics_in_nmi_mode;
 
 	struct mutex apic_map_lock;
@@ -1411,7 +1415,6 @@ struct kvm_arch {
 	bool pause_in_guest;
 	bool cstate_in_guest;
 
-	unsigned long irq_sources_bitmap;
 	s64 kvmclock_offset;
 
 	/*
@@ -1441,9 +1444,6 @@ struct kvm_arch {
 	struct delayed_work kvmclock_sync_work;
 
 	struct kvm_xen_hvm_config xen_hvm_config;
-
-	/* reads protected by irq_srcu, writes by irq_lock */
-	struct hlist_head mask_notifier_list;
 
 #ifdef CONFIG_KVM_HYPERV
 	struct kvm_hv hyperv;
@@ -2061,19 +2061,6 @@ int load_pdptrs(struct kvm_vcpu *vcpu, unsigned long cr3);
 int emulator_write_phys(struct kvm_vcpu *vcpu, gpa_t gpa,
 			  const void *val, int bytes);
 
-struct kvm_irq_mask_notifier {
-	void (*func)(struct kvm_irq_mask_notifier *kimn, bool masked);
-	int irq;
-	struct hlist_node link;
-};
-
-void kvm_register_irq_mask_notifier(struct kvm *kvm, int irq,
-				    struct kvm_irq_mask_notifier *kimn);
-void kvm_unregister_irq_mask_notifier(struct kvm *kvm, int irq,
-				      struct kvm_irq_mask_notifier *kimn);
-void kvm_fire_mask_notifiers(struct kvm *kvm, unsigned irqchip, unsigned pin,
-			     bool mask);
-
 extern bool tdp_enabled;
 
 u64 vcpu_tsc_khz(struct kvm_vcpu *vcpu);
@@ -2242,9 +2229,6 @@ static inline int __kvm_irq_line_state(unsigned long *irq_state,
 
 	return !!(*irq_state);
 }
-
-int kvm_pic_set_irq(struct kvm_pic *pic, int irq, int irq_source_id, int level);
-void kvm_pic_clear_all(struct kvm_pic *pic, int irq_source_id);
 
 void kvm_inject_nmi(struct kvm_vcpu *vcpu);
 int kvm_get_nr_pending_nmis(struct kvm_vcpu *vcpu);
@@ -2428,9 +2412,6 @@ void __user *__x86_set_memory_region(struct kvm *kvm, int id, gpa_t gpa,
 				     u32 size);
 bool kvm_vcpu_is_reset_bsp(struct kvm_vcpu *vcpu);
 bool kvm_vcpu_is_bsp(struct kvm_vcpu *vcpu);
-
-bool kvm_intr_is_single_vcpu(struct kvm *kvm, struct kvm_lapic_irq *irq,
-			     struct kvm_vcpu **dest_vcpu);
 
 void kvm_set_msi_irq(struct kvm *kvm, struct kvm_kernel_irq_routing_entry *e,
 		     struct kvm_lapic_irq *irq);

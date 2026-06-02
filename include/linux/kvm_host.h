@@ -190,6 +190,7 @@ bool kvm_make_all_cpus_request(struct kvm *kvm, unsigned int req);
 
 #define KVM_USERSPACE_IRQ_SOURCE_ID		0
 #define KVM_IRQFD_RESAMPLE_IRQ_SOURCE_ID	1
+#define KVM_PIT_IRQ_SOURCE_ID			2
 
 extern struct mutex kvm_lock;
 extern struct list_head vm_list;
@@ -1024,14 +1025,10 @@ void kvm_unlock_all_vcpus(struct kvm *kvm);
 void vcpu_load(struct kvm_vcpu *vcpu);
 void vcpu_put(struct kvm_vcpu *vcpu);
 
-#ifdef __KVM_HAVE_IOAPIC
+#ifdef CONFIG_KVM_IOAPIC
 void kvm_arch_post_irq_ack_notifier_list_update(struct kvm *kvm);
-void kvm_arch_post_irq_routing_update(struct kvm *kvm);
 #else
 static inline void kvm_arch_post_irq_ack_notifier_list_update(struct kvm *kvm)
-{
-}
-static inline void kvm_arch_post_irq_routing_update(struct kvm *kvm)
 {
 }
 #endif
@@ -1611,6 +1608,13 @@ static inline void kvm_create_vcpu_debugfs(struct kvm_vcpu *vcpu) {}
 
 #ifdef CONFIG_KVM_GENERIC_HARDWARE_ENABLING
 /*
+ * kvm_arch_shutdown() is invoked immediately prior to forcefully disabling
+ * hardware virtualization on all CPUs via IPI function calls (in preparation
+ * for shutdown or reboot), e.g. to allow arch code to prepare for disabling
+ * virtualization while KVM may be actively running vCPUs.
+ */
+void kvm_arch_shutdown(void);
+/*
  * kvm_arch_{enable,disable}_virtualization() are called on one CPU, under
  * kvm_usage_lock, immediately after/before 0=>1 and 1=>0 transitions of
  * kvm_usage_count, i.e. at the beginning of the generic hardware enabling
@@ -1793,8 +1797,6 @@ void kvm_register_irq_ack_notifier(struct kvm *kvm,
 				   struct kvm_irq_ack_notifier *kian);
 void kvm_unregister_irq_ack_notifier(struct kvm *kvm,
 				   struct kvm_irq_ack_notifier *kian);
-int kvm_request_irq_source_id(struct kvm *kvm);
-void kvm_free_irq_source_id(struct kvm *kvm, int irq_source_id);
 bool kvm_arch_irqfd_allowed(struct kvm *kvm, struct kvm_irqfd *args);
 
 /*
@@ -2312,7 +2314,6 @@ static inline bool kvm_check_request(int req, struct kvm_vcpu *vcpu)
 
 #ifdef CONFIG_KVM_GENERIC_HARDWARE_ENABLING
 extern bool enable_virt_at_load;
-extern bool kvm_rebooting;
 #endif
 
 extern unsigned int halt_poll_ns;
@@ -2598,14 +2599,6 @@ void kvm_arch_gmem_invalidate(kvm_pfn_t start, kvm_pfn_t end);
 #ifdef CONFIG_KVM_GENERIC_PRE_FAULT_MEMORY
 long kvm_arch_vcpu_pre_fault_memory(struct kvm_vcpu *vcpu,
 				    struct kvm_pre_fault_memory *range);
-#endif
-
-#ifdef CONFIG_KVM_GENERIC_HARDWARE_ENABLING
-int kvm_enable_virtualization(void);
-void kvm_disable_virtualization(void);
-#else
-static inline int kvm_enable_virtualization(void) { return 0; }
-static inline void kvm_disable_virtualization(void) { }
 #endif
 
 #endif
