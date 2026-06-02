@@ -582,6 +582,7 @@ bpf_get_spilled_stack_arg(int slot, struct bpf_func_state *frame)
 				(void)(__expr);                          \
 			}						 \
 		}                                                        \
+		(void)__stack;                                           \
 	})
 
 /* Invoke __expr over regsiters in __vst, setting __state and __reg */
