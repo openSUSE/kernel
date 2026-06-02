@@ -290,6 +290,8 @@ enum {
 	IO_RING_F_IOWQ_LIMITS_SET	= BIT(12),
 };
 
+struct iou_ctx {};
+
 struct io_ring_ctx {
 	/* const or read-mostly hot data */
 	struct {
@@ -366,7 +368,7 @@ struct io_ring_ctx {
 		struct io_alloc_cache	rw_cache;
 		struct io_alloc_cache	cmd_cache;
 
-		int (*loop_step)(struct io_ring_ctx *ctx,
+		int (*loop_step)(struct iou_ctx *,
 				 struct iou_loop_params *);
 
 		/*
