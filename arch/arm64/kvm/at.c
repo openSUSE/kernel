@@ -1557,7 +1557,10 @@ int __kvm_at_s12(struct kvm_vcpu *vcpu, u32 op, u64 vaddr)
 		return 0;
 	}
 
-	__kvm_at_s1e01(vcpu, op, vaddr);
+	ret = __kvm_at_s1e01(vcpu, op, vaddr);
+	if (ret)
+		return ret;
+
 	par = vcpu_read_sys_reg(vcpu, PAR_EL1);
 	if (par & SYS_PAR_EL1_F)
 		return 0;
