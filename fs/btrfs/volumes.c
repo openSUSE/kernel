@@ -963,6 +963,11 @@ static noinline struct btrfs_device *device_list_add(const char *path,
 					  devid, btrfs_dev_name(device),
 					  path, current->comm,
 					  task_pid_nr(current));
+		} else {
+			btrfs_info(NULL,
+	"missing devid %llu re-appeared at %s scanned by %s (%d)",
+				   devid, path, current->comm,
+				   task_pid_nr(current));
 		}
 
 		name = kstrdup(path, GFP_NOFS);
