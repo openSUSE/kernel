@@ -1631,6 +1631,7 @@ int amdgpu_vm_handle_moved(struct amdgpu_device *adev,
 {
 	struct amdgpu_bo_va *bo_va;
 	struct dma_resv *resv;
+	struct amdgpu_bo *bo;
 	bool clear, unlock;
 	int r;
 
@@ -1650,11 +1651,13 @@ int amdgpu_vm_handle_moved(struct amdgpu_device *adev,
 	while (!list_empty(&vm->invalidated)) {
 		bo_va = list_first_entry(&vm->invalidated, struct amdgpu_bo_va,
 					 base.vm_status);
-		resv = bo_va->base.bo->tbo.base.resv;
+		bo = bo_va->base.bo;
+		resv = bo->tbo.base.resv;
 		spin_unlock(&vm->status_lock);
 
 		/* Try to reserve the BO to avoid clearing its ptes */
-		if (!adev->debug_vm && dma_resv_trylock(resv)) {
+		if (!adev->debug_vm && !amdgpu_ttm_tt_get_usermm(bo->tbo.ttm) &&
+		    dma_resv_trylock(resv)) {
 			clear = false;
 			unlock = true;
 		/* The caller is already holding the reservation lock */
@@ -2002,7 +2005,7 @@ int amdgpu_vm_bo_unmap(struct amdgpu_device *adev,
 	 * during user requests GEM unmap IOCTL except for forcing the unmap
 	 * from user space.
 	 */
-	if (unlikely(atomic_read(&bo_va->userq_va_mapped) > 0))
+	if (unlikely(bo_va->userq_va_mapped))
 		amdgpu_userq_gem_va_unmap_validate(adev, mapping, saddr);
 
 	list_del(&mapping->list);
@@ -3023,11 +3026,22 @@ bool amdgpu_vm_handle_fault(struct amdgpu_device *adev, u32 pasid,
 
 	is_compute_context = vm->is_compute_context;
 
-	if (is_compute_context && !svm_range_restore_pages(adev, pasid, vmid,
-	    node_id, addr >> PAGE_SHIFT, ts, write_fault)) {
+	if (is_compute_context) {
+		/* Unreserve root since svm_range_restore_pages might try to reserve it. */
+		/* TODO: rework svm_range_restore_pages so that this isn't necessary. */
 		amdgpu_bo_unreserve(root);
+
+		if (!svm_range_restore_pages(adev, pasid, vmid,
+					     node_id, addr >> PAGE_SHIFT, ts, write_fault)) {
+			amdgpu_bo_unref(&root);
+			return true;
+		}
 		amdgpu_bo_unref(&root);
-		return true;
+
+		/* Re-acquire the VM lock, could be that the VM was freed in between. */
+		vm = amdgpu_vm_lock_by_pasid(adev, &root, pasid);
+		if (!vm)
+			return false;
 	}
 
 	addr /= AMDGPU_GPU_PAGE_SIZE;

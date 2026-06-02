@@ -677,11 +677,11 @@ static int ntfs_ib_read(struct ntfs_index_context *icx, s64 vcn, struct index_bl
 
 static int ntfs_icx_parent_inc(struct ntfs_index_context *icx)
 {
-	icx->pindex++;
-	if (icx->pindex >= MAX_PARENT_VCN) {
+	if (icx->pindex >= MAX_PARENT_VCN - 1) {
 		ntfs_error(icx->idx_ni->vol->sb, "Index is over %d level deep", MAX_PARENT_VCN);
 		return -EOPNOTSUPP;
 	}
+	icx->pindex++;
 	return 0;
 }
 
@@ -1969,20 +1969,31 @@ err_out:
 struct index_entry *ntfs_index_walk_down(struct index_entry *ie, struct ntfs_index_context *ictx)
 {
 	struct index_entry *entry;
+	struct index_block *ib;
+	int err;
 	s64 vcn;
 
 	entry = ie;
 	do {
 		vcn = ntfs_ie_get_vcn(entry);
 		if (ictx->is_in_root) {
-			/* down from level zero */
-			ictx->ir = NULL;
-			ictx->ib = kvzalloc(ictx->block_size, GFP_NOFS);
+			ib = kvzalloc(ictx->block_size, GFP_NOFS);
+			if (!ib)
+				return ERR_PTR(-ENOMEM);
+			/*
+			 * Descending from root index (level 0) to the first
+			 * child level. is_in_root == true implies pindex == 0,
+			 * so advance to level 1.
+			 */
 			ictx->pindex = 1;
+			ictx->ir = NULL;
+			ictx->ib = ib;
 			ictx->is_in_root = false;
 		} else {
 			/* down from non-zero level */
-			ictx->pindex++;
+			err = ntfs_icx_parent_inc(ictx);
+			if (err)
+				return ERR_PTR(err);
 		}
 
 		ictx->parent_pos[ictx->pindex] = 0;
@@ -1991,8 +2002,8 @@ struct index_entry *ntfs_index_walk_down(struct index_entry *ie, struct ntfs_ind
 			ictx->entry = ntfs_ie_get_first(&ictx->ib->index);
 			entry = ictx->entry;
 		} else
-			entry = NULL;
-	} while (entry && (entry->flags & INDEX_ENTRY_NODE));
+			entry = ERR_PTR(-EIO);
+	} while (!IS_ERR(entry) && (entry->flags & INDEX_ENTRY_NODE));
 
 	return entry;
 }
@@ -2097,10 +2108,15 @@ struct index_entry *ntfs_index_next(struct index_entry *ie, struct ntfs_index_co
 
 		/* walk down if it has a subnode */
 		if (flags & INDEX_ENTRY_NODE) {
-			if (!ictx->ia_ni)
+			if (!ictx->ia_ni) {
 				ictx->ia_ni = ntfs_ia_open(ictx, ictx->idx_ni);
+				if (!ictx->ia_ni)
+					return ERR_PTR(-EIO);
+			}
 
 			next = ntfs_index_walk_down(next, ictx);
+			if (IS_ERR(next))
+				return next;
 		} else {
 
 			/* walk up it has no subnode, nor data */
