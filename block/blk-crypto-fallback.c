@@ -199,8 +199,8 @@ static struct bio *blk_crypto_alloc_enc_bio(struct bio *bio_src,
 	pages += nr_segs * (PAGE_PTRS_PER_BVEC - 1);
 
 	/*
-	 * Try a bulk allocation first.  This could leave random pages in the
-	 * array unallocated, but we'll fix that up later in mempool_alloc_bulk.
+	 * Try a bulk allocation first.  This might not fill all allocated
+	 * pages, but we'll fix that up later in mempool_alloc_bulk.
 	 *
 	 * Note: alloc_pages_bulk needs the array to be zeroed, as it assumes
 	 * any non-zero slot already contains a valid allocation.
@@ -208,8 +208,9 @@ static struct bio *blk_crypto_alloc_enc_bio(struct bio *bio_src,
 	memset(pages, 0, sizeof(struct page *) * nr_segs);
 	nr_allocated = alloc_pages_bulk(GFP_KERNEL, nr_segs, pages);
 	if (nr_allocated < nr_segs)
-		mempool_alloc_bulk(blk_crypto_bounce_page_pool, (void **)pages,
-				nr_segs, nr_allocated);
+		mempool_alloc_bulk(blk_crypto_bounce_page_pool,
+				(void **)pages + nr_allocated,
+				nr_segs - nr_allocated);
 	memalloc_noio_restore(memflags);
 	*pages_ret = pages;
 	return bio;
