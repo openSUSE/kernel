@@ -93,10 +93,23 @@ static bool check_format(struct iris_inst *inst, u32 pixfmt, u32 type)
 
 	for (i = 0; i < size; i++) {
 		if (fmt[i] == pixfmt)
-			return true;
+			break;
 	}
 
-	return false;
+	if (i == size)
+		return false;
+
+	if (type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+		if (iris_fmt_is_8bit(pixfmt) &&
+		    inst->fw_caps[BIT_DEPTH].value == BIT_DEPTH_10)
+			return false;
+
+		if (iris_fmt_is_10bit(pixfmt) &&
+		    inst->fw_caps[BIT_DEPTH].value != BIT_DEPTH_10)
+			return false;
+	}
+
+	return true;
 }
 
 static u32 find_format_by_index(struct iris_inst *inst, u32 index, u32 type)
