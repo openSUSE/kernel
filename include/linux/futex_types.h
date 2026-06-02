@@ -3,6 +3,7 @@
 #define _LINUX_FUTEX_TYPES_H
 
 #ifdef CONFIG_FUTEX
+#include <linux/compiler_types.h>
 #include <linux/mutex_types.h>
 #include <linux/types.h>
 
@@ -29,8 +30,41 @@ struct futex_sched_data {
 	struct mutex				exit_mutex;
 	unsigned int				state;
 };
-#else
+
+#ifdef CONFIG_FUTEX_PRIVATE_HASH
+/**
+ * struct futex_mm_phash - Futex private hash related per MM data
+ * @lock:	Mutex to protect the private hash operations
+ * @hash:	RCU managed pointer to the private hash
+ * @hash_new:	Pointer to a newly allocated private hash
+ * @batches:	Batch state for RCU synchronization
+ * @rcu:	RCU head for call_rcu()
+ * @atomic:	Aggregate value for @hash_ref
+ * @ref:	Per CPU reference counter for a private hash
+ */
+struct futex_mm_phash {
+	struct mutex			lock;
+	struct futex_private_hash	__rcu *hash;
+	struct futex_private_hash	*hash_new;
+	unsigned long			batches;
+	struct rcu_head			rcu;
+	atomic_long_t			atomic;
+	unsigned int			__percpu *ref;
+};
+#else  /* CONFIG_FUTEX_ROBUST_UNLOCK */
+struct futex_mm_phash { };
+#endif /* !CONFIG_FUTEX_ROBUST_UNLOCK */
+
+/**
+ * struct futex_mm_data - Futex related per MM data
+ * @phash:	Futex private hash related data
+ */
+struct futex_mm_data {
+	struct futex_mm_phash		phash;
+};
+#else  /* CONFIG_FUTEX */
 struct futex_sched_data { };
+struct futex_mm_data { };
 #endif /* !CONFIG_FUTEX */
 
 #endif /* _LINUX_FUTEX_TYPES_H */

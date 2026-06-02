@@ -188,13 +188,13 @@ __futex_hash_private(union futex_key *key, struct futex_private_hash *fph)
 		return NULL;
 
 	if (!fph)
-		fph = rcu_dereference(key->private.mm->futex_phash);
+		fph = rcu_dereference(key->private.mm->futex.phash.hash);
 	if (!fph || !fph->hash_mask)
 		return NULL;
 
-	hash = jhash2((void *)&key->private.address,
-		      sizeof(key->private.address) / 4,
+	hash = jhash2((void *)&key->private.address, sizeof(key->private.address) / 4,
 		      key->both.offset);
+
 	return &fph->queues[hash & fph->hash_mask];
 }
 
@@ -233,18 +233,17 @@ static void futex_rehash_private(struct futex_private_hash *old,
 	}
 }
 
-static bool __futex_pivot_hash(struct mm_struct *mm,
-			       struct futex_private_hash *new)
+static bool __futex_pivot_hash(struct mm_struct *mm, struct futex_private_hash *new)
 {
+	struct futex_mm_phash *mmph = &mm->futex.phash;
 	struct futex_private_hash *fph;
 
-	WARN_ON_ONCE(mm->futex_phash_new);
+	WARN_ON_ONCE(mmph->hash_new);
 
-	fph = rcu_dereference_protected(mm->futex_phash,
-					lockdep_is_held(&mm->futex_hash_lock));
+	fph = rcu_dereference_protected(mmph->hash, lockdep_is_held(&mmph->lock));
 	if (fph) {
 		if (!futex_ref_is_dead(fph)) {
-			mm->futex_phash_new = new;
+			mmph->hash_new = new;
 			return false;
 		}
 
@@ -252,8 +251,8 @@ static bool __futex_pivot_hash(struct mm_struct *mm,
 	}
 	new->state = FR_PERCPU;
 	scoped_guard(rcu) {
-		mm->futex_batches = get_state_synchronize_rcu();
-		rcu_assign_pointer(mm->futex_phash, new);
+		mmph->batches = get_state_synchronize_rcu();
+		rcu_assign_pointer(mmph->hash, new);
 	}
 	kvfree_rcu(fph, rcu);
 	return true;
@@ -261,12 +260,12 @@ static bool __futex_pivot_hash(struct mm_struct *mm,
 
 static void futex_pivot_hash(struct mm_struct *mm)
 {
-	scoped_guard(mutex, &mm->futex_hash_lock) {
+	scoped_guard(mutex, &mm->futex.phash.lock) {
 		struct futex_private_hash *fph;
 
-		fph = mm->futex_phash_new;
+		fph = mm->futex.phash.hash_new;
 		if (fph) {
-			mm->futex_phash_new = NULL;
+			mm->futex.phash.hash_new = NULL;
 			__futex_pivot_hash(mm, fph);
 		}
 	}
@@ -289,7 +288,7 @@ again:
 	scoped_guard(rcu) {
 		struct futex_private_hash *fph;
 
-		fph = rcu_dereference(mm->futex_phash);
+		fph = rcu_dereference(mm->futex.phash.hash);
 		if (!fph)
 			return NULL;
 
@@ -412,8 +411,7 @@ static int futex_mpol(struct mm_struct *mm, unsigned long addr)
  * private hash) is returned if existing. Otherwise a hash bucket from the
  * global hash is returned.
  */
-static struct futex_hash_bucket *
-__futex_hash(union futex_key *key, struct futex_private_hash *fph)
+static struct futex_hash_bucket *__futex_hash(union futex_key *key, struct futex_private_hash *fph)
 {
 	int node = key->both.node;
 	u32 hash;
@@ -426,8 +424,7 @@ __futex_hash(union futex_key *key, struct futex_private_hash *fph)
 			return hb;
 	}
 
-	hash = jhash2((u32 *)key,
-		      offsetof(typeof(*key), both.offset) / sizeof(u32),
+	hash = jhash2((u32 *)key, offsetof(typeof(*key), both.offset) / sizeof(u32),
 		      key->both.offset);
 
 	if (node == FUTEX_NO_NODE) {
@@ -442,8 +439,7 @@ __futex_hash(union futex_key *key, struct futex_private_hash *fph)
 		 */
 		node = (hash >> futex_hashshift) % nr_node_ids;
 		if (!node_possible(node)) {
-			node = find_next_bit_wrap(node_possible_map.bits,
-						  nr_node_ids, node);
+			node = find_next_bit_wrap(node_possible_map.bits, nr_node_ids, node);
 		}
 	}
 
@@ -460,9 +456,8 @@ __futex_hash(union futex_key *key, struct futex_private_hash *fph)
  * Return: Initialized hrtimer_sleeper structure or NULL if no timeout
  *	   value given
  */
-struct hrtimer_sleeper *
-futex_setup_timer(ktime_t *time, struct hrtimer_sleeper *timeout,
-		  int flags, u64 range_ns)
+struct hrtimer_sleeper *futex_setup_timer(ktime_t *time, struct hrtimer_sleeper *timeout,
+					  int flags, u64 range_ns)
 {
 	if (!time)
 		return NULL;
@@ -1554,17 +1549,17 @@ static void __futex_ref_atomic_begin(struct futex_private_hash *fph)
 	 * otherwise it would be impossible for it to have reported success
 	 * from futex_ref_is_dead().
 	 */
-	WARN_ON_ONCE(atomic_long_read(&mm->futex_atomic) != 0);
+	WARN_ON_ONCE(atomic_long_read(&mm->futex.phash.atomic) != 0);
 
 	/*
 	 * Set the atomic to the bias value such that futex_ref_{get,put}()
 	 * will never observe 0. Will be fixed up in __futex_ref_atomic_end()
 	 * when folding in the percpu count.
 	 */
-	atomic_long_set(&mm->futex_atomic, LONG_MAX);
+	atomic_long_set(&mm->futex.phash.atomic, LONG_MAX);
 	smp_store_release(&fph->state, FR_ATOMIC);
 
-	call_rcu_hurry(&mm->futex_rcu, futex_ref_rcu);
+	call_rcu_hurry(&mm->futex.phash.rcu, futex_ref_rcu);
 }
 
 static void __futex_ref_atomic_end(struct futex_private_hash *fph)
@@ -1585,7 +1580,7 @@ static void __futex_ref_atomic_end(struct futex_private_hash *fph)
 	 * Therefore the per-cpu counter is now stable, sum and reset.
 	 */
 	for_each_possible_cpu(cpu) {
-		unsigned int *ptr = per_cpu_ptr(mm->futex_ref, cpu);
+		unsigned int *ptr = per_cpu_ptr(mm->futex.phash.ref, cpu);
 		count += *ptr;
 		*ptr = 0;
 	}
@@ -1593,7 +1588,7 @@ static void __futex_ref_atomic_end(struct futex_private_hash *fph)
 	/*
 	 * Re-init for the next cycle.
 	 */
-	this_cpu_inc(*mm->futex_ref); /* 0 -> 1 */
+	this_cpu_inc(*mm->futex.phash.ref); /* 0 -> 1 */
 
 	/*
 	 * Add actual count, subtract bias and initial refcount.
@@ -1601,7 +1596,7 @@ static void __futex_ref_atomic_end(struct futex_private_hash *fph)
 	 * The moment this atomic operation happens, futex_ref_is_dead() can
 	 * become true.
 	 */
-	ret = atomic_long_add_return(count - LONG_MAX - 1, &mm->futex_atomic);
+	ret = atomic_long_add_return(count - LONG_MAX - 1, &mm->futex.phash.atomic);
 	if (!ret)
 		wake_up_var(mm);
 
@@ -1611,8 +1606,8 @@ static void __futex_ref_atomic_end(struct futex_private_hash *fph)
 
 static void futex_ref_rcu(struct rcu_head *head)
 {
-	struct mm_struct *mm = container_of(head, struct mm_struct, futex_rcu);
-	struct futex_private_hash *fph = rcu_dereference_raw(mm->futex_phash);
+	struct mm_struct *mm = container_of(head, struct mm_struct, futex.phash.rcu);
+	struct futex_private_hash *fph = rcu_dereference_raw(mm->futex.phash.hash);
 
 	if (fph->state == FR_PERCPU) {
 		/*
@@ -1641,7 +1636,7 @@ static void futex_ref_drop(struct futex_private_hash *fph)
 	/*
 	 * Can only transition the current fph;
 	 */
-	WARN_ON_ONCE(rcu_dereference_raw(mm->futex_phash) != fph);
+	WARN_ON_ONCE(rcu_dereference_raw(mm->futex.phash.hash) != fph);
 	/*
 	 * We enqueue at least one RCU callback. Ensure mm stays if the task
 	 * exits before the transition is completed.
@@ -1652,9 +1647,9 @@ static void futex_ref_drop(struct futex_private_hash *fph)
 	 * In order to avoid the following scenario:
 	 *
 	 * futex_hash()			__futex_pivot_hash()
-	 *   guard(rcu);		  guard(mm->futex_hash_lock);
-	 *   fph = mm->futex_phash;
-	 *				  rcu_assign_pointer(&mm->futex_phash, new);
+	 *   guard(rcu);		  guard(mm->futex.phash.lock);
+	 *   fph = mm->futex.phash.hash;
+	 *				  rcu_assign_pointer(&mm->futex.phash.hash, new);
 	 *				futex_hash_allocate()
 	 *				  futex_ref_drop()
 	 *				    fph->state = FR_ATOMIC;
@@ -1669,7 +1664,7 @@ static void futex_ref_drop(struct futex_private_hash *fph)
 	 * There must be at least one full grace-period between publishing a
 	 * new fph and trying to replace it.
 	 */
-	if (poll_state_synchronize_rcu(mm->futex_batches)) {
+	if (poll_state_synchronize_rcu(mm->futex.phash.batches)) {
 		/*
 		 * There was a grace-period, we can begin now.
 		 */
@@ -1677,7 +1672,7 @@ static void futex_ref_drop(struct futex_private_hash *fph)
 		return;
 	}
 
-	call_rcu_hurry(&mm->futex_rcu, futex_ref_rcu);
+	call_rcu_hurry(&mm->futex.phash.rcu, futex_ref_rcu);
 }
 
 static bool futex_ref_get(struct futex_private_hash *fph)
@@ -1687,11 +1682,11 @@ static bool futex_ref_get(struct futex_private_hash *fph)
 	guard(preempt)();
 
 	if (READ_ONCE(fph->state) == FR_PERCPU) {
-		__this_cpu_inc(*mm->futex_ref);
+		__this_cpu_inc(*mm->futex.phash.ref);
 		return true;
 	}
 
-	return atomic_long_inc_not_zero(&mm->futex_atomic);
+	return atomic_long_inc_not_zero(&mm->futex.phash.atomic);
 }
 
 static bool futex_ref_put(struct futex_private_hash *fph)
@@ -1701,11 +1696,11 @@ static bool futex_ref_put(struct futex_private_hash *fph)
 	guard(preempt)();
 
 	if (READ_ONCE(fph->state) == FR_PERCPU) {
-		__this_cpu_dec(*mm->futex_ref);
+		__this_cpu_dec(*mm->futex.phash.ref);
 		return false;
 	}
 
-	return atomic_long_dec_and_test(&mm->futex_atomic);
+	return atomic_long_dec_and_test(&mm->futex.phash.atomic);
 }
 
 static bool futex_ref_is_dead(struct futex_private_hash *fph)
@@ -1717,27 +1712,23 @@ static bool futex_ref_is_dead(struct futex_private_hash *fph)
 	if (smp_load_acquire(&fph->state) == FR_PERCPU)
 		return false;
 
-	return atomic_long_read(&mm->futex_atomic) == 0;
+	return atomic_long_read(&mm->futex.phash.atomic) == 0;
 }
 
 void futex_mm_init(struct mm_struct *mm)
 {
-	mutex_init(&mm->futex_hash_lock);
-	RCU_INIT_POINTER(mm->futex_phash, NULL);
-	mm->futex_phash_new = NULL;
-	/* futex-ref */
-	mm->futex_ref = NULL;
-	atomic_long_set(&mm->futex_atomic, 0);
-	mm->futex_batches = get_state_synchronize_rcu();
+	memset(&mm->futex, 0, sizeof(mm->futex));
+	mutex_init(&mm->futex.phash.lock);
+	mm->futex.phash.batches = get_state_synchronize_rcu();
 }
 
 void futex_hash_free(struct mm_struct *mm)
 {
 	struct futex_private_hash *fph;
 
-	free_percpu(mm->futex_ref);
-	kvfree(mm->futex_phash_new);
-	fph = rcu_dereference_raw(mm->futex_phash);
+	free_percpu(mm->futex.phash.ref);
+	kvfree(mm->futex.phash.hash_new);
+	fph = rcu_dereference_raw(mm->futex.phash.hash);
 	if (fph)
 		kvfree(fph);
 }
@@ -1748,10 +1739,10 @@ static bool futex_pivot_pending(struct mm_struct *mm)
 
 	guard(rcu)();
 
-	if (!mm->futex_phash_new)
+	if (!mm->futex.phash.hash_new)
 		return true;
 
-	fph = rcu_dereference(mm->futex_phash);
+	fph = rcu_dereference(mm->futex.phash.hash);
 	return futex_ref_is_dead(fph);
 }
 
@@ -1793,7 +1784,7 @@ static int futex_hash_allocate(unsigned int hash_slots, unsigned int flags)
 	 * Once we've disabled the global hash there is no way back.
 	 */
 	scoped_guard(rcu) {
-		fph = rcu_dereference(mm->futex_phash);
+		fph = rcu_dereference(mm->futex.phash.hash);
 		if (fph && !fph->hash_mask) {
 			if (custom)
 				return -EBUSY;
@@ -1801,15 +1792,15 @@ static int futex_hash_allocate(unsigned int hash_slots, unsigned int flags)
 		}
 	}
 
-	if (!mm->futex_ref) {
+	if (!mm->futex.phash.ref) {
 		/*
 		 * This will always be allocated by the first thread and
 		 * therefore requires no locking.
 		 */
-		mm->futex_ref = alloc_percpu(unsigned int);
-		if (!mm->futex_ref)
+		mm->futex.phash.ref = alloc_percpu(unsigned int);
+		if (!mm->futex.phash.ref)
 			return -ENOMEM;
-		this_cpu_inc(*mm->futex_ref); /* 0 -> 1 */
+		this_cpu_inc(*mm->futex.phash.ref); /* 0 -> 1 */
 	}
 
 	fph = kvzalloc(struct_size(fph, queues, hash_slots),
@@ -1832,14 +1823,14 @@ again:
 		wait_var_event(mm, futex_pivot_pending(mm));
 	}
 
-	scoped_guard(mutex, &mm->futex_hash_lock) {
+	scoped_guard(mutex, &mm->futex.phash.lock) {
 		struct futex_private_hash *free __free(kvfree) = NULL;
 		struct futex_private_hash *cur, *new;
 
-		cur = rcu_dereference_protected(mm->futex_phash,
-						lockdep_is_held(&mm->futex_hash_lock));
-		new = mm->futex_phash_new;
-		mm->futex_phash_new = NULL;
+		cur = rcu_dereference_protected(mm->futex.phash.hash,
+						lockdep_is_held(&mm->futex.phash.lock));
+		new = mm->futex.phash.hash_new;
+		mm->futex.phash.hash_new = NULL;
 
 		if (fph) {
 			if (cur && !cur->hash_mask) {
@@ -1849,7 +1840,7 @@ again:
 				 * the second one returns here.
 				 */
 				free = fph;
-				mm->futex_phash_new = new;
+				mm->futex.phash.hash_new = new;
 				return -EBUSY;
 			}
 			if (cur && !new) {
@@ -1879,7 +1870,7 @@ again:
 
 		if (new) {
 			/*
-			 * Will set mm->futex_phash_new on failure;
+			 * Will set mm->futex.phash.new_hash on failure;
 			 * futex_private_hash_get() will try again.
 			 */
 			if (!__futex_pivot_hash(mm, new) && custom)
@@ -1898,11 +1889,9 @@ int futex_hash_allocate_default(void)
 		return 0;
 
 	scoped_guard(rcu) {
-		threads = min_t(unsigned int,
-				get_nr_threads(current),
-				num_online_cpus());
+		threads = min_t(unsigned int, get_nr_threads(current), num_online_cpus());
 
-		fph = rcu_dereference(current->mm->futex_phash);
+		fph = rcu_dereference(current->mm->futex.phash.hash);
 		if (fph) {
 			if (fph->custom)
 				return 0;
@@ -1929,7 +1918,7 @@ static int futex_hash_get_slots(void)
 	struct futex_private_hash *fph;
 
 	guard(rcu)();
-	fph = rcu_dereference(current->mm->futex_phash);
+	fph = rcu_dereference(current->mm->futex.phash.hash);
 	if (fph && fph->hash_mask)
 		return fph->hash_mask + 1;
 	return 0;
