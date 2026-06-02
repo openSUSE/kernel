@@ -351,14 +351,6 @@ macro_rules! project_pointer {
         $crate::ptr::project!(@gen $ptr, $($rest)*)
     };
 
-    // For compatibility
-    (@gen $ptr:ident, [$index:expr]? $($rest:tt)*) => {
-        $crate::ptr::project!(@gen $ptr, [try: $index] $($rest)*)
-    };
-    (@gen $ptr:ident, [$index:expr] $($rest:tt)*) => {
-        $crate::ptr::project!(@gen $ptr, [build: $index] $($rest)*)
-    };
-
     (mut $ptr:expr, $($proj:tt)*) => {{
         let ptr: *mut _ = $ptr;
         $crate::ptr::project!(@gen ptr, $($proj)*);

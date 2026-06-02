@@ -1210,12 +1210,6 @@ macro_rules! dma_write {
     (@parse [$dma:expr] [$($proj:tt)*] [[$flavor:ident: $index:expr] $($rest:tt)*]) => {
         $crate::dma_write!(@parse [$dma] [$($proj)* [$flavor: $index]] [$($rest)*])
     };
-    (@parse [$dma:expr] [$($proj:tt)*] [[$index:expr]? $($rest:tt)*]) => {
-        $crate::dma_write!(@parse [$dma] [$($proj)* [$index]?] [$($rest)*])
-    };
-    (@parse [$dma:expr] [$($proj:tt)*] [[$index:expr] $($rest:tt)*]) => {
-        $crate::dma_write!(@parse [$dma] [$($proj)* [$index]] [$($rest)*])
-    };
     ($dma:expr, $($rest:tt)*) => {
         $crate::dma_write!(@parse [$dma] [] [$($rest)*])
     };
