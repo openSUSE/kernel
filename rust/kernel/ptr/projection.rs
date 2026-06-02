@@ -26,14 +26,14 @@ impl From<OutOfBound> for Error {
 ///
 /// # Safety
 ///
-/// The implementation of `index` and `get` (if [`Some`] is returned) must ensure that, if provided
-/// input pointer `slice` and returned pointer `output`, then:
+/// For a given input pointer `slice` and return value `output`, the implementation of `build_index`
+/// and `get` (if [`Some`] is returned) must ensure that:
 /// - `output` has the same provenance as `slice`;
 /// - `output.byte_offset_from(slice)` is between 0 to
 ///   `KnownSize::size(slice) - KnownSize::size(output)`.
 ///
-/// This means that if the input pointer is valid, then pointer returned by `get` or `index` is
-/// also valid.
+/// This means that if the input pointer is valid, then the pointer returned by `get` or
+/// `build_index` is also valid.
 #[diagnostic::on_unimplemented(message = "`{Self}` cannot be used to index `{T}`")]
 #[doc(hidden)]
 pub unsafe trait ProjectIndex<T: ?Sized>: Sized {
@@ -44,7 +44,7 @@ pub unsafe trait ProjectIndex<T: ?Sized>: Sized {
 
     /// Returns an index-projected pointer; fail the build if it cannot be proved to be in bounds.
     #[inline(always)]
-    fn index(self, slice: *mut T) -> *mut Self::Output {
+    fn build_index(self, slice: *mut T) -> *mut Self::Output {
         Self::get(self, slice).unwrap_or_else(|| build_error!())
     }
 }
@@ -64,8 +64,8 @@ where
     }
 
     #[inline(always)]
-    fn index(self, slice: *mut [T; N]) -> *mut Self::Output {
-        <I as ProjectIndex<[T]>>::index(self, slice)
+    fn build_index(self, slice: *mut [T; N]) -> *mut Self::Output {
+        <I as ProjectIndex<[T]>>::build_index(self, slice)
     }
 }
 
@@ -287,7 +287,7 @@ macro_rules! project_pointer {
     };
     // Build-time checked index projection.
     (@gen $ptr:ident, [$index:expr] $($rest:tt)*) => {
-        let $ptr = $crate::ptr::projection::ProjectIndex::index($index, $ptr);
+        let $ptr = $crate::ptr::projection::ProjectIndex::build_index($index, $ptr);
         $crate::ptr::project!(@gen $ptr, $($rest)*)
     };
     (mut $ptr:expr, $($proj:tt)*) => {{
