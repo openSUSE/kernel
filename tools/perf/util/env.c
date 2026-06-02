@@ -361,6 +361,44 @@ bool perf_arch_is_big_endian(const char *arch)
 	return false;
 }
 
+const char *perf_env__os_release(struct perf_env *env)
+{
+	struct utsname uts;
+	int ret;
+	const char *release;
+
+	if (!env)
+		return perf_version_string;
+
+	mutex_lock(&env->lock);
+	if (env->os_release) {
+		release = env->os_release;
+		goto out;
+	}
+
+	/*
+	 * If env->arch is set, this is an offline target environment.
+	 * If the os_release is not populated in the file, we do not want
+	 * to poison it with the host's release which would break guest checks.
+	 */
+	if (env->arch) {
+		release = NULL;
+		goto out;
+	}
+
+	/*
+	 * The os_release is being accessed but wasn't initialized from a data
+	 * file, assume this is 'live' mode and use the release from uname. If
+	 * uname or strdup fails then use the current perf tool version.
+	 */
+	ret = uname(&uts);
+	env->os_release = strdup(ret < 0 ? perf_version_string : uts.release);
+	release = env->os_release ?: perf_version_string;
+out:
+	mutex_unlock(&env->lock);
+	return release;
+}
+
 int perf_env__set_cmdline(struct perf_env *env, int argc, const char *argv[])
 {
 	int i;
