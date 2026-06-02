@@ -40,6 +40,7 @@ use crate::{
     regs,
 };
 
+pub(crate) mod fsp;
 pub(crate) mod gsp;
 mod hal;
 pub(crate) mod sec2;
