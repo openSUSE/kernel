@@ -8,6 +8,10 @@
 
 #include "map_excl.skel.h"
 
+#ifndef SHA256_DIGEST_SIZE
+#define SHA256_DIGEST_SIZE	32
+#endif
+
 static void test_map_excl_allowed(void)
 {
 	struct map_excl *skel = map_excl__open();
@@ -45,10 +49,52 @@ out:
 
 }
 
+static void test_map_excl_no_map_in_map(void)
+{
+	__u8 hash[SHA256_DIGEST_SIZE] = {};
+	LIBBPF_OPTS(bpf_map_create_opts, excl_opts,
+		    .excl_prog_hash = hash,
+		    .excl_prog_hash_size = sizeof(hash));
+	LIBBPF_OPTS(bpf_map_create_opts, outer_opts);
+	int excl_fd, tmpl_fd = -1, outer_fd = -1, err;
+	__u32 key = 0;
+
+	excl_fd = bpf_map_create(BPF_MAP_TYPE_ARRAY, "excl_inner", 4, 4, 1, &excl_opts);
+	if (!ASSERT_OK_FD(excl_fd, "create exclusive map"))
+		return;
+
+	outer_opts.inner_map_fd = excl_fd;
+	err = bpf_map_create(BPF_MAP_TYPE_ARRAY_OF_MAPS, "outer_from_excl",
+			     4, 4, 1, &outer_opts);
+	if (err >= 0)
+		close(err);
+	ASSERT_EQ(err, -ENOTSUPP, "reject exclusive map as map-in-map template");
+
+	tmpl_fd = bpf_map_create(BPF_MAP_TYPE_ARRAY, "tmpl", 4, 4, 1, NULL);
+	if (!ASSERT_OK_FD(tmpl_fd, "create inner template"))
+		goto out;
+
+	outer_opts.inner_map_fd = tmpl_fd;
+	outer_fd = bpf_map_create(BPF_MAP_TYPE_ARRAY_OF_MAPS, "outer", 4, 4, 1, &outer_opts);
+	if (!ASSERT_OK_FD(outer_fd, "create map-of-maps"))
+		goto out;
+
+	err = bpf_map_update_elem(outer_fd, &key, &excl_fd, 0);
+	ASSERT_EQ(err, -ENOTSUPP, "reject exclusive map as map-in-map element");
+out:
+	if (outer_fd >= 0)
+		close(outer_fd);
+	if (tmpl_fd >= 0)
+		close(tmpl_fd);
+	close(excl_fd);
+}
+
 void test_map_excl(void)
 {
 	if (test__start_subtest("map_excl_allowed"))
 		test_map_excl_allowed();
 	if (test__start_subtest("map_excl_denied"))
 		test_map_excl_denied();
+	if (test__start_subtest("map_excl_no_map_in_map"))
+		test_map_excl_no_map_in_map();
 }

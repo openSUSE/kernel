@@ -1588,6 +1588,13 @@ static int map_create_alloc(union bpf_attr *attr, bpfptr_t uattr, struct bpf_ver
 			err = -EFAULT;
 			goto free_map;
 		}
+
+		/* See libbpf: emit_signature_match() */
+		BUILD_BUG_ON(offsetof(struct bpf_map, excl) != SHA256_DIGEST_SIZE);
+		BUILD_BUG_ON(!__same_type(map->excl, u32));
+		BUILD_BUG_ON(offsetof(struct bpf_map, sha)  != 0);
+		BUILD_BUG_ON(!__same_type(map->sha, u8[SHA256_DIGEST_SIZE]));
+		map->excl = 1;
 	} else if (attr->excl_prog_hash_size) {
 		bpf_log(log, "Invalid excl_prog_hash_size.\n");
 		err = -EINVAL;
@@ -5434,18 +5441,16 @@ static int bpf_map_get_info_by_fd(struct file *file,
 
 		if (!map->ops->map_get_hash)
 			return -EINVAL;
-
-		if (info.hash_size != SHA256_DIGEST_SIZE)
+		if (info.hash_size != sizeof(map->sha))
 			return -EINVAL;
-
 		if (!READ_ONCE(map->frozen))
 			return -EPERM;
 
-		err = map->ops->map_get_hash(map, SHA256_DIGEST_SIZE, map->sha);
+		err = map->ops->map_get_hash(map);
 		if (err != 0)
 			return err;
 
-		if (copy_to_user(uhash, map->sha, SHA256_DIGEST_SIZE) != 0)
+		if (copy_to_user(uhash, map->sha, sizeof(map->sha)) != 0)
 			return -EFAULT;
 	} else if (info.hash_size) {
 		return -EINVAL;
