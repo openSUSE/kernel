@@ -4410,7 +4410,10 @@ void deferred_split_folio(struct folio *folio, bool partially_mapped)
 static unsigned long deferred_split_count(struct shrinker *shrink,
 		struct shrink_control *sc)
 {
-	return list_lru_shrink_count(&deferred_split_lru, sc);
+	unsigned long count;
+
+	count = list_lru_shrink_count(&deferred_split_lru, sc);
+	return count ?: SHRINK_EMPTY;
 }
 
 static bool thp_underused(struct folio *folio)
