@@ -2718,6 +2718,8 @@ void hci_unregister_dev(struct hci_dev *hdev)
 	hci_unregister_suspend_notifier(hdev);
 
 	hci_dev_do_close(hdev);
+	cancel_delayed_work_sync(&hdev->cmd_timer);
+	cancel_delayed_work_sync(&hdev->ncmd_timer);
 
 	if (!test_bit(HCI_INIT, &hdev->flags) &&
 	    !hci_dev_test_flag(hdev, HCI_SETUP) &&
