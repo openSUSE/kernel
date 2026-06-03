@@ -556,6 +556,21 @@ TEST_F(iommufd_ioas, alloc_hwpt_nested)
 					 1, &num_inv);
 		assert(!num_inv);
 
+		/* Negative test: entry_len is bounded by PAGE_SIZE */
+		num_inv = 1;
+		test_err_hwpt_invalidate(EINVAL, nested_hwpt_id[0], inv_reqs,
+					 IOMMU_HWPT_INVALIDATE_DATA_SELFTEST,
+					 PAGE_SIZE + 1, &num_inv);
+		assert(!num_inv);
+
+		/* Negative test: entry_num is bounded */
+#define IOMMU_HWPT_INVALIDATE_ENTRY_NUM_MAX (1U << 19)
+		num_inv = IOMMU_HWPT_INVALIDATE_ENTRY_NUM_MAX + 1;
+		test_err_hwpt_invalidate(EINVAL, nested_hwpt_id[0], inv_reqs,
+					 IOMMU_HWPT_INVALIDATE_DATA_SELFTEST,
+					 sizeof(*inv_reqs), &num_inv);
+		assert(!num_inv);
+
 		/* Negative test: invalid flag is passed */
 		num_inv = 1;
 		inv_reqs[0].flags = 0xffffffff;
