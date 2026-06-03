@@ -126,6 +126,41 @@ out:
 	close(excl_fd);
 }
 
+static void test_map_excl_create_validation(void)
+{
+	LIBBPF_OPTS(bpf_map_create_opts, o);
+	__u8 hash[SHA256_DIGEST_SIZE] = {};
+	int fd;
+
+	o.excl_prog_hash = hash;
+	o.excl_prog_hash_size = SHA256_DIGEST_SIZE / 2;
+	fd = bpf_map_create(BPF_MAP_TYPE_ARRAY, "excl", 4, 4, 1, &o);
+	if (fd >= 0)
+		close(fd);
+	ASSERT_EQ(fd, -EINVAL, "reject short excl_prog_hash_size");
+
+	o.excl_prog_hash = hash;
+	o.excl_prog_hash_size = SHA256_DIGEST_SIZE * 2;
+	fd = bpf_map_create(BPF_MAP_TYPE_ARRAY, "excl", 4, 4, 1, &o);
+	if (fd >= 0)
+		close(fd);
+	ASSERT_EQ(fd, -EINVAL, "reject long excl_prog_hash_size");
+
+	o.excl_prog_hash = hash;
+	o.excl_prog_hash_size = 0;
+	fd = bpf_map_create(BPF_MAP_TYPE_ARRAY, "excl", 4, 4, 1, &o);
+	if (fd >= 0)
+		close(fd);
+	ASSERT_EQ(fd, -EINVAL, "reject hash pointer with zero size");
+
+	o.excl_prog_hash = NULL;
+	o.excl_prog_hash_size = SHA256_DIGEST_SIZE;
+	fd = bpf_map_create(BPF_MAP_TYPE_ARRAY, "excl", 4, 4, 1, &o);
+	if (fd >= 0)
+		close(fd);
+	ASSERT_EQ(fd, -EINVAL, "reject size with NULL hash pointer");
+}
+
 void test_map_excl(void)
 {
 	if (test__start_subtest("map_excl_allowed"))
@@ -136,4 +171,6 @@ void test_map_excl(void)
 		test_map_excl_no_map_in_map();
 	if (test__start_subtest("map_excl_no_map_iter"))
 		test_map_excl_no_map_iter();
+	if (test__start_subtest("map_excl_create_validation"))
+		test_map_excl_create_validation();
 }
