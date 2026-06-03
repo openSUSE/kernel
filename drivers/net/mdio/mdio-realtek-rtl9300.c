@@ -54,8 +54,8 @@
 #define RTL9300_NUM_BUSES			4
 #define RTL9300_NUM_PAGES			4096
 #define RTL9300_NUM_PORTS			28
-#define SMI_GLB_CTRL				0xca00
-#define   GLB_CTRL_INTF_SEL(intf)		BIT(16 + (intf))
+#define RTL9300_SMI_GLB_CTRL			0xca00
+#define   RTL9300_GLB_CTRL_INTF_SEL(intf)	BIT(16 + (intf))
 #define RTL9300_SMI_PORT0_15_POLLING_SEL	0xca08
 #define RTL9300_SMI_ACCESS_PHY_CTRL_0		0xcb70
 #define RTL9300_SMI_ACCESS_PHY_CTRL_1		0xcb74
@@ -92,6 +92,17 @@ struct otto_emdio_cmd_regs {
 	u32 port_mask_low;
 };
 
+struct otto_emdio_priv {
+	const struct otto_emdio_info *info;
+	struct regmap *regmap;
+	struct mutex lock; /* protect HW access */
+	DECLARE_BITMAP(valid_ports, MAX_PORTS);
+	u8 smi_bus[MAX_PORTS];
+	u8 smi_addr[MAX_PORTS];
+	bool smi_bus_is_c45[MAX_SMI_BUSSES];
+	struct mii_bus *bus[MAX_SMI_BUSSES];
+};
+
 struct otto_emdio_info {
 	u32 addr_map_base;
 	u32 bus_map_base;
@@ -102,21 +113,11 @@ struct otto_emdio_info {
 	u8 num_buses;
 	u8 num_ports;
 	u16 num_pages;
+	int (*setup_controller)(struct otto_emdio_priv *priv);
 	int (*read_c22)(struct mii_bus *bus, int port, int regnum, u32 *value);
 	int (*read_c45)(struct mii_bus *bus, int port, int dev_addr, int regnum, u32 *value);
 	int (*write_c22)(struct mii_bus *bus, int port, int regnum, u16 value);
 	int (*write_c45)(struct mii_bus *bus, int port, int dev_addr, int regnum, u16 value);
-};
-
-struct otto_emdio_priv {
-	const struct otto_emdio_info *info;
-	struct regmap *regmap;
-	struct mutex lock; /* protect HW access */
-	DECLARE_BITMAP(valid_ports, MAX_PORTS);
-	u8 smi_bus[MAX_PORTS];
-	u8 smi_addr[MAX_PORTS];
-	bool smi_bus_is_c45[MAX_SMI_BUSSES];
-	struct mii_bus *bus[MAX_SMI_BUSSES];
 };
 
 struct otto_emdio_chan {
@@ -369,7 +370,7 @@ static int otto_emdio_setup_topology(struct otto_emdio_priv *priv)
 	return 0;
 }
 
-static int otto_emdio_9300_mdiobus_init(struct otto_emdio_priv *priv)
+static int otto_emdio_9300_setup_controller(struct otto_emdio_priv *priv)
 {
 	u32 glb_ctrl_mask = 0, glb_ctrl_val = 0;
 	struct regmap *regmap = priv->regmap;
@@ -379,9 +380,9 @@ static int otto_emdio_9300_mdiobus_init(struct otto_emdio_priv *priv)
 	glb_ctrl_mask = GENMASK(19, 16);
 	for (i = 0; i < priv->info->num_buses; i++)
 		if (priv->smi_bus_is_c45[i])
-			glb_ctrl_val |= GLB_CTRL_INTF_SEL(i);
+			glb_ctrl_val |= RTL9300_GLB_CTRL_INTF_SEL(i);
 
-	err = regmap_update_bits(regmap, SMI_GLB_CTRL,
+	err = regmap_update_bits(regmap, RTL9300_SMI_GLB_CTRL,
 				 glb_ctrl_mask, glb_ctrl_val);
 	if (err)
 		return err;
@@ -548,15 +549,17 @@ static int otto_emdio_probe(struct platform_device *pdev)
 	if (err)
 		return err;
 
+	if (priv->info->setup_controller) {
+		err = priv->info->setup_controller(priv);
+		if (err)
+			return dev_err_probe(dev, err, "failed to setup MDIO bus controller\n");
+	}
+
 	device_for_each_child_node_scoped(dev, child) {
 		err = otto_emdio_probe_one(dev, priv, child);
 		if (err)
 			return err;
 	}
-
-	err = otto_emdio_9300_mdiobus_init(priv);
-	if (err)
-		return dev_err_probe(dev, err, "failed to initialise MDIO bus controller\n");
 
 	return 0;
 }
@@ -576,6 +579,7 @@ static const struct otto_emdio_info otto_emdio_9300_info = {
 	.num_buses = RTL9300_NUM_BUSES,
 	.num_ports = RTL9300_NUM_PORTS,
 	.num_pages = RTL9300_NUM_PAGES,
+	.setup_controller = otto_emdio_9300_setup_controller,
 	.read_c22 = otto_emdio_9300_read_c22,
 	.read_c45 = otto_emdio_9300_read_c45,
 	.write_c22 = otto_emdio_9300_write_c22,
