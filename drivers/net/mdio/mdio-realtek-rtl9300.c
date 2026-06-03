@@ -78,7 +78,6 @@
 
 #define MAX_PORTS       28
 #define MAX_SMI_BUSSES  4
-#define MAX_SMI_ADDR	0x1f
 #define RAW_PAGE(priv)	((priv)->info->num_pages - 1)
 
 
@@ -430,8 +429,8 @@ static int otto_emdio_map_ports(struct device *dev)
 	struct device_node *ports_dn, *phy_dn, *bus_dn, *ctrl_dn;
 	struct otto_emdio_priv *priv = dev_get_drvdata(dev);
 	struct device *parent = dev->parent;
-	u32 addr, bus, pn;
-	int err = 0;
+	int addr, err = 0;
+	u32 bus, pn;
 
 	ports_dn = of_get_child_by_name(parent->of_node, "ethernet-ports");
 	if (!ports_dn)
@@ -478,9 +477,11 @@ static int otto_emdio_map_ports(struct device *dev)
 			goto put_nodes;
 		}
 
-		err = of_property_read_u32(phy_dn, "reg", &addr);
-		if (err)
+		addr = of_mdio_parse_addr(dev, phy_dn);
+		if (addr < 0) {
+			err = addr;
 			goto put_nodes;
+		}
 
 		__set_bit(pn, priv->valid_ports);
 		priv->smi_bus[pn] = bus;
