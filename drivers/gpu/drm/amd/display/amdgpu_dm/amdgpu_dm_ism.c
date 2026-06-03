@@ -32,6 +32,8 @@
 #include "amdgpu_dm_ism.h"
 #include "amdgpu_dm_crtc.h"
 #include "amdgpu_dm_trace.h"
+#include "amdgpu_dm_kunit_helpers.h"
+
 
 /**
  * dm_ism_next_state - Get next state based on current state and event
@@ -42,9 +44,10 @@
  * This function defines the idle state management FSM. Invalid transitions
  * are ignored and will not progress the FSM.
  */
-static bool dm_ism_next_state(enum amdgpu_dm_ism_state current_state,
-			      enum amdgpu_dm_ism_event event,
-			      enum amdgpu_dm_ism_state *next_state)
+STATIC_IFN_KUNIT
+bool dm_ism_next_state(enum amdgpu_dm_ism_state current_state,
+		       enum amdgpu_dm_ism_event event,
+		       enum amdgpu_dm_ism_state *next_state)
 {
 	switch (STATE_EVENT(current_state, event)) {
 	case STATE_EVENT(DM_ISM_STATE_FULL_POWER_RUNNING,
@@ -125,8 +128,10 @@ static bool dm_ism_next_state(enum amdgpu_dm_ism_state current_state,
 	}
 	return true;
 }
+EXPORT_IF_KUNIT(dm_ism_next_state);
 
-static uint64_t dm_ism_get_sso_delay(const struct amdgpu_dm_ism *ism,
+STATIC_IFN_KUNIT
+uint64_t dm_ism_get_sso_delay(const struct amdgpu_dm_ism *ism,
 				     const struct dc_stream_state *stream)
 {
 	const struct amdgpu_dm_ism_config *config = &ism->config;
@@ -148,6 +153,7 @@ static uint64_t dm_ism_get_sso_delay(const struct amdgpu_dm_ism *ism,
 
 	return sso_delay_ns;
 }
+EXPORT_IF_KUNIT(dm_ism_get_sso_delay);
 
 /**
  * dm_ism_get_idle_allow_delay - Calculate hysteresis-based idle allow delay
@@ -157,8 +163,9 @@ static uint64_t dm_ism_get_sso_delay(const struct amdgpu_dm_ism *ism,
  * Calculates the delay before allowing idle optimizations based on recent
  * idle history and the current stream timing.
  */
-static uint64_t dm_ism_get_idle_allow_delay(const struct amdgpu_dm_ism *ism,
-					    const struct dc_stream_state *stream)
+STATIC_IFN_KUNIT
+uint64_t dm_ism_get_idle_allow_delay(const struct amdgpu_dm_ism *ism,
+				     const struct dc_stream_state *stream)
 {
 	const struct amdgpu_dm_ism_config *config = &ism->config;
 	uint32_t v_total, h_total;
@@ -217,6 +224,7 @@ static uint64_t dm_ism_get_idle_allow_delay(const struct amdgpu_dm_ism *ism,
 
 	return ret_ns;
 }
+EXPORT_IF_KUNIT(dm_ism_get_idle_allow_delay);
 
 /**
  * dm_ism_insert_record - Insert a record into the circular history buffer
@@ -375,7 +383,7 @@ static enum amdgpu_dm_ism_event dm_ism_dispatch_power_state(
 		}
 
 		/* Schedule worker */
-		mod_delayed_work(system_unbound_wq, &ism->delayed_work,
+		mod_delayed_work(system_dfl_wq, &ism->delayed_work,
 				 nsecs_to_jiffies(delay_ns));
 
 		break;
@@ -391,14 +399,14 @@ static enum amdgpu_dm_ism_event dm_ism_dispatch_power_state(
 			 * have a negative power impact. Skip idle allow here,
 			 * and let the sso_delayed_work handle it.
 			 */
-			mod_delayed_work(system_unbound_wq,
+			mod_delayed_work(system_dfl_wq,
 					 &ism->sso_delayed_work,
 					 nsecs_to_jiffies(sso_delay_ns));
 		} else {
 			/* Enable idle optimization without SSO */
 			dm_ism_commit_idle_optimization_state(
 				ism, acrtc_state->stream, false, false);
-			mod_delayed_work(system_unbound_wq,
+			mod_delayed_work(system_dfl_wq,
 					 &ism->sso_delayed_work,
 					 nsecs_to_jiffies(sso_delay_ns));
 		}
