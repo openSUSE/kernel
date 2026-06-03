@@ -9942,6 +9942,9 @@ again:
 	return p;
 
 idle:
+	if (sched_core_enabled(rq))
+		return NULL;
+
 	new_tasks = sched_balance_newidle(rq, rf);
 	if (new_tasks < 0)
 		return RETRY_TASK;
