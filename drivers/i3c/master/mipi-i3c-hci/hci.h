@@ -11,6 +11,7 @@
 #define HCI_H
 
 #include <linux/io.h>
+#include <linux/jiffies.h>
 
 /* 32-bit word aware bit and mask macros */
 #define W0_MASK(h, l)  GENMASK((h) - 0,  (l) - 0)
@@ -88,11 +89,13 @@ struct hci_xfer {
 	u32 cmd_desc[4];
 	u32 response;
 	bool rnw;
+	bool started;
 	void *data;
 	unsigned int data_len;
 	unsigned int cmd_tid;
 	struct completion *completion;
 	unsigned long timeout;
+	unsigned long start_jiffies;
 	union {
 		struct {
 			/* PIO specific */
@@ -121,6 +124,14 @@ static inline struct hci_xfer *hci_alloc_xfer(unsigned int n)
 static inline void hci_free_xfer(struct hci_xfer *xfer, unsigned int n)
 {
 	kfree(xfer);
+}
+
+static inline void hci_start_xfer(struct hci_xfer *xfer)
+{
+	if (!xfer->started) {
+		xfer->started = true;
+		xfer->start_jiffies = jiffies;
+	}
 }
 
 /* This abstracts PIO vs DMA operations */

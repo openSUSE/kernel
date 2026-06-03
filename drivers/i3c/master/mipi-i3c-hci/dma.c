@@ -543,6 +543,9 @@ static int hci_dma_queue_xfer(struct i3c_hci *hci,
 		enqueue_ptr = (enqueue_ptr + 1) % rh->xfer_entries;
 	}
 
+	if (rh->xfer_space == rh->xfer_entries)
+		hci_start_xfer(xfer_list);
+
 	rh->xfer_space -= n;
 
 	op1_val &= ~RING_OP1_CR_ENQ_PTR;
@@ -558,6 +561,7 @@ static void hci_dma_xfer_done(struct i3c_hci *hci, struct hci_rh_data *rh)
 	u32 op1_val, op2_val, resp, *ring_resp;
 	unsigned int tid, done_ptr = rh->done_ptr;
 	unsigned int done_cnt = 0;
+	bool start_next = false;
 	struct hci_xfer *xfer;
 
 	for (;;) {
@@ -588,8 +592,14 @@ static void hci_dma_xfer_done(struct i3c_hci *hci, struct hci_rh_data *rh)
 			xfer->response = resp;
 			if (xfer == xfer->final_xfer || RESP_STATUS(resp))
 				complete(xfer->final_xfer->completion);
-			if (RESP_STATUS(resp))
+			else
+				hci_start_xfer(xfer);
+			if (RESP_STATUS(resp)) {
 				hci->enqueue_blocked = true;
+				start_next = false;
+			} else {
+				start_next = true;
+			}
 		}
 
 		done_ptr = (done_ptr + 1) % rh->xfer_entries;
@@ -598,6 +608,10 @@ static void hci_dma_xfer_done(struct i3c_hci *hci, struct hci_rh_data *rh)
 	}
 
 	rh->xfer_space += done_cnt;
+	if (start_next && rh->xfer_space < rh->xfer_entries) {
+		xfer = rh->src_xfers[done_ptr];
+		hci_start_xfer(xfer);
+	}
 	op1_val = rh_reg_read(RING_OPERATION1);
 	op1_val &= ~RING_OP1_CR_SW_DEQ_PTR;
 	op1_val |= FIELD_PREP(RING_OP1_CR_SW_DEQ_PTR, done_ptr);
@@ -809,6 +823,9 @@ restart:
 	rh_reg_write(RING_CONTROL, RING_CTRL_ENABLE | RING_CTRL_RUN_STOP);
 
 	hci_dma_unblock_enqueue(hci);
+
+	if (rh->xfer_space < rh->xfer_entries)
+		hci_start_xfer(rh->src_xfers[rh->done_ptr]);
 
 	spin_unlock_irq(&hci->lock);
 
