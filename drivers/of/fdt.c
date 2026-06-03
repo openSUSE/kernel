@@ -145,7 +145,7 @@ static void populate_properties(const void *blob,
 		 * used in pSeries dynamic device tree
 		 * stuff
 		 */
-		if (!strcmp(pname, "ibm,phandle"))
+		if (IS_ENABLED(CONFIG_PPC_PSERIES) && !strcmp(pname, "ibm,phandle"))
 			np->phandle = be32_to_cpup(val);
 
 		pp->name   = (char *)pname;
