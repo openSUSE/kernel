@@ -1140,7 +1140,7 @@ uaudio_endpoint_setup(struct snd_usb_substream *subs,
 	ret = xhci_sideband_add_endpoint(uadev[card_num].sb, ep);
 	if (ret < 0) {
 		dev_err(&subs->dev->dev,
-			"failed to add data ep to sec intr\n");
+			"failed to add data ep to sec intr: %d\n", ret);
 		ret = -ENODEV;
 		goto exit;
 	}
@@ -1148,7 +1148,7 @@ uaudio_endpoint_setup(struct snd_usb_substream *subs,
 	sgt = xhci_sideband_get_endpoint_buffer(uadev[card_num].sb, ep);
 	if (!sgt) {
 		dev_err(&subs->dev->dev,
-			"failed to get data ep ring address\n");
+			"failed to get data ep ring address: %d\n", ret);
 		ret = -ENODEV;
 		goto remove_ep;
 	}
