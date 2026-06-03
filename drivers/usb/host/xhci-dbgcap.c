@@ -628,18 +628,30 @@ static void xhci_dbc_mem_cleanup(struct xhci_dbc *dbc)
 	dbc->ring_evt = NULL;
 }
 
+static int xhci_dbc_enable_dce(struct xhci_dbc *dbc, bool enable)
+{
+	u32 done_state = 0;
+	u32 ctrl = 0;
+
+	if (enable) {
+		ctrl = readl(&dbc->regs->control);
+		ctrl |= DBC_CTRL_DBC_ENABLE | DBC_CTRL_PORT_ENABLE;
+		done_state =  DBC_CTRL_DBC_ENABLE;
+	}
+
+	writel(ctrl, &dbc->regs->control);
+	return xhci_handshake(&dbc->regs->control, DBC_CTRL_DBC_ENABLE,
+			      done_state, 1000);
+}
+
 static int xhci_do_dbc_start(struct xhci_dbc *dbc)
 {
 	int			ret;
-	u32			ctrl;
 
 	if (dbc->state != DS_DISABLED)
 		return -EINVAL;
 
-	writel(0, &dbc->regs->control);
-	ret = xhci_handshake(&dbc->regs->control,
-			     DBC_CTRL_DBC_ENABLE,
-			     0, 1000);
+	ret = xhci_dbc_enable_dce(dbc, false);
 	if (ret)
 		return ret;
 
@@ -647,12 +659,7 @@ static int xhci_do_dbc_start(struct xhci_dbc *dbc)
 	if (ret)
 		return ret;
 
-	ctrl = readl(&dbc->regs->control);
-	writel(ctrl | DBC_CTRL_DBC_ENABLE | DBC_CTRL_PORT_ENABLE,
-	       &dbc->regs->control);
-	ret = xhci_handshake(&dbc->regs->control,
-			     DBC_CTRL_DBC_ENABLE,
-			     DBC_CTRL_DBC_ENABLE, 1000);
+	ret = xhci_dbc_enable_dce(dbc, true);
 	if (ret)
 		return ret;
 
