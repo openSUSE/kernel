@@ -427,60 +427,75 @@ static int otto_emdio_probe_one(struct device *dev, struct otto_emdio_priv *priv
  */
 static int otto_emdio_map_ports(struct device *dev)
 {
+	struct device_node *ports_dn, *phy_dn, *bus_dn, *ctrl_dn;
 	struct otto_emdio_priv *priv = dev_get_drvdata(dev);
 	struct device *parent = dev->parent;
-	int err;
+	u32 addr, bus, pn;
+	int err = 0;
 
-	struct fwnode_handle *ports __free(fwnode_handle) =
-		device_get_named_child_node(parent, "ethernet-ports");
-	if (!ports)
+	ports_dn = of_get_child_by_name(parent->of_node, "ethernet-ports");
+	if (!ports_dn)
 		return dev_err_probe(dev, -EINVAL, "%pfwP missing ethernet-ports\n",
 				     dev_fwnode(parent));
 
-	fwnode_for_each_child_node_scoped(ports, port) {
-		struct device_node *mdio_dn;
-		u32 addr;
-		u32 bus;
-		u32 pn;
-
-		struct device_node *phy_dn __free(device_node) =
-			of_parse_phandle(to_of_node(port), "phy-handle", 0);
+	for_each_available_child_of_node_scoped(ports_dn, port_dn) {
+		ctrl_dn = NULL;
+		bus_dn = NULL;
+		phy_dn = of_parse_phandle(port_dn, "phy-handle", 0);
 		/* skip ports without phys */
 		if (!phy_dn)
 			continue;
 
-		mdio_dn = phy_dn->parent;
+		bus_dn = of_get_parent(phy_dn);
+		if (!bus_dn)
+			goto put_nodes;
+
+		ctrl_dn = of_get_parent(bus_dn);
 		/* only map ports that are connected to this mdio-controller */
-		if (mdio_dn->parent != dev->of_node)
-			continue;
+		if (ctrl_dn != dev->of_node)
+			goto put_nodes;
 
-		err = fwnode_property_read_u32(port, "reg", &pn);
+		err = of_property_read_u32(port_dn, "reg", &pn);
 		if (err)
-			return err;
+			goto put_nodes;
 
-		if (pn >= priv->info->num_ports)
-			return dev_err_probe(dev, -EINVAL, "illegal port number %d\n", pn);
+		if (pn >= priv->info->num_ports) {
+			err = dev_err_probe(dev, -EINVAL, "illegal port number %d\n", pn);
+			goto put_nodes;
+		}
 
-		if (test_bit(pn, priv->valid_ports))
-			return dev_err_probe(dev, -EINVAL, "duplicated port number %d\n", pn);
+		if (test_bit(pn, priv->valid_ports)) {
+			err = dev_err_probe(dev, -EINVAL, "duplicated port number %d\n", pn);
+			goto put_nodes;
+		}
 
-		err = of_property_read_u32(mdio_dn, "reg", &bus);
+		err = of_property_read_u32(bus_dn, "reg", &bus);
 		if (err)
-			return err;
+			goto put_nodes;
 
-		if (bus >= priv->info->num_buses)
-			return dev_err_probe(dev, -EINVAL, "illegal smi bus number %d\n", bus);
+		if (bus >= priv->info->num_buses) {
+			err = dev_err_probe(dev, -EINVAL, "illegal smi bus number %d\n", bus);
+			goto put_nodes;
+		}
 
 		err = of_property_read_u32(phy_dn, "reg", &addr);
 		if (err)
-			return err;
+			goto put_nodes;
 
 		__set_bit(pn, priv->valid_ports);
 		priv->smi_bus[pn] = bus;
 		priv->smi_addr[pn] = addr;
+put_nodes:
+		of_node_put(bus_dn);
+		of_node_put(phy_dn);
+		of_node_put(ctrl_dn);
+		if (err)
+			break;
 	}
 
-	return 0;
+	of_node_put(ports_dn);
+
+	return err;
 }
 
 static int otto_emdio_probe(struct platform_device *pdev)
