@@ -426,8 +426,8 @@ static void task_fpsimd_load(void)
 	if (restore_sve_regs) {
 		WARN_ON_ONCE(current->thread.fp_type != FP_STATE_SVE);
 		sve_load_state(sve_pffr(&current->thread),
-			       &current->thread.uw.fpsimd_state.fpsr,
 			       restore_ffr);
+		fpsimd_load_common(&current->thread.uw.fpsimd_state);
 	} else {
 		WARN_ON_ONCE(current->thread.fp_type != FP_STATE_FPSIMD);
 		fpsimd_load_state(&current->thread.uw.fpsimd_state);
@@ -509,7 +509,8 @@ static void fpsimd_save_user_state(void)
 
 		sve_save_state((char *)last->sve_state +
 					sve_ffr_offset(vl),
-			       &last->st->fpsr, save_ffr);
+			       save_ffr);
+		fpsimd_save_common(last->st);
 		*last->fp_type = FP_STATE_SVE;
 	} else {
 		fpsimd_save_state(last->st);

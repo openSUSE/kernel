@@ -468,8 +468,8 @@ static inline void __hyp_sve_restore_guest(struct kvm_vcpu *vcpu)
 	 */
 	sve_cond_update_zcr_vq(vcpu_sve_max_vq(vcpu) - 1, SYS_ZCR_EL2);
 	__sve_restore_state(vcpu_sve_pffr(vcpu),
-			    &vcpu->arch.ctxt.fp_regs.fpsr,
 			    true);
+	fpsimd_load_common(&vcpu->arch.ctxt.fp_regs);
 
 	/*
 	 * The effective VL for a VM could differ from the max VL when running a
@@ -490,8 +490,8 @@ static inline void __hyp_sve_save_host(void)
 	ctxt_sys_reg(hctxt, ZCR_EL1) = read_sysreg_el1(SYS_ZCR);
 	write_sysreg_s(sve_vq_from_vl(kvm_host_sve_max_vl) - 1, SYS_ZCR_EL2);
 	__sve_save_state(sve_regs + sve_ffr_offset(kvm_host_sve_max_vl),
-			 &hctxt->fp_regs.fpsr,
 			 true);
+	fpsimd_save_common(&hctxt->fp_regs);
 }
 
 static inline void fpsimd_lazy_switch_to_guest(struct kvm_vcpu *vcpu)

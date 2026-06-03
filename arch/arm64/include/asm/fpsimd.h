@@ -74,6 +74,18 @@ static inline void cpacr_restore(unsigned long cpacr)
 
 struct task_struct;
 
+static inline void fpsimd_save_common(struct user_fpsimd_state *state)
+{
+	state->fpsr = read_sysreg_s(SYS_FPSR);
+	state->fpcr = read_sysreg_s(SYS_FPCR);
+}
+
+static inline void fpsimd_load_common(const struct user_fpsimd_state *state)
+{
+	write_sysreg_s(state->fpsr, SYS_FPSR);
+	write_sysreg_s(state->fpcr, SYS_FPCR);
+}
+
 extern void fpsimd_save_state(struct user_fpsimd_state *state);
 extern void fpsimd_load_state(struct user_fpsimd_state *state);
 
@@ -157,9 +169,8 @@ static inline unsigned int sve_get_vl(void)
 	return vl;
 }
 
-extern void sve_save_state(void *state, u32 *pfpsr, int save_ffr);
-extern void sve_load_state(void const *state, u32 const *pfpsr,
-			   int restore_ffr);
+extern void sve_save_state(void *state, int save_ffr);
+extern void sve_load_state(void const *state, int restore_ffr);
 extern void sve_flush_live(bool flush_ffr, unsigned long vq_minus_1);
 extern void sme_save_state(void *state, int zt);
 extern void sme_load_state(void const *state, int zt);

@@ -236,7 +236,7 @@
 		_sve_wrffr	0
 .endm
 
-.macro sve_save nxbase, xpfpsr, save_ffr, nxtmp
+.macro sve_save nxbase, save_ffr
  _for n, 0, 31,	_sve_str_v	\n, \nxbase, \n - 34
  _for n, 0, 15,	_sve_str_p	\n, \nxbase, \n - 16
 		cbz		\save_ffr, 921f
@@ -247,24 +247,15 @@
 922:
 		_sve_str_p	0, \nxbase
 		_sve_ldr_p	0, \nxbase, -16
-		mrs		x\nxtmp, fpsr
-		str		w\nxtmp, [\xpfpsr]
-		mrs		x\nxtmp, fpcr
-		str		w\nxtmp, [\xpfpsr, #4]
 .endm
 
-.macro sve_load nxbase, xpfpsr, restore_ffr, nxtmp
+.macro sve_load nxbase, restore_ffr
  _for n, 0, 31,	_sve_ldr_v	\n, \nxbase, \n - 34
 		cbz		\restore_ffr, 921f
 		_sve_ldr_p	0, \nxbase
 		_sve_wrffr	0
 921:
  _for n, 0, 15,	_sve_ldr_p	\n, \nxbase, \n - 16
-
-		ldr		w\nxtmp, [\xpfpsr]
-		msr		fpsr, x\nxtmp
-		ldr		w\nxtmp, [\xpfpsr, #4]
-		msr		fpcr, x\nxtmp
 .endm
 
 .macro sme_save_za nxbase, xvl, nw
