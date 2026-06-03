@@ -17,6 +17,10 @@ impl FspHal for Gb202 {
             .fsp_boot_complete()
             .into()
     }
+
+    fn cot_version(&self) -> u16 {
+        2
+    }
 }
 
 const GB202: Gb202 = Gb202;
