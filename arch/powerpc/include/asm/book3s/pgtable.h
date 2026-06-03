@@ -8,7 +8,7 @@
 #include <asm/book3s/32/pgtable.h>
 #endif
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 /* Insert a PTE, top-level function is out of line. It uses an inline
  * low level function in the respective pgtable-* files
  */
@@ -45,5 +45,5 @@ static inline void update_mmu_cache(struct vm_area_struct *vma, unsigned long ad
 	__update_mmu_cache(vma, address, ptep);
 }
 
-#endif /* __ASSEMBLY__ */
+#endif /* __ASSEMBLER__ */
 #endif

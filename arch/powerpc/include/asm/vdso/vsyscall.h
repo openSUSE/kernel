@@ -2,7 +2,7 @@
 #ifndef _ASM_POWERPC_VDSO_VSYSCALL_H
 #define _ASM_POWERPC_VDSO_VSYSCALL_H
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 
 #include <linux/timekeeper_internal.h>
 #include <asm/vdso_datapage.h>
@@ -20,6 +20,6 @@ struct vdso_data *__arch_get_k_vdso_data(void)
 /* The asm-generic header needs to be included after the definitions above */
 #include <asm-generic/vdso/vsyscall.h>
 
-#endif /* !__ASSEMBLY__ */
+#endif /* !__ASSEMBLER__ */
 
 #endif /* _ASM_POWERPC_VDSO_VSYSCALL_H */

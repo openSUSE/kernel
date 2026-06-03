@@ -52,7 +52,7 @@
 #define TLB_M           0x00000002      /* Memory is coherent */
 #define TLB_G           0x00000001      /* Memory is guarded from prefetch */
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 
 typedef struct {
 	unsigned int	id;
@@ -60,7 +60,7 @@ typedef struct {
 	void __user	*vdso;
 } mm_context_t;
 
-#endif /* !__ASSEMBLY__ */
+#endif /* !__ASSEMBLER__ */
 
 #define mmu_virtual_psize	MMU_PAGE_4K
 #define mmu_linear_psize	MMU_PAGE_256M
