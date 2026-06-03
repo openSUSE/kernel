@@ -44,7 +44,6 @@ struct dma_chan *catpt_dma_request_config_chan(struct catpt_dev *cdev)
 	}
 
 	memset(&config, 0, sizeof(config));
-	config.direction = DMA_MEM_TO_DEV;
 	config.src_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
 	config.dst_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
 	config.src_maxburst = 16;
