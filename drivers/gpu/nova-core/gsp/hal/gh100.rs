@@ -29,7 +29,10 @@ use crate::{
     gpu::Chipset,
     gsp::{
         boot::BootUnloadGuard,
-        hal::GspHal,
+        hal::{
+            GspHal,
+            UnloadBundle, //
+        },
         Gsp,
         GspFwWprMeta, //
     },
@@ -117,6 +120,28 @@ fn wait_for_gsp_lockdown_release(
     Ok(())
 }
 
+struct FspUnloadBundle;
+
+impl UnloadBundle for FspUnloadBundle {
+    fn run(
+        &self,
+        dev: &device::Device<device::Bound>,
+        bar: &Bar0,
+        gsp_falcon: &Falcon<GspEngine>,
+        _sec2_falcon: &Falcon<Sec2>,
+    ) -> Result {
+        // GSP falcon does most of the work of resetting, so just wait for it to finish.
+        read_poll_timeout(
+            || Ok(gsp_falcon.is_riscv_active(bar)),
+            |&active| !active,
+            Delta::from_millis(10),
+            Delta::from_secs(5),
+        )
+        .map(|_| ())
+        .inspect_err(|_| dev_err!(dev, "GSP falcon failed to halt\n"))
+    }
+}
+
 struct Gh100;
 
 impl GspHal for Gh100 {
@@ -133,9 +158,18 @@ impl GspHal for Gh100 {
         fb_layout: &FbLayout,
         wpr_meta: &Coherent<GspFwWprMeta>,
         gsp_falcon: &'a Falcon<GspEngine>,
-        _sec2_falcon: &'a Falcon<Sec2>,
+        sec2_falcon: &'a Falcon<Sec2>,
     ) -> Result<BootUnloadGuard<'a>> {
         let fsp_fw = FspFirmware::new(dev, chipset, FIRMWARE_VERSION)?;
+
+        let unload_bundle = crate::gsp::UnloadBundle(
+            KBox::new(FspUnloadBundle, GFP_KERNEL)? as KBox<dyn UnloadBundle>
+        );
+
+        // Wrap the unload bundle into a drop guard so it is automatically run upon failure.
+        let _unload_guard =
+            BootUnloadGuard::new(gsp, dev, bar, gsp_falcon, sec2_falcon, Some(unload_bundle));
+
         let mut fsp = Fsp::wait_secure_boot(dev, bar, chipset, fsp_fw)?;
 
         let args = FmcBootArgs::new(
