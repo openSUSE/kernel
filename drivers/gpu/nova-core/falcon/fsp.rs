@@ -122,7 +122,6 @@ impl Falcon<Fsp> {
     /// Writes `packet` to FSP EMEM and updates the queue pointers to notify FSP.
     ///
     /// Returns `EINVAL` if `packet` is empty or its length is not 4-byte aligned.
-    #[expect(dead_code)]
     pub(crate) fn send_msg(&mut self, bar: &Bar0, packet: &[u8]) -> Result {
         if packet.is_empty() {
             return Err(EINVAL);
@@ -149,7 +148,6 @@ impl Falcon<Fsp> {
     ///
     /// Returns `ETIMEDOUT` if no message was available until timeout, or a regular error code if a
     /// memory allocation error occurred.
-    #[expect(dead_code)]
     pub(crate) fn recv_msg(&mut self, bar: &Bar0) -> Result<KVec<u8>> {
         let msg_size = read_poll_timeout(
             || Ok(self.poll_msgq(bar)),

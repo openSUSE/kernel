@@ -11,7 +11,11 @@ use kernel::{
     device,
     io::poll::read_poll_timeout,
     prelude::*,
-    time::Delta, //
+    time::Delta,
+    transmute::{
+        AsBytes,
+        FromBytes, //
+    },
 };
 
 use crate::{
@@ -22,10 +26,45 @@ use crate::{
     },
     firmware::fsp::FspFirmware,
     gpu::Chipset,
+    mctp::{
+        MctpHeader,
+        NvdmHeader,
+        NvdmType, //
+    },
     regs, //
 };
 
 mod hal;
+
+/// FSP command response payload (`NVDM_PAYLOAD_COMMAND_RESPONSE`).
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+struct NvdmPayloadCommandResponse {
+    task_id: u32,
+    command_nvdm_type: u32,
+    error_code: u32,
+}
+
+/// Complete FSP response structure with MCTP and NVDM headers.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+struct FspResponse {
+    mctp_header: MctpHeader,
+    nvdm_header: NvdmHeader,
+    response: NvdmPayloadCommandResponse,
+}
+
+// SAFETY: FspResponse is a packed C struct with only integral fields.
+unsafe impl FromBytes for FspResponse {}
+
+/// Trait implemented by types representing a message to send to FSP.
+///
+/// This provides [`Fsp::send_sync_fsp`] with the information it needs to send
+/// a given message, following the same pattern as GSP's `CommandToGsp`.
+trait MessageToFsp: AsBytes {
+    /// NVDM type identifying this message to FSP.
+    const NVDM_TYPE: NvdmType;
+}
 
 /// FSP interface for Hopper/Blackwell GPUs.
 ///
@@ -33,7 +72,6 @@ mod hal;
 /// has completed. It owns the FSP falcon and the FMC firmware, which are used for the subsequent
 /// Chain of Trust boot.
 pub(crate) struct Fsp {
-    #[expect(dead_code)]
     falcon: Falcon<FspEngine>,
     #[expect(dead_code)]
     fsp_fw: FspFirmware,
@@ -68,5 +106,68 @@ impl Fsp {
         })?;
 
         Ok(Fsp { falcon, fsp_fw })
+    }
+
+    /// Sends a message to FSP and waits for the response.
+    #[expect(dead_code)]
+    fn send_sync_fsp<M>(&mut self, dev: &device::Device, bar: &Bar0, msg: &M) -> Result
+    where
+        M: MessageToFsp,
+    {
+        self.falcon.send_msg(bar, msg.as_bytes())?;
+
+        let response_buf = self.falcon.recv_msg(bar).inspect_err(|e| {
+            dev_err!(dev, "FSP response error: {:?}\n", e);
+        })?;
+
+        let (response, _) = FspResponse::from_bytes_prefix(&response_buf[..]).ok_or_else(|| {
+            dev_err!(dev, "FSP response too small: {}\n", response_buf.len());
+            EIO
+        })?;
+
+        let mctp_header = response.mctp_header;
+        let nvdm_header = response.nvdm_header;
+        let command_nvdm_type = response.response.command_nvdm_type;
+        let error_code = response.response.error_code;
+
+        if !mctp_header.is_single_packet() {
+            dev_err!(
+                dev,
+                "Unexpected MCTP header in FSP reply: {:x?}\n",
+                mctp_header,
+            );
+            return Err(EIO);
+        }
+
+        if !nvdm_header.validate(NvdmType::FspResponse) {
+            dev_err!(
+                dev,
+                "Unexpected NVDM header in FSP reply: {:x?}\n",
+                nvdm_header,
+            );
+            return Err(EIO);
+        }
+
+        if command_nvdm_type != u8::from(M::NVDM_TYPE).into() {
+            dev_err!(
+                dev,
+                "Expected NVDM type {:?} in reply, got {:#x}\n",
+                M::NVDM_TYPE,
+                command_nvdm_type
+            );
+            return Err(EIO);
+        }
+
+        if error_code != 0 {
+            dev_err!(
+                dev,
+                "NVDM command {:?} failed with error {:#x}\n",
+                M::NVDM_TYPE,
+                error_code
+            );
+            return Err(EIO);
+        }
+
+        Ok(())
     }
 }
