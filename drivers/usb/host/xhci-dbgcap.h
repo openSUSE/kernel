@@ -140,6 +140,7 @@ struct dbc_driver {
 
 struct xhci_dbc {
 	spinlock_t			lock;		/* device access */
+	struct mutex			enable_mutex;
 	struct device			*dev;
 	struct xhci_hcd			*xhci;
 	struct dbc_regs __iomem		*regs;

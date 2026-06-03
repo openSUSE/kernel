@@ -661,17 +661,6 @@ static int xhci_do_dbc_start(struct xhci_dbc *dbc)
 	return 0;
 }
 
-static int xhci_do_dbc_stop(struct xhci_dbc *dbc)
-{
-	if (dbc->state == DS_DISABLED)
-		return -EINVAL;
-
-	writel(0, &dbc->regs->control);
-	dbc->state = DS_DISABLED;
-
-	return 0;
-}
-
 static int xhci_dbc_start(struct xhci_dbc *dbc)
 {
 	int			ret;
@@ -683,29 +672,37 @@ static int xhci_dbc_start(struct xhci_dbc *dbc)
 
 	spin_lock_irqsave(&dbc->lock, flags);
 	ret = xhci_do_dbc_start(dbc);
+	if (ret)
+		goto err_unlock;
+
 	spin_unlock_irqrestore(&dbc->lock, flags);
 
-	if (ret) {
-		pm_runtime_put(dbc->dev); /* note this was self.controller */
-		return ret;
-	}
+	mod_delayed_work(system_percpu_wq, &dbc->event_work,
+			 msecs_to_jiffies(dbc->poll_interval));
 
-	return mod_delayed_work(system_percpu_wq, &dbc->event_work,
-				msecs_to_jiffies(dbc->poll_interval));
+	return 0;
+
+err_unlock:
+
+	spin_unlock_irqrestore(&dbc->lock, flags);
+	pm_runtime_put(dbc->dev); /* note this was self.controller */
+
+	return ret;
 }
 
 static void xhci_dbc_stop(struct xhci_dbc *dbc)
 {
-	int ret;
 	unsigned long		flags;
 
 	WARN_ON(!dbc);
 
+	spin_lock(&dbc->lock);
+
 	switch (dbc->state) {
 	case DS_DISABLED:
+		spin_unlock(&dbc->lock);
 		return;
 	case DS_CONFIGURED:
-		spin_lock(&dbc->lock);
 		xhci_dbc_flush_requests(dbc);
 		spin_unlock(&dbc->lock);
 
@@ -713,19 +710,20 @@ static void xhci_dbc_stop(struct xhci_dbc *dbc)
 			dbc->driver->disconnect(dbc);
 		break;
 	default:
+		spin_unlock(&dbc->lock);
 		break;
 	}
 
 	cancel_delayed_work_sync(&dbc->event_work);
 
 	spin_lock_irqsave(&dbc->lock, flags);
-	ret = xhci_do_dbc_stop(dbc);
+	writel(0, &dbc->regs->control);
+	dbc->state = DS_DISABLED;
 	spin_unlock_irqrestore(&dbc->lock, flags);
-	if (ret)
-		return;
 
 	xhci_dbc_mem_cleanup(dbc);
-	pm_runtime_put_sync(dbc->dev); /* note, was self.controller */
+
+	pm_runtime_put(dbc->dev); /* note, was self.controller */
 }
 
 static void
@@ -1072,12 +1070,17 @@ static ssize_t dbc_store(struct device *dev,
 	xhci = hcd_to_xhci(dev_get_drvdata(dev));
 	dbc = xhci->dbc;
 
-	if (sysfs_streq(buf, "enable"))
+	if (sysfs_streq(buf, "enable")) {
+		mutex_lock(&dbc->enable_mutex);
 		xhci_dbc_start(dbc);
-	else if (sysfs_streq(buf, "disable"))
+		mutex_unlock(&dbc->enable_mutex);
+	} else if (sysfs_streq(buf, "disable")) {
+		mutex_lock(&dbc->enable_mutex);
 		xhci_dbc_stop(dbc);
-	else
+		mutex_unlock(&dbc->enable_mutex);
+	} else {
 		return -EINVAL;
+	}
 
 	return count;
 }
@@ -1443,6 +1446,7 @@ xhci_alloc_dbc(struct device *dev, void __iomem *base, const struct dbc_driver *
 
 	INIT_DELAYED_WORK(&dbc->event_work, xhci_dbc_handle_events);
 	spin_lock_init(&dbc->lock);
+	mutex_init(&dbc->enable_mutex);
 
 	ret = sysfs_create_groups(&dev->kobj, dbc_dev_groups);
 	if (ret)
@@ -1460,8 +1464,9 @@ void xhci_dbc_remove(struct xhci_dbc *dbc)
 	if (!dbc)
 		return;
 	/* stop hw, stop wq and call dbc->ops->stop() */
+	mutex_lock(&dbc->enable_mutex);
 	xhci_dbc_stop(dbc);
-
+	mutex_unlock(&dbc->enable_mutex);
 	/* remove sysfs files */
 	sysfs_remove_groups(&dbc->dev->kobj, dbc_dev_groups);
 
@@ -1514,6 +1519,8 @@ int xhci_dbc_suspend(struct xhci_hcd *xhci)
 	if (!dbc)
 		return 0;
 
+	mutex_lock(&dbc->enable_mutex);
+
 	switch (dbc->state) {
 	case DS_ENABLED:
 	case DS_CONNECTED:
@@ -1525,6 +1532,7 @@ int xhci_dbc_suspend(struct xhci_hcd *xhci)
 	}
 
 	xhci_dbc_stop(dbc);
+	mutex_unlock(&dbc->enable_mutex);
 
 	return 0;
 }
@@ -1537,10 +1545,14 @@ int xhci_dbc_resume(struct xhci_hcd *xhci)
 	if (!dbc)
 		return 0;
 
+	mutex_lock(&dbc->enable_mutex);
+
 	if (dbc->resume_required) {
 		dbc->resume_required = 0;
 		xhci_dbc_start(dbc);
 	}
+
+	mutex_unlock(&dbc->enable_mutex);
 
 	return ret;
 }
