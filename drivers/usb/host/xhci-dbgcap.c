@@ -644,6 +644,12 @@ static int xhci_dbc_enable_dce(struct xhci_dbc *dbc, bool enable)
 			      done_state, 1000);
 }
 
+static void xhci_dbc_set_state(struct xhci_dbc *dbc, enum dbc_state new_state)
+{
+	dbc->state_timestamp = jiffies;
+	dbc->state = new_state;
+}
+
 static int xhci_do_dbc_start(struct xhci_dbc *dbc)
 {
 	int			ret;
@@ -663,7 +669,7 @@ static int xhci_do_dbc_start(struct xhci_dbc *dbc)
 	if (ret)
 		return ret;
 
-	dbc->state = DS_ENABLED;
+	xhci_dbc_set_state(dbc, DS_ENABLED);
 
 	return 0;
 }
@@ -725,7 +731,7 @@ static void xhci_dbc_stop(struct xhci_dbc *dbc)
 
 	spin_lock_irqsave(&dbc->lock, flags);
 	writel(0, &dbc->regs->control);
-	dbc->state = DS_DISABLED;
+	xhci_dbc_set_state(dbc, DS_DISABLED);
 	spin_unlock_irqrestore(&dbc->lock, flags);
 
 	xhci_dbc_mem_cleanup(dbc);
@@ -896,7 +902,7 @@ static enum evtreturn xhci_dbc_do_handle_events(struct xhci_dbc *dbc)
 	case DS_ENABLED:
 		portsc = readl(&dbc->regs->portsc);
 		if (portsc & DBC_PORTSC_CONN_STATUS) {
-			dbc->state = DS_CONNECTED;
+			xhci_dbc_set_state(dbc, DS_CONNECTED);
 			dev_info(dbc->dev, "DbC connected\n");
 		}
 
@@ -904,7 +910,7 @@ static enum evtreturn xhci_dbc_do_handle_events(struct xhci_dbc *dbc)
 	case DS_CONNECTED:
 		ctrl = readl(&dbc->regs->control);
 		if (ctrl & DBC_CTRL_DBC_RUN) {
-			dbc->state = DS_CONFIGURED;
+			xhci_dbc_set_state(dbc, DS_CONFIGURED);
 			dev_info(dbc->dev, "DbC configured\n");
 			portsc = readl(&dbc->regs->portsc);
 			writel(portsc, &dbc->regs->portsc);
@@ -919,7 +925,7 @@ static enum evtreturn xhci_dbc_do_handle_events(struct xhci_dbc *dbc)
 		if (!(portsc & DBC_PORTSC_PORT_ENABLED) &&
 		    !(portsc & DBC_PORTSC_CONN_STATUS)) {
 			dev_info(dbc->dev, "DbC cable unplugged\n");
-			dbc->state = DS_ENABLED;
+			xhci_dbc_set_state(dbc, DS_ENABLED);
 			xhci_dbc_flush_requests(dbc);
 			xhci_dbc_reinit_ep_rings(dbc);
 			return EVT_DISC;
@@ -929,7 +935,7 @@ static enum evtreturn xhci_dbc_do_handle_events(struct xhci_dbc *dbc)
 		if (portsc & DBC_PORTSC_RESET_CHANGE) {
 			dev_info(dbc->dev, "DbC port reset\n");
 			writel(portsc, &dbc->regs->portsc);
-			dbc->state = DS_ENABLED;
+			xhci_dbc_set_state(dbc, DS_ENABLED);
 			xhci_dbc_flush_requests(dbc);
 			xhci_dbc_reinit_ep_rings(dbc);
 			return EVT_DISC;
