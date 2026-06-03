@@ -8,13 +8,16 @@
 
 use kernel::{
     io::{
+        poll::read_poll_timeout,
         register::{
+            Array,
             RegisterBase,
             WithBase, //
         },
         Io, //
     },
     prelude::*,
+    time::Delta,
 };
 
 use crate::{
@@ -25,8 +28,12 @@ use crate::{
         PFalcon2Base,
         PFalconBase, //
     },
-    regs,
+    num,
+    regs, //
 };
+
+/// FSP message timeout in milliseconds.
+const FSP_MSG_TIMEOUT_MS: i64 = 2000;
 
 /// Type specifying the `Fsp` falcon engine. Cannot be instantiated.
 pub(crate) struct Fsp(());
@@ -46,7 +53,6 @@ impl Falcon<Fsp> {
     ///
     /// `data` is interpreted as little-endian 32-bit words. Returns `EINVAL`
     /// if the `data` length is not 4-byte aligned.
-    #[expect(dead_code)]
     fn write_emem(&mut self, bar: &Bar0, data: &[u8]) -> Result {
         if data.len() % 4 != 0 {
             return Err(EINVAL);
@@ -75,7 +81,6 @@ impl Falcon<Fsp> {
     ///
     /// `data` is stored as little-endian 32-bit words. Returns `EINVAL` if
     /// the `data` length is not 4-byte aligned.
-    #[expect(dead_code)]
     fn read_emem(&mut self, bar: &Bar0, data: &mut [u8]) -> Result {
         if data.len() % 4 != 0 {
             return Err(EINVAL);
@@ -94,5 +99,75 @@ impl Falcon<Fsp> {
         }
 
         Ok(())
+    }
+
+    /// Poll FSP for incoming data.
+    ///
+    /// Returns the size of available data in bytes, or 0 if no data is available.
+    ///
+    /// The FSP message queue is not circular. Pointers are reset to 0 after each
+    /// message exchange, so `tail >= head` is always true when data is present.
+    fn poll_msgq(&self, bar: &Bar0) -> u32 {
+        let head = bar.read(regs::NV_PFSP_MSGQ_HEAD::at(0)).val();
+        let tail = bar.read(regs::NV_PFSP_MSGQ_TAIL::at(0)).val();
+
+        if head == tail {
+            return 0;
+        }
+
+        // TAIL points at last DWORD written, so add 4 to get total size.
+        tail.saturating_sub(head).saturating_add(4)
+    }
+
+    /// Writes `packet` to FSP EMEM and updates the queue pointers to notify FSP.
+    ///
+    /// Returns `EINVAL` if `packet` is empty or its length is not 4-byte aligned.
+    #[expect(dead_code)]
+    pub(crate) fn send_msg(&mut self, bar: &Bar0, packet: &[u8]) -> Result {
+        if packet.is_empty() {
+            return Err(EINVAL);
+        }
+
+        self.write_emem(bar, packet)?;
+
+        // Update queue pointers. TAIL points at the last DWORD written.
+        let tail_offset = u32::try_from(packet.len() - 4).map_err(|_| EINVAL)?;
+        bar.write(
+            Array::at(0),
+            regs::NV_PFSP_QUEUE_TAIL::zeroed().with_address(tail_offset),
+        );
+        bar.write(
+            Array::at(0),
+            regs::NV_PFSP_QUEUE_HEAD::zeroed().with_address(0),
+        );
+
+        Ok(())
+    }
+
+    /// Reads the next message from FSP EMEM into a newly-allocated buffer and resets the queue
+    /// pointers.
+    ///
+    /// Returns `ETIMEDOUT` if no message was available until timeout, or a regular error code if a
+    /// memory allocation error occurred.
+    #[expect(dead_code)]
+    pub(crate) fn recv_msg(&mut self, bar: &Bar0) -> Result<KVec<u8>> {
+        let msg_size = read_poll_timeout(
+            || Ok(self.poll_msgq(bar)),
+            |&size| size > 0,
+            Delta::from_millis(10),
+            Delta::from_millis(FSP_MSG_TIMEOUT_MS),
+        )
+        .map(num::u32_as_usize)?;
+
+        let mut buffer = KVec::<u8>::new();
+        buffer.resize(msg_size, 0, GFP_KERNEL)?;
+
+        self.read_emem(bar, &mut buffer)?;
+
+        // Reset message queue pointers after reading.
+        bar.write(Array::at(0), regs::NV_PFSP_MSGQ_TAIL::zeroed().with_val(0));
+        bar.write(Array::at(0), regs::NV_PFSP_MSGQ_HEAD::zeroed().with_val(0));
+
+        Ok(buffer)
     }
 }
