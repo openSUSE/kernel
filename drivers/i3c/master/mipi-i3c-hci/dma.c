@@ -617,6 +617,7 @@ static bool hci_dma_dequeue_xfer(struct i3c_hci *hci,
 	}
 
 	/* restart the ring */
+	reinit_completion(&rh->op_done);
 	mipi_i3c_hci_resume(hci);
 	rh_reg_write(RING_CONTROL, RING_CTRL_ENABLE);
 	rh_reg_write(RING_CONTROL, RING_CTRL_ENABLE | RING_CTRL_RUN_STOP);
@@ -624,6 +625,8 @@ static bool hci_dma_dequeue_xfer(struct i3c_hci *hci,
 	hci_dma_unblock_enqueue(hci);
 
 	spin_unlock_irq(&hci->lock);
+
+	wait_for_completion_timeout(&rh->op_done, HZ);
 
 	return did_unqueue;
 }
