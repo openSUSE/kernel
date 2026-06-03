@@ -680,6 +680,7 @@ void acpi_dev_remove_notify_handler(struct acpi_device *adev,
 EXPORT_SYMBOL_GPL(acpi_dev_remove_notify_handler);
 
 struct acpi_notify_handler_devres {
+	struct acpi_device *adev;
 	acpi_notify_handler handler;
 	u32 handler_type;
 };
@@ -688,13 +689,12 @@ static void devm_acpi_notify_handler_release(struct device *dev, void *res)
 {
 	struct acpi_notify_handler_devres *dr = res;
 
-	acpi_dev_remove_notify_handler(ACPI_COMPANION(dev), dr->handler_type,
-				       dr->handler);
+	acpi_dev_remove_notify_handler(dr->adev, dr->handler_type, dr->handler);
 }
 
 /**
  * devm_acpi_install_notify_handler - Install an ACPI notify handler for a
- * 				      managed device
+ *				      managed device
  * @dev: Device to install a notify handler for
  * @handler_type: Type of the notify handler
  * @handler: Handler function to install
@@ -725,7 +725,7 @@ int devm_acpi_install_notify_handler(struct device *dev, u32 handler_type,
 
 	adev = ACPI_COMPANION(dev);
 	if (!adev)
-		return dev_err_probe(dev, -ENODEV, "No ACPI companion in %s()\n", __func__);
+		return dev_err_probe(dev, -ENODEV, "No ACPI companion\n");
 
 	dr = devres_alloc(devm_acpi_notify_handler_release, sizeof(*dr), GFP_KERNEL);
 	if (!dr)
@@ -737,6 +737,7 @@ int devm_acpi_install_notify_handler(struct device *dev, u32 handler_type,
 		return dev_err_probe(dev, ret, "Failed to install an ACPI notify handler\n");
 	}
 
+	dr->adev = adev;
 	dr->handler = handler;
 	dr->handler_type = handler_type;
 	devres_add(dev, dr);
