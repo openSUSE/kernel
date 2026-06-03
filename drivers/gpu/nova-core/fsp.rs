@@ -186,6 +186,12 @@ impl FmcBootArgs {
             resume,
         })
     }
+
+    /// DMA address of the FMC boot parameters, needed after boot for lockdown
+    /// release polling.
+    pub(crate) fn boot_params_dma_handle(&self) -> u64 {
+        self.fmc_boot_params.dma_handle()
+    }
 }
 
 /// FSP interface for Hopper/Blackwell GPUs.
