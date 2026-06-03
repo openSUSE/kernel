@@ -107,6 +107,7 @@ struct hci_xfer {
 			struct hci_xfer *final_xfer;
 			int ring_number;
 			int ring_entry;
+			int xfer_list_pos;
 		};
 	};
 };
