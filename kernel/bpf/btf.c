@@ -8771,6 +8771,39 @@ static int btf_check_iter_kfuncs(struct btf *btf, const char *func_name,
 	return 0;
 }
 
+static int btf_check_kfunc_name(struct btf *btf, const char *func_name, u32 kind)
+{
+#ifdef CONFIG_DEBUG_INFO_BTF_MODULES
+	struct btf_module *btf_mod, *tmp;
+#endif
+	s32 id;
+
+	if (!btf_is_module(btf))
+		return 0;
+
+	id = btf_find_by_name_kind(bpf_get_btf_vmlinux(), func_name, kind);
+	if (id >= 0) {
+		pr_err("kfunc %s (id: %d) is already present in vmlinux.\n",
+		       func_name, id);
+		return -EINVAL;
+	}
+
+#ifdef CONFIG_DEBUG_INFO_BTF_MODULES
+	guard(mutex)(&btf_module_mutex);
+	list_for_each_entry_safe(btf_mod, tmp, &btf_modules, list) {
+		if (btf_mod->btf == btf)
+			continue;
+		id = btf_find_by_name_kind(btf_mod->btf, func_name, kind);
+		if (id >= 0) {
+			pr_err("kfunc %s (id: %d) is already present in module %s.\n",
+			       func_name, id, btf_mod->module->name);
+			return -EINVAL;
+		}
+	}
+#endif
+	return 0;
+}
+
 static int btf_check_kfunc_protos(struct btf *btf, u32 func_id, u32 func_flags)
 {
 	const struct btf_type *func;
@@ -8784,7 +8817,8 @@ static int btf_check_kfunc_protos(struct btf *btf, u32 func_id, u32 func_flags)
 
 	/* sanity check kfunc name */
 	func_name = btf_name_by_offset(btf, func->name_off);
-	if (!func_name || !func_name[0])
+	if (!func_name || !func_name[0] ||
+	    btf_check_kfunc_name(btf, func_name, BTF_INFO_KIND(func->info)))
 		return -EINVAL;
 
 	func = btf_type_by_id(btf, func->type);
