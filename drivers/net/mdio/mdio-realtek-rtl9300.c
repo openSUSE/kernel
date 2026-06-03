@@ -432,6 +432,21 @@ static int otto_emdio_probe_one(struct device *dev, struct otto_emdio_priv *priv
 	return 0;
 }
 
+static struct device_node *otto_emdio_get_bus_node(struct device_node *dn)
+{
+	struct device_node *parent = of_get_parent(dn);
+	struct device_node *grandparent;
+
+	if (parent && of_node_name_eq(parent, "ethernet-phy-package")) {
+		grandparent = of_get_parent(parent);
+		of_node_put(parent);
+
+		return grandparent;
+	}
+
+	return parent;
+}
+
 /* The mdio-controller is part of a switch block so we parse the sibling
  * ethernet-ports node and build a mapping of the switch port to MDIO bus/addr
  * based on the phy-handle.
@@ -457,7 +472,7 @@ static int otto_emdio_map_ports(struct device *dev)
 		if (!phy_dn)
 			continue;
 
-		bus_dn = of_get_parent(phy_dn);
+		bus_dn = otto_emdio_get_bus_node(phy_dn);
 		if (!bus_dn)
 			goto put_nodes;
 
