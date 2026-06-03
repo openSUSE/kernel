@@ -167,7 +167,7 @@ impl GspHal for Gh100 {
         );
 
         // Wrap the unload bundle into a drop guard so it is automatically run upon failure.
-        let _unload_guard =
+        let unload_guard =
             BootUnloadGuard::new(gsp, dev, bar, gsp_falcon, sec2_falcon, Some(unload_bundle));
 
         let mut fsp = Fsp::wait_secure_boot(dev, bar, chipset, fsp_fw)?;
@@ -184,7 +184,7 @@ impl GspHal for Gh100 {
 
         wait_for_gsp_lockdown_release(dev, bar, gsp_falcon, args.boot_params_dma_handle())?;
 
-        Err(ENOTSUPP)
+        Ok(unload_guard)
     }
 }
 
