@@ -1975,7 +1975,7 @@ void xhci_mem_cleanup(struct xhci_hcd *xhci)
 
 	dcbaa = &xhci->dcbaa;
 	if (dcbaa->ctx_array) {
-		dma_free_coherent(dev, array_size(sizeof(*dcbaa->ctx_array), MAX_HC_SLOTS),
+		dma_free_coherent(dev, array_size(sizeof(*dcbaa->ctx_array), xhci->max_slots + 1),
 				  dcbaa->ctx_array, dcbaa->dma);
 		dcbaa->ctx_array = NULL;
 	}
@@ -2411,8 +2411,8 @@ int xhci_mem_init(struct xhci_hcd *xhci, gfp_t flags)
 
 	xhci_dbg_trace(xhci, trace_xhci_dbg_init, "Starting %s", __func__);
 
-	dcbaa->ctx_array =
-		dma_alloc_coherent(dev, array_size(sizeof(*dcbaa->ctx_array), MAX_HC_SLOTS),
+	xhci->dcbaa.ctx_array =
+		dma_alloc_coherent(dev, array_size(sizeof(*dcbaa->ctx_array), xhci->max_slots + 1),
 				   &dcbaa->dma, flags);
 	if (!dcbaa->ctx_array)
 		goto fail;

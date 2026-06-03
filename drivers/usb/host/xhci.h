@@ -792,7 +792,8 @@ struct xhci_tt_bw_info {
 
 /**
  * struct xhci_device_context_array
- * @ctx_array:	Pointer to an array of addresses
+ * @ctx_array:	Pointer to an array of addresses. The array size depends on Max
+ *		Slots read from HCSPARAMS1.
  * @dma:	DMA address to @ctx_array
  *
  * Device Context Base Address Array (DCBAA) - Section 6.1.
@@ -803,10 +804,6 @@ struct xhci_device_context_array {
 	__le64		*ctx_array;
 	dma_addr_t	dma;
 };
-/*
- * TODO: change this to be dynamically sized at HC mem init time since the HC
- * might not be able to handle the maximum number of devices possible.
- */
 
 
 struct xhci_transfer_event {
