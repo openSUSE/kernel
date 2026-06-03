@@ -439,7 +439,7 @@ struct ethtool_link_usettings {
 int netif_get_link_ksettings(struct net_device *dev,
 			     struct ethtool_link_ksettings *link_ksettings)
 {
-	/* once callers fixed - assert ops locked */
+	netdev_assert_locked_ops_compat(dev);
 
 	if (!dev->ethtool_ops->get_link_ksettings)
 		return -EOPNOTSUPP;
@@ -456,10 +456,14 @@ EXPORT_SYMBOL(netif_get_link_ksettings);
 int __ethtool_get_link_ksettings(struct net_device *dev,
 				 struct ethtool_link_ksettings *link_ksettings)
 {
+	int ret;
+
 	ASSERT_RTNL();
 
-	/* once callers fixed - take the ops lock around this call */
-	return netif_get_link_ksettings(dev, link_ksettings);
+	netdev_lock_ops(dev);
+	ret = netif_get_link_ksettings(dev, link_ksettings);
+	netdev_unlock_ops(dev);
+	return ret;
 }
 EXPORT_SYMBOL(__ethtool_get_link_ksettings);
 
