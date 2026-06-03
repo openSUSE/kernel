@@ -1052,10 +1052,7 @@ static int uaudio_transfer_buffer_setup(struct snd_usb_substream *subs,
 	if (!len)
 		len = PAGE_SIZE;
 
-	mult = len / PAGE_SIZE;
-	remainder = len % PAGE_SIZE;
-	len = mult * PAGE_SIZE;
-	len += remainder ? PAGE_SIZE : 0;
+	len = PAGE_ALIGN(len);
 
 	if (len > MAX_XFER_BUFF_LEN) {
 		dev_err(uaudio_qdev->data->dev,
