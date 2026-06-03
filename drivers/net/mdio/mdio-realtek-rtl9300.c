@@ -380,7 +380,11 @@ static int otto_emdio_probe_one(struct device *dev, struct otto_emdio_priv *priv
 
 	err = fwnode_property_read_u32(node, "reg", &mdio_bus);
 	if (err)
-		return err;
+		return dev_err_probe(dev, err, "undefined smi bus number\n");
+
+	if (mdio_bus >= priv->info->num_buses)
+		return dev_err_probe(dev, -EINVAL,
+				     "illegal (dangling) smi bus number %d\n", mdio_bus);
 
 	/* The MDIO accesses from the kernel work with the PHY polling unit in
 	 * the switch. We need to tell the PPU to operate either in GPHY (i.e.
