@@ -32,7 +32,7 @@
 #define SYSTEMCFG_MAJOR 1
 #define SYSTEMCFG_MINOR 1
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 
 #include <linux/unistd.h>
 #include <linux/time.h>
@@ -103,7 +103,7 @@ struct vdso_arch_data {
 
 extern struct vdso_arch_data *vdso_data;
 
-#else /* __ASSEMBLY__ */
+#else /* __ASSEMBLER__ */
 
 .macro get_datapage ptr
 	bcl	20, 31, .+4
@@ -128,7 +128,7 @@ extern struct vdso_arch_data *vdso_data;
 #endif
 .endm
 
-#endif /* __ASSEMBLY__ */
+#endif /* __ASSEMBLER__ */
 
 #endif /* __KERNEL__ */
 #endif /* _SYSTEMCFG_H */
