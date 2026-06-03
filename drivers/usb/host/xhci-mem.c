@@ -1947,8 +1947,11 @@ void xhci_mem_cleanup(struct xhci_hcd *xhci)
 	xhci_dbg_trace(xhci, trace_xhci_dbg_init, "Freed command ring");
 	xhci_cleanup_command_queue(xhci);
 
-	for (i = xhci->max_slots; i > 0; i--)
-		xhci_free_virt_devices_depth_first(xhci, i);
+	if (xhci->devs) {
+		for (i = xhci->max_slots; i > 0; i--)
+			xhci_free_virt_devices_depth_first(xhci, i);
+		kfree(xhci->devs);
+	}
 
 	dma_pool_destroy(xhci->segment_pool);
 	xhci->segment_pool = NULL;
@@ -2005,6 +2008,7 @@ void xhci_mem_cleanup(struct xhci_hcd *xhci)
 	xhci->rh_bw = NULL;
 	xhci->port_caps = NULL;
 	xhci->interrupters = NULL;
+	xhci->devs = NULL;
 
 	xhci->usb2_rhub.bus_state.bus_suspended = 0;
 	xhci->usb3_rhub.bus_state.bus_suspended = 0;
@@ -2410,6 +2414,12 @@ int xhci_mem_init(struct xhci_hcd *xhci, gfp_t flags)
 	struct xhci_device_context_array *dcbaa = &xhci->dcbaa;
 
 	xhci_dbg_trace(xhci, trace_xhci_dbg_init, "Starting %s", __func__);
+
+	xhci_dbg_trace(xhci, trace_xhci_dbg_init, "Allocating internal virtual device array");
+	xhci->devs = kcalloc_node(xhci->max_slots + 1, sizeof(*xhci->devs), flags,
+				  dev_to_node(dev));
+	if (!xhci->devs)
+		goto fail;
 
 	xhci->dcbaa.ctx_array =
 		dma_alloc_coherent(dev, array_size(sizeof(*dcbaa->ctx_array), xhci->max_slots + 1),

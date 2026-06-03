@@ -33,8 +33,11 @@
 /* xHCI PCI Configuration Registers */
 #define XHCI_SBRN_OFFSET	(0x60)
 
-/* Max number of USB devices for any host controller - limit in section 6.1 */
-#define MAX_HC_SLOTS		256
+/*
+ * Max number of Devices Slots. xHCI specification section 5.3.3
+ * Valid values are in the range of 1 to 255.
+ */
+#define MAX_HC_SLOTS		255
 /*
  * Max Number of Ports. xHCI specification section 5.3.3
  * Valid values are in the range of 1 to 255.
@@ -1551,7 +1554,7 @@ struct xhci_hcd {
 	/* these are not thread safe so use mutex */
 	struct mutex mutex;
 	/* Internal mirror of the HW's dcbaa */
-	struct xhci_virt_device	*devs[MAX_HC_SLOTS];
+	struct xhci_virt_device	**devs;
 	/* For keeping track of bandwidth domains per roothub. */
 	struct xhci_root_port_bw_info	*rh_bw;
 
