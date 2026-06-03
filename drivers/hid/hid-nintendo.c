@@ -2431,14 +2431,8 @@ static int joycon_read_info(struct joycon_ctlr *ctlr)
 	for (i = 4, j = 0; j < 6; i++, j++)
 		ctlr->mac_addr[j] = report->subcmd_reply.data[i];
 
-	ctlr->mac_addr_str = devm_kasprintf(&ctlr->hdev->dev, GFP_KERNEL,
-					    "%02X:%02X:%02X:%02X:%02X:%02X",
-					    ctlr->mac_addr[0],
-					    ctlr->mac_addr[1],
-					    ctlr->mac_addr[2],
-					    ctlr->mac_addr[3],
-					    ctlr->mac_addr[4],
-					    ctlr->mac_addr[5]);
+	ctlr->mac_addr_str = devm_kasprintf(&ctlr->hdev->dev, GFP_KERNEL, "%pMU",
+					    ctlr->mac_addr);
 	if (!ctlr->mac_addr_str)
 		return -ENOMEM;
 	hid_info(ctlr->hdev, "controller MAC = %s\n", ctlr->mac_addr_str);
