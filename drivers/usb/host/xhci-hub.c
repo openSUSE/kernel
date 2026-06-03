@@ -638,7 +638,7 @@ struct xhci_hub *xhci_get_rhub(struct usb_hcd *hcd)
 
 /*
  * xhci_set_port_power() must be called with xhci->lock held.
- * It will release and re-aquire the lock while calling ACPI
+ * It will release and re-acquire the lock while calling ACPI
  * method.
  */
 static void xhci_set_port_power(struct xhci_hcd *xhci, struct xhci_port *port,
