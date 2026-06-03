@@ -405,18 +405,6 @@ static int otto_emdio_probe_one(struct device *dev, struct otto_emdio_priv *priv
 		return dev_err_probe(dev, -EINVAL,
 				     "illegal (dangling) smi bus number %d\n", mdio_bus);
 
-	/* The MDIO accesses from the kernel work with the PHY polling unit in
-	 * the switch. We need to tell the PPU to operate either in GPHY (i.e.
-	 * clause 22) or 10GPHY mode (i.e. clause 45).
-	 *
-	 * We select 10GPHY mode if there is at least one PHY that declares
-	 * compatible = "ethernet-phy-ieee802.3-c45". This does mean we can't
-	 * support both c45 and c22 on the same MDIO bus.
-	 */
-	fwnode_for_each_child_node_scoped(node, child)
-		if (fwnode_device_is_compatible(child, "ethernet-phy-ieee802.3-c45"))
-			priv->smi_bus_is_c45[mdio_bus] = true;
-
 	bus = devm_mdiobus_alloc_size(dev, sizeof(*chan));
 	if (!bus)
 		return -ENOMEM;
@@ -505,6 +493,15 @@ static int otto_emdio_map_ports(struct device *dev)
 			err = addr;
 			goto put_nodes;
 		}
+
+		/*
+		 * The MDIO accesses from the kernel work with the PHY polling unit in the
+		 * switch. The PPU either operates in GPHY (i.e. clause 22) or 10GPHY mode
+		 * (i.e. clause 45). Select 10GPHY mode if there is at least one PHY that
+		 * declares compatible = "ethernet-phy-ieee802.3-c45".
+		 */
+		if (of_device_is_compatible(phy_dn, "ethernet-phy-ieee802.3-c45"))
+			priv->smi_bus_is_c45[bus] = true;
 
 		__set_bit(pn, priv->valid_ports);
 		priv->smi_bus[pn] = bus;
