@@ -1613,7 +1613,7 @@ static void xhci_handle_cmd_disable_slot(struct xhci_hcd *xhci, int slot_id,
 		/* Delete default control endpoint resources */
 		xhci_free_device_endpoint_resources(xhci, virt_dev, true);
 	if (cmd_comp_code == COMP_SUCCESS) {
-		xhci->dcbaa->dev_context_ptrs[slot_id] = 0;
+		xhci->dcbaa.ctx_array[slot_id] = 0;
 		xhci->devs[slot_id] = NULL;
 	}
 }

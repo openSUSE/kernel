@@ -877,8 +877,8 @@ void xhci_free_virt_device(struct xhci_hcd *xhci, struct xhci_virt_device *dev,
 
 	/* If device ctx array still points to _this_ device, clear it */
 	if (dev->out_ctx &&
-	    xhci->dcbaa->dev_context_ptrs[slot_id] == cpu_to_le64(dev->out_ctx->dma))
-		xhci->dcbaa->dev_context_ptrs[slot_id] = 0;
+	    xhci->dcbaa.ctx_array[slot_id] == cpu_to_le64(dev->out_ctx->dma))
+		xhci->dcbaa.ctx_array[slot_id] = 0;
 
 	trace_xhci_free_virt_device(dev);
 
@@ -1016,11 +1016,11 @@ int xhci_alloc_virt_device(struct xhci_hcd *xhci, int slot_id,
 	dev->udev = udev;
 
 	/* Point to output device context in dcbaa. */
-	xhci->dcbaa->dev_context_ptrs[slot_id] = cpu_to_le64(dev->out_ctx->dma);
+	xhci->dcbaa.ctx_array[slot_id] = cpu_to_le64(dev->out_ctx->dma);
 	xhci_dbg(xhci, "Set slot id %d dcbaa entry %p to 0x%llx\n",
 		 slot_id,
-		 &xhci->dcbaa->dev_context_ptrs[slot_id],
-		 le64_to_cpu(xhci->dcbaa->dev_context_ptrs[slot_id]));
+		 &xhci->dcbaa.ctx_array[slot_id],
+		 le64_to_cpu(xhci->dcbaa.ctx_array[slot_id]));
 
 	trace_xhci_alloc_virt_device(dev);
 
@@ -1671,7 +1671,7 @@ static int scratchpad_alloc(struct xhci_hcd *xhci, gfp_t flags)
 	if (!xhci->scratchpad->sp_buffers)
 		goto fail_sp3;
 
-	xhci->dcbaa->dev_context_ptrs[0] = cpu_to_le64(xhci->scratchpad->sp_dma);
+	xhci->dcbaa.ctx_array[0] = cpu_to_le64(xhci->scratchpad->sp_dma);
 	for (i = 0; i < num_sp; i++) {
 		dma_addr_t dma;
 		void *buf = dma_alloc_coherent(dev, xhci->page_size, &dma,
@@ -1927,6 +1927,7 @@ void xhci_rh_bw_cleanup(struct xhci_hcd *xhci)
 void xhci_mem_cleanup(struct xhci_hcd *xhci)
 {
 	struct device	*dev = xhci_to_hcd(xhci)->self.sysdev;
+	struct xhci_device_context_array *dcbaa;
 	int i;
 
 	cancel_delayed_work_sync(&xhci->cmd_timer);
@@ -1972,10 +1973,12 @@ void xhci_mem_cleanup(struct xhci_hcd *xhci)
 	xhci_dbg_trace(xhci, trace_xhci_dbg_init,
 			"Freed medium stream array pool");
 
-	if (xhci->dcbaa)
-		dma_free_coherent(dev, sizeof(*xhci->dcbaa),
-				xhci->dcbaa, xhci->dcbaa->dma);
-	xhci->dcbaa = NULL;
+	dcbaa = &xhci->dcbaa;
+	if (dcbaa->ctx_array) {
+		dma_free_coherent(dev, array_size(sizeof(*dcbaa->ctx_array), MAX_HC_SLOTS),
+				  dcbaa->ctx_array, dcbaa->dma);
+		dcbaa->ctx_array = NULL;
+	}
 
 	scratchpad_free(xhci);
 
@@ -2403,23 +2406,20 @@ EXPORT_SYMBOL_GPL(xhci_create_secondary_interrupter);
 
 int xhci_mem_init(struct xhci_hcd *xhci, gfp_t flags)
 {
-	struct device	*dev = xhci_to_hcd(xhci)->self.sysdev;
-	dma_addr_t	dma;
+	struct device *dev = xhci_to_hcd(xhci)->self.sysdev;
+	struct xhci_device_context_array *dcbaa = &xhci->dcbaa;
 
 	xhci_dbg_trace(xhci, trace_xhci_dbg_init, "Starting %s", __func__);
 
-	/*
-	 * xHCI section 5.4.6 - Device Context array must be
-	 * "physically contiguous and 64-byte (cache line) aligned".
-	 */
-	xhci->dcbaa = dma_alloc_coherent(dev, sizeof(*xhci->dcbaa), &dma, flags);
-	if (!xhci->dcbaa)
+	dcbaa->ctx_array =
+		dma_alloc_coherent(dev, array_size(sizeof(*dcbaa->ctx_array), MAX_HC_SLOTS),
+				   &dcbaa->dma, flags);
+	if (!dcbaa->ctx_array)
 		goto fail;
 
-	xhci->dcbaa->dma = dma;
 	xhci_dbg_trace(xhci, trace_xhci_dbg_init,
 		       "Device context base array address = %pad (DMA), %p (virt)",
-		       &xhci->dcbaa->dma, xhci->dcbaa);
+		       &dcbaa->dma, dcbaa->ctx_array);
 
 	/*
 	 * Initialize the ring segment pool.  The ring must be a contiguous
