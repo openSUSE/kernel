@@ -7808,14 +7808,28 @@ static int btf_scan_decl_tags(struct bpf_verifier_env *env,
 			      u32 arg_idx, bool is_global, u32 *tags)
 {
 	int id = btf_named_start_id(btf, false) - 1;
+	const char tag_key[] = "arg:";
+	static const struct {
+		const char *tag_value;
+		enum btf_arg_tag arg_tag;
+	} tag_values[] = {
+		{ "ctx", ARG_TAG_CTX },
+		{ "trusted", ARG_TAG_TRUSTED },
+		{ "untrusted", ARG_TAG_UNTRUSTED },
+		{ "nonnull", ARG_TAG_NONNULL },
+		{ "nullable", ARG_TAG_NULLABLE },
+		{ "arena", ARG_TAG_ARENA },
+	};
 
 	/*
 	 * The 'arg:<tag>' decl_tag takes precedence over the derivation
 	 * of the register type from the BTF type itself.
 	 */
-	while ((id = btf_find_next_decl_tag(btf, fn_t, arg_idx, "arg:", id)) > 0) {
-		const struct btf_type *tag_t = btf_type_by_id(btf, id);
-		const char *tag = __btf_name_by_offset(btf, tag_t->name_off) + 4;
+	while ((id = btf_find_next_decl_tag(btf, fn_t, arg_idx, tag_key, id)) > 0) {
+		const struct btf_type *tag_t;
+		const char *tag;
+		int i;
+		bool found;
 
 		/* disallow arg tags in static subprogs */
 		if (!is_global) {
@@ -7825,19 +7839,19 @@ static int btf_scan_decl_tags(struct bpf_verifier_env *env,
 			return -EOPNOTSUPP;
 		}
 
-		if (strcmp(tag, "ctx") == 0) {
-			*tags |= ARG_TAG_CTX;
-		} else if (strcmp(tag, "trusted") == 0) {
-			*tags |= ARG_TAG_TRUSTED;
-		} else if (strcmp(tag, "untrusted") == 0) {
-			*tags |= ARG_TAG_UNTRUSTED;
-		} else if (strcmp(tag, "nonnull") == 0) {
-			*tags |= ARG_TAG_NONNULL;
-		} else if (strcmp(tag, "nullable") == 0) {
-			*tags |= ARG_TAG_NULLABLE;
-		} else if (strcmp(tag, "arena") == 0) {
-			*tags |= ARG_TAG_ARENA;
-		} else {
+		tag_t = btf_type_by_id(btf, id);
+		tag = __btf_name_by_offset(btf, tag_t->name_off) + (sizeof(tag_key) - 1);
+
+		found = false;
+		for (i = 0; i < ARRAY_SIZE(tag_values); ++i) {
+			if (!strcmp(tag, tag_values[i].tag_value)) {
+				*tags |= tag_values[i].arg_tag;
+				found = true;
+				break;
+			}
+		}
+
+		if (!found) {
 			bpf_log(&env->log, "arg#%d has unsupported set of tags\n", arg_idx);
 			return -EOPNOTSUPP;
 		}
