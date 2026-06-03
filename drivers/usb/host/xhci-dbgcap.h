@@ -113,6 +113,7 @@ struct dbc_ep {
 #define DBC_POLL_INTERVAL_DEFAULT	64	/* milliseconds */
 #define DBC_POLL_INTERVAL_MAX		5000	/* milliseconds */
 #define DBC_XFER_INACTIVITY_TIMEOUT	10	/* milliseconds */
+#define DBC_ENUMERATION_TIMEOUT		2000	/* milliseconds */
 /*
  * Private structure for DbC hardware state:
  */

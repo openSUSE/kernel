@@ -901,21 +901,47 @@ static enum evtreturn xhci_dbc_do_handle_events(struct xhci_dbc *dbc)
 		return EVT_ERR;
 	case DS_ENABLED:
 		portsc = readl(&dbc->regs->portsc);
+		ctrl = readl(&dbc->regs->control);
+
 		if (portsc & DBC_PORTSC_CONN_STATUS) {
 			xhci_dbc_set_state(dbc, DS_CONNECTED);
 			dev_info(dbc->dev, "DbC connected\n");
+		} else if (!(ctrl & DBC_CTRL_DBC_ENABLE)) {
+			dev_err(dbc->dev, "unexpected DbC disable, xHC reset?\n");
 		}
 
 		return EVT_DONE;
 	case DS_CONNECTED:
 		ctrl = readl(&dbc->regs->control);
+		portsc = readl(&dbc->regs->portsc);
 		if (ctrl & DBC_CTRL_DBC_RUN) {
 			xhci_dbc_set_state(dbc, DS_CONFIGURED);
 			dev_info(dbc->dev, "DbC configured\n");
-			portsc = readl(&dbc->regs->portsc);
 			writel(portsc, &dbc->regs->portsc);
 			ret = EVT_GSER;
 			break;
+		}
+
+		/* Connection lost */
+		if (!(portsc & DBC_PORTSC_CONN_STATUS)) {
+			/* covers DCE == 0 as it also sets CONN_STATUS to 0 */
+			dev_warn(dbc->dev, "DbC connection lost mid enumeration\n");
+			xhci_dbc_set_state(dbc, DS_ENABLED);
+
+			return EVT_DONE;
+		}
+
+		/* Enumeration timeout */
+		if (time_is_before_jiffies(dbc->state_timestamp +
+				msecs_to_jiffies(DBC_ENUMERATION_TIMEOUT))) {
+			dev_err(dbc->dev, "DbC enumeration timeout, re-enabling DbC\n");
+			dev_dbg(dbc->dev, "dcctrl %x, dcportsc %x\n", ctrl, portsc);
+
+			/* Toggle DCE to retry enumeration */
+			ret = xhci_dbc_enable_dce(dbc, false);
+			udelay(100);
+			ret = xhci_dbc_enable_dce(dbc, true);
+			xhci_dbc_set_state(dbc, DS_ENABLED);
 		}
 
 		return EVT_DONE;
