@@ -661,6 +661,20 @@ static int FNAME(fetch)(struct kvm_vcpu *vcpu, gpa_t addr,
 		clear_sp_write_flooding_count(it.sptep);
 		drop_large_spte(vcpu, it.sptep);
 
+		if (is_shadow_present_pte(*it.sptep)) {
+			struct kvm_mmu_page *child = spte_to_child_sp(*it.sptep);
+			struct kvm_mmu_page *parent_sp;
+			LIST_HEAD(invalid_list);
+
+			if (!child || child->gfn != gw->table_gfn[it.level - 2]) {
+				parent_sp = sptep_to_sp(it.sptep);
+				WARN_ON_ONCE(parent_sp->role.level == PG_LEVEL_4K);
+
+				mmu_page_zap_pte(vcpu->kvm, parent_sp, it.sptep, &invalid_list);
+				kvm_mmu_remote_flush_or_zap(vcpu->kvm, &invalid_list, true);
+			}
+		}
+
 		sp = NULL;
 		if (!is_shadow_present_pte(*it.sptep)) {
 			table_gfn = gw->table_gfn[it.level - 2];
@@ -722,6 +736,20 @@ static int FNAME(fetch)(struct kvm_vcpu *vcpu, gpa_t addr,
 		validate_direct_spte(vcpu, it.sptep, direct_access);
 
 		drop_large_spte(vcpu, it.sptep);
+
+		if (is_shadow_present_pte(*it.sptep)) {
+			struct kvm_mmu_page *child = spte_to_child_sp(*it.sptep);
+			struct kvm_mmu_page *parent_sp;
+			LIST_HEAD(invalid_list);
+
+			if (!child || child->gfn != base_gfn) {
+				parent_sp = sptep_to_sp(it.sptep);
+				WARN_ON_ONCE(parent_sp->role.level == PG_LEVEL_4K);
+
+				mmu_page_zap_pte(vcpu->kvm, parent_sp, it.sptep, &invalid_list);
+				kvm_mmu_remote_flush_or_zap(vcpu->kvm, &invalid_list, true);
+			}
+		}
 
 		if (!is_shadow_present_pte(*it.sptep)) {
 			sp = kvm_mmu_get_page(vcpu, base_gfn, addr,
