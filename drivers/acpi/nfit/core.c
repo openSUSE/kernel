@@ -1680,7 +1680,6 @@ static struct nvdimm *acpi_nfit_dimm_by_handle(struct acpi_nfit_desc *acpi_desc,
 void __acpi_nvdimm_notify(struct device *dev, u32 event)
 {
 	struct nfit_mem *nfit_mem;
-	struct acpi_nfit_desc *acpi_desc;
 
 	dev_dbg(dev->parent, "%s: event: %d\n", dev_name(dev),
 			event);
@@ -1691,12 +1690,11 @@ void __acpi_nvdimm_notify(struct device *dev, u32 event)
 		return;
 	}
 
-	acpi_desc = dev_get_drvdata(dev->parent);
-	if (!acpi_desc)
+	if (!dev_get_drvdata(dev->parent))
 		return;
 
 	/*
-	 * If we successfully retrieved acpi_desc, then we know nfit_mem data
+	 * If the parent's driver data pointer is not NULL, then nfit_mem data
 	 * is still valid.
 	 */
 	nfit_mem = dev_get_drvdata(dev);
