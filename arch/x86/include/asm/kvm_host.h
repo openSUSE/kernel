@@ -1523,6 +1523,7 @@ struct kvm_arch {
 	bool use_master_clock;
 	u64 master_kernel_ns;
 	u64 master_cycle_now;
+	struct ratelimit_state kvmclock_update_rs;
 
 #ifdef CONFIG_KVM_HYPERV
 	struct kvm_hv hyperv;

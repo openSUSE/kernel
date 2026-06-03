@@ -3313,37 +3313,6 @@ void sev_guest_memory_reclaimed(struct kvm *kvm)
 	sev_writeback_caches(kvm);
 }
 
-void sev_free_vcpu(struct kvm_vcpu *vcpu)
-{
-	struct vcpu_svm *svm;
-
-	if (!is_sev_es_guest(vcpu))
-		return;
-
-	svm = to_svm(vcpu);
-
-	/*
-	 * If it's an SNP guest, then the VMSA was marked in the RMP table as
-	 * a guest-owned page. Transition the page to hypervisor state before
-	 * releasing it back to the system.
-	 */
-	if (is_sev_snp_guest(vcpu)) {
-		u64 pfn = __pa(svm->sev_es.vmsa) >> PAGE_SHIFT;
-
-		if (kvm_rmp_make_shared(vcpu->kvm, pfn, PG_LEVEL_4K))
-			goto skip_vmsa_free;
-	}
-
-	if (vcpu->arch.guest_state_protected)
-		sev_flush_encrypted_page(vcpu, svm->sev_es.vmsa);
-
-	__free_page(virt_to_page(svm->sev_es.vmsa));
-
-skip_vmsa_free:
-	if (svm->sev_es.ghcb_sa_free)
-		kvfree(svm->sev_es.ghcb_sa);
-}
-
 static void dump_ghcb(struct vcpu_svm *svm)
 {
 	struct vmcb_control_area *control = &svm->vmcb->control;
@@ -3441,146 +3410,75 @@ static void sev_es_sync_from_ghcb(struct vcpu_svm *svm)
 	memset(ghcb->save.valid_bitmap, 0, sizeof(ghcb->save.valid_bitmap));
 }
 
-static int sev_es_validate_vmgexit(struct vcpu_svm *svm)
+static bool sev_es_are_required_ghcb_fields_valid(struct vcpu_svm *svm)
 {
 	struct vmcb_control_area *control = &svm->vmcb->control;
 	struct kvm_vcpu *vcpu = &svm->vcpu;
-	u64 reason;
-
-	/* Only GHCB Usage code 0 is supported */
-	if (svm->sev_es.ghcb->ghcb_usage) {
-		reason = GHCB_ERR_INVALID_USAGE;
-		goto vmgexit_err;
-	}
-
-	reason = GHCB_ERR_MISSING_INPUT;
 
 	if (!kvm_ghcb_sw_exit_code_is_valid(svm) ||
 	    !kvm_ghcb_sw_exit_info_1_is_valid(svm) ||
 	    !kvm_ghcb_sw_exit_info_2_is_valid(svm))
-		goto vmgexit_err;
+		return false;
 
 	switch (control->exit_code) {
-	case SVM_EXIT_READ_DR7:
-		break;
 	case SVM_EXIT_WRITE_DR7:
-		if (!kvm_ghcb_rax_is_valid(svm))
-			goto vmgexit_err;
-		break;
-	case SVM_EXIT_RDTSC:
-		break;
+		return kvm_ghcb_rax_is_valid(svm);
 	case SVM_EXIT_RDPMC:
-		if (!kvm_ghcb_rcx_is_valid(svm))
-			goto vmgexit_err;
-		break;
+		return kvm_ghcb_rcx_is_valid(svm);
 	case SVM_EXIT_CPUID:
 		if (!kvm_ghcb_rax_is_valid(svm) ||
 		    !kvm_ghcb_rcx_is_valid(svm))
-			goto vmgexit_err;
-		if (vcpu->arch.regs[VCPU_REGS_RAX] == 0xd)
-			if (!kvm_ghcb_xcr0_is_valid(svm))
-				goto vmgexit_err;
-		break;
-	case SVM_EXIT_INVD:
-		break;
+			return false;
+
+		return vcpu->arch.regs[VCPU_REGS_RAX] != 0xd ||
+		       kvm_ghcb_xcr0_is_valid(svm);
 	case SVM_EXIT_IOIO:
-		if (control->exit_info_1 & SVM_IOIO_STR_MASK) {
-			if (!kvm_ghcb_sw_scratch_is_valid(svm))
-				goto vmgexit_err;
-		} else {
-			if (!(control->exit_info_1 & SVM_IOIO_TYPE_MASK))
-				if (!kvm_ghcb_rax_is_valid(svm))
-					goto vmgexit_err;
-		}
-		break;
+		if (control->exit_info_1 & SVM_IOIO_STR_MASK)
+			return kvm_ghcb_sw_scratch_is_valid(svm);
+
+		if (!(control->exit_info_1 & SVM_IOIO_TYPE_MASK))
+			return kvm_ghcb_rax_is_valid(svm);
+
+		return true;
 	case SVM_EXIT_MSR:
 		if (!kvm_ghcb_rcx_is_valid(svm))
-			goto vmgexit_err;
-		if (control->exit_info_1) {
-			if (!kvm_ghcb_rax_is_valid(svm) ||
-			    !kvm_ghcb_rdx_is_valid(svm))
-				goto vmgexit_err;
-		}
-		break;
+			return false;
+
+		return !control->exit_info_1 ||
+		       (kvm_ghcb_rax_is_valid(svm) && kvm_ghcb_rdx_is_valid(svm));
 	case SVM_EXIT_VMMCALL:
-		if (!kvm_ghcb_rax_is_valid(svm) ||
-		    !kvm_ghcb_cpl_is_valid(svm))
-			goto vmgexit_err;
-		break;
-	case SVM_EXIT_RDTSCP:
-		break;
-	case SVM_EXIT_WBINVD:
-		break;
+		return kvm_ghcb_rax_is_valid(svm) && kvm_ghcb_cpl_is_valid(svm);
 	case SVM_EXIT_MONITOR:
-		if (!kvm_ghcb_rax_is_valid(svm) ||
-		    !kvm_ghcb_rcx_is_valid(svm) ||
-		    !kvm_ghcb_rdx_is_valid(svm))
-			goto vmgexit_err;
-		break;
+		return kvm_ghcb_rax_is_valid(svm) &&
+		       kvm_ghcb_rcx_is_valid(svm) &&
+		       kvm_ghcb_rdx_is_valid(svm);
 	case SVM_EXIT_MWAIT:
-		if (!kvm_ghcb_rax_is_valid(svm) ||
-		    !kvm_ghcb_rcx_is_valid(svm))
-			goto vmgexit_err;
+		return kvm_ghcb_rax_is_valid(svm) && kvm_ghcb_rcx_is_valid(svm);
+	case SVM_VMGEXIT_AP_CREATION:
+		return kvm_ghcb_rax_is_valid(svm) ||
+		       lower_32_bits(control->exit_info_1) == SVM_VMGEXIT_AP_DESTROY;
 		break;
 	case SVM_VMGEXIT_MMIO_READ:
 	case SVM_VMGEXIT_MMIO_WRITE:
-		if (!kvm_ghcb_sw_scratch_is_valid(svm))
-			goto vmgexit_err;
-		break;
-	case SVM_VMGEXIT_AP_CREATION:
-		if (!is_sev_snp_guest(vcpu))
-			goto vmgexit_err;
-		if (lower_32_bits(control->exit_info_1) != SVM_VMGEXIT_AP_DESTROY)
-			if (!kvm_ghcb_rax_is_valid(svm))
-				goto vmgexit_err;
-		break;
-	case SVM_VMGEXIT_NMI_COMPLETE:
-	case SVM_VMGEXIT_AP_HLT_LOOP:
-	case SVM_VMGEXIT_AP_JUMP_TABLE:
-	case SVM_VMGEXIT_UNSUPPORTED_EVENT:
-	case SVM_VMGEXIT_HV_FEATURES:
-	case SVM_VMGEXIT_TERM_REQUEST:
-		break;
 	case SVM_VMGEXIT_PSC:
-		if (!is_sev_snp_guest(vcpu) || !kvm_ghcb_sw_scratch_is_valid(svm))
-			goto vmgexit_err;
-		break;
-	case SVM_VMGEXIT_GUEST_REQUEST:
-	case SVM_VMGEXIT_EXT_GUEST_REQUEST:
-		if (!is_sev_snp_guest(vcpu) ||
-		    !PAGE_ALIGNED(control->exit_info_1) ||
-		    !PAGE_ALIGNED(control->exit_info_2) ||
-		    control->exit_info_1 == control->exit_info_2)
-			goto vmgexit_err;
-		break;
+		return kvm_ghcb_sw_scratch_is_valid(svm);
 	default:
-		reason = GHCB_ERR_INVALID_EVENT;
-		goto vmgexit_err;
+		return true;
+	}
+}
+
+static void __sev_es_unmap_ghcb(struct vcpu_svm *svm)
+{
+	if (svm->sev_es.ghcb_sa_free) {
+		kvfree(svm->sev_es.ghcb_sa);
+		svm->sev_es.ghcb_sa = NULL;
+		svm->sev_es.ghcb_sa_free = false;
 	}
 
-	return 0;
-
-vmgexit_err:
-	/*
-	 * Print the exit code even though it may not be marked valid as it
-	 * could help with debugging.
-	 */
-	if (reason == GHCB_ERR_INVALID_USAGE) {
-		vcpu_unimpl(vcpu, "vmgexit: ghcb usage %#x is not valid\n",
-			    svm->sev_es.ghcb->ghcb_usage);
-	} else if (reason == GHCB_ERR_INVALID_EVENT) {
-		vcpu_unimpl(vcpu, "vmgexit: exit code %#llx is not valid\n",
-			    control->exit_code);
-	} else {
-		vcpu_unimpl(vcpu, "vmgexit: exit code %#llx input is not valid\n",
-			    control->exit_code);
-		dump_ghcb(svm);
+	if (svm->sev_es.ghcb) {
+		kvm_vcpu_unmap(&svm->vcpu, &svm->sev_es.ghcb_map);
+		svm->sev_es.ghcb = NULL;
 	}
-
-	svm_vmgexit_bad_input(svm, reason);
-
-	/* Resume the guest to "return" the error code. */
-	return 1;
 }
 
 void sev_es_unmap_ghcb(struct vcpu_svm *svm)
@@ -3591,31 +3489,51 @@ void sev_es_unmap_ghcb(struct vcpu_svm *svm)
 	if (!svm->sev_es.ghcb)
 		return;
 
-	if (svm->sev_es.ghcb_sa_free) {
-		/*
-		 * The scratch area lives outside the GHCB, so there is a
-		 * buffer that, depending on the operation performed, may
-		 * need to be synced, then freed.
-		 */
-		if (svm->sev_es.ghcb_sa_sync) {
-			kvm_write_guest(svm->vcpu.kvm,
-					svm->sev_es.sw_scratch,
-					svm->sev_es.ghcb_sa,
-					svm->sev_es.ghcb_sa_len);
-			svm->sev_es.ghcb_sa_sync = false;
-		}
-
-		kvfree(svm->sev_es.ghcb_sa);
-		svm->sev_es.ghcb_sa = NULL;
-		svm->sev_es.ghcb_sa_free = false;
+	/*
+	 * If the scratch area lives outside the GHCB, there's a buffer that,
+	 * depending on the operation performed, may need to be synced.
+	 */
+	if (svm->sev_es.ghcb_sa_sync) {
+		kvm_write_guest(svm->vcpu.kvm, svm->sev_es.sw_scratch,
+				svm->sev_es.ghcb_sa, svm->sev_es.ghcb_sa_len);
+		svm->sev_es.ghcb_sa_sync = false;
 	}
 
 	trace_kvm_vmgexit_exit(svm->vcpu.vcpu_id, svm->sev_es.ghcb);
 
 	sev_es_sync_to_ghcb(svm);
 
-	kvm_vcpu_unmap(&svm->vcpu, &svm->sev_es.ghcb_map);
-	svm->sev_es.ghcb = NULL;
+	__sev_es_unmap_ghcb(svm);
+}
+
+void sev_free_vcpu(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_svm *svm;
+
+	if (!is_sev_es_guest(vcpu))
+		return;
+
+	svm = to_svm(vcpu);
+
+	/*
+	 * If it's an SNP guest, then the VMSA was marked in the RMP table as
+	 * a guest-owned page. Transition the page to hypervisor state before
+	 * releasing it back to the system.
+	 */
+	if (is_sev_snp_guest(vcpu)) {
+		u64 pfn = __pa(svm->sev_es.vmsa) >> PAGE_SHIFT;
+
+		if (kvm_rmp_make_shared(vcpu->kvm, pfn, PG_LEVEL_4K))
+			goto skip_vmsa_free;
+	}
+
+	if (vcpu->arch.guest_state_protected)
+		sev_flush_encrypted_page(vcpu, svm->sev_es.vmsa);
+
+	__free_page(virt_to_page(svm->sev_es.vmsa));
+
+skip_vmsa_free:
+	__sev_es_unmap_ghcb(svm);
 }
 
 int pre_sev_run(struct vcpu_svm *svm, int cpu)
@@ -3662,12 +3580,15 @@ int pre_sev_run(struct vcpu_svm *svm, int cpu)
 }
 
 #define GHCB_SCRATCH_AREA_LIMIT		(16ULL * PAGE_SIZE)
-static int setup_vmgexit_scratch(struct vcpu_svm *svm, bool sync, u64 len)
+static int setup_vmgexit_scratch(struct vcpu_svm *svm, bool sync, u64 min_len)
 {
 	struct vmcb_control_area *control = &svm->vmcb->control;
 	u64 ghcb_scratch_beg, ghcb_scratch_end;
 	u64 scratch_gpa_beg, scratch_gpa_end;
 	void *scratch_va;
+
+	if (WARN_ON_ONCE(!min_len))
+		goto e_scratch;
 
 	scratch_gpa_beg = svm->sev_es.sw_scratch;
 	if (!scratch_gpa_beg) {
@@ -3675,12 +3596,14 @@ static int setup_vmgexit_scratch(struct vcpu_svm *svm, bool sync, u64 len)
 		goto e_scratch;
 	}
 
-	scratch_gpa_end = scratch_gpa_beg + len;
+	scratch_gpa_end = scratch_gpa_beg + min_len;
 	if (scratch_gpa_end < scratch_gpa_beg) {
 		pr_err("vmgexit: scratch length (%#llx) not valid for scratch address (%#llx)\n",
-		       len, scratch_gpa_beg);
+		       min_len, scratch_gpa_beg);
 		goto e_scratch;
 	}
+
+	WARN_ON_ONCE(svm->sev_es.ghcb_sa_sync || svm->sev_es.ghcb_sa_free);
 
 	if ((scratch_gpa_beg & PAGE_MASK) == control->ghcb_gpa) {
 		/* Scratch area begins within GHCB */
@@ -3702,21 +3625,29 @@ static int setup_vmgexit_scratch(struct vcpu_svm *svm, bool sync, u64 len)
 
 		scratch_va = (void *)svm->sev_es.ghcb;
 		scratch_va += (scratch_gpa_beg - control->ghcb_gpa);
+
+		svm->sev_es.ghcb_sa_sync = false;
+		svm->sev_es.ghcb_sa_free = false;
+		svm->sev_es.ghcb_sa_len = ghcb_scratch_end - scratch_gpa_beg;
 	} else {
+		/* GHCB v2 requires the scratch area to be within the GHCB. */
+		if (to_kvm_sev_info(svm->vcpu.kvm)->ghcb_version >= 2)
+			goto e_scratch;
+
 		/*
 		 * The guest memory must be read into a kernel buffer, so
 		 * limit the size
 		 */
-		if (len > GHCB_SCRATCH_AREA_LIMIT) {
+		if (min_len > GHCB_SCRATCH_AREA_LIMIT) {
 			pr_err("vmgexit: scratch area exceeds KVM limits (%#llx requested, %#llx limit)\n",
-			       len, GHCB_SCRATCH_AREA_LIMIT);
+			       min_len, GHCB_SCRATCH_AREA_LIMIT);
 			goto e_scratch;
 		}
-		scratch_va = kvzalloc(len, GFP_KERNEL_ACCOUNT);
+		scratch_va = kvzalloc(min_len, GFP_KERNEL_ACCOUNT);
 		if (!scratch_va)
 			return -ENOMEM;
 
-		if (kvm_read_guest(svm->vcpu.kvm, scratch_gpa_beg, scratch_va, len)) {
+		if (kvm_read_guest(svm->vcpu.kvm, scratch_gpa_beg, scratch_va, min_len)) {
 			/* Unable to copy scratch area from guest */
 			pr_err("vmgexit: kvm_read_guest for scratch area failed\n");
 
@@ -3732,11 +3663,10 @@ static int setup_vmgexit_scratch(struct vcpu_svm *svm, bool sync, u64 len)
 		 */
 		svm->sev_es.ghcb_sa_sync = sync;
 		svm->sev_es.ghcb_sa_free = true;
+		svm->sev_es.ghcb_sa_len = min_len;
 	}
 
 	svm->sev_es.ghcb_sa = scratch_va;
-	svm->sev_es.ghcb_sa_len = len;
-
 	return 0;
 
 e_scratch:
@@ -3833,13 +3763,11 @@ struct psc_buffer {
 	struct psc_entry entries[];
 } __packed;
 
-static int snp_begin_psc(struct vcpu_svm *svm, struct psc_buffer *psc);
+static int snp_do_psc(struct vcpu_svm *svm);
 
 static void snp_complete_psc(struct vcpu_svm *svm, u64 psc_ret)
 {
-	svm->sev_es.psc_inflight = 0;
-	svm->sev_es.psc_idx = 0;
-	svm->sev_es.psc_2m = false;
+	memset(&svm->sev_es.psc, 0, sizeof(svm->sev_es.psc));
 
 	/*
 	 * PSC requests always get a "no action" response in SW_EXITINFO1, with
@@ -3852,9 +3780,8 @@ static void snp_complete_psc(struct vcpu_svm *svm, u64 psc_ret)
 
 static void __snp_complete_one_psc(struct vcpu_svm *svm)
 {
-	struct psc_buffer *psc = svm->sev_es.ghcb_sa;
-	struct psc_entry *entries = psc->entries;
-	struct psc_hdr *hdr = &psc->hdr;
+	struct vcpu_sev_es_state *sev_es = &svm->sev_es;
+	struct psc_buffer *guest_psc = sev_es->ghcb_sa;
 	__u16 idx;
 
 	/*
@@ -3862,20 +3789,20 @@ static void __snp_complete_one_psc(struct vcpu_svm *svm)
 	 * corresponding entries in the guest's PSC buffer and zero out the
 	 * count of in-flight PSC entries.
 	 */
-	for (idx = svm->sev_es.psc_idx; svm->sev_es.psc_inflight;
-	     svm->sev_es.psc_inflight--, idx++) {
-		struct psc_entry *entry = &entries[idx];
+	for (idx = sev_es->psc.cur_idx; sev_es->psc.batch_size;
+	     sev_es->psc.batch_size--, idx++) {
+		struct psc_entry entry = READ_ONCE(guest_psc->entries[idx]);
 
-		entry->cur_page = entry->pagesize ? 512 : 1;
+		guest_psc->entries[idx].cur_page = entry.pagesize ? 512 : 1;
 	}
 
-	hdr->cur_entry = idx;
+	sev_es->psc.cur_idx = idx;
+	guest_psc->hdr.cur_entry = idx;
 }
 
 static int snp_complete_one_psc(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
-	struct psc_buffer *psc = svm->sev_es.ghcb_sa;
 
 	if (vcpu->run->hypercall.ret) {
 		snp_complete_psc(svm, VMGEXIT_PSC_ERROR_GENERIC);
@@ -3885,48 +3812,30 @@ static int snp_complete_one_psc(struct kvm_vcpu *vcpu)
 	__snp_complete_one_psc(svm);
 
 	/* Handle the next range (if any). */
-	return snp_begin_psc(svm, psc);
+	return snp_do_psc(svm);
 }
 
-static int snp_begin_psc(struct vcpu_svm *svm, struct psc_buffer *psc)
+static int snp_do_psc(struct vcpu_svm *svm)
 {
-	struct psc_entry *entries = psc->entries;
+	struct vcpu_sev_es_state *sev_es = &svm->sev_es;
+	struct psc_buffer *guest_psc = sev_es->ghcb_sa;
 	struct kvm_vcpu *vcpu = &svm->vcpu;
-	struct psc_hdr *hdr = &psc->hdr;
 	struct psc_entry entry_start;
-	u16 idx, idx_start, idx_end;
 	int npages;
 	bool huge;
 	u64 gfn;
-
-	if (!user_exit_on_hypercall(vcpu->kvm, KVM_HC_MAP_GPA_RANGE)) {
-		snp_complete_psc(svm, VMGEXIT_PSC_ERROR_GENERIC);
-		return 1;
-	}
+	u16 idx;
 
 next_range:
 	/* There should be no other PSCs in-flight at this point. */
-	if (WARN_ON_ONCE(svm->sev_es.psc_inflight)) {
+	if (WARN_ON_ONCE(svm->sev_es.psc.batch_size)) {
 		snp_complete_psc(svm, VMGEXIT_PSC_ERROR_GENERIC);
-		return 1;
-	}
-
-	/*
-	 * The PSC descriptor buffer can be modified by a misbehaved guest after
-	 * validation, so take care to only use validated copies of values used
-	 * for things like array indexing.
-	 */
-	idx_start = hdr->cur_entry;
-	idx_end = hdr->end_entry;
-
-	if (idx_end >= VMGEXIT_PSC_MAX_COUNT) {
-		snp_complete_psc(svm, VMGEXIT_PSC_ERROR_INVALID_HDR);
 		return 1;
 	}
 
 	/* Find the start of the next range which needs processing. */
-	for (idx = idx_start; idx <= idx_end; idx++, hdr->cur_entry++) {
-		entry_start = entries[idx];
+	for (idx = sev_es->psc.cur_idx; idx <= sev_es->psc.end_idx; idx++) {
+		entry_start = READ_ONCE(guest_psc->entries[idx]);
 
 		gfn = entry_start.gfn;
 		huge = entry_start.pagesize;
@@ -3952,32 +3861,40 @@ next_range:
 
 		if (npages)
 			break;
+
+		/*
+		 * Increment the guest-visible index to communicate the current
+		 * entry back to the guest, e.g. in case of failure.  No need
+		 * for READ_ONCE() as KVM doesn't consume the field, i.e. a
+		 * misbehaving guest can only break itself.
+		 */
+		guest_psc->hdr.cur_entry++;
 	}
 
-	if (idx > idx_end) {
+	if (idx > sev_es->psc.end_idx) {
 		/* Nothing more to process. */
 		snp_complete_psc(svm, 0);
 		return 1;
 	}
 
-	svm->sev_es.psc_2m = huge;
-	svm->sev_es.psc_idx = idx;
-	svm->sev_es.psc_inflight = 1;
+	sev_es->psc.is_2m = huge;
+	sev_es->psc.cur_idx = idx;
+	sev_es->psc.batch_size = 1;
 
 	/*
 	 * Find all subsequent PSC entries that contain adjacent GPA
 	 * ranges/operations and can be combined into a single
 	 * KVM_HC_MAP_GPA_RANGE exit.
 	 */
-	while (++idx <= idx_end) {
-		struct psc_entry entry = entries[idx];
+	while (++idx <= sev_es->psc.end_idx) {
+		struct psc_entry entry = READ_ONCE(guest_psc->entries[idx]);
 
 		if (entry.operation != entry_start.operation ||
 		    entry.gfn != entry_start.gfn + npages ||
 		    entry.cur_page || !!entry.pagesize != huge)
 			break;
 
-		svm->sev_es.psc_inflight++;
+		sev_es->psc.batch_size++;
 		npages += huge ? 512 : 1;
 	}
 
@@ -4017,6 +3934,46 @@ next_range:
 	}
 
 	BUG();
+}
+
+static int snp_begin_psc(struct vcpu_svm *svm)
+{
+	struct vcpu_sev_es_state *sev_es = &svm->sev_es;
+	struct psc_buffer *guest_psc = sev_es->ghcb_sa;
+	u16 max_nr_entries;
+
+	if (!user_exit_on_hypercall(svm->vcpu.kvm, KVM_HC_MAP_GPA_RANGE)) {
+		snp_complete_psc(svm, VMGEXIT_PSC_ERROR_GENERIC);
+		return 1;
+	}
+
+	/*
+	 * GHCB v2 requires the scratch area to reside within the GHCB itself,
+	 * and PSC requests are only supported for GHCB v2+.  Thus it should be
+	 * impossible to exceed the max PSC entry count (which is derived from
+	 * the size of the shared GHCB buffer).
+	 */
+	max_nr_entries = (sev_es->ghcb_sa_len - sizeof(struct psc_hdr)) /
+			 sizeof(struct psc_entry);
+	if (WARN_ON_ONCE(max_nr_entries > VMGEXIT_PSC_MAX_COUNT)) {
+		snp_complete_psc(svm, VMGEXIT_PSC_ERROR_GENERIC);
+		return 1;
+	}
+
+	/*
+	 * The PSC descriptor buffer can be modified by a misbehaved guest after
+	 * validation, so take care to only use validated copies of values used
+	 * for things like array indexing.
+	 */
+	sev_es->psc.cur_idx = READ_ONCE(guest_psc->hdr.cur_entry);
+	sev_es->psc.end_idx = READ_ONCE(guest_psc->hdr.end_entry);
+
+	if (sev_es->psc.end_idx >= max_nr_entries) {
+		snp_complete_psc(svm, VMGEXIT_PSC_ERROR_INVALID_HDR);
+		return 1;
+	}
+
+	return snp_do_psc(svm);
 }
 
 /*
@@ -4443,12 +4400,24 @@ out_terminate:
 	return 0;
 }
 
+static bool is_snp_only_vmgexit(u64 exit_code)
+{
+	switch (exit_code) {
+	case SVM_VMGEXIT_AP_CREATION:
+	case SVM_VMGEXIT_GUEST_REQUEST:
+	case SVM_VMGEXIT_EXT_GUEST_REQUEST:
+	case SVM_VMGEXIT_PSC:
+		return true;
+	default:
+		return false;
+	}
+}
+
 int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
 	struct vmcb_control_area *control = &svm->vmcb->control;
 	u64 ghcb_gpa;
-	int ret;
 
 	/* Validate the GHCB */
 	ghcb_gpa = control->ghcb_gpa;
@@ -4478,40 +4447,91 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 	sev_es_sync_from_ghcb(svm);
 
 	/* SEV-SNP guest requires that the GHCB GPA must be registered */
-	if (is_sev_snp_guest(vcpu) && !ghcb_gpa_is_registered(svm, ghcb_gpa)) {
-		vcpu_unimpl(&svm->vcpu, "vmgexit: GHCB GPA [%#llx] is not registered.\n", ghcb_gpa);
-		return -EINVAL;
+	if (is_sev_snp_guest(vcpu) &&
+	    !ghcb_gpa_is_registered(svm, control->ghcb_gpa)) {
+		vcpu_unimpl(vcpu, "vmgexit: GHCB GPA [%#llx] is not registered.\n",
+			    control->ghcb_gpa);
+		svm_vmgexit_bad_input(svm, GHCB_ERR_NOT_REGISTERED);
+		return 1;
 	}
 
-	ret = sev_es_validate_vmgexit(svm);
-	if (ret)
-		return ret;
+	/* Only GHCB Usage code 0 is supported */
+	if (svm->sev_es.ghcb->ghcb_usage) {
+		vcpu_unimpl(vcpu, "vmgexit: ghcb usage %#x is not valid\n",
+			    svm->sev_es.ghcb->ghcb_usage);
+		svm_vmgexit_bad_input(svm, GHCB_ERR_INVALID_USAGE);
+		return 1;
+	}
+
+	if (is_snp_only_vmgexit(control->exit_code) && !is_sev_snp_guest(vcpu)) {
+		vcpu_unimpl(vcpu, "vmgexit: exit code %#llx is SNP-only\n",
+			    control->exit_code);
+		svm_vmgexit_bad_input(svm, GHCB_ERR_INVALID_EVENT);
+		return 1;
+	}
+
+	if (!sev_es_are_required_ghcb_fields_valid(svm)) {
+		/*
+		 * Print the exit code even though it may not be marked valid
+		 * as it could help with debugging.
+		 */
+		vcpu_unimpl(vcpu, "vmgexit: exit code %#llx input is not valid\n",
+			    control->exit_code);
+		dump_ghcb(svm);
+		svm_vmgexit_bad_input(svm, GHCB_ERR_MISSING_INPUT);
+		return 1;
+	}
 
 	svm_vmgexit_success(svm, 0);
 
 	switch (control->exit_code) {
+	case SVM_EXIT_IOIO:
+		if (!((control->exit_info_1 & SVM_IOIO_SIZE_MASK) >> SVM_IOIO_SIZE_SHIFT))
+			return 1;
+
+		fallthrough;
+	case SVM_EXIT_READ_DR7:
+	case SVM_EXIT_WRITE_DR7:
+	case SVM_EXIT_RDTSC:
+	case SVM_EXIT_RDTSCP:
+	case SVM_EXIT_RDPMC:
+	case SVM_EXIT_CPUID:
+	case SVM_EXIT_INVD:
+	case SVM_EXIT_MSR:
+	case SVM_EXIT_VMMCALL:
+	case SVM_EXIT_WBINVD:
+	case SVM_EXIT_MONITOR:
+	case SVM_EXIT_MWAIT:
+		return svm_invoke_exit_handler(vcpu, control->exit_code);
 	case SVM_VMGEXIT_MMIO_READ:
 	case SVM_VMGEXIT_MMIO_WRITE: {
 		bool is_write = control->exit_code == SVM_VMGEXIT_MMIO_WRITE;
+		u64 len = control->exit_info_2;
+		int r;
 
-		ret = setup_vmgexit_scratch(svm, !is_write, control->exit_info_2);
-		if (ret)
-			break;
+		if (!len)
+			return 1;
 
-		ret = kvm_sev_es_mmio(vcpu, is_write, control->exit_info_1,
-				      control->exit_info_2, svm->sev_es.ghcb_sa);
-		break;
+		if (to_kvm_sev_info(vcpu->kvm)->ghcb_version >= 2 && len > 8) {
+			svm_vmgexit_bad_input(svm, GHCB_ERR_INVALID_INPUT);
+			return 1;
+		}
+
+		r = setup_vmgexit_scratch(svm, !is_write, len);
+		if (r)
+			return r;
+
+		return kvm_sev_es_mmio(vcpu, is_write, control->exit_info_1, len,
+				       svm->sev_es.ghcb_sa);
 	}
 	case SVM_VMGEXIT_NMI_COMPLETE:
 		++vcpu->stat.nmi_window_exits;
 		svm->nmi_masked = false;
 		kvm_make_request(KVM_REQ_EVENT, vcpu);
-		ret = 1;
-		break;
+		return 1;
 	case SVM_VMGEXIT_AP_HLT_LOOP:
 		svm->sev_es.ap_reset_hold_type = AP_RESET_HOLD_NAE_EVENT;
-		ret = kvm_emulate_ap_reset_hold(vcpu);
-		break;
+		return kvm_emulate_ap_reset_hold(vcpu);
 	case SVM_VMGEXIT_AP_JUMP_TABLE: {
 		struct kvm_sev_info *sev = to_kvm_sev_info(vcpu->kvm);
 
@@ -4529,14 +4549,11 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 			       control->exit_info_1);
 			svm_vmgexit_bad_input(svm, GHCB_ERR_INVALID_INPUT);
 		}
-
-		ret = 1;
-		break;
+		return 1;
 	}
 	case SVM_VMGEXIT_HV_FEATURES:
 		svm_vmgexit_success(svm, GHCB_HV_FT_SUPPORTED);
-		ret = 1;
-		break;
+		return 1;
 	case SVM_VMGEXIT_TERM_REQUEST:
 		pr_info("SEV-ES guest requested termination: reason %#llx info %#llx\n",
 			control->exit_info_1, control->exit_info_2);
@@ -4544,39 +4561,53 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 		vcpu->run->system_event.type = KVM_SYSTEM_EVENT_SEV_TERM;
 		vcpu->run->system_event.ndata = 1;
 		vcpu->run->system_event.data[0] = control->ghcb_gpa;
-		break;
-	case SVM_VMGEXIT_PSC:
-		ret = setup_vmgexit_scratch(svm, true, control->exit_info_2);
-		if (ret)
-			break;
+		return 0;
+	case SVM_VMGEXIT_PSC: {
+		int r;
 
-		ret = snp_begin_psc(svm, svm->sev_es.ghcb_sa);
-		break;
+		r = setup_vmgexit_scratch(svm, true, sizeof(struct psc_hdr));
+		if (r)
+			return r;
+
+		return snp_begin_psc(svm);
+	}
 	case SVM_VMGEXIT_AP_CREATION:
-		ret = sev_snp_ap_creation(svm);
-		if (ret) {
+		if (sev_snp_ap_creation(svm))
 			svm_vmgexit_bad_input(svm, GHCB_ERR_INVALID_INPUT);
+		return 1;
+	case SVM_VMGEXIT_GUEST_REQUEST:
+	case SVM_VMGEXIT_EXT_GUEST_REQUEST:
+		if (!PAGE_ALIGNED(control->exit_info_1) ||
+		    !PAGE_ALIGNED(control->exit_info_2) ||
+		    control->exit_info_1 == control->exit_info_2) {
+			svm_vmgexit_bad_input(svm, GHCB_ERR_INVALID_INPUT);
+			return 1;
 		}
 
-		ret = 1;
-		break;
-	case SVM_VMGEXIT_GUEST_REQUEST:
-		ret = snp_handle_guest_req(svm, control->exit_info_1, control->exit_info_2);
-		break;
-	case SVM_VMGEXIT_EXT_GUEST_REQUEST:
-		ret = snp_handle_ext_guest_req(svm, control->exit_info_1, control->exit_info_2);
-		break;
+		if (control->exit_code == SVM_VMGEXIT_GUEST_REQUEST)
+			return snp_handle_guest_req(svm, control->exit_info_1,
+						    control->exit_info_2);
+
+		return snp_handle_ext_guest_req(svm, control->exit_info_1,
+						control->exit_info_2);
 	case SVM_VMGEXIT_UNSUPPORTED_EVENT:
+		/*
+		 * Note, the _guest_ is reporting an unsupported #VC, i.e. this
+		 * isn't the same thing as KVM getting an unsupported #VMGEXIT.
+		 */
 		vcpu_unimpl(vcpu,
 			    "vmgexit: unsupported event - exit_info_1=%#llx, exit_info_2=%#llx\n",
 			    control->exit_info_1, control->exit_info_2);
-		ret = -EINVAL;
-		break;
+		return -EINVAL;
 	default:
-		ret = svm_invoke_exit_handler(vcpu, control->exit_code);
+		vcpu_unimpl(vcpu, "vmgexit: exit code %#llx is not valid\n",
+			    control->exit_code);
+		svm_vmgexit_bad_input(svm, GHCB_ERR_INVALID_EVENT);
+		return 1;
 	}
 
-	return ret;
+	KVM_BUG_ON(1, vcpu->kvm);
+	return -EIO;
 }
 
 int sev_es_string_io(struct vcpu_svm *svm, int size, unsigned int port, int in)
@@ -4591,6 +4622,9 @@ int sev_es_string_io(struct vcpu_svm *svm, int size, unsigned int port, int in)
 	count = svm->vmcb->control.exit_info_2;
 	if (unlikely(check_mul_overflow(count, size, &bytes)))
 		return -EINVAL;
+
+	if (!bytes)
+		return 1;
 
 	r = setup_vmgexit_scratch(svm, in, bytes);
 	if (r)
