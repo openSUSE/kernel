@@ -2395,7 +2395,6 @@ static void process_isoc_td(struct xhci_hcd *xhci, struct xhci_virt_ep *ep,
 	u32 trb_comp_code;
 	bool sum_trbs_for_length = false;
 	u32 remaining, requested, ep_trb_len;
-	int short_framestatus;
 
 	trb_comp_code = GET_COMP_CODE(le32_to_cpu(event->transfer_len));
 	urb_priv = td->urb->hcpriv;
@@ -2404,8 +2403,6 @@ static void process_isoc_td(struct xhci_hcd *xhci, struct xhci_virt_ep *ep,
 	requested = frame->length;
 	remaining = EVENT_TRB_LEN(le32_to_cpu(event->transfer_len));
 	ep_trb_len = TRB_LEN(le32_to_cpu(ep_trb->generic.field[2]));
-	short_framestatus = td->urb->transfer_flags & URB_SHORT_NOT_OK ?
-		-EREMOTEIO : 0;
 
 	/* handle completion code */
 	switch (trb_comp_code) {
@@ -2413,15 +2410,12 @@ static void process_isoc_td(struct xhci_hcd *xhci, struct xhci_virt_ep *ep,
 		/* Don't overwrite status if TD had an error, see xHCI 4.9.1 */
 		if (td->error_mid_td)
 			break;
-		if (remaining) {
-			frame->status = short_framestatus;
+		if (remaining)
 			sum_trbs_for_length = true;
-			break;
-		}
 		frame->status = 0;
 		break;
 	case COMP_SHORT_PACKET:
-		frame->status = short_framestatus;
+		frame->status = 0;
 		sum_trbs_for_length = true;
 		break;
 	case COMP_BANDWIDTH_OVERRUN_ERROR:
@@ -2456,7 +2450,7 @@ static void process_isoc_td(struct xhci_hcd *xhci, struct xhci_virt_ep *ep,
 		break;
 	case COMP_STOPPED_SHORT_PACKET:
 		/* field normally containing residue now contains transferred */
-		frame->status = short_framestatus;
+		frame->status = 0;
 		requested = remaining;
 		break;
 	case COMP_STOPPED_LENGTH_INVALID:
