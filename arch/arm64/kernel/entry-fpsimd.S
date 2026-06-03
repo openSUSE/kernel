@@ -11,26 +11,6 @@
 #include <asm/assembler.h>
 #include <asm/fpsimdmacros.h>
 
-/*
- * Save the FP registers.
- *
- * x0 - pointer to struct fpsimd_state
- */
-SYM_FUNC_START(fpsimd_save_state)
-	fpsimd_save x0, 8
-	ret
-SYM_FUNC_END(fpsimd_save_state)
-
-/*
- * Load the FP registers.
- *
- * x0 - pointer to struct fpsimd_state
- */
-SYM_FUNC_START(fpsimd_load_state)
-	fpsimd_restore x0, 8
-	ret
-SYM_FUNC_END(fpsimd_load_state)
-
 #ifdef CONFIG_ARM64_SVE
 
 /*

@@ -83,7 +83,7 @@ static void fpsimd_sve_sync(struct kvm_vcpu *vcpu)
 	if (vcpu_has_sve(vcpu))
 		__hyp_sve_save_guest(vcpu);
 	else
-		__fpsimd_save_state(&vcpu->arch.ctxt.fp_regs);
+		fpsimd_save_state(&vcpu->arch.ctxt.fp_regs);
 
 	has_fpmr = kvm_has_fpmr(kern_hyp_va(vcpu->kvm));
 	if (has_fpmr)
@@ -92,7 +92,7 @@ static void fpsimd_sve_sync(struct kvm_vcpu *vcpu)
 	if (system_supports_sve())
 		__hyp_sve_restore_host();
 	else
-		__fpsimd_restore_state(&hctxt->fp_regs);
+		fpsimd_load_state(&hctxt->fp_regs);
 
 	if (has_fpmr)
 		write_sysreg_s(ctxt_sys_reg(hctxt, FPMR), SYS_FPMR);
