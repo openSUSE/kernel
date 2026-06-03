@@ -1475,8 +1475,8 @@ void airoha_ppe_check_skb(struct airoha_ppe_dev *dev, struct sk_buff *skb,
 
 void airoha_ppe_init_upd_mem(struct airoha_gdm_dev *dev)
 {
+	struct net_device *netdev = netdev_from_priv(dev);
 	struct airoha_gdm_port *port = dev->port;
-	struct net_device *netdev = dev->dev;
 	struct airoha_eth *eth = dev->eth;
 	const u8 *addr = netdev->dev_addr;
 	u32 val;

@@ -629,7 +629,7 @@ static int airoha_qdma_rx_process(struct airoha_queue *q, int budget)
 		if (!port->dev)
 			goto free_frag;
 
-		netdev = port->dev->dev;
+		netdev = netdev_from_priv(port->dev);
 		if (!q->skb) { /* first buffer */
 			q->skb = napi_build_skb(e->buf - AIROHA_RX_HEADROOM,
 						q->buf_size);
@@ -853,6 +853,7 @@ static void airoha_qdma_wake_netdev_txqs(struct airoha_queue *q)
 	for (i = 0; i < ARRAY_SIZE(eth->ports); i++) {
 		struct airoha_gdm_port *port = eth->ports[i];
 		struct airoha_gdm_dev *dev;
+		struct net_device *netdev;
 		int j;
 
 		if (!port)
@@ -865,11 +866,12 @@ static void airoha_qdma_wake_netdev_txqs(struct airoha_queue *q)
 		if (dev->qdma != qdma)
 			continue;
 
-		for (j = 0; j < dev->dev->num_tx_queues; j++) {
+		netdev = netdev_from_priv(dev);
+		for (j = 0; j < netdev->num_tx_queues; j++) {
 			if (airoha_qdma_get_txq(qdma, j) != qid)
 				continue;
 
-			netif_wake_subqueue(dev->dev, j);
+			netif_wake_subqueue(netdev, j);
 		}
 	}
 	q->txq_stopped = false;
@@ -1867,7 +1869,7 @@ static int airoha_dev_init(struct net_device *netdev)
 
 	/* QDMA0 is used for lan ports while QDMA1 is used for WAN ports */
 	dev->qdma = &eth->qdma[!airoha_is_lan_gdm_dev(dev)];
-	dev->dev->irq = dev->qdma->irq_banks[0].irq;
+	netdev->irq = dev->qdma->irq_banks[0].irq;
 	airoha_set_macaddr(dev, netdev->dev_addr);
 
 	switch (port->id) {
@@ -3044,7 +3046,6 @@ static int airoha_alloc_gdm_device(struct airoha_eth *eth,
 	}
 
 	dev = netdev_priv(netdev);
-	dev->dev = netdev;
 	dev->port = port;
 	port->dev = dev;
 	dev->eth = eth;
@@ -3107,7 +3108,7 @@ static int airoha_register_gdm_devices(struct airoha_eth *eth)
 		if (!port)
 			continue;
 
-		err = register_netdev(port->dev->dev);
+		err = register_netdev(netdev_from_priv(port->dev));
 		if (err)
 			return err;
 	}
@@ -3222,8 +3223,12 @@ error_napi_stop:
 			continue;
 
 		dev = port->dev;
-		if (dev && dev->dev->reg_state == NETREG_REGISTERED)
-			unregister_netdev(dev->dev);
+		if (dev) {
+			struct net_device *netdev = netdev_from_priv(dev);
+
+			if (netdev->reg_state == NETREG_REGISTERED)
+				unregister_netdev(netdev);
+		}
 		airoha_metadata_dst_free(port);
 	}
 	airoha_hw_cleanup(eth);
@@ -3251,7 +3256,7 @@ static void airoha_remove(struct platform_device *pdev)
 
 		dev = port->dev;
 		if (dev)
-			unregister_netdev(dev->dev);
+			unregister_netdev(netdev_from_priv(dev));
 		airoha_metadata_dst_free(port);
 	}
 	airoha_hw_cleanup(eth);
