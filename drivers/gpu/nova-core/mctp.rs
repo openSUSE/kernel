@@ -7,8 +7,6 @@
 //! Data Model) messages between the kernel driver and GPU firmware processors
 //! such as FSP and GSP.
 
-#![expect(dead_code)]
-
 use kernel::pci::Vendor;
 
 /// NVDM message type identifiers carried over MCTP.

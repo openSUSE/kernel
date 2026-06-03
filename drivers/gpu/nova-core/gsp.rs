@@ -25,6 +25,7 @@ mod fw;
 mod sequencer;
 
 pub(crate) use fw::{
+    GspFmcBootParams,
     GspFwWprMeta,
     LibosParams, //
 };

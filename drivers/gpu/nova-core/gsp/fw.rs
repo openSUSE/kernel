@@ -934,3 +934,68 @@ impl MessageQueueInitArguments {
         })
     }
 }
+
+#[repr(u32)]
+pub(crate) enum GspDmaTarget {
+    #[expect(dead_code)]
+    LocalFb = bindings::GSP_DMA_TARGET_GSP_DMA_TARGET_LOCAL_FB,
+    CoherentSystem = bindings::GSP_DMA_TARGET_GSP_DMA_TARGET_COHERENT_SYSTEM,
+    NoncoherentSystem = bindings::GSP_DMA_TARGET_GSP_DMA_TARGET_NONCOHERENT_SYSTEM,
+}
+
+type GspAcrBootGspRmParams = bindings::GSP_ACR_BOOT_GSP_RM_PARAMS;
+
+impl GspAcrBootGspRmParams {
+    fn new(target: GspDmaTarget, wpr_meta_addr: u64) -> impl Init<Self> {
+        #[allow(non_snake_case)]
+        let params = init!(Self {
+            target: target as u32,
+            gspRmDescSize: num::usize_into_u32::<{ size_of::<GspFwWprMeta>() }>(),
+            gspRmDescOffset: wpr_meta_addr,
+            bIsGspRmBoot: 1,
+            wprCarveoutOffset: 0,
+            wprCarveoutSize: 0,
+            __bindgen_padding_0: Default::default(),
+        });
+
+        params
+    }
+}
+
+type GspRmParams = bindings::GSP_RM_PARAMS;
+
+impl GspRmParams {
+    fn new(target: GspDmaTarget, libos_addr: u64) -> impl Init<Self> {
+        #[allow(non_snake_case)]
+        let params = init!(Self {
+            target: target as u32,
+            bootArgsOffset: libos_addr,
+            __bindgen_padding_0: Default::default(),
+        });
+
+        params
+    }
+}
+
+pub(crate) type GspFmcBootParams = bindings::GSP_FMC_BOOT_PARAMS;
+
+// SAFETY: Padding is explicit and will not contain uninitialized data.
+unsafe impl AsBytes for GspFmcBootParams {}
+// SAFETY: This struct only contains integer types for which all bit patterns are valid.
+unsafe impl FromBytes for GspFmcBootParams {}
+
+impl GspFmcBootParams {
+    pub(crate) fn new(wpr_meta_addr: u64, libos_addr: u64) -> impl Init<Self> {
+        #[allow(non_snake_case)]
+        let init = init!(Self {
+            // Blackwell FSP obtains WPR info from other sources, so
+            // wprCarveoutOffset and wprCarveoutSize are left zero.
+            bootGspRmParams <- GspAcrBootGspRmParams::new(GspDmaTarget::CoherentSystem,
+                wpr_meta_addr),
+            gspRmParams <- GspRmParams::new(GspDmaTarget::NoncoherentSystem, libos_addr),
+            ..Zeroable::init_zeroed()
+        });
+
+        init
+    }
+}

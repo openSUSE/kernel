@@ -9,8 +9,14 @@
 
 use kernel::{
     device,
+    dma::Coherent,
     io::poll::read_poll_timeout,
     prelude::*,
+    ptr::{
+        Alignable,
+        Alignment, //
+    },
+    sizes::SZ_2M,
     time::Delta,
     transmute::{
         AsBytes,
@@ -24,13 +30,19 @@ use crate::{
         fsp::Fsp as FspEngine,
         Falcon, //
     },
-    firmware::fsp::FspFirmware,
+    fb::FbLayout,
+    firmware::fsp::{
+        FmcSignatures,
+        FspFirmware, //
+    },
     gpu::Chipset,
+    gsp::GspFmcBootParams,
     mctp::{
         MctpHeader,
         NvdmHeader,
         NvdmType, //
     },
+    num,
     regs, //
 };
 
@@ -66,6 +78,116 @@ trait MessageToFsp: AsBytes {
     const NVDM_TYPE: NvdmType;
 }
 
+/// NVDM (NVIDIA Data Model) CoT (Chain of Trust) payload, the main
+/// message body sent to FSP for Chain of Trust boot.
+#[repr(C, packed)]
+#[derive(Clone, Copy, Zeroable)]
+struct NvdmPayloadCot {
+    version: u16,
+    size: u16,
+    gsp_fmc_sysmem_offset: u64,
+    frts_sysmem_offset: u64,
+    frts_sysmem_size: u32,
+    frts_vidmem_offset: u64,
+    frts_vidmem_size: u32,
+    sigs: FmcSignatures,
+    gsp_boot_args_sysmem_offset: u64,
+}
+
+/// Complete FSP message structure with MCTP and NVDM headers.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct FspMessage {
+    mctp_header: MctpHeader,
+    nvdm_header: NvdmHeader,
+    cot: NvdmPayloadCot,
+}
+
+impl FspMessage {
+    /// Returns an in-place initializer for [`FspMessage`].
+    fn new<'a>(
+        fb_layout: &FbLayout,
+        fsp_fw: &'a FspFirmware,
+        args: &'a FmcBootArgs,
+    ) -> Result<impl Init<Self> + 'a> {
+        // frts_offset is relative to FB end: FRTS_location = FB_END - frts_offset
+        let frts_vidmem_offset = if !args.resume {
+            let frts_reserved_size = fb_layout.heap.len() + u64::from(fb_layout.pmu_reserved_size);
+
+            frts_reserved_size
+                .align_up(Alignment::new::<SZ_2M>())
+                .ok_or(EINVAL)?
+        } else {
+            0
+        };
+
+        let frts_size: u32 = if !args.resume {
+            fb_layout.frts.len().try_into()?
+        } else {
+            0
+        };
+
+        let version = hal::fsp_hal(args.chipset).ok_or(ENOTSUPP)?.cot_version();
+        let size = num::usize_into_u16::<{ core::mem::size_of::<NvdmPayloadCot>() }>();
+
+        Ok(init!(Self {
+            mctp_header: MctpHeader::single_packet(),
+            nvdm_header: NvdmHeader::new(NvdmType::Cot),
+            // The payload is packed, so we cannot use `init!`. Initialize it member-by-member using
+            // `chain`.
+            cot <- pin_init::init_zeroed(),
+        })
+        .chain(move |msg| {
+            msg.cot.version = version;
+            msg.cot.size = size;
+            msg.cot.gsp_fmc_sysmem_offset = fsp_fw.fmc_image.dma_handle();
+            msg.cot.frts_vidmem_offset = frts_vidmem_offset;
+            msg.cot.frts_vidmem_size = frts_size;
+            // frts_sysmem_* intentionally left at zero for now, but will be needed for e.g.
+            // systems without VRAM.
+            msg.cot.gsp_boot_args_sysmem_offset = args.fmc_boot_params.dma_handle();
+            msg.cot.sigs = *fsp_fw.fmc_sigs;
+
+            Ok(())
+        }))
+    }
+}
+
+// SAFETY: `FspMessage` is `#[repr(C)]` with no padding, so all of its
+// bytes are initialized.
+unsafe impl AsBytes for FspMessage {}
+
+impl MessageToFsp for FspMessage {
+    const NVDM_TYPE: NvdmType = NvdmType::Cot;
+}
+
+/// Bundled arguments for FMC boot via FSP Chain of Trust.
+pub(crate) struct FmcBootArgs {
+    chipset: Chipset,
+    fmc_boot_params: Coherent<GspFmcBootParams>,
+    resume: bool,
+}
+
+impl FmcBootArgs {
+    /// Builds FMC boot arguments, allocating the DMA-coherent boot parameter
+    /// structure that FSP will read.
+    pub(crate) fn new(
+        dev: &device::Device<device::Bound>,
+        chipset: Chipset,
+        wpr_meta_addr: u64,
+        libos_addr: u64,
+        resume: bool,
+    ) -> Result<Self> {
+        let init = GspFmcBootParams::new(wpr_meta_addr, libos_addr);
+
+        Ok(Self {
+            chipset,
+            fmc_boot_params: Coherent::<GspFmcBootParams>::init(dev, GFP_KERNEL, init)?,
+            resume,
+        })
+    }
+}
+
 /// FSP interface for Hopper/Blackwell GPUs.
 ///
 /// An `Fsp` is produced by [`Fsp::wait_secure_boot`], which only returns once FSP secure boot
@@ -73,7 +195,6 @@ trait MessageToFsp: AsBytes {
 /// Chain of Trust boot.
 pub(crate) struct Fsp {
     falcon: Falcon<FspEngine>,
-    #[expect(dead_code)]
     fsp_fw: FspFirmware,
 }
 
@@ -109,7 +230,6 @@ impl Fsp {
     }
 
     /// Sends a message to FSP and waits for the response.
-    #[expect(dead_code)]
     fn send_sync_fsp<M>(&mut self, dev: &device::Device, bar: &Bar0, msg: &M) -> Result
     where
         M: MessageToFsp,
@@ -168,6 +288,27 @@ impl Fsp {
             return Err(EIO);
         }
 
+        Ok(())
+    }
+
+    /// Boots GSP FMC via FSP Chain of Trust.
+    ///
+    /// Builds the CoT message from the pre-configured [`FmcBootArgs`], sends it
+    /// to FSP, and waits for the response.
+    pub(crate) fn boot_fmc(
+        &mut self,
+        dev: &device::Device<device::Bound>,
+        bar: &Bar0,
+        fb_layout: &FbLayout,
+        args: &FmcBootArgs,
+    ) -> Result {
+        dev_dbg!(dev, "Starting FSP boot sequence for {}\n", args.chipset);
+
+        let msg = KBox::init(FspMessage::new(fb_layout, &self.fsp_fw, args)?, GFP_KERNEL)?;
+
+        self.send_sync_fsp(dev, bar, &*msg)?;
+
+        dev_dbg!(dev, "FSP Chain of Trust completed successfully\n");
         Ok(())
     }
 }

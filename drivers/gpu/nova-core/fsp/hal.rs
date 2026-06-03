@@ -18,7 +18,6 @@ pub(super) trait FspHal {
     fn fsp_boot_status(&self, bar: &Bar0) -> u32;
 
     /// Returns the FSP Chain of Trust protocol version this chipset advertises.
-    #[expect(dead_code)]
     fn cot_version(&self) -> u16;
 }
 

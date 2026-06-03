@@ -883,6 +883,88 @@ impl Default for GSP_MSG_QUEUE_ELEMENT {
         }
     }
 }
+pub const GSP_DMA_TARGET_GSP_DMA_TARGET_LOCAL_FB: GSP_DMA_TARGET = 0;
+pub const GSP_DMA_TARGET_GSP_DMA_TARGET_COHERENT_SYSTEM: GSP_DMA_TARGET = 1;
+pub const GSP_DMA_TARGET_GSP_DMA_TARGET_NONCOHERENT_SYSTEM: GSP_DMA_TARGET = 2;
+pub const GSP_DMA_TARGET_GSP_DMA_TARGET_COUNT: GSP_DMA_TARGET = 3;
+pub type GSP_DMA_TARGET = ffi::c_uint;
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, MaybeZeroable)]
+pub struct GSP_FMC_INIT_PARAMS {
+    pub regkeys: u32_,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, MaybeZeroable)]
+pub struct GSP_ACR_BOOT_GSP_RM_PARAMS {
+    pub target: GSP_DMA_TARGET,
+    pub gspRmDescSize: u32_,
+    pub gspRmDescOffset: u64_,
+    pub wprCarveoutOffset: u64_,
+    pub wprCarveoutSize: u32_,
+    pub bIsGspRmBoot: u8_,
+    pub __bindgen_padding_0: [u8; 3usize],
+}
+impl Default for GSP_ACR_BOOT_GSP_RM_PARAMS {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, MaybeZeroable)]
+pub struct GSP_RM_PARAMS {
+    pub target: GSP_DMA_TARGET,
+    pub __bindgen_padding_0: [u8; 4usize],
+    pub bootArgsOffset: u64_,
+}
+impl Default for GSP_RM_PARAMS {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, MaybeZeroable)]
+pub struct GSP_SPDM_PARAMS {
+    pub target: GSP_DMA_TARGET,
+    pub __bindgen_padding_0: [u8; 4usize],
+    pub payloadBufferOffset: u64_,
+    pub payloadBufferSize: u32_,
+    pub __bindgen_padding_1: [u8; 4usize],
+}
+impl Default for GSP_SPDM_PARAMS {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, MaybeZeroable)]
+pub struct GSP_FMC_BOOT_PARAMS {
+    pub initParams: GSP_FMC_INIT_PARAMS,
+    pub __bindgen_padding_0: [u8; 4usize],
+    pub bootGspRmParams: GSP_ACR_BOOT_GSP_RM_PARAMS,
+    pub gspRmParams: GSP_RM_PARAMS,
+    pub gspSpdmParams: GSP_SPDM_PARAMS,
+}
+impl Default for GSP_FMC_BOOT_PARAMS {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, MaybeZeroable)]
 pub struct rpc_unloading_guest_driver_v1F_07 {
