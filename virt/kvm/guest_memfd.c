@@ -438,11 +438,12 @@ static int kvm_gmem_set_policy(struct vm_area_struct *vma, struct mempolicy *mpo
 }
 
 static struct mempolicy *kvm_gmem_get_policy(struct vm_area_struct *vma,
-					     unsigned long addr, pgoff_t *pgoff)
+					     unsigned long addr, pgoff_t *ilx)
 {
+	pgoff_t pgoff = vma->vm_pgoff + ((addr - vma->vm_start) >> PAGE_SHIFT);
 	struct inode *inode = file_inode(vma->vm_file);
 
-	*pgoff = vma->vm_pgoff + ((addr - vma->vm_start) >> PAGE_SHIFT);
+	*ilx = inode->i_ino;
 
 	/*
 	 * Return the memory policy for this index, or NULL if none is set.
@@ -453,7 +454,7 @@ static struct mempolicy *kvm_gmem_get_policy(struct vm_area_struct *vma,
 	 * can then replace NULL with the default memory policy instead of the
 	 * current task's memory policy.
 	 */
-	return mpol_shared_policy_lookup(&GMEM_I(inode)->policy, *pgoff);
+	return mpol_shared_policy_lookup(&GMEM_I(inode)->policy, pgoff);
 }
 #endif /* CONFIG_NUMA */
 
