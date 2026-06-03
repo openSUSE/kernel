@@ -51,34 +51,38 @@
 #include <linux/property.h>
 #include <linux/regmap.h>
 
-#define RTL9300_NUM_BUSES		4
-#define RTL9300_NUM_PAGES		4096
-#define RTL9300_NUM_PORTS		28
-#define SMI_GLB_CTRL			0xca00
-#define   GLB_CTRL_INTF_SEL(intf)	BIT(16 + (intf))
-#define SMI_PORT0_15_POLLING_SEL	0xca08
-#define RTL9300_SMI_ACCESS_PHY_CTRL_0	0xcb70
-#define RTL9300_SMI_ACCESS_PHY_CTRL_1	0xcb74
-#define   PHY_CTRL_REG_ADDR		GENMASK(24, 20)
-#define   PHY_CTRL_PARK_PAGE		GENMASK(19, 15)
-#define   PHY_CTRL_MAIN_PAGE		GENMASK(14, 3)
-#define   PHY_CTRL_WRITE		BIT(2)
-#define   PHY_CTRL_READ			0
-#define   PHY_CTRL_TYPE_C45		BIT(1)
-#define   PHY_CTRL_TYPE_C22		0
-#define   PHY_CTRL_CMD			BIT(0)
-#define   PHY_CTRL_FAIL			BIT(25)
-#define RTL9300_SMI_ACCESS_PHY_CTRL_2	0xcb78
-#define   PHY_CTRL_INDATA		GENMASK(31, 16)
-#define   PHY_CTRL_DATA			GENMASK(15, 0)
-#define RTL9300_SMI_ACCESS_PHY_CTRL_3	0xcb7c
-#define   PHY_CTRL_MMD_DEVAD		GENMASK(20, 16)
-#define   PHY_CTRL_MMD_REG		GENMASK(15, 0)
-#define SMI_PORT0_5_ADDR_CTRL		0xcb80
+#define RTL9300_NUM_BUSES			4
+#define RTL9300_NUM_PAGES			4096
+#define RTL9300_NUM_PORTS			28
+#define SMI_GLB_CTRL				0xca00
+#define   GLB_CTRL_INTF_SEL(intf)		BIT(16 + (intf))
+#define RTL9300_SMI_PORT0_15_POLLING_SEL	0xca08
+#define RTL9300_SMI_ACCESS_PHY_CTRL_0		0xcb70
+#define RTL9300_SMI_ACCESS_PHY_CTRL_1		0xcb74
+#define   PHY_CTRL_REG_ADDR			GENMASK(24, 20)
+#define   PHY_CTRL_PARK_PAGE			GENMASK(19, 15)
+#define   PHY_CTRL_MAIN_PAGE			GENMASK(14, 3)
+#define   PHY_CTRL_WRITE			BIT(2)
+#define   PHY_CTRL_READ				0
+#define   PHY_CTRL_TYPE_C45			BIT(1)
+#define   PHY_CTRL_TYPE_C22			0
+#define   PHY_CTRL_CMD				BIT(0)
+#define   PHY_CTRL_FAIL				BIT(25)
+#define RTL9300_SMI_ACCESS_PHY_CTRL_2		0xcb78
+#define   PHY_CTRL_INDATA			GENMASK(31, 16)
+#define   PHY_CTRL_DATA				GENMASK(15, 0)
+#define RTL9300_SMI_ACCESS_PHY_CTRL_3		0xcb7c
+#define   PHY_CTRL_MMD_DEVAD			GENMASK(20, 16)
+#define   PHY_CTRL_MMD_REG			GENMASK(15, 0)
+#define RTL9300_SMI_PORT0_5_ADDR_CTRL		0xcb80
 
-#define MAX_PORTS       28
-#define MAX_SMI_BUSSES  4
-#define RAW_PAGE(priv)	((priv)->info->num_pages - 1)
+#define MAP_ADDRS_PER_REG			6
+#define MAP_BITS_PER_ADDR			5
+#define MAP_BITS_PER_BUS			2
+#define MAP_BUSES_PER_REG			16
+#define MAX_PORTS				28
+#define MAX_SMI_BUSSES				4
+#define RAW_PAGE(priv)				((priv)->info->num_pages - 1)
 
 
 struct otto_emdio_cmd_regs {
@@ -89,6 +93,8 @@ struct otto_emdio_cmd_regs {
 };
 
 struct otto_emdio_info {
+	u32 addr_map_base;
+	u32 bus_map_base;
 	u32 cmd_fail;
 	u32 cmd_read;
 	u32 cmd_write;
@@ -327,40 +333,53 @@ static int otto_emdio_write_c45(struct mii_bus *bus, int phy_id,
 	return ret;
 }
 
+static int otto_emdio_write_mapping(struct otto_emdio_priv *priv, u32 base, u32 port,
+				    u32 vals_per_reg, u32 bits_per_val, u32 value)
+{
+	u32 shift = (port % vals_per_reg) * bits_per_val;
+	u32 reg = base + (port / vals_per_reg) * 4;
+	u32 mask = GENMASK(bits_per_val - 1, 0);
+
+	return regmap_update_bits(priv->regmap, reg, mask << shift, value << shift);
+}
+
+static int otto_emdio_setup_topology(struct otto_emdio_priv *priv)
+{
+	const struct otto_emdio_info *info = priv->info;
+	u32 port;
+	int ret;
+
+	for_each_set_bit(port, priv->valid_ports, info->num_ports) {
+		if (info->bus_map_base) {
+			ret = otto_emdio_write_mapping(priv, info->bus_map_base, port,
+						       MAP_BUSES_PER_REG, MAP_BITS_PER_BUS,
+						       priv->smi_bus[port]);
+			if (ret)
+				return ret;
+		}
+		if (info->addr_map_base) {
+			ret = otto_emdio_write_mapping(priv, info->addr_map_base, port,
+						       MAP_ADDRS_PER_REG, MAP_BITS_PER_ADDR,
+						       priv->smi_addr[port]);
+			if (ret)
+				return ret;
+		}
+	}
+
+	return 0;
+}
+
 static int otto_emdio_9300_mdiobus_init(struct otto_emdio_priv *priv)
 {
 	u32 glb_ctrl_mask = 0, glb_ctrl_val = 0;
 	struct regmap *regmap = priv->regmap;
-	u32 port_addr[5] = { 0 };
-	u32 poll_sel[2] = { 0 };
 	int i, err;
-
-	/* Associate the port with the SMI interface and PHY */
-	for_each_set_bit(i, priv->valid_ports, priv->info->num_ports) {
-		int pos;
-
-		pos = (i % 6) * 5;
-		port_addr[i / 6] |= (priv->smi_addr[i] & 0x1f) << pos;
-
-		pos = (i % 16) * 2;
-		poll_sel[i / 16] |= (priv->smi_bus[i] & 0x3) << pos;
-	}
 
 	/* Put the interfaces into C45 mode if required */
 	glb_ctrl_mask = GENMASK(19, 16);
 	for (i = 0; i < priv->info->num_buses; i++)
 		if (priv->smi_bus_is_c45[i])
 			glb_ctrl_val |= GLB_CTRL_INTF_SEL(i);
-
-	err = regmap_bulk_write(regmap, SMI_PORT0_5_ADDR_CTRL,
-				port_addr, 5);
-	if (err)
-		return err;
-
-	err = regmap_bulk_write(regmap, SMI_PORT0_15_POLLING_SEL,
-				poll_sel, 2);
-	if (err)
-		return err;
 
 	err = regmap_update_bits(regmap, SMI_GLB_CTRL,
 				 glb_ctrl_mask, glb_ctrl_val);
@@ -528,6 +547,10 @@ static int otto_emdio_probe(struct platform_device *pdev)
 	if (err)
 		return err;
 
+	err = otto_emdio_setup_topology(priv);
+	if (err)
+		return err;
+
 	device_for_each_child_node_scoped(dev, child) {
 		err = otto_emdio_probe_one(dev, priv, child);
 		if (err)
@@ -542,6 +565,8 @@ static int otto_emdio_probe(struct platform_device *pdev)
 }
 
 static const struct otto_emdio_info otto_emdio_9300_info = {
+	.addr_map_base = RTL9300_SMI_PORT0_5_ADDR_CTRL,
+	.bus_map_base = RTL9300_SMI_PORT0_15_POLLING_SEL,
 	.cmd_fail = PHY_CTRL_FAIL,
 	.cmd_read = PHY_CTRL_READ,
 	.cmd_write = PHY_CTRL_WRITE,
