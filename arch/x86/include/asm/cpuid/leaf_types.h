@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MIT */
-/* Generator: x86-cpuid-db v3.0 */
+/* Generator: x86-cpuid-db v3.1 */
 
 /*
  * Auto-generated file.
@@ -246,7 +246,7 @@ struct leaf_0x6_0 {
 						:  2, // Reserved
 		energy_perf_bias		:  1, // IA32_ENERGY_PERF_BIAS MSR
 						:  4, // Reserved
-		thrd_director_nclasses		:  8, // Number of classes, Intel thread director
+		hw_feedback_nclasses		:  8, // Number of Intel Thread Director classes
 						: 16; // Reserved
 	// edx
 	u32	perfcap_reporting		:  1, // Performance capability reporting
@@ -332,11 +332,11 @@ struct leaf_0x7_0 {
 		sgx_keys			:  1, // Intel SGX attestation services
 		avx512_4vnniw			:  1, // AVX-512 neural network instructions
 		avx512_4fmaps			:  1, // AVX-512 multiply accumulation single precision
-		fsrm				:  1, // Fast short REP MOV
+		fsrm				:  1, // Fast short REP MOVSB
 		uintr				:  1, // User interrupts
 						:  2, // Reserved
 		avx512_vp2intersect		:  1, // VP2INTERSECT{D,Q} instructions
-		srdbs_ctrl			:  1, // SRBDS mitigation MSR
+		srbds_ctrl			:  1, // SRBDS mitigation MSR
 		md_clear			:  1, // VERW MD_CLEAR microcode
 		rtm_always_abort		:  1, // XBEGIN (RTM transaction) always aborts
 						:  1, // Reserved
@@ -379,7 +379,7 @@ struct leaf_0x7_1 {
 		wrmsrns				:  1, // WRMSRNS instruction (WRMSR-non-serializing)
 		nmi_src				:  1, // NMI-source reporting with FRED event data
 		amx_fp16			:  1, // AMX-FP16: FP16 tile operations
-		hreset 				:  1, // HRESET (Thread director history reset)
+		hreset				:  1, // HRESET (Thread director history reset)
 		avx_ifma			:  1, // Integer fused multiply add
 						:  2, // Reserved
 		lam				:  1, // Linear address masking
@@ -414,8 +414,8 @@ struct leaf_0x7_2 {
 	u32	intel_psfd			:  1, // Intel predictive store forward disable
 		ipred_ctrl			:  1, // MSR bits IA32_SPEC_CTRL.IPRED_DIS_{U,S}
 		rrsba_ctrl			:  1, // MSR bits IA32_SPEC_CTRL.RRSBA_DIS_{U,S}
-		ddp_ctrl			:  1, // MSR bit  IA32_SPEC_CTRL.DDPD_U
-		bhi_ctrl			:  1, // MSR bit  IA32_SPEC_CTRL.BHI_DIS_S
+		ddp_ctrl			:  1, // MSR bit IA32_SPEC_CTRL.DDPD_U
+		bhi_ctrl			:  1, // MSR bit IA32_SPEC_CTRL.BHI_DIS_S
 		mcdt_no				:  1, // MCDT mitigation not needed
 		uclock_disable			:  1, // UC-lock disable
 						: 25; // Reserved
@@ -547,7 +547,7 @@ struct leaf_0xd_1 {
 						:  1, // Reserved
 		xss_pasid			:  1, // PASID state
 		xss_cet_u			:  1, // CET user state
-		xss_cet_p			:  1, // CET supervisor state
+		xss_cet_s			:  1, // CET supervisor state
 		xss_hdc				:  1, // HDC state
 		xss_uintr			:  1, // UINTR state
 		xss_lbr				:  1, // LBR state
@@ -711,7 +711,7 @@ struct leaf_0x12_1 {
 	u32					: 32; // Reserved
 	// ecx
 	u32	xfrm_x87			:  1, // Enclave XFRM.X87
-		xfrm_sse			:  1, // Enclave XFRM.SEE
+		xfrm_sse			:  1, // Enclave XFRM.SSE
 		xfrm_avx			:  1, // Enclave XFRM.AVX
 		xfrm_mpx_bndregs		:  1, // Enclave XFRM.BNDREGS (MPX BND0-BND3 registers)
 		xfrm_mpx_bndcsr			:  1, // Enclave XFRM.BNDCSR (MPX BNDCFGU/BNDSTATUS registers)
@@ -771,7 +771,7 @@ struct leaf_0x14_0 {
 	u32	topa_output			:  1, // ToPA output scheme
 		topa_multiple_entries		:  1, // ToPA tables can hold multiple entries
 		single_range_output		:  1, // Single-range output
-		trance_transport_output		:  1, // Trace Transport subsystem output
+		trace_transport_output		:  1, // Trace Transport subsystem output
 						: 27, // Reserved
 		ip_payloads_lip			:  1; // IP payloads have LIP values (CS base included)
 	// edx
@@ -780,7 +780,7 @@ struct leaf_0x14_0 {
 
 struct leaf_0x14_1 {
 	// eax
-	u32	num_address_ranges		:  3, // Number of configurable Address Ranges
+	u32	num_address_ranges		:  3, // Number of configurable address ranges
 						: 13, // Reserved
 		mtc_periods_bmp			: 16; // MTC period encodings bitmap
 	// ebx
@@ -842,7 +842,7 @@ struct leaf_0x17_0 {
 	// ecx
 	u32	soc_proj_id			: 32; // SoC project ID, assigned by vendor
 	// edx
-	u32	soc_stepping_id			: 32; // Soc project stepping ID, assigned by vendor
+	u32	soc_stepping_id			: 32; // SoC project stepping ID, assigned by vendor
 };
 
 struct leaf_0x17_n {
@@ -883,7 +883,7 @@ struct leaf_0x18_n {
 		tlb_cache_level			:  3, // Translation cache level (1-based)
 		is_fully_associative		:  1, // Fully-associative
 						:  5, // Reserved
-		tlb_max_addressible_ids		: 12, // Max number of addressable IDs - 1
+		tlb_max_addressable_ids		: 12, // Max number of addressable IDs - 1
 						:  6; // Reserved
 };
 
@@ -897,7 +897,7 @@ struct leaf_0x18_n {
 
 struct leaf_0x19_0 {
 	// eax
-	u32	kl_cpl0_only			:  1, // CPL0-only key Locker restriction
+	u32	kl_cpl0_only			:  1, // CPL0-only key locker restriction
 		kl_no_encrypt			:  1, // No-encrypt key locker restriction
 		kl_no_decrypt			:  1, // No-decrypt key locker restriction
 						: 29; // Reserved
@@ -962,7 +962,7 @@ struct leaf_0x1c_0 {
 	// eax
 	u32	lbr_depth_mask			:  8, // Max LBR stack depth bitmask
 						: 22, // Reserved
-		lbr_deep_c_reset		:  1, // LBRs maybe cleared on MWAIT C-state > C1
+		lbr_deep_c_reset		:  1, // LBRs may be cleared on MWAIT C-state > C1
 		lbr_ip_is_lip			:  1; // LBR IP contain Last IP (otherwise effective IP)
 	// ebx
 	u32	lbr_cpl				:  1, // CPL filtering
@@ -1079,9 +1079,9 @@ struct leaf_0x21_0 {
 	// ebx
 	u32	tdx_vendorid_0			: 32; // TDX vendor ID string bytes 0 - 3
 	// ecx
-	u32	tdx_vendorid_2			: 32; // CPU vendor ID string bytes 8 - 11
+	u32	tdx_vendorid_2			: 32; // TDX vendor ID string bytes 8 - 11
 	// edx
-	u32	tdx_vendorid_1			: 32; // CPU vendor ID string bytes 4 - 7
+	u32	tdx_vendorid_1			: 32; // TDX vendor ID string bytes 4 - 7
 };
 
 /*
@@ -1281,12 +1281,12 @@ struct leaf_0x4c780001_0 {
 		flexpriority			:  1, // Intel FlexPriority
 		ept				:  1, // Intel Extended Page Table
 		vpid				:  1, // Intel Virtual Processor ID
-		coherency_sfw_no		:  1, // SNP cache coherency software work around not needed
+		coherency_sfw_no		:  1, // SNP cache coherency software workaround not needed
 						: 10, // Reserved
 		vmmcall				:  1, // Prefer VMMCALL to VMCALL
 		xenpv				:  1, // Xen paravirtual guest
 		ept_ad				:  1, // Intel Extended Page Table access-dirty bit
-		VMCALL				:  1, // Hypervisor supports the VMCALL instruction
+		vmcall				:  1, // Hypervisor supports the VMCALL instruction
 		vmw_vmmcall			:  1, // VMware prefers the VMMCALL instruction
 		pvunlock			:  1, // PV unlock function
 		vcpupreempt			:  1, // PV vcpu_is_preempted function
@@ -1380,11 +1380,11 @@ struct leaf_0x4c780002_0 {
 		amd_e400			:  1, // CPU is among the affected by Erratum 400
 		cpu_meltdown			:  1, // CPU affected by meltdown; needs kernel page table isolation
 		spectre_v1			:  1, // CPU affected by Spectre variant 1 with conditional branches
-		specture_v2			:  1, // CPU affected by Spectre variant 2 with indirect branches
+		spectre_v2			:  1, // CPU affected by Spectre variant 2 with indirect branches
 		spec_store_bypass		:  1, // CPU affected by speculative store bypass attack
 		l1tf				:  1, // CPU affected by L1 Terminal Fault
 		mds				:  1, // CPU affected by Microarchitectural data sampling
-		msbds_only			:  1, // Microarchitectural data sampling: CPU only affected by the MSDBS variant
+		msbds_only			:  1, // Microarchitectural data sampling: CPU only affected by the MSBDS variant
 		swapgs				:  1, // CPU affected by speculation through SWAPGS
 		taa				:  1, // CPU is affected by TSX Async Abort (TAA)
 		itlb_multihit			:  1, // CPU may incur MCE during certain page attribute changes
@@ -1732,7 +1732,7 @@ struct leaf_0x8000000a_0 {
 		lbr_virt			:  1, // LBR virtualization
 		svm_lock			:  1, // SVM lock
 		nrip_save			:  1, // NRIP save support on #VMEXIT
-		tsc_rate_msr			:  1, // MSR based TSC rate control
+		tsc_rate_msr			:  1, // MSR-based TSC rate control
 		vmcb_clean			:  1, // VMCB clean bits support
 		flush_by_asid			:  1, // Flush by ASID + Extended VMCB TLB_Control
 		decode_assists			:  1, // Decode Assists support
@@ -1790,7 +1790,7 @@ struct leaf_0x8000001a_0 {
 	// eax
 	u32	fp_128				:  1, // Internal FP/SIMD exec data path is 128-bits wide
 		movu_preferred			:  1, // SSE: MOVU* better than MOVL*/MOVH*
-		fp_256				:  1, // internal FP/SSE exec data path is 256-bits wide
+		fp_256				:  1, // Internal FP/SSE exec data path is 256-bits wide
 						: 29; // Reserved
 	// ebx
 	u32					: 32; // Reserved
@@ -1836,7 +1836,7 @@ struct leaf_0x8000001b_0 {
 struct leaf_0x8000001c_0 {
 	// eax
 	u32	os_lwp_avail			:  1, // OS: LWP is available to application programs
-		os_lpwval			:  1, // OS: LWPVAL instruction
+		os_lwpval			:  1, // OS: LWPVAL instruction
 		os_lwp_ire			:  1, // OS: Instructions Retired Event
 		os_lwp_bre			:  1, // OS: Branch Retired Event
 		os_lwp_dme			:  1, // OS: Dcache Miss Event
@@ -1856,7 +1856,7 @@ struct leaf_0x8000001c_0 {
 		lwp_data_addr			:  1, // Cache miss events report data cache address
 		lwp_latency_rnd			:  3, // Cache latency rounding amount
 		lwp_version			:  7, // LWP version
-		lwp_buf_min_sz			:  8, // LWP event ring buffer min size, 32 event records units
+		lwp_buf_min_sz			:  8, // LWP event ring buffer min size, 32 event record units
 						:  4, // Reserved
 		lwp_branch_predict		:  1, // Branches Retired events can be filtered
 		lwp_ip_filtering		:  1, // IP filtering (IPI, IPF, BaseIP, and LimitIP @ LWPCP)
@@ -1864,7 +1864,7 @@ struct leaf_0x8000001c_0 {
 		lwp_cache_latency		:  1; // Cache-related events: filter by latency
 	// edx
 	u32	hw_lwp_avail			:  1, // HW: LWP available
-		hw_lpwval			:  1, // HW: LWPVAL available
+		hw_lwpval			:  1, // HW: LWPVAL available
 		hw_lwp_ire			:  1, // HW: Instructions Retired Event
 		hw_lwp_bre			:  1, // HW: Branch Retired Event
 		hw_lwp_dme			:  1, // HW: Dcache Miss Event
@@ -2051,8 +2051,8 @@ struct leaf_0x80000021_0 {
 		upper_addr_ignore		:  1, // EFER MSR Upper Address Ignore
 		auto_ibrs			:  1, // EFER MSR Automatic IBRS
 		no_smm_ctl_msr			:  1, // SMM_CTL MSR not available
-		fsrs				:  1, // Fast Short Rep STOSB
-		fsrc				:  1, // Fast Short Rep CMPSB
+		fsrs				:  1, // Fast Short REP STOSB
+		fsrc				:  1, // Fast Short REP CMPSB
 						:  1, // Reserved
 		prefetch_ctl_msr		:  1, // Prefetch control MSR
 						:  2, // Reserved
@@ -2157,11 +2157,11 @@ struct leaf_0x80860000_0 {
 	// eax
 	u32	max_tra_leaf			: 32; // Maximum Transmeta leaf
 	// ebx
-	u32	cpu_vendorid_0			: 32; // Transmeta Vendor ID string bytes 0 - 3
+	u32	cpu_vendorid_0			: 32; // Transmeta vendor ID string bytes 0 - 3
 	// ecx
-	u32	cpu_vendorid_2			: 32; // Transmeta Vendor ID string bytes 8 - 11
+	u32	cpu_vendorid_2			: 32; // Transmeta vendor ID string bytes 8 - 11
 	// edx
-	u32	cpu_vendorid_1			: 32; // Transmeta Vendor ID string bytes 4 - 7
+	u32	cpu_vendorid_1			: 32; // Transmeta vendor ID string bytes 4 - 7
 };
 
 /*
