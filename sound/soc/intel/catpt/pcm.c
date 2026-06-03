@@ -968,32 +968,6 @@ static int catpt_loopback_mute_put(struct snd_kcontrol *kctl, struct snd_ctl_ele
 	return 1;
 }
 
-static int catpt_waves_switch_get(struct snd_kcontrol *kcontrol,
-				  struct snd_ctl_elem_value *ucontrol)
-{
-	return 0;
-}
-
-static int catpt_waves_switch_put(struct snd_kcontrol *kcontrol,
-				  struct snd_ctl_elem_value *ucontrol)
-{
-	return 0;
-}
-
-static int catpt_waves_param_get(struct snd_kcontrol *kcontrol,
-				 unsigned int __user *bytes,
-				 unsigned int size)
-{
-	return 0;
-}
-
-static int catpt_waves_param_put(struct snd_kcontrol *kcontrol,
-				 const unsigned int __user *bytes,
-				 unsigned int size)
-{
-	return 0;
-}
-
 static const SNDRV_CTL_TLVD_DECLARE_DB_SCALE(catpt_volume_tlv, -9000, 300, 1);
 
 #define CATPT_VOLUME_CTL(kname, pname) {		\
@@ -1018,12 +992,6 @@ CATPT_VOLUME_CTL("Media1 Playback Volume", OFFLOAD2),
 CATPT_VOLUME_CTL("Mic Capture Volume", CAPTURE1),
 SOC_SINGLE_BOOL_EXT("Loopback Mute", (unsigned long)&(bool[1]) {0},
 		    catpt_loopback_mute_get, catpt_loopback_mute_put),
-/* Enable or disable WAVES module */
-SOC_SINGLE_BOOL_EXT("Waves Switch", 0,
-		    catpt_waves_switch_get, catpt_waves_switch_put),
-/* WAVES module parameter control */
-SND_SOC_BYTES_TLV("Waves Set Param", 128,
-		  catpt_waves_param_get, catpt_waves_param_put),
 };
 
 static const struct snd_soc_dapm_widget component_widgets[] = {
