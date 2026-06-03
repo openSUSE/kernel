@@ -215,8 +215,123 @@ static inline unsigned int sve_get_vl(void)
 	return vl;
 }
 
-extern void sve_save_state(struct arm64_sve_state *state, int save_ffr);
-extern void sve_load_state(const struct arm64_sve_state *state, int restore_ffr);
+#define FOR_EACH_Z_REG(idx_str, asm_str)											\
+	"	.irp " idx_str ",0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31\n"	\
+	asm_str	"\n"														\
+	"	.endr\n"
+
+#define FOR_EACH_P_REG(idx_str, asm_str)											\
+	"	.irp " idx_str ",0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15\n"	\
+	asm_str	"\n"								\
+	"	.endr\n"
+
+static inline void __sve_save_z(struct arm64_sve_state *state, unsigned long vl)
+{
+	instrument_write(state, SVE_NUM_ZREGS * vl);
+	asm volatile(
+	__SVE_PREAMBLE
+	FOR_EACH_Z_REG("n", "str	z\\n, [%[zregs], #\\n, MUL VL]")
+	:
+	: [zregs] "r" (state)
+	: "memory"
+	);
+}
+
+static inline void __sve_load_z(const struct arm64_sve_state *state, unsigned long vl)
+{
+	instrument_read(state, SVE_NUM_ZREGS * vl);
+	asm volatile(
+	__SVE_PREAMBLE
+	FOR_EACH_Z_REG("n", "ldr	z\\n, [%[zregs], #\\n, MUL VL]")
+	:
+	: [zregs] "r" (state)
+	: "memory"
+	);
+}
+
+static inline void __sve_save_p(struct arm64_sve_state *state, unsigned long vl, bool ffr)
+{
+	void *pregs = (void *)state + SVE_NUM_ZREGS * vl;
+	unsigned long pl = vl / 8;
+	void *pffr = pregs + SVE_NUM_PREGS * pl;
+
+	instrument_write(pregs, SVE_NUM_PREGS * pl);
+	asm volatile(
+	__SVE_PREAMBLE
+	FOR_EACH_P_REG("n", "str	p\\n, [%[pregs], #\\n, MUL VL]\n")
+	:
+	: [pregs] "r" (pregs)
+	: "memory"
+	);
+
+	instrument_write(pffr, pl);
+	if (ffr) {
+		asm volatile(
+		__SVE_PREAMBLE
+		"	rdffr	p0.b\n"
+		"	str	p0, [%[pffr]]\n"
+		"	ldr	p0, [%[pregs]]\n"
+		:
+		: [pregs] "r" (pregs),
+		  [pffr] "r" (pffr)
+		: "memory"
+		);
+	} else {
+		asm volatile(
+		__SVE_PREAMBLE
+		"	pfalse	p0.b\n"
+		"	str	p0, [%[pffr]]\n"
+		"	ldr	p0, [%[pregs]]\n"
+		:
+		: [pregs] "r" (pregs),
+		  [pffr] "r" (pffr)
+		: "memory"
+		);
+	}
+}
+
+static inline void __sve_load_p(const struct arm64_sve_state *state, unsigned long vl, bool ffr)
+{
+	const void *pregs = (const void *)state + SVE_NUM_ZREGS * vl;
+	unsigned long pl = vl / 8;
+	const void *pffr = pregs + SVE_NUM_PREGS * pl;
+
+	if (ffr) {
+		instrument_read(pffr, pl);
+		asm volatile(
+		__SVE_PREAMBLE
+		"	ldr	p0, [%[pffr]]\n"
+		"	wrffr	p0.b\n"
+		:
+		: [pffr] "r" (pffr)
+		: "memory"
+		);
+	}
+
+	instrument_read(pregs, SVE_NUM_PREGS * pl);
+	asm volatile(
+	__SVE_PREAMBLE
+	FOR_EACH_P_REG("n", "ldr	p\\n, [%[pregs], #\\n, MUL VL]\n")
+	:
+	: [pregs] "r" (pregs)
+	: "memory"
+	);
+}
+
+static inline void sve_save_state(struct arm64_sve_state *state, bool ffr)
+{
+	unsigned long vl = sve_get_vl();
+	__sve_save_z(state, vl);
+	__sve_save_p(state, vl, ffr);
+}
+
+static inline void sve_load_state(const struct arm64_sve_state *state, bool ffr)
+{
+	unsigned long vl = sve_get_vl();
+	__sve_load_z(state, vl);
+	__sve_load_p(state, vl, ffr);
+}
+
 extern void sve_flush_live(bool flush_ffr, unsigned long vq_minus_1);
 extern void sme_save_state(struct arm64_sme_state *state, int zt);
 extern void sme_load_state(const struct arm64_sme_state *state, int zt);

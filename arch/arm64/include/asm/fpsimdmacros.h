@@ -42,36 +42,6 @@
 
 /* Deprecated macros for SVE instructions */
 
-/* STR (vector): STR Z\nz, [X\nxbase, #\offset, MUL VL] */
-.macro _sve_str_v nz, nxbase, offset=0
-	.arch_extension sve
-	str	z\nz, [X\nxbase, #\offset, MUL VL]
-.endm
-
-/* LDR (vector): LDR Z\nz, [X\nxbase, #\offset, MUL VL] */
-.macro _sve_ldr_v nz, nxbase, offset=0
-	.arch_extension sve
-	ldr	z\nz, [X\nxbase, #\offset, MUL VL]
-.endm
-
-/* STR (predicate): STR P\np, [X\nxbase, #\offset, MUL VL] */
-.macro _sve_str_p np, nxbase, offset=0
-	.arch_extension sve
-	str	p\np, [X\nxbase, #\offset, MUL VL]
-.endm
-
-/* LDR (predicate): LDR P\np, [X\nxbase, #\offset, MUL VL] */
-.macro _sve_ldr_p np, nxbase, offset=0
-	.arch_extension sve
-	ldr p\np, [x\nxbase, #\offset, MUL VL]
-.endm
-
-/* RDFFR (unpredicated): RDFFR P\np.B */
-.macro _sve_rdffr np
-	.arch_extension sve
-	rdffr p\np\().b
-.endm
-
 /* WRFFR P\np.B */
 .macro _sve_wrffr np
 	.arch_extension sve
@@ -175,37 +145,6 @@
 .endm
 .macro sve_flush_ffr
 		_sve_wrffr	0
-.endm
-
-.macro _sve_pffr ptr
-	.arch_extension sve
-	addvl	\ptr, \ptr, #16
-	addvl	\ptr, \ptr, #16
-	addpl	\ptr, \ptr, #16
-.endm
-
-.macro sve_save nxbase, save_ffr
-		_sve_pffr	x\nxbase
- _for n, 0, 31,	_sve_str_v	\n, \nxbase, \n - 34
- _for n, 0, 15,	_sve_str_p	\n, \nxbase, \n - 16
-		cbz		\save_ffr, 921f
-		_sve_rdffr	0
-		b		922f
-921:
-		_sve_pfalse	0			// Zero out FFR
-922:
-		_sve_str_p	0, \nxbase
-		_sve_ldr_p	0, \nxbase, -16
-.endm
-
-.macro sve_load nxbase, restore_ffr
-		_sve_pffr	x\nxbase
- _for n, 0, 31,	_sve_ldr_v	\n, \nxbase, \n - 34
-		cbz		\restore_ffr, 921f
-		_sve_ldr_p	0, \nxbase
-		_sve_wrffr	0
-921:
- _for n, 0, 15,	_sve_ldr_p	\n, \nxbase, \n - 16
 .endm
 
 .macro sme_save_za nxbase, xvl, nw

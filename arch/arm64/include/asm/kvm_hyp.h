@@ -121,9 +121,6 @@ void __debug_save_host_buffers_nvhe(struct kvm_vcpu *vcpu);
 void __debug_restore_host_buffers_nvhe(struct kvm_vcpu *vcpu);
 #endif
 
-void __sve_save_state(struct arm64_sve_state *sve, int save_ffr);
-void __sve_restore_state(struct arm64_sve_state *sve, int restore_ffr);
-
 u64 __guest_enter(struct kvm_vcpu *vcpu);
 
 bool kvm_host_psci_handler(struct kvm_cpu_context *host_ctxt, u32 func_id);

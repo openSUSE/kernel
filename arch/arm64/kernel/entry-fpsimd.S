@@ -14,28 +14,6 @@
 #ifdef CONFIG_ARM64_SVE
 
 /*
- * Save the SVE state
- *
- * x0 - pointer to buffer for state
- * w1 - Save FFR if non-zero
- */
-SYM_FUNC_START(sve_save_state)
-	sve_save 0, w1
-	ret
-SYM_FUNC_END(sve_save_state)
-
-/*
- * Load the SVE state
- *
- * x0 - pointer to buffer for state
- * w1 - Restore FFR if non-zero
- */
-SYM_FUNC_START(sve_load_state)
-	sve_load 0, w1
-	ret
-SYM_FUNC_END(sve_load_state)
-
-/*
  * Zero all SVE registers but the first 128-bits of each vector
  *
  * VQ must already be configured by caller, any further updates of VQ
