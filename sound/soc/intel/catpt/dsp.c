@@ -122,7 +122,7 @@ int catpt_dmac_probe(struct catpt_dev *cdev)
 	if (!dmac)
 		return -ENOMEM;
 
-	dmac->regs = cdev->lpe_ba + cdev->spec->host_dma_offset[CATPT_DMA_DEVID];
+	dmac->regs = catpt_dma_addr(cdev, CATPT_DMA_DEVID);
 	dmac->dev = cdev->dev;
 	dmac->irq = cdev->irq;
 
@@ -498,7 +498,7 @@ int catpt_coredump(struct catpt_dev *cdev)
 	hdr->size = resource_size(&cdev->iram);
 	pos += sizeof(*hdr);
 
-	memcpy_fromio(pos, cdev->lpe_ba + cdev->iram.start, hdr->size);
+	memcpy_fromio(pos, catpt_iram_addr(cdev), hdr->size);
 	pos += hdr->size;
 
 	hdr = (struct catpt_dump_section_hdr *)pos;
@@ -508,7 +508,7 @@ int catpt_coredump(struct catpt_dev *cdev)
 	hdr->size = resource_size(&cdev->dram);
 	pos += sizeof(*hdr);
 
-	memcpy_fromio(pos, cdev->lpe_ba + cdev->dram.start, hdr->size);
+	memcpy_fromio(pos, catpt_dram_addr(cdev), hdr->size);
 	pos += hdr->size;
 
 	hdr = (struct catpt_dump_section_hdr *)pos;
