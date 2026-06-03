@@ -108,6 +108,7 @@ static void drm_panel_add_release(void *data)
 
 /**
  * devm_drm_panel_add - add a panel to the global registry using devres
+ * @dev: device to which the panel is attached
  * @panel: panel to add
  *
  * Add a panel to the global registry so that it can be looked

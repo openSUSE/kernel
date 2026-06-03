@@ -84,5 +84,6 @@ void vs_plane_destroy_state(struct drm_plane *plane,
 void vs_plane_reset(struct drm_plane *plane);
 
 struct drm_plane *vs_primary_plane_init(struct drm_device *dev, struct vs_dc *dc);
+struct drm_plane *vs_cursor_plane_init(struct drm_device *dev, struct vs_dc *dc);
 
 #endif /* _VS_PLANE_H_ */

@@ -293,7 +293,7 @@ nvkm_gsp_rpc_rd(struct nvkm_gsp *gsp, u32 fn, u32 argc)
 {
 	void *argv = nvkm_gsp_rpc_get(gsp, fn, argc);
 
-	if (IS_ERR_OR_NULL(argv))
+	if (IS_ERR(argv))
 		return argv;
 
 	return nvkm_gsp_rpc_push(gsp, argv, NVKM_GSP_RPC_REPLY_RECV, argc);
@@ -373,7 +373,7 @@ nvkm_gsp_rm_alloc_get(struct nvkm_gsp_object *parent, u32 handle, u32 oclass, u3
 	object->handle = handle;
 
 	argv = gsp->rm->api->alloc->get(object, oclass, argc);
-	if (IS_ERR_OR_NULL(argv)) {
+	if (IS_ERR(argv)) {
 		object->client = NULL;
 		return argv;
 	}
@@ -415,8 +415,8 @@ nvkm_gsp_rm_alloc(struct nvkm_gsp_object *parent, u32 handle, u32 oclass, u32 ar
 {
 	void *argv = nvkm_gsp_rm_alloc_get(parent, handle, oclass, argc, object);
 
-	if (IS_ERR_OR_NULL(argv))
-		return argv ? PTR_ERR(argv) : -EIO;
+	if (IS_ERR(argv))
+		return PTR_ERR(argv);
 
 	return nvkm_gsp_rm_alloc_wr(object, argv);
 }

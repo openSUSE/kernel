@@ -687,6 +687,8 @@ static void panthor_gem_evict_locked(struct panthor_gem_object *bo)
 	if (drm_WARN_ON_ONCE(bo->base.dev, !bo->backing.pages))
 		return;
 
+	atomic_add_unless(&bo->reclaimed_count, 1, INT_MAX);
+
 	panthor_gem_dev_map_cleanup_locked(bo);
 	panthor_gem_backing_cleanup_locked(bo);
 	panthor_gem_update_reclaim_state_locked(bo, NULL);
@@ -1590,6 +1592,7 @@ static void panthor_gem_debugfs_print_flag_names(struct seq_file *m)
 	static const char * const gem_state_flags_names[] = {
 		[PANTHOR_DEBUGFS_GEM_STATE_IMPORTED_BIT] = "imported",
 		[PANTHOR_DEBUGFS_GEM_STATE_EXPORTED_BIT] = "exported",
+		[PANTHOR_DEBUGFS_GEM_STATE_EVICTED_BIT] = "evicted",
 	};
 
 	static const char * const gem_usage_flags_names[] = {
@@ -1620,6 +1623,7 @@ static void panthor_gem_debugfs_bo_print(struct panthor_gem_object *bo,
 {
 	enum panthor_gem_reclaim_state reclaim_state = bo->reclaim_state;
 	unsigned int refcount = kref_read(&bo->base.refcount);
+	int reclaimed_count = atomic_read(&bo->reclaimed_count);
 	char creator_info[32] = {};
 	size_t resident_size;
 	u32 gem_usage_flags = bo->debugfs.flags;
@@ -1633,16 +1637,20 @@ static void panthor_gem_debugfs_bo_print(struct panthor_gem_object *bo,
 
 	snprintf(creator_info, sizeof(creator_info),
 		 "%s/%d", bo->debugfs.creator.process_name, bo->debugfs.creator.tgid);
-	seq_printf(m, "%-32s%-16d%-16d%-16zd%-16zd0x%-16lx",
+	seq_printf(m, "%-32s%-16d%-11d%-11d%-16zd%-16zd0x%-16lx",
 		   creator_info,
 		   bo->base.name,
 		   refcount,
+		   reclaimed_count,
 		   bo->base.size,
 		   resident_size,
 		   drm_vma_node_start(&bo->base.vma_node));
 
 	if (drm_gem_is_imported(&bo->base))
 		gem_state_flags |= PANTHOR_DEBUGFS_GEM_STATE_FLAG_IMPORTED;
+	else if (!resident_size && reclaimed_count)
+		gem_state_flags |= PANTHOR_DEBUGFS_GEM_STATE_FLAG_EVICTED;
+
 	if (bo->base.dma_buf)
 		gem_state_flags |= PANTHOR_DEBUGFS_GEM_STATE_FLAG_EXPORTED;
 
@@ -1666,8 +1674,8 @@ static void panthor_gem_debugfs_print_bos(struct panthor_device *ptdev,
 
 	panthor_gem_debugfs_print_flag_names(m);
 
-	seq_puts(m, "created-by                      global-name     refcount        size            resident-size   file-offset       state      usage       label\n");
-	seq_puts(m, "----------------------------------------------------------------------------------------------------------------------------------------------\n");
+	seq_puts(m, "created-by                      global-name     refcount   evictions  size            resident-size   file-offset       state      usage       label\n");
+	seq_puts(m, "----------------------------------------------------------------------------------------------------------------------------------------------------\n");
 
 	scoped_guard(mutex, &ptdev->gems.lock) {
 		list_for_each_entry(bo, &ptdev->gems.node, debugfs.node) {
@@ -1675,7 +1683,7 @@ static void panthor_gem_debugfs_print_bos(struct panthor_device *ptdev,
 		}
 	}
 
-	seq_puts(m, "==============================================================================================================================================\n");
+	seq_puts(m, "====================================================================================================================================================\n");
 	seq_printf(m, "Total size: %zd, Total resident: %zd, Total reclaimable: %zd\n",
 		   totals.size, totals.resident, totals.reclaimable);
 }
