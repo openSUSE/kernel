@@ -2492,26 +2492,6 @@ finish_td:
 	finish_td(xhci, ep, ep_ring, td, trb_comp_code);
 }
 
-static void skip_isoc_td(struct xhci_hcd *xhci, struct xhci_td *td,
-			 struct xhci_virt_ep *ep, int status)
-{
-	struct urb_priv *urb_priv;
-	struct usb_iso_packet_descriptor *frame;
-	int idx;
-
-	urb_priv = td->urb->hcpriv;
-	idx = urb_priv->num_tds_done;
-	frame = &td->urb->iso_frame_desc[idx];
-
-	/* The transfer is partly done. */
-	frame->status = -EXDEV;
-
-	/* calc actual length */
-	frame->actual_length = 0;
-
-	xhci_dequeue_td(xhci, td, ep->ring, status);
-}
-
 /*
  * Process bulk and interrupt tds, update urb status and actual_length.
  */
@@ -2854,7 +2834,11 @@ static int handle_tx_event(struct xhci_hcd *xhci,
 				if (trb_comp_code == COMP_STOPPED_LENGTH_INVALID)
 					return 0;
 
-				skip_isoc_td(xhci, td, ep, status);
+				/*
+				 * TD was missed, skip it. Core already initialized frame->status
+				 * to -EXDEV and frame->actual_length to 0, nothing more to do.
+				 */
+				xhci_dequeue_td(xhci, td, ep_ring, 0);
 
 				if (!list_empty(&ep_ring->td_list)) {
 					if (ring_xrun_event) {
