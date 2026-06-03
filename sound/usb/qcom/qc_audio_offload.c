@@ -1753,7 +1753,7 @@ static int qc_usb_audio_offload_fill_avail_pcms(struct snd_usb_audio *chip,
 			break;
 	}
 
-	return -1;
+	return idx;
 }
 
 /**
