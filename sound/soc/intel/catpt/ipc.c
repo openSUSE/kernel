@@ -128,14 +128,9 @@ int catpt_dsp_send_msg_timeout(struct catpt_dev *cdev,
 			       struct catpt_ipc_msg request,
 			       struct catpt_ipc_msg *reply, int timeout, const char *name)
 {
-	struct catpt_ipc *ipc = &cdev->ipc;
-	int ret;
+	guard(mutex)(&cdev->ipc.mutex);
 
-	mutex_lock(&ipc->mutex);
-	ret = catpt_dsp_do_send_msg(cdev, request, reply, timeout, name);
-	mutex_unlock(&ipc->mutex);
-
-	return ret;
+	return catpt_dsp_do_send_msg(cdev, request, reply, timeout, name);
 }
 
 int catpt_dsp_send_msg(struct catpt_dev *cdev, struct catpt_ipc_msg request,
