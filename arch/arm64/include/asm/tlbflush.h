@@ -69,6 +69,34 @@
 		__ta;						\
 	})
 
+#define __repeat_tlbi_sync(op, arg...)						\
+do {										\
+	if (!cpus_have_const_cap(ARM64_WORKAROUND_REPEAT_TLBI))			\
+		break;								\
+	__tlbi(op, ##arg);							\
+	dsb(ish);								\
+} while (0)
+
+/*
+ * Complete broadcast TLB maintenance issued by the host which invalidates
+ * stage 1 information in the host's own translation regime.
+ */
+static inline void __tlbi_sync_s1ish(void)
+{
+	dsb(ish);
+	__repeat_tlbi_sync(vale1is, 0);
+}
+
+/*
+ * Complete broadcast TLB maintenance issued by hyp code which invalidates
+ * stage 1 translation information in any translation regime.
+ */
+static inline void __tlbi_sync_s1ish_hyp(void)
+{
+	dsb(ish);
+	__repeat_tlbi_sync(vale2is, 0);
+}
+
 /*
  *	TLB Management
  *	==============
@@ -120,7 +148,7 @@ static inline void flush_tlb_all(void)
 {
 	dsb(ishst);
 	__tlbi(vmalle1is);
-	dsb(ish);
+	__tlbi_sync_s1ish();
 	isb();
 }
 
@@ -131,7 +159,7 @@ static inline void flush_tlb_mm(struct mm_struct *mm)
 	dsb(ishst);
 	__tlbi(aside1is, asid);
 	__tlbi_user(aside1is, asid);
-	dsb(ish);
+	__tlbi_sync_s1ish();
 }
 
 static inline void flush_tlb_page(struct vm_area_struct *vma,
@@ -142,7 +170,7 @@ static inline void flush_tlb_page(struct vm_area_struct *vma,
 	dsb(ishst);
 	__tlbi(vale1is, addr);
 	__tlbi_user(vale1is, addr);
-	dsb(ish);
+	__tlbi_sync_s1ish();
 }
 
 /*
@@ -176,7 +204,7 @@ static inline void __flush_tlb_range(struct vm_area_struct *vma,
 			__tlbi_user(vae1is, addr);
 		}
 	}
-	dsb(ish);
+	__tlbi_sync_s1ish();
 }
 
 static inline void flush_tlb_range(struct vm_area_struct *vma,
@@ -200,7 +228,7 @@ static inline void flush_tlb_kernel_range(unsigned long start, unsigned long end
 	dsb(ishst);
 	for (addr = start; addr < end; addr += 1 << (PAGE_SHIFT - 12))
 		__tlbi(vaae1is, addr);
-	dsb(ish);
+	__tlbi_sync_s1ish();
 	isb();
 }
 
@@ -215,7 +243,7 @@ static inline void __flush_tlb_pgtable(struct mm_struct *mm,
 
 	__tlbi(vae1is, addr);
 	__tlbi_user(vae1is, addr);
-	dsb(ish);
+	__tlbi_sync_s1ish();
 }
 
 #endif
