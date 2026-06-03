@@ -9,6 +9,7 @@
  */
 
 #include <linux/bitfield.h>
+#include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/dma-mapping.h>
 #include <linux/errno.h>
@@ -258,6 +259,10 @@ ring_ready:
 	rh_reg_write(RING_CONTROL, RING_CTRL_ENABLE);
 	rh_reg_write(RING_CONTROL, RING_CTRL_ENABLE | RING_CTRL_RUN_STOP);
 
+	/*
+	 * Do not clear the entries of rh->src_xfers because the recovery uses
+	 * them.  In other cases they should be NULL anyway.
+	 */
 	rh->done_ptr = 0;
 	rh->ibi_chunk_ptr = 0;
 	rh->xfer_space = rh->xfer_entries;
@@ -362,7 +367,7 @@ static int hci_dma_init(struct i3c_hci *hci)
 		rh->resp = dma_alloc_coherent(rings->sysdev, resps_sz,
 					      &rh->resp_dma, GFP_KERNEL);
 		rh->src_xfers =
-			kmalloc_objs(*rh->src_xfers, rh->xfer_entries);
+			kzalloc_objs(*rh->src_xfers, rh->xfer_entries);
 		ret = -ENOMEM;
 		if (!rh->xfer || !rh->resp || !rh->src_xfers)
 			goto err_out;
@@ -572,13 +577,15 @@ static void hci_dma_xfer_done(struct i3c_hci *hci, struct hci_rh_data *rh)
 			hci_dma_unmap_xfer(hci, xfer, 1);
 			rh->src_xfers[done_ptr] = NULL;
 			xfer->ring_entry = -1;
-			xfer->response = resp;
 			if (tid != xfer->cmd_tid) {
 				dev_err(&hci->master.dev,
 					"response tid=%d when expecting %d\n",
 					tid, xfer->cmd_tid);
-				/* TODO: do something about it? */
+				hci->recovery_needed = true;
+				if (!RESP_STATUS(resp))
+					hci_cmd_set_resp_err(&resp, RESP_ERR_HC_TERMINATED);
 			}
+			xfer->response = resp;
 			if (xfer == xfer->final_xfer || RESP_STATUS(resp))
 				complete(xfer->final_xfer->completion);
 			if (RESP_STATUS(resp))
@@ -625,6 +632,60 @@ static void hci_dma_unblock_enqueue(struct i3c_hci *hci)
 	}
 }
 
+static void hci_dma_error_out_rh(struct i3c_hci *hci, struct hci_rh_data *rh)
+{
+	/*
+	 * The entries of rh->src_xfers are not cleared by
+	 * i3c_hci_reset_and_restore(), so can be used here.  Do 2 passes so
+	 * that the final_xfer of an xfer list is always processed last.
+	 */
+	for (int pass = 0; pass < 2; pass++)
+		for (int i = 0; i < rh->xfer_entries; i++) {
+			struct hci_xfer *xfer = rh->src_xfers[i];
+
+			if (!xfer || (!pass && xfer == xfer->final_xfer))
+				continue;
+			hci_dma_unmap_xfer(hci, xfer, 1);
+			rh->src_xfers[i] = NULL;
+			xfer->ring_entry = -1;
+			hci_cmd_set_resp_err(&xfer->response, RESP_ERR_HC_TERMINATED);
+			if (xfer == xfer->final_xfer)
+				complete(xfer->final_xfer->completion);
+		}
+}
+
+static void hci_dma_error_out_all(struct i3c_hci *hci)
+{
+	struct hci_rings_data *rings = hci->io_data;
+
+	for (int i = 0; i < rings->total; i++)
+		hci_dma_error_out_rh(hci, &rings->headers[i]);
+}
+
+static void hci_dma_recovery(struct i3c_hci *hci)
+{
+	int ret;
+
+	dev_err(&hci->master.dev, "Attempting to recover from internal errors\n");
+
+	for (int i = 0; i < 3; i++) {
+		ret = i3c_hci_reset_and_restore(hci);
+		if (!ret)
+			break;
+		dev_err(&hci->master.dev, "Reset and restore failed, error %d\n", ret);
+		/* Just in case the controller is busy, give it some time */
+		msleep(1000);
+	}
+
+	spin_lock_irq(&hci->lock);
+	hci_dma_error_out_all(hci);
+	hci_dma_unblock_enqueue(hci);
+	hci->recovery_needed = false;
+	spin_unlock_irq(&hci->lock);
+
+	dev_err(&hci->master.dev, "Recovery %s\n", ret ? "failed!" : "done");
+}
+
 static bool hci_dma_dequeue_xfer(struct i3c_hci *hci,
 				 struct hci_xfer *xfer_list, int n)
 {
@@ -640,6 +701,17 @@ static bool hci_dma_dequeue_xfer(struct i3c_hci *hci,
 
 	ring_status = rh_reg_read(RING_STATUS);
 	if (ring_status & RING_STATUS_RUNNING) {
+		/*
+		 * The transfer may have already completed, especially
+		 * if recovery has just run.  Do nothing in that case.
+		 */
+		hci_dma_xfer_done(hci, rh);
+		if (xfer_list->final_xfer->ring_entry < 0 &&
+		    !hci->recovery_needed && !hci->enqueue_blocked &&
+		    ring_status == (RING_STATUS_ENABLED | RING_STATUS_RUNNING)) {
+			spin_unlock_irq(&hci->lock);
+			return false;
+		}
 		hci->enqueue_blocked = true;
 		spin_unlock_irq(&hci->lock);
 		/* stop the ring */
@@ -647,12 +719,8 @@ static bool hci_dma_dequeue_xfer(struct i3c_hci *hci,
 		spin_lock_irq(&hci->lock);
 		ring_status = rh_reg_read(RING_STATUS);
 		if (ring_status & RING_STATUS_RUNNING) {
-			/*
-			 * We're deep in it if ever this condition is ever met.
-			 * Hardware might still be writing to memory, etc.
-			 */
-			dev_crit(&hci->master.dev, "unable to abort the ring\n");
-			WARN_ON(1);
+			dev_err(&hci->master.dev, "Unable to abort the DMA ring\n");
+			hci->recovery_needed = true;
 		}
 	}
 
@@ -661,6 +729,13 @@ static bool hci_dma_dequeue_xfer(struct i3c_hci *hci,
 		mipi_i3c_hci_pio_reset_all_queues(hci);
 
 	hci_dma_xfer_done(hci, rh);
+
+	if (hci->recovery_needed) {
+		hci->enqueue_blocked = true;
+		spin_unlock_irq(&hci->lock);
+		hci_dma_recovery(hci);
+		return true;
+	}
 
 	for (i = 0; i < n; i++) {
 		struct hci_xfer *xfer = xfer_list + i;
