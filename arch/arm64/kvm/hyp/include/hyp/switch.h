@@ -484,12 +484,13 @@ static inline void __hyp_sve_restore_guest(struct kvm_vcpu *vcpu)
 
 static inline void __hyp_sve_save_host(void)
 {
-	struct cpu_sve_state *sve_state = *host_data_ptr(sve_state);
+	struct kvm_cpu_context *hctxt = host_data_ptr(host_ctxt);
+	u8 *sve_regs = *host_data_ptr(sve_regs);
 
-	sve_state->zcr_el1 = read_sysreg_el1(SYS_ZCR);
+	ctxt_sys_reg(hctxt, ZCR_EL1) = read_sysreg_el1(SYS_ZCR);
 	write_sysreg_s(sve_vq_from_vl(kvm_host_sve_max_vl) - 1, SYS_ZCR_EL2);
-	__sve_save_state(sve_state->sve_regs + sve_ffr_offset(kvm_host_sve_max_vl),
-			 &sve_state->fpsr,
+	__sve_save_state(sve_regs + sve_ffr_offset(kvm_host_sve_max_vl),
+			 &hctxt->fp_regs.fpsr,
 			 true);
 }
 
