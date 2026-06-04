@@ -7014,7 +7014,7 @@ static bool kswapd_shrink_node(pg_data_t *pgdat,
 
 	/*
 	 * Fragmentation may mean that the system cannot be rebalanced for
-	 * high-order allocations. If twice the allocation size has been
+	 * high-order allocations. If at least the compaction gap has been
 	 * reclaimed then recheck watermarks only at order-0 to prevent
 	 * excessive reclaim. Assume that a process requested a high-order
 	 * can direct reclaim/compact.
