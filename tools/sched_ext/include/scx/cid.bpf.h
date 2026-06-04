@@ -40,12 +40,12 @@
  */
 #define CMASK_NR_WORDS(nr_cids)		((u32)(((u64)(nr_cids) + 63) / 64 + 1))
 
-static __always_inline bool __cmask_contains(const struct scx_cmask __arena *m, u32 cid)
+static __always_inline bool __cmask_contains(u32 cid, const struct scx_cmask __arena *m)
 {
 	return cid >= m->base && cid < m->base + m->nr_cids;
 }
 
-static __always_inline u64 __arena *__cmask_word(const struct scx_cmask __arena *m, u32 cid)
+static __always_inline u64 __arena *__cmask_word(u32 cid, const struct scx_cmask __arena *m)
 {
 	return (u64 __arena *)&m->bits[cid / 64 - m->base / 64];
 }
@@ -122,11 +122,11 @@ static __always_inline void cmask_reframe(struct scx_cmask __arena *m, u32 base,
 	m->nr_cids = nr_cids;
 }
 
-static __always_inline bool cmask_test(const struct scx_cmask __arena *m, u32 cid)
+static __always_inline bool cmask_test(u32 cid, const struct scx_cmask __arena *m)
 {
-	if (!__cmask_contains(m, cid))
+	if (!__cmask_contains(cid, m))
 		return false;
-	return *__cmask_word(m, cid) & BIT_U64(cid & 63);
+	return *__cmask_word(cid, m) & BIT_U64(cid & 63);
 }
 
 /*
@@ -140,15 +140,15 @@ static __always_inline bool cmask_test(const struct scx_cmask __arena *m, u32 ci
  */
 #define CMASK_CAS_TRIES		(1U << 23)
 
-static __always_inline void cmask_set(struct scx_cmask __arena *m, u32 cid)
+static __always_inline void cmask_set(u32 cid, struct scx_cmask __arena *m)
 {
 	u64 __arena *w;
 	u64 bit, old, new;
 	u32 i;
 
-	if (!__cmask_contains(m, cid))
+	if (!__cmask_contains(cid, m))
 		return;
-	w = __cmask_word(m, cid);
+	w = __cmask_word(cid, m);
 	bit = BIT_U64(cid & 63);
 	bpf_for(i, 0, CMASK_CAS_TRIES) {
 		old = *w;
@@ -161,15 +161,15 @@ static __always_inline void cmask_set(struct scx_cmask __arena *m, u32 cid)
 	scx_bpf_error("cmask_set CAS exhausted at cid %u", cid);
 }
 
-static __always_inline void cmask_clear(struct scx_cmask __arena *m, u32 cid)
+static __always_inline void cmask_clear(u32 cid, struct scx_cmask __arena *m)
 {
 	u64 __arena *w;
 	u64 bit, old, new;
 	u32 i;
 
-	if (!__cmask_contains(m, cid))
+	if (!__cmask_contains(cid, m))
 		return;
-	w = __cmask_word(m, cid);
+	w = __cmask_word(cid, m);
 	bit = BIT_U64(cid & 63);
 	bpf_for(i, 0, CMASK_CAS_TRIES) {
 		old = *w;
@@ -182,15 +182,15 @@ static __always_inline void cmask_clear(struct scx_cmask __arena *m, u32 cid)
 	scx_bpf_error("cmask_clear CAS exhausted at cid %u", cid);
 }
 
-static __always_inline bool cmask_test_and_set(struct scx_cmask __arena *m, u32 cid)
+static __always_inline bool cmask_test_and_set(u32 cid, struct scx_cmask __arena *m)
 {
 	u64 __arena *w;
 	u64 bit, old, new;
 	u32 i;
 
-	if (!__cmask_contains(m, cid))
+	if (!__cmask_contains(cid, m))
 		return false;
-	w = __cmask_word(m, cid);
+	w = __cmask_word(cid, m);
 	bit = BIT_U64(cid & 63);
 	bpf_for(i, 0, CMASK_CAS_TRIES) {
 		old = *w;
@@ -204,15 +204,15 @@ static __always_inline bool cmask_test_and_set(struct scx_cmask __arena *m, u32 
 	return false;
 }
 
-static __always_inline bool cmask_test_and_clear(struct scx_cmask __arena *m, u32 cid)
+static __always_inline bool cmask_test_and_clear(u32 cid, struct scx_cmask __arena *m)
 {
 	u64 __arena *w;
 	u64 bit, old, new;
 	u32 i;
 
-	if (!__cmask_contains(m, cid))
+	if (!__cmask_contains(cid, m))
 		return false;
-	w = __cmask_word(m, cid);
+	w = __cmask_word(cid, m);
 	bit = BIT_U64(cid & 63);
 	bpf_for(i, 0, CMASK_CAS_TRIES) {
 		old = *w;
@@ -226,43 +226,43 @@ static __always_inline bool cmask_test_and_clear(struct scx_cmask __arena *m, u3
 	return false;
 }
 
-static __always_inline void __cmask_set(struct scx_cmask __arena *m, u32 cid)
+static __always_inline void __cmask_set(u32 cid, struct scx_cmask __arena *m)
 {
-	if (!__cmask_contains(m, cid))
+	if (!__cmask_contains(cid, m))
 		return;
-	*__cmask_word(m, cid) |= BIT_U64(cid & 63);
+	*__cmask_word(cid, m) |= BIT_U64(cid & 63);
 }
 
-static __always_inline void __cmask_clear(struct scx_cmask __arena *m, u32 cid)
+static __always_inline void __cmask_clear(u32 cid, struct scx_cmask __arena *m)
 {
-	if (!__cmask_contains(m, cid))
+	if (!__cmask_contains(cid, m))
 		return;
-	*__cmask_word(m, cid) &= ~BIT_U64(cid & 63);
+	*__cmask_word(cid, m) &= ~BIT_U64(cid & 63);
 }
 
-static __always_inline bool __cmask_test_and_set(struct scx_cmask __arena *m, u32 cid)
+static __always_inline bool __cmask_test_and_set(u32 cid, struct scx_cmask __arena *m)
 {
 	u64 bit = BIT_U64(cid & 63);
 	u64 __arena *w;
 	u64 prev;
 
-	if (!__cmask_contains(m, cid))
+	if (!__cmask_contains(cid, m))
 		return false;
-	w = __cmask_word(m, cid);
+	w = __cmask_word(cid, m);
 	prev = *w & bit;
 	*w |= bit;
 	return prev;
 }
 
-static __always_inline bool __cmask_test_and_clear(struct scx_cmask __arena *m, u32 cid)
+static __always_inline bool __cmask_test_and_clear(u32 cid, struct scx_cmask __arena *m)
 {
 	u64 bit = BIT_U64(cid & 63);
 	u64 __arena *w;
 	u64 prev;
 
-	if (!__cmask_contains(m, cid))
+	if (!__cmask_contains(cid, m))
 		return false;
-	w = __cmask_word(m, cid);
+	w = __cmask_word(cid, m);
 	prev = *w & bit;
 	*w &= ~bit;
 	return prev;
@@ -671,7 +671,7 @@ static __always_inline void cmask_from_cpumask(struct scx_cmask __arena *m,
 			continue;
 		cid = scx_bpf_cpu_to_cid(cpu);
 		if (cid >= 0)
-			__cmask_set(m, cid);
+			__cmask_set(cid, m);
 	}
 }
 

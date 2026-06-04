@@ -214,7 +214,7 @@ static s32 pick_direct_dispatch_cid(struct task_struct *p, s32 prev_cid,
 	if (!always_enq_immed && p->nr_cpus_allowed == 1)
 		return prev_cid;
 
-	if (cmask_test_and_clear(qa_idle_cids, prev_cid))
+	if (cmask_test_and_clear(prev_cid, qa_idle_cids))
 		return prev_cid;
 
 	cid = prev_cid;
@@ -224,7 +224,7 @@ static s32 pick_direct_dispatch_cid(struct task_struct *p, s32 prev_cid,
 		barrier_var(cid);
 		if (cid >= nr_cids)
 			return -1;
-		if (cmask_test_and_clear(qa_idle_cids, cid))
+		if (cmask_test_and_clear(cid, qa_idle_cids))
 			return cid;
 	}
 	return -1;
@@ -534,7 +534,7 @@ static bool dispatch_highpri(bool from_timer)
 		if (!(taskc = lookup_task_ctx(p)))
 			return false;
 
-		if (cmask_test(&taskc->cpus_allowed, this_cid))
+		if (cmask_test(this_cid, &taskc->cpus_allowed))
 			cid = this_cid;
 		else
 			cid = cmask_next_set_wrap(&taskc->cpus_allowed,
@@ -656,7 +656,7 @@ void BPF_STRUCT_OPS(qmap_dispatch, s32 cid, struct task_struct *prev)
 			 * document this class of issue -- other schedulers
 			 * seeing similar warnings can use this as a reference.
 			 */
-			if (!cmask_test(&taskc->cpus_allowed, cid))
+			if (!cmask_test(cid, &taskc->cpus_allowed))
 				scx_bpf_kick_cid(scx_bpf_task_cid(p), 0);
 
 			batch--;
@@ -913,9 +913,9 @@ void BPF_STRUCT_OPS(qmap_update_idle, s32 cid, bool idle)
 {
 	QMAP_TOUCH_ARENA();
 	if (idle)
-		cmask_set(qa_idle_cids, cid);
+		cmask_set(cid, qa_idle_cids);
 	else
-		cmask_clear(qa_idle_cids, cid);
+		cmask_clear(cid, qa_idle_cids);
 }
 
 void BPF_STRUCT_OPS(qmap_set_cmask, struct task_struct *p,
