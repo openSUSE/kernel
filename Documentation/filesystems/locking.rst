@@ -416,20 +416,6 @@ lm_open_conflict	yes		no			no
 lm_breaker_timedout     yes             no                      no
 ======================	=============	=================	=========
 
-buffer_head
-===========
-
-prototypes::
-
-	void (*b_end_io)(struct buffer_head *bh, int uptodate);
-
-locking rules:
-
-called from interrupts. In other words, extreme care is needed here.
-bh is locked, but that's all warranties we have here. Currently only RAID1,
-highmem, fs/buffer.c, and fs/ntfs/aops.c are providing these. Block devices
-call this method upon the IO completion.
-
 block_device_operations
 =======================
 prototypes::
