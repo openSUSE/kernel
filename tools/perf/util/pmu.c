@@ -2029,9 +2029,26 @@ int perf_pmu__for_each_format(struct perf_pmu *pmu, void *state, pmu_format_call
 	return 0;
 }
 
+/**
+ * is_pmu_core() - Check if the given PMU name corresponds to a core CPU PMU.
+ * @name: The PMU name to check.
+ *
+ * Core PMUs can be identified by:
+ * 1. Exact name match:
+ *    - "cpu": Typically used on x86 architectures.
+ *    - "cpum_cf": Typically used on s390 architectures (CPU Measurement Counter Facility).
+ *    - "default_core": A generic name used to refer to the default core PMU.
+ * 2. Sysfs file existence check (is_sysfs_pmu_core):
+ *    - Typically used on ARM systems or Intel hybrid architectures (e.g., "cpu_atom",
+ *      "cpu_core"). This approach checks if the sysfs directory for the PMU
+ *      contains a "cpus" file.
+ */
 bool is_pmu_core(const char *name)
 {
-	return !strcmp(name, "cpu") || !strcmp(name, "cpum_cf") || is_sysfs_pmu_core(name);
+	return !strcmp(name, "cpu") ||
+	       !strcmp(name, "cpum_cf") ||
+	       !strcmp(name, "default_core") ||
+	       is_sysfs_pmu_core(name);
 }
 
 bool perf_pmu__supports_legacy_cache(const struct perf_pmu *pmu)
