@@ -267,7 +267,7 @@ void scx_cpumask_to_cmask(const struct cpumask *src, struct scx_cmask *dst)
 		s32 cid = __scx_cpu_to_cid(cpu);
 
 		if (cid >= 0)
-			__scx_cmask_set(dst, cid);
+			__scx_cmask_set(cid, dst);
 	}
 }
 

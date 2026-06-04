@@ -147,13 +147,13 @@ static inline bool scx_is_cid_type(void)
 	return static_branch_unlikely(&__scx_is_cid_type);
 }
 
-static inline bool __scx_cmask_contains(const struct scx_cmask *m, u32 cid)
+static inline bool __scx_cmask_contains(u32 cid, const struct scx_cmask *m)
 {
 	return likely(cid >= m->base && cid < m->base + m->nr_cids);
 }
 
 /* Word in bits[] covering @cid. @cid must satisfy __scx_cmask_contains(). */
-static inline u64 *__scx_cmask_word(const struct scx_cmask *m, u32 cid)
+static inline u64 *__scx_cmask_word(u32 cid, const struct scx_cmask *m)
 {
 	return (u64 *)&m->bits[cid / 64 - m->base / 64];
 }
@@ -218,11 +218,11 @@ static inline void scx_cmask_reframe(struct scx_cmask *m, u32 base, u32 nr_cids)
 	m->nr_cids = nr_cids;
 }
 
-static inline void __scx_cmask_set(struct scx_cmask *m, u32 cid)
+static inline void __scx_cmask_set(u32 cid, struct scx_cmask *m)
 {
-	if (!__scx_cmask_contains(m, cid))
+	if (!__scx_cmask_contains(cid, m))
 		return;
-	*__scx_cmask_word(m, cid) |= BIT_U64(cid & 63);
+	*__scx_cmask_word(cid, m) |= BIT_U64(cid & 63);
 }
 
 #endif /* _KERNEL_SCHED_EXT_CID_H */
