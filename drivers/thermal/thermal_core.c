@@ -847,6 +847,7 @@ static void thermal_release(struct device *dev)
 		kfree(tz->trip_hyst_attrs);
 		kfree(tz->trips_attribute_group.attrs);
 		kfree(tz->device.groups);
+		thermal_set_governor(tz, NULL);
 		kfree(tz);
 	} else if (!strncmp(dev_name(dev), "cooling_device",
 			    sizeof("cooling_device") - 1)) {
@@ -1237,8 +1238,10 @@ thermal_zone_device_register(const char *type, int trips, int mask,
 	/* sys I/F */
 	/* Add nodes that are always present via .groups */
 	result = thermal_zone_create_device_groups(tz, mask);
-	if (result)
+	if (result) {
+		thermal_set_governor(tz, NULL);
 		goto unregister;
+	}
 
 	/* A new thermal zone needs to be updated anyway. */
 	atomic_set(&tz->need_update, 1);
@@ -1354,8 +1357,6 @@ void thermal_zone_device_unregister(struct thermal_zone_device *tz)
 	mutex_unlock(&thermal_list_lock);
 
 	cancel_delayed_work_sync(&tz->poll_queue);
-
-	thermal_set_governor(tz, NULL);
 
 	thermal_remove_hwmon_sysfs(tz);
 	ida_simple_remove(&thermal_tz_ida, tz->id);
