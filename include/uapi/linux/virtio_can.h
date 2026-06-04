@@ -26,7 +26,7 @@
 #define VIRTIO_CAN_FLAGS_FD             0x4000
 #define VIRTIO_CAN_FLAGS_RTR            0x2000
 
-#define VIRTIO_CAN_MAX_DLEN    64 // this is like CANFD_MAX_DLEN
+#define VIRTIO_CAN_MAX_DLEN    64 /* this is like CANFD_MAX_DLEN */
 
 struct virtio_can_config {
 #define VIRTIO_CAN_S_CTRL_BUSOFF (1u << 0) /* Controller BusOff */
