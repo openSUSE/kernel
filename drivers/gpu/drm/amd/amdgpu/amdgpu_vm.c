@@ -484,7 +484,7 @@ int amdgpu_vm_lock_individual(struct amdgpu_vm *vm, struct drm_exec *exec,
 			amdgpu_bo_ref(bo);
 			spin_unlock(&vm->individual_lock);
 
-			ret = drm_exec_prepare_obj(exec, &bo->tbo.base, 1);
+			ret = drm_exec_prepare_obj(exec, &bo->tbo.base, num_fences);
 			amdgpu_bo_unref(&bo);
 			if (unlikely(ret))
 				return ret;
@@ -1982,7 +1982,7 @@ int amdgpu_vm_bo_unmap(struct amdgpu_device *adev,
 	 * from user space.
 	 */
 	if (unlikely(bo_va->userq_va_mapped))
-		amdgpu_userq_gem_va_unmap_validate(adev, mapping, saddr);
+		amdgpu_userq_gem_va_unmap_validate(adev, mapping);
 
 	list_del(&mapping->list);
 	amdgpu_vm_it_remove(mapping, &vm->va);

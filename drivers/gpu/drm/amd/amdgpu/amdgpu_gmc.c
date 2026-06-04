@@ -170,7 +170,7 @@ int amdgpu_gmc_set_pte_pde(struct amdgpu_device *adev, void *cpu_pt_addr,
 	/*
 	 * The following is for PTE only. GART does not have PDEs.
 	*/
-	value = addr & 0x0000FFFFFFFFF000ULL;
+	value = addr & adev->gmc.pte_addr_mask;
 	value |= flags;
 	writeq(value, ptr + (gpu_page_idx * 8));
 
@@ -976,6 +976,7 @@ void amdgpu_gmc_tmz_set(struct amdgpu_device *adev)
 	case IP_VERSION(11, 5, 2):
 	case IP_VERSION(11, 5, 3):
 	case IP_VERSION(11, 5, 4):
+	case IP_VERSION(11, 5, 6):
 		/* Don't enable it by default yet.
 		 */
 		if (amdgpu_tmz < 1) {
@@ -1014,7 +1015,7 @@ void amdgpu_gmc_noretry_set(struct amdgpu_device *adev)
 				gc_ver == IP_VERSION(9, 4, 3) ||
 				gc_ver == IP_VERSION(9, 4, 4) ||
 				gc_ver == IP_VERSION(9, 5, 0) ||
-				gc_ver >= IP_VERSION(10, 3, 0));
+				gc_ver >= IP_VERSION(10, 1, 0));
 
 	/* For GFX12.1 B0, set xnack (retry) on as default */
 	if (gc_ver == IP_VERSION(12, 1, 0) && (adev->rev_id & 0xf) == 0x1)

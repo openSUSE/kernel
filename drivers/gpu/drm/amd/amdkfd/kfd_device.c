@@ -106,6 +106,7 @@ static void kfd_device_info_set_sdma_info(struct kfd_dev *kfd)
 	case IP_VERSION(6, 1, 2):
 	case IP_VERSION(6, 1, 3):
 	case IP_VERSION(6, 1, 4):
+	case IP_VERSION(6, 4, 0):
 	case IP_VERSION(7, 0, 0):
 	case IP_VERSION(7, 0, 1):
 	case IP_VERSION(7, 1, 0):
@@ -167,6 +168,7 @@ static void kfd_device_info_set_event_interrupt_class(struct kfd_dev *kfd)
 	case IP_VERSION(11, 5, 2):
 	case IP_VERSION(11, 5, 3):
 	case IP_VERSION(11, 5, 4):
+	case IP_VERSION(11, 5, 6):
 		kfd->device_info.event_interrupt_class = &event_interrupt_class_v11;
 		break;
 	case IP_VERSION(12, 0, 0):
@@ -445,6 +447,7 @@ struct kfd_dev *kgd2kfd_probe(struct amdgpu_device *adev, bool vf)
 			f2g = &gfx_v11_kfd2kgd;
 			break;
 		case IP_VERSION(11, 5, 4):
+		case IP_VERSION(11, 5, 6):
                         gfx_target_version = 110504;
                         f2g = &gfx_v11_kfd2kgd;
                         break;
@@ -736,6 +739,9 @@ bool kgd2kfd_device_init(struct kfd_dev *kfd,
 	int partition_mode;
 	int xcp_idx;
 
+	kfd->profiler_process = NULL;
+	mutex_init(&kfd->profiler_lock);
+
 	kfd->mec_fw_version = amdgpu_amdkfd_get_fw_version(kfd->adev,
 			KGD_ENGINE_MEC1);
 	kfd->mec2_fw_version = amdgpu_amdkfd_get_fw_version(kfd->adev,
@@ -935,9 +941,6 @@ bool kgd2kfd_device_init(struct kfd_dev *kfd,
 	}
 
 	svm_range_set_max_pages(kfd->adev);
-
-	kfd->profiler_process = NULL;
-	mutex_init(&kfd->profiler_lock);
 
 	kfd->init_complete = true;
 	dev_info(kfd_device, "added device %x:%x\n", kfd->adev->pdev->vendor,

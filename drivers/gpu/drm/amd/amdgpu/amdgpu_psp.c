@@ -4651,14 +4651,17 @@ static ssize_t amdgpu_psp_vbflash_write(struct file *filp, struct kobject *kobj,
 		return -ENOMEM;
 	}
 
+	mutex_lock(&adev->psp.mutex);
+
 	/* TODO Just allocate max for now and optimize to realloc later if needed */
 	if (!adev->psp.vbflash_tmp_buf) {
 		adev->psp.vbflash_tmp_buf = kvmalloc(AMD_VBIOS_FILE_MAX_SIZE_B, GFP_KERNEL);
-		if (!adev->psp.vbflash_tmp_buf)
+		if (!adev->psp.vbflash_tmp_buf) {
+			mutex_unlock(&adev->psp.mutex);
 			return -ENOMEM;
+		}
 	}
 
-	mutex_lock(&adev->psp.mutex);
 	memcpy(adev->psp.vbflash_tmp_buf + pos, buffer, count);
 	adev->psp.vbflash_image_size += count;
 	mutex_unlock(&adev->psp.mutex);
@@ -4723,7 +4726,7 @@ rel_buf:
  */
 static const struct bin_attribute psp_vbflash_bin_attr = {
 	.attr = {.name = "psp_vbflash", .mode = 0660},
-	.size = 0,
+	.size = AMD_VBIOS_FILE_MAX_SIZE_B,
 	.write = amdgpu_psp_vbflash_write,
 	.read = amdgpu_psp_vbflash_read,
 };
