@@ -99,7 +99,8 @@ static int ip6mr_rtm_getroute(struct sk_buff *in_skb, struct nlmsghdr *nlh,
 			      struct netlink_ext_ack *extack);
 static int ip6mr_rtm_dumproute(struct sk_buff *skb,
 			       struct netlink_callback *cb);
-static void mroute_clean_tables(struct mr_table *mrt, int flags);
+static void mroute_clean_tables(struct mr_table *mrt, int flags,
+				struct list_head *dev_kill_list);
 static void ipmr_expire_process(struct timer_list *t);
 
 #ifdef CONFIG_IPV6_MROUTE_MULTIPLE_TABLES
@@ -420,12 +421,15 @@ static struct mr_table *ip6mr_new_table(struct net *net, u32 id)
 static void ip6mr_free_table(struct mr_table *mrt)
 {
 	struct net *net = read_pnet(&mrt->net);
+	LIST_HEAD(dev_kill_list);
 
 	WARN_ON_ONCE(!mr_can_free_table(net));
 
 	timer_shutdown_sync(&mrt->ipmr_expire_timer);
 	mroute_clean_tables(mrt, MRT6_FLUSH_MIFS | MRT6_FLUSH_MIFS_STATIC |
-				 MRT6_FLUSH_MFC | MRT6_FLUSH_MFC_STATIC);
+			    MRT6_FLUSH_MFC | MRT6_FLUSH_MFC_STATIC,
+			    &dev_kill_list);
+	unregister_netdevice_many(&dev_kill_list);
 
 	mr_table_free(mrt);
 }
@@ -1558,11 +1562,11 @@ static int ip6mr_mfc_add(struct net *net, struct mr_table *mrt,
  *	Close the multicast socket, and clear the vif tables etc
  */
 
-static void mroute_clean_tables(struct mr_table *mrt, int flags)
+static void mroute_clean_tables(struct mr_table *mrt, int flags,
+				struct list_head *dev_kill_list)
 {
 	struct net *net = read_pnet(&mrt->net);
 	struct mr_mfc *c, *tmp;
-	LIST_HEAD(list);
 	int i;
 
 	/* Shut down all active vif entries */
@@ -1572,9 +1576,8 @@ static void mroute_clean_tables(struct mr_table *mrt, int flags)
 			     !(flags & MRT6_FLUSH_MIFS_STATIC)) ||
 			    (!(mrt->vif_table[i].flags & VIFF_STATIC) && !(flags & MRT6_FLUSH_MIFS)))
 				continue;
-			mif6_delete(mrt, i, 0, &list);
+			mif6_delete(mrt, i, 0, dev_kill_list);
 		}
-		unregister_netdevice_many(&list);
 	}
 
 	/* Wipe the cache */
@@ -1637,6 +1640,7 @@ int ip6mr_sk_done(struct sock *sk)
 {
 	struct net *net = sock_net(sk);
 	struct ipv6_devconf *devconf;
+	LIST_HEAD(dev_kill_list);
 	struct mr_table *mrt;
 	int err = -EACCES;
 
@@ -1664,11 +1668,13 @@ int ip6mr_sk_done(struct sock *sk)
 						     NETCONFA_IFINDEX_ALL,
 						     net->ipv6.devconf_all);
 
-			mroute_clean_tables(mrt, MRT6_FLUSH_MIFS | MRT6_FLUSH_MFC);
+			mroute_clean_tables(mrt, MRT6_FLUSH_MIFS | MRT6_FLUSH_MFC,
+					    &dev_kill_list);
 			err = 0;
 			break;
 		}
 	}
+	unregister_netdevice_many(&dev_kill_list);
 	rtnl_unlock();
 
 	return err;
@@ -1783,14 +1789,17 @@ int ip6_mroute_setsockopt(struct sock *sk, int optname, sockptr_t optval,
 
 	case MRT6_FLUSH:
 	{
+		LIST_HEAD(dev_kill_list);
 		int flags;
 
 		if (optlen != sizeof(flags))
 			return -EINVAL;
 		if (copy_from_sockptr(&flags, optval, sizeof(flags)))
 			return -EFAULT;
+
 		rtnl_lock();
-		mroute_clean_tables(mrt, flags);
+		mroute_clean_tables(mrt, flags, &dev_kill_list);
+		unregister_netdevice_many(&dev_kill_list);
 		rtnl_unlock();
 		return 0;
 	}
