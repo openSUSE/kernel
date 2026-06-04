@@ -879,12 +879,8 @@ config LTO_CLANG_THIN_DIST
 	  module-specific compiler options, and simplifies debugging.
 endchoice
 
-config ARCH_SUPPORTS_AUTOFDO_CLANG
-	bool
-
 config AUTOFDO_CLANG
 	bool "Enable Clang's AutoFDO build (EXPERIMENTAL)"
-	depends on ARCH_SUPPORTS_AUTOFDO_CLANG
 	depends on CC_IS_CLANG
 	help
 	  This option enables Clang’s AutoFDO build. When
