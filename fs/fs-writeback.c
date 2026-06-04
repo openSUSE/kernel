@@ -432,6 +432,10 @@ static bool inode_do_switch_wbs(struct inode *inode,
 			long nr = folio_nr_pages(folio);
 			wb_stat_mod(old_wb, WB_RECLAIMABLE, -nr);
 			wb_stat_mod(new_wb, WB_RECLAIMABLE, nr);
+			if (folio_test_dropbehind(folio)) {
+				wb_stat_mod(old_wb, WB_DONTCACHE_DIRTY, -nr);
+				wb_stat_mod(new_wb, WB_DONTCACHE_DIRTY, nr);
+			}
 		}
 	}
 
@@ -2392,6 +2396,27 @@ static long wb_check_start_all(struct bdi_writeback *wb)
 	return nr_pages;
 }
 
+static long wb_check_start_dontcache(struct bdi_writeback *wb)
+{
+	long nr_pages;
+
+	if (!test_and_clear_bit(WB_start_dontcache, &wb->state))
+		return 0;
+
+	nr_pages = wb_stat_sum(wb, WB_DONTCACHE_DIRTY);
+	if (nr_pages) {
+		struct wb_writeback_work work = {
+			.nr_pages	= nr_pages,
+			.sync_mode	= WB_SYNC_NONE,
+			.range_cyclic	= 1,
+			.reason		= WB_REASON_DONTCACHE,
+		};
+
+		nr_pages = wb_writeback(wb, &work);
+	}
+
+	return nr_pages;
+}
 
 /*
  * Retrieve work items and do the writeback they describe
@@ -2412,6 +2437,11 @@ static long wb_do_writeback(struct bdi_writeback *wb)
 	 * Check for a flush-everything request
 	 */
 	wrote += wb_check_start_all(wb);
+
+	/*
+	 * Check for dontcache writeback request
+	 */
+	wrote += wb_check_start_dontcache(wb);
 
 	/*
 	 * Check for periodic writeback, kupdated() style
@@ -2486,6 +2516,43 @@ void wakeup_flusher_threads_bdi(struct backing_dev_info *bdi,
 	__wakeup_flusher_threads_bdi(bdi, reason);
 	rcu_read_unlock();
 }
+
+/**
+ * filemap_dontcache_kick_writeback - kick flusher for IOCB_DONTCACHE writes
+ * @mapping:	address_space that was just written to
+ *
+ * Kick the writeback flusher thread to expedite writeback of dontcache dirty
+ * pages. Queue writeback for the inode's wb for as many pages as there are
+ * dontcache pages, but don't restrict writeback to dontcache pages only.
+ *
+ * This significantly improves performance over either writing all wb's pages
+ * or writing only dontcache pages.  Although it doesn't guarantee quick
+ * writeback and reclaim of dontcache pages, it keeps the amount of dirty pages
+ * in check. Over longer term dontcache pages get written and reclaimed by
+ * background writeback even with this rough heuristic.
+ */
+void filemap_dontcache_kick_writeback(struct address_space *mapping)
+{
+	struct inode *inode = mapping->host;
+	struct bdi_writeback *wb;
+	struct wb_lock_cookie cookie = {};
+	bool need_wakeup = false;
+
+	wb = unlocked_inode_to_wb_begin(inode, &cookie);
+	if (wb_has_dirty_io(wb) &&
+	    !test_bit(WB_start_dontcache, &wb->state) &&
+	    !test_and_set_bit(WB_start_dontcache, &wb->state)) {
+		wb_get(wb);
+		need_wakeup = true;
+	}
+	unlocked_inode_to_wb_end(inode, &cookie);
+
+	if (need_wakeup) {
+		wb_wakeup(wb);
+		wb_put(wb);
+	}
+}
+EXPORT_SYMBOL_GPL(filemap_dontcache_kick_writeback);
 
 /*
  * Wakeup the flusher threads to start writeback of all currently dirty pages
