@@ -1449,11 +1449,21 @@ static void drop_netconsole_target(struct config_group *group,
 {
 	struct netconsole_target *nt = to_target(item);
 	unsigned long flags;
+	bool needs_cleanup;
 
 	dynamic_netconsole_mutex_lock();
 
 	mutex_lock(&target_cleanup_list_lock);
 	spin_lock_irqsave(&target_list_lock, flags);
+	/* A STATE_DEACTIVATED target may have been moved to
+	 * target_cleanup_list by netconsole_netdev_event() but not yet
+	 * processed by netconsole_process_cleanups_core(). Unlinking it below
+	 * hides it from the cleanup worker, so this path has to clean it up
+	 * itself. Record that the target still owns a netpoll before the
+	 * state is downgraded.
+	 */
+	needs_cleanup = nt->state == STATE_ENABLED ||
+			nt->state == STATE_DEACTIVATED;
 	/* Disable deactivated target to prevent races between resume attempt
 	 * and target removal.
 	 */
@@ -1475,8 +1485,10 @@ static void drop_netconsole_target(struct config_group *group,
 	/*
 	 * The target may have never been enabled, or was manually disabled
 	 * before being removed so netpoll may have already been cleaned up.
+	 * netpoll_cleanup() is idempotent (it skips when np->dev is NULL), so
+	 * it is safe even if the cleanup worker already tore the netpoll down.
 	 */
-	if (nt->state == STATE_ENABLED)
+	if (needs_cleanup)
 		netpoll_cleanup(&nt->np);
 
 	config_item_put(&nt->group.cg_item);
