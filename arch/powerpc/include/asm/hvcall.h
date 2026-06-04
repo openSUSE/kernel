@@ -536,7 +536,7 @@
 #define H_HTM_TARGET_NODAL_CHIP_INDEX(x)       ((unsigned long)(x)<<(63-31))
 #define H_HTM_TARGET_CORE_INDEX_ON_CHIP(x)     ((unsigned long)(x)<<(63-47))
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 #include <linux/types.h>
 
 /**
@@ -737,6 +737,6 @@ struct hv_gpci_request_buffer {
 	uint8_t bytes[HGPCI_MAX_DATA_BYTES];
 } __packed;
 
-#endif /* __ASSEMBLY__ */
+#endif /* __ASSEMBLER__ */
 #endif /* __KERNEL__ */
 #endif /* _ASM_POWERPC_HVCALL_H */
