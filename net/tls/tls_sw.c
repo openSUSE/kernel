@@ -2383,7 +2383,7 @@ int tls_sw_read_sock(struct sock *sk, read_descriptor_t *desc,
 		goto read_sock_end;
 
 	decrypted = 0;
-	for (;;) {
+	while (desc->count) {
 		if (!skb_queue_empty(&ctx->rx_list)) {
 			skb = __skb_dequeue(&ctx->rx_list);
 			rxm = strp_msg(skb);
@@ -2430,12 +2430,9 @@ int tls_sw_read_sock(struct sock *sk, read_descriptor_t *desc,
 		if (used < rxm->full_len) {
 			rxm->offset += used;
 			rxm->full_len -= used;
-			if (!desc->count)
-				goto read_sock_requeue;
+			__skb_queue_head(&ctx->rx_list, skb);
 		} else {
 			consume_skb(skb);
-			if (!desc->count)
-				break;
 		}
 	}
 
