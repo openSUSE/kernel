@@ -1042,8 +1042,6 @@ static int uaudio_transfer_buffer_setup(struct snd_usb_substream *subs,
 	u32 len = xfer_buf_len;
 	bool dma_coherent;
 	dma_addr_t xfer_buf_dma_sysdev;
-	u32 remainder;
-	u32 mult;
 	int ret;
 
 	dma_coherent = dev_is_dma_coherent(subs->dev->bus->sysdev);
