@@ -584,7 +584,7 @@ static int module_init_ftrace_plt(const Elf_Ehdr *hdr,
 
 	s = find_section(hdr, sechdrs, ".init.text.ftrace_trampoline");
 	if (!s) {
-		pr_warn("%s: module is missing the section .init.text.ftrace_trampoline. Please rebuild the module against the latest kernel sources\n",
+		pr_info("%s: missing ftrace_trampoline section\n",
 			module_name(mod));
 		return 0;
 	}
