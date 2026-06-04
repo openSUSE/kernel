@@ -418,15 +418,19 @@ bool kvm_riscv_gstage_unmap_range(struct kvm_gstage *gstage,
 		if (ret)
 			break;
 
-		if (!found_leaf)
-			goto next;
+		if (!found_leaf) {
+			addr = ALIGN(addr + 1, page_size);
+		} else {
+			if (!(addr & (page_size - 1)) && ((end - addr) >= page_size))
+				flush |= kvm_riscv_gstage_op_pte(gstage, addr, ptep,
+								 ptep_level, GSTAGE_OP_CLEAR);
+			else {
+				WARN_ONCE(1, "Skip unmap range addr: %#llx, end: %#llx, page_size: %#lx\n",
+						addr, end, page_size);
+			}
 
-		if (!(addr & (page_size - 1)) && ((end - addr) >= page_size))
-			flush |= kvm_riscv_gstage_op_pte(gstage, addr, ptep,
-							 ptep_level, GSTAGE_OP_CLEAR);
-
-next:
-		addr += page_size;
+			addr += page_size;
+		}
 
 		/*
 		 * If the range is too large, release the kvm->mmu_lock
