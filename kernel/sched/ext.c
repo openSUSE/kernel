@@ -622,19 +622,13 @@ static inline void scx_call_op_set_cpumask(struct scx_sched *sch, struct rq *rq,
 
 	if (scx_is_cid_type()) {
 		struct scx_cmask *kern_va = *this_cpu_ptr(sch->set_cmask_scratch);
-		unsigned long uaddr = (unsigned long)kern_va;
-
-		/* arena.o, which defines these, is built only on MMU && 64BIT */
-#if defined(CONFIG_MMU) && defined(CONFIG_64BIT)
-		uaddr -= bpf_arena_map_kern_vm_start(sch->arena_map);
-#endif
 		/*
-		 * Build the per-CPU arena cmask and hand BPF the uaddr. Caller
-		 * holds the rq lock with IRQs disabled, which makes us the sole
-		 * user of the scratch area.
+		 * Build the per-CPU arena cmask and hand BPF its arena address.
+		 * Caller holds the rq lock with IRQs disabled, which makes us
+		 * the sole user of the scratch area.
 		 */
 		scx_cpumask_to_cmask(cpumask, kern_va);
-		sch->ops_cid.set_cmask(task, (struct scx_cmask *)uaddr);
+		sch->ops_cid.set_cmask(task, scx_kaddr_to_arena(sch, kern_va));
 	} else {
 		sch->ops.set_cpumask(task, cpumask);
 	}
@@ -6977,6 +6971,11 @@ static struct scx_sched *scx_alloc_and_add_sched(struct scx_enable_cmd *cmd,
 	 * runs through scx_sched_free_rcu_work() which puts it.
 	 */
 	sch->arena_map = cmd->arena_map;
+	/* BPF arena is only available on MMU && 64BIT */
+#if defined(CONFIG_MMU) && defined(CONFIG_64BIT)
+	if (sch->arena_map)
+		sch->arena_kern_base = bpf_arena_map_kern_vm_start(sch->arena_map);
+#endif
 	cmd->arena_map = NULL;
 	return sch;
 

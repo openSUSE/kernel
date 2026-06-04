@@ -1118,17 +1118,18 @@ struct scx_sched {
 	 * progs. NULL on cpu-form.
 	 *
 	 * @arena_pool sub-allocates @arena_map. Each gen_pool chunk is added
-	 * at the kernel-side mapping address. Grows on demand and pages are
-	 * not released until sched destroy.
+	 * at the kernel-side mapping address. @arena_kern_base is the start
+	 * of the arena's kern_vm range. See scx_arena_to_kaddr() and
+	 * scx_kaddr_to_arena().
 	 */
 	struct bpf_map		*arena_map;
 	struct gen_pool		*arena_pool;
+	uintptr_t		arena_kern_base;
 
 	/*
 	 * Per-CPU arena cmask used by scx_call_op_set_cpumask() to hand a cmask
-	 * to ops_cid.set_cmask(). The kernel writes through the stored kern_va;
-	 * the BPF-arena uaddr handed to BPF is recovered by subtracting the
-	 * arena's kern_vm_start.
+	 * to ops_cid.set_cmask(). The kernel writes through the stored kern_va
+	 * and hands BPF its arena pointer via scx_kaddr_to_arena().
 	 */
 	struct scx_cmask * __percpu *set_cmask_scratch;
 
@@ -1204,6 +1205,31 @@ struct scx_sched {
 	/* all ancestors including self */
 	struct scx_sched	*ancestors[];
 };
+
+/**
+ * scx_arena_to_kaddr - Translate a BPF-arena pointer to its kernel address
+ * @sch: scheduler whose arena hosts @bpf_ptr
+ * @bpf_ptr: BPF-arena pointer, only the low 32 bits are used
+ *
+ * The (u32) cast normalizes any input into the arena's 4 GiB kern_vm range,
+ * which combined with scratch-page fault recovery makes the returned pointer
+ * safe to dereference up to GUARD_SZ / 2 past the intended object. Accesses
+ * larger than GUARD_SZ / 2 must be explicitly bounds-checked.
+ */
+static inline void *scx_arena_to_kaddr(struct scx_sched *sch, const void *bpf_ptr)
+{
+	return (void *)(sch->arena_kern_base + (u32)(uintptr_t)bpf_ptr);
+}
+
+/**
+ * scx_kaddr_to_arena - Translate a kernel arena address to its BPF form
+ * @sch: scheduler whose arena hosts @kaddr
+ * @kaddr: kernel-side arena address, supplied by trusted kernel code
+ */
+static inline void *scx_kaddr_to_arena(struct scx_sched *sch, const void *kaddr)
+{
+	return (void *)((uintptr_t)kaddr - sch->arena_kern_base);
+}
 
 enum scx_wake_flags {
 	/* expose select WF_* flags as enums */
