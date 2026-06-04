@@ -1746,6 +1746,7 @@ void nf_conntrack_free(struct nf_conn *ct)
 			nat_hook->remove_nat_bysrc(ct);
 	}
 
+	nf_ct_help_put(ct);
 	nf_ct_timeout_put(ct);
 	rcu_read_unlock();
 
@@ -1829,7 +1830,7 @@ init_conntrack(struct net *net, struct nf_conn *tmpl,
 			assign_helper = rcu_dereference(exp->assign_helper);
 			if (assign_helper) {
 				help = nf_ct_helper_ext_add(ct, GFP_ATOMIC);
-				if (help)
+				if (help && refcount_inc_not_zero(&assign_helper->ct_refcnt))
 					rcu_assign_pointer(help->helper, assign_helper);
 			}
 
