@@ -129,7 +129,7 @@ static BRPORT_ATTR(designated_bridge, 0444, show_designated_bridge, NULL);
 
 static ssize_t show_designated_port(struct net_bridge_port *p, char *buf)
 {
-	return sysfs_emit(buf, "%d\n", p->designated_port);
+	return sysfs_emit(buf, "%d\n", READ_ONCE(p->designated_port));
 }
 static BRPORT_ATTR(designated_port, 0444, show_designated_port, NULL);
 

@@ -261,7 +261,7 @@ static void br_record_config_information(struct net_bridge_port *p,
 	p->designated_root = bpdu->root;
 	WRITE_ONCE(p->designated_cost, bpdu->root_path_cost);
 	p->designated_bridge = bpdu->bridge_id;
-	p->designated_port = bpdu->port_id;
+	WRITE_ONCE(p->designated_port, bpdu->port_id);
 	p->designated_age = jiffies - bpdu->message_age;
 
 	mod_timer(&p->message_age_timer, jiffies
@@ -434,7 +434,7 @@ void br_become_designated_port(struct net_bridge_port *p)
 	p->designated_root = br->designated_root;
 	WRITE_ONCE(p->designated_cost, br->root_path_cost);
 	p->designated_bridge = br->bridge_id;
-	p->designated_port = p->port_id;
+	WRITE_ONCE(p->designated_port, p->port_id);
 }
 
 

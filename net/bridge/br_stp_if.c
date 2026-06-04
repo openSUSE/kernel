@@ -320,7 +320,7 @@ int br_stp_set_port_priority(struct net_bridge_port *p, unsigned long newprio)
 
 	new_port_id = br_make_port_id(newprio, p->port_no);
 	if (br_is_designated_port(p))
-		p->designated_port = new_port_id;
+		WRITE_ONCE(p->designated_port, new_port_id);
 
 	p->port_id = new_port_id;
 	p->priority = newprio;
