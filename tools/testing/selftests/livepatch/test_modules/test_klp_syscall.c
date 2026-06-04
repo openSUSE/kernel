@@ -109,7 +109,11 @@ static int livepatch_init(void)
 	 */
 	npids = npids_pending;
 
-	return klp_enable_patch(&patch);
+	ret = klp_enable_patch(&patch);
+	if (ret)
+		kobject_put(klp_kobj);
+
+	return ret;
 }
 
 static void livepatch_exit(void)
