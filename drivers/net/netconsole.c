@@ -1656,13 +1656,31 @@ static struct notifier_block netconsole_netdev_notifier = {
 
 /* Pop a pre-allocated skb from the pool and request a refill.
  *
+ * The pool is refilled with MAX_SKB_SIZE buffers, so a pooled skb cannot
+ * satisfy a larger request. Return NULL in that case rather than handing
+ * back a too-small skb that would later trip skb_over_panic() in skb_put();
+ * the caller still polls and retries, and alloc_skb() itself can satisfy the
+ * oversized request once memory frees up.
+ *
  * The refill is requested via schedule_work(), which takes the workqueue
  * pool locks and is therefore not NMI-safe. Skip the refill when called
  * from NMI context; the next non-NMI caller will top the pool back up.
  */
-static struct sk_buff *netcons_skb_pop(struct netpoll *np)
+static struct sk_buff *netcons_skb_pop(struct netpoll *np, int len)
 {
 	struct sk_buff *skb;
+
+	if (len > MAX_SKB_SIZE) {
+		/* net_warn_ratelimited() pulls in printk machinery that is not
+		 * NMI-safe and could recurse into the nbcon console we are
+		 * servicing, so only warn outside NMI.
+		 */
+		if (!in_nmi())
+			net_warn_ratelimited("netconsole: dropping message, requested skb len %d exceeds pool buffer size %zu on %s\n",
+					     len, (size_t)MAX_SKB_SIZE,
+					     np->dev->name);
+		return NULL;
+	}
 
 	skb = skb_dequeue(&np->skb_pool);
 	if (!in_nmi())
@@ -1681,7 +1699,7 @@ repeat:
 
 	skb = alloc_skb(len, GFP_ATOMIC);
 	if (!skb)
-		skb = netcons_skb_pop(np);
+		skb = netcons_skb_pop(np, len);
 
 	if (!skb) {
 		if (++count < 10) {
