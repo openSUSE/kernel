@@ -455,14 +455,14 @@ bool kvm_riscv_gstage_wp_range(struct kvm_gstage *gstage, gpa_t start, gpa_t end
 		if (ret)
 			break;
 
-		if (!found_leaf)
-			goto next;
-
-		addr = ALIGN_DOWN(addr, page_size);
-		flush |= kvm_riscv_gstage_op_pte(gstage, addr, ptep,
-						 ptep_level, GSTAGE_OP_WP);
-next:
-		addr += page_size;
+		if (!found_leaf) {
+			addr = ALIGN(addr + 1, page_size);
+		} else {
+			addr = ALIGN_DOWN(addr, page_size);
+			flush |= kvm_riscv_gstage_op_pte(gstage, addr, ptep,
+							 ptep_level, GSTAGE_OP_WP);
+			addr += page_size;
+		}
 	}
 
 	return flush;
