@@ -335,6 +335,24 @@ static void process_resume_target(struct work_struct *work)
 
 	resume_target(nt);
 
+	/* netpoll_setup() took a net_device reference and dropped the RTNL
+	 * before returning, all while this target was off target_list and
+	 * thus invisible to netconsole_netdev_event(). If the device was
+	 * unregistered in that window the NETDEV_UNREGISTER notifier could not
+	 * tear this target down, which would leak the reference and hang
+	 * unregister_netdevice(). Re-check under the RTNL before re-publishing:
+	 * taking it across the check and the list_add() serialises against the
+	 * notifier (which also runs under the RTNL), so the device is either
+	 * still registered (the notifier will find the re-added target) or
+	 * already unregistering (we drop the reference here).
+	 */
+	rtnl_lock();
+	if (nt->state == STATE_ENABLED && nt->np.dev &&
+	    nt->np.dev->reg_state != NETREG_REGISTERED) {
+		do_netpoll_cleanup(&nt->np);
+		nt->state = STATE_DISABLED;
+	}
+
 	/* At this point the target is either enabled or disabled and
 	 * was cleaned up before getting deactivated. Either way, add it
 	 * back to target list.
@@ -342,6 +360,7 @@ static void process_resume_target(struct work_struct *work)
 	spin_lock_irqsave(&target_list_lock, flags);
 	list_add(&nt->list, &target_list);
 	spin_unlock_irqrestore(&target_list_lock, flags);
+	rtnl_unlock();
 
 out_unlock:
 	dynamic_netconsole_mutex_unlock();
