@@ -230,7 +230,7 @@ perf-util-$(CONFIG_LIBUNWIND)          += unwind-libunwind.o
 perf-util-$(CONFIG_LIBUNWIND)          += libunwind-arch/
 
 ifeq ($(CONFIG_LIBTRACEEVENT),y)
-  perf-util-$(CONFIG_LIBBABELTRACE) += data-convert-bt.o
+  perf-util-$(CONFIG_BABELTRACE2_CTF_WRITER) += data-convert-bt.o
 endif
 
 perf-util-y += data-convert-json.o
