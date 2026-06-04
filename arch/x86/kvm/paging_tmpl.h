@@ -514,6 +514,20 @@ static u64 *FNAME(fetch)(struct kvm_vcpu *vcpu, gva_t addr,
 
 		drop_large_spte(vcpu, it.sptep);
 
+		if (is_shadow_present_pte(*it.sptep)) {
+			struct kvm_mmu_page *child = page_header(*it.sptep & PT64_BASE_ADDR_MASK);
+			struct kvm_mmu_page *parent_sp;
+
+			if (!child || child->gfn != gw->table_gfn[it.level - 2]) {
+				parent_sp = page_header(__pa(it.sptep));
+				WARN_ON_ONCE(parent_sp->role.level == PT_PAGE_TABLE_LEVEL);
+
+				mmu_page_remove_parent_pte(child, it.sptep);
+				__set_spte(it.sptep, shadow_trap_nonpresent_pte);
+				kvm_flush_remote_tlbs(vcpu->kvm);
+			}
+		}
+
 		sp = NULL;
 		if (!is_shadow_present_pte(*it.sptep)) {
 			table_gfn = gw->table_gfn[it.level - 2];
@@ -554,6 +568,20 @@ static u64 *FNAME(fetch)(struct kvm_vcpu *vcpu, gva_t addr,
 		validate_direct_spte(vcpu, it.sptep, direct_access);
 
 		drop_large_spte(vcpu, it.sptep);
+
+		if (is_shadow_present_pte(*it.sptep)) {
+			struct kvm_mmu_page *child = page_header(*it.sptep & PT64_BASE_ADDR_MASK);
+			struct kvm_mmu_page *parent_sp;
+
+			if (!child || child->gfn != base_gfn) {
+				parent_sp = page_header(__pa(it.sptep));
+				WARN_ON_ONCE(parent_sp->role.level == PT_PAGE_TABLE_LEVEL);
+
+				mmu_page_remove_parent_pte(child, it.sptep);
+				__set_spte(it.sptep, shadow_trap_nonpresent_pte);
+				kvm_flush_remote_tlbs(vcpu->kvm);
+			}
+		}
 
 		if (!is_shadow_present_pte(*it.sptep)) {
 			sp = kvm_mmu_get_page(vcpu, base_gfn, addr, it.level-1,

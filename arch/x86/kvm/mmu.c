@@ -2377,6 +2377,19 @@ static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, int write,
 			break;
 
 		drop_large_spte(vcpu, it.sptep);
+		if (is_shadow_present_pte(*it.sptep)) {
+			struct kvm_mmu_page *child = page_header(*it.sptep & PT64_BASE_ADDR_MASK);
+			struct kvm_mmu_page *parent_sp;
+
+			if (!child || child->gfn != base_gfn) {
+				parent_sp = page_header(__pa(it.sptep));
+				WARN_ON_ONCE(parent_sp->role.level == PT_PAGE_TABLE_LEVEL);
+
+				mmu_page_remove_parent_pte(child, it.sptep);
+				__set_spte(it.sptep, shadow_trap_nonpresent_pte);
+				kvm_flush_remote_tlbs(vcpu->kvm);
+			}
+		}
 		if (*it.sptep == shadow_trap_nonpresent_pte) {
 			sp = kvm_mmu_get_page(vcpu, base_gfn, it.addr,
 					      it.level - 1, 1, ACC_ALL, it.sptep);
