@@ -842,7 +842,7 @@ static struct ib_mr *create_user_odp_mr(struct ib_pd *pd, u64 start, u64 length,
 	if (err)
 		goto err_dereg_mr;
 
-	err = mlx5_ib_init_odp_mr(mr);
+	err = mlx5_ib_init_odp_mr(mr, pd);
 	if (err)
 		goto err_dereg_mr;
 	return &mr->ibmr;

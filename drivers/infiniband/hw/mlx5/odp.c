@@ -687,12 +687,16 @@ void mlx5_ib_free_odp_mr(struct mlx5_ib_mr *mr)
 	}
 }
 
+/*
+ * pdn must be valid only when xlt_flags updates the mkey PD. In this path that
+ * is only MLX5_PF_FLAGS_ENABLE. DOWNGRADE and SNAPSHOT leave the PD masked out.
+ */
 #define MLX5_PF_FLAGS_DOWNGRADE BIT(1)
 #define MLX5_PF_FLAGS_SNAPSHOT BIT(2)
 #define MLX5_PF_FLAGS_ENABLE BIT(3)
 static int pagefault_real_mr(struct mlx5_ib_mr *mr, struct ib_umem_odp *odp,
 			     u64 user_va, size_t bcnt, u32 *bytes_mapped,
-			     u32 flags)
+			     u32 flags, u32 pdn)
 {
 	int page_shift, ret, np;
 	bool downgrade = flags & MLX5_PF_FLAGS_DOWNGRADE;
@@ -722,7 +726,7 @@ static int pagefault_real_mr(struct mlx5_ib_mr *mr, struct ib_umem_odp *odp,
 	 * ib_umem_odp_map_dma_and_lock already checks this.
 	 */
 	ret = mlx5r_umr_update_xlt(mr, start_idx, np, page_shift, xlt_flags,
-				   mlx5_mr_pdn(mr));
+				   pdn);
 	mutex_unlock(&odp->umem_mutex);
 
 	if (ret < 0) {
@@ -788,7 +792,7 @@ static int pagefault_implicit_mr(struct mlx5_ib_mr *imr,
 		      user_va;
 
 		ret = pagefault_real_mr(mtt, umem_odp, user_va, len,
-					bytes_mapped, flags);
+					bytes_mapped, flags, 0);
 
 		mlx5r_deref_odp_mkey(&mtt->mmkey);
 
@@ -930,19 +934,20 @@ static int pagefault_mr(struct mlx5_ib_mr *mr, u64 io_virt, size_t bcnt,
 				    ib_umem_end(odp) - user_va < bcnt))
 			return -EFAULT;
 		return pagefault_real_mr(mr, odp, user_va, bcnt, bytes_mapped,
-					 flags);
+					 flags, 0);
 	}
 	return pagefault_implicit_mr(mr, odp, io_virt, bcnt, bytes_mapped,
 				     flags);
 }
 
-int mlx5_ib_init_odp_mr(struct mlx5_ib_mr *mr)
+int mlx5_ib_init_odp_mr(struct mlx5_ib_mr *mr, struct ib_pd *pd)
 {
 	int ret;
 
 	ret = pagefault_real_mr(mr, to_ib_umem_odp(mr->umem), mr->umem->address,
 				mr->umem->length, NULL,
-				MLX5_PF_FLAGS_SNAPSHOT | MLX5_PF_FLAGS_ENABLE);
+				MLX5_PF_FLAGS_SNAPSHOT | MLX5_PF_FLAGS_ENABLE,
+				to_mpd(pd)->pdn);
 	return ret >= 0 ? 0 : ret;
 }
 
@@ -1575,8 +1580,7 @@ static void mlx5_ib_mr_memory_pfault_handler(struct mlx5_ib_dev *dev,
 	ret = pagefault_mr(mr, prefetch_va, prefetch_size, NULL, 0, true);
 	if (ret < 0) {
 		ret = pagefault_mr(mr, pfault->memory.va,
-				   pfault->memory.fault_byte_count, NULL, 0,
-				   true);
+				   pfault->memory.fault_byte_count, NULL, 0, true);
 		if (ret < 0)
 			goto err;
 	}
