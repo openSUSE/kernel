@@ -1509,11 +1509,6 @@ static bool vmx_umip_emulated(void)
 		SECONDARY_EXEC_DESC;
 }
 
-static bool vmx_pku_supported(void)
-{
-       return boot_cpu_has(X86_FEATURE_PKU);
-}
-
 static inline bool report_flexpriority(void)
 {
 	return flexpriority_enabled;
@@ -10535,8 +10530,17 @@ static void vmx_cpuid_update(struct kvm_vcpu *vcpu)
 
 static void vmx_set_supported_cpuid(u32 func, struct kvm_cpuid_entry2 *entry)
 {
-	if (func == 1 && nested)
-		entry->ecx |= bit(X86_FEATURE_VMX);
+	switch (func) {
+	case 0x1:
+		if (nested)
+			entry->ecx |= bit(X86_FEATURE_VMX);
+		break;
+	case 0x7:
+		if (enable_ept && boot_cpu_has(X86_FEATURE_PKU) &&
+		    boot_cpu_has(X86_FEATURE_OSPKE))
+			entry->ecx |= bit(X86_FEATURE_PKU);
+		break;
+	}
 }
 
 static void nested_ept_inject_page_fault(struct kvm_vcpu *vcpu,
@@ -13142,7 +13146,6 @@ static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.mpx_supported = vmx_mpx_supported,
 	.xsaves_supported = vmx_xsaves_supported,
 	.umip_emulated = vmx_umip_emulated,
-	.pku_supported = vmx_pku_supported,
 
 	.check_nested_events = vmx_check_nested_events,
 
