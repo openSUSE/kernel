@@ -11,7 +11,7 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/kvm_host.h>
-#include "linux/lockdep.h"
+#include <linux/lockdep.h>
 #include <linux/export.h>
 #include <linux/vmalloc.h>
 #include <linux/uaccess.h>
