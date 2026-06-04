@@ -260,7 +260,7 @@ int br_dev_siocdevprivate(struct net_device *dev, struct ifreq *rq,
 		p.port_id = pt->port_id;
 		p.designated_port = pt->designated_port;
 		p.path_cost = READ_ONCE(pt->path_cost);
-		p.designated_cost = pt->designated_cost;
+		p.designated_cost = READ_ONCE(pt->designated_cost);
 		p.state = pt->state;
 		p.top_change_ack = pt->topology_change_ack;
 		p.config_pending = pt->config_pending;

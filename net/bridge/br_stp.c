@@ -102,7 +102,7 @@ struct net_bridge_port *br_get_port(struct net_bridge *br, u16 port_no)
 static int br_should_become_root_port(const struct net_bridge_port *p,
 				      u16 root_port)
 {
-	u32 p_path_cost, rp_path_cost;
+	u32 p_path_cost, rp_path_cost, p_designated_cost, rp_designated_cost;
 	struct net_bridge_port *rp;
 	struct net_bridge *br;
 	int t;
@@ -128,12 +128,14 @@ static int br_should_become_root_port(const struct net_bridge_port *p,
 
 	p_path_cost = READ_ONCE(p->path_cost);
 	rp_path_cost = READ_ONCE(rp->path_cost);
+	p_designated_cost = READ_ONCE(p->designated_cost);
+	rp_designated_cost = READ_ONCE(rp->designated_cost);
 
-	if (p->designated_cost + p_path_cost <
-	    rp->designated_cost + rp_path_cost)
+	if (p_designated_cost + p_path_cost <
+	    rp_designated_cost + rp_path_cost)
 		return 1;
-	else if (p->designated_cost + p_path_cost >
-		 rp->designated_cost + rp_path_cost)
+	else if (p_designated_cost + p_path_cost >
+		 rp_designated_cost + rp_path_cost)
 		return 0;
 
 	t = memcmp(&p->designated_bridge, &rp->designated_bridge, 8);
@@ -191,7 +193,7 @@ static void br_root_selection(struct net_bridge *br)
 	} else {
 		p = br_get_port(br, root_port);
 		br->designated_root = p->designated_root;
-		br->root_path_cost = p->designated_cost +
+		br->root_path_cost = READ_ONCE(p->designated_cost) +
 				     READ_ONCE(p->path_cost);
 	}
 }
@@ -257,7 +259,7 @@ static void br_record_config_information(struct net_bridge_port *p,
 					 const struct br_config_bpdu *bpdu)
 {
 	p->designated_root = bpdu->root;
-	p->designated_cost = bpdu->root_path_cost;
+	WRITE_ONCE(p->designated_cost, bpdu->root_path_cost);
 	p->designated_bridge = bpdu->bridge_id;
 	p->designated_port = bpdu->port_id;
 	p->designated_age = jiffies - bpdu->message_age;
@@ -293,6 +295,7 @@ void br_transmit_tcn(struct net_bridge *br)
 static int br_should_become_designated_port(const struct net_bridge_port *p)
 {
 	struct net_bridge *br;
+	u32 p_designated_cost;
 	int t;
 
 	br = p->br;
@@ -302,9 +305,10 @@ static int br_should_become_designated_port(const struct net_bridge_port *p)
 	if (memcmp(&p->designated_root, &br->designated_root, 8))
 		return 1;
 
-	if (br->root_path_cost < p->designated_cost)
+	p_designated_cost = READ_ONCE(p->designated_cost);
+	if (br->root_path_cost < p_designated_cost)
 		return 1;
-	else if (br->root_path_cost > p->designated_cost)
+	else if (br->root_path_cost > p_designated_cost)
 		return 0;
 
 	t = memcmp(&br->bridge_id, &p->designated_bridge, 8);
@@ -336,6 +340,7 @@ static void br_designated_port_selection(struct net_bridge *br)
 static int br_supersedes_port_info(const struct net_bridge_port *p,
 				   const struct br_config_bpdu *bpdu)
 {
+	u32 p_designated_cost;
 	int t;
 
 	t = memcmp(&bpdu->root, &p->designated_root, 8);
@@ -344,9 +349,10 @@ static int br_supersedes_port_info(const struct net_bridge_port *p,
 	else if (t > 0)
 		return 0;
 
-	if (bpdu->root_path_cost < p->designated_cost)
+	p_designated_cost = READ_ONCE(p->designated_cost);
+	if (bpdu->root_path_cost < p_designated_cost)
 		return 1;
-	else if (bpdu->root_path_cost > p->designated_cost)
+	else if (bpdu->root_path_cost > p_designated_cost)
 		return 0;
 
 	t = memcmp(&bpdu->bridge_id, &p->designated_bridge, 8);
@@ -426,7 +432,7 @@ void br_become_designated_port(struct net_bridge_port *p)
 
 	br = p->br;
 	p->designated_root = br->designated_root;
-	p->designated_cost = br->root_path_cost;
+	WRITE_ONCE(p->designated_cost, br->root_path_cost);
 	p->designated_bridge = br->bridge_id;
 	p->designated_port = p->port_id;
 }
