@@ -9,9 +9,11 @@ menu "Qualcomm firmware drivers"
 config QCOM_SCM
 	select QCOM_TZMEM
 	tristate
+	default n
 
 config QCOM_TZMEM
 	tristate
+	default n
 	select GENERIC_ALLOCATOR
 
 choice
