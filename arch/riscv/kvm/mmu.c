@@ -302,7 +302,8 @@ bool kvm_test_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
 }
 
 static bool fault_supports_gstage_huge_mapping(struct kvm_memory_slot *memslot,
-					       unsigned long hva)
+					       unsigned long hva,
+					       unsigned long map_size)
 {
 	hva_t uaddr_start, uaddr_end;
 	gpa_t gpa_start;
@@ -316,8 +317,8 @@ static bool fault_supports_gstage_huge_mapping(struct kvm_memory_slot *memslot,
 
 	/*
 	 * Pages belonging to memslots that don't have the same alignment
-	 * within a PMD for userspace and GPA cannot be mapped with g-stage
-	 * PMD entries, because we'll end up mapping the wrong pages.
+	 * within a huge page for userspace and GPA cannot be mapped with
+	 * g-stage block entries, because we'll end up mapping the wrong pages.
 	 *
 	 * Consider a layout like the following:
 	 *
@@ -337,7 +338,7 @@ static bool fault_supports_gstage_huge_mapping(struct kvm_memory_slot *memslot,
 	 *   e -> g
 	 *   f -> h
 	 */
-	if ((gpa_start & (PMD_SIZE - 1)) != (uaddr_start & (PMD_SIZE - 1)))
+	if ((gpa_start & (map_size - 1)) != (uaddr_start & (map_size - 1)))
 		return false;
 
 	/*
@@ -352,7 +353,8 @@ static bool fault_supports_gstage_huge_mapping(struct kvm_memory_slot *memslot,
 	 * userspace_addr or the base_gfn, as both are equally aligned (per
 	 * the check above) and equally sized.
 	 */
-	return (hva >= ALIGN(uaddr_start, PMD_SIZE)) && (hva < ALIGN_DOWN(uaddr_end, PMD_SIZE));
+	return (hva >= ALIGN(uaddr_start, map_size)) &&
+	       (hva < ALIGN_DOWN(uaddr_end, map_size));
 }
 
 static int get_hva_mapping_size(struct kvm *kvm,
@@ -420,7 +422,7 @@ static unsigned long transparent_hugepage_adjust(struct kvm *kvm,
 	 * sure that the HVA and GPA are sufficiently aligned and that the
 	 * block map is contained within the memslot.
 	 */
-	if (fault_supports_gstage_huge_mapping(memslot, hva)) {
+	if (fault_supports_gstage_huge_mapping(memslot, hva, PMD_SIZE)) {
 		int sz;
 
 		sz = get_hva_mapping_size(kvm, hva);
@@ -435,6 +437,28 @@ static unsigned long transparent_hugepage_adjust(struct kvm *kvm,
 	}
 
 	return PAGE_SIZE;
+}
+
+static unsigned long hugetlb_mapping_size(struct kvm_memory_slot *memslot,
+					  unsigned long hva,
+					  unsigned long map_size)
+{
+	switch (map_size) {
+#ifndef CONFIG_32BIT
+	case PUD_SIZE:
+		if (fault_supports_gstage_huge_mapping(memslot, hva, PUD_SIZE))
+			return PUD_SIZE;
+		fallthrough;
+#endif
+	case PMD_SIZE:
+		if (fault_supports_gstage_huge_mapping(memslot, hva, PMD_SIZE))
+			return PMD_SIZE;
+		fallthrough;
+	case PAGE_SIZE:
+		return PAGE_SIZE;
+	default:
+		return map_size;
+	}
 }
 
 static bool kvm_riscv_mmu_dirty_log_write_fault_fast(struct kvm *kvm,
@@ -514,6 +538,7 @@ int kvm_riscv_mmu_map(struct kvm_vcpu *vcpu, struct kvm_memory_slot *memslot,
 {
 	int ret;
 	kvm_pfn_t hfn;
+	bool is_hugetlb;
 	bool writable;
 	short vma_pageshift;
 	gfn_t gfn = gpa >> PAGE_SHIFT;
@@ -551,16 +576,23 @@ int kvm_riscv_mmu_map(struct kvm_vcpu *vcpu, struct kvm_memory_slot *memslot,
 		return -EFAULT;
 	}
 
-	if (is_vm_hugetlb_page(vma))
+	is_hugetlb = is_vm_hugetlb_page(vma);
+	if (is_hugetlb)
 		vma_pageshift = huge_page_shift(hstate_vma(vma));
 	else
 		vma_pageshift = PAGE_SHIFT;
 	vma_pagesize = 1ULL << vma_pageshift;
 	if (logging || (vma->vm_flags & VM_PFNMAP))
 		vma_pagesize = PAGE_SIZE;
+	else if (is_hugetlb)
+		vma_pagesize = hugetlb_mapping_size(memslot, hva, vma_pagesize);
 
+	/*
+	 * For hugetlb mappings, vma_pagesize might have been reduced from the
+	 * VMA size to a smaller safe mapping size.
+	 */
 	if (vma_pagesize == PMD_SIZE || vma_pagesize == PUD_SIZE)
-		gfn = (gpa & huge_page_mask(hstate_vma(vma))) >> PAGE_SHIFT;
+		gfn = ALIGN_DOWN(gpa, vma_pagesize) >> PAGE_SHIFT;
 
 	/*
 	 * Read mmu_invalidate_seq so that KVM can detect if the results of
@@ -602,8 +634,12 @@ int kvm_riscv_mmu_map(struct kvm_vcpu *vcpu, struct kvm_memory_slot *memslot,
 	if (mmu_invalidate_retry(kvm, mmu_seq))
 		goto out_unlock;
 
-	/* Check if we are backed by a THP and thus use block mapping if possible */
-	if (!logging && (vma_pagesize == PAGE_SIZE))
+	/*
+	 * Check if we are backed by a THP and thus use block mapping if
+	 * possible. Hugetlb mappings already selected their target size above,
+	 * so do not promote them through the THP helper.
+	 */
+	if (!logging && !is_hugetlb && vma_pagesize == PAGE_SIZE)
 		vma_pagesize = transparent_hugepage_adjust(kvm, memslot, hva, &hfn, &gpa);
 
 	if (writable) {
