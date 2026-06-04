@@ -369,7 +369,7 @@ static u32 hwmp_route_info_get(struct ieee80211_sub_if_data *sdata,
 	fresh_info = true;
 
 	switch (action) {
-	case MPATH_PREQ:
+	case MPATH_PREQ: {
 		struct ieee80211_mesh_hwmp_preq_top *preq_elem_top =
 			(void *)hwmp_ie;
 		struct ieee80211_mesh_hwmp_preq_bottom *preq_elem_bottom =
@@ -381,7 +381,8 @@ static u32 hwmp_route_info_get(struct ieee80211_sub_if_data *sdata,
 		orig_metric = le32_to_cpu(preq_elem_bottom->metric);
 		hopcount = preq_elem_top->hopcount + 1;
 		break;
-	case MPATH_PREP:
+	}
+	case MPATH_PREP: {
 		/* Originator here refers to the MP that was the target in the
 		 * Path Request. We divert from the nomenclature in the draft
 		 * so that we can easily use a single function to gather path
@@ -398,6 +399,7 @@ static u32 hwmp_route_info_get(struct ieee80211_sub_if_data *sdata,
 		orig_metric = le32_to_cpu(prep_elem_bottom->metric);
 		hopcount = prep_elem_top->hopcount + 1;
 		break;
+	}
 	default:
 		rcu_read_unlock();
 		return 0;
