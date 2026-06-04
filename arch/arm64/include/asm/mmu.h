@@ -13,8 +13,6 @@
 
 #ifndef __ASSEMBLER__
 
-#define __pgtbl_bss __section(".pgdir.bss") __aligned(PAGE_SIZE)
-
 #include <linux/refcount.h>
 #include <asm/cpufeature.h>
 

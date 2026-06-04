@@ -43,4 +43,6 @@
 	SYM_TYPED_START(name, SYM_L_GLOBAL, SYM_A_ALIGN)	\
 	bti c ;
 
+#define __bss_pgtbl __section(".bss..pgtbl") __aligned(PAGE_SIZE)
+
 #endif
