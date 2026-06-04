@@ -2379,6 +2379,11 @@ free:
 	return ret;
 }
 
+static bool nvme_invalid_lba_sz(u64 nsze, signed int shift, sector_t *capacity)
+{
+	return check_shl_overflow(nsze, shift, capacity);
+}
+
 static int nvme_update_ns_info_block(struct nvme_ns *ns,
 		struct nvme_ns_info *info)
 {
@@ -2422,10 +2427,8 @@ static int nvme_update_ns_info_block(struct nvme_ns *ns,
 			goto out;
 	}
 
-	if (id->lbaf[lbaf].ds < SECTOR_SHIFT ||
-	    check_shl_overflow(le64_to_cpu(id->nsze),
-			       id->lbaf[lbaf].ds - SECTOR_SHIFT,
-			       &capacity)) {
+	if (nvme_invalid_lba_sz(le64_to_cpu(id->nsze),
+			id->lbaf[lbaf].ds - SECTOR_SHIFT, &capacity)) {
 		dev_warn_once(ns->ctrl->device,
 			"invalid LBA data size %u, skipping namespace\n",
 			id->lbaf[lbaf].ds);
