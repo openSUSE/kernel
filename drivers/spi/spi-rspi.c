@@ -1377,8 +1377,8 @@ error2:
 }
 
 static const struct platform_device_id spi_driver_ids[] = {
-	{ "rspi",	(kernel_ulong_t)&rspi_ops },
-	{},
+	{ .name = "rspi", .driver_data = (kernel_ulong_t)&rspi_ops },
+	{ }
 };
 
 MODULE_DEVICE_TABLE(platform, spi_driver_ids);

@@ -477,8 +477,7 @@ static const struct platform_device_id bcm63xx_spi_dev_match[] = {
 		.name = "bcm6358-spi",
 		.driver_data = (unsigned long)bcm6358_spi_reg_offsets,
 	},
-	{
-	},
+	{ }
 };
 MODULE_DEVICE_TABLE(platform, bcm63xx_spi_dev_match);
 
