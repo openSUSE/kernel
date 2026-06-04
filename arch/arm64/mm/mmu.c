@@ -186,9 +186,12 @@ static void init_pte(pte_t *ptep, unsigned long addr, unsigned long end,
 
 static bool pte_range_has_valid_noncont(pte_t *ptep)
 {
-	for (int i = 0; i < CONT_PTES; i++)
-		if (pte_valid_noncont(__ptep_get(&ptep[i])))
+	for (int i = 0; i < CONT_PTES; i++) {
+		pte_t pte = __ptep_get(&ptep[i]);
+
+		if (pte_valid(pte) && !pte_cont(pte))
 			return true;
+	}
 	return false;
 }
 
@@ -291,9 +294,12 @@ static int init_pmd(pmd_t *pmdp, unsigned long addr, unsigned long end,
 
 static bool pmd_range_has_valid_noncont(pmd_t *pmdp)
 {
-	for (int i = 0; i < CONT_PMDS; i++)
-		if (pte_valid_noncont(pmd_pte(READ_ONCE(pmdp[i]))))
+	for (int i = 0; i < CONT_PMDS; i++) {
+		pte_t pte = pmd_pte(READ_ONCE(pmdp[i]));
+
+		if (pte_valid(pte) && !pte_cont(pte))
 			return true;
+	}
 	return false;
 }
 
