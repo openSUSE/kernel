@@ -6640,7 +6640,7 @@ static int scsi_debug_sdev_configure(struct scsi_device *sdp,
 	if (sdebug_ptype == TYPE_TAPE) {
 		if (!devip->tape_blocks[0]) {
 			devip->tape_blocks[0] =
-				kzalloc_objs(struct tape_block, TAPE_UNITS);
+				kzalloc_objs(struct tape_block, TAPE_UNITS + 1);
 			if (!devip->tape_blocks[0])
 				return 1;
 		}
