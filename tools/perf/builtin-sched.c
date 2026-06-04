@@ -2546,12 +2546,16 @@ static struct thread *timehist_get_thread(struct perf_sched *sched,
 			idle = get_idle_thread(sample->cpu);
 			if (idle == NULL) {
 				pr_err("Failed to get idle thread for cpu %d.\n", sample->cpu);
+				thread__put(thread);
 				return NULL;
 			}
 
 			itr = thread__priv(idle);
-			if (itr == NULL)
+			if (itr == NULL) {
+				thread__put(idle);
+				thread__put(thread);
 				return NULL;
+			}
 
 			thread__put(itr->last_thread);
 			itr->last_thread = thread__get(thread);
@@ -2559,6 +2563,8 @@ static struct thread *timehist_get_thread(struct perf_sched *sched,
 			/* copy task callchain when entering to idle */
 			if (perf_sample__intval(sample, "next_pid") == 0)
 				save_idle_callchain(sched, itr, sample);
+
+			thread__put(idle);
 		}
 	}
 
