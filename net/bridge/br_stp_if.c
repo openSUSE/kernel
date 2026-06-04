@@ -341,7 +341,7 @@ int br_stp_set_path_cost(struct net_bridge_port *p, unsigned long path_cost)
 		return -ERANGE;
 
 	set_bit(BR_ADMIN_COST_BIT, &p->flags);
-	p->path_cost = path_cost;
+	WRITE_ONCE(p->path_cost, path_cost);
 	br_configuration_update(p->br);
 	br_port_state_selection(p->br);
 	return 0;
