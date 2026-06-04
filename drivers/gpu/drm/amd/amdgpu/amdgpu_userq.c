@@ -556,6 +556,16 @@ int amdgpu_userq_ioctl(struct drm_device *dev, void *data,
 	union drm_amdgpu_userq *args = data;
 	int r;
 
+	if (!is_power_of_2(args->in.queue_size)) {
+		drm_file_err(filp, "Queue size must be a power of 2\n");
+		return -EINVAL;
+	}
+
+	if (args->in.queue_size < AMDGPU_GPU_PAGE_SIZE) {
+		drm_file_err(filp, "Queue size smaller than AMDGPU_GPU_PAGE_SIZE\n");
+		return -EINVAL;
+	}
+
 	switch (args->in.op) {
 	case AMDGPU_USERQ_OP_CREATE:
 		if (args->in.flags & ~(AMDGPU_USERQ_CREATE_FLAGS_QUEUE_PRIORITY_MASK |
