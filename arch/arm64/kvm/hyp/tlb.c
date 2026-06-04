@@ -92,7 +92,7 @@ void __hyp_text __kvm_tlb_flush_vmid_ipa(struct kvm *kvm, phys_addr_t ipa)
 	 */
 	dsb(ish);
 	__tlbi(vmalle1is);
-	dsb(ish);
+	__tlbi_sync_s1ish_hyp();
 	isb();
 
 	/*
@@ -129,7 +129,7 @@ void __hyp_text __kvm_tlb_flush_vmid(struct kvm *kvm)
 	__tlb_switch_to_guest()(kvm);
 
 	__tlbi(vmalls12e1is);
-	dsb(ish);
+	__tlbi_sync_s1ish_hyp();
 	isb();
 
 	__tlb_switch_to_host()(kvm);
@@ -154,5 +154,5 @@ void __hyp_text __kvm_flush_vm_context(void)
 	dsb(ishst);
 	__tlbi(alle1is);
 	asm volatile("ic ialluis" : : );
-	dsb(ish);
+	__tlbi_sync_s1ish_hyp();
 }
