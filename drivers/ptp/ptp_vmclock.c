@@ -140,6 +140,10 @@ static int vmclock_get_crosststamp(struct vmclock_state *st,
 			if (sts->pre_sts.cs_id == st->cs_id) {
 				cycle = sts->pre_sts.cycles;
 				sts->post_sts = sts->pre_sts;
+			} else if (sts->pre_sts.hw_csid == st->cs_id &&
+				   sts->pre_sts.hw_cycles) {
+				cycle = sts->pre_sts.hw_cycles;
+				sts->post_sts = sts->pre_sts;
 			} else {
 				cycle = get_cycles();
 				ptp_read_system_postts(sts);
