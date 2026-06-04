@@ -191,6 +191,7 @@ const volatile int has_type;
 const volatile int has_addr;
 const volatile int has_cgroup;
 const volatile int has_slab;
+const volatile int has_mmap_lock;
 const volatile int needs_callstack;
 const volatile int stack_skip;
 const volatile int lock_owner;
@@ -221,6 +222,8 @@ int data_map_full;
 struct task_struct *bpf_task_from_pid(s32 pid) __ksym __weak;
 void bpf_task_release(struct task_struct *p) __ksym __weak;
 
+static inline __u32 check_lock_type(__u64 lock, __u32 flags);
+
 static inline __u64 get_current_cgroup_id(void)
 {
 	struct task_struct *task;
@@ -246,6 +249,8 @@ static inline __u64 get_current_cgroup_id(void)
 
 static inline int can_record(u64 *ctx)
 {
+	bool is_addr_ok = false;
+
 	if (has_cpu) {
 		__u32 cpu = bpf_get_smp_processor_id();
 		__u8 *ok;
@@ -278,8 +283,10 @@ static inline int can_record(u64 *ctx)
 		__u64 addr = ctx[0];
 
 		ok = bpf_map_lookup_elem(&addr_filter, &addr);
-		if (!ok && !has_slab)
+		if (!ok && !has_slab && !has_mmap_lock)
 			return 0;
+
+		is_addr_ok = !!ok;
 	}
 
 	if (has_cgroup) {
@@ -291,6 +298,10 @@ static inline int can_record(u64 *ctx)
 			return 0;
 	}
 
+	if (is_addr_ok)
+		return 1;
+
+	/* slab and mmap_lock are part of the addr_filter */
 	if (has_slab && bpf_get_kmem_cache) {
 		__u8 *ok;
 		__u64 addr = ctx[0];
@@ -298,7 +309,17 @@ static inline int can_record(u64 *ctx)
 
 		kmem_cache_addr = (long)bpf_get_kmem_cache(addr);
 		ok = bpf_map_lookup_elem(&slab_filter, &kmem_cache_addr);
-		if (!ok)
+		if (ok)
+			return 1;
+		else if (!has_mmap_lock)
+			return 0;
+	}
+
+	if (has_mmap_lock) {
+		__u64 lock = ctx[0];
+		__u32 flag = ctx[1];
+
+		if (check_lock_type(lock, flag) != LCD_F_MMAP_LOCK)
 			return 0;
 	}
 
