@@ -251,6 +251,7 @@ done:
 	return 0;
 }
 
+
 static void napi_gro_complete(struct napi_struct *napi, struct sk_buff *skb)
 {
 	struct packet_offload *ptype;
