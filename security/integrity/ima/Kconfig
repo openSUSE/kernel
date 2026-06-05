@@ -341,6 +341,9 @@ config IMA_STAGING
 	  It allows user space to stage the measurements list for deletion and
 	  to delete the staged measurements after confirmation.
 
+	  Or, alternatively, it allows user space to specify N measurements
+	  records to stage internally, so that they can be immediately deleted.
+
 	  On kexec, staging is aborted and any staged measurement records are
 	  copied to the secondary kernel.
 

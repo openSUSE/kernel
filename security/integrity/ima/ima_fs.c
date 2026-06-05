@@ -28,6 +28,7 @@
  * Requests:
  * 'A\n': stage the entire measurements list
  * 'D\n': delete all staged measurements
+ * '[1, ULONG_MAX]\n' delete N measurements records
  */
 #define STAGED_REQ_LENGTH 21
 
@@ -343,6 +344,7 @@ static ssize_t _ima_measurements_write(struct file *file,
 				       loff_t *ppos, bool staged_interface)
 {
 	char req[STAGED_REQ_LENGTH];
+	unsigned long req_value;
 	int ret;
 
 	if (datalen < 2 || datalen > STAGED_REQ_LENGTH)
@@ -370,13 +372,36 @@ static ssize_t _ima_measurements_write(struct file *file,
 		ret = ima_queue_staged_delete_all();
 		break;
 	default:
-		ret = -EINVAL;
+		if (staged_interface)
+			return -EINVAL;
+
+		if (ima_flush_htable) {
+			pr_debug("Deleting staged N measurements not supported when flushing the hash table is requested\n");
+			return -EINVAL;
+		}
+
+		ret = kstrtoul(req, 10, &req_value);
+		if (ret < 0)
+			return ret;
+
+		if (req_value == 0) {
+			pr_debug("Must delete at least one entry\n");
+			return -EINVAL;
+		}
+
+		ret = ima_queue_delete_partial(req_value);
 	}
 
 	if (ret < 0)
 		return ret;
 
 	return datalen;
+}
+
+static ssize_t ima_measurements_write(struct file *file, const char __user *buf,
+				      size_t datalen, loff_t *ppos)
+{
+	return _ima_measurements_write(file, buf, datalen, ppos, false);
 }
 
 static ssize_t ima_measurements_staged_write(struct file *file,
@@ -389,6 +414,7 @@ static ssize_t ima_measurements_staged_write(struct file *file,
 static const struct file_operations ima_measurements_ops = {
 	.open = ima_measurements_open,
 	.read = seq_read,
+	.write = ima_measurements_write,
 	.llseek = seq_lseek,
 	.release = ima_measurements_release,
 };
@@ -470,6 +496,7 @@ static int ima_ascii_measurements_open(struct inode *inode, struct file *file)
 static const struct file_operations ima_ascii_measurements_ops = {
 	.open = ima_ascii_measurements_open,
 	.read = seq_read,
+	.write = ima_measurements_write,
 	.llseek = seq_lseek,
 	.release = ima_measurements_release,
 };
@@ -603,14 +630,13 @@ static int __init create_securityfs_measurement_lists(bool staging)
 {
 	const struct file_operations *ascii_ops = &ima_ascii_measurements_ops;
 	const struct file_operations *binary_ops = &ima_measurements_ops;
-	umode_t permissions = (S_IRUSR | S_IRGRP);
+	umode_t permissions = (S_IRUSR | S_IRGRP | S_IWUSR | S_IWGRP);
 	const char *file_suffix = "";
 	int count = NR_BANKS(ima_tpm_chip);
 
 	if (staging) {
 		ascii_ops = &ima_ascii_measurements_staged_ops;
 		binary_ops = &ima_measurements_staged_ops;
-		permissions |= (S_IWUSR | S_IWGRP);
 		file_suffix = "_staged";
 	}
 

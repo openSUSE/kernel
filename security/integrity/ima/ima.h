@@ -320,6 +320,7 @@ struct ima_template_desc *lookup_template_desc(const char *name);
 bool ima_template_has_modsig(const struct ima_template_desc *ima_template);
 int ima_queue_stage(void);
 int ima_queue_staged_delete_all(void);
+int ima_queue_delete_partial(unsigned long req_value);
 int ima_restore_measurement_entry(struct ima_template_entry *entry);
 int ima_restore_measurement_list(loff_t bufsize, void *buf);
 int ima_measurements_show(struct seq_file *m, void *v);
@@ -342,6 +343,7 @@ extern atomic_long_t ima_num_records[BINARY__LAST];
 /* Total number of violations since hard boot. */
 extern atomic_long_t ima_num_violations;
 extern struct hlist_head __rcu *ima_htable;
+extern bool ima_flush_htable;
 
 static inline unsigned int ima_hash_key(u8 *digest)
 {
