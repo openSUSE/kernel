@@ -38,7 +38,9 @@ int phy_link_topo_add_phy(struct net_device *dev,
 
 	/* ethtool ops may run without rtnl_lock, and rtnl_lock is what
 	 * currently protects the PHY topology. No driver currently mixes
-	 * the two, flag if someone tries. See also ethnl_req_get_phydev().
+	 * the two, flag if someone tries. See also:
+	 *  - ethnl_req_get_phydev()
+	 *  - phy_detach()
 	 */
 	if (WARN_ON_ONCE(netdev_need_ops_lock(dev)))
 		return -EOPNOTSUPP;
