@@ -32,6 +32,12 @@ static inline bool libarena_is_asan_test_prog(const char *name)
 	return strstr(name, "asan_test") == name;
 }
 
+static inline bool libarena_is_parallel_test_prog(const char *name)
+{
+	return strstr(name, "parallel_test") == name;
+}
+
+
 static inline int libarena_run_prog_args(int prog_fd, void *args, size_t argsize)
 {
 	LIBBPF_OPTS(bpf_test_run_opts, opts);
