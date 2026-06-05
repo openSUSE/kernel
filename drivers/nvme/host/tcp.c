@@ -56,44 +56,6 @@ MODULE_PARM_DESC(tls_handshake_timeout,
 
 static atomic_t nvme_tcp_cpu_queues[NR_CPUS];
 
-#ifdef CONFIG_DEBUG_LOCK_ALLOC
-/* lockdep can detect a circular dependency of the form
- *   sk_lock -> mmap_lock (page fault) -> fs locks -> sk_lock
- * because dependencies are tracked for both nvme-tcp and user contexts. Using
- * a separate class prevents lockdep from conflating nvme-tcp socket use with
- * user-space socket API use.
- */
-static struct lock_class_key nvme_tcp_sk_key[2];
-static struct lock_class_key nvme_tcp_slock_key[2];
-
-static void nvme_tcp_reclassify_socket(struct socket *sock)
-{
-	struct sock *sk = sock->sk;
-
-	if (WARN_ON_ONCE(!sock_allow_reclassification(sk)))
-		return;
-
-	switch (sk->sk_family) {
-	case AF_INET:
-		sock_lock_init_class_and_name(sk, "slock-AF_INET-NVME",
-					      &nvme_tcp_slock_key[0],
-					      "sk_lock-AF_INET-NVME",
-					      &nvme_tcp_sk_key[0]);
-		break;
-	case AF_INET6:
-		sock_lock_init_class_and_name(sk, "slock-AF_INET6-NVME",
-					      &nvme_tcp_slock_key[1],
-					      "sk_lock-AF_INET6-NVME",
-					      &nvme_tcp_sk_key[1]);
-		break;
-	default:
-		WARN_ON_ONCE(1);
-	}
-}
-#else
-static void nvme_tcp_reclassify_socket(struct socket *sock) { }
-#endif
-
 enum nvme_tcp_send_state {
 	NVME_TCP_SEND_CMD_PDU = 0,
 	NVME_TCP_SEND_H2C_PDU,
@@ -180,6 +142,11 @@ struct nvme_tcp_queue {
 	void (*state_change)(struct sock *);
 	void (*data_ready)(struct sock *);
 	void (*write_space)(struct sock *);
+
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+	struct lock_class_key nvme_tcp_sk_key;
+	struct lock_class_key nvme_tcp_slock_key;
+#endif
 };
 
 struct nvme_tcp_ctrl {
@@ -206,6 +173,39 @@ static struct workqueue_struct *nvme_tcp_wq;
 static const struct blk_mq_ops nvme_tcp_mq_ops;
 static const struct blk_mq_ops nvme_tcp_admin_mq_ops;
 static int nvme_tcp_try_send(struct nvme_tcp_queue *queue);
+
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+/* lockdep can detect a circular dependency of the form
+ *   sk_lock -> mmap_lock (page fault) -> fs locks -> sk_lock
+ * because dependencies are tracked for both nvme-tcp and user contexts. Using
+ * a separate class prevents lockdep from conflating nvme-tcp socket use with
+ * user-space socket API use.
+ */
+static void nvme_tcp_reclassify_socket(struct nvme_tcp_queue *queue)
+{
+	struct sock *sk = queue->sock->sk;
+
+	if (WARN_ON_ONCE(!sock_allow_reclassification(sk)))
+		return;
+
+	switch (sk->sk_family) {
+	case AF_INET:
+		sock_lock_init_class_and_name(sk, "slock-AF_INET-NVME",
+					      &queue->nvme_tcp_slock_key,
+					      "sk_lock-AF_INET-NVME",
+					      &queue->nvme_tcp_sk_key);
+		break;
+	case AF_INET6:
+		sock_lock_init_class_and_name(sk, "slock-AF_INET6-NVME",
+					      &queue->nvme_tcp_slock_key,
+					      "sk_lock-AF_INET6-NVME",
+					      &queue->nvme_tcp_sk_key);
+		break;
+	default:
+		WARN_ON_ONCE(1);
+	}
+}
+#endif
 
 static inline struct nvme_tcp_ctrl *to_tcp_ctrl(struct nvme_ctrl *ctrl)
 {
@@ -1461,6 +1461,11 @@ static void nvme_tcp_free_queue(struct nvme_ctrl *nctrl, int qid)
 	kfree(queue->pdu);
 	mutex_destroy(&queue->send_mutex);
 	mutex_destroy(&queue->queue_lock);
+
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+	lockdep_unregister_key(&queue->nvme_tcp_sk_key);
+	lockdep_unregister_key(&queue->nvme_tcp_slock_key);
+#endif
 }
 
 static int nvme_tcp_init_connection(struct nvme_tcp_queue *queue)
@@ -1806,7 +1811,12 @@ static int nvme_tcp_alloc_queue(struct nvme_ctrl *nctrl, int qid,
 	}
 
 	sk_net_refcnt_upgrade(queue->sock->sk);
-	nvme_tcp_reclassify_socket(queue->sock);
+
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+	lockdep_register_key(&queue->nvme_tcp_sk_key);
+	lockdep_register_key(&queue->nvme_tcp_slock_key);
+	nvme_tcp_reclassify_socket(queue);
+#endif
 
 	/* Single syn retry */
 	tcp_sock_set_syncnt(queue->sock->sk, 1);
@@ -1911,6 +1921,10 @@ err_sock:
 	/* Use sync variant - see nvme_tcp_free_queue() for explanation */
 	__fput_sync(queue->sock->file);
 	queue->sock = NULL;
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+	lockdep_unregister_key(&queue->nvme_tcp_sk_key);
+	lockdep_unregister_key(&queue->nvme_tcp_slock_key);
+#endif
 err_destroy_mutex:
 	mutex_destroy(&queue->send_mutex);
 	mutex_destroy(&queue->queue_lock);
@@ -2201,7 +2215,7 @@ static int nvme_tcp_configure_io_queues(struct nvme_ctrl *ctrl, bool new)
 	if (!new) {
 		nvme_start_freeze(ctrl);
 		nvme_unquiesce_io_queues(ctrl);
-		if (!nvme_wait_freeze_timeout(ctrl, NVME_IO_TIMEOUT)) {
+		if (!nvme_wait_freeze_timeout(ctrl)) {
 			/*
 			 * If we timed out waiting for freeze we are likely to
 			 * be stuck.  Fail the controller initialization just
@@ -2468,6 +2482,8 @@ static void nvme_tcp_reconnect_ctrl_work(struct work_struct *work)
 	dev_info(ctrl->device, "Successfully reconnected (attempt %d/%d)\n",
 		 ctrl->nr_reconnects, ctrl->opts->max_reconnects);
 
+	/* accumulate reconnect attempts before resetting it to zero */
+	atomic_long_add(ctrl->nr_reconnects, &ctrl->acc_reconnects);
 	ctrl->nr_reconnects = 0;
 
 	return;
@@ -3046,6 +3062,8 @@ static int __init nvme_tcp_init_module(void)
 
 	if (wq_unbound)
 		wq_flags |= WQ_UNBOUND;
+	else
+		wq_flags |= WQ_PERCPU;
 
 	nvme_tcp_wq = alloc_workqueue("nvme_tcp_wq", wq_flags, 0);
 	if (!nvme_tcp_wq)
