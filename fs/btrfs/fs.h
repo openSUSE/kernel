@@ -657,6 +657,8 @@ struct btrfs_fs_info {
 	 * to protect us from the relocation code.
 	 */
 	struct mutex reloc_mutex;
+	/* Protects setting, clearing and getting fs_info->reloc_ctl. */
+	spinlock_t reloc_ctl_lock;
 
 	struct list_head trans_list;
 	struct list_head dead_roots;
