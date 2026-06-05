@@ -22,6 +22,20 @@
 
 #define AUDIT_CAUSE_LEN_MAX 32
 
+static bool ima_flush_htable;
+
+static int __init ima_flush_htable_setup(char *str)
+{
+	if (IS_ENABLED(CONFIG_IMA_DISABLE_HTABLE)) {
+		pr_warn("Hash table not enabled, ignoring request to flush\n");
+		return 1;
+	}
+
+	ima_flush_htable = true;
+	return 1;
+}
+__setup("ima_flush_htable", ima_flush_htable_setup);
+
 /* pre-allocated array of tpm_digest structures to extend a PCR */
 static struct tpm_digest *digests;
 
@@ -332,7 +346,7 @@ out_unlock:
 	return ret;
 }
 
-static void ima_queue_delete(struct list_head *head);
+static void ima_queue_delete(struct list_head *head, bool flush_htable);
 
 /**
  * ima_queue_staged_delete_all - Delete staged measurements
@@ -350,6 +364,7 @@ static void ima_queue_delete(struct list_head *head);
  */
 int ima_queue_staged_delete_all(void)
 {
+	struct hlist_head *old_queue = NULL;
 	LIST_HEAD(ima_measurements_trim);
 
 	mutex_lock(&ima_extend_list_mutex);
@@ -371,21 +386,35 @@ int ima_queue_staged_delete_all(void)
 	if (IS_ENABLED(CONFIG_IMA_KEXEC))
 		binary_runtime_size[BINARY_STAGED] = 0;
 
+	if (ima_flush_htable) {
+		old_queue = ima_alloc_replace_htable();
+		if (IS_ERR(old_queue)) {
+			mutex_unlock(&ima_extend_list_mutex);
+			return PTR_ERR(old_queue);
+		}
+	}
+
 	mutex_unlock(&ima_extend_list_mutex);
 
-	ima_queue_delete(&ima_measurements_trim);
+	if (ima_flush_htable) {
+		synchronize_rcu();
+		kfree(old_queue);
+	}
+
+	ima_queue_delete(&ima_measurements_trim, ima_flush_htable);
 	return 0;
 }
 
 /**
  * ima_queue_delete - Delete measurements
  * @head: List head measurements are deleted from
+ * @flush_htable: Whether or not the hash table is being flushed
  *
  * Delete the measurements from the passed list head completely if the
- * hash table is not enabled, or partially (only the template data), if the
- * hash table is used.
+ * hash table is not enabled or is being flushed, or partially (only the
+ * template data), if the hash table is used.
  */
-static void ima_queue_delete(struct list_head *head)
+static void ima_queue_delete(struct list_head *head, bool flush_htable)
 {
 	struct ima_queue_entry *qe, *qe_tmp;
 	unsigned int i;
@@ -407,7 +436,7 @@ static void ima_queue_delete(struct list_head *head)
 		list_del(&qe->later);
 
 		/* No leak if condition is false, referenced by ima_htable. */
-		if (IS_ENABLED(CONFIG_IMA_DISABLE_HTABLE)) {
+		if (IS_ENABLED(CONFIG_IMA_DISABLE_HTABLE) || flush_htable) {
 			kfree(qe->entry->digests);
 			kfree(qe->entry);
 			kfree(qe);
