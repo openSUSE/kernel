@@ -226,10 +226,12 @@ struct phy_device *ethnl_req_get_phydev(const struct ethnl_req_info *req_info,
 {
 	struct phy_device *phydev;
 
-	ASSERT_RTNL();
-
 	if (!req_info->dev)
 		return NULL;
+
+	/* If there is no PHY in sight there's no need for assert locking */
+	if (!phy_link_topo_empty(req_info->dev))
+		ASSERT_RTNL();
 
 	if (!req_info->phy_index)
 		return req_info->dev->phydev;
