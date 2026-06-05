@@ -36,9 +36,7 @@ atomic_long_t ima_num_records = ATOMIC_LONG_INIT(0);
 atomic_long_t ima_num_violations = ATOMIC_LONG_INIT(0);
 
 /* key: inode (before secure-hashing a file) */
-struct hlist_head ima_htable[IMA_MEASURE_HTABLE_SIZE] = {
-	[0 ... IMA_MEASURE_HTABLE_SIZE - 1] = HLIST_HEAD_INIT
-};
+struct hlist_head __rcu *ima_htable;
 
 /* mutex protects atomicity of extending measurement list
  * and extending the TPM PCR aggregate. Since tpm_extend can take
@@ -52,17 +50,53 @@ static DEFINE_MUTEX(ima_extend_list_mutex);
  */
 static bool ima_measurements_suspended;
 
+/* Callers must call synchronize_rcu() and free the hash table. */
+static struct hlist_head *ima_alloc_replace_htable(void)
+{
+	struct hlist_head *old_htable, *new_htable;
+
+	/* Initializing to zeros is equivalent to call HLIST_HEAD_INIT. */
+	new_htable = kcalloc(IMA_MEASURE_HTABLE_SIZE, sizeof(struct hlist_head),
+			     GFP_KERNEL);
+	if (!new_htable)
+		return ERR_PTR(-ENOMEM);
+
+	old_htable = rcu_replace_pointer(ima_htable, new_htable,
+				lockdep_is_held(&ima_extend_list_mutex));
+
+	return old_htable;
+}
+
+int __init ima_init_htable(void)
+{
+	struct hlist_head *old_htable;
+
+	mutex_lock(&ima_extend_list_mutex);
+	old_htable = ima_alloc_replace_htable();
+	mutex_unlock(&ima_extend_list_mutex);
+
+	if (IS_ERR(old_htable))
+		return PTR_ERR(old_htable);
+
+	/* Synchronize_rcu() and kfree() not necessary, only for robustness. */
+	synchronize_rcu();
+	kfree(old_htable);
+	return 0;
+}
+
 /* lookup up the digest value in the hash table, and return the entry */
 static struct ima_queue_entry *ima_lookup_digest_entry(u8 *digest_value,
 						       int pcr)
 {
 	struct ima_queue_entry *qe, *ret = NULL;
+	struct hlist_head *htable;
 	unsigned int key;
 	int rc;
 
 	key = ima_hash_key(digest_value);
 	rcu_read_lock();
-	hlist_for_each_entry_rcu(qe, &ima_htable[key], hnext) {
+	htable = rcu_dereference(ima_htable);
+	hlist_for_each_entry_rcu(qe, &htable[key], hnext) {
 		rc = memcmp(qe->entry->digests[ima_hash_algo_idx].digest,
 			    digest_value, hash_digest_size[ima_hash_algo]);
 		if ((rc == 0) && (qe->entry->pcr == pcr)) {
@@ -102,6 +136,7 @@ static int ima_add_digest_entry(struct ima_template_entry *entry,
 				bool update_htable)
 {
 	struct ima_queue_entry *qe;
+	struct hlist_head *htable;
 	unsigned int key;
 
 	qe = kmalloc_obj(*qe);
@@ -114,10 +149,13 @@ static int ima_add_digest_entry(struct ima_template_entry *entry,
 	INIT_LIST_HEAD(&qe->later);
 	list_add_tail_rcu(&qe->later, &ima_measurements);
 
+	htable = rcu_dereference_protected(ima_htable,
+				lockdep_is_held(&ima_extend_list_mutex));
+
 	atomic_long_inc(&ima_num_records);
 	if (update_htable) {
 		key = ima_hash_key(entry->digests[ima_hash_algo_idx].digest);
-		hlist_add_head_rcu(&qe->hnext, &ima_htable[key]);
+		hlist_add_head_rcu(&qe->hnext, &htable[key]);
 	}
 
 	if (binary_runtime_size != ULONG_MAX) {
