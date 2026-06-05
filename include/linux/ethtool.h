@@ -1177,8 +1177,14 @@ struct kernel_ethtool_ts_info {
  * @get_mm_stats: Query the 802.3 MAC Merge layer statistics.
  *
  * All operations are optional (i.e. the function pointer may be set
- * to %NULL) and callers must take this into account.  Callers must
- * hold the RTNL lock or netdev instance lock (see @op_needs_rtnl).
+ * to %NULL) and callers must take this into account.
+ *
+ * For traditional drivers callers hold ``rtnl_lock`` across the call.
+ * For "ops locked" drivers (see Documentation/networking/netdevices.rst)
+ * callers instead hold the netdev instance lock (``netdev_lock_ops``);
+ * ``rtnl_lock`` is additionally held only for callbacks for which
+ * the driver opts in via the matching ``ETHTOOL_OP_NEEDS_RTNL_*`` bit
+ * in @op_needs_rtnl.
  *
  * See the structures used by these operations for further documentation.
  * Note that for all operations using a structure ending with a zero-
