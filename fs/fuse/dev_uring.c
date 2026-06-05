@@ -711,6 +711,7 @@ static int fuse_uring_prepare_send(struct fuse_ring_ent *ent,
 	err = fuse_uring_copy_to_ring(ent, req);
 	if (!err) {
 		set_bit(FR_SENT, &req->flags);
+		trace_fuse_request_sent(req);
 	} else {
 		/*
 		 * Copying the request failed. Remove the entry from the
