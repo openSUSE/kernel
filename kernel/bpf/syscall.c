@@ -2871,8 +2871,22 @@ static bool is_perfmon_prog_type(enum bpf_prog_type prog_type)
 	}
 }
 
+static enum bpf_sig_keyring bpf_classify_keyring(s32 keyring_id)
+{
+	switch (keyring_id) {
+	case 0:
+		return BPF_SIG_KEYRING_BUILTIN;
+	case (s32)(unsigned long)VERIFY_USE_SECONDARY_KEYRING:
+		return BPF_SIG_KEYRING_SECONDARY;
+	case (s32)(unsigned long)VERIFY_USE_PLATFORM_KEYRING:
+		return BPF_SIG_KEYRING_PLATFORM;
+	default:
+		return BPF_SIG_KEYRING_USER;
+	}
+}
+
 static int bpf_prog_verify_signature(struct bpf_prog *prog, union bpf_attr *attr,
-				     bool is_kernel)
+				     bool is_kernel, s32 *keyring_serial)
 {
 	bpfptr_t usig = make_bpfptr(attr->signature, is_kernel);
 	struct bpf_dynptr_kern sig_ptr, insns_ptr;
@@ -2908,7 +2922,8 @@ static int bpf_prog_verify_signature(struct bpf_prog *prog, union bpf_attr *attr
 
 	err = bpf_verify_pkcs7_signature((struct bpf_dynptr *)&insns_ptr,
 					 (struct bpf_dynptr *)&sig_ptr, key);
-
+	if (!err)
+		*keyring_serial = bpf_key_serial(key);
 	bpf_key_put(key);
 	kvfree(sig);
 	return err;
@@ -3095,13 +3110,17 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, struct bpf_log_at
 
 	/* eBPF programs must be GPL compatible to use GPL-ed functions */
 	prog->gpl_compatible = license_is_gpl_compatible(license) ? 1 : 0;
-
 	if (attr->signature) {
-		err = bpf_prog_verify_signature(prog, attr, uattr.is_kernel);
+		err = bpf_prog_verify_signature(prog, attr, uattr.is_kernel,
+						&prog->aux->sig.keyring_serial);
 		if (err)
 			goto free_prog;
+		prog->aux->sig.keyring_type = bpf_classify_keyring(attr->keyring_id);
+		prog->aux->sig.verdict = BPF_SIG_VERIFIED;
+	} else {
+		prog->aux->sig.keyring_type = BPF_SIG_KEYRING_NONE;
+		prog->aux->sig.verdict = BPF_SIG_UNSIGNED;
 	}
-
 	prog->orig_prog = NULL;
 	prog->jited = 0;
 

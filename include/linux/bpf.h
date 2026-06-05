@@ -32,6 +32,7 @@
 #include <linux/static_call.h>
 #include <linux/memcontrol.h>
 #include <linux/cfi.h>
+#include <linux/key.h>
 #include <asm/rqspinlock.h>
 
 struct bpf_verifier_env;
@@ -1674,6 +1675,19 @@ struct bpf_stream_stage {
 	int len;
 };
 
+enum bpf_sig_verdict {
+	BPF_SIG_UNSIGNED = 0,
+	BPF_SIG_VERIFIED,
+};
+
+enum bpf_sig_keyring {
+	BPF_SIG_KEYRING_NONE = 0,
+	BPF_SIG_KEYRING_BUILTIN,
+	BPF_SIG_KEYRING_SECONDARY,
+	BPF_SIG_KEYRING_PLATFORM,
+	BPF_SIG_KEYRING_USER,
+};
+
 struct bpf_prog_aux {
 	atomic64_t refcnt;
 	u32 used_map_cnt;
@@ -1716,6 +1730,11 @@ struct bpf_prog_aux {
 	bool changes_pkt_data;
 	bool might_sleep;
 	bool kprobe_write_ctx;
+	struct {
+		s32 keyring_serial;
+		u8 keyring_type;
+		u8 verdict;
+	} sig;
 	u64 prog_array_member_cnt; /* counts how many times as member of prog_array */
 	struct mutex ext_mutex; /* mutex for is_extended and prog_array_member_cnt */
 	struct bpf_arena *arena;
@@ -3697,8 +3716,14 @@ static inline int bpf_fd_reuseport_array_update_elem(struct bpf_map *map,
 #endif /* CONFIG_BPF_SYSCALL */
 #endif /* defined(CONFIG_INET) && defined(CONFIG_BPF_SYSCALL) */
 
-#if defined(CONFIG_KEYS) && defined(CONFIG_BPF_SYSCALL)
+#ifdef CONFIG_KEYS
+struct bpf_key {
+	struct key *key;
+	bool has_ref;
+};
+#endif /* CONFIG_KEYS */
 
+#if defined(CONFIG_KEYS) && defined(CONFIG_BPF_SYSCALL)
 struct bpf_key *bpf_lookup_user_key(s32 serial, u64 flags);
 struct bpf_key *bpf_lookup_system_key(u64 id);
 void bpf_key_put(struct bpf_key *bkey);
@@ -3706,6 +3731,10 @@ int bpf_verify_pkcs7_signature(const struct bpf_dynptr *data_p,
 			       const struct bpf_dynptr *sig_p,
 			       struct bpf_key *trusted_keyring);
 
+static inline s32 bpf_key_serial(const struct bpf_key *key)
+{
+	return key->has_ref ? key->key->serial : 0;
+}
 #else
 static inline struct bpf_key *bpf_lookup_user_key(u32 serial, u64 flags)
 {
@@ -3726,6 +3755,11 @@ static inline int bpf_verify_pkcs7_signature(const struct bpf_dynptr *data_p,
 					     struct bpf_key *trusted_keyring)
 {
 	return -EOPNOTSUPP;
+}
+
+static inline s32 bpf_key_serial(const struct bpf_key *key)
+{
+	return 0;
 }
 #endif /* defined(CONFIG_KEYS) && defined(CONFIG_BPF_SYSCALL) */
 
@@ -4001,15 +4035,6 @@ void bpf_cgroup_atype_put(int cgroup_atype);
 static inline void bpf_cgroup_atype_get(u32 attach_btf_id, int cgroup_atype) {}
 static inline void bpf_cgroup_atype_put(int cgroup_atype) {}
 #endif /* CONFIG_BPF_LSM */
-
-struct key;
-
-#ifdef CONFIG_KEYS
-struct bpf_key {
-	struct key *key;
-	bool has_ref;
-};
-#endif /* CONFIG_KEYS */
 
 static inline bool type_is_alloc(u32 type)
 {
