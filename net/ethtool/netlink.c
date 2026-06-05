@@ -7,6 +7,7 @@
 #include <linux/phy_link_topology.h>
 #include <linux/pm_runtime.h>
 
+#include "common.h"
 #include "module_fw.h"
 #include "netlink.h"
 
@@ -509,6 +510,7 @@ static int ethnl_default_doit(struct sk_buff *skb, struct genl_info *info)
 	struct ethnl_req_info *req_info = NULL;
 	const u8 cmd = info->genlhdr->cmd;
 	const struct ethnl_request_ops *ops;
+	bool need_rtnl = false;
 	int hdr_len, reply_len;
 	struct sk_buff *rskb;
 	void *reply_payload;
@@ -535,13 +537,17 @@ static int ethnl_default_doit(struct sk_buff *skb, struct genl_info *info)
 	ethnl_init_reply_data(reply_data, ops, req_info->dev);
 
 	if (req_info->dev) {
-		rtnl_lock();
+		need_rtnl = !netdev_need_ops_lock(req_info->dev) ||
+			    ethtool_nl_msg_needs_rtnl(req_info->dev, cmd);
+		if (need_rtnl)
+			rtnl_lock();
 		netdev_lock_ops(req_info->dev);
 	}
 	ret = ops->prepare_data(req_info, reply_data, info);
 	if (req_info->dev) {
 		netdev_unlock_ops(req_info->dev);
-		rtnl_unlock();
+		if (need_rtnl)
+			rtnl_unlock();
 	}
 	if (ret < 0)
 		goto err_dev;
@@ -589,6 +595,7 @@ static int ethnl_default_dump_one(struct sk_buff *skb, struct net_device *dev,
 				  const struct ethnl_dump_ctx *ctx,
 				  const struct genl_info *info)
 {
+	bool need_rtnl;
 	void *ehdr;
 	int ret;
 
@@ -599,11 +606,15 @@ static int ethnl_default_dump_one(struct sk_buff *skb, struct net_device *dev,
 		return -EMSGSIZE;
 
 	ethnl_init_reply_data(ctx->reply_data, ctx->ops, dev);
-	rtnl_lock();
+	need_rtnl = !netdev_need_ops_lock(dev) ||
+		    ethtool_nl_msg_needs_rtnl(dev, ctx->ops->request_cmd);
+	if (need_rtnl)
+		rtnl_lock();
 	netdev_lock_ops(dev);
 	ret = ctx->ops->prepare_data(ctx->req_info, ctx->reply_data, info);
 	netdev_unlock_ops(dev);
-	rtnl_unlock();
+	if (need_rtnl)
+		rtnl_unlock();
 	if (ret < 0)
 		goto out_cancel;
 	ret = ethnl_fill_reply_header(skb, dev, ctx->ops->hdr_attr);

@@ -4,7 +4,7 @@
  * Copyright (C) 2015-2024 Google LLC
  */
 
-#include <linux/rtnetlink.h>
+#include <net/netdev_lock.h>
 #include "gve.h"
 #include "gve_adminq.h"
 #include "gve_dqo.h"
@@ -171,7 +171,7 @@ gve_get_ethtool_stats(struct net_device *netdev,
 	int ring;
 	int i, j;
 
-	ASSERT_RTNL();
+	netdev_assert_locked(netdev);
 
 	priv = netdev_priv(netdev);
 	num_tx_queues = gve_num_tx_queues(priv);

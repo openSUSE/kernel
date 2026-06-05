@@ -80,6 +80,52 @@ int ethtool_get_module_eeprom_call(struct net_device *dev,
 
 bool __ethtool_dev_mm_supported(struct net_device *dev);
 
+/**
+ * ethtool_nl_msg_needs_rtnl() - does this Netlink cmd need rtnl_lock?
+ * @dev: target device
+ * @cmd: ETHTOOL_MSG_* Netlink command value
+ *
+ * Return: true if @cmd is a command for which @dev has opted-in to
+ * keeping rtnl_lock held across the call (via op_needs_rtnl).
+ */
+static inline bool
+ethtool_nl_msg_needs_rtnl(const struct net_device *dev, u8 cmd)
+{
+	const struct ethtool_ops *ops = dev->ethtool_ops;
+
+	switch (cmd) {
+	case ETHTOOL_MSG_LINKINFO_GET:
+	case ETHTOOL_MSG_LINKMODES_GET:
+		return ops->op_needs_rtnl & ETHTOOL_OP_NEEDS_RTNL_LINKSETTINGS;
+	case ETHTOOL_MSG_PAUSE_GET:
+		return ops->op_needs_rtnl & ETHTOOL_OP_NEEDS_RTNL_GPAUSEPARAM;
+	}
+	return false;
+}
+
+/**
+ * ethtool_ioctl_needs_rtnl() - does this legacy ioctl cmd need rtnl_lock?
+ * @dev: target device
+ * @ethcmd: ETHTOOL_* ioctl command value
+ *
+ * Return: true if @ethcmd is a command for which @dev has opted-in to
+ * keeping rtnl_lock held across the call (via op_needs_rtnl).
+ */
+static inline bool
+ethtool_ioctl_needs_rtnl(const struct net_device *dev, u32 ethcmd)
+{
+	const struct ethtool_ops *ops = dev->ethtool_ops;
+
+	switch (ethcmd) {
+	case ETHTOOL_GLINKSETTINGS:
+	case ETHTOOL_GSET:
+		return ops->op_needs_rtnl & ETHTOOL_OP_NEEDS_RTNL_LINKSETTINGS;
+	case ETHTOOL_GPAUSEPARAM:
+		return ops->op_needs_rtnl & ETHTOOL_OP_NEEDS_RTNL_GPAUSEPARAM;
+	}
+	return false;
+}
+
 #if IS_ENABLED(CONFIG_ETHTOOL_NETLINK)
 void ethtool_rss_notify(struct net_device *dev, u32 type, u32 rss_context);
 #else
