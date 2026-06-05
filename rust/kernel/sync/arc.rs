@@ -760,6 +760,14 @@ impl<T> UniqueArc<T> {
     }
 }
 
+impl<T: ?Sized> UniqueArc<T> {
+    /// Return a raw pointer to the data in this [`UniqueArc`].
+    #[inline]
+    pub fn as_ptr(this: &Self) -> *const T {
+        Arc::as_ptr(&this.inner)
+    }
+}
+
 impl<T> UniqueArc<MaybeUninit<T>> {
     /// Converts a `UniqueArc<MaybeUninit<T>>` into a `UniqueArc<T>` by writing a value into it.
     pub fn write(mut self, value: T) -> UniqueArc<T> {
