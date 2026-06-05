@@ -13,6 +13,12 @@
 static struct genl_family ethtool_genl_family;
 
 static bool ethnl_ok __read_mostly;
+
+/* Serializes broadcast notification sequence allocation with the multicast
+ * send, so that userspace observes nlmsg_seq monotonic in receive order
+ * regardless of which lock the caller holds (rtnl or instance lock).
+ */
+static DEFINE_MUTEX(ethnl_bcast_lock);
 static u32 ethnl_bcast_seq;
 
 #define ETHTOOL_FLAGS_BASIC (ETHTOOL_FLAG_COMPACT_BITSETS |	\
@@ -80,12 +86,6 @@ static void ethnl_sock_priv_destroy(void *priv)
 	default:
 		break;
 	}
-}
-
-u32 ethnl_bcast_seq_next(void)
-{
-	ASSERT_RTNL();
-	return ++ethnl_bcast_seq;
 }
 
 int ethnl_ops_begin(struct net_device *dev)
@@ -329,8 +329,7 @@ void *ethnl_dump_put(struct sk_buff *skb, struct netlink_callback *cb, u8 cmd)
 
 void *ethnl_bcastmsg_put(struct sk_buff *skb, u8 cmd)
 {
-	return genlmsg_put(skb, 0, ++ethnl_bcast_seq, &ethtool_genl_family, 0,
-			   cmd);
+	return genlmsg_put(skb, 0, 0, &ethtool_genl_family, 0, cmd);
 }
 
 void *ethnl_unicast_put(struct sk_buff *skb, u32 portid, u32 seq, u8 cmd)
@@ -340,8 +339,15 @@ void *ethnl_unicast_put(struct sk_buff *skb, u32 portid, u32 seq, u8 cmd)
 
 int ethnl_multicast(struct sk_buff *skb, struct net_device *dev)
 {
-	return genlmsg_multicast_netns(&ethtool_genl_family, dev_net(dev), skb,
-				       0, ETHNL_MCGRP_MONITOR, GFP_KERNEL);
+	struct nlmsghdr *nlh = nlmsg_hdr(skb);
+	int ret;
+
+	mutex_lock(&ethnl_bcast_lock);
+	nlh->nlmsg_seq = ++ethnl_bcast_seq;
+	ret = genlmsg_multicast_netns(&ethtool_genl_family, dev_net(dev), skb,
+				      0, ETHNL_MCGRP_MONITOR, GFP_KERNEL);
+	mutex_unlock(&ethnl_bcast_lock);
+	return ret;
 }
 
 /* GET request helpers */
@@ -1081,7 +1087,7 @@ void ethnl_notify(struct net_device *dev, unsigned int cmd,
 {
 	if (unlikely(!ethnl_ok))
 		return;
-	ASSERT_RTNL();
+	netdev_assert_locked_ops_compat(dev);
 
 	if (likely(cmd < ARRAY_SIZE(ethnl_notify_handlers) &&
 		   ethnl_notify_handlers[cmd]))
