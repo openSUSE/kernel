@@ -3098,6 +3098,9 @@ static struct mnt_namespace *create_new_namespace(struct path *path, unsigned in
 	unsigned int copy_flags = 0;
 	bool locked = false;
 
+	if (unlikely(!d_can_lookup(path->dentry)))
+		return ERR_PTR(-ENOTDIR);
+
 	if (user_ns != ns->user_ns)
 		copy_flags |= CL_SLAVE;
 
