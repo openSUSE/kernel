@@ -3058,7 +3058,7 @@ int cxl_validate_translation_params(u8 eiw, u16 eig, int pos)
 		return -EINVAL;
 	}
 	if (pos < 0 || pos >= ways) {
-		pr_debug("%s: invalid pos=%d for ways=%u\n", __func__, pos,
+		pr_debug("%s: invalid pos=%d for ways=%d\n", __func__, pos,
 			 ways);
 		return -EINVAL;
 	}
@@ -3104,7 +3104,7 @@ EXPORT_SYMBOL_FOR_MODULES(cxl_calculate_dpa_offset, "cxl_translate");
 
 int cxl_calculate_position(u64 hpa_offset, u8 eiw, u16 eig)
 {
-	unsigned int ways = 0;
+	int ways = 0;
 	u64 shifted, rem;
 	int pos, ret;
 
