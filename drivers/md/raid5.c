@@ -1138,6 +1138,9 @@ static bool raid5_discard_limits(struct mddev *mddev, struct bio *bi)
 {
 	struct r5conf *conf = mddev->private;
 
+	if (mddev->bitmap_id == ID_LLBITMAP)
+		return true;
+
 	if (!conf->raid5_discard_unsupported)
 		return true;
 
@@ -5739,6 +5742,12 @@ static void make_discard_request(struct mddev *mddev, struct bio *bi)
 	orig_bi->bi_iter = bi_iter;
 	bi->bi_iter = bi_iter;
 	bi->bi_next = NULL;
+
+	if (mddev->bitmap_id == ID_LLBITMAP &&
+	    conf->raid5_discard_unsupported) {
+		bio_endio(bi);
+		return;
+	}
 
 	logical_sector = first_stripe * conf->chunk_sectors;
 	last_sector = last_stripe * conf->chunk_sectors;
