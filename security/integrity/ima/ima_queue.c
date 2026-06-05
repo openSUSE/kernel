@@ -26,6 +26,7 @@
 static struct tpm_digest *digests;
 
 LIST_HEAD(ima_measurements);	/* list of all measurements */
+LIST_HEAD(ima_measurements_staged); /* list of staged measurements */
 #ifdef CONFIG_IMA_KEXEC
 static unsigned long binary_runtime_size[BINARY__LAST];
 #else
@@ -42,7 +43,7 @@ atomic_long_t ima_num_violations = ATOMIC_LONG_INIT(0);
 /* key: inode (before secure-hashing a file) */
 struct hlist_head __rcu *ima_htable;
 
-/* mutex protects atomicity of extending measurement list
+/* mutex protects atomicity of extending and staging measurement list
  * and extending the TPM PCR aggregate. Since tpm_extend can take
  * long (and the tpm driver uses a mutex), we can't use the spinlock.
  */
@@ -171,12 +172,16 @@ static int ima_add_digest_entry(struct ima_template_entry *entry,
 				lockdep_is_held(&ima_extend_list_mutex));
 
 	atomic_long_inc(&ima_num_records[BINARY]);
+	atomic_long_inc(&ima_num_records[BINARY_FULL]);
+
 	if (update_htable) {
 		key = ima_hash_key(entry->digests[ima_hash_algo_idx].digest);
 		hlist_add_head_rcu(&qe->hnext, &htable[key]);
 	}
 
 	ima_update_binary_runtime_size(entry, BINARY);
+	ima_update_binary_runtime_size(entry, BINARY_FULL);
+
 	return 0;
 }
 
@@ -275,6 +280,139 @@ out:
 	integrity_audit_msg(AUDIT_INTEGRITY_PCR, inode, filename,
 			    op, audit_cause, result, audit_info);
 	return result;
+}
+
+/**
+ * ima_queue_stage - Stage all measurements
+ *
+ * If the staged measurements list is empty, the current measurements list is
+ * not empty, and measurement is not suspended, move the measurements from the
+ * current list to the staged one, and update the number of records and binary
+ * run-time size accordingly.
+ *
+ * Do not allow staging after measurement is suspended, so that dumping
+ * measurements can be done in a lockless way.
+ *
+ * Return: Zero on success, a negative value otherwise.
+ */
+int ima_queue_stage(void)
+{
+	int ret = 0;
+
+	mutex_lock(&ima_extend_list_mutex);
+	if (!list_empty(&ima_measurements_staged)) {
+		ret = -EEXIST;
+		goto out_unlock;
+	}
+
+	if (list_empty(&ima_measurements)) {
+		ret = -ENOENT;
+		goto out_unlock;
+	}
+
+	if (ima_measurements_suspended) {
+		ret = -EACCES;
+		goto out_unlock;
+	}
+
+	list_replace(&ima_measurements, &ima_measurements_staged);
+	INIT_LIST_HEAD(&ima_measurements);
+
+	atomic_long_set(&ima_num_records[BINARY_STAGED],
+			atomic_long_read(&ima_num_records[BINARY]));
+	atomic_long_set(&ima_num_records[BINARY], 0);
+
+	if (IS_ENABLED(CONFIG_IMA_KEXEC)) {
+		binary_runtime_size[BINARY_STAGED] =
+					binary_runtime_size[BINARY];
+		binary_runtime_size[BINARY] = 0;
+	}
+out_unlock:
+	mutex_unlock(&ima_extend_list_mutex);
+	return ret;
+}
+
+static void ima_queue_delete(struct list_head *head);
+
+/**
+ * ima_queue_staged_delete_all - Delete staged measurements
+ *
+ * Move staged measurements to a temporary list, ima_measurements_trim, update
+ * the number of records and the binary run-time size accordingly. Finally,
+ * delete measurements in the temporary list.
+ *
+ * Refuse to delete staged measurements if measurement is suspended, so that
+ * dump can be done in a lockless way and user space is notified about staged
+ * measurements being carried over to the secondary kernel, so that it does not
+ * save them twice.
+ *
+ * Return: Zero on success, a negative value otherwise.
+ */
+int ima_queue_staged_delete_all(void)
+{
+	LIST_HEAD(ima_measurements_trim);
+
+	mutex_lock(&ima_extend_list_mutex);
+	if (list_empty(&ima_measurements_staged)) {
+		mutex_unlock(&ima_extend_list_mutex);
+		return -ENOENT;
+	}
+
+	if (ima_measurements_suspended) {
+		mutex_unlock(&ima_extend_list_mutex);
+		return -ESTALE;
+	}
+
+	list_replace(&ima_measurements_staged, &ima_measurements_trim);
+	INIT_LIST_HEAD(&ima_measurements_staged);
+
+	atomic_long_set(&ima_num_records[BINARY_STAGED], 0);
+
+	if (IS_ENABLED(CONFIG_IMA_KEXEC))
+		binary_runtime_size[BINARY_STAGED] = 0;
+
+	mutex_unlock(&ima_extend_list_mutex);
+
+	ima_queue_delete(&ima_measurements_trim);
+	return 0;
+}
+
+/**
+ * ima_queue_delete - Delete measurements
+ * @head: List head measurements are deleted from
+ *
+ * Delete the measurements from the passed list head completely if the
+ * hash table is not enabled, or partially (only the template data), if the
+ * hash table is used.
+ */
+static void ima_queue_delete(struct list_head *head)
+{
+	struct ima_queue_entry *qe, *qe_tmp;
+	unsigned int i;
+
+	list_for_each_entry_safe(qe, qe_tmp, head, later) {
+		/*
+		 * Safe to free template_data here without synchronize_rcu()
+		 * because the only htable reader, ima_lookup_digest_entry(),
+		 * accesses only entry->digests, not template_data. If new
+		 * htable readers are added that access template_data, a
+		 * synchronize_rcu() is required here.
+		 */
+		for (i = 0; i < qe->entry->template_desc->num_fields; i++) {
+			kfree(qe->entry->template_data[i].data);
+			qe->entry->template_data[i].data = NULL;
+			qe->entry->template_data[i].len = 0;
+		}
+
+		list_del(&qe->later);
+
+		/* No leak if condition is false, referenced by ima_htable. */
+		if (IS_ENABLED(CONFIG_IMA_DISABLE_HTABLE)) {
+			kfree(qe->entry->digests);
+			kfree(qe->entry);
+			kfree(qe);
+		}
+	}
 }
 
 int ima_restore_measurement_entry(struct ima_template_entry *entry)

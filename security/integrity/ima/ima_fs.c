@@ -24,6 +24,13 @@
 
 #include "ima.h"
 
+/*
+ * Requests:
+ * 'A\n': stage the entire measurements list
+ * 'D\n': delete all staged measurements
+ */
+#define STAGED_REQ_LENGTH 21
+
 static DEFINE_MUTEX(ima_write_mutex);
 static DEFINE_MUTEX(ima_measure_mutex);
 static long ima_measure_users;
@@ -99,6 +106,11 @@ static void *ima_measurements_start(struct seq_file *m, loff_t *pos)
 	return _ima_measurements_start(m, pos, &ima_measurements);
 }
 
+static void *ima_measurements_staged_start(struct seq_file *m, loff_t *pos)
+{
+	return _ima_measurements_start(m, pos, &ima_measurements_staged);
+}
+
 static void *_ima_measurements_next(struct seq_file *m, void *v, loff_t *pos,
 				    struct list_head *head)
 {
@@ -118,6 +130,12 @@ static void *_ima_measurements_next(struct seq_file *m, void *v, loff_t *pos,
 static void *ima_measurements_next(struct seq_file *m, void *v, loff_t *pos)
 {
 	return _ima_measurements_next(m, v, pos, &ima_measurements);
+}
+
+static void *ima_measurements_staged_next(struct seq_file *m, void *v,
+					  loff_t *pos)
+{
+	return _ima_measurements_next(m, v, pos, &ima_measurements_staged);
 }
 
 static void ima_measurements_stop(struct seq_file *m, void *v)
@@ -209,6 +227,13 @@ int ima_measurements_show(struct seq_file *m, void *v)
 static const struct seq_operations ima_measurments_seqops = {
 	.start = ima_measurements_start,
 	.next = ima_measurements_next,
+	.stop = ima_measurements_stop,
+	.show = ima_measurements_show
+};
+
+static const struct seq_operations ima_measurments_staged_seqops = {
+	.start = ima_measurements_staged_start,
+	.next = ima_measurements_staged_next,
 	.stop = ima_measurements_stop,
 	.show = ima_measurements_show
 };
@@ -307,9 +332,71 @@ static int ima_measurements_release(struct inode *inode, struct file *file)
 	return ret;
 }
 
+static int ima_measurements_staged_open(struct inode *inode, struct file *file)
+{
+	return _ima_measurements_open(inode, file,
+				      &ima_measurments_staged_seqops);
+}
+
+static ssize_t _ima_measurements_write(struct file *file,
+				       const char __user *buf, size_t datalen,
+				       loff_t *ppos, bool staged_interface)
+{
+	char req[STAGED_REQ_LENGTH];
+	int ret;
+
+	if (datalen < 2 || datalen > STAGED_REQ_LENGTH)
+		return -EINVAL;
+
+	if (copy_from_user(req, buf, datalen) != 0)
+		return -EFAULT;
+
+	if (req[datalen - 1] != '\n')
+		return -EINVAL;
+
+	req[datalen - 1] = '\0';
+
+	switch (req[0]) {
+	case 'A':
+		if (datalen != 2 || !staged_interface)
+			return -EINVAL;
+
+		ret = ima_queue_stage();
+		break;
+	case 'D':
+		if (datalen != 2 || !staged_interface)
+			return -EINVAL;
+
+		ret = ima_queue_staged_delete_all();
+		break;
+	default:
+		ret = -EINVAL;
+	}
+
+	if (ret < 0)
+		return ret;
+
+	return datalen;
+}
+
+static ssize_t ima_measurements_staged_write(struct file *file,
+					     const char __user *buf,
+					     size_t datalen, loff_t *ppos)
+{
+	return _ima_measurements_write(file, buf, datalen, ppos, true);
+}
+
 static const struct file_operations ima_measurements_ops = {
 	.open = ima_measurements_open,
 	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = ima_measurements_release,
+};
+
+static const struct file_operations ima_measurements_staged_ops = {
+	.open = ima_measurements_staged_open,
+	.read = seq_read,
+	.write = ima_measurements_staged_write,
 	.llseek = seq_lseek,
 	.release = ima_measurements_release,
 };
@@ -383,6 +470,28 @@ static int ima_ascii_measurements_open(struct inode *inode, struct file *file)
 static const struct file_operations ima_ascii_measurements_ops = {
 	.open = ima_ascii_measurements_open,
 	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = ima_measurements_release,
+};
+
+static const struct seq_operations ima_ascii_measurements_staged_seqops = {
+	.start = ima_measurements_staged_start,
+	.next = ima_measurements_staged_next,
+	.stop = ima_measurements_stop,
+	.show = ima_ascii_measurements_show
+};
+
+static int ima_ascii_measurements_staged_open(struct inode *inode,
+					      struct file *file)
+{
+	return _ima_measurements_open(inode, file,
+				      &ima_ascii_measurements_staged_seqops);
+}
+
+static const struct file_operations ima_ascii_measurements_staged_ops = {
+	.open = ima_ascii_measurements_staged_open,
+	.read = seq_read,
+	.write = ima_measurements_staged_write,
 	.llseek = seq_lseek,
 	.release = ima_measurements_release,
 };
@@ -490,9 +599,20 @@ static const struct seq_operations ima_policy_seqops = {
 };
 #endif
 
-static int __init create_securityfs_measurement_lists(void)
+static int __init create_securityfs_measurement_lists(bool staging)
 {
+	const struct file_operations *ascii_ops = &ima_ascii_measurements_ops;
+	const struct file_operations *binary_ops = &ima_measurements_ops;
+	umode_t permissions = (S_IRUSR | S_IRGRP);
+	const char *file_suffix = "";
 	int count = NR_BANKS(ima_tpm_chip);
+
+	if (staging) {
+		ascii_ops = &ima_ascii_measurements_staged_ops;
+		binary_ops = &ima_measurements_staged_ops;
+		permissions |= (S_IWUSR | S_IWGRP);
+		file_suffix = "_staged";
+	}
 
 	if (ima_sha1_idx >= NR_BANKS(ima_tpm_chip))
 		count++;
@@ -504,32 +624,52 @@ static int __init create_securityfs_measurement_lists(void)
 
 		if (algo == HASH_ALGO__LAST)
 			snprintf(file_name, sizeof(file_name),
-				 "ascii_runtime_measurements_tpm_alg_%x",
-				 ima_tpm_chip->allocated_banks[i].alg_id);
+				 "ascii_runtime_measurements_tpm_alg_%x%s",
+				 ima_tpm_chip->allocated_banks[i].alg_id,
+				 file_suffix);
 		else
 			snprintf(file_name, sizeof(file_name),
-				 "ascii_runtime_measurements_%s",
-				 hash_algo_name[algo]);
-		dentry = securityfs_create_file(file_name, S_IRUSR | S_IRGRP,
+				 "ascii_runtime_measurements_%s%s",
+				 hash_algo_name[algo], file_suffix);
+		dentry = securityfs_create_file(file_name, permissions,
 						ima_dir, (void *)(uintptr_t)i,
-						&ima_ascii_measurements_ops);
+						ascii_ops);
 		if (IS_ERR(dentry))
 			return PTR_ERR(dentry);
 
 		if (algo == HASH_ALGO__LAST)
 			snprintf(file_name, sizeof(file_name),
-				 "binary_runtime_measurements_tpm_alg_%x",
-				 ima_tpm_chip->allocated_banks[i].alg_id);
+				 "binary_runtime_measurements_tpm_alg_%x%s",
+				 ima_tpm_chip->allocated_banks[i].alg_id,
+				 file_suffix);
 		else
 			snprintf(file_name, sizeof(file_name),
-				 "binary_runtime_measurements_%s",
-				 hash_algo_name[algo]);
-		dentry = securityfs_create_file(file_name, S_IRUSR | S_IRGRP,
+				 "binary_runtime_measurements_%s%s",
+				 hash_algo_name[algo], file_suffix);
+
+		dentry = securityfs_create_file(file_name, permissions,
 						ima_dir, (void *)(uintptr_t)i,
-						&ima_measurements_ops);
+						binary_ops);
 		if (IS_ERR(dentry))
 			return PTR_ERR(dentry);
 	}
+
+	return 0;
+}
+
+static int __init create_securityfs_staging_links(void)
+{
+	struct dentry *dentry;
+
+	dentry = securityfs_create_symlink("binary_runtime_measurements_staged",
+		ima_dir, "binary_runtime_measurements_sha1_staged", NULL);
+	if (IS_ERR(dentry))
+		return PTR_ERR(dentry);
+
+	dentry = securityfs_create_symlink("ascii_runtime_measurements_staged",
+		ima_dir, "ascii_runtime_measurements_sha1_staged", NULL);
+	if (IS_ERR(dentry))
+		return PTR_ERR(dentry);
 
 	return 0;
 }
@@ -626,7 +766,13 @@ int __init ima_fs_init(void)
 		goto out;
 	}
 
-	ret = create_securityfs_measurement_lists();
+	ret = create_securityfs_measurement_lists(false);
+	if (ret == 0 && IS_ENABLED(CONFIG_IMA_STAGING)) {
+		ret = create_securityfs_measurement_lists(true);
+		if (ret == 0)
+			ret = create_securityfs_staging_links();
+	}
+
 	if (ret != 0)
 		goto out;
 
