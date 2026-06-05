@@ -3200,13 +3200,12 @@ again:
 			goto again;
 		}
 	}
-	if (ret) {
+	if (WARN_ON(ret)) {
 		ASSERT(ret == 1);
 		btrfs_print_leaf(path->nodes[0]);
 		btrfs_err(fs_info,
 	     "tree block extent item (%llu) is not found in extent tree",
 		     bytenr);
-		WARN_ON(1);
 		return -EINVAL;
 	}
 
