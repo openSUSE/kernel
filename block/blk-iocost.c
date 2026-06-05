@@ -3140,6 +3140,10 @@ static ssize_t ioc_weight_write(struct kernfs_open_file *of, char *buf,
 
 	blkg_conf_init(&ctx, buf);
 
+	ret = blkg_conf_open_bdev(&ctx);
+	if (ret)
+		goto err;
+
 	ret = blkg_conf_prep(blkcg, &blkcg_policy_iocost, &ctx);
 	if (ret)
 		goto err;

@@ -1052,6 +1052,10 @@ static ssize_t bfq_io_set_device_weight(struct kernfs_open_file *of,
 
 	blkg_conf_init(&ctx, buf);
 
+	ret = blkg_conf_open_bdev(&ctx);
+	if (ret)
+		goto out;
+
 	ret = blkg_conf_prep(blkcg, &blkcg_policy_bfq, &ctx);
 	if (ret)
 		goto out;
