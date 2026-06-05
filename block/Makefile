@@ -3,6 +3,8 @@
 # Makefile for the kernel block layer
 #
 
+CONTEXT_ANALYSIS := y
+
 obj-y		:= bdev.o fops.o bio.o elevator.o blk-core.o blk-sysfs.o \
 			blk-flush.o blk-settings.o blk-ioc.o blk-map.o \
 			blk-merge.o blk-timeout.o blk-lib.o blk-mq.o \
