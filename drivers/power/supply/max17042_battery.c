@@ -1296,7 +1296,6 @@ static int max17042_platform_probe(struct platform_device *pdev)
 	return max17042_probe(i2c, dev, irq, id->driver_data);
 }
 
-#ifdef CONFIG_PM_SLEEP
 static int max17042_suspend(struct device *dev)
 {
 	struct max17042_chip *chip = dev_get_drvdata(dev);
@@ -1327,10 +1326,9 @@ static int max17042_resume(struct device *dev)
 
 	return 0;
 }
-#endif
 
-static SIMPLE_DEV_PM_OPS(max17042_pm_ops, max17042_suspend,
-			max17042_resume);
+static DEFINE_SIMPLE_DEV_PM_OPS(max17042_pm_ops, max17042_suspend,
+				max17042_resume);
 
 #ifdef CONFIG_ACPI
 static const struct acpi_device_id max17042_acpi_match[] = {
@@ -1397,7 +1395,7 @@ static struct i2c_driver max17042_i2c_driver = {
 		.name	= "max17042",
 		.acpi_match_table = ACPI_PTR(max17042_acpi_match),
 		.of_match_table = of_match_ptr(max17042_dt_match),
-		.pm	= &max17042_pm_ops,
+		.pm	= pm_ptr(&max17042_pm_ops),
 	},
 	.probe		= max17042_i2c_probe,
 	.id_table	= max17042_id,
@@ -1407,7 +1405,7 @@ static struct platform_driver max17042_platform_driver = {
 	.driver	= {
 		.name	= "max17042",
 		.acpi_match_table = ACPI_PTR(max17042_acpi_match),
-		.pm	= &max17042_pm_ops,
+		.pm	= pm_ptr(&max17042_pm_ops),
 	},
 	.probe		= max17042_platform_probe,
 	.id_table	= max17042_platform_id,
