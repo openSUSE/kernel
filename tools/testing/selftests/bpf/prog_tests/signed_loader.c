@@ -17,8 +17,22 @@
 #include "test_signed_loader.skel.h"
 #include "test_signed_loader_map.skel.h"
 #include "test_signed_loader_data.skel.h"
+#include "test_signed_loader_lsm.skel.h"
 
 #define SIG_MATCH_INSNS 33 /* excl (5) + 4 * sha-dword (7) */
+
+enum {
+	BPF_SIG_UNSIGNED = 0,
+	BPF_SIG_VERIFIED,
+};
+
+enum {
+	BPF_SIG_KEYRING_NONE = 0,
+	BPF_SIG_KEYRING_BUILTIN,
+	BPF_SIG_KEYRING_SECONDARY,
+	BPF_SIG_KEYRING_PLATFORM,
+	BPF_SIG_KEYRING_USER,
+};
 
 static int load_loader(const void *insns, __u32 insns_sz, int map_fd,
 		       const void *sig, __u32 sig_sz, __s32 keyring_id)
@@ -970,6 +984,112 @@ static void map_hash_unsupported_type(void)
 	close(fd);
 }
 
+static int setup_meta_map(const struct gen_loader_fixture *f)
+{
+	LIBBPF_OPTS(bpf_map_create_opts, mopts,
+		    .excl_prog_hash = f->excl,
+		    .excl_prog_hash_size = sizeof(f->excl));
+	__u32 key = 0;
+	int fd;
+
+	fd = bpf_map_create(BPF_MAP_TYPE_ARRAY, "__loader.map", 4,
+			    f->data_sz, 1, &mopts);
+	if (fd < 0)
+		return -errno;
+	if (bpf_map_update_elem(fd, &key, f->blob, 0) || bpf_map_freeze(fd)) {
+		close(fd);
+		return -errno;
+	}
+	return fd;
+}
+
+static void lsm_signature_verdict(void)
+{
+	char dir_tmpl[] = "/tmp/signed_loader_lsmXXXXXX", *dir = NULL;
+	struct test_signed_loader_lsm *lsm = NULL;
+	int map_fd = -1, prog_fd = -1;
+	bool have_fixture = false;
+	struct gen_loader_fixture f;
+	__u32 sig_sz = 8192;
+	__s32 ses_serial;
+	__u8 sig[8192];
+
+	lsm = test_signed_loader_lsm__open_and_load();
+	if (!ASSERT_OK_PTR(lsm, "lsm_skel_load"))
+		return;
+	lsm->bss->monitored_tid = sys_gettid();
+	if (!ASSERT_OK(test_signed_loader_lsm__attach(lsm), "lsm_attach"))
+		goto out;
+
+	have_fixture = true;
+	if (gen_loader_fixture_init(&f) != 0)
+		goto out;
+
+	map_fd = setup_meta_map(&f);
+	if (!ASSERT_OK_FD(map_fd, "meta_map_unsigned"))
+		goto out;
+	lsm->bss->seen = 0;
+	prog_fd = load_loader(f.gopts.insns, f.gopts.insns_sz, map_fd, NULL, 0, 0);
+	close(map_fd);
+	map_fd = -1;
+	if (!ASSERT_OK_FD(prog_fd, "unsigned loader load"))
+		goto out;
+	close(prog_fd);
+	prog_fd = -1;
+	if (!ASSERT_NEQ(lsm->bss->seen, 0, "bpf LSM in the active LSM set"))
+		goto out;
+	ASSERT_EQ(lsm->bss->seen, 1, "unsigned: one observed load");
+	ASSERT_EQ(lsm->bss->sig_verdict, BPF_SIG_UNSIGNED, "unsigned verdict");
+	ASSERT_EQ(lsm->bss->sig_keyring_type, BPF_SIG_KEYRING_NONE, "unsigned keyring type");
+	ASSERT_EQ(lsm->bss->sig_keyring_serial, 0, "unsigned: no keyring serial");
+
+	syscall(__NR_request_key, "keyring", "_uid.0", NULL,
+		KEY_SPEC_SESSION_KEYRING);
+	dir = mkdtemp(dir_tmpl);
+	if (!ASSERT_OK_PTR(dir, "mkdtemp"))
+		goto out;
+	if (!ASSERT_OK(run_setup("setup", dir), "verify_sig_setup")) {
+		rmdir(dir);
+		dir = NULL;
+		goto out;
+	}
+	if (!ASSERT_OK(sign_buf(dir, f.gopts.insns, f.gopts.insns_sz, sig,
+				&sig_sz), "sign-file"))
+		goto out;
+
+	map_fd = setup_meta_map(&f);
+	if (!ASSERT_OK_FD(map_fd, "meta_map_signed"))
+		goto out;
+	lsm->bss->seen = 0;
+	prog_fd = load_loader(f.gopts.insns, f.gopts.insns_sz, map_fd, sig,
+			      sig_sz, KEY_SPEC_SESSION_KEYRING);
+	close(map_fd);
+	map_fd = -1;
+	if (!ASSERT_OK_FD(prog_fd, "signed loader load"))
+		goto out;
+	close(prog_fd);
+	prog_fd = -1;
+
+	ses_serial = syscall(__NR_keyctl, KEYCTL_GET_KEYRING_ID,
+			     KEY_SPEC_SESSION_KEYRING, 0);
+	ASSERT_EQ(lsm->bss->seen, 1, "signed: one observed load");
+	ASSERT_EQ(lsm->bss->sig_verdict, BPF_SIG_VERIFIED, "signed verdict");
+	ASSERT_EQ(lsm->bss->sig_keyring_type, BPF_SIG_KEYRING_USER, "signed keyring type");
+	ASSERT_GT(ses_serial, 0, "session keyring serial resolved");
+	ASSERT_EQ(lsm->bss->sig_keyring_serial, ses_serial,
+		  "signed: validated against session keyring");
+out:
+	if (map_fd >= 0)
+		close(map_fd);
+	if (prog_fd >= 0)
+		close(prog_fd);
+	if (have_fixture)
+		gen_loader_fixture_fini(&f);
+	if (dir)
+		run_setup("cleanup", dir);
+	test_signed_loader_lsm__destroy(lsm);
+}
+
 void test_signed_loader(void)
 {
 	if (test__start_subtest("metadata_check_shape"))
@@ -1010,4 +1130,6 @@ void test_signed_loader(void)
 		map_hash_bad_size();
 	if (test__start_subtest("map_hash_unsupported_type"))
 		map_hash_unsupported_type();
+	if (test__start_subtest("lsm_signature_verdict"))
+		lsm_signature_verdict();
 }
