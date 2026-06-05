@@ -3239,7 +3239,7 @@ static ssize_t ioc_qos_write(struct kernfs_open_file *of, char *input,
 	bool enable, user;
 	char *body, *p;
 	unsigned long memflags;
-	int ret;
+	int ret = 0;
 
 	blkg_conf_init(&ctx, input);
 
@@ -3251,14 +3251,14 @@ static ssize_t ioc_qos_write(struct kernfs_open_file *of, char *input,
 	disk = ctx.bdev->bd_disk;
 	if (!queue_is_mq(disk->queue)) {
 		ret = -EOPNOTSUPP;
-		goto err;
+		goto close_bdev;
 	}
 
 	ioc = q_to_ioc(disk->queue);
 	if (!ioc) {
 		ret = blk_iocost_init(disk);
 		if (ret)
-			goto err;
+			goto close_bdev;
 		ioc = q_to_ioc(disk->queue);
 	}
 
@@ -3362,15 +3362,15 @@ static ssize_t ioc_qos_write(struct kernfs_open_file *of, char *input,
 
 	blk_mq_unquiesce_queue(disk->queue);
 
+close_bdev:
 	blkg_conf_close_bdev_frozen(&ctx, memflags);
-	return nbytes;
+	return ret ?: nbytes;
+
 einval:
 	spin_unlock_irq(&ioc->lock);
 	blk_mq_unquiesce_queue(disk->queue);
 	ret = -EINVAL;
-err:
-	blkg_conf_close_bdev_frozen(&ctx, memflags);
-	return ret;
+	goto close_bdev;
 }
 
 static u64 ioc_cost_model_prfill(struct seq_file *sf,
