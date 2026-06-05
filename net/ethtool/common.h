@@ -95,10 +95,24 @@ ethtool_nl_msg_needs_rtnl(const struct net_device *dev, u8 cmd)
 
 	switch (cmd) {
 	case ETHTOOL_MSG_LINKINFO_GET:
+	case ETHTOOL_MSG_LINKINFO_SET:
 	case ETHTOOL_MSG_LINKMODES_GET:
+	case ETHTOOL_MSG_LINKMODES_SET:
 		return ops->op_needs_rtnl & ETHTOOL_OP_NEEDS_RTNL_LINKSETTINGS;
+	case ETHTOOL_MSG_PRIVFLAGS_SET:
+		return ops->op_needs_rtnl & ETHTOOL_OP_NEEDS_RTNL_SPFLAGS;
+	case ETHTOOL_MSG_RINGS_SET:
+		return ops->op_needs_rtnl & ETHTOOL_OP_NEEDS_RTNL_SRINGPARAM;
+	case ETHTOOL_MSG_CHANNELS_SET:
+		return ops->op_needs_rtnl & ETHTOOL_OP_NEEDS_RTNL_SCHANNELS;
+	case ETHTOOL_MSG_COALESCE_SET:
+		return ops->op_needs_rtnl & ETHTOOL_OP_NEEDS_RTNL_SCOALESCE;
 	case ETHTOOL_MSG_PAUSE_GET:
 		return ops->op_needs_rtnl & ETHTOOL_OP_NEEDS_RTNL_GPAUSEPARAM;
+	case ETHTOOL_MSG_PAUSE_SET:
+		return ops->op_needs_rtnl & ETHTOOL_OP_NEEDS_RTNL_SPAUSEPARAM;
+	case ETHTOOL_MSG_RSS_SET:
+		return ops->op_needs_rtnl & ETHTOOL_OP_NEEDS_RTNL_RSS;
 	}
 	return false;
 }
@@ -119,9 +133,25 @@ ethtool_ioctl_needs_rtnl(const struct net_device *dev, u32 ethcmd)
 	switch (ethcmd) {
 	case ETHTOOL_GLINKSETTINGS:
 	case ETHTOOL_GSET:
+	case ETHTOOL_SLINKSETTINGS:
+	case ETHTOOL_SSET:
 		return ops->op_needs_rtnl & ETHTOOL_OP_NEEDS_RTNL_LINKSETTINGS;
+	case ETHTOOL_SPFLAGS:
+		return ops->op_needs_rtnl & ETHTOOL_OP_NEEDS_RTNL_SPFLAGS;
+	case ETHTOOL_SRINGPARAM:
+		return ops->op_needs_rtnl & ETHTOOL_OP_NEEDS_RTNL_SRINGPARAM;
+	case ETHTOOL_SCHANNELS:
+		return ops->op_needs_rtnl & ETHTOOL_OP_NEEDS_RTNL_SCHANNELS;
+	case ETHTOOL_SCOALESCE:
+		return ops->op_needs_rtnl & ETHTOOL_OP_NEEDS_RTNL_SCOALESCE;
 	case ETHTOOL_GPAUSEPARAM:
 		return ops->op_needs_rtnl & ETHTOOL_OP_NEEDS_RTNL_GPAUSEPARAM;
+	case ETHTOOL_SPAUSEPARAM:
+		return ops->op_needs_rtnl & ETHTOOL_OP_NEEDS_RTNL_SPAUSEPARAM;
+	case ETHTOOL_SRSSH:
+	case ETHTOOL_SRXFH:
+	case ETHTOOL_SRXFHINDIR:
+		return ops->op_needs_rtnl & ETHTOOL_OP_NEEDS_RTNL_RSS;
 	}
 	return false;
 }

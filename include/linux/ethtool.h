@@ -935,7 +935,13 @@ struct kernel_ethtool_ts_info {
  * these bits separate, per GET and SET. GET is much easier to "unlock".
  */
 #define ETHTOOL_OP_NEEDS_RTNL_LINKSETTINGS	BIT(0)
-#define ETHTOOL_OP_NEEDS_RTNL_GPAUSEPARAM	BIT(1)
+#define ETHTOOL_OP_NEEDS_RTNL_SPFLAGS		BIT(1)
+#define ETHTOOL_OP_NEEDS_RTNL_SRINGPARAM	BIT(2)
+#define ETHTOOL_OP_NEEDS_RTNL_SCHANNELS		BIT(3)
+#define ETHTOOL_OP_NEEDS_RTNL_SCOALESCE		BIT(4)
+#define ETHTOOL_OP_NEEDS_RTNL_GPAUSEPARAM	BIT(5)
+#define ETHTOOL_OP_NEEDS_RTNL_SPAUSEPARAM	BIT(6)
+#define ETHTOOL_OP_NEEDS_RTNL_RSS		BIT(7)
 
 /**
  * struct ethtool_ops - optional netdev operations
@@ -970,6 +976,8 @@ struct kernel_ethtool_ts_info {
  *	The following commonly used core APIs currently require rtnl_lock
  *	(this list may not be exhaustive):
  *	 - phylink helpers (note that phydev is currently unsupported!)
+ *	 - netdev_update_features()
+ *	 - netif_set_real_num_tx_queues()
  *
  * @get_drvinfo: Report driver/device information. Modern drivers no
  *	longer have to implement this callback. Most fields are

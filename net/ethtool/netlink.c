@@ -903,6 +903,7 @@ static int ethnl_default_set_doit(struct sk_buff *skb, struct genl_info *info)
 	const u8 cmd = info->genlhdr->cmd;
 	struct ethnl_req_info *req_info;
 	struct net_device *dev;
+	bool need_rtnl;
 	int ret;
 
 	ops = ethnl_default_requests[cmd];
@@ -927,8 +928,11 @@ static int ethnl_default_set_doit(struct sk_buff *skb, struct genl_info *info)
 	}
 
 	dev = req_info->dev;
+	need_rtnl = !netdev_need_ops_lock(dev) ||
+		    ethtool_nl_msg_needs_rtnl(dev, cmd);
 
-	rtnl_lock();
+	if (need_rtnl)
+		rtnl_lock();
 	netdev_lock_ops(dev);
 	dev->cfg_pending = kmemdup(dev->cfg, sizeof(*dev->cfg),
 				   GFP_KERNEL_ACCOUNT);
@@ -958,7 +962,8 @@ out_free_cfg:
 out_tie_cfg:
 	dev->cfg_pending = dev->cfg;
 	netdev_unlock_ops(dev);
-	rtnl_unlock();
+	if (need_rtnl)
+		rtnl_unlock();
 out_dev:
 	ethnl_parse_header_dev_put(req_info);
 out_free_req:
