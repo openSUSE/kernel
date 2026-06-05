@@ -1120,7 +1120,7 @@ int rpcrdma_buffer_create(struct rpcrdma_xprt *r_xprt)
 	INIT_LIST_HEAD(&buf->rb_all_mrs);
 	INIT_WORK(&buf->rb_refresh_worker, rpcrdma_mr_refresh_worker);
 
-	INIT_LIST_HEAD(&buf->rb_send_bufs);
+	init_llist_head(&buf->rb_send_bufs);
 	INIT_LIST_HEAD(&buf->rb_allreqs);
 	INIT_LIST_HEAD(&buf->rb_all_reps);
 
@@ -1134,7 +1134,7 @@ int rpcrdma_buffer_create(struct rpcrdma_xprt *r_xprt)
 					 RPCRDMA_V1_DEF_INLINE_SIZE * 2);
 		if (!req)
 			goto out;
-		list_add(&req->rl_list, &buf->rb_send_bufs);
+		llist_add(&req->rl_node, &buf->rb_send_bufs);
 	}
 
 	init_llist_head(&buf->rb_free_reps);
@@ -1214,16 +1214,14 @@ static void rpcrdma_mrs_destroy(struct rpcrdma_xprt *r_xprt)
 void
 rpcrdma_buffer_destroy(struct rpcrdma_buffer *buf)
 {
+	struct rpcrdma_req *req, *next;
+	struct llist_node *node;
+
 	rpcrdma_reps_destroy(buf);
 
-	while (!list_empty(&buf->rb_send_bufs)) {
-		struct rpcrdma_req *req;
-
-		req = list_first_entry(&buf->rb_send_bufs,
-				       struct rpcrdma_req, rl_list);
-		list_del(&req->rl_list);
+	node = llist_del_all(&buf->rb_send_bufs);
+	llist_for_each_entry_safe(req, next, node, rl_node)
 		rpcrdma_req_destroy(req);
-	}
 }
 
 /**
@@ -1270,15 +1268,15 @@ void rpcrdma_reply_put(struct rpcrdma_buffer *buffers, struct rpcrdma_req *req)
 struct rpcrdma_req *
 rpcrdma_buffer_get(struct rpcrdma_buffer *buffers)
 {
-	struct rpcrdma_req *req;
+	struct llist_node *node;
 
+	/* Calls to llist_del_first are required to be serialized */
 	spin_lock(&buffers->rb_lock);
-	req = list_first_entry_or_null(&buffers->rb_send_bufs,
-				       struct rpcrdma_req, rl_list);
-	if (req)
-		list_del_init(&req->rl_list);
+	node = llist_del_first(&buffers->rb_send_bufs);
 	spin_unlock(&buffers->rb_lock);
-	return req;
+	if (!node)
+		return NULL;
+	return llist_entry(node, struct rpcrdma_req, rl_node);
 }
 
 /**
@@ -1291,9 +1289,7 @@ void rpcrdma_buffer_put(struct rpcrdma_buffer *buffers, struct rpcrdma_req *req)
 {
 	rpcrdma_reply_put(buffers, req);
 
-	spin_lock(&buffers->rb_lock);
-	list_add(&req->rl_list, &buffers->rb_send_bufs);
-	spin_unlock(&buffers->rb_lock);
+	llist_add(&req->rl_node, &buffers->rb_send_bufs);
 }
 
 /* Returns a pointer to a rpcrdma_regbuf object, or NULL.
