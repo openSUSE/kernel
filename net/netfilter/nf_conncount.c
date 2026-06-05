@@ -54,12 +54,15 @@ struct nf_conncount_rb {
 	struct rcu_head rcu_head;
 };
 
-static spinlock_t nf_conncount_locks[CONNCOUNT_SLOTS] __cacheline_aligned_in_smp;
+struct nf_conncount_root {
+	struct rb_root root;
+	spinlock_t lock;
+};
 
 struct nf_conncount_data {
 	unsigned int keylen;
 	u32 initval;
-	struct rb_root root[CONNCOUNT_SLOTS];
+	struct nf_conncount_root root[CONNCOUNT_SLOTS];
 	struct net *net;
 	struct work_struct gc_work;
 	unsigned long pending_trees[BITS_TO_LONGS(CONNCOUNT_SLOTS)];
@@ -367,18 +370,19 @@ static void __tree_nodes_free(struct rcu_head *h)
 	kmem_cache_free(conncount_rb_cachep, rbconn);
 }
 
-/* caller must hold tree nf_conncount_locks[] lock */
-static void tree_nodes_free(struct rb_root *root,
+static void tree_nodes_free(struct nf_conncount_root *root,
 			    struct nf_conncount_rb *gc_nodes[],
 			    unsigned int gc_count)
 {
 	struct nf_conncount_rb *rbconn;
 
+	lockdep_assert_held(&root->lock);
+
 	while (gc_count) {
 		rbconn = gc_nodes[--gc_count];
 		spin_lock(&rbconn->list.list_lock);
 		if (!rbconn->list.count) {
-			rb_erase(&rbconn->node, root);
+			rb_erase(&rbconn->node, &root->root);
 			call_rcu(&rbconn->rcu_head, __tree_nodes_free);
 		}
 		spin_unlock(&rbconn->list.list_lock);
@@ -396,10 +400,10 @@ insert_tree(struct net *net,
 	    const struct sk_buff *skb,
 	    u16 l3num,
 	    struct nf_conncount_data *data,
-	    struct rb_root *root,
 	    unsigned int hash,
 	    const u32 *key)
 {
+	struct nf_conncount_root *root = &data->root[hash];
 	struct nf_conncount_rb *gc_nodes[CONNCOUNT_GC_MAX_NODES];
 	const struct nf_conntrack_zone *zone = &nf_ct_zone_dflt;
 	bool do_gc = true, refcounted = false;
@@ -410,10 +414,10 @@ insert_tree(struct net *net,
 	struct nf_conncount_rb *rbconn;
 	struct nf_conn *ct = NULL;
 
-	spin_lock_bh(&nf_conncount_locks[hash]);
+	spin_lock_bh(&root->lock);
 restart:
 	parent = NULL;
-	rbnode = &(root->rb_node);
+	rbnode = &root->root.rb_node;
 	while (*rbnode) {
 		int diff;
 		rbconn = rb_entry(*rbnode, struct nf_conncount_rb, node);
@@ -475,12 +479,12 @@ restart:
 		rbconn->list.count = count;
 
 		rb_link_node_rcu(&rbconn->node, parent, rbnode);
-		rb_insert_color(&rbconn->node, root);
+		rb_insert_color(&rbconn->node, &root->root);
 	}
 out_unlock:
 	if (refcounted)
 		nf_ct_put(ct);
-	spin_unlock_bh(&nf_conncount_locks[hash]);
+	spin_unlock_bh(&root->lock);
 	return count;
 }
 
@@ -491,7 +495,7 @@ count_tree(struct net *net,
 	   struct nf_conncount_data *data,
 	   const u32 *key)
 {
-	struct rb_root *root;
+	struct nf_conncount_root *root;
 	struct rb_node *parent;
 	struct nf_conncount_rb *rbconn;
 	unsigned int hash;
@@ -499,7 +503,7 @@ count_tree(struct net *net,
 	hash = jhash2(key, data->keylen, data->initval) % CONNCOUNT_SLOTS;
 	root = &data->root[hash];
 
-	parent = rcu_dereference(root->rb_node);
+	parent = rcu_dereference(root->root.rb_node);
 	while (parent) {
 		int diff;
 
@@ -544,14 +548,14 @@ count_tree(struct net *net,
 	if (!skb)
 		return 0;
 
-	return insert_tree(net, skb, l3num, data, root, hash, key);
+	return insert_tree(net, skb, l3num, data, hash, key);
 }
 
 static void tree_gc_worker(struct work_struct *work)
 {
 	struct nf_conncount_data *data = container_of(work, struct nf_conncount_data, gc_work);
 	struct nf_conncount_rb *gc_nodes[CONNCOUNT_GC_MAX_NODES], *rbconn;
-	struct rb_root *root;
+	struct nf_conncount_root *root;
 	struct rb_node *node;
 	unsigned int tree, next_tree, gc_count = 0;
 
@@ -560,7 +564,7 @@ static void tree_gc_worker(struct work_struct *work)
 
 	local_bh_disable();
 	rcu_read_lock();
-	for (node = rb_first(root); node != NULL; node = rb_next(node)) {
+	for (node = rb_first(&root->root); node ; node = rb_next(node)) {
 		rbconn = rb_entry(node, struct nf_conncount_rb, node);
 		if (nf_conncount_gc_list(data->net, &rbconn->list))
 			gc_count++;
@@ -570,12 +574,12 @@ static void tree_gc_worker(struct work_struct *work)
 
 	cond_resched();
 
-	spin_lock_bh(&nf_conncount_locks[tree]);
+	spin_lock_bh(&root->lock);
 	if (gc_count < ARRAY_SIZE(gc_nodes))
 		goto next; /* do not bother */
 
 	gc_count = 0;
-	node = rb_first(root);
+	node = rb_first(&root->root);
 	while (node != NULL) {
 		rbconn = rb_entry(node, struct nf_conncount_rb, node);
 		node = rb_next(node);
@@ -602,7 +606,7 @@ next:
 		schedule_work(work);
 	}
 
-	spin_unlock_bh(&nf_conncount_locks[tree]);
+	spin_unlock_bh(&root->lock);
 }
 
 /* Count and return number of conntrack entries in 'net' with particular 'key'.
@@ -620,6 +624,12 @@ unsigned int nf_conncount_count_skb(struct net *net,
 }
 EXPORT_SYMBOL_GPL(nf_conncount_count_skb);
 
+static void nf_conncount_root_init(struct nf_conncount_root *r)
+{
+	r->root = RB_ROOT;
+	spin_lock_init(&r->lock);
+}
+
 struct nf_conncount_data *nf_conncount_init(struct net *net, unsigned int keylen)
 {
 	struct nf_conncount_data *data;
@@ -630,12 +640,12 @@ struct nf_conncount_data *nf_conncount_init(struct net *net, unsigned int keylen
 	    keylen == 0)
 		return ERR_PTR(-EINVAL);
 
-	data = kmalloc_obj(*data);
+	data = kvzalloc_obj(*data);
 	if (!data)
 		return ERR_PTR(-ENOMEM);
 
 	for (i = 0; i < ARRAY_SIZE(data->root); ++i)
-		data->root[i] = RB_ROOT;
+		nf_conncount_root_init(&data->root[i]);
 
 	data->keylen = keylen / sizeof(u32);
 	data->net = net;
@@ -655,15 +665,15 @@ void nf_conncount_cache_free(struct nf_conncount_list *list)
 }
 EXPORT_SYMBOL_GPL(nf_conncount_cache_free);
 
-static void destroy_tree(struct rb_root *r)
+static void destroy_tree(struct nf_conncount_root *r)
 {
 	struct nf_conncount_rb *rbconn;
 	struct rb_node *node;
 
-	while ((node = rb_first(r)) != NULL) {
+	while ((node = rb_first(&r->root)) != NULL) {
 		rbconn = rb_entry(node, struct nf_conncount_rb, node);
 
-		rb_erase(node, r);
+		rb_erase(node, &r->root);
 
 		nf_conncount_cache_free(&rbconn->list);
 
@@ -680,17 +690,12 @@ void nf_conncount_destroy(struct net *net, struct nf_conncount_data *data)
 	for (i = 0; i < ARRAY_SIZE(data->root); ++i)
 		destroy_tree(&data->root[i]);
 
-	kfree(data);
+	kvfree(data);
 }
 EXPORT_SYMBOL_GPL(nf_conncount_destroy);
 
 static int __init nf_conncount_modinit(void)
 {
-	int i;
-
-	for (i = 0; i < CONNCOUNT_SLOTS; ++i)
-		spin_lock_init(&nf_conncount_locks[i]);
-
 	conncount_conn_cachep = KMEM_CACHE(nf_conncount_tuple, 0);
 	if (!conncount_conn_cachep)
 		return -ENOMEM;
