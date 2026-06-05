@@ -1738,6 +1738,14 @@ int fat_fill_super(struct super_block *sb, struct fs_context *fc,
 	if (total_sectors == 0)
 		total_sectors = bpb.fat_total_sect;
 
+	if (total_sectors < sbi->data_start) {
+		if (!silent)
+			fat_msg(sb, KERN_ERR,
+				"data area starts beyond volume (%lu > %u)",
+				sbi->data_start, total_sectors);
+		goto out_invalid;
+	}
+
 	total_clusters = (total_sectors - sbi->data_start) / sbi->sec_per_clus;
 
 	if (!is_fat32(sbi))
