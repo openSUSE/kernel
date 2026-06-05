@@ -63,7 +63,7 @@ static ssize_t ima_show_measurements_count(struct file *filp,
 					   char __user *buf,
 					   size_t count, loff_t *ppos)
 {
-	return ima_show_counter(buf, count, ppos, &ima_num_records);
+	return ima_show_counter(buf, count, ppos, &ima_num_records[BINARY]);
 }
 
 static const struct file_operations ima_measurements_count_ops = {
