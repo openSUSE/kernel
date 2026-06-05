@@ -226,9 +226,7 @@ static void print_data_reloc_error(const struct btrfs_inode *inode, u64 file_off
 	u32 item_size;
 	int ret;
 
-	mutex_lock(&fs_info->reloc_mutex);
 	logical = btrfs_get_reloc_bg_bytenr(fs_info);
-	mutex_unlock(&fs_info->reloc_mutex);
 
 	if (logical == U64_MAX) {
 		btrfs_warn_rl(fs_info, "has data reloc tree but no running relocation");

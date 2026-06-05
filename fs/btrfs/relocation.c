@@ -5863,14 +5863,15 @@ int btrfs_reloc_post_snapshot(struct btrfs_trans_handle *trans,
  *
  * Return U64_MAX if no running relocation.
  */
-u64 btrfs_get_reloc_bg_bytenr(const struct btrfs_fs_info *fs_info)
+u64 btrfs_get_reloc_bg_bytenr(struct btrfs_fs_info *fs_info)
 {
 	u64 logical = U64_MAX;
 
-	lockdep_assert_held(&fs_info->reloc_mutex);
-
+	mutex_lock(&fs_info->reloc_mutex);
 	if (fs_info->reloc_ctl && fs_info->reloc_ctl->block_group)
 		logical = fs_info->reloc_ctl->block_group->start;
+	mutex_unlock(&fs_info->reloc_mutex);
+
 	return logical;
 }
 
