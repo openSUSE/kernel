@@ -1224,8 +1224,6 @@ static int cxl_port_attach_region(struct cxl_port *port,
 			nr_targets_inc = true;
 		}
 	} else {
-		struct cxl_decoder *cxld;
-
 		cxld = cxl_port_pick_region_decoder(port, cxled, cxlr);
 		if (!cxld) {
 			dev_dbg(&cxlr->dev, "%s: no decoder available\n",
@@ -2189,14 +2187,14 @@ static int cxl_region_attach(struct cxl_region *cxlr,
 	 * will fail when presented as CXL_REGION_F_AUTO.
 	 */
 	for (int i = 0; i < p->nr_targets; i++) {
-		struct cxl_endpoint_decoder *cxled = p->targets[i];
+		struct cxl_endpoint_decoder *target = p->targets[i];
 		int test_pos;
 
-		test_pos = cxl_calc_interleave_pos(cxled, &cxlr->hpa_range);
-		dev_dbg(&cxled->cxld.dev,
-			"Test cxl_calc_interleave_pos(): %s test_pos:%d cxled->pos:%d\n",
-			(test_pos == cxled->pos) ? "success" : "fail",
-			test_pos, cxled->pos);
+		test_pos = cxl_calc_interleave_pos(target, &cxlr->hpa_range);
+		dev_dbg(&target->cxld.dev,
+			"Test cxl_calc_interleave_pos(): %s test_pos:%d target->pos:%d\n",
+			(test_pos == target->pos) ? "success" : "fail",
+			test_pos, target->pos);
 	}
 
 	return 0;
