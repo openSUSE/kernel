@@ -222,8 +222,10 @@ int blkg_conf_open_bdev(struct blkg_conf_ctx *ctx);
 unsigned long blkg_conf_open_bdev_frozen(struct blkg_conf_ctx *ctx);
 int blkg_conf_prep(struct blkcg *blkcg, const struct blkcg_policy *pol,
 		   struct blkg_conf_ctx *ctx);
-void blkg_conf_exit(struct blkg_conf_ctx *ctx);
-void blkg_conf_exit_frozen(struct blkg_conf_ctx *ctx, unsigned long memflags);
+void blkg_conf_unprep(struct blkg_conf_ctx *ctx);
+void blkg_conf_close_bdev(struct blkg_conf_ctx *ctx);
+void blkg_conf_close_bdev_frozen(struct blkg_conf_ctx *ctx,
+				 unsigned long memflags);
 
 /**
  * bio_issue_as_root_blkg - see if this bio needs to be issued as root blkg

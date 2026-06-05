@@ -755,7 +755,7 @@ EXPORT_SYMBOL_GPL(__blkg_prfill_u64);
  *
  * Initialize @ctx which can be used to parse blkg config input string @input.
  * Once initialized, @ctx can be used with blkg_conf_open_bdev() and
- * blkg_conf_prep(), and must be cleaned up with blkg_conf_exit().
+ * blkg_conf_prep().
  */
 void blkg_conf_init(struct blkg_conf_ctx *ctx, char *input)
 {
@@ -817,8 +817,8 @@ EXPORT_SYMBOL_GPL(blkg_conf_open_bdev);
  * ensures the correct locking order between freeze queue and q->rq_qos_mutex.
  *
  * This function returns negative error on failure. On success it returns
- * memflags which must be saved and later passed to blkg_conf_exit_frozen
- * for restoring the memalloc scope.
+ * memflags which must be saved and later passed to
+ * blkg_conf_close_bdev_frozen() for restoring the memalloc scope.
  */
 unsigned long __must_check blkg_conf_open_bdev_frozen(struct blkg_conf_ctx *ctx)
 {
@@ -858,7 +858,7 @@ unsigned long __must_check blkg_conf_open_bdev_frozen(struct blkg_conf_ctx *ctx)
  *
  * blkg_conf_open_bdev() must be called on @ctx beforehand. On success, this
  * function returns with queue lock held and must be followed by
- * blkg_conf_exit().
+ * blkg_conf_close_bdev().
  */
 int blkg_conf_prep(struct blkcg *blkcg, const struct blkcg_policy *pol,
 		   struct blkg_conf_ctx *ctx)
@@ -968,42 +968,41 @@ fail_exit:
 EXPORT_SYMBOL_GPL(blkg_conf_prep);
 
 /**
- * blkg_conf_exit - clean up per-blkg config update
+ * blkg_conf_unprep - counterpart of blkg_conf_prep()
  * @ctx: blkg_conf_ctx initialized with blkg_conf_init()
- *
- * Clean up after per-blkg config update. This function must be called on all
- * blkg_conf_ctx's initialized with blkg_conf_init().
  */
-void blkg_conf_exit(struct blkg_conf_ctx *ctx)
-	__releases(&ctx->bdev->bd_queue->queue_lock)
-	__releases(&ctx->bdev->bd_queue->rq_qos_mutex)
+void blkg_conf_unprep(struct blkg_conf_ctx *ctx)
 {
-	if (ctx->blkg) {
-		spin_unlock_irq(&bdev_get_queue(ctx->bdev)->queue_lock);
-		ctx->blkg = NULL;
-	}
-
-	if (ctx->bdev) {
-		mutex_unlock(&ctx->bdev->bd_queue->rq_qos_mutex);
-		blkdev_put_no_open(ctx->bdev);
-		ctx->body = NULL;
-		ctx->bdev = NULL;
-	}
+	WARN_ON_ONCE(!ctx->blkg);
+	spin_unlock_irq(&ctx->bdev->bd_disk->queue->queue_lock);
+	ctx->blkg = NULL;
 }
-EXPORT_SYMBOL_GPL(blkg_conf_exit);
+EXPORT_SYMBOL_GPL(blkg_conf_unprep);
+
+/**
+ * blkg_conf_close_bdev - counterpart of blkg_conf_open_bdev()
+ * @ctx: blkg_conf_ctx initialized with blkg_conf_init()
+ */
+void blkg_conf_close_bdev(struct blkg_conf_ctx *ctx)
+{
+	mutex_unlock(&ctx->bdev->bd_queue->rq_qos_mutex);
+	blkdev_put_no_open(ctx->bdev);
+	ctx->body = NULL;
+	ctx->bdev = NULL;
+}
+EXPORT_SYMBOL_GPL(blkg_conf_close_bdev);
 
 /*
- * Similar to blkg_conf_exit, but also unfreezes the queue. Should be used
+ * Similar to blkg_close_bdev, but also unfreezes the queue. Should be used
  * when blkg_conf_open_bdev_frozen is used to open the bdev.
  */
-void blkg_conf_exit_frozen(struct blkg_conf_ctx *ctx, unsigned long memflags)
+void blkg_conf_close_bdev_frozen(struct blkg_conf_ctx *ctx,
+				 unsigned long memflags)
 {
-	if (ctx->bdev) {
-		struct request_queue *q = ctx->bdev->bd_queue;
+	struct request_queue *q = ctx->bdev->bd_queue;
 
-		blkg_conf_exit(ctx);
-		blk_mq_unfreeze_queue(q, memflags);
-	}
+	blkg_conf_close_bdev(ctx);
+	blk_mq_unfreeze_queue(q, memflags);
 }
 
 static void blkg_iostat_add(struct blkg_iostat *dst, struct blkg_iostat *src)

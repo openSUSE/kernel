@@ -1353,21 +1353,21 @@ static ssize_t tg_set_conf(struct kernfs_open_file *of,
 
 	ret = blkg_conf_open_bdev(&ctx);
 	if (ret)
-		goto out_finish;
+		return ret;
 
 	if (!blk_throtl_activated(ctx.bdev->bd_queue)) {
 		ret = blk_throtl_init(ctx.bdev->bd_disk);
 		if (ret)
-			goto out_finish;
+			goto close_bdev;
 	}
 
 	ret = blkg_conf_prep(blkcg, &blkcg_policy_throtl, &ctx);
 	if (ret)
-		goto out_finish;
+		goto close_bdev;
 
 	ret = -EINVAL;
 	if (sscanf(ctx.body, "%llu", &v) != 1)
-		goto out_finish;
+		goto unprep;
 	if (!v)
 		v = U64_MAX;
 
@@ -1381,8 +1381,12 @@ static ssize_t tg_set_conf(struct kernfs_open_file *of,
 
 	tg_conf_updated(tg, false);
 	ret = 0;
-out_finish:
-	blkg_conf_exit(&ctx);
+
+unprep:
+	blkg_conf_unprep(&ctx);
+
+close_bdev:
+	blkg_conf_close_bdev(&ctx);
 	return ret ?: nbytes;
 }
 
@@ -1537,17 +1541,17 @@ static ssize_t tg_set_limit(struct kernfs_open_file *of,
 
 	ret = blkg_conf_open_bdev(&ctx);
 	if (ret)
-		goto out_finish;
+		return ret;
 
 	if (!blk_throtl_activated(ctx.bdev->bd_queue)) {
 		ret = blk_throtl_init(ctx.bdev->bd_disk);
 		if (ret)
-			goto out_finish;
+			goto close_bdev;
 	}
 
 	ret = blkg_conf_prep(blkcg, &blkcg_policy_throtl, &ctx);
 	if (ret)
-		goto out_finish;
+		goto close_bdev;
 
 	tg = blkg_to_tg(ctx.blkg);
 	tg_update_carryover(tg);
@@ -1573,11 +1577,11 @@ static ssize_t tg_set_limit(struct kernfs_open_file *of,
 		p = tok;
 		strsep(&p, "=");
 		if (!p || (sscanf(p, "%llu", &val) != 1 && strcmp(p, "max")))
-			goto out_finish;
+			goto unprep;
 
 		ret = -ERANGE;
 		if (!val)
-			goto out_finish;
+			goto unprep;
 
 		ret = -EINVAL;
 		if (!strcmp(tok, "rbps"))
@@ -1589,7 +1593,7 @@ static ssize_t tg_set_limit(struct kernfs_open_file *of,
 		else if (!strcmp(tok, "wiops"))
 			v[3] = min_t(u64, val, UINT_MAX);
 		else
-			goto out_finish;
+			goto unprep;
 	}
 
 	tg->bps[READ] = v[0];
@@ -1599,8 +1603,10 @@ static ssize_t tg_set_limit(struct kernfs_open_file *of,
 
 	tg_conf_updated(tg, false);
 	ret = 0;
-out_finish:
-	blkg_conf_exit(&ctx);
+unprep:
+	blkg_conf_unprep(&ctx);
+close_bdev:
+	blkg_conf_close_bdev(&ctx);
 	return ret ?: nbytes;
 }
 
