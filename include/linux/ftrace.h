@@ -551,6 +551,8 @@ int update_ftrace_direct_mod(struct ftrace_ops *ops, struct ftrace_hash *hash, b
 
 void ftrace_stub_direct_tramp(void);
 
+unsigned long ftrace_hash_count(struct ftrace_hash *hash);
+
 #else
 struct ftrace_ops;
 static inline unsigned long ftrace_find_rec_direct(unsigned long ip)
@@ -588,6 +590,11 @@ static inline int update_ftrace_direct_del(struct ftrace_ops *ops, struct ftrace
 static inline int update_ftrace_direct_mod(struct ftrace_ops *ops, struct ftrace_hash *hash, bool do_direct_lock)
 {
 	return -ENODEV;
+}
+
+static inline unsigned long ftrace_hash_count(struct ftrace_hash *hash)
+{
+	return 0;
 }
 
 /*
