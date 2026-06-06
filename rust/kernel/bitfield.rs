@@ -546,3 +546,317 @@ macro_rules! bitfield {
         }
     };
 }
+
+#[cfg(CONFIG_RUST_BITFIELD_KUNIT_TEST)]
+#[::kernel::macros::kunit_tests(rust_kernel_bitfield)]
+mod tests {
+    use core::convert::TryFrom;
+
+    use pin_init::Zeroable;
+
+    use kernel::num::Bounded;
+
+    // Enum types for testing `=>` and `?=>` conversions.
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    enum MemoryType {
+        Unmapped = 0,
+        Normal = 1,
+        Device = 2,
+        Reserved = 3,
+    }
+
+    impl TryFrom<Bounded<u64, 4>> for MemoryType {
+        type Error = u64;
+        fn try_from(value: Bounded<u64, 4>) -> Result<Self, Self::Error> {
+            match value.get() {
+                0 => Ok(MemoryType::Unmapped),
+                1 => Ok(MemoryType::Normal),
+                2 => Ok(MemoryType::Device),
+                3 => Ok(MemoryType::Reserved),
+                _ => Err(value.get()),
+            }
+        }
+    }
+
+    impl From<MemoryType> for Bounded<u64, 4> {
+        fn from(mt: MemoryType) -> Bounded<u64, 4> {
+            Bounded::from_expr(mt as u64)
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    enum Priority {
+        Low = 0,
+        Medium = 1,
+        High = 2,
+        Critical = 3,
+    }
+
+    impl From<Bounded<u16, 2>> for Priority {
+        fn from(value: Bounded<u16, 2>) -> Self {
+            match value & 0x3 {
+                0 => Priority::Low,
+                1 => Priority::Medium,
+                2 => Priority::High,
+                _ => Priority::Critical,
+            }
+        }
+    }
+
+    impl From<Priority> for Bounded<u16, 2> {
+        fn from(p: Priority) -> Bounded<u16, 2> {
+            Bounded::from_expr(p as u16)
+        }
+    }
+
+    bitfield! {
+        struct TestU64(u64) {
+            63:63     field_63;
+            61:52     field_61_52;
+            51:16     field_51_16;
+            15:12     field_15_12 ?=> MemoryType;
+            11:9      field_11_9;
+            1:1       field_1;
+            0:0       field_0;
+        }
+    }
+
+    bitfield! {
+        struct TestU16(u16) {
+            15:8      field_15_8;
+            7:4       field_7_4; // Partial overlap with `field_5_4`.
+            5:4       field_5_4 => Priority;
+            3:1       field_3_1;
+            0:0       field_0;
+        }
+    }
+
+    bitfield! {
+        struct TestU8(u8) {
+            7:0       field_7_0; // Full byte overlap.
+            7:4       field_7_4;
+            3:2       field_3_2;
+            1:1       field_1;
+            0:0       field_0;
+        }
+    }
+
+    // Single and multi-bit fields basic access.
+    #[test]
+    fn test_basic_access() {
+        // `TestU64`.
+        let mut val = TestU64::zeroed();
+        assert_eq!(val.into_raw(), 0x0);
+
+        val = val.with_field_0(true);
+        assert!(val.field_0().into_bool());
+        assert_eq!(val.into_raw(), 0x1);
+
+        val = val.with_field_1(true);
+        assert!(val.field_1().into_bool());
+        val = val.with_field_1(false);
+        assert!(!val.field_1().into_bool());
+        assert_eq!(val.into_raw(), 0x1);
+
+        val = val.with_const_field_11_9::<0x5>();
+        assert_eq!(val.field_11_9(), 0x5);
+        assert_eq!(val.into_raw(), 0xA01);
+
+        val = val.with_const_field_51_16::<0x123456>();
+        assert_eq!(val.field_51_16(), 0x123456);
+        assert_eq!(val.into_raw(), 0x0012_3456_0A01);
+
+        const MAX_FIELD_51_16: u64 = ::kernel::bits::genmask_u64(0..=35);
+        val = val.with_const_field_51_16::<{ MAX_FIELD_51_16 }>();
+        assert_eq!(val.field_51_16(), MAX_FIELD_51_16);
+
+        val = val.with_const_field_61_52::<0x3FF>();
+        assert_eq!(val.field_61_52(), 0x3FF);
+
+        val = val.with_field_63(true);
+        assert!(val.field_63().into_bool());
+
+        // `TestU16`.
+        let mut val = TestU16::zeroed();
+        assert_eq!(val.into_raw(), 0x0);
+
+        val = val.with_field_0(true);
+        assert!(val.field_0().into_bool());
+        assert_eq!(val.into_raw(), 0x1);
+
+        val = val.with_const_field_3_1::<0x5>();
+        assert_eq!(val.field_3_1(), 0x5);
+        assert_eq!(val.into_raw(), 0xB);
+
+        val = val.with_const_field_7_4::<0xA>();
+        assert_eq!(val.field_7_4(), 0xA);
+        assert_eq!(val.into_raw(), 0xAB);
+
+        val = val.with_const_field_15_8::<0x42>();
+        assert_eq!(val.field_15_8(), 0x42);
+        assert_eq!(val.into_raw(), 0x42AB);
+
+        // `TestU8`.
+        let mut val = TestU8::zeroed();
+        assert_eq!(val.into_raw(), 0x0);
+
+        val = val.with_field_0(true);
+        assert!(val.field_0().into_bool());
+        assert_eq!(val.into_raw(), 0x1);
+
+        val = val.with_field_1(true);
+        assert!(val.field_1().into_bool());
+        assert_eq!(val.into_raw(), 0x3);
+
+        val = val.with_const_field_3_2::<0x3>();
+        assert_eq!(val.field_3_2(), 0x3);
+        assert_eq!(val.into_raw(), 0xF);
+
+        val = val.with_const_field_7_4::<0xA>();
+        assert_eq!(val.field_7_4(), 0xA);
+        assert_eq!(val.into_raw(), 0xAF);
+    }
+
+    // `=>` infallible conversion.
+    #[test]
+    fn test_infallible_conversion() {
+        let mut val = TestU16::zeroed();
+
+        val = val.with_field_5_4(Priority::Low);
+        assert_eq!(val.field_5_4(), Priority::Low);
+        assert_eq!(val.into_raw() & 0x30, 0x00);
+
+        val = val.with_field_5_4(Priority::Medium);
+        assert_eq!(val.field_5_4(), Priority::Medium);
+        assert_eq!(val.into_raw() & 0x30, 0x10);
+
+        val = val.with_field_5_4(Priority::High);
+        assert_eq!(val.field_5_4(), Priority::High);
+        assert_eq!(val.into_raw() & 0x30, 0x20);
+
+        val = val.with_field_5_4(Priority::Critical);
+        assert_eq!(val.field_5_4(), Priority::Critical);
+        assert_eq!(val.into_raw() & 0x30, 0x30);
+    }
+
+    // `?=>` fallible conversion.
+    #[test]
+    fn test_fallible_conversion() {
+        let mut val = TestU64::zeroed();
+
+        val = val.with_field_15_12(MemoryType::Unmapped);
+        assert_eq!(val.field_15_12(), Ok(MemoryType::Unmapped));
+        val = val.with_field_15_12(MemoryType::Normal);
+        assert_eq!(val.field_15_12(), Ok(MemoryType::Normal));
+        val = val.with_field_15_12(MemoryType::Device);
+        assert_eq!(val.field_15_12(), Ok(MemoryType::Device));
+        val = val.with_field_15_12(MemoryType::Reserved);
+        assert_eq!(val.field_15_12(), Ok(MemoryType::Reserved));
+
+        // `field_15_12` is 4 bits wide (0-15); `MemoryType` only covers 0-3, so 4-15 return `Err`.
+        let raw = (val.into_raw() & !::kernel::bits::genmask_u64(12..=15)) | (0x7 << 12);
+        assert_eq!(TestU64::from_raw(raw).field_15_12(), Err(0x7));
+    }
+
+    // Test that setting an overlapping field affects the overlapped one as expected.
+    #[test]
+    fn test_overlapping_fields() {
+        let mut val = TestU16::zeroed();
+
+        val = val.with_field_5_4(Priority::High); // High == 2 == 0b10.
+        assert_eq!(val.field_5_4(), Priority::High);
+        assert_eq!(val.field_7_4(), 0x2); // Bits 7:6 == 0, bits 5:4 == 0b10.
+
+        val = val.with_const_field_7_4::<0xF>();
+        assert_eq!(val.field_7_4(), 0xF);
+        assert_eq!(val.field_5_4(), Priority::Critical); // Bits 5:4 == 0b11.
+
+        // `field_7_0` should encompass all other fields.
+        let mut val = TestU8::zeroed()
+            .with_field_0(true)
+            .with_field_1(true)
+            .with_const_field_3_2::<0x3>()
+            .with_const_field_7_4::<0xA>();
+        assert_eq!(val.into_raw(), 0xAF);
+
+        val = val.with_field_7_0(0x55);
+        assert_eq!(val.field_7_0(), 0x55);
+        assert!(val.field_0().into_bool());
+        assert!(!val.field_1().into_bool());
+        assert_eq!(val.field_3_2(), 0x1);
+        assert_eq!(val.field_7_4(), 0x5);
+    }
+
+    // Checks that bits not mapped to any field are left untouched.
+    #[test]
+    fn test_unallocated_bits() {
+        let gap_bits = (1u64 << 62) | 0x1FC;
+
+        let set_all_fields = |val: TestU64| {
+            val.with_field_63(true)
+                .with_const_field_61_52::<0x155>()
+                .with_const_field_51_16::<0x123456>()
+                .with_field_15_12(MemoryType::Device)
+                .with_const_field_11_9::<0x5>()
+                .with_field_1(true)
+                .with_field_0(true)
+        };
+
+        // Gap bits to 0.
+        let val = set_all_fields(TestU64::from_raw(0));
+        assert_eq!(val.into_raw() & gap_bits, 0);
+
+        // Gap bits to 1.
+        let val = set_all_fields(TestU64::from_raw(gap_bits));
+        assert_eq!(val.into_raw() & gap_bits, gap_bits);
+    }
+
+    #[test]
+    fn test_try_with() {
+        let val = TestU64::zeroed().try_with_field_51_16(0x123456).unwrap();
+        assert_eq!(val.field_51_16(), 0x123456);
+
+        let err = TestU64::zeroed().try_with_field_51_16(u64::MAX);
+        assert_eq!(err, Err(::kernel::error::code::EOVERFLOW));
+
+        let val = TestU64::zeroed()
+            .try_with_field_51_16(0xABCDEF)
+            .and_then(|p| p.try_with_field_0(1))
+            .unwrap();
+        assert_eq!(val.field_51_16(), 0xABCDEF);
+        assert!(val.field_0().into_bool());
+    }
+
+    // `from_raw`/`into_raw` and `From`/`Into` round-trips.
+    #[test]
+    fn test_raw() {
+        let raw: u64 = 0xBFF0_0000_3123_3E03;
+        let val = TestU64::from_raw(raw);
+        assert_eq!(u64::from(val), raw);
+        assert!(val.field_0().into_bool());
+        assert!(val.field_1().into_bool());
+        assert_eq!(val.field_11_9(), 0x7);
+        assert_eq!(val.field_51_16(), 0x3123);
+        assert_eq!(val.field_15_12(), Ok(MemoryType::Reserved));
+        assert_eq!(val.field_61_52(), 0x3FF);
+        assert!(val.field_63().into_bool());
+
+        let raw: u16 = 0x42AB;
+        let val = TestU16::from_raw(raw);
+        assert_eq!(u16::from(val), raw);
+        assert!(val.field_0().into_bool());
+        assert_eq!(val.field_3_1(), 0x5);
+        assert_eq!(val.field_7_4(), 0xA);
+        assert_eq!(val.field_15_8(), 0x42);
+
+        let raw: u8 = 0xAF;
+        let val = TestU8::from_raw(raw);
+        assert_eq!(u8::from(val), raw);
+        assert!(val.field_0().into_bool());
+        assert!(val.field_1().into_bool());
+        assert_eq!(val.field_3_2(), 0x3);
+        assert_eq!(val.field_7_4(), 0xA);
+        assert_eq!(val.field_7_0(), 0xAF);
+    }
+}
