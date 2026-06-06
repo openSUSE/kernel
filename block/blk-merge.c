@@ -545,7 +545,7 @@ static inline int ll_new_hw_segment(struct request *req, struct bio *bio,
 	if (!blk_cgroup_mergeable(req, bio))
 		goto no_merge;
 
-	if (blk_integrity_merge_bio(req->q, req, bio) == false)
+	if (unlikely(!blk_integrity_merge_bio(req->q, req, bio)))
 		goto no_merge;
 
 	/* discard request merge won't add new segment */
@@ -647,7 +647,7 @@ static int ll_merge_requests_fn(struct request_queue *q, struct request *req,
 	if (!blk_cgroup_mergeable(req, next->bio))
 		return 0;
 
-	if (blk_integrity_merge_rq(q, req, next) == false)
+	if (unlikely(!blk_integrity_merge_rq(q, req, next)))
 		return 0;
 
 	if (!bio_crypt_ctx_merge_rq(req, next))
@@ -903,7 +903,7 @@ bool blk_rq_merge_ok(struct request *rq, struct bio *bio)
 
 	if (!blk_cgroup_mergeable(rq, bio))
 		return false;
-	if (blk_integrity_merge_bio(rq->q, rq, bio) == false)
+	if (unlikely(!blk_integrity_merge_bio(rq->q, rq, bio)))
 		return false;
 	if (!bio_crypt_rq_ctx_compatible(rq, bio))
 		return false;
@@ -913,7 +913,7 @@ bool blk_rq_merge_ok(struct request *rq, struct bio *bio)
 		return false;
 	if (rq->bio->bi_ioprio != bio->bi_ioprio)
 		return false;
-	if (blk_atomic_write_mergeable_rq_bio(rq, bio) == false)
+	if (unlikely(!blk_atomic_write_mergeable_rq_bio(rq, bio)))
 		return false;
 
 	return true;
