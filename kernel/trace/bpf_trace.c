@@ -3659,6 +3659,7 @@ static void bpf_tracing_multi_link_dealloc(struct bpf_link *link)
 	struct bpf_tracing_multi_link *tr_link =
 		container_of(link, struct bpf_tracing_multi_link, link);
 
+	kvfree(tr_link->cookies);
 	kvfree(tr_link);
 }
 
@@ -3678,13 +3679,24 @@ static int ids_cmp_r(const void *pa, const void *pb, const void *priv __maybe_un
 static void ids_swap_r(void *a, void *b, int size __maybe_unused,
 		       const void *priv __maybe_unused)
 {
-	u32 *id_a = a, *id_b = b;
+	u64 *cookie_a, *cookie_b, *cookies;
+	u32 *id_a = a, *id_b = b, *ids;
+	void **data = (void **) priv;
 
+	ids     = data[0];
+	cookies = data[1];
+
+	if (cookies) {
+		cookie_a = cookies + (id_a - ids);
+		cookie_b = cookies + (id_b - ids);
+		swap(*cookie_a, *cookie_b);
+	}
 	swap(*id_a, *id_b);
 }
 
-static int check_dup_ids(u32 *ids, u32 cnt)
+static int check_dup_ids(u32 *ids, u64 *cookies, u32 cnt)
 {
+	void *data[2] = { ids, cookies };
 	int err = 0;
 
 	/*
@@ -3692,7 +3704,7 @@ static int check_dup_ids(u32 *ids, u32 cnt)
 	 * and check it for duplicates. The ids and cookies arrays
 	 * are left sorted.
 	 */
-	sort_r_nonatomic(ids, cnt, sizeof(ids[0]), ids_cmp_r, ids_swap_r, NULL);
+	sort_r_nonatomic(ids, cnt, sizeof(ids[0]), ids_cmp_r, ids_swap_r, data);
 
 	for (int i = 1; i < cnt; i++) {
 		if (ids[i] == ids[i - 1]) {
@@ -3708,6 +3720,8 @@ int bpf_tracing_multi_attach(struct bpf_prog *prog, const union bpf_attr *attr)
 	struct bpf_tracing_multi_link *link = NULL;
 	struct bpf_link_primer link_primer;
 	u32 cnt, *ids = NULL;
+	u64 __user *ucookies;
+	u64 *cookies = NULL;
 	u32 __user *uids;
 	int err;
 
@@ -3730,7 +3744,20 @@ int bpf_tracing_multi_attach(struct bpf_prog *prog, const union bpf_attr *attr)
 		goto error;
 	}
 
-	err = check_dup_ids(ids, cnt);
+	ucookies = u64_to_user_ptr(attr->link_create.tracing_multi.cookies);
+	if (ucookies) {
+		cookies = kvmalloc_objs(*cookies, cnt);
+		if (!cookies) {
+			err = -ENOMEM;
+			goto error;
+		}
+		if (copy_from_user(cookies, ucookies, cnt * sizeof(*cookies))) {
+			err = -EFAULT;
+			goto error;
+		}
+	}
+
+	err = check_dup_ids(ids, cookies, cnt);
 	if (err)
 		goto error;
 
@@ -3748,6 +3775,7 @@ int bpf_tracing_multi_attach(struct bpf_prog *prog, const union bpf_attr *attr)
 		goto error;
 
 	link->nodes_cnt = cnt;
+	link->cookies = cookies;
 
 	err = bpf_trampoline_multi_attach(prog, ids, link);
 	kvfree(ids);
@@ -3758,6 +3786,7 @@ int bpf_tracing_multi_attach(struct bpf_prog *prog, const union bpf_attr *attr)
 	return bpf_link_settle(&link_primer);
 
 error:
+	kvfree(cookies);
 	kvfree(ids);
 	kvfree(link);
 	return err;
