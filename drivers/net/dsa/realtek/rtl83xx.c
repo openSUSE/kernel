@@ -329,6 +329,175 @@ void rtl83xx_reset_deassert(struct realtek_priv *priv)
 }
 
 /**
+ * rtl83xx_port_bridge_join() - join a port to a bridge
+ * @ds: DSA switch instance
+ * @port: port index
+ * @bridge: bridge being joined
+ * @tx_forward_offload: if the switch can offload TX forwarding
+ * @extack: netlink extended ack for reporting errors
+ *
+ * This function handles joining a port to a bridge. It updates the port
+ * isolation masks and EFID.
+ *
+ * Context: Can sleep.
+ * Return: 0 on success, negative value for failure.
+ */
+int rtl83xx_port_bridge_join(struct dsa_switch *ds, int port,
+			     struct dsa_bridge bridge,
+			     bool *tx_forward_offload,
+			     struct netlink_ext_ack *extack)
+{
+	struct realtek_priv *priv = ds->priv;
+	struct dsa_port *dp;
+	u32 mask = 0;
+	int ret;
+
+	if (!priv->ops->port_add_isolation)
+		return -EOPNOTSUPP;
+
+	if (!priv->ops->port_set_learning)
+		return -EOPNOTSUPP;
+
+	dev_dbg(priv->dev, "bridge %d join port %d\n", bridge.num, port);
+
+	/* Add this port to the isolation group of every other port
+	 * offloading this bridge.
+	 */
+	dsa_switch_for_each_user_port(dp, ds) {
+		/* Handle this port after */
+		if (dp->index == port)
+			continue;
+
+		/* Skip ports that are not in this bridge */
+		if (!dsa_port_offloads_bridge(dp, &bridge))
+			continue;
+
+		ret = priv->ops->port_add_isolation(priv, dp->index, BIT(port));
+		if (ret)
+			goto undo_isolation;
+
+		mask |= BIT(dp->index);
+	}
+
+	/* If we support cascade switches, it should also include the
+	 * downstream DSA ports to the isolation group.
+	 */
+
+	/* Add those ports to the isolation group of this port */
+	ret = priv->ops->port_add_isolation(priv, port, mask);
+	if (ret)
+		goto undo_isolation;
+
+	/* Use the bridge number as the EFID for this port */
+	if (priv->ops->port_set_efid) {
+		ret = priv->ops->port_set_efid(priv, port, bridge.num);
+		if (ret)
+			goto undo_self_isolation;
+	}
+
+	ret = priv->ops->port_set_learning(priv, port, true);
+	if (ret)
+		goto undo_efid;
+
+	return 0;
+
+undo_efid:
+	if (priv->ops->port_set_efid)
+		priv->ops->port_set_efid(priv, port, 0);
+
+undo_self_isolation:
+	priv->ops->port_remove_isolation(priv, port, mask);
+
+undo_isolation:
+	dsa_switch_for_each_port(dp, ds) {
+		if (mask & BIT(dp->index))
+			priv->ops->port_remove_isolation(priv, dp->index,
+							 BIT(port));
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL_NS_GPL(rtl83xx_port_bridge_join, "REALTEK_DSA");
+
+/**
+ * rtl83xx_port_bridge_leave() - leave a bridge
+ * @ds: DSA switch instance
+ * @port: port index
+ * @bridge: bridge being left
+ *
+ * This function handles removing a port from a bridge. It updates the port
+ * isolation masks and EFID.
+ *
+ * Context: Can sleep.
+ * Return: nothing
+ */
+void rtl83xx_port_bridge_leave(struct dsa_switch *ds, int port,
+			       struct dsa_bridge bridge)
+{
+	struct realtek_priv *priv = ds->priv;
+	struct dsa_port *dp;
+	u32 mask = 0;
+	int ret;
+
+	if (!priv->ops->port_remove_isolation)
+		return;
+
+	if (!priv->ops->port_set_learning)
+		return;
+
+	dev_dbg(priv->dev, "bridge %d leave port %d\n", bridge.num, port);
+
+	/* Remove this port from the isolation group of every other
+	 * port offloading this bridge.
+	 */
+	dsa_switch_for_each_user_port(dp, ds) {
+		/* Handle this port after */
+		if (dp->index == port)
+			continue;
+
+		/* Skip ports that are not in this bridge */
+		if (!dsa_port_offloads_bridge(dp, &bridge))
+			continue;
+
+		ret = priv->ops->port_remove_isolation(priv, dp->index,
+						       BIT(port));
+		if (ret)
+			dev_err(priv->dev,
+				"failed to isolate port %d from port %d: %pe\n",
+				port, dp->index, ERR_PTR(ret));
+
+		mask |= BIT(dp->index);
+	}
+
+	/* If we support cascade switches, it should also exclude the
+	 * downstream DSA ports from the isolation group.
+	 */
+
+	ret = priv->ops->port_set_learning(priv, port, false);
+	if (ret)
+		dev_err(priv->dev,
+			"failed to disable learning on port %d: %pe\n",
+			port, ERR_PTR(ret));
+
+	/* Remove those ports from the isolation group of this port */
+	ret = priv->ops->port_remove_isolation(priv, port, mask);
+	if (ret)
+		dev_err(priv->dev,
+			"failed to remove isolation mask from port %d: %pe\n",
+			port, ERR_PTR(ret));
+
+	/* Revert to the default EFID 0 for standalone mode */
+	if (priv->ops->port_set_efid) {
+		ret = priv->ops->port_set_efid(priv, port, 0);
+		if (ret)
+			dev_err(priv->dev,
+				"failed to clear EFID on port %d: %pe\n",
+				port, ERR_PTR(ret));
+	}
+}
+EXPORT_SYMBOL_NS_GPL(rtl83xx_port_bridge_leave, "REALTEK_DSA");
+
+/**
  * rtl83xx_port_fast_age() - flush dynamic FDB entries learned on a port
  * @ds: DSA switch instance
  * @port: port index
