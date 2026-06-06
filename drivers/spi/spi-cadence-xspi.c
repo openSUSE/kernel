@@ -22,10 +22,6 @@
 #include <linux/bitrev.h>
 #include <linux/util_macros.h>
 
-#ifndef CONFIG_64BIT
-#include <linux/io-64-nonatomic-lo-hi.h>
-#endif
-
 #define CDNS_XSPI_MAGIC_NUM_VALUE	0x6522
 #define CDNS_XSPI_MAX_BANKS		8
 #define CDNS_XSPI_NAME			"cadence-xspi"
