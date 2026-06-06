@@ -1447,6 +1447,277 @@ int __weak arch_bpf_trampoline_size(const struct btf_func_model *m, u32 flags,
 	return -ENOTSUPP;
 }
 
+#if defined(CONFIG_DYNAMIC_FTRACE_WITH_DIRECT_CALLS) && \
+    defined(CONFIG_HAVE_SINGLE_FTRACE_DIRECT_OPS) && \
+    defined(CONFIG_BPF_SYSCALL)
+
+static void trampoline_lock_all(void)
+{
+	int i;
+
+	for (i = 0; i < TRAMPOLINE_LOCKS_TABLE_SIZE; i++)
+		mutex_lock(&trampoline_locks[i].mutex);
+}
+
+static void trampoline_unlock_all(void)
+{
+	int i;
+
+	for (i = 0; i < TRAMPOLINE_LOCKS_TABLE_SIZE; i++)
+		mutex_unlock(&trampoline_locks[i].mutex);
+}
+
+static void remove_tracing_multi_data(struct bpf_tracing_multi_data *data)
+{
+	ftrace_hash_remove(data->reg);
+	ftrace_hash_remove(data->unreg);
+	ftrace_hash_remove(data->modify);
+}
+
+static void clear_tracing_multi_data(struct bpf_tracing_multi_data *data)
+{
+	remove_tracing_multi_data(data);
+
+	free_ftrace_hash(data->reg);
+	free_ftrace_hash(data->unreg);
+	free_ftrace_hash(data->modify);
+}
+
+static int init_tracing_multi_data(struct bpf_tracing_multi_data *data)
+{
+	data->reg    = alloc_ftrace_hash(FTRACE_HASH_DEFAULT_BITS);
+	data->unreg  = alloc_ftrace_hash(FTRACE_HASH_DEFAULT_BITS);
+	data->modify = alloc_ftrace_hash(FTRACE_HASH_DEFAULT_BITS);
+
+	if (!data->reg || !data->unreg || !data->modify) {
+		clear_tracing_multi_data(data);
+		return -ENOMEM;
+	}
+	return 0;
+}
+
+static void ftrace_hash_add(struct ftrace_hash *hash, struct ftrace_func_entry *entry,
+			    unsigned long ip, unsigned long direct)
+{
+	entry->ip = ip;
+	entry->direct = direct;
+	add_ftrace_hash_entry(hash, entry);
+}
+
+static int register_fentry_multi(struct bpf_trampoline *tr, struct bpf_tramp_image *im, void *ptr)
+{
+	unsigned long addr = (unsigned long) im->image;
+	unsigned long ip = ftrace_location(tr->ip);
+	struct bpf_tracing_multi_data *data = ptr;
+
+	if (bpf_trampoline_use_jmp(tr->flags))
+		addr = ftrace_jmp_set(addr);
+
+	ftrace_hash_add(data->reg, data->entry, ip, addr);
+	tr->cur_image = im;
+	return 0;
+}
+
+static int unregister_fentry_multi(struct bpf_trampoline *tr, u32 orig_flags, void *ptr)
+{
+	unsigned long addr = (unsigned long) tr->cur_image->image;
+	unsigned long ip = ftrace_location(tr->ip);
+	struct bpf_tracing_multi_data *data = ptr;
+
+	if (bpf_trampoline_use_jmp(tr->flags))
+		addr = ftrace_jmp_set(addr);
+
+	ftrace_hash_add(data->unreg, data->entry, ip, addr);
+	tr->cur_image = NULL;
+	return 0;
+}
+
+static int modify_fentry_multi(struct bpf_trampoline *tr, u32 orig_flags, struct bpf_tramp_image *im,
+			       bool lock_direct_mutex, void *ptr)
+{
+	unsigned long addr = (unsigned long) im->image;
+	unsigned long ip = ftrace_location(tr->ip);
+	struct bpf_tracing_multi_data *data = ptr;
+
+	if (bpf_trampoline_use_jmp(tr->flags))
+		addr = ftrace_jmp_set(addr);
+
+	ftrace_hash_add(data->modify, data->entry, ip, addr);
+	tr->cur_image = im;
+	return 0;
+}
+
+static const struct bpf_trampoline_ops trampoline_multi_ops = {
+	.register_fentry   = register_fentry_multi,
+	.unregister_fentry = unregister_fentry_multi,
+	.modify_fentry     = modify_fentry_multi,
+};
+
+static void bpf_trampoline_multi_attach_init(struct bpf_trampoline *tr)
+{
+	tr->multi_attach.old_image = tr->cur_image;
+	tr->multi_attach.old_flags = tr->flags;
+}
+
+static void bpf_trampoline_multi_attach_free(struct bpf_trampoline *tr)
+{
+	if (tr->multi_attach.old_image)
+		bpf_tramp_image_put(tr->multi_attach.old_image);
+
+	tr->multi_attach.old_image = NULL;
+	tr->multi_attach.old_flags = 0;
+}
+
+static void bpf_trampoline_multi_attach_rollback(struct bpf_trampoline *tr)
+{
+	if (tr->cur_image)
+		bpf_tramp_image_put(tr->cur_image);
+	tr->cur_image = tr->multi_attach.old_image;
+	tr->flags = tr->multi_attach.old_flags;
+
+	tr->multi_attach.old_image = NULL;
+	tr->multi_attach.old_flags = 0;
+}
+
+#define for_each_mnode_cnt(mnode, link, cnt) \
+	for (i = 0, mnode = &link->nodes[i]; i < cnt; i++, mnode = &link->nodes[i])
+
+#define for_each_mnode(mnode, link) \
+	for_each_mnode_cnt(mnode, link, link->nodes_cnt)
+
+int bpf_trampoline_multi_attach(struct bpf_prog *prog, u32 *ids,
+				struct bpf_tracing_multi_link *link)
+{
+	struct bpf_tracing_multi_data *data = &link->data;
+	struct bpf_attach_target_info tgt_info = {};
+	struct btf *btf = prog->aux->attach_btf;
+	struct bpf_tracing_multi_node *mnode;
+	struct bpf_trampoline *tr;
+	int i, err, rollback_cnt;
+	u64 key;
+
+	for_each_mnode(mnode, link) {
+		rollback_cnt = i;
+
+		err = bpf_check_attach_btf_id_multi(btf, prog, ids[i], &tgt_info);
+		if (err)
+			goto rollback_put;
+
+		key = bpf_trampoline_compute_key(NULL, btf, ids[i]);
+
+		tr = bpf_trampoline_get(key, &tgt_info);
+		if (!tr) {
+			err = -ENOMEM;
+			goto rollback_put;
+		}
+
+		mnode->trampoline = tr;
+		mnode->node.link = &link->link;
+
+		cond_resched();
+	}
+
+	err = init_tracing_multi_data(data);
+	if (err) {
+		rollback_cnt = link->nodes_cnt;
+		goto rollback_put;
+	}
+
+	trampoline_lock_all();
+
+	for_each_mnode(mnode, link) {
+		bpf_trampoline_multi_attach_init(mnode->trampoline);
+
+		data->entry = &mnode->entry;
+		err = __bpf_trampoline_link_prog(&mnode->node, mnode->trampoline, NULL,
+						 &trampoline_multi_ops, data);
+		if (err) {
+			rollback_cnt = i;
+			goto rollback_unlink;
+		}
+	}
+
+	rollback_cnt = link->nodes_cnt;
+	if (ftrace_hash_count(data->reg)) {
+		err = update_ftrace_direct_add(&direct_ops, data->reg);
+		if (err)
+			goto rollback_unlink;
+	}
+
+	if (ftrace_hash_count(data->modify)) {
+		err = update_ftrace_direct_mod(&direct_ops, data->modify, true);
+		if (err) {
+			if (ftrace_hash_count(data->reg))
+				WARN_ON_ONCE(update_ftrace_direct_del(&direct_ops, data->reg));
+			goto rollback_unlink;
+		}
+	}
+
+	for_each_mnode(mnode, link)
+		bpf_trampoline_multi_attach_free(mnode->trampoline);
+
+	trampoline_unlock_all();
+
+	remove_tracing_multi_data(data);
+	return 0;
+
+rollback_unlink:
+	for_each_mnode_cnt(mnode, link, rollback_cnt) {
+		bpf_trampoline_remove_prog(mnode->trampoline, &mnode->node);
+		bpf_trampoline_multi_attach_rollback(mnode->trampoline);
+	}
+
+	trampoline_unlock_all();
+
+	clear_tracing_multi_data(data);
+	rollback_cnt = link->nodes_cnt;
+
+rollback_put:
+	for_each_mnode_cnt(mnode, link, rollback_cnt)
+		bpf_trampoline_put(mnode->trampoline);
+
+	return err;
+}
+
+int bpf_trampoline_multi_detach(struct bpf_prog *prog, struct bpf_tracing_multi_link *link)
+{
+	struct bpf_tracing_multi_data *data = &link->data;
+	struct bpf_tracing_multi_node *mnode;
+	int i;
+
+	trampoline_lock_all();
+
+	for_each_mnode(mnode, link) {
+		data->entry = &mnode->entry;
+		bpf_trampoline_multi_attach_init(mnode->trampoline);
+		WARN_ON_ONCE(__bpf_trampoline_unlink_prog(&mnode->node, mnode->trampoline,
+					NULL, &trampoline_multi_ops, data));
+	}
+
+	if (ftrace_hash_count(data->unreg))
+		WARN_ON_ONCE(update_ftrace_direct_del(&direct_ops, data->unreg));
+	if (ftrace_hash_count(data->modify))
+		WARN_ON_ONCE(update_ftrace_direct_mod(&direct_ops, data->modify, true));
+
+	for_each_mnode(mnode, link)
+		bpf_trampoline_multi_attach_free(mnode->trampoline);
+
+	trampoline_unlock_all();
+
+	for_each_mnode(mnode, link)
+		bpf_trampoline_put(mnode->trampoline);
+
+	clear_tracing_multi_data(data);
+	return 0;
+}
+
+#undef for_each_mnode_cnt
+#undef for_each_mnode
+
+#endif /* CONFIG_DYNAMIC_FTRACE_WITH_DIRECT_CALLS &&
+	  CONFIG_HAVE_SINGLE_FTRACE_DIRECT_OPS &&
+	  CONFIG_BPF_SYSCALL */
+
 static int __init init_trampolines(void)
 {
 	int i;

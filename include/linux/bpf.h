@@ -33,6 +33,7 @@
 #include <linux/memcontrol.h>
 #include <linux/cfi.h>
 #include <linux/key.h>
+#include <linux/ftrace.h>
 #include <asm/rqspinlock.h>
 
 struct bpf_verifier_env;
@@ -1373,6 +1374,11 @@ struct bpf_trampoline {
 	int progs_cnt[BPF_TRAMP_MAX];
 	/* Executable image of trampoline */
 	struct bpf_tramp_image *cur_image;
+	/* Used as temporary old image storage for multi_attach */
+	struct {
+		struct bpf_tramp_image *old_image;
+		u32 old_flags;
+	} multi_attach;
 };
 
 struct bpf_attach_target_info {
@@ -1470,6 +1476,8 @@ static inline int bpf_dynptr_check_off_len(const struct bpf_dynptr_kern *ptr, u6
 	return 0;
 }
 
+struct bpf_tracing_multi_link;
+
 #ifdef CONFIG_BPF_JIT
 int bpf_trampoline_link_prog(struct bpf_tramp_node *node,
 			     struct bpf_trampoline *tr,
@@ -1481,6 +1489,11 @@ struct bpf_trampoline *bpf_trampoline_get(u64 key,
 					  struct bpf_attach_target_info *tgt_info);
 void bpf_trampoline_put(struct bpf_trampoline *tr);
 int arch_prepare_bpf_dispatcher(void *image, void *buf, s64 *funcs, int num_funcs);
+
+int bpf_trampoline_multi_attach(struct bpf_prog *prog, u32 *ids,
+				struct bpf_tracing_multi_link *link);
+int bpf_trampoline_multi_detach(struct bpf_prog *prog,
+				struct bpf_tracing_multi_link *link);
 
 /*
  * When the architecture supports STATIC_CALL replace the bpf_dispatcher_fn
@@ -1593,6 +1606,16 @@ static inline bool is_bpf_image_address(unsigned long address)
 static inline bool bpf_prog_has_trampoline(const struct bpf_prog *prog)
 {
 	return false;
+}
+static inline int bpf_trampoline_multi_attach(struct bpf_prog *prog, u32 *ids,
+					      struct bpf_tracing_multi_link *link)
+{
+	return -ENOTSUPP;
+}
+static inline int bpf_trampoline_multi_detach(struct bpf_prog *prog,
+					      struct bpf_tracing_multi_link *link)
+{
+	return -ENOTSUPP;
 }
 #endif
 
@@ -1930,6 +1953,26 @@ struct bpf_tracing_link {
 	struct bpf_tramp_node fexit;
 	struct bpf_trampoline *trampoline;
 	struct bpf_prog *tgt_prog;
+};
+
+struct bpf_tracing_multi_node {
+	struct bpf_tramp_node node;
+	struct bpf_trampoline *trampoline;
+	struct ftrace_func_entry entry;
+};
+
+struct bpf_tracing_multi_data {
+	struct ftrace_hash *unreg;
+	struct ftrace_hash *modify;
+	struct ftrace_hash *reg;
+	struct ftrace_func_entry *entry;
+};
+
+struct bpf_tracing_multi_link {
+	struct bpf_link link;
+	struct bpf_tracing_multi_data data;
+	int nodes_cnt;
+	struct bpf_tracing_multi_node nodes[] __counted_by(nodes_cnt);
 };
 
 struct bpf_raw_tp_link {

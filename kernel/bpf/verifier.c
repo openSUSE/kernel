@@ -19328,6 +19328,61 @@ static int check_attach_btf_id(struct bpf_verifier_env *env)
 	return 0;
 }
 
+int bpf_check_attach_btf_id_multi(struct btf *btf, struct bpf_prog *prog, u32 btf_id,
+				  struct bpf_attach_target_info *tgt_info)
+{
+	const struct btf_type *t;
+	unsigned long addr;
+	const char *tname;
+	int err;
+
+	if (!btf_id || !btf)
+		return -EINVAL;
+
+	/* Check noreturn attachment. */
+	if (prog->expected_attach_type == BPF_TRACE_FEXIT_MULTI &&
+	     btf_id_set_contains(&noreturn_deny, btf_id))
+		return -EINVAL;
+	/* Check denied attachment. */
+	if (btf_id_set_contains(&btf_id_deny, btf_id))
+		return -EINVAL;
+
+	/* Check and get function target data. */
+	t = btf_type_by_id(btf, btf_id);
+	if (!t)
+		return -EINVAL;
+	tname = btf_name_by_offset(btf, t->name_off);
+	if (!tname)
+		return -EINVAL;
+	if (!btf_type_is_func(t))
+		return -EINVAL;
+	t = btf_type_by_id(btf, t->type);
+	if (!btf_type_is_func_proto(t))
+		return -EINVAL;
+	err = btf_distill_func_proto(NULL, btf, t, tname, &tgt_info->fmodel);
+	if (err < 0)
+		return err;
+	if (btf_is_module(btf)) {
+		/* The bpf program already holds reference to module. */
+		if (WARN_ON_ONCE(!prog->aux->mod))
+			return -EINVAL;
+		addr = find_kallsyms_symbol_value(prog->aux->mod, tname);
+	} else {
+		addr = kallsyms_lookup_name(tname);
+	}
+	if (!addr || !ftrace_location(addr))
+		return -ENOENT;
+
+	/* Check sleepable program attachment. */
+	if (prog->sleepable) {
+		err = btf_id_allow_sleepable(btf_id, addr, prog, btf);
+		if (err)
+			return err;
+	}
+	tgt_info->tgt_addr = addr;
+	return 0;
+}
+
 struct btf *bpf_get_btf_vmlinux(void)
 {
 	if (!btf_vmlinux && IS_ENABLED(CONFIG_DEBUG_INFO_BTF)) {
