@@ -54,6 +54,11 @@ struct realtek_priv {
 	struct regmap		*map;
 	struct regmap		*map_nolock;
 	struct mutex		map_lock;
+	/* vlan_lock protects against concurrent Read-Modify-Write operations
+	 * on the global VLAN 4K and VLANMC tables, such as when adding or
+	 * deleting port VLAN memberships and PVID configurations.
+	 */
+	struct mutex		vlan_lock;
 	struct mii_bus		*user_mii_bus;
 	struct mii_bus		*bus;
 	int			mdio_addr;
