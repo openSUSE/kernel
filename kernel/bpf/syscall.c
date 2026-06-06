@@ -3288,6 +3288,15 @@ void bpf_link_init(struct bpf_link *link, enum bpf_link_type type,
 	bpf_link_init_sleepable(link, type, ops, prog, attach_type, false);
 }
 
+void bpf_tramp_link_init(struct bpf_tramp_link *link, enum bpf_link_type type,
+			 const struct bpf_link_ops *ops, struct bpf_prog *prog,
+			 enum bpf_attach_type attach_type, u64 cookie)
+{
+	bpf_link_init(&link->link, type, ops, prog, attach_type);
+	link->node.link = &link->link;
+	link->node.cookie = cookie;
+}
+
 static void bpf_link_free_id(int id)
 {
 	if (!id)
@@ -3595,7 +3604,7 @@ static void bpf_tracing_link_release(struct bpf_link *link)
 	struct bpf_tracing_link *tr_link =
 		container_of(link, struct bpf_tracing_link, link.link);
 
-	WARN_ON_ONCE(bpf_trampoline_unlink_prog(&tr_link->link,
+	WARN_ON_ONCE(bpf_trampoline_unlink_prog(&tr_link->link.node,
 						tr_link->trampoline,
 						tr_link->tgt_prog));
 
@@ -3608,8 +3617,7 @@ static void bpf_tracing_link_release(struct bpf_link *link)
 
 static void bpf_tracing_link_dealloc(struct bpf_link *link)
 {
-	struct bpf_tracing_link *tr_link =
-		container_of(link, struct bpf_tracing_link, link.link);
+	struct bpf_tracing_link *tr_link = container_of(link, struct bpf_tracing_link, link.link);
 
 	kfree(tr_link);
 }
@@ -3617,8 +3625,8 @@ static void bpf_tracing_link_dealloc(struct bpf_link *link)
 static void bpf_tracing_link_show_fdinfo(const struct bpf_link *link,
 					 struct seq_file *seq)
 {
-	struct bpf_tracing_link *tr_link =
-		container_of(link, struct bpf_tracing_link, link.link);
+	struct bpf_tracing_link *tr_link = container_of(link, struct bpf_tracing_link, link.link);
+
 	u32 target_btf_id, target_obj_id;
 
 	bpf_trampoline_unpack_key(tr_link->trampoline->key,
@@ -3631,17 +3639,16 @@ static void bpf_tracing_link_show_fdinfo(const struct bpf_link *link,
 		   link->attach_type,
 		   target_obj_id,
 		   target_btf_id,
-		   tr_link->link.cookie);
+		   tr_link->link.node.cookie);
 }
 
 static int bpf_tracing_link_fill_link_info(const struct bpf_link *link,
 					   struct bpf_link_info *info)
 {
-	struct bpf_tracing_link *tr_link =
-		container_of(link, struct bpf_tracing_link, link.link);
+	struct bpf_tracing_link *tr_link = container_of(link, struct bpf_tracing_link, link.link);
 
 	info->tracing.attach_type = link->attach_type;
-	info->tracing.cookie = tr_link->link.cookie;
+	info->tracing.cookie = tr_link->link.node.cookie;
 	bpf_trampoline_unpack_key(tr_link->trampoline->key,
 				  &info->tracing.target_obj_id,
 				  &info->tracing.target_btf_id);
@@ -3728,9 +3735,9 @@ static int bpf_tracing_prog_attach(struct bpf_prog *prog,
 
 		fslink = kzalloc_obj(*fslink, GFP_USER);
 		if (fslink) {
-			bpf_link_init(&fslink->fexit.link, BPF_LINK_TYPE_TRACING,
-				      &bpf_tracing_link_lops, prog, attach_type);
-			fslink->fexit.cookie = bpf_cookie;
+			bpf_tramp_link_init(&fslink->fexit, BPF_LINK_TYPE_TRACING,
+					    &bpf_tracing_link_lops, prog, attach_type,
+					    bpf_cookie);
 			link = &fslink->link;
 		} else {
 			link = NULL;
@@ -3742,10 +3749,8 @@ static int bpf_tracing_prog_attach(struct bpf_prog *prog,
 		err = -ENOMEM;
 		goto out_put_prog;
 	}
-	bpf_link_init(&link->link.link, BPF_LINK_TYPE_TRACING,
-		      &bpf_tracing_link_lops, prog, attach_type);
-
-	link->link.cookie = bpf_cookie;
+	bpf_tramp_link_init(&link->link, BPF_LINK_TYPE_TRACING,
+			    &bpf_tracing_link_lops, prog, attach_type, bpf_cookie);
 
 	mutex_lock(&prog->aux->dst_mutex);
 
@@ -3848,7 +3853,7 @@ static int bpf_tracing_prog_attach(struct bpf_prog *prog,
 	if (err)
 		goto out_unlock;
 
-	err = bpf_trampoline_link_prog(&link->link, tr, tgt_prog);
+	err = bpf_trampoline_link_prog(&link->link.node, tr, tgt_prog);
 	if (err) {
 		bpf_link_cleanup(&link_primer);
 		link = NULL;

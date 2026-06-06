@@ -1251,9 +1251,9 @@ enum {
 #define BPF_TRAMP_COOKIE_INDEX_SHIFT	8
 #define BPF_TRAMP_IS_RETURN_SHIFT	63
 
-struct bpf_tramp_links {
-	struct bpf_tramp_link *links[BPF_MAX_TRAMP_LINKS];
-	int nr_links;
+struct bpf_tramp_nodes {
+	struct bpf_tramp_node *nodes[BPF_MAX_TRAMP_LINKS];
+	int nr_nodes;
 };
 
 struct bpf_tramp_run_ctx;
@@ -1281,13 +1281,13 @@ struct bpf_tramp_run_ctx;
 struct bpf_tramp_image;
 int arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *image, void *image_end,
 				const struct btf_func_model *m, u32 flags,
-				struct bpf_tramp_links *tlinks,
+				struct bpf_tramp_nodes *tnodes,
 				void *func_addr);
 void *arch_alloc_bpf_trampoline(unsigned int size);
 void arch_free_bpf_trampoline(void *image, unsigned int size);
 int __must_check arch_protect_bpf_trampoline(void *image, unsigned int size);
 int arch_bpf_trampoline_size(const struct btf_func_model *m, u32 flags,
-			     struct bpf_tramp_links *tlinks, void *func_addr);
+			     struct bpf_tramp_nodes *tnodes, void *func_addr);
 
 u64 notrace __bpf_prog_enter_sleepable_recur(struct bpf_prog *prog,
 					     struct bpf_tramp_run_ctx *run_ctx);
@@ -1471,10 +1471,10 @@ static inline int bpf_dynptr_check_off_len(const struct bpf_dynptr_kern *ptr, u6
 }
 
 #ifdef CONFIG_BPF_JIT
-int bpf_trampoline_link_prog(struct bpf_tramp_link *link,
+int bpf_trampoline_link_prog(struct bpf_tramp_node *node,
 			     struct bpf_trampoline *tr,
 			     struct bpf_prog *tgt_prog);
-int bpf_trampoline_unlink_prog(struct bpf_tramp_link *link,
+int bpf_trampoline_unlink_prog(struct bpf_tramp_node *node,
 			       struct bpf_trampoline *tr,
 			       struct bpf_prog *tgt_prog);
 struct bpf_trampoline *bpf_trampoline_get(u64 key,
@@ -1561,13 +1561,13 @@ bool bpf_insn_is_indirect_target(const struct bpf_verifier_env *env, const struc
 				 int insn_idx);
 u16 bpf_out_stack_arg_cnt(const struct bpf_verifier_env *env, const struct bpf_prog *prog);
 #else
-static inline int bpf_trampoline_link_prog(struct bpf_tramp_link *link,
+static inline int bpf_trampoline_link_prog(struct bpf_tramp_node *node,
 					   struct bpf_trampoline *tr,
 					   struct bpf_prog *tgt_prog)
 {
 	return -ENOTSUPP;
 }
-static inline int bpf_trampoline_unlink_prog(struct bpf_tramp_link *link,
+static inline int bpf_trampoline_unlink_prog(struct bpf_tramp_node *node,
 					     struct bpf_trampoline *tr,
 					     struct bpf_prog *tgt_prog)
 {
@@ -1909,10 +1909,15 @@ struct bpf_link_ops {
 	__poll_t (*poll)(struct file *file, struct poll_table_struct *pts);
 };
 
-struct bpf_tramp_link {
-	struct bpf_link link;
+struct bpf_tramp_node {
+	struct bpf_link *link;
 	struct hlist_node tramp_hlist;
 	u64 cookie;
+};
+
+struct bpf_tramp_link {
+	struct bpf_link link;
+	struct bpf_tramp_node node;
 };
 
 struct bpf_shim_tramp_link {
@@ -2132,8 +2137,8 @@ void bpf_struct_ops_put(const void *kdata);
 int bpf_struct_ops_supported(const struct bpf_struct_ops *st_ops, u32 moff);
 int bpf_struct_ops_map_sys_lookup_elem(struct bpf_map *map, void *key,
 				       void *value);
-int bpf_struct_ops_prepare_trampoline(struct bpf_tramp_links *tlinks,
-				      struct bpf_tramp_link *link,
+int bpf_struct_ops_prepare_trampoline(struct bpf_tramp_nodes *tnodes,
+				      struct bpf_tramp_node *node,
 				      const struct btf_func_model *model,
 				      void *stub_func,
 				      void **image, u32 *image_off,
@@ -2228,31 +2233,31 @@ static inline void bpf_struct_ops_desc_release(struct bpf_struct_ops_desc *st_op
 
 #endif
 
-static inline int bpf_fsession_cnt(struct bpf_tramp_links *links)
+static inline int bpf_fsession_cnt(struct bpf_tramp_nodes *nodes)
 {
-	struct bpf_tramp_links fentries = links[BPF_TRAMP_FENTRY];
+	struct bpf_tramp_nodes fentries = nodes[BPF_TRAMP_FENTRY];
 	int cnt = 0;
 
-	for (int i = 0; i < links[BPF_TRAMP_FENTRY].nr_links; i++) {
-		if (fentries.links[i]->link.prog->expected_attach_type == BPF_TRACE_FSESSION)
+	for (int i = 0; i < nodes[BPF_TRAMP_FENTRY].nr_nodes; i++) {
+		if (fentries.nodes[i]->link->prog->expected_attach_type == BPF_TRACE_FSESSION)
 			cnt++;
 	}
 
 	return cnt;
 }
 
-static inline bool bpf_prog_calls_session_cookie(struct bpf_tramp_link *link)
+static inline bool bpf_prog_calls_session_cookie(struct bpf_tramp_node *node)
 {
-	return link->link.prog->call_session_cookie;
+	return node->link->prog->call_session_cookie;
 }
 
-static inline int bpf_fsession_cookie_cnt(struct bpf_tramp_links *links)
+static inline int bpf_fsession_cookie_cnt(struct bpf_tramp_nodes *nodes)
 {
-	struct bpf_tramp_links fentries = links[BPF_TRAMP_FENTRY];
+	struct bpf_tramp_nodes fentries = nodes[BPF_TRAMP_FENTRY];
 	int cnt = 0;
 
-	for (int i = 0; i < links[BPF_TRAMP_FENTRY].nr_links; i++) {
-		if (bpf_prog_calls_session_cookie(fentries.links[i]))
+	for (int i = 0; i < nodes[BPF_TRAMP_FENTRY].nr_nodes; i++) {
+		if (bpf_prog_calls_session_cookie(fentries.nodes[i]))
 			cnt++;
 	}
 
@@ -2800,6 +2805,9 @@ void bpf_link_init(struct bpf_link *link, enum bpf_link_type type,
 void bpf_link_init_sleepable(struct bpf_link *link, enum bpf_link_type type,
 			     const struct bpf_link_ops *ops, struct bpf_prog *prog,
 			     enum bpf_attach_type attach_type, bool sleepable);
+void bpf_tramp_link_init(struct bpf_tramp_link *link, enum bpf_link_type type,
+			 const struct bpf_link_ops *ops, struct bpf_prog *prog,
+			 enum bpf_attach_type attach_type, u64 cookie);
 int bpf_link_prime(struct bpf_link *link, struct bpf_link_primer *primer);
 int bpf_link_settle(struct bpf_link_primer *primer);
 void bpf_link_cleanup(struct bpf_link_primer *primer);
@@ -3220,6 +3228,12 @@ static inline void bpf_link_init(struct bpf_link *link, enum bpf_link_type type,
 static inline void bpf_link_init_sleepable(struct bpf_link *link, enum bpf_link_type type,
 					   const struct bpf_link_ops *ops, struct bpf_prog *prog,
 					   enum bpf_attach_type attach_type, bool sleepable)
+{
+}
+
+static inline void bpf_tramp_link_init(struct bpf_tramp_link *link, enum bpf_link_type type,
+				       const struct bpf_link_ops *ops, struct bpf_prog *prog,
+				       enum bpf_attach_type attach_type, u64 cookie)
 {
 }
 
