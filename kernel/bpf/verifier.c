@@ -4728,9 +4728,21 @@ static int check_ctx_access(struct bpf_verifier_env *env, int insn_idx, struct b
 	return err;
 }
 
-static int check_flow_keys_access(struct bpf_verifier_env *env, int off,
-				  int size)
+static int check_flow_keys_access(struct bpf_verifier_env *env,
+				  struct bpf_reg_state *reg, argno_t argno,
+				  int off, int size)
 {
+	/* Only a constant offset is allowed here; fold it into off. */
+	if (!tnum_is_const(reg->var_off)) {
+		char tn_buf[48];
+
+		tnum_strn(tn_buf, sizeof(tn_buf), reg->var_off);
+		verbose(env, "%s invalid variable offset to flow keys: off=%d, var_off=%s\n",
+			reg_arg_name(env, argno), off, tn_buf);
+		return -EACCES;
+	}
+	off += reg->var_off.value;
+
 	if (size < 0 || off < 0 ||
 	    (u64)off + size > sizeof(struct bpf_flow_keys)) {
 		verbose(env, "invalid access to flow keys off=%d size=%d\n",
@@ -6239,7 +6251,7 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, struct b
 			return -EACCES;
 		}
 
-		err = check_flow_keys_access(env, off, size);
+		err = check_flow_keys_access(env, reg, argno, off, size);
 		if (!err && t == BPF_READ && value_regno >= 0)
 			mark_reg_unknown(env, regs, value_regno);
 	} else if (type_is_sk_pointer(reg->type)) {
