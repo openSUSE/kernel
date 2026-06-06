@@ -1991,6 +1991,20 @@ static int rtl8365mb_setup(struct dsa_switch *ds)
 	else if (ret)
 		dev_info(priv->dev, "no interrupt support\n");
 
+	for (i = 0; i < priv->num_ports; i++) {
+		/* Cascading (DSA links) is not supported yet.
+		 * Historically, the driver has always been broken
+		 * without a dedicated CPU port because CPU tagging
+		 * would be disabled, rendering the switch entirely
+		 * non-functional for DSA operations.
+		 */
+		if (dsa_is_dsa_port(ds, i)) {
+			dev_err(priv->dev, "Cascading (DSA link) not supported\n");
+			ret = -EOPNOTSUPP;
+			goto out_teardown_irq;
+		}
+	}
+
 	/* Configure CPU tagging */
 	dsa_switch_for_each_cpu_port(cpu_dp, ds) {
 		cpu->mask |= BIT(cpu_dp->index);
@@ -1999,6 +2013,13 @@ static int rtl8365mb_setup(struct dsa_switch *ds)
 			cpu->trap_port = cpu_dp->index;
 	}
 	cpu->enable = cpu->mask > 0;
+
+	if (!cpu->enable) {
+		dev_err(priv->dev, "no CPU port defined\n");
+		ret = -EINVAL;
+		goto out_teardown_irq;
+	}
+
 	ret = rtl8365mb_cpu_config(priv);
 	if (ret)
 		goto out_teardown_irq;
