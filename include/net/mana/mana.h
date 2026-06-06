@@ -562,6 +562,10 @@ struct mana_port_context {
 	u32 speed;
 	/* Maximum speed supported by the SKU (mbps) */
 	u32 max_speed;
+	/* 1 = not queried, 0 = cached success, negative = permanent error.
+	 * Protected by the netdev instance lock.
+	 */
+	int link_cfg_error;
 
 	bool port_is_up;
 	bool port_st_save; /* Saved port state */
