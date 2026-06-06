@@ -235,9 +235,26 @@ class KUnitParserTest(unittest.TestCase):
 		with open(skipped_log) as file:
 			result = kunit_parser.parse_run_tests(file.readlines(), stdout)
 
+		# The test result is skipped, and the skip reason is valid
+		self.assertEqual(kunit_parser.TestStatus.SKIPPED, result.subtests[1].subtests[1].status)
+		self.assertEqual("this test should be skipped", result.subtests[1].subtests[1].skip_reason)
+
 		# A skipped test does not fail the whole suite.
 		self.assertEqual(kunit_parser.TestStatus.SUCCESS, result.status)
 		self.assertEqual(result.counts, kunit_parser.TestCounts(passed=4, skipped=1))
+
+	def test_skipped_reason_parse(self):
+		skipped_log = _test_data_path('test_skip_all_tests.log')
+		with open(skipped_log) as file:
+			result = kunit_parser.parse_run_tests(file.readlines(), stdout)
+
+		# The first test is skipped, with the correct reaons
+		self.assertEqual(kunit_parser.TestStatus.SKIPPED, result.subtests[0].subtests[0].status)
+		self.assertEqual("all tests skipped", result.subtests[0].subtests[0].skip_reason)
+
+		# The first suite is skipped, with no reason
+		self.assertEqual(kunit_parser.TestStatus.SKIPPED, result.subtests[0].status)
+		self.assertEqual("", result.subtests[0].skip_reason)
 
 	def test_skipped_all_tests(self):
 		skipped_log = _test_data_path('test_skip_all_tests.log')
