@@ -8,9 +8,9 @@
  *
  */
 
-#include <linux/purgatory.h>
 #include <linux/kernel.h>
 #include <linux/string.h>
+#include <asm/purgatory.h>
 #include <asm/string.h>
 
 u8 purgatory_sha256_digest[SHA256_DIGEST_SIZE] __section(".kexec-purgatory");
@@ -31,9 +31,6 @@ static bool verify_sha256_digest(void)
 
 	return memcmp(digest, purgatory_sha256_digest, sizeof(digest)) == 0;
 }
-
-/* workaround for a warning with -Wmissing-prototypes */
-void purgatory(void);
 
 void purgatory(void)
 {
