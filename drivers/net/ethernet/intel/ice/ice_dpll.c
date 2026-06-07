@@ -4712,6 +4712,17 @@ static void ice_dpll_init_e825(struct ice_pf *pf)
 	struct ice_dplls *d = &pf->dplls;
 	int err;
 
+	/* E825 sets ICE_F_PHY_RCLK unconditionally, so DPLL may run without
+	 * PTP. Populate the HW-topology fields the TX-clk path divides by,
+	 * otherwise userspace can trigger div-by-zero in ice_txclk_set_clk().
+	 * When PTP is supported, ice_ptp_init() handles this.
+	 */
+	if (!test_bit(ICE_FLAG_PTP_SUPPORTED, pf->flags)) {
+		ice_ptp_init_hw(&pf->hw);
+		if (pf->hw.lane_num >= 0)
+			pf->ptp.port.port_num = pf->hw.lane_num;
+	}
+
 	mutex_init(&d->lock);
 	init_completion(&d->dpll_init);
 
