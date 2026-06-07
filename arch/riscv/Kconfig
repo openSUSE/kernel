@@ -1024,7 +1024,6 @@ choice
 config RISCV_PROBE_VECTOR_UNALIGNED_ACCESS
 	bool "Probe speed of vector unaligned accesses"
 	select RISCV_VECTOR_MISALIGNED
-	depends on RISCV_ISA_V
 	help
 	  During boot, the kernel will run a series of tests to determine the
 	  speed of vector unaligned accesses if they are supported. This probing
