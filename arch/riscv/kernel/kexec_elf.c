@@ -10,8 +10,6 @@
  * for kernel.
  */
 
-#define pr_fmt(fmt)	"kexec_image: " fmt
-
 #include <linux/elf.h>
 #include <linux/kexec.h>
 #include <linux/slab.h>
