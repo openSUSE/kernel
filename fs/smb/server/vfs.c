@@ -1239,7 +1239,7 @@ int ksmbd_vfs_kern_path_locked(struct ksmbd_work *work, char *name,
 	if (!err)
 		return 0;
 
-	if (caseless) {
+	if (caseless && err == -ENOENT) {
 		char *filepath;
 		size_t path_len, remain_len;
 
@@ -1270,7 +1270,7 @@ int ksmbd_vfs_kern_path_locked(struct ksmbd_work *work, char *name,
 			err = vfs_path_lookup(share_conf->vfs_path.dentry,
 					      share_conf->vfs_path.mnt,
 					      filepath,
-					      flags,
+					      flags | LOOKUP_BENEATH,
 					      path);
 			if (!is_last)
 				next[0] = '/';
