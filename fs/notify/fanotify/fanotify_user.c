@@ -904,20 +904,12 @@ static ssize_t copy_event_to_user(struct fsnotify_group *group,
 		metadata.fd = fd >= 0 ? fd : FAN_NOFD;
 
 	if (pidfd_mode) {
-		unsigned int tid_mode = FAN_GROUP_FLAG(group, FAN_REPORT_TID);
-		enum pid_type pidtype = tid_mode ? PIDTYPE_PID : PIDTYPE_TGID;
-		unsigned int pidfd_flags = tid_mode ? PIDFD_THREAD : 0;
+		unsigned int pidfd_flags = PIDFD_STALE;
 
-		/*
-		 * The pid_has_task() check for an event->pid is performed
-		 * preemptively in an attempt to catch out cases where the event
-		 * listener reads events after the event generating task has
-		 * already terminated.  Depending on flag FAN_REPORT_FD_ERROR,
-		 * report either -ESRCH or FAN_NOPIDFD to the event listener in
-		 * those cases with all other pidfd creation errors reported as
-		 * the error code itself or as FAN_EPIDFD.
-		 */
-		if (metadata.pid && pid_has_task(event->pid, pidtype))
+		if (FAN_GROUP_FLAG(group, FAN_REPORT_TID))
+			pidfd_flags |= PIDFD_THREAD;
+
+		if (metadata.pid)
 			pidfd = pidfd_prepare(event->pid, pidfd_flags, &pidfd_file);
 
 		if (!FAN_GROUP_FLAG(group, FAN_REPORT_FD_ERROR) && pidfd < 0)
