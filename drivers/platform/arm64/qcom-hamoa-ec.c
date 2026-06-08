@@ -149,7 +149,7 @@ static int qcom_ec_read_fw_version(struct device *dev)
  * | 0x00		| Byte count	| Number of bytes in response		|
  * |			|		| (excluding byte count)		|
  * ------------------------------------------------------------------------------
- * | 0x02 (LSB)	| EC Thermal	| Bit 0-1: Number of fans		|
+ * | 0x02 (LSB)		| EC Thermal	| Bit 0-1: Number of fans		|
  * | 0x03		| Capabilities	| Bit 2-4: Type of fan			|
  * |			|		| Bit 5-6: Reserved			|
  * |			|		| Bit 7: Data Valid/Invalid		|
@@ -273,7 +273,7 @@ static int qcom_ec_fan_get_cur_state(struct thermal_cooling_device *cdev, unsign
  * |			|		| Bit 1: Fan On/Off (0 - Off, 1 - ON)		|
  * |			|		| Bit 2: Debug Type (0 - RPM, 1 - PWM)		|
  * --------------------------------------------------------------------------------------
- * | 0x04 (LSB)	| Speed in RPM	| RPM value, if mode selected is RPM		|
+ * | 0x04 (LSB)		| Speed in RPM	| RPM value, if mode selected is RPM		|
  * | 0x05		|		|						|
  * --------------------------------------------------------------------------------------
  * | 0x06		| Speed in PWM	| PWM value, if mode selected is PWM (0 - 255)	|
