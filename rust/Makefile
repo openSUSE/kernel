@@ -51,7 +51,6 @@ libmacros_name := $(shell MAKEFLAGS= $(RUSTC) --print file-names --crate-name ma
 libmacros_extension := $(patsubst libmacros.%,%,$(libmacros_name))
 
 libpin_init_internal_name := $(shell MAKEFLAGS= $(RUSTC) --print file-names --crate-name pin_init_internal --crate-type proc-macro - </dev/null)
-libpin_init_internal_extension := $(patsubst libpin_init_internal.%,%,$(libpin_init_internal_name))
 
 always-$(CONFIG_RUST) += $(libmacros_name) $(libpin_init_internal_name)
 
