@@ -527,7 +527,7 @@ static void resctrl_abmc_config_one_amd(void *info)
 {
 	union l3_qos_abmc_cfg *abmc_cfg = info;
 
-	wrmsrl(MSR_IA32_L3_QOS_ABMC_CFG, abmc_cfg->full);
+	wrmsrq(MSR_IA32_L3_QOS_ABMC_CFG, abmc_cfg->full);
 }
 
 /*

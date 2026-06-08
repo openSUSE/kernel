@@ -2379,7 +2379,7 @@ static void intel_c1_demotion_toggle(void *enable)
 		msr_val |= NHM_C1_AUTO_DEMOTE | SNB_C1_AUTO_UNDEMOTE;
 	else
 		msr_val &= ~(NHM_C1_AUTO_DEMOTE | SNB_C1_AUTO_UNDEMOTE);
-	wrmsrl(MSR_PKG_CST_CONFIG_CONTROL, msr_val);
+	wrmsrq(MSR_PKG_CST_CONFIG_CONTROL, msr_val);
 }
 
 static ssize_t intel_c1_demotion_store(struct device *dev,
