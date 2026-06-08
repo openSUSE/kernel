@@ -487,10 +487,6 @@ bool ksz_support_eee(struct dsa_switch *ds, int port);
 int ksz_set_mac_eee(struct dsa_switch *ds, int port,
 		    struct ethtool_keee *e);
 
-int ksz_cls_flower_add(struct dsa_switch *ds, int port,
-		       struct flow_cls_offload *cls, bool ingress);
-int ksz_cls_flower_del(struct dsa_switch *ds, int port,
-		       struct flow_cls_offload *cls, bool ingress);
 int ksz_setup_tc(struct dsa_switch *ds, int port,
 		 enum tc_setup_type type, void *type_data);
 
