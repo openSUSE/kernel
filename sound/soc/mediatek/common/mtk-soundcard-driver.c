@@ -275,9 +275,8 @@ int mtk_soundcard_common_probe(struct platform_device *pdev)
 
 	if (adsp_node) {
 		if (of_property_present(pdev->dev.of_node, "mediatek,dai-link")) {
-			ret = mtk_sof_dailink_parse_of(card, pdev->dev.of_node,
-						       "mediatek,dai-link",
-						       card->dai_link, card->num_links);
+			ret = mtk_sof_dailink_parse_of(&pdev->dev, card,
+						       "mediatek,dai-link");
 			if (ret) {
 				of_node_put(adsp_node);
 				of_node_put(platform_node);
