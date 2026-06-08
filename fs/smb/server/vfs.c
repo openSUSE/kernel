@@ -1899,3 +1899,26 @@ void ksmbd_vfs_update_compressed_fattr(struct dentry *dentry, __le32 *fattr)
 	else
 		*fattr &= ~FILE_ATTRIBUTE_COMPRESSED_LE;
 }
+
+int ksmbd_vfs_get_compression(struct ksmbd_file *fp, u16 *fmt)
+{
+	struct file_kattr fa = { .flags_valid = true };
+	int rc;
+
+	rc = vfs_fileattr_get(fp->filp->f_path.dentry, &fa);
+	if (rc == -ENOIOCTLCMD) {
+		*fmt = COMPRESSION_FORMAT_NONE;
+		rc = 0;
+		goto out;
+	}
+	if (rc)
+		goto out;
+
+	if (fa.flags & FS_COMPR_FL)
+		*fmt = COMPRESSION_FORMAT_LZNT1;
+	else
+		*fmt = COMPRESSION_FORMAT_NONE;
+
+out:
+	return rc;
+}

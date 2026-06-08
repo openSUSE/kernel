@@ -8354,6 +8354,34 @@ int smb2_ioctl(struct ksmbd_work *work)
 		ret = -EOPNOTSUPP;
 		rsp->hdr.Status = STATUS_FS_DRIVER_REQUIRED;
 		goto out2;
+	case FSCTL_GET_COMPRESSION: {
+		struct compress_ioctl *cmpr_rsp;
+		struct ksmbd_file *fp;
+		u16 fmt;
+
+		if (out_buf_len < sizeof(struct compress_ioctl)) {
+			ret = -EINVAL;
+			goto out;
+		}
+
+		fp = ksmbd_lookup_fd_fast(work, id);
+		if (!fp) {
+			ret = -ENOENT;
+			goto out;
+		}
+
+		ret = ksmbd_vfs_get_compression(fp, &fmt);
+		ksmbd_fd_put(work, fp);
+		if (ret < 0)
+			goto out;
+
+		cmpr_rsp = (struct compress_ioctl *)&rsp->Buffer[0];
+		cmpr_rsp->CompressionState = cpu_to_le16(fmt);
+		nbytes = sizeof(struct compress_ioctl);
+		rsp->PersistentFileId = req->PersistentFileId;
+		rsp->VolatileFileId = req->VolatileFileId;
+		break;
+	}
 	case FSCTL_CREATE_OR_GET_OBJECT_ID:
 	{
 		struct file_object_buf_type1_ioctl_rsp *obj_buf;

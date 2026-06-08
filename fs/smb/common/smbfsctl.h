@@ -61,7 +61,7 @@
 #define FSCTL_LOCK_VOLUME            0x00090018
 #define FSCTL_UNLOCK_VOLUME          0x0009001C
 #define FSCTL_IS_PATHNAME_VALID      0x0009002C /* BB add struct */
-#define FSCTL_GET_COMPRESSION        0x0009003C /* BB add struct */
+#define FSCTL_GET_COMPRESSION        0x0009003C
 #define FSCTL_SET_COMPRESSION        0x0009C040 /* BB add struct */
 #define FSCTL_QUERY_FAT_BPB          0x00090058 /* BB add struct */
 /* Verify the next FSCTL number, we had it as 0x00090090 before */
