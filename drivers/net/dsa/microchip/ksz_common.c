@@ -3756,9 +3756,6 @@ void ksz_get_wol(struct dsa_switch *ds, int port,
 	u8 pme_ctrl;
 	int ret;
 
-	if (!is_ksz9477(dev) && !ksz_is_ksz87xx(dev))
-		return;
-
 	if (!dev->wakeup_source)
 		return;
 
@@ -3808,9 +3805,6 @@ int ksz_set_wol(struct dsa_switch *ds, int port,
 
 	if (wol->wolopts & ~(WAKE_PHY | WAKE_MAGIC))
 		return -EINVAL;
-
-	if (!is_ksz9477(dev) && !ksz_is_ksz87xx(dev))
-		return -EOPNOTSUPP;
 
 	if (!dev->wakeup_source)
 		return -EOPNOTSUPP;
@@ -3871,12 +3865,13 @@ static void ksz_wol_pre_shutdown(struct ksz_device *dev)
 {
 	const struct ksz_dev_ops *ops = dev->dev_ops;
 	const u16 *regs = dev->info->regs;
+	struct dsa_switch *ds = dev->ds;
 	u8 pme_pin_en = PME_ENABLE;
 	bool wol_enabled = false;
 	struct dsa_port *dp;
 	int ret;
 
-	if (!is_ksz9477(dev) && !ksz_is_ksz87xx(dev))
+	if (!ds->ops->set_wol)
 		return;
 
 	if (!dev->wakeup_source)
@@ -3924,7 +3919,8 @@ int ksz_port_set_mac_address(struct dsa_switch *ds, int port,
 	 */
 	wol.wolopts = 0;
 
-	ksz_get_wol(ds, dp->index, &wol);
+	if (ds->ops->get_wol)
+		ds->ops->get_wol(ds, dp->index, &wol);
 	if (wol.wolopts & WAKE_MAGIC) {
 		dev_err(ds->dev,
 			"Cannot change MAC address on port %d with active Wake on Magic Packet\n",
