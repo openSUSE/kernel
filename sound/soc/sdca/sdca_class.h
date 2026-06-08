@@ -30,9 +30,6 @@ struct sdca_class_drv {
 	/* Serialise function initialisations */
 	struct mutex init_lock;
 	struct work_struct boot_work;
-	struct completion device_attach;
-
-	bool attached;
 };
 
 #endif /* __SDCA_CLASS_H__ */
