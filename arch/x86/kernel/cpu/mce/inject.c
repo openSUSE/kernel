@@ -327,7 +327,7 @@ static int toggle_hw_mce_inject(unsigned int cpu, bool enable)
 
 	enable ? (val.l |= BIT(18)) : (val.l &= ~BIT(18));
 
-	err = wrmsr_on_cpu(cpu, MSR_K7_HWCR, val.l, val.h);
+	err = wrmsrq_on_cpu(cpu, MSR_K7_HWCR, val.q);
 	if (err)
 		pr_err("%s: error writing HWCR\n", __func__);
 

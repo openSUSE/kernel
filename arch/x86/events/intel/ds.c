@@ -780,9 +780,7 @@ void init_debug_store_on_cpu(int cpu)
 	if (!ds)
 		return;
 
-	wrmsr_on_cpu(cpu, MSR_IA32_DS_AREA,
-		     (u32)((u64)(unsigned long)ds),
-		     (u32)((u64)(unsigned long)ds >> 32));
+	wrmsrq_on_cpu(cpu, MSR_IA32_DS_AREA, (u64)(unsigned long)ds);
 }
 
 void fini_debug_store_on_cpu(int cpu)
@@ -790,7 +788,7 @@ void fini_debug_store_on_cpu(int cpu)
 	if (!per_cpu(cpu_hw_events, cpu).ds)
 		return;
 
-	wrmsr_on_cpu(cpu, MSR_IA32_DS_AREA, 0, 0);
+	wrmsrq_on_cpu(cpu, MSR_IA32_DS_AREA, 0);
 }
 
 static DEFINE_PER_CPU(void *, insn_buffer);
@@ -1095,8 +1093,7 @@ void init_arch_pebs_on_cpu(int cpu)
 	 * contiguous physical buffer (__alloc_pages_node() with order)
 	 */
 	arch_pebs_base = virt_to_phys(cpuc->pebs_vaddr) | PEBS_BUFFER_SHIFT;
-	wrmsr_on_cpu(cpu, MSR_IA32_PEBS_BASE, (u32)arch_pebs_base,
-		     (u32)(arch_pebs_base >> 32));
+	wrmsrq_on_cpu(cpu, MSR_IA32_PEBS_BASE, arch_pebs_base);
 	x86_pmu.pebs_active = 1;
 }
 
@@ -1105,7 +1102,7 @@ inline void fini_arch_pebs_on_cpu(int cpu)
 	if (!x86_pmu.arch_pebs)
 		return;
 
-	wrmsr_on_cpu(cpu, MSR_IA32_PEBS_BASE, 0, 0);
+	wrmsrq_on_cpu(cpu, MSR_IA32_PEBS_BASE, 0);
 }
 
 /*
