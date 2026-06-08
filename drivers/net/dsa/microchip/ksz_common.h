@@ -482,7 +482,6 @@ void ksz_phylink_mac_link_down(struct phylink_config *config,
 
 int ksz_max_mtu(struct dsa_switch *ds, int port);
 
-bool ksz_support_eee(struct dsa_switch *ds, int port);
 int ksz_set_mac_eee(struct dsa_switch *ds, int port,
 		    struct ethtool_keee *e);
 
