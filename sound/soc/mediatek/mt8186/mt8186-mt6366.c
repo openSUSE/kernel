@@ -1178,21 +1178,21 @@ static int mt8186_mt6366_legacy_probe(struct mtk_soc_card_data *soc_card_data)
 	}
 
 	for_each_card_prelinks(card, i, dai_link) {
-		ret = mt8186_mt6366_card_set_be_link(card, dai_link, playback_codec, "I2S3");
+		ret = mt8186_mt6366_card_set_be_link(dev, dai_link, playback_codec, "I2S3");
 		if (ret) {
 			dev_err_probe(dev, ret, "%s set playback_codec fail\n",
 				      dai_link->name);
 			break;
 		}
 
-		ret = mt8186_mt6366_card_set_be_link(card, dai_link, headset_codec, "I2S0");
+		ret = mt8186_mt6366_card_set_be_link(dev, dai_link, headset_codec, "I2S0");
 		if (ret) {
 			dev_err_probe(dev, ret, "%s set headset_codec fail\n",
 				      dai_link->name);
 			break;
 		}
 
-		ret = mt8186_mt6366_card_set_be_link(card, dai_link, headset_codec, "I2S1");
+		ret = mt8186_mt6366_card_set_be_link(dev, dai_link, headset_codec, "I2S1");
 		if (ret) {
 			dev_err_probe(dev, ret, "%s set headset_codec fail\n",
 				      dai_link->name);
