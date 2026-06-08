@@ -1952,7 +1952,6 @@ const struct ksz_dev_ops ksz9477_dev_ops = {
 const struct dsa_switch_ops ksz9477_switch_ops = {
 	.get_tag_protocol	= ksz9477_get_tag_protocol,
 	.connect_tag_protocol   = ksz9477_connect_tag_protocol,
-	.get_phy_flags		= ksz_get_phy_flags,
 	.setup			= ksz9477_setup,
 	.teardown		= ksz_teardown,
 	.phy_read		= ksz9477_phy_read16,

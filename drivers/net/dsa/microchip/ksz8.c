@@ -2361,6 +2361,24 @@ static int ksz8463_phy_write16(struct dsa_switch *ds, int addr, int reg, u16 val
 	return 0;
 }
 
+static u32 ksz88xx_get_phy_flags(struct dsa_switch *ds, int port)
+{
+	struct ksz_device *dev = ds->priv;
+
+	switch (dev->chip_id) {
+	case KSZ88X3_CHIP_ID:
+		/* Silicon Errata Sheet (DS80000830A):
+		 * Port 1 does not work with LinkMD Cable-Testing.
+		 * Port 1 does not respond to received PAUSE control frames.
+		 */
+		if (!port)
+			return MICREL_KSZ8_P1_ERRATA;
+		break;
+	}
+
+	return 0;
+}
+
 static int ksz8_switch_init(struct ksz_device *dev)
 {
 	dev->cpu_port = fls(dev->info->cpu_ports) - 1;
@@ -2508,7 +2526,6 @@ const struct ksz_dev_ops ksz88xx_dev_ops = {
 const struct dsa_switch_ops ksz8463_switch_ops = {
 	.get_tag_protocol	= ksz8463_get_tag_protocol,
 	.connect_tag_protocol   = ksz8463_connect_tag_protocol,
-	.get_phy_flags		= ksz_get_phy_flags,
 	.setup			= ksz8_setup,
 	.teardown		= ksz_teardown,
 	.phy_read		= ksz8463_phy_read16,
@@ -2563,7 +2580,6 @@ const struct dsa_switch_ops ksz8463_switch_ops = {
 const struct dsa_switch_ops ksz87xx_switch_ops = {
 	.get_tag_protocol	= ksz87xx_get_tag_protocol,
 	.connect_tag_protocol   = ksz87xx_connect_tag_protocol,
-	.get_phy_flags		= ksz_get_phy_flags,
 	.setup			= ksz8_setup,
 	.teardown		= ksz_teardown,
 	.phy_read		= ksz8_phy_read16,
@@ -2621,7 +2637,7 @@ const struct dsa_switch_ops ksz87xx_switch_ops = {
 const struct dsa_switch_ops ksz88xx_switch_ops = {
 	.get_tag_protocol	= ksz88xx_get_tag_protocol,
 	.connect_tag_protocol   = ksz88xx_connect_tag_protocol,
-	.get_phy_flags		= ksz_get_phy_flags,
+	.get_phy_flags		= ksz88xx_get_phy_flags,
 	.setup			= ksz8_setup,
 	.teardown		= ksz_teardown,
 	.phy_read		= ksz8_phy_read16,

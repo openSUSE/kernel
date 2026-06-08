@@ -846,7 +846,6 @@ const struct ksz_dev_ops lan937x_dev_ops = {
 const struct dsa_switch_ops lan937x_switch_ops = {
 	.get_tag_protocol	= lan937x_get_tag_protocol,
 	.connect_tag_protocol   = lan937x_connect_tag_protocol,
-	.get_phy_flags		= ksz_get_phy_flags,
 	.setup			= lan937x_setup,
 	.teardown		= ksz_teardown,
 	.phy_read		= lan937x_phy_read16,
