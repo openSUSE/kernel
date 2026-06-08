@@ -3576,6 +3576,10 @@ static int bond_close(struct net_device *bond_dev)
 	write_lock_bh(&bond->lock);
 
 	bond->send_peer_notif = 0;
+	bond->recv_probe = NULL;
+
+	/* Wait for any in-flight RX handlers */
+	synchronize_net();
 
 	write_unlock_bh(&bond->lock);
 
@@ -3608,7 +3612,6 @@ static int bond_close(struct net_device *bond_dev)
 		 */
 		bond_alb_deinitialize(bond);
 	}
-	bond->recv_probe = NULL;
 
 	return 0;
 }
