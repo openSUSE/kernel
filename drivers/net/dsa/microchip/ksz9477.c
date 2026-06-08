@@ -1941,6 +1941,14 @@ static void ksz9477_duplex_flowctrl(struct ksz_device *dev, int port, int duplex
 	ksz_prmw8(dev, port, regs[P_XMII_CTRL_0], mask, val);
 }
 
+static void ksz9477_port_teardown(struct dsa_switch *ds, int port)
+{
+	struct ksz_device *dev = ds->priv;
+
+	if (dsa_is_user_port(ds, port))
+		ksz9477_port_acl_free(dev, port);
+}
+
 void ksz9477_phylink_mac_link_up(struct phylink_config *config,
 				 struct phy_device *phydev,
 				 unsigned int mode,
@@ -2073,7 +2081,7 @@ const struct dsa_switch_ops ksz9477_switch_ops = {
 	.port_hsr_leave		= ksz9477_hsr_leave,
 	.port_set_mac_address	= ksz_port_set_mac_address,
 	.port_stp_state_set	= ksz_port_stp_state_set,
-	.port_teardown		= ksz_port_teardown,
+	.port_teardown		= ksz9477_port_teardown,
 	.port_pre_bridge_flags	= ksz_port_pre_bridge_flags,
 	.port_bridge_flags	= ksz_port_bridge_flags,
 	.port_fast_age		= ksz9477_flush_dyn_mac_table,
