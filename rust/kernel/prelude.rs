@@ -61,6 +61,12 @@ pub use pin_init::{
 };
 
 #[doc(no_inline)]
+pub use zerocopy::FromBytes;
+
+#[doc(no_inline)]
+pub use zerocopy_derive::FromBytes;
+
+#[doc(no_inline)]
 pub use super::{
     alloc::{
         flags::*,
