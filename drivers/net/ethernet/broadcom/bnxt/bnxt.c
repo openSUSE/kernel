@@ -13679,9 +13679,9 @@ static bool bnxt_uc_list_updated(struct bnxt *bp,
 	return false;
 }
 
-static void bnxt_set_rx_mode(struct net_device *dev,
-			     struct netdev_hw_addr_list *uc,
-			     struct netdev_hw_addr_list *mc)
+static int bnxt_set_rx_mode(struct net_device *dev,
+			    struct netdev_hw_addr_list *uc,
+			    struct netdev_hw_addr_list *mc)
 {
 	struct bnxt *bp = netdev_priv(dev);
 	struct bnxt_vnic_info *vnic;
@@ -13690,7 +13690,7 @@ static void bnxt_set_rx_mode(struct net_device *dev,
 	u32 mask;
 
 	if (!test_bit(BNXT_STATE_OPEN, &bp->state))
-		return;
+		return 0;
 
 	vnic = &bp->vnic_info[BNXT_VNIC_DEFAULT];
 	mask = vnic->rx_mask;
@@ -13718,6 +13718,8 @@ static void bnxt_set_rx_mode(struct net_device *dev,
 
 		bnxt_cfg_rx_mode(bp, uc, uc_update);
 	}
+
+	return 0;
 }
 
 static int bnxt_cfg_rx_mode(struct bnxt *bp, struct netdev_hw_addr_list *uc,
