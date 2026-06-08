@@ -8382,6 +8382,34 @@ int smb2_ioctl(struct ksmbd_work *work)
 		rsp->VolatileFileId = req->VolatileFileId;
 		break;
 	}
+	case FSCTL_SET_COMPRESSION: {
+		struct compress_ioctl *cmpr_req;
+		struct ksmbd_file *fp;
+
+		if (in_buf_len < sizeof(struct compress_ioctl)) {
+			ret = -EINVAL;
+			goto out;
+		}
+
+		if (!test_tree_conn_flag(work->tcon, KSMBD_TREE_CONN_FLAG_WRITABLE)) {
+			ksmbd_debug(SMB, "User does not have write permission\n");
+			ret = -EACCES;
+			goto out;
+		}
+
+		cmpr_req = (struct compress_ioctl *)buffer;
+		fp = ksmbd_lookup_fd_fast(work, id);
+		if (!fp) {
+			ret = -ENOENT;
+			goto out;
+		}
+
+		ret = ksmbd_vfs_set_compression(work, fp, le16_to_cpu(cmpr_req->CompressionState));
+		ksmbd_fd_put(work, fp);
+		if (ret)
+			goto out;
+		break;
+	}
 	case FSCTL_CREATE_OR_GET_OBJECT_ID:
 	{
 		struct file_object_buf_type1_ioctl_rsp *obj_buf;

@@ -1922,3 +1922,73 @@ int ksmbd_vfs_get_compression(struct ksmbd_file *fp, u16 *fmt)
 out:
 	return rc;
 }
+
+int ksmbd_vfs_set_compression(struct ksmbd_work *work, struct ksmbd_file *fp, u16 fmt)
+{
+	struct file_kattr fa;
+	struct dentry *dentry = fp->filp->f_path.dentry;
+	struct mnt_idmap *idmap = file_mnt_idmap(fp->filp);
+	u32 flags;
+	__le32 old_fattr;
+	int rc;
+
+	if (!(fp->daccess & FILE_WRITE_DATA_LE)) {
+		rc = -EACCES;
+		goto out;
+	}
+
+	rc = vfs_fileattr_get(dentry, &fa);
+	if (rc)
+		goto out;
+
+	flags = fa.flags;
+	if (fmt == COMPRESSION_FORMAT_NONE) {
+		flags &= ~FS_COMPR_FL;
+	} else if (fmt == COMPRESSION_FORMAT_DEFAULT ||
+		   fmt == COMPRESSION_FORMAT_LZNT1) {
+		flags |= FS_COMPR_FL;
+	} else {
+		rc = -EINVAL;
+		goto out;
+	}
+
+	if (flags != fa.flags) {
+		fileattr_fill_flags(&fa, flags);
+		rc = mnt_want_write_file(fp->filp);
+		if (rc)
+			goto out;
+
+		rc = vfs_fileattr_set(idmap, dentry, &fa);
+		mnt_drop_write_file(fp->filp);
+		if (rc)
+			goto out;
+	}
+
+	old_fattr = fp->f_ci->m_fattr;
+	if (fmt == COMPRESSION_FORMAT_NONE)
+		fp->f_ci->m_fattr &= ~FILE_ATTRIBUTE_COMPRESSED_LE;
+	else
+		fp->f_ci->m_fattr |= FILE_ATTRIBUTE_COMPRESSED_LE;
+
+	if (fp->f_ci->m_fattr != old_fattr &&
+	    test_share_config_flag(work->tcon->share_conf,
+				   KSMBD_SHARE_FLAG_STORE_DOS_ATTRS)) {
+		struct xattr_dos_attrib da;
+
+		rc = ksmbd_vfs_get_dos_attrib_xattr(idmap, dentry, &da);
+		if (rc <= 0) {
+			rc = 0;
+			goto out;
+		}
+
+		da.attr = le32_to_cpu(fp->f_ci->m_fattr);
+		rc = ksmbd_vfs_set_dos_attrib_xattr(idmap,
+						    &fp->filp->f_path,
+						    &da, true);
+		if (rc)
+			rc = 0;
+	}
+
+out:
+	return rc;
+}
