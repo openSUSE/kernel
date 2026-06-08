@@ -1074,6 +1074,102 @@ static const unsigned int pwm7_pee1_pins[] = {
 	TEGRA_PIN_PWM7_PEE1,
 };
 
+static const unsigned int soc_gpio49_pee2_pins[] = {
+	TEGRA_PIN_SOC_GPIO49_PEE2,
+};
+
+static const unsigned int soc_gpio82_pee3_pins[] = {
+	TEGRA_PIN_SOC_GPIO82_PEE3,
+};
+
+static const unsigned int soc_gpio50_pee4_pins[] = {
+	TEGRA_PIN_SOC_GPIO50_PEE4,
+};
+
+static const unsigned int soc_gpio83_pee5_pins[] = {
+	TEGRA_PIN_SOC_GPIO83_PEE5,
+};
+
+static const unsigned int soc_gpio69_pff0_pins[] = {
+	TEGRA_PIN_SOC_GPIO69_PFF0,
+};
+
+static const unsigned int soc_gpio70_pff1_pins[] = {
+	TEGRA_PIN_SOC_GPIO70_PFF1,
+};
+
+static const unsigned int soc_gpio71_pff2_pins[] = {
+	TEGRA_PIN_SOC_GPIO71_PFF2,
+};
+
+static const unsigned int soc_gpio72_pff3_pins[] = {
+	TEGRA_PIN_SOC_GPIO72_PFF3,
+};
+
+static const unsigned int soc_gpio73_pff4_pins[] = {
+	TEGRA_PIN_SOC_GPIO73_PFF4,
+};
+
+static const unsigned int soc_gpio74_pff5_pins[] = {
+	TEGRA_PIN_SOC_GPIO74_PFF5,
+};
+
+static const unsigned int soc_gpio80_pff6_pins[] = {
+	TEGRA_PIN_SOC_GPIO80_PFF6,
+};
+
+static const unsigned int soc_gpio76_pff7_pins[] = {
+	TEGRA_PIN_SOC_GPIO76_PFF7,
+};
+
+static const unsigned int soc_gpio77_pgg0_pins[] = {
+	TEGRA_PIN_SOC_GPIO77_PGG0,
+};
+
+static const unsigned int soc_gpio84_pgg1_pins[] = {
+	TEGRA_PIN_SOC_GPIO84_PGG1,
+};
+
+static const unsigned int uart2_tx_pgg2_pins[] = {
+	TEGRA_PIN_UART2_TX_PGG2,
+};
+
+static const unsigned int uart2_rx_pgg3_pins[] = {
+	TEGRA_PIN_UART2_RX_PGG3,
+};
+
+static const unsigned int uart2_rts_pgg4_pins[] = {
+	TEGRA_PIN_UART2_RTS_PGG4,
+};
+
+static const unsigned int uart2_cts_pgg5_pins[] = {
+	TEGRA_PIN_UART2_CTS_PGG5,
+};
+
+static const unsigned int soc_gpio85_pgg6_pins[] = {
+	TEGRA_PIN_SOC_GPIO85_PGG6,
+};
+
+static const unsigned int uart5_tx_pgg7_pins[] = {
+	TEGRA_PIN_UART5_TX_PGG7,
+};
+
+static const unsigned int uart5_rx_phh0_pins[] = {
+	TEGRA_PIN_UART5_RX_PHH0,
+};
+
+static const unsigned int uart5_rts_phh1_pins[] = {
+	TEGRA_PIN_UART5_RTS_PHH1,
+};
+
+static const unsigned int uart5_cts_phh2_pins[] = {
+	TEGRA_PIN_UART5_CTS_PHH2,
+};
+
+static const unsigned int soc_gpio86_phh3_pins[] = {
+	TEGRA_PIN_SOC_GPIO86_PHH3,
+};
+
 static const unsigned int sdmmc1_comp_pins[] = {
 	TEGRA_PIN_SDMMC1_COMP,
 };
@@ -1890,6 +1986,30 @@ static const struct tegra_pingroup tegra238_aon_groups[] = {
 	PINGROUP(dmic1_clk_pdd4,	DMIC1_CLK,	RSVD1,			DMIC5_CLK,	RSVD3,		0x11d0,		1,	Y,	-1,	7,	6,	8,	-1,	10,	12),
 	PINGROUP(dmic1_dat_pdd5,	DMIC1_DAT,	RSVD1,			DMIC5_DAT,	RSVD3,		0x11d8,		1,	Y,	-1,	7,	6,	8,	-1,	10,	12),
 	PINGROUP(soc_gpio19_pdd6,	RSVD0,		WDT_RESET_OUTB,		RSVD2,		RSVD3,		0x10f8,		1,	Y,	-1,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(soc_gpio49_pee2,	RSVD0,		RSVD1,			RSVD2,		RSVD3,		0x10c0,		1,	Y,	-1,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(soc_gpio50_pee4,	RSVD0,		RSVD1,			RSVD2,		RSVD3,		0x10c8,		1,	Y,	-1,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(soc_gpio82_pee3,	RSVD0,		RSVD1,			RSVD2,		RSVD3,		0x10d0,		1,	Y,	-1,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(soc_gpio71_pff2,	PPC_MODE_1,	RSVD1,			RSVD2,		RSVD3,		0x10d8,		1,	Y,	5,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(soc_gpio76_pff7,	RSVD0,		RSVD1,			TSC_EDGE_OUT0,	TSC_EDGE_OUT0A,	0x10e0,		1,	Y,	-1,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(soc_gpio74_pff5,	PPC_READY,	PPC_I2C_DAT,		RSVD2,		RSVD3,		0x10e8,		1,	Y,	5,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(soc_gpio86_phh3,	RSVD0,		SPI5_CS1,		TSC_EDGE_OUT3,	TSC_EDGE_OUT0D,	0x1100,		1,	Y,	5,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(soc_gpio72_pff3,	PPC_MODE_2,	RSVD1,			RSVD2,		RSVD3,		0x1108,		1,	Y,	5,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(soc_gpio77_pgg0,	RSVD0,		RSVD1,			TSC_EDGE_OUT1,	TSC_EDGE_OUT0B,	0x1110,		1,	Y,	-1,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(soc_gpio80_pff6,	RSVD0,		PPC_RST_N,		RSVD2,		RSVD3,		0x1118,		1,	Y,	5,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(soc_gpio84_pgg1,	RSVD0,		RSVD1,			TSC_EDGE_OUT2,	TSC_EDGE_OUT0C,	0x1120,		1,	Y,	-1,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(soc_gpio83_pee5,	RSVD0,		RSVD1,			RSVD2,		RSVD3,		0x1128,		1,	Y,	-1,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(soc_gpio73_pff4,	PPC_CC,		PPC_I2C_CLK,		RSVD2,		RSVD3,		0x1130,		1,	Y,	5,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(soc_gpio70_pff1,	PPC_MODE_0,	RSVD1,			RSVD2,		RSVD3,		0x1138,		1,	Y,	5,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(soc_gpio85_pgg6,	RSVD0,		SPI4_CS1,		RSVD2,		RSVD3,		0x1148,		1,	Y,	5,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(soc_gpio69_pff0,	PPC_INT_N,	RSVD1,			RSVD2,		RSVD3,		0x1150,		1,	Y,	5,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(uart5_tx_pgg7,		UARTE_TXD,	SPI5_SCK,		RSVD2,		RSVD3,		0x1168,		1,	Y,	5,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(uart5_rx_phh0,		UARTE_RXD,	SPI5_MISO,		RSVD2,		RSVD3,		0x1170,		1,	Y,	5,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(uart2_tx_pgg2,		UARTB_TXD,	SPI4_SCK,		RSVD2,		RSVD3,		0x1178,		1,	Y,	5,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(uart2_rx_pgg3,		UARTB_RXD,	SPI4_MISO,		RSVD2,		RSVD3,		0x1180,		1,	Y,	5,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(uart2_cts_pgg5,	UARTB_CTS,	SPI4_CS0,		RSVD2,		RSVD3,		0x1188,		1,	Y,	5,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(uart2_rts_pgg4,	UARTB_RTS,	SPI4_MOSI,		RSVD2,		RSVD3,		0x1190,		1,	Y,	5,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(uart5_cts_phh2,	UARTE_CTS,	SPI5_CS0,		RSVD2,		RSVD3,		0x1198,		1,	Y,	5,	7,	6,	8,	-1,	10,	12),
+	PINGROUP(uart5_rts_phh1,	UARTE_RTS,	SPI5_MOSI,		RSVD2,		RSVD3,		0x11a0,		1,	Y,	5,	7,	6,	8,	-1,	10,	12),
 	PINGROUP(pwm2_pdd7,		GP_PWM2,	LED_BLINK,		RSVD2,		RSVD3,		0x11b0,		1,	Y,	5,	7,	6,	8,	-1,	10,	12),
 	PINGROUP(pwm3_pee0,		GP_PWM3,	RSVD1,			RSVD2,		RSVD3,		0x11b8,		1,	Y,	5,	7,	6,	8,	-1,	10,	12),
 	PINGROUP(pwm7_pee1,		GP_PWM7,	RSVD1,			RSVD2,		RSVD3,		0x11a8,		1,	Y,	5,	7,	6,	8,	-1,	10,	12),
