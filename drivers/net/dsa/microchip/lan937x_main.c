@@ -643,6 +643,20 @@ static void lan937x_setup_rgmii_delay(struct ksz_device *dev, int port)
 	}
 }
 
+static void lan937x_phylink_mac_config(struct phylink_config *config,
+				       unsigned int mode,
+				       const struct phylink_link_state *state)
+{
+	struct dsa_port *dp = dsa_phylink_to_port(config);
+	struct ksz_device *dev = dp->ds->priv;
+	int port = dp->index;
+
+	if (ksz_phylink_need_config(config, mode)) {
+		ksz_set_xmii(dev, port, state->interface);
+		lan937x_setup_rgmii_delay(dev, port);
+	}
+}
+
 static int lan937x_tc_cbs_set_cinc(struct ksz_device *dev, int port, u32 val)
 {
 	return ksz_pwrite32(dev, port, REG_PORT_MTI_CREDIT_INCREMENT, val);
@@ -821,7 +835,7 @@ static int lan937x_connect_tag_protocol(struct dsa_switch *ds,
 }
 
 const struct phylink_mac_ops lan937x_phylink_mac_ops = {
-	.mac_config	= ksz_phylink_mac_config,
+	.mac_config	= lan937x_phylink_mac_config,
 	.mac_link_down	= ksz_phylink_mac_link_down,
 	.mac_link_up	= ksz9477_phylink_mac_link_up,
 	.mac_disable_tx_lpi = ksz_phylink_mac_disable_tx_lpi,
@@ -838,7 +852,6 @@ const struct ksz_dev_ops lan937x_dev_ops = {
 	.r_mib_stat64 = ksz_r_mib_stats64,
 	.freeze_mib = ksz9477_freeze_mib,
 	.port_init_cnt = ksz9477_port_init_cnt,
-	.setup_rgmii_delay = lan937x_setup_rgmii_delay,
 	.tc_cbs_set_cinc = lan937x_tc_cbs_set_cinc,
 	.init = lan937x_switch_init,
 };

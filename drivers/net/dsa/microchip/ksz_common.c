@@ -3127,8 +3127,7 @@ int ksz_set_mac_eee(struct dsa_switch *ds, int port,
 	return 0;
 }
 
-static void ksz_set_xmii(struct ksz_device *dev, int port,
-			 phy_interface_t interface)
+void ksz_set_xmii(struct ksz_device *dev, int port, phy_interface_t interface)
 {
 	const u8 *bitval = dev->info->xmii_ctrl1;
 	struct ksz_port *p = &dev->ports[port];
@@ -3242,12 +3241,8 @@ void ksz_phylink_mac_config(struct phylink_config *config,
 	struct ksz_device *dev = dp->ds->priv;
 	int port = dp->index;
 
-	if (ksz_phylink_need_config(config, mode)) {
+	if (ksz_phylink_need_config(config, mode))
 		ksz_set_xmii(dev, port, state->interface);
-
-		if (dev->dev_ops->setup_rgmii_delay)
-			dev->dev_ops->setup_rgmii_delay(dev, port);
-	}
 }
 
 bool ksz_get_gbit(struct ksz_device *dev, int port)
