@@ -1121,9 +1121,29 @@ int i3c_master_entdaa_locked(struct i3c_master_controller *master)
 }
 EXPORT_SYMBOL_GPL(i3c_master_entdaa_locked);
 
-static int i3c_master_enec_disec_locked(struct i3c_master_controller *master,
-					u8 addr, bool enable, u8 evts,
-					bool suppress_m2)
+/**
+ * i3c_master_enec_disec_locked() - send an ENEC or DISEC CCC command
+ * @master: master used to send frames on the bus
+ * @addr: a valid I3C slave address or %I3C_BROADCAST_ADDR
+ * @enable: true to send ENEC, false to send DISEC
+ * @evts: events to enable or disable
+ * @suppress_m2: if true, treat an M2 (NACK) error from the CCC as success
+ *
+ * Send an ENEC or DISEC CCC command to enable or disable some or all events
+ * coming from a specific slave, or all devices if @addr is
+ * %I3C_BROADCAST_ADDR.
+ *
+ * When @suppress_m2 is true, a NACK of the broadcast (which can happen when
+ * no devices are present on the bus) is not reported as an error. This is
+ * useful for callers that want to configure event reporting unconditionally,
+ * regardless of whether any devices are currently on the bus.
+ *
+ * This function must be called with the bus lock held in write mode.
+ *
+ * Return: 0 in case of success, or a negative error code otherwise.
+ */
+int i3c_master_enec_disec_locked(struct i3c_master_controller *master, u8 addr,
+				 bool enable, u8 evts, bool suppress_m2)
 {
 	struct i3c_ccc_events *events;
 	struct i3c_ccc_cmd_dest dest;
@@ -1148,6 +1168,7 @@ static int i3c_master_enec_disec_locked(struct i3c_master_controller *master,
 
 	return ret;
 }
+EXPORT_SYMBOL_GPL(i3c_master_enec_disec_locked);
 
 /**
  * i3c_master_disec_locked() - send a DISEC CCC command
