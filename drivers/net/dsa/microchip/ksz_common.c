@@ -3211,6 +3211,29 @@ phy_interface_t ksz_get_xmii(struct ksz_device *dev, int port, bool gbit)
 	return interface;
 }
 
+bool ksz_phylink_need_config(struct phylink_config *config,
+			     unsigned int mode)
+{
+	struct dsa_port *dp = dsa_phylink_to_port(config);
+	struct ksz_device *dev = dp->ds->priv;
+	int port = dp->index;
+
+	/* Internal PHYs */
+	if (dev->info->internal_phy[port])
+		return false;
+
+	/* No need to configure XMII control register when using SGMII. */
+	if (ksz_is_sgmii_port(dev, port))
+		return false;
+
+	if (phylink_autoneg_inband(mode)) {
+		dev_err(dev->dev, "In-band AN not supported!\n");
+		return false;
+	}
+
+	return true;
+}
+
 void ksz_phylink_mac_config(struct phylink_config *config,
 			    unsigned int mode,
 			    const struct phylink_link_state *state)
@@ -3219,23 +3242,12 @@ void ksz_phylink_mac_config(struct phylink_config *config,
 	struct ksz_device *dev = dp->ds->priv;
 	int port = dp->index;
 
-	/* Internal PHYs */
-	if (dev->info->internal_phy[port])
-		return;
+	if (ksz_phylink_need_config(config, mode)) {
+		ksz_set_xmii(dev, port, state->interface);
 
-	/* No need to configure XMII control register when using SGMII. */
-	if (ksz_is_sgmii_port(dev, port))
-		return;
-
-	if (phylink_autoneg_inband(mode)) {
-		dev_err(dev->dev, "In-band AN not supported!\n");
-		return;
+		if (dev->dev_ops->setup_rgmii_delay)
+			dev->dev_ops->setup_rgmii_delay(dev, port);
 	}
-
-	ksz_set_xmii(dev, port, state->interface);
-
-	if (dev->dev_ops->setup_rgmii_delay)
-		dev->dev_ops->setup_rgmii_delay(dev, port);
 }
 
 bool ksz_get_gbit(struct ksz_device *dev, int port)
