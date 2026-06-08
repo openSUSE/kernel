@@ -1253,8 +1253,20 @@ int kvm_vcpu_allocate_vncr_tlb(struct kvm_vcpu *vcpu)
 	if (!kvm_has_feat(vcpu->kvm, ID_AA64MMFR4_EL1, NV_frac, NV2_ONLY))
 		return 0;
 
-	vcpu->arch.vncr_tlb = kzalloc_obj(*vcpu->arch.vncr_tlb,
-					  GFP_KERNEL_ACCOUNT);
+	if (!vcpu->arch.vncr_tlb) {
+		struct vncr_tlb *vt = kzalloc_obj(*vcpu->arch.vncr_tlb,
+						  GFP_KERNEL_ACCOUNT);
+
+		/*
+		 * Taking the lock on assignment ensures that the TLB is
+		 * seen as initialised when following the pointer (release
+		 * semantics of the unlock), and avoids having acquires on
+		 * each user which already take the lock.
+		 */
+		scoped_guard(write_lock, &vcpu->kvm->mmu_lock)
+			vcpu->arch.vncr_tlb = vt;
+	}
+
 	if (!vcpu->arch.vncr_tlb)
 		return -ENOMEM;
 
