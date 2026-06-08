@@ -276,6 +276,12 @@ def generate_crates(
         [core, compiler_builtins],
     )
 
+    zerocopy = append_crate(
+        "zerocopy",
+        srctree / "rust" / "zerocopy" / "src" / "lib.rs",
+        [core, compiler_builtins],
+    )
+
     def append_crate_with_generated(
         display_name: str,
         deps: List[Dependency],
@@ -304,7 +310,7 @@ def generate_crates(
     bindings = append_crate_with_generated("bindings", [core, ffi, pin_init])
     uapi = append_crate_with_generated("uapi", [core, ffi, pin_init])
     kernel = append_crate_with_generated(
-        "kernel", [core, macros, build_error, pin_init, ffi, bindings, uapi]
+        "kernel", [core, macros, build_error, pin_init, ffi, bindings, uapi, zerocopy]
     )
 
     scripts = srctree / "scripts"
@@ -349,7 +355,7 @@ def generate_crates(
             append_crate(
                 crate_name,
                 path,
-                [core, kernel, pin_init],
+                [core, kernel, pin_init, zerocopy],
                 cfg=generated_cfg,
             )
 
