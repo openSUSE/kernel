@@ -7,6 +7,7 @@
 #include <linux/module.h>
 #include <linux/iopoll.h>
 #include <linux/phy.h>
+#include <linux/of_mdio.h>
 #include <linux/of_net.h>
 #include <linux/if_bridge.h>
 #include <linux/if_vlan.h>
@@ -669,6 +670,101 @@ static int lan937x_switch_init(struct ksz_device *dev)
 	return 0;
 }
 
+/**
+ * lan937x_mdio_register - Register and configure the MDIO bus for the LAN937x.
+ * @dev: Pointer to the KSZ device structure.
+ *
+ * This function sets up and registers an MDIO bus for a LAN937x switch,
+ * allowing access to its internal PHYs. If the device supports side MDIO,
+ * the function will configure the external MDIO controller specified by the
+ * "mdio-parent-bus" device tree property to directly manage internal PHYs.
+ * Otherwise, SPI or I2C access is set up for PHY access.
+ *
+ * Return: 0 on success, or a negative error code on failure.
+ */
+static int lan937x_mdio_register(struct ksz_device *dev)
+{
+	struct device_node *parent_bus_node;
+	struct mii_bus *parent_bus = NULL;
+	struct dsa_switch *ds = dev->ds;
+	struct device_node *mdio_np;
+	struct mii_bus *bus;
+	int ret;
+
+	mdio_np = of_get_child_by_name(dev->dev->of_node, "mdio");
+	if (!mdio_np)
+		return 0;
+
+	parent_bus_node = of_parse_phandle(mdio_np, "mdio-parent-bus", 0);
+	if (parent_bus_node && !dev->info->phy_side_mdio_supported) {
+		dev_err(dev->dev, "Side MDIO bus is not supported for this HW, ignoring 'mdio-parent-bus' property.\n");
+		ret = -EINVAL;
+
+		goto put_mdio_node;
+	} else if (parent_bus_node) {
+		parent_bus = of_mdio_find_bus(parent_bus_node);
+		if (!parent_bus) {
+			ret = -EPROBE_DEFER;
+
+			goto put_mdio_node;
+		}
+
+		dev->parent_mdio_bus = parent_bus;
+	}
+
+	bus = devm_mdiobus_alloc(ds->dev);
+	if (!bus) {
+		ret = -ENOMEM;
+		goto put_mdio_node;
+	}
+
+	ret = lan937x_mdio_bus_preinit(dev, !!parent_bus);
+	if (ret)
+		goto put_mdio_node;
+
+	ret = lan937x_create_phy_addr_map(dev, !!parent_bus);
+	if (ret)
+		goto put_mdio_node;
+
+	bus->priv = dev;
+	if (parent_bus) {
+		bus->read = ksz_parent_mdio_read;
+		bus->write = ksz_parent_mdio_write;
+		bus->name = "KSZ side MDIO";
+		snprintf(bus->id, MII_BUS_ID_SIZE, "ksz-side-mdio-%d",
+			 ds->index);
+	} else {
+		bus->read = ksz_sw_mdio_read;
+		bus->write = ksz_sw_mdio_write;
+		bus->name = "ksz user smi";
+		if (ds->dst->index != 0)
+			snprintf(bus->id, MII_BUS_ID_SIZE, "SMI-%d-%d",
+				 ds->dst->index, ds->index);
+		else
+			snprintf(bus->id, MII_BUS_ID_SIZE, "SMI-%d", ds->index);
+	}
+
+	ret = ksz_parse_dt_phy_config(dev, bus, mdio_np);
+	if (ret)
+		goto put_mdio_node;
+
+	ds->phys_mii_mask = bus->phy_mask;
+	bus->parent = ds->dev;
+
+	ds->user_mii_bus = bus;
+
+	ret = devm_of_mdiobus_register(ds->dev, bus, mdio_np);
+	if (ret)
+		dev_err(ds->dev, "unable to register MDIO bus %s\n",
+			bus->id);
+
+put_mdio_node:
+	of_node_put(mdio_np);
+	of_node_put(parent_bus_node);
+
+	return ret;
+}
+
 static int lan937x_setup(struct dsa_switch *ds)
 {
 	struct ksz_device *dev = ds->priv;
@@ -782,7 +878,7 @@ static int lan937x_setup(struct dsa_switch *ds)
 		goto port_release;
 	}
 
-	ret = ksz_mdio_register(dev);
+	ret = lan937x_mdio_register(dev);
 	if (ret < 0) {
 		dev_err(dev->dev, "failed to register the mdio");
 		goto out_ptp_clock_unregister;
@@ -845,8 +941,6 @@ const struct phylink_mac_ops lan937x_phylink_mac_ops = {
 const struct ksz_dev_ops lan937x_dev_ops = {
 	.get_port_addr = ksz9477_get_port_addr,
 	.cfg_port_member = ksz9477_cfg_port_member,
-	.mdio_bus_preinit = lan937x_mdio_bus_preinit,
-	.create_phy_addr_map = lan937x_create_phy_addr_map,
 	.r_mib_cnt = ksz9477_r_mib_cnt,
 	.r_mib_pkt = ksz9477_r_mib_pkt,
 	.r_mib_stat64 = ksz_r_mib_stats64,

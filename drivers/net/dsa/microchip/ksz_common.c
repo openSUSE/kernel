@@ -2256,7 +2256,7 @@ static void ksz_update_port_member(struct ksz_device *dev, int port)
 	dev->dev_ops->cfg_port_member(dev, port, port_member | cpu_port);
 }
 
-static int ksz_sw_mdio_read(struct mii_bus *bus, int addr, int regnum)
+int ksz_sw_mdio_read(struct mii_bus *bus, int addr, int regnum)
 {
 	struct ksz_device *dev = bus->priv;
 	struct dsa_switch *ds = dev->ds;
@@ -2264,8 +2264,7 @@ static int ksz_sw_mdio_read(struct mii_bus *bus, int addr, int regnum)
 	return ds->ops->phy_read(ds, addr, regnum);
 }
 
-static int ksz_sw_mdio_write(struct mii_bus *bus, int addr, int regnum,
-			     u16 val)
+int ksz_sw_mdio_write(struct mii_bus *bus, int addr, int regnum, u16 val)
 {
 	struct ksz_device *dev = bus->priv;
 	struct dsa_switch *ds = dev->ds;
@@ -2286,7 +2285,7 @@ static int ksz_sw_mdio_write(struct mii_bus *bus, int addr, int regnum,
  *
  * Return: Value of the PHY register, or a negative error code on failure.
  */
-static int ksz_parent_mdio_read(struct mii_bus *bus, int addr, int regnum)
+int ksz_parent_mdio_read(struct mii_bus *bus, int addr, int regnum)
 {
 	struct ksz_device *dev = bus->priv;
 
@@ -2306,8 +2305,7 @@ static int ksz_parent_mdio_read(struct mii_bus *bus, int addr, int regnum)
  *
  * Return: 0 on success, or a negative error code on failure.
  */
-static int ksz_parent_mdio_write(struct mii_bus *bus, int addr, int regnum,
-				 u16 val)
+int ksz_parent_mdio_write(struct mii_bus *bus, int addr, int regnum, u16 val)
 {
 	struct ksz_device *dev = bus->priv;
 
@@ -2415,8 +2413,8 @@ static void ksz_irq_phy_free(struct ksz_device *dev)
  *
  * Return: 0 on success, or a negative error code on failure.
  */
-static int ksz_parse_dt_phy_config(struct ksz_device *dev, struct mii_bus *bus,
-				   struct device_node *mdio_np)
+int ksz_parse_dt_phy_config(struct ksz_device *dev, struct mii_bus *bus,
+			    struct device_node *mdio_np)
 {
 	struct device_node *phy_node, *phy_parent_node;
 	bool phys_are_valid = true;
@@ -2519,20 +2517,8 @@ int ksz_mdio_register(struct ksz_device *dev)
 		goto put_mdio_node;
 	}
 
-	if (dev->dev_ops->mdio_bus_preinit) {
-		ret = dev->dev_ops->mdio_bus_preinit(dev, !!parent_bus);
-		if (ret)
-			goto put_mdio_node;
-	}
-
-	if (dev->dev_ops->create_phy_addr_map) {
-		ret = dev->dev_ops->create_phy_addr_map(dev, !!parent_bus);
-		if (ret)
-			goto put_mdio_node;
-	} else {
-		for (i = 0; i < dev->info->port_cnt; i++)
-			dev->phy_addr_map[i] = i;
-	}
+	for (i = 0; i < dev->info->port_cnt; i++)
+		dev->phy_addr_map[i] = i;
 
 	bus->priv = dev;
 	if (parent_bus) {
