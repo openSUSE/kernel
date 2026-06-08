@@ -392,11 +392,52 @@ out:
 	return ret;
 }
 
-static int i3c_hci_daa(struct i3c_master_controller *m)
+static int i3c_hci_enable_hotjoin(struct i3c_master_controller *m)
+{
+	struct i3c_hci *hci = to_i3c_hci(m);
+	int ret;
+
+	reg_clear(HC_CONTROL, HC_CONTROL_HOT_JOIN_CTRL);
+
+	/*
+	 * Broadcast Hot_join enable, so that an I3C device that has previously
+	 * had its Hot-Join request NACK'ed knows to try again.
+	 */
+	ret = i3c_master_enec_disec_locked(m, I3C_BROADCAST_ADDR, true, I3C_CCC_EVENT_HJ, true);
+	if (ret) {
+		reg_set(HC_CONTROL, HC_CONTROL_HOT_JOIN_CTRL);
+		dev_err(&hci->master.dev, "Hot-Join ENEC CCC failed\n");
+	}
+
+	return ret;
+}
+
+static int i3c_hci_disable_hotjoin(struct i3c_master_controller *m)
 {
 	struct i3c_hci *hci = to_i3c_hci(m);
 
-	return hci->cmd->perform_daa(hci);
+	reg_set(HC_CONTROL, HC_CONTROL_HOT_JOIN_CTRL);
+	return 0;
+}
+
+static int i3c_hci_daa(struct i3c_master_controller *m)
+{
+	struct i3c_hci *hci = to_i3c_hci(m);
+	int ret;
+
+	ret = hci->cmd->perform_daa(hci);
+
+	if (!hci->hj_init_done) {
+		hci->hj_init_done = true;
+		/*
+		 * Enable Hot-Join by default after initial DAA if it does not
+		 * prevent runtime suspend.
+		 */
+		if (m->rpm_ibi_allowed && !ret)
+			m->hotjoin = !i3c_hci_enable_hotjoin(m);
+	}
+
+	return ret;
 }
 
 static int i3c_hci_i3c_xfers(struct i3c_dev_desc *dev,
@@ -652,6 +693,8 @@ static const struct i3c_master_controller_ops i3c_hci_ops = {
 	.enable_ibi		= i3c_hci_enable_ibi,
 	.disable_ibi		= i3c_hci_disable_ibi,
 	.recycle_ibi_slot	= i3c_hci_recycle_ibi_slot,
+	.enable_hotjoin		= i3c_hci_enable_hotjoin,
+	.disable_hotjoin	= i3c_hci_disable_hotjoin,
 };
 
 static irqreturn_t i3c_hci_irq_handler(int irq, void *dev_id)
@@ -833,8 +876,9 @@ static int i3c_hci_do_reset_and_restore(struct i3c_hci *hci)
 	scoped_guard(spinlock_irqsave, &hci->lock)
 		hci->irq_inactive = false;
 
-	/* Enable bus with Hot-Join disabled */
-	reg_set(HC_CONTROL, HC_CONTROL_BUS_ENABLE | HC_CONTROL_HOT_JOIN_CTRL);
+	/* Enable bus, restoring hot-join state */
+	reg_set(HC_CONTROL,
+		HC_CONTROL_BUS_ENABLE | (hci->master.hotjoin ? 0 : HC_CONTROL_HOT_JOIN_CTRL));
 
 	return 0;
 }

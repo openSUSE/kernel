@@ -960,6 +960,11 @@ static void hci_dma_process_ibi(struct i3c_hci *hci, struct hci_rh_data *rh)
 	}
 
 	/* determine who this is for */
+	if (ibi_addr == I3C_HOT_JOIN_ADDR) {
+		i3c_master_queue_hotjoin(&hci->master);
+		goto done;
+	}
+
 	dev = i3c_hci_addr_to_dev(hci, ibi_addr);
 	if (!dev) {
 		dev_err(&hci->master.dev,

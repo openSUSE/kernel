@@ -57,6 +57,7 @@ struct i3c_hci {
 	bool irq_inactive;
 	bool enqueue_blocked;
 	bool recovery_needed;
+	bool hj_init_done;
 	wait_queue_head_t enqueue_wait_queue;
 	u32 caps;
 	unsigned int quirks;
