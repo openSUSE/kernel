@@ -494,10 +494,6 @@ int ksz_set_wol(struct dsa_switch *ds, int port,
 		struct ethtool_wolinfo *wol);
 int ksz_port_set_mac_address(struct dsa_switch *ds, int port,
 			     const unsigned char *addr);
-int ksz_hsr_join(struct dsa_switch *ds, int port, struct net_device *hsr,
-		 struct netlink_ext_ack *extack);
-int ksz_hsr_leave(struct dsa_switch *ds, int port,
-		  struct net_device *hsr);
 
 int ksz_suspend(struct dsa_switch *ds);
 int ksz_resume(struct dsa_switch *ds);
