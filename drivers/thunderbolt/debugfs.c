@@ -366,7 +366,7 @@ static ssize_t sb_regs_write(struct tb_port *port, const struct sb_reg *sb_regs,
 		if (!sb_reg)
 			return -EINVAL;
 
-		if (bytes_read > sb_regs->size)
+		if (bytes_read > sb_reg->size)
 			return -E2BIG;
 
 		ret = usb4_port_sb_write(port, target, index, sb_reg->reg, data,
