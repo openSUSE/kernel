@@ -252,6 +252,12 @@ def generate_crates(
         [std, proc_macro, proc_macro2, quote, syn],
     )
 
+    zerocopy_derive = append_proc_macro_crate(
+        "zerocopy_derive",
+        srctree / "rust" / "zerocopy-derive" / "lib.rs",
+        [std, proc_macro, proc_macro2, quote, syn],
+    )
+
     build_error = append_crate(
         "build_error",
         srctree / "rust" / "build_error.rs",
@@ -310,7 +316,7 @@ def generate_crates(
     bindings = append_crate_with_generated("bindings", [core, ffi, pin_init])
     uapi = append_crate_with_generated("uapi", [core, ffi, pin_init])
     kernel = append_crate_with_generated(
-        "kernel", [core, macros, build_error, pin_init, ffi, bindings, uapi, zerocopy]
+        "kernel", [core, macros, build_error, pin_init, ffi, bindings, uapi, zerocopy, zerocopy_derive]
     )
 
     scripts = srctree / "scripts"
@@ -355,7 +361,7 @@ def generate_crates(
             append_crate(
                 crate_name,
                 path,
-                [core, kernel, pin_init, zerocopy],
+                [core, kernel, pin_init, zerocopy, zerocopy_derive],
                 cfg=generated_cfg,
             )
 
