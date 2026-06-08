@@ -717,7 +717,12 @@ void amdgpu_device_mm_access(struct amdgpu_device *adev, loff_t pos,
 	if (!drm_dev_enter(adev_to_drm(adev), &idx))
 		return;
 
-	BUG_ON(!IS_ALIGNED(pos, 4) || !IS_ALIGNED(size, 4));
+	if (!IS_ALIGNED(pos, 4) || !IS_ALIGNED(size, 4)) {
+		dev_err(adev->dev, "unaligned pos/size (pos=0x%llx, size=0x%zx)\n",
+			pos, size);
+		drm_dev_exit(idx);
+		return;
+	}
 
 	spin_lock_irqsave(&adev->mmio_idx_lock, flags);
 	for (last = pos + size; pos < last; pos += 4) {
@@ -3752,6 +3757,9 @@ int amdgpu_device_init(struct amdgpu_device *adev,
 	mutex_init(&adev->pm.stable_pstate_ctx_lock);
 	mutex_init(&adev->benchmark_mutex);
 	mutex_init(&adev->gfx.reset_sem_mutex);
+
+	/* Associate locks with lockdep classes for ordering validation */
+	amdgpu_lockdep_set_class(adev);
 	/* Initialize the mutex for cleaner shader isolation between GFX and compute processes */
 	mutex_init(&adev->enforce_isolation_mutex);
 	for (i = 0; i < MAX_XCP; ++i) {
@@ -5104,12 +5112,12 @@ link_reset_failed:
 int amdgpu_device_pre_asic_reset(struct amdgpu_device *adev,
 				 struct amdgpu_reset_context *reset_context)
 {
-	int i, r = 0;
 	struct amdgpu_job *job = NULL;
 	struct dma_fence *fence = NULL;
 	struct amdgpu_device *tmp_adev = reset_context->reset_req_dev;
 	bool need_full_reset =
 		test_bit(AMDGPU_NEED_FULL_RESET, &reset_context->flags);
+	int i, r;
 
 	if (reset_context->reset_req_dev == adev)
 		job = reset_context->job;
@@ -5134,9 +5142,6 @@ int amdgpu_device_pre_asic_reset(struct amdgpu_device *adev,
 	}
 
 	amdgpu_fence_driver_isr_toggle(adev, false);
-
-	if (job && job->vm)
-		drm_sched_increase_karma(&job->base);
 
 	r = amdgpu_reset_prepare_hwcontext(adev, reset_context);
 	/* If reset handler not implemented, continue; otherwise return */
