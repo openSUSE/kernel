@@ -15,11 +15,10 @@
 #include "mtk-soc-card.h"
 #include "mtk-soundcard-driver.h"
 
-static int set_card_codec_info(struct snd_soc_card *card,
+static int set_card_codec_info(struct device *dev,
 			       struct device_node *sub_node,
 			       struct snd_soc_dai_link *dai_link)
 {
-	struct device *dev = card->dev;
 	struct device_node *codec_node;
 	int ret;
 
@@ -107,7 +106,7 @@ int parse_dai_link_info(struct snd_soc_card *card)
 		if (i >= card->num_links)
 			return -EINVAL;
 
-		ret = set_card_codec_info(card, sub_node, dai_link);
+		ret = set_card_codec_info(dev, sub_node, dai_link);
 		if (ret < 0)
 			return ret;
 
