@@ -913,6 +913,28 @@ static const struct rpm_regulator_data rpm_pm660l_regulators[] = {
 	{ }
 };
 
+static const struct rpm_regulator_data rpm_pm8019_regulators[] = {
+	{ "s1", QCOM_SMD_RPM_SMPA, 1, &pma8084_hfsmps, "vdd_s1" },
+	{ "s2", QCOM_SMD_RPM_SMPA, 2, &pma8084_hfsmps, "vdd_s2" },
+	{ "s3", QCOM_SMD_RPM_SMPA, 3, &pma8084_hfsmps, "vdd_s3" },
+	{ "s4", QCOM_SMD_RPM_SMPA, 4, &pma8084_hfsmps, "vdd_s4" },
+	{ "l1", QCOM_SMD_RPM_LDOA, 1, &pm8916_nldo, "vdd_l1" },
+	{ "l2", QCOM_SMD_RPM_LDOA, 2, &pma8084_pldo, "vdd_l2_l3" },
+	{ "l3", QCOM_SMD_RPM_LDOA, 3, &pma8084_pldo, "vdd_l2_l3" },
+	{ "l4", QCOM_SMD_RPM_LDOA, 4, &pma8084_pldo, "vdd_l4_l5_l6" },
+	{ "l5", QCOM_SMD_RPM_LDOA, 5, &pma8084_pldo, "vdd_l4_l5_l6" },
+	{ "l6", QCOM_SMD_RPM_LDOA, 6, &pma8084_pldo, "vdd_l4_l5_l6" },
+	{ "l7", QCOM_SMD_RPM_LDOA, 7, &pma8084_pldo, "vdd_l7_l8_l11" },
+	{ "l8", QCOM_SMD_RPM_LDOA, 8, &pma8084_pldo, "vdd_l7_l8_l11" },
+	{ "l9", QCOM_SMD_RPM_LDOA, 9, &pm8916_nldo, "vdd_l9" },
+	{ "l10", QCOM_SMD_RPM_LDOA, 10, &pm8916_nldo, "vdd_l10"},
+	{ "l11", QCOM_SMD_RPM_LDOA, 11, &pma8084_pldo, "vdd_l7_l8_l11"},
+	{ "l12", QCOM_SMD_RPM_LDOA, 12, &pm8916_nldo, "vdd_l12"},
+	{ "l13", QCOM_SMD_RPM_LDOA, 13, &pma8084_pldo, "vdd_l13_l14"},
+	{ "l14", QCOM_SMD_RPM_LDOA, 14, &pma8084_pldo, "vdd_l13_l14"},
+	{}
+};
+
 static const struct rpm_regulator_data rpm_pm8150_regulators[] = {
 	{ "s1", QCOM_SMD_RPM_SMPA, 1, &pmic5_ftsmps520, "vdd-s1" },
 	{ "s2", QCOM_SMD_RPM_SMPA, 2, &pmic5_ftsmps520, "vdd-s2" },
@@ -1390,6 +1412,7 @@ static const struct of_device_id rpm_of_match[] = {
 	{ .compatible = "qcom,rpm-pm6125-regulators", .data = &rpm_pm6125_regulators },
 	{ .compatible = "qcom,rpm-pm660-regulators", .data = &rpm_pm660_regulators },
 	{ .compatible = "qcom,rpm-pm660l-regulators", .data = &rpm_pm660l_regulators },
+	{ .compatible = "qcom,rpm-pm8019-regulators", .data = &rpm_pm8019_regulators },
 	{ .compatible = "qcom,rpm-pm8150-regulators", .data = &rpm_pm8150_regulators },
 	{ .compatible = "qcom,rpm-pm8226-regulators", .data = &rpm_pm8226_regulators },
 	{ .compatible = "qcom,rpm-pm8841-regulators", .data = &rpm_pm8841_regulators },
