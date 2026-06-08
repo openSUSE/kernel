@@ -244,6 +244,10 @@ static struct fuse_ring *fuse_uring_create(struct fuse_conn *fc)
 	max_payload_size = max(max_payload_size, fc->max_pages * PAGE_SIZE);
 
 	spin_lock(&fc->lock);
+	if (!fc->connected) {
+		spin_unlock(&fc->lock);
+		goto out_err;
+	}
 	if (fc->ring) {
 		/* race, another thread created the ring in the meantime */
 		spin_unlock(&fc->lock);
@@ -981,16 +985,16 @@ static int fuse_uring_do_register(struct fuse_ring_ent *ent,
 	struct fuse_conn *fc = ring->fc;
 	struct fuse_iqueue *fiq = &fc->iq;
 
-	spin_lock(&fch->lock);
+	spin_lock(&fc->lock);
 	/* abort teardown path is running or has run */
-	if (!fch->connected) {
-		spin_unlock(&fch->lock);
+	if (!fc->connected) {
+		spin_unlock(&fc->lock);
 		if (atomic_dec_and_test(&ring->queue_refs))
 			wake_up_all(&ring->stop_waitq);
 		kfree(ent);
 		return -ECONNABORTED;
 	}
-	spin_unlock(&fch->lock);
+	spin_unlock(&fc->lock);
 
 	fuse_uring_prepare_cancel(cmd, issue_flags, ent);
 
