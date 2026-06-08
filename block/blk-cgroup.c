@@ -699,9 +699,9 @@ const char *blkg_dev_name(struct blkcg_gq *blkg)
  *
  * This function invokes @prfill on each blkg of @blkcg if pd for the
  * policy specified by @pol exists.  @prfill is invoked with @sf, the
- * policy data and @data and the matching queue lock held.  If @show_total
- * is %true, the sum of the return values from @prfill is printed with
- * "Total" label at the end.
+ * policy data and @data under RCU read lock.  If @show_total is %true, the
+ * sum of the return values from @prfill is printed with "Total" label at the
+ * end.
  *
  * This is to be used to construct print functions for
  * cftype->read_seq_string method.
@@ -717,10 +717,14 @@ void blkcg_print_blkgs(struct seq_file *sf, struct blkcg *blkcg,
 
 	rcu_read_lock();
 	hlist_for_each_entry_rcu(blkg, &blkcg->blkg_list, blkcg_node) {
-		spin_lock_irq(&blkg->q->queue_lock);
-		if (blkcg_policy_enabled(blkg->q, pol))
-			total += prfill(sf, blkg->pd[pol->plid], data);
-		spin_unlock_irq(&blkg->q->queue_lock);
+		struct blkg_policy_data *pd;
+
+		if (!blkcg_policy_enabled(blkg->q, pol))
+			continue;
+
+		pd = blkg_to_pd(blkg, pol);
+		if (pd)
+			total += prfill(sf, pd, data);
 	}
 	rcu_read_unlock();
 
@@ -1604,7 +1608,7 @@ retry:
 
 		pd->blkg = blkg;
 		pd->plid = pol->plid;
-		blkg->pd[pol->plid] = pd;
+		WRITE_ONCE(blkg->pd[pol->plid], pd);
 
 		if (pol->pd_init_fn)
 			pol->pd_init_fn(pd);
@@ -1643,7 +1647,7 @@ enomem:
 				pol->pd_offline_fn(pd);
 			pd->online = false;
 			pol->pd_free_fn(pd);
-			blkg->pd[pol->plid] = NULL;
+			WRITE_ONCE(blkg->pd[pol->plid], NULL);
 		}
 		spin_unlock(&blkcg->lock);
 	}
