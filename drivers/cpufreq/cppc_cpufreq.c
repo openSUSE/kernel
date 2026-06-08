@@ -982,7 +982,34 @@ store_energy_performance_preference_val(struct cpufreq_policy *policy,
 	return count;
 }
 
-CPPC_CPUFREQ_ATTR_RW_U64(perf_limited, cppc_get_perf_limited,
+static int cppc_get_perf_limited_filtered(int cpu, u64 *perf_limited)
+{
+	struct cpufreq_policy *policy;
+	struct cppc_cpudata *cpu_data;
+	int ret;
+
+	ret = cppc_get_perf_limited(cpu, perf_limited);
+	if (ret)
+		return ret;
+
+	policy = cpufreq_cpu_get_raw(cpu);
+	if (!policy)
+		return -EINVAL;
+
+	cpu_data = policy->driver_data;
+
+	/*
+	 * Desired Excursion is ignored when autonomous selection is
+	 * enabled. Clear the bit to avoid exposing meaningless state
+	 * to userspace.
+	 */
+	if (cpu_data && cpu_data->perf_ctrls.auto_sel)
+		*perf_limited &= ~CPPC_PERF_LIMITED_DESIRED_EXCURSION;
+
+	return 0;
+}
+
+CPPC_CPUFREQ_ATTR_RW_U64(perf_limited, cppc_get_perf_limited_filtered,
 			 cppc_set_perf_limited)
 
 cpufreq_freq_attr_ro(freqdomain_cpus);
