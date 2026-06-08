@@ -3894,7 +3894,8 @@ void nvme_cdev_del(struct cdev *cdev, struct device *cdev_device)
 	put_device(cdev_device);
 }
 
-int nvme_cdev_add(struct cdev *cdev, struct device *cdev_device,
+int nvme_cdev_add(const char *name, struct cdev *cdev,
+		struct device *cdev_device,
 		const struct file_operations *fops, struct module *owner)
 {
 	int minor, ret;
@@ -3902,6 +3903,12 @@ int nvme_cdev_add(struct cdev *cdev, struct device *cdev_device,
 	minor = ida_alloc(&nvme_ns_chr_minor_ida, GFP_KERNEL);
 	if (minor < 0)
 		return minor;
+
+	ret = dev_set_name(cdev_device, name);
+	if (ret) {
+		ida_free(&nvme_ns_chr_minor_ida, minor);
+		return ret;
+	}
 	cdev_device->devt = MKDEV(MAJOR(nvme_ns_chr_devt), minor);
 	cdev_device->class = &nvme_ns_chr_class;
 	cdev_device->release = nvme_cdev_rel;
@@ -3939,15 +3946,21 @@ static const struct file_operations nvme_ns_chr_fops = {
 static int nvme_add_ns_cdev(struct nvme_ns *ns)
 {
 	int ret;
+	char name[32];
 
 	ns->cdev_device.parent = ns->ctrl->device;
-	ret = dev_set_name(&ns->cdev_device, "ng%dn%d",
-			   ns->ctrl->instance, ns->head->instance);
-	if (ret)
-		return ret;
+	snprintf(name, sizeof(name), "ng%dn%d", ns->ctrl->instance,
+		 ns->head->instance);
 
-	return nvme_cdev_add(&ns->cdev, &ns->cdev_device, &nvme_ns_chr_fops,
-			     ns->ctrl->ops->module);
+	ret = nvme_cdev_add(name, &ns->cdev, &ns->cdev_device,
+			    &nvme_ns_chr_fops, ns->ctrl->ops->module);
+	if (ret) {
+		dev_err(ns->ctrl->device, "Unable to create the %s device\n",
+			name);
+	} else {
+		set_bit(NVME_NS_CDEV_LIVE, &ns->flags);
+	}
+	return ret;
 }
 
 static struct nvme_ns_head *nvme_alloc_ns_head(struct nvme_ctrl *ctrl,
@@ -4323,8 +4336,10 @@ static void nvme_ns_remove(struct nvme_ns *ns)
 	/* guarantee not available in head->list */
 	synchronize_srcu(&ns->head->srcu);
 
-	if (!nvme_ns_head_multipath(ns->head))
-		nvme_cdev_del(&ns->cdev, &ns->cdev_device);
+	if (!nvme_ns_head_multipath(ns->head)) {
+		if (test_and_clear_bit(NVME_NS_CDEV_LIVE, &ns->flags))
+			nvme_cdev_del(&ns->cdev, &ns->cdev_device);
+	}
 
 	nvme_mpath_remove_sysfs_link(ns);
 
