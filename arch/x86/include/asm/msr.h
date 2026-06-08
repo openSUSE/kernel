@@ -304,7 +304,6 @@ static inline int wrmsr_safe_regs_on_cpu(unsigned int cpu, u32 regs[8])
 #endif  /* CONFIG_SMP */
 
 /* Compatibility wrappers: */
-#define rdmsrl(msr, val) rdmsrq(msr, val)
 #define wrmsrl(msr, val) wrmsrq(msr, val)
 
 #endif /* __ASSEMBLER__ */
