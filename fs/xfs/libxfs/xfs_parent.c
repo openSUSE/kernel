@@ -23,7 +23,6 @@
 #include "xfs_attr_sf.h"
 #include "xfs_bmap.h"
 #include "xfs_defer.h"
-#include "xfs_log.h"
 #include "xfs_xattr.h"
 #include "xfs_parent.h"
 #include "xfs_trans_space.h"
