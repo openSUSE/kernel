@@ -14,6 +14,7 @@ from lib.py import defer
 from lib.py import ksft_run, ksft_exit, ksft_pr
 from lib.py import ksft_true, ksft_eq, ksft_ne, ksft_gt, ksft_raises
 from lib.py import ksft_not_none
+from lib.py import ksft_variants, KsftNamedVariant
 from lib.py import KsftSkipEx
 from lib.py import NetDrvEpEnv, PSPFamily, NlError
 from lib.py import bkg, rand_port, wait_port_listen
@@ -571,24 +572,29 @@ def removal_device_bi(cfg):
         _close_conn(cfg, s)
 
 
-def psp_ip_ver_test_builder(name, test_func, psp_ver, ipver):
-    """Build test cases for each combo of PSP version and IP version"""
-    def test_case(cfg):
-        cfg.require_ipver(ipver)
-        test_func(cfg, psp_ver, ipver)
-
-    test_case.__name__ = f"{name}_v{psp_ver}_ip{ipver}"
-    return test_case
+def _get_psp_ver_ip_variants():
+    for ver in range(4):
+        for ipv in ("4", "6"):
+            yield KsftNamedVariant(f"v{ver}_ip{ipv}", ver, ipv)
 
 
-def ipver_test_builder(name, test_func, ipver):
-    """Build test cases for each IP version"""
-    def test_case(cfg):
-        cfg.require_ipver(ipver)
-        test_func(cfg, ipver)
+def _get_ip_variants():
+    for ipv in ("4", "6"):
+        yield KsftNamedVariant(f"ip{ipv}", ipv)
 
-    test_case.__name__ = f"{name}_ip{ipver}"
-    return test_case
+
+@ksft_variants(_get_psp_ver_ip_variants())
+def data_basic_send(cfg, version, ipver):
+    """Test basic PSP data send."""
+    cfg.require_ipver(ipver)
+    _data_basic_send(cfg, version, ipver)
+
+
+@ksft_variants(_get_ip_variants())
+def data_mss_adjust(cfg, ipver):
+    """Test MSS adjustment with PSP."""
+    cfg.require_ipver(ipver)
+    _data_mss_adjust(cfg, ipver)
 
 
 def main() -> None:
@@ -611,17 +617,7 @@ def main() -> None:
                                                           cfg.comm_port),
                                                          timeout=1)
 
-                cases = [
-                    psp_ip_ver_test_builder(
-                        "data_basic_send", _data_basic_send, version, ipver
-                    )
-                    for version in range(0, 4)
-                    for ipver in ("4", "6")
-                ]
-                cases += [
-                    ipver_test_builder("data_mss_adjust", _data_mss_adjust, ipver)
-                    for ipver in ("4", "6")
-                ]
+                cases = [data_basic_send, data_mss_adjust]
 
                 ksft_run(cases=cases, globs=globals(),
                          case_pfx={"dev_", "data_", "assoc_", "removal_"},
