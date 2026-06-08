@@ -417,7 +417,8 @@ static int io_sendmsg_setup(struct io_kiocb *req, const struct io_uring_sqe *sqe
 	return io_net_import_vec(req, kmsg, msg.msg_iov, msg.msg_iovlen, ITER_SOURCE);
 }
 
-#define SENDMSG_FLAGS (IORING_RECVSEND_POLL_FIRST | IORING_RECVSEND_BUNDLE | IORING_SEND_VECTORIZED)
+#define SENDMSG_FLAGS (IORING_RECVSEND_POLL_FIRST | IORING_RECVSEND_BUNDLE | \
+			IORING_SEND_VECTORIZED | IORING_RECVSEND_FIXED_BUF)
 
 int io_sendmsg_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
@@ -430,6 +431,14 @@ int io_sendmsg_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	sr->flags = READ_ONCE(sqe->ioprio);
 	if (sr->flags & ~SENDMSG_FLAGS)
 		return -EINVAL;
+	if (sr->flags & IORING_RECVSEND_FIXED_BUF) {
+		/* registered buffer send only supported for plain IORING_OP_SEND */
+		if (req->opcode != IORING_OP_SEND ||
+		    (req->flags & REQ_F_BUFFER_SELECT) ||
+		    (sr->flags & (IORING_RECVSEND_BUNDLE|IORING_SEND_VECTORIZED)))
+			return -EINVAL;
+		req->buf_index = READ_ONCE(sqe->buf_index);
+	}
 	sr->msg_flags = READ_ONCE(sqe->msg_flags) | MSG_NOSIGNAL;
 	if (sr->msg_flags & MSG_DONTWAIT)
 		req->flags |= REQ_F_NOWAIT;
@@ -661,6 +670,15 @@ int io_send(struct io_kiocb *req, unsigned int issue_flags)
 	    (sr->flags & IORING_RECVSEND_POLL_FIRST))
 		return -EAGAIN;
 
+	if (req->flags & REQ_F_IMPORT_BUFFER) {
+		ret = io_import_reg_buf(req, &kmsg->msg.msg_iter,
+					(u64)(uintptr_t)sr->buf, sr->len,
+					ITER_SOURCE, issue_flags);
+		if (unlikely(ret))
+			return ret;
+		req->flags &= ~REQ_F_IMPORT_BUFFER;
+	}
+
 	flags = sr->msg_flags;
 	if (issue_flags & IO_URING_F_NONBLOCK)
 		flags |= MSG_DONTWAIT;
@@ -776,6 +794,10 @@ static int io_recvmsg_prep_setup(struct io_kiocb *req)
 
 		if (req->flags & REQ_F_BUFFER_SELECT)
 			return 0;
+		if (sr->flags & IORING_RECVSEND_FIXED_BUF) {
+			req->flags |= REQ_F_IMPORT_BUFFER;
+			return 0;
+		}
 		return import_ubuf(ITER_DEST, sr->buf, sr->len,
 				   &kmsg->msg.msg_iter);
 	}
@@ -784,7 +806,7 @@ static int io_recvmsg_prep_setup(struct io_kiocb *req)
 }
 
 #define RECVMSG_FLAGS (IORING_RECVSEND_POLL_FIRST | IORING_RECV_MULTISHOT | \
-			IORING_RECVSEND_BUNDLE)
+			IORING_RECVSEND_BUNDLE | IORING_RECVSEND_FIXED_BUF)
 
 int io_recvmsg_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
@@ -802,6 +824,14 @@ int io_recvmsg_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	sr->flags = READ_ONCE(sqe->ioprio);
 	if (sr->flags & ~RECVMSG_FLAGS)
 		return -EINVAL;
+	if (sr->flags & IORING_RECVSEND_FIXED_BUF) {
+		/* registered buffer recv only for plain IORING_OP_RECV */
+		if (req->opcode != IORING_OP_RECV ||
+		    (req->flags & REQ_F_BUFFER_SELECT) ||
+		    (sr->flags & (IORING_RECV_MULTISHOT | IORING_RECVSEND_BUNDLE)))
+			return -EINVAL;
+		req->buf_index = READ_ONCE(sqe->buf_index);
+	}
 	sr->msg_flags = READ_ONCE(sqe->msg_flags);
 	if (sr->msg_flags & MSG_DONTWAIT)
 		req->flags |= REQ_F_NOWAIT;
@@ -1197,6 +1227,18 @@ int io_recv(struct io_kiocb *req, unsigned int issue_flags)
 	flags = sr->msg_flags;
 	if (force_nonblock)
 		flags |= MSG_DONTWAIT;
+
+	if (req->flags & REQ_F_IMPORT_BUFFER) {
+		ret = io_import_reg_buf(req, &kmsg->msg.msg_iter,
+					(u64)(uintptr_t)sr->buf, sr->len,
+					ITER_DEST, issue_flags);
+		if (unlikely(ret)) {
+			kmsg->msg.msg_inq = -1;
+			sel.buf_list = NULL;
+			goto out_free;
+		}
+		req->flags &= ~REQ_F_IMPORT_BUFFER;
+	}
 
 retry_multishot:
 	sel.buf_list = NULL;
