@@ -1137,7 +1137,7 @@ static int rzg2l_set_power_source(struct rzg2l_pinctrl *pctrl, u32 pin, u32 caps
 		return pwr_reg;
 
 	if (pwr_reg == OTHER_POC) {
-		scoped_guard(raw_spinlock, &pctrl->lock) {
+		scoped_guard(raw_spinlock_irqsave, &pctrl->lock) {
 			val = readb(pctrl->base + pwr_reg);
 			if (poc_val)
 				val |= mask;
