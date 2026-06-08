@@ -512,10 +512,19 @@ class NetDrvContEnv(NetDrvEpEnv):
                 return map_id
         raise Exception(f"Failed to find .bss map for prog {prog_id}")
 
+    def _find_bpf_obj(self, name):
+        bpf_obj = self.test_dir / name
+        if bpf_obj.exists():
+            return bpf_obj
+        bpf_obj = self.test_dir / "hw" / name
+        if bpf_obj.exists():
+            return bpf_obj
+        return None
+
     def _attach_bpf(self):
-        bpf_obj = self.test_dir / "nk_forward.bpf.o"
-        if not bpf_obj.exists():
-            raise KsftSkipEx("BPF prog not found")
+        bpf_obj = self._find_bpf_obj("nk_forward.bpf.o")
+        if not bpf_obj:
+            raise KsftSkipEx("BPF prog nk_forward.bpf.o not found")
 
         if self._tc_ensure_clsact():
             self._tc_clsact_added = True
@@ -535,9 +544,9 @@ class NetDrvContEnv(NetDrvEpEnv):
 
     def _attach_primary_rx_redirect_bpf(self):
         """Attach BPF redirect program on the primary netkit ingress."""
-        bpf_obj = self.test_dir / "nk_primary_rx_redirect.bpf.o"
-        if not bpf_obj.exists():
-            raise KsftSkipEx("Primary RX redirect BPF prog not found")
+        bpf_obj = self._find_bpf_obj("nk_primary_rx_redirect.bpf.o")
+        if not bpf_obj:
+            raise KsftSkipEx("nk_primary_rx_redirect.bpf.o not found")
 
         if self._tc_ensure_clsact(self._nk_host_ifname):
             self._primary_rx_redirect_clsact_added = True
