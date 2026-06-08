@@ -1386,9 +1386,6 @@ int sdw_slave_wait_for_init(struct sdw_slave *slave, int timeout_ms)
 {
 	unsigned long time;
 
-	if (!slave->unattach_request)
-		return 0;
-
 	time = wait_for_completion_timeout(&slave->initialization_complete,
 					   msecs_to_jiffies(timeout_ms));
 	if (!time) {
