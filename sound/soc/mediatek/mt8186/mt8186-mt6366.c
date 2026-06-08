@@ -1211,18 +1211,18 @@ static int mt8186_mt6366_soc_card_probe(struct mtk_soc_card_data *soc_card_data,
 	struct snd_soc_card *card = card_data->card;
 	struct snd_soc_dai_link *dai_link;
 	struct mt8186_mt6366_rt1019_rt5682s_priv *mach_priv;
+	struct device *dev = card->dev;
 	int i, ret;
 
-	mach_priv = devm_kzalloc(card->dev, sizeof(*mach_priv), GFP_KERNEL);
+	mach_priv = devm_kzalloc(dev, sizeof(*mach_priv), GFP_KERNEL);
 	if (!mach_priv)
 		return -ENOMEM;
 
 	soc_card_data->mach_priv = mach_priv;
 
-	mach_priv->dmic_sel = devm_gpiod_get_optional(card->dev,
-						      "dmic", GPIOD_OUT_LOW);
+	mach_priv->dmic_sel = devm_gpiod_get_optional(dev, "dmic", GPIOD_OUT_LOW);
 	if (IS_ERR(mach_priv->dmic_sel))
-		return dev_err_probe(card->dev, PTR_ERR(mach_priv->dmic_sel),
+		return dev_err_probe(dev, PTR_ERR(mach_priv->dmic_sel),
 				     "DMIC gpio failed\n");
 
 	for_each_card_prelinks(card, i, dai_link) {
@@ -1250,9 +1250,9 @@ static int mt8186_mt6366_soc_card_probe(struct mtk_soc_card_data *soc_card_data,
 			return ret;
 	}
 
-	ret = mt8186_afe_gpio_init(card->dev);
+	ret = mt8186_afe_gpio_init(dev);
 	if (ret)
-		return dev_err_probe(card->dev, ret, "init AFE gpio error\n");
+		return dev_err_probe(dev, ret, "init AFE gpio error\n");
 
 	return 0;
 }
