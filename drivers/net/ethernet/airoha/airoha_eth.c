@@ -1908,6 +1908,10 @@ static int airoha_enable_gdm2_loopback(struct airoha_gdm_dev *dev)
 	u32 val, pse_port, chan;
 	int i, src_port;
 
+	src_port = eth->soc->ops.get_sport(port, dev->nbq);
+	if (src_port < 0)
+		return src_port;
+
 	airoha_set_gdm_port_fwd_cfg(eth, REG_GDM_FWD_CFG(AIROHA_GDM2_IDX),
 				    FE_PSE_PORT_DROP);
 	airoha_fe_clear(eth, REG_GDM_FWD_CFG(AIROHA_GDM2_IDX),
@@ -1936,10 +1940,6 @@ static int airoha_enable_gdm2_loopback(struct airoha_gdm_dev *dev)
 	/* Disable VIP and IFC for GDM2 */
 	airoha_fe_clear(eth, REG_FE_VIP_PORT_EN, BIT(AIROHA_GDM2_IDX));
 	airoha_fe_clear(eth, REG_FE_IFC_PORT_EN, BIT(AIROHA_GDM2_IDX));
-
-	src_port = eth->soc->ops.get_sport(port, dev->nbq);
-	if (src_port < 0)
-		return src_port;
 
 	airoha_fe_rmw(eth, REG_FE_WAN_PORT,
 		      WAN1_EN_MASK | WAN1_MASK | WAN0_MASK,
