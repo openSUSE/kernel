@@ -564,12 +564,6 @@ static int pcm3168a_hw_params(struct snd_pcm_substream *substream,
 
 static const u64 pcm3168a_dai_formats[] = {
 	/*
-	 * Select below from Sound Card, not here
-	 *	SND_SOC_DAIFMT_CBC_CFC
-	 *	SND_SOC_DAIFMT_CBP_CFP
-	 */
-
-	/*
 	 * First Priority
 	 */
 	SND_SOC_POSSIBLE_DAIFMT_I2S	|

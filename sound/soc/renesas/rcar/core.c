@@ -1058,9 +1058,6 @@ static const u64 rsnd_soc_dai_formats[] = {
 	 * 1st Priority
 	 *
 	 * Well tested formats.
-	 * Select below from Sound Card, not auto
-	 *	SND_SOC_DAIFMT_CBC_CFC
-	 *	SND_SOC_DAIFMT_CBP_CFP
 	 */
 	SND_SOC_POSSIBLE_DAIFMT_I2S	|
 	SND_SOC_POSSIBLE_DAIFMT_RIGHT_J	|
