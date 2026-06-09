@@ -19,25 +19,29 @@ description:
 properties:
   compatible:
     enum:
+      - renesas,r8a779g0-mfis       # R-Car V4H
+      - renesas,r8a779h0-mfis       # R-Car V4M
       - renesas,r8a78000-mfis       # R-Car X5H (AP<->AP, with PRR)
       - renesas,r8a78000-mfis-scp   # R-Car X5H (AP<->SCP, without PRR)
 
   reg:
+    minItems: 1
     maxItems: 2
 
   reg-names:
+    minItems: 1
     items:
       - const: common
       - const: mboxes
 
   interrupts:
-    minItems: 32
+    minItems: 12
     maxItems: 128
     description:
       The interrupts raised by the remote doorbells.
 
   interrupt-names:
-    minItems: 32
+    minItems: 12
     maxItems: 128
     description:
       An interrupt name is constructed with the prefix 'ch'. Then, the
@@ -60,9 +64,33 @@ allOf:
       properties:
         compatible:
           contains:
+            enum:
+              - renesas,r8a779g0-mfis
+              - renesas,r8a779h0-mfis
+    then:
+      properties:
+        reg:
+          maxItems: 1
+        reg-names:
+          maxItems: 1
+        interrupts:
+          maxItems: 12
+        interrupt-names:
+          maxItems: 12
+          items:
+            pattern: "^ch[0-9]+e$"
+
+  - if:
+      properties:
+        compatible:
+          contains:
             const: renesas,r8a78000-mfis
     then:
       properties:
+        reg:
+          minItems: 2
+        reg-names:
+          minItems: 2
         interrupts:
           minItems: 128
         interrupt-names:
@@ -77,9 +105,15 @@ allOf:
             const: renesas,r8a78000-mfis-scp
     then:
       properties:
+        reg:
+          minItems: 2
+        reg-names:
+          minItems: 2
         interrupts:
+          minItems: 32
           maxItems: 32
         interrupt-names:
+          minItems: 32
           maxItems: 32
           items:
             pattern: "^ch[0-9]+i$"
