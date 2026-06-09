@@ -2323,7 +2323,6 @@ static int genpd_alloc_data(struct generic_pm_domain *genpd)
 	device_initialize(&genpd->dev);
 	genpd->dev.release = genpd_provider_release;
 	genpd->dev.bus = &genpd_provider_bus_type;
-	genpd->dev.parent = genpd_provider_bus;
 
 	if (!genpd_is_dev_name_fw(genpd)) {
 		dev_set_name(&genpd->dev, "%s", genpd->name);
@@ -2688,6 +2687,7 @@ int of_genpd_add_provider_simple(struct device_node *np,
 	if (!genpd_present(genpd))
 		return -EINVAL;
 
+	genpd->dev.parent = genpd_provider_bus;
 	genpd->dev.of_node = np;
 
 	fwnode = of_fwnode_handle(np);
@@ -2782,6 +2782,7 @@ int of_genpd_add_provider_onecell(struct device_node *np,
 		if (!genpd_present(genpd))
 			goto error;
 
+		genpd->dev.parent = genpd_provider_bus;
 		genpd->dev.of_node = np;
 
 		if (sync_state && !genpd_is_no_sync_state(genpd)) {
