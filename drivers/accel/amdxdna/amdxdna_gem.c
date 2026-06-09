@@ -349,8 +349,11 @@ static int amdxdna_hmm_register(struct amdxdna_gem_obj *abo,
 	u32 nr_pages;
 	int ret;
 
-	if (!amdxdna_pasid_on(abo->client))
+	if (!amdxdna_pasid_on(abo->client)) {
+		/* Need to set uva for heap uva validation */
+		abo->mem.uva = addr;
 		return 0;
+	}
 
 	mapp = kzalloc_obj(*mapp);
 	if (!mapp)
