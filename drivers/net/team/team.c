@@ -2013,8 +2013,16 @@ static int team_del_slave(struct net_device *dev, struct net_device *port_dev)
 static int team_del_slave_on_unregister(struct net_device *dev, struct net_device *port_dev)
 {
 	struct team *team = netdev_priv(dev);
+	int err;
 
-	return team_port_del(team, port_dev, true);
+	mutex_lock(&team->lock);
+	err = team_port_del(team, port_dev, true);
+	mutex_unlock(&team->lock);
+
+	if (!err)
+		netdev_change_features(dev);
+
+	return err;
 }
 
 static netdev_features_t team_fix_features(struct net_device *dev,
