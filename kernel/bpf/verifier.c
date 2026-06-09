@@ -6777,7 +6777,7 @@ static int check_helper_mem_access(struct bpf_verifier_env *env, struct bpf_reg_
 				zero_size_allowed, access_type, meta);
 	case PTR_TO_BTF_ID:
 		return check_ptr_to_btf_access(env, regs, reg, argno, 0,
-					       access_size, BPF_READ, -1);
+					       access_size, access_type, -1);
 	case PTR_TO_CTX:
 		/* Only permit reading or writing syscall context using helper calls. */
 		if (is_var_ctx_off_allowed(env->prog)) {
