@@ -118,6 +118,8 @@
 #include <linux/btf_ids.h>
 #include <linux/bpf-cgroup.h>
 
+#include "af_unix.h"
+
 static atomic_long_t unix_nr_socks;
 static struct hlist_head bsd_socket_buckets[UNIX_HASH_SIZE / 2];
 static spinlock_t bsd_socket_locks[UNIX_HASH_SIZE / 2];
@@ -753,8 +755,7 @@ static void unix_release_sock(struct sock *sk, int embrion)
 	 *	  What the above comment does talk about? --ANK(980817)
 	 */
 
-	if (READ_ONCE(unix_tot_inflight))
-		unix_gc();		/* Garbage collect fds */
+	unix_schedule_gc();
 }
 
 static void init_peercred(struct sock *sk)
