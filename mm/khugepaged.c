@@ -1502,6 +1502,14 @@ static enum scan_result mthp_collapse(struct mm_struct *mm,
 		nr_occupied_ptes = bitmap_weight_from(cc->mthp_present_ptes, offset,
 						      offset + nr_ptes);
 
+		/*
+		 * Swap PTEs accepted during the scan are counted in @unmapped,
+		 * not in the present-PTE bitmap. Account them for the PMD-order
+		 * candidate.
+		 */
+		if (is_pmd_order(order))
+			nr_occupied_ptes += unmapped;
+
 		if (nr_occupied_ptes >= nr_ptes - max_ptes_none) {
 			enum scan_result ret;
 
