@@ -521,13 +521,17 @@ npc_program_single_kpm_profile(struct rvu *rvu, int blkaddr,
 			       int kpm, int start_entry,
 			       const struct npc_kpu_profile *profile)
 {
+	int num_cam_entries, num_action_entries;
 	int entry, num_entries, max_entries;
 	u64 idx;
 
-	if (profile->cam_entries != profile->action_entries) {
+	num_cam_entries = npc_get_num_kpu_cam_entries(rvu, profile);
+	num_action_entries = npc_get_num_kpu_action_entries(rvu, profile);
+
+	if (num_cam_entries != num_action_entries) {
 		dev_err(rvu->dev,
 			"kpm%d: CAM and action entries [%d != %d] not equal\n",
-			kpm, profile->cam_entries, profile->action_entries);
+			kpm, num_cam_entries, num_action_entries);
 
 		WARN(1, "Fatal error\n");
 		return;
@@ -536,16 +540,18 @@ npc_program_single_kpm_profile(struct rvu *rvu, int blkaddr,
 	max_entries = rvu->hw->npc_kpu_entries / 2;
 	entry = start_entry;
 	/* Program CAM match entries for previous kpm extracted data */
-	num_entries = min_t(int, profile->cam_entries, max_entries);
+	num_entries = min_t(int, num_cam_entries, max_entries);
 	for (idx = 0; entry < num_entries + start_entry; entry++, idx++)
-		npc_config_kpmcam(rvu, blkaddr, &profile->cam[idx],
+		npc_config_kpmcam(rvu, blkaddr,
+				  npc_get_kpu_cam_nth_entry(rvu, profile, idx),
 				  kpm, entry);
 
 	entry = start_entry;
 	/* Program this kpm's actions */
-	num_entries = min_t(int, profile->action_entries, max_entries);
+	num_entries = min_t(int, num_action_entries, max_entries);
 	for (idx = 0; entry < num_entries + start_entry; entry++, idx++)
-		npc_config_kpmaction(rvu, blkaddr, &profile->action[idx],
+		npc_config_kpmaction(rvu, blkaddr,
+				     npc_get_kpu_action_nth_entry(rvu, profile, idx),
 				     kpm, entry, false);
 }
 
@@ -611,20 +617,23 @@ npc_enable_kpm_entry(struct rvu *rvu, int blkaddr, int kpm, int num_entries)
 static void npc_program_kpm_profile(struct rvu *rvu, int blkaddr, int num_kpms)
 {
 	const struct npc_kpu_profile *profile1, *profile2;
+	int pfl1_num_cam_entries, pfl2_num_cam_entries;
 	int idx, total_cam_entries;
 
 	for (idx = 0; idx < num_kpms; idx++) {
 		profile1 = &rvu->kpu.kpu[idx];
+		pfl1_num_cam_entries = npc_get_num_kpu_cam_entries(rvu, profile1);
 		npc_program_single_kpm_profile(rvu, blkaddr, idx, 0, profile1);
 		profile2 = &rvu->kpu.kpu[idx + KPU_OFFSET];
+		pfl2_num_cam_entries = npc_get_num_kpu_cam_entries(rvu, profile2);
+
 		npc_program_single_kpm_profile(rvu, blkaddr, idx,
-					       profile1->cam_entries,
+					       pfl1_num_cam_entries,
 					       profile2);
-		total_cam_entries = profile1->cam_entries +
-			profile2->cam_entries;
+		total_cam_entries = pfl1_num_cam_entries + pfl2_num_cam_entries;
 		npc_enable_kpm_entry(rvu, blkaddr, idx, total_cam_entries);
 		rvu_write64(rvu, blkaddr, NPC_AF_KPMX_PASS2_OFFSET(idx),
-			    profile1->cam_entries);
+			    pfl1_num_cam_entries);
 		/* Enable the KPUs associated with this KPM */
 		rvu_write64(rvu, blkaddr, NPC_AF_KPUX_CFG(idx), 0x01);
 		rvu_write64(rvu, blkaddr, NPC_AF_KPUX_CFG(idx + KPU_OFFSET),
@@ -634,6 +643,7 @@ static void npc_program_kpm_profile(struct rvu *rvu, int blkaddr, int num_kpms)
 
 void npc_cn20k_parser_profile_init(struct rvu *rvu, int blkaddr)
 {
+	struct npc_kpu_profile_action *act;
 	struct rvu_hwinfo *hw = rvu->hw;
 	int num_pkinds, idx;
 
@@ -665,9 +675,15 @@ void npc_cn20k_parser_profile_init(struct rvu *rvu, int blkaddr)
 	num_pkinds = rvu->kpu.pkinds;
 	num_pkinds = min_t(int, hw->npc_pkinds, num_pkinds);
 
-	for (idx = 0; idx < num_pkinds; idx++)
-		npc_config_kpmaction(rvu, blkaddr, &rvu->kpu.ikpu[idx],
+	/* Cn20k does not support Custom profile from filesystem */
+	for (idx = 0; idx < num_pkinds; idx++) {
+		act = npc_get_ikpu_nth_entry(rvu, idx);
+		if (!act)
+			continue;
+
+		npc_config_kpmaction(rvu, blkaddr, act,
 				     0, idx, true);
+	}
 
 	/* Program KPM CAM and Action profiles */
 	npc_program_kpm_profile(rvu, blkaddr, hw->npc_kpms);
@@ -679,7 +695,7 @@ struct npc_priv_t *npc_priv_get(void)
 }
 
 static void npc_program_mkex_rx(struct rvu *rvu, int blkaddr,
-				struct npc_mcam_kex_extr *mkex_extr,
+				const struct npc_mcam_kex_extr *mkex_extr,
 				u8 intf)
 {
 	u8 num_extr = rvu->hw->npc_kex_extr;
@@ -708,7 +724,7 @@ static void npc_program_mkex_rx(struct rvu *rvu, int blkaddr,
 }
 
 static void npc_program_mkex_tx(struct rvu *rvu, int blkaddr,
-				struct npc_mcam_kex_extr *mkex_extr,
+				const struct npc_mcam_kex_extr *mkex_extr,
 				u8 intf)
 {
 	u8 num_extr = rvu->hw->npc_kex_extr;
@@ -737,7 +753,7 @@ static void npc_program_mkex_tx(struct rvu *rvu, int blkaddr,
 }
 
 static void npc_program_mkex_profile(struct rvu *rvu, int blkaddr,
-				     struct npc_mcam_kex_extr *mkex_extr)
+				     const struct npc_mcam_kex_extr *mkex_extr)
 {
 	struct rvu_hwinfo *hw = rvu->hw;
 	u8 intf;
@@ -1626,8 +1642,8 @@ npc_cn20k_update_action_entries_n_flags(struct rvu *rvu,
 int npc_cn20k_apply_custom_kpu(struct rvu *rvu,
 			       struct npc_kpu_profile_adapter *profile)
 {
+	const struct npc_cn20k_kpu_profile_fwdata *fw = rvu->kpu_fwdata;
 	size_t hdr_sz = sizeof(struct npc_cn20k_kpu_profile_fwdata);
-	struct npc_cn20k_kpu_profile_fwdata *fw = rvu->kpu_fwdata;
 	struct npc_kpu_profile_action *action;
 	struct npc_kpu_profile_cam *cam;
 	struct npc_kpu_fwdata *fw_kpu;
@@ -1672,8 +1688,15 @@ int npc_cn20k_apply_custom_kpu(struct rvu *rvu,
 	}
 
 	/* Verify if profile fits the HW */
+	if (fw->kpus > rvu->hw->npc_kpus) {
+		dev_warn(rvu->dev, "Not enough KPUs: %d > %d\n", fw->kpus,
+			 rvu->hw->npc_kpus);
+		return -EINVAL;
+	}
+
+	/* Check if there is enough memory */
 	if (fw->kpus > profile->kpus) {
-		dev_warn(rvu->dev, "Not enough KPUs: %d > %ld\n", fw->kpus,
+		dev_warn(rvu->dev, "Not enough KPUs: %d > %zu\n", fw->kpus,
 			 profile->kpus);
 		return -EINVAL;
 	}
