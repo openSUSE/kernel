@@ -4258,6 +4258,43 @@ static struct btf_raw_test raw_tests[] = {
 	.max_entries = 1,
 },
 
+{
+	.descr = "struct test repeated fields count overflow",
+	.raw_types = {
+		BTF_TYPE_INT_ENC(NAME_TBD, BTF_INT_SIGNED, 0, 32, 4),	/* [1] */
+		BTF_STRUCT_ENC(NAME_TBD, 0, 0),				/* [2] */
+		BTF_TYPE_TAG_ENC(NAME_TBD, 2),				/* [3] */
+		BTF_PTR_ENC(3),						/* [4] */
+		BTF_TYPE_ARRAY_ENC(4, 1, 1),				/* [5] */
+		BTF_STRUCT_ENC(NAME_TBD, 10, 8),			/* [6] */
+		BTF_MEMBER_ENC(NAME_TBD, 5, 0),
+		BTF_MEMBER_ENC(NAME_TBD, 5, 0),
+		BTF_MEMBER_ENC(NAME_TBD, 5, 0),
+		BTF_MEMBER_ENC(NAME_TBD, 5, 0),
+		BTF_MEMBER_ENC(NAME_TBD, 5, 0),
+		BTF_MEMBER_ENC(NAME_TBD, 5, 0),
+		BTF_MEMBER_ENC(NAME_TBD, 5, 0),
+		BTF_MEMBER_ENC(NAME_TBD, 5, 0),
+		BTF_MEMBER_ENC(NAME_TBD, 5, 0),
+		BTF_MEMBER_ENC(NAME_TBD, 5, 0),
+		BTF_TYPE_ARRAY_ENC(6, 1, 0x1999999aU),			/* [7] */
+		BTF_STRUCT_ENC(NAME_TBD, 2, 8 + 8 * 0x1999999aU),	/* [8] */
+		BTF_MEMBER_ENC(NAME_TBD, 4, 0),
+		BTF_MEMBER_ENC(NAME_TBD, 7, 64),
+		BTF_END_RAW,
+	},
+	BTF_STR_SEC("\0int\0prog_test_ref_kfunc\0kptr_untrusted\0elem"
+		    "\0p0\0p1\0p2\0p3\0p4\0p5\0p6\0p7\0p8\0p9"
+		    "\0outer\0trigger\0elems"),
+	.map_type = BPF_MAP_TYPE_ARRAY,
+	.map_name = "repeat_fields",
+	.key_size = sizeof(int),
+	.value_size = 8 + 8 * 0x1999999aU,
+	.key_type_id = 1,
+	.value_type_id = 8,
+	.max_entries = 1,
+	.btf_load_err = true,
+},
 }; /* struct btf_raw_test raw_tests[] */
 
 static const char *get_next_str(const char *start, const char *end)
