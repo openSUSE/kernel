@@ -124,6 +124,40 @@ EXPORT_SYMBOL(__memset);
 EXPORT_SYMBOL(memset);
 #endif
 
+#ifdef __HAVE_ARCH_MEMCPY
+noinstr void *__memcpy(void *dest, const void *src, size_t n)
+{
+	void *d = dest;
+
+	if (!n)
+		return d;
+	while (n >= 256) {
+		asm volatile(
+			"	mvc	0(256,%[dest]),0(%[src])"
+			:
+			: [dest] "a" (dest), [src] "a" (src)
+			: "memory");
+		dest += 256;
+		src += 256;
+		n -= 256;
+	}
+	if (!n)
+		return d;
+	asm volatile(
+		"	exrl	%[n],1f\n"
+		"	j	2f\n"
+		"1:	mvc	0(1,%[dest]),0(%[src])\n"
+		"2:"
+		:
+		: [dest] "a" (dest), [src] "a" (src), [n] "a" (n - 1)
+		: "memory");
+	return d;
+}
+SYMBOL_FUNCTION_ALIAS(memcpy, __memcpy);
+EXPORT_SYMBOL(__memcpy);
+EXPORT_SYMBOL(memcpy);
+#endif
+
 /*
  * Helper functions to find the end of a string
  */

@@ -12,37 +12,6 @@
 	GEN_BR_THUNK %r14
 
 /*
- * memcpy implementation
- *
- * void *memcpy(void *dest, const void *src, size_t n)
- */
-SYM_FUNC_START(__memcpy)
-	ltgr	%r4,%r4
-	jz	.Lmemcpy_exit
-	aghi	%r4,-1
-	srlg	%r5,%r4,8
-	ltgr	%r5,%r5
-	lgr	%r1,%r2
-	jnz	.Lmemcpy_loop
-.Lmemcpy_remainder:
-	exrl	%r4,.Lmemcpy_mvc
-.Lmemcpy_exit:
-	BR_EX	%r14
-.Lmemcpy_loop:
-	mvc	0(256,%r1),0(%r3)
-	la	%r1,256(%r1)
-	la	%r3,256(%r3)
-	brctg	%r5,.Lmemcpy_loop
-	j	.Lmemcpy_remainder
-.Lmemcpy_mvc:
-	mvc	0(1,%r1),0(%r3)
-SYM_FUNC_END(__memcpy)
-EXPORT_SYMBOL(__memcpy)
-
-SYM_FUNC_ALIAS(memcpy, __memcpy)
-EXPORT_SYMBOL(memcpy)
-
-/*
  * __memset16/32/64
  *
  * void *__memset16(uint16_t *s, uint16_t v, size_t count)
