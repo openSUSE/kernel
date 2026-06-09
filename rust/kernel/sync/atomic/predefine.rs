@@ -2,9 +2,7 @@
 
 //! Pre-defined atomic types
 
-use crate::static_assert;
-use core::mem::{align_of, size_of};
-use ffi::c_void;
+use crate::prelude::*;
 
 // Ensure size and alignment requirements are checked.
 static_assert!(size_of::<bool>() == size_of::<i8>());

@@ -108,9 +108,10 @@
 
 use core::marker::PhantomData;
 
-use crate::io::IoLoc;
-
-use kernel::build_assert;
+use crate::{
+    build_assert::build_assert,
+    io::IoLoc, //
+};
 
 /// Trait implemented by all registers.
 pub trait Register: Sized {
@@ -872,7 +873,7 @@ macro_rules! register {
         @reg $(#[$attr:meta])* $vis:vis $name:ident ($storage:ty)
             [ $size:expr, stride = $stride:expr ] @ $offset:literal { $($fields:tt)* }
     ) => {
-        ::kernel::static_assert!(::core::mem::size_of::<$storage>() <= $stride);
+        $crate::build_assert::static_assert!(::core::mem::size_of::<$storage>() <= $stride);
 
         $crate::register!(@bitfield $(#[$attr])* $vis struct $name($storage) { $($fields)* });
         $crate::register!(@io_base $name($storage) @ $offset);
@@ -895,7 +896,9 @@ macro_rules! register {
         @reg $(#[$attr:meta])* $vis:vis $name:ident ($storage:ty) => $alias:ident [ $idx:expr ]
             { $($fields:tt)* }
     ) => {
-        ::kernel::static_assert!($idx < <$alias as $crate::io::register::RegisterArray>::SIZE);
+        $crate::build_assert::static_assert!(
+            $idx < <$alias as $crate::io::register::RegisterArray>::SIZE
+        );
 
         $crate::register!(@bitfield $(#[$attr])* $vis struct $name($storage) { $($fields)* });
         $crate::register!(
@@ -912,7 +915,7 @@ macro_rules! register {
             [ $size:expr, stride = $stride:expr ]
             @ $base:ident + $offset:literal { $($fields:tt)* }
     ) => {
-        ::kernel::static_assert!(::core::mem::size_of::<$storage>() <= $stride);
+        $crate::build_assert::static_assert!(::core::mem::size_of::<$storage>() <= $stride);
 
         $crate::register!(@bitfield $(#[$attr])* $vis struct $name($storage) { $($fields)* });
         $crate::register!(@io_base $name($storage) @ $offset);
@@ -938,7 +941,9 @@ macro_rules! register {
         @reg $(#[$attr:meta])* $vis:vis $name:ident ($storage:ty)
             => $base:ident + $alias:ident [ $idx:expr ] { $($fields:tt)* }
     ) => {
-        ::kernel::static_assert!($idx < <$alias as $crate::io::register::RegisterArray>::SIZE);
+        $crate::build_assert::static_assert!(
+            $idx < <$alias as $crate::io::register::RegisterArray>::SIZE
+        );
 
         $crate::register!(@bitfield $(#[$attr])* $vis struct $name($storage) { $($fields)* });
         $crate::register!(
