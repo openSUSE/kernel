@@ -2027,7 +2027,8 @@ int cs35l56_init(struct cs35l56_private *cs35l56)
 	if (cs35l56->base.init_done)
 		return 0;
 
-	pm_runtime_set_autosuspend_delay(cs35l56->base.dev, 100);
+	pm_runtime_set_autosuspend_delay(cs35l56->base.dev,
+					 CS35L56_FW_REQ_ACTIVE_TIMEOUT_MS + 50);
 	pm_runtime_use_autosuspend(cs35l56->base.dev);
 	pm_runtime_set_active(cs35l56->base.dev);
 	pm_runtime_enable(cs35l56->base.dev);
