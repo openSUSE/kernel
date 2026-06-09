@@ -158,6 +158,53 @@ EXPORT_SYMBOL(__memcpy);
 EXPORT_SYMBOL(memcpy);
 #endif
 
+#define DEFINE_MEMSET(_bits, _bytes, _type)					\
+void *__memset##_bits(_type *s, _type v, size_t n)				\
+{										\
+	_type *xs = s;								\
+										\
+	if (!n)									\
+		return s;							\
+	while (n >= 256) {							\
+		*xs = v;							\
+		asm volatile(							\
+			"	mvc	%[_b](256-%[_b],%[xs]),0(%[xs])\n"	\
+			:							\
+			: [xs] "a" (xs), [_b] "i" (_bytes)			\
+			: "memory");						\
+		xs = (_type *)((char *)xs + 256);				\
+		n -= 256;							\
+	}									\
+	if (!n)									\
+		return s;							\
+	*xs = v;								\
+	if (n == _bytes)							\
+		return s;							\
+	n -= _bytes + 1;							\
+	asm volatile(								\
+		"	exrl	 %[n],1f\n"					\
+		"	j	 2f\n"						\
+		"1:	mvc	 %[_b](1,%[xs]),0(%[xs])\n"			\
+		"2:"								\
+		:								\
+		: [n] "a" (n), [xs] "a" (xs), [_b] "i" (_bytes)			\
+		: "memory");							\
+	return s;								\
+}										\
+EXPORT_SYMBOL(__memset##_bits)
+
+#ifdef __HAVE_ARCH_MEMSET16
+DEFINE_MEMSET(16, 2, uint16_t);
+#endif
+
+#ifdef __HAVE_ARCH_MEMSET32
+DEFINE_MEMSET(32, 4, uint32_t);
+#endif
+
+#ifdef __HAVE_ARCH_MEMSET64
+DEFINE_MEMSET(64, 8, uint64_t);
+#endif
+
 /*
  * Helper functions to find the end of a string
  */
