@@ -5172,7 +5172,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 #if IS_ENABLED(CONFIG_CRYPTO_DH_RFC7919_GROUPS)
 		.alg = "ffdhe2048(dh)",
 		.test = alg_test_kpp,
-		.fips_allowed = 1,
+		.fips_allowed = 0,
 		.suite = {
 			.kpp = __VECS(ffdhe2048_dh_tv_template)
 		}
