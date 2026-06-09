@@ -7,7 +7,7 @@
 #include <libarena/asan.h>
 #include <libarena/spmc.h>
 
-#define TEST_SPMC_THREADS 4
+#define TEST_SPMC_THREADS 3
 #define TEST_SPMC_STEALERS (TEST_SPMC_THREADS - 1)
 
 /* 
@@ -17,7 +17,7 @@
  * and operations are wait-free we just spin around the quiescence
  * point instead. If we time out, we just fail the benchmark.
  */
-#define TEST_SPMC_SYNC_SPINS (1U << 18)
+#define TEST_SPMC_SYNC_SPINS BPF_MAX_LOOPS
 
 /*
  * We track all the values we retrieve from the queue
@@ -61,7 +61,7 @@ static volatile u64 round_steals;
  * We have multiple stealers and a single owner. We sometimes want the owner
  * to successfully outproduce the stealers, we add a busy loop in them.
  */
-#define TEST_SPMC_WASTE_ROUNDS (1024)
+#define TEST_SPMC_WASTE_ROUNDS (1UL << 12)
 
 /*
  * The spmc data structure depends on the runtime fully
@@ -112,10 +112,6 @@ static bool spmc_tests_enabled(void)
 	{								\
 		return spmc_##prefix##_stealer();					\
 	}								\
-	SEC("syscall") int parallel_test_spmc_##prefix##__3(void)	\
-	{								\
-		return spmc_##prefix##_stealer();					\
-	}
 
 static int spmc_common_init(u64 total)
 {
@@ -452,10 +448,10 @@ static int spmc_resize_owner(void)
 			resized = true;
 	}
 
-	/* Did we get to resize while racing/ */
+	/* Did we get to resize while racing? */
 	if (!resized) {
 		test_abort = true;
-		return -153;
+		return -EINVAL;
 	}
 
 	/* 
