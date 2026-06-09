@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0 OR MIT)
 /*
  * Copyright (c) 2026 SpacemiT (Hangzhou) Technology Co. Ltd
- * Copyright (c) 2026 Guodong Xu <guodong@riscstar.com>
+ * Copyright (c) 2026 Yixun Lan <dlan@kernel.org>
  */
 #include <dt-bindings/gpio/gpio.h>
 
@@ -9,34 +9,17 @@
 #include "k3-pinctrl.dtsi"
 
 / {
-	model = "SpacemiT K3 Pico-ITX";
-	compatible = "spacemit,k3-pico-itx", "spacemit,k3";
-
-	aliases {
-		ethernet0 = &eth0;
-		serial0 = &uart0;
-	};
-
-	chosen {
-		stdout-path = "serial0";
-	};
+	model = "SpacemiT K3 CoM260 Module";
+	compatible = "spacemit,k3-com260", "spacemit,k3";
 
 	memory@100000000 {
 		device_type = "memory";
 		reg = <0x1 0x00000000 0x4 0x00000000>;
 	};
 
-	reg_aux_vcc3v3: regulator-aux-vcc3v3 {
+	reg_5v_sys: regulator-5v-sys {
 		compatible = "regulator-fixed";
-		regulator-name = "AUX_VCC3V3";
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-		regulator-always-on;
-	};
-
-	reg_aux_vcc5v: regulator-aux-vcc5v {
-		compatible = "regulator-fixed";
-		regulator-name = "AUX_VCC5V";
+		regulator-name = "P5V0_SYS";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
 		regulator-always-on;
@@ -48,17 +31,17 @@
 	pinctrl-0 = <&i2c8_cfg>;
 	status = "okay";
 
-	p1@41 {
+	pmic@41 {
 		compatible = "spacemit,p1";
 		reg = <0x41>;
 		interrupts = <64 IRQ_TYPE_LEVEL_HIGH>;
-		vin1-supply = <&reg_aux_vcc5v>;
-		vin2-supply = <&reg_aux_vcc5v>;
-		vin3-supply = <&reg_aux_vcc5v>;
-		vin4-supply = <&reg_aux_vcc5v>;
-		vin5-supply = <&reg_aux_vcc5v>;
-		vin6-supply = <&reg_aux_vcc5v>;
-		aldoin-supply = <&reg_aux_vcc5v>;
+		vin1-supply = <&reg_5v_sys>;
+		vin2-supply = <&reg_5v_sys>;
+		vin3-supply = <&reg_5v_sys>;
+		vin4-supply = <&reg_5v_sys>;
+		vin5-supply = <&reg_5v_sys>;
+		vin6-supply = <&reg_5v_sys>;
+		aldoin-supply = <&reg_5v_sys>;
 		dldoin1-supply = <&buck4>;
 		dldoin2-supply = <&buck4>;
 
@@ -182,18 +165,18 @@
 	};
 };
 
-&eth0 {
+&eth1 {
 	pinctrl-names = "default";
-	pinctrl-0 = <&gmac0_rgmii_0_cfg>, <&gmac0_phy_0_cfg>;
+	pinctrl-0 = <&gmac1_rgmii_0_cfg>, <&gmac1_phy_0_cfg>;
 	phy-mode = "rgmii-id";
-	phy-handle = <&phy0>;
+	phy-handle = <&phy1>;
 	status = "okay";
 
 	mdio {
-		phy0: phy@1 {
+		phy1: phy@1 {
 			compatible = "ethernet-phy-ieee802.3-c22";
 			reg = <1>;
-			reset-gpios = <&gpio 0 15 GPIO_ACTIVE_LOW>;
+			reset-gpios = <&gpio 1 5 GPIO_ACTIVE_LOW>;
 			reset-assert-us = <10000>;
 			reset-deassert-us = <10000>;
 		};
@@ -203,21 +186,5 @@
 &uart0 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart0_0_cfg>;
-	status = "okay";
-};
-
-&usb2_host {
-	#address-cells = <1>;
-	#size-cells = <0>;
-	status = "okay";
-
-	hub@1 {
-		compatible = "usb1a40,0101";
-		reg = <1>;
-		vdd-supply = <&reg_aux_vcc3v3>;
-	};
-};
-
-&usb2_phy {
 	status = "okay";
 };
