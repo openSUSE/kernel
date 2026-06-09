@@ -554,6 +554,8 @@ static int sof_ipc4_bytes_put(struct snd_sof_control *scontrol,
 	struct snd_soc_component *scomp = scontrol->scomp;
 	struct snd_sof_dev *sdev = snd_soc_component_get_drvdata(scomp);
 	struct sof_abi_hdr *data = cdata->data;
+	const struct sof_abi_hdr *new_hdr =
+		(const struct sof_abi_hdr *)ucontrol->value.bytes.data;
 	size_t size;
 	int ret;
 
@@ -564,15 +566,16 @@ static int sof_ipc4_bytes_put(struct snd_sof_control *scontrol,
 		return -EINVAL;
 	}
 
-	/* scontrol->max_size has been verified to be >= sizeof(struct sof_abi_hdr) */
-	if (data->size > scontrol->max_size - sizeof(*data)) {
+	/* Validate the new data's size, not the old one */
+	if (new_hdr->size > scontrol->max_size - sizeof(*new_hdr)) {
 		dev_err_ratelimited(scomp->dev,
 				    "data size too big %u bytes max is %zu\n",
-				    data->size, scontrol->max_size - sizeof(*data));
+				    new_hdr->size,
+				    scontrol->max_size - sizeof(*new_hdr));
 		return -EINVAL;
 	}
 
-	size = data->size + sizeof(*data);
+	size = new_hdr->size + sizeof(*new_hdr);
 
 	/* copy from kcontrol */
 	memcpy(data, ucontrol->value.bytes.data, size);
@@ -872,6 +875,16 @@ static void sof_ipc4_control_update(struct snd_sof_dev *sdev, void *ipc_message)
 		 */
 		if (type == SND_SOC_TPLG_TYPE_BYTES) {
 			struct sof_abi_hdr *data = cdata->data;
+			size_t source_size = struct_size(msg_data, data, msg_data->num_elems);
+
+			if (source_size > ndata->event_data_size) {
+				dev_warn(sdev->dev,
+					 "%s: invalid bytes notification size for %s (%zu, %u)\n",
+					 __func__, scontrol->name, source_size,
+					 ndata->event_data_size);
+				scontrol->comp_data_dirty = true;
+				goto notify;
+			}
 
 			if (msg_data->num_elems > scontrol->max_size - sizeof(*data)) {
 				dev_warn(sdev->dev,
@@ -884,6 +897,17 @@ static void sof_ipc4_control_update(struct snd_sof_dev *sdev, void *ipc_message)
 				scontrol->size = sizeof(*cdata) + sizeof(*data) + data->size;
 			}
 		} else {
+			size_t source_size = struct_size(msg_data, chanv, msg_data->num_elems);
+
+			if (source_size > ndata->event_data_size) {
+				dev_warn(sdev->dev,
+					 "%s: invalid channel notification size for %s (%zu, %u)\n",
+					 __func__, scontrol->name, source_size,
+					 ndata->event_data_size);
+				scontrol->comp_data_dirty = true;
+				goto notify;
+			}
+
 			for (i = 0; i < msg_data->num_elems; i++) {
 				u32 channel = msg_data->chanv[i].channel;
 
@@ -910,6 +934,8 @@ static void sof_ipc4_control_update(struct snd_sof_dev *sdev, void *ipc_message)
 		 */
 		scontrol->comp_data_dirty = true;
 	}
+
+notify:
 
 	/*
 	 * Look up the ALSA kcontrol of the scontrol to be able to send a
