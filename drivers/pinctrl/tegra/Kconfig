@@ -50,6 +50,7 @@ config PINCTRL_TEGRA238
 
 config PINCTRL_TEGRA264
 	tristate "NVIDIA Tegra264 pinctrl driver"
+	depends on ARCH_TEGRA || COMPILE_TEST
 	default m if ARCH_TEGRA_264_SOC
 	select PINCTRL_TEGRA
 	help
