@@ -406,7 +406,7 @@ static int net_shaper_pre_insert(struct net_shaper_binding *binding,
 	prev = xa_store(&hierarchy->shapers, index, cur, GFP_KERNEL);
 	if (xa_err(prev)) {
 		NL_SET_ERR_MSG(extack, "Can't insert shaper into device store");
-		kfree_rcu(cur, rcu);
+		kfree(cur);
 		ret = xa_err(prev);
 		goto free_id;
 	}
