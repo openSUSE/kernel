@@ -7084,7 +7084,9 @@ static int ftrace_process_locs(struct module *mod,
 	pg = start_pg;
 	while (p < end) {
 		unsigned long end_offset;
-		addr = ftrace_call_adjust(*p++);
+
+		addr = *p++;
+
 		/*
 		 * Some architecture linkers will pad between
 		 * the different mcount_loc sections of different
@@ -7095,6 +7097,8 @@ static int ftrace_process_locs(struct module *mod,
 			skipped++;
 			continue;
 		}
+
+		addr = ftrace_call_adjust(addr);
 
 		end_offset = (pg->index+1) * sizeof(pg->records[0]);
 		if (end_offset > PAGE_SIZE << pg->order) {
