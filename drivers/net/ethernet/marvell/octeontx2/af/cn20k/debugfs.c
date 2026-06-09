@@ -176,7 +176,8 @@ static DEFINE_MUTEX(stats_lock);
  * hard limit on all silicon variants, preventing any possibility of
  * out-of-bounds access.
  */
-static u64 dstats[MAX_NUM_BANKS][MAX_SUBBANK_DEPTH * MAX_NUM_SUB_BANKS] = {};
+static u64 (*dstats)[MAX_NUM_BANKS][MAX_SUBBANK_DEPTH * MAX_NUM_SUB_BANKS];
+
 static int npc_mcam_dstats_show(struct seq_file *s, void *unused)
 {
 	struct npc_priv_t *npc_priv;
@@ -212,24 +213,24 @@ static int npc_mcam_dstats_show(struct seq_file *s, void *unused)
 					   NPC_AF_CN20K_MCAMEX_BANKX_STAT_EXT(idx, bank));
 			if (!stats)
 				continue;
-			if (stats == dstats[bank][idx])
+			if (stats == dstats[0][bank][idx])
 				continue;
 
-			if (stats < dstats[bank][idx])
-				dstats[bank][idx] = 0;
+			if (stats < dstats[0][bank][idx])
+				dstats[0][bank][idx] = 0;
 
 			pf = 0xFFFF;
 			map = xa_load(&npc_priv->xa_idx2pf_map, mcam_idx);
 			if (map)
 				pf = xa_to_value(map);
 
-			delta = stats - dstats[bank][idx];
+			delta = stats - dstats[0][bank][idx];
 
 			snprintf(buff, sizeof(buff), "%u\t%#04x\t%llu\n",
 				 mcam_idx, pf, delta);
 			seq_puts(s, buff);
 
-			dstats[bank][idx] = stats;
+			dstats[0][bank][idx] = stats;
 		}
 	}
 
@@ -396,6 +397,10 @@ int npc_cn20k_debugfs_init(struct rvu *rvu)
 
 	debugfs_create_file("vidx2idx", 0444, rvu->rvu_dbg.npc,
 			    npc_priv, &npc_vidx2idx_map_fops);
+
+	dstats = devm_kzalloc(rvu->dev, sizeof(*dstats), GFP_KERNEL);
+	if (!dstats)
+		return -ENOMEM;
 
 	debugfs_create_file("dstats", 0444, rvu->rvu_dbg.npc, rvu,
 			    &npc_mcam_dstats_fops);
