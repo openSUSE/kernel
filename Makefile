@@ -1956,6 +1956,8 @@ rustfmt:
 			-path $(srctree)/rust/proc-macro2 \
 			-o -path $(srctree)/rust/quote \
 			-o -path $(srctree)/rust/syn \
+			-o -path $(srctree)/rust/zerocopy \
+			-o -path $(srctree)/rust/zerocopy-derive \
 		\) -prune -o \
 		-type f -a -name '*.rs' -a ! -name '*generated*' -print \
 		| xargs $(RUSTFMT) $(rustfmt_flags)
