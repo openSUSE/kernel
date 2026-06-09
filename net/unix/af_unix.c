@@ -755,7 +755,7 @@ static void unix_release_sock(struct sock *sk, int embrion)
 	 *	  What the above comment does talk about? --ANK(980817)
 	 */
 
-	unix_schedule_gc();
+	unix_schedule_gc(NULL);
 }
 
 static void init_peercred(struct sock *sk)
