@@ -252,6 +252,15 @@ devlink_nl_param_value_put(struct sk_buff *msg, enum devlink_param_type type,
 				return -EMSGSIZE;
 		}
 		break;
+	case DEVLINK_PARAM_TYPE_U64_ARRAY:
+		if (val->u64arr.size > __DEVLINK_PARAM_MAX_ARRAY_SIZE)
+			return -EMSGSIZE;
+
+		for (int i = 0; i < val->u64arr.size; i++) {
+			if (nla_put_uint(msg, nla_type, val->u64arr.val[i]))
+				return -EMSGSIZE;
+		}
+		break;
 	}
 	return 0;
 }
@@ -537,7 +546,7 @@ devlink_param_value_get_from_info(const struct devlink_param *param,
 				  union devlink_param_value *value)
 {
 	struct nlattr *param_data;
-	int len;
+	int len, cnt, rem;
 
 	param_data = info->attrs[DEVLINK_ATTR_PARAM_VALUE_DATA];
 
@@ -576,6 +585,28 @@ devlink_param_value_get_from_info(const struct devlink_param *param,
 		if (param_data && nla_len(param_data))
 			return -EINVAL;
 		value->vbool = nla_get_flag(param_data);
+		break;
+
+	case DEVLINK_PARAM_TYPE_U64_ARRAY:
+		cnt = 0;
+		nla_for_each_attr_type(param_data,
+				       DEVLINK_ATTR_PARAM_VALUE_DATA,
+				       genlmsg_data(info->genlhdr),
+				       genlmsg_len(info->genlhdr), rem) {
+			if (cnt >= __DEVLINK_PARAM_MAX_ARRAY_SIZE)
+				return -EMSGSIZE;
+
+			if ((nla_len(param_data) != sizeof(u64)) &&
+			    (nla_len(param_data) != sizeof(u32))) {
+				NL_SET_BAD_ATTR(info->extack, param_data);
+				return -EINVAL;
+			}
+
+			value->u64arr.val[cnt] = nla_get_uint(param_data);
+			cnt++;
+		}
+
+		value->u64arr.size = cnt;
 		break;
 	}
 	return 0;
