@@ -229,6 +229,44 @@ static void snd_timer_request(struct snd_timer_id *tid)
 
 #endif
 
+/*
+ * refcount management of timer object
+ */
+static void snd_timer_kref_release(struct kref *kref);
+
+static inline void snd_timer_ref_get(struct snd_timer *timer)
+{
+	kref_get(&timer->kref);
+}
+
+static inline void snd_timer_ref_put(struct snd_timer *timer)
+{
+	kref_put(&timer->kref, snd_timer_kref_release);
+}
+
+/*
+ * Return the assigned timer for the instance, NULL if not present;
+ * the caller is responsible to call snd_timeri_timer_put(), or use auto-cleanup
+ */
+struct snd_timer *snd_timeri_timer_get(struct snd_timer_instance *timeri)
+{
+	struct snd_timer *t;
+
+	guard(spinlock_irqsave)(&slave_active_lock);
+	t = timeri->timer;
+	if (!t)
+		return NULL;
+	snd_timer_ref_get(t);
+	return t;
+}
+EXPORT_SYMBOL_GPL(snd_timeri_timer_get);
+
+void snd_timeri_timer_put(struct snd_timer *timer)
+{
+	snd_timer_ref_put(timer);
+}
+EXPORT_SYMBOL_GPL(snd_timeri_timer_put);
+
 /* move the slave if it belongs to the master; return 1 if match */
 static int check_matching_master_slave(struct snd_timer_instance *master,
 				       struct snd_timer_instance *slave)
@@ -240,6 +278,7 @@ static int check_matching_master_slave(struct snd_timer_instance *master,
 		return -EBUSY;
 	list_move_tail(&slave->open_list, &master->slave_list_head);
 	master->timer->num_instances++;
+	snd_timer_ref_get(master->timer);
 	guard(spinlock_irq)(&slave_active_lock);
 	guard(spinlock)(&master->timer->lock);
 	slave->master = master;
@@ -386,6 +425,7 @@ int snd_timer_open(struct snd_timer_instance *timeri,
 	if (snd_timer_has_slave_key(timeri))
 		list_add_tail(&timeri->master_list, &snd_timer_master_list);
 	timer->num_instances++;
+	snd_timer_ref_get(timer);
 	err = snd_timer_check_master(timeri);
 list_added:
 	if (err < 0)
@@ -412,6 +452,7 @@ static void remove_slave_links(struct snd_timer_instance *timeri,
 	list_for_each_entry_safe(slave, tmp, &timeri->slave_list_head, open_list) {
 		list_move_tail(&slave->open_list, &snd_timer_slave_list);
 		timer->num_instances--;
+		snd_timer_ref_put(timer);
 		slave->master = NULL;
 		slave->timer = NULL;
 		list_del_init(&slave->ack_list);
@@ -461,17 +502,16 @@ static void snd_timer_close_locked(struct snd_timer_instance *timeri,
 		remove_slave_links(timeri, timer);
 
 		/* slave doesn't need to release timer resources below */
-		if (timeri->flags & SNDRV_TIMER_IFLG_SLAVE)
-			timer = NULL;
-	}
+		if (!(timeri->flags & SNDRV_TIMER_IFLG_SLAVE)) {
+			if (list_empty(&timer->open_list_head) && timer->hw.close)
+				timer->hw.close(timer);
+			/* release a card refcount for safe disconnection */
+			if (timer->card)
+				*card_devp_to_put = &timer->card->card_dev;
+			module_put(timer->module);
+		}
 
-	if (timer) {
-		if (list_empty(&timer->open_list_head) && timer->hw.close)
-			timer->hw.close(timer);
-		/* release a card refcount for safe disconnection */
-		if (timer->card)
-			*card_devp_to_put = &timer->card->card_dev;
-		module_put(timer->module);
+		snd_timer_ref_put(timer);
 	}
 }
 
@@ -503,12 +543,13 @@ static unsigned long snd_timer_hw_resolution(struct snd_timer *timer)
 
 unsigned long snd_timer_resolution(struct snd_timer_instance *timeri)
 {
-	struct snd_timer * timer;
 	unsigned long ret = 0;
 
 	if (timeri == NULL)
 		return 0;
-	timer = timeri->timer;
+
+	struct snd_timer *timer __free(snd_timeri_timer)
+		= snd_timeri_timer_get(timeri);
 	if (timer) {
 		guard(spinlock_irqsave)(&timer->lock);
 		ret = snd_timer_hw_resolution(timer);
@@ -961,6 +1002,7 @@ int snd_timer_new(struct snd_card *card, char *id, struct snd_timer_id *tid,
 	spin_lock_init(&timer->lock);
 	INIT_WORK(&timer->task_work, snd_timer_work);
 	timer->max_instances = 1000; /* default limit per timer */
+	kref_init(&timer->kref);
 	if (card != NULL) {
 		timer->module = card->module;
 		err = snd_device_new(card, SNDRV_DEV_TIMER, timer, &ops);
@@ -975,6 +1017,15 @@ int snd_timer_new(struct snd_card *card, char *id, struct snd_timer_id *tid,
 }
 EXPORT_SYMBOL(snd_timer_new);
 
+static void snd_timer_kref_release(struct kref *kref)
+{
+	struct snd_timer *timer = container_of(kref, struct snd_timer, kref);
+
+	if (timer->private_free)
+		timer->private_free(timer);
+	kfree(timer);
+}
+
 static int snd_timer_free(struct snd_timer *timer)
 {
 	struct snd_timer_instance *ti, *n;
@@ -982,20 +1033,19 @@ static int snd_timer_free(struct snd_timer *timer)
 	if (!timer)
 		return 0;
 
-	guard(mutex)(&register_mutex);
-	if (! list_empty(&timer->open_list_head)) {
-		list_for_each_entry_safe(ti, n, &timer->open_list_head, open_list) {
-			struct device *card_dev_to_put = NULL;
+	scoped_guard(mutex, &register_mutex) {
+		if (!list_empty(&timer->open_list_head)) {
+			list_for_each_entry_safe(ti, n, &timer->open_list_head, open_list) {
+				struct device *card_dev_to_put = NULL;
 
-			snd_timer_close_locked(ti, &card_dev_to_put);
-			put_device(card_dev_to_put);
+				snd_timer_close_locked(ti, &card_dev_to_put);
+				put_device(card_dev_to_put);
+			}
 		}
+		list_del(&timer->device_list);
 	}
-	list_del(&timer->device_list);
 
-	if (timer->private_free)
-		timer->private_free(timer);
-	kfree(timer);
+	snd_timer_ref_put(timer);
 	return 0;
 }
 
@@ -1778,12 +1828,13 @@ static int snd_timer_user_info(struct file *file,
 			       struct snd_timer_info __user *_info)
 {
 	struct snd_timer_user *tu;
-	struct snd_timer *t;
 
 	tu = file->private_data;
 	if (!tu->timeri)
 		return -EBADFD;
-	t = tu->timeri->timer;
+
+	struct snd_timer *t __free(snd_timeri_timer) =
+		snd_timeri_timer_get(tu->timeri);
 	if (!t)
 		return -EBADFD;
 
@@ -1808,14 +1859,15 @@ static int snd_timer_user_params(struct file *file,
 {
 	struct snd_timer_user *tu;
 	struct snd_timer_params params;
-	struct snd_timer *t;
 	int err;
 
 	guard(mutex)(&register_mutex);
 	tu = file->private_data;
 	if (!tu->timeri)
 		return -EBADFD;
-	t = tu->timeri->timer;
+
+	struct snd_timer *t __free(snd_timeri_timer) =
+		snd_timeri_timer_get(tu->timeri);
 	if (!t)
 		return -EBADFD;
 	if (copy_from_user(&params, _params, sizeof(params)))
