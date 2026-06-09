@@ -824,7 +824,7 @@ npc_cn20k_enable_mcam_entry(struct rvu *rvu, int blkaddr,
 		rvu_write64(rvu, blkaddr,
 			    NPC_AF_CN20K_MCAMEX_BANKX_CFG_EXT(mcam_idx, bank),
 			    cfg);
-		return 0;
+		goto update_en_map;
 	}
 
 	/* For NPC_CN20K_MCAM_KEY_X4 keys, both the banks
@@ -841,6 +841,12 @@ npc_cn20k_enable_mcam_entry(struct rvu *rvu, int blkaddr,
 			    NPC_AF_CN20K_MCAMEX_BANKX_CFG_EXT(mcam_idx, bank),
 			    cfg);
 	}
+
+update_en_map:
+	if (enable)
+		set_bit(index, npc_priv.en_map);
+	else
+		clear_bit(index, npc_priv.en_map);
 
 	return 0;
 }
@@ -1785,9 +1791,9 @@ static int npc_subbank_idx_2_mcam_idx(struct rvu *rvu, struct npc_subbank *sb,
 	return 0;
 }
 
-static int npc_mcam_idx_2_subbank_idx(struct rvu *rvu, u16 mcam_idx,
-				      struct npc_subbank **sb,
-				      int *sb_off)
+int npc_mcam_idx_2_subbank_idx(struct rvu *rvu, u16 mcam_idx,
+			       struct npc_subbank **sb,
+			       int *sb_off)
 {
 	int bank_off, sb_id;
 
@@ -4494,11 +4500,17 @@ static int npc_priv_init(struct rvu *rvu)
 		npc_const2 = rvu_read64(rvu, blkaddr, NPC_AF_CONST2);
 
 	num_banks = mcam->banks;
-	bank_depth = mcam->banksize;
+	if (!num_banks || num_banks > MAX_NUM_BANKS) {
+		dev_err(rvu->dev,
+			"Number of banks(%u) is invalid\n", num_banks);
+		return -EINVAL;
+	}
 
 	num_subbanks = FIELD_GET(GENMASK_ULL(39, 32), npc_const2);
-	if (!num_subbanks) {
-		dev_err(rvu->dev, "Number of subbanks is zero\n");
+	if (!num_subbanks || num_subbanks > MAX_NUM_SUB_BANKS) {
+		dev_err(rvu->dev,
+			"Number of subbanks is invalid %u\n",
+			num_subbanks);
 		return -EFAULT;
 	}
 
@@ -4509,10 +4521,23 @@ static int npc_priv_init(struct rvu *rvu)
 		return -EINVAL;
 	}
 
-	npc_priv.num_subbanks = num_subbanks;
+	bank_depth = mcam->banksize;
+	if (!bank_depth || bank_depth % num_subbanks) {
+		dev_err(rvu->dev,
+			"Bank depth(%u) should be a multiple of num_subbanks(%u)\n",
+			bank_depth, num_subbanks);
+		return -EINVAL;
+	}
 
 	subbank_depth =	bank_depth / num_subbanks;
+	if (!subbank_depth || subbank_depth > MAX_SUBBANK_DEPTH) {
+		dev_err(rvu->dev,
+			"Invalid subbank depth %u\n",
+			subbank_depth);
+		return -EINVAL;
+	}
 
+	npc_priv.num_subbanks = num_subbanks;
 	npc_priv.bank_depth = bank_depth;
 	npc_priv.subbank_depth = subbank_depth;
 
@@ -4601,6 +4626,8 @@ void npc_cn20k_deinit(struct rvu *rvu)
 	 */
 	kfree(npc_priv.sb);
 	kfree(subbank_srch_order);
+	bitmap_clear(npc_priv.en_map, 0, MAX_NUM_BANKS * MAX_NUM_SUB_BANKS *
+		     MAX_SUBBANK_DEPTH);
 }
 
 static int npc_setup_mcam_section(struct rvu *rvu, int key_type)
