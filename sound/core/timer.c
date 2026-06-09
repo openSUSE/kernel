@@ -1045,6 +1045,8 @@ static int snd_timer_free(struct snd_timer *timer)
 		list_del(&timer->device_list);
 	}
 
+	disable_work_sync(&timer->task_work);
+
 	snd_timer_ref_put(timer);
 	return 0;
 }
