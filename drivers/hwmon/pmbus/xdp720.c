@@ -17,13 +17,15 @@
 #include <linux/of_device.h>
 #include <linux/bitops.h>
 #include <linux/math64.h>
+#include <linux/property.h>
+#include <linux/regulator/consumer.h>
 #include "pmbus.h"
 
 /*
  * The IMON resistor required to generate the system overcurrent protection.
  * Arbitrary default Rimon value: 2k Ohm
  */
-#define XDP720_DEFAULT_RIMON 2000000000 /* 2k ohm */
+#define XDP720_DEFAULT_RIMON 2000000000U /* 2k ohm */
 #define XDP720_TELEMETRY_AVG 0xE9
 #define XDP720_TELEMETRY_AVG_GIMON BIT(10) /* high/low GIMON select */
 
@@ -38,7 +40,7 @@ struct xdp720_data {
 	struct pmbus_driver_info info;
 };
 
-static struct pmbus_driver_info xdp720_info = {
+static const struct pmbus_driver_info xdp720_info = {
 	.pages = 1,
 	.format[PSC_VOLTAGE_IN] = direct,
 	.format[PSC_VOLTAGE_OUT] = direct,
