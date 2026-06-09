@@ -263,3 +263,9 @@ const struct iomap_read_ops exfat_iomap_bio_read_ops = {
 	.read_folio_range	= iomap_bio_read_folio_range,
 	.submit_read		= exfat_iomap_bio_submit_read,
 };
+
+int exfat_iomap_swap_activate(struct swap_info_struct *sis,
+			       struct file *file, sector_t *span)
+{
+	return iomap_swapfile_activate(sis, file, span, &exfat_iomap_ops);
+}

@@ -309,6 +309,7 @@ static const struct address_space_operations exfat_aops = {
 	.error_remove_folio	= generic_error_remove_folio,
 	.release_folio		= iomap_release_folio,
 	.invalidate_folio	= iomap_invalidate_folio,
+	.swap_activate		= exfat_iomap_swap_activate,
 };
 
 static inline unsigned long exfat_hash(loff_t i_pos)
