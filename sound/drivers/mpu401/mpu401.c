@@ -123,7 +123,7 @@ static struct platform_driver snd_mpu401_driver = {
 
 static const struct pnp_device_id snd_mpu401_pnpids[] = {
 	{ .id = "PNPb006" },
-	{ .id = "" }
+	{ }
 };
 
 MODULE_DEVICE_TABLE(pnp, snd_mpu401_pnpids);

@@ -125,7 +125,7 @@ struct snd_opl3sa2 {
 static const struct pnp_device_id snd_opl3sa2_pnpbiosids[] = {
 	{ .id = "YMH0021" },
 	{ .id = "NMX2210" },	/* Gateway Solo 2500 */
-	{ .id = "" }		/* end */
+	{ }			/* end */
 };
 
 MODULE_DEVICE_TABLE(pnp, snd_opl3sa2_pnpbiosids);

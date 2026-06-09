@@ -1935,7 +1935,7 @@ static int pnpc_registered __ro_after_init;
 static const struct pnp_device_id snd_audiodrive_pnpbiosids[] = {
 	{ .id = "ESS1869" },
 	{ .id = "ESS1879" },
-	{ .id = "" }		/* end */
+	{ }			/* end */
 };
 
 MODULE_DEVICE_TABLE(pnp, snd_audiodrive_pnpbiosids);

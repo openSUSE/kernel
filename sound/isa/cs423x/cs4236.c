@@ -94,7 +94,7 @@ static const struct pnp_device_id snd_cs423x_pnpbiosids[] = {
 	/* Guillemot Turtlebeach something appears to be cs4232 compatible
 	 * (untested) */
 	{ .id = "GIM0100" },
-	{ .id = "" }
+	{ }
 };
 MODULE_DEVICE_TABLE(pnp, snd_cs423x_pnpbiosids);
 
