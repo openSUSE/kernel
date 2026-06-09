@@ -5,6 +5,7 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_helpers.h>
 
+#include "../bpf_experimental.h"
 #include "bpf_misc.h"
 #include "task_kfunc_common.h"
 
@@ -230,6 +231,45 @@ int BPF_PROG(task_kfunc_release_unacquired, struct task_struct *task, u64 clone_
 	/* Cannot release trusted task pointer which was not acquired. */
 	bpf_task_release(task);
 
+	return 0;
+}
+
+SEC("tp_btf/task_newtask")
+__failure __msg("bpf_obj_drop cannot be used in tracing programs on types with NMI unsafe fields")
+int BPF_PROG(task_kfunc_obj_drop_with_kptr, struct task_struct *task, u64 clone_flags)
+{
+	struct __tasks_kfunc_map_value *local;
+
+	local = bpf_obj_new(typeof(*local));
+	if (!local)
+		return 0;
+
+	bpf_obj_drop(local);
+	return 0;
+}
+
+SEC("tp_btf/task_newtask")
+__failure __msg("bpf_obj_drop cannot be used in tracing programs on types with NMI unsafe fields")
+int BPF_PROG(task_kfunc_obj_drop_nmi_with_kptr, struct task_struct *task,
+	     u64 clone_flags)
+{
+	struct __tasks_kfunc_map_value *local;
+	struct task_struct *acquired, *old;
+
+	(void)clone_flags;
+
+	local = bpf_obj_new(typeof(*local));
+	if (!local)
+		return 0;
+
+	acquired = bpf_task_acquire(task);
+	if (acquired) {
+		old = bpf_kptr_xchg(&local->task, acquired);
+		if (old)
+			bpf_task_release(old);
+	}
+
+	bpf_obj_drop(local);
 	return 0;
 }
 
