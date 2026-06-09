@@ -422,6 +422,8 @@ struct tegra_sor {
 	struct clk *clk_dp;
 	struct clk *clk;
 
+	struct tegra_pmc *pmc;
+
 	u8 xbar_cfg[5];
 
 	struct drm_dp_link link;
@@ -2237,7 +2239,7 @@ static void tegra_sor_hdmi_disable(struct drm_encoder *encoder)
 	if (err < 0)
 		dev_err(sor->dev, "failed to power down SOR: %d\n", err);
 
-	err = tegra_io_pad_power_disable(sor->pad);
+	err = tegra_pmc_io_pad_power_disable(sor->pmc, sor->pad);
 	if (err < 0)
 		dev_err(sor->dev, "failed to power off I/O pad: %d\n", err);
 
@@ -2277,7 +2279,7 @@ static void tegra_sor_hdmi_enable(struct drm_encoder *encoder)
 
 	div = clk_get_rate(sor->clk) / 1000000 * 4;
 
-	err = tegra_io_pad_power_enable(sor->pad);
+	err = tegra_pmc_io_pad_power_enable(sor->pmc, sor->pad);
 	if (err < 0)
 		dev_err(sor->dev, "failed to power on I/O pad: %d\n", err);
 
@@ -2701,7 +2703,7 @@ static void tegra_sor_dp_disable(struct drm_encoder *encoder)
 	if (err < 0)
 		dev_err(sor->dev, "failed to power down SOR: %d\n", err);
 
-	err = tegra_io_pad_power_disable(sor->pad);
+	err = tegra_pmc_io_pad_power_disable(sor->pmc, sor->pad);
 	if (err < 0)
 		dev_err(sor->dev, "failed to power off I/O pad: %d\n", err);
 
@@ -2743,7 +2745,7 @@ static void tegra_sor_dp_enable(struct drm_encoder *encoder)
 	if (err < 0)
 		dev_err(sor->dev, "failed to set safe parent clock: %d\n", err);
 
-	err = tegra_io_pad_power_enable(sor->pad);
+	err = tegra_pmc_io_pad_power_enable(sor->pmc, sor->pad);
 	if (err < 0)
 		dev_err(sor->dev, "failed to power on LVDS rail: %d\n", err);
 
@@ -3729,6 +3731,12 @@ static int tegra_sor_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	sor->num_settings = sor->soc->num_settings;
+
+	sor->pmc = devm_tegra_pmc_get(&pdev->dev);
+	if (IS_ERR(sor->pmc)) {
+		err = PTR_ERR(sor->pmc);
+		goto put_aux;
+	}
 
 	np = of_parse_phandle(pdev->dev.of_node, "nvidia,dpaux", 0);
 	if (np) {
