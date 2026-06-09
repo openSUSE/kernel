@@ -5949,6 +5949,8 @@ int alg_test(const char *driver, const char *alg, u32 type, u32 mask)
 
 		if (i >= 0 && !alg_test_descs[i].fips_allowed)
 			goto non_fips_alg;
+		else if (!memcmp(alg, "ecb(", 4))
+			goto non_fips_alg;
 	}
 
 	rc = 0;
