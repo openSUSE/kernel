@@ -316,19 +316,36 @@ static inline u32 ina238_samples(struct ina238_data *data)
 				  INA238_ADC_CONFIG_AVG_SHIFT];
 }
 
-/* Converting update_interval in msec to a single conversion time in usec */
-static inline u32 ina238_interval_ms_to_conv_time(long interval, u32 samples)
+/* Converting update_interval(_us) to a per-field conversion time in usec.
+ * interval_us is the total ADC cycle time including averaging in microseconds.
+ * All three conversion fields (VBUSCT, VSHCT, VTCT) are set equal, so the
+ * per-field time is interval_us / (samples * 3).
+ */
+static inline u32 ina238_interval_us_to_conv_time(u32 interval_us, u32 samples)
 {
-	u64 interval_us;
-
-	interval = clamp_val(interval, 0, INT_MAX / 1000);
-	interval_us = (u64)interval * 1000;
-
-	/*
-	 * update_interval reports the ADC cycle time including averaging.
-	 * The target per-field conversion time is interval_us / (samples * 3).
-	 */
 	return DIV_ROUND_CLOSEST_ULL(interval_us, samples * 3);
+}
+
+/* Write a per-field conversion time (in usec) to the ADC_CONFIG register */
+static int ina238_write_conv_time(struct ina238_data *data, u32 conv_time_us)
+{
+	u16 adc_config;
+	int idx, ret;
+
+	idx = find_closest(conv_time_us, data->config->conv_time,
+			   ARRAY_SIZE(ina238_conv_time));
+	adc_config = (data->adc_config &
+		      ~(INA238_ADC_CONFIG_VBUSCT_MASK |
+			INA238_ADC_CONFIG_VSHCT_MASK |
+			INA238_ADC_CONFIG_VTCT_MASK)) |
+		     ((u16)idx << INA238_ADC_CONFIG_VBUSCT_SHIFT) |
+		     ((u16)idx << INA238_ADC_CONFIG_VSHCT_SHIFT) |
+		     ((u16)idx << INA238_ADC_CONFIG_VTCT_SHIFT);
+	ret = regmap_write(data->regmap, INA238_ADC_CONFIG, adc_config);
+	if (ret)
+		return ret;
+	data->adc_config = adc_config;
+	return 0;
 }
 
 static int ina238_read_chip(struct device *dev, u32 attr, long *val)
@@ -343,6 +360,10 @@ static int ina238_read_chip(struct device *dev, u32 attr, long *val)
 		/* Return in msec */
 		*val = DIV_ROUND_CLOSEST(ina238_reg_to_interval_us(data) *
 					ina238_samples(data), 1000);
+		return 0;
+	case hwmon_chip_update_interval_us:
+		/* Return in usec */
+		*val = ina238_reg_to_interval_us(data) * ina238_samples(data);
 		return 0;
 	default:
 		return -EOPNOTSUPP;
@@ -367,21 +388,14 @@ static int ina238_write_chip(struct device *dev, u32 attr, long val)
 		data->adc_config = adc_config;
 		return 0;
 	case hwmon_chip_update_interval:
-		val = ina238_interval_ms_to_conv_time(val, ina238_samples(data));
-		idx = find_closest(val, data->config->conv_time,
-				   ARRAY_SIZE(ina238_conv_time));
-		adc_config = (data->adc_config &
-			      ~(INA238_ADC_CONFIG_VBUSCT_MASK |
-				INA238_ADC_CONFIG_VSHCT_MASK |
-				INA238_ADC_CONFIG_VTCT_MASK)) |
-			     ((u16)idx << INA238_ADC_CONFIG_VBUSCT_SHIFT) |
-			     ((u16)idx << INA238_ADC_CONFIG_VSHCT_SHIFT) |
-			     ((u16)idx << INA238_ADC_CONFIG_VTCT_SHIFT);
-		ret = regmap_write(data->regmap, INA238_ADC_CONFIG, adc_config);
-		if (ret)
-			return ret;
-		data->adc_config = adc_config;
-		return 0;
+		/* Convert ms to us before passing to the shared helper */
+		val = clamp_val(val, 0, INT_MAX / 1000) * 1000;
+		return ina238_write_conv_time(data,
+			ina238_interval_us_to_conv_time((u32)val, ina238_samples(data)));
+	case hwmon_chip_update_interval_us:
+		val = clamp_val(val, 0, INT_MAX);
+		return ina238_write_conv_time(data,
+			ina238_interval_us_to_conv_time((u32)val, ina238_samples(data)));
 	default:
 		return -EOPNOTSUPP;
 	}
@@ -763,6 +777,7 @@ static umode_t ina238_is_visible(const void *drvdata,
 		switch (attr) {
 		case hwmon_chip_samples:
 		case hwmon_chip_update_interval:
+		case hwmon_chip_update_interval_us:
 			return 0644;
 		default:
 			return 0;
@@ -831,7 +846,8 @@ static umode_t ina238_is_visible(const void *drvdata,
 
 static const struct hwmon_channel_info * const ina238_info[] = {
 	HWMON_CHANNEL_INFO(chip,
-			   HWMON_C_SAMPLES | HWMON_C_UPDATE_INTERVAL),
+			   HWMON_C_SAMPLES | HWMON_C_UPDATE_INTERVAL |
+			   HWMON_C_UPDATE_INTERVAL_US),
 	HWMON_CHANNEL_INFO(in,
 			   /* 0: shunt voltage */
 			   INA238_HWMON_IN_CONFIG,
