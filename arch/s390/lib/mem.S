@@ -12,47 +12,6 @@
 	GEN_BR_THUNK %r14
 
 /*
- * void *memmove(void *dest, const void *src, size_t n)
- */
-SYM_FUNC_START(__memmove)
-	ltgr	%r4,%r4
-	lgr	%r1,%r2
-	jz	.Lmemmove_exit
-	aghi	%r4,-1
-	clgr	%r2,%r3
-	jnh	.Lmemmove_forward
-	la	%r5,1(%r4,%r3)
-	clgr	%r2,%r5
-	jl	.Lmemmove_reverse
-.Lmemmove_forward:
-	srlg	%r0,%r4,8
-	ltgr	%r0,%r0
-	jz	.Lmemmove_forward_remainder
-.Lmemmove_forward_loop:
-	mvc	0(256,%r1),0(%r3)
-	la	%r1,256(%r1)
-	la	%r3,256(%r3)
-	brctg	%r0,.Lmemmove_forward_loop
-.Lmemmove_forward_remainder:
-	exrl	%r4,.Lmemmove_mvc
-.Lmemmove_exit:
-	BR_EX	%r14
-.Lmemmove_reverse:
-	ic	%r0,0(%r4,%r3)
-	stc	%r0,0(%r4,%r1)
-	brctg	%r4,.Lmemmove_reverse
-	ic	%r0,0(%r4,%r3)
-	stc	%r0,0(%r4,%r1)
-	BR_EX	%r14
-.Lmemmove_mvc:
-	mvc	0(1,%r1),0(%r3)
-SYM_FUNC_END(__memmove)
-EXPORT_SYMBOL(__memmove)
-
-SYM_FUNC_ALIAS(memmove, __memmove)
-EXPORT_SYMBOL(memmove)
-
-/*
  * memset implementation
  *
  * This code corresponds to the C construct below. We do distinguish

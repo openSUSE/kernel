@@ -17,6 +17,52 @@
 #include <linux/export.h>
 #include <asm/asm.h>
 
+#define SYMBOL_FUNCTION_ALIAS(alias, name)		\
+asm(".globl " __stringify(alias) "\n\t"			\
+    ".set   " __stringify(alias) "," __stringify(name))
+
+#ifdef __HAVE_ARCH_MEMMOVE
+noinstr void *__memmove(void *dest, const void *src, size_t n)
+{
+	const char *s = src;
+	char *d = dest;
+
+	if (!n)
+		return dest;
+	if ((d <= s || d >= s + n)) {
+		/* Forward copy */
+		while (n >= 256) {
+			asm volatile(
+				"	mvc	0(256,%[d]),0(%[s])\n"
+				:
+				: [d] "a" (d), [s] "a" (s)
+				: "memory");
+			d += 256;
+			s += 256;
+			n -= 256;
+		}
+		if (n) {
+			asm volatile(
+				"	exrl	%[n],0f\n"
+				"	j	1f\n"
+				"0:	mvc	0(1,%[d]),0(%[s])\n"
+				"1:"
+				:
+				: [d] "a" (d), [s] "a" (s), [n] "a" (n - 1)
+				: "memory");
+		}
+	} else {
+		/* Backward copy */
+		while (n--)
+			d[n] = s[n];
+	}
+	return dest;
+}
+SYMBOL_FUNCTION_ALIAS(memmove, __memmove);
+EXPORT_SYMBOL(__memmove);
+EXPORT_SYMBOL(memmove);
+#endif
+
 /*
  * Helper functions to find the end of a string
  */
