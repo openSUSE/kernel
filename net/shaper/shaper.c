@@ -1452,6 +1452,8 @@ int net_shaper_nl_cap_get_dumpit(struct sk_buff *skb,
 
 		ret = net_shaper_cap_fill_one(skb, binding, scope, flags,
 					      info);
+		/* cap dumps are tiny, we expect them to fit in a single skb */
+		WARN_ON_ONCE(ret == -EMSGSIZE);
 		if (ret)
 			return ret;
 	}
