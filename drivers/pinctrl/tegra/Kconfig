@@ -39,6 +39,7 @@ config PINCTRL_TEGRA234
 
 config PINCTRL_TEGRA238
 	tristate "NVIDIA Tegra238 pinctrl driver"
+	depends on ARCH_TEGRA || COMPILE_TEST
 	default m if ARCH_TEGRA_238_SOC
 	select PINCTRL_TEGRA
 	help
