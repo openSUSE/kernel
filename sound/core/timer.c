@@ -1861,7 +1861,6 @@ static int snd_timer_user_params(struct file *file,
 	struct snd_timer_params params;
 	int err;
 
-	guard(mutex)(&register_mutex);
 	tu = file->private_data;
 	if (!tu->timeri)
 		return -EBADFD;
