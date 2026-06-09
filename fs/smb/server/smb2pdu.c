@@ -5292,7 +5292,7 @@ static int get_file_compression_info(struct smb2_query_info_rsp *rsp,
 		return ret;
 
 	file_info = (struct smb2_file_comp_info *)rsp->Buffer;
-	file_info->CompressedFileSize = cpu_to_le64(stat.blocks << 9);
+	file_info->CompressedFileSize = cpu_to_le64(min_t(u64, stat.blocks << 9, stat.size));
 	file_info->CompressionFormat = cpu_to_le16(fmt);
 	file_info->CompressionUnitShift = 0;
 	file_info->ChunkShift = 0;
