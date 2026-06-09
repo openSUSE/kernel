@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0+
 /*
  * Support for Variscite Concerto Carrier board with the VAR-SOM-6UL
- * Variscite SoM mounted on it (6UL CPU variant)
+ * Variscite SoM mounted on it (6ULL CPU variant)
  *
- * Copyright 2019 Variscite Ltd.
- * Copyright 2025 Bootlin
+ * Copyright 2026 Dimonoff
  */
 
 /dts-v1/;
 
-#include "imx6ul-var-som.dtsi"
+#include "imx6ull-var-som.dtsi"
 #include "imx6ul-var-som-concerto-common.dtsi"
 #include "imx6ul-var-som-sd.dtsi"
 #include "imx6ul-var-som-enet2.dtsi"
@@ -17,6 +16,6 @@
 #include "imx6ul-var-som-lvds-panel.dtsi"
 
 / {
-	model = "Variscite VAR-SOM-6UL Concerto Board (6UL CPU)";
-	compatible = "variscite,mx6ulconcerto", "variscite,var-som-imx6ul", "fsl,imx6ul";
+	model = "Variscite VAR-SOM-6UL Concerto Board (6ULL CPU)";
+	compatible = "variscite,mx6ullconcerto", "variscite,var-som-imx6ull", "fsl,imx6ull";
 };
