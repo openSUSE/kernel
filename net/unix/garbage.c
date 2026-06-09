@@ -273,6 +273,8 @@ void unix_update_edges(struct unix_sock *receiver)
 	}
 }
 
+static void wait_for_unix_gc(struct scm_fp_list *fpl);
+
 int unix_prepare_fpl(struct scm_fp_list *fpl)
 {
 	struct unix_vertex *vertex;
@@ -293,6 +295,8 @@ int unix_prepare_fpl(struct scm_fp_list *fpl)
 				    GFP_KERNEL_ACCOUNT);
 	if (!fpl->edges)
 		goto err;
+
+	wait_for_unix_gc(fpl);
 
 	return 0;
 
@@ -619,7 +623,7 @@ void unix_schedule_gc(void)
 #define UNIX_INFLIGHT_TRIGGER_GC 16000
 #define UNIX_INFLIGHT_SANE_USER (SCM_MAX_FD * 8)
 
-void wait_for_unix_gc(struct scm_fp_list *fpl)
+static void wait_for_unix_gc(struct scm_fp_list *fpl)
 {
 	/* If number of inflight sockets is insane,
 	 * force a garbage collect right now.
@@ -633,8 +637,7 @@ void wait_for_unix_gc(struct scm_fp_list *fpl)
 	/* Penalise users who want to send AF_UNIX sockets
 	 * but whose sockets have not been received yet.
 	 */
-	if (!fpl || !fpl->count_unix ||
-	    READ_ONCE(fpl->user->unix_inflight) < UNIX_INFLIGHT_SANE_USER)
+	if (READ_ONCE(fpl->user->unix_inflight) < UNIX_INFLIGHT_SANE_USER)
 		return;
 
 	if (READ_ONCE(gc_in_progress))
