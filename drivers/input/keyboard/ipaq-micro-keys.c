@@ -20,12 +20,6 @@
 #include <linux/platform_device.h>
 #include <linux/mfd/ipaq-micro.h>
 
-struct ipaq_micro_keys {
-	struct ipaq_micro *micro;
-	struct input_dev *input;
-	u16 *codes;
-};
-
 static const u16 micro_keycodes[] = {
 	KEY_RECORD,		/* 1:  Record button			*/
 	KEY_CALENDAR,		/* 2:  Calendar				*/
@@ -36,6 +30,12 @@ static const u16 micro_keycodes[] = {
 	KEY_RIGHT,		/* 7:  Right				*/
 	KEY_LEFT,		/* 8:  Left				*/
 	KEY_DOWN,		/* 9:  Down				*/
+};
+
+struct ipaq_micro_keys {
+	struct ipaq_micro *micro;
+	struct input_dev *input;
+	u16 codes[ARRAY_SIZE(micro_keycodes)];
 };
 
 static void micro_key_receive(void *data, int len, unsigned char *msg)
@@ -102,10 +102,7 @@ static int micro_key_probe(struct platform_device *pdev)
 
 	keys->input->keycodesize = sizeof(micro_keycodes[0]);
 	keys->input->keycodemax = ARRAY_SIZE(micro_keycodes);
-	keys->codes = devm_kmemdup_array(&pdev->dev, micro_keycodes, keys->input->keycodemax,
-					 keys->input->keycodesize, GFP_KERNEL);
-	if (!keys->codes)
-		return -ENOMEM;
+	memcpy(keys->codes, micro_keycodes, sizeof(keys->codes));
 
 	keys->input->keycode = keys->codes;
 
