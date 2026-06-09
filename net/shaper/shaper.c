@@ -1470,6 +1470,10 @@ static void net_shaper_flush(struct net_shaper_binding *binding)
 
 	xa_for_each(&hierarchy->shapers, index, cur) {
 		xa_erase(&hierarchy->shapers, index);
+		/* No need to use kfree_rcu(), netdev is already unpublished,
+		 * and synchronize_rcu() has been run as part of
+		 * unregister_netdevice().
+		 */
 		kfree(cur);
 	}
 
