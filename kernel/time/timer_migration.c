@@ -1473,7 +1473,7 @@ static unsigned int tmigr_get_capacity(int cpu)
 	 * timekeeper must then belong to the same hierarchy as all the nohz_full
 	 * CPUs. Simply turn off capacity awareness when nohz_full is running.
 	 */
-	if (tick_nohz_full_enabled())
+	if (tick_nohz_full_enabled() || !IS_ENABLED(CONFIG_BROKEN))
 		return SCHED_CAPACITY_SCALE;
 	else
 		return arch_scale_cpu_capacity(cpu);
