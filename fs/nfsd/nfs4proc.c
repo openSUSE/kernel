@@ -1826,8 +1826,6 @@ encode_op:
 	fh_put(save_fh);
 	BUG_ON(cstate->replay_owner);
 out:
-	/* Reset deferral mechanism for RPC deferrals */
-	set_bit(RQ_USEDEFERRAL, &rqstp->rq_flags);
 	dprintk("nfsv4 compound returned %d\n", ntohl(status));
 	return status;
 }
