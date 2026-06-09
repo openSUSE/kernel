@@ -3,7 +3,7 @@
 /* This is included in perf/util/dwarf-regs.c */
 
 #undef REG_DWARFNUM_NAME
-#define REG_DWARFNUM_NAME(reg, idx)	[idx] = "%" #reg
+#define REG_DWARFNUM_NAME(reg, idx)	[idx] = reg
 
 static const char * const riscv_regstr_tbl[] = {
 	REG_DWARFNUM_NAME("%zero", 0),
