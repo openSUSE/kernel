@@ -299,6 +299,10 @@ static inline void __iomem *ioremap_prot(phys_addr_t phys, size_t size,
 #define ioremap_np(addr, size)	\
 	__ioremap_prot((addr), (size), __pgprot(PROT_DEVICE_nGnRnE))
 
+
+#define ioremap_encrypted(addr, size)	\
+	__ioremap_prot((addr), (size), PAGE_KERNEL)
+
 /*
  * io{read,write}{16,32,64}be() macros
  */
