@@ -19,4 +19,10 @@ static __always_inline bool smb_compress_alg_valid(__le16 alg, bool valid_none)
 	return alg == SMB3_COMPRESS_LZ77 || alg == SMB3_COMPRESS_PATTERN;
 }
 
+int smb_compression_decompress(__le16 alg, bool allow_chained,
+			       const void *src, u32 slen, void *dst, u32 dlen);
+int smb_compression_compress_chained(__le16 alg, bool allow_pattern,
+				     const void *src, u32 slen,
+				     void *dst, u32 *dlen);
+
 #endif /* _COMMON_SMB_COMPRESS_H */
