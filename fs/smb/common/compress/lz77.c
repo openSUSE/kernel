@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2024-2026, SUSE LLC
+ * Copyright (C) 2026 Namjae Jeon <linkinjeon@kernel.org>
  *
  * Authors: Enzo Matsumiya <ematsumiya@suse.de>
+ *          Namjae Jeon <linkinjeon@kernel.org>
  *
  * Implementation of the LZ77 "plain" compression algorithm, as per MS-XCA spec.
  */
@@ -10,6 +12,8 @@
 #include <linux/sizes.h>
 #include <linux/count_zeros.h>
 #include <linux/unaligned.h>
+#include <linux/module.h>
+#include <linux/overflow.h>
 
 #include "lz77.h"
 
@@ -32,7 +36,7 @@
  */
 #define LZ77_MATCH_MAX_DIST	SZ_8K
 #define LZ77_HASH_LOG		15
-#define LZ77_HASH_SIZE		(1 << LZ77_HASH_LOG)
+#define LZ77_HASH_SIZE		BIT(LZ77_HASH_LOG)
 #define LZ77_RSTEP_SIZE		sizeof(u32)
 #define LZ77_MSTEP_SIZE		sizeof(u64)
 #define LZ77_SKIP_TRIGGER	4
@@ -215,7 +219,8 @@ static __always_inline u32 lz77_hash(const u32 v)
 	return ((v ^ 0x9E3779B9) * 0x85EBCA6B) >> (32 - LZ77_HASH_LOG);
 }
 
-noinline int lz77_compress(const void *src, const u32 slen, void *dst, u32 *dlen)
+noinline int smb_lz77_compress(const void *src, const u32 slen,
+			       void *dst, u32 *dlen)
 {
 	const void *srcp, *rlim, *end, *anchor;
 	u32 *htable, hash, flag_count = 0;
@@ -223,10 +228,11 @@ noinline int lz77_compress(const void *src, const u32 slen, void *dst, u32 *dlen
 	long flag = 0;
 
 	/* This is probably a bug, so throw a warning. */
-	if (WARN_ON_ONCE(*dlen < lz77_compressed_alloc_size(slen)))
+	if (WARN_ON_ONCE(*dlen < smb_lz77_compressed_alloc_size(slen)))
 		return -EINVAL;
 
-	srcp = anchor = src;
+	srcp = src;
+	anchor = src;
 	end = srcp + slen; /* absolute end */
 	rlim = end - LZ77_MSTEP_SIZE; /* read limit (for lz77_match_len()) */
 	dstp = dst;
@@ -251,7 +257,8 @@ noinline int lz77_compress(const void *src, const u32 slen, void *dst, u32 *dlen
 	/*
 	 * Main loop.
 	 *
-	 * @dlen is >= lz77_compressed_alloc_size(), so run without bound-checking @dstp.
+	 * @dlen is >= smb_lz77_compressed_alloc_size(), so run without
+	 * bound-checking @dstp.
 	 *
 	 * This code was crafted in a way to best utilise fetch-decode-execute CPU flow.
 	 * Any attempt to optimize it, or even organize it, can lead to huge performance loss.
@@ -333,3 +340,122 @@ out:
 
 	return -EMSGSIZE;
 }
+EXPORT_SYMBOL_GPL(smb_lz77_compress);
+
+static int lz77_decode_match_len(const u8 **src, const u8 *end, u16 token,
+				 u8 *nibble, bool *have_nibble, u32 *len)
+{
+	u8 extra;
+
+	*len = (token & 0x7) + 3;
+	if ((token & 0x7) != 0x7)
+		return 0;
+
+	if (!*have_nibble) {
+		if (*src >= end)
+			return -EINVAL;
+		*nibble = *(*src)++;
+		extra = *nibble & 0xf;
+		*have_nibble = true;
+	} else {
+		extra = *nibble >> 4;
+		*have_nibble = false;
+	}
+
+	*len += extra;
+	if (extra == 0xf) {
+		u8 b;
+
+		if (*src >= end)
+			return -EINVAL;
+		b = *(*src)++;
+		if (b != 0xff) {
+			*len += b;
+		} else {
+			u16 w;
+
+			if (end - *src < 2)
+				return -EINVAL;
+			w = get_unaligned_le16(*src);
+			*src += 2;
+			if (w) {
+				*len = w + 3;
+			} else {
+				u32 long_len;
+
+				if (end - *src < 4)
+					return -EINVAL;
+				long_len = get_unaligned_le32(*src);
+				*src += 4;
+				if (check_add_overflow(long_len, 3, len))
+					return -EINVAL;
+			}
+		}
+	}
+
+	return 0;
+}
+
+int smb_lz77_decompress(const void *src, const u32 slen, void *dst,
+			const u32 dlen)
+{
+	const u8 *sp = src, *send = sp + slen;
+	u8 *dp = dst, *dend = dp + dlen;
+	u32 flags = 0;
+	int flag_count = 0;
+	u8 nibble = 0;
+	bool have_nibble = false;
+
+	while (dp < dend) {
+		u32 len, dist;
+		u16 token;
+
+		if (!flag_count) {
+			if (send - sp < 4)
+				return -EINVAL;
+			flags = get_unaligned_le32(sp);
+			sp += 4;
+			flag_count = 32;
+		}
+
+		if (!(flags & 0x80000000)) {
+			if (sp >= send)
+				return -EINVAL;
+			*dp++ = *sp++;
+			flags <<= 1;
+			flag_count--;
+			continue;
+		}
+
+		flags <<= 1;
+		flag_count--;
+
+		if (send - sp < 2)
+			return -EINVAL;
+
+		token = get_unaligned_le16(sp);
+		sp += 2;
+
+		dist = (token >> 3) + 1;
+		if (dist > dp - (u8 *)dst)
+			return -EINVAL;
+
+		if (lz77_decode_match_len(&sp, send, token, &nibble,
+					  &have_nibble, &len))
+			return -EINVAL;
+
+		if (len > dend - dp)
+			return -EINVAL;
+
+		while (len--) {
+			*dp = *(dp - dist);
+			dp++;
+		}
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(smb_lz77_decompress);
+
+MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("SMB plain LZ77 compression");

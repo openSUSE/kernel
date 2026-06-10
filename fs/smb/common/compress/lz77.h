@@ -12,7 +12,7 @@
 #include <linux/kernel.h>
 
 /**
- * lz77_compressed_alloc_size() - Compute compressed buffer size.
+ * smb_lz77_compressed_alloc_size() - Compute compressed buffer size.
  * @size:	uncompressed (src) size
  *
  * Compute allocation size for the compressed buffer based on uncompressed size.
@@ -26,18 +26,21 @@
  * Worst case scenario is an all-literal compression, which means:
  * metadata bytes = 4 + ((@size / 32) * 4) + 4, or, simplified, (@size >> 3) + 8
  *
- * The worst case scenario rarely happens, but such overprovisioning also allows lz77_compress()
- * main loop to run without ever bound checking dst, which is a huge perf improvement, while also
- * being safe when compression goes bad.
+ * The worst case scenario rarely happens, but such overprovisioning also
+ * allows smb_lz77_compress() main loop to run without ever bound checking dst,
+ * which is a huge perf improvement, while also being safe when compression goes
+ * bad.
  *
  * Return: required (*) allocation size for compressed buffer.
  *
- * (*) checked once in the beginning of lz77_compress()
+ * (*) checked once in the beginning of smb_lz77_compress()
  */
-static __always_inline u32 lz77_compressed_alloc_size(const u32 size)
+static __always_inline u32 smb_lz77_compressed_alloc_size(const u32 size)
 {
 	return size + (size >> 3) + 8;
 }
 
-int lz77_compress(const void *src, const u32 slen, void *dst, u32 *dlen);
+int smb_lz77_compress(const void *src, const u32 slen, void *dst, u32 *dlen);
+int smb_lz77_decompress(const void *src, const u32 slen, void *dst,
+			const u32 dlen);
 #endif /* _SMB_COMPRESS_LZ77_H */
