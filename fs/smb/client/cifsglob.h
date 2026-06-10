@@ -789,6 +789,8 @@ struct TCP_Server_Info {
 	struct {
 		bool requested; /* "compress" mount option set*/
 		bool enabled; /* actually negotiated with server */
+		bool chained; /* chained transforms were negotiated */
+		bool pattern; /* Pattern_V1 chained payloads were negotiated */
 		__le16 alg; /* preferred alg negotiated with server */
 	} compression;
 	__u16	signing_algorithm;
