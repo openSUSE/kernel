@@ -1011,7 +1011,6 @@ static s32 tas_component_probe(struct snd_soc_component *component)
 		snd_soc_component_get_drvdata(component);
 
 	tas_dev->component = component;
-	tas25xx_register_misc(tas_dev->sdw_peripheral);
 
 	return 0;
 }
@@ -1020,7 +1019,6 @@ static void tas_component_remove(struct snd_soc_component *codec)
 {
 	struct tas2783_prv *tas_dev =
 			snd_soc_component_get_drvdata(codec);
-	tas25xx_deregister_misc();
 	tas_dev->component = NULL;
 }
 
