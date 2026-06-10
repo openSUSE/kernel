@@ -123,6 +123,7 @@
 #define HWCAP2_SME_SF8DP4	(1UL << 61)
 #define HWCAP2_SME_SF8DP2	(1UL << 62)
 #define HWCAP2_POE		(1UL << 63)
+#define HWCAP3_LS64		(1UL << 3)
 
 /*
  * HWCAP3 flags - for AT_HWCAP3
