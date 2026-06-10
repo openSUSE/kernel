@@ -371,6 +371,23 @@ retry:
 		ret = -LFA_TIMED_OUT;
 	}
 
+	/*
+	 * DEN0147 §2.6: LFA_BUSY means activation was postponed by firmware
+	 * and must be retried. Although the rwsem prevents concurrent ACTIVATE
+	 * from this driver, an external agent or firmware-internal state may
+	 * still return LFA_BUSY. Handle it explicitly so it is not silently
+	 * treated as a terminal failure — catching it here may also indicate a
+	 * bug in the driver or firmware.
+	 */
+	if (ret == -LFA_BUSY) {
+		if (ktime_before(ktime_get(), end)) {
+			msleep_interruptible(LFA_ACTIVATE_DELAY_MS);
+			goto retry;
+		}
+
+		ret = -LFA_TIMED_OUT;
+	}
+
 	lfa_cancel(image);
 
 	pr_err("LFA_ACTIVATE for image %s failed: %s\n",
@@ -405,6 +422,17 @@ retry:
 	reg.a1 = image->fw_seq_id;
 	arm_smccc_1_2_invoke(&reg, &res);
 	up_read(&smc_lock);
+
+	/*
+	 * DEN0147 §2.5: LFA_BUSY from PRIME means another CPU is concurrently
+	 * running LFA_PRIME. This driver never issues parallel PRIME, so this
+	 * is unexpected and likely indicates a firmware or driver bug.
+	 */
+	if ((long)res.a0 == -LFA_BUSY) {
+		pr_warn("LFA_PRIME for image %s returned LFA_BUSY (concurrent PRIME unexpected; possible firmware or driver bug)\n",
+			get_image_name(image));
+		return res.a0;
+	}
 
 	if ((long)res.a0 < 0) {
 		pr_err("LFA_PRIME for image %s failed: %s\n",
