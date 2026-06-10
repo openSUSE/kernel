@@ -43,6 +43,9 @@ static void micro_key_receive(void *data, int len, unsigned char *msg)
 	struct ipaq_micro_keys *keys = data;
 	int key, down;
 
+	if (len < 1)
+		return;
+
 	down = 0x80 & msg[0];
 	key  = 0x7f & msg[0];
 
