@@ -7115,6 +7115,15 @@ int smb2_read(struct ksmbd_work *work)
 		kvfree(aux_payload_buf);
 		goto out;
 	}
+	/*
+	 * RDMA responses are transferred through channel buffers and encrypted
+	 * responses use the encryption transform, so only normal SMB transport
+	 * responses are candidates for compression.
+	 */
+	if (!is_rdma_channel && nbytes &&
+	    (req->Flags & SMB2_READFLAG_REQUEST_COMPRESSED) &&
+	    conn->compress_algorithm != SMB3_COMPRESS_NONE)
+		work->compress_response = true;
 	ksmbd_fd_put(work, fp);
 	return 0;
 
