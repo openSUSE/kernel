@@ -119,47 +119,35 @@ static void dpaa2_switch_port_set_fdb(struct ethsw_port_priv *port_priv,
 				      struct net_device *upper_dev,
 				      bool linking)
 {
+	struct dpaa2_switch_fdb *old_fdb = port_priv->fdb;
+	struct ethsw_core *ethsw = port_priv->ethsw_data;
 	struct dpaa2_switch_fdb *new_fdb;
 
-	/* If we leave a bridge, find an unused FDB and use that. */
-	if (!linking) {
-		/* The number of FDBs is sized to accommodate all switch ports
-		 * as standalone, each with its private FDB, which means that
-		 * dpaa2_switch_fdb_get_unused() must succeed here. WARN if
-		 * not.
-		 */
-		new_fdb = dpaa2_switch_fdb_for_leave(port_priv);
-		if (WARN_ON(!new_fdb))
-			return;
+	new_fdb = linking ? dpaa2_switch_fdb_for_join(port_priv, upper_dev) :
+			    dpaa2_switch_fdb_for_leave(port_priv);
+	/* The number of FDBs is sized to accommodate all switch ports as
+	 * standalone, each with its private FDB, which means that FDB must be
+	 * valid here even on the leave path. WARN if not.
+	 */
+	if (WARN_ON(!new_fdb))
+		return;
 
-		if (port_priv->fdb != new_fdb) {
-			port_priv->fdb = new_fdb;
-			port_priv->fdb->in_use = true;
+	if (old_fdb != new_fdb) {
+		/* The previous FDB is about to become unused, release
+		 * it if we are the last user.
+		 */
+		if (!dpaa2_switch_fdb_in_use_by_others(ethsw, port_priv->fdb,
+						       port_priv)) {
+			old_fdb->in_use = false;
+			old_fdb->bridge_dev = NULL;
 		}
 
-		port_priv->fdb->bridge_dev = NULL;
-
-		return;
-	}
-
-	new_fdb = dpaa2_switch_fdb_for_join(port_priv, upper_dev);
-
-	/* The current port is about to change its FDB to the one used by the
-	 * first port that joined the bridge.
-	 */
-	if (port_priv->fdb != new_fdb) {
-		/* The previous FDB is about to become unused, since the
-		 * interface is no longer standalone.
-		 */
-		port_priv->fdb->in_use = false;
-		port_priv->fdb->bridge_dev = NULL;
-
-		/* Get a reference to the new FDB */
+		new_fdb->in_use = true;
 		port_priv->fdb = new_fdb;
 	}
 
 	/* Keep track of the new upper bridge device */
-	port_priv->fdb->bridge_dev = upper_dev;
+	port_priv->fdb->bridge_dev = linking ? upper_dev : NULL;
 }
 
 static void dpaa2_switch_fdb_get_flood_cfg(struct ethsw_core *ethsw, u16 fdb_id,
