@@ -14,6 +14,7 @@
 #include "rw.h"
 #include "eventfd.h"
 #include "wait.h"
+#include "mpscq.h"
 
 void io_fallback_req_func(struct work_struct *work)
 {
@@ -170,11 +171,7 @@ static void io_ctx_mark_taskrun(struct io_ring_ctx *ctx)
 void io_req_local_work_add(struct io_kiocb *req, unsigned flags)
 {
 	struct io_ring_ctx *ctx = req->ctx;
-	unsigned nr_wait, nr_tw, nr_tw_prev;
-	struct llist_node *head;
-
-	/* See comment above IO_CQ_WAKE_INIT */
-	BUILD_BUG_ON(IO_CQ_WAKE_FORCE <= IORING_MAX_CQ_ENTRIES);
+	int nr_wait;
 
 	/*
 	 * We don't know how many requests there are in the link and whether
@@ -183,56 +180,45 @@ void io_req_local_work_add(struct io_kiocb *req, unsigned flags)
 	if (req->flags & IO_REQ_LINK_FLAGS)
 		flags &= ~IOU_F_TWQ_LAZY_WAKE;
 
-	guard(rcu)();
-
-	head = READ_ONCE(ctx->work_llist.first);
-	do {
-		nr_tw_prev = 0;
-		if (head) {
-			struct io_kiocb *first_req = container_of(head,
-							struct io_kiocb,
-							io_task_work.node);
-			/*
-			 * Might be executed at any moment, rely on
-			 * SLAB_TYPESAFE_BY_RCU to keep it alive.
-			 */
-			nr_tw_prev = READ_ONCE(first_req->nr_tw);
-		}
-
-		/*
-		 * Theoretically, it can overflow, but that's fine as one of
-		 * previous adds should've tried to wake the task.
-		 */
-		nr_tw = nr_tw_prev + 1;
-		if (!(flags & IOU_F_TWQ_LAZY_WAKE))
-			nr_tw = IO_CQ_WAKE_FORCE;
-
-		req->nr_tw = nr_tw;
-		req->io_task_work.node.next = head;
-	} while (!try_cmpxchg(&ctx->work_llist.first, &head,
-			      &req->io_task_work.node));
-
 	/*
-	 * cmpxchg implies a full barrier, which pairs with the barrier
-	 * in set_current_state() on the io_cqring_wait() side. It's used
-	 * to ensure that either we see updated ->cq_wait_nr, or waiters
-	 * going to sleep will observe the work added to the list, which
-	 * is similar to the wait/wawke task state sync.
+	 * The xchg() in mpscq_push() implies a full barrier, which pairs with
+	 * the barrier in set_current_state() on the io_cqring_wait() side. This
+	 * ensures that either we see the updated ->cq_wait_nr, or waiters going
+	 * to sleep will observe the work added to the list, which is similar to
+	 * the wait/wake task state sync.
 	 */
-
-	if (!head) {
+	if (mpscq_push(&ctx->work_list, &req->io_task_work.node)) {
 		io_ctx_mark_taskrun(ctx);
 		if (data_race(ctx->int_flags) & IO_RING_F_HAS_EVFD)
 			io_eventfd_signal(ctx, false);
 	}
 
+	/*
+	 * No one is waiting (IO_CQ_WAKE_INIT), or this cycle's wake up has
+	 * already been issued (zero or negative, see below).
+	 */
 	nr_wait = atomic_read(&ctx->cq_wait_nr);
-	/* not enough or no one is waiting */
-	if (nr_tw < nr_wait)
+	if (nr_wait <= 0)
 		return;
-	/* the previous add has already woken it up */
-	if (nr_tw_prev >= nr_wait)
+	if (flags & IOU_F_TWQ_LAZY_WAKE) {
+		/*
+		 * ->cq_wait_nr counts down the number of lazy adds, once it
+		 * hits zero we're good to wake the waiter. A producer that
+		 * gets delayed between pushing its entry and getting here
+		 * may count down a later wait cycle. That's OK, it'll be an
+		 * early wake, not a lost one.
+		 */
+		if (!atomic_dec_and_test(&ctx->cq_wait_nr))
+			return;
+	} else if (atomic_xchg(&ctx->cq_wait_nr, IO_CQ_WAKE_INIT) <= 0) {
+		/*
+		 * Potentially raced with lazy add, claim the wake. A value
+		 * <= 0 means a lazy add hit zero or another forced add
+		 * claimed IO_CQ_WAKE_INIT. Either way, the wake up for this
+		 * wait cycle has already been done.
+		 */
 		return;
+	}
 	wake_up_state(ctx->submitter_task, TASK_INTERRUPTIBLE);
 }
 
@@ -273,21 +259,27 @@ void io_req_task_work_add_remote(struct io_kiocb *req, unsigned flags)
 
 void __cold io_move_task_work_from_local(struct io_ring_ctx *ctx)
 {
-	struct llist_node *node;
+	struct llist_node *node, *first = NULL, **tail = &first;
 
 	/*
-	 * Running the work items may utilize ->retry_llist as a means
-	 * for capping the number of task_work entries run at the same
-	 * time. But that list can potentially race with moving the work
-	 * from here, if the task is exiting. As any normal task_work
-	 * running holds ->uring_lock already, just guard this slow path
-	 * with ->uring_lock to avoid racing on ->retry_llist.
+	 * The work list consumer side is serialized by ->uring_lock, see
+	 * __io_run_local_work(). Grab it to guard against racing with normal
+	 * task_work running, as the task may be exiting.
 	 */
 	guard(mutex)(&ctx->uring_lock);
-	node = llist_del_all(&ctx->work_llist);
-	__io_fallback_tw(node, false);
-	node = llist_del_all(&ctx->retry_llist);
-	__io_fallback_tw(node, false);
+
+	while (!mpscq_empty(&ctx->work_list)) {
+		node = mpscq_pop(&ctx->work_list, &ctx->work_head);
+		if (!node) {
+			/* a producer is mid-push, wait for it to link */
+			cpu_relax();
+			continue;
+		}
+		*tail = node;
+		tail = &node->next;
+	}
+	*tail = NULL;
+	__io_fallback_tw(first, false);
 }
 
 static bool io_run_local_work_continue(struct io_ring_ctx *ctx, int events,
@@ -302,22 +294,23 @@ static bool io_run_local_work_continue(struct io_ring_ctx *ctx, int events,
 	return false;
 }
 
-static int __io_run_local_work_loop(struct llist_node **node,
+static int __io_run_local_work_loop(struct io_ring_ctx *ctx,
 				    io_tw_token_t tw,
 				    int events)
 {
 	int ret = 0;
 
-	while (*node) {
-		struct llist_node *next = (*node)->next;
-		struct io_kiocb *req = container_of(*node, struct io_kiocb,
-						    io_task_work.node);
+	while (ret < events) {
+		struct llist_node *node = mpscq_pop(&ctx->work_list, &ctx->work_head);
+		struct io_kiocb *req;
+
+		if (!node)
+			break;
+		req = container_of(node, struct io_kiocb, io_task_work.node);
 		INDIRECT_CALL_2(req->io_task_work.func,
 				io_poll_task_func, io_req_rw_complete,
 				(struct io_tw_req){req}, tw);
-		*node = next;
-		if (++ret >= events)
-			break;
+		ret++;
 	}
 
 	return ret;
@@ -326,7 +319,6 @@ static int __io_run_local_work_loop(struct llist_node **node,
 static int __io_run_local_work(struct io_ring_ctx *ctx, io_tw_token_t tw,
 			       int min_events, int max_events)
 {
-	struct llist_node *node;
 	unsigned int loops = 0;
 	int ret = 0;
 
@@ -335,24 +327,21 @@ static int __io_run_local_work(struct io_ring_ctx *ctx, io_tw_token_t tw,
 	if (ctx->flags & IORING_SETUP_TASKRUN_FLAG)
 		atomic_andnot(IORING_SQ_TASKRUN, &ctx->rings->sq_flags);
 again:
+	/*
+	 * If the last loop made no progress while work is still pending,
+	 * a producer has published a node but hasn't linked it into the
+	 * queue yet (see mpscq_pop()). Give it a chance to finish rather
+	 * than spinning on the queue.
+	 */
+	if (unlikely(loops && !ret))
+		cond_resched();
 	tw.cancel = io_should_terminate_tw(ctx);
 	min_events -= ret;
-	ret = __io_run_local_work_loop(&ctx->retry_llist.first, tw, max_events);
-	if (ctx->retry_llist.first)
-		goto retry_done;
-
-	/*
-	 * llists are in reverse order, flip it back the right way before
-	 * running the pending items.
-	 */
-	node = llist_reverse_order(llist_del_all(&ctx->work_llist));
-	ret += __io_run_local_work_loop(&node, tw, max_events - ret);
-	ctx->retry_llist.first = node;
+	ret = __io_run_local_work_loop(ctx, tw, max_events);
 	loops++;
 
 	if (io_run_local_work_continue(ctx, ret, min_events))
 		goto again;
-retry_done:
 	io_submit_flush_completions(ctx);
 	if (io_run_local_work_continue(ctx, ret, min_events))
 		goto again;

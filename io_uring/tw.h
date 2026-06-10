@@ -6,6 +6,8 @@
 #include <linux/percpu-refcount.h>
 #include <linux/io_uring_types.h>
 
+#include "mpscq.h"
+
 #define IO_LOCAL_TW_DEFAULT_MAX		20
 
 /*
@@ -89,7 +91,7 @@ static inline int io_run_task_work(void)
 
 static inline bool io_local_work_pending(struct io_ring_ctx *ctx)
 {
-	return !llist_empty(&ctx->work_llist) || !llist_empty(&ctx->retry_llist);
+	return !mpscq_empty(&ctx->work_list);
 }
 
 static inline bool io_task_work_pending(struct io_ring_ctx *ctx)

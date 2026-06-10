@@ -360,6 +360,14 @@ struct io_ring_ctx {
 		bool			poll_multi_queue;
 		struct list_head	iopoll_list;
 
+		/*
+		 * Consumer cursor for ->work_list, protected by ->uring_lock.
+		 * Deliberately kept away from the producer side of the queue,
+		 * as it's written for every popped entry, and the producer
+		 * cacheline is contended enough as it is.
+		 */
+		struct llist_node	*work_head;
+
 		struct io_file_table	file_table;
 		struct io_rsrc_data	buf_table;
 		struct io_alloc_cache	node_cache;
@@ -417,8 +425,7 @@ struct io_ring_ctx {
 	 */
 	struct {
 		struct io_rings	__rcu	*rings_rcu;
-		struct llist_head	work_llist;
-		struct llist_head	retry_llist;
+		struct mpscq		work_list;
 		unsigned long		check_cq;
 		atomic_t		cq_wait_nr;
 		atomic_t		cq_timeouts;
@@ -741,8 +748,6 @@ struct io_kiocb {
 	 * For the latter, it points to the selected buffer ID.
 	 */
 	u16				buf_index;
-
-	unsigned			nr_tw;
 
 	/* REQ_F_* flags */
 	io_req_flags_t			flags;
