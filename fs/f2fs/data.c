@@ -342,7 +342,7 @@ static void f2fs_read_end_io(struct bio *bio)
 			f2fs_handle_step_decompress(ctx, intask);
 		} else if (enabled_steps) {
 			INIT_WORK(&ctx->work, f2fs_post_read_work);
-			queue_work(ctx->sbi->post_read_wq, &ctx->work);
+			queue_work(ctx->sbi->wq, &ctx->work);
 			return;
 		}
 	}
@@ -4527,23 +4527,17 @@ void f2fs_destroy_post_read_processing(void)
 	kmem_cache_destroy(bio_post_read_ctx_cache);
 }
 
-int f2fs_init_post_read_wq(struct f2fs_sb_info *sbi)
+int f2fs_init_wq(struct f2fs_sb_info *sbi)
 {
-	if (!f2fs_sb_has_encrypt(sbi) &&
-		!f2fs_sb_has_verity(sbi) &&
-		!f2fs_sb_has_compression(sbi))
-		return 0;
-
-	sbi->post_read_wq = alloc_workqueue("f2fs_post_read_wq",
-						 WQ_UNBOUND | WQ_HIGHPRI,
-						 num_online_cpus());
-	return sbi->post_read_wq ? 0 : -ENOMEM;
+	sbi->wq = alloc_workqueue("f2fs_wq", WQ_UNBOUND | WQ_HIGHPRI,
+				  num_online_cpus());
+	return sbi->wq ? 0 : -ENOMEM;
 }
 
-void f2fs_destroy_post_read_wq(struct f2fs_sb_info *sbi)
+void f2fs_destroy_wq(struct f2fs_sb_info *sbi)
 {
-	if (sbi->post_read_wq)
-		destroy_workqueue(sbi->post_read_wq);
+	if (sbi->wq)
+		destroy_workqueue(sbi->wq);
 }
 
 int __init f2fs_init_bio_entry_cache(void)
