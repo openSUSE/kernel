@@ -54,7 +54,7 @@ static void micro_key_receive(void *data, int len, unsigned char *msg)
 
 static void micro_key_start(struct ipaq_micro_keys *keys)
 {
-	guard(spinlock)(&keys->micro->lock);
+	guard(spinlock_irq)(&keys->micro->lock);
 
 	keys->micro->key = micro_key_receive;
 	keys->micro->key_data = keys;
@@ -62,7 +62,7 @@ static void micro_key_start(struct ipaq_micro_keys *keys)
 
 static void micro_key_stop(struct ipaq_micro_keys *keys)
 {
-	guard(spinlock)(&keys->micro->lock);
+	guard(spinlock_irq)(&keys->micro->lock);
 
 	keys->micro->key = NULL;
 	keys->micro->key_data = NULL;
