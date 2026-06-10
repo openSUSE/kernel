@@ -1415,7 +1415,7 @@ static void ds1307_hwmon_register(struct ds1307 *ds1307)
 {
 }
 
-#endif /* CONFIG_RTC_DRV_DS1307_HWMON */
+#endif /* IS_REACHABLE(CONFIG_HWMON) */
 
 /*----------------------------------------------------------------------*/
 
