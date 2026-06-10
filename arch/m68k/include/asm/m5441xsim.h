@@ -192,6 +192,11 @@
 #define MCFEPORT_EPIER		0xfc090003
 #define MCFEPORT_EPFR		0xfc090006
 /*
+ * DAC Modules.
+ */
+#define MCFDAC_BASE0		0xfc098000
+#define MCFDAC_BASE1		0xfc09c000
+/*
  *  RTC Module.
  */
 #define MCFRTC_BASE		0xfc0a8000
