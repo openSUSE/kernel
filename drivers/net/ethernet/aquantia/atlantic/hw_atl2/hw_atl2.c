@@ -540,16 +540,7 @@ static int hw_atl2_hw_init(struct aq_hw_s *self, const u8 *mac_addr)
 	};
 
 	struct aq_nic_cfg_s *aq_nic_cfg = self->aq_nic_cfg;
-	struct hw_atl2_priv *priv = self->priv;
-	u8 base_index, count;
 	int err;
-
-	err = hw_atl2_utils_get_action_resolve_table_caps(self, &base_index,
-							  &count);
-	if (err)
-		return err;
-
-	priv->art_base_index = 8 * base_index;
 
 	hw_atl2_init_launchtime(self);
 

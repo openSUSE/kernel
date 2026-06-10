@@ -626,10 +626,13 @@ int hw_atl2_utils_initfw(struct aq_hw_s *self, const struct aq_fw_ops **fw_ops);
 
 int hw_atl2_utils_soft_reset(struct aq_hw_s *self);
 
+int hw_atl2_utils_hw_get_regs(struct aq_hw_s *self,
+			      const struct aq_hw_caps_s *aq_hw_caps,
+			      u32 *regs_buff);
+
 u32 hw_atl2_utils_get_fw_version(struct aq_hw_s *self);
 
-int hw_atl2_utils_get_action_resolve_table_caps(struct aq_hw_s *self,
-						u8 *base_index, u8 *count);
+int hw_atl2_utils_get_filter_caps(struct aq_hw_s *self);
 
 extern const struct aq_fw_ops aq_a2_fw_ops;
 
