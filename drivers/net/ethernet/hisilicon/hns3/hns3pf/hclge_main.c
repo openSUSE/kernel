@@ -16,7 +16,7 @@
 #include <linux/crash_dump.h>
 
 #include <net/rtnetlink.h>
-
+#include <net/vxlan.h>
 #include "hclge_cmd.h"
 #include "hclge_dcb.h"
 #include "hclge_main.h"
@@ -337,7 +337,9 @@ static const struct key_info tuple_key_info[] = {
 	{ OUTER_SRC_PORT, 16, KEY_OPT_LE16, -1, -1 },
 	{ OUTER_DST_PORT, 16, KEY_OPT_LE16, -1, -1 },
 	{ OUTER_L4_RSV, 32, KEY_OPT_LE32, -1, -1 },
-	{ OUTER_TUN_VNI, 24, KEY_OPT_VNI, -1, -1 },
+	{ OUTER_TUN_VNI, 24, KEY_OPT_VNI,
+	  offsetof(struct hclge_fd_rule, tuples.outer_tun_vni),
+	  offsetof(struct hclge_fd_rule, tuples_mask.outer_tun_vni) },
 	{ OUTER_TUN_FLOW_ID, 8, KEY_OPT_U8, -1, -1 },
 	{ INNER_DST_MAC, 48, KEY_OPT_MAC,
 	  offsetof(struct hclge_fd_rule, tuples.dst_mac),
@@ -5590,8 +5592,9 @@ static int hclge_init_fd_config(struct hclge_dev *hdev)
 
 	/* If use max 400bit key, we can support tuples for ether type */
 	if (hdev->fd_cfg.fd_mode == HCLGE_FD_MODE_DEPTH_2K_WIDTH_400B_STAGE_1) {
-		key_cfg->tuple_active |=
-				BIT(INNER_DST_MAC) | BIT(INNER_SRC_MAC);
+		key_cfg->tuple_active |= BIT(INNER_DST_MAC) |
+					 BIT(INNER_SRC_MAC) |
+					 BIT(OUTER_TUN_VNI);
 		if (hdev->ae_dev->dev_version >= HNAE3_DEVICE_VERSION_V3)
 			key_cfg->tuple_active |= HCLGE_FD_TUPLE_USER_DEF_TUPLES;
 	}
@@ -5713,6 +5716,7 @@ static bool hclge_fd_convert_tuple(u32 tuple_bit, u8 *key_x, u8 *key_y,
 	u16 tmp_x_s, tmp_y_s;
 	u32 tmp_x_l, tmp_y_l;
 	u8 *p = (u8 *)rule;
+	__le32 le_x, le_y;
 	int i;
 
 	if (rule->unused_tuple & BIT(tuple_bit))
@@ -5759,6 +5763,15 @@ static bool hclge_fd_convert_tuple(u32 tuple_bit, u8 *key_x, u8 *key_y,
 		       *(u32 *)(&p[moffset + ip_offset]));
 		*(__le32 *)key_x = cpu_to_le32(tmp_x_l);
 		*(__le32 *)key_y = cpu_to_le32(tmp_y_l);
+
+		return true;
+	case KEY_OPT_VNI:
+		calc_x(tmp_x_l, *(u32 *)(&p[offset]), *(u32 *)(&p[moffset]));
+		calc_y(tmp_y_l, *(u32 *)(&p[offset]), *(u32 *)(&p[moffset]));
+		le_x = cpu_to_le32(tmp_x_l);
+		le_y = cpu_to_le32(tmp_y_l);
+		memcpy(key_x, &le_x, HCLGE_VNI_LENGTH);
+		memcpy(key_y, &le_y, HCLGE_VNI_LENGTH);
 
 		return true;
 	default:
@@ -7340,6 +7353,62 @@ static void hclge_get_cls_key_port(const struct flow_rule *flow,
 	}
 }
 
+static int hclge_get_cls_enc_keyid(struct hclge_dev *hdev,
+				   const struct flow_rule *flow,
+				   struct hclge_fd_rule *rule,
+				   struct netlink_ext_ack *extack)
+{
+	if (flow_rule_match_key(flow, FLOW_DISSECTOR_KEY_ENC_KEYID)) {
+		struct flow_match_enc_keyid match;
+
+		flow_rule_match_enc_keyid(flow, &match);
+
+		/* vni is only 24 bits and must be greater than 0,
+		 * and it can not be masked.
+		 */
+		if (be32_to_cpu(match.mask->keyid) !=
+		    HCLGE_FD_VXLAN_VNI_UNMASK ||
+		    be32_to_cpu(match.key->keyid) >= VXLAN_N_VID ||
+		    !match.key->keyid) {
+			NL_SET_ERR_MSG_MOD(extack, "invalid enc_keyid");
+			return -EINVAL;
+		}
+
+		rule->tuples.outer_tun_vni = be32_to_cpu(match.key->keyid);
+		rule->tuples_mask.outer_tun_vni =
+						be32_to_cpu(match.mask->keyid);
+	} else {
+		rule->unused_tuple |= BIT(OUTER_TUN_VNI);
+	}
+
+	return 0;
+}
+
+static int hclge_get_cls_key_ip_tos(const struct flow_rule *flow,
+				    struct hclge_fd_rule *rule,
+				    struct netlink_ext_ack *extack)
+{
+	if (flow_rule_match_key(flow, FLOW_DISSECTOR_KEY_IP)) {
+		struct flow_match_ip match;
+
+		flow_rule_match_ip(flow, &match);
+
+		if (match.mask->ttl) {
+			NL_SET_ERR_MSG_MOD(extack, "unsupported TTL");
+			return -EOPNOTSUPP;
+		}
+
+		rule->tuples.ip_tos = match.key->tos;
+		rule->tuples_mask.ip_tos = match.mask->tos;
+		if (!rule->tuples_mask.ip_tos)
+			rule->unused_tuple |= BIT(INNER_IP_TOS);
+	} else {
+		rule->unused_tuple |= BIT(INNER_IP_TOS);
+	}
+
+	return 0;
+}
+
 static int hclge_get_tc_flower_action(struct hclge_dev *hdev,
 				      struct flow_cls_offload *cls_flower,
 				      struct hclge_fd_rule *rule)
@@ -7397,6 +7466,9 @@ static int hclge_parse_cls_flower(struct hclge_dev *hdev,
 	struct netlink_ext_ack *extack = cls_flower->common.extack;
 	int ret;
 
+	/* not support any user def tuples */
+	rule->unused_tuple |= HCLGE_FD_TUPLE_USER_DEF_TUPLES;
+
 	hclge_get_cls_key_basic(flow, rule);
 	hclge_get_cls_key_mac(flow, rule);
 	hclge_get_cls_key_vlan(flow, rule);
@@ -7406,8 +7478,11 @@ static int hclge_parse_cls_flower(struct hclge_dev *hdev,
 		return ret;
 
 	hclge_get_cls_key_port(flow, rule);
+	ret = hclge_get_cls_key_ip_tos(flow, rule, extack);
+	if (ret)
+		return ret;
 
-	return 0;
+	return hclge_get_cls_enc_keyid(hdev, flow, rule, extack);
 }
 
 static int hclge_check_cls_flower(struct hclge_dev *hdev,
@@ -7439,10 +7514,12 @@ static int hclge_check_cls_flower(struct hclge_dev *hdev,
 		       BIT_ULL(FLOW_DISSECTOR_KEY_VLAN) |
 		       BIT_ULL(FLOW_DISSECTOR_KEY_IPV4_ADDRS) |
 		       BIT_ULL(FLOW_DISSECTOR_KEY_IPV6_ADDRS) |
-		       BIT_ULL(FLOW_DISSECTOR_KEY_PORTS);
+		       BIT_ULL(FLOW_DISSECTOR_KEY_PORTS) |
+		       BIT_ULL(FLOW_DISSECTOR_KEY_IP);
 
 	if (hdev->fd_cfg.fd_mode == HCLGE_FD_MODE_DEPTH_2K_WIDTH_400B_STAGE_1)
-		support_keys |= BIT_ULL(FLOW_DISSECTOR_KEY_ETH_ADDRS);
+		support_keys |= BIT_ULL(FLOW_DISSECTOR_KEY_ETH_ADDRS) |
+				BIT_ULL(FLOW_DISSECTOR_KEY_ENC_KEYID);
 
 	if (dissector->used_keys & ~support_keys) {
 		NL_SET_ERR_MSG_FMT_MOD(extack, "unsupported key set: %#llx",
