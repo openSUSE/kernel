@@ -191,7 +191,7 @@ static int otto_emdio_run_cmd(struct mii_bus *bus, u32 cmd,
 }
 
 static int otto_emdio_read_cmd(struct mii_bus *bus, u32 cmd,
-			       struct otto_emdio_cmd_regs *cmd_data, u32 *value)
+			       struct otto_emdio_cmd_regs *cmd_data, u32 mask, u32 *value)
 {
 	struct otto_emdio_priv *priv = otto_emdio_bus_to_priv(bus);
 	int ret;
@@ -205,7 +205,7 @@ static int otto_emdio_read_cmd(struct mii_bus *bus, u32 cmd,
 	if (ret)
 		return ret;
 
-	*value = FIELD_GET(RTL9300_PHY_CTRL_DATA, *value);
+	*value = field_get(mask, *value);
 
 	return 0;
 }
@@ -230,7 +230,8 @@ static int otto_emdio_9300_read_c22(struct mii_bus *bus, int port, int regnum, u
 		.io_data	= FIELD_PREP(RTL9300_PHY_CTRL_INDATA, port),
 	};
 
-	return otto_emdio_read_cmd(bus, RTL9300_PHY_CTRL_TYPE_C22, &cmd_data, value);
+	return otto_emdio_read_cmd(bus, RTL9300_PHY_CTRL_TYPE_C22, &cmd_data,
+				   RTL9300_PHY_CTRL_DATA, value);
 }
 
 static int otto_emdio_9300_write_c22(struct mii_bus *bus, int port, int regnum, u16 value)
@@ -256,7 +257,8 @@ static int otto_emdio_9300_read_c45(struct mii_bus *bus, int port,
 		.io_data	= FIELD_PREP(RTL9300_PHY_CTRL_INDATA, port),
 	};
 
-	return otto_emdio_read_cmd(bus, RTL9300_PHY_CTRL_TYPE_C45, &cmd_data, value);
+	return otto_emdio_read_cmd(bus, RTL9300_PHY_CTRL_TYPE_C45, &cmd_data,
+				   RTL9300_PHY_CTRL_DATA, value);
 }
 
 static int otto_emdio_9300_write_c45(struct mii_bus *bus, int port,
