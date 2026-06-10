@@ -1435,7 +1435,7 @@ static struct phy *lynx_28g_xlate(struct device *dev,
 		    idx < priv->info->first_lane))
 		return ERR_PTR(-EINVAL);
 
-	return priv->lane[idx].phy;
+	return priv->lane[idx].phy ?: ERR_PTR(-ENODEV);
 }
 
 static int lynx_28g_probe_lane(struct lynx_28g_priv *priv, int id,
