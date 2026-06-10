@@ -51,6 +51,22 @@ dpaa2_switch_filter_block_get_unused(struct ethsw_core *ethsw)
 	return NULL;
 }
 
+static bool dpaa2_switch_fdb_in_use_by_others(struct ethsw_core *ethsw,
+					      struct dpaa2_switch_fdb *fdb,
+					      struct ethsw_port_priv *except)
+{
+	int i;
+
+	for (i = 0; i < ethsw->sw_attr.num_ifs; i++) {
+		if (!ethsw->ports[i] || ethsw->ports[i] == except)
+			continue;
+		if (ethsw->ports[i]->fdb == fdb)
+			return true;
+	}
+
+	return false;
+}
+
 static void dpaa2_switch_port_set_fdb(struct ethsw_port_priv *port_priv,
 				      struct net_device *upper_dev,
 				      bool linking)
@@ -59,24 +75,13 @@ static void dpaa2_switch_port_set_fdb(struct ethsw_port_priv *port_priv,
 	struct ethsw_port_priv *other_port_priv = NULL;
 	struct dpaa2_switch_fdb *fdb;
 	struct net_device *other_dev;
-	bool last_fdb_user = true;
 	struct list_head *iter;
-	int i;
 
 	/* If we leave a bridge, find an unused FDB and use that. */
 	if (!linking) {
-		/* First verify if this is the last port to leave this bridge */
-		for (i = 0; i < ethsw->sw_attr.num_ifs; i++) {
-			if (!ethsw->ports[i] || ethsw->ports[i] == port_priv)
-				continue;
-			if (ethsw->ports[i]->fdb == port_priv->fdb) {
-				last_fdb_user = false;
-				break;
-			}
-		}
-
 		/* If this is the last user of the FDB, just keep using it. */
-		if (last_fdb_user) {
+		if (!dpaa2_switch_fdb_in_use_by_others(ethsw, port_priv->fdb,
+						       port_priv)) {
 			port_priv->fdb->bridge_dev = NULL;
 			return;
 		}
