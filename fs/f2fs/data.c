@@ -350,13 +350,10 @@ static void f2fs_read_end_io(struct bio *bio)
 	f2fs_verify_and_finish_bio(bio, intask);
 }
 
-static void f2fs_write_end_io(struct bio *bio)
+static void f2fs_write_end_bio(struct bio *bio)
 {
-	struct f2fs_sb_info *sbi;
+	struct f2fs_sb_info *sbi = bio->bi_private;
 	struct folio_iter fi;
-
-	iostat_update_and_unbind_ctx(bio);
-	sbi = bio->bi_private;
 
 	if (time_to_inject(sbi, FAULT_WRITE_IO))
 		bio->bi_status = BLK_STS_IOERR;
@@ -412,6 +409,13 @@ static void f2fs_write_end_io(struct bio *bio)
 	}
 
 	bio_put(bio);
+}
+
+static void f2fs_write_end_io(struct bio *bio)
+{
+	iostat_update_and_unbind_ctx(bio);
+
+	f2fs_write_end_bio(bio);
 }
 
 #ifdef CONFIG_BLK_DEV_ZONED
