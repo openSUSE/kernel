@@ -8,10 +8,14 @@
 
 #include "../mount.h"
 
+#define FSNOTIFY_OBJ_TYPE_INODE		0x01
+#define FSNOTIFY_OBJ_TYPE_VFSMOUNT	0x02
+
 struct fsnotify_iter_info {
 	struct fsnotify_mark *inode_mark;
 	struct fsnotify_mark *vfsmount_mark;
 	int srcu_idx;
+	unsigned int report_type;
 };
 
 /* destroy all events sitting in this groups notification queue */
