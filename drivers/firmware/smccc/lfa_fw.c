@@ -154,6 +154,7 @@ static const struct fw_image_uuid {
 };
 
 static struct kset *lfa_kset;
+static struct faux_device *lfa_dev;
 static struct workqueue_struct *fw_images_update_wq;
 static struct work_struct fw_images_update_work;
 static struct attribute *image_default_attrs[LFA_ATTR_NR_IMAGES + 1];
@@ -240,6 +241,21 @@ static void remove_invalid_fw_images(struct work_struct *work)
 		struct fw_image *image = kobj_to_fw_image(kobj);
 
 		delete_fw_image_node(image);
+	}
+
+	/*
+	 * Notify user space only after the firmware image tree has been
+	 * fully reconciled, so that consumers reading /sys/firmware/lfa/
+	 * see a settled inventory.  Anchor the event on the arm-lfa faux
+	 * device because the per-image kobjects under /sys/firmware/ are
+	 * not enumerated by udev coldplug.
+	 */
+	if (lfa_dev) {
+		int ret = kobject_uevent(&lfa_dev->dev.kobj, KOBJ_CHANGE);
+
+		if (ret)
+			pr_warn("failed to send firmware inventory change uevent: %d\n",
+				ret);
 	}
 }
 
@@ -967,7 +983,6 @@ static void lfa_faux_remove(struct faux_device *fdev)
 	lfa_remove_acpi(&fdev->dev);
 }
 
-static struct faux_device *lfa_dev;
 static struct faux_device_ops lfa_device_ops = {
 	.probe = lfa_faux_probe,
 	.remove = lfa_faux_remove,
