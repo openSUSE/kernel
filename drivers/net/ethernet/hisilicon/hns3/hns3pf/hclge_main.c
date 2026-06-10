@@ -7328,27 +7328,32 @@ static void hclge_get_cls_key_port(const struct flow_rule *flow,
 	}
 }
 
+static int hclge_get_tc_flower_action(struct hclge_dev *hdev,
+				      struct flow_cls_offload *cls_flower,
+				      struct hclge_fd_rule *rule)
+{
+	struct netlink_ext_ack *extack = cls_flower->common.extack;
+	struct hnae3_handle *handle = &hdev->vport[0].nic;
+	int tc;
+
+	tc = tc_classid_to_hwtc(handle->netdev, cls_flower->classid);
+	if (tc < 0 || tc > hdev->tc_max) {
+		NL_SET_ERR_MSG_FMT_MOD(extack, "invalid traffic class: %d", tc);
+		return -EINVAL;
+	}
+
+	rule->action = HCLGE_FD_ACTION_SELECT_TC;
+	rule->cls_flower.tc = tc;
+	return 0;
+}
+
 static int hclge_parse_cls_flower(struct hclge_dev *hdev,
 				  struct flow_cls_offload *cls_flower,
 				  struct hclge_fd_rule *rule)
 {
 	struct flow_rule *flow = flow_cls_offload_flow_rule(cls_flower);
 	struct netlink_ext_ack *extack = cls_flower->common.extack;
-	struct flow_dissector *dissector = flow->match.dissector;
 	int ret;
-
-	if (dissector->used_keys &
-	    ~(BIT_ULL(FLOW_DISSECTOR_KEY_CONTROL) |
-	      BIT_ULL(FLOW_DISSECTOR_KEY_BASIC) |
-	      BIT_ULL(FLOW_DISSECTOR_KEY_ETH_ADDRS) |
-	      BIT_ULL(FLOW_DISSECTOR_KEY_VLAN) |
-	      BIT_ULL(FLOW_DISSECTOR_KEY_IPV4_ADDRS) |
-	      BIT_ULL(FLOW_DISSECTOR_KEY_IPV6_ADDRS) |
-	      BIT_ULL(FLOW_DISSECTOR_KEY_PORTS))) {
-		dev_err(&hdev->pdev->dev, "unsupported key set: %#llx\n",
-			dissector->used_keys);
-		return -EOPNOTSUPP;
-	}
 
 	hclge_get_cls_key_basic(flow, rule);
 	hclge_get_cls_key_mac(flow, rule);
@@ -7364,51 +7369,65 @@ static int hclge_parse_cls_flower(struct hclge_dev *hdev,
 }
 
 static int hclge_check_cls_flower(struct hclge_dev *hdev,
-				  struct flow_cls_offload *cls_flower, int tc)
+				  struct flow_cls_offload *cls_flower)
 {
+	struct flow_rule *flow = flow_cls_offload_flow_rule(cls_flower);
+	struct netlink_ext_ack *extack = cls_flower->common.extack;
+	struct flow_dissector *dissector = flow->match.dissector;
 	u32 prio = cls_flower->common.prio;
-
-	if (tc < 0 || tc > hdev->tc_max) {
-		dev_err(&hdev->pdev->dev, "invalid traffic class\n");
-		return -EINVAL;
-	}
+	u64 support_keys;
 
 	if (prio == 0 ||
 	    prio > hdev->fd_cfg.rule_num[HCLGE_FD_STAGE_1]) {
-		dev_err(&hdev->pdev->dev,
-			"prio %u should be in range[1, %u]\n",
-			prio, hdev->fd_cfg.rule_num[HCLGE_FD_STAGE_1]);
+		NL_SET_ERR_MSG_FMT_MOD(extack,
+				       "prio %u should be in range[1, %u]",
+				       prio,
+				       hdev->fd_cfg.rule_num[HCLGE_FD_STAGE_1]);
 		return -EINVAL;
 	}
 
 	if (test_bit(prio - 1, hdev->fd_bmap)) {
-		dev_err(&hdev->pdev->dev, "prio %u is already used\n", prio);
+		NL_SET_ERR_MSG_FMT_MOD(extack,
+				       "prio %u is already used", prio);
 		return -EINVAL;
 	}
+
+	support_keys = BIT_ULL(FLOW_DISSECTOR_KEY_CONTROL) |
+		       BIT_ULL(FLOW_DISSECTOR_KEY_BASIC) |
+		       BIT_ULL(FLOW_DISSECTOR_KEY_VLAN) |
+		       BIT_ULL(FLOW_DISSECTOR_KEY_IPV4_ADDRS) |
+		       BIT_ULL(FLOW_DISSECTOR_KEY_IPV6_ADDRS) |
+		       BIT_ULL(FLOW_DISSECTOR_KEY_PORTS);
+
+	if (hdev->fd_cfg.fd_mode == HCLGE_FD_MODE_DEPTH_2K_WIDTH_400B_STAGE_1)
+		support_keys |= BIT_ULL(FLOW_DISSECTOR_KEY_ETH_ADDRS);
+
+	if (dissector->used_keys & ~support_keys) {
+		NL_SET_ERR_MSG_FMT_MOD(extack, "unsupported key set: %#llx",
+				       dissector->used_keys);
+		return -EOPNOTSUPP;
+	}
+
 	return 0;
 }
 
 static int hclge_add_cls_flower(struct hnae3_handle *handle,
-				struct flow_cls_offload *cls_flower,
-				int tc)
+				struct flow_cls_offload *cls_flower)
 {
+	struct netlink_ext_ack *extack = cls_flower->common.extack;
 	struct hclge_vport *vport = hclge_get_vport(handle);
 	struct hclge_dev *hdev = vport->back;
 	struct hclge_fd_rule *rule;
 	int ret;
 
 	if (!hnae3_ae_dev_fd_supported(hdev->ae_dev)) {
-		dev_err(&hdev->pdev->dev,
-			"cls flower is not supported\n");
+		NL_SET_ERR_MSG_MOD(extack, "cls flower is not supported");
 		return -EOPNOTSUPP;
 	}
 
-	ret = hclge_check_cls_flower(hdev, cls_flower, tc);
-	if (ret) {
-		dev_err(&hdev->pdev->dev,
-			"failed to check cls flower params, ret = %d\n", ret);
+	ret = hclge_check_cls_flower(hdev, cls_flower);
+	if (ret)
 		return ret;
-	}
 
 	rule = kzalloc_obj(*rule);
 	if (!rule)
@@ -7420,8 +7439,12 @@ static int hclge_add_cls_flower(struct hnae3_handle *handle,
 		return ret;
 	}
 
-	rule->action = HCLGE_FD_ACTION_SELECT_TC;
-	rule->cls_flower.tc = tc;
+	ret = hclge_get_tc_flower_action(hdev, cls_flower, rule);
+	if (ret) {
+		kfree(rule);
+		return ret;
+	}
+
 	rule->location = cls_flower->common.prio - 1;
 	rule->vf_id = 0;
 	rule->cls_flower.cookie = cls_flower->cookie;
