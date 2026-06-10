@@ -1718,6 +1718,36 @@ config ARM64_TAGGED_ADDR_ABI
 	  to system calls as pointer arguments. For details, see
 	  Documentation/arch/arm64/tagged-address-abi.rst.
 
+config ARM64_WORKAROUND_NC_TO_NGNRE
+	bool "Workaround: Convert MT_NORMAL_NC to Device-nGnRE"
+	default y
+	help
+	  This option enables a workaround that converts the MT_NORMAL_NC
+	  (Non-Cacheable) memory attribute to Device-nGnRE memory type in
+	  MAIR_EL1 (Memory Attribute Indirection Register).
+
+	  This workaround is useful for hardware that requires stricter
+	  memory ordering or has issues with Non-Cacheable memory mappings.
+
+	  A new memory type index MT_NORMAL_NC_DMA (Attr5) has been introduced
+	  specifically for DMA coherent memory mappings (pgprot_dmacoherent),
+	  configured with the same Normal Non-Cacheable attribute (0x44) as
+	  MT_NORMAL_NC (Attr2). When this workaround is enabled, it converts
+	  the NC attribute to Device-nGnRE (0x04), and pgprot_dmacoherent
+	  behavior remains the same as before.
+
+	  The workaround uses the ARM64 alternatives framework for efficient
+	  runtime patching with no performance overhead when disabled.
+
+	  This workaround can only be enabled at boot time via kernel command
+	  line parameter. Runtime changes are not supported because CPU
+	  alternatives cannot be re-patched after boot.
+
+	  Boot-time activation (kernel command line):
+	    mair_el1_nc_to_ngnre=1
+
+	  If unsure, say Y.
+
 menuconfig COMPAT
 	bool "Kernel support for 32-bit EL0"
 	depends on ARM64_4K_PAGES || EXPERT

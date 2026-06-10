@@ -778,9 +778,15 @@ static inline void set_pud_at(struct mm_struct *mm, unsigned long addr,
  * requires strict alignment and can also force write responses to come from the
  * endpoint.
  */
+#ifdef CONFIG_ARM64_WORKAROUND_NC_TO_NGNRE
+#define pgprot_dmacoherent(prot) \
+	__pgprot_modify(prot, PTE_ATTRINDX_MASK, \
+			PTE_ATTRINDX(MT_NORMAL_NC_DMA) | PTE_PXN | PTE_UXN)
+#else
 #define pgprot_dmacoherent(prot) \
 	__pgprot_modify(prot, PTE_ATTRINDX_MASK, \
 			PTE_ATTRINDX(MT_NORMAL_NC) | PTE_PXN | PTE_UXN)
+#endif
 
 #define __HAVE_PHYS_MEM_ACCESS_PROT
 struct file;

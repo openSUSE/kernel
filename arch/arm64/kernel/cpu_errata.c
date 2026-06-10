@@ -8,11 +8,16 @@
 #include <linux/arm-smccc.h>
 #include <linux/types.h>
 #include <linux/cpu.h>
+#include <linux/arm-smccc.h>
 #include <asm/cpu.h>
 #include <asm/cputype.h>
 #include <asm/cpufeature.h>
 #include <asm/kvm_asm.h>
 #include <asm/smp_plat.h>
+#include <asm/memory.h>
+#include <asm/barrier.h>
+#include <asm/tlbflush.h>
+#include <asm/sysreg.h>
 
 static u64 target_impl_cpu_num;
 static struct target_impl_cpu *target_impl_cpus;
@@ -528,6 +533,97 @@ static const struct midr_range erratum_ac04_cpu_23_list[] = {
 };
 #endif
 
+#ifdef CONFIG_ARM64_WORKAROUND_NC_TO_NGNRE
+/*
+ * MAIR_EL1 MT_NORMAL_NC to Device-nGnRE Conversion
+ *
+ * Boot-time workaround that converts MT_NORMAL_NC attribute to Device-nGnRE
+ * (0x04) via kernel parameter for hardware-specific issues.
+ *
+ */
+
+/*
+ * Flag indicating if MT_NORMAL_NC to nGnRE conversion is enabled
+ */
+static int mair_el1_nc_to_ngnre __read_mostly = -1;
+
+/*
+ * Parse kernel command line parameter at boot:
+ *   mair_el1_nc_to_ngnre=1
+ * Enables MT_NORMAL_NC to Device-nGnRE conversion
+ */
+static int __init mair_el1_nc_setup(char *str)
+{
+	bool enable;
+	int ret;
+
+	ret = kstrtobool(str, &enable);
+	if (ret)
+		return ret;
+
+	mair_el1_nc_to_ngnre = enable ? 1 : 0;
+
+	pr_info("MAIR_EL1: MT_NORMAL_NC to Device-nGnRE conversion %s\n",
+		enable ? "enabled" : "disabled");
+
+	return 0;
+}
+early_param("mair_el1_nc_to_ngnre", mair_el1_nc_setup);
+
+/* Cpufeature capability check for MAIR NC to nGnRE workaround */
+static bool has_nc_ngnre_workaround(const struct arm64_cpu_capabilities *entry,
+				    int scope)
+{
+	/* Lazy initialization: check only once */
+	if (mair_el1_nc_to_ngnre == -1) {
+		if ((arm_smccc_get_soc_id_version() == 0x036b0410) &&
+		    (arm_smccc_get_soc_id_revision() < 5)) {
+			mair_el1_nc_to_ngnre = 1;
+			return true;
+		}
+		mair_el1_nc_to_ngnre = 0;
+	}
+
+	return mair_el1_nc_to_ngnre > 0;
+}
+
+/*
+ * Called by cpufeature framework when CPU comes online
+ * For boot CPU: alternatives not yet patched, so apply NC to nGnRE here
+ * For secondary CPUs: alternatives already patched in __cpu_setup
+ */
+static void enable_nc_to_ngnre(struct arm64_cpu_capabilities const *cap)
+{
+	u64 attr_mask, current_mair, new_mair;
+	u8 current_attr;
+
+	if (mair_el1_nc_to_ngnre <= 0)
+		return;
+
+	current_mair = read_sysreg(mair_el1);
+
+	/* Check if MT_NORMAL_NC is already Device-nGnRE */
+	attr_mask = GENMASK_ULL((MT_NORMAL_NC * 8) + 7, MT_NORMAL_NC * 8);
+	current_attr = FIELD_GET(attr_mask, current_mair);
+
+	/* Already set via alternatives (secondary CPU case) */
+	if (current_attr == MAIR_ATTR_DEVICE_nGnRE)
+		return;
+
+	/* Apply override for boot CPU */
+	new_mair = (current_mair & ~attr_mask) |
+		   ((u64)MAIR_ATTR_DEVICE_nGnRE << (MT_NORMAL_NC * 8));
+
+	write_sysreg(new_mair, mair_el1);
+	isb();
+	local_flush_tlb_all();
+
+	pr_info("CPU%d: MAIR_EL1 updated 0x%016llx -> 0x%016llx\n",
+		smp_processor_id(), current_mair, new_mair);
+}
+
+#endif /* CONFIG_ARM64_WORKAROUND_NC_TO_NGNRE */
+
 const struct arm64_cpu_capabilities arm64_errata[] = {
 #ifdef CONFIG_ARM64_WORKAROUND_CLEAN_CACHE
 	{
@@ -862,6 +958,15 @@ const struct arm64_cpu_capabilities arm64_errata[] = {
 					{}
 				})),
 	},
+#ifdef CONFIG_ARM64_WORKAROUND_NC_TO_NGNRE
+	{
+		.desc = "MAIR_EL1 NC to nGnRE",
+		.capability = ARM64_WORKAROUND_NC_TO_NGNRE,
+		.type = ARM64_CPUCAP_BOOT_CPU_FEATURE,
+		.matches = has_nc_ngnre_workaround,
+		.cpu_enable = enable_nc_to_ngnre,
+	},
+#endif
 	{
 	}
 };

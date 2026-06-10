@@ -65,6 +65,8 @@ cpucap_is_possible(const unsigned int cap)
 		 * KVM MPAM support doesn't rely on the host kernel supporting MPAM.
 		*/
 		return true;
+	case ARM64_WORKAROUND_NC_TO_NGNRE:
+		return IS_ENABLED(CONFIG_ARM64_WORKAROUND_NC_TO_NGNRE);
 	}
 
 	return true;
