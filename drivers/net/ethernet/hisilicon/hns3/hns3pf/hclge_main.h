@@ -1179,4 +1179,6 @@ int hclge_mac_update_stats(struct hclge_dev *hdev);
 struct hclge_vport *hclge_get_vf_vport(struct hclge_dev *hdev, int vf);
 int hclge_inform_vf_reset(struct hclge_vport *vport, u16 reset_type);
 int hclge_query_scc_version(struct hclge_dev *hdev, u32 *scc_version);
+u32 hclge_get_port_number(enum HLCGE_PORT_TYPE port_type, u8 pf_id,
+			  u8 vf_id, u8 network_port_id);
 #endif
