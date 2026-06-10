@@ -67,15 +67,43 @@ static bool dpaa2_switch_fdb_in_use_by_others(struct ethsw_core *ethsw,
 	return false;
 }
 
+static struct dpaa2_switch_fdb *
+dpaa2_switch_fdb_for_join(struct ethsw_port_priv *port_priv,
+			  struct net_device *upper_dev)
+{
+	struct ethsw_port_priv *other_port_priv;
+	struct net_device *other_dev;
+	struct list_head *iter;
+
+	/* The below call to netdev_for_each_lower_dev() demands the RTNL lock
+	 * being held. Assert on it so that it's easier to catch new code
+	 * paths that reach this point without the RTNL lock.
+	 */
+	ASSERT_RTNL();
+
+	/* If part of a bridge, use the FDB of the first dpaa2 switch interface
+	 * to be present in that bridge
+	 */
+	netdev_for_each_lower_dev(upper_dev, other_dev, iter) {
+		if (!dpaa2_switch_port_dev_check(other_dev))
+			continue;
+
+		if (other_dev == port_priv->netdev)
+			continue;
+
+		other_port_priv = netdev_priv(other_dev);
+		return other_port_priv->fdb;
+	}
+
+	return port_priv->fdb;
+}
+
 static void dpaa2_switch_port_set_fdb(struct ethsw_port_priv *port_priv,
 				      struct net_device *upper_dev,
 				      bool linking)
 {
 	struct ethsw_core *ethsw = port_priv->ethsw_data;
-	struct ethsw_port_priv *other_port_priv = NULL;
-	struct dpaa2_switch_fdb *fdb;
-	struct net_device *other_dev;
-	struct list_head *iter;
+	struct dpaa2_switch_fdb *new_fdb, *fdb;
 
 	/* If we leave a bridge, find an unused FDB and use that. */
 	if (!linking) {
@@ -102,30 +130,12 @@ static void dpaa2_switch_port_set_fdb(struct ethsw_port_priv *port_priv,
 		return;
 	}
 
-	/* The below call to netdev_for_each_lower_dev() demands the RTNL lock
-	 * being held. Assert on it so that it's easier to catch new code
-	 * paths that reach this point without the RTNL lock.
-	 */
-	ASSERT_RTNL();
-
-	/* If part of a bridge, use the FDB of the first dpaa2 switch interface
-	 * to be present in that bridge
-	 */
-	netdev_for_each_lower_dev(upper_dev, other_dev, iter) {
-		if (!dpaa2_switch_port_dev_check(other_dev))
-			continue;
-
-		if (other_dev == port_priv->netdev)
-			continue;
-
-		other_port_priv = netdev_priv(other_dev);
-		break;
-	}
+	new_fdb = dpaa2_switch_fdb_for_join(port_priv, upper_dev);
 
 	/* The current port is about to change its FDB to the one used by the
 	 * first port that joined the bridge.
 	 */
-	if (other_port_priv) {
+	if (port_priv->fdb != new_fdb) {
 		/* The previous FDB is about to become unused, since the
 		 * interface is no longer standalone.
 		 */
@@ -133,7 +143,7 @@ static void dpaa2_switch_port_set_fdb(struct ethsw_port_priv *port_priv,
 		port_priv->fdb->bridge_dev = NULL;
 
 		/* Get a reference to the new FDB */
-		port_priv->fdb = other_port_priv->fdb;
+		port_priv->fdb = new_fdb;
 	}
 
 	/* Keep track of the new upper bridge device */
