@@ -89,6 +89,36 @@ bool lynx_lane_supports_mode(struct lynx_lane *lane, enum lynx_lane_mode mode)
 }
 EXPORT_SYMBOL_NS_GPL(lynx_lane_supports_mode, "PHY_FSL_LYNX");
 
+/* Translate the mode/submode from phy_validate() and phy_set_mode_ext() to a
+ * lane_mode and return 0 if it is supported and we can transition to it from
+ * the current lane mode, or return negative error otherwise.
+ */
+int lynx_phy_mode_to_lane_mode(struct phy *phy, enum phy_mode mode,
+			       int submode, enum lynx_lane_mode *lane_mode)
+{
+	struct lynx_lane *lane = phy_get_drvdata(phy);
+	enum lynx_lane_mode tmp_lane_mode;
+
+	/* The protocol configuration tables are incomplete for full lane
+	 * reconfiguration from an arbitrary protocol.
+	 */
+	if (lane->mode == LANE_MODE_UNKNOWN)
+		return -EINVAL;
+
+	if (mode != PHY_MODE_ETHERNET)
+		return -EINVAL;
+
+	tmp_lane_mode = phy_interface_to_lane_mode(submode);
+	if (!lynx_lane_supports_mode(lane, tmp_lane_mode))
+		return -EINVAL;
+
+	if (lane_mode)
+		*lane_mode = tmp_lane_mode;
+
+	return 0;
+}
+EXPORT_SYMBOL_NS_GPL(lynx_phy_mode_to_lane_mode, "PHY_FSL_LYNX");
+
 struct lynx_pll *lynx_pll_get(struct lynx_priv *priv, enum lynx_lane_mode mode)
 {
 	struct lynx_pll *pll;

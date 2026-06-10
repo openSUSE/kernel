@@ -968,22 +968,22 @@ static int lynx_28g_lane_enable_pcvt(struct lynx_28g_lane *lane,
 	return err;
 }
 
+static int lynx_28g_validate(struct phy *phy, enum phy_mode mode, int submode,
+			     union phy_configure_opts *opts)
+{
+	return lynx_phy_mode_to_lane_mode(phy, mode, submode, NULL);
+}
+
 static int lynx_28g_set_mode(struct phy *phy, enum phy_mode mode, int submode)
 {
-	struct lynx_28g_lane *lane = phy_get_drvdata(phy);
+	struct lynx_lane *lane = phy_get_drvdata(phy);
 	int powered_up = lane->powered_up;
 	enum lynx_lane_mode lane_mode;
-	int err = 0;
+	int err;
 
-	if (mode != PHY_MODE_ETHERNET)
-		return -EOPNOTSUPP;
-
-	if (lane->mode == LANE_MODE_UNKNOWN)
-		return -EOPNOTSUPP;
-
-	lane_mode = phy_interface_to_lane_mode(submode);
-	if (!lynx_lane_supports_mode(lane, lane_mode))
-		return -EOPNOTSUPP;
+	err = lynx_phy_mode_to_lane_mode(phy, mode, submode, &lane_mode);
+	if (err)
+		return err;
 
 	if (lane_mode == lane->mode)
 		return 0;
@@ -1012,22 +1012,6 @@ out:
 		lynx_28g_lane_reset(phy);
 
 	return err;
-}
-
-static int lynx_28g_validate(struct phy *phy, enum phy_mode mode, int submode,
-			     union phy_configure_opts *opts __always_unused)
-{
-	struct lynx_28g_lane *lane = phy_get_drvdata(phy);
-	enum lynx_lane_mode lane_mode;
-
-	if (mode != PHY_MODE_ETHERNET)
-		return -EOPNOTSUPP;
-
-	lane_mode = phy_interface_to_lane_mode(submode);
-	if (!lynx_lane_supports_mode(lane, lane_mode))
-		return -EOPNOTSUPP;
-
-	return 0;
 }
 
 static int lynx_28g_init(struct phy *phy)
