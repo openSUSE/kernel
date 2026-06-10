@@ -127,7 +127,7 @@ late_initcall(fail_futex_debugfs);
 #endif /* CONFIG_FAIL_FUTEX */
 
 static struct futex_hash_bucket *
-__futex_hash(union futex_key *key, struct futex_private_hash *fph);
+__futex_hash(union futex_key *key, struct futex_private_hash *fph, struct futex_private_hash **fph_p);
 
 #ifdef CONFIG_FUTEX_PRIVATE_HASH
 static bool futex_ref_get(struct futex_private_hash *fph);
@@ -136,15 +136,6 @@ static bool futex_ref_is_dead(struct futex_private_hash *fph);
 
 enum { FR_PERCPU = 0, FR_ATOMIC };
 
-static inline bool futex_key_is_private(union futex_key *key)
-{
-	/*
-	 * Relies on get_futex_key() to set either bit for shared
-	 * futexes -- see comment with union futex_key.
-	 */
-	return !(key->both.offset & (FUT_OFF_INODE | FUT_OFF_MMSHARED));
-}
-
 static bool futex_private_hash_get(struct futex_private_hash *fph)
 {
 	return futex_ref_get(fph);
@@ -152,47 +143,14 @@ static bool futex_private_hash_get(struct futex_private_hash *fph)
 
 void futex_private_hash_put(struct futex_private_hash *fph)
 {
-	if (futex_ref_put(fph))
+	if (fph && futex_ref_put(fph))
 		wake_up_var(fph->mm);
-}
-
-/**
- * futex_hash_get - Get an additional reference for the local hash.
- * @hb:                    ptr to the private local hash.
- *
- * Obtain an additional reference for the already obtained hash bucket. The
- * caller must already own an reference.
- */
-void futex_hash_get(struct futex_hash_bucket *hb)
-{
-	struct futex_private_hash *fph = hb->priv;
-
-	if (!fph)
-		return;
-	WARN_ON_ONCE(!futex_private_hash_get(fph));
-}
-
-void futex_hash_put(struct futex_hash_bucket *hb)
-{
-	struct futex_private_hash *fph = hb->priv;
-
-	if (!fph)
-		return;
-	futex_private_hash_put(fph);
 }
 
 static struct futex_hash_bucket *
 __futex_hash_private(union futex_key *key, struct futex_private_hash *fph)
 {
 	u32 hash;
-
-	if (!futex_key_is_private(key))
-		return NULL;
-
-	if (!fph)
-		fph = rcu_dereference(key->private.mm->futex.phash.hash);
-	if (!fph || !fph->hash_mask)
-		return NULL;
 
 	hash = jhash2((void *)&key->private.address, sizeof(key->private.address) / 4,
 		      key->both.offset);
@@ -214,13 +172,12 @@ static void futex_rehash_private(struct futex_private_hash *old,
 
 		spin_lock(&hb_old->lock);
 		plist_for_each_entry_safe(this, tmp, &hb_old->chain, list) {
-
 			plist_del(&this->list, &hb_old->chain);
 			futex_hb_waiters_dec(hb_old);
 
 			WARN_ON_ONCE(this->lock_ptr != &hb_old->lock);
 
-			hb_new = __futex_hash(&this->key, new);
+			hb_new = __futex_hash(&this->key, new, NULL);
 			futex_hb_waiters_inc(hb_new);
 			/*
 			 * The new pointer isn't published yet but an already
@@ -273,9 +230,8 @@ static void futex_pivot_hash(struct mm_struct *mm)
 	}
 }
 
-struct futex_private_hash *futex_private_hash(void)
+struct futex_private_hash *futex_private_hash(struct mm_struct *mm)
 {
-	struct mm_struct *mm = current->mm;
 	/*
 	 * Ideally we don't loop. If there is a replacement in progress
 	 * then a new private hash is already prepared and a reference can't be
@@ -301,18 +257,17 @@ again:
 	goto again;
 }
 
-struct futex_hash_bucket *futex_hash(union futex_key *key)
+struct futex_bucket_ref futex_hash(union futex_key *key)
 {
-	struct futex_private_hash *fph;
-	struct futex_hash_bucket *hb;
-
 again:
 	scoped_guard(rcu) {
-		hb = __futex_hash(key, NULL);
-		fph = hb->priv;
+		struct futex_private_hash *fph = NULL;
+		struct futex_hash_bucket *hb;
+
+		hb = __futex_hash(key, NULL, &fph);
 
 		if (!fph || futex_private_hash_get(fph))
-			return hb;
+			return (struct futex_bucket_ref){ .hb = hb, .fph = fph };
 	}
 	futex_pivot_hash(key->private.mm);
 	goto again;
@@ -320,15 +275,9 @@ again:
 
 #else /* !CONFIG_FUTEX_PRIVATE_HASH */
 
-static struct futex_hash_bucket *
-__futex_hash_private(union futex_key *key, struct futex_private_hash *fph)
+struct futex_bucket_ref futex_hash(union futex_key *key)
 {
-	return NULL;
-}
-
-struct futex_hash_bucket *futex_hash(union futex_key *key)
-{
-	return __futex_hash(key, NULL);
+	return (struct futex_bucket_ref){ .hb = __futex_hash(key, NULL, NULL), .fph = NULL };
 }
 
 #endif /* CONFIG_FUTEX_PRIVATE_HASH */
@@ -406,6 +355,8 @@ static int futex_mpol(struct mm_struct *mm, unsigned long addr)
  * __futex_hash - Return the hash bucket
  * @key:	Pointer to the futex key for which the hash is calculated
  * @fph:	Pointer to private hash if known
+ * @fph_p:	Pointer to a private hash pointer; output for the private hash
+ *              used when set.
  *
  * We hash on the keys returned from get_futex_key (see below) and return the
  * corresponding hash bucket.
@@ -413,18 +364,23 @@ static int futex_mpol(struct mm_struct *mm, unsigned long addr)
  * private hash) is returned if existing. Otherwise a hash bucket from the
  * global hash is returned.
  */
-static struct futex_hash_bucket *__futex_hash(union futex_key *key, struct futex_private_hash *fph)
+static struct futex_hash_bucket *
+__futex_hash(union futex_key *key, struct futex_private_hash *fph, struct futex_private_hash **fph_p)
 {
 	int node = key->both.node;
 	u32 hash;
 
-	if (node == FUTEX_NO_NODE) {
-		struct futex_hash_bucket *hb;
-
-		hb = __futex_hash_private(key, fph);
-		if (hb)
-			return hb;
+#ifdef CONFIG_FUTEX_PRIVATE_HASH
+	if (node == FUTEX_NO_NODE && futex_key_is_private(key)) {
+		if (!fph)
+			fph = rcu_dereference(key->private.mm->futex.phash.hash);
+		if (fph && fph->hash_mask) {
+			if (fph_p)
+				*fph_p = fph;
+			return __futex_hash_private(key, fph);
+		}
 	}
+#endif
 
 	hash = jhash2((u32 *)key, offsetof(typeof(*key), both.offset) / sizeof(u32),
 		      key->both.offset);
@@ -1367,7 +1323,7 @@ static void exit_pi_state_list(struct task_struct *curr)
 	 * on the mutex.
 	 */
 	WARN_ON(curr != current);
-	guard(private_hash)();
+	guard(private_hash)(current->mm);
 	/*
 	 * We are a ZOMBIE and nobody can enqueue itself on
 	 * pi_state_list anymore, but we have to be careful
@@ -1379,7 +1335,8 @@ static void exit_pi_state_list(struct task_struct *curr)
 		pi_state = list_entry(next, struct futex_pi_state, list);
 		key = pi_state->key;
 		if (1) {
-			CLASS(hb, hb)(&key);
+			CLASS(hbr, hbr)(&key);
+			auto hb = hbr.hb;
 
 			/*
 			 * We can race against put_pi_state() removing itself from the
@@ -1576,12 +1533,8 @@ void futex_exit_release(struct task_struct *tsk)
 	futex_cleanup_end(tsk, FUTEX_STATE_DEAD);
 }
 
-static void futex_hash_bucket_init(struct futex_hash_bucket *fhb,
-				   struct futex_private_hash *fph)
+static void futex_hash_bucket_init(struct futex_hash_bucket *fhb)
 {
-#ifdef CONFIG_FUTEX_PRIVATE_HASH
-	fhb->priv = fph;
-#endif
 	atomic_set(&fhb->waiters, 0);
 	plist_head_init(&fhb->chain);
 	spin_lock_init(&fhb->lock);
@@ -1877,7 +1830,7 @@ static int futex_hash_allocate(unsigned int hash_slots, unsigned int flags)
 	fph->mm = mm;
 
 	for (i = 0; i < hash_slots; i++)
-		futex_hash_bucket_init(&fph->queues[i], fph);
+		futex_hash_bucket_init(&fph->queues[i]);
 
 	if (custom) {
 		/*
@@ -2082,7 +2035,7 @@ static int __init futex_init(void)
 		BUG_ON(!table);
 
 		for (i = 0; i < hashsize; i++)
-			futex_hash_bucket_init(&table[i], NULL);
+			futex_hash_bucket_init(&table[i]);
 
 		futex_queues[n] = table;
 	}
