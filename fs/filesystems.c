@@ -54,7 +54,7 @@ struct file_systems_string {
 };
 
 static unsigned long file_systems_gen;
-static struct file_systems_string __rcu *file_systems_string;
+static struct file_systems_string __read_mostly __rcu *file_systems_string;
 
 static void invalidate_filesystems_string(void);
 #else
@@ -269,7 +269,7 @@ retry:
 	hlist_for_each_entry_rcu(p, &file_systems, list) {
 		if (!(p->fs_flags & FS_REQUIRES_DEV))
 			newlen += strlen("nodev");
-		newlen += strlen("\t") + strlen(p->name) +  strlen("\n");
+		newlen += strlen("\t") + strlen(p->name) + strlen("\n");
 	}
 	spin_unlock(&file_systems_lock);
 
@@ -289,6 +289,7 @@ retry:
 	 * Did someone beat us to it?
 	 */
 	if (old && old->gen == file_systems_gen) {
+		spin_unlock(&file_systems_lock);
 		kfree(new);
 		return 0;
 	}
@@ -297,6 +298,7 @@ retry:
 	 * Did the list change in the meantime?
 	 */
 	if (gen != file_systems_gen) {
+		spin_unlock(&file_systems_lock);
 		kfree(new);
 		goto retry;
 	}
@@ -321,15 +323,11 @@ retry:
 		 * generation above and messes it up.
 		 */
 		spin_unlock(&file_systems_lock);
-		if (old)
-			kfree_rcu(old, rcu);
+		kfree(new);
 		return -EINVAL;
 	}
 
-	/*
-	 * Paired with consume fence in READ_ONCE() in filesystems_proc_show()
-	 */
-	smp_store_release(&file_systems_string, new);
+	rcu_assign_pointer(file_systems_string, new);
 	spin_unlock(&file_systems_lock);
 	if (old)
 		kfree_rcu(old, rcu);
