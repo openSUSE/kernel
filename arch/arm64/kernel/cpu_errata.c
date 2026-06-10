@@ -726,6 +726,20 @@ static struct midr_range broken_aarch32_aes[] = {
 };
 #endif /* CONFIG_ARM64_WORKAROUND_TRBE_WRITE_OUT_OF_RANGE */
 
+#ifdef CONFIG_ARM64_WORKAROUND_REPEAT_TLBI
+
+static const struct midr_range arm64_repeat_tlbi_cpus[] = {
+#ifdef CONFIG_QCOM_FALKOR_ERRATUM_1009
+	MIDR_RANGE(MIDR_QCOM_FALKOR_V1, 0, 0, 0, 0),
+#endif
+#ifdef CONFIG_ARM64_ERRATUM_1286807
+	MIDR_RANGE(MIDR_CORTEX_A76, 0, 0, 3, 0),
+#endif
+	{},
+};
+
+#endif
+
 const struct arm64_cpu_capabilities arm64_errata[] = {
 #ifdef CONFIG_ARM64_WORKAROUND_CLEAN_CACHE
 	{
@@ -809,11 +823,11 @@ const struct arm64_cpu_capabilities arm64_errata[] = {
 		ERRATA_MIDR_REV(MIDR_QCOM_FALKOR_V1, 0, 0),
 	},
 #endif
-#ifdef CONFIG_QCOM_FALKOR_ERRATUM_1009
+#ifdef CONFIG_ARM64_WORKAROUND_REPEAT_TLBI
 	{
-		.desc = "Qualcomm Technologies Falkor erratum 1009",
+		.desc = "Qualcomm erratum 1009, ARM erratum 1286807",
 		.capability = ARM64_WORKAROUND_REPEAT_TLBI,
-		ERRATA_MIDR_REV(MIDR_QCOM_FALKOR_V1, 0, 0),
+		ERRATA_MIDR_RANGE_LIST(arm64_repeat_tlbi_cpus),
 	},
 #endif
 #ifdef CONFIG_ARM64_ERRATUM_858921
