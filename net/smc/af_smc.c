@@ -125,9 +125,7 @@ static struct sock *smc_tcp_syn_recv_sock(const struct sock *sk,
 					  struct request_sock *req,
 					  struct dst_entry *dst,
 					  struct request_sock *req_unhash,
-					  bool *own_req,
-					  void (*opt_child_init)(struct sock *newsk,
-								 const struct sock *sk))
+					  bool *own_req)
 {
 	struct smc_sock *smc;
 	struct sock *child;
@@ -152,7 +150,7 @@ static struct sock *smc_tcp_syn_recv_sock(const struct sock *sk,
 
 	/* passthrough to original syn recv sock fct */
 	child = smc->ori_af_ops->syn_recv_sock(sk, skb, req, dst, req_unhash,
-					       own_req, opt_child_init);
+					       own_req);
 	/* child must not inherit smc or its ops */
 	if (child) {
 		rcu_assign_sk_user_data(child, NULL);
