@@ -87,6 +87,38 @@ const struct aq_hw_caps_s hw_atl2_caps_aqc116c = {
 			  AQ_NIC_RATE_10M,
 };
 
+/* Find tag with the same action or new free tag
+ *  top - top inclusive tag value
+ *  action - action for ActionResolverTable
+ */
+static int hw_atl2_filter_tag_get(struct hw_atl2_tag_policy *tags,
+				  int top, u16 action)
+{
+	int i;
+
+	for (i = 1; i <= top; i++)
+		if (tags[i].usage > 0 && tags[i].action == action) {
+			tags[i].usage++;
+			return i;
+		}
+
+	for (i = 1; i <= top; i++)
+		if (tags[i].usage == 0) {
+			tags[i].usage = 1;
+			tags[i].action = action;
+			return i;
+		}
+
+	return -ENOSPC;
+}
+
+static void hw_atl2_filter_tag_put(struct hw_atl2_tag_policy *tags,
+				   int tag)
+{
+	if (tags[tag].usage > 0)
+		tags[tag].usage--;
+}
+
 static u32 hw_atl2_sem_act_rslvr_get(struct aq_hw_s *self)
 {
 	return hw_atl_reg_glb_cpu_sem_get(self, HW_ATL2_FW_SM_ACT_RSLVR);
@@ -816,6 +848,489 @@ static struct aq_stats_s *hw_atl2_utils_get_hw_stats(struct aq_hw_s *self)
 	return &self->curr_stats;
 }
 
+static bool hw_atl2_rxf_l3_is_equal(struct hw_atl2_l3_filter *f1,
+				    struct hw_atl2_l3_filter *f2)
+{
+	if (f1->cmd != f2->cmd)
+		return false;
+
+	if (f1->cmd & HW_ATL2_RPF_L3_CMD_SA_EN)
+		if (f1->srcip[0] != f2->srcip[0])
+			return false;
+
+	if (f1->cmd & HW_ATL2_RPF_L3_CMD_DA_EN)
+		if (f1->dstip[0] != f2->dstip[0])
+			return false;
+
+	if (f1->cmd & (HW_ATL2_RPF_L3_CMD_PROTO_EN |
+		       HW_ATL2_RPF_L3_V6_CMD_PROTO_EN))
+		if (f1->proto != f2->proto)
+			return false;
+
+	if (f1->cmd & HW_ATL2_RPF_L3_V6_CMD_SA_EN)
+		if (memcmp(f1->srcip, f2->srcip, 16))
+			return false;
+
+	if (f1->cmd & HW_ATL2_RPF_L3_V6_CMD_DA_EN)
+		if (memcmp(f1->dstip, f2->dstip, 16))
+			return false;
+
+	return true;
+}
+
+static int hw_atl2_new_fl3l4_find_l3(struct aq_hw_s *self,
+				     struct hw_atl2_l3_filter *l3)
+{
+	struct hw_atl2_priv *priv = self->priv;
+	struct hw_atl2_l3_filter *l3_filters;
+	int i, first, last;
+
+	if (l3->cmd & HW_ATL2_RPF_L3_V6_CMD_EN) {
+		l3_filters = priv->l3_v6_filters;
+		first = priv->l3_v6_filter_base_index;
+		last = priv->l3_v6_filter_base_index +
+		       priv->l3_v6_filter_count;
+	} else {
+		l3_filters = priv->l3_v4_filters;
+		first = priv->l3_v4_filter_base_index;
+		last = priv->l3_v4_filter_base_index +
+		       priv->l3_v4_filter_count;
+	}
+	for (i = first; i < last; i++) {
+		if (hw_atl2_rxf_l3_is_equal(&l3_filters[i], l3))
+			return i;
+	}
+
+	for (i = first; i < last; i++) {
+		u32 l3_enable_mask = HW_ATL2_RPF_L3_CMD_EN |
+				     HW_ATL2_RPF_L3_V6_CMD_EN;
+
+		if (!(l3_filters[i].cmd & l3_enable_mask))
+			return i;
+	}
+
+	return -ENOSPC;
+}
+
+static void hw_atl2_rxf_l3_get(struct aq_hw_s *self,
+			       struct hw_atl2_l3_filter *l3, int idx,
+			       const struct hw_atl2_l3_filter *_l3)
+{
+	int i;
+
+	l3->usage++;
+	if (l3->usage == 1) {
+		l3->cmd = _l3->cmd;
+		for (i = 0; i < 4; i++) {
+			l3->srcip[i] = _l3->srcip[i];
+			l3->dstip[i] = _l3->dstip[i];
+		}
+		l3->proto = _l3->proto;
+
+		if (l3->cmd & HW_ATL2_RPF_L3_CMD_EN) {
+			hw_atl2_rpf_l3_v4_cmd_set(self, l3->cmd, idx);
+			hw_atl2_rpf_l3_v4_tag_set(self, idx + 1, idx);
+			hw_atl2_rpf_l3_v4_dest_addr_set(self,
+							idx,
+							l3->dstip[0]);
+			hw_atl2_rpf_l3_v4_src_addr_set(self,
+						       idx,
+						       l3->srcip[0]);
+		} else {
+			hw_atl2_rpf_l3_v6_cmd_set(self, l3->cmd, idx);
+			hw_atl2_rpf_l3_v6_tag_set(self, idx + 1, idx);
+			hw_atl2_rpf_l3_v6_dest_addr_set(self,
+							idx,
+							l3->dstip);
+			hw_atl2_rpf_l3_v6_src_addr_set(self,
+						       idx,
+						       l3->srcip);
+		}
+	}
+}
+
+static void hw_atl2_rxf_l3_put(struct aq_hw_s *self,
+			       struct hw_atl2_l3_filter *l3, int idx)
+{
+	if (l3->usage)
+		l3->usage--;
+
+	if (!l3->usage) {
+		if (l3->cmd & HW_ATL2_RPF_L3_V6_CMD_EN)
+			hw_atl2_rpf_l3_v6_cmd_set(self, 0, idx);
+		else
+			hw_atl2_rpf_l3_v4_cmd_set(self, 0, idx);
+		l3->cmd = 0;
+	}
+}
+
+static bool hw_atl2_rxf_l4_is_equal(struct hw_atl2_l4_filter *f1,
+				    struct hw_atl2_l4_filter *f2)
+{
+	if (f1->cmd != f2->cmd)
+		return false;
+
+	if (f1->cmd & HW_ATL2_RPF_L4_CMD_SP_EN)
+		if (f1->sport != f2->sport)
+			return false;
+
+	if (f1->cmd & HW_ATL2_RPF_L4_CMD_DP_EN)
+		if (f1->dport != f2->dport)
+			return false;
+
+	return true;
+}
+
+static int hw_atl2_new_fl3l4_find_l4(struct aq_hw_s *self,
+				     struct hw_atl2_l4_filter *l4)
+{
+	struct hw_atl2_priv *priv = self->priv;
+	int i, first, last;
+
+	first = priv->l4_filter_base_index;
+	last = priv->l4_filter_base_index + priv->l4_filter_count;
+
+	for (i = first; i < last; i++)
+		if (hw_atl2_rxf_l4_is_equal(&priv->l4_filters[i], l4))
+			return i;
+
+	for (i = first; i < last; i++)
+		if ((priv->l4_filters[i].cmd & HW_ATL2_RPF_L4_CMD_EN) == 0)
+			return i;
+
+	return -ENOSPC;
+}
+
+static void hw_atl2_rxf_l4_put(struct aq_hw_s *self,
+			       struct hw_atl2_l4_filter *l4, int idx)
+{
+	if (l4->usage)
+		l4->usage--;
+
+	if (!l4->usage) {
+		l4->cmd = 0;
+		hw_atl2_rpf_l4_cmd_set(self, l4->cmd, idx);
+	}
+}
+
+static void hw_atl2_rxf_l4_get(struct aq_hw_s *self,
+			       struct hw_atl2_l4_filter *l4, int idx,
+			       const struct hw_atl2_l4_filter *_l4)
+{
+	l4->usage++;
+	if (l4->usage == 1) {
+		l4->cmd = _l4->cmd;
+		l4->sport = _l4->sport;
+		l4->dport = _l4->dport;
+
+		hw_atl2_rpf_l4_cmd_set(self, l4->cmd, idx);
+		hw_atl2_rpf_l4_tag_set(self, idx + 1, idx);
+		hw_atl_rpf_l4_spd_set(self, l4->sport, idx);
+		hw_atl_rpf_l4_dpd_set(self, l4->dport, idx);
+	}
+}
+
+static int hw_atl2_new_fl3l4_configure(struct aq_hw_s *self,
+				       struct aq_rx_filter_l3l4 *data)
+{
+	struct hw_atl2_priv *priv = self->priv;
+	s8 old_l3_index = priv->l3l4_filters[data->location].l3_index;
+	s8 old_l4_index = priv->l3l4_filters[data->location].l4_index;
+	u8 old_ipv6 = priv->l3l4_filters[data->location].ipv6;
+	struct hw_atl2_l3_filter *l3_filters;
+	struct hw_atl2_l3_filter l3;
+	struct hw_atl2_l4_filter l4;
+	s8 l3_idx = -1;
+	s8 l4_idx = -1;
+
+	if (!(data->cmd & HW_ATL_RX_ENABLE_FLTR_L3L4))
+		return 0;
+
+	memset(&l3, 0, sizeof(l3));
+	memset(&l4, 0, sizeof(l4));
+
+	/* convert legacy filter to new */
+	if (data->cmd & HW_ATL_RX_ENABLE_CMP_PROT_L4) {
+		l3.cmd |= data->is_ipv6 ? HW_ATL2_RPF_L3_V6_CMD_PROTO_EN :
+					  HW_ATL2_RPF_L3_CMD_PROTO_EN;
+		l3.cmd |= data->is_ipv6 ? HW_ATL2_RPF_L3_V6_CMD_EN :
+					  HW_ATL2_RPF_L3_CMD_EN;
+		switch (data->cmd & 0x7) {
+		case HW_ATL_RX_TCP:
+			l3.cmd |= IPPROTO_TCP << (data->is_ipv6 ? 0x18 : 8);
+			break;
+		case HW_ATL_RX_UDP:
+			l3.cmd |= IPPROTO_UDP << (data->is_ipv6 ? 0x18 : 8);
+			break;
+		case HW_ATL_RX_SCTP:
+			l3.cmd |= IPPROTO_SCTP << (data->is_ipv6 ? 0x18 : 8);
+			break;
+		case HW_ATL_RX_ICMP:
+			l3.cmd |= IPPROTO_ICMP << (data->is_ipv6 ? 0x18 : 8);
+			break;
+		}
+	}
+
+	if (data->cmd & HW_ATL_RX_ENABLE_CMP_SRC_ADDR_L3) {
+		if (data->is_ipv6) {
+			l3.cmd |= HW_ATL2_RPF_L3_V6_CMD_SA_EN |
+				  HW_ATL2_RPF_L3_V6_CMD_EN;
+			memcpy(l3.srcip, data->ip_src, sizeof(l3.srcip));
+		} else {
+			l3.cmd |= HW_ATL2_RPF_L3_CMD_SA_EN |
+				  HW_ATL2_RPF_L3_CMD_EN;
+			l3.srcip[0] = data->ip_src[0];
+		}
+	}
+	if (data->cmd & HW_ATL_RX_ENABLE_CMP_DEST_ADDR_L3) {
+		if (data->is_ipv6) {
+			l3.cmd |= HW_ATL2_RPF_L3_V6_CMD_DA_EN |
+				  HW_ATL2_RPF_L3_V6_CMD_EN;
+			memcpy(l3.dstip, data->ip_dst, sizeof(l3.dstip));
+		} else {
+			l3.cmd |= HW_ATL2_RPF_L3_CMD_DA_EN |
+				  HW_ATL2_RPF_L3_CMD_EN;
+			l3.dstip[0] = data->ip_dst[0];
+		}
+	}
+
+	if (data->cmd & HW_ATL_RX_ENABLE_CMP_DEST_PORT_L4) {
+		l4.cmd |= HW_ATL2_RPF_L4_CMD_DP_EN | HW_ATL2_RPF_L4_CMD_EN;
+		l4.dport = data->p_dst;
+	}
+	if (data->cmd & HW_ATL_RX_ENABLE_CMP_SRC_PORT_L4) {
+		l4.cmd |= HW_ATL2_RPF_L4_CMD_SP_EN | HW_ATL2_RPF_L4_CMD_EN;
+		l4.sport = data->p_src;
+	}
+
+	/* find L3 and L4 filters */
+	if (l3.cmd & (HW_ATL2_RPF_L3_CMD_EN | HW_ATL2_RPF_L3_V6_CMD_EN)) {
+		l3_idx = hw_atl2_new_fl3l4_find_l3(self, &l3);
+		if (l3_idx < 0)
+			return l3_idx;
+
+		if (l3.cmd & HW_ATL2_RPF_L3_V6_CMD_EN)
+			l3_filters = priv->l3_v6_filters;
+		else
+			l3_filters = priv->l3_v4_filters;
+
+		if (priv->l3l4_filters[data->location].l3_index != l3_idx ||
+		    old_ipv6 != !!(l3.cmd & HW_ATL2_RPF_L3_V6_CMD_EN))
+			hw_atl2_rxf_l3_get(self, &l3_filters[l3_idx],
+					   l3_idx, &l3);
+	}
+
+	if (old_l3_index != -1) {
+		if (old_ipv6)
+			l3_filters = priv->l3_v6_filters;
+		else
+			l3_filters = priv->l3_v4_filters;
+
+		if (!(hw_atl2_rxf_l3_is_equal(&l3,
+					      &l3_filters[old_l3_index]))) {
+			hw_atl2_rxf_l3_put(self,
+					   &l3_filters[old_l3_index],
+					   old_l3_index);
+		}
+	}
+	if (l3.cmd & HW_ATL2_RPF_L3_V6_CMD_EN)
+		priv->l3l4_filters[data->location].ipv6 = 1;
+	else
+		priv->l3l4_filters[data->location].ipv6 = 0;
+	priv->l3l4_filters[data->location].l3_index = l3_idx;
+
+	if (l4.cmd & HW_ATL2_RPF_L4_CMD_EN) {
+		l4_idx = hw_atl2_new_fl3l4_find_l4(self, &l4);
+		if (l4_idx < 0)
+			return l4_idx;
+
+		if (priv->l3l4_filters[data->location].l4_index != l4_idx)
+			hw_atl2_rxf_l4_get(self, &priv->l4_filters[l4_idx],
+					   l4_idx, &l4);
+	}
+
+	if (old_l4_index != -1) {
+		if (!(hw_atl2_rxf_l4_is_equal(&priv->l4_filters[old_l4_index],
+					      &l4))) {
+			hw_atl2_rxf_l4_put(self,
+					   &priv->l4_filters[old_l4_index],
+					   old_l4_index);
+		}
+	}
+	priv->l3l4_filters[data->location].l4_index = l4_idx;
+
+	return 0;
+}
+
+static int hw_atl2_hw_fl3l4_set(struct aq_hw_s *self,
+				struct aq_rx_filter_l3l4 *data)
+{
+	struct hw_atl2_priv *priv = self->priv;
+	struct hw_atl2_l3_filter *l3_filters;
+	struct hw_atl2_l3_filter *l3 = NULL;
+	struct hw_atl2_l4_filter *l4 = NULL;
+	u8 location = data->location;
+	u32 req_tag = 0;
+	u16 action = 0;
+	int l3_index;
+	int l4_index;
+	u32 mask = 0;
+	u8 index;
+	u8 ipv6;
+	int res;
+
+	res = hw_atl2_new_fl3l4_configure(self, data);
+	if (res)
+		return res;
+
+	l3_index = priv->l3l4_filters[location].l3_index;
+	l4_index = priv->l3l4_filters[location].l4_index;
+	ipv6 = priv->l3l4_filters[location].ipv6;
+	if (ipv6)
+		l3_filters = priv->l3_v6_filters;
+	else
+		l3_filters = priv->l3_v4_filters;
+
+	if (!(data->cmd & HW_ATL_RX_ENABLE_FLTR_L3L4)) {
+		if (l3_index > -1)
+			hw_atl2_rxf_l3_put(self, &l3_filters[l3_index],
+					   l3_index);
+
+		if (l4_index > -1)
+			hw_atl2_rxf_l4_put(self, &priv->l4_filters[l4_index],
+					   l4_index);
+
+		priv->l3l4_filters[location].l3_index = -1;
+		priv->l3l4_filters[location].l4_index = -1;
+		index = priv->art_base_index + HW_ATL2_RPF_L3L4_USER_INDEX +
+			location;
+		hw_atl2_act_rslvr_table_set(self, index, 0, 0,
+					    HW_ATL2_ACTION_DISABLE);
+
+		return 0;
+	}
+
+	if (l3_index != -1)
+		l3 = &l3_filters[l3_index];
+	if (l4_index != -1)
+		l4 = &priv->l4_filters[l4_index];
+
+	if (l4 && (l4->cmd & HW_ATL2_RPF_L4_CMD_EN)) {
+		req_tag |= (l4_index + 1) << HW_ATL2_RPF_TAG_L4_OFFSET;
+		mask |= HW_ATL2_RPF_TAG_L4_MASK;
+	}
+
+	if (l3) {
+		if (l3->cmd & HW_ATL2_RPF_L3_V6_CMD_EN) {
+			req_tag |= (l3_index + 1) <<
+				   HW_ATL2_RPF_TAG_L3_V6_OFFSET;
+			mask |= HW_ATL2_RPF_TAG_L3_V6_MASK;
+		} else {
+			req_tag |= (l3_index + 1) <<
+				   HW_ATL2_RPF_TAG_L3_V4_OFFSET;
+			mask |= HW_ATL2_RPF_TAG_L3_V4_MASK;
+		}
+	}
+
+	if (data->cmd & (HW_ATL_RX_HOST << HW_ATL2_RPF_L3_L4_ACTF_SHIFT))
+		action = HW_ATL2_ACTION_ASSIGN_QUEUE((data->cmd  &
+						      HW_ATL2_RPF_L3_L4_RXQF_MSK) >>
+						     HW_ATL2_RPF_L3_L4_RXQF_SHIFT);
+	else
+		action = HW_ATL2_ACTION_DROP;
+
+	index = priv->art_base_index + HW_ATL2_RPF_L3L4_USER_INDEX + location;
+	hw_atl2_act_rslvr_table_set(self, index, req_tag, mask, action);
+	return 0;
+}
+
+static int hw_atl2_hw_fl2_set(struct aq_hw_s *self,
+			      struct aq_rx_filter_l2 *data)
+{
+	struct hw_atl2_priv *priv = self->priv;
+	u32 mask = HW_ATL2_RPF_TAG_ET_MASK;
+	u32 req_tag = 0;
+	u16 action = 0;
+	u32 location;
+	u8 index;
+	int tag;
+
+	location = priv->etype_filter_base_index + data->location;
+
+	hw_atl_rpf_etht_flr_set(self, data->ethertype, location);
+	hw_atl_rpf_etht_user_priority_en_set(self,
+					     !!data->user_priority_en,
+					     location);
+	if (data->user_priority_en) {
+		hw_atl_rpf_etht_user_priority_set(self,
+						  data->user_priority,
+						  location);
+		req_tag |= data->user_priority << HW_ATL2_RPF_TAG_PCP_OFFSET;
+		mask |= HW_ATL2_RPF_TAG_PCP_MASK;
+	}
+
+	if (data->queue < 0) {
+		hw_atl_rpf_etht_flr_act_set(self, 0U, location);
+		hw_atl_rpf_etht_rx_queue_en_set(self, 0U, location);
+		action = HW_ATL2_ACTION_DROP;
+	} else {
+		hw_atl_rpf_etht_flr_act_set(self, 1U, location);
+		hw_atl_rpf_etht_rx_queue_en_set(self, 1U, location);
+		hw_atl_rpf_etht_rx_queue_set(self, data->queue, location);
+		action = HW_ATL2_ACTION_ASSIGN_QUEUE(data->queue);
+	}
+
+	tag = hw_atl2_filter_tag_get(priv->etype_policy,
+				     priv->etype_filter_tag_top,
+				     action);
+
+	if (tag < 0)
+		return -ENOSPC;
+
+	req_tag |= tag << HW_ATL2_RPF_TAG_ET_OFFSET;
+	hw_atl2_rpf_etht_flr_tag_set(self, tag, location);
+	index = priv->art_base_index + HW_ATL2_RPF_ET_PCP_USER_INDEX +
+		data->location;
+	hw_atl2_act_rslvr_table_set(self, index, req_tag, mask, action);
+
+	hw_atl_rpf_etht_flr_en_set(self, 1U, location);
+
+	return aq_hw_err_from_flags(self);
+}
+
+static int hw_atl2_hw_fl2_clear(struct aq_hw_s *self,
+				struct aq_rx_filter_l2 *data)
+{
+	struct hw_atl2_priv *priv = self->priv;
+	u32 location;
+	u8 index;
+	u32 tag;
+
+	location = priv->etype_filter_base_index + data->location;
+	hw_atl_rpf_etht_flr_en_set(self, 0U, location);
+	hw_atl_rpf_etht_flr_set(self, 0U, location);
+	hw_atl_rpf_etht_user_priority_en_set(self, 0U, location);
+
+	index = priv->art_base_index + HW_ATL2_RPF_ET_PCP_USER_INDEX +
+		data->location;
+	hw_atl2_act_rslvr_table_set(self, index, 0, 0,
+				    HW_ATL2_ACTION_DISABLE);
+	tag = hw_atl2_rpf_etht_flr_tag_get(self, location);
+	hw_atl2_filter_tag_put(priv->etype_policy, tag);
+
+	return aq_hw_err_from_flags(self);
+}
+
+/*
+ * Set VLAN filter table
+ * Configure VLAN filter table to accept (and assign the queue) traffic
+ * for the particular vlan ids.
+ * Note: use this function under vlan promisc mode not to lost the traffic
+ *
+ * param - aq_hw_s
+ * param - aq_rx_filter_vlan VLAN filter configuration
+ * return 0 - OK, <0 - error
+ */
 static int hw_atl2_hw_vlan_set(struct aq_hw_s *self,
 			       struct aq_rx_filter_vlan *aq_vlans)
 {
@@ -897,6 +1412,9 @@ const struct aq_hw_ops hw_atl2_ops = {
 	.hw_ring_rx_init             = hw_atl2_hw_ring_rx_init,
 	.hw_ring_tx_init             = hw_atl2_hw_ring_tx_init,
 	.hw_packet_filter_set        = hw_atl2_hw_packet_filter_set,
+	.hw_filter_l2_set            = hw_atl2_hw_fl2_set,
+	.hw_filter_l2_clear          = hw_atl2_hw_fl2_clear,
+	.hw_filter_l3l4_set          = hw_atl2_hw_fl3l4_set,
 	.hw_filter_vlan_set          = hw_atl2_hw_vlan_set,
 	.hw_filter_vlan_ctrl         = hw_atl2_hw_vlan_ctrl,
 	.hw_multicast_list_set       = hw_atl2_hw_multicast_list_set,
