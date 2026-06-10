@@ -496,6 +496,14 @@ int aq_nic_start(struct aq_nic_s *self)
 			goto err_exit;
 	}
 
+	err = aq_reapply_rxnfc_all_rules(self);
+	if (err < 0)
+		goto err_exit;
+
+	err = aq_filters_vlans_update(self);
+	if (err < 0)
+		goto err_exit;
+
 	err = aq_ptp_ring_start(self);
 	if (err < 0)
 		goto err_exit;

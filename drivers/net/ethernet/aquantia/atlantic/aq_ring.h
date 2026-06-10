@@ -154,6 +154,7 @@ struct aq_ring_s {
 	struct bpf_prog *xdp_prog;
 	enum atl_ring_type ring_type;
 	struct xdp_rxq_info xdp_rxq;
+	unsigned long ptp_ts_deadline;
 };
 
 struct aq_ring_param_s {

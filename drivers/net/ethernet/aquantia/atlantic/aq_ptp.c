@@ -268,6 +268,18 @@ static void aq_ptp_tx_timeout_check(struct aq_ptp_s *aq_ptp)
 	}
 }
 
+void aq_ptp_tx_skb_drop_head(struct aq_nic_s *aq_nic)
+{
+	struct aq_ptp_s *aq_ptp = aq_nic->aq_ptp;
+	struct sk_buff *skb;
+
+	if (!aq_ptp)
+		return;
+	skb = aq_ptp_skb_get(&aq_ptp->skb_ring);
+	if (skb)
+		dev_kfree_skb_any(skb);
+}
+
 /* aq_ptp_adjfine
  * @ptp: the ptp clock structure
  * @ppb: parts per billion adjustment from base

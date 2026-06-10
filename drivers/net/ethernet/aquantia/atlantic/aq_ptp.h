@@ -53,6 +53,7 @@ void aq_ptp_service_task(struct aq_nic_s *aq_nic);
 void aq_ptp_tm_offset_set(struct aq_nic_s *aq_nic, unsigned int mbps);
 
 void aq_ptp_clock_init(struct aq_nic_s *aq_nic);
+void aq_ptp_tx_skb_drop_head(struct aq_nic_s *aq_nic);
 
 /* Traffic processing functions */
 int aq_ptp_xmit(struct aq_nic_s *aq_nic, struct sk_buff *skb);
@@ -123,6 +124,7 @@ static inline void aq_ptp_service_task(struct aq_nic_s *aq_nic) {}
 static inline void aq_ptp_tm_offset_set(struct aq_nic_s *aq_nic,
 					unsigned int mbps) {}
 static inline void aq_ptp_clock_init(struct aq_nic_s *aq_nic) {}
+static inline void aq_ptp_tx_skb_drop_head(struct aq_nic_s *aq_nic) {}
 static inline int aq_ptp_xmit(struct aq_nic_s *aq_nic, struct sk_buff *skb)
 {
 	return -EOPNOTSUPP;
