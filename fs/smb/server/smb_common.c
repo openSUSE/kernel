@@ -185,11 +185,6 @@ bool ksmbd_smb_request(struct ksmbd_conn *conn)
 		return false;
 
 	proto = (__le32 *)smb_get_msg(conn->request_buf);
-	if (*proto == SMB2_COMPRESSION_TRANSFORM_ID) {
-		pr_err_ratelimited("smb2 compression not support yet");
-		return false;
-	}
-
 	if (*proto != SMB1_PROTO_NUMBER &&
 	    *proto != SMB2_PROTO_NUMBER &&
 	    *proto != SMB2_TRANSFORM_PROTO_NUM)
