@@ -2002,20 +2002,10 @@ static int fsi_probe(struct platform_device *pdev)
 
 	memset(&info, 0, sizeof(info));
 
-	core = NULL;
-	if (np) {
-		core = of_device_get_match_data(&pdev->dev);
-		fsi_of_parse("fsia", np, &info.port_a, &pdev->dev);
-		fsi_of_parse("fsib", np, &info.port_b, &pdev->dev);
-	} else {
-		const struct platform_device_id	*id_entry = pdev->id_entry;
-		if (id_entry)
-			core = (struct fsi_core *)id_entry->driver_data;
+	fsi_of_parse("fsia", np, &info.port_a, &pdev->dev);
+	fsi_of_parse("fsib", np, &info.port_b, &pdev->dev);
 
-		if (pdev->dev.platform_data)
-			memcpy(&info, pdev->dev.platform_data, sizeof(info));
-	}
-
+	core = of_device_get_match_data(&pdev->dev);
 	if (!core) {
 		dev_err(&pdev->dev, "unknown fsi device\n");
 		return -ENODEV;
