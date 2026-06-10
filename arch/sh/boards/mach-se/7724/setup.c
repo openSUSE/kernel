@@ -37,6 +37,9 @@
 #include <mach-se/mach/se7724.h>
 #include <media/drv-intf/renesas-ceu.h>
 
+#include <sound/sh_fsi.h>
+#include <sound/simple_card.h>
+
 #include <video/sh_mobile_lcdc.h>
 
 #define CEU_BUFFER_MEMORY_SIZE		(4 << 20)
@@ -61,6 +64,13 @@ static phys_addr_t ceu1_dma_membase;
  * When you use 1280 x 720 lcdc output,
  * you should change OSC6 lcdc clock from 25.175MHz to 74.25MHz,
  * and change SW41 to use 720p
+ */
+
+/*
+ * about sound
+ *
+ * This setup.c supports FSI slave mode.
+ * Please change J20, J21, J22 pin to 1-2 connection.
  */
 
 /* Heartbeat */
@@ -265,6 +275,50 @@ static struct platform_device ceu1_device = {
 	.resource	= ceu1_resources,
 	.dev	= {
 		.platform_data	= &ceu1_pdata,
+	},
+};
+
+/* FSI */
+/* change J20, J21, J22 pin to 1-2 connection to use slave mode */
+static struct resource fsi_resources[] = {
+	[0] = {
+		.name	= "FSI",
+		.start	= 0xFE3C0000,
+		.end	= 0xFE3C021d,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start  = evt2irq(0xf80),
+		.flags  = IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device fsi_device = {
+	.name		= "sh_fsi",
+	.id		= 0,
+	.num_resources	= ARRAY_SIZE(fsi_resources),
+	.resource	= fsi_resources,
+};
+
+static struct simple_util_info fsi_ak4642_info = {
+	.name		= "AK4642",
+	.card		= "FSIA-AK4642",
+	.codec		= "ak4642-codec.0-0012",
+	.platform	= "sh_fsi.0",
+	.daifmt		= SND_SOC_DAIFMT_LEFT_J | SND_SOC_DAIFMT_CBP_CFP,
+	.cpu_dai = {
+		.name	= "fsia-dai",
+	},
+	.codec_dai = {
+		.name	= "ak4642-hifi",
+		.sysclk	= 11289600,
+	},
+};
+
+static struct platform_device fsi_ak4642_device = {
+	.name	= "asoc-simple-card",
+	.dev	= {
+		.platform_data	= &fsi_ak4642_info,
 	},
 };
 
@@ -535,10 +589,19 @@ static struct platform_device *ms7724se_devices[] __initdata = {
 	&sh_eth_device,
 	&sh7724_usb0_host_device,
 	&sh7724_usb1_gadget_device,
+	&fsi_device,
+	&fsi_ak4642_device,
 	&sdhi0_cn7_device,
 	&sdhi1_cn8_device,
 	&irda_device,
 	&vou_device,
+};
+
+/* I2C device */
+static struct i2c_board_info i2c0_devices[] = {
+	{
+		I2C_BOARD_INFO("ak4642", 0x12),
+	},
 };
 
 #define EEPROM_OP   0xBA206000
@@ -603,9 +666,19 @@ extern char ms7724se_sdram_enter_end;
 extern char ms7724se_sdram_leave_start;
 extern char ms7724se_sdram_leave_end;
 
+static int __init arch_setup(void)
+{
+	/* enable I2C device */
+	i2c_register_board_info(0, i2c0_devices,
+				ARRAY_SIZE(i2c0_devices));
+	return 0;
+}
+arch_initcall(arch_setup);
+
 static int __init devices_setup(void)
 {
 	u16 sw = __raw_readw(SW4140); /* select camera, monitor */
+	struct clk *clk;
 	u16 fpga_out;
 
 	/* register board specific self-refresh code */
@@ -626,6 +699,7 @@ static int __init devices_setup(void)
 		      (1 << 4)  | /* AK8813 PDN */
 		      (1 << 5)  | /* AK8813 RESET */
 		      (1 << 6)  | /* VIDEO DAC */
+		      (1 << 7)  | /* AK4643 */
 		      (1 << 8)  | /* IrDA */
 		      (1 << 12) | /* USB0 */
 		      (1 << 14)); /* RMII */
@@ -754,6 +828,33 @@ static int __init devices_setup(void)
 	gpio_request(GPIO_FN_KEYOUT2,     NULL);
 	gpio_request(GPIO_FN_KEYOUT1,     NULL);
 	gpio_request(GPIO_FN_KEYOUT0,     NULL);
+
+	/* enable FSI */
+	gpio_request(GPIO_FN_FSIMCKA,    NULL);
+	gpio_request(GPIO_FN_FSIIASD,    NULL);
+	gpio_request(GPIO_FN_FSIOASD,    NULL);
+	gpio_request(GPIO_FN_FSIIABCK,   NULL);
+	gpio_request(GPIO_FN_FSIIALRCK,  NULL);
+	gpio_request(GPIO_FN_FSIOABCK,   NULL);
+	gpio_request(GPIO_FN_FSIOALRCK,  NULL);
+	gpio_request(GPIO_FN_CLKAUDIOAO, NULL);
+
+	/* set SPU2 clock to 83.4 MHz */
+	clk = clk_get(NULL, "spu_clk");
+	if (!IS_ERR(clk)) {
+		clk_set_rate(clk, clk_round_rate(clk, 83333333));
+		clk_put(clk);
+	}
+
+	/* change parent of FSI A */
+	clk = clk_get(NULL, "fsia_clk");
+	if (!IS_ERR(clk)) {
+		/* 48kHz dummy clock was used to make sure 1/1 divide */
+		clk_set_rate(&sh7724_fsimcka_clk, 48000);
+		clk_set_parent(clk, &sh7724_fsimcka_clk);
+		clk_set_rate(clk, 48000);
+		clk_put(clk);
+	}
 
 	/* SDHI0 connected to cn7 */
 	gpio_request(GPIO_FN_SDHI0CD, NULL);

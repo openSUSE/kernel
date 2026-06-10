@@ -42,6 +42,9 @@
 #include <media/i2c/mt9t112.h>
 #include <media/i2c/tw9910.h>
 
+#include <sound/sh_fsi.h>
+#include <sound/simple_card.h>
+
 #include <video/sh_mobile_lcdc.h>
 
 /*
@@ -67,6 +70,16 @@
  *                                  OFF    : SH7724 DV_CLK
  * DS2[6-7] = MMC / SD              ON-OFF : SD
  *                                  OFF-ON : MMC
+ */
+
+/*
+ * FSI - DA7210
+ *
+ * it needs amixer settings for playing
+ *
+ * amixer set 'HeadPhone' 80
+ * amixer set 'Out Mixer Left DAC Left' on
+ * amixer set 'Out Mixer Right DAC Right' on
  */
 
 #define CEU_BUFFER_MEMORY_SIZE		(4 << 20)
@@ -508,6 +521,9 @@ static struct mt9t112_platform_data mt9t112_1_pdata = {
 
 static struct i2c_board_info i2c0_devices[] = {
 	{
+		I2C_BOARD_INFO("da7210", 0x1a),
+	},
+	{
 		I2C_BOARD_INFO("tw9910", 0x45),
 		.platform_data = &tw9910_info,
 	},
@@ -845,6 +861,51 @@ static struct gpiod_lookup_table msiof_gpio_table = {
 
 #endif
 
+/* FSI */
+static struct resource fsi_resources[] = {
+	[0] = {
+		.name	= "FSI",
+		.start	= 0xFE3C0000,
+		.end	= 0xFE3C021d,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start  = evt2irq(0xf80),
+		.flags  = IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device fsi_device = {
+	.name		= "sh_fsi",
+	.id		= 0,
+	.num_resources	= ARRAY_SIZE(fsi_resources),
+	.resource	= fsi_resources,
+};
+
+static struct simple_util_info fsi_da7210_info = {
+	.name		= "DA7210",
+	.card		= "FSIB-DA7210",
+	.codec		= "da7210.0-001a",
+	.platform	= "sh_fsi.0",
+	.daifmt		= SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_CBP_CFP,
+	.cpu_dai = {
+		.name	= "fsib-dai",
+	},
+	.codec_dai = {
+		.name	= "da7210-hifi",
+	},
+};
+
+static struct platform_device fsi_da7210_device = {
+	.name	= "asoc-simple-card",
+	.dev	= {
+		.platform_data	= &fsi_da7210_info,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
+		.dma_mask = &fsi_da7210_device.dev.coherent_dma_mask,
+	},
+};
+
+
 /* IrDA */
 static struct resource irda_resources[] = {
 	[0] = {
@@ -970,6 +1031,8 @@ static struct platform_device *ecovec_devices[] __initdata = {
 #else
 	&msiof0_device,
 #endif
+	&fsi_device,
+	&fsi_da7210_device,
 	&irda_device,
 	&vou_device,
 #if defined(CONFIG_MMC_SH_MMCIF) || defined(CONFIG_MMC_SH_MMCIF_MODULE)
@@ -1293,6 +1356,33 @@ static int __init arch_setup(void)
 		/* I/O buffer drive ability is high for CN12 */
 		__raw_writew((__raw_readw(IODRIVEA) & ~0x3000) | 0x2000,
 			     IODRIVEA);
+
+	/* enable FSI */
+	gpio_request(GPIO_FN_FSIMCKB,    NULL);
+	gpio_request(GPIO_FN_FSIIBSD,    NULL);
+	gpio_request(GPIO_FN_FSIOBSD,    NULL);
+	gpio_request(GPIO_FN_FSIIBBCK,   NULL);
+	gpio_request(GPIO_FN_FSIIBLRCK,  NULL);
+	gpio_request(GPIO_FN_FSIOBBCK,   NULL);
+	gpio_request(GPIO_FN_FSIOBLRCK,  NULL);
+	gpio_request(GPIO_FN_CLKAUDIOBO, NULL);
+
+	/* set SPU2 clock to 83.4 MHz */
+	clk = clk_get(NULL, "spu_clk");
+	if (!IS_ERR(clk)) {
+		clk_set_rate(clk, clk_round_rate(clk, 83333333));
+		clk_put(clk);
+	}
+
+	/* change parent of FSI B */
+	clk = clk_get(NULL, "fsib_clk");
+	if (!IS_ERR(clk)) {
+		/* 48kHz dummy clock was used to make sure 1/1 divide */
+		clk_set_rate(&sh7724_fsimckb_clk, 48000);
+		clk_set_parent(clk, &sh7724_fsimckb_clk);
+		clk_set_rate(clk, 48000);
+		clk_put(clk);
+	}
 
 	gpio_request(GPIO_PTU0, NULL);
 	gpio_direction_output(GPIO_PTU0, 0);
