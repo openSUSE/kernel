@@ -52,15 +52,15 @@ static void __iomem *lpi_gpio_reg(struct lpi_pinctrl *state,
 	return state->tlmm_base + pin_offset + addr;
 }
 
-static void __lpi_gpio_read(struct lpi_pinctrl *state,
-			    unsigned int pin, unsigned int addr, u32 *val)
+static void lpi_gpio_read_reg(struct lpi_pinctrl *state,
+			      unsigned int pin, unsigned int addr, u32 *val)
 {
 	*val = ioread32(lpi_gpio_reg(state, pin, addr));
 }
 
-static void __lpi_gpio_write(struct lpi_pinctrl *state,
-			     unsigned int pin, unsigned int addr,
-			     unsigned int val)
+static void lpi_gpio_write_reg(struct lpi_pinctrl *state,
+			       unsigned int pin, unsigned int addr,
+			       unsigned int val)
 {
 	iowrite32(val, lpi_gpio_reg(state, pin, addr));
 }
@@ -74,21 +74,7 @@ static int lpi_gpio_read(struct lpi_pinctrl *state, unsigned int pin,
 	if (ret < 0)
 		return ret;
 
-	__lpi_gpio_read(state, pin, addr, val);
-
-	return pm_runtime_put_autosuspend(state->dev);
-}
-
-static int lpi_gpio_write(struct lpi_pinctrl *state, unsigned int pin,
-			  unsigned int addr, unsigned int val)
-{
-	int ret;
-
-	ret = pm_runtime_resume_and_get(state->dev);
-	if (ret < 0)
-		return ret;
-
-	__lpi_gpio_write(state, pin, addr, val);
+	lpi_gpio_read_reg(state, pin, addr, val);
 
 	return pm_runtime_put_autosuspend(state->dev);
 }
@@ -150,7 +136,7 @@ static int lpi_gpio_set_mux(struct pinctrl_dev *pctldev, unsigned int function,
 		return ret;
 
 	guard(mutex)(&pctrl->lock);
-	__lpi_gpio_read(pctrl, pin, LPI_GPIO_CFG_REG, &val);
+	lpi_gpio_read_reg(pctrl, pin, LPI_GPIO_CFG_REG, &val);
 
 	/*
 	 * If this is the first time muxing to GPIO and the direction is
@@ -160,23 +146,23 @@ static int lpi_gpio_set_mux(struct pinctrl_dev *pctldev, unsigned int function,
 	 */
 	if (i == GPIO_FUNC && (val & LPI_GPIO_OE_MASK) &&
 	    !test_and_set_bit(group, pctrl->ever_gpio)) {
-		__lpi_gpio_read(pctrl, group, LPI_GPIO_VALUE_REG, &io_val);
+		lpi_gpio_read_reg(pctrl, group, LPI_GPIO_VALUE_REG, &io_val);
 
 		if (io_val & LPI_GPIO_VALUE_IN_MASK) {
 			if (!(io_val & LPI_GPIO_VALUE_OUT_MASK))
-				__lpi_gpio_write(pctrl, group,
-						 LPI_GPIO_VALUE_REG,
-						 io_val | LPI_GPIO_VALUE_OUT_MASK);
+				lpi_gpio_write_reg(pctrl, group,
+						   LPI_GPIO_VALUE_REG,
+						   io_val | LPI_GPIO_VALUE_OUT_MASK);
 		} else {
 			if (io_val & LPI_GPIO_VALUE_OUT_MASK)
-				__lpi_gpio_write(pctrl, group,
-						 LPI_GPIO_VALUE_REG,
-						 io_val & ~LPI_GPIO_VALUE_OUT_MASK);
+				lpi_gpio_write_reg(pctrl, group,
+						   LPI_GPIO_VALUE_REG,
+						   io_val & ~LPI_GPIO_VALUE_OUT_MASK);
 		}
 	}
 
 	u32p_replace_bits(&val, i, LPI_GPIO_FUNCTION_MASK);
-	__lpi_gpio_write(pctrl, pin, LPI_GPIO_CFG_REG, val);
+	lpi_gpio_write_reg(pctrl, pin, LPI_GPIO_CFG_REG, val);
 
 	return pm_runtime_put_autosuspend(pctrl->dev);
 }
@@ -337,17 +323,17 @@ static int lpi_config_set(struct pinctrl_dev *pctldev, unsigned int group,
 	guard(mutex)(&pctrl->lock);
 	if (output_enabled) {
 		val = u32_encode_bits(value ? 1 : 0, LPI_GPIO_VALUE_OUT_MASK);
-		__lpi_gpio_write(pctrl, group, LPI_GPIO_VALUE_REG, val);
+		lpi_gpio_write_reg(pctrl, group, LPI_GPIO_VALUE_REG, val);
 	}
 
-	__lpi_gpio_read(pctrl, group, LPI_GPIO_CFG_REG, &val);
+	lpi_gpio_read_reg(pctrl, group, LPI_GPIO_CFG_REG, &val);
 
 	u32p_replace_bits(&val, pullup, LPI_GPIO_PULL_MASK);
 	u32p_replace_bits(&val, LPI_GPIO_DS_TO_VAL(strength),
 			  LPI_GPIO_OUT_STRENGTH_MASK);
 	u32p_replace_bits(&val, output_enabled, LPI_GPIO_OE_MASK);
 
-	__lpi_gpio_write(pctrl, group, LPI_GPIO_CFG_REG, val);
+	lpi_gpio_write_reg(pctrl, group, LPI_GPIO_CFG_REG, val);
 
 	return pm_runtime_put_autosuspend(pctrl->dev);
 }
