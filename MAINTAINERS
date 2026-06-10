@@ -17402,6 +17402,8 @@ M:	Marius Cristea <marius.cristea@microchip.com>
 L:	linux-hwmon@vger.kernel.org
 S:	Supported
 F:	Documentation/devicetree/bindings/hwmon/microchip,emc1812.yaml
+F:	Documentation/hwmon/emc1812.rst
+F:	drivers/hwmon/emc1812.c
 
 MICROCHIP I2C DRIVER
 M:	Codrin Ciubotariu <codrin.ciubotariu@microchip.com>

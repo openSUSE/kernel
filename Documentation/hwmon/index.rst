@@ -72,6 +72,7 @@ Hardware Monitoring Kernel Drivers
    ds620
    e50sn12051
    emc1403
+   emc1812
    emc2103
    emc2305
    emc6w201
