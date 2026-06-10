@@ -20,6 +20,7 @@
 #include <linux/of_irq.h>
 #include <linux/psci.h>
 #include <linux/rwsem.h>
+#include <linux/slab.h>
 #include <linux/stop_machine.h>
 #include <linux/string.h>
 #include <linux/sysfs.h>
@@ -127,6 +128,8 @@ static struct fw_image *kobj_to_fw_image(struct kobject *kobj)
 {
 	return container_of(kobj, struct fw_image, kobj);
 }
+
+static const char *get_image_name(const struct fw_image *image);
 
 /* A UUID split over two 64-bit registers */
 struct uuid_regs {
@@ -306,10 +309,10 @@ static int lfa_cancel(void *data)
 	 */
 	if (reg.a0 == LFA_SUCCESS) {
 		pr_info("Activation cancelled for image %s\n",
-			image->image_name);
+			get_image_name(image));
 	} else {
 		pr_err("Activation not cancelled for image %s: %s\n",
-		       image->image_name, lfa_error_string(reg.a0));
+		       get_image_name(image), lfa_error_string(reg.a0));
 		return -EINVAL;
 	}
 
@@ -483,7 +486,7 @@ static ssize_t name_show(struct kobject *kobj, struct kobj_attribute *attr,
 {
 	struct fw_image *image = kobj_to_fw_image(kobj);
 
-	return sysfs_emit(buf, "%s\n", image->image_name);
+	return sysfs_emit(buf, "%s\n", get_image_name(image));
 }
 
 static ssize_t activation_capable_show(struct kobject *kobj,
@@ -729,13 +732,15 @@ static int update_fw_image_node(char *fw_uuid, int seq_id,
 	}
 	spin_unlock(&lfa_kset->list_lock);
 
-	image = kzalloc_obj(*image);
+	image = kzalloc(sizeof(*image), GFP_KERNEL);
 	if (!image)
 		return -ENOMEM;
 
 	for (i = 0; i < ARRAY_SIZE(fw_images_uuids); i++) {
-		if (!strcmp(fw_images_uuids[i].uuid, fw_uuid))
+		if (!strcmp(fw_images_uuids[i].uuid, fw_uuid)) {
 			image_name = fw_images_uuids[i].name;
+			break;
+		}
 	}
 
 	image->kobj.kset = lfa_kset;
@@ -1014,8 +1019,10 @@ static int __init lfa_init(void)
 
 	init_image_default_attrs();
 	lfa_kset = kset_create_and_add("lfa", NULL, firmware_kobj);
-	if (!lfa_kset)
+	if (!lfa_kset) {
+		destroy_workqueue(fw_images_update_wq);
 		return -ENOMEM;
+	}
 
 	/*
 	 * This faux device is just used for the optional notification
@@ -1029,6 +1036,8 @@ static int __init lfa_init(void)
 
 	err = update_fw_images_tree();
 	if (err != 0) {
+		if (lfa_dev)
+			faux_device_destroy(lfa_dev);
 		kset_unregister(lfa_kset);
 		destroy_workqueue(fw_images_update_wq);
 	}
@@ -1043,7 +1052,8 @@ static void __exit lfa_exit(void)
 	destroy_workqueue(fw_images_update_wq);
 	clean_fw_images_tree();
 	kset_unregister(lfa_kset);
-	faux_device_destroy(lfa_dev);
+	if (lfa_dev)
+		faux_device_destroy(lfa_dev);
 }
 module_exit(lfa_exit);
 
