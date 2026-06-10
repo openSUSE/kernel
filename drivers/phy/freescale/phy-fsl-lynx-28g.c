@@ -1477,6 +1477,9 @@ static int lynx_28g_probe(struct platform_device *pdev)
 
 	priv->dev = dev;
 	priv->info = of_device_get_match_data(dev);
+	if (!priv->info)
+		return -ENODEV;
+
 	dev_set_drvdata(dev, priv);
 	spin_lock_init(&priv->pcc_lock);
 	INIT_DELAYED_WORK(&priv->cdr_check, lynx_28g_cdr_lock_check);
