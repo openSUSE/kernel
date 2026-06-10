@@ -1380,7 +1380,7 @@ int
 xfs_inactive(
 	xfs_inode_t	*ip)
 {
-	struct xfs_mount	*mp;
+	struct xfs_mount	*mp = ip->i_mount;
 	int			error = 0;
 	int			truncate = 0;
 
@@ -1393,7 +1393,20 @@ xfs_inactive(
 		goto out;
 	}
 
-	mp = ip->i_mount;
+	/*
+	 * If the filesystem has been shut down - for example a mount that
+	 * failed after background inactivation was enabled - do not
+	 * inactivate the inode.  Inactivation modifies persistent metadata,
+	 * its transactions cannot complete on a shut down mount, and the
+	 * subsystems it relies on (e.g. quota, mp->m_quotainfo) may not be
+	 * set up.  The attached dquots are dropped at the out: label and the
+	 * inode then goes straight to reclaim, the same way
+	 * xfs_inode_needs_inactive() already declines to inactivate on a shut
+	 * down mount at queue time.
+	 */
+	if (xfs_is_shutdown(mp))
+		goto out;
+
 	ASSERT(!xfs_iflags_test(ip, XFS_IRECOVERY));
 
 	xfs_inactive_health(ip);
