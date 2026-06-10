@@ -98,35 +98,47 @@ dpaa2_switch_fdb_for_join(struct ethsw_port_priv *port_priv,
 	return port_priv->fdb;
 }
 
+static struct dpaa2_switch_fdb *
+dpaa2_switch_fdb_for_leave(struct ethsw_port_priv *port_priv)
+{
+	struct ethsw_core *ethsw = port_priv->ethsw_data;
+
+	/* If this is the last user of the FDB, just keep using it. */
+	if (!dpaa2_switch_fdb_in_use_by_others(ethsw, port_priv->fdb,
+					       port_priv)) {
+		return port_priv->fdb;
+	}
+
+	/* Since we are not the last port which leaves a bridge,
+	 * acquire a new FDB and use it.
+	 */
+	return dpaa2_switch_fdb_get_unused(ethsw);
+}
+
 static void dpaa2_switch_port_set_fdb(struct ethsw_port_priv *port_priv,
 				      struct net_device *upper_dev,
 				      bool linking)
 {
-	struct ethsw_core *ethsw = port_priv->ethsw_data;
-	struct dpaa2_switch_fdb *new_fdb, *fdb;
+	struct dpaa2_switch_fdb *new_fdb;
 
 	/* If we leave a bridge, find an unused FDB and use that. */
 	if (!linking) {
-		/* If this is the last user of the FDB, just keep using it. */
-		if (!dpaa2_switch_fdb_in_use_by_others(ethsw, port_priv->fdb,
-						       port_priv)) {
-			port_priv->fdb->bridge_dev = NULL;
+		/* The number of FDBs is sized to accommodate all switch ports
+		 * as standalone, each with its private FDB, which means that
+		 * dpaa2_switch_fdb_get_unused() must succeed here. WARN if
+		 * not.
+		 */
+		new_fdb = dpaa2_switch_fdb_for_leave(port_priv);
+		if (WARN_ON(!new_fdb))
 			return;
+
+		if (port_priv->fdb != new_fdb) {
+			port_priv->fdb = new_fdb;
+			port_priv->fdb->in_use = true;
 		}
 
-		/* Since we are not the last port which leaves a bridge,
-		 * acquire a new FDB and use it. The number of FDBs is sized to
-		 * accommodate all switch ports as standalone, each with its
-		 * private FDB, which means that dpaa2_switch_fdb_get_unused()
-		 * must succeed here. WARN if not.
-		 */
-		fdb = dpaa2_switch_fdb_get_unused(port_priv->ethsw_data);
-		if (WARN_ON(!fdb))
-			return;
-
-		port_priv->fdb = fdb;
-		port_priv->fdb->in_use = true;
 		port_priv->fdb->bridge_dev = NULL;
+
 		return;
 	}
 
