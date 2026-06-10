@@ -91,6 +91,10 @@ struct otto_emdio_cmd_regs {
 	u32 c45_data;
 	u32 io_data;
 	u32 port_mask_low;
+	/* additional registers for high port count models RTL839x/RTL931x */
+	u32 port_mask_high;
+	u32 broadcast;
+	u32 ext_page;
 };
 
 struct otto_emdio_priv {
@@ -164,6 +168,22 @@ static int otto_emdio_run_cmd(struct mii_bus *bus, u32 cmd,
 		return ret;
 
 	/* Fill all registers. Hardware will read only the needed bits depending on command */
+	if (info->cmd_regs.port_mask_high) {
+		/* Fill extra registers for high port count models */
+		ret = regmap_write(priv->regmap, info->cmd_regs.broadcast, cmd_data->broadcast);
+		if (ret)
+			return ret;
+
+		ret = regmap_write(priv->regmap, info->cmd_regs.ext_page, cmd_data->ext_page);
+		if (ret)
+			return ret;
+
+		ret = regmap_write(priv->regmap,
+				   info->cmd_regs.port_mask_high, cmd_data->port_mask_high);
+		if (ret)
+			return ret;
+	}
+
 	ret = regmap_write(priv->regmap, info->cmd_regs.port_mask_low, cmd_data->port_mask_low);
 	if (ret)
 		return ret;
