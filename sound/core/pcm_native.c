@@ -645,6 +645,14 @@ snd_pcm_state_t snd_pcm_get_state(struct snd_pcm_substream *substream)
 }
 EXPORT_SYMBOL_GPL(snd_pcm_get_state);
 
+static bool snd_pcm_state_open_or_disconnected(struct snd_pcm_substream *substream)
+{
+	snd_pcm_state_t state = snd_pcm_get_state(substream);
+
+	return state == SNDRV_PCM_STATE_OPEN ||
+	       state == SNDRV_PCM_STATE_DISCONNECTED;
+}
+
 static inline void snd_pcm_timer_notify(struct snd_pcm_substream *substream,
 					int event)
 {
@@ -3569,8 +3577,7 @@ static ssize_t snd_pcm_read(struct file *file, char __user *buf, size_t count,
 	if (PCM_RUNTIME_CHECK(substream))
 		return -ENXIO;
 	runtime = substream->runtime;
-	if (runtime->state == SNDRV_PCM_STATE_OPEN ||
-	    runtime->state == SNDRV_PCM_STATE_DISCONNECTED)
+	if (snd_pcm_state_open_or_disconnected(substream))
 		return -EBADFD;
 	if (!frame_aligned(runtime, count))
 		return -EINVAL;
@@ -3594,8 +3601,7 @@ static ssize_t snd_pcm_write(struct file *file, const char __user *buf,
 	if (PCM_RUNTIME_CHECK(substream))
 		return -ENXIO;
 	runtime = substream->runtime;
-	if (runtime->state == SNDRV_PCM_STATE_OPEN ||
-	    runtime->state == SNDRV_PCM_STATE_DISCONNECTED)
+	if (snd_pcm_state_open_or_disconnected(substream))
 		return -EBADFD;
 	if (!frame_aligned(runtime, count))
 		return -EINVAL;
@@ -3621,8 +3627,7 @@ static ssize_t snd_pcm_readv(struct kiocb *iocb, struct iov_iter *to)
 	if (PCM_RUNTIME_CHECK(substream))
 		return -ENXIO;
 	runtime = substream->runtime;
-	if (runtime->state == SNDRV_PCM_STATE_OPEN ||
-	    runtime->state == SNDRV_PCM_STATE_DISCONNECTED)
+	if (snd_pcm_state_open_or_disconnected(substream))
 		return -EBADFD;
 	if (!user_backed_iter(to))
 		return -EINVAL;
@@ -3661,8 +3666,7 @@ static ssize_t snd_pcm_writev(struct kiocb *iocb, struct iov_iter *from)
 	if (PCM_RUNTIME_CHECK(substream))
 		return -ENXIO;
 	runtime = substream->runtime;
-	if (runtime->state == SNDRV_PCM_STATE_OPEN ||
-	    runtime->state == SNDRV_PCM_STATE_DISCONNECTED)
+	if (snd_pcm_state_open_or_disconnected(substream))
 		return -EBADFD;
 	if (!user_backed_iter(from))
 		return -EINVAL;
