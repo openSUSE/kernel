@@ -29,7 +29,8 @@
 #define HW_ATL2_TXBUF_MAX              128U
 #define HW_ATL2_PTP_TXBUF_SIZE           8U
 
-#define HW_ATL2_RXBUF_MAX              192U
+/* hw_atl2 on-chip RX packet buffer available for data TCs */
+#define HW_ATL2_RXBUF_MAX              172U
 #define HW_ATL2_PTP_RXBUF_SIZE          16U
 #define HW_ATL2_RSS_REDIRECTION_MAX 64U
 

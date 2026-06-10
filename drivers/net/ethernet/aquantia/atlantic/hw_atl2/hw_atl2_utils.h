@@ -8,6 +8,16 @@
 
 #include "aq_hw.h"
 
+/* Hardware tx launch time descriptor */
+struct hw_atl2_txts_s {
+	__le64 ts;
+	__le32 ctrl;
+	u32 reserved;
+};
+
+#define HW_ATL2_TXTS_DD	BIT(3)
+#define HW_ATL2_TXTS_TS_VALID   BIT(20)
+
 /* F W    A P I */
 
 struct link_options_s {
