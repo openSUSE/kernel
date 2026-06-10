@@ -3943,24 +3943,21 @@ static const struct file_operations nvme_ns_chr_fops = {
 	.uring_cmd_iopoll = nvme_ns_chr_uring_cmd_iopoll,
 };
 
-static int nvme_add_ns_cdev(struct nvme_ns *ns)
+static void nvme_add_ns_cdev(struct nvme_ns *ns)
 {
-	int ret;
 	char name[32];
 
 	ns->cdev_device.parent = ns->ctrl->device;
 	snprintf(name, sizeof(name), "ng%dn%d", ns->ctrl->instance,
 		 ns->head->instance);
 
-	ret = nvme_cdev_add(name, &ns->cdev, &ns->cdev_device,
-			    &nvme_ns_chr_fops, ns->ctrl->ops->module);
-	if (ret) {
+	if (nvme_cdev_add(name, &ns->cdev, &ns->cdev_device,
+			&nvme_ns_chr_fops, ns->ctrl->ops->module)) {
 		dev_err(ns->ctrl->device, "Unable to create the %s device\n",
 			name);
-	} else {
-		set_bit(NVME_NS_CDEV_LIVE, &ns->flags);
+		return;
 	}
-	return ret;
+	set_bit(NVME_NS_CDEV_LIVE, &ns->flags);
 }
 
 static struct nvme_ns_head *nvme_alloc_ns_head(struct nvme_ctrl *ctrl,
