@@ -88,6 +88,7 @@
 #include "signal.c"
 #include "slab.c"
 #include "spinlock.c"
+#include "string.c"
 #include "sync.c"
 #include "task.c"
 #include "time.c"
