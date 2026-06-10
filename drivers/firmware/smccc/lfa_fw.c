@@ -310,7 +310,6 @@ static int call_lfa_activate(void *data)
 
 static int activate_fw_image(struct fw_image *image)
 {
-	struct kobject *kobj;
 	int ret;
 
 retry:
@@ -320,30 +319,7 @@ retry:
 		ret = call_lfa_activate(image);
 
 	if (!ret) {
-		/*
-		 * Invalidate fw_seq_ids (-1) for all images as the seq_ids
-		 * and the number of firmware images in the LFA agent may
-		 * change after a successful activation attempt.
-		 * Negate all image flags as well.
-		 */
-		spin_lock(&lfa_kset->list_lock);
-		list_for_each_entry(kobj, &lfa_kset->list, entry) {
-			struct fw_image *image = kobj_to_fw_image(kobj);
-
-			set_image_flags(image, -1, 0b1000, 0, 0);
-		}
-		spin_unlock(&lfa_kset->list_lock);
-
 		update_fw_images_tree();
-
-		/*
-		 * Removing non-valid image directories at the end of an
-		 * activation.
-		 * We can't remove the sysfs attributes while in the respective
-		 * _store() handler, so have to postpone the list removal to a
-		 * workqueue.
-		 */
-		queue_work(fw_images_update_wq, &fw_images_update_work);
 
 		return 0;
 	}
@@ -640,6 +616,7 @@ static int update_fw_images_tree(void)
 {
 	struct arm_smccc_1_2_regs reg = { 0 }, res;
 	struct uuid_regs image_uuid;
+	struct kobject *kobj;
 	char image_id_str[40];
 	int ret, num_of_components;
 
@@ -648,6 +625,19 @@ static int update_fw_images_tree(void)
 		pr_err("Error getting number of LFA components\n");
 		return -ENODEV;
 	}
+
+	/*
+	 * Invalidate fw_seq_ids (-1) for all images as the seq_ids and the
+	 * number of firmware images in the LFA agent may change after a
+	 * successful activation attempt. Negate all image flags as well.
+	 */
+	spin_lock(&lfa_kset->list_lock);
+	list_for_each_entry(kobj, &lfa_kset->list, entry) {
+		struct fw_image *image = kobj_to_fw_image(kobj);
+
+		set_image_flags(image, -1, 0b1000, 0, 0);
+	}
+	spin_unlock(&lfa_kset->list_lock);
 
 	reg.a0 = LFA_1_0_FN_GET_INVENTORY;
 	for (int i = 0; i < num_of_components; i++) {
@@ -665,6 +655,14 @@ static int update_fw_images_tree(void)
 				return ret;
 		}
 	}
+
+	/*
+	 * Removing non-valid image directories at the end of an activation.
+	 * We can't remove the sysfs attributes while in the respective
+	 * _store() handler, so have to postpone the list removal to a
+	 * workqueue.
+	 */
+	queue_work(fw_images_update_wq, &fw_images_update_work);
 
 	return 0;
 }
