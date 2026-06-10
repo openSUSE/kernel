@@ -1095,9 +1095,6 @@ void __init mark_linear_text_alias_ro(void)
 			    (unsigned long)__init_begin - (unsigned long)_text,
 			    PAGE_KERNEL_RO);
 
-	/* Map the kernel data/bss as invalid in the linear map */
-	mark_linear_data_alias_valid(false);
-
 	/*
 	 * Register a PM notifier to remap the linear alias of data/bss as
 	 * valid read-only before hibernation. This is needed because the
@@ -1240,6 +1237,9 @@ static void __init map_mem(void)
 		__map_memblock(start, end, pgprot_tagged(PAGE_KERNEL),
 			       flags);
 	}
+
+	/* Map the kernel data/bss as invalid in the linear map */
+	mark_linear_data_alias_valid(false);
 }
 
 void mark_rodata_ro(void)
