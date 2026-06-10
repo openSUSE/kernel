@@ -136,11 +136,11 @@ static void soc_init_component_debugfs(struct snd_soc_component *component)
 	if (!component->card->debugfs_card_root)
 		return;
 
-	if (component->debugfs_prefix) {
+	if (component->driver->debugfs_prefix) {
 		char *name;
 
 		name = kasprintf(GFP_KERNEL, "%s:%s",
-			component->debugfs_prefix, component->name);
+			component->driver->debugfs_prefix, component->name);
 		if (name) {
 			component->debugfs_root = debugfs_create_dir(name,
 				component->card->debugfs_card_root);
@@ -2846,11 +2846,6 @@ int snd_soc_component_initialize(struct snd_soc_component *component,
 
 	component->dev		= dev;
 	component->driver	= driver;
-
-#ifdef CONFIG_DEBUG_FS
-	if (!component->debugfs_prefix)
-		component->debugfs_prefix = driver->debugfs_prefix;
-#endif
 
 	return 0;
 }
