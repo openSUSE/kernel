@@ -115,7 +115,14 @@ struct cxl_attach_region {
 	struct range hpa_range;
 };
 
+#ifdef CONFIG_CXL_REGION
 int cxl_memdev_attach_region(struct cxl_memdev *cxlmd);
+#else
+static inline int cxl_memdev_attach_region(struct cxl_memdev *cxlmd)
+{
+	return -EOPNOTSUPP;
+}
+#endif
 
 struct cxl_memdev *devm_cxl_add_classdev(struct cxl_dev_state *cxlds);
 struct cxl_memdev *__devm_cxl_add_memdev(struct cxl_dev_state *cxlds,
