@@ -55,6 +55,18 @@ struct io_wq_work_list {
 	struct io_wq_work_node *last;
 };
 
+/*
+ * Lockless multi-producer, single-consumer FIFO queue, see
+ * io_uring/mpscq.h for the implementation and rules. Defined here so
+ * that it can be embedded in io_ring_ctx. This is the producer side
+ * only - the consumer cursor is kept separately, on a cacheline that
+ * isn't dirtied by the producers.
+ */
+struct mpscq {
+	struct llist_node	*tail;		/* producers */
+	struct llist_node	stub;
+};
+
 struct io_wq_work {
 	struct io_wq_work_node list;
 	atomic_t flags;
