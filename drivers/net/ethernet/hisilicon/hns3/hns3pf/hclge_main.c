@@ -7344,19 +7344,49 @@ static int hclge_get_tc_flower_action(struct hclge_dev *hdev,
 				      struct flow_cls_offload *cls_flower,
 				      struct hclge_fd_rule *rule)
 {
+	struct flow_rule *flow = flow_cls_offload_flow_rule(cls_flower);
 	struct netlink_ext_ack *extack = cls_flower->common.extack;
 	struct hnae3_handle *handle = &hdev->vport[0].nic;
+	struct flow_action *action = &flow->action;
+	struct flow_action_entry *act;
 	int tc;
 
-	tc = tc_classid_to_hwtc(handle->netdev, cls_flower->classid);
-	if (tc < 0 || tc > hdev->tc_max) {
-		NL_SET_ERR_MSG_FMT_MOD(extack, "invalid traffic class: %d", tc);
-		return -EINVAL;
+	if (!flow_action_has_entries(&flow->action)) {
+		tc = tc_classid_to_hwtc(handle->netdev, cls_flower->classid);
+		if (tc < 0 || tc > hdev->tc_max) {
+			NL_SET_ERR_MSG_FMT_MOD(extack,
+					       "invalid traffic class: %d",
+					       tc);
+			return -EINVAL;
+		}
+
+		rule->action = HCLGE_FD_ACTION_SELECT_TC;
+		rule->cls_flower.tc = tc;
+		return 0;
 	}
 
-	rule->action = HCLGE_FD_ACTION_SELECT_TC;
-	rule->cls_flower.tc = tc;
-	return 0;
+	act = &action->entries[0];
+	switch (act->id) {
+	case FLOW_ACTION_RX_QUEUE_MAPPING:
+		if (act->rx_queue >= handle->kinfo.num_tqps) {
+			NL_SET_ERR_MSG_FMT_MOD(extack,
+					       "queue id (%u) should be less than %u",
+					       act->rx_queue,
+					       handle->kinfo.num_tqps);
+			return -EINVAL;
+		}
+
+		rule->queue_id = act->rx_queue;
+		rule->action = HCLGE_FD_ACTION_SELECT_QUEUE;
+		return 0;
+	case FLOW_ACTION_DROP:
+		rule->action = HCLGE_FD_ACTION_DROP_PACKET;
+		return 0;
+	default:
+		NL_SET_ERR_MSG_FMT_MOD(extack,
+				       "unsupported action(%d)", act->id);
+		return -EOPNOTSUPP;
+	}
 }
 
 static int hclge_parse_cls_flower(struct hclge_dev *hdev,
@@ -7417,6 +7447,25 @@ static int hclge_check_cls_flower(struct hclge_dev *hdev,
 	if (dissector->used_keys & ~support_keys) {
 		NL_SET_ERR_MSG_FMT_MOD(extack, "unsupported key set: %#llx",
 				       dissector->used_keys);
+		return -EOPNOTSUPP;
+	}
+
+	/* driver will parses classid into an action */
+	if (cls_flower->classid && flow_action_has_entries(&flow->action)) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "cannot specify both classid and action");
+		return -EOPNOTSUPP;
+	}
+
+	if (!flow_action_has_entries(&flow->action) && !cls_flower->classid) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "must specify either classid or action");
+		return -EINVAL;
+	}
+
+	if (flow_action_has_entries(&flow->action) &&
+	    !flow_offload_has_one_action(&flow->action)) {
+		NL_SET_ERR_MSG_MOD(extack, "unsupported multiple actions");
 		return -EOPNOTSUPP;
 	}
 
