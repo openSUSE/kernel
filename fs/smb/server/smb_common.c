@@ -102,9 +102,6 @@ static const struct {
 	int version;
 	const char *string;
 } version_strings[] = {
-#ifdef CONFIG_SMB_INSECURE_SERVER
-	{SMB1_PROT, SMB1_VERSION_STRING},
-#endif
 	{SMB2_PROT, SMB20_VERSION_STRING},
 	{SMB21_PROT, SMB21_VERSION_STRING},
 	{SMB30_PROT, SMB30_VERSION_STRING},
