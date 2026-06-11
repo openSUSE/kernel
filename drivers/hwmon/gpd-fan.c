@@ -341,6 +341,10 @@ static int gpd_wm2_read_pwm(struct gpd_fan_data *data)
 
 	gpd_ecram_read(drvdata, drvdata->pwm_write, &var);
 
+	// EC PWM register valid range is 1 ~ pwm_max; 0 is an invalid state
+	if (unlikely(!var))
+		return -EIO;
+
 	// Match gpd_generic_write_pwm(u8) below
 	return DIV_ROUND_CLOSEST((var - 1) * 255, (drvdata->pwm_max - 1));
 }
