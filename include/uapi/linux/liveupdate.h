@@ -169,7 +169,9 @@ struct liveupdate_session_preserve_fd {
  * associated with the token and populates the @fd field with a new file
  * descriptor referencing the restored resource in the current (new) kernel.
  * This operation must be performed *before* signaling completion via
- * %LIVEUPDATE_IOCTL_FINISH.
+ * %LIVEUPDATE_IOCTL_FINISH. If a retrieve of a token fails, subsequent
+ * attempts to retrieve the token fail with the same error code. Failed
+ * retrieves are not retried.
  *
  * Return: 0 on success, negative error code on failure (e.g., invalid token).
  */
