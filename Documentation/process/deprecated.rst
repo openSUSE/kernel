@@ -388,7 +388,7 @@ allocations. For example, these open coded assignments::
 	ptr = kmalloc_array(count, sizeof(*ptr), gfp);
 	ptr = kcalloc(count, sizeof(*ptr), gfp);
 	ptr = kmalloc(struct_size(ptr, flex_member, count), gfp);
-	ptr = kmalloc(sizeof(struct foo, gfp);
+	ptr = kmalloc(sizeof(struct foo), gfp);
 
 become, respectively::
 
