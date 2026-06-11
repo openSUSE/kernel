@@ -82,7 +82,7 @@ mode_store(struct device *dev, struct device_attribute *attr,
 }
 
 #define thermal_trip_of_attr(_ptr_, _attr_)				\
-	({ 								\
+	({								\
 		struct thermal_trip_desc *td;				\
 									\
 		td = container_of(_ptr_, struct thermal_trip_desc,	\
