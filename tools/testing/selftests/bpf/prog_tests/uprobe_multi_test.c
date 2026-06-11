@@ -537,7 +537,37 @@ static void test_attach_api_fails(void)
 	link_fd = bpf_link_create(prog_fd, 0, BPF_TRACE_UPROBE_MULTI, &opts);
 	if (!ASSERT_ERR(link_fd, "link_fd"))
 		goto cleanup;
-	ASSERT_EQ(link_fd, -EINVAL, "pid_is_wrong");
+	if (!ASSERT_EQ(link_fd, -EINVAL, "pid_is_wrong"))
+		goto cleanup;
+
+	/* wrong path_fd */
+	LIBBPF_OPTS_RESET(opts,
+		.uprobe_multi.path = NULL,
+		.uprobe_multi.path_fd = -1,
+		.uprobe_multi.flags = BPF_F_UPROBE_MULTI_PATH_FD,
+		.uprobe_multi.offsets = (unsigned long *)&offset,
+		.uprobe_multi.cnt = 1,
+	);
+
+	link_fd = bpf_link_create(prog_fd, 0, BPF_TRACE_UPROBE_MULTI, &opts);
+	if (!ASSERT_ERR(link_fd, "link_fd"))
+		goto cleanup;
+	if (!ASSERT_EQ(link_fd, -EBADF, "path_fd_is_wrong"))
+		goto cleanup;
+
+	/* path and path_fd both set with BPF_F_UPROBE_MULTI_PATH_FD flag */
+	LIBBPF_OPTS_RESET(opts,
+		.uprobe_multi.path = path,
+		.uprobe_multi.path_fd = 1,
+		.uprobe_multi.flags = BPF_F_UPROBE_MULTI_PATH_FD,
+		.uprobe_multi.offsets = (unsigned long *)&offset,
+		.uprobe_multi.cnt = 1,
+	);
+
+	link_fd = bpf_link_create(prog_fd, 0, BPF_TRACE_UPROBE_MULTI, &opts);
+	if (!ASSERT_ERR(link_fd, "link_fd"))
+		goto cleanup;
+	ASSERT_EQ(link_fd, -EINVAL, "path_and_path_fd_together");
 
 cleanup:
 	if (link_fd >= 0)
