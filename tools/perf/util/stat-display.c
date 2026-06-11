@@ -821,9 +821,9 @@ static void printout(struct perf_stat_config *config, struct outstate *os,
 		ok = false;
 
 		if (counter->supported) {
-			if (!evlist__has_hybrid_pmus(counter->evlist)) {
+			if (!evlist__has_hybrid_pmus(counter->evlist) &&
+			    counter->pmu && counter->pmu->is_core)
 				config->print_free_counters_hint = 1;
-			}
 		}
 	}
 
