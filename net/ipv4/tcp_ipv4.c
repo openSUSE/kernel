@@ -1297,14 +1297,19 @@ EXPORT_SYMBOL(tcp_v4_conn_request);
 /*
  * The three way handshake has completed - we got a valid synack -
  * now create the new socket.
+ *
+ * Function patched for bsc#1264610 provided under a different name, the
+ * unpatched one is just a wrapper calling it with null opt_child_init
+ * (i.e. preserving the original behaviour). This version is only called
+ * directly from tcp_v6_syn_recv_sock().
  */
-struct sock *tcp_v4_syn_recv_sock(const struct sock *sk, struct sk_buff *skb,
-				  struct request_sock *req,
-				  struct dst_entry *dst,
-				  struct request_sock *req_unhash,
-				  bool *own_req,
-				  void (*opt_child_init)(struct sock *newsk,
-							 const struct sock *sk))
+struct sock *tcp_v4_syn_recv_sock_bsc1264610(const struct sock *sk, struct sk_buff *skb,
+					     struct request_sock *req,
+					     struct dst_entry *dst,
+					     struct request_sock *req_unhash,
+					     bool *own_req,
+					     void (*opt_child_init)(struct sock *newsk,
+								    const struct sock *sk))
 {
 	struct inet_request_sock *ireq;
 	bool found_dup_sk = false;
@@ -1413,6 +1418,17 @@ put_and_exit:
 	inet_csk_prepare_forced_close(newsk);
 	tcp_done(newsk);
 	goto exit;
+}
+EXPORT_SYMBOL(tcp_v4_syn_recv_sock_bsc1264610);
+
+struct sock *tcp_v4_syn_recv_sock(const struct sock *sk, struct sk_buff *skb,
+				  struct request_sock *req,
+				  struct dst_entry *dst,
+				  struct request_sock *req_unhash,
+				  bool *own_req)
+{
+	return tcp_v4_syn_recv_sock_bsc1264610(sk, skb, req, dst, req_unhash,
+					       own_req, NULL);
 }
 EXPORT_SYMBOL(tcp_v4_syn_recv_sock);
 
