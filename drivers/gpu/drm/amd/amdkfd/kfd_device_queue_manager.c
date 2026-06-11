@@ -3336,7 +3336,7 @@ static uint32_t *get_queue_ids(uint32_t num_queues, uint32_t *usr_queue_id_array
 	size_t array_size = num_queues * sizeof(uint32_t);
 
 	if (!usr_queue_id_array)
-		return NULL;
+		return num_queues ? ERR_PTR(-EINVAL) : NULL;
 
 	return memdup_user(usr_queue_id_array, array_size);
 }
