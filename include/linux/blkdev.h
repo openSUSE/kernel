@@ -176,6 +176,7 @@ struct gendisk {
 #define GD_SUPPRESS_PART_SCAN		5
 #define GD_OWNS_QUEUE			6
 #define GD_ZONE_APPEND_USED		7
+#define GD_ERROR_INJECT			8
 
 	struct mutex open_mutex;	/* open/close mutex */
 	unsigned open_partitions;	/* number of open partitions */
@@ -226,6 +227,11 @@ struct gendisk {
 	 * devices that do not have multiple independent access ranges.
 	 */
 	struct blk_independent_access_ranges *ia_ranges;
+
+#ifdef CONFIG_BLK_ERROR_INJECTION
+	struct mutex		error_injection_lock;
+	struct list_head	error_injection_list;
+#endif
 
 	struct mutex rqos_state_mutex;	/* rqos state change mutex */
 };
