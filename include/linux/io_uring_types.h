@@ -131,6 +131,11 @@ struct io_uring_task {
 	const struct io_ring_ctx 	*last;
 	struct task_struct		*task;
 	struct io_wq			*io_wq;
+	/*
+	 * Consumer cursor for ->task_list. Only popped by the task itself,
+	 * or by ->fallback_work once the task can no longer run task_work.
+	 */
+	struct llist_node		*task_head;
 	struct file			*registered_rings[IO_RINGFD_REG_MAX];
 
 	struct xarray			xa;
@@ -139,8 +144,13 @@ struct io_uring_task {
 	atomic_t			inflight_tracked;
 	struct percpu_counter		inflight;
 
+	/* drains ->task_list once the task can no longer run task_work */
+	struct work_struct		fallback_work;
+
 	struct { /* task_work */
-		struct llist_head	task_list;
+		struct mpscq		task_list;
+		/* BIT(0) guards adding tw only once */
+		unsigned long		tw_pending;
 		struct callback_head	task_work;
 	} ____cacheline_aligned_in_smp;
 };

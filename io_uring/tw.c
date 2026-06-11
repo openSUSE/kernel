@@ -46,46 +46,6 @@ static void ctx_flush_and_put(struct io_ring_ctx *ctx, io_tw_token_t tw)
 	percpu_ref_put(&ctx->refs);
 }
 
-/*
- * Run queued task_work, returning the number of entries processed in *count.
- * If more entries than max_entries are available, stop processing once this
- * is reached and return the rest of the list.
- */
-struct llist_node *io_handle_tw_list(struct llist_node *node,
-				     unsigned int *count,
-				     unsigned int max_entries)
-{
-	struct io_ring_ctx *ctx = NULL;
-	struct io_tw_state ts = { };
-
-	do {
-		struct llist_node *next = node->next;
-		struct io_kiocb *req = container_of(node, struct io_kiocb,
-						    io_task_work.node);
-
-		if (req->ctx != ctx) {
-			ctx_flush_and_put(ctx, ts);
-			ctx = req->ctx;
-			mutex_lock(&ctx->uring_lock);
-			percpu_ref_get(&ctx->refs);
-			ts.cancel = io_should_terminate_tw(ctx);
-		}
-		INDIRECT_CALL_2(req->io_task_work.func,
-				io_poll_task_func, io_req_rw_complete,
-				(struct io_tw_req){req}, ts);
-		node = next;
-		(*count)++;
-		if (unlikely(need_resched())) {
-			ctx_flush_and_put(ctx, ts);
-			ctx = NULL;
-			cond_resched();
-		}
-	} while (node && *count < max_entries);
-
-	ctx_flush_and_put(ctx, ts);
-	return node;
-}
-
 static __cold void __io_fallback_tw(struct llist_node *node, bool sync)
 {
 	struct io_ring_ctx *last_ctx = NULL;
@@ -114,43 +74,109 @@ static __cold void __io_fallback_tw(struct llist_node *node, bool sync)
 	}
 }
 
-static void io_fallback_tw(struct io_uring_task *tctx, bool sync)
+void io_tctx_fallback_work(struct work_struct *work)
 {
-	struct llist_node *node = llist_del_all(&tctx->task_list);
+	struct io_uring_task *tctx = container_of(work, struct io_uring_task,
+						  fallback_work);
+	struct llist_node *node, *first = NULL, **tail = &first;
 
-	__io_fallback_tw(node, sync);
+	/* see tctx_task_work() - a set bit must always have a run coming */
+	clear_bit(0, &tctx->tw_pending);
+	smp_mb__after_atomic();
+
+	while (!mpscq_empty(&tctx->task_list)) {
+		node = mpscq_pop(&tctx->task_list, &tctx->task_head);
+		if (!node) {
+			/* a producer is mid-push, wait for it to link */
+			cond_resched();
+			continue;
+		}
+		*tail = node;
+		tail = &node->next;
+	}
+	*tail = NULL;
+	__io_fallback_tw(first, false);
+	put_task_struct(tctx->task);
 }
 
-struct llist_node *tctx_task_work_run(struct io_uring_task *tctx,
-				      unsigned int max_entries,
-				      unsigned int *count)
+static void io_fallback_tw(struct io_uring_task *tctx)
 {
-	struct llist_node *node;
+	/*
+	 * The task ref both keeps ->task valid and, as __io_uring_free() is
+	 * only called when the task itself is freed, ensures the tctx (and
+	 * the queued work) stay around until the drain has run.
+	 */
+	get_task_struct(tctx->task);
+	if (!queue_work(system_unbound_wq, &tctx->fallback_work))
+		put_task_struct(tctx->task);
+}
 
-	node = llist_del_all(&tctx->task_list);
-	if (node) {
-		node = llist_reverse_order(node);
-		node = io_handle_tw_list(node, count, max_entries);
+/*
+ * Run queued task_work, processing no more than max_entries, with the number
+ * of entries processed added to *count. If more entries than max_entries are
+ * available, the remainder simply stay on the queue for the next run.
+ */
+void tctx_task_work_run(struct io_uring_task *tctx, unsigned int max_entries,
+			unsigned int *count)
+{
+	struct io_ring_ctx *ctx = NULL;
+	struct io_tw_state ts = { };
+
+	while (*count < max_entries) {
+		struct llist_node *node = mpscq_pop(&tctx->task_list,
+						    &tctx->task_head);
+		struct io_kiocb *req;
+
+		if (!node) {
+			if (mpscq_empty(&tctx->task_list))
+				break;
+			/*
+			 * A producer has published a node but hasn't
+			 * linked it into the queue yet (see mpscq_pop()).
+			 * Give it a chance to finish rather than spinning,
+			 * and don't sit on the ctx lock while doing so.
+			 */
+			ctx_flush_and_put(ctx, ts);
+			ctx = NULL;
+			cond_resched();
+			continue;
+		}
+		req = container_of(node, struct io_kiocb, io_task_work.node);
+		if (req->ctx != ctx) {
+			ctx_flush_and_put(ctx, ts);
+			ctx = req->ctx;
+			mutex_lock(&ctx->uring_lock);
+			percpu_ref_get(&ctx->refs);
+			ts.cancel = io_should_terminate_tw(ctx);
+		}
+		INDIRECT_CALL_2(req->io_task_work.func,
+				io_poll_task_func, io_req_rw_complete,
+				(struct io_tw_req){req}, ts);
+		(*count)++;
+		if (unlikely(need_resched())) {
+			ctx_flush_and_put(ctx, ts);
+			ctx = NULL;
+			cond_resched();
+		}
 	}
+	ctx_flush_and_put(ctx, ts);
 
 	/* relaxed read is enough as only the task itself sets ->in_cancel */
 	if (unlikely(atomic_read(&tctx->in_cancel)))
 		io_uring_drop_tctx_refs(current);
 
 	trace_io_uring_task_work_run(tctx, *count);
-	return node;
 }
 
 void tctx_task_work(struct callback_head *cb)
 {
 	struct io_uring_task *tctx;
-	struct llist_node *ret;
 	unsigned int count = 0;
 
 	tctx = container_of(cb, struct io_uring_task, task_work);
-	ret = tctx_task_work_run(tctx, UINT_MAX, &count);
-	/* can't happen */
-	WARN_ON_ONCE(ret);
+	clear_bit(0, &tctx->tw_pending);
+	smp_mb__after_atomic();
+	tctx_task_work_run(tctx, UINT_MAX, &count);
 }
 
 /*
@@ -228,7 +254,7 @@ void io_req_normal_work_add(struct io_kiocb *req)
 	struct io_ring_ctx *ctx = req->ctx;
 
 	/* task_work already pending, we're done */
-	if (!llist_add(&req->io_task_work.node, &tctx->task_list))
+	if (!mpscq_push(&tctx->task_list, &req->io_task_work.node))
 		return;
 
 	/*
@@ -244,10 +270,14 @@ void io_req_normal_work_add(struct io_kiocb *req)
 		return;
 	}
 
+	/* task_work must only be added once */
+	if (test_and_set_bit(0, &tctx->tw_pending))
+		return;
+
 	if (likely(!task_work_add(tctx->task, &tctx->task_work, ctx->notify_method)))
 		return;
 
-	io_fallback_tw(tctx, false);
+	io_fallback_tw(tctx);
 }
 
 void io_req_task_work_add_remote(struct io_kiocb *req, unsigned flags)
