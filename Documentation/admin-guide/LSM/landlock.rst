@@ -6,7 +6,7 @@ Landlock: system-wide management
 ================================
 
 :Author: Mickaël Salaün
-:Date: January 2026
+:Date: June 2026
 
 Landlock can leverage the audit framework to log events.
 
@@ -54,6 +54,8 @@ AUDIT_LANDLOCK_ACCESS
     **net.*** - Network access rights (ABI 4+):
         - net.bind_tcp - TCP port binding was denied
         - net.connect_tcp - TCP connection was denied
+        - net.bind_udp - UDP port binding was denied
+        - net.connect_send_udp - UDP connection and send was denied
 
     **scope.*** - IPC scoping restrictions (ABI 6+):
         - scope.abstract_unix_socket - Abstract UNIX socket connection denied
