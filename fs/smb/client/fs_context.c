@@ -1092,10 +1092,8 @@ static int smb3_reconfigure(struct fs_context *fc)
 		return -ENOMEM;
 
 	rc = smb3_fs_context_dup(old_ctx, cifs_sb->ctx);
-	if (rc) {
-		kfree(old_ctx);
-		return rc;
-	}
+	if (rc)
+		goto free_old_ctx;
 
 	/*
 	 * We can not change UNC/username/password/domainname/
@@ -1244,6 +1242,7 @@ restore_ctx:
 	kfree_sensitive(new_password2);
 	smb3_cleanup_fs_context_contents(cifs_sb->ctx);
 	memcpy(cifs_sb->ctx, old_ctx, sizeof(*old_ctx));
+free_old_ctx:
 	kfree(old_ctx);
 
 	return rc;
