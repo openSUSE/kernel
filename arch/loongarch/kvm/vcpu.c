@@ -240,21 +240,12 @@ static void kvm_late_check_requests(struct kvm_vcpu *vcpu)
 		}
 
 	if (kvm_check_request(KVM_REQ_FPU_LOAD, vcpu)) {
-		switch (vcpu->arch.aux_ldtype) {
-		case KVM_LARCH_FPU:
-			kvm_own_fpu(vcpu);
-			break;
-		case KVM_LARCH_LSX:
-			kvm_own_lsx(vcpu);
-			break;
-		case KVM_LARCH_LASX:
+		if (kvm_guest_has_lasx(&vcpu->arch))
 			kvm_own_lasx(vcpu);
-			break;
-		default:
-			break;
-		}
-
-		vcpu->arch.aux_ldtype = 0;
+		else if (kvm_guest_has_lsx(&vcpu->arch))
+			kvm_own_lsx(vcpu);
+		else if (kvm_guest_has_fpu(&vcpu->arch))
+			kvm_own_fpu(vcpu);
 	}
 
 	if (kvm_check_request(KVM_REQ_LBT_LOAD, vcpu))
