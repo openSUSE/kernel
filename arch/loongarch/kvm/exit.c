@@ -756,7 +756,7 @@ static int kvm_handle_fpu_disabled(struct kvm_vcpu *vcpu, int ecode)
 	}
 
 	vcpu->arch.aux_ldtype = KVM_LARCH_FPU;
-	kvm_make_request(KVM_REQ_AUX_LOAD, vcpu);
+	kvm_make_request(KVM_REQ_FPU_LOAD, vcpu);
 
 	return RESUME_GUEST;
 }
@@ -798,7 +798,7 @@ static int kvm_handle_lsx_disabled(struct kvm_vcpu *vcpu, int ecode)
 		kvm_queue_exception(vcpu, EXCCODE_INE, 0);
 	else {
 		vcpu->arch.aux_ldtype = KVM_LARCH_LSX;
-		kvm_make_request(KVM_REQ_AUX_LOAD, vcpu);
+		kvm_make_request(KVM_REQ_FPU_LOAD, vcpu);
 	}
 
 	return RESUME_GUEST;
@@ -818,7 +818,7 @@ static int kvm_handle_lasx_disabled(struct kvm_vcpu *vcpu, int ecode)
 		kvm_queue_exception(vcpu, EXCCODE_INE, 0);
 	else {
 		vcpu->arch.aux_ldtype = KVM_LARCH_LASX;
-		kvm_make_request(KVM_REQ_AUX_LOAD, vcpu);
+		kvm_make_request(KVM_REQ_FPU_LOAD, vcpu);
 	}
 
 	return RESUME_GUEST;
@@ -828,10 +828,8 @@ static int kvm_handle_lbt_disabled(struct kvm_vcpu *vcpu, int ecode)
 {
 	if (!kvm_guest_has_lbt(&vcpu->arch))
 		kvm_queue_exception(vcpu, EXCCODE_INE, 0);
-	else {
-		vcpu->arch.aux_ldtype = KVM_LARCH_LBT;
-		kvm_make_request(KVM_REQ_AUX_LOAD, vcpu);
-	}
+	else
+		kvm_make_request(KVM_REQ_LBT_LOAD, vcpu);
 
 	return RESUME_GUEST;
 }

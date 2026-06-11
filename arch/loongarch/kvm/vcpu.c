@@ -239,7 +239,7 @@ static void kvm_late_check_requests(struct kvm_vcpu *vcpu)
 			vcpu->arch.flush_gpa = INVALID_GPA;
 		}
 
-	if (kvm_check_request(KVM_REQ_AUX_LOAD, vcpu)) {
+	if (kvm_check_request(KVM_REQ_FPU_LOAD, vcpu)) {
 		switch (vcpu->arch.aux_ldtype) {
 		case KVM_LARCH_FPU:
 			kvm_own_fpu(vcpu);
@@ -250,15 +250,15 @@ static void kvm_late_check_requests(struct kvm_vcpu *vcpu)
 		case KVM_LARCH_LASX:
 			kvm_own_lasx(vcpu);
 			break;
-		case KVM_LARCH_LBT:
-			kvm_own_lbt(vcpu);
-			break;
 		default:
 			break;
 		}
 
 		vcpu->arch.aux_ldtype = 0;
 	}
+
+	if (kvm_check_request(KVM_REQ_LBT_LOAD, vcpu))
+		kvm_own_lbt(vcpu);
 }
 
 /*
