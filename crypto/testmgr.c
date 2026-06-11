@@ -5172,7 +5172,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 #if IS_ENABLED(CONFIG_CRYPTO_DH_RFC7919_GROUPS)
 		.alg = "ffdhe2048(dh)",
 		.test = alg_test_kpp,
-		.fips_allowed = 1,
+		.fips_allowed = 0,
 		.suite = {
 			.kpp = __VECS(ffdhe2048_dh_tv_template)
 		}
@@ -5262,7 +5262,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "hmac(sha224)",
 		.test = alg_test_hash,
-		.fips_allowed = 1,
+		.fips_allowed = 0,
 		.suite = {
 			.hash = __VECS(hmac_sha224_tv_template)
 		}
@@ -5276,7 +5276,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "hmac(sha3-224)",
 		.test = alg_test_hash,
-		.fips_allowed = 1,
+		.fips_allowed = 0,
 		.suite = {
 			.hash = __VECS(hmac_sha3_224_tv_template)
 		}
@@ -5452,7 +5452,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "pkcs1pad(rsa,sha224)",
 		.test = alg_test_null,
-		.fips_allowed = 1,
+		.fips_allowed = 0,
 	}, {
 		.alg = "pkcs1pad(rsa,sha256)",
 		.test = alg_test_akcipher,
@@ -5578,7 +5578,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "sha224",
 		.test = alg_test_hash,
-		.fips_allowed = 1,
+		.fips_allowed = 0,
 		.suite = {
 			.hash = __VECS(sha224_tv_template)
 		}
@@ -5592,7 +5592,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "sha3-224",
 		.test = alg_test_hash,
-		.fips_allowed = 1,
+		.fips_allowed = 0,
 		.suite = {
 			.hash = __VECS(sha3_224_tv_template)
 		}
@@ -5948,6 +5948,8 @@ int alg_test(const char *driver, const char *alg, u32 type, u32 mask)
 			return -EINVAL;
 
 		if (i >= 0 && !alg_test_descs[i].fips_allowed)
+			goto non_fips_alg;
+		else if (!memcmp(alg, "ecb(", 4))
 			goto non_fips_alg;
 	}
 
