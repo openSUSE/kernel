@@ -956,12 +956,7 @@ static bool skb_pp_recycle(struct sk_buff *skb, void *data, bool napi_safe)
 
 static void skb_kfree_head(void *head, unsigned int end_offset)
 {
-#ifdef HAVE_SKB_SMALL_HEAD_CACHE
-	if (end_offset == SKB_SMALL_HEAD_HEADROOM)
-		kmem_cache_free(skb_small_head_cache, head);
-	else
-#endif
-		kfree(head);
+	kfree(head);
 }
 
 static void skb_free_head(struct sk_buff *skb, bool napi_safe)
