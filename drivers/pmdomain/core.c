@@ -32,9 +32,6 @@ static const struct bus_type genpd_provider_bus_type = {
 	.name		= "genpd_provider",
 };
 
-/* The parent for genpd_provider devices. */
-static struct device *genpd_provider_bus;
-
 #define GENPD_RETRY_MAX_MS	250		/* Approximate */
 
 #define GENPD_DEV_CALLBACK(genpd, type, callback, dev)		\
@@ -2566,6 +2563,10 @@ struct of_genpd_provider {
 static LIST_HEAD(of_genpd_providers);
 /* Mutex to protect the list above. */
 static DEFINE_MUTEX(of_genpd_mutex);
+
+/* The parent for genpd_provider devices. */
+static struct device *genpd_provider_bus;
+
 /* Used to prevent registering devices before the bus. */
 static bool genpd_bus_registered;
 
