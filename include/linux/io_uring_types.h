@@ -498,8 +498,6 @@ struct io_ring_ctx {
 	struct mutex			tctx_lock;
 
 	/* ctx exit and cancelation */
-	struct llist_head		fallback_llist;
-	struct delayed_work		fallback_work;
 	struct work_struct		exit_work;
 	struct completion		ref_comp;
 

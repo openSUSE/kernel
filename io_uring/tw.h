@@ -30,8 +30,7 @@ void io_tctx_fallback_work(struct work_struct *work);
 int io_run_local_work(struct io_ring_ctx *ctx, int min_events, int max_events);
 int io_run_task_work_sig(struct io_ring_ctx *ctx);
 
-__cold void io_fallback_req_func(struct work_struct *work);
-__cold void io_move_task_work_from_local(struct io_ring_ctx *ctx);
+__cold void io_cancel_local_task_work(struct io_ring_ctx *ctx);
 int io_run_local_work_locked(struct io_ring_ctx *ctx, int min_events);
 
 void io_req_local_work_add(struct io_kiocb *req, unsigned flags);

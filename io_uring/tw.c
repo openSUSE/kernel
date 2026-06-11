@@ -16,24 +16,6 @@
 #include "wait.h"
 #include "mpscq.h"
 
-void io_fallback_req_func(struct work_struct *work)
-{
-	struct io_ring_ctx *ctx = container_of(work, struct io_ring_ctx,
-						fallback_work.work);
-	struct llist_node *node = llist_del_all(&ctx->fallback_llist);
-	struct io_kiocb *req, *tmp;
-	struct io_tw_state ts = {};
-
-	percpu_ref_get(&ctx->refs);
-	mutex_lock(&ctx->uring_lock);
-	ts.cancel = io_should_terminate_tw(ctx);
-	llist_for_each_entry_safe(req, tmp, node, io_task_work.node)
-		req->io_task_work.func((struct io_tw_req){req}, ts);
-	io_submit_flush_completions(ctx);
-	mutex_unlock(&ctx->uring_lock);
-	percpu_ref_put(&ctx->refs);
-}
-
 static void ctx_flush_and_put(struct io_ring_ctx *ctx, io_tw_token_t tw)
 {
 	if (!ctx)
@@ -44,34 +26,6 @@ static void ctx_flush_and_put(struct io_ring_ctx *ctx, io_tw_token_t tw)
 	io_submit_flush_completions(ctx);
 	mutex_unlock(&ctx->uring_lock);
 	percpu_ref_put(&ctx->refs);
-}
-
-static __cold void __io_fallback_tw(struct llist_node *node, bool sync)
-{
-	struct io_ring_ctx *last_ctx = NULL;
-	struct io_kiocb *req;
-
-	while (node) {
-		req = container_of(node, struct io_kiocb, io_task_work.node);
-		node = node->next;
-		if (last_ctx != req->ctx) {
-			if (last_ctx) {
-				if (sync)
-					flush_delayed_work(&last_ctx->fallback_work);
-				percpu_ref_put(&last_ctx->refs);
-			}
-			last_ctx = req->ctx;
-			percpu_ref_get(&last_ctx->refs);
-		}
-		if (llist_add(&req->io_task_work.node, &last_ctx->fallback_llist))
-			schedule_delayed_work(&last_ctx->fallback_work, 1);
-	}
-
-	if (last_ctx) {
-		if (sync)
-			flush_delayed_work(&last_ctx->fallback_work);
-		percpu_ref_put(&last_ctx->refs);
-	}
 }
 
 void io_tctx_fallback_work(struct work_struct *work)
@@ -286,29 +240,34 @@ void io_req_task_work_add_remote(struct io_kiocb *req, unsigned flags)
 	__io_req_task_work_add(req, flags);
 }
 
-void __cold io_move_task_work_from_local(struct io_ring_ctx *ctx)
+void __cold io_cancel_local_task_work(struct io_ring_ctx *ctx)
 {
-	struct llist_node *node, *first = NULL, **tail = &first;
+	struct io_tw_state ts = { .cancel = true };
+	struct llist_node *node;
 
 	/*
 	 * The work list consumer side is serialized by ->uring_lock, see
 	 * __io_run_local_work(). Grab it to guard against racing with normal
-	 * task_work running, as the task may be exiting.
+	 * task_work running, as the task may be exiting. The ring is going
+	 * away, run the entries in cancel mode right here - the callers
+	 * provide the same process context the per-ctx fallback work that
+	 * they were previously punted to ran in.
 	 */
 	guard(mutex)(&ctx->uring_lock);
 
 	while (!mpscq_empty(&ctx->work_list)) {
+		struct io_kiocb *req;
+
 		node = mpscq_pop(&ctx->work_list, &ctx->work_head);
 		if (!node) {
 			/* a producer is mid-push, wait for it to link */
-			cpu_relax();
+			cond_resched();
 			continue;
 		}
-		*tail = node;
-		tail = &node->next;
+		req = container_of(node, struct io_kiocb, io_task_work.node);
+		req->io_task_work.func((struct io_tw_req){req}, ts);
 	}
-	*tail = NULL;
-	__io_fallback_tw(first, false);
+	io_submit_flush_completions(ctx);
 }
 
 static bool io_run_local_work_continue(struct io_ring_ctx *ctx, int events,
