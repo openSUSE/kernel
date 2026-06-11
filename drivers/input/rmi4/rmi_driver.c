@@ -1161,6 +1161,7 @@ static int rmi_driver_probe(struct device *dev)
 		return -ENOMEM;
 
 	INIT_LIST_HEAD(&data->function_list);
+	INIT_KFIFO(data->attn_fifo);
 	data->rmi_dev = rmi_dev;
 	dev_set_drvdata(&rmi_dev->dev, data);
 
