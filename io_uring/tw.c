@@ -78,24 +78,18 @@ void io_tctx_fallback_work(struct work_struct *work)
 {
 	struct io_uring_task *tctx = container_of(work, struct io_uring_task,
 						  fallback_work);
-	struct llist_node *node, *first = NULL, **tail = &first;
+	unsigned int count = 0;
 
 	/* see tctx_task_work() - a set bit must always have a run coming */
 	clear_bit(0, &tctx->tw_pending);
 	smp_mb__after_atomic();
 
-	while (!mpscq_empty(&tctx->task_list)) {
-		node = mpscq_pop(&tctx->task_list, &tctx->task_head);
-		if (!node) {
-			/* a producer is mid-push, wait for it to link */
-			cond_resched();
-			continue;
-		}
-		*tail = node;
-		tail = &node->next;
-	}
-	*tail = NULL;
-	__io_fallback_tw(first, false);
+	/*
+	 * Run the entries directly. We're in PF_KTHRED context, hence
+	 * io_should_terminate_tw() is true and they will be marked as
+	 * canceled.
+	 */
+	tctx_task_work_run(tctx, UINT_MAX, &count);
 	put_task_struct(tctx->task);
 }
 
@@ -161,8 +155,13 @@ void tctx_task_work_run(struct io_uring_task *tctx, unsigned int max_entries,
 	}
 	ctx_flush_and_put(ctx, ts);
 
-	/* relaxed read is enough as only the task itself sets ->in_cancel */
-	if (unlikely(atomic_read(&tctx->in_cancel)))
+	/*
+	 * Relaxed read is enough as only the task itself sets ->in_cancel.
+	 * The tctx may also be drained by io_tctx_fallback_work(), in which
+	 * case current is a kworker that has no tctx refs to drop.
+	 */
+	if (unlikely(atomic_read(&tctx->in_cancel)) &&
+	    current->io_uring == tctx)
 		io_uring_drop_tctx_refs(current);
 
 	trace_io_uring_task_work_run(tctx, *count);
