@@ -509,6 +509,17 @@ static void netc_port_set_mlo(struct netc_port *np, enum netc_mlo mlo)
 	netc_port_rmw(np, NETC_BPCR, BPCR_MLO, FIELD_PREP(BPCR_MLO, mlo));
 }
 
+static void netc_port_set_pvid(struct netc_port *np, u16 pvid)
+{
+	netc_port_rmw(np, NETC_BPDVR, BPDVR_VID, pvid);
+}
+
+static void netc_port_set_vlan_aware(struct netc_port *np, bool aware)
+{
+	netc_port_rmw(np, NETC_BPDVR, BPDVR_RXVAM,
+		      aware ? 0 : BPDVR_RXVAM);
+}
+
 static void netc_port_fixed_config(struct netc_port *np)
 {
 	/* Default IPV and DR setting */
@@ -534,7 +545,7 @@ static void netc_port_default_config(struct netc_port *np)
 	netc_port_fixed_config(np);
 
 	/* Default VLAN unaware */
-	netc_port_rmw(np, NETC_BPDVR, BPDVR_RXVAM, BPDVR_RXVAM);
+	netc_port_set_vlan_aware(np, false);
 
 	if (dsa_port_is_cpu(np->dp))
 		/* For CPU port, source port pruning is disabled */
@@ -695,10 +706,16 @@ static int netc_port_del_fdb_entry(struct netc_port *np,
 
 	entry = netc_lookup_fdb_entry(priv, addr, vid);
 	if (unlikely(!entry))
-		/* Currently only single port mode is supported, MAC learning
-		 * is disabled, so there is no dynamically learned FDB entry.
-		 * We need to support deleting dynamically FDB entry when the
-		 * bridge mode is supported.
+		/* The hardware-learned dynamic FDB entries cannot be deleted
+		 * through .port_fdb_del() interface.
+		 * For NTF_MASTER path: Since hardware-learned dynamic FDB
+		 * entries are never synchronized back to the bridge software
+		 * database. br_fdb_delete() -> br_fdb_find() cannot find the
+		 * FDB entry, so .port_fdb_del() will not be called.
+		 * For NTF_SELF path: dsa_user_netdev_ops does not implement
+		 * ndo_fdb_del(), so rtnl_fdb_del() falls back to
+		 * ndo_dflt_fdb_del(), which only supports NUD_PERMANENT static
+		 * entries and rejects all others with -EINVAL.
 		 */
 		goto unlock_fdbt;
 
@@ -1277,6 +1294,16 @@ static int netc_port_add_vlan_entry(struct netc_port *np, u16 vid,
 	entry->ect_gid = NTMP_NULL_ENTRY_ID;
 
 	bitmap_stg = BIT(index) | VFT_STG_ID(0);
+	/* If the VID is a VLAN-unaware PVID, the CPU port needs to be
+	 * a member of this VLAN.
+	 */
+	if (dsa_port_is_user(np->dp) &&
+	    vid >= NETC_VLAN_UNAWARE_PVID(priv->ds->max_num_bridges)) {
+		struct dsa_port *cpu_dp = np->dp->cpu_dp;
+
+		bitmap_stg |= BIT(cpu_dp->index);
+	}
+
 	cfg = FIELD_PREP(VFT_MLO, MLO_HW) |
 	      FIELD_PREP(VFT_MFO, MFO_NO_MATCH_FLOOD);
 
@@ -1314,10 +1341,15 @@ free_vlan_entry:
 	return err;
 }
 
-static bool netc_port_vlan_egress_rule_changed(struct netc_vlan_entry *entry,
+static bool netc_port_vlan_egress_rule_changed(struct netc_switch *priv,
+					       struct netc_vlan_entry *entry,
 					       int port, bool untagged)
 {
 	bool old_untagged = !!(entry->untagged_port_bitmap & BIT(port));
+
+	/* VLAN-unaware VIDs have no egress rules, so return 'false' */
+	if (entry->vid >= NETC_VLAN_UNAWARE_PVID(priv->ds->max_num_bridges))
+		return false;
 
 	return old_untagged != untagged;
 }
@@ -1341,7 +1373,8 @@ static int netc_port_set_vlan_entry(struct netc_port *np, u16 vid,
 	}
 
 	/* Check whether the egress VLAN rule is changed */
-	changed = netc_port_vlan_egress_rule_changed(entry, port, untagged);
+	changed = netc_port_vlan_egress_rule_changed(priv, entry, port,
+						     untagged);
 	if (changed) {
 		entry->untagged_port_bitmap ^= BIT(port);
 		err = netc_port_update_vlan_egress_rule(np, entry);
@@ -1405,6 +1438,17 @@ static int netc_port_del_vlan_entry(struct netc_port *np, u16 vid)
 	cfge = &entry->cfge;
 	vlan_port_bitmap = FIELD_GET(VFT_PORT_MEMBERSHIP,
 				     le32_to_cpu(cfge->bitmap_stg));
+	/* If the VID is a VLAN-unaware PVID, we need to clear the CPU
+	 * port bit of vlan_port_bitmap, so that the VLAN entry can be
+	 * deleted if no user ports use this VLAN.
+	 */
+	if (dsa_port_is_user(np->dp) &&
+	    vid >= NETC_VLAN_UNAWARE_PVID(priv->ds->max_num_bridges)) {
+		struct dsa_port *cpu_dp = np->dp->cpu_dp;
+
+		vlan_port_bitmap &= ~BIT(cpu_dp->index);
+	}
+
 	/* If the VLAN only belongs to the current port */
 	if (vlan_port_bitmap == BIT(port)) {
 		err = ntmp_vft_delete_entry(&priv->ntmp, vid);
@@ -1510,17 +1554,50 @@ static int netc_port_max_mtu(struct dsa_switch *ds, int port)
 	return NETC_MAX_FRAME_LEN - VLAN_ETH_HLEN - ETH_FCS_LEN;
 }
 
+static struct net_device *netc_classify_db(struct dsa_db db)
+{
+	switch (db.type) {
+	case DSA_DB_PORT:
+		return NULL;
+	case DSA_DB_BRIDGE:
+		return db.bridge.dev;
+	default:
+		return ERR_PTR(-EOPNOTSUPP);
+	}
+}
+
+static u16 netc_vlan_unaware_pvid(struct dsa_bridge *bridge)
+{
+	u32 br_num;
+
+	if (!bridge)
+		return NETC_STANDALONE_PVID;
+
+	br_num = bridge->num;
+
+	/* The br_num is supposed to be 1 ~ ds->max_num_bridges, see
+	 * dsa_bridge_num_get(). Since max_num_bridges is non-zero,
+	 * so dsa_port_bridge_create() will return an error if
+	 * dsa_bridge_num_get() returns 0.
+	 */
+	if (WARN_ON(!br_num))
+		return NETC_STANDALONE_PVID;
+
+	return NETC_VLAN_UNAWARE_PVID(br_num);
+}
+
 static int netc_port_fdb_add(struct dsa_switch *ds, int port,
 			     const unsigned char *addr, u16 vid,
 			     struct dsa_db db)
 {
+	struct net_device *br_ndev = netc_classify_db(db);
 	struct netc_port *np = NETC_PORT(ds, port);
 
-	/* Currently, only support standalone port mode, so only
-	 * NETC_STANDALONE_PVID (= 0) is supported here.
-	 */
-	if (vid != NETC_STANDALONE_PVID)
-		return -EOPNOTSUPP;
+	if (IS_ERR(br_ndev))
+		return PTR_ERR(br_ndev);
+
+	if (!vid)
+		vid = netc_vlan_unaware_pvid(br_ndev ? &db.bridge : NULL);
 
 	return netc_port_set_fdb_entry(np, addr, vid);
 }
@@ -1529,10 +1606,14 @@ static int netc_port_fdb_del(struct dsa_switch *ds, int port,
 			     const unsigned char *addr, u16 vid,
 			     struct dsa_db db)
 {
+	struct net_device *br_ndev = netc_classify_db(db);
 	struct netc_port *np = NETC_PORT(ds, port);
 
-	if (vid != NETC_STANDALONE_PVID)
-		return -EOPNOTSUPP;
+	if (IS_ERR(br_ndev))
+		return PTR_ERR(br_ndev);
+
+	if (!vid)
+		vid = netc_vlan_unaware_pvid(br_ndev ? &db.bridge : NULL);
 
 	return netc_port_del_fdb_entry(np, addr, vid);
 }
@@ -1568,6 +1649,8 @@ static int netc_port_fdb_dump(struct dsa_switch *ds, int port,
 		cfg = le32_to_cpu(cfge->cfg);
 		is_static = (cfg & FDBT_DYNAMIC) ? false : true;
 		vid = le16_to_cpu(keye->fid);
+		if (vid >= NETC_VLAN_UNAWARE_PVID(ds->max_num_bridges))
+			vid = 0;
 
 		err = cb(keye->mac_addr, vid, is_static, data);
 		if (err)
@@ -1670,12 +1753,23 @@ static void netc_port_remove_host_flood(struct netc_port *np,
 					struct ipft_entry_data *host_flood)
 {
 	struct netc_switch *priv = np->switch_priv;
+	bool disable_host_flood = false;
 
 	if (!host_flood)
 		return;
 
+	if (np->host_flood == host_flood)
+		disable_host_flood = true;
+
 	ntmp_ipft_delete_entry(&priv->ntmp, host_flood->entry_id);
 	kfree(host_flood);
+
+	if (disable_host_flood) {
+		np->host_flood = NULL;
+		np->uc = false;
+		np->mc = false;
+		netc_port_wr(np, NETC_PIPFCR, 0);
+	}
 }
 
 static void netc_port_set_host_flood(struct dsa_switch *ds, int port,
@@ -1683,6 +1777,17 @@ static void netc_port_set_host_flood(struct dsa_switch *ds, int port,
 {
 	struct netc_port *np = NETC_PORT(ds, port);
 	struct ipft_entry_data *old_host_flood;
+
+	/* Do not add host flood rule to ingress port filter table when
+	 * the port has joined a bridge. Otherwise, the ingress frames
+	 * will bypass FDB table lookup and MAC learning, so the frames
+	 * will be redirected directly to the CPU port.
+	 */
+	if (dsa_port_bridge_dev_get(np->dp)) {
+		netc_port_remove_host_flood(np, np->host_flood);
+
+		return;
+	}
 
 	if (np->uc == uc && np->mc == mc)
 		return;
@@ -1705,12 +1810,90 @@ static void netc_port_set_host_flood(struct dsa_switch *ds, int port,
 	netc_port_remove_host_flood(np, old_host_flood);
 }
 
+static int netc_single_vlan_aware_bridge(struct dsa_switch *ds,
+					 struct netlink_ext_ack *extack)
+{
+	struct net_device *br_ndev = NULL;
+	struct dsa_port *dp;
+
+	dsa_switch_for_each_available_port(dp, ds) {
+		struct net_device *port_br = dsa_port_bridge_dev_get(dp);
+
+		if (!port_br || !br_vlan_enabled(port_br))
+			continue;
+
+		if (!br_ndev) {
+			br_ndev = port_br;
+			continue;
+		}
+
+		if (br_ndev == port_br)
+			continue;
+
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Only one VLAN-aware bridge is supported");
+
+		return -EBUSY;
+	}
+
+	return 0;
+}
+
+static int netc_port_vlan_filtering(struct dsa_switch *ds,
+				    int port, bool vlan_aware,
+				    struct netlink_ext_ack *extack)
+{
+	struct netc_port *np = NETC_PORT(ds, port);
+	u16 pvid;
+	int err;
+
+	/* Before calling port_vlan_filtering(), br_vlan_filter_toggle() has
+	 * already updated the BROPT_VLAN_ENABLED bit of br->options. So the
+	 * VLAN filtering status of the switch ports can be checked by the
+	 * br_vlan_enabled() function.
+	 */
+	err = netc_single_vlan_aware_bridge(ds, extack);
+	if (err)
+		return err;
+
+	pvid = netc_vlan_unaware_pvid(np->dp->bridge);
+	if (pvid == NETC_STANDALONE_PVID) {
+		vlan_aware = false;
+		goto bpdvr_config;
+	}
+
+	if (vlan_aware) {
+		/* The FDB entries associated with unaware_pvid do not need
+		 * to be deleted, so that when switching from VLAN-aware to
+		 * VLAN-unaware mode, these FDB entries do not need to be
+		 * re-added.
+		 */
+		err = netc_port_del_vlan_entry(np, pvid);
+		if (err)
+			return err;
+
+		pvid = np->pvid;
+	} else {
+		err = netc_port_set_vlan_entry(np, pvid, false);
+		if (err)
+			return err;
+	}
+
+bpdvr_config:
+	netc_port_set_vlan_aware(np, vlan_aware);
+	netc_port_set_pvid(np, pvid);
+
+	return 0;
+}
+
 static int netc_port_vlan_add(struct dsa_switch *ds, int port,
 			      const struct switchdev_obj_port_vlan *vlan,
 			      struct netlink_ext_ack *extack)
 {
 	struct netc_port *np = NETC_PORT(ds, port);
+	struct dsa_port *dp = np->dp;
 	bool untagged;
+	int err;
 
 	/* The 8021q layer may attempt to change NETC_STANDALONE_PVID
 	 * (VID 0), so we need to ignore it.
@@ -1718,20 +1901,176 @@ static int netc_port_vlan_add(struct dsa_switch *ds, int port,
 	if (vlan->vid == NETC_STANDALONE_PVID)
 		return 0;
 
-	untagged = !!(vlan->flags & BRIDGE_VLAN_INFO_UNTAGGED);
+	if (vlan->vid >= NETC_VLAN_UNAWARE_PVID(ds->max_num_bridges)) {
+		NL_SET_ERR_MSG_FMT_MOD(extack,
+				       "VID %d~4095 reserved for VLAN-unaware bridge",
+				       NETC_VLAN_UNAWARE_PVID(ds->max_num_bridges));
+		return -EINVAL;
+	}
 
-	return netc_port_set_vlan_entry(np, vlan->vid, untagged);
+	untagged = !!(vlan->flags & BRIDGE_VLAN_INFO_UNTAGGED);
+	err = netc_port_set_vlan_entry(np, vlan->vid, untagged);
+	if (err)
+		return err;
+
+	if (vlan->flags & BRIDGE_VLAN_INFO_PVID) {
+		np->pvid = vlan->vid;
+		if (dsa_port_is_vlan_filtering(dp))
+			netc_port_set_pvid(np, vlan->vid);
+
+		return 0;
+	}
+
+	if (np->pvid != vlan->vid)
+		return 0;
+
+	/* Delete PVID */
+	np->pvid = NETC_STANDALONE_PVID;
+	if (dsa_port_is_vlan_filtering(dp))
+		netc_port_set_pvid(np, NETC_STANDALONE_PVID);
+
+	return 0;
 }
 
 static int netc_port_vlan_del(struct dsa_switch *ds, int port,
 			      const struct switchdev_obj_port_vlan *vlan)
 {
 	struct netc_port *np = NETC_PORT(ds, port);
+	int err;
 
 	if (vlan->vid == NETC_STANDALONE_PVID)
 		return 0;
 
-	return netc_port_del_vlan_entry(np, vlan->vid);
+	if (vlan->vid >= NETC_VLAN_UNAWARE_PVID(ds->max_num_bridges))
+		return -EINVAL;
+
+	err = netc_port_del_vlan_entry(np, vlan->vid);
+	if (err)
+		return err;
+
+	if (np->pvid == vlan->vid) {
+		np->pvid = NETC_STANDALONE_PVID;
+
+		/* Set the port PVID to NETC_STANDALONE_PVID if the VLAN-aware
+		 * bridge port has no PVID. The untagged frames will not be
+		 * forwarded to other user ports, as NETC_STANDALONE_PVID VLAN
+		 * entry has disabled MAC learning and flooding, and other user
+		 * ports do not have FDB entries with NETC_STANDALONE_PVID.
+		 */
+		if (dsa_port_is_vlan_filtering(np->dp))
+			netc_port_set_pvid(np, NETC_STANDALONE_PVID);
+	}
+
+	return 0;
+}
+
+static int netc_port_bridge_join(struct dsa_switch *ds, int port,
+				 struct dsa_bridge bridge,
+				 bool *tx_fwd_offload,
+				 struct netlink_ext_ack *extack)
+{
+	struct netc_port *np = NETC_PORT(ds, port);
+	u16 vlan_unaware_pvid;
+	int err;
+
+	if (!bridge.num) {
+		NL_SET_ERR_MSG_MOD(extack, "Bridge number 0 is unsupported");
+		return -EINVAL;
+	}
+
+	err = netc_single_vlan_aware_bridge(ds, extack);
+	if (err)
+		return err;
+
+	netc_port_set_mlo(np, MLO_NOT_OVERRIDE);
+
+	if (br_vlan_enabled(bridge.dev))
+		goto out;
+
+	vlan_unaware_pvid = NETC_VLAN_UNAWARE_PVID(bridge.num);
+	err = netc_port_set_vlan_entry(np, vlan_unaware_pvid, false);
+	if (err)
+		goto disable_mlo;
+
+	netc_port_set_pvid(np, vlan_unaware_pvid);
+
+out:
+	netc_port_remove_host_flood(np, np->host_flood);
+
+	return 0;
+
+disable_mlo:
+	netc_port_set_mlo(np, MLO_DISABLE);
+
+	return err;
+}
+
+static void netc_port_remove_dynamic_entries(struct netc_port *np)
+{
+	struct netc_switch *priv = np->switch_priv;
+
+	/* Return if the port is not available */
+	if (!np->dp)
+		return;
+
+	mutex_lock(&priv->fdbt_lock);
+	ntmp_fdbt_delete_port_dynamic_entries(&priv->ntmp, np->dp->index);
+	mutex_unlock(&priv->fdbt_lock);
+}
+
+static void netc_port_bridge_leave(struct dsa_switch *ds, int port,
+				   struct dsa_bridge bridge)
+{
+	struct netc_port *np = NETC_PORT(ds, port);
+	struct net_device *ndev = np->dp->user;
+	u16 vlan_unaware_pvid;
+	bool mc, uc;
+
+	netc_port_set_mlo(np, MLO_DISABLE);
+	netc_port_set_pvid(np, NETC_STANDALONE_PVID);
+	np->pvid = NETC_STANDALONE_PVID;
+
+	netc_port_remove_dynamic_entries(np);
+	uc = ndev->flags & IFF_PROMISC;
+	mc = ndev->flags & (IFF_PROMISC | IFF_ALLMULTI);
+
+	if (netc_port_add_host_flood_rule(np, uc, mc))
+		dev_warn(ds->dev,
+			 "Failed to restore host flood rule on port %d\n",
+			 port);
+
+	/* When a port leaves a VLAN-aware bridge, dsa_port_bridge_leave()
+	 * follows the sequence below:
+	 *
+	 * 1. dsa_port_bridge_destroy() is called to set dp->bridge to NULL.
+	 * 2. dsa_broadcast() is called, which eventually invokes
+	 *    ds->ops->port_bridge_leave()
+	 * 3. dsa_port_switchdev_unsync_attrs() is called, which triggers
+	 *    dsa_port_reset_vlan_filtering() and ultimately calls
+	 *    ds->ops->port_vlan_filtering() to transition the port from
+	 *    VLAN-aware mode to VLAN-unaware mode.
+	 *
+	 * At step 3, since dp->bridge has already been set to NULL in step 1,
+	 * netc_port_vlan_filtering() will detect this and skip the creation
+	 * of an unaware PVID entry in the VLAN filter table. Therefore, it is
+	 * safe to return directly here.
+	 */
+	if (br_vlan_enabled(bridge.dev))
+		return;
+
+	vlan_unaware_pvid = NETC_VLAN_UNAWARE_PVID(bridge.num);
+	/* There is no need to check the return value even if it fails.
+	 * Because the PVID has been set to NETC_STANDALONE_PVID, the
+	 * frames will not match this VLAN entry.
+	 */
+	netc_port_del_vlan_entry(np, vlan_unaware_pvid);
+}
+
+static void netc_port_fast_age(struct dsa_switch *ds, int port)
+{
+	struct netc_port *np = NETC_PORT(ds, port);
+
+	netc_port_remove_dynamic_entries(np);
 }
 
 static void netc_phylink_get_caps(struct dsa_switch *ds, int port,
@@ -1988,6 +2327,7 @@ static void netc_mac_link_down(struct phylink_config *config,
 	np = NETC_PORT(dp->ds, dp->index);
 	netc_port_mac_rx_graceful_stop(np);
 	netc_port_mac_tx_graceful_stop(np);
+	netc_port_remove_dynamic_entries(np);
 }
 
 static const struct phylink_mac_ops netc_phylink_mac_ops = {
@@ -2012,8 +2352,12 @@ static const struct dsa_switch_ops netc_switch_ops = {
 	.port_mdb_add			= netc_port_mdb_add,
 	.port_mdb_del			= netc_port_mdb_del,
 	.port_set_host_flood		= netc_port_set_host_flood,
+	.port_vlan_filtering		= netc_port_vlan_filtering,
 	.port_vlan_add			= netc_port_vlan_add,
 	.port_vlan_del			= netc_port_vlan_del,
+	.port_bridge_join		= netc_port_bridge_join,
+	.port_bridge_leave		= netc_port_bridge_leave,
+	.port_fast_age			= netc_port_fast_age,
 	.get_pause_stats		= netc_port_get_pause_stats,
 	.get_rmon_stats			= netc_port_get_rmon_stats,
 	.get_eth_ctrl_stats		= netc_port_get_eth_ctrl_stats,
@@ -2061,6 +2405,7 @@ static int netc_switch_probe(struct pci_dev *pdev,
 	ds->ops = &netc_switch_ops;
 	ds->phylink_mac_ops = &netc_phylink_mac_ops;
 	ds->fdb_isolation = true;
+	ds->max_num_bridges = priv->info->num_ports - 1;
 	ds->priv = priv;
 	priv->ds = ds;
 
