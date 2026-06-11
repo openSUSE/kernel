@@ -440,10 +440,10 @@ void __iomem *ioremap_cache(resource_size_t phys_addr, unsigned long size)
 EXPORT_SYMBOL(ioremap_cache);
 
 void __iomem *ioremap_prot(resource_size_t phys_addr, unsigned long size,
-			   pgprot_t prot)
+				unsigned long prot_val)
 {
 	return __ioremap_caller(phys_addr, size,
-				pgprot2cachemode(prot),
+				pgprot2cachemode(__pgprot(prot_val)),
 				__builtin_return_address(0), false);
 }
 EXPORT_SYMBOL(ioremap_prot);
