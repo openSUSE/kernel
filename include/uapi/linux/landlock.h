@@ -378,11 +378,34 @@ struct landlock_net_port_attr {
  *
  * - %LANDLOCK_ACCESS_NET_BIND_UDP: Bind UDP sockets to the given local
  *   port. Support added in Landlock ABI version 10.
+ * - %LANDLOCK_ACCESS_NET_CONNECT_SEND_UDP: Set the remote port of UDP
+ *   sockets to the given port, or send datagrams to the given remote port
+ *   ignoring any destination pre-set on a socket. Support added in
+ *   Landlock ABI version 10.
+ *
+ * .. note:: Setting a remote address or sending a first datagram
+ *   auto-binds UDP sockets to an ephemeral local source port if not
+ *   already bound. To allow this if both %LANDLOCK_ACCESS_NET_BIND_UDP
+ *   and %LANDLOCK_ACCESS_NET_CONNECT_SEND_UDP are handled, you need to
+ *   either:
+ *
+ *   - use a socket already bound to a port before the ruleset started
+ *     being enforced;
+ *   - or grant %LANDLOCK_ACCESS_NET_BIND_UDP on port 0, meaning "any
+ *     port in the ephemeral port range";
+ *   - or grant %LANDLOCK_ACCESS_NET_BIND_UDP on a specific port, and
+ *     call :manpage:`bind(2)` on that port before trying to
+ *     :manpage:`connect(2)` or send datagrams.
+ *
+ * .. note:: Sending datagrams to an ``AF_UNSPEC`` destination address
+ *   family is not supported for IPv6 UDP sockets: you will need to use a
+ *   ``NULL`` address instead.
  */
 /* clang-format off */
 #define LANDLOCK_ACCESS_NET_BIND_TCP			(1ULL << 0)
 #define LANDLOCK_ACCESS_NET_CONNECT_TCP			(1ULL << 1)
 #define LANDLOCK_ACCESS_NET_BIND_UDP			(1ULL << 2)
+#define LANDLOCK_ACCESS_NET_CONNECT_SEND_UDP		(1ULL << 3)
 /* clang-format on */
 
 /**
