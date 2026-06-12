@@ -7021,7 +7021,7 @@ void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end)
 
 	write_lock(&kvm->mmu_lock);
 
-	kvm_mmu_invalidate_begin(kvm);
+	kvm_mmu_invalidate_start(kvm);
 
 	kvm_mmu_invalidate_range_add(kvm, gfn_start, gfn_end);
 
