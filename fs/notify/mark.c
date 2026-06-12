@@ -344,12 +344,25 @@ static void fsnotify_put_mark_wake(struct fsnotify_mark *mark)
 	}
 }
 
+static bool fsnotify_get_mark_iter_ref(struct fsnotify_mark **markp, bool report)
+{
+	while (*markp && !fsnotify_get_mark_safe(*markp)) {
+		if (report)
+			return false;
+		/* Skip mark in unrelated group */
+		*markp = fsnotify_next_mark(*markp);
+	}
+	return true;
+}
+
 bool fsnotify_prepare_user_wait(struct fsnotify_iter_info *iter_info)
 {
 	/* This can fail if mark is being removed */
-	if (!fsnotify_get_mark_safe(iter_info->inode_mark))
+	if (!fsnotify_get_mark_iter_ref(&iter_info->inode_mark,
+			iter_info->report_type & FSNOTIFY_OBJ_TYPE_INODE))
 		return false;
-	if (!fsnotify_get_mark_safe(iter_info->vfsmount_mark)) {
+	if (!fsnotify_get_mark_iter_ref(&iter_info->vfsmount_mark,
+			iter_info->report_type & FSNOTIFY_OBJ_TYPE_VFSMOUNT)) {
 		fsnotify_put_mark_wake(iter_info->inode_mark);
 		return false;
 	}
