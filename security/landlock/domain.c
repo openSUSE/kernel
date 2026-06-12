@@ -184,7 +184,7 @@ static void test_get_layer_deny_mask(struct kunit *const test)
 deny_masks_t
 landlock_get_deny_masks(const access_mask_t all_existing_optional_access,
 			const access_mask_t optional_access,
-			const struct layer_access_masks *const masks)
+			const struct layer_masks *const masks)
 {
 	const unsigned long access_opt = optional_access;
 	unsigned long access_bit;
@@ -201,8 +201,9 @@ landlock_get_deny_masks(const access_mask_t all_existing_optional_access,
 	if (WARN_ON_ONCE(!access_opt))
 		return 0;
 
-	for (ssize_t i = ARRAY_SIZE(masks->access) - 1; i >= 0; i--) {
-		const access_mask_t denied = masks->access[i] & optional_access;
+	for (ssize_t i = ARRAY_SIZE(masks->layers) - 1; i >= 0; i--) {
+		const access_mask_t denied = masks->layers[i].access &
+					     optional_access;
 		const unsigned long newly_denied = denied & ~all_denied;
 
 		if (!newly_denied)
@@ -222,12 +223,12 @@ landlock_get_deny_masks(const access_mask_t all_existing_optional_access,
 
 static void test_landlock_get_deny_masks(struct kunit *const test)
 {
-	const struct layer_access_masks layers1 = {
-		.access[0] = LANDLOCK_ACCESS_FS_EXECUTE |
-			     LANDLOCK_ACCESS_FS_IOCTL_DEV,
-		.access[1] = LANDLOCK_ACCESS_FS_TRUNCATE,
-		.access[2] = LANDLOCK_ACCESS_FS_IOCTL_DEV,
-		.access[9] = LANDLOCK_ACCESS_FS_EXECUTE,
+	const struct layer_masks layers1 = {
+		.layers[0].access = LANDLOCK_ACCESS_FS_EXECUTE |
+				    LANDLOCK_ACCESS_FS_IOCTL_DEV,
+		.layers[1].access = LANDLOCK_ACCESS_FS_TRUNCATE,
+		.layers[2].access = LANDLOCK_ACCESS_FS_IOCTL_DEV,
+		.layers[9].access = LANDLOCK_ACCESS_FS_EXECUTE,
 	};
 
 	KUNIT_EXPECT_EQ(test, 0x1,
