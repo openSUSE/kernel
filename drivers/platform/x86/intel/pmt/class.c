@@ -381,9 +381,21 @@ int intel_pmt_dev_create(struct intel_pmt_entry *entry, struct intel_pmt_namespa
 	if (IS_ERR(entry->disc_table))
 		return PTR_ERR(entry->disc_table);
 
+	if (ns->pmt_pre_decode) {
+		ret = ns->pmt_pre_decode(intel_vsec_dev, entry);
+		if (ret)
+			return ret;
+	}
+
 	ret = ns->pmt_header_decode(entry, dev);
 	if (ret)
 		return ret;
+
+	if (ns->pmt_post_decode) {
+		ret = ns->pmt_post_decode(intel_vsec_dev, entry);
+		if (ret)
+			return ret;
+	}
 
 	ret = intel_pmt_populate_entry(entry, intel_vsec_dev, disc_res);
 	if (ret)
