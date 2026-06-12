@@ -52,6 +52,7 @@
 
 #include <linux/irqchip/arm-gic-v5.h>
 
+#include "vgic/vgic.h"
 #include "sys_regs.h"
 
 static enum kvm_mode kvm_mode = KVM_MODE_DEFAULT;
@@ -1164,6 +1165,15 @@ static bool vcpu_mode_is_bad_32bit(struct kvm_vcpu *vcpu)
 	return !kvm_supports_32bit_el0();
 }
 
+static bool kvm_irq_update_run(struct kvm_vcpu *vcpu)
+{
+	bool r;
+
+	r  = kvm_timer_update_run(vcpu);
+	r |= kvm_pmu_update_run(vcpu);
+	return r;
+}
+
 /**
  * kvm_vcpu_exit_request - returns true if the VCPU should *not* enter the guest
  * @vcpu:	The VCPU pointer
@@ -1185,13 +1195,11 @@ static bool kvm_vcpu_exit_request(struct kvm_vcpu *vcpu, int *ret)
 	/*
 	 * If we're using a userspace irqchip, then check if we need
 	 * to tell a userspace irqchip about timer or PMU level
-	 * changes and if so, exit to userspace (the actual level
-	 * state gets updated in kvm_timer_update_run and
-	 * kvm_pmu_update_run below).
+	 * changes and if so, exit to userspace while updating the run
+	 * state.
 	 */
 	if (unlikely(!irqchip_in_kernel(vcpu->kvm))) {
-		if (kvm_timer_should_notify_user(vcpu) ||
-		    kvm_pmu_should_notify_user(vcpu)) {
+		if (unlikely(kvm_irq_update_run(vcpu))) {
 			*ret = -EINTR;
 			run->exit_reason = KVM_EXIT_INTR;
 			return true;
@@ -1406,11 +1414,8 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
 		ret = handle_exit(vcpu, ret);
 	}
 
-	/* Tell userspace about in-kernel device output levels */
-	if (unlikely(!irqchip_in_kernel(vcpu->kvm))) {
-		kvm_timer_update_run(vcpu);
-		kvm_pmu_update_run(vcpu);
-	}
+	if (unlikely(!irqchip_in_kernel(vcpu->kvm)))
+		kvm_irq_update_run(vcpu);
 
 	kvm_sigset_deactivate(vcpu);
 
@@ -1494,8 +1499,13 @@ int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level,
 
 		return vcpu_interrupt_line(vcpu, irq_num, level);
 	case KVM_ARM_IRQ_TYPE_PPI:
-		if (!irqchip_in_kernel(kvm))
+		if (irqchip_in_kernel(kvm)) {
+			int ret = vgic_lazy_init(kvm);
+			if (ret)
+				return ret;
+		} else {
 			return -ENXIO;
+		}
 
 		vcpu = kvm_get_vcpu_by_id(kvm, vcpu_id);
 		if (!vcpu)
@@ -1522,8 +1532,13 @@ int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level,
 
 		return kvm_vgic_inject_irq(kvm, vcpu, irq_num, level, NULL);
 	case KVM_ARM_IRQ_TYPE_SPI:
-		if (!irqchip_in_kernel(kvm))
+		if (irqchip_in_kernel(kvm)) {
+			int ret = vgic_lazy_init(kvm);
+			if (ret)
+				return ret;
+		} else {
 			return -ENXIO;
+		}
 
 		if (vgic_is_v5(kvm)) {
 			/* Build a GICv5-style IntID here */
