@@ -5,6 +5,7 @@
  * Copyright (c) 2023, Intel Corporation.
  */
 
+#include <linux/bits.h>
 #include <linux/cleanup.h>
 #include <linux/device.h>
 #include <linux/intel_vsec.h>
@@ -22,6 +23,7 @@
 #define SSRAM_PCH_OFFSET	0x60
 #define SSRAM_IOE_OFFSET	0x68
 #define SSRAM_DEVID_OFFSET	0x70
+#define SSRAM_BASE_ADDR_MASK	GENMASK_ULL(63, 3)
 
 DEFINE_FREE(pmc_ssram_telemetry_iounmap, void __iomem *, if (_T) iounmap(_T))
 
@@ -39,6 +41,23 @@ static const struct ssram_type pci_main = {
 
 static struct pmc_ssram_telemetry *pmc_ssram_telems;
 static bool device_probed;
+
+static inline u64 get_base(void __iomem *addr, u32 offset)
+{
+	return lo_hi_readq(addr + offset) & SSRAM_BASE_ADDR_MASK;
+}
+
+static void pmc_ssram_get_devid_pwrmbase(void __iomem *ssram, unsigned int pmc_idx)
+{
+	u64 pwrm_base;
+	u16 devid;
+
+	pwrm_base = get_base(ssram, SSRAM_PWRM_OFFSET);
+	devid = readw(ssram + SSRAM_DEVID_OFFSET);
+
+	pmc_ssram_telems[pmc_idx].devid = devid;
+	pmc_ssram_telems[pmc_idx].base_addr = pwrm_base;
+}
 
 static int
 pmc_ssram_telemetry_add_pmt(struct pci_dev *pcidev, u64 ssram_base, void __iomem *ssram)
@@ -76,18 +95,12 @@ pmc_ssram_telemetry_add_pmt(struct pci_dev *pcidev, u64 ssram_base, void __iomem
 	return intel_vsec_register(&pcidev->dev, &info);
 }
 
-static inline u64 get_base(void __iomem *addr, u32 offset)
-{
-	return lo_hi_readq(addr + offset) & GENMASK_ULL(63, 3);
-}
-
 static int
 pmc_ssram_telemetry_get_pmc_pci(struct pci_dev *pcidev, unsigned int pmc_idx, u32 offset)
 {
 	void __iomem __free(pmc_ssram_telemetry_iounmap) *tmp_ssram = NULL;
 	void __iomem __free(pmc_ssram_telemetry_iounmap) *ssram = NULL;
-	u64 ssram_base, pwrm_base;
-	u16 devid;
+	u64 ssram_base;
 
 	ssram_base = pci_resource_start(pcidev, 0);
 	tmp_ssram = ioremap(ssram_base, SSRAM_HDR_SIZE);
@@ -112,11 +125,7 @@ pmc_ssram_telemetry_get_pmc_pci(struct pci_dev *pcidev, unsigned int pmc_idx, u3
 		ssram = no_free_ptr(tmp_ssram);
 	}
 
-	pwrm_base = get_base(ssram, SSRAM_PWRM_OFFSET);
-	devid = readw(ssram + SSRAM_DEVID_OFFSET);
-
-	pmc_ssram_telems[pmc_idx].devid = devid;
-	pmc_ssram_telems[pmc_idx].base_addr = pwrm_base;
+	pmc_ssram_get_devid_pwrmbase(ssram, pmc_idx);
 
 	/* Find and register and PMC telemetry entries */
 	return pmc_ssram_telemetry_add_pmt(pcidev, ssram_base, ssram);
