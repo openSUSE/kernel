@@ -5520,8 +5520,6 @@ static int nft_verdict_init(const struct nft_ctx *ctx, struct nft_data *data,
 	switch (data->verdict.code) {
 	case NF_ACCEPT:
 	case NF_DROP:
-	case NF_QUEUE:
-		break;
 	case NFT_CONTINUE:
 	case NFT_BREAK:
 	case NFT_RETURN:
@@ -5540,6 +5538,11 @@ static int nft_verdict_init(const struct nft_ctx *ctx, struct nft_data *data,
 		chain->use++;
 		data->verdict.chain = chain;
 		break;
+	case NF_QUEUE:
+		/* The nft_queue expression is used for this purpose, an
+		 * immediate NF_QUEUE verdict should not ever be seen here.
+		 * This was a fallthrough.
+		 */
 	default:
 		return -EINVAL;
 	}
