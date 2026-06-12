@@ -26,6 +26,7 @@ void *memset(void *s, int c, size_t n);
 typedef int TItype __attribute__((mode(TI)));
 TItype __multi3(TItype a, TItype b);
 void _mcount(void);
+void mcount(void);
 
 s64 __ashldi3(s64, int);
 s64 __lshrdi3(s64, int);
