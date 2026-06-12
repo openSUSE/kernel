@@ -6,7 +6,9 @@
  */
 
 #include <linux/atomic.h>
+#include <linux/bitmap.h>
 #include <linux/bug.h>
+#include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/dma-mapping.h>
 #include <linux/err.h>
@@ -1613,6 +1615,57 @@ static int i3c_master_retrieve_dev_info(struct i3c_dev_desc *dev)
 	return 0;
 }
 
+static int i3c_master_getstatus_locked(struct i3c_master_controller *master,
+				       u8 addr, u16 *status)
+{
+	struct i3c_ccc_getstatus *getstatus;
+	struct i3c_ccc_cmd_dest dest;
+	struct i3c_ccc_cmd cmd;
+	int ret;
+
+	getstatus = i3c_ccc_cmd_dest_init(&dest, addr, sizeof(*getstatus));
+	if (!getstatus)
+		return -ENOMEM;
+
+	i3c_ccc_cmd_init(&cmd, true, I3C_CCC_GETSTATUS, &dest, 1);
+	ret = i3c_master_send_ccc_cmd_locked(master, &cmd);
+	if (ret)
+		goto out;
+
+	if (dest.payload.len != sizeof(*getstatus)) {
+		ret = -EIO;
+		goto out;
+	}
+
+	if (status)
+		*status = be16_to_cpu(getstatus->status);
+out:
+	i3c_ccc_cmd_dest_cleanup(&dest);
+
+	return ret;
+}
+
+/* Values are chosen to give the device plenty of opportunities to respond */
+#define I3C_DEV_PROBE_INITIAL_DELAY_US	20
+#define I3C_DEV_PROBE_DELAY_FACTOR	2
+#define I3C_DEV_PROBE_CNT		5
+
+static bool i3c_master_i3c_dev_present(struct i3c_master_controller *master, unsigned int addr)
+{
+	int delay = I3C_DEV_PROBE_INITIAL_DELAY_US;
+
+	for (int i = 0; i < I3C_DEV_PROBE_CNT; i++) {
+		if (i) {
+			fsleep(delay);
+			delay *= I3C_DEV_PROBE_DELAY_FACTOR;
+		}
+		if (!i3c_master_getstatus_locked(master, addr, NULL))
+			return true;
+	}
+
+	return false;
+}
+
 static void i3c_master_put_i3c_addrs(struct i3c_dev_desc *dev)
 {
 	struct i3c_master_controller *master = i3c_dev_get_master(dev);
@@ -2256,22 +2309,25 @@ i3c_master_search_i3c_dev_duplicate(struct i3c_dev_desc *refdev)
 }
 
 /**
- * i3c_master_add_i3c_dev_locked() - add an I3C slave to the bus
+ * __i3c_master_add_i3c_dev_locked() - add an I3C slave to the bus
  * @master: master used to send frames on the bus
  * @addr: I3C slave dynamic address assigned to the device
+ * @probe: probe to see if the device is really present at @addr
  *
  * This function instantiates an I3C device object and adds it to the I3C device
  * list. All device information is retrieved using standard CCC commands.
  *
  * This function must be called with the bus lock held in write mode.
  */
-void i3c_master_add_i3c_dev_locked(struct i3c_master_controller *master, u8 addr)
+static void __i3c_master_add_i3c_dev_locked(struct i3c_master_controller *master,
+					    u8 addr, bool probe)
 {
 	struct i3c_device_info info = { .dyn_addr = addr };
 	struct i3c_dev_desc *newdev, *olddev;
 	u8 old_dyn_addr = addr, expected_dyn_addr;
 	struct i3c_ibi_setup ibireq = { };
 	bool enable_ibi = false;
+	bool no_dev = false;
 	int ret;
 
 	newdev = i3c_master_alloc_i3c_dev(master, &info);
@@ -2283,6 +2339,18 @@ void i3c_master_add_i3c_dev_locked(struct i3c_master_controller *master, u8 addr
 	ret = i3c_master_attach_i3c_dev(master, newdev);
 	if (ret)
 		goto err_free_dev;
+
+	/*
+	 * When a dynamic address is first assigned, there is no need to check
+	 * whether it is still assigned, however, if adding the device fails,
+	 * it will be attempted again later, at which point the address may
+	 * have been lost (e.g. due to power management), so for that case,
+	 * probe to see if the device is still present at the assigned address.
+	 */
+	if (probe && !i3c_master_i3c_dev_present(master, addr)) {
+		no_dev = true;
+		goto err_detach_dev;
+	}
 
 	ret = i3c_master_retrieve_dev_info(newdev);
 	if (ret)
@@ -2401,6 +2469,8 @@ err_free_dev:
 	i3c_master_free_i3c_dev(newdev);
 
 err_prevent_addr_reuse:
+	if (no_dev)
+		return;
 	/*
 	 * Although the device has not been added, the address has been
 	 * assigned. Prevent the address from being used again.
@@ -2410,7 +2480,47 @@ err_prevent_addr_reuse:
 
 	dev_err(&master->dev, "Failed to add I3C device at address %u, error %d\n", addr, ret);
 }
+
+/**
+ * i3c_master_add_i3c_dev_locked() - add an I3C slave to the bus
+ * @master: master used to send frames on the bus
+ * @addr: I3C slave dynamic address assigned to the device
+ *
+ * This function instantiates an I3C device object and adds it to the
+ * I3C device list. All device information is automatically retrieved using
+ * standard CCC commands.
+ *
+ * This function must be called with the bus lock held in write mode.
+ */
+void i3c_master_add_i3c_dev_locked(struct i3c_master_controller *master, u8 addr)
+{
+	__i3c_master_add_i3c_dev_locked(master, addr, false);
+}
 EXPORT_SYMBOL_GPL(i3c_master_add_i3c_dev_locked);
+
+static void i3c_master_reconcile_dyn_addrs(struct i3c_master_controller *master)
+{
+	DECLARE_BITMAP(dev_dyn_addrs, I2C_MAX_ADDR + 1);
+	enum i3c_addr_slot_status status;
+	struct i3c_dev_desc *desc;
+
+	/* Mark all devices' dynamic and static addresses in the bitmap */
+	bitmap_zero(dev_dyn_addrs, I2C_MAX_ADDR + 1);
+	i3c_bus_for_each_i3cdev(&master->bus, desc) {
+		if (desc->info.static_addr)
+			__set_bit(desc->info.static_addr, dev_dyn_addrs);
+		__set_bit(desc->info.dyn_addr, dev_dyn_addrs);
+	}
+	/* Reconcile the bitmap with the bus address slot status */
+	for (unsigned int addr = 0; addr <= I2C_MAX_ADDR; addr++) {
+		status = i3c_bus_get_addr_slot_status(&master->bus, addr);
+		if (status != I3C_ADDR_SLOT_I3C_DEV || test_bit(addr, dev_dyn_addrs))
+			continue;
+		i3c_bus_set_addr_slot_status(&master->bus, addr, I3C_ADDR_SLOT_FREE);
+		/* Try to add the device, but probe to see if it is really present */
+		__i3c_master_add_i3c_dev_locked(master, addr, true);
+	}
+}
 
 /**
  * i3c_master_do_daa_ext() - Dynamic Address Assignment (extended version)
@@ -2445,6 +2555,11 @@ int i3c_master_do_daa_ext(struct i3c_master_controller *master, bool rstdaa)
 		if (rstdaa)
 			rstret = i3c_master_rstdaa_locked(master, I3C_BROADCAST_ADDR);
 		ret = master->ops->do_daa(master);
+		/*
+		 * Handle cases where a dynamic address was assigned but the
+		 * device was not successfully added.
+		 */
+		i3c_master_reconcile_dyn_addrs(master);
 	}
 
 	i3c_bus_maintenance_unlock(&master->bus);
