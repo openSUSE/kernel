@@ -68,7 +68,7 @@ int refill_memcache(struct kvm_hyp_memcache *mc, unsigned long min_pages,
 static __always_inline void __load_host_stage2(void)
 {
 	if (static_branch_likely(&kvm_protected_mode_initialized))
-		__load_stage2(&host_mmu.arch.mmu, &host_mmu.arch);
+		__load_stage2(&host_mmu.arch.mmu);
 	else
 		write_sysreg(0, vttbr_el2);
 }

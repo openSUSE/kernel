@@ -1449,7 +1449,7 @@ static u64 __kvm_at_s1e01_fast(struct kvm_vcpu *vcpu, u32 op, u64 vaddr)
 		}
 	}
 	write_sysreg_el1(vcpu_read_sys_reg(vcpu, SCTLR_EL1),	SYS_SCTLR);
-	__load_stage2(mmu, mmu->arch);
+	__load_stage2(mmu);
 
 skip_mmu_switch:
 	/* Temporarily switch back to guest context */
