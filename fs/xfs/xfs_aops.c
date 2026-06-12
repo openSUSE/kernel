@@ -139,6 +139,17 @@ xfs_end_ioend_write(
 	 */
 	error = blk_status_to_errno(ioend->io_bio.bi_status);
 	if (unlikely(error)) {
+		/*
+		 * Zoned writes update the in-core open zone accounting before
+		 * I/O submission.  A failed write leaves that state
+		 * inconsistent, so shut down the filesystem instead of letting
+		 * later writers wait forever for open zone space to become
+		 * available.
+		 */
+		if (is_zoned) {
+			xfs_force_shutdown(mp, SHUTDOWN_META_IO_ERROR);
+			goto done;
+		}
 		if (ioend->io_flags & IOMAP_IOEND_SHARED) {
 			ASSERT(!is_zoned);
 			xfs_reflink_cancel_cow_range(ip, offset, size, true);
