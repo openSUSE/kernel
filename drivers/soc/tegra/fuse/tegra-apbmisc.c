@@ -28,10 +28,10 @@
 #define PMC_STRAPPING_OPT_A_RAM_CODE_MASK_SHORT	\
 	(0x3 << PMC_STRAPPING_OPT_A_RAM_CODE_SHIFT)
 
-#define TEGRA_SMCCC_PLATFORM(x)		((x >> 8) & 0xff)
-#define TEGRA_SMCCC_CHIP_ID(x)		((x >> 4) & 0xff)
-#define TEGRA_SMCCC_MAJOR_REV(x)	(x & 0xf)
-#define TEGRA_SMCCC_MINOR_REV(x)	(x & 0xf)
+#define TEGRA_SMCCC_PLATFORM(x)		(((x) >> 8) & 0xff)
+#define TEGRA_SMCCC_CHIP_ID(x)		(((x) >> 4) & 0xff)
+#define TEGRA_SMCCC_MAJOR_REV(x)	((x) & 0xf)
+#define TEGRA_SMCCC_MINOR_REV(x)	((x) & 0xf)
 
 static void __iomem *apbmisc_base;
 static bool long_ram_code;
