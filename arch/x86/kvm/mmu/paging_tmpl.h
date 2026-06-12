@@ -328,6 +328,12 @@ static int FNAME(walk_addr_generic)(struct guest_walker *walker,
 	const int write_fault = access & PFERR_WRITE_MASK;
 	const int user_fault  = access & PFERR_USER_MASK;
 	const int fetch_fault = access & PFERR_FETCH_MASK;
+	/*
+	 * Note! Track the error_code that's common to legacy shadow paging
+	 * and NPT shadow paging as a u16 to guard against unintentionally
+	 * setting any of bits 63:16.  Architecturally, the #PF error code is
+	 * 32 bits, and Intel CPUs don't support settings bits 31:16.
+	 */
 	u16 errcode = 0;
 	gpa_t real_gpa;
 	gfn_t gfn;
@@ -391,16 +397,6 @@ retry_walk:
 					     nested_access | PFERR_GUEST_PAGE_MASK,
 					     &walker->fault, 0);
 
-		/*
-		 * FIXME: This can happen if emulation (for of an INS/OUTS
-		 * instruction) triggers a nested page fault.  The exit
-		 * qualification / exit info field will incorrectly have
-		 * "guest page access" as the nested page fault's cause,
-		 * instead of "guest page structure access".  To fix this,
-		 * the x86_exception struct should be augmented with enough
-		 * information to fix the exit_qualification or exit_info_1
-		 * fields.
-		 */
 		if (unlikely(real_gpa == INVALID_GPA))
 			return 0;
 
@@ -506,7 +502,8 @@ error:
 	 * [2:0] - Derive from the access bits. The exit_qualification might be
 	 *         out of date if it is serving an EPT misconfiguration.
 	 * [5:3] - Calculated by the page walk of the guest EPT page tables
-	 * [7:11] - Derived from [7:11] of real exit_qualification
+	 * [7:8] - Derived from "fault stage" access bits
+	 * [9:11] - Derived from [9:11] of real exit_qualification
 	 *
 	 * The other bits are set to 0.
 	 */
@@ -521,12 +518,22 @@ error:
 			walker->fault.exit_qualification |= EPT_VIOLATION_ACC_READ;
 
 		/*
+		 * KVM doesn't emulate features that access GPAs directly, e.g.
+		 * Intel Processor Trace.  Assume the GVA is always valid; when
+		 * propagating faults from hardware, KVM will discard this info
+		 * and use the EXIT_QUALIFICATION bits from the VMCS.
+		 */
+		walker->fault.exit_qualification |= EPT_VIOLATION_GVA_IS_VALID;
+
+		/*
 		 * Accesses to guest paging structures are either "reads" or
 		 * "read+write" accesses, so consider them the latter if write_fault
 		 * is true.
 		 */
 		if (access & PFERR_GUEST_PAGE_MASK)
 			walker->fault.exit_qualification |= EPT_VIOLATION_ACC_READ;
+		else
+			walker->fault.exit_qualification |= EPT_VIOLATION_GVA_TRANSLATED;
 
 		/*
 		 * Note, pte_access holds the raw RWX bits from the EPTE, not
@@ -541,6 +548,11 @@ error:
 	walker->fault.address = addr;
 	walker->fault.nested_page_fault = mmu != vcpu->arch.walk_mmu;
 	walker->fault.async_page_fault = false;
+
+#if PTTYPE != PTTYPE_EPT
+	if (walker->fault.nested_page_fault)
+		walker->fault.error_code |= access & PFERR_GUEST_FAULT_STAGE_MASK;
+#endif
 
 	trace_kvm_mmu_walker_error(walker->fault.error_code);
 	return 0;
@@ -807,7 +819,7 @@ static int FNAME(page_fault)(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 	 */
 	if (!r) {
 		if (!fault->prefetch)
-			kvm_inject_emulated_page_fault(vcpu, &walker.fault);
+			__kvm_inject_emulated_page_fault(vcpu, &walker.fault, true);
 
 		return RET_PF_RETRY;
 	}

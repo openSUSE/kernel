@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-#ifndef ASM_KVM_CACHE_REGS_H
-#define ASM_KVM_CACHE_REGS_H
+#ifndef ARCH_X86_KVM_REGS_H
+#define ARCH_X86_KVM_REGS_H
 
 #include <linux/kvm_host.h>
 
@@ -16,32 +16,91 @@
 
 static_assert(!(KVM_POSSIBLE_CR0_GUEST_BITS & X86_CR0_PDPTR_BITS));
 
-#define BUILD_KVM_GPR_ACCESSORS(lname, uname)				      \
-static __always_inline unsigned long kvm_##lname##_read(struct kvm_vcpu *vcpu)\
-{									      \
-	return vcpu->arch.regs[VCPU_REGS_##uname];			      \
-}									      \
-static __always_inline void kvm_##lname##_write(struct kvm_vcpu *vcpu,	      \
-						unsigned long val)	      \
-{									      \
-	vcpu->arch.regs[VCPU_REGS_##uname] = val;			      \
-}
-BUILD_KVM_GPR_ACCESSORS(rax, RAX)
-BUILD_KVM_GPR_ACCESSORS(rbx, RBX)
-BUILD_KVM_GPR_ACCESSORS(rcx, RCX)
-BUILD_KVM_GPR_ACCESSORS(rdx, RDX)
-BUILD_KVM_GPR_ACCESSORS(rbp, RBP)
-BUILD_KVM_GPR_ACCESSORS(rsi, RSI)
-BUILD_KVM_GPR_ACCESSORS(rdi, RDI)
+static inline bool is_long_mode(struct kvm_vcpu *vcpu)
+{
 #ifdef CONFIG_X86_64
-BUILD_KVM_GPR_ACCESSORS(r8,  R8)
-BUILD_KVM_GPR_ACCESSORS(r9,  R9)
-BUILD_KVM_GPR_ACCESSORS(r10, R10)
-BUILD_KVM_GPR_ACCESSORS(r11, R11)
-BUILD_KVM_GPR_ACCESSORS(r12, R12)
-BUILD_KVM_GPR_ACCESSORS(r13, R13)
-BUILD_KVM_GPR_ACCESSORS(r14, R14)
-BUILD_KVM_GPR_ACCESSORS(r15, R15)
+	return !!(vcpu->arch.efer & EFER_LMA);
+#else
+	return false;
+#endif
+}
+
+static inline bool is_64_bit_mode(struct kvm_vcpu *vcpu)
+{
+	int cs_db, cs_l;
+
+	WARN_ON_ONCE(vcpu->arch.guest_state_protected);
+
+	if (!is_long_mode(vcpu))
+		return false;
+	kvm_x86_call(get_cs_db_l_bits)(vcpu, &cs_db, &cs_l);
+	return cs_l;
+}
+
+static inline bool is_64_bit_hypercall(struct kvm_vcpu *vcpu)
+{
+#ifdef CONFIG_X86_64
+	/*
+	 * If running with protected guest state, the CS register is not
+	 * accessible. The hypercall register values will have had to been
+	 * provided in 64-bit mode, so assume the guest is in 64-bit.
+	 */
+	return vcpu->arch.guest_state_protected || is_64_bit_mode(vcpu);
+#else
+	return false;
+#endif
+}
+
+static __always_inline unsigned long kvm_reg_mode_mask(struct kvm_vcpu *vcpu)
+{
+#ifdef CONFIG_X86_64
+	return is_64_bit_mode(vcpu) ? GENMASK(63, 0) : GENMASK(31, 0);
+#else
+	return GENMASK(31, 0);
+#endif
+}
+
+#define __BUILD_KVM_GPR_ACCESSORS(lname, uname)						\
+static __always_inline unsigned long kvm_##lname##_read(struct kvm_vcpu *vcpu)		\
+{											\
+	return vcpu->arch.regs[VCPU_REGS_##uname] & kvm_reg_mode_mask(vcpu);		\
+}											\
+static __always_inline unsigned long kvm_##lname##_read_raw(struct kvm_vcpu *vcpu)	\
+{											\
+	return vcpu->arch.regs[VCPU_REGS_##uname];					\
+}											\
+static __always_inline void kvm_##lname##_write_raw(struct kvm_vcpu *vcpu,		\
+						    unsigned long val)			\
+{											\
+	vcpu->arch.regs[VCPU_REGS_##uname] = val;					\
+}
+#define BUILD_KVM_GPR_ACCESSORS(lname, uname)						\
+static __always_inline u32 kvm_e##lname##_read(struct kvm_vcpu *vcpu)			\
+{											\
+	return vcpu->arch.regs[VCPU_REGS_##uname];					\
+}											\
+static __always_inline void kvm_e##lname##_write(struct kvm_vcpu *vcpu, u32 val)	\
+{											\
+	vcpu->arch.regs[VCPU_REGS_##uname] = val;					\
+}											\
+__BUILD_KVM_GPR_ACCESSORS(r##lname, uname)
+
+BUILD_KVM_GPR_ACCESSORS(ax, RAX)
+BUILD_KVM_GPR_ACCESSORS(bx, RBX)
+BUILD_KVM_GPR_ACCESSORS(cx, RCX)
+BUILD_KVM_GPR_ACCESSORS(dx, RDX)
+BUILD_KVM_GPR_ACCESSORS(bp, RBP)
+BUILD_KVM_GPR_ACCESSORS(si, RSI)
+BUILD_KVM_GPR_ACCESSORS(di, RDI)
+#ifdef CONFIG_X86_64
+__BUILD_KVM_GPR_ACCESSORS(r8,  R8)
+__BUILD_KVM_GPR_ACCESSORS(r9,  R9)
+__BUILD_KVM_GPR_ACCESSORS(r10, R10)
+__BUILD_KVM_GPR_ACCESSORS(r11, R11)
+__BUILD_KVM_GPR_ACCESSORS(r12, R12)
+__BUILD_KVM_GPR_ACCESSORS(r13, R13)
+__BUILD_KVM_GPR_ACCESSORS(r14, R14)
+__BUILD_KVM_GPR_ACCESSORS(r15, R15)
 #endif
 
 /*
@@ -143,6 +202,11 @@ static inline unsigned long kvm_register_read_raw(struct kvm_vcpu *vcpu, int reg
 	return vcpu->arch.regs[reg];
 }
 
+static inline unsigned long kvm_register_read(struct kvm_vcpu *vcpu, int reg)
+{
+	return kvm_register_read_raw(vcpu, reg) & kvm_reg_mode_mask(vcpu);
+}
+
 static inline void kvm_register_write_raw(struct kvm_vcpu *vcpu, int reg,
 					  unsigned long val)
 {
@@ -151,6 +215,12 @@ static inline void kvm_register_write_raw(struct kvm_vcpu *vcpu, int reg,
 
 	vcpu->arch.regs[reg] = val;
 	kvm_register_mark_dirty(vcpu, reg);
+}
+
+static inline void kvm_register_write(struct kvm_vcpu *vcpu,
+				       int reg, unsigned long val)
+{
+	return kvm_register_write_raw(vcpu, reg, val & kvm_reg_mode_mask(vcpu));
 }
 
 static inline unsigned long kvm_rip_read(struct kvm_vcpu *vcpu)
@@ -175,6 +245,11 @@ static inline unsigned long kvm_rsp_read(struct kvm_vcpu *vcpu)
 static inline void kvm_rsp_write(struct kvm_vcpu *vcpu, unsigned long val)
 {
 	kvm_register_write_raw(vcpu, VCPU_REGS_RSP, val);
+}
+
+static inline u64 kvm_read_edx_eax(struct kvm_vcpu *vcpu)
+{
+	return kvm_eax_read(vcpu) | (u64)(kvm_edx_read(vcpu)) << 32;
 }
 
 static inline u64 kvm_pdptr_read(struct kvm_vcpu *vcpu, int index)
@@ -243,10 +318,75 @@ static inline ulong kvm_read_cr4(struct kvm_vcpu *vcpu)
 	return kvm_read_cr4_bits(vcpu, ~0UL);
 }
 
-static inline u64 kvm_read_edx_eax(struct kvm_vcpu *vcpu)
+static inline bool __kvm_is_valid_cr4(struct kvm_vcpu *vcpu, unsigned long cr4)
 {
-	return (kvm_rax_read(vcpu) & -1u)
-		| ((u64)(kvm_rdx_read(vcpu) & -1u) << 32);
+	return !(cr4 & vcpu->arch.cr4_guest_rsvd_bits);
+}
+
+#define __cr4_reserved_bits(__cpu_has, __c)             \
+({                                                      \
+	u64 __reserved_bits = CR4_RESERVED_BITS;        \
+                                                        \
+	if (!__cpu_has(__c, X86_FEATURE_XSAVE))         \
+		__reserved_bits |= X86_CR4_OSXSAVE;     \
+	if (!__cpu_has(__c, X86_FEATURE_SMEP))          \
+		__reserved_bits |= X86_CR4_SMEP;        \
+	if (!__cpu_has(__c, X86_FEATURE_SMAP))          \
+		__reserved_bits |= X86_CR4_SMAP;        \
+	if (!__cpu_has(__c, X86_FEATURE_FSGSBASE))      \
+		__reserved_bits |= X86_CR4_FSGSBASE;    \
+	if (!__cpu_has(__c, X86_FEATURE_PKU))           \
+		__reserved_bits |= X86_CR4_PKE;         \
+	if (!__cpu_has(__c, X86_FEATURE_LA57))          \
+		__reserved_bits |= X86_CR4_LA57;        \
+	if (!__cpu_has(__c, X86_FEATURE_UMIP))          \
+		__reserved_bits |= X86_CR4_UMIP;        \
+	if (!__cpu_has(__c, X86_FEATURE_VMX))           \
+		__reserved_bits |= X86_CR4_VMXE;        \
+	if (!__cpu_has(__c, X86_FEATURE_PCID))          \
+		__reserved_bits |= X86_CR4_PCIDE;       \
+	if (!__cpu_has(__c, X86_FEATURE_LAM))           \
+		__reserved_bits |= X86_CR4_LAM_SUP;     \
+	if (!__cpu_has(__c, X86_FEATURE_SHSTK) &&       \
+	    !__cpu_has(__c, X86_FEATURE_IBT))           \
+		__reserved_bits |= X86_CR4_CET;         \
+	__reserved_bits;                                \
+})
+
+static inline bool is_protmode(struct kvm_vcpu *vcpu)
+{
+	return kvm_is_cr0_bit_set(vcpu, X86_CR0_PE);
+}
+
+static inline bool is_pae(struct kvm_vcpu *vcpu)
+{
+	return kvm_is_cr4_bit_set(vcpu, X86_CR4_PAE);
+}
+
+static inline bool is_pse(struct kvm_vcpu *vcpu)
+{
+	return kvm_is_cr4_bit_set(vcpu, X86_CR4_PSE);
+}
+
+static inline bool is_paging(struct kvm_vcpu *vcpu)
+{
+	return likely(kvm_is_cr0_bit_set(vcpu, X86_CR0_PG));
+}
+
+static inline bool is_pae_paging(struct kvm_vcpu *vcpu)
+{
+	return !is_long_mode(vcpu) && is_pae(vcpu) && is_paging(vcpu);
+}
+
+static inline bool kvm_dr7_valid(u64 data)
+{
+	/* Bits [63:32] are reserved */
+	return !(data >> 32);
+}
+static inline bool kvm_dr6_valid(u64 data)
+{
+	/* Bits [63:32] are reserved */
+	return !(data >> 32);
 }
 
 static inline void enter_guest_mode(struct kvm_vcpu *vcpu)

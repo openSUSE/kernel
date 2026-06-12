@@ -8818,6 +8818,9 @@ block sizes is exposed in KVM_CAP_ARM_SUPPORTED_BLOCK_SIZES as a
 
 This capability, if enabled, will cause KVM to exit to userspace
 with KVM_EXIT_HYPERCALL exit reason to process some hypercalls.
+Userspace may fail the hypercall by setting hypercall.ret to EINVAL
+or may request the hypercall to be retried the next time the guest run
+by setting hypercall.ret to EAGAIN.
 
 Calling KVM_CHECK_EXTENSION for this capability will return a bitmask
 of hypercalls that can be configured to exit to userspace.
@@ -9363,6 +9366,8 @@ means the VM type with value @n is supported.  Possible values of @n are::
   #define KVM_X86_SW_PROTECTED_VM	1
   #define KVM_X86_SEV_VM	2
   #define KVM_X86_SEV_ES_VM	3
+  #define KVM_X86_SNP_VM	4
+  #define KVM_X86_TDX_VM	5
 
 Note, KVM_X86_SW_PROTECTED_VM is currently only for development and testing.
 Do not use KVM_X86_SW_PROTECTED_VM for "real" VMs, and especially not in
