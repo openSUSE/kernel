@@ -87,6 +87,7 @@ static int amdxdna_sva_init(struct amdxdna_client *client)
 	client->pasid = iommu_sva_get_pasid(client->sva);
 	if (client->pasid == IOMMU_PASID_INVALID) {
 		iommu_sva_unbind_device(client->sva);
+		client->sva = NULL;
 		XDNA_ERR(xdna, "SVA get pasid failed");
 		return -ENODEV;
 	}
@@ -120,8 +121,14 @@ static int amdxdna_drm_open(struct drm_device *ddev, struct drm_file *filp)
 
 	if (!amdxdna_iova_on(xdna)) {
 		/* No need to fail open since user may use pa + carveout later. */
-		if (amdxdna_sva_init(client))
+		if (amdxdna_sva_init(client)) {
 			XDNA_WARN(xdna, "PASID not available for pid %d", client->pid);
+			if (!amdxdna_use_carveout(xdna)) {
+				XDNA_ERR(xdna, "PASID unavailable and carveout not configured");
+				kfree(client);
+				return -EINVAL;
+			}
+		}
 	}
 	mmgrab(client->mm);
 	init_srcu_struct(&client->hwctx_srcu);
