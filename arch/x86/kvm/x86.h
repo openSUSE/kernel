@@ -254,7 +254,7 @@ static inline bool x86_exception_has_error_code(unsigned int vector)
 
 static inline bool mmu_is_nested(struct kvm_vcpu *vcpu)
 {
-	return vcpu->arch.walk_mmu == &vcpu->arch.nested_mmu;
+	return vcpu->arch.mmu == &vcpu->arch.guest_mmu;
 }
 
 static inline u8 vcpu_virt_addr_bits(struct kvm_vcpu *vcpu)

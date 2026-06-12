@@ -136,6 +136,14 @@ static inline bool kvm_register_is_dirty(struct kvm_vcpu *vcpu,
 	return test_bit(reg, vcpu->arch.regs_dirty);
 }
 
+static inline void kvm_register_mark_for_reload(struct kvm_vcpu *vcpu,
+					       enum kvm_reg reg)
+{
+	kvm_assert_register_caching_allowed(vcpu);
+	__clear_bit(reg, vcpu->arch.regs_avail);
+	__clear_bit(reg, vcpu->arch.regs_dirty);
+}
+
 static inline void kvm_register_mark_available(struct kvm_vcpu *vcpu,
 					       enum kvm_reg reg)
 {
@@ -259,12 +267,12 @@ static inline u64 kvm_pdptr_read(struct kvm_vcpu *vcpu, int index)
 	if (!kvm_register_is_available(vcpu, VCPU_REG_PDPTR))
 		kvm_x86_call(cache_reg)(vcpu, VCPU_REG_PDPTR);
 
-	return vcpu->arch.walk_mmu->pdptrs[index];
+	return vcpu->arch.pdptrs[index];
 }
 
 static inline void kvm_pdptr_write(struct kvm_vcpu *vcpu, int index, u64 value)
 {
-	vcpu->arch.walk_mmu->pdptrs[index] = value;
+	vcpu->arch.pdptrs[index] = value;
 }
 
 static inline ulong kvm_read_cr0_bits(struct kvm_vcpu *vcpu, ulong mask)

@@ -2640,17 +2640,6 @@ static void prepare_vmcs02_rare(struct vcpu_vmx *vmx, struct vmcs12 *vmcs12)
 		vmcs_writel(GUEST_SYSENTER_ESP, vmcs12->guest_sysenter_esp);
 		vmcs_writel(GUEST_SYSENTER_EIP, vmcs12->guest_sysenter_eip);
 
-		/*
-		 * L1 may access the L2's PDPTR, so save them to construct
-		 * vmcs12
-		 */
-		if (enable_ept) {
-			vmcs_write64(GUEST_PDPTR0, vmcs12->guest_pdptr0);
-			vmcs_write64(GUEST_PDPTR1, vmcs12->guest_pdptr1);
-			vmcs_write64(GUEST_PDPTR2, vmcs12->guest_pdptr2);
-			vmcs_write64(GUEST_PDPTR3, vmcs12->guest_pdptr3);
-		}
-
 		if (kvm_mpx_supported() && vmx->vcpu.arch.nested_run_pending &&
 		    (vmcs12->vm_entry_controls & VM_ENTRY_LOAD_BNDCFGS))
 			vmcs_write64(GUEST_BNDCFGS, vmcs12->guest_bndcfgs);
