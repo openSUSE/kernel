@@ -1188,15 +1188,11 @@ static bool mock_init_hdm_decoder(struct cxl_decoder *cxld)
 		cxlsd = to_cxl_switch_decoder(dev);
 		if (i == 0) {
 			/* put cxl_mem.4 second in the decode order */
-			if (pdev->id == 4) {
-				cxlsd->target[1] = dport;
+			if (pdev->id == 4)
 				cxlsd->cxld.target_map[1] = dport->port_id;
-			} else {
-				cxlsd->target[0] = dport;
+			else
 				cxlsd->cxld.target_map[0] = dport->port_id;
-			}
 		} else {
-			cxlsd->target[0] = dport;
 			cxlsd->cxld.target_map[0] = dport->port_id;
 		}
 		cxld = &cxlsd->cxld;
@@ -1218,6 +1214,16 @@ static bool mock_init_hdm_decoder(struct cxl_decoder *cxld)
 		};
 		cxld->commit = mock_decoder_commit;
 		cxld->reset = mock_decoder_reset;
+
+		/*
+		 * Only target_map[] is programmed above, mimicking
+		 * firmware. On real hardware target[] is populated as
+		 * dports enumerate, via update_decoder_targets(). The
+		 * mock's dports are already bound by now, so fire that
+		 * resolution explicitly here rather than stamping
+		 * target[] directly.
+		 */
+		cxl_port_update_decoder_targets(iter, dport);
 
 		cxld_registry_update(cxld);
 		put_device(dev);
