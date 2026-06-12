@@ -28,3 +28,14 @@ config INTEL_PMC_CORE
 
 config INTEL_PMC_SSRAM_TELEMETRY
 	tristate
+	help
+	  This driver discovers PMC SSRAM telemetry regions through the PMC's
+	  MMIO interface (PCI) or ACPI _DSD properties and registers them with
+	  the Intel VSEC framework as Intel PMT telemetry devices.
+
+	  It probes the PMC SSRAM device, extracts DVSEC information from MMIO,
+	  reads device IDs and base addresses for multiple PMCs (main, IOE, PCH),
+	  and exposes the discovered telemetry through Intel PMT interfaces
+	  (including sysfs).
+
+	  This option is selected by INTEL_PMC_CORE.
