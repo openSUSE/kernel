@@ -198,7 +198,7 @@ pmc_ssram_telemetry_get_pmc_pci(struct pci_dev *pcidev,
 	/* Find and register and PMC telemetry entries */
 	ret = pmc_ssram_telemetry_add_pmt(pcidev, ssram_base, ssram);
 	if (ret)
-		return ret;
+		dev_warn(&pcidev->dev, "could not register PMT\n");
 
 	probe_cache->valid_mask |= BIT(pmc_idx);
 
@@ -291,7 +291,7 @@ static int pmc_ssram_telemetry_acpi_init(struct pci_dev *pcidev,
 
 	ret = intel_vsec_register(&pcidev->dev, &info);
 	if (ret)
-		return ret;
+		dev_warn(&pcidev->dev, "could not register PMT\n");
 
 	return pmc_ssram_telemetry_get_pmc_acpi(pcidev, probe_cache, index);
 }
