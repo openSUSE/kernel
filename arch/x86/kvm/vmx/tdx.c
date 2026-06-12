@@ -2192,23 +2192,29 @@ bool tdx_has_emulated_msr(u32 index)
 	case MSR_IA32_MC0_CTL2 ... MSR_IA32_MCx_CTL2(KVM_MAX_MCE_BANKS) - 1:
 		/* MSR_IA32_MCx_{CTL, STATUS, ADDR, MISC, CTL2} */
 	case MSR_KVM_POLL_CONTROL:
+	/*
+	 * Except for x2APIC registers that are virtualized by the CPU, which
+	 * KVM can't emulate as KVM doesn't have access to the virtual APIC
+	 * page, KVM emulates the same set of x2APIC registers for TDX versus
+	 * non-TDX guests.
+	 */
+	case X2APIC_MSR(APIC_ID):
+	case X2APIC_MSR(APIC_LVR):
+	case X2APIC_MSR(APIC_LDR):
+	case X2APIC_MSR(APIC_SPIV):
+	case X2APIC_MSR(APIC_ESR):
+	case X2APIC_MSR(APIC_LVTCMCI):
+	case X2APIC_MSR(APIC_ICR):
+	case X2APIC_MSR(APIC_LVTT):
+	case X2APIC_MSR(APIC_LVTTHMR):
+	case X2APIC_MSR(APIC_LVTPC):
+	case X2APIC_MSR(APIC_LVT0):
+	case X2APIC_MSR(APIC_LVT1):
+	case X2APIC_MSR(APIC_LVTERR):
+	case X2APIC_MSR(APIC_TMICT):
+	case X2APIC_MSR(APIC_TMCCT):
+	case X2APIC_MSR(APIC_TDCR):
 		return true;
-	case APIC_BASE_MSR ... APIC_BASE_MSR + 0xff:
-		/*
-		 * x2APIC registers that are virtualized by the CPU can't be
-		 * emulated, KVM doesn't have access to the virtual APIC page.
-		 */
-		switch (index) {
-		case X2APIC_MSR(APIC_TASKPRI):
-		case X2APIC_MSR(APIC_PROCPRI):
-		case X2APIC_MSR(APIC_EOI):
-		case X2APIC_MSR(APIC_ISR) ... X2APIC_MSR(APIC_ISR + APIC_ISR_NR):
-		case X2APIC_MSR(APIC_TMR) ... X2APIC_MSR(APIC_TMR + APIC_ISR_NR):
-		case X2APIC_MSR(APIC_IRR) ... X2APIC_MSR(APIC_IRR + APIC_ISR_NR):
-			return false;
-		default:
-			return true;
-		}
 	default:
 		return false;
 	}
