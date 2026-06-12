@@ -148,6 +148,7 @@ struct bpf_mprog_bundle {
 	struct bpf_prog *ref;
 	atomic64_t revision;
 	u32 count;
+	void *suse_kabi_padding;
 };
 
 struct bpf_tuple {

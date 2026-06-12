@@ -196,6 +196,7 @@ struct hid_bpf {
 	struct list_head prog_list;
 	struct mutex prog_list_lock;	/* protects prog_list update */
 	struct srcu_struct srcu;	/* protects prog_list read-only access */
+	void *suse_kabi_padding;
 };
 
 #ifdef CONFIG_HID_BPF
