@@ -330,27 +330,34 @@ check_netns() {
 	return 0
 }
 
-check_vng() {
-	local tested_versions
-	local version
-	local ok
+# Compare MAJOR.MINOR versions numerically. Returns 0 (true) if $1 < $2.
+version_lt() {
+	local -a a=(${1//./ })
+	local -a b=(${2//./ })
 
-	tested_versions=("1.33" "1.36" "1.37")
-	version="$(vng --version)"
-
-	ok=0
-	for tv in "${tested_versions[@]}"; do
-		if [[ "${version}" == *"${tv}"* ]]; then
-			ok=1
-			break
-		fi
-	done
-
-	if [[ ! "${ok}" -eq 1 ]]; then
-		printf "warning: vng version '%s' has not been tested and may " "${version}" >&2
-		printf "not function properly.\n\tThe following versions have been tested: " >&2
-		echo "${tested_versions[@]}" >&2
+	if [[ "${a[0]}" -lt "${b[0]}" ]]; then
+		return 0
+	elif [[ "${a[0]}" -gt "${b[0]}" ]]; then
+		return 1
+	elif [[ "${a[1]}" -lt "${b[1]}" ]]; then
+		return 0
 	fi
+
+	return 1
+}
+
+check_vng() {
+	local version
+
+	version="$(vng --version | awk '{print $2}')"
+
+	# Supported: 1.33, or any version >= 1.36. 1.34 and 1.35 are untested.
+	if [[ "${version}" == "1.33" ]] || ! version_lt "${version}" "1.36"; then
+		return
+	fi
+
+	printf "warning: vng version '%s' has not been tested and may " "${version}" >&2
+	printf "not function properly.\n\tSupported: 1.33 or >= 1.36\n" >&2
 }
 
 check_socat() {
