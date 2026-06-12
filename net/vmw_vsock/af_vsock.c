@@ -484,6 +484,7 @@ void vsock_add_pending(struct sock *listener, struct sock *pending)
 	sock_hold(pending);
 	sock_hold(listener);
 	list_add_tail(&vpending->pending_links, &vlistener->pending_links);
+	sk_acceptq_added(listener);
 }
 EXPORT_SYMBOL_GPL(vsock_add_pending);
 
