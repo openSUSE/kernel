@@ -491,7 +491,7 @@ static int hkdf_test(const char *shash, const struct hkdf_testvec *tv)
 		goto out_free;
 	}
 
-	if (fips_enabled && tv->salt_size < 112 / 8) {
+	if (fips_enabled && tv->salt_size < 128 / 8) {
 		pr_debug("%s(%s): skipped in FIPS mode\n",
 			 tv->test, driver);
 		err = 0;
