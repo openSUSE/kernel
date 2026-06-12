@@ -204,6 +204,7 @@ struct bpf_reg_state {
 	s32 subreg_def;
 	/* if (!precise && SCALAR_VALUE) min/max/tnum don't affect safety */
 	bool precise;
+	void *suse_kabi_padding;
 };
 
 enum bpf_stack_slot_type {
@@ -591,6 +592,7 @@ struct bpf_insn_aux_data {
 	u32 scc;
 	/* registers alive before this instruction. */
 	u16 live_regs_before;
+	void *suse_kabi_padding;
 };
 
 #define MAX_USED_MAPS 64 /* max number of maps accessed by one eBPF program */
@@ -614,6 +616,7 @@ struct bpf_verifier_log {
 	u32 len_total;
 	u32 len_max;
 	char kbuf[BPF_VERIFIER_TMP_LOG_SIZE];
+	void *suse_kabi_padding;
 };
 
 #define BPF_LOG_LEVEL1	1

@@ -14,6 +14,7 @@ struct bpf_mem_alloc {
 	struct obj_cgroup *objcg;
 	bool percpu;
 	struct work_struct work;
+	void *suse_kabi_padding;
 };
 
 /* 'size != 0' is for bpf_mem_alloc which manages fixed-size objects.
