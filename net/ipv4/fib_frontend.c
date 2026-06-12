@@ -1656,7 +1656,7 @@ out_semantics:
 	goto out;
 }
 
-static void __net_exit fib_net_exit(struct net *net)
+static void __net_exit fib_net_pre_exit(struct net *net)
 {
 	fib_proc_exit(net);
 	nl_fib_lookup_exit(net);
@@ -1680,7 +1680,7 @@ static void __net_exit fib_net_exit_batch(struct list_head *net_list)
 
 static struct pernet_operations fib_net_ops = {
 	.init = fib_net_init,
-	.exit = fib_net_exit,
+	.pre_exit = fib_net_pre_exit,
 	.exit_batch = fib_net_exit_batch,
 };
 
