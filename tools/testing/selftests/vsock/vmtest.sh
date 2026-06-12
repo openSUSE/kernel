@@ -445,8 +445,14 @@ vng_dry_run() {
 	# stopped with SIGTTOU and hangs until kselftest's timer expires.
 	# setsid works around this by launching vng in a new session that has
 	# no controlling terminal, so tcsetattr() succeeds.
+	#
+	# Fixed in 1.41 (https://github.com/arighi/virtme-ng/pull/453).
 
-	setsid -w vng --run "$@" --dry-run &>/dev/null
+	if version_lt "$(vng --version | awk '{print $2}')" "1.41"; then
+		setsid -w vng --run "$@" --dry-run &>/dev/null
+	else
+		vng --run "$@" --dry-run &>/dev/null
+	fi
 }
 
 vm_start() {
