@@ -206,11 +206,12 @@ EXPORT_SYMBOL_GPL(intel_pmt_class);
 
 static int intel_pmt_populate_entry(struct intel_pmt_entry *entry,
 				    struct intel_vsec_device *ivdev,
-				    struct resource *disc_res)
+				    int idx)
 {
 	struct pci_dev *pci_dev = to_pci_dev(ivdev->dev);
 	struct device *dev = &ivdev->auxdev.dev;
 	struct intel_pmt_header *header = &entry->header;
+	struct resource *disc_res;
 	u8 bir;
 
 	/*
@@ -235,6 +236,7 @@ static int intel_pmt_populate_entry(struct intel_pmt_entry *entry,
 		 * For access_type LOCAL, the base address is as follows:
 		 * base address = end of discovery region + base offset
 		 */
+		disc_res = &ivdev->resource[idx];
 		entry->base_addr = disc_res->end + 1 + header->base_offset;
 
 		/*
@@ -397,7 +399,7 @@ int intel_pmt_dev_create(struct intel_pmt_entry *entry, struct intel_pmt_namespa
 			return ret;
 	}
 
-	ret = intel_pmt_populate_entry(entry, intel_vsec_dev, disc_res);
+	ret = intel_pmt_populate_entry(entry, intel_vsec_dev, idx);
 	if (ret)
 		return ret;
 
