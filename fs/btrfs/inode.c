@@ -4363,6 +4363,8 @@ static int btrfs_rmdir(struct inode *dir, struct dentry *dentry)
 
 	last_unlink_trans = BTRFS_I(inode)->last_unlink_trans;
 
+	btrfs_record_unlink_dir(trans, BTRFS_I(dir), BTRFS_I(inode), false);
+
 	/* now the directory is empty */
 	err = btrfs_unlink_inode(trans, root, BTRFS_I(dir),
 			BTRFS_I(d_inode(dentry)), dentry->d_name.name,
