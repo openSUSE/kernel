@@ -4214,6 +4214,7 @@ static struct sys_reg_desc sys_insn_descs[] = {
 	SYS_INSN(AT_S1E0W, handle_at_s1e01),
 	SYS_INSN(AT_S1E1RP, handle_at_s1e01),
 	SYS_INSN(AT_S1E1WP, handle_at_s1e01),
+	SYS_INSN(AT_S1E1A, handle_at_s1e01),
 
 	{ SYS_DESC(SYS_DC_CSW), access_dcsw },
 	{ SYS_DESC(SYS_DC_CGSW), access_dcgsw },
