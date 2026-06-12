@@ -13530,6 +13530,14 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/axboe/linux.git
 S:	Maintained
 F:	io_uring/zcrx.*
 
+IO_URING BPF-OPS
+M:	Pavel Begunkov <asml.silence@gmail.com>
+L:	io-uring@vger.kernel.org
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/axboe/linux.git
+S:	Maintained
+F:	io_uring/bpf-ops.*
+F:	io_uring/loop.*
+
 IPMI SUBSYSTEM
 M:	Corey Minyard <corey@minyard.net>
 L:	openipmi-developer@lists.sourceforge.net (moderated for non-subscribers)
