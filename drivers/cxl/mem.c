@@ -48,6 +48,11 @@ static int cxl_mem_dpa_show(struct seq_file *file, void *data)
 static int cxl_debugfs_poison_inject(void *data, u64 dpa)
 {
 	struct cxl_memdev *cxlmd = data;
+	int rc;
+
+	ACQUIRE(device_intr, devlock)(&cxlmd->dev);
+	if ((rc = ACQUIRE_ERR(device_intr, &devlock)))
+		return rc;
 
 	return cxl_inject_poison(cxlmd, dpa);
 }
@@ -58,6 +63,11 @@ DEFINE_DEBUGFS_ATTRIBUTE(cxl_poison_inject_fops, NULL,
 static int cxl_debugfs_poison_clear(void *data, u64 dpa)
 {
 	struct cxl_memdev *cxlmd = data;
+	int rc;
+
+	ACQUIRE(device_intr, devlock)(&cxlmd->dev);
+	if ((rc = ACQUIRE_ERR(device_intr, &devlock)))
+		return rc;
 
 	return cxl_clear_poison(cxlmd, dpa);
 }
