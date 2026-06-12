@@ -2047,6 +2047,7 @@ static bool keep_feat(int feat)
 	case HEADER_CLOCK_DATA:
 	case HEADER_HYBRID_TOPOLOGY:
 	case HEADER_PMU_CAPS:
+	case HEADER_CPU_DOMAIN_INFO:
 		return true;
 	/* Information that can be updated */
 	case HEADER_BUILD_ID:
@@ -2526,6 +2527,8 @@ int cmd_inject(int argc, const char **argv)
 	inject.tool.compressed		= perf_event__repipe_op4_synth;
 	inject.tool.auxtrace		= perf_event__repipe_auxtrace;
 	inject.tool.bpf_metadata	= perf_event__repipe_op2_synth;
+	inject.tool.schedstat_cpu	= perf_event__repipe_op2_synth;
+	inject.tool.schedstat_domain	= perf_event__repipe_op2_synth;
 	inject.tool.dont_split_sample_group = true;
 	inject.session = __perf_session__new(&data, &inject.tool,
 					     /*trace_event_repipe=*/inject.output.is_pipe,
