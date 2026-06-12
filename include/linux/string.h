@@ -231,6 +231,23 @@ static inline const char *kbasename(const char *path)
 void __read_overflow3(void) __compiletime_error("detected read beyond size of object passed as 3rd parameter");
 
 /**
+ * memset_after - Set a value after a struct member to the end of a struct
+ *
+ * @obj: Address of target struct instance
+ * @v: Byte value to repeatedly write
+ * @member: after which struct member to start writing bytes
+ *
+ * This is good for clearing padding following the given member.
+ */
+#define memset_after(obj, v, member)					\
+({									\
+	u8 *__ptr = (u8 *)(obj);					\
+	typeof(v) __val = (v);						\
+	memset(__ptr + offsetofend(typeof(*(obj)), member), __val,	\
+	       sizeof(*(obj)) - offsetofend(typeof(*(obj)), member));	\
+})
+
+/**
  * memcpy_and_pad - Copy one buffer to another with padding
  * @dest: Where to copy to
  * @dest_len: The destination buffer size
