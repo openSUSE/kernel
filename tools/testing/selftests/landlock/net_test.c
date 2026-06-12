@@ -2742,12 +2742,22 @@ TEST_F(port_specific, bind_connect_1023)
 	EXPECT_EQ(0, close(bind_fd));
 }
 
+/**
+ * matches_auditlog - Check audit log for a network access denial
+ *
+ * @audit_fd:   Audit file descriptor.
+ * @blockers:   A regex-escaped blocker string, e.g., "net\.bind_tcp".
+ * @dir_addr:   Either "saddr" or "daddr", ignored if addr is NULL.
+ * @addr:       A regex-escaped IP address string, or NULL.
+ * @dir_port:   Either "src" or "dest", ignored if addr is NULL.
+ * @port:       A port number, ignored if addr is NULL.
+ */
 static int matches_auditlog(const int audit_fd, const char *const blockers,
 			    const char *const dir_addr, const char *const addr,
-			    const char *const dir_port)
+			    const char *const dir_port, const __u16 port)
 {
 	static const char log_with_addrport_tmpl[] = REGEX_LANDLOCK_PREFIX
-		" blockers=%s %s=%s %s=1024$";
+		" blockers=%s %s=%s %s=%u$";
 	static const char log_without_addrport_tmpl[] = REGEX_LANDLOCK_PREFIX
 		" blockers=%s";
 	/*
@@ -2755,8 +2765,9 @@ static int matches_auditlog(const int audit_fd, const char *const blockers,
 	 * Max strlen(dir_addr): 5
 	 * Max strlen(addr): 12
 	 * Max strlen(dir_port): 4
+	 * Max strlen(%u port): 5
 	 */
-	char log_match[sizeof(log_with_addrport_tmpl) + 37];
+	char log_match[sizeof(log_with_addrport_tmpl) + 42];
 	int log_match_len;
 
 	if (addr == NULL)
@@ -2765,7 +2776,7 @@ static int matches_auditlog(const int audit_fd, const char *const blockers,
 	else
 		log_match_len = snprintf(log_match, sizeof(log_match),
 					 log_with_addrport_tmpl, blockers,
-					 dir_addr, addr, dir_port);
+					 dir_addr, addr, dir_port, port);
 	if (log_match_len > sizeof(log_match))
 		return -E2BIG;
 
@@ -2777,6 +2788,8 @@ FIXTURE(audit)
 {
 	struct service_fixture srv0;
 	struct service_fixture srv1;
+	/* srv2 has a rule with no access but quiet bit set. */
+	struct service_fixture srv2;
 	struct service_fixture unspec_srv0;
 	struct audit_filter audit_filter;
 	int audit_fd;
@@ -2836,6 +2849,7 @@ FIXTURE_SETUP(audit)
 
 	ASSERT_EQ(0, set_service(&self->srv0, variant->prot, 0));
 	ASSERT_EQ(0, set_service(&self->srv1, variant->prot, 1));
+	ASSERT_EQ(0, set_service(&self->srv2, variant->prot, 2));
 	ASSERT_EQ(0, set_service(&self->unspec_srv0, prot_unspec, 0));
 
 	setup_loopback(_metadata);
@@ -2866,6 +2880,11 @@ TEST_F(audit, bind)
 				 LANDLOCK_ACCESS_NET_CONNECT_SEND_UDP);
 	const struct landlock_ruleset_attr ruleset_attr = {
 		.handled_access_net = access_rights,
+		.quiet_access_net = access_rights,
+	};
+	const struct landlock_net_port_attr quiet_rule = {
+		.allowed_access = 0,
+		.port = self->srv2.port,
 	};
 	struct audit_records records;
 	int ruleset_fd, sock_fd;
@@ -2873,6 +2892,8 @@ TEST_F(audit, bind)
 	ruleset_fd =
 		landlock_create_ruleset(&ruleset_attr, sizeof(ruleset_attr), 0);
 	ASSERT_LE(0, ruleset_fd);
+	ASSERT_EQ(0, landlock_add_rule(ruleset_fd, LANDLOCK_RULE_NET_PORT,
+				       &quiet_rule, LANDLOCK_ADD_RULE_QUIET));
 	enforce_ruleset(_metadata, ruleset_fd);
 	EXPECT_EQ(0, close(ruleset_fd));
 
@@ -2880,11 +2901,22 @@ TEST_F(audit, bind)
 	ASSERT_LE(0, sock_fd);
 	EXPECT_EQ(-EACCES, bind_variant(sock_fd, &self->srv0));
 	EXPECT_EQ(0, matches_auditlog(self->audit_fd, audit_evt, "saddr",
-				      variant->addr, "src"));
+				      variant->addr, "src", self->srv0.port));
 
 	EXPECT_EQ(0, audit_count_records(self->audit_fd, &records));
 	EXPECT_EQ(0, records.access);
 	EXPECT_EQ(1, records.domain);
+
+	EXPECT_EQ(0, close(sock_fd));
+
+	/* Bind to srv2 (with quiet rule): no new audit logs. */
+	sock_fd = socket_variant(&self->srv2);
+	ASSERT_LE(0, sock_fd);
+	EXPECT_EQ(-EACCES, bind_variant(sock_fd, &self->srv2));
+
+	EXPECT_EQ(0, audit_count_records(self->audit_fd, &records));
+	EXPECT_EQ(0, records.access);
+	EXPECT_EQ(0, records.domain);
 
 	EXPECT_EQ(0, close(sock_fd));
 }
@@ -2903,10 +2935,15 @@ TEST_F(audit, connect)
 	const __u64 access_rights = bind_right | conn_right;
 	const struct landlock_ruleset_attr ruleset_attr = {
 		.handled_access_net = access_rights,
+		.quiet_access_net = access_rights,
 	};
 	const struct landlock_net_port_attr rule_connect_p1 = {
 		.allowed_access = conn_right,
 		.port = self->srv1.port,
+	};
+	const struct landlock_net_port_attr quiet_rule = {
+		.allowed_access = 0,
+		.port = self->srv2.port,
 	};
 	struct audit_records records;
 	int ruleset_fd, sock_fd;
@@ -2916,6 +2953,8 @@ TEST_F(audit, connect)
 	ASSERT_LE(0, ruleset_fd);
 	ASSERT_EQ(0, landlock_add_rule(ruleset_fd, LANDLOCK_RULE_NET_PORT,
 				       &rule_connect_p1, 0));
+	ASSERT_EQ(0, landlock_add_rule(ruleset_fd, LANDLOCK_RULE_NET_PORT,
+				       &quiet_rule, LANDLOCK_ADD_RULE_QUIET));
 	enforce_ruleset(_metadata, ruleset_fd);
 	EXPECT_EQ(0, close(ruleset_fd));
 
@@ -2923,7 +2962,7 @@ TEST_F(audit, connect)
 	ASSERT_LE(0, sock_fd);
 	EXPECT_EQ(-EACCES, connect_variant(sock_fd, &self->srv0));
 	EXPECT_EQ(0, matches_auditlog(self->audit_fd, audit_evt, "daddr",
-				      variant->addr, "dest"));
+				      variant->addr, "dest", self->srv0.port));
 
 	EXPECT_EQ(0, audit_count_records(self->audit_fd, &records));
 	EXPECT_EQ(0, records.access);
@@ -2934,11 +2973,89 @@ TEST_F(audit, connect)
 		EXPECT_EQ(-EACCES, connect_variant(sock_fd, &self->srv1));
 
 		EXPECT_EQ(0, matches_auditlog(self->audit_fd, "net\\.bind_udp",
-					      NULL, NULL, NULL));
+					      NULL, NULL, NULL, 0));
 		EXPECT_EQ(0, audit_count_records(self->audit_fd, &records));
 		EXPECT_EQ(0, records.access);
 		EXPECT_EQ(0, records.domain);
 	}
+
+	EXPECT_EQ(0, close(sock_fd));
+
+	/* Connect to srv2 (with quiet rule): no new audit logs. */
+	sock_fd = socket_variant(&self->srv2);
+	ASSERT_LE(0, sock_fd);
+	EXPECT_EQ(-EACCES, connect_variant(sock_fd, &self->srv2));
+
+	EXPECT_EQ(0, audit_count_records(self->audit_fd, &records));
+	EXPECT_EQ(0, records.access);
+	EXPECT_EQ(0, records.domain);
+
+	EXPECT_EQ(0, close(sock_fd));
+}
+
+/* Quieting bind access has no effect on connect. */
+TEST_F(audit, connect_quiet_bind)
+{
+	const char *audit_evt = (variant->prot.type == SOCK_STREAM ?
+					 "net\\.connect_tcp" :
+					 "net\\.connect_send_udp");
+	const int bind_right = (variant->prot.type == SOCK_STREAM ?
+					LANDLOCK_ACCESS_NET_BIND_TCP :
+					LANDLOCK_ACCESS_NET_BIND_UDP);
+	const int conn_right = (variant->prot.type == SOCK_STREAM ?
+					LANDLOCK_ACCESS_NET_CONNECT_TCP :
+					LANDLOCK_ACCESS_NET_CONNECT_SEND_UDP);
+	const int access_rights = bind_right | conn_right;
+	const struct landlock_ruleset_attr ruleset_attr = {
+		.handled_access_net = access_rights,
+		.quiet_access_net = bind_right,
+	};
+	const struct landlock_ruleset_attr ruleset_attr_2 = {
+		.handled_access_net = access_rights,
+		.quiet_access_net = conn_right,
+	};
+	const struct landlock_net_port_attr quiet_rule = {
+		.allowed_access = 0,
+		.port = self->srv2.port,
+	};
+	struct audit_records records;
+	int ruleset_fd, sock_fd;
+
+	ruleset_fd =
+		landlock_create_ruleset(&ruleset_attr, sizeof(ruleset_attr), 0);
+	ASSERT_LE(0, ruleset_fd);
+	ASSERT_EQ(0, landlock_add_rule(ruleset_fd, LANDLOCK_RULE_NET_PORT,
+				       &quiet_rule, LANDLOCK_ADD_RULE_QUIET));
+	enforce_ruleset(_metadata, ruleset_fd);
+	EXPECT_EQ(0, close(ruleset_fd));
+
+	sock_fd = socket_variant(&self->srv2);
+	ASSERT_LE(0, sock_fd);
+	EXPECT_EQ(-EACCES, connect_variant(sock_fd, &self->srv2));
+	EXPECT_EQ(0, matches_auditlog(self->audit_fd, audit_evt, "daddr",
+				      variant->addr, "dest", self->srv2.port));
+
+	EXPECT_EQ(0, audit_count_records(self->audit_fd, &records));
+	EXPECT_EQ(0, records.access);
+
+	EXPECT_EQ(0, close(sock_fd));
+
+	/* New layer that also denies connect but has the correct quiet bit. */
+	ruleset_fd = landlock_create_ruleset(&ruleset_attr_2,
+					     sizeof(ruleset_attr_2), 0);
+	ASSERT_LE(0, ruleset_fd);
+	ASSERT_EQ(0, landlock_add_rule(ruleset_fd, LANDLOCK_RULE_NET_PORT,
+				       &quiet_rule, LANDLOCK_ADD_RULE_QUIET));
+	enforce_ruleset(_metadata, ruleset_fd);
+	EXPECT_EQ(0, close(ruleset_fd));
+
+	sock_fd = socket_variant(&self->srv2);
+	ASSERT_LE(0, sock_fd);
+	EXPECT_EQ(-EACCES, connect_variant(sock_fd, &self->srv2));
+
+	/* Quieted - no logs expected. */
+	EXPECT_EQ(0, audit_count_records(self->audit_fd, &records));
+	EXPECT_EQ(0, records.access);
 
 	EXPECT_EQ(0, close(sock_fd));
 }
@@ -3045,7 +3162,8 @@ TEST_F(audit, sendmsg)
 	ASSERT_LE(0, sock_fd);
 	EXPECT_EQ(-EACCES, sendto_variant(sock_fd, &self->srv0, "A", 1, 0));
 	EXPECT_EQ(0, matches_auditlog(self->audit_fd, "net\\.connect_send_udp",
-				      "daddr", variant->addr, "dest"));
+				      "daddr", variant->addr, "dest",
+				      self->srv0.port));
 
 	EXPECT_EQ(0, audit_count_records(self->audit_fd, &records));
 	EXPECT_EQ(0, records.access);
@@ -3054,7 +3172,7 @@ TEST_F(audit, sendmsg)
 	/* Check that autobind generates a denied bind event. */
 	EXPECT_EQ(-EACCES, sendto_variant(sock_fd, &self->srv1, "A", 1, 0));
 	EXPECT_EQ(0, matches_auditlog(self->audit_fd, "net\\.bind_udp", NULL,
-				      NULL, NULL));
+				      NULL, NULL, 0));
 	EXPECT_EQ(0, audit_count_records(self->audit_fd, &records));
 	EXPECT_EQ(0, records.access);
 	EXPECT_EQ(0, records.domain);
@@ -3062,7 +3180,7 @@ TEST_F(audit, sendmsg)
 	EXPECT_EQ(-EACCES,
 		  sendto_variant(sock_fd, &self->unspec_srv0, "B", 1, 0));
 	EXPECT_EQ(0, matches_auditlog(self->audit_fd, "net\\.connect_send_udp",
-				      "daddr", NULL, "dest"));
+				      "daddr", NULL, "dest", 0));
 	EXPECT_EQ(0, audit_count_records(self->audit_fd, &records));
 	EXPECT_EQ(0, records.access);
 	EXPECT_EQ(0, records.domain);
