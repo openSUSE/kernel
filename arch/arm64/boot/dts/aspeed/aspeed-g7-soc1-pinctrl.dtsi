@@ -496,87 +496,6 @@
 		function = "I3C15";
 		groups = "HVI3C15";
 	};
-
-	pinctrl_tach0_default: tach0-default-state {
-		function = "TACH0";
-		groups = "TACH0";
-	};
-
-	pinctrl_tach1_default: tach1-default-state {
-		function = "TACH1";
-		groups = "TACH1";
-	};
-
-	pinctrl_tach2_default: tach2-default-state {
-		function = "TACH2";
-		groups = "TACH2";
-	};
-
-	pinctrl_tach3_default: tach3-default-state {
-		function = "TACH3";
-		groups = "TACH3";
-	};
-
-	pinctrl_tach4_default: tach4-default-state {
-		function = "TACH4";
-		groups = "TACH4";
-	};
-
-	pinctrl_tach5_default: tach5-default-state {
-		function = "TACH5";
-		groups = "TACH5";
-	};
-
-	pinctrl_tach6_default: tach6-default-state {
-		function = "TACH6";
-		groups = "TACH6";
-	};
-
-	pinctrl_tach7_default: tach7-default-state {
-		function = "TACH7";
-		groups = "TACH7";
-	};
-
-	pinctrl_tach8_default: tach8-default-state {
-		function = "TACH8";
-		groups = "TACH8";
-	};
-
-	pinctrl_tach9_default: tach9-default-state {
-		function = "TACH9";
-		groups = "TACH9";
-	};
-
-	pinctrl_tach10_default: tach10-default-state {
-		function = "TACH10";
-		groups = "TACH10";
-	};
-
-	pinctrl_tach11_default: tach11-default-state {
-		function = "TACH11";
-		groups = "TACH11";
-	};
-
-	pinctrl_tach12_default: tach12-default-state {
-		function = "TACH12";
-		groups = "TACH12";
-	};
-
-	pinctrl_tach13_default: tach13-default-state {
-		function = "TACH13";
-		groups = "TACH13";
-	};
-
-	pinctrl_tach14_default: tach14-default-state {
-		function = "TACH14";
-		groups = "TACH14";
-	};
-
-	pinctrl_tach15_default: tach15-default-state {
-		function = "TACH15";
-		groups = "TACH15";
-	};
-
 	pinctrl_thru0_default: thru0-default-state {
 		function = "THRU0";
 		groups = "THRU0";
@@ -940,27 +859,6 @@
 		function = "UART3";
 		groups = "UART3";
 	};
-
-	pinctrl_ncts5_default: ncts5-default-state {
-		function = "NCTS5";
-		groups = "NCTS5";
-	};
-
-	pinctrl_ndcd5_default: ndcd5-default-state {
-		function = "NDCD5";
-		groups = "NDCD5";
-	};
-
-	pinctrl_ndsr5_default: ndsr5-default-state {
-		function = "NDSR5";
-		groups = "NDSR5";
-	};
-
-	pinctrl_nri5_default: nri5-default-state {
-		function = "NRI5";
-		groups = "NRI5";
-	};
-
 	pinctrl_ndtr5_default: ndtr5-default-state {
 		function = "NDTR5";
 		groups = "NDTR5";

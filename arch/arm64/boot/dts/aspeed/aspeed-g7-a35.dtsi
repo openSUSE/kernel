@@ -84,32 +84,30 @@
 	};
 
 	secondary {
-		#address-cells = <2>;
-		/* https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/drivers/of/address.c?h=v6.16#n491 */
+		#address-cells = <1>;
 		#size-cells = <0>;
-		/* https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/drivers/of/address.c?h=v6.16#n430 */
 
-		ssp_nvic: interrupt-controller@1,e000e100 {
+		ssp_nvic: interrupt-controller@e000e100 {
 			compatible = "arm,v7m-nvic";
 			#interrupt-cells = <2>;
 			#address-cells = <0>;
 			interrupt-controller;
-			reg = <1 0xe000e100>;
+			reg = <0xe000e100>;
 			arm,num-irq-priority-bits = <3>;
 			status = "disabled";
 		};
 	};
 
 	tertiary {
-		#address-cells = <2>;
+		#address-cells = <1>;
 		#size-cells = <0>;
 
-		tsp_nvic: interrupt-controller@2,e000e100 {
+		tsp_nvic: interrupt-controller@e000e100 {
 			compatible = "arm,v7m-nvic";
 			#interrupt-cells = <2>;
 			#address-cells = <0>;
 			interrupt-controller;
-			reg = <2 0xe000e100>;
+			reg = <0xe000e100>;
 			arm,num-irq-priority-bits = <3>;
 			status = "disabled";
 		};
