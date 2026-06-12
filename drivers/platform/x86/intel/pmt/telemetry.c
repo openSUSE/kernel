@@ -72,16 +72,16 @@ static bool pmt_telem_region_overlaps(struct device *dev, u32 guid, u32 type)
 static int pmt_telem_header_decode(struct intel_pmt_entry *entry,
 				   struct device *dev)
 {
-	void __iomem *disc_table = entry->disc_table;
 	struct intel_pmt_header *header = &entry->header;
+	u32 *disc_header = entry->disc_header;
 
-	header->access_type = TELEM_ACCESS(readl(disc_table));
-	header->guid = readl(disc_table + TELEM_GUID_OFFSET);
-	header->base_offset = readl(disc_table + TELEM_BASE_OFFSET);
+	header->access_type = TELEM_ACCESS(disc_header[0]);
+	header->guid = disc_header[1];
+	header->base_offset = disc_header[2];
 
 	/* Size is measured in DWORDS, but accessor returns bytes */
-	header->size = TELEM_SIZE(readl(disc_table));
-	header->telem_type = TELEM_TYPE(readl(entry->disc_table));
+	header->size = TELEM_SIZE(disc_header[0]);
+	header->telem_type = TELEM_TYPE(disc_header[0]);
 
 	return 0;
 }
