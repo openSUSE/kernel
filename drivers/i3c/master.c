@@ -1871,70 +1871,6 @@ static void i3c_master_reg_work_fn(struct work_struct *work)
 }
 
 /**
- * i3c_master_do_daa_ext() - Dynamic Address Assignment (extended version)
- * @master: controller
- * @rstdaa: whether to first perform Reset of Dynamic Addresses (RSTDAA)
- *
- * Perform Dynamic Address Assignment with optional support for System
- * Hibernation (@rstdaa is true).
- *
- * After System Hibernation, Dynamic Addresses can have been reassigned at boot
- * time to different values. A simple strategy is followed to handle that.
- * Perform a Reset of Dynamic Addresses (RSTDAA) followed by the normal DAA
- * procedure which has provision for reassigning addresses that differ from the
- * previously recorded addresses.
- *
- * Return: a 0 in case of success, an negative error code otherwise.
- */
-int i3c_master_do_daa_ext(struct i3c_master_controller *master, bool rstdaa)
-{
-	int rstret = 0;
-	int ret;
-
-	ret = i3c_master_rpm_get(master);
-	if (ret)
-		return ret;
-
-	i3c_bus_maintenance_lock(&master->bus);
-
-	if (master->shutting_down) {
-		ret = -ENODEV;
-	} else {
-		if (rstdaa)
-			rstret = i3c_master_rstdaa_locked(master, I3C_BROADCAST_ADDR);
-		ret = master->ops->do_daa(master);
-	}
-
-	i3c_bus_maintenance_unlock(&master->bus);
-
-	if (ret)
-		goto out;
-
-	queue_work(master->wq, &master->reg_work);
-out:
-	i3c_master_rpm_put(master);
-
-	return rstret ?: ret;
-}
-EXPORT_SYMBOL_GPL(i3c_master_do_daa_ext);
-
-/**
- * i3c_master_do_daa() - do a DAA (Dynamic Address Assignment)
- * @master: master doing the DAA
- *
- * This function instantiates I3C device objects and adds them to the
- * I3C device list. All device information is automatically retrieved using
- * standard CCC commands.
- *
- * Return: a 0 in case of success, an negative error code otherwise.
- */
-int i3c_master_do_daa(struct i3c_master_controller *master)
-{
-	return i3c_master_do_daa_ext(master, false);
-}
-EXPORT_SYMBOL_GPL(i3c_master_do_daa);
-
-/**
  * i3c_master_dma_map_single() - Map buffer for single DMA transfer
  * @dev: device object of a device doing DMA
  * @buf: destination/source buffer for DMA
@@ -2475,6 +2411,70 @@ err_prevent_addr_reuse:
 	dev_err(&master->dev, "Failed to add I3C device at address %u, error %d\n", addr, ret);
 }
 EXPORT_SYMBOL_GPL(i3c_master_add_i3c_dev_locked);
+
+/**
+ * i3c_master_do_daa_ext() - Dynamic Address Assignment (extended version)
+ * @master: controller
+ * @rstdaa: whether to first perform Reset of Dynamic Addresses (RSTDAA)
+ *
+ * Perform Dynamic Address Assignment with optional support for System
+ * Hibernation (@rstdaa is true).
+ *
+ * After System Hibernation, Dynamic Addresses can have been reassigned at boot
+ * time to different values. A simple strategy is followed to handle that.
+ * Perform a Reset of Dynamic Addresses (RSTDAA) followed by the normal DAA
+ * procedure which has provision for reassigning addresses that differ from the
+ * previously recorded addresses.
+ *
+ * Return: a 0 in case of success, an negative error code otherwise.
+ */
+int i3c_master_do_daa_ext(struct i3c_master_controller *master, bool rstdaa)
+{
+	int rstret = 0;
+	int ret;
+
+	ret = i3c_master_rpm_get(master);
+	if (ret)
+		return ret;
+
+	i3c_bus_maintenance_lock(&master->bus);
+
+	if (master->shutting_down) {
+		ret = -ENODEV;
+	} else {
+		if (rstdaa)
+			rstret = i3c_master_rstdaa_locked(master, I3C_BROADCAST_ADDR);
+		ret = master->ops->do_daa(master);
+	}
+
+	i3c_bus_maintenance_unlock(&master->bus);
+
+	if (ret)
+		goto out;
+
+	queue_work(master->wq, &master->reg_work);
+out:
+	i3c_master_rpm_put(master);
+
+	return rstret ?: ret;
+}
+EXPORT_SYMBOL_GPL(i3c_master_do_daa_ext);
+
+/**
+ * i3c_master_do_daa() - do a DAA (Dynamic Address Assignment)
+ * @master: master doing the DAA
+ *
+ * This function instantiates I3C device objects and adds them to the
+ * I3C device list. All device information is automatically retrieved using
+ * standard CCC commands.
+ *
+ * Return: a 0 in case of success, an negative error code otherwise.
+ */
+int i3c_master_do_daa(struct i3c_master_controller *master)
+{
+	return i3c_master_do_daa_ext(master, false);
+}
+EXPORT_SYMBOL_GPL(i3c_master_do_daa);
 
 #define OF_I3C_REG1_IS_I2C_DEV			BIT(31)
 
