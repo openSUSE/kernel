@@ -700,7 +700,7 @@ static const struct midr_range workaround_clean_cache[] = {
 	/* Cortex-A53 r0p[01] : ARM errata 819472 */
 	MIDR_REV_RANGE(MIDR_CORTEX_A53, 0, 0, 1),
 #endif
-	{},
+	{}
 };
 #endif
 
@@ -725,6 +725,33 @@ static struct midr_range broken_aarch32_aes[] = {
 	{},
 };
 #endif /* CONFIG_ARM64_WORKAROUND_TRBE_WRITE_OUT_OF_RANGE */
+
+#ifdef CONFIG_ARM64_WORKAROUND_REPEAT_TLBI
+
+static const struct midr_range arm64_repeat_tlbi_cpus[] = {
+#ifdef CONFIG_QCOM_FALKOR_ERRATUM_1009
+	MIDR_RANGE(MIDR_QCOM_FALKOR_V1, 0, 0, 0, 0),
+#endif
+#ifdef CONFIG_ARM64_ERRATUM_1286807
+	MIDR_RANGE(MIDR_CORTEX_A76, 0, 0, 3, 0),
+#endif
+#ifdef CONFIG_ARM64_ERRATUM_4118414
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_A76),
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_A77),
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_A78),
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_A78C),
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_A710),
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_X1),
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_X1C),
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_X2),
+	MIDR_ALL_VERSIONS(MIDR_NEOVERSE_N1),
+	MIDR_ALL_VERSIONS(MIDR_NEOVERSE_N2),
+	MIDR_ALL_VERSIONS(MIDR_NEOVERSE_V1),
+#endif
+	{},
+};
+
+#endif
 
 const struct arm64_cpu_capabilities arm64_errata[] = {
 #ifdef CONFIG_ARM64_WORKAROUND_CLEAN_CACHE
@@ -809,11 +836,11 @@ const struct arm64_cpu_capabilities arm64_errata[] = {
 		ERRATA_MIDR_REV(MIDR_QCOM_FALKOR_V1, 0, 0),
 	},
 #endif
-#ifdef CONFIG_QCOM_FALKOR_ERRATUM_1009
+#ifdef CONFIG_ARM64_WORKAROUND_REPEAT_TLBI
 	{
-		.desc = "Qualcomm Technologies Falkor erratum 1009",
+		.desc = "Broken broadcast TLBI completion",
 		.capability = ARM64_WORKAROUND_REPEAT_TLBI,
-		ERRATA_MIDR_REV(MIDR_QCOM_FALKOR_V1, 0, 0),
+		ERRATA_MIDR_RANGE_LIST(arm64_repeat_tlbi_cpus),
 	},
 #endif
 #ifdef CONFIG_ARM64_ERRATUM_858921
