@@ -45,6 +45,16 @@ static const struct ssram_type pci_main = {
 	.p_index = PMC_IDX_MAIN,
 };
 
+static const struct ssram_type acpi_main = {
+	.method = RES_METHOD_ACPI,
+	.p_index = PMC_IDX_MAIN,
+};
+
+static const struct ssram_type acpi_pch = {
+	.method = RES_METHOD_ACPI,
+	.p_index = PMC_IDX_PCH,
+};
+
 enum pmc_ssram_state {
 	PMC_SSRAM_UNPROBED = 0,
 	PMC_SSRAM_PROBING,
@@ -453,6 +463,12 @@ static const struct pci_device_id pmc_ssram_telemetry_pci_ids[] = {
 		.driver_data = (kernel_ulong_t)&pci_main },
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PMC_DEVID_WCL_PCDN),
 		.driver_data = (kernel_ulong_t)&pci_main },
+	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PMC_DEVID_NVL_PCDH),
+		.driver_data = (kernel_ulong_t)&acpi_main },
+	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PMC_DEVID_NVL_PCDS),
+		.driver_data = (kernel_ulong_t)&acpi_main },
+	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PMC_DEVID_NVL_PCHS),
+		.driver_data = (kernel_ulong_t)&acpi_pch },
 	{ }
 };
 MODULE_DEVICE_TABLE(pci, pmc_ssram_telemetry_pci_ids);
