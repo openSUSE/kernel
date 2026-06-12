@@ -8086,6 +8086,54 @@ static int select_idle_cpu(struct task_struct *p, struct sched_domain *sd, bool 
 }
 
 /*
+ * Idle-capacity scan converts util_fits_cpu() outcomes into preference ranks,
+ * where lower values indicate a better fit - see select_idle_capacity().
+ *
+ * A CPU that both fits the task and sits on a fully-idle SMT core is returned
+ * immediately and is never assigned one of these ranks. On !SMT every CPU is
+ * its own "core", so the early return covers all fits-and-idle cases and the
+ * core-tier ranks below become unreachable.
+ *
+ *   Rank                            Val  Tier    Meaning
+ *   ------------------------------  ---  ------  ---------------------------
+ *   ASYM_IDLE_UCLAMP_MISFIT         -4   core    Idle core; capacity fits
+ *                                                util but uclamp_min misses.
+ *   ASYM_IDLE_COMPLETE_MISFIT       -3   core    Idle core; capacity does
+ *                                                not fit. Still beats every
+ *                                                thread-tier rank: a busy
+ *                                                sibling cuts effective
+ *                                                capacity more than a
+ *                                                misfit hurts a quiet core.
+ *   ASYM_IDLE_THREAD_FITS           -2   thread  Busy SMT sibling; capacity
+ *                                                fits util + uclamp.
+ *   ASYM_IDLE_THREAD_UCLAMP_MISFIT  -1   thread  Busy SMT sibling; capacity
+ *                                                fits but uclamp_min misses
+ *                                                (native util_fits_cpu()
+ *                                                return value).
+ *   ASYM_IDLE_THREAD_MISFIT          0   thread  Busy SMT sibling; capacity
+ *                                                does not fit.
+ *
+ * ASYM_IDLE_CORE_BIAS (-3) is an offset, not a state. On an idle core,
+ * fits += ASYM_IDLE_CORE_BIAS rebases thread-tier ranks into the core tier:
+ *
+ *   ASYM_IDLE_THREAD_UCLAMP_MISFIT (-1) + BIAS -> ASYM_IDLE_UCLAMP_MISFIT   (-4)
+ *   ASYM_IDLE_THREAD_MISFIT         (0) + BIAS -> ASYM_IDLE_COMPLETE_MISFIT (-3)
+ *
+ * ASYM_IDLE_THREAD_FITS (-2) is never rebased because a fully-fitting idle-core
+ * candidate early-returns from select_idle_capacity().
+ */
+enum asym_fits_state {
+	ASYM_IDLE_UCLAMP_MISFIT = -4,
+	ASYM_IDLE_COMPLETE_MISFIT,
+	ASYM_IDLE_THREAD_FITS,
+	ASYM_IDLE_THREAD_UCLAMP_MISFIT,
+	ASYM_IDLE_THREAD_MISFIT,
+
+	/* util_fits_cpu() bias for idle core */
+	ASYM_IDLE_CORE_BIAS = -3,
+};
+
+/*
  * Scan the asym_capacity domain for idle CPUs; pick the first idle one on which
  * the task fits. If no CPU is big enough, but there are idle ones, try to
  * maximize capacity.
@@ -8093,8 +8141,14 @@ static int select_idle_cpu(struct task_struct *p, struct sched_domain *sd, bool 
 static int
 select_idle_capacity(struct task_struct *p, struct sched_domain *sd, int target)
 {
+	/*
+	 * On !SMT systems, has_idle_core is always false and preferred_core
+	 * is always true (CPU == core), so the SMT preference logic below
+	 * collapses to the plain capacity scan.
+	 */
+	bool has_idle_core = sched_smt_active() && test_idle_cores(target);
 	unsigned long task_util, util_min, util_max, best_cap = 0;
-	int fits, best_fits = 0;
+	int fits, best_fits = ASYM_IDLE_THREAD_MISFIT;
 	int cpu, best_cpu = -1;
 	struct cpumask *cpus;
 
@@ -8106,6 +8160,7 @@ select_idle_capacity(struct task_struct *p, struct sched_domain *sd, int target)
 	util_max = uclamp_eff_value(p, UCLAMP_MAX);
 
 	for_each_cpu_wrap(cpu, cpus, target) {
+		bool preferred_core = !has_idle_core || is_core_idle(cpu);
 		unsigned long cpu_cap = capacity_of(cpu);
 
 		if (!choose_idle_cpu(cpu, p))
@@ -8113,8 +8168,14 @@ select_idle_capacity(struct task_struct *p, struct sched_domain *sd, int target)
 
 		fits = util_fits_cpu(task_util, util_min, util_max, cpu);
 
-		/* This CPU fits with all requirements */
-		if (fits > 0)
+		/*
+		 * Perfect fit: capacity satisfies util + uclamp and the CPU
+		 * sits on a fully-idle SMT core, this is a !SMT system, or
+		 * there is no idle core to find.
+		 * Short-circuit the rank-based selection and return
+		 * immediately.
+		 */
+		if (fits > 0 && preferred_core)
 			return cpu;
 		/*
 		 * Only the min performance hint (i.e. uclamp_min) doesn't fit.
@@ -8122,9 +8183,33 @@ select_idle_capacity(struct task_struct *p, struct sched_domain *sd, int target)
 		 */
 		else if (fits < 0)
 			cpu_cap = get_actual_cpu_capacity(cpu);
+		/*
+		 * fits > 0 implies we are not on a preferred core, but the util
+		 * fits CPU capacity. Set fits to ASYM_IDLE_THREAD_FITS
+		 * so the effective range becomes
+		 * [ASYM_IDLE_THREAD_FITS, ASYM_IDLE_THREAD_MISFIT], where:
+		 *    ASYM_IDLE_THREAD_MISFIT - does not fit
+		 *    ASYM_IDLE_THREAD_UCLAMP_MISFIT - fits with the exception of UCLAMP_MIN
+		 *    ASYM_IDLE_THREAD_FITS - fits with the exception of preferred_core
+		 */
+		else if (fits > 0)
+			fits = ASYM_IDLE_THREAD_FITS;
 
 		/*
-		 * First, select CPU which fits better (-1 being better than 0).
+		 * If we are on a preferred core, translate the range of fits
+		 * of [ASYM_IDLE_THREAD_UCLAMP_MISFIT, ASYM_IDLE_THREAD_MISFIT] to
+		 * [ASYM_IDLE_UCLAMP_MISFIT, ASYM_IDLE_COMPLETE_MISFIT].
+		 * This ensures that an idle core is always given priority over
+		 * (partially) busy core.
+		 *
+		 * A fully fitting idle core would have returned early and hence
+		 * fits > 0 for preferred_core need not be dealt with.
+		 */
+		if (preferred_core)
+			fits += ASYM_IDLE_CORE_BIAS;
+
+		/*
+		 * First, select CPU which fits better (lower is more preferred).
 		 * Then, select the one with best capacity at same level.
 		 */
 		if ((fits < best_fits) ||
@@ -8135,6 +8220,19 @@ select_idle_capacity(struct task_struct *p, struct sched_domain *sd, int target)
 		}
 	}
 
+	/*
+	 * A value in the [ASYM_IDLE_UCLAMP_MISFIT, ASYM_IDLE_COMPLETE_MISFIT]
+	 * range means the chosen CPU is in a fully idle SMT core. Values above
+	 * ASYM_IDLE_COMPLETE_MISFIT mean we never ranked such a CPU best.
+	 *
+	 * The asym-capacity wakeup path returns from select_idle_sibling()
+	 * after this function and never runs select_idle_cpu(), so the usual
+	 * select_idle_cpu() tail that clears idle cores must live here when the
+	 * idle-core preference did not win.
+	 */
+	if (has_idle_core && best_fits > ASYM_IDLE_COMPLETE_MISFIT)
+		set_idle_cores(target, false);
+
 	return best_cpu;
 }
 
@@ -8143,12 +8241,22 @@ static inline bool asym_fits_cpu(unsigned long util,
 				 unsigned long util_max,
 				 int cpu)
 {
-	if (sched_asym_cpucap_active())
+	if (sched_asym_cpucap_active()) {
 		/*
 		 * Return true only if the cpu fully fits the task requirements
 		 * which include the utilization and the performance hints.
+		 *
+		 * When SMT is active, also require that the core has no busy
+		 * siblings.
+		 *
+		 * Note: gating on is_core_idle() also makes the early-bailout
+		 * candidates in select_idle_sibling() (target, prev,
+		 * recent_used_cpu) idle-core-aware on ASYM+SMT, which the
+		 * NO_ASYM path does not do.
 		 */
-		return (util_fits_cpu(util, util_min, util_max, cpu) > 0);
+		return (!sched_smt_active() || is_core_idle(cpu)) &&
+		       (util_fits_cpu(util, util_min, util_max, cpu) > 0);
+	}
 
 	return true;
 }
