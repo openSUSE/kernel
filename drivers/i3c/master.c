@@ -2324,19 +2324,12 @@ i3c_master_search_i3c_dev_duplicate(struct i3c_dev_desc *refdev)
  * @master: master used to send frames on the bus
  * @addr: I3C slave dynamic address assigned to the device
  *
- * This function is instantiating an I3C device object and adding it to the
- * I3C device list. All device information are automatically retrieved using
- * standard CCC commands.
- *
- * The I3C device object is returned in case the master wants to attach
- * private data to it using i3c_dev_set_master_data().
+ * This function instantiates an I3C device object and adds it to the I3C device
+ * list. All device information is retrieved using standard CCC commands.
  *
  * This function must be called with the bus lock held in write mode.
- *
- * Return: a 0 in case of success, an negative error code otherwise.
  */
-int i3c_master_add_i3c_dev_locked(struct i3c_master_controller *master,
-				  u8 addr)
+void i3c_master_add_i3c_dev_locked(struct i3c_master_controller *master, u8 addr)
 {
 	struct i3c_device_info info = { .dyn_addr = addr };
 	struct i3c_dev_desc *newdev, *olddev;
@@ -2460,7 +2453,7 @@ int i3c_master_add_i3c_dev_locked(struct i3c_master_controller *master,
 		mutex_unlock(&newdev->ibi_lock);
 	}
 
-	return 0;
+	return;
 
 err_detach_dev:
 	if (newdev->dev && newdev->dev->desc)
@@ -2480,8 +2473,6 @@ err_prevent_addr_reuse:
 		i3c_bus_set_addr_slot_status(&master->bus, addr, I3C_ADDR_SLOT_I3C_DEV);
 
 	dev_err(&master->dev, "Failed to add I3C device at address %u, error %d\n", addr, ret);
-
-	return ret;
 }
 EXPORT_SYMBOL_GPL(i3c_master_add_i3c_dev_locked);
 
