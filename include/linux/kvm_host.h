@@ -214,8 +214,10 @@ enum {
 struct kvm_mmio_fragment {
 	gpa_t gpa;
 	void *data;
-	u64 val;
-	unsigned int len;
+	unsigned len;
+#ifndef __GENKSYMS__
+	bool data_copied;
+#endif
 };
 
 struct kvm_vcpu {
@@ -281,6 +283,9 @@ struct kvm_vcpu {
 	bool preempted;
 	struct kvm_vcpu_arch arch;
 	struct dentry *debugfs_dentry;
+#ifndef __GENKSYMS__
+	u64 mmio_frag_val[KVM_MAX_MMIO_FRAGMENTS];
+#endif
 };
 
 static inline int kvm_vcpu_exiting_guest_mode(struct kvm_vcpu *vcpu)
