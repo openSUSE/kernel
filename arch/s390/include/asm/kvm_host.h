@@ -504,6 +504,18 @@ struct kvm_s390_cpu_model {
 	struct kvm_s390_vm_cpu_uv_feat uv_feat_guest;
 };
 
+#define S390_ARCH_FAC_FORMAT_2 2
+struct kvm_s390_flcb2 {
+	union {
+		struct {
+			u8 reserved0[7];
+			u8 length;
+		};
+		u64 header_val;
+	};
+	u64 facilities[S390_ARCH_FAC_LIST_SIZE_U64];
+};
+
 typedef int (*crypto_hook)(struct kvm_vcpu *vcpu);
 
 struct kvm_s390_crypto {
