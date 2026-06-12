@@ -438,11 +438,12 @@ static int kvm_gmem_set_policy(struct vm_area_struct *vma, struct mempolicy *mpo
 }
 
 static struct mempolicy *kvm_gmem_get_policy(struct vm_area_struct *vma,
-					     unsigned long addr, pgoff_t *pgoff)
+					     unsigned long addr, pgoff_t *ilx)
 {
+	pgoff_t pgoff = vma->vm_pgoff + ((addr - vma->vm_start) >> PAGE_SHIFT);
 	struct inode *inode = file_inode(vma->vm_file);
 
-	*pgoff = vma->vm_pgoff + ((addr - vma->vm_start) >> PAGE_SHIFT);
+	*ilx = inode->i_ino;
 
 	/*
 	 * Return the memory policy for this index, or NULL if none is set.
@@ -453,7 +454,7 @@ static struct mempolicy *kvm_gmem_get_policy(struct vm_area_struct *vma,
 	 * can then replace NULL with the default memory policy instead of the
 	 * current task's memory policy.
 	 */
-	return mpol_shared_policy_lookup(&GMEM_I(inode)->policy, *pgoff);
+	return mpol_shared_policy_lookup(&GMEM_I(inode)->policy, pgoff);
 }
 #endif /* CONFIG_NUMA */
 
@@ -640,15 +641,16 @@ int kvm_gmem_create(struct kvm *kvm, struct kvm_create_guest_memfd *args)
 }
 
 int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
-		  unsigned int fd, loff_t offset)
+		  unsigned int fd, uoff_t offset)
 {
-	loff_t size = slot->npages << PAGE_SHIFT;
+	uoff_t size = slot->npages << PAGE_SHIFT;
 	unsigned long start, end;
 	struct gmem_file *f;
 	struct inode *inode;
 	struct file *file;
 	int r = -EINVAL;
 
+	BUILD_BUG_ON(sizeof(gpa_t) != sizeof(offset));
 	BUILD_BUG_ON(sizeof(gfn_t) != sizeof(slot->gmem.pgoff));
 
 	file = fget(fd);
@@ -664,8 +666,7 @@ int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
 
 	inode = file_inode(file);
 
-	if (offset < 0 || !PAGE_ALIGNED(offset) ||
-	    offset + size > i_size_read(inode))
+	if (!PAGE_ALIGNED(offset) || offset + size > i_size_read(inode))
 		goto err;
 
 	filemap_invalidate_lock(inode->i_mapping);
@@ -675,6 +676,7 @@ int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
 
 	if (!xa_empty(&f->bindings) &&
 	    xa_find(&f->bindings, &start, end - 1, XA_PRESENT)) {
+		r = -EEXIST;
 		filemap_invalidate_unlock(inode->i_mapping);
 		goto err;
 	}
