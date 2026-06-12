@@ -180,16 +180,18 @@ static const struct board_parameters pcxhr_board_params[] = {
 				      (x->fw_file_set == 0)   || \
 				      (x->fw_file_set == 2))
 
-static int pcxhr_pll_freq_register(unsigned int freq, unsigned int* pllreg,
-				   unsigned int* realfreq)
+int pcxhr_pll_freq_register(unsigned int freq, unsigned int max_freq,
+			    unsigned int *pllreg, unsigned int *realfreq)
 {
 	unsigned int reg;
 
-	if (freq < 6900 || freq > 110000)
+	if (freq < 6900 || freq > max_freq)
 		return -EINVAL;
 	reg = (28224000 * 2) / freq;
 	reg = (reg - 1) / 2;
-	if (reg < 0x200)
+	if (reg < 0x100)
+		*pllreg = reg + 0xc00;
+	else if (reg < 0x200)
 		*pllreg = reg + 0x800;
 	else if (reg < 0x400)
 		*pllreg = reg & 0x1ff;
@@ -260,7 +262,8 @@ static int pcxhr_get_clock_reg(struct pcxhr_mgr *mgr, unsigned int rate,
 		default :
 			val = PCXHR_FREQ_PLL;
 			/* get the value for the pll register */
-			err = pcxhr_pll_freq_register(rate, &pllreg, &realfreq);
+			err = pcxhr_pll_freq_register(rate, 110000, &pllreg,
+						      &realfreq);
 			if (err)
 				return err;
 			pcxhr_init_rmh(&rmh, CMD_ACCESS_IO_WRITE);
