@@ -267,8 +267,7 @@ static const struct ata_port_info pdc_port_info[] = {
 };
 
 static const struct pci_device_id pdc_sata_pci_tbl[] = {
-	{ PCI_VDEVICE(PROMISE, 0x6622), board_20621 },
-
+	{ PCI_VDEVICE(PROMISE, 0x6622), .driver_data = board_20621 },
 	{ }	/* terminate list */
 };
 
