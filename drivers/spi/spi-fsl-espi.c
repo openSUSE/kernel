@@ -756,7 +756,7 @@ static int of_fsl_espi_probe(struct platform_device *ofdev)
 	unsigned int irq, num_cs;
 	int ret;
 
-	if (of_property_read_bool(np, "mode")) {
+	if (of_property_present(np, "mode")) {
 		dev_err(dev, "mode property is not supported on ESPI!\n");
 		return -EINVAL;
 	}
