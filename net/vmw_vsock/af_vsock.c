@@ -497,6 +497,16 @@ void vsock_remove_pending(struct sock *listener, struct sock *pending)
 }
 EXPORT_SYMBOL_GPL(vsock_remove_pending);
 
+void vsock_pending_to_accept(struct sock *listener, struct sock *pending)
+{
+	struct vsock_sock *vpending = vsock_sk(pending);
+	struct vsock_sock *vlistener = vsock_sk(listener);
+
+	list_del_init(&vpending->pending_links);
+	list_add_tail(&vpending->accept_queue, &vlistener->accept_queue);
+}
+EXPORT_SYMBOL_GPL(vsock_pending_to_accept);
+
 void vsock_enqueue_accept(struct sock *listener, struct sock *connected)
 {
 	struct vsock_sock *vlistener;
