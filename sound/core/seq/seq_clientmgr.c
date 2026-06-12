@@ -536,6 +536,10 @@ static int bounce_error_event(struct snd_seq_client *client,
 	    ! client->accept_input)
 		return 0; /* ignored */
 
+	if (event->type == SNDRV_SEQ_EVENT_BOUNCE ||
+	    event->type == SNDRV_SEQ_EVENT_KERNEL_ERROR)
+		return err; /* avoid re-bouncing */
+
 	/* set up quoted error */
 	memset(&bounce_ev, 0, sizeof(bounce_ev));
 
