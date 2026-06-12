@@ -14,9 +14,14 @@
 
 #include <linux/acpi.h>
 #include <linux/bits.h>
+#include <linux/cleanup.h>
+#include <linux/intel_vsec.h>
 #include <linux/platform_device.h>
+#include <linux/uuid.h>
 
 struct telem_endpoint;
+
+DEFINE_FREE(pmc_acpi_free, void *, if (_T) ACPI_FREE(_T))
 
 #define SLP_S0_RES_COUNTER_MASK			GENMASK(31, 0)
 
@@ -622,6 +627,8 @@ int pmc_core_pmt_get_blk_sub_req(struct pmc_dev *pmcdev, struct pmc *pmc,
 extern const struct file_operations pmc_core_substate_req_regs_fops;
 extern const struct file_operations pmc_core_substate_blk_req_fops;
 
+extern const guid_t intel_vsec_guid;
+
 #define pmc_for_each_mode(mode, pmc)						\
 	for (unsigned int __i = 0, __cond;					\
 	     __cond = __i < (pmc)->num_lpm_modes,				\
@@ -643,4 +650,13 @@ static const struct file_operations __name ## _fops = {			\
 	.release	= single_release,				\
 }
 
+struct intel_vsec_header;
+union acpi_object;
+
+/* Avoid checkpatch warning */
+typedef u32 (*acpi_disc_t)[PMT_DISC_DWORDS];
+
+acpi_disc_t pmc_parse_telem_dsd(union acpi_object *obj,
+				struct intel_vsec_header *header);
+union acpi_object *pmc_find_telem_guid(union acpi_object *dsd);
 #endif /* PMC_CORE_H */
