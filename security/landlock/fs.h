@@ -136,6 +136,6 @@ __init void landlock_add_fs_hooks(void);
 
 int landlock_append_fs_rule(struct landlock_ruleset *const ruleset,
 			    const struct path *const path,
-			    access_mask_t access_hierarchy);
+			    access_mask_t access_hierarchy, const u32 flags);
 
 #endif /* _SECURITY_LANDLOCK_FS_H */
