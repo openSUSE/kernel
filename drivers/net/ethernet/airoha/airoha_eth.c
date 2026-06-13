@@ -3710,6 +3710,6 @@ static struct platform_driver airoha_driver = {
 };
 module_platform_driver(airoha_driver);
 
-MODULE_LICENSE("GPL");
+MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Lorenzo Bianconi <lorenzo@kernel.org>");
 MODULE_DESCRIPTION("Ethernet driver for Airoha SoC");
