@@ -92,7 +92,7 @@ static const struct irq_stat_info irq_stat_info[IRQ_COUNT_MAX] = {
 #endif
 	ISS(TLB,			"TLB",	"  TLB shootdowns\n"),
 #ifdef CONFIG_X86_THERMAL_VECTOR
-	ISS(THERMAL_APIC,		"TRM",	"  Thermal event interrupt\n"),
+	ISS(THERMAL_APIC,		"TRM",	"  Thermal event interrupts\n"),
 #endif
 #ifdef CONFIG_X86_MCE_THRESHOLD
 	ISS(THRESHOLD_APIC,		"THR",	"  Threshold APIC interrupts\n"),
