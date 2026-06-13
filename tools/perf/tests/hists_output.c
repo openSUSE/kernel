@@ -590,7 +590,7 @@ out:
 static int test__hists_output(struct test_suite *test __maybe_unused, int subtest __maybe_unused)
 {
 	int err = TEST_FAIL;
-	struct machines machines;
+	struct machines machines = { 0 };
 	struct machine *machine;
 	struct evsel *evsel;
 	struct evlist *evlist = evlist__new();
@@ -610,7 +610,8 @@ static int test__hists_output(struct test_suite *test __maybe_unused, int subtes
 		goto out;
 	err = TEST_FAIL;
 
-	machines__init(&machines);
+	if (machines__init(&machines))
+		goto out;
 
 	/* setup threads/dso/map/symbols also */
 	machine = setup_fake_machine(&machines);

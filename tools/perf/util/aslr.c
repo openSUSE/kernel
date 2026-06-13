@@ -1237,12 +1237,13 @@ void aslr_tool__strip_attr_event(union perf_event *event, struct evlist *evlist)
 	}
 }
 
-static void aslr_tool__init(struct aslr_tool *aslr, struct perf_tool *delegate)
+static int aslr_tool__init(struct aslr_tool *aslr, struct perf_tool *delegate)
 {
 	delegate_tool__init(&aslr->tool, delegate);
 	aslr->tool.tool.ordered_events = true;
 
-	machines__init(&aslr->machines);
+	if (machines__init(&aslr->machines))
+		return -ENOMEM;
 
 	hashmap__init(&aslr->remap_addresses,
 		      remap_addresses__hash, remap_addresses__equal,
@@ -1276,6 +1277,8 @@ static void aslr_tool__init(struct aslr_tool *aslr, struct perf_tool *delegate)
 	aslr->tool.tool.auxtrace = aslr_tool__process_auxtrace;
 	aslr->tool.tool.auxtrace_info = aslr_tool__process_auxtrace_info;
 	aslr->tool.tool.auxtrace_error = aslr_tool__process_auxtrace_error;
+
+	return 0;
 }
 
 struct perf_tool *aslr_tool__new(struct perf_tool *delegate)
@@ -1285,7 +1288,10 @@ struct perf_tool *aslr_tool__new(struct perf_tool *delegate)
 	if (!aslr)
 		return NULL;
 
-	aslr_tool__init(aslr, delegate);
+	if (aslr_tool__init(aslr, delegate)) {
+		free(aslr);
+		return NULL;
+	}
 	return &aslr->tool.tool;
 }
 
