@@ -1502,29 +1502,29 @@ static void raid1_start_write_behind(struct mddev *mddev, struct r1bio *r1_bio,
 }
 
 static bool raid1_write_request(struct mddev *mddev, struct bio *bio,
-				int max_write_sectors)
+				int max_sectors)
 {
 	struct r1conf *conf = mddev->private;
 	struct r1bio *r1_bio;
 	int i, disks, k;
 	unsigned long flags;
 	int first_clone;
-	int max_sectors;
 	bool write_behind = false;
-	bool is_discard = (bio_op(bio) == REQ_OP_DISCARD);
+	bool nowait = bio->bi_opf & REQ_NOWAIT;
+	bool is_discard = op_is_discard(bio->bi_opf);
 	sector_t sector = bio->bi_iter.bi_sector;
 
 	if (mddev_is_clustered(mddev) &&
-	    mddev->cluster_ops->area_resyncing(mddev, WRITE,
-		     bio->bi_iter.bi_sector, bio_end_sector(bio))) {
+	    mddev->cluster_ops->area_resyncing(mddev, WRITE, sector,
+					       bio_end_sector(bio))) {
 
-		if (bio->bi_opf & REQ_NOWAIT) {
+		if (nowait) {
 			bio_wouldblock_error(bio);
 			return false;
 		}
 		wait_event_idle(conf->wait_barrier,
 				!mddev->cluster_ops->area_resyncing(mddev, WRITE,
-								    bio->bi_iter.bi_sector,
+								    sector,
 								    bio_end_sector(bio)));
 	}
 
@@ -1533,20 +1533,18 @@ static bool raid1_write_request(struct mddev *mddev, struct bio *bio,
 	 * thread has put up a bar for new requests.
 	 * Continue immediately if no resync is active currently.
 	 */
-	if (!wait_barrier(conf, bio->bi_iter.bi_sector,
-				bio->bi_opf & REQ_NOWAIT)) {
+	if (!wait_barrier(conf, sector, nowait)) {
 		bio_wouldblock_error(bio);
 		return false;
 	}
 
 	if (!wait_blocked_rdev(mddev, bio)) {
 		bio_wouldblock_error(bio);
-		allow_barrier(conf, sector);
-		return false;
+		goto err_allow_barrier;
 	}
 
 	r1_bio = alloc_r1bio(mddev, bio);
-	r1_bio->sectors = max_write_sectors;
+	r1_bio->sectors = max_sectors;
 
 	/* first select target devices under rcu_lock and
 	 * inc refcount on their rdev.  Record them by setting
@@ -1560,7 +1558,6 @@ static bool raid1_write_request(struct mddev *mddev, struct bio *bio,
 	 */
 
 	disks = conf->raid_disks * 2;
-	max_sectors = r1_bio->sectors;
 	for (i = 0;  i < disks; i++) {
 		struct md_rdev *rdev = conf->mirrors[i].rdev;
 
@@ -1576,23 +1573,21 @@ static bool raid1_write_request(struct mddev *mddev, struct bio *bio,
 		if (!rdev || test_bit(Faulty, &rdev->flags))
 			continue;
 
-		atomic_inc(&rdev->nr_pending);
 		if (test_bit(WriteErrorSeen, &rdev->flags)) {
 			sector_t first_bad;
 			sector_t bad_sectors;
 			int is_bad;
 
-			is_bad = is_badblock(rdev, r1_bio->sector, max_sectors,
+			is_bad = is_badblock(rdev, sector, max_sectors,
 					     &first_bad, &bad_sectors);
-			if (is_bad && first_bad <= r1_bio->sector) {
+			if (is_bad && first_bad <= sector) {
 				/* Cannot write here at all */
-				bad_sectors -= (r1_bio->sector - first_bad);
+				bad_sectors -= (sector - first_bad);
 				if (bad_sectors < max_sectors)
 					/* mustn't write more than bad_sectors
 					 * to other devices yet
 					 */
 					max_sectors = bad_sectors;
-				rdev_dec_pending(rdev, mddev);
 				continue;
 			}
 			if (is_bad) {
@@ -1606,15 +1601,18 @@ static bool raid1_write_request(struct mddev *mddev, struct bio *bio,
 				 * the benefit.
 				 */
 				if (bio->bi_opf & REQ_ATOMIC) {
-					rdev_dec_pending(rdev, mddev);
-					goto err_handle;
+					bio->bi_status = BLK_STS_NOTSUPP;
+					bio_endio(bio);
+					goto err_dec_pending;
 				}
 
-				good_sectors = first_bad - r1_bio->sector;
+				good_sectors = first_bad - sector;
 				if (good_sectors < max_sectors)
 					max_sectors = good_sectors;
 			}
 		}
+
+		atomic_inc(&rdev->nr_pending);
 		r1_bio->bios[i] = bio;
 	}
 
@@ -1630,10 +1628,8 @@ static bool raid1_write_request(struct mddev *mddev, struct bio *bio,
 	if (max_sectors < bio_sectors(bio)) {
 		bio = bio_submit_split_bioset(bio, max_sectors,
 					      &conf->bio_split);
-		if (!bio) {
-			set_bit(R1BIO_Returned, &r1_bio->state);
-			goto err_handle;
-		}
+		if (!bio)
+			goto err_dec_pending;
 
 		r1_bio->master_bio = bio;
 		r1_bio->sectors = max_sectors;
@@ -1677,7 +1673,7 @@ static bool raid1_write_request(struct mddev *mddev, struct bio *bio,
 		mbio->bi_opf &= ~REQ_NOWAIT;
 		r1_bio->bios[i] = mbio;
 
-		mbio->bi_iter.bi_sector	= (r1_bio->sector + rdev->data_offset);
+		mbio->bi_iter.bi_sector	= sector + rdev->data_offset;
 		mbio->bi_end_io	= raid1_end_write_request;
 		if (test_bit(FailFast, &rdev->flags) &&
 		    !test_bit(WriteMostly, &rdev->flags) &&
@@ -1686,7 +1682,7 @@ static bool raid1_write_request(struct mddev *mddev, struct bio *bio,
 		mbio->bi_private = r1_bio;
 
 		atomic_inc(&r1_bio->remaining);
-		mddev_trace_remap(mddev, mbio, r1_bio->sector);
+		mddev_trace_remap(mddev, mbio, sector);
 		/* flush_pending_writes() needs access to the rdev so...*/
 		mbio->bi_bdev = (void *)rdev;
 		if (!raid1_add_bio_to_plug(mddev, mbio, raid1_unplug, disks)) {
@@ -1701,9 +1697,10 @@ static bool raid1_write_request(struct mddev *mddev, struct bio *bio,
 
 	/* In case raid1d snuck in to freeze_array */
 	wake_up_barrier(conf);
+
 	return true;
 
-err_handle:
+err_dec_pending:
 	for (k = 0; k < i; k++) {
 		if (r1_bio->bios[k]) {
 			rdev_dec_pending(conf->mirrors[k].rdev, mddev);
@@ -1711,7 +1708,11 @@ err_handle:
 		}
 	}
 
-	raid_end_bio_io(r1_bio);
+	free_r1bio(r1_bio);
+
+err_allow_barrier:
+	allow_barrier(conf, sector);
+
 	return false;
 }
 
