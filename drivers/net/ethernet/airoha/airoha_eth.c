@@ -344,18 +344,18 @@ static void airoha_fe_pse_ports_init(struct airoha_eth *eth)
 			      FIELD_PREP(PSE_ALLRSV_MASK, all_rsv));
 	}
 
-	/* CMD1 */
+	/* CDM1 */
 	for (q = 0; q < pse_port_num_queues[FE_PSE_PORT_CDM1]; q++)
 		airoha_fe_set_pse_oq_rsv(eth, FE_PSE_PORT_CDM1, q,
 					 PSE_QUEUE_RSV_PAGES);
-	/* GMD1 */
+	/* GDM1 */
 	for (q = 0; q < pse_port_num_queues[FE_PSE_PORT_GDM1]; q++)
 		airoha_fe_set_pse_oq_rsv(eth, FE_PSE_PORT_GDM1, q,
 					 PSE_QUEUE_RSV_PAGES);
-	/* GMD2 */
+	/* GDM2 */
 	for (q = 6; q < pse_port_num_queues[FE_PSE_PORT_GDM2]; q++)
 		airoha_fe_set_pse_oq_rsv(eth, FE_PSE_PORT_GDM2, q, 0);
-	/* GMD3 */
+	/* GDM3 */
 	for (q = 0; q < pse_port_num_queues[FE_PSE_PORT_GDM3]; q++)
 		airoha_fe_set_pse_oq_rsv(eth, FE_PSE_PORT_GDM3, q,
 					 PSE_QUEUE_RSV_PAGES);
@@ -390,7 +390,7 @@ static void airoha_fe_pse_ports_init(struct airoha_eth *eth)
 							 q, 0);
 		}
 	}
-	/* GMD4 */
+	/* GDM4 */
 	for (q = 0; q < pse_port_num_queues[FE_PSE_PORT_GDM4]; q++)
 		airoha_fe_set_pse_oq_rsv(eth, FE_PSE_PORT_GDM4, q,
 					 PSE_QUEUE_RSV_PAGES);
