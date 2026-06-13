@@ -772,6 +772,7 @@ int pinctrl_get_group_selector(struct pinctrl_dev *pctldev,
 
 	return -EINVAL;
 }
+EXPORT_SYMBOL_GPL(pinctrl_get_group_selector);
 
 bool pinctrl_gpio_can_use_line(struct gpio_chip *gc, unsigned int offset)
 {
