@@ -1219,6 +1219,30 @@
 	BPF_RAW_INSN(BPF_JMP|BPF_CALL, 0, 1, 0, 1), /* call H */
 	BPF_EXIT_INSN(),
 	/* H */
+	BPF_RAW_INSN(BPF_JMP|BPF_CALL, 0, 1, 0, 1), /* call I */
+	BPF_EXIT_INSN(),
+	/* I */
+	BPF_RAW_INSN(BPF_JMP|BPF_CALL, 0, 1, 0, 1), /* call J */
+	BPF_EXIT_INSN(),
+	/* J */
+	BPF_RAW_INSN(BPF_JMP|BPF_CALL, 0, 1, 0, 1), /* call K */
+	BPF_EXIT_INSN(),
+	/* K */
+	BPF_RAW_INSN(BPF_JMP|BPF_CALL, 0, 1, 0, 1), /* call L */
+	BPF_EXIT_INSN(),
+	/* L */
+	BPF_RAW_INSN(BPF_JMP|BPF_CALL, 0, 1, 0, 1), /* call M */
+	BPF_EXIT_INSN(),
+	/* M */
+	BPF_RAW_INSN(BPF_JMP|BPF_CALL, 0, 1, 0, 1), /* call N */
+	BPF_EXIT_INSN(),
+	/* N */
+	BPF_RAW_INSN(BPF_JMP|BPF_CALL, 0, 1, 0, 1), /* call O */
+	BPF_EXIT_INSN(),
+	/* O */
+	BPF_RAW_INSN(BPF_JMP|BPF_CALL, 0, 1, 0, 1), /* call P */
+	BPF_EXIT_INSN(),
+	/* P */
 	BPF_MOV64_IMM(BPF_REG_0, 0),
 	BPF_EXIT_INSN(),
 	},
@@ -1257,6 +1281,30 @@
 	BPF_RAW_INSN(BPF_JMP|BPF_CALL, 0, 1, 0, 1), /* call H */
 	BPF_EXIT_INSN(),
 	/* H */
+	BPF_RAW_INSN(BPF_JMP|BPF_CALL, 0, 1, 0, 1), /* call I */
+	BPF_EXIT_INSN(),
+	/* I */
+	BPF_RAW_INSN(BPF_JMP|BPF_CALL, 0, 1, 0, 1), /* call J */
+	BPF_EXIT_INSN(),
+	/* J */
+	BPF_RAW_INSN(BPF_JMP|BPF_CALL, 0, 1, 0, 1), /* call K */
+	BPF_EXIT_INSN(),
+	/* K */
+	BPF_RAW_INSN(BPF_JMP|BPF_CALL, 0, 1, 0, 1), /* call L */
+	BPF_EXIT_INSN(),
+	/* L */
+	BPF_RAW_INSN(BPF_JMP|BPF_CALL, 0, 1, 0, 1), /* call M */
+	BPF_EXIT_INSN(),
+	/* M */
+	BPF_RAW_INSN(BPF_JMP|BPF_CALL, 0, 1, 0, 1), /* call N */
+	BPF_EXIT_INSN(),
+	/* N */
+	BPF_RAW_INSN(BPF_JMP|BPF_CALL, 0, 1, 0, 1), /* call O */
+	BPF_EXIT_INSN(),
+	/* O */
+	BPF_RAW_INSN(BPF_JMP|BPF_CALL, 0, 1, 0, 1), /* call P */
+	BPF_EXIT_INSN(),
+	/* P */
 	BPF_MOV64_IMM(BPF_REG_0, 0),
 	BPF_EXIT_INSN(),
 	},

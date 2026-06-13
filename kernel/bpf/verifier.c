@@ -3144,7 +3144,7 @@ static void mark_indirect_target(struct bpf_verifier_env *env, int idx)
 	env->insn_aux_data[idx].indirect_target = true;
 }
 
-#define LR_FRAMENO_BITS	3
+#define LR_FRAMENO_BITS	4
 #define LR_SPI_BITS	6
 #define LR_ENTRY_BITS	(LR_SPI_BITS + LR_FRAMENO_BITS + 1)
 #define LR_SIZE_BITS	4
@@ -3153,7 +3153,11 @@ static void mark_indirect_target(struct bpf_verifier_env *env, int idx)
 #define LR_SIZE_MASK	((1ull << LR_SIZE_BITS)    - 1)
 #define LR_SPI_OFF	LR_FRAMENO_BITS
 #define LR_IS_REG_OFF	(LR_SPI_BITS + LR_FRAMENO_BITS)
-#define LINKED_REGS_MAX	6
+#define LINKED_REGS_MAX	5
+
+static_assert(MAX_CALL_FRAMES <= (1 << LR_FRAMENO_BITS));
+static_assert(LINKED_REGS_MAX < (1 << LR_SIZE_BITS));
+static_assert(LINKED_REGS_MAX * LR_ENTRY_BITS + LR_SIZE_BITS <= 64);
 
 struct linked_reg {
 	u8 frameno;
@@ -3177,10 +3181,11 @@ static struct linked_reg *linked_regs_push(struct linked_regs *s)
 	return NULL;
 }
 
-/* Use u64 as a vector of 6 10-bit values, use first 4-bits to track
+/*
+ * Use u64 as a vector of 5 11-bit values, use first 4-bits to track
  * number of elements currently in stack.
- * Pack one history entry for linked registers as 10 bits in the following format:
- * - 3-bits frameno
+ * Pack one history entry for linked registers as 11 bits in the following format:
+ * - 4-bits frameno
  * - 6-bits spi_or_reg
  * - 1-bit  is_reg
  */
