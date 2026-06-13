@@ -622,7 +622,7 @@ static int mxl862xx_setup(struct dsa_switch *ds)
 	int n_user_ports = 0, max_vlans;
 	int ingress_finals, vid_rules;
 	struct dsa_port *dp;
-	int ret;
+	int ret, i;
 
 	ret = mxl862xx_reset(priv);
 	if (ret)
@@ -631,6 +631,11 @@ static int mxl862xx_setup(struct dsa_switch *ds)
 	ret = mxl862xx_wait_ready(ds);
 	if (ret)
 		return ret;
+
+	mutex_init(&priv->serdes_lock);
+	for (i = 0; i < ARRAY_SIZE(priv->serdes_ports); i++)
+		mxl862xx_setup_pcs(priv, &priv->serdes_ports[i],
+				   i + MXL862XX_FIRST_SERDES_PORT);
 
 	/* Calculate Extended VLAN block sizes.
 	 * With VLAN Filter handling VID membership checks:
