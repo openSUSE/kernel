@@ -116,6 +116,68 @@ close:
 	close(s);
 }
 
+static void test_sockmap_ktls_enable_fails_when_in_sockmap(int family, int map)
+{
+	struct tls12_crypto_info_aes_gcm_128 crypto = {
+		.info = {
+			.version     = TLS_1_2_VERSION,
+			.cipher_type = TLS_CIPHER_AES_GCM_128,
+		},
+	};
+	struct sockaddr_storage addr = {};
+	socklen_t len = sizeof(addr);
+	struct sockaddr_in6 *v6;
+	struct sockaddr_in *v4;
+	int err, s, zero = 0;
+
+	switch (family) {
+	case AF_INET:
+		v4 = (struct sockaddr_in *)&addr;
+		v4->sin_family = AF_INET;
+		break;
+	case AF_INET6:
+		v6 = (struct sockaddr_in6 *)&addr;
+		v6->sin6_family = AF_INET6;
+		break;
+	default:
+		PRINT_FAIL("unsupported socket family %d", family);
+		return;
+	}
+
+	s = socket(family, SOCK_STREAM, 0);
+	if (!ASSERT_GE(s, 0, "socket"))
+		return;
+
+	err = bind(s, (struct sockaddr *)&addr, len);
+	if (!ASSERT_OK(err, "bind"))
+		goto close;
+
+	err = getsockname(s, (struct sockaddr *)&addr, &len);
+	if (!ASSERT_OK(err, "getsockname"))
+		goto close;
+
+	err = connect(s, (struct sockaddr *)&addr, len);
+	if (!ASSERT_OK(err, "connect"))
+		goto close;
+
+	/* Add the socket to the sockmap, attaching a psock. */
+	err = bpf_map_update_elem(map, &zero, &s, BPF_ANY);
+	if (!ASSERT_OK(err, "sockmap update elem"))
+		goto close;
+
+	/* Installing the TLS ULP is allowed, it does not touch the datapath. */
+	err = setsockopt(s, IPPROTO_TCP, TCP_ULP, "tls", strlen("tls"));
+	if (!ASSERT_OK(err, "setsockopt(TCP_ULP)"))
+		goto close;
+
+	/* Enabling the TLS crypto datapath must be rejected. */
+	err = setsockopt(s, SOL_TLS, TLS_TX, &crypto, sizeof(crypto));
+	ASSERT_ERR(err, "setsockopt(TLS_TX)");
+
+close:
+	close(s);
+}
+
 static const char *fmt_test_name(const char *subtest_name, int family,
 				 enum bpf_map_type map_type)
 {
@@ -169,6 +231,9 @@ static void run_tests(int family, enum bpf_map_type map_type)
 
 	if (test__start_subtest(fmt_test_name("update_fails_when_sock_has_ulp", family, map_type)))
 		test_sockmap_ktls_update_fails_when_sock_has_ulp(family, map);
+
+	if (test__start_subtest(fmt_test_name("enable_fails_when_in_sockmap", family, map_type)))
+		test_sockmap_ktls_enable_fails_when_in_sockmap(family, map);
 
 	close(map);
 }
