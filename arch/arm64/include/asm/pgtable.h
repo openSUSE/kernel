@@ -1830,10 +1830,6 @@ static inline pte_t ptep_get_and_clear(struct mm_struct *mm,
 	return __ptep_get_and_clear(mm, addr, ptep);
 }
 
-/*
- * Note: strictly-zero compare is narrower than pte_none(), but the gap is
- * harmless: a fresh kernel PTE has no software bits set.
- */
 static inline bool ptep_try_set(pte_t *ptep, pte_t new_pte)
 {
 	pteval_t old = 0;
