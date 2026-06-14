@@ -184,6 +184,7 @@ struct ionic_dev {
 	u32 port_info_sz;
 	struct ionic_port_info *port_info;
 	dma_addr_t port_info_pa;
+	struct ionic_port_extra_stats port_extra_stats_cache;
 
 	struct ionic_devinfo dev_info;
 };
