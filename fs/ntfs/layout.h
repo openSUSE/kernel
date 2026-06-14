@@ -2289,6 +2289,14 @@ struct reparse_point {
 	u8 reparse_data[];
 } __packed;
 
+struct mount_point_reparse_data {
+	__le16 substitute_name_offset;
+	__le16 substitute_name_length;
+	__le16 print_name_offset;
+	__le16 print_name_length;
+	__le16 path_buffer[];
+} __packed;
+
 struct symlink_reparse_data {
 	__le16 substitute_name_offset;
 	__le16 substitute_name_length;

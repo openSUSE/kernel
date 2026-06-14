@@ -131,6 +131,29 @@ static bool valid_reparse_data(struct ntfs_inode *ni,
 		return false;
 
 	switch (reparse_attr->reparse_tag) {
+	case IO_REPARSE_TAG_MOUNT_POINT:
+	{
+		struct mount_point_reparse_data *data;
+		size_t data_offs;
+
+		if (!valid_reparse_buffer(ni, reparse_attr, size, sizeof(*data)))
+			return false;
+
+		data = (struct mount_point_reparse_data *)reparse_attr->reparse_data;
+		data_offs = offsetof(struct reparse_point, reparse_data) +
+			offsetof(struct mount_point_reparse_data, path_buffer);
+
+		if (!reparse_name_is_valid(size,
+					   data_offs +
+					   le16_to_cpu(data->substitute_name_offset),
+					   le16_to_cpu(data->substitute_name_length)) ||
+		    !reparse_name_is_valid(size,
+					   data_offs +
+					   le16_to_cpu(data->print_name_offset),
+					   le16_to_cpu(data->print_name_length)))
+			return false;
+		break;
+	}
 	case IO_REPARSE_TAG_SYMLINK:
 	{
 		struct symlink_reparse_data *data;
@@ -179,16 +202,22 @@ static bool valid_reparse_data(struct ntfs_inode *ni,
 		if (le16_to_cpu(reparse_attr->reparse_data_length) ||
 		    !(ni->flags & FILE_ATTRIBUTE_RECALL_ON_OPEN))
 			return false;
+		break;
+	default:
+		if (!valid_reparse_buffer(ni, reparse_attr, size, 0))
+			return false;
+		break;
 	}
 
 	return true;
 }
 
-static unsigned int ntfs_reparse_tag_mode(struct reparse_point *reparse_attr)
+static unsigned int ntfs_reparse_tag_mode(__le32 reparse_tag)
 {
 	unsigned int mode = 0;
 
-	switch (reparse_attr->reparse_tag) {
+	switch (reparse_tag) {
+	case IO_REPARSE_TAG_MOUNT_POINT:
 	case IO_REPARSE_TAG_SYMLINK:
 	case IO_REPARSE_TAG_LX_SYMLINK:
 		mode = S_IFLNK;
@@ -218,17 +247,33 @@ unsigned int ntfs_make_symlink(struct ntfs_inode *ni)
 	int err;
 	unsigned int lth;
 	struct reparse_point *reparse_attr;
-	struct wsl_link_reparse_data *wsl_link_data;
 	unsigned int mode = 0;
 
 	kvfree(ni->target);
 	ni->target = NULL;
+	ni->reparse_tag = 0;
+	ni->reparse_flags = 0;
 
 	reparse_attr = ntfs_attr_readall(ni, AT_REPARSE_POINT, NULL, 0,
 					 &attr_size);
 	if (reparse_attr &&
 	    valid_reparse_data(ni, reparse_attr, attr_size)) {
+		err = -EINVAL;
+
 		switch (reparse_attr->reparse_tag) {
+		case IO_REPARSE_TAG_MOUNT_POINT:
+		{
+			struct mount_point_reparse_data *data =
+				(struct mount_point_reparse_data *)reparse_attr->reparse_data;
+			const __le16 *name = (const __le16 *)((u8 *)data->path_buffer +
+					      le16_to_cpu(data->substitute_name_offset));
+
+			err = ntfs_reparse_target_to_nls(ni->vol,
+							 name,
+							 le16_to_cpu(data->substitute_name_length),
+							 &ni->target);
+			break;
+		}
 		case IO_REPARSE_TAG_SYMLINK:
 		{
 			struct symlink_reparse_data *data =
@@ -236,33 +281,38 @@ unsigned int ntfs_make_symlink(struct ntfs_inode *ni)
 			const __le16 *name = (const __le16 *)((u8 *)data->path_buffer +
 							le16_to_cpu(data->substitute_name_offset));
 
-			mode = ntfs_reparse_tag_mode(reparse_attr);
-			if (!(data->flags & cpu_to_le32(SYMLINK_FLAG_RELATIVE)))
-				break;
-
-			err = ntfs_reparse_target_to_nls(ni->vol, name,
+			err = ntfs_reparse_target_to_nls(ni->vol,
+							 name,
 							 le16_to_cpu(data->substitute_name_length),
 							 &ni->target);
-			if (err < 0)
-				mode = 0;
+			if (!err)
+				ni->reparse_flags = data->flags;
 			break;
 		}
 		case IO_REPARSE_TAG_LX_SYMLINK:
-			wsl_link_data =
+		{
+			struct wsl_link_reparse_data *wsl_link_data =
 				(struct wsl_link_reparse_data *)reparse_attr->reparse_data;
+
 			if (wsl_link_data->type == cpu_to_le32(2)) {
 				lth = le16_to_cpu(reparse_attr->reparse_data_length) -
-						  sizeof(wsl_link_data->type);
+					  sizeof(wsl_link_data->type);
 				ni->target = kvzalloc(lth + 1, GFP_NOFS);
 				if (ni->target) {
 					memcpy(ni->target, wsl_link_data->link, lth);
 					ni->target[lth] = 0;
-					mode = ntfs_reparse_tag_mode(reparse_attr);
+					err = 0;
 				}
 			}
 			break;
+		}
 		default:
-			mode = ntfs_reparse_tag_mode(reparse_attr);
+			err = 0;
+		}
+
+		if (!err) {
+			mode = ntfs_reparse_tag_mode(reparse_attr->reparse_tag);
+			ni->reparse_tag = reparse_attr->reparse_tag;
 		}
 	} else
 		ni->flags &= ~FILE_ATTR_REPARSE_POINT;
@@ -289,6 +339,7 @@ unsigned int ntfs_reparse_tag_dt_types(struct ntfs_volume *vol, unsigned long mr
 
 	if (reparse_attr && attr_size >= sizeof(*reparse_attr)) {
 		switch (reparse_attr->reparse_tag) {
+		case IO_REPARSE_TAG_MOUNT_POINT:
 		case IO_REPARSE_TAG_SYMLINK:
 		case IO_REPARSE_TAG_LX_SYMLINK:
 			dt_type = DT_LNK;
@@ -312,6 +363,109 @@ unsigned int ntfs_reparse_tag_dt_types(struct ntfs_volume *vol, unsigned long mr
 
 	iput(vi);
 	return dt_type;
+}
+
+/*
+ * ntfs_translate_symlink_path
+ *
+ * @dentry: dentry of the symlink/junction being resolved
+ * @target: NUL-terminated NLS target string with '\\' already normalized to '/'
+ * @translated: out parameter, set to a newly kmalloc'd relative path on success
+ *
+ * Windows junctions (IO_REPARSE_TAG_MOUNT_POINT) and non-relative symlinks
+ * (IO_REPARSE_TAG_SYMLINK without SYMLINK_FLAG_RELATIVE) store substitute
+ * names such as "/??/C:/foo", "//?/C:/foo", "/foo", or "C:/foo". Linux
+ * cannot continue pathname lookup from those syntaxes, so rewrite them as a
+ * path relative to the symlink's containing directory on this NTFS volume,
+ * anchored at the volume root via "../".
+ *
+ * Note: bind-mounted subtrees of the volume may resolve to unexpected
+ * locations because the computed "../" depth is relative to the NTFS volume
+ * root, not the bind-mounted subtree root.
+ *
+ * Return: 0 on success with *translated set to a newly allocated string the
+ * caller must kfree(); negative errno on failure.
+ */
+int ntfs_translate_symlink_path(struct dentry *dentry, const char *target,
+				char **translated)
+{
+	char *buf, *link_path, *out, *p;
+	const char *path, *tail;
+	unsigned int up_levels = 0;
+	size_t tail_len, out_len;
+	int err;
+
+	if (!dentry || !target || !translated)
+		return -EINVAL;
+
+	path = target;
+	/* reject UNC path. */
+	if (path[0] == '/' && path[1] == '/' &&
+	    !(path[2] == '?' && path[3] == '/'))
+		return -EOPNOTSUPP;
+
+	/* target starts with "/??/" or "//?/"? */
+	if ((path[0] == '/' && path[1] == '?' && path[2] == '?' && path[3] == '/') ||
+	    (path[0] == '/' && path[1] == '/' && path[2] == '?' && path[3] == '/'))
+		path += 4;
+
+	/* target must start with a drive character or '/'. */
+	if (((path[0] >= 'A' && path[0] <= 'Z') ||
+	     (path[0] >= 'a' && path[0] <= 'z')) && path[1] == ':') {
+		if (path[2] && path[2] != '/')
+			return -EOPNOTSUPP;
+		tail = path + 2;
+		if (*tail == '/')
+			tail++;
+	} else if (*path == '/') {
+		tail = path + 1;
+	} else {
+		return -EOPNOTSUPP;
+	}
+
+	tail_len = strlen(tail);
+
+	buf = kmalloc(PATH_MAX, GFP_NOFS);
+	if (!buf)
+		return -ENOMEM;
+
+	link_path = dentry_path_raw(dentry, buf, PATH_MAX);
+	if (IS_ERR(link_path)) {
+		err = PTR_ERR(link_path);
+		goto out;
+	}
+
+	/* count '/' after the leading slash. */
+	for (p = link_path + 1; *p; p++)
+		if (*p == '/')
+			up_levels++;
+
+	/* build "./" + ("../" * up_levels) + tail. */
+	out_len = 2 + up_levels * 3 + tail_len;
+	if (out_len >= PATH_MAX) {
+		err = -ENAMETOOLONG;
+		goto out;
+	}
+
+	out = kmalloc(out_len + 1, GFP_NOFS);
+	if (!out) {
+		err = -ENOMEM;
+		goto out;
+	}
+
+	memcpy(out, "./", 2);
+	p = out + 2;
+	while (up_levels--) {
+		memcpy(p, "../", 3);
+		p += 3;
+	}
+	memcpy(p, tail, tail_len + 1);
+
+	*translated = out;
+	err = 0;
+out:
+	kfree(buf);
+	return err;
 }
 
 /*
@@ -628,10 +782,14 @@ int ntfs_reparse_set_wsl_symlink(struct ntfs_inode *ni,
 		err = ntfs_set_ntfs_reparse_data(ni,
 				(char *)reparse, reparse_len);
 		kvfree(reparse);
-		if (!err)
+		if (!err) {
 			ni->target = utarget;
-		else
+			ni->reparse_tag = IO_REPARSE_TAG_LX_SYMLINK;
+			ni->reparse_flags = 0;
+		} else {
 			kfree(utarget);
+			ni->target = NULL;
+		}
 	}
 	return err;
 }
@@ -671,6 +829,10 @@ int ntfs_reparse_set_wsl_not_symlink(struct ntfs_inode *ni, mode_t mode)
 		err = ntfs_set_ntfs_reparse_data(ni, (char *)reparse,
 						 reparse_len);
 		kvfree(reparse);
+		if (!err) {
+			ni->reparse_tag = reparse_tag;
+			ni->reparse_flags = 0;
+		}
 	}
 
 	return err;
