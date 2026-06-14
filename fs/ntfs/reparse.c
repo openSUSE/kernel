@@ -24,6 +24,47 @@ struct wsl_link_reparse_data {
 	char	link[];
 };
 
+static bool reparse_name_is_valid(size_t size, size_t name_off, u16 len)
+{
+	if ((name_off | len) & 1)
+		return false;
+
+	return name_off + len <= size;
+}
+
+/*
+ * Windows-native reparse payloads store pathnames as UTF-16 strings with '\\'
+ * separators. Convert the on-disk UTF-16 target into the mount's NLS and
+ * normalize path separators.
+ */
+static int ntfs_reparse_target_to_nls(struct ntfs_volume *vol,
+				      const __le16 *uname, u16 ulen,
+				      char **target)
+{
+	int err, i;
+
+	*target = NULL;
+	ulen >>= 1;
+	if (!ulen)
+		return -EINVAL;
+
+	if (!uname[ulen - 1])
+		ulen--;
+
+	err = ntfs_ucstonls(vol, uname, ulen, (unsigned char **)target, 0);
+	if (err < 0) {
+		ntfs_attr_name_free((unsigned char **)target);
+		return err;
+	}
+
+	for (i = 0; i < err; i++) {
+		if ((*target)[i] == '\\')
+			(*target)[i] = '/';
+	}
+
+	return 0;
+}
+
 /* Index entry in $Extend/$Reparse */
 struct reparse_index {
 	struct index_entry_header header;
@@ -38,8 +79,10 @@ __le16 reparse_index_name[] = {cpu_to_le16('$'), cpu_to_le16('R'), 0};
  * Check if the reparse point attribute buffer is valid.
  * Returns true if valid, false otherwise.
  */
-static bool ntfs_is_valid_reparse_buffer(struct ntfs_inode *ni,
-		const struct reparse_point *reparse_attr, size_t size)
+static bool valid_reparse_buffer(struct ntfs_inode *ni,
+				 const struct reparse_point *reparse_attr,
+				 size_t size,
+				 size_t payload_min_len)
 {
 	size_t expected;
 
@@ -48,6 +91,11 @@ static bool ntfs_is_valid_reparse_buffer(struct ntfs_inode *ni,
 
 	/* Minimum size must cover reparse_point header */
 	if (size < sizeof(struct reparse_point))
+		return false;
+
+	/* The payload must contain the fixed fields for the current tag. */
+	if (payload_min_len &&
+	    le16_to_cpu(reparse_attr->reparse_data_length) < payload_min_len)
 		return false;
 
 	/* Reserved zero tag is invalid */
@@ -79,24 +127,57 @@ static bool ntfs_is_valid_reparse_buffer(struct ntfs_inode *ni,
 static bool valid_reparse_data(struct ntfs_inode *ni,
 		const struct reparse_point *reparse_attr, size_t size)
 {
-	const struct wsl_link_reparse_data *wsl_reparse_data =
-		(const struct wsl_link_reparse_data *)reparse_attr->reparse_data;
-	unsigned int data_len = le16_to_cpu(reparse_attr->reparse_data_length);
-
-	if (ntfs_is_valid_reparse_buffer(ni, reparse_attr, size) == false)
+	if (size < sizeof(*reparse_attr))
 		return false;
 
 	switch (reparse_attr->reparse_tag) {
-	case IO_REPARSE_TAG_LX_SYMLINK:
-		if (data_len <= sizeof(wsl_reparse_data->type) ||
-		    wsl_reparse_data->type != cpu_to_le32(2))
+	case IO_REPARSE_TAG_SYMLINK:
+	{
+		struct symlink_reparse_data *data;
+		size_t data_offs;
+
+		if (!valid_reparse_buffer(ni, reparse_attr, size,
+					  sizeof(*data)))
+			return false;
+
+		data = (struct symlink_reparse_data *)reparse_attr->reparse_data;
+		data_offs = offsetof(struct reparse_point, reparse_data) +
+			offsetof(struct symlink_reparse_data, path_buffer);
+
+		if (!reparse_name_is_valid(size,
+					   data_offs +
+					   le16_to_cpu(data->substitute_name_offset),
+					   le16_to_cpu(data->substitute_name_length)) ||
+		    !reparse_name_is_valid(size,
+					   data_offs +
+					   le16_to_cpu(data->print_name_offset),
+					   le16_to_cpu(data->print_name_length)))
 			return false;
 		break;
+	}
+	case IO_REPARSE_TAG_LX_SYMLINK:
+	{
+		struct wsl_link_reparse_data *data;
+
+		if (!valid_reparse_buffer(ni, reparse_attr, size,
+					  sizeof(*data)))
+			return false;
+
+		data = (struct wsl_link_reparse_data *)reparse_attr->reparse_data;
+
+		if (le16_to_cpu(reparse_attr->reparse_data_length) <= sizeof(data->type) ||
+		    data->type != cpu_to_le32(2))
+			return false;
+		break;
+	}
 	case IO_REPARSE_TAG_AF_UNIX:
 	case IO_REPARSE_TAG_LX_FIFO:
 	case IO_REPARSE_TAG_LX_CHR:
 	case IO_REPARSE_TAG_LX_BLK:
-		if (data_len || !(ni->flags & FILE_ATTRIBUTE_RECALL_ON_OPEN))
+		if (!valid_reparse_buffer(ni, reparse_attr, size, 0))
+			return false;
+		if (le16_to_cpu(reparse_attr->reparse_data_length) ||
+		    !(ni->flags & FILE_ATTRIBUTE_RECALL_ON_OPEN))
 			return false;
 	}
 
@@ -134,16 +215,38 @@ static unsigned int ntfs_reparse_tag_mode(struct reparse_point *reparse_attr)
 unsigned int ntfs_make_symlink(struct ntfs_inode *ni)
 {
 	s64 attr_size = 0;
+	int err;
 	unsigned int lth;
 	struct reparse_point *reparse_attr;
 	struct wsl_link_reparse_data *wsl_link_data;
 	unsigned int mode = 0;
 
+	kvfree(ni->target);
+	ni->target = NULL;
+
 	reparse_attr = ntfs_attr_readall(ni, AT_REPARSE_POINT, NULL, 0,
 					 &attr_size);
-	if (reparse_attr && attr_size &&
+	if (reparse_attr &&
 	    valid_reparse_data(ni, reparse_attr, attr_size)) {
 		switch (reparse_attr->reparse_tag) {
+		case IO_REPARSE_TAG_SYMLINK:
+		{
+			struct symlink_reparse_data *data =
+				(struct symlink_reparse_data *)reparse_attr->reparse_data;
+			const __le16 *name = (const __le16 *)((u8 *)data->path_buffer +
+							le16_to_cpu(data->substitute_name_offset));
+
+			mode = ntfs_reparse_tag_mode(reparse_attr);
+			if (!(data->flags & cpu_to_le32(SYMLINK_FLAG_RELATIVE)))
+				break;
+
+			err = ntfs_reparse_target_to_nls(ni->vol, name,
+							 le16_to_cpu(data->substitute_name_length),
+							 &ni->target);
+			if (err < 0)
+				mode = 0;
+			break;
+		}
 		case IO_REPARSE_TAG_LX_SYMLINK:
 			wsl_link_data =
 				(struct wsl_link_reparse_data *)reparse_attr->reparse_data;
@@ -184,7 +287,7 @@ unsigned int ntfs_reparse_tag_dt_types(struct ntfs_volume *vol, unsigned long mr
 	reparse_attr = (struct reparse_point *)ntfs_attr_readall(NTFS_I(vi),
 			AT_REPARSE_POINT, NULL, 0, &attr_size);
 
-	if (reparse_attr && attr_size) {
+	if (reparse_attr && attr_size >= sizeof(*reparse_attr)) {
 		switch (reparse_attr->reparse_tag) {
 		case IO_REPARSE_TAG_SYMLINK:
 		case IO_REPARSE_TAG_LX_SYMLINK:
