@@ -52,6 +52,7 @@ fixes/update part 1.1  Stefani Seibold <stefani@seibold.net>    June 9 2009
 
   4	Configuring procfs
   4.1	Mount options
+  4.2	Mount restrictions
 
   5	Filesystem behavior
 
@@ -2425,7 +2426,9 @@ prohibited by hidepid=.  If you use some daemon like identd which needs to learn
 information about processes information, just add identd to this group.
 
 subset=pid hides all top level files and directories in the procfs that
-are not related to tasks.
+are not related to tasks. This option cannot be changed on an existing
+procfs instance because overmounts that existed before the change could
+otherwise remain reachable after the top level procfs entries are hidden.
 
 pidns= specifies a pid namespace (either as a string path to something like
 `/proc/$pid/ns/pid`, or a file descriptor when using `FSCONFIG_SET_FD`) that
@@ -2433,6 +2436,20 @@ will be used by the procfs instance when translating pids. By default, procfs
 will use the calling process's active pid namespace. Note that the pid
 namespace of an existing procfs instance cannot be modified (attempting to do
 so will give an `-EBUSY` error).
+
+4.2	Mount restrictions
+--------------------------
+
+If user namespaces are in use, the kernel additionally checks the instances of
+procfs available to the mounter and will not allow procfs to be mounted if:
+
+  1. This mount is not fully visible unless the new procfs is going to be
+     mounted with subset=pid option.
+
+     a. Its root directory is not the root directory of the filesystem.
+     b. If any file or non-empty procfs directory is hidden by another mount.
+
+  2. A new mount overrides the readonly option or any option from atime family.
 
 Chapter 5: Filesystem behavior
 ==============================
