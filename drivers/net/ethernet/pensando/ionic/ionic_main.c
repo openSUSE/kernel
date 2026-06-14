@@ -737,6 +737,8 @@ int ionic_port_init(struct ionic *ionic)
 	memset(&idev->port_info->extra_stats, 0xff,
 	       sizeof(idev->port_info->extra_stats));
 
+	WRITE_ONCE(idev->link_down_count_init, false);
+
 	sz = min(sizeof(ident->port.config), sizeof(idev->dev_cmd_regs->data));
 
 	mutex_lock(&ionic->dev_cmd_lock);
