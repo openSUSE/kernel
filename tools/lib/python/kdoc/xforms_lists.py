@@ -119,6 +119,7 @@ class CTransforms:
         (CMatch("__guarded_by"), ""),
         (CMatch("__pt_guarded_by"), ""),
         (CMatch("LIST_HEAD"), r"struct list_head \1"),
+        (CMatch("DECLARE_PER_CPU"), r"\1 \2[PER_CPU]; }"),
 
         (KernRe(r"(?://.*)$"), ""),
         (KernRe(r"(?:/\*.*\*/)"), ""),
