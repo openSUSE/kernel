@@ -338,14 +338,14 @@ static inline bool pid_in_current_pidns(const struct pid *pid)
 	return false;
 }
 
-static __u32 pidfs_coredump_mask(unsigned long mm_flags)
+static __u32 pidfs_coredump_mask(enum task_dumpable dumpable)
 {
-	switch (__get_dumpable(mm_flags)) {
-	case SUID_DUMP_USER:
+	switch (dumpable) {
+	case TASK_DUMPABLE_OWNER:
 		return PIDFD_COREDUMP_USER;
-	case SUID_DUMP_ROOT:
+	case TASK_DUMPABLE_ROOT:
 		return PIDFD_COREDUMP_ROOT;
-	case SUID_DUMP_DISABLE:
+	case TASK_DUMPABLE_OFF:
 		return PIDFD_COREDUMP_SKIP;
 	default:
 		WARN_ON_ONCE(true);
@@ -433,14 +433,9 @@ static long pidfd_info(struct file *file, unsigned int cmd, unsigned long arg)
 		return -ESRCH;
 
 	if ((mask & PIDFD_INFO_COREDUMP) && !kinfo.coredump_mask) {
-		guard(task_lock)(task);
-		if (task->mm) {
-			unsigned long flags = __mm_flags_get_dumpable(task->mm);
-
-			kinfo.coredump_mask = pidfs_coredump_mask(flags);
-			kinfo.mask |= PIDFD_INFO_COREDUMP;
-			/* No coredump actually took place, so no coredump signal. */
-		}
+		kinfo.coredump_mask = pidfs_coredump_mask(task_exec_state_get_dumpable(task));
+		kinfo.mask |= PIDFD_INFO_COREDUMP;
+		/* No coredump actually took place, so no coredump signal. */
 	}
 
 	/* Unconditionally return identifiers and credentials, the rest only on request */
@@ -779,7 +774,7 @@ void pidfs_coredump(const struct coredump_params *cprm)
 	VFS_WARN_ON_ONCE(attr == PIDFS_PID_DEAD);
 
 	/* Note how we were coredumped and that we coredumped. */
-	attr->coredump_mask = pidfs_coredump_mask(cprm->mm_flags) |
+	attr->coredump_mask = pidfs_coredump_mask(cprm->dumpable) |
 			      PIDFD_COREDUMPED;
 	/* If coredumping is set to skip we should never end up here. */
 	VFS_WARN_ON_ONCE(attr->coredump_mask & PIDFD_COREDUMP_SKIP);

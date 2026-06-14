@@ -91,6 +91,7 @@
 #include <linux/sched/mm.h>
 #include <linux/sched/coredump.h>
 #include <linux/sched/debug.h>
+#include <linux/sched/exec_state.h>
 #include <linux/sched/stat.h>
 #include <linux/posix-timers.h>
 #include <linux/time_namespace.h>
@@ -1893,7 +1894,6 @@ void task_dump_owner(struct task_struct *task, umode_t mode,
 	cred = __task_cred(task);
 	uid = cred->euid;
 	gid = cred->egid;
-	rcu_read_unlock();
 
 	/*
 	 * Before the /proc/pid/status file was created the only way to read
@@ -1903,29 +1903,22 @@ void task_dump_owner(struct task_struct *task, umode_t mode,
 	 * made this apply to all per process world readable and executable
 	 * directories.
 	 */
-	if (mode != (S_IFDIR|S_IRUGO|S_IXUGO)) {
-		struct mm_struct *mm;
-		task_lock(task);
-		mm = task->mm;
-		/* Make non-dumpable tasks owned by some root */
-		if (mm) {
-			if (get_dumpable(mm) != SUID_DUMP_USER) {
-				struct user_namespace *user_ns = mm->user_ns;
+	if (mode != (S_IFDIR | S_IRUGO | S_IXUGO)) {
+		struct task_exec_state *exec_state;
 
-				uid = make_kuid(user_ns, 0);
-				if (!uid_valid(uid))
-					uid = GLOBAL_ROOT_UID;
+		exec_state = task_exec_state_rcu(task);
+		if (READ_ONCE(exec_state->dumpable) != TASK_DUMPABLE_OWNER) {
+			uid = make_kuid(exec_state->user_ns, 0);
+			if (!uid_valid(uid))
+				uid = GLOBAL_ROOT_UID;
 
-				gid = make_kgid(user_ns, 0);
-				if (!gid_valid(gid))
-					gid = GLOBAL_ROOT_GID;
-			}
-		} else {
-			uid = GLOBAL_ROOT_UID;
-			gid = GLOBAL_ROOT_GID;
+			gid = make_kgid(exec_state->user_ns, 0);
+			if (!gid_valid(gid))
+				gid = GLOBAL_ROOT_GID;
 		}
-		task_unlock(task);
 	}
+	rcu_read_unlock();
+
 	*ruid = uid;
 	*rgid = gid;
 }
@@ -2965,7 +2958,7 @@ static ssize_t proc_coredump_filter_read(struct file *file, char __user *buf,
 	ret = 0;
 	mm = get_task_mm(task);
 	if (mm) {
-		unsigned long flags = __mm_flags_get_dumpable(mm);
+		unsigned long flags = __mm_flags_get_word(mm);
 
 		len = snprintf(buffer, sizeof(buffer), "%08lx\n",
 			       ((flags & MMF_DUMP_FILTER_MASK) >>
