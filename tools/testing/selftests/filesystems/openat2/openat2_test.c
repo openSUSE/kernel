@@ -15,8 +15,8 @@
 #include <stdbool.h>
 #include <string.h>
 
-#include "kselftest.h"
 #include "helpers.h"
+#include "kselftest_harness.h"
 
 /*
  * O_LARGEFILE is set to 0 by glibc.
@@ -45,13 +45,29 @@ struct struct_test {
 	int err;
 };
 
-#define NUM_OPENAT2_STRUCT_TESTS 7
-#define NUM_OPENAT2_STRUCT_VARIATIONS 13
+struct flag_test {
+	const char *name;
+	struct open_how how;
+	int err;
+};
 
-void test_openat2_struct(void)
+FIXTURE(openat2) {};
+
+FIXTURE_SETUP(openat2)
+{
+	if (!openat2_supported)
+		SKIP(return, "openat2(2) not supported");
+}
+
+FIXTURE_TEARDOWN(openat2) {}
+
+/*
+ * Verify that the struct size and misalignment handling for openat2(2) is
+ * correct, including that is_zeroed_user() works.
+ */
+TEST_F(openat2, struct_argument_sizes)
 {
 	int misalignments[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 17, 87 };
-
 	struct struct_test tests[] = {
 		/* Normal struct. */
 		{ .name = "normal struct",
@@ -83,26 +99,14 @@ void test_openat2_struct(void)
 		  .size = sizeof(struct open_how_ext), .err = -E2BIG },
 	};
 
-	BUILD_BUG_ON(ARRAY_LEN(misalignments) != NUM_OPENAT2_STRUCT_VARIATIONS);
-	BUILD_BUG_ON(ARRAY_LEN(tests) != NUM_OPENAT2_STRUCT_TESTS);
-
-	for (int i = 0; i < ARRAY_LEN(tests); i++) {
+	for (int i = 0; i < ARRAY_SIZE(tests); i++) {
 		struct struct_test *test = &tests[i];
 		struct open_how_ext how_ext = test->arg;
 
-		for (int j = 0; j < ARRAY_LEN(misalignments); j++) {
+		for (int j = 0; j < ARRAY_SIZE(misalignments); j++) {
 			int fd, misalign = misalignments[j];
-			char *fdpath = NULL;
-			bool failed;
-			void (*resultfn)(const char *msg, ...) = ksft_test_result_pass;
-
 			void *copy = NULL, *how_copy = &how_ext;
-
-			if (!openat2_supported) {
-				ksft_print_msg("openat2(2) unsupported\n");
-				resultfn = ksft_test_result_skip;
-				goto skip;
-			}
+			char *fdpath = NULL;
 
 			if (misalign) {
 				/*
@@ -119,50 +123,42 @@ void test_openat2_struct(void)
 			}
 
 			fd = raw_openat2(AT_FDCWD, ".", how_copy, test->size);
-			if (test->err >= 0)
-				failed = (fd < 0);
-			else
-				failed = (fd != test->err);
 			if (fd >= 0) {
-				fdpath = fdreadlink(fd);
+				fdpath = fdreadlink(_metadata, fd);
 				close(fd);
 			}
 
-			if (failed) {
-				resultfn = ksft_test_result_fail;
-
-				ksft_print_msg("openat2 unexpectedly returned ");
-				if (fdpath)
-					ksft_print_msg("%d['%s']\n", fd, fdpath);
-				else
-					ksft_print_msg("%d (%s)\n", fd, strerror(-fd));
+			if (test->err >= 0) {
+				EXPECT_GE(fd, 0) {
+					TH_LOG("openat2 with %s [misalign=%d] should succeed, got %d (%s)",
+					       test->name, misalign,
+					       fd, strerror(-fd));
+				}
+			} else {
+				EXPECT_EQ(test->err, fd) {
+					if (fdpath)
+						TH_LOG("openat2 with %s [misalign=%d] should fail with %d (%s), got %d['%s']",
+						       test->name, misalign,
+						       test->err,
+						       strerror(-test->err),
+						       fd, fdpath);
+					else
+						TH_LOG("openat2 with %s [misalign=%d] should fail with %d (%s), got %d (%s)",
+						       test->name, misalign,
+						       test->err,
+						       strerror(-test->err),
+						       fd, strerror(-fd));
+				}
 			}
-
-skip:
-			if (test->err >= 0)
-				resultfn("openat2 with %s argument [misalign=%d] succeeds\n",
-					 test->name, misalign);
-			else
-				resultfn("openat2 with %s argument [misalign=%d] fails with %d (%s)\n",
-					 test->name, misalign, test->err,
-					 strerror(-test->err));
 
 			free(copy);
 			free(fdpath);
-			fflush(stdout);
 		}
 	}
 }
 
-struct flag_test {
-	const char *name;
-	struct open_how how;
-	int err;
-};
-
-#define NUM_OPENAT2_FLAG_TESTS 25
-
-void test_openat2_flags(void)
+/* Verify openat2(2) flag and mode validation. */
+TEST_F(openat2, flag_validation)
 {
 	struct flag_test tests[] = {
 		/* O_TMPFILE is incompatible with O_PATH and O_CREAT. */
@@ -241,20 +237,10 @@ void test_openat2_flags(void)
 		  .how.resolve = 0, .err = -EINVAL },
 	};
 
-	BUILD_BUG_ON(ARRAY_LEN(tests) != NUM_OPENAT2_FLAG_TESTS);
-
-	for (int i = 0; i < ARRAY_LEN(tests); i++) {
+	for (int i = 0; i < ARRAY_SIZE(tests); i++) {
 		int fd, fdflags = -1;
 		char *path, *fdpath = NULL;
-		bool failed = false;
 		struct flag_test *test = &tests[i];
-		void (*resultfn)(const char *msg, ...) = ksft_test_result_pass;
-
-		if (!openat2_supported) {
-			ksft_print_msg("openat2(2) unsupported\n");
-			resultfn = ksft_test_result_skip;
-			goto skip;
-		}
 
 		path = (test->how.flags & O_CREAT) ? "/tmp/ksft.openat2_tmpfile" : ".";
 		unlink(path);
@@ -265,74 +251,112 @@ void test_openat2_flags(void)
 			 * Skip the testcase if it failed because not supported
 			 * by FS. (e.g. a valid O_TMPFILE combination on NFS)
 			 */
-			ksft_test_result_skip("openat2 with %s fails with %d (%s)\n",
-					      test->name, fd, strerror(-fd));
-			goto next;
+			TH_LOG("openat2 with %s not supported by FS -- skipping",
+			       test->name);
+			continue;
 		}
 
-		if (test->err >= 0)
-			failed = (fd < 0);
-		else
-			failed = (fd != test->err);
-		if (fd >= 0) {
-			int otherflags;
+		if (test->err >= 0) {
+			EXPECT_GE(fd, 0) {
+				TH_LOG("openat2 with %s should succeed, got %d (%s)",
+				       test->name, fd, strerror(-fd));
+			}
+			if (fd >= 0) {
+				int otherflags;
 
-			fdpath = fdreadlink(fd);
-			fdflags = fcntl(fd, F_GETFL);
-			otherflags = fcntl(fd, F_GETFD);
-			close(fd);
+				fdpath = fdreadlink(_metadata, fd);
+				fdflags = fcntl(fd, F_GETFL);
+				otherflags = fcntl(fd, F_GETFD);
+				close(fd);
 
-			E_assert(fdflags >= 0, "fcntl F_GETFL of new fd");
-			E_assert(otherflags >= 0, "fcntl F_GETFD of new fd");
+				ASSERT_GE(fdflags, 0);
+				ASSERT_GE(otherflags, 0);
 
-			/* O_CLOEXEC isn't shown in F_GETFL. */
-			if (otherflags & FD_CLOEXEC)
-				fdflags |= O_CLOEXEC;
-			/* O_CREAT is hidden from F_GETFL. */
-			if (test->how.flags & O_CREAT)
-				fdflags |= O_CREAT;
-			if (!(test->how.flags & O_LARGEFILE))
-				fdflags &= ~O_LARGEFILE;
-			failed |= (fdflags != test->how.flags);
+				/* O_CLOEXEC isn't shown in F_GETFL. */
+				if (otherflags & FD_CLOEXEC)
+					fdflags |= O_CLOEXEC;
+				/* O_CREAT is hidden from F_GETFL. */
+				if (test->how.flags & O_CREAT)
+					fdflags |= O_CREAT;
+				if (!(test->how.flags & O_LARGEFILE))
+					fdflags &= ~O_LARGEFILE;
+
+				EXPECT_EQ(fdflags, (int)test->how.flags) {
+					TH_LOG("openat2 with %s: flags mismatch %X != %llX",
+					       test->name, fdflags,
+					       (unsigned long long)test->how.flags);
+				}
+			}
+		} else {
+			EXPECT_EQ(test->err, fd) {
+				if (fd >= 0) {
+					fdpath = fdreadlink(_metadata, fd);
+					TH_LOG("openat2 with %s should fail with %d (%s), got %d['%s']",
+					       test->name, test->err,
+					       strerror(-test->err),
+					       fd, fdpath);
+				} else {
+					TH_LOG("openat2 with %s should fail with %d (%s), got %d (%s)",
+					       test->name, test->err,
+					       strerror(-test->err),
+					       fd, strerror(-fd));
+				}
+			}
+			if (fd >= 0)
+				close(fd);
 		}
 
-		if (failed) {
-			resultfn = ksft_test_result_fail;
-
-			ksft_print_msg("openat2 unexpectedly returned ");
-			if (fdpath)
-				ksft_print_msg("%d['%s'] with %X (!= %llX)\n",
-					       fd, fdpath, fdflags,
-					       test->how.flags);
-			else
-				ksft_print_msg("%d (%s)\n", fd, strerror(-fd));
-		}
-
-skip:
-		if (test->err >= 0)
-			resultfn("openat2 with %s succeeds\n", test->name);
-		else
-			resultfn("openat2 with %s fails with %d (%s)\n",
-				 test->name, test->err, strerror(-test->err));
-next:
 		free(fdpath);
-		fflush(stdout);
 	}
 }
 
-#define NUM_TESTS (NUM_OPENAT2_STRUCT_VARIATIONS * NUM_OPENAT2_STRUCT_TESTS + \
-		   NUM_OPENAT2_FLAG_TESTS)
+#ifndef OPENAT2_REGULAR
+#define OPENAT2_REGULAR ((__u64)1 << 32)
+#endif
 
-int main(int argc, char **argv)
+#ifndef EFTYPE
+#define EFTYPE 134
+#endif
+
+/* Kernel-internal carrier for OPENAT2_REGULAR (see __O_REGULAR in fcntl.h). */
+#ifndef __O_REGULAR
+#define __O_REGULAR (1 << 30)
+#endif
+
+/* Verify that OPENAT2_REGULAR rejects non-regular files with EFTYPE. */
+TEST_F(openat2, regular_flag)
 {
-	ksft_print_header();
-	ksft_set_plan(NUM_TESTS);
+	struct open_how how = {
+		.flags = OPENAT2_REGULAR | O_RDONLY,
+	};
+	int fd;
 
-	test_openat2_struct();
-	test_openat2_flags();
+	fd = sys_openat2(AT_FDCWD, "/dev/null", &how);
+	if (fd == -ENOENT)
+		SKIP(return, "/dev/null does not exist");
 
-	if (ksft_get_fail_cnt() + ksft_get_error_cnt() > 0)
-		ksft_exit_fail();
-	else
-		ksft_exit_pass();
+	EXPECT_EQ(-EFTYPE, fd) {
+		TH_LOG("openat2 with OPENAT2_REGULAR should fail with %d (%s), got %d (%s)",
+		       -EFTYPE, strerror(EFTYPE), fd, strerror(-fd));
+	}
+	if (fd >= 0)
+		close(fd);
 }
+
+/* open()/openat() must keep ignoring the internal __O_REGULAR bit. */
+TEST(legacy_openat_ignores_o_regular)
+{
+	int fd;
+
+	fd = openat(AT_FDCWD, "/dev/null", O_RDONLY | __O_REGULAR);
+	if (fd < 0 && errno == ENOENT)
+		SKIP(return, "/dev/null does not exist");
+
+	ASSERT_GE(fd, 0) {
+		TH_LOG("legacy openat() must ignore the __O_REGULAR carrier bit, got errno %d (%s)",
+		       errno, strerror(errno));
+	}
+	close(fd);
+}
+
+TEST_HARNESS_MAIN
