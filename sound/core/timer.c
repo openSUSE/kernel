@@ -132,8 +132,8 @@ static LIST_HEAD(snd_timer_slave_list);
 /* list of open master instances that can accept slave links */
 static LIST_HEAD(snd_timer_master_list);
 
-/* lock for slave active lists */
-static DEFINE_SPINLOCK(slave_active_lock);
+/* rwlock for timer instance (for trigger actions) */
+static DEFINE_RWLOCK(timeri_lock);
 
 #define MAX_SLAVE_INSTANCES	1000
 static int num_slaves;
@@ -252,7 +252,7 @@ struct snd_timer *snd_timeri_timer_get(struct snd_timer_instance *timeri)
 {
 	struct snd_timer *t;
 
-	guard(spinlock_irqsave)(&slave_active_lock);
+	guard(read_lock_irqsave)(&timeri_lock);
 	t = timeri->timer;
 	if (!t)
 		return NULL;
@@ -279,7 +279,7 @@ static int check_matching_master_slave(struct snd_timer_instance *master,
 	list_move_tail(&slave->open_list, &master->slave_list_head);
 	master->timer->num_instances++;
 	snd_timer_ref_get(master->timer);
-	guard(spinlock_irq)(&slave_active_lock);
+	guard(write_lock_irq)(&timeri_lock);
 	guard(spinlock)(&master->timer->lock);
 	slave->master = master;
 	slave->timer = master->timer;
@@ -446,7 +446,7 @@ static void remove_slave_links(struct snd_timer_instance *timeri,
 {
 	struct snd_timer_instance *slave, *tmp;
 
-	guard(spinlock_irq)(&slave_active_lock);
+	guard(write_lock_irq)(&timeri_lock);
 	guard(spinlock)(&timer->lock);
 	timeri->timer = NULL;
 	list_for_each_entry_safe(slave, tmp, &timeri->slave_list_head, open_list) {
@@ -601,7 +601,7 @@ static int snd_timer_start1(struct snd_timer_instance *timeri,
 	if (!timer)
 		return -EINVAL;
 
-	guard(spinlock_irqsave)(&timer->lock);
+	guard(spinlock)(&timer->lock);
 	if (timeri->flags & SNDRV_TIMER_IFLG_DEAD)
 		return -EINVAL;
 	if (timer->card && timer->card->shutdown)
@@ -649,7 +649,6 @@ static int snd_timer_start1(struct snd_timer_instance *timeri,
 static int snd_timer_start_slave(struct snd_timer_instance *timeri,
 				 bool start)
 {
-	guard(spinlock_irqsave)(&slave_active_lock);
 	if (timeri->flags & SNDRV_TIMER_IFLG_DEAD)
 		return -EINVAL;
 	if (timeri->flags & SNDRV_TIMER_IFLG_RUNNING)
@@ -673,7 +672,7 @@ static int snd_timer_stop1(struct snd_timer_instance *timeri, bool stop)
 	timer = timeri->timer;
 	if (!timer)
 		return -EINVAL;
-	guard(spinlock_irqsave)(&timer->lock);
+	guard(spinlock)(&timer->lock);
 	list_del_init(&timeri->ack_list);
 	list_del_init(&timeri->active_list);
 	if (!(timeri->flags & (SNDRV_TIMER_IFLG_RUNNING |
@@ -712,7 +711,6 @@ static int snd_timer_stop_slave(struct snd_timer_instance *timeri, bool stop)
 {
 	bool running;
 
-	guard(spinlock_irqsave)(&slave_active_lock);
 	running = timeri->flags & SNDRV_TIMER_IFLG_RUNNING;
 	timeri->flags &= ~SNDRV_TIMER_IFLG_RUNNING;
 	if (timeri->timer) {
@@ -733,6 +731,7 @@ int snd_timer_start(struct snd_timer_instance *timeri, unsigned int ticks)
 {
 	if (timeri == NULL || ticks < 1)
 		return -EINVAL;
+	guard(read_lock_irqsave)(&timeri_lock);
 	if (timeri->flags & SNDRV_TIMER_IFLG_SLAVE)
 		return snd_timer_start_slave(timeri, true);
 	else
@@ -747,6 +746,7 @@ EXPORT_SYMBOL(snd_timer_start);
  */
 int snd_timer_stop(struct snd_timer_instance *timeri)
 {
+	guard(read_lock_irqsave)(&timeri_lock);
 	if (timeri->flags & SNDRV_TIMER_IFLG_SLAVE)
 		return snd_timer_stop_slave(timeri, true);
 	else
@@ -763,6 +763,7 @@ int snd_timer_continue(struct snd_timer_instance *timeri)
 	if (!(timeri->flags & SNDRV_TIMER_IFLG_PAUSED))
 		return -EINVAL;
 
+	guard(read_lock_irqsave)(&timeri_lock);
 	if (timeri->flags & SNDRV_TIMER_IFLG_SLAVE)
 		return snd_timer_start_slave(timeri, false);
 	else
@@ -775,6 +776,7 @@ EXPORT_SYMBOL(snd_timer_continue);
  */
 int snd_timer_pause(struct snd_timer_instance * timeri)
 {
+	guard(read_lock_irqsave)(&timeri_lock);
 	if (timeri->flags & SNDRV_TIMER_IFLG_SLAVE)
 		return snd_timer_stop_slave(timeri, false);
 	else
