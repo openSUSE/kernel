@@ -55,10 +55,10 @@ int s1, s2, c1, c2, p1, p2;
 int test_cnt;
 int passed;
 int failed;
-int map_fd[9];
-struct bpf_map *maps[9];
-struct bpf_program *progs[9];
-struct bpf_link *links[9];
+int map_fd[8];
+struct bpf_map *maps[8];
+struct bpf_program *progs[8];
+struct bpf_link *links[8];
 
 int txmsg_pass;
 int txmsg_redir;
@@ -967,7 +967,7 @@ static int run_options(struct sockmap_options *options, int cg_fd,  int test)
 	}
 
 	/* Attach to cgroups */
-	err = bpf_prog_attach(bpf_program__fd(progs[3]), cg_fd, BPF_CGROUP_SOCK_OPS, 0);
+	err = bpf_prog_attach(bpf_program__fd(progs[2]), cg_fd, BPF_CGROUP_SOCK_OPS, 0);
 	if (err) {
 		fprintf(stderr, "ERROR: bpf_prog_attach (groups): %d (%s)\n",
 			err, strerror(errno));
@@ -983,15 +983,15 @@ run:
 
 	/* Attach txmsg program to sockmap */
 	if (txmsg_pass)
-		tx_prog = progs[4];
+		tx_prog = progs[3];
 	else if (txmsg_redir)
-		tx_prog = progs[5];
+		tx_prog = progs[4];
 	else if (txmsg_apply)
-		tx_prog = progs[6];
+		tx_prog = progs[5];
 	else if (txmsg_cork)
-		tx_prog = progs[7];
+		tx_prog = progs[6];
 	else if (txmsg_drop)
-		tx_prog = progs[8];
+		tx_prog = progs[7];
 	else
 		tx_prog = NULL;
 
@@ -1218,7 +1218,7 @@ run:
 		fprintf(stderr, "unknown test\n");
 out:
 	/* Detach and zero all the maps */
-	bpf_prog_detach2(bpf_program__fd(progs[3]), cg_fd, BPF_CGROUP_SOCK_OPS);
+	bpf_prog_detach2(bpf_program__fd(progs[2]), cg_fd, BPF_CGROUP_SOCK_OPS);
 
 	for (i = 0; i < ARRAY_SIZE(links); i++) {
 		if (links[i])
@@ -1724,7 +1724,6 @@ char *map_names[] = {
 	"sock_bytes",
 	"sock_redir_flags",
 	"sock_skb_opts",
-	"tls_sock_map",
 };
 
 static int populate_progs(char *bpf_file)
