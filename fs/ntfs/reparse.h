@@ -14,7 +14,7 @@ unsigned int ntfs_reparse_tag_dt_types(struct ntfs_volume *vol, unsigned long mr
 int ntfs_translate_symlink_path(struct dentry *dentry, const char *target,
 				char **translated);
 int ntfs_reparse_set_wsl_symlink(struct ntfs_inode *ni,
-			const __le16 *target, int target_len);
+				 const char *target, int target_len);
 int ntfs_reparse_set_wsl_not_symlink(struct ntfs_inode *ni, mode_t mode);
 int ntfs_delete_reparse_index(struct ntfs_inode *ni);
 int ntfs_remove_ntfs_reparse_data(struct ntfs_inode *ni);

@@ -753,43 +753,41 @@ out:
  * Set reparse data for a WSL type symlink
  */
 int ntfs_reparse_set_wsl_symlink(struct ntfs_inode *ni,
-		const __le16 *target, int target_len)
+				 const char *target, int target_len)
 {
 	int err = 0;
-	int len;
 	int reparse_len;
-	unsigned char *utarget = NULL;
 	struct reparse_point *reparse;
 	struct wsl_link_reparse_data *data;
 
-	len = ntfs_ucstonls(ni->vol, target, target_len, &utarget, 0);
-	if (len <= 0)
-		return -EINVAL;
-
-	reparse_len = sizeof(struct reparse_point) + sizeof(data->type) + len;
+	reparse_len = sizeof(struct reparse_point) + sizeof(data->type) +
+		target_len;
 	reparse = kvzalloc(reparse_len, GFP_NOFS);
-	if (!reparse) {
-		err = -ENOMEM;
-		kfree(utarget);
-	} else {
-		data = (struct wsl_link_reparse_data *)reparse->reparse_data;
-		reparse->reparse_tag = IO_REPARSE_TAG_LX_SYMLINK;
-		reparse->reparse_data_length =
-			cpu_to_le16(sizeof(data->type) + len);
-		reparse->reserved = 0;
-		data->type = cpu_to_le32(2);
-		memcpy(data->link, utarget, len);
-		err = ntfs_set_ntfs_reparse_data(ni,
-				(char *)reparse, reparse_len);
+	if (!reparse)
+		return -ENOMEM;
+
+	ni->target = kstrdup(target, GFP_NOFS);
+	if (!ni->target) {
 		kvfree(reparse);
-		if (!err) {
-			ni->target = utarget;
-			ni->reparse_tag = IO_REPARSE_TAG_LX_SYMLINK;
-			ni->reparse_flags = 0;
-		} else {
-			kfree(utarget);
-			ni->target = NULL;
-		}
+		return -ENOMEM;
+	}
+
+	data = (struct wsl_link_reparse_data *)reparse->reparse_data;
+	reparse->reparse_tag = IO_REPARSE_TAG_LX_SYMLINK;
+	reparse->reparse_data_length =
+		cpu_to_le16(sizeof(data->type) + target_len);
+	reparse->reserved = 0;
+	data->type = cpu_to_le32(2);
+	memcpy(data->link, target, target_len);
+	err = ntfs_set_ntfs_reparse_data(ni,
+					 (char *)reparse, reparse_len);
+	kvfree(reparse);
+	if (err) {
+		kfree(ni->target);
+		ni->target = NULL;
+	} else {
+		ni->reparse_tag = IO_REPARSE_TAG_LX_SYMLINK;
+		ni->reparse_flags = 0;
 	}
 	return err;
 }
