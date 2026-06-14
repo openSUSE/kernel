@@ -32,6 +32,31 @@ from lib.py import (
 )
 from lib.py import KsftSkipEx, CmdExitFailure
 
+# iou-zcrx exits with 42 from setup_zcrx() when the NIC does not advertise
+# QCFG_RX_PAGE_SIZE (or otherwise rejects the requested rx_buf_len).
+SKIP_CODE = 42
+
+
+def _restore_hugepages(count):
+    with open("/proc/sys/vm/nr_hugepages", "w", encoding="utf-8") as f:
+        f.write(str(count))
+
+
+def _mp_clear_wait(cfg, src_queue):
+    """Wait for the io_uring memory provider to clear from the leased
+    physical queue; io_uring tears it down asynchronously after the
+    process holding the ifq exits."""
+    netdevnl = NetdevFamily()
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        queue_info = netdevnl.queue_get(
+            {"ifindex": cfg.ifindex, "id": src_queue, "type": "rx"}
+        )
+        if "io-uring" not in queue_info:
+            return
+        time.sleep(0.1)
+    raise TimeoutError("Timed out waiting for memory provider to clear")
+
 
 def _create_netkit_pair(cfg, rxqueues=2):
     if cfg.nk_host_ifname:
@@ -183,6 +208,80 @@ def test_iou_zcrx(cfg) -> None:
         f"-i {cfg.nk_guest_ifname} -q {nk_queue}"
     )
     tx_cmd = f"{cfg.bin_remote} -c -h {cfg.nk_guest_ipv6} -p {cfg.port} -l 12840"
+    with bkg(rx_cmd, exit_wait=True, ns=cfg.netns):
+        wait_port_listen(cfg.port, proto="tcp", ns=cfg.netns)
+        cmd(tx_cmd, host=cfg.remote)
+
+
+def test_iou_zcrx_large_buf(cfg) -> None:
+    """iou-zcrx with rx_buf_len > page size, going through a netkit-leased
+    queue. Exercises the queue rx-buf-len path via netif_mp_open_rxq()'s
+    lease redirect: the netkit ifindex is opaque to io_uring, but
+    rx_page_size is honoured by the *physical* qops because the lease
+    pointer rewrites the request from netkit onto the leased physical
+    rxq before supported_params/validate_qcfg are consulted.
+    """
+    cfg.require_ipver("6")
+    src_queue, nk_queue = _setup_lease(cfg)
+    defer(_teardown_netkit, cfg)
+    ethnl = EthtoolFamily()
+
+    with open("/proc/sys/vm/nr_hugepages", "r+", encoding="utf-8") as f:
+        nr_hugepages = int(f.read().strip())
+        if nr_hugepages < 64:
+            f.seek(0)
+            f.write("64")
+            defer(_restore_hugepages, nr_hugepages)
+
+    rings = ethnl.rings_get({"header": {"dev-index": cfg.ifindex}})
+    rx_rings = rings["rx"]
+    hds_thresh = rings.get("hds-thresh", 0)
+
+    ethnl.rings_set(
+        {
+            "header": {"dev-index": cfg.ifindex},
+            "tcp-data-split": "enabled",
+            "hds-thresh": 0,
+            "rx": 64,
+        }
+    )
+    defer(
+        ethnl.rings_set,
+        {
+            "header": {"dev-index": cfg.ifindex},
+            "tcp-data-split": "unknown",
+            "hds-thresh": hds_thresh,
+            "rx": rx_rings,
+        },
+    )
+
+    ethtool(f"-X {cfg.ifname} equal {src_queue}")
+    defer(ethtool, f"-X {cfg.ifname} default")
+
+    flow_rule_id = set_flow_rule(cfg, src_queue)
+    defer(ethtool, f"-N {cfg.ifname} delete {flow_rule_id}")
+
+    # -x 2 asks iou-zcrx for rx_buf_len = 2 * page_size (8 KiB on x86_64),
+    # backed by a 2 MiB hugepage area so the chunks are physically
+    # contiguous, which is what zcrx requires for non-default rx_buf_len.
+    rx_cmd = (
+        f"{cfg.bin_local} -s -p {cfg.port} "
+        f"-i {cfg.nk_guest_ifname} -q {nk_queue} -x 2"
+    )
+    tx_cmd = f"{cfg.bin_remote} -c -h {cfg.nk_guest_ipv6} -p {cfg.port} -l 12840"
+
+    # Probe via -d (dry run): exits with SKIP_CODE if the leased physical
+    # qops doesn't advertise QCFG_RX_PAGE_SIZE (e.g. older bnxt FW/HW).
+    probe = cmd(rx_cmd + " -d", fail=False, ns=cfg.netns)
+    if probe.ret == SKIP_CODE:
+        msg = probe.stdout.strip() or "rx_buf_len not supported by leased NIC"
+        raise KsftSkipEx(msg)
+
+    # A successful dry run still registered the zcrx ifq on the leased
+    # physical queue; wait for its async teardown before the real server
+    # binds the same queue.
+    _mp_clear_wait(cfg, src_queue)
+
     with bkg(rx_cmd, exit_wait=True, ns=cfg.netns):
         wait_port_listen(cfg.port, proto="tcp", ns=cfg.netns)
         cmd(tx_cmd, host=cfg.remote)
@@ -350,7 +449,13 @@ def main() -> None:
         cfg.port = rand_port()
 
         ksft_run(
-            [test_iou_zcrx, test_attrs, test_attach_xdp_with_mp, test_destroy],
+            [
+                test_iou_zcrx,
+                test_iou_zcrx_large_buf,
+                test_attrs,
+                test_attach_xdp_with_mp,
+                test_destroy,
+            ],
             args=(cfg,),
         )
     ksft_exit()
