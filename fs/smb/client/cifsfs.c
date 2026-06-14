@@ -12,6 +12,7 @@
 
 #include <linux/module.h>
 #include <linux/fs.h>
+#include <linux/fs_context.h>
 #include <linux/filelock.h>
 #include <linux/mount.h>
 #include <linux/slab.h>
@@ -970,26 +971,19 @@ cifs_get_root(struct smb3_fs_context *ctx, struct super_block *sb)
 	return dentry;
 }
 
-static int cifs_set_super(struct super_block *sb, void *data)
-{
-	struct cifs_mnt_data *mnt_data = data;
-	sb->s_fs_info = mnt_data->cifs_sb;
-	return set_anon_super(sb, NULL);
-}
-
 struct dentry *
-cifs_smb3_do_mount(struct file_system_type *fs_type,
-	      int flags, struct smb3_fs_context *old_ctx)
+cifs_smb3_do_mount(struct fs_context *fc, struct smb3_fs_context *old_ctx)
 {
 	struct cifs_mnt_data mnt_data;
 	struct cifs_sb_info *cifs_sb;
 	struct super_block *sb;
 	struct dentry *root;
+	unsigned int saved_sb_flags;
 	int rc;
 
 	if (cifsFYI) {
-		cifs_dbg(FYI, "%s: devname=%s flags=0x%x\n", __func__,
-			 old_ctx->source, flags);
+		cifs_dbg(FYI, "%s: devname=%s sb_flags=0x%x\n", __func__,
+			 old_ctx->source, fc->sb_flags);
 	} else {
 		cifs_info("Attempting to mount %s\n", old_ctx->source);
 	}
@@ -1016,7 +1010,7 @@ cifs_smb3_do_mount(struct file_system_type *fs_type,
 
 	rc = cifs_mount(cifs_sb, cifs_sb->ctx);
 	if (rc) {
-		if (!(flags & SB_SILENT))
+		if (!(fc->sb_flags & SB_SILENT))
 			cifs_dbg(VFS, "cifs_mount failed w/return code = %d\n",
 				 rc);
 		root = ERR_PTR(rc);
@@ -1025,12 +1019,27 @@ cifs_smb3_do_mount(struct file_system_type *fs_type,
 
 	mnt_data.ctx = cifs_sb->ctx;
 	mnt_data.cifs_sb = cifs_sb;
-	mnt_data.flags = flags;
+	mnt_data.flags = 0;
 
-	/* BB should we make this contingent on mount parm? */
-	flags |= SB_NODIRATIME | SB_NOATIME;
-
-	sb = sget(fs_type, cifs_match_super, cifs_set_super, flags, &mnt_data);
+	/*
+	 * sb->s_flags is set from fc->sb_flags by alloc_super(). CIFS has
+	 * historically forced SB_NODIRATIME | SB_NOATIME on every mount and
+	 * ignored the caller-supplied SB_* flags. Preserve that behaviour by
+	 * overriding fc->sb_flags around the sget_fc() call.
+	 *
+	 * Hand cifs_sb to sget_fc() via fc->s_fs_info; sget_fc() copies it
+	 * onto sb->s_fs_info before running set() and clears fc->s_fs_info
+	 * on successful publish. Pass the rest of the per-mount context to
+	 * cifs_match_super() through fc->sget_key.
+	 */
+	saved_sb_flags = fc->sb_flags;
+	fc->sb_flags = SB_NODIRATIME | SB_NOATIME;
+	fc->s_fs_info = cifs_sb;
+	fc->sget_key = &mnt_data;
+	sb = sget_fc(fc, cifs_match_super, set_anon_super_fc);
+	fc->sget_key = NULL;
+	fc->s_fs_info = NULL;
+	fc->sb_flags = saved_sb_flags;
 	if (IS_ERR(sb)) {
 		cifs_umount(cifs_sb);
 		return ERR_CAST(sb);

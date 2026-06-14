@@ -2052,7 +2052,7 @@ static int btrfs_get_tree_subvol(struct fs_context *fc)
 	 * then open_ctree will properly initialize the file system specific
 	 * settings later.  btrfs_init_fs_info initializes the static elements
 	 * of the fs_info (locks and such) to make cleanup easier if we find a
-	 * superblock with our given fs_devices later on at sget() time.
+	 * superblock with our given fs_devices later on at sget_fc() time.
 	 */
 	fs_info = kvzalloc_obj(struct btrfs_fs_info);
 	if (!fs_info)

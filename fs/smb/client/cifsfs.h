@@ -147,8 +147,9 @@ ssize_t cifs_file_copychunk_range(unsigned int xid, struct file *src_file,
 long cifs_ioctl(struct file *filep, unsigned int command, unsigned long arg);
 void cifs_setsize(struct inode *inode, loff_t offset);
 
+struct fs_context;
 struct smb3_fs_context;
-struct dentry *cifs_smb3_do_mount(struct file_system_type *fs_type, int flags,
+struct dentry *cifs_smb3_do_mount(struct fs_context *fc,
 				  struct smb3_fs_context *old_ctx);
 
 char *cifs_silly_fullpath(struct dentry *dentry);
