@@ -2382,6 +2382,10 @@ int ntfs_show_options(struct seq_file *sf, struct dentry *root)
 		seq_puts(sf, ",native_symlink=rel");
 	else
 		seq_puts(sf, ",native_symlink=raw");
+	if (NVolSymlinkNative(vol))
+		seq_puts(sf, ",symlink=native");
+	else
+		seq_puts(sf, ",symlink=wsl");
 	if (vol->sb->s_flags & SB_POSIXACL)
 		seq_puts(sf, ",acl");
 	return 0;

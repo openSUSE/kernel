@@ -365,6 +365,13 @@ unsigned int ntfs_reparse_tag_dt_types(struct ntfs_volume *vol, unsigned long mr
 	return dt_type;
 }
 
+static bool ntfs_is_drive_letter(const char *target)
+{
+	return ((target[0] >= 'A' && target[0] <= 'Z') ||
+		(target[0] >= 'a' && target[0] <= 'z')) &&
+		target[1] == ':';
+}
+
 /*
  * ntfs_translate_symlink_path
  *
@@ -410,8 +417,7 @@ int ntfs_translate_symlink_path(struct dentry *dentry, const char *target,
 		path += 4;
 
 	/* target must start with a drive character or '/'. */
-	if (((path[0] >= 'A' && path[0] <= 'Z') ||
-	     (path[0] >= 'a' && path[0] <= 'z')) && path[1] == ':') {
+	if (ntfs_is_drive_letter(path)) {
 		if (path[2] && path[2] != '/')
 			return -EOPNOTSUPP;
 		tail = path + 2;
@@ -789,6 +795,127 @@ int ntfs_reparse_set_wsl_symlink(struct ntfs_inode *ni,
 		ni->reparse_tag = IO_REPARSE_TAG_LX_SYMLINK;
 		ni->reparse_flags = 0;
 	}
+	return err;
+}
+
+int ntfs_reparse_set_native_symlink(struct ntfs_inode *ni,
+				    const char *target, int target_len)
+{
+	int err = 0;
+	bool is_absolute, prt_sub_shared = true;
+	char *sub_name = NULL;
+	char *prt_name = NULL;
+	__le16 *sub_name_utf16 = NULL;
+	__le16 *prt_name_utf16 = NULL;
+	int sub_len, prt_len;
+	int total_data_len, total_reparse_len;
+	struct reparse_point *reparse = NULL;
+	struct symlink_reparse_data *data;
+	int i;
+
+	/* Determine if target is absolute (starts with drive letter like C:/ or C:\) */
+	is_absolute = target_len > 2 &&
+		ntfs_is_drive_letter(target) &&
+		(target[2] == '/' || target[2] == '\\');
+
+
+	/* Normalize and prepare NLS paths */
+	prt_name = kstrdup(target, GFP_NOFS);
+	if (!prt_name)
+		return -ENOMEM;
+
+	/* Replace '/' with '\' */
+	for (i = 0; i < target_len; i++) {
+		if (prt_name[i] == '/')
+			prt_name[i] = '\\';
+	}
+
+	if (is_absolute) {
+		/* Prepend '\??\' to Substitutename */
+		sub_name = kmalloc(target_len + 5, GFP_NOFS);
+		if (!sub_name) {
+			err = -ENOMEM;
+			goto out;
+		}
+		snprintf(sub_name, target_len + 5, "\\??\\%s", prt_name);
+		prt_sub_shared = false;
+	} else {
+		/* For relative symlinks (including absolute paths without drive letters),
+		 * SubstituteName and PrintName are identical.
+		 */
+		sub_name = prt_name;
+	}
+
+	/* Convert NLS paths to UTF-16 */
+	sub_len = ntfs_nlstoucs(ni->vol, sub_name, strlen(sub_name),
+				&sub_name_utf16, PATH_MAX);
+	if (sub_len < 0) {
+		err = sub_len;
+		goto out;
+	}
+
+	prt_len = ntfs_nlstoucs(ni->vol, prt_name, strlen(prt_name),
+				&prt_name_utf16, PATH_MAX);
+	if (prt_len < 0) {
+		err = prt_len;
+		goto out;
+	}
+
+	/* Check for buffer size limits */
+	total_data_len = sizeof(struct symlink_reparse_data) +
+		(sub_len + prt_len) * sizeof(__le16);
+	if (total_data_len > 16384) { /* 16KB max reparse tag size */
+		err = -EFBIG;
+		goto out;
+	}
+
+	total_reparse_len = sizeof(struct reparse_point) + total_data_len;
+	reparse = kvzalloc(total_reparse_len, GFP_NOFS);
+	if (!reparse) {
+		err = -ENOMEM;
+		goto out;
+	}
+
+	/* Pack fields in reparse buffer */
+	reparse->reparse_tag = IO_REPARSE_TAG_SYMLINK;
+	reparse->reparse_data_length = cpu_to_le16(total_data_len);
+	reparse->reserved = 0;
+
+	data = (struct symlink_reparse_data *)reparse->reparse_data;
+	data->substitute_name_offset = 0;
+	data->substitute_name_length = cpu_to_le16(sub_len * sizeof(__le16));
+	data->print_name_offset = data->substitute_name_length;
+	data->print_name_length = cpu_to_le16(prt_len * sizeof(__le16));
+	data->flags = is_absolute ? 0 : cpu_to_le32(SYMLINK_FLAG_RELATIVE);
+
+	/* Copy names to path_buffer */
+	memcpy(data->path_buffer, sub_name_utf16, sub_len * sizeof(__le16));
+	memcpy(data->path_buffer + sub_len, prt_name_utf16, prt_len * sizeof(__le16));
+
+	err = ntfs_set_ntfs_reparse_data(ni, (char *)reparse, total_reparse_len);
+	if (!err) {
+		int len = strlen(sub_name);
+
+		for (i = 0; i < len; i++) {
+			if (sub_name[i] == '\\')
+				sub_name[i] = '/';
+		}
+		ni->target = sub_name;
+		sub_name = NULL;
+		if (prt_sub_shared)
+			prt_name = NULL;
+		ni->reparse_tag = IO_REPARSE_TAG_SYMLINK;
+		ni->reparse_flags = is_absolute ? 0 :
+			cpu_to_le32(SYMLINK_FLAG_RELATIVE);
+	}
+
+out:
+	kfree(prt_name);
+	if (!prt_sub_shared)
+		kfree(sub_name);
+	kvfree(sub_name_utf16);
+	kvfree(prt_name_utf16);
+	kvfree(reparse);
 	return err;
 }
 

@@ -196,6 +196,7 @@ enum {
 	NV_Discard,
 	NV_DisableSparse,
 	NV_NativeSymlinkRel,
+	NV_SymlinkNative,
 };
 
 /*
@@ -233,6 +234,7 @@ DEFINE_NVOL_BIT_OPS(CheckWindowsNames)
 DEFINE_NVOL_BIT_OPS(Discard)
 DEFINE_NVOL_BIT_OPS(DisableSparse)
 DEFINE_NVOL_BIT_OPS(NativeSymlinkRel)
+DEFINE_NVOL_BIT_OPS(SymlinkNative)
 
 static inline void ntfs_inc_free_clusters(struct ntfs_volume *vol, s64 nr)
 {

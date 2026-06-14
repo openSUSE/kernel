@@ -55,6 +55,17 @@ static const struct constant_table ntfs_native_symlink_enums[] = {
 };
 
 enum {
+	SYMLINK_WSL,
+	SYMLINK_NATIVE,
+};
+
+static const struct constant_table ntfs_symlink_enums[] = {
+	{ "wsl",		SYMLINK_WSL },
+	{ "native",		SYMLINK_NATIVE },
+	{}
+};
+
+enum {
 	Opt_uid,
 	Opt_gid,
 	Opt_umask,
@@ -78,6 +89,7 @@ enum {
 	Opt_discard,
 	Opt_nocase,
 	Opt_native_symlink,
+	Opt_symlink,
 };
 
 static const struct fs_parameter_spec ntfs_parameters[] = {
@@ -104,6 +116,7 @@ static const struct fs_parameter_spec ntfs_parameters[] = {
 	fsparam_flag("sparse",			Opt_sparse),
 	fsparam_flag("nocase",			Opt_nocase),
 	fsparam_enum("native_symlink",		Opt_native_symlink, ntfs_native_symlink_enums),
+	fsparam_enum("symlink",			Opt_symlink, ntfs_symlink_enums),
 	{}
 };
 
@@ -233,6 +246,12 @@ static int ntfs_parse_param(struct fs_context *fc, struct fs_parameter *param)
 			NVolSetNativeSymlinkRel(vol);
 		else
 			NVolClearNativeSymlinkRel(vol);
+		break;
+	case Opt_symlink:
+		if (result.uint_32 == SYMLINK_NATIVE)
+			NVolSetSymlinkNative(vol);
+		else
+			NVolClearSymlinkNative(vol);
 		break;
 	case Opt_sparse:
 		break;
