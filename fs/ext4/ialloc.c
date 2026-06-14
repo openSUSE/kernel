@@ -66,14 +66,16 @@ void ext4_mark_bitmap_end(int start_bit, int end_bit, char *bitmap)
 		memset(bitmap + (i >> 3), 0xff, (end_bit - i) >> 3);
 }
 
-void ext4_end_bitmap_read(struct buffer_head *bh, int uptodate)
+void ext4_end_bitmap_read(struct bio *bio)
 {
+	struct buffer_head *bh;
+	bool uptodate = bio_endio_bh(bio, &bh);
+
 	if (uptodate) {
 		set_buffer_uptodate(bh);
 		set_bitmap_uptodate(bh);
 	}
 	unlock_buffer(bh);
-	put_bh(bh);
 }
 
 static int ext4_validate_inode_bitmap(struct super_block *sb,

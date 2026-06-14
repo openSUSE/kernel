@@ -1624,7 +1624,7 @@ function-trace, we get a much larger output::
    => blk_queue_bio
    => submit_bio_noacct
    => submit_bio
-   => submit_bh
+   => bh_submit
    => __ext3_get_inode_loc
    => ext3_iget
    => ext3_lookup
@@ -1909,7 +1909,7 @@ tracers.
    => blk_queue_bio
    => submit_bio_noacct
    => submit_bio
-   => submit_bh
+   => bh_submit
    => ext3_bread
    => ext3_dir_bread
    => htree_dirblock_to_tree
