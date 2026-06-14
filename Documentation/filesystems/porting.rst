@@ -1297,7 +1297,6 @@ Several functions are renamed:
 -  kern_path_locked -> start_removing_path
 -  kern_path_create -> start_creating_path
 -  user_path_create -> start_creating_user_path
--  user_path_locked_at -> start_removing_user_path_at
 -  done_path_create -> end_creating_path
 
 ---

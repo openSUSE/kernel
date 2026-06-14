@@ -359,6 +359,21 @@ __bpf_kfunc int bpf_cgroup_read_xattr(struct cgroup *cgroup, const char *name__s
 }
 #endif /* CONFIG_CGROUPS */
 
+/**
+ * bpf_real_inode - get the real inode backing a dentry
+ * @dentry: dentry to resolve
+ *
+ * If the dentry is on a union/overlay filesystem, return the underlying, real
+ * inode that hosts the data.  Otherwise return the inode attached to the
+ * dentry itself.
+ *
+ * Return: The real inode backing the dentry, or NULL for a negative dentry.
+ */
+__bpf_kfunc struct inode *bpf_real_inode(struct dentry *dentry)
+{
+	return d_real_inode(dentry);
+}
+
 __bpf_kfunc_end_defs();
 
 BTF_KFUNCS_START(bpf_fs_kfunc_set_ids)
@@ -369,6 +384,7 @@ BTF_ID_FLAGS(func, bpf_get_dentry_xattr, KF_SLEEPABLE)
 BTF_ID_FLAGS(func, bpf_get_file_xattr, KF_SLEEPABLE)
 BTF_ID_FLAGS(func, bpf_set_dentry_xattr, KF_SLEEPABLE)
 BTF_ID_FLAGS(func, bpf_remove_dentry_xattr, KF_SLEEPABLE)
+BTF_ID_FLAGS(func, bpf_real_inode, KF_SLEEPABLE | KF_RET_NULL)
 BTF_KFUNCS_END(bpf_fs_kfunc_set_ids)
 
 static int bpf_fs_kfuncs_filter(const struct bpf_prog *prog, u32 kfunc_id)

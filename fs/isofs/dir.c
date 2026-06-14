@@ -13,6 +13,7 @@
  */
 #include <linux/gfp.h>
 #include <linux/filelock.h>
+#include <linux/slab.h>
 #include "isofs.h"
 #include <linux/fileattr.h>
 
@@ -256,7 +257,7 @@ static int isofs_readdir(struct file *file, struct dir_context *ctx)
 	struct iso_directory_record *tmpde;
 	struct inode *inode = file_inode(file);
 
-	tmpname = (char *)__get_free_page(GFP_KERNEL);
+	tmpname = kmalloc(PAGE_SIZE, GFP_KERNEL);
 	if (tmpname == NULL)
 		return -ENOMEM;
 
@@ -264,7 +265,7 @@ static int isofs_readdir(struct file *file, struct dir_context *ctx)
 
 	result = do_isofs_readdir(inode, file, ctx, tmpname, tmpde);
 
-	free_page((unsigned long) tmpname);
+	kfree(tmpname);
 	return result;
 }
 

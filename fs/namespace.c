@@ -3306,9 +3306,9 @@ static void mnt_warn_timestamp_expiry(const struct path *mountpoint,
 	   (ktime_get_real_seconds() + TIME_UPTIME_SEC_MAX > sb->s_time_max)) {
 		char *buf, *mntpath;
 
-		buf = (char *)__get_free_page(GFP_KERNEL);
+		buf = __getname();
 		if (buf)
-			mntpath = d_path(mountpoint, buf, PAGE_SIZE);
+			mntpath = d_path(mountpoint, buf, PATH_MAX);
 		else
 			mntpath = ERR_PTR(-ENOMEM);
 		if (IS_ERR(mntpath))
@@ -3321,8 +3321,7 @@ static void mnt_warn_timestamp_expiry(const struct path *mountpoint,
 			(unsigned long long)sb->s_time_max);
 
 		sb->s_iflags |= SB_I_TS_EXPIRY_WARNED;
-		if (buf)
-			free_page((unsigned long)buf);
+		__putname(buf);
 	}
 }
 
@@ -4502,6 +4501,10 @@ SYSCALL_DEFINE3(fsmount, int, fs_fd, unsigned int, flags,
 	new_mnt = vfs_create_mount(fc);
 	if (IS_ERR(new_mnt))
 		return PTR_ERR(new_mnt);
+	if (new_mnt->mnt_sb->s_flags & SB_NOUSER) {
+		mntput(new_mnt);
+		return -EINVAL;
+	}
 	new_mnt->mnt_flags = mnt_flags;
 
 	new_path.dentry = dget(fc->root);
