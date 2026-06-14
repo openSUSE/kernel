@@ -177,6 +177,7 @@ struct ntfs_volume {
  *
  * NV_Discard			Issue discard/TRIM commands for freed clusters.
  * NV_DisableSparse		Disable creation of sparse regions.
+ * NV_NativeSymlinkRel		Translate absolute Windows reparse targets (native_symlink=rel).
  */
 enum {
 	NV_Errors,
@@ -194,6 +195,7 @@ enum {
 	NV_CheckWindowsNames,
 	NV_Discard,
 	NV_DisableSparse,
+	NV_NativeSymlinkRel,
 };
 
 /*
@@ -230,6 +232,7 @@ DEFINE_NVOL_BIT_OPS(HideDotFiles)
 DEFINE_NVOL_BIT_OPS(CheckWindowsNames)
 DEFINE_NVOL_BIT_OPS(Discard)
 DEFINE_NVOL_BIT_OPS(DisableSparse)
+DEFINE_NVOL_BIT_OPS(NativeSymlinkRel)
 
 static inline void ntfs_inc_free_clusters(struct ntfs_volume *vol, s64 nr)
 {

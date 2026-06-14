@@ -22,6 +22,7 @@
 #include "ea.h"
 #include "iomap.h"
 #include "bitmap.h"
+#include "volume.h"
 
 #include <linux/filelock.h>
 
@@ -688,12 +689,13 @@ static const char *ntfs_get_link(struct dentry *dentry, struct inode *inode,
 	if (ni->reparse_tag == IO_REPARSE_TAG_MOUNT_POINT ||
 	    (ni->reparse_tag == IO_REPARSE_TAG_SYMLINK &&
 	     !(ni->reparse_flags & cpu_to_le32(SYMLINK_FLAG_RELATIVE)))) {
-		err = ntfs_translate_symlink_path(dentry, ni->target, &target);
-		if (err < 0)
-			return ERR_PTR(err);
-
-		set_delayed_call(done, kfree_link, target);
-		return target;
+		if (NVolNativeSymlinkRel(ni->vol)) {
+			err = ntfs_translate_symlink_path(dentry, ni->target, &target);
+			if (err < 0)
+				return ERR_PTR(err);
+			set_delayed_call(done, kfree_link, target);
+			return target;
+		}
 	}
 
 	return ni->target;
