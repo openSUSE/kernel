@@ -45,4 +45,6 @@
 
 #define _THIS_IP_ ({ unsigned long __ip; asm volatile("adr %0, ." : "=r" (__ip)); __ip; })
 
+#define __bss_pgtbl __section(".bss..pgtbl") __aligned(PAGE_SIZE)
+
 #endif
