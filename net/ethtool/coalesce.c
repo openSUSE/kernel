@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
+#include <linux/dim.h>
 #include "netlink.h"
 #include "common.h"
 
@@ -82,6 +83,14 @@ static int coalesce_prepare_data(const struct ethnl_req_info *req_base,
 static int coalesce_reply_size(const struct ethnl_req_info *req_base,
 			       const struct ethnl_reply_data *reply_base)
 {
+	int modersz = nla_total_size(0) + /* _PROFILE_IRQ_MODERATION, nest */
+		      nla_total_size(sizeof(u32)) + /* _IRQ_MODERATION_USEC */
+		      nla_total_size(sizeof(u32)) + /* _IRQ_MODERATION_PKTS */
+		      nla_total_size(sizeof(u32));  /* _IRQ_MODERATION_COMPS */
+
+	int total_modersz = nla_total_size(0) +  /* _{R,T}X_PROFILE, nest */
+			modersz * NET_DIM_PARAMS_NUM_PROFILES;
+
 	return nla_total_size(sizeof(u32)) +	/* _RX_USECS */
 	       nla_total_size(sizeof(u32)) +	/* _RX_MAX_FRAMES */
 	       nla_total_size(sizeof(u32)) +	/* _RX_USECS_IRQ */
@@ -108,7 +117,8 @@ static int coalesce_reply_size(const struct ethnl_req_info *req_base,
 	       nla_total_size(sizeof(u8)) +	/* _USE_CQE_MODE_RX */
 	       nla_total_size(sizeof(u32)) +	/* _TX_AGGR_MAX_BYTES */
 	       nla_total_size(sizeof(u32)) +	/* _TX_AGGR_MAX_FRAMES */
-	       nla_total_size(sizeof(u32));	/* _TX_AGGR_TIME_USECS */
+	       nla_total_size(sizeof(u32)) +	/* _TX_AGGR_TIME_USECS */
+	       total_modersz * 2;		/* _{R,T}X_PROFILE */
 }
 
 static bool coalesce_put_u32(struct sk_buff *skb, u16 attr_type, u32 val,
@@ -197,6 +207,17 @@ static int coalesce_fill_reply(struct sk_buff *skb,
 
 /* COALESCE_SET */
 
+static const struct nla_policy coalesce_irq_moderation_policy[] = {
+	[ETHTOOL_A_IRQ_MODERATION_USEC]	= { .type = NLA_U32 },
+	[ETHTOOL_A_IRQ_MODERATION_PKTS]	= { .type = NLA_U32 },
+	[ETHTOOL_A_IRQ_MODERATION_COMPS] = { .type = NLA_U32 },
+};
+
+static const struct nla_policy coalesce_profile_policy[] = {
+	[ETHTOOL_A_PROFILE_IRQ_MODERATION] =
+		NLA_POLICY_NESTED(coalesce_irq_moderation_policy),
+};
+
 const struct nla_policy ethnl_coalesce_set_policy[] = {
 	[ETHTOOL_A_COALESCE_HEADER]		=
 		NLA_POLICY_NESTED(ethnl_header_policy),
@@ -227,6 +248,10 @@ const struct nla_policy ethnl_coalesce_set_policy[] = {
 	[ETHTOOL_A_COALESCE_TX_AGGR_MAX_BYTES] = { .type = NLA_U32 },
 	[ETHTOOL_A_COALESCE_TX_AGGR_MAX_FRAMES] = { .type = NLA_U32 },
 	[ETHTOOL_A_COALESCE_TX_AGGR_TIME_USECS] = { .type = NLA_U32 },
+	[ETHTOOL_A_COALESCE_RX_PROFILE] =
+		NLA_POLICY_NESTED(coalesce_profile_policy),
+	[ETHTOOL_A_COALESCE_TX_PROFILE] =
+		NLA_POLICY_NESTED(coalesce_profile_policy),
 };
 
 static int
