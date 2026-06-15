@@ -1709,7 +1709,8 @@ MRPROPER_FILES += include/config include/generated          \
 		  vmlinux-gdb.py \
 		  rpmbuild \
 		  rust/libmacros.so rust/libmacros.dylib \
-		  rust/libpin_init_internal.so rust/libpin_init_internal.dylib
+		  rust/libpin_init_internal.so rust/libpin_init_internal.dylib \
+		  rust/libzerocopy_derive.so rust/libzerocopy_derive.dylib
 
 # clean - Delete most, but leave enough to build external modules
 #
@@ -1961,6 +1962,8 @@ rustfmt:
 			-path $(srctree)/rust/proc-macro2 \
 			-o -path $(srctree)/rust/quote \
 			-o -path $(srctree)/rust/syn \
+			-o -path $(srctree)/rust/zerocopy \
+			-o -path $(srctree)/rust/zerocopy-derive \
 		\) -prune -o \
 		-type f -a -name '*.rs' -a ! -name '*generated*' -print \
 		| xargs $(RUSTFMT) $(rustfmt_flags)
@@ -2169,6 +2172,7 @@ clean: $(clean-dirs)
 		-o -name '*.c.[012]*.*' \
 		-o -name '*.ll' \
 		-o -name '*.gcno' \
+		-o -name '*.long-type-*.txt' \
 		\) -type f -print \
 		-o -name '.tmp_*' -print \
 		| xargs rm -rf

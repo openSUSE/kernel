@@ -23400,6 +23400,10 @@ R:	Andreas Hindborg <a.hindborg@kernel.org>
 R:	Alice Ryhl <aliceryhl@google.com>
 R:	Trevor Gross <tmgross@umich.edu>
 R:	Danilo Krummrich <dakr@kernel.org>
+R:	Daniel Almeida <daniel.almeida@collabora.com>
+R:	Tamir Duberstein <tamird@kernel.org>
+R:	Alexandre Courbot <acourbot@nvidia.com>
+R:	Onur Özkan <work@onurozkan.dev>
 L:	rust-for-linux@vger.kernel.org
 S:	Supported
 W:	https://rust-for-linux.com
@@ -23428,6 +23432,13 @@ S:	Maintained
 T:	git https://github.com/Rust-for-Linux/linux.git alloc-next
 F:	rust/kernel/alloc.rs
 F:	rust/kernel/alloc/
+
+RUST [BITFIELD]
+M:	Alexandre Courbot <acourbot@nvidia.com>
+R:	Yury Norov <yury.norov@gmail.com>
+L:	rust-for-linux@vger.kernel.org
+S:	Maintained
+F:	rust/kernel/bitfield.rs
 
 RUST [INTEROP]
 M:	Joel Fernandes <joelagnelf@nvidia.com>
