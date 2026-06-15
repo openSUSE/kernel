@@ -6483,7 +6483,8 @@ Errors:
 
   ========== ===============================================================
   EINVAL     The specified `gpa` and `size` were invalid (e.g. not
-             page aligned, causes an overflow, or size is zero).
+             page aligned, causes an overflow, or size is zero), or the VM
+             is UCONTROL (s390).
   ENOENT     The specified `gpa` is outside defined memslots.
   EINTR      An unmasked signal is pending and no page was processed.
   EFAULT     The parameter address was invalid.
@@ -6506,7 +6507,7 @@ Errors:
 KVM_PRE_FAULT_MEMORY populates KVM's stage-2 page tables used to map memory
 for the current vCPU state.  KVM maps memory as if the vCPU generated a
 stage-2 read page fault, e.g. faults in memory as needed, but doesn't break
-CoW.  However, KVM does not mark any newly created stage-2 PTE as Accessed.
+CoW.  On x86, KVM does not mark any newly created stage-2 PTE as Accessed.
 
 In the case of confidential VM types where there is an initial set up of
 private guest memory before the guest is 'finalized'/measured, this ioctl
@@ -8932,6 +8933,21 @@ helpful if user space wants to emulate instructions which are not
 
 This capability can be enabled dynamically even if VCPUs were already
 created and are running.
+
+7.47 KVM_CAP_S390_HPAGE_2G
+--------------------------
+
+:Architectures: s390
+:Parameters: none
+:Returns: 0 on success; -EINVAL if hpage_2g module parameter was not set,
+          cmma is enabled, or the VM has the KVM_VM_S390_UCONTROL
+          flag set; -EBUSY if vCPUs were already created for the VM.
+
+With this capability the KVM support for memory backing with 2g pages
+through hugetlbfs can be enabled for a VM. After the capability is
+enabled, cmma can't be enabled anymore and pfmfi and the storage key
+interpretation are disabled. If cmma has already been enabled or the
+hpage_2g module parameter is not set to 1, -EINVAL is returned.
 
 8. Other capabilities.
 ======================

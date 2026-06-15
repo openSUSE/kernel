@@ -105,6 +105,11 @@ static void gmap_add_child(struct gmap *parent, struct gmap *child)
 	else
 		clear_bit(GMAP_FLAG_ALLOW_HPAGE_1M, &child->flags);
 
+	if (test_bit(GMAP_FLAG_ALLOW_HPAGE_2G, &parent->flags))
+		set_bit(GMAP_FLAG_ALLOW_HPAGE_2G, &child->flags);
+	else
+		clear_bit(GMAP_FLAG_ALLOW_HPAGE_2G, &child->flags);
+
 	if (kvm_is_ucontrol(parent->kvm))
 		clear_bit(GMAP_FLAG_OWNS_PAGETABLES, &child->flags);
 	list_add(&child->list, &parent->children);
@@ -543,6 +548,7 @@ static int gmap_handle_minor_crste_fault(struct gmap *gmap, struct guest_fault *
 	f->pfn = PHYS_PFN(large_crste_to_phys(oldcrste, f->gfn));
 	f->writable = oldcrste.s.fc1.w;
 
+	f->crste_region3 = is_pud(oldcrste);
 	/* Appropriate permissions already (race with another handler), nothing to do. */
 	if (!oldcrste.h.i && !(f->write_attempt && oldcrste.h.p))
 		return 0;
@@ -630,10 +636,27 @@ int gmap_try_fixup_minor(struct gmap *gmap, struct guest_fault *fault)
 	return rc;
 }
 
+/**
+ * gmap_2g_allowed() - Check whether a 2G hugepage is allowed.
+ * @gmap: The gmap of the guest.
+ * @f: Describes the fault that is being resolved.
+ * @slot: The memslot the faulting address belongs to.
+ *
+ * The function checks whether the GMAP_FLAG_ALLOW_HPAGE_2G flag is set for
+ * @gmap, whether the offset of the address in the 2G virtual frame is the
+ * same as the offset in the physical 2G frame, and finally whether the whole
+ * 2G page would fit in the given memslot.
+ *
+ * Return: true if a 2G hugepage is allowed to back the faulting address, false
+ *         otherwise.
+ */
 static inline bool gmap_2g_allowed(struct gmap *gmap, struct guest_fault *f,
 				   struct kvm_memory_slot *slot)
 {
-	return false;
+	return test_bit(GMAP_FLAG_ALLOW_HPAGE_2G, &gmap->flags) &&
+	       !((f->gfn ^ f->pfn) & ~_REGION3_FR_MASK) &&
+	       slot->base_gfn <= ALIGN_DOWN(f->gfn, _PAGES_PER_REGION3) &&
+	       slot->base_gfn + slot->npages >= ALIGN(f->gfn + 1, _PAGES_PER_REGION3);
 }
 
 /**
@@ -702,6 +725,7 @@ static int _gmap_link(struct kvm_s390_mmu_cache *mc, struct gmap *gmap, int leve
 			if (oldval.val != _CRSTE_EMPTY(oldval.h.tt).val &&
 			    crste_origin_large(oldval) != crste_origin_large(newval))
 				return -EAGAIN;
+			f->crste_region3 = is_pud(newval);
 		} while (!gmap_crstep_xchg_atomic(gmap, f->crstep, oldval, newval, f->gfn));
 		if (f->callback)
 			f->callback(f);
