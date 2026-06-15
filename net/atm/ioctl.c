@@ -11,7 +11,6 @@
 #include <linux/net.h>		/* struct socket, struct proto_ops */
 #include <linux/atm.h>		/* ATM stuff */
 #include <linux/atmdev.h>
-#include <linux/atmarp.h>	/* manifest constants */
 #include <linux/capability.h>
 #include <linux/mutex.h>
 #include <asm/ioctls.h>
