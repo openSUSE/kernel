@@ -279,7 +279,9 @@ extern int dccp_v4_do_rcv(struct sock *sk, struct sk_buff *skb);
 extern struct sock *dccp_v4_request_recv_sock(struct sock *sk,
 					      struct sk_buff *skb,
 					      struct request_sock *req,
-					      struct dst_entry *dst);
+					      struct dst_entry *dst,
+					      void (*opt_child_init)(struct sock *newsk,
+								     const struct sock *sk));
 extern struct sock *dccp_check_req(struct sock *sk, struct sk_buff *skb,
 				   struct request_sock *req,
 				   struct request_sock **prev);
