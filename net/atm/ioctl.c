@@ -13,7 +13,6 @@
 #include <linux/atmdev.h>
 #include <linux/atmarp.h>	/* manifest constants */
 #include <linux/capability.h>
-#include <linux/sonet.h>	/* for ioctls */
 #include <linux/atmsvc.h>
 #include <linux/mutex.h>
 #include <asm/ioctls.h>
@@ -289,18 +288,6 @@ static int do_atm_ioctl(struct socket *sock, unsigned int cmd32,
 {
 	int i;
 	unsigned int cmd = 0;
-
-	switch (cmd32) {
-	case SONET_GETSTAT:
-	case SONET_GETSTATZ:
-	case SONET_GETDIAG:
-	case SONET_SETDIAG:
-	case SONET_CLRDIAG:
-	case SONET_SETFRAMING:
-	case SONET_GETFRAMING:
-	case SONET_GETFRSENSE:
-		return do_atmif_sioc(sock, cmd32, arg);
-	}
 
 	for (i = 0; i < NR_ATM_IOCTL; i++) {
 		if (cmd32 == atm_ioctl_map[i].cmd32) {

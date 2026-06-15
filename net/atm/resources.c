@@ -13,7 +13,6 @@
 #include <linux/ctype.h>
 #include <linux/string.h>
 #include <linux/atmdev.h>
-#include <linux/sonet.h>
 #include <linux/kernel.h> /* for barrier */
 #include <linux/module.h>
 #include <linux/bitops.h>
@@ -361,10 +360,6 @@ int atm_dev_ioctl(unsigned int cmd, void __user *buf, int __user *sioc_len,
 		}
 		fallthrough;
 	case ATM_SETCIRANGE:
-	case SONET_GETSTATZ:
-	case SONET_SETDIAG:
-	case SONET_CLRDIAG:
-	case SONET_SETFRAMING:
 		if (!capable(CAP_NET_ADMIN)) {
 			error = -EPERM;
 			goto done;
