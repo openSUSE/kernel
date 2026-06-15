@@ -5787,6 +5787,10 @@ static int check_ptr_to_btf_access(struct bpf_verifier_env *env,
 			return -EFAULT;
 		}
 		ret = env->ops->btf_struct_access(&env->log, reg, off, size);
+		if (ret < 0)
+			verbose(env,
+				"%s cannot write into ptr_%s at off=%d size=%d\n",
+				reg_arg_name(env, argno), tname, off, size);
 	} else {
 		/* Writes are permitted with default btf_struct_access for
 		 * program allocated objects (which always have id > 0),
