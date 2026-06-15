@@ -3,13 +3,14 @@
 #define __LINUX_PERCPU_H
 
 #include <linux/alloc_tag.h>
-#include <linux/mmdebug.h>
-#include <linux/preempt.h>
-#include <linux/smp.h>
-#include <linux/pfn.h>
-#include <linux/init.h>
 #include <linux/cleanup.h>
+#include <linux/compiler_types.h>
+#include <linux/init.h>
+#include <linux/mmdebug.h>
+#include <linux/pfn.h>
+#include <linux/preempt.h>
 #include <linux/sched.h>
+#include <linux/smp.h>
 
 #include <asm/percpu.h>
 
