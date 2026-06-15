@@ -100,6 +100,11 @@ void __init pti_check_boottime_disable(void)
 		return;
 
 	setup_force_cpu_cap(X86_FEATURE_PTI);
+
+	if (cpu_feature_enabled(X86_FEATURE_FRED)) {
+		pr_debug("PTI enabled, disabling FRED\n");
+		setup_clear_cpu_cap(X86_FEATURE_FRED);
+	}
 }
 
 static int __init pti_parse_cmdline(char *arg)
@@ -414,6 +419,7 @@ pti_clone_pgtable(unsigned long start, unsigned long end,
 			BUG();
 		}
 	}
+
 }
 
 #ifdef CONFIG_X86_64
