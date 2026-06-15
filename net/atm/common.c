@@ -626,12 +626,6 @@ int vcc_sendmsg(struct socket *sock, struct msghdr *m, size_t size)
 	if (eff != size)
 		memset(skb->data + size, 0, eff-size);
 
-	if (vcc->dev->ops->pre_send) {
-		error = vcc->dev->ops->pre_send(vcc, skb);
-		if (error)
-			goto free_skb;
-	}
-
 	error = vcc->dev->ops->send(vcc, skb);
 	error = error ? error : size;
 out:
