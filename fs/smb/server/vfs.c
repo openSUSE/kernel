@@ -1321,15 +1321,50 @@ struct dentry *ksmbd_vfs_kern_path_create(struct ksmbd_work *work,
 					  unsigned int flags,
 					  struct path *path)
 {
-	char *abs_name;
+	struct ksmbd_share_config *share_conf = work->tcon->share_conf;
+	struct filename *filename;
+	struct qstr last;
 	struct dentry *dent;
+	int err, type;
 
-	abs_name = convert_to_unix_name(work->tcon->share_conf, name);
-	if (!abs_name)
-		return ERR_PTR(-ENOMEM);
+	/* resolve the name beneath the share root so ".." cannot escape */
+	filename = getname_kernel(name);
+	if (IS_ERR(filename))
+		return ERR_CAST(filename);
 
-	dent = kern_path_create(AT_FDCWD, abs_name, path, flags);
-	kfree(abs_name);
+	err = vfs_path_parent_lookup(filename, flags | LOOKUP_BENEATH,
+				     path, &last, &type, &share_conf->vfs_path);
+	if (err) {
+		putname(filename);
+		return ERR_PTR(err);
+	}
+
+	if (unlikely(type != LAST_NORM)) {
+		path_put(path);
+		putname(filename);
+		return ERR_PTR(-EEXIST);
+	}
+
+	err = mnt_want_write(path->mnt);
+	if (err) {
+		path_put(path);
+		putname(filename);
+		return ERR_PTR(err);
+	}
+
+	inode_lock_nested(path->dentry->d_inode, I_MUTEX_PARENT);
+	dent = lookup_one_qstr_excl(&last, path->dentry,
+				    LOOKUP_CREATE | LOOKUP_EXCL);
+	if (!IS_ERR(dent) && d_is_positive(dent)) {
+		dput(dent);
+		dent = ERR_PTR(-EEXIST);
+	}
+	if (IS_ERR(dent)) {
+		inode_unlock(path->dentry->d_inode);
+		mnt_drop_write(path->mnt);
+		path_put(path);
+	}
+	putname(filename);
 	return dent;
 }
 
