@@ -169,7 +169,7 @@ static int adjust_tjmax(struct cpuinfo_x86 *c, u32 id, struct device *dev)
 	int tjmax_ee = 85000;
 	int usemsr_ee = 1;
 	int err;
-	u32 eax, edx;
+	u64 val;
 	int i;
 	u16 devfn = PCI_DEVFN(0, 0);
 	struct pci_dev *host_bridge = pci_get_domain_bus_and_slot(0, 0, devfn);
@@ -220,14 +220,14 @@ static int adjust_tjmax(struct cpuinfo_x86 *c, u32 id, struct device *dev)
 		 * http://softwarecommunity.intel.com/Wiki/Mobility/720.htm
 		 * For Core2 cores, check MSR 0x17, bit 28 1 = Mobile CPU
 		 */
-		err = rdmsr_safe_on_cpu(id, 0x17, &eax, &edx);
+		err = rdmsrq_safe_on_cpu(id, 0x17, &val);
 		if (err) {
 			dev_warn(dev,
 				 "Unable to access MSR 0x17, assuming desktop"
 				 " CPU\n");
 			usemsr_ee = 0;
 		} else if (c->x86_vfm < INTEL_CORE2_PENRYN &&
-			   !(eax & 0x10000000)) {
+			   !(val & 0x10000000)) {
 			/*
 			 * Trust bit 28 up to Penryn, I could not find any
 			 * documentation on that; if you happen to know
@@ -235,8 +235,8 @@ static int adjust_tjmax(struct cpuinfo_x86 *c, u32 id, struct device *dev)
 			 */
 			usemsr_ee = 0;
 		} else {
-			/* Platform ID bits 52:50 (EDX starts at bit 32) */
-			platform_id = (edx >> 18) & 0x7;
+			/* Platform ID bits 52:50 */
+			platform_id = (val >> 50) & 0x7;
 
 			/*
 			 * Mobile Penryn CPU seems to be platform ID 7 or 5
@@ -255,12 +255,12 @@ static int adjust_tjmax(struct cpuinfo_x86 *c, u32 id, struct device *dev)
 	}
 
 	if (usemsr_ee) {
-		err = rdmsr_safe_on_cpu(id, 0xee, &eax, &edx);
+		err = rdmsrq_safe_on_cpu(id, 0xee, &val);
 		if (err) {
 			dev_warn(dev,
 				 "Unable to access MSR 0xEE, for Tjmax, left"
 				 " at default\n");
-		} else if (eax & 0x40000000) {
+		} else if (val & 0x40000000) {
 			tjmax = tjmax_ee;
 		}
 	} else if (tjmax == 100000) {
@@ -278,7 +278,7 @@ static int get_tjmax(struct temp_data *tdata, struct device *dev)
 {
 	struct cpuinfo_x86 *c = &cpu_data(tdata->cpu);
 	int err;
-	u32 eax, edx;
+	u64 msrval;
 	u32 val;
 
 	/* use static tjmax once it is set */
@@ -289,11 +289,11 @@ static int get_tjmax(struct temp_data *tdata, struct device *dev)
 	 * A new feature of current Intel(R) processors, the
 	 * IA32_TEMPERATURE_TARGET contains the TjMax value
 	 */
-	err = rdmsr_safe_on_cpu(tdata->cpu, MSR_IA32_TEMPERATURE_TARGET, &eax, &edx);
+	err = rdmsrq_safe_on_cpu(tdata->cpu, MSR_IA32_TEMPERATURE_TARGET, &msrval);
 	if (err) {
 		dev_warn_once(dev, "Unable to read TjMax from CPU %u\n", tdata->cpu);
 	} else {
-		val = (eax >> 16) & 0xff;
+		val = (msrval >> 16) & 0xff;
 		if (val)
 			return val * 1000;
 	}
@@ -314,7 +314,7 @@ static int get_tjmax(struct temp_data *tdata, struct device *dev)
 
 static int get_ttarget(struct temp_data *tdata, struct device *dev)
 {
-	u32 eax, edx;
+	u64 val;
 	int tjmax, ttarget_offset, ret;
 
 	/*
@@ -324,14 +324,14 @@ static int get_ttarget(struct temp_data *tdata, struct device *dev)
 	if (tdata->tjmax)
 		return -ENODEV;
 
-	ret = rdmsr_safe_on_cpu(tdata->cpu, MSR_IA32_TEMPERATURE_TARGET, &eax, &edx);
+	ret = rdmsrq_safe_on_cpu(tdata->cpu, MSR_IA32_TEMPERATURE_TARGET, &val);
 	if (ret)
 		return ret;
 
-	tjmax = (eax >> 16) & 0xff;
+	tjmax = (val >> 16) & 0xff;
 
 	/* Read the still undocumented bits 8:15 of IA32_TEMPERATURE_TARGET. */
-	ttarget_offset = (eax >> 8) & 0xff;
+	ttarget_offset = (val >> 8) & 0xff;
 
 	return (tjmax - ttarget_offset) * 1000;
 }
@@ -356,15 +356,15 @@ static ssize_t show_label(struct device *dev,
 static ssize_t show_crit_alarm(struct device *dev,
 				struct device_attribute *devattr, char *buf)
 {
-	u32 eax, edx;
+	struct msr val;
 	struct temp_data *tdata = container_of(devattr, struct temp_data,
 						sd_attrs[ATTR_CRIT_ALARM]);
 
 	mutex_lock(&tdata->update_lock);
-	rdmsr_on_cpu(tdata->cpu, tdata->status_reg, &eax, &edx);
+	rdmsrq_on_cpu(tdata->cpu, tdata->status_reg, &val.q);
 	mutex_unlock(&tdata->update_lock);
 
-	return sprintf(buf, "%d\n", (eax >> 5) & 1);
+	return sprintf(buf, "%d\n", (val.l >> 5) & 1);
 }
 
 static ssize_t show_tjmax(struct device *dev,
@@ -398,7 +398,7 @@ static ssize_t show_ttarget(struct device *dev,
 static ssize_t show_temp(struct device *dev,
 			struct device_attribute *devattr, char *buf)
 {
-	u32 eax, edx;
+	struct msr val;
 	struct temp_data *tdata = container_of(devattr, struct temp_data, sd_attrs[ATTR_TEMP]);
 	int tjmax;
 
@@ -407,14 +407,14 @@ static ssize_t show_temp(struct device *dev,
 	tjmax = get_tjmax(tdata, dev);
 	/* Check whether the time interval has elapsed */
 	if (time_after(jiffies, tdata->last_updated + HZ)) {
-		rdmsr_on_cpu(tdata->cpu, tdata->status_reg, &eax, &edx);
+		rdmsrq_on_cpu(tdata->cpu, tdata->status_reg, &val.q);
 		/*
 		 * Ignore the valid bit. In all observed cases the register
 		 * value is either low or zero if the valid bit is 0.
 		 * Return it instead of reporting an error which doesn't
 		 * really help at all.
 		 */
-		tdata->temp = tjmax - ((eax >> 16) & 0xff) * 1000;
+		tdata->temp = tjmax - ((val.l >> 16) & 0xff) * 1000;
 		tdata->last_updated = jiffies;
 	}
 
@@ -560,7 +560,7 @@ static int create_core_data(struct platform_device *pdev, unsigned int cpu,
 	struct temp_data *tdata;
 	struct platform_data *pdata = platform_get_drvdata(pdev);
 	struct cpuinfo_x86 *c = &cpu_data(cpu);
-	u32 eax, edx;
+	u64 val;
 	int err;
 
 	if (!housekeeping_cpu(cpu, HK_TYPE_MISC))
@@ -571,7 +571,7 @@ static int create_core_data(struct platform_device *pdev, unsigned int cpu,
 		return -ENOMEM;
 
 	/* Test if we can access the status register */
-	err = rdmsr_safe_on_cpu(cpu, tdata->status_reg, &eax, &edx);
+	err = rdmsrq_safe_on_cpu(cpu, tdata->status_reg, &val);
 	if (err)
 		goto err;
 
