@@ -119,6 +119,7 @@ syn-cfgs := \
     feature="parsing" \
     feature="printing" \
     feature="proc-macro" \
+    feature="visit" \
     feature="visit-mut"
 
 syn-flags := \

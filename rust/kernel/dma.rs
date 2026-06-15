@@ -47,7 +47,7 @@ pub type DmaAddress = bindings::dma_addr_t;
 /// where the underlying bus is DMA capable, such as:
 #[cfg_attr(CONFIG_PCI, doc = "* [`pci::Device`](kernel::pci::Device)")]
 /// * [`platform::Device`](::kernel::platform::Device)
-pub trait Device: AsRef<device::Device<Core>> {
+pub trait Device<'a>: AsRef<device::Device<Core<'a>>> {
     /// Set up the device's DMA streaming addressing capabilities.
     ///
     /// This method is usually called once from `probe()` as soon as the device capabilities are
