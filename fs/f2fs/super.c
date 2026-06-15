@@ -4641,8 +4641,7 @@ static void f2fs_record_stop_reason(struct f2fs_sb_info *sbi)
 
 	spin_lock_irqsave(&sbi->error_lock, flags);
 	if (sbi->error_dirty) {
-		memcpy(F2FS_RAW_SUPER(sbi)->s_errors, sbi->errors,
-							MAX_F2FS_ERRORS);
+		memcpy(raw_super->s_errors, sbi->errors, MAX_F2FS_ERRORS);
 		sbi->error_dirty = false;
 	}
 	memcpy(raw_super->s_stop_reason, sbi->stop_reason, MAX_STOP_REASON);
