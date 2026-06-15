@@ -51,6 +51,11 @@ int hyperv_reg_block_invalidate(struct pci_dev *dev, void *context,
 						  block_invalidate);
 }
 EXPORT_SYMBOL_GPL(hyperv_reg_block_invalidate);
+void suse_kabi_mana_COALESCE_RX_CQE_FRAMES(void);
+void suse_kabi_mana_COALESCE_RX_CQE_FRAMES(void)
+{
+}
+EXPORT_SYMBOL_GPL(suse_kabi_mana_COALESCE_RX_CQE_FRAMES);
 
 MODULE_DESCRIPTION("Hyper-V PCI Interface");
 MODULE_LICENSE("GPL v2");
