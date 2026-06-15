@@ -17,7 +17,7 @@
 #include <linux/fileattr.h>
 
 #include "glob.h"
-#include "smbfsctl.h"
+#include "../common/smbfsctl.h"
 #include "oplock.h"
 #include "smbacl.h"
 
@@ -7932,9 +7932,9 @@ static int fsctl_copychunk(struct ksmbd_work *work,
 
 	/*
 	 * FILE_READ_DATA should only be included in
-	 * the FSCTL_COPYCHUNK case
+	 * the FSCTL_SRV_COPYCHUNK case
 	 */
-	if (cnt_code == FSCTL_COPYCHUNK &&
+	if (cnt_code == FSCTL_SRV_COPYCHUNK &&
 	    !(dst_fp->daccess & (FILE_READ_DATA_LE | FILE_GENERIC_READ_LE))) {
 		rsp->hdr.Status = STATUS_ACCESS_DENIED;
 		goto out;
@@ -8408,7 +8408,7 @@ int smb2_ioctl(struct ksmbd_work *work)
 			goto out;
 		nbytes = ret;
 		break;
-	case FSCTL_REQUEST_RESUME_KEY:
+	case FSCTL_SRV_REQUEST_RESUME_KEY:
 		if (out_buf_len < sizeof(struct resume_key_ioctl_rsp)) {
 			ret = -EINVAL;
 			goto out;
@@ -8422,8 +8422,8 @@ int smb2_ioctl(struct ksmbd_work *work)
 		rsp->VolatileFileId = req->VolatileFileId;
 		nbytes = sizeof(struct resume_key_ioctl_rsp);
 		break;
-	case FSCTL_COPYCHUNK:
-	case FSCTL_COPYCHUNK_WRITE:
+	case FSCTL_SRV_COPYCHUNK:
+	case FSCTL_SRV_COPYCHUNK_WRITE:
 		if (!test_tree_conn_flag(work->tcon, KSMBD_TREE_CONN_FLAG_WRITABLE)) {
 			ksmbd_debug(SMB,
 				    "User does not have write permission\n");
