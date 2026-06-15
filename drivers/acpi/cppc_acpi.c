@@ -1428,10 +1428,10 @@ int cppc_get_perf_caps(int cpunum, struct cppc_perf_caps *perf_caps)
 		ret = cpc_read(cpunum, reference_reg, &ref);
 		if (ret)
 			goto out_err;
-		perf_caps->reference_perf = ref;
 	} else {
-		perf_caps->reference_perf = nom;
+		ref = nom;
 	}
+	perf_caps->reference_perf = ref;
 
 	if (guaranteed_reg->type != ACPI_TYPE_BUFFER  ||
 	    IS_NULL_REG(&guaranteed_reg->cpc_entry.reg)) {
