@@ -7071,18 +7071,22 @@ static int svm_register_enc_region(struct kvm *kvm,
 	struct enc_region *region;
 	int ret = 0;
 
-	if (!sev_guest(kvm))
+	mutex_lock(&kvm->lock);
+
+	if (!sev_guest(kvm)) {
+		mutex_unlock(&kvm->lock);
 		return -ENOTTY;
+	}
 
 	region = kzalloc(sizeof(*region), GFP_KERNEL);
-	if (!region)
+	if (!region) {
+		mutex_unlock(&kvm->lock);
 		return -ENOMEM;
+	}
 
-	mutex_lock(&kvm->lock);
 	region->pages = sev_pin_memory(kvm, range->addr, range->size, &region->npages, 1);
 	if (!region->pages) {
 		ret = -ENOMEM;
-		mutex_unlock(&kvm->lock);
 		goto e_free;
 	}
 
@@ -7105,6 +7109,7 @@ static int svm_register_enc_region(struct kvm *kvm,
 	return ret;
 
 e_free:
+	mutex_unlock(&kvm->lock);
 	kfree(region);
 	return ret;
 }
