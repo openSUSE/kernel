@@ -7458,7 +7458,7 @@ follow_huge_pgd(struct mm_struct *mm, unsigned long address, pgd_t *pgd, int fla
  * it is already isolated/non-migratable.
  *
  * On success, an additional page reference is taken that must be dropped
- * using putback_active_hugepage() to undo the isolation.
+ * using folio_putback_hugetlb() to undo the isolation.
  *
  * Return: 0 if isolation worked, otherwise -EBUSY.
  */
@@ -7509,7 +7509,18 @@ int get_huge_page_for_hwpoison(unsigned long pfn, int flags)
 	return ret;
 }
 
-void putback_active_hugepage(struct page *page)
+/**
+ * folio_putback_hugetlb - unisolate a hugetlb page
+ * @page: the isolated hugetlb page
+ *
+ * Putback/un-isolate the hugetlb page that was previous isolated using
+ * folio_isolate_hugetlb(): marking it non-isolated/migratable and putting it
+ * back onto the active list.
+ *
+ * Will drop the additional page reference obtained through
+ * folio_isolate_hugetlb().
+ */
+void folio_putback_hugetlb(struct page *page)
 {
 	spin_lock_irq(&hugetlb_lock);
 	SetHPageMigratable(page);
