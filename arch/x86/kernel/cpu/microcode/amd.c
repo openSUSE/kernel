@@ -34,6 +34,7 @@
 
 #include <asm/microcode.h>
 #include <asm/processor.h>
+#include <asm/cpuid/api.h>
 #include <asm/cmdline.h>
 #include <asm/setup.h>
 #include <asm/cpu.h>

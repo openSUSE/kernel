@@ -13,6 +13,7 @@
 #include <linux/nmi.h>
 
 #include <asm/cpufeature.h>
+#include <asm/cpuid/api.h>
 #include <asm/hardirq.h>
 #include <asm/apic.h>
 #include <asm/msr.h>

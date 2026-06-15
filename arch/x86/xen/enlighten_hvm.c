@@ -20,6 +20,7 @@
 #include <asm/setup.h>
 #include <asm/idtentry.h>
 #include <asm/hypervisor.h>
+#include <asm/cpuid/api.h>
 #include <asm/e820/api.h>
 #include <asm/early_ioremap.h>
 
