@@ -18,9 +18,6 @@
 #ifndef arch_irq_stat_cpu
 #define arch_irq_stat_cpu(cpu) 0
 #endif
-#ifndef arch_irq_stat
-#define arch_irq_stat() 0
-#endif
 
 u64 get_idle_time(struct kernel_cpustat *kcs, int cpu)
 {
@@ -122,7 +119,6 @@ static int show_stat(struct seq_file *p, void *v)
 			sum_softirq += softirq_stat;
 		}
 	}
-	sum += arch_irq_stat();
 
 	seq_put_decimal_ull(p, "cpu  ", nsec_to_clock_t(user));
 	seq_put_decimal_ull(p, " ", nsec_to_clock_t(nice));

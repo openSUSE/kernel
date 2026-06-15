@@ -3531,7 +3531,7 @@ static int handle_pmi_common(struct pt_regs *regs, u64 status)
 	int bit;
 	int handled = 0;
 
-	inc_irq_stat(apic_perf_irqs);
+	inc_perf_irq_stat();
 
 	/*
 	 * Ignore a range of extra bits in status that do not indicate

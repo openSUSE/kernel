@@ -833,11 +833,10 @@ int arch_show_interrupts(struct seq_file *p, int prec)
 	unsigned int cpu, i;
 
 	for (i = 0; i < MAX_IPI; i++) {
-		seq_printf(p, "%*s%u:%s", prec - 1, "IPI", i,
-			   prec >= 4 ? " " : "");
+		seq_printf(p, "%*s%u: ", prec - 1, "IPI", i);
 		for_each_online_cpu(cpu)
 			seq_printf(p, "%10u ", irq_desc_kstat_cpu(get_ipi_desc(cpu, i), cpu));
-		seq_printf(p, "      %s\n", ipi_types[i]);
+		seq_printf(p, " %s\n", ipi_types[i]);
 	}
 
 	seq_printf(p, "%*s: %10lu\n", prec, "Err", irq_err_count);
