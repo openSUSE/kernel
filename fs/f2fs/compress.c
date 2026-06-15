@@ -1487,8 +1487,7 @@ void f2fs_compress_write_end_io(struct bio *bio, struct folio *folio)
 	struct page *page = &folio->page;
 	struct f2fs_sb_info *sbi = bio->bi_private;
 	struct compress_io_ctx *cic = folio->private;
-	enum count_type type = WB_DATA_TYPE(folio,
-				f2fs_is_compressed_page(folio));
+	enum count_type type = WB_DATA_TYPE(folio, true);
 	int i;
 
 	if (unlikely(bio->bi_status != BLK_STS_OK))
