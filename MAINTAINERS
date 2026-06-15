@@ -29271,16 +29271,6 @@ F:	drivers/dma/xilinx/xdma.c
 F:	include/linux/dma/amd_xdma.h
 F:	include/linux/platform_data/amd_xdma.h
 
-XILINX ZYNQMP CSU REGISTER DRIVER
-M:	Senthil Nathan Thangaraj <senthilnathan.thangaraj@amd.com>
-R:	Michal Simek <michal.simek@amd.com>
-R:	Ronak Jain <ronak.jain@amd.com>
-L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
-S:	Maintained
-F:	Documentation/ABI/stable/sysfs-driver-firmware-zynqmp
-F:	drivers/firmware/xilinx/zynqmp-csu-reg.c
-F:	drivers/firmware/xilinx/zynqmp-csu-reg.h
-
 XILINX ZYNQMP DPDMA DRIVER
 M:	Laurent Pinchart <laurent.pinchart@ideasonboard.com>
 L:	dmaengine@vger.kernel.org
