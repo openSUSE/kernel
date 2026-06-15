@@ -14,8 +14,12 @@
 struct nf_ct_timeout {
 	__u16			l3num;
 	const struct nf_conntrack_l4proto *l4proto;
-	struct rcu_head		rcu;
 	char			data[];
+};
+
+struct __nf_ct_timeout_wrapper {
+	struct rcu_head rcu;
+	struct nf_ct_timeout base;
 };
 
 struct nf_conn_timeout {
