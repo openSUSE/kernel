@@ -1455,6 +1455,9 @@ unlock_continue:
 out_destroy_crypt:
 	page_array_free(sbi, cic->rpages, cc->cluster_size);
 
+	if (!fio.encrypted)
+		goto out_put_cic;
+
 	for (--i; i >= 0; i--) {
 		if (!cc->cpages[i])
 			continue;
