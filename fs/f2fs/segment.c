@@ -4773,10 +4773,8 @@ void f2fs_flush_sit_entries(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 			}
 
 			/* update ckpt_valid_block */
-			if (__is_large_section(sbi)) {
+			if (__is_large_section(sbi))
 				set_ckpt_valid_blocks(sbi, segno);
-				sanity_check_valid_blocks(sbi, segno);
-			}
 
 			__clear_bit(segno, bitmap);
 			sit_i->dirty_sentries--;
@@ -5090,10 +5088,8 @@ init_discard_map_done:
 	if (__is_large_section(sbi)) {
 		unsigned int segno;
 
-		for (segno = 0; segno < MAIN_SEGS(sbi); segno += SEGS_PER_SEC(sbi)) {
+		for (segno = 0; segno < MAIN_SEGS(sbi); segno += SEGS_PER_SEC(sbi))
 			set_ckpt_valid_blocks(sbi, segno);
-			sanity_check_valid_blocks(sbi, segno);
-		}
 	}
 
 	if (err)
