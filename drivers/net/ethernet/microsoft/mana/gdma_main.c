@@ -2302,11 +2302,13 @@ static int __init mana_driver_init(void)
 	return err;
 }
 
+void suse_kabi_mana_COALESCE_RX_CQE_FRAMES(void);
 static void __exit mana_driver_exit(void)
 {
 	struct mana_dev_recovery *dev;
 	unsigned long flags;
 
+	suse_kabi_mana_COALESCE_RX_CQE_FRAMES();
 	disable_delayed_work_sync(&mana_dev_recovery_work.work);
 
 	spin_lock_irqsave(&mana_dev_recovery_work.lock, flags);
