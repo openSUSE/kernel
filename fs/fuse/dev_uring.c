@@ -1003,9 +1003,7 @@ static int fuse_uring_commit_fetch(struct io_uring_cmd *cmd, int issue_flags,
 		pr_info_ratelimited("qid=%d commit_id %llu state %d",
 				    queue->qid, commit_id, ent->state);
 		spin_unlock(&queue->lock);
-		req->out.h.error = err;
-		clear_bit(FR_SENT, &req->flags);
-		fuse_request_end(req);
+		fuse_uring_req_end(ent, req, err);
 		return err;
 	}
 
