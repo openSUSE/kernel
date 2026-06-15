@@ -107,8 +107,6 @@ static inline struct sock *sk_atm(struct atm_vcc *vcc)
 
 struct atm_dev {
 	const struct atmdev_ops *ops;	/* device operations; NULL if unused */
-	const struct atmphy_ops *phy;	/* PHY operations, may be undefined */
-					/* (NULL) */
 	const char	*type;		/* device type name */
 	int		number;		/* device index */
 	void		*dev_data;	/* per-device data */
@@ -138,18 +136,8 @@ struct atmdev_ops { /* only send is required */
 			    void __user *arg);
 #endif
 	int (*send)(struct atm_vcc *vcc,struct sk_buff *skb);
-	void (*phy_put)(struct atm_dev *dev,unsigned char value,
-	    unsigned long addr);
-	unsigned char (*phy_get)(struct atm_dev *dev,unsigned long addr);
 	int (*proc_read)(struct atm_dev *dev,loff_t *pos,char *page);
 	struct module *owner;
-};
-
-struct atmphy_ops {
-	int (*start)(struct atm_dev *dev);
-	int (*ioctl)(struct atm_dev *dev,unsigned int cmd,void __user *arg);
-	void (*interrupt)(struct atm_dev *dev);
-	int (*stop)(struct atm_dev *dev);
 };
 
 struct atm_skb_data {
