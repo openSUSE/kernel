@@ -1893,7 +1893,7 @@ static int do_garbage_collect(struct f2fs_sb_info *sbi,
 			sum = SUM_BLK_PAGE_ADDR(sbi, sum_folio, cur_segno);
 			if (type != GET_SUM_TYPE(sum_footer(sbi, sum))) {
 				f2fs_err(sbi, "Inconsistent segment (%u) type "
-						"[%d, %d] in SSA and SIT",
+						"[%d, %d] in SIT and SSA",
 						cur_segno, type,
 						GET_SUM_TYPE(
 						sum_footer(sbi, sum)));
