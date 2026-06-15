@@ -165,7 +165,7 @@ again:
 		local_irq_disable();
 		goto again;
 	}
-
+	kuap_user_restore(regs);
 	regs->exit_result |= regs->exit_flags;
 
 	return regs->exit_result;
