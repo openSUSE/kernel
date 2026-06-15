@@ -118,6 +118,8 @@ static int coalesce_reply_size(const struct ethnl_req_info *req_base,
 	       nla_total_size(sizeof(u32)) +	/* _TX_AGGR_MAX_BYTES */
 	       nla_total_size(sizeof(u32)) +	/* _TX_AGGR_MAX_FRAMES */
 	       nla_total_size(sizeof(u32)) +	/* _TX_AGGR_TIME_USECS */
+	       nla_total_size(sizeof(u32)) +	/* _RX_CQE_FRAMES */
+	       nla_total_size(sizeof(u32)) +	/* _RX_CQE_NSECS */
 	       total_modersz * 2;		/* _{R,T}X_PROFILE */
 }
 
@@ -199,7 +201,11 @@ static int coalesce_fill_reply(struct sk_buff *skb,
 	    coalesce_put_u32(skb, ETHTOOL_A_COALESCE_TX_AGGR_MAX_FRAMES,
 			     kcoal->tx_aggr_max_frames, supported) ||
 	    coalesce_put_u32(skb, ETHTOOL_A_COALESCE_TX_AGGR_TIME_USECS,
-			     kcoal->tx_aggr_time_usecs, supported))
+			     kcoal->tx_aggr_time_usecs, supported) ||
+	    coalesce_put_u32(skb, ETHTOOL_A_COALESCE_RX_CQE_FRAMES,
+			     kcoal->rx_cqe_frames, supported) ||
+	    coalesce_put_u32(skb, ETHTOOL_A_COALESCE_RX_CQE_NSECS,
+			     kcoal->rx_cqe_nsecs, supported))
 		return -EMSGSIZE;
 
 	return 0;
@@ -248,6 +254,8 @@ const struct nla_policy ethnl_coalesce_set_policy[] = {
 	[ETHTOOL_A_COALESCE_TX_AGGR_MAX_BYTES] = { .type = NLA_U32 },
 	[ETHTOOL_A_COALESCE_TX_AGGR_MAX_FRAMES] = { .type = NLA_U32 },
 	[ETHTOOL_A_COALESCE_TX_AGGR_TIME_USECS] = { .type = NLA_U32 },
+	[ETHTOOL_A_COALESCE_RX_CQE_FRAMES] = { .type = NLA_U32 },
+	[ETHTOOL_A_COALESCE_RX_CQE_NSECS] = { .type = NLA_U32 },
 	[ETHTOOL_A_COALESCE_RX_PROFILE] =
 		NLA_POLICY_NESTED(coalesce_profile_policy),
 	[ETHTOOL_A_COALESCE_TX_PROFILE] =
@@ -341,6 +349,10 @@ __ethnl_set_coalesce(struct ethnl_req_info *req_info, struct genl_info *info,
 			 tb[ETHTOOL_A_COALESCE_TX_AGGR_MAX_FRAMES], &mod);
 	ethnl_update_u32(&kernel_coalesce.tx_aggr_time_usecs,
 			 tb[ETHTOOL_A_COALESCE_TX_AGGR_TIME_USECS], &mod);
+	ethnl_update_u32(&kernel_coalesce.rx_cqe_frames,
+			 tb[ETHTOOL_A_COALESCE_RX_CQE_FRAMES], &mod);
+	ethnl_update_u32(&kernel_coalesce.rx_cqe_nsecs,
+			 tb[ETHTOOL_A_COALESCE_RX_CQE_NSECS], &mod);
 
 	/* Update operation modes */
 	ethnl_update_bool32(&coalesce.use_adaptive_rx_coalesce,
