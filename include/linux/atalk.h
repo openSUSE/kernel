@@ -30,6 +30,7 @@ struct atalk_iface {
 #define ATIF_PROBE_FAIL	2		/* Probe collided */
 	struct atalk_netrange	nets;
 	struct atalk_iface	*next;
+	struct hlist_node	hash_node;	/* keyed on dev->ifindex */
 };
 	
 struct atalk_sock {
@@ -113,12 +114,7 @@ extern int aarp_proto_init(void);
 /* Inter module exports */
 
 /* Give a device find its atif control structure */
-#if IS_ENABLED(CONFIG_ATALK)
-static inline struct atalk_iface *atalk_find_dev(struct net_device *dev)
-{
-	return dev->atalk_ptr;
-}
-#endif
+extern struct atalk_iface *atalk_find_dev(struct net_device *dev);
 
 extern struct atalk_addr *atalk_find_dev_addr(struct net_device *dev);
 extern struct net_device *atrtr_get_dev(struct atalk_addr *sa);

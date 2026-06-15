@@ -52,6 +52,7 @@
 #include <linux/termios.h>	/* For TIOCOUTQ/INQ */
 #include <linux/compat.h>
 #include <linux/slab.h>
+#include <linux/hashtable.h>
 #include <net/datalink.h>
 #include <net/psnap.h>
 #include <net/sock.h>
@@ -204,6 +205,33 @@ DEFINE_RWLOCK(atalk_routes_lock);
 struct atalk_iface *atalk_interfaces;
 DEFINE_RWLOCK(atalk_interfaces_lock);
 
+/* Fast dev->iface lookup, keyed on ifindex. Shares atalk_interfaces_lock with
+ * the atalk_interfaces list, which remains the owner of the iface objects.
+ */
+#define ATALK_IFACE_HASH_BITS	8
+static DEFINE_HASHTABLE(atalk_iface_hash, ATALK_IFACE_HASH_BITS);
+
+/* Find the iface for @dev. Caller must hold atalk_interfaces_lock. */
+static struct atalk_iface *__atalk_find_dev(struct net_device *dev)
+{
+	struct atalk_iface *iface;
+
+	hash_for_each_possible(atalk_iface_hash, iface, hash_node, dev->ifindex)
+		if (iface->dev == dev)
+			return iface;
+	return NULL;
+}
+
+struct atalk_iface *atalk_find_dev(struct net_device *dev)
+{
+	struct atalk_iface *iface;
+
+	read_lock_bh(&atalk_interfaces_lock);
+	iface = __atalk_find_dev(dev);
+	read_unlock_bh(&atalk_interfaces_lock);
+	return iface;
+}
+
 /* For probing devices or in a routerless network */
 struct atalk_route atrtr_default;
 
@@ -221,9 +249,9 @@ static void atif_drop_device(struct net_device *dev)
 	while ((tmp = *iface) != NULL) {
 		if (tmp->dev == dev) {
 			*iface = tmp->next;
+			hash_del(&tmp->hash_node);
 			dev_put(dev);
 			kfree(tmp);
-			dev->atalk_ptr = NULL;
 		} else
 			iface = &tmp->next;
 	}
@@ -240,13 +268,13 @@ static struct atalk_iface *atif_add_device(struct net_device *dev,
 
 	dev_hold(dev);
 	iface->dev = dev;
-	dev->atalk_ptr = iface;
 	iface->address = *sa;
 	iface->status = 0;
 
 	write_lock_bh(&atalk_interfaces_lock);
 	iface->next = atalk_interfaces;
 	atalk_interfaces = iface;
+	hash_add(atalk_iface_hash, &iface->hash_node, dev->ifindex);
 	write_unlock_bh(&atalk_interfaces_lock);
 out:
 	return iface;
@@ -347,8 +375,15 @@ static int atif_proxy_probe_device(struct atalk_iface *atif,
 
 struct atalk_addr *atalk_find_dev_addr(struct net_device *dev)
 {
-	struct atalk_iface *iface = dev->atalk_ptr;
-	return iface ? &iface->address : NULL;
+	struct atalk_addr *addr = NULL;
+	struct atalk_iface *iface;
+
+	read_lock_bh(&atalk_interfaces_lock);
+	iface = __atalk_find_dev(dev);
+	if (iface)
+		addr = &iface->address;
+	read_unlock_bh(&atalk_interfaces_lock);
+	return addr;
 }
 
 static struct atalk_addr *atalk_find_primary(void)
@@ -388,8 +423,10 @@ out:
  */
 static struct atalk_iface *atalk_find_anynet(int node, struct net_device *dev)
 {
-	struct atalk_iface *iface = dev->atalk_ptr;
+	struct atalk_iface *iface;
 
+	read_lock_bh(&atalk_interfaces_lock);
+	iface = __atalk_find_dev(dev);
 	if (!iface || iface->status & ATIF_PROBE)
 		goto out_err;
 
@@ -398,6 +435,7 @@ static struct atalk_iface *atalk_find_anynet(int node, struct net_device *dev)
 	    node != ATADDR_ANYNODE)
 		goto out_err;
 out:
+	read_unlock_bh(&atalk_interfaces_lock);
 	return iface;
 out_err:
 	iface = NULL;
