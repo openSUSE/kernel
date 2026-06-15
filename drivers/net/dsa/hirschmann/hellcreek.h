@@ -311,6 +311,7 @@ struct hellcreek {
 
 /* Devlink resources */
 enum hellcreek_devlink_resource_id {
+	HELLCREEK_DEVLINK_PARAM_ID_NONE,  /* DEVLINK_RESOURCE_ID_PARENT_TOP */
 	HELLCREEK_DEVLINK_PARAM_ID_VLAN_TABLE,
 	HELLCREEK_DEVLINK_PARAM_ID_FDB_TABLE,
 };
