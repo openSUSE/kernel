@@ -284,16 +284,6 @@ static int scmi_cpufreq_init(struct cpufreq_policy *policy)
 	policy->transition_delay_us =
 		scmi_get_rate_limit(domain, policy->fast_switch_possible);
 
-	if (policy_has_boost_freq(policy)) {
-		ret = cpufreq_enable_boost_support();
-		if (ret) {
-			dev_warn(cpu_dev, "failed to enable boost: %d\n", ret);
-			goto out_free_table;
-		} else {
-			scmi_cpufreq_driver.boost_enabled = true;
-		}
-	}
-
 	return 0;
 
 out_free_table:
@@ -358,6 +348,7 @@ static struct cpufreq_driver scmi_cpufreq_driver = {
 	.init	= scmi_cpufreq_init,
 	.exit	= scmi_cpufreq_exit,
 	.register_em	= scmi_cpufreq_register_em,
+	.set_boost	= cpufreq_boost_set_sw,
 };
 
 static bool scmi_dev_used_by_cpus(struct device *scmi_dev)
