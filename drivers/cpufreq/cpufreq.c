@@ -87,6 +87,7 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 			      struct cpufreq_governor *new_gov,
 			      unsigned int new_pol);
 static bool cpufreq_boost_supported(void);
+static int cpufreq_boost_trigger_state(int state);
 
 /*
  * Two notifier lists: the "policy" list is involved in the
@@ -2892,7 +2893,7 @@ static int cpufreq_boost_set_sw(struct cpufreq_policy *policy, int state)
 	return 0;
 }
 
-int cpufreq_boost_trigger_state(int state)
+static int cpufreq_boost_trigger_state(int state)
 {
 	struct cpufreq_policy *policy;
 	unsigned long flags;
