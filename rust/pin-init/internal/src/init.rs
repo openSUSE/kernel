@@ -173,6 +173,12 @@ pub(crate) fn expand(
         };
         // SAFETY: TODO
         let init = unsafe { ::pin_init::#init_from_closure::<_, #error>(init) };
+        // FIXME: this let binding is required to avoid a compiler error (cycle when computing the
+        // opaque type returned by this function) before Rust 1.81. Remove after MSRV bump.
+        #[allow(
+            clippy::let_and_return,
+            reason = "some clippy versions warn about the let binding"
+        )]
         init
     }})
 }
@@ -248,7 +254,7 @@ fn init_fields(
                     {
                         #value_prep
                         // SAFETY: TODO
-                        unsafe { #write(::core::ptr::addr_of_mut!((*#slot).#ident), #value_ident) };
+                        unsafe { #write(&raw mut (*#slot).#ident, #value_ident) };
                     }
                 }
             }
@@ -262,7 +268,7 @@ fn init_fields(
                         //   return when an error/panic occurs.
                         // - We also use `#data` to require the correct trait (`Init` or `PinInit`)
                         //   for `#ident`.
-                        unsafe { #data.#ident(::core::ptr::addr_of_mut!((*#slot).#ident), #init)? };
+                        unsafe { #data.#ident(&raw mut (*#slot).#ident, #init)? };
                     }
                 } else {
                     quote! {
@@ -271,7 +277,7 @@ fn init_fields(
                         unsafe {
                             ::pin_init::Init::__init(
                                 #init,
-                                ::core::ptr::addr_of_mut!((*#slot).#ident),
+                                &raw mut (*#slot).#ident,
                             )?
                         };
                     }
@@ -322,7 +328,7 @@ fn init_fields(
                 //   succeeded, where we `forget` the guard.
                 let mut #guard = unsafe {
                     ::pin_init::__internal::DropGuard::new(
-                        ::core::ptr::addr_of_mut!((*slot).#ident)
+                        &raw mut (*slot).#ident
                     )
                 };
 

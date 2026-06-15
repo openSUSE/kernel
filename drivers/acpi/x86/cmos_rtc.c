@@ -18,13 +18,11 @@
 #include "../internal.h"
 
 static const struct acpi_device_id acpi_cmos_rtc_ids[] = {
-	{ "PNP0B00" },
-	{ "PNP0B01" },
-	{ "PNP0B02" },
-	{}
+	{ "ACPI000E", 1 }, /* ACPI Time and Alarm Device (TAD) */
+	ACPI_CMOS_RTC_IDS
 };
 
-static bool cmos_rtc_space_handler_present __read_mostly;
+bool cmos_rtc_platform_device_present;
 
 static acpi_status acpi_cmos_rtc_space_handler(u32 function,
 					       acpi_physical_address address,
@@ -57,8 +55,9 @@ static acpi_status acpi_cmos_rtc_space_handler(u32 function,
 	return AE_BAD_PARAMETER;
 }
 
-int acpi_install_cmos_rtc_space_handler(acpi_handle handle)
+static int acpi_install_cmos_rtc_space_handler(acpi_handle handle)
 {
+	static bool cmos_rtc_space_handler_present __read_mostly;
 	acpi_status status;
 
 	if (cmos_rtc_space_handler_present)
@@ -77,22 +76,6 @@ int acpi_install_cmos_rtc_space_handler(acpi_handle handle)
 
 	return 1;
 }
-EXPORT_SYMBOL_GPL(acpi_install_cmos_rtc_space_handler);
-
-void acpi_remove_cmos_rtc_space_handler(acpi_handle handle)
-{
-	acpi_status status;
-
-	if (cmos_rtc_space_handler_present)
-		return;
-
-	status = acpi_remove_address_space_handler(handle,
-						   ACPI_ADR_SPACE_CMOS,
-						   acpi_cmos_rtc_space_handler);
-	if (ACPI_FAILURE(status))
-		pr_err("Failed to remove CMOS-RTC address space handler\n");
-}
-EXPORT_SYMBOL_GPL(acpi_remove_cmos_rtc_space_handler);
 
 static int acpi_cmos_rtc_attach(struct acpi_device *adev,
 				const struct acpi_device_id *id)
@@ -103,6 +86,12 @@ static int acpi_cmos_rtc_attach(struct acpi_device *adev,
 	if (ret < 0)
 		return ret;
 
+	if (IS_ERR_OR_NULL(acpi_create_platform_device(adev, NULL))) {
+		pr_err("Failed to create a platform device for %s\n", (char *)id->id);
+		return 0;
+	} else if (!id->driver_data) {
+		cmos_rtc_platform_device_present = true;
+	}
 	return 1;
 }
 

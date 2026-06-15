@@ -487,7 +487,7 @@ static int entity_parse_su_device(struct device *dev,
 	if (!range)
 		return -EINVAL;
 
-	(*widget)->id = snd_soc_dapm_mux;
+	(*widget)->id = snd_soc_dapm_mux_named_ctl;
 	(*widget)->kcontrol_news = entity->group->ge.kctl;
 	(*widget)->num_kcontrols = 1;
 	(*widget)++;
@@ -805,6 +805,72 @@ int sdca_asoc_populate_dapm(struct device *dev, struct sdca_function_data *funct
 }
 EXPORT_SYMBOL_NS(sdca_asoc_populate_dapm, "SND_SOC_SDCA");
 
+static int q78_write(struct snd_soc_component *component,
+		     struct soc_mixer_control *mc,
+		     unsigned int reg, const int val)
+{
+	unsigned int mask = GENMASK(mc->sign_bit, 0);
+	unsigned int reg_val;
+
+	if (val < 0 || val > mc->max - mc->min)
+		return -EINVAL;
+
+	reg_val = (val + mc->min) * mc->shift;
+
+	return snd_soc_component_update_bits(component, reg, mask, reg_val);
+}
+
+int sdca_asoc_q78_put_volsw(struct snd_kcontrol *kcontrol,
+			    struct snd_ctl_elem_value *ucontrol)
+{
+	struct soc_mixer_control *mc = (struct soc_mixer_control *)kcontrol->private_value;
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	int ret;
+
+	ret = q78_write(component, mc, mc->reg, ucontrol->value.integer.value[0]);
+	if (ret < 0)
+		return ret;
+
+	if (snd_soc_volsw_is_stereo(mc)) {
+		int err; /* Don't drop change flag */
+
+		err = q78_write(component, mc, mc->rreg, ucontrol->value.integer.value[1]);
+		if (err)
+			return err;
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL_NS(sdca_asoc_q78_put_volsw, "SND_SOC_SDCA");
+
+static int q78_read(struct snd_soc_component *component,
+		    struct soc_mixer_control *mc, unsigned int reg)
+{
+	unsigned int reg_val;
+	int val;
+
+	reg_val = snd_soc_component_read(component, reg);
+
+	val = (sign_extend32(reg_val, mc->sign_bit) / (int)mc->shift) - mc->min;
+
+	return val & GENMASK(mc->sign_bit, 0);
+}
+
+int sdca_asoc_q78_get_volsw(struct snd_kcontrol *kcontrol,
+			    struct snd_ctl_elem_value *ucontrol)
+{
+	struct soc_mixer_control *mc = (struct soc_mixer_control *)kcontrol->private_value;
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+
+	ucontrol->value.integer.value[0] = q78_read(component, mc, mc->reg);
+
+	if (snd_soc_volsw_is_stereo(mc))
+		ucontrol->value.integer.value[1] = q78_read(component, mc, mc->rreg);
+
+	return 0;
+}
+EXPORT_SYMBOL_NS(sdca_asoc_q78_get_volsw, "SND_SOC_SDCA");
+
 static int control_limit_kctl(struct device *dev,
 			      struct sdca_entity *entity,
 			      struct sdca_control *control,
@@ -841,16 +907,15 @@ static int control_limit_kctl(struct device *dev,
 	tlv[2] = (min * 100) >> 8;
 	tlv[3] = (max * 100) >> 8;
 
-	step = (step * 100) >> 8;
-
-	mc->min = ((int)tlv[2] / step);
-	mc->max = ((int)tlv[3] / step);
+	mc->min = min / step;
+	mc->max = max / step;
 	mc->shift = step;
 	mc->sign_bit = 15;
-	mc->sdca_q78 = 1;
 
 	kctl->tlv.p = tlv;
 	kctl->access |= SNDRV_CTL_ELEM_ACCESS_TLV_READ;
+	kctl->get = sdca_asoc_q78_get_volsw;
+	kctl->put = sdca_asoc_q78_put_volsw;
 
 	return 0;
 }

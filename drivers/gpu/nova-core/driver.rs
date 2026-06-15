@@ -14,10 +14,19 @@ use kernel::{
     },
     prelude::*,
     sizes::SZ_16M,
-    sync::Arc, //
+    sync::{
+        atomic::{
+            Atomic,
+            Relaxed, //
+        },
+        Arc,
+    },
 };
 
 use crate::gpu::Gpu;
+
+/// Counter for generating unique auxiliary device IDs.
+static AUXILIARY_ID_COUNTER: Atomic<u32> = Atomic::new(0);
 
 #[pin_data]
 pub(crate) struct NovaCore {
@@ -90,7 +99,9 @@ impl pci::Driver for NovaCore {
                 _reg <- auxiliary::Registration::new(
                     pdev.as_ref(),
                     c"nova-drm",
-                    0, // TODO[XARR]: Once it lands, use XArray; for now we don't use the ID.
+                    // TODO[XARR]: Use XArray or perhaps IDA for proper ID allocation/recycling. For
+                    // now, use a simple atomic counter that never recycles IDs.
+                    AUXILIARY_ID_COUNTER.fetch_add(1, Relaxed),
                     crate::MODULE_NAME
                 ),
             }))

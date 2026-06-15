@@ -187,10 +187,9 @@ static void event_handler(uint32_t opcode, uint32_t token,
 		break;
 	case ASM_CLIENT_EVENT_CMD_EOS_DONE:
 		break;
-	case ASM_CLIENT_EVENT_DATA_WRITE_DONE: {
+	case ASM_CLIENT_EVENT_DATA_WRITE_DONE:
 		snd_pcm_period_elapsed(substream);
 		break;
-		}
 	case ASM_CLIENT_EVENT_DATA_READ_DONE:
 		snd_pcm_period_elapsed(substream);
 		if (prtd->state == Q6ASM_STREAM_RUNNING)
@@ -384,7 +383,7 @@ static int q6asm_dai_open(struct snd_soc_component *component,
 		return -EINVAL;
 	}
 
-	prtd = kzalloc_obj(struct q6asm_dai_rtd);
+	prtd = kzalloc_obj(*prtd);
 	if (prtd == NULL)
 		return -ENOMEM;
 
@@ -1227,7 +1226,7 @@ static const struct snd_soc_component_driver q6asm_fe_dai_component = {
 	.trigger		= q6asm_dai_trigger,
 	.ack			= q6asm_dai_ack,
 	.pointer		= q6asm_dai_pointer,
-	.pcm_construct		= q6asm_dai_pcm_new,
+	.pcm_new		= q6asm_dai_pcm_new,
 	.compress_ops		= &q6asm_dai_compress_ops,
 	.dapm_widgets		= q6asm_dapm_widgets,
 	.num_dapm_widgets	= ARRAY_SIZE(q6asm_dapm_widgets),

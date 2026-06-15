@@ -1031,9 +1031,11 @@ static netdev_tx_t tun_net_xmit(struct sk_buff *skb, struct net_device *dev)
 		goto drop;
 	}
 
-	if (tfile->socket.sk->sk_filter &&
-	    sk_filter_reason(tfile->socket.sk, skb, &drop_reason))
-		goto drop;
+	if (tfile->socket.sk->sk_filter) {
+		drop_reason = sk_filter_reason(tfile->socket.sk, skb);
+		if (drop_reason)
+			goto drop;
+	}
 
 	len = run_ebpf_filter(tun, skb, len);
 	if (len == 0) {
@@ -2068,6 +2070,7 @@ static ssize_t tun_put_user(struct tun_struct *tun,
 		struct virtio_net_hdr_v1_hash_tunnel hdr;
 		struct virtio_net_hdr *gso;
 
+		memset(&hdr, 0, sizeof(hdr));
 		ret = tun_vnet_hdr_tnl_from_skb(tun->flags, tun->dev, skb,
 						&hdr);
 		if (ret)

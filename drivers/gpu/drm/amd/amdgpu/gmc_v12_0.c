@@ -636,6 +636,11 @@ static int gmc_v12_0_early_init(struct amdgpu_ip_block *ip_block)
 {
 	struct amdgpu_device *adev = ip_block->adev;
 
+	if (adev->smuio.funcs &&
+	    adev->smuio.funcs->is_host_gpu_xgmi_supported)
+		adev->gmc.xgmi.connected_to_cpu =
+			adev->smuio.funcs->is_host_gpu_xgmi_supported(adev);
+
 	switch (amdgpu_ip_version(adev, GC_HWIP, 0)) {
 	case IP_VERSION(12, 1, 0):
 		gmc_v12_1_set_gmc_funcs(adev);
@@ -691,17 +696,23 @@ static void gmc_v12_0_vram_gtt_location(struct amdgpu_device *adev,
 
 	base = adev->mmhub.funcs->get_fb_location(adev);
 
-	amdgpu_gmc_set_agp_default(adev, mc);
-	amdgpu_gmc_vram_location(adev, &adev->gmc, base);
-	amdgpu_gmc_gart_location(adev, mc, AMDGPU_GART_PLACEMENT_LOW);
-	if (!amdgpu_sriov_vf(adev) && (amdgpu_agp == 1))
-		amdgpu_gmc_agp_location(adev, mc);
-
+	if (amdgpu_gmc_is_pdb0_enabled(adev)) {
+		amdgpu_gmc_sysvm_location(adev, mc);
+	} else {
+		amdgpu_gmc_set_agp_default(adev, mc);
+		amdgpu_gmc_vram_location(adev, &adev->gmc, base);
+		amdgpu_gmc_gart_location(adev, mc, AMDGPU_GART_PLACEMENT_LOW);
+		if (!amdgpu_sriov_vf(adev) && (amdgpu_agp == 1))
+			amdgpu_gmc_agp_location(adev, mc);
+	}
 	/* base offset of vram pages */
 	if (amdgpu_sriov_vf(adev))
 		adev->vm_manager.vram_base_offset = 0;
 	else
 		adev->vm_manager.vram_base_offset = adev->mmhub.funcs->get_mc_fb_offset(adev);
+
+	adev->vm_manager.vram_base_offset +=
+		adev->gmc.xgmi.physical_node_id * adev->gmc.xgmi.node_segment_size;
 }
 
 /**
@@ -717,12 +728,17 @@ static int gmc_v12_0_mc_init(struct amdgpu_device *adev)
 {
 	int r;
 
-	/* size in MB on si */
-	adev->gmc.mc_vram_size =
-		adev->nbio.funcs->get_memsize(adev) * 1024ULL * 1024ULL;
+	if (adev->gmc.xgmi.connected_to_cpu)
+		adev->gmc.mc_vram_size =
+			adev->gmc.xgmi.node_segment_size * adev->gmc.xgmi.num_physical_nodes;
+	else
+		adev->gmc.mc_vram_size =
+			adev->nbio.funcs->get_memsize(adev) * 1024ULL * 1024ULL;
+
 	adev->gmc.real_vram_size = adev->gmc.mc_vram_size;
 
-	if (!(adev->flags & AMD_IS_APU)) {
+	if (!(adev->flags & AMD_IS_APU) &&
+	    !adev->gmc.xgmi.connected_to_cpu) {
 		r = amdgpu_device_resize_fb_bar(adev);
 		if (r)
 			return r;
@@ -732,8 +748,12 @@ static int gmc_v12_0_mc_init(struct amdgpu_device *adev)
 	adev->gmc.aper_size = pci_resource_len(adev->pdev, 0);
 
 #ifdef CONFIG_X86_64
-	if ((adev->flags & AMD_IS_APU) && !amdgpu_passthrough(adev)) {
-		adev->gmc.aper_base = adev->mmhub.funcs->get_mc_fb_offset(adev);
+	if (((adev->flags & AMD_IS_APU) && !amdgpu_passthrough(adev)) ||
+	    (adev->gmc.xgmi.connected_to_cpu)) {
+		adev->gmc.aper_base =
+			adev->mmhub.funcs->get_mc_fb_offset(adev) +
+			adev->gmc.xgmi.physical_node_id *
+			adev->gmc.xgmi.node_segment_size;
 		adev->gmc.aper_size = adev->gmc.real_vram_size;
 	}
 #endif
@@ -762,6 +782,14 @@ static int gmc_v12_0_gart_init(struct amdgpu_device *adev)
 		return 0;
 	}
 
+	if (amdgpu_gmc_is_pdb0_enabled(adev)) {
+		adev->gmc.vmid0_page_table_depth = 1;
+		adev->gmc.vmid0_page_table_block_size = 12;
+	} else {
+		adev->gmc.vmid0_page_table_depth = 0;
+		adev->gmc.vmid0_page_table_block_size = 0;
+	}
+
 	/* Initialize common gart structure */
 	r = amdgpu_gart_init(adev);
 	if (r)
@@ -772,13 +800,21 @@ static int gmc_v12_0_gart_init(struct amdgpu_device *adev)
 				    AMDGPU_PTE_EXECUTABLE |
 				    AMDGPU_PTE_IS_PTE;
 
-	return amdgpu_gart_table_vram_alloc(adev);
+	r = amdgpu_gart_table_vram_alloc(adev);
+	if (r)
+		return r;
+
+	if (amdgpu_gmc_is_pdb0_enabled(adev))
+		r = amdgpu_gmc_pdb0_alloc(adev);
+
+	return r;
 }
 
 static int gmc_v12_0_sw_init(struct amdgpu_ip_block *ip_block)
 {
-	int r, vram_width = 0, vram_type = 0, vram_vendor = 0;
+	int r, vram_width = 0, vram_type = 0, vram_vendor = 0, dma_addr_bits;
 	struct amdgpu_device *adev = ip_block->adev;
+	uint64_t pte_addr_mask = 0;
 	int i;
 
 	adev->mmhub.funcs->init(adev);
@@ -790,7 +826,7 @@ static int gmc_v12_0_sw_init(struct amdgpu_ip_block *ip_block)
 	if (amdgpu_ip_version(adev, GC_HWIP, 0) == IP_VERSION(12, 1, 0)) {
 		gmc_v12_1_init_vram_info(adev);
 	} else {
-		r = amdgpu_atomfirmware_get_vram_info(adev,
+		r = amdgpu_gmc_get_vram_info(adev,
 			      &vram_width, &vram_type, &vram_vendor);
 		adev->gmc.vram_width = vram_width;
 		adev->gmc.vram_type = vram_type;
@@ -808,6 +844,8 @@ static int gmc_v12_0_sw_init(struct amdgpu_ip_block *ip_block)
 		 * block size 512 (9bit)
 		 */
 		amdgpu_vm_adjust_size(adev, 256 * 1024, 9, 3, 48);
+		pte_addr_mask = 0x0000FFFFFFFFF000ULL; /* 48 bit PA */
+		dma_addr_bits = 44;
 		break;
 	case IP_VERSION(12, 1, 0):
 		bitmap_set(adev->vmhubs_mask, AMDGPU_GFXHUB(0),
@@ -820,9 +858,13 @@ static int gmc_v12_0_sw_init(struct amdgpu_ip_block *ip_block)
 		 * block size 512 (9bit)
 		 */
 		amdgpu_vm_adjust_size(adev, 128 * 1024 * 1024, 9, 4, 57);
+		pte_addr_mask = 0x000FFFFFFFFFF000ULL; /* 52 bit PA */
+		dma_addr_bits = 52;
 		break;
 	default:
-		break;
+		dev_warn(adev->dev, "Unrecognized GC IP version: 0x%08x\n",
+			 amdgpu_ip_version(adev, GC_HWIP, 0));
+		return -EINVAL;
 	}
 
 	/* This interrupt is VMC page fault.*/
@@ -858,11 +900,15 @@ static int gmc_v12_0_sw_init(struct amdgpu_ip_block *ip_block)
 	if (r)
 		return r;
 
-	if ((amdgpu_ip_version(adev, GC_HWIP, 0) != IP_VERSION(12, 1, 0)) &&
-	    !amdgpu_sriov_vf(adev)) {
+	if (!amdgpu_sriov_vf(adev)) {
 		/* interrupt sent to DF. */
-		r = amdgpu_irq_add_id(adev, SOC21_IH_CLIENTID_DF, 0,
+		if (amdgpu_ip_version(adev, GC_HWIP, 0) == IP_VERSION(12, 0, 0))
+			r = amdgpu_irq_add_id(adev, SOC21_IH_CLIENTID_DF, 0,
 				      &adev->gmc.ecc_irq);
+		else
+			r = amdgpu_irq_add_id(adev, SOC_V1_0_IH_CLIENTID_DF, 0,
+				      &adev->gmc.ecc_irq);
+
 		if (r)
 			return r;
 	}
@@ -872,20 +918,19 @@ static int gmc_v12_0_sw_init(struct amdgpu_ip_block *ip_block)
 	 * internal address space.
 	 */
 	adev->gmc.mc_mask = AMDGPU_GMC_HOLE_MASK;
+	adev->gmc.pte_addr_mask = pte_addr_mask;
 
-	r = dma_set_mask_and_coherent(adev->dev, DMA_BIT_MASK(44));
+	r = dma_set_mask_and_coherent(adev->dev, DMA_BIT_MASK(dma_addr_bits));
 	if (r) {
 		drm_warn(adev_to_drm(adev), "No suitable DMA available.\n");
 		return r;
 	}
 
-	adev->need_swiotlb = drm_need_swiotlb(44);
+	adev->need_swiotlb = drm_need_swiotlb(dma_addr_bits);
 
 	r = gmc_v12_0_mc_init(adev);
 	if (r)
 		return r;
-
-	amdgpu_gmc_get_vbios_allocations(adev);
 
 #ifdef HAVE_ACPI_DEV_GET_FIRST_MATCH_DEV
 	if (amdgpu_ip_version(adev, GC_HWIP, 0) == IP_VERSION(12, 1, 0)) {
@@ -944,6 +989,7 @@ static int gmc_v12_0_sw_fini(struct amdgpu_ip_block *ip_block)
 	amdgpu_vm_manager_fini(adev);
 	gmc_v12_0_gart_fini(adev);
 	amdgpu_gem_force_release(adev);
+	amdgpu_bo_free_kernel(&adev->gmc.pdb0_bo, NULL, &adev->gmc.ptr_pdb0);
 	amdgpu_bo_fini(adev);
 
 	return 0;
@@ -962,6 +1008,9 @@ static int gmc_v12_0_gart_enable(struct amdgpu_device *adev)
 {
 	int r;
 	bool value;
+
+	if (adev->gmc.xgmi.connected_to_cpu)
+		amdgpu_gmc_init_pdb0(adev);
 
 	if (adev->gart.bo == NULL) {
 		dev_err(adev->dev, "No VRAM object for PCIE GART.\n");
@@ -984,6 +1033,7 @@ static int gmc_v12_0_gart_enable(struct amdgpu_device *adev)
 
 	drm_info(adev_to_drm(adev), "PCIE GART of %uM enabled (table at 0x%016llX).\n",
 		 (unsigned)(adev->gmc.gart_size >> 20),
+		 (adev->gmc.pdb0_bo) ? (unsigned long long)amdgpu_bo_gpu_offset(adev->gmc.pdb0_bo) :
 		 (unsigned long long)amdgpu_bo_gpu_offset(adev->gart.bo));
 
 	return 0;

@@ -393,7 +393,7 @@ static void aarp_purge(void)
  */
 static struct aarp_entry *aarp_alloc(void)
 {
-	struct aarp_entry *a = kmalloc_obj(*a, GFP_ATOMIC);
+	struct aarp_entry *a = kzalloc_obj(*a, GFP_ATOMIC);
 	if (!a)
 		return NULL;
 
@@ -541,6 +541,11 @@ int aarp_send_ddp(struct net_device *dev, struct sk_buff *skb,
 		struct atalk_addr *at = atalk_find_dev_addr(dev);
 		struct ddpehdr *ddp = (struct ddpehdr *)skb->data;
 		int ft = 2;
+
+		if (!at) {
+			kfree_skb(skb);
+			return NET_XMIT_DROP;
+		}
 
 		/*
 		 * Compressible ?

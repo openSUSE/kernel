@@ -352,6 +352,11 @@ static int octep_vf_oq_check_hw_for_pkts(struct octep_vf_device *oct,
 	return new_pkts;
 }
 
+static inline u32 octep_vf_oq_next_idx(struct octep_vf_oq *oq, u32 idx)
+{
+	return (idx + 1 == oq->max_count) ? 0 : idx + 1;
+}
+
 /**
  * __octep_vf_oq_process_rx() - Process hardware Rx queue and push to stack.
  *
@@ -414,18 +419,14 @@ static int __octep_vf_oq_process_rx(struct octep_vf_device *oct,
 			if (!skb) {
 				oq->stats->alloc_failures++;
 				desc_used++;
-				read_idx++;
-				if (read_idx == oq->max_count)
-					read_idx = 0;
+				read_idx = octep_vf_oq_next_idx(oq, read_idx);
 				continue;
 			}
 			rx_bytes += buff_info->len;
 			skb_reserve(skb, data_offset);
 			skb_put(skb, buff_info->len);
-			read_idx++;
 			desc_used++;
-			if (read_idx == oq->max_count)
-				read_idx = 0;
+			read_idx = octep_vf_oq_next_idx(oq, read_idx);
 		} else {
 			struct skb_shared_info *shinfo;
 			u16 data_len;
@@ -434,9 +435,7 @@ static int __octep_vf_oq_process_rx(struct octep_vf_device *oct,
 			if (!skb) {
 				oq->stats->alloc_failures++;
 				desc_used++;
-				read_idx++;
-				if (read_idx == oq->max_count)
-					read_idx = 0;
+				read_idx = octep_vf_oq_next_idx(oq, read_idx);
 				data_len = buff_info->len - oq->max_single_buffer_size;
 				while (data_len) {
 					dma_unmap_page(oq->dev, oq->desc_ring[read_idx].buffer_ptr,
@@ -449,9 +448,7 @@ static int __octep_vf_oq_process_rx(struct octep_vf_device *oct,
 					else
 						data_len -= oq->buffer_size;
 					desc_used++;
-					read_idx++;
-					if (read_idx == oq->max_count)
-						read_idx = 0;
+					read_idx = octep_vf_oq_next_idx(oq, read_idx);
 				}
 				continue;
 			}
@@ -461,10 +458,8 @@ static int __octep_vf_oq_process_rx(struct octep_vf_device *oct,
 			 * subsequent fragments contains only data.
 			 */
 			skb_put(skb, oq->max_single_buffer_size);
-			read_idx++;
 			desc_used++;
-			if (read_idx == oq->max_count)
-				read_idx = 0;
+			read_idx = octep_vf_oq_next_idx(oq, read_idx);
 
 			shinfo = skb_shinfo(skb);
 			data_len = buff_info->len - oq->max_single_buffer_size;
@@ -486,10 +481,8 @@ static int __octep_vf_oq_process_rx(struct octep_vf_device *oct,
 						buff_info->len,
 						buff_info->len);
 				buff_info->page = NULL;
-				read_idx++;
 				desc_used++;
-				if (read_idx == oq->max_count)
-					read_idx = 0;
+				read_idx = octep_vf_oq_next_idx(oq, read_idx);
 			}
 		}
 

@@ -2188,7 +2188,7 @@ static int taprio_graft(struct Qdisc *sch, unsigned long cl,
 		new = &noop_qdisc;
 
 	if (dev->flags & IFF_UP)
-		dev_deactivate(dev);
+		dev_deactivate(dev, false);
 
 	/* In offload mode, the child Qdisc is directly attached to the netdev
 	 * TX queue, and thus, we need to keep its refcount elevated in order

@@ -511,7 +511,7 @@ static int arena_map_direct_value_addr(const struct bpf_map *map, u64 *imm, u32 
 {
 	struct bpf_arena *arena = container_of(map, struct bpf_arena, map);
 
-	if ((u64)off > arena->user_vm_end - arena->user_vm_start)
+	if ((u64)off >= arena->user_vm_end - arena->user_vm_start)
 		return -ERANGE;
 	*imm = (unsigned long)arena->user_vm_start;
 	return 0;
@@ -673,8 +673,7 @@ static void zap_pages(struct bpf_arena *arena, long uaddr, long page_cnt)
 	guard(mutex)(&arena->lock);
 	/* iterate link list under lock */
 	list_for_each_entry(vml, &arena->vma_list, head)
-		zap_page_range_single(vml->vma, uaddr,
-				      PAGE_SIZE * page_cnt, NULL);
+		zap_vma_range(vml->vma, uaddr, PAGE_SIZE * page_cnt);
 }
 
 static void arena_free_pages(struct bpf_arena *arena, long uaddr, long page_cnt, bool sleepable)

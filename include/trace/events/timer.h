@@ -254,14 +254,13 @@ TRACE_EVENT(hrtimer_start,
 /**
  * hrtimer_expire_entry - called immediately before the hrtimer callback
  * @hrtimer:	pointer to struct hrtimer
- * @now:	pointer to variable which contains current time of the
- *		timers base.
+ * @now:	variable which contains current time of the timers base.
  *
  * Allows to determine the timer latency.
  */
 TRACE_EVENT(hrtimer_expire_entry,
 
-	TP_PROTO(struct hrtimer *hrtimer, ktime_t *now),
+	TP_PROTO(struct hrtimer *hrtimer, ktime_t now),
 
 	TP_ARGS(hrtimer, now),
 
@@ -273,7 +272,7 @@ TRACE_EVENT(hrtimer_expire_entry,
 
 	TP_fast_assign(
 		__entry->hrtimer	= hrtimer;
-		__entry->now		= *now;
+		__entry->now		= now;
 		__entry->function	= ACCESS_PRIVATE(hrtimer, function);
 	),
 
@@ -322,6 +321,30 @@ DEFINE_EVENT(hrtimer_class, hrtimer_cancel,
 	TP_PROTO(struct hrtimer *hrtimer),
 
 	TP_ARGS(hrtimer)
+);
+
+/**
+ * hrtimer_rearm - Invoked when the clockevent device is rearmed
+ * @next_event:	The next expiry time (CLOCK_MONOTONIC)
+ */
+TRACE_EVENT(hrtimer_rearm,
+
+	TP_PROTO(ktime_t next_event, bool deferred),
+
+	TP_ARGS(next_event, deferred),
+
+	TP_STRUCT__entry(
+		__field( s64,		next_event	)
+		__field( bool,		deferred	)
+	),
+
+	TP_fast_assign(
+		__entry->next_event	= next_event;
+		__entry->deferred	= deferred;
+	),
+
+	TP_printk("next_event=%llu deferred=%d",
+		  (unsigned long long) __entry->next_event, __entry->deferred)
 );
 
 /**

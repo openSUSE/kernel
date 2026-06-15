@@ -56,6 +56,7 @@ static bool dal_vector_presized_costruct(struct vector *vector,
 					 void *initial_value,
 					 uint32_t struct_size)
 {
+	(void)ctx;
 	uint32_t i;
 
 	vector->container = NULL;
@@ -288,8 +289,8 @@ bool dal_vector_reserve(struct vector *vector, uint32_t capacity)
 	if (capacity <= vector->capacity)
 		return true;
 
-	new_container = krealloc(vector->container,
-				 capacity * vector->struct_size, GFP_KERNEL);
+	new_container = krealloc_array(vector->container,
+				       capacity, vector->struct_size, GFP_KERNEL);
 
 	if (new_container) {
 		vector->container = new_container;

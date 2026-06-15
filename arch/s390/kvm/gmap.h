@@ -91,7 +91,8 @@ struct gmap *gmap_new(struct kvm *kvm, gfn_t limit);
 struct gmap *gmap_new_child(struct gmap *parent, gfn_t limit);
 void gmap_remove_child(struct gmap *child);
 void gmap_dispose(struct gmap *gmap);
-int gmap_link(struct kvm_s390_mmu_cache *mc, struct gmap *gmap, struct guest_fault *fault);
+int gmap_link(struct kvm_s390_mmu_cache *mc, struct gmap *gmap, struct guest_fault *fault,
+	      struct kvm_memory_slot *slot);
 void gmap_sync_dirty_log(struct gmap *gmap, gfn_t start, gfn_t end);
 int gmap_set_limit(struct gmap *gmap, gfn_t limit);
 int gmap_ucas_translate(struct kvm_s390_mmu_cache *mc, struct gmap *gmap, gpa_t *gaddr);
@@ -166,6 +167,36 @@ static inline bool gmap_unmap_prefix(struct gmap *gmap, gfn_t gfn, gfn_t end)
 	return _gmap_unmap_prefix(gmap, gfn, end, false);
 }
 
+/**
+ * pte_needs_unshadow() -- Check if the pte operations triggers unshadowing.
+ * @oldpte: the previous value for the guest pte.
+ * @newpte: the new pte being set.
+ * @pgste: the pgste for the pte entry.
+ *
+ * If the pgste.vsie_notif bit is not set, return false: the page is not
+ * involved in vsie and thus should not trigger an unshadow operation.
+ *
+ * If the pgste.vsie_gmem bit is set, this pte represents shadowed guest
+ * memory. The access rights on g3's memory should be synchronized with g1's
+ * and g2's. Therefore unshadowing is triggered if the new and old pte
+ * differ in protection, or if the new pte is invalid.
+ *
+ * If the pgste.vsie_gmem bit is not set, this pte maps the g2 dat tables
+ * for g3. If the entry becomes writable or absent, it becomes impossible to
+ * guarantee that the shadow mapping will match g2's mapping. In that case,
+ * trigger an unshadow event.
+ *
+ * Return: true if an unshadow event should be triggered, otherwise false.
+ */
+static inline bool pte_needs_unshadow(union pte oldpte, union pte newpte, union pgste pgste)
+{
+	if (!pgste.vsie_notif)
+		return false;
+	if (pgste.vsie_gmem)
+		return (oldpte.h.p != newpte.h.p) || newpte.h.i;
+	return !newpte.h.p || !newpte.s.pr;
+}
+
 static inline union pgste _gmap_ptep_xchg(struct gmap *gmap, union pte *ptep, union pte newpte,
 					  union pgste pgste, gfn_t gfn, bool needs_lock)
 {
@@ -179,8 +210,9 @@ static inline union pgste _gmap_ptep_xchg(struct gmap *gmap, union pte *ptep, un
 		pgste.prefix_notif = 0;
 		gmap_unmap_prefix(gmap, gfn, gfn + 1);
 	}
-	if (pgste.vsie_notif && (ptep->h.p != newpte.h.p || newpte.h.i)) {
+	if (pte_needs_unshadow(*ptep, newpte, pgste)) {
 		pgste.vsie_notif = 0;
+		pgste.vsie_gmem = 0;
 		if (needs_lock)
 			gmap_handle_vsie_unshadow_event(gmap, gfn);
 		else
@@ -188,6 +220,7 @@ static inline union pgste _gmap_ptep_xchg(struct gmap *gmap, union pte *ptep, un
 	}
 	if (!ptep->s.d && newpte.s.d && !newpte.s.s)
 		SetPageDirty(pfn_to_page(newpte.h.pfra));
+	pgste.zero = 0;
 	return __dat_ptep_xchg(ptep, pgste, newpte, gfn, gmap->asce, uses_skeys(gmap));
 }
 
@@ -195,6 +228,30 @@ static inline union pgste gmap_ptep_xchg(struct gmap *gmap, union pte *ptep, uni
 					 union pgste pgste, gfn_t gfn)
 {
 	return _gmap_ptep_xchg(gmap, ptep, newpte, pgste, gfn, true);
+}
+
+/**
+ * crste_needs_unshadow() -- Check if the crste operations triggers unshadowing.
+ * @oldcrste: the previous value for the crste.
+ * @newcrste: the new value for the crste.
+ *
+ * If the old crste did not have the vsie_notif bit set, return false: the
+ * page is not involved in vsie and thus should not trigger an unshadow
+ * operation. Conversely, if the bit is set, it can only be g3 memory, since
+ * dat tables are never mapped using large pages.
+ *
+ * Similar to the pgste.vsie_gmem case of pte_needs_unshadow(), if the
+ * protection bit is changing or the new page is invalid, trigger an
+ * unshadow event. Also trigger an unshadow event if the new crste does not
+ * have the vsie_notif bit set.
+ *
+ * Return: true if an unshadow event should be triggered, otherwise false.
+ */
+static inline bool crste_needs_unshadow(union crste oldcrste, union crste newcrste)
+{
+	if (!oldcrste.s.fc1.vsie_notif)
+		return false;
+	return (newcrste.h.p != oldcrste.h.p) || newcrste.h.i || !newcrste.s.fc1.vsie_notif;
 }
 
 static inline bool __must_check _gmap_crstep_xchg_atomic(struct gmap *gmap, union crste *crstep,
@@ -215,13 +272,15 @@ static inline bool __must_check _gmap_crstep_xchg_atomic(struct gmap *gmap, unio
 		newcrste.s.fc1.prefix_notif = 0;
 		gmap_unmap_prefix(gmap, gfn, gfn + align);
 	}
-	if (crste_leaf(oldcrste) && oldcrste.s.fc1.vsie_notif &&
-	    (newcrste.h.p || newcrste.h.i || !newcrste.s.fc1.vsie_notif)) {
+	if (crste_leaf(oldcrste) && crste_needs_unshadow(oldcrste, newcrste)) {
+		newcrste = oldcrste;
 		newcrste.s.fc1.vsie_notif = 0;
 		if (needs_lock)
 			gmap_handle_vsie_unshadow_event(gmap, gfn);
 		else
 			_gmap_handle_vsie_unshadow_event(gmap, gfn);
+		dat_crstep_xchg_atomic(crstep, oldcrste, newcrste, gfn, gmap->asce);
+		return false;
 	}
 	if (!oldcrste.s.fc1.d && newcrste.s.fc1.d && !newcrste.s.fc1.s)
 		SetPageDirty(phys_to_page(crste_origin_large(newcrste)));

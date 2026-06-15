@@ -18,6 +18,7 @@
 #include <linux/ethtool.h>
 #include <linux/ethtool_netlink.h>
 #include <linux/kernel.h>
+#include <linux/if_vlan.h>
 #include <linux/list.h>
 #include <linux/netdevice.h>
 #include <linux/ptp_mock.h>
@@ -75,6 +76,11 @@ struct nsim_macsec {
 	u8 nsim_secy_count;
 };
 
+struct nsim_vlan {
+	DECLARE_BITMAP(ctag, VLAN_N_VID);
+	DECLARE_BITMAP(stag, VLAN_N_VID);
+};
+
 struct nsim_ethtool_pauseparam {
 	bool rx;
 	bool tx;
@@ -114,7 +120,9 @@ struct netdevsim {
 		u64_stats_t tx_packets;
 		u64_stats_t tx_bytes;
 		struct u64_stats_sync syncp;
-		struct psp_dev *dev;
+		struct psp_dev __rcu *dev;
+		struct dentry *rereg;
+		struct mutex rereg_lock;
 		u32 spi;
 		u32 assoc_cnt;
 	} psp;
@@ -135,6 +143,7 @@ struct netdevsim {
 	bool bpf_map_accept;
 	struct nsim_ipsec ipsec;
 	struct nsim_macsec macsec;
+	struct nsim_vlan vlan;
 	struct {
 		u32 inject_error;
 		u32 __ports[2][NSIM_UDP_TUNNEL_N_PORTS];
@@ -146,6 +155,7 @@ struct netdevsim {
 	struct page *page;
 	struct dentry *pp_dfs;
 	struct dentry *qr_dfs;
+	struct dentry *vlan_dfs;
 
 	struct nsim_ethtool ethtool;
 	struct netdevsim __rcu *peer;
@@ -222,6 +232,10 @@ enum nsim_resource_id {
 	NSIM_RESOURCE_IPV6_FIB,
 	NSIM_RESOURCE_IPV6_FIB_RULES,
 	NSIM_RESOURCE_NEXTHOPS,
+};
+
+enum nsim_port_resource_id {
+	NSIM_PORT_RESOURCE_TEST = 1,
 };
 
 struct nsim_dev_health {
@@ -454,6 +468,9 @@ nsim_do_psp(struct sk_buff *skb, struct netdevsim *ns,
 static inline void
 nsim_psp_handle_ext(struct sk_buff *skb, struct skb_ext *psp_ext) {}
 #endif
+
+int nsim_setup_tc(struct net_device *dev, enum tc_setup_type type,
+		  void *type_data);
 
 struct nsim_bus_dev {
 	struct device dev;

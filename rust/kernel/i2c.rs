@@ -16,10 +16,11 @@ use crate::{
     error::*,
     of,
     prelude::*,
-    types::{
-        AlwaysRefCounted,
-        Opaque, //
-    }, //
+    sync::aref::{
+        ARef,
+        AlwaysRefCounted, //
+    },
+    types::Opaque, //
 };
 
 use core::{
@@ -30,8 +31,6 @@ use core::{
         NonNull, //
     }, //
 };
-
-use kernel::types::ARef;
 
 /// An I2C device id table.
 #[repr(transparent)]
@@ -406,7 +405,9 @@ impl I2cAdapter {
 
         // SAFETY: `adapter` is non-null and points to a live `i2c_adapter`.
         // `I2cAdapter` is #[repr(transparent)], so this cast is valid.
-        Ok(unsafe { (&*adapter.as_ptr().cast::<I2cAdapter<device::Normal>>()).into() })
+        // `i2c_get_adapter` returned the adapter with an incremented refcount, which we pass to
+        // the `ARef`.
+        Ok(unsafe { ARef::from_raw(adapter.cast::<I2cAdapter<device::Normal>>()) })
     }
 }
 
@@ -416,7 +417,7 @@ kernel::impl_device_context_deref!(unsafe { I2cAdapter });
 kernel::impl_device_context_into_aref!(I2cAdapter);
 
 // SAFETY: Instances of `I2cAdapter` are always reference-counted.
-unsafe impl crate::types::AlwaysRefCounted for I2cAdapter {
+unsafe impl AlwaysRefCounted for I2cAdapter {
     fn inc_ref(&self) {
         // SAFETY: The existence of a shared reference guarantees that the refcount is non-zero.
         unsafe { bindings::i2c_get_adapter(self.index()) };

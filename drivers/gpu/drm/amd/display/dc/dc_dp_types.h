@@ -947,8 +947,8 @@ union dp_tun_cap_support {
 /* DPCD[0xE000E] DP_IN_ADAPTER_INFO register. */
 union dpia_info {
 	struct {
-		uint8_t dpia_num :5;
-		uint8_t rsvd :3;
+		uint8_t dpia_num :6;
+		uint8_t rsvd :2;
 	} bits;
 	uint8_t raw;
 };
@@ -1217,7 +1217,7 @@ struct dc_lttpr_caps {
 	union dp_main_link_channel_coding_lttpr_cap main_link_channel_coding;
 	union dp_128b_132b_supported_lttpr_link_rates supported_128b_132b_rates;
 	union dp_alpm_lttpr_cap alpm;
-	uint8_t aux_rd_interval[MAX_REPEATER_CNT - 1];
+	uint8_t aux_rd_interval[MAX_REPEATER_CNT];
 	uint8_t lttpr_ieee_oui[3]; // Always read from closest LTTPR to host
 	uint8_t lttpr_device_id[6]; // Always read from closest LTTPR to host
 };
@@ -1374,7 +1374,7 @@ union dpcd_replay_configuration {
 		unsigned char DESYNC_ERROR_STATUS              : 1;
 		unsigned char SINK_DEVICE_REPLAY_STATUS        : 3;
 		unsigned char SINK_FRAME_LOCKED                : 2;
-		unsigned char RESERVED                         : 1;
+		unsigned char FRAME_SKIPPING_ERROR_STATUS      : 1;
 	} bits;
 	unsigned char raw;
 };

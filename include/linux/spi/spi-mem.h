@@ -138,11 +138,13 @@ enum spi_mem_data_dir {
 
 /**
  * struct spi_mem_op - describes a SPI memory operation
+ * @cmd: the complete command
  * @cmd.nbytes: number of opcode bytes (only 1 or 2 are valid). The opcode is
  *		sent MSB-first.
  * @cmd.buswidth: number of IO lines used to transmit the command
  * @cmd.opcode: operation opcode
  * @cmd.dtr: whether the command opcode should be sent in DTR mode or not
+ * @addr: the address attributes
  * @addr.nbytes: number of address bytes to send. Can be zero if the operation
  *		 does not need to send an address
  * @addr.buswidth: number of IO lines used to transmit the address cycles
@@ -151,10 +153,12 @@ enum spi_mem_data_dir {
  *	      Note that only @addr.nbytes are taken into account in this
  *	      address value, so users should make sure the value fits in the
  *	      assigned number of bytes.
+ * @dummy: data for dummy operation
  * @dummy.nbytes: number of dummy bytes to send after an opcode or address. Can
  *		  be zero if the operation does not require dummy bytes
  * @dummy.buswidth: number of IO lanes used to transmit the dummy bytes
  * @dummy.dtr: whether the dummy bytes should be sent in DTR mode or not
+ * @data: the data attributes
  * @data.buswidth: number of IO lanes used to send/receive the data
  * @data.dtr: whether the data should be sent in DTR mode or not
  * @data.ecc: whether error correction is required or not
@@ -281,7 +285,7 @@ struct spi_mem {
 };
 
 /**
- * struct spi_mem_set_drvdata() - attach driver private data to a SPI mem
+ * spi_mem_set_drvdata() - attach driver private data to a SPI mem
  *				  device
  * @mem: memory device
  * @data: data to attach to the memory device
@@ -292,7 +296,7 @@ static inline void spi_mem_set_drvdata(struct spi_mem *mem, void *data)
 }
 
 /**
- * struct spi_mem_get_drvdata() - get driver private data attached to a SPI mem
+ * spi_mem_get_drvdata() - get driver private data attached to a SPI mem
  *				  device
  * @mem: memory device
  *

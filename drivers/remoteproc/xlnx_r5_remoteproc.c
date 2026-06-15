@@ -267,6 +267,10 @@ static struct mbox_info *zynqmp_r5_setup_mbox(struct device *cdev)
 	struct mbox_client *mbox_cl;
 	struct mbox_info *ipi;
 
+	if (!of_property_present(dev_of_node(cdev), "mboxes") ||
+	    !of_property_present(dev_of_node(cdev), "mbox-names"))
+		return NULL;
+
 	ipi = kzalloc_obj(*ipi);
 	if (!ipi)
 		return NULL;
@@ -1486,6 +1490,8 @@ static void zynqmp_r5_remoteproc_shutdown(struct platform_device *pdev)
 			dev_err(cluster->dev, "failed to %s rproc %d\n",
 				rproc_state_str, rproc->index);
 		}
+
+		zynqmp_r5_free_mbox(r5_core->ipi);
 	}
 }
 

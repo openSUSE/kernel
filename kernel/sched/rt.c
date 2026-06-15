@@ -1302,12 +1302,17 @@ update_stats_dequeue_rt(struct rt_rq *rt_rq, struct sched_rt_entity *rt_se,
 			int flags)
 {
 	struct task_struct *p = NULL;
+	struct rq *rq = rq_of_rt_rq(rt_rq);
 
 	if (!schedstat_enabled())
 		return;
 
-	if (rt_entity_is_task(rt_se))
+	if (rt_entity_is_task(rt_se)) {
 		p = rt_task_of(rt_se);
+
+		if (p != rq->curr)
+			update_stats_wait_end_rt(rt_rq, rt_se);
+	}
 
 	if ((flags & DEQUEUE_SLEEP) && p) {
 		unsigned int state;
@@ -2824,21 +2829,6 @@ long sched_group_rt_period(struct task_group *tg)
 	return rt_period_us;
 }
 
-#ifdef CONFIG_SYSCTL
-static int sched_rt_global_constraints(void)
-{
-	int ret = 0;
-	if (!rt_group_sched_enabled())
-		return ret;
-
-	mutex_lock(&rt_constraints_mutex);
-	ret = __rt_schedulable(NULL, 0, 0);
-	mutex_unlock(&rt_constraints_mutex);
-
-	return ret;
-}
-#endif /* CONFIG_SYSCTL */
-
 int sched_rt_can_attach(struct task_group *tg, struct task_struct *tsk)
 {
 	/* Don't accept real-time tasks when there is no way for them to run */
@@ -2848,14 +2838,6 @@ int sched_rt_can_attach(struct task_group *tg, struct task_struct *tsk)
 	return 1;
 }
 
-#else /* !CONFIG_RT_GROUP_SCHED: */
-
-#ifdef CONFIG_SYSCTL
-static int sched_rt_global_constraints(void)
-{
-	return 0;
-}
-#endif /* CONFIG_SYSCTL */
 #endif /* !CONFIG_RT_GROUP_SCHED */
 
 #ifdef CONFIG_SYSCTL
@@ -2867,11 +2849,14 @@ static int sched_rt_global_validate(void)
 			NSEC_PER_USEC > max_rt_runtime)))
 		return -EINVAL;
 
-	return 0;
-}
+#ifdef CONFIG_RT_GROUP_SCHED
+	if (!rt_group_sched_enabled())
+		return 0;
 
-static void sched_rt_do_global(void)
-{
+	scoped_guard(mutex, &rt_constraints_mutex)
+		return __rt_schedulable(NULL, 0, 0);
+#endif
+	return 0;
 }
 
 static int sched_rt_handler(const struct ctl_table *table, int write, void *buffer,
@@ -2897,11 +2882,6 @@ static int sched_rt_handler(const struct ctl_table *table, int write, void *buff
 		if (ret)
 			goto undo;
 
-		ret = sched_rt_global_constraints();
-		if (ret)
-			goto undo;
-
-		sched_rt_do_global();
 		sched_dl_do_global();
 	}
 	if (0) {

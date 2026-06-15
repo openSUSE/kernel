@@ -567,6 +567,23 @@ noinline void bpf_fentry_test_sinfo(struct skb_shared_info *sinfo)
 {
 }
 
+noinline void bpf_fentry_test_ppvoid(void **pp)
+{
+}
+
+noinline void bpf_fentry_test_pppvoid(void ***ppp)
+{
+}
+
+noinline void bpf_fentry_test_ppfile(struct file **ppf)
+{
+}
+
+noinline struct file **bpf_fexit_test_ret_ppfile(void)
+{
+	return (struct file **)NULL;
+}
+
 __bpf_kfunc int bpf_modify_return_test(int a, int *b)
 {
 	*b += 1;
@@ -1161,15 +1178,12 @@ int bpf_prog_test_run_skb(struct bpf_prog *prog, const union bpf_attr *kattr,
 	}
 
 	if (prog->type == BPF_PROG_TYPE_LWT_XMIT) {
-		if (!ipv6_bpf_stub) {
-			pr_warn_once("Please test this program with the IPv6 module loaded\n");
+		if (!ipv6_mod_enabled()) {
+			pr_warn_once("Please test this program with IPv6 enabled kernel\n");
 			ret = -EOPNOTSUPP;
 			goto out;
 		}
 #if IS_ENABLED(CONFIG_IPV6)
-		/* For CONFIG_IPV6=n, ipv6_bpf_stub is NULL which is
-		 * handled by the above if statement.
-		 */
 		dst_hold(&net->ipv6.ip6_null_entry->dst);
 		skb_dst_set(skb, &net->ipv6.ip6_null_entry->dst);
 #endif

@@ -9,6 +9,7 @@
 #include <linux/mutex.h>
 #include <linux/types.h>
 
+#include "chan.h"
 #include "out.h"
 #include "ref.h"
 #include "regs.h"
@@ -18,17 +19,6 @@ struct device;
 struct regmap;
 struct zl3073x_dpll;
 
-/*
- * Hardware limits for ZL3073x chip family
- */
-#define ZL3073X_MAX_CHANNELS	5
-#define ZL3073X_NUM_REFS	10
-#define ZL3073X_NUM_OUTS	10
-#define ZL3073X_NUM_SYNTHS	5
-#define ZL3073X_NUM_INPUT_PINS	ZL3073X_NUM_REFS
-#define ZL3073X_NUM_OUTPUT_PINS	(ZL3073X_NUM_OUTS * 2)
-#define ZL3073X_NUM_PINS	(ZL3073X_NUM_INPUT_PINS + \
-				 ZL3073X_NUM_OUTPUT_PINS)
 
 enum zl3073x_flags {
 	ZL3073X_FLAG_REF_PHASE_COMP_32_BIT,
@@ -61,11 +51,13 @@ struct zl3073x_chip_info {
  * @ref: array of input references' invariants
  * @out: array of outs' invariants
  * @synth: array of synths' invariants
+ * @chan: array of DPLL channels' state
  * @dplls: list of DPLLs
  * @kworker: thread for periodic work
  * @work: periodic work
  * @clock_id: clock id of the device
  * @phase_avg_factor: phase offset measurement averaging factor
+ * @freq_monitor: is frequency monitor enabled
  */
 struct zl3073x_dev {
 	struct device			*dev;
@@ -77,6 +69,7 @@ struct zl3073x_dev {
 	struct zl3073x_ref	ref[ZL3073X_NUM_REFS];
 	struct zl3073x_out	out[ZL3073X_NUM_OUTS];
 	struct zl3073x_synth	synth[ZL3073X_NUM_SYNTHS];
+	struct zl3073x_chan	chan[ZL3073X_MAX_CHANNELS];
 
 	/* DPLL channels */
 	struct list_head	dplls;
@@ -85,9 +78,10 @@ struct zl3073x_dev {
 	struct kthread_worker		*kworker;
 	struct kthread_delayed_work	work;
 
-	/* Devlink parameters */
+	/* Per-chip parameters */
 	u64			clock_id;
 	u8			phase_avg_factor;
+	bool			freq_monitor;
 };
 
 extern const struct regmap_config zl3073x_regmap_config;

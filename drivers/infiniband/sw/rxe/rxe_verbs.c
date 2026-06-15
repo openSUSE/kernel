@@ -452,18 +452,9 @@ static int rxe_modify_srq(struct ib_srq *ibsrq, struct ib_srq_attr *attr,
 	int err;
 
 	if (udata) {
-		if (udata->inlen < sizeof(cmd)) {
-			err = -EINVAL;
-			rxe_dbg_srq(srq, "malformed udata\n");
+		err = ib_copy_validate_udata_in(udata, cmd, mmap_info_addr);
+		if (err)
 			goto err_out;
-		}
-
-		err = ib_copy_from_udata(&cmd, udata, sizeof(cmd));
-		if (err) {
-			err = -EFAULT;
-			rxe_dbg_srq(srq, "unable to read udata\n");
-			goto err_out;
-		}
 	}
 
 	err = rxe_srq_chk_attr(rxe, srq, attr, mask);
@@ -1097,11 +1088,8 @@ static int rxe_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 		goto err_out;
 	}
 
-	err = rxe_cq_chk_attr(rxe, NULL, attr->cqe, attr->comp_vector);
-	if (err) {
-		rxe_dbg_dev(rxe, "bad init attributes, err = %d\n", err);
-		goto err_out;
-	}
+	if (attr->cqe > rxe->attr.max_cqe)
+		return -EINVAL;
 
 	err = rxe_add_to_pool(&rxe->cq_pool, cq);
 	if (err) {
@@ -1127,7 +1115,8 @@ err_out:
 	return err;
 }
 
-static int rxe_resize_cq(struct ib_cq *ibcq, int cqe, struct ib_udata *udata)
+static int rxe_resize_cq(struct ib_cq *ibcq, unsigned int cqe,
+			 struct ib_udata *udata)
 {
 	struct rxe_cq *cq = to_rcq(ibcq);
 	struct rxe_dev *rxe = to_rdev(ibcq->device);
@@ -1143,11 +1132,9 @@ static int rxe_resize_cq(struct ib_cq *ibcq, int cqe, struct ib_udata *udata)
 		uresp = udata->outbuf;
 	}
 
-	err = rxe_cq_chk_attr(rxe, cq, cqe, 0);
-	if (err) {
-		rxe_dbg_cq(cq, "bad attr, err = %d\n", err);
-		goto err_out;
-	}
+	if (cqe > rxe->attr.max_cqe ||
+	    cqe < queue_count(cq->queue, QUEUE_TYPE_TO_CLIENT))
+		return -EINVAL;
 
 	err = rxe_cq_resize_queue(cq, cqe, uresp, udata);
 	if (err) {
@@ -1332,6 +1319,7 @@ static struct ib_mr *rxe_rereg_user_mr(struct ib_mr *ibmr, int flags,
 	struct rxe_mr *mr = to_rmr(ibmr);
 	struct rxe_pd *old_pd = to_rpd(ibmr->pd);
 	struct rxe_pd *pd = to_rpd(ibpd);
+	int err;
 
 	/* for now only support the two easy cases:
 	 * rereg_pd and rereg_access
@@ -1340,6 +1328,10 @@ static struct ib_mr *rxe_rereg_user_mr(struct ib_mr *ibmr, int flags,
 		rxe_err_mr(mr, "flags = %#x not supported\n", flags);
 		return ERR_PTR(-EOPNOTSUPP);
 	}
+
+	err = ib_umem_check_rereg(mr->umem, flags, access);
+	if (err)
+		return ERR_PTR(err);
 
 	if (flags & IB_MR_REREG_PD) {
 		rxe_put(old_pd);
@@ -1519,7 +1511,7 @@ static const struct ib_device_ops rxe_dev_ops = {
 	.reg_user_mr = rxe_reg_user_mr,
 	.req_notify_cq = rxe_req_notify_cq,
 	.rereg_user_mr = rxe_rereg_user_mr,
-	.resize_cq = rxe_resize_cq,
+	.resize_user_cq = rxe_resize_cq,
 
 	INIT_RDMA_OBJ_SIZE(ib_ah, rxe_ah, ibah),
 	INIT_RDMA_OBJ_SIZE(ib_cq, rxe_cq, ibcq),

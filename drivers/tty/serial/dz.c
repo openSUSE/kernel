@@ -912,7 +912,7 @@ static struct console dz_console = {
 
 static struct uart_driver dz_reg = {
 	.owner			= THIS_MODULE,
-	.driver_name		= "serial",
+	.driver_name		= "serial_dz",
 	.dev_name		= "ttyS",
 	.major			= TTY_MAJOR,
 	.minor			= 64,

@@ -43,9 +43,9 @@
  * @digital_gain:	For header->type == MALI_C55_PARAM_BLOCK_DIGITAL_GAIN
  * @awb_gains:		For header->type == MALI_C55_PARAM_BLOCK_AWB_GAINS and
  *			header->type = MALI_C55_PARAM_BLOCK_AWB_GAINS_AEXP
- * @awb_config:		For header->type == MALI_C55_PARAM_MESH_SHADING_CONFIG
- * @shading_config:	For header->type == MALI_C55_PARAM_MESH_SHADING_SELECTION
- * @shading_selection:	For header->type == MALI_C55_PARAM_BLOCK_SENSOR_OFFS
+ * @awb_config:		For header->type == MALI_C55_PARAM_BLOCK_AWB_CONFIG
+ * @shading_config:	For header->type == MALI_C55_PARAM_MESH_SHADING_CONFIG
+ * @shading_selection:	For header->type == MALI_C55_PARAM_MESH_SHADING_SELECTION
  * @data:		Allows easy initialisation of a union variable with a
  *			pointer into a __u8 array.
  */
@@ -825,9 +825,15 @@ void mali_c55_params_init_isp_config(struct mali_c55 *mali_c55,
 	/* Disable the temper module's DMA read/write */
 	mali_c55_ctx_write(mali_c55, MALI_C55_REG_TEMPER_DMA_IO, 0x0);
 
-	/* Bypass the colour noise reduction  */
+	/* Disable IRIDIX module. */
+	mali_c55_ctx_update_bits(mali_c55, MALI_C55_REG_BYPASS_3,
+				 MALI_C55_REG_BYPASS_3_IRIDIX,
+				 MALI_C55_REG_BYPASS_3_IRIDIX);
+
+	/* Bypass the colour noise reduction and the PF modules  */
 	mali_c55_ctx_write(mali_c55, MALI_C55_REG_BYPASS_4,
-			   MALI_C55_REG_BYPASS_4_CNR);
+			   MALI_C55_REG_BYPASS_4_CNR |
+			   MALI_C55_REG_BYPASS_4_PF_CORRECTION);
 
 	/* Disable the sinter module */
 	mali_c55_ctx_update_bits(mali_c55, MALI_C55_REG_SINTER_CONFIG,

@@ -199,6 +199,7 @@ loongson_pcm_pointer(struct snd_soc_component *component,
 		     struct snd_pcm_substream *substream)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
+	struct device *dev = substream->pcm->card->dev;
 	struct loongson_runtime_data *prtd = runtime->private_data;
 	struct loongson_dma_desc *desc;
 	snd_pcm_uframes_t x;
@@ -207,9 +208,16 @@ loongson_pcm_pointer(struct snd_soc_component *component,
 	desc = dma_desc_save(prtd);
 	addr = ((u64)desc->saddr_hi << 32) | desc->saddr;
 
-	x = bytes_to_frames(runtime, addr - runtime->dma_addr);
-	if (x == runtime->buffer_size)
+	if (addr < runtime->dma_addr ||
+	    addr > runtime->dma_addr + runtime->dma_bytes) {
+		dev_warn(dev, "WARNING! dma_addr:0x%llx\n", addr);
 		x = 0;
+	} else {
+		x = bytes_to_frames(runtime, addr - runtime->dma_addr);
+		if (x == runtime->buffer_size)
+			x = 0;
+	}
+
 	return x;
 }
 
@@ -341,5 +349,5 @@ const struct snd_soc_component_driver loongson_i2s_component = {
 	.trigger	= loongson_pcm_trigger,
 	.pointer	= loongson_pcm_pointer,
 	.mmap		= loongson_pcm_mmap,
-	.pcm_construct	= loongson_pcm_new,
+	.pcm_new	= loongson_pcm_new,
 };

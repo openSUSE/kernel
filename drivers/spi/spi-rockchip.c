@@ -98,7 +98,6 @@
 #define CR0_FRF_MICROWIRE			0x2
 
 #define CR0_XFM_OFFSET				18
-#define CR0_XFM_MASK				(0x03 << SPI_XFM_OFFSET)
 #define CR0_XFM_TR					0x0
 #define CR0_XFM_TO					0x1
 #define CR0_XFM_RO					0x2
@@ -108,8 +107,6 @@
 #define CR0_OPM_TARGET				0x1
 
 #define CR0_SOI_OFFSET				23
-
-#define CR0_MTM_OFFSET				0x21
 
 /* Bit fields in SER, 2bit */
 #define SER_MASK					0x3
@@ -768,9 +765,9 @@ static int rockchip_spi_probe(struct platform_device *pdev)
 	target_mode = of_property_read_bool(np, "spi-slave");
 
 	if (target_mode)
-		ctlr = spi_alloc_target(&pdev->dev, sizeof(struct rockchip_spi));
+		ctlr = devm_spi_alloc_target(&pdev->dev, sizeof(*rs));
 	else
-		ctlr = spi_alloc_host(&pdev->dev, sizeof(struct rockchip_spi));
+		ctlr = devm_spi_alloc_host(&pdev->dev, sizeof(*rs));
 
 	if (!ctlr)
 		return -ENOMEM;
@@ -781,35 +778,31 @@ static int rockchip_spi_probe(struct platform_device *pdev)
 
 	/* Get basic io resource and map it */
 	rs->regs = devm_platform_get_and_ioremap_resource(pdev, 0, &mem);
-	if (IS_ERR(rs->regs)) {
-		ret = PTR_ERR(rs->regs);
-		goto err_put_ctlr;
-	}
+	if (IS_ERR(rs->regs))
+		return PTR_ERR(rs->regs);
 
 	rs->apb_pclk = devm_clk_get_enabled(&pdev->dev, "apb_pclk");
 	if (IS_ERR(rs->apb_pclk)) {
-		ret = dev_err_probe(&pdev->dev, PTR_ERR(rs->apb_pclk),
-				    "Failed to get apb_pclk\n");
-		goto err_put_ctlr;
+		return dev_err_probe(&pdev->dev, PTR_ERR(rs->apb_pclk),
+				     "Failed to get apb_pclk\n");
 	}
 
 	rs->spiclk = devm_clk_get_enabled(&pdev->dev, "spiclk");
 	if (IS_ERR(rs->spiclk)) {
-		ret = dev_err_probe(&pdev->dev, PTR_ERR(rs->spiclk),
-				    "Failed to get spi_pclk\n");
-		goto err_put_ctlr;
+		return dev_err_probe(&pdev->dev, PTR_ERR(rs->spiclk),
+				     "Failed to get spi_pclk\n");
 	}
 
 	spi_enable_chip(rs, false);
 
 	ret = platform_get_irq(pdev, 0);
 	if (ret < 0)
-		goto err_put_ctlr;
+		return ret;
 
 	ret = devm_request_irq(&pdev->dev, ret, rockchip_spi_isr, 0,
 			       dev_name(&pdev->dev), ctlr);
 	if (ret)
-		goto err_put_ctlr;
+		return ret;
 
 	rs->dev = &pdev->dev;
 	rs->freq = clk_get_rate(rs->spiclk);
@@ -831,10 +824,8 @@ static int rockchip_spi_probe(struct platform_device *pdev)
 	}
 
 	rs->fifo_len = get_fifo_len(rs);
-	if (!rs->fifo_len) {
-		ret = dev_err_probe(&pdev->dev, -EINVAL, "Failed to get fifo length\n");
-		goto err_put_ctlr;
-	}
+	if (!rs->fifo_len)
+		return dev_err_probe(&pdev->dev, -EINVAL, "Failed to get fifo length\n");
 
 	pm_runtime_set_autosuspend_delay(&pdev->dev, ROCKCHIP_AUTOSUSPEND_TIMEOUT);
 	pm_runtime_use_autosuspend(&pdev->dev);
@@ -925,15 +916,13 @@ err_free_dma_tx:
 		dma_release_channel(ctlr->dma_tx);
 err_disable_pm_runtime:
 	pm_runtime_disable(&pdev->dev);
-err_put_ctlr:
-	spi_controller_put(ctlr);
 
 	return ret;
 }
 
 static void rockchip_spi_remove(struct platform_device *pdev)
 {
-	struct spi_controller *ctlr = spi_controller_get(platform_get_drvdata(pdev));
+	struct spi_controller *ctlr = platform_get_drvdata(pdev);
 
 	pm_runtime_get_sync(&pdev->dev);
 
@@ -947,8 +936,6 @@ static void rockchip_spi_remove(struct platform_device *pdev)
 		dma_release_channel(ctlr->dma_tx);
 	if (ctlr->dma_rx)
 		dma_release_channel(ctlr->dma_rx);
-
-	spi_controller_put(ctlr);
 }
 
 #ifdef CONFIG_PM_SLEEP

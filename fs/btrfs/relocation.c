@@ -2440,10 +2440,7 @@ static int get_tree_block_key(struct btrfs_fs_info *fs_info,
 	eb = read_tree_block(fs_info, block->bytenr, &check);
 	if (IS_ERR(eb))
 		return PTR_ERR(eb);
-	if (unlikely(!extent_buffer_uptodate(eb))) {
-		free_extent_buffer(eb);
-		return -EIO;
-	}
+
 	if (block->level == 0)
 		btrfs_item_key_to_cpu(eb, &block->key, 0);
 	else
@@ -2610,7 +2607,7 @@ int relocate_tree_blocks(struct btrfs_trans_handle *trans,
 		if (!block->key_ready)
 			btrfs_readahead_tree_block(fs_info, block->bytenr,
 						   block->owner, 0,
-						   block->level);
+						   block->level, NULL);
 	}
 
 	/* Get first keys */
@@ -3645,12 +3642,7 @@ restart:
 	btrfs_block_rsv_release(fs_info, rc->block_rsv, (u64)-1, NULL);
 
 	/* get rid of pinned extents */
-	trans = btrfs_join_transaction(rc->extent_root);
-	if (IS_ERR(trans)) {
-		err = PTR_ERR(trans);
-		goto out_free;
-	}
-	ret = btrfs_commit_transaction(trans);
+	ret = btrfs_commit_current_transaction(rc->extent_root);
 	if (ret && !err)
 		err = ret;
 out_free:
@@ -5043,21 +5035,27 @@ static int do_remap_reloc_trans(struct btrfs_fs_info *fs_info,
 
 	if (bg_needs_free_space) {
 		ret = btrfs_add_block_group_free_space(trans, dest_bg);
-		if (ret)
+		if (ret) {
+			btrfs_abort_transaction(trans, ret);
 			goto fail;
+		}
 	}
 
 	ret = copy_remapped_data(fs_info, start, new_addr, length);
-	if (ret)
+	if (ret) {
+		btrfs_abort_transaction(trans, ret);
 		goto fail;
+	}
 
 	ret = btrfs_remove_from_free_space_tree(trans, new_addr, length);
-	if (ret)
+	if (ret) {
+		btrfs_abort_transaction(trans, ret);
 		goto fail;
+	}
 
 	ret = add_remap_entry(trans, path, src_bg, start, new_addr, length);
 	if (ret) {
-		btrfs_add_to_free_space_tree(trans, new_addr, length);
+		btrfs_abort_transaction(trans, ret);
 		goto fail;
 	}
 

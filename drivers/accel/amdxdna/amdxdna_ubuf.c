@@ -17,7 +17,6 @@
 struct amdxdna_ubuf_priv {
 	struct page **pages;
 	u64 nr_pages;
-	enum amdxdna_ubuf_flag flags;
 	struct mm_struct *mm;
 };
 
@@ -37,11 +36,9 @@ static struct sg_table *amdxdna_ubuf_map(struct dma_buf_attachment *attach,
 	if (ret)
 		goto err_free_sg;
 
-	if (ubuf->flags & AMDXDNA_UBUF_FLAG_MAP_DMA) {
-		ret = dma_map_sgtable(attach->dev, sg, direction, 0);
-		if (ret)
-			goto err_free_table;
-	}
+	ret = dma_map_sgtable(attach->dev, sg, direction, 0);
+	if (ret)
+		goto err_free_table;
 
 	return sg;
 
@@ -56,11 +53,7 @@ static void amdxdna_ubuf_unmap(struct dma_buf_attachment *attach,
 			       struct sg_table *sg,
 			       enum dma_data_direction direction)
 {
-	struct amdxdna_ubuf_priv *ubuf = attach->dmabuf->priv;
-
-	if (ubuf->flags & AMDXDNA_UBUF_FLAG_MAP_DMA)
-		dma_unmap_sgtable(attach->dev, sg, direction, 0);
-
+	dma_unmap_sgtable(attach->dev, sg, direction, 0);
 	sg_free_table(sg);
 	kfree(sg);
 }
@@ -76,64 +69,13 @@ static void amdxdna_ubuf_release(struct dma_buf *dbuf)
 	kfree(ubuf);
 }
 
-static vm_fault_t amdxdna_ubuf_vm_fault(struct vm_fault *vmf)
-{
-	struct vm_area_struct *vma = vmf->vma;
-	struct amdxdna_ubuf_priv *ubuf;
-	unsigned long pfn;
-	pgoff_t pgoff;
-
-	ubuf = vma->vm_private_data;
-	pgoff = (vmf->address - vma->vm_start) >> PAGE_SHIFT;
-
-	pfn = page_to_pfn(ubuf->pages[pgoff]);
-	return vmf_insert_pfn(vma, vmf->address, pfn);
-}
-
-static const struct vm_operations_struct amdxdna_ubuf_vm_ops = {
-	.fault = amdxdna_ubuf_vm_fault,
-};
-
-static int amdxdna_ubuf_mmap(struct dma_buf *dbuf, struct vm_area_struct *vma)
-{
-	struct amdxdna_ubuf_priv *ubuf = dbuf->priv;
-
-	vma->vm_ops = &amdxdna_ubuf_vm_ops;
-	vma->vm_private_data = ubuf;
-	vm_flags_set(vma, VM_PFNMAP | VM_DONTEXPAND | VM_DONTDUMP);
-
-	return 0;
-}
-
-static int amdxdna_ubuf_vmap(struct dma_buf *dbuf, struct iosys_map *map)
-{
-	struct amdxdna_ubuf_priv *ubuf = dbuf->priv;
-	void *kva;
-
-	kva = vmap(ubuf->pages, ubuf->nr_pages, VM_MAP, PAGE_KERNEL);
-	if (!kva)
-		return -EINVAL;
-
-	iosys_map_set_vaddr(map, kva);
-	return 0;
-}
-
-static void amdxdna_ubuf_vunmap(struct dma_buf *dbuf, struct iosys_map *map)
-{
-	vunmap(map->vaddr);
-}
-
 static const struct dma_buf_ops amdxdna_ubuf_dmabuf_ops = {
 	.map_dma_buf = amdxdna_ubuf_map,
 	.unmap_dma_buf = amdxdna_ubuf_unmap,
 	.release = amdxdna_ubuf_release,
-	.mmap = amdxdna_ubuf_mmap,
-	.vmap = amdxdna_ubuf_vmap,
-	.vunmap = amdxdna_ubuf_vunmap,
 };
 
 struct dma_buf *amdxdna_get_ubuf(struct drm_device *dev,
-				 enum amdxdna_ubuf_flag flags,
 				 u32 num_entries, void __user *va_entries)
 {
 	struct amdxdna_dev *xdna = to_xdna_dev(dev);
@@ -152,7 +94,6 @@ struct dma_buf *amdxdna_get_ubuf(struct drm_device *dev,
 	if (!ubuf)
 		return ERR_PTR(-ENOMEM);
 
-	ubuf->flags = flags;
 	ubuf->mm = current->mm;
 	mmgrab(ubuf->mm);
 

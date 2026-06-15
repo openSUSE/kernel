@@ -72,24 +72,6 @@
 #define CY8C95X0_MUX_REGMAP_TO_OFFSET(x, p) \
 	(CY8C95X0_VIRTUAL + (x) - CY8C95X0_PORTSEL + (p) * MUXED_STRIDE)
 
-static const struct i2c_device_id cy8c95x0_id[] = {
-	{ "cy8c9520", 20, },
-	{ "cy8c9540", 40, },
-	{ "cy8c9560", 60, },
-	{ }
-};
-MODULE_DEVICE_TABLE(i2c, cy8c95x0_id);
-
-#define OF_CY8C95X(__nrgpio) ((void *)(__nrgpio))
-
-static const struct of_device_id cy8c95x0_dt_ids[] = {
-	{ .compatible = "cypress,cy8c9520", .data = OF_CY8C95X(20), },
-	{ .compatible = "cypress,cy8c9540", .data = OF_CY8C95X(40), },
-	{ .compatible = "cypress,cy8c9560", .data = OF_CY8C95X(60), },
-	{ }
-};
-MODULE_DEVICE_TABLE(of, cy8c95x0_dt_ids);
-
 static const struct acpi_gpio_params cy8c95x0_irq_gpios = { 0, 0, true };
 
 static const struct acpi_gpio_mapping cy8c95x0_acpi_irq_gpios[] = {
@@ -144,11 +126,9 @@ static const struct dmi_system_id cy8c95x0_dmi_acpi_irq_info[] = {
  * @map:            Mask used to compensate for Gport2 width
  * @nport:          Number of Gports in this chip
  * @gpio_chip:      gpiolib chip
- * @driver_data:    private driver data
  * @dev:            struct device
  * @pctldev:        pin controller device
  * @pinctrl_desc:   pin controller description
- * @name:           Chip controller name
  * @tpin:           Total number of pins
  * @gpio_reset:     GPIO line handler that can reset the IC
  */
@@ -165,11 +145,9 @@ struct cy8c95x0_pinctrl {
 	DECLARE_BITMAP(map, MAX_LINE);
 	unsigned int nport;
 	struct gpio_chip gpio_chip;
-	unsigned long driver_data;
 	struct device *dev;
 	struct pinctrl_dev *pctldev;
 	struct pinctrl_desc pinctrl_desc;
-	char name[32];
 	unsigned int tpin;
 	struct gpio_desc *gpio_reset;
 };
@@ -1313,7 +1291,9 @@ static int cy8c95x0_irq_setup(struct cy8c95x0_pinctrl *chip, int irq)
 	struct device *dev = chip->dev;
 	int ret;
 
-	mutex_init(&chip->irq_lock);
+	ret = devm_mutex_init(chip->dev, &chip->irq_lock);
+	if (ret)
+		return ret;
 
 	bitmap_zero(pending_irqs, MAX_LINE);
 
@@ -1371,13 +1351,13 @@ static int cy8c95x0_detect(struct i2c_client *client,
 		return ret;
 	switch (ret & GENMASK(7, 4)) {
 	case 0x20:
-		name = cy8c95x0_id[0].name;
+		name = "cy8c9520";
 		break;
 	case 0x40:
-		name = cy8c95x0_id[1].name;
+		name = "cy8c9540";
 		break;
 	case 0x60:
-		name = cy8c95x0_id[2].name;
+		name = "cy8c9560";
 		break;
 	default:
 		return -ENODEV;
@@ -1395,6 +1375,7 @@ static int cy8c95x0_probe(struct i2c_client *client)
 	struct cy8c95x0_pinctrl *chip;
 	struct regmap_config regmap_conf;
 	struct regmap_range_cfg regmap_range_conf;
+	unsigned long driver_data;
 	int ret;
 
 	chip = devm_kzalloc(dev, sizeof(*chip), GFP_KERNEL);
@@ -1404,26 +1385,21 @@ static int cy8c95x0_probe(struct i2c_client *client)
 	chip->dev = dev;
 
 	/* Set the device type */
-	chip->driver_data = (uintptr_t)i2c_get_match_data(client);
-	if (!chip->driver_data)
-		return -ENODEV;
+	driver_data = (unsigned long)i2c_get_match_data(client);
 
-	chip->tpin = chip->driver_data & CY8C95X0_GPIO_MASK;
+	chip->tpin = driver_data & CY8C95X0_GPIO_MASK;
 	chip->nport = DIV_ROUND_UP(CY8C95X0_PIN_TO_OFFSET(chip->tpin), BANK_SZ);
 
 	memcpy(&regmap_range_conf, &cy8c95x0_ranges[0], sizeof(regmap_range_conf));
 
 	switch (chip->tpin) {
 	case 20:
-		strscpy(chip->name, cy8c95x0_id[0].name);
 		regmap_range_conf.range_max = CY8C95X0_VIRTUAL + 3 * MUXED_STRIDE - 1;
 		break;
 	case 40:
-		strscpy(chip->name, cy8c95x0_id[1].name);
 		regmap_range_conf.range_max = CY8C95X0_VIRTUAL + 6 * MUXED_STRIDE - 1;
 		break;
 	case 60:
-		strscpy(chip->name, cy8c95x0_id[2].name);
 		regmap_range_conf.range_max = CY8C95X0_VIRTUAL + 8 * MUXED_STRIDE - 1;
 		break;
 	default:
@@ -1461,7 +1437,9 @@ static int cy8c95x0_probe(struct i2c_client *client)
 	bitmap_fill(chip->map, MAX_LINE);
 	bitmap_clear(chip->map, 20, 4);
 
-	mutex_init(&chip->i2c_lock);
+	ret = devm_mutex_init(dev, &chip->i2c_lock);
+	if (ret)
+		return ret;
 
 	if (dmi_first_match(cy8c95x0_dmi_acpi_irq_info)) {
 		ret = cy8c95x0_acpi_get_irq(&client->dev);
@@ -1482,8 +1460,26 @@ static int cy8c95x0_probe(struct i2c_client *client)
 	return cy8c95x0_setup_gpiochip(chip);
 }
 
+static const struct i2c_device_id cy8c95x0_id[] = {
+	{ "cy8c9520", 20 },
+	{ "cy8c9540", 40 },
+	{ "cy8c9560", 60 },
+	{ }
+};
+MODULE_DEVICE_TABLE(i2c, cy8c95x0_id);
+
+#define OF_CY8C95X(__nrgpio) ((void *)(__nrgpio))
+
+static const struct of_device_id cy8c95x0_dt_ids[] = {
+	{ .compatible = "cypress,cy8c9520", .data = OF_CY8C95X(20) },
+	{ .compatible = "cypress,cy8c9540", .data = OF_CY8C95X(40) },
+	{ .compatible = "cypress,cy8c9560", .data = OF_CY8C95X(60) },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, cy8c95x0_dt_ids);
+
 static const struct acpi_device_id cy8c95x0_acpi_ids[] = {
-	{ "INT3490", 40, },
+	{ "INT3490", 40 },
 	{ }
 };
 MODULE_DEVICE_TABLE(acpi, cy8c95x0_acpi_ids);

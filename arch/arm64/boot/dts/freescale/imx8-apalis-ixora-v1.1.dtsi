@@ -66,10 +66,6 @@
 	status = "okay";
 };
 
-&amix {
-	status = "okay";
-};
-
 &asrc0 {
 	status = "okay";
 };
@@ -92,8 +88,6 @@
 &flexcan2 {
 	status = "okay";
 };
-
-/* TODO: GPU */
 
 /* Apalis I2C1 */
 &i2c2 {

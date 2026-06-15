@@ -49,6 +49,18 @@
  *  8. MPC0	 9. MPC1	10. MPC2	11. MPC3
  * 12. MPC4
  *
+ * Known resets in EyeQ6Lplus domain 0 (type EQR_EYEQ5_PCIE):
+ *  0. SPI0	 1. SPI1	 2. UART0	 3. I2C0
+ *  4. I2C1	 5. TIMER0	 6. TIMER1	 7. TIMER2
+ *  8. TIMER3	 9. WD0		10. WD1		11. EXT0
+ * 12. EXT1	13. GPIO
+ *
+ * Known resets in EyeQ6Lplus domain 1 (type EQR_EYEQ5_ACRP):
+ *  0. VMP0	 1. VMP1	 2. VMP2	 3. VMP3
+ *  4. PMA0	 5. PMA1	 6. PMAC0	 7. PMAC1
+ *  8. MPC0	 9. MPC1	10. MPC2	11. MPC3
+ * 12. MPC4
+ *
  * Known resets in EyeQ6H west/east (type EQR_EYEQ6H_SARCR):
  *  0. CAN	 1. SPI0	 2. SPI1	 3. UART0
  *  4. UART1	 5. I2C0	 6. I2C1	 7. -hole-
@@ -410,13 +422,6 @@ static int eqr_of_xlate_twocells(struct reset_controller_dev *rcdev,
 	return eqr_of_xlate_internal(rcdev, reset_spec->args[0], reset_spec->args[1]);
 }
 
-static void eqr_of_node_put(void *_dev)
-{
-	struct device *dev = _dev;
-
-	of_node_put(dev->of_node);
-}
-
 static int eqr_probe(struct auxiliary_device *adev,
 		     const struct auxiliary_device_id *id)
 {
@@ -427,21 +432,8 @@ static int eqr_probe(struct auxiliary_device *adev,
 	int ret;
 
 	/*
-	 * We are an auxiliary device of clk-eyeq. We do not have an OF node by
-	 * default; let's reuse our parent's OF node.
-	 */
-	WARN_ON(dev->of_node);
-	device_set_of_node_from_dev(dev, dev->parent);
-	if (!dev->of_node)
-		return -ENODEV;
-
-	ret = devm_add_action_or_reset(dev, eqr_of_node_put, dev);
-	if (ret)
-		return ret;
-
-	/*
-	 * Using our newfound OF node, we can get match data. We cannot use
-	 * device_get_match_data() because it does not match reused OF nodes.
+	 * Get match data. We cannot use device_get_match_data() because it does
+	 * not accept reused OF nodes; see device_set_of_node_from_dev().
 	 */
 	match = of_match_node(dev->driver->of_match_table, dev->of_node);
 	if (!match || !match->data)
@@ -521,6 +513,24 @@ static const struct eqr_match_data eqr_eyeq6l_data = {
 	.domains	= eqr_eyeq6l_domains,
 };
 
+static const struct eqr_domain_descriptor eqr_eyeq6lplus_domains[] = {
+	{
+		.type = EQR_EYEQ5_PCIE,
+		.valid_mask = 0x3FFF,
+		.offset = 0x004,
+	},
+	{
+		.type = EQR_EYEQ5_ACRP,
+		.valid_mask = 0x00FF,
+		.offset = 0x200,
+	},
+};
+
+static const struct eqr_match_data eqr_eyeq6lplus_data = {
+	.domain_count	= ARRAY_SIZE(eqr_eyeq6lplus_domains),
+	.domains	= eqr_eyeq6lplus_domains,
+};
+
 /* West and east OLBs each have an instance. */
 static const struct eqr_domain_descriptor eqr_eyeq6h_we_domains[] = {
 	{
@@ -555,6 +565,7 @@ static const struct eqr_match_data eqr_eyeq6h_acc_data = {
 static const struct of_device_id eqr_match_table[] = {
 	{ .compatible = "mobileye,eyeq5-olb", .data = &eqr_eyeq5_data },
 	{ .compatible = "mobileye,eyeq6l-olb", .data = &eqr_eyeq6l_data },
+	{ .compatible = "mobileye,eyeq6lplus-olb", .data = &eqr_eyeq6lplus_data },
 	{ .compatible = "mobileye,eyeq6h-west-olb", .data = &eqr_eyeq6h_we_data },
 	{ .compatible = "mobileye,eyeq6h-east-olb", .data = &eqr_eyeq6h_we_data },
 	{ .compatible = "mobileye,eyeq6h-acc-olb", .data = &eqr_eyeq6h_acc_data },

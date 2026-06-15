@@ -4095,14 +4095,49 @@ int pci_dev_reset_iommu_prepare(struct pci_dev *pdev)
 }
 EXPORT_SYMBOL_GPL(pci_dev_reset_iommu_prepare);
 
+static int __group_device_cmp_dma_alias(struct pci_dev *dev, u16 alias,
+					void *data)
+{
+	return alias == *(u16 *)data;
+}
+
+static int group_device_cmp_dma_alias(struct pci_dev *dev, u16 alias,
+				      void *data)
+{
+	return pci_for_each_dma_alias(data, __group_device_cmp_dma_alias,
+				      &alias);
+}
+
+static bool group_device_dma_alias_is_blocked(struct iommu_group *group,
+					      struct group_device *gdev)
+{
+	struct group_device *sibling;
+
+	lockdep_assert_held(&group->mutex);
+
+	if (!dev_is_pci(gdev->dev))
+		return false;
+
+	for_each_group_device(group, sibling) {
+		if (sibling == gdev || !sibling->blocked ||
+		    !dev_is_pci(sibling->dev))
+			continue;
+		if (pci_for_each_dma_alias(to_pci_dev(gdev->dev),
+					   group_device_cmp_dma_alias,
+					   to_pci_dev(sibling->dev)))
+			return true;
+	}
+	return false;
+}
+
 /**
  * pci_dev_reset_iommu_done() - Restore IOMMU after a PCI device reset is done
  * @pdev: PCI device that has finished a reset routine
  *
  * After a PCIe device finishes a reset routine, it wants to restore its IOMMU
- * IOMMU activity, including new translation as well as cache invalidation, by
- * re-attaching all RID/PASID of the device's back to the domains retained in
- * the core-level structure.
+ * activity, including new translation and cache invalidation, by re-attaching
+ * all RID/PASID of the device back to the domains retained in the core-level
+ * structure.
  *
  * Caller must pair it with a successful pci_dev_reset_iommu_prepare().
  *
@@ -4133,6 +4168,20 @@ void pci_dev_reset_iommu_done(struct pci_dev *pdev)
 
 	if (WARN_ON(!group->blocking_domain))
 		return;
+
+	if (group_device_dma_alias_is_blocked(group, gdev)) {
+		/*
+		 * FIXME: DMA aliased devices share the same RID, which would be
+		 * convoluted to handle, as "gdev->blocked" is not sufficient:
+		 *  - "blocked" state is effectively shared across these devices
+		 *  - if the core skipped the blocking on the second device, the
+		 *    IOMMU driver's attachment state would diverge from the HW
+		 *    state
+		 * For now, just warn and see whether real ATS use cases hit it.
+		 */
+		pci_warn(pdev,
+			 "DMA-aliased sibling may be prematurely unblocked\n");
+	}
 
 	/*
 	 * Re-attach RID domain back to group->domain

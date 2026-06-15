@@ -2526,6 +2526,23 @@ static void shadow_walk_next(struct kvm_shadow_walk_iterator *iterator)
 	__shadow_walk_next(iterator, *iterator->sptep);
 }
 
+/*
+ * Note: while normally KVM uses a "bool flush" return value to let
+ * the caller batch flushes, __link_shadow_page() flushes immediately
+ * before populating the parent PTE with the new shadow page.  The
+ * typical callers, direct_map() and FNAME(fetch)(), are not going
+ * to zap more than one huge SPTE anyway.
+ *
+ * The only exception, where @flush can be false, is when a huge SPTE
+ * is replaced with a shadow page SPTE with a fully populated page table,
+ * which can happen from shadow_mmu_split_huge_page().  In this case,
+ * no memory is unmapped across the change to the page tables and no
+ * immediate flush is needed for correctness.
+ *
+ * Even in that case, calls to kvm_mmu_commit_zap_page() are not
+ * batched.  Doing so would require adding an invalid_list argument
+ * all the way down to __walk_slot_rmaps().
+ */
 static void __link_shadow_page(struct kvm *kvm,
 			       struct kvm_mmu_memory_cache *cache, u64 *sptep,
 			       struct kvm_mmu_page *sp, bool flush)
@@ -2541,8 +2558,10 @@ static void __link_shadow_page(struct kvm *kvm,
 		parent_sp = sptep_to_sp(sptep);
 		WARN_ON_ONCE(parent_sp->role.level == PG_LEVEL_4K);
 
-		mmu_page_zap_pte(kvm, parent_sp, sptep, &invalid_list);
-		kvm_mmu_remote_flush_or_zap(kvm, &invalid_list, true);
+		if (mmu_page_zap_pte(kvm, parent_sp, sptep, &invalid_list))
+			kvm_mmu_commit_zap_page(kvm, &invalid_list);
+		else if (flush)
+			kvm_flush_remote_tlbs_sptep(kvm, sptep);
 	}
 
 	spte = make_nonleaf_spte(sp->spt, sp_ad_disabled(sp));
@@ -2932,6 +2951,15 @@ int mmu_try_to_unsync_pages(struct kvm *kvm, const struct kvm_memory_slot *slot,
 	 */
 	if (kvm_gfn_is_write_tracked(kvm, slot, gfn))
 		return -EPERM;
+
+	/*
+	 * Only 4KiB mappings can become unsync, and KVM disallows hugepages
+	 * when accounting 4KiB shadow pages.  Upper-level gPTEs are always
+	 * write-protected (see above), thus if the gfn can be mapped with a
+	 * hugepage and isn't write-tracked, it can't have a shadow page.
+	 */
+	if (!lpage_info_slot(gfn, slot, PG_LEVEL_2M)->disallow_lpage)
+		return 0;
 
 	/*
 	 * The page is not write-tracked, mark existing shadow pages unsync
@@ -7483,8 +7511,13 @@ static void kvm_wake_nx_recovery_thread(struct kvm *kvm)
 
 static int get_nx_huge_pages(char *buffer, const struct kernel_param *kp)
 {
+	int val = *(int *)kp->arg;
+
 	if (nx_hugepage_mitigation_hard_disabled)
 		return sysfs_emit(buffer, "never\n");
+
+	if (val == -1)
+		return sysfs_emit(buffer, "auto\n");
 
 	return param_get_bool(buffer, kp);
 }

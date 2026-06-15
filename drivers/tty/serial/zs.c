@@ -1208,7 +1208,7 @@ static struct console zs_console = {
 
 static struct uart_driver zs_reg = {
 	.owner			= THIS_MODULE,
-	.driver_name		= "serial",
+	.driver_name		= "serial_zs",
 	.dev_name		= "ttyS",
 	.major			= TTY_MAJOR,
 	.minor			= 64,

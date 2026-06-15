@@ -39,8 +39,9 @@ use crate::{
 /// Local convenience function to return a copy of `S` by reinterpreting the bytes starting at
 /// `offset` in `slice`.
 fn frombytes_at<S: FromBytes + Sized>(slice: &[u8], offset: usize) -> Result<S> {
+    let end = offset.checked_add(size_of::<S>()).ok_or(EINVAL)?;
     slice
-        .get(offset..offset + size_of::<S>())
+        .get(offset..end)
         .and_then(S::from_bytes_copy)
         .ok_or(EINVAL)
 }
@@ -115,14 +116,21 @@ impl<'a> HsFirmwareV2<'a> {
             Some(sig_size) => {
                 let patch_sig =
                     frombytes_at::<u32>(self.fw, self.hdr.patch_sig_offset.into_safe_cast())?;
-                let signatures_start = usize::from_safe_cast(self.hdr.sig_prod_offset + patch_sig);
+
+                let signatures_start = self
+                    .hdr
+                    .sig_prod_offset
+                    .checked_add(patch_sig)
+                    .map(usize::from_safe_cast)
+                    .ok_or(EINVAL)?;
+
+                let signatures_end = signatures_start
+                    .checked_add(usize::from_safe_cast(self.hdr.sig_prod_size))
+                    .ok_or(EINVAL)?;
 
                 self.fw
                     // Get signatures range.
-                    .get(
-                        signatures_start
-                            ..signatures_start + usize::from_safe_cast(self.hdr.sig_prod_size),
-                    )
+                    .get(signatures_start..signatures_end)
                     .ok_or(EINVAL)?
                     .chunks_exact(sig_size.into_safe_cast())
             }
@@ -406,6 +414,10 @@ impl FalconDmaLoadable for BooterFirmware {
     fn dmem_load_params(&self) -> FalconDmaLoadTarget {
         self.dmem_load_target.clone()
     }
+}
+
+impl FalconFirmware for BooterFirmware {
+    type Target = Sec2;
 
     fn brom_params(&self) -> FalconBromParams {
         self.brom_params.clone()
@@ -418,8 +430,4 @@ impl FalconDmaLoadable for BooterFirmware {
             self.imem_sec_load_target.src_start
         }
     }
-}
-
-impl FalconFirmware for BooterFirmware {
-    type Target = Sec2;
 }

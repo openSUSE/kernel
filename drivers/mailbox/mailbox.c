@@ -18,8 +18,6 @@
 #include <linux/property.h>
 #include <linux/spinlock.h>
 
-#include "mailbox.h"
-
 static LIST_HEAD(mbox_cons);
 static DEFINE_MUTEX(con_mutex);
 
@@ -74,7 +72,7 @@ static void msg_submit(struct mbox_chan *chan)
 		}
 	}
 
-	if (!err && (chan->txdone_method & TXDONE_BY_POLL)) {
+	if (!err && (chan->txdone_method & MBOX_TXDONE_BY_POLL)) {
 		/* kick start the timer immediately to avoid delays */
 		scoped_guard(spinlock_irqsave, &chan->mbox->poll_hrt_lock)
 			hrtimer_start(&chan->mbox->poll_hrt, 0, HRTIMER_MODE_REL);
@@ -164,7 +162,7 @@ EXPORT_SYMBOL_GPL(mbox_chan_received_data);
  */
 void mbox_chan_txdone(struct mbox_chan *chan, int r)
 {
-	if (unlikely(!(chan->txdone_method & TXDONE_BY_IRQ))) {
+	if (unlikely(!(chan->txdone_method & MBOX_TXDONE_BY_IRQ))) {
 		dev_err(chan->mbox->dev,
 		       "Controller can't run the TX ticker\n");
 		return;
@@ -185,7 +183,7 @@ EXPORT_SYMBOL_GPL(mbox_chan_txdone);
  */
 void mbox_client_txdone(struct mbox_chan *chan, int r)
 {
-	if (unlikely(!(chan->txdone_method & TXDONE_BY_ACK))) {
+	if (unlikely(!(chan->txdone_method & MBOX_TXDONE_BY_ACK))) {
 		dev_err(chan->mbox->dev, "Client can't run the TX ticker\n");
 		return;
 	}
@@ -217,6 +215,29 @@ bool mbox_client_peek_data(struct mbox_chan *chan)
 	return false;
 }
 EXPORT_SYMBOL_GPL(mbox_client_peek_data);
+
+/**
+ * mbox_chan_tx_slots_available - Query the number of available TX queue slots.
+ * @chan: Mailbox channel to query.
+ *
+ * Clients may call this to check how many messages can be queued via
+ * mbox_send_message() before the channel's TX queue is full. This helps
+ * clients avoid the -ENOBUFS error without needing to increase
+ * MBOX_TX_QUEUE_LEN.
+ * This can be called from atomic context.
+ *
+ * Return: Number of available slots in the channel's TX queue.
+ */
+unsigned int mbox_chan_tx_slots_available(struct mbox_chan *chan)
+{
+	unsigned int ret;
+
+	guard(spinlock_irqsave)(&chan->lock);
+	ret = MBOX_TX_QUEUE_LEN - chan->msg_count;
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(mbox_chan_tx_slots_available);
 
 /**
  * mbox_send_message -	For client to submit a message to be
@@ -323,8 +344,8 @@ static int __mbox_bind_client(struct mbox_chan *chan, struct mbox_client *cl)
 		chan->cl = cl;
 		init_completion(&chan->tx_complete);
 
-		if (chan->txdone_method	== TXDONE_BY_POLL && cl->knows_txdone)
-			chan->txdone_method = TXDONE_BY_ACK;
+		if (chan->txdone_method	== MBOX_TXDONE_BY_POLL && cl->knows_txdone)
+			chan->txdone_method = MBOX_TXDONE_BY_ACK;
 	}
 
 	if (chan->mbox->ops->startup) {
@@ -341,7 +362,7 @@ static int __mbox_bind_client(struct mbox_chan *chan, struct mbox_client *cl)
 }
 
 /**
- * mbox_bind_client - Request a mailbox channel.
+ * mbox_bind_client - Bind client to a mailbox channel.
  * @chan: The mailbox channel to bind the client to.
  * @cl: Identity of the client requesting the channel.
  *
@@ -478,8 +499,8 @@ void mbox_free_channel(struct mbox_chan *chan)
 	scoped_guard(spinlock_irqsave, &chan->lock) {
 		chan->cl = NULL;
 		chan->active_req = MBOX_NO_MSG;
-		if (chan->txdone_method == TXDONE_BY_ACK)
-			chan->txdone_method = TXDONE_BY_POLL;
+		if (chan->txdone_method == MBOX_TXDONE_BY_ACK)
+			chan->txdone_method = MBOX_TXDONE_BY_POLL;
 	}
 
 	module_put(chan->mbox->dev->driver->owner);
@@ -509,13 +530,13 @@ int mbox_controller_register(struct mbox_controller *mbox)
 		return -EINVAL;
 
 	if (mbox->txdone_irq)
-		txdone = TXDONE_BY_IRQ;
+		txdone = MBOX_TXDONE_BY_IRQ;
 	else if (mbox->txdone_poll)
-		txdone = TXDONE_BY_POLL;
+		txdone = MBOX_TXDONE_BY_POLL;
 	else /* It has to be ACK then */
-		txdone = TXDONE_BY_ACK;
+		txdone = MBOX_TXDONE_BY_ACK;
 
-	if (txdone == TXDONE_BY_POLL) {
+	if (txdone == MBOX_TXDONE_BY_POLL) {
 
 		if (!mbox->ops->last_tx_done) {
 			dev_err(mbox->dev, "last_tx_done method is absent\n");

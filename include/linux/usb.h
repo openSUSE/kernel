@@ -2082,6 +2082,8 @@ static inline int usb_translate_errors(int error_code)
 	case -ENODEV:
 	case -EOPNOTSUPP:
 		return error_code;
+	case -ENOSPC:
+		return -EBUSY;
 	default:
 		return -EIO;
 	}

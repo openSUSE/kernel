@@ -148,13 +148,6 @@ struct epitem {
 	/* The file descriptor information this item refers to */
 	struct epoll_filefd ffd;
 
-	/*
-	 * Protected by file->f_lock, true for to-be-released epitem already
-	 * removed from the "struct file" items list; together with
-	 * eventpoll->refcount orchestrates "struct eventpoll" disposal
-	 */
-	bool dying;
-
 	/* List containing poll wait queues */
 	struct eppoll_entry *pwqlist;
 
@@ -220,10 +213,7 @@ struct eventpoll {
 	struct hlist_head refs;
 	u8 loop_check_depth;
 
-	/*
-	 * usage count, used together with epitem->dying to
-	 * orchestrate the disposal of this struct
-	 */
+	/* usage count, orchestrates "struct eventpoll" disposal */
 	refcount_t refcount;
 
 	/* used to defer freeing past ep_get_upwards_depth_proc() RCU walk */
@@ -855,18 +845,18 @@ static struct file *epi_fget(const struct epitem *epi)
 }
 
 /*
- * Called with &file->f_lock held,
- * returns with it released
+ * Takes &file->f_lock; returns with it released.
  */
 static void ep_remove_file(struct eventpoll *ep, struct epitem *epi,
 			     struct file *file)
 {
 	struct epitems_head *to_free = NULL;
-	struct hlist_head *head = file->f_ep;
+	struct hlist_head *head;
 
 	lockdep_assert_held(&ep->mtx);
-	lockdep_assert_held(&file->f_lock);
 
+	spin_lock(&file->f_lock);
+	head = file->f_ep;
 	if (hlist_is_singular_node(&epi->fllink, head)) {
 		/* See eventpoll_release() for details. */
 		WRITE_ONCE(file->f_ep, NULL);
@@ -882,7 +872,7 @@ static void ep_remove_file(struct eventpoll *ep, struct epitem *epi,
 	free_ephead(to_free);
 }
 
-static bool ep_remove_epi(struct eventpoll *ep, struct epitem *epi)
+static void ep_remove_epi(struct eventpoll *ep, struct epitem *epi)
 {
 	lockdep_assert_held(&ep->mtx);
 
@@ -904,13 +894,12 @@ static bool ep_remove_epi(struct eventpoll *ep, struct epitem *epi)
 	kfree_rcu(epi, rcu);
 
 	percpu_counter_dec(&ep->user->epoll_watches);
-	return true;
 }
 
 /*
  * ep_remove variant for callers owing an additional reference to the ep
  */
-static void ep_remove_safe(struct eventpoll *ep, struct epitem *epi)
+static void ep_remove(struct eventpoll *ep, struct epitem *epi)
 {
 	struct file *file __free(fput) = NULL;
 
@@ -919,23 +908,18 @@ static void ep_remove_safe(struct eventpoll *ep, struct epitem *epi)
 
 	ep_unregister_pollwait(ep, epi);
 
-	/* cheap sync with eventpoll_release_file() */
-	if (unlikely(READ_ONCE(epi->dying)))
-		return;
-
 	/*
 	 * If we manage to grab a reference it means we're not in
-	 * eventpoll_release_file() and aren't going to be.
+	 * eventpoll_release_file() and aren't going to be: once @file's
+	 * refcount has reached zero, file_ref_get() cannot bring it back.
 	 */
 	file = epi_fget(epi);
 	if (!file)
 		return;
 
-	spin_lock(&file->f_lock);
 	ep_remove_file(ep, epi, file);
-
-	if (ep_remove_epi(ep, epi))
-		WARN_ON_ONCE(ep_refcount_dec_and_test(ep));
+	ep_remove_epi(ep, epi);
+	WARN_ON_ONCE(ep_refcount_dec_and_test(ep));
 }
 
 static void ep_clear_and_put(struct eventpoll *ep)
@@ -961,7 +945,7 @@ static void ep_clear_and_put(struct eventpoll *ep)
 
 	/*
 	 * Walks through the whole tree and try to free each "struct epitem".
-	 * Note that ep_remove_safe() will not remove the epitem in case of a
+	 * Note that ep_remove() will not remove the epitem in case of a
 	 * racing eventpoll_release_file(); the latter will do the removal.
 	 * At this point we are sure no poll callbacks will be lingering around.
 	 * Since we still own a reference to the eventpoll struct, the loop can't
@@ -970,7 +954,7 @@ static void ep_clear_and_put(struct eventpoll *ep)
 	for (rbp = rb_first_cached(&ep->rbr); rbp; rbp = next) {
 		next = rb_next(rbp);
 		epi = rb_entry(rbp, struct epitem, rbn);
-		ep_remove_safe(ep, epi);
+		ep_remove(ep, epi);
 		cond_resched();
 	}
 
@@ -1094,7 +1078,7 @@ static void ep_show_fdinfo(struct seq_file *m, struct file *f)
 		struct inode *inode = file_inode(epi->ffd.file);
 
 		seq_printf(m, "tfd: %8d events: %8x data: %16llx "
-			   " pos:%lli ino:%lx sdev:%x\n",
+			   " pos:%lli ino:%llx sdev:%x\n",
 			   epi->ffd.fd, epi->event.events,
 			   (long long)epi->event.data,
 			   (long long)epi->ffd.file->f_pos,
@@ -1127,18 +1111,17 @@ void eventpoll_release_file(struct file *file)
 {
 	struct eventpoll *ep;
 	struct epitem *epi;
-	bool dispose;
 
 	/*
-	 * Use the 'dying' flag to prevent a concurrent ep_clear_and_put() from
-	 * touching the epitems list before eventpoll_release_file() can access
-	 * the ep->mtx.
+	 * A concurrent ep_remove() cannot outrace us: it pins @file via
+	 * epi_fget(), which fails once __fput() has dropped the refcount
+	 * to zero -- the path we're on. So any racing ep_remove() bails
+	 * and leaves the epi for us to clean up here.
 	 */
 again:
 	spin_lock(&file->f_lock);
 	if (file->f_ep && file->f_ep->first) {
 		epi = hlist_entry(file->f_ep->first, struct epitem, fllink);
-		WRITE_ONCE(epi->dying, true);
 		spin_unlock(&file->f_lock);
 
 		/*
@@ -1150,13 +1133,12 @@ again:
 
 		ep_unregister_pollwait(ep, epi);
 
-		spin_lock(&file->f_lock);
 		ep_remove_file(ep, epi, file);
-		dispose = ep_remove_epi(ep, epi);
+		ep_remove_epi(ep, epi);
 
 		mutex_unlock(&ep->mtx);
 
-		if (dispose && ep_refcount_dec_and_test(ep))
+		if (ep_refcount_dec_and_test(ep))
 			ep_free(ep);
 		goto again;
 	}
@@ -1635,21 +1617,21 @@ static int ep_insert(struct eventpoll *ep, const struct epoll_event *event,
 		mutex_unlock(&tep->mtx);
 
 	/*
-	 * ep_remove_safe() calls in the later error paths can't lead to
+	 * ep_remove() calls in the later error paths can't lead to
 	 * ep_free() as the ep file itself still holds an ep reference.
 	 */
 	ep_get(ep);
 
 	/* now check if we've created too many backpaths */
 	if (unlikely(full_check && reverse_path_check())) {
-		ep_remove_safe(ep, epi);
+		ep_remove(ep, epi);
 		return -EINVAL;
 	}
 
 	if (epi->event.events & EPOLLWAKEUP) {
 		error = ep_create_wakeup_source(epi);
 		if (error) {
-			ep_remove_safe(ep, epi);
+			ep_remove(ep, epi);
 			return error;
 		}
 	}
@@ -1673,7 +1655,7 @@ static int ep_insert(struct eventpoll *ep, const struct epoll_event *event,
 	 * high memory pressure.
 	 */
 	if (unlikely(!epq.epi)) {
-		ep_remove_safe(ep, epi);
+		ep_remove(ep, epi);
 		return -ENOMEM;
 	}
 
@@ -2368,7 +2350,7 @@ int do_epoll_ctl(int epfd, int op, int fd, struct epoll_event *epds,
 			 * The eventpoll itself is still alive: the refcount
 			 * can't go to zero here.
 			 */
-			ep_remove_safe(ep, epi);
+			ep_remove(ep, epi);
 			error = 0;
 		} else {
 			error = -ENOENT;

@@ -602,7 +602,8 @@ static resource_size_t pcmcia_common_align(struct pcmcia_align_data *align_data,
 
 static resource_size_t
 pcmcia_align(void *align_data, const struct resource *res,
-	resource_size_t size, resource_size_t align)
+	     const struct resource *empty_res,
+	     resource_size_t size, resource_size_t align)
 {
 	struct pcmcia_align_data *data = align_data;
 	struct resource_map *m;
@@ -935,7 +936,7 @@ static int adjust_io(struct pcmcia_socket *s, unsigned int action, unsigned long
 static int nonstatic_autoadd_resources(struct pcmcia_socket *s)
 {
 	struct resource *res;
-	int i, done = 0;
+	int done = 0;
 
 	if (!s->cb_dev || !s->cb_dev->bus)
 		return -ENODEV;
@@ -962,10 +963,10 @@ static int nonstatic_autoadd_resources(struct pcmcia_socket *s)
 	if (s->cb_dev->bus->number == 0)
 		return -EINVAL;
 
-	for (i = 0; i < PCI_BRIDGE_RESOURCE_NUM; i++) {
+	for (unsigned int i = 0; i < PCI_BRIDGE_RESOURCE_NUM; i++) {
 		res = s->cb_dev->bus->resource[i];
 #else
-	pci_bus_for_each_resource(s->cb_dev->bus, res, i) {
+	pci_bus_for_each_resource(s->cb_dev->bus, res) {
 #endif
 		if (!res)
 			continue;

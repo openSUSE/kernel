@@ -130,6 +130,7 @@ void amdgpu_umc_handle_bad_pages(struct amdgpu_device *adev,
 			if (adev->umc.ras && adev->umc.ras->ras_block.hw_ops &&
 			    adev->umc.ras->ras_block.hw_ops->query_ras_error_address &&
 			    adev->umc.max_ras_err_cnt_per_query) {
+				kfree(err_data->err_addr);
 				err_data->err_addr =
 					kzalloc_objs(struct eeprom_table_record,
 						     adev->umc.max_ras_err_cnt_per_query);
@@ -160,6 +161,7 @@ void amdgpu_umc_handle_bad_pages(struct amdgpu_device *adev,
 			if (adev->umc.ras &&
 			    adev->umc.ras->ecc_info_query_ras_error_address &&
 			    adev->umc.max_ras_err_cnt_per_query) {
+				kfree(err_data->err_addr);
 				err_data->err_addr =
 					kzalloc_objs(struct eeprom_table_record,
 						     adev->umc.max_ras_err_cnt_per_query);
@@ -395,6 +397,17 @@ int amdgpu_umc_process_ecc_irq(struct amdgpu_device *adev,
 	ih_data.head = *ras_if;
 
 	amdgpu_ras_interrupt_dispatch(adev, &ih_data);
+	return 0;
+}
+
+int amdgpu_umc_uniras_process_ecc_irq(struct amdgpu_device *adev,
+			struct amdgpu_irq_src *source,
+			struct amdgpu_iv_entry *entry)
+{
+	struct ras_ih_info ih_info = {0};
+
+	ih_info.block = RAS_BLOCK_ID__UMC;
+	amdgpu_ras_mgr_dispatch_interrupt(adev, &ih_info);
 	return 0;
 }
 

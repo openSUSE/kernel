@@ -77,4 +77,17 @@
 #  define __nolibc_static_assert(_t)
 #endif
 
+/* Make the optimizer believe the variable can be manipulated arbitrarily. */
+#define _NOLIBC_OPTIMIZER_HIDE_VAR(var)	__asm__ ("" : "+r" (var))
+
+#if __nolibc_has_feature(undefined_behavior_sanitizer)
+#  if defined(__clang__)
+#    define __nolibc_no_sanitize_undefined __attribute__((no_sanitize("function")))
+#  else
+#    define __nolibc_no_sanitize_undefined __attribute__((no_sanitize_undefined))
+#  endif
+#else
+#  define __nolibc_no_sanitize_undefined
+#endif
+
 #endif /* _NOLIBC_COMPILER_H */

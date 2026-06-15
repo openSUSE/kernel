@@ -767,8 +767,9 @@ static void fza_rx(struct net_device *dev)
 			fp->rx_dma[i] = dma;
 		} else {
 			fp->stats.rx_dropped++;
-			pr_notice("%s: memory squeeze, dropping packet\n",
-				  fp->name);
+			pr_notice_ratelimited(
+				"%s: memory squeeze, dropping packet\n",
+				fp->name);
 		}
 
 err_rx:
@@ -983,7 +984,7 @@ static irqreturn_t fza_interrupt(int irq, void *dev_id)
 
 		case FZA_STATE_UNINITIALIZED:
 			netif_carrier_off(dev);
-			timer_delete_sync(&fp->reset_timer);
+			timer_delete_sync_try(&fp->reset_timer);
 			fp->ring_cmd_index = 0;
 			fp->ring_uns_index = 0;
 			fp->ring_rmc_tx_index = 0;
@@ -1017,7 +1018,9 @@ static irqreturn_t fza_interrupt(int irq, void *dev_id)
 			fp->queue_active = 0;
 			netif_stop_queue(dev);
 			pr_debug("%s: queue stopped\n", fp->name);
-			timer_delete_sync(&fp->reset_timer);
+
+			spin_lock(&fp->lock);
+			timer_delete(&fp->reset_timer);
 			pr_warn("%s: halted, reason: %x\n", fp->name,
 				FZA_STATUS_GET_HALT(status));
 			fza_regs_dump(fp);
@@ -1026,6 +1029,8 @@ static irqreturn_t fza_interrupt(int irq, void *dev_id)
 			fp->timer_state = 0;
 			fp->reset_timer.expires = jiffies + 45 * HZ;
 			add_timer(&fp->reset_timer);
+			spin_unlock(&fp->lock);
+
 			break;
 
 		default:
@@ -1045,7 +1050,9 @@ static irqreturn_t fza_interrupt(int irq, void *dev_id)
 static void fza_reset_timer(struct timer_list *t)
 {
 	struct fza_private *fp = timer_container_of(fp, t, reset_timer);
+	unsigned long flags;
 
+	spin_lock_irqsave(&fp->lock, flags);
 	if (!fp->timer_state) {
 		pr_err("%s: RESET timed out!\n", fp->name);
 		pr_info("%s: trying harder...\n", fp->name);
@@ -1068,6 +1075,7 @@ static void fza_reset_timer(struct timer_list *t)
 		fp->reset_timer.expires = jiffies + 45 * HZ;
 	}
 	add_timer(&fp->reset_timer);
+	spin_unlock_irqrestore(&fp->lock, flags);
 }
 
 static int fza_set_mac_address(struct net_device *dev, void *addr)

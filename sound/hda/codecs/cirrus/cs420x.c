@@ -264,14 +264,9 @@ static int cs_init(struct hda_codec *codec)
 
 	snd_hda_gen_init(codec);
 
-	if (spec->gpio_mask) {
-		snd_hda_codec_write(codec, 0x01, 0, AC_VERB_SET_GPIO_MASK,
-				    spec->gpio_mask);
-		snd_hda_codec_write(codec, 0x01, 0, AC_VERB_SET_GPIO_DIRECTION,
-				    spec->gpio_dir);
-		snd_hda_codec_write(codec, 0x01, 0, AC_VERB_SET_GPIO_DATA,
-				    spec->gpio_data);
-	}
+	if (spec->gpio_mask)
+		snd_hda_codec_set_gpio(codec, spec->gpio_mask, spec->gpio_dir,
+				       spec->gpio_data, 0);
 
 	if (spec->vendor_nid == CS420X_VENDOR_NID) {
 		init_input_coef(codec);
@@ -587,6 +582,7 @@ static const struct hda_quirk cs4208_mac_fixup_tbl[] = {
 	SND_PCI_QUIRK(0x106b, 0x7200, "MacBookAir 6,2", CS4208_MBA6),
 	SND_PCI_QUIRK(0x106b, 0x7800, "MacPro 6,1", CS4208_MACMINI),
 	SND_PCI_QUIRK(0x106b, 0x7b00, "MacBookPro 12,1", CS4208_MBP11),
+	SND_PCI_QUIRK(0x106b, 0x7f00, "iMac 16,1", CS4208_MBP11),
 	{} /* terminator */
 };
 
