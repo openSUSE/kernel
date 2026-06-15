@@ -413,11 +413,14 @@ extern int tcp_v4_conn_request(struct sock *sk, struct sk_buff *skb);
 extern struct sock * tcp_create_openreq_child(struct sock *sk,
 					      struct request_sock *req,
 					      struct sk_buff *skb);
+struct sock *tcp_v4_syn_recv_sock_bsc1264610(struct sock *sk, struct sk_buff *skb,
+					     struct request_sock *req,
+					     struct dst_entry *dst,
+					     void (*opt_child_init)(struct sock *newsk,
+								    const struct sock *sk));
 extern struct sock * tcp_v4_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 					  struct request_sock *req,
-					  struct dst_entry *dst,
-					  void (*opt_child_init)(struct sock *newsk,
-								 const struct sock *sk));
+					  struct dst_entry *dst);
 extern int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb);
 extern int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr,
 			  int addr_len);

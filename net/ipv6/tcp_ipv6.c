@@ -1383,16 +1383,14 @@ static void tcp_v6_mapped_child_init(struct sock *newsk, const struct sock *sk)
 	newnp->pktoptions  = NULL;
 	newnp->opt	   = NULL;
 
-	/* tcp_v4_syn_recv_sock() has initialized newinet->mc_{index,ttl} */
+	/* tcp_v4_syn_recv_sock_bsc1264610() has initialized newinet->mc_{index,ttl} */
 	newnp->mcast_oif   = newinet->mc_index;
 	newnp->mcast_hops  = newinet->mc_ttl;
 }
 
 static struct sock * tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 					  struct request_sock *req,
-					  struct dst_entry *dst,
-					  void (*opt_child_init)(struct sock *newsk,
-								 const struct sock *sk))
+					  struct dst_entry *dst)
 {
 	struct inet6_request_sock *treq;
 	struct ipv6_pinfo *newnp, *np = inet6_sk(sk);
@@ -1407,8 +1405,8 @@ static struct sock * tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 	struct flowi6 fl6;
 
 	if (skb->protocol == htons(ETH_P_IP))
-		return tcp_v4_syn_recv_sock(sk, skb, req, dst,
-					    tcp_v6_mapped_child_init);
+		return tcp_v4_syn_recv_sock_bsc1264610(sk, skb, req, dst,
+						       tcp_v6_mapped_child_init);
 	treq = inet6_rsk(req);
 
 	if (sk_acceptq_is_full(sk))

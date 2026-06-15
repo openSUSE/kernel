@@ -1416,12 +1416,17 @@ EXPORT_SYMBOL(tcp_v4_conn_request);
 /*
  * The three way handshake has completed - we got a valid synack -
  * now create the new socket.
+ *
+ * Function patched for bsc#1264610 provided under a different name, the
+ * unpatched one is just a wrapper calling it with null opt_child_init
+ * (i.e. preserving the original behaviour). This version is only called
+ * directly from tcp_v6_syn_recv_sock().
  */
-struct sock *tcp_v4_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
-				  struct request_sock *req,
-				  struct dst_entry *dst,
-				  void (*opt_child_init)(struct sock *newsk,
-							 const struct sock *sk))
+struct sock *tcp_v4_syn_recv_sock_bsc1264610(struct sock *sk, struct sk_buff *skb,
+					     struct request_sock *req,
+					     struct dst_entry *dst,
+					     void (*opt_child_init)(struct sock *newsk,
+								    const struct sock *sk))
 {
 	struct inet_request_sock *ireq;
 	struct inet_sock *newinet;
@@ -1516,6 +1521,14 @@ put_and_exit:
 	bh_unlock_sock(newsk);
 	sock_put(newsk);
 	goto exit;
+}
+EXPORT_SYMBOL(tcp_v4_syn_recv_sock_bsc1264610);
+
+struct sock *tcp_v4_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
+				  struct request_sock *req,
+				  struct dst_entry *dst)
+{
+	return tcp_v4_syn_recv_sock_bsc1264610(sk, skb, req, dst, NULL);
 }
 EXPORT_SYMBOL(tcp_v4_syn_recv_sock);
 
