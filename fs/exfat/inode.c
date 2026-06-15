@@ -13,13 +13,16 @@
 #include <linux/uio.h>
 #include <linux/random.h>
 #include <linux/iversion.h>
+#include <linux/iomap.h>
 
 #include "exfat_raw.h"
 #include "exfat_fs.h"
+#include "iomap.h"
 
 int __exfat_write_inode(struct inode *inode, int sync)
 {
 	unsigned long long on_disk_size;
+	unsigned long long on_disk_valid_size;
 	struct exfat_dentry *ep, *ep2;
 	struct exfat_entry_set_cache es;
 	struct super_block *sb = inode->i_sb;
@@ -74,17 +77,12 @@ int __exfat_write_inode(struct inode *inode, int sync)
 
 	if (ei->start_clu == EXFAT_EOF_CLUSTER)
 		on_disk_size = 0;
+	/* valid_size must not exceed size in the on-disk stream entry. */
+	on_disk_valid_size = min_t(unsigned long long, ei->valid_size,
+			on_disk_size);
 
 	ep2->dentry.stream.size = cpu_to_le64(on_disk_size);
-	/*
-	 * mmap write does not use exfat_write_end(), valid_size may be
-	 * extended to the sector-aligned length in exfat_get_block().
-	 * So we need to fixup valid_size to the writren length.
-	 */
-	if (on_disk_size < ei->valid_size)
-		ep2->dentry.stream.valid_size = ep2->dentry.stream.size;
-	else
-		ep2->dentry.stream.valid_size = cpu_to_le64(ei->valid_size);
+	ep2->dentry.stream.valid_size = cpu_to_le64(on_disk_valid_size);
 
 	if (on_disk_size) {
 		ep2->dentry.stream.flags = ei->flags;
@@ -123,7 +121,7 @@ void exfat_sync_inode(struct inode *inode)
  * Output: errcode, cluster number
  * *clu = (~0), if it's unable to allocate a new cluster
  */
-static int exfat_map_cluster(struct inode *inode, unsigned int clu_offset,
+int exfat_map_cluster(struct inode *inode, unsigned int clu_offset,
 		unsigned int *clu, unsigned int *count, int create,
 		bool *balloc)
 {
@@ -377,7 +375,13 @@ unlock_ret:
 
 static int exfat_read_folio(struct file *file, struct folio *folio)
 {
-	return mpage_read_folio(folio, exfat_get_block);
+	struct iomap_read_folio_ctx ctx = {
+		.cur_folio = folio,
+		.ops = &exfat_iomap_bio_read_ops,
+	};
+
+	iomap_read_folio(&exfat_iomap_ops, &ctx, NULL);
+	return 0;
 }
 
 static void exfat_readahead(struct readahead_control *rac)
@@ -386,6 +390,10 @@ static void exfat_readahead(struct readahead_control *rac)
 	struct inode *inode = mapping->host;
 	struct exfat_inode_info *ei = EXFAT_I(inode);
 	loff_t pos = readahead_pos(rac);
+	struct iomap_read_folio_ctx ctx = {
+		.ops = &exfat_iomap_bio_read_ops,
+		.rac = rac,
+	};
 
 	/* Range cross valid_size, read it page by page. */
 	if (ei->valid_size < i_size_read(inode) &&
@@ -393,16 +401,22 @@ static void exfat_readahead(struct readahead_control *rac)
 	    ei->valid_size < pos + readahead_length(rac))
 		return;
 
-	mpage_readahead(rac, exfat_get_block);
+	iomap_readahead(&exfat_iomap_ops, &ctx, NULL);
 }
 
 static int exfat_writepages(struct address_space *mapping,
 		struct writeback_control *wbc)
 {
+	struct iomap_writepage_ctx wpc = {
+		.inode		= mapping->host,
+		.wbc		= wbc,
+		.ops		= &exfat_writeback_ops,
+	};
+
 	if (unlikely(exfat_forced_shutdown(mapping->host->i_sb)))
 		return -EIO;
 
-	return mpage_writepages(mapping, wbc, exfat_get_block);
+	return iomap_writepages(&wpc);
 }
 
 static void exfat_write_failed(struct address_space *mapping, loff_t to)
@@ -414,51 +428,6 @@ static void exfat_write_failed(struct address_space *mapping, loff_t to)
 		inode_set_mtime_to_ts(inode, inode_set_ctime_current(inode));
 		exfat_truncate(inode);
 	}
-}
-
-static int exfat_write_begin(const struct kiocb *iocb,
-			     struct address_space *mapping,
-			     loff_t pos, unsigned int len,
-			     struct folio **foliop, void **fsdata)
-{
-	int ret;
-
-	if (unlikely(exfat_forced_shutdown(mapping->host->i_sb)))
-		return -EIO;
-
-	ret = block_write_begin(mapping, pos, len, foliop, exfat_get_block);
-
-	if (ret < 0)
-		exfat_write_failed(mapping, pos+len);
-
-	return ret;
-}
-
-static int exfat_write_end(const struct kiocb *iocb,
-			   struct address_space *mapping,
-			   loff_t pos, unsigned int len, unsigned int copied,
-			   struct folio *folio, void *fsdata)
-{
-	struct inode *inode = mapping->host;
-	struct exfat_inode_info *ei = EXFAT_I(inode);
-	int err;
-
-	err = generic_write_end(iocb, mapping, pos, len, copied, folio, fsdata);
-	if (err < len)
-		exfat_write_failed(mapping, pos+len);
-
-	if (!(err < 0) && pos + err > ei->valid_size) {
-		ei->valid_size = pos + err;
-		mark_inode_dirty(inode);
-	}
-
-	if (!(err < 0) && !(ei->attr & EXFAT_ATTR_ARCHIVE)) {
-		inode_set_mtime_to_ts(inode, inode_set_ctime_current(inode));
-		ei->attr |= EXFAT_ATTR_ARCHIVE;
-		mark_inode_dirty(inode);
-	}
-
-	return err;
 }
 
 static ssize_t exfat_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
@@ -510,34 +479,23 @@ static sector_t exfat_aop_bmap(struct address_space *mapping, sector_t block)
 
 	/* exfat_get_cluster() assumes the requested blocknr isn't truncated. */
 	down_read(&EXFAT_I(mapping->host)->truncate_lock);
-	blocknr = generic_block_bmap(mapping, block, exfat_get_block);
+	blocknr = iomap_bmap(mapping, block, &exfat_iomap_ops);
 	up_read(&EXFAT_I(mapping->host)->truncate_lock);
 	return blocknr;
 }
 
-/*
- * exfat_block_truncate_page() zeroes out a mapping from file offset `from'
- * up to the end of the block which corresponds to `from'.
- * This is required during truncate to physically zeroout the tail end
- * of that block so it doesn't yield old data if the file is later grown.
- * Also, avoid causing failure from fsx for cases of "data past EOF"
- */
-int exfat_block_truncate_page(struct inode *inode, loff_t from)
-{
-	return block_truncate_page(inode->i_mapping, from, exfat_get_block);
-}
-
 static const struct address_space_operations exfat_aops = {
-	.dirty_folio	= block_dirty_folio,
-	.invalidate_folio = block_invalidate_folio,
-	.read_folio	= exfat_read_folio,
-	.readahead	= exfat_readahead,
-	.writepages	= exfat_writepages,
-	.write_begin	= exfat_write_begin,
-	.write_end	= exfat_write_end,
-	.direct_IO	= exfat_direct_IO,
-	.bmap		= exfat_aop_bmap,
-	.migrate_folio	= buffer_migrate_folio,
+	.read_folio		= exfat_read_folio,
+	.readahead		= exfat_readahead,
+	.writepages		= exfat_writepages,
+	.dirty_folio		= iomap_dirty_folio,
+	.bmap			= exfat_aop_bmap,
+	.migrate_folio		= filemap_migrate_folio,
+	.is_partially_uptodate	= iomap_is_partially_uptodate,
+	.error_remove_folio	= generic_error_remove_folio,
+	.release_folio		= iomap_release_folio,
+	.invalidate_folio	= iomap_invalidate_folio,
+	.direct_IO		= exfat_direct_IO,
 };
 
 static inline unsigned long exfat_hash(loff_t i_pos)
@@ -601,6 +559,7 @@ static int exfat_fill_inode(struct inode *inode, struct exfat_dir_entry *info)
 	ei->flags = info->flags;
 	ei->type = info->type;
 	ei->valid_size = info->valid_size;
+	ei->zeroed_size = info->valid_size;
 
 	ei->version = 0;
 	ei->hint_stat.eidx = 0;
