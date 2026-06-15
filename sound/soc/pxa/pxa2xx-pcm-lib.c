@@ -9,8 +9,9 @@
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
-#include <sound/pxa2xx-lib.h>
 #include <sound/dmaengine_pcm.h>
+
+#include "pxa2xx-lib.h"
 
 static const struct snd_pcm_hardware pxa2xx_pcm_hardware = {
 	.info			= SNDRV_PCM_INFO_MMAP |
@@ -29,8 +30,8 @@ static const struct snd_pcm_hardware pxa2xx_pcm_hardware = {
 	.fifo_size		= 32,
 };
 
-int pxa2xx_pcm_hw_params(struct snd_pcm_substream *substream,
-			 struct snd_pcm_hw_params *params)
+static int pxa2xx_pcm_hw_params(struct snd_pcm_substream *substream,
+			        struct snd_pcm_hw_params *params)
 {
 	struct dma_chan *chan = snd_dmaengine_pcm_get_chan(substream);
 	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
@@ -56,28 +57,24 @@ int pxa2xx_pcm_hw_params(struct snd_pcm_substream *substream,
 
 	return 0;
 }
-EXPORT_SYMBOL(pxa2xx_pcm_hw_params);
 
-int pxa2xx_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
+static int pxa2xx_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 {
 	return snd_dmaengine_pcm_trigger(substream, cmd);
 }
-EXPORT_SYMBOL(pxa2xx_pcm_trigger);
 
-snd_pcm_uframes_t
+static snd_pcm_uframes_t
 pxa2xx_pcm_pointer(struct snd_pcm_substream *substream)
 {
 	return snd_dmaengine_pcm_pointer(substream);
 }
-EXPORT_SYMBOL(pxa2xx_pcm_pointer);
 
-int pxa2xx_pcm_prepare(struct snd_pcm_substream *substream)
+static int pxa2xx_pcm_prepare(struct snd_pcm_substream *substream)
 {
 	return 0;
 }
-EXPORT_SYMBOL(pxa2xx_pcm_prepare);
 
-int pxa2xx_pcm_open(struct snd_pcm_substream *substream)
+static int pxa2xx_pcm_open(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
@@ -114,22 +111,19 @@ int pxa2xx_pcm_open(struct snd_pcm_substream *substream)
 		substream, dma_request_slave_channel(snd_soc_rtd_to_cpu(rtd, 0)->dev,
 						     dma_params->chan_name));
 }
-EXPORT_SYMBOL(pxa2xx_pcm_open);
 
-int pxa2xx_pcm_close(struct snd_pcm_substream *substream)
+static int pxa2xx_pcm_close(struct snd_pcm_substream *substream)
 {
 	return snd_dmaengine_pcm_close_release_chan(substream);
 }
-EXPORT_SYMBOL(pxa2xx_pcm_close);
 
-int pxa2xx_pcm_preallocate_dma_buffer(struct snd_pcm *pcm)
+static int pxa2xx_pcm_preallocate_dma_buffer(struct snd_pcm *pcm)
 {
 	size_t size = pxa2xx_pcm_hardware.buffer_bytes_max;
 
 	return snd_pcm_set_fixed_buffer_all(pcm, SNDRV_DMA_TYPE_DEV_WC,
 					    pcm->card->dev, size);
 }
-EXPORT_SYMBOL(pxa2xx_pcm_preallocate_dma_buffer);
 
 int pxa2xx_soc_pcm_new(struct snd_soc_component *component,
 		       struct snd_soc_pcm_runtime *rtd)

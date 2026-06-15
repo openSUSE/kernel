@@ -23,13 +23,13 @@
 #include <linux/platform_data/asoc-pxa.h>
 
 #include "pxa2xx-ac97-regs.h"
+#include "pxa2xx-lib.h"
 
 static DEFINE_MUTEX(car_mutex);
 static DECLARE_WAIT_QUEUE_HEAD(gsr_wq);
 static volatile long gsr_bits;
 static struct clk *ac97_clk;
 static struct clk *ac97conf_clk;
-static int reset_gpio;
 struct gpio_desc *rst_gpio;
 static void __iomem *ac97_reg_base;
 
@@ -83,7 +83,6 @@ int pxa2xx_ac97_read(int slot, unsigned short reg)
 	wait_event_timeout(gsr_wq, (readl(ac97_reg_base + GSR) | gsr_bits) & GSR_SDONE, 1);
 	return val;
 }
-EXPORT_SYMBOL_GPL(pxa2xx_ac97_read);
 
 int pxa2xx_ac97_write(int slot, unsigned short reg, unsigned short val)
 {
@@ -113,7 +112,6 @@ int pxa2xx_ac97_write(int slot, unsigned short reg, unsigned short val)
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(pxa2xx_ac97_write);
 
 #ifdef CONFIG_PXA25x
 static inline void pxa_ac97_warm_pxa25x(void)
@@ -140,10 +138,10 @@ static inline void pxa_ac97_warm_pxa27x(void)
 	gsr_bits = 0;
 
 	/* warm reset broken on Bulverde, so manually keep AC97 reset high */
-	pxa27x_configure_ac97reset(reset_gpio, true);
+	pxa27x_configure_ac97reset(rst_gpio, true);
 	udelay(10);
 	writel(readl(ac97_reg_base + GCR) | (GCR_WARM_RST), ac97_reg_base + GCR);
-	pxa27x_configure_ac97reset(reset_gpio, false);
+	pxa27x_configure_ac97reset(rst_gpio, false);
 	udelay(500);
 }
 
@@ -226,7 +224,6 @@ bool pxa2xx_ac97_try_warm_reset(void)
 
 	return true;
 }
-EXPORT_SYMBOL_GPL(pxa2xx_ac97_try_warm_reset);
 
 bool pxa2xx_ac97_try_cold_reset(void)
 {
@@ -263,7 +260,6 @@ bool pxa2xx_ac97_try_cold_reset(void)
 
 	return true;
 }
-EXPORT_SYMBOL_GPL(pxa2xx_ac97_try_cold_reset);
 
 
 void pxa2xx_ac97_finish_reset(void)
@@ -273,7 +269,6 @@ void pxa2xx_ac97_finish_reset(void)
 	gcr |= GCR_SDONE_IE|GCR_CDONE_IE;
 	writel(gcr, ac97_reg_base + GCR);
 }
-EXPORT_SYMBOL_GPL(pxa2xx_ac97_finish_reset);
 
 static irqreturn_t pxa2xx_ac97_irq(int irq, void *dev_id)
 {
@@ -307,14 +302,12 @@ int pxa2xx_ac97_hw_suspend(void)
 	clk_disable_unprepare(ac97_clk);
 	return 0;
 }
-EXPORT_SYMBOL_GPL(pxa2xx_ac97_hw_suspend);
 
 int pxa2xx_ac97_hw_resume(void)
 {
 	clk_prepare_enable(ac97_clk);
 	return 0;
 }
-EXPORT_SYMBOL_GPL(pxa2xx_ac97_hw_resume);
 #endif
 
 int pxa2xx_ac97_hw_probe(struct platform_device *dev)
@@ -328,24 +321,14 @@ int pxa2xx_ac97_hw_probe(struct platform_device *dev)
 		return PTR_ERR(ac97_reg_base);
 	}
 
-	if (dev->dev.of_node) {
-		/* Assert reset using GPIOD_OUT_HIGH, because reset is GPIO_ACTIVE_LOW */
-		rst_gpio = devm_gpiod_get(&dev->dev, "reset", GPIOD_OUT_HIGH);
-		if (IS_ERR(rst_gpio)) {
-			ret = PTR_ERR(rst_gpio);
-			if (ret == -ENOENT)
-				reset_gpio = -1;
-			else if (ret)
-				return ret;
-		} else {
-			reset_gpio = desc_to_gpio(rst_gpio);
-		}
-	} else {
-		if (cpu_is_pxa27x())
-			reset_gpio = 113;
-	}
-
 	if (cpu_is_pxa27x()) {
+		/* Assert reset using GPIOD_OUT_HIGH, because reset is GPIO_ACTIVE_LOW */
+		rst_gpio = devm_gpiod_get_optional(&dev->dev, "reset",
+						   GPIOD_OUT_HIGH);
+		if (IS_ERR(rst_gpio))
+			return dev_err_probe(&dev->dev, PTR_ERR(rst_gpio),
+					     "reset gpio failed\n");
+
 		/*
 		 * This gpio is needed for a work-around to a bug in the ac97
 		 * controller during warm reset.  The direction and level is set
@@ -353,7 +336,7 @@ int pxa2xx_ac97_hw_probe(struct platform_device *dev)
 		 * AC97_nRESET alt function to generic gpio.
 		 */
 		gpiod_set_consumer_name(rst_gpio, "pxa27x ac97 reset");
-		pxa27x_configure_ac97reset(reset_gpio, false);
+		pxa27x_configure_ac97reset(rst_gpio, false);
 
 		ac97conf_clk = clk_get(&dev->dev, "AC97CONFCLK");
 		if (IS_ERR(ac97conf_clk)) {
@@ -399,7 +382,6 @@ err_clk:
 err_conf:
 	return ret;
 }
-EXPORT_SYMBOL_GPL(pxa2xx_ac97_hw_probe);
 
 void pxa2xx_ac97_hw_remove(struct platform_device *dev)
 {
@@ -413,7 +395,6 @@ void pxa2xx_ac97_hw_remove(struct platform_device *dev)
 	clk_put(ac97_clk);
 	ac97_clk = NULL;
 }
-EXPORT_SYMBOL_GPL(pxa2xx_ac97_hw_remove);
 
 u32 pxa2xx_ac97_read_modr(void)
 {
