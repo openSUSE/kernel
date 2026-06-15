@@ -13,13 +13,11 @@
 #include <linux/atmdev.h>
 #include <linux/atmarp.h>	/* manifest constants */
 #include <linux/capability.h>
-#include <linux/atmsvc.h>
 #include <linux/mutex.h>
 #include <asm/ioctls.h>
 #include <net/compat.h>
 
 #include "resources.h"
-#include "signaling.h"		/* for WAITING and sigd_attach */
 #include "common.h"
 
 
@@ -85,36 +83,6 @@ static int do_vcc_ioctl(struct socket *sock, unsigned int cmd,
 		net_warn_ratelimited("ATM_SETSC is obsolete; used by %s:%d\n",
 				     current->comm, task_pid_nr(current));
 		error = 0;
-		goto done;
-	case ATMSIGD_CTRL:
-		if (!capable(CAP_NET_ADMIN)) {
-			error = -EPERM;
-			goto done;
-		}
-		/*
-		 * The user/kernel protocol for exchanging signalling
-		 * info uses kernel pointers as opaque references,
-		 * so the holder of the file descriptor can scribble
-		 * on the kernel... so we should make sure that we
-		 * have the same privileges that /proc/kcore needs
-		 */
-		if (!capable(CAP_SYS_RAWIO)) {
-			error = -EPERM;
-			goto done;
-		}
-#ifdef CONFIG_COMPAT
-		/* WTF? I don't even want to _think_ about making this
-		   work for 32-bit userspace. TBH I don't really want
-		   to think about it at all. dwmw2. */
-		if (compat) {
-			net_warn_ratelimited("32-bit task cannot be atmsigd\n");
-			error = -EINVAL;
-			goto done;
-		}
-#endif
-		error = sigd_attach(vcc);
-		if (!error)
-			sock->state = SS_CONNECTED;
 		goto done;
 	case ATM_SETBACKEND:
 	case ATM_NEWBACKENDIF:

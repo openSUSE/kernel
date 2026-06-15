@@ -30,7 +30,6 @@
 #include "resources.h"		/* atm_find_dev */
 #include "common.h"		/* prototypes */
 #include "protocols.h"		/* atm_init_<transport> */
-#include "signaling.h"		/* for WAITING and sigd_attach */
 
 struct hlist_head vcc_hash[VCC_HTABLE_SIZE];
 EXPORT_SYMBOL(vcc_hash);
@@ -154,8 +153,6 @@ int vcc_create(struct net *net, struct socket *sock, int protocol, int family, i
 
 	vcc = atm_sk(sk);
 	vcc->dev = NULL;
-	memset(&vcc->local, 0, sizeof(struct sockaddr_atmsvc));
-	memset(&vcc->remote, 0, sizeof(struct sockaddr_atmsvc));
 	vcc->qos.txtp.max_sdu = 1 << 16; /* for meta VCs */
 	refcount_set(&sk->sk_wmem_alloc, SK_WMEM_ALLOC_BIAS);
 	atomic_set(&sk->sk_rmem_alloc, 0);
@@ -216,7 +213,6 @@ void vcc_release_async(struct atm_vcc *vcc, int reply)
 	set_bit(ATM_VF_CLOSE, &vcc->flags);
 	sk->sk_shutdown |= RCV_SHUTDOWN;
 	sk->sk_err = -reply;
-	clear_bit(ATM_VF_WAITING, &vcc->flags);
 	sk->sk_state_change(sk);
 }
 EXPORT_SYMBOL(vcc_release_async);
@@ -527,8 +523,7 @@ int vcc_recvmsg(struct socket *sock, struct msghdr *msg, size_t size,
 		return -EOPNOTSUPP;
 
 	vcc = ATM_SD(sock);
-	if (test_bit(ATM_VF_RELEASED, &vcc->flags) ||
-	    test_bit(ATM_VF_CLOSE, &vcc->flags) ||
+	if (test_bit(ATM_VF_CLOSE, &vcc->flags) ||
 	    !test_bit(ATM_VF_READY, &vcc->flags))
 		return 0;
 
@@ -575,8 +570,7 @@ int vcc_sendmsg(struct socket *sock, struct msghdr *m, size_t size)
 		goto out;
 	}
 	vcc = ATM_SD(sock);
-	if (test_bit(ATM_VF_RELEASED, &vcc->flags) ||
-	    test_bit(ATM_VF_CLOSE, &vcc->flags) ||
+	if (test_bit(ATM_VF_CLOSE, &vcc->flags) ||
 	    !test_bit(ATM_VF_READY, &vcc->flags)) {
 		error = -EPIPE;
 		send_sig(SIGPIPE, current, 0);
@@ -604,8 +598,7 @@ int vcc_sendmsg(struct socket *sock, struct msghdr *m, size_t size)
 			error = -ERESTARTSYS;
 			break;
 		}
-		if (test_bit(ATM_VF_RELEASED, &vcc->flags) ||
-		    test_bit(ATM_VF_CLOSE, &vcc->flags) ||
+		if (test_bit(ATM_VF_CLOSE, &vcc->flags) ||
 		    !test_bit(ATM_VF_READY, &vcc->flags)) {
 			error = -EPIPE;
 			send_sig(SIGPIPE, current, 0);
@@ -665,8 +658,7 @@ __poll_t vcc_poll(struct file *file, struct socket *sock, poll_table *wait)
 	if (sk->sk_err)
 		mask = EPOLLERR;
 
-	if (test_bit(ATM_VF_RELEASED, &vcc->flags) ||
-	    test_bit(ATM_VF_CLOSE, &vcc->flags))
+	if (test_bit(ATM_VF_CLOSE, &vcc->flags))
 		mask |= EPOLLHUP;
 
 	/* readable? */
@@ -674,10 +666,6 @@ __poll_t vcc_poll(struct file *file, struct socket *sock, poll_table *wait)
 		mask |= EPOLLIN | EPOLLRDNORM;
 
 	/* writable? */
-	if (sock->state == SS_CONNECTING &&
-	    test_bit(ATM_VF_WAITING, &vcc->flags))
-		return mask;
-
 	if (vcc->qos.txtp.traffic_class != ATM_NONE &&
 	    vcc_writable(sk))
 		mask |= EPOLLOUT | EPOLLWRNORM | EPOLLWRBAND;
@@ -704,9 +692,7 @@ static int atm_change_qos(struct atm_vcc *vcc, struct atm_qos *qos)
 		return error;
 	if (!vcc->dev->ops->change_qos)
 		return -EOPNOTSUPP;
-	if (sk_atm(vcc)->sk_family == AF_ATMPVC)
-		return vcc->dev->ops->change_qos(vcc, qos, ATM_MF_SET);
-	return svc_change_qos(vcc, qos);
+	return vcc->dev->ops->change_qos(vcc, qos, ATM_MF_SET);
 }
 
 static int check_tp(const struct atm_trafprm *tp)
@@ -854,15 +840,10 @@ static int __init atm_init(void)
 		pr_err("atmpvc_init() failed with %d\n", error);
 		goto out_unregister_vcc_proto;
 	}
-	error = atmsvc_init();
-	if (error < 0) {
-		pr_err("atmsvc_init() failed with %d\n", error);
-		goto out_atmpvc_exit;
-	}
 	error = atm_proc_init();
 	if (error < 0) {
 		pr_err("atm_proc_init() failed with %d\n", error);
-		goto out_atmsvc_exit;
+		goto out_atmpvc_exit;
 	}
 	error = atm_sysfs_init();
 	if (error < 0) {
@@ -873,8 +854,6 @@ out:
 	return error;
 out_atmproc_exit:
 	atm_proc_exit();
-out_atmsvc_exit:
-	atmsvc_exit();
 out_atmpvc_exit:
 	atmpvc_exit();
 out_unregister_vcc_proto:
@@ -886,7 +865,6 @@ static void __exit atm_exit(void)
 {
 	atm_proc_exit();
 	atm_sysfs_exit();
-	atmsvc_exit();
 	atmpvc_exit();
 	proto_unregister(&vcc_proto);
 }
@@ -898,4 +876,3 @@ module_exit(atm_exit);
 MODULE_DESCRIPTION("Asynchronous Transfer Mode (ATM) networking core");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS_NETPROTO(PF_ATMPVC);
-MODULE_ALIAS_NETPROTO(PF_ATMSVC);

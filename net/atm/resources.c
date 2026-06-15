@@ -40,7 +40,6 @@ static struct atm_dev *__alloc_atm_dev(const char *type)
 	dev->type = type;
 	dev->signal = ATM_PHY_SIG_UNKNOWN;
 	dev->link_rate = ATM_OC3_PCR;
-	spin_lock_init(&dev->lock);
 
 	return dev;
 }

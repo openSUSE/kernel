@@ -51,31 +51,9 @@ enum {
 				   driver, cleared by anybody. */
 	ATM_VF_PARTIAL,		/* resources are bound to PVC (partial PVC
 				   setup), controlled by socket layer */
-	ATM_VF_REGIS,		/* registered with demon, controlled by SVC
-				   socket layer */
-	ATM_VF_BOUND,		/* local SAP is set, controlled by SVC socket
-				   layer */
-	ATM_VF_RELEASED,	/* demon has indicated/requested release,
-				   controlled by SVC socket layer */
 	ATM_VF_HASQOS,		/* QOS parameters have been set */
-	ATM_VF_LISTEN,		/* socket is used for listening */
-	ATM_VF_META,		/* SVC socket isn't used for normal data
-				   traffic and doesn't depend on signaling
-				   to be available */
-	ATM_VF_SESSION,		/* VCC is p2mp session control descriptor */
-	ATM_VF_HASSAP,		/* SAP has been set */
-	ATM_VF_CLOSE,		/* asynchronous close - treat like VF_RELEASED*/
-	ATM_VF_WAITING,		/* waiting for reply from sigd */
-	ATM_VF_IS_CLIP,		/* in use by CLIP protocol */
+	ATM_VF_CLOSE,		/* asynchronous close - VC is being torn down */
 };
-
-
-#define ATM_VF2VS(flags) \
-    (test_bit(ATM_VF_READY,&(flags)) ? ATM_VS_CONNECTED : \
-     test_bit(ATM_VF_RELEASED,&(flags)) ? ATM_VS_CLOSING : \
-     test_bit(ATM_VF_LISTEN,&(flags)) ? ATM_VS_LISTEN : \
-     test_bit(ATM_VF_REGIS,&(flags)) ? ATM_VS_INUSE : \
-     test_bit(ATM_VF_BOUND,&(flags)) ? ATM_VS_BOUND : ATM_VS_IDLE)
 
 
 enum {
@@ -100,7 +78,6 @@ struct atm_vcc {
 	unsigned long	atm_options;	/* ATM layer options */
 	struct atm_dev	*dev;		/* device back pointer */
 	struct atm_qos	qos;		/* QOS */
-	struct atm_sap	sap;		/* SAP */
 	void (*release_cb)(struct atm_vcc *vcc); /* release_sock callback */
 	void (*push)(struct atm_vcc *vcc,struct sk_buff *skb);
 	void (*pop)(struct atm_vcc *vcc,struct sk_buff *skb); /* optional */
@@ -109,16 +86,8 @@ struct atm_vcc {
 	void		*proto_data;	/* per-protocol data */
 	struct k_atm_aal_stats *stats;	/* pointer to AAL stats group */
 	struct module *owner;		/* owner of ->push function */
-	/* SVC part --- may move later ------------------------------------- */
-	short		itf;		/* interface number */
-	struct sockaddr_atmsvc local;
-	struct sockaddr_atmsvc remote;
-	/* Multipoint part ------------------------------------------------- */
-	struct atm_vcc	*session;	/* session VCC descriptor */
-	/* Other stuff ----------------------------------------------------- */
-	void		*user_back;	/* user backlink - not touched by */
-					/* native ATM stack. Currently used */
-					/* by CLIP and sch_atm. */
+	void		*user_back;	/* user backlink - not touched by the */
+					/* native ATM stack, used by sch_atm */
 };
 
 static inline struct atm_vcc *atm_sk(struct sock *sk)
@@ -151,7 +120,6 @@ struct atm_dev {
 	char		signal;		/* signal status (ATM_PHY_SIG_*) */
 	int		link_rate;	/* link rate (default: OC3) */
 	refcount_t	refcnt;		/* reference count */
-	spinlock_t	lock;		/* protect internal members */
 #ifdef CONFIG_PROC_FS
 	struct proc_dir_entry *proc_entry; /* proc entry */
 	char *proc_name;		/* proc entry name */
