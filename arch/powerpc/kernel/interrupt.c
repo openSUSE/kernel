@@ -166,6 +166,7 @@ again:
 		goto again;
 	}
 
+	kuap_user_restore(regs);
 	regs->exit_result |= regs->exit_flags;
 
 	return regs->exit_result;
