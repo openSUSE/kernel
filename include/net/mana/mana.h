@@ -504,7 +504,7 @@ struct mana_port_context {
 	bool tx_shortform_allowed;
 	u16 tx_vp_offset;
 
-	struct mana_tx_qp *tx_qp;
+	struct mana_tx_qp **tx_qp;
 
 	/* Indirection Table for RX & TX. The values are queue indexes */
 	u32 *indir_table;
@@ -555,6 +555,14 @@ struct mana_port_context {
 
 	/* Debugfs */
 	struct dentry *mana_port_debugfs;
+
+	/* Cached vport/steering config for debugfs */
+	u32 vport_max_sq;
+	u32 vport_max_rq;
+	u32 steer_rx;
+	u32 steer_rss;
+	bool steer_update_tab;
+	u32 steer_cqe_coalescing;
 };
 
 netdev_tx_t mana_start_xmit(struct sk_buff *skb, struct net_device *ndev);

@@ -502,6 +502,9 @@ static int bareudp_fill_metadata_dst(struct net_device *dev,
 		struct in6_addr saddr;
 		struct socket *sock = rcu_dereference(bareudp->sock);
 
+		if (!sock)
+			return -ESHUTDOWN;
+
 		dst = ip6_dst_lookup_tunnel(skb, dev, bareudp->net, sock,
 					    &saddr, info, IPPROTO_UDP,
 					    use_cache);

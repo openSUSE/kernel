@@ -357,9 +357,9 @@ netdev_tx_t mana_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	if (unlikely(ipv6_hopopt_jumbo_remove(skb)))
 		goto tx_drop_count;
 
-	txq = &apc->tx_qp[txq_idx].txq;
+	txq = &apc->tx_qp[txq_idx]->txq;
 	gdma_sq = txq->gdma_sq;
-	cq = &apc->tx_qp[txq_idx].tx_cq;
+	cq = &apc->tx_qp[txq_idx]->tx_cq;
 	tx_stats = &txq->stats;
 
 	BUILD_BUG_ON(MAX_TX_WQE_SGL_ENTRIES != MANA_MAX_TX_WQE_SGL_ENTRIES);
@@ -617,7 +617,7 @@ static void mana_get_stats64(struct net_device *ndev,
 	}
 
 	for (q = 0; q < num_queues; q++) {
-		tx_stats = &apc->tx_qp[q].txq.stats;
+		tx_stats = &apc->tx_qp[q]->txq.stats;
 
 		do {
 			start = u64_stats_fetch_begin(&tx_stats->syncp);
@@ -688,11 +688,11 @@ void mana_pre_dealloc_rxbufs(struct mana_port_context *mpc)
 		put_page(virt_to_head_page(mpc->rxbufs_pre[i]));
 	}
 
-	kfree(mpc->das_pre);
+	kvfree(mpc->das_pre);
 	mpc->das_pre = NULL;
 
 out2:
-	kfree(mpc->rxbufs_pre);
+	kvfree(mpc->rxbufs_pre);
 	mpc->rxbufs_pre = NULL;
 
 out1:
@@ -809,11 +809,11 @@ int mana_pre_alloc_rxbufs(struct mana_port_context *mpc, int new_mtu, int num_qu
 	num_rxb = num_queues * mpc->rx_queue_size;
 
 	WARN(mpc->rxbufs_pre, "mana rxbufs_pre exists\n");
-	mpc->rxbufs_pre = kmalloc_array(num_rxb, sizeof(void *), GFP_KERNEL);
+	mpc->rxbufs_pre = kvmalloc_array(num_rxb, sizeof(void *), GFP_KERNEL);
 	if (!mpc->rxbufs_pre)
 		goto error;
 
-	mpc->das_pre = kmalloc_array(num_rxb, sizeof(dma_addr_t), GFP_KERNEL);
+	mpc->das_pre = kvmalloc_array(num_rxb, sizeof(dma_addr_t), GFP_KERNEL);
 	if (!mpc->das_pre)
 		goto error;
 
@@ -1207,6 +1207,9 @@ static int mana_query_vport_cfg(struct mana_port_context *apc, u32 vport_index,
 	apc->port_handle = resp.vport;
 	ether_addr_copy(apc->mac_addr, resp.mac_addr);
 
+	apc->vport_max_sq = *max_sq;
+	apc->vport_max_rq = *max_rq;
+
 	return 0;
 }
 
@@ -1353,6 +1356,11 @@ static int mana_cfg_vport_steering(struct mana_port_context *apc,
 
 	netdev_info(ndev, "Configured steering vPort %llu entries %u\n",
 		    apc->port_handle, apc->indir_table_sz);
+
+	apc->steer_rx = rx;
+	apc->steer_rss = apc->rss_state;
+	apc->steer_update_tab = update_tab;
+	apc->steer_cqe_coalescing = req->cqe_coalescing_enable;
 out:
 	kfree(req);
 	return err;
@@ -1561,6 +1569,9 @@ static void mana_fence_rqs(struct mana_port_context *apc)
 	unsigned int rxq_idx;
 	struct mana_rxq *rxq;
 	int err;
+
+	if (!apc->rxqs)
+		return;
 
 	for (rxq_idx = 0; rxq_idx < apc->num_queues; rxq_idx++) {
 		rxq = apc->rxqs[rxq_idx];
@@ -2133,21 +2144,26 @@ static void mana_destroy_txq(struct mana_port_context *apc)
 		return;
 
 	for (i = 0; i < apc->num_queues; i++) {
-		debugfs_remove_recursive(apc->tx_qp[i].mana_tx_debugfs);
-		apc->tx_qp[i].mana_tx_debugfs = NULL;
+		if (!apc->tx_qp[i])
+			continue;
 
-		napi = &apc->tx_qp[i].tx_cq.napi;
-		if (apc->tx_qp[i].txq.napi_initialized) {
+		debugfs_remove_recursive(apc->tx_qp[i]->mana_tx_debugfs);
+		apc->tx_qp[i]->mana_tx_debugfs = NULL;
+
+		napi = &apc->tx_qp[i]->tx_cq.napi;
+		if (apc->tx_qp[i]->txq.napi_initialized) {
 			napi_synchronize(napi);
 			napi_disable(napi);
 			netif_napi_del(napi);
-			apc->tx_qp[i].txq.napi_initialized = false;
+			apc->tx_qp[i]->txq.napi_initialized = false;
 		}
-		mana_destroy_wq_obj(apc, GDMA_SQ, apc->tx_qp[i].tx_object);
+		mana_destroy_wq_obj(apc, GDMA_SQ, apc->tx_qp[i]->tx_object);
 
-		mana_deinit_cq(apc, &apc->tx_qp[i].tx_cq);
+		mana_deinit_cq(apc, &apc->tx_qp[i]->tx_cq);
 
-		mana_deinit_txq(apc, &apc->tx_qp[i].txq);
+		mana_deinit_txq(apc, &apc->tx_qp[i]->txq);
+
+		kvfree(apc->tx_qp[i]);
 	}
 
 	kfree(apc->tx_qp);
@@ -2156,7 +2172,7 @@ static void mana_destroy_txq(struct mana_port_context *apc)
 
 static void mana_create_txq_debugfs(struct mana_port_context *apc, int idx)
 {
-	struct mana_tx_qp *tx_qp = &apc->tx_qp[idx];
+	struct mana_tx_qp *tx_qp = apc->tx_qp[idx];
 	char qnum[32];
 
 	sprintf(qnum, "TX-%d", idx);
@@ -2195,7 +2211,7 @@ static int mana_create_txq(struct mana_port_context *apc,
 	int err;
 	int i;
 
-	apc->tx_qp = kcalloc(apc->num_queues, sizeof(struct mana_tx_qp),
+	apc->tx_qp = kcalloc(apc->num_queues, sizeof(struct mana_tx_qp*),
 			     GFP_KERNEL);
 	if (!apc->tx_qp)
 		return -ENOMEM;
@@ -2216,10 +2232,16 @@ static int mana_create_txq(struct mana_port_context *apc,
 	gc = gd->gdma_context;
 
 	for (i = 0; i < apc->num_queues; i++) {
-		apc->tx_qp[i].tx_object = INVALID_MANA_HANDLE;
+		apc->tx_qp[i] = kvzalloc(sizeof(*apc->tx_qp[i]), GFP_KERNEL);
+		if (!apc->tx_qp[i]) {
+			err = -ENOMEM;
+			goto out;
+		}
+
+		apc->tx_qp[i]->tx_object = INVALID_MANA_HANDLE;
 
 		/* Create SQ */
-		txq = &apc->tx_qp[i].txq;
+		txq = &apc->tx_qp[i]->txq;
 
 		u64_stats_init(&txq->stats.syncp);
 		txq->ndev = net;
@@ -2237,7 +2259,7 @@ static int mana_create_txq(struct mana_port_context *apc,
 			goto out;
 
 		/* Create SQ's CQ */
-		cq = &apc->tx_qp[i].tx_cq;
+		cq = &apc->tx_qp[i]->tx_cq;
 		cq->type = MANA_CQ_TYPE_TX;
 
 		cq->txq = txq;
@@ -2266,7 +2288,7 @@ static int mana_create_txq(struct mana_port_context *apc,
 
 		err = mana_create_wq_obj(apc, apc->port_handle, GDMA_SQ,
 					 &wq_spec, &cq_spec,
-					 &apc->tx_qp[i].tx_object);
+					 &apc->tx_qp[i]->tx_object);
 
 		if (err)
 			goto out;
@@ -2369,7 +2391,7 @@ static void mana_destroy_rxq(struct mana_port_context *apc,
 	if (rxq->gdma_rq)
 		mana_gd_destroy_queue(gc, rxq->gdma_rq);
 
-	kfree(rxq);
+	kvfree(rxq);
 }
 
 static int mana_fill_rx_oob(struct mana_recv_buf_oob *rx_oob, u32 mem_key,
@@ -2508,7 +2530,7 @@ static struct mana_rxq *mana_create_rxq(struct mana_port_context *apc,
 
 	gc = gd->gdma_context;
 
-	rxq = kzalloc(struct_size(rxq, rx_oobs, apc->rx_queue_size),
+	rxq = kvzalloc(struct_size(rxq, rx_oobs, apc->rx_queue_size),
 		      GFP_KERNEL);
 	if (!rxq)
 		return NULL;
@@ -2671,13 +2693,16 @@ static void mana_destroy_vport(struct mana_port_context *apc)
 	struct mana_rxq *rxq;
 	u32 rxq_idx;
 
-	for (rxq_idx = 0; rxq_idx < apc->num_queues; rxq_idx++) {
-		rxq = apc->rxqs[rxq_idx];
-		if (!rxq)
-			continue;
+	if (apc->rxqs) {
 
-		mana_destroy_rxq(apc, rxq, true);
-		apc->rxqs[rxq_idx] = NULL;
+		for (rxq_idx = 0; rxq_idx < apc->num_queues; rxq_idx++) {
+			rxq = apc->rxqs[rxq_idx];
+			if (!rxq)
+				continue;
+
+			mana_destroy_rxq(apc, rxq, true);
+			apc->rxqs[rxq_idx] = NULL;
+		}
 	}
 
 	mana_destroy_txq(apc);
@@ -2974,6 +2999,23 @@ static int mana_init_port(struct net_device *ndev)
 	eth_hw_addr_set(ndev, apc->mac_addr);
 	sprintf(vport, "vport%d", port_idx);
 	apc->mana_port_debugfs = debugfs_create_dir(vport, gc->mana_pci_debugfs);
+
+	debugfs_create_u64("port_handle", 0400, apc->mana_port_debugfs,
+			   &apc->port_handle);
+	debugfs_create_u32("max_sq", 0400, apc->mana_port_debugfs,
+			   &apc->vport_max_sq);
+	debugfs_create_u32("max_rq", 0400, apc->mana_port_debugfs,
+			   &apc->vport_max_rq);
+	debugfs_create_u32("indir_table_sz", 0400, apc->mana_port_debugfs,
+			   &apc->indir_table_sz);
+	debugfs_create_u32("steer_rx", 0400, apc->mana_port_debugfs,
+			   &apc->steer_rx);
+	debugfs_create_u32("steer_rss", 0400, apc->mana_port_debugfs,
+			   &apc->steer_rss);
+	debugfs_create_bool("steer_update_tab", 0400, apc->mana_port_debugfs,
+			    &apc->steer_update_tab);
+	debugfs_create_u32("steer_cqe_coalescing", 0400, apc->mana_port_debugfs,
+			   &apc->steer_cqe_coalescing);
 	return 0;
 
 reset_apc:
@@ -3080,7 +3122,8 @@ static int mana_dealloc_queues(struct net_device *ndev)
 	if (apc->port_is_up)
 		return -EINVAL;
 
-	mana_chn_setxdp(apc, NULL);
+	if (apc->rxqs)
+		mana_chn_setxdp(apc, NULL);
 
 	if (gd->gdma_context->is_pf && !apc->ac->bm_hostmode)
 		mana_pf_deregister_filter(apc);
@@ -3098,33 +3141,38 @@ static int mana_dealloc_queues(struct net_device *ndev)
 	 * number of queues.
 	 */
 
-	for (i = 0; i < apc->num_queues; i++) {
-		txq = &apc->tx_qp[i].txq;
-		tsleep = 1000;
-		while (atomic_read(&txq->pending_sends) > 0 &&
-		       time_before(jiffies, timeout)) {
-			usleep_range(tsleep, tsleep + 1000);
-			tsleep <<= 1;
-		}
-		if (atomic_read(&txq->pending_sends)) {
-			err = pcie_flr(to_pci_dev(gd->gdma_context->dev));
-			if (err) {
-				netdev_err(ndev, "flr failed %d with %d pkts pending in txq %u\n",
-					   err, atomic_read(&txq->pending_sends),
-					   txq->gdma_txq_id);
+	if (apc->tx_qp) {
+		for (i = 0; i < apc->num_queues; i++) {
+			txq = &apc->tx_qp[i]->txq;
+			tsleep = 1000;
+			while (atomic_read(&txq->pending_sends) > 0 &&
+			       time_before(jiffies, timeout)) {
+				usleep_range(tsleep, tsleep + 1000);
+				tsleep <<= 1;
 			}
-			break;
+			if (atomic_read(&txq->pending_sends)) {
+				err =
+				    pcie_flr(to_pci_dev(gd->gdma_context->dev));
+				if (err) {
+					netdev_err(ndev, "flr failed %d with %d pkts pending in txq %u\n",
+						   err,
+					    atomic_read(&txq->pending_sends),
+					    txq->gdma_txq_id);
+				}
+				break;
+			}
+		}
+
+		for (i = 0; i < apc->num_queues; i++) {
+			txq = &apc->tx_qp[i]->txq;
+			while ((skb = skb_dequeue(&txq->pending_skbs))) {
+				mana_unmap_skb(skb, apc);
+				dev_kfree_skb_any(skb);
+			}
+			atomic_set(&txq->pending_sends, 0);
 		}
 	}
 
-	for (i = 0; i < apc->num_queues; i++) {
-		txq = &apc->tx_qp[i].txq;
-		while ((skb = skb_dequeue(&txq->pending_skbs))) {
-			mana_unmap_skb(skb, apc);
-			dev_kfree_skb_any(skb);
-		}
-		atomic_set(&txq->pending_sends, 0);
-	}
 	/* We're 100% sure the queues can no longer be woken up, because
 	 * we're sure now mana_poll_tx_cq() can't be running.
 	 */
@@ -3148,6 +3196,12 @@ int mana_detach(struct net_device *ndev, bool from_close)
 	int err;
 
 	ASSERT_RTNL();
+
+	/* If already detached (indicates detach succeeded but attach failed
+	 * previously). Now skip mana detach and just retry mana_attach.
+	 */
+	if (!from_close && !netif_device_present(ndev))
+		return 0;
 
 	apc->port_st_save = apc->port_is_up;
 	apc->port_is_up = false;
@@ -3488,6 +3542,11 @@ int mana_probe(struct gdma_dev *gd, bool resuming)
 	if (ac->num_ports > MAX_PORTS_IN_MANA_DEV)
 		ac->num_ports = MAX_PORTS_IN_MANA_DEV;
 
+	debugfs_create_u16("num_vports", 0400, gc->mana_pci_debugfs,
+			   &ac->num_ports);
+	debugfs_create_u8("bm_hostmode", 0400, gc->mana_pci_debugfs,
+			  &ac->bm_hostmode);
+
 	ac->per_port_queue_reset_wq =
 		create_singlethread_workqueue("mana_per_port_queue_reset_wq");
 	if (!ac->per_port_queue_reset_wq) {
@@ -3609,6 +3668,11 @@ void mana_remove(struct gdma_dev *gd, bool suspending)
 	}
 
 	mana_gd_deregister_device(gd);
+
+	if (gc->mana_pci_debugfs) {
+		debugfs_lookup_and_remove("bm_hostmode", gc->mana_pci_debugfs);
+		debugfs_lookup_and_remove("num_vports", gc->mana_pci_debugfs);
+	}
 
 	if (suspending)
 		return;
