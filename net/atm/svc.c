@@ -27,7 +27,6 @@
 #include "resources.h"
 #include "common.h"		/* common for PVCs and SVCs */
 #include "signaling.h"
-#include "addr.h"
 
 #ifdef CONFIG_COMPAT
 /* It actually takes struct sockaddr_atmsvc, not struct atm_iobuf */

@@ -30,7 +30,6 @@
 #include "resources.h"		/* atm_find_dev */
 #include "common.h"		/* prototypes */
 #include "protocols.h"		/* atm_init_<transport> */
-#include "addr.h"		/* address registry */
 #include "signaling.h"		/* for WAITING and sigd_attach */
 
 struct hlist_head vcc_hash[VCC_HTABLE_SIZE];

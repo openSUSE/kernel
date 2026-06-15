@@ -220,10 +220,6 @@ int vcc_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 #define ATM_GETNAMES32    _IOW('a', ATMIOC_ITF+3, struct compat_atm_iobuf)
 #define ATM_GETTYPE32     _IOW('a', ATMIOC_ITF+4, struct compat_atmif_sioc)
 #define ATM_GETESI32	  _IOW('a', ATMIOC_ITF+5, struct compat_atmif_sioc)
-#define ATM_GETADDR32	  _IOW('a', ATMIOC_ITF+6, struct compat_atmif_sioc)
-#define ATM_RSTADDR32	  _IOW('a', ATMIOC_ITF+7, struct compat_atmif_sioc)
-#define ATM_ADDADDR32	  _IOW('a', ATMIOC_ITF+8, struct compat_atmif_sioc)
-#define ATM_DELADDR32	  _IOW('a', ATMIOC_ITF+9, struct compat_atmif_sioc)
 #define ATM_GETCIRANGE32  _IOW('a', ATMIOC_ITF+10, struct compat_atmif_sioc)
 #define ATM_SETCIRANGE32  _IOW('a', ATMIOC_ITF+11, struct compat_atmif_sioc)
 #define ATM_SETESI32      _IOW('a', ATMIOC_ITF+12, struct compat_atmif_sioc)
@@ -242,10 +238,6 @@ static struct {
 	{ ATM_GETNAMES32,    ATM_GETNAMES },
 	{ ATM_GETTYPE32,     ATM_GETTYPE },
 	{ ATM_GETESI32,	     ATM_GETESI },
-	{ ATM_GETADDR32,     ATM_GETADDR },
-	{ ATM_RSTADDR32,     ATM_RSTADDR },
-	{ ATM_ADDADDR32,     ATM_ADDADDR },
-	{ ATM_DELADDR32,     ATM_DELADDR },
 	{ ATM_GETCIRANGE32,  ATM_GETCIRANGE },
 	{ ATM_SETCIRANGE32,  ATM_SETCIRANGE },
 	{ ATM_SETESI32,	     ATM_SETESI },
@@ -305,10 +297,6 @@ static int do_atm_ioctl(struct socket *sock, unsigned int cmd32,
 	case ATM_GETLINKRATE:
 	case ATM_GETTYPE:
 	case ATM_GETESI:
-	case ATM_GETADDR:
-	case ATM_RSTADDR:
-	case ATM_ADDADDR:
-	case ATM_DELADDR:
 	case ATM_GETCIRANGE:
 	case ATM_SETCIRANGE:
 	case ATM_SETESI:

@@ -136,13 +136,6 @@ static inline struct sock *sk_atm(struct atm_vcc *vcc)
 	return (struct sock *)vcc;
 }
 
-struct atm_dev_addr {
-	struct sockaddr_atmsvc addr;	/* ATM address */
-	struct list_head entry;		/* next address */
-};
-
-enum atm_addr_type_t { ATM_ADDR_LOCAL, ATM_ADDR_LECS };
-
 struct atm_dev {
 	const struct atmdev_ops *ops;	/* device operations; NULL if unused */
 	const struct atmphy_ops *phy;	/* PHY operations, may be undefined */
@@ -152,8 +145,6 @@ struct atm_dev {
 	void		*dev_data;	/* per-device data */
 	void		*phy_data;	/* private PHY data */
 	unsigned long	flags;		/* device flags (ATM_DF_*) */
-	struct list_head local;		/* local ATM addresses */
-	struct list_head lecs;		/* LECS ATM addresses learned via ILMI */
 	unsigned char	esi[ESI_LEN];	/* ESI ("MAC" addr) */
 	struct atm_cirange ci_range;	/* VPI/VCI range */
 	struct k_atm_dev_stats stats;	/* statistics */
