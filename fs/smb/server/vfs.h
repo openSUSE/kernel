@@ -168,4 +168,5 @@ int ksmbd_vfs_set_init_posix_acl(struct mnt_idmap *idmap,
 int ksmbd_vfs_inherit_posix_acl(struct mnt_idmap *idmap,
 				const struct path *path,
 				struct inode *parent_inode);
+void ksmbd_vfs_update_compressed_fattr(struct dentry *dentry, __le32 *fattr);
 #endif /* __KSMBD_VFS_H__ */

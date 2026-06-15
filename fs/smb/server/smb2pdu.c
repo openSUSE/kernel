@@ -3604,7 +3604,10 @@ int smb2_open(struct ksmbd_work *work)
 
 	if (!created)
 		smb2_update_xattrs(tcon, &path, fp);
-	else
+
+	ksmbd_vfs_update_compressed_fattr(path.dentry, &fp->f_ci->m_fattr);
+
+	if (created)
 		smb2_new_xattrs(tcon, &path, fp);
 
 	memcpy(fp->client_guid, conn->ClientGUID, SMB2_CLIENT_GUID_SIZE);
