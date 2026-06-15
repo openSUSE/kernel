@@ -799,21 +799,6 @@ error:
 	return ret;
 }
 
-static int tegra264_mc_icc_aggregate(struct icc_node *node, u32 tag, u32 avg_bw,
-				     u32 peak_bw, u32 *agg_avg, u32 *agg_peak)
-{
-	struct icc_provider *p = node->provider;
-	struct tegra_mc *mc = icc_provider_to_tegra_mc(p);
-
-	if (!mc->bwmgr_mrq_supported)
-		return 0;
-
-	*agg_avg += avg_bw;
-	*agg_peak = max(*agg_peak, peak_bw);
-
-	return 0;
-}
-
 static int tegra264_mc_icc_get_init_bw(struct icc_node *node, u32 *avg, u32 *peak)
 {
 	*avg = 0;
@@ -1130,7 +1115,7 @@ static const irq_handler_t tegra264_mc_irq_handlers[8] = {
 
 static const struct tegra_mc_icc_ops tegra264_mc_icc_ops = {
 	.xlate = tegra_mc_icc_xlate,
-	.aggregate = tegra264_mc_icc_aggregate,
+	.aggregate = icc_std_aggregate,
 	.get_bw = tegra264_mc_icc_get_init_bw,
 	.set = tegra264_mc_icc_set,
 };
