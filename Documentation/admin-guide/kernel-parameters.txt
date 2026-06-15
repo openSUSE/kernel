@@ -7215,6 +7215,18 @@ Kernel parameters
 			Not specifying this option is equivalent to
 			spec_store_bypass_disable=auto.
 
+	split_llc=
+			[X86,EARLY] Split the LLC N-ways
+
+			When set, the LLC is split this many ways by matching
+			'core_id % n'. This is setup before SMP bringup and
+			used during SMP bringup before it knows the full
+			topology. If your core count doesn't nicely divide by
+			the number given, you get to keep the pieces.
+
+			This is mostly a debug feature to emulate multiple LLCs
+			on hardware that only have a single LLC.
+
 	split_lock_detect=
 			[X86] Enable split lock detection or bus lock detection
 

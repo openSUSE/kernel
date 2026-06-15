@@ -21350,7 +21350,7 @@ F:	include/uapi/linux/pps_gen.h
 PRESSURE STALL INFORMATION (PSI)
 M:	Johannes Weiner <hannes@cmpxchg.org>
 M:	Suren Baghdasaryan <surenb@google.com>
-R:	Peter Ziljstra <peterz@infradead.org>
+R:	Peter Zijlstra <peterz@infradead.org>
 S:	Maintained
 F:	include/linux/psi*
 F:	kernel/sched/psi.c
