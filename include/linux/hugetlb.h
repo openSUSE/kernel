@@ -184,7 +184,6 @@ long hugetlb_unreserve_pages(struct inode *inode, long start, long end,
 						long freed);
 int folio_isolate_hugetlb(struct page *page, struct list_head *list);
 int get_hwpoison_huge_page(struct page *page, bool *hugetlb);
-int get_huge_page_for_hwpoison(unsigned long pfn, int flags);
 void folio_putback_hugetlb(struct page *page);
 void move_hugetlb_state(struct page *oldpage, struct page *newpage, int reason);
 void free_huge_page(struct page *page);
@@ -434,11 +433,6 @@ static inline int folio_isolate_hugetlb(struct page *page, struct list_head *lis
 }
 
 static inline int get_hwpoison_huge_page(struct page *page, bool *hugetlb)
-{
-	return 0;
-}
-
-static inline int get_huge_page_for_hwpoison(unsigned long pfn, int flags)
 {
 	return 0;
 }
