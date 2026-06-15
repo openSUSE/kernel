@@ -570,6 +570,10 @@ of ftrace. Here is a list of some of the key files:
 		to correlate events across hypervisor/guest if
 		tb_offset is known.
 
+	s390-tod:
+		This uses the s390 TOD clock value. This clock is usually in
+		sync across virtual machines and STP-enabled machines.
+
 	mono:
 		This uses the fast monotonic clock (CLOCK_MONOTONIC)
 		which is monotonic and is subject to NTP rate adjustments.
