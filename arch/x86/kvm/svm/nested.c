@@ -476,6 +476,15 @@ void nested_copy_vmcb_save_to_cache(struct vcpu_svm *svm,
 	__nested_copy_vmcb_save_to_cache(&svm->nested.save, save);
 }
 
+int nested_svm_check_cached_vmcb12(struct kvm_vcpu *vcpu)
+{
+	if (!nested_vmcb_check_save(vcpu) ||
+	    !nested_vmcb_check_controls(vcpu))
+		return -EINVAL;
+
+	return 0;
+}
+
 /*
  * Synchronize fields that are written by the processor, so that
  * they can be copied back into the vmcb12.
@@ -985,8 +994,7 @@ int nested_svm_vmrun(struct kvm_vcpu *vcpu)
 	nested_copy_vmcb_control_to_cache(svm, &vmcb12->control);
 	nested_copy_vmcb_save_to_cache(svm, &vmcb12->save);
 
-	if (!nested_vmcb_check_save(vcpu) ||
-	    !nested_vmcb_check_controls(vcpu)) {
+	if (nested_svm_check_cached_vmcb12(vcpu) < 0) {
 		vmcb12->control.exit_code    = SVM_EXIT_ERR;
 		vmcb12->control.exit_code_hi = -1u;
 		vmcb12->control.exit_info_1  = 0;
@@ -1364,6 +1372,8 @@ void svm_leave_nested(struct kvm_vcpu *vcpu)
 
 		nested_svm_uninit_mmu_context(vcpu);
 		vmcb_mark_all_dirty(svm->vmcb);
+
+		svm_set_gif(svm, true);
 
 		if (kvm_apicv_activated(vcpu->kvm))
 			kvm_make_request(KVM_REQ_APICV_UPDATE, vcpu);
@@ -1794,12 +1804,12 @@ static int svm_set_nested_state(struct kvm_vcpu *vcpu,
 	/*
 	 * If in guest mode, vcpu->arch.efer actually refers to the L2 guest's
 	 * EFER.SVME, but EFER.SVME still has to be 1 for VMRUN to succeed.
+	 * If SVME is disabled, the only valid states are "none" and GIF=1
+	 * (clearing SVME does NOT set GIF, i.e. GIF=0 is allowed).
 	 */
-	if (!(vcpu->arch.efer & EFER_SVME)) {
-		/* GIF=1 and no guest mode are required if SVME=0.  */
-		if (kvm_state->flags != KVM_STATE_NESTED_GIF_SET)
-			return -EINVAL;
-	}
+	if (!(vcpu->arch.efer & EFER_SVME) && kvm_state->flags &&
+	    kvm_state->flags != KVM_STATE_NESTED_GIF_SET)
+		return -EINVAL;
 
 	/* SMM temporarily disables SVM, so we cannot be in guest mode.  */
 	if (is_smm(vcpu) && (kvm_state->flags & KVM_STATE_NESTED_GUEST_MODE))
@@ -1879,6 +1889,12 @@ static int svm_set_nested_state(struct kvm_vcpu *vcpu,
 	nested_vmcb02_prepare_control(svm, svm->vmcb->save.rip, svm->vmcb->save.cs.base);
 
 	/*
+	 * Any previously restored state (e.g. KVM_SET_SREGS) would mark fields
+	 * dirty in vmcb01 instead of vmcb02, so mark all of vmcb02 dirty here.
+	 */
+	vmcb_mark_all_dirty(svm->vmcb);
+
+	/*
 	 * While the nested guest CR3 is already checked and set by
 	 * KVM_SET_SREGS, it was set when nested state was yet loaded,
 	 * thus MMU might not be initialized correctly.
@@ -1891,6 +1907,9 @@ static int svm_set_nested_state(struct kvm_vcpu *vcpu,
 		goto out_free;
 
 	svm->nested.force_msr_bitmap_recalc = true;
+
+	if (kvm_vcpu_apicv_active(vcpu))
+		kvm_make_request(KVM_REQ_APICV_UPDATE, vcpu);
 
 	kvm_make_request(KVM_REQ_GET_NESTED_STATE_PAGES, vcpu);
 	ret = 0;
