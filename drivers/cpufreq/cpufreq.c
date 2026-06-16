@@ -1473,6 +1473,13 @@ static int cpufreq_policy_init_qos(struct cpufreq_policy *policy)
 {
 	int ret;
 
+	/*
+	 * If the driver didn't set policy->min/max, set them as
+	 * they are used to clamp frequency requests.
+	 */
+	policy->min = policy->min ? policy->min : policy->cpuinfo.min_freq;
+	policy->max = policy->max ? policy->max : policy->cpuinfo.max_freq;
+
 	if (policy->boost_supported) {
 		ret = freq_qos_add_request(&policy->constraints,
 						&policy->boost_freq_req,
