@@ -65,11 +65,6 @@ static void gen_eth_hdr(struct xsk_socket_info *xsk, struct ethhdr *eth_hdr)
 	eth_hdr->h_proto = htons(ETH_P_LOOPBACK);
 }
 
-static bool is_umem_valid(struct xsk_socket_info *xsk)
-{
-	return !!xsk->umem->umem;
-}
-
 static u32 mode_to_xdp_flags(enum test_mode mode)
 {
 	return (mode == TEST_MODE_SKB) ? XDP_FLAGS_SKB_MODE : XDP_FLAGS_DRV_MODE;
@@ -1010,7 +1005,7 @@ static int __receive_pkts(struct test_spec *test, struct xsk_socket_info *xsk)
 			return TEST_FAILURE;
 
 		if (!ret) {
-			if (!is_umem_valid(test->ifobj_tx->xsk))
+			if (test->poll_tmout)
 				return TEST_PASS;
 
 			ksft_print_msg("ERROR: [%s] Poll timed out\n", __func__);
@@ -1149,7 +1144,7 @@ static int receive_pkts(struct test_spec *test)
 			break;
 
 		res = __receive_pkts(test, xsk);
-		if (!(res == TEST_PASS || res == TEST_CONTINUE))
+		if (res != TEST_CONTINUE)
 			return res;
 
 		ret = gettimeofday(&tv_now, NULL);
@@ -1166,7 +1161,8 @@ static int receive_pkts(struct test_spec *test)
 	return TEST_PASS;
 }
 
-static int __send_pkts(struct ifobject *ifobject, struct xsk_socket_info *xsk, bool timeout)
+static int __send_pkts(struct ifobject *ifobject, struct xsk_socket_info *xsk,
+		       bool test_timeout)
 {
 	u32 i, idx = 0, valid_pkts = 0, valid_frags = 0, buffer_len;
 	struct pkt_stream *pkt_stream = xsk->pkt_stream;
@@ -1178,7 +1174,7 @@ static int __send_pkts(struct ifobject *ifobject, struct xsk_socket_info *xsk, b
 	buffer_len = pkt_get_buffer_len(umem, pkt_stream->max_pkt_len);
 	/* pkts_in_flight might be negative if many invalid packets are sent */
 	if (pkts_in_flight >= (int)((umem_size(umem) - xsk->batch_size * buffer_len) /
-	    buffer_len)) {
+	    buffer_len) && !test_timeout) {
 		ret = kick_tx(xsk);
 		if (ret)
 			return TEST_FAILURE;
@@ -1191,7 +1187,7 @@ static int __send_pkts(struct ifobject *ifobject, struct xsk_socket_info *xsk, b
 	while (xsk_ring_prod__reserve(&xsk->tx, xsk->batch_size, &idx) < xsk->batch_size) {
 		if (use_poll) {
 			ret = poll(&fds, 1, POLL_TMOUT);
-			if (timeout) {
+			if (test_timeout) {
 				if (ret < 0) {
 					ksft_print_msg("ERROR: [%s] Poll error %d\n",
 						       __func__, errno);
@@ -1271,7 +1267,7 @@ static int __send_pkts(struct ifobject *ifobject, struct xsk_socket_info *xsk, b
 	if (use_poll) {
 		ret = poll(&fds, 1, POLL_TMOUT);
 		if (ret <= 0) {
-			if (ret == 0 && timeout)
+			if (ret == 0 && test_timeout)
 				return TEST_PASS;
 
 			ksft_print_msg("ERROR: [%s] Poll error %d\n", __func__, ret);
@@ -1279,14 +1275,14 @@ static int __send_pkts(struct ifobject *ifobject, struct xsk_socket_info *xsk, b
 		}
 	}
 
-	if (!timeout) {
+	if (!test_timeout) {
 		if (complete_pkts(xsk, i))
 			return TEST_FAILURE;
 
 		usleep(10);
-		return TEST_PASS;
 	}
 
+	/* Loop completion is driven by send_pkts() stream progress checks. */
 	return TEST_CONTINUE;
 }
 
@@ -1322,7 +1318,6 @@ bool all_packets_sent(struct test_spec *test, unsigned long *bitmap)
 
 static int send_pkts(struct test_spec *test, struct ifobject *ifobject)
 {
-	bool timeout = !is_umem_valid(test->ifobj_rx->xsk);
 	DECLARE_BITMAP(bitmap, test->nb_sockets);
 	u32 i, ret;
 
@@ -1337,19 +1332,18 @@ static int send_pkts(struct test_spec *test, struct ifobject *ifobject)
 				__set_bit(i, bitmap);
 				continue;
 			}
-			ret = __send_pkts(ifobject, &ifobject->xsk_arr[i], timeout);
-			if (ret == TEST_CONTINUE && !test->fail)
-				continue;
-
-			if ((ret || test->fail) && !timeout)
-				return TEST_FAILURE;
-
-			if (ret == TEST_PASS && timeout)
+			ret = __send_pkts(ifobject, &ifobject->xsk_arr[i], test->poll_tmout);
+			if (ret != TEST_CONTINUE)
 				return ret;
 
-			ret = wait_for_tx_completion(&ifobject->xsk_arr[i]);
-			if (ret)
+			if (test->fail)
 				return TEST_FAILURE;
+
+			if (!test->poll_tmout) {
+				ret = wait_for_tx_completion(&ifobject->xsk_arr[i]);
+				if (ret)
+					return TEST_FAILURE;
+			}
 		}
 	}
 
@@ -2231,6 +2225,7 @@ int testapp_xdp_shared_umem(struct test_spec *test)
 
 int testapp_poll_txq_tmout(struct test_spec *test)
 {
+	test->poll_tmout = true;
 	test->ifobj_tx->use_poll = true;
 	/* create invalid frame by set umem frame_size and pkt length equal to 2048 */
 	test->ifobj_tx->xsk->umem->frame_size = 2048;
@@ -2241,6 +2236,7 @@ int testapp_poll_txq_tmout(struct test_spec *test)
 
 int testapp_poll_rxq_tmout(struct test_spec *test)
 {
+	test->poll_tmout = true;
 	test->ifobj_rx->use_poll = true;
 	return testapp_validate_traffic_single_thread(test, test->ifobj_rx);
 }

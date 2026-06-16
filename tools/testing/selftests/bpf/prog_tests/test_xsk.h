@@ -207,6 +207,7 @@ struct test_spec {
 	bool set_ring;
 	bool adjust_tail;
 	bool adjust_tail_support;
+	bool poll_tmout;
 	enum test_mode mode;
 	char name[MAX_TEST_NAME_SIZE];
 };
