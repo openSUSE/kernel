@@ -7,7 +7,6 @@
 #include <linux/netdev.h>
 #include <poll.h>
 #include <pthread.h>
-#include <signal.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
@@ -1671,7 +1670,8 @@ void *worker_testapp_validate_rx(void *arg)
 				       strerror(-err));
 	}
 
-	pthread_barrier_wait(&barr);
+	if (test->use_barrier)
+		pthread_barrier_wait(&barr);
 
 	/* We leave only now in case of error to avoid getting stuck in the barrier */
 	if (err) {
@@ -1708,11 +1708,6 @@ static void testapp_clean_xsk_umem(struct ifobject *ifobj)
 
 	xsk_umem__delete(umem->umem);
 	munmap(umem->buffer, umem->mmap_size);
-}
-
-static void handler(int signum)
-{
-	pthread_exit(NULL);
 }
 
 static bool xdp_prog_changed_rx(struct test_spec *test)
@@ -1819,9 +1814,18 @@ static int __testapp_validate_traffic(struct test_spec *test, struct ifobject *i
 		return TEST_FAILURE;
 	}
 
-	if (ifobj2) {
+	err = xsk_attach_xdp_progs(test, ifobj1, ifobj2);
+	if (err) {
+		ksft_print_msg("Error: failed to attach XDP programs: %d (%s)\n",
+			       err, strerror(-err));
+		return TEST_FAILURE;
+	}
+	test->use_barrier = !!ifobj2;
+
+	if (test->use_barrier) {
 		if (pthread_barrier_init(&barr, NULL, 2))
 			return TEST_FAILURE;
+
 		pkt_stream_reset(ifobj2->xsk->pkt_stream);
 	}
 
@@ -1829,27 +1833,26 @@ static int __testapp_validate_traffic(struct test_spec *test, struct ifobject *i
 	pkt_stream_reset(ifobj1->xsk->pkt_stream);
 	pkts_in_flight = 0;
 
-	signal(SIGUSR1, handler);
 	/*Spawn RX thread */
 	pthread_create(&t0, NULL, ifobj1->func_ptr, test);
 
-	if (ifobj2) {
+	if (test->use_barrier) {
 		pthread_barrier_wait(&barr);
 		if (pthread_barrier_destroy(&barr)) {
-			pthread_kill(t0, SIGUSR1);
+			test->use_barrier = false;
+			pthread_join(t0, NULL);
 			clean_sockets(test, ifobj1);
 			clean_umem(test, ifobj1, NULL);
 			return TEST_FAILURE;
 		}
+	}
 
+	if (ifobj2) {
 		/*Spawn TX thread */
 		pthread_create(&t1, NULL, ifobj2->func_ptr, test);
-
 		pthread_join(t1, NULL);
 	}
 
-	if (!ifobj2)
-		pthread_kill(t0, SIGUSR1);
 	pthread_join(t0, NULL);
 
 	if (test->total_steps == test->current_step || test->fail) {
@@ -1887,8 +1890,6 @@ static int testapp_validate_traffic(struct test_spec *test)
 		}
 	}
 
-	if (xsk_attach_xdp_progs(test, ifobj_rx, ifobj_tx))
-		return TEST_FAILURE;
 	return __testapp_validate_traffic(test, ifobj_rx, ifobj_tx);
 }
 
