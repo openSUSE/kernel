@@ -45,6 +45,7 @@
 #include <rdma/iw_cm.h>
 #include <rdma/ib_user_verbs.h>
 #include <rdma/ib_umem.h>
+#include <rdma/iter.h>
 #include <rdma/uverbs_ioctl.h>
 #include "i40iw.h"
 
