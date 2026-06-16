@@ -397,8 +397,22 @@ struct tep_format_field;
 
 u64 format_field__intval(struct tep_format_field *field, struct perf_sample *sample, bool needs_swap);
 
+#ifdef HAVE_LIBTRACEEVENT
 struct tep_format_field *evsel__field(struct evsel *evsel, const char *name);
 struct tep_format_field *evsel__common_field(struct evsel *evsel, const char *name);
+#else
+static inline struct tep_format_field *
+evsel__field(struct evsel *evsel __maybe_unused, const char *name __maybe_unused)
+{
+	return NULL;
+}
+
+static inline struct tep_format_field *
+evsel__common_field(struct evsel *evsel __maybe_unused, const char *name __maybe_unused)
+{
+	return NULL;
+}
+#endif
 
 bool __evsel__match(const struct evsel *evsel, u32 type, u64 config);
 
