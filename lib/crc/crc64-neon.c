@@ -6,7 +6,9 @@
 #include <linux/types.h>
 #include <asm/neon-intrinsics.h>
 
-u64 crc64_nvme_arm64_c(u64 crc, const u8 *p, size_t len);
+#include "crc64-neon.h"
+
+u64 crc64_nvme_neon(u64 crc, const u8 *p, size_t len);
 
 /* x^191 mod G, x^127 mod G */
 static const u64 fold_consts_val[2] = { 0xeadc41fd2ba3d420ULL,
@@ -15,27 +17,7 @@ static const u64 fold_consts_val[2] = { 0xeadc41fd2ba3d420ULL,
 static const u64 bconsts_val[2] = { 0x27ecfa329aef9f77ULL,
 				    0x34d926535897936aULL };
 
-static inline uint64x2_t pmull64(uint64x2_t a, uint64x2_t b)
-{
-	return vreinterpretq_u64_p128(vmull_p64(vgetq_lane_u64(a, 0),
-						vgetq_lane_u64(b, 0)));
-}
-
-static inline uint64x2_t pmull64_high(uint64x2_t a, uint64x2_t b)
-{
-	poly64x2_t l = vreinterpretq_p64_u64(a);
-	poly64x2_t m = vreinterpretq_p64_u64(b);
-
-	return vreinterpretq_u64_p128(vmull_high_p64(l, m));
-}
-
-static inline uint64x2_t pmull64_hi_lo(uint64x2_t a, uint64x2_t b)
-{
-	return vreinterpretq_u64_p128(vmull_p64(vgetq_lane_u64(a, 1),
-						vgetq_lane_u64(b, 0)));
-}
-
-u64 crc64_nvme_arm64_c(u64 crc, const u8 *p, size_t len)
+u64 crc64_nvme_neon(u64 crc, const u8 *p, size_t len)
 {
 	uint64x2_t fold_consts = vld1q_u64(fold_consts_val);
 	uint64x2_t v0 = { crc, 0 };
