@@ -24,7 +24,6 @@
 	IP_PNP	IP DHCP, BOOTP, or RARP is enabled.
 	IPV6	IPv6 support is enabled.
 	ISAPNP	ISA PnP code is enabled.
-	ISDN	Appropriate ISDN support is enabled.
 	ISOL	CPU Isolation is enabled.
 	JOY	Appropriate joystick support is enabled.
 	KGDB	Kernel debugger support is enabled.
@@ -2223,9 +2222,6 @@ Kernel parameters
 			syscalls, essentially overriding IA32_EMULATION_DEFAULT_DISABLED at
 			boot time. When false, unconditionally disables IA32 emulation.
 
-	icn=		[HW,ISDN]
-			Format: <io>[,<membase>[,<icn_id>[,<icn_id2>]]]
-
 
 	idle=		[X86,EARLY]
 			Format: idle=poll, idle=halt, idle=nomwait
@@ -2562,28 +2558,49 @@ Kernel parameters
 			Don't force hardware IOMMU usage when it is not
 			needed. (default).
 
-		biomerge
-		panic
-		nopanic
 		merge
+			Do scatter-gather (SG) merging. Implies "force"
+			(experimental).
+
 		nomerge
+			Don't do scatter-gather (SG) merging.
+
+		biomerge
+			Do scatter-gather (SG) merging. Implies "force"
+			(experimental). [same as "merge"]
+
+		panic
+			Always panic when IOMMU overflows.
+
+		nopanic
+			Don't panic on IOMMU overflows.
+
+		pt
+			Use passththrough mode by default
+			(Equivalent to iommu.passthrough=1)
+
+		nopt
+			Use translated mode for DMA by default
+			(Equivalent to iommu.passthrough=0)
 
 		soft
 			Use software bounce buffering (SWIOTLB) (default for
 			Intel machines). This can be used to prevent the usage
 			of an available hardware IOMMU.
 
-		pt
-		nopt
-		nobypass	[PPC/POWERNV]
-			Disable IOMMU bypass, using IOMMU for PCI devices.
+		usedac
+			Use the DAC on VIA PCI bridge
+			(default: disable the VIA PCI bridge DAC)
 
-		AMD Gart HW IOMMU-specific options:
+	    AMD Gart HW IOMMU-specific options: (CONFIG_GART_IOMMU)
 
 		<size>
 			Set the size of the remapping area in bytes.
 
 		allowed
+			Overwrite iommu off workarounds for specific chipsets
+
+		force
 			Overwrite iommu off workarounds for specific chipsets
 
 		fullflush
@@ -2596,21 +2613,16 @@ Kernel parameters
 			Allocate an own aperture over RAM with size
 			32MB<<order.  (default: order=1, i.e. 64MB)
 
-		merge
-			Do scatter-gather (SG) merging. Implies "force"
-			(experimental).
-
-		nomerge
-			Don't do scatter-gather (SG) merging.
-
 		noaperture
 			Ask the IOMMU not to touch the aperture for AGP.
 
 		noagp
 			Don't initialize the AGP driver and use full aperture.
 
-		panic
-			Always panic when IOMMU overflows.
+	iommu=		[PPC/POWERNV]
+
+		nobypass
+			Disable IOMMU bypass, using IOMMU for PCI devices.
 
 	iommu.forcedac=	[ARM64,X86,EARLY] Control IOVA allocation for PCI devices.
 			Format: { "0" | "1" }
@@ -2733,7 +2745,6 @@ Kernel parameters
 			Format: <RDP>,<reset>,<pci_scan>,<verbosity>
 
 	isolcpus=	[KNL,SMP,ISOL] Isolate a given set of CPUs from disturbance.
-			[Deprecated - use cpusets instead]
 			Format: [flag-list,]<cpu-list>
 
 			Specify one or more CPUs to isolate from disturbances
@@ -2758,11 +2769,10 @@ Kernel parameters
 			  Isolate from the general SMP balancing and scheduling
 			  algorithms. Note that performing domain isolation this way
 			  is irreversible: it's not possible to bring back a CPU to
-			  the domains once isolated through isolcpus. It's strongly
-			  advised to use cpusets instead to disable scheduler load
-			  balancing through the "cpuset.sched_load_balance" file.
-			  It offers a much more flexible interface where CPUs can
-			  move in and out of an isolated set anytime.
+			  the domains once isolated through this boot time
+			  configuration. Use cpusets for a dynamic configuration
+			  which can be altered at runtime. For details see
+			  Documentation/admin-guide/cpu-isolation.rst.
 
 			  You can move a process onto or off an "isolated" CPU via
 			  the CPU affinity syscalls or cpuset.
@@ -4614,7 +4624,7 @@ Kernel parameters
 	nosmt		[KNL,MIPS,PPC,EARLY] Disable symmetric multithreading (SMT).
 			Equivalent to smt=1.
 
-			[KNL,LOONGARCH,X86,PPC,S390] Disable symmetric multithreading (SMT).
+			[KNL,LOONGARCH,X86,ARM64,PPC,S390] Disable symmetric multithreading (SMT).
 			nosmt=force: Force disable SMT, cannot be undone
 				     via the sysfs control file.
 
@@ -5006,8 +5016,6 @@ Kernel parameters
 			Halt all CPUs after the first oops has been printed for
 			the specified number of seconds.  This is to be used if
 			your oopses keep scrolling off the screen.
-
-	pcbit=		[HW,ISDN]
 
 	pci=option[,option...]	[PCI,EARLY] various PCI subsystem options.
 
@@ -6748,8 +6756,6 @@ Kernel parameters
 			restrictions other than those given by hardware at the
 			cost of significant additional memory use for tables.
 
-	sa1100ir	[NET]
-			See drivers/net/irda/sa1100_ir.c.
 
 	sched_proxy_exec= [KNL]
 			Enables or disables "proxy execution" style
@@ -7396,10 +7402,10 @@ Kernel parameters
 			Set the STI (builtin display/keyboard on the HP-PARISC
 			machines) console (graphic card) which should be used
 			as the initial boot-console.
-			See also comment in drivers/video/console/sticore.c.
+			See also comment in drivers/video/sticore.c.
 
 	sti_font=	[HW]
-			See comment in drivers/video/console/sticore.c.
+			See comment in drivers/video/sticore.c.
 
 	stifb=		[HW]
 			Format: bpp:<bpp1>[:<bpp2>[:<bpp3>...]]
