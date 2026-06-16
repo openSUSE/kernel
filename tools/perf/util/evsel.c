@@ -254,6 +254,58 @@ const char *evsel__pmu_name(const struct evsel *evsel)
 	return event_type(evsel->core.attr.type);
 }
 
+enum evsel_probe_type {
+	PROBE__UNKNOWN	= 0,
+	PROBE__NOPE	= 1,
+	PROBE__KPROBE	= 2,
+	PROBE__UPROBE	= 3,
+	/*
+	 * Ftrace-based dynamic probes (kprobes/uprobes/fprobes created via
+	 * tracefs) report PMU "tracepoint", not "kprobe"/"uprobe".  Detect
+	 * them by the __probe_ip field that the kernel adds to all dynamic
+	 * probe formats.
+	 */
+	PROBE__FTRACE	= 4,
+};
+
+static void evsel__resolve_probe_type(struct evsel *evsel)
+{
+	const char *name = evsel__pmu_name(evsel);
+
+	if (!strcmp(name, "kprobe"))
+		evsel->probe_type = PROBE__KPROBE;
+	else if (!strcmp(name, "uprobe"))
+		evsel->probe_type = PROBE__UPROBE;
+	else if (!strcmp(name, "tracepoint") && evsel__field(evsel, "__probe_ip"))
+		evsel->probe_type = PROBE__FTRACE;
+	else
+		evsel->probe_type = PROBE__NOPE;
+}
+
+bool evsel__is_probe(struct evsel *evsel)
+{
+	if (evsel->probe_type == PROBE__UNKNOWN)
+		evsel__resolve_probe_type(evsel);
+
+	return evsel->probe_type > PROBE__NOPE;
+}
+
+bool evsel__is_kprobe(struct evsel *evsel)
+{
+	if (evsel->probe_type == PROBE__UNKNOWN)
+		evsel__resolve_probe_type(evsel);
+
+	return evsel->probe_type == PROBE__KPROBE;
+}
+
+bool evsel__is_uprobe(struct evsel *evsel)
+{
+	if (evsel->probe_type == PROBE__UNKNOWN)
+		evsel__resolve_probe_type(evsel);
+
+	return evsel->probe_type == PROBE__UPROBE;
+}
+
 #define FD(e, x, y) (*(int *)xyarray__entry(e->core.fd, x, y))
 
 int __evsel__sample_size(u64 sample_type)
@@ -413,6 +465,7 @@ void evsel__init(struct evsel *evsel,
 	evsel->supported     = true;
 	evsel->alternate_hw_config = PERF_COUNT_HW_MAX;
 	evsel->script_output_type = -1; // FIXME: OUTPUT_TYPE_UNSET, see builtin-script.c
+	evsel->probe_type = PROBE__UNKNOWN;
 }
 
 struct evsel *evsel__new_idx(struct perf_event_attr *attr, int idx)

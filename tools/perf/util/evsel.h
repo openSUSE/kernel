@@ -126,6 +126,7 @@ struct evsel {
 	bool			needs_uniquify;
 	bool			fallenback_eacces;
 	bool			fallenback_eopnotsupp;
+	u8			probe_type:3;
 	struct hashmap		*per_pkg_mask;
 	int			err;
 	int			script_output_type;
@@ -258,6 +259,10 @@ int evsel__object_config(size_t object_size,
 struct perf_pmu *evsel__find_pmu(const struct evsel *evsel);
 const char *evsel__pmu_name(const struct evsel *evsel);
 bool evsel__is_aux_event(const struct evsel *evsel);
+
+bool evsel__is_probe(struct evsel *evsel);
+bool evsel__is_kprobe(struct evsel *evsel);
+bool evsel__is_uprobe(struct evsel *evsel);
 
 struct evsel *evsel__new_idx(struct perf_event_attr *attr, int idx);
 
