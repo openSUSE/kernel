@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: (GPL-2.0 OR BSD-2-Clause)
 %YAML 1.2
 ---
-$id: http://devicetree.org/schemas/mmc/sdhci-msm.yaml#
+$id: http://devicetree.org/schemas/mmc/qcom,sdhci-msm.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
 title: Qualcomm SDHCI controller (sdhci-msm)
@@ -37,6 +37,8 @@ properties:
           - const: qcom,sdhci-msm-v4 # for sdcc versions less than 5.0
       - items:
           - enum:
+              - qcom,eliza-sdhci
+              - qcom,hawi-sdhci
               - qcom,ipq5018-sdhci
               - qcom,ipq5210-sdhci
               - qcom,ipq5332-sdhci
@@ -62,6 +64,7 @@ properties:
               - qcom,sdx55-sdhci
               - qcom,sdx65-sdhci
               - qcom,sdx75-sdhci
+              - qcom,shikra-sdhci
               - qcom,sm6115-sdhci
               - qcom,sm6125-sdhci
               - qcom,sm6350-sdhci
