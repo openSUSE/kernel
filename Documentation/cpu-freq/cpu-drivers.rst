@@ -115,8 +115,14 @@ Then, the driver must fill in the following values:
 |policy->cur			    | The current operating frequency of   |
 |				    | this CPU (if appropriate)		   |
 +-----------------------------------+--------------------------------------+
-|policy->min,			    |					   |
-|policy->max,			    |					   |
+|policy->min			    | If set by the driver in ->init(),    |
+|				    | used as initial minimum frequency	   |
+|				    | QoS request.			   |
++-----------------------------------+--------------------------------------+
+|policy->max			    | If set by the driver in ->init(),    |
+|				    | used as initial maximum frequency	   |
+|				    | QoS request.			   |
++-----------------------------------+--------------------------------------+
 |policy->policy and, if necessary,  |					   |
 |policy->governor		    | must contain the "default policy" for|
 |				    | this CPU. A few moments later,       |

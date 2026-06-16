@@ -1471,7 +1471,15 @@ static void cpufreq_policy_free(struct cpufreq_policy *policy)
 
 static int cpufreq_policy_init_qos(struct cpufreq_policy *policy)
 {
+	unsigned int min_freq, max_freq;
 	int ret;
+
+	/* Use policy->min/max set by the driver as QoS requests. */
+	min_freq = max(FREQ_QOS_MIN_DEFAULT_VALUE, policy->min);
+	if (policy->max)
+		max_freq = min(FREQ_QOS_MAX_DEFAULT_VALUE, policy->max);
+	else
+		max_freq = FREQ_QOS_MAX_DEFAULT_VALUE;
 
 	/*
 	 * If the driver didn't set policy->min/max, set them as
@@ -1490,12 +1498,12 @@ static int cpufreq_policy_init_qos(struct cpufreq_policy *policy)
 	}
 
 	ret = freq_qos_add_request(&policy->constraints, &policy->min_freq_req,
-				   FREQ_QOS_MIN, FREQ_QOS_MIN_DEFAULT_VALUE);
+				   FREQ_QOS_MIN, min_freq);
 	if (ret < 0)
 		return ret;
 
 	ret = freq_qos_add_request(&policy->constraints, &policy->max_freq_req,
-				   FREQ_QOS_MAX, FREQ_QOS_MAX_DEFAULT_VALUE);
+				   FREQ_QOS_MAX, max_freq);
 	if (ret < 0)
 		return ret;
 
