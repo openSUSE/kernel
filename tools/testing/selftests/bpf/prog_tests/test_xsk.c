@@ -2226,13 +2226,28 @@ int testapp_xdp_shared_umem(struct test_spec *test)
 
 int testapp_poll_txq_tmout(struct test_spec *test)
 {
+	bool shared_umem = test->ifobj_tx->shared_umem;
+	int ret;
+
 	test->poll_tmout = true;
+	/*
+	 * POLL_TXQ_FULL exercises TX timeout setup in isolation.
+	 * Keep TX out of shared-UMEM mode here so TX setup does not require
+	 * RX UMEM to be initialized first.
+	 */
+	test->ifobj_tx->shared_umem = false;
 	test->ifobj_tx->use_poll = true;
 	/* create invalid frame by set umem frame_size and pkt length equal to 2048 */
 	test->ifobj_tx->xsk->umem->frame_size = 2048;
-	if (pkt_stream_replace(test, 2 * DEFAULT_PKT_CNT, 2048))
+	if (pkt_stream_replace(test, 2 * DEFAULT_PKT_CNT, 2048)) {
+		test->ifobj_tx->shared_umem = shared_umem;
 		return TEST_FAILURE;
-	return testapp_validate_traffic_single_thread(test, test->ifobj_tx);
+	}
+
+	ret = testapp_validate_traffic_single_thread(test, test->ifobj_tx);
+	test->ifobj_tx->shared_umem = shared_umem;
+
+	return ret;
 }
 
 int testapp_poll_rxq_tmout(struct test_spec *test)
