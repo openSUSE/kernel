@@ -4801,6 +4801,9 @@ static void f2fs_dio_iostat_start(struct f2fs_sb_info *sbi, struct bio *bio)
 {
 	void *bi_private = bio->bi_private;
 
+	if (!sbi->iostat_enable)
+		return;
+
 	iostat_alloc_and_bind_ctx(sbi, bio, bi_private);
 	iostat_update_submit_ctx(bio, DATA);
 	bio->bi_end_io = f2fs_dio_end_bio;
