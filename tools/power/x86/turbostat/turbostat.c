@@ -2427,11 +2427,17 @@ char *sys_lpi_file_debugfs = "/sys/kernel/debug/pmc_core/slp_s0_residency_usec";
 
 int cpu_is_not_present(int cpu)
 {
+	if (cpu < 0)
+		return 1;
+
 	return !CPU_ISSET_S(cpu, cpu_present_setsize, cpu_present_set);
 }
 
 int cpu_is_not_allowed(int cpu)
 {
+	if (cpu < 0)
+		return 1;
+
 	return !CPU_ISSET_S(cpu, cpu_allowed_setsize, cpu_allowed_set);
 }
 
@@ -2442,6 +2448,22 @@ int cpu_is_not_allowed(int cpu)
  */
 
 #define PER_THREAD_PARAMS  struct thread_data *t, struct core_data *c, struct pkg_data *p
+
+int has_allowed_lower_ht_sibling(int cpu)
+{
+	int i;
+
+	for (i = 0; i <= cpus[cpu].ht_id; ++i) {
+		int sibling_cpu_id = cpus[cpu].ht_sibling_cpu_id[i];
+
+		if (sibling_cpu_id == cpu)
+			return 0;
+
+		if (!cpu_is_not_allowed(sibling_cpu_id))
+			return 1;
+	}
+	return 0;
+}
 
 int for_all_cpus(int (func) (struct thread_data *, struct core_data *, struct pkg_data *),
 		 struct thread_data *thread_base, struct core_data *core_base, struct pkg_data *pkg_base)
@@ -2460,7 +2482,7 @@ int for_all_cpus(int (func) (struct thread_data *, struct core_data *, struct pk
 		if (cpu_is_not_allowed(cpu))
 			continue;
 
-		if (cpus[cpu].ht_id > 0)	/* skip HT sibling */
+		if (has_allowed_lower_ht_sibling(cpu))	/* skip HT sibling */
 			continue;
 
 		t = &thread_base[cpu];
@@ -2469,13 +2491,22 @@ int for_all_cpus(int (func) (struct thread_data *, struct core_data *, struct pk
 
 		retval |= func(t, c, p);
 
-		/* Handle HT sibling now */
+		/* Handle other HT siblings now */
 		int i;
 
-		for (i = MAX_HT_ID; i > 0; --i) {	/* ht_id 0 is self */
-			if (cpus[cpu].ht_sibling_cpu_id[i] <= 0)
+		for (i = 0; i <= MAX_HT_ID; ++i) {
+			int sibling_cpu_id = cpus[cpu].ht_sibling_cpu_id[i];
+
+			if (sibling_cpu_id < 0)
+				break;
+
+			if (sibling_cpu_id == cpu)
 				continue;
-			t = &thread_base[cpus[cpu].ht_sibling_cpu_id[i]];
+
+			if (cpu_is_not_allowed(sibling_cpu_id))
+				continue;
+
+			t = &thread_base[sibling_cpu_id];
 
 			retval |= func(t, c, p);
 		}
@@ -2837,30 +2868,29 @@ static inline int print_name(int width, int *printed, char *delim, char *name, e
 	UNUSED(type);
 
 	if (format == FORMAT_RAW && width >= 64)
-		return (sprintf(outp, "%s%-8s", (*printed++ ? delim : ""), name));
+		return (sprintf(outp, "%s%-8s", ((*printed)++ ? delim : ""), name));
 	else
-		return (sprintf(outp, "%s%s", (*printed++ ? delim : ""), name));
+		return (sprintf(outp, "%s%s", ((*printed)++ ? delim : ""), name));
 }
 
 static inline int print_hex_value(int width, int *printed, char *delim, unsigned long long value)
 {
 	if (width <= 32)
-		return (sprintf(outp, "%s%08x", (*printed++ ? delim : ""), (unsigned int)value));
+		return (sprintf(outp, "%s%08x", ((*printed)++ ? delim : ""), (unsigned int)value));
 	else
-		return (sprintf(outp, "%s%016llx", (*printed++ ? delim : ""), value));
+		return (sprintf(outp, "%s%016llx", ((*printed)++ ? delim : ""), value));
 }
 
 static inline int print_decimal_value(int width, int *printed, char *delim, unsigned long long value)
 {
-	if (width <= 32)
-		return (sprintf(outp, "%s%d", (*printed++ ? delim : ""), (unsigned int)value));
-	else
-		return (sprintf(outp, "%s%-8lld", (*printed++ ? delim : ""), value));
+	UNUSED(width);
+
+	return (sprintf(outp, "%s%lld", ((*printed)++ ? delim : ""), value));
 }
 
 static inline int print_float_value(int *printed, char *delim, double value)
 {
-	return (sprintf(outp, "%s%0.2f", (*printed++ ? delim : ""), value));
+	return (sprintf(outp, "%s%0.2f", ((*printed)++ ? delim : ""), value));
 }
 
 void print_header(char *delim)
@@ -3469,7 +3499,7 @@ int format_counters(PER_THREAD_PARAMS)
 	for (i = 0, pp = sys.perf_tp; pp; ++i, pp = pp->next) {
 		if (pp->format == FORMAT_RAW)
 			outp += print_hex_value(pp->width, &printed, delim, t->perf_counter[i]);
-		else if (pp->format == FORMAT_DELTA || mp->format == FORMAT_AVERAGE)
+		else if (pp->format == FORMAT_DELTA || pp->format == FORMAT_AVERAGE)
 			outp += print_decimal_value(pp->width, &printed, delim, t->perf_counter[i]);
 		else if (pp->format == FORMAT_PERCENT) {
 			if (pp->type == COUNTER_USEC)
@@ -3539,7 +3569,7 @@ int format_counters(PER_THREAD_PARAMS)
 	for (i = 0, pp = sys.perf_cp; pp; i++, pp = pp->next) {
 		if (pp->format == FORMAT_RAW)
 			outp += print_hex_value(pp->width, &printed, delim, c->perf_counter[i]);
-		else if (pp->format == FORMAT_DELTA || mp->format == FORMAT_AVERAGE)
+		else if (pp->format == FORMAT_DELTA || pp->format == FORMAT_AVERAGE)
 			outp += print_decimal_value(pp->width, &printed, delim, c->perf_counter[i]);
 		else if (pp->format == FORMAT_PERCENT)
 			outp += print_float_value(&printed, delim, pct(c->perf_counter[i], tsc));
@@ -3695,7 +3725,7 @@ int format_counters(PER_THREAD_PARAMS)
 			outp += print_hex_value(pp->width, &printed, delim, p->perf_counter[i]);
 		else if (pp->type == COUNTER_K2M)
 			outp += sprintf(outp, "%s%d", (printed++ ? delim : ""), (unsigned int)p->perf_counter[i] / 1000);
-		else if (pp->format == FORMAT_DELTA || mp->format == FORMAT_AVERAGE)
+		else if (pp->format == FORMAT_DELTA || pp->format == FORMAT_AVERAGE)
 			outp += print_decimal_value(pp->width, &printed, delim, p->perf_counter[i]);
 		else if (pp->format == FORMAT_PERCENT)
 			outp += print_float_value(&printed, delim, pct(p->perf_counter[i], tsc));
@@ -6170,11 +6200,11 @@ int set_thread_siblings(struct cpu_topology *thiscpu)
 	int cpu = thiscpu->cpu_id;
 	int offset = topo.max_cpu_num + 1;
 	size_t size;
-	int thread_id = 0;
+	int ht_id = 0;
 
 	thiscpu->put_ids = CPU_ALLOC((topo.max_cpu_num + 1));
 	if (thiscpu->ht_id < 0)
-		thiscpu->ht_id = thread_id++;
+		thiscpu->ht_id = 0;	/* first CPU in core */
 	if (!thiscpu->put_ids)
 		return -1;
 
@@ -6198,13 +6228,9 @@ int set_thread_siblings(struct cpu_topology *thiscpu)
 				sib_core = get_core_id(so);
 				if (sib_core == thiscpu->core_id) {
 					CPU_SET_S(so, size, thiscpu->put_ids);
-					if ((so != cpu) && (cpus[so].ht_id < 0)) {
-						cpus[so].ht_id = thread_id;
-						cpus[cpu].ht_sibling_cpu_id[thread_id] = so;
-						if (debug)
-							fprintf(stderr, "%s: cpu%d.ht_sibling_cpu_id[%d] = %d\n", __func__, cpu, thread_id, so);
-						thread_id += 1;
-					}
+					cpus[so].ht_id = ht_id;
+					cpus[cpu].ht_sibling_cpu_id[ht_id] = so;
+					ht_id += 1;
 				}
 			}
 		}
@@ -6237,7 +6263,7 @@ int for_all_cpus_2(int (func) (struct thread_data *, struct core_data *,
 		if (cpu_is_not_allowed(cpu))
 			continue;
 
-		if (cpus[cpu].ht_id > 0)	/* skip HT sibling */
+		if (has_allowed_lower_ht_sibling(cpu))	/* skip HT sibling */
 			continue;
 
 		t = &thread_base[cpu];
@@ -6252,11 +6278,20 @@ int for_all_cpus_2(int (func) (struct thread_data *, struct core_data *,
 		/* Handle HT sibling now */
 		int i;
 
-		for (i = MAX_HT_ID; i > 0; --i) {	/* ht_id 0 is self */
-			if (cpus[cpu].ht_sibling_cpu_id[i] <= 0)
+		for (i = 0; i <= MAX_HT_ID; ++i) {
+			int sibling_cpu_id = cpus[cpu].ht_sibling_cpu_id[i];
+
+			if (sibling_cpu_id < 0)
+				break;
+
+			if (sibling_cpu_id == cpu)
 				continue;
-			t = &thread_base[cpus[cpu].ht_sibling_cpu_id[i]];
-			t2 = &thread_base2[cpus[cpu].ht_sibling_cpu_id[i]];
+
+			if (cpu_is_not_allowed(sibling_cpu_id))
+				continue;
+
+			t = &thread_base[sibling_cpu_id];
+			t2 = &thread_base2[sibling_cpu_id];
 
 			retval |= func(t, c, p, t2, c2, p2);
 		}
@@ -9506,6 +9541,8 @@ void topology_probe(bool startup)
 	cpu_present_setsize = CPU_ALLOC_SIZE((topo.max_cpu_num + 1));
 	CPU_ZERO_S(cpu_present_setsize, cpu_present_set);
 	for_all_proc_cpus(mark_cpu_present);
+	if (debug)
+		print_cpu_set("present set", cpu_present_set);
 
 	/*
 	 * Allocate and initialize cpu_possible_set
@@ -9516,6 +9553,8 @@ void topology_probe(bool startup)
 	cpu_possible_setsize = CPU_ALLOC_SIZE((topo.max_cpu_num + 1));
 	CPU_ZERO_S(cpu_possible_setsize, cpu_possible_set);
 	initialize_cpu_set_from_sysfs(cpu_possible_set, "/sys/devices/system/cpu", "possible");
+	if (debug)
+		print_cpu_set("possible set", cpu_possible_set);
 
 	/*
 	 * Allocate and initialize cpu_effective_set
@@ -9526,6 +9565,8 @@ void topology_probe(bool startup)
 	cpu_effective_setsize = CPU_ALLOC_SIZE((topo.max_cpu_num + 1));
 	CPU_ZERO_S(cpu_effective_setsize, cpu_effective_set);
 	update_effective_set(startup);
+	if (debug)
+		print_cpu_set("effective set", cpu_effective_set);
 
 	/*
 	 * Allocate and initialize cpu_allowed_set
@@ -9569,6 +9610,8 @@ void topology_probe(bool startup)
 
 		CPU_SET_S(i, cpu_allowed_setsize, cpu_allowed_set);
 	}
+	if (debug)
+		print_cpu_set("allowed set", cpu_allowed_set);
 
 	if (!CPU_COUNT_S(cpu_allowed_setsize, cpu_allowed_set))
 		err(-ENODEV, "No valid cpus found");
@@ -9672,12 +9715,18 @@ void topology_probe(bool startup)
 		return;
 
 	for (i = 0; i <= topo.max_cpu_num; ++i) {
+		int ht_id;
+
 		if (cpu_is_not_present(i))
 			continue;
 		fprintf(outf,
-			"cpu %d pkg %d die %d l3 %d node %d lnode %d core %d thread %d\n",
+			"cpu %d pkg %d die %d l3 %d node %d lnode %d core %d ht_id %d",
 			i, cpus[i].package_id, cpus[i].die_id, cpus[i].l3_id,
 			cpus[i].physical_node_id, cpus[i].logical_node_id, cpus[i].core_id, cpus[i].ht_id);
+		fprintf(outf, " siblings");
+		for (ht_id = 0; ht_id <= MAX_HT_ID; ++ht_id)
+			fprintf(outf, " %d", cpus[i].ht_sibling_cpu_id[ht_id]);
+		fprintf(outf, "\n");
 	}
 
 }
@@ -9705,13 +9754,12 @@ void allocate_counters(struct counters *counters)
 {
 	int i;
 	int num_cores = topo.cores_per_node * topo.nodes_per_pkg * topo.num_packages;
-	int num_threads = topo.threads_per_core * num_cores;
 
-	counters->threads = calloc(num_threads, sizeof(struct thread_data));
+	counters->threads = calloc(topo.max_cpu_num + 1, sizeof(struct thread_data));
 	if (counters->threads == NULL)
 		goto error;
 
-	for (i = 0; i < num_threads; i++)
+	for (i = 0; i < topo.max_cpu_num + 1; i++)
 		(counters->threads)[i].cpu_id = -1;
 
 	counters->cores = calloc(num_cores, sizeof(struct core_data));
@@ -9819,6 +9867,8 @@ void topology_update(void)
 	topo.allowed_cores = 0;
 	topo.allowed_packages = 0;
 	for_all_cpus(update_topo, ODD_COUNTERS);
+	if (debug)
+		fprintf(stderr, "allowed_cpus %d allowed_cores %d allowed_packages %d\n", topo.allowed_cpus, topo.allowed_cores, topo.allowed_packages);
 }
 
 void setup_all_buffers(bool startup)
@@ -11287,6 +11337,14 @@ void probe_cpuidle_residency(void)
 	}
 }
 
+static bool cpuidle_counter_wanted(char *name)
+{
+	if (is_deferred_skip(name))
+		return false;
+
+	return DO_BIC(BIC_cpuidle) || is_deferred_add(name);
+}
+
 void probe_cpuidle_counts(void)
 {
 	char path[64];
@@ -11296,7 +11354,7 @@ void probe_cpuidle_counts(void)
 	int min_state = 1024, max_state = 0;
 	char *sp;
 
-	if (!DO_BIC(BIC_cpuidle))
+	if (!DO_BIC(BIC_cpuidle) && !deferred_add_index)
 		return;
 
 	for (state = 10; state >= 0; --state) {
@@ -11310,12 +11368,6 @@ void probe_cpuidle_counts(void)
 		fclose(input);
 
 		remove_underbar(name_buf);
-
-		if (!DO_BIC(BIC_cpuidle) && !is_deferred_add(name_buf))
-			continue;
-
-		if (is_deferred_skip(name_buf))
-			continue;
 
 		/* truncate "C1-HSW\n" to "C1", or truncate "C1\n" to "C1" */
 		sp = strchr(name_buf, '-');
@@ -11331,16 +11383,19 @@ void probe_cpuidle_counts(void)
 			 * Add 'C1+' for C1, and so on. The 'below' sysfs file always contains 0 for
 			 * the last state, so do not add it.
 			 */
-
 			*sp = '+';
 			*(sp + 1) = '\0';
-			sprintf(path, "cpuidle/state%d/below", state);
-			add_counter(0, path, name_buf, 64, SCOPE_CPU, COUNTER_ITEMS, FORMAT_DELTA, SYSFS_PERCPU, 0);
+			if (cpuidle_counter_wanted(name_buf)) {
+				sprintf(path, "cpuidle/state%d/below", state);
+				add_counter(0, path, name_buf, 64, SCOPE_CPU, COUNTER_ITEMS, FORMAT_DELTA, SYSFS_PERCPU, 0);
+			}
 		}
 
 		*sp = '\0';
-		sprintf(path, "cpuidle/state%d/usage", state);
-		add_counter(0, path, name_buf, 64, SCOPE_CPU, COUNTER_ITEMS, FORMAT_DELTA, SYSFS_PERCPU, 0);
+		if (cpuidle_counter_wanted(name_buf)) {
+			sprintf(path, "cpuidle/state%d/usage", state);
+			add_counter(0, path, name_buf, 64, SCOPE_CPU, COUNTER_ITEMS, FORMAT_DELTA, SYSFS_PERCPU, 0);
+		}
 
 		/*
 		 * The 'above' sysfs file always contains 0 for the shallowest state (smallest
@@ -11349,8 +11404,10 @@ void probe_cpuidle_counts(void)
 		if (state != min_state) {
 			*sp = '-';
 			*(sp + 1) = '\0';
-			sprintf(path, "cpuidle/state%d/above", state);
-			add_counter(0, path, name_buf, 64, SCOPE_CPU, COUNTER_ITEMS, FORMAT_DELTA, SYSFS_PERCPU, 0);
+			if (cpuidle_counter_wanted(name_buf)) {
+				sprintf(path, "cpuidle/state%d/above", state);
+				add_counter(0, path, name_buf, 64, SCOPE_CPU, COUNTER_ITEMS, FORMAT_DELTA, SYSFS_PERCPU, 0);
+			}
 		}
 	}
 }
