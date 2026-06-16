@@ -51,7 +51,7 @@ static void io_fallback_tw(struct io_uring_task *tctx)
 	 * the queued work) stay around until the drain has run.
 	 */
 	get_task_struct(tctx->task);
-	if (!queue_work(system_unbound_wq, &tctx->fallback_work))
+	if (!queue_work(system_dfl_wq, &tctx->fallback_work))
 		put_task_struct(tctx->task);
 }
 
