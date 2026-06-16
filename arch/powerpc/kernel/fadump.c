@@ -1759,10 +1759,10 @@ void __init fadump_setup_param_area(void)
 		 * 2. The range should be between MIN_RMA and RMA size (ppc64_rma_size)
 		 * 3. It must not overlap with the fadump reserved area.
 		 */
-		if (ppc64_rma_size < MIN_RMA*1024*1024)
+		if (ppc64_rma_size < MIN_RMA)
 			return;
 
-		range_start = MIN_RMA * 1024 * 1024;
+		range_start = MIN_RMA;
 		range_end = min(ppc64_rma_size, fw_dump.boot_mem_top);
 	}
 
