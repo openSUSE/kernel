@@ -839,7 +839,6 @@ int __kvm_arm_vcpu_set_events(struct kvm_vcpu *vcpu,
 	bool serror_pending = events->exception.serror_pending;
 	bool has_esr = events->exception.serror_has_esr;
 	bool ext_dabt_pending = events->exception.ext_dabt_pending;
-	int ret = 0;
 
 	if (serror_pending && has_esr) {
 		if (!cpus_have_final_cap(ARM64_HAS_RAS_EXTN))
@@ -854,9 +853,9 @@ int __kvm_arm_vcpu_set_events(struct kvm_vcpu *vcpu,
 	}
 
 	if (ext_dabt_pending)
-		ret = kvm_inject_sea_dabt(vcpu, kvm_vcpu_get_hfar(vcpu));
+		kvm_inject_dabt(vcpu, kvm_vcpu_get_hfar(vcpu));
 
-	return (ret < 0) ? ret : 0;
+	return 0;
 }
 
 u32 __attribute_const__ kvm_target_cpu(void)

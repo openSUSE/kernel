@@ -110,7 +110,7 @@ static inline void __activate_traps_fpsimd32(struct kvm_vcpu *vcpu)
 		u64 c = 0, s = 0;					\
 									\
 		ctxt_sys_reg(hctxt, reg) = read_sysreg_s(SYS_ ## reg);	\
-		if (is_nested_ctxt(vcpu))				\
+		if (vcpu_has_nv(vcpu) && !is_hyp_ctxt(vcpu))		\
 			compute_clr_set(vcpu, reg, c, s);		\
 									\
 		compute_undef_clr_set(vcpu, kvm, reg, c, s);		\
@@ -177,7 +177,7 @@ static inline void __activate_traps_hfgxtr(struct kvm_vcpu *vcpu)
 
 #define __deactivate_fgt(htcxt, vcpu, kvm, reg)				\
 	do {								\
-		if (is_nested_ctxt(vcpu) ||	\
+		if ((vcpu_has_nv(vcpu) && !is_hyp_ctxt(vcpu)) ||	\
 		    kvm->arch.fgu[reg_to_fgt_group_id(reg)])		\
 			write_sysreg_s(ctxt_sys_reg(hctxt, reg),	\
 				       SYS_ ## reg);			\
@@ -263,7 +263,7 @@ static inline void __activate_traps_common(struct kvm_vcpu *vcpu)
 
 	if (cpus_have_final_cap(ARM64_HAS_HCX)) {
 		u64 hcrx = vcpu->arch.hcrx_el2;
-		if (is_nested_ctxt(vcpu)) {
+		if (vcpu_has_nv(vcpu) && !is_hyp_ctxt(vcpu)) {
 			u64 clr = 0, set = 0;
 
 			compute_clr_set(vcpu, HCRX_EL2, clr, set);
@@ -361,7 +361,7 @@ static inline void __hyp_sve_restore_guest(struct kvm_vcpu *vcpu)
 	 * nested guest, as the guest hypervisor could select a smaller VL. Slap
 	 * that into hardware before wrapping up.
 	 */
-	if (is_nested_ctxt(vcpu))
+	if (vcpu_has_nv(vcpu) && !is_hyp_ctxt(vcpu))
 		sve_cond_update_zcr_vq(__vcpu_sys_reg(vcpu, ZCR_EL2), SYS_ZCR_EL2);
 
 	write_sysreg_el1(__vcpu_sys_reg(vcpu, vcpu_sve_zcr_elx(vcpu)), SYS_ZCR);
@@ -387,7 +387,7 @@ static inline void fpsimd_lazy_switch_to_guest(struct kvm_vcpu *vcpu)
 
 	if (vcpu_has_sve(vcpu)) {
 		/* A guest hypervisor may restrict the effective max VL. */
-		if (is_nested_ctxt(vcpu))
+		if (vcpu_has_nv(vcpu) && !is_hyp_ctxt(vcpu))
 			zcr_el2 = __vcpu_sys_reg(vcpu, ZCR_EL2);
 		else
 			zcr_el2 = vcpu_sve_max_vq(vcpu) - 1;

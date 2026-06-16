@@ -46,26 +46,15 @@ void kvm_skip_instr32(struct kvm_vcpu *vcpu);
 
 void kvm_inject_undefined(struct kvm_vcpu *vcpu);
 void kvm_inject_vabt(struct kvm_vcpu *vcpu);
-int kvm_inject_sea(struct kvm_vcpu *vcpu, bool iabt, u64 addr);
-int kvm_inject_dabt_excl_atomic(struct kvm_vcpu *vcpu, u64 addr);
+void kvm_inject_dabt(struct kvm_vcpu *vcpu, unsigned long addr);
+void kvm_inject_pabt(struct kvm_vcpu *vcpu, unsigned long addr);
 void kvm_inject_size_fault(struct kvm_vcpu *vcpu);
-
-static inline int kvm_inject_sea_dabt(struct kvm_vcpu *vcpu, u64 addr)
-{
-	return kvm_inject_sea(vcpu, false, addr);
-}
-
-static inline int kvm_inject_sea_iabt(struct kvm_vcpu *vcpu, u64 addr)
-{
-	return kvm_inject_sea(vcpu, true, addr);
-}
 
 void kvm_vcpu_wfi(struct kvm_vcpu *vcpu);
 
 void kvm_emulate_nested_eret(struct kvm_vcpu *vcpu);
 int kvm_inject_nested_sync(struct kvm_vcpu *vcpu, u64 esr_el2);
 int kvm_inject_nested_irq(struct kvm_vcpu *vcpu);
-int kvm_inject_nested_sea(struct kvm_vcpu *vcpu, bool iabt, u64 addr);
 
 static inline void kvm_inject_nested_sve_trap(struct kvm_vcpu *vcpu)
 {
@@ -233,11 +222,6 @@ static inline bool is_hyp_ctxt(const struct kvm_vcpu *vcpu)
 static inline bool vcpu_is_host_el0(const struct kvm_vcpu *vcpu)
 {
 	return is_hyp_ctxt(vcpu) && !vcpu_is_el2(vcpu);
-}
-
-static inline bool is_nested_ctxt(struct kvm_vcpu *vcpu)
-{
-	return vcpu_has_nv(vcpu) && !is_hyp_ctxt(vcpu);
 }
 
 /*
@@ -664,35 +648,5 @@ static inline bool guest_hyp_fpsimd_traps_enabled(const struct kvm_vcpu *vcpu)
 static inline bool guest_hyp_sve_traps_enabled(const struct kvm_vcpu *vcpu)
 {
 	return __guest_hyp_cptr_xen_trap_enabled(vcpu, ZEN);
-}
-
-static inline void vcpu_set_hcrx(struct kvm_vcpu *vcpu)
-{
-	struct kvm *kvm = vcpu->kvm;
-
-	if (cpus_have_final_cap(ARM64_HAS_HCX)) {
-		/*
-		 * In general, all HCRX_EL2 bits are gated by a feature.
-		 * The only reason we can set SMPME without checking any
-		 * feature is that its effects are not directly observable
-		 * from the guest.
-		 */
-		vcpu->arch.hcrx_el2 = HCRX_EL2_SMPME;
-
-		if (kvm_has_feat(kvm, ID_AA64ISAR2_EL1, MOPS, IMP))
-			vcpu->arch.hcrx_el2 |= (HCRX_EL2_MSCEn | HCRX_EL2_MCE2);
-
-		if (kvm_has_tcr2(kvm))
-			vcpu->arch.hcrx_el2 |= HCRX_EL2_TCR2En;
-
-		if (kvm_has_fpmr(kvm))
-			vcpu->arch.hcrx_el2 |= HCRX_EL2_EnFPM;
-
-		if (kvm_has_feat(kvm, ID_AA64ISAR1_EL1, LS64, LS64))
-			vcpu->arch.hcrx_el2 |= HCRX_EL2_EnALS;
-
-		if (kvm_has_feat(kvm, ID_AA64ISAR1_EL1, LS64, LS64_V))
-			vcpu->arch.hcrx_el2 |= HCRX_EL2_EnASR;
-	}
 }
 #endif /* __ARM64_KVM_EMULATE_H__ */

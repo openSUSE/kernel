@@ -15,11 +15,13 @@
 #include <asm/kvm_nested.h>
 #include <asm/esr.h>
 
-static unsigned int exception_target_el(struct kvm_vcpu *vcpu)
+static void pend_sync_exception(struct kvm_vcpu *vcpu)
 {
 	/* If not nesting, EL1 is the only possible exception target */
-	if (likely(!vcpu_has_nv(vcpu)))
-		return PSR_MODE_EL1h;
+	if (likely(!vcpu_has_nv(vcpu))) {
+		kvm_pend_exception(vcpu, EXCEPT_AA64_EL1_SYNC);
+		return;
+	}
 
 	/*
 	 * With NV, we need to pick between EL1 and EL2. Note that we
@@ -30,39 +32,26 @@ static unsigned int exception_target_el(struct kvm_vcpu *vcpu)
 	switch(*vcpu_cpsr(vcpu) & PSR_MODE_MASK) {
 	case PSR_MODE_EL2h:
 	case PSR_MODE_EL2t:
-		return PSR_MODE_EL2h;
+		kvm_pend_exception(vcpu, EXCEPT_AA64_EL2_SYNC);
+		break;
 	case PSR_MODE_EL1h:
 	case PSR_MODE_EL1t:
-		return PSR_MODE_EL1h;
+		kvm_pend_exception(vcpu, EXCEPT_AA64_EL1_SYNC);
+		break;
 	case PSR_MODE_EL0t:
-		return vcpu_el2_tge_is_set(vcpu) ? PSR_MODE_EL2h : PSR_MODE_EL1h;
+		if (vcpu_el2_tge_is_set(vcpu))
+			kvm_pend_exception(vcpu, EXCEPT_AA64_EL2_SYNC);
+		else
+			kvm_pend_exception(vcpu, EXCEPT_AA64_EL1_SYNC);
+		break;
 	default:
 		BUG();
 	}
 }
 
-static enum vcpu_sysreg exception_esr_elx(struct kvm_vcpu *vcpu)
+static bool match_target_el(struct kvm_vcpu *vcpu, unsigned long target)
 {
-	if (exception_target_el(vcpu) == PSR_MODE_EL2h)
-		return ESR_EL2;
-
-	return ESR_EL1;
-}
-
-static enum vcpu_sysreg exception_far_elx(struct kvm_vcpu *vcpu)
-{
-	if (exception_target_el(vcpu) == PSR_MODE_EL2h)
-		return FAR_EL2;
-
-	return FAR_EL1;
-}
-
-static void pend_sync_exception(struct kvm_vcpu *vcpu)
-{
-	if (exception_target_el(vcpu) == PSR_MODE_EL1h)
-		kvm_pend_exception(vcpu, EXCEPT_AA64_EL1_SYNC);
-	else
-		kvm_pend_exception(vcpu, EXCEPT_AA64_EL2_SYNC);
+	return (vcpu_get_flag(vcpu, EXCEPT_MASK) == target);
 }
 
 static void inject_abt64(struct kvm_vcpu *vcpu, bool is_iabt, unsigned long addr)
@@ -94,8 +83,13 @@ static void inject_abt64(struct kvm_vcpu *vcpu, bool is_iabt, unsigned long addr
 
 	esr |= ESR_ELx_FSC_EXTABT;
 
-	vcpu_write_sys_reg(vcpu, addr, exception_far_elx(vcpu));
-	vcpu_write_sys_reg(vcpu, esr, exception_esr_elx(vcpu));
+	if (match_target_el(vcpu, unpack_vcpu_flag(EXCEPT_AA64_EL1_SYNC))) {
+		vcpu_write_sys_reg(vcpu, addr, FAR_EL1);
+		vcpu_write_sys_reg(vcpu, esr, ESR_EL1);
+	} else {
+		vcpu_write_sys_reg(vcpu, addr, FAR_EL2);
+		vcpu_write_sys_reg(vcpu, esr, ESR_EL2);
+	}
 }
 
 static void inject_undef64(struct kvm_vcpu *vcpu)
@@ -111,7 +105,10 @@ static void inject_undef64(struct kvm_vcpu *vcpu)
 	if (kvm_vcpu_trap_il_is32bit(vcpu))
 		esr |= ESR_ELx_IL;
 
-	vcpu_write_sys_reg(vcpu, esr, exception_esr_elx(vcpu));
+	if (match_target_el(vcpu, unpack_vcpu_flag(EXCEPT_AA64_EL1_SYNC)))
+		vcpu_write_sys_reg(vcpu, esr, ESR_EL1);
+	else
+		vcpu_write_sys_reg(vcpu, esr, ESR_EL2);
 }
 
 #define DFSR_FSC_EXTABT_LPAE	0x10
@@ -158,62 +155,36 @@ static void inject_abt32(struct kvm_vcpu *vcpu, bool is_pabt, u32 addr)
 	vcpu_write_sys_reg(vcpu, far, FAR_EL1);
 }
 
-static void __kvm_inject_sea(struct kvm_vcpu *vcpu, bool iabt, u64 addr)
-{
-	if (vcpu_el1_is_32bit(vcpu))
-		inject_abt32(vcpu, iabt, addr);
-	else
-		inject_abt64(vcpu, iabt, addr);
-}
-
-static bool kvm_sea_target_is_el2(struct kvm_vcpu *vcpu)
-{
-	return __vcpu_sys_reg(vcpu, HCR_EL2) & (HCR_TGE | HCR_TEA);
-}
-
-int kvm_inject_sea(struct kvm_vcpu *vcpu, bool iabt, u64 addr)
-{
-	lockdep_assert_held(&vcpu->mutex);
-
-	if (is_nested_ctxt(vcpu) && kvm_sea_target_is_el2(vcpu))
-		return kvm_inject_nested_sea(vcpu, iabt, addr);
-
-	__kvm_inject_sea(vcpu, iabt, addr);
-	return 1;
-}
-
-static int kvm_inject_nested_excl_atomic(struct kvm_vcpu *vcpu, u64 addr)
-{
-	u64 esr = FIELD_PREP(ESR_ELx_EC_MASK, ESR_ELx_EC_DABT_LOW) |
-		  FIELD_PREP(ESR_ELx_FSC, ESR_ELx_FSC_EXCL_ATOMIC) |
-		  ESR_ELx_IL;
-
-	vcpu_write_sys_reg(vcpu, addr, FAR_EL2);
-	return kvm_inject_nested_sync(vcpu, esr);
-}
-
 /**
- * kvm_inject_dabt_excl_atomic - inject a data abort for unsupported exclusive
- *				 or atomic access
+ * kvm_inject_dabt - inject a data abort into the guest
  * @vcpu: The VCPU to receive the data abort
  * @addr: The address to report in the DFAR
  *
  * It is assumed that this code is called from the VCPU thread and that the
  * VCPU therefore is not currently executing guest code.
  */
-int kvm_inject_dabt_excl_atomic(struct kvm_vcpu *vcpu, u64 addr)
+void kvm_inject_dabt(struct kvm_vcpu *vcpu, unsigned long addr)
 {
-	u64 esr;
+	if (vcpu_el1_is_32bit(vcpu))
+		inject_abt32(vcpu, false, addr);
+	else
+		inject_abt64(vcpu, false, addr);
+}
 
-	if (is_nested_ctxt(vcpu) && (vcpu_read_sys_reg(vcpu, HCR_EL2) & HCR_VM))
-		return kvm_inject_nested_excl_atomic(vcpu, addr);
-
-	__kvm_inject_sea(vcpu, false, addr);
-	esr = vcpu_read_sys_reg(vcpu, exception_esr_elx(vcpu));
-	esr &= ~ESR_ELx_FSC;
-	esr |= ESR_ELx_FSC_EXCL_ATOMIC;
-	vcpu_write_sys_reg(vcpu, esr, exception_esr_elx(vcpu));
-	return 1;
+/**
+ * kvm_inject_pabt - inject a prefetch abort into the guest
+ * @vcpu: The VCPU to receive the prefetch abort
+ * @addr: The address to report in the DFAR
+ *
+ * It is assumed that this code is called from the VCPU thread and that the
+ * VCPU therefore is not currently executing guest code.
+ */
+void kvm_inject_pabt(struct kvm_vcpu *vcpu, unsigned long addr)
+{
+	if (vcpu_el1_is_32bit(vcpu))
+		inject_abt32(vcpu, true, addr);
+	else
+		inject_abt64(vcpu, true, addr);
 }
 
 void kvm_inject_size_fault(struct kvm_vcpu *vcpu)
@@ -223,7 +194,10 @@ void kvm_inject_size_fault(struct kvm_vcpu *vcpu)
 	addr  = kvm_vcpu_get_fault_ipa(vcpu);
 	addr |= kvm_vcpu_get_hfar(vcpu) & GENMASK(11, 0);
 
-	__kvm_inject_sea(vcpu, kvm_vcpu_trap_is_iabt(vcpu), addr);
+	if (kvm_vcpu_trap_is_iabt(vcpu))
+		kvm_inject_pabt(vcpu, addr);
+	else
+		kvm_inject_dabt(vcpu, addr);
 
 	/*
 	 * If AArch64 or LPAE, set FSC to 0 to indicate an Address
@@ -236,9 +210,9 @@ void kvm_inject_size_fault(struct kvm_vcpu *vcpu)
 	    !(vcpu_read_sys_reg(vcpu, TCR_EL1) & TTBCR_EAE))
 		return;
 
-	esr = vcpu_read_sys_reg(vcpu, exception_esr_elx(vcpu));
+	esr = vcpu_read_sys_reg(vcpu, ESR_EL1);
 	esr &= ~GENMASK_ULL(5, 0);
-	vcpu_write_sys_reg(vcpu, esr, exception_esr_elx(vcpu));
+	vcpu_write_sys_reg(vcpu, esr, ESR_EL1);
 }
 
 /**

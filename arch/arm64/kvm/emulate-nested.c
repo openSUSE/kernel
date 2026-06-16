@@ -2402,8 +2402,13 @@ inject:
 
 static bool __forward_traps(struct kvm_vcpu *vcpu, unsigned int reg, u64 control_bit)
 {
-	if (is_nested_ctxt(vcpu) &&
-	    (__vcpu_sys_reg(vcpu, reg) & control_bit)) {
+	bool control_bit_set;
+
+	if (!vcpu_has_nv(vcpu))
+		return false;
+
+	control_bit_set = __vcpu_sys_reg(vcpu, reg) & control_bit;
+	if (!is_hyp_ctxt(vcpu) && control_bit_set) {
 		kvm_inject_nested_sync(vcpu, kvm_vcpu_get_esr(vcpu));
 		return true;
 	}
@@ -2623,14 +2628,4 @@ int kvm_inject_nested_irq(struct kvm_vcpu *vcpu)
 
 	/* esr_el2 value doesn't matter for exits due to irqs. */
 	return kvm_inject_nested(vcpu, 0, except_type_irq);
-}
-
-int kvm_inject_nested_sea(struct kvm_vcpu *vcpu, bool iabt, u64 addr)
-{
-	u64 esr = FIELD_PREP(ESR_ELx_EC_MASK,
-			     iabt ? ESR_ELx_EC_IABT_LOW : ESR_ELx_EC_DABT_LOW);
-	esr |= ESR_ELx_FSC_EXTABT | ESR_ELx_IL;
-
-	vcpu_write_sys_reg(vcpu, addr, FAR_EL2);
-	return kvm_inject_nested_sync(vcpu, esr);
 }
