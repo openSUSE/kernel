@@ -1469,6 +1469,32 @@ static void cpufreq_policy_free(struct cpufreq_policy *policy)
 	kfree(policy);
 }
 
+static int cpufreq_policy_init_qos(struct cpufreq_policy *policy)
+{
+	int ret;
+
+	if (policy->boost_supported) {
+		ret = freq_qos_add_request(&policy->constraints,
+						&policy->boost_freq_req,
+						FREQ_QOS_MAX,
+						policy->cpuinfo.max_freq);
+		if (ret < 0)
+			return ret;
+	}
+
+	ret = freq_qos_add_request(&policy->constraints, &policy->min_freq_req,
+				   FREQ_QOS_MIN, FREQ_QOS_MIN_DEFAULT_VALUE);
+	if (ret < 0)
+		return ret;
+
+	ret = freq_qos_add_request(&policy->constraints, &policy->max_freq_req,
+				   FREQ_QOS_MAX, FREQ_QOS_MAX_DEFAULT_VALUE);
+	if (ret < 0)
+		return ret;
+
+	return ret;
+}
+
 static int cpufreq_online(unsigned int cpu)
 {
 	struct cpufreq_policy *policy;
@@ -1532,6 +1558,12 @@ static int cpufreq_online(unsigned int cpu)
 		if (ret)
 			goto out_offline_policy;
 
+		if (new_policy) {
+			ret = cpufreq_policy_init_qos(policy);
+			if (ret < 0)
+				goto out_offline_policy;
+		}
+
 		/* related_cpus should at least include policy->cpus. */
 		cpumask_copy(policy->related_cpus, policy->cpus);
 	}
@@ -1547,27 +1579,6 @@ static int cpufreq_online(unsigned int cpu)
 			per_cpu(cpufreq_cpu_data, j) = policy;
 			add_cpu_dev_symlink(policy, j, get_cpu_device(j));
 		}
-
-		if (policy->boost_supported) {
-			ret = freq_qos_add_request(&policy->constraints,
-						   &policy->boost_freq_req,
-						   FREQ_QOS_MAX,
-						   policy->cpuinfo.max_freq);
-			if (ret < 0)
-				goto out_destroy_policy;
-		}
-
-		ret = freq_qos_add_request(&policy->constraints,
-					   &policy->min_freq_req, FREQ_QOS_MIN,
-					   FREQ_QOS_MIN_DEFAULT_VALUE);
-		if (ret < 0)
-			goto out_destroy_policy;
-
-		ret = freq_qos_add_request(&policy->constraints,
-					   &policy->max_freq_req, FREQ_QOS_MAX,
-					   FREQ_QOS_MAX_DEFAULT_VALUE);
-		if (ret < 0)
-			goto out_destroy_policy;
 
 		blocking_notifier_call_chain(&cpufreq_policy_notifier_list,
 				CPUFREQ_CREATE_POLICY, policy);
