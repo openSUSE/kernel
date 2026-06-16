@@ -1189,11 +1189,14 @@ static const struct acpi_device_id i3c_hci_acpi_match[] = {
 MODULE_DEVICE_TABLE(acpi, i3c_hci_acpi_match);
 
 static const struct platform_device_id i3c_hci_driver_ids[] = {
-	{ .name = "intel-lpss-i3c", HCI_QUIRK_RPM_ALLOWED |
-				    HCI_QUIRK_RPM_IBI_ALLOWED |
-				    HCI_QUIRK_RPM_PARENT_MANAGED |
-				    HCI_QUIRK_DMA_ABORT_REQUIRES_PIO_RESET |
-				    HCI_QUIRK_DMA_REQUIRES_HC_ABORT },
+	{
+		.name = "intel-lpss-i3c",
+		.driver_data = HCI_QUIRK_RPM_ALLOWED |
+			HCI_QUIRK_RPM_IBI_ALLOWED |
+			HCI_QUIRK_RPM_PARENT_MANAGED |
+			HCI_QUIRK_DMA_ABORT_REQUIRES_PIO_RESET |
+			HCI_QUIRK_DMA_REQUIRES_HC_ABORT,
+	},
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(platform, i3c_hci_driver_ids);
