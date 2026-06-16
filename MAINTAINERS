@@ -11721,7 +11721,7 @@ F:	drivers/mfd/hi6421-spmi-pmic.c
 HISILICON TRUE RANDOM NUMBER GENERATOR V2 SUPPORT
 M:	Weili Qian <qianweili@huawei.com>
 S:	Maintained
-F:	drivers/crypto/hisilicon/trng/trng.c
+F:	drivers/char/hw_random/hisi-trng-v2.c
 
 HISILICON V3XX SPI NOR FLASH Controller Driver
 M:	Yang Shen <shenyang39@huawei.com>
@@ -15090,7 +15090,6 @@ M:	Qunqin Zhao <zhaoqunqin@loongson.cn>
 L:	linux-crypto@vger.kernel.org
 S:	Maintained
 F:	drivers/char/tpm/tpm_loongson.c
-F:	drivers/crypto/loongson/
 F:	drivers/mfd/loongson-se.c
 F:	include/linux/mfd/loongson-se.h
 
@@ -21968,10 +21967,10 @@ F:	Documentation/devicetree/bindings/opp/opp-v2-kryo-cpu.yaml
 F:	drivers/cpufreq/qcom-cpufreq-nvmem.c
 
 QUALCOMM CRYPTO DRIVERS
-M:	Thara Gopinath <thara.gopinath@gmail.com>
+M:	Bartosz Golaszewski <brgl@kernel.org>
 L:	linux-crypto@vger.kernel.org
 L:	linux-arm-msm@vger.kernel.org
-S:	Maintained
+S:	Supported
 F:	Documentation/devicetree/bindings/crypto/qcom-qce.yaml
 F:	drivers/crypto/qce/
 
@@ -23796,14 +23795,6 @@ S:	Supported
 F:	Documentation/devicetree/bindings/mailbox/google,gs101-mbox.yaml
 F:	drivers/mailbox/exynos-mailbox.c
 F:	include/linux/mailbox/exynos-message.h
-
-SAMSUNG EXYNOS PSEUDO RANDOM NUMBER GENERATOR (RNG) DRIVER
-M:	Krzysztof Kozlowski <krzk@kernel.org>
-L:	linux-crypto@vger.kernel.org
-L:	linux-samsung-soc@vger.kernel.org
-S:	Maintained
-F:	Documentation/devicetree/bindings/rng/samsung,exynos4-rng.yaml
-F:	drivers/crypto/exynos-rng.c
 
 SAMSUNG EXYNOS TRUE RANDOM NUMBER GENERATOR (TRNG) DRIVER
 M:	Łukasz Stelmach <l.stelmach@samsung.com>
@@ -29315,7 +29306,7 @@ XILINX TRNG DRIVER
 M:	Mounika Botcha <mounika.botcha@amd.com>
 M:	Harsh Jain <h.jain@amd.com>
 S:	Maintained
-F:	drivers/crypto/xilinx/xilinx-trng.c
+F:	drivers/char/hw_random/xilinx-trng.c
 
 XILINX UARTLITE SERIAL DRIVER
 M:	Peter Korsgaard <jacmet@sunsite.dk>
