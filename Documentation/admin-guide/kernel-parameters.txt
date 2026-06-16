@@ -36,7 +36,6 @@
 	M68k	M68k architecture is enabled.
 			These options have more detailed description inside of
 			Documentation/arch/m68k/kernel-options.rst.
-	MDA	MDA console support is enabled.
 	MIPS	MIPS architecture is enabled.
 	MOUSE	Appropriate mouse support is enabled.
 	MSI	Message Signaled Interrupts (PCI).
@@ -3794,10 +3793,6 @@ Kernel parameters
 
 	md=		[HW] RAID subsystems devices and level
 			See Documentation/admin-guide/md.rst.
-
-	mdacon=		[MDA]
-			Format: <first>,<last>
-			Specifies range of consoles to be captured by the MDA.
 
 	mds=		[X86,INTEL,EARLY]
 			Control mitigation for the Micro-architectural Data
