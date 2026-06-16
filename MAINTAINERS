@@ -13944,7 +13944,7 @@ F:	scripts/Makefile.randstruct
 F:	security/Kconfig.hardening
 K:	\b(add|choose)_random_kstack_offset\b
 K:	\b__check_(object_size|heap_object)\b
-K:	\b__counted_by(_le|_be)?\b
+K:	\b__counted_by(_le|_be|_ptr)?\b
 
 KERNEL JANITORS
 L:	kernel-janitors@vger.kernel.org
