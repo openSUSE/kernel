@@ -1485,7 +1485,7 @@ static irqreturn_t dw_i3c_master_irq_handler(int irq, void *dev_id)
 }
 
 static int dw_i3c_master_set_dev_nack_retry(struct i3c_master_controller *m,
-					    unsigned long dev_nack_retry_cnt)
+					    unsigned int dev_nack_retry_cnt)
 {
 	struct dw_i3c_master *master = to_dw_i3c_master(m);
 	u32 reg;
@@ -1493,7 +1493,7 @@ static int dw_i3c_master_set_dev_nack_retry(struct i3c_master_controller *m,
 
 	if (dev_nack_retry_cnt > DW_I3C_DEV_NACK_RETRY_CNT_MAX) {
 		dev_err(&master->base.dev,
-			"Value %ld exceeds maximum %d\n",
+			"Value %u exceeds maximum %d\n",
 			dev_nack_retry_cnt, DW_I3C_DEV_NACK_RETRY_CNT_MAX);
 		return -ERANGE;
 	}

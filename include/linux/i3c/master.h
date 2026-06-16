@@ -494,7 +494,7 @@ struct i3c_master_controller_ops {
 	int (*disable_hotjoin)(struct i3c_master_controller *master);
 	int (*set_speed)(struct i3c_master_controller *master, enum i3c_open_drain_speed speed);
 	int (*set_dev_nack_retry)(struct i3c_master_controller *master,
-				  unsigned long dev_nack_retry_cnt);
+				  unsigned int dev_nack_retry_cnt);
 };
 
 /**

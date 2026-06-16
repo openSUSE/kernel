@@ -760,10 +760,10 @@ static ssize_t dev_nack_retry_count_store(struct device *dev,
 {
 	struct i3c_bus *i3cbus = dev_to_i3cbus(dev);
 	struct i3c_master_controller *master = dev_to_i3cmaster(dev);
-	unsigned long val;
+	unsigned int val;
 	int ret;
 
-	ret = kstrtoul(buf, 0, &val);
+	ret = kstrtouint(buf, 0, &val);
 	if (ret)
 		return ret;
 
