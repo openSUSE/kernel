@@ -905,6 +905,19 @@ config HID_ORTEK
 	   - Ortek WKB-2000
 	   - Skycable wireless presenter
 
+config HID_OXP
+	tristate "OneXPlayer handheld controller configuration support"
+	depends on USB_HID
+	depends on LEDS_CLASS
+	depends on LEDS_CLASS_MULTICOLOR
+	depends on DMI
+	help
+	  Say Y here if you would like to enable support for OneXPlayer handheld
+	  devices that come with RGB LED rings around the joysticks and macro buttons.
+
+	  To compile this driver as a module, choose M here: the module will
+	  be called hid-oxp.
+
 config HID_PANTHERLORD
 	tristate "Pantherlord/GreenAsia game controller"
 	help
