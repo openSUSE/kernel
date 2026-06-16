@@ -481,7 +481,7 @@ static int dw8250_handle_irq(struct uart_port *p)
 	serial8250_handle_irq_locked(p, iir);
 
 unlock:
-	uart_port_unlock_irqrestore(p, flags);
+	uart_unlock_and_check_sysrq_irqrestore(p, flags);
 
 	return ret;
 }
