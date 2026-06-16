@@ -1905,7 +1905,10 @@ static bool handle_rx_dma(struct uart_8250_port *up, unsigned int iir)
 }
 
 /*
- * Context: port's lock must be held by the caller.
+ * Context: port's lock must be held by the caller. The caller must
+ * release it via guard(uart_port_lock_check_sysrq_irqsave) or
+ * uart_unlock_and_check_sysrq_irqrestore(), which captures SysRq
+ * character on unlock.
  */
 void serial8250_handle_irq_locked(struct uart_port *port, unsigned int iir)
 {
@@ -1962,7 +1965,7 @@ int serial8250_handle_irq(struct uart_port *port, unsigned int iir)
 
 	uart_port_lock_irqsave(port, &flags);
 	serial8250_handle_irq_locked(port, iir);
-	uart_port_unlock_irqrestore(port, flags);
+	uart_unlock_and_check_sysrq_irqrestore(port, flags);
 
 	return 1;
 }
