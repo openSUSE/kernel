@@ -23,6 +23,9 @@ ALL_TESTS="
 	kci_test_encap
 	kci_test_macsec
 	kci_test_macsec_vlan
+	kci_test_team_bridge_macvlan
+	kci_test_bridge_promisc_netlink
+	kci_test_bridge_promisc_sysfs
 	kci_test_ipsec
 	kci_test_ipsec_offload
 	kci_test_fdb_get
@@ -58,6 +61,14 @@ check_fail()
 	if [ $1 -eq 0 ]; then
 		ret=1
 	fi
+}
+
+sysfs_write()
+{
+	local val="$1"
+	local path="$2"
+
+	echo "$val" > "$path"
 }
 
 run_cmd_common()
@@ -634,6 +645,102 @@ kci_test_macsec_vlan()
 	fi
 
 	end_test "PASS: macsec_vlan"
+}
+
+# Test ndo_change_rx_flags call from dev_uc_add under addr_list_lock spinlock.
+# When we are flipping the promisc, make sure it runs on the work queue.
+#
+# https://lore.kernel.org/netdev/20260214033859.43857-1-jiayuan.chen@linux.dev/
+# With (more conventional) macvlan instead of macsec.
+# macvlan -> bridge -> team -> dummy
+kci_test_team_bridge_macvlan()
+{
+	local vlan="test_macv1"
+	local bridge="test_br1"
+	local team="test_team1"
+	local dummy="test_dummy1"
+	local ret=0
+
+	run_cmd ip link add $team type team
+	if [ $ret -ne 0 ]; then
+		end_test "SKIP: team_bridge_macvlan: can't add team interface"
+		return $ksft_skip
+	fi
+
+	run_cmd ip link add $dummy type dummy
+	run_cmd ip link set $dummy master $team
+	run_cmd ip link set $team up
+	run_cmd ip link add $bridge type bridge vlan_filtering 1
+	run_cmd ip link set $bridge up
+	run_cmd ip link set $team master $bridge
+	run_cmd ip link add link $bridge name $vlan \
+		address 00:aa:bb:cc:dd:ee type macvlan mode bridge
+	run_cmd ip link set $vlan up
+
+	run_cmd ip link del $vlan
+	run_cmd ip link del $bridge
+	run_cmd ip link del $team
+	run_cmd ip link del $dummy
+
+	if [ $ret -ne 0 ]; then
+		end_test "FAIL: team_bridge_macvlan"
+		return 1
+	fi
+
+	end_test "PASS: team_bridge_macvlan"
+}
+
+# Test that changing bridge port flags via the netlink path does not sleep with
+# the bridge spin lock held.
+kci_test_bridge_promisc_netlink()
+{
+	local dummy="test_dummy1"
+	local bridge="test_br1"
+	local team="test_team1"
+	local ret=0
+
+	run_cmd ip link add $team up type team
+	run_cmd ip link add $bridge up type bridge vlan_filtering 1
+	run_cmd ip link add $dummy up type dummy
+	run_cmd ip link set $dummy master $bridge
+	run_cmd ip link set $team master $bridge
+
+	# This causes the bridge driver to sync all the static FDB entries to
+	# the team device (which supports unicast filtering) and remove it from
+	# promiscuous mode. The call to dev_set_promiscuity() can sleep due to
+	# Rx mode inlining, which is a problem if the bridge spin lock is held.
+	run_cmd bridge link set dev $dummy flood off learning off
+
+	run_cmd ip link del $dummy
+	run_cmd ip link del $bridge
+	run_cmd ip link del $team
+
+	end_test "PASS: bridge_promisc_netlink"
+}
+
+# Same as kci_test_bridge_promisc_netlink(), but the flags are changed via the
+# sysfs path.
+kci_test_bridge_promisc_sysfs()
+{
+	local dummy="test_dummy1"
+	local bridge="test_br1"
+	local team="test_team1"
+	local ret=0
+
+	run_cmd ip link add $team up type team
+	run_cmd ip link add $bridge up type bridge vlan_filtering 1
+	run_cmd ip link add $dummy up type dummy
+	run_cmd ip link set $dummy master $bridge
+	run_cmd ip link set $team master $bridge
+
+	run_cmd sysfs_write 0 /sys/class/net/$dummy/brport/unicast_flood
+	run_cmd sysfs_write 0 /sys/class/net/$dummy/brport/learning
+
+	run_cmd ip link del $dummy
+	run_cmd ip link del $bridge
+	run_cmd ip link del $team
+
+	end_test "PASS: bridge_promisc_sysfs"
 }
 
 #-------------------------------------------------------------------

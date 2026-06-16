@@ -50,6 +50,11 @@
  *   memfds are always opened with ``O_RDWR`` and ``O_LARGEFILE``. This property
  *   is maintained.
  *
+ * Seals
+ *   File seals set on the memfd are preserved and re-applied on restore.
+ *   Only seals known to this LUO version (see ``MEMFD_LUO_ALL_SEALS``) may
+ *   be present; preservation fails with ``-EOPNOTSUPP`` otherwise.
+ *
  * Non-Preserved Properties
  * ========================
  *
@@ -61,10 +66,6 @@
  *   A memfd can be created with the ``MFD_CLOEXEC`` flag that sets the
  *   ``FD_CLOEXEC`` on the file. This flag is not preserved and must be set
  *   again after restore via ``fcntl()``.
- *
- * Seals
- *   File seals are not preserved. The file is unsealed on restore and if
- *   needed, must be sealed again via ``fcntl()``.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -105,7 +106,6 @@ static int memfd_luo_preserve_folios(struct file *file,
 	if (!size) {
 		*nr_foliosp = 0;
 		*out_folios_ser = NULL;
-		memset(kho_vmalloc, 0, sizeof(*kho_vmalloc));
 		return 0;
 	}
 
@@ -260,7 +260,7 @@ static int memfd_luo_preserve(struct liveupdate_file_op_args *args)
 	struct inode *inode = file_inode(args->file);
 	struct memfd_luo_folio_ser *folios_ser;
 	struct memfd_luo_ser *ser;
-	u64 nr_folios;
+	u64 nr_folios, inode_size;
 	int err = 0, seals;
 
 	inode_lock(inode);
@@ -286,7 +286,18 @@ static int memfd_luo_preserve(struct liveupdate_file_op_args *args)
 	}
 
 	ser->pos = args->file->f_pos;
-	ser->size = i_size_read(inode);
+	inode_size = i_size_read(inode);
+
+	/*
+	 * memfd_pin_folios() caps at UINT_MAX folios; refuse larger
+	 * files to avoid silently preserving only a prefix.
+	 */
+	if (DIV_ROUND_UP_ULL(inode_size, PAGE_SIZE) > UINT_MAX) {
+		err = -EFBIG;
+		goto err_free_ser;
+	}
+
+	ser->size = inode_size;
 	ser->seals = seals;
 
 	err = memfd_luo_preserve_folios(args->file, &ser->folios,
@@ -410,6 +421,7 @@ static int memfd_luo_retrieve_folios(struct file *file,
 	struct inode *inode = file_inode(file);
 	struct address_space *mapping = inode->i_mapping;
 	struct folio *folio;
+	long npages, nr_added_pages = 0;
 	int err = -EIO;
 	long i;
 
@@ -427,6 +439,7 @@ static int memfd_luo_retrieve_folios(struct file *file,
 		if (!folio) {
 			pr_err("Unable to restore folio at physical address: %llx\n",
 			       phys);
+			err = -EIO;
 			goto put_folios;
 		}
 		index = pfolio->index;
@@ -456,21 +469,26 @@ static int memfd_luo_retrieve_folios(struct file *file,
 		if (flags & MEMFD_LUO_FOLIO_DIRTY)
 			folio_mark_dirty(folio);
 
-		err = shmem_inode_acct_blocks(inode, 1);
+		npages = folio_nr_pages(folio);
+		err = shmem_inode_acct_blocks(inode, npages);
 		if (err) {
-			pr_err("shmem: failed to account folio index %ld: %d\n",
-			       i, err);
-			goto unlock_folio;
+			pr_err("shmem: failed to account folio index %ld(%ld pages): %d\n",
+			       i, npages, err);
+			goto remove_from_cache;
 		}
 
-		shmem_recalc_inode(inode, 1, 0);
+		nr_added_pages += npages;
 		folio_add_lru(folio);
 		folio_unlock(folio);
 		folio_put(folio);
 	}
 
+	shmem_recalc_inode(inode, nr_added_pages, 0);
+
 	return 0;
 
+remove_from_cache:
+	filemap_remove_folio(folio);
 unlock_folio:
 	folio_unlock(folio);
 	folio_put(folio);
@@ -481,11 +499,18 @@ put_folios:
 	 */
 	for (long j = i + 1; j < nr_folios; j++) {
 		const struct memfd_luo_folio_ser *pfolio = &folios_ser[j];
+		phys_addr_t phys;
 
-		folio = kho_restore_folio(pfolio->pfn);
+		if (!pfolio->pfn)
+			continue;
+
+		phys = PFN_PHYS(pfolio->pfn);
+		folio = kho_restore_folio(phys);
 		if (folio)
 			folio_put(folio);
 	}
+
+	shmem_recalc_inode(inode, nr_added_pages, 0);
 
 	return err;
 }
@@ -525,7 +550,7 @@ static int memfd_luo_retrieve(struct liveupdate_file_op_args *args)
 	}
 
 	vfs_setpos(file, ser->pos, MAX_LFS_FILESIZE);
-	file->f_inode->i_size = ser->size;
+	i_size_write(file_inode(file), ser->size);
 
 	if (ser->nr_folios) {
 		folios_ser = kho_restore_vmalloc(&ser->folios);
@@ -560,6 +585,11 @@ static bool memfd_luo_can_preserve(struct liveupdate_file_handler *handler,
 	return shmem_file(file) && !inode->i_nlink;
 }
 
+static unsigned long memfd_luo_get_id(struct file *file)
+{
+	return (unsigned long)file_inode(file);
+}
+
 static const struct liveupdate_file_ops memfd_luo_file_ops = {
 	.freeze = memfd_luo_freeze,
 	.finish = memfd_luo_finish,
@@ -567,6 +597,7 @@ static const struct liveupdate_file_ops memfd_luo_file_ops = {
 	.preserve = memfd_luo_preserve,
 	.unpreserve = memfd_luo_unpreserve,
 	.can_preserve = memfd_luo_can_preserve,
+	.get_id = memfd_luo_get_id,
 	.owner = THIS_MODULE,
 };
 

@@ -750,7 +750,7 @@ void dump_mapping(const struct address_space *mapping)
 		return;
 	}
 
-	dentry_ptr = container_of(dentry_first, struct dentry, d_u.d_alias);
+	dentry_ptr = container_of(dentry_first, struct dentry, d_alias);
 	if (get_kernel_nofault(dentry, dentry_ptr) ||
 	    !dentry.d_parent || !dentry.d_name.name) {
 		pr_warn("aops:%ps ino:%llx invalid dentry:%px\n",
@@ -2124,7 +2124,13 @@ static int inode_update_cmtime(struct inode *inode, unsigned int flags)
 			    inode_iversion_need_inc(inode))
 				return -EAGAIN;
 		} else {
-			if (inode_maybe_inc_iversion(inode, !!dirty))
+			/*
+			 * Don't force iversion increment for pure lazytime
+			 * updates (I_DIRTY_TIME only), let I_VERSION_QUERIED
+			 * dictate whether the increment is needed.
+			 */
+			if (inode_maybe_inc_iversion(inode,
+						     dirty != I_DIRTY_TIME))
 				dirty |= I_DIRTY_SYNC;
 		}
 	}

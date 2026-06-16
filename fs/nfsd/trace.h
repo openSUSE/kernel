@@ -373,6 +373,7 @@ DEFINE_EVENT_CONDITION(nfsd_fh_err_class, nfsd_##name,	\
 
 DEFINE_NFSD_FH_ERR_EVENT(set_fh_dentry_badexport);
 DEFINE_NFSD_FH_ERR_EVENT(set_fh_dentry_badhandle);
+DEFINE_NFSD_FH_ERR_EVENT(set_fh_dentry_badmac);
 
 TRACE_EVENT(nfsd_exp_find_key,
 	TP_PROTO(const struct svc_expkey *key,
@@ -2237,6 +2238,26 @@ TRACE_EVENT(nfsd_end_grace,
 		__entry->netns_ino = net->ns.inum;
 	),
 	TP_printk("nn=%d", __entry->netns_ino
+	)
+);
+
+TRACE_EVENT(nfsd_ctl_fh_key_set,
+	TP_PROTO(
+		bool changed,
+		int result
+	),
+	TP_ARGS(changed, result),
+	TP_STRUCT__entry(
+		__field(bool, changed)
+		__field(int, result)
+	),
+	TP_fast_assign(
+		__entry->changed = changed;
+		__entry->result = result;
+	),
+	TP_printk("key %s, result=%d",
+		__entry->changed ? "updated" : "unmodified",
+		__entry->result
 	)
 );
 
