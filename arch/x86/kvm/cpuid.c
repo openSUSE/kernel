@@ -420,7 +420,7 @@ static inline int __do_cpuid_ent(struct kvm_cpuid_entry2 *entry, u32 function,
 
 	/* cpuid 7.0.ecx*/
 	const u32 kvm_cpuid_7_0_ecx_x86_features =
-		F(AVX512VBMI) | F(LA57) | 0 /*PKU*/ | 0 /*OSPKE*/ |
+		F(AVX512VBMI) | F(LA57) | F(PKU) | 0 /*OSPKE*/ |
 		F(AVX512_VPOPCNTDQ) | F(UMIP) | F(AVX512_VBMI2) | F(GFNI) |
 		F(VAES) | F(VPCLMULQDQ) | F(AVX512_VNNI) | F(AVX512_BITALG);
 
@@ -511,6 +511,9 @@ static inline int __do_cpuid_ent(struct kvm_cpuid_entry2 *entry, u32 function,
 			entry->ecx &= kvm_cpuid_7_0_ecx_x86_features;
 			cpuid_mask(&entry->ecx, CPUID_7_ECX);
 			entry->ecx |= f_umip;
+			/* PKU is not yet implemented for shadow paging. */
+			if (!tdp_enabled || !boot_cpu_has(X86_FEATURE_OSPKE))
+				entry->ecx &= ~F(PKU);
 
 		entry->edx &= kvm_cpuid_7_0_edx_x86_features;
 		cpuid_mask(&entry->edx, CPUID_7_EDX);
