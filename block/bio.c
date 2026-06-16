@@ -1335,7 +1335,11 @@ static int bio_iov_iter_bounce_write(struct bio *bio, struct iov_iter *iter,
 			break;
 		bio_add_folio_nofail(bio, folio, this_len, 0);
 
-		copied = copy_from_iter(folio_address(folio), this_len, iter);
+		if (iter->nofault)
+			copied = copy_folio_from_iter_atomic(folio, 0, this_len,
+							     iter);
+		else
+			copied = copy_folio_from_iter(folio, 0, this_len, iter);
 		if (copied < this_len) {
 			/*
 			 * Need to revert the iov iter for all bytes we have
