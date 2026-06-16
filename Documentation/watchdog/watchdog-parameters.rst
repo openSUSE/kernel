@@ -284,16 +284,6 @@ ixp4xx_wdt:
 
 -------------------------------------------------
 
-machzwd:
-    nowayout:
-	Watchdog cannot be stopped once started
-	(default=kernel config parameter)
-    action:
-	after watchdog resets, generate:
-	0 = RESET(*)  1 = SMI  2 = NMI  3 = SCI
-
--------------------------------------------------
-
 max63xx_wdt:
     heartbeat:
 	Watchdog heartbeat period in seconds from 1 to 60, default 60
@@ -526,15 +516,6 @@ sc1200wdt:
 	io port
     timeout:
 	range is 0-255 minutes, default is 1
-    nowayout:
-	Watchdog cannot be stopped once started
-	(default=kernel config parameter)
-
--------------------------------------------------
-
-sc520_wdt:
-    timeout:
-	Watchdog timeout in seconds. (1 <= timeout <= 3600, default=30)
     nowayout:
 	Watchdog cannot be stopped once started
 	(default=kernel config parameter)
