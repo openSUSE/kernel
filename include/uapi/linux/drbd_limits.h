@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
+/* SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note */
 /*
   drbd_limits.h
   This file is part of DRBD by Philipp Reisner and Lars Ellenberg.
@@ -11,10 +11,10 @@
  * feedback about nonsense settings for certain configurable values.
  */
 
-#ifndef DRBD_LIMITS_H
-#define DRBD_LIMITS_H 1
+#ifndef _UAPI_LINUX_DRBD_LIMITS_H
+#define _UAPI_LINUX_DRBD_LIMITS_H
 
-#define DEBUG_RANGE_CHECK 0
+#include <linux/drbd.h>
 
 #define DRBD_MINOR_COUNT_MIN 1U
 #define DRBD_MINOR_COUNT_MAX 255U
@@ -248,4 +248,4 @@
 #define DRBD_RS_DISCARD_GRANULARITY_DEF 0U     /* disabled by default */
 #define DRBD_RS_DISCARD_GRANULARITY_SCALE '1' /* bytes */
 
-#endif
+#endif /* _UAPI_LINUX_DRBD_LIMITS_H */

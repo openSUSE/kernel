@@ -4462,7 +4462,7 @@ F:	include/uapi/linux/batman_adv.h
 F:	net/batman-adv/
 
 BCACHE (BLOCK LAYER CACHE)
-M:	Coly Li <colyli@fnnas.com>
+M:	Coly Li <colyli@fygo.io>
 M:	Kent Overstreet <kent.overstreet@linux.dev>
 L:	linux-bcache@vger.kernel.org
 S:	Maintained
@@ -4500,7 +4500,7 @@ F:	Documentation/filesystems/befs.rst
 F:	fs/befs/
 
 BFQ I/O SCHEDULER
-M:	Yu Kuai <yukuai@fnnas.com>
+M:	Yu Kuai <yukuai@fygo.io>
 L:	linux-block@vger.kernel.org
 S:	Odd Fixes
 F:	Documentation/block/bfq-iosched.rst
@@ -7804,7 +7804,7 @@ DRBD DRIVER
 M:	Philipp Reisner <philipp.reisner@linbit.com>
 M:	Lars Ellenberg <lars.ellenberg@linbit.com>
 M:	Christoph Böhmwalder <christoph.boehmwalder@linbit.com>
-L:	drbd-dev@lists.linbit.com
+L:	drbd-dev@lists.linux.dev
 S:	Supported
 W:	http://www.drbd.org
 T:	git git://git.linbit.com/linux-drbd.git
@@ -24896,8 +24896,8 @@ F:	include/linux/property.h
 
 SOFTWARE RAID (Multiple Disks) SUPPORT
 M:	Song Liu <song@kernel.org>
-M:	Yu Kuai <yukuai@fnnas.com>
-R:	Li Nan <linan122@huawei.com>
+M:	Yu Kuai <yukuai@fygo.io>
+R:	Li Nan <magiclinan@didiglobal.com>
 R:	Xiao Ni <xiao@kernel.org>
 L:	linux-raid@vger.kernel.org
 S:	Supported

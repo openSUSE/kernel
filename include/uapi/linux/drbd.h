@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+/* SPDX-License-Identifier: GPL-2.0-or-later WITH Linux-syscall-note */
 /*
   drbd.h
   Kernel module for 2.6.x Kernels
@@ -11,32 +11,10 @@
 
 
 */
-#ifndef DRBD_H
-#define DRBD_H
-#include <asm/types.h>
-
-#ifdef __KERNEL__
+#ifndef _UAPI_LINUX_DRBD_H
+#define _UAPI_LINUX_DRBD_H
 #include <linux/types.h>
 #include <asm/byteorder.h>
-#else
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <limits.h>
-
-/* Although the Linux source code makes a difference between
-   generic endianness and the bitfields' endianness, there is no
-   architecture as of Linux-2.6.24-rc4 where the bitfields' endianness
-   does not match the generic endianness. */
-
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-#define __LITTLE_ENDIAN_BITFIELD
-#elif __BYTE_ORDER == __BIG_ENDIAN
-#define __BIG_ENDIAN_BITFIELD
-#else
-# error "sorry, weird endianness on this box"
-#endif
-
-#endif
 
 enum drbd_io_error_p {
 	EP_PASS_ON, /* FIXME should the better be named "Ignore"? */
@@ -333,6 +311,9 @@ enum drbd_uuid_index {
 
 #define HISTORY_UUIDS MAX_PEERS
 
+#define DRBD_NL_UUIDS_SIZE		(UI_SIZE * sizeof(__u64))
+#define DRBD_NL_HISTORY_UUIDS_SIZE	(HISTORY_UUIDS * sizeof(__u64))
+
 enum drbd_timeout_flag {
 	UT_DEFAULT      = 0,
 	UT_DEGRADED     = 1,
@@ -389,4 +370,44 @@ enum write_ordering_e {
 
 #define DRBD_CPU_MASK_SIZE 32
 
-#endif
+/**
+ * struct drbd_genlmsghdr - DRBD specific header used in NETLINK_GENERIC requests
+ * @minor:
+ *     For admin requests (user -> kernel): which minor device to operate on.
+ *     For (unicast) replies or informational (broadcast) messages
+ *     (kernel -> user): which minor device the information is about.
+ *     If we do not operate on minors, but on connections or resources,
+ *     the minor value shall be (~0), and the attribute DRBD_NLA_CFG_CONTEXT
+ *     is used instead.
+ * @flags: possible operation modifiers (relevant only for user->kernel):
+ *     DRBD_GENL_F_SET_DEFAULTS
+ * @volume:
+ *     When creating a new minor (adding it to a resource), the resource needs
+ *     to know which volume number within the resource this is supposed to be.
+ *     The volume number corresponds to the same volume number on the remote side,
+ *     whereas the minor number on the remote side may be different
+ *     (union with flags).
+ * @ret_code: kernel->userland unicast cfg reply return code (union with flags);
+ */
+struct drbd_genlmsghdr {
+	__u32 minor;
+	union {
+		__u32 flags;
+		__s32 ret_code;
+	};
+};
+
+/* To be used in drbd_genlmsghdr.flags */
+enum {
+	DRBD_GENL_F_SET_DEFAULTS = 1,
+};
+
+enum drbd_state_info_bcast_reason {
+	SIB_GET_STATUS_REPLY = 1,
+	SIB_STATE_CHANGE = 2,
+	SIB_HELPER_PRE = 3,
+	SIB_HELPER_POST = 4,
+	SIB_SYNC_PROGRESS = 5,
+};
+
+#endif /* _UAPI_LINUX_DRBD_H */
