@@ -6247,6 +6247,94 @@ DECLARE_PCI_FIXUP_ENABLE(PCI_VENDOR_ID_PERICOM, 0xb404,
 DECLARE_PCI_FIXUP_RESUME(PCI_VENDOR_ID_PERICOM, 0xb404,
 			 pci_fixup_pericom_acs_store_forward);
 
+/*
+ * Some Pericom/Diodes PI7C9X3G606GPC switches require downstream Port 4
+ * BAR 0 to mirror BAR 0 of the immediate upstream port.  Firmware may
+ * program this during boot, but Linux resource assignment can move the
+ * upstream BAR.
+ *
+ * Diodes confirmed Tile0/P4 appears to Linux as device 4, function 0 on
+ * the bus below the upstream port.  Match that downstream function and
+ * re-apply the mirror after resource assignment and early resume.
+ */
+static void pci_fixup_pericom_pi7c9x3g606gpc_bar0_mirror(struct pci_dev *pdev)
+{
+	struct pci_dev *upstream;
+	bool bar0_64, disable_mem;
+	u16 cmd = 0;
+	u32 bar = 0, bar1 = 0, upstream_bar = 0, upstream_bar1 = 0;
+
+	if (pci_pcie_type(pdev) != PCI_EXP_TYPE_DOWNSTREAM)
+		return;
+
+	if (PCI_SLOT(pdev->devfn) != 4 || PCI_FUNC(pdev->devfn))
+		return;
+
+	upstream = pci_upstream_bridge(pdev);
+	if (!upstream || upstream->vendor != PCI_VENDOR_ID_PERICOM ||
+	    upstream->device != PCI_DEVICE_ID_PERICOM_PI7C9X3G606GPC ||
+	    pci_pcie_type(upstream) != PCI_EXP_TYPE_UPSTREAM)
+		return;
+
+	pci_read_config_dword(upstream, PCI_BASE_ADDRESS_0, &upstream_bar);
+	if (upstream_bar & PCI_BASE_ADDRESS_SPACE_IO)
+		return;
+
+	bar0_64 = (upstream_bar & PCI_BASE_ADDRESS_MEM_TYPE_MASK) ==
+		  PCI_BASE_ADDRESS_MEM_TYPE_64;
+	if (bar0_64)
+		pci_read_config_dword(upstream, PCI_BASE_ADDRESS_1,
+				      &upstream_bar1);
+
+	if (!(upstream_bar & PCI_BASE_ADDRESS_MEM_MASK) &&
+	    (!bar0_64 || !upstream_bar1)) {
+		pci_warn(pdev, "skipping PI7C9X3G606GPC BAR 0 mirror workaround because upstream BAR 0 is unassigned\n");
+		return;
+	}
+
+	pci_read_config_dword(pdev, PCI_BASE_ADDRESS_0, &bar);
+	if (bar0_64) {
+		pci_read_config_dword(pdev, PCI_BASE_ADDRESS_1, &bar1);
+		if (bar == upstream_bar && bar1 == upstream_bar1)
+			return;
+	} else {
+		if (bar == upstream_bar)
+			return;
+	}
+
+	/*
+	 * Port 4 BAR 0 may read back as zero even after a successful write.
+	 * If BAR 0 is configured as 64-bit, BAR 1 is the upper half.
+	 * Disable memory decoding while updating both dwords, matching PCI
+	 * core's 64-bit BAR update sequence.
+	 */
+	disable_mem = bar0_64 && !pdev->mmio_always_on;
+	if (disable_mem) {
+		pci_read_config_word(pdev, PCI_COMMAND, &cmd);
+		pci_write_config_word(pdev, PCI_COMMAND,
+				      cmd & ~PCI_COMMAND_MEMORY);
+	}
+
+	pci_write_config_dword(pdev, PCI_BASE_ADDRESS_0, upstream_bar);
+	if (bar0_64) {
+		pci_write_config_dword(pdev, PCI_BASE_ADDRESS_1,
+				       upstream_bar1);
+		if (disable_mem)
+			pci_write_config_word(pdev, PCI_COMMAND, cmd);
+		pci_info(pdev, "wrote upstream BAR 0/1 %#x/%#x to Port 4 BAR 0/1 for PI7C9X3G606GPC BAR 0 mirror workaround\n",
+			 upstream_bar, upstream_bar1);
+	} else {
+		pci_info(pdev, "wrote upstream BAR 0 %#x to Port 4 BAR 0 for PI7C9X3G606GPC BAR 0 mirror workaround\n",
+			 upstream_bar);
+	}
+}
+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_PERICOM,
+			PCI_DEVICE_ID_PERICOM_PI7C9X3G606GPC,
+			pci_fixup_pericom_pi7c9x3g606gpc_bar0_mirror);
+DECLARE_PCI_FIXUP_RESUME_EARLY(PCI_VENDOR_ID_PERICOM,
+			       PCI_DEVICE_ID_PERICOM_PI7C9X3G606GPC,
+			       pci_fixup_pericom_pi7c9x3g606gpc_bar0_mirror);
+
 static void nvidia_ion_ahci_fixup(struct pci_dev *pdev)
 {
 	pdev->dev_flags |= PCI_DEV_FLAGS_HAS_MSI_MASKING;
