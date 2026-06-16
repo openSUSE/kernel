@@ -3267,7 +3267,7 @@ static size_t trace__fprintf_tp_fields(struct trace *trace, struct perf_sample *
 		 * If verbose mode is enabled, ensure it is formatted as a
 		 * hexadecimal memory address rather than a signed integer.
 		 */
-		if (!strcmp(field->name, "__probe_ip")) {
+		if (evsel__is_probe(evsel) && !strcmp(field->name, "__probe_ip")) {
 			if (!verbose)
 				continue;
 
