@@ -6706,11 +6706,11 @@ unsigned long try_to_free_pages(struct zonelist *zonelist, int order,
 		return 1;
 
 	set_task_reclaim_state(current, &sc.reclaim_state);
-	trace_mm_vmscan_direct_reclaim_begin(sc.gfp_mask, order, 0);
+	trace_mm_vmscan_direct_reclaim_begin(sc.gfp_mask, order, NULL);
 
 	nr_reclaimed = do_try_to_free_pages(zonelist, &sc);
 
-	trace_mm_vmscan_direct_reclaim_end(nr_reclaimed, 0);
+	trace_mm_vmscan_direct_reclaim_end(nr_reclaimed, NULL);
 	set_task_reclaim_state(current, NULL);
 
 	return nr_reclaimed;
@@ -7776,7 +7776,7 @@ static unsigned long __node_reclaim(struct pglist_data *pgdat, gfp_t gfp_mask,
 	delayacct_freepages_end();
 	psi_memstall_leave(&pflags);
 
-	trace_mm_vmscan_node_reclaim_end(sc->nr_reclaimed, 0);
+	trace_mm_vmscan_node_reclaim_end(sc->nr_reclaimed, NULL);
 
 	return sc->nr_reclaimed;
 }
