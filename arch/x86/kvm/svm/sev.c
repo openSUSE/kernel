@@ -2922,26 +2922,38 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 
 	exit_code = kvm_get_cached_sw_exit_code(control);
 	switch (exit_code) {
-	case SVM_VMGEXIT_MMIO_READ:
-		ret = setup_vmgexit_scratch(svm, true, control->exit_info_2);
+	case SVM_VMGEXIT_MMIO_READ: {
+		u64 len = control->exit_info_2;
+
+		if (!len)
+			return 1;
+
+		ret = setup_vmgexit_scratch(svm, true, len);
 		if (ret)
 			break;
 
 		ret = kvm_sev_es_mmio_read(vcpu,
 					   control->exit_info_1,
-					   control->exit_info_2,
+					   len,
 					   svm->sev_es.ghcb_sa);
 		break;
-	case SVM_VMGEXIT_MMIO_WRITE:
-		ret = setup_vmgexit_scratch(svm, false, control->exit_info_2);
+	}
+	case SVM_VMGEXIT_MMIO_WRITE: {
+		u64 len = control->exit_info_2;
+
+		if (!len)
+			return 1;
+
+		ret = setup_vmgexit_scratch(svm, false, len);
 		if (ret)
 			break;
 
 		ret = kvm_sev_es_mmio_write(vcpu,
 					    control->exit_info_1,
-					    control->exit_info_2,
+					    len,
 					    svm->sev_es.ghcb_sa);
 		break;
+	}
 	case SVM_VMGEXIT_NMI_COMPLETE:
 		++vcpu->stat.nmi_window_exits;
 		svm->nmi_masked = false;
@@ -2979,6 +2991,11 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 			    control->exit_info_1, control->exit_info_2);
 		ret = -EINVAL;
 		break;
+	case SVM_EXIT_IOIO:
+		if (!((control->exit_info_1 & SVM_IOIO_SIZE_MASK) >> SVM_IOIO_SIZE_SHIFT))
+			return 1;
+
+		fallthrough;
 	default:
 		ret = svm_invoke_exit_handler(vcpu, exit_code);
 	}
@@ -2998,6 +3015,9 @@ int sev_es_string_io(struct vcpu_svm *svm, int size, unsigned int port, int in)
 	count = svm->vmcb->control.exit_info_2;
 	if (unlikely(check_mul_overflow(count, size, &bytes)))
 		return -EINVAL;
+
+	if (!bytes)
+		return 1;
 
 	r = setup_vmgexit_scratch(svm, in, bytes);
 	if (r)
