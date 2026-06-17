@@ -59,7 +59,8 @@ char *cg_name(const char *root, const char *name)
 	size_t len = strlen(root) + strlen(name) + 2;
 	char *ret = malloc(len);
 
-	snprintf(ret, len, "%s/%s", root, name);
+	if (ret)
+		snprintf(ret, len, "%s/%s", root, name);
 
 	return ret;
 }
@@ -69,7 +70,8 @@ char *cg_name_indexed(const char *root, const char *name, int index)
 	size_t len = strlen(root) + strlen(name) + 10;
 	char *ret = malloc(len);
 
-	snprintf(ret, len, "%s/%s_%d", root, name, index);
+	if (ret)
+		snprintf(ret, len, "%s/%s_%d", root, name, index);
 
 	return ret;
 }
@@ -79,7 +81,8 @@ char *cg_control(const char *cgroup, const char *control)
 	size_t len = strlen(cgroup) + strlen(control) + 2;
 	char *ret = malloc(len);
 
-	snprintf(ret, len, "%s/%s", cgroup, control);
+	if (ret)
+		snprintf(ret, len, "%s/%s", cgroup, control);
 
 	return ret;
 }
