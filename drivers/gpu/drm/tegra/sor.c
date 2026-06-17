@@ -13,6 +13,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/regulator/consumer.h>
 #include <linux/reset.h>
+#include <linux/string_choices.h>
 
 #include <soc/tegra/pmc.h>
 
@@ -22,10 +23,10 @@
 #include <drm/drm_debugfs.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_eld.h>
+#include <drm/drm_encoder.h>
 #include <drm/drm_file.h>
 #include <drm/drm_panel.h>
 #include <drm/drm_print.h>
-#include <drm/drm_simple_kms_helper.h>
 
 #include "dc.h"
 #include "dp.h"
@@ -940,7 +941,7 @@ static int tegra_sor_dp_link_configure(struct drm_dp_link *link)
 	err = tegra_sor_power_up_lanes(sor, lanes);
 	if (err < 0) {
 		dev_err(sor->dev, "failed to power up %u lane%s: %d\n",
-			lanes, (lanes != 1) ? "s" : "", err);
+			lanes, str_plural(lanes), err);
 		return err;
 	}
 
@@ -2557,6 +2558,17 @@ static void tegra_sor_hdmi_enable(struct drm_encoder *encoder)
 	value = tegra_dc_readl(dc, DC_DISP_DISP_COLOR_CONTROL);
 	value &= ~DITHER_CONTROL_MASK;
 	value &= ~BASE_COLOR_SIZE_MASK;
+	if (dc->soc->has_nvdisplay) {
+		tegra_dc_writel(dc, lower_32_bits(dc->cmu_output_lut_phys),
+				DC_DISP_COREPVT_HEAD_SET_OUTPUT_LUT_BASE);
+		tegra_dc_writel(dc, upper_32_bits(dc->cmu_output_lut_phys),
+				DC_DISP_COREPVT_HEAD_SET_OUTPUT_LUT_BASE_HI);
+
+		tegra_dc_writel(dc, OUTPUT_LUT_MODE_INTERPOLATE | OUTPUT_LUT_SIZE_SIZE_1025,
+				DC_DISP_CORE_HEAD_SET_CONTROL_OUTPUT_LUT);
+
+		value |= CMU_ENABLE_ENABLE;
+	}
 
 	switch (state->bpc) {
 	case 6:
@@ -2921,6 +2933,20 @@ static void tegra_sor_dp_enable(struct drm_encoder *encoder)
 	if (err < 0)
 		dev_err(sor->dev, "failed to attach SOR: %d\n", err);
 
+	if (dc->soc->has_nvdisplay) {
+		value = tegra_dc_readl(dc, DC_DISP_DISP_COLOR_CONTROL);
+		tegra_dc_writel(dc, lower_32_bits(dc->cmu_output_lut_phys),
+				DC_DISP_COREPVT_HEAD_SET_OUTPUT_LUT_BASE);
+		tegra_dc_writel(dc, upper_32_bits(dc->cmu_output_lut_phys),
+				DC_DISP_COREPVT_HEAD_SET_OUTPUT_LUT_BASE_HI);
+
+		tegra_dc_writel(dc, OUTPUT_LUT_MODE_INTERPOLATE | OUTPUT_LUT_SIZE_SIZE_1025,
+				DC_DISP_CORE_HEAD_SET_CONTROL_OUTPUT_LUT);
+
+		value |= CMU_ENABLE_ENABLE;
+		tegra_dc_writel(dc, value, DC_DISP_DISP_COLOR_CONTROL);
+	}
+
 	value = tegra_dc_readl(dc, DC_DISP_DISP_WIN_OPTIONS);
 	value |= SOR_ENABLE(sor->index);
 	tegra_dc_writel(dc, value, DC_DISP_DISP_WIN_OPTIONS);
@@ -3038,6 +3064,10 @@ static const struct tegra_sor_ops tegra_sor_dp_ops = {
 	.probe = tegra_sor_dp_probe,
 };
 
+static const struct drm_encoder_funcs tegra_sor_encoder_funcs_cleanup = {
+	.destroy = drm_encoder_cleanup,
+};
+
 static int tegra_sor_init(struct host1x_client *client)
 {
 	struct drm_device *drm = dev_get_drvdata(client->host);
@@ -3081,7 +3111,8 @@ static int tegra_sor_init(struct host1x_client *client)
 				 &tegra_sor_connector_helper_funcs);
 	sor->output.connector.dpms = DRM_MODE_DPMS_OFF;
 
-	drm_simple_encoder_init(drm, &sor->output.encoder, encoder);
+	drm_encoder_init(drm, &sor->output.encoder,
+			 &tegra_sor_encoder_funcs_cleanup, encoder, NULL);
 	drm_encoder_helper_add(&sor->output.encoder, helpers);
 
 	drm_connector_attach_encoder(&sor->output.connector,
