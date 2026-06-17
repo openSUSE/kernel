@@ -872,6 +872,10 @@ Kernel parameters
 			contiguous memory allocations. It will reserve CMA
 			area for the specified node.
 
+			If it is setup together with upper 'cmd_pernuma='
+			(unlikely), its size setting takes priority for the
+			specified numa nodes.
+
 			With numa CMA enabled, DMA users on node nid will
 			first try to allocate buffer from the numa area
 			which is located in node nid, if the allocation fails,
