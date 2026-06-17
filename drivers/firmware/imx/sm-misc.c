@@ -16,7 +16,7 @@
 
 static const struct scmi_imx_misc_proto_ops *imx_misc_ctrl_ops;
 static struct scmi_protocol_handle *ph;
-struct notifier_block scmi_imx_misc_ctrl_nb;
+static struct notifier_block scmi_imx_misc_ctrl_nb;
 
 static const char * const rst_imx95[] = {
 	"cm33_lockup", "cm33_swreq", "cm7_lockup", "cm7_swreq", "fccu",
