@@ -384,6 +384,17 @@ config SPRD_IOMMU
 
 	  Say Y here if you want to use the multimedia devices listed above.
 
+config VSI_IOMMU
+	tristate "Verisilicon IOMMU Support"
+	depends on (ARCH_ROCKCHIP && ARM64) || COMPILE_TEST
+	select IOMMU_API
+	help
+	  Support for IOMMUs used by Verisilicon sub-systems like video
+	  decoders or encoder hardware blocks.
+
+	  Say Y here if you want to use this IOMMU in front of these
+	  hardware blocks.
+
 config IOMMU_DEBUG_PAGEALLOC
 	bool "Debug IOMMU mappings against page allocations"
 	depends on DEBUG_PAGEALLOC && IOMMU_API && PAGE_EXTENSION
