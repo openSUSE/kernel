@@ -7459,7 +7459,8 @@ int smb2_cancel(struct ksmbd_work *work)
 		hdr = ksmbd_resp_buf_next(work);
 
 	ksmbd_debug(SMB, "smb2 cancel called on mid %llu, async flags 0x%x\n",
-		    hdr->MessageId, hdr->Flags);
+		    le64_to_cpu(hdr->MessageId),
+		    le32_to_cpu(hdr->Flags));
 
 	if (hdr->Flags & SMB2_FLAGS_ASYNC_COMMAND) {
 		command_list = &conn->async_requests;
