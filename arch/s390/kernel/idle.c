@@ -13,6 +13,7 @@
 #include <linux/notifier.h>
 #include <linux/init.h>
 #include <linux/cpu.h>
+#include <linux/export.h>
 #include <trace/events/power.h>
 #include <asm/cpu_mf.h>
 #include <asm/cputime.h>
@@ -83,11 +84,13 @@ u64 arch_kcpustat_field_idle(int cpu)
 {
 	return arch_cpu_idle_time(cpu, CPUTIME_IDLE, !nr_iowait_cpu(cpu));
 }
+EXPORT_SYMBOL_GPL(arch_kcpustat_field_idle);
 
 u64 arch_kcpustat_field_iowait(int cpu)
 {
 	return arch_cpu_idle_time(cpu, CPUTIME_IOWAIT, nr_iowait_cpu(cpu));
 }
+EXPORT_SYMBOL_GPL(arch_kcpustat_field_iowait);
 
 void account_idle_time_irq(void)
 {
