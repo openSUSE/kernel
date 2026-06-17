@@ -2639,6 +2639,7 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/bmc/linux.git
 F:	Documentation/devicetree/bindings/arm/aspeed/
 F:	arch/arm/boot/dts/aspeed/
 F:	arch/arm/mach-aspeed/
+F:	arch/arm64/boot/dts/aspeed/
 N:	aspeed
 
 ARM/AXIADO ARCHITECTURE
@@ -3456,9 +3457,12 @@ F:	drivers/i2c/busses/i2c-rk3x.c
 F:	drivers/net/ethernet/stmicro/stmmac/dwmac-rk.c
 F:	sound/soc/rockchip/
 N:	rockchip
+K:	\b[Rr]ock[Cc]hip\b
+K:	(?:\b|_)ROCKCHIP(?:\b|_)
 
 ARM/SAMSUNG S3C, S5P AND EXYNOS ARM ARCHITECTURES
 M:	Krzysztof Kozlowski <krzk@kernel.org>
+M:	Peter Griffin <peter.griffin@linaro.org>
 R:	Alim Akhtar <alim.akhtar@samsung.com>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 L:	linux-samsung-soc@vger.kernel.org
@@ -23951,6 +23955,7 @@ SAMSUNG SOC CLOCK DRIVERS
 M:	Krzysztof Kozlowski <krzk@kernel.org>
 M:	Sylwester Nawrocki <s.nawrocki@samsung.com>
 M:	Chanwoo Choi <cw00.choi@samsung.com>
+M:	Peter Griffin <peter.griffin@linaro.org>
 R:	Alim Akhtar <alim.akhtar@samsung.com>
 L:	linux-samsung-soc@vger.kernel.org
 S:	Maintained
@@ -25088,7 +25093,7 @@ F:	drivers/char/sonypi.c
 F:	drivers/platform/x86/sony-laptop.c
 
 SOPHGO DEVICETREES and DRIVERS
-M:	Chen Wang <unicorn_wang@outlook.com>
+M:	Chen Wang <chen.wang@linux.dev>
 M:	Inochi Amaoto <inochiama@gmail.com>
 L:	sophgo@lists.linux.dev
 W:	https://github.com/sophgo/linux/wiki
