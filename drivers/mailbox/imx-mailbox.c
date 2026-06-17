@@ -381,7 +381,6 @@ static int imx_mu_specific_rx(struct imx_mu_priv *priv, struct imx_mu_con_priv *
 
 	data = (u32 *)priv->msg;
 
-	imx_mu_xcr_rmw(priv, IMX_MU_RCR, 0, IMX_MU_xCR_RIEn(priv->dcfg->type, cp->idx));
 	*data++ = imx_mu_read(priv, priv->dcfg->xRR);
 
 	if (priv->dcfg->type & IMX_MU_V2_S4) {
@@ -408,7 +407,6 @@ static int imx_mu_specific_rx(struct imx_mu_priv *priv, struct imx_mu_con_priv *
 		*data++ = imx_mu_read(priv, priv->dcfg->xRR + (i % num_rr) * 4);
 	}
 
-	imx_mu_xcr_set_act(priv, cp, IMX_MU_RCR, IMX_MU_xCR_RIEn(priv->dcfg->type, cp->idx));
 	mbox_chan_received_data(cp->chan, (void *)priv->msg);
 
 	return 0;
@@ -551,6 +549,11 @@ static irqreturn_t imx_mu_isr_th(int irq, void *p)
 		mbox_chan_txdone(chan, 0);
 		break;
 
+	case IMX_MU_TYPE_RX:
+		if (!priv->dcfg->rx(priv, cp))
+			imx_mu_xcr_set_act(priv, cp, IMX_MU_RCR, IMX_MU_xCR_RIEn(priv->dcfg->type, cp->idx));
+		break;
+
 	default:
 		dev_warn_ratelimited(priv->dev, "Unhandled channel type %d\n",
 				     cp->type);
@@ -603,7 +606,8 @@ static irqreturn_t imx_mu_isr(int irq, void *p)
 		ret = IRQ_WAKE_THREAD;
 	} else if ((val == IMX_MU_xSR_RFn(priv->dcfg->type, cp->idx)) &&
 		   (cp->type == IMX_MU_TYPE_RX)) {
-		priv->dcfg->rx(priv, cp);
+		imx_mu_xcr_rmw(priv, IMX_MU_RCR, 0, IMX_MU_xCR_RIEn(priv->dcfg->type, cp->idx));
+		ret = IRQ_WAKE_THREAD;
 	} else if ((val == IMX_MU_xSR_GIPn(priv->dcfg->type, cp->idx)) &&
 		   (cp->type == IMX_MU_TYPE_RXDB)) {
 		priv->dcfg->rxdb(priv, cp);
