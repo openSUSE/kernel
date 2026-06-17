@@ -2922,26 +2922,38 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 
 	exit_code = kvm_get_cached_sw_exit_code(control);
 	switch (exit_code) {
-	case SVM_VMGEXIT_MMIO_READ:
-		ret = setup_vmgexit_scratch(svm, true, control->exit_info_2);
+	case SVM_VMGEXIT_MMIO_READ: {
+		u64 len = control->exit_info_2;
+
+		if (!len)
+			return 1;
+
+		ret = setup_vmgexit_scratch(svm, true, len);
 		if (ret)
 			break;
 
 		ret = kvm_sev_es_mmio_read(vcpu,
 					   control->exit_info_1,
-					   control->exit_info_2,
+					   len,
 					   svm->sev_es.ghcb_sa);
 		break;
-	case SVM_VMGEXIT_MMIO_WRITE:
-		ret = setup_vmgexit_scratch(svm, false, control->exit_info_2);
+	}
+	case SVM_VMGEXIT_MMIO_WRITE: {
+		u64 len = control->exit_info_2;
+
+		if (!len)
+			return 1;
+
+		ret = setup_vmgexit_scratch(svm, false, len);
 		if (ret)
 			break;
 
 		ret = kvm_sev_es_mmio_write(vcpu,
 					    control->exit_info_1,
-					    control->exit_info_2,
+					    len,
 					    svm->sev_es.ghcb_sa);
 		break;
+	}
 	case SVM_VMGEXIT_NMI_COMPLETE:
 		++vcpu->stat.nmi_window_exits;
 		svm->nmi_masked = false;
