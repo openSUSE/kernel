@@ -78,6 +78,7 @@
 #include <net/mpls.h>
 #include <net/mptcp.h>
 #include <net/mctp.h>
+#include <net/tcp.h>
 #include <net/can.h>
 #include <net/page_pool/helpers.h>
 #include <net/psp/types.h>
@@ -96,7 +97,6 @@
 #include "devmem.h"
 #include "net-sysfs.h"
 #include "netmem_priv.h"
-#include "sock_destructor.h"
 
 #ifdef CONFIG_SKB_EXTENSIONS
 static struct kmem_cache *skbuff_ext_cache __ro_after_init;
@@ -1208,7 +1208,7 @@ void __kfree_skb(struct sk_buff *skb)
 EXPORT_SYMBOL(__kfree_skb);
 
 static __always_inline
-bool __sk_skb_reason_drop(struct sock *sk, struct sk_buff *skb,
+bool __sk_skb_reason_drop(const struct sock *sk, struct sk_buff *skb,
 			  enum skb_drop_reason reason)
 {
 	if (unlikely(!skb_unref(skb)))
@@ -1237,7 +1237,8 @@ bool __sk_skb_reason_drop(struct sock *sk, struct sk_buff *skb,
  *	'kfree_skb' tracepoint.
  */
 void __fix_address
-sk_skb_reason_drop(struct sock *sk, struct sk_buff *skb, enum skb_drop_reason reason)
+sk_skb_reason_drop(const struct sock *sk, struct sk_buff *skb,
+		   enum skb_drop_reason reason)
 {
 	if (__sk_skb_reason_drop(sk, skb, reason))
 		__kfree_skb(skb);
