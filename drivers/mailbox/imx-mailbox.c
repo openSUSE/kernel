@@ -87,7 +87,7 @@ struct imx_mu_priv {
 	struct device		*dev;
 	void __iomem		*base;
 	void			*msg;
-	spinlock_t		xcr_lock; /* control register lock */
+	raw_spinlock_t		xcr_lock; /* control register lock */
 
 	struct mbox_controller	mbox;
 	struct mbox_chan	mbox_chans[IMX_MU_CHANS];
@@ -207,15 +207,14 @@ static int imx_mu_rx_waiting_read(struct imx_mu_priv *priv, u32 *val, u32 idx)
 
 static u32 imx_mu_xcr_rmw(struct imx_mu_priv *priv, enum imx_mu_xcr type, u32 set, u32 clr)
 {
-	unsigned long flags;
 	u32 val;
 
-	spin_lock_irqsave(&priv->xcr_lock, flags);
+	guard(raw_spinlock_irqsave)(&priv->xcr_lock);
+
 	val = imx_mu_read(priv, priv->dcfg->xCR[type]);
 	val &= ~clr;
 	val |= set;
 	imx_mu_write(priv, val, priv->dcfg->xCR[type]);
-	spin_unlock_irqrestore(&priv->xcr_lock, flags);
 
 	return val;
 }
@@ -223,31 +222,27 @@ static u32 imx_mu_xcr_rmw(struct imx_mu_priv *priv, enum imx_mu_xcr type, u32 se
 static void imx_mu_xcr_clr_shut(struct imx_mu_priv *priv, struct imx_mu_con_priv *cp,
 				enum imx_mu_xcr type, u32 clr)
 {
-	unsigned long flags;
 	u32 val;
 
-	spin_lock_irqsave(&priv->xcr_lock, flags);
+	guard(raw_spinlock_irqsave)(&priv->xcr_lock);
 	cp->shutdown = true;
 
 	val = imx_mu_read(priv, priv->dcfg->xCR[type]);
 	val &= ~clr;
 	imx_mu_write(priv, val, priv->dcfg->xCR[type]);
-	spin_unlock_irqrestore(&priv->xcr_lock, flags);
 }
 
 static void imx_mu_xcr_set_act(struct imx_mu_priv *priv, struct imx_mu_con_priv *cp,
 			       enum imx_mu_xcr type, u32 set)
 {
-	unsigned long flags;
 	u32 val;
 
-	spin_lock_irqsave(&priv->xcr_lock, flags);
+	guard(raw_spinlock_irqsave)(&priv->xcr_lock);
 	if (!cp->shutdown) {
 		val = imx_mu_read(priv, priv->dcfg->xCR[type]);
 		val |= set;
 		imx_mu_write(priv, val, priv->dcfg->xCR[type]);
 	}
-	spin_unlock_irqrestore(&priv->xcr_lock, flags);
 }
 
 static int imx_mu_generic_tx(struct imx_mu_priv *priv,
@@ -640,7 +635,7 @@ static int imx_mu_startup(struct mbox_chan *chan)
 {
 	struct imx_mu_priv *priv = to_imx_mu_priv(chan->mbox);
 	struct imx_mu_con_priv *cp = chan->con_priv;
-	unsigned long irq_flag = 0;
+	unsigned long irq_flag = IRQF_NO_THREAD;
 	int ret;
 
 	pm_runtime_get_sync(priv->dev);
@@ -988,7 +983,7 @@ static int imx_mu_probe(struct platform_device *pdev)
 		goto disable_clk;
 	}
 
-	spin_lock_init(&priv->xcr_lock);
+	raw_spin_lock_init(&priv->xcr_lock);
 
 	priv->mbox.dev = dev;
 	priv->mbox.ops = &imx_mu_ops;
