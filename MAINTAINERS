@@ -4797,13 +4797,6 @@ S:	Supported
 F:	arch/x86/net/
 X:	arch/x86/net/bpf_jit_comp32.c
 
-BPF [BTF]
-M:	Martin KaFai Lau <martin.lau@linux.dev>
-L:	bpf@vger.kernel.org
-S:	Maintained
-F:	include/linux/btf*
-F:	kernel/bpf/btf.c
-
 BPF [CORE]
 M:	Alexei Starovoitov <ast@kernel.org>
 M:	Daniel Borkmann <daniel@iogearbox.net>
@@ -4840,12 +4833,13 @@ BPF [GENERAL] (Safe Dynamic Programs and Tools)
 M:	Alexei Starovoitov <ast@kernel.org>
 M:	Daniel Borkmann <daniel@iogearbox.net>
 M:	Andrii Nakryiko <andrii@kernel.org>
-R:	Martin KaFai Lau <martin.lau@linux.dev>
 M:	Eduard Zingerman <eddyz87@gmail.com>
 M:	Kumar Kartikeya Dwivedi <memxor@gmail.com>
+R:	Martin KaFai Lau <martin.lau@linux.dev>
 R:	Song Liu <song@kernel.org>
 R:	Yonghong Song <yonghong.song@linux.dev>
 R:	Jiri Olsa <jolsa@kernel.org>
+R:	Emil Tsalapatis <emil@etsalapatis.com>
 L:	bpf@vger.kernel.org
 S:	Supported
 W:	https://bpf.io/
@@ -4855,7 +4849,9 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/bpf/bpf-next.git
 F:	Documentation/bpf/
 F:	Documentation/networking/filter.rst
 F:	Documentation/userspace-api/ebpf/
+F:	arch/*/include/asm/rqspinlock.h
 F:	arch/*/net/*
+F:	include/asm-generic/rqspinlock.h
 F:	include/linux/bpf*
 F:	include/linux/btf*
 F:	include/linux/buildid.h
@@ -4867,17 +4863,15 @@ F:	include/uapi/linux/filter.h
 F:	kernel/bpf/
 F:	kernel/trace/bpf_trace.c
 F:	lib/buildid.c
-F:	arch/*/include/asm/rqspinlock.h
-F:	include/asm-generic/rqspinlock.h
 F:	lib/test_bpf.c
 F:	net/bpf/
 F:	net/core/filter.c
 F:	net/sched/act_bpf.c
 F:	net/sched/cls_bpf.c
 F:	samples/bpf/
+F:	scripts/Makefile.btf
 F:	scripts/bpf_doc.py
 F:	scripts/gen-btf.sh
-F:	scripts/Makefile.btf
 F:	scripts/pahole-version.sh
 F:	tools/bpf/
 F:	tools/lib/bpf/
@@ -4892,6 +4886,7 @@ F:	kernel/bpf/*iter.c
 BPF [L7 FRAMEWORK] (sockmap)
 M:	John Fastabend <john.fastabend@gmail.com>
 M:	Jakub Sitnicki <jakub@cloudflare.com>
+M:	Jiayuan Chen <jiayuan.chen@linux.dev>
 L:	netdev@vger.kernel.org
 L:	bpf@vger.kernel.org
 S:	Maintained
@@ -4935,18 +4930,11 @@ F:	tools/testing/selftests/bpf/prog_tests/tc_netkit.c
 F:	tools/testing/selftests/drivers/net/hw/nk_qlease.py
 F:	tools/testing/selftests/net/nk_qlease.py
 
-BPF [NETWORKING] (struct_ops, reuseport)
-M:	Martin KaFai Lau <martin.lau@linux.dev>
-L:	bpf@vger.kernel.org
-L:	netdev@vger.kernel.org
-S:	Maintained
-F:	kernel/bpf/bpf_struct*
-
 BPF [NETWORKING] (tcx & tc BPF, sock_addr)
-M:	Martin KaFai Lau <martin.lau@linux.dev>
 M:	Daniel Borkmann <daniel@iogearbox.net>
 R:	John Fastabend <john.fastabend@gmail.com>
 R:	Stanislav Fomichev <sdf@fomichev.me>
+R:	Martin KaFai Lau <martin.lau@linux.dev>
 L:	bpf@vger.kernel.org
 L:	netdev@vger.kernel.org
 S:	Maintained
@@ -4980,14 +4968,6 @@ M:	Eduard Zingerman <eddyz87@gmail.com>
 L:	bpf@vger.kernel.org
 S:	Maintained
 F:	tools/testing/selftests/bpf/
-
-BPF [STORAGE & CGROUPS]
-M:	Martin KaFai Lau <martin.lau@linux.dev>
-L:	bpf@vger.kernel.org
-S:	Maintained
-F:	kernel/bpf/*storage.c
-F:	kernel/bpf/bpf_lru*
-F:	kernel/bpf/cgroup.c
 
 BPF [TOOLING] (bpftool)
 M:	Quentin Monnet <qmo@kernel.org>
