@@ -943,6 +943,7 @@ static int nft_ct_timeout_obj_init(const struct nft_ctx *ctx,
 {
 	struct nft_ct_timeout_obj *priv = nft_obj_data(obj);
 	const struct nf_conntrack_l4proto *l4proto;
+	struct __nf_ct_timeout_wrapper *wrapper;
 	struct nf_ct_timeout *timeout;
 	int l3num = ctx->family;
 	__u8 l4num;
@@ -965,12 +966,13 @@ static int nft_ct_timeout_obj_init(const struct nft_ctx *ctx,
 		goto err_proto_put;
 	}
 
-	timeout = kzalloc(sizeof(struct nf_ct_timeout) +
+	wrapper = kzalloc(sizeof(struct __nf_ct_timeout_wrapper) +
 			  l4proto->ctnl_timeout.obj_size, GFP_KERNEL);
-	if (timeout == NULL) {
+	if (!wrapper) {
 		ret = -ENOMEM;
 		goto err_proto_put;
 	}
+	timeout = &wrapper->base;
 
 	ret = nft_ct_timeout_parse_policy(&timeout->data, l4proto, ctx->net,
 					  tb[NFTA_CT_TIMEOUT_DATA]);
@@ -988,7 +990,7 @@ static int nft_ct_timeout_obj_init(const struct nft_ctx *ctx,
 	return 0;
 
 err_free_timeout:
-	kfree(timeout);
+	kfree(wrapper);
 err_proto_put:
 	return ret;
 }
@@ -998,11 +1000,14 @@ static void nft_ct_timeout_obj_destroy(const struct nft_ctx *ctx,
 {
 	struct nft_ct_timeout_obj *priv = nft_obj_data(obj);
 	struct nf_ct_timeout *timeout = priv->timeout;
+	struct __nf_ct_timeout_wrapper *wrapper;
 
 	nf_queue_nf_hook_drop(ctx->net);
 	nf_ct_untimeout(ctx->net, timeout);
 	nf_ct_netns_put(ctx->net, ctx->family);
-	kfree(priv->timeout);
+
+	wrapper = container_of(timeout, struct __nf_ct_timeout_wrapper, base);
+	kfree_rcu(wrapper, rcu);
 }
 
 static int nft_ct_timeout_obj_dump(struct sk_buff *skb,
