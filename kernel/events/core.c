@@ -4802,6 +4802,7 @@ static void free_event_rcu(struct rcu_head *head)
 	if (event->ns)
 		put_pid_ns(event->ns);
 	perf_event_free_filter(event);
+	kfree(event->addr_filter_ranges);
 	kmem_cache_free(perf_event_cache, event);
 }
 
@@ -5048,7 +5049,6 @@ static void _free_event(struct perf_event *event)
 
 	perf_event_free_bpf_prog(event);
 	perf_addr_filters_splice(event, NULL);
-	kfree(event->addr_filter_ranges);
 
 	if (event->destroy)
 		event->destroy(event);
@@ -12058,8 +12058,6 @@ err_callchain_buffer:
 			put_callchain_buffers();
 	}
 err_addr_filters:
-	kfree(event->addr_filter_ranges);
-
 err_per_task:
 	exclusive_event_destroy(event);
 
