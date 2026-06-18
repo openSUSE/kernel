@@ -7470,7 +7470,8 @@ static gpa_t vmx_translate_nested_gpa(struct kvm_vcpu *vcpu, gpa_t gpa,
 {
 	struct kvm_mmu *mmu = vcpu->arch.mmu;
 
-	BUG_ON(!mmu_is_nested(vcpu));
+	if (WARN_ON_ONCE(!mmu_is_nested(vcpu)))
+		return gpa;
 
 	/*
 	 * MBEC differentiates based on the effective U/S bit of
