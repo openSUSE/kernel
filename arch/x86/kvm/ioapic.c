@@ -504,7 +504,8 @@ int kvm_ioapic_set_irq(struct kvm_kernel_irq_routing_entry *e, struct kvm *kvm,
 	int irq = e->irqchip.pin;
 	int ret, irq_level;
 
-	BUG_ON(irq < 0 || irq >= IOAPIC_NUM_PINS);
+	if (WARN_ON_ONCE(irq < 0 || irq >= IOAPIC_NUM_PINS))
+		return -1;
 
 	spin_lock(&ioapic->lock);
 	irq_level = __kvm_irq_line_state(&ioapic->irq_states[irq],
