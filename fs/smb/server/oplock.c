@@ -163,8 +163,9 @@ static struct lease *alloc_lease(struct lease_ctx_info *lctx,
 	lease->is_dir = lctx->is_dir;
 	memcpy(lease->parent_lease_key, lctx->parent_lease_key, SMB2_LEASE_KEY_SIZE);
 	lease->version = lctx->version;
-	lease->epoch = lctx->version == 2 ? 1 : 0;
+	lease->epoch = lctx->version == 2 ? le16_to_cpu(lctx->epoch) + 1 : 0;
 	lease->ci = ci;
+	lease->reuse_epoch = false;
 	lease->l_lb = NULL;
 	INIT_LIST_HEAD(&lease->l_entry);
 	INIT_LIST_HEAD(&lease->open_list);
@@ -645,9 +646,11 @@ static struct oplock_info *same_client_has_lease(struct ksmbd_inode *ci,
 				if (lctx->req_state ==
 				    (SMB2_LEASE_READ_CACHING_LE |
 				     SMB2_LEASE_HANDLE_CACHING_LE)) {
-					lease->epoch++;
-					lease->state = lctx->req_state;
-					lease_update_oplock_levels(lease);
+					if (lease->state != lctx->req_state) {
+						lease->epoch++;
+						lease->state = lctx->req_state;
+						lease_update_oplock_levels(lease);
+					}
 				}
 			}
 
@@ -694,6 +697,9 @@ static void wake_up_oplock_break(struct oplock_info *opinfo)
 static int oplock_break_pending(struct oplock_info *opinfo, int req_op_level)
 {
 	while (test_and_set_bit(0, &opinfo->pending_break)) {
+		if (opinfo->is_lease)
+			opinfo->o_lease->reuse_epoch = true;
+
 		wait_on_bit(&opinfo->pending_break, 0, TASK_UNINTERRUPTIBLE);
 
 		/* Not immediately break to none. */
@@ -927,7 +933,8 @@ out:
  *
  * Return:	0 on success, otherwise error
  */
-static int smb2_lease_break_noti(struct oplock_info *opinfo, bool wait_ack)
+static int smb2_lease_break_noti(struct oplock_info *opinfo, bool wait_ack,
+				 bool inc_epoch)
 {
 	struct ksmbd_conn *conn;
 	struct ksmbd_work *work;
@@ -950,10 +957,13 @@ static int smb2_lease_break_noti(struct oplock_info *opinfo, bool wait_ack)
 
 	br_info->curr_state = lease->state;
 	br_info->new_state = lease->new_state;
-	if (lease->version == 2)
-		br_info->epoch = cpu_to_le16(++lease->epoch);
-	else
+	if (lease->version == 2) {
+		if (inc_epoch)
+			lease->epoch++;
+		br_info->epoch = cpu_to_le16(lease->epoch);
+	} else {
 		br_info->epoch = 0;
+	}
 	memcpy(br_info->lease_key, lease->lease_key, SMB2_LEASE_KEY_SIZE);
 
 	work->request_buf = (char *)br_info;
@@ -1007,9 +1017,11 @@ static int oplock_break(struct oplock_info *brk_opinfo, int req_op_level,
 	if (brk_opinfo->is_lease) {
 		struct lease *lease = brk_opinfo->o_lease;
 		bool open_trunc = brk_opinfo->open_trunc;
+		bool was_pending = test_bit(0, &brk_opinfo->pending_break);
 		bool wait_ack;
+		bool inc_epoch = true;
 
-		if (in_work && test_bit(0, &brk_opinfo->pending_break)) {
+		if (in_work && was_pending) {
 			setup_async_work(in_work, NULL, NULL);
 			smb2_send_interim_resp(in_work, STATUS_PENDING);
 			release_async_work(in_work);
@@ -1019,6 +1031,8 @@ static int oplock_break(struct oplock_info *brk_opinfo, int req_op_level,
 		err = oplock_break_pending(brk_opinfo, req_op_level);
 		if (err)
 			return err < 0 ? err : 0;
+		if (was_pending)
+			open_trunc = brk_opinfo->open_trunc;
 
 again:
 		atomic_inc(&brk_opinfo->breaking_cnt);
@@ -1063,7 +1077,12 @@ again:
 		wait_ack = !(open_trunc &&
 			     lease->state == (SMB2_LEASE_READ_CACHING_LE |
 					      SMB2_LEASE_HANDLE_CACHING_LE));
-		err = smb2_lease_break_noti(brk_opinfo, wait_ack);
+		if (lease->reuse_epoch) {
+			inc_epoch = false;
+			lease->reuse_epoch = false;
+		}
+		err = smb2_lease_break_noti(brk_opinfo, wait_ack, inc_epoch);
+		inc_epoch = false;
 
 		ksmbd_debug(OPLOCK, "oplock granted = %d\n", brk_opinfo->level);
 		if (brk_opinfo->op_state == OPLOCK_CLOSING)
