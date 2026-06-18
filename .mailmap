@@ -202,9 +202,9 @@ Christophe Ricard <christophe.ricard@gmail.com>
 Christopher Obbard <christopher.obbard@linaro.org> <chris.obbard@collabora.com>
 Christoph Hellwig <hch@lst.de>
 Christoph Manszewski <c.manszewski@gmail.com> <christoph.manszewski@intel.com>
-Chuck Lever <chuck.lever@oracle.com> <cel@kernel.org>
-Chuck Lever <chuck.lever@oracle.com> <cel@netapp.com>
-Chuck Lever <chuck.lever@oracle.com> <cel@citi.umich.edu>
+Chuck Lever <cel@kernel.org> <chuck.lever@oracle.com>
+Chuck Lever <cel@kernel.org> <cel@netapp.com>
+Chuck Lever <cel@kernel.org> <cel@citi.umich.edu>
 Claudiu Beznea <claudiu.beznea@tuxon.dev> <claudiu.beznea@microchip.com>
 Colin Ian King <colin.i.king@gmail.com> <colin.king@canonical.com>
 Corey Minyard <minyard@acm.org>
