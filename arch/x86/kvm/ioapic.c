@@ -84,7 +84,7 @@ static void kvm_rtc_eoi_tracking_restore_all(struct kvm_ioapic *ioapic);
 
 static void rtc_status_pending_eoi_check_valid(struct kvm_ioapic *ioapic)
 {
-	if (WARN_ON(ioapic->rtc_status.pending_eoi < 0))
+	if (WARN_ON_ONCE(ioapic->rtc_status.pending_eoi < 0))
 		kvm_rtc_eoi_tracking_restore_all(ioapic);
 }
 
@@ -484,7 +484,7 @@ static int ioapic_service(struct kvm_ioapic *ioapic, int irq, bool line_status)
 		 * ensures that it is only called if it is >= zero, namely
 		 * if rtc_irq_check_coalesced returns false).
 		 */
-		BUG_ON(ioapic->rtc_status.pending_eoi != 0);
+		WARN_ON_ONCE(ioapic->rtc_status.pending_eoi);
 		ret = __kvm_irq_delivery_to_apic(ioapic->kvm, NULL, &irqe,
 						 &ioapic->rtc_status);
 		ioapic->rtc_status.pending_eoi = (ret < 0 ? 0 : ret);
