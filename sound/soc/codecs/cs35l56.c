@@ -956,7 +956,7 @@ err:
 	pm_runtime_put_autosuspend(cs35l56->base.dev);
 }
 
-static int cs35l56_component_probe(struct snd_soc_component *component)
+static int _cs35l56_component_probe(struct snd_soc_component *component)
 {
 	struct cs35l56_private *cs35l56 = snd_soc_component_get_drvdata(component);
 	struct dentry *debugfs_root = component->debugfs_root;
@@ -1023,6 +1023,17 @@ static void cs35l56_component_remove(struct snd_soc_component *component)
 	cs35l56->dsp.fwf_name = NULL;
 
 	cs35l56->component = NULL;
+}
+
+static int cs35l56_component_probe(struct snd_soc_component *component)
+{
+	int ret;
+
+	ret = _cs35l56_component_probe(component);
+	if (ret < 0)
+		cs35l56_component_remove(component);
+
+	return ret;
 }
 
 static int cs35l56_set_bias_level(struct snd_soc_component *component,
