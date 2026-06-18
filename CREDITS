@@ -2244,6 +2244,7 @@ S: Canada
 N: Krzysztof Kozlowski
 E: krzk@kernel.org
 D: NFC network subsystem and drivers maintainer
+D: Samsung S2M/S5M Multifunction PMIC device drivers for Exynos platforms
 
 N: Christian Krafft
 D: PowerPC Cell support
