@@ -49,7 +49,12 @@ struct lease {
 	int			version;
 	unsigned short		epoch;
 	bool			is_dir;
+	struct ksmbd_inode	*ci;
 	struct lease_table	*l_lb;
+	struct list_head	l_entry;
+	struct list_head	open_list;
+	spinlock_t		lock;
+	atomic_t		refcount;
 };
 
 struct oplock_info {
@@ -105,6 +110,7 @@ void opinfo_put(struct oplock_info *opinfo);
 void create_lease_buf(u8 *rbuf, struct lease *lease);
 struct lease_ctx_info *parse_lease_state(void *open_req);
 __u8 smb2_map_lease_to_oplock(__le32 lease_state);
+void lease_update_oplock_levels(struct lease *lease);
 int lease_read_to_write(struct oplock_info *opinfo);
 
 /* Durable related functions */
