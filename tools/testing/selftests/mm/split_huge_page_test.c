@@ -609,9 +609,13 @@ static int create_pagecache_thp_and_fd(const char *testfile, size_t fd_size,
 	assert(fd_size % sizeof(buf) == 0);
 	for (i = 0; i < sizeof(buf); i++)
 		buf[i] = (unsigned char)i;
-	for (i = 0; i < fd_size; i += sizeof(buf))
-		write(*fd, buf, sizeof(buf));
-
+	for (i = 0; i < fd_size; i += sizeof(buf)) {
+		if (write(*fd, buf, sizeof(buf)) != sizeof(buf)) {
+			ksft_perror("write testfile");
+			close(*fd);
+			goto err_out_unlink;
+		}
+	}
 	close(*fd);
 	sync();
 	*fd = open("/proc/sys/vm/drop_caches", O_WRONLY);
@@ -621,7 +625,7 @@ static int create_pagecache_thp_and_fd(const char *testfile, size_t fd_size,
 	}
 	if (write(*fd, "3", 1) != 1) {
 		ksft_perror("write to drop_caches");
-		goto err_out_unlink;
+		goto err_out_close;
 	}
 	close(*fd);
 
