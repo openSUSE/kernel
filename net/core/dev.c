@@ -11840,3 +11840,14 @@ out:
 }
 
 subsys_initcall(net_dev_init);
+
+int parse_header_kabi_helper(const struct sk_buff *skb, unsigned char *haddr)
+{
+	struct net_device *dev = skb->dev;
+
+	if (dev->header_ops->parse2)
+		return dev->header_ops->parse2(skb, dev, haddr);
+
+	return 0;
+}
+EXPORT_SYMBOL(parse_header_kabi_helper);

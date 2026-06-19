@@ -2216,8 +2216,12 @@ static int team_header_parse(const struct sk_buff *skb,
 	port = team_header_port_get_rcu(team, false);
 	if (port) {
 		port_ops = READ_ONCE(port->dev->header_ops);
-		if (port_ops && port_ops->parse)
-			ret = port_ops->parse(skb, port->dev, haddr);
+		if (port_ops && port_ops->parse) {
+			if (port_ops->parse == parse_header_kabi_helper)
+				ret = port_ops->parse2(skb, port->dev, haddr);
+			else
+				ret = port_ops->parse(skb, haddr);
+		}
 	}
 	rcu_read_unlock();
 	return ret;
@@ -2225,7 +2229,8 @@ static int team_header_parse(const struct sk_buff *skb,
 
 static const struct header_ops team_header_ops = {
 	.create		= team_header_create,
-	.parse		= team_header_parse,
+	.parse		= parse_header_kabi_helper,
+	.parse2		= team_header_parse,
 };
 
 static void team_setup_by_port(struct net_device *dev,
