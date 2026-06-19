@@ -335,8 +335,6 @@ static void do_page_cache_ra(struct readahead_control *ractl,
 		return;
 
 	end_index = (isize - 1) >> PAGE_SHIFT;
-	if (end_index > ractl->_max_index)
-		end_index = ractl->_max_index;
 	if (index > end_index)
 		return;
 	/* Don't read past the page containing the last byte of the file */
@@ -487,7 +485,7 @@ void page_cache_ra_order(struct readahead_control *ractl,
 	pgoff_t start = readahead_index(ractl);
 	pgoff_t index = start;
 	unsigned int min_order = mapping_min_folio_order(mapping);
-	pgoff_t limit;
+	pgoff_t limit = (i_size_read(mapping->host) - 1) >> PAGE_SHIFT;
 	pgoff_t mark;
 	unsigned int nofs;
 	int err = 0;
@@ -500,8 +498,6 @@ void page_cache_ra_order(struct readahead_control *ractl,
 		goto fallback;
 	}
 
-	limit = (i_size_read(mapping->host) - 1) >> PAGE_SHIFT;
-	limit = min(limit, ractl->_max_index);
 	if (limit > index + ra->size - 1) {
 		limit = index + ra->size - 1;
 		mark = index + ra->size - ra->async_size;
