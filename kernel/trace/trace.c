@@ -2338,15 +2338,6 @@ void trace_last_func_repeats(struct trace_array *tr,
 	__buffer_unlock_commit(buffer, event);
 }
 
-static void trace_iterator_increment(struct trace_iterator *iter)
-{
-	struct ring_buffer_iter *buf_iter = trace_buffer_iter(iter, iter->cpu);
-
-	iter->idx++;
-	if (buf_iter)
-		ring_buffer_iter_advance(buf_iter);
-}
-
 static struct trace_entry *
 peek_next_entry(struct trace_iterator *iter, int cpu, u64 *ts,
 		unsigned long *lost_events)
@@ -2676,11 +2667,17 @@ struct trace_entry *trace_find_next_entry(struct trace_iterator *iter,
 /* Find the next real entry, and increment the iterator to the next entry */
 void *trace_find_next_entry_inc(struct trace_iterator *iter)
 {
+	struct ring_buffer_iter *buf_iter;
+
 	iter->ent = __find_next_entry(iter, &iter->cpu,
 				      &iter->lost_events, &iter->ts);
 
-	if (iter->ent)
-		trace_iterator_increment(iter);
+	if (iter->ent) {
+		iter->idx++;
+		buf_iter = trace_buffer_iter(iter, iter->cpu);
+		if (buf_iter)
+			ring_buffer_iter_advance(buf_iter);
+	}
 
 	return iter->ent ? iter : NULL;
 }
@@ -4474,7 +4471,7 @@ static const char readme_msg[] =
 	"\t        snapshot()                           - snapshot the trace buffer\n\n"
 #endif
 #ifdef CONFIG_SYNTH_EVENTS
-	"  events/synthetic_events\t- Create/append/remove/show synthetic events\n"
+	"  synthetic_events\t- Create/append/remove/show synthetic events\n"
 	"\t  Write into this file to define/undefine new synthetic events.\n"
 	"\t     example: echo 'myevent u64 lat; char name[]; long[] stack' >> synthetic_events\n"
 #endif
@@ -7928,8 +7925,8 @@ create_trace_option_files(struct trace_array *tr, struct tracer *tracer,
 	if (!topts)
 		return 0;
 
-	tr_topts = krealloc(tr->topts, sizeof(*tr->topts) * (tr->nr_topts + 1),
-			    GFP_KERNEL);
+	tr_topts = krealloc_array(tr->topts, tr->nr_topts + 1, sizeof(*tr->topts),
+				  GFP_KERNEL);
 	if (!tr_topts) {
 		kfree(topts);
 		return -ENOMEM;
