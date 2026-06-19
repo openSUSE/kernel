@@ -359,8 +359,8 @@ static inline void update_head_pos(int disk, struct r1bio *r1_bio)
 {
 	struct r1conf *conf = r1_bio->mddev->private;
 
-	conf->mirrors[disk].head_position =
-		r1_bio->sector + (r1_bio->sectors);
+	WRITE_ONCE(conf->mirrors[disk].head_position,
+		   r1_bio->sector + r1_bio->sectors);
 }
 
 /*
@@ -737,7 +737,7 @@ static bool is_sequential(struct r1conf *conf, int disk, struct r1bio *r1_bio)
 {
 	/* TODO: address issues with this check and concurrency. */
 	return conf->mirrors[disk].next_seq_sect == r1_bio->sector ||
-	       conf->mirrors[disk].head_position == r1_bio->sector;
+	       READ_ONCE(conf->mirrors[disk].head_position) == r1_bio->sector;
 }
 
 /*
@@ -814,7 +814,8 @@ static int choose_best_rdev(struct r1conf *conf, struct r1bio *r1_bio)
 			set_bit(R1BIO_FailFast, &r1_bio->state);
 
 		pending = atomic_read(&rdev->nr_pending);
-		dist = abs(r1_bio->sector - conf->mirrors[disk].head_position);
+		dist = abs(r1_bio->sector -
+			   READ_ONCE(conf->mirrors[disk].head_position));
 
 		/* Don't change to another disk for sequential reads */
 		if (is_sequential(conf, disk, r1_bio)) {
