@@ -243,7 +243,8 @@ static netdev_tx_t hsr_dev_xmit(struct sk_buff *skb, struct net_device *dev)
 
 static const struct header_ops hsr_header_ops = {
 	.create	 = eth_header,
-	.parse	 = eth_header_parse,
+	.parse	 = parse_header_kabi_helper,
+	.parse2	 = eth_header_parse2,
 };
 
 static struct sk_buff *hsr_init_skb(struct hsr_port *master, int extra)

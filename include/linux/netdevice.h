@@ -312,7 +312,6 @@ struct header_ops {
 			   unsigned short type, const void *daddr,
 			   const void *saddr, unsigned int len);
 	int	(*parse)(const struct sk_buff *skb,
-			 const struct net_device *dev,
 			 unsigned char *haddr);
 	int	(*cache)(const struct neighbour *neigh, struct hh_cache *hh, __be16 type);
 	void	(*cache_update)(struct hh_cache *hh,
@@ -320,6 +319,11 @@ struct header_ops {
 				const unsigned char *haddr);
 	bool	(*validate)(const char *ll_header, unsigned int len);
 	__be16	(*parse_protocol)(const struct sk_buff *skb);
+#ifndef __GENKSYMS__
+	int	(*parse2)(const struct sk_buff *skb,
+			 const struct net_device *dev,
+			 unsigned char *haddr);
+#endif
 };
 
 /* These flag bits are private to the generic network queueing
@@ -3322,6 +3326,8 @@ static inline int dev_hard_header(struct sk_buff *skb, struct net_device *dev,
 	return dev->header_ops->create(skb, dev, type, daddr, saddr, len);
 }
 
+int parse_header_kabi_helper(const struct sk_buff *skb, unsigned char *haddr);
+
 static inline int dev_parse_header(const struct sk_buff *skb,
 				   unsigned char *haddr)
 {
@@ -3329,7 +3335,10 @@ static inline int dev_parse_header(const struct sk_buff *skb,
 
 	if (!dev->header_ops || !dev->header_ops->parse)
 		return 0;
-	return dev->header_ops->parse(skb, dev, haddr);
+	if (dev->header_ops->parse != parse_header_kabi_helper)
+		return dev->header_ops->parse(skb, haddr);
+
+	return dev->header_ops->parse2(skb, dev, haddr);
 }
 
 static inline __be16 dev_parse_header_protocol(const struct sk_buff *skb)
