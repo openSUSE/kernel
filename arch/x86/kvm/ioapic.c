@@ -441,7 +441,7 @@ static void ioapic_write_indirect(struct kvm_ioapic *ioapic, u32 val)
 				irq.dest_id = old_dest_id;
 				irq.dest_mode =
 				    kvm_lapic_irq_dest_mode(
-					!!e->fields.dest_mode);
+					!!old_dest_mode);
 				kvm_bitmap_or_dest_vcpus(ioapic->kvm, &irq,
 							 vcpu_bitmap);
 			}
