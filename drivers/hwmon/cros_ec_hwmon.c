@@ -654,9 +654,10 @@ static int cros_ec_hwmon_resume(struct platform_device *pdev)
 }
 
 static const struct platform_device_id cros_ec_hwmon_id[] = {
-	{ DRV_NAME, 0 },
-	{}
+	{ .name = DRV_NAME },
+	{ }
 };
+MODULE_DEVICE_TABLE(platform, cros_ec_hwmon_id);
 
 static struct platform_driver cros_ec_hwmon_driver = {
 	.driver.name	= DRV_NAME,
@@ -667,7 +668,6 @@ static struct platform_driver cros_ec_hwmon_driver = {
 };
 module_platform_driver(cros_ec_hwmon_driver);
 
-MODULE_DEVICE_TABLE(platform, cros_ec_hwmon_id);
 MODULE_DESCRIPTION("ChromeOS EC Hardware Monitoring Driver");
 MODULE_AUTHOR("Thomas Weißschuh <linux@weissschuh.net");
 MODULE_LICENSE("GPL");
