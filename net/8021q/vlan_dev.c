@@ -496,7 +496,8 @@ static int vlan_dev_get_lock_subclass(struct net_device *dev)
 
 static const struct header_ops vlan_header_ops = {
 	.create	 = vlan_dev_hard_header,
-	.parse	 = eth_header_parse,
+	.parse	 = parse_header_kabi_helper,
+	.parse2	 = eth_header_parse2,
 };
 
 static int vlan_passthru_hard_header(struct sk_buff *skb, struct net_device *dev,
@@ -515,7 +516,8 @@ static int vlan_passthru_hard_header(struct sk_buff *skb, struct net_device *dev
 
 static const struct header_ops vlan_passthru_header_ops = {
 	.create	 = vlan_passthru_hard_header,
-	.parse	 = eth_header_parse,
+	.parse	 = parse_header_kabi_helper,
+	.parse2	 = eth_header_parse2,
 };
 
 static struct device_type vlan_type = {

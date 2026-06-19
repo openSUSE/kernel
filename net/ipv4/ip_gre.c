@@ -630,7 +630,8 @@ static int ipgre_header_parse(const struct sk_buff *skb, const struct net_device
 
 static const struct header_ops ipgre_header_ops = {
 	.create	= ipgre_header,
-	.parse	= ipgre_header_parse,
+	.parse	= parse_header_kabi_helper,
+	.parse2	= ipgre_header_parse,
 };
 
 #ifdef CONFIG_NET_IPGRE_BROADCAST

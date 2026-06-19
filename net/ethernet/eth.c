@@ -204,13 +204,19 @@ __be16 eth_type_trans(struct sk_buff *skb, struct net_device *dev)
 }
 EXPORT_SYMBOL(eth_type_trans);
 
-int eth_header_parse(const struct sk_buff *skb, const struct net_device *dev,
+int eth_header_parse2(const struct sk_buff *skb, const struct net_device *dev,
 		     unsigned char *haddr)
 {
 	const struct ethhdr *eth = eth_hdr(skb);
 
 	memcpy(haddr, eth->h_source, ETH_ALEN);
 	return ETH_ALEN;
+}
+EXPORT_SYMBOL(eth_header_parse2);
+
+int eth_header_parse(const struct sk_buff *skb, unsigned char *haddr)
+{
+	return eth_header_parse2(skb, skb->dev, haddr);
 }
 EXPORT_SYMBOL(eth_header_parse);
 
@@ -349,7 +355,8 @@ EXPORT_SYMBOL(eth_validate_addr);
 
 const struct header_ops eth_header_ops ____cacheline_aligned = {
 	.create		= eth_header,
-	.parse		= eth_header_parse,
+	.parse		= parse_header_kabi_helper,
+	.parse2		= eth_header_parse2,
 	.cache		= eth_header_cache,
 	.cache_update	= eth_header_cache_update,
 };
