@@ -269,7 +269,8 @@ static const struct header_ops fwnet_header_ops = {
 	.create         = fwnet_header_create,
 	.cache		= fwnet_header_cache,
 	.cache_update	= fwnet_header_cache_update,
-	.parse          = fwnet_header_parse,
+	.parse		= parse_header_kabi_helper,
+	.parse2         = fwnet_header_parse,
 };
 
 /* FIXME: is this correct for all cases? */

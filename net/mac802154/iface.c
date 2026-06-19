@@ -490,7 +490,8 @@ mac802154_header_parse(const struct sk_buff *skb,
 
 static const struct header_ops mac802154_header_ops = {
 	.create         = mac802154_header_create,
-	.parse          = mac802154_header_parse,
+	.parse		= parse_header_kabi_helper,
+	.parse2         = mac802154_header_parse,
 };
 
 static const struct net_device_ops mac802154_wpan_ops = {
