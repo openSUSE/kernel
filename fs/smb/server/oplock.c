@@ -1130,7 +1130,7 @@ again:
 
 	ksmbd_debug(OPLOCK, "oplock granted = %d\n", brk_opinfo->level);
 	if (brk_opinfo->op_state == OPLOCK_CLOSING)
-		err = -ENOENT;
+		err = -EAGAIN;
 	wake_up_oplock_break(brk_opinfo);
 
 	return err;
@@ -1434,8 +1434,19 @@ int smb_grant_oplock(struct ksmbd_work *work, int req_op_level, u64 pid,
 	if (prev_durable_detached || (prev_durable_open && err == -ENOENT))
 		ksmbd_invalidate_durable_fd(prev_fid);
 	opinfo_put(prev_opinfo);
-	if (err == -ENOENT)
+	if (err == -EAGAIN) {
+		share_ret = ksmbd_smb_check_shared_mode(fp->filp, fp);
+		if (share_ret < 0) {
+			err = share_ret;
+			goto err_out;
+		}
 		goto set_lev;
+	}
+	if (err == -ENOENT) {
+		if (req_op_level != SMB2_OPLOCK_LEVEL_NONE)
+			req_op_level = SMB2_OPLOCK_LEVEL_II;
+		goto set_lev;
+	}
 	/* Check all oplock was freed by close */
 	else if (err < 0)
 		goto err_out;
