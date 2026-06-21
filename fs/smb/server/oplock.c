@@ -1546,7 +1546,7 @@ static bool smb_break_all_write_oplock(struct ksmbd_work *work,
  */
 static void __smb_break_all_levII_oplock(struct ksmbd_work *work,
 					 struct ksmbd_file *fp, int is_trunc,
-					 bool send_interim)
+					 bool send_interim, bool send_oplock_break)
 {
 	struct oplock_info *op, *brk_op;
 	struct ksmbd_inode *ci;
@@ -1593,10 +1593,15 @@ static void __smb_break_all_levII_oplock(struct ksmbd_work *work,
 			    SMB2_LEASE_KEY_SIZE))
 			goto next;
 		brk_op->open_trunc = is_trunc;
-		oplock_break(brk_op,
-			     brk_op->is_lease && !is_trunc ?
-			     SMB2_OPLOCK_LEVEL_II : SMB2_OPLOCK_LEVEL_NONE,
-			     send_interim && !sent_interim ? work : NULL);
+		if (!brk_op->is_lease && !send_oplock_break) {
+			brk_op->level = SMB2_OPLOCK_LEVEL_NONE;
+			brk_op->op_state = OPLOCK_STATE_NONE;
+		} else {
+			oplock_break(brk_op,
+				     brk_op->is_lease && !is_trunc ?
+				     SMB2_OPLOCK_LEVEL_II : SMB2_OPLOCK_LEVEL_NONE,
+				     send_interim && !sent_interim ? work : NULL);
+		}
 		sent_interim = true;
 next:
 		opinfo_put(brk_op);
@@ -1610,7 +1615,19 @@ next:
 void smb_break_all_levII_oplock(struct ksmbd_work *work, struct ksmbd_file *fp,
 				int is_trunc)
 {
-	__smb_break_all_levII_oplock(work, fp, is_trunc, true);
+	__smb_break_all_levII_oplock(work, fp, is_trunc, true, true);
+}
+
+void smb_break_all_levII_oplock_no_interim(struct ksmbd_work *work,
+					   struct ksmbd_file *fp, int is_trunc)
+{
+	__smb_break_all_levII_oplock(work, fp, is_trunc, false, true);
+}
+
+void smb_break_all_levII_oplock_for_delete(struct ksmbd_work *work,
+					   struct ksmbd_file *fp)
+{
+	__smb_break_all_levII_oplock(work, fp, 0, false, false);
 }
 
 /**
@@ -1627,7 +1644,7 @@ void smb_break_all_oplock(struct ksmbd_work *work, struct ksmbd_file *fp)
 		return;
 
 	sent_break = smb_break_all_write_oplock(work, fp, 1);
-	__smb_break_all_levII_oplock(work, fp, 1, !sent_break);
+	__smb_break_all_levII_oplock(work, fp, 1, !sent_break, true);
 }
 
 /**

@@ -3809,7 +3809,7 @@ int smb2_open(struct ksmbd_work *work)
 	}
 
 	if (req->CreateOptions & FILE_DELETE_ON_CLOSE_LE) {
-		smb_break_all_levII_oplock(work, fp, 0);
+		smb_break_all_levII_oplock_for_delete(work, fp);
 		ksmbd_fd_set_delete_on_close(fp, file_info);
 	}
 
@@ -6796,7 +6796,7 @@ static int set_file_disposition_info(struct ksmbd_work *work,
 		if (S_ISDIR(inode->i_mode) &&
 		    ksmbd_vfs_empty_dir(fp) == -ENOTEMPTY)
 			return -EBUSY;
-		smb_break_all_levII_oplock(work, fp, 0);
+		smb_break_all_levII_oplock_for_delete(work, fp);
 		ksmbd_set_inode_pending_delete(fp);
 	} else {
 		ksmbd_clear_inode_pending_delete(fp);

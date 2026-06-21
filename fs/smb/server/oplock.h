@@ -99,6 +99,10 @@ int smb_grant_oplock(struct ksmbd_work *work, int req_op_level,
 		     struct lease_ctx_info *lctx, int share_ret);
 void smb_break_all_levII_oplock(struct ksmbd_work *work,
 				struct ksmbd_file *fp, int is_trunc);
+void smb_break_all_levII_oplock_no_interim(struct ksmbd_work *work,
+					   struct ksmbd_file *fp, int is_trunc);
+void smb_break_all_levII_oplock_for_delete(struct ksmbd_work *work,
+					   struct ksmbd_file *fp);
 int opinfo_write_to_read(struct oplock_info *opinfo);
 int opinfo_read_handle_to_read(struct oplock_info *opinfo);
 int opinfo_write_to_none(struct oplock_info *opinfo);
