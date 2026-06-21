@@ -9225,7 +9225,10 @@ static void smb20_oplock_break_ack(struct ksmbd_work *work)
 	if (opinfo->op_state != OPLOCK_ACK_WAIT) {
 		ksmbd_debug(SMB, "unexpected oplock state 0x%x\n",
 			    opinfo->op_state);
-		status = STATUS_INVALID_DEVICE_STATE;
+		if (opinfo->level == SMB2_OPLOCK_LEVEL_NONE)
+			status = STATUS_INVALID_OPLOCK_PROTOCOL;
+		else
+			status = STATUS_INVALID_DEVICE_STATE;
 		goto err_out;
 	}
 
