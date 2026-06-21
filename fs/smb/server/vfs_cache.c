@@ -254,6 +254,33 @@ void ksmbd_clear_inode_pending_delete(struct ksmbd_file *fp)
 	up_write(&ci->m_lock);
 }
 
+bool ksmbd_has_stream_without_delete_share(struct ksmbd_file *fp)
+{
+	struct ksmbd_file *prev_fp;
+	struct ksmbd_inode *ci = fp->f_ci;
+	bool ret = false;
+
+	if (ksmbd_stream_fd(fp))
+		return false;
+
+	down_read(&ci->m_lock);
+	list_for_each_entry(prev_fp, &ci->m_fp_list, node) {
+		if (prev_fp == fp || !ksmbd_stream_fd(prev_fp))
+			continue;
+
+		if (file_inode(fp->filp) != file_inode(prev_fp->filp))
+			continue;
+
+		if (!(prev_fp->saccess & FILE_SHARE_DELETE_LE)) {
+			ret = true;
+			break;
+		}
+	}
+	up_read(&ci->m_lock);
+
+	return ret;
+}
+
 void ksmbd_fd_set_delete_on_close(struct ksmbd_file *fp,
 				  int file_info)
 {

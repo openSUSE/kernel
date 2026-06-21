@@ -3737,6 +3737,12 @@ int smb2_open(struct ksmbd_work *work)
 		goto err_out;
 	}
 
+	if (!stream_name && daccess & FILE_DELETE_LE &&
+	    ksmbd_has_stream_without_delete_share(fp)) {
+		rc = -EPERM;
+		goto err_out;
+	}
+
 	if (file_present || created)
 		path_put(&path);
 
@@ -6758,6 +6764,9 @@ static int set_file_disposition_info(struct ksmbd_work *work,
 
 	inode = file_inode(fp->filp);
 	if (file_info->DeletePending) {
+		if (ksmbd_has_stream_without_delete_share(fp))
+			return -ESHARE;
+
 		if (S_ISDIR(inode->i_mode) &&
 		    ksmbd_vfs_empty_dir(fp) == -ENOTEMPTY)
 			return -EBUSY;
