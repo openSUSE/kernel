@@ -1126,13 +1126,22 @@ again:
 		if (wait_ack)
 			wait_lease_breaking(brk_opinfo);
 		/*
-		 * A break caused by a share-mode conflict only drops the
-		 * conflicting caching bit and the triggering open still fails
-		 * with a sharing violation, so it must stay a single break.
-		 * Do not cascade down to req_op_level through the again loop.
+		 * A share-mode conflict break only drops the conflicting
+		 * caching bit; the triggering open fails with a sharing
+		 * violation, so keep it to a single break.
+		 *
+		 * Otherwise chain another break while the lease is still
+		 * incompatible with this open (req_op_level), or while a
+		 * truncating waiter that arrived during the break still needs
+		 * the lease dropped to none.  open_trunc snapshotted for this
+		 * break stays cleared, so the next state is computed from the
+		 * lease state and the cascade steps down (e.g. RH->R->none)
+		 * instead of collapsing straight to none.
 		 */
 		if (wait_ack && !err && !share_break &&
-		    lease_break_needed(brk_opinfo, req_op_level, open_trunc))
+		    (lease_break_needed(brk_opinfo, req_op_level, open_trunc) ||
+		     (brk_opinfo->open_trunc &&
+		      lease->state != SMB2_LEASE_NONE_LE)))
 			goto again;
 
 		wake_up_oplock_break(brk_opinfo);
@@ -1426,10 +1435,6 @@ int smb_grant_oplock(struct ksmbd_work *work, int req_op_level, u64 pid,
 	prev_op_has_lease = prev_opinfo->is_lease;
 	if (prev_op_has_lease)
 		prev_op_state = prev_opinfo->o_lease->state;
-	if (prev_op_has_lease && !lctx &&
-	    prev_op_state & SMB2_LEASE_HANDLE_CACHING_LE)
-		break_level = SMB2_OPLOCK_LEVEL_NONE;
-
 	if (share_ret < 0 &&
 	    prev_opinfo->level == SMB2_OPLOCK_LEVEL_EXCLUSIVE) {
 		err = share_ret;
