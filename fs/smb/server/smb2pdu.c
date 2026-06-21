@@ -57,6 +57,10 @@ static void __wbuf(struct ksmbd_work *work, void **req, void **rsp)
 
 #define WORK_BUFFERS(w, rq, rs)	__wbuf((w), (void **)&(rq), (void **)&(rs))
 
+#define SMB2_CREATE_FILE_ATTRIBUTE_MASK \
+	(FILE_ATTRIBUTE_MASK & ~(FILE_ATTRIBUTE_INTEGRITY_STREAM | \
+				 FILE_ATTRIBUTE_NO_SCRUB_DATA))
+
 /**
  * check_session_id() - check for valid session id in smb header
  * @conn:	connection instance
@@ -3339,7 +3343,8 @@ int smb2_open(struct ksmbd_work *work)
 		goto err_out2;
 	}
 
-	if (req->FileAttributes && !(req->FileAttributes & FILE_ATTRIBUTE_MASK_LE)) {
+	if (req->FileAttributes &&
+	    (req->FileAttributes & ~cpu_to_le32(SMB2_CREATE_FILE_ATTRIBUTE_MASK))) {
 		pr_err("Invalid file attribute : 0x%x\n",
 		       le32_to_cpu(req->FileAttributes));
 		rc = -EINVAL;
