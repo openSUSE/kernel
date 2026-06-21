@@ -3453,7 +3453,14 @@ int smb2_open(struct ksmbd_work *work)
 		rc = 0;
 	}
 
-	if (stream_name) {
+	/*
+	 * An explicit ::$DATA suffix names the unnamed data stream and is
+	 * canonicalized to a NULL stream name (base file), but the request
+	 * still has to be validated against the data-stream type, e.g. opening
+	 * <dir>::$DATA with FILE_DIRECTORY_FILE must fail with
+	 * STATUS_NOT_A_DIRECTORY.
+	 */
+	if (stream_name || s_type == DATA_STREAM) {
 		if (req->CreateOptions & FILE_DIRECTORY_FILE_LE) {
 			if (s_type == DATA_STREAM) {
 				rc = -EIO;
