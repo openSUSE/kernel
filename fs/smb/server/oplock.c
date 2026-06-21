@@ -676,7 +676,7 @@ static struct oplock_info *same_client_has_lease(struct ksmbd_inode *ci,
 	return m_opinfo;
 }
 
-static void wait_for_break_ack(struct oplock_info *opinfo)
+static bool wait_for_break_ack(struct oplock_info *opinfo)
 {
 	int rc = 0;
 
@@ -693,7 +693,10 @@ static void wait_for_break_ack(struct oplock_info *opinfo)
 		}
 		opinfo->level = SMB2_OPLOCK_LEVEL_NONE;
 		opinfo->op_state = OPLOCK_STATE_NONE;
+		return true;
 	}
+
+	return false;
 }
 
 static void wake_up_oplock_break(struct oplock_info *opinfo)
@@ -843,7 +846,7 @@ static int smb2_oplock_break_noti(struct oplock_info *opinfo)
 
 	conn = READ_ONCE(opinfo->conn);
 	if (!conn)
-		return 0;
+		return ksmbd_invalidate_durable_fd(opinfo->fid);
 
 	work = ksmbd_alloc_work_struct();
 	if (!work)
@@ -868,7 +871,8 @@ static int smb2_oplock_break_noti(struct oplock_info *opinfo)
 		INIT_WORK(&work->work, __smb2_oplock_break_noti);
 		ksmbd_queue_work(work);
 
-		wait_for_break_ack(opinfo);
+		if (wait_for_break_ack(opinfo))
+			ret = ksmbd_invalidate_durable_fd(opinfo->fid);
 	} else {
 		__smb2_oplock_break_noti(&work->work);
 		if (opinfo->level == SMB2_OPLOCK_LEVEL_II)
@@ -950,13 +954,14 @@ static int smb2_lease_break_noti(struct oplock_info *opinfo, bool wait_ack,
 	struct ksmbd_work *work;
 	struct lease_break_info *br_info;
 	struct lease *lease = opinfo->o_lease;
+	int ret = 0;
 
 	conn = READ_ONCE(opinfo->conn);
 	if (lease->version == 2 && lease->l_lb && lease->l_lb->conn &&
 	    !ksmbd_conn_releasing(lease->l_lb->conn))
 		conn = lease->l_lb->conn;
 	if (!conn)
-		return 0;
+		return ksmbd_invalidate_durable_fd(opinfo->fid);
 
 	work = ksmbd_alloc_work_struct();
 	if (!work)
@@ -987,8 +992,10 @@ static int smb2_lease_break_noti(struct oplock_info *opinfo, bool wait_ack,
 	if (opinfo->op_state == OPLOCK_ACK_WAIT) {
 		INIT_WORK(&work->work, __smb2_lease_break_noti);
 		ksmbd_queue_work(work);
-		if (wait_ack)
-			wait_for_break_ack(opinfo);
+		if (wait_ack) {
+			if (wait_for_break_ack(opinfo))
+				ret = ksmbd_invalidate_durable_fd(opinfo->fid);
+		}
 	} else {
 		__smb2_lease_break_noti(&work->work);
 		if (opinfo->o_lease->new_state == SMB2_LEASE_NONE_LE) {
@@ -996,7 +1003,7 @@ static int smb2_lease_break_noti(struct oplock_info *opinfo, bool wait_ack,
 			lease_update_oplock_levels(opinfo->o_lease);
 		}
 	}
-	return 0;
+	return ret;
 }
 
 static void wait_lease_breaking(struct oplock_info *opinfo)
@@ -1335,6 +1342,9 @@ int smb_grant_oplock(struct ksmbd_work *work, int req_op_level, u64 pid,
 	struct ksmbd_inode *ci = fp->f_ci;
 	struct lease_table *new_lb = NULL;
 	bool prev_op_has_lease;
+	bool prev_durable_open = false;
+	bool prev_durable_detached = false;
+	unsigned long long prev_fid = KSMBD_NO_FID;
 	bool new_lease = false;
 	__le32 prev_op_state = 0;
 
@@ -1412,7 +1422,17 @@ int smb_grant_oplock(struct ksmbd_work *work, int req_op_level, u64 pid,
 		goto op_break_not_needed;
 	}
 
+	if (prev_opinfo->o_fp && prev_opinfo->o_fp != fp &&
+	    prev_opinfo->o_fp->is_durable) {
+		prev_durable_open = true;
+		prev_durable_detached = !prev_opinfo->o_fp->conn ||
+					!prev_opinfo->o_fp->tcon;
+		prev_fid = prev_opinfo->fid;
+	}
+
 	err = oplock_break(prev_opinfo, break_level, work);
+	if (prev_durable_detached || (prev_durable_open && err == -ENOENT))
+		ksmbd_invalidate_durable_fd(prev_fid);
 	opinfo_put(prev_opinfo);
 	if (err == -ENOENT)
 		goto set_lev;
@@ -2028,6 +2048,12 @@ int smb2_check_durable_oplock(struct ksmbd_conn *conn,
 
 	if (!opinfo)
 		return 0;
+
+	if (ksmbd_has_other_active_fd(fp)) {
+		ksmbd_debug(SMB, "Durable handle reconnect failed: competing open\n");
+		ret = -EBADF;
+		goto out;
+	}
 
 	if (ksmbd_vfs_compare_durable_owner(fp, user) == false) {
 		ksmbd_debug(SMB, "Durable handle reconnect failed: owner mismatch\n");

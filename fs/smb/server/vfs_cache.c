@@ -731,7 +731,8 @@ struct ksmbd_file *ksmbd_lookup_durable_fd(unsigned long long id)
 	struct ksmbd_file *fp;
 
 	fp = __ksmbd_lookup_fd(&global_ft, id);
-	if (fp && (fp->conn ||
+	if (fp && (fp->durable_reconnect_disabled ||
+		   fp->conn ||
 		   (fp->durable_scavenger_timeout &&
 		    (fp->durable_scavenger_timeout <
 		     jiffies_to_msecs(jiffies))))) {
@@ -748,6 +749,52 @@ void ksmbd_put_durable_fd(struct ksmbd_file *fp)
 		return;
 
 	__ksmbd_close_fd(NULL, fp);
+}
+
+bool ksmbd_has_other_active_fd(struct ksmbd_file *fp)
+{
+	struct ksmbd_file *lfp;
+	struct ksmbd_inode *ci = fp->f_ci;
+	bool ret = false;
+
+	down_read(&ci->m_lock);
+	list_for_each_entry(lfp, &ci->m_fp_list, node) {
+		if (lfp == fp)
+			continue;
+
+		if (lfp->f_state == FP_INITED &&
+		    (READ_ONCE(lfp->conn) || READ_ONCE(lfp->tcon))) {
+			ret = true;
+			break;
+		}
+	}
+	up_read(&ci->m_lock);
+
+	return ret;
+}
+
+int ksmbd_invalidate_durable_fd(unsigned long long id)
+{
+	struct ksmbd_file *fp;
+
+	fp = ksmbd_lookup_global_fd(id);
+	if (!fp)
+		return -ENOENT;
+
+	fp->durable_reconnect_disabled = true;
+
+	if (fp->conn) {
+		ksmbd_put_durable_fd(fp);
+		return -ENOENT;
+	}
+
+	fp->durable_timeout = 1;
+	fp->durable_scavenger_timeout = jiffies_to_msecs(jiffies);
+	ksmbd_put_durable_fd(fp);
+	if (waitqueue_active(&dh_wq))
+		wake_up(&dh_wq);
+
+	return -ENOENT;
 }
 
 struct ksmbd_file *ksmbd_lookup_fd_cguid(char *cguid)
@@ -990,6 +1037,7 @@ __close_file_table_ids(struct ksmbd_session *sess,
 			 * global_ft.
 			 */
 			idr_remove(ft->idr, id);
+			fp->durable_volatile_id = fp->volatile_id;
 			fp->volatile_id = KSMBD_NO_FID;
 			write_unlock(&ft->lock);
 

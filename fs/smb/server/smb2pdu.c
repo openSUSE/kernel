@@ -2861,6 +2861,13 @@ static int parse_durable_handle_context(struct ksmbd_work *work,
 				goto out;
 			}
 
+			if (dh_info->fp->durable_volatile_id !=
+			    recon_v2->dcontext.Fid.VolatileFileId) {
+				err = -EBADF;
+				ksmbd_put_durable_fd(dh_info->fp);
+				goto out;
+			}
+
 			if (memcmp(dh_info->fp->create_guid, recon_v2->dcontext.CreateGuid,
 				   SMB2_CREATE_GUID_SIZE)) {
 				err = -EBADF;
@@ -2898,6 +2905,13 @@ static int parse_durable_handle_context(struct ksmbd_work *work,
 			if (!dh_info->fp) {
 				ksmbd_debug(SMB, "Failed to get durable handle state\n");
 				err = -EBADF;
+				goto out;
+			}
+
+			if (dh_info->fp->durable_volatile_id !=
+			    recon->Data.Fid.VolatileFileId) {
+				err = -EBADF;
+				ksmbd_put_durable_fd(dh_info->fp);
 				goto out;
 			}
 
