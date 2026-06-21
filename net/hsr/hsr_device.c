@@ -247,7 +247,8 @@ static int hsr_dev_xmit(struct sk_buff *skb, struct net_device *dev)
 
 static const struct header_ops hsr_header_ops = {
 	.create	 = eth_header,
-	.parse	 = eth_header_parse,
+	.parse	 = parse_header_kabi_helper,
+	.parse2	 = eth_header_parse2,
 };
 
 static void send_hsr_supervision_frame(struct hsr_port *master,

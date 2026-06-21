@@ -145,16 +145,20 @@ static int pn_header_create(struct sk_buff *skb, struct net_device *dev,
 	return 1;
 }
 
-static int pn_header_parse(const struct sk_buff *skb, unsigned char *haddr)
+static int pn_header_parse(const struct sk_buff *skb,
+			   const struct net_device *dev,
+			   unsigned char *haddr)
 {
 	const u8 *media = skb_mac_header(skb);
+
 	*haddr = *media;
 	return 1;
 }
 
 struct header_ops phonet_header_ops = {
 	.create = pn_header_create,
-	.parse = pn_header_parse,
+	.parse	= parse_header_kabi_helper,
+	.parse2 = pn_header_parse,
 };
 EXPORT_SYMBOL(phonet_header_ops);
 
