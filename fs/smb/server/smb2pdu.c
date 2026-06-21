@@ -7176,7 +7176,7 @@ int smb2_read(struct ksmbd_work *work)
 	size_t length, mincount;
 	ssize_t nbytes = 0, remain_bytes = 0;
 	int err = 0;
-	bool is_rdma_channel = false;
+	bool is_rdma_channel = false, async_interim = false;
 	unsigned int max_read_size = conn->vals->max_read_size;
 	unsigned int id = KSMBD_NO_FID, pid = KSMBD_NO_FID;
 	void *aux_payload_buf;
@@ -7248,6 +7248,14 @@ int smb2_read(struct ksmbd_work *work)
 		goto out;
 	}
 
+	if (work->next_smb2_rcv_hdr_off && !req->hdr.NextCommand) {
+		err = setup_async_work(work, NULL, NULL);
+		if (err)
+			goto out;
+		smb2_send_interim_resp(work, STATUS_PENDING);
+		async_interim = true;
+	}
+
 	offset = le64_to_cpu(req->Offset);
 	if (offset < 0) {
 		err = -EINVAL;
@@ -7283,6 +7291,8 @@ int smb2_read(struct ksmbd_work *work)
 		kvfree(aux_payload_buf);
 		rsp->hdr.Status = STATUS_END_OF_FILE;
 		smb2_set_err_rsp(work);
+		if (async_interim)
+			release_async_work(work);
 		ksmbd_fd_put(work, fp);
 		return -ENODATA;
 	}
@@ -7317,6 +7327,8 @@ int smb2_read(struct ksmbd_work *work)
 		kvfree(aux_payload_buf);
 		goto out;
 	}
+	if (async_interim)
+		release_async_work(work);
 	/*
 	 * RDMA responses are transferred through channel buffers and encrypted
 	 * responses use the encryption transform, so only normal SMB transport
@@ -7330,6 +7342,8 @@ int smb2_read(struct ksmbd_work *work)
 	return 0;
 
 out:
+	if (async_interim)
+		release_async_work(work);
 	if (err) {
 		if (err == -EISDIR)
 			rsp->hdr.Status = STATUS_INVALID_DEVICE_REQUEST;
@@ -7465,6 +7479,7 @@ int smb2_write(struct ksmbd_work *work)
 	ssize_t nbytes;
 	char *data_buf;
 	bool writethrough = false, is_rdma_channel = false;
+	bool async_interim = false;
 	int err = 0;
 	unsigned int max_write_size = work->conn->vals->max_write_size;
 	unsigned int id = KSMBD_NO_FID, pid = KSMBD_NO_FID;
@@ -7545,6 +7560,14 @@ int smb2_write(struct ksmbd_work *work)
 		goto out;
 	}
 
+	if (work->next_smb2_rcv_hdr_off && !req->hdr.NextCommand) {
+		err = setup_async_work(work, NULL, NULL);
+		if (err)
+			goto out;
+		smb2_send_interim_resp(work, STATUS_PENDING);
+		async_interim = true;
+	}
+
 	if (length > max_write_size) {
 		ksmbd_debug(SMB, "limiting write size to max size(%u)\n",
 			    max_write_size);
@@ -7593,10 +7616,15 @@ int smb2_write(struct ksmbd_work *work)
 	err = ksmbd_iov_pin_rsp(work, rsp, offsetof(struct smb2_write_rsp, Buffer));
 	if (err)
 		goto out;
+	if (async_interim)
+		release_async_work(work);
 	ksmbd_fd_put(work, fp);
 	return 0;
 
 out:
+	if (async_interim)
+		release_async_work(work);
+
 	if (err == -EAGAIN)
 		rsp->hdr.Status = STATUS_FILE_LOCK_CONFLICT;
 	else if (err == -ENOSPC || err == -EFBIG)
