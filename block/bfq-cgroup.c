@@ -936,14 +936,23 @@ put_async_queues:
 
 void bfq_end_wr_async(struct bfq_data *bfqd)
 {
+	struct request_queue *q = bfqd->queue;
 	struct blkcg_gq *blkg;
 
-	list_for_each_entry(blkg, &bfqd->queue->blkg_list, q_node) {
+	mutex_lock(&q->blkcg_mutex);
+	spin_lock_irq(&q->queue_lock);
+	spin_lock(&bfqd->lock);
+
+	list_for_each_entry(blkg, &q->blkg_list, q_node) {
 		struct bfq_group *bfqg = blkg_to_bfqg(blkg);
 
 		bfq_end_wr_async_queues(bfqd, bfqg);
 	}
 	bfq_end_wr_async_queues(bfqd, bfqd->root_group);
+
+	spin_unlock(&bfqd->lock);
+	spin_unlock_irq(&q->queue_lock);
+	mutex_unlock(&q->blkcg_mutex);
 }
 
 static int bfq_io_show_weight_legacy(struct seq_file *sf, void *v)
@@ -1416,7 +1425,9 @@ void bfq_bic_update_cgroup(struct bfq_io_cq *bic, struct bio *bio) {}
 
 void bfq_end_wr_async(struct bfq_data *bfqd)
 {
+	spin_lock_irq(&bfqd->lock);
 	bfq_end_wr_async_queues(bfqd, bfqd->root_group);
+	spin_unlock_irq(&bfqd->lock);
 }
 
 struct bfq_group *bfq_bio_bfqg(struct bfq_data *bfqd, struct bio *bio)

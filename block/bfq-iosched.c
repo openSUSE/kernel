@@ -2653,9 +2653,10 @@ static void bfq_end_wr(struct bfq_data *bfqd)
 	}
 	list_for_each_entry(bfqq, &bfqd->idle_list, bfqq_list)
 		bfq_bfqq_end_wr(bfqq);
-	bfq_end_wr_async(bfqd);
 
 	spin_unlock_irq(&bfqd->lock);
+
+	bfq_end_wr_async(bfqd);
 }
 
 static sector_t bfq_io_struct_pos(void *io_struct, bool request)
