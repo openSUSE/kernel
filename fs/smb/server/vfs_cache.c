@@ -517,6 +517,63 @@ static void __ksmbd_close_fd(struct ksmbd_file_table *ft, struct ksmbd_file *fp)
 	kmem_cache_free(filp_cache, fp);
 }
 
+/**
+ * ksmbd_close_disconnected_durable_delete_on_close() - drop a delete-on-close
+ *	file kept present only by disconnected durable handles
+ * @dentry:	dentry of the file being opened
+ *
+ * A durable handle opened with delete-on-close is preserved across a
+ * disconnect so it can be reclaimed by a durable reconnect.  When a new
+ * (non-reconnect) open arrives for the same name instead, the disconnected
+ * handle has to give way.  Close such handles so their delete-on-close is
+ * applied and the file is removed once the last handle is gone, letting the
+ * new open create a fresh file.
+ *
+ * The caller's inode reference is dropped before closing so that the final
+ * close can promote S_DEL_ON_CLS to S_DEL_PENDING and unlink the file.
+ *
+ * Return:	true if a disconnected durable handle was closed.
+ */
+bool ksmbd_close_disconnected_durable_delete_on_close(struct dentry *dentry)
+{
+	struct ksmbd_inode *ci;
+	struct ksmbd_file *fp, *tmp;
+	LIST_HEAD(dispose);
+	bool closed = false;
+
+	ci = ksmbd_inode_lookup_lock(dentry);
+	if (!ci)
+		return false;
+
+	down_write(&ci->m_lock);
+	if (ci->m_flags & (S_DEL_ON_CLS | S_DEL_ON_CLS_STREAM | S_DEL_PENDING)) {
+		list_for_each_entry_safe(fp, tmp, &ci->m_fp_list, node) {
+			if (fp->conn || !fp->is_durable ||
+			    fp->f_state != FP_INITED)
+				continue;
+			list_move_tail(&fp->node, &dispose);
+		}
+	}
+	up_write(&ci->m_lock);
+
+	/*
+	 * Drop our lookup reference before closing so the last __ksmbd_close_fd()
+	 * can drop m_count to zero and unlink the delete-on-close file.  The
+	 * collected handles still hold references, so ci stays valid until they
+	 * are closed below.
+	 */
+	ksmbd_inode_put(ci);
+
+	while (!list_empty(&dispose)) {
+		fp = list_first_entry(&dispose, struct ksmbd_file, node);
+		list_del_init(&fp->node);
+		__ksmbd_close_fd(NULL, fp);
+		closed = true;
+	}
+
+	return closed;
+}
+
 static struct ksmbd_file *ksmbd_fp_get(struct ksmbd_file *fp)
 {
 	if (fp->f_state != FP_INITED)
