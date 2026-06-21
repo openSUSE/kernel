@@ -3133,7 +3133,7 @@ int smb2_open(struct ksmbd_work *work)
 	char *stream_name = NULL;
 	bool file_present = false, created = false, already_permitted = false;
 	int share_ret, need_truncate = 0;
-	u64 time;
+	u64 time, alloc_size = 0;
 	umode_t posix_mode = 0;
 	__le32 daccess, maximal_access = 0;
 	int iov_len = 0;
@@ -3826,7 +3826,6 @@ int smb2_open(struct ksmbd_work *work)
 			rc = PTR_ERR(az_req);
 			goto err_out1;
 		} else if (az_req) {
-			loff_t alloc_size;
 			int err;
 
 			if (le16_to_cpu(az_req->ccontext.DataOffset) +
@@ -3876,6 +3875,8 @@ int smb2_open(struct ksmbd_work *work)
 	else
 		fp->create_time = ksmbd_UnixTimeToNT(stat.ctime);
 	fp->change_time = ksmbd_UnixTimeToNT(stat.ctime);
+	fp->allocation_size = S_ISDIR(stat.mode) ? 0 :
+		(alloc_size ?: stat.blocks << 9);
 	if (req->FileAttributes || fp->f_ci->m_fattr == 0)
 		fp->f_ci->m_fattr =
 			cpu_to_le32(smb2_get_dos_mode(&stat, le32_to_cpu(req->FileAttributes)));
@@ -3926,8 +3927,19 @@ reconnected_fp:
 	time = ksmbd_UnixTimeToNT(stat.mtime);
 	rsp->LastWriteTime = cpu_to_le64(time);
 	rsp->ChangeTime = cpu_to_le64(fp->change_time);
-	rsp->AllocationSize = S_ISDIR(stat.mode) ? 0 :
-		cpu_to_le64(stat.blocks << 9);
+	/*
+	 * The cached allocation size hides filesystem rounding for the
+	 * requested allocation, but it can go stale when the file grows past
+	 * it via writes (e.g. across a durable reconnect). Refresh it once the
+	 * file exceeds the cached value, rounding the end of file up to the
+	 * volume allocation unit (the filesystem block size, matching the
+	 * SectorsPerAllocationUnit/BytesPerSector ksmbd advertises) rather than
+	 * using the raw on-disk block count, which can include filesystem
+	 * preallocation and metadata rounding.
+	 */
+	if (!S_ISDIR(stat.mode) && stat.size > fp->allocation_size)
+		fp->allocation_size = round_up(stat.size, stat.blksize);
+	rsp->AllocationSize = cpu_to_le64(fp->allocation_size);
 	rsp->EndofFile = S_ISDIR(stat.mode) ? 0 : cpu_to_le64(stat.size);
 	rsp->FileAttributes = fp->f_ci->m_fattr;
 
@@ -5236,7 +5248,7 @@ static int get_file_standard_info(struct smb2_query_info_rsp *rsp,
 	delete_pending = ksmbd_inode_pending_delete(fp);
 
 	if (ksmbd_stream_fd(fp) == false) {
-		sinfo->AllocationSize = cpu_to_le64(stat.blocks << 9);
+		sinfo->AllocationSize = cpu_to_le64(fp->allocation_size);
 		sinfo->EndOfFile = S_ISDIR(stat.mode) ? 0 : cpu_to_le64(stat.size);
 	} else {
 		sinfo->AllocationSize = cpu_to_le64(fp->stream.size);
@@ -5317,8 +5329,7 @@ static int get_file_all_info(struct ksmbd_work *work,
 	file_info->Attributes = fp->f_ci->m_fattr;
 	file_info->Pad1 = 0;
 	if (ksmbd_stream_fd(fp) == false) {
-		file_info->AllocationSize =
-			cpu_to_le64(stat.blocks << 9);
+		file_info->AllocationSize = cpu_to_le64(fp->allocation_size);
 		file_info->EndOfFile = S_ISDIR(stat.mode) ? 0 : cpu_to_le64(stat.size);
 	} else {
 		file_info->AllocationSize = cpu_to_le64(fp->stream.size);
@@ -5525,7 +5536,7 @@ static int get_file_network_open_info(struct smb2_query_info_rsp *rsp,
 	file_info->ChangeTime = cpu_to_le64(fp->change_time);
 	file_info->Attributes = fp->f_ci->m_fattr;
 	if (ksmbd_stream_fd(fp) == false) {
-		file_info->AllocationSize = cpu_to_le64(stat.blocks << 9);
+		file_info->AllocationSize = cpu_to_le64(fp->allocation_size);
 		file_info->EndOfFile = S_ISDIR(stat.mode) ? 0 : cpu_to_le64(stat.size);
 	} else {
 		file_info->AllocationSize = cpu_to_le64(fp->stream.size);
@@ -5658,7 +5669,7 @@ static int find_file_posix_info(struct smb2_query_info_rsp *rsp,
 	file_info->Inode = cpu_to_le64(stat.ino);
 	if (ksmbd_stream_fd(fp) == false) {
 		file_info->EndOfFile = cpu_to_le64(stat.size);
-		file_info->AllocationSize = cpu_to_le64(stat.blocks << 9);
+		file_info->AllocationSize = cpu_to_le64(fp->allocation_size);
 	} else {
 		file_info->EndOfFile = cpu_to_le64(fp->stream.size);
 		file_info->AllocationSize = cpu_to_le64(fp->stream.size);
@@ -6373,8 +6384,7 @@ int smb2_close(struct ksmbd_work *work)
 		}
 
 		rsp->Flags = SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB;
-		rsp->AllocationSize = S_ISDIR(stat.mode) ? 0 :
-			cpu_to_le64(stat.blocks << 9);
+		rsp->AllocationSize = cpu_to_le64(fp->allocation_size);
 		rsp->EndOfFile = cpu_to_le64(stat.size);
 		rsp->Attributes = fp->f_ci->m_fattr;
 		rsp->CreationTime = cpu_to_le64(fp->create_time);
@@ -6707,6 +6717,8 @@ static int set_file_allocation_info(struct ksmbd_work *work,
 		if (size < alloc_blks * 512)
 			i_size_write(inode, size);
 	}
+
+	fp->allocation_size = le64_to_cpu(file_alloc_info->AllocationSize);
 	return 0;
 }
 
