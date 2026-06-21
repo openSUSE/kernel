@@ -77,6 +77,11 @@ static int param_set_sample_interval(const char *val, const struct kernel_param 
 		WRITE_ONCE(kfence_enabled, false);
 	}
 
+	if (num && kasan_hw_tags_enabled()) {
+		pr_info("disabled as KASAN HW tags are enabled\n");
+		return -EINVAL;
+	}
+
 	*((unsigned long *)kp->arg) = num;
 
 	if (num && !READ_ONCE(kfence_enabled) && system_state != SYSTEM_BOOTING)
