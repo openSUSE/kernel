@@ -246,6 +246,13 @@ void set_smb2_rsp_status(struct ksmbd_work *work, __le32 err)
 {
 	struct smb2_hdr *rsp_hdr;
 
+	if (work->next_smb2_rcv_hdr_off) {
+		rsp_hdr = ksmbd_resp_buf_next(work);
+		rsp_hdr->Status = err;
+		smb2_set_err_rsp(work);
+		return;
+	}
+
 	rsp_hdr = smb_get_msg(work->response_buf);
 	rsp_hdr->Status = err;
 
