@@ -1344,10 +1344,10 @@ static int ksmbd_durable_scavenger(void *dummy)
 		if (try_to_freeze())
 			continue;
 
-		remaining_jiffies = wait_event_timeout(dh_wq,
+		remaining_jiffies = wait_event_interruptible_timeout(dh_wq,
 				   ksmbd_durable_scavenger_alive() == false,
 				   __msecs_to_jiffies(min_timeout));
-		if (remaining_jiffies)
+		if ((long)remaining_jiffies > 0)
 			min_timeout = jiffies_to_msecs(remaining_jiffies);
 		else
 			min_timeout = DURABLE_HANDLE_MAX_TIMEOUT;
